@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -93,32 +94,20 @@ class Localization_2D_A3C(torch.nn.Module):
         self.depth_emb_dim = 8
         self.time_emb_dim = 8
         self.action_hist_size = args.hist_size
-        conv_out_height = (self.map_size - size_policy_conv1_filters + 1 -
-            size_policy_conv2_filters + 1)
-        conv_out_width = (self.map_size - size_policy_conv1_filters + 1 -
-            size_policy_conv2_filters + 1)
-        self.policy_conv1 = nn.Conv2d(num_orientations + 1,
-            n_policy_conv1_filters, size_policy_conv1_filters, stride=1)
-        self.policy_conv2 = nn.Conv2d(n_policy_conv1_filters,
-            n_policy_conv2_filters, size_policy_conv2_filters, stride=1)
-        self.action_emb_layer = nn.Embedding(num_actions + 1, self.
-            action_emb_dim)
+        conv_out_height = self.map_size - size_policy_conv1_filters + 1 - size_policy_conv2_filters + 1
+        conv_out_width = self.map_size - size_policy_conv1_filters + 1 - size_policy_conv2_filters + 1
+        self.policy_conv1 = nn.Conv2d(num_orientations + 1, n_policy_conv1_filters, size_policy_conv1_filters, stride=1)
+        self.policy_conv2 = nn.Conv2d(n_policy_conv1_filters, n_policy_conv2_filters, size_policy_conv2_filters, stride=1)
+        self.action_emb_layer = nn.Embedding(num_actions + 1, self.action_emb_dim)
         self.depth_emb_layer = nn.Embedding(args.map_size, self.depth_emb_dim)
-        self.time_emb_layer = nn.Embedding(args.max_episode_length + 1,
-            self.time_emb_dim)
-        self.proj_layer = nn.Linear(n_policy_conv2_filters *
-            conv_out_height * conv_out_width, 256)
-        self.critic_linear = nn.Linear(256 + self.action_emb_dim * self.
-            action_hist_size + self.depth_emb_dim + self.time_emb_dim, 1)
-        self.actor_linear = nn.Linear(256 + self.action_emb_dim * self.
-            action_hist_size + self.depth_emb_dim + self.time_emb_dim,
-            num_actions)
+        self.time_emb_layer = nn.Embedding(args.max_episode_length + 1, self.time_emb_dim)
+        self.proj_layer = nn.Linear(n_policy_conv2_filters * conv_out_height * conv_out_width, 256)
+        self.critic_linear = nn.Linear(256 + self.action_emb_dim * self.action_hist_size + self.depth_emb_dim + self.time_emb_dim, 1)
+        self.actor_linear = nn.Linear(256 + self.action_emb_dim * self.action_hist_size + self.depth_emb_dim + self.time_emb_dim, num_actions)
         self.apply(weights_init)
-        self.actor_linear.weight.data = normalized_columns_initializer(self
-            .actor_linear.weight.data, 0.01)
+        self.actor_linear.weight.data = normalized_columns_initializer(self.actor_linear.weight.data, 0.01)
         self.actor_linear.bias.data.fill_(0)
-        self.critic_linear.weight.data = normalized_columns_initializer(self
-            .critic_linear.weight.data, 1.0)
+        self.critic_linear.weight.data = normalized_columns_initializer(self.critic_linear.weight.data, 1.0)
         self.critic_linear.bias.data.fill_(0)
         self.train()
 
@@ -131,15 +120,6 @@ class Localization_2D_A3C(torch.nn.Module):
         action_emb = self.action_emb_layer(ax)
         depth_emb = self.depth_emb_layer(dx)
         time_emb = self.time_emb_layer(tx)
-        x = torch.cat((proj, action_emb.view(-1, self.action_emb_dim * self
-            .action_hist_size), depth_emb.view(-1, self.depth_emb_dim),
-            time_emb.view(-1, self.time_emb_dim)), 1)
+        x = torch.cat((proj, action_emb.view(-1, self.action_emb_dim * self.action_hist_size), depth_emb.view(-1, self.depth_emb_dim), time_emb.view(-1, self.time_emb_dim)), 1)
         return self.critic_linear(x), self.actor_linear(x)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_devendrachaplot_Neural_Localization(_paritybench_base):
-    pass

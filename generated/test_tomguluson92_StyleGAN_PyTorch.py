@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,16 +71,11 @@ class Generator(nn.Module):
 
     def __init__(self, z_dims=512, d=64):
         super().__init__()
-        self.deconv1 = nn.utils.spectral_norm(nn.ConvTranspose2d(z_dims, d *
-            8, 4, 1, 0))
-        self.deconv2 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 8, d *
-            8, 4, 2, 1))
-        self.deconv3 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 8, d *
-            4, 4, 2, 1))
-        self.deconv4 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 4, d *
-            2, 4, 2, 1))
-        self.deconv5 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 2, d, 
-            4, 2, 1))
+        self.deconv1 = nn.utils.spectral_norm(nn.ConvTranspose2d(z_dims, d * 8, 4, 1, 0))
+        self.deconv2 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 8, d * 8, 4, 2, 1))
+        self.deconv3 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 8, d * 4, 4, 2, 1))
+        self.deconv4 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 4, d * 2, 4, 2, 1))
+        self.deconv5 = nn.utils.spectral_norm(nn.ConvTranspose2d(d * 2, d, 4, 2, 1))
         self.deconv6 = nn.ConvTranspose2d(d, 3, 4, 2, 1)
 
     def forward(self, input):
@@ -98,14 +94,10 @@ class Discriminator(nn.Module):
     def __init__(self, nc=3, ndf=64):
         super().__init__()
         self.layer1 = nn.Conv2d(nc, ndf, 4, 2, 1, bias=False)
-        self.layer2 = nn.utils.spectral_norm(nn.Conv2d(ndf, ndf * 2, 4, 2, 
-            1, bias=False))
-        self.layer3 = nn.utils.spectral_norm(nn.Conv2d(ndf * 2, ndf * 4, 4,
-            2, 1, bias=False))
-        self.layer4 = nn.utils.spectral_norm(nn.Conv2d(ndf * 4, ndf * 8, 4,
-            2, 1, bias=False))
-        self.layer5 = nn.utils.spectral_norm(nn.Conv2d(ndf * 8, ndf * 8, 4,
-            2, 1, bias=False))
+        self.layer2 = nn.utils.spectral_norm(nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False))
+        self.layer3 = nn.utils.spectral_norm(nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False))
+        self.layer4 = nn.utils.spectral_norm(nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False))
+        self.layer5 = nn.utils.spectral_norm(nn.Conv2d(ndf * 8, ndf * 8, 4, 2, 1, bias=False))
         self.layer6 = nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False)
 
     def forward(self, input):
@@ -126,8 +118,7 @@ class ApplyNoise(nn.Module):
 
     def forward(self, x, noise):
         if noise is None:
-            noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=
-                x.device, dtype=x.dtype)
+            noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device, dtype=x.dtype)
         return x + self.weight.view(1, -1, 1, 1) * noise
 
 
@@ -138,8 +129,7 @@ class ApplyStyle(nn.Module):
 
     def __init__(self, latent_size, channels, use_wscale):
         super(ApplyStyle, self).__init__()
-        self.linear = FC(latent_size, channels * 2, gain=1.0, use_wscale=
-            use_wscale)
+        self.linear = FC(latent_size, channels * 2, gain=1.0, use_wscale=use_wscale)
 
     def forward(self, x, latent):
         style = self.linear(latent)
@@ -151,8 +141,7 @@ class ApplyStyle(nn.Module):
 
 class FC(nn.Module):
 
-    def __init__(self, in_channels, out_channels, gain=2 ** 0.5, use_wscale
-        =False, lrmul=1.0, bias=True):
+    def __init__(self, in_channels, out_channels, gain=2 ** 0.5, use_wscale=False, lrmul=1.0, bias=True):
         """
             The complete conversion of Dense/FC/Linear Layer of original Tensorflow version.
         """
@@ -164,8 +153,7 @@ class FC(nn.Module):
         else:
             init_std = he_std / lrmul
             self.w_lrmul = lrmul
-        self.weight = torch.nn.Parameter(torch.randn(out_channels,
-            in_channels) * init_std)
+        self.weight = torch.nn.Parameter(torch.randn(out_channels, in_channels) * init_std)
         if bias:
             self.bias = torch.nn.Parameter(torch.zeros(out_channels))
             self.b_lrmul = lrmul
@@ -174,8 +162,7 @@ class FC(nn.Module):
 
     def forward(self, x):
         if self.bias is not None:
-            out = F.linear(x, self.weight * self.w_lrmul, self.bias * self.
-                b_lrmul)
+            out = F.linear(x, self.weight * self.w_lrmul, self.bias * self.b_lrmul)
         else:
             out = F.linear(x, self.weight * self.w_lrmul)
         out = F.leaky_relu(out, 0.2, inplace=True)
@@ -190,8 +177,7 @@ class Blur2d(nn.Module):
             https://blog.csdn.net/mao_xiao_feng/article/details/78003476
         """
         super(Blur2d, self).__init__()
-        assert isinstance(f, list
-            ) or f is None, 'kernel f must be an instance of python built_in type list!'
+        assert isinstance(f, list) or f is None, 'kernel f must be an instance of python built_in type list!'
         if f is not None:
             f = torch.tensor(f, dtype=torch.float32)
             f = f[:, (None)] * f[(None), :]
@@ -208,8 +194,7 @@ class Blur2d(nn.Module):
     def forward(self, x):
         if self.f is not None:
             kernel = self.f.expand(x.size(1), -1, -1, -1)
-            x = F.conv2d(x, kernel, stride=self.stride, padding=int((self.f
-                .size(2) - 1) / 2), groups=x.size(1))
+            x = F.conv2d(x, kernel, stride=self.stride, padding=int((self.f.size(2) - 1) / 2), groups=x.size(1))
             return x
         else:
             return x
@@ -217,8 +202,7 @@ class Blur2d(nn.Module):
 
 class Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size, gain=2 **
-        0.5, use_wscale=False, lrmul=1, bias=True):
+    def __init__(self, input_channels, output_channels, kernel_size, gain=2 ** 0.5, use_wscale=False, lrmul=1, bias=True):
         super().__init__()
         he_std = gain * (input_channels * kernel_size ** 2) ** -0.5
         self.kernel_size = kernel_size
@@ -228,8 +212,7 @@ class Conv2d(nn.Module):
         else:
             init_std = he_std / lrmul
             self.w_lrmul = lrmul
-        self.weight = torch.nn.Parameter(torch.randn(output_channels,
-            input_channels, kernel_size, kernel_size) * init_std)
+        self.weight = torch.nn.Parameter(torch.randn(output_channels, input_channels, kernel_size, kernel_size) * init_std)
         if bias:
             self.bias = torch.nn.Parameter(torch.zeros(output_channels))
             self.b_lrmul = lrmul
@@ -238,11 +221,9 @@ class Conv2d(nn.Module):
 
     def forward(self, x):
         if self.bias is not None:
-            return F.conv2d(x, self.weight * self.w_lrmul, self.bias * self
-                .b_lrmul, padding=self.kernel_size // 2)
+            return F.conv2d(x, self.weight * self.w_lrmul, self.bias * self.b_lrmul, padding=self.kernel_size // 2)
         else:
-            return F.conv2d(x, self.weight * self.w_lrmul, padding=self.
-                kernel_size // 2)
+            return F.conv2d(x, self.weight * self.w_lrmul, padding=self.kernel_size // 2)
 
 
 class Upscale2d(nn.Module):
@@ -262,10 +243,8 @@ class Upscale2d(nn.Module):
             x = x * self.gain
         if self.factor > 1:
             shape = x.shape
-            x = x.view(shape[0], shape[1], shape[2], 1, shape[3], 1).expand(
-                -1, -1, -1, self.factor, -1, self.factor)
-            x = x.contiguous().view(shape[0], shape[1], self.factor * shape
-                [2], self.factor * shape[3])
+            x = x.view(shape[0], shape[1], shape[2], 1, shape[3], 1).expand(-1, -1, -1, self.factor, -1, self.factor)
+            x = x.contiguous().view(shape[0], shape[1], self.factor * shape[2], self.factor * shape[3])
         return x
 
 
@@ -304,8 +283,7 @@ class InstanceNorm(nn.Module):
 
 class LayerEpilogue(nn.Module):
 
-    def __init__(self, channels, dlatent_size, use_wscale, use_noise,
-        use_pixel_norm, use_instance_norm, use_styles):
+    def __init__(self, channels, dlatent_size, use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_styles):
         super(LayerEpilogue, self).__init__()
         if use_noise:
             self.noise = ApplyNoise(channels)
@@ -319,8 +297,7 @@ class LayerEpilogue(nn.Module):
         else:
             self.instance_norm = None
         if use_styles:
-            self.style_mod = ApplyStyle(dlatent_size, channels, use_wscale=
-                use_wscale)
+            self.style_mod = ApplyStyle(dlatent_size, channels, use_wscale=use_wscale)
         else:
             self.style_mod = None
 
@@ -338,57 +315,34 @@ class LayerEpilogue(nn.Module):
 
 class GBlock(nn.Module):
 
-    def __init__(self, res, use_wscale, use_noise, use_pixel_norm,
-        use_instance_norm, noise_input, dlatent_size=512, use_style=True, f
-        =None, factor=2, fmap_base=8192, fmap_decay=1.0, fmap_max=512):
+    def __init__(self, res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, noise_input, dlatent_size=512, use_style=True, f=None, factor=2, fmap_base=8192, fmap_decay=1.0, fmap_max=512):
         super(GBlock, self).__init__()
-        self.nf = lambda stage: min(int(fmap_base / 2.0 ** (stage *
-            fmap_decay)), fmap_max)
+        self.nf = lambda stage: min(int(fmap_base / 2.0 ** (stage * fmap_decay)), fmap_max)
         self.res = res
         self.blur = Blur2d(f)
         self.noise_input = noise_input
         if res < 7:
             self.up_sample = Upscale2d(factor)
         else:
-            self.up_sample = nn.ConvTranspose2d(self.nf(res - 3), self.nf(
-                res - 2), 4, stride=2, padding=1)
-        self.adaIn1 = LayerEpilogue(self.nf(res - 2), dlatent_size,
-            use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_style
-            )
-        self.conv1 = Conv2d(input_channels=self.nf(res - 2),
-            output_channels=self.nf(res - 2), kernel_size=3, use_wscale=
-            use_wscale)
-        self.adaIn2 = LayerEpilogue(self.nf(res - 2), dlatent_size,
-            use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_style
-            )
+            self.up_sample = nn.ConvTranspose2d(self.nf(res - 3), self.nf(res - 2), 4, stride=2, padding=1)
+        self.adaIn1 = LayerEpilogue(self.nf(res - 2), dlatent_size, use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_style)
+        self.conv1 = Conv2d(input_channels=self.nf(res - 2), output_channels=self.nf(res - 2), kernel_size=3, use_wscale=use_wscale)
+        self.adaIn2 = LayerEpilogue(self.nf(res - 2), dlatent_size, use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_style)
 
     def forward(self, x, dlatent):
         x = self.up_sample(x)
-        x = self.adaIn1(x, self.noise_input[self.res * 2 - 4], dlatent[:, (
-            self.res * 2 - 4)])
+        x = self.adaIn1(x, self.noise_input[self.res * 2 - 4], dlatent[:, (self.res * 2 - 4)])
         x = self.conv1(x)
-        x = self.adaIn2(x, self.noise_input[self.res * 2 - 3], dlatent[:, (
-            self.res * 2 - 3)])
+        x = self.adaIn2(x, self.noise_input[self.res * 2 - 3], dlatent[:, (self.res * 2 - 3)])
         return x
 
 
 class G_mapping(nn.Module):
 
-    def __init__(self, mapping_fmaps=512, dlatent_size=512, resolution=1024,
-        normalize_latents=True, use_wscale=True, lrmul=0.01, gain=2 ** 0.5):
+    def __init__(self, mapping_fmaps=512, dlatent_size=512, resolution=1024, normalize_latents=True, use_wscale=True, lrmul=0.01, gain=2 ** 0.5):
         super(G_mapping, self).__init__()
         self.mapping_fmaps = mapping_fmaps
-        self.func = nn.Sequential(FC(self.mapping_fmaps, dlatent_size, gain,
-            lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size,
-            dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(
-            dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=
-            use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul,
-            use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain,
-            lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size,
-            dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(
-            dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=
-            use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul,
-            use_wscale=use_wscale))
+        self.func = nn.Sequential(FC(self.mapping_fmaps, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale), FC(dlatent_size, dlatent_size, gain, lrmul=lrmul, use_wscale=use_wscale))
         self.normalize_latents = normalize_latents
         self.resolution_log2 = int(np.log2(resolution))
         self.num_layers = self.resolution_log2 * 2 - 2
@@ -403,10 +357,7 @@ class G_mapping(nn.Module):
 
 class G_synthesis(nn.Module):
 
-    def __init__(self, dlatent_size, resolution=1024, fmap_base=8192,
-        num_channels=3, structure='fixed', fmap_max=512, fmap_decay=1.0, f=
-        None, use_pixel_norm=False, use_instance_norm=True, use_wscale=True,
-        use_noise=True, use_style=True):
+    def __init__(self, dlatent_size, resolution=1024, fmap_base=8192, num_channels=3, structure='fixed', fmap_max=512, fmap_decay=1.0, f=None, use_pixel_norm=False, use_instance_norm=True, use_wscale=True, use_noise=True, use_style=True):
         """
             2019.3.31
         :param dlatent_size: 512 Disentangled latent(W) dimensionality.
@@ -417,8 +368,7 @@ class G_synthesis(nn.Module):
         :param fmap_max:
         """
         super(G_synthesis, self).__init__()
-        self.nf = lambda stage: min(int(fmap_base / 2.0 ** (stage *
-            fmap_decay)), fmap_max)
+        self.nf = lambda stage: min(int(fmap_base / 2.0 ** (stage * fmap_decay)), fmap_max)
         self.structure = structure
         self.resolution_log2 = int(np.log2(resolution))
         num_layers = self.resolution_log2 * 2 - 2
@@ -429,43 +379,29 @@ class G_synthesis(nn.Module):
             shape = [1, 1, 2 ** res, 2 ** res]
             self.noise_inputs.append(torch.randn(*shape))
         self.blur = Blur2d(f)
-        self.channel_shrinkage = Conv2d(input_channels=self.nf(self.
-            resolution_log2 - 2), output_channels=self.nf(self.
-            resolution_log2), kernel_size=3, use_wscale=use_wscale)
-        self.torgb = Conv2d(self.nf(self.resolution_log2), num_channels,
-            kernel_size=1, gain=1, use_wscale=use_wscale)
+        self.channel_shrinkage = Conv2d(input_channels=self.nf(self.resolution_log2 - 2), output_channels=self.nf(self.resolution_log2), kernel_size=3, use_wscale=use_wscale)
+        self.torgb = Conv2d(self.nf(self.resolution_log2), num_channels, kernel_size=1, gain=1, use_wscale=use_wscale)
         self.const_input = nn.Parameter(torch.ones(1, self.nf(1), 4, 4))
         self.bias = nn.Parameter(torch.ones(self.nf(1)))
-        self.adaIn1 = LayerEpilogue(self.nf(1), dlatent_size, use_wscale,
-            use_noise, use_pixel_norm, use_instance_norm, use_style)
-        self.conv1 = Conv2d(input_channels=self.nf(1), output_channels=self
-            .nf(1), kernel_size=3, use_wscale=use_wscale)
-        self.adaIn2 = LayerEpilogue(self.nf(1), dlatent_size, use_wscale,
-            use_noise, use_pixel_norm, use_instance_norm, use_style)
+        self.adaIn1 = LayerEpilogue(self.nf(1), dlatent_size, use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_style)
+        self.conv1 = Conv2d(input_channels=self.nf(1), output_channels=self.nf(1), kernel_size=3, use_wscale=use_wscale)
+        self.adaIn2 = LayerEpilogue(self.nf(1), dlatent_size, use_wscale, use_noise, use_pixel_norm, use_instance_norm, use_style)
         res = 3
-        self.GBlock1 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock1 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 4
-        self.GBlock2 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock2 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 5
-        self.GBlock3 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock3 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 6
-        self.GBlock4 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock4 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 7
-        self.GBlock5 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock5 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 8
-        self.GBlock6 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock6 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 9
-        self.GBlock7 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock7 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
         res = 10
-        self.GBlock8 = GBlock(res, use_wscale, use_noise, use_pixel_norm,
-            use_instance_norm, self.noise_inputs)
+        self.GBlock8 = GBlock(res, use_wscale, use_noise, use_pixel_norm, use_instance_norm, self.noise_inputs)
 
     def forward(self, dlatent):
         """
@@ -495,8 +431,7 @@ class G_synthesis(nn.Module):
 
 class StyleGenerator(nn.Module):
 
-    def __init__(self, mapping_fmaps=512, style_mixing_prob=0.9,
-        truncation_psi=0.7, truncation_cutoff=8, **kwargs):
+    def __init__(self, mapping_fmaps=512, style_mixing_prob=0.9, truncation_psi=0.7, truncation_cutoff=8, **kwargs):
         super(StyleGenerator, self).__init__()
         self.mapping_fmaps = mapping_fmaps
         self.style_mixing_prob = style_mixing_prob
@@ -526,8 +461,7 @@ class StyleGenerator(nn.Module):
 
 class StyleDiscriminator(nn.Module):
 
-    def __init__(self, resolution=1024, fmap_base=8192, num_channels=3,
-        structure='fixed', fmap_max=512, fmap_decay=1.0, f=None):
+    def __init__(self, resolution=1024, fmap_base=8192, num_channels=3, structure='fixed', fmap_max=512, fmap_decay=1.0, f=None):
         """
             Noitce: we only support input pic with height == width.
 
@@ -537,39 +471,24 @@ class StyleDiscriminator(nn.Module):
         super().__init__()
         self.resolution_log2 = int(np.log2(resolution))
         assert resolution == 2 ** self.resolution_log2 and resolution >= 4
-        self.nf = lambda stage: min(int(fmap_base / 2.0 ** (stage *
-            fmap_decay)), fmap_max)
-        self.fromrgb = nn.Conv2d(num_channels, self.nf(self.resolution_log2 -
-            1), kernel_size=1)
+        self.nf = lambda stage: min(int(fmap_base / 2.0 ** (stage * fmap_decay)), fmap_max)
+        self.fromrgb = nn.Conv2d(num_channels, self.nf(self.resolution_log2 - 1), kernel_size=1)
         self.structure = structure
         self.blur2d = Blur2d(f)
         self.down1 = nn.AvgPool2d(2)
-        self.down21 = nn.Conv2d(self.nf(self.resolution_log2 - 5), self.nf(
-            self.resolution_log2 - 5), kernel_size=2, stride=2)
-        self.down22 = nn.Conv2d(self.nf(self.resolution_log2 - 6), self.nf(
-            self.resolution_log2 - 6), kernel_size=2, stride=2)
-        self.down23 = nn.Conv2d(self.nf(self.resolution_log2 - 7), self.nf(
-            self.resolution_log2 - 7), kernel_size=2, stride=2)
-        self.down24 = nn.Conv2d(self.nf(self.resolution_log2 - 8), self.nf(
-            self.resolution_log2 - 8), kernel_size=2, stride=2)
-        self.conv1 = nn.Conv2d(self.nf(self.resolution_log2 - 1), self.nf(
-            self.resolution_log2 - 1), kernel_size=3, padding=(1, 1))
-        self.conv2 = nn.Conv2d(self.nf(self.resolution_log2 - 1), self.nf(
-            self.resolution_log2 - 2), kernel_size=3, padding=(1, 1))
-        self.conv3 = nn.Conv2d(self.nf(self.resolution_log2 - 2), self.nf(
-            self.resolution_log2 - 3), kernel_size=3, padding=(1, 1))
-        self.conv4 = nn.Conv2d(self.nf(self.resolution_log2 - 3), self.nf(
-            self.resolution_log2 - 4), kernel_size=3, padding=(1, 1))
-        self.conv5 = nn.Conv2d(self.nf(self.resolution_log2 - 4), self.nf(
-            self.resolution_log2 - 5), kernel_size=3, padding=(1, 1))
-        self.conv6 = nn.Conv2d(self.nf(self.resolution_log2 - 5), self.nf(
-            self.resolution_log2 - 6), kernel_size=3, padding=(1, 1))
-        self.conv7 = nn.Conv2d(self.nf(self.resolution_log2 - 6), self.nf(
-            self.resolution_log2 - 7), kernel_size=3, padding=(1, 1))
-        self.conv8 = nn.Conv2d(self.nf(self.resolution_log2 - 7), self.nf(
-            self.resolution_log2 - 8), kernel_size=3, padding=(1, 1))
-        self.conv_last = nn.Conv2d(self.nf(self.resolution_log2 - 8), self.
-            nf(1), kernel_size=3, padding=(1, 1))
+        self.down21 = nn.Conv2d(self.nf(self.resolution_log2 - 5), self.nf(self.resolution_log2 - 5), kernel_size=2, stride=2)
+        self.down22 = nn.Conv2d(self.nf(self.resolution_log2 - 6), self.nf(self.resolution_log2 - 6), kernel_size=2, stride=2)
+        self.down23 = nn.Conv2d(self.nf(self.resolution_log2 - 7), self.nf(self.resolution_log2 - 7), kernel_size=2, stride=2)
+        self.down24 = nn.Conv2d(self.nf(self.resolution_log2 - 8), self.nf(self.resolution_log2 - 8), kernel_size=2, stride=2)
+        self.conv1 = nn.Conv2d(self.nf(self.resolution_log2 - 1), self.nf(self.resolution_log2 - 1), kernel_size=3, padding=(1, 1))
+        self.conv2 = nn.Conv2d(self.nf(self.resolution_log2 - 1), self.nf(self.resolution_log2 - 2), kernel_size=3, padding=(1, 1))
+        self.conv3 = nn.Conv2d(self.nf(self.resolution_log2 - 2), self.nf(self.resolution_log2 - 3), kernel_size=3, padding=(1, 1))
+        self.conv4 = nn.Conv2d(self.nf(self.resolution_log2 - 3), self.nf(self.resolution_log2 - 4), kernel_size=3, padding=(1, 1))
+        self.conv5 = nn.Conv2d(self.nf(self.resolution_log2 - 4), self.nf(self.resolution_log2 - 5), kernel_size=3, padding=(1, 1))
+        self.conv6 = nn.Conv2d(self.nf(self.resolution_log2 - 5), self.nf(self.resolution_log2 - 6), kernel_size=3, padding=(1, 1))
+        self.conv7 = nn.Conv2d(self.nf(self.resolution_log2 - 6), self.nf(self.resolution_log2 - 7), kernel_size=3, padding=(1, 1))
+        self.conv8 = nn.Conv2d(self.nf(self.resolution_log2 - 7), self.nf(self.resolution_log2 - 8), kernel_size=3, padding=(1, 1))
+        self.conv_last = nn.Conv2d(self.nf(self.resolution_log2 - 8), self.nf(1), kernel_size=3, padding=(1, 1))
         self.dense0 = nn.Linear(fmap_base, self.nf(0))
         self.dense1 = nn.Linear(self.nf(0), 1)
         self.sigmoid = nn.Sigmoid()
@@ -612,38 +531,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ApplyNoise,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ApplyStyle,
+     lambda: ([], {'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Blur2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv2d,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (FC,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (G_mapping,
+     lambda: ([], {}),
+     lambda: ([torch.rand([512, 512])], {}),
+     True),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 1, 1])], {}),
+     True),
+    (InstanceNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PixelNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Upscale2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_tomguluson92_StyleGAN_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ApplyNoise(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ApplyStyle(*[], **{'latent_size': 4, 'channels': 4, 'use_wscale': 1.0}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Blur2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Conv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(FC(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(G_mapping(*[], **{}), [torch.rand([512, 512])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 512, 1, 1])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(InstanceNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Upscale2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

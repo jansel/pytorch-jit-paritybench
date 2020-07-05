@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,18 +74,15 @@ class AffineGridGenFunction(Function):
         self.height, self.width = height, width
         self.grid = torch.Tensor(self.height, self.width, 3)
         for i in range(self.height):
-            self.grid.select(2, 0).select(0, i).fill_(-1 + float(i) / (self
-                .height - 1) * 2)
+            self.grid.select(2, 0).select(0, i).fill_(-1 + float(i) / (self.height - 1) * 2)
         for j in range(self.width):
-            self.grid.select(2, 1).select(1, j).fill_(-1 + float(j) / (self
-                .width - 1) * 2)
+            self.grid.select(2, 1).select(1, j).fill_(-1 + float(j) / (self.width - 1) * 2)
         self.grid.select(2, 2).fill_(1)
 
     def forward(self, input1):
         self.input1 = input1
         output = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         if input1.is_cuda:
@@ -105,15 +103,13 @@ class AffineGridGenFunction(Function):
             self.batchgrid = self.batchgrid.cuda()
             grad_input1 = grad_input1.cuda()
         grad_output_temp = grad_output.contiguous()
-        grad_output_view = grad_output_temp.view(-1, self.height * self.
-            width, 2)
+        grad_output_view = grad_output_temp.view(-1, self.height * self.width, 2)
         grad_output_view.contiguous()
         grad_output_temp = torch.transpose(grad_output_view, 1, 2)
         grad_output_temp.contiguous()
         batchgrid_temp = self.batchgrid.view(-1, self.height * self.width, 3)
         batchgrid_temp.contiguous()
-        grad_input1 = torch.baddbmm(grad_input1, grad_output_temp,
-            batchgrid_temp)
+        grad_input1 = torch.baddbmm(grad_input1, grad_output_temp, batchgrid_temp)
         return grad_input1
 
 
@@ -130,8 +126,7 @@ class AffineGridGen(Module):
         if not self.aux_loss:
             return self.f(input)
         else:
-            identity = torch.from_numpy(np.array([[1, 0, 0], [0, 1, 0]],
-                dtype=np.float32))
+            identity = torch.from_numpy(np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32))
             batch_identity = torch.zeros([input.size(0), 2, 3])
             for i in range(input.size(0)):
                 batch_identity[i] = identity
@@ -149,33 +144,26 @@ class CylinderGridGenFunction(Function):
         self.lr = lr
         self.height, self.width = height, width
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
         self.input1 = (1 + torch.cos(input1)) / 2
-        output = torch.zeros(torch.Size([input1.size(0), self.height, self.
-            width, 2]))
+        output = torch.zeros(torch.Size([input1.size(0), self.height, self.width, 2]))
         if not self.input1.is_cuda:
             for i in range(self.input1.size(0)):
                 x = self.input1[i][0]
                 low = int(np.ceil(self.width * self.input1[i][0]))
                 frac = self.width * self.input1[i][0] - low
                 interp = frac * 2 * (1 - x) + (1 - frac) * 2 * -x
-                output[(i), :, :, (1)] = torch.zeros(self.grid[:, :, (1)].
-                    size())
+                output[(i), :, :, (1)] = torch.zeros(self.grid[:, :, (1)].size())
                 if low <= self.width and low > 0:
                     output[(i), :, :low, (1)].fill_(2 * (1 - x))
                 if low < self.width and low >= 0:
                     output[(i), :, low:, (1)].fill_(2 * -x)
-                output[(i), :, :, (1)] = output[(i), :, :, (1)] + self.grid[:,
-                    :, (1)]
+                output[(i), :, :, (1)] = output[(i), :, :, (1)] + self.grid[:, :, (1)]
                 output[(i), :, :, (0)] = self.grid[:, :, (0)]
         else:
             print('not implemented')
@@ -185,8 +173,7 @@ class CylinderGridGenFunction(Function):
         grad_input1 = torch.zeros(self.input1.size())
         if not grad_output.is_cuda:
             for i in range(self.input1.size(0)):
-                grad_input1[i] = -torch.sum(torch.sum(grad_output[(i), :, :,
-                    (1)], 1)) * torch.sin(self.input1[i]) / 2
+                grad_input1[i] = -torch.sum(torch.sum(grad_output[(i), :, :, (1)], 1)) * torch.sin(self.input1[i]) / 2
         else:
             print('not implemented')
         return grad_input1 * self.lr
@@ -216,26 +203,19 @@ class AffineGridGenV2(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         if input1.is_cuda:
             self.batchgrid = self.batchgrid
-        output = torch.bmm(self.batchgrid.view(-1, self.height * self.width,
-            3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.
-            width, 2)
+        output = torch.bmm(self.batchgrid.view(-1, self.height * self.width, 3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.width, 2)
         return output
 
 
@@ -246,26 +226,19 @@ class CylinderGridGenV2(Module):
         self.height, self.width = height, width
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input):
-        self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.grid.size())
         for i in range(input.size(0)):
             self.batchgrid[(i), :, :, :] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         input_u = input.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output0 = self.batchgrid[:, :, :, 0:1]
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (self.batchgrid[:, :,
-            :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (
-            np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (self.batchgrid[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output = torch.cat([output0, output1], 3)
         return output
 
@@ -278,18 +251,13 @@ class DenseAffineGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
@@ -307,12 +275,8 @@ class DenseAffine3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -320,16 +284,14 @@ class DenseAffine3DGridGen(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, input1):
-        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
         for i in range(input1.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
@@ -338,9 +300,7 @@ class DenseAffine3DGridGen(Module):
         z = torch.sum(torch.mul(self.batchgrid3d, input1[:, :, :, 8:]), 3)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
         output = torch.cat([theta, phi], 3)
         return output
@@ -354,12 +314,8 @@ class DenseAffine3DGridGen_rotate(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -367,21 +323,18 @@ class DenseAffine3DGridGen_rotate(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, input1, input2):
-        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
         for i in range(input1.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
@@ -390,15 +343,11 @@ class DenseAffine3DGridGen_rotate(Module):
         z = torch.sum(torch.mul(self.batchgrid3d, input1[:, :, :, 8:]), 3)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
-        input_u = input2.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1
-            )
+        input_u = input2.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output = torch.cat([theta, phi], 3)
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] +
-            self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output2 = torch.cat([output[:, :, :, 0:1], output1], 3)
         return output2
 
@@ -411,12 +360,8 @@ class Depth3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -424,40 +369,31 @@ class Depth3DGridGen(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, depth, trans0, trans1, rotate):
-        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
         for i in range(depth.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.grid.size())
         for i in range(depth.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
-        x = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
-        y = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
+        x = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
+        y = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         z = self.batchgrid3d[:, :, :, 2:3] * depth
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
-        input_u = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1
-            )
+        input_u = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output = torch.cat([theta, phi], 3)
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] +
-            self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output2 = torch.cat([output[:, :, :, 0:1], output1], 3)
         return output2
 
@@ -471,12 +407,8 @@ class Depth3DGridGen_with_mask(Module):
         self.lr = lr
         self.ray_tracing = ray_tracing
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -484,46 +416,36 @@ class Depth3DGridGen_with_mask(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, depth, trans0, trans1, rotate):
-        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
         for i in range(depth.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.grid.size())
         for i in range(depth.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         if depth.is_cuda:
             self.batchgrid = self.batchgrid
             self.batchgrid3d = self.batchgrid3d
-        x_ = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
-        y_ = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
+        x_ = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
+        y_ = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         z = self.batchgrid3d[:, :, :, 2:3] * depth
-        rotate_z = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.
-            width, 1) * np.pi
+        rotate_z = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1) * np.pi
         x = x_ * torch.cos(rotate_z) - y_ * torch.sin(rotate_z)
         y = x_ * torch.sin(rotate_z) + y_ * torch.cos(rotate_z)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
-            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
-                type(torch.FloatTensor))
+            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         else:
-            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
-                type(torch.FloatTensor))
+            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
         output = torch.cat([theta, phi], 3)
         return output
@@ -536,14 +458,12 @@ class STNMFunction(Function):
         self.fgimg = fgimg
         self.fggrid = fggrid
         self.fgmask = fgmask
-        output = torch.zeros(canvas.size()[0], canvas.size()[1], canvas.
-            size()[2], canvas.size()[3])
+        output = torch.zeros(canvas.size()[0], canvas.size()[1], canvas.size()[2], canvas.size()[3])
         if not canvas.is_cuda:
             print('only support cuda now!')
         else:
             output = output.cuda()
-            stnm.BilinearSamplerBHWD_updateOutput_cuda(canvas, fgimg,
-                fggrid, fgmask, output)
+            stnm.BilinearSamplerBHWD_updateOutput_cuda(canvas, fgimg, fggrid, fgmask, output)
         return output
 
     def backward(self, grad_output):
@@ -559,9 +479,7 @@ class STNMFunction(Function):
             grad_fgimg = grad_fgimg.cuda().contiguous()
             grad_fggrid = grad_fggrid.cuda().contiguous()
             grad_fgmask = grad_fgmask.cuda().contiguous()
-            stnm.BilinearSamplerBHWD_updateGradInput_cuda(self.canvas, self
-                .fgimg, self.fggrid, self.fgmask, grad_canvas, grad_fgimg,
-                grad_fggrid, grad_fgmask, grad_output)
+            stnm.BilinearSamplerBHWD_updateGradInput_cuda(self.canvas, self.fgimg, self.fggrid, self.fgmask, grad_canvas, grad_fgimg, grad_fggrid, grad_fgmask, grad_output)
         return grad_canvas, grad_fgimg, grad_fggrid, grad_fgmask
 
 
@@ -589,13 +507,10 @@ class _netG(nn.Module):
         self.nsize_out = 2
         self.lstmcell = nn.LSTMCell(nz, nz)
         self.Gbgc, self.depth_in_bg = self.buildNetGbg(nsize)
-        self.Gbgi = nn.Sequential(nn.ConvTranspose2d(self.depth_in_bg, nc, 
-            4, 2, 1, bias=True), nn.Tanh())
+        self.Gbgi = nn.Sequential(nn.ConvTranspose2d(self.depth_in_bg, nc, 4, 2, 1, bias=True), nn.Tanh())
         self.Gfgc, self.depth_in = self.buildNetGfg(nsize)
-        self.Gfgi = nn.Sequential(nn.ConvTranspose2d(self.depth_in, nc, 4, 
-            2, 1, bias=False), nn.Tanh())
-        self.Gfgm = nn.Sequential(nn.ConvTranspose2d(self.depth_in, 1, 4, 2,
-            1, bias=True), nn.Sigmoid())
+        self.Gfgi = nn.Sequential(nn.ConvTranspose2d(self.depth_in, nc, 4, 2, 1, bias=False), nn.Tanh())
+        self.Gfgm = nn.Sequential(nn.ConvTranspose2d(self.depth_in, 1, 4, 2, 1, bias=True), nn.Sigmoid())
         self.Gtransform = nn.Linear(nz, 6)
         self.Gtransform.weight.data.zero_()
         self.Gtransform.bias.data.zero_()
@@ -605,18 +520,15 @@ class _netG(nn.Module):
         self.Compositors = []
         for t in range(ntimestep - 1):
             self.Compositors.append(STNM())
-        self.encoderconv = self.buildEncoderConv(self.depth_in, nsize // 2,
-            self.nsize_out)
+        self.encoderconv = self.buildEncoderConv(self.depth_in, nsize // 2, self.nsize_out)
         self.encoderfc = self.buildEncoderFC(self.depth_in, self.nsize_out, nz)
-        self.nlnet = nn.Sequential(nn.Linear(nz + nz, nz), nn.BatchNorm1d(
-            nz), nn.Tanh())
+        self.nlnet = nn.Sequential(nn.Linear(nz + nz, nz), nn.BatchNorm1d(nz), nn.Tanh())
 
     def buildNetGbg(self, nsize):
         net = nn.Sequential()
         size_map = 1
         name = str(size_map)
-        net.add_module('convt' + name, nn.ConvTranspose2d(nz, ngf * 4, 4, 4,
-            0, bias=True))
+        net.add_module('convt' + name, nn.ConvTranspose2d(nz, ngf * 4, 4, 4, 0, bias=True))
         net.add_module('bn' + name, nn.BatchNorm2d(ngf * 4))
         net.add_module('relu' + name, nn.ReLU(True))
         size_map = 4
@@ -624,8 +536,7 @@ class _netG(nn.Module):
         depth_out = 2 * ngf
         while size_map < nsize / 2:
             name = str(size_map)
-            net.add_module('convt' + name, nn.ConvTranspose2d(depth_in,
-                depth_out, 4, 2, 1, bias=True))
+            net.add_module('convt' + name, nn.ConvTranspose2d(depth_in, depth_out, 4, 2, 1, bias=True))
             net.add_module('bn' + name, nn.BatchNorm2d(depth_out))
             net.add_module('relu' + name, nn.ReLU(True))
             depth_in = depth_out
@@ -637,8 +548,7 @@ class _netG(nn.Module):
         net = nn.Sequential()
         size_map = 1
         name = str(size_map)
-        net.add_module('convt' + name, nn.ConvTranspose2d(nz, ngf * 8, 4, 4,
-            0, bias=False))
+        net.add_module('convt' + name, nn.ConvTranspose2d(nz, ngf * 8, 4, 4, 0, bias=False))
         net.add_module('bn' + name, nn.BatchNorm2d(ngf * 8))
         net.add_module('relu' + name, nn.ReLU(True))
         size_map = 4
@@ -646,8 +556,7 @@ class _netG(nn.Module):
         depth_out = 4 * ngf
         while size_map < nsize / 2:
             name = str(size_map)
-            net.add_module('convt' + name, nn.ConvTranspose2d(depth_in,
-                depth_out, 4, 2, 1, bias=False))
+            net.add_module('convt' + name, nn.ConvTranspose2d(depth_in, depth_out, 4, 2, 1, bias=False))
             net.add_module('bn' + name, nn.BatchNorm2d(depth_out))
             net.add_module('relu' + name, nn.ReLU(True))
             depth_in = depth_out
@@ -667,8 +576,7 @@ class _netG(nn.Module):
         return net
 
     def buildEncoderFC(self, depth_in, nsize_in, out_dim):
-        net = nn.Sequential(nn.Linear(depth_in * nsize_in * nsize_in,
-            out_dim), nn.BatchNorm1d(out_dim), nn.Tanh())
+        net = nn.Sequential(nn.Linear(depth_in * nsize_in * nsize_in, out_dim), nn.BatchNorm1d(out_dim), nn.Tanh())
         return net
 
     def clampT(self, Tin):
@@ -678,16 +586,13 @@ class _netG(nn.Module):
         y_r = Tin.select(1, 3)
         y_s = Tin.select(1, 4)
         y_t = Tin.select(1, 5)
-        x_s_clamp = torch.unsqueeze(x_s.clamp(opt.maxobjscale, 2 * opt.
-            maxobjscale), 1)
+        x_s_clamp = torch.unsqueeze(x_s.clamp(opt.maxobjscale, 2 * opt.maxobjscale), 1)
         x_r_clmap = torch.unsqueeze(x_r.clamp(-rot, rot), 1)
         x_t_clmap = torch.unsqueeze(x_t.clamp(-1.0, 1.0), 1)
         y_r_clamp = torch.unsqueeze(y_r.clamp(-rot, rot), 1)
-        y_s_clamp = torch.unsqueeze(y_s.clamp(opt.maxobjscale, 2 * opt.
-            maxobjscale), 1)
+        y_s_clamp = torch.unsqueeze(y_s.clamp(opt.maxobjscale, 2 * opt.maxobjscale), 1)
         y_t_clamp = torch.unsqueeze(y_t.clamp(-1.0, 1.0), 1)
-        Tout = torch.cat([x_s_clamp, x_r_clmap, x_t_clmap, y_r_clamp,
-            y_s_clamp, y_t_clamp], 1)
+        Tout = torch.cat([x_s_clamp, x_r_clmap, x_t_clmap, y_r_clamp, y_s_clamp, y_t_clamp], 1)
         return Tout
 
     def forward(self, input):
@@ -708,24 +613,20 @@ class _netG(nn.Module):
             else:
                 if ntimestep > 2 and i == 1:
                     encConv = self.encoderconv(bgc)
-                    encConv_view = encConv.view(batchSize, self.depth_in *
-                        self.nsize_out * self.nsize_out)
+                    encConv_view = encConv.view(batchSize, self.depth_in * self.nsize_out * self.nsize_out)
                     encFC = self.encoderfc(encConv_view)
                     concat = torch.cat([hx, encFC], 1)
                     comb = self.nlnet(concat)
                     input4g = comb
-                    input4g_view = input4g.contiguous().view(batchSize, nz,
-                        1, 1)
+                    input4g_view = input4g.contiguous().view(batchSize, nz, 1, 1)
                 elif ntimestep > 2 and i > 1:
                     encConv = self.encoderconv(fgc)
-                    encConv_view = encConv.view(batchSize, self.depth_in *
-                        self.nsize_out * self.nsize_out)
+                    encConv_view = encConv.view(batchSize, self.depth_in * self.nsize_out * self.nsize_out)
                     encFC = self.encoderfc(encConv_view)
                     concat = torch.cat([hx, encFC], 1)
                     comb = self.nlnet(concat)
                     input4g = comb
-                    input4g_view = input4g.contiguous().view(batchSize, nz,
-                        1, 1)
+                    input4g_view = input4g.contiguous().view(batchSize, nz, 1, 1)
                 else:
                     input4g = hx
                     input4g_view = hx_view
@@ -761,8 +662,7 @@ class _netD(nn.Module):
         size_map = nsize
         while size_map > 4:
             name = str(size_map)
-            net.add_module('conv' + name, nn.Conv2d(depth_in, depth_out, 4,
-                2, 1, bias=False))
+            net.add_module('conv' + name, nn.Conv2d(depth_in, depth_out, 4, 2, 1, bias=False))
             if size_map < nsize:
                 net.add_module('bn' + name, nn.BatchNorm2d(depth_out))
             net.add_module('lrelu' + name, nn.LeakyReLU(0.2, inplace=True))
@@ -770,15 +670,13 @@ class _netD(nn.Module):
             depth_out = 2 * depth_in
             size_map = size_map // 2
         name = str(size_map)
-        net.add_module('conv' + name, nn.Conv2d(depth_in, 1, 4, 1, 0, bias=
-            False))
+        net.add_module('conv' + name, nn.Conv2d(depth_in, 1, 4, 1, 0, bias=False))
         net.add_module('sigmoid' + name, nn.Sigmoid())
         return net
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output.view(-1, 1)
@@ -788,13 +686,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_jwyang_lr_gan_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Depth3DGridGen,
+     lambda: ([], {'height': 4, 'width': 4}),
+     lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Depth3DGridGen_with_mask,
+     lambda: ([], {'height': 4, 'width': 4}),
+     lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_jwyang_lr_gan_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

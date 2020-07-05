@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,9 +100,7 @@ class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction),
-            nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel),
-            nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -181,13 +180,11 @@ class ResNetBuilder(nn.Module):
         super().__init__()
         self.base = ResNet(last_stride)
         if pretrained:
-            model_url = (
-                'https://download.pytorch.org/models/resnet50-19c8e357.pth')
+            model_url = 'https://download.pytorch.org/models/resnet50-19c8e357.pth'
             self.base.load_param(model_zoo.load_url(model_url))
         self.num_classes = num_classes
         if num_classes is not None:
-            self.bottleneck = nn.Sequential(nn.Linear(self.in_planes, 512),
-                nn.BatchNorm1d(512), nn.LeakyReLU(0.1), nn.Dropout(p=0.5))
+            self.bottleneck = nn.Sequential(nn.Linear(self.in_planes, 512), nn.BatchNorm1d(512), nn.LeakyReLU(0.1), nn.Dropout(p=0.5))
             self.bottleneck.apply(weights_init_kaiming)
             self.classifier = nn.Linear(512, self.num_classes)
             self.classifier.apply(weights_init_classifier)
@@ -206,8 +203,7 @@ class ResNetBuilder(nn.Module):
     def get_optim_policy(self):
         base_param_group = self.base.parameters()
         if self.num_classes is not None:
-            add_param_group = itertools.chain(self.bottleneck.parameters(),
-                self.classifier.parameters())
+            add_param_group = itertools.chain(self.bottleneck.parameters(), self.classifier.parameters())
             return [{'params': base_param_group}, {'params': add_param_group}]
         else:
             return [{'params': base_param_group}]
@@ -218,15 +214,10 @@ class BFE(nn.Module):
     def __init__(self, num_classes, width_ratio=0.5, height_ratio=0.5):
         super(BFE, self).__init__()
         resnet = resnet50(pretrained=True)
-        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3)
-        self.res_part = nn.Sequential(Bottleneck(1024, 512, stride=1,
-            downsample=nn.Sequential(nn.Conv2d(1024, 2048, kernel_size=1,
-            stride=1, bias=False), nn.BatchNorm2d(2048))), Bottleneck(2048,
-            512), Bottleneck(2048, 512))
+        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3)
+        self.res_part = nn.Sequential(Bottleneck(1024, 512, stride=1, downsample=nn.Sequential(nn.Conv2d(1024, 2048, kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
         self.res_part.load_state_dict(resnet.layer4.state_dict())
-        reduction = nn.Sequential(nn.Conv2d(2048, 512, 1), nn.BatchNorm2d(
-            512), nn.ReLU())
+        reduction = nn.Sequential(nn.Conv2d(2048, 512, 1), nn.BatchNorm2d(512), nn.ReLU())
         self.global_avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.global_softmax = nn.Linear(512, num_classes)
         self.global_softmax.apply(weights_init_kaiming)
@@ -235,8 +226,7 @@ class BFE(nn.Module):
         self.res_part2 = Bottleneck(2048, 512)
         self.part_maxpool = nn.AdaptiveMaxPool2d((1, 1))
         self.batch_crop = BatchDrop(height_ratio, width_ratio)
-        self.reduction = nn.Sequential(nn.Linear(2048, 1024, 1), nn.
-            BatchNorm1d(1024), nn.ReLU())
+        self.reduction = nn.Sequential(nn.Linear(2048, 1024, 1), nn.BatchNorm1d(1024), nn.ReLU())
         self.reduction.apply(weights_init_kaiming)
         self.softmax = nn.Linear(1024, num_classes)
         self.softmax.apply(weights_init_kaiming)
@@ -271,11 +261,7 @@ class BFE(nn.Module):
             return torch.cat(predict, 1)
 
     def get_optim_policy(self):
-        params = [{'params': self.backbone.parameters()}, {'params': self.
-            res_part.parameters()}, {'params': self.global_reduction.
-            parameters()}, {'params': self.global_softmax.parameters()}, {
-            'params': self.res_part2.parameters()}, {'params': self.
-            reduction.parameters()}, {'params': self.softmax.parameters()}]
+        params = [{'params': self.backbone.parameters()}, {'params': self.res_part.parameters()}, {'params': self.global_reduction.parameters()}, {'params': self.global_softmax.parameters()}, {'params': self.res_part2.parameters()}, {'params': self.reduction.parameters()}, {'params': self.softmax.parameters()}]
         return params
 
 
@@ -285,9 +271,7 @@ class Resnet(nn.Module):
         super(Resnet, self).__init__()
         if not resnet:
             resnet = resnet50(pretrained=True)
-        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3,
-            resnet.layer4)
+        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
         self.global_avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.softmax = nn.Linear(2048, num_classes)
 
@@ -314,9 +298,7 @@ class IDE(nn.Module):
         super(IDE, self).__init__()
         if not resnet:
             resnet = resnet50(pretrained=True)
-        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3,
-            resnet.layer4)
+        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
         self.global_avgpool = nn.AvgPool2d(kernel_size=(12, 4))
 
     def forward(self, x):
@@ -342,8 +324,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -374,14 +355,11 @@ class CBAM_Module(nn.Module):
         super(CBAM_Module, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
         self.sigmoid_channel = nn.Sigmoid()
-        self.conv_after_concat = nn.Conv2d(2, 1, kernel_size=3, stride=1,
-            padding=1)
+        self.conv_after_concat = nn.Conv2d(2, 1, kernel_size=3, stride=1, padding=1)
         self.sigmoid_spatial = nn.Sigmoid()
 
     def forward(self, x):
@@ -414,8 +392,7 @@ class CBAMBottleneck(nn.Module):
         super(CBAMBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -447,23 +424,19 @@ class ResNet(nn.Module):
     def __init__(self, last_stride=2, block=Bottleneck, layers=[3, 4, 6, 3]):
         self.inplanes = 64
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=
-            last_stride)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=last_stride)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -532,20 +505,16 @@ class DistWeightBinDevianceLoss(nn.Module):
         neg_sim = torch.masked_select(sim_mat, neg_mask)
         num_instances = len(pos_sim) // n + 1
         num_neg_instances = n - num_instances
-        pos_sim = pos_sim.resize(len(pos_sim) // (num_instances - 1), 
-            num_instances - 1)
-        neg_sim = neg_sim.resize(len(neg_sim) // num_neg_instances,
-            num_neg_instances)
+        pos_sim = pos_sim.resize(len(pos_sim) // (num_instances - 1), num_instances - 1)
+        neg_sim = neg_sim.resize(len(neg_sim) // num_neg_instances, num_neg_instances)
         loss = list()
         c = 0
         for i, pos_pair in enumerate(pos_sim):
             pos_pair = torch.sort(pos_pair)[0]
             neg_pair = torch.sort(neg_sim[i])[0]
             neg_mean, neg_std = GaussDistribution(neg_pair)
-            prob = torch.exp(torch.pow(neg_pair - neg_mean, 2) / (2 * torch
-                .pow(neg_std, 2)))
-            neg_index = torch.multinomial(prob, num_instances - 1,
-                replacement=False)
+            prob = torch.exp(torch.pow(neg_pair - neg_mean, 2) / (2 * torch.pow(neg_std, 2)))
+            neg_index = torch.multinomial(prob, num_instances - 1, replacement=False)
             neg_pair = neg_pair[neg_index]
             if len(neg_pair) < 1:
                 c += 1
@@ -556,10 +525,8 @@ class DistWeightBinDevianceLoss(nn.Module):
             if i == 1 and np.random.randint(256) == 1:
                 None
                 None
-            pos_loss = torch.mean(torch.log(1 + torch.exp(-2 * (pos_pair -
-                self.margin))))
-            neg_loss = 0.04 * torch.mean(torch.log(1 + torch.exp(50 * (
-                neg_pair - self.margin))))
+            pos_loss = torch.mean(torch.log(1 + torch.exp(-2 * (pos_pair - self.margin))))
+            neg_loss = 0.04 * torch.mean(torch.log(1 + torch.exp(50 * (neg_pair - self.margin))))
             loss.append(pos_loss + neg_loss)
         loss = [torch.unsqueeze(l, 0) for l in loss]
         loss = torch.sum(torch.cat(loss)) / n
@@ -578,8 +545,7 @@ def pdist(A, squared=False, eps=0.0001):
 
 class LiftedStructureLoss(nn.Module):
 
-    def __init__(self, alpha=10, beta=2, margin=0.5, hard_mining=None, **kwargs
-        ):
+    def __init__(self, alpha=10, beta=2, margin=0.5, hard_mining=None, **kwargs):
         super(LiftedStructureLoss, self).__init__()
         self.margin = margin
         self.alpha = alpha
@@ -617,11 +583,9 @@ class LiftedStructureLoss(nn.Module):
         margin = 1.0
         eps = 0.0001
         d = pdist(embeddings, squared=False, eps=eps)
-        pos = torch.eq(*[labels.unsqueeze(dim).expand_as(d) for dim in [0, 1]]
-            ).type_as(d)
+        pos = torch.eq(*[labels.unsqueeze(dim).expand_as(d) for dim in [0, 1]]).type_as(d)
         neg_i = torch.mul((margin - d).exp(), 1 - pos).sum(1).expand_as(d)
-        return torch.sum(F.relu(pos.triu(1) * ((neg_i + neg_i.t()).log() +
-            d)).pow(2)) / (pos.sum() - len(d)), 0
+        return torch.sum(F.relu(pos.triu(1) * ((neg_i + neg_i.t()).log() + d)).pow(2)) / (pos.sum() - len(d)), 0
 
 
 class CrossEntropyLabelSmooth(nn.Module):
@@ -648,12 +612,10 @@ class CrossEntropyLabelSmooth(nn.Module):
             targets: ground truth labels with shape (num_classes)
         """
         log_probs = self.logsoftmax(inputs)
-        targets = torch.zeros(log_probs.size()).scatter_(1, targets.
-            unsqueeze(1).cpu(), 1)
+        targets = torch.zeros(log_probs.size()).scatter_(1, targets.unsqueeze(1).cpu(), 1)
         if self.use_gpu:
             targets = targets
-        targets = (1 - self.epsilon
-            ) * targets + self.epsilon / self.num_classes
+        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
         loss = (-targets * log_probs).mean(0).sum()
         return loss
 
@@ -662,34 +624,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BFE,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (BatchCrop,
+     lambda: ([], {'ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchDrop,
+     lambda: ([], {'h_ratio': 4, 'w_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CBAM_Module,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CrossEntropyLabelSmooth,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     True),
+    (IDE,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (ResNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ResNetBuilder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Resnet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SELayer,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+]
+
 class Test_daizuozhuo_batch_dropblock_network(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BFE(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BatchCrop(*[], **{'ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BatchDrop(*[], **{'h_ratio': 4, 'w_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CBAM_Module(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(CrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ResNetBuilder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Resnet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

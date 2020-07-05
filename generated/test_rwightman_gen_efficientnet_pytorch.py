@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -231,8 +232,7 @@ class MishAutoFn(torch.autograd.Function):
         x = ctx.saved_tensors[0]
         x_sigmoid = torch.sigmoid(x)
         x_tanh_sp = F.softplus(x).tanh()
-        return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp *
-            x_tanh_sp))
+        return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp * x_tanh_sp))
 
 
 class MishAuto(nn.Module):
@@ -287,8 +287,7 @@ class SwishJit(nn.Module):
 def mish_jit_bwd(x, grad_output):
     x_sigmoid = torch.sigmoid(x)
     x_tanh_sp = F.softplus(x).tanh()
-    return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp *
-        x_tanh_sp))
+    return grad_output.mul(x_tanh_sp + x * x_sigmoid * (1 - x_tanh_sp * x_tanh_sp))
 
 
 @torch.jit.script
@@ -323,16 +322,13 @@ def _calc_same_pad(i: int, k: int, s: int, d: int):
     return max((math.ceil(i / s) - 1) * s + (k - 1) * d + 1 - i, 0)
 
 
-def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None,
-    stride: Tuple[int, int]=(1, 1), padding: Tuple[int, int]=(0, 0),
-    dilation: Tuple[int, int]=(1, 1), groups: int=1):
+def conv2d_same(x, weight: torch.Tensor, bias: Optional[torch.Tensor]=None, stride: Tuple[int, int]=(1, 1), padding: Tuple[int, int]=(0, 0), dilation: Tuple[int, int]=(1, 1), groups: int=1):
     ih, iw = x.size()[-2:]
     kh, kw = weight.size()[-2:]
     pad_h = _calc_same_pad(ih, kh, stride[0], dilation[0])
     pad_w = _calc_same_pad(iw, kw, stride[1], dilation[1])
     if pad_h > 0 or pad_w > 0:
-        x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - 
-            pad_h // 2])
+        x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
     return F.conv2d(x, weight, bias, stride, (0, 0), dilation, groups)
 
 
@@ -340,14 +336,11 @@ class Conv2dSame(nn.Conv2d):
     """ Tensorflow like 'SAME' convolution wrapper for 2D convolutions
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2dSame, self).__init__(in_channels, out_channels,
-            kernel_size, stride, 0, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2dSame, self).__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
 
     def forward(self, x):
-        return conv2d_same(x, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return conv2d_same(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 def _same_pad_arg(input_size, kernel_size, stride, dilation):
@@ -364,25 +357,21 @@ class Conv2dSameExport(nn.Conv2d):
     NOTE: This does not currently work with torch.jit.script
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2dSameExport, self).__init__(in_channels, out_channels,
-            kernel_size, stride, 0, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2dSameExport, self).__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
         self.pad = None
         self.pad_input_size = 0, 0
 
     def forward(self, x):
         input_size = x.size()[-2:]
         if self.pad is None:
-            pad_arg = _same_pad_arg(input_size, self.weight.size()[-2:],
-                self.stride, self.dilation)
+            pad_arg = _same_pad_arg(input_size, self.weight.size()[-2:], self.stride, self.dilation)
             self.pad = nn.ZeroPad2d(pad_arg)
             self.pad_input_size = input_size
         else:
             assert self.pad_input_size == input_size
         x = self.pad(x)
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 def _split_channels(num_chan, num_groups):
@@ -442,8 +431,7 @@ def create_conv2d_pad(in_chs, out_chs, kernel_size, **kwargs):
         else:
             return Conv2dSame(in_chs, out_chs, kernel_size, **kwargs)
     else:
-        return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **
-            kwargs)
+        return nn.Conv2d(in_chs, out_chs, kernel_size, padding=padding, **kwargs)
 
 
 class MixedConv2d(nn.ModuleDict):
@@ -452,22 +440,17 @@ class MixedConv2d(nn.ModuleDict):
       https://github.com/tensorflow/tpu/blob/master/models/official/mnasnet/mixnet/custom_layers.py
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding='', dilation=1, depthwise=False, **kwargs):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding='', dilation=1, depthwise=False, **kwargs):
         super(MixedConv2d, self).__init__()
-        kernel_size = kernel_size if isinstance(kernel_size, list) else [
-            kernel_size]
+        kernel_size = kernel_size if isinstance(kernel_size, list) else [kernel_size]
         num_groups = len(kernel_size)
         in_splits = _split_channels(in_channels, num_groups)
         out_splits = _split_channels(out_channels, num_groups)
         self.in_channels = sum(in_splits)
         self.out_channels = sum(out_splits)
-        for idx, (k, in_ch, out_ch) in enumerate(zip(kernel_size, in_splits,
-            out_splits)):
+        for idx, (k, in_ch, out_ch) in enumerate(zip(kernel_size, in_splits, out_splits)):
             conv_groups = out_ch if depthwise else 1
-            self.add_module(str(idx), create_conv2d_pad(in_ch, out_ch, k,
-                stride=stride, padding=padding, dilation=dilation, groups=
-                conv_groups, **kwargs))
+            self.add_module(str(idx), create_conv2d_pad(in_ch, out_ch, k, stride=stride, padding=padding, dilation=dilation, groups=conv_groups, **kwargs))
         self.splits = in_splits
 
     def forward(self, x):
@@ -494,10 +477,8 @@ def get_condconv_initializer(initializer, num_experts, expert_shape):
     def condconv_initializer(weight):
         """CondConv initializer function."""
         num_params = np.prod(expert_shape)
-        if len(weight.shape) != 2 or weight.shape[0
-            ] != num_experts or weight.shape[1] != num_params:
-            raise ValueError(
-                'CondConv variables must have shape [num_experts, num_params]')
+        if len(weight.shape) != 2 or weight.shape[0] != num_experts or weight.shape[1] != num_params:
+            raise ValueError('CondConv variables must have shape [num_experts, num_params]')
         for i in range(num_experts):
             initializer(weight[i].view(expert_shape))
     return condconv_initializer
@@ -512,52 +493,43 @@ class CondConv2d(nn.Module):
     """
     __constants__ = ['bias', 'in_channels', 'out_channels', 'dynamic_padding']
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding='', dilation=1, groups=1, bias=False, num_experts=4):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding='', dilation=1, groups=1, bias=False, num_experts=4):
         super(CondConv2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = _pair(kernel_size)
         self.stride = _pair(stride)
-        padding_val, is_padding_dynamic = get_padding_value(padding,
-            kernel_size, stride=stride, dilation=dilation)
+        padding_val, is_padding_dynamic = get_padding_value(padding, kernel_size, stride=stride, dilation=dilation)
         self.dynamic_padding = is_padding_dynamic
         self.padding = _pair(padding_val)
         self.dilation = _pair(dilation)
         self.groups = groups
         self.num_experts = num_experts
-        self.weight_shape = (self.out_channels, self.in_channels // self.groups
-            ) + self.kernel_size
+        self.weight_shape = (self.out_channels, self.in_channels // self.groups) + self.kernel_size
         weight_num_param = 1
         for wd in self.weight_shape:
             weight_num_param *= wd
-        self.weight = torch.nn.Parameter(torch.Tensor(self.num_experts,
-            weight_num_param))
+        self.weight = torch.nn.Parameter(torch.Tensor(self.num_experts, weight_num_param))
         if bias:
             self.bias_shape = self.out_channels,
-            self.bias = torch.nn.Parameter(torch.Tensor(self.num_experts,
-                self.out_channels))
+            self.bias = torch.nn.Parameter(torch.Tensor(self.num_experts, self.out_channels))
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
 
     def reset_parameters(self):
-        init_weight = get_condconv_initializer(partial(nn.init.
-            kaiming_uniform_, a=math.sqrt(5)), self.num_experts, self.
-            weight_shape)
+        init_weight = get_condconv_initializer(partial(nn.init.kaiming_uniform_, a=math.sqrt(5)), self.num_experts, self.weight_shape)
         init_weight(self.weight)
         if self.bias is not None:
             fan_in = np.prod(self.weight_shape[1:])
             bound = 1 / math.sqrt(fan_in)
-            init_bias = get_condconv_initializer(partial(nn.init.uniform_,
-                a=-bound, b=bound), self.num_experts, self.bias_shape)
+            init_bias = get_condconv_initializer(partial(nn.init.uniform_, a=-bound, b=bound), self.num_experts, self.bias_shape)
             init_bias(self.bias)
 
     def forward(self, x, routing_weights):
         B, C, H, W = x.shape
         weight = torch.matmul(routing_weights, self.weight)
-        new_weight_shape = (B * self.out_channels, self.in_channels // self
-            .groups) + self.kernel_size
+        new_weight_shape = (B * self.out_channels, self.in_channels // self.groups) + self.kernel_size
         weight = weight.view(new_weight_shape)
         bias = None
         if self.bias is not None:
@@ -565,13 +537,10 @@ class CondConv2d(nn.Module):
             bias = bias.view(B * self.out_channels)
         x = x.view(1, B * C, H, W)
         if self.dynamic_padding:
-            out = conv2d_same(x, weight, bias, stride=self.stride, padding=
-                self.padding, dilation=self.dilation, groups=self.groups * B)
+            out = conv2d_same(x, weight, bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups * B)
         else:
-            out = F.conv2d(x, weight, bias, stride=self.stride, padding=
-                self.padding, dilation=self.dilation, groups=self.groups * B)
-        out = out.permute([1, 0, 2, 3]).view(B, self.out_channels, out.
-            shape[-2], out.shape[-1])
+            out = F.conv2d(x, weight, bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups * B)
+        out = out.permute([1, 0, 2, 3]).view(B, self.out_channels, out.shape[-2], out.shape[-1])
         return out
 
 
@@ -589,12 +558,10 @@ def sigmoid(x, inplace: bool=False):
 
 class SqueezeExcite(nn.Module):
 
-    def __init__(self, in_chs, se_ratio=0.25, reduced_base_chs=None,
-        act_layer=nn.ReLU, gate_fn=sigmoid, divisor=1):
+    def __init__(self, in_chs, se_ratio=0.25, reduced_base_chs=None, act_layer=nn.ReLU, gate_fn=sigmoid, divisor=1):
         super(SqueezeExcite, self).__init__()
         self.gate_fn = gate_fn
-        reduced_chs = make_divisible((reduced_base_chs or in_chs) *
-            se_ratio, divisor)
+        reduced_chs = make_divisible((reduced_base_chs or in_chs) * se_ratio, divisor)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.conv_reduce = nn.Conv2d(in_chs, reduced_chs, 1, bias=True)
         self.act1 = act_layer(inplace=True)
@@ -618,23 +585,19 @@ def select_conv2d(in_chs, out_chs, kernel_size, **kwargs):
         depthwise = kwargs.pop('depthwise', False)
         groups = out_chs if depthwise else 1
         if 'num_experts' in kwargs and kwargs['num_experts'] > 0:
-            m = CondConv2d(in_chs, out_chs, kernel_size, groups=groups, **
-                kwargs)
+            m = CondConv2d(in_chs, out_chs, kernel_size, groups=groups, **kwargs)
         else:
-            m = create_conv2d_pad(in_chs, out_chs, kernel_size, groups=
-                groups, **kwargs)
+            m = create_conv2d_pad(in_chs, out_chs, kernel_size, groups=groups, **kwargs)
     return m
 
 
 class ConvBnAct(nn.Module):
 
-    def __init__(self, in_chs, out_chs, kernel_size, stride=1, pad_type='',
-        act_layer=nn.ReLU, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
+    def __init__(self, in_chs, out_chs, kernel_size, stride=1, pad_type='', act_layer=nn.ReLU, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
         super(ConvBnAct, self).__init__()
         assert stride in [1, 2]
         norm_kwargs = norm_kwargs or {}
-        self.conv = select_conv2d(in_chs, out_chs, kernel_size, stride=
-            stride, padding=pad_type)
+        self.conv = select_conv2d(in_chs, out_chs, kernel_size, stride=stride, padding=pad_type)
         self.bn1 = norm_layer(out_chs, **norm_kwargs)
         self.act1 = act_layer(inplace=True)
 
@@ -650,15 +613,13 @@ def drop_connect(inputs, training: bool=False, drop_connect_rate: float=0.0):
     if not training:
         return inputs
     keep_prob = 1 - drop_connect_rate
-    random_tensor = keep_prob + torch.rand((inputs.size()[0], 1, 1, 1),
-        dtype=inputs.dtype, device=inputs.device)
+    random_tensor = keep_prob + torch.rand((inputs.size()[0], 1, 1, 1), dtype=inputs.dtype, device=inputs.device)
     random_tensor.floor_()
     output = inputs.div(keep_prob) * random_tensor
     return output
 
 
-_SE_ARGS_DEFAULT = dict(gate_fn=sigmoid, act_layer=None, reduce_mid=False,
-    divisor=1)
+_SE_ARGS_DEFAULT = dict(gate_fn=sigmoid, act_layer=None, reduce_mid=False, divisor=1)
 
 
 def resolve_se_args(kwargs, in_chs, act_layer=None):
@@ -679,17 +640,13 @@ class DepthwiseSeparableConv(nn.Module):
     factor of 1.0. This is an alternative to having a IR with optional first pw conv.
     """
 
-    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1,
-        pad_type='', act_layer=nn.ReLU, noskip=False, pw_kernel_size=1,
-        pw_act=False, se_ratio=0.0, se_kwargs=None, norm_layer=nn.
-        BatchNorm2d, norm_kwargs=None, drop_connect_rate=0.0):
+    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_layer=nn.ReLU, noskip=False, pw_kernel_size=1, pw_act=False, se_ratio=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, drop_connect_rate=0.0):
         super(DepthwiseSeparableConv, self).__init__()
         assert stride in [1, 2]
         norm_kwargs = norm_kwargs or {}
         self.has_residual = (stride == 1 and in_chs == out_chs) and not noskip
         self.drop_connect_rate = drop_connect_rate
-        self.conv_dw = select_conv2d(in_chs, in_chs, dw_kernel_size, stride
-            =stride, padding=pad_type, depthwise=True)
+        self.conv_dw = select_conv2d(in_chs, in_chs, dw_kernel_size, stride=stride, padding=pad_type, depthwise=True)
         self.bn1 = norm_layer(in_chs, **norm_kwargs)
         self.act1 = act_layer(inplace=True)
         if se_ratio is not None and se_ratio > 0.0:
@@ -697,8 +654,7 @@ class DepthwiseSeparableConv(nn.Module):
             self.se = SqueezeExcite(in_chs, se_ratio=se_ratio, **se_kwargs)
         else:
             self.se = nn.Identity()
-        self.conv_pw = select_conv2d(in_chs, out_chs, pw_kernel_size,
-            padding=pad_type)
+        self.conv_pw = select_conv2d(in_chs, out_chs, pw_kernel_size, padding=pad_type)
         self.bn2 = norm_layer(out_chs, **norm_kwargs)
         self.act2 = act_layer(inplace=True) if pw_act else nn.Identity()
 
@@ -721,23 +677,17 @@ class DepthwiseSeparableConv(nn.Module):
 class InvertedResidual(nn.Module):
     """ Inverted residual block w/ optional SE"""
 
-    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1,
-        pad_type='', act_layer=nn.ReLU, noskip=False, exp_ratio=1.0,
-        exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None,
-        norm_layer=nn.BatchNorm2d, norm_kwargs=None, conv_kwargs=None,
-        drop_connect_rate=0.0):
+    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_layer=nn.ReLU, noskip=False, exp_ratio=1.0, exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, conv_kwargs=None, drop_connect_rate=0.0):
         super(InvertedResidual, self).__init__()
         norm_kwargs = norm_kwargs or {}
         conv_kwargs = conv_kwargs or {}
         mid_chs: int = make_divisible(in_chs * exp_ratio)
         self.has_residual = (in_chs == out_chs and stride == 1) and not noskip
         self.drop_connect_rate = drop_connect_rate
-        self.conv_pw = select_conv2d(in_chs, mid_chs, exp_kernel_size,
-            padding=pad_type, **conv_kwargs)
+        self.conv_pw = select_conv2d(in_chs, mid_chs, exp_kernel_size, padding=pad_type, **conv_kwargs)
         self.bn1 = norm_layer(mid_chs, **norm_kwargs)
         self.act1 = act_layer(inplace=True)
-        self.conv_dw = select_conv2d(mid_chs, mid_chs, dw_kernel_size,
-            stride=stride, padding=pad_type, depthwise=True, **conv_kwargs)
+        self.conv_dw = select_conv2d(mid_chs, mid_chs, dw_kernel_size, stride=stride, padding=pad_type, depthwise=True, **conv_kwargs)
         self.bn2 = norm_layer(mid_chs, **norm_kwargs)
         self.act2 = act_layer(inplace=True)
         if se_ratio is not None and se_ratio > 0.0:
@@ -745,8 +695,7 @@ class InvertedResidual(nn.Module):
             self.se = SqueezeExcite(mid_chs, se_ratio=se_ratio, **se_kwargs)
         else:
             self.se = nn.Identity()
-        self.conv_pwl = select_conv2d(mid_chs, out_chs, pw_kernel_size,
-            padding=pad_type, **conv_kwargs)
+        self.conv_pwl = select_conv2d(mid_chs, out_chs, pw_kernel_size, padding=pad_type, **conv_kwargs)
         self.bn3 = norm_layer(out_chs, **norm_kwargs)
 
     def forward(self, x):
@@ -770,18 +719,13 @@ class InvertedResidual(nn.Module):
 class EdgeResidual(nn.Module):
     """ EdgeTPU Residual block with expansion convolution followed by pointwise-linear w/ stride"""
 
-    def __init__(self, in_chs, out_chs, exp_kernel_size=3, exp_ratio=1.0,
-        fake_in_chs=0, stride=1, pad_type='', act_layer=nn.ReLU, noskip=
-        False, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None, norm_layer=
-        nn.BatchNorm2d, norm_kwargs=None, drop_connect_rate=0.0):
+    def __init__(self, in_chs, out_chs, exp_kernel_size=3, exp_ratio=1.0, fake_in_chs=0, stride=1, pad_type='', act_layer=nn.ReLU, noskip=False, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, drop_connect_rate=0.0):
         super(EdgeResidual, self).__init__()
         norm_kwargs = norm_kwargs or {}
-        mid_chs = make_divisible(fake_in_chs * exp_ratio
-            ) if fake_in_chs > 0 else make_divisible(in_chs * exp_ratio)
+        mid_chs = make_divisible(fake_in_chs * exp_ratio) if fake_in_chs > 0 else make_divisible(in_chs * exp_ratio)
         self.has_residual = (in_chs == out_chs and stride == 1) and not noskip
         self.drop_connect_rate = drop_connect_rate
-        self.conv_exp = select_conv2d(in_chs, mid_chs, exp_kernel_size,
-            padding=pad_type)
+        self.conv_exp = select_conv2d(in_chs, mid_chs, exp_kernel_size, padding=pad_type)
         self.bn1 = norm_layer(mid_chs, **norm_kwargs)
         self.act1 = act_layer(inplace=True)
         if se_ratio is not None and se_ratio > 0.0:
@@ -789,8 +733,7 @@ class EdgeResidual(nn.Module):
             self.se = SqueezeExcite(mid_chs, se_ratio=se_ratio, **se_kwargs)
         else:
             self.se = nn.Identity()
-        self.conv_pwl = select_conv2d(mid_chs, out_chs, pw_kernel_size,
-            stride=stride, padding=pad_type)
+        self.conv_pwl = select_conv2d(mid_chs, out_chs, pw_kernel_size, stride=stride, padding=pad_type)
         self.bn2 = nn.BatchNorm2d(out_chs, **norm_kwargs)
 
     def forward(self, x):
@@ -811,20 +754,10 @@ class EdgeResidual(nn.Module):
 class CondConvResidual(InvertedResidual):
     """ Inverted residual block w/ CondConv routing"""
 
-    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1,
-        pad_type='', act_layer=nn.ReLU, noskip=False, exp_ratio=1.0,
-        exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None,
-        norm_layer=nn.BatchNorm2d, norm_kwargs=None, num_experts=0,
-        drop_connect_rate=0.0):
+    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_layer=nn.ReLU, noskip=False, exp_ratio=1.0, exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, num_experts=0, drop_connect_rate=0.0):
         self.num_experts = num_experts
         conv_kwargs = dict(num_experts=self.num_experts)
-        super(CondConvResidual, self).__init__(in_chs, out_chs,
-            dw_kernel_size=dw_kernel_size, stride=stride, pad_type=pad_type,
-            act_layer=act_layer, noskip=noskip, exp_ratio=exp_ratio,
-            exp_kernel_size=exp_kernel_size, pw_kernel_size=pw_kernel_size,
-            se_ratio=se_ratio, se_kwargs=se_kwargs, norm_layer=norm_layer,
-            norm_kwargs=norm_kwargs, conv_kwargs=conv_kwargs,
-            drop_connect_rate=drop_connect_rate)
+        super(CondConvResidual, self).__init__(in_chs, out_chs, dw_kernel_size=dw_kernel_size, stride=stride, pad_type=pad_type, act_layer=act_layer, noskip=noskip, exp_ratio=exp_ratio, exp_kernel_size=exp_kernel_size, pw_kernel_size=pw_kernel_size, se_ratio=se_ratio, se_kwargs=se_kwargs, norm_layer=norm_layer, norm_kwargs=norm_kwargs, conv_kwargs=conv_kwargs, drop_connect_rate=drop_connect_rate)
         self.routing_fn = nn.Linear(in_chs, self.num_experts)
 
     def forward(self, x):
@@ -865,9 +798,7 @@ class EfficientNetBuilder:
 
     """
 
-    def __init__(self, channel_multiplier=1.0, channel_divisor=8,
-        channel_min=None, pad_type='', act_layer=None, se_kwargs=None,
-        norm_layer=nn.BatchNorm2d, norm_kwargs=None, drop_connect_rate=0.0):
+    def __init__(self, channel_multiplier=1.0, channel_divisor=8, channel_min=None, pad_type='', act_layer=None, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, drop_connect_rate=0.0):
         self.channel_multiplier = channel_multiplier
         self.channel_divisor = channel_divisor
         self.channel_min = channel_min
@@ -882,8 +813,7 @@ class EfficientNetBuilder:
         self.block_count = 0
 
     def _round_channels(self, chs):
-        return round_channels(chs, self.channel_multiplier, self.
-            channel_divisor, self.channel_min)
+        return round_channels(chs, self.channel_multiplier, self.channel_divisor, self.channel_min)
 
     def _make_block(self, ba):
         bt = ba.pop('block_type')
@@ -894,25 +824,21 @@ class EfficientNetBuilder:
         ba['norm_layer'] = self.norm_layer
         ba['norm_kwargs'] = self.norm_kwargs
         ba['pad_type'] = self.pad_type
-        ba['act_layer'] = ba['act_layer'] if ba['act_layer'
-            ] is not None else self.act_layer
+        ba['act_layer'] = ba['act_layer'] if ba['act_layer'] is not None else self.act_layer
         assert ba['act_layer'] is not None
         if bt == 'ir':
-            ba['drop_connect_rate'
-                ] = self.drop_connect_rate * self.block_idx / self.block_count
+            ba['drop_connect_rate'] = self.drop_connect_rate * self.block_idx / self.block_count
             ba['se_kwargs'] = self.se_kwargs
             if ba.get('num_experts', 0) > 0:
                 block = CondConvResidual(**ba)
             else:
                 block = InvertedResidual(**ba)
         elif bt == 'ds' or bt == 'dsa':
-            ba['drop_connect_rate'
-                ] = self.drop_connect_rate * self.block_idx / self.block_count
+            ba['drop_connect_rate'] = self.drop_connect_rate * self.block_idx / self.block_count
             ba['se_kwargs'] = self.se_kwargs
             block = DepthwiseSeparableConv(**ba)
         elif bt == 'er':
-            ba['drop_connect_rate'
-                ] = self.drop_connect_rate * self.block_idx / self.block_count
+            ba['drop_connect_rate'] = self.drop_connect_rate * self.block_idx / self.block_count
             ba['se_kwargs'] = self.se_kwargs
             block = EdgeResidual(**ba)
         elif bt == 'cn':
@@ -954,9 +880,7 @@ class EfficientNetBuilder:
 
 def initialize_weight_default(m, n=''):
     if isinstance(m, CondConv2d):
-        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_,
-            mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape
-            )
+        init_fn = get_condconv_initializer(partial(nn.init.kaiming_normal_, mode='fan_out', nonlinearity='relu'), m.num_experts, m.weight_shape)
         init_fn(m.weight)
     elif isinstance(m, nn.Conv2d):
         nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -964,8 +888,7 @@ def initialize_weight_default(m, n=''):
         m.weight.data.fill_(1.0)
         m.bias.data.zero_()
     elif isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear'
-            )
+        nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear')
 
 
 def initialize_weight_goog(m, n='', fix_group_fanout=True):
@@ -973,8 +896,7 @@ def initialize_weight_goog(m, n='', fix_group_fanout=True):
         fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
         if fix_group_fanout:
             fan_out //= m.groups
-        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(
-            0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
+        init_weight_fn = get_condconv_initializer(lambda w: w.data.normal_(0, math.sqrt(2.0 / fan_out)), m.num_experts, m.weight_shape)
         init_weight_fn(m.weight)
         if m.bias is not None:
             m.bias.data.zero_()
@@ -1009,28 +931,19 @@ class GenEfficientNet(nn.Module):
       * Single-Path NAS Pixel1
     """
 
-    def __init__(self, block_args, num_classes=1000, in_chans=3,
-        num_features=1280, stem_size=32, fix_stem=False, channel_multiplier
-        =1.0, channel_divisor=8, channel_min=None, pad_type='', act_layer=
-        nn.ReLU, drop_rate=0.0, drop_connect_rate=0.0, se_kwargs=None,
-        norm_layer=nn.BatchNorm2d, norm_kwargs=None, weight_init='goog'):
+    def __init__(self, block_args, num_classes=1000, in_chans=3, num_features=1280, stem_size=32, fix_stem=False, channel_multiplier=1.0, channel_divisor=8, channel_min=None, pad_type='', act_layer=nn.ReLU, drop_rate=0.0, drop_connect_rate=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, weight_init='goog'):
         super(GenEfficientNet, self).__init__()
         self.drop_rate = drop_rate
         if not fix_stem:
-            stem_size = round_channels(stem_size, channel_multiplier,
-                channel_divisor, channel_min)
-        self.conv_stem = select_conv2d(in_chans, stem_size, 3, stride=2,
-            padding=pad_type)
+            stem_size = round_channels(stem_size, channel_multiplier, channel_divisor, channel_min)
+        self.conv_stem = select_conv2d(in_chans, stem_size, 3, stride=2, padding=pad_type)
         self.bn1 = norm_layer(stem_size, **norm_kwargs)
         self.act1 = act_layer(inplace=True)
         in_chs = stem_size
-        builder = EfficientNetBuilder(channel_multiplier, channel_divisor,
-            channel_min, pad_type, act_layer, se_kwargs, norm_layer,
-            norm_kwargs, drop_connect_rate)
+        builder = EfficientNetBuilder(channel_multiplier, channel_divisor, channel_min, pad_type, act_layer, se_kwargs, norm_layer, norm_kwargs, drop_connect_rate)
         self.blocks = nn.Sequential(*builder(in_chs, block_args))
         in_chs = builder.in_chs
-        self.conv_head = select_conv2d(in_chs, num_features, 1, padding=
-            pad_type)
+        self.conv_head = select_conv2d(in_chs, num_features, 1, padding=pad_type)
         self.bn2 = norm_layer(num_features, **norm_kwargs)
         self.act2 = act_layer(inplace=True)
         self.global_pool = nn.AdaptiveAvgPool2d(1)
@@ -1054,9 +967,7 @@ class GenEfficientNet(nn.Module):
     def as_sequential(self):
         layers = [self.conv_stem, self.bn1, self.act1]
         layers.extend(self.blocks)
-        layers.extend([self.conv_head, self.bn2, self.act2, self.
-            global_pool, nn.Flatten(), nn.Dropout(self.drop_rate), self.
-            classifier])
+        layers.extend([self.conv_head, self.bn2, self.act2, self.global_pool, nn.Flatten(), nn.Dropout(self.drop_rate), self.classifier])
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1077,27 +988,19 @@ class MobileNetV3(nn.Module):
     Paper: https://arxiv.org/abs/1905.02244
     """
 
-    def __init__(self, block_args, num_classes=1000, in_chans=3, stem_size=
-        16, num_features=1280, head_bias=True, channel_multiplier=1.0,
-        pad_type='', act_layer=HardSwish, drop_rate=0.0, drop_connect_rate=
-        0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None,
-        weight_init='goog'):
+    def __init__(self, block_args, num_classes=1000, in_chans=3, stem_size=16, num_features=1280, head_bias=True, channel_multiplier=1.0, pad_type='', act_layer=HardSwish, drop_rate=0.0, drop_connect_rate=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, weight_init='goog'):
         super(MobileNetV3, self).__init__()
         self.drop_rate = drop_rate
         stem_size = round_channels(stem_size, channel_multiplier)
-        self.conv_stem = select_conv2d(in_chans, stem_size, 3, stride=2,
-            padding=pad_type)
+        self.conv_stem = select_conv2d(in_chans, stem_size, 3, stride=2, padding=pad_type)
         self.bn1 = nn.BatchNorm2d(stem_size, **norm_kwargs)
         self.act1 = act_layer(inplace=True)
         in_chs = stem_size
-        builder = EfficientNetBuilder(channel_multiplier, pad_type=pad_type,
-            act_layer=act_layer, se_kwargs=se_kwargs, norm_layer=norm_layer,
-            norm_kwargs=norm_kwargs, drop_connect_rate=drop_connect_rate)
+        builder = EfficientNetBuilder(channel_multiplier, pad_type=pad_type, act_layer=act_layer, se_kwargs=se_kwargs, norm_layer=norm_layer, norm_kwargs=norm_kwargs, drop_connect_rate=drop_connect_rate)
         self.blocks = nn.Sequential(*builder(in_chs, block_args))
         in_chs = builder.in_chs
         self.global_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_head = select_conv2d(in_chs, num_features, 1, padding=
-            pad_type, bias=head_bias)
+        self.conv_head = select_conv2d(in_chs, num_features, 1, padding=pad_type, bias=head_bias)
         self.act2 = act_layer(inplace=True)
         self.classifier = nn.Linear(num_features, num_classes)
         for m in self.modules():
@@ -1109,8 +1012,7 @@ class MobileNetV3(nn.Module):
     def as_sequential(self):
         layers = [self.conv_stem, self.bn1, self.act1]
         layers.extend(self.blocks)
-        layers.extend([self.global_pool, self.conv_head, self.act2, nn.
-            Flatten(), nn.Dropout(self.drop_rate), self.classifier])
+        layers.extend([self.global_pool, self.conv_head, self.act2, nn.Flatten(), nn.Dropout(self.drop_rate), self.classifier])
         return nn.Sequential(*layers)
 
     def features(self, x):
@@ -1135,66 +1037,142 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CondConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (Conv2dSame,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv2dSameExport,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBnAct,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DepthwiseSeparableConv,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EdgeResidual,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HardSigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HardSwish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MishAuto,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MishJit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MixedConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Sigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SqueezeExcite,
+     lambda: ([], {'in_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SwishAuto,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SwishJit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Tanh,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_rwightman_gen_efficientnet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CondConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Conv2dSameExport(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ConvBnAct(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DepthwiseSeparableConv(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(EdgeResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(InvertedResidual(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Mish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(MishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(MishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(MixedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(SqueezeExcite(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(SwishAuto(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(SwishJit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 

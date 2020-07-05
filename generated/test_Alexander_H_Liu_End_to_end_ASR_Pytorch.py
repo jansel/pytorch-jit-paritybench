@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -120,8 +121,7 @@ def init_weights(module):
 class ASR(nn.Module):
     """ ASR model, including Encoder/Decoder(s)"""
 
-    def __init__(self, input_size, vocab_size, init_adadelta, ctc_weight,
-        encoder, attention, decoder, emb_drop=0.0):
+    def __init__(self, input_size, vocab_size, init_adadelta, ctc_weight, encoder, attention, decoder, emb_drop=0.0):
         super(ASR, self).__init__()
         assert 0 <= ctc_weight <= 1
         self.vocab_size = vocab_size
@@ -136,11 +136,9 @@ class ASR(nn.Module):
             self.dec_dim = decoder['dim']
             self.pre_embed = nn.Embedding(vocab_size, self.dec_dim)
             self.embed_drop = nn.Dropout(emb_drop)
-            self.decoder = Decoder(self.encoder.out_dim + self.dec_dim,
-                vocab_size, **decoder)
+            self.decoder = Decoder(self.encoder.out_dim + self.dec_dim, vocab_size, **decoder)
             query_dim = self.dec_dim * self.decoder.layer
-            self.attention = Attention(self.encoder.out_dim, query_dim, **
-                attention)
+            self.attention = Attention(self.encoder.out_dim, query_dim, **attention)
         if init_adadelta:
             self.apply(init_weights)
             for l in range(self.decoder.layer):
@@ -154,29 +152,18 @@ class ASR(nn.Module):
 
     def create_msg(self):
         msg = []
-        msg.append(
-            "Model spec.| Encoder's downsampling rate of time axis is {}.".
-            format(self.encoder.sample_rate))
+        msg.append("Model spec.| Encoder's downsampling rate of time axis is {}.".format(self.encoder.sample_rate))
         if self.encoder.vgg:
-            msg.append(
-                '           | VGG Extractor w/ time downsampling rate = 4 in encoder enabled.'
-                )
+            msg.append('           | VGG Extractor w/ time downsampling rate = 4 in encoder enabled.')
         if self.encoder.cnn:
-            msg.append(
-                '           | CNN Extractor w/ time downsampling rate = 4 in encoder enabled.'
-                )
+            msg.append('           | CNN Extractor w/ time downsampling rate = 4 in encoder enabled.')
         if self.enable_ctc:
-            msg.append(
-                '           | CTC training on encoder enabled ( lambda = {}).'
-                .format(self.ctc_weight))
+            msg.append('           | CTC training on encoder enabled ( lambda = {}).'.format(self.ctc_weight))
         if self.enable_att:
-            msg.append(
-                '           | {} attention decoder enabled ( lambda = {}).'
-                .format(self.attention.mode, 1 - self.ctc_weight))
+            msg.append('           | {} attention decoder enabled ( lambda = {}).'.format(self.attention.mode, 1 - self.ctc_weight))
         return msg
 
-    def forward(self, audio_feature, feature_len, decode_step, tf_rate=0.0,
-        teacher=None, emb_decoder=None, get_dec_state=False):
+    def forward(self, audio_feature, feature_len, decode_step, tf_rate=0.0, teacher=None, emb_decoder=None, get_dec_state=False):
         """
         Arguments
             audio_feature - [BxTxD] Acoustic feature with shape 
@@ -198,14 +185,12 @@ class ASR(nn.Module):
         if self.enable_att:
             self.decoder.init_state(bs)
             self.attention.reset_mem()
-            last_char = self.pre_embed(torch.zeros(bs, dtype=torch.long,
-                device=encode_feature.device))
+            last_char = self.pre_embed(torch.zeros(bs, dtype=torch.long, device=encode_feature.device))
             att_seq, output_seq = [], []
             if teacher is not None:
                 teacher = self.embed_drop(self.pre_embed(teacher))
             for t in range(decode_step):
-                attn, context = self.attention(self.decoder.get_query(),
-                    encode_feature, encode_len)
+                attn, context = self.attention(self.decoder.get_query(), encode_feature, encode_len)
                 decoder_input = torch.cat([last_char, context], dim=-1)
                 cur_char, d_state = self.decoder(decoder_input)
                 if teacher is not None:
@@ -213,19 +198,15 @@ class ASR(nn.Module):
                         last_char = teacher[:, (t), :]
                     else:
                         with torch.no_grad():
-                            if (emb_decoder is not None and emb_decoder.
-                                apply_fuse):
-                                _, cur_prob = emb_decoder(d_state, cur_char,
-                                    return_loss=False)
+                            if emb_decoder is not None and emb_decoder.apply_fuse:
+                                _, cur_prob = emb_decoder(d_state, cur_char, return_loss=False)
                             else:
                                 cur_prob = cur_char.softmax(dim=-1)
                             sampled_char = Categorical(cur_prob).sample()
-                        last_char = self.embed_drop(self.pre_embed(
-                            sampled_char))
+                        last_char = self.embed_drop(self.pre_embed(sampled_char))
                 else:
                     if emb_decoder is not None and emb_decoder.apply_fuse:
-                        _, cur_char = emb_decoder(d_state, cur_char,
-                            return_loss=False)
+                        _, cur_char = emb_decoder(d_state, cur_char, return_loss=False)
                     last_char = self.pre_embed(torch.argmax(cur_char, dim=-1))
                 output_seq.append(cur_char)
                 att_seq.append(attn)
@@ -250,8 +231,7 @@ class Decoder(nn.Module):
         assert module in ['LSTM', 'GRU'], NotImplementedError
         self.hidden_state = None
         self.enable_cell = module == 'LSTM'
-        self.layers = getattr(nn, module)(input_dim, dim, num_layers=layer,
-            dropout=dropout, batch_first=True)
+        self.layers = getattr(nn, module)(input_dim, dim, num_layers=layer, dropout=dropout, batch_first=True)
         self.char_trans = nn.Linear(dim, vocab_size)
         self.final_dropout = nn.Dropout(dropout)
 
@@ -259,12 +239,9 @@ class Decoder(nn.Module):
         """ Set all hidden states to zeros """
         device = next(self.parameters()).device
         if self.enable_cell:
-            self.hidden_state = torch.zeros((self.layer, bs, self.dim),
-                device=device), torch.zeros((self.layer, bs, self.dim),
-                device=device)
+            self.hidden_state = torch.zeros((self.layer, bs, self.dim), device=device), torch.zeros((self.layer, bs, self.dim), device=device)
         else:
-            self.hidden_state = torch.zeros((self.layer, bs, self.dim),
-                device=device)
+            self.hidden_state = torch.zeros((self.layer, bs, self.dim), device=device)
         return self.get_state()
 
     def set_state(self, hidden_state):
@@ -285,11 +262,9 @@ class Decoder(nn.Module):
     def get_query(self):
         """ Return state of all layers as query for attention """
         if self.enable_cell:
-            return self.hidden_state[0].transpose(0, 1).reshape(-1, self.
-                dim * self.layer)
+            return self.hidden_state[0].transpose(0, 1).reshape(-1, self.dim * self.layer)
         else:
-            return self.hidden_state.transpose(0, 1).reshape(-1, self.dim *
-                self.layer)
+            return self.hidden_state.transpose(0, 1).reshape(-1, self.dim * self.layer)
 
     def forward(self, x):
         """ Decode and transform into vocab """
@@ -310,8 +285,7 @@ class Attention(nn.Module):
                 Context vector                     with shape [batch size, encoder feature dimension]
                 (i.e. weighted (by attention score) sum of all timesteps T's feature) """
 
-    def __init__(self, v_dim, q_dim, mode, dim, num_head, temperature,
-        v_proj, loc_kernel_size, loc_kernel_num):
+    def __init__(self, v_dim, q_dim, mode, dim, num_head, temperature, v_proj, loc_kernel_size, loc_kernel_num):
         super(Attention, self).__init__()
         self.v_dim = v_dim
         self.dim = dim
@@ -325,8 +299,7 @@ class Attention(nn.Module):
         if self.mode == 'dot':
             self.att_layer = ScaleDotAttention(temperature, self.num_head)
         elif self.mode == 'loc':
-            self.att_layer = LocationAwareAttention(loc_kernel_size,
-                loc_kernel_num, dim, num_head, temperature)
+            self.att_layer = LocationAwareAttention(loc_kernel_size, loc_kernel_num, dim, num_head, temperature)
         else:
             raise NotImplementedError
         if self.num_head > 1:
@@ -347,23 +320,17 @@ class Attention(nn.Module):
     def forward(self, dec_state, enc_feat, enc_len):
         bs, ts, _ = enc_feat.shape
         query = torch.tanh(self.proj_q(dec_state))
-        query = query.view(bs, self.num_head, self.dim).view(bs * self.
-            num_head, self.dim)
+        query = query.view(bs, self.num_head, self.dim).view(bs * self.num_head, self.dim)
         if self.key is None:
             self.att_layer.compute_mask(enc_feat, enc_len)
             self.key = torch.tanh(self.proj_k(enc_feat))
-            self.value = torch.tanh(self.proj_v(enc_feat)
-                ) if self.v_proj else enc_feat
+            self.value = torch.tanh(self.proj_v(enc_feat)) if self.v_proj else enc_feat
             if self.num_head > 1:
-                self.key = self.key.view(bs, ts, self.num_head, self.dim
-                    ).permute(0, 2, 1, 3)
-                self.key = self.key.contiguous().view(bs * self.num_head,
-                    ts, self.dim)
+                self.key = self.key.view(bs, ts, self.num_head, self.dim).permute(0, 2, 1, 3)
+                self.key = self.key.contiguous().view(bs * self.num_head, ts, self.dim)
                 if self.v_proj:
-                    self.value = self.value.view(bs, ts, self.num_head,
-                        self.v_dim).permute(0, 2, 1, 3)
-                    self.value = self.value.contiguous().view(bs * self.
-                        num_head, ts, self.v_dim)
+                    self.value = self.value.view(bs, ts, self.num_head, self.v_dim).permute(0, 2, 1, 3)
+                    self.value = self.value.contiguous().view(bs * self.num_head, ts, self.v_dim)
                 else:
                     self.value = self.value.repeat(self.num_head, 1, 1)
         context, attn = self.att_layer(query, self.key, self.value)
@@ -377,8 +344,7 @@ class Encoder(nn.Module):
     """ Encoder (a.k.a. Listener in LAS)
         Encodes acoustic feature to latent representation, see config file for more details."""
 
-    def __init__(self, input_size, prenet, module, bidirection, dim,
-        dropout, layer_norm, proj, sample_rate, sample_style):
+    def __init__(self, input_size, prenet, module, bidirection, dim, dropout, layer_norm, proj, sample_rate, sample_style):
         super(Encoder, self).__init__()
         self.vgg = prenet == 'vgg'
         self.cnn = prenet == 'cnn'
@@ -401,9 +367,7 @@ class Encoder(nn.Module):
             self.sample_rate = self.sample_rate * 4
         if module in ['LSTM', 'GRU']:
             for l in range(num_layers):
-                module_list.append(RNNLayer(input_dim, module, dim[l],
-                    bidirection, dropout[l], layer_norm[l], sample_rate[l],
-                    sample_style, proj[l]))
+                module_list.append(RNNLayer(input_dim, module, dim[l], bidirection, dropout[l], layer_norm[l], sample_rate[l], sample_style, proj[l]))
                 input_dim = module_list[-1].out_dim
                 self.sample_rate = self.sample_rate * sample_rate[l]
         else:
@@ -424,8 +388,7 @@ class CMVN(torch.jit.ScriptModule):
     def __init__(self, mode='global', dim=2, eps=1e-10):
         super(CMVN, self).__init__()
         if mode != 'global':
-            raise NotImplementedError(
-                'Only support global mean variance normalization.')
+            raise NotImplementedError('Only support global mean variance normalization.')
         self.mode = mode
         self.dim = dim
         self.eps = eps
@@ -433,8 +396,7 @@ class CMVN(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(self, x):
         if self.mode == 'global':
-            return (x - x.mean(self.dim, keepdim=True)) / (self.eps + x.std
-                (self.dim, keepdim=True))
+            return (x - x.mean(self.dim, keepdim=True)) / (self.eps + x.std(self.dim, keepdim=True))
 
     def extra_repr(self):
         return 'mode={}, dim={}, eps={}'.format(self.mode, self.dim, self.eps)
@@ -466,8 +428,7 @@ class Delta(torch.jit.ScriptModule):
             for j in range(-window_size, window_size + 1):
                 normalizer += j * j
                 for k in range(-prev_offset, prev_offset + 1):
-                    curr[j + k + curr_offset] += j * scales[i - 1][k +
-                        prev_offset]
+                    curr[j + k + curr_offset] += j * scales[i - 1][k + prev_offset]
             curr = [(x / normalizer) for x in curr]
             scales.append(curr)
         max_len = len(scales[-1])
@@ -493,15 +454,13 @@ class ExtractAudioFeature(nn.Module):
     def __init__(self, mode='fbank', num_mel_bins=40, **kwargs):
         super(ExtractAudioFeature, self).__init__()
         self.mode = mode
-        self.extract_fn = (torchaudio.compliance.kaldi.fbank if mode ==
-            'fbank' else torchaudio.compliance.kaldi.mfcc)
+        self.extract_fn = torchaudio.compliance.kaldi.fbank if mode == 'fbank' else torchaudio.compliance.kaldi.mfcc
         self.num_mel_bins = num_mel_bins
         self.kwargs = kwargs
 
     def forward(self, filepath):
         waveform, sample_rate = torchaudio.load(filepath)
-        y = self.extract_fn(waveform, num_mel_bins=self.num_mel_bins,
-            channel=-1, sample_frequency=sample_rate, **self.kwargs)
+        y = self.extract_fn(waveform, num_mel_bins=self.num_mel_bins, channel=-1, sample_frequency=sample_rate, **self.kwargs)
         return y.transpose(0, 1).unsqueeze(0).detach()
 
     def extra_repr(self):
@@ -511,8 +470,7 @@ class ExtractAudioFeature(nn.Module):
 def generate_embedding(bert_model, labels):
     """Generate bert's embedding from fine-tuned model."""
     batch_size, time = labels.shape
-    cls_ids = torch.full((batch_size, 1), bert_model.bert_text_encoder.
-        cls_idx, dtype=labels.dtype, device=labels.device)
+    cls_ids = torch.full((batch_size, 1), bert_model.bert_text_encoder.cls_idx, dtype=labels.dtype, device=labels.device)
     bert_labels = torch.cat([cls_ids, labels], 1)
     eos_idx = bert_model.bert_text_encoder.eos_idx
     sep_idx = bert_model.bert_text_encoder.sep_idx
@@ -528,9 +486,7 @@ class BertLikeSentencePieceTextEncoder(object):
 
     def __init__(self, text_encoder):
         if not isinstance(text_encoder, text.SubwordTextEncoder):
-            raise TypeError(
-                '`text_encoder` must be an instance of `src.text.SubwordTextEncoder`.'
-                )
+            raise TypeError('`text_encoder` must be an instance of `src.text.SubwordTextEncoder`.')
         self.text_encoder = text_encoder
 
     @property
@@ -559,11 +515,9 @@ def load_fine_tuned_model(bert_model, text_encoder, path):
     bert_text_encoder = BertLikeSentencePieceTextEncoder(text_encoder)
     model = BertForMaskedLM.from_pretrained(bert_model)
     model.bert_text_encoder = bert_text_encoder
-    model.bert.embeddings.word_embeddings = nn.Embedding(bert_text_encoder.
-        vocab_size, model.bert.embeddings.word_embeddings.weight.shape[1])
+    model.bert.embeddings.word_embeddings = nn.Embedding(bert_text_encoder.vocab_size, model.bert.embeddings.word_embeddings.weight.shape[1])
     model.config.vocab_size = bert_text_encoder.vocab_size
-    model.cls = BertOnlyMLMHead(model.config, model.bert.embeddings.
-        word_embeddings.weight)
+    model.cls = BertOnlyMLMHead(model.config, model.bert.embeddings.word_embeddings.weight)
     model.load_state_dict(torch.load(path))
     return model
 
@@ -606,8 +560,7 @@ class CTCPrefixScore:
            This function computes all possible tokens for c (memory inefficient)"""
         prefix_length = len(g)
         last_char = g[-1] if prefix_length > 0 else 0
-        r = np.full((self.input_length, 2, self.odim), self.logzero, dtype=
-            np.float32)
+        r = np.full((self.input_length, 2, self.odim), self.logzero, dtype=np.float32)
         start = max(1, prefix_length)
         if prefix_length == 0:
             r[(0), (0), :] = self.x[(0), :]
@@ -615,14 +568,11 @@ class CTCPrefixScore:
         phi = np.logaddexp(r_prev[:, (0)], r_prev[:, (1)])
         for t in range(start, self.input_length):
             prev_blank = np.full(self.odim, r_prev[t - 1, 1], dtype=np.float32)
-            prev_nonblank = np.full(self.odim, r_prev[t - 1, 0], dtype=np.
-                float32)
+            prev_nonblank = np.full(self.odim, r_prev[t - 1, 0], dtype=np.float32)
             prev_nonblank[last_char] = self.logzero
             phi = np.logaddexp(prev_nonblank, prev_blank)
-            r[(t), (0), :] = np.logaddexp(r[(t - 1), (0), :], phi) + self.x[(
-                t), :]
-            r[(t), (1), :] = np.logaddexp(r[(t - 1), (1), :], r[(t - 1), (0
-                ), :]) + self.x[t, self.blank]
+            r[(t), (0), :] = np.logaddexp(r[(t - 1), (0), :], phi) + self.x[(t), :]
+            r[(t), (1), :] = np.logaddexp(r[(t - 1), (1), :], r[(t - 1), (0), :]) + self.x[t, self.blank]
             psi = np.logaddexp(psi, phi + self.x[(t), :])
         return psi, np.rollaxis(r, 2)
 
@@ -632,8 +582,7 @@ class CTCPrefixScore:
         prefix_length = len(g)
         odim = len(candidates)
         last_char = g[-1] if prefix_length > 0 else 0
-        r = np.full((self.input_length, 2, len(candidates)), self.logzero,
-            dtype=np.float32)
+        r = np.full((self.input_length, 2, len(candidates)), self.logzero, dtype=np.float32)
         start = max(1, prefix_length)
         if prefix_length == 0:
             r[(0), (0), :] = self.x[0, candidates]
@@ -643,10 +592,8 @@ class CTCPrefixScore:
         if prefix_length > 0 and last_char in candidates:
             phi[:, (candidates.index(last_char))] = r_prev[:, (1)]
         for t in range(start, self.input_length):
-            r[(t), (0), :] = np.logaddexp(r[(t - 1), (0), :], phi[t - 1]
-                ) + self.x[t, candidates]
-            r[(t), (1), :] = np.logaddexp(r[(t - 1), (1), :], r[(t - 1), (0
-                ), :]) + self.x[t, self.blank]
+            r[(t), (0), :] = np.logaddexp(r[(t - 1), (0), :], phi[t - 1]) + self.x[t, candidates]
+            r[(t), (1), :] = np.logaddexp(r[(t - 1), (1), :], r[(t - 1), (0), :]) + self.x[t, self.blank]
             psi = np.logaddexp(psi, phi[t - 1,] + self.x[t, candidates])
         if self.eos in candidates:
             psi[candidates.index(self.eos)] = sum_prev[-1]
@@ -661,8 +608,7 @@ class Hypothesis:
        Stores the history of label sequence & score 
        Stores the previous decoder state, ctc state, ctc score, lm state and attention map (if necessary)"""
 
-    def __init__(self, decoder_state, output_seq, output_scores, lm_state,
-        ctc_state, ctc_prob, att_map):
+    def __init__(self, decoder_state, output_seq, output_scores, lm_state, ctc_state, ctc_prob, att_map):
         assert len(output_seq) == len(output_scores)
         self.decoder_state = decoder_state
         self.att_map = att_map
@@ -682,8 +628,7 @@ class Hypothesis:
         assert len(self.output_scores) != 0
         return sum(self.output_scores) / len(self.output_scores)
 
-    def addTopk(self, topi, topv, decoder_state, att_map=None, lm_state=
-        None, ctc_state=None, ctc_prob=0.0, ctc_candidates=[]):
+    def addTopk(self, topi, topv, decoder_state, att_map=None, lm_state=None, ctc_state=None, ctc_prob=0.0, ctc_candidates=[]):
         """Expand current hypothesis with a given beam size"""
         new_hypothesis = []
         term_score = None
@@ -701,9 +646,7 @@ class Hypothesis:
                 idx = ctc_candidates.index(topi[i].item())
                 ctc_s = ctc_state[(idx), :, :]
                 ctc_p = ctc_prob[idx]
-            new_hypothesis.append(Hypothesis(decoder_state, output_seq=
-                idxes, output_scores=scores, lm_state=lm_state, ctc_state=
-                ctc_s, ctc_prob=ctc_p, att_map=att_map))
+            new_hypothesis.append(Hypothesis(decoder_state, output_seq=idxes, output_scores=scores, lm_state=lm_state, ctc_state=ctc_s, ctc_prob=ctc_p, att_map=att_map))
         if term_score is not None:
             self.output_seq.append(torch.tensor(1))
             self.output_scores.append(term_score)
@@ -720,8 +663,7 @@ class Hypothesis:
             lm_state = None
         else:
             lm_state = self.lm_state.to(device)
-        return (prev_token, self.decoder_state, att_map, lm_state, self.
-            ctc_state)
+        return prev_token, self.decoder_state, att_map, lm_state, self.ctc_state
 
     @property
     def outIndex(self):
@@ -734,9 +676,7 @@ LOG_ZERO = -10000000.0
 class BeamDecoder(nn.Module):
     """ Beam decoder for ASR """
 
-    def __init__(self, asr, emb_decoder, beam_size, min_len_ratio,
-        max_len_ratio, lm_path='', lm_config='', lm_weight=0.0, ctc_weight=0.0
-        ):
+    def __init__(self, asr, emb_decoder, beam_size, min_len_ratio, max_len_ratio, lm_path='', lm_config='', lm_weight=0.0, ctc_weight=0.0):
         super().__init__()
         self.beam_size = beam_size
         self.min_len_ratio = min_len_ratio
@@ -754,100 +694,70 @@ class BeamDecoder(nn.Module):
             self.lm_path = lm_path
             lm_config = yaml.load(open(lm_config, 'r'), Loader=yaml.FullLoader)
             self.lm = RNNLM(self.asr.vocab_size, **lm_config['model'])
-            self.lm.load_state_dict(torch.load(self.lm_path, map_location=
-                'cpu')['model'])
+            self.lm.load_state_dict(torch.load(self.lm_path, map_location='cpu')['model'])
             self.lm.eval()
         self.apply_emb = emb_decoder is not None
         if self.apply_emb:
             self.emb_decoder = emb_decoder
 
     def create_msg(self):
-        msg = ['Decode spec| Beam size = {}\t| Min/Max len ratio = {}/{}'.
-            format(self.beam_size, self.min_len_ratio, self.max_len_ratio)]
+        msg = ['Decode spec| Beam size = {}\t| Min/Max len ratio = {}/{}'.format(self.beam_size, self.min_len_ratio, self.max_len_ratio)]
         if self.apply_ctc:
-            msg.append(
-                '           |Joint CTC decoding enabled \t| weight = {:.2f}\t'
-                .format(self.ctc_w))
+            msg.append('           |Joint CTC decoding enabled \t| weight = {:.2f}\t'.format(self.ctc_w))
         if self.apply_lm:
-            msg.append(
-                '           |Joint LM decoding enabled \t| weight = {:.2f}\t| src = {}'
-                .format(self.lm_w, self.lm_path))
+            msg.append('           |Joint LM decoding enabled \t| weight = {:.2f}\t| src = {}'.format(self.lm_w, self.lm_path))
         if self.apply_emb:
-            msg.append(
-                '           |Joint Emb. decoding enabled \t| weight = {:.2f}'
-                .format(self.lm_w, self.emb_decoder.fuse_lambda.mean().cpu(
-                ).item()))
+            msg.append('           |Joint Emb. decoding enabled \t| weight = {:.2f}'.format(self.lm_w, self.emb_decoder.fuse_lambda.mean().cpu().item()))
         return msg
 
     def forward(self, audio_feature, feature_len):
-        assert audio_feature.shape[0
-            ] == 1, 'Batchsize == 1 is required for beam search'
+        assert audio_feature.shape[0] == 1, 'Batchsize == 1 is required for beam search'
         batch_size = audio_feature.shape[0]
         device = audio_feature.device
         dec_state = self.asr.decoder.init_state(batch_size)
         self.asr.attention.reset_mem()
-        max_output_len = int(np.ceil(feature_len.cpu().item() * self.
-            max_len_ratio))
-        min_output_len = int(np.ceil(feature_len.cpu().item() * self.
-            min_len_ratio))
+        max_output_len = int(np.ceil(feature_len.cpu().item() * self.max_len_ratio))
+        min_output_len = int(np.ceil(feature_len.cpu().item() * self.min_len_ratio))
         store_att = self.asr.attention.mode == 'loc'
-        prev_token = torch.zeros((batch_size, 1), dtype=torch.long, device=
-            device)
+        prev_token = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
         final_hypothesis, next_top_hypothesis = [], []
         ctc_state, ctc_prob, candidates, lm_state = None, None, None, None
-        encode_feature, encode_len = self.asr.encoder(audio_feature,
-            feature_len)
+        encode_feature, encode_len = self.asr.encoder(audio_feature, feature_len)
         if self.apply_ctc:
-            ctc_output = F.log_softmax(self.asr.ctc_layer(encode_feature),
-                dim=-1)
+            ctc_output = F.log_softmax(self.asr.ctc_layer(encode_feature), dim=-1)
             ctc_prefix = CTCPrefixScore(ctc_output)
             ctc_state = ctc_prefix.init_state()
-        prev_top_hypothesis = [Hypothesis(decoder_state=dec_state,
-            output_seq=[], output_scores=[], lm_state=None, ctc_prob=0,
-            ctc_state=ctc_state, att_map=None)]
+        prev_top_hypothesis = [Hypothesis(decoder_state=dec_state, output_seq=[], output_scores=[], lm_state=None, ctc_prob=0, ctc_state=ctc_state, att_map=None)]
         for t in range(max_output_len):
             for hypothesis in prev_top_hypothesis:
-                (prev_token, prev_dec_state, prev_attn, prev_lm_state,
-                    prev_ctc_state) = hypothesis.get_state(device)
+                prev_token, prev_dec_state, prev_attn, prev_lm_state, prev_ctc_state = hypothesis.get_state(device)
                 self.asr.set_state(prev_dec_state, prev_attn)
-                attn, context = self.asr.attention(self.asr.decoder.
-                    get_query(), encode_feature, encode_len)
+                attn, context = self.asr.attention(self.asr.decoder.get_query(), encode_feature, encode_len)
                 asr_prev_token = self.asr.pre_embed(prev_token)
                 decoder_input = torch.cat([asr_prev_token, context], dim=-1)
                 cur_prob, d_state = self.asr.decoder(decoder_input)
                 if self.apply_emb:
-                    _, cur_prob = self.emb_decoder(d_state, cur_prob,
-                        return_loss=False)
+                    _, cur_prob = self.emb_decoder(d_state, cur_prob, return_loss=False)
                 else:
                     cur_prob = F.log_softmax(cur_prob, dim=-1)
                 if self.apply_ctc:
-                    _, ctc_candidates = cur_prob.squeeze(0).topk(self.
-                        ctc_beam_size, dim=-1)
+                    _, ctc_candidates = cur_prob.squeeze(0).topk(self.ctc_beam_size, dim=-1)
                     candidates = ctc_candidates.cpu().tolist()
-                    ctc_prob, ctc_state = ctc_prefix.cheap_compute(hypothesis
-                        .outIndex, prev_ctc_state, candidates)
-                    ctc_char = torch.FloatTensor(ctc_prob - hypothesis.ctc_prob
-                        )
-                    hack_ctc_char = torch.zeros_like(cur_prob).data.fill_(
-                        LOG_ZERO)
+                    ctc_prob, ctc_state = ctc_prefix.cheap_compute(hypothesis.outIndex, prev_ctc_state, candidates)
+                    ctc_char = torch.FloatTensor(ctc_prob - hypothesis.ctc_prob)
+                    hack_ctc_char = torch.zeros_like(cur_prob).data.fill_(LOG_ZERO)
                     for idx, char in enumerate(candidates):
                         hack_ctc_char[0, char] = ctc_char[idx]
-                    cur_prob = (1 - self.ctc_w
-                        ) * cur_prob + self.ctc_w * hack_ctc_char
+                    cur_prob = (1 - self.ctc_w) * cur_prob + self.ctc_w * hack_ctc_char
                     cur_prob[0, 0] = LOG_ZERO
                 if self.apply_lm:
                     lm_input = prev_token.unsqueeze(1)
-                    lm_output, lm_state = self.lm(lm_input, torch.ones([
-                        batch_size]), hidden=prev_lm_state)
+                    lm_output, lm_state = self.lm(lm_input, torch.ones([batch_size]), hidden=prev_lm_state)
                     lm_output = lm_output.squeeze(0)
                     cur_prob += self.lm_w * lm_output.log_softmax(dim=-1)
                 topv, topi = cur_prob.squeeze(0).topk(self.beam_size)
-                prev_attn = self.asr.attention.att_layer.prev_att.cpu(
-                    ) if store_att else None
-                final, top = hypothesis.addTopk(topi, topv, self.asr.
-                    decoder.get_state(), att_map=prev_attn, lm_state=
-                    lm_state, ctc_state=ctc_state, ctc_prob=ctc_prob,
-                    ctc_candidates=candidates)
+                prev_attn = self.asr.attention.att_layer.prev_att.cpu() if store_att else None
+                final, top = hypothesis.addTopk(topi, topv, self.asr.decoder.get_state(), att_map=prev_attn, lm_state=lm_state, ctc_state=ctc_state, ctc_prob=ctc_prob, ctc_candidates=candidates)
                 if final is not None and t >= min_output_len:
                     final_hypothesis.append(final)
                     if self.beam_size == 1:
@@ -864,8 +774,7 @@ class BeamDecoder(nn.Module):
 class RNNLM(nn.Module):
     """ RNN Language Model """
 
-    def __init__(self, vocab_size, emb_tying, emb_dim, module, dim,
-        n_layers, dropout):
+    def __init__(self, vocab_size, emb_tying, emb_dim, module, dim, n_layers, dropout):
         super().__init__()
         self.dim = dim
         self.n_layers = n_layers
@@ -876,26 +785,21 @@ class RNNLM(nn.Module):
         self.emb = nn.Embedding(vocab_size, emb_dim)
         self.dp1 = nn.Dropout(dropout)
         self.dp2 = nn.Dropout(dropout)
-        self.rnn = getattr(nn, module.upper())(emb_dim, dim, num_layers=
-            n_layers, dropout=dropout, batch_first=True)
+        self.rnn = getattr(nn, module.upper())(emb_dim, dim, num_layers=n_layers, dropout=dropout, batch_first=True)
         if not self.emb_tying:
             self.trans = nn.Linear(emb_dim, vocab_size)
 
     def create_msg(self):
-        msg = [
-            'Model spec.| RNNLM weight tying = {}, # of layers = {}, dim = {}'
-            .format(self.emb_tying, self.n_layers, self.dim)]
+        msg = ['Model spec.| RNNLM weight tying = {}, # of layers = {}, dim = {}'.format(self.emb_tying, self.n_layers, self.dim)]
         return msg
 
     def forward(self, x, lens, hidden=None):
         emb_x = self.dp1(self.emb(x))
         if not self.training:
             self.rnn.flatten_parameters()
-        packed = nn.utils.rnn.pack_padded_sequence(emb_x, lens, batch_first
-            =True, enforce_sorted=False)
+        packed = nn.utils.rnn.pack_padded_sequence(emb_x, lens, batch_first=True, enforce_sorted=False)
         outputs, hidden = self.rnn(packed, hidden)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True
-            )
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
         if self.emb_tying:
             outputs = F.linear(self.dp2(outputs), self.emb.weight)
         else:
@@ -914,13 +818,7 @@ class VGGExtractor(nn.Module):
         self.in_channel = in_channel
         self.freq_dim = freq_dim
         self.out_dim = out_dim
-        self.extractor = nn.Sequential(nn.Conv2d(in_channel, self.init_dim,
-            3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.init_dim,
-            self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d
-            (2, stride=2), nn.Conv2d(self.init_dim, self.hide_dim, 3,
-            stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.hide_dim, self.
-            hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2,
-            stride=2))
+        self.extractor = nn.Sequential(nn.Conv2d(in_channel, self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.init_dim, self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(self.init_dim, self.hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.hide_dim, self.hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2))
 
     def check_dim(self, input_dim):
         if input_dim % 13 == 0:
@@ -928,9 +826,7 @@ class VGGExtractor(nn.Module):
         elif input_dim % 40 == 0:
             return int(input_dim / 40), 40, 40 // 4 * self.hide_dim
         else:
-            raise ValueError(
-                'Acoustic feature dimension for VGG should be 13/26/39(MFCC) or 40/80/120(Fbank) but got '
-                 + input_dim)
+            raise ValueError('Acoustic feature dimension for VGG should be 13/26/39(MFCC) or 40/80/120(Fbank) but got ' + input_dim)
 
     def view_input(self, feature, feat_len):
         feat_len = feat_len // 4
@@ -945,8 +841,7 @@ class VGGExtractor(nn.Module):
         feature, feat_len = self.view_input(feature, feat_len)
         feature = self.extractor(feature)
         feature = feature.transpose(1, 2)
-        feature = feature.contiguous().view(feature.shape[0], feature.shape
-            [1], self.out_dim)
+        feature = feature.contiguous().view(feature.shape[0], feature.shape[1], self.out_dim)
         return feature, feat_len
 
 
@@ -956,9 +851,7 @@ class CNNExtractor(nn.Module):
     def __init__(self, input_dim, out_dim):
         super(CNNExtractor, self).__init__()
         self.out_dim = out_dim
-        self.extractor = nn.Sequential(nn.Conv1d(input_dim, out_dim, 4,
-            stride=2, padding=1), nn.Conv1d(out_dim, out_dim, 4, stride=2,
-            padding=1))
+        self.extractor = nn.Sequential(nn.Conv1d(input_dim, out_dim, 4, stride=2, padding=1), nn.Conv1d(out_dim, out_dim, 4, stride=2, padding=1))
 
     def forward(self, feature, feat_len):
         feat_len = feat_len // 4
@@ -971,12 +864,10 @@ class CNNExtractor(nn.Module):
 class RNNLayer(nn.Module):
     """ RNN wrapper, includes time-downsampling"""
 
-    def __init__(self, input_dim, module, dim, bidirection, dropout,
-        layer_norm, sample_rate, sample_style, proj):
+    def __init__(self, input_dim, module, dim, bidirection, dropout, layer_norm, sample_rate, sample_style, proj):
         super(RNNLayer, self).__init__()
         rnn_out_dim = 2 * dim if bidirection else dim
-        self.out_dim = (sample_rate * rnn_out_dim if sample_rate > 1 and 
-            sample_style == 'concat' else rnn_out_dim)
+        self.out_dim = sample_rate * rnn_out_dim if sample_rate > 1 and sample_style == 'concat' else rnn_out_dim
         self.dropout = dropout
         self.layer_norm = layer_norm
         self.sample_rate = sample_rate
@@ -984,8 +875,7 @@ class RNNLayer(nn.Module):
         self.proj = proj
         if self.sample_style not in ['drop', 'concat']:
             raise ValueError('Unsupported Sample Style: ' + self.sample_style)
-        self.layer = getattr(nn, module.upper())(input_dim, dim,
-            bidirectional=bidirection, num_layers=1, batch_first=True)
+        self.layer = getattr(nn, module.upper())(input_dim, dim, bidirectional=bidirection, num_layers=1, batch_first=True)
         if self.layer_norm:
             self.ln = nn.LayerNorm(rnn_out_dim)
         if self.dropout > 0:
@@ -1009,8 +899,7 @@ class RNNLayer(nn.Module):
             else:
                 if timestep % self.sample_rate != 0:
                     output = output[:, :-(timestep % self.sample_rate), :]
-                output = output.contiguous().view(batch_size, int(timestep /
-                    self.sample_rate), feature_dim * self.sample_rate)
+                output = output.contiguous().view(batch_size, int(timestep / self.sample_rate), feature_dim * self.sample_rate)
         if self.proj:
             output = torch.tanh(self.pj(output))
         return output, x_len
@@ -1051,8 +940,7 @@ class BaseAttention(nn.Module):
 
 def load_embedding(text_encoder, embedding_filepath):
     with open(embedding_filepath, 'r') as f:
-        vocab_size, embedding_size = [int(x) for x in f.readline().strip().
-            split()]
+        vocab_size, embedding_size = [int(x) for x in f.readline().strip().split()]
         embeddings = np.zeros((text_encoder.vocab_size, embedding_size))
         unk_count = 0
         for line in f:
@@ -1065,11 +953,9 @@ def load_embedding(text_encoder, embedding_filepath):
                 idx = text_encoder.encode(vocab)[0]
             if idx == text_encoder.unk_idx:
                 unk_count += 1
-                embeddings[idx] += np.asarray([float(x) for x in emb.split(
-                    ' ')])
+                embeddings[idx] += np.asarray([float(x) for x in emb.split(' ')])
             else:
-                embeddings[idx] = np.asarray([float(x) for x in emb.split(' ')]
-                    )
+                embeddings[idx] = np.asarray([float(x) for x in emb.split(' ')])
         if unk_count != 0:
             embeddings[text_encoder.unk_idx] /= unk_count
         return embeddings
@@ -1078,34 +964,25 @@ def load_embedding(text_encoder, embedding_filepath):
 class EmbeddingRegularizer(nn.Module):
     """ Perform word embedding regularization training for ASR"""
 
-    def __init__(self, tokenizer, dec_dim, enable, src, distance, weight,
-        fuse, temperature, freeze=True, fuse_normalize=False, dropout=0.0,
-        bert=None):
+    def __init__(self, tokenizer, dec_dim, enable, src, distance, weight, fuse, temperature, freeze=True, fuse_normalize=False, dropout=0.0, bert=None):
         super(EmbeddingRegularizer, self).__init__()
         self.enable = enable
         if enable:
             if bert is not None:
                 self.use_bert = True
                 if not isinstance(bert, str):
-                    raise ValueError(
-                        '`bert` should be a str specifying bert config such as "bert-base-uncased".'
-                        )
+                    raise ValueError('`bert` should be a str specifying bert config such as "bert-base-uncased".')
                 self.emb_table = BertEmbeddingPredictor(bert, tokenizer, src)
-                vocab_size, emb_dim = (self.emb_table.model.bert.embeddings
-                    .word_embeddings.weight.shape)
+                vocab_size, emb_dim = self.emb_table.model.bert.embeddings.word_embeddings.weight.shape
                 vocab_size = vocab_size - 3
                 self.dim = emb_dim
             else:
                 self.use_bert = False
-                pretrained_emb = torch.FloatTensor(load_embedding(tokenizer,
-                    src))
+                pretrained_emb = torch.FloatTensor(load_embedding(tokenizer, src))
                 vocab_size, emb_dim = pretrained_emb.shape
                 self.dim = emb_dim
-                self.emb_table = nn.Embedding.from_pretrained(pretrained_emb,
-                    freeze=freeze, padding_idx=0)
-            self.emb_net = nn.Sequential(nn.Linear(dec_dim, (emb_dim +
-                dec_dim) // 2), nn.ReLU(), nn.Linear((emb_dim + dec_dim) //
-                2, emb_dim))
+                self.emb_table = nn.Embedding.from_pretrained(pretrained_emb, freeze=freeze, padding_idx=0)
+            self.emb_net = nn.Sequential(nn.Linear(dec_dim, (emb_dim + dec_dim) // 2), nn.ReLU(), nn.Linear((emb_dim + dec_dim) // 2, emb_dim))
             self.weight = weight
             self.distance = distance
             self.fuse_normalize = fuse_normalize
@@ -1123,18 +1000,15 @@ class EmbeddingRegularizer(nn.Module):
                 if fuse == -1:
                     self.fuse_type = 'learnable'
                     self.fuse_learnable = True
-                    self.fuse_lambda = nn.Parameter(data=torch.FloatTensor(
-                        [0.5]))
+                    self.fuse_lambda = nn.Parameter(data=torch.FloatTensor([0.5]))
                 elif fuse == -2:
                     self.fuse_type = 'vocab-wise learnable'
                     self.fuse_learnable = True
-                    self.fuse_lambda = nn.Parameter(torch.ones(vocab_size) *
-                        0.5)
+                    self.fuse_lambda = nn.Parameter(torch.ones(vocab_size) * 0.5)
                 else:
                     self.fuse_type = str(fuse)
                     self.fuse_learnable = False
-                    self.register_buffer('fuse_lambda', torch.FloatTensor([
-                        fuse]))
+                    self.register_buffer('fuse_lambda', torch.FloatTensor([fuse]))
                 if temperature == -1:
                     self.temperature = 'learnable'
                     self.temp = nn.Parameter(data=torch.FloatTensor([1]))
@@ -1143,18 +1017,13 @@ class EmbeddingRegularizer(nn.Module):
                     self.temp = nn.Parameter(torch.ones(vocab_size))
                 else:
                     self.temperature = str(temperature)
-                    self.register_buffer('temp', torch.FloatTensor([
-                        temperature]))
+                    self.register_buffer('temp', torch.FloatTensor([temperature]))
                 self.eps = 1e-08
 
     def create_msg(self):
-        msg = [
-            'Plugin.    | Word embedding regularization enabled (type:{}, weight:{})'
-            .format(self.distance, self.weight)]
+        msg = ['Plugin.    | Word embedding regularization enabled (type:{}, weight:{})'.format(self.distance, self.weight)]
         if self.apply_fuse:
-            msg.append(
-                '           | Embedding-fusion decoder enabled ( temp. = {}, lambda = {} )'
-                .format(self.temperature, self.fuse_type))
+            msg.append('           | Embedding-fusion decoder enabled ( temp. = {}, lambda = {} )'.format(self.temperature, self.fuse_type))
         return msg
 
     def get_weight(self):
@@ -1169,19 +1038,15 @@ class EmbeddingRegularizer(nn.Module):
     def fuse_prob(self, x_emb, dec_logit):
         """ Takes context and decoder logit to perform word embedding fusion """
         if self.fuse_normalize:
-            emb_logit = nn.functional.linear(nn.functional.normalize(x_emb,
-                dim=-1), nn.functional.normalize(self.emb_table.weight, dim=-1)
-                )
+            emb_logit = nn.functional.linear(nn.functional.normalize(x_emb, dim=-1), nn.functional.normalize(self.emb_table.weight, dim=-1))
         else:
             emb_logit = nn.functional.linear(x_emb, self.emb_table.weight)
         emb_prob = (nn.functional.relu(self.temp) * emb_logit).softmax(dim=-1)
         dec_prob = dec_logit.softmax(dim=-1)
         if self.fuse_learnable:
-            fused_prob = (1 - torch.sigmoid(self.fuse_lambda)
-                ) * dec_prob + torch.sigmoid(self.fuse_lambda) * emb_prob
+            fused_prob = (1 - torch.sigmoid(self.fuse_lambda)) * dec_prob + torch.sigmoid(self.fuse_lambda) * emb_prob
         else:
-            fused_prob = (1 - self.fuse_lambda
-                ) * dec_prob + self.fuse_lambda * emb_prob
+            fused_prob = (1 - self.fuse_lambda) * dec_prob + self.fuse_lambda * emb_prob
         log_fused_prob = (fused_prob + self.eps).log()
         return log_fused_prob
 
@@ -1199,15 +1064,12 @@ class EmbeddingRegularizer(nn.Module):
             else:
                 y_emb = self.emb_table(label)
             if self.distance == 'CosEmb':
-                loss = self.measurement(x_emb.view(-1, self.dim), y_emb.
-                    view(-1, self.dim), torch.ones(1))
+                loss = self.measurement(x_emb.view(-1, self.dim), y_emb.view(-1, self.dim), torch.ones(1))
             else:
-                loss = self.measurement(x_emb.view(-1, self.dim), y_emb.
-                    view(-1, self.dim))
+                loss = self.measurement(x_emb.view(-1, self.dim), y_emb.view(-1, self.dim))
             loss = loss.view(b, t)
             loss = torch.where(label != 0, loss, torch.zeros_like(loss))
-            loss = torch.mean(loss.sum(dim=-1) / (label != 0).sum(dim=-1).
-                float())
+            loss = torch.mean(loss.sum(dim=-1) / (label != 0).sum(dim=-1).float())
         if self.apply_fuse:
             log_fused_prob = self.fuse_prob(x_emb, dec_logit)
         return loss, log_fused_prob
@@ -1217,8 +1079,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNNExtractor,
+     lambda: ([], {'input_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Alexander_H_Liu_End_to_end_ASR_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CNNExtractor(*[], **{'input_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

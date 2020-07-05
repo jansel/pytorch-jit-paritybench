@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -43,14 +44,12 @@ import numpy as np
 
 class GraphConvolution(nn.Module):
 
-    def __init__(self, input_dim, output_dim, support, act_func=None,
-        featureless=False, dropout_rate=0.0, bias=False):
+    def __init__(self, input_dim, output_dim, support, act_func=None, featureless=False, dropout_rate=0.0, bias=False):
         super(GraphConvolution, self).__init__()
         self.support = support
         self.featureless = featureless
         for i in range(len(self.support)):
-            setattr(self, 'W{}'.format(i), nn.Parameter(torch.randn(
-                input_dim, output_dim)))
+            setattr(self, 'W{}'.format(i), nn.Parameter(torch.randn(input_dim, output_dim)))
         if bias:
             self.b = nn.Parameter(torch.zeros(1, output_dim))
         self.act_func = act_func
@@ -77,10 +76,8 @@ class GCN(nn.Module):
 
     def __init__(self, input_dim, support, dropout_rate=0.0, num_classes=10):
         super(GCN, self).__init__()
-        self.layer1 = GraphConvolution(input_dim, 200, support, act_func=nn
-            .ReLU(), featureless=True, dropout_rate=dropout_rate)
-        self.layer2 = GraphConvolution(200, num_classes, support,
-            dropout_rate=dropout_rate)
+        self.layer1 = GraphConvolution(input_dim, 200, support, act_func=nn.ReLU(), featureless=True, dropout_rate=dropout_rate)
+        self.layer2 = GraphConvolution(200, num_classes, support, dropout_rate=dropout_rate)
 
     def forward(self, x):
         out = self.layer1(x)
@@ -109,8 +106,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_iworldtong_text_gcn_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MLP(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

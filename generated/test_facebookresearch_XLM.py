@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -124,22 +125,19 @@ def cartesian_product(a, b):
     n1, d1 = a.shape
     n2, d2 = b.shape
     assert n1 == n2
-    return torch.cat([a.unsqueeze(-1).repeat(1, 1, d2).unsqueeze(-1), b.
-        repeat(1, d1).view(n2, d1, d2).unsqueeze(-1)], 3).view(n1, d1 * d2, 2)
+    return torch.cat([a.unsqueeze(-1).repeat(1, 1, d2).unsqueeze(-1), b.repeat(1, d1).view(n2, d1, d2).unsqueeze(-1)], 3).view(n1, d1 * d2, 2)
 
 
 def swig_ptr_from_FloatTensor(x):
     assert x.is_contiguous()
     assert x.dtype == torch.float32
-    return faiss.cast_integer_to_float_ptr(x.storage().data_ptr() + x.
-        storage_offset() * 4)
+    return faiss.cast_integer_to_float_ptr(x.storage().data_ptr() + x.storage_offset() * 4)
 
 
 def swig_ptr_from_LongTensor(x):
     assert x.is_contiguous()
     assert x.dtype == torch.int64, 'dtype=%s' % x.dtype
-    return faiss.cast_integer_to_long_ptr(x.storage().data_ptr() + x.
-        storage_offset() * 8)
+    return faiss.cast_integer_to_long_ptr(x.storage().data_ptr() + x.storage_offset() * 8)
 
 
 def get_knn_faiss(xb, xq, k, distance='dot_product'):
@@ -149,8 +147,7 @@ def get_knn_faiss(xb, xq, k, distance='dot_product'):
     """
     assert xb.device == xq.device
     assert distance in ['dot_product', 'l2']
-    metric = (faiss.METRIC_INNER_PRODUCT if distance == 'dot_product' else
-        faiss.METRIC_L2)
+    metric = faiss.METRIC_INNER_PRODUCT if distance == 'dot_product' else faiss.METRIC_L2
     xq_ptr = swig_ptr_from_FloatTensor(xq)
     xb_ptr = swig_ptr_from_FloatTensor(xb)
     nq, d1 = xq.size()
@@ -160,8 +157,7 @@ def get_knn_faiss(xb, xq, k, distance='dot_product'):
     I = torch.empty(nq, k, device=xb.device, dtype=torch.int64)
     D_ptr = swig_ptr_from_FloatTensor(D)
     I_ptr = swig_ptr_from_LongTensor(I)
-    faiss.bruteForceKnn(FAISS_RES, metric, xb_ptr, nb, xq_ptr, nq, d1, k,
-        D_ptr, I_ptr)
+    faiss.bruteForceKnn(FAISS_RES, metric, xb_ptr, nb, xq_ptr, nq, d1, k, D_ptr, I_ptr)
     return D, I
 
 
@@ -216,8 +212,7 @@ class HashingMemory(nn.Module):
         self.query_net_learn = params.mem_query_net_learn
         self.multi_query_net = params.mem_multi_query_net
         self.shuffle_query = params.mem_shuffle_query
-        assert self.use_different_keys is False or self.keys_type in [
-            'gaussian', 'uniform']
+        assert self.use_different_keys is False or self.keys_type in ['gaussian', 'uniform']
         assert self.use_different_keys is False or self.heads >= 2 or self.product_quantization
         assert self.multi_query_net is False or self.heads >= 2 or self.product_quantization
         assert self.shuffle_query is False or self.heads > 1 and params.mem_query_layer_sizes == ''
@@ -229,14 +224,12 @@ class HashingMemory(nn.Module):
         self.score_normalize = params.mem_score_normalize
         assert self.score_subtract in ['', 'min', 'mean', 'median']
         assert self.score_subtract == '' or self.knn >= 2
-        assert not (self.score_normalize and self.score_softmax and self.
-            score_subtract == '')
+        assert not (self.score_normalize and self.score_softmax and self.score_subtract == '')
         self.input_dropout = params.mem_input_dropout
         self.query_dropout = params.mem_query_dropout
         self.value_dropout = params.mem_value_dropout
         self.init_keys()
-        self.values = nn.EmbeddingBag(self.size, self.v_dim, mode='sum',
-            sparse=params.mem_sparse)
+        self.values = nn.EmbeddingBag(self.size, self.v_dim, mode='sum', sparse=params.mem_sparse)
         if params.mem_share_values:
             if HashingMemory.VALUES is None:
                 HashingMemory.VALUES = self.values.weight
@@ -249,33 +242,22 @@ class HashingMemory(nn.Module):
         if len(params.mem_query_layer_sizes) == 0:
             assert self.heads == 1 or self.use_different_keys or self.shuffle_query
             assert self.input_dim == self.k_dim
-            self.query_proj = QueryIdentity(self.input_dim, self.heads,
-                self.shuffle_query)
+            self.query_proj = QueryIdentity(self.input_dim, self.heads, self.shuffle_query)
         if len(params.mem_query_layer_sizes) > 0:
             assert not self.shuffle_query
             l_sizes = list(params.mem_query_layer_sizes)
             assert len(l_sizes) >= 2 and l_sizes[0] == l_sizes[-1] == 0
             l_sizes[0] = self.input_dim
-            l_sizes[-1] = (self.k_dim // 2 if self.multi_query_net else 
-                self.heads * self.k_dim)
+            l_sizes[-1] = self.k_dim // 2 if self.multi_query_net else self.heads * self.k_dim
             if self.input2d:
-                self.query_proj = QueryConv(self.input_dim, self.heads,
-                    self.k_dim, self.product_quantization, self.
-                    multi_query_net, l_sizes, params.mem_query_kernel_sizes,
-                    bias=params.mem_query_bias, batchnorm=params.
-                    mem_query_batchnorm, grouped_conv=params.mem_grouped_conv)
+                self.query_proj = QueryConv(self.input_dim, self.heads, self.k_dim, self.product_quantization, self.multi_query_net, l_sizes, params.mem_query_kernel_sizes, bias=params.mem_query_bias, batchnorm=params.mem_query_batchnorm, grouped_conv=params.mem_grouped_conv)
             else:
                 assert params.mem_query_kernel_sizes == ''
                 assert not params.mem_query_residual
-                self.query_proj = QueryMLP(self.input_dim, self.heads, self
-                    .k_dim, self.product_quantization, self.multi_query_net,
-                    l_sizes, bias=params.mem_query_bias, batchnorm=params.
-                    mem_query_batchnorm, grouped_conv=params.mem_grouped_conv)
+                self.query_proj = QueryMLP(self.input_dim, self.heads, self.k_dim, self.product_quantization, self.multi_query_net, l_sizes, bias=params.mem_query_bias, batchnorm=params.mem_query_batchnorm, grouped_conv=params.mem_grouped_conv)
         if self.shuffle_indices:
-            head_permutations = [torch.randperm(self.n_indices).unsqueeze(0
-                ) for i in range(self.heads)]
-            self.register_buffer('head_permutations', torch.cat(
-                head_permutations, 0))
+            head_permutations = [torch.randperm(self.n_indices).unsqueeze(0) for i in range(self.heads)]
+            self.register_buffer('head_permutations', torch.cat(head_permutations, 0))
         if self.query_net_learn is False:
             for p in self.query_proj.parameters():
                 p.requires_grad = False
@@ -301,8 +283,7 @@ class HashingMemory(nn.Module):
         scores, indices = self.get_indices(query, self.knn)
         if self.shuffle_indices:
             indices = indices.view(bs, self.heads, -1).chunk(self.heads, 1)
-            indices = [p[idx] for p, idx in zip(self.head_permutations,
-                indices)]
+            indices = [p[idx] for p, idx in zip(self.head_permutations, indices)]
             indices = torch.cat(indices, 1).view(bs * self.heads, -1)
         if self.modulo_size != -1:
             indices = indices % self.modulo_size
@@ -322,20 +303,16 @@ class HashingMemory(nn.Module):
             scores = scores / scores.norm(p=1, dim=1, keepdim=True)
         indices = indices.view(bs, self.heads * self.knn)
         scores = scores.view(bs, self.heads * self.knn)
-        output = self.values(indices, per_sample_weights=scores.to(self.
-            values.weight.data))
-        output = F.dropout(output, p=self.value_dropout, training=self.training
-            )
+        output = self.values(indices, per_sample_weights=scores.to(self.values.weight.data))
+        output = F.dropout(output, p=self.value_dropout, training=self.training)
         if self.input2d:
             output = output.view(n_images, width, height, self.v_dim)
             output = output.transpose(1, 3)
         elif len(prefix_shape) >= 2:
             output = output.view(prefix_shape + (self.v_dim,))
         if not self.training and HashingMemory.EVAL_MEMORY:
-            self.last_indices = indices.view(bs, self.heads, self.knn).detach(
-                ).cpu()
-            self.last_scores = scores.view(bs, self.heads, self.knn).detach(
-                ).cpu().float()
+            self.last_indices = indices.view(bs, self.heads, self.knn).detach().cpu()
+            self.last_scores = scores.view(bs, self.heads, self.knn).detach().cpu().float()
         return output
 
     def init_keys(self):
@@ -352,85 +329,41 @@ class HashingMemory(nn.Module):
         """
         Register memory parameters
         """
-        parser.add_argument('--mem_implementation', type=str, default=
-            'pq_fast', help='Memory implementation (flat, pq_default, pq_fast)'
-            )
-        parser.add_argument('--mem_grouped_conv', type=bool_flag, default=
-            False, help='Use grouped convolutions in the query network')
-        parser.add_argument('--mem_values_optimizer', type=str, default=
-            'adam,lr=0.001', help=
-            'Memory values optimizer ( for the same optimizer as the rest of the model)'
-            )
-        parser.add_argument('--mem_sparse', type=bool_flag, default=False,
-            help='Perform sparse updates for the values')
-        parser.add_argument('--mem_input2d', type=bool_flag, default=False,
-            help='Convolutional query network')
-        parser.add_argument('--mem_k_dim', type=int, default=256, help=
-            'Memory keys dimension')
-        parser.add_argument('--mem_v_dim', type=int, default=-1, help=
-            'Memory values dimension (-1 for automatic output dimension)')
-        parser.add_argument('--mem_heads', type=int, default=4, help=
-            'Number of memory reading heads')
-        parser.add_argument('--mem_knn', type=int, default=32, help=
-            'Number of memory slots to read / update - k-NN to the query')
-        parser.add_argument('--mem_share_values', type=bool_flag, default=
-            False, help='Share values across memories')
-        parser.add_argument('--mem_shuffle_indices', type=bool_flag,
-            default=False, help='Shuffle indices for different heads')
-        parser.add_argument('--mem_shuffle_query', type=bool_flag, default=
-            False, help=
-            'Shuffle query dimensions (when the query network is the identity and there are multiple heads)'
-            )
-        parser.add_argument('--mem_modulo_size', type=int, default=-1, help
-            =
-            'Effective memory size: indices are taken modulo this parameter. -1 to disable.'
-            )
-        parser.add_argument('--mem_keys_type', type=str, default='uniform',
-            help='Memory keys type (binary,gaussian,uniform)')
-        parser.add_argument('--mem_n_keys', type=int, default=512, help=
-            'Number of keys')
-        parser.add_argument('--mem_keys_normalized_init', type=bool_flag,
-            default=False, help='Normalize keys at initialization')
-        parser.add_argument('--mem_keys_learn', type=bool_flag, default=
-            True, help='Learn keys')
-        parser.add_argument('--mem_use_different_keys', type=bool_flag,
-            default=True, help=
-            'Use different keys for each head / product quantization')
-        parser.add_argument('--mem_query_detach_input', type=bool_flag,
-            default=False, help='Detach input')
-        parser.add_argument('--mem_query_layer_sizes', type=str, default=
-            '0,0', help="Query MLP layer sizes ('', '0,0', '0,512,0')")
-        parser.add_argument('--mem_query_kernel_sizes', type=str, default=
-            '', help='Query MLP kernel sizes (2D inputs only)')
-        parser.add_argument('--mem_query_bias', type=bool_flag, default=
-            True, help='Query MLP bias')
-        parser.add_argument('--mem_query_batchnorm', type=bool_flag,
-            default=False, help='Query MLP batch norm')
-        parser.add_argument('--mem_query_net_learn', type=bool_flag,
-            default=True, help='Query MLP learn')
-        parser.add_argument('--mem_query_residual', type=bool_flag, default
-            =False, help=
-            'Use a bottleneck with a residual layer in the query MLP')
-        parser.add_argument('--mem_multi_query_net', type=bool_flag,
-            default=False, help='Use multiple query MLP (one for each head)')
-        parser.add_argument('--mem_value_zero_init', type=bool_flag,
-            default=False, help='Initialize values with zeros')
-        parser.add_argument('--mem_normalize_query', type=bool_flag,
-            default=False, help='Normalize queries')
-        parser.add_argument('--mem_temperature', type=float, default=1,
-            help='Divide scores by a temperature')
-        parser.add_argument('--mem_score_softmax', type=bool_flag, default=
-            True, help='Apply softmax on scores')
-        parser.add_argument('--mem_score_subtract', type=str, default='',
-            help="Subtract scores ('', min, mean, median)")
-        parser.add_argument('--mem_score_normalize', type=bool_flag,
-            default=False, help='L1 normalization of the scores')
-        parser.add_argument('--mem_input_dropout', type=float, default=0,
-            help='Input dropout')
-        parser.add_argument('--mem_query_dropout', type=float, default=0,
-            help='Query dropout')
-        parser.add_argument('--mem_value_dropout', type=float, default=0,
-            help='Value dropout')
+        parser.add_argument('--mem_implementation', type=str, default='pq_fast', help='Memory implementation (flat, pq_default, pq_fast)')
+        parser.add_argument('--mem_grouped_conv', type=bool_flag, default=False, help='Use grouped convolutions in the query network')
+        parser.add_argument('--mem_values_optimizer', type=str, default='adam,lr=0.001', help='Memory values optimizer ( for the same optimizer as the rest of the model)')
+        parser.add_argument('--mem_sparse', type=bool_flag, default=False, help='Perform sparse updates for the values')
+        parser.add_argument('--mem_input2d', type=bool_flag, default=False, help='Convolutional query network')
+        parser.add_argument('--mem_k_dim', type=int, default=256, help='Memory keys dimension')
+        parser.add_argument('--mem_v_dim', type=int, default=-1, help='Memory values dimension (-1 for automatic output dimension)')
+        parser.add_argument('--mem_heads', type=int, default=4, help='Number of memory reading heads')
+        parser.add_argument('--mem_knn', type=int, default=32, help='Number of memory slots to read / update - k-NN to the query')
+        parser.add_argument('--mem_share_values', type=bool_flag, default=False, help='Share values across memories')
+        parser.add_argument('--mem_shuffle_indices', type=bool_flag, default=False, help='Shuffle indices for different heads')
+        parser.add_argument('--mem_shuffle_query', type=bool_flag, default=False, help='Shuffle query dimensions (when the query network is the identity and there are multiple heads)')
+        parser.add_argument('--mem_modulo_size', type=int, default=-1, help='Effective memory size: indices are taken modulo this parameter. -1 to disable.')
+        parser.add_argument('--mem_keys_type', type=str, default='uniform', help='Memory keys type (binary,gaussian,uniform)')
+        parser.add_argument('--mem_n_keys', type=int, default=512, help='Number of keys')
+        parser.add_argument('--mem_keys_normalized_init', type=bool_flag, default=False, help='Normalize keys at initialization')
+        parser.add_argument('--mem_keys_learn', type=bool_flag, default=True, help='Learn keys')
+        parser.add_argument('--mem_use_different_keys', type=bool_flag, default=True, help='Use different keys for each head / product quantization')
+        parser.add_argument('--mem_query_detach_input', type=bool_flag, default=False, help='Detach input')
+        parser.add_argument('--mem_query_layer_sizes', type=str, default='0,0', help="Query MLP layer sizes ('', '0,0', '0,512,0')")
+        parser.add_argument('--mem_query_kernel_sizes', type=str, default='', help='Query MLP kernel sizes (2D inputs only)')
+        parser.add_argument('--mem_query_bias', type=bool_flag, default=True, help='Query MLP bias')
+        parser.add_argument('--mem_query_batchnorm', type=bool_flag, default=False, help='Query MLP batch norm')
+        parser.add_argument('--mem_query_net_learn', type=bool_flag, default=True, help='Query MLP learn')
+        parser.add_argument('--mem_query_residual', type=bool_flag, default=False, help='Use a bottleneck with a residual layer in the query MLP')
+        parser.add_argument('--mem_multi_query_net', type=bool_flag, default=False, help='Use multiple query MLP (one for each head)')
+        parser.add_argument('--mem_value_zero_init', type=bool_flag, default=False, help='Initialize values with zeros')
+        parser.add_argument('--mem_normalize_query', type=bool_flag, default=False, help='Normalize queries')
+        parser.add_argument('--mem_temperature', type=float, default=1, help='Divide scores by a temperature')
+        parser.add_argument('--mem_score_softmax', type=bool_flag, default=True, help='Apply softmax on scores')
+        parser.add_argument('--mem_score_subtract', type=str, default='', help="Subtract scores ('', min, mean, median)")
+        parser.add_argument('--mem_score_normalize', type=bool_flag, default=False, help='L1 normalization of the scores')
+        parser.add_argument('--mem_input_dropout', type=float, default=0, help='Input dropout')
+        parser.add_argument('--mem_query_dropout', type=float, default=0, help='Query dropout')
+        parser.add_argument('--mem_value_dropout', type=float, default=0, help='Value dropout')
 
     @staticmethod
     def build(input_dim, output_dim, params):
@@ -452,11 +385,8 @@ class HashingMemory(nn.Module):
         assert params.mem_implementation in ['flat', 'pq_default', 'pq_fast']
         params.mem_product_quantization = params.mem_implementation != 'flat'
         assert params.mem_grouped_conv is False or params.mem_multi_query_net
-        params.mem_values_optimizer = (params.optimizer if params.
-            mem_values_optimizer == '' else params.mem_values_optimizer)
-        params.mem_values_optimizer = params.mem_values_optimizer.replace(
-            'adam', 'sparseadam'
-            ) if params.mem_sparse else params.mem_values_optimizer
+        params.mem_values_optimizer = params.optimizer if params.mem_values_optimizer == '' else params.mem_values_optimizer
+        params.mem_values_optimizer = params.mem_values_optimizer.replace('adam', 'sparseadam') if params.mem_sparse else params.mem_values_optimizer
         assert params.mem_k_dim >= 2
         assert params.mem_product_quantization is False or params.mem_k_dim % 2 == 0
         assert params.mem_keys_type in ['binary', 'gaussian', 'uniform']
@@ -472,18 +402,15 @@ class HashingMemory(nn.Module):
         else:
             assert 1 <= params.mem_modulo_size < params.n_indices
             params.mem_size = params.mem_modulo_size
-        assert not params.mem_use_different_keys or params.mem_keys_type in [
-            'gaussian', 'uniform']
+        assert not params.mem_use_different_keys or params.mem_keys_type in ['gaussian', 'uniform']
         assert not params.mem_use_different_keys or params.mem_heads >= 2 or params.mem_product_quantization
         assert not params.mem_multi_query_net or params.mem_heads >= 2 or params.mem_product_quantization
-        assert not params.mem_multi_query_net or params.mem_query_layer_sizes not in [
-            '', '0,0']
+        assert not params.mem_multi_query_net or params.mem_query_layer_sizes not in ['', '0,0']
         assert not params.mem_shuffle_query or params.mem_heads > 1 and params.mem_query_layer_sizes == ''
         if params.mem_query_layer_sizes == '':
             assert params.mem_heads == 1 or params.mem_use_different_keys or params.mem_shuffle_query
         else:
-            s = [int(x) for x in filter(None, params.mem_query_layer_sizes.
-                split(','))]
+            s = [int(x) for x in filter(None, params.mem_query_layer_sizes.split(','))]
             assert len(s) >= 2 and s[0] == s[-1] == 0
             params.mem_query_layer_sizes = s
             assert not params.mem_query_residual or params.mem_input2d
@@ -491,23 +418,18 @@ class HashingMemory(nn.Module):
             assert not params.mem_input2d or params.mem_query_layer_sizes == ''
         else:
             assert params.mem_input2d
-            s = [int(x) for x in filter(None, params.mem_query_kernel_sizes
-                .split(','))]
+            s = [int(x) for x in filter(None, params.mem_query_kernel_sizes.split(','))]
             params.mem_query_kernel_sizes = s
             assert all(ks % 2 == 1 for ks in s)
-            assert len(params.mem_query_kernel_sizes) == len(params.
-                mem_query_layer_sizes) - 1 >= 1
+            assert len(params.mem_query_kernel_sizes) == len(params.mem_query_layer_sizes) - 1 >= 1
         assert params.mem_score_subtract in ['', 'min', 'mean', 'median']
         assert params.mem_score_subtract == '' or params.mem_knn >= 2
-        assert not (params.mem_score_normalize and params.mem_score_softmax and
-            params.mem_score_subtract == '')
+        assert not (params.mem_score_normalize and params.mem_score_softmax and params.mem_score_subtract == '')
         assert 0 <= params.mem_input_dropout < 1
         assert 0 <= params.mem_query_dropout < 1
         assert 0 <= params.mem_value_dropout < 1
         if params.mem_query_batchnorm:
-            logger.warning(
-                'WARNING: if you use batch normalization, be sure that you use batches of sentences with the same size at training time. Otherwise, the padding token will result in incorrect mean/variance estimations in the BatchNorm layer.'
-                )
+            logger.warning('WARNING: if you use batch normalization, be sure that you use batches of sentences with the same size at training time. Otherwise, the padding token will result in incorrect mean/variance estimations in the BatchNorm layer.')
 
 
 class GroupedLinear(nn.Module):
@@ -519,31 +441,24 @@ class GroupedLinear(nn.Module):
         self.groups = groups
         self.bias = bias
         assert groups > 1
-        self.layer = nn.Conv1d(in_features, out_features, bias=bias,
-            kernel_size=1, groups=groups)
+        self.layer = nn.Conv1d(in_features, out_features, bias=bias, kernel_size=1, groups=groups)
 
     def forward(self, input):
         assert input.dim() == 2 and input.size(1) == self.in_features
         return self.layer(input.unsqueeze(2)).squeeze(2)
 
     def extra_repr(self):
-        return 'in_features={}, out_features={}, groups={}, bias={}'.format(
-            self.in_features, self.out_features, self.groups, self.bias is not
-            None)
+        return 'in_features={}, out_features={}, groups={}, bias={}'.format(self.in_features, self.out_features, self.groups, self.bias is not None)
 
 
 class BottleneckResidualConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size, bias=
-        True, batchnorm=True, groups=1):
+    def __init__(self, input_channels, output_channels, kernel_size, bias=True, batchnorm=True, groups=1):
         super().__init__()
         hidden_channels = min(input_channels, output_channels)
         assert all(k % 2 == 1 for k in kernel_size)
-        self.conv1 = nn.Conv2d(input_channels, hidden_channels, kernel_size,
-            padding=[(k // 2) for k in kernel_size], bias=bias, groups=groups)
-        self.conv2 = nn.Conv2d(hidden_channels, output_channels,
-            kernel_size, padding=[(k // 2) for k in kernel_size], bias=bias,
-            groups=groups)
+        self.conv1 = nn.Conv2d(input_channels, hidden_channels, kernel_size, padding=[(k // 2) for k in kernel_size], bias=bias, groups=groups)
+        self.conv2 = nn.Conv2d(hidden_channels, output_channels, kernel_size, padding=[(k // 2) for k in kernel_size], bias=bias, groups=groups)
         self.act = nn.ReLU()
         self.batchnorm = batchnorm
         if self.batchnorm:
@@ -552,8 +467,7 @@ class BottleneckResidualConv2d(nn.Module):
         if input_channels == output_channels:
             self.residual = nn.Sequential()
         else:
-            self.residual = nn.Conv2d(input_channels, output_channels, (1, 
-                1), bias=False, groups=groups)
+            self.residual = nn.Conv2d(input_channels, output_channels, (1, 1), bias=False, groups=groups)
 
     def forward(self, input):
         x = self.conv1(input)
@@ -590,8 +504,7 @@ class QueryIdentity(nn.Module):
         assert shuffle_hidden is False or heads > 1
         assert shuffle_hidden is False or self.input_dim % 2 ** self.heads == 0
         if shuffle_hidden:
-            self.slices = {head_id: get_slices(input_dim, head_id) for
-                head_id in range(heads)}
+            self.slices = {head_id: get_slices(input_dim, head_id) for head_id in range(heads)}
 
     def forward(self, input):
         """
@@ -599,8 +512,7 @@ class QueryIdentity(nn.Module):
         repeating them or creating some shuffled version.
         """
         assert input.shape[-1] == self.input_dim
-        input = input.contiguous().view(-1, self.input_dim) if input.dim(
-            ) > 2 else input
+        input = input.contiguous().view(-1, self.input_dim) if input.dim() > 2 else input
         bs = len(input)
         if self.heads == 1:
             query = input
@@ -608,9 +520,7 @@ class QueryIdentity(nn.Module):
             query = input.unsqueeze(1).repeat(1, self.heads, 1)
             query = query.view(bs * self.heads, self.input_dim)
         else:
-            query = torch.cat([input[:, a:b] for head_id in range(self.
-                heads) for a, b in self.slices[head_id]], 1).view(bs * self
-                .heads, self.input_dim)
+            query = torch.cat([input[:, a:b] for head_id in range(self.heads) for a, b in self.slices[head_id]], 1).view(bs * self.heads, self.input_dim)
         assert query.shape == (bs * self.heads, self.input_dim)
         return query
 
@@ -626,8 +536,7 @@ def mlp(sizes, bias=True, batchnorm=True, groups=1):
         if groups == 1 or i == 0:
             layers.append(nn.Linear(dim_in, groups * dim_out, bias=bias))
         else:
-            layers.append(GroupedLinear(groups * dim_in, groups * dim_out,
-                bias=bias, groups=groups))
+            layers.append(GroupedLinear(groups * dim_in, groups * dim_out, bias=bias, groups=groups))
         if batchnorm:
             layers.append(nn.BatchNorm1d(groups * dim_out))
         if i < len(pairs) - 1:
@@ -637,8 +546,7 @@ def mlp(sizes, bias=True, batchnorm=True, groups=1):
 
 class QueryMLP(nn.Module):
 
-    def __init__(self, input_dim, heads, k_dim, product_quantization,
-        multi_query_net, sizes, bias=True, batchnorm=True, grouped_conv=False):
+    def __init__(self, input_dim, heads, k_dim, product_quantization, multi_query_net, sizes, bias=True, batchnorm=True, grouped_conv=False):
         super().__init__()
         self.input_dim = input_dim
         self.heads = heads
@@ -651,24 +559,20 @@ class QueryMLP(nn.Module):
         assert self.grouped_conv is False or len(sizes) > 2
         self.groups = 2 * heads if multi_query_net else 1
         if self.grouped_conv:
-            self.query_mlps = mlp(sizes, bias=bias, batchnorm=batchnorm,
-                groups=self.groups)
+            self.query_mlps = mlp(sizes, bias=bias, batchnorm=batchnorm, groups=self.groups)
         elif len(self.sizes) == 2:
             sizes_ = list(sizes)
             sizes_[-1] = sizes_[-1] * self.groups
-            self.query_mlps = mlp(sizes_, bias=bias, batchnorm=batchnorm,
-                groups=1)
+            self.query_mlps = mlp(sizes_, bias=bias, batchnorm=batchnorm, groups=1)
         else:
-            self.query_mlps = nn.ModuleList([mlp(sizes, bias=bias,
-                batchnorm=batchnorm, groups=1) for _ in range(self.groups)])
+            self.query_mlps = nn.ModuleList([mlp(sizes, bias=bias, batchnorm=batchnorm, groups=1) for _ in range(self.groups)])
 
     def forward(self, input):
         """
         Compute queries using either grouped 1D convolutions or ModuleList + concat.
         """
         assert input.shape[-1] == self.input_dim
-        input = input.contiguous().view(-1, self.input_dim) if input.dim(
-            ) > 2 else input
+        input = input.contiguous().view(-1, self.input_dim) if input.dim() > 2 else input
         bs = len(input)
         if self.grouped_conv or len(self.sizes) == 2:
             query = self.query_mlps(input)
@@ -679,15 +583,13 @@ class QueryMLP(nn.Module):
         return query.view(bs * self.heads, self.k_dim)
 
 
-def convs(channel_sizes, kernel_sizes, bias=True, batchnorm=True, residual=
-    False, groups=1):
+def convs(channel_sizes, kernel_sizes, bias=True, batchnorm=True, residual=False, groups=1):
     """
     Generate a convolutional neural network.
     """
     assert len(channel_sizes) >= 2
     assert len(channel_sizes) == len(kernel_sizes) + 1
-    pairs = [(channel_sizes[i], channel_sizes[i + 1]) for i in range(len(
-        channel_sizes) - 1)]
+    pairs = [(channel_sizes[i], channel_sizes[i + 1]) for i in range(len(channel_sizes) - 1)]
     layers = []
     for i, (dim_in, dim_out) in enumerate(pairs):
         ks = kernel_sizes[i], kernel_sizes[i]
@@ -695,15 +597,13 @@ def convs(channel_sizes, kernel_sizes, bias=True, batchnorm=True, residual=
         _dim_in = dim_in * in_group
         _dim_out = dim_out * groups
         if not residual:
-            layers.append(nn.Conv2d(_dim_in, _dim_out, ks, padding=[(k // 2
-                ) for k in ks], bias=bias, groups=in_group))
+            layers.append(nn.Conv2d(_dim_in, _dim_out, ks, padding=[(k // 2) for k in ks], bias=bias, groups=in_group))
             if batchnorm:
                 layers.append(nn.BatchNorm2d(_dim_out))
             if i < len(pairs) - 1:
                 layers.append(nn.ReLU())
         else:
-            layers.append(BottleneckResidualConv2d(_dim_in, _dim_out, ks,
-                bias=bias, batchnorm=batchnorm, groups=in_group))
+            layers.append(BottleneckResidualConv2d(_dim_in, _dim_out, ks, bias=bias, batchnorm=batchnorm, groups=in_group))
             if i == len(pairs) - 1:
                 layers.append(nn.Conv2d(_dim_out, _dim_out, (1, 1), bias=bias))
     return nn.Sequential(*layers)
@@ -711,9 +611,7 @@ def convs(channel_sizes, kernel_sizes, bias=True, batchnorm=True, residual=
 
 class QueryConv(nn.Module):
 
-    def __init__(self, input_dim, heads, k_dim, product_quantization,
-        multi_query_net, sizes, kernel_sizes, bias=True, batchnorm=True,
-        residual=False, grouped_conv=False):
+    def __init__(self, input_dim, heads, k_dim, product_quantization, multi_query_net, sizes, kernel_sizes, bias=True, batchnorm=True, residual=False, grouped_conv=False):
         super().__init__()
         self.input_dim = input_dim
         self.heads = heads
@@ -724,21 +622,16 @@ class QueryConv(nn.Module):
         assert sizes[0] == input_dim
         assert sizes[-1] == k_dim // 2 if multi_query_net else heads * k_dim
         assert self.grouped_conv is False or len(sizes) > 2
-        assert len(sizes) == len(kernel_sizes) + 1 >= 2 and all(ks % 2 == 1 for
-            ks in kernel_sizes)
+        assert len(sizes) == len(kernel_sizes) + 1 >= 2 and all(ks % 2 == 1 for ks in kernel_sizes)
         self.groups = 2 * heads if multi_query_net else 1
         if self.grouped_conv:
-            self.query_convs = convs(sizes, kernel_sizes, bias=bias,
-                batchnorm=batchnorm, residual=residual, groups=self.groups)
+            self.query_convs = convs(sizes, kernel_sizes, bias=bias, batchnorm=batchnorm, residual=residual, groups=self.groups)
         elif len(self.sizes) == 2:
             sizes_ = list(sizes)
             sizes_[-1] = sizes_[-1] * self.groups
-            self.query_convs = convs(sizes_, kernel_sizes, bias=bias,
-                batchnorm=batchnorm, residual=residual, groups=1)
+            self.query_convs = convs(sizes_, kernel_sizes, bias=bias, batchnorm=batchnorm, residual=residual, groups=1)
         else:
-            self.query_convs = nn.ModuleList([convs(sizes, kernel_sizes,
-                bias=bias, batchnorm=batchnorm, residual=residual, groups=1
-                ) for _ in range(self.groups)])
+            self.query_convs = nn.ModuleList([convs(sizes, kernel_sizes, bias=bias, batchnorm=batchnorm, residual=residual, groups=1) for _ in range(self.groups)])
 
     def forward(self, input):
         bs, nf, h, w = input.shape
@@ -749,8 +642,7 @@ class QueryConv(nn.Module):
             outputs = [m(input) for m in self.query_convs]
             query = torch.cat(outputs, 1) if len(outputs) > 1 else outputs[0]
         assert query.shape == (bs, self.heads * self.k_dim, h, w)
-        query = query.transpose(1, 3).contiguous().view(bs * w * h * self.
-            heads, self.k_dim)
+        query = query.transpose(1, 3).contiguous().view(bs * w * h * self.heads, self.k_dim)
         return query
 
 
@@ -773,9 +665,7 @@ class PredLayer(nn.Module):
         if params.asm is False:
             self.proj = Linear(dim, params.n_words, bias=True)
         else:
-            self.proj = nn.AdaptiveLogSoftmaxWithLoss(in_features=dim,
-                n_classes=params.n_words, cutoffs=params.asm_cutoffs,
-                div_value=params.asm_div_value, head_bias=True)
+            self.proj = nn.AdaptiveLogSoftmaxWithLoss(in_features=dim, n_classes=params.n_words, cutoffs=params.asm_cutoffs, div_value=params.asm_div_value, head_bias=True)
 
     def forward(self, x, y, get_scores=False):
         """
@@ -822,12 +712,10 @@ class MultiHeadAttention(nn.Module):
             klen = qlen if cache is None else cache['slen'] + qlen
         else:
             klen = kv.size(1)
-        assert dim == self.dim, 'Dimensions do not match: %s input vs %s configured' % (
-            dim, self.dim)
+        assert dim == self.dim, 'Dimensions do not match: %s input vs %s configured' % (dim, self.dim)
         n_heads = self.n_heads
         dim_per_head = dim // n_heads
-        mask_reshape = (bs, 1, qlen, klen) if mask.dim() == 3 else (bs, 1, 
-            1, klen)
+        mask_reshape = (bs, 1, qlen, klen) if mask.dim() == 3 else (bs, 1, 1, klen)
 
         def shape(x):
             """  projection """
@@ -835,8 +723,7 @@ class MultiHeadAttention(nn.Module):
 
         def unshape(x):
             """  compute context """
-            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads *
-                dim_per_head)
+            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads * dim_per_head)
         q = shape(self.q_lin(input))
         if kv is None:
             k = shape(self.k_lin(input))
@@ -919,8 +806,7 @@ class BeamHypotheses(object):
         if len(self) < self.n_hyp or score > self.worst_score:
             self.hyp.append((score, hyp))
             if len(self) > self.n_hyp:
-                sorted_scores = sorted([(s, idx) for idx, (s, _) in
-                    enumerate(self.hyp)])
+                sorted_scores = sorted([(s, idx) for idx, (s, _) in enumerate(self.hyp)])
                 del self.hyp[sorted_scores[0][1]]
                 self.worst_score = sorted_scores[1][0]
             else:
@@ -936,8 +822,7 @@ class BeamHypotheses(object):
         elif self.early_stopping:
             return True
         else:
-            return (self.worst_score >= best_sum_logprobs / self.max_len **
-                self.length_penalty)
+            return self.worst_score >= best_sum_logprobs / self.max_len ** self.length_penalty
 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx=None):
@@ -952,8 +837,7 @@ N_MAX_POSITIONS = 512
 
 
 def create_sinusoidal_embeddings(n_pos, dim, out):
-    position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for
-        j in range(dim)] for pos in range(n_pos)])
+    position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for j in range(dim)] for pos in range(n_pos)])
     out[:, 0::2] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
     out[:, 1::2] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
     out.detach_()
@@ -969,8 +853,7 @@ def get_masks(slen, lengths, causal):
     alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
     mask = alen < lengths[:, (None)]
     if causal:
-        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(
-            None), :, (None)]
+        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(None), :, (None)]
     else:
         attn_mask = mask
     assert mask.size() == (bs, slen)
@@ -979,9 +862,7 @@ def get_masks(slen, lengths, causal):
 
 
 class TransformerModel(nn.Module):
-    ATTRIBUTES = ['encoder', 'with_output', 'eos_index', 'pad_index',
-        'n_langs', 'n_words', 'dim', 'n_layers', 'n_heads', 'hidden_dim',
-        'dropout', 'attention_dropout', 'asm', 'asm_cutoffs', 'asm_div_value']
+    ATTRIBUTES = ['encoder', 'with_output', 'eos_index', 'pad_index', 'n_langs', 'n_words', 'dim', 'n_layers', 'n_heads', 'hidden_dim', 'dropout', 'attention_dropout', 'asm', 'asm_cutoffs', 'asm_div_value']
 
     def __init__(self, params, dico, is_encoder, with_output):
         """
@@ -1010,12 +891,10 @@ class TransformerModel(nn.Module):
         assert self.dim % self.n_heads == 0, 'transformer dim must be a multiple of n_heads'
         self.position_embeddings = Embedding(N_MAX_POSITIONS, self.dim)
         if params.sinusoidal_embeddings:
-            create_sinusoidal_embeddings(N_MAX_POSITIONS, self.dim, out=
-                self.position_embeddings.weight)
+            create_sinusoidal_embeddings(N_MAX_POSITIONS, self.dim, out=self.position_embeddings.weight)
         if params.n_langs > 1 and self.use_lang_emb:
             self.lang_embeddings = Embedding(self.n_langs, self.dim)
-        self.embeddings = Embedding(self.n_words, self.dim, padding_idx=
-            self.pad_index)
+        self.embeddings = Embedding(self.n_words, self.dim, padding_idx=self.pad_index)
         self.layer_norm_emb = nn.LayerNorm(self.dim, eps=1e-12)
         self.attentions = nn.ModuleList()
         self.layer_norm1 = nn.ModuleList()
@@ -1026,27 +905,21 @@ class TransformerModel(nn.Module):
             self.encoder_attn = nn.ModuleList()
         self.memories = nn.ModuleDict()
         if getattr(params, 'use_memory', False):
-            mem_positions = (params.mem_enc_positions if is_encoder else
-                params.mem_dec_positions)
+            mem_positions = params.mem_enc_positions if is_encoder else params.mem_dec_positions
             for layer_id, pos in mem_positions:
                 assert 0 <= layer_id <= params.n_layers - 1
                 assert pos in ['in', 'after']
-                self.memories['%i_%s' % (layer_id, pos)] = HashingMemory.build(
-                    self.dim, self.dim, params)
+                self.memories['%i_%s' % (layer_id, pos)] = HashingMemory.build(self.dim, self.dim, params)
         for layer_id in range(self.n_layers):
-            self.attentions.append(MultiHeadAttention(self.n_heads, self.
-                dim, dropout=self.attention_dropout))
+            self.attentions.append(MultiHeadAttention(self.n_heads, self.dim, dropout=self.attention_dropout))
             self.layer_norm1.append(nn.LayerNorm(self.dim, eps=1e-12))
             if self.is_decoder:
                 self.layer_norm15.append(nn.LayerNorm(self.dim, eps=1e-12))
-                self.encoder_attn.append(MultiHeadAttention(self.n_heads,
-                    self.dim, dropout=self.attention_dropout))
+                self.encoder_attn.append(MultiHeadAttention(self.n_heads, self.dim, dropout=self.attention_dropout))
             if '%i_in' % layer_id in self.memories:
                 self.ffns.append(None)
             else:
-                self.ffns.append(TransformerFFN(self.dim, self.hidden_dim,
-                    self.dim, dropout=self.dropout, gelu_activation=params.
-                    gelu_activation))
+                self.ffns.append(TransformerFFN(self.dim, self.hidden_dim, self.dim, dropout=self.dropout, gelu_activation=params.gelu_activation))
             self.layer_norm2.append(nn.LayerNorm(self.dim, eps=1e-12))
         if self.with_output:
             self.pred_layer = PredLayer(params)
@@ -1065,8 +938,7 @@ class TransformerModel(nn.Module):
         else:
             raise Exception('Unknown mode: %s' % mode)
 
-    def fwd(self, x, lengths, causal, src_enc=None, src_len=None, positions
-        =None, langs=None, cache=None):
+    def fwd(self, x, lengths, causal, src_enc=None, src_len=None, positions=None, langs=None, cache=None):
         """
         Inputs:
             `x` LongTensor(slen, bs), containing word indices
@@ -1085,8 +957,7 @@ class TransformerModel(nn.Module):
             assert src_enc.size(0) == bs
         mask, attn_mask = get_masks(slen, lengths, causal)
         if self.is_decoder and src_enc is not None:
-            src_mask = torch.arange(src_len.max(), dtype=torch.long, device
-                =lengths.device) < src_len[:, (None)]
+            src_mask = torch.arange(src_len.max(), dtype=torch.long, device=lengths.device) < src_len[:, (None)]
         if positions is None:
             positions = x.new(slen).long()
             positions = torch.arange(slen, out=positions).unsqueeze(0)
@@ -1117,8 +988,7 @@ class TransformerModel(nn.Module):
             tensor = tensor + attn
             tensor = self.layer_norm1[i](tensor)
             if self.is_decoder and src_enc is not None:
-                attn = self.encoder_attn[i](tensor, src_mask, kv=src_enc,
-                    cache=cache)
+                attn = self.encoder_attn[i](tensor, src_mask, kv=src_enc, cache=cache)
                 attn = F.dropout(attn, p=self.dropout, training=self.training)
                 tensor = tensor + attn
                 tensor = self.layer_norm15[i](tensor)
@@ -1143,13 +1013,11 @@ class TransformerModel(nn.Module):
             `y` is a LongTensor of shape (pred_mask.sum(),)
             `get_scores` is a boolean specifying whether we need to return scores
         """
-        masked_tensor = tensor[pred_mask.unsqueeze(-1).expand_as(tensor)].view(
-            -1, self.dim)
+        masked_tensor = tensor[pred_mask.unsqueeze(-1).expand_as(tensor)].view(-1, self.dim)
         scores, loss = self.pred_layer(masked_tensor, y, get_scores)
         return scores, loss
 
-    def generate(self, src_enc, src_len, tgt_lang_id, max_len=200,
-        sample_temperature=None):
+    def generate(self, src_enc, src_len, tgt_lang_id, max_len=200, sample_temperature=None):
         """
         Decode a sentence given initial start.
         `x`:
@@ -1172,8 +1040,7 @@ class TransformerModel(nn.Module):
         generated.fill_(self.pad_index)
         generated[0].fill_(self.eos_index)
         positions = src_len.new(max_len).long()
-        positions = torch.arange(max_len, out=positions).unsqueeze(1).expand(
-            max_len, bs)
+        positions = torch.arange(max_len, out=positions).unsqueeze(1).expand(max_len, bs)
         langs = src_len.new(max_len).long().fill_(tgt_lang_id)
         langs = langs.unsqueeze(1).expand(max_len, bs)
         cur_len = 1
@@ -1181,23 +1048,16 @@ class TransformerModel(nn.Module):
         unfinished_sents = src_len.clone().fill_(1)
         cache = {'slen': 0}
         while cur_len < max_len:
-            tensor = self.forward('fwd', x=generated[:cur_len], lengths=
-                gen_len, positions=positions[:cur_len], langs=langs[:
-                cur_len], causal=True, src_enc=src_enc, src_len=src_len,
-                cache=cache)
-            assert tensor.size() == (1, bs, self.dim), (cur_len, max_len,
-                src_enc.size(), tensor.size(), (1, bs, self.dim))
+            tensor = self.forward('fwd', x=generated[:cur_len], lengths=gen_len, positions=positions[:cur_len], langs=langs[:cur_len], causal=True, src_enc=src_enc, src_len=src_len, cache=cache)
+            assert tensor.size() == (1, bs, self.dim), (cur_len, max_len, src_enc.size(), tensor.size(), (1, bs, self.dim))
             tensor = tensor.data[(-1), :, :].type_as(src_enc)
             scores = self.pred_layer.get_scores(tensor)
             if sample_temperature is None:
                 next_words = torch.topk(scores, 1)[1].squeeze(1)
             else:
-                next_words = torch.multinomial(F.softmax(scores /
-                    sample_temperature, dim=1), 1).squeeze(1)
+                next_words = torch.multinomial(F.softmax(scores / sample_temperature, dim=1), 1).squeeze(1)
             assert next_words.size() == (bs,)
-            generated[cur_len
-                ] = next_words * unfinished_sents + self.pad_index * (1 -
-                unfinished_sents)
+            generated[cur_len] = next_words * unfinished_sents + self.pad_index * (1 - unfinished_sents)
             gen_len.add_(unfinished_sents)
             unfinished_sents.mul_(next_words.ne(self.eos_index).long())
             cur_len = cur_len + 1
@@ -1208,8 +1068,7 @@ class TransformerModel(nn.Module):
         assert (generated == self.eos_index).sum() == 2 * bs
         return generated[:cur_len], gen_len
 
-    def generate_beam(self, src_enc, src_len, tgt_lang_id, beam_size,
-        length_penalty, early_stopping, max_len=200):
+    def generate_beam(self, src_enc, src_len, tgt_lang_id, beam_size, length_penalty, early_stopping, max_len=200):
         """
         Decode a sentence given initial start.
         `x`:
@@ -1230,18 +1089,14 @@ class TransformerModel(nn.Module):
         assert beam_size >= 1
         bs = len(src_len)
         n_words = self.n_words
-        src_enc = src_enc.unsqueeze(1).expand((bs, beam_size) + src_enc.
-            shape[1:]).contiguous().view((bs * beam_size,) + src_enc.shape[1:])
-        src_len = src_len.unsqueeze(1).expand(bs, beam_size).contiguous().view(
-            -1)
+        src_enc = src_enc.unsqueeze(1).expand((bs, beam_size) + src_enc.shape[1:]).contiguous().view((bs * beam_size,) + src_enc.shape[1:])
+        src_len = src_len.unsqueeze(1).expand(bs, beam_size).contiguous().view(-1)
         generated = src_len.new(max_len, bs * beam_size)
         generated.fill_(self.pad_index)
         generated[0].fill_(self.eos_index)
-        generated_hyps = [BeamHypotheses(beam_size, max_len, length_penalty,
-            early_stopping) for _ in range(bs)]
+        generated_hyps = [BeamHypotheses(beam_size, max_len, length_penalty, early_stopping) for _ in range(bs)]
         positions = src_len.new(max_len).long()
-        positions = torch.arange(max_len, out=positions).unsqueeze(1
-            ).expand_as(generated)
+        positions = torch.arange(max_len, out=positions).unsqueeze(1).expand_as(generated)
         langs = positions.clone().fill_(tgt_lang_id)
         beam_scores = src_enc.new(bs, beam_size).fill_(0)
         beam_scores[:, 1:] = -1000000000.0
@@ -1250,10 +1105,7 @@ class TransformerModel(nn.Module):
         cache = {'slen': 0}
         done = [(False) for _ in range(bs)]
         while cur_len < max_len:
-            tensor = self.forward('fwd', x=generated[:cur_len], lengths=
-                src_len.new(bs * beam_size).fill_(cur_len), positions=
-                positions[:cur_len], langs=langs[:cur_len], causal=True,
-                src_enc=src_enc, src_len=src_len, cache=cache)
+            tensor = self.forward('fwd', x=generated[:cur_len], lengths=src_len.new(bs * beam_size).fill_(cur_len), positions=positions[:cur_len], langs=langs[:cur_len], causal=True, src_enc=src_enc, src_len=src_len, cache=cache)
             assert tensor.size() == (1, bs * beam_size, self.dim)
             tensor = tensor.data[(-1), :, :]
             scores = self.pred_layer.get_scores(tensor)
@@ -1261,34 +1113,25 @@ class TransformerModel(nn.Module):
             assert scores.size() == (bs * beam_size, n_words)
             _scores = scores + beam_scores[:, (None)].expand_as(scores)
             _scores = _scores.view(bs, beam_size * n_words)
-            next_scores, next_words = torch.topk(_scores, 2 * beam_size,
-                dim=1, largest=True, sorted=True)
-            assert next_scores.size() == next_words.size() == (bs, 2 *
-                beam_size)
+            next_scores, next_words = torch.topk(_scores, 2 * beam_size, dim=1, largest=True, sorted=True)
+            assert next_scores.size() == next_words.size() == (bs, 2 * beam_size)
             next_batch_beam = []
             for sent_id in range(bs):
-                done[sent_id] = done[sent_id] or generated_hyps[sent_id
-                    ].is_done(next_scores[sent_id].max().item())
+                done[sent_id] = done[sent_id] or generated_hyps[sent_id].is_done(next_scores[sent_id].max().item())
                 if done[sent_id]:
-                    next_batch_beam.extend([(0, self.pad_index, 0)] * beam_size
-                        )
+                    next_batch_beam.extend([(0, self.pad_index, 0)] * beam_size)
                     continue
                 next_sent_beam = []
-                for idx, value in zip(next_words[sent_id], next_scores[sent_id]
-                    ):
+                for idx, value in zip(next_words[sent_id], next_scores[sent_id]):
                     beam_id = idx // n_words
                     word_id = idx % n_words
                     if word_id == self.eos_index or cur_len + 1 == max_len:
-                        generated_hyps[sent_id].add(generated[:cur_len, (
-                            sent_id * beam_size + beam_id)].clone(), value.
-                            item())
+                        generated_hyps[sent_id].add(generated[:cur_len, (sent_id * beam_size + beam_id)].clone(), value.item())
                     else:
-                        next_sent_beam.append((value, word_id, sent_id *
-                            beam_size + beam_id))
+                        next_sent_beam.append((value, word_id, sent_id * beam_size + beam_id))
                     if len(next_sent_beam) == beam_size:
                         break
-                assert len(next_sent_beam
-                    ) == 0 if cur_len + 1 == max_len else beam_size
+                assert len(next_sent_beam) == 0 if cur_len + 1 == max_len else beam_size
                 if len(next_sent_beam) == 0:
                     next_sent_beam = [(0, self.pad_index, 0)] * beam_size
                 next_batch_beam.extend(next_sent_beam)
@@ -1323,12 +1166,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MultiHeadAttention,
+     lambda: ([], {'n_heads': 4, 'dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {}),
+     False),
+    (TransformerFFN,
+     lambda: ([], {'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'dropout': 0.5, 'gelu_activation': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_facebookresearch_XLM(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(TransformerFFN(*[], **{'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'dropout': 0.5, 'gelu_activation': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

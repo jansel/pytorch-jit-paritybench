@@ -52,8 +52,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,22 +95,17 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.is_downsample = is_downsample
         if is_downsample:
-            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=2, padding=1,
-                bias=False)
+            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=2, padding=1, bias=False)
         else:
-            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=1, padding=1,
-                bias=False)
+            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(c_out)
         self.relu = nn.ReLU(True)
-        self.conv2 = nn.Conv2d(c_out, c_out, 3, stride=1, padding=1, bias=False
-            )
+        self.conv2 = nn.Conv2d(c_out, c_out, 3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(c_out)
         if is_downsample:
-            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1,
-                stride=2, bias=False), nn.BatchNorm2d(c_out))
+            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1, stride=2, bias=False), nn.BatchNorm2d(c_out))
         elif c_in != c_out:
-            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1,
-                stride=1, bias=False), nn.BatchNorm2d(c_out))
+            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1, stride=1, bias=False), nn.BatchNorm2d(c_out))
             self.is_downsample = True
 
     def forward(self, x):
@@ -137,18 +133,14 @@ class Net(nn.Module):
 
     def __init__(self, num_classes=751, reid=False):
         super(Net, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(3, 64, 3, stride=1, padding=1),
-            nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2,
-            padding=1))
+        self.conv = nn.Sequential(nn.Conv2d(3, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2, padding=1))
         self.layer1 = make_layers(64, 64, 2, False)
         self.layer2 = make_layers(64, 128, 2, True)
         self.layer3 = make_layers(128, 256, 2, True)
         self.layer4 = make_layers(256, 512, 2, True)
         self.avgpool = nn.AvgPool2d((8, 4), 1)
         self.reid = reid
-        self.classifier = nn.Sequential(nn.Linear(512, 256), nn.BatchNorm1d
-            (256), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(256,
-            num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512, 256), nn.BatchNorm1d(256), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(256, num_classes))
 
     def forward(self, x):
         x = self.conv(x)
@@ -171,22 +163,17 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.is_downsample = is_downsample
         if is_downsample:
-            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=2, padding=1,
-                bias=False)
+            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=2, padding=1, bias=False)
         else:
-            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=1, padding=1,
-                bias=False)
+            self.conv1 = nn.Conv2d(c_in, c_out, 3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(c_out)
         self.relu = nn.ReLU(True)
-        self.conv2 = nn.Conv2d(c_out, c_out, 3, stride=1, padding=1, bias=False
-            )
+        self.conv2 = nn.Conv2d(c_out, c_out, 3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(c_out)
         if is_downsample:
-            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1,
-                stride=2, bias=False), nn.BatchNorm2d(c_out))
+            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1, stride=2, bias=False), nn.BatchNorm2d(c_out))
         elif c_in != c_out:
-            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1,
-                stride=1, bias=False), nn.BatchNorm2d(c_out))
+            self.downsample = nn.Sequential(nn.Conv2d(c_in, c_out, 1, stride=1, bias=False), nn.BatchNorm2d(c_out))
             self.is_downsample = True
 
     def forward(self, x):
@@ -204,15 +191,11 @@ class Net(nn.Module):
 
     def __init__(self, num_classes=625, reid=False):
         super(Net, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(3, 32, 3, stride=1, padding=1),
-            nn.BatchNorm2d(32), nn.ELU(inplace=True), nn.Conv2d(32, 32, 3,
-            stride=1, padding=1), nn.BatchNorm2d(32), nn.ELU(inplace=True),
-            nn.MaxPool2d(3, 2, padding=1))
+        self.conv = nn.Sequential(nn.Conv2d(3, 32, 3, stride=1, padding=1), nn.BatchNorm2d(32), nn.ELU(inplace=True), nn.Conv2d(32, 32, 3, stride=1, padding=1), nn.BatchNorm2d(32), nn.ELU(inplace=True), nn.MaxPool2d(3, 2, padding=1))
         self.layer1 = make_layers(32, 32, 2, False)
         self.layer2 = make_layers(32, 64, 2, True)
         self.layer3 = make_layers(64, 128, 2, True)
-        self.dense = nn.Sequential(nn.Dropout(p=0.6), nn.Linear(128 * 16 * 
-            8, 128), nn.BatchNorm1d(128), nn.ELU(inplace=True))
+        self.dense = nn.Sequential(nn.Dropout(p=0.6), nn.Linear(128 * 16 * 8, 128), nn.BatchNorm1d(128), nn.ELU(inplace=True))
         self.reid = reid
         self.batch_norm = nn.BatchNorm1d(128)
         self.classifier = nn.Sequential(nn.Linear(128, num_classes))
@@ -258,8 +241,7 @@ class Upsample(nn.Module):
         W = x.data.size(3)
         ws = stride
         hs = stride
-        x = x.view(B, C, H, 1, W, 1).expand(B, C, H, hs, W, ws).contiguous(
-            ).view(B, C, H * hs, W * ws)
+        x = x.view(B, C, H, 1, W, 1).expand(B, C, H, hs, W, ws).contiguous().view(B, C, H * hs, W * ws)
         return x
 
 
@@ -281,10 +263,8 @@ class Reorg(nn.Module):
         ws = stride
         hs = stride
         x = x.view(B, C, H // hs, hs, W // ws, ws).transpose(3, 4).contiguous()
-        x = x.view(B, C, H // hs * (W // ws), hs * ws).transpose(2, 3
-            ).contiguous()
-        x = x.view(B, C, hs * ws, H // hs, W // ws).transpose(1, 2).contiguous(
-            )
+        x = x.view(B, C, H // hs * (W // ws), hs * ws).transpose(2, 3).contiguous()
+        x = x.view(B, C, hs * ws, H // hs, W // ws).transpose(1, 2).contiguous()
         x = x.view(B, hs * ws * C, H // hs, W // ws)
         return x
 
@@ -316,11 +296,9 @@ class EmptyModule(nn.Module):
 def load_conv(buf, start, conv_model):
     num_w = conv_model.weight.numel()
     num_b = conv_model.bias.numel()
-    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]).
-        view_as(conv_model.bias.data))
+    conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]).view_as(conv_model.bias.data))
     start = start + num_b
-    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w])
-        .view_as(conv_model.weight.data))
+    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]).view_as(conv_model.weight.data))
     start = start + num_w
     return start
 
@@ -336,8 +314,7 @@ def load_conv_bn(buf, start, conv_model, bn_model):
     start = start + num_b
     bn_model.running_var.copy_(torch.from_numpy(buf[start:start + num_b]))
     start = start + num_b
-    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w])
-        .view_as(conv_model.weight.data))
+    conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]).view_as(conv_model.weight.data))
     start = start + num_w
     return start
 
@@ -406,10 +383,7 @@ def print_cfg(blocks):
             pad = (kernel_size - 1) // 2 if is_pad else 0
             width = (prev_width + 2 * pad - kernel_size) // stride + 1
             height = (prev_height + 2 * pad - kernel_size) // stride + 1
-            print(
-                '%5d %-6s %4d  %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'conv', filters, kernel_size, kernel_size, stride,
-                prev_width, prev_height, prev_filters, width, height, filters))
+            print('%5d %-6s %4d  %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'conv', filters, kernel_size, kernel_size, stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -421,10 +395,7 @@ def print_cfg(blocks):
             stride = int(block['stride'])
             width = prev_width // stride
             height = prev_height // stride
-            print(
-                '%5d %-6s       %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'max', pool_size, pool_size, stride, prev_width,
-                prev_height, prev_filters, width, height, filters))
+            print('%5d %-6s       %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'max', pool_size, pool_size, stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -434,9 +405,7 @@ def print_cfg(blocks):
         elif block['type'] == 'avgpool':
             width = 1
             height = 1
-            print('%5d %-6s                   %3d x %3d x%4d   ->  %3d' % (
-                ind, 'avg', prev_width, prev_height, prev_filters,
-                prev_filters))
+            print('%5d %-6s                   %3d x %3d x%4d   ->  %3d' % (ind, 'avg', prev_width, prev_height, prev_filters, prev_filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -444,14 +413,12 @@ def print_cfg(blocks):
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
         elif block['type'] == 'softmax':
-            print('%5d %-6s                                    ->  %3d' % (
-                ind, 'softmax', prev_filters))
+            print('%5d %-6s                                    ->  %3d' % (ind, 'softmax', prev_filters))
             out_widths.append(prev_width)
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
         elif block['type'] == 'cost':
-            print('%5d %-6s                                     ->  %3d' %
-                (ind, 'cost', prev_filters))
+            print('%5d %-6s                                     ->  %3d' % (ind, 'cost', prev_filters))
             out_widths.append(prev_width)
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
@@ -460,10 +427,7 @@ def print_cfg(blocks):
             filters = stride * stride * prev_filters
             width = prev_width // stride
             height = prev_height // stride
-            print(
-                '%5d %-6s             / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'reorg', stride, prev_width, prev_height,
-                prev_filters, width, height, filters))
+            print('%5d %-6s             / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'reorg', stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -475,10 +439,7 @@ def print_cfg(blocks):
             filters = prev_filters
             width = prev_width * stride
             height = prev_height * stride
-            print(
-                '%5d %-6s           * %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'upsample', stride, prev_width, prev_height,
-                prev_filters, width, height, filters))
+            print('%5d %-6s           * %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'upsample', stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -520,8 +481,7 @@ def print_cfg(blocks):
             out_filters.append(prev_filters)
         elif block['type'] == 'connected':
             filters = int(block['output'])
-            print('%5d %-6s                            %d  ->  %3d' % (ind,
-                'connected', prev_filters, filters))
+            print('%5d %-6s                            %d  ->  %3d' % (ind, 'connected', prev_filters, filters))
             prev_filters = filters
             out_widths.append(1)
             out_heights.append(1)
@@ -597,14 +557,12 @@ class Darknet(nn.Module):
             ind = ind + 1
             if block['type'] == 'net':
                 continue
-            elif block['type'] in ['convolutional', 'maxpool', 'reorg',
-                'upsample', 'avgpool', 'softmax', 'connected']:
+            elif block['type'] in ['convolutional', 'maxpool', 'reorg', 'upsample', 'avgpool', 'softmax', 'connected']:
                 x = self.models[ind](x)
                 outputs[ind] = x
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
-                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in
-                    layers]
+                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
                     x = outputs[layers[0]]
                 elif len(layers) == 2:
@@ -664,20 +622,14 @@ class Darknet(nn.Module):
                 activation = block['activation']
                 model = nn.Sequential()
                 if batch_normalize:
-                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(
-                        prev_filters, filters, kernel_size, stride, pad,
-                        bias=False))
-                    model.add_module('bn{0}'.format(conv_id), nn.
-                        BatchNorm2d(filters))
+                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=False))
+                    model.add_module('bn{0}'.format(conv_id), nn.BatchNorm2d(filters))
                 else:
-                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(
-                        prev_filters, filters, kernel_size, stride, pad))
+                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(prev_filters, filters, kernel_size, stride, pad))
                 if activation == 'leaky':
-                    model.add_module('leaky{0}'.format(conv_id), nn.
-                        LeakyReLU(0.1, inplace=True))
+                    model.add_module('leaky{0}'.format(conv_id), nn.LeakyReLU(0.1, inplace=True))
                 elif activation == 'relu':
-                    model.add_module('relu{0}'.format(conv_id), nn.ReLU(
-                        inplace=True))
+                    model.add_module('relu{0}'.format(conv_id), nn.ReLU(inplace=True))
                 prev_filters = filters
                 out_filters.append(prev_filters)
                 prev_stride = stride * prev_stride
@@ -729,15 +681,13 @@ class Darknet(nn.Module):
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
                 ind = len(models)
-                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in
-                    layers]
+                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
                     prev_filters = out_filters[layers[0]]
                     prev_stride = out_strides[layers[0]]
                 elif len(layers) == 2:
                     assert layers[0] == ind - 1
-                    prev_filters = out_filters[layers[0]] + out_filters[
-                        layers[1]]
+                    prev_filters = out_filters[layers[0]] + out_filters[layers[1]]
                     prev_stride = out_strides[layers[0]]
                 out_filters.append(prev_filters)
                 out_strides.append(prev_stride)
@@ -754,11 +704,9 @@ class Darknet(nn.Module):
                 if block['activation'] == 'linear':
                     model = nn.Linear(prev_filters, filters)
                 elif block['activation'] == 'leaky':
-                    model = nn.Sequential(nn.Linear(prev_filters, filters),
-                        nn.LeakyReLU(0.1, inplace=True))
+                    model = nn.Sequential(nn.Linear(prev_filters, filters), nn.LeakyReLU(0.1, inplace=True))
                 elif block['activation'] == 'relu':
-                    model = nn.Sequential(nn.Linear(prev_filters, filters),
-                        nn.ReLU(inplace=True))
+                    model = nn.Sequential(nn.Linear(prev_filters, filters), nn.ReLU(inplace=True))
                 prev_filters = filters
                 out_filters.append(prev_filters)
                 out_strides.append(prev_stride)
@@ -769,8 +717,7 @@ class Darknet(nn.Module):
                 region_layer.anchors = [float(i) for i in anchors]
                 region_layer.num_classes = int(block['classes'])
                 region_layer.num_anchors = int(block['num'])
-                region_layer.anchor_step = len(region_layer.anchors
-                    ) // region_layer.num_anchors
+                region_layer.anchor_step = len(region_layer.anchors) // region_layer.num_anchors
                 region_layer.rescore = int(block['rescore'])
                 region_layer.object_scale = float(block['object_scale'])
                 region_layer.noobject_scale = float(block['noobject_scale'])
@@ -788,8 +735,7 @@ class Darknet(nn.Module):
                 yolo_layer.anchors = [float(i) for i in anchors]
                 yolo_layer.num_classes = int(block['classes'])
                 yolo_layer.num_anchors = int(block['num'])
-                yolo_layer.anchor_step = len(yolo_layer.anchors
-                    ) // yolo_layer.num_anchors
+                yolo_layer.anchor_step = len(yolo_layer.anchors) // yolo_layer.num_anchors
                 try:
                     yolo_layer.rescore = int(block['rescore'])
                 except:
@@ -811,8 +757,7 @@ class Darknet(nn.Module):
         fp = open(weightfile, 'rb')
         version = np.fromfile(fp, count=3, dtype=np.int32)
         version = [int(i) for i in version]
-        if version[0] * 10 + version[1] >= 2 and version[0] < 1000 and version[
-            1] < 1000:
+        if version[0] * 10 + version[1] >= 2 and version[0] < 1000 and version[1] < 1000:
             seen = np.fromfile(fp, count=1, dtype=np.int64)
         else:
             seen = np.fromfile(fp, count=1, dtype=np.int32)
@@ -981,17 +926,14 @@ def multi_bbox_ious(boxes1, boxes2, x1y1x2y2=True):
 
 class RegionLayer(nn.Module):
 
-    def __init__(self, num_classes=0, anchors=[], num_anchors=1, use_cuda=None
-        ):
+    def __init__(self, num_classes=0, anchors=[], num_anchors=1, use_cuda=None):
         super(RegionLayer, self).__init__()
-        use_cuda = torch.is_available() and (True if use_cuda is None else
-            use_cuda)
+        use_cuda = torch.is_available() and (True if use_cuda is None else use_cuda)
         self.device = torch.device('cuda' if use_cuda else 'cpu')
         self.num_classes = num_classes
         self.num_anchors = num_anchors
         self.anchor_step = len(anchors) // num_anchors
-        self.anchors = torch.FloatTensor(anchors).view(self.num_anchors,
-            self.anchor_step)
+        self.anchors = torch.FloatTensor(anchors).view(self.num_anchors, self.anchor_step)
         self.rescore = 1
         self.coord_scale = 1
         self.noobject_scale = 1
@@ -1027,10 +969,8 @@ class RegionLayer(nn.Module):
                     break
                 gx, gw = [(i * nW) for i in (tbox[t][1], tbox[t][3])]
                 gy, gh = [(i * nH) for i in (tbox[t][2], tbox[t][4])]
-                cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gh]).repeat(
-                    nAnchors, 1).t()
-                cur_ious = torch.max(cur_ious, multi_bbox_ious(
-                    cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))
+                cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gh]).repeat(nAnchors, 1).t()
+                cur_ious = torch.max(cur_ious, multi_bbox_ious(cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))
             ignore_ix = cur_ious > self.thresh
             conf_mask[b][ignore_ix.view(nA, nH, nW)] = 0
             for t in range(50):
@@ -1041,46 +981,37 @@ class RegionLayer(nn.Module):
                 gy, gh = [(i * nH) for i in (tbox[t][2], tbox[t][4])]
                 gw, gh = gw.float(), gh.float()
                 gi, gj = int(gx), int(gy)
-                tmp_gt_boxes = torch.FloatTensor([0, 0, gw, gh]).repeat(nA, 1
-                    ).t()
+                tmp_gt_boxes = torch.FloatTensor([0, 0, gw, gh]).repeat(nA, 1).t()
                 anchor_boxes = torch.cat((torch.zeros(nA, 2), anchors), 1).t()
-                tmp_ious = multi_bbox_ious(tmp_gt_boxes, anchor_boxes,
-                    x1y1x2y2=False)
+                tmp_ious = multi_bbox_ious(tmp_gt_boxes, anchor_boxes, x1y1x2y2=False)
                 best_iou, best_n = torch.max(tmp_ious, 0)
                 if self.anchor_step == 4:
                     tmp_ious_mask = tmp_ious == best_iou
                     if tmp_ious_mask.sum() > 0:
-                        gt_pos = torch.FloatTensor([gi, gj, gx, gy]).repeat(nA,
-                            1).t()
+                        gt_pos = torch.FloatTensor([gi, gj, gx, gy]).repeat(nA, 1).t()
                         an_pos = anchor_boxes[4:6]
-                        dist = pow(gt_pos[0] + an_pos[0] - gt_pos[2], 2) + pow(
-                            gt_pos[1] + an_pos[1] - gt_pos[3], 2)
+                        dist = pow(gt_pos[0] + an_pos[0] - gt_pos[2], 2) + pow(gt_pos[1] + an_pos[1] - gt_pos[3], 2)
                         dist[1 - tmp_ious_mask] = 10000
                         _, best_n = torch.min(dist, 0)
                 gt_box = torch.FloatTensor([gx, gy, gw, gh])
-                pred_box = pred_boxes[b * nAnchors + best_n * nPixels + gj *
-                    nW + gi]
+                pred_box = pred_boxes[b * nAnchors + best_n * nPixels + gj * nW + gi]
                 iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False)
                 coord_mask[b][best_n][gj][gi] = 1
                 cls_mask[b][best_n][gj][gi] = 1
                 conf_mask[b][best_n][gj][gi] = self.object_scale
                 tcoord[0][b][best_n][gj][gi] = gx - gi
                 tcoord[1][b][best_n][gj][gi] = gy - gj
-                tcoord[2][b][best_n][gj][gi] = math.log(gw / anchors[best_n][0]
-                    )
-                tcoord[3][b][best_n][gj][gi] = math.log(gh / anchors[best_n][1]
-                    )
+                tcoord[2][b][best_n][gj][gi] = math.log(gw / anchors[best_n][0])
+                tcoord[3][b][best_n][gj][gi] = math.log(gh / anchors[best_n][1])
                 tcls[b][best_n][gj][gi] = tbox[t][0]
                 tconf[b][best_n][gj][gi] = iou if self.rescore else 1.0
                 if iou > 0.5:
                     nRecall += 1
-        return (nGT, nRecall, coord_mask, conf_mask, cls_mask, tcoord,
-            tconf, tcls)
+        return nGT, nRecall, coord_mask, conf_mask, cls_mask, tcoord, tconf, tcls
 
     def get_mask_boxes(self, output):
         if not isinstance(self.anchors, torch.Tensor):
-            self.anchors = torch.FloatTensor(self.anchors).view(self.
-                num_anchors, self.anchor_step)
+            self.anchors = torch.FloatTensor(self.anchors).view(self.num_anchors, self.anchor_step)
         masked_anchors = self.anchors.view(-1)
         num_anchors = torch.IntTensor([self.num_anchors])
         return {'x': output, 'a': masked_anchors, 'n': num_anchors}
@@ -1094,37 +1025,28 @@ class RegionLayer(nn.Module):
         nW = output.data.size(3)
         cls_anchor_dim = nB * nA * nH * nW
         if not isinstance(self.anchors, torch.Tensor):
-            self.anchors = torch.FloatTensor(self.anchors).view(self.
-                num_anchors, self.anchor_step)
+            self.anchors = torch.FloatTensor(self.anchors).view(self.num_anchors, self.anchor_step)
         output = output.view(nB, nA, 5 + nC, nH, nW)
         cls_grid = torch.linspace(5, 5 + nC - 1, nC).long()
         ix = torch.LongTensor(range(0, 5))
         pred_boxes = torch.FloatTensor(4, cls_anchor_dim)
-        coord = output.index_select(2, ix[0:4]).view(nB * nA, -1, nH * nW
-            ).transpose(0, 1).contiguous().view(-1, cls_anchor_dim)
+        coord = output.index_select(2, ix[0:4]).view(nB * nA, -1, nH * nW).transpose(0, 1).contiguous().view(-1, cls_anchor_dim)
         coord[0:2] = coord[0:2].sigmoid()
         conf = output.index_select(2, ix[4]).view(nB, nA, nH, nW).sigmoid()
         cls = output.index_select(2, cls_grid)
-        cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(
-            cls_anchor_dim, nC)
+        cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(cls_anchor_dim, nC)
         t1 = time.time()
-        grid_x = torch.linspace(0, nW - 1, nW).repeat(nB * nA, nH, 1).view(
-            cls_anchor_dim)
-        grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB *
-            nA, 1, 1).view(cls_anchor_dim)
-        anchor_w = self.anchors.index_select(1, ix[0]).repeat(1, nB * nH * nW
-            ).view(cls_anchor_dim)
-        anchor_h = self.anchors.index_select(1, ix[1]).repeat(1, nB * nH * nW
-            ).view(cls_anchor_dim)
+        grid_x = torch.linspace(0, nW - 1, nW).repeat(nB * nA, nH, 1).view(cls_anchor_dim)
+        grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB * nA, 1, 1).view(cls_anchor_dim)
+        anchor_w = self.anchors.index_select(1, ix[0]).repeat(1, nB * nH * nW).view(cls_anchor_dim)
+        anchor_h = self.anchors.index_select(1, ix[1]).repeat(1, nB * nH * nW).view(cls_anchor_dim)
         pred_boxes[0] = coord[0] + grid_x
         pred_boxes[1] = coord[1] + grid_y
         pred_boxes[2] = coord[2].exp() * anchor_w
         pred_boxes[3] = coord[3].exp() * anchor_h
-        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().
-            view(-1, 4)).detach()
+        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, 4)).detach()
         t2 = time.time()
-        (nGT, nRecall, coord_mask, conf_mask, cls_mask, tcoord, tconf, tcls
-            ) = self.build_targets(pred_boxes, target.detach(), nH, nW)
+        nGT, nRecall, coord_mask, conf_mask, cls_mask, tcoord, tconf, tcls = self.build_targets(pred_boxes, target.detach(), nH, nW)
         cls_mask = cls_mask == 1
         tcls = tcls[cls_mask].long().view(-1)
         cls_mask = cls_mask.view(-1, 1).repeat(1, nC)
@@ -1132,15 +1054,11 @@ class RegionLayer(nn.Module):
         nProposals = int((conf > 0.25).sum())
         tcoord = tcoord.view(4, cls_anchor_dim)
         tconf, tcls = tconf, tcls
-        coord_mask, conf_mask = coord_mask.view(cls_anchor_dim
-            ), conf_mask.sqrt()
+        coord_mask, conf_mask = coord_mask.view(cls_anchor_dim), conf_mask.sqrt()
         t3 = time.time()
-        loss_coord = self.coord_scale * nn.MSELoss(size_average=False)(
-            coord * coord_mask, tcoord * coord_mask) / 2
-        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf *
-            conf_mask) / 2
-        loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(
-            cls, tcls) if cls.size(0) > 0 else 0
+        loss_coord = self.coord_scale * nn.MSELoss(size_average=False)(coord * coord_mask, tcoord * coord_mask) / 2
+        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf * conf_mask) / 2
+        loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(cls, tcls) if cls.size(0) > 0 else 0
         loss = loss_coord + loss_conf + loss_cls
         t4 = time.time()
         if False:
@@ -1159,11 +1077,9 @@ class RegionLayer(nn.Module):
 
 class YoloLayer(nn.Module):
 
-    def __init__(self, anchor_mask=[], num_classes=0, anchors=[],
-        num_anchors=1, use_cuda=None):
+    def __init__(self, anchor_mask=[], num_classes=0, anchors=[], num_anchors=1, use_cuda=None):
         super(YoloLayer, self).__init__()
-        use_cuda = torch.is_available() and (True if use_cuda is None else
-            use_cuda)
+        use_cuda = torch.is_available() and (True if use_cuda is None else use_cuda)
         self.device = torch.device('cuda' if use_cuda else 'cpu')
         self.anchor_mask = anchor_mask
         self.num_classes = num_classes
@@ -1182,8 +1098,7 @@ class YoloLayer(nn.Module):
     def get_mask_boxes(self, output):
         masked_anchors = []
         for m in self.anchor_mask:
-            masked_anchors += self.anchors[m * self.anchor_step:(m + 1) *
-                self.anchor_step]
+            masked_anchors += self.anchors[m * self.anchor_step:(m + 1) * self.anchor_step]
         masked_anchors = [(anchor / self.stride) for anchor in masked_anchors]
         masked_anchors = torch.FloatTensor(masked_anchors)
         num_anchors = torch.IntTensor([len(self.anchor_mask)])
@@ -1198,8 +1113,7 @@ class YoloLayer(nn.Module):
         tcoord = torch.zeros(4, nB, nA, nH, nW)
         tconf = torch.zeros(nB, nA, nH, nW)
         tcls = torch.zeros(nB, nA, nH, nW)
-        twidth, theight = (self.net_width / self.stride, self.net_height /
-            self.stride)
+        twidth, theight = self.net_width / self.stride, self.net_height / self.stride
         nAnchors = nA * nH * nW
         nPixels = nH * nW
         nGT = 0
@@ -1215,10 +1129,8 @@ class YoloLayer(nn.Module):
                     break
                 gx, gy = tbox[t][1] * nW, tbox[t][2] * nH
                 gw, gh = tbox[t][3] * twidth, tbox[t][4] * theight
-                cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gh]).repeat(
-                    nAnchors, 1).t()
-                cur_ious = torch.max(cur_ious, multi_bbox_ious(
-                    cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))
+                cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gh]).repeat(nAnchors, 1).t()
+                cur_ious = torch.max(cur_ious, multi_bbox_ious(cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))
             ignore_ix = cur_ious > self.ignore_thresh
             conf_mask[b][ignore_ix.view(nA, nH, nW)] = 0
             for t in range(50):
@@ -1229,33 +1141,26 @@ class YoloLayer(nn.Module):
                 gw, gh = tbox[t][3] * twidth, tbox[t][4] * theight
                 gw, gh = gw.float(), gh.float()
                 gi, gj = int(gx), int(gy)
-                tmp_gt_boxes = torch.FloatTensor([0, 0, gw, gh]).repeat(nA, 1
-                    ).t()
-                anchor_boxes = torch.cat((torch.zeros(nA, anchor_step),
-                    anchors), 1).t()
-                _, best_n = torch.max(multi_bbox_ious(tmp_gt_boxes,
-                    anchor_boxes, x1y1x2y2=False), 0)
+                tmp_gt_boxes = torch.FloatTensor([0, 0, gw, gh]).repeat(nA, 1).t()
+                anchor_boxes = torch.cat((torch.zeros(nA, anchor_step), anchors), 1).t()
+                _, best_n = torch.max(multi_bbox_ious(tmp_gt_boxes, anchor_boxes, x1y1x2y2=False), 0)
                 gt_box = torch.FloatTensor([gx, gy, gw, gh])
-                pred_box = pred_boxes[b * nAnchors + best_n * nPixels + gj *
-                    nW + gi]
+                pred_box = pred_boxes[b * nAnchors + best_n * nPixels + gj * nW + gi]
                 iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False)
                 coord_mask[b][best_n][gj][gi] = 1
                 cls_mask[b][best_n][gj][gi] = 1
                 conf_mask[b][best_n][gj][gi] = 1
                 tcoord[0][b][best_n][gj][gi] = gx - gi
                 tcoord[1][b][best_n][gj][gi] = gy - gj
-                tcoord[2][b][best_n][gj][gi] = math.log(gw / anchors[best_n][0]
-                    )
-                tcoord[3][b][best_n][gj][gi] = math.log(gh / anchors[best_n][1]
-                    )
+                tcoord[2][b][best_n][gj][gi] = math.log(gw / anchors[best_n][0])
+                tcoord[3][b][best_n][gj][gi] = math.log(gh / anchors[best_n][1])
                 tcls[b][best_n][gj][gi] = tbox[t][0]
                 tconf[b][best_n][gj][gi] = iou if self.rescore else 1.0
                 if iou > 0.5:
                     nRecall += 1
                     if iou > 0.75:
                         nRecall75 += 1
-        return (nGT, nRecall, nRecall75, coord_mask, conf_mask, cls_mask,
-            tcoord, tconf, tcls)
+        return nGT, nRecall, nRecall75, coord_mask, conf_mask, cls_mask, tcoord, tconf, tcls
 
     def forward(self, output, target):
         mask_tuple = self.get_mask_boxes(output)
@@ -1272,32 +1177,23 @@ class YoloLayer(nn.Module):
         cls_grid = torch.linspace(5, 5 + nC - 1, nC).long()
         ix = torch.LongTensor(range(0, 5))
         pred_boxes = torch.FloatTensor(4, cls_anchor_dim)
-        coord = output.index_select(2, ix[0:4]).view(nB * nA, -1, nH * nW
-            ).transpose(0, 1).contiguous().view(-1, cls_anchor_dim)
+        coord = output.index_select(2, ix[0:4]).view(nB * nA, -1, nH * nW).transpose(0, 1).contiguous().view(-1, cls_anchor_dim)
         coord[0:2] = coord[0:2].sigmoid()
         conf = output.index_select(2, ix[4]).view(nB, nA, nH, nW).sigmoid()
         cls = output.index_select(2, cls_grid)
-        cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(
-            cls_anchor_dim, nC)
+        cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(cls_anchor_dim, nC)
         t1 = time.time()
-        grid_x = torch.linspace(0, nW - 1, nW).repeat(nB * nA, nH, 1).view(
-            cls_anchor_dim)
-        grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB *
-            nA, 1, 1).view(cls_anchor_dim)
-        anchor_w = anchors.index_select(1, ix[0]).repeat(1, nB * nH * nW).view(
-            cls_anchor_dim)
-        anchor_h = anchors.index_select(1, ix[1]).repeat(1, nB * nH * nW).view(
-            cls_anchor_dim)
+        grid_x = torch.linspace(0, nW - 1, nW).repeat(nB * nA, nH, 1).view(cls_anchor_dim)
+        grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB * nA, 1, 1).view(cls_anchor_dim)
+        anchor_w = anchors.index_select(1, ix[0]).repeat(1, nB * nH * nW).view(cls_anchor_dim)
+        anchor_h = anchors.index_select(1, ix[1]).repeat(1, nB * nH * nW).view(cls_anchor_dim)
         pred_boxes[0] = coord[0] + grid_x
         pred_boxes[1] = coord[1] + grid_y
         pred_boxes[2] = coord[2].exp() * anchor_w
         pred_boxes[3] = coord[3].exp() * anchor_h
-        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().
-            view(-1, 4)).detach()
+        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, 4)).detach()
         t2 = time.time()
-        (nGT, nRecall, nRecall75, coord_mask, conf_mask, cls_mask, tcoord,
-            tconf, tcls) = (self.build_targets(pred_boxes, target.detach(),
-            anchors.detach(), nA, nH, nW))
+        nGT, nRecall, nRecall75, coord_mask, conf_mask, cls_mask, tcoord, tconf, tcls = self.build_targets(pred_boxes, target.detach(), anchors.detach(), nA, nH, nW)
         cls_mask = cls_mask == 1
         tcls = tcls[cls_mask].long().view(-1)
         cls_mask = cls_mask.view(-1, 1).repeat(1, nC)
@@ -1307,12 +1203,9 @@ class YoloLayer(nn.Module):
         tconf, tcls = tconf, tcls
         coord_mask, conf_mask = coord_mask.view(cls_anchor_dim), conf_mask
         t3 = time.time()
-        loss_coord = nn.MSELoss(size_average=False)(coord * coord_mask, 
-            tcoord * coord_mask) / 2
-        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf *
-            conf_mask)
-        loss_cls = nn.CrossEntropyLoss(size_average=False)(cls, tcls
-            ) if cls.size(0) > 0 else 0
+        loss_coord = nn.MSELoss(size_average=False)(coord * coord_mask, tcoord * coord_mask) / 2
+        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf * conf_mask)
+        loss_cls = nn.CrossEntropyLoss(size_average=False)(cls, tcls) if cls.size(0) > 0 else 0
         loss = loss_coord + loss_conf + loss_cls
         t4 = time.time()
         if False:
@@ -1333,28 +1226,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_ZQPei_deep_sort_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'c_in': 4, 'c_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Darknet,
+     lambda: ([], {'cfgfile': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EmptyModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPoolStride1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reorg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Upsample,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_ZQPei_deep_sort_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Darknet(*[], **{'cfgfile': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Reorg(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Upsample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

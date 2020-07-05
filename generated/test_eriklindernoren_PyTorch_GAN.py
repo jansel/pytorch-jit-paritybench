@@ -54,8 +54,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -123,16 +124,9 @@ parser = argparse.ArgumentParser()
 opt = parser.parse_args()
 
 
-cuda = True if torch.cuda.is_available() else False
-
-
-Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-
-
 def reparameterization(mu, logvar):
     std = torch.exp(logvar / 2)
-    sampled_z = Variable(Tensor(np.random.normal(0, 1, (mu.size(0), opt.
-        latent_dim))))
+    sampled_z = Variable(Tensor(np.random.normal(0, 1, (mu.size(0), opt.latent_dim))))
     z = sampled_z * std + mu
     return z
 
@@ -141,9 +135,7 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder, self).__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.
-            BatchNorm1d(512), nn.LeakyReLU(0.2, inplace=True))
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.BatchNorm1d(512), nn.LeakyReLU(0.2, inplace=True))
         self.mu = nn.Linear(512, opt.latent_dim)
         self.logvar = nn.Linear(512, opt.latent_dim)
 
@@ -160,10 +152,7 @@ class Decoder(nn.Module):
 
     def __init__(self):
         super(Decoder, self).__init__()
-        self.model = nn.Sequential(nn.Linear(opt.latent_dim, 512), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.
-            BatchNorm1d(512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(
-            512, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(nn.Linear(opt.latent_dim, 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.BatchNorm1d(512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img_flat = self.model(z)
@@ -175,9 +164,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(opt.latent_dim, 512), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU
-            (0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
+        self.model = nn.Sequential(nn.Linear(opt.latent_dim, 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
 
     def forward(self, z):
         validity = self.model(z)
@@ -190,15 +177,8 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.label_emb = nn.Embedding(opt.n_classes, opt.latent_dim)
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise, labels):
         gen_input = torch.mul(self.label_emb(labels), noise)
@@ -215,19 +195,14 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, bn=True):
             """Returns layers of each discriminator block"""
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.conv_blocks = nn.Sequential(*discriminator_block(opt.channels,
-            16, bn=False), *discriminator_block(16, 32), *
-            discriminator_block(32, 64), *discriminator_block(64, 128))
+        self.conv_blocks = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
-        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn
-            .Sigmoid())
-        self.aux_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.
-            n_classes), nn.Softmax())
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
+        self.aux_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.n_classes), nn.Softmax())
 
     def forward(self, img):
         out = self.conv_blocks(img)
@@ -242,15 +217,8 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise):
         out = self.l1(noise)
@@ -263,21 +231,16 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.down = nn.Sequential(nn.Conv2d(opt.channels, 64, 3, 2, 1), nn.
-            ReLU())
+        self.down = nn.Sequential(nn.Conv2d(opt.channels, 64, 3, 2, 1), nn.ReLU())
         self.down_size = opt.img_size // 2
         down_dim = 64 * (opt.img_size // 2) ** 2
-        self.fc = nn.Sequential(nn.Linear(down_dim, 32), nn.BatchNorm1d(32,
-            0.8), nn.ReLU(inplace=True), nn.Linear(32, down_dim), nn.
-            BatchNorm1d(down_dim), nn.ReLU(inplace=True))
-        self.up = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(64,
-            opt.channels, 3, 1, 1))
+        self.fc = nn.Sequential(nn.Linear(down_dim, 32), nn.BatchNorm1d(32, 0.8), nn.ReLU(inplace=True), nn.Linear(32, down_dim), nn.BatchNorm1d(down_dim), nn.ReLU(inplace=True))
+        self.up = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(64, opt.channels, 3, 1, 1))
 
     def forward(self, img):
         out = self.down(img)
         out = self.fc(out.view(out.size(0), -1))
-        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size)
-            )
+        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size))
         return out
 
 
@@ -292,9 +255,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=
-            False), *block(128, 256), *block(256, 512), *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -306,9 +267,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
 
     def forward(self, img):
         img_flat = img.view(img.shape[0], -1)
@@ -320,8 +279,7 @@ class UNetDown(nn.Module):
 
     def __init__(self, in_size, out_size, normalize=True, dropout=0.0):
         super(UNetDown, self).__init__()
-        layers = [nn.Conv2d(in_size, out_size, 3, stride=2, padding=1, bias
-            =False)]
+        layers = [nn.Conv2d(in_size, out_size, 3, stride=2, padding=1, bias=False)]
         if normalize:
             layers.append(nn.BatchNorm2d(out_size, 0.8))
         layers.append(nn.LeakyReLU(0.2))
@@ -335,9 +293,7 @@ class UNetUp(nn.Module):
 
     def __init__(self, in_size, out_size):
         super(UNetUp, self).__init__()
-        self.model = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(
-            in_size, out_size, 3, stride=1, padding=1, bias=False), nn.
-            BatchNorm2d(out_size, 0.8), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(in_size, out_size, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(out_size, 0.8), nn.ReLU(inplace=True))
 
     def forward(self, x, skip_input):
         x = self.model(x)
@@ -364,8 +320,7 @@ class Generator(nn.Module):
         self.up4 = UNetUp(1024, 256)
         self.up5 = UNetUp(512, 128)
         self.up6 = UNetUp(256, 64)
-        self.final = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(
-            128, channels, 3, stride=1, padding=1), nn.Tanh())
+        self.final = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(128, channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, x, z):
         z = self.fc(z).view(z.size(0), 1, self.h, self.w)
@@ -390,8 +345,7 @@ class Encoder(nn.Module):
     def __init__(self, latent_dim, input_shape):
         super(Encoder, self).__init__()
         resnet18_model = resnet18(pretrained=False)
-        self.feature_extractor = nn.Sequential(*list(resnet18_model.
-            children())[:-3])
+        self.feature_extractor = nn.Sequential(*list(resnet18_model.children())[:-3])
         self.pooling = nn.AvgPool2d(kernel_size=8, stride=8, padding=0)
         self.fc_mu = nn.Linear(256, latent_dim)
         self.fc_logvar = nn.Linear(256, latent_dim)
@@ -412,8 +366,7 @@ class MultiDiscriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.BatchNorm2d(out_filters, 0.8))
             layers.append(nn.LeakyReLU(0.2))
@@ -421,13 +374,8 @@ class MultiDiscriminator(nn.Module):
         channels, _, _ = input_shape
         self.models = nn.ModuleList()
         for i in range(3):
-            self.models.add_module('disc_%d' % i, nn.Sequential(*
-                discriminator_block(channels, 64, normalize=False), *
-                discriminator_block(64, 128), *discriminator_block(128, 256
-                ), *discriminator_block(256, 512), nn.Conv2d(512, 1, 3,
-                padding=1)))
-        self.downsample = nn.AvgPool2d(in_channels, stride=2, padding=[1, 1
-            ], count_include_pad=False)
+            self.models.add_module('disc_%d' % i, nn.Sequential(*discriminator_block(channels, 64, normalize=False), *discriminator_block(64, 128), *discriminator_block(128, 256), *discriminator_block(256, 512), nn.Conv2d(512, 1, 3, padding=1)))
+        self.downsample = nn.AvgPool2d(in_channels, stride=2, padding=[1, 1], count_include_pad=False)
 
     def compute_loss(self, x, gt):
         """Computes the MSE between model output and scalar gt"""
@@ -446,8 +394,7 @@ class UNetDown(nn.Module):
 
     def __init__(self, in_size, out_size, normalize=True, dropout=0.0):
         super(UNetDown, self).__init__()
-        model = [nn.Conv2d(in_size, out_size, 4, stride=2, padding=1, bias=
-            False)]
+        model = [nn.Conv2d(in_size, out_size, 4, stride=2, padding=1, bias=False)]
         if normalize:
             model.append(nn.BatchNorm2d(out_size, 0.8))
         model.append(nn.LeakyReLU(0.2))
@@ -463,9 +410,7 @@ class UNetUp(nn.Module):
 
     def __init__(self, in_size, out_size, dropout=0.0):
         super(UNetUp, self).__init__()
-        model = [nn.ConvTranspose2d(in_size, out_size, 4, stride=2, padding
-            =1, bias=False), nn.BatchNorm2d(out_size, 0.8), nn.ReLU(inplace
-            =True)]
+        model = [nn.ConvTranspose2d(in_size, out_size, 4, stride=2, padding=1, bias=False), nn.BatchNorm2d(out_size, 0.8), nn.ReLU(inplace=True)]
         if dropout:
             model.append(nn.Dropout(dropout))
         self.model = nn.Sequential(*model)
@@ -492,8 +437,7 @@ class Generator(nn.Module):
         self.up3 = UNetUp(1024, 256, dropout=0.5)
         self.up4 = UNetUp(512, 128)
         self.up5 = UNetUp(256 + channels, 64)
-        final = [nn.Upsample(scale_factor=2), nn.Conv2d(128, channels, 3, 1,
-            1), nn.Tanh()]
+        final = [nn.Upsample(scale_factor=2), nn.Conv2d(128, channels, 3, 1, 1), nn.Tanh()]
         self.final = nn.Sequential(*final)
 
     def forward(self, x, x_lr):
@@ -529,10 +473,8 @@ class Discriminator(nn.Module):
             return layers
         layers = []
         in_filters = channels
-        for out_filters, stride, normalize in [(64, 2, False), (128, 2, 
-            True), (256, 2, True), (512, 1, True)]:
-            layers.extend(discriminator_block(in_filters, out_filters,
-                stride, normalize))
+        for out_filters, stride, normalize in [(64, 2, False), (128, 2, True), (256, 2, True), (512, 1, True)]:
+            layers.extend(discriminator_block(in_filters, out_filters, stride, normalize))
             in_filters = out_filters
         layers.append(nn.Conv2d(out_filters, 1, 3, 1, 1))
         self.model = nn.Sequential(*layers)
@@ -553,10 +495,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim + opt.n_classes, 
-            128, normalize=False), *block(128, 256), *block(256, 512), *
-            block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.
-            Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim + opt.n_classes, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, noise, labels):
         gen_input = torch.cat((self.label_emb(labels), noise), -1)
@@ -570,15 +509,10 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.label_embedding = nn.Embedding(opt.n_classes, opt.n_classes)
-        self.model = nn.Sequential(nn.Linear(opt.n_classes + int(np.prod(
-            img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(
-            512, 512), nn.Dropout(0.4), nn.LeakyReLU(0.2, inplace=True), nn
-            .Linear(512, 512), nn.Dropout(0.4), nn.LeakyReLU(0.2, inplace=
-            True), nn.Linear(512, 1))
+        self.model = nn.Sequential(nn.Linear(opt.n_classes + int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.Dropout(0.4), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 512), nn.Dropout(0.4), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 1))
 
     def forward(self, img, labels):
-        d_in = torch.cat((img.view(img.size(0), -1), self.label_embedding(
-            labels)), -1)
+        d_in = torch.cat((img.view(img.size(0), -1), self.label_embedding(labels)), -1)
         validity = self.model(d_in)
         return validity
 
@@ -628,14 +562,7 @@ class Generator_CNN(nn.Module):
         self.ishape = 128, 7, 7
         self.iels = int(np.prod(self.ishape))
         self.verbose = verbose
-        self.model = nn.Sequential(torch.nn.Linear(self.latent_dim + self.
-            n_c, 1024), nn.BatchNorm1d(1024), nn.LeakyReLU(0.2, inplace=
-            True), torch.nn.Linear(1024, self.iels), nn.BatchNorm1d(self.
-            iels), nn.LeakyReLU(0.2, inplace=True), Reshape(self.ishape),
-            nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1, bias=True),
-            nn.BatchNorm2d(64), nn.LeakyReLU(0.2, inplace=True), nn.
-            ConvTranspose2d(64, 1, 4, stride=2, padding=1, bias=True), nn.
-            Sigmoid())
+        self.model = nn.Sequential(torch.nn.Linear(self.latent_dim + self.n_c, 1024), nn.BatchNorm1d(1024), nn.LeakyReLU(0.2, inplace=True), torch.nn.Linear(1024, self.iels), nn.BatchNorm1d(self.iels), nn.LeakyReLU(0.2, inplace=True), Reshape(self.ishape), nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1, bias=True), nn.BatchNorm2d(64), nn.LeakyReLU(0.2, inplace=True), nn.ConvTranspose2d(64, 1, 4, stride=2, padding=1, bias=True), nn.Sigmoid())
         initialize_weights(self)
         if self.verbose:
             None
@@ -669,12 +596,7 @@ class Encoder_CNN(nn.Module):
         self.iels = int(np.prod(self.cshape))
         self.lshape = self.iels,
         self.verbose = verbose
-        self.model = nn.Sequential(nn.Conv2d(self.channels, 64, 4, stride=2,
-            bias=True), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128,
-            4, stride=2, bias=True), nn.LeakyReLU(0.2, inplace=True),
-            Reshape(self.lshape), torch.nn.Linear(self.iels, 1024), nn.
-            LeakyReLU(0.2, inplace=True), torch.nn.Linear(1024, latent_dim +
-            n_c))
+        self.model = nn.Sequential(nn.Conv2d(self.channels, 64, 4, stride=2, bias=True), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128, 4, stride=2, bias=True), nn.LeakyReLU(0.2, inplace=True), Reshape(self.lshape), torch.nn.Linear(self.iels, 1024), nn.LeakyReLU(0.2, inplace=True), torch.nn.Linear(1024, latent_dim + n_c))
         initialize_weights(self)
         if self.verbose:
             None
@@ -707,11 +629,7 @@ class Discriminator_CNN(nn.Module):
         self.lshape = self.iels,
         self.wass = wass_metric
         self.verbose = verbose
-        self.model = nn.Sequential(nn.Conv2d(self.channels, 64, 4, stride=2,
-            bias=True), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128,
-            4, stride=2, bias=True), nn.LeakyReLU(0.2, inplace=True),
-            Reshape(self.lshape), torch.nn.Linear(self.iels, 1024), nn.
-            LeakyReLU(0.2, inplace=True), torch.nn.Linear(1024, 1))
+        self.model = nn.Sequential(nn.Conv2d(self.channels, 64, 4, stride=2, bias=True), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128, 4, stride=2, bias=True), nn.LeakyReLU(0.2, inplace=True), Reshape(self.lshape), torch.nn.Linear(self.iels, 1024), nn.LeakyReLU(0.2, inplace=True), torch.nn.Linear(1024, 1))
         if not self.wass:
             self.model = nn.Sequential(self.model, torch.nn.Sigmoid())
         initialize_weights(self)
@@ -729,18 +647,10 @@ class CoupledGenerators(nn.Module):
     def __init__(self):
         super(CoupledGenerators, self).__init__()
         self.init_size = opt.img_size // 4
-        self.fc = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.shared_conv = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2))
-        self.G1 = nn.Sequential(nn.Conv2d(128, 64, 3, stride=1, padding=1),
-            nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
-        self.G2 = nn.Sequential(nn.Conv2d(128, 64, 3, stride=1, padding=1),
-            nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
+        self.fc = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.shared_conv = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2))
+        self.G1 = nn.Sequential(nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
+        self.G2 = nn.Sequential(nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise):
         out = self.fc(noise)
@@ -762,9 +672,7 @@ class CoupledDiscriminators(nn.Module):
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             block.extend([nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)])
             return block
-        self.shared_conv = nn.Sequential(*discriminator_block(opt.channels,
-            16, bn=False), *discriminator_block(16, 32), *
-            discriminator_block(32, 64), *discriminator_block(64, 128))
+        self.shared_conv = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
         self.D1 = nn.Linear(128 * ds_size ** 2, 1)
         self.D2 = nn.Linear(128 * ds_size ** 2, 1)
@@ -792,17 +700,12 @@ class Generator(nn.Module):
             return layers
 
         def upsample(in_feat, out_feat, normalize=True):
-            layers = [nn.ConvTranspose2d(in_feat, out_feat, 4, stride=2,
-                padding=1)]
+            layers = [nn.ConvTranspose2d(in_feat, out_feat, 4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.BatchNorm2d(out_feat, 0.8))
             layers.append(nn.ReLU())
             return layers
-        self.model = nn.Sequential(*downsample(channels, 64, normalize=
-            False), *downsample(64, 64), *downsample(64, 128), *downsample(
-            128, 256), *downsample(256, 512), nn.Conv2d(512, 4000, 1), *
-            upsample(4000, 512), *upsample(512, 256), *upsample(256, 128),
-            *upsample(128, 64), nn.Conv2d(64, channels, 3, 1, 1), nn.Tanh())
+        self.model = nn.Sequential(*downsample(channels, 64, normalize=False), *downsample(64, 64), *downsample(64, 128), *downsample(128, 256), *downsample(256, 512), nn.Conv2d(512, 4000, 1), *upsample(4000, 512), *upsample(512, 256), *upsample(256, 128), *upsample(128, 64), nn.Conv2d(64, channels, 3, 1, 1), nn.Tanh())
 
     def forward(self, x):
         return self.model(x)
@@ -822,10 +725,8 @@ class Discriminator(nn.Module):
             return layers
         layers = []
         in_filters = channels
-        for out_filters, stride, normalize in [(64, 2, False), (128, 2, 
-            True), (256, 2, True), (512, 1, True)]:
-            layers.extend(discriminator_block(in_filters, out_filters,
-                stride, normalize))
+        for out_filters, stride, normalize in [(64, 2, False), (128, 2, True), (256, 2, True), (512, 1, True)]:
+            layers.extend(discriminator_block(in_filters, out_filters, stride, normalize))
             in_filters = out_filters
         layers.append(nn.Conv2d(out_filters, 1, 3, 1, 1))
         self.model = nn.Sequential(*layers)
@@ -838,10 +739,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, in_features):
         super(ResidualBlock, self).__init__()
-        self.block = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(
-            in_features, in_features, 3), nn.InstanceNorm2d(in_features),
-            nn.ReLU(inplace=True), nn.ReflectionPad2d(1), nn.Conv2d(
-            in_features, in_features, 3), nn.InstanceNorm2d(in_features))
+        self.block = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(in_features, in_features, 3), nn.InstanceNorm2d(in_features), nn.ReLU(inplace=True), nn.ReflectionPad2d(1), nn.Conv2d(in_features, in_features, 3), nn.InstanceNorm2d(in_features))
 
     def forward(self, x):
         return x + self.block(x)
@@ -853,26 +751,19 @@ class GeneratorResNet(nn.Module):
         super(GeneratorResNet, self).__init__()
         channels = input_shape[0]
         out_features = 64
-        model = [nn.ReflectionPad2d(channels), nn.Conv2d(channels,
-            out_features, 7), nn.InstanceNorm2d(out_features), nn.ReLU(
-            inplace=True)]
+        model = [nn.ReflectionPad2d(channels), nn.Conv2d(channels, out_features, 7), nn.InstanceNorm2d(out_features), nn.ReLU(inplace=True)]
         in_features = out_features
         for _ in range(2):
             out_features *= 2
-            model += [nn.Conv2d(in_features, out_features, 3, stride=2,
-                padding=1), nn.InstanceNorm2d(out_features), nn.ReLU(
-                inplace=True)]
+            model += [nn.Conv2d(in_features, out_features, 3, stride=2, padding=1), nn.InstanceNorm2d(out_features), nn.ReLU(inplace=True)]
             in_features = out_features
         for _ in range(num_residual_blocks):
             model += [ResidualBlock(out_features)]
         for _ in range(2):
             out_features //= 2
-            model += [nn.Upsample(scale_factor=2), nn.Conv2d(in_features,
-                out_features, 3, stride=1, padding=1), nn.InstanceNorm2d(
-                out_features), nn.ReLU(inplace=True)]
+            model += [nn.Upsample(scale_factor=2), nn.Conv2d(in_features, out_features, 3, stride=1, padding=1), nn.InstanceNorm2d(out_features), nn.ReLU(inplace=True)]
             in_features = out_features
-        model += [nn.ReflectionPad2d(channels), nn.Conv2d(out_features,
-            channels, 7), nn.Tanh()]
+        model += [nn.ReflectionPad2d(channels), nn.Conv2d(out_features, channels, 7), nn.Tanh()]
         self.model = nn.Sequential(*model)
 
     def forward(self, x):
@@ -888,16 +779,12 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.InstanceNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*discriminator_block(channels, 64,
-            normalize=False), *discriminator_block(64, 128), *
-            discriminator_block(128, 256), *discriminator_block(256, 512),
-            nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(512, 1, 4, padding=1))
+        self.model = nn.Sequential(*discriminator_block(channels, 64, normalize=False), *discriminator_block(64, 128), *discriminator_block(128, 256), *discriminator_block(256, 512), nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(512, 1, 4, padding=1))
 
     def forward(self, img):
         return self.model(img)
@@ -908,15 +795,8 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, z):
         out = self.l1(z)
@@ -931,17 +811,13 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         def discriminator_block(in_filters, out_filters, bn=True):
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.model = nn.Sequential(*discriminator_block(opt.channels, 16,
-            bn=False), *discriminator_block(16, 32), *discriminator_block(
-            32, 64), *discriminator_block(64, 128))
+        self.model = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
-        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn
-            .Sigmoid())
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
 
     def forward(self, img):
         out = self.model(img)
@@ -970,8 +846,7 @@ class UNetUp(nn.Module):
 
     def __init__(self, in_size, out_size, dropout=0.0):
         super(UNetUp, self).__init__()
-        layers = [nn.ConvTranspose2d(in_size, out_size, 4, 2, 1), nn.
-            InstanceNorm2d(out_size), nn.ReLU(inplace=True)]
+        layers = [nn.ConvTranspose2d(in_size, out_size, 4, 2, 1), nn.InstanceNorm2d(out_size), nn.ReLU(inplace=True)]
         if dropout:
             layers.append(nn.Dropout(dropout))
         self.model = nn.Sequential(*layers)
@@ -998,9 +873,7 @@ class GeneratorUNet(nn.Module):
         self.up3 = UNetUp(1024, 256, dropout=0.5)
         self.up4 = UNetUp(512, 128)
         self.up5 = UNetUp(256, 64)
-        self.final = nn.Sequential(nn.Upsample(scale_factor=2), nn.
-            ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(128, channels, 4, padding=1),
-            nn.Tanh())
+        self.final = nn.Sequential(nn.Upsample(scale_factor=2), nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(128, channels, 4, padding=1), nn.Tanh())
 
     def forward(self, x):
         d1 = self.down1(x)
@@ -1026,16 +899,12 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, normalization=True):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             if normalization:
                 layers.append(nn.InstanceNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*discriminator_block(channels, 64,
-            normalization=False), *discriminator_block(64, 128), *
-            discriminator_block(128, 256), nn.ZeroPad2d((1, 0, 1, 0)), nn.
-            Conv2d(256, 1, 4, padding=1))
+        self.model = nn.Sequential(*discriminator_block(channels, 64, normalization=False), *discriminator_block(64, 128), *discriminator_block(128, 256), nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(256, 1, 4, padding=1))
 
     def forward(self, img):
         return self.model(img)
@@ -1046,15 +915,8 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise):
         out = self.l1(noise)
@@ -1069,17 +931,13 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         def discriminator_block(in_filters, out_filters, bn=True):
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.model = nn.Sequential(*discriminator_block(opt.channels, 16,
-            bn=False), *discriminator_block(16, 32), *discriminator_block(
-            32, 64), *discriminator_block(64, 128))
+        self.model = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
-        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn
-            .Sigmoid())
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
 
     def forward(self, img):
         out = self.model(img)
@@ -1092,8 +950,7 @@ class UNetDown(nn.Module):
 
     def __init__(self, in_size, out_size, normalize=True, dropout=0.0):
         super(UNetDown, self).__init__()
-        layers = [nn.Conv2d(in_size, out_size, 4, stride=2, padding=1, bias
-            =False)]
+        layers = [nn.Conv2d(in_size, out_size, 4, stride=2, padding=1, bias=False)]
         if normalize:
             layers.append(nn.InstanceNorm2d(out_size, affine=True))
         layers.append(nn.LeakyReLU(0.2))
@@ -1109,9 +966,7 @@ class UNetUp(nn.Module):
 
     def __init__(self, in_size, out_size, dropout=0.0):
         super(UNetUp, self).__init__()
-        layers = [nn.ConvTranspose2d(in_size, out_size, 4, stride=2,
-            padding=1, bias=False), nn.InstanceNorm2d(out_size, affine=True
-            ), nn.ReLU(inplace=True)]
+        layers = [nn.ConvTranspose2d(in_size, out_size, 4, stride=2, padding=1, bias=False), nn.InstanceNorm2d(out_size, affine=True), nn.ReLU(inplace=True)]
         if dropout:
             layers.append(nn.Dropout(dropout))
         self.model = nn.Sequential(*layers)
@@ -1139,8 +994,7 @@ class Generator(nn.Module):
         self.up4 = UNetUp(1024, 256)
         self.up5 = UNetUp(512, 128)
         self.up6 = UNetUp(256, 64)
-        self.final = nn.Sequential(nn.ConvTranspose2d(128, channels, 4,
-            stride=2, padding=1), nn.Tanh())
+        self.final = nn.Sequential(nn.ConvTranspose2d(128, channels, 4, stride=2, padding=1), nn.Tanh())
 
     def forward(self, x):
         d1 = self.down1(x)
@@ -1166,16 +1020,12 @@ class Discriminator(nn.Module):
 
         def discrimintor_block(in_features, out_features, normalize=True):
             """Discriminator block"""
-            layers = [nn.Conv2d(in_features, out_features, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_features, out_features, 4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.BatchNorm2d(out_features, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*discrimintor_block(in_channels, 64,
-            normalize=False), *discrimintor_block(64, 128), *
-            discrimintor_block(128, 256), nn.ZeroPad2d((1, 0, 1, 0)), nn.
-            Conv2d(256, 1, kernel_size=4))
+        self.model = nn.Sequential(*discrimintor_block(in_channels, 64, normalize=False), *discrimintor_block(64, 128), *discrimintor_block(128, 256), nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(256, 1, kernel_size=4))
 
     def forward(self, img):
         return self.model(img)
@@ -1186,14 +1036,8 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.Upsample(scale_factor=2), nn.
-            Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 
-            0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor
-            =2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d
-            (64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.
-            channels, 3, stride=1, padding=1), nn.Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise):
         out = self.l1(noise)
@@ -1206,23 +1050,18 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.down = nn.Sequential(nn.Conv2d(opt.channels, 64, 3, 2, 1), nn.
-            ReLU())
+        self.down = nn.Sequential(nn.Conv2d(opt.channels, 64, 3, 2, 1), nn.ReLU())
         self.down_size = opt.img_size // 2
         down_dim = 64 * (opt.img_size // 2) ** 2
         self.embedding = nn.Linear(down_dim, 32)
-        self.fc = nn.Sequential(nn.BatchNorm1d(32, 0.8), nn.ReLU(inplace=
-            True), nn.Linear(32, down_dim), nn.BatchNorm1d(down_dim), nn.
-            ReLU(inplace=True))
-        self.up = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(64,
-            opt.channels, 3, 1, 1))
+        self.fc = nn.Sequential(nn.BatchNorm1d(32, 0.8), nn.ReLU(inplace=True), nn.Linear(32, down_dim), nn.BatchNorm1d(down_dim), nn.ReLU(inplace=True))
+        self.up = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(64, opt.channels, 3, 1, 1))
 
     def forward(self, img):
         out = self.down(img)
         embedding = self.embedding(out.view(out.size(0), -1))
         out = self.fc(embedding)
-        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size)
-            )
+        out = self.up(out.view(out.size(0), 64, self.down_size, self.down_size))
         return out, embedding
 
 
@@ -1231,8 +1070,7 @@ class FeatureExtractor(nn.Module):
     def __init__(self):
         super(FeatureExtractor, self).__init__()
         vgg19_model = vgg19(pretrained=True)
-        self.vgg19_54 = nn.Sequential(*list(vgg19_model.features.children()
-            )[:35])
+        self.vgg19_54 = nn.Sequential(*list(vgg19_model.features.children())[:35])
 
     def forward(self, img):
         return self.vgg19_54(img)
@@ -1272,8 +1110,7 @@ class ResidualInResidualDenseBlock(nn.Module):
     def __init__(self, filters, res_scale=0.2):
         super(ResidualInResidualDenseBlock, self).__init__()
         self.res_scale = res_scale
-        self.dense_blocks = nn.Sequential(DenseResidualBlock(filters),
-            DenseResidualBlock(filters), DenseResidualBlock(filters))
+        self.dense_blocks = nn.Sequential(DenseResidualBlock(filters), DenseResidualBlock(filters), DenseResidualBlock(filters))
 
     def forward(self, x):
         return self.dense_blocks(x).mul(self.res_scale) + x
@@ -1281,24 +1118,16 @@ class ResidualInResidualDenseBlock(nn.Module):
 
 class GeneratorRRDB(nn.Module):
 
-    def __init__(self, channels, filters=64, num_res_blocks=16, num_upsample=2
-        ):
+    def __init__(self, channels, filters=64, num_res_blocks=16, num_upsample=2):
         super(GeneratorRRDB, self).__init__()
-        self.conv1 = nn.Conv2d(channels, filters, kernel_size=3, stride=1,
-            padding=1)
-        self.res_blocks = nn.Sequential(*[ResidualInResidualDenseBlock(
-            filters) for _ in range(num_res_blocks)])
-        self.conv2 = nn.Conv2d(filters, filters, kernel_size=3, stride=1,
-            padding=1)
+        self.conv1 = nn.Conv2d(channels, filters, kernel_size=3, stride=1, padding=1)
+        self.res_blocks = nn.Sequential(*[ResidualInResidualDenseBlock(filters) for _ in range(num_res_blocks)])
+        self.conv2 = nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1)
         upsample_layers = []
         for _ in range(num_upsample):
-            upsample_layers += [nn.Conv2d(filters, filters * 4, kernel_size
-                =3, stride=1, padding=1), nn.LeakyReLU(), nn.PixelShuffle(
-                upscale_factor=2)]
+            upsample_layers += [nn.Conv2d(filters, filters * 4, kernel_size=3, stride=1, padding=1), nn.LeakyReLU(), nn.PixelShuffle(upscale_factor=2)]
         self.upsampling = nn.Sequential(*upsample_layers)
-        self.conv3 = nn.Sequential(nn.Conv2d(filters, filters, kernel_size=
-            3, stride=1, padding=1), nn.LeakyReLU(), nn.Conv2d(filters,
-            channels, kernel_size=3, stride=1, padding=1))
+        self.conv3 = nn.Sequential(nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1), nn.LeakyReLU(), nn.Conv2d(filters, channels, kernel_size=3, stride=1, padding=1))
 
     def forward(self, x):
         out1 = self.conv1(x)
@@ -1321,24 +1150,20 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, first_block=False):
             layers = []
-            layers.append(nn.Conv2d(in_filters, out_filters, kernel_size=3,
-                stride=1, padding=1))
+            layers.append(nn.Conv2d(in_filters, out_filters, kernel_size=3, stride=1, padding=1))
             if not first_block:
                 layers.append(nn.BatchNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
-            layers.append(nn.Conv2d(out_filters, out_filters, kernel_size=3,
-                stride=2, padding=1))
+            layers.append(nn.Conv2d(out_filters, out_filters, kernel_size=3, stride=2, padding=1))
             layers.append(nn.BatchNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
         layers = []
         in_filters = in_channels
         for i, out_filters in enumerate([64, 128, 256, 512]):
-            layers.extend(discriminator_block(in_filters, out_filters,
-                first_block=i == 0))
+            layers.extend(discriminator_block(in_filters, out_filters, first_block=i == 0))
             in_filters = out_filters
-        layers.append(nn.Conv2d(out_filters, 1, kernel_size=3, stride=1,
-            padding=1))
+        layers.append(nn.Conv2d(out_filters, 1, kernel_size=3, stride=1, padding=1))
         self.model = nn.Sequential(*layers)
 
     def forward(self, img):
@@ -1356,9 +1181,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=
-            False), *block(128, 256), *block(256, 512), *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -1370,9 +1193,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
 
     def forward(self, img):
         img_flat = img.view(img.size(0), -1)
@@ -1386,15 +1207,8 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         input_dim = opt.latent_dim + opt.n_classes + opt.code_dim
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(input_dim, 128 * self.init_size ** 2)
-            )
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(input_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise, labels, code):
         gen_input = torch.cat((noise, labels, code), -1)
@@ -1411,20 +1225,15 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, bn=True):
             """Returns layers of each discriminator block"""
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.conv_blocks = nn.Sequential(*discriminator_block(opt.channels,
-            16, bn=False), *discriminator_block(16, 32), *
-            discriminator_block(32, 64), *discriminator_block(64, 128))
+        self.conv_blocks = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1))
-        self.aux_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.
-            n_classes), nn.Softmax())
-        self.latent_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt
-            .code_dim))
+        self.aux_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.n_classes), nn.Softmax())
+        self.latent_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.code_dim))
 
     def forward(self, img):
         out = self.conv_blocks(img)
@@ -1440,14 +1249,8 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.Upsample(scale_factor=2), nn.
-            Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 
-            0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor
-            =2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d
-            (64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.
-            channels, 3, stride=1, padding=1), nn.Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, z):
         out = self.l1(z)
@@ -1462,14 +1265,11 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         def discriminator_block(in_filters, out_filters, bn=True):
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.model = nn.Sequential(*discriminator_block(opt.channels, 16,
-            bn=False), *discriminator_block(16, 32), *discriminator_block(
-            32, 64), *discriminator_block(64, 128))
+        self.model = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
         self.adv_layer = nn.Linear(128 * ds_size ** 2, 1)
 
@@ -1482,13 +1282,10 @@ class Discriminator(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, in_channels=3, dim=64, n_residual=3, n_downsample=2,
-        style_dim=8):
+    def __init__(self, in_channels=3, dim=64, n_residual=3, n_downsample=2, style_dim=8):
         super(Encoder, self).__init__()
-        self.content_encoder = ContentEncoder(in_channels, dim, n_residual,
-            n_downsample)
-        self.style_encoder = StyleEncoder(in_channels, dim, n_downsample,
-            style_dim)
+        self.content_encoder = ContentEncoder(in_channels, dim, n_residual, n_downsample)
+        self.style_encoder = StyleEncoder(in_channels, dim, n_downsample, style_dim)
 
     def forward(self, x):
         content_code = self.content_encoder(x)
@@ -1498,20 +1295,16 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, out_channels=3, dim=64, n_residual=3, n_upsample=2,
-        style_dim=8):
+    def __init__(self, out_channels=3, dim=64, n_residual=3, n_upsample=2, style_dim=8):
         super(Decoder, self).__init__()
         layers = []
         dim = dim * 2 ** n_upsample
         for _ in range(n_residual):
             layers += [ResidualBlock(dim, norm='adain')]
         for _ in range(n_upsample):
-            layers += [nn.Upsample(scale_factor=2), nn.Conv2d(dim, dim // 2,
-                5, stride=1, padding=2), LayerNorm(dim // 2), nn.ReLU(
-                inplace=True)]
+            layers += [nn.Upsample(scale_factor=2), nn.Conv2d(dim, dim // 2, 5, stride=1, padding=2), LayerNorm(dim // 2), nn.ReLU(inplace=True)]
             dim = dim // 2
-        layers += [nn.ReflectionPad2d(3), nn.Conv2d(dim, out_channels, 7),
-            nn.Tanh()]
+        layers += [nn.ReflectionPad2d(3), nn.Conv2d(dim, out_channels, 7), nn.Tanh()]
         self.model = nn.Sequential(*layers)
         num_adain_params = self.get_num_adain_params()
         self.mlp = MLP(style_dim, num_adain_params)
@@ -1545,11 +1338,9 @@ class ContentEncoder(nn.Module):
 
     def __init__(self, in_channels=3, dim=64, n_residual=3, n_downsample=2):
         super(ContentEncoder, self).__init__()
-        layers = [nn.ReflectionPad2d(3), nn.Conv2d(in_channels, dim, 7), nn
-            .InstanceNorm2d(dim), nn.ReLU(inplace=True)]
+        layers = [nn.ReflectionPad2d(3), nn.Conv2d(in_channels, dim, 7), nn.InstanceNorm2d(dim), nn.ReLU(inplace=True)]
         for _ in range(n_downsample):
-            layers += [nn.Conv2d(dim, dim * 2, 4, stride=2, padding=1), nn.
-                InstanceNorm2d(dim * 2), nn.ReLU(inplace=True)]
+            layers += [nn.Conv2d(dim, dim * 2, 4, stride=2, padding=1), nn.InstanceNorm2d(dim * 2), nn.ReLU(inplace=True)]
             dim *= 2
         for _ in range(n_residual):
             layers += [ResidualBlock(dim, norm='in')]
@@ -1563,15 +1354,12 @@ class StyleEncoder(nn.Module):
 
     def __init__(self, in_channels=3, dim=64, n_downsample=2, style_dim=8):
         super(StyleEncoder, self).__init__()
-        layers = [nn.ReflectionPad2d(3), nn.Conv2d(in_channels, dim, 7), nn
-            .ReLU(inplace=True)]
+        layers = [nn.ReflectionPad2d(3), nn.Conv2d(in_channels, dim, 7), nn.ReLU(inplace=True)]
         for _ in range(2):
-            layers += [nn.Conv2d(dim, dim * 2, 4, stride=2, padding=1), nn.
-                ReLU(inplace=True)]
+            layers += [nn.Conv2d(dim, dim * 2, 4, stride=2, padding=1), nn.ReLU(inplace=True)]
             dim *= 2
         for _ in range(n_downsample - 2):
-            layers += [nn.Conv2d(dim, dim, 4, stride=2, padding=1), nn.ReLU
-                (inplace=True)]
+            layers += [nn.Conv2d(dim, dim, 4, stride=2, padding=1), nn.ReLU(inplace=True)]
         layers += [nn.AdaptiveAvgPool2d(1), nn.Conv2d(dim, style_dim, 1, 1, 0)]
         self.model = nn.Sequential(*layers)
 
@@ -1600,21 +1388,15 @@ class MultiDiscriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.InstanceNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
         self.models = nn.ModuleList()
         for i in range(3):
-            self.models.add_module('disc_%d' % i, nn.Sequential(*
-                discriminator_block(in_channels, 64, normalize=False), *
-                discriminator_block(64, 128), *discriminator_block(128, 256
-                ), *discriminator_block(256, 512), nn.Conv2d(512, 1, 3,
-                padding=1)))
-        self.downsample = nn.AvgPool2d(in_channels, stride=2, padding=[1, 1
-            ], count_include_pad=False)
+            self.models.add_module('disc_%d' % i, nn.Sequential(*discriminator_block(in_channels, 64, normalize=False), *discriminator_block(64, 128), *discriminator_block(128, 256), *discriminator_block(256, 512), nn.Conv2d(512, 1, 3, padding=1)))
+        self.downsample = nn.AvgPool2d(in_channels, stride=2, padding=[1, 1], count_include_pad=False)
 
     def compute_loss(self, x, gt):
         """Computes the MSE between model output and scalar gt"""
@@ -1633,12 +1415,8 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, features, norm='in'):
         super(ResidualBlock, self).__init__()
-        norm_layer = (AdaptiveInstanceNorm2d if norm == 'adain' else nn.
-            InstanceNorm2d)
-        self.block = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(
-            features, features, 3), norm_layer(features), nn.ReLU(inplace=
-            True), nn.ReflectionPad2d(1), nn.Conv2d(features, features, 3),
-            norm_layer(features))
+        norm_layer = AdaptiveInstanceNorm2d if norm == 'adain' else nn.InstanceNorm2d
+        self.block = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(features, features, 3), norm_layer(features), nn.ReLU(inplace=True), nn.ReflectionPad2d(1), nn.Conv2d(features, features, 3), norm_layer(features))
 
     def forward(self, x):
         return x + self.block(x)
@@ -1663,8 +1441,7 @@ class AdaptiveInstanceNorm2d(nn.Module):
         running_mean = self.running_mean.repeat(b)
         running_var = self.running_var.repeat(b)
         x_reshaped = x.contiguous().view(1, b * c, h, w)
-        out = F.batch_norm(x_reshaped, running_mean, running_var, self.
-            weight, self.bias, True, self.momentum, self.eps)
+        out = F.batch_norm(x_reshaped, running_mean, running_var, self.weight, self.bias, True, self.momentum, self.eps)
         return out.view(b, c, h, w)
 
     def __repr__(self):
@@ -1713,8 +1490,7 @@ class UNetUp(nn.Module):
 
     def __init__(self, in_size, out_size, dropout=0.0):
         super(UNetUp, self).__init__()
-        layers = [nn.ConvTranspose2d(in_size, out_size, 4, 2, 1, bias=False
-            ), nn.InstanceNorm2d(out_size), nn.ReLU(inplace=True)]
+        layers = [nn.ConvTranspose2d(in_size, out_size, 4, 2, 1, bias=False), nn.InstanceNorm2d(out_size), nn.ReLU(inplace=True)]
         if dropout:
             layers.append(nn.Dropout(dropout))
         self.model = nn.Sequential(*layers)
@@ -1744,9 +1520,7 @@ class GeneratorUNet(nn.Module):
         self.up5 = UNetUp(1024, 256)
         self.up6 = UNetUp(512, 128)
         self.up7 = UNetUp(256, 64)
-        self.final = nn.Sequential(nn.Upsample(scale_factor=2), nn.
-            ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(128, out_channels, 4,
-            padding=1), nn.Tanh())
+        self.final = nn.Sequential(nn.Upsample(scale_factor=2), nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(128, out_channels, 4, padding=1), nn.Tanh())
 
     def forward(self, x):
         d1 = self.down1(x)
@@ -1774,17 +1548,12 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, normalization=True):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             if normalization:
                 layers.append(nn.InstanceNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*discriminator_block(in_channels * 2, 64,
-            normalization=False), *discriminator_block(64, 128), *
-            discriminator_block(128, 256), *discriminator_block(256, 512),
-            nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(512, 1, 4, padding=1,
-            bias=False))
+        self.model = nn.Sequential(*discriminator_block(in_channels * 2, 64, normalization=False), *discriminator_block(64, 128), *discriminator_block(128, 256), *discriminator_block(256, 512), nn.ZeroPad2d((1, 0, 1, 0)), nn.Conv2d(512, 1, 4, padding=1, bias=False))
 
     def forward(self, img_A, img_B):
         img_input = torch.cat((img_A, img_B), 1)
@@ -1795,10 +1564,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, in_features=64, out_features=64):
         super(ResidualBlock, self).__init__()
-        self.block = nn.Sequential(nn.Conv2d(in_features, in_features, 3, 1,
-            1), nn.BatchNorm2d(in_features), nn.ReLU(inplace=True), nn.
-            Conv2d(in_features, in_features, 3, 1, 1), nn.BatchNorm2d(
-            in_features))
+        self.block = nn.Sequential(nn.Conv2d(in_features, in_features, 3, 1, 1), nn.BatchNorm2d(in_features), nn.ReLU(inplace=True), nn.Conv2d(in_features, in_features, 3, 1, 1), nn.BatchNorm2d(in_features))
 
     def forward(self, x):
         return x + self.block(x)
@@ -1809,14 +1575,12 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.fc = nn.Linear(opt.latent_dim, opt.channels * opt.img_size ** 2)
-        self.l1 = nn.Sequential(nn.Conv2d(opt.channels * 2, 64, 3, 1, 1),
-            nn.ReLU(inplace=True))
+        self.l1 = nn.Sequential(nn.Conv2d(opt.channels * 2, 64, 3, 1, 1), nn.ReLU(inplace=True))
         resblocks = []
         for _ in range(opt.n_residual_blocks):
             resblocks.append(ResidualBlock())
         self.resblocks = nn.Sequential(*resblocks)
-        self.l2 = nn.Sequential(nn.Conv2d(64, opt.channels, 3, 1, 1), nn.Tanh()
-            )
+        self.l2 = nn.Sequential(nn.Conv2d(64, opt.channels, 3, 1, 1), nn.Tanh())
 
     def forward(self, img, z):
         gen_input = torch.cat((img, self.fc(z).view(*img.shape)), 1)
@@ -1833,14 +1597,11 @@ class Discriminator(nn.Module):
 
         def block(in_features, out_features, normalization=True):
             """Discriminator block"""
-            layers = [nn.Conv2d(in_features, out_features, 3, stride=2,
-                padding=1), nn.LeakyReLU(0.2, inplace=True)]
+            layers = [nn.Conv2d(in_features, out_features, 3, stride=2, padding=1), nn.LeakyReLU(0.2, inplace=True)]
             if normalization:
                 layers.append(nn.InstanceNorm2d(out_features))
             return layers
-        self.model = nn.Sequential(*block(opt.channels, 64, normalization=
-            False), *block(64, 128), *block(128, 256), *block(256, 512), nn
-            .Conv2d(512, 1, 3, 1, 1))
+        self.model = nn.Sequential(*block(opt.channels, 64, normalization=False), *block(64, 128), *block(128, 256), *block(256, 512), nn.Conv2d(512, 1, 3, 1, 1))
 
     def forward(self, img):
         validity = self.model(img)
@@ -1854,16 +1615,13 @@ class Classifier(nn.Module):
 
         def block(in_features, out_features, normalization=True):
             """Classifier block"""
-            layers = [nn.Conv2d(in_features, out_features, 3, stride=2,
-                padding=1), nn.LeakyReLU(0.2, inplace=True)]
+            layers = [nn.Conv2d(in_features, out_features, 3, stride=2, padding=1), nn.LeakyReLU(0.2, inplace=True)]
             if normalization:
                 layers.append(nn.InstanceNorm2d(out_features))
             return layers
-        self.model = nn.Sequential(*block(opt.channels, 64, normalization=
-            False), *block(64, 128), *block(128, 256), *block(256, 512))
+        self.model = nn.Sequential(*block(opt.channels, 64, normalization=False), *block(64, 128), *block(128, 256), *block(256, 512))
         input_size = opt.img_size // 2 ** 4
-        self.output_layer = nn.Sequential(nn.Linear(512 * input_size ** 2,
-            opt.n_classes), nn.Softmax())
+        self.output_layer = nn.Sequential(nn.Linear(512 * input_size ** 2, opt.n_classes), nn.Softmax())
 
     def forward(self, img):
         feature_repr = self.model(img)
@@ -1877,15 +1635,8 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, z):
         out = self.l1(z)
@@ -1900,14 +1651,11 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         def discriminator_block(in_filters, out_filters, bn=True):
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.model = nn.Sequential(*discriminator_block(opt.channels, 16,
-            bn=False), *discriminator_block(16, 32), *discriminator_block(
-            32, 64), *discriminator_block(64, 128))
+        self.model = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1))
 
@@ -1924,15 +1672,8 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.label_emb = nn.Embedding(opt.num_classes, opt.latent_dim)
         self.init_size = opt.img_size // 4
-        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.
-            init_size ** 2))
-        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(
-            scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1),
-            nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1,
-            padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.
-            Tanh())
+        self.l1 = nn.Sequential(nn.Linear(opt.latent_dim, 128 * self.init_size ** 2))
+        self.conv_blocks = nn.Sequential(nn.BatchNorm2d(128), nn.Upsample(scale_factor=2), nn.Conv2d(128, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, opt.channels, 3, stride=1, padding=1), nn.Tanh())
 
     def forward(self, noise):
         out = self.l1(noise)
@@ -1948,19 +1689,14 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, bn=True):
             """Returns layers of each discriminator block"""
-            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.
-                LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
+            block = [nn.Conv2d(in_filters, out_filters, 3, 2, 1), nn.LeakyReLU(0.2, inplace=True), nn.Dropout2d(0.25)]
             if bn:
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
-        self.conv_blocks = nn.Sequential(*discriminator_block(opt.channels,
-            16, bn=False), *discriminator_block(16, 32), *
-            discriminator_block(32, 64), *discriminator_block(64, 128))
+        self.conv_blocks = nn.Sequential(*discriminator_block(opt.channels, 16, bn=False), *discriminator_block(16, 32), *discriminator_block(32, 64), *discriminator_block(64, 128))
         ds_size = opt.img_size // 2 ** 4
-        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn
-            .Sigmoid())
-        self.aux_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.
-            num_classes + 1), nn.Softmax())
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 1), nn.Sigmoid())
+        self.aux_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, opt.num_classes + 1), nn.Softmax())
 
     def forward(self, img):
         out = self.conv_blocks(img)
@@ -1981,9 +1717,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=
-            False), *block(128, 256), *block(256, 512), *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -1995,9 +1729,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(opt.img_size ** 2, 512), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU
-            (0.2, inplace=True), nn.Linear(256, 1))
+        self.model = nn.Sequential(nn.Linear(opt.img_size ** 2, 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
 
     def forward(self, img):
         img_flat = img.view(img.shape[0], -1)
@@ -2010,8 +1742,7 @@ class FeatureExtractor(nn.Module):
     def __init__(self):
         super(FeatureExtractor, self).__init__()
         vgg19_model = vgg19(pretrained=True)
-        self.feature_extractor = nn.Sequential(*list(vgg19_model.features.
-            children())[:18])
+        self.feature_extractor = nn.Sequential(*list(vgg19_model.features.children())[:18])
 
     def forward(self, img):
         return self.feature_extractor(img)
@@ -2021,11 +1752,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, in_features):
         super(ResidualBlock, self).__init__()
-        self.conv_block = nn.Sequential(nn.Conv2d(in_features, in_features,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(in_features,
-            0.8), nn.PReLU(), nn.Conv2d(in_features, in_features,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(in_features,
-            0.8))
+        self.conv_block = nn.Sequential(nn.Conv2d(in_features, in_features, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(in_features, 0.8), nn.PReLU(), nn.Conv2d(in_features, in_features, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(in_features, 0.8))
 
     def forward(self, x):
         return x + self.conv_block(x)
@@ -2035,21 +1762,17 @@ class GeneratorResNet(nn.Module):
 
     def __init__(self, in_channels=3, out_channels=3, n_residual_blocks=16):
         super(GeneratorResNet, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, 64, kernel_size=9,
-            stride=1, padding=4), nn.PReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, 64, kernel_size=9, stride=1, padding=4), nn.PReLU())
         res_blocks = []
         for _ in range(n_residual_blocks):
             res_blocks.append(ResidualBlock(64))
         self.res_blocks = nn.Sequential(*res_blocks)
-        self.conv2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, stride=
-            1, padding=1), nn.BatchNorm2d(64, 0.8))
+        self.conv2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64, 0.8))
         upsampling = []
         for out_features in range(2):
-            upsampling += [nn.Conv2d(64, 256, 3, 1, 1), nn.BatchNorm2d(256),
-                nn.PixelShuffle(upscale_factor=2), nn.PReLU()]
+            upsampling += [nn.Conv2d(64, 256, 3, 1, 1), nn.BatchNorm2d(256), nn.PixelShuffle(upscale_factor=2), nn.PReLU()]
         self.upsampling = nn.Sequential(*upsampling)
-        self.conv3 = nn.Sequential(nn.Conv2d(64, out_channels, kernel_size=
-            9, stride=1, padding=4), nn.Tanh())
+        self.conv3 = nn.Sequential(nn.Conv2d(64, out_channels, kernel_size=9, stride=1, padding=4), nn.Tanh())
 
     def forward(self, x):
         out1 = self.conv1(x)
@@ -2072,24 +1795,20 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, first_block=False):
             layers = []
-            layers.append(nn.Conv2d(in_filters, out_filters, kernel_size=3,
-                stride=1, padding=1))
+            layers.append(nn.Conv2d(in_filters, out_filters, kernel_size=3, stride=1, padding=1))
             if not first_block:
                 layers.append(nn.BatchNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
-            layers.append(nn.Conv2d(out_filters, out_filters, kernel_size=3,
-                stride=2, padding=1))
+            layers.append(nn.Conv2d(out_filters, out_filters, kernel_size=3, stride=2, padding=1))
             layers.append(nn.BatchNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
         layers = []
         in_filters = in_channels
         for i, out_filters in enumerate([64, 128, 256, 512]):
-            layers.extend(discriminator_block(in_filters, out_filters,
-                first_block=i == 0))
+            layers.extend(discriminator_block(in_filters, out_filters, first_block=i == 0))
             in_filters = out_filters
-        layers.append(nn.Conv2d(out_filters, 1, kernel_size=3, stride=1,
-            padding=1))
+        layers.append(nn.Conv2d(out_filters, 1, kernel_size=3, stride=1, padding=1))
         self.model = nn.Sequential(*layers)
 
     def forward(self, img):
@@ -2100,12 +1819,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, in_features):
         super(ResidualBlock, self).__init__()
-        conv_block = [nn.Conv2d(in_features, in_features, 3, stride=1,
-            padding=1, bias=False), nn.InstanceNorm2d(in_features, affine=
-            True, track_running_stats=True), nn.ReLU(inplace=True), nn.
-            Conv2d(in_features, in_features, 3, stride=1, padding=1, bias=
-            False), nn.InstanceNorm2d(in_features, affine=True,
-            track_running_stats=True)]
+        conv_block = [nn.Conv2d(in_features, in_features, 3, stride=1, padding=1, bias=False), nn.InstanceNorm2d(in_features, affine=True, track_running_stats=True), nn.ReLU(inplace=True), nn.Conv2d(in_features, in_features, 3, stride=1, padding=1, bias=False), nn.InstanceNorm2d(in_features, affine=True, track_running_stats=True)]
         self.conv_block = nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -2117,24 +1831,17 @@ class GeneratorResNet(nn.Module):
     def __init__(self, img_shape=(3, 128, 128), res_blocks=9, c_dim=5):
         super(GeneratorResNet, self).__init__()
         channels, img_size, _ = img_shape
-        model = [nn.Conv2d(channels + c_dim, 64, 7, stride=1, padding=3,
-            bias=False), nn.InstanceNorm2d(64, affine=True,
-            track_running_stats=True), nn.ReLU(inplace=True)]
+        model = [nn.Conv2d(channels + c_dim, 64, 7, stride=1, padding=3, bias=False), nn.InstanceNorm2d(64, affine=True, track_running_stats=True), nn.ReLU(inplace=True)]
         curr_dim = 64
         for _ in range(2):
-            model += [nn.Conv2d(curr_dim, curr_dim * 2, 4, stride=2,
-                padding=1, bias=False), nn.InstanceNorm2d(curr_dim * 2,
-                affine=True, track_running_stats=True), nn.ReLU(inplace=True)]
+            model += [nn.Conv2d(curr_dim, curr_dim * 2, 4, stride=2, padding=1, bias=False), nn.InstanceNorm2d(curr_dim * 2, affine=True, track_running_stats=True), nn.ReLU(inplace=True)]
             curr_dim *= 2
         for _ in range(res_blocks):
             model += [ResidualBlock(curr_dim)]
         for _ in range(2):
-            model += [nn.ConvTranspose2d(curr_dim, curr_dim // 2, 4, stride
-                =2, padding=1, bias=False), nn.InstanceNorm2d(curr_dim // 2,
-                affine=True, track_running_stats=True), nn.ReLU(inplace=True)]
+            model += [nn.ConvTranspose2d(curr_dim, curr_dim // 2, 4, stride=2, padding=1, bias=False), nn.InstanceNorm2d(curr_dim // 2, affine=True, track_running_stats=True), nn.ReLU(inplace=True)]
             curr_dim = curr_dim // 2
-        model += [nn.Conv2d(curr_dim, channels, 7, stride=1, padding=3), nn
-            .Tanh()]
+        model += [nn.Conv2d(curr_dim, channels, 7, stride=1, padding=3), nn.Tanh()]
         self.model = nn.Sequential(*model)
 
     def forward(self, x, c):
@@ -2152,8 +1859,7 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1), nn.LeakyReLU(0.01)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1), nn.LeakyReLU(0.01)]
             return layers
         layers = discriminator_block(channels, 64)
         curr_dim = 64
@@ -2176,10 +1882,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, features):
         super(ResidualBlock, self).__init__()
-        conv_block = [nn.ReflectionPad2d(1), nn.Conv2d(features, features, 
-            3), nn.InstanceNorm2d(features), nn.ReLU(inplace=True), nn.
-            ReflectionPad2d(1), nn.Conv2d(features, features, 3), nn.
-            InstanceNorm2d(features)]
+        conv_block = [nn.ReflectionPad2d(1), nn.Conv2d(features, features, 3), nn.InstanceNorm2d(features), nn.ReLU(inplace=True), nn.ReflectionPad2d(1), nn.Conv2d(features, features, 3), nn.InstanceNorm2d(features)]
         self.conv_block = nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -2188,14 +1891,11 @@ class ResidualBlock(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, in_channels=3, dim=64, n_downsample=2, shared_block=None
-        ):
+    def __init__(self, in_channels=3, dim=64, n_downsample=2, shared_block=None):
         super(Encoder, self).__init__()
-        layers = [nn.ReflectionPad2d(3), nn.Conv2d(in_channels, dim, 7), nn
-            .InstanceNorm2d(64), nn.LeakyReLU(0.2, inplace=True)]
+        layers = [nn.ReflectionPad2d(3), nn.Conv2d(in_channels, dim, 7), nn.InstanceNorm2d(64), nn.LeakyReLU(0.2, inplace=True)]
         for _ in range(n_downsample):
-            layers += [nn.Conv2d(dim, dim * 2, 4, stride=2, padding=1), nn.
-                InstanceNorm2d(dim * 2), nn.ReLU(inplace=True)]
+            layers += [nn.Conv2d(dim, dim * 2, 4, stride=2, padding=1), nn.InstanceNorm2d(dim * 2), nn.ReLU(inplace=True)]
             dim *= 2
         for _ in range(3):
             layers += [ResidualBlock(dim)]
@@ -2216,8 +1916,7 @@ class Encoder(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, out_channels=3, dim=64, n_upsample=2, shared_block=None
-        ):
+    def __init__(self, out_channels=3, dim=64, n_upsample=2, shared_block=None):
         super(Generator, self).__init__()
         self.shared_block = shared_block
         layers = []
@@ -2225,12 +1924,9 @@ class Generator(nn.Module):
         for _ in range(3):
             layers += [ResidualBlock(dim)]
         for _ in range(n_upsample):
-            layers += [nn.ConvTranspose2d(dim, dim // 2, 4, stride=2,
-                padding=1), nn.InstanceNorm2d(dim // 2), nn.LeakyReLU(0.2,
-                inplace=True)]
+            layers += [nn.ConvTranspose2d(dim, dim // 2, 4, stride=2, padding=1), nn.InstanceNorm2d(dim // 2), nn.LeakyReLU(0.2, inplace=True)]
             dim = dim // 2
-        layers += [nn.ReflectionPad2d(3), nn.Conv2d(dim, out_channels, 7),
-            nn.Tanh()]
+        layers += [nn.ReflectionPad2d(3), nn.Conv2d(dim, out_channels, 7), nn.Tanh()]
         self.model_blocks = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -2248,16 +1944,12 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_filters, out_filters, normalize=True):
             """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2,
-                padding=1)]
+            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
             if normalize:
                 layers.append(nn.InstanceNorm2d(out_filters))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*discriminator_block(channels, 64,
-            normalize=False), *discriminator_block(64, 128), *
-            discriminator_block(128, 256), *discriminator_block(256, 512),
-            nn.Conv2d(512, 1, 3, padding=1))
+        self.model = nn.Sequential(*discriminator_block(channels, 64, normalize=False), *discriminator_block(64, 128), *discriminator_block(128, 256), *discriminator_block(256, 512), nn.Conv2d(512, 1, 3, padding=1))
 
     def forward(self, img):
         return self.model(img)
@@ -2274,9 +1966,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=
-            False), *block(128, 256), *block(256, 512), *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -2288,9 +1978,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
 
     def forward(self, img):
         img_flat = img.view(img.shape[0], -1)
@@ -2309,9 +1997,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=
-            False), *block(128, 256), *block(256, 512), *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -2323,9 +2009,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
 
     def forward(self, img):
         img_flat = img.view(img.shape[0], -1)
@@ -2344,9 +2028,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=
-            False), *block(128, 256), *block(256, 512), *block(512, 1024),
-            nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(opt.latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -2358,9 +2040,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1))
 
     def forward(self, img):
         img_flat = img.view(img.shape[0], -1)
@@ -2372,52 +2052,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DenseResidualBlock,
+     lambda: ([], {'filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (GeneratorRRDB,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GeneratorResNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 1, 1])], {}),
+     True),
+    (GeneratorUNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLP,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (MultiDiscriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Reshape,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4])], {}),
+     False),
+    (ResidualBlock,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualInResidualDenseBlock,
+     lambda: ([], {'filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (StyleEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (UNetDown,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNetUp,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
+     True),
+]
+
 class Test_eriklindernoren_PyTorch_GAN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DenseResidualBlock(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GeneratorRRDB(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GeneratorResNet(*[], **{}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 1, 1])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GeneratorUNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(MultiDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Reshape(*[], **{}), [torch.rand([4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ResidualBlock(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(ResidualInResidualDenseBlock(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(StyleEncoder(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(UNetDown(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(UNetUp(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+        self._check(*TESTCASES[13])
 

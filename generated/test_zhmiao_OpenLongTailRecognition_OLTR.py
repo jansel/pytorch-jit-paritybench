@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,14 +83,10 @@ class ModulatedAttLayer(nn.Module):
         self.inter_channels = in_channels // reduction
         self.mode = mode
         assert mode in ['embedded_gaussian']
-        self.g = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1
-            )
-        self.theta = nn.Conv2d(self.in_channels, self.inter_channels,
-            kernel_size=1)
-        self.phi = nn.Conv2d(self.in_channels, self.inter_channels,
-            kernel_size=1)
-        self.conv_mask = nn.Conv2d(self.inter_channels, self.in_channels,
-            kernel_size=1, bias=False)
+        self.g = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.theta = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.phi = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.conv_mask = nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc_spatial = nn.Linear(7 * 7 * self.in_channels, 7 * 7)
@@ -106,8 +103,7 @@ class ModulatedAttLayer(nn.Module):
         batch_size = x.size(0)
         g_x = self.g(x.clone()).view(batch_size, self.inter_channels, -1)
         g_x = g_x.permute(0, 2, 1)
-        theta_x = self.theta(x.clone()).view(batch_size, self.
-            inter_channels, -1)
+        theta_x = self.theta(x.clone()).view(batch_size, self.inter_channels, -1)
         theta_x = theta_x.permute(0, 2, 1)
         phi_x = self.phi(x.clone()).view(batch_size, self.inter_channels, -1)
         map_t_p = torch.matmul(theta_x, phi_x)
@@ -149,11 +145,9 @@ class DiscCentroidsLossFunc(Function):
         ones = centroids.new_ones(label.size(0))
         grad_centroids = centroids.new_zeros(centroids.size())
         counts = counts.scatter_add_(0, label.long(), ones)
-        grad_centroids.scatter_add_(0, label.unsqueeze(1).expand(feature.
-            size()).long(), diff)
+        grad_centroids.scatter_add_(0, label.unsqueeze(1).expand(feature.size()).long(), diff)
         grad_centroids = grad_centroids / counts.view(-1, 1)
-        return (-grad_output * diff / batch_size, None, grad_centroids /
-            batch_size, None)
+        return -grad_output * diff / batch_size, None, grad_centroids / batch_size, None
 
 
 class DiscCentroidsLoss(nn.Module):
@@ -170,16 +164,10 @@ class DiscCentroidsLoss(nn.Module):
         batch_size = feat.size(0)
         feat = feat.view(batch_size, -1)
         if feat.size(1) != self.feat_dim:
-            raise ValueError(
-                "Center's dim: {0} should be equal to input feature's                             dim: {1}"
-                .format(self.feat_dim, feat.size(1)))
-        batch_size_tensor = feat.new_empty(1).fill_(batch_size if self.
-            size_average else 1)
-        loss_attract = self.disccentroidslossfunc(feat.clone(), label, self
-            .centroids.clone(), batch_size_tensor).squeeze()
-        distmat = torch.pow(feat.clone(), 2).sum(dim=1, keepdim=True).expand(
-            batch_size, self.num_classes) + torch.pow(self.centroids.clone(), 2
-            ).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
+            raise ValueError("Center's dim: {0} should be equal to input feature's                             dim: {1}".format(self.feat_dim, feat.size(1)))
+        batch_size_tensor = feat.new_empty(1).fill_(batch_size if self.size_average else 1)
+        loss_attract = self.disccentroidslossfunc(feat.clone(), label, self.centroids.clone(), batch_size_tensor).squeeze()
+        distmat = torch.pow(feat.clone(), 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + torch.pow(self.centroids.clone(), 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
         distmat.addmm_(1, -2, feat.clone(), self.centroids.clone().t())
         classes = torch.arange(self.num_classes).long()
         labels_expand = label.unsqueeze(1).expand(batch_size, self.num_classes)
@@ -187,16 +175,14 @@ class DiscCentroidsLoss(nn.Module):
         distmat_neg = distmat
         distmat_neg[mask] = 0.0
         margin = 10.0
-        loss_repel = torch.clamp(margin - distmat_neg.sum() / (batch_size *
-            self.num_classes), 0.0, 1000000.0)
+        loss_repel = torch.clamp(margin - distmat_neg.sum() / (batch_size * self.num_classes), 0.0, 1000000.0)
         loss = loss_attract + 0.01 * loss_repel
         return loss
 
 
 class CosNorm_Classifier(nn.Module):
 
-    def __init__(self, in_dims, out_dims, scale=16, margin=0.5, init_std=0.001
-        ):
+    def __init__(self, in_dims, out_dims, scale=16, margin=0.5, init_std=0.001):
         super(CosNorm_Classifier, self).__init__()
         self.in_dims = in_dims
         self.out_dims = out_dims
@@ -241,14 +227,12 @@ class MetaEmbedding_Classifier(nn.Module):
         batch_size = x.size(0)
         feat_size = x.size(1)
         x_expand = x.clone().unsqueeze(1).expand(-1, self.num_classes, -1)
-        centroids_expand = centroids.clone().unsqueeze(0).expand(batch_size,
-            -1, -1)
+        centroids_expand = centroids.clone().unsqueeze(0).expand(batch_size, -1, -1)
         keys_memory = centroids.clone()
         dist_cur = torch.norm(x_expand - centroids_expand, 2, 2)
         values_nn, labels_nn = torch.sort(dist_cur, 1)
         scale = 10.0
-        reachability = (scale / values_nn[:, (0)]).unsqueeze(1).expand(-1,
-            feat_size)
+        reachability = (scale / values_nn[:, (0)]).unsqueeze(1).expand(-1, feat_size)
         values_memory = self.fc_hallucinator(x.clone())
         values_memory = values_memory.softmax(dim=1)
         memory_feature = torch.matmul(values_memory, keys_memory)
@@ -262,8 +246,7 @@ class MetaEmbedding_Classifier(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -300,8 +283,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -328,12 +310,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, use_modulatedatt=False, use_fc=False,
-        dropout=None):
+    def __init__(self, block, layers, use_modulatedatt=False, use_fc=False, dropout=None):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -353,8 +333,7 @@ class ResNet(nn.Module):
         self.use_modulatedatt = use_modulatedatt
         if self.use_modulatedatt:
             None
-            self.modulatedatt = ModulatedAttLayer(in_channels=512 * block.
-                expansion)
+            self.modulatedatt = ModulatedAttLayer(in_channels=512 * block.expansion)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -366,9 +345,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -402,16 +379,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CosNorm_Classifier,
+     lambda: ([], {'in_dims': 4, 'out_dims': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (DotProduct_Classifier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([2048, 2048])], {}),
+     False),
+]
+
 class Test_zhmiao_OpenLongTailRecognition_OLTR(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(CosNorm_Classifier(*[], **{'in_dims': 4, 'out_dims': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DotProduct_Classifier(*[], **{}), [torch.rand([2048, 2048])], {})
+        self._check(*TESTCASES[2])
 

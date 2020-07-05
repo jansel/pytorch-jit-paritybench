@@ -86,8 +86,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -166,14 +167,10 @@ class BasicConv2d(nn.Module):
         Define the basic conv-bn-relu block
     """
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=
-        0, dilate=1):
+    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0, dilate=1):
         super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilate,
-            bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1,
-            affine=True)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilate, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -192,14 +189,9 @@ class Mixed_5b(nn.Module):
     def __init__(self):
         super(Mixed_5b, self).__init__()
         self.branch0 = BasicConv2d(192, 96, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1,
-            stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
-        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1,
-            stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False), BasicConv2d(192, 64, kernel_size=1,
-            stride=1))
+        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1, stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
+        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1, stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False), BasicConv2d(192, 64, kernel_size=1, stride=1))
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -219,11 +211,8 @@ class Block35(nn.Module):
         super(Block35, self).__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(320, 32, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
-        self.branch2 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 48, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1))
+        self.branch1 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1, stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
+        self.branch2 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1, stride=1), BasicConv2d(32, 48, kernel_size=3, stride=1, padding=1), BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1))
         self.conv2d = nn.Conv2d(128, 320, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -245,14 +234,9 @@ class Mixed_6a(nn.Module):
 
     def __init__(self):
         super(Mixed_6a, self).__init__()
-        self.branch0 = BasicConv2d(320, 384, kernel_size=3, stride=1,
-            padding=2, dilate=2)
-        self.branch1 = nn.Sequential(BasicConv2d(320, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1,
-            padding=2, dilate=2), BasicConv2d(256, 384, kernel_size=3,
-            stride=1, padding=2, dilate=2))
-        self.branch2 = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=2,
-            padding=1), nn.Upsample(scale_factor=2, mode='bilinear'))
+        self.branch0 = BasicConv2d(320, 384, kernel_size=3, stride=1, padding=2, dilate=2)
+        self.branch1 = nn.Sequential(BasicConv2d(320, 256, kernel_size=1, stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1, padding=2, dilate=2), BasicConv2d(256, 384, kernel_size=3, stride=1, padding=2, dilate=2))
+        self.branch2 = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=2, padding=1), nn.Upsample(scale_factor=2, mode='bilinear'))
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -271,10 +255,7 @@ class Block17(nn.Module):
         super(Block17, self).__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(1088, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(1088, 128, kernel_size=1,
-            stride=1), BasicConv2d(128, 160, kernel_size=(1, 7), stride=1,
-            padding=(0, 6), dilate=(1, 2)), BasicConv2d(160, 192,
-            kernel_size=(7, 1), stride=1, padding=(6, 0), dilate=(2, 1)))
+        self.branch1 = nn.Sequential(BasicConv2d(1088, 128, kernel_size=1, stride=1), BasicConv2d(128, 160, kernel_size=(1, 7), stride=1, padding=(0, 6), dilate=(1, 2)), BasicConv2d(160, 192, kernel_size=(7, 1), stride=1, padding=(6, 0), dilate=(2, 1)))
         self.conv2d = nn.Conv2d(384, 1088, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -295,18 +276,10 @@ class Mixed_7a(nn.Module):
 
     def __init__(self):
         super(Mixed_7a, self).__init__()
-        self.branch0 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 384, kernel_size=3, stride=1,
-            padding=4, dilate=4))
-        self.branch1 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1,
-            padding=4, dilate=4))
-        self.branch2 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1,
-            padding=4, dilate=4), BasicConv2d(288, 320, kernel_size=3,
-            stride=1, padding=4, dilate=4))
-        self.branch3 = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=2,
-            padding=1), nn.Upsample(scale_factor=2, mode='bilinear'))
+        self.branch0 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 384, kernel_size=3, stride=1, padding=4, dilate=4))
+        self.branch1 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1, padding=4, dilate=4))
+        self.branch2 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1, padding=4, dilate=4), BasicConv2d(288, 320, kernel_size=3, stride=1, padding=4, dilate=4))
+        self.branch3 = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=2, padding=1), nn.Upsample(scale_factor=2, mode='bilinear'))
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -327,10 +300,7 @@ class Block8(nn.Module):
         self.scale = scale
         self.noReLU = noReLU
         self.branch0 = BasicConv2d(2080, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(2080, 192, kernel_size=1,
-            stride=1), BasicConv2d(192, 224, kernel_size=(1, 3), stride=1,
-            padding=(0, 4), dilate=(1, 4)), BasicConv2d(224, 256,
-            kernel_size=(3, 1), stride=1, padding=(4, 0), dilate=(4, 1)))
+        self.branch1 = nn.Sequential(BasicConv2d(2080, 192, kernel_size=1, stride=1), BasicConv2d(192, 224, kernel_size=(1, 3), stride=1, padding=(0, 4), dilate=(1, 4)), BasicConv2d(224, 256, kernel_size=(3, 1), stride=1, padding=(4, 0), dilate=(4, 1)))
         self.conv2d = nn.Conv2d(448, 2080, kernel_size=1, stride=1)
         if not self.noReLU:
             self.relu = nn.ReLU(inplace=False)
@@ -389,10 +359,7 @@ def _count_samples(x):
 
 
 def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=oup,
-        kernel_size=3, stride=stride, padding=1, bias=False), nn.
-        BatchNorm2d(num_features=oup, eps=1e-05, momentum=0.1, affine=True),
-        nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=oup, kernel_size=3, stride=stride, padding=1, bias=False), nn.BatchNorm2d(num_features=oup, eps=1e-05, momentum=0.1, affine=True), nn.ReLU(inplace=True))
 
 
 def channel_shuffle(x, groups):
@@ -409,22 +376,18 @@ def conv1x1(in_channels, out_channels, groups=1):
     - Normal pointwise convolution When groups == 1
     - Grouped pointwise convolution when groups > 1
     """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=
-        groups, stride=1)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=groups, stride=1)
 
 
-def conv3x3(in_channels, out_channels, stride=1, bias=True, groups=1, dilate=1
-    ):
+def conv3x3(in_channels, out_channels, stride=1, bias=True, groups=1, dilate=1):
     """3x3 convolution with padding
     """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=dilate, bias=bias, groups=groups, dilation=dilate)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=dilate, bias=bias, groups=groups, dilation=dilate)
 
 
 class ShuffleUnit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, groups=3, dilate=1,
-        grouped_conv=True, combine='add', up=False):
+    def __init__(self, in_channels, out_channels, groups=3, dilate=1, grouped_conv=True, combine='add', up=False):
         super(ShuffleUnit, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -444,20 +407,12 @@ class ShuffleUnit(nn.Module):
             self._combine_func = self._concat
             self.out_channels -= self.in_channels
         else:
-            raise ValueError(
-                'Cannot combine tensors with "{}"Only "add" and "concat" aresupported'
-                .format(self.combine))
+            raise ValueError('Cannot combine tensors with "{}"Only "add" and "concat" aresupported'.format(self.combine))
         self.first_1x1_groups = self.groups if grouped_conv else 1
-        self.g_conv_1x1_compress = self._make_grouped_conv1x1(self.
-            in_channels, self.bottleneck_channels, self.first_1x1_groups,
-            batch_norm=True, relu=True)
-        self.depthwise_conv3x3 = conv3x3(self.bottleneck_channels, self.
-            bottleneck_channels, stride=self.depthwise_stride, groups=self.
-            bottleneck_channels, dilate=self.dilate)
+        self.g_conv_1x1_compress = self._make_grouped_conv1x1(self.in_channels, self.bottleneck_channels, self.first_1x1_groups, batch_norm=True, relu=True)
+        self.depthwise_conv3x3 = conv3x3(self.bottleneck_channels, self.bottleneck_channels, stride=self.depthwise_stride, groups=self.bottleneck_channels, dilate=self.dilate)
         self.bn_after_depthwise = nn.BatchNorm2d(self.bottleneck_channels)
-        self.g_conv_1x1_expand = self._make_grouped_conv1x1(self.
-            bottleneck_channels, self.out_channels, self.groups, batch_norm
-            =True, relu=False)
+        self.g_conv_1x1_expand = self._make_grouped_conv1x1(self.bottleneck_channels, self.out_channels, self.groups, batch_norm=True, relu=False)
 
     @staticmethod
     def _add(x, out):
@@ -467,8 +422,7 @@ class ShuffleUnit(nn.Module):
     def _concat(x, out):
         return torch.cat((x, out), dim=1)
 
-    def _make_grouped_conv1x1(self, in_channels, out_channels, groups,
-        batch_norm=True, relu=False):
+    def _make_grouped_conv1x1(self, in_channels, out_channels, groups, batch_norm=True, relu=False):
         modules = OrderedDict()
         conv = conv1x1(in_channels, out_channels, groups=groups)
         modules['conv1x1'] = conv
@@ -484,11 +438,9 @@ class ShuffleUnit(nn.Module):
     def forward(self, x):
         residual = x
         if self.combine == 'concat':
-            residual = F.avg_pool2d(residual, kernel_size=3, stride=2,
-                padding=1)
+            residual = F.avg_pool2d(residual, kernel_size=3, stride=2, padding=1)
             if self.up is True:
-                residual = F.upsample(residual, scale_factor=2, mode='bilinear'
-                    )
+                residual = F.upsample(residual, scale_factor=2, mode='bilinear')
         out = self.g_conv_1x1_compress(x)
         out = channel_shuffle(out, self.groups)
         out = self.depthwise_conv3x3(out)
@@ -500,8 +452,7 @@ class ShuffleUnit(nn.Module):
 
 class ShuffleUnit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, groups=3, dilate=1,
-        grouped_conv=True, combine='add', up=False):
+    def __init__(self, in_channels, out_channels, groups=3, dilate=1, grouped_conv=True, combine='add', up=False):
         super(ShuffleUnit, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -521,20 +472,12 @@ class ShuffleUnit(nn.Module):
             self._combine_func = self._concat
             self.out_channels -= self.in_channels
         else:
-            raise ValueError(
-                'Cannot combine tensors with "{}"Only "add" and "concat" aresupported'
-                .format(self.combine))
+            raise ValueError('Cannot combine tensors with "{}"Only "add" and "concat" aresupported'.format(self.combine))
         self.first_1x1_groups = self.groups if grouped_conv else 1
-        self.g_conv_1x1_compress = self._make_grouped_conv1x1(self.
-            in_channels, self.bottleneck_channels, self.first_1x1_groups,
-            batch_norm=True, relu=True)
-        self.depthwise_conv3x3 = conv3x3(self.bottleneck_channels, self.
-            bottleneck_channels, stride=self.depthwise_stride, groups=self.
-            bottleneck_channels, dilate=self.dilate)
+        self.g_conv_1x1_compress = self._make_grouped_conv1x1(self.in_channels, self.bottleneck_channels, self.first_1x1_groups, batch_norm=True, relu=True)
+        self.depthwise_conv3x3 = conv3x3(self.bottleneck_channels, self.bottleneck_channels, stride=self.depthwise_stride, groups=self.bottleneck_channels, dilate=self.dilate)
         self.bn_after_depthwise = nn.BatchNorm2d(self.bottleneck_channels)
-        self.g_conv_1x1_expand = self._make_grouped_conv1x1(self.
-            bottleneck_channels, self.out_channels, self.groups, batch_norm
-            =True, relu=False)
+        self.g_conv_1x1_expand = self._make_grouped_conv1x1(self.bottleneck_channels, self.out_channels, self.groups, batch_norm=True, relu=False)
 
     @staticmethod
     def _add(x, out):
@@ -544,8 +487,7 @@ class ShuffleUnit(nn.Module):
     def _concat(x, out):
         return torch.cat((x, out), dim=1)
 
-    def _make_grouped_conv1x1(self, in_channels, out_channels, groups,
-        batch_norm=True, relu=False):
+    def _make_grouped_conv1x1(self, in_channels, out_channels, groups, batch_norm=True, relu=False):
         modules = OrderedDict()
         conv = conv1x1(in_channels, out_channels, groups=groups)
         modules['conv1x1'] = conv
@@ -561,11 +503,9 @@ class ShuffleUnit(nn.Module):
     def forward(self, x):
         residual = x
         if self.combine == 'concat':
-            residual = F.avg_pool2d(residual, kernel_size=3, stride=2,
-                padding=1)
+            residual = F.avg_pool2d(residual, kernel_size=3, stride=2, padding=1)
             if self.up is True:
-                residual = F.upsample(residual, scale_factor=2, mode='bilinear'
-                    )
+                residual = F.upsample(residual, scale_factor=2, mode='bilinear')
         out = self.g_conv_1x1_compress(x)
         out = channel_shuffle(out, self.groups)
         out = self.depthwise_conv3x3(out)
@@ -581,8 +521,7 @@ class ABN(nn.Sequential):
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
 
-    def __init__(self, num_features, activation=nn.ReLU(inplace=True), **kwargs
-        ):
+    def __init__(self, num_features, activation=nn.ReLU(inplace=True), **kwargs):
         """Creates an Activated Batch Normalization module
 
         Parameters
@@ -594,15 +533,13 @@ class ABN(nn.Sequential):
         kwargs
             All other arguments are forwarded to the `BatchNorm2d` constructor.
         """
-        super(ABN, self).__init__(OrderedDict([('bn', nn.BatchNorm2d(
-            num_features, **kwargs)), ('act', activation)]))
+        super(ABN, self).__init__(OrderedDict([('bn', nn.BatchNorm2d(num_features, **kwargs)), ('act', activation)]))
 
 
 class InPlaceABN(nn.Module):
     """InPlace Activated Batch Normalization"""
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates an InPlace Activated Batch Normalization module
 
         Parameters
@@ -645,14 +582,10 @@ class InPlaceABN(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, autograd.Variable(
-            self.running_mean), autograd.Variable(self.running_var), self.
-            training, self.momentum, self.eps, self.activation, self.slope)
+        return inplace_abn(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), self.training, self.momentum, self.eps, self.activation, self.slope)
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ' slope={slope})'
         else:
@@ -666,8 +599,7 @@ class InPlaceABNSync(nn.Module):
     This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
     """
 
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1,
-        affine=True, activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates a synchronized, InPlace Activated Batch Normalization module
 
         Parameters
@@ -689,8 +621,7 @@ class InPlaceABNSync(nn.Module):
         """
         super(InPlaceABNSync, self).__init__()
         self.num_features = num_features
-        self.devices = devices if devices else list(range(torch.device_count())
-            )
+        self.devices = devices if devices else list(range(torch.device_count()))
         self.affine = affine
         self.eps = eps
         self.momentum = momentum
@@ -718,22 +649,13 @@ class InPlaceABNSync(nn.Module):
 
     def forward(self, x):
         if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue,
-                'worker_queues': self.worker_queues, 'worker_ids': self.
-                worker_ids}
+            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue,
-                'worker_queue': self.worker_queues[self.worker_ids.index(x.
-                get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, autograd.
-            Variable(self.running_mean), autograd.Variable(self.running_var
-            ), extra, self.training, self.momentum, self.eps, self.
-            activation, self.slope)
+            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
+        return inplace_abn_sync(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), extra, self.training, self.momentum, self.eps, self.activation, self.slope)
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ' slope={slope})'
         else:
@@ -769,14 +691,9 @@ class ContextEncodeInplaceABN(nn.Module):
         super(ContextEncodeInplaceABN, self).__init__()
         out_channel = int(channel / reduction)
         self.pre_abn = norm_act(channel)
-        self.context_enc = nn.Sequential(norm_act(channel), nn.Conv2d(
-            channel, out_channel, kernel_size=1, stride=1, padding=0),
-            norm_act(out_channel), encoding.nn.Encoding(D=out_channel, K=K),
-            encoding.nn.View(-1, out_channel * K), encoding.nn.Normalize())
-        self.channel_se = nn.Sequential(nn.Linear(out_channel * K, channel),
-            nn.Sigmoid())
-        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1,
-            stride=1, padding=0, bias=False), nn.Sigmoid())
+        self.context_enc = nn.Sequential(norm_act(channel), nn.Conv2d(channel, out_channel, kernel_size=1, stride=1, padding=0), norm_act(out_channel), encoding.nn.Encoding(D=out_channel, K=K), encoding.nn.View(-1, out_channel * K), encoding.nn.Normalize())
+        self.channel_se = nn.Sequential(nn.Linear(out_channel * K, channel), nn.Sigmoid())
+        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1, stride=1, padding=0, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         batch_size, num_channels, _, _ = x.size()
@@ -793,14 +710,9 @@ class ContextEncodeDropInplaceABN(nn.Module):
         super(ContextEncodeDropInplaceABN, self).__init__()
         out_channel = int(channel / reduction)
         self.pre_abn = norm_act(channel)
-        self.context_enc = nn.Sequential(nn.Conv2d(channel, out_channel,
-            kernel_size=1, stride=1, padding=0), norm_act(out_channel),
-            encoding.nn.EncodingDrop(D=out_channel, K=K), encoding.nn.View(
-            -1, out_channel * K), encoding.nn.Normalize())
-        self.channel_se = nn.Sequential(nn.Linear(out_channel * K, channel),
-            nn.Sigmoid())
-        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1,
-            stride=1, padding=0, bias=False), nn.Sigmoid())
+        self.context_enc = nn.Sequential(nn.Conv2d(channel, out_channel, kernel_size=1, stride=1, padding=0), norm_act(out_channel), encoding.nn.EncodingDrop(D=out_channel, K=K), encoding.nn.View(-1, out_channel * K), encoding.nn.Normalize())
+        self.channel_se = nn.Sequential(nn.Linear(out_channel * K, channel), nn.Sigmoid())
+        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1, stride=1, padding=0, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         batch_size, num_channels, _, _ = x.size()
@@ -813,8 +725,7 @@ class ContextEncodeDropInplaceABN(nn.Module):
 
 class DenseModule(nn.Module):
 
-    def __init__(self, in_chns, squeeze_ratio, out_chns, n_layers,
-        dilate_sec=(1, 2, 4, 8, 16), norm_act=ABN):
+    def __init__(self, in_chns, squeeze_ratio, out_chns, n_layers, dilate_sec=(1, 2, 4, 8, 16), norm_act=ABN):
         super(DenseModule, self).__init__()
         self.n_layers = n_layers
         self.mid_out = int(in_chns * squeeze_ratio)
@@ -829,10 +740,7 @@ class DenseModule(nn.Module):
                 ("conv", nn.Conv2d(self.last_channel, self.mid_out, 1, bias=False))
             ])))
             """
-            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(
-                self.last_channel)), ('conv', nn.Conv2d(self.last_channel,
-                out_chns, kernel_size=3, stride=1, padding=dilate, dilation
-                =dilate, bias=False))])))
+            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(self.last_channel)), ('conv', nn.Conv2d(self.last_channel, out_chns, kernel_size=3, stride=1, padding=dilate, dilation=dilate, bias=False))])))
 
     @property
     def out_channels(self):
@@ -849,8 +757,7 @@ class DenseModule(nn.Module):
 
 class DPDenseModule(nn.Module):
 
-    def __init__(self, in_chns, squeeze_ratio, out_chns, n_layers,
-        dilate_sec=(1, 2, 4, 8, 16), norm_act=ABN):
+    def __init__(self, in_chns, squeeze_ratio, out_chns, n_layers, dilate_sec=(1, 2, 4, 8, 16), norm_act=ABN):
         super(DPDenseModule, self).__init__()
         self.n_layers = n_layers
         self.convs3 = nn.ModuleList()
@@ -858,15 +765,7 @@ class DPDenseModule(nn.Module):
             dilate = dilate_sec[idx % len(dilate_sec)]
             self.last_channel = in_chns + idx * out_chns
             mid_out = int(self.last_channel * squeeze_ratio)
-            self.convs3.append(nn.Sequential(OrderedDict([('bn.1', norm_act
-                (self.last_channel)), ('conv_up', nn.Conv2d(self.
-                last_channel, mid_out, kernel_size=1, stride=1, padding=0,
-                bias=False)), ('bn.2', norm_act(mid_out)), ('dconv', nn.
-                Conv2d(mid_out, mid_out, kernel_size=3, stride=1, padding=
-                dilate, groups=mid_out, dilation=dilate, bias=False)), (
-                'pconv', nn.Conv2d(mid_out, out_chns, kernel_size=1, stride
-                =1, padding=0, bias=False)), ('dropout', nn.Dropout2d(p=0.2,
-                inplace=True))])))
+            self.convs3.append(nn.Sequential(OrderedDict([('bn.1', norm_act(self.last_channel)), ('conv_up', nn.Conv2d(self.last_channel, mid_out, kernel_size=1, stride=1, padding=0, bias=False)), ('bn.2', norm_act(mid_out)), ('dconv', nn.Conv2d(mid_out, mid_out, kernel_size=3, stride=1, padding=dilate, groups=mid_out, dilation=dilate, bias=False)), ('pconv', nn.Conv2d(mid_out, out_chns, kernel_size=1, stride=1, padding=0, bias=False)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))])))
             """
             self.convs3.append(nn.Sequential(OrderedDict([("bn.1", norm_act(self.last_channel)),
                                                           ("dconv", nn.Conv2d(self.last_channel, self.last_channel,
@@ -894,8 +793,7 @@ class DPDenseModule(nn.Module):
 
 class DualPathInPlaceABNBlock(nn.Module):
 
-    def __init__(self, in_chs, num_1x1_a, num_3x3_b, num_1x1_c, inc, groups
-        =1, dilation=1, block_type='normal', norm_act=ABN):
+    def __init__(self, in_chs, num_1x1_a, num_3x3_b, num_1x1_c, inc, groups=1, dilation=1, block_type='normal', norm_act=ABN):
         super(DualPathInPlaceABNBlock, self).__init__()
         self.num_1x1_c = num_1x1_c
         self.dilation = dilation
@@ -913,36 +811,15 @@ class DualPathInPlaceABNBlock(nn.Module):
             self.has_proj = False
         if self.has_proj:
             if self.key_stride == 2:
-                self.c1x1_w_s2 = nn.Sequential(OrderedDict([(
-                    'conv1x1_w_s2_bn', norm_act(in_chs)), ('conv1x1_w_s2',
-                    nn.Conv2d(in_chs, num_1x1_c + 2 * inc, kernel_size=1,
-                    stride=2, padding=0, groups=self.groups, dilation=1,
-                    bias=False))]))
+                self.c1x1_w_s2 = nn.Sequential(OrderedDict([('conv1x1_w_s2_bn', norm_act(in_chs)), ('conv1x1_w_s2', nn.Conv2d(in_chs, num_1x1_c + 2 * inc, kernel_size=1, stride=2, padding=0, groups=self.groups, dilation=1, bias=False))]))
             else:
-                self.c1x1_w_s1 = nn.Sequential(OrderedDict([(
-                    'conv1x1_w_s1_bn', norm_act(in_chs)), ('conv1x1_w_s1',
-                    nn.Conv2d(in_chs, num_1x1_c + 2 * inc, kernel_size=1,
-                    stride=1, padding=0, groups=self.groups, dilation=1,
-                    bias=False))]))
-        self.c1x1_a = nn.Sequential(OrderedDict([('conv1x1_a_bn', norm_act(
-            in_chs)), ('conv1x1_a', nn.Conv2d(in_chs, num_1x1_a,
-            kernel_size=1, stride=1, padding=0, groups=self.groups,
-            dilation=1, bias=False))]))
+                self.c1x1_w_s1 = nn.Sequential(OrderedDict([('conv1x1_w_s1_bn', norm_act(in_chs)), ('conv1x1_w_s1', nn.Conv2d(in_chs, num_1x1_c + 2 * inc, kernel_size=1, stride=1, padding=0, groups=self.groups, dilation=1, bias=False))]))
+        self.c1x1_a = nn.Sequential(OrderedDict([('conv1x1_a_bn', norm_act(in_chs)), ('conv1x1_a', nn.Conv2d(in_chs, num_1x1_a, kernel_size=1, stride=1, padding=0, groups=self.groups, dilation=1, bias=False))]))
         if self.dilation > 1 and self.key_stride == 1:
-            self.c3x3_b = nn.Sequential(OrderedDict([('conv3x3_b_bn',
-                norm_act(num_1x1_a)), ('conv3x3_b', nn.Conv2d(num_1x1_a,
-                num_3x3_b, kernel_size=3, stride=1, padding=dilation,
-                groups=num_1x1_a, dilation=self.dilation, bias=False))]))
+            self.c3x3_b = nn.Sequential(OrderedDict([('conv3x3_b_bn', norm_act(num_1x1_a)), ('conv3x3_b', nn.Conv2d(num_1x1_a, num_3x3_b, kernel_size=3, stride=1, padding=dilation, groups=num_1x1_a, dilation=self.dilation, bias=False))]))
         else:
-            self.c3x3_b = nn.Sequential(OrderedDict([('conv3x3_b_bn',
-                norm_act(num_1x1_a)), ('conv3x3_b', nn.Conv2d(num_1x1_a,
-                num_3x3_b, kernel_size=3, stride=self.key_stride, padding=1,
-                groups=num_1x1_a, dilation=1, bias=False))]))
-        self.c1x1_c = nn.Sequential(OrderedDict([('conv1x1_c_bn', norm_act(
-            num_3x3_b)), ('conv1x1_c', nn.Conv2d(num_3x3_b, num_1x1_c + inc,
-            kernel_size=1, stride=1, padding=0, groups=self.groups,
-            dilation=1, bias=False)), ('se_block', SEBlock(num_1x1_c + inc,
-            16)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
+            self.c3x3_b = nn.Sequential(OrderedDict([('conv3x3_b_bn', norm_act(num_1x1_a)), ('conv3x3_b', nn.Conv2d(num_1x1_a, num_3x3_b, kernel_size=3, stride=self.key_stride, padding=1, groups=num_1x1_a, dilation=1, bias=False))]))
+        self.c1x1_c = nn.Sequential(OrderedDict([('conv1x1_c_bn', norm_act(num_3x3_b)), ('conv1x1_c', nn.Conv2d(num_3x3_b, num_1x1_c + inc, kernel_size=1, stride=1, padding=0, groups=self.groups, dilation=1, bias=False)), ('se_block', SEBlock(num_1x1_c + inc, 16)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
 
     @staticmethod
     def _channel_shuffle(x, groups):
@@ -955,8 +832,7 @@ class DualPathInPlaceABNBlock(nn.Module):
         batch_size, num_channels, height, width = x.data.size()
         channels_per_group = num_channels // groups
         x = x.view(batch_size, groups, channels_per_group, height, width)
-        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1,
-            height, width)
+        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1, height, width)
         return x
 
     def forward(self, x):
@@ -986,14 +862,7 @@ class SemanticSupervision(nn.Module):
     def __init__(self, in_chns, out_chns):
         super(SemanticSupervision, self).__init__()
         self.out_chns = out_chns
-        self.semantic = nn.Sequential(OrderedDict([('conv1x7', nn.Conv2d(
-            in_chns, in_chns // 2 * 3, kernel_size=(1, 7), stride=1,
-            padding=(0, 3), bias=False)), ('norm1', nn.BatchNorm2d(in_chns //
-            2 * 3)), ('act1', nn.LeakyReLU(negative_slope=0.1, inplace=True
-            )), ('conv7x1', nn.Conv2d(in_chns // 2 * 3, out_chns // 2 * 3,
-            kernel_size=(7, 1), stride=1, padding=(3, 0), bias=False)), (
-            'norm2', nn.BatchNorm2d(out_chns // 2 * 3)), ('act2', nn.
-            LeakyReLU(negative_slope=0.1, inplace=True))]))
+        self.semantic = nn.Sequential(OrderedDict([('conv1x7', nn.Conv2d(in_chns, in_chns // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3), bias=False)), ('norm1', nn.BatchNorm2d(in_chns // 2 * 3)), ('act1', nn.LeakyReLU(negative_slope=0.1, inplace=True)), ('conv7x1', nn.Conv2d(in_chns // 2 * 3, out_chns // 2 * 3, kernel_size=(7, 1), stride=1, padding=(3, 0), bias=False)), ('norm2', nn.BatchNorm2d(out_chns // 2 * 3)), ('act2', nn.LeakyReLU(negative_slope=0.1, inplace=True))]))
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(out_chns // 2 * 3, out_chns)
 
@@ -1064,19 +933,12 @@ class CatInPlaceABN(nn.Module):
 
 class LightHeadBlock(nn.Module):
 
-    def __init__(self, in_chs, mid_chs=256, out_chs=256, kernel_size=15,
-        norm_act=ABN):
+    def __init__(self, in_chs, mid_chs=256, out_chs=256, kernel_size=15, norm_act=ABN):
         super(LightHeadBlock, self).__init__()
         pad = int((kernel_size - 1) / 2)
         self.abn = norm_act(in_chs)
-        self.conv_l = nn.Sequential(OrderedDict([('conv_lu', nn.Conv2d(
-            in_chs, mid_chs, kernel_size=(kernel_size, 1), padding=(pad, 0)
-            )), ('conv_ld', nn.Conv2d(mid_chs, out_chs, kernel_size=(1,
-            kernel_size), padding=(0, pad)))]))
-        self.conv_r = nn.Sequential(OrderedDict([('conv_ru', nn.Conv2d(
-            in_chs, mid_chs, kernel_size=(1, kernel_size), padding=(0, pad)
-            )), ('conv_rd', nn.Conv2d(mid_chs, out_chs, kernel_size=(
-            kernel_size, 1), padding=(pad, 0)))]))
+        self.conv_l = nn.Sequential(OrderedDict([('conv_lu', nn.Conv2d(in_chs, mid_chs, kernel_size=(kernel_size, 1), padding=(pad, 0))), ('conv_ld', nn.Conv2d(mid_chs, out_chs, kernel_size=(1, kernel_size), padding=(0, pad)))]))
+        self.conv_r = nn.Sequential(OrderedDict([('conv_ru', nn.Conv2d(in_chs, mid_chs, kernel_size=(1, kernel_size), padding=(0, pad))), ('conv_rd', nn.Conv2d(mid_chs, out_chs, kernel_size=(kernel_size, 1), padding=(pad, 0)))]))
 
     def forward(self, x):
         x = self.abn(x)
@@ -1090,9 +952,7 @@ class SEBlock(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SEBlock, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fcs = nn.Sequential(nn.Linear(channel, int(channel / reduction
-            )), nn.LeakyReLU(negative_slope=0.1, inplace=True), nn.Linear(
-            int(channel / reduction), channel), nn.Sigmoid())
+        self.fcs = nn.Sequential(nn.Linear(channel, int(channel / reduction)), nn.LeakyReLU(negative_slope=0.1, inplace=True), nn.Linear(int(channel / reduction), channel), nn.Sigmoid())
 
     def forward(self, x):
         bahs, chs, _, _ = x.size()
@@ -1106,11 +966,8 @@ class SCSEBlock(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SCSEBlock, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(
-            channel // reduction)), nn.ReLU(inplace=True), nn.Linear(int(
-            channel // reduction), channel), nn.Sigmoid())
-        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1,
-            stride=1, padding=0, bias=False), nn.Sigmoid())
+        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(channel // reduction)), nn.ReLU(inplace=True), nn.Linear(int(channel // reduction), channel), nn.Sigmoid())
+        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1, stride=1, padding=0, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         bahs, chs, _, _ = x.size()
@@ -1127,11 +984,8 @@ class ModifiedSCSEBlock(nn.Module):
     def __init__(self, channel, reduction=16):
         super(ModifiedSCSEBlock, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(
-            channel // reduction)), nn.ReLU(inplace=True), nn.Linear(int(
-            channel // reduction), channel), nn.Sigmoid())
-        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1,
-            stride=1, padding=0, bias=False), nn.Sigmoid())
+        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(channel // reduction)), nn.ReLU(inplace=True), nn.Linear(int(channel // reduction), channel), nn.Sigmoid())
+        self.spatial_se = nn.Sequential(nn.Conv2d(channel, 1, kernel_size=1, stride=1, padding=0, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         bahs, chs, _, _ = x.size()
@@ -1143,84 +997,33 @@ class ModifiedSCSEBlock(nn.Module):
 
 class VortexPooling(nn.Module):
 
-    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2,
-        rate=(3, 9, 27)):
+    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2, rate=(3, 9, 27)):
         super(VortexPooling, self).__init__()
-        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.
-            AdaptiveAvgPool2d((1, 1))), ('conv1x1', nn.Conv2d(in_chs,
-            out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=
-            False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode=
-            'bilinear')), ('bn0', nn.BatchNorm2d(num_features=out_chs))]))
-        self.conv3x3 = nn.Sequential(OrderedDict([('conv3x3', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=1, bias=False,
-            groups=1, dilation=1)), ('bn3x3', nn.BatchNorm2d(num_features=
-            out_chs))]))
-        self.vortex_bra1 = nn.Sequential(OrderedDict([('avg_pool', nn.
-            AvgPool2d(kernel_size=rate[0], stride=1, padding=int((rate[0] -
-            1) / 2), ceil_mode=False)), ('conv3x3', nn.Conv2d(in_chs,
-            out_chs, kernel_size=3, stride=1, padding=rate[0], bias=False,
-            groups=1, dilation=rate[0])), ('bn3x3', nn.BatchNorm2d(
-            num_features=out_chs))]))
-        self.vortex_bra2 = nn.Sequential(OrderedDict([('avg_pool', nn.
-            AvgPool2d(kernel_size=rate[1], stride=1, padding=int((rate[1] -
-            1) / 2), ceil_mode=False)), ('conv3x3', nn.Conv2d(in_chs,
-            out_chs, kernel_size=3, stride=1, padding=rate[1], bias=False,
-            groups=1, dilation=rate[1])), ('bn3x3', nn.BatchNorm2d(
-            num_features=out_chs))]))
-        self.vortex_bra3 = nn.Sequential(OrderedDict([('avg_pool', nn.
-            AvgPool2d(kernel_size=rate[2], stride=1, padding=int((rate[2] -
-            1) / 2), ceil_mode=False)), ('conv3x3', nn.Conv2d(in_chs,
-            out_chs, kernel_size=3, stride=1, padding=rate[2], bias=False,
-            groups=1, dilation=rate[2])), ('bn3x3', nn.BatchNorm2d(
-            num_features=out_chs))]))
-        self.vortex_catdown = nn.Sequential(OrderedDict([('conv_down', nn.
-            Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1,
-            bias=False, groups=1, dilation=1)), ('bn_down', nn.BatchNorm2d(
-            num_features=out_chs)), ('dropout', nn.Dropout2d(p=0.2, inplace
-            =True))]))
-        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio),
-            int(feat_res[1] * up_ratio)), mode='bilinear')
+        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.AdaptiveAvgPool2d((1, 1))), ('conv1x1', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode='bilinear')), ('bn0', nn.BatchNorm2d(num_features=out_chs))]))
+        self.conv3x3 = nn.Sequential(OrderedDict([('conv3x3', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=1, bias=False, groups=1, dilation=1)), ('bn3x3', nn.BatchNorm2d(num_features=out_chs))]))
+        self.vortex_bra1 = nn.Sequential(OrderedDict([('avg_pool', nn.AvgPool2d(kernel_size=rate[0], stride=1, padding=int((rate[0] - 1) / 2), ceil_mode=False)), ('conv3x3', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=rate[0], bias=False, groups=1, dilation=rate[0])), ('bn3x3', nn.BatchNorm2d(num_features=out_chs))]))
+        self.vortex_bra2 = nn.Sequential(OrderedDict([('avg_pool', nn.AvgPool2d(kernel_size=rate[1], stride=1, padding=int((rate[1] - 1) / 2), ceil_mode=False)), ('conv3x3', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=rate[1], bias=False, groups=1, dilation=rate[1])), ('bn3x3', nn.BatchNorm2d(num_features=out_chs))]))
+        self.vortex_bra3 = nn.Sequential(OrderedDict([('avg_pool', nn.AvgPool2d(kernel_size=rate[2], stride=1, padding=int((rate[2] - 1) / 2), ceil_mode=False)), ('conv3x3', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=rate[2], bias=False, groups=1, dilation=rate[2])), ('bn3x3', nn.BatchNorm2d(num_features=out_chs))]))
+        self.vortex_catdown = nn.Sequential(OrderedDict([('conv_down', nn.Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups=1, dilation=1)), ('bn_down', nn.BatchNorm2d(num_features=out_chs)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
+        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio), int(feat_res[1] * up_ratio)), mode='bilinear')
 
     def forward(self, x):
-        out = torch.cat([self.gave_pool(x), self.conv3x3(x), self.
-            vortex_bra1(x), self.vortex_bra2(x), self.vortex_bra3(x)], dim=1)
+        out = torch.cat([self.gave_pool(x), self.conv3x3(x), self.vortex_bra1(x), self.vortex_bra2(x), self.vortex_bra3(x)], dim=1)
         out = self.vortex_catdown(out)
         return self.upsampling(out)
 
 
 class ASPPBlock(nn.Module):
 
-    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2,
-        aspp_sec=(12, 24, 36)):
+    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2, aspp_sec=(12, 24, 36)):
         super(ASPPBlock, self).__init__()
-        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.
-            AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(in_chs,
-            out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=
-            False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode=
-            'bilinear')), ('bn0', nn.BatchNorm2d(num_features=out_chs))]))
-        self.conv1x1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(
-            in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False,
-            groups=1, dilation=1)), ('bn1_1', nn.BatchNorm2d(num_features=
-            out_chs))]))
-        self.aspp_bra1 = nn.Sequential(OrderedDict([('conv2_1', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[0],
-            bias=False, groups=1, dilation=aspp_sec[0])), ('bn2_1', nn.
-            BatchNorm2d(num_features=out_chs))]))
-        self.aspp_bra2 = nn.Sequential(OrderedDict([('conv2_2', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[1],
-            bias=False, groups=1, dilation=aspp_sec[1])), ('bn2_2', nn.
-            BatchNorm2d(num_features=out_chs))]))
-        self.aspp_bra3 = nn.Sequential(OrderedDict([('conv2_3', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[2],
-            bias=False, groups=1, dilation=aspp_sec[2])), ('bn2_3', nn.
-            BatchNorm2d(num_features=out_chs))]))
-        self.aspp_catdown = nn.Sequential(OrderedDict([('conv_down', nn.
-            Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1,
-            bias=False, groups=1, dilation=1)), ('bn_down', nn.BatchNorm2d(
-            num_features=out_chs)), ('dropout', nn.Dropout2d(p=0.2, inplace
-            =True))]))
-        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio),
-            int(feat_res[1] * up_ratio)), mode='bilinear')
+        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode='bilinear')), ('bn0', nn.BatchNorm2d(num_features=out_chs))]))
+        self.conv1x1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False, groups=1, dilation=1)), ('bn1_1', nn.BatchNorm2d(num_features=out_chs))]))
+        self.aspp_bra1 = nn.Sequential(OrderedDict([('conv2_1', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[0], bias=False, groups=1, dilation=aspp_sec[0])), ('bn2_1', nn.BatchNorm2d(num_features=out_chs))]))
+        self.aspp_bra2 = nn.Sequential(OrderedDict([('conv2_2', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[1], bias=False, groups=1, dilation=aspp_sec[1])), ('bn2_2', nn.BatchNorm2d(num_features=out_chs))]))
+        self.aspp_bra3 = nn.Sequential(OrderedDict([('conv2_3', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[2], bias=False, groups=1, dilation=aspp_sec[2])), ('bn2_3', nn.BatchNorm2d(num_features=out_chs))]))
+        self.aspp_catdown = nn.Sequential(OrderedDict([('conv_down', nn.Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups=1, dilation=1)), ('bn_down', nn.BatchNorm2d(num_features=out_chs)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
+        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio), int(feat_res[1] * up_ratio)), mode='bilinear')
 
     @staticmethod
     def _channel_shuffle(x, groups):
@@ -1233,46 +1036,27 @@ class ASPPBlock(nn.Module):
         batch_size, num_channels, height, width = x.data.size()
         channels_per_group = num_channels // groups
         x = x.view(batch_size, groups, channels_per_group, height, width)
-        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1,
-            height, width)
+        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1, height, width)
         return x
 
     def forward(self, x):
-        out = torch.cat([self.gave_pool(x), self.conv1x1(x), self.aspp_bra1
-            (x), self.aspp_bra2(x), self.aspp_bra3(x)], dim=1)
+        out = torch.cat([self.gave_pool(x), self.conv1x1(x), self.aspp_bra1(x), self.aspp_bra2(x), self.aspp_bra3(x)], dim=1)
         out = self.aspp_catdown(out)
         return self.upsampling(out)
 
 
 class ASPPInPlaceABNBlock(nn.Module):
 
-    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2,
-        aspp_sec=(12, 24, 36), norm_act=ABN):
+    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2, aspp_sec=(12, 24, 36), norm_act=ABN):
         super(ASPPInPlaceABNBlock, self).__init__()
         self.in_norm = norm_act(in_chs)
-        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.
-            AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(in_chs,
-            out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=
-            False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode=
-            'bilinear'))]))
-        self.conv1x1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(
-            in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False,
-            groups=1, dilation=1))]))
-        self.aspp_bra1 = nn.Sequential(OrderedDict([('conv2_1', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[0],
-            bias=False, groups=1, dilation=aspp_sec[0]))]))
-        self.aspp_bra2 = nn.Sequential(OrderedDict([('conv2_2', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[1],
-            bias=False, groups=1, dilation=aspp_sec[1]))]))
-        self.aspp_bra3 = nn.Sequential(OrderedDict([('conv2_3', nn.Conv2d(
-            in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[2],
-            bias=False, groups=1, dilation=aspp_sec[2]))]))
-        self.aspp_catdown = nn.Sequential(OrderedDict([('norm_act',
-            norm_act(5 * out_chs)), ('conv_down', nn.Conv2d(5 * out_chs,
-            out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups
-            =1, dilation=1)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
-        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio),
-            int(feat_res[1] * up_ratio)), mode='bilinear')
+        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode='bilinear'))]))
+        self.conv1x1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False, groups=1, dilation=1))]))
+        self.aspp_bra1 = nn.Sequential(OrderedDict([('conv2_1', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[0], bias=False, groups=1, dilation=aspp_sec[0]))]))
+        self.aspp_bra2 = nn.Sequential(OrderedDict([('conv2_2', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[1], bias=False, groups=1, dilation=aspp_sec[1]))]))
+        self.aspp_bra3 = nn.Sequential(OrderedDict([('conv2_3', nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[2], bias=False, groups=1, dilation=aspp_sec[2]))]))
+        self.aspp_catdown = nn.Sequential(OrderedDict([('norm_act', norm_act(5 * out_chs)), ('conv_down', nn.Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups=1, dilation=1)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
+        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio), int(feat_res[1] * up_ratio)), mode='bilinear')
 
     @staticmethod
     def _channel_shuffle(x, groups):
@@ -1285,53 +1069,28 @@ class ASPPInPlaceABNBlock(nn.Module):
         batch_size, num_channels, height, width = x.data.size()
         channels_per_group = num_channels // groups
         x = x.view(batch_size, groups, channels_per_group, height, width)
-        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1,
-            height, width)
+        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1, height, width)
         return x
 
     def forward(self, x):
         x = self.in_norm(x)
-        x = torch.cat([self.gave_pool(x), self.conv1x1(x), self.aspp_bra1(x
-            ), self.aspp_bra2(x), self.aspp_bra3(x)], dim=1)
+        x = torch.cat([self.gave_pool(x), self.conv1x1(x), self.aspp_bra1(x), self.aspp_bra2(x), self.aspp_bra3(x)], dim=1)
         out = self.aspp_catdown(x)
         return out, self.upsampling(out)
 
 
 class SDASPPInPlaceABNBlock(nn.Module):
 
-    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2,
-        aspp_sec=(12, 24, 36), norm_act=ABN):
+    def __init__(self, in_chs, out_chs, feat_res=(56, 112), up_ratio=2, aspp_sec=(12, 24, 36), norm_act=ABN):
         super(SDASPPInPlaceABNBlock, self).__init__()
         self.in_norm = norm_act(in_chs)
-        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.
-            AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(in_chs,
-            out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=
-            False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode=
-            'bilinear'))]))
-        self.conv1x1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(
-            in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False,
-            groups=1, dilation=1))]))
-        self.aspp_bra1 = nn.Sequential(OrderedDict([('dconv2_1', nn.Conv2d(
-            in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_sec[0],
-            bias=False, groups=in_chs, dilation=aspp_sec[0])), ('pconv2_1',
-            nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0,
-            bias=False, groups=1, dilation=1))]))
-        self.aspp_bra2 = nn.Sequential(OrderedDict([('dconv2_2', nn.Conv2d(
-            in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_sec[1],
-            bias=False, groups=in_chs, dilation=aspp_sec[1])), ('pconv2_2',
-            nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0,
-            bias=False, groups=1, dilation=1))]))
-        self.aspp_bra3 = nn.Sequential(OrderedDict([('dconv2_3', nn.Conv2d(
-            in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_sec[2],
-            bias=False, groups=in_chs, dilation=aspp_sec[2])), ('pconv2_3',
-            nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0,
-            bias=False, groups=1, dilation=1))]))
-        self.aspp_catdown = nn.Sequential(OrderedDict([('norm_act',
-            norm_act(5 * out_chs)), ('conv_down', nn.Conv2d(5 * out_chs,
-            out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups
-            =1, dilation=1)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
-        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio),
-            int(feat_res[1] * up_ratio)), mode='bilinear')
+        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode='bilinear'))]))
+        self.conv1x1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False, groups=1, dilation=1))]))
+        self.aspp_bra1 = nn.Sequential(OrderedDict([('dconv2_1', nn.Conv2d(in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_sec[0], bias=False, groups=in_chs, dilation=aspp_sec[0])), ('pconv2_1', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False, groups=1, dilation=1))]))
+        self.aspp_bra2 = nn.Sequential(OrderedDict([('dconv2_2', nn.Conv2d(in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_sec[1], bias=False, groups=in_chs, dilation=aspp_sec[1])), ('pconv2_2', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False, groups=1, dilation=1))]))
+        self.aspp_bra3 = nn.Sequential(OrderedDict([('dconv2_3', nn.Conv2d(in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_sec[2], bias=False, groups=in_chs, dilation=aspp_sec[2])), ('pconv2_3', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False, groups=1, dilation=1))]))
+        self.aspp_catdown = nn.Sequential(OrderedDict([('norm_act', norm_act(5 * out_chs)), ('conv_down', nn.Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups=1, dilation=1)), ('dropout', nn.Dropout2d(p=0.2, inplace=True))]))
+        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio), int(feat_res[1] * up_ratio)), mode='bilinear')
 
     @staticmethod
     def _channel_shuffle(x, groups):
@@ -1344,14 +1103,12 @@ class SDASPPInPlaceABNBlock(nn.Module):
         batch_size, num_channels, height, width = x.data.size()
         channels_per_group = num_channels // groups
         x = x.view(batch_size, groups, channels_per_group, height, width)
-        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1,
-            height, width)
+        x = torch.transpose(x, 1, 2).contiguous().view(batch_size, -1, height, width)
         return x
 
     def forward(self, x):
         x = self.in_norm(x)
-        x = torch.cat([self.gave_pool(x), self.conv1x1(x), self.aspp_bra1(x
-            ), self.aspp_bra2(x), self.aspp_bra3(x)], dim=1)
+        x = torch.cat([self.gave_pool(x), self.conv1x1(x), self.aspp_bra1(x), self.aspp_bra2(x), self.aspp_bra3(x)], dim=1)
         return self.upsampling(self.aspp_catdown(x))
 
 
@@ -1370,19 +1127,7 @@ class InvertedResidual(nn.Module):
         self.stride = stride
         assert stride in [1, 2]
         self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=
-            inp * expand_ratio, kernel_size=1, stride=1, padding=0,
-            dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=
-            inp * expand_ratio, eps=1e-05, momentum=0.1, affine=True), nn.
-            ReLU6(inplace=True), nn.Conv2d(in_channels=inp * expand_ratio,
-            out_channels=inp * expand_ratio, kernel_size=3, stride=stride,
-            padding=dilate, dilation=dilate, groups=inp * expand_ratio,
-            bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio,
-            eps=1e-05, momentum=0.1, affine=True), nn.ReLU6(inplace=True),
-            nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup,
-            kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=
-            False), nn.BatchNorm2d(num_features=oup, eps=1e-05, momentum=
-            0.1, affine=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=inp * expand_ratio, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio, eps=1e-05, momentum=0.1, affine=True), nn.ReLU6(inplace=True), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=inp * expand_ratio, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=inp * expand_ratio, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio, eps=1e-05, momentum=0.1, affine=True), nn.ReLU6(inplace=True), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=oup, eps=1e-05, momentum=0.1, affine=True))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -1406,19 +1151,7 @@ class SCSEInvertedResidual(nn.Module):
         self.stride = stride
         assert stride in [1, 2]
         self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=
-            inp * expand_ratio, kernel_size=1, stride=1, padding=0,
-            dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=
-            inp * expand_ratio, eps=1e-05, momentum=0.1, affine=True), nn.
-            ReLU6(inplace=True), nn.Conv2d(in_channels=inp * expand_ratio,
-            out_channels=inp * expand_ratio, kernel_size=3, stride=stride,
-            padding=dilate, dilation=dilate, groups=inp * expand_ratio,
-            bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio,
-            eps=1e-05, momentum=0.1, affine=True), nn.ReLU6(inplace=True),
-            nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup,
-            kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=
-            False), nn.BatchNorm2d(num_features=oup, eps=1e-05, momentum=
-            0.1, affine=True), SCSEBlock(channel=oup, reduction=2))
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=inp * expand_ratio, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio, eps=1e-05, momentum=0.1, affine=True), nn.ReLU6(inplace=True), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=inp * expand_ratio, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=inp * expand_ratio, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio, eps=1e-05, momentum=0.1, affine=True), nn.ReLU6(inplace=True), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=oup, eps=1e-05, momentum=0.1, affine=True), SCSEBlock(channel=oup, reduction=2))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -1429,8 +1162,7 @@ class SCSEInvertedResidual(nn.Module):
 
 class IdentityResidualBlock(nn.Module):
 
-    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=
-        1, norm_act=ABN, is_se=False, dropout=None):
+    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=1, norm_act=ABN, is_se=False, dropout=None):
         """Configurable identity-mapping residual block
 
         Parameters
@@ -1455,45 +1187,26 @@ class IdentityResidualBlock(nn.Module):
         """
         super(IdentityResidualBlock, self).__init__()
         if len(channels) != 2 and len(channels) != 3:
-            raise ValueError('channels must contain either two or three values'
-                )
+            raise ValueError('channels must contain either two or three values')
         if len(channels) == 2 and groups != 1:
             raise ValueError('groups > 1 are only valid if len(channels) == 3')
         is_bottleneck = len(channels) == 3
         need_proj_conv = stride != 1 or in_channels != channels[-1]
         self.bn1 = norm_act(in_channels)
         if not is_bottleneck:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3,
-                stride=stride, padding=dilation, bias=False, dilation=
-                dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.
-                Conv2d(channels[0], channels[1], 3, stride=1, padding=
-                dilation, bias=False, dilation=dilation))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3, stride=stride, padding=dilation, bias=False, dilation=dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, dilation=dilation))]
             if dropout is not None:
                 layers = layers[0:2] + [('dropout', dropout())] + layers[2:]
         else:
             if not is_se:
-                layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1,
-                    stride=stride, padding=0, bias=False)), ('bn2',
-                    norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0],
-                    channels[1], 3, stride=1, padding=dilation, bias=False,
-                    groups=groups, dilation=dilation)), ('bn3', norm_act(
-                    channels[1])), ('conv3', nn.Conv2d(channels[1],
-                    channels[2], 1, stride=1, padding=0, bias=False))]
+                layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1, stride=stride, padding=0, bias=False)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, groups=groups, dilation=dilation)), ('bn3', norm_act(channels[1])), ('conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1, padding=0, bias=False))]
             else:
-                layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1,
-                    stride=stride, padding=0, bias=False)), ('bn2',
-                    norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0],
-                    channels[1], 3, stride=1, padding=dilation, bias=False,
-                    groups=groups, dilation=dilation)), ('bn3', norm_act(
-                    channels[1])), ('conv3', nn.Conv2d(channels[1],
-                    channels[2], 1, stride=1, padding=0, bias=False)), (
-                    'se_block', SEBlock(channels[2], 16))]
+                layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1, stride=stride, padding=0, bias=False)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, groups=groups, dilation=dilation)), ('bn3', norm_act(channels[1])), ('conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1, padding=0, bias=False)), ('se_block', SEBlock(channels[2], 16))]
             if dropout is not None:
                 layers = layers[0:4] + [('dropout', dropout())] + layers[4:]
         self.convs = nn.Sequential(OrderedDict(layers))
         if need_proj_conv:
-            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride
-                =stride, padding=0, bias=False)
+            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride=stride, padding=0, bias=False)
 
     def forward(self, x):
         if hasattr(self, 'proj_conv'):
@@ -1509,60 +1222,22 @@ class IdentityResidualBlock(nn.Module):
 
 class RFBlock(nn.Module):
 
-    def __init__(self, in_chs, out_chs, scale=0.1, feat_res=(56, 112),
-        aspp_sec=(12, 24, 36), up_ratio=2, norm_act=InPlaceABN):
+    def __init__(self, in_chs, out_chs, scale=0.1, feat_res=(56, 112), aspp_sec=(12, 24, 36), up_ratio=2, norm_act=InPlaceABN):
         super(RFBlock, self).__init__()
         self.scale = scale
-        self.down_chs = nn.Sequential(OrderedDict([('norm_act', norm_act(
-            in_chs)), ('down_conv1x1', nn.Conv2d(in_chs, out_chs,
-            kernel_size=1, stride=1, padding=0, bias=False))]))
-        self.gave_pool = nn.Sequential(OrderedDict([('norm_act', norm_act(
-            out_chs)), ('gavg', nn.AdaptiveAvgPool2d((1, 1))), ('conv1_0',
-            nn.Conv2d(out_chs, out_chs, kernel_size=1, stride=1, padding=0,
-            groups=1, bias=False, dilation=1)), ('up0', nn.Upsample(size=
-            feat_res, mode='bilinear'))]))
-        self.branch0 = nn.Sequential(OrderedDict([('norm_act', norm_act(
-            out_chs)), ('conv1x1', nn.Conv2d(out_chs, out_chs, kernel_size=
-            1, stride=1, padding=0, bias=False)), ('norm_act', norm_act(
-            out_chs)), ('aconv1', nn.Conv2d(out_chs, out_chs, kernel_size=3,
-            stride=1, padding=1, dilation=1, bias=False))]))
-        self.branch1 = nn.Sequential(OrderedDict([('norm_act', norm_act(
-            out_chs)), ('conv1x3', nn.Conv2d(out_chs, out_chs // 2 * 3,
-            kernel_size=(1, 3), stride=1, padding=(0, 1), bias=False)), (
-            'norm_act', norm_act(out_chs // 2 * 3)), ('conv3x1', nn.Conv2d(
-            out_chs // 2 * 3, out_chs, kernel_size=(3, 1), stride=1,
-            padding=(1, 0), bias=False)), ('norm_act', norm_act(out_chs)),
-            ('aconv3', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1,
-            padding=aspp_sec[0], dilation=aspp_sec[0], bias=False))]))
-        self.branch2 = nn.Sequential(OrderedDict([('norm_act', norm_act(
-            out_chs)), ('conv1x5', nn.Conv2d(out_chs, out_chs // 2 * 3,
-            kernel_size=(1, 5), stride=1, padding=(0, 2), bias=False)), (
-            'norm_act', norm_act(out_chs // 2 * 3)), ('conv5x1', nn.Conv2d(
-            out_chs // 2 * 3, out_chs, kernel_size=(5, 1), stride=1,
-            padding=(2, 0), bias=False)), ('norm_act', norm_act(out_chs)),
-            ('aconv5', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1,
-            padding=aspp_sec[1], dilation=aspp_sec[1], bias=False))]))
-        self.branch3 = nn.Sequential(OrderedDict([('norm_act', norm_act(
-            out_chs)), ('conv1x7', nn.Conv2d(out_chs, out_chs // 2 * 3,
-            kernel_size=(1, 7), stride=1, padding=(0, 3), bias=False)), (
-            'norm_act', norm_act(out_chs // 2 * 3)), ('conv7x1', nn.Conv2d(
-            out_chs // 2 * 3, out_chs, kernel_size=(7, 1), stride=1,
-            padding=(3, 0), bias=False)), ('norm_act', norm_act(out_chs)),
-            ('aconv7', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1,
-            padding=aspp_sec[2], dilation=aspp_sec[2], bias=False))]))
-        self.conv_linear = nn.Sequential(OrderedDict([('conv1x1_linear', nn
-            .Conv2d(out_chs * 5, out_chs, kernel_size=1, stride=1, padding=
-            0, bias=False))]))
-        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio),
-            int(feat_res[1] * up_ratio)), mode='bilinear')
+        self.down_chs = nn.Sequential(OrderedDict([('norm_act', norm_act(in_chs)), ('down_conv1x1', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False))]))
+        self.gave_pool = nn.Sequential(OrderedDict([('norm_act', norm_act(out_chs)), ('gavg', nn.AdaptiveAvgPool2d((1, 1))), ('conv1_0', nn.Conv2d(out_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=False, dilation=1)), ('up0', nn.Upsample(size=feat_res, mode='bilinear'))]))
+        self.branch0 = nn.Sequential(OrderedDict([('norm_act', norm_act(out_chs)), ('conv1x1', nn.Conv2d(out_chs, out_chs, kernel_size=1, stride=1, padding=0, bias=False)), ('norm_act', norm_act(out_chs)), ('aconv1', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1, padding=1, dilation=1, bias=False))]))
+        self.branch1 = nn.Sequential(OrderedDict([('norm_act', norm_act(out_chs)), ('conv1x3', nn.Conv2d(out_chs, out_chs // 2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1), bias=False)), ('norm_act', norm_act(out_chs // 2 * 3)), ('conv3x1', nn.Conv2d(out_chs // 2 * 3, out_chs, kernel_size=(3, 1), stride=1, padding=(1, 0), bias=False)), ('norm_act', norm_act(out_chs)), ('aconv3', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[0], dilation=aspp_sec[0], bias=False))]))
+        self.branch2 = nn.Sequential(OrderedDict([('norm_act', norm_act(out_chs)), ('conv1x5', nn.Conv2d(out_chs, out_chs // 2 * 3, kernel_size=(1, 5), stride=1, padding=(0, 2), bias=False)), ('norm_act', norm_act(out_chs // 2 * 3)), ('conv5x1', nn.Conv2d(out_chs // 2 * 3, out_chs, kernel_size=(5, 1), stride=1, padding=(2, 0), bias=False)), ('norm_act', norm_act(out_chs)), ('aconv5', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[1], dilation=aspp_sec[1], bias=False))]))
+        self.branch3 = nn.Sequential(OrderedDict([('norm_act', norm_act(out_chs)), ('conv1x7', nn.Conv2d(out_chs, out_chs // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3), bias=False)), ('norm_act', norm_act(out_chs // 2 * 3)), ('conv7x1', nn.Conv2d(out_chs // 2 * 3, out_chs, kernel_size=(7, 1), stride=1, padding=(3, 0), bias=False)), ('norm_act', norm_act(out_chs)), ('aconv7', nn.Conv2d(out_chs, out_chs, kernel_size=3, stride=1, padding=aspp_sec[2], dilation=aspp_sec[2], bias=False))]))
+        self.conv_linear = nn.Sequential(OrderedDict([('conv1x1_linear', nn.Conv2d(out_chs * 5, out_chs, kernel_size=1, stride=1, padding=0, bias=False))]))
+        self.upsampling = nn.Upsample(size=(int(feat_res[0] * up_ratio), int(feat_res[1] * up_ratio)), mode='bilinear')
 
     def forward(self, x):
         down = self.down_chs(x)
-        out = torch.cat([self.gave_pool(down.clone()), self.branch0(down.
-            clone()), self.branch1(down.clone()), self.branch2(down.clone()
-            ), self.branch3(down.clone())], dim=1)
-        return self.upsampling(torch.add(self.conv_linear(out), self.scale,
-            down))
+        out = torch.cat([self.gave_pool(down.clone()), self.branch0(down.clone()), self.branch1(down.clone()), self.branch2(down.clone()), self.branch3(down.clone())], dim=1)
+        return self.upsampling(torch.add(self.conv_linear(out), self.scale, down))
 
 
 class CrossEntropy2d(nn.Module):
@@ -1583,20 +1258,15 @@ class CrossEntropy2d(nn.Module):
         assert not target.requires_grad
         assert predict.dim() == 4
         assert target.dim() == 3
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
         n, c, h, w = predict.size()
         target_mask = (target >= 0) * (target != self.ignore_label)
         target = target[target_mask]
         predict = predict.transpose(1, 2).transpose(2, 3).contiguous()
-        predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)
-            ].view(-1, c)
-        loss = F.cross_entropy(predict, target, weight=weight, size_average
-            =self.size_average)
+        predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)].view(-1, c)
+        loss = F.cross_entropy(predict, target, weight=weight, size_average=self.size_average)
         return loss
 
 
@@ -1606,8 +1276,7 @@ class FocalLoss2D(nn.Module):
         "Focal Loss for Dense Object Detection (https://arxiv.org/abs/1708.02002v2)"
     """
 
-    def __init__(self, num_classes=19, ignore_label=250, alpha=0.25, gamma=
-        2, size_average=True):
+    def __init__(self, num_classes=19, ignore_label=250, alpha=0.25, gamma=2, size_average=True):
         """
         Loss(x, class) = - lpha (1-softmax(x)[class])^gamma \\log(softmax(x)[class])
 
@@ -1638,12 +1307,9 @@ class FocalLoss2D(nn.Module):
         """
         assert not cls_targets.requires_grad
         assert cls_targets.dim() == 3
-        assert cls_preds.size(0) == cls_targets.size(0), '{0} vs {1} '.format(
-            cls_preds.size(0), cls_targets.size(0))
-        assert cls_preds.size(2) == cls_targets.size(1), '{0} vs {1} '.format(
-            cls_preds.size(2), cls_targets.size(1))
-        assert cls_preds.size(3) == cls_targets.size(2), '{0} vs {1} '.format(
-            cls_preds.size(3), cls_targets.size(3))
+        assert cls_preds.size(0) == cls_targets.size(0), '{0} vs {1} '.format(cls_preds.size(0), cls_targets.size(0))
+        assert cls_preds.size(2) == cls_targets.size(1), '{0} vs {1} '.format(cls_preds.size(2), cls_targets.size(1))
+        assert cls_preds.size(3) == cls_targets.size(2), '{0} vs {1} '.format(cls_preds.size(3), cls_targets.size(3))
         if cls_preds.is_cuda:
             self.one_hot = self.one_hot
         n, c, h, w = cls_preds.size()
@@ -1655,10 +1321,8 @@ class FocalLoss2D(nn.Module):
         prob = prob.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
         prob = prob[target_mask.repeat(1, c)]
         prob = prob.view(-1, c)
-        probs = torch.clamp((prob * cls_targets).sum(1).view(-1, 1), min=
-            1e-08, max=1.0)
-        batch_loss = -self.alpha * torch.pow(1 - probs, self.gamma
-            ) * probs.log()
+        probs = torch.clamp((prob * cls_targets).sum(1).view(-1, 1), min=1e-08, max=1.0)
+        batch_loss = -self.alpha * torch.pow(1 - probs, self.gamma) * probs.log()
         if self.size_average:
             loss = batch_loss.mean()
         else:
@@ -1677,8 +1341,7 @@ class SemanticEncodingLoss(nn.Module):
     def unique_encode(self, cls_targets):
         batch_size, _, _ = cls_targets.size()
         target_mask = (cls_targets >= 0) * (cls_targets != self.ignore_label)
-        cls_targets = [cls_targets[idx].masked_select(target_mask[idx]) for
-            idx in np.arange(batch_size)]
+        cls_targets = [cls_targets[idx].masked_select(target_mask[idx]) for idx in np.arange(batch_size)]
         unique_cls = [np.unique(label.numpy()) for label in cls_targets]
         encode = np.zeros((batch_size, self.num_classes), dtype=np.uint8)
         for idx in np.arange(batch_size):
@@ -1686,8 +1349,7 @@ class SemanticEncodingLoss(nn.Module):
         return torch.from_numpy(encode).float()
 
     def forward(self, predicts, enc_cls_target, size_average=True):
-        se_loss = F.binary_cross_entropy_with_logits(predicts,
-            enc_cls_target, weight=None, size_average=size_average)
+        se_loss = F.binary_cross_entropy_with_logits(predicts, enc_cls_target, weight=None, size_average=size_average)
         return self.alpha * se_loss
 
 
@@ -1695,71 +1357,177 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ABN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ASPPBlock,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 56, 112])], {}),
+     True),
+    (ASPPInPlaceABNBlock,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 56, 112])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block17,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (Block35,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Block8,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2080, 64, 64])], {}),
+     True),
+    (CatInPlaceABN,
+     lambda: ([], {'in_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DenseModule,
+     lambda: ([], {'in_chns': 4, 'squeeze_ratio': 4, 'out_chns': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IdentityResidualBlock,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LightHeadBlock,
+     lambda: ([], {'in_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mixed_5b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_6a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Mixed_7a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (ModifiedSCSEBlock,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SCSEBlock,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SCSEInvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SDASPPInPlaceABNBlock,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 56, 112])], {}),
+     True),
+    (SEBlock,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SemanticEncodingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SemanticSupervision,
+     lambda: ([], {'in_chns': 4, 'out_chns': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VortexPooling,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4}),
+     lambda: ([torch.rand([4, 4, 56, 112])], {}),
+     True),
+]
+
 class Test_ansleliu_LightNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ASPPBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ASPPInPlaceABNBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(CatInPlaceABN(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(DenseModule(*[], **{'in_chns': 4, 'squeeze_ratio': 4, 'out_chns': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(LightHeadBlock(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(SCSEInvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilate': 4, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(SDASPPInPlaceABNBlock(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(SemanticEncodingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(SemanticSupervision(*[], **{'in_chns': 4, 'out_chns': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(VortexPooling(*[], **{'in_chs': 4, 'out_chs': 4}), [torch.rand([4, 4, 56, 112])], {})
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
 

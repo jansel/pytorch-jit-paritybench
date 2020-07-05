@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -78,20 +79,16 @@ import torchvision.utils as vutils
 
 class Content_Encoder(nn.Module):
 
-    def __init__(self, conv_dim=64, repeat_num=4, norm='in', activation='relu'
-        ):
+    def __init__(self, conv_dim=64, repeat_num=4, norm='in', activation='relu'):
         super(Content_Encoder, self).__init__()
         layers = []
-        layers += [ConvBlock(3, conv_dim, 7, 1, 3, norm=norm, activation=
-            activation)]
+        layers += [ConvBlock(3, conv_dim, 7, 1, 3, norm=norm, activation=activation)]
         curr_dim = conv_dim
         for i in range(2):
-            layers += [ConvBlock(curr_dim, curr_dim * 2, 4, 2, 1, norm=norm,
-                activation=activation)]
+            layers += [ConvBlock(curr_dim, curr_dim * 2, 4, 2, 1, norm=norm, activation=activation)]
             curr_dim = curr_dim * 2
         for i in range(repeat_num):
-            layers += [ResidualBlock(dim=curr_dim, norm=norm, activation=
-                activation)]
+            layers += [ResidualBlock(dim=curr_dim, norm=norm, activation=activation)]
         self.main = nn.Sequential(*layers)
         self.curr_dim = curr_dim
 
@@ -105,16 +102,13 @@ class Style_Encoder(nn.Module):
         super(Style_Encoder, self).__init__()
         curr_dim = conv_dim
         layers = []
-        layers += [ConvBlock(3, conv_dim, 7, 1, 3, norm='none', n_group=
-            n_group, activation=activation)]
+        layers += [ConvBlock(3, conv_dim, 7, 1, 3, norm='none', n_group=n_group, activation=activation)]
         curr_dim = conv_dim
         for i in range(2):
-            layers += [ConvBlock(curr_dim, curr_dim * 2, 4, 2, 1, norm=norm,
-                n_group=n_group, activation=activation)]
+            layers += [ConvBlock(curr_dim, curr_dim * 2, 4, 2, 1, norm=norm, n_group=n_group, activation=activation)]
             curr_dim = curr_dim * 2
         for i in range(2):
-            layers += [ConvBlock(curr_dim, curr_dim, 4, 2, 1, norm=norm,
-                n_group=n_group, activation=activation)]
+            layers += [ConvBlock(curr_dim, curr_dim, 4, 2, 1, norm=norm, n_group=n_group, activation=activation)]
         layers += [nn.AdaptiveAvgPool2d(1)]
         self.main = nn.Sequential(*layers)
         self.curr_dim = curr_dim
@@ -125,18 +119,14 @@ class Style_Encoder(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, input_dim, output_dim, dim, num_block=1, norm='none',
-        n_group=32, activation='relu'):
+    def __init__(self, input_dim, output_dim, dim, num_block=1, norm='none', n_group=32, activation='relu'):
         super(MLP, self).__init__()
         layers = []
         curr_dim = dim
-        layers += [LinearBlock(input_dim, curr_dim, norm=norm, n_group=
-            n_group, activation=activation)]
+        layers += [LinearBlock(input_dim, curr_dim, norm=norm, n_group=n_group, activation=activation)]
         for _ in range(num_block):
-            layers += [LinearBlock(curr_dim, curr_dim, norm=norm, n_group=
-                n_group, activation=activation)]
-        layers += [LinearBlock(curr_dim, output_dim, norm='none',
-            activation='none')]
+            layers += [LinearBlock(curr_dim, curr_dim, norm=norm, n_group=n_group, activation=activation)]
+        layers += [LinearBlock(curr_dim, output_dim, norm='none', activation='none')]
         self.main = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -156,8 +146,7 @@ class Get(object):
         X = []
         U_arr = []
         for i in range(self.G):
-            s_CT_i = self.s_CT[:, self.n_mem ** 2 * i:self.n_mem ** 2 * (i + 1)
-                ].unsqueeze(2).view(self.s_CT.size(0), self.n_mem, self.n_mem)
+            s_CT_i = self.s_CT[:, self.n_mem ** 2 * i:self.n_mem ** 2 * (i + 1)].unsqueeze(2).view(self.s_CT.size(0), self.n_mem, self.n_mem)
             D = torch.sum(s_CT_i ** 2, dim=1, keepdim=True) ** 0.5
             U_i = s_CT_i / D
             UDU_T_i = torch.bmm(s_CT_i, U_i.permute(0, 2, 1))
@@ -172,17 +161,13 @@ class Get(object):
 
 class WCT(nn.Module):
 
-    def __init__(self, n_group, device, input_dim, mlp_dim, bias_dim, mask,
-        w_alpha=0.4):
+    def __init__(self, n_group, device, input_dim, mlp_dim, bias_dim, mask, w_alpha=0.4):
         super(WCT, self).__init__()
         self.G = n_group
         self.device = device
         self.alpha = nn.Parameter(torch.ones(1) - w_alpha)
-        self.mlp_CT = MLP(input_dim // n_group, (input_dim // n_group) ** 2,
-            dim=mlp_dim, num_block=3, norm='none', n_group=n_group,
-            activation='lrelu')
-        self.mlp_mu = MLP(input_dim, bias_dim, dim=input_dim, num_block=1,
-            norm='none', n_group=n_group, activation='lrelu')
+        self.mlp_CT = MLP(input_dim // n_group, (input_dim // n_group) ** 2, dim=mlp_dim, num_block=3, norm='none', n_group=n_group, activation='lrelu')
+        self.mlp_mu = MLP(input_dim, bias_dim, dim=input_dim, num_block=1, norm='none', n_group=n_group, activation='lrelu')
         self.mask = mask
 
     def forward(self, c_A, s_B):
@@ -197,41 +182,32 @@ class WCT(nn.Module):
         """
         B, C, H, W = c_A.size()
         n_mem = C // self.G
-        s_B_CT = self.mlp_CT(s_B.view(B * self.G, C // self.G, 1, 1)).view(B,
-            -1)
+        s_B_CT = self.mlp_CT(s_B.view(B * self.G, C // self.G, 1, 1)).view(B, -1)
         s_B_mu = self.mlp_mu(s_B).unsqueeze(2).unsqueeze(3)
         X_B, eigen_s = Get(s_B_CT, c_A.size(1), self.G, self.mask).coloring()
         eps = 1e-05
         c_A_ = c_A.permute(1, 0, 2, 3).contiguous().view(self.G, n_mem, -1)
         c_A_mean = torch.mean(c_A_, dim=2, keepdim=True)
         c_A_ = c_A_ - c_A_mean
-        cov_c = torch.bmm(c_A_, c_A_.permute(0, 2, 1)).div(B * H * W - 1
-            ) + eps * torch.eye(n_mem).unsqueeze(0)
-        whitend = c_A_.unsqueeze(0).contiguous().view(C, B, -1).permute(1, 0, 2
-            )
+        cov_c = torch.bmm(c_A_, c_A_.permute(0, 2, 1)).div(B * H * W - 1) + eps * torch.eye(n_mem).unsqueeze(0)
+        whitend = c_A_.unsqueeze(0).contiguous().view(C, B, -1).permute(1, 0, 2)
         colored_B = torch.bmm(X_B, whitend).unsqueeze(3).view(B, C, H, -1)
-        return self.alpha * (colored_B + s_B_mu) + (1 - self.alpha
-            ) * c_A, cov_c, eigen_s
+        return self.alpha * (colored_B + s_B_mu) + (1 - self.alpha) * c_A, cov_c, eigen_s
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, input_dim, mask, n_group, bias_dim, mlp_dim,
-        repeat_num=4, norm='ln', device=None):
+    def __init__(self, input_dim, mask, n_group, bias_dim, mlp_dim, repeat_num=4, norm='ln', device=None):
         super(Decoder, self).__init__()
         curr_dim = input_dim
-        self.resblocks = nn.ModuleList([ResidualBlock(dim=curr_dim, norm=
-            'none', n_group=n_group) for i in range(repeat_num)])
-        self.gdwct_modules = nn.ModuleList([WCT(n_group, device, input_dim,
-            mlp_dim, bias_dim, mask) for i in range(repeat_num + 1)])
+        self.resblocks = nn.ModuleList([ResidualBlock(dim=curr_dim, norm='none', n_group=n_group) for i in range(repeat_num)])
+        self.gdwct_modules = nn.ModuleList([WCT(n_group, device, input_dim, mlp_dim, bias_dim, mask) for i in range(repeat_num + 1)])
         layers = []
         for i in range(2):
             layers += [Upsample(scale_factor=2, mode='nearest')]
-            layers += [ConvBlock(curr_dim, curr_dim // 2, 5, 1, 2, norm=
-                norm, n_group=n_group)]
+            layers += [ConvBlock(curr_dim, curr_dim // 2, 5, 1, 2, norm=norm, n_group=n_group)]
             curr_dim = curr_dim // 2
-        layers += [ConvBlock(curr_dim, 3, 7, 1, 3, norm='none', activation=
-            'tanh')]
+        layers += [ConvBlock(curr_dim, 3, 7, 1, 3, norm='none', activation='tanh')]
         self.main = nn.Sequential(*layers)
 
     def forward(self, c_A, s_B):
@@ -252,15 +228,11 @@ class Decoder(nn.Module):
 class Generator(nn.Module):
     """Generator network."""
 
-    def __init__(self, conv_dim=64, repeat_num=8, mask=None, n_group=16,
-        mlp_dim=256, bias_dim=512, content_dim=256, device=None):
+    def __init__(self, conv_dim=64, repeat_num=8, mask=None, n_group=16, mlp_dim=256, bias_dim=512, content_dim=256, device=None):
         super(Generator, self).__init__()
-        self.c_encoder = Content_Encoder(conv_dim, repeat_num // 2, norm=
-            'in', activation='relu')
-        self.s_encoder = Style_Encoder(conv_dim, n_group, norm='gn',
-            activation='relu')
-        self.decoder = Decoder(content_dim, mask, n_group, bias_dim,
-            mlp_dim, repeat_num // 2, norm='ln', device=device)
+        self.c_encoder = Content_Encoder(conv_dim, repeat_num // 2, norm='in', activation='relu')
+        self.s_encoder = Style_Encoder(conv_dim, n_group, norm='gn', activation='relu')
+        self.decoder = Decoder(content_dim, mask, n_group, bias_dim, mlp_dim, repeat_num // 2, norm='ln', device=device)
 
     def forward(self, c_A, s_B_):
         return self.decoder(c_A, s_B_)
@@ -269,14 +241,11 @@ class Generator(nn.Module):
 class ResidualBlock(nn.Module):
     """Residual Block with instance normalization."""
 
-    def __init__(self, dim, norm='in', n_group=32, activation='relu',
-        use_affine=True):
+    def __init__(self, dim, norm='in', n_group=32, activation='relu', use_affine=True):
         super(ResidualBlock, self).__init__()
         layers = []
-        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group,
-            activation=activation, use_affine=use_affine)]
-        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group,
-            activation='none', use_affine=use_affine)]
+        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group, activation=activation, use_affine=use_affine)]
+        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group, activation='none', use_affine=use_affine)]
         self.main = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -285,13 +254,10 @@ class ResidualBlock(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, input_dim, output_dim, k, s, p, dilation=False, norm
-        ='in', n_group=32, activation='relu', pad_type='mirror', use_affine
-        =True, use_bias=True):
+    def __init__(self, input_dim, output_dim, k, s, p, dilation=False, norm='in', n_group=32, activation='relu', pad_type='mirror', use_affine=True, use_bias=True):
         super(ConvBlock, self).__init__()
         if norm == 'in':
-            self.norm = nn.InstanceNorm2d(output_dim, affine=use_affine,
-                track_running_stats=True)
+            self.norm = nn.InstanceNorm2d(output_dim, affine=use_affine, track_running_stats=True)
         elif norm == 'ln':
             self.norm = nn.GroupNorm(1, output_dim)
         elif norm == 'bn':
@@ -317,8 +283,7 @@ class ConvBlock(nn.Module):
         elif pad_type == 'zero':
             self.pad = nn.ZeroPad2d(p)
         if dilation:
-            self.conv = nn.Conv2d(input_dim, output_dim, k, s, dilation=p,
-                bias=use_bias)
+            self.conv = nn.Conv2d(input_dim, output_dim, k, s, dilation=p, bias=use_bias)
         else:
             self.conv = nn.Conv2d(input_dim, output_dim, k, s, bias=use_bias)
 
@@ -333,8 +298,7 @@ class ConvBlock(nn.Module):
 
 class LinearBlock(nn.Module):
 
-    def __init__(self, input_dim, output_dim, norm='ln', n_group=32,
-        activation='relu', use_affine=True):
+    def __init__(self, input_dim, output_dim, norm='ln', n_group=32, activation='relu', use_affine=True):
         super(LinearBlock, self).__init__()
         use_bias = True
         self.fc = nn.Linear(input_dim, output_dim, bias=use_bias)
@@ -368,8 +332,7 @@ class LinearBlock(nn.Module):
 
 class Upsample(nn.Module):
 
-    def __init__(self, size=None, scale_factor=None, mode='nearest',
-        align_corners=None):
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None):
         super(Upsample, self).__init__()
         self.size = size
         self.scale_factor = scale_factor
@@ -377,8 +340,7 @@ class Upsample(nn.Module):
         self.align_corners = align_corners
 
     def forward(self, input):
-        return F.interpolate(input, self.size, self.scale_factor, self.mode,
-            self.align_corners)
+        return F.interpolate(input, self.size, self.scale_factor, self.mode, self.align_corners)
 
     def extra_repr(self):
         if self.scale_factor is not None:
@@ -401,8 +363,7 @@ class Discriminator(nn.Module):
         self.num_scales = params['NUM_SCALES']
         self.pad_type = params['PAD_TYPE']
         self.input_dim = input_dim
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1],
-            count_include_pad=False)
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
         self.cnns = nn.ModuleList()
         for _ in range(self.num_scales):
             self.cnns.append(self._make_net())
@@ -410,11 +371,9 @@ class Discriminator(nn.Module):
     def _make_net(self):
         dim = self.dim
         cnn_x = []
-        cnn_x += [ConvBlock(self.input_dim, dim, 4, 2, 1, norm='none',
-            activation=self.activ, pad_type=self.pad_type)]
+        cnn_x += [ConvBlock(self.input_dim, dim, 4, 2, 1, norm='none', activation=self.activ, pad_type=self.pad_type)]
         for i in range(self.n_layer - 1):
-            cnn_x += [ConvBlock(dim, dim * 2, 4, 2, 1, norm=self.norm,
-                activation=self.activ, pad_type=self.pad_type)]
+            cnn_x += [ConvBlock(dim, dim * 2, 4, 2, 1, norm=self.norm, activation=self.activ, pad_type=self.pad_type)]
             dim *= 2
         cnn_x += [nn.Conv2d(dim, 1, 1, 1, 0)]
         cnn_x = nn.Sequential(*cnn_x)
@@ -433,15 +392,11 @@ class Discriminator(nn.Module):
         loss = 0
         for it, (out0, out1) in enumerate(zip(outs0, outs1)):
             if self.gan_type == 'lsgan':
-                loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) **
-                    2)
+                loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
             elif self.gan_type == 'nsgan':
-                all0 = Variable(torch.zeros_like(out0.data), requires_grad=
-                    False)
-                all1 = Variable(torch.ones_like(out1.data), requires_grad=False
-                    )
-                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0),
-                    all0) + F.binary_cross_entropy(F.sigmoid(out1), all1))
+                all0 = Variable(torch.zeros_like(out0.data), requires_grad=False)
+                all1 = Variable(torch.ones_like(out1.data), requires_grad=False)
+                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all0) + F.binary_cross_entropy(F.sigmoid(out1), all1))
             else:
                 assert 0, 'Unsupported GAN type: {}'.format(self.gan_type)
         return loss
@@ -453,10 +408,8 @@ class Discriminator(nn.Module):
             if self.gan_type == 'lsgan':
                 loss += torch.mean((out0 - 1) ** 2)
             elif self.gan_type == 'nsgan':
-                all1 = Variable(torch.ones_like(out0.data), requires_grad=False
-                    )
-                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0),
-                    all1))
+                all1 = Variable(torch.ones_like(out0.data), requires_grad=False)
+                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
             else:
                 assert 0, 'Unsupported GAN type: {}'.format(self.gan_type)
         return loss
@@ -466,37 +419,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Content_Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ConvBlock,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'k': 4, 's': 4, 'p': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Decoder,
+     lambda: ([], {'input_dim': 4, 'mask': 4, 'n_group': 4, 'bias_dim': 4, 'mlp_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (LinearBlock,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLP,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (ResidualBlock,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Style_Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (WCT,
+     lambda: ([], {'n_group': 4, 'device': 0, 'input_dim': 4, 'mlp_dim': 4, 'bias_dim': 4, 'mask': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_WonwoongCho_GDWCT(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Content_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ConvBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Decoder(*[], **{'input_dim': 4, 'mask': 4, 'n_group': 4, 'bias_dim': 4, 'mlp_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MLP(*[], **{'input_dim': 4, 'output_dim': 4, 'dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ResidualBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(Style_Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(WCT(*[], **{'n_group': 4, 'device': 0, 'input_dim': 4, 'mlp_dim': 4, 'bias_dim': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 

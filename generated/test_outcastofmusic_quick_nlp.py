@@ -65,8 +65,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,8 +144,7 @@ HParam = Union[List[int], int]
 Array = Union[np.ndarray, torch.Tensor, int, float]
 
 
-def assert_dims(value: Sequence[Array], dims: List[Optional[int]]) ->Sequence[
-    Array]:
+def assert_dims(value: Sequence[Array], dims: List[Optional[int]]) ->Sequence[Array]:
     """Given a nested sequence, with possibly torch or nympy tensors inside, assert it agrees with the
         dims provided
 
@@ -183,8 +183,7 @@ def get_kwarg(kwargs, name, default_value=None, remove=True):
 
 def get_list(value: Union[List[Any], Any], multiplier: int=1) ->List[Any]:
     if isinstance(value, list):
-        assert len(value
-            ) == multiplier, f'{value} is not the correct size {multiplier}'
+        assert len(value) == multiplier, f'{value} is not the correct size {multiplier}'
     else:
         value = [value] * multiplier
     return value
@@ -198,10 +197,7 @@ class HRED(nn.Module):
     """
     BPTT_MAX_UTTERANCES = 1000
 
-    def __init__(self, ntoken: int, emb_sz: HParam, nhid: HParam, nlayers:
-        HParam, pad_token: int, eos_token: int, max_tokens: int=50,
-        share_embedding_layer: bool=False, tie_decoder: bool=True, bidir:
-        bool=False, session_constraint: bool=False, cell_type='gru', **kwargs):
+    def __init__(self, ntoken: int, emb_sz: HParam, nhid: HParam, nlayers: HParam, pad_token: int, eos_token: int, max_tokens: int=50, share_embedding_layer: bool=False, tie_decoder: bool=True, bidir: bool=False, session_constraint: bool=False, cell_type='gru', **kwargs):
         """
 
         Args:
@@ -219,8 +215,7 @@ class HRED(nn.Module):
             **kwargs: Extra embeddings that will be passed to the encoder and the decoder
         """
         super().__init__()
-        ntoken, emb_sz, nhid, nlayers = get_list(ntoken), get_list(emb_sz, 2
-            ), get_list(nhid, 3), get_list(nlayers, 3)
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken), get_list(emb_sz, 2), get_list(nhid, 3), get_list(nlayers, 3)
         dropoutd = get_kwarg(kwargs, name='dropout_d', default_value=0.5)
         dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
         dropoute = get_list(dropoute, 2)
@@ -238,46 +233,29 @@ class HRED(nn.Module):
         self.pr_force = 1.0
         self.share_embedding_layer = share_embedding_layer
         self.tie_decoder = tie_decoder
-        self.encoder = HREDEncoder(ntoken=ntoken[0], emb_sz=emb_sz[0], nhid
-            =nhid[:2], nlayers=nlayers[0], bidir=bidir, cell_type=cell_type,
-            dropout_e=dropoute[:2], dropout_i=dropouti[:2], wdrop=wdrop[:2],
-            train_init=train_init, dropoutinit=dropoutinit[:2])
+        self.encoder = HREDEncoder(ntoken=ntoken[0], emb_sz=emb_sz[0], nhid=nhid[:2], nlayers=nlayers[0], bidir=bidir, cell_type=cell_type, dropout_e=dropoute[:2], dropout_i=dropouti[:2], wdrop=wdrop[:2], train_init=train_init, dropoutinit=dropoutinit[:2])
         if share_embedding_layer:
             decoder_embedding_layer = self.encoder.embedding_layer
         else:
-            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
-                emb_size=emb_sz[1], dropoute=dropoute[1], dropouti=dropouti[1])
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0], emb_size=emb_sz[1], dropoute=dropoute[1], dropouti=dropouti[1])
         input_size_decoder = kwargs.get('input_size_decoder', emb_sz[1])
-        input_size_decoder = (input_size_decoder + self.encoder.output_size if
-            session_constraint else input_size_decoder)
-        decoder_rnn = RNNLayers(input_size=input_size_decoder, output_size=
-            kwargs.get('output_size_decoder', emb_sz[1]), nhid=nhid[2],
-            bidir=False, dropouth=dropouth[2], wdrop=wdrop[2], nlayers=
-            nlayers[2], cell_type=self.cell_type, train_init=train_init,
-            dropoutinit=dropoutinit[2])
+        input_size_decoder = input_size_decoder + self.encoder.output_size if session_constraint else input_size_decoder
+        decoder_rnn = RNNLayers(input_size=input_size_decoder, output_size=kwargs.get('output_size_decoder', emb_sz[1]), nhid=nhid[2], bidir=False, dropouth=dropouth[2], wdrop=wdrop[2], nlayers=nlayers[2], cell_type=self.cell_type, train_init=train_init, dropoutinit=dropoutinit[2])
         self.session_constraint = session_constraint
         input_size = decoder_rnn.output_size
         nhid = emb_sz[1] if input_size != emb_sz[1] else None
-        projection_layer = Projection(output_size=ntoken[0], input_size=
-            input_size, nhid=nhid, dropout=dropoutd, tie_encoder=
-            decoder_embedding_layer if tie_decoder else None)
-        self.decoder = Decoder(decoder_layer=decoder_rnn, projection_layer=
-            projection_layer, embedding_layer=decoder_embedding_layer,
-            pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
-        self.decoder_state_linear = nn.Linear(in_features=self.encoder.
-            output_size, out_features=self.decoder.layers[0].output_size)
+        projection_layer = Projection(output_size=ntoken[0], input_size=input_size, nhid=nhid, dropout=dropoutd, tie_encoder=decoder_embedding_layer if tie_decoder else None)
+        self.decoder = Decoder(decoder_layer=decoder_rnn, projection_layer=projection_layer, embedding_layer=decoder_embedding_layer, pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
+        self.decoder_state_linear = nn.Linear(in_features=self.encoder.output_size, out_features=self.decoder.layers[0].output_size)
 
     def forward(self, *inputs, num_beams=0):
         with torch.set_grad_enabled(self.training):
-            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None,
-                None])
+            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None, None])
             num_utterances, max_sl, bs = encoder_inputs.size()
             self.reset_encoders(bs)
             outputs, last_output = self.encoder(encoder_inputs)
-            state, constraints = self.encoder_hidden_state_projection(
-                last_output)
-            outputs_dec, predictions = self.decoding(decoder_inputs,
-                num_beams, state, constraints=constraints)
+            state, constraints = self.encoder_hidden_state_projection(last_output)
+            outputs_dec, predictions = self.decoding(decoder_inputs, num_beams, state, constraints=constraints)
         return predictions, [*outputs, *outputs_dec]
 
     def encoder_hidden_state_projection(self, last_output):
@@ -286,8 +264,7 @@ class HRED(nn.Module):
             state[0] = self.decoder_state_linear(last_output)
             constraints = last_output if self.session_constraint else None
         else:
-            state[0] = self.decoder_state_linear(last_output[0]
-                ), self.decoder_state_linear(last_output[1])
+            state[0] = self.decoder_state_linear(last_output[0]), self.decoder_state_linear(last_output[1])
             constraints = last_output[0] if self.session_constraint else None
         return state, constraints
 
@@ -301,10 +278,8 @@ class HRED(nn.Module):
             nb = 1 if self.pr_force < 1 else 0
         else:
             nb = num_beams
-        outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=
-            nb, constraints=constraints)
-        predictions = outputs_dec[:decoder_inputs.size(0)
-            ] if num_beams == 0 else self.decoder.beam_outputs
+        outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=nb, constraints=constraints)
+        predictions = outputs_dec[:decoder_inputs.size(0)] if num_beams == 0 else self.decoder.beam_outputs
         return outputs_dec, predictions
 
 
@@ -316,10 +291,7 @@ class HREDAttention(nn.Module):
     """
     BPTT_MAX_UTTERANCES = 1000
 
-    def __init__(self, ntoken: int, emb_sz: HParam, nhid: HParam, nlayers:
-        HParam, att_nhid: int, pad_token: int, eos_token: int, max_tokens:
-        int=50, share_embedding_layer: bool=False, tie_decoder: bool=True,
-        bidir: bool=False, **kwargs):
+    def __init__(self, ntoken: int, emb_sz: HParam, nhid: HParam, nlayers: HParam, att_nhid: int, pad_token: int, eos_token: int, max_tokens: int=50, share_embedding_layer: bool=False, tie_decoder: bool=True, bidir: bool=False, **kwargs):
         """
 
         Args:
@@ -337,8 +309,7 @@ class HREDAttention(nn.Module):
             **kwargs: Extra embeddings that will be passed to the encoder and the decoder
         """
         super().__init__()
-        ntoken, emb_sz, nhid, nlayers = get_list(ntoken), get_list(emb_sz, 2
-            ), get_list(nhid, 3), get_list(nlayers, 3)
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken), get_list(emb_sz, 2), get_list(nhid, 3), get_list(nlayers, 3)
         dropoutd = get_kwarg(kwargs, name='dropoutd', default_value=0.5)
         dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
         dropoute = get_list(dropoute, 2)
@@ -352,36 +323,17 @@ class HREDAttention(nn.Module):
         self.nt = ntoken[-1]
         self.pr_force = 1.0
         self.nlayers = nlayers
-        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
-            emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
-        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.
-            get('output_size_encoder', emb_sz[0]), nhid=nhid[0], bidir=
-            bidir, dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0],
-            cell_type=self.cell_type)
-        self.query_encoder = Encoder(embedding_layer=
-            encoder_embedding_layer, encoder_layer=encoder_rnn)
-        self.session_encoder = RNNLayers(input_size=encoder_rnn.output_size,
-            nhid=nhid[1], output_size=kwargs.get('output_size', emb_sz[0]),
-            nlayers=1, bidir=False, cell_type=self.cell_type, wdrop=wdrop[1
-            ], dropouth=dropouth[1])
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0], emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
+        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.get('output_size_encoder', emb_sz[0]), nhid=nhid[0], bidir=bidir, dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0], cell_type=self.cell_type)
+        self.query_encoder = Encoder(embedding_layer=encoder_embedding_layer, encoder_layer=encoder_rnn)
+        self.session_encoder = RNNLayers(input_size=encoder_rnn.output_size, nhid=nhid[1], output_size=kwargs.get('output_size', emb_sz[0]), nlayers=1, bidir=False, cell_type=self.cell_type, wdrop=wdrop[1], dropouth=dropouth[1])
         if share_embedding_layer:
             decoder_embedding_layer = encoder_embedding_layer
         else:
-            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1],
-                emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1]
-                )
-        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[
-            -1] * 2), output_size=kwargs.get('output_size', emb_sz[-1]),
-            nhid=nhid[-1], bidir=False, dropouth=dropouth[2], wdrop=wdrop[2
-            ], nlayers=nlayers[-1], cell_type=self.cell_type)
-        projection_layer = AttentionProjection(output_size=ntoken[-1],
-            input_size=emb_sz[-1], dropout=dropoutd, att_nhid=att_nhid,
-            att_type='SDP', tie_encoder=decoder_embedding_layer if
-            tie_decoder else None)
-        self.decoder = AttentionDecoder(decoder_layer=decoder_rnn,
-            projection_layer=projection_layer, embedding_layer=
-            decoder_embedding_layer, pad_token=pad_token, eos_token=
-            eos_token, max_tokens=max_tokens)
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1], emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1])
+        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[-1] * 2), output_size=kwargs.get('output_size', emb_sz[-1]), nhid=nhid[-1], bidir=False, dropouth=dropouth[2], wdrop=wdrop[2], nlayers=nlayers[-1], cell_type=self.cell_type)
+        projection_layer = AttentionProjection(output_size=ntoken[-1], input_size=emb_sz[-1], dropout=dropoutd, att_nhid=att_nhid, att_type='SDP', tie_encoder=decoder_embedding_layer if tie_decoder else None)
+        self.decoder = AttentionDecoder(decoder_layer=decoder_rnn, projection_layer=projection_layer, embedding_layer=decoder_embedding_layer, pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
 
     def forward(self, *inputs, num_beams=0):
         encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None, None])
@@ -394,9 +346,7 @@ class HREDAttention(nn.Module):
         for index, context in enumerate(encoder_inputs):
             self.query_encoder.reset(bs)
             outputs = self.query_encoder(context)
-            out = (repackage_var(outputs[-1][-1]) if max_sl *
-                num_utterances > self.BPTT_MAX_UTTERANCES and index <= 
-                num_utterances // 2 else outputs[-1][-1])
+            out = repackage_var(outputs[-1][-1]) if max_sl * num_utterances > self.BPTT_MAX_UTTERANCES and index <= num_utterances // 2 else outputs[-1][-1]
             query_encoder_outputs.append(out)
         query_encoder_outputs = torch.stack(query_encoder_outputs, dim=0)
         session_outputs = self.session_encoder(query_encoder_outputs)
@@ -408,29 +358,23 @@ class HREDAttention(nn.Module):
             nb = num_beams
         state = self.decoder.hidden
         outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=nb)
-        predictions = outputs_dec[-1][:decoder_inputs.size(0)
-            ] if num_beams == 0 else self.decoder.beam_outputs
+        predictions = outputs_dec[-1][:decoder_inputs.size(0)] if num_beams == 0 else self.decoder.beam_outputs
         return predictions, [*outputs, *outputs_dec]
 
 
-States = Union[List[Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]],
-    torch.Tensor]
+States = Union[List[Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]], torch.Tensor]
 
 
 def concat_layer_bidir_state(states: States, bidir):
     if isinstance(states, (list, tuple)) and bidir:
-        return states[0].transpose(1, 0).contiguous().view(1, -1, 2 *
-            states[0].size(-1)), states[1].transpose(1, 0).contiguous().view(
-            1, -1, 2 * states[1].size(-1))
+        return states[0].transpose(1, 0).contiguous().view(1, -1, 2 * states[0].size(-1)), states[1].transpose(1, 0).contiguous().view(1, -1, 2 * states[1].size(-1))
     elif bidir:
-        return states.transpose(1, 0).contiguous().view(1, -1, 2 * states[0
-            ].size(-1))
+        return states.transpose(1, 0).contiguous().view(1, -1, 2 * states[0].size(-1))
     else:
         return states
 
 
-def concat_bidir_state(states: States, bidir: bool, cell_type: str, nlayers:
-    int) ->States:
+def concat_bidir_state(states: States, bidir: bool, cell_type: str, nlayers: int) ->States:
     if isinstance(states, list):
         state = []
         for index in range(len(states)):
@@ -443,10 +387,7 @@ def concat_bidir_state(states: States, bidir: bool, cell_type: str, nlayers:
 class Seq2Seq(nn.Module):
     """Basic Seq2Seq model"""
 
-    def __init__(self, ntoken: HParam, emb_sz: HParam, nhid: HParam,
-        nlayers: HParam, pad_token: int, eos_token: int, max_tokens: int=50,
-        share_embedding_layer: bool=False, tie_decoder: bool=True, bidir:
-        bool=False, **kwargs):
+    def __init__(self, ntoken: HParam, emb_sz: HParam, nhid: HParam, nlayers: HParam, pad_token: int, eos_token: int, max_tokens: int=50, share_embedding_layer: bool=False, tie_decoder: bool=True, bidir: bool=False, **kwargs):
         """
 
         Args:
@@ -463,8 +404,7 @@ class Seq2Seq(nn.Module):
             **kwargs: Extra embeddings that will be passed to the encoder and the decoder
         """
         super().__init__()
-        ntoken, emb_sz, nhid, nlayers = get_list(ntoken, 2), get_list(emb_sz, 2
-            ), get_list(nhid, 2), get_list(nlayers, 2)
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken, 2), get_list(emb_sz, 2), get_list(nhid, 2), get_list(nlayers, 2)
         dropoutd = get_kwarg(kwargs, name='dropout_d', default_value=0.5)
         dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
         dropoute = get_list(dropoute, 2)
@@ -474,66 +414,43 @@ class Seq2Seq(nn.Module):
         dropouth = get_list(dropouth, 2)
         wdrop = get_kwarg(kwargs, name='wdrop', default_value=0.5)
         wdrop = get_list(wdrop, 2)
-        self.cell_type = get_kwarg(kwargs, name='cell_type', default_value=
-            'lstm')
-        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
-            emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
+        self.cell_type = get_kwarg(kwargs, name='cell_type', default_value='lstm')
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0], emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
         self.bidir = bidir
         self.nlayers = nlayers[0]
         self.nt = ntoken[-1]
         self.pr_force = 1.0
-        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.
-            get('out_dim', emb_sz[0]), nhid=nhid[0], bidir=bidir, dropouth=
-            dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0], cell_type=self
-            .cell_type)
-        self.encoder = Encoder(embedding_layer=encoder_embedding_layer,
-            encoder_layer=encoder_rnn)
+        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.get('out_dim', emb_sz[0]), nhid=nhid[0], bidir=bidir, dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0], cell_type=self.cell_type)
+        self.encoder = Encoder(embedding_layer=encoder_embedding_layer, encoder_layer=encoder_rnn)
         if share_embedding_layer:
             decoder_embedding_layer = encoder_embedding_layer
         else:
-            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1],
-                emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1]
-                )
-        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[
-            -1]), output_size=kwargs.get('output_size', emb_sz[-1]), nhid=
-            nhid[-1], bidir=False, dropouth=dropouth[1], wdrop=wdrop[1],
-            nlayers=nlayers[-1], cell_type=self.cell_type)
-        projection_layer = Projection(output_size=ntoken[-1], input_size=
-            emb_sz[-1], dropout=dropoutd, tie_encoder=
-            decoder_embedding_layer if tie_decoder else None)
-        self.decoder = Decoder(decoder_layer=decoder_rnn, projection_layer=
-            projection_layer, embedding_layer=decoder_embedding_layer,
-            pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1], emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1])
+        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[-1]), output_size=kwargs.get('output_size', emb_sz[-1]), nhid=nhid[-1], bidir=False, dropouth=dropouth[1], wdrop=wdrop[1], nlayers=nlayers[-1], cell_type=self.cell_type)
+        projection_layer = Projection(output_size=ntoken[-1], input_size=emb_sz[-1], dropout=dropoutd, tie_encoder=decoder_embedding_layer if tie_decoder else None)
+        self.decoder = Decoder(decoder_layer=decoder_rnn, projection_layer=projection_layer, embedding_layer=decoder_embedding_layer, pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
 
     def forward(self, *inputs, num_beams=0):
         with torch.set_grad_enabled(self.training):
-            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None,
-                None])
+            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None, None])
             bs = encoder_inputs.size(1)
             self.encoder.reset(bs)
             self.decoder.reset(bs)
             outputs = self.encoder(encoder_inputs)
-            state = concat_bidir_state(self.encoder.encoder_layer.hidden,
-                cell_type=self.cell_type, nlayers=self.nlayers, bidir=self.
-                bidir)
+            state = concat_bidir_state(self.encoder.encoder_layer.hidden, cell_type=self.cell_type, nlayers=self.nlayers, bidir=self.bidir)
             if self.training:
                 self.decoder.pr_force = self.pr_force
                 nb = 1 if self.pr_force < 1 else 0
             else:
                 nb = num_beams
-            outputs_dec = self.decoder(decoder_inputs, hidden=state,
-                num_beams=nb)
-            predictions = outputs_dec[:decoder_inputs.size(0)
-                ] if num_beams == 0 else self.decoder.beam_outputs
+            outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=nb)
+            predictions = outputs_dec[:decoder_inputs.size(0)] if num_beams == 0 else self.decoder.beam_outputs
         return predictions, [*outputs, *outputs_dec]
 
 
 class Seq2SeqAttention(nn.Module):
 
-    def __init__(self, ntoken: HParam, emb_sz: HParam, nhid: HParam,
-        nlayers: HParam, att_nhid: int, pad_token: int, eos_token: int,
-        max_tokens: int=50, share_embedding_layer: bool=False, tie_decoder:
-        bool=True, bidir: bool=False, **kwargs):
+    def __init__(self, ntoken: HParam, emb_sz: HParam, nhid: HParam, nlayers: HParam, att_nhid: int, pad_token: int, eos_token: int, max_tokens: int=50, share_embedding_layer: bool=False, tie_decoder: bool=True, bidir: bool=False, **kwargs):
         """
 
         Args:
@@ -551,8 +468,7 @@ class Seq2SeqAttention(nn.Module):
             **kwargs: Extra embeddings that will be passed to the encoder and the decoder
         """
         super().__init__()
-        ntoken, emb_sz, nhid, nlayers = get_list(ntoken, 2), get_list(emb_sz, 2
-            ), get_list(nhid, 2), get_list(nlayers, 2)
+        ntoken, emb_sz, nhid, nlayers = get_list(ntoken, 2), get_list(emb_sz, 2), get_list(nhid, 2), get_list(nlayers, 2)
         dropoutd = get_kwarg(kwargs, name='dropoutd', default_value=0.5)
         dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
         dropoute = get_list(dropoute, 2)
@@ -567,31 +483,16 @@ class Seq2SeqAttention(nn.Module):
         self.nhid = nhid
         self.emb_sz = emb_sz
         self.pr_force = 1.0
-        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0],
-            emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
-        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.
-            get('output_size', emb_sz[0]), nhid=nhid[0], bidir=bidir,
-            dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0],
-            cell_type=cell_type)
-        self.encoder = Encoder(embedding_layer=encoder_embedding_layer,
-            encoder_layer=encoder_rnn)
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[0], emb_size=emb_sz[0], dropoute=dropoute[0], dropouti=dropouti[0])
+        encoder_rnn = RNNLayers(input_size=emb_sz[0], output_size=kwargs.get('output_size', emb_sz[0]), nhid=nhid[0], bidir=bidir, dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers[0], cell_type=cell_type)
+        self.encoder = Encoder(embedding_layer=encoder_embedding_layer, encoder_layer=encoder_rnn)
         if share_embedding_layer:
             decoder_embedding_layer = encoder_embedding_layer
         else:
-            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1],
-                emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1]
-                )
-        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[
-            -1] * 2), output_size=kwargs.get('output_size', emb_sz[-1]),
-            nhid=nhid[-1], bidir=False, dropouth=dropouth[1], wdrop=wdrop[1
-            ], nlayers=nlayers[-1], cell_type=cell_type)
-        projection_layer = AttentionProjection(output_size=ntoken[-1],
-            input_size=emb_sz[-1], dropout=dropoutd, att_nhid=att_nhid,
-            tie_encoder=decoder_embedding_layer if tie_decoder else None)
-        self.decoder = AttentionDecoder(decoder_layer=decoder_rnn,
-            projection_layer=projection_layer, embedding_layer=
-            decoder_embedding_layer, pad_token=pad_token, eos_token=
-            eos_token, max_tokens=max_tokens)
+            decoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken[-1], emb_size=emb_sz[-1], dropoute=dropoute[1], dropouti=dropouti[1])
+        decoder_rnn = RNNLayers(input_size=kwargs.get('input_size', emb_sz[-1] * 2), output_size=kwargs.get('output_size', emb_sz[-1]), nhid=nhid[-1], bidir=False, dropouth=dropouth[1], wdrop=wdrop[1], nlayers=nlayers[-1], cell_type=cell_type)
+        projection_layer = AttentionProjection(output_size=ntoken[-1], input_size=emb_sz[-1], dropout=dropoutd, att_nhid=att_nhid, tie_encoder=decoder_embedding_layer if tie_decoder else None)
+        self.decoder = AttentionDecoder(decoder_layer=decoder_rnn, projection_layer=projection_layer, embedding_layer=decoder_embedding_layer, pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
 
     def forward(self, *inputs, num_beams=0):
         with torch.set_grad_enabled(self.training):
@@ -601,18 +502,15 @@ class Seq2SeqAttention(nn.Module):
             self.decoder.reset(bs)
             outputs = self.encoder(encoder_inputs)
             state = self.decoder.hidden
-            assert_dims(outputs, [self.nlayers[0], None, bs, (self.nhid[0],
-                self.emb_sz[0])])
+            assert_dims(outputs, [self.nlayers[0], None, bs, (self.nhid[0], self.emb_sz[0])])
             self.decoder.projection_layer.reset(keys=outputs[-1])
             if self.training:
                 self.decoder.pr_force = self.pr_force
                 nb = 1 if self.pr_force < 1 else 0
             else:
                 nb = num_beams
-            outputs_dec = self.decoder(decoder_inputs, hidden=state,
-                num_beams=nb)
-            predictions = outputs_dec[:decoder_inputs.size(0)
-                ] if num_beams == 0 else self.decoder.beam_outputs
+            outputs_dec = self.decoder(decoder_inputs, hidden=state, num_beams=nb)
+            predictions = outputs_dec[:decoder_inputs.size(0)] if num_beams == 0 else self.decoder.beam_outputs
         return predictions, [*outputs, *outputs_dec]
 
 
@@ -620,8 +518,7 @@ def repeat_cell_state(hidden, num_beams):
     results = []
     for row in hidden:
         if isinstance(row, (list, tuple)):
-            state = row[0].repeat(1, num_beams, 1), row[1].repeat(1,
-                num_beams, 1)
+            state = row[0].repeat(1, num_beams, 1), row[1].repeat(1, num_beams, 1)
         else:
             state = row.repeat(1, num_beams, 1)
         results.append(state)
@@ -629,8 +526,7 @@ def repeat_cell_state(hidden, num_beams):
 
 
 def reshape_parent_indices(indices, bs, num_beams):
-    parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).
-        repeat(1, num_beams).view(-1).long())
+    parent_indices = V((torch.arange(end=bs) * num_beams).unsqueeze_(1).repeat(1, num_beams).view(-1).long())
     return indices + parent_indices
 
 
@@ -640,35 +536,23 @@ class Transformer(nn.Module):
 
     """
 
-    def __init__(self, ntoken, emb_size=512, nlayers=6, pad_token=None,
-        eos_token=None, max_tokens=200, share_embedding_layer=False,
-        tie_decoder=True, **kwargs):
+    def __init__(self, ntoken, emb_size=512, nlayers=6, pad_token=None, eos_token=None, max_tokens=200, share_embedding_layer=False, tie_decoder=True, **kwargs):
         super().__init__()
         ntoken = get_list(ntoken, 2)
         self.nlayers = nlayers
         dropout = get_kwarg(kwargs, name='dropout', default_value=0.1)
         num_heads = get_kwarg(kwargs, name='num_heads', default_value=8)
         nhid = get_kwarg(kwargs, name='nhid', default_value=2048)
-        encoder_embedding_layer = TransformerEmbeddings(ntokens=ntoken[0],
-            emb_size=emb_size, dropout=dropout, pad_token=pad_token)
-        encoder_layer = TransformerEncoderLayers(num_layers=nlayers,
-            input_size=emb_size, num_heads=num_heads, nhid=nhid)
-        self.encoder = Encoder(embedding_layer=encoder_embedding_layer,
-            encoder_layer=encoder_layer)
+        encoder_embedding_layer = TransformerEmbeddings(ntokens=ntoken[0], emb_size=emb_size, dropout=dropout, pad_token=pad_token)
+        encoder_layer = TransformerEncoderLayers(num_layers=nlayers, input_size=emb_size, num_heads=num_heads, nhid=nhid)
+        self.encoder = Encoder(embedding_layer=encoder_embedding_layer, encoder_layer=encoder_layer)
         if share_embedding_layer:
             decoder_embedding_layer = encoder_embedding_layer
         else:
-            decoder_embedding_layer = TransformerEmbeddings(ntokens=ntoken[
-                -1], emb_size=emb_size, dropout=dropout, pad_token=pad_token)
-        decoder_layer = TransformerDecoderLayers(nlayers=nlayers,
-            input_size=emb_size, num_heads=num_heads, nhid=nhid)
-        projection_layer = Projection(output_size=ntoken[-1], input_size=
-            emb_size, dropout=dropout, tie_encoder=decoder_embedding_layer if
-            tie_decoder else None)
-        self.decoder = TransformerDecoder(decoder_layer=decoder_layer,
-            projection_layer=projection_layer, embedding_layer=
-            decoder_embedding_layer, pad_token=pad_token, eos_token=
-            eos_token, max_tokens=max_tokens)
+            decoder_embedding_layer = TransformerEmbeddings(ntokens=ntoken[-1], emb_size=emb_size, dropout=dropout, pad_token=pad_token)
+        decoder_layer = TransformerDecoderLayers(nlayers=nlayers, input_size=emb_size, num_heads=num_heads, nhid=nhid)
+        projection_layer = Projection(output_size=ntoken[-1], input_size=emb_size, dropout=dropout, tie_encoder=decoder_embedding_layer if tie_decoder else None)
+        self.decoder = TransformerDecoder(decoder_layer=decoder_layer, projection_layer=projection_layer, embedding_layer=decoder_embedding_layer, pad_token=pad_token, eos_token=eos_token, max_tokens=max_tokens)
         self.nt = ntoken[-1]
         for p in self.parameters():
             if p.dim() > 1:
@@ -676,13 +560,10 @@ class Transformer(nn.Module):
 
     def forward(self, *inputs, num_beams=0):
         with torch.set_grad_enabled(self.training):
-            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None,
-                None])
+            encoder_inputs, decoder_inputs = assert_dims(inputs, [2, None, None])
             encoder_outputs = self.encoder(encoder_inputs)
-            decoder_outputs = self.decoder(decoder_inputs, encoder_outputs,
-                num_beams=num_beams)
-            predictions = decoder_outputs[:decoder_inputs.size(0)
-                ] if num_beams == 0 else self.decoder.beam_outputs
+            decoder_outputs = self.decoder(decoder_inputs, encoder_outputs, num_beams=num_beams)
+            predictions = decoder_outputs[:decoder_inputs.size(0)] if num_beams == 0 else self.decoder.beam_outputs
         return predictions, decoder_outputs
 
 
@@ -699,13 +580,11 @@ class MLPAttention(nn.Module):
         """
         super().__init__()
         self.dropout = LockedDropout(p) if p > 0.0 else None
-        self.linear1 = nn.Linear(in_features=n_in, out_features=nhid, bias=
-            False)
+        self.linear1 = nn.Linear(in_features=n_in, out_features=nhid, bias=False)
         self.linear2 = nn.Linear(in_features=nhid, out_features=1, bias=False)
 
     def forward(self, query, keys, values):
-        inputs = tr.cat([query.unsqueeze(0).repeat(keys.size(0), 1, 1),
-            keys], dim=-1)
+        inputs = tr.cat([query.unsqueeze(0).repeat(keys.size(0), 1, 1), keys], dim=-1)
         scores = self.linear2(F.tanh(self.linear1(inputs)))
         scores = F.softmax(scores, dim=0)
         if self.dropout is not None:
@@ -731,41 +610,32 @@ class SDPAttention(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, num_heads, nhid, keys_dim, query_dim, values_dim,
-        dropout=0.0, out_dim=None):
+    def __init__(self, num_heads, nhid, keys_dim, query_dim, values_dim, dropout=0.0, out_dim=None):
         super().__init__()
         self.dropout = nn.Dropout(dropout) if dropout > 0.0 else None
         self.num_heads = num_heads
         self.nhid = nhid
         self.linear_out_dim = self.nhid * num_heads
         self.out_dim = self.linear_out_dim if out_dim is None else out_dim
-        self.keys_linear = nn.Linear(in_features=keys_dim, out_features=
-            self.linear_out_dim, bias=False)
-        self.query_linear = nn.Linear(in_features=query_dim, out_features=
-            self.linear_out_dim, bias=False)
-        self.values_linear = nn.Linear(in_features=values_dim, out_features
-            =self.linear_out_dim, bias=False)
+        self.keys_linear = nn.Linear(in_features=keys_dim, out_features=self.linear_out_dim, bias=False)
+        self.query_linear = nn.Linear(in_features=query_dim, out_features=self.linear_out_dim, bias=False)
+        self.values_linear = nn.Linear(in_features=values_dim, out_features=self.linear_out_dim, bias=False)
         self.scale = np.sqrt(self.nhid)
-        self.linear = nn.Linear(in_features=self.linear_out_dim,
-            out_features=self.out_dim, bias=False)
+        self.linear = nn.Linear(in_features=self.linear_out_dim, out_features=self.out_dim, bias=False)
 
     def forward(self, query, keys, values, mask=None):
         sl, bs, dimK = keys.size()
         slq = query.size(0)
-        query_projection = self.query_linear(query).view(slq, bs, self.
-            num_heads, self.nhid).permute(1, 2, 0, 3)
-        keys_projection = self.keys_linear(keys).view(sl, bs, self.
-            num_heads, self.nhid).permute(1, 2, 3, 0)
-        values_projection = self.values_linear(values).view(sl, bs, self.
-            num_heads, self.nhid).permute(1, 2, 0, 3)
+        query_projection = self.query_linear(query).view(slq, bs, self.num_heads, self.nhid).permute(1, 2, 0, 3)
+        keys_projection = self.keys_linear(keys).view(sl, bs, self.num_heads, self.nhid).permute(1, 2, 3, 0)
+        values_projection = self.values_linear(values).view(sl, bs, self.num_heads, self.nhid).permute(1, 2, 0, 3)
         scores = query_projection @ keys_projection
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e+20)
         weights = F.softmax(scores, dim=-1)
         if self.dropout is not None:
             weights = self.dropout(weights)
-        attention = (weights @ values_projection).permute(2, 0, 1, 3
-            ).contiguous().view(slq, bs, self.num_heads * self.nhid)
+        attention = (weights @ values_projection).permute(2, 0, 1, 3).contiguous().view(slq, bs, self.num_heads * self.nhid)
         output = self.linear(attention)
         return assert_dims(output, [slq, bs, self.out_dim])
 
@@ -792,8 +662,7 @@ def select_hidden_by_index(hidden, indices):
     results = []
     for row in hidden:
         if isinstance(row, (list, tuple)):
-            state = torch.index_select(row[0], 1, indices), torch.index_select(
-                row[1], 1, indices)
+            state = torch.index_select(row[0], 1, indices), torch.index_select(row[1], 1, indices)
         else:
             state = torch.index_select(row, 1, indices)
         results.append(state)
@@ -803,8 +672,7 @@ def select_hidden_by_index(hidden, indices):
 class Decoder(nn.Module):
     MAX_STEPS_ALLOWED = 320
 
-    def __init__(self, decoder_layer, projection_layer, max_tokens,
-        eos_token, pad_token, embedding_layer: torch.nn.Module):
+    def __init__(self, decoder_layer, projection_layer, max_tokens, eos_token, pad_token, embedding_layer: torch.nn.Module):
         super().__init__()
         self.decoder_layer = decoder_layer
         self.nlayers = decoder_layer.nlayers
@@ -837,17 +705,14 @@ class Decoder(nn.Module):
     def _train_forward(self, inputs, hidden=None, constraints=None):
         inputs = self.embedding_layer(inputs)
         if constraints is not None:
-            inputs = torch.cat([inputs, constraints.repeat(inputs.size(0), 
-                1, 1)], dim=-1)
+            inputs = torch.cat([inputs, constraints.repeat(inputs.size(0), 1, 1)], dim=-1)
         outputs = self.decoder_layer(inputs, hidden)
-        outputs = self.projection_layer(outputs[-1]
-            ) if self.projection_layer is not None else outputs[-1]
+        outputs = self.projection_layer(outputs[-1]) if self.projection_layer is not None else outputs[-1]
         return outputs
 
     def _greedy_forward(self, inputs, hidden=None, constraints=None):
         dec_inputs = inputs
-        max_iterations = min(dec_inputs.size(0), self.MAX_STEPS_ALLOWED
-            ) if self.training else self.max_iterations
+        max_iterations = min(dec_inputs.size(0), self.MAX_STEPS_ALLOWED) if self.training else self.max_iterations
         inputs = V(inputs[:1].data)
         sl, bs = inputs.size()
         finished = to_gpu(torch.zeros(bs).byte())
@@ -855,17 +720,14 @@ class Decoder(nn.Module):
         self.beam_outputs = inputs.clone()
         final_outputs = []
         while not finished.all() and iteration < max_iterations:
-            if 0 < iteration and self.training and 0.0 < self.random(
-                ) < self.pr_force:
+            if 0 < iteration and self.training and 0.0 < self.random() < self.pr_force:
                 inputs = dec_inputs[iteration].unsqueeze(0)
-            output = self.forward(inputs, hidden=hidden, num_beams=0,
-                constraints=constraints)
+            output = self.forward(inputs, hidden=hidden, num_beams=0, constraints=constraints)
             hidden = self.decoder_layer.hidden
             final_outputs.append(output)
             inputs = assert_dims(V(output.data.max(dim=-1)[1]), [1, bs])
             iteration += 1
-            self.beam_outputs = assert_dims(torch.cat([self.beam_outputs,
-                inputs], dim=0), [iteration + 1, bs])
+            self.beam_outputs = assert_dims(torch.cat([self.beam_outputs, inputs], dim=0), [iteration + 1, bs])
             new_finished = inputs.data == self.eos_token
             finished = finished | new_finished
         self.beam_outputs = self.beam_outputs.view(-1, bs, 1)
@@ -882,27 +744,21 @@ class Decoder(nn.Module):
         self.beam_outputs = inputs.clone()
         hidden = repeat_cell_state(hidden, num_beams)
         while not finished.all() and iteration < self.max_iterations:
-            output = self.forward(inputs, hidden=hidden, num_beams=0,
-                constraints=constraints)
+            output = self.forward(inputs, hidden=hidden, num_beams=0, constraints=constraints)
             hidden = self.decoder_layer.hidden
             final_outputs.append(output)
             new_logprobs = F.log_softmax(output, dim=-1)
             num_tokens = new_logprobs.size(2)
-            new_logprobs = new_logprobs.view(1, bs, num_beams, num_tokens
-                ) + logprobs.unsqueeze(-1)
-            new_logprobs = self.mask_logprobs(bs, finished, iteration,
-                logprobs, new_logprobs, num_beams, num_tokens)
+            new_logprobs = new_logprobs.view(1, bs, num_beams, num_tokens) + logprobs.unsqueeze(-1)
+            new_logprobs = self.mask_logprobs(bs, finished, iteration, logprobs, new_logprobs, num_beams, num_tokens)
             logprobs, beams = torch.topk(new_logprobs, k=num_beams, dim=-1)
             parents = beams / num_tokens
             inputs = beams % num_tokens
-            parent_indices = reshape_parent_indices(parents.view(-1), bs=bs,
-                num_beams=num_beams)
-            self.decoder_layer.hidden = select_hidden_by_index(self.
-                decoder_layer.hidden, indices=parent_indices)
+            parent_indices = reshape_parent_indices(parents.view(-1), bs=bs, num_beams=num_beams)
+            self.decoder_layer.hidden = select_hidden_by_index(self.decoder_layer.hidden, indices=parent_indices)
             finished = torch.index_select(finished, 0, parent_indices.data)
             inputs = inputs.view(1, -1).contiguous()
-            self.beam_outputs = torch.index_select(self.beam_outputs, dim=1,
-                index=parent_indices)
+            self.beam_outputs = torch.index_select(self.beam_outputs, dim=1, index=parent_indices)
             self.beam_outputs = torch.cat([self.beam_outputs, inputs], dim=0)
             new_finished = (inputs.data == self.eos_token).view(-1)
             finished = finished | new_finished
@@ -911,13 +767,11 @@ class Decoder(nn.Module):
         outputs = torch.cat(final_outputs, dim=0)
         return outputs
 
-    def mask_logprobs(self, bs, finished, iteration, logprobs, new_logprobs,
-        num_beams, num_tokens):
+    def mask_logprobs(self, bs, finished, iteration, logprobs, new_logprobs, num_beams, num_tokens):
         if iteration == 0:
             new_logprobs = new_logprobs[(...), (0), :]
         else:
-            mask = torch.zeros_like(new_logprobs).fill_(-1e+32).view(1, bs *
-                num_beams, num_tokens)
+            mask = torch.zeros_like(new_logprobs).fill_(-1e+32).view(1, bs * num_beams, num_tokens)
             f = V(finished.unsqueeze(0))
             mask[..., self.pad_token] = logprobs.view(1, bs * num_beams)
             mask = mask.masked_select(f.unsqueeze(-1)).view(1, -1, num_tokens)
@@ -939,8 +793,7 @@ class Decoder(nn.Module):
 
     @property
     def output_size(self):
-        return (self.projection_layer.output_size if self.projection_layer
-             is not None else self.decoder_layer.output_size)
+        return self.projection_layer.output_size if self.projection_layer is not None else self.decoder_layer.output_size
 
 
 class Encoder(nn.Module):
@@ -977,8 +830,7 @@ class Encoder(nn.Module):
 class Cell(nn.Module):
     """GRU or LSTM cell with withdrop. Can also be bidirectional and have trainable initial state"""
 
-    def __init__(self, cell_type, input_size, output_size, dropout=0.0,
-        wdrop=0.0, dropoutinit=0.0, bidir=False, train_init=False):
+    def __init__(self, cell_type, input_size, output_size, dropout=0.0, wdrop=0.0, dropoutinit=0.0, bidir=False, train_init=False):
         super().__init__()
         self.cell_type = cell_type.lower()
         self.bidir = bidir
@@ -986,11 +838,9 @@ class Cell(nn.Module):
         self.output_size = output_size
         self.dropoutinit = dropoutinit
         if self.cell_type == 'lstm':
-            self.cell = nn.LSTM(input_size, output_size, num_layers=1,
-                bidirectional=bidir, dropout=dropout)
+            self.cell = nn.LSTM(input_size, output_size, num_layers=1, bidirectional=bidir, dropout=dropout)
         elif self.cell_type == 'gru':
-            self.cell = nn.GRU(input_size, output_size, num_layers=1,
-                bidirectional=bidir, dropout=dropout)
+            self.cell = nn.GRU(input_size, output_size, num_layers=1, bidirectional=bidir, dropout=dropout)
         else:
             raise NotImplementedError(f'cell: {cell_type} not supported')
         if wdrop:
@@ -1000,14 +850,12 @@ class Cell(nn.Module):
         self.init_cell_state = None
         if self.train_init:
             ndir = 2 if bidir else 1
-            self.init_state = Parameter(torch.Tensor(ndir, 1, self.output_size)
-                )
+            self.init_state = Parameter(torch.Tensor(ndir, 1, self.output_size))
             stdv = 1.0 / math.sqrt(self.init_state.size(1))
             self.init_state.data.uniform_(-stdv, stdv)
             if self.cell_type == 'lstm':
                 ndir = 2 if bidir else 1
-                self.init_cell_state = Parameter(torch.Tensor(ndir, 1, self
-                    .output_size))
+                self.init_cell_state = Parameter(torch.Tensor(ndir, 1, self.output_size))
                 stdv = 1.0 / math.sqrt(self.init_state.size(1))
                 self.init_cell_state.data.uniform_(-stdv, stdv)
         self.reset(bs=1)
@@ -1060,12 +908,10 @@ class Cell(nn.Module):
         if not self.train_init:
             init_state = to_gpu(torch.zeros(ndir, bs, self.output_size))
         elif cell_state:
-            init_state = F.dropout(self.init_cell_state, p=self.dropoutinit,
-                training=self.training)
+            init_state = F.dropout(self.init_cell_state, p=self.dropoutinit, training=self.training)
             init_state.repeat(1, bs, 1)
         else:
-            init_state = F.dropout(self.init_state, p=self.dropoutinit,
-                training=self.training)
+            init_state = F.dropout(self.init_state, p=self.dropoutinit, training=self.training)
             return init_state.repeat(1, bs, 1)
         return init_state
 
@@ -1073,8 +919,7 @@ class Cell(nn.Module):
         if self.cell_type == 'gru':
             return self.one_hidden(bs)
         else:
-            return self.one_hidden(bs, cell_state=False), self.one_hidden(bs,
-                cell_state=True)
+            return self.one_hidden(bs, cell_state=False), self.one_hidden(bs, cell_state=True)
 
     def reset(self, bs=1):
         self.hidden = self.hidden_state(bs=bs)
@@ -1088,8 +933,7 @@ class NormEmbeddings(nn.Module):
 
     def __init__(self, emb_size, tokens, padding_idx=None):
         super().__init__()
-        self.embedding = nn.Embedding(tokens, emb_size, padding_idx=padding_idx
-            )
+        self.embedding = nn.Embedding(tokens, emb_size, padding_idx=padding_idx)
         self.in_features = emb_size
 
     def forward(self, x):
@@ -1108,8 +952,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, input_size)
         position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, input_size, 2) * -(math.log(
-            10000.0) / input_size))
+        div_term = torch.exp(torch.arange(0, input_size, 2) * -(math.log(10000.0) / input_size))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -1123,8 +966,7 @@ class PositionalEncoding(nn.Module):
 class DropoutEmbeddings(nn.Module):
     initrange = 0.1
 
-    def __init__(self, ntokens, emb_size, dropoute=0.1, dropouti=0.65,
-        pad_token=None):
+    def __init__(self, ntokens, emb_size, dropoute=0.1, dropouti=0.65, pad_token=None):
         """ Default Constructor for the DropoutEmbeddings class
 
         Args:
@@ -1143,8 +985,7 @@ class DropoutEmbeddings(nn.Module):
         self.emb_size = emb_size
 
     def forward(self, input_tensor):
-        emb = self.encoder_with_dropout(input_tensor, dropout=self.
-            dropout_embedding if self.training else 0)
+        emb = self.encoder_with_dropout(input_tensor, dropout=self.dropout_embedding if self.training else 0)
         return self.dropout_input(emb)
 
     @property
@@ -1154,12 +995,9 @@ class DropoutEmbeddings(nn.Module):
 
 class TransformerEmbeddings(nn.Module):
 
-    def __init__(self, ntokens, emb_size, dropout, pad_token=None, max_len=5000
-        ):
+    def __init__(self, ntokens, emb_size, dropout, pad_token=None, max_len=5000):
         super(TransformerEmbeddings, self).__init__()
-        self.layers = nn.Sequential(NormEmbeddings(emb_size=emb_size,
-            tokens=ntokens, padding_idx=pad_token), PositionalEncoding(
-            input_size=emb_size, dropout=dropout, max_len=max_len))
+        self.layers = nn.Sequential(NormEmbeddings(emb_size=emb_size, tokens=ntokens, padding_idx=pad_token), PositionalEncoding(input_size=emb_size, dropout=dropout, max_len=max_len))
         self.emb_size = emb_size
 
     def forward(self, input_tensor):
@@ -1172,8 +1010,7 @@ class TransformerEmbeddings(nn.Module):
 
 class HREDEncoder(nn.Module):
 
-    def __init__(self, ntoken: int, emb_sz: int, nhid: HParam, nlayers: int,
-        bidir: bool=False, cell_type='gru', **kwargs):
+    def __init__(self, ntoken: int, emb_sz: int, nhid: HParam, nlayers: int, bidir: bool=False, cell_type='gru', **kwargs):
         super().__init__()
         nhid = get_list(nhid, 2)
         dropoute = get_kwarg(kwargs, name='dropout_e', default_value=0.1)
@@ -1190,19 +1027,10 @@ class HREDEncoder(nn.Module):
         self.cell_type = cell_type
         self.nt = ntoken
         self.bidir = bidir
-        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken,
-            emb_size=emb_sz, dropoute=dropoute[0], dropouti=dropouti[0])
-        encoder_rnn = RNNLayers(input_size=emb_sz, output_size=kwargs.get(
-            'output_size_encoder', emb_sz), nhid=nhid[0], bidir=bidir,
-            dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers,
-            cell_type=self.cell_type, train_init=train_init, dropoutinit=
-            dropoutinit[0])
-        self.query_encoder = Encoder(embedding_layer=
-            encoder_embedding_layer, encoder_layer=encoder_rnn)
-        self.se_enc = RNNLayers(cell_type=self.cell_type, input_size=
-            encoder_rnn.output_size, output_size=nhid[1], nhid=nhid[1],
-            nlayers=1, dropouth=dropouth[1], wdrop=wdrop[1], train_init=
-            train_init, dropoutinit=dropoutinit[1])
+        encoder_embedding_layer = DropoutEmbeddings(ntokens=ntoken, emb_size=emb_sz, dropoute=dropoute[0], dropouti=dropouti[0])
+        encoder_rnn = RNNLayers(input_size=emb_sz, output_size=kwargs.get('output_size_encoder', emb_sz), nhid=nhid[0], bidir=bidir, dropouth=dropouth[0], wdrop=wdrop[0], nlayers=nlayers, cell_type=self.cell_type, train_init=train_init, dropoutinit=dropoutinit[0])
+        self.query_encoder = Encoder(embedding_layer=encoder_embedding_layer, encoder_layer=encoder_rnn)
+        self.se_enc = RNNLayers(cell_type=self.cell_type, input_size=encoder_rnn.output_size, output_size=nhid[1], nhid=nhid[1], nlayers=1, dropouth=dropouth[1], wdrop=wdrop[1], train_init=train_init, dropoutinit=dropoutinit[1])
 
     def forward(self, inputs):
         query_encoder_outputs = self.query_level_encoding(inputs)
@@ -1220,9 +1048,7 @@ class HREDEncoder(nn.Module):
             self.query_encoder.reset(bs=encoder_inputs.size(2))
             state = self.query_encoder.hidden
             outputs = self.query_encoder(context, state)
-            out = concat_bidir_state(self.query_encoder.encoder_layer.
-                get_last_hidden_state(), cell_type=self.cell_type, nlayers=
-                1, bidir=self.query_encoder.encoder_layer.bidir)
+            out = concat_bidir_state(self.query_encoder.encoder_layer.get_last_hidden_state(), cell_type=self.cell_type, nlayers=1, bidir=self.query_encoder.encoder_layer.bidir)
             query_encoder_outputs.append(out)
         query_encoder_outputs = torch.cat(query_encoder_outputs, dim=0)
         return query_encoder_outputs
@@ -1247,8 +1073,7 @@ class HREDEncoder(nn.Module):
 class Projection(nn.Module):
     initrange = 0.1
 
-    def __init__(self, output_size: int, input_size: int, dropout: float,
-        nhid: int=None, tie_encoder=None):
+    def __init__(self, output_size: int, input_size: int, dropout: float, nhid: int=None, tie_encoder=None):
         super().__init__()
         layers = OrderedDict()
         self.dropout = LockedDropout(dropout)
@@ -1262,8 +1087,7 @@ class Projection(nn.Module):
             nhid = input_size
         linear2 = nn.Linear(nhid, output_size, bias=False)
         if tie_encoder:
-            assert linear2.weight.shape == tie_encoder.weight.shape, 'tied encoder {} does not match projection {}'.format(
-                tie_encoder.weight.shape, linear2.weight.shape)
+            assert linear2.weight.shape == tie_encoder.weight.shape, 'tied encoder {} does not match projection {}'.format(tie_encoder.weight.shape, linear2.weight.shape)
             linear2.weight = tie_encoder.weight
         layers['projection2'] = linear2
         self.layers = nn.Sequential(layers)
@@ -1278,29 +1102,22 @@ class Projection(nn.Module):
 
 class AttentionProjection(nn.Module):
 
-    def __init__(self, output_size, input_size, dropout, att_nhid, att_type
-        ='MLP', tie_encoder=None):
+    def __init__(self, output_size, input_size, dropout, att_nhid, att_type='MLP', tie_encoder=None):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.keys = None
         self._attention_output = None
-        self.attention = MLPAttention(n_in=input_size * 2, nhid=att_nhid
-            ) if att_type == 'MLP' else SDPAttention(n_in=input_size)
-        self.projection1 = Projection(output_size=input_size, input_size=
-            input_size * 2, dropout=dropout)
-        self.projection2 = Projection(output_size=output_size, input_size=
-            input_size, dropout=dropout, tie_encoder=tie_encoder)
+        self.attention = MLPAttention(n_in=input_size * 2, nhid=att_nhid) if att_type == 'MLP' else SDPAttention(n_in=input_size)
+        self.projection1 = Projection(output_size=input_size, input_size=input_size * 2, dropout=dropout)
+        self.projection2 = Projection(output_size=output_size, input_size=input_size, dropout=dropout, tie_encoder=tie_encoder)
 
     def forward(self, input):
         assert_dims(input, [None, self.input_size])
-        self._attention_output = self.attention(query=input, keys=self.keys,
-            values=self.keys)
-        output = torch.cat([input, self._attention_output], dim=-1).unsqueeze_(
-            0)
+        self._attention_output = self.attention(query=input, keys=self.keys, values=self.keys)
+        output = torch.cat([input, self._attention_output], dim=-1).unsqueeze_(0)
         assert_dims(output, [1, None, self.input_size * 2])
-        output = assert_dims(self.projection1(output), [1, None, self.
-            input_size])
+        output = assert_dims(self.projection1(output), [1, None, self.input_size])
         projection = self.projection2(output)
         return assert_dims(projection, [1, None, self.output_size])
 
@@ -1315,12 +1132,10 @@ class AttentionProjection(nn.Module):
         self.keys = keys
 
 
-def get_layer_dims(layer_index, total_layers, input_size, output_size, nhid,
-    bidir):
+def get_layer_dims(layer_index, total_layers, input_size, output_size, nhid, bidir):
     ndir = 2 if bidir else 1
     input_size = input_size if layer_index == 0 else nhid
-    output_size = (nhid if layer_index != total_layers - 1 else output_size
-        ) // ndir
+    output_size = (nhid if layer_index != total_layers - 1 else output_size) // ndir
     return input_size, output_size
 
 
@@ -1329,9 +1144,7 @@ class RNNLayers(nn.Module):
     Wrote this class to allow for a multilayered RNN encoder. It is based the fastai RNN_Encoder class
     """
 
-    def __init__(self, input_size, output_size, nhid, nlayers, dropouth=0.3,
-        wdrop=0.5, bidir=False, cell_type='lstm', train_init=False,
-        dropoutinit=0.1, **kwargs):
+    def __init__(self, input_size, output_size, nhid, nlayers, dropouth=0.3, wdrop=0.5, bidir=False, cell_type='lstm', train_init=False, dropoutinit=0.1, **kwargs):
         """ Default Constructor for the RNNLayers class
 
         Args:
@@ -1349,18 +1162,12 @@ class RNNLayers(nn.Module):
         super().__init__()
         layers = []
         for layer_index in range(nlayers):
-            inp_size, out_size = get_layer_dims(layer_index=layer_index,
-                total_layers=nlayers, input_size=input_size, output_size=
-                output_size, nhid=nhid, bidir=bidir)
-            layers.append(Cell(cell_type=cell_type, input_size=inp_size,
-                output_size=out_size, bidir=bidir, wdrop=wdrop, train_init=
-                train_init, dropoutinit=dropoutinit))
+            inp_size, out_size = get_layer_dims(layer_index=layer_index, total_layers=nlayers, input_size=input_size, output_size=output_size, nhid=nhid, bidir=bidir)
+            layers.append(Cell(cell_type=cell_type, input_size=inp_size, output_size=out_size, bidir=bidir, wdrop=wdrop, train_init=train_init, dropoutinit=dropoutinit))
         self.layers = nn.ModuleList(layers)
-        self.input_size, self.output_size, self.nhid, self.nlayers = (
-            input_size, output_size, nhid, nlayers)
+        self.input_size, self.output_size, self.nhid, self.nlayers = input_size, output_size, nhid, nlayers
         self.cell_type, self.bidir = cell_type, bidir
-        self.dropouths = nn.ModuleList([LockedDropout(dropouth) for l in
-            range(nlayers)])
+        self.dropouths = nn.ModuleList([LockedDropout(dropouth) for l in range(nlayers)])
         self.hidden, self.weights = None, None
         self.reset(1)
 
@@ -1379,8 +1186,7 @@ class RNNLayers(nn.Module):
         output = input_tensor
         self.hidden = self.hidden if hidden is None else hidden
         new_hidden, outputs = [], []
-        for layer_index, (rnn, drop) in enumerate(zip(self.layers, self.
-            dropouths)):
+        for layer_index, (rnn, drop) in enumerate(zip(self.layers, self.dropouths)):
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 output, new_h = rnn(output, self.hidden[layer_index])
@@ -1392,23 +1198,19 @@ class RNNLayers(nn.Module):
         return outputs
 
     def reset_hidden(self, bs):
-        self.hidden = [self.layers[l].hidden_state(bs) for l in range(self.
-            nlayers)]
+        self.hidden = [self.layers[l].hidden_state(bs) for l in range(self.nlayers)]
 
     def reset(self, bs):
         self.reset_hidden(bs)
 
     def hidden_shape(self, bs):
         if isinstance(self.layers[0].hidden_state(1), tuple):
-            return [self.layers[l].hidden_state(bs)[0].shape for l in range
-                (self.nlayers)]
+            return [self.layers[l].hidden_state(bs)[0].shape for l in range(self.nlayers)]
         else:
-            return [self.layers[l].hidden_state(bs).shape for l in range(
-                self.nlayers)]
+            return [self.layers[l].hidden_state(bs).shape for l in range(self.nlayers)]
 
     def get_last_hidden_state(self):
-        return self.hidden[-1][0] if self.cell_type == 'lstm' else self.hidden[
-            -1]
+        return self.hidden[-1][0] if self.cell_type == 'lstm' else self.hidden[-1]
 
 
 class PositionFeedForward(nn.Module):
@@ -1418,9 +1220,7 @@ class PositionFeedForward(nn.Module):
         self.input_size = input_size
         self.output_size = out_dim
         self.nhid = nhid
-        self.pff = nn.Sequential(nn.Linear(in_features=self.input_size,
-            out_features=self.nhid), nn.ReLU(), nn.Dropout(dropout), nn.
-            Linear(in_features=self.nhid, out_features=self.output_size))
+        self.pff = nn.Sequential(nn.Linear(in_features=self.input_size, out_features=self.nhid), nn.ReLU(), nn.Dropout(dropout), nn.Linear(in_features=self.nhid, out_features=self.output_size))
 
     def forward(self, inputs):
         return self.pff(inputs)
@@ -1435,8 +1235,7 @@ class SubLayer(nn.Module):
         self.dropout = nn.Dropout(dropout, inplace=True)
 
     def forward(self, input_tensor, sublayer):
-        return self.layer_norm(input_tensor.add(self.dropout(sublayer(
-            input_tensor))))
+        return self.layer_norm(input_tensor.add(self.dropout(sublayer(input_tensor))))
 
 
 class AttentionLayer(nn.Module):
@@ -1446,10 +1245,7 @@ class AttentionLayer(nn.Module):
         self.input_size = input_size
         self.nhid = input_size // num_heads
         self.num_heads = num_heads
-        self.attention = MultiHeadAttention(num_heads=num_heads, nhid=self.
-            nhid, out_dim=self.input_size, keys_dim=self.input_size,
-            values_dim=self.input_size, query_dim=self.input_size, dropout=
-            dropout)
+        self.attention = MultiHeadAttention(num_heads=num_heads, nhid=self.nhid, out_dim=self.input_size, keys_dim=self.input_size, values_dim=self.input_size, query_dim=self.input_size, dropout=dropout)
 
     def causal_mask(self, bs, sl):
         return T(np.tril(np.ones((bs, self.num_heads, sl, sl)))).float()
@@ -1457,8 +1253,7 @@ class AttentionLayer(nn.Module):
     def forward(self, input_tensor, keys_vector, values_vector, mask=False):
         sl, bs, _ = keys_vector.size()
         mask = self.causal_mask(bs=bs, sl=sl) if mask else None
-        outputs = self.attention(query=input_tensor, keys=keys_vector,
-            values=values_vector, mask=mask)
+        outputs = self.attention(query=input_tensor, keys=keys_vector, values=values_vector, mask=mask)
         return outputs
 
 
@@ -1468,17 +1263,12 @@ class TransformerLayer(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.nhid = input_size // num_heads
-        self.attention = AttentionLayer(input_size=input_size, num_heads=
-            num_heads, dropout=dropout)
-        self.linear = PositionFeedForward(input_size=input_size, out_dim=
-            input_size, nhid=nhid, dropout=dropout)
-        self.sublayers = nn.ModuleList([SubLayer(input_size=input_size,
-            dropout=dropout), SubLayer(input_size=input_size, dropout=dropout)]
-            )
+        self.attention = AttentionLayer(input_size=input_size, num_heads=num_heads, dropout=dropout)
+        self.linear = PositionFeedForward(input_size=input_size, out_dim=input_size, nhid=nhid, dropout=dropout)
+        self.sublayers = nn.ModuleList([SubLayer(input_size=input_size, dropout=dropout), SubLayer(input_size=input_size, dropout=dropout)])
 
     def forward(self, input_tensor):
-        attention_output = self.sublayers[0](input_tensor, lambda x: self.
-            attention(x, x, x))
+        attention_output = self.sublayers[0](input_tensor, lambda x: self.attention(x, x, x))
         ff_output = self.sublayers[1](attention_output, self.linear)
         return ff_output
 
@@ -1489,9 +1279,7 @@ class TransformerEncoderLayers(nn.Module):
         super().__init__()
         nhid = get_list(nhid, num_layers)
         num_heads = get_list(num_heads, num_layers)
-        self.layers = nn.ModuleList([TransformerLayer(input_size=input_size,
-            nhid=nhid[i], dropout=dropout, num_heads=num_heads[i]) for i in
-            range(num_layers)])
+        self.layers = nn.ModuleList([TransformerLayer(input_size=input_size, nhid=nhid[i], dropout=dropout, num_heads=num_heads[i]) for i in range(num_layers)])
 
     def forward(self, *input_tensors):
         output_tensors = []
@@ -1505,19 +1293,14 @@ class TransformerEncoderLayers(nn.Module):
 class TransformerLayerDecoder(TransformerLayer):
 
     def __init__(self, input_size, num_heads, nhid, dropout=0.1):
-        super().__init__(input_size=input_size, num_heads=num_heads, nhid=
-            nhid, dropout=dropout)
-        self.decoder_attention = AttentionLayer(input_size=input_size,
-            num_heads=num_heads, dropout=dropout)
+        super().__init__(input_size=input_size, num_heads=num_heads, nhid=nhid, dropout=dropout)
+        self.decoder_attention = AttentionLayer(input_size=input_size, num_heads=num_heads, dropout=dropout)
         self.sublayers.append(SubLayer(input_size=input_size, dropout=dropout))
 
     def forward(self, *inputs):
-        encoder_input, decoder_input = assert_dims(inputs, [2, None, None,
-            self.input_size])
-        att_output = self.sublayers[0](decoder_input, lambda x: self.
-            attention(x, x, x, mask=True))
-        dec_att_output = self.sublayers[1](att_output, lambda x: self.
-            decoder_attention(x, encoder_input, encoder_input))
+        encoder_input, decoder_input = assert_dims(inputs, [2, None, None, self.input_size])
+        att_output = self.sublayers[0](decoder_input, lambda x: self.attention(x, x, x, mask=True))
+        dec_att_output = self.sublayers[1](att_output, lambda x: self.decoder_attention(x, encoder_input, encoder_input))
         return self.sublayers[2](dec_att_output, self.linear)
 
 
@@ -1530,16 +1313,13 @@ class TransformerDecoderLayers(nn.Module):
         num_heads = get_list(num_heads, nlayers)
         self.hidden = None
         self.input_size = input_size
-        self.layers = nn.ModuleList([TransformerLayerDecoder(input_size=
-            input_size, nhid=nhid[i], dropout=dropout, num_heads=num_heads[
-            i]) for i in range(nlayers)])
+        self.layers = nn.ModuleList([TransformerLayerDecoder(input_size=input_size, nhid=nhid[i], dropout=dropout, num_heads=num_heads[i]) for i in range(nlayers)])
 
     def forward(self, decoder_inputs, encoder_inputs):
         output_tensors = []
         sl, bs, input_size = decoder_inputs.size()
         dec_inputs = assert_dims(decoder_inputs, [sl, bs, self.input_size])
-        encoder_inputs = assert_dims(encoder_inputs, [self.nlayers, None,
-            bs, self.input_size])
+        encoder_inputs = assert_dims(encoder_inputs, [self.nlayers, None, bs, self.input_size])
         for enc_inputs, layer in zip(encoder_inputs, self.layers):
             dec_inputs = layer(enc_inputs, dec_inputs)
             output_tensors.append(dec_inputs)
@@ -1551,30 +1331,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_outcastofmusic_quick_nlp(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(AttentionLayer(*[], **{'input_size': 4, 'num_heads': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionLayer,
+     lambda: ([], {'input_size': 4, 'num_heads': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (MultiHeadAttention,
+     lambda: ([], {'num_heads': 4, 'nhid': 4, 'keys_dim': 4, 'query_dim': 4, 'values_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (NormEmbeddings,
+     lambda: ([], {'emb_size': 4, 'tokens': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (PositionFeedForward,
+     lambda: ([], {'input_size': 4, 'out_dim': 4, 'nhid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SDPAttention,
+     lambda: ([], {'n_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SubLayer,
+     lambda: ([], {'input_size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+    (TransformerLayer,
+     lambda: ([], {'input_size': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_outcastofmusic_quick_nlp(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(MultiHeadAttention(*[], **{'num_heads': 4, 'nhid': 4, 'keys_dim': 4, 'query_dim': 4, 'values_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NormEmbeddings(*[], **{'emb_size': 4, 'tokens': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PositionFeedForward(*[], **{'input_size': 4, 'out_dim': 4, 'nhid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(SDPAttention(*[], **{'n_in': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SubLayer(*[], **{'input_size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(TransformerLayer(*[], **{'input_size': 4, 'num_heads': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,17 +97,11 @@ class LSR(nn.Module):
 
     def forward(self, x, target):
         if x.size(0) != target.size(0):
-            raise ValueError(
-                'Expected input batchsize ({}) to match target batch_size({})'
-                .format(x.size(0), target.size(0)))
+            raise ValueError('Expected input batchsize ({}) to match target batch_size({})'.format(x.size(0), target.size(0)))
         if x.dim() < 2:
-            raise ValueError(
-                'Expected input tensor to have least 2 dimensions(got {})'.
-                format(x.size(0)))
+            raise ValueError('Expected input tensor to have least 2 dimensions(got {})'.format(x.size(0)))
         if x.dim() != 2:
-            raise ValueError(
-                'Only 2 dimension tensor are implemented, (got {})'.format(
-                x.size()))
+            raise ValueError('Only 2 dimension tensor are implemented, (got {})'.format(x.size()))
         smoothed_target = self._smooth_label(target, x.size(1), self.e)
         x = self.log_softmax(x)
         loss = torch.sum(-x * smoothed_target, dim=1)
@@ -117,17 +112,14 @@ class LSR(nn.Module):
         elif self.reduction == 'mean':
             return torch.mean(loss)
         else:
-            raise ValueError(
-                'unrecognized option, expect reduction to be one of none, mean, sum'
-                )
+            raise ValueError('unrecognized option, expect reduction to be one of none, mean, sum')
 
 
 class BasicConv(nn.Module):
 
     def __init__(self, input_channels, output_channels, kernel_size, **kwargs):
         super().__init__()
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size,
-            **kwargs)
+        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size, **kwargs)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -148,9 +140,7 @@ class VGG(nn.Module):
         self.conv3 = self._make_layers(256, blocks[2])
         self.conv4 = self._make_layers(512, blocks[3])
         self.conv5 = self._make_layers(512, blocks[4])
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.
-            ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, num_class))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, num_class))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -165,8 +155,7 @@ class VGG(nn.Module):
     def _make_layers(self, output_channels, layer_num):
         layers = []
         while layer_num:
-            layers.append(BasicConv(self.input_channels, output_channels,
-                kernel_size=3, padding=1, bias=False))
+            layers.append(BasicConv(self.input_channels, output_channels, kernel_size=3, padding=1, bias=False))
             self.input_channels = output_channels
             layer_num -= 1
         layers.append(nn.MaxPool2d(2, stride=2))
@@ -177,12 +166,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_weiaicunzai_Bag_of_Tricks_for_Image_Classification_with_Convolutional_Neural_Networks(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BasicConv(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LSR,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
+class Test_weiaicunzai_Bag_of_Tricks_for_Image_Classification_with_Convolutional_Neural_Networks(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(LSR(*[], **{}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 

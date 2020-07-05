@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,8 +64,7 @@ class MultiheadAttention(nn.Module):
     See "Attention Is All You Need" for more details.
     """
 
-    def __init__(self, embed_dim, num_heads, attn_dropout=0.0, bias=True,
-        add_bias_kv=False, add_zero_attn=False):
+    def __init__(self, embed_dim, num_heads, attn_dropout=0.0, bias=True, add_bias_kv=False, add_zero_attn=False):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -130,29 +130,21 @@ class MultiheadAttention(nn.Module):
             k = torch.cat([k, self.bias_k.repeat(1, bsz, 1)])
             v = torch.cat([v, self.bias_v.repeat(1, bsz, 1)])
             if attn_mask is not None:
-                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(
-                    attn_mask.size(0), 1)], dim=1)
-        q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim
-            ).transpose(0, 1)
+                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(attn_mask.size(0), 1)], dim=1)
+        q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         if k is not None:
-            k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim
-                ).transpose(0, 1)
+            k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         if v is not None:
-            v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim
-                ).transpose(0, 1)
+            v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         src_len = k.size(1)
         if self.add_zero_attn:
             src_len += 1
-            k = torch.cat([k, k.new_zeros((k.size(0), 1) + k.size()[2:])],
-                dim=1)
-            v = torch.cat([v, v.new_zeros((v.size(0), 1) + v.size()[2:])],
-                dim=1)
+            k = torch.cat([k, k.new_zeros((k.size(0), 1) + k.size()[2:])], dim=1)
+            v = torch.cat([v, v.new_zeros((v.size(0), 1) + v.size()[2:])], dim=1)
             if attn_mask is not None:
-                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(
-                    attn_mask.size(0), 1)], dim=1)
+                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(attn_mask.size(0), 1)], dim=1)
         attn_weights = torch.bmm(q, k.transpose(1, 2))
-        assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len,
-            src_len]
+        assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
         if attn_mask is not None:
             try:
                 attn_weights += attn_mask.unsqueeze(0)
@@ -160,13 +152,10 @@ class MultiheadAttention(nn.Module):
                 None
                 None
                 assert False
-        attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(
-            attn_weights)
-        attn_weights = F.dropout(attn_weights, p=self.attn_dropout,
-            training=self.training)
+        attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(attn_weights)
+        attn_weights = F.dropout(attn_weights, p=self.attn_dropout, training=self.training)
         attn = torch.bmm(attn_weights, v)
-        assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.
-            head_dim]
+        assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
         attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
         attn = self.out_proj(attn)
         attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
@@ -208,17 +197,13 @@ def make_positions(tensor, padding_idx, left_pad):
     buf_name = f'range_buf_{device}'
     if not hasattr(make_positions, buf_name):
         setattr(make_positions, buf_name, tensor.new())
-    setattr(make_positions, buf_name, getattr(make_positions, buf_name).
-        type_as(tensor))
+    setattr(make_positions, buf_name, getattr(make_positions, buf_name).type_as(tensor))
     if getattr(make_positions, buf_name).numel() < max_pos:
-        torch.arange(padding_idx + 1, max_pos, out=getattr(make_positions,
-            buf_name))
+        torch.arange(padding_idx + 1, max_pos, out=getattr(make_positions, buf_name))
     mask = tensor.ne(padding_idx)
-    positions = getattr(make_positions, buf_name)[:tensor.size(1)].expand_as(
-        tensor)
+    positions = getattr(make_positions, buf_name)[:tensor.size(1)].expand_as(tensor)
     if left_pad:
-        positions = positions - mask.size(1) + mask.long().sum(dim=1
-            ).unsqueeze(1)
+        positions = positions - mask.size(1) + mask.long().sum(dim=1).unsqueeze(1)
     new_tensor = tensor.clone()
     return new_tensor.masked_scatter_(mask, positions[mask]).long()
 
@@ -229,8 +214,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
     is added on the left side (left_pad=True) or right side (left_pad=False).
     """
 
-    def __init__(self, embedding_dim, padding_idx=0, left_pad=0, init_size=128
-        ):
+    def __init__(self, embedding_dim, padding_idx=0, left_pad=0, init_size=128):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
@@ -247,10 +231,8 @@ class SinusoidalPositionalEmbedding(nn.Module):
         half_dim = embedding_dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1
-            ) * emb.unsqueeze(0)
-        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(
-            num_embeddings, -1)
+        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0)
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
@@ -262,14 +244,11 @@ class SinusoidalPositionalEmbedding(nn.Module):
         bsz, seq_len = input.size()
         max_pos = self.padding_idx + 1 + seq_len
         device = input.get_device()
-        if device not in self.weights or max_pos > self.weights[device].size(0
-            ):
-            self.weights[device] = SinusoidalPositionalEmbedding.get_embedding(
-                max_pos, self.embedding_dim, self.padding_idx)
+        if device not in self.weights or max_pos > self.weights[device].size(0):
+            self.weights[device] = SinusoidalPositionalEmbedding.get_embedding(max_pos, self.embedding_dim, self.padding_idx)
         self.weights[device] = self.weights[device].type_as(self._float_tensor)
         positions = make_positions(input, self.padding_idx, self.left_pad)
-        return self.weights[device].index_select(0, positions.view(-1)).view(
-            bsz, seq_len, -1).detach()
+        return self.weights[device].index_select(0, positions.view(-1)).view(bsz, seq_len, -1).detach()
 
     def max_positions(self):
         """Maximum number of supported positions."""
@@ -295,8 +274,7 @@ class TransformerEncoder(nn.Module):
         attn_mask (bool): whether to apply mask on the attention weights
     """
 
-    def __init__(self, embed_dim, num_heads, layers, attn_dropout=0.0,
-        relu_dropout=0.0, res_dropout=0.0, embed_dropout=0.0, attn_mask=False):
+    def __init__(self, embed_dim, num_heads, layers, attn_dropout=0.0, relu_dropout=0.0, res_dropout=0.0, embed_dropout=0.0, attn_mask=False):
         super().__init__()
         self.dropout = embed_dropout
         self.attn_dropout = attn_dropout
@@ -306,9 +284,7 @@ class TransformerEncoder(nn.Module):
         self.attn_mask = attn_mask
         self.layers = nn.ModuleList([])
         for layer in range(layers):
-            new_layer = TransformerEncoderLayer(embed_dim, num_heads=
-                num_heads, attn_dropout=attn_dropout, relu_dropout=
-                relu_dropout, res_dropout=res_dropout, attn_mask=attn_mask)
+            new_layer = TransformerEncoderLayer(embed_dim, num_heads=num_heads, attn_dropout=attn_dropout, relu_dropout=relu_dropout, res_dropout=res_dropout, attn_mask=attn_mask)
             self.layers.append(new_layer)
         self.register_buffer('version', torch.Tensor([2]))
         self.normalize = True
@@ -330,17 +306,14 @@ class TransformerEncoder(nn.Module):
         """
         x = self.embed_scale * x_in
         if self.embed_positions is not None:
-            x += self.embed_positions(x_in.transpose(0, 1)[:, :, (0)]
-                ).transpose(0, 1)
+            x += self.embed_positions(x_in.transpose(0, 1)[:, :, (0)]).transpose(0, 1)
         x = F.dropout(x, p=self.dropout, training=self.training)
         if x_in_k is not None and x_in_v is not None:
             x_k = self.embed_scale * x_in_k
             x_v = self.embed_scale * x_in_v
             if self.embed_positions is not None:
-                x_k += self.embed_positions(x_in_k.transpose(0, 1)[:, :, (0)]
-                    ).transpose(0, 1)
-                x_v += self.embed_positions(x_in_v.transpose(0, 1)[:, :, (0)]
-                    ).transpose(0, 1)
+                x_k += self.embed_positions(x_in_k.transpose(0, 1)[:, :, (0)]).transpose(0, 1)
+                x_v += self.embed_positions(x_in_v.transpose(0, 1)[:, :, (0)]).transpose(0, 1)
             x_k = F.dropout(x_k, p=self.dropout, training=self.training)
             x_v = F.dropout(x_v, p=self.dropout, training=self.training)
         intermediates = [x]
@@ -358,8 +331,7 @@ class TransformerEncoder(nn.Module):
         """Maximum input length supported by the encoder."""
         if self.embed_positions is None:
             return self.max_source_positions
-        return min(self.max_source_positions, self.embed_positions.
-            max_positions())
+        return min(self.max_source_positions, self.embed_positions.max_positions())
 
 
 def Linear(in_features, out_features, bias=True):
@@ -379,8 +351,7 @@ def buffered_future_mask(tensor, tensor2=None):
     dim1 = dim2 = tensor.size(0)
     if tensor2 is not None:
         dim2 = tensor2.size(0)
-    future_mask = torch.triu(fill_with_neg_inf(torch.ones(dim1, dim2)), 1 +
-        abs(dim2 - dim1))
+    future_mask = torch.triu(fill_with_neg_inf(torch.ones(dim1, dim2)), 1 + abs(dim2 - dim1))
     if tensor.is_cuda:
         future_mask = future_mask.cuda()
     return future_mask[:dim1, :dim2]
@@ -399,21 +370,18 @@ class TransformerEncoderLayer(nn.Module):
         embed_dim: Embedding dimension
     """
 
-    def __init__(self, embed_dim, num_heads=4, attn_dropout=0.1,
-        relu_dropout=0.1, res_dropout=0.1, attn_mask=False):
+    def __init__(self, embed_dim, num_heads=4, attn_dropout=0.1, relu_dropout=0.1, res_dropout=0.1, attn_mask=False):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
-        self.self_attn = MultiheadAttention(embed_dim=self.embed_dim,
-            num_heads=self.num_heads, attn_dropout=attn_dropout)
+        self.self_attn = MultiheadAttention(embed_dim=self.embed_dim, num_heads=self.num_heads, attn_dropout=attn_dropout)
         self.attn_mask = attn_mask
         self.relu_dropout = relu_dropout
         self.res_dropout = res_dropout
         self.normalize_before = True
         self.fc1 = Linear(self.embed_dim, 4 * self.embed_dim)
         self.fc2 = Linear(4 * self.embed_dim, self.embed_dim)
-        self.layer_norms = nn.ModuleList([LayerNorm(self.embed_dim) for _ in
-            range(2)])
+        self.layer_norms = nn.ModuleList([LayerNorm(self.embed_dim) for _ in range(2)])
 
     def forward(self, x, x_k=None, x_v=None):
         """
@@ -465,8 +433,7 @@ class CTCModule(nn.Module):
         :param out_seq_len: Sequence length for output modality B
         """
         super(CTCModule, self).__init__()
-        self.pred_output_position_inclu_blank = nn.LSTM(in_dim, out_seq_len +
-            1, num_layers=2, batch_first=True)
+        self.pred_output_position_inclu_blank = nn.LSTM(in_dim, out_seq_len + 1, num_layers=2, batch_first=True)
         self.out_seq_len = out_seq_len
         self.softmax = nn.Softmax(dim=2)
 
@@ -474,12 +441,9 @@ class CTCModule(nn.Module):
         """
         :input x: Input with shape [batch_size x in_seq_len x in_dim]
         """
-        pred_output_position_inclu_blank, _ = (self.
-            pred_output_position_inclu_blank(x))
-        prob_pred_output_position_inclu_blank = self.softmax(
-            pred_output_position_inclu_blank)
-        prob_pred_output_position = prob_pred_output_position_inclu_blank[:,
-            :, 1:]
+        pred_output_position_inclu_blank, _ = self.pred_output_position_inclu_blank(x)
+        prob_pred_output_position_inclu_blank = self.softmax(pred_output_position_inclu_blank)
+        prob_pred_output_position = prob_pred_output_position_inclu_blank[:, :, 1:]
         prob_pred_output_position = prob_pred_output_position.transpose(1, 2)
         pseudo_aligned_out = torch.bmm(prob_pred_output_position, x)
         return pseudo_aligned_out, pred_output_position_inclu_blank
@@ -492,8 +456,7 @@ class MULTModel(nn.Module):
         Construct a MulT model.
         """
         super(MULTModel, self).__init__()
-        self.orig_d_l, self.orig_d_a, self.orig_d_v = (hyp_params.orig_d_l,
-            hyp_params.orig_d_a, hyp_params.orig_d_v)
+        self.orig_d_l, self.orig_d_a, self.orig_d_v = hyp_params.orig_d_l, hyp_params.orig_d_a, hyp_params.orig_d_v
         self.d_l, self.d_a, self.d_v = 30, 30, 30
         self.vonly = hyp_params.vonly
         self.aonly = hyp_params.aonly
@@ -515,12 +478,9 @@ class MULTModel(nn.Module):
         else:
             combined_dim = 2 * (self.d_l + self.d_a + self.d_v)
         output_dim = hyp_params.output_dim
-        self.proj_l = nn.Conv1d(self.orig_d_l, self.d_l, kernel_size=1,
-            padding=0, bias=False)
-        self.proj_a = nn.Conv1d(self.orig_d_a, self.d_a, kernel_size=1,
-            padding=0, bias=False)
-        self.proj_v = nn.Conv1d(self.orig_d_v, self.d_v, kernel_size=1,
-            padding=0, bias=False)
+        self.proj_l = nn.Conv1d(self.orig_d_l, self.d_l, kernel_size=1, padding=0, bias=False)
+        self.proj_a = nn.Conv1d(self.orig_d_a, self.d_a, kernel_size=1, padding=0, bias=False)
+        self.proj_v = nn.Conv1d(self.orig_d_v, self.d_v, kernel_size=1, padding=0, bias=False)
         if self.lonly:
             self.trans_l_with_a = self.get_network(self_type='la')
             self.trans_l_with_v = self.get_network(self_type='lv')
@@ -552,18 +512,13 @@ class MULTModel(nn.Module):
             embed_dim, attn_dropout = 2 * self.d_v, self.attn_dropout
         else:
             raise ValueError('Unknown network type')
-        return TransformerEncoder(embed_dim=embed_dim, num_heads=self.
-            num_heads, layers=max(self.layers, layers), attn_dropout=
-            attn_dropout, relu_dropout=self.relu_dropout, res_dropout=self.
-            res_dropout, embed_dropout=self.embed_dropout, attn_mask=self.
-            attn_mask)
+        return TransformerEncoder(embed_dim=embed_dim, num_heads=self.num_heads, layers=max(self.layers, layers), attn_dropout=attn_dropout, relu_dropout=self.relu_dropout, res_dropout=self.res_dropout, embed_dropout=self.embed_dropout, attn_mask=self.attn_mask)
 
     def forward(self, x_l, x_a, x_v):
         """
         text, audio, and vision should have dimension [batch_size, seq_len, n_features]
         """
-        x_l = F.dropout(x_l.transpose(1, 2), p=self.embed_dropout, training
-            =self.training)
+        x_l = F.dropout(x_l.transpose(1, 2), p=self.embed_dropout, training=self.training)
         x_a = x_a.transpose(1, 2)
         x_v = x_v.transpose(1, 2)
         proj_x_l = x_l if self.orig_d_l == self.d_l else self.proj_l(x_l)
@@ -598,8 +553,7 @@ class MULTModel(nn.Module):
             last_h_v = last_hs = h_vs[-1]
         if self.partial_mode == 3:
             last_hs = torch.cat([last_h_l, last_h_a, last_h_v], dim=1)
-        last_hs_proj = self.proj2(F.dropout(F.relu(self.proj1(last_hs)), p=
-            self.out_dropout, training=self.training))
+        last_hs_proj = self.proj2(F.dropout(F.relu(self.proj1(last_hs)), p=self.out_dropout, training=self.training))
         last_hs_proj += last_hs
         output = self.out_layer(last_hs_proj)
         return output, last_hs
@@ -609,24 +563,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CTCModule,
+     lambda: ([], {'in_dim': 4, 'out_seq_len': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (MultiheadAttention,
+     lambda: ([], {'embed_dim': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SinusoidalPositionalEmbedding,
+     lambda: ([], {'embedding_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (TransformerEncoder,
+     lambda: ([], {'embed_dim': 4, 'num_heads': 4, 'layers': 1}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (TransformerEncoderLayer,
+     lambda: ([], {'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_yaohungt_Multimodal_Transformer(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CTCModule(*[], **{'in_dim': 4, 'out_seq_len': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MultiheadAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SinusoidalPositionalEmbedding(*[], **{'embedding_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(TransformerEncoder(*[], **{'embed_dim': 4, 'num_heads': 4, 'layers': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(TransformerEncoderLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

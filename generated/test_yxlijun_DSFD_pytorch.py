@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,8 +101,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -148,10 +148,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -169,10 +167,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -185,12 +181,10 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
-def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
-    ):
+def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -280,8 +274,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            self.match(self.threshold, truths, defaults, self.variance,
-                labels, loc_t, conf_t, idx)
+            self.match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -294,8 +287,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -305,8 +297,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum() if num_pos.data.sum() > 0 else num
@@ -317,8 +308,7 @@ class MultiBoxLoss(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=bias)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=bias)
 
 
 class BasicBlock(nn.Module):
@@ -350,8 +340,7 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
@@ -391,8 +380,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -404,9 +392,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -438,18 +424,9 @@ class FEM(nn.Module):
         super(FEM, self).__init__()
         inter_planes = in_planes // 3
         inter_planes1 = in_planes - 2 * inter_planes
-        self.branch1 = nn.Conv2d(in_planes, inter_planes, kernel_size=3,
-            stride=1, padding=3, dilation=3)
-        self.branch2 = nn.Sequential(nn.Conv2d(in_planes, inter_planes,
-            kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(
-            inplace=True), nn.Conv2d(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=3, dilation=3))
-        self.branch3 = nn.Sequential(nn.Conv2d(in_planes, inter_planes1,
-            kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(
-            inplace=True), nn.Conv2d(inter_planes1, inter_planes1,
-            kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(
-            inplace=True), nn.Conv2d(inter_planes1, inter_planes1,
-            kernel_size=3, stride=1, padding=3, dilation=3))
+        self.branch1 = nn.Conv2d(in_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3)
+        self.branch2 = nn.Sequential(nn.Conv2d(in_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3))
+        self.branch3 = nn.Sequential(nn.Conv2d(in_planes, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes1, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes1, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3))
 
     def forward(self, x):
         x1 = self.branch1(x)
@@ -472,8 +449,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -563,13 +539,10 @@ class Detect(Function):
         """
         num = loc_data.size(0)
         num_priors = prior_data.size(0)
-        conf_preds = conf_data.view(num, num_priors, self.num_classes
-            ).transpose(2, 1)
-        batch_priors = prior_data.view(-1, num_priors, 4).expand(num,
-            num_priors, 4)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
+        batch_priors = prior_data.view(-1, num_priors, 4).expand(num, num_priors, 4)
         batch_priors = batch_priors.contiguous().view(-1, 4)
-        decoded_boxes = decode(loc_data.view(-1, 4), batch_priors, self.
-            variance)
+        decoded_boxes = decode(loc_data.view(-1, 4), batch_priors, self.variance)
         decoded_boxes = decoded_boxes.view(num, num_priors, 4)
         output = torch.zeros(num, self.num_classes, self.top_k, 5)
         for i in range(num):
@@ -582,11 +555,9 @@ class Detect(Function):
                     continue
                 l_mask = c_mask.unsqueeze(1).expand_as(boxes)
                 boxes_ = boxes[l_mask].view(-1, 4)
-                ids, count = nms(boxes_, scores, self.nms_thresh, self.
-                    nms_top_k)
+                ids, count = nms(boxes_, scores, self.nms_thresh, self.nms_top_k)
                 count = count if count < self.top_k else self.top_k
-                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
-                    unsqueeze(1), boxes_[ids[:count]]), 1)
+                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes_[ids[:count]]), 1)
         return output
 
 
@@ -625,8 +596,7 @@ class PriorBox(object):
                 s_kw = self.min_sizes[k] / self.imw
                 s_kh = self.min_sizes[k] / self.imh
                 for ar in self.aspect_ratio:
-                    mean += [cx, cy, s_kw / math.sqrt(ar), s_kh * math.sqrt(ar)
-                        ]
+                    mean += [cx, cy, s_kw / math.sqrt(ar), s_kh * math.sqrt(ar)]
         output = torch.Tensor(mean).view(-1, 4)
         if self.clip:
             output.clamp_(max=1, min=0)
@@ -636,8 +606,7 @@ class PriorBox(object):
 class DSFD(nn.Module):
     """docstring for SRN"""
 
-    def __init__(self, phase, base, extras, fem_modules, head1, head2,
-        num_classes=2):
+    def __init__(self, phase, base, extras, fem_modules, head1, head2, num_classes=2):
         super(DSFD, self).__init__()
         self.resnet = base
         self.phase = phase
@@ -670,20 +639,15 @@ class DSFD(nn.Module):
         of6 = x
         conv7 = F.relu(self.fpn_topdown[0](of6), inplace=True)
         x = F.relu(self.fpn_topdown[1](conv7), inplace=True)
-        conv6 = F.relu(self._upsample_prod(x, self.fpn_latlayer[0](of5)),
-            inplace=True)
+        conv6 = F.relu(self._upsample_prod(x, self.fpn_latlayer[0](of5)), inplace=True)
         x = F.relu(self.fpn_topdown[2](conv6), inplace=True)
-        conv5 = F.relu(self._upsample_prod(x, self.fpn_latlayer[1](of4)),
-            inplace=True)
+        conv5 = F.relu(self._upsample_prod(x, self.fpn_latlayer[1](of4)), inplace=True)
         x = F.relu(self.fpn_topdown[3](conv5), inplace=True)
-        conv4 = F.relu(self._upsample_prod(x, self.fpn_latlayer[2](of3)),
-            inplace=True)
+        conv4 = F.relu(self._upsample_prod(x, self.fpn_latlayer[2](of3)), inplace=True)
         x = F.relu(self.fpn_topdown[4](conv4), inplace=True)
-        conv3 = F.relu(self._upsample_prod(x, self.fpn_latlayer[3](of2)),
-            inplace=True)
+        conv3 = F.relu(self._upsample_prod(x, self.fpn_latlayer[3](of2)), inplace=True)
         x = F.relu(self.fpn_topdown[5](conv3), inplace=True)
-        conv2 = F.relu(self._upsample_prod(x, self.fpn_latlayer[4](of1)),
-            inplace=True)
+        conv2 = F.relu(self._upsample_prod(x, self.fpn_latlayer[4](of1)), inplace=True)
         ef1 = self.fpn_fem[0](conv2)
         ef2 = self.fpn_fem[1](conv3)
         ef3 = self.fpn_fem[2](conv4)
@@ -714,23 +678,16 @@ class DSFD(nn.Module):
         priorbox = PriorBox(size, features_maps, cfg, pal=2)
         self.priors_pal2 = Variable(priorbox.forward(), volatile=True)
         if self.phase == 'test':
-            output = self.detect(loc_pal2.view(loc_pal2.size(0), -1, 4),
-                self.softmax(conf_pal2.view(conf_pal2.size(0), -1, self.
-                num_classes)), self.priors_pal2.type(type(x.data)))
+            output = self.detect(loc_pal2.view(loc_pal2.size(0), -1, 4), self.softmax(conf_pal2.view(conf_pal2.size(0), -1, self.num_classes)), self.priors_pal2.type(type(x.data)))
         else:
-            output = loc_pal1.view(loc_pal1.size(0), -1, 4), conf_pal1.view(
-                conf_pal1.size(0), -1, self.num_classes
-                ), self.priors_pal1, loc_pal2.view(loc_pal2.size(0), -1, 4
-                ), conf_pal2.view(conf_pal2.size(0), -1, self.num_classes
-                ), self.priors_pal2
+            output = loc_pal1.view(loc_pal1.size(0), -1, 4), conf_pal1.view(conf_pal1.size(0), -1, self.num_classes), self.priors_pal1, loc_pal2.view(loc_pal2.size(0), -1, 4), conf_pal2.view(conf_pal2.size(0), -1, self.num_classes), self.priors_pal2
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            mdata = torch.load(base_file, map_location=lambda storage, loc:
-                storage)
+            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
             weights = mdata['weight']
             epoch = mdata['epoch']
             self.load_state_dict(weights)
@@ -762,18 +719,9 @@ class FEM(nn.Module):
         super(FEM, self).__init__()
         inter_planes = in_planes // 3
         inter_planes1 = in_planes - 2 * inter_planes
-        self.branch1 = nn.Conv2d(in_planes, inter_planes, kernel_size=3,
-            stride=1, padding=3, dilation=3)
-        self.branch2 = nn.Sequential(nn.Conv2d(in_planes, inter_planes,
-            kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(
-            inplace=True), nn.Conv2d(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=3, dilation=3))
-        self.branch3 = nn.Sequential(nn.Conv2d(in_planes, inter_planes1,
-            kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(
-            inplace=True), nn.Conv2d(inter_planes1, inter_planes1,
-            kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(
-            inplace=True), nn.Conv2d(inter_planes1, inter_planes1,
-            kernel_size=3, stride=1, padding=3, dilation=3))
+        self.branch1 = nn.Conv2d(in_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3)
+        self.branch2 = nn.Sequential(nn.Conv2d(in_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3))
+        self.branch3 = nn.Sequential(nn.Conv2d(in_planes, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes1, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes1, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3))
 
     def forward(self, x):
         x1 = self.branch1(x)
@@ -866,20 +814,15 @@ class DSFD(nn.Module):
         pal1_sources.append(of6)
         conv7 = F.relu(self.fpn_topdown[0](of6), inplace=True)
         x = F.relu(self.fpn_topdown[1](conv7), inplace=True)
-        conv6 = F.relu(self._upsample_prod(x, self.fpn_latlayer[0](of5)),
-            inplace=True)
+        conv6 = F.relu(self._upsample_prod(x, self.fpn_latlayer[0](of5)), inplace=True)
         x = F.relu(self.fpn_topdown[2](conv6), inplace=True)
-        convfc7_2 = F.relu(self._upsample_prod(x, self.fpn_latlayer[1](of4)
-            ), inplace=True)
+        convfc7_2 = F.relu(self._upsample_prod(x, self.fpn_latlayer[1](of4)), inplace=True)
         x = F.relu(self.fpn_topdown[3](convfc7_2), inplace=True)
-        conv5 = F.relu(self._upsample_prod(x, self.fpn_latlayer[2](of3)),
-            inplace=True)
+        conv5 = F.relu(self._upsample_prod(x, self.fpn_latlayer[2](of3)), inplace=True)
         x = F.relu(self.fpn_topdown[4](conv5), inplace=True)
-        conv4 = F.relu(self._upsample_prod(x, self.fpn_latlayer[3](of2)),
-            inplace=True)
+        conv4 = F.relu(self._upsample_prod(x, self.fpn_latlayer[3](of2)), inplace=True)
         x = F.relu(self.fpn_topdown[5](conv4), inplace=True)
-        conv3 = F.relu(self._upsample_prod(x, self.fpn_latlayer[4](of1)),
-            inplace=True)
+        conv3 = F.relu(self._upsample_prod(x, self.fpn_latlayer[4](of1)), inplace=True)
         ef1 = self.fpn_fem[0](conv3)
         ef1 = self.L2Normef1(ef1)
         ef2 = self.fpn_fem[1](conv4)
@@ -910,23 +853,16 @@ class DSFD(nn.Module):
         priorbox = PriorBox(size, features_maps, cfg, pal=2)
         self.priors_pal2 = Variable(priorbox.forward(), volatile=True)
         if self.phase == 'test':
-            output = self.detect(loc_pal2.view(loc_pal2.size(0), -1, 4),
-                self.softmax(conf_pal2.view(conf_pal2.size(0), -1, self.
-                num_classes)), self.priors_pal2.type(type(x.data)))
+            output = self.detect(loc_pal2.view(loc_pal2.size(0), -1, 4), self.softmax(conf_pal2.view(conf_pal2.size(0), -1, self.num_classes)), self.priors_pal2.type(type(x.data)))
         else:
-            output = loc_pal1.view(loc_pal1.size(0), -1, 4), conf_pal1.view(
-                conf_pal1.size(0), -1, self.num_classes
-                ), self.priors_pal1, loc_pal2.view(loc_pal2.size(0), -1, 4
-                ), conf_pal2.view(conf_pal2.size(0), -1, self.num_classes
-                ), self.priors_pal2
+            output = loc_pal1.view(loc_pal1.size(0), -1, 4), conf_pal1.view(conf_pal1.size(0), -1, self.num_classes), self.priors_pal1, loc_pal2.view(loc_pal2.size(0), -1, 4), conf_pal2.view(conf_pal2.size(0), -1, self.num_classes), self.priors_pal2
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            mdata = torch.load(base_file, map_location=lambda storage, loc:
-                storage)
+            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
             weights = mdata['weight']
             epoch = mdata['epoch']
             self.load_state_dict(weights)
@@ -955,14 +891,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FEM,
+     lambda: ([], {'in_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_yxlijun_DSFD_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FEM(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

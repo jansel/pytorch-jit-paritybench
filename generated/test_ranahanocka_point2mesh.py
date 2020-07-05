@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,8 +70,7 @@ class MeshConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, k=5, bias=True):
         super(MeshConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=(1, k), bias=bias)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=(1, k), bias=bias)
         self.k = k
 
     def __call__(self, edge_f, mesh):
@@ -78,8 +78,7 @@ class MeshConv(nn.Module):
 
     def forward(self, x, mesh):
         x = x.squeeze(-1)
-        G = torch.cat([self.pad_gemm(i, x.shape[2], x.device) for i in mesh], 0
-            )
+        G = torch.cat([self.pad_gemm(i, x.shape[2], x.device) for i in mesh], 0)
         G = self.create_GeMM(x, G)
         x = self.conv(G)
         return x
@@ -87,8 +86,7 @@ class MeshConv(nn.Module):
     def flatten_gemm_inds(self, Gi):
         b, ne, nn = Gi.shape
         ne += 1
-        batch_n = torch.floor(torch.arange(b * ne, device=Gi.device).float(
-            ) / ne).view(b, ne)
+        batch_n = torch.floor(torch.arange(b * ne, device=Gi.device).float() / ne).view(b, ne)
         add_fac = batch_n * ne
         add_fac = add_fac.view(b, ne, 1)
         add_fac = add_fac.repeat(1, 1, nn)
@@ -102,8 +100,7 @@ class MeshConv(nn.Module):
         output dimensions: Batch x Channels x Edges x 5
         """
         Gishape = Gi.shape
-        padding = torch.zeros((x.shape[0], x.shape[1], 1), requires_grad=
-            True, device=x.device)
+        padding = torch.zeros((x.shape[0], x.shape[1], 1), requires_grad=True, device=x.device)
         x = torch.cat((padding, x), dim=2)
         Gi = Gi + 1
         Gi_flat = self.flatten_gemm_inds(Gi)
@@ -129,10 +126,8 @@ class MeshConv(nn.Module):
         """
         padded_gemm = torch.tensor(m.gemm_edges, device=device).float()
         padded_gemm = padded_gemm.requires_grad_()
-        padded_gemm = torch.cat((torch.arange(m.edges_count, device=device)
-            .float().unsqueeze(1), padded_gemm), dim=1)
-        padded_gemm = F.pad(padded_gemm, (0, 0, 0, xsz - m.edges_count),
-            'constant', 0)
+        padded_gemm = torch.cat((torch.arange(m.edges_count, device=device).float().unsqueeze(1), padded_gemm), dim=1)
+        padded_gemm = F.pad(padded_gemm, (0, 0, 0, xsz - m.edges_count), 'constant', 0)
         padded_gemm = padded_gemm.unsqueeze(0)
         return padded_gemm
 
@@ -173,8 +168,7 @@ class MeshUnion:
 
     def prepare_groups(self, features, mask):
         tensor_mask = torch.from_numpy(mask)
-        self.groups = torch.clamp(self.groups[(tensor_mask), :], 0, 1
-            ).transpose_(1, 0)
+        self.groups = torch.clamp(self.groups[(tensor_mask), :], 0, 1).transpose_(1, 0)
         padding_a = features.shape[1] - self.groups.shape[0]
         if padding_a > 0:
             padding_a = ConstantPad2d((0, 0, 0, padding_a), 0)
@@ -199,8 +193,7 @@ class MeshPool(nn.Module):
         self.__meshes = meshes
         for mesh_index in range(len(meshes)):
             self.__pool_main(mesh_index)
-        out_features = torch.cat(self.__updated_fe).view(len(meshes), -1,
-            self.__out_target)
+        out_features = torch.cat(self.__updated_fe).view(len(meshes), -1, self.__out_target)
         return out_features
 
     def __pool_main(self, mesh_index):
@@ -216,16 +209,13 @@ class MeshPool(nn.Module):
             if mask[edge_id]:
                 self.__pool_edge(mesh, edge_id, mask, edge_groups)
         mesh.clean(mask, edge_groups)
-        fe = edge_groups.rebuild_features(self.__fe[mesh_index], mask, self
-            .__out_target)
+        fe = edge_groups.rebuild_features(self.__fe[mesh_index], mask, self.__out_target)
         self.__updated_fe[mesh_index] = fe
 
     def __pool_edge(self, mesh, edge_id, mask, edge_groups):
         if self.has_boundaries(mesh, edge_id):
             return False
-        elif self.__clean_side(mesh, edge_id, mask, edge_groups, 0
-            ) and self.__clean_side(mesh, edge_id, mask, edge_groups, 2
-            ) and self.__is_one_ring_valid(mesh, edge_id):
+        elif self.__clean_side(mesh, edge_id, mask, edge_groups, 0) and self.__clean_side(mesh, edge_id, mask, edge_groups, 2) and self.__is_one_ring_valid(mesh, edge_id):
             self.__pool_side(mesh, edge_id, mask, edge_groups, 0)
             self.__pool_side(mesh, edge_id, mask, edge_groups, 2)
             mesh.merge_vertices(edge_id)
@@ -239,16 +229,14 @@ class MeshPool(nn.Module):
     def __clean_side(self, mesh, edge_id, mask, edge_groups, side):
         if mesh.edges_count <= self.__out_target:
             return False
-        invalid_edges = MeshPool.__get_invalids(mesh, edge_id, edge_groups,
-            side)
+        invalid_edges = MeshPool.__get_invalids(mesh, edge_id, edge_groups, side)
         while len(invalid_edges) != 0 and mesh.edges_count > self.__out_target:
             self.__remove_triplete(mesh, mask, edge_groups, invalid_edges)
             if mesh.edges_count <= self.__out_target:
                 return False
             if self.has_boundaries(mesh, edge_id):
                 return False
-            invalid_edges = self.__get_invalids(mesh, edge_id, edge_groups,
-                side)
+            invalid_edges = self.__get_invalids(mesh, edge_id, edge_groups, side)
         return True
 
     @staticmethod
@@ -268,10 +256,8 @@ class MeshPool(nn.Module):
     def __pool_side(self, mesh, edge_id, mask, edge_groups, side):
         info = MeshPool.__get_face_info(mesh, edge_id, side)
         key_a, key_b, side_a, side_b, _, other_side_b, _, other_keys_b = info
-        self.__redirect_edges(mesh, key_a, side_a - side_a % 2,
-            other_keys_b[0], mesh.sides[key_b, other_side_b])
-        self.__redirect_edges(mesh, key_a, side_a - side_a % 2 + 1,
-            other_keys_b[1], mesh.sides[key_b, other_side_b + 1])
+        self.__redirect_edges(mesh, key_a, side_a - side_a % 2, other_keys_b[0], mesh.sides[key_b, other_side_b])
+        self.__redirect_edges(mesh, key_a, side_a - side_a % 2 + 1, other_keys_b[1], mesh.sides[key_b, other_side_b + 1])
         MeshPool.__union_groups(edge_groups, key_b, key_a)
         MeshPool.__union_groups(edge_groups, edge_id, key_a)
         mask[key_b] = False
@@ -283,8 +269,7 @@ class MeshPool(nn.Module):
     @staticmethod
     def __get_invalids(mesh, edge_id, edge_groups, side):
         info = MeshPool.__get_face_info(mesh, edge_id, side)
-        (key_a, key_b, side_a, side_b, other_side_a, other_side_b,
-            other_keys_a, other_keys_b) = info
+        key_a, key_b, side_a, side_b, other_side_a, other_side_b, other_keys_a, other_keys_b = info
         shared_items = MeshPool.__get_shared_items(other_keys_a, other_keys_b)
         if len(shared_items) == 0:
             return []
@@ -293,17 +278,11 @@ class MeshPool(nn.Module):
             middle_edge = other_keys_a[shared_items[0]]
             update_key_a = other_keys_a[1 - shared_items[0]]
             update_key_b = other_keys_b[1 - shared_items[1]]
-            update_side_a = mesh.sides[key_a, other_side_a + 1 -
-                shared_items[0]]
-            update_side_b = mesh.sides[key_b, other_side_b + 1 -
-                shared_items[1]]
-            MeshPool.__redirect_edges(mesh, edge_id, side, update_key_a,
-                update_side_a)
-            MeshPool.__redirect_edges(mesh, edge_id, side + 1, update_key_b,
-                update_side_b)
-            MeshPool.__redirect_edges(mesh, update_key_a, MeshPool.
-                __get_other_side(update_side_a), update_key_b, MeshPool.
-                __get_other_side(update_side_b))
+            update_side_a = mesh.sides[key_a, other_side_a + 1 - shared_items[0]]
+            update_side_b = mesh.sides[key_b, other_side_b + 1 - shared_items[1]]
+            MeshPool.__redirect_edges(mesh, edge_id, side, update_key_a, update_side_a)
+            MeshPool.__redirect_edges(mesh, edge_id, side + 1, update_key_b, update_side_b)
+            MeshPool.__redirect_edges(mesh, update_key_a, MeshPool.__get_other_side(update_side_a), update_key_b, MeshPool.__get_other_side(update_side_b))
             MeshPool.__union_groups(edge_groups, key_a, edge_id)
             MeshPool.__union_groups(edge_groups, key_b, edge_id)
             MeshPool.__union_groups(edge_groups, key_a, update_key_a)
@@ -340,12 +319,9 @@ class MeshPool(nn.Module):
         side_b = mesh.sides[edge_id, side + 1]
         other_side_a = (side_a - side_a % 2 + 2) % 4
         other_side_b = (side_b - side_b % 2 + 2) % 4
-        other_keys_a = [mesh.gemm_edges[key_a, other_side_a], mesh.
-            gemm_edges[key_a, other_side_a + 1]]
-        other_keys_b = [mesh.gemm_edges[key_b, other_side_b], mesh.
-            gemm_edges[key_b, other_side_b + 1]]
-        return (key_a, key_b, side_a, side_b, other_side_a, other_side_b,
-            other_keys_a, other_keys_b)
+        other_keys_a = [mesh.gemm_edges[key_a, other_side_a], mesh.gemm_edges[key_a, other_side_a + 1]]
+        other_keys_b = [mesh.gemm_edges[key_b, other_side_b], mesh.gemm_edges[key_b, other_side_b + 1]]
+        return key_a, key_b, side_a, side_b, other_side_a, other_side_b, other_keys_a, other_keys_b
 
     @staticmethod
     def __remove_triplete(mesh, mask, edge_groups, invalid_edges):
@@ -397,8 +373,7 @@ class MeshUnpool(nn.Module):
         batch_size, nf, edges = features.shape
         groups = [self.pad_groups(mesh.get_groups(), edges) for mesh in meshes]
         unroll_mat = torch.cat(groups, dim=0).view(batch_size, edges, -1)
-        occurrences = [self.pad_occurrences(mesh.get_occurrences()) for
-            mesh in meshes]
+        occurrences = [self.pad_occurrences(mesh.get_occurrences()) for mesh in meshes]
         occurrences = torch.cat(occurrences, dim=0).view(batch_size, 1, -1)
         occurrences = occurrences.expand(unroll_mat.shape)
         unroll_mat = unroll_mat / occurrences
@@ -411,8 +386,7 @@ class MeshUnpool(nn.Module):
 def build_v(x, meshes):
     mesh = meshes[0]
     x = x.reshape(len(meshes), 2, 3, -1)
-    vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3],
-        dtype=x.dtype, device=x.device)
+    vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3], dtype=x.dtype, device=x.device)
     x = x[:, (mesh.vei), :, (mesh.ve_in)].transpose(0, 1)
     vs_to_sum[:, (mesh.nvsi), (mesh.nvsin), :] = x
     vs_sum = torch.sum(vs_to_sum, dim=2)
@@ -425,8 +399,7 @@ def init_weights(net, init_type, init_gain):
 
     def init_func(m):
         classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or 
-            classname.find('Linear') != -1):
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
             if init_type == 'normal':
                 init.normal_(m.weight.data, 0.0, init_gain)
             elif init_type == 'xavier':
@@ -436,9 +409,7 @@ def init_weights(net, init_type, init_gain):
             elif init_type == 'orthogonal':
                 init.orthogonal_(m.weight.data, gain=init_gain)
             else:
-                raise NotImplementedError(
-                    'initialization method [%s] is not implemented' % init_type
-                    )
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
         elif classname.find('BatchNorm2d') != -1:
             init.normal_(m.weight.data, 1.0, init_gain)
             init.constant_(m.bias.data, 0.0)
@@ -450,16 +421,12 @@ class PriorNet(nn.Module):
     network for
     """
 
-    def __init__(self, n_edges, in_ch=6, convs=[32, 64], pool=[],
-        res_blocks=0, init_verts=None, transfer_data=False, leaky=0,
-        init_weights_size=0.002):
+    def __init__(self, n_edges, in_ch=6, convs=[32, 64], pool=[], res_blocks=0, init_verts=None, transfer_data=False, leaky=0, init_weights_size=0.002):
         super(PriorNet, self).__init__()
         down_convs = [in_ch] + convs
         up_convs = convs[::-1] + [in_ch]
         pool_res = [n_edges] + pool
-        self.encoder_decoder = MeshEncoderDecoder(pools=pool_res,
-            down_convs=down_convs, up_convs=up_convs, blocks=res_blocks,
-            transfer_data=transfer_data, leaky=leaky)
+        self.encoder_decoder = MeshEncoderDecoder(pools=pool_res, down_convs=down_convs, up_convs=up_convs, blocks=res_blocks, transfer_data=transfer_data, leaky=leaky)
         self.last_conv = MeshConv(6, 6)
         init_weights(self, 'normal', init_weights_size)
         eps = 1e-08
@@ -480,16 +447,13 @@ class MeshEncoderDecoder(nn.Module):
     """Network for fully-convolutional tasks (segmentation)
     """
 
-    def __init__(self, pools, down_convs, up_convs, blocks=0, transfer_data
-        =True, leaky=0):
+    def __init__(self, pools, down_convs, up_convs, blocks=0, transfer_data=True, leaky=0):
         super(MeshEncoderDecoder, self).__init__()
         self.transfer_data = transfer_data
-        self.encoder = MeshEncoder(pools, down_convs, blocks=blocks, leaky=
-            leaky)
+        self.encoder = MeshEncoder(pools, down_convs, blocks=blocks, leaky=leaky)
         unrolls = pools[:-1].copy()
         unrolls.reverse()
-        self.decoder = MeshDecoder(unrolls, up_convs, blocks=blocks,
-            transfer_data=transfer_data, leaky=leaky)
+        self.decoder = MeshDecoder(unrolls, up_convs, blocks=blocks, transfer_data=transfer_data, leaky=leaky)
         self.bn = nn.InstanceNorm2d(up_convs[-1])
 
     def forward(self, x, meshes):
@@ -556,8 +520,7 @@ class ConvBlock(nn.Module):
 
 class UpConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, blocks=0, unroll=0,
-        residual=True, batch_norm=True, transfer_data=True, leaky=0):
+    def __init__(self, in_channels, out_channels, blocks=0, unroll=0, residual=True, batch_norm=True, transfer_data=True, leaky=0):
         super(UpConv, self).__init__()
         self.leaky = leaky
         self.residual = residual
@@ -626,8 +589,7 @@ class MeshEncoder(nn.Module):
                 pool = pools[i + 1]
             else:
                 pool = 0
-            self.convs.append(DownConv(convs[i], convs[i + 1], blocks=
-                blocks, pool=pool, leaky=leaky))
+            self.convs.append(DownConv(convs[i], convs[i + 1], blocks=blocks, pool=pool, leaky=leaky))
         self.convs = nn.ModuleList(self.convs)
         reset_params(self)
 
@@ -642,8 +604,7 @@ class MeshEncoder(nn.Module):
 
 class MeshDecoder(nn.Module):
 
-    def __init__(self, unrolls, convs, blocks=0, batch_norm=True,
-        transfer_data=True, leaky=0):
+    def __init__(self, unrolls, convs, blocks=0, batch_norm=True, transfer_data=True, leaky=0):
         super(MeshDecoder, self).__init__()
         self.up_convs = []
         for i in range(len(convs) - 2):
@@ -651,12 +612,8 @@ class MeshDecoder(nn.Module):
                 unroll = unrolls[i]
             else:
                 unroll = 0
-            self.up_convs.append(UpConv(convs[i], convs[i + 1], blocks=
-                blocks, unroll=unroll, batch_norm=batch_norm, transfer_data
-                =transfer_data, leaky=leaky))
-        self.final_conv = UpConv(convs[-2], convs[-1], blocks=blocks,
-            unroll=False, batch_norm=batch_norm, transfer_data=False, leaky
-            =leaky)
+            self.up_convs.append(UpConv(convs[i], convs[i + 1], blocks=blocks, unroll=unroll, batch_norm=batch_norm, transfer_data=transfer_data, leaky=leaky))
+        self.final_conv = UpConv(convs[-2], convs[-1], blocks=blocks, unroll=False, batch_norm=batch_norm, transfer_data=False, leaky=leaky)
         self.up_convs = nn.ModuleList(self.up_convs)
         reset_params(self)
 
@@ -673,10 +630,3 @@ class MeshDecoder(nn.Module):
     def __call__(self, x, encoder_outs=None):
         return self.forward(x, encoder_outs)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ranahanocka_point2mesh(_paritybench_base):
-    pass

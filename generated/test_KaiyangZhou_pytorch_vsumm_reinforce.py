@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,11 +61,9 @@ class DSN(nn.Module):
         super(DSN, self).__init__()
         assert cell in ['lstm', 'gru'], "cell must be either 'lstm' or 'gru'"
         if cell == 'lstm':
-            self.rnn = nn.LSTM(in_dim, hid_dim, num_layers=num_layers,
-                bidirectional=True, batch_first=True)
+            self.rnn = nn.LSTM(in_dim, hid_dim, num_layers=num_layers, bidirectional=True, batch_first=True)
         else:
-            self.rnn = nn.GRU(in_dim, hid_dim, num_layers=num_layers,
-                bidirectional=True, batch_first=True)
+            self.rnn = nn.GRU(in_dim, hid_dim, num_layers=num_layers, bidirectional=True, batch_first=True)
         self.fc = nn.Linear(hid_dim * 2, 1)
 
     def forward(self, x):
@@ -77,8 +76,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DSN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 1024])], {}),
+     True),
+]
+
 class Test_KaiyangZhou_pytorch_vsumm_reinforce(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DSN(*[], **{}), [torch.rand([4, 4, 1024])], {})
+        self._check(*TESTCASES[0])
 

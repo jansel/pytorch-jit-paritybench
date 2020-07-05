@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -40,8 +41,7 @@ import torch.nn.functional as F
 import math
 
 
-def hpss(mag_specgrams, kernel_size=31, power=2.0, hard=False, mask_only=False
-    ):
+def hpss(mag_specgrams, kernel_size=31, power=2.0, hard=False, mask_only=False):
     """
     A function that performs harmonic-percussive source separation.
     Original method is by Derry Fitzgerald
@@ -73,8 +73,7 @@ def hpss(mag_specgrams, kernel_size=31, power=2.0, hard=False, mask_only=False
             ret[3]: percussive mask (Tensor, in same size with `mag_specgrams`)
     """
 
-    def _enhance_either_hpss(mag_specgrams_padded, out, kernel_size, power,
-        which, offset):
+    def _enhance_either_hpss(mag_specgrams_padded, out, kernel_size, power, which, offset):
         """
         A helper function for HPSS
 
@@ -94,33 +93,24 @@ def hpss(mag_specgrams, kernel_size=31, power=2.0, hard=False, mask_only=False
         """
         if which == 'harm':
             for t in range(out.shape[3]):
-                out[:, :, :, (t)] = torch.median(mag_specgrams_padded[:, :,
-                    offset:-offset, t:t + kernel_size], dim=3)[0]
+                out[:, :, :, (t)] = torch.median(mag_specgrams_padded[:, :, offset:-offset, t:t + kernel_size], dim=3)[0]
         elif which == 'perc':
             for f in range(out.shape[2]):
-                out[:, :, (f), :] = torch.median(mag_specgrams_padded[:, :,
-                    f:f + kernel_size, offset:-offset], dim=2)[0]
+                out[:, :, (f), :] = torch.median(mag_specgrams_padded[:, :, f:f + kernel_size, offset:-offset], dim=2)[0]
         else:
-            raise NotImplementedError(
-                'it should be either but you passed which={}'.format(which))
+            raise NotImplementedError('it should be either but you passed which={}'.format(which))
         if power != 1.0:
             out.pow_(power)
     eps = 1e-06
     if not (isinstance(kernel_size, tuple) or isinstance(kernel_size, int)):
-        raise TypeError(
-            'kernel_size is expected to be either tuple of input, but it is: %s'
-             % type(kernel_size))
+        raise TypeError('kernel_size is expected to be either tuple of input, but it is: %s' % type(kernel_size))
     if isinstance(kernel_size, int):
         kernel_size = kernel_size, kernel_size
-    pad = kernel_size[0] // 2, kernel_size[0] // 2, kernel_size[1
-        ] // 2, kernel_size[1] // 2
-    harm, perc, ret = torch.empty_like(mag_specgrams), torch.empty_like(
-        mag_specgrams), torch.empty_like(mag_specgrams)
+    pad = kernel_size[0] // 2, kernel_size[0] // 2, kernel_size[1] // 2, kernel_size[1] // 2
+    harm, perc, ret = torch.empty_like(mag_specgrams), torch.empty_like(mag_specgrams), torch.empty_like(mag_specgrams)
     mag_specgrams_padded = F.pad(mag_specgrams, pad=pad, mode='reflect')
-    _enhance_either_hpss(mag_specgrams_padded, out=perc, kernel_size=
-        kernel_size[0], power=power, which='perc', offset=kernel_size[1] // 2)
-    _enhance_either_hpss(mag_specgrams_padded, out=harm, kernel_size=
-        kernel_size[1], power=power, which='harm', offset=kernel_size[0] // 2)
+    _enhance_either_hpss(mag_specgrams_padded, out=perc, kernel_size=kernel_size[0], power=power, which='perc', offset=kernel_size[1] // 2)
+    _enhance_either_hpss(mag_specgrams_padded, out=harm, kernel_size=kernel_size[1], power=power, which='harm', offset=kernel_size[0] // 2)
     if hard:
         mask_harm = harm > perc
         mask_perc = harm < perc
@@ -129,8 +119,7 @@ def hpss(mag_specgrams, kernel_size=31, power=2.0, hard=False, mask_only=False
         mask_perc = (perc + eps) / (harm + perc + eps)
     if mask_only:
         return None, None, mask_harm, mask_perc
-    return (mag_specgrams * mask_harm, mag_specgrams * mask_perc, mask_harm,
-        mask_perc)
+    return mag_specgrams * mask_harm, mag_specgrams * mask_perc, mask_harm, mask_perc
 
 
 class HPSS(nn.Module):
@@ -148,13 +137,10 @@ class HPSS(nn.Module):
         self.mask_only = mask_only
 
     def forward(self, mag_specgrams):
-        return hpss(mag_specgrams, self.kernel_size, self.power, self.hard,
-            self.mask_only)
+        return hpss(mag_specgrams, self.kernel_size, self.power, self.hard, self.mask_only)
 
     def __repr__(self):
-        return (self.__class__.__name__ +
-            '(kernel_size={}, power={}, hard={}, mask_only={})'.format(self
-            .kernel_size, self.power, self.hard, self.mask_only))
+        return self.__class__.__name__ + '(kernel_size={}, power={}, hard={}, mask_only={})'.format(self.kernel_size, self.power, self.hard, self.mask_only)
 
 
 class _ModuleNoStateBuffers(nn.Module):
@@ -164,8 +150,7 @@ class _ModuleNoStateBuffers(nn.Module):
     """
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
-        ret = super(_ModuleNoStateBuffers, self).state_dict(destination,
-            prefix, keep_vars)
+        ret = super(_ModuleNoStateBuffers, self).state_dict(destination, prefix, keep_vars)
         for k in self._buffers:
             del ret[prefix + k]
         return ret
@@ -173,8 +158,7 @@ class _ModuleNoStateBuffers(nn.Module):
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
         buffers = self._buffers
         self._buffers = {}
-        result = super(_ModuleNoStateBuffers, self)._load_from_state_dict(
-            state_dict, prefix, *args, **kwargs)
+        result = super(_ModuleNoStateBuffers, self)._load_from_state_dict(state_dict, prefix, *args, **kwargs)
         self._buffers = buffers
         return result
 
@@ -224,13 +208,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_keunwoochoi_torchaudio_contrib(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ComplexNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ComplexNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (HPSS,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+]
+
+class Test_keunwoochoi_torchaudio_contrib(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(HPSS(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,12 +100,9 @@ class AbstractAtt(nn.Module):
         self.vocab_answers = vocab_answers
         self.num_classes = len(self.vocab_answers)
         self.seq2vec = seq2vec.factory(self.vocab_words, self.opt['seq2vec'])
-        self.conv_v_att = nn.Conv2d(self.opt['dim_v'], self.opt['attention'
-            ]['dim_v'], 1, 1)
-        self.linear_q_att = nn.Linear(self.opt['dim_q'], self.opt[
-            'attention']['dim_q'])
-        self.conv_att = nn.Conv2d(self.opt['attention']['dim_mm'], self.opt
-            ['attention']['nb_glimpses'], 1, 1)
+        self.conv_v_att = nn.Conv2d(self.opt['dim_v'], self.opt['attention']['dim_v'], 1, 1)
+        self.linear_q_att = nn.Linear(self.opt['dim_q'], self.opt['attention']['dim_q'])
+        self.conv_att = nn.Conv2d(self.opt['attention']['dim_mm'], self.opt['attention']['nb_glimpses'], 1, 1)
         self.list_linear_v_fusion = None
         self.linear_q_fusion = None
         self.linear_classif = None
@@ -120,33 +118,26 @@ class AbstractAtt(nn.Module):
         width = input_v.size(2)
         height = input_v.size(3)
         x_v = input_v
-        x_v = F.dropout(x_v, p=self.opt['attention']['dropout_v'], training
-            =self.training)
+        x_v = F.dropout(x_v, p=self.opt['attention']['dropout_v'], training=self.training)
         x_v = self.conv_v_att(x_v)
         if 'activation_v' in self.opt['attention']:
             x_v = getattr(F, self.opt['attention']['activation_v'])(x_v)
-        x_v = x_v.view(batch_size, self.opt['attention']['dim_v'], width *
-            height)
+        x_v = x_v.view(batch_size, self.opt['attention']['dim_v'], width * height)
         x_v = x_v.transpose(1, 2)
-        x_q = F.dropout(x_q_vec, p=self.opt['attention']['dropout_q'],
-            training=self.training)
+        x_q = F.dropout(x_q_vec, p=self.opt['attention']['dropout_q'], training=self.training)
         x_q = self.linear_q_att(x_q)
         if 'activation_q' in self.opt['attention']:
             x_q = getattr(F, self.opt['attention']['activation_q'])(x_q)
         x_q = x_q.view(batch_size, 1, self.opt['attention']['dim_q'])
-        x_q = x_q.expand(batch_size, width * height, self.opt['attention'][
-            'dim_q'])
+        x_q = x_q.expand(batch_size, width * height, self.opt['attention']['dim_q'])
         x_att = self._fusion_att(x_v, x_q)
         if 'activation_mm' in self.opt['attention']:
             x_att = getattr(F, self.opt['attention']['activation_mm'])(x_att)
-        x_att = F.dropout(x_att, p=self.opt['attention']['dropout_mm'],
-            training=self.training)
-        x_att = x_att.view(batch_size, width, height, self.opt['attention']
-            ['dim_mm'])
+        x_att = F.dropout(x_att, p=self.opt['attention']['dropout_mm'], training=self.training)
+        x_att = x_att.view(batch_size, width, height, self.opt['attention']['dim_mm'])
         x_att = x_att.transpose(2, 3).transpose(1, 2)
         x_att = self.conv_att(x_att)
-        x_att = x_att.view(batch_size, self.opt['attention']['nb_glimpses'],
-            width * height)
+        x_att = x_att.view(batch_size, self.opt['attention']['nb_glimpses'], width * height)
         list_att_split = torch.split(x_att, 1, dim=1)
         list_att = []
         for x_att in list_att_split:
@@ -170,15 +161,13 @@ class AbstractAtt(nn.Module):
     def _fusion_glimpses(self, list_v_att, x_q_vec):
         list_v = []
         for glimpse_id, x_v_att in enumerate(list_v_att):
-            x_v = F.dropout(x_v_att, p=self.opt['fusion']['dropout_v'],
-                training=self.training)
+            x_v = F.dropout(x_v_att, p=self.opt['fusion']['dropout_v'], training=self.training)
             x_v = self.list_linear_v_fusion[glimpse_id](x_v)
             if 'activation_v' in self.opt['fusion']:
                 x_v = getattr(F, self.opt['fusion']['activation_v'])(x_v)
             list_v.append(x_v)
         x_v = torch.cat(list_v, 1)
-        x_q = F.dropout(x_q_vec, p=self.opt['fusion']['dropout_q'],
-            training=self.training)
+        x_q = F.dropout(x_q_vec, p=self.opt['fusion']['dropout_q'], training=self.training)
         x_q = self.linear_q_fusion(x_q)
         if 'activation_q' in self.opt['fusion']:
             x_q = getattr(F, self.opt['fusion']['activation_q'])(x_q)
@@ -188,8 +177,7 @@ class AbstractAtt(nn.Module):
     def _classif(self, x):
         if 'activation' in self.opt['classif']:
             x = getattr(F, self.opt['classif']['activation'])(x)
-        x = F.dropout(x, p=self.opt['classif']['dropout'], training=self.
-            training)
+        x = F.dropout(x, p=self.opt['classif']['dropout'], training=self.training)
         x = self.linear_classif(x)
         return x
 
@@ -222,8 +210,7 @@ class AbstractNoAtt(nn.Module):
         self.vocab_answers = vocab_answers
         self.num_classes = len(self.vocab_answers)
         self.seq2vec = seq2vec.factory(self.vocab_words, self.opt['seq2vec'])
-        self.linear_classif = nn.Linear(self.opt['fusion']['dim_h'], self.
-            num_classes)
+        self.linear_classif = nn.Linear(self.opt['fusion']['dim_h'], self.num_classes)
 
     def _fusion(self, input_v, input_q):
         raise NotImplementedError
@@ -231,8 +218,7 @@ class AbstractNoAtt(nn.Module):
     def _classif(self, x):
         if 'activation' in self.opt['classif']:
             x = getattr(F, self.opt['classif']['activation'])(x)
-        x = F.dropout(x, p=self.opt['classif']['dropout'], training=self.
-            training)
+        x = F.dropout(x, p=self.opt['classif']['dropout'], training=self.training)
         x = self.linear_classif(x)
         return x
 
@@ -269,10 +255,8 @@ class LSTM(nn.Module):
         self.emb_size = emb_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 1,
-            embedding_dim=emb_size, padding_idx=0)
-        self.rnn = nn.LSTM(input_size=emb_size, hidden_size=hidden_size,
-            num_layers=num_layers)
+        self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 1, embedding_dim=emb_size, padding_idx=0)
+        self.rnn = nn.LSTM(input_size=emb_size, hidden_size=hidden_size, num_layers=num_layers)
 
     def forward(self, input):
         lengths = process_lengths(input)
@@ -289,12 +273,9 @@ class TwoLSTM(nn.Module):
         self.vocab = vocab
         self.emb_size = emb_size
         self.hidden_size = hidden_size
-        self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 1,
-            embedding_dim=emb_size, padding_idx=0)
-        self.rnn_0 = nn.LSTM(input_size=emb_size, hidden_size=hidden_size,
-            num_layers=1)
-        self.rnn_1 = nn.LSTM(input_size=hidden_size, hidden_size=
-            hidden_size, num_layers=1)
+        self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 1, embedding_dim=emb_size, padding_idx=0)
+        self.rnn_0 = nn.LSTM(input_size=emb_size, hidden_size=hidden_size, num_layers=1)
+        self.rnn_1 = nn.LSTM(input_size=hidden_size, hidden_size=hidden_size, num_layers=1)
 
     def forward(self, input):
         lengths = process_lengths(input)
@@ -314,13 +295,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Cadene_vqa_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(LSTM(*[], **{'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LSTM,
+     lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4, 'num_layers': 1}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (TwoLSTM,
+     lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+]
+
+class Test_Cadene_vqa_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(TwoLSTM(*[], **{'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 

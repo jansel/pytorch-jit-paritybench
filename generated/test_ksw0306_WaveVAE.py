@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,11 +70,8 @@ class WaveVAE(nn.Module):
 
     def __init__(self):
         super(WaveVAE, self).__init__()
-        self.encoder = Wavenet(out_channels=2, num_blocks=2, num_layers=10,
-            residual_channels=128, gate_channels=256, skip_channels=128,
-            kernel_size=2, cin_channels=80, upsample_scales=[16, 16])
-        self.decoder = Wavenet_Student(num_blocks_student=[1, 1, 1, 1, 1, 1
-            ], num_layers=10)
+        self.encoder = Wavenet(out_channels=2, num_blocks=2, num_layers=10, residual_channels=128, gate_channels=256, skip_channels=128, kernel_size=2, cin_channels=80, upsample_scales=[16, 16])
+        self.decoder = Wavenet_Student(num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10)
         self.log_eps = nn.Parameter(torch.zeros(1))
 
     def forward(self, x, c):
@@ -89,10 +87,8 @@ class WaveVAE(nn.Module):
         c_up = self.encoder.upsample(c)
         x_rec, mu_p, log_p = self.decoder(z, c_up)
         x_prior = self.decoder.generate(z_prior, c_up)
-        loss_recon = -0.5 * (-log(2.0 * pi) - 2.0 * log_p - torch.pow(x[:,
-            :, 1:] - mu_p, 2) * torch.exp(-2.0 * log_p))
-        loss_kl = 0.5 * (mean_q ** 2 + torch.exp(self.log_eps) ** 2 - 1
-            ) - self.log_eps
+        loss_recon = -0.5 * (-log(2.0 * pi) - 2.0 * log_p - torch.pow(x[:, :, 1:] - mu_p, 2) * torch.exp(-2.0 * log_p))
+        loss_kl = 0.5 * (mean_q ** 2 + torch.exp(self.log_eps) ** 2 - 1) - self.log_eps
         return x_rec, x_prior, loss_recon.mean(), loss_kl.mean()
 
     def generate(self, z, c):
@@ -103,8 +99,7 @@ class WaveVAE(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dilation=1,
-        causal=False, mode='SAME'):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, causal=False, mode='SAME'):
         super(Conv, self).__init__()
         self.causal = causal
         self.mode = mode
@@ -114,8 +109,7 @@ class Conv(nn.Module):
             self.padding = dilation * (kernel_size - 1) // 2
         else:
             self.padding = 0
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-            dilation=dilation, padding=self.padding)
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation, padding=self.padding)
         self.conv = nn.utils.weight_norm(self.conv)
         nn.init.kaiming_normal_(self.conv.weight)
 
@@ -131,18 +125,14 @@ class Conv(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, skip_channels,
-        kernel_size, dilation, cin_channels=None, local_conditioning=True,
-        causal=False, mode='SAME'):
+    def __init__(self, in_channels, out_channels, skip_channels, kernel_size, dilation, cin_channels=None, local_conditioning=True, causal=False, mode='SAME'):
         super(ResBlock, self).__init__()
         self.causal = causal
         self.local_conditioning = local_conditioning
         self.cin_channels = cin_channels
         self.mode = mode
-        self.filter_conv = Conv(in_channels, out_channels, kernel_size,
-            dilation, causal, mode)
-        self.gate_conv = Conv(in_channels, out_channels, kernel_size,
-            dilation, causal, mode)
+        self.filter_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal, mode)
+        self.gate_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal, mode)
         self.res_conv = nn.Conv1d(out_channels, in_channels, kernel_size=1)
         self.skip_conv = nn.Conv1d(out_channels, skip_channels, kernel_size=1)
         self.res_conv = nn.utils.weight_norm(self.res_conv)
@@ -150,10 +140,8 @@ class ResBlock(nn.Module):
         nn.init.kaiming_normal_(self.res_conv.weight)
         nn.init.kaiming_normal_(self.skip_conv.weight)
         if self.local_conditioning:
-            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels,
-                kernel_size=1)
-            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels,
-                kernel_size=1)
+            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
+            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
             self.filter_conv_c = nn.utils.weight_norm(self.filter_conv_c)
             self.gate_conv_c = nn.utils.weight_norm(self.gate_conv_c)
             nn.init.kaiming_normal_(self.filter_conv_c.weight)
@@ -184,9 +172,7 @@ class ResBlock(nn.Module):
 
 class Wavenet(nn.Module):
 
-    def __init__(self, out_channels=1, num_blocks=3, num_layers=10,
-        residual_channels=512, gate_channels=512, skip_channels=512,
-        kernel_size=2, cin_channels=128, upsample_scales=None, causal=True):
+    def __init__(self, out_channels=1, num_blocks=3, num_layers=10, residual_channels=512, gate_channels=512, skip_channels=512, kernel_size=2, cin_channels=128, upsample_scales=None, causal=True):
         super(Wavenet, self).__init__()
         self.causal = causal
         self.num_blocks = num_blocks
@@ -198,23 +184,15 @@ class Wavenet(nn.Module):
         self.cin_channels = cin_channels
         self.kernel_size = kernel_size
         self.front_channels = 32
-        self.front_conv = nn.Sequential(Conv(1, self.residual_channels,
-            self.front_channels, causal=self.causal), nn.ReLU())
+        self.front_conv = nn.Sequential(Conv(1, self.residual_channels, self.front_channels, causal=self.causal), nn.ReLU())
         self.res_blocks = nn.ModuleList()
         for b in range(self.num_blocks):
             for n in range(self.num_layers):
-                self.res_blocks.append(ResBlock(self.residual_channels,
-                    self.gate_channels, self.skip_channels, self.
-                    kernel_size, dilation=self.kernel_size ** n,
-                    cin_channels=self.cin_channels, local_conditioning=True,
-                    causal=self.causal, mode='SAME'))
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels,
-            self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(
-            self.skip_channels, self.out_channels, 1, causal=self.causal))
+                self.res_blocks.append(ResBlock(self.residual_channels, self.gate_channels, self.skip_channels, self.kernel_size, dilation=self.kernel_size ** n, cin_channels=self.cin_channels, local_conditioning=True, causal=self.causal, mode='SAME'))
+        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels, self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(self.skip_channels, self.out_channels, 1, causal=self.causal))
         self.upsample_conv = nn.ModuleList()
         for s in upsample_scales:
-            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2
-                ), stride=(1, s))
+            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2), stride=(1, s))
             convt = nn.utils.weight_norm(convt)
             nn.init.kaiming_normal_(convt.weight)
             self.upsample_conv.append(convt)
@@ -244,29 +222,20 @@ class Wavenet(nn.Module):
 
     def receptive_field_size(self):
         num_dir = 1 if self.causal else 2
-        dilations = [(2 ** (i % self.num_layers)) for i in range(self.
-            num_layers * self.num_blocks)]
-        return num_dir * (self.kernel_size - 1) * sum(dilations
-            ) + self.front_channels
+        dilations = [(2 ** (i % self.num_layers)) for i in range(self.num_layers * self.num_blocks)]
+        return num_dir * (self.kernel_size - 1) * sum(dilations) + self.front_channels
 
 
 class Wavenet_Student(nn.Module):
 
-    def __init__(self, num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10,
-        front_channels=32, residual_channels=64, gate_channels=128,
-        skip_channels=64, kernel_size=3, cin_channels=80, causal=True):
+    def __init__(self, num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10, front_channels=32, residual_channels=64, gate_channels=128, skip_channels=64, kernel_size=3, cin_channels=80, causal=True):
         super(Wavenet_Student, self).__init__()
         self.num_blocks = num_blocks_student
         self.num_flow = len(self.num_blocks)
         self.num_layers = num_layers
         self.iafs = nn.ModuleList()
         for i in range(self.num_flow):
-            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.
-                num_blocks[i], num_layers=self.num_layers, front_channels=
-                front_channels, residual_channels=residual_channels,
-                gate_channels=gate_channels, skip_channels=skip_channels,
-                kernel_size=kernel_size, cin_channels=cin_channels, causal=
-                causal))
+            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.num_blocks[i], num_layers=self.num_layers, front_channels=front_channels, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, kernel_size=kernel_size, cin_channels=cin_channels, causal=causal))
 
     def forward(self, z, c):
         return self.iaf(z, c)
@@ -300,9 +269,7 @@ class Wavenet_Student(nn.Module):
 
 class Wavenet_Flow(nn.Module):
 
-    def __init__(self, out_channels=1, num_blocks=1, num_layers=10,
-        front_channels=32, residual_channels=64, gate_channels=32,
-        skip_channels=None, kernel_size=3, cin_channels=80, causal=True):
+    def __init__(self, out_channels=1, num_blocks=1, num_layers=10, front_channels=32, residual_channels=64, gate_channels=32, skip_channels=None, kernel_size=3, cin_channels=80, causal=True):
         super(Wavenet_Flow, self).__init__()
         self.causal = causal
         self.num_blocks = num_blocks
@@ -314,20 +281,13 @@ class Wavenet_Flow(nn.Module):
         self.skip_channels = skip_channels
         self.cin_channels = cin_channels
         self.kernel_size = kernel_size
-        self.front_conv = nn.Sequential(Conv(1, self.residual_channels,
-            self.front_channels, causal=self.causal), nn.ReLU())
+        self.front_conv = nn.Sequential(Conv(1, self.residual_channels, self.front_channels, causal=self.causal), nn.ReLU())
         self.res_blocks = nn.ModuleList()
         self.res_blocks_fast = nn.ModuleList()
         for b in range(self.num_blocks):
             for n in range(self.num_layers):
-                self.res_blocks.append(ResBlock(self.residual_channels,
-                    self.gate_channels, self.skip_channels, self.
-                    kernel_size, dilation=2 ** n, cin_channels=self.
-                    cin_channels, local_conditioning=True, causal=self.
-                    causal, mode='SAME'))
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels,
-            self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(
-            self.skip_channels, self.out_channels, 1, causal=self.causal))
+                self.res_blocks.append(ResBlock(self.residual_channels, self.gate_channels, self.skip_channels, self.kernel_size, dilation=2 ** n, cin_channels=self.cin_channels, local_conditioning=True, causal=self.causal, mode='SAME'))
+        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels, self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(self.skip_channels, self.out_channels, 1, causal=self.causal))
 
     def forward(self, x, c):
         return self.wavenet(x, c)
@@ -343,10 +303,8 @@ class Wavenet_Flow(nn.Module):
 
     def receptive_field_size(self):
         num_dir = 1 if self.causal else 2
-        dilations = [(2 ** (i % self.num_layers)) for i in range(self.
-            num_layers * self.num_blocks)]
-        return num_dir * (self.kernel_size - 1) * sum(dilations) + 1 + (self
-            .front_channels - 1)
+        dilations = [(2 ** (i % self.num_layers)) for i in range(self.num_layers * self.num_blocks)]
+        return num_dir * (self.kernel_size - 1) * sum(dilations) + 1 + (self.front_channels - 1)
 
     def remove_weight_norm(self):
         for f in self.res_blocks:
@@ -357,16 +315,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (WaveVAE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 1024]), torch.rand([4, 80, 4])], {}),
+     False),
+    (Wavenet_Student,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64]), torch.rand([4, 80, 64])], {}),
+     False),
+]
+
 class Test_ksw0306_WaveVAE(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(WaveVAE(*[], **{}), [torch.rand([4, 1, 1024]), torch.rand([4, 80, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Wavenet_Student(*[], **{}), [torch.rand([4, 1, 64]), torch.rand([4, 80, 64])], {})
+        self._check(*TESTCASES[2])
 

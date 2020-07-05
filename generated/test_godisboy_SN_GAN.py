@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,14 +83,7 @@ class _netG(nn.Module):
 
     def __init__(self, nz, nc, ngf):
         super(_netG, self).__init__()
-        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
-            bias=True), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
-            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=True), nn.
-            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
-            ngf * 2, 4, 2, 1, bias=True), nn.BatchNorm2d(ngf * 2), nn.ReLU(
-            True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=True), nn
-            .BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 3,
-            1, 1, bias=True), nn.Tanh())
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0, bias=True), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=True), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=True), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=True), nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 3, 1, 1, bias=True), nn.Tanh())
 
     def forward(self, input):
         output = self.main(input)
@@ -100,16 +94,7 @@ class _netD(nn.Module):
 
     def __init__(self, nc, ndf):
         super(_netD, self).__init__()
-        self.main = nn.Sequential(SNConv2d(nc, ndf, 3, 1, 1, bias=True), nn
-            .LeakyReLU(0.1, inplace=True), SNConv2d(ndf, ndf, 4, 2, 1, bias
-            =True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf, ndf * 2,
-            3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(
-            ndf * 2, ndf * 2, 4, 2, 1, bias=True), nn.LeakyReLU(0.1,
-            inplace=True), SNConv2d(ndf * 2, ndf * 4, 3, 1, 1, bias=True),
-            nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf * 4, ndf * 4, 4, 
-            2, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf *
-            4, ndf * 8, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True
-            ), SNConv2d(ndf * 8, 1, 4, 1, 0, bias=False), nn.Sigmoid())
+        self.main = nn.Sequential(SNConv2d(nc, ndf, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf, ndf, 4, 2, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf, ndf * 2, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf * 2, ndf * 2, 4, 2, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf * 2, ndf * 4, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf * 4, ndf * 4, 4, 2, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf * 4, ndf * 8, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), SNConv2d(ndf * 8, 1, 4, 1, 0, bias=False), nn.Sigmoid())
 
     def forward(self, input):
         output = self.main(input)
@@ -118,35 +103,28 @@ class _netD(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, hidden_channels=None,
-        use_BN=False, downsample=False):
+    def __init__(self, in_channels, out_channels, hidden_channels=None, use_BN=False, downsample=False):
         super(ResBlock, self).__init__()
         hidden_channels = in_channels
         self.downsample = downsample
-        self.resblock = self.make_res_block(in_channels, out_channels,
-            hidden_channels, use_BN, downsample)
-        self.residual_connect = self.make_residual_connect(in_channels,
-            out_channels)
+        self.resblock = self.make_res_block(in_channels, out_channels, hidden_channels, use_BN, downsample)
+        self.residual_connect = self.make_residual_connect(in_channels, out_channels)
 
-    def make_res_block(self, in_channels, out_channels, hidden_channels,
-        use_BN, downsample):
+    def make_res_block(self, in_channels, out_channels, hidden_channels, use_BN, downsample):
         model = []
         if use_BN:
             model += [nn.BatchNorm2d(in_channels)]
         model += [nn.ReLU()]
-        model += [SNConv2d(in_channels, hidden_channels, kernel_size=3,
-            padding=1)]
+        model += [SNConv2d(in_channels, hidden_channels, kernel_size=3, padding=1)]
         model += [nn.ReLU()]
-        model += [SNConv2d(hidden_channels, out_channels, kernel_size=3,
-            padding=1)]
+        model += [SNConv2d(hidden_channels, out_channels, kernel_size=3, padding=1)]
         if downsample:
             model += [nn.AvgPool2d(2)]
         return nn.Sequential(*model)
 
     def make_residual_connect(self, in_channels, out_channels):
         model = []
-        model += [SNConv2d(in_channels, out_channels, kernel_size=1, padding=0)
-            ]
+        model += [SNConv2d(in_channels, out_channels, kernel_size=1, padding=0)]
         if self.downsample:
             model += [nn.AvgPool2d(2)]
             return nn.Sequential(*model)
@@ -162,23 +140,19 @@ class OptimizedBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(OptimizedBlock, self).__init__()
         self.res_block = self.make_res_block(in_channels, out_channels)
-        self.residual_connect = self.make_residual_connect(in_channels,
-            out_channels)
+        self.residual_connect = self.make_residual_connect(in_channels, out_channels)
 
     def make_res_block(self, in_channels, out_channels):
         model = []
-        model += [SNConv2d(in_channels, out_channels, kernel_size=3, padding=1)
-            ]
+        model += [SNConv2d(in_channels, out_channels, kernel_size=3, padding=1)]
         model += [nn.ReLU()]
-        model += [SNConv2d(out_channels, out_channels, kernel_size=3,
-            padding=1)]
+        model += [SNConv2d(out_channels, out_channels, kernel_size=3, padding=1)]
         model += [nn.AvgPool2d(2)]
         return nn.Sequential(*model)
 
     def make_residual_connect(self, in_channels, out_channels):
         model = []
-        model += [SNConv2d(in_channels, out_channels, kernel_size=1, padding=0)
-            ]
+        model += [SNConv2d(in_channels, out_channels, kernel_size=1, padding=0)]
         model += [nn.AvgPool2d(2)]
         return nn.Sequential(*model)
 
@@ -212,17 +186,13 @@ class SNResDiscriminator(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, hidden_channels=None,
-        upsample=False):
+    def __init__(self, in_channels, out_channels, hidden_channels=None, upsample=False):
         super(ResBlock, self).__init__()
         hidden_channels = in_channels
         self.upsample = upsample
-        self.conv1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=3,
-            padding=1)
-        self.conv2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=3,
-            padding=1)
-        self.conv_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            padding=0)
+        self.conv1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
+        self.conv_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
         self.upsampling = nn.UpsamplingBilinear2d(scale_factor=2)
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.bn2 = nn.BatchNorm2d(hidden_channels)
@@ -284,10 +254,8 @@ def max_singular_value(W, u=None, Ip=1):
     _u = u
     for _ in range(Ip):
         _v = _l2normalize(torch.matmul(_u, W.data), eps=1e-12)
-        _u = _l2normalize(torch.matmul(_v, torch.transpose(W.data, 0, 1)),
-            eps=1e-12)
-    sigma = torch.matmul(torch.matmul(_v, torch.transpose(W.data, 0, 1)),
-        torch.transpose(_u, 0, 1))
+        _u = _l2normalize(torch.matmul(_v, torch.transpose(W.data, 0, 1)), eps=1e-12)
+    sigma = torch.matmul(torch.matmul(_v, torch.transpose(W.data, 0, 1)), torch.transpose(_u, 0, 1))
     return sigma, _v
 
 
@@ -383,15 +351,12 @@ class SNConv2d(conv._ConvNd):
         https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        super(SNConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, False, _pair(0), groups,
-            bias)
+        super(SNConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias)
         self.register_buffer('u', torch.Tensor(1, out_channels).normal_())
 
     @property
@@ -402,8 +367,7 @@ class SNConv2d(conv._ConvNd):
         return self.weight / sigma
 
     def forward(self, input):
-        return F.conv2d(input, self.W_, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return F.conv2d(input, self.W_, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class SNLinear(Linear):
@@ -445,36 +409,25 @@ class SNLinear(Linear):
 
 class SNConv2d(conv._ConvNd):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        super(SNConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, False, _pair(0), groups,
-            bias)
+        super(SNConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias)
 
     def forward(self, input):
         w_mat = self.weight.view(self.weight.size(0), -1)
         sigma, _ = max_singular_value(w_mat)
         self.weight.data = self.weight.data / sigma
-        return F.conv2d(input, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return F.conv2d(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class _netG(nn.Module):
 
     def __init__(self, nz, nc, ngf):
         super(_netG, self).__init__()
-        self.main = nn.Sequential(nn.ConvTranspose2d(nz + 200, ngf * 8, 4, 
-            1, 0, bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
-            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
-            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
-            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
-            4, 2, 1, bias=False), nn.Tanh())
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz + 200, ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input):
         output = self.main(input)
@@ -485,16 +438,9 @@ class _netG(nn.Module):
 
     def __init__(self, nz, nc, ngf):
         super(_netG, self).__init__()
-        self.convT1 = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 4, 4, 1, 0,
-            bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
-        self.convT2 = nn.Sequential(nn.ConvTranspose2d(10, ngf * 4, 4, 1, 0,
-            bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
-        self.main = nn.Sequential(nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2,
-            1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.
-            ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2,
-            ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(True),
-            nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
+        self.convT1 = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 4, 4, 1, 0, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
+        self.convT2 = nn.Sequential(nn.ConvTranspose2d(10, ngf * 4, 4, 1, 0, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
+        self.main = nn.Sequential(nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input, input_c):
         out1 = self.convT1(input)
@@ -511,16 +457,7 @@ class _netD(nn.Module):
         self.conv1_1 = SNConv2d(nc, ndf / 2, 3, 1, 1, bias=False)
         self.conv1_2 = SNConv2d(10, ndf / 2, 3, 1, 1, bias=False)
         self.lrelu = nn.LeakyReLU(0.2, inplace=True)
-        self.main = nn.Sequential(SNConv2d(ndf, ndf, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf, ndf * 2, 3, 1, 1,
-            bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 2,
-            ndf * 2, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True),
-            SNConv2d(ndf * 2, ndf * 4, 3, 1, 1, bias=False), nn.LeakyReLU(
-            0.2, inplace=True), SNConv2d(ndf * 4, ndf * 4, 4, 2, 1, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 4, ndf *
-            8, 3, 1, 1, bias=False), nn.LeakyReLU(0.2, inplace=True),
-            SNConv2d(ndf * 8, ndf * 8, 4, 2, 1, bias=False), nn.LeakyReLU(
-            0.2, inplace=True), SNConv2d(ndf * 8, 1, 4, 1, 0, bias=False))
+        self.main = nn.Sequential(SNConv2d(ndf, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf, ndf * 2, 3, 1, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 2, ndf * 2, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 2, ndf * 4, 3, 1, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 4, ndf * 4, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 4, ndf * 8, 3, 1, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 8, ndf * 8, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), SNConv2d(ndf * 8, 1, 4, 1, 0, bias=False))
 
     def forward(self, input, input_c):
         out1 = self.lrelu(self.conv1_1(input))
@@ -534,15 +471,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_godisboy_SN_GAN(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SNLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_netG,
+     lambda: ([], {'nz': 4, 'nc': 4, 'ngf': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 10, 64, 64])], {}),
+     True),
+]
+
+class Test_godisboy_SN_GAN(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(SNLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(_netG(*[], **{'nz': 4, 'nc': 4, 'ngf': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 10, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,20 +56,10 @@ def repnet_deep(pretrained=False, **kwargs):
 
 	Args:
 	"""
-    model_urls = {'resnet18':
-        'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-        'resnet34':
-        'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
-        'resnet50':
-        'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-        'resnet101':
-        'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-        'resnet152':
-        'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+    model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
     model = ResNet(Bottleneck, [3, 4, 6], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']),
-            strict=False)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']), strict=False)
     return model
 
 
@@ -90,8 +81,7 @@ class Compare(nn.Module):
         None
         self.layer4 = self._make_layer(Bottleneck, 128, 4, stride=2)
         self.layer5 = self._make_layer(Bottleneck, 64, 3, stride=2)
-        self.fc = nn.Sequential(nn.Linear(256, 64), nn.BatchNorm1d(64), nn.
-            ReLU(inplace=True), nn.Linear(64, 1), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(256, 64), nn.BatchNorm1d(64), nn.ReLU(inplace=True), nn.Linear(64, 1), nn.Sigmoid())
 
     def _make_layer(self, block, planes, blocks, stride=1):
         """
@@ -104,9 +94,7 @@ class Compare(nn.Module):
 		"""
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -126,19 +114,14 @@ class Compare(nn.Module):
         batchsz, setsz, c_, h, w = support_x.size()
         querysz = query_x.size(1)
         c, d = self.c, self.d
-        support_xf = self.repnet(support_x.view(batchsz * setsz, c_, h, w)
-            ).view(batchsz, setsz, c, d, d)
-        query_xf = self.repnet(query_x.view(batchsz * querysz, c_, h, w)).view(
-            batchsz, querysz, c, d, d)
-        support_xf = support_xf.unsqueeze(1).expand(-1, querysz, -1, -1, -1, -1
-            )
+        support_xf = self.repnet(support_x.view(batchsz * setsz, c_, h, w)).view(batchsz, setsz, c, d, d)
+        query_xf = self.repnet(query_x.view(batchsz * querysz, c_, h, w)).view(batchsz, querysz, c, d, d)
+        support_xf = support_xf.unsqueeze(1).expand(-1, querysz, -1, -1, -1, -1)
         query_xf = query_xf.unsqueeze(2).expand(-1, -1, setsz, -1, -1, -1)
         comb = torch.cat([support_xf, query_xf], dim=3)
-        comb = self.layer5(self.layer4(comb.view(batchsz * querysz * setsz,
-            2 * c, d, d)))
+        comb = self.layer5(self.layer4(comb.view(batchsz * querysz * setsz, 2 * c, d, d)))
         comb = F.avg_pool2d(comb, 3)
-        score = self.fc(comb.view(batchsz * querysz * setsz, -1)).view(batchsz,
-            querysz, setsz, 1).squeeze(3)
+        score = self.fc(comb.view(batchsz * querysz * setsz, -1)).view(batchsz, querysz, setsz, 1).squeeze(3)
         support_yf = support_y.unsqueeze(1).expand(batchsz, querysz, setsz)
         query_yf = query_y.unsqueeze(2).expand(batchsz, querysz, setsz)
         label = torch.eq(support_yf, query_yf).float()
@@ -153,20 +136,17 @@ class Compare(nn.Module):
                 for j, query in enumerate(batch):
                     sim = []
                     for way in range(self.n_way):
-                        sim.append(np.sum(query[way * self.k_shot:(way + 1) *
-                            self.k_shot]))
+                        sim.append(np.sum(query[way * self.k_shot:(way + 1) * self.k_shot]))
                     idx = np.array(sim).argmax()
                     pred.append(support_y_np[i, idx * self.k_shot])
-            pred = Variable(torch.from_numpy(np.array(pred).reshape((
-                batchsz, querysz))))
+            pred = Variable(torch.from_numpy(np.array(pred).reshape((batchsz, querysz))))
             correct = torch.eq(pred, query_y).sum()
             return pred, correct
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -203,8 +183,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -234,8 +213,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=64):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.Sigmoid()
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -253,9 +231,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -278,8 +254,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_dragen1860_LearningToCompare_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

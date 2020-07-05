@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,11 +69,8 @@ class SiameseNetwork(nn.Module):
 
     def __init__(self):
         super(SiameseNetwork, self).__init__()
-        self.cnn1 = nn.Sequential(nn.Conv2d(1, 20, kernel_size=5), nn.
-            MaxPool2d(2, stride=2), nn.Conv2d(20, 50, kernel_size=5), nn.
-            MaxPool2d(2, stride=2))
-        self.fc1 = nn.Sequential(nn.Linear(50 * 4 * 4, 500), nn.ReLU(
-            inplace=True), nn.Linear(500, 10), nn.Linear(10, 2))
+        self.cnn1 = nn.Sequential(nn.Conv2d(1, 20, kernel_size=5), nn.MaxPool2d(2, stride=2), nn.Conv2d(20, 50, kernel_size=5), nn.MaxPool2d(2, stride=2))
+        self.fc1 = nn.Sequential(nn.Linear(50 * 4 * 4, 500), nn.ReLU(inplace=True), nn.Linear(500, 10), nn.Linear(10, 2))
 
     def forward_once(self, x):
         output = self.cnn1(x)
@@ -85,10 +83,3 @@ class SiameseNetwork(nn.Module):
         output2 = self.forward_once(input2)
         return output1, output2
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_delijati_pytorch_siamese(_paritybench_base):
-    pass

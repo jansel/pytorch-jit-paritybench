@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,9 +81,7 @@ class TorchFilterBank(nn.Module):
         :return: torch.Variable, batch of outputs of size [N,N_scales,1/2,T]
         """
         if not self._filters:
-            raise ValueError(
-                'PyTorch filters not initialized. Please call set_filters() first.'
-                )
+            raise ValueError('PyTorch filters not initialized. Please call set_filters() first.')
             return None
         results = [None] * len(self._filters)
         for ind, conv in enumerate(self._filters):
@@ -104,20 +103,17 @@ class TorchFilterBank(nn.Module):
         assert padding_type in ['SAME', 'VALID']
         self._filters = [None] * len(filters)
         for ind, filt in enumerate(filters):
-            assert filt.dtype in (np.float32, np.float64, np.complex64, np.
-                complex128)
+            assert filt.dtype in (np.float32, np.float64, np.complex64, np.complex128)
             if np.iscomplex(filt).any():
                 chn_out = 2
-                filt_weights = np.asarray([np.real(filt), np.imag(filt)],
-                    np.float32)
+                filt_weights = np.asarray([np.real(filt), np.imag(filt)], np.float32)
             else:
                 chn_out = 1
                 filt_weights = filt.astype(np.float32)[(None), :]
             filt_weights = np.expand_dims(filt_weights, 1)
             filt_size = filt_weights.shape[-1]
             padding = self._get_padding(padding_type, filt_size)
-            conv = nn.Conv1d(1, chn_out, kernel_size=filt_size, padding=
-                padding, bias=False)
+            conv = nn.Conv1d(1, chn_out, kernel_size=filt_size, padding=padding, bias=False)
             conv.weight.data = torch.from_numpy(filt_weights)
             conv.weight.requires_grad_(False)
             if self._cuda:
@@ -132,10 +128,3 @@ class TorchFilterBank(nn.Module):
             return (kernel_size - 1) // 2
         return 0
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_tomrunia_PyTorchWavelets(_paritybench_base):
-    pass

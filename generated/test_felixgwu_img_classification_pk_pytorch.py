@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,33 +71,27 @@ class _DenseLayer(nn.Sequential):
         self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu.1', nn.ReLU(inplace=True)),
         if bn_size > 0:
-            self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size *
-                growth_rate, kernel_size=1, stride=1, bias=False)),
+            self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
             self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
             self.add_module('relu.2', nn.ReLU(inplace=True)),
-            self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate,
-                growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+            self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         else:
-            self.add_module('conv.1', nn.Conv2d(num_input_features,
-                growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+            self.add_module('conv.1', nn.Conv2d(num_input_features, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
-        drop_rate):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, bn_size, drop_rate)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
@@ -113,26 +108,18 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
     """
 
-    def __init__(self, growth_rate=12, block_config=(16, 16, 16),
-        compression=0.5, num_init_features=24, bn_size=4, drop_rate=0,
-        avgpool_size=8, num_classes=10):
+    def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5, num_init_features=24, bn_size=4, drop_rate=0, avgpool_size=8, num_classes=10):
         super(DenseNet, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between '
         self.avgpool_size = avgpool_size
-        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3,
-            num_init_features, kernel_size=3, stride=1, padding=1, bias=
-            False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0',
-            nn.ReLU(inplace=True))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0', nn.ReLU(inplace=True))]))
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, bn_size=bn_size, growth_rate=growth_rate,
-                drop_rate=drop_rate)
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features,
-                    num_output_features=int(num_features * compression))
+                trans = _Transition(num_input_features=num_features, num_output_features=int(num_features * compression))
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = int(num_features * compression)
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
@@ -141,8 +128,7 @@ class DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        out = F.avg_pool2d(out, kernel_size=self.avgpool_size).view(features
-            .size(0), -1)
+        out = F.avg_pool2d(out, kernel_size=self.avgpool_size).view(features.size(0), -1)
         out = self.classifier(out)
         return out
 
@@ -154,14 +140,11 @@ class PreActBlock(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(PreActBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -181,14 +164,11 @@ class PreActBottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -205,8 +185,7 @@ class PreActResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(PreActResNet, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
@@ -236,8 +215,7 @@ class PreActResNet(nn.Module):
 class BasicBlockWithDeathRate(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, death_rate=0.0,
-        downsample=None):
+    def __init__(self, inplanes, planes, stride=1, death_rate=0.0, downsample=None):
         super(BasicBlockWithDeathRate, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -284,8 +262,7 @@ class ResNetCifar(nn.Module):
                  the last block
     """
 
-    def __init__(self, depth, death_rates=None, block=
-        BasicBlockWithDeathRate, num_classes=10):
+    def __init__(self, depth, death_rates=None, block=BasicBlockWithDeathRate, num_classes=10):
         assert (depth - 2) % 6 == 0, 'depth should be one of 6N+2'
         super(ResNetCifar, self).__init__()
         n = (depth - 2) // 6
@@ -293,15 +270,12 @@ class ResNetCifar(nn.Module):
         if death_rates is None:
             death_rates = [0.0] * (3 * n)
         self.inplanes = 16
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, 16, death_rates[:n])
-        self.layer2 = self._make_layer(block, 32, death_rates[n:2 * n],
-            stride=2)
-        self.layer3 = self._make_layer(block, 64, death_rates[2 * n:], stride=2
-            )
+        self.layer2 = self._make_layer(block, 32, death_rates[n:2 * n], stride=2)
+        self.layer3 = self._make_layer(block, 64, death_rates[2 * n:], stride=2)
         self.avgpool = nn.AvgPool2d(8)
         self.fc = nn.Linear(64 * block.expansion, num_classes)
         for m in self.modules():
@@ -315,10 +289,8 @@ class ResNetCifar(nn.Module):
     def _make_layer(self, block, planes, death_rates, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = DownsampleB(self.inplanes, planes * block.
-                expansion, stride)
-        layers = [block(self.inplanes, planes, stride, downsample=
-            downsample, death_rate=death_rates[0])]
+            downsample = DownsampleB(self.inplanes, planes * block.expansion, stride)
+        layers = [block(self.inplanes, planes, stride, downsample=downsample, death_rate=death_rates[0])]
         self.inplanes = planes * block.expansion
         for death_rate in death_rates[1:]:
             layers.append(block(self.inplanes, planes, death_rate=death_rate))
@@ -342,17 +314,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -369,17 +337,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -395,8 +359,7 @@ class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -428,24 +391,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlockWithDeathRate,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownsampleB,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreActBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreActBottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_felixgwu_img_classification_pk_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlockWithDeathRate(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DownsampleB(*[], **{'nIn': 4, 'nOut': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -49,8 +50,7 @@ def fanin_init(size, fanin=None):
 
 class Actor(nn.Module):
 
-    def __init__(self, nb_states, nb_actions, hidden1=400, hidden2=300,
-        init_w=0.003):
+    def __init__(self, nb_states, nb_actions, hidden1=400, hidden2=300, init_w=0.003):
         super(Actor, self).__init__()
         self.fc1 = nn.Linear(nb_states, hidden1)
         self.fc2 = nn.Linear(hidden1, hidden2)
@@ -76,8 +76,7 @@ class Actor(nn.Module):
 
 class Critic(nn.Module):
 
-    def __init__(self, nb_states, nb_actions, hidden1=400, hidden2=300,
-        init_w=0.003):
+    def __init__(self, nb_states, nb_actions, hidden1=400, hidden2=300, init_w=0.003):
         super(Critic, self).__init__()
         self.fc1 = nn.Linear(nb_states, hidden1)
         self.fc2 = nn.Linear(hidden1 + nb_actions, hidden2)
@@ -104,8 +103,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'nb_states': 4, 'nb_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ghliu_pytorch_ddpg(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Actor(*[], **{'nb_states': 4, 'nb_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

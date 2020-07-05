@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,12 +81,9 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        preprocess = nn.Sequential(nn.Linear(128, 4 * 4 * 4 * DIM), nn.
-            BatchNorm2d(4 * 4 * 4 * DIM), nn.ReLU(True))
-        block1 = nn.Sequential(nn.ConvTranspose2d(4 * DIM, 2 * DIM, 2,
-            stride=2), nn.BatchNorm2d(2 * DIM), nn.ReLU(True))
-        block2 = nn.Sequential(nn.ConvTranspose2d(2 * DIM, DIM, 2, stride=2
-            ), nn.BatchNorm2d(DIM), nn.ReLU(True))
+        preprocess = nn.Sequential(nn.Linear(128, 4 * 4 * 4 * DIM), nn.BatchNorm2d(4 * 4 * 4 * DIM), nn.ReLU(True))
+        block1 = nn.Sequential(nn.ConvTranspose2d(4 * DIM, 2 * DIM, 2, stride=2), nn.BatchNorm2d(2 * DIM), nn.ReLU(True))
+        block2 = nn.Sequential(nn.ConvTranspose2d(2 * DIM, DIM, 2, stride=2), nn.BatchNorm2d(DIM), nn.ReLU(True))
         deconv_out = nn.ConvTranspose2d(DIM, 3, 2, stride=2)
         self.preprocess = preprocess
         self.block1 = block1
@@ -107,10 +105,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        main = nn.Sequential(nn.Conv2d(3, DIM, 3, 2, padding=1), nn.
-            LeakyReLU(), nn.Conv2d(DIM, 2 * DIM, 3, 2, padding=1), nn.
-            LeakyReLU(), nn.Conv2d(2 * DIM, 4 * DIM, 3, 2, padding=1), nn.
-            LeakyReLU())
+        main = nn.Sequential(nn.Conv2d(3, DIM, 3, 2, padding=1), nn.LeakyReLU(), nn.Conv2d(DIM, 2 * DIM, 3, 2, padding=1), nn.LeakyReLU(), nn.Conv2d(2 * DIM, 4 * DIM, 3, 2, padding=1), nn.LeakyReLU())
         self.main = main
         self.linear = nn.Linear(4 * 4 * 4 * DIM, 1)
 
@@ -125,8 +120,7 @@ class ResBlock(nn.Module):
 
     def __init__(self):
         super(ResBlock, self).__init__()
-        self.res_block = nn.Sequential(nn.ReLU(True), nn.Conv1d(DIM, DIM, 5,
-            padding=2), nn.ReLU(True), nn.Conv1d(DIM, DIM, 5, padding=2))
+        self.res_block = nn.Sequential(nn.ReLU(True), nn.Conv1d(DIM, DIM, 5, padding=2), nn.ReLU(True), nn.Conv1d(DIM, DIM, 5, padding=2))
 
     def forward(self, input):
         output = self.res_block(input)
@@ -150,8 +144,7 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.fc1 = nn.Linear(128, DIM * SEQ_LEN)
-        self.block = nn.Sequential(ResBlock(), ResBlock(), ResBlock(),
-            ResBlock(), ResBlock())
+        self.block = nn.Sequential(ResBlock(), ResBlock(), ResBlock(), ResBlock(), ResBlock())
         self.conv1 = nn.Conv1d(DIM, len(charmap), 1)
         self.softmax = nn.Softmax()
 
@@ -172,8 +165,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.block = nn.Sequential(ResBlock(), ResBlock(), ResBlock(),
-            ResBlock(), ResBlock())
+        self.block = nn.Sequential(ResBlock(), ResBlock(), ResBlock(), ResBlock(), ResBlock())
         self.conv1d = nn.Conv1d(len(charmap), DIM, 1)
         self.linear = nn.Linear(SEQ_LEN * DIM, 1)
 
@@ -193,12 +185,9 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        preprocess = nn.Sequential(nn.Linear(128, 4 * 4 * 4 * DIM), nn.ReLU
-            (True))
-        block1 = nn.Sequential(nn.ConvTranspose2d(4 * DIM, 2 * DIM, 5), nn.
-            ReLU(True))
-        block2 = nn.Sequential(nn.ConvTranspose2d(2 * DIM, DIM, 5), nn.ReLU
-            (True))
+        preprocess = nn.Sequential(nn.Linear(128, 4 * 4 * 4 * DIM), nn.ReLU(True))
+        block1 = nn.Sequential(nn.ConvTranspose2d(4 * DIM, 2 * DIM, 5), nn.ReLU(True))
+        block2 = nn.Sequential(nn.ConvTranspose2d(2 * DIM, DIM, 5), nn.ReLU(True))
         deconv_out = nn.ConvTranspose2d(DIM, 1, 8, stride=2)
         self.block1 = block1
         self.block2 = block2
@@ -221,10 +210,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        main = nn.Sequential(nn.Conv2d(1, DIM, 5, stride=2, padding=2), nn.
-            ReLU(True), nn.Conv2d(DIM, 2 * DIM, 5, stride=2, padding=2), nn
-            .ReLU(True), nn.Conv2d(2 * DIM, 4 * DIM, 5, stride=2, padding=2
-            ), nn.ReLU(True))
+        main = nn.Sequential(nn.Conv2d(1, DIM, 5, stride=2, padding=2), nn.ReLU(True), nn.Conv2d(DIM, 2 * DIM, 5, stride=2, padding=2), nn.ReLU(True), nn.Conv2d(2 * DIM, 4 * DIM, 5, stride=2, padding=2), nn.ReLU(True))
         self.main = main
         self.output = nn.Linear(4 * 4 * 4 * DIM, 1)
 
@@ -243,9 +229,7 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        main = nn.Sequential(nn.Linear(2, DIM), nn.ReLU(True), nn.Linear(
-            DIM, DIM), nn.ReLU(True), nn.Linear(DIM, DIM), nn.ReLU(True),
-            nn.Linear(DIM, 2))
+        main = nn.Sequential(nn.Linear(2, DIM), nn.ReLU(True), nn.Linear(DIM, DIM), nn.ReLU(True), nn.Linear(DIM, DIM), nn.ReLU(True), nn.Linear(DIM, 2))
         self.main = main
 
     def forward(self, noise, real_data):
@@ -260,9 +244,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        main = nn.Sequential(nn.Linear(2, DIM), nn.ReLU(True), nn.Linear(
-            DIM, DIM), nn.ReLU(True), nn.Linear(DIM, DIM), nn.ReLU(True),
-            nn.Linear(DIM, 1))
+        main = nn.Sequential(nn.Linear(2, DIM), nn.ReLU(True), nn.Linear(DIM, DIM), nn.ReLU(True), nn.Linear(DIM, DIM), nn.ReLU(True), nn.Linear(DIM, 1))
         self.main = main
 
     def forward(self, inputs):
@@ -274,15 +256,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_caogang_wgan_gp(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([2, 2])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([2, 2])], {}),
+     True),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([2, 2]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64])], {}),
+     True),
+]
+
+class Test_caogang_wgan_gp(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Generator(*[], **{}), [torch.rand([2, 2]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResBlock(*[], **{}), [torch.rand([4, 512, 64])], {})
+        self._check(*TESTCASES[2])
 

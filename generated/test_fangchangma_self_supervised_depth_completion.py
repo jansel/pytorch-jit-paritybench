@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -89,19 +90,12 @@ class PhotometricLoss(nn.Module):
         super(PhotometricLoss, self).__init__()
 
     def forward(self, target, recon, mask=None):
-        assert recon.dim(
-            ) == 4, 'expected recon dimension to be 4, but instead got {}.'.format(
-            recon.dim())
-        assert target.dim(
-            ) == 4, 'expected target dimension to be 4, but instead got {}.'.format(
-            target.dim())
-        assert recon.size() == target.size(
-            ), 'expected recon and target to have the same size, but got {} and {} instead'.format(
-            recon.size(), target.size())
+        assert recon.dim() == 4, 'expected recon dimension to be 4, but instead got {}.'.format(recon.dim())
+        assert target.dim() == 4, 'expected target dimension to be 4, but instead got {}.'.format(target.dim())
+        assert recon.size() == target.size(), 'expected recon and target to have the same size, but got {} and {} instead'.format(recon.size(), target.size())
         diff = (target - recon).abs()
         diff = torch.sum(diff, 1)
-        valid_mask = (torch.sum(recon, 1) > 0).float() * (torch.sum(target,
-            1) > 0).float()
+        valid_mask = (torch.sum(recon, 1) > 0).float() * (torch.sum(target, 1) > 0).float()
         if mask is not None:
             valid_mask = valid_mask * torch.squeeze(mask).float()
         valid_mask = valid_mask.byte().detach()
@@ -126,13 +120,9 @@ class SmoothnessLoss(nn.Module):
     def forward(self, depth):
 
         def second_derivative(x):
-            assert x.dim(
-                ) == 4, 'expected 4-dimensional data, but instead got {}'.format(
-                x.dim())
-            horizontal = 2 * x[:, :, 1:-1, 1:-1] - x[:, :, 1:-1, :-2] - x[:,
-                :, 1:-1, 2:]
-            vertical = 2 * x[:, :, 1:-1, 1:-1] - x[:, :, :-2, 1:-1] - x[:,
-                :, 2:, 1:-1]
+            assert x.dim() == 4, 'expected 4-dimensional data, but instead got {}'.format(x.dim())
+            horizontal = 2 * x[:, :, 1:-1, 1:-1] - x[:, :, 1:-1, :-2] - x[:, :, 1:-1, 2:]
+            vertical = 2 * x[:, :, 1:-1, 1:-1] - x[:, :, :-2, 1:-1] - x[:, :, 2:, 1:-1]
             der_2nd = horizontal.abs() + vertical.abs()
             return der_2nd.mean()
         self.loss = second_derivative(depth)
@@ -153,12 +143,10 @@ def init_weights(m):
         m.bias.data.zero_()
 
 
-def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=
-    0, bn=True, relu=True):
+def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=0, bn=True, relu=True):
     bias = not bn
     layers = []
-    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size, stride,
-        padding, bias=bias))
+    layers.append(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias))
     if bn:
         layers.append(nn.BatchNorm2d(out_channels))
     if relu:
@@ -169,12 +157,10 @@ def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=
     return layers
 
 
-def convt_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding
-    =0, output_padding=0, bn=True, relu=True):
+def convt_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, bn=True, relu=True):
     bias = not bn
     layers = []
-    layers.append(nn.ConvTranspose2d(in_channels, out_channels, kernel_size,
-        stride, padding, output_padding, bias=bias))
+    layers.append(nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding, output_padding, bias=bias))
     if bn:
         layers.append(nn.BatchNorm2d(out_channels))
     if relu:
@@ -188,25 +174,19 @@ def convt_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding
 class DepthCompletionNet(nn.Module):
 
     def __init__(self, args):
-        assert args.layers in [18, 34, 50, 101, 152
-            ], 'Only layers 18, 34, 50, 101, and 152 are defined, but got {}'.format(
-            layers)
+        assert args.layers in [18, 34, 50, 101, 152], 'Only layers 18, 34, 50, 101, and 152 are defined, but got {}'.format(layers)
         super(DepthCompletionNet, self).__init__()
         self.modality = args.input
         if 'd' in self.modality:
             channels = 64 // len(self.modality)
-            self.conv1_d = conv_bn_relu(1, channels, kernel_size=3, stride=
-                1, padding=1)
+            self.conv1_d = conv_bn_relu(1, channels, kernel_size=3, stride=1, padding=1)
         if 'rgb' in self.modality:
             channels = 64 * 3 // len(self.modality)
-            self.conv1_img = conv_bn_relu(3, channels, kernel_size=3,
-                stride=1, padding=1)
+            self.conv1_img = conv_bn_relu(3, channels, kernel_size=3, stride=1, padding=1)
         elif 'g' in self.modality:
             channels = 64 // len(self.modality)
-            self.conv1_img = conv_bn_relu(1, channels, kernel_size=3,
-                stride=1, padding=1)
-        pretrained_model = resnet.__dict__['resnet{}'.format(args.layers)](
-            pretrained=args.pretrained)
+            self.conv1_img = conv_bn_relu(1, channels, kernel_size=3, stride=1, padding=1)
+        pretrained_model = resnet.__dict__['resnet{}'.format(args.layers)](pretrained=args.pretrained)
         if not args.pretrained:
             pretrained_model.apply(init_weights)
         self.conv2 = pretrained_model._modules['layer1']
@@ -218,26 +198,15 @@ class DepthCompletionNet(nn.Module):
             num_channels = 512
         elif args.layers >= 50:
             num_channels = 2048
-        self.conv6 = conv_bn_relu(num_channels, 512, kernel_size=3, stride=
-            2, padding=1)
+        self.conv6 = conv_bn_relu(num_channels, 512, kernel_size=3, stride=2, padding=1)
         kernel_size = 3
         stride = 2
-        self.convt5 = convt_bn_relu(in_channels=512, out_channels=256,
-            kernel_size=kernel_size, stride=stride, padding=1, output_padding=1
-            )
-        self.convt4 = convt_bn_relu(in_channels=768, out_channels=128,
-            kernel_size=kernel_size, stride=stride, padding=1, output_padding=1
-            )
-        self.convt3 = convt_bn_relu(in_channels=256 + 128, out_channels=64,
-            kernel_size=kernel_size, stride=stride, padding=1, output_padding=1
-            )
-        self.convt2 = convt_bn_relu(in_channels=128 + 64, out_channels=64,
-            kernel_size=kernel_size, stride=stride, padding=1, output_padding=1
-            )
-        self.convt1 = convt_bn_relu(in_channels=128, out_channels=64,
-            kernel_size=kernel_size, stride=1, padding=1)
-        self.convtf = conv_bn_relu(in_channels=128, out_channels=1,
-            kernel_size=1, stride=1, bn=False, relu=False)
+        self.convt5 = convt_bn_relu(in_channels=512, out_channels=256, kernel_size=kernel_size, stride=stride, padding=1, output_padding=1)
+        self.convt4 = convt_bn_relu(in_channels=768, out_channels=128, kernel_size=kernel_size, stride=stride, padding=1, output_padding=1)
+        self.convt3 = convt_bn_relu(in_channels=256 + 128, out_channels=64, kernel_size=kernel_size, stride=stride, padding=1, output_padding=1)
+        self.convt2 = convt_bn_relu(in_channels=128 + 64, out_channels=64, kernel_size=kernel_size, stride=stride, padding=1, output_padding=1)
+        self.convt1 = convt_bn_relu(in_channels=128, out_channels=64, kernel_size=kernel_size, stride=1, padding=1)
+        self.convtf = conv_bn_relu(in_channels=128, out_channels=1, kernel_size=1, stride=1, bn=False, relu=False)
 
     def forward(self, x):
         if 'd' in self.modality:
@@ -277,20 +246,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MaskedL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskedMSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PhotometricLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SmoothnessLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_fangchangma_self_supervised_depth_completion(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PhotometricLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(SmoothnessLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

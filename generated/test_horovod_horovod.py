@@ -136,8 +136,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -220,15 +221,13 @@ class Net(torch.nn.Module):
             self.param = torch.nn.Parameter(torch.FloatTensor([1.0, -1.0]))
         else:
             self.mode = 1
-            self.param = torch.nn.Parameter(torch.FloatTensor([1.0, -1.0, 1.0])
-                )
+            self.param = torch.nn.Parameter(torch.FloatTensor([1.0, -1.0, 1.0]))
 
     def forward(self, x):
         if ~self.mode:
             return x * x + self.param[0] * x + self.param[1]
         else:
-            return 10 * x * x * x + self.param[0] * x * x + self.param[1
-                ] * x + self.param[2]
+            return 10 * x * x * x + self.param[0] * x * x + self.param[1] * x + self.param[2]
 
 
 class Net(nn.Module):
@@ -298,8 +297,7 @@ _handle_map = {}
 def _allgather_async(tensor, output, name):
     function = _check_function(_allgather_function_factory, tensor)
     try:
-        handle = getattr(mpi_lib, function)(tensor, output, name.encode() if
-            name is not None else _NULL)
+        handle = getattr(mpi_lib, function)(tensor, output, name.encode() if name is not None else _NULL)
     except RuntimeError as e:
         raise HorovodInternalError(e)
     _handle_map[handle] = tensor, output
@@ -356,8 +354,7 @@ def _check_extension_lambda(ext_base_name, fn, fn_desc, verbose):
         import sys
         import traceback
         if verbose:
-            print('Checking whether extension {ext_base_name} was {fn_desc}.'
-                .format(ext_base_name=ext_base_name, fn_desc=fn_desc))
+            print('Checking whether extension {ext_base_name} was {fn_desc}.'.format(ext_base_name=ext_base_name, fn_desc=fn_desc))
         else:
             sys.stdout = open(os.devnull, 'w')
             sys.stderr = open(os.devnull, 'w')
@@ -368,14 +365,11 @@ def _check_extension_lambda(ext_base_name, fn, fn_desc, verbose):
             traceback.print_exc()
             result = None
         if verbose:
-            print('Extension {ext_base_name} {flag} {fn_desc}.'.format(
-                ext_base_name=ext_base_name, flag='was' if result else
-                'was NOT', fn_desc=fn_desc))
+            print('Extension {ext_base_name} {flag} {fn_desc}.'.format(ext_base_name=ext_base_name, flag='was' if result else 'was NOT', fn_desc=fn_desc))
         queue.put(result)
     ctx = multiprocessing.get_context('fork')
     queue = ctx.Queue()
-    p = ctx.Process(target=_target_fn, args=(ext_base_name, fn, fn_desc,
-        queue, verbose))
+    p = ctx.Process(target=_target_fn, args=(ext_base_name, fn, fn_desc, queue, verbose))
     p.daemon = True
     p.start()
     p.join()
@@ -385,8 +379,7 @@ def _check_extension_lambda(ext_base_name, fn, fn_desc, verbose):
 @_cache
 def gpu_available(ext_base_name, verbose=False):
     available_fn = lambda ext: ext._check_has_gpu()
-    return _check_extension_lambda(ext_base_name, available_fn,
-        'running with GPU', verbose) or False
+    return _check_extension_lambda(ext_base_name, available_fn, 'running with GPU', verbose) or False
 
 
 EXTENSIONS = ['tensorflow', 'torch', 'mxnet']
@@ -396,13 +389,10 @@ EXTENSIONS = ['tensorflow', 'torch', 'mxnet']
 def nccl_built(verbose=False):
     for ext_base_name in EXTENSIONS:
         built_fn = lambda ext: ext.nccl_built()
-        result = _check_extension_lambda(ext_base_name, built_fn,
-            'built with NCCL', verbose)
+        result = _check_extension_lambda(ext_base_name, built_fn, 'built with NCCL', verbose)
         if result is not None:
             return result
-    raise RuntimeError(
-        'Failed to determine if NCCL support has been built. Run again with --verbose for more details.'
-        )
+    raise RuntimeError('Failed to determine if NCCL support has been built. Run again with --verbose for more details.')
 
 
 def num_rank_is_power_2(num_rank):
@@ -416,41 +406,30 @@ def num_rank_is_power_2(num_rank):
 
 def _allreduce_async(tensor, output, name, op):
     if tensor.dtype == torch.float16 and not _fp16_supported:
-        raise NotImplementedError(
-            'float16 allreduce is not supported for PyTorch version {} < 1.0.0'
-            .format(torch.__version__))
+        raise NotImplementedError('float16 allreduce is not supported for PyTorch version {} < 1.0.0'.format(torch.__version__))
     if op == Average:
         divisor = size()
     elif op == Adasum:
         if tensor.device.type != 'cpu' and gpu_available('torch'):
             if nccl_built():
                 if not is_homogeneous():
-                    raise NotImplementedError(
-                        'Running GPU Adasum on heterogeneous cluster is not supported yet.'
-                        )
+                    raise NotImplementedError('Running GPU Adasum on heterogeneous cluster is not supported yet.')
                 elif not num_rank_is_power_2(int(size() / local_size())):
-                    raise NotImplementedError(
-                        'Running GPU Adasum with non-power of 2 nodes is not supported yet.'
-                        )
+                    raise NotImplementedError('Running GPU Adasum with non-power of 2 nodes is not supported yet.')
                 divisor = local_size()
             else:
-                warnings.warn(
-                    'Adasum reduction does not currently support GPU reduction using MPI. Tensors are copied to CPU memory instead. To use Adasum for GPU reduction, please compile Horovod with HOROVOD_GPU_OPERATIONS=NCCL.'
-                    )
+                warnings.warn('Adasum reduction does not currently support GPU reduction using MPI. Tensors are copied to CPU memory instead. To use Adasum for GPU reduction, please compile Horovod with HOROVOD_GPU_OPERATIONS=NCCL.')
                 divisor = 1
         else:
             if not num_rank_is_power_2(size()):
-                raise NotImplementedError(
-                    'Running Adasum with non-power of 2 ranks is not supported yet.'
-                    )
+                raise NotImplementedError('Running Adasum with non-power of 2 ranks is not supported yet.')
             divisor = 1
     else:
         divisor = 1
     true_op = Sum if op == Average else op
     function = _check_function(_allreduce_function_factory, tensor)
     try:
-        handle = getattr(mpi_lib, function)(tensor, output, divisor, name.
-            encode() if name is not None else _NULL, true_op)
+        handle = getattr(mpi_lib, function)(tensor, output, divisor, name.encode() if name is not None else _NULL, true_op)
     except RuntimeError as e:
         raise HorovodInternalError(e)
     _handle_map[handle] = tensor, output
@@ -468,14 +447,10 @@ def get_average_backwards_compatibility_fun(reduce_ops):
     def impl(op, average):
         if op != None:
             if average != None:
-                raise ValueError(
-                    'The op parameter supersedes average. Please provide only one of them.'
-                    )
+                raise ValueError('The op parameter supersedes average. Please provide only one of them.')
             return op
         elif average != None:
-            warnings.warn(
-                'Parameter `average` has been replaced with `op` and will be removed in v0.21.0'
-                , DeprecationWarning)
+            warnings.warn('Parameter `average` has been replaced with `op` and will be removed in v0.21.0', DeprecationWarning)
             return reduce_ops.Average if average else reduce_ops.Sum
         else:
             return reduce_ops.Average
@@ -537,18 +512,14 @@ def synchronize(handle):
 class _SyncBatchNorm(Function):
 
     @staticmethod
-    def forward(self, input, weight, bias, running_mean, running_var, eps,
-        momentum):
+    def forward(self, input, weight, bias, running_mean, running_var, eps, momentum):
         input = input.contiguous()
         size = input.numel() // input.size(1)
         count = torch.tensor([size])
         mean, invstd = torch.batch_norm_stats(input, eps)
-        count_handle = allgather_async(count.unsqueeze(0), name=
-            'sync_batch_norm.count')
-        mean_handle = allgather_async(mean.unsqueeze(0), name=
-            'sync_batch_norm.mean')
-        invstd_handle = allgather_async(invstd.unsqueeze(0), name=
-            'sync_batch_norm.invstd')
+        count_handle = allgather_async(count.unsqueeze(0), name='sync_batch_norm.count')
+        mean_handle = allgather_async(mean.unsqueeze(0), name='sync_batch_norm.mean')
+        invstd_handle = allgather_async(invstd.unsqueeze(0), name='sync_batch_norm.invstd')
         count_all = synchronize(count_handle)
         mean_all = synchronize(mean_handle)
         invstd_all = synchronize(invstd_handle)
@@ -556,9 +527,7 @@ class _SyncBatchNorm(Function):
             counts_for_bngswc = count_all.view(-1).float().to(input.device)
         else:
             counts_for_bngswc = count_all.view(-1).tolist()
-        mean, invstd = torch.batch_norm_gather_stats_with_counts(input,
-            mean_all, invstd_all, running_mean, running_var, momentum, eps,
-            counts_for_bngswc)
+        mean, invstd = torch.batch_norm_gather_stats_with_counts(input, mean_all, invstd_all, running_mean, running_var, momentum, eps, counts_for_bngswc)
         self.save_for_backward(input, weight, mean, invstd, count_all)
         return torch.batch_norm_elemt(input, weight, bias, mean, invstd, eps)
 
@@ -566,16 +535,11 @@ class _SyncBatchNorm(Function):
     def backward(self, grad_output):
         grad_output = grad_output.contiguous()
         saved_input, weight, mean, invstd, count_all = self.saved_tensors
-        need_input_grad, need_weight_grad, need_bias_grad = (self.
-            needs_input_grad[0:3])
-        sum_dy, sum_dy_xmu, grad_weight, grad_bias = (torch.
-            batch_norm_backward_reduce(grad_output, saved_input, mean,
-            invstd, weight, need_input_grad, need_weight_grad, need_bias_grad))
+        need_input_grad, need_weight_grad, need_bias_grad = self.needs_input_grad[0:3]
+        sum_dy, sum_dy_xmu, grad_weight, grad_bias = torch.batch_norm_backward_reduce(grad_output, saved_input, mean, invstd, weight, need_input_grad, need_weight_grad, need_bias_grad)
         if need_input_grad:
-            sum_dy_handle = allreduce_async(sum_dy, op=Sum, name=
-                'sync_batch_norm.sum_dy')
-            sum_dy_xmu_handle = allreduce_async(sum_dy_xmu, op=Sum, name=
-                'sync_batch_norm.sum_dy_xmu')
+            sum_dy_handle = allreduce_async(sum_dy, op=Sum, name='sync_batch_norm.sum_dy')
+            sum_dy_xmu_handle = allreduce_async(sum_dy_xmu, op=Sum, name='sync_batch_norm.sum_dy_xmu')
             sum_dy = synchronize(sum_dy_handle)
             sum_dy_xmu = synchronize(sum_dy_xmu_handle)
             if _SYNC_BN_V2:
@@ -584,16 +548,14 @@ class _SyncBatchNorm(Function):
             else:
                 mean_dy = sum_dy / size()
                 mean_dy_xmu = sum_dy_xmu / size()
-            grad_input = torch.batch_norm_backward_elemt(grad_output,
-                saved_input, mean, invstd, weight, mean_dy, mean_dy_xmu)
+            grad_input = torch.batch_norm_backward_elemt(grad_output, saved_input, mean, invstd, weight, mean_dy, mean_dy_xmu)
         else:
             grad_input = None
         if weight is None or not need_weight_grad:
             grad_weight = None
         if weight is None or not need_bias_grad:
             grad_bias = None
-        return (grad_input, grad_weight, grad_bias, None, None, None, None,
-            None, None)
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -620,32 +582,25 @@ class SyncBatchNorm(_BatchNorm):
     .. note:: Only GPU input tensors are supported in the training mode.
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
-        super().__init__(num_features, eps, momentum, affine,
-            track_running_stats)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super().__init__(num_features, eps, momentum, affine, track_running_stats)
 
     def _check_input_dim(self, input):
         if input.dim() < 2:
-            raise ValueError('expected at least 2D input (got {}D input)'.
-                format(input.dim()))
+            raise ValueError('expected at least 2D input (got {}D input)'.format(input.dim()))
 
     def _run_bn(self, input):
-        return F.batch_norm(input, self.running_mean, self.running_var,
-            self.weight, self.bias, self.training or not self.
-            track_running_stats, self.momentum, self.eps)
+        return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training or not self.track_running_stats, self.momentum, self.eps)
 
     @torch.jit.unused
     def _maybe_run_sync_bn(self, input):
         if size() == 1:
             return self._run_bn(input)
-        return _SyncBatchNorm.apply(input, self.weight, self.bias, self.
-            running_mean, self.running_var, self.eps, self.momentum)
+        return _SyncBatchNorm.apply(input, self.weight, self.bias, self.running_mean, self.running_var, self.eps, self.momentum)
 
     def forward(self, input):
         if not input.is_cuda:
-            raise ValueError('SyncBatchNorm expected input tensor to be on GPU'
-                )
+            raise ValueError('SyncBatchNorm expected input tensor to be on GPU')
         self._check_input_dim(input)
         if self.training and self.track_running_stats:
             self.num_batches_tracked = self.num_batches_tracked + 1
@@ -675,8 +630,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (XOR,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_horovod_horovod(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(XOR(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

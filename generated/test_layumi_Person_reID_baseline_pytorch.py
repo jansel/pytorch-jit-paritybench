@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ def weights_init_kaiming(m):
 
 class ClassBlock(nn.Module):
 
-    def __init__(self, input_dim, class_num, droprate, relu=False, bnorm=
-        True, num_bottleneck=512, linear=True, return_f=False):
+    def __init__(self, input_dim, class_num, droprate, relu=False, bnorm=True, num_bottleneck=512, linear=True, return_f=False):
         super(ClassBlock, self).__init__()
         self.return_f = return_f
         add_block = []
@@ -180,8 +180,7 @@ class ft_net_NAS(nn.Module):
     def __init__(self, class_num, droprate=0.5):
         super().__init__()
         model_name = 'nasnetalarge'
-        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000,
-            pretrained='imagenet')
+        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained='imagenet')
         model_ft.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         model_ft.dropout = nn.Sequential()
         model_ft.last_linear = nn.Sequential()
@@ -235,8 +234,7 @@ class PCB(nn.Module):
         self.model.layer4[0].conv2.stride = 1, 1
         for i in range(self.part):
             name = 'classifier' + str(i)
-            setattr(self, name, ClassBlock(2048, class_num, droprate=0.5,
-                relu=False, bnorm=True, num_bottleneck=256))
+            setattr(self, name, ClassBlock(2048, class_num, droprate=0.5, relu=False, bnorm=True, num_bottleneck=256))
 
     def forward(self, x):
         x = self.model.conv1(x)
@@ -290,25 +288,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ClassBlock,
+     lambda: ([], {'input_dim': 4, 'class_num': 4, 'droprate': 0.5}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (PCB,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net_dense,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net_middle,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_layumi_Person_reID_baseline_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4, 'droprate': 0.5}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(PCB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ft_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ft_net_dense(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ft_net_middle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 

@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -77,34 +78,25 @@ from torch.optim import lr_scheduler
 
 class SMPLModel(Module):
 
-    def __init__(self, device=None, model_path='./model.pkl', data_type=
-        torch.float, simplify=False):
+    def __init__(self, device=None, model_path='./model.pkl', data_type=torch.float, simplify=False):
         super(SMPLModel, self).__init__()
         self.data_type = data_type
         self.simplify = simplify
         with open(model_path, 'rb') as f:
             params = pickle.load(f)
-        self.J_regressor = torch.from_numpy(np.array(params['J_regressor'].
-            todense())).type(self.data_type)
-        self.joint_regressor = torch.from_numpy(np.array(params[
-            'joint_regressor'].T.todense())).type(self.data_type)
+        self.J_regressor = torch.from_numpy(np.array(params['J_regressor'].todense())).type(self.data_type)
+        self.joint_regressor = torch.from_numpy(np.array(params['joint_regressor'].T.todense())).type(self.data_type)
         self.weights = torch.from_numpy(params['weights']).type(self.data_type)
-        self.posedirs = torch.from_numpy(params['posedirs']).type(self.
-            data_type)
-        self.v_template = torch.from_numpy(params['v_template']).type(self.
-            data_type)
-        self.shapedirs = torch.from_numpy(params['shapedirs']).type(self.
-            data_type)
+        self.posedirs = torch.from_numpy(params['posedirs']).type(self.data_type)
+        self.v_template = torch.from_numpy(params['v_template']).type(self.data_type)
+        self.shapedirs = torch.from_numpy(params['shapedirs']).type(self.data_type)
         self.kintree_table = params['kintree_table']
-        id_to_col = {self.kintree_table[1, i]: i for i in range(self.
-            kintree_table.shape[1])}
-        self.parent = {i: id_to_col[self.kintree_table[0, i]] for i in
-            range(1, self.kintree_table.shape[1])}
+        id_to_col = {self.kintree_table[1, i]: i for i in range(self.kintree_table.shape[1])}
+        self.parent = {i: id_to_col[self.kintree_table[0, i]] for i in range(1, self.kintree_table.shape[1])}
         self.faces = params['f']
         self.device = device if device is not None else torch.device('cpu')
         self.visualize_model_parameters()
-        for name in ['J_regressor', 'joint_regressor', 'weights',
-            'posedirs', 'v_template', 'shapedirs']:
+        for name in ['J_regressor', 'joint_regressor', 'weights', 'posedirs', 'v_template', 'shapedirs']:
             _tensor = getattr(self, name)
             None
             setattr(self, name, _tensor)
@@ -130,12 +122,9 @@ class SMPLModel(Module):
         r_hat = r / theta
         cos = torch.cos(theta)
         z_stick = torch.zeros(theta_dim, dtype=r.dtype)
-        m = torch.stack((z_stick, -r_hat[:, (0), (2)], r_hat[:, (0), (1)],
-            r_hat[:, (0), (2)], z_stick, -r_hat[:, (0), (0)], -r_hat[:, (0),
-            (1)], r_hat[:, (0), (0)], z_stick), dim=1)
+        m = torch.stack((z_stick, -r_hat[:, (0), (2)], r_hat[:, (0), (1)], r_hat[:, (0), (2)], z_stick, -r_hat[:, (0), (0)], -r_hat[:, (0), (1)], r_hat[:, (0), (0)], z_stick), dim=1)
         m = torch.reshape(m, (-1, 3, 3))
-        i_cube = torch.eye(3, dtype=r.dtype).unsqueeze(dim=0) + torch.zeros((
-            theta_dim, 3, 3), dtype=r.dtype)
+        i_cube = torch.eye(3, dtype=r.dtype).unsqueeze(dim=0) + torch.zeros((theta_dim, 3, 3), dtype=r.dtype)
         A = r_hat.permute(0, 2, 1)
         dot = torch.matmul(A, r_hat)
         R = cos * i_cube + (1 - cos) * dot + torch.sin(theta) * m
@@ -155,8 +144,7 @@ class SMPLModel(Module):
     Tensor after appending of shape [4,4]
 
     """
-        ones = torch.tensor([[[0.0, 0.0, 0.0, 1.0]]], dtype=x.dtype).expand(x
-            .shape[0], -1, -1)
+        ones = torch.tensor([[[0.0, 0.0, 0.0, 1.0]]], dtype=x.dtype).expand(x.shape[0], -1, -1)
         ret = torch.cat((x, ones), dim=1)
         return ret
 
@@ -194,23 +182,17 @@ class SMPLModel(Module):
     def _lR2G(self, lRs, J):
         batch_num = lRs.shape[0]
         results = []
-        results.append(self.with_zeros(torch.cat((lRs[:, (0)], torch.
-            reshape(J[:, (0), :], (-1, 3, 1))), dim=2)))
+        results.append(self.with_zeros(torch.cat((lRs[:, (0)], torch.reshape(J[:, (0), :], (-1, 3, 1))), dim=2)))
         for i in range(1, self.kintree_table.shape[1]):
-            results.append(torch.matmul(results[self.parent[i]], self.
-                with_zeros(torch.cat((lRs[:, (i)], torch.reshape(J[:, (i),
-                :] - J[:, (self.parent[i]), :], (-1, 3, 1))), dim=2))))
+            results.append(torch.matmul(results[self.parent[i]], self.with_zeros(torch.cat((lRs[:, (i)], torch.reshape(J[:, (i), :] - J[:, (self.parent[i]), :], (-1, 3, 1))), dim=2))))
         stacked = torch.stack(results, dim=1)
-        deformed_joint = torch.matmul(stacked, torch.reshape(torch.cat((J,
-            torch.zeros((batch_num, 24, 1), dtype=self.data_type)), dim=2),
-            (batch_num, 24, 4, 1)))
+        deformed_joint = torch.matmul(stacked, torch.reshape(torch.cat((J, torch.zeros((batch_num, 24, 1), dtype=self.data_type)), dim=2), (batch_num, 24, 4, 1)))
         results = stacked - self.pack(deformed_joint)
         return results, lRs
 
     def theta2G(self, thetas, J):
         batch_num = thetas.shape[0]
-        lRs = self.rodrigues(thetas.view(-1, 1, 3)).reshape(batch_num, -1, 3, 3
-            )
+        lRs = self.rodrigues(thetas.view(-1, 1, 3)).reshape(batch_num, -1, 3, 3)
         return self._lR2G(lRs, J)
     """
     gR2G: Calculate G terms from global rotation matrices.
@@ -222,8 +204,7 @@ class SMPLModel(Module):
     def gR2G(self, gR, J):
         lRs = [gR[:, (0)]]
         for i in range(1, self.kintree_table.shape[1]):
-            lRs.append(torch.bmm(gR[:, (self.parent[i])].transpose(1, 2),
-                gR[:, (i)]))
+            lRs.append(torch.bmm(gR[:, (self.parent[i])].transpose(1, 2), gR[:, (i)]))
         lRs = torch.stack(lRs, dim=1)
         return self._lR2G(lRs, J)
 
@@ -262,36 +243,27 @@ class SMPLModel(Module):
 
     """
         batch_num = betas.shape[0]
-        v_shaped = torch.tensordot(betas, self.shapedirs, dims=([1], [2])
-            ) + self.v_template
+        v_shaped = torch.tensordot(betas, self.shapedirs, dims=([1], [2])) + self.v_template
         J = torch.matmul(self.J_regressor, v_shaped)
         if gR is not None:
             G, R_cube_big = self.gR2G(gR, J)
         elif thetas is not None:
             G, R_cube_big = self.theta2G(thetas, J)
         else:
-            raise RuntimeError(
-                'Either thetas or gR should be specified, but detected two Nonetypes'
-                )
+            raise RuntimeError('Either thetas or gR should be specified, but detected two Nonetypes')
         if self.simplify:
             v_posed = v_shaped
         else:
             R_cube = R_cube_big[:, 1:, :, :]
-            I_cube = torch.eye(3, dtype=self.data_type).unsqueeze(dim=0
-                ) + torch.zeros((batch_num, R_cube.shape[1], 3, 3), dtype=
-                self.data_type)
+            I_cube = torch.eye(3, dtype=self.data_type).unsqueeze(dim=0) + torch.zeros((batch_num, R_cube.shape[1], 3, 3), dtype=self.data_type)
             lrotmin = (R_cube - I_cube).reshape(batch_num, -1)
-            v_posed = v_shaped + torch.tensordot(lrotmin, self.posedirs,
-                dims=([1], [2]))
-        T = torch.tensordot(G, self.weights, dims=([1], [1])).permute(0, 3,
-            1, 2)
-        rest_shape_h = torch.cat((v_posed, torch.ones((batch_num, v_posed.
-            shape[1], 1), dtype=self.data_type)), dim=2)
+            v_posed = v_shaped + torch.tensordot(lrotmin, self.posedirs, dims=([1], [2]))
+        T = torch.tensordot(G, self.weights, dims=([1], [1])).permute(0, 3, 1, 2)
+        rest_shape_h = torch.cat((v_posed, torch.ones((batch_num, v_posed.shape[1], 1), dtype=self.data_type)), dim=2)
         v = torch.matmul(T, torch.reshape(rest_shape_h, (batch_num, -1, 4, 1)))
         v = torch.reshape(v, (batch_num, -1, 4))[:, :, :3]
         result = v + torch.reshape(trans, (batch_num, 1, 3))
-        joints = torch.tensordot(result, self.joint_regressor, dims=([1], [0])
-            ).transpose(1, 2)
+        joints = torch.tensordot(result, self.joint_regressor, dims=([1], [0])).transpose(1, 2)
         return result, joints
 
 
@@ -322,8 +294,7 @@ class WeightedL1Loss(nn.Module):
 
     def __init__(self, uv_map, device):
         super(WeightedL1Loss, self).__init__()
-        self.weight = torch.from_numpy(acquire_weights(
-            'data_utils/{}_UV_weights.npy'.format(uv_map)))
+        self.weight = torch.from_numpy(acquire_weights('data_utils/{}_UV_weights.npy'.format(uv_map)))
         None
         self.loss = nn.L1Loss()
 
@@ -335,34 +306,28 @@ class TotalVariationLoss(nn.Module):
 
     def __init__(self, uv_map, device):
         super(TotalVariationLoss, self).__init__()
-        weight = torch.from_numpy(acquire_weights(
-            'data_utils/{}_UV_weights.npy'.format(uv_map)))
+        weight = torch.from_numpy(acquire_weights('data_utils/{}_UV_weights.npy'.format(uv_map)))
         self.weight = weight[0:-1, 0:-1]
         self.factor = self.weight.shape[0] * self.weight.shape[1]
 
     def __call__(self, input):
-        tv = torch.abs(input[:, :, 0:-1, 0:-1] - input[:, :, 0:-1, 1:]
-            ) + torch.abs(input[:, :, 0:-1, 0:-1] - input[:, :, 1:, 0:-1])
+        tv = torch.abs(input[:, :, 0:-1, 0:-1] - input[:, :, 0:-1, 1:]) + torch.abs(input[:, :, 0:-1, 0:-1] - input[:, :, 1:, 0:-1])
         return torch.sum(tv * self.weight) / self.factor
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicResBlock(nn.Module):
 
-    def __init__(self, inplanes, norm_layer=nn.BatchNorm2d,
-        activation_layer=nn.LeakyReLU(0.2, True)):
+    def __init__(self, inplanes, norm_layer=nn.BatchNorm2d, activation_layer=nn.LeakyReLU(0.2, True)):
         super(BasicResBlock, self).__init__()
         self.norm_layer = norm_layer
         self.activation_layer = activation_layer
         self.inplanes = inplanes
-        layers = [conv3x3(inplanes, inplanes), norm_layer(inplanes),
-            activation_layer, conv3x3(inplanes, inplanes), norm_layer(inplanes)
-            ]
+        layers = [conv3x3(inplanes, inplanes), norm_layer(inplanes), activation_layer, conv3x3(inplanes, inplanes), norm_layer(inplanes)]
         self.res = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -370,18 +335,14 @@ class BasicResBlock(nn.Module):
 
 
 def deconv3x3(in_planes, out_planes, stride=1):
-    return nn.Sequential(nn.Upsample(scale_factor=stride, mode='bilinear'),
-        nn.ReflectionPad2d(1), nn.Conv2d(in_planes, out_planes, kernel_size
-        =3, stride=1, padding=0))
+    return nn.Sequential(nn.Upsample(scale_factor=stride, mode='bilinear'), nn.ReflectionPad2d(1), nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=0))
 
 
 class ConvResBlock(nn.Module):
 
-    def __init__(self, inplanes, planes, direction, stride=1, norm_layer=nn
-        .BatchNorm2d, activation_layer=nn.LeakyReLU(0.2, True)):
+    def __init__(self, inplanes, planes, direction, stride=1, norm_layer=nn.BatchNorm2d, activation_layer=nn.LeakyReLU(0.2, True)):
         super(ConvResBlock, self).__init__()
-        self.res = BasicResBlock(inplanes, norm_layer=norm_layer,
-            activation_layer=activation_layer)
+        self.res = BasicResBlock(inplanes, norm_layer=norm_layer, activation_layer=activation_layer)
         self.activation = activation_layer
         if stride == 1 and inplanes == planes:
             conv = lambda x: x
@@ -390,9 +351,7 @@ class ConvResBlock(nn.Module):
         elif direction == 'up':
             conv = deconv3x3(inplanes, planes, stride=stride)
         else:
-            raise ValueError(
-                'Direction must be either "down" or "up", get %s instead.' %
-                direction)
+            raise ValueError('Direction must be either "down" or "up", get %s instead.' % direction)
         self.conv = conv
         self.inplanes = inplanes
         self.planes = planes
@@ -404,24 +363,19 @@ class ConvResBlock(nn.Module):
 
 class ResNetEncoder(nn.Module):
 
-    def __init__(self, im_size, nz=256, ngf=64, ndown=6, norm_layer=None,
-        nl_layer=None):
+    def __init__(self, im_size, nz=256, ngf=64, ndown=6, norm_layer=None, nl_layer=None):
         super(ResNetEncoder, self).__init__()
         self.ngf = ngf
         fc_dim = 2 * nz
-        layers = [nn.ReflectionPad2d(3), nn.Conv2d(3, ngf, kernel_size=7,
-            stride=1, padding=0), norm_layer(ngf), nl_layer]
+        layers = [nn.ReflectionPad2d(3), nn.Conv2d(3, ngf, kernel_size=7, stride=1, padding=0), norm_layer(ngf), nl_layer]
         prev = 1
         for i in range(ndown):
             im_size //= 2
             cur = min(8, prev * 2)
-            layers.append(ConvResBlock(ngf * prev, ngf * cur, direction=
-                'down', stride=2, norm_layer=norm_layer, activation_layer=
-                nl_layer))
+            layers.append(ConvResBlock(ngf * prev, ngf * cur, direction='down', stride=2, norm_layer=norm_layer, activation_layer=nl_layer))
             prev = cur
         self.conv = nn.Sequential(*layers)
-        self.fc = nn.Sequential(nn.Linear(im_size * im_size * ngf * cur,
-            fc_dim), nn.BatchNorm1d(fc_dim), nl_layer, nn.Linear(fc_dim, nz))
+        self.fc = nn.Sequential(nn.Linear(im_size * im_size * ngf * cur, fc_dim), nn.BatchNorm1d(fc_dim), nl_layer, nn.Linear(fc_dim, nz))
 
     def forward(self, x):
         x = self.conv(x)
@@ -431,24 +385,19 @@ class ResNetEncoder(nn.Module):
 
 class VGGEncoder(nn.Module):
 
-    def __init__(self, im_size, nz=256, ngf=64, ndown=5, norm_layer=None,
-        nl_layer=None):
+    def __init__(self, im_size, nz=256, ngf=64, ndown=5, norm_layer=None, nl_layer=None):
         super(VGGEncoder, self).__init__()
-        cfg_parts = [[1 * ngf, 1 * ngf, 'M'], [2 * ngf, 2 * ngf, 'M'], [4 *
-            ngf, 4 * ngf, 'M'], [8 * ngf, 8 * ngf, 'M']]
+        cfg_parts = [[1 * ngf, 1 * ngf, 'M'], [2 * ngf, 2 * ngf, 'M'], [4 * ngf, 4 * ngf, 'M'], [8 * ngf, 8 * ngf, 'M']]
         custom_cfg = []
         for i in range(ndown):
             custom_cfg += cfg_parts[min(i, 3)]
         fc_dim = 4 * nz
-        self.features = self._make_layers(cfg=custom_cfg, batch_norm=True,
-            norm_layer=norm_layer, nl_layer=nl_layer)
+        self.features = self._make_layers(cfg=custom_cfg, batch_norm=True, norm_layer=norm_layer, nl_layer=nl_layer)
         im_size = im_size // 2 ** ndown
         self.avgpool = nn.AdaptiveAvgPool2d((im_size, im_size))
-        self.classifier = nn.Sequential(nn.Linear(512 * im_size * im_size,
-            fc_dim), nl_layer, nn.Dropout(), nn.Linear(fc_dim, nz))
+        self.classifier = nn.Sequential(nn.Linear(512 * im_size * im_size, fc_dim), nl_layer, nn.Dropout(), nn.Linear(fc_dim, nz))
 
-    def _make_layers(self, cfg, batch_norm=False, norm_layer=None, nl_layer
-        =None):
+    def _make_layers(self, cfg, batch_norm=False, norm_layer=None, nl_layer=None):
         layers = []
         in_channels = 3
         for v in cfg:
@@ -475,8 +424,7 @@ class ConvResDecoder(nn.Module):
         ConvResDecoder: Use convres block for upsampling
     """
 
-    def __init__(self, im_size, nz, ngf=64, nup=6, norm_layer=None,
-        nl_layer=None):
+    def __init__(self, im_size, nz, ngf=64, nup=6, norm_layer=None, nl_layer=None):
         super(ConvResDecoder, self).__init__()
         self.im_size = im_size // 2 ** nup
         fc_dim = 2 * nz
@@ -484,16 +432,11 @@ class ConvResDecoder(nn.Module):
         prev = 8
         for i in range(nup - 1, -1, -1):
             cur = min(prev, 2 ** i)
-            layers.append(ConvResBlock(ngf * prev, ngf * cur, direction=
-                'up', stride=2, norm_layer=norm_layer, activation_layer=
-                nl_layer))
+            layers.append(ConvResBlock(ngf * prev, ngf * cur, direction='up', stride=2, norm_layer=norm_layer, activation_layer=nl_layer))
             prev = cur
-        layers += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, 3, kernel_size=7,
-            stride=1, padding=0), nn.Tanh()]
+        layers += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, 3, kernel_size=7, stride=1, padding=0), nn.Tanh()]
         self.conv = nn.Sequential(*layers)
-        self.fc = nn.Sequential(nn.Linear(nz, fc_dim), nn.BatchNorm1d(
-            fc_dim), nn.LeakyReLU(0.2, inplace=True), nn.Linear(fc_dim, 
-            self.im_size * self.im_size * ngf * 8))
+        self.fc = nn.Sequential(nn.Linear(nz, fc_dim), nn.BatchNorm1d(fc_dim), nn.LeakyReLU(0.2, inplace=True), nn.Linear(fc_dim, self.im_size * self.im_size * ngf * 8))
 
     def forward(self, x):
         x = self.fc(x)
@@ -506,8 +449,7 @@ class ConvUpSampleDecoder(nn.Module):
         SimpleDecoder
     """
 
-    def __init__(self, im_size, nz, ngf=64, nup=6, norm_layer=None,
-        nl_layer=None):
+    def __init__(self, im_size, nz, ngf=64, nup=6, norm_layer=None, nl_layer=None):
         super(ConvUpSampleDecoder, self).__init__()
         self.im_size = im_size // 2 ** nup
         fc_dim = 4 * nz
@@ -517,11 +459,9 @@ class ConvUpSampleDecoder(nn.Module):
             cur = min(prev, 2 ** i)
             layers.append(deconv3x3(ngf * prev, ngf * cur, stride=2))
             prev = cur
-        layers += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, 3, kernel_size=7,
-            stride=1, padding=0), nn.Tanh()]
+        layers += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, 3, kernel_size=7, stride=1, padding=0), nn.Tanh()]
         self.conv = nn.Sequential(*layers)
-        self.fc = nn.Sequential(nn.Linear(nz, fc_dim), nl_layer, nn.Dropout
-            (), nn.Linear(fc_dim, self.im_size * self.im_size * ngf * 8))
+        self.fc = nn.Sequential(nn.Linear(nz, fc_dim), nl_layer, nn.Dropout(), nn.Linear(fc_dim, self.im_size * self.im_size * ngf * 8))
 
     def forward(self, x):
         x = self.fc(x)
@@ -533,12 +473,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Lotayou_densebody_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BasicResBlock(*[], **{'inplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicResBlock,
+     lambda: ([], {'inplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvResBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'direction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_Lotayou_densebody_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ConvResBlock(*[], **{'inplanes': 4, 'planes': 4, 'direction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

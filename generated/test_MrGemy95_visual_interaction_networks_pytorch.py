@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ class Net(nn.Module):
         for i in range(6):
             row_idx = int(i / 2)
             col_idx = int(i % 2)
-            rel_combination.append(torch.cat([objects[row_idx], objects[
-                col_idx]], 1))
+            rel_combination.append(torch.cat([objects[row_idx], objects[col_idx]], 1))
         rel_combination = torch.cat(rel_combination)
         rel_combination = rel_combination.view(-1, 64 * 2)
         rel_sd_h1 = F.relu(self.rel_cores[core_idx][0](rel_combination))
@@ -115,8 +115,7 @@ class Net(nn.Module):
 
     def forward(self, x, x_cor, y_cor):
         f1, f2, f3, f4, f5, f6 = torch.chunk(x, 6, 1)
-        f1, f2, f3, f4, f5, f6 = f1.squeeze(), f2.squeeze(), f3.squeeze(
-            ), f4.squeeze(), f5.squeeze(), f6.squeeze()
+        f1, f2, f3, f4, f5, f6 = f1.squeeze(), f2.squeeze(), f3.squeeze(), f4.squeeze(), f5.squeeze(), f6.squeeze()
         f1f2 = torch.cat([f1, f2], 1)
         f2f3 = torch.cat([f2, f3], 1)
         f3f4 = torch.cat([f3, f4], 1)
@@ -186,10 +185,3 @@ class Net(nn.Module):
             num_features *= s
         return num_features
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_MrGemy95_visual_interaction_networks_pytorch(_paritybench_base):
-    pass

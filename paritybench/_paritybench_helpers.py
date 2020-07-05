@@ -49,16 +49,26 @@ def _fails_compile():
 
 
 class _paritybench_base(JitTestCase):
-    def _check(self, script, args, kwargs):
+    def _check(self, module, init_args, forward_args, compiles=True):
+        args, kwargs = init_args()
+        script = module(*args, **kwargs)
+
         try:
             script.eval()
         except:
             pass
+
+        args, kwargs = forward_args()
         result1 = script(*copy.deepcopy(args), **copy.deepcopy(kwargs))
         result2 = script(*copy.deepcopy(args), **copy.deepcopy(kwargs))
         if os.environ.get('TEST_PY_ONLY'):
             return
+
+        if not os.environ.get('TEST_ALL') and not compiles:
+            raise unittest.SkipTest("jit compile fails")
+
         jit_script = torch.jit.script(script)
+
         if os.environ.get('TEST_COMPILE_ONLY'):
             return
         result3 = jit_script(*args, **kwargs)

@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -57,10 +58,8 @@ class MultiBoxLayer(nn.Module):
         self.loc_layers = nn.ModuleList()
         self.conf_layers = nn.ModuleList()
         for i in range(len(self.in_planes)):
-            self.loc_layers.append(nn.Conv2d(self.in_planes[i], self.
-                num_anchors[i] * 4, kernel_size=3, padding=1))
-            self.conf_layers.append(nn.Conv2d(self.in_planes[i], self.
-                num_anchors[i] * 2, kernel_size=3, padding=1))
+            self.loc_layers.append(nn.Conv2d(self.in_planes[i], self.num_anchors[i] * 4, kernel_size=3, padding=1))
+            self.conf_layers.append(nn.Conv2d(self.in_planes[i], self.num_anchors[i] * 2, kernel_size=3, padding=1))
 
     def forward(self, xs):
         """
@@ -95,8 +94,7 @@ class MultiBoxLoss(nn.Module):
         x = x.detach()
         y = y.detach()
         xmax = x.data.max()
-        log_sum_exp = torch.log(torch.sum(torch.exp(x - xmax), 1, keepdim=True)
-            ) + xmax
+        log_sum_exp = torch.log(torch.sum(torch.exp(x - xmax), 1, keepdim=True)) + xmax
         return log_sum_exp - x.gather(1, y.view(-1, 1))
 
     def hard_negative_mining(self, conf_loss, pos):
@@ -131,10 +129,8 @@ class MultiBoxLoss(nn.Module):
         pos_mask1 = pos.unsqueeze(2).expand_as(loc_preds)
         pos_loc_preds = loc_preds[pos_mask1].view(-1, 4)
         pos_loc_targets = loc_targets[pos_mask1].view(-1, 4)
-        loc_loss = F.smooth_l1_loss(pos_loc_preds, pos_loc_targets,
-            size_average=False)
-        conf_loss = self.cross_entropy_loss(conf_preds.view(-1, self.
-            num_classes), conf_targets.view(-1, 1))
+        loc_loss = F.smooth_l1_loss(pos_loc_preds, pos_loc_targets, size_average=False)
+        conf_loss = self.cross_entropy_loss(conf_preds.view(-1, self.num_classes), conf_targets.view(-1, 1))
         neg = self.hard_negative_mining(conf_loss, pos)
         pos_mask = pos.unsqueeze(2).expand_as(conf_preds)
         neg_mask = neg.unsqueeze(2).expand_as(conf_preds)
@@ -151,9 +147,7 @@ class MultiBoxLoss(nn.Module):
 
 
 def conv_bn_relu(in_channels, out_channels, kernel_size, stride=1, padding=0):
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=
-        kernel_size, padding=padding, stride=stride), nn.BatchNorm2d(
-        out_channels), nn.ReLU(True))
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride), nn.BatchNorm2d(out_channels), nn.ReLU(True))
 
 
 class Inception(nn.Module):
@@ -227,12 +221,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FaceBox,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Inception,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+]
+
 class Test_lxg2015_faceboxes(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FaceBox(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

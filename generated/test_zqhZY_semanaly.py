@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -104,14 +105,10 @@ class TextLSTM(nn.Module):
         super(TextLSTM, self).__init__()
         self.opt = opt
         self.embedding = nn.Embedding(opt.vocab_size, opt.embed_dim)
-        self.lstm = nn.LSTM(input_size=opt.embed_dim, hidden_size=opt.
-            hidden_size, num_layers=1, batch_first=True, bidirectional=False)
-        self.linears = nn.Sequential(nn.Linear(opt.hidden_size, opt.
-            linear_hidden_size), nn.ReLU(), nn.Dropout(0.25), nn.Linear(opt
-            .linear_hidden_size, opt.num_classes))
+        self.lstm = nn.LSTM(input_size=opt.embed_dim, hidden_size=opt.hidden_size, num_layers=1, batch_first=True, bidirectional=False)
+        self.linears = nn.Sequential(nn.Linear(opt.hidden_size, opt.linear_hidden_size), nn.ReLU(), nn.Dropout(0.25), nn.Linear(opt.linear_hidden_size, opt.num_classes))
         if opt.embedding_path:
-            self.embedding.weight.data.copy_(torch.from_numpy(np.load(opt.
-                embedding_path)))
+            self.embedding.weight.data.copy_(torch.from_numpy(np.load(opt.embedding_path)))
 
     def forward(self, x):
         x = self.embedding(x)
@@ -120,10 +117,3 @@ class TextLSTM(nn.Module):
         out = self.linears(lstm_out[:, (-1), :])
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_zqhZY_semanaly(_paritybench_base):
-    pass

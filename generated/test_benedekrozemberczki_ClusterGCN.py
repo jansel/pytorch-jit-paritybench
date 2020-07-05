@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,11 +59,9 @@ class StackedGCN(torch.nn.Module):
         Creating the layes based on the args.
         """
         self.layers = []
-        self.args.layers = [self.input_channels] + self.args.layers + [self
-            .output_channels]
+        self.args.layers = [self.input_channels] + self.args.layers + [self.output_channels]
         for i, _ in enumerate(self.args.layers[:-1]):
-            self.layers.append(GCNConv(self.args.layers[i], self.args.
-                layers[i + 1]))
+            self.layers.append(GCNConv(self.args.layers[i], self.args.layers[i + 1]))
         self.layers = ListModule(*self.layers)
 
     def forward(self, edges, features):
@@ -73,11 +72,9 @@ class StackedGCN(torch.nn.Module):
         :return predictions: Prediction matrix output FLoatTensor.
         """
         for i, _ in enumerate(self.args.layers[:-2]):
-            features = torch.nn.functional.relu(self.layers[i](features, edges)
-                )
+            features = torch.nn.functional.relu(self.layers[i](features, edges))
             if i > 1:
-                features = torch.nn.functional.dropout(features, p=self.
-                    args.dropout, training=self.training)
+                features = torch.nn.functional.dropout(features, p=self.args.dropout, training=self.training)
         features = self.layers[i + 1](features, edges)
         predictions = torch.nn.functional.log_softmax(features, dim=1)
         return predictions
@@ -121,10 +118,3 @@ class ListModule(torch.nn.Module):
         """
         return len(self._modules)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_benedekrozemberczki_ClusterGCN(_paritybench_base):
-    pass

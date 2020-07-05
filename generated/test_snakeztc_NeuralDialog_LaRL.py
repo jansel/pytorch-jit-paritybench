@@ -53,8 +53,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -190,16 +191,13 @@ class BaseModel(nn.Module):
         if config.op == 'adam':
             if verbose:
                 None
-            return optim.Adam(filter(lambda p: p.requires_grad, self.
-                parameters()), lr=config.init_lr, weight_decay=config.l2_norm)
+            return optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr=config.init_lr, weight_decay=config.l2_norm)
         elif config.op == 'sgd':
             None
-            return optim.SGD(self.parameters(), lr=config.init_lr, momentum
-                =config.momentum)
+            return optim.SGD(self.parameters(), lr=config.init_lr, momentum=config.momentum)
         elif config.op == 'rmsprop':
             None
-            return optim.RMSprop(self.parameters(), lr=config.init_lr,
-                momentum=config.momentum)
+            return optim.RMSprop(self.parameters(), lr=config.init_lr, momentum=config.momentum)
 
     def get_clf_optimizer(self, config):
         params = []
@@ -211,12 +209,10 @@ class BaseModel(nn.Module):
             return optim.Adam(params, lr=config.fine_tune_lr)
         elif config.fine_tune_op == 'sgd':
             None
-            return optim.SGD(params, lr=config.fine_tune_lr, momentum=
-                config.fine_tune_momentum)
+            return optim.SGD(params, lr=config.fine_tune_lr, momentum=config.fine_tune_momentum)
         elif config.fine_tune_op == 'rmsprop':
             None
-            return optim.RMSprop(params, lr=config.fine_tune_lr, momentum=
-                config.fine_tune_momentum)
+            return optim.RMSprop(params, lr=config.fine_tune_lr, momentum=config.fine_tune_momentum)
 
     def model_sel_loss(self, loss, batch_cnt):
         return self.valid_loss(loss, batch_cnt)
@@ -260,23 +256,19 @@ class NLLEntropy(_Loss):
         pred = net_output.view(-1, net_output.size(-1))
         target = labels.view(-1)
         if self.avg_type is None:
-            loss = F.nll_loss(pred, target, size_average=False,
-                ignore_index=self.padding_idx)
+            loss = F.nll_loss(pred, target, size_average=False, ignore_index=self.padding_idx)
         elif self.avg_type == 'seq':
-            loss = F.nll_loss(pred, target, size_average=False,
-                ignore_index=self.padding_idx)
+            loss = F.nll_loss(pred, target, size_average=False, ignore_index=self.padding_idx)
             loss = loss / batch_size
         elif self.avg_type == 'real_word':
-            loss = F.nll_loss(pred, target, ignore_index=self.padding_idx,
-                reduce=False)
+            loss = F.nll_loss(pred, target, ignore_index=self.padding_idx, reduce=False)
             loss = loss.view(-1, net_output.size(1))
             loss = th.sum(loss, dim=1)
             word_cnt = th.sum(th.sign(labels), dim=1).float()
             loss = loss / word_cnt
             loss = th.mean(loss)
         elif self.avg_type == 'word':
-            loss = F.nll_loss(pred, target, size_average=True, ignore_index
-                =self.padding_idx)
+            loss = F.nll_loss(pred, target, size_average=True, ignore_index=self.padding_idx)
         else:
             raise ValueError('Unknown average type')
         return loss
@@ -284,8 +276,7 @@ class NLLEntropy(_Loss):
 
 class NLLEntropy4CLF(_Loss):
 
-    def __init__(self, dictionary, bad_tokens=['<disconnect>', '<disagree>'
-        ], reduction='elementwise_mean'):
+    def __init__(self, dictionary, bad_tokens=['<disconnect>', '<disagree>'], reduction='elementwise_mean'):
         super(NLLEntropy4CLF, self).__init__()
         w = th.Tensor(len(dictionary)).fill_(1)
         for token in bad_tokens:
@@ -303,8 +294,7 @@ domain = 'object_division'
 
 class CombinedNLLEntropy4CLF(_Loss):
 
-    def __init__(self, dictionary, corpus, np2var, bad_tokens=[
-        '<disconnect>', '<disagree>']):
+    def __init__(self, dictionary, corpus, np2var, bad_tokens=['<disconnect>', '<disagree>']):
         super(CombinedNLLEntropy4CLF, self).__init__()
         self.dictionary = dictionary
         self.domain = domain.get_domain('object_division')
@@ -329,8 +319,7 @@ class CombinedNLLEntropy4CLF(_Loss):
             for i in range(self.domain.selection_length()):
                 idxs = np.array([self.dictionary[c[i]] for c in choices])
                 idxs_var = self.np2var(idxs, LONG)
-                choices_logits.append(th.gather(sel_outs[i], 0, idxs_var).
-                    unsqueeze(1))
+                choices_logits.append(th.gather(sel_outs[i], 0, idxs_var).unsqueeze(1))
             choice_logit = th.sum(th.cat(choices_logits, 1), 1, keepdim=False)
             choice_logit = choice_logit.sub(choice_logit.max().item())
             prob = F.softmax(choice_logit, dim=0)
@@ -389,8 +378,7 @@ class BinaryNLLEntropy(_Loss):
         :return:
         """
         batch_size = net_output.size(0)
-        loss = F.binary_cross_entropy_with_logits(net_output, label_output,
-            size_average=self.size_average)
+        loss = F.binary_cross_entropy_with_logits(net_output, label_output, size_average=self.size_average)
         if self.size_average is False:
             loss /= batch_size
         return loss
@@ -418,8 +406,7 @@ class BaseRNN(nn.Module):
     KEY_ATTN_SCORE = 'attention_score'
     KEY_SEQUENCE = 'sequence'
 
-    def __init__(self, input_dropout_p, rnn_cell, input_size, hidden_size,
-        num_layers, output_dropout_p, bidirectional):
+    def __init__(self, input_dropout_p, rnn_cell, input_size, hidden_size, num_layers, output_dropout_p, bidirectional):
         super(BaseRNN, self).__init__()
         self.input_dropout = nn.Dropout(p=input_dropout_p)
         if rnn_cell.lower() == 'lstm':
@@ -428,9 +415,7 @@ class BaseRNN(nn.Module):
             self.rnn_cell = nn.GRU
         else:
             raise ValueError('Unsupported RNN Cell Type: {0}'.format(rnn_cell))
-        self.rnn = self.rnn_cell(input_size=input_size, hidden_size=
-            hidden_size, num_layers=num_layers, batch_first=True, dropout=
-            output_dropout_p, bidirectional=bidirectional)
+        self.rnn = self.rnn_cell(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, dropout=output_dropout_p, bidirectional=bidirectional)
         if rnn_cell.lower() == 'lstm':
             for names in self.rnn._all_weights:
                 for name in filter(lambda n: 'bias' in n, names):
@@ -445,8 +430,7 @@ class FeatureProjecter(nn.Module):
     def __init__(self, input_dropout_p, input_size, output_size):
         super(FeatureProjecter, self).__init__()
         self.input_dropout = nn.Dropout(p=input_dropout_p)
-        self.sel_encoder = nn.Sequential(nn.Linear(input_size, output_size),
-            nn.Tanh())
+        self.sel_encoder = nn.Sequential(nn.Linear(input_size, output_size), nn.Tanh())
 
     def forward(self, goals_h, attn_outs):
         h = th.cat([attn_outs, goals_h], 1)
@@ -464,8 +448,7 @@ class SelectionClassifier(nn.Module):
             self.sel_decoders.append(nn.Linear(input_size, output_size))
 
     def forward(self, proj_outs):
-        outs = [decoder.forward(proj_outs).unsqueeze(1) for decoder in self
-            .sel_decoders]
+        outs = [decoder.forward(proj_outs).unsqueeze(1) for decoder in self.sel_decoders]
         outs = th.cat(outs, 1)
         return outs
 
@@ -478,8 +461,7 @@ class Attention(nn.Module):
         self.ctx_cell_size = ctx_cell_size
         self.attn_mode = attn_mode
         if project:
-            self.linear_out = nn.Linear(dec_cell_size + ctx_cell_size,
-                dec_cell_size)
+            self.linear_out = nn.Linear(dec_cell_size + ctx_cell_size, dec_cell_size)
         else:
             self.linear_out = None
         if attn_mode == 'general':
@@ -500,76 +482,56 @@ class Attention(nn.Module):
         elif self.attn_mode == 'cat':
             mapped_output = self.dec_w(output)
             mapped_attn = self.attn_w(context)
-            tiled_output = mapped_output.unsqueeze(2).repeat(1, 1,
-                max_ctx_len, 1)
+            tiled_output = mapped_output.unsqueeze(2).repeat(1, 1, max_ctx_len, 1)
             tiled_attn = mapped_attn.unsqueeze(1)
             fc1 = F.tanh(tiled_output + tiled_attn)
             attn = self.query_w(fc1).squeeze(-1)
         else:
             raise ValueError('Unknown attention mode')
-        attn = F.softmax(attn.view(-1, max_ctx_len), dim=1).view(batch_size,
-            -1, max_ctx_len)
+        attn = F.softmax(attn.view(-1, max_ctx_len), dim=1).view(batch_size, -1, max_ctx_len)
         mix = th.bmm(attn, context)
         combined = th.cat((mix, output), dim=2)
         if self.linear_out is None:
             return combined, attn
         else:
-            output = F.tanh(self.linear_out(combined.view(-1, self.
-                dec_cell_size + self.ctx_cell_size))).view(batch_size, -1,
-                self.dec_cell_size)
+            output = F.tanh(self.linear_out(combined.view(-1, self.dec_cell_size + self.ctx_cell_size))).view(batch_size, -1, self.dec_cell_size)
             return output, attn
 
 
 class EncoderRNN(BaseRNN):
 
-    def __init__(self, input_dropout_p, rnn_cell, input_size, hidden_size,
-        num_layers, output_dropout_p, bidirectional, variable_lengths):
-        super(EncoderRNN, self).__init__(input_dropout_p=input_dropout_p,
-            rnn_cell=rnn_cell, input_size=input_size, hidden_size=
-            hidden_size, num_layers=num_layers, output_dropout_p=
-            output_dropout_p, bidirectional=bidirectional)
+    def __init__(self, input_dropout_p, rnn_cell, input_size, hidden_size, num_layers, output_dropout_p, bidirectional, variable_lengths):
+        super(EncoderRNN, self).__init__(input_dropout_p=input_dropout_p, rnn_cell=rnn_cell, input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, output_dropout_p=output_dropout_p, bidirectional=bidirectional)
         self.variable_lengths = variable_lengths
         self.output_size = hidden_size * 2 if bidirectional else hidden_size
 
-    def forward(self, input_var, init_state=None, input_lengths=None, goals
-        =None):
+    def forward(self, input_var, init_state=None, input_lengths=None, goals=None):
         if goals is not None:
             batch_size, max_ctx_len, ctx_nhid = input_var.size()
             goals = goals.view(goals.size(0), 1, goals.size(1))
-            goals_rep = goals.repeat(1, max_ctx_len, 1).view(batch_size,
-                max_ctx_len, -1)
+            goals_rep = goals.repeat(1, max_ctx_len, 1).view(batch_size, max_ctx_len, -1)
             input_var = th.cat([input_var, goals_rep], dim=2)
         embedded = self.input_dropout(input_var)
         if self.variable_lengths:
-            embedded = nn.utils.rnn.pack_padded_sequence(embedded,
-                input_lengths, batch_first=True)
+            embedded = nn.utils.rnn.pack_padded_sequence(embedded, input_lengths, batch_first=True)
         if init_state is not None:
             output, hidden = self.rnn(embedded, init_state)
         else:
             output, hidden = self.rnn(embedded)
         if self.variable_lengths:
-            output, _ = nn.utils.rnn.pad_packed_sequence(output,
-                batch_first=True)
+            output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
         return output, hidden
 
 
 class RnnUttEncoder(nn.Module):
 
-    def __init__(self, vocab_size, embedding_dim, feat_size, goal_nhid,
-        rnn_cell, utt_cell_size, num_layers, input_dropout_p,
-        output_dropout_p, bidirectional, variable_lengths, use_attn,
-        embedding=None):
+    def __init__(self, vocab_size, embedding_dim, feat_size, goal_nhid, rnn_cell, utt_cell_size, num_layers, input_dropout_p, output_dropout_p, bidirectional, variable_lengths, use_attn, embedding=None):
         super(RnnUttEncoder, self).__init__()
         if embedding is None:
-            self.embedding = nn.Embedding(num_embeddings=vocab_size,
-                embedding_dim=embedding_dim)
+            self.embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim)
         else:
             self.embedding = embedding
-        self.rnn = EncoderRNN(input_dropout_p=input_dropout_p, rnn_cell=
-            rnn_cell, input_size=embedding_dim + feat_size + goal_nhid,
-            hidden_size=utt_cell_size, num_layers=num_layers,
-            output_dropout_p=output_dropout_p, bidirectional=bidirectional,
-            variable_lengths=variable_lengths)
+        self.rnn = EncoderRNN(input_dropout_p=input_dropout_p, rnn_cell=rnn_cell, input_size=embedding_dim + feat_size + goal_nhid, hidden_size=utt_cell_size, num_layers=num_layers, output_dropout_p=output_dropout_p, bidirectional=bidirectional, variable_lengths=variable_lengths)
         self.utt_cell_size = utt_cell_size
         self.multiplier = 2 if bidirectional else 1
         self.output_size = self.multiplier * self.utt_cell_size
@@ -589,8 +551,7 @@ class RnnUttEncoder(nn.Module):
             word_embeddings = th.cat([word_embeddings, flat_feats], dim=2)
         if goals is not None:
             goals = goals.view(goals.size(0), 1, 1, goals.size(1))
-            goals_rep = goals.repeat(1, max_ctx_len, max_utt_len, 1).view(
-                batch_size * max_ctx_len, max_utt_len, -1)
+            goals_rep = goals.repeat(1, max_ctx_len, max_utt_len, 1).view(batch_size * max_ctx_len, max_utt_len, -1)
             word_embeddings = th.cat([word_embeddings, goals_rep], dim=2)
         enc_outs, enc_last = self.rnn(word_embeddings, init_state=init_state)
         if self.use_attn:
@@ -598,19 +559,15 @@ class RnnUttEncoder(nn.Module):
             attn = self.query(fc1).squeeze(2)
             attn = F.softmax(attn, attn.dim() - 1)
             attn = attn * flat_mask
-            attn = (attn / (th.sum(attn, dim=1, keepdim=True) + 1e-10)
-                ).unsqueeze(2)
+            attn = (attn / (th.sum(attn, dim=1, keepdim=True) + 1e-10)).unsqueeze(2)
             utt_embedded = attn * enc_outs
             utt_embedded = th.sum(utt_embedded, dim=1)
         else:
             attn = None
             utt_embedded = enc_last.transpose(0, 1).contiguous()
             utt_embedded = utt_embedded.view(-1, self.output_size)
-        utt_embedded = utt_embedded.view(batch_size, max_ctx_len, self.
-            output_size)
-        return utt_embedded, word_embeddings.contiguous().view(batch_size, 
-            max_ctx_len * max_utt_len, -1), enc_outs.contiguous().view(
-            batch_size, max_ctx_len * max_utt_len, -1)
+        utt_embedded = utt_embedded.view(batch_size, max_ctx_len, self.output_size)
+        return utt_embedded, word_embeddings.contiguous().view(batch_size, max_ctx_len * max_utt_len, -1), enc_outs.contiguous().view(batch_size, max_ctx_len * max_utt_len, -1)
 
 
 class MlpGoalEncoder(nn.Module):
@@ -672,8 +629,7 @@ class TaskMlpGoalEncoder(nn.Module):
                 m.bias.data.fill_(0)
 
     def forward(self, goals_list):
-        outs = [encoder.forward(goal) for goal, encoder in zip(goals_list,
-            self.encoder)]
+        outs = [encoder.forward(goal) for goal, encoder in zip(goals_list, self.encoder)]
         outs = th.sum(th.stack(outs), dim=0)
         return outs
 
@@ -733,12 +689,10 @@ class Bi2UniConnector(nn.Module):
             flat_c = c.transpose(0, 1).contiguous()
             new_h = self.fch(flat_h.view(-1, self.hidden_size * num_layer))
             new_c = self.fch(flat_c.view(-1, self.hidden_size * num_layer))
-            return new_h.view(1, -1, self.output_size), new_c.view(1, -1,
-                self.output_size)
+            return new_h.view(1, -1, self.output_size), new_c.view(1, -1, self.output_size)
         else:
             num_layer = hidden_state.size()[0]
-            new_s = self.fc(hidden_state.view(-1, self.hidden_size * num_layer)
-                )
+            new_s = self.fc(hidden_state.view(-1, self.hidden_size * num_layer))
             new_s = new_s.view(1, -1, self.output_size)
             return new_s
 
@@ -778,8 +732,7 @@ class Hidden2Gaussian(nn.Module):
 
 class Hidden2Discrete(nn.Module):
 
-    def __init__(self, input_size, y_size, k_size, is_lstm=False, has_bias=True
-        ):
+    def __init__(self, input_size, y_size, k_size, is_lstm=False, has_bias=True):
         super(Hidden2Discrete, self).__init__()
         self.y_size = y_size
         self.k_size = k_size
@@ -849,8 +802,7 @@ class GumbelConnector(nn.Module):
         y = logits + eps
         return F.softmax(y / temperature, dim=y.dim() - 1)
 
-    def forward(self, logits, temperature=1.0, hard=False, return_max_id=False
-        ):
+    def forward(self, logits, temperature=1.0, hard=False, return_max_id=False):
         """
         :param logits: [batch_size, n_class] unnormalized log-prob
         :param temperature: non-negative scalar
@@ -861,8 +813,7 @@ class GumbelConnector(nn.Module):
         y = self.gumbel_softmax_sample(logits, temperature, self.use_gpu)
         _, y_hard = th.max(y, dim=1, keepdim=True)
         if hard:
-            y_onehot = cast_type(Variable(th.zeros(y.size())), FLOAT, self.
-                use_gpu)
+            y_onehot = cast_type(Variable(th.zeros(y.size())), FLOAT, self.use_gpu)
             y_onehot.scatter_(1, y_hard, 1.0)
             y = y_onehot
         if return_max_id:
@@ -875,44 +826,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BinaryNLLEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeatureProjecter,
+     lambda: ([], {'input_dropout_p': 0.5, 'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GaussianConnector,
+     lambda: ([], {'use_gpu': False}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GumbelConnector,
+     lambda: ([], {'use_gpu': False}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Hidden2Discrete,
+     lambda: ([], {'input_size': 4, 'y_size': 4, 'k_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Hidden2Gaussian,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IdentityConnector,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NormKLLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelectionClassifier,
+     lambda: ([], {'selection_length': 4, 'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfAttn,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TaskMlpGoalEncoder,
+     lambda: ([], {'goal_vocab_sizes': [4, 4], 'nhid': 4, 'init_range': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_snakeztc_NeuralDialog_LaRL(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BinaryNLLEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FeatureProjecter(*[], **{'input_dropout_p': 0.5, 'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GaussianConnector(*[], **{'use_gpu': False}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GumbelConnector(*[], **{'use_gpu': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Hidden2Discrete(*[], **{'input_size': 4, 'y_size': 4, 'k_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(Hidden2Gaussian(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(IdentityConnector(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(NormKLLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(SelectionClassifier(*[], **{'selection_length': 4, 'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(SelfAttn(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(TaskMlpGoalEncoder(*[], **{'goal_vocab_sizes': [4, 4], 'nhid': 4, 'init_range': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

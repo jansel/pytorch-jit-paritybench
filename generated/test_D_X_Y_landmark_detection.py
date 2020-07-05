@@ -111,8 +111,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -200,12 +201,10 @@ class AddCoords(nn.Module):
         yy_channel = yy_channel * 2 - 1
         xx_channel = xx_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
         yy_channel = yy_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
-        xx_channel, yy_channel = xx_channel.type_as(input_tensor
-            ), yy_channel.type_as(input_tensor)
+        xx_channel, yy_channel = xx_channel.type_as(input_tensor), yy_channel.type_as(input_tensor)
         ret = torch.cat([input_tensor, xx_channel, yy_channel], dim=1)
         if self.with_r:
-            rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) + torch.pow(
-                yy_channel - 0.5, 2))
+            rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) + torch.pow(yy_channel - 0.5, 2))
             ret = torch.cat([ret, rr], dim=1)
         return ret
 
@@ -235,17 +234,9 @@ class InvertedResidual(nn.Module):
         hidden_dim = round(inp * expand_ratio)
         self.use_res_connect = self.stride == 1 and inp == oup
         if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3,
-                stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(
-                hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim,
-                oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
         else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=
-                True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1,
-                groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim),
-                nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -255,8 +246,7 @@ class InvertedResidual(nn.Module):
 
 
 def conv_bn(inp, oup, kernels, stride, pad):
-    return nn.Sequential(nn.Conv2d(inp, oup, kernels, stride, pad, bias=
-        False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, kernels, stride, pad, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 def weights_init_reg(m):
@@ -280,8 +270,7 @@ class MobileNetV2REG(nn.Module):
         super(MobileNetV2REG, self).__init__()
         self.pts_num = pts_num
         block = InvertedResidual
-        interverted_residual_setting = [[1, 48, 1, 1], [2, 48, 5, 2], [2, 
-            96, 1, 2], [4, 96, 6, 1], [2, 16, 1, 1]]
+        interverted_residual_setting = [[1, 48, 1, 1], [2, 48, 5, 2], [2, 96, 1, 2], [4, 96, 6, 1], [2, 16, 1, 1]]
         input_channel = int(input_channel * width_mult)
         features = [conv_bn(input_dim, input_channel, (3, 3), 2, 1)]
         for t, c, n, s in interverted_residual_setting:
@@ -291,19 +280,13 @@ class MobileNetV2REG(nn.Module):
                     stride = s
                 else:
                     stride = 1
-                features.append(block(input_channel, output_channel, stride,
-                    expand_ratio=t))
+                features.append(block(input_channel, output_channel, stride, expand_ratio=t))
                 input_channel = output_channel
         features.append(nn.AdaptiveAvgPool2d((14, 14)))
         self.features = nn.Sequential(*features)
-        self.S1 = nn.Sequential(CoordConv(input_channel, input_channel * 2,
-            True, kernel_size=3, padding=1), conv_bn(input_channel * 2, 
-            input_channel * 2, (3, 3), 2, 1))
-        self.S2 = nn.Sequential(CoordConv(input_channel * 2, input_channel *
-            4, True, kernel_size=3, padding=1), conv_bn(input_channel * 4, 
-            input_channel * 8, (7, 7), 1, 0))
-        output_neurons = (14 * 14 * input_channel + 7 * 7 * input_channel *
-            2 + input_channel * 8)
+        self.S1 = nn.Sequential(CoordConv(input_channel, input_channel * 2, True, kernel_size=3, padding=1), conv_bn(input_channel * 2, input_channel * 2, (3, 3), 2, 1))
+        self.S2 = nn.Sequential(CoordConv(input_channel * 2, input_channel * 4, True, kernel_size=3, padding=1), conv_bn(input_channel * 4, input_channel * 8, (7, 7), 1, 0))
+        output_neurons = 14 * 14 * input_channel + 7 * 7 * input_channel * 2 + input_channel * 8
         self.locator = nn.Sequential(nn.Linear(output_neurons, pts_num * 2))
         self.apply(weights_init_reg)
 
@@ -312,8 +295,7 @@ class MobileNetV2REG(nn.Module):
         features = self.features(x)
         S1 = self.S1(features)
         S2 = self.S2(S1)
-        tensors = torch.cat((features.view(batch, -1), S1.view(batch, -1),
-            S2.view(batch, -1)), dim=1)
+        tensors = torch.cat((features.view(batch, -1), S1.view(batch, -1), S2.view(batch, -1)), dim=1)
         batch_locs = self.locator(tensors).view(batch, self.pts_num, 2)
         return batch_locs
 
@@ -325,24 +307,17 @@ class NLayerDiscriminator(nn.Module):
         self.gpu_ids = gpu_ids
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(3, 64, kernel_size=kw, stride=2, padding=padw
-            ), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(3, 64, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=True), nn.
-                InstanceNorm2d(64 * nf_mult, affine=False), nn.LeakyReLU(
-                0.2, True)]
+            sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=True), nn.InstanceNorm2d(64 * nf_mult, affine=False), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult, kernel_size
-            =kw, stride=1, padding=padw, bias=True), nn.InstanceNorm2d(64 *
-            nf_mult, affine=False), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(64 * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw)]
+        sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=True), nn.InstanceNorm2d(64 * nf_mult, affine=False), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(64 * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -356,8 +331,7 @@ class NLayerDiscriminator(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -372,20 +346,16 @@ class GANLoss(nn.Module):
     def get_target_tensor(self, input, target_is_real):
         target_tensor = None
         if target_is_real:
-            create_label = (self.real_label_var is None or self.
-                real_label_var.numel() != input.numel())
+            create_label = self.real_label_var is None or self.real_label_var.numel() != input.numel()
             if create_label:
                 real_tensor = self.Tensor(input.size()).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False
-                    )
+                self.real_label_var = Variable(real_tensor, requires_grad=False)
             target_tensor = self.real_label_var
         else:
-            create_label = (self.fake_label_var is None or self.
-                fake_label_var.numel() != input.numel())
+            create_label = self.fake_label_var is None or self.fake_label_var.numel() != input.numel()
             if create_label:
                 fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False
-                    )
+                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
             target_tensor = self.fake_label_var
         return target_tensor
 
@@ -398,8 +368,7 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, use_dropout, use_bias)
 
     def build_conv_block(self, dim, padding_type, use_dropout, use_bias):
         conv_block = []
@@ -411,10 +380,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), nn.InstanceNorm2d(dim, affine=False), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), nn.InstanceNorm2d(dim, affine=False), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -425,10 +392,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), nn.InstanceNorm2d(dim, affine=False)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), nn.InstanceNorm2d(dim, affine=False)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -442,25 +407,17 @@ class ResnetGenerator(nn.Module):
         assert n_blocks >= 0
         super(ResnetGenerator, self).__init__()
         self.gpu_ids = gpu_ids
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(3, 64, kernel_size=7,
-            padding=0, bias=True), nn.InstanceNorm2d(64, affine=False), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(3, 64, kernel_size=7, padding=0, bias=True), nn.InstanceNorm2d(64, affine=False), nn.ReLU(True)]
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(64 * mult, 64 * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=True), nn.InstanceNorm2d(64 *
-                mult * 2, affine=False), nn.ReLU(True)]
+            model += [nn.Conv2d(64 * mult, 64 * mult * 2, kernel_size=3, stride=2, padding=1, bias=True), nn.InstanceNorm2d(64 * mult * 2, affine=False), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(64 * mult, padding_type=padding_type,
-                use_dropout=False, use_bias=True)]
+            model += [ResnetBlock(64 * mult, padding_type=padding_type, use_dropout=False, use_bias=True)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(64 * mult, int(64 * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1, bias=
-                True), nn.InstanceNorm2d(int(64 * mult / 2), affine=False),
-                nn.ReLU(True)]
+            model += [nn.ConvTranspose2d(64 * mult, int(64 * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=True), nn.InstanceNorm2d(int(64 * mult / 2), affine=False), nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
         model += [nn.Conv2d(64, 3, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
@@ -493,11 +450,8 @@ def define_G(gpu_ids=[]):
 
 
 def find_tensor_peak_batch(heatmap, radius, downsample, threshold=1e-06):
-    assert heatmap.dim(
-        ) == 3, 'The dimension of the heatmap is wrong : {}'.format(heatmap
-        .size())
-    assert radius > 0 and isinstance(radius, numbers.Number
-        ), 'The radius is not ok : {}'.format(radius)
+    assert heatmap.dim() == 3, 'The dimension of the heatmap is wrong : {}'.format(heatmap.size())
+    assert radius > 0 and isinstance(radius, numbers.Number), 'The radius is not ok : {}'.format(radius)
     num_pts, H, W = heatmap.size(0), heatmap.size(1), heatmap.size(2)
     assert W > 1 and H > 1, 'To avoid the normalization function divide zero'
     score, index = torch.max(heatmap.view(num_pts, -1), 1)
@@ -506,8 +460,7 @@ def find_tensor_peak_batch(heatmap, radius, downsample, threshold=1e-06):
 
     def normalize(x, L):
         return -1.0 + 2.0 * x.data / (L - 1)
-    boxes = [index_w - radius, index_h - radius, index_w + radius, index_h +
-        radius]
+    boxes = [index_w - radius, index_h - radius, index_w + radius, index_h + radius]
     boxes[0] = normalize(boxes[0], W)
     boxes[1] = normalize(boxes[1], H)
     boxes[2] = normalize(boxes[2], W)
@@ -522,15 +475,11 @@ def find_tensor_peak_batch(heatmap, radius, downsample, threshold=1e-06):
     grid = F.affine_grid(theta, grid_size)
     sub_feature = F.grid_sample(heatmap.unsqueeze(1), grid).squeeze(1)
     sub_feature = F.threshold(sub_feature, threshold, np.finfo(float).eps)
-    X = MU.np2variable(torch.arange(-radius, radius + 1), heatmap.is_cuda, 
-        False).view(1, 1, radius * 2 + 1)
-    Y = MU.np2variable(torch.arange(-radius, radius + 1), heatmap.is_cuda, 
-        False).view(1, radius * 2 + 1, 1)
+    X = MU.np2variable(torch.arange(-radius, radius + 1), heatmap.is_cuda, False).view(1, 1, radius * 2 + 1)
+    Y = MU.np2variable(torch.arange(-radius, radius + 1), heatmap.is_cuda, False).view(1, radius * 2 + 1, 1)
     sum_region = torch.sum(sub_feature.view(num_pts, -1), 1)
-    x = torch.sum((sub_feature * X).view(num_pts, -1), 1
-        ) / sum_region + index_w
-    y = torch.sum((sub_feature * Y).view(num_pts, -1), 1
-        ) / sum_region + index_h
+    x = torch.sum((sub_feature * X).view(num_pts, -1), 1) / sum_region + index_w
+    y = torch.sum((sub_feature * Y).view(num_pts, -1), 1) / sum_region + index_h
     x = x * downsample + downsample / 2.0 - 0.5
     y = y * downsample + downsample / 2.0 - 0.5
     return torch.stack([x, y], 1), score
@@ -558,70 +507,23 @@ class ITN_CPM(nn.Module):
         self.downsample = 1
         self.netG_A = define_G()
         self.netG_B = define_G()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.
-            Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU
-            (inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True))
         self.downsample = 8
         pts_num = self.config.pts_num
-        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True))
-        self.stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128,
-            128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(
-            inplace=True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
-        self.stage2 = nn.Sequential(nn.Conv2d(128 * 2 + pts_num * 2, 128,
-            kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation
-            =1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
-        self.stage3 = nn.Sequential(nn.Conv2d(128 * 2 + pts_num, 128,
-            kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation
-            =1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
+        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True))
+        self.stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
+        self.stage2 = nn.Sequential(nn.Conv2d(128 * 2 + pts_num * 2, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
+        self.stage3 = nn.Sequential(nn.Conv2d(128 * 2 + pts_num, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
         assert self.config.num_stages >= 1, 'stages of cpm must >= 1'
 
     def set_mode(self, mode):
         if mode.lower() == 'train':
             self.train()
             for m in self.netG_A.modules():
-                if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.
-                    InstanceNorm2d):
+                if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.InstanceNorm2d):
                     m.eval()
             for m in self.netG_B.modules():
-                if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.
-                    InstanceNorm2d):
+                if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.InstanceNorm2d):
                     m.eval()
         elif mode.lower() == 'eval':
             self.eval()
@@ -629,31 +531,11 @@ class ITN_CPM(nn.Module):
             raise NameError('The wrong mode : {}'.format(mode))
 
     def specify_parameter(self, base_lr, base_weight_decay):
-        params_dict = [{'params': self.netG_A.parameters(), 'lr': 0,
-            'weight_decay': 0}, {'params': self.netG_B.parameters(), 'lr': 
-            0, 'weight_decay': 0}, {'params': get_parameters(self.features,
-            bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay},
-            {'params': get_parameters(self.features, bias=True), 'lr': 
-            base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self
-            .CPM_feature, bias=False), 'lr': base_lr, 'weight_decay':
-            base_weight_decay}, {'params': get_parameters(self.CPM_feature,
-            bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params':
-            get_parameters(self.stage1, bias=False), 'lr': base_lr,
-            'weight_decay': base_weight_decay}, {'params': get_parameters(
-            self.stage1, bias=True), 'lr': base_lr * 2, 'weight_decay': 0},
-            {'params': get_parameters(self.stage2, bias=False), 'lr': 
-            base_lr * 4, 'weight_decay': base_weight_decay}, {'params':
-            get_parameters(self.stage2, bias=True), 'lr': base_lr * 8,
-            'weight_decay': 0}, {'params': get_parameters(self.stage3, bias
-            =False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay},
-            {'params': get_parameters(self.stage3, bias=True), 'lr': 
-            base_lr * 8, 'weight_decay': 0}]
+        params_dict = [{'params': self.netG_A.parameters(), 'lr': 0, 'weight_decay': 0}, {'params': self.netG_B.parameters(), 'lr': 0, 'weight_decay': 0}, {'params': get_parameters(self.features, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.features, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.CPM_feature, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.CPM_feature, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.stage1, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.stage1, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.stage2, bias=False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.stage2, bias=True), 'lr': base_lr * 8, 'weight_decay': 0}, {'params': get_parameters(self.stage3, bias=False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.stage3, bias=True), 'lr': base_lr * 8, 'weight_decay': 0}]
         return params_dict
 
     def forward(self, inputs):
-        assert inputs.dim(
-            ) == 4, 'This model accepts 4 dimension input tensor: {}'.format(
-            inputs.size())
+        assert inputs.dim() == 4, 'This model accepts 4 dimension input tensor: {}'.format(inputs.size())
         batch_size = inputs.size(0)
         num_stages, num_pts = self.config.num_stages, self.config.pts_num - 1
         batch_cpms, batch_locs, batch_scos = [], [], []
@@ -665,24 +547,20 @@ class ITN_CPM(nn.Module):
             features.append(feature)
             stage1s.append(self.stage1(feature))
         xfeature = torch.cat(features, 1)
-        cpm_stage2 = self.stage2(torch.cat([xfeature, stage1s[0], stage1s[1
-            ]], 1))
+        cpm_stage2 = self.stage2(torch.cat([xfeature, stage1s[0], stage1s[1]], 1))
         cpm_stage3 = self.stage3(torch.cat([xfeature, cpm_stage2], 1))
         batch_cpms = [stage1s[0], stage1s[1]] + [cpm_stage2, cpm_stage3]
         for ibatch in range(batch_size):
-            batch_location, batch_score = find_tensor_peak_batch(cpm_stage3
-                [ibatch], self.config.argmax, self.downsample)
+            batch_location, batch_score = find_tensor_peak_batch(cpm_stage3[ibatch], self.config.argmax, self.downsample)
             batch_locs.append(batch_location)
             batch_scos.append(batch_score)
-        batch_locs, batch_scos = torch.stack(batch_locs), torch.stack(
-            batch_scos)
+        batch_locs, batch_scos = torch.stack(batch_locs), torch.stack(batch_scos)
         return batch_cpms, batch_locs, batch_scos, inputs[1:]
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -719,8 +597,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -750,8 +627,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -772,9 +648,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -803,84 +677,21 @@ class VGG16_base(nn.Module):
         super(VGG16_base, self).__init__()
         self.config = model_config.copy()
         self.downsample = 1
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.
-            Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU
-            (inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True))
         self.downsample = 8
         pts_num = self.config.pts_num
-        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True))
-        self.stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128,
-            128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(
-            inplace=True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
-        self.stage2 = nn.Sequential(nn.Conv2d(128 + pts_num, 128,
-            kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation
-            =1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
-        self.stage3 = nn.Sequential(nn.Conv2d(128 + pts_num, 128,
-            kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation
-            =1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
+        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True))
+        self.stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
+        self.stage2 = nn.Sequential(nn.Conv2d(128 + pts_num, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
+        self.stage3 = nn.Sequential(nn.Conv2d(128 + pts_num, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
         assert self.config.num_stages >= 1, 'stages of cpm must >= 1'
 
     def specify_parameter(self, base_lr, base_weight_decay):
-        params_dict = [{'params': get_parameters(self.features, bias=False),
-            'lr': base_lr, 'weight_decay': base_weight_decay}, {'params':
-            get_parameters(self.features, bias=True), 'lr': base_lr * 2,
-            'weight_decay': 0}, {'params': get_parameters(self.CPM_feature,
-            bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay},
-            {'params': get_parameters(self.CPM_feature, bias=True), 'lr': 
-            base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self
-            .stage1, bias=False), 'lr': base_lr, 'weight_decay':
-            base_weight_decay}, {'params': get_parameters(self.stage1, bias
-            =True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params':
-            get_parameters(self.stage2, bias=False), 'lr': base_lr * 4,
-            'weight_decay': base_weight_decay}, {'params': get_parameters(
-            self.stage2, bias=True), 'lr': base_lr * 8, 'weight_decay': 0},
-            {'params': get_parameters(self.stage3, bias=False), 'lr': 
-            base_lr * 4, 'weight_decay': base_weight_decay}, {'params':
-            get_parameters(self.stage3, bias=True), 'lr': base_lr * 8,
-            'weight_decay': 0}]
+        params_dict = [{'params': get_parameters(self.features, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.features, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.CPM_feature, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.CPM_feature, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.stage1, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.stage1, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.stage2, bias=False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.stage2, bias=True), 'lr': base_lr * 8, 'weight_decay': 0}, {'params': get_parameters(self.stage3, bias=False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.stage3, bias=True), 'lr': base_lr * 8, 'weight_decay': 0}]
         return params_dict
 
     def forward(self, inputs):
-        assert inputs.dim(
-            ) == 4, 'This model accepts 4 dimension input tensor: {}'.format(
-            inputs.size())
+        assert inputs.dim() == 4, 'This model accepts 4 dimension input tensor: {}'.format(inputs.size())
         batch_size = inputs.size(0)
         num_stages, num_pts = self.config.num_stages, self.config.pts_num - 1
         batch_cpms = []
@@ -892,12 +703,10 @@ class VGG16_base(nn.Module):
         stage3 = self.stage3(torch.cat([xfeature, stage2], 1))
         batch_cpms = [stage1, stage2, stage3]
         for ibatch in range(batch_size):
-            batch_location, batch_score = find_tensor_peak_batch(stage3[
-                ibatch], self.config.argmax, self.downsample)
+            batch_location, batch_score = find_tensor_peak_batch(stage3[ibatch], self.config.argmax, self.downsample)
             batch_locs.append(batch_location)
             batch_scos.append(batch_score)
-        batch_locs, batch_scos = torch.stack(batch_locs), torch.stack(
-            batch_scos)
+        batch_locs, batch_scos = torch.stack(batch_locs), torch.stack(batch_scos)
         return batch_cpms, batch_locs, batch_scos
 
 
@@ -906,14 +715,11 @@ class SobelConv(nn.Module):
     def __init__(self, tag, dtype):
         super(SobelConv, self).__init__()
         if tag == 'x':
-            Sobel = np.array([[-1.0 / 8, 0, 1.0 / 8], [-2.0 / 8, 0, 2.0 / 8
-                ], [-1.0 / 8, 0, 1.0 / 8]])
+            Sobel = np.array([[-1.0 / 8, 0, 1.0 / 8], [-2.0 / 8, 0, 2.0 / 8], [-1.0 / 8, 0, 1.0 / 8]])
         elif tag == 'y':
-            Sobel = np.array([[-1.0 / 8, -2.0 / 8, -1.0 / 8], [0, 0, 0], [
-                1.0 / 8, 2.0 / 8, 1.0 / 8]])
+            Sobel = np.array([[-1.0 / 8, -2.0 / 8, -1.0 / 8], [0, 0, 0], [1.0 / 8, 2.0 / 8, 1.0 / 8]])
         else:
-            raise NameError('Do not know this tag for Sobel Kernel : {}'.
-                format(tag))
+            raise NameError('Do not know this tag for Sobel Kernel : {}'.format(tag))
         Sobel = torch.from_numpy(Sobel).type(dtype)
         Sobel = Sobel.view(1, 1, 3, 3)
         self.register_buffer('weight', Sobel)
@@ -924,8 +730,7 @@ class SobelConv(nn.Module):
         return F.conv2d(input, weight, groups=input.size(1), padding=1)
 
     def __repr__(self):
-        return '{name}(tag={tag})'.format(name=self.__class__.__name__, **
-            self.__dict__)
+        return '{name}(tag={tag})'.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class LK(nn.Module):
@@ -938,29 +743,21 @@ class LK(nn.Module):
         self.points = points
 
     def forward(self, inputs):
-        assert inputs.dim(
-            ) == 5, 'This model accepts 5 dimension input tensor: {}'.format(
-            inputs.size())
+        assert inputs.dim() == 5, 'This model accepts 5 dimension input tensor: {}'.format(inputs.size())
         batch_size, sequence, C, H, W = list(inputs.size())
         gathered_inputs = inputs.view(batch_size * sequence, C, H, W)
         heatmaps, batch_locs, batch_scos = self.detector(gathered_inputs)
-        heatmaps = [x.view(batch_size, sequence, self.points, H // self.
-            downsample, W // self.downsample) for x in heatmaps]
-        batch_locs, batch_scos = batch_locs.view(batch_size, sequence, self
-            .points, 2), batch_scos.view(batch_size, sequence, self.points)
+        heatmaps = [x.view(batch_size, sequence, self.points, H // self.downsample, W // self.downsample) for x in heatmaps]
+        batch_locs, batch_scos = batch_locs.view(batch_size, sequence, self.points, 2), batch_scos.view(batch_size, sequence, self.points)
         batch_next, batch_fback, batch_back = [], [], []
         for ibatch in range(batch_size):
             feature_old = inputs[ibatch]
-            nextPts, fbackPts, backPts = lk.lk_forward_backward_batch(inputs
-                [ibatch], batch_locs[ibatch], self.config.window, self.
-                config.steps)
+            nextPts, fbackPts, backPts = lk.lk_forward_backward_batch(inputs[ibatch], batch_locs[ibatch], self.config.window, self.config.steps)
             batch_next.append(nextPts)
             batch_fback.append(fbackPts)
             batch_back.append(backPts)
-        batch_next, batch_fback, batch_back = torch.stack(batch_next
-            ), torch.stack(batch_fback), torch.stack(batch_back)
-        return (heatmaps, batch_locs, batch_scos, batch_next, batch_fback,
-            batch_back)
+        batch_next, batch_fback, batch_back = torch.stack(batch_next), torch.stack(batch_fback), torch.stack(batch_back)
+        return heatmaps, batch_locs, batch_scos, batch_next, batch_fback, batch_back
 
 
 class VGG16_base(nn.Module):
@@ -970,71 +767,25 @@ class VGG16_base(nn.Module):
         self.config = deepcopy(config)
         self.downsample = 8
         self.pts_num = pts_num
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.
-            Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU
-            (inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True))
-        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True))
-        assert self.config.stages >= 1, 'stages of cpm must >= 1 not : {:}'.format(
-            self.config.stages)
-        stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3, padding=1
-            ), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128,
-            128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True))
+        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True))
+        assert self.config.stages >= 1, 'stages of cpm must >= 1 not : {:}'.format(self.config.stages)
+        stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
         stages = [stage1]
         for i in range(1, self.config.stages):
-            stagex = nn.Sequential(nn.Conv2d(128 + pts_num, 128,
-                kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True
-                ), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3
-                ), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7,
-                dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(
-                128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(
-                inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=
-                1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-                kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True
-                ), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1
-                ), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1,
-                padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num,
-                kernel_size=1, padding=0))
+            stagex = nn.Sequential(nn.Conv2d(128 + pts_num, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
             stages.append(stagex)
         self.stages = nn.ModuleList(stages)
 
     def specify_parameter(self, base_lr, base_weight_decay):
-        params_dict = [{'params': get_parameters(self.features, bias=False),
-            'lr': base_lr, 'weight_decay': base_weight_decay}, {'params':
-            get_parameters(self.features, bias=True), 'lr': base_lr * 2,
-            'weight_decay': 0}, {'params': get_parameters(self.CPM_feature,
-            bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay},
-            {'params': get_parameters(self.CPM_feature, bias=True), 'lr': 
-            base_lr * 2, 'weight_decay': 0}]
+        params_dict = [{'params': get_parameters(self.features, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.features, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.CPM_feature, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.CPM_feature, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}]
         for stage in self.stages:
-            params_dict.append({'params': get_parameters(stage, bias=False),
-                'lr': base_lr * 4, 'weight_decay': base_weight_decay})
-            params_dict.append({'params': get_parameters(stage, bias=True),
-                'lr': base_lr * 8, 'weight_decay': 0})
+            params_dict.append({'params': get_parameters(stage, bias=False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay})
+            params_dict.append({'params': get_parameters(stage, bias=True), 'lr': base_lr * 8, 'weight_decay': 0})
         return params_dict
 
     def forward(self, inputs):
-        assert inputs.dim(
-            ) == 4, 'This model accepts 4 dimension input tensor: {}'.format(
-            inputs.size())
+        assert inputs.dim() == 4, 'This model accepts 4 dimension input tensor: {}'.format(inputs.size())
         batch_size, feature_dim = inputs.size(0), inputs.size(1)
         batch_cpms, batch_locs, batch_scos = [], [], []
         feature = self.features(inputs)
@@ -1043,16 +794,13 @@ class VGG16_base(nn.Module):
             if i == 0:
                 cpm = self.stages[i](xfeature)
             else:
-                cpm = self.stages[i](torch.cat([xfeature, batch_cpms[i - 1]
-                    ], 1))
+                cpm = self.stages[i](torch.cat([xfeature, batch_cpms[i - 1]], 1))
             batch_cpms.append(cpm)
         for ibatch in range(batch_size):
-            batch_location, batch_score = find_tensor_peak_batch(batch_cpms
-                [-1][ibatch], self.config.argmax, self.downsample)
+            batch_location, batch_score = find_tensor_peak_batch(batch_cpms[-1][ibatch], self.config.argmax, self.downsample)
             batch_locs.append(batch_location)
             batch_scos.append(batch_score)
-        batch_locs, batch_scos = torch.stack(batch_locs), torch.stack(
-            batch_scos)
+        batch_locs, batch_scos = torch.stack(batch_locs), torch.stack(batch_scos)
         return batch_cpms, batch_locs, batch_scos
 
 
@@ -1063,19 +811,11 @@ class Residual(nn.Module):
         self.numIn = numIn
         self.numOut = numOut
         middle = self.numOut // 2
-        self.conv_A = nn.Sequential(nn.BatchNorm2d(numIn), nn.ReLU(inplace=
-            True), nn.Conv2d(numIn, middle, kernel_size=1, dilation=1,
-            padding=0, bias=True))
-        self.conv_B = nn.Sequential(nn.BatchNorm2d(middle), nn.ReLU(inplace
-            =True), nn.Conv2d(middle, middle, kernel_size=3, dilation=1,
-            padding=1, bias=True))
-        self.conv_C = nn.Sequential(nn.BatchNorm2d(middle), nn.ReLU(inplace
-            =True), nn.Conv2d(middle, numOut, kernel_size=1, dilation=1,
-            padding=0, bias=True))
+        self.conv_A = nn.Sequential(nn.BatchNorm2d(numIn), nn.ReLU(inplace=True), nn.Conv2d(numIn, middle, kernel_size=1, dilation=1, padding=0, bias=True))
+        self.conv_B = nn.Sequential(nn.BatchNorm2d(middle), nn.ReLU(inplace=True), nn.Conv2d(middle, middle, kernel_size=3, dilation=1, padding=1, bias=True))
+        self.conv_C = nn.Sequential(nn.BatchNorm2d(middle), nn.ReLU(inplace=True), nn.Conv2d(middle, numOut, kernel_size=1, dilation=1, padding=0, bias=True))
         if self.numIn != self.numOut:
-            self.branch = nn.Sequential(nn.BatchNorm2d(self.numIn), nn.ReLU
-                (inplace=True), nn.Conv2d(self.numIn, self.numOut,
-                kernel_size=1, dilation=1, padding=0, bias=True))
+            self.branch = nn.Sequential(nn.BatchNorm2d(self.numIn), nn.ReLU(inplace=True), nn.Conv2d(self.numIn, self.numOut, kernel_size=1, dilation=1, padding=0, bias=True))
 
     def forward(self, x):
         residual = x
@@ -1094,70 +834,25 @@ class VGG16_base(nn.Module):
         self.config = deepcopy(model_config)
         self.downsample = 8
         self.pts_num = pts_num
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.
-            Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU
-            (inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512,
-            kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation
-            =1, padding=1), nn.ReLU(inplace=True))
-        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(128, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(256, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True))
+        self.CPM_feature = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True))
         assert self.config['stages'] >= 1, 'stages of cpm must >= 1'
-        stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3, padding=1
-            ), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128,
-            128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
+        stage1 = nn.Sequential(nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 512, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(512, pts_num, kernel_size=1, padding=0))
         stages = [stage1]
         for i in range(1, self.config['stages']):
-            stagex = nn.Sequential(nn.Conv2d(128 + pts_num, 128,
-                kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True
-                ), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3
-                ), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7,
-                dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(
-                128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(
-                inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=
-                1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128,
-                kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True
-                ), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1
-                ), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1,
-                padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num,
-                kernel_size=1, padding=0))
+            stagex = nn.Sequential(nn.Conv2d(128 + pts_num, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=7, dilation=1, padding=3), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, dilation=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(128, pts_num, kernel_size=1, padding=0))
             stages.append(stagex)
         self.stages = nn.ModuleList(stages)
 
     def specify_parameter(self, base_lr, base_weight_decay):
-        params_dict = [{'params': get_parameters(self.features, bias=False),
-            'lr': base_lr, 'weight_decay': base_weight_decay}, {'params':
-            get_parameters(self.features, bias=True), 'lr': base_lr * 2,
-            'weight_decay': 0}, {'params': get_parameters(self.CPM_feature,
-            bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay},
-            {'params': get_parameters(self.CPM_feature, bias=True), 'lr': 
-            base_lr * 2, 'weight_decay': 0}]
+        params_dict = [{'params': get_parameters(self.features, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.features, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}, {'params': get_parameters(self.CPM_feature, bias=False), 'lr': base_lr, 'weight_decay': base_weight_decay}, {'params': get_parameters(self.CPM_feature, bias=True), 'lr': base_lr * 2, 'weight_decay': 0}]
         for stage in self.stages:
-            params_dict.append({'params': get_parameters(stage, bias=False),
-                'lr': base_lr * 4, 'weight_decay': base_weight_decay})
-            params_dict.append({'params': get_parameters(stage, bias=True),
-                'lr': base_lr * 8, 'weight_decay': 0})
+            params_dict.append({'params': get_parameters(stage, bias=False), 'lr': base_lr * 4, 'weight_decay': base_weight_decay})
+            params_dict.append({'params': get_parameters(stage, bias=True), 'lr': base_lr * 8, 'weight_decay': 0})
         return params_dict
 
     def forward(self, inputs):
-        assert inputs.dim(
-            ) == 4, 'This model accepts 4 dimension input tensor: {}'.format(
-            inputs.size())
+        assert inputs.dim() == 4, 'This model accepts 4 dimension input tensor: {}'.format(inputs.size())
         batch_cpms = []
         feature = self.features(inputs)
         xfeature = self.CPM_feature(feature)
@@ -1165,8 +860,7 @@ class VGG16_base(nn.Module):
             if i == 0:
                 cpm = self.stages[i](xfeature)
             else:
-                cpm = self.stages[i](torch.cat([xfeature, batch_cpms[i - 1]
-                    ], 1))
+                cpm = self.stages[i](torch.cat([xfeature, batch_cpms[i - 1]], 1))
             batch_cpms.append(cpm)
         return batch_cpms
 
@@ -1226,28 +920,19 @@ class HourglassNet(nn.Module):
         self.nStack = nStack
         self.nModules = nModules
         self.nFeats = nFeats
-        self.conv = nn.Sequential(nn.Conv2d(3, 64, bias=True, kernel_size=7,
-            stride=2, padding=3), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
-        self.ress = nn.Sequential(Residual(64, 128), nn.MaxPool2d(
-            kernel_size=2, stride=2), Residual(128, 128), Residual(128,
-            self.nFeats))
-        _hourglass, _Residual, _lin_, _tmpOut, _ll_, _tmpOut_, _reg_ = [], [
-            ], [], [], [], [], []
+        self.conv = nn.Sequential(nn.Conv2d(3, 64, bias=True, kernel_size=7, stride=2, padding=3), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.ress = nn.Sequential(Residual(64, 128), nn.MaxPool2d(kernel_size=2, stride=2), Residual(128, 128), Residual(128, self.nFeats))
+        _hourglass, _Residual, _lin_, _tmpOut, _ll_, _tmpOut_, _reg_ = [], [], [], [], [], [], []
         for i in range(self.nStack):
             _hourglass.append(Hourglass(4, self.nModules, self.nFeats))
             for j in range(self.nModules):
                 _Residual.append(Residual(self.nFeats, self.nFeats))
-            lin = nn.Sequential(nn.Conv2d(self.nFeats, self.nFeats, bias=
-                True, kernel_size=1, stride=1), nn.BatchNorm2d(self.nFeats),
-                nn.ReLU(inplace=True))
+            lin = nn.Sequential(nn.Conv2d(self.nFeats, self.nFeats, bias=True, kernel_size=1, stride=1), nn.BatchNorm2d(self.nFeats), nn.ReLU(inplace=True))
             _lin_.append(lin)
-            _tmpOut.append(nn.Conv2d(self.nFeats, nJoints, bias=True,
-                kernel_size=1, stride=1))
+            _tmpOut.append(nn.Conv2d(self.nFeats, nJoints, bias=True, kernel_size=1, stride=1))
             if i < self.nStack - 1:
-                _ll_.append(nn.Conv2d(self.nFeats, self.nFeats, bias=True,
-                    kernel_size=1, stride=1))
-                _tmpOut_.append(nn.Conv2d(nJoints, self.nFeats, bias=True,
-                    kernel_size=1, stride=1))
+                _ll_.append(nn.Conv2d(self.nFeats, self.nFeats, bias=True, kernel_size=1, stride=1))
+                _tmpOut_.append(nn.Conv2d(nJoints, self.nFeats, bias=True, kernel_size=1, stride=1))
         self.hourglass = nn.ModuleList(_hourglass)
         self.Residual = nn.ModuleList(_Residual)
         self.lin_ = nn.ModuleList(_lin_)
@@ -1278,24 +963,17 @@ class TeacherNet(nn.Module):
 
     def __init__(self, input_dim, n_layers=3):
         super(TeacherNet, self).__init__()
-        sequence = [nn.Conv2d(input_dim, 64, kernel_size=4, stride=2,
-            padding=1), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(input_dim, 64, kernel_size=4, stride=2, padding=1), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult,
-                kernel_size=4, stride=2, padding=1, bias=True), nn.
-                InstanceNorm2d(64 * nf_mult, affine=False), nn.LeakyReLU(
-                0.2, True)]
+            sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult, kernel_size=4, stride=2, padding=1, bias=True), nn.InstanceNorm2d(64 * nf_mult, affine=False), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult, kernel_size
-            =4, stride=1, padding=1, bias=True), nn.InstanceNorm2d(64 *
-            nf_mult, affine=False), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(64 * nf_mult, 1, kernel_size=4, stride=1,
-            padding=1)]
+        sequence += [nn.Conv2d(64 * nf_mult_prev, 64 * nf_mult, kernel_size=4, stride=1, padding=1, bias=True), nn.InstanceNorm2d(64 * nf_mult, affine=False), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(64 * nf_mult, 1, kernel_size=4, stride=1, padding=1)]
         self.model = nn.Sequential(*sequence)
 
     def forward(self, inputs):
@@ -1306,45 +984,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AddCoords,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CoordConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GANLoss,
+     lambda: ([], {}),
+     lambda: ([], {'input': torch.rand([4, 4]), 'target_is_real': 4}),
+     True),
+    (Hourglass,
+     lambda: ([], {'n': 4, 'nModules': 4, 'nFeats': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (HourglassNet,
+     lambda: ([], {'nStack': 4, 'nModules': 4, 'nFeats': 4, 'nJoints': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV2REG,
+     lambda: ([], {'input_dim': 4, 'input_channel': 4, 'width_mult': 4, 'pts_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NLayerDiscriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Residual,
+     lambda: ([], {'numIn': 4, 'numOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResnetGenerator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (TeacherNet,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+]
+
 class Test_D_X_Y_landmark_detection(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Hourglass(*[], **{'n': 4, 'nModules': 4, 'nFeats': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(HourglassNet(*[], **{'nStack': 4, 'nModules': 4, 'nFeats': 4, 'nJoints': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(MobileNetV2REG(*[], **{'input_dim': 4, 'input_channel': 4, 'width_mult': 4, 'pts_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(NLayerDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Residual(*[], **{'numIn': 4, 'numOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(ResnetGenerator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(TeacherNet(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[11])
 

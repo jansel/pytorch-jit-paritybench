@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,30 +103,18 @@ class s3fd(nn.Module):
         self.conv3_3_norm = L2Norm(256, scale=10)
         self.conv4_3_norm = L2Norm(512, scale=8)
         self.conv5_3_norm = L2Norm(512, scale=5)
-        self.conv3_3_norm_mbox_conf = nn.Conv2d(256, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.conv3_3_norm_mbox_loc = nn.Conv2d(256, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.conv4_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3,
-            stride=1, padding=1)
-        self.conv4_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.conv5_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3,
-            stride=1, padding=1)
-        self.conv5_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.fc7_mbox_conf = nn.Conv2d(1024, 2, kernel_size=3, stride=1,
-            padding=1)
-        self.fc7_mbox_loc = nn.Conv2d(1024, 4, kernel_size=3, stride=1,
-            padding=1)
-        self.conv6_2_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1,
-            padding=1)
-        self.conv6_2_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1,
-            padding=1)
-        self.conv7_2_mbox_conf = nn.Conv2d(256, 2, kernel_size=3, stride=1,
-            padding=1)
-        self.conv7_2_mbox_loc = nn.Conv2d(256, 4, kernel_size=3, stride=1,
-            padding=1)
+        self.conv3_3_norm_mbox_conf = nn.Conv2d(256, 4, kernel_size=3, stride=1, padding=1)
+        self.conv3_3_norm_mbox_loc = nn.Conv2d(256, 4, kernel_size=3, stride=1, padding=1)
+        self.conv4_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1, padding=1)
+        self.conv4_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1, padding=1)
+        self.conv5_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1, padding=1)
+        self.conv5_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1, padding=1)
+        self.fc7_mbox_conf = nn.Conv2d(1024, 2, kernel_size=3, stride=1, padding=1)
+        self.fc7_mbox_loc = nn.Conv2d(1024, 4, kernel_size=3, stride=1, padding=1)
+        self.conv6_2_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1, padding=1)
+        self.conv6_2_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1, padding=1)
+        self.conv7_2_mbox_conf = nn.Conv2d(256, 2, kernel_size=3, stride=1, padding=1)
+        self.conv7_2_mbox_loc = nn.Conv2d(256, 4, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         h = F.relu(self.conv1_1(x))
@@ -176,14 +165,12 @@ class s3fd(nn.Module):
         chunk = torch.chunk(cls1, 4, 1)
         bmax = torch.max(torch.max(chunk[0], chunk[1]), chunk[2])
         cls1 = torch.cat([bmax, chunk[3]], dim=1)
-        return [cls1, reg1, cls2, reg2, cls3, reg3, cls4, reg4, cls5, reg5,
-            cls6, reg6]
+        return [cls1, reg1, cls2, reg2, cls3, reg3, cls4, reg4, cls5, reg5, cls6, reg6]
 
 
 def conv3x3(in_planes, out_planes, strd=1, padding=1, bias=False):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=strd,
-        padding=padding, bias=bias)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=strd, padding=padding, bias=bias)
 
 
 class ConvBlock(nn.Module):
@@ -197,9 +184,7 @@ class ConvBlock(nn.Module):
         self.bn3 = nn.BatchNorm2d(int(out_planes / 4))
         self.conv3 = conv3x3(int(out_planes / 4), int(out_planes / 4))
         if in_planes != out_planes:
-            self.downsample = nn.Sequential(nn.BatchNorm2d(in_planes), nn.
-                ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1,
-                stride=1, bias=False))
+            self.downsample = nn.Sequential(nn.BatchNorm2d(in_planes), nn.ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, bias=False))
         else:
             self.downsample = None
 
@@ -228,8 +213,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -264,17 +248,13 @@ class HourGlass(nn.Module):
         self._generate_network(self.depth)
 
     def _generate_network(self, level):
-        self.add_module('b1_' + str(level), ConvBlock(self.features, self.
-            features))
-        self.add_module('b2_' + str(level), ConvBlock(self.features, self.
-            features))
+        self.add_module('b1_' + str(level), ConvBlock(self.features, self.features))
+        self.add_module('b2_' + str(level), ConvBlock(self.features, self.features))
         if level > 1:
             self._generate_network(level - 1)
         else:
-            self.add_module('b2_plus_' + str(level), ConvBlock(self.
-                features, self.features))
-        self.add_module('b3_' + str(level), ConvBlock(self.features, self.
-            features))
+            self.add_module('b2_plus_' + str(level), ConvBlock(self.features, self.features))
+        self.add_module('b3_' + str(level), ConvBlock(self.features, self.features))
 
     def _forward(self, level, inp):
         up1 = inp
@@ -308,16 +288,12 @@ class FAN(nn.Module):
         for hg_module in range(self.num_modules):
             self.add_module('m' + str(hg_module), HourGlass(1, 4, 256))
             self.add_module('top_m_' + str(hg_module), ConvBlock(256, 256))
-            self.add_module('conv_last' + str(hg_module), nn.Conv2d(256, 
-                256, kernel_size=1, stride=1, padding=0))
+            self.add_module('conv_last' + str(hg_module), nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0))
             self.add_module('bn_end' + str(hg_module), nn.BatchNorm2d(256))
-            self.add_module('l' + str(hg_module), nn.Conv2d(256, 68,
-                kernel_size=1, stride=1, padding=0))
+            self.add_module('l' + str(hg_module), nn.Conv2d(256, 68, kernel_size=1, stride=1, padding=0))
             if hg_module < self.num_modules - 1:
-                self.add_module('bl' + str(hg_module), nn.Conv2d(256, 256,
-                    kernel_size=1, stride=1, padding=0))
-                self.add_module('al' + str(hg_module), nn.Conv2d(68, 256,
-                    kernel_size=1, stride=1, padding=0))
+                self.add_module('bl' + str(hg_module), nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0))
+                self.add_module('al' + str(hg_module), nn.Conv2d(68, 256, kernel_size=1, stride=1, padding=0))
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)), True)
@@ -330,8 +306,7 @@ class FAN(nn.Module):
             hg = self._modules['m' + str(i)](previous)
             ll = hg
             ll = self._modules['top_m_' + str(i)](ll)
-            ll = F.relu(self._modules['bn_end' + str(i)](self._modules[
-                'conv_last' + str(i)](ll)), True)
+            ll = F.relu(self._modules['bn_end' + str(i)](self._modules['conv_last' + str(i)](ll)), True)
             tmp_out = self._modules['l' + str(i)](ll)
             outputs.append(tmp_out)
             if i < self.num_modules - 1:
@@ -346,8 +321,7 @@ class ResNetDepth(nn.Module):
     def __init__(self, block=Bottleneck, layers=[3, 8, 36, 3], num_classes=68):
         self.inplanes = 64
         super(ResNetDepth, self).__init__()
-        self.conv1 = nn.Conv2d(3 + 68, 64, kernel_size=7, stride=2, padding
-            =3, bias=False)
+        self.conv1 = nn.Conv2d(3 + 68, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -368,9 +342,7 @@ class ResNetDepth(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -397,25 +369,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FAN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (HourGlass,
+     lambda: ([], {'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetDepth,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 71, 256, 256])], {}),
+     True),
+    (s3fd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_1adrianb_face_alignment(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(FAN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(HourGlass(*[], **{'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ResNetDepth(*[], **{}), [torch.rand([4, 71, 256, 256])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(s3fd(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

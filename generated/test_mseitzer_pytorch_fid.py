@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,8 +70,7 @@ class FIDInceptionA(torchvision.models.inception.InceptionA):
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
         branch3x3dbl = self.branch3x3dbl_3(branch3x3dbl)
-        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1, count_include_pad=False)
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch5x5, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
@@ -92,8 +92,7 @@ class FIDInceptionC(torchvision.models.inception.InceptionC):
         branch7x7dbl = self.branch7x7dbl_3(branch7x7dbl)
         branch7x7dbl = self.branch7x7dbl_4(branch7x7dbl)
         branch7x7dbl = self.branch7x7dbl_5(branch7x7dbl)
-        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1, count_include_pad=False)
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch7x7, branch7x7dbl, branch_pool]
         return torch.cat(outputs, 1)
@@ -108,16 +107,13 @@ class FIDInceptionE_1(torchvision.models.inception.InceptionE):
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
-        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1, count_include_pad=False)
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch3x3, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
@@ -132,13 +128,11 @@ class FIDInceptionE_2(torchvision.models.inception.InceptionE):
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.max_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -146,9 +140,7 @@ class FIDInceptionE_2(torchvision.models.inception.InceptionE):
         return torch.cat(outputs, 1)
 
 
-FID_WEIGHTS_URL = (
-    'https://github.com/mseitzer/pytorch-fid/releases/download/fid_weights/pt_inception-2015-12-05-6726825d.pth'
-    )
+FID_WEIGHTS_URL = 'https://github.com/mseitzer/pytorch-fid/releases/download/fid_weights/pt_inception-2015-12-05-6726825d.pth'
 
 
 def fid_inception_v3():
@@ -160,8 +152,7 @@ def fid_inception_v3():
     This method first constructs torchvision's Inception and then patches the
     necessary parts that are different in the FID Inception model.
     """
-    inception = _inception_v3(num_classes=1008, aux_logits=False,
-        pretrained=False)
+    inception = _inception_v3(num_classes=1008, aux_logits=False, pretrained=False)
     inception.Mixed_5b = FIDInceptionA(192, pool_features=32)
     inception.Mixed_5c = FIDInceptionA(256, pool_features=64)
     inception.Mixed_5d = FIDInceptionA(288, pool_features=64)
@@ -181,9 +172,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=
-        True, normalize_input=True, requires_grad=False, use_fid_inception=True
-        ):
+    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=True, normalize_input=True, requires_grad=False, use_fid_inception=True):
         """Build pretrained InceptionV3
 
         Parameters
@@ -225,21 +214,16 @@ class InceptionV3(nn.Module):
             inception = fid_inception_v3()
         else:
             inception = _inception_v3(pretrained=True)
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.
-                MaxPool2d(kernel_size=3, stride=2)]
+            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.
-                Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception
-                .Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
             self.blocks.append(nn.Sequential(*block3))
         for param in self.parameters():
             param.requires_grad = requires_grad
@@ -261,8 +245,7 @@ class InceptionV3(nn.Module):
         outp = []
         x = inp
         if self.resize_input:
-            x = F.interpolate(x, size=(299, 299), mode='bilinear',
-                align_corners=False)
+            x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=False)
         if self.normalize_input:
             x = 2 * x - 1
         for idx, block in enumerate(self.blocks):
@@ -278,17 +261,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FIDInceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FIDInceptionC,
+     lambda: ([], {'in_channels': 4, 'channels_7x7': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FIDInceptionE_1,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FIDInceptionE_2,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_mseitzer_pytorch_fid(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FIDInceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FIDInceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FIDInceptionE_1(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FIDInceptionE_2(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

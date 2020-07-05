@@ -78,8 +78,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -182,9 +183,7 @@ def broadcast_shape(*shapes, **kwargs):
             elif reversed_shape[i] == 1 and not strict:
                 reversed_shape[i] = size
             elif reversed_shape[i] != size and (size != 1 or strict):
-                raise ValueError(
-                    'shape mismatch: objects cannot be broadcast to a single shape: {}'
-                    .format(' vs '.join(map(str, shapes))))
+                raise ValueError('shape mismatch: objects cannot be broadcast to a single shape: {}'.format(' vs '.join(map(str, shapes))))
     return tuple(reversed(reversed_shape))
 
 
@@ -221,8 +220,7 @@ def find_domain(op, *domains):
             shape = rhs.shape[:-2] + rhs.shape[-1:]
         else:
             assert lhs.shape[-1] == rhs.shape[-2]
-            shape = broadcast_shape(lhs.shape[:-1], rhs.shape[:-2] + (1,)
-                ) + rhs.shape[-1:]
+            shape = broadcast_shape(lhs.shape[:-1], rhs.shape[:-2] + (1,)) + rhs.shape[-1:]
         return Domain(shape, 'real')
     if lhs.dtype == 'real' or rhs.dtype == 'real':
         dtype = 'real'
@@ -245,20 +243,14 @@ def _issubclass_tuple(subcls, cls):
     """
     utility for pattern matching with tuple subexpressions
     """
-    cls_is_union = hasattr(cls, '__origin__') and (cls.__origin__ or cls
-        ) is typing.Union
+    cls_is_union = hasattr(cls, '__origin__') and (cls.__origin__ or cls) is typing.Union
     if isinstance(cls, tuple) or cls_is_union:
-        return any(_issubclass_tuple(subcls, option) for option in (getattr
-            (cls, '__args__', []) if cls_is_union else cls))
-    subcls_is_union = hasattr(subcls, '__origin__') and (subcls.__origin__ or
-        subcls) is typing.Union
+        return any(_issubclass_tuple(subcls, option) for option in (getattr(cls, '__args__', []) if cls_is_union else cls))
+    subcls_is_union = hasattr(subcls, '__origin__') and (subcls.__origin__ or subcls) is typing.Union
     if isinstance(subcls, tuple) or subcls_is_union:
-        return any(_issubclass_tuple(option, cls) for option in (getattr(
-            subcls, '__args__', []) if subcls_is_union else subcls))
-    subcls_is_tuple = hasattr(subcls, '__origin__') and (subcls.__origin__ or
-        subcls) in (tuple, typing.Tuple)
-    cls_is_tuple = hasattr(cls, '__origin__') and (cls.__origin__ or cls) in (
-        tuple, typing.Tuple)
+        return any(_issubclass_tuple(option, cls) for option in (getattr(subcls, '__args__', []) if subcls_is_union else subcls))
+    subcls_is_tuple = hasattr(subcls, '__origin__') and (subcls.__origin__ or subcls) in (tuple, typing.Tuple)
+    cls_is_tuple = hasattr(cls, '__origin__') and (cls.__origin__ or cls) in (tuple, typing.Tuple)
     if subcls_is_tuple != cls_is_tuple:
         return False
     if not cls_is_tuple:
@@ -267,8 +259,7 @@ def _issubclass_tuple(subcls, cls):
         return True
     if not subcls.__args__ or len(subcls.__args__) != len(cls.__args__):
         return False
-    return all(_issubclass_tuple(a, b) for a, b in zip(subcls.__args__, cls
-        .__args__))
+    return all(_issubclass_tuple(a, b) for a, b in zip(subcls.__args__, cls.__args__))
 
 
 def getargspec(fn):
@@ -387,27 +378,21 @@ class FunsorMeta(type):
     def __getitem__(cls, arg_types):
         if not isinstance(arg_types, tuple):
             arg_types = arg_types,
-        assert not any(isvariadic(arg_type) for arg_type in arg_types
-            ), 'nested variadic types not supported'
-        arg_types = tuple(typing.Tuple if arg_type is tuple else arg_type for
-            arg_type in arg_types)
+        assert not any(isvariadic(arg_type) for arg_type in arg_types), 'nested variadic types not supported'
+        arg_types = tuple(typing.Tuple if arg_type is tuple else arg_type for arg_type in arg_types)
         if arg_types not in cls._type_cache:
-            assert not cls.__args__, 'cannot subscript a subscripted type {}'.format(
-                cls)
-            assert len(arg_types) == len(cls._ast_fields
-                ), 'must provide types for all params'
+            assert not cls.__args__, 'cannot subscript a subscripted type {}'.format(cls)
+            assert len(arg_types) == len(cls._ast_fields), 'must provide types for all params'
             new_dct = cls.__dict__.copy()
             new_dct.update({'__args__': arg_types})
-            cls._type_cache[arg_types] = type(cls)(cls.__name__, (cls,),
-                new_dct)
+            cls._type_cache[arg_types] = type(cls)(cls.__name__, (cls,), new_dct)
         return cls._type_cache[arg_types]
 
     def __subclasscheck__(cls, subcls):
         if cls is subcls:
             return True
         if not isinstance(subcls, FunsorMeta):
-            return super(FunsorMeta, getattr(cls, '__origin__', cls)
-                ).__subclasscheck__(subcls)
+            return super(FunsorMeta, getattr(cls, '__origin__', cls)).__subclasscheck__(subcls)
         cls_origin = getattr(cls, '__origin__', cls)
         subcls_origin = getattr(subcls, '__origin__', subcls)
         if not super(FunsorMeta, cls_origin).__subclasscheck__(subcls_origin):
@@ -424,8 +409,7 @@ class FunsorMeta(type):
 
     @lazy_property
     def classname(cls):
-        return cls.__name__ + '[{}]'.format(', '.join(str(getattr(t,
-            'classname', t)) for t in cls.__args__))
+        return cls.__name__ + '[{}]'.format(', '.join(str(getattr(t, 'classname', t)) for t in cls.__args__))
 
 
 class GetitemMeta(type):
@@ -446,8 +430,7 @@ class SubsMeta(FunsorMeta):
     """
 
     def __call__(cls, arg, subs):
-        subs = tuple((k, to_funsor(v, arg.inputs[k])) for k, v in subs if k in
-            arg.inputs)
+        subs = tuple((k, to_funsor(v, arg.inputs[k])) for k, v in subs if k in arg.inputs)
         return super().__call__(arg, subs)
 
 
@@ -476,15 +459,13 @@ def _convert_reduced_vars(reduced_vars):
     :type reduced_vars: str, Variable, or set or frozenset thereof.
     :rtype: frozenset of str
     """
-    if isinstance(reduced_vars, frozenset) and all(isinstance(var, str) for
-        var in reduced_vars):
+    if isinstance(reduced_vars, frozenset) and all(isinstance(var, str) for var in reduced_vars):
         return reduced_vars
     if isinstance(reduced_vars, (str, Variable)):
         reduced_vars = {reduced_vars}
     assert isinstance(reduced_vars, (frozenset, set))
     assert all(isinstance(var, (str, Variable)) for var in reduced_vars)
-    return frozenset(var if isinstance(var, str) else var.name for var in
-        reduced_vars)
+    return frozenset(var if isinstance(var, str) else var.name for var in reduced_vars)
 
 
 def bint(size):
@@ -530,117 +511,6 @@ class NumberMeta(FunsorMeta):
         return super(NumberMeta, cls).__call__(data, dtype)
 
 
-class DeltaMeta(FunsorMeta):
-    """
-    Makes Delta less of a pain to use by supporting Delta(name, point, log_density)
-    """
-
-    def __call__(cls, *args):
-        if len(args) > 1:
-            assert len(args) == 2 or len(args) == 3
-            assert isinstance(args[0], str) and isinstance(args[1], Funsor)
-            args = args + (Number(0.0),) if len(args) == 2 else args
-            args = ((args[0], (to_funsor(args[1]), to_funsor(args[2]))),),
-        assert isinstance(args[0], tuple)
-        return super().__call__(args[0])
-
-
-def solve(expr, value):
-    """
-    Tries to solve for free inputs of an ``expr`` such that ``expr == value``,
-    and computes the log-abs-det-Jacobian of the resulting substitution.
-
-    :param Funsor expr: An expression with a free variable.
-    :param Funsor value: A target value.
-    :return: A tuple ``(name, point, log_abs_det_jacobian)``
-    :rtype: tuple
-    :raises: ValueError
-    """
-    assert isinstance(expr, Funsor)
-    assert isinstance(value, Funsor)
-    result = solve.dispatch(type(expr), *(expr._ast_values + (value,)))
-    if result is None:
-        raise ValueError('Cannot substitute into a Delta: {}'.format(value))
-    return result
-
-
-class SliceMeta(FunsorMeta):
-    """
-    Wrapper to fill in ``start``, ``stop``, ``step``, ``dtype`` following
-    Python conventions.
-    """
-
-    def __call__(cls, name, *args, **kwargs):
-        start = 0
-        step = 1
-        dtype = None
-        if len(args) == 1:
-            stop = args[0]
-            dtype = kwargs.pop('dtype', stop)
-        elif len(args) == 2:
-            start, stop = args
-            dtype = kwargs.pop('dtype', stop)
-        elif len(args) == 3:
-            start, stop, step = args
-            dtype = kwargs.pop('dtype', stop)
-        elif len(args) == 4:
-            start, stop, step, dtype = args
-        else:
-            raise ValueError
-        if step <= 0:
-            raise ValueError
-        stop = min(dtype, max(start, stop))
-        return super().__call__(name, start, stop, step, dtype)
-
-
-class TensorMeta(FunsorMeta):
-    """
-    Wrapper to fill in default args and convert between OrderedDict and tuple.
-    """
-
-    def __call__(cls, data, inputs=None, dtype='real'):
-        if inputs is None:
-            inputs = tuple()
-        elif isinstance(inputs, OrderedDict):
-            inputs = tuple(inputs.items())
-        if isinstance(data, np.generic):
-            data = data.__array__()
-        return super(TensorMeta, cls).__call__(data, inputs, dtype)
-
-
-def align_tensor(new_inputs, x, expand=False):
-    """
-    Permute and add dims to a tensor to match desired ``new_inputs``.
-
-    :param OrderedDict new_inputs: A target set of inputs.
-    :param funsor.terms.Funsor x: A :class:`Tensor` or
-        :class:`~funsor.terms.Number` .
-    :param bool expand: If False (default), set result size to 1 for any input
-        of ``x`` not in ``new_inputs``; if True expand to ``new_inputs`` size.
-    :return: a number or :class:`torch.Tensor` or :class:`np.ndarray` that can be broadcast to other
-        tensors with inputs ``new_inputs``.
-    :rtype: int or float or torch.Tensor or np.ndarray
-    """
-    assert isinstance(new_inputs, OrderedDict)
-    assert isinstance(x, (Number, Tensor))
-    assert all(isinstance(d.dtype, int) for d in x.inputs.values())
-    data = x.data
-    if isinstance(x, Number):
-        return data
-    old_inputs = x.inputs
-    if old_inputs == new_inputs:
-        return data
-    x_keys = tuple(old_inputs)
-    data = ops.permute(data, tuple(x_keys.index(k) for k in new_inputs if k in
-        old_inputs) + tuple(range(len(old_inputs), len(data.shape))))
-    data = data.reshape(tuple(old_inputs[k].dtype if k in old_inputs else 1 for
-        k in new_inputs) + x.output.shape)
-    if expand:
-        data = ops.expand(data, tuple(d.dtype for d in new_inputs.values()) +
-            x.output.shape)
-    return data
-
-
 def get_backend():
     """
     Get the current backend of Funsor.
@@ -679,12 +549,10 @@ def numbers_to_tensors(*args):
         options = dict(dtype=prototype.dtype)
         for x in args:
             if isinstance(x, Tensor):
-                options = dict(dtype=x.data.dtype, device=getattr(x.data,
-                    'device', None))
+                options = dict(dtype=x.data.dtype, device=getattr(x.data, 'device', None))
                 break
         with ignore_jit_warnings():
-            args = tuple(Tensor(numeric_array(x.data, **options), dtype=x.
-                dtype) if isinstance(x, Number) else x for x in args)
+            args = tuple(Tensor(numeric_array(x.data, **options), dtype=x.dtype) if isinstance(x, Number) else x for x in args)
     return args
 
 
@@ -696,13 +564,40 @@ class DistributionMeta(FunsorMeta):
     def __call__(cls, *args, **kwargs):
         kwargs.update(zip(cls._ast_fields, args))
         value = kwargs.pop('value', 'value')
-        kwargs = OrderedDict((k, to_funsor(kwargs[k], output=cls.
-            _infer_param_domain(k, getattr(kwargs[k], 'shape', ())))) for k in
-            cls._ast_fields if k != 'value')
-        value = to_funsor(value, output=cls._infer_value_domain(**{k: v.
-            output for k, v in kwargs.items()}))
+        kwargs = OrderedDict((k, to_funsor(kwargs[k], output=cls._infer_param_domain(k, getattr(kwargs[k], 'shape', ())))) for k in cls._ast_fields if k != 'value')
+        value = to_funsor(value, output=cls._infer_value_domain(**{k: v.output for k, v in kwargs.items()}))
         args = numbers_to_tensors(*(tuple(kwargs.values()) + (value,)))
         return super(DistributionMeta, cls).__call__(*args)
+
+
+def align_tensor(new_inputs, x, expand=False):
+    """
+    Permute and add dims to a tensor to match desired ``new_inputs``.
+
+    :param OrderedDict new_inputs: A target set of inputs.
+    :param funsor.terms.Funsor x: A :class:`Tensor` or
+        :class:`~funsor.terms.Number` .
+    :param bool expand: If False (default), set result size to 1 for any input
+        of ``x`` not in ``new_inputs``; if True expand to ``new_inputs`` size.
+    :return: a number or :class:`torch.Tensor` or :class:`np.ndarray` that can be broadcast to other
+        tensors with inputs ``new_inputs``.
+    :rtype: int or float or torch.Tensor or np.ndarray
+    """
+    assert isinstance(new_inputs, OrderedDict)
+    assert isinstance(x, (Number, Tensor))
+    assert all(isinstance(d.dtype, int) for d in x.inputs.values())
+    data = x.data
+    if isinstance(x, Number):
+        return data
+    old_inputs = x.inputs
+    if old_inputs == new_inputs:
+        return data
+    x_keys = tuple(old_inputs)
+    data = ops.permute(data, tuple(x_keys.index(k) for k in new_inputs if k in old_inputs) + tuple(range(len(old_inputs), len(data.shape))))
+    data = data.reshape(tuple(old_inputs[k].dtype if k in old_inputs else 1 for k in new_inputs) + x.output.shape)
+    if expand:
+        data = ops.expand(data, tuple(d.dtype for d in new_inputs.values()) + x.output.shape)
+    return data
 
 
 def align_tensors(*args, **kwargs):
@@ -731,8 +626,7 @@ def align_tensors(*args, **kwargs):
 
 def dummy_numeric_array(domain):
     value = 0.1 if domain.dtype == 'real' else 1
-    return ops.expand(numeric_array(value), domain.shape
-        ) if domain.shape else value
+    return ops.expand(numeric_array(value), domain.shape) if domain.shape else value
 
 
 PYRO_STACK = []
@@ -767,8 +661,7 @@ def apply_stack(msg):
     if msg['value'] is None:
         msg['value'] = msg['fn'](*msg['args'])
     if isinstance(msg['value'], torch.Tensor):
-        msg['value'] = tensor_to_funsor(msg['value'], msg[
-            'cond_indep_stack'], msg['output'])
+        msg['value'] = tensor_to_funsor(msg['value'], msg['cond_indep_stack'], msg['output'])
     for handler in PYRO_STACK[-pointer - 1:]:
         handler.postprocess_message(msg)
     return msg
@@ -778,9 +671,7 @@ def sample(name, fn, obs=None, infer=None):
     fn = Distribution(fn)
     if not PYRO_STACK:
         return fn()
-    initial_msg = {'type': 'sample', 'name': name, 'fn': fn, 'args': (),
-        'value': obs, 'cond_indep_stack': {}, 'output': fn.output, 'infer':
-        {} if infer is None else infer}
+    initial_msg = {'type': 'sample', 'name': name, 'fn': fn, 'args': (), 'value': obs, 'cond_indep_stack': {}, 'output': fn.output, 'infer': {} if infer is None else infer}
     msg = apply_stack(initial_msg)
     assert isinstance(msg['value'], funsor.Funsor)
     return msg['value']
@@ -846,8 +737,7 @@ class BlockMatrix(object):
                 if j not in self.parts[i]:
                     shape = self.shape[:-2] + (i[1] - i[0], j[1] - j[0])
                     self.parts[i][j] = ops.new_zeros(prototype, shape)
-        columns = {i: ops.cat(-1, *[v for j, v in sorted(part.items())]) for
-            i, part in self.parts.items()}
+        columns = {i: ops.cat(-1, *[v for j, v in sorted(part.items())]) for i, part in self.parts.items()}
         result = ops.cat(-2, *[v for i, v in sorted(columns.items())])
         if not get_tracing_state():
             assert result.shape == self.shape
@@ -878,13 +768,46 @@ class BlockVector(object):
         prototype = next(iter(self.parts.values()))
         for i in _find_intervals(self.parts.keys(), self.shape[-1]):
             if i not in self.parts:
-                self.parts[i] = ops.new_zeros(prototype, self.shape[:-1] +
-                    (i[1] - i[0],))
+                self.parts[i] = ops.new_zeros(prototype, self.shape[:-1] + (i[1] - i[0],))
         parts = [v for k, v in sorted(self.parts.items())]
         result = ops.cat(-1, *parts)
         if not get_tracing_state():
             assert result.shape == self.shape
         return result
+
+
+class DeltaMeta(FunsorMeta):
+    """
+    Makes Delta less of a pain to use by supporting Delta(name, point, log_density)
+    """
+
+    def __call__(cls, *args):
+        if len(args) > 1:
+            assert len(args) == 2 or len(args) == 3
+            assert isinstance(args[0], str) and isinstance(args[1], Funsor)
+            args = args + (Number(0.0),) if len(args) == 2 else args
+            args = ((args[0], (to_funsor(args[1]), to_funsor(args[2]))),),
+        assert isinstance(args[0], tuple)
+        return super().__call__(args[0])
+
+
+def solve(expr, value):
+    """
+    Tries to solve for free inputs of an ``expr`` such that ``expr == value``,
+    and computes the log-abs-det-Jacobian of the resulting substitution.
+
+    :param Funsor expr: An expression with a free variable.
+    :param Funsor value: A target value.
+    :return: A tuple ``(name, point, log_abs_det_jacobian)``
+    :rtype: tuple
+    :raises: ValueError
+    """
+    assert isinstance(expr, Funsor)
+    assert isinstance(value, Funsor)
+    result = solve.dispatch(type(expr), *(expr._ast_values + (value,)))
+    if result is None:
+        raise ValueError('Cannot substitute into a Delta: {}'.format(value))
+    return result
 
 
 class GaussianMeta(FunsorMeta):
@@ -897,6 +820,35 @@ class GaussianMeta(FunsorMeta):
             inputs = tuple(inputs.items())
         assert isinstance(inputs, tuple)
         return super(GaussianMeta, cls).__call__(info_vec, precision, inputs)
+
+
+class SliceMeta(FunsorMeta):
+    """
+    Wrapper to fill in ``start``, ``stop``, ``step``, ``dtype`` following
+    Python conventions.
+    """
+
+    def __call__(cls, name, *args, **kwargs):
+        start = 0
+        step = 1
+        dtype = None
+        if len(args) == 1:
+            stop = args[0]
+            dtype = kwargs.pop('dtype', stop)
+        elif len(args) == 2:
+            start, stop = args
+            dtype = kwargs.pop('dtype', stop)
+        elif len(args) == 3:
+            start, stop, step = args
+            dtype = kwargs.pop('dtype', stop)
+        elif len(args) == 4:
+            start, stop, step, dtype = args
+        else:
+            raise ValueError
+        if step <= 0:
+            raise ValueError
+        stop = min(dtype, max(start, stop))
+        return super().__call__(name, start, stop, step, dtype)
 
 
 def _compute_offsets(inputs):
@@ -932,8 +884,7 @@ def _vv(vec1, vec2):
     """
     Computes the inner product ``< vec1 | vec 2 >``.
     """
-    return ops.matmul(ops.unsqueeze(vec1, -2), ops.unsqueeze(vec2, -1)
-        ).squeeze(-1).squeeze(-1)
+    return ops.matmul(ops.unsqueeze(vec1, -2), ops.unsqueeze(vec2, -1)).squeeze(-1).squeeze(-1)
 
 
 def affine_inputs(fn):
@@ -959,10 +910,8 @@ def align_gaussian(new_inputs, old):
     assert isinstance(old, Gaussian)
     info_vec = old.info_vec
     precision = old.precision
-    new_ints = OrderedDict((k, d) for k, d in new_inputs.items() if d.dtype !=
-        'real')
-    old_ints = OrderedDict((k, d) for k, d in old.inputs.items() if d.dtype !=
-        'real')
+    new_ints = OrderedDict((k, d) for k, d in new_inputs.items() if d.dtype != 'real')
+    old_ints = OrderedDict((k, d) for k, d in old.inputs.items() if d.dtype != 'real')
     if new_ints != old_ints:
         info_vec = align_tensor(new_ints, Tensor(info_vec, old_ints))
         precision = align_tensor(new_ints, Tensor(precision, old_ints))
@@ -990,8 +939,7 @@ def align_gaussian(new_inputs, old):
                 num_elements2 = old.inputs[k2].num_elements
                 old_slice2 = slice(offset2, offset2 + num_elements2)
                 new_slice2 = slice(new_offset2, new_offset2 + num_elements2)
-                precision[..., new_slice1, new_slice2] = old_precision[...,
-                    old_slice1, old_slice2]
+                precision[..., new_slice1, new_slice2] = old_precision[..., old_slice1, old_slice2]
         info_vec = info_vec.as_tensor()
         precision = precision.as_tensor()
     return info_vec, precision
@@ -1037,8 +985,7 @@ def extract_affine(fn):
     prototype = get_default_prototype()
     inputs = affine_inputs(fn)
     inputs = OrderedDict((k, v) for k, v in fn.inputs.items() if k in inputs)
-    zeros = {k: Tensor(ops.new_zeros(prototype, v.shape)) for k, v in
-        inputs.items()}
+    zeros = {k: Tensor(ops.new_zeros(prototype, v.shape)) for k, v in inputs.items()}
     const = fn(**zeros)
     name = gensym('probe')
     coeffs = OrderedDict()
@@ -1046,8 +993,7 @@ def extract_affine(fn):
         dim = v.num_elements
         var = Variable(name, bint(dim))
         subs = zeros.copy()
-        subs[k] = Tensor(ops.new_eye(prototype, (dim,)).reshape((dim,) + v.
-            shape))[var]
+        subs[k] = Tensor(ops.new_eye(prototype, (dim,)).reshape((dim,) + v.shape))[var]
         coeff = Lambda(var, fn(**subs) - const).reshape(v.shape + const.shape)
         inputs1 = ''.join(map(opt_einsum.get_symbol, range(len(coeff.shape))))
         inputs2 = inputs1[:len(v.shape)]
@@ -1078,8 +1024,7 @@ def _alpha_mangle(expr):
 
     FIXME this does not avoid conflict with other bound variables.
     """
-    alpha_subs = {name: interpreter.gensym(name + '__BOUND') for name in
-        expr.bound if '__BOUND' not in name}
+    alpha_subs = {name: interpreter.gensym(name + '__BOUND') for name in expr.bound if '__BOUND' not in name}
     if not alpha_subs:
         return expr
     ast_values = expr._alpha_convert(alpha_subs)
@@ -1092,17 +1037,13 @@ def reflect(cls, *args, **kwargs):
     This is the only interpretation allowed to construct funsors.
     """
     if len(args) > len(cls._ast_fields):
-        new_args = tuple(args[:len(cls._ast_fields) - 1]) + (args[len(cls.
-            _ast_fields) - 1 - len(args):],)
+        new_args = tuple(args[:len(cls._ast_fields) - 1]) + (args[len(cls._ast_fields) - 1 - len(args):],)
         assert len(new_args) == len(cls._ast_fields)
         _, args = args, new_args
-    cache_key = tuple(id(arg) if type(arg).__name__ == 'DeviceArray' or not
-        isinstance(arg, Hashable) else arg for arg in args)
+    cache_key = tuple(id(arg) if type(arg).__name__ == 'DeviceArray' or not isinstance(arg, Hashable) else arg for arg in args)
     if cache_key in cls._cons_cache:
         return cls._cons_cache[cache_key]
-    arg_types = tuple(typing.Tuple[tuple(map(type, arg))] if type(arg) is
-        tuple and all(isinstance(a, Funsor) for a in arg) else typing.Tuple if
-        type(arg) is tuple and not arg else type(arg) for arg in args)
+    arg_types = tuple(typing.Tuple[tuple(map(type, arg))] if type(arg) is tuple and all(isinstance(a, Funsor) for a in arg) else typing.Tuple if type(arg) is tuple and not arg else type(arg) for arg in args)
     cls_specific = (cls.__origin__ if cls.__args__ else cls)[arg_types]
     result = super(FunsorMeta, cls_specific).__call__(*args)
     result._ast_values = args
@@ -1142,11 +1083,9 @@ def funsor_to_cat_and_mvn(funsor_, ndims, event_inputs):
     assert not any(isinstance(v, Delta) for v in funsor_.terms)
     cat, mvn = to_data(funsor_, name_to_dim=default_name_to_dim(event_inputs))
     if ndims != len(cat.batch_shape):
-        cat = cat.expand((1,) * (ndims - len(cat.batch_shape)) + cat.
-            batch_shape)
+        cat = cat.expand((1,) * (ndims - len(cat.batch_shape)) + cat.batch_shape)
     if ndims + 1 != len(mvn.batch_shape):
-        mvn = mvn.expand((1,) * (ndims + 1 - len(mvn.batch_shape)) + mvn.
-            batch_shape)
+        mvn = mvn.expand((1,) * (ndims + 1 - len(mvn.batch_shape)) + mvn.batch_shape)
     return cat, mvn
 
 
@@ -1170,13 +1109,11 @@ def funsor_to_mvn(gaussian, ndims, event_inputs=()):
     assert isinstance(gaussian, Gaussian)
     result = to_data(gaussian, name_to_dim=default_name_to_dim(event_inputs))
     if ndims != len(result.batch_shape):
-        result = result.expand((1,) * (ndims - len(result.batch_shape)) +
-            result.batch_shape)
+        result = result.expand((1,) * (ndims - len(result.batch_shape)) + result.batch_shape)
     return result
 
 
-def matrix_and_mvn_to_funsor(matrix, mvn, event_dims=(), x_name='value_x',
-    y_name='value_y'):
+def matrix_and_mvn_to_funsor(matrix, mvn, event_dims=(), x_name='value_x', y_name='value_y'):
     """
     Convert a noisy affine function to a Gaussian. The noisy affine function is
     defined as::
@@ -1200,28 +1137,21 @@ def matrix_and_mvn_to_funsor(matrix, mvn, event_dims=(), x_name='value_x',
         bint inputs.
     :rtype: funsor.terms.Funsor
     """
-    assert isinstance(mvn, torch.distributions.MultivariateNormal
-        ) or isinstance(mvn, torch.distributions.Independent) and isinstance(
-        mvn.base_dist, torch.distributions.Normal)
+    assert isinstance(mvn, torch.distributions.MultivariateNormal) or isinstance(mvn, torch.distributions.Independent) and isinstance(mvn.base_dist, torch.distributions.Normal)
     assert isinstance(matrix, torch.Tensor)
     x_size, y_size = matrix.shape[-2:]
     assert mvn.event_shape == (y_size,)
     if isinstance(mvn, torch.distributions.Independent):
-        return AffineNormal(tensor_to_funsor(matrix, event_dims, 2),
-            tensor_to_funsor(mvn.base_dist.loc, event_dims, 1),
-            tensor_to_funsor(mvn.base_dist.scale, event_dims, 1), Variable(
-            x_name, reals(x_size)), Variable(y_name, reals(y_size)))
+        return AffineNormal(tensor_to_funsor(matrix, event_dims, 2), tensor_to_funsor(mvn.base_dist.loc, event_dims, 1), tensor_to_funsor(mvn.base_dist.scale, event_dims, 1), Variable(x_name, reals(x_size)), Variable(y_name, reals(y_size)))
     info_vec = mvn.loc.unsqueeze(-1).cholesky_solve(mvn.scale_tril).squeeze(-1)
-    log_prob = -0.5 * y_size * math.log(2 * math.pi) - mvn.scale_tril.diagonal(
-        dim1=-1, dim2=-2).log().sum(-1) - 0.5 * (info_vec * mvn.loc).sum(-1)
+    log_prob = -0.5 * y_size * math.log(2 * math.pi) - mvn.scale_tril.diagonal(dim1=-1, dim2=-2).log().sum(-1) - 0.5 * (info_vec * mvn.loc).sum(-1)
     batch_shape = broadcast_shape(matrix.shape[:-2], mvn.batch_shape)
     P_yy = mvn.precision_matrix.expand(batch_shape + (y_size, y_size))
     neg_P_xy = matrix.matmul(P_yy)
     P_xy = -neg_P_xy
     P_yx = P_xy.transpose(-1, -2)
     P_xx = neg_P_xy.matmul(matrix.transpose(-1, -2))
-    precision = torch.cat([torch.cat([P_xx, P_xy], -1), torch.cat([P_yx,
-        P_yy], -1)], -2)
+    precision = torch.cat([torch.cat([P_xx, P_xy], -1), torch.cat([P_yx, P_yy], -1)], -2)
     info_y = info_vec.expand(batch_shape + (y_size,))
     info_x = -matrix.matmul(info_y.unsqueeze(-1)).squeeze(-1)
     info_vec = torch.cat([info_x, info_y], -1)
@@ -1230,15 +1160,12 @@ def matrix_and_mvn_to_funsor(matrix, mvn, event_dims=(), x_name='value_x',
     inputs = info_vec.inputs.copy()
     inputs[x_name] = reals(x_size)
     inputs[y_name] = reals(y_size)
-    return tensor_to_funsor(log_prob, event_dims) + Gaussian(info_vec.data,
-        precision.data, inputs)
+    return tensor_to_funsor(log_prob, event_dims) + Gaussian(info_vec.data, precision.data, inputs)
 
 
 def default_dim_to_name(inputs_shape, event_inputs):
-    dim_to_name_list = (DIM_TO_NAME + event_inputs if event_inputs else
-        DIM_TO_NAME)
-    return OrderedDict(zip(range(-len(inputs_shape), 0), dim_to_name_list[
-        len(dim_to_name_list) - len(inputs_shape):]))
+    dim_to_name_list = DIM_TO_NAME + event_inputs if event_inputs else DIM_TO_NAME
+    return OrderedDict(zip(range(-len(inputs_shape), 0), dim_to_name_list[len(dim_to_name_list) - len(inputs_shape):]))
 
 
 def mvn_to_funsor(pyro_dist, event_inputs=(), real_inputs=OrderedDict()):
@@ -1271,12 +1198,10 @@ def mvn_to_funsor(pyro_dist, event_inputs=(), real_inputs=OrderedDict()):
     return to_funsor(pyro_dist, reals(), dim_to_name, real_inputs=real_inputs)
 
 
-NCV_PROCESS_NOISE = torch.tensor([[1 / 3, 0.0, 1 / 2, 0.0], [0.0, 1 / 3, 
-    0.0, 1 / 2], [1 / 2, 0.0, 1.0, 0.0], [0.0, 1 / 2, 0.0, 1.0]])
+NCV_PROCESS_NOISE = torch.tensor([[1 / 3, 0.0, 1 / 2, 0.0], [0.0, 1 / 3, 0.0, 1 / 2], [1 / 2, 0.0, 1.0, 0.0], [0.0, 1 / 2, 0.0, 1.0]])
 
 
-NCV_TRANSITION_MATRIX = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0,
-    0.0], [1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]])
+NCV_TRANSITION_MATRIX = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]])
 
 
 def dist_to_funsor(pyro_dist, event_inputs=()):
@@ -1289,8 +1214,7 @@ def dist_to_funsor(pyro_dist, event_inputs=()):
     """
     assert isinstance(pyro_dist, torch.distributions.Distribution)
     assert isinstance(event_inputs, tuple)
-    return to_funsor(pyro_dist, reals(), default_dim_to_name(pyro_dist.
-        batch_shape, event_inputs))
+    return to_funsor(pyro_dist, reals(), default_dim_to_name(pyro_dist.batch_shape, event_inputs))
 
 
 class Model(nn.Module):
@@ -1309,28 +1233,20 @@ class Model(nn.Module):
         trans_noise = self.log_trans_noise.exp()
         bias = Variable('bias', reals(obs_dim))
         assert not torch.isnan(bias_scale), 'bias scales was nan'
-        bias_dist = dist_to_funsor(dist.MultivariateNormal(torch.zeros(
-            obs_dim), scale_tril=bias_scale * torch.eye(2 * self.num_sensors))
-            )(value=bias)
-        init_dist = torch.distributions.MultivariateNormal(torch.zeros(4),
-            scale_tril=100.0 * torch.eye(4))
+        bias_dist = dist_to_funsor(dist.MultivariateNormal(torch.zeros(obs_dim), scale_tril=bias_scale * torch.eye(2 * self.num_sensors)))(value=bias)
+        init_dist = torch.distributions.MultivariateNormal(torch.zeros(4), scale_tril=100.0 * torch.eye(4))
         self.init = dist_to_funsor(init_dist)(value='state')
         prev = Variable('prev', reals(4))
         curr = Variable('curr', reals(4))
-        self.trans_dist = f_dist.MultivariateNormal(loc=prev @
-            NCV_TRANSITION_MATRIX, scale_tril=trans_noise *
-            NCV_PROCESS_NOISE.cholesky(), value=curr)
+        self.trans_dist = f_dist.MultivariateNormal(loc=prev @ NCV_TRANSITION_MATRIX, scale_tril=trans_noise * NCV_PROCESS_NOISE.cholesky(), value=curr)
         state = Variable('state', reals(4))
         obs = Variable('obs', reals(obs_dim))
-        observation_matrix = Tensor(torch.eye(4, 2).unsqueeze(-1).expand(-1,
-            -1, self.num_sensors).reshape(4, -1))
-        assert observation_matrix.output.shape == (4, obs_dim
-            ), observation_matrix.output.shape
+        observation_matrix = Tensor(torch.eye(4, 2).unsqueeze(-1).expand(-1, -1, self.num_sensors).reshape(4, -1))
+        assert observation_matrix.output.shape == (4, obs_dim), observation_matrix.output.shape
         obs_loc = state @ observation_matrix
         if add_bias:
             obs_loc += bias
-        self.observation_dist = f_dist.MultivariateNormal(loc=obs_loc,
-            scale_tril=obs_noise * torch.eye(obs_dim), value=obs)
+        self.observation_dist = f_dist.MultivariateNormal(loc=obs_loc, scale_tril=obs_noise * torch.eye(obs_dim), value=obs)
         logp = bias_dist
         curr = 'state_init'
         logp += self.init(state=curr)
@@ -1380,8 +1296,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([20, 20])], {}),
+     True),
+]
+
 class Test_pyro_ppl_funsor(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Decoder(*[], **{}), [torch.rand([20, 20])], {})
+        self._check(*TESTCASES[0])
 

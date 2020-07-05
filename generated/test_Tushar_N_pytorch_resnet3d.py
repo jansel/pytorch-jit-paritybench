@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,9 +74,7 @@ class FrozenBN(nn.Module):
 
     def forward(self, x):
         assert self.params_set, 'model.set_params(...) must be called before the forward pass'
-        return torch.batch_norm(x, self.scale, self.bias, self.running_mean,
-            self.running_var, False, self.momentum, self.eps, torch.
-            backends.cudnn.enabled)
+        return torch.batch_norm(x, self.scale, self.bias, self.running_mean, self.running_var, False, self.momentum, self.eps, torch.backends.cudnn.enabled)
 
     def __repr__(self):
         return 'FrozenBN(%d)' % self.num_channels
@@ -84,25 +83,19 @@ class FrozenBN(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride, downsample, temp_conv,
-        temp_stride, use_nl=False):
+    def __init__(self, inplanes, planes, stride, downsample, temp_conv, temp_stride, use_nl=False):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=(1 + temp_conv *
-            2, 1, 1), stride=(temp_stride, 1, 1), padding=(temp_conv, 0, 0),
-            bias=False)
+        self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=(1 + temp_conv * 2, 1, 1), stride=(temp_stride, 1, 1), padding=(temp_conv, 0, 0), bias=False)
         self.bn1 = nn.BatchNorm3d(planes)
-        self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3),
-            stride=(1, stride, stride), padding=(0, 1, 1), bias=False)
+        self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3), stride=(1, stride, stride), padding=(0, 1, 1), bias=False)
         self.bn2 = nn.BatchNorm3d(planes)
-        self.conv3 = nn.Conv3d(planes, planes * 4, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv3 = nn.Conv3d(planes, planes * 4, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm3d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
         outplanes = planes * 4
-        self.nl = NonLocalBlock(outplanes, outplanes, outplanes // 2
-            ) if use_nl else None
+        self.nl = NonLocalBlock(outplanes, outplanes, outplanes // 2) if use_nl else None
 
     def forward(self, x):
         residual = x
@@ -130,16 +123,11 @@ class NonLocalBlock(nn.Module):
         self.dim_in = dim_in
         self.dim_inner = dim_inner
         self.dim_out = dim_out
-        self.theta = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1),
-            stride=(1, 1, 1), padding=(0, 0, 0))
-        self.maxpool = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2),
-            padding=(0, 0, 0))
-        self.phi = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1),
-            stride=(1, 1, 1), padding=(0, 0, 0))
-        self.g = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride
-            =(1, 1, 1), padding=(0, 0, 0))
-        self.out = nn.Conv3d(dim_inner, dim_out, kernel_size=(1, 1, 1),
-            stride=(1, 1, 1), padding=(0, 0, 0))
+        self.theta = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0))
+        self.phi = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.g = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.out = nn.Conv3d(dim_inner, dim_out, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
         self.bn = nn.BatchNorm3d(dim_out)
 
     def forward(self, x):
@@ -150,9 +138,7 @@ class NonLocalBlock(nn.Module):
         phi = self.phi(mp)
         g = self.g(mp)
         theta_shape_5d = theta.shape
-        theta, phi, g = theta.view(batch_size, self.dim_inner, -1), phi.view(
-            batch_size, self.dim_inner, -1), g.view(batch_size, self.
-            dim_inner, -1)
+        theta, phi, g = theta.view(batch_size, self.dim_inner, -1), phi.view(batch_size, self.dim_inner, -1), g.view(batch_size, self.dim_inner, -1)
         theta_phi = torch.bmm(theta.transpose(1, 2), phi)
         theta_phi_sc = theta_phi * self.dim_inner ** -0.5
         p = F.softmax(theta_phi_sc, dim=-1)
@@ -166,29 +152,19 @@ class NonLocalBlock(nn.Module):
 
 class I3Res50(nn.Module):
 
-    def __init__(self, block=Bottleneck, layers=[3, 4, 6, 3], num_classes=
-        400, use_nl=False):
+    def __init__(self, block=Bottleneck, layers=[3, 4, 6, 3], num_classes=400, use_nl=False):
         self.inplanes = 64
         super(I3Res50, self).__init__()
-        self.conv1 = nn.Conv3d(3, 64, kernel_size=(5, 7, 7), stride=(2, 2, 
-            2), padding=(2, 3, 3), bias=False)
+        self.conv1 = nn.Conv3d(3, 64, kernel_size=(5, 7, 7), stride=(2, 2, 2), padding=(2, 3, 3), bias=False)
         self.bn1 = nn.BatchNorm3d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool1 = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=(2, 2, 2
-            ), padding=(0, 0, 0))
-        self.maxpool2 = nn.MaxPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1
-            ), padding=(0, 0, 0))
+        self.maxpool1 = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=(2, 2, 2), padding=(0, 0, 0))
+        self.maxpool2 = nn.MaxPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1), padding=(0, 0, 0))
         nonlocal_mod = 2 if use_nl else 1000
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=1,
-            temp_conv=[1, 1, 1], temp_stride=[1, 1, 1])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            temp_conv=[1, 0, 1, 0], temp_stride=[1, 1, 1, 1], nonlocal_mod=
-            nonlocal_mod)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            temp_conv=[1, 0, 1, 0, 1, 0], temp_stride=[1, 1, 1, 1, 1, 1],
-            nonlocal_mod=nonlocal_mod)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            temp_conv=[0, 1, 0], temp_stride=[1, 1, 1])
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=1, temp_conv=[1, 1, 1], temp_stride=[1, 1, 1])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, temp_conv=[1, 0, 1, 0], temp_stride=[1, 1, 1, 1], nonlocal_mod=nonlocal_mod)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, temp_conv=[1, 0, 1, 0, 1, 0], temp_stride=[1, 1, 1, 1, 1, 1], nonlocal_mod=nonlocal_mod)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, temp_conv=[0, 1, 0], temp_stride=[1, 1, 1])
         self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.drop = nn.Dropout(0.5)
@@ -199,22 +175,15 @@ class I3Res50(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride, temp_conv,
-        temp_stride, nonlocal_mod=1000):
+    def _make_layer(self, block, planes, blocks, stride, temp_conv, temp_stride, nonlocal_mod=1000):
         downsample = None
-        if (stride != 1 or self.inplanes != planes * block.expansion or 
-            temp_stride[0] != 1):
-            downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes *
-                block.expansion, kernel_size=(1, 1, 1), stride=(temp_stride
-                [0], stride, stride), padding=(0, 0, 0), bias=False), nn.
-                BatchNorm3d(planes * block.expansion))
+        if stride != 1 or self.inplanes != planes * block.expansion or temp_stride[0] != 1:
+            downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=(1, 1, 1), stride=(temp_stride[0], stride, stride), padding=(0, 0, 0), bias=False), nn.BatchNorm3d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            temp_conv[0], temp_stride[0], False))
+        layers.append(block(self.inplanes, planes, stride, downsample, temp_conv[0], temp_stride[0], False))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, 1, None, temp_conv[i
-                ], temp_stride[i], i % nonlocal_mod == nonlocal_mod - 1))
+            layers.append(block(self.inplanes, planes, 1, None, temp_conv[i], temp_stride[i], i % nonlocal_mod == nonlocal_mod - 1))
         return nn.Sequential(*layers)
 
     def forward_single(self, x):
@@ -257,10 +226,3 @@ class I3Res50(nn.Module):
             loss_dict = {'loss': loss}
         return pred, loss_dict
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Tushar_N_pytorch_resnet3d(_paritybench_base):
-    pass

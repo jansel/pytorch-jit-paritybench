@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,8 +71,7 @@ from torchvision import transforms
 
 class correlation(Function):
 
-    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20,
-        stride1=1, stride2=1, corr_multiply=1):
+    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=1, corr_multiply=1):
         super(correlation, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -85,9 +85,7 @@ class correlation(Function):
         rbot1 = input1.new()
         rbot2 = input2.new()
         output = input1.new()
-        corr.corr_cuda_forward(input1, input2, rbot1, rbot2, output, self.
-            pad_size, self.kernel_size, self.max_displacement, self.stride1,
-            self.stride2, self.corr_multiply)
+        corr.corr_cuda_forward(input1, input2, rbot1, rbot2, output, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return output
 
     def backward(self, grad_output):
@@ -96,16 +94,13 @@ class correlation(Function):
         rbot2 = input2.new()
         grad_input1 = torch.zeros(input1.size()).cuda()
         grad_input2 = torch.zeros(input2.size()).cuda()
-        corr.corr_cuda_backward(input1, input2, rbot1, rbot2, grad_output,
-            grad_input1, grad_input2, self.pad_size, self.kernel_size, self
-            .max_displacement, self.stride1, self.stride2, self.corr_multiply)
+        corr.corr_cuda_backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return grad_input1, grad_input2
 
 
 class Correlation(Module):
 
-    def __init__(self, pad_size=None, kernel_size=None, max_displacement=
-        None, stride1=None, stride2=None, corr_multiply=None):
+    def __init__(self, pad_size=None, kernel_size=None, max_displacement=None, stride1=None, stride2=None, corr_multiply=None):
         super(Correlation, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -118,9 +113,7 @@ class Correlation(Module):
         return
 
     def forward(self, input1, input2):
-        return correlation(self.pad_size, self.kernel_size, self.
-            max_displacement, self.stride1, self.stride2, self.corr_multiply)(
-            input1, input2)
+        return correlation(self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)(input1, input2)
 
     def __repr__(self):
         return self.__class__.__name__
@@ -128,8 +121,7 @@ class Correlation(Module):
 
 class correlation1d(Function):
 
-    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20,
-        stride1=1, stride2=1, corr_multiply=1):
+    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=1, corr_multiply=1):
         super(correlation1d, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -143,9 +135,7 @@ class correlation1d(Function):
         rbot1 = input1.new()
         rbot2 = input2.new()
         output = input1.new()
-        corr.corr1d_cuda_forward(input1, input2, rbot1, rbot2, output, self
-            .pad_size, self.kernel_size, self.max_displacement, self.
-            stride1, self.stride2, self.corr_multiply)
+        corr.corr1d_cuda_forward(input1, input2, rbot1, rbot2, output, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return output
 
     def backward(self, grad_output):
@@ -154,16 +144,13 @@ class correlation1d(Function):
         rbot2 = input2.new()
         grad_input1 = torch.zeros(input1.size()).cuda()
         grad_input2 = torch.zeros(input2.size()).cuda()
-        corr.corr1d_cuda_backward(input1, input2, rbot1, rbot2, grad_output,
-            grad_input1, grad_input2, self.pad_size, self.kernel_size, self
-            .max_displacement, self.stride1, self.stride2, self.corr_multiply)
+        corr.corr1d_cuda_backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return grad_input1, grad_input2
 
 
 class Correlation1d(Module):
 
-    def __init__(self, pad_size=None, kernel_size=None, max_displacement=
-        None, stride1=None, stride2=None, corr_multiply=None):
+    def __init__(self, pad_size=None, kernel_size=None, max_displacement=None, stride1=None, stride2=None, corr_multiply=None):
         super(Correlation1d, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -176,28 +163,22 @@ class Correlation1d(Module):
         return
 
     def forward(self, input1, input2):
-        return correlation1d(self.pad_size, self.kernel_size, self.
-            max_displacement, self.stride1, self.stride2, self.corr_multiply)(
-            input1, input2)
+        return correlation1d(self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)(input1, input2)
 
     def __repr__(self):
         return self.__class__.__name__
 
 
 def conv(inplanes, outplanes, ks=3, st=1):
-    return nn.Sequential(nn.Conv2d(inplanes, outplanes, kernel_size=ks,
-        stride=st, padding=(ks - 1) // 2, bias=True), nn.BatchNorm2d(
-        outplanes), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(inplanes, outplanes, kernel_size=ks, stride=st, padding=(ks - 1) // 2, bias=True), nn.BatchNorm2d(outplanes), nn.ReLU(inplace=True))
 
 
 def deconv(in_planes, out_planes, kernel_size=4, stride=2, padding=1):
-    return nn.ConvTranspose2d(in_planes, out_planes, kernel_size, stride,
-        padding, bias=True)
+    return nn.ConvTranspose2d(in_planes, out_planes, kernel_size, stride, padding, bias=True)
 
 
 def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias=True)
 
 
 class PWCDCNet(nn.Module):
@@ -230,8 +211,7 @@ class PWCDCNet(nn.Module):
         self.conv6aa = conv(128, 196, kernel_size=3, stride=2)
         self.conv6a = conv(196, 196, kernel_size=3, stride=1)
         self.conv6b = conv(196, 196, kernel_size=3, stride=1)
-        self.corr = Correlation(pad_size=md, kernel_size=1,
-            max_displacement=md, stride1=1, stride2=1, corr_multiply=1)
+        self.corr = Correlation(pad_size=md, kernel_size=1, max_displacement=md, stride1=1, stride2=1, corr_multiply=1)
         self.leakyRELU = nn.LeakyReLU(0.1)
         nd = (2 * md + 1) ** 2
         dd = np.cumsum([128, 128, 96, 64, 32])
@@ -243,8 +223,7 @@ class PWCDCNet(nn.Module):
         self.conv6_4 = conv(od + dd[3], 32, kernel_size=3, stride=1)
         self.predict_flow6 = predict_flow(od + dd[4])
         self.deconv6 = deconv(2, 2, kernel_size=4, stride=2, padding=1)
-        self.upfeat6 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1
-            )
+        self.upfeat6 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1)
         od = nd + 128 + 4
         self.conv5_0 = conv(od, 128, kernel_size=3, stride=1)
         self.conv5_1 = conv(od + dd[0], 128, kernel_size=3, stride=1)
@@ -253,8 +232,7 @@ class PWCDCNet(nn.Module):
         self.conv5_4 = conv(od + dd[3], 32, kernel_size=3, stride=1)
         self.predict_flow5 = predict_flow(od + dd[4])
         self.deconv5 = deconv(2, 2, kernel_size=4, stride=2, padding=1)
-        self.upfeat5 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1
-            )
+        self.upfeat5 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1)
         od = nd + 96 + 4
         self.conv4_0 = conv(od, 128, kernel_size=3, stride=1)
         self.conv4_1 = conv(od + dd[0], 128, kernel_size=3, stride=1)
@@ -263,8 +241,7 @@ class PWCDCNet(nn.Module):
         self.conv4_4 = conv(od + dd[3], 32, kernel_size=3, stride=1)
         self.predict_flow4 = predict_flow(od + dd[4])
         self.deconv4 = deconv(2, 2, kernel_size=4, stride=2, padding=1)
-        self.upfeat4 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1
-            )
+        self.upfeat4 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1)
         od = nd + 64 + 4
         self.conv3_0 = conv(od, 128, kernel_size=3, stride=1)
         self.conv3_1 = conv(od + dd[0], 128, kernel_size=3, stride=1)
@@ -273,8 +250,7 @@ class PWCDCNet(nn.Module):
         self.conv3_4 = conv(od + dd[3], 32, kernel_size=3, stride=1)
         self.predict_flow3 = predict_flow(od + dd[4])
         self.deconv3 = deconv(2, 2, kernel_size=4, stride=2, padding=1)
-        self.upfeat3 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1
-            )
+        self.upfeat3 = deconv(od + dd[4], 2, kernel_size=4, stride=2, padding=1)
         od = nd + 32 + 4
         self.conv2_0 = conv(od, 128, kernel_size=3, stride=1)
         self.conv2_1 = conv(od + dd[0], 128, kernel_size=3, stride=1)
@@ -283,18 +259,12 @@ class PWCDCNet(nn.Module):
         self.conv2_4 = conv(od + dd[3], 32, kernel_size=3, stride=1)
         self.predict_flow2 = predict_flow(od + dd[4])
         self.deconv2 = deconv(2, 2, kernel_size=4, stride=2, padding=1)
-        self.dc_conv1 = conv(od + dd[4], 128, kernel_size=3, stride=1,
-            padding=1, dilation=1)
-        self.dc_conv2 = conv(128, 128, kernel_size=3, stride=1, padding=2,
-            dilation=2)
-        self.dc_conv3 = conv(128, 128, kernel_size=3, stride=1, padding=4,
-            dilation=4)
-        self.dc_conv4 = conv(128, 96, kernel_size=3, stride=1, padding=8,
-            dilation=8)
-        self.dc_conv5 = conv(96, 64, kernel_size=3, stride=1, padding=16,
-            dilation=16)
-        self.dc_conv6 = conv(64, 32, kernel_size=3, stride=1, padding=1,
-            dilation=1)
+        self.dc_conv1 = conv(od + dd[4], 128, kernel_size=3, stride=1, padding=1, dilation=1)
+        self.dc_conv2 = conv(128, 128, kernel_size=3, stride=1, padding=2, dilation=2)
+        self.dc_conv3 = conv(128, 128, kernel_size=3, stride=1, padding=4, dilation=4)
+        self.dc_conv4 = conv(128, 96, kernel_size=3, stride=1, padding=8, dilation=8)
+        self.dc_conv5 = conv(96, 64, kernel_size=3, stride=1, padding=16, dilation=16)
+        self.dc_conv6 = conv(64, 32, kernel_size=3, stride=1, padding=1, dilation=1)
         self.dc_conv7 = predict_flow(32)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
@@ -403,9 +373,7 @@ class PWCDCNet(nn.Module):
 
 
 def transpose_conv(inplanes, outplanes, ks=4, st=2):
-    return nn.Sequential(nn.ConvTranspose2d(inplanes, outplanes,
-        kernel_size=ks, stride=st, padding=(ks - 1) // 2, bias=True), nn.
-        ReLU(inplace=True))
+    return nn.Sequential(nn.ConvTranspose2d(inplanes, outplanes, kernel_size=ks, stride=st, padding=(ks - 1) // 2, bias=True), nn.ReLU(inplace=True))
 
 
 class RigidityNet(nn.Module):
@@ -424,26 +392,16 @@ class RigidityNet(nn.Module):
         self.predict_translate = nn.Conv2d(1024, 3, kernel_size=1, stride=1)
         self.predict_rotate = nn.Conv2d(1024, 3, kernel_size=1, stride=1)
         self.transpose_conv_ch = [32, 64, 128, 256, 512, 1024]
-        self.transpose_conv5 = transpose_conv(self.transpose_conv_ch[5],
-            self.transpose_conv_ch[4])
-        self.transpose_conv4 = transpose_conv(self.transpose_conv_ch[4],
-            self.transpose_conv_ch[3])
-        self.transpose_conv3 = transpose_conv(self.transpose_conv_ch[3],
-            self.transpose_conv_ch[2])
-        self.transpose_conv2 = transpose_conv(self.transpose_conv_ch[2],
-            self.transpose_conv_ch[1])
-        self.transpose_conv1 = transpose_conv(self.transpose_conv_ch[1],
-            self.transpose_conv_ch[0])
-        self.predict_fg5 = nn.Conv2d(self.transpose_conv_ch[4], 2,
-            kernel_size=1, stride=1)
-        self.predict_fg4 = nn.Conv2d(self.transpose_conv_ch[3], 2,
-            kernel_size=1, stride=1)
-        self.predict_fg3 = nn.Conv2d(self.transpose_conv_ch[2], 2,
-            kernel_size=1, stride=1)
-        self.predict_fg2 = nn.Conv2d(self.transpose_conv_ch[1], 2,
-            kernel_size=1, stride=1)
-        self.predict_fg1 = nn.Conv2d(self.transpose_conv_ch[0], 2,
-            kernel_size=1, stride=1)
+        self.transpose_conv5 = transpose_conv(self.transpose_conv_ch[5], self.transpose_conv_ch[4])
+        self.transpose_conv4 = transpose_conv(self.transpose_conv_ch[4], self.transpose_conv_ch[3])
+        self.transpose_conv3 = transpose_conv(self.transpose_conv_ch[3], self.transpose_conv_ch[2])
+        self.transpose_conv2 = transpose_conv(self.transpose_conv_ch[2], self.transpose_conv_ch[1])
+        self.transpose_conv1 = transpose_conv(self.transpose_conv_ch[1], self.transpose_conv_ch[0])
+        self.predict_fg5 = nn.Conv2d(self.transpose_conv_ch[4], 2, kernel_size=1, stride=1)
+        self.predict_fg4 = nn.Conv2d(self.transpose_conv_ch[3], 2, kernel_size=1, stride=1)
+        self.predict_fg3 = nn.Conv2d(self.transpose_conv_ch[2], 2, kernel_size=1, stride=1)
+        self.predict_fg2 = nn.Conv2d(self.transpose_conv_ch[1], 2, kernel_size=1, stride=1)
+        self.predict_fg1 = nn.Conv2d(self.transpose_conv_ch[0], 2, kernel_size=1, stride=1)
         self._initialize_weights()
 
     def forward(self, x):
@@ -487,9 +445,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (RigidityNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 12, 64, 64])], {}),
+     False),
+]
+
 class Test_NVlabs_learningrigidity(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(RigidityNet(*[], **{}), [torch.rand([4, 12, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

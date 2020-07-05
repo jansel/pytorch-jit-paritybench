@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,9 +101,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         self._initialize_weights()
 
     def forward(self, x):
@@ -173,10 +172,8 @@ class TV_L1LOSS(nn.Module):
 
     def forward(self, x, y):
         size = x.size()
-        h_tv_diff = torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :] - (y[:, :, 1
-            :, :] - y[:, :, :-1, :])).sum()
-        w_tv_diff = torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1] - (y[:, :, :,
-            1:] - y[:, :, :, :-1])).sum()
+        h_tv_diff = torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :] - (y[:, :, 1:, :] - y[:, :, :-1, :])).sum()
+        w_tv_diff = torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1] - (y[:, :, :, 1:] - y[:, :, :, :-1])).sum()
         return (h_tv_diff + w_tv_diff) / size[0] / size[1] / size[2] / size[3]
 
 
@@ -226,8 +223,7 @@ class Perceptual_loss(nn.Module):
         X_content = self.model(X)
         Y_content = self.model(Y)
         loss = ((X_content - Y_content) ** 2).sum()
-        loss /= X_content.size()[0] * X_content.size()[1] * X_content.size()[2
-            ] * X_content.size()[3]
+        loss /= X_content.size()[0] * X_content.size()[1] * X_content.size()[2] * X_content.size()[3]
         return loss
 
 
@@ -301,8 +297,7 @@ class VGGLoss(nn.Module):
             raise Exception('Do not support this loss.')
         i = 0
         for j in self.layers:
-            self.vgg.append(nn.Sequential(*list(vgg.features.children())[
-                layers_dict[i]:layers_dict[j]]))
+            self.vgg.append(nn.Sequential(*list(vgg.features.children())[layers_dict[i]:layers_dict[j]]))
             i = j
 
     def cuda(self, device=None):
@@ -338,15 +333,12 @@ def act_layer(act_type, inplace=False, neg_slope=0.2, n_prelu=1):
     elif act_type == 'prelu':
         layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
     else:
-        raise NotImplementedError('activation layer [%s] is not found' %
-            act_type)
+        raise NotImplementedError('activation layer [%s] is not found' % act_type)
     return layer
 
 
-def default_conv(in_channelss, out_channels, kernel_size, stride=1, bias=False
-    ):
-    return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=
-        kernel_size // 2, stride=stride, bias=bias)
+def default_conv(in_channelss, out_channels, kernel_size, stride=1, bias=False):
+    return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=kernel_size // 2, stride=stride, bias=bias)
 
 
 def norm_layer(norm_type, nc):
@@ -356,17 +348,14 @@ def norm_layer(norm_type, nc):
     elif norm_type == 'instance':
         layer = nn.InstanceNorm2d(nc, affine=False)
     else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
+        raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return layer
 
 
 class ConvBlock(nn.Sequential):
 
-    def __init__(self, in_channelss, out_channels, kernel_size=3, stride=1,
-        bias=False, norm_type=False, act_type='relu'):
-        m = [default_conv(in_channelss, out_channels, kernel_size, stride=
-            stride, bias=bias)]
+    def __init__(self, in_channelss, out_channels, kernel_size=3, stride=1, bias=False, norm_type=False, act_type='relu'):
+        m = [default_conv(in_channelss, out_channels, kernel_size, stride=stride, bias=bias)]
         act = act_layer(act_type) if act_type else None
         norm = norm_layer(norm_type, out_channels) if norm_type else None
         if norm:
@@ -395,8 +384,7 @@ class ShortcutBlock(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, n_feats, kernel_size=3, norm_type=False, act_type=
-        'relu', bias=False, res_scale=1):
+    def __init__(self, n_feats, kernel_size=3, norm_type=False, act_type='relu', bias=False, res_scale=1):
         super(ResBlock, self).__init__()
         m = []
         act = act_layer(act_type) if act_type else None
@@ -423,20 +411,14 @@ class ResidualDenseBlock5(nn.Module):
     The core module of paper: (Residual Dense Network for Image Super-Resolution, CVPR18)
     """
 
-    def __init__(self, nc, gc=32, kernel_size=3, stride=1, bias=True,
-        norm_type=None, act_type='leakyrelu', res_scale=0.2):
+    def __init__(self, nc, gc=32, kernel_size=3, stride=1, bias=True, norm_type=None, act_type='leakyrelu', res_scale=0.2):
         super(ResidualDenseBlock5, self).__init__()
         self.res_scale = res_scale
-        self.conv1 = ConvBlock(nc, gc, kernel_size, stride, bias=bias,
-            norm_type=norm_type, act_type=act_type)
-        self.conv2 = ConvBlock(nc + gc, gc, kernel_size, stride, bias=bias,
-            norm_type=norm_type, act_type=act_type)
-        self.conv3 = ConvBlock(nc + 2 * gc, gc, kernel_size, stride, bias=
-            bias, norm_type=norm_type, act_type=act_type)
-        self.conv4 = ConvBlock(nc + 3 * gc, gc, kernel_size, stride, bias=
-            bias, norm_type=norm_type, act_type=act_type)
-        self.conv5 = ConvBlock(nc + 4 * gc, gc, kernel_size, stride, bias=
-            bias, norm_type=norm_type, act_type=act_type)
+        self.conv1 = ConvBlock(nc, gc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
+        self.conv2 = ConvBlock(nc + gc, gc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
+        self.conv3 = ConvBlock(nc + 2 * gc, gc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
+        self.conv4 = ConvBlock(nc + 3 * gc, gc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
+        self.conv5 = ConvBlock(nc + 4 * gc, gc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -452,16 +434,12 @@ class RRDB(nn.Module):
     Residual in Residual Dense Block
     """
 
-    def __init__(self, nc, gc=32, kernel_size=3, stride=1, bias=True,
-        norm_type=None, act_type='leakyrelu', res_scale=0.2):
+    def __init__(self, nc, gc=32, kernel_size=3, stride=1, bias=True, norm_type=None, act_type='leakyrelu', res_scale=0.2):
         super(RRDB, self).__init__()
         self.res_scale = res_scale
-        self.RDB1 = ResidualDenseBlock5(nc, gc, kernel_size, stride, bias,
-            norm_type, act_type, res_scale)
-        self.RDB2 = ResidualDenseBlock5(nc, gc, kernel_size, stride, bias,
-            norm_type, act_type, res_scale)
-        self.RDB3 = ResidualDenseBlock5(nc, gc, kernel_size, stride, bias,
-            norm_type, act_type, res_scale)
+        self.RDB1 = ResidualDenseBlock5(nc, gc, kernel_size, stride, bias, norm_type, act_type, res_scale)
+        self.RDB2 = ResidualDenseBlock5(nc, gc, kernel_size, stride, bias, norm_type, act_type, res_scale)
+        self.RDB3 = ResidualDenseBlock5(nc, gc, kernel_size, stride, bias, norm_type, act_type, res_scale)
 
     def forward(self, x):
         out = self.RDB1(x)
@@ -477,18 +455,14 @@ class SkipUpDownBlock(nn.Module):
     The core module of paper: (Residual Dense Network for Image Super-Resolution, CVPR18)
     """
 
-    def __init__(self, nc, kernel_size=3, stride=1, bias=True, norm_type=
-        None, act_type='leakyrelu', res_scale=0.2):
+    def __init__(self, nc, kernel_size=3, stride=1, bias=True, norm_type=None, act_type='leakyrelu', res_scale=0.2):
         super(SkipUpDownBlock, self).__init__()
         self.res_scale = res_scale
-        self.conv1 = ConvBlock(nc, nc, kernel_size, stride, bias=bias,
-            norm_type=norm_type, act_type=act_type)
-        self.conv2 = ConvBlock(2 * nc, 2 * nc, kernel_size, stride, bias=
-            bias, norm_type=norm_type, act_type=act_type)
+        self.conv1 = ConvBlock(nc, nc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
+        self.conv2 = ConvBlock(2 * nc, 2 * nc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
         self.up = nn.PixelShuffle(2)
         self.pool = nn.MaxPool2d(2)
-        self.conv3 = ConvBlock(nc, nc, kernel_size, stride, bias=bias,
-            norm_type=norm_type, act_type=act_type)
+        self.conv3 = ConvBlock(nc, nc, kernel_size, stride, bias=bias, norm_type=norm_type, act_type=act_type)
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -503,16 +477,12 @@ class DUDB(nn.Module):
     Dense Up Down Block
     """
 
-    def __init__(self, nc, kernel_size=3, stride=1, bias=True, norm_type=
-        None, act_type='leakyrelu', res_scale=0.2):
+    def __init__(self, nc, kernel_size=3, stride=1, bias=True, norm_type=None, act_type='leakyrelu', res_scale=0.2):
         super(DUDB, self).__init__()
         self.res_scale = res_scale
-        self.UDB1 = SkipUpDownBlock(nc, kernel_size, stride, bias,
-            norm_type, act_type, res_scale)
-        self.UDB2 = SkipUpDownBlock(nc, kernel_size, stride, bias,
-            norm_type, act_type, res_scale)
-        self.UDB3 = SkipUpDownBlock(nc, kernel_size, stride, bias,
-            norm_type, act_type, res_scale)
+        self.UDB1 = SkipUpDownBlock(nc, kernel_size, stride, bias, norm_type, act_type, res_scale)
+        self.UDB2 = SkipUpDownBlock(nc, kernel_size, stride, bias, norm_type, act_type, res_scale)
+        self.UDB3 = SkipUpDownBlock(nc, kernel_size, stride, bias, norm_type, act_type, res_scale)
 
     def forward(self, x):
         return self.UDB3(self.UDB2(self.UDB1(x))).mul(self.res_scale) + x
@@ -520,8 +490,7 @@ class DUDB(nn.Module):
 
 class Upsampler(nn.Sequential):
 
-    def __init__(self, scale, n_feats, norm_type=False, act_type='relu',
-        bias=False):
+    def __init__(self, scale, n_feats, norm_type=False, act_type='relu', bias=False):
         m = []
         act = act_layer(act_type) if act_type else None
         norm = norm_layer(norm_type, n_feats) if norm_type else None
@@ -563,64 +532,44 @@ class DownsamplingShuffle(nn.Module):
         channels = C * map_channels
         out_height = H // self.scale
         out_width = W // self.scale
-        input_view = input.contiguous().view(N, C, out_height, self.scale,
-            out_width, self.scale)
+        input_view = input.contiguous().view(N, C, out_height, self.scale, out_width, self.scale)
         shuffle_out = input_view.permute(0, 1, 3, 5, 2, 4).contiguous()
         return shuffle_out.view(N, channels, out_height, out_width)
 
 
 class NET(nn.Module):
 
-    def __init__(self, sr_n_resblocks=6, dm_n_resblock=6, sr_n_feats=64,
-        dm_n_feats=64, scale=2, denoise=True, bias=True, norm_type=False,
-        act_type='relu', block_type='rrdb'):
+    def __init__(self, sr_n_resblocks=6, dm_n_resblock=6, sr_n_feats=64, dm_n_feats=64, scale=2, denoise=True, bias=True, norm_type=False, act_type='relu', block_type='rrdb'):
         super(NET, self).__init__()
         if denoise:
-            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=
-                act_type, bias=True)]
+            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=act_type, bias=True)]
         else:
-            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=
-                act_type, bias=True)]
+            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
+            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
         elif block_type.lower() == 'dudb':
-            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(sr_n_resblocks)]
+            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
         elif block_type.lower() == 'res':
-            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type,
-                act_type, res_scale=1, bias=bias) for _ in range(
-                sr_n_resblocks)]
+            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(sr_n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
-        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=
-            bias)]
-        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(sr_n_feats, 4, 3, bias=True)]
+        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=bias)]
+        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(sr_n_feats, 4, 3, bias=True)]
         m_sr_tail = [nn.PixelShuffle(2)]
-        m_dm_head = [common.ConvBlock(4, dm_n_feats, 5, act_type=act_type,
-            bias=True)]
+        m_dm_head = [common.ConvBlock(4, dm_n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(dm_n_resblock)]
+            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblock)]
         elif block_type.lower() == 'dudb':
-            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(dm_n_resblock)]
+            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblock)]
         elif block_type.lower() == 'res':
-            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type,
-                act_type, res_scale=1, bias=bias) for _ in range(dm_n_resblock)
-                ]
+            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(dm_n_resblock)]
         else:
             raise RuntimeError('block_type is not supported')
-        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=
-            bias)]
-        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
-        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.
-            Sequential(*m_sr_resblock)), *m_sr_up)
+        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=bias)]
+        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
+        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.Sequential(*m_sr_resblock)), *m_sr_up)
         self.sr_output = nn.Sequential(*m_sr_tail)
-        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.
-            Sequential(*m_dm_resblock)), *m_dm_up)
+        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.Sequential(*m_dm_resblock)), *m_dm_up)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -648,24 +597,18 @@ class NET(nn.Module):
         norm_type = opt.norm_type
         n_resblocks = opt.n_resblocks
         if denoise:
-            dm_head = [common.ConvBlock(5, n_feats, 5, act_type=act_type,
-                bias=True)]
+            dm_head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias=True)]
         else:
-            dm_head = [common.ConvBlock(4, n_feats, 5, act_type=act_type,
-                bias=True)]
+            dm_head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            dm_resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(n_resblocks)]
+            dm_resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
         elif block_type.lower() == 'res':
-            dm_resblock = [common.ResBlock(n_feats, 3, norm_type, act_type,
-                res_scale=1, bias=bias) for _ in range(n_resblocks)]
+            dm_resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
         dm_resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        m_dm_up = [common.Upsampler(2, n_feats, norm_type, act_type, bias=
-            bias), common.ConvBlock(n_feats, 3, 3, bias=True)]
-        self.model_dm = nn.Sequential(*dm_head, common.ShortcutBlock(nn.
-            Sequential(*dm_resblock)), *m_dm_up)
+        m_dm_up = [common.Upsampler(2, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 3, 3, bias=True)]
+        self.model_dm = nn.Sequential(*dm_head, common.ShortcutBlock(nn.Sequential(*dm_resblock)), *m_dm_up)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -691,18 +634,14 @@ class NET(nn.Module):
         block_type = opt.block_type
         head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(n_resblocks)]
+            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
         elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type,
-                res_scale=1, bias=bias) for _ in range(n_resblocks)]
+            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
         resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        tail = [common.Upsampler(2, n_feats, norm_type, act_type, bias=bias
-            ), common.ConvBlock(n_feats, 1, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.
-            Sequential(*resblock)), *tail)
+        tail = [common.Upsampler(2, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 1, 3, bias=True)]
+        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *tail)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -728,17 +667,14 @@ class NET(nn.Module):
         block_type = opt.block_type
         head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(n_resblocks)]
+            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
         elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type,
-                res_scale=1, bias=bias) for _ in range(n_resblocks)]
+            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
         resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
         tail = [common.ConvBlock(n_feats, 3, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.
-            Sequential(*resblock)), *tail)
+        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *tail)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -754,18 +690,14 @@ class NET(nn.Module):
 
 class NET(nn.Module):
 
-    def __init__(self, n_resblock=24, n_feats=256, scale=2, bias=True,
-        norm_type=False, act_type='prelu'):
+    def __init__(self, n_resblock=24, n_feats=256, scale=2, bias=True, norm_type=False, act_type='prelu'):
         super(NET, self).__init__()
         self.scale = scale
         m = [common.default_conv(1, n_feats, 3, stride=2)]
-        m += [nn.PixelShuffle(2), common.ConvBlock(n_feats // 4, n_feats,
-            bias=True, act_type=act_type)]
-        m += [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1,
-            bias=bias) for _ in range(n_resblock)]
+        m += [nn.PixelShuffle(2), common.ConvBlock(n_feats // 4, n_feats, bias=True, act_type=act_type)]
+        m += [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblock)]
         for _ in range(int(math.log(scale, 2))):
-            m += [nn.PixelShuffle(2), common.ConvBlock(n_feats // 4,
-                n_feats, bias=True, act_type=act_type)]
+            m += [nn.PixelShuffle(2), common.ConvBlock(n_feats // 4, n_feats, bias=True, act_type=act_type)]
         m += [common.default_conv(n_feats, 3, 3)]
         self.model = nn.Sequential(*m)
         for m in self.modules():
@@ -793,24 +725,18 @@ class NET(nn.Module):
         denoise = opt.denoise
         scale = opt.scale
         if denoise:
-            head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias
-                =True)]
+            head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias=True)]
         else:
-            head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias
-                =True)]
+            head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(n_resblocks)]
+            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
         elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type,
-                res_scale=1, bias=bias) for _ in range(n_resblocks)]
+            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
         resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        up = [common.Upsampler(scale * 2, n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(n_feats, 1, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.
-            Sequential(*resblock)), *up)
+        up = [common.Upsampler(scale * 2, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 1, 3, bias=True)]
+        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *up)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -837,24 +763,18 @@ class NET(nn.Module):
         denoise = opt.denoise
         scale = opt.scale
         if denoise:
-            head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias
-                =True)]
+            head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
         else:
-            head = [common.ConvBlock(3, n_feats, 5, act_type=act_type, bias
-                =True)]
+            head = [common.ConvBlock(3, n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(n_resblocks)]
+            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
         elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type,
-                res_scale=1, bias=bias) for _ in range(n_resblocks)]
+            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
         resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        up = [common.Upsampler(scale, n_feats, norm_type, act_type, bias=
-            bias), common.ConvBlock(n_feats, 3, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.
-            Sequential(*resblock)), *up)
+        up = [common.Upsampler(scale, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 3, 3, bias=True)]
+        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *up)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -883,49 +803,32 @@ class NET(nn.Module):
         bias = opt.bias
         norm_type = opt.norm_type
         if denoise:
-            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=
-                act_type, bias=True)]
+            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=act_type, bias=True)]
         else:
-            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=
-                act_type, bias=True)]
+            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
+            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
         elif block_type.lower() == 'dudb':
-            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(sr_n_resblocks)]
+            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
         elif block_type.lower() == 'res':
-            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type,
-                act_type, res_scale=1, bias=bias) for _ in range(
-                sr_n_resblocks)]
+            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(sr_n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
-        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=
-            bias)]
-        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=True)]
-        m_dm_head = [common.ConvBlock(sr_n_feats, dm_n_feats, 5, act_type=
-            act_type, bias=True)]
+        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=bias)]
+        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=True)]
+        m_dm_head = [common.ConvBlock(sr_n_feats, dm_n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
+            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
         elif block_type.lower() == 'dudb':
-            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(dm_n_resblocks)]
+            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
         elif block_type.lower() == 'res':
-            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type,
-                act_type, res_scale=1, bias=bias) for _ in range(
-                dm_n_resblocks)]
+            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(dm_n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
-        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=
-            bias)]
-        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
-        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.
-            Sequential(*m_sr_resblock)), *m_sr_up)
-        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.
-            Sequential(*m_dm_resblock)), *m_dm_up)
+        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=bias)]
+        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
+        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.Sequential(*m_sr_resblock)), *m_sr_up)
+        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.Sequential(*m_dm_resblock)), *m_dm_up)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -953,51 +856,34 @@ class NET(nn.Module):
         bias = opt.bias
         norm_type = opt.norm_type
         if denoise:
-            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=
-                act_type, bias=True)]
+            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=act_type, bias=True)]
         else:
-            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=
-                act_type, bias=True)]
+            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
+            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
         elif block_type.lower() == 'dudb':
-            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(sr_n_resblocks)]
+            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
         elif block_type.lower() == 'res':
-            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type,
-                act_type, res_scale=1, bias=bias) for _ in range(
-                sr_n_resblocks)]
+            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(sr_n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
-        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=
-            bias)]
-        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(sr_n_feats, 4, 3, bias=True)]
+        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=bias)]
+        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(sr_n_feats, 4, 3, bias=True)]
         m_sr_tail = [nn.PixelShuffle(2)]
-        m_dm_head = [common.ConvBlock(4, dm_n_feats, 5, act_type=act_type,
-            bias=True)]
+        m_dm_head = [common.ConvBlock(4, dm_n_feats, 5, act_type=act_type, bias=True)]
         if block_type.lower() == 'rrdb':
-            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias,
-                norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
+            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
         elif block_type.lower() == 'dudb':
-            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type,
-                act_type, 0.2) for _ in range(dm_n_resblocks)]
+            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
         elif block_type.lower() == 'res':
-            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type,
-                act_type, res_scale=1, bias=bias) for _ in range(
-                dm_n_resblocks)]
+            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(dm_n_resblocks)]
         else:
             raise RuntimeError('block_type is not supported')
-        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=
-            bias)]
-        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type,
-            bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
-        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.
-            Sequential(*m_sr_resblock)), *m_sr_up)
+        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=bias)]
+        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
+        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.Sequential(*m_sr_resblock)), *m_sr_up)
         self.sr_output = nn.Sequential(*m_sr_tail)
-        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.
-            Sequential(*m_dm_resblock)), *m_dm_up)
+        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.Sequential(*m_dm_resblock)), *m_dm_up)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
@@ -1017,41 +903,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Charbonnier_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_channelss': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DUDB,
+     lambda: ([], {'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1_TVLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1_TVLoss_Charbonnier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MSEloss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Perceptual_loss,
+     lambda: ([], {'content_layer': 1}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'n_feats': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShortcutBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SkipUpDownBlock,
+     lambda: ([], {'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TV_L1LOSS,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+]
+
 class Test_guochengqian_TENet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Charbonnier_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBlock(*[], **{'in_channelss': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DUDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L1_TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(L1_TVLoss_Charbonnier(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MSEloss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Perceptual_loss(*[], **{'content_layer': 1}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ResBlock(*[], **{'n_feats': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(SkipUpDownBlock(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(TV_L1LOSS(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[11])
 

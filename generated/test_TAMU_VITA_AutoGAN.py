@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,16 +70,11 @@ class Generator(nn.Module):
         self.args = args
         self.ch = args.gf_dim
         self.bottom_width = args.bottom_width
-        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.
-            gf_dim)
-        self.cell1 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            0, short_cut=True)
-        self.cell2 = Cell(args.gf_dim, args.gf_dim, 'bilinear', num_skip_in
-            =1, short_cut=True)
-        self.cell3 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            2, short_cut=False)
-        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(),
-            nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
+        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.gf_dim)
+        self.cell1 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=0, short_cut=True)
+        self.cell2 = Cell(args.gf_dim, args.gf_dim, 'bilinear', num_skip_in=1, short_cut=True)
+        self.cell3 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=2, short_cut=False)
+        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(), nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
 
     def forward(self, z):
         h = self.l1(z).view(-1, self.ch, self.bottom_width, self.bottom_width)
@@ -96,12 +92,9 @@ class Discriminator(nn.Module):
         self.ch = args.df_dim
         self.activation = activation
         self.block1 = OptimizedDisBlock(args, 3, self.ch)
-        self.block2 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=True)
-        self.block3 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
-        self.block4 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
+        self.block2 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=True)
+        self.block3 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
+        self.block4 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
         self.l5 = nn.Linear(self.ch, 1, bias=False)
         if args.d_spectral_norm:
             self.l5 = nn.utils.spectral_norm(self.l5)
@@ -125,16 +118,11 @@ class Generator(nn.Module):
         self.args = args
         self.ch = args.gf_dim
         self.bottom_width = args.bottom_width
-        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.
-            gf_dim)
-        self.cell1 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            0, short_cut=True)
-        self.cell2 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            1, short_cut=True)
-        self.cell3 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            2, short_cut=True)
-        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(),
-            nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
+        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.gf_dim)
+        self.cell1 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=0, short_cut=True)
+        self.cell2 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=1, short_cut=True)
+        self.cell3 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=2, short_cut=True)
+        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(), nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
 
     def forward(self, z):
         h = self.l1(z).view(-1, self.ch, self.bottom_width, self.bottom_width)
@@ -152,12 +140,9 @@ class Discriminator(nn.Module):
         self.ch = args.df_dim
         self.activation = activation
         self.block1 = OptimizedDisBlock(args, 3, self.ch)
-        self.block2 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=True)
-        self.block3 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
-        self.block4 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
+        self.block2 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=True)
+        self.block3 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
+        self.block4 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
         self.l5 = nn.Linear(self.ch, 1, bias=False)
         if args.d_spectral_norm:
             self.l5 = nn.utils.spectral_norm(self.l5)
@@ -181,16 +166,11 @@ class Generator(nn.Module):
         self.args = args
         self.ch = args.gf_dim
         self.bottom_width = args.bottom_width
-        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.
-            gf_dim)
-        self.cell1 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            0, short_cut=True, norm='bn')
-        self.cell2 = Cell(args.gf_dim, args.gf_dim, 'bilinear', num_skip_in
-            =1, short_cut=True)
-        self.cell3 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=
-            2, short_cut=False)
-        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(),
-            nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
+        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.gf_dim)
+        self.cell1 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=0, short_cut=True, norm='bn')
+        self.cell2 = Cell(args.gf_dim, args.gf_dim, 'bilinear', num_skip_in=1, short_cut=True)
+        self.cell3 = Cell(args.gf_dim, args.gf_dim, 'nearest', num_skip_in=2, short_cut=False)
+        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(), nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
 
     def forward(self, z):
         h = self.l1(z).view(-1, self.ch, self.bottom_width, self.bottom_width)
@@ -208,12 +188,9 @@ class Discriminator(nn.Module):
         self.ch = args.df_dim
         self.activation = activation
         self.block1 = OptimizedDisBlock(args, 3, self.ch)
-        self.block2 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=True)
-        self.block3 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
-        self.block4 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
+        self.block2 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=True)
+        self.block3 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
+        self.block4 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
         self.l5 = nn.Linear(self.ch, 1, bias=False)
         if args.d_spectral_norm:
             self.l5 = nn.utils.spectral_norm(self.l5)
@@ -238,13 +215,10 @@ UP_MODES = ['nearest', 'bilinear']
 
 class Cell(nn.Module):
 
-    def __init__(self, in_channels, out_channels, up_mode, ksize=3,
-        num_skip_in=0, short_cut=False, norm=None):
+    def __init__(self, in_channels, out_channels, up_mode, ksize=3, num_skip_in=0, short_cut=False, norm=None):
         super(Cell, self).__init__()
-        self.c1 = nn.Conv2d(in_channels, out_channels, ksize, padding=ksize //
-            2)
-        self.c2 = nn.Conv2d(out_channels, out_channels, ksize, padding=
-            ksize // 2)
+        self.c1 = nn.Conv2d(in_channels, out_channels, ksize, padding=ksize // 2)
+        self.c2 = nn.Conv2d(out_channels, out_channels, ksize, padding=ksize // 2)
         assert up_mode in UP_MODES
         self.up_mode = up_mode
         self.norm = norm
@@ -263,8 +237,7 @@ class Cell(nn.Module):
             self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.skip_in_ops = None
         if num_skip_in:
-            self.skip_in_ops = nn.ModuleList([nn.Conv2d(out_channels,
-                out_channels, kernel_size=1) for _ in range(num_skip_in)])
+            self.skip_in_ops = nn.ModuleList([nn.Conv2d(out_channels, out_channels, kernel_size=1) for _ in range(num_skip_in)])
 
     def forward(self, x, skip_ft=None):
         residual = x
@@ -278,15 +251,13 @@ class Cell(nn.Module):
         if self.skip_in_ops:
             assert len(self.skip_in_ops) == len(skip_ft)
             for ft, skip_in_op in zip(skip_ft, self.skip_in_ops):
-                h += skip_in_op(F.interpolate(ft, size=(ht, wt), mode=self.
-                    up_mode))
+                h += skip_in_op(F.interpolate(ft, size=(ht, wt), mode=self.up_mode))
         if self.norm:
             h = self.n2(h)
         h = nn.ReLU()(h)
         final_out = self.c2(h)
         if self.c_sc:
-            final_out += self.c_sc(F.interpolate(x, scale_factor=2, mode=
-                self.up_mode))
+            final_out += self.c_sc(F.interpolate(x, scale_factor=2, mode=self.up_mode))
         return h_skip_out, final_out
 
 
@@ -296,16 +267,12 @@ def _downsample(x):
 
 class OptimizedDisBlock(nn.Module):
 
-    def __init__(self, args, in_channels, out_channels, ksize=3, pad=1,
-        activation=nn.ReLU()):
+    def __init__(self, args, in_channels, out_channels, ksize=3, pad=1, activation=nn.ReLU()):
         super(OptimizedDisBlock, self).__init__()
         self.activation = activation
-        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=ksize,
-            padding=pad)
-        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size=ksize,
-            padding=pad)
-        self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            padding=0)
+        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=ksize, padding=pad)
+        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size=ksize, padding=pad)
+        self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
         if args.d_spectral_norm:
             self.c1 = nn.utils.spectral_norm(self.c1)
             self.c2 = nn.utils.spectral_norm(self.c2)
@@ -328,24 +295,19 @@ class OptimizedDisBlock(nn.Module):
 
 class DisBlock(nn.Module):
 
-    def __init__(self, args, in_channels, out_channels, hidden_channels=
-        None, ksize=3, pad=1, activation=nn.ReLU(), downsample=False):
+    def __init__(self, args, in_channels, out_channels, hidden_channels=None, ksize=3, pad=1, activation=nn.ReLU(), downsample=False):
         super(DisBlock, self).__init__()
         self.activation = activation
         self.downsample = downsample
         self.learnable_sc = in_channels != out_channels or downsample
-        hidden_channels = (in_channels if hidden_channels is None else
-            hidden_channels)
-        self.c1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=ksize,
-            padding=pad)
-        self.c2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=
-            ksize, padding=pad)
+        hidden_channels = in_channels if hidden_channels is None else hidden_channels
+        self.c1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=ksize, padding=pad)
+        self.c2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=ksize, padding=pad)
         if args.d_spectral_norm:
             self.c1 = nn.utils.spectral_norm(self.c1)
             self.c2 = nn.utils.spectral_norm(self.c2)
         if self.learnable_sc:
-            self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-                padding=0)
+            self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
             if args.d_spectral_norm:
                 self.c_sc = nn.utils.spectral_norm(self.c_sc)
 
@@ -386,10 +348,8 @@ class PreGenBlock(nn.Module):
         self.bn = nn.BatchNorm2d(in_channels)
         self.inn = nn.InstanceNorm2d(in_channels)
         self.up_block = up_block
-        self.deconv = nn.ConvTranspose2d(in_channels, in_channels,
-            kernel_size=2, stride=2)
-        self.conv = nn.Conv2d(in_channels, out_channels, ksize, padding=
-            ksize // 2)
+        self.deconv = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
+        self.conv = nn.Conv2d(in_channels, out_channels, ksize, padding=ksize // 2)
 
     def set_arch(self, up_id, norm_id):
         self.up_type = UP_TYPE[up_id]
@@ -419,10 +379,8 @@ class PostGenBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, up_block, ksize=3):
         super(PostGenBlock, self).__init__()
-        self.deconv = nn.ConvTranspose2d(in_channels, in_channels,
-            kernel_size=2, stride=2)
-        self.conv = nn.Conv2d(in_channels, out_channels, ksize, padding=
-            ksize // 2)
+        self.deconv = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
+        self.conv = nn.Conv2d(in_channels, out_channels, ksize, padding=ksize // 2)
         self.bn = nn.BatchNorm2d(out_channels)
         self.inn = nn.InstanceNorm2d(out_channels)
         self.up_block = up_block
@@ -465,26 +423,17 @@ class Cell(nn.Module):
 
     def __init__(self, in_channels, out_channels, num_skip_in, ksize=3):
         super(Cell, self).__init__()
-        self.post_conv1 = PostGenBlock(in_channels, out_channels, ksize=
-            ksize, up_block=True)
-        self.pre_conv1 = PreGenBlock(in_channels, out_channels, ksize=ksize,
-            up_block=True)
-        self.post_conv2 = PostGenBlock(out_channels, out_channels, ksize=
-            ksize, up_block=False)
-        self.pre_conv2 = PreGenBlock(out_channels, out_channels, ksize=
-            ksize, up_block=False)
-        self.deconv_sc = nn.ConvTranspose2d(in_channels, in_channels,
-            kernel_size=2, stride=2)
+        self.post_conv1 = PostGenBlock(in_channels, out_channels, ksize=ksize, up_block=True)
+        self.pre_conv1 = PreGenBlock(in_channels, out_channels, ksize=ksize, up_block=True)
+        self.post_conv2 = PostGenBlock(out_channels, out_channels, ksize=ksize, up_block=False)
+        self.pre_conv2 = PreGenBlock(out_channels, out_channels, ksize=ksize, up_block=False)
+        self.deconv_sc = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
         self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-        self.skip_deconvx2 = nn.ConvTranspose2d(in_channels, out_channels,
-            kernel_size=2, stride=2)
-        self.skip_deconvx4 = nn.Sequential(nn.ConvTranspose2d(in_channels,
-            out_channels, kernel_size=2, stride=2), nn.ConvTranspose2d(
-            out_channels, out_channels, kernel_size=2, stride=2))
+        self.skip_deconvx2 = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+        self.skip_deconvx4 = nn.Sequential(nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2), nn.ConvTranspose2d(out_channels, out_channels, kernel_size=2, stride=2))
         self.num_skip_in = num_skip_in
         if num_skip_in:
-            self.skip_in_ops = nn.ModuleList([nn.Conv2d(in_channels,
-                out_channels, kernel_size=1) for _ in range(num_skip_in)])
+            self.skip_in_ops = nn.ModuleList([nn.Conv2d(in_channels, out_channels, kernel_size=1) for _ in range(num_skip_in)])
 
     def set_arch(self, conv_id, norm_id, up_id, short_cut_id, skip_ins):
         self.post_conv1.set_arch(up_id, norm_id)
@@ -511,16 +460,13 @@ class Cell(nn.Module):
         h_skip_out = h
         if self.num_skip_in:
             assert len(self.skip_in_ops) == len(self.skip_ins)
-            for skip_flag, ft, skip_in_op in zip(self.skip_ins, skip_ft,
-                self.skip_in_ops):
+            for skip_flag, ft, skip_in_op in zip(self.skip_ins, skip_ft, self.skip_in_ops):
                 if skip_flag:
                     if self.up_type != 'deconv':
-                        h += skip_in_op(F.interpolate(ft, size=(ht, wt),
-                            mode=self.up_type))
+                        h += skip_in_op(F.interpolate(ft, size=(ht, wt), mode=self.up_type))
                     else:
                         scale = wt // ft.size()[-1]
-                        h += skip_in_op(getattr(self,
-                            f'skip_deconvx{scale}')(ft))
+                        h += skip_in_op(getattr(self, f'skip_deconvx{scale}')(ft))
         if self.conv_type == 'post':
             final_out = self.post_conv2(h)
         elif self.conv_type == 'pre':
@@ -529,8 +475,7 @@ class Cell(nn.Module):
             raise NotImplementedError(self.norm_type)
         if self.short_cut:
             if self.up_type != 'deconv':
-                final_out += self.c_sc(F.interpolate(x, scale_factor=2,
-                    mode=self.up_type))
+                final_out += self.c_sc(F.interpolate(x, scale_factor=2, mode=self.up_type))
             else:
                 final_out += self.c_sc(self.deconv_sc(x))
         return h_skip_out, final_out
@@ -538,16 +483,12 @@ class Cell(nn.Module):
 
 class OptimizedDisBlock(nn.Module):
 
-    def __init__(self, args, in_channels, out_channels, ksize=3, pad=1,
-        activation=nn.ReLU()):
+    def __init__(self, args, in_channels, out_channels, ksize=3, pad=1, activation=nn.ReLU()):
         super(OptimizedDisBlock, self).__init__()
         self.activation = activation
-        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=ksize,
-            padding=pad)
-        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size=ksize,
-            padding=pad)
-        self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            padding=0)
+        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=ksize, padding=pad)
+        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size=ksize, padding=pad)
+        self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
         if args.d_spectral_norm:
             self.c1 = nn.utils.spectral_norm(self.c1)
             self.c2 = nn.utils.spectral_norm(self.c2)
@@ -570,24 +511,19 @@ class OptimizedDisBlock(nn.Module):
 
 class DisBlock(nn.Module):
 
-    def __init__(self, args, in_channels, out_channels, hidden_channels=
-        None, ksize=3, pad=1, activation=nn.ReLU(), downsample=False):
+    def __init__(self, args, in_channels, out_channels, hidden_channels=None, ksize=3, pad=1, activation=nn.ReLU(), downsample=False):
         super(DisBlock, self).__init__()
         self.activation = activation
         self.downsample = downsample
         self.learnable_sc = in_channels != out_channels or downsample
-        hidden_channels = (in_channels if hidden_channels is None else
-            hidden_channels)
-        self.c1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=ksize,
-            padding=pad)
-        self.c2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=
-            ksize, padding=pad)
+        hidden_channels = in_channels if hidden_channels is None else hidden_channels
+        self.c1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=ksize, padding=pad)
+        self.c2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=ksize, padding=pad)
         if args.d_spectral_norm:
             self.c1 = nn.utils.spectral_norm(self.c1)
             self.c2 = nn.utils.spectral_norm(self.c2)
         if self.learnable_sc:
-            self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-                padding=0)
+            self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
             if args.d_spectral_norm:
                 self.c_sc = nn.utils.spectral_norm(self.c_sc)
 
@@ -631,14 +567,11 @@ class Controller(nn.Module):
         self.cur_stage = cur_stage
         self.lstm = torch.nn.LSTMCell(self.hid_size, self.hid_size)
         if cur_stage:
-            self.tokens = [len(CONV_TYPE), len(NORM_TYPE), len(UP_TYPE),
-                len(SHORT_CUT_TYPE), len(SKIP_TYPE) ** cur_stage]
+            self.tokens = [len(CONV_TYPE), len(NORM_TYPE), len(UP_TYPE), len(SHORT_CUT_TYPE), len(SKIP_TYPE) ** cur_stage]
         else:
-            self.tokens = [len(CONV_TYPE), len(NORM_TYPE), len(UP_TYPE),
-                len(SHORT_CUT_TYPE)]
+            self.tokens = [len(CONV_TYPE), len(NORM_TYPE), len(UP_TYPE), len(SHORT_CUT_TYPE)]
         self.encoder = nn.Embedding(sum(self.tokens), self.hid_size)
-        self.decoders = nn.ModuleList([nn.Linear(self.hid_size, token) for
-            token in self.tokens])
+        self.decoders = nn.ModuleList([nn.Linear(self.hid_size, token) for token in self.tokens])
 
     def initHidden(self, batch_size):
         return torch.zeros(batch_size, self.hid_size, requires_grad=False)
@@ -652,8 +585,7 @@ class Controller(nn.Module):
         logit = self.decoders[index](hx)
         return logit, (hx, cx)
 
-    def sample(self, batch_size, with_hidden=False, prev_hiddens=None,
-        prev_archs=None):
+    def sample(self, batch_size, with_hidden=False, prev_hiddens=None, prev_archs=None):
         x = self.initHidden(batch_size)
         if prev_hiddens:
             assert prev_archs
@@ -702,13 +634,11 @@ class Generator(nn.Module):
         self.args = args
         self.ch = args.gf_dim
         self.bottom_width = args.bottom_width
-        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.
-            gf_dim)
+        self.l1 = nn.Linear(args.latent_dim, self.bottom_width ** 2 * args.gf_dim)
         self.cell1 = Cell(args.gf_dim, args.gf_dim, num_skip_in=0)
         self.cell2 = Cell(args.gf_dim, args.gf_dim, num_skip_in=1)
         self.cell3 = Cell(args.gf_dim, args.gf_dim, num_skip_in=2)
-        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(),
-            nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
+        self.to_rgb = nn.Sequential(nn.BatchNorm2d(args.gf_dim), nn.ReLU(), nn.Conv2d(args.gf_dim, 3, 3, 1, 1), nn.Tanh())
 
     def set_arch(self, arch_id, cur_stage):
         if not isinstance(arch_id, list):
@@ -716,18 +646,13 @@ class Generator(nn.Module):
         arch_id = [int(x) for x in arch_id]
         self.cur_stage = cur_stage
         arch_stage1 = arch_id[:4]
-        self.cell1.set_arch(conv_id=arch_stage1[0], norm_id=arch_stage1[1],
-            up_id=arch_stage1[2], short_cut_id=arch_stage1[3], skip_ins=[])
+        self.cell1.set_arch(conv_id=arch_stage1[0], norm_id=arch_stage1[1], up_id=arch_stage1[2], short_cut_id=arch_stage1[3], skip_ins=[])
         if cur_stage >= 1:
             arch_stage2 = arch_id[4:9]
-            self.cell2.set_arch(conv_id=arch_stage2[0], norm_id=arch_stage2
-                [1], up_id=arch_stage2[2], short_cut_id=arch_stage2[3],
-                skip_ins=arch_stage2[4])
+            self.cell2.set_arch(conv_id=arch_stage2[0], norm_id=arch_stage2[1], up_id=arch_stage2[2], short_cut_id=arch_stage2[3], skip_ins=arch_stage2[4])
         if cur_stage == 2:
             arch_stage3 = arch_id[9:]
-            self.cell3.set_arch(conv_id=arch_stage3[0], norm_id=arch_stage3
-                [1], up_id=arch_stage3[2], short_cut_id=arch_stage3[3],
-                skip_ins=arch_stage3[4])
+            self.cell3.set_arch(conv_id=arch_stage3[0], norm_id=arch_stage3[1], up_id=arch_stage3[2], short_cut_id=arch_stage3[3], skip_ins=arch_stage3[4])
 
     def forward(self, z):
         h = self.l1(z).view(-1, self.ch, self.bottom_width, self.bottom_width)
@@ -744,16 +669,12 @@ class Generator(nn.Module):
 
 class OptimizedDisBlock(nn.Module):
 
-    def __init__(self, args, in_channels, out_channels, ksize=3, pad=1,
-        activation=nn.ReLU()):
+    def __init__(self, args, in_channels, out_channels, ksize=3, pad=1, activation=nn.ReLU()):
         super(OptimizedDisBlock, self).__init__()
         self.activation = activation
-        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=ksize,
-            padding=pad)
-        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size=ksize,
-            padding=pad)
-        self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            padding=0)
+        self.c1 = nn.Conv2d(in_channels, out_channels, kernel_size=ksize, padding=pad)
+        self.c2 = nn.Conv2d(out_channels, out_channels, kernel_size=ksize, padding=pad)
+        self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
         if args.d_spectral_norm:
             self.c1 = nn.utils.spectral_norm(self.c1)
             self.c2 = nn.utils.spectral_norm(self.c2)
@@ -776,24 +697,19 @@ class OptimizedDisBlock(nn.Module):
 
 class DisBlock(nn.Module):
 
-    def __init__(self, args, in_channels, out_channels, hidden_channels=
-        None, ksize=3, pad=1, activation=nn.ReLU(), downsample=False):
+    def __init__(self, args, in_channels, out_channels, hidden_channels=None, ksize=3, pad=1, activation=nn.ReLU(), downsample=False):
         super(DisBlock, self).__init__()
         self.activation = activation
         self.downsample = downsample
         self.learnable_sc = in_channels != out_channels or downsample
-        hidden_channels = (in_channels if hidden_channels is None else
-            hidden_channels)
-        self.c1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=ksize,
-            padding=pad)
-        self.c2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=
-            ksize, padding=pad)
+        hidden_channels = in_channels if hidden_channels is None else hidden_channels
+        self.c1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=ksize, padding=pad)
+        self.c2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=ksize, padding=pad)
         if args.d_spectral_norm:
             self.c1 = nn.utils.spectral_norm(self.c1)
             self.c2 = nn.utils.spectral_norm(self.c2)
         if self.learnable_sc:
-            self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-                padding=0)
+            self.c_sc = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
             if args.d_spectral_norm:
                 self.c_sc = nn.utils.spectral_norm(self.c_sc)
 
@@ -828,12 +744,9 @@ class Discriminator(nn.Module):
         self.ch = args.df_dim
         self.activation = activation
         self.block1 = OptimizedDisBlock(args, 3, self.ch)
-        self.block2 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=True)
-        self.block3 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
-        self.block4 = DisBlock(args, self.ch, self.ch, activation=
-            activation, downsample=False)
+        self.block2 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=True)
+        self.block3 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
+        self.block4 = DisBlock(args, self.ch, self.ch, activation=activation, downsample=False)
         self.l5 = nn.Linear(self.ch, 1, bias=False)
         if args.d_spectral_norm:
             self.l5 = nn.utils.spectral_norm(self.l5)
@@ -855,17 +768,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DisBlock,
+     lambda: ([], {'args': _mock_config(d_spectral_norm=4), 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Discriminator,
+     lambda: ([], {'args': _mock_config(df_dim=4, d_spectral_norm=4)}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (OptimizedDisBlock,
+     lambda: ([], {'args': _mock_config(d_spectral_norm=4), 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_TAMU_VITA_AutoGAN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DisBlock(*[], **{'args': _mock_config(d_spectral_norm=4), 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Discriminator(*[], **{'args': _mock_config(df_dim=4, d_spectral_norm=4)}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(OptimizedDisBlock(*[], **{'args': _mock_config(d_spectral_norm=4), 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

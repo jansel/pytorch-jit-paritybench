@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,14 +67,7 @@ class Concept(nn.Module):
 
     def __init__(self):
         super(Concept, self).__init__()
-        self.net = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=0),
-            nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=True), nn.
-            MaxPool2d(kernel_size=2), nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=2), nn.Conv2d(64, 64,
-            kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1), nn.
-            ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=True))
+        self.net = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2), nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2), nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1), nn.ReLU(inplace=True))
 
     def load(self, src):
         """
@@ -92,12 +86,8 @@ class Relation(nn.Module):
 
     def __init__(self):
         super(Relation, self).__init__()
-        self.g = nn.Sequential(nn.Linear(2 * (64 + 2), 256), nn.ReLU(
-            inplace=True), nn.Linear(256, 256), nn.ReLU(inplace=True), nn.
-            Linear(256, 256), nn.ReLU(inplace=True))
-        self.f = nn.Sequential(nn.Linear(256, 256), nn.ReLU(inplace=True),
-            nn.Linear(256, 256), nn.ReLU(inplace=True), nn.Linear(256, 256),
-            nn.ReLU(inplace=True))
+        self.g = nn.Sequential(nn.Linear(2 * (64 + 2), 256), nn.ReLU(inplace=True), nn.Linear(256, 256), nn.ReLU(inplace=True), nn.Linear(256, 256), nn.ReLU(inplace=True))
+        self.f = nn.Sequential(nn.Linear(256, 256), nn.ReLU(inplace=True), nn.Linear(256, 256), nn.ReLU(inplace=True), nn.Linear(256, 256), nn.ReLU(inplace=True))
 
     def forward(self, x):
         pass
@@ -151,13 +141,10 @@ class Learner(nn.Module):
                 w = nn.Parameter(torch.ones(param[0]))
                 self.vars.append(w)
                 self.vars.append(nn.Parameter(torch.zeros(param[0])))
-                running_mean = nn.Parameter(torch.zeros(param[0]),
-                    requires_grad=False)
-                running_var = nn.Parameter(torch.ones(param[0]),
-                    requires_grad=False)
+                running_mean = nn.Parameter(torch.zeros(param[0]), requires_grad=False)
+                running_var = nn.Parameter(torch.ones(param[0]), requires_grad=False)
                 self.vars_bn.extend([running_mean, running_var])
-            elif name in ['tanh', 'relu', 'upsample', 'avg_pool2d',
-                'max_pool2d', 'flatten', 'reshape', 'leakyrelu', 'sigmoid']:
+            elif name in ['tanh', 'relu', 'upsample', 'avg_pool2d', 'max_pool2d', 'flatten', 'reshape', 'leakyrelu', 'sigmoid']:
                 continue
             else:
                 raise NotImplementedError
@@ -166,16 +153,10 @@ class Learner(nn.Module):
         info = ''
         for name, param in self.config:
             if name is 'conv2d':
-                tmp = (
-                    'conv2d:(ch_in:%d, ch_out:%d, k:%dx%d, stride:%d, padding:%d)'
-                     % (param[1], param[0], param[2], param[3], param[4],
-                    param[5]))
+                tmp = 'conv2d:(ch_in:%d, ch_out:%d, k:%dx%d, stride:%d, padding:%d)' % (param[1], param[0], param[2], param[3], param[4], param[5])
                 info += tmp + '\n'
             elif name is 'convt2d':
-                tmp = (
-                    'convTranspose2d:(ch_in:%d, ch_out:%d, k:%dx%d, stride:%d, padding:%d)'
-                     % (param[0], param[1], param[2], param[3], param[4],
-                    param[5]))
+                tmp = 'convTranspose2d:(ch_in:%d, ch_out:%d, k:%dx%d, stride:%d, padding:%d)' % (param[0], param[1], param[2], param[3], param[4], param[5])
                 info += tmp + '\n'
             elif name is 'linear':
                 tmp = 'linear:(in:%d, out:%d)' % (param[1], param[0])
@@ -184,15 +165,12 @@ class Learner(nn.Module):
                 tmp = 'leakyrelu:(slope:%f)' % param[0]
                 info += tmp + '\n'
             elif name is 'avg_pool2d':
-                tmp = 'avg_pool2d:(k:%d, stride:%d, padding:%d)' % (param[0
-                    ], param[1], param[2])
+                tmp = 'avg_pool2d:(k:%d, stride:%d, padding:%d)' % (param[0], param[1], param[2])
                 info += tmp + '\n'
             elif name is 'max_pool2d':
-                tmp = 'max_pool2d:(k:%d, stride:%d, padding:%d)' % (param[0
-                    ], param[1], param[2])
+                tmp = 'max_pool2d:(k:%d, stride:%d, padding:%d)' % (param[0], param[1], param[2])
                 info += tmp + '\n'
-            elif name in ['flatten', 'tanh', 'relu', 'upsample', 'reshape',
-                'sigmoid', 'use_logits', 'bn']:
+            elif name in ['flatten', 'tanh', 'relu', 'upsample', 'reshape', 'sigmoid', 'use_logits', 'bn']:
                 tmp = name + ':' + str(tuple(param))
                 info += tmp + '\n'
             else:
@@ -221,8 +199,7 @@ class Learner(nn.Module):
                 idx += 2
             elif name is 'convt2d':
                 w, b = vars[idx], vars[idx + 1]
-                x = F.conv_transpose2d(x, w, b, stride=param[4], padding=
-                    param[5])
+                x = F.conv_transpose2d(x, w, b, stride=param[4], padding=param[5])
                 idx += 2
             elif name is 'linear':
                 w, b = vars[idx], vars[idx + 1]
@@ -230,10 +207,8 @@ class Learner(nn.Module):
                 idx += 2
             elif name is 'bn':
                 w, b = vars[idx], vars[idx + 1]
-                running_mean, running_var = self.vars_bn[bn_idx], self.vars_bn[
-                    bn_idx + 1]
-                x = F.batch_norm(x, running_mean, running_var, weight=w,
-                    bias=b, training=bn_training)
+                running_mean, running_var = self.vars_bn[bn_idx], self.vars_bn[bn_idx + 1]
+                x = F.batch_norm(x, running_mean, running_var, weight=w, bias=b, training=bn_training)
                 idx += 2
                 bn_idx += 2
             elif name is 'flatten':
@@ -343,11 +318,9 @@ class Meta(nn.Module):
             logits = self.net(x_spt[i], vars=None, bn_training=True)
             loss = F.cross_entropy(logits, y_spt[i])
             grad = torch.autograd.grad(loss, self.net.parameters())
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0],
-                zip(grad, self.net.parameters())))
+            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.net.parameters())))
             with torch.no_grad():
-                logits_q = self.net(x_qry[i], self.net.parameters(),
-                    bn_training=True)
+                logits_q = self.net(x_qry[i], self.net.parameters(), bn_training=True)
                 loss_q = F.cross_entropy(logits_q, y_qry[i])
                 losses_q[0] += loss_q
                 pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
@@ -364,8 +337,7 @@ class Meta(nn.Module):
                 logits = self.net(x_spt[i], fast_weights, bn_training=True)
                 loss = F.cross_entropy(logits, y_spt[i])
                 grad = torch.autograd.grad(loss, fast_weights)
-                fast_weights = list(map(lambda p: p[1] - self.update_lr * p
-                    [0], zip(grad, fast_weights)))
+                fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
                 logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
                 loss_q = F.cross_entropy(logits_q, y_qry[i])
                 losses_q[k + 1] += loss_q
@@ -396,8 +368,7 @@ class Meta(nn.Module):
         logits = net(x_spt)
         loss = F.cross_entropy(logits, y_spt)
         grad = torch.autograd.grad(loss, net.parameters())
-        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip
-            (grad, net.parameters())))
+        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, net.parameters())))
         with torch.no_grad():
             logits_q = net(x_qry, net.parameters(), bn_training=True)
             pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
@@ -412,8 +383,7 @@ class Meta(nn.Module):
             logits = net(x_spt, fast_weights, bn_training=True)
             loss = F.cross_entropy(logits, y_spt)
             grad = torch.autograd.grad(loss, fast_weights)
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0],
-                zip(grad, fast_weights)))
+            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
             logits_q = net(x_qry, fast_weights, bn_training=True)
             loss_q = F.cross_entropy(logits_q, y_qry)
             with torch.no_grad():
@@ -452,27 +422,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Concept,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Learner,
+     lambda: ([], {'config': _mock_config(), 'imgc': 4, 'imgsz': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MAML,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OutLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Relation,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_dragen1860_MAML_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Concept(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Learner(*[], **{'config': _mock_config(), 'imgc': 4, 'imgsz': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MAML(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(OutLayer(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Relation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

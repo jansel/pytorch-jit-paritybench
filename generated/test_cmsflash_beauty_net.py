@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,8 +72,7 @@ class MetricBundle(nn.Module):
         self.metrics = {metric.label: metric for metric in metrics}
 
     def forward(self, prediction, truth):
-        metric_values = meters.MeterBundle([meters.Meter(label, metric(
-            prediction, truth)) for label, metric in self.metrics.items()])
+        metric_values = meters.MeterBundle([meters.Meter(label, metric(prediction, truth)) for label, metric in self.metrics.items()])
         return metric_values
 
     def create_max_meters(self):
@@ -84,8 +84,7 @@ class MetricBundle(nn.Module):
         return metric_values
 
     def _create_meters(self, meter_type):
-        metric_values = meters.MeterBundle([meter_type(label, 0) for label,
-            metric in self.metrics.items()])
+        metric_values = meters.MeterBundle([meter_type(label, 0) for label, metric in self.metrics.items()])
         return metric_values
 
 
@@ -119,8 +118,7 @@ class BeautyNet(nn.Module):
     def forward(self, input_):
         feature = self.feature_extractor(input_)
         global_pool = f.adaptive_avg_pool2d(feature, 1)
-        feature_vector = torch.squeeze(torch.squeeze(global_pool, dim=3), dim=2
-            )
+        feature_vector = torch.squeeze(torch.squeeze(global_pool, dim=3), dim=2)
         classification = self.classifier(feature_vector)
         return classification
 
@@ -143,13 +141,9 @@ def sequential(*modules):
     return nn.Sequential(*modules)
 
 
-def conv(in_channels, out_channels, kernel_size=3, stride=1, padding=None,
-    dilation=1, groups=1, normalization=nn.BatchNorm2d, activation=
-    default_activation()):
+def conv(in_channels, out_channels, kernel_size=3, stride=1, padding=None, dilation=1, groups=1, normalization=nn.BatchNorm2d, activation=default_activation()):
     padding = padding or get_perfect_padding(kernel_size, dilation)
-    layer = sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding, dilation, groups, bias=False), normalization(
-        out_channels), activation)
+    layer = sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False), normalization(out_channels), activation)
     return layer
 
 
@@ -160,10 +154,7 @@ class InvertedResidual(nn.Module):
         self.stride = stride
         self.is_residual = self.stride == 1 and in_channels == out_channels
         channels = in_channels * expansion
-        self.bottlebody = sequential(conv(in_channels, channels, 1,
-            activation=default_activation()), conv(channels, channels, 3,
-            self.stride, groups=channels, activation=default_activation()),
-            conv(channels, out_channels, 1, activation=None))
+        self.bottlebody = sequential(conv(in_channels, channels, 1, activation=default_activation()), conv(channels, channels, 3, self.stride, groups=channels, activation=default_activation()), conv(channels, out_channels, 1, activation=None))
 
     def forward(self, input_):
         bottlebody = self.bottlebody(input_)
@@ -175,14 +166,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Accuracy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BeautyNet,
+     lambda: ([], {'feature_extractor': _mock_layer(), 'classifier': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'expansion': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_cmsflash_beauty_net(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BeautyNet(*[], **{'feature_extractor': _mock_layer(), 'classifier': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InvertedResidual(*[], **{'in_channels': 4, 'out_channels': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

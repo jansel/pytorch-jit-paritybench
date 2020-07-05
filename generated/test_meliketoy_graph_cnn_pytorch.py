@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -108,8 +109,7 @@ class GraphConvolution(Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GraphAttention(nn.Module):
@@ -124,16 +124,9 @@ class GraphAttention(nn.Module):
         self.out_features = out_features
         self.alpha = alpha
         self.concat = concat
-        self.W = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(
-            in_features, out_features).type(torch.FloatTensor if torch.
-            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
-            requires_grad=True)
-        self.a1 = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(
-            out_features, 1).type(torch.FloatTensor if torch.is_available()
-             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
-        self.a2 = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(
-            out_features, 1).type(torch.FloatTensor if torch.is_available()
-             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.W = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(in_features, out_features).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.a1 = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(out_features, 1).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.a2 = nn.Parameter(nn.init.xavier_normal_(torch.Tensor(out_features, 1).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
     def forward(self, input, adj):
@@ -153,8 +146,7 @@ class GraphAttention(nn.Module):
             return h_prime
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GCN(nn.Module):
@@ -169,8 +161,7 @@ class GCN(nn.Module):
         return F.relu(path3(F.relu(path2(F.relu(path1(in_x, adj)), adj)), adj))
 
     def forward(self, x, adj):
-        x = F.dropout(F.relu(self.gc1(x, adj)), self.dropout, training=self
-            .training)
+        x = F.dropout(F.relu(self.gc1(x, adj)), self.dropout, training=self.training)
         x = self.gc2(x, adj)
         return F.log_softmax(x, dim=1)
 
@@ -188,8 +179,7 @@ class GCN_drop_in(nn.Module):
 
     def forward(self, x, adj):
         x = F.dropout(x, self.dropout, training=self.training)
-        x = F.dropout(F.relu(self.gc1(x, adj)), self.dropout, training=self
-            .training)
+        x = F.dropout(F.relu(self.gc1(x, adj)), self.dropout, training=self.training)
         x = self.gc2(x, adj)
         return F.log_softmax(x, dim=1)
 
@@ -199,12 +189,10 @@ class GAT(nn.Module):
     def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
         super(GAT, self).__init__()
         self.dropout = dropout
-        self.attentions = [GraphAttention(nfeat, nhid, dropout=dropout,
-            alpha=alpha, concat=True) for _ in range(nheads)]
+        self.attentions = [GraphAttention(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
-        self.out_att = GraphAttention(nhid * nheads, nclass, dropout=
-            dropout, alpha=alpha, concat=False)
+        self.out_att = GraphAttention(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
 
     def forward(self, x, adj):
         x = F.dropout(x, self.dropout, training=self.training)
@@ -218,9 +206,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GraphConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_meliketoy_graph_cnn_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,8 +81,7 @@ class LR_PAD(nn.Module):
         return lr_pad(x, self.padding)
 
 
-ENCODER_RESNET = ['resnet18', 'resnet34', 'resnet50', 'resnet101',
-    'resnet152', 'resnext50_32x4d', 'resnext101_32x8d']
+ENCODER_RESNET = ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'resnext50_32x4d', 'resnext101_32x8d']
 
 
 class Resnet(nn.Module):
@@ -154,9 +154,7 @@ class ConvCompressH(nn.Module):
     def __init__(self, in_c, out_c, ks=3):
         super(ConvCompressH, self).__init__()
         assert ks % 2 == 1
-        self.layers = nn.Sequential(nn.Conv2d(in_c, out_c, kernel_size=ks,
-            stride=(2, 1), padding=ks // 2), nn.BatchNorm2d(out_c), nn.ReLU
-            (inplace=True))
+        self.layers = nn.Sequential(nn.Conv2d(in_c, out_c, kernel_size=ks, stride=(2, 1), padding=ks // 2), nn.BatchNorm2d(out_c), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.layers(x)
@@ -166,17 +164,14 @@ class GlobalHeightConv(nn.Module):
 
     def __init__(self, in_c, out_c):
         super(GlobalHeightConv, self).__init__()
-        self.layer = nn.Sequential(ConvCompressH(in_c, in_c // 2),
-            ConvCompressH(in_c // 2, in_c // 2), ConvCompressH(in_c // 2, 
-            in_c // 4), ConvCompressH(in_c // 4, out_c))
+        self.layer = nn.Sequential(ConvCompressH(in_c, in_c // 2), ConvCompressH(in_c // 2, in_c // 2), ConvCompressH(in_c // 2, in_c // 4), ConvCompressH(in_c // 4, out_c))
 
     def forward(self, x, out_w):
         x = self.layer(x)
         assert out_w % x.shape[3] == 0
         factor = out_w // x.shape[3]
         x = torch.cat([x[(...), -1:], x, x[(...), :1]], 3)
-        x = F.interpolate(x, size=(x.shape[2], out_w + 2 * factor), mode=
-            'bilinear', align_corners=False)
+        x = F.interpolate(x, size=(x.shape[2], out_w + 2 * factor), mode='bilinear', align_corners=False)
         x = x[(...), factor:-factor]
         return x
 
@@ -188,15 +183,12 @@ class GlobalHeightStage(nn.Module):
         super(GlobalHeightStage, self).__init__()
         self.cs = c1, c2, c3, c4
         self.out_scale = out_scale
-        self.ghc_lst = nn.ModuleList([GlobalHeightConv(c1, c1 // out_scale),
-            GlobalHeightConv(c2, c2 // out_scale), GlobalHeightConv(c3, c3 //
-            out_scale), GlobalHeightConv(c4, c4 // out_scale)])
+        self.ghc_lst = nn.ModuleList([GlobalHeightConv(c1, c1 // out_scale), GlobalHeightConv(c2, c2 // out_scale), GlobalHeightConv(c3, c3 // out_scale), GlobalHeightConv(c4, c4 // out_scale)])
 
     def forward(self, conv_list, out_w):
         assert len(conv_list) == 4
         bs = conv_list[0].shape[0]
-        feature = torch.cat([f(x, out_w).reshape(bs, -1, out_w) for f, x,
-            out_c in zip(self.ghc_lst, conv_list, self.cs)], dim=1)
+        feature = torch.cat([f(x, out_w).reshape(bs, -1, out_w) for f, x, out_c in zip(self.ghc_lst, conv_list, self.cs)], dim=1)
         return feature
 
 
@@ -214,10 +206,8 @@ def wrap_lr_pad(net):
 
 
 class HorizonNet(nn.Module):
-    x_mean = torch.FloatTensor(np.array([0.485, 0.456, 0.406])[(None), :, (
-        None), (None)])
-    x_std = torch.FloatTensor(np.array([0.229, 0.224, 0.225])[(None), :, (
-        None), (None)])
+    x_mean = torch.FloatTensor(np.array([0.485, 0.456, 0.406])[(None), :, (None), (None)])
+    x_std = torch.FloatTensor(np.array([0.229, 0.224, 0.225])[(None), :, (None), (None)])
 
     def __init__(self, backbone, use_rnn):
         super(HorizonNet, self).__init__()
@@ -234,34 +224,21 @@ class HorizonNet(nn.Module):
             raise NotImplementedError()
         with torch.no_grad():
             dummy = torch.zeros(1, 3, 512, 1024)
-            c1, c2, c3, c4 = [b.shape[1] for b in self.feature_extractor(dummy)
-                ]
+            c1, c2, c3, c4 = [b.shape[1] for b in self.feature_extractor(dummy)]
             c_last = (c1 * 8 + c2 * 4 + c3 * 2 + c4 * 1) // self.out_scale
-        self.reduce_height_module = GlobalHeightStage(c1, c2, c3, c4, self.
-            out_scale)
+        self.reduce_height_module = GlobalHeightStage(c1, c2, c3, c4, self.out_scale)
         if self.use_rnn:
-            self.bi_rnn = nn.LSTM(input_size=c_last, hidden_size=self.
-                rnn_hidden_size, num_layers=2, dropout=0.5, batch_first=
-                False, bidirectional=True)
+            self.bi_rnn = nn.LSTM(input_size=c_last, hidden_size=self.rnn_hidden_size, num_layers=2, dropout=0.5, batch_first=False, bidirectional=True)
             self.drop_out = nn.Dropout(0.5)
-            self.linear = nn.Linear(in_features=2 * self.rnn_hidden_size,
-                out_features=3 * self.step_cols)
-            self.linear.bias.data[0 * self.step_cols:1 * self.step_cols].fill_(
-                -1)
-            self.linear.bias.data[1 * self.step_cols:2 * self.step_cols].fill_(
-                -0.478)
-            self.linear.bias.data[2 * self.step_cols:3 * self.step_cols].fill_(
-                0.425)
+            self.linear = nn.Linear(in_features=2 * self.rnn_hidden_size, out_features=3 * self.step_cols)
+            self.linear.bias.data[0 * self.step_cols:1 * self.step_cols].fill_(-1)
+            self.linear.bias.data[1 * self.step_cols:2 * self.step_cols].fill_(-0.478)
+            self.linear.bias.data[2 * self.step_cols:3 * self.step_cols].fill_(0.425)
         else:
-            self.linear = nn.Sequential(nn.Linear(c_last, self.
-                rnn_hidden_size), nn.ReLU(inplace=True), nn.Dropout(0.5),
-                nn.Linear(self.rnn_hidden_size, 3 * self.step_cols))
-            self.linear[-1].bias.data[0 * self.step_cols:1 * self.step_cols
-                ].fill_(-1)
-            self.linear[-1].bias.data[1 * self.step_cols:2 * self.step_cols
-                ].fill_(-0.478)
-            self.linear[-1].bias.data[2 * self.step_cols:3 * self.step_cols
-                ].fill_(0.425)
+            self.linear = nn.Sequential(nn.Linear(c_last, self.rnn_hidden_size), nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(self.rnn_hidden_size, 3 * self.step_cols))
+            self.linear[-1].bias.data[0 * self.step_cols:1 * self.step_cols].fill_(-1)
+            self.linear[-1].bias.data[1 * self.step_cols:2 * self.step_cols].fill_(-0.478)
+            self.linear[-1].bias.data[2 * self.step_cols:3 * self.step_cols].fill_(0.425)
         self.x_mean.requires_grad = False
         self.x_std.requires_grad = False
         wrap_lr_pad(self)
@@ -277,22 +254,19 @@ class HorizonNet(nn.Module):
             raise NotImplementedError()
         x = self._prepare_x(x)
         conv_list = self.feature_extractor(x)
-        feature = self.reduce_height_module(conv_list, x.shape[3] // self.
-            step_cols)
+        feature = self.reduce_height_module(conv_list, x.shape[3] // self.step_cols)
         if self.use_rnn:
             feature = feature.permute(2, 0, 1)
             output, hidden = self.bi_rnn(feature)
             output = self.drop_out(output)
             output = self.linear(output)
-            output = output.view(output.shape[0], output.shape[1], 3, self.
-                step_cols)
+            output = output.view(output.shape[0], output.shape[1], 3, self.step_cols)
             output = output.permute(1, 2, 0, 3)
             output = output.contiguous().view(output.shape[0], 3, -1)
         else:
             feature = feature.permute(0, 2, 1)
             output = self.linear(feature)
-            output = output.view(output.shape[0], output.shape[1], 3, self.
-                step_cols)
+            output = output.view(output.shape[0], output.shape[1], 3, self.step_cols)
             output = output.permute(0, 2, 1, 3)
             output = output.contiguous().view(output.shape[0], 3, -1)
         cor = output[:, :1]
@@ -304,20 +278,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvCompressH,
+     lambda: ([], {'in_c': 4, 'out_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Densenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (LR_PAD,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Resnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_sunset1995_HorizonNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvCompressH(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Densenet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LR_PAD(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Resnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

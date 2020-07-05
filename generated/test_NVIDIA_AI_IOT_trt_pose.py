@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,13 +73,9 @@ class UpsampleCBR(torch.nn.Sequential):
                 inch = input_channels
             else:
                 inch = output_channels
-            layers += [torch.nn.ConvTranspose2d(inch, output_channels,
-                kernel_size=4, stride=2, padding=1), torch.nn.BatchNorm2d(
-                output_channels), torch.nn.ReLU()]
+            layers += [torch.nn.ConvTranspose2d(inch, output_channels, kernel_size=4, stride=2, padding=1), torch.nn.BatchNorm2d(output_channels), torch.nn.ReLU()]
             for i in range(num_flat):
-                layers += [torch.nn.Conv2d(output_channels, output_channels,
-                    kernel_size=3, stride=1, padding=1), torch.nn.
-                    BatchNorm2d(output_channels), torch.nn.ReLU()]
+                layers += [torch.nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1), torch.nn.BatchNorm2d(output_channels), torch.nn.ReLU()]
         super(UpsampleCBR, self).__init__(*layers)
 
 
@@ -94,23 +91,14 @@ class SelectInput(torch.nn.Module):
 
 class CmapPafHead(torch.nn.Module):
 
-    def __init__(self, input_channels, cmap_channels, paf_channels,
-        upsample_channels=256, num_upsample=0, num_flat=0):
+    def __init__(self, input_channels, cmap_channels, paf_channels, upsample_channels=256, num_upsample=0, num_flat=0):
         super(CmapPafHead, self).__init__()
         if num_upsample > 0:
-            self.cmap_conv = torch.nn.Sequential(UpsampleCBR(input_channels,
-                upsample_channels, num_upsample, num_flat), torch.nn.Conv2d
-                (upsample_channels, cmap_channels, kernel_size=1, stride=1,
-                padding=0))
-            self.paf_conv = torch.nn.Sequential(UpsampleCBR(input_channels,
-                upsample_channels, num_upsample, num_flat), torch.nn.Conv2d
-                (upsample_channels, paf_channels, kernel_size=1, stride=1,
-                padding=0))
+            self.cmap_conv = torch.nn.Sequential(UpsampleCBR(input_channels, upsample_channels, num_upsample, num_flat), torch.nn.Conv2d(upsample_channels, cmap_channels, kernel_size=1, stride=1, padding=0))
+            self.paf_conv = torch.nn.Sequential(UpsampleCBR(input_channels, upsample_channels, num_upsample, num_flat), torch.nn.Conv2d(upsample_channels, paf_channels, kernel_size=1, stride=1, padding=0))
         else:
-            self.cmap_conv = torch.nn.Conv2d(input_channels, cmap_channels,
-                kernel_size=1, stride=1, padding=0)
-            self.paf_conv = torch.nn.Conv2d(input_channels, paf_channels,
-                kernel_size=1, stride=1, padding=0)
+            self.cmap_conv = torch.nn.Conv2d(input_channels, cmap_channels, kernel_size=1, stride=1, padding=0)
+            self.paf_conv = torch.nn.Conv2d(input_channels, paf_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         return self.cmap_conv(x), self.paf_conv(x)
@@ -118,21 +106,14 @@ class CmapPafHead(torch.nn.Module):
 
 class CmapPafHeadAttention(torch.nn.Module):
 
-    def __init__(self, input_channels, cmap_channels, paf_channels,
-        upsample_channels=256, num_upsample=0, num_flat=0):
+    def __init__(self, input_channels, cmap_channels, paf_channels, upsample_channels=256, num_upsample=0, num_flat=0):
         super(CmapPafHeadAttention, self).__init__()
-        self.cmap_up = UpsampleCBR(input_channels, upsample_channels,
-            num_upsample, num_flat)
-        self.paf_up = UpsampleCBR(input_channels, upsample_channels,
-            num_upsample, num_flat)
-        self.cmap_att = torch.nn.Conv2d(upsample_channels,
-            upsample_channels, kernel_size=3, stride=1, padding=1)
-        self.paf_att = torch.nn.Conv2d(upsample_channels, upsample_channels,
-            kernel_size=3, stride=1, padding=1)
-        self.cmap_conv = torch.nn.Conv2d(upsample_channels, cmap_channels,
-            kernel_size=1, stride=1, padding=0)
-        self.paf_conv = torch.nn.Conv2d(upsample_channels, paf_channels,
-            kernel_size=1, stride=1, padding=0)
+        self.cmap_up = UpsampleCBR(input_channels, upsample_channels, num_upsample, num_flat)
+        self.paf_up = UpsampleCBR(input_channels, upsample_channels, num_upsample, num_flat)
+        self.cmap_att = torch.nn.Conv2d(upsample_channels, upsample_channels, kernel_size=3, stride=1, padding=1)
+        self.paf_att = torch.nn.Conv2d(upsample_channels, upsample_channels, kernel_size=3, stride=1, padding=1)
+        self.cmap_conv = torch.nn.Conv2d(upsample_channels, cmap_channels, kernel_size=1, stride=1, padding=0)
+        self.paf_conv = torch.nn.Conv2d(upsample_channels, paf_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         xc = self.cmap_up(x)
@@ -157,15 +138,13 @@ class DlaWrapper(torch.nn.Module):
 
     def __init__(self, dla_fn, cmap_channels, paf_channels):
         super(DlaWrapper, self).__init__()
-        self.backbone = dla_fn(cmap_channels + paf_channels,
-            pretrained_base='imagenet')
+        self.backbone = dla_fn(cmap_channels + paf_channels, pretrained_base='imagenet')
         self.cmap_channels = cmap_channels
         self.paf_channels = paf_channels
 
     def forward(self, x):
         x = self.backbone(x)
-        cmap, paf = torch.split(x, [self.cmap_channels, self.paf_channels],
-            dim=1)
+        cmap, paf = torch.split(x, [self.cmap_channels, self.paf_channels], dim=1)
         return cmap, paf
 
 
@@ -236,20 +215,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CmapPafHead,
+     lambda: ([], {'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CmapPafHeadAttention,
+     lambda: ([], {'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}),
+     lambda: ([torch.rand([4, 256, 64, 64])], {}),
+     True),
+    (InputReNormalization,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (SelectInput,
+     lambda: ([], {'index': 4}),
+     lambda: ([torch.rand([5, 4, 4, 4])], {}),
+     True),
+    (UpsampleCBR,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_NVIDIA_AI_IOT_trt_pose(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CmapPafHead(*[], **{'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CmapPafHeadAttention(*[], **{'input_channels': 4, 'cmap_channels': 4, 'paf_channels': 4}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InputReNormalization(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SelectInput(*[], **{'index': 4}), [torch.rand([5, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(UpsampleCBR(*[], **{'input_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

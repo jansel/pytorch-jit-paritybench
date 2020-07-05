@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -130,8 +131,7 @@ def calculate_output_image_size(input_image_size, stride):
     """
     if input_image_size is None:
         return None
-    image_height, image_width = get_width_and_height_from_size(input_image_size
-        )
+    image_height, image_width = get_width_and_height_from_size(input_image_size)
     stride = stride if isinstance(stride, int) else stride[0]
     image_height = int(math.ceil(image_height / stride))
     image_width = int(math.ceil(image_width / stride))
@@ -155,8 +155,7 @@ def drop_connect(inputs, p, training):
     batch_size = inputs.shape[0]
     keep_prob = 1 - p
     random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype, device=inputs.device)
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
@@ -197,39 +196,29 @@ class MBConvBlock(nn.Module):
         self._block_args = block_args
         self._bn_mom = 1 - global_params.batch_norm_momentum
         self._bn_eps = global_params.batch_norm_epsilon
-        self.has_se = (self._block_args.se_ratio is not None and 0 < self.
-            _block_args.se_ratio <= 1)
+        self.has_se = self._block_args.se_ratio is not None and 0 < self._block_args.se_ratio <= 1
         self.id_skip = block_args.id_skip
         inp = self._block_args.input_filters
         oup = self._block_args.input_filters * self._block_args.expand_ratio
         if self._block_args.expand_ratio != 1:
             Conv2d = get_same_padding_conv2d(image_size=image_size)
-            self._expand_conv = Conv2d(in_channels=inp, out_channels=oup,
-                kernel_size=1, bias=False)
-            self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self.
-                _bn_mom, eps=self._bn_eps)
+            self._expand_conv = Conv2d(in_channels=inp, out_channels=oup, kernel_size=1, bias=False)
+            self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
         k = self._block_args.kernel_size
         s = self._block_args.stride
         Conv2d = get_same_padding_conv2d(image_size=image_size)
-        self._depthwise_conv = Conv2d(in_channels=oup, out_channels=oup,
-            groups=oup, kernel_size=k, stride=s, bias=False)
-        self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom,
-            eps=self._bn_eps)
+        self._depthwise_conv = Conv2d(in_channels=oup, out_channels=oup, groups=oup, kernel_size=k, stride=s, bias=False)
+        self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
         image_size = calculate_output_image_size(image_size, s)
         if self.has_se:
             Conv2d = get_same_padding_conv2d(image_size=(1, 1))
-            num_squeezed_channels = max(1, int(self._block_args.
-                input_filters * self._block_args.se_ratio))
-            self._se_reduce = Conv2d(in_channels=oup, out_channels=
-                num_squeezed_channels, kernel_size=1)
-            self._se_expand = Conv2d(in_channels=num_squeezed_channels,
-                out_channels=oup, kernel_size=1)
+            num_squeezed_channels = max(1, int(self._block_args.input_filters * self._block_args.se_ratio))
+            self._se_reduce = Conv2d(in_channels=oup, out_channels=num_squeezed_channels, kernel_size=1)
+            self._se_expand = Conv2d(in_channels=num_squeezed_channels, out_channels=oup, kernel_size=1)
         final_oup = self._block_args.output_filters
         Conv2d = get_same_padding_conv2d(image_size=image_size)
-        self._project_conv = Conv2d(in_channels=oup, out_channels=final_oup,
-            kernel_size=1, bias=False)
-        self._bn2 = nn.BatchNorm2d(num_features=final_oup, momentum=self.
-            _bn_mom, eps=self._bn_eps)
+        self._project_conv = Conv2d(in_channels=oup, out_channels=final_oup, kernel_size=1, bias=False)
+        self._bn2 = nn.BatchNorm2d(num_features=final_oup, momentum=self._bn_mom, eps=self._bn_eps)
         self._swish = MemoryEfficientSwish()
 
     def forward(self, inputs, drop_connect_rate=None):
@@ -258,13 +247,10 @@ class MBConvBlock(nn.Module):
             x = torch.sigmoid(x_squeezed) * x
         x = self._project_conv(x)
         x = self._bn2(x)
-        input_filters, output_filters = (self._block_args.input_filters,
-            self._block_args.output_filters)
-        if (self.id_skip and self._block_args.stride == 1 and input_filters ==
-            output_filters):
+        input_filters, output_filters = self._block_args.input_filters, self._block_args.output_filters
+        if self.id_skip and self._block_args.stride == 1 and input_filters == output_filters:
             if drop_connect_rate:
-                x = drop_connect(x, p=drop_connect_rate, training=self.training
-                    )
+                x = drop_connect(x, p=drop_connect_rate, training=self.training)
             x = x + inputs
         return x
 
@@ -286,19 +272,11 @@ def efficientnet_params(model_name):
     Returns:
         params_dict[model_name]: A (width,depth,res,dropout) tuple.
     """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 
-        3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2), 'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3), 'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5), 'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
     return params_dict[model_name]
 
 
-BlockArgs = collections.namedtuple('BlockArgs', ['num_repeat',
-    'kernel_size', 'stride', 'expand_ratio', 'input_filters',
-    'output_filters', 'se_ratio', 'id_skip'])
+BlockArgs = collections.namedtuple('BlockArgs', ['num_repeat', 'kernel_size', 'stride', 'expand_ratio', 'input_filters', 'output_filters', 'se_ratio', 'id_skip'])
 
 
 class BlockDecoder(object):
@@ -325,13 +303,8 @@ class BlockDecoder(object):
             if len(splits) >= 2:
                 key, value = splits[:2]
                 options[key] = value
-        assert 's' in options and len(options['s']) == 1 or len(options['s']
-            ) == 2 and options['s'][0] == options['s'][1]
-        return BlockArgs(num_repeat=int(options['r']), kernel_size=int(
-            options['k']), stride=[int(options['s'][0])], expand_ratio=int(
-            options['e']), input_filters=int(options['i']), output_filters=
-            int(options['o']), se_ratio=float(options['se']) if 'se' in
-            options else None, id_skip='noskip' not in block_string)
+        assert 's' in options and len(options['s']) == 1 or len(options['s']) == 2 and options['s'][0] == options['s'][1]
+        return BlockArgs(num_repeat=int(options['r']), kernel_size=int(options['k']), stride=[int(options['s'][0])], expand_ratio=int(options['e']), input_filters=int(options['i']), output_filters=int(options['o']), se_ratio=float(options['se']) if 'se' in options else None, id_skip='noskip' not in block_string)
 
     @staticmethod
     def _encode_block_string(block):
@@ -343,10 +316,7 @@ class BlockDecoder(object):
         Returns:
             block_string: A String form of BlockArgs.
         """
-        args = ['r%d' % block.num_repeat, 'k%d' % block.kernel_size, 
-            's%d%d' % (block.strides[0], block.strides[1]), 'e%s' % block.
-            expand_ratio, 'i%d' % block.input_filters, 'o%d' % block.
-            output_filters]
+        args = ['r%d' % block.num_repeat, 'k%d' % block.kernel_size, 's%d%d' % (block.strides[0], block.strides[1]), 'e%s' % block.expand_ratio, 'i%d' % block.input_filters, 'o%d' % block.output_filters]
         if 0 < block.se_ratio <= 1:
             args.append('se%s' % block.se_ratio)
         if block.id_skip is False:
@@ -385,14 +355,10 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient',
-    'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes',
-    'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate',
-    'depth_divisor', 'min_depth'])
+GlobalParams = collections.namedtuple('GlobalParams', ['width_coefficient', 'depth_coefficient', 'image_size', 'dropout_rate', 'num_classes', 'batch_norm_momentum', 'batch_norm_epsilon', 'drop_connect_rate', 'depth_divisor', 'min_depth'])
 
 
-def efficientnet(width_coefficient=None, depth_coefficient=None, image_size
-    =None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000):
+def efficientnet(width_coefficient=None, depth_coefficient=None, image_size=None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000):
     """Create BlockArgs and GlobalParams for efficientnet model.
 
     Args:
@@ -408,16 +374,9 @@ def efficientnet(width_coefficient=None, depth_coefficient=None, image_size
     Returns:
         blocks_args, global_params.
     """
-    blocks_args = ['r1_k3_s11_e1_i32_o16_se0.25',
-        'r2_k3_s22_e6_i16_o24_se0.25', 'r2_k5_s22_e6_i24_o40_se0.25',
-        'r3_k3_s22_e6_i40_o80_se0.25', 'r3_k5_s11_e6_i80_o112_se0.25',
-        'r4_k5_s22_e6_i112_o192_se0.25', 'r1_k3_s11_e6_i192_o320_se0.25']
+    blocks_args = ['r1_k3_s11_e1_i32_o16_se0.25', 'r2_k3_s22_e6_i16_o24_se0.25', 'r2_k5_s22_e6_i24_o40_se0.25', 'r3_k3_s22_e6_i40_o80_se0.25', 'r3_k5_s11_e6_i80_o112_se0.25', 'r4_k5_s22_e6_i112_o192_se0.25', 'r1_k3_s11_e6_i192_o320_se0.25']
     blocks_args = BlockDecoder.decode(blocks_args)
-    global_params = GlobalParams(width_coefficient=width_coefficient,
-        depth_coefficient=depth_coefficient, image_size=image_size,
-        dropout_rate=dropout_rate, num_classes=num_classes,
-        batch_norm_momentum=0.99, batch_norm_epsilon=0.001,
-        drop_connect_rate=drop_connect_rate, depth_divisor=8, min_depth=None)
+    global_params = GlobalParams(width_coefficient=width_coefficient, depth_coefficient=depth_coefficient, image_size=image_size, dropout_rate=dropout_rate, num_classes=num_classes, batch_norm_momentum=0.99, batch_norm_epsilon=0.001, drop_connect_rate=drop_connect_rate, depth_divisor=8, min_depth=None)
     return blocks_args, global_params
 
 
@@ -433,58 +392,21 @@ def get_model_params(model_name, override_params):
     """
     if model_name.startswith('efficientnet'):
         w, d, s, p = efficientnet_params(model_name)
-        blocks_args, global_params = efficientnet(width_coefficient=w,
-            depth_coefficient=d, dropout_rate=p, image_size=s)
+        blocks_args, global_params = efficientnet(width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)
     else:
-        raise NotImplementedError('model name is not pre-defined: %s' %
-            model_name)
+        raise NotImplementedError('model name is not pre-defined: %s' % model_name)
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
 
 
-url_map = {'efficientnet-b0':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b0-355c32eb.pth'
-    , 'efficientnet-b1':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b1-f1951068.pth'
-    , 'efficientnet-b2':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b2-8bb594d6.pth'
-    , 'efficientnet-b3':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b3-5fb5a3c3.pth'
-    , 'efficientnet-b4':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b4-6ed6700e.pth'
-    , 'efficientnet-b5':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b5-b6417697.pth'
-    , 'efficientnet-b6':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b6-c76e70fd.pth'
-    , 'efficientnet-b7':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b7-dcc49843.pth'
-    }
+url_map = {'efficientnet-b0': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b0-355c32eb.pth', 'efficientnet-b1': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b1-f1951068.pth', 'efficientnet-b2': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b2-8bb594d6.pth', 'efficientnet-b3': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b3-5fb5a3c3.pth', 'efficientnet-b4': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b4-6ed6700e.pth', 'efficientnet-b5': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b5-b6417697.pth', 'efficientnet-b6': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b6-c76e70fd.pth', 'efficientnet-b7': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/efficientnet-b7-dcc49843.pth'}
 
 
-url_map_advprop = {'efficientnet-b0':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b0-b64d5a18.pth'
-    , 'efficientnet-b1':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b1-0f3ce85a.pth'
-    , 'efficientnet-b2':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b2-6e9d97e5.pth'
-    , 'efficientnet-b3':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b3-cdd7c0f4.pth'
-    , 'efficientnet-b4':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b4-44fb3a87.pth'
-    , 'efficientnet-b5':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b5-86493f6b.pth'
-    , 'efficientnet-b6':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b6-ac80338e.pth'
-    , 'efficientnet-b7':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b7-4652b6dd.pth'
-    , 'efficientnet-b8':
-    'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b8-22a8fe65.pth'
-    }
+url_map_advprop = {'efficientnet-b0': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b0-b64d5a18.pth', 'efficientnet-b1': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b1-0f3ce85a.pth', 'efficientnet-b2': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b2-6e9d97e5.pth', 'efficientnet-b3': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b3-cdd7c0f4.pth', 'efficientnet-b4': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b4-44fb3a87.pth', 'efficientnet-b5': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b5-86493f6b.pth', 'efficientnet-b6': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b6-ac80338e.pth', 'efficientnet-b7': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b7-4652b6dd.pth', 'efficientnet-b8': 'https://github.com/lukemelas/EfficientNet-PyTorch/releases/download/1.0/adv-efficientnet-b8-22a8fe65.pth'}
 
 
-def load_pretrained_weights(model, model_name, weights_path=None, load_fc=
-    True, advprop=False):
+def load_pretrained_weights(model, model_name, weights_path=None, load_fc=True, advprop=False):
     """Loads pretrained weights from weights path or download using url.
 
     Args:
@@ -509,8 +431,7 @@ def load_pretrained_weights(model, model_name, weights_path=None, load_fc=
         state_dict.pop('_fc.weight')
         state_dict.pop('_fc.bias')
         ret = model.load_state_dict(state_dict, strict=False)
-        assert set(ret.missing_keys) == set(['_fc.weight', '_fc.bias']
-            ), f'Missing keys when loading pretrained weights: {ret.missing_keys}'
+        assert set(ret.missing_keys) == set(['_fc.weight', '_fc.bias']), f'Missing keys when loading pretrained weights: {ret.missing_keys}'
     assert not ret.unexpected_keys, f'Missing keys when loading pretrained weights: {ret.unexpected_keys}'
     print('Loaded pretrained weights for {}'.format(model_name))
 
@@ -533,8 +454,7 @@ def round_filters(filters, global_params):
     min_depth = global_params.min_depth
     filters *= multiplier
     min_depth = min_depth or divisor
-    new_filters = max(min_depth, int(filters + divisor / 2) // divisor *
-        divisor)
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor * divisor)
     if new_filters < 0.9 * filters:
         new_filters += divisor
     return int(new_filters)
@@ -589,35 +509,23 @@ class EfficientNet(nn.Module):
         Conv2d = get_same_padding_conv2d(image_size=image_size)
         in_channels = 3
         out_channels = round_filters(32, self._global_params)
-        self._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=2, bias=False)
-        self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=
-            bn_mom, eps=bn_eps)
+        self._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
+        self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
         image_size = calculate_output_image_size(image_size, 2)
         self._blocks = nn.ModuleList([])
         for block_args in self._blocks_args:
-            block_args = block_args._replace(input_filters=round_filters(
-                block_args.input_filters, self._global_params),
-                output_filters=round_filters(block_args.output_filters,
-                self._global_params), num_repeat=round_repeats(block_args.
-                num_repeat, self._global_params))
-            self._blocks.append(MBConvBlock(block_args, self._global_params,
-                image_size=image_size))
-            image_size = calculate_output_image_size(image_size, block_args
-                .stride)
+            block_args = block_args._replace(input_filters=round_filters(block_args.input_filters, self._global_params), output_filters=round_filters(block_args.output_filters, self._global_params), num_repeat=round_repeats(block_args.num_repeat, self._global_params))
+            self._blocks.append(MBConvBlock(block_args, self._global_params, image_size=image_size))
+            image_size = calculate_output_image_size(image_size, block_args.stride)
             if block_args.num_repeat > 1:
-                block_args = block_args._replace(input_filters=block_args.
-                    output_filters, stride=1)
+                block_args = block_args._replace(input_filters=block_args.output_filters, stride=1)
             for _ in range(block_args.num_repeat - 1):
-                self._blocks.append(MBConvBlock(block_args, self.
-                    _global_params, image_size=image_size))
+                self._blocks.append(MBConvBlock(block_args, self._global_params, image_size=image_size))
         in_channels = block_args.output_filters
         out_channels = round_filters(1280, self._global_params)
         Conv2d = get_same_padding_conv2d(image_size=image_size)
-        self._conv_head = Conv2d(in_channels, out_channels, kernel_size=1,
-            bias=False)
-        self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=
-            bn_mom, eps=bn_eps)
+        self._conv_head = Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
         self._avg_pooling = nn.AdaptiveAvgPool2d(1)
         self._dropout = nn.Dropout(self._global_params.dropout_rate)
         self._fc = nn.Linear(out_channels, self._global_params.num_classes)
@@ -691,15 +599,13 @@ class EfficientNet(nn.Module):
             An efficientnet model.
         """
         cls._check_model_name_is_valid(model_name)
-        blocks_args, global_params = get_model_params(model_name,
-            override_params)
+        blocks_args, global_params = get_model_params(model_name, override_params)
         model = cls(blocks_args, global_params)
         model._change_in_channels(in_channels)
         return model
 
     @classmethod
-    def from_pretrained(cls, model_name, weights_path=None, advprop=False,
-        in_channels=3, num_classes=1000, **override_params):
+    def from_pretrained(cls, model_name, weights_path=None, advprop=False, in_channels=3, num_classes=1000, **override_params):
         """create an efficientnet model according to name.
 
         Args:
@@ -726,10 +632,8 @@ class EfficientNet(nn.Module):
         Returns:
             A pretrained efficientnet model.
         """
-        model = cls.from_name(model_name, num_classes=num_classes, **
-            override_params)
-        load_pretrained_weights(model, model_name, weights_path=
-            weights_path, load_fc=num_classes == 1000, advprop=advprop)
+        model = cls.from_name(model_name, num_classes=num_classes, **override_params)
+        load_pretrained_weights(model, model_name, weights_path=weights_path, load_fc=num_classes == 1000, advprop=advprop)
         model._change_in_channels(in_channels)
         return model
 
@@ -760,8 +664,7 @@ class EfficientNet(nn.Module):
         valid_models = [('efficientnet-b' + str(i)) for i in range(9)]
         valid_models += ['efficientnet-l2']
         if model_name not in valid_models:
-            raise ValueError('model_name should be one of: ' + ', '.join(
-                valid_models))
+            raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
 
     def _change_in_channels(self, in_channels):
         """Adjust model's first convolution layer to in_channels, if in_channels not equals 3.
@@ -770,11 +673,9 @@ class EfficientNet(nn.Module):
             in_channels (int): Input data's channel number.
         """
         if in_channels != 3:
-            Conv2d = get_same_padding_conv2d(image_size=self._global_params
-                .image_size)
+            Conv2d = get_same_padding_conv2d(image_size=self._global_params.image_size)
             out_channels = round_filters(32, self._global_params)
-            self._conv_stem = Conv2d(in_channels, out_channels, kernel_size
-                =3, stride=2, bias=False)
+            self._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
 
 
 class Swish(nn.Module):
@@ -809,27 +710,20 @@ class Conv2dDynamicSamePadding(nn.Conv2d):
        The padding is operated in forward function by calculating dynamically.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0,
-            dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]
-            ] * 2
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
 
     def forward(self, x):
         ih, iw = x.size()[-2:]
         kh, kw = self.weight.size()[-2:]
         sh, sw = self.stride
         oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] +
-            1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] +
-            1 - iw, 0)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h -
-                pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class Conv2dStaticSamePadding(nn.Conv2d):
@@ -837,32 +731,24 @@ class Conv2dStaticSamePadding(nn.Conv2d):
        The padding mudule is calculated in construction function, then used in forward.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        image_size=None, **kwargs):
-        super().__init__(in_channels, out_channels, kernel_size, stride, **
-            kwargs)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]
-            ] * 2
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, image_size=None, **kwargs):
+        super().__init__(in_channels, out_channels, kernel_size, stride, **kwargs)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
         assert image_size is not None
-        ih, iw = (image_size, image_size) if isinstance(image_size, int
-            ) else image_size
+        ih, iw = (image_size, image_size) if isinstance(image_size, int) else image_size
         kh, kw = self.weight.size()[-2:]
         sh, sw = self.stride
         oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] +
-            1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] +
-            1 - iw, 0)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w //
-                2, pad_h // 2, pad_h - pad_h // 2))
+            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
         else:
             self.static_padding = Identity()
 
     def forward(self, x):
         x = self.static_padding(x)
-        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding,
-            self.dilation, self.groups)
+        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         return x
 
 
@@ -871,31 +757,22 @@ class MaxPool2dDynamicSamePadding(nn.MaxPool2d):
        The padding is operated in forward function by calculating dynamically.
     """
 
-    def __init__(self, kernel_size, stride, padding=0, dilation=1,
-        return_indices=False, ceil_mode=False):
-        super().__init__(kernel_size, stride, padding, dilation,
-            return_indices, ceil_mode)
-        self.stride = [self.stride] * 2 if isinstance(self.stride, int
-            ) else self.stride
-        self.kernel_size = [self.kernel_size] * 2 if isinstance(self.
-            kernel_size, int) else self.kernel_size
-        self.dilation = [self.dilation] * 2 if isinstance(self.dilation, int
-            ) else self.dilation
+    def __init__(self, kernel_size, stride, padding=0, dilation=1, return_indices=False, ceil_mode=False):
+        super().__init__(kernel_size, stride, padding, dilation, return_indices, ceil_mode)
+        self.stride = [self.stride] * 2 if isinstance(self.stride, int) else self.stride
+        self.kernel_size = [self.kernel_size] * 2 if isinstance(self.kernel_size, int) else self.kernel_size
+        self.dilation = [self.dilation] * 2 if isinstance(self.dilation, int) else self.dilation
 
     def forward(self, x):
         ih, iw = x.size()[-2:]
         kh, kw = self.kernel_size
         sh, sw = self.stride
         oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] +
-            1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] +
-            1 - iw, 0)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h -
-                pad_h // 2])
-        return F.max_pool2d(x, self.kernel_size, self.stride, self.padding,
-            self.dilation, self.ceil_mode, self.return_indices)
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.max_pool2d(x, self.kernel_size, self.stride, self.padding, self.dilation, self.ceil_mode, self.return_indices)
 
 
 class MaxPool2dStaticSamePadding(nn.MaxPool2d):
@@ -905,32 +782,24 @@ class MaxPool2dStaticSamePadding(nn.MaxPool2d):
 
     def __init__(self, kernel_size, stride, image_size=None, **kwargs):
         super().__init__(kernel_size, stride, **kwargs)
-        self.stride = [self.stride] * 2 if isinstance(self.stride, int
-            ) else self.stride
-        self.kernel_size = [self.kernel_size] * 2 if isinstance(self.
-            kernel_size, int) else self.kernel_size
-        self.dilation = [self.dilation] * 2 if isinstance(self.dilation, int
-            ) else self.dilation
+        self.stride = [self.stride] * 2 if isinstance(self.stride, int) else self.stride
+        self.kernel_size = [self.kernel_size] * 2 if isinstance(self.kernel_size, int) else self.kernel_size
+        self.dilation = [self.dilation] * 2 if isinstance(self.dilation, int) else self.dilation
         assert image_size is not None
-        ih, iw = (image_size, image_size) if isinstance(image_size, int
-            ) else image_size
+        ih, iw = (image_size, image_size) if isinstance(image_size, int) else image_size
         kh, kw = self.kernel_size
         sh, sw = self.stride
         oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] +
-            1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] +
-            1 - iw, 0)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w //
-                2, pad_h // 2, pad_h - pad_h // 2))
+            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
         else:
             self.static_padding = Identity()
 
     def forward(self, x):
         x = self.static_padding(x)
-        x = F.max_pool2d(x, self.kernel_size, self.stride, self.padding,
-            self.dilation, self.ceil_mode, self.return_indices)
+        x = F.max_pool2d(x, self.kernel_size, self.stride, self.padding, self.dilation, self.ceil_mode, self.return_indices)
         return x
 
 
@@ -950,21 +819,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dDynamicSamePadding,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPool2dDynamicSamePadding,
+     lambda: ([], {'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MemoryEfficientSwish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lukemelas_EfficientNet_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2dDynamicSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(MaxPool2dDynamicSamePadding(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MemoryEfficientSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

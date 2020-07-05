@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -125,17 +126,14 @@ class EncoderRNN(nn.Module):
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.embedding = embedding
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout, bidirectional=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout, bidirectional=True)
 
     def forward(self, input_seq, input_lengths, hidden=None):
         embedded = self.embedding(input_seq)
-        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded,
-            input_lengths)
+        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lengths)
         outputs, hidden = self.gru(packed, hidden)
         outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]
         return outputs, hidden
 
 
@@ -145,8 +143,7 @@ class Attn(nn.Module):
         super(Attn, self).__init__()
         self.method = method
         if self.method not in ['dot', 'general', 'concat']:
-            raise ValueError(self.method,
-                'is not an appropriate attention method.')
+            raise ValueError(self.method, 'is not an appropriate attention method.')
         self.hidden_size = hidden_size
         if self.method == 'general':
             self.attn = torch.nn.Linear(self.hidden_size, hidden_size)
@@ -162,8 +159,7 @@ class Attn(nn.Module):
         return torch.sum(hidden * energy, dim=2)
 
     def concat_score(self, hidden, encoder_output):
-        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0),
-            -1, -1), encoder_output), 2)).tanh()
+        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0), -1, -1), encoder_output), 2)).tanh()
         return torch.sum(self.v * energy, dim=2)
 
     def forward(self, hidden, encoder_outputs):
@@ -179,8 +175,7 @@ class Attn(nn.Module):
 
 class LuongAttnDecoderRNN(nn.Module):
 
-    def __init__(self, attn_model, embedding, hidden_size, output_size,
-        n_layers=1, dropout=0.1):
+    def __init__(self, attn_model, embedding, hidden_size, output_size, n_layers=1, dropout=0.1):
         super(LuongAttnDecoderRNN, self).__init__()
         self.attn_model = attn_model
         self.hidden_size = hidden_size
@@ -189,8 +184,7 @@ class LuongAttnDecoderRNN(nn.Module):
         self.dropout = dropout
         self.embedding = embedding
         self.embedding_dropout = nn.Dropout(dropout)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout)
         self.concat = nn.Linear(hidden_size * 2, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
         self.attn = Attn(attn_model, hidden_size)
@@ -224,13 +218,11 @@ class GreedySearchDecoder(nn.Module):
     def forward(self, input_seq, input_length, max_length):
         encoder_outputs, encoder_hidden = self.encoder(input_seq, input_length)
         decoder_hidden = encoder_hidden[:self.decoder.n_layers]
-        decoder_input = torch.ones(1, 1, device=self.device, dtype=torch.long
-            ) * SOS_token
+        decoder_input = torch.ones(1, 1, device=self.device, dtype=torch.long) * SOS_token
         all_tokens = torch.zeros([0], device=self.device, dtype=torch.long)
         all_scores = torch.zeros([0], device=self.device)
         for _ in range(max_length):
-            decoder_output, decoder_hidden = self.decoder(decoder_input,
-                decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = self.decoder(decoder_input, decoder_hidden, encoder_outputs)
             decoder_scores, decoder_input = torch.max(decoder_output, dim=1)
             all_tokens = torch.cat((all_tokens, decoder_input), dim=0)
             all_scores = torch.cat((all_scores, decoder_scores), dim=0)
@@ -291,8 +283,7 @@ def argmax(vec):
 def log_sum_exp(vec):
     max_score = vec[0, argmax(vec)]
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
-    return max_score + torch.log(torch.sum(torch.exp(vec -
-        max_score_broadcast)))
+    return max_score + torch.log(torch.sum(torch.exp(vec - max_score_broadcast)))
 
 
 class BiLSTM_CRF(nn.Module):
@@ -305,18 +296,15 @@ class BiLSTM_CRF(nn.Module):
         self.tag_to_ix = tag_to_ix
         self.tagset_size = len(tag_to_ix)
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1,
-            bidirectional=True)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1, bidirectional=True)
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
-        self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.
-            tagset_size))
+        self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.tagset_size))
         self.transitions.data[(tag_to_ix[START_TAG]), :] = -10000
         self.transitions.data[:, (tag_to_ix[STOP_TAG])] = -10000
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2)
-            ), autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2))
+        return autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2)), autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2))
 
     def _forward_alg(self, feats):
         init_alphas = torch.Tensor(1, self.tagset_size).fill_(-10000.0)
@@ -325,8 +313,7 @@ class BiLSTM_CRF(nn.Module):
         for feat in feats:
             alphas_t = []
             for next_tag in range(self.tagset_size):
-                emit_score = feat[next_tag].view(1, -1).expand(1, self.
-                    tagset_size)
+                emit_score = feat[next_tag].view(1, -1).expand(1, self.tagset_size)
                 trans_score = self.transitions[next_tag].view(1, -1)
                 next_tag_var = forward_var + trans_score + emit_score
                 alphas_t.append(log_sum_exp(next_tag_var))
@@ -348,8 +335,7 @@ class BiLSTM_CRF(nn.Module):
         score = autograd.Variable(torch.Tensor([0]))
         tags = torch.cat([torch.LongTensor([self.tag_to_ix[START_TAG]]), tags])
         for i, feat in enumerate(feats):
-            score = score + self.transitions[tags[i + 1], tags[i]] + feat[
-                tags[i + 1]]
+            score = score + self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
         score = score + self.transitions[self.tag_to_ix[STOP_TAG], tags[-1]]
         return score
 
@@ -399,17 +385,14 @@ class EncoderRNN(nn.Module):
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.embedding = embedding
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout, bidirectional=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout, bidirectional=True)
 
     def forward(self, input_seq, input_lengths, hidden=None):
         embedded = self.embedding(input_seq)
-        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded,
-            input_lengths)
+        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lengths)
         outputs, hidden = self.gru(packed, hidden)
         outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]
         return outputs, hidden
 
 
@@ -419,8 +402,7 @@ class Attn(nn.Module):
         super(Attn, self).__init__()
         self.method = method
         if self.method not in ['dot', 'general', 'concat']:
-            raise ValueError(self.method,
-                'is not an appropriate attention method.')
+            raise ValueError(self.method, 'is not an appropriate attention method.')
         self.hidden_size = hidden_size
         if self.method == 'general':
             self.attn = torch.nn.Linear(self.hidden_size, hidden_size)
@@ -436,8 +418,7 @@ class Attn(nn.Module):
         return torch.sum(hidden * energy, dim=2)
 
     def concat_score(self, hidden, encoder_output):
-        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0),
-            -1, -1), encoder_output), 2)).tanh()
+        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0), -1, -1), encoder_output), 2)).tanh()
         return torch.sum(self.v * energy, dim=2)
 
     def forward(self, hidden, encoder_outputs):
@@ -453,8 +434,7 @@ class Attn(nn.Module):
 
 class LuongAttnDecoderRNN(nn.Module):
 
-    def __init__(self, attn_model, embedding, hidden_size, output_size,
-        n_layers=1, dropout=0.1):
+    def __init__(self, attn_model, embedding, hidden_size, output_size, n_layers=1, dropout=0.1):
         super(LuongAttnDecoderRNN, self).__init__()
         self.attn_model = attn_model
         self.hidden_size = hidden_size
@@ -463,8 +443,7 @@ class LuongAttnDecoderRNN(nn.Module):
         self.dropout = dropout
         self.embedding = embedding
         self.embedding_dropout = nn.Dropout(dropout)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout)
         self.concat = nn.Linear(hidden_size * 2, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
         self.attn = Attn(attn_model, hidden_size)
@@ -495,13 +474,11 @@ class GreedySearchDecoder(nn.Module):
     def forward(self, input_seq, input_length, max_length):
         encoder_outputs, encoder_hidden = self.encoder(input_seq, input_length)
         decoder_hidden = encoder_hidden[:self.decoder.n_layers]
-        decoder_input = torch.ones(1, 1, device=self.device, dtype=torch.long
-            ) * SOS_token
+        decoder_input = torch.ones(1, 1, device=self.device, dtype=torch.long) * SOS_token
         all_tokens = torch.zeros([0], device=self.device, dtype=torch.long)
         all_scores = torch.zeros([0], device=self.device)
         for _ in range(max_length):
-            decoder_output, decoder_hidden = self.decoder(decoder_input,
-                decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = self.decoder(decoder_input, decoder_hidden, encoder_outputs)
             decoder_scores, decoder_input = torch.max(decoder_output, dim=1)
             all_tokens = torch.cat((all_tokens, decoder_input), dim=0)
             all_scores = torch.cat((all_scores, decoder_scores), dim=0)
@@ -513,11 +490,8 @@ class CNN(nn.Module):
 
     def __init__(self):
         super(CNN, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=16,
-            kernel_size=5, stride=1, padding=2), nn.ReLU(), nn.MaxPool2d(
-            kernel_size=2, stride=2))
-        self.conv2 = nn.Sequential(nn.Conv2d(16, 32, 5, 1, 2), nn.ReLU(),
-            nn.MaxPool2d(2, 2))
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=2), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
+        self.conv2 = nn.Sequential(nn.Conv2d(16, 32, 5, 1, 2), nn.ReLU(), nn.MaxPool2d(2, 2))
         self.out = nn.Linear(32 * 7 * 7, 10)
 
     def forward(self, x):
@@ -577,8 +551,7 @@ class RNN(nn.Module):
 
     def __init__(self):
         super(RNN, self).__init__()
-        self.rnn = nn.LSTM(input_size=INPUT_SIZE, hidden_size=64,
-            num_layers=1, batch_first=True)
+        self.rnn = nn.LSTM(input_size=INPUT_SIZE, hidden_size=64, num_layers=1, batch_first=True)
         self.out = nn.Linear(64, 10)
 
     def forward(self, x):
@@ -591,8 +564,7 @@ class RNN(nn.Module):
 
     def __init__(self):
         super(RNN, self).__init__()
-        self.rnn = nn.RNN(input_size=INPUT_SIZE, hidden_size=32, num_layers
-            =1, batch_first=True)
+        self.rnn = nn.RNN(input_size=INPUT_SIZE, hidden_size=32, num_layers=1, batch_first=True)
         self.out = nn.Linear(32, 1)
 
     def forward(self, x, h_state):
@@ -607,12 +579,8 @@ class AutoEncoder(nn.Module):
 
     def __init__(self):
         super(AutoEncoder, self).__init__()
-        self.encoder = nn.Sequential(nn.Linear(28 * 28, 128), nn.Tanh(), nn
-            .Linear(128, 64), nn.Tanh(), nn.Linear(64, 12), nn.Tanh(), nn.
-            Linear(12, 3))
-        self.decoder = nn.Sequential(nn.Linear(3, 12), nn.Tanh(), nn.Linear
-            (12, 64), nn.Tanh(), nn.Linear(64, 128), nn.Tanh(), nn.Linear(
-            128, 28 * 28), nn.Sigmoid())
+        self.encoder = nn.Sequential(nn.Linear(28 * 28, 128), nn.Tanh(), nn.Linear(128, 64), nn.Tanh(), nn.Linear(64, 12), nn.Tanh(), nn.Linear(12, 3))
+        self.decoder = nn.Sequential(nn.Linear(3, 12), nn.Tanh(), nn.Linear(12, 64), nn.Tanh(), nn.Linear(64, 128), nn.Tanh(), nn.Linear(128, 28 * 28), nn.Sigmoid())
 
     def forward(self, x):
         encoded = self.encoder(x)
@@ -627,17 +595,14 @@ class EncoderRNN(nn.Module):
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.embedding = embedding
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout, bidirectional=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout, bidirectional=True)
 
     def forward(self, input_seq, input_lengths, hidden=None):
         embedded = self.embedding(input_seq)
-        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded,
-            input_lengths)
+        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lengths)
         outputs, hidden = self.gru(packed, hidden)
         outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]
         return outputs, hidden
 
 
@@ -647,8 +612,7 @@ class Attn(nn.Module):
         super(Attn, self).__init__()
         self.method = method
         if self.method not in ['dot', 'general', 'concat']:
-            raise ValueError(self.method,
-                'is not an appropriate attention method.')
+            raise ValueError(self.method, 'is not an appropriate attention method.')
         self.hidden_size = hidden_size
         if self.method == 'general':
             self.attn = torch.nn.Linear(self.hidden_size, hidden_size)
@@ -664,8 +628,7 @@ class Attn(nn.Module):
         return torch.sum(hidden * energy, dim=2)
 
     def concat_score(self, hidden, encoder_output):
-        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0),
-            -1, -1), encoder_output), 2)).tanh()
+        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0), -1, -1), encoder_output), 2)).tanh()
         return torch.sum(self.v * energy, dim=2)
 
     def forward(self, hidden, encoder_outputs):
@@ -681,8 +644,7 @@ class Attn(nn.Module):
 
 class LuongAttnDecoderRNN(nn.Module):
 
-    def __init__(self, attn_model, embedding, hidden_size, output_size,
-        n_layers=1, dropout=0.1):
+    def __init__(self, attn_model, embedding, hidden_size, output_size, n_layers=1, dropout=0.1):
         super(LuongAttnDecoderRNN, self).__init__()
         self.attn_model = attn_model
         self.hidden_size = hidden_size
@@ -691,8 +653,7 @@ class LuongAttnDecoderRNN(nn.Module):
         self.dropout = dropout
         self.embedding = embedding
         self.embedding_dropout = nn.Dropout(dropout)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout)
         self.concat = nn.Linear(hidden_size * 2, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
         self.attn = Attn(attn_model, hidden_size)
@@ -723,13 +684,11 @@ class GreedySearchDecoder(nn.Module):
     def forward(self, input_seq, input_length, max_length):
         encoder_outputs, encoder_hidden = self.encoder(input_seq, input_length)
         decoder_hidden = encoder_hidden[:self.decoder.n_layers]
-        decoder_input = torch.ones(1, 1, device=self.device, dtype=torch.long
-            ) * SOS_token
+        decoder_input = torch.ones(1, 1, device=self.device, dtype=torch.long) * SOS_token
         all_tokens = torch.zeros([0], device=self.device, dtype=torch.long)
         all_scores = torch.zeros([0], device=self.device)
         for _ in range(max_length):
-            decoder_output, decoder_hidden = self.decoder(decoder_input,
-                decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = self.decoder(decoder_input, decoder_hidden, encoder_outputs)
             decoder_scores, decoder_input = torch.max(decoder_output, dim=1)
             all_tokens = torch.cat((all_tokens, decoder_input), dim=0)
             all_scores = torch.cat((all_scores, decoder_scores), dim=0)
@@ -747,18 +706,15 @@ class BiLSTM_CRF(nn.Module):
         self.tag_to_ix = tag_to_ix
         self.tagset_size = len(tag_to_ix)
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1,
-            bidirectional=True)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1, bidirectional=True)
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
-        self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.
-            tagset_size))
+        self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.tagset_size))
         self.transitions.data[(tag_to_ix[START_TAG]), :] = -10000
         self.transitions.data[:, (tag_to_ix[STOP_TAG])] = -10000
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2)
-            ), autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2))
+        return autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2)), autograd.Variable(torch.randn(2, 1, self.hidden_dim // 2))
 
     def _forward_alg(self, feats):
         init_alphas = torch.Tensor(1, self.tagset_size).fill_(-10000.0)
@@ -767,8 +723,7 @@ class BiLSTM_CRF(nn.Module):
         for feat in feats:
             alphas_t = []
             for next_tag in range(self.tagset_size):
-                emit_score = feat[next_tag].view(1, -1).expand(1, self.
-                    tagset_size)
+                emit_score = feat[next_tag].view(1, -1).expand(1, self.tagset_size)
                 trans_score = self.transitions[next_tag].view(1, -1)
                 next_tag_var = forward_var + trans_score + emit_score
                 alphas_t.append(log_sum_exp(next_tag_var))
@@ -789,8 +744,7 @@ class BiLSTM_CRF(nn.Module):
         score = autograd.Variable(torch.Tensor([0]))
         tags = torch.cat([torch.LongTensor([self.tag_to_ix[START_TAG]]), tags])
         for i, feat in enumerate(feats):
-            score = score + self.transitions[tags[i + 1], tags[i]] + feat[
-                tags[i + 1]]
+            score = score + self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
         score = score + self.transitions[self.tag_to_ix[STOP_TAG], tags[-1]]
         return score
 
@@ -844,13 +798,11 @@ class LSTMTagger(nn.Module):
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return autograd.Variable(torch.zeros(1, 1, self.hidden_dim)
-            ), autograd.Variable(torch.zeros(1, 1, self.hidden_dim))
+        return autograd.Variable(torch.zeros(1, 1, self.hidden_dim)), autograd.Variable(torch.zeros(1, 1, self.hidden_dim))
 
     def forward(self, sentence):
         embeds = self.word_embeddings(sentence)
-        lstm_out, self.hidden = self.lstm(embeds.view(len(sentence), 1, -1),
-            self.hidden)
+        lstm_out, self.hidden = self.lstm(embeds.view(len(sentence), 1, -1), self.hidden)
         tag_space = self.hidden2tag(lstm_out.view(len(sentence), -1))
         tag_scores = F.log_softmax(tag_space, dim=1)
         return tag_scores
@@ -869,8 +821,7 @@ class NamesRNN(nn.Module):
         self.softmax = nn.LogSoftmax()
 
     def init_hidden(self, batch):
-        return autograd.Variable(torch.randn(2, batch, self.hidden_dim)
-            ), autograd.Variable(torch.randn(2, batch, self.hidden_dim))
+        return autograd.Variable(torch.randn(2, batch, self.hidden_dim)), autograd.Variable(torch.randn(2, batch, self.hidden_dim))
 
     def _get_lstm_features(self, names, lengths):
         self.hidden = self.init_hidden(names.size(-1))
@@ -881,8 +832,7 @@ class NamesRNN(nn.Module):
         lstm_out = torch.transpose(lstm_out, 0, 1)
         lstm_out = torch.transpose(lstm_out, 1, 2)
         lstm_out = F.tanh(lstm_out)
-        lstm_out, indices = F.max_pool1d(lstm_out, lstm_out.size(2),
-            return_indices=True)
+        lstm_out, indices = F.max_pool1d(lstm_out, lstm_out.size(2), return_indices=True)
         lstm_out = lstm_out.squeeze(2)
         lstm_out = F.tanh(lstm_out)
         lstm_feats = self.fully_connected_layer(lstm_out)
@@ -897,26 +847,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AutoEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (BoWClassifier,
+     lambda: ([], {'num_labels': 4, 'vocab_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EncoderRNN,
+     lambda: ([], {'hidden_size': 4, 'embedding': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LSTMTagger,
+     lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (NGramLanguageModeler,
+     lambda: ([], {'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (RNN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 1]), torch.rand([1, 4, 32])], {}),
+     False),
+]
+
 class Test_apachecn_nlp_pytorch_zh(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AutoEncoder(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BoWClassifier(*[], **{'num_labels': 4, 'vocab_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EncoderRNN(*[], **{'hidden_size': 4, 'embedding': _mock_layer()}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LSTMTagger(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(RNN(*[], **{}), [torch.rand([4, 4, 1]), torch.rand([1, 4, 32])], {})
+        self._check(*TESTCASES[5])
 

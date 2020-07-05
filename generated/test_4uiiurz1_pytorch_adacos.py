@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,12 +95,10 @@ class AdaCos(nn.Module):
         one_hot = torch.zeros_like(logits)
         one_hot.scatter_(1, label.view(-1, 1).long(), 1)
         with torch.no_grad():
-            B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits),
-                torch.zeros_like(logits))
+            B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))
             B_avg = torch.sum(B_avg) / input.size(0)
             theta_med = torch.median(theta[one_hot == 1])
-            self.s = torch.log(B_avg) / torch.cos(torch.min(math.pi / 4 *
-                torch.ones_like(theta_med), theta_med))
+            self.s = torch.log(B_avg) / torch.cos(torch.min(math.pi / 4 * torch.ones_like(theta_med), theta_med))
         output = self.s * logits
         return output
 
@@ -206,16 +205,14 @@ class MNISTNet(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.pool = nn.MaxPool2d((2, 2))
-        self.features = nn.Sequential(*[VGGBlock(1, 16, 16), self.pool,
-            VGGBlock(16, 32, 32), self.pool, VGGBlock(32, 64, 64), self.pool])
+        self.features = nn.Sequential(*[VGGBlock(1, 16, 16), self.pool, VGGBlock(16, 32, 32), self.pool, VGGBlock(32, 64, 64), self.pool])
         self.bn1 = nn.BatchNorm2d(64)
         self.dropout = nn.Dropout2d(0.5)
         self.fc = nn.Linear(3 * 3 * 64, args.num_features)
         self.bn2 = nn.BatchNorm1d(args.num_features)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -249,9 +246,7 @@ class ResNet_IR(nn.Module):
         elif args.backbone == 'resnet152':
             self.backbone = models.resnet152(pretrained=True)
             last_channels = 2048
-        self.features = nn.Sequential(self.backbone.conv1, self.backbone.
-            bn1, self.backbone.relu, self.backbone.layer1, self.backbone.
-            layer2, self.backbone.layer3, self.backbone.layer4)
+        self.features = nn.Sequential(self.backbone.conv1, self.backbone.bn1, self.backbone.relu, self.backbone.layer1, self.backbone.layer2, self.backbone.layer3, self.backbone.layer4)
         self.bn1 = nn.BatchNorm2d(last_channels)
         self.dropout = nn.Dropout2d(0.5)
         self.fc = nn.Linear(8 * 8 * last_channels, args.num_features)
@@ -277,24 +272,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaCos,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ArcFace,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CosFace,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SphereFace,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGGBlock,
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_4uiiurz1_pytorch_adacos(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AdaCos(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ArcFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(CosFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(SphereFace(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(VGGBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

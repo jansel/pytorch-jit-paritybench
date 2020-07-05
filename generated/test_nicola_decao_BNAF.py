@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,8 +86,7 @@ class BNAF(torch.nn.Sequential):
         super(BNAF, self).__init__(*args)
         self.res = res
         if res == 'gated':
-            self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.
-                Tensor(1)))
+            self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(1)))
 
     def forward(self, inputs: torch.Tensor):
         """
@@ -102,16 +102,12 @@ class BNAF(torch.nn.Sequential):
         grad = None
         for module in self._modules.values():
             outputs, grad = module(outputs, grad)
-            grad = grad if len(grad.shape) == 4 else grad.view(grad.shape +
-                [1, 1])
+            grad = grad if len(grad.shape) == 4 else grad.view(grad.shape + [1, 1])
         assert inputs.shape[-1] == outputs.shape[-1]
         if self.res == 'normal':
-            return inputs + outputs, torch.nn.functional.softplus(grad.
-                squeeze()).sum(-1)
+            return inputs + outputs, torch.nn.functional.softplus(grad.squeeze()).sum(-1)
         elif self.res == 'gated':
-            return self.gate.sigmoid() * outputs + (1 - self.gate.sigmoid()
-                ) * inputs, (torch.nn.functional.softplus(grad.squeeze() +
-                self.gate) - torch.nn.functional.softplus(self.gate)).sum(-1)
+            return self.gate.sigmoid() * outputs + (1 - self.gate.sigmoid()) * inputs, (torch.nn.functional.softplus(grad.squeeze() + self.gate) - torch.nn.functional.softplus(self.gate)).sum(-1)
         else:
             return outputs, grad.squeeze().sum(-1)
 
@@ -157,8 +153,7 @@ class Permutation(torch.nn.Module):
         return inputs[:, (self.p)], 0
 
     def __repr__(self):
-        return 'Permutation(in_features={}, p={})'.format(self.in_features,
-            self.p)
+        return 'Permutation(in_features={}, p={})'.format(self.in_features, self.p)
 
 
 class MaskedWeight(torch.nn.Module):
@@ -167,8 +162,7 @@ class MaskedWeight(torch.nn.Module):
     Moreover, it uses Weight Normalization (https://arxiv.org/abs/1602.07868) for stability.
     """
 
-    def __init__(self, in_features: int, out_features: int, dim: int, bias:
-        bool=True):
+    def __init__(self, in_features: int, out_features: int, dim: int, bias: bool=True):
         """
         Parameters
         ----------
@@ -182,29 +176,20 @@ class MaskedWeight(torch.nn.Module):
             Whether to add a parametrizable bias.
         """
         super(MaskedWeight, self).__init__()
-        self.in_features, self.out_features, self.dim = (in_features,
-            out_features, dim)
+        self.in_features, self.out_features, self.dim = in_features, out_features, dim
         weight = torch.zeros(out_features, in_features)
         for i in range(dim):
-            weight[i * out_features // dim:(i + 1) * out_features // dim, 0
-                :(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(
-                torch.Tensor(out_features // dim, (i + 1) * in_features // dim)
-                )
+            weight[i * out_features // dim:(i + 1) * out_features // dim, 0:(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(torch.Tensor(out_features // dim, (i + 1) * in_features // dim))
         self._weight = torch.nn.Parameter(weight)
-        self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch
-            .Tensor(out_features, 1)).log())
-        self.bias = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(
-            out_features), -1 / math.sqrt(out_features), 1 / math.sqrt(
-            out_features))) if bias else 0
+        self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
+        self.bias = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features), -1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
         mask_d = torch.zeros_like(weight)
         for i in range(dim):
-            mask_d[i * (out_features // dim):(i + 1) * (out_features // dim
-                ), i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
+            mask_d[i * (out_features // dim):(i + 1) * (out_features // dim), i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
         self.register_buffer('mask_d', mask_d)
         mask_o = torch.ones_like(weight)
         for i in range(dim):
-            mask_o[i * (out_features // dim):(i + 1) * (out_features // dim
-                ), i * (in_features // dim):] = 0
+            mask_o[i * (out_features // dim):(i + 1) * (out_features // dim), i * (in_features // dim):] = 0
         self.register_buffer('mask_o', mask_o)
 
     def get_weights(self):
@@ -215,10 +200,8 @@ class MaskedWeight(torch.nn.Module):
         w = torch.exp(self._weight) * self.mask_d + self._weight * self.mask_o
         w_squared_norm = (w ** 2).sum(-1, keepdim=True)
         w = self._diag_weight.exp() * w / w_squared_norm.sqrt()
-        wpl = self._diag_weight + self._weight - 0.5 * torch.log(w_squared_norm
-            )
-        return w.t(), wpl.t()[self.mask_d.byte().t()].view(self.dim, self.
-            in_features // self.dim, self.out_features // self.dim)
+        wpl = self._diag_weight + self._weight - 0.5 * torch.log(w_squared_norm)
+        return w.t(), wpl.t()[self.mask_d.byte().t()].view(self.dim, self.in_features // self.dim, self.out_features // self.dim)
 
     def forward(self, inputs, grad: torch.Tensor=None):
         """
@@ -235,15 +218,10 @@ class MaskedWeight(torch.nn.Module):
         """
         w, wpl = self.get_weights()
         g = wpl.transpose(-2, -1).unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1)
-        return inputs.matmul(w) + self.bias, torch.logsumexp(g.unsqueeze(-2
-            ) + grad.transpose(-2, -1).unsqueeze(-3), -1
-            ) if grad is not None else g
+        return inputs.matmul(w) + self.bias, torch.logsumexp(g.unsqueeze(-2) + grad.transpose(-2, -1).unsqueeze(-3), -1) if grad is not None else g
 
     def __repr__(self):
-        return (
-            'MaskedWeight(in_features={}, out_features={}, dim={}, bias={})'
-            .format(self.in_features, self.out_features, self.dim, not
-            isinstance(self.bias, int)))
+        return 'MaskedWeight(in_features={}, out_features={}, dim={}, bias={})'.format(self.in_features, self.out_features, self.dim, not isinstance(self.bias, int))
 
 
 class Tanh(torch.nn.Tanh):
@@ -265,31 +243,45 @@ class Tanh(torch.nn.Tanh):
         The output tensor and the log diagonal blocks of the partial log-Jacobian of previous 
         transformations combined with this transformation.
         """
-        g = -2 * (inputs - math.log(2) + torch.nn.functional.softplus(-2 *
-            inputs))
-        return torch.tanh(inputs), g.view(grad.shape
-            ) + grad if grad is not None else g
+        g = -2 * (inputs - math.log(2) + torch.nn.functional.softplus(-2 * inputs))
+        return torch.tanh(inputs), g.view(grad.shape) + grad if grad is not None else g
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MaskedWeight,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Permutation,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Sequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Tanh,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_nicola_decao_BNAF(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MaskedWeight(*[], **{'in_features': 4, 'out_features': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Permutation(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,8 +86,7 @@ def grad_sin_theta_by_theta(theta: torch.Tensor, eps: float=0.001):
     result = torch.zeros_like(theta)
     s, l = get_small_and_large_angle_inds(theta, eps)
     theta_sq = theta ** 2
-    result[s] = -theta[s] / 3 * (1 - theta_sq[s] / 10 * (1 - theta_sq[s] / 
-        28 * (1 - theta_sq[s] / 54)))
+    result[s] = -theta[s] / 3 * (1 - theta_sq[s] / 10 * (1 - theta_sq[s] / 28 * (1 - theta_sq[s] / 54)))
     result[l] = cos(theta[l]) / theta[l] - sin(theta[l]) / theta_sq[l]
     return result
 
@@ -103,8 +103,7 @@ def sin_theta_by_theta(theta: torch.Tensor, eps: float=0.001):
     result = torch.zeros_like(theta)
     small_inds, large_inds = get_small_and_large_angle_inds(theta, eps)
     theta_sq = theta[small_inds] ** 2
-    result[small_inds] = 1 - theta_sq / 6 * (1 - theta_sq / 20 * (1 - 
-        theta_sq / 42))
+    result[small_inds] = 1 - theta_sq / 6 * (1 - theta_sq / 20 * (1 - theta_sq / 42))
     result[large_inds] = torch.sin(theta[large_inds]) / theta[large_inds]
     return result
 
@@ -121,8 +120,7 @@ class SinThetaByTheta_Function(torch.autograd.Function):
         theta, = ctx.saved_tensors
         grad_theta = None
         if ctx.needs_input_grad[0]:
-            grad_theta = grad_output * grad_sin_theta_by_theta(theta).to(
-                grad_output.device)
+            grad_theta = grad_output * grad_sin_theta_by_theta(theta).to(grad_output.device)
         return grad_theta
 
 
@@ -135,8 +133,7 @@ class SinThetaByTheta(torch.nn.Module):
         return SinThetaByTheta_Function.apply(x)
 
 
-def grad_one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001
-    ):
+def grad_one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001):
     """Computes :math:`\\frac{\\partial}{\\partial \\theta}\\frac{1 - cos \\theta}{\\theta^2}`.
 
     Args:
@@ -148,10 +145,8 @@ def grad_one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001
     result = torch.zeros_like(theta)
     s, l = get_small_and_large_angle_inds(theta, eps)
     theta_sq = theta ** 2
-    result[s] = -theta[s] / 12 * (1 - theta_sq[s] / 5 * (1 / 3 - theta_sq[s
-        ] / 56 * (1 / 2 - theta_sq[s] / 135)))
-    result[l] = sin(theta[l]) / theta_sq[l] - 2 * (1 - cos(theta[l])) / (
-        theta_sq[l] * theta[l])
+    result[s] = -theta[s] / 12 * (1 - theta_sq[s] / 5 * (1 / 3 - theta_sq[s] / 56 * (1 / 2 - theta_sq[s] / 135)))
+    result[l] = sin(theta[l]) / theta_sq[l] - 2 * (1 - cos(theta[l])) / (theta_sq[l] * theta[l])
     return result
 
 
@@ -167,8 +162,7 @@ def one_minus_cos_theta_by_theta_sq(theta: torch.Tensor, eps: float=0.001):
     result = torch.zeros_like(theta)
     s, l = get_small_and_large_angle_inds(theta, eps)
     theta_sq = theta ** 2
-    result[s] = 1 / 2 * (1 - theta_sq[s] / 12 * (1 - theta_sq[s] / 30 * (1 -
-        theta_sq[s] / 56)))
+    result[s] = 1 / 2 * (1 - theta_sq[s] / 12 * (1 - theta_sq[s] / 30 * (1 - theta_sq[s] / 56)))
     result[l] = (1 - cos(theta[l])) / theta_sq[l]
     return result
 
@@ -185,8 +179,7 @@ class ThetaBySinTheta_Function(torch.autograd.Function):
         theta, = ctx.saved_tensors
         grad_theta = None
         if ctx.needs_input_grad[0]:
-            grad_theta = grad_output * grad_one_minus_cos_theta_by_theta_sq(
-                theta).to(grad_output.device)
+            grad_theta = grad_output * grad_one_minus_cos_theta_by_theta_sq(theta).to(grad_output.device)
         return grad_theta
 
 
@@ -211,8 +204,7 @@ class OneMinusCosThetaByThetaSq_Function(torch.autograd.Function):
         theta, = ctx.saved_tensors
         grad_theta = None
         if ctx.needs_input_grad[0]:
-            grad_theta = grad_output * grad_one_minus_cos_theta_by_theta_sq(
-                theta).to(grad_output.device)
+            grad_theta = grad_output * grad_one_minus_cos_theta_by_theta_sq(theta).to(grad_output.device)
         return grad_theta
 
 
@@ -225,8 +217,7 @@ class OneMinusCosThetaByThetaSq(torch.nn.Module):
         return OneMinusCosThetaByThetaSq_Function.apply(x)
 
 
-def grad_theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps:
-    float=0.001):
+def grad_theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps: float=0.001):
     """Computes :math:`\\frac{\\partial}{\\partial \\theta}\\frac{\\theta - sin \\theta}{\\theta^3}`.
 
     Args:
@@ -238,10 +229,8 @@ def grad_theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps:
     result = torch.zeros_like(theta)
     s, l = get_small_and_large_angle_inds(theta, eps)
     theta_sq = theta[s] ** 2
-    result[s] = -theta[s] / 60 * (1 - theta_sq / 21 * (1 - theta_sq / 24 *
-        (1 / 2 - theta_sq / 165)))
-    result[l] = (3 * sin(theta[l]) - theta[l] * (cos(theta[l]) + 2)) / theta[l
-        ] ** 4
+    result[s] = -theta[s] / 60 * (1 - theta_sq / 21 * (1 - theta_sq / 24 * (1 / 2 - theta_sq / 165)))
+    result[l] = (3 * sin(theta[l]) - theta[l] * (cos(theta[l]) + 2)) / theta[l] ** 4
     return result
 
 
@@ -257,8 +246,7 @@ def theta_minus_sin_theta_by_theta_cube(theta: torch.Tensor, eps: float=0.001):
     result = torch.zeros_like(theta)
     s, l = get_small_and_large_angle_inds(theta, eps)
     theta_sq = theta[s] ** 2
-    result[s] = 1 / 6 * (1 - theta_sq / 20 * (1 - theta_sq / 42 * (1 - 
-        theta_sq / 72)))
+    result[s] = 1 / 6 * (1 - theta_sq / 20 * (1 - theta_sq / 42 * (1 - theta_sq / 72)))
     result[l] = (theta[l] - sin(theta[l])) / theta[l] ** 3
     return result
 
@@ -275,9 +263,7 @@ class ThetaMinusSinThetaByThetaCube_Function(torch.autograd.Function):
         theta, = ctx.saved_tensors
         grad_theta = None
         if ctx.needs_input_grad[0]:
-            grad_theta = (grad_output *
-                grad_theta_minus_sin_theta_by_theta_cube(theta).to(
-                grad_output.device))
+            grad_theta = grad_output * grad_theta_minus_sin_theta_by_theta_cube(theta).to(grad_output.device)
         return grad_theta
 
 
@@ -294,8 +280,7 @@ class VeryTinyNeRFModel(torch.nn.Module):
     """Define a "very tiny" NeRF model comprising three fully connected layers.
     """
 
-    def __init__(self, filter_size=128, num_encoding_functions=6,
-        use_viewdirs=True):
+    def __init__(self, filter_size=128, num_encoding_functions=6, use_viewdirs=True):
         super(VeryTinyNeRFModel, self).__init__()
         self.num_encoding_functions = num_encoding_functions
         self.xyz_encoding_dims = 3 + 3 * 2 * num_encoding_functions
@@ -303,8 +288,7 @@ class VeryTinyNeRFModel(torch.nn.Module):
             self.viewdir_encoding_dims = 3 + 3 * 2 * num_encoding_functions
         else:
             self.viewdir_encoding_dims = 0
-        self.layer1 = torch.nn.Linear(self.xyz_encoding_dims + self.
-            viewdir_encoding_dims, filter_size)
+        self.layer1 = torch.nn.Linear(self.xyz_encoding_dims + self.viewdir_encoding_dims, filter_size)
         self.layer2 = torch.nn.Linear(filter_size, filter_size)
         self.layer3 = torch.nn.Linear(filter_size, 4)
         self.relu = torch.nn.functional.relu
@@ -321,8 +305,7 @@ class MultiHeadNeRFModel(torch.nn.Module):
     separate heads).
     """
 
-    def __init__(self, hidden_size=128, num_encoding_functions=6,
-        use_viewdirs=True):
+    def __init__(self, hidden_size=128, num_encoding_functions=6, use_viewdirs=True):
         super(MultiHeadNeRFModel, self).__init__()
         self.num_encoding_functions = num_encoding_functions
         self.xyz_encoding_dims = 3 + 3 * 2 * num_encoding_functions
@@ -334,15 +317,13 @@ class MultiHeadNeRFModel(torch.nn.Module):
         self.layer2 = torch.nn.Linear(hidden_size, hidden_size)
         self.layer3_1 = torch.nn.Linear(hidden_size, 1)
         self.layer3_2 = torch.nn.Linear(hidden_size, hidden_size)
-        self.layer4 = torch.nn.Linear(self.viewdir_encoding_dims +
-            hidden_size, hidden_size)
+        self.layer4 = torch.nn.Linear(self.viewdir_encoding_dims + hidden_size, hidden_size)
         self.layer5 = torch.nn.Linear(hidden_size, hidden_size)
         self.layer6 = torch.nn.Linear(hidden_size, 3)
         self.relu = torch.nn.functional.relu
 
     def forward(self, x):
-        x, view = x[(...), :self.xyz_encoding_dims], x[(...), self.
-            xyz_encoding_dims:]
+        x, view = x[(...), :self.xyz_encoding_dims], x[(...), self.xyz_encoding_dims:]
         x = self.relu(self.layer1(x))
         x = self.relu(self.layer2(x))
         sigma = self.layer3_1(x)
@@ -359,19 +340,15 @@ class ReplicateNeRFModel(torch.nn.Module):
     every last detail. (ofc, with some flexibility)
     """
 
-    def __init__(self, hidden_size=256, num_layers=4, num_encoding_fn_xyz=6,
-        num_encoding_fn_dir=4, include_input_xyz=True, include_input_dir=True):
+    def __init__(self, hidden_size=256, num_layers=4, num_encoding_fn_xyz=6, num_encoding_fn_dir=4, include_input_xyz=True, include_input_dir=True):
         super(ReplicateNeRFModel, self).__init__()
-        self.dim_xyz = (3 if include_input_xyz else 0
-            ) + 2 * 3 * num_encoding_fn_xyz
-        self.dim_dir = (3 if include_input_dir else 0
-            ) + 2 * 3 * num_encoding_fn_dir
+        self.dim_xyz = (3 if include_input_xyz else 0) + 2 * 3 * num_encoding_fn_xyz
+        self.dim_dir = (3 if include_input_dir else 0) + 2 * 3 * num_encoding_fn_dir
         self.layer1 = torch.nn.Linear(self.dim_xyz, hidden_size)
         self.layer2 = torch.nn.Linear(hidden_size, hidden_size)
         self.layer3 = torch.nn.Linear(hidden_size, hidden_size)
         self.fc_alpha = torch.nn.Linear(hidden_size, 1)
-        self.layer4 = torch.nn.Linear(hidden_size + self.dim_dir, 
-            hidden_size // 2)
+        self.layer4 = torch.nn.Linear(hidden_size + self.dim_dir, hidden_size // 2)
         self.layer5 = torch.nn.Linear(hidden_size // 2, hidden_size // 2)
         self.fc_rgb = torch.nn.Linear(hidden_size // 2, 3)
         self.relu = torch.nn.functional.relu
@@ -392,9 +369,7 @@ class PaperNeRFModel(torch.nn.Module):
     """Implements the NeRF model as described in Fig. 7 (appendix) of the
     arXiv submission (v0). """
 
-    def __init__(self, num_layers=8, hidden_size=256, skip_connect_every=4,
-        num_encoding_fn_xyz=6, num_encoding_fn_dir=4, include_input_xyz=
-        True, include_input_dir=True, use_viewdirs=True):
+    def __init__(self, num_layers=8, hidden_size=256, skip_connect_every=4, num_encoding_fn_xyz=6, num_encoding_fn_dir=4, include_input_xyz=True, include_input_dir=True, use_viewdirs=True):
         super(PaperNeRFModel, self).__init__()
         include_input_xyz = 3 if include_input_xyz else 0
         include_input_dir = 3 if include_input_dir else 0
@@ -405,8 +380,7 @@ class PaperNeRFModel(torch.nn.Module):
         self.layers_xyz.append(torch.nn.Linear(self.dim_xyz, 256))
         for i in range(1, 8):
             if i == 4:
-                self.layers_xyz.append(torch.nn.Linear(self.dim_xyz + 256, 256)
-                    )
+                self.layers_xyz.append(torch.nn.Linear(self.dim_xyz + 256, 256))
             else:
                 self.layers_xyz.append(torch.nn.Linear(256, 256))
         self.fc_feat = torch.nn.Linear(256, 256)
@@ -442,9 +416,7 @@ class PaperNeRFModel(torch.nn.Module):
 
 class FlexibleNeRFModel(torch.nn.Module):
 
-    def __init__(self, num_layers=4, hidden_size=128, skip_connect_every=4,
-        num_encoding_fn_xyz=6, num_encoding_fn_dir=4, include_input_xyz=
-        True, include_input_dir=True, use_viewdirs=True):
+    def __init__(self, num_layers=4, hidden_size=128, skip_connect_every=4, num_encoding_fn_xyz=6, num_encoding_fn_dir=4, include_input_xyz=True, include_input_dir=True, use_viewdirs=True):
         super(FlexibleNeRFModel, self).__init__()
         include_input_xyz = 3 if include_input_xyz else 0
         include_input_dir = 3 if include_input_dir else 0
@@ -456,18 +428,14 @@ class FlexibleNeRFModel(torch.nn.Module):
         self.layer1 = torch.nn.Linear(self.dim_xyz, hidden_size)
         self.layers_xyz = torch.nn.ModuleList()
         for i in range(num_layers - 1):
-            if (i % self.skip_connect_every == 0 and i > 0 and i != 
-                num_layers - 1):
-                self.layers_xyz.append(torch.nn.Linear(self.dim_xyz +
-                    hidden_size, hidden_size))
+            if i % self.skip_connect_every == 0 and i > 0 and i != num_layers - 1:
+                self.layers_xyz.append(torch.nn.Linear(self.dim_xyz + hidden_size, hidden_size))
             else:
-                self.layers_xyz.append(torch.nn.Linear(hidden_size,
-                    hidden_size))
+                self.layers_xyz.append(torch.nn.Linear(hidden_size, hidden_size))
         self.use_viewdirs = use_viewdirs
         if self.use_viewdirs:
             self.layers_dir = torch.nn.ModuleList()
-            self.layers_dir.append(torch.nn.Linear(self.dim_dir +
-                hidden_size, hidden_size // 2))
+            self.layers_dir.append(torch.nn.Linear(self.dim_dir + hidden_size, hidden_size // 2))
             self.fc_alpha = torch.nn.Linear(hidden_size, 1)
             self.fc_rgb = torch.nn.Linear(hidden_size // 2, 3)
             self.fc_feat = torch.nn.Linear(hidden_size, hidden_size)
@@ -482,8 +450,7 @@ class FlexibleNeRFModel(torch.nn.Module):
             xyz = x[(...), :self.dim_xyz]
         x = self.layer1(xyz)
         for i in range(len(self.layers_xyz)):
-            if i % self.skip_connect_every == 0 and i > 0 and i != len(self
-                .linear_layers) - 1:
+            if i % self.skip_connect_every == 0 and i > 0 and i != len(self.linear_layers) - 1:
                 x = torch.cat((x, xyz), dim=-1)
             x = self.relu(self.layers_xyz[i](x))
         if self.use_viewdirs:
@@ -504,8 +471,7 @@ class VeryTinyNerfModel(torch.nn.Module):
 
     def __init__(self, filter_size=128, num_encoding_functions=6):
         super(VeryTinyNerfModel, self).__init__()
-        self.layer1 = torch.nn.Linear(3 + 3 * 2 * num_encoding_functions,
-            filter_size)
+        self.layer1 = torch.nn.Linear(3 + 3 * 2 * num_encoding_functions, filter_size)
         self.layer2 = torch.nn.Linear(filter_size, filter_size)
         self.layer3 = torch.nn.Linear(filter_size, 4)
         self.relu = torch.nn.functional.relu
@@ -521,27 +487,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (OneMinusCosThetaByThetaSq,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SinThetaByTheta,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ThetaBySinTheta,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ThetaMinusSinThetaByThetaCube,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VeryTinyNeRFModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([78, 78])], {}),
+     True),
+    (VeryTinyNerfModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([39, 39])], {}),
+     True),
+]
+
 class Test_krrish94_nerf_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(OneMinusCosThetaByThetaSq(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(SinThetaByTheta(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ThetaBySinTheta(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ThetaMinusSinThetaByThetaCube(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(VeryTinyNeRFModel(*[], **{}), [torch.rand([78, 78])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(VeryTinyNerfModel(*[], **{}), [torch.rand([39, 39])], {})
+        self._check(*TESTCASES[5])
 

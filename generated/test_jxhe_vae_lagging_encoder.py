@@ -37,8 +37,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -104,8 +105,7 @@ class GatedMaskedConv2d(nn.Module):
         self.size = kernel_size
         self.mask = mask
         pad = self.size // 2
-        self.v_conv = nn.Conv2d(in_dim, 2 * self.dim, kernel_size=(pad + 1,
-            self.size))
+        self.v_conv = nn.Conv2d(in_dim, 2 * self.dim, kernel_size=(pad + 1, self.size))
         self.v_pad1 = nn.ConstantPad2d((pad, pad, pad, 0), 0)
         self.v_pad2 = nn.ConstantPad2d((0, 0, 1, 0), 0)
         self.vh_conv = nn.Conv2d(2 * self.dim, 2 * self.dim, kernel_size=1)
@@ -116,8 +116,7 @@ class GatedMaskedConv2d(nn.Module):
 
     def forward(self, v_map, h_map):
         v_out = self.v_pad2(self.v_conv(self.v_pad1(v_map)))[:, :, :-1, :]
-        v_map_out = F.tanh(v_out[:, :self.dim]) * F.sigmoid(v_out[:, self.dim:]
-            )
+        v_map_out = F.tanh(v_out[:, :self.dim]) * F.sigmoid(v_out[:, self.dim:])
         vh = self.vh_conv(v_out)
         h_out = self.h_conv(self.h_pad1(h_map))
         if self.mask == 'A':
@@ -132,8 +131,7 @@ class GatedMaskedConv2d(nn.Module):
 
 class StackedGatedMaskedConv2d(nn.Module):
 
-    def __init__(self, img_size=[1, 28, 28], layers=[64, 64, 64],
-        kernel_size=[7, 7, 7], latent_dim=64, latent_feature_map=1):
+    def __init__(self, img_size=[1, 28, 28], layers=[64, 64, 64], kernel_size=[7, 7, 7], latent_dim=64, latent_feature_map=1):
         super(StackedGatedMaskedConv2d, self).__init__()
         input_dim = img_size[0]
         self.conv_layers = []
@@ -142,11 +140,9 @@ class StackedGatedMaskedConv2d(nn.Module):
             self.z_linear = nn.Linear(latent_dim, latent_feature_map * 28 * 28)
         for i in range(len(kernel_size)):
             if i == 0:
-                self.conv_layers.append(GatedMaskedConv2d(input_dim +
-                    latent_feature_map, layers[i], kernel_size[i], 'A'))
+                self.conv_layers.append(GatedMaskedConv2d(input_dim + latent_feature_map, layers[i], kernel_size[i], 'A'))
             else:
-                self.conv_layers.append(GatedMaskedConv2d(layers[i - 1],
-                    layers[i], kernel_size[i]))
+                self.conv_layers.append(GatedMaskedConv2d(layers[i - 1], layers[i], kernel_size[i]))
         self.modules = nn.ModuleList(self.conv_layers)
 
     def forward(self, img, q_z=None):
@@ -158,10 +154,8 @@ class StackedGatedMaskedConv2d(nn.Module):
         batch_size, nsamples, _ = q_z.size()
         if q_z is not None:
             z_img = self.z_linear(q_z)
-            z_img = z_img.view(img.size(0), nsamples, self.
-                latent_feature_map, img.size(2), img.size(3))
-            img = img.unsqueeze(1).expand(batch_size, nsamples, *img.size()[1:]
-                )
+            z_img = z_img.view(img.size(0), nsamples, self.latent_feature_map, img.size(2), img.size(3))
+            img = img.unsqueeze(1).expand(batch_size, nsamples, *img.size()[1:])
         for i in range(len(self.conv_layers)):
             if i == 0:
                 if q_z is not None:
@@ -182,8 +176,7 @@ class MaskedConv2d(nn.Conv2d):
         self.register_buffer('mask', self.weight.data.clone())
         _, _, kH, kW = self.weight.size()
         self.mask.fill_(1)
-        self.mask[:, :masked_channels, (kH // 2), kW // 2 + (mask_type == 'B'):
-            ] = 0
+        self.mask[:, :masked_channels, (kH // 2), kW // 2 + (mask_type == 'B'):] = 0
         self.mask[:, :masked_channels, kH // 2 + 1:] = 0
 
     def reset_parameters(self):
@@ -204,12 +197,7 @@ class PixelCNNBlock(nn.Module):
         self.mask_type = 'B'
         padding = kernel_size // 2
         out_channels = in_channels // 2
-        self.main = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), nn.BatchNorm2d(out_channels), nn.ELU(),
-            MaskedConv2d(self.mask_type, out_channels, out_channels,
-            out_channels, kernel_size, padding=padding, bias=False), nn.
-            BatchNorm2d(out_channels), nn.ELU(), nn.Conv2d(out_channels,
-            in_channels, 1, bias=False), nn.BatchNorm2d(in_channels))
+        self.main = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ELU(), MaskedConv2d(self.mask_type, out_channels, out_channels, out_channels, kernel_size, padding=padding, bias=False), nn.BatchNorm2d(out_channels), nn.ELU(), nn.Conv2d(out_channels, in_channels, 1, bias=False), nn.BatchNorm2d(in_channels))
         self.activation = nn.ELU()
         self.reset_parameters()
 
@@ -228,15 +216,11 @@ class PixelCNNBlock(nn.Module):
 
 class MaskABlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, masked_channels
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, masked_channels):
         super(MaskABlock, self).__init__()
         self.mask_type = 'A'
         padding = kernel_size // 2
-        self.main = nn.Sequential(MaskedConv2d(self.mask_type,
-            masked_channels, in_channels, out_channels, kernel_size,
-            padding=padding, bias=False), nn.BatchNorm2d(out_channels), nn.
-            ELU())
+        self.main = nn.Sequential(MaskedConv2d(self.mask_type, masked_channels, in_channels, out_channels, kernel_size, padding=padding, bias=False), nn.BatchNorm2d(out_channels), nn.ELU())
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -251,23 +235,20 @@ class MaskABlock(nn.Module):
 
 class PixelCNN(nn.Module):
 
-    def __init__(self, in_channels, out_channels, num_blocks, kernel_sizes,
-        masked_channels):
+    def __init__(self, in_channels, out_channels, num_blocks, kernel_sizes, masked_channels):
         super(PixelCNN, self).__init__()
         assert num_blocks == len(kernel_sizes)
         self.blocks = []
         for i in range(num_blocks):
             if i == 0:
-                block = MaskABlock(in_channels, out_channels, kernel_sizes[
-                    i], masked_channels)
+                block = MaskABlock(in_channels, out_channels, kernel_sizes[i], masked_channels)
             else:
                 block = PixelCNNBlock(out_channels, kernel_sizes[i])
             self.blocks.append(block)
         self.main = nn.ModuleList(self.blocks)
         self.direct_connects = []
         for i in range(1, num_blocks - 1):
-            self.direct_connects.append(PixelCNNBlock(out_channels,
-                kernel_sizes[i]))
+            self.direct_connects.append(PixelCNNBlock(out_channels, kernel_sizes[i]))
         self.direct_connects = nn.ModuleList(self.direct_connects)
 
     def forward(self, input):
@@ -279,8 +260,7 @@ class PixelCNN(nn.Module):
                 input = input + direct_conncet(direct_input)
             input = layer(input)
             direct_inputs.append(input)
-        assert len(direct_inputs) == 3, 'architecture error: %d' % len(
-            direct_inputs)
+        assert len(direct_inputs) == 3, 'architecture error: %d' % len(direct_inputs)
         direct_conncet = self.direct_connects[-1]
         return input + direct_conncet(direct_inputs.pop(0))
 
@@ -353,11 +333,9 @@ class CNNClassifier(nn.Module):
 
     def __init__(self, args):
         super(CNNClassifier, self).__init__()
-        self.convs = nn.ModuleList([nn.Conv2d(1, args.kernel_num, (K, args.
-            ni)) for K in args.kernel_sizes])
+        self.convs = nn.ModuleList([nn.Conv2d(1, args.kernel_num, (K, args.ni)) for K in args.kernel_sizes])
         self.dropout = nn.Dropout(args.cnn_dropout)
-        self.fc1 = nn.Linear(len(args.kernel_sizes) * args.kernel_num, args
-            .mix_num)
+        self.fc1 = nn.Linear(len(args.kernel_sizes) * args.kernel_num, args.mix_num)
 
     def forward(self, x):
         """
@@ -386,8 +364,7 @@ def log_sum_exp(value, dim=None, keepdim=False):
         value0 = value - m
         if keepdim is False:
             m = m.squeeze(dim)
-        return m + torch.log(torch.sum(torch.exp(value0), dim=dim, keepdim=
-            keepdim))
+        return m + torch.log(torch.sum(torch.exp(value0), dim=dim, keepdim=keepdim))
     else:
         m = torch.max(value)
         sum_exp = torch.sum(torch.exp(value - m))
@@ -404,11 +381,8 @@ class MixLSTMEncoder(nn.Module):
         self.nz = args.nz
         self.embed = nn.Embedding(vocab_size, args.ni)
         self.classifier = CNNClassifier(args)
-        self.lstm_lists = nn.ModuleList([nn.LSTM(input_size=args.ni,
-            hidden_size=self.nh, num_layers=1, batch_first=True, dropout=0) for
-            _ in range(args.mix_num)])
-        self.linear_lists = nn.ModuleList([nn.Linear(self.nh, 2 * args.nz,
-            bias=False) for _ in range(args.mix_num)])
+        self.lstm_lists = nn.ModuleList([nn.LSTM(input_size=args.ni, hidden_size=self.nh, num_layers=1, batch_first=True, dropout=0) for _ in range(args.mix_num)])
+        self.linear_lists = nn.ModuleList([nn.Linear(self.nh, 2 * args.nz, bias=False) for _ in range(args.mix_num)])
         self.reset_parameters(model_init, emb_init)
 
     def reset_parameters(self, model_init, emb_init):
@@ -435,8 +409,7 @@ class MixLSTMEncoder(nn.Module):
             Sampled z with shape (batch_size, nsamples, nz)
         """
         batch_size = mix_prob.size(0)
-        classes = torch.multinomial(mix_prob, nsamples, replacement=True
-            ).unsqueeze(2).expand(batch_size, nsamples, self.nz)
+        classes = torch.multinomial(mix_prob, nsamples, replacement=True).unsqueeze(2).expand(batch_size, nsamples, self.nz)
         mu_ = torch.gather(mu, dim=1, index=classes)
         logvar_ = torch.gather(logvar, dim=1, index=classes)
         std = (0.5 * logvar_).exp()
@@ -460,8 +433,7 @@ class MixLSTMEncoder(nn.Module):
             mean, logvar = linear(last_state).unsqueeze(2).chunk(2, -1)
             mean_list.append(mean)
             logvar_list.append(logvar)
-        return torch.cat(mean_list, dim=2).squeeze(0), torch.cat(logvar_list,
-            dim=2).squeeze(0)
+        return torch.cat(mean_list, dim=2).squeeze(0), torch.cat(logvar_list, dim=2).squeeze(0)
 
     def encode(self, input, nsamples):
         """perform the encoding and compute the KL term
@@ -477,8 +449,7 @@ class MixLSTMEncoder(nn.Module):
         """
         embed = self.embed(input)
         log_mix_weights = self.classifier(embed)
-        mix_prob = (log_mix_weights - log_sum_exp(log_mix_weights, dim=1,
-            keepdim=True)).exp()
+        mix_prob = (log_mix_weights - log_sum_exp(log_mix_weights, dim=1, keepdim=True)).exp()
         mu, logvar = self.forward(embed)
         z = self.sample(mu, logvar, mix_prob, nsamples)
         log_posterior = self.log_posterior(z, mu, logvar, mix_prob)
@@ -525,8 +496,7 @@ class MixLSTMEncoder(nn.Module):
         mu, logvar = mu.unsqueeze(2), logvar.unsqueeze(2)
         var = logvar.exp()
         dev = z - mu
-        log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (self.nz *
-            math.log(2 * math.pi) + logvar.sum(-1))
+        log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (self.nz * math.log(2 * math.pi) + logvar.sum(-1))
         log_density = log_density + mix_prob.log().unsqueeze(2)
         return log_sum_exp(log_density, dim=1)
 
@@ -548,21 +518,16 @@ class MaskedConv2d(nn.Conv2d):
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, in_dim, out_dim=None, with_residual=True,
-        with_batchnorm=True, mask=None, kernel_size=3, padding=1):
+    def __init__(self, in_dim, out_dim=None, with_residual=True, with_batchnorm=True, mask=None, kernel_size=3, padding=1):
         if out_dim is None:
             out_dim = in_dim
         super(ResidualBlock, self).__init__()
         if mask is None:
-            self.conv1 = nn.Conv2d(in_dim, out_dim, kernel_size=kernel_size,
-                padding=padding)
-            self.conv2 = nn.Conv2d(out_dim, out_dim, kernel_size=
-                kernel_size, padding=padding)
+            self.conv1 = nn.Conv2d(in_dim, out_dim, kernel_size=kernel_size, padding=padding)
+            self.conv2 = nn.Conv2d(out_dim, out_dim, kernel_size=kernel_size, padding=padding)
         else:
-            self.conv1 = MaskedConv2d(mask, in_dim, out_dim, kernel_size=
-                kernel_size, padding=padding)
-            self.conv2 = MaskedConv2d(mask, out_dim, out_dim, kernel_size=
-                kernel_size, padding=padding)
+            self.conv1 = MaskedConv2d(mask, in_dim, out_dim, kernel_size=kernel_size, padding=padding)
+            self.conv2 = MaskedConv2d(mask, out_dim, out_dim, kernel_size=kernel_size, padding=padding)
         self.with_batchnorm = with_batchnorm
         if with_batchnorm:
             self.bn1 = nn.BatchNorm2d(out_dim)
@@ -589,8 +554,7 @@ class ResidualBlock(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResNetBlock(nn.Module):
@@ -604,9 +568,7 @@ class ResNetBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         downsample = None
         if stride != 1 or inplanes != planes:
-            downsample = nn.Sequential(nn.Conv2d(inplanes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            downsample = nn.Sequential(nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         self.downsample = downsample
         self.stride = stride
         self.reset_parameters()
@@ -726,8 +688,7 @@ class GaussianEncoderBase(nn.Module):
         mu, logvar = mu.unsqueeze(1), logvar.unsqueeze(1)
         var = logvar.exp()
         dev = z - mu
-        log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (nz *
-            math.log(2 * math.pi) + logvar.sum(-1))
+        log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (nz * math.log(2 * math.pi) + logvar.sum(-1))
         return log_density
 
     def calc_mi(self, x):
@@ -739,14 +700,12 @@ class GaussianEncoderBase(nn.Module):
         """
         mu, logvar = self.forward(x)
         x_batch, nz = mu.size()
-        neg_entropy = (-0.5 * nz * math.log(2 * math.pi) - 0.5 * (1 +
-            logvar).sum(-1)).mean()
+        neg_entropy = (-0.5 * nz * math.log(2 * math.pi) - 0.5 * (1 + logvar).sum(-1)).mean()
         z_samples = self.reparameterize(mu, logvar, 1)
         mu, logvar = mu.unsqueeze(0), logvar.unsqueeze(0)
         var = logvar.exp()
         dev = z_samples - mu
-        log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (nz *
-            math.log(2 * math.pi) + logvar.sum(-1))
+        log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (nz * math.log(2 * math.pi) + logvar.sum(-1))
         log_qz = log_sum_exp(log_density, dim=1) - math.log(x_batch)
         return (neg_entropy - log_qz.mean(-1)).item()
 
@@ -761,8 +720,7 @@ class LSTM_LM(nn.Module):
         self.embed = nn.Embedding(len(vocab), args.ni, padding_idx=-1)
         self.dropout_in = nn.Dropout(args.dropout_in)
         self.dropout_out = nn.Dropout(args.dropout_out)
-        self.lstm = nn.LSTM(input_size=args.ni, hidden_size=args.nh,
-            num_layers=1, batch_first=True)
+        self.lstm = nn.LSTM(input_size=args.ni, hidden_size=args.nh, num_layers=1, batch_first=True)
         self.pred_linear = nn.Linear(args.nh, len(vocab), bias=False)
         vocab_mask = torch.ones(len(vocab))
         self.loss = nn.CrossEntropyLoss(weight=vocab_mask, reduce=False)
@@ -910,8 +868,7 @@ class VAE(nn.Module):
             log_comp_ll = self.eval_complete_ll(x, z)
             log_infer_ll = self.eval_inference_dist(x, z, param)
             tmp.append(log_comp_ll - log_infer_ll)
-        ll_iw = log_sum_exp(torch.cat(tmp, dim=-1), dim=-1) - math.log(nsamples
-            )
+        ll_iw = log_sum_exp(torch.cat(tmp, dim=-1), dim=-1) - math.log(nsamples)
         return -ll_iw
 
     def KL(self, x):
@@ -962,8 +919,7 @@ class VAE(nn.Module):
             batch_size = x.size(0)
         except:
             batch_size = x[0].size(0)
-        grid_z = grid_z.unsqueeze(0).expand(batch_size, *grid_z.size()
-            ).contiguous()
+        grid_z = grid_z.unsqueeze(0).expand(batch_size, *grid_z.size()).contiguous()
         log_comp = self.eval_complete_ll(x, grid_z)
         log_posterior = log_comp - log_sum_exp(log_comp, dim=1, keepdim=True)
         return log_posterior
@@ -996,8 +952,7 @@ class VAE(nn.Module):
         total_iter = self.args.mh_burn_in + nsamples * self.args.mh_thin
         samples = []
         for iter_ in range(total_iter):
-            next = torch.normal(mean=cur, std=cur.new_full(size=cur.size(),
-                fill_value=self.args.mh_std))
+            next = torch.normal(mean=cur, std=cur.new_full(size=cur.size(), fill_value=self.args.mh_std))
             next_ll = self.eval_complete_ll(x, next)
             ratio = next_ll - cur_ll
             accept_prob = torch.min(ratio.exp(), ratio.new_ones(ratio.size()))
@@ -1006,8 +961,7 @@ class VAE(nn.Module):
             mask_ = mask.unsqueeze(2)
             cur = mask_ * next + (1 - mask_) * cur
             cur_ll = mask * next_ll + (1 - mask) * cur_ll
-            if iter_ >= self.args.mh_burn_in and (iter_ - self.args.mh_burn_in
-                ) % self.args.mh_thin == 0:
+            if iter_ >= self.args.mh_burn_in and (iter_ - self.args.mh_burn_in) % self.args.mh_thin == 0:
                 samples.append(cur.unsqueeze(1))
         return torch.cat(samples, dim=1)
 
@@ -1056,35 +1010,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNNClassifier,
+     lambda: ([], {'args': _mock_config(kernel_sizes=[4, 4], kernel_num=4, ni=4, cnn_dropout=0.5, mix_num=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GatedMaskedConv2d,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskABlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'masked_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskedConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PixelCNNBlock,
+     lambda: ([], {'in_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 2, 2])], {}),
+     False),
+    (ResNet,
+     lambda: ([], {'inplanes': 4, 'planes': [4, 4], 'strides': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualBlock,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_jxhe_vae_lagging_encoder(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CNNClassifier(*[], **{'args': _mock_config(kernel_sizes=[4, 4], kernel_num=4, ni=4, cnn_dropout=0.5, mix_num=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GatedMaskedConv2d(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MaskABlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'masked_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(PixelCNNBlock(*[], **{'in_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 2, 2])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResNet(*[], **{'inplanes': 4, 'planes': [4, 4], 'strides': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ResNetBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(ResidualBlock(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

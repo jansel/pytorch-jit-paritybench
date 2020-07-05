@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,10 +64,8 @@ class Attention(nn.Module):
 
     def __init__(self, hidden_size):
         super(Attention, self).__init__()
-        self.v = nn.Parameter(torch.zeros((1, 1, hidden_size), device=
-            device, requires_grad=True))
-        self.W = nn.Parameter(torch.zeros((1, hidden_size, 3 * hidden_size),
-            device=device, requires_grad=True))
+        self.v = nn.Parameter(torch.zeros((1, 1, hidden_size), device=device, requires_grad=True))
+        self.W = nn.Parameter(torch.zeros((1, hidden_size, 3 * hidden_size), device=device, requires_grad=True))
 
     def forward(self, static_hidden, dynamic_hidden, decoder_hidden):
         batch_size, hidden_size, _ = static_hidden.size()
@@ -86,12 +85,9 @@ class Pointer(nn.Module):
         super(Pointer, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.v = nn.Parameter(torch.zeros((1, 1, hidden_size), device=
-            device, requires_grad=True))
-        self.W = nn.Parameter(torch.zeros((1, hidden_size, 2 * hidden_size),
-            device=device, requires_grad=True))
-        self.gru = nn.GRU(hidden_size, hidden_size, num_layers, batch_first
-            =True, dropout=dropout if num_layers > 1 else 0)
+        self.v = nn.Parameter(torch.zeros((1, 1, hidden_size), device=device, requires_grad=True))
+        self.W = nn.Parameter(torch.zeros((1, hidden_size, 2 * hidden_size), device=device, requires_grad=True))
+        self.gru = nn.GRU(hidden_size, hidden_size, num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0)
         self.encoder_attn = Attention(hidden_size)
         self.drop_rnn = nn.Dropout(p=dropout)
         self.drop_hh = nn.Dropout(p=dropout)
@@ -143,13 +139,10 @@ class DRL4TSP(nn.Module):
         Defines the dropout rate for the decoder
     """
 
-    def __init__(self, static_size, dynamic_size, hidden_size, update_fn=
-        None, mask_fn=None, num_layers=1, dropout=0.0):
+    def __init__(self, static_size, dynamic_size, hidden_size, update_fn=None, mask_fn=None, num_layers=1, dropout=0.0):
         super(DRL4TSP, self).__init__()
         if dynamic_size < 1:
-            raise ValueError(
-                ':param dynamic_size: must be > 0, even if the problem has no dynamic elements'
-                )
+            raise ValueError(':param dynamic_size: must be > 0, even if the problem has no dynamic elements')
         self.update_fn = update_fn
         self.mask_fn = mask_fn
         self.static_encoder = Encoder(static_size, hidden_size)
@@ -159,8 +152,7 @@ class DRL4TSP(nn.Module):
         for p in self.parameters():
             if len(p.shape) > 1:
                 nn.init.xavier_uniform_(p)
-        self.x0 = torch.zeros((1, static_size, 1), requires_grad=True,
-            device=device)
+        self.x0 = torch.zeros((1, static_size, 1), requires_grad=True, device=device)
 
     def forward(self, static, dynamic, decoder_input=None, last_hh=None):
         """
@@ -192,14 +184,12 @@ class DRL4TSP(nn.Module):
             if not mask.byte().any():
                 break
             decoder_hidden = self.decoder(decoder_input)
-            probs, last_hh = self.pointer(static_hidden, dynamic_hidden,
-                decoder_hidden, last_hh)
+            probs, last_hh = self.pointer(static_hidden, dynamic_hidden, decoder_hidden, last_hh)
             probs = F.softmax(probs + mask.log(), dim=1)
             if self.training:
                 m = torch.distributions.Categorical(probs)
                 ptr = m.sample()
-                while not torch.gather(mask, 1, ptr.data.unsqueeze(1)).byte(
-                    ).all():
+                while not torch.gather(mask, 1, ptr.data.unsqueeze(1)).byte().all():
                     ptr = m.sample()
                 logp = m.log_prob(ptr)
             else:
@@ -214,8 +204,7 @@ class DRL4TSP(nn.Module):
                 mask = self.mask_fn(mask, dynamic, ptr.data).detach()
             tour_logp.append(logp.unsqueeze(1))
             tour_idx.append(ptr.data.unsqueeze(1))
-            decoder_input = torch.gather(static, 2, ptr.view(-1, 1, 1).
-                expand(-1, input_size, 1)).detach()
+            decoder_input = torch.gather(static, 2, ptr.view(-1, 1, 1).expand(-1, input_size, 1)).detach()
         tour_idx = torch.cat(tour_idx, dim=1)
         tour_logp = torch.cat(tour_logp, dim=1)
         return tour_idx, tour_logp
@@ -276,21 +265,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (DRL4TSP,
+     lambda: ([], {'static_size': 4, 'dynamic_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (StateCritic,
+     lambda: ([], {'static_size': 4, 'dynamic_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {}),
+     True),
+]
+
 class Test_mveres01_pytorch_drl4vrp(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Attention(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DRL4TSP(*[], **{'static_size': 4, 'dynamic_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Encoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(StateCritic(*[], **{'static_size': 4, 'dynamic_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64]), torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[4])
 

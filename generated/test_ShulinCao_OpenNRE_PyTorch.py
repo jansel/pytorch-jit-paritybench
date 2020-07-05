@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,12 +103,9 @@ class Embedding(nn.Module):
     def __init__(self, config):
         super(Embedding, self).__init__()
         self.config = config
-        self.word_embedding = nn.Embedding(self.config.data_word_vec.shape[
-            0], self.config.data_word_vec.shape[1])
-        self.pos1_embedding = nn.Embedding(self.config.pos_num, self.config
-            .pos_size, padding_idx=0)
-        self.pos2_embedding = nn.Embedding(self.config.pos_num, self.config
-            .pos_size, padding_idx=0)
+        self.word_embedding = nn.Embedding(self.config.data_word_vec.shape[0], self.config.data_word_vec.shape[1])
+        self.pos1_embedding = nn.Embedding(self.config.pos_num, self.config.pos_size, padding_idx=0)
+        self.pos2_embedding = nn.Embedding(self.config.pos_num, self.config.pos_size, padding_idx=0)
         self.init_word_weights()
         self.init_pos_weights()
         self.word = None
@@ -115,18 +113,15 @@ class Embedding(nn.Module):
         self.pos2 = None
 
     def init_word_weights(self):
-        self.word_embedding.weight.data.copy_(torch.from_numpy(self.config.
-            data_word_vec))
+        self.word_embedding.weight.data.copy_(torch.from_numpy(self.config.data_word_vec))
 
     def init_pos_weights(self):
         nn.init.xavier_uniform(self.pos1_embedding.weight.data)
         if self.pos1_embedding.padding_idx is not None:
-            self.pos1_embedding.weight.data[self.pos1_embedding.padding_idx
-                ].fill_(0)
+            self.pos1_embedding.weight.data[self.pos1_embedding.padding_idx].fill_(0)
         nn.init.xavier_uniform(self.pos2_embedding.weight.data)
         if self.pos2_embedding.padding_idx is not None:
-            self.pos2_embedding.weight.data[self.pos2_embedding.padding_idx
-                ].fill_(0)
+            self.pos2_embedding.weight.data[self.pos2_embedding.padding_idx].fill_(0)
 
     def forward(self):
         word = self.word_embedding(self.word)
@@ -148,8 +143,7 @@ class _CNN(nn.Module):
         self.out_channels = self.config.hidden_size
         self.stride = 1, 1
         self.padding = 1, 0
-        self.cnn = nn.Conv2d(self.in_channels, self.out_channels, self.
-            kernel_size, self.stride, self.padding)
+        self.cnn = nn.Conv2d(self.in_channels, self.out_channels, self.kernel_size, self.stride, self.padding)
 
     def forward(self, embedding):
         return self.cnn(embedding)
@@ -215,11 +209,9 @@ class Selector(nn.Module):
     def __init__(self, config, relation_dim):
         super(Selector, self).__init__()
         self.config = config
-        self.relation_matrix = nn.Embedding(self.config.num_classes,
-            relation_dim)
+        self.relation_matrix = nn.Embedding(self.config.num_classes, relation_dim)
         self.bias = nn.Parameter(torch.Tensor(self.config.num_classes))
-        self.attention_matrix = nn.Embedding(self.config.num_classes,
-            relation_dim)
+        self.attention_matrix = nn.Embedding(self.config.num_classes, relation_dim)
         self.init_weights()
         self.scope = None
         self.attention_query = None
@@ -232,8 +224,7 @@ class Selector(nn.Module):
         nn.init.xavier_uniform(self.attention_matrix.weight.data)
 
     def get_logits(self, x):
-        logits = torch.matmul(x, torch.transpose(self.relation_matrix.
-            weight, 0, 1)) + self.bias
+        logits = torch.matmul(x, torch.transpose(self.relation_matrix.weight, 0, 1)) + self.bias
         return logits
 
     def forward(self, x):
@@ -247,8 +238,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (_CNN,
+     lambda: ([], {'config': _mock_config(max_length=4, word_size=4, pos_size=4, window_size=4, hidden_size=4)}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+]
+
 class Test_ShulinCao_OpenNRE_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(_CNN(*[], **{'config': _mock_config(max_length=4, word_size=4, pos_size=4, window_size=4, hidden_size=4)}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

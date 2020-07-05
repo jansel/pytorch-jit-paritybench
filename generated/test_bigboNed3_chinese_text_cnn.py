@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -44,16 +45,13 @@ class TextCNN(nn.Module):
         embedding_dimension = args.embedding_dim
         self.embedding = nn.Embedding(vocabulary_size, embedding_dimension)
         if args.static:
-            self.embedding = self.embedding.from_pretrained(args.vectors,
-                freeze=not args.non_static)
+            self.embedding = self.embedding.from_pretrained(args.vectors, freeze=not args.non_static)
         if args.multichannel:
-            self.embedding2 = nn.Embedding(vocabulary_size, embedding_dimension
-                ).from_pretrained(args.vectors)
+            self.embedding2 = nn.Embedding(vocabulary_size, embedding_dimension).from_pretrained(args.vectors)
             chanel_num += 1
         else:
             self.embedding2 = None
-        self.convs = nn.ModuleList([nn.Conv2d(chanel_num, filter_num, (size,
-            embedding_dimension)) for size in filter_sizes])
+        self.convs = nn.ModuleList([nn.Conv2d(chanel_num, filter_num, (size, embedding_dimension)) for size in filter_sizes])
         self.dropout = nn.Dropout(args.dropout)
         self.fc = nn.Linear(len(filter_sizes) * filter_num, class_num)
 
@@ -70,10 +68,3 @@ class TextCNN(nn.Module):
         logits = self.fc(x)
         return logits
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_bigboNed3_chinese_text_cnn(_paritybench_base):
-    pass

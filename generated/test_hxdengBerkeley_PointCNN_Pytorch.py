@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ from typing import Optional
 from typing import Union
 
 
-AbbPointCNN = lambda a, b, c, d, e: RandPointCNN(a, b, 3, c, d, e,
-    knn_indices_func_gpu)
+AbbPointCNN = lambda a, b, c, d, e: RandPointCNN(a, b, 3, c, d, e, knn_indices_func_gpu)
 
 
 NUM_CLASS = 40
@@ -100,11 +100,8 @@ class Classifier(nn.Module):
     def __init__(self):
         super(Classifier, self).__init__()
         self.pcnn1 = AbbPointCNN(3, 32, 8, 1, -1)
-        self.pcnn2 = nn.Sequential(AbbPointCNN(32, 64, 8, 2, -1),
-            AbbPointCNN(64, 96, 8, 4, -1), AbbPointCNN(96, 128, 12, 4, 120),
-            AbbPointCNN(128, 160, 12, 6, 120))
-        self.fcn = nn.Sequential(Dense(160, 128), Dense(128, 64, drop_rate=
-            0.5), Dense(64, NUM_CLASS, with_bn=False, activation=None))
+        self.pcnn2 = nn.Sequential(AbbPointCNN(32, 64, 8, 2, -1), AbbPointCNN(64, 96, 8, 4, -1), AbbPointCNN(96, 128, 12, 4, 120), AbbPointCNN(128, 160, 12, 6, 120))
+        self.fcn = nn.Sequential(Dense(160, 128), Dense(128, 64, drop_rate=0.5), Dense(64, NUM_CLASS, with_bn=False, activation=None))
 
     def forward(self, x):
         x = self.pcnn1(x)
@@ -160,10 +157,3 @@ class LayerNorm(nn.Module):
             raise ValueError('Dimensionality %i not supported' % dim)
         self.forward = lambda x: self.bn(x.unsqueeze(0)).squeeze(0)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_hxdengBerkeley_PointCNN_Pytorch(_paritybench_base):
-    pass

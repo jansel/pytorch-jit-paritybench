@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,8 +66,7 @@ class CountSketchFn(Function):
         x_size = tuple(x.size())
         ctx.save_for_backward(h, s)
         ctx.x_size = tuple(x.size())
-        return CountSketchFn_forward(h, s, output_size, x,
-            force_cpu_scatter_add)
+        return CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -132,37 +132,31 @@ def ComplexMultiply_forward(X_re, X_im, Y_re, Y_im):
 class CompactBilinearPoolingFn(Function):
 
     @staticmethod
-    def forward(ctx, h1, s1, h2, s2, output_size, x, y,
-        force_cpu_scatter_add=False):
+    def forward(ctx, h1, s1, h2, s2, output_size, x, y, force_cpu_scatter_add=False):
         ctx.save_for_backward(h1, s1, h2, s2, x, y)
         ctx.x_size = tuple(x.size())
         ctx.y_size = tuple(y.size())
         ctx.force_cpu_scatter_add = force_cpu_scatter_add
         ctx.output_size = output_size
-        px = CountSketchFn_forward(h1, s1, output_size, x,
-            force_cpu_scatter_add)
+        px = CountSketchFn_forward(h1, s1, output_size, x, force_cpu_scatter_add)
         fx = torch.rfft(px, 1)
         re_fx = fx.select(-1, 0)
         im_fx = fx.select(-1, 1)
         del px
-        py = CountSketchFn_forward(h2, s2, output_size, y,
-            force_cpu_scatter_add)
+        py = CountSketchFn_forward(h2, s2, output_size, y, force_cpu_scatter_add)
         fy = torch.rfft(py, 1)
         re_fy = fy.select(-1, 0)
         im_fy = fy.select(-1, 1)
         del py
         re_prod, im_prod = ComplexMultiply_forward(re_fx, im_fx, re_fy, im_fy)
-        re = torch.irfft(torch.stack((re_prod, im_prod), re_prod.dim()), 1,
-            signal_sizes=(output_size,))
+        re = torch.irfft(torch.stack((re_prod, im_prod), re_prod.dim()), 1, signal_sizes=(output_size,))
         return re
 
     @staticmethod
     def backward(ctx, grad_output):
         h1, s1, h2, s2, x, y = ctx.saved_tensors
-        px = CountSketchFn_forward(h1, s1, ctx.output_size, x, ctx.
-            force_cpu_scatter_add)
-        py = CountSketchFn_forward(h2, s2, ctx.output_size, y, ctx.
-            force_cpu_scatter_add)
+        px = CountSketchFn_forward(h1, s1, ctx.output_size, x, ctx.force_cpu_scatter_add)
+        py = CountSketchFn_forward(h2, s2, ctx.output_size, y, ctx.force_cpu_scatter_add)
         grad_output = grad_output.contiguous()
         grad_prod = torch.rfft(grad_output, 1)
         grad_re_prod = grad_prod.select(-1, 0)
@@ -171,24 +165,18 @@ class CompactBilinearPoolingFn(Function):
         re_fy = fy.select(-1, 0)
         im_fy = fy.select(-1, 1)
         del py
-        grad_re_fx = torch.addcmul(grad_re_prod * re_fy, 1, grad_im_prod, im_fy
-            )
-        grad_im_fx = torch.addcmul(grad_im_prod * re_fy, -1, grad_re_prod,
-            im_fy)
-        grad_fx = torch.irfft(torch.stack((grad_re_fx, grad_im_fx),
-            grad_re_fx.dim()), 1, signal_sizes=(ctx.output_size,))
+        grad_re_fx = torch.addcmul(grad_re_prod * re_fy, 1, grad_im_prod, im_fy)
+        grad_im_fx = torch.addcmul(grad_im_prod * re_fy, -1, grad_re_prod, im_fy)
+        grad_fx = torch.irfft(torch.stack((grad_re_fx, grad_im_fx), grad_re_fx.dim()), 1, signal_sizes=(ctx.output_size,))
         grad_x = CountSketchFn_backward(h1, s1, ctx.x_size, grad_fx)
         del re_fy, im_fy, grad_re_fx, grad_im_fx, grad_fx
         fx = torch.rfft(px, 1)
         re_fx = fx.select(-1, 0)
         im_fx = fx.select(-1, 1)
         del px
-        grad_re_fy = torch.addcmul(grad_re_prod * re_fx, 1, grad_im_prod, im_fx
-            )
-        grad_im_fy = torch.addcmul(grad_im_prod * re_fx, -1, grad_re_prod,
-            im_fx)
-        grad_fy = torch.irfft(torch.stack((grad_re_fy, grad_im_fy),
-            grad_re_fy.dim()), 1, signal_sizes=(ctx.output_size,))
+        grad_re_fy = torch.addcmul(grad_re_prod * re_fx, 1, grad_im_prod, im_fx)
+        grad_im_fy = torch.addcmul(grad_im_prod * re_fx, -1, grad_re_prod, im_fx)
+        grad_fy = torch.irfft(torch.stack((grad_re_fy, grad_im_fy), grad_re_fy.dim()), 1, signal_sizes=(ctx.output_size,))
         grad_y = CountSketchFn_backward(h2, s2, ctx.y_size, grad_fy)
         del re_fx, im_fx, grad_re_fy, grad_im_fy, grad_fy
         return None, None, None, None, None, grad_x, grad_y, None
@@ -225,35 +213,40 @@ class CompactBilinearPooling(nn.Module):
         Akira Fukui et al. "Multimodal Compact Bilinear Pooling for Visual Question Answering and Visual Grounding", arXiv:1606.01847 (2016).
     """
 
-    def __init__(self, input1_size, input2_size, output_size, h1=None, s1=
-        None, h2=None, s2=None, force_cpu_scatter_add=False):
+    def __init__(self, input1_size, input2_size, output_size, h1=None, s1=None, h2=None, s2=None, force_cpu_scatter_add=False):
         super(CompactBilinearPooling, self).__init__()
-        self.add_module('sketch1', CountSketch(input1_size, output_size, h1,
-            s1))
-        self.add_module('sketch2', CountSketch(input2_size, output_size, h2,
-            s2))
+        self.add_module('sketch1', CountSketch(input1_size, output_size, h1, s1))
+        self.add_module('sketch2', CountSketch(input2_size, output_size, h2, s2))
         self.output_size = output_size
         self.force_cpu_scatter_add = force_cpu_scatter_add
 
     def forward(self, x, y=None):
         if y is None:
             y = x
-        return CompactBilinearPoolingFn.apply(self.sketch1.h, self.sketch1.
-            s, self.sketch2.h, self.sketch2.s, self.output_size, x, y, self
-            .force_cpu_scatter_add)
+        return CompactBilinearPoolingFn.apply(self.sketch1.h, self.sketch1.s, self.sketch2.h, self.sketch2.s, self.output_size, x, y, self.force_cpu_scatter_add)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_gdlg_pytorch_compact_bilinear_pooling(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CompactBilinearPooling,
+     lambda: ([], {'input1_size': 4, 'input2_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CountSketch,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_gdlg_pytorch_compact_bilinear_pooling(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

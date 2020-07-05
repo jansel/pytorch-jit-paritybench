@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,17 +69,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -94,8 +91,7 @@ class FPN(nn.Module):
     def __init__(self, block, num_blocks):
         super(FPN, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -103,16 +99,11 @@ class FPN(nn.Module):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.conv6 = nn.Conv2d(2048, 256, kernel_size=3, stride=2, padding=1)
         self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -242,8 +233,7 @@ class FocalLoss(nn.Module):
         mask = pos.unsqueeze(2).expand_as(loc_preds)
         masked_loc_preds = loc_preds[mask].view(-1, 4)
         masked_loc_targets = loc_targets[mask].view(-1, 4)
-        loc_loss = F.smooth_l1_loss(masked_loc_preds, masked_loc_targets,
-            size_average=False)
+        loc_loss = F.smooth_l1_loss(masked_loc_preds, masked_loc_targets, size_average=False)
         pos_neg = cls_targets > -1
         mask = pos_neg.unsqueeze(2).expand_as(cls_preds)
         masked_cls_preds = cls_preds[mask].view(-1, self.num_classes)
@@ -274,10 +264,8 @@ class RetinaNet(nn.Module):
         for fm in fms:
             loc_pred = self.loc_head(fm)
             cls_pred = self.cls_head(fm)
-            loc_pred = loc_pred.permute(0, 2, 3, 1).contiguous().view(x.
-                size(0), -1, 4)
-            cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(x.
-                size(0), -1, self.num_classes)
+            loc_pred = loc_pred.permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 4)
+            cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
             loc_preds.append(loc_pred)
             cls_preds.append(cls_pred)
         return torch.cat(loc_preds, 1), torch.cat(cls_preds, 1)
@@ -285,11 +273,9 @@ class RetinaNet(nn.Module):
     def _make_head(self, out_planes):
         layers = []
         for _ in range(4):
-            layers.append(nn.Conv2d(256, 256, kernel_size=3, stride=1,
-                padding=1))
+            layers.append(nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
             layers.append(nn.ReLU(True))
-        layers.append(nn.Conv2d(256, out_planes, kernel_size=3, stride=1,
-            padding=1))
+        layers.append(nn.Conv2d(256, out_planes, kernel_size=3, stride=1, padding=1))
         return nn.Sequential(*layers)
 
     def freeze_bn(self):
@@ -303,11 +289,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RetinaNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_kuangliu_pytorch_retinanet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(RetinaNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

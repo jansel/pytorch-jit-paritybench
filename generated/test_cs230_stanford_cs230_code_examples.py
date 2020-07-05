@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,8 +86,7 @@ class Net(nn.Module):
         """
         super(Net, self).__init__()
         self.embedding = nn.Embedding(params.vocab_size, params.embedding_dim)
-        self.lstm = nn.LSTM(params.embedding_dim, params.lstm_hidden_dim,
-            batch_first=True)
+        self.lstm = nn.LSTM(params.embedding_dim, params.lstm_hidden_dim, batch_first=True)
         self.fc = nn.Linear(params.lstm_hidden_dim, params.number_of_tags)
 
     def forward(self, s):
@@ -142,14 +142,11 @@ class Net(nn.Module):
         self.num_channels = params.num_channels
         self.conv1 = nn.Conv2d(3, self.num_channels, 3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(self.num_channels)
-        self.conv2 = nn.Conv2d(self.num_channels, self.num_channels * 2, 3,
-            stride=1, padding=1)
+        self.conv2 = nn.Conv2d(self.num_channels, self.num_channels * 2, 3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(self.num_channels * 2)
-        self.conv3 = nn.Conv2d(self.num_channels * 2, self.num_channels * 4,
-            3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(self.num_channels * 2, self.num_channels * 4, 3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(self.num_channels * 4)
-        self.fc1 = nn.Linear(8 * 8 * self.num_channels * 4, self.
-            num_channels * 4)
+        self.fc1 = nn.Linear(8 * 8 * self.num_channels * 4, self.num_channels * 4)
         self.fcbn1 = nn.BatchNorm1d(self.num_channels * 4)
         self.fc2 = nn.Linear(self.num_channels * 4, 6)
         self.dropout_rate = params.dropout_rate
@@ -173,15 +170,7 @@ class Net(nn.Module):
         s = self.bn3(self.conv3(s))
         s = F.relu(F.max_pool2d(s, 2))
         s = s.view(-1, 8 * 8 * self.num_channels * 4)
-        s = F.dropout(F.relu(self.fcbn1(self.fc1(s))), p=self.dropout_rate,
-            training=self.training)
+        s = F.dropout(F.relu(self.fcbn1(self.fc1(s))), p=self.dropout_rate, training=self.training)
         s = self.fc2(s)
         return F.log_softmax(s, dim=1)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_cs230_stanford_cs230_code_examples(_paritybench_base):
-    pass

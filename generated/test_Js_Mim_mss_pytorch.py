@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,9 +72,7 @@ def make_to_list(x, length=1):
 
 class MLP(nn.Module):
 
-    def __init__(self, initial_input_dim, output_dims, activations,
-        dropouts, use_dropout=True, use_bias=True, bias_value=0,
-        weight_init_function=nn.init.xavier_normal, my_name='linear_layer'):
+    def __init__(self, initial_input_dim, output_dims, activations, dropouts, use_dropout=True, use_bias=True, bias_value=0, weight_init_function=nn.init.xavier_normal, my_name='linear_layer'):
         """
 
         A class for making an MLP.
@@ -110,34 +109,28 @@ class MLP(nn.Module):
         self.use_dropout = make_to_list(use_dropout, len(self.dims) - 1)
         self.use_bias = make_to_list(use_bias, len(self.dims) - 1)
         self.bias_values = make_to_list(bias_value, len(self.dims) - 1)
-        self.weight_init_functions = make_to_list(weight_init_function, len
-            (self.dims) - 1)
+        self.weight_init_functions = make_to_list(weight_init_function, len(self.dims) - 1)
         self.layers = []
         self.dropouts = []
         for i_dim in range(len(self.dims) - 1):
-            self.layers.append(nn.Linear(in_features=self.dims[i_dim],
-                out_features=self.dims[i_dim + 1], bias=self.use_bias[i_dim]))
+            self.layers.append(nn.Linear(in_features=self.dims[i_dim], out_features=self.dims[i_dim + 1], bias=self.use_bias[i_dim]))
             if self.use_dropout[i_dim]:
                 self.dropouts.append(nn.Dropout(p=self.dropout_values[i_dim]))
-                setattr(self, '{the_name}_dropout_{the_index}'.format(
-                    the_name=self.my_name, the_index=i_dim), self.dropouts[-1])
+                setattr(self, '{the_name}_dropout_{the_index}'.format(the_name=self.my_name, the_index=i_dim), self.dropouts[-1])
             else:
                 self.dropouts.append(None)
-            setattr(self, '{the_name}_{the_index}'.format(the_name=self.
-                my_name, the_index=i_dim), self.layers[-1])
+            setattr(self, '{the_name}_{the_index}'.format(the_name=self.my_name, the_index=i_dim), self.layers[-1])
         self.init_weights_and_biases()
 
     def init_weights_and_biases(self):
-        for layer, init_function, bias_value, use_bias in zip(self.layers,
-            self.weight_init_functions, self.bias_values, self.use_bias):
+        for layer, init_function, bias_value, use_bias in zip(self.layers, self.weight_init_functions, self.bias_values, self.use_bias):
             init_function(layer.weight.data)
             if use_bias:
                 nn.init.constant(layer.bias.data, bias_value)
 
     def forward(self, x):
         output = self.activations[0](self.layers[0](self.dropouts[0](x)))
-        for activation, layer, dropout in zip(self.activations[1:], self.
-            layers[1:], self.dropouts[1:]):
+        for activation, layer, dropout in zip(self.activations[1:], self.layers[1:], self.dropouts[1:]):
             if dropout is not None:
                 output = dropout(output)
             output = activation(layer(output))
@@ -190,23 +183,15 @@ class BiGRUEncoder(nn.Module):
 
     def forward(self, input_x):
         if torch.has_cudnn:
-            h_t_fr = Variable(torch.zeros(self._B, self._F), requires_grad=
-                False)
-            h_t_bk = Variable(torch.zeros(self._B, self._F), requires_grad=
-                False)
-            H_enc = Variable(torch.zeros(self._B, self._T - 2 * self._L, 2 *
-                self._F), requires_grad=False)
-            cxin = Variable(torch.pow(torch.from_numpy(input_x[:, :, :self.
-                _F]), self._alpha))
+            h_t_fr = Variable(torch.zeros(self._B, self._F), requires_grad=False)
+            h_t_bk = Variable(torch.zeros(self._B, self._F), requires_grad=False)
+            H_enc = Variable(torch.zeros(self._B, self._T - 2 * self._L, 2 * self._F), requires_grad=False)
+            cxin = Variable(torch.pow(torch.from_numpy(input_x[:, :, :self._F]), self._alpha))
         else:
-            h_t_fr = Variable(torch.zeros(self._B, self._F), requires_grad=
-                False)
-            h_t_bk = Variable(torch.zeros(self._B, self._F), requires_grad=
-                False)
-            H_enc = Variable(torch.zeros(self._B, self._T - 2 * self._L, 2 *
-                self._F), requires_grad=False)
-            cxin = Variable(torch.pow(torch.from_numpy(input_x[:, :, :self.
-                _F]), self._alpha))
+            h_t_fr = Variable(torch.zeros(self._B, self._F), requires_grad=False)
+            h_t_bk = Variable(torch.zeros(self._B, self._F), requires_grad=False)
+            H_enc = Variable(torch.zeros(self._B, self._T - 2 * self._L, 2 * self._F), requires_grad=False)
+            cxin = Variable(torch.pow(torch.from_numpy(input_x[:, :, :self._F]), self._alpha))
         for t in range(self._T):
             h_t_fr = self.gruEncF(cxin[:, (t), :], h_t_fr)
             h_t_bk = self.gruEncB(cxin[:, (self._T - t - 1), :], h_t_bk)
@@ -263,15 +248,11 @@ class Decoder(nn.Module):
 
     def forward(self, H_enc):
         if torch.has_cudnn:
-            h_t_dec = Variable(torch.zeros(self._B, self._gruout),
-                requires_grad=False)
-            H_j_dec = Variable(torch.zeros(self._B, self._T - self._L * 2,
-                self._gruout), requires_grad=False)
+            h_t_dec = Variable(torch.zeros(self._B, self._gruout), requires_grad=False)
+            H_j_dec = Variable(torch.zeros(self._B, self._T - self._L * 2, self._gruout), requires_grad=False)
         else:
-            h_t_dec = Variable(torch.zeros(self._B, self._gruout),
-                requires_grad=False)
-            H_j_dec = Variable(torch.zeros(self._B, self._T - self._L * 2,
-                self._gruout), requires_grad=False)
+            h_t_dec = Variable(torch.zeros(self._B, self._gruout), requires_grad=False)
+            H_j_dec = Variable(torch.zeros(self._B, self._T - self._L * 2, self._gruout), requires_grad=False)
         for ts in range(self._T - self._L * 2):
             h_t_dec = self.gruDec(H_enc[:, (ts), :], h_t_dec)
             H_j_dec[:, (ts), :] = h_t_dec
@@ -321,11 +302,9 @@ class SparseDecoder(nn.Module):
 
     def forward(self, H_j_dec, input_x):
         if torch.has_cudnn:
-            input_x = Variable(torch.from_numpy(input_x[:, self._L:-self._L,
-                :]), requires_grad=True)
+            input_x = Variable(torch.from_numpy(input_x[:, self._L:-self._L, :]), requires_grad=True)
         else:
-            input_x = Variable(torch.from_numpy(input_x[:, self._L:-self._L,
-                :]), requires_grad=True)
+            input_x = Variable(torch.from_numpy(input_x[:, self._L:-self._L, :]), requires_grad=True)
         mask_t1 = self.relu(self.ffDec(H_j_dec))
         Y_j = torch.mul(mask_t1, input_x)
         return Y_j, mask_t1
@@ -378,10 +357,3 @@ class SourceEnhancement(nn.Module):
         Y_hat_filt = torch.mul(mask_t2, Y_hat)
         return Y_hat_filt
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Js_Mim_mss_pytorch(_paritybench_base):
-    pass

@@ -113,8 +113,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -206,23 +207,17 @@ class AlbertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(AlbertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            embedding_size, padding_idx=0)
-        self.word_embeddings_2 = nn.Linear(config.embedding_size, config.
-            hidden_size, bias=False)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=0)
+        self.word_embeddings_2 = nn.Linear(config.embedding_size, config.hidden_size, bias=False)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None, position_ids=None):
         seq_length = input_ids.size(1)
         if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long,
-                device=input_ids.device)
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
@@ -230,8 +225,7 @@ class AlbertEmbeddings(nn.Module):
         words_embeddings = self.word_embeddings_2(words_embeddings)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -242,8 +236,7 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.ln_type = config.ln_type
 
@@ -271,8 +264,7 @@ def prune_linear_layer(layer, index, dim=0):
             b = layer.bias[index].clone().detach()
     new_size = list(layer.weight.size())
     new_size[dim] = len(index)
-    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None
-        ).to(layer.weight.device)
+    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
     new_layer.weight.requires_grad = False
     new_layer.weight.copy_(W.contiguous())
     new_layer.weight.requires_grad = True
@@ -295,8 +287,7 @@ class BertAttention(nn.Module):
     def prune_heads(self, heads):
         if len(heads) == 0:
             return
-        mask = torch.ones(self.self.num_attention_heads, self.self.
-            attention_head_size)
+        mask = torch.ones(self.self.num_attention_heads, self.self.attention_head_size)
         heads = set(heads) - self.pruned_heads
         for head in heads:
             head = head - sum(1 if h < head else 0 for h in self.pruned_heads)
@@ -307,10 +298,8 @@ class BertAttention(nn.Module):
         self.self.key = prune_linear_layer(self.self.key, index)
         self.self.value = prune_linear_layer(self.self.value, index)
         self.output.dense = prune_linear_layer(self.output.dense, index, dim=1)
-        self.self.num_attention_heads = self.self.num_attention_heads - len(
-            heads)
-        self.self.all_head_size = (self.self.attention_head_size * self.
-            self.num_attention_heads)
+        self.self.num_attention_heads = self.self.num_attention_heads - len(heads)
+        self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def forward(self, input_tensor, attention_mask=None, head_mask=None):
@@ -329,8 +318,7 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.ln_type = config.ln_type
 
@@ -354,8 +342,7 @@ class BertLayer(nn.Module):
         self.ln_type = config.ln_type
 
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
-        attention_outputs = self.attention(hidden_states, attention_mask,
-            head_mask)
+        attention_outputs = self.attention(hidden_states, attention_mask, head_mask)
         attention_output = attention_outputs[0]
         if self.ln_type == 'preln':
             attention_output_pre = self.output.LayerNorm(attention_output)
@@ -383,8 +370,7 @@ class AlbertEncoder(nn.Module):
             layer_module = self.layer_shared
             if self.output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
-            layer_outputs = layer_module(hidden_states, attention_mask,
-                head_mask[i])
+            layer_outputs = layer_module(hidden_states, attention_mask, head_mask[i])
             hidden_states = layer_outputs[0]
             if self.output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
@@ -403,10 +389,8 @@ class AlbertLMPredictionHead(nn.Module):
     def __init__(self, config):
         super(AlbertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.project_layer = nn.Linear(config.hidden_size, config.
-            embedding_size, bias=False)
-        self.decoder = nn.Linear(config.embedding_size, config.vocab_size,
-            bias=False)
+        self.project_layer = nn.Linear(config.hidden_size, config.embedding_size, bias=False)
+        self.decoder = nn.Linear(config.embedding_size, config.vocab_size, bias=False)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
     def forward(self, hidden_states):
@@ -457,29 +441,23 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None, position_ids=None):
         seq_length = input_ids.size(1)
         if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long,
-                device=input_ids.device)
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -490,23 +468,18 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.output_attentions = config.output_attentions
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -517,10 +490,8 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
@@ -529,11 +500,9 @@ class BertSelfAttention(nn.Module):
             attention_probs = attention_probs * head_mask
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
-        outputs = (context_layer, attention_probs
-            ) if self.output_attentions else (context_layer,)
+        outputs = (context_layer, attention_probs) if self.output_attentions else (context_layer,)
         return outputs
 
 
@@ -542,8 +511,7 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -564,8 +532,7 @@ class BertAttention(nn.Module):
     def prune_heads(self, heads):
         if len(heads) == 0:
             return
-        mask = torch.ones(self.self.num_attention_heads, self.self.
-            attention_head_size)
+        mask = torch.ones(self.self.num_attention_heads, self.self.attention_head_size)
         heads = set(heads) - self.pruned_heads
         for head in heads:
             head = head - sum(1 if h < head else 0 for h in self.pruned_heads)
@@ -576,10 +543,8 @@ class BertAttention(nn.Module):
         self.self.key = prune_linear_layer(self.self.key, index)
         self.self.value = prune_linear_layer(self.self.value, index)
         self.output.dense = prune_linear_layer(self.output.dense, index, dim=1)
-        self.self.num_attention_heads = self.self.num_attention_heads - len(
-            heads)
-        self.self.all_head_size = (self.self.attention_head_size * self.
-            self.num_attention_heads)
+        self.self.num_attention_heads = self.self.num_attention_heads - len(heads)
+        self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def forward(self, input_tensor, attention_mask=None, head_mask=None):
@@ -609,8 +574,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
@@ -626,8 +590,7 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -646,8 +609,7 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
-        attention_outputs = self.attention(hidden_states, attention_mask,
-            head_mask)
+        attention_outputs = self.attention(hidden_states, attention_mask, head_mask)
         attention_output = attention_outputs[0]
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
@@ -661,8 +623,7 @@ class BertEncoder(nn.Module):
         super(BertEncoder, self).__init__()
         self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
-        self.layer = nn.ModuleList([BertLayer(config) for _ in range(config
-            .num_hidden_layers)])
+        self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
 
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
         all_hidden_states = ()
@@ -670,8 +631,7 @@ class BertEncoder(nn.Module):
         for i, layer_module in enumerate(self.layer):
             if self.output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
-            layer_outputs = layer_module(hidden_states, attention_mask,
-                head_mask[i])
+            layer_outputs = layer_module(hidden_states, attention_mask, head_mask[i])
             hidden_states = layer_outputs[0]
             if self.output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
@@ -704,13 +664,11 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
@@ -724,8 +682,7 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(config.hidden_size, config.vocab_size,
-            bias=False)
+        self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
     def forward(self, hidden_states):
@@ -769,8 +726,7 @@ class BertPreTrainingHeads(nn.Module):
         return prediction_scores, seq_relationship_score
 
 
-def scaled_dot_product_attention(q, k, v, mask, attention_mask=None,
-    head_mask=None):
+def scaled_dot_product_attention(q, k, v, mask, attention_mask=None, head_mask=None):
     matmul_qk = torch.matmul(q, k.permute(0, 1, 3, 2))
     dk = k.shape[-1]
     scaled_attention_logits = matmul_qk / np.sqrt(dk)
@@ -802,8 +758,7 @@ class MultiHeadAttention(torch.nn.Module):
         x = x.reshape(batch_size, -1, self.num_heads, self.depth)
         return x.permute([0, 2, 1, 3])
 
-    def forward(self, v, k, q, mask, layer_past=None, attention_mask=None,
-        head_mask=None):
+    def forward(self, v, k, q, mask, layer_past=None, attention_mask=None, head_mask=None):
         batch_size = q.shape[0]
         q = self.Wq(q)
         k = self.Wk(k)
@@ -816,12 +771,10 @@ class MultiHeadAttention(torch.nn.Module):
             k = torch.cat((past_key, k), dim=-2)
             v = torch.cat((past_value, v), dim=-2)
         present = torch.stack((k, v))
-        output = scaled_dot_product_attention(q, k, v, mask, attention_mask,
-            head_mask)
+        output = scaled_dot_product_attention(q, k, v, mask, attention_mask, head_mask)
         scaled_attention = output[0].permute([0, 2, 1, 3])
         attn = output[1]
-        original_size_attention = scaled_attention.reshape(batch_size, -1,
-            self.d_model_size)
+        original_size_attention = scaled_attention.reshape(batch_size, -1, self.d_model_size)
         output = self.dense(original_size_attention)
         outputs = output, present
         if self.output_attentions:
@@ -830,29 +783,23 @@ class MultiHeadAttention(torch.nn.Module):
 
 
 def point_wise_feed_forward_network(d_model_size, dff):
-    return torch.nn.Sequential(torch.nn.Linear(d_model_size, dff), torch.nn
-        .ReLU(), torch.nn.Linear(dff, d_model_size))
+    return torch.nn.Sequential(torch.nn.Linear(d_model_size, dff), torch.nn.ReLU(), torch.nn.Linear(dff, d_model_size))
 
 
 class EncoderLayer(torch.nn.Module):
 
-    def __init__(self, d_model_size, num_heads, dff, rate=0.1,
-        output_attentions=False):
+    def __init__(self, d_model_size, num_heads, dff, rate=0.1, output_attentions=False):
         super(EncoderLayer, self).__init__()
-        self.multi_head_attention = MultiHeadAttention(d_model_size,
-            num_heads, output_attentions)
+        self.multi_head_attention = MultiHeadAttention(d_model_size, num_heads, output_attentions)
         self.ffn = point_wise_feed_forward_network(d_model_size, dff)
         self.layernorm1 = torch.nn.LayerNorm(d_model_size, eps=1e-06)
         self.layernorm2 = torch.nn.LayerNorm(d_model_size, eps=1e-06)
         self.dropout1 = torch.nn.Dropout(rate)
         self.dropout2 = torch.nn.Dropout(rate)
 
-    def forward(self, x, mask, layer_past=None, attention_mask=None,
-        head_mask=None):
+    def forward(self, x, mask, layer_past=None, attention_mask=None, head_mask=None):
         normed = self.layernorm1(x)
-        attn_outputs = self.multi_head_attention(normed, normed, normed,
-            mask, layer_past=layer_past, attention_mask=attention_mask,
-            head_mask=head_mask)
+        attn_outputs = self.multi_head_attention(normed, normed, normed, mask, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask)
         attn_output = attn_outputs[0]
         attn_output = self.dropout1(attn_output)
         out1 = x + attn_output
@@ -865,8 +812,7 @@ class EncoderLayer(torch.nn.Module):
 
 
 def create_sinusoidal_embeddings(n_pos, dim, out):
-    position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for
-        j in range(dim)] for pos in range(n_pos)])
+    position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for j in range(dim)] for pos in range(n_pos)])
     out[:, 0::2] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
     out[:, 1::2] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
     out.detach_()
@@ -877,14 +823,10 @@ class Embeddings(nn.Module):
 
     def __init__(self, config):
         super(Embeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.dim,
-            padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.dim)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.dim, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.dim)
         if config.sinusoidal_pos_embds:
-            create_sinusoidal_embeddings(n_pos=config.
-                max_position_embeddings, dim=config.dim, out=self.
-                position_embeddings.weight)
+            create_sinusoidal_embeddings(n_pos=config.max_position_embeddings, dim=config.dim, out=self.position_embeddings.weight)
         self.LayerNorm = nn.LayerNorm(config.dim, eps=1e-12)
         self.dropout = nn.Dropout(config.dropout)
 
@@ -901,8 +843,7 @@ class Embeddings(nn.Module):
             The embedded tokens (plus position embeddings, no token_type embeddings)
         """
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         word_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
@@ -924,8 +865,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.q_lin = nn.Linear(in_features=config.dim, out_features=config.dim)
         self.k_lin = nn.Linear(in_features=config.dim, out_features=config.dim)
         self.v_lin = nn.Linear(in_features=config.dim, out_features=config.dim)
-        self.out_lin = nn.Linear(in_features=config.dim, out_features=
-            config.dim)
+        self.out_lin = nn.Linear(in_features=config.dim, out_features=config.dim)
         self.pruned_heads = set()
 
     def prune_heads(self, heads):
@@ -974,8 +914,7 @@ class MultiHeadSelfAttention(nn.Module):
 
         def unshape(x):
             """ group heads """
-            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads *
-                dim_per_head)
+            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads * dim_per_head)
         q = shape(self.q_lin(query))
         k = shape(self.k_lin(key))
         v = shape(self.v_lin(value))
@@ -1001,13 +940,9 @@ class FFN(nn.Module):
     def __init__(self, config):
         super(FFN, self).__init__()
         self.dropout = nn.Dropout(p=config.dropout)
-        self.lin1 = nn.Linear(in_features=config.dim, out_features=config.
-            hidden_dim)
-        self.lin2 = nn.Linear(in_features=config.hidden_dim, out_features=
-            config.dim)
-        assert config.activation in ['relu', 'gelu'
-            ], "activation ({}) must be in ['relu', 'gelu']".format(config.
-            activation)
+        self.lin1 = nn.Linear(in_features=config.dim, out_features=config.hidden_dim)
+        self.lin2 = nn.Linear(in_features=config.hidden_dim, out_features=config.dim)
+        assert config.activation in ['relu', 'gelu'], "activation ({}) must be in ['relu', 'gelu']".format(config.activation)
         self.activation = gelu if config.activation == 'gelu' else nn.ReLU()
 
     def forward(self, input):
@@ -1030,11 +965,9 @@ class TransformerBlock(nn.Module):
         self.output_attentions = config.output_attentions
         assert config.dim % config.n_heads == 0
         self.attention = MultiHeadSelfAttention(config)
-        self.sa_layer_norm = nn.LayerNorm(normalized_shape=config.dim, eps=
-            1e-12)
+        self.sa_layer_norm = nn.LayerNorm(normalized_shape=config.dim, eps=1e-12)
         self.ffn = FFN(config)
-        self.output_layer_norm = nn.LayerNorm(normalized_shape=config.dim,
-            eps=1e-12)
+        self.output_layer_norm = nn.LayerNorm(normalized_shape=config.dim, eps=1e-12)
 
     def forward(self, x, attn_mask=None, head_mask=None):
         """
@@ -1050,8 +983,7 @@ class TransformerBlock(nn.Module):
         ffn_output: torch.tensor(bs, seq_length, dim)
             The output of the transformer block contextualization.
         """
-        sa_output = self.attention(query=x, key=x, value=x, mask=attn_mask,
-            head_mask=head_mask)
+        sa_output = self.attention(query=x, key=x, value=x, mask=attn_mask, head_mask=head_mask)
         if self.output_attentions:
             sa_output, sa_weights = sa_output
         else:
@@ -1074,8 +1006,7 @@ class Transformer(nn.Module):
         self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
         layer = TransformerBlock(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            config.n_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.n_layers)])
 
     def forward(self, x, attn_mask=None, head_mask=None):
         """
@@ -1103,8 +1034,7 @@ class Transformer(nn.Module):
         for i, layer_module in enumerate(self.layer):
             if self.output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_state,)
-            layer_outputs = layer_module(x=hidden_state, attn_mask=
-                attn_mask, head_mask=head_mask[i])
+            layer_outputs = layer_module(x=hidden_state, attn_mask=attn_mask, head_mask=head_mask[i])
             hidden_state = layer_outputs[-1]
             if self.output_attentions:
                 assert len(layer_outputs) == 2
@@ -1153,8 +1083,7 @@ class Attention(nn.Module):
         self.output_attentions = config.output_attentions
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -1174,12 +1103,10 @@ class Attention(nn.Module):
             mask[head] = 0
         mask = mask.view(-1).contiguous().eq(1)
         index = torch.arange(len(mask))[mask].long()
-        index_attn = torch.cat([index, index + self.split_size, index + 2 *
-            self.split_size])
+        index_attn = torch.cat([index, index + self.split_size, index + 2 * self.split_size])
         self.c_attn = prune_conv1d_layer(self.c_attn, index_attn, dim=1)
         self.c_proj = prune_conv1d_layer(self.c_proj, index, dim=0)
-        self.split_size = self.split_size // self.n_head * (self.n_head -
-            len(heads))
+        self.split_size = self.split_size // self.n_head * (self.n_head - len(heads))
         self.n_head = self.n_head - len(heads)
         self.pruned_heads = self.pruned_heads.union(heads)
 
@@ -1221,8 +1148,7 @@ class Attention(nn.Module):
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
         if layer_past is not None:
-            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[
-                1]
+            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[1]
             key = torch.cat((past_key, key), dim=-1)
             value = torch.cat((past_value, value), dim=-2)
         present = torch.stack((key.transpose(-2, -1), value))
@@ -1262,8 +1188,7 @@ class Block(nn.Module):
         self.mlp = MLP(4 * nx, config)
 
     def forward(self, x, layer_past=None, attention_mask=None, head_mask=None):
-        output_attn = self.attn(self.ln_1(x), layer_past=layer_past,
-            attention_mask=attention_mask, head_mask=head_mask)
+        output_attn = self.attn(self.ln_1(x), layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask)
         a = output_attn[0]
         x = x + a
         m = self.mlp(self.ln_2(x))
@@ -1278,8 +1203,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -1300,12 +1224,10 @@ class Attention(nn.Module):
             mask[head] = 0
         mask = mask.view(-1).contiguous().eq(1)
         index = torch.arange(len(mask))[mask].long()
-        index_attn = torch.cat([index, index + self.split_size, index + 2 *
-            self.split_size])
+        index_attn = torch.cat([index, index + self.split_size, index + 2 * self.split_size])
         self.c_attn = prune_conv1d_layer(self.c_attn, index_attn, dim=1)
         self.c_proj = prune_conv1d_layer(self.c_proj, index, dim=0)
-        self.split_size = self.split_size // self.n_head * (self.n_head -
-            len(heads))
+        self.split_size = self.split_size // self.n_head * (self.n_head - len(heads))
         self.n_head = self.n_head - len(heads)
         self.pruned_heads = self.pruned_heads.union(heads)
 
@@ -1384,8 +1306,7 @@ class Block(nn.Module):
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
 
     def forward(self, x, attention_mask=None, head_mask=None):
-        attn_outputs = self.attn(x, attention_mask=attention_mask,
-            head_mask=head_mask)
+        attn_outputs = self.attn(x, attention_mask=attention_mask, head_mask=head_mask)
         a = attn_outputs[0]
         n = self.ln_1(x + a)
         m = self.mlp(n)
@@ -1400,10 +1321,8 @@ class RobertaLMHead(nn.Module):
     def __init__(self, config):
         super(RobertaLMHead, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.layer_norm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
-        self.decoder = nn.Linear(config.hidden_size, config.vocab_size,
-            bias=False)
+        self.layer_norm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.bias = nn.Parameter(torch.zeros(config.vocab_size))
 
     def forward(self, features, **kwargs):
@@ -1452,15 +1371,12 @@ class PositionalEmbedding(nn.Module):
 
 class PositionwiseFF(nn.Module):
 
-    def __init__(self, d_model, d_inner, dropout, pre_lnorm=False,
-        layer_norm_epsilon=1e-05):
+    def __init__(self, d_model, d_inner, dropout, pre_lnorm=False, layer_norm_epsilon=1e-05):
         super(PositionwiseFF, self).__init__()
         self.d_model = d_model
         self.d_inner = d_inner
         self.dropout = dropout
-        self.CoreNet = nn.Sequential(nn.Linear(d_model, d_inner), nn.ReLU(
-            inplace=True), nn.Dropout(dropout), nn.Linear(d_inner, d_model),
-            nn.Dropout(dropout))
+        self.CoreNet = nn.Sequential(nn.Linear(d_model, d_inner), nn.ReLU(inplace=True), nn.Dropout(dropout), nn.Linear(d_inner, d_model), nn.Dropout(dropout))
         self.layer_norm = nn.LayerNorm(d_model, eps=layer_norm_epsilon)
         self.pre_lnorm = pre_lnorm
 
@@ -1476,9 +1392,7 @@ class PositionwiseFF(nn.Module):
 
 class RelPartialLearnableMultiHeadAttn(nn.Module):
 
-    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, tgt_len
-        =None, ext_len=None, mem_len=None, pre_lnorm=False, r_r_bias=None,
-        r_w_bias=None, output_attentions=False, layer_norm_epsilon=1e-05):
+    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, tgt_len=None, ext_len=None, mem_len=None, pre_lnorm=False, r_r_bias=None, r_w_bias=None, output_attentions=False, layer_norm_epsilon=1e-05):
         super(RelPartialLearnableMultiHeadAttn, self).__init__()
         self.output_attentions = output_attentions
         self.n_head = n_head
@@ -1493,15 +1407,12 @@ class RelPartialLearnableMultiHeadAttn(nn.Module):
         self.scale = 1 / d_head ** 0.5
         self.pre_lnorm = pre_lnorm
         if r_r_bias is None or r_w_bias is None:
-            self.r_r_bias = nn.Parameter(torch.FloatTensor(self.n_head,
-                self.d_head))
-            self.r_w_bias = nn.Parameter(torch.FloatTensor(self.n_head,
-                self.d_head))
+            self.r_r_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.d_head))
+            self.r_w_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.d_head))
         else:
             self.r_r_bias = r_r_bias
             self.r_w_bias = r_w_bias
-        self.r_net = nn.Linear(self.d_model, self.n_head * self.d_head,
-            bias=False)
+        self.r_net = nn.Linear(self.d_model, self.n_head * self.d_head, bias=False)
 
     def _rel_shift(self, x):
         zero_pad_shape = (x.size(0), 1) + x.size()[2:]
@@ -1546,25 +1457,20 @@ class RelPartialLearnableMultiHeadAttn(nn.Module):
             attn_mask = attn_mask == 1
             if attn_mask.dim() == 2:
                 if next(self.parameters()).dtype == torch.float16:
-                    attn_score = attn_score.float().masked_fill(attn_mask[(
-                        None), :, :, (None)], -65000).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -65000).type_as(attn_score)
                 else:
-                    attn_score = attn_score.float().masked_fill(attn_mask[(
-                        None), :, :, (None)], -1e+30).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -1e+30).type_as(attn_score)
             elif attn_mask.dim() == 3:
                 if next(self.parameters()).dtype == torch.float16:
-                    attn_score = attn_score.float().masked_fill(attn_mask[:,
-                        :, :, (None)], -65000).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -65000).type_as(attn_score)
                 else:
-                    attn_score = attn_score.float().masked_fill(attn_mask[:,
-                        :, :, (None)], -1e+30).type_as(attn_score)
+                    attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -1e+30).type_as(attn_score)
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         if head_mask is not None:
             attn_prob = attn_prob * head_mask
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
-        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.
-            size(1), self.n_head * self.d_head)
+        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
         if self.pre_lnorm:
@@ -1578,18 +1484,13 @@ class RelPartialLearnableMultiHeadAttn(nn.Module):
 
 class RelPartialLearnableDecoderLayer(nn.Module):
 
-    def __init__(self, n_head, d_model, d_head, d_inner, dropout,
-        layer_norm_epsilon=1e-05, **kwargs):
+    def __init__(self, n_head, d_model, d_head, d_inner, dropout, layer_norm_epsilon=1e-05, **kwargs):
         super(RelPartialLearnableDecoderLayer, self).__init__()
-        self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model,
-            d_head, dropout, layer_norm_epsilon=layer_norm_epsilon, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'), layer_norm_epsilon=layer_norm_epsilon)
+        self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model, d_head, dropout, layer_norm_epsilon=layer_norm_epsilon, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'), layer_norm_epsilon=layer_norm_epsilon)
 
-    def forward(self, dec_inp, r, dec_attn_mask=None, mems=None, head_mask=None
-        ):
-        attn_outputs = self.dec_attn(dec_inp, r, attn_mask=dec_attn_mask,
-            mems=mems, head_mask=head_mask)
+    def forward(self, dec_inp, r, dec_attn_mask=None, mems=None, head_mask=None):
+        attn_outputs = self.dec_attn(dec_inp, r, attn_mask=dec_attn_mask, mems=mems, head_mask=head_mask)
         ff_output = self.pos_ff(attn_outputs[0])
         outputs = [ff_output] + attn_outputs[1:]
         return outputs
@@ -1597,8 +1498,7 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
 class AdaptiveEmbedding(nn.Module):
 
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
-        sample_softmax=False):
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, sample_softmax=False):
         super(AdaptiveEmbedding, self).__init__()
         self.n_token = n_token
         self.d_embed = d_embed
@@ -1610,18 +1510,15 @@ class AdaptiveEmbedding(nn.Module):
         self.emb_layers = nn.ModuleList()
         self.emb_projs = nn.ParameterList()
         if div_val == 1:
-            self.emb_layers.append(nn.Embedding(n_token, d_embed, sparse=
-                sample_softmax > 0))
+            self.emb_layers.append(nn.Embedding(n_token, d_embed, sparse=sample_softmax > 0))
             if d_proj != d_embed:
-                self.emb_projs.append(nn.Parameter(torch.FloatTensor(d_proj,
-                    d_embed)))
+                self.emb_projs.append(nn.Parameter(torch.FloatTensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // div_val ** i
                 self.emb_layers.append(nn.Embedding(r_idx - l_idx, d_emb_i))
-                self.emb_projs.append(nn.Parameter(torch.FloatTensor(d_proj,
-                    d_emb_i)))
+                self.emb_projs.append(nn.Parameter(torch.FloatTensor(d_proj, d_emb_i)))
 
     def forward(self, inp):
         if self.div_val == 1:
@@ -1631,8 +1528,7 @@ class AdaptiveEmbedding(nn.Module):
         else:
             param = next(self.parameters())
             inp_flat = inp.view(-1)
-            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], dtype=
-                param.dtype, device=param.device)
+            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], dtype=param.dtype, device=param.device)
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 mask_i = (inp_flat >= l_idx) & (inp_flat < r_idx)
@@ -1651,8 +1547,7 @@ class AdaptiveEmbedding(nn.Module):
 
 class ProjectedAdaptiveLogSoftmax(nn.Module):
 
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
-        keep_order=False):
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, keep_order=False):
         super(ProjectedAdaptiveLogSoftmax, self).__init__()
         self.n_token = n_token
         self.d_embed = d_embed
@@ -1664,16 +1559,14 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
         self.n_clusters = len(self.cutoffs) - 1
         self.head_size = self.shortlist_size + self.n_clusters
         if self.n_clusters > 0:
-            self.cluster_weight = nn.Parameter(torch.zeros(self.n_clusters,
-                self.d_embed))
+            self.cluster_weight = nn.Parameter(torch.zeros(self.n_clusters, self.d_embed))
             self.cluster_bias = nn.Parameter(torch.zeros(self.n_clusters))
         self.out_layers = nn.ModuleList()
         self.out_projs = nn.ParameterList()
         if div_val == 1:
             for i in range(len(self.cutoffs)):
                 if d_proj != d_embed:
-                    self.out_projs.append(nn.Parameter(torch.FloatTensor(
-                        d_proj, d_embed)))
+                    self.out_projs.append(nn.Parameter(torch.FloatTensor(d_proj, d_embed)))
                 else:
                     self.out_projs.append(None)
             self.out_layers.append(nn.Linear(d_embed, n_token))
@@ -1681,8 +1574,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // div_val ** i
-                self.out_projs.append(nn.Parameter(torch.FloatTensor(d_proj,
-                    d_emb_i)))
+                self.out_projs.append(nn.Parameter(torch.FloatTensor(d_proj, d_emb_i)))
                 self.out_layers.append(nn.Linear(d_emb_i, r_idx - l_idx))
         self.keep_order = keep_order
 
@@ -1711,15 +1603,11 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
         if labels is not None:
             labels = labels.view(-1)
             if hidden.size(0) != labels.size(0):
-                raise RuntimeError(
-                    'Input and labels should have the same size in the batch dimension.'
-                    )
+                raise RuntimeError('Input and labels should have the same size in the batch dimension.')
         if self.n_clusters == 0:
-            logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                self.out_layers[0].bias, self.out_projs[0])
+            logit = self._compute_logit(hidden, self.out_layers[0].weight, self.out_layers[0].bias, self.out_projs[0])
             if labels is not None:
-                out = -F.log_softmax(logit, dim=-1).gather(1, labels.
-                    unsqueeze(1)).squeeze(1)
+                out = -F.log_softmax(logit, dim=-1).gather(1, labels.unsqueeze(1)).squeeze(1)
             else:
                 out = F.log_softmax(logit, dim=-1)
         else:
@@ -1733,21 +1621,17 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
                 if i == 0:
-                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0
-                        )
+                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0)
                     bias_i = torch.cat([bias_i, self.cluster_bias], dim=0)
                 weights.append(weight_i)
                 biases.append(bias_i)
-            head_weight, head_bias, head_proj = weights[0], biases[0
-                ], self.out_projs[0]
-            head_logit = self._compute_logit(hidden, head_weight, head_bias,
-                head_proj)
+            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             head_logprob = F.log_softmax(head_logit, dim=1)
             if labels is None:
                 out = hidden.new_empty((head_logit.size(0), self.n_token))
             else:
-                out = torch.zeros_like(labels, dtype=hidden.dtype, device=
-                    hidden.device)
+                out = torch.zeros_like(labels, dtype=hidden.dtype, device=hidden.device)
             offset = 0
             cutoff_values = [0] + self.cutoffs
             for i in range(len(cutoff_values) - 1):
@@ -1764,33 +1648,24 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     hidden_i = hidden
                 if i == 0:
                     if labels is not None:
-                        logprob_i = head_logprob_i.gather(1, target_i[:, (
-                            None)]).squeeze(1)
+                        logprob_i = head_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
                     else:
-                        out[:, :self.cutoffs[0]] = head_logprob[:, :self.
-                            cutoffs[0]]
+                        out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i
-                        ], self.out_projs[i]
-                    tail_logit_i = self._compute_logit(hidden_i, weight_i,
-                        bias_i, proj_i)
+                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    tail_logit_i = self._compute_logit(hidden_i, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     cluster_prob_idx = self.cutoffs[0] + i - 1
                     if labels is not None:
-                        logprob_i = head_logprob_i[:, (cluster_prob_idx)
-                            ] + tail_logprob_i.gather(1, target_i[:, (None)]
-                            ).squeeze(1)
+                        logprob_i = head_logprob_i[:, (cluster_prob_idx)] + tail_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
                     else:
-                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)
-                            ] + tail_logprob_i
+                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)] + tail_logprob_i
                         out[:, l_idx:r_idx] = logprob_i
                 if labels is not None:
-                    if hasattr(self, 'keep_order'
-                        ) and self.keep_order or keep_order:
+                    if hasattr(self, 'keep_order') and self.keep_order or keep_order:
                         out.index_copy_(0, indices_i, -logprob_i)
                     else:
-                        out[offset:offset + logprob_i.size(0)].copy_(-logprob_i
-                            )
+                        out[offset:offset + logprob_i.size(0)].copy_(-logprob_i)
                     offset += logprob_i.size(0)
         return out
 
@@ -1808,8 +1683,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             - Output: :math:`(N, n\\_classes)`
         """
         if self.n_clusters == 0:
-            logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                self.out_layers[0].bias, self.out_projs[0])
+            logit = self._compute_logit(hidden, self.out_layers[0].weight, self.out_layers[0].bias, self.out_projs[0])
             return F.log_softmax(logit, dim=-1)
         else:
             weights, biases = [], []
@@ -1822,28 +1696,22 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
                 if i == 0:
-                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0
-                        )
+                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0)
                     bias_i = torch.cat([bias_i, self.cluster_bias], dim=0)
                 weights.append(weight_i)
                 biases.append(bias_i)
-            head_weight, head_bias, head_proj = weights[0], biases[0
-                ], self.out_projs[0]
-            head_logit = self._compute_logit(hidden, head_weight, head_bias,
-                head_proj)
+            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             out = hidden.new_empty((head_logit.size(0), self.n_token))
             head_logprob = F.log_softmax(head_logit, dim=1)
             cutoff_values = [0] + self.cutoffs
             for i in range(len(cutoff_values) - 1):
                 start_idx, stop_idx = cutoff_values[i], cutoff_values[i + 1]
                 if i == 0:
-                    out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]
-                        ]
+                    out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i
-                        ], self.out_projs[i]
-                    tail_logit_i = self._compute_logit(hidden, weight_i,
-                        bias_i, proj_i)
+                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    tail_logit_i = self._compute_logit(hidden, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     logprob_i = head_logprob[:, (-i)] + tail_logprob_i
                     out[:, (start_idx), (stop_idx)] = logprob_i
@@ -1936,8 +1804,7 @@ def get_from_cache(url, cache_dir=None, force_download=False, proxies=None):
         etag = s3_etag(url, proxies=proxies)
     else:
         try:
-            response = requests.head(url, allow_redirects=True, proxies=proxies
-                )
+            response = requests.head(url, allow_redirects=True, proxies=proxies)
             if response.status_code != 200:
                 etag = None
             else:
@@ -1950,23 +1817,19 @@ def get_from_cache(url, cache_dir=None, force_download=False, proxies=None):
     cache_path = os.path.join(cache_dir, filename)
     if not os.path.exists(cache_path) and etag is None:
         matching_files = fnmatch.filter(os.listdir(cache_dir), filename + '.*')
-        matching_files = list(filter(lambda s: not s.endswith('.json'),
-            matching_files))
+        matching_files = list(filter(lambda s: not s.endswith('.json'), matching_files))
         if matching_files:
             cache_path = os.path.join(cache_dir, matching_files[-1])
     if not os.path.exists(cache_path) or force_download:
         with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info(
-                '%s not found in cache or force_download set to True, downloading to %s'
-                , url, temp_file.name)
+            logger.info('%s not found in cache or force_download set to True, downloading to %s', url, temp_file.name)
             if url.startswith('s3://'):
                 s3_get(url, temp_file, proxies=proxies)
             else:
                 http_get(url, temp_file, proxies=proxies)
             temp_file.flush()
             temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path
-                )
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
             with open(cache_path, 'wb') as cache_file:
                 shutil.copyfileobj(temp_file, cache_file)
             logger.info('creating metadata file for %s', cache_path)
@@ -1981,8 +1844,7 @@ def get_from_cache(url, cache_dir=None, force_download=False, proxies=None):
     return cache_path
 
 
-def cached_path(url_or_filename, cache_dir=None, force_download=False,
-    proxies=None):
+def cached_path(url_or_filename, cache_dir=None, force_download=False, proxies=None):
     """
     Given something that might be a URL (or might be a local path),
     determine which. If it's a URL, download the file and cache it, and
@@ -2000,15 +1862,13 @@ def cached_path(url_or_filename, cache_dir=None, force_download=False,
         cache_dir = str(cache_dir)
     parsed = urlparse(url_or_filename)
     if parsed.scheme in ('http', 'https', 's3'):
-        return get_from_cache(url_or_filename, cache_dir=cache_dir,
-            force_download=force_download, proxies=proxies)
+        return get_from_cache(url_or_filename, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
     elif os.path.exists(url_or_filename):
         return url_or_filename
     elif parsed.scheme == '':
         raise EnvironmentError('file {} not found'.format(url_or_filename))
     else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.
-            format(url_or_filename))
+        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
 
 
 class PretrainedConfig(object):
@@ -2045,8 +1905,7 @@ class PretrainedConfig(object):
         """ Save a configuration object to the directory `save_directory`, so that it
             can be re-loaded using the :func:`~transformers.PretrainedConfig.from_pretrained` class method.
         """
-        assert os.path.isdir(save_directory
-            ), 'Saving path should be a directory where the model and configuration can be saved'
+        assert os.path.isdir(save_directory), 'Saving path should be a directory where the model and configuration can be saved'
         output_config_file = os.path.join(save_directory, CONFIG_NAME)
         self.to_json_file(output_config_file)
         logger.info('Configuration saved in {}'.format(output_config_file))
@@ -2103,38 +1962,26 @@ class PretrainedConfig(object):
         proxies = kwargs.pop('proxies', None)
         return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
         if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
-            config_file = cls.pretrained_config_archive_map[
-                pretrained_model_name_or_path]
+            config_file = cls.pretrained_config_archive_map[pretrained_model_name_or_path]
         elif os.path.isdir(pretrained_model_name_or_path):
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         else:
             config_file = pretrained_model_name_or_path
         try:
-            resolved_config_file = cached_path(config_file, cache_dir=
-                cache_dir, force_download=force_download, proxies=proxies)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
         except EnvironmentError:
-            if (pretrained_model_name_or_path in cls.
-                pretrained_config_archive_map):
-                msg = (
-                    "Couldn't reach server at '{}' to download pretrained model configuration file."
-                    .format(config_file))
+            if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
+                msg = "Couldn't reach server at '{}' to download pretrained model configuration file.".format(config_file)
             else:
-                msg = (
-                    "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url to a configuration file named {} or a directory containing such a file but couldn't find any such file at this path or url."
-                    .format(pretrained_model_name_or_path, ', '.join(cls.
-                    pretrained_config_archive_map.keys()), config_file,
-                    CONFIG_NAME))
+                msg = "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url to a configuration file named {} or a directory containing such a file but couldn't find any such file at this path or url.".format(pretrained_model_name_or_path, ', '.join(cls.pretrained_config_archive_map.keys()), config_file, CONFIG_NAME)
             raise EnvironmentError(msg)
         if resolved_config_file == config_file:
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = cls.from_json_file(resolved_config_file)
         if hasattr(config, 'pruned_heads'):
-            config.pruned_heads = dict((int(key), value) for key, value in
-                config.pruned_heads.items())
+            config.pruned_heads = dict((int(key), value) for key, value in config.pruned_heads.items())
         to_remove = []
         for key, value in kwargs.items():
             if hasattr(config, key):
@@ -2218,9 +2065,7 @@ class PreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(PreTrainedModel, self).__init__()
         if not isinstance(config, PretrainedConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `PretrainedConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `PretrainedConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def _get_resized_embeddings(self, old_embeddings, new_num_tokens=None):
@@ -2246,8 +2091,7 @@ class PreTrainedModel(nn.Module):
         new_embeddings
         self._init_weights(new_embeddings)
         num_tokens_to_copy = min(old_num_tokens, new_num_tokens)
-        new_embeddings.weight.data[:num_tokens_to_copy, :
-            ] = old_embeddings.weight.data[:num_tokens_to_copy, :]
+        new_embeddings.weight.data[:num_tokens_to_copy, :] = old_embeddings.weight.data[:num_tokens_to_copy, :]
         return new_embeddings
 
     def _tie_or_clone_weights(self, first_module, second_module):
@@ -2258,22 +2102,17 @@ class PreTrainedModel(nn.Module):
         else:
             first_module.weight = second_module.weight
         if hasattr(first_module, 'bias') and first_module.bias is not None:
-            first_module.bias.data = torch.nn.functional.pad(first_module.
-                bias.data, (0, first_module.weight.shape[0] - first_module.
-                bias.shape[0]), 'constant', 0)
+            first_module.bias.data = torch.nn.functional.pad(first_module.bias.data, (0, first_module.weight.shape[0] - first_module.bias.shape[0]), 'constant', 0)
 
     def _tie_or_clone_data(self, first_module, second_module):
         """ Tie or clone module weights depending of weither we are using TorchScript or not
         """
         if self.config.torchscript:
-            first_module.weight.data = nn.Parameter(second_module.weight.
-                data.t().clone())
+            first_module.weight.data = nn.Parameter(second_module.weight.data.t().clone())
         else:
             first_module.weight.data = second_module.weight.data.t()
         if hasattr(first_module, 'bias') and first_module.bias is not None:
-            first_module.bias.data = torch.nn.functional.pad(first_module.
-                bias.data, (0, first_module.weight.shape[0] - first_module.
-                bias.shape[0]), 'constant', 0)
+            first_module.bias.data = torch.nn.functional.pad(first_module.bias.data, (0, first_module.weight.shape[0] - first_module.bias.shape[0]), 'constant', 0)
 
     def resize_token_embeddings(self, new_num_tokens=None):
         """ Resize input token embeddings matrix of the model if new_num_tokens != config.vocab_size.
@@ -2314,8 +2153,7 @@ class PreTrainedModel(nn.Module):
         """
         base_model = getattr(self, self.base_model_prefix, self)
         for layer, heads in heads_to_prune.items():
-            union_heads = set(self.config.pruned_heads.get(layer, [])) | set(
-                heads)
+            union_heads = set(self.config.pruned_heads.get(layer, [])) | set(heads)
             self.config.pruned_heads[layer] = list(union_heads)
         base_model._prune_heads(heads_to_prune)
 
@@ -2323,8 +2161,7 @@ class PreTrainedModel(nn.Module):
         """ Save a model and its configuration file to a directory, so that it
             can be re-loaded using the `:func:`~transformers.PreTrainedModel.from_pretrained`` class method.
         """
-        assert os.path.isdir(save_directory
-            ), 'Saving path should be a directory where the model and configuration can be saved'
+        assert os.path.isdir(save_directory), 'Saving path should be a directory where the model and configuration can be saved'
         model_to_save = self.module if hasattr(self, 'module') else self
         model_to_save.config.save_pretrained(save_directory)
         output_model_file = os.path.join(save_directory, WEIGHTS_NAME)
@@ -2332,8 +2169,7 @@ class PreTrainedModel(nn.Module):
         logger.info('Model weights saved in {}'.format(output_model_file))
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **
-        kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
         """Instantiate a pretrained pytorch model from a pre-trained model configuration.
 
         The model is set in evaluation mode by default using ``model.eval()`` (Dropout modules are deactivated)
@@ -2406,65 +2242,38 @@ class PreTrainedModel(nn.Module):
         proxies = kwargs.pop('proxies', None)
         output_loading_info = kwargs.pop('output_loading_info', False)
         if config is None:
-            config, model_kwargs = cls.config_class.from_pretrained(
-                pretrained_model_name_or_path, *model_args, cache_dir=
-                cache_dir, return_unused_kwargs=True, force_download=
-                force_download, **kwargs)
+            config, model_kwargs = cls.config_class.from_pretrained(pretrained_model_name_or_path, *model_args, cache_dir=cache_dir, return_unused_kwargs=True, force_download=force_download, **kwargs)
         else:
             model_kwargs = kwargs
         if pretrained_model_name_or_path is not None:
-            if (pretrained_model_name_or_path in cls.
-                pretrained_model_archive_map):
-                archive_file = cls.pretrained_model_archive_map[
-                    pretrained_model_name_or_path]
+            if pretrained_model_name_or_path in cls.pretrained_model_archive_map:
+                archive_file = cls.pretrained_model_archive_map[pretrained_model_name_or_path]
             elif os.path.isdir(pretrained_model_name_or_path):
-                if from_tf and os.path.isfile(os.path.join(
-                    pretrained_model_name_or_path, TF_WEIGHTS_NAME + '.index')
-                    ):
-                    archive_file = os.path.join(pretrained_model_name_or_path,
-                        TF_WEIGHTS_NAME + '.index')
-                elif from_tf and os.path.isfile(os.path.join(
-                    pretrained_model_name_or_path, TF2_WEIGHTS_NAME)):
-                    archive_file = os.path.join(pretrained_model_name_or_path,
-                        TF2_WEIGHTS_NAME)
-                elif os.path.isfile(os.path.join(
-                    pretrained_model_name_or_path, WEIGHTS_NAME)):
-                    archive_file = os.path.join(pretrained_model_name_or_path,
-                        WEIGHTS_NAME)
+                if from_tf and os.path.isfile(os.path.join(pretrained_model_name_or_path, TF_WEIGHTS_NAME + '.index')):
+                    archive_file = os.path.join(pretrained_model_name_or_path, TF_WEIGHTS_NAME + '.index')
+                elif from_tf and os.path.isfile(os.path.join(pretrained_model_name_or_path, TF2_WEIGHTS_NAME)):
+                    archive_file = os.path.join(pretrained_model_name_or_path, TF2_WEIGHTS_NAME)
+                elif os.path.isfile(os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)):
+                    archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
                 else:
-                    raise EnvironmentError(
-                        'Error no file named {} found in directory {} or `from_tf` set to False'
-                        .format([WEIGHTS_NAME, TF2_WEIGHTS_NAME, 
-                        TF_WEIGHTS_NAME + '.index'],
-                        pretrained_model_name_or_path))
+                    raise EnvironmentError('Error no file named {} found in directory {} or `from_tf` set to False'.format([WEIGHTS_NAME, TF2_WEIGHTS_NAME, TF_WEIGHTS_NAME + '.index'], pretrained_model_name_or_path))
             elif os.path.isfile(pretrained_model_name_or_path):
                 archive_file = pretrained_model_name_or_path
             else:
-                assert from_tf, 'Error finding file {}, no file or TF 1.X checkpoint found'.format(
-                    pretrained_model_name_or_path)
+                assert from_tf, 'Error finding file {}, no file or TF 1.X checkpoint found'.format(pretrained_model_name_or_path)
                 archive_file = pretrained_model_name_or_path + '.index'
             try:
-                resolved_archive_file = cached_path(archive_file, cache_dir
-                    =cache_dir, force_download=force_download, proxies=proxies)
+                resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
             except EnvironmentError:
-                if (pretrained_model_name_or_path in cls.
-                    pretrained_model_archive_map):
-                    msg = (
-                        "Couldn't reach server at '{}' to download pretrained weights."
-                        .format(archive_file))
+                if pretrained_model_name_or_path in cls.pretrained_model_archive_map:
+                    msg = "Couldn't reach server at '{}' to download pretrained weights.".format(archive_file)
                 else:
-                    msg = (
-                        "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url to model weight files named one of {} but couldn't find any such file at this path or url."
-                        .format(pretrained_model_name_or_path, ', '.join(
-                        cls.pretrained_model_archive_map.keys()),
-                        archive_file, [WEIGHTS_NAME, TF2_WEIGHTS_NAME,
-                        TF_WEIGHTS_NAME]))
+                    msg = "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url to model weight files named one of {} but couldn't find any such file at this path or url.".format(pretrained_model_name_or_path, ', '.join(cls.pretrained_model_archive_map.keys()), archive_file, [WEIGHTS_NAME, TF2_WEIGHTS_NAME, TF_WEIGHTS_NAME])
                 raise EnvironmentError(msg)
             if resolved_archive_file == archive_file:
                 logger.info('loading weights file {}'.format(archive_file))
             else:
-                logger.info('loading weights file {} from cache at {}'.
-                    format(archive_file, resolved_archive_file))
+                logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
         else:
             resolved_archive_file = None
         model = cls(config, *model_args, **model_kwargs)
@@ -2475,16 +2284,12 @@ class PreTrainedModel(nn.Module):
         error_msgs = []
         if from_tf:
             if resolved_archive_file.endswith('.index'):
-                model = cls.load_tf_weights(model, config,
-                    resolved_archive_file[:-6])
+                model = cls.load_tf_weights(model, config, resolved_archive_file[:-6])
             else:
                 try:
-                    model = load_tf2_checkpoint_in_pytorch_model(model,
-                        resolved_archive_file, allow_missing_keys=True)
+                    model = load_tf2_checkpoint_in_pytorch_model(model, resolved_archive_file, allow_missing_keys=True)
                 except ImportError as e:
-                    logger.error(
-                        'Loading a TensorFlow model in PyTorch, requires both PyTorch and TensorFlow to be installed. Please see https://pytorch.org/ and https://www.tensorflow.org/install/ for installation instructions.'
-                        )
+                    logger.error('Loading a TensorFlow model in PyTorch, requires both PyTorch and TensorFlow to be installed. Please see https://pytorch.org/ and https://www.tensorflow.org/install/ for installation instructions.')
                     raise e
         else:
             old_keys = []
@@ -2506,40 +2311,29 @@ class PreTrainedModel(nn.Module):
                 state_dict._metadata = metadata
 
             def load(module, prefix=''):
-                local_metadata = {} if metadata is None else metadata.get(
-                    prefix[:-1], {})
-                module._load_from_state_dict(state_dict, prefix,
-                    local_metadata, True, missing_keys, unexpected_keys,
-                    error_msgs)
+                local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+                module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
                 for name, child in module._modules.items():
                     if child is not None:
                         load(child, prefix + name + '.')
             start_prefix = ''
             model_to_load = model
-            if not hasattr(model, cls.base_model_prefix) and any(s.
-                startswith(cls.base_model_prefix) for s in state_dict.keys()):
+            if not hasattr(model, cls.base_model_prefix) and any(s.startswith(cls.base_model_prefix) for s in state_dict.keys()):
                 start_prefix = cls.base_model_prefix + '.'
-            if hasattr(model, cls.base_model_prefix) and not any(s.
-                startswith(cls.base_model_prefix) for s in state_dict.keys()):
+            if hasattr(model, cls.base_model_prefix) and not any(s.startswith(cls.base_model_prefix) for s in state_dict.keys()):
                 model_to_load = getattr(model, cls.base_model_prefix)
             load(model_to_load, prefix=start_prefix)
             if len(missing_keys) > 0:
-                logger.info(
-                    'Weights of {} not initialized from pretrained model: {}'
-                    .format(model.__class__.__name__, missing_keys))
+                logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
             if len(unexpected_keys) > 0:
-                logger.info('Weights from pretrained model not used in {}: {}'
-                    .format(model.__class__.__name__, unexpected_keys))
+                logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
             if len(error_msgs) > 0:
-                raise RuntimeError(
-                    'Error(s) in loading state_dict for {}:\n\t{}'.format(
-                    model.__class__.__name__, '\n\t'.join(error_msgs)))
+                raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         if hasattr(model, 'tie_weights'):
             model.tie_weights()
         model.eval()
         if output_loading_info:
-            loading_info = {'missing_keys': missing_keys, 'unexpected_keys':
-                unexpected_keys, 'error_msgs': error_msgs}
+            loading_info = {'missing_keys': missing_keys, 'unexpected_keys': unexpected_keys, 'error_msgs': error_msgs}
             return model, loading_info
         return model
 
@@ -2594,12 +2388,10 @@ class PoolerEndLogits(nn.Module):
         super(PoolerEndLogits, self).__init__()
         self.dense_0 = nn.Linear(config.hidden_size * 2, config.hidden_size)
         self.activation = nn.Tanh()
-        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dense_1 = nn.Linear(config.hidden_size, 1)
 
-    def forward(self, hidden_states, start_states=None, start_positions=
-        None, p_mask=None):
+    def forward(self, hidden_states, start_states=None, start_positions=None, p_mask=None):
         """ Args:
             One of ``start_states``, ``start_positions`` should be not None.
             If both are set, ``start_positions`` overrides ``start_states``.
@@ -2615,8 +2407,7 @@ class PoolerEndLogits(nn.Module):
         assert start_states is not None or start_positions is not None, 'One of start_states, start_positions should be not None'
         if start_positions is not None:
             slen, hsz = hidden_states.shape[-2:]
-            start_positions = start_positions[:, (None), (None)].expand(-1,
-                -1, hsz)
+            start_positions = start_positions[:, (None), (None)].expand(-1, -1, hsz)
             start_states = hidden_states.gather(-2, start_positions)
             start_states = start_states.expand(-1, slen, -1)
         x = self.dense_0(torch.cat([hidden_states, start_states], dim=-1))
@@ -2640,8 +2431,7 @@ class PoolerAnswerClass(nn.Module):
         self.activation = nn.Tanh()
         self.dense_1 = nn.Linear(config.hidden_size, 1, bias=False)
 
-    def forward(self, hidden_states, start_states=None, start_positions=
-        None, cls_index=None):
+    def forward(self, hidden_states, start_states=None, start_positions=None, cls_index=None):
         """
         Args:
             One of ``start_states``, ``start_positions`` should be not None.
@@ -2661,10 +2451,8 @@ class PoolerAnswerClass(nn.Module):
         hsz = hidden_states.shape[-1]
         assert start_states is not None or start_positions is not None, 'One of start_states, start_positions should be not None'
         if start_positions is not None:
-            start_positions = start_positions[:, (None), (None)].expand(-1,
-                -1, hsz)
-            start_states = hidden_states.gather(-2, start_positions).squeeze(-2
-                )
+            start_positions = start_positions[:, (None), (None)].expand(-1, -1, hsz)
+            start_states = hidden_states.gather(-2, start_positions).squeeze(-2)
         if cls_index is not None:
             cls_index = cls_index[:, (None), (None)].expand(-1, -1, hsz)
             cls_token_state = hidden_states.gather(-2, cls_index).squeeze(-2)
@@ -2725,24 +2513,20 @@ class SQuADHead(nn.Module):
         self.end_logits = PoolerEndLogits(config)
         self.answer_class = PoolerAnswerClass(config)
 
-    def forward(self, hidden_states, start_positions=None, end_positions=
-        None, cls_index=None, is_impossible=None, p_mask=None):
+    def forward(self, hidden_states, start_positions=None, end_positions=None, cls_index=None, is_impossible=None, p_mask=None):
         outputs = ()
         start_logits = self.start_logits(hidden_states, p_mask=p_mask)
         if start_positions is not None and end_positions is not None:
-            for x in (start_positions, end_positions, cls_index, is_impossible
-                ):
+            for x in (start_positions, end_positions, cls_index, is_impossible):
                 if x is not None and x.dim() > 1:
                     x.squeeze_(-1)
-            end_logits = self.end_logits(hidden_states, start_positions=
-                start_positions, p_mask=p_mask)
+            end_logits = self.end_logits(hidden_states, start_positions=start_positions, p_mask=p_mask)
             loss_fct = CrossEntropyLoss()
             start_loss = loss_fct(start_logits, start_positions)
             end_loss = loss_fct(end_logits, end_positions)
             total_loss = (start_loss + end_loss) / 2
             if cls_index is not None and is_impossible is not None:
-                cls_logits = self.answer_class(hidden_states,
-                    start_positions=start_positions, cls_index=cls_index)
+                cls_logits = self.answer_class(hidden_states, start_positions=start_positions, cls_index=cls_index)
                 loss_fct_cls = nn.BCEWithLogitsLoss()
                 cls_loss = loss_fct_cls(cls_logits, is_impossible)
                 total_loss += cls_loss * 0.5
@@ -2750,30 +2534,20 @@ class SQuADHead(nn.Module):
         else:
             bsz, slen, hsz = hidden_states.size()
             start_log_probs = F.softmax(start_logits, dim=-1)
-            start_top_log_probs, start_top_index = torch.topk(start_log_probs,
-                self.start_n_top, dim=-1)
-            start_top_index_exp = start_top_index.unsqueeze(-1).expand(-1, 
-                -1, hsz)
+            start_top_log_probs, start_top_index = torch.topk(start_log_probs, self.start_n_top, dim=-1)
+            start_top_index_exp = start_top_index.unsqueeze(-1).expand(-1, -1, hsz)
             start_states = torch.gather(hidden_states, -2, start_top_index_exp)
             start_states = start_states.unsqueeze(1).expand(-1, slen, -1, -1)
-            hidden_states_expanded = hidden_states.unsqueeze(2).expand_as(
-                start_states)
+            hidden_states_expanded = hidden_states.unsqueeze(2).expand_as(start_states)
             p_mask = p_mask.unsqueeze(-1) if p_mask is not None else None
-            end_logits = self.end_logits(hidden_states_expanded,
-                start_states=start_states, p_mask=p_mask)
+            end_logits = self.end_logits(hidden_states_expanded, start_states=start_states, p_mask=p_mask)
             end_log_probs = F.softmax(end_logits, dim=1)
-            end_top_log_probs, end_top_index = torch.topk(end_log_probs,
-                self.end_n_top, dim=1)
-            end_top_log_probs = end_top_log_probs.view(-1, self.start_n_top *
-                self.end_n_top)
-            end_top_index = end_top_index.view(-1, self.start_n_top * self.
-                end_n_top)
-            start_states = torch.einsum('blh,bl->bh', hidden_states,
-                start_log_probs)
-            cls_logits = self.answer_class(hidden_states, start_states=
-                start_states, cls_index=cls_index)
-            outputs = (start_top_log_probs, start_top_index,
-                end_top_log_probs, end_top_index, cls_logits) + outputs
+            end_top_log_probs, end_top_index = torch.topk(end_log_probs, self.end_n_top, dim=1)
+            end_top_log_probs = end_top_log_probs.view(-1, self.start_n_top * self.end_n_top)
+            end_top_index = end_top_index.view(-1, self.start_n_top * self.end_n_top)
+            start_states = torch.einsum('blh,bl->bh', hidden_states, start_log_probs)
+            cls_logits = self.answer_class(hidden_states, start_states=start_states, cls_index=cls_index)
+            outputs = (start_top_log_probs, start_top_index, end_top_log_probs, end_top_index, cls_logits) + outputs
         return outputs
 
 
@@ -2795,29 +2569,24 @@ class SequenceSummary(nn.Module):
 
     def __init__(self, config):
         super(SequenceSummary, self).__init__()
-        self.summary_type = config.summary_type if hasattr(config,
-            'summary_use_proj') else 'last'
+        self.summary_type = config.summary_type if hasattr(config, 'summary_use_proj') else 'last'
         if self.summary_type == 'attn':
             raise NotImplementedError
         self.summary = Identity()
         if hasattr(config, 'summary_use_proj') and config.summary_use_proj:
-            if hasattr(config, 'summary_proj_to_labels'
-                ) and config.summary_proj_to_labels and config.num_labels > 0:
+            if hasattr(config, 'summary_proj_to_labels') and config.summary_proj_to_labels and config.num_labels > 0:
                 num_classes = config.num_labels
             else:
                 num_classes = config.hidden_size
             self.summary = nn.Linear(config.hidden_size, num_classes)
         self.activation = Identity()
-        if hasattr(config, 'summary_activation'
-            ) and config.summary_activation == 'tanh':
+        if hasattr(config, 'summary_activation') and config.summary_activation == 'tanh':
             self.activation = nn.Tanh()
         self.first_dropout = Identity()
-        if hasattr(config, 'summary_first_dropout'
-            ) and config.summary_first_dropout > 0:
+        if hasattr(config, 'summary_first_dropout') and config.summary_first_dropout > 0:
             self.first_dropout = nn.Dropout(config.summary_first_dropout)
         self.last_dropout = Identity()
-        if hasattr(config, 'summary_last_dropout'
-            ) and config.summary_last_dropout > 0:
+        if hasattr(config, 'summary_last_dropout') and config.summary_last_dropout > 0:
             self.last_dropout = nn.Dropout(config.summary_last_dropout)
 
     def forward(self, hidden_states, cls_index=None):
@@ -2835,12 +2604,10 @@ class SequenceSummary(nn.Module):
             output = hidden_states.mean(dim=1)
         elif self.summary_type == 'cls_index':
             if cls_index is None:
-                cls_index = torch.full_like(hidden_states[(...), :1, :], 
-                    hidden_states.shape[-2] - 1, dtype=torch.long)
+                cls_index = torch.full_like(hidden_states[(...), :1, :], hidden_states.shape[-2] - 1, dtype=torch.long)
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
-                cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) +
-                    (hidden_states.size(-1),))
+                cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
             output = hidden_states.gather(-2, cls_index).squeeze(-2)
         elif self.summary_type == 'attn':
             raise NotImplementedError
@@ -2898,8 +2665,7 @@ class MultiHeadAttention(nn.Module):
             klen = kv.size(1)
         n_heads = self.n_heads
         dim_per_head = self.dim // n_heads
-        mask_reshape = (bs, 1, qlen, klen) if mask.dim() == 3 else (bs, 1, 
-            1, klen)
+        mask_reshape = (bs, 1, qlen, klen) if mask.dim() == 3 else (bs, 1, 1, klen)
 
         def shape(x):
             """  projection """
@@ -2907,8 +2673,7 @@ class MultiHeadAttention(nn.Module):
 
         def unshape(x):
             """  compute context """
-            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads *
-                dim_per_head)
+            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads * dim_per_head)
         q = shape(self.q_lin(input))
         if kv is None:
             k = shape(self.k_lin(input))
@@ -2973,9 +2738,7 @@ class XLMPredLayer(nn.Module):
         if config.asm is False:
             self.proj = nn.Linear(dim, config.n_words, bias=True)
         else:
-            self.proj = nn.AdaptiveLogSoftmaxWithLoss(in_features=dim,
-                n_classes=config.n_words, cutoffs=config.asm_cutoffs,
-                div_value=config.asm_div_value, head_bias=True)
+            self.proj = nn.AdaptiveLogSoftmaxWithLoss(in_features=dim, n_classes=config.n_words, cutoffs=config.asm_cutoffs, div_value=config.asm_div_value, head_bias=True)
 
     def forward(self, x, y=None):
         """ Compute the loss, and optionally the scores.
@@ -2985,8 +2748,7 @@ class XLMPredLayer(nn.Module):
             scores = self.proj(x)
             outputs = (scores,) + outputs
             if y is not None:
-                loss = F.cross_entropy(scores.view(-1, self.n_words), y.
-                    view(-1), reduction='elementwise_mean')
+                loss = F.cross_entropy(scores.view(-1, self.n_words), y.view(-1), reduction='elementwise_mean')
                 outputs = (loss,) + outputs
         else:
             scores = self.proj.log_prob(x)
@@ -3003,33 +2765,21 @@ class XLNetRelativeAttention(nn.Module):
         super(XLNetRelativeAttention, self).__init__()
         self.output_attentions = config.output_attentions
         if config.d_model % config.n_head != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.d_model, config.n_head))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.d_model, config.n_head))
         self.n_head = config.n_head
         self.d_head = config.d_head
         self.d_model = config.d_model
         self.scale = 1 / config.d_head ** 0.5
-        self.q = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head,
-            self.d_head))
-        self.k = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head,
-            self.d_head))
-        self.v = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head,
-            self.d_head))
-        self.o = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head,
-            self.d_head))
-        self.r = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head,
-            self.d_head))
-        self.r_r_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.
-            d_head))
-        self.r_s_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.
-            d_head))
-        self.r_w_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.
-            d_head))
-        self.seg_embed = nn.Parameter(torch.FloatTensor(2, self.n_head,
-            self.d_head))
-        self.layer_norm = XLNetLayerNorm(config.d_model, eps=config.
-            layer_norm_eps)
+        self.q = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head, self.d_head))
+        self.k = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head, self.d_head))
+        self.v = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head, self.d_head))
+        self.o = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head, self.d_head))
+        self.r = nn.Parameter(torch.FloatTensor(config.d_model, self.n_head, self.d_head))
+        self.r_r_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.d_head))
+        self.r_s_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.d_head))
+        self.r_w_bias = nn.Parameter(torch.FloatTensor(self.n_head, self.d_head))
+        self.seg_embed = nn.Parameter(torch.FloatTensor(2, self.n_head, self.d_head))
+        self.layer_norm = XLNetLayerNorm(config.d_model, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.dropout)
 
     def prune_heads(self, heads):
@@ -3042,8 +2792,7 @@ class XLNetRelativeAttention(nn.Module):
         x = x.reshape(x_size[1], x_size[0], x_size[2], x_size[3])
         x = x[1:, (...)]
         x = x.reshape(x_size[0], x_size[1] - 1, x_size[2], x_size[3])
-        x = torch.index_select(x, 1, torch.arange(klen, device=x.device,
-            dtype=torch.long))
+        x = torch.index_select(x, 1, torch.arange(klen, device=x.device, dtype=torch.long))
         return x
 
     @staticmethod
@@ -3052,12 +2801,10 @@ class XLNetRelativeAttention(nn.Module):
         x = x.reshape(x_size[0], x_size[1], x_size[3], x_size[2])
         x = x[:, :, 1:, :]
         x = x.reshape(x_size[0], x_size[1], x_size[2], x_size[3] - 1)
-        x = torch.index_select(x, 3, torch.arange(klen, device=x.device,
-            dtype=torch.long))
+        x = torch.index_select(x, 3, torch.arange(klen, device=x.device, dtype=torch.long))
         return x
 
-    def rel_attn_core(self, q_head, k_head_h, v_head_h, k_head_r, seg_mat=
-        None, attn_mask=None, head_mask=None):
+    def rel_attn_core(self, q_head, k_head_h, v_head_h, k_head_r, seg_mat=None, attn_mask=None, head_mask=None):
         """Core relative positional attention operations."""
         ac = torch.einsum('ibnd,jbnd->bnij', q_head + self.r_w_bias, k_head_h)
         bd = torch.einsum('ibnd,jbnd->bnij', q_head + self.r_r_bias, k_head_r)
@@ -3065,17 +2812,14 @@ class XLNetRelativeAttention(nn.Module):
         if seg_mat is None:
             ef = 0
         else:
-            ef = torch.einsum('ibnd,snd->ibns', q_head + self.r_s_bias,
-                self.seg_embed)
+            ef = torch.einsum('ibnd,snd->ibns', q_head + self.r_s_bias, self.seg_embed)
             ef = torch.einsum('ijbs,ibns->bnij', seg_mat, ef)
         attn_score = (ac + bd + ef) * self.scale
         if attn_mask is not None:
             if attn_mask.dtype == torch.float16:
-                attn_score = attn_score - 65500 * torch.einsum('ijbn->bnij',
-                    attn_mask)
+                attn_score = attn_score - 65500 * torch.einsum('ijbn->bnij', attn_mask)
             else:
-                attn_score = attn_score - 1e+30 * torch.einsum('ijbn->bnij',
-                    attn_mask)
+                attn_score = attn_score - 1e+30 * torch.einsum('ijbn->bnij', attn_mask)
         attn_prob = F.softmax(attn_score, dim=3)
         attn_prob = self.dropout(attn_prob)
         if head_mask is not None:
@@ -3094,8 +2838,7 @@ class XLNetRelativeAttention(nn.Module):
         output = self.layer_norm(attn_out)
         return output
 
-    def forward(self, h, g, attn_mask_h, attn_mask_g, r, seg_mat, mems=None,
-        target_mapping=None, head_mask=None):
+    def forward(self, h, g, attn_mask_h, attn_mask_g, r, seg_mat, mems=None, target_mapping=None, head_mask=None):
         if g is not None:
             if mems is not None and mems.dim() > 1:
                 cat = torch.cat([mems, h], dim=0)
@@ -3105,27 +2848,19 @@ class XLNetRelativeAttention(nn.Module):
             v_head_h = torch.einsum('ibh,hnd->ibnd', cat, self.v)
             k_head_r = torch.einsum('ibh,hnd->ibnd', r, self.r)
             q_head_h = torch.einsum('ibh,hnd->ibnd', h, self.q)
-            attn_vec_h = self.rel_attn_core(q_head_h, k_head_h, v_head_h,
-                k_head_r, seg_mat=seg_mat, attn_mask=attn_mask_h, head_mask
-                =head_mask)
+            attn_vec_h = self.rel_attn_core(q_head_h, k_head_h, v_head_h, k_head_r, seg_mat=seg_mat, attn_mask=attn_mask_h, head_mask=head_mask)
             if self.output_attentions:
                 attn_vec_h, attn_prob_h = attn_vec_h
             output_h = self.post_attention(h, attn_vec_h)
             q_head_g = torch.einsum('ibh,hnd->ibnd', g, self.q)
             if target_mapping is not None:
-                q_head_g = torch.einsum('mbnd,mlb->lbnd', q_head_g,
-                    target_mapping)
-                attn_vec_g = self.rel_attn_core(q_head_g, k_head_h,
-                    v_head_h, k_head_r, seg_mat=seg_mat, attn_mask=
-                    attn_mask_g, head_mask=head_mask)
+                q_head_g = torch.einsum('mbnd,mlb->lbnd', q_head_g, target_mapping)
+                attn_vec_g = self.rel_attn_core(q_head_g, k_head_h, v_head_h, k_head_r, seg_mat=seg_mat, attn_mask=attn_mask_g, head_mask=head_mask)
                 if self.output_attentions:
                     attn_vec_g, attn_prob_g = attn_vec_g
-                attn_vec_g = torch.einsum('lbnd,mlb->mbnd', attn_vec_g,
-                    target_mapping)
+                attn_vec_g = torch.einsum('lbnd,mlb->mbnd', attn_vec_g, target_mapping)
             else:
-                attn_vec_g = self.rel_attn_core(q_head_g, k_head_h,
-                    v_head_h, k_head_r, seg_mat=seg_mat, attn_mask=
-                    attn_mask_g, head_mask=head_mask)
+                attn_vec_g = self.rel_attn_core(q_head_g, k_head_h, v_head_h, k_head_r, seg_mat=seg_mat, attn_mask=attn_mask_g, head_mask=head_mask)
                 if self.output_attentions:
                     attn_vec_g, attn_prob_g = attn_vec_g
             output_g = self.post_attention(g, attn_vec_g)
@@ -3140,9 +2875,7 @@ class XLNetRelativeAttention(nn.Module):
             k_head_h = torch.einsum('ibh,hnd->ibnd', cat, self.k)
             v_head_h = torch.einsum('ibh,hnd->ibnd', cat, self.v)
             k_head_r = torch.einsum('ibh,hnd->ibnd', r, self.r)
-            attn_vec = self.rel_attn_core(q_head_h, k_head_h, v_head_h,
-                k_head_r, seg_mat=seg_mat, attn_mask=attn_mask_h, head_mask
-                =head_mask)
+            attn_vec = self.rel_attn_core(q_head_h, k_head_h, v_head_h, k_head_r, seg_mat=seg_mat, attn_mask=attn_mask_h, head_mask=head_mask)
             if self.output_attentions:
                 attn_vec, attn_prob = attn_vec
             output_h = self.post_attention(h, attn_vec)
@@ -3157,13 +2890,11 @@ class XLNetFeedForward(nn.Module):
 
     def __init__(self, config):
         super(XLNetFeedForward, self).__init__()
-        self.layer_norm = XLNetLayerNorm(config.d_model, eps=config.
-            layer_norm_eps)
+        self.layer_norm = XLNetLayerNorm(config.d_model, eps=config.layer_norm_eps)
         self.layer_1 = nn.Linear(config.d_model, config.d_inner)
         self.layer_2 = nn.Linear(config.d_inner, config.d_model)
         self.dropout = nn.Dropout(config.dropout)
-        if isinstance(config.ff_activation, str) or sys.version_info[0
-            ] == 2 and isinstance(config.ff_activation, unicode):
+        if isinstance(config.ff_activation, str) or sys.version_info[0] == 2 and isinstance(config.ff_activation, unicode):
             self.activation_function = ACT2FN[config.ff_activation]
         else:
             self.activation_function = config.ff_activation
@@ -3187,11 +2918,8 @@ class XLNetLayer(nn.Module):
         self.ff = XLNetFeedForward(config)
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self, output_h, output_g, attn_mask_h, attn_mask_g, r,
-        seg_mat, mems=None, target_mapping=None, head_mask=None):
-        outputs = self.rel_attn(output_h, output_g, attn_mask_h,
-            attn_mask_g, r, seg_mat, mems=mems, target_mapping=
-            target_mapping, head_mask=head_mask)
+    def forward(self, output_h, output_g, attn_mask_h, attn_mask_g, r, seg_mat, mems=None, target_mapping=None, head_mask=None):
+        outputs = self.rel_attn(output_h, output_g, attn_mask_h, attn_mask_g, r, seg_mat, mems=mems, target_mapping=target_mapping, head_mask=head_mask)
         output_h, output_g = outputs[:2]
         if output_g is not None:
             output_g = self.ff(output_g)
@@ -3205,28 +2933,23 @@ class AlbertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(AlbertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            embedding_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.embedding_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.embedding_size)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.embedding_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size)
         self.LayerNorm = BertLayerNorm(config.embedding_size, eps=1e-05)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None, position_ids=None):
         seq_length = input_ids.size(1)
         if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long,
-                device=input_ids.device)
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -3237,21 +2960,16 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -3262,16 +2980,13 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer
 
@@ -3364,13 +3079,11 @@ class AlbertEncoder(nn.Module):
 
     def __init__(self, config):
         super(AlbertEncoder, self).__init__()
-        self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size,
-            config.hidden_size)
+        self.embedding_hidden_mapping_in = nn.Linear(config.embedding_size, config.hidden_size)
         self.num_hidden_layers = config.num_hidden_layers
         self.transformer = AlbertLayer(config)
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
         hidden_states = self.embedding_hidden_mapping_in(hidden_states)
         all_encoder_layers = []
         for i in range(self.num_hidden_layers):
@@ -3410,18 +3123,14 @@ class AlbertModel(nn.Module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
-            module.bias.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.bias.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None,
-        output_all_encoded_layers=True):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -3430,9 +3139,7 @@ class AlbertModel(nn.Module):
         extended_attention_mask = extended_attention_mask
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         embedding_output = self.embeddings(input_ids, token_type_ids)
-        encoded_layers = self.encoder(embedding_output,
-            extended_attention_mask, output_all_encoded_layers=
-            output_all_encoded_layers)
+        encoded_layers = self.encoder(embedding_output, extended_attention_mask, output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:
@@ -3446,10 +3153,8 @@ class AlbertForPreTraining(nn.Module):
         super(AlbertForPreTraining, self).__init__()
         self.bert = AlbertModel(config)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None,
-        output_all_encoded_layers=True):
-        return self.bert(input_ids, token_type_ids, attention_mask,
-            output_all_encoded_layers)
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, output_all_encoded_layers=True):
+        return self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers)
 
 
 class MRC_finetune(nn.Module):
@@ -3476,20 +3181,15 @@ class AlbertForMRC(nn.Module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
-            module.bias.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.bias.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None,
-        start_positions=None, end_positions=None):
-        sequence_output, _ = self.bert(input_ids, token_type_ids,
-            attention_mask, output_all_encoded_layers=False)
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None):
+        sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         start_logits, end_logits = self.finetune_mrc(sequence_output)
         start_logits = start_logits.squeeze(-1)
         end_logits = end_logits.squeeze(-1)
@@ -3525,23 +3225,18 @@ class AlbertForMultipleChoice(nn.Module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
-            module.bias.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.bias.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None,
-        labels=None, return_logits=False):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None, return_logits=False):
         flat_input_ids = input_ids.view(-1, input_ids.size(-1))
         flat_token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
         flat_attention_mask = attention_mask.view(-1, attention_mask.size(-1))
-        _, pooled_output = self.bert(flat_input_ids, flat_token_type_ids,
-            flat_attention_mask, output_all_encoded_layers=False)
+        _, pooled_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask, output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
         reshaped_logits = logits.view(-1, self.num_choices)
@@ -3562,27 +3257,22 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-05)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -3594,26 +3284,20 @@ class ALBertEmbeddings(nn.Module):
     def __init__(self, config):
         super(ALBertEmbeddings, self).__init__()
         if config.embedding_size == config.hidden_size:
-            self.word_embeddings = nn.Embedding(config.vocab_size, config.
-                embedding_size, padding_idx=0)
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=0)
             self.word_embeddings_2 = None
         else:
-            self.word_embeddings = nn.Embedding(config.vocab_size, config.
-                embedding_size, padding_idx=0)
-            self.word_embeddings_2 = nn.Linear(config.embedding_size,
-                config.hidden_size, bias=False)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=0)
+            self.word_embeddings_2 = nn.Linear(config.embedding_size, config.hidden_size, bias=False)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-05)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None, position_ids=None):
         seq_length = input_ids.size(1)
         if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long,
-                device=input_ids.device)
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
@@ -3622,8 +3306,7 @@ class ALBertEmbeddings(nn.Module):
             words_embeddings = self.word_embeddings_2(words_embeddings)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -3634,22 +3317,17 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -3660,17 +3338,14 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer
 
@@ -3721,8 +3396,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        self.intermediate_act_fn = ACT2FN[config.hidden_act] if isinstance(
-            config.hidden_act, str) else config.hidden_act
+        self.intermediate_act_fn = ACT2FN[config.hidden_act] if isinstance(config.hidden_act, str) else config.hidden_act
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
@@ -3778,11 +3452,9 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            config.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
         all_encoder_layers = []
         for layer_module in self.layer:
             hidden_states = layer_module(hidden_states, attention_mask)
@@ -3800,8 +3472,7 @@ class ALBertEncoder(nn.Module):
         self.num_hidden_layers = config.num_hidden_layers
         self.layer_shared = BertLayer(config)
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
         all_encoder_layers = []
         for i in range(self.num_hidden_layers):
             hidden_states = self.layer_shared(hidden_states, attention_mask)
@@ -3831,8 +3502,7 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.transform_act_fn = ACT2FN[config.hidden_act] if isinstance(config
-            .hidden_act, str) else config.hidden_act
+        self.transform_act_fn = ACT2FN[config.hidden_act] if isinstance(config.hidden_act, str) else config.hidden_act
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-05)
 
     def forward(self, hidden_states):
@@ -3847,11 +3517,9 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0), bias=False)
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1), bert_model_embedding_weights.size(0), bias=False)
         self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.
-            size(0)))
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -3863,8 +3531,7 @@ class BertOnlyMLMHead(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertOnlyMLMHead, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
     def forward(self, sequence_output):
         prediction_scores = self.predictions(sequence_output)
@@ -3886,8 +3553,7 @@ class BertPreTrainingHeads(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
@@ -3900,11 +3566,7 @@ class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file, hidden_size=768,
-        num_hidden_layers=12, num_attention_heads=12, intermediate_size=
-        3072, hidden_act='gelu', hidden_dropout_prob=0.1,
-        attention_probs_dropout_prob=0.1, max_position_embeddings=512,
-        type_vocab_size=2, initializer_range=0.02):
+    def __init__(self, vocab_size_or_config_json_file, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act='gelu', hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=2, initializer_range=0.02):
         """Constructs BertConfig.
 
         Args:
@@ -3930,8 +3592,7 @@ class BertConfig(object):
                 initializing all weight matrices.
         """
         if isinstance(vocab_size_or_config_json_file, str):
-            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8'
-                ) as reader:
+            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
@@ -3948,9 +3609,7 @@ class BertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
         else:
-            raise ValueError(
-                'First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)'
-                )
+            raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
     @classmethod
     def from_dict(cls, json_object):
@@ -3980,21 +3639,7 @@ class BertConfig(object):
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
 
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz', 'bert-large-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz', 'bert-base-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz', 'bert-large-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz', 'bert-base-multilingual-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz', 'bert-base-multilingual-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz', 'bert-base-chinese': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'}
 
 
 class PreTrainedBertModel(nn.Module):
@@ -4005,28 +3650,22 @@ class PreTrainedBertModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(PreTrainedBertModel, self).__init__()
         if not isinstance(config, BertConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_bert_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
-            module.bias.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.bias.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name, state_dict=None,
-        cache_dir=None, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name, state_dict=None, cache_dir=None, *inputs, **kwargs):
         """
         Instantiate a PreTrainedBertModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -4052,26 +3691,20 @@ class PreTrainedBertModel(nn.Module):
         else:
             archive_file = pretrained_model_name
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except FileNotFoundError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                .format(pretrained_model_name, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
             return None
         if resolved_archive_file == archive_file:
             logger.info('loading archive file {}'.format(archive_file))
         else:
-            logger.info('loading archive file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading archive file {} from cache at {}'.format(archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file):
             serialization_dir = resolved_archive_file
         else:
             tempdir = tempfile.mkdtemp()
-            logger.info('extracting archive file {} to temp dir {}'.format(
-                resolved_archive_file, tempdir))
+            logger.info('extracting archive file {} to temp dir {}'.format(resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
@@ -4104,21 +3737,16 @@ class PreTrainedBertModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         load(model, prefix='' if hasattr(model, 'bert') else 'bert.')
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if tempdir:
             shutil.rmtree(tempdir)
         return model
@@ -4128,93 +3756,184 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_CLUEbenchmark_CLUE(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ALBertEmbeddings(*[], **{'config': _mock_config(embedding_size=4, hidden_size=4, vocab_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ALBertEmbeddings,
+     lambda: ([], {'config': _mock_config(embedding_size=4, hidden_size=4, vocab_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (AlbertEmbeddings,
+     lambda: ([], {'config': _mock_config(vocab_size=4, embedding_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (AlbertOnlyNSPHead,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Attention,
+     lambda: ([], {'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4, output_attentions=4, attn_pdrop=0.5, resid_pdrop=0.5)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (BertAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertEmbeddings,
+     lambda: ([], {'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (BertIntermediate,
+     lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertOnlyNSPHead,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertOutput,
+     lambda: ([], {'config': _mock_config(intermediate_size=4, hidden_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertPooler,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertPredictionHeadTransform,
+     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertSelfAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertSelfOutput,
+     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv1D,
+     lambda: ([], {'nf': 4, 'nx': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Embeddings,
+     lambda: ([], {'config': _mock_config(vocab_size=4, dim=4, max_position_embeddings=4, sinusoidal_pos_embds=4, dropout=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
+    (FFN,
+     lambda: ([], {'config': _mock_config(dropout=0.5, dim=4, hidden_dim=4, activation='relu')}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MRC_finetune,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadAttention,
+     lambda: ([], {'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {}),
+     False),
+    (MultiHeadSelfAttention,
+     lambda: ([], {'config': _mock_config(n_heads=4, dim=4, attention_dropout=0.5, output_attentions=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {}),
+     False),
+    (PoolerStartLogits,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionwiseFF,
+     lambda: ([], {'d_model': 4, 'd_inner': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RobertaClassificationHead,
+     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RobertaLMHead,
+     lambda: ([], {'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SQuADHead,
+     lambda: ([], {'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (TransformerFFN,
+     lambda: ([], {'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'config': _mock_config(dropout=0.5, gelu_activation=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_CLUEbenchmark_CLUE(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(AlbertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, embedding_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(AlbertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Attention(*[], **{'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4, output_attentions=4, attn_pdrop=0.5, resid_pdrop=0.5)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(BertAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(BertSelfOutput(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Embeddings(*[], **{'config': _mock_config(vocab_size=4, dim=4, max_position_embeddings=4, sinusoidal_pos_embds=4, dropout=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(FFN(*[], **{'config': _mock_config(dropout=0.5, dim=4, hidden_dim=4, activation='relu')}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(MRC_finetune(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(MultiHeadAttention(*[], **{'n_heads': 4, 'dim': 4, 'config': _mock_config(output_attentions=4, attention_dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(MultiHeadSelfAttention(*[], **{'config': _mock_config(n_heads=4, dim=4, attention_dropout=0.5, output_attentions=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 1, 1, 4])], {})
+        self._check(*TESTCASES[18])
 
-    @_fails_compile()
     def test_019(self):
-        self._check(PoolerStartLogits(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(PositionwiseFF(*[], **{'d_model': 4, 'd_inner': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
-    @_fails_compile()
     def test_021(self):
-        self._check(RobertaClassificationHead(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
-    @_fails_compile()
     def test_022(self):
-        self._check(RobertaLMHead(*[], **{'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
 
-    @_fails_compile()
     def test_023(self):
-        self._check(SQuADHead(*[], **{'config': _mock_config(start_n_top=4, end_n_top=4, hidden_size=4, layer_norm_eps=1)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
     def test_024(self):
-        self._check(TransformerFFN(*[], **{'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'config': _mock_config(dropout=0.5, gelu_activation=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[24])
 

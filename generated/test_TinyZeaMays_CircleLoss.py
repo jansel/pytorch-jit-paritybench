@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,8 +61,7 @@ class CircleLoss(nn.Module):
         delta_n = self.m
         logit_p = -ap * (sp - delta_p) * self.gamma
         logit_n = an * (sn - delta_n) * self.gamma
-        loss = self.soft_plus(torch.logsumexp(logit_n, dim=0) + torch.
-            logsumexp(logit_p, dim=0))
+        loss = self.soft_plus(torch.logsumexp(logit_n, dim=0) + torch.logsumexp(logit_p, dim=0))
         return loss
 
 
@@ -71,8 +71,7 @@ class NormLinear(nn.Linear):
         super(NormLinear, self).__init__(in_features, out_features, bias=False)
 
     def forward(self, inp: Tensor) ->Tensor:
-        return nn.functional.linear(nn.functional.normalize(inp), nn.
-            functional.normalize(self.weight))
+        return nn.functional.linear(nn.functional.normalize(inp), nn.functional.normalize(self.weight))
 
 
 class CircleLossLikeCE(nn.Module):
@@ -85,13 +84,10 @@ class CircleLossLikeCE(nn.Module):
 
     def forward(self, inp: Tensor, label: Tensor) ->Tensor:
         a = torch.clamp_min(inp + self.m, min=0).detach()
-        src = torch.clamp_min(-inp.gather(dim=1, index=label.unsqueeze(1)) +
-            1 + self.m, min=0).detach()
+        src = torch.clamp_min(-inp.gather(dim=1, index=label.unsqueeze(1)) + 1 + self.m, min=0).detach()
         a.scatter_(dim=1, index=label.unsqueeze(1), src=src)
-        sigma = torch.ones_like(inp, device=inp.device, dtype=inp.dtype
-            ) * self.m
-        src = torch.ones_like(label.unsqueeze(1), dtype=inp.dtype, device=
-            inp.device) - self.m
+        sigma = torch.ones_like(inp, device=inp.device, dtype=inp.dtype) * self.m
+        src = torch.ones_like(label.unsqueeze(1), dtype=inp.dtype, device=inp.device) - self.m
         sigma.scatter_(dim=1, index=label.unsqueeze(1), src=src)
         return self.loss(a * (inp - sigma) * self.gamma, label)
 
@@ -110,8 +106,7 @@ class CircleLossBackward(nn.Module):
         delta_n = self.m
         logit_p = -ap * (sp - delta_p) * self.gamma
         logit_n = an * (sn - delta_n) * self.gamma
-        loss = torch.log(1 + torch.clamp_max(torch.exp(logit_n).sum() *
-            torch.exp(logit_p).sum(), max=1e+38))
+        loss = torch.log(1 + torch.clamp_max(torch.exp(logit_n).sum() * torch.exp(logit_p).sum(), max=1e+38))
         z = -torch.exp(-loss) + 1
         """
         Eq. 10:
@@ -119,10 +114,8 @@ class CircleLossBackward(nn.Module):
         I modified it to 
         sp.backward(gradient=z * (- ap) * torch.softmax(logit_p, dim=0) * self.gamma, retain_graph=True)
         """
-        sp.backward(gradient=z * -ap * torch.softmax(logit_p, dim=0) * self
-            .gamma, retain_graph=True)
-        sn.backward(gradient=z * an * torch.softmax(logit_n, dim=0) * self.
-            gamma)
+        sp.backward(gradient=z * -ap * torch.softmax(logit_p, dim=0) * self.gamma, retain_graph=True)
+        sn.backward(gradient=z * an * torch.softmax(logit_n, dim=0) * self.gamma)
         return loss.detach()
 
 
@@ -130,12 +123,7 @@ class Model(nn.Module):
 
     def __init__(self) ->None:
         super(Model, self).__init__()
-        self.feature_extractor = nn.Sequential(nn.Conv2d(in_channels=1,
-            out_channels=8, kernel_size=5), nn.MaxPool2d(kernel_size=2), nn
-            .ReLU(), nn.Conv2d(in_channels=8, out_channels=16, kernel_size=
-            5), nn.MaxPool2d(kernel_size=2), nn.ReLU(), nn.Conv2d(
-            in_channels=16, out_channels=32, kernel_size=3), nn.MaxPool2d(
-            kernel_size=2), nn.ReLU())
+        self.feature_extractor = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=8, kernel_size=5), nn.MaxPool2d(kernel_size=2), nn.ReLU(), nn.Conv2d(in_channels=8, out_channels=16, kernel_size=5), nn.MaxPool2d(kernel_size=2), nn.ReLU(), nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3), nn.MaxPool2d(kernel_size=2), nn.ReLU())
 
     def forward(self, inp: Tensor) ->Tensor:
         feature = self.feature_extractor(inp).mean(dim=[2, 3])
@@ -146,14 +134,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CircleLoss,
+     lambda: ([], {'m': 4, 'gamma': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (NormLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_TinyZeaMays_CircleLoss(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CircleLoss(*[], **{'m': 4, 'gamma': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NormLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

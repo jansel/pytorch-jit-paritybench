@@ -72,8 +72,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -164,8 +165,7 @@ class BertClassifier(nn.Module):
             output = output[:, (0), :]
         output = torch.tanh(self.output_layer_1(output))
         logits = self.output_layer_2(output)
-        loss = self.criterion(self.softmax(logits.view(-1, self.labels_num)
-            ), label.view(-1))
+        loss = self.criterion(self.softmax(logits.view(-1, self.labels_num)), label.view(-1))
         return loss, logits
 
 
@@ -194,8 +194,7 @@ class BertQuestionAnswering(nn.Module):
         start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1)
         end_logits = end_logits.squeeze(-1)
-        start_loss = self.criterion(self.softmax(start_logits), start_positions
-            )
+        start_loss = self.criterion(self.softmax(start_logits), start_positions)
         end_loss = self.criterion(self.softmax(end_logits), end_positions)
         loss = (start_loss + end_loss) / 2
         return loss, start_logits, end_logits
@@ -232,8 +231,7 @@ class BertTagger(nn.Module):
         output = self.softmax(output)
         label = label.contiguous().view(-1, 1)
         label_mask = (label > 0).float()
-        one_hot = torch.zeros(label_mask.size(0), self.labels_num).scatter_(
-            1, label, 1.0)
+        one_hot = torch.zeros(label_mask.size(0), self.labels_num).scatter_(1, label, 1.0)
         numerator = -torch.sum(output * one_hot, 1)
         label_mask = label_mask.contiguous().view(-1)
         label = label.contiguous().view(-1)
@@ -319,11 +317,8 @@ class AttnEncoder(nn.Module):
     def __init__(self, args):
         super(AttnEncoder, self).__init__()
         self.layers_num = args.layers_num
-        self.self_attn = MultiHeadedAttention(args.hidden_size, args.
-            heads_num, args.dropout)
-        self.self_attn = nn.ModuleList([MultiHeadedAttention(args.
-            hidden_size, args.heads_num, args.dropout) for _ in range(self.
-            layers_num)])
+        self.self_attn = MultiHeadedAttention(args.hidden_size, args.heads_num, args.dropout)
+        self.self_attn = nn.ModuleList([MultiHeadedAttention(args.hidden_size, args.heads_num, args.dropout) for _ in range(self.layers_num)])
 
     def forward(self, emb, seg):
         """
@@ -352,8 +347,7 @@ class BertEncoder(nn.Module):
     def __init__(self, args):
         super(BertEncoder, self).__init__()
         self.layers_num = args.layers_num
-        self.transformer = nn.ModuleList([TransformerLayer(args) for _ in
-            range(self.layers_num)])
+        self.transformer = nn.ModuleList([TransformerLayer(args) for _ in range(self.layers_num)])
 
     def forward(self, emb, seg):
         """
@@ -376,8 +370,7 @@ class BertEncoder(nn.Module):
 
 def flip(x, dim):
     indices = [slice(None)] * x.dim()
-    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long,
-        device=x.device)
+    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long, device=x.device)
     return x[tuple(indices)]
 
 
@@ -388,34 +381,24 @@ class BilstmEncoder(nn.Module):
         assert args.hidden_size % 2 == 0
         self.hidden_size = args.hidden_size // 2
         self.layers_num = args.layers_num
-        self.rnn_forward = nn.LSTM(input_size=args.emb_size, hidden_size=
-            self.hidden_size, num_layers=args.layers_num, dropout=args.
-            dropout, batch_first=True)
-        self.rnn_backward = nn.LSTM(input_size=args.emb_size, hidden_size=
-            self.hidden_size, num_layers=args.layers_num, dropout=args.
-            dropout, batch_first=True)
+        self.rnn_forward = nn.LSTM(input_size=args.emb_size, hidden_size=self.hidden_size, num_layers=args.layers_num, dropout=args.dropout, batch_first=True)
+        self.rnn_backward = nn.LSTM(input_size=args.emb_size, hidden_size=self.hidden_size, num_layers=args.layers_num, dropout=args.dropout, batch_first=True)
         self.drop = nn.Dropout(args.dropout)
 
     def forward(self, emb, seg):
         emb_forward = emb
-        hidden_forward = self.init_hidden(emb_forward.size(0), emb_forward.
-            device)
-        output_forward, hidden_forward = self.rnn_forward(emb_forward,
-            hidden_forward)
+        hidden_forward = self.init_hidden(emb_forward.size(0), emb_forward.device)
+        output_forward, hidden_forward = self.rnn_forward(emb_forward, hidden_forward)
         output_forward = self.drop(output_forward)
         emb_backward = flip(emb, 1)
-        hidden_backward = self.init_hidden(emb_backward.size(0),
-            emb_backward.device)
-        output_backward, hidden_backward = self.rnn_backward(emb_backward,
-            hidden_backward)
+        hidden_backward = self.init_hidden(emb_backward.size(0), emb_backward.device)
+        output_backward, hidden_backward = self.rnn_backward(emb_backward, hidden_backward)
         output_backward = self.drop(output_backward)
         output_backward = flip(output_backward, 1)
         return torch.cat([output_forward, output_backward], 2)
 
     def init_hidden(self, batch_size, device):
-        return torch.zeros(self.layers_num, batch_size, self.hidden_size,
-            device=device), torch.zeros(self.layers_num, batch_size, self.
-            hidden_size, device=device)
+        return torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device), torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device)
 
 
 class CnnEncoder(nn.Module):
@@ -427,27 +410,21 @@ class CnnEncoder(nn.Module):
         self.block_size = args.block_size
         self.emb_size = args.emb_size
         self.hidden_size = args.hidden_size
-        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size,
-            args.emb_size))
-        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.
-            hidden_size, (args.kernel_size, 1)) for _ in range(args.
-            layers_num)])
+        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size, args.emb_size))
+        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.hidden_size, (args.kernel_size, 1)) for _ in range(args.layers_num)])
 
     def forward(self, emb, seg):
         batch_size, seq_len, _ = emb.size()
-        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            )
+        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size])
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         hidden = self.conv_1(emb)
-        padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1])
+        padding = torch.zeros([batch_size, self.hidden_size, self.kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, conv_i in enumerate(self.conv):
             hidden = conv_i(hidden)
             hidden = torch.cat([padding, hidden], dim=2)
         hidden = hidden[:, :, self.kernel_size - 1:, :]
-        output = hidden.transpose(1, 2).contiguous().view(batch_size,
-            seq_len, self.hidden_size)
+        output = hidden.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_size)
         return output
 
 
@@ -460,28 +437,20 @@ class GatedcnnEncoder(nn.Module):
         self.block_size = args.block_size
         self.emb_size = args.emb_size
         self.hidden_size = args.hidden_size
-        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size,
-            args.emb_size))
-        self.gate_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size,
-            args.emb_size))
-        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.
-            hidden_size, (args.kernel_size, 1)) for _ in range(args.
-            layers_num - 1)])
-        self.gate = nn.ModuleList([nn.Conv2d(args.hidden_size, args.
-            hidden_size, (args.kernel_size, 1)) for _ in range(args.
-            layers_num - 1)])
+        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size, args.emb_size))
+        self.gate_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size, args.emb_size))
+        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.hidden_size, (args.kernel_size, 1)) for _ in range(args.layers_num - 1)])
+        self.gate = nn.ModuleList([nn.Conv2d(args.hidden_size, args.hidden_size, (args.kernel_size, 1)) for _ in range(args.layers_num - 1)])
 
     def forward(self, emb, seg):
         batch_size, seq_len, _ = emb.size()
         res_input = torch.transpose(emb.unsqueeze(3), 1, 2)
-        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            )
+        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size])
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         hidden = self.conv_1(emb)
         gate = self.gate_1(emb)
         hidden = hidden * torch.sigmoid(gate)
-        padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1])
+        padding = torch.zeros([batch_size, self.hidden_size, self.kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, (conv_i, gate_i) in enumerate(zip(self.conv, self.gate)):
             hidden, gate = conv_i(hidden), gate_i(hidden)
@@ -491,8 +460,7 @@ class GatedcnnEncoder(nn.Module):
                 res_input = hidden
             hidden = torch.cat([padding, hidden], dim=2)
         hidden = hidden[:, :, self.kernel_size - 1:, :]
-        output = hidden.transpose(1, 2).contiguous().view(batch_size,
-            seq_len, self.hidden_size)
+        output = hidden.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_size)
         return output
 
 
@@ -504,8 +472,7 @@ class GptEncoder(nn.Module):
     def __init__(self, args):
         super(GptEncoder, self).__init__()
         self.layers_num = args.layers_num
-        self.transformer = nn.ModuleList([TransformerLayer(args) for _ in
-            range(self.layers_num)])
+        self.transformer = nn.ModuleList([TransformerLayer(args) for _ in range(self.layers_num)])
 
     def forward(self, emb, seg):
         """
@@ -535,40 +502,30 @@ class RcnnEncoder(nn.Module):
         self.hidden_size = args.hidden_size
         self.kernel_size = args.kernel_size
         self.layers_num = args.layers_num
-        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=args.
-            hidden_size, num_layers=args.layers_num, dropout=args.dropout,
-            batch_first=True)
+        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=args.hidden_size, num_layers=args.layers_num, dropout=args.dropout, batch_first=True)
         self.drop = nn.Dropout(args.dropout)
-        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size,
-            args.emb_size))
-        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.
-            hidden_size, (args.kernel_size, 1)) for _ in range(args.
-            layers_num - 1)])
+        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size, args.emb_size))
+        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.hidden_size, (args.kernel_size, 1)) for _ in range(args.layers_num - 1)])
 
     def forward(self, emb, seg):
         batch_size, seq_len, _ = emb.size()
         hidden = self.init_hidden(batch_size, emb.device)
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
-        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            )
+        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size])
         hidden = torch.cat([padding, output], dim=1).unsqueeze(1)
         hidden = self.conv_1(hidden)
-        padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1])
+        padding = torch.zeros([batch_size, self.hidden_size, self.kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, conv_i in enumerate(self.conv):
             hidden = conv_i(hidden)
             hidden = torch.cat([padding, hidden], dim=2)
         hidden = hidden[:, :, self.kernel_size - 1:, :]
-        output = hidden.transpose(1, 2).contiguous().view(batch_size,
-            seq_len, self.hidden_size)
+        output = hidden.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_size)
         return output
 
     def init_hidden(self, batch_size, device):
-        return torch.zeros(self.layers_num, batch_size, self.hidden_size,
-            device=device), torch.zeros(self.layers_num, batch_size, self.
-            hidden_size, device=device)
+        return torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device), torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device)
 
 
 class CrnnEncoder(nn.Module):
@@ -579,40 +536,30 @@ class CrnnEncoder(nn.Module):
         self.hidden_size = args.hidden_size
         self.kernel_size = args.kernel_size
         self.layers_num = args.layers_num
-        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size,
-            args.emb_size))
-        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.
-            hidden_size, (args.kernel_size, 1)) for _ in range(args.
-            layers_num - 1)])
-        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=args.
-            hidden_size, num_layers=args.layers_num, dropout=args.dropout,
-            batch_first=True)
+        self.conv_1 = nn.Conv2d(1, args.hidden_size, (args.kernel_size, args.emb_size))
+        self.conv = nn.ModuleList([nn.Conv2d(args.hidden_size, args.hidden_size, (args.kernel_size, 1)) for _ in range(args.layers_num - 1)])
+        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=args.hidden_size, num_layers=args.layers_num, dropout=args.dropout, batch_first=True)
         self.drop = nn.Dropout(args.dropout)
 
     def forward(self, emb, seg):
         batch_size, seq_len, _ = emb.size()
-        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size]
-            )
+        padding = torch.zeros([batch_size, self.kernel_size - 1, self.emb_size])
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         hidden = self.conv_1(emb)
-        padding = torch.zeros([batch_size, self.hidden_size, self.
-            kernel_size - 1, 1])
+        padding = torch.zeros([batch_size, self.hidden_size, self.kernel_size - 1, 1])
         hidden = torch.cat([padding, hidden], dim=2)
         for i, conv_i in enumerate(self.conv):
             hidden = conv_i(hidden)
             hidden = torch.cat([padding, hidden], dim=2)
         hidden = hidden[:, :, self.kernel_size - 1:, :]
-        output = hidden.transpose(1, 2).contiguous().view(batch_size,
-            seq_len, self.hidden_size)
+        output = hidden.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_size)
         hidden = self.init_hidden(batch_size, emb.device)
         output, hidden = self.rnn(output, hidden)
         output = self.drop(output)
         return output
 
     def init_hidden(self, batch_size, device):
-        return torch.zeros(self.layers_num, batch_size, self.hidden_size,
-            device=device), torch.zeros(self.layers_num, batch_size, self.
-            hidden_size, device=device)
+        return torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device), torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device)
 
 
 class LstmEncoder(nn.Module):
@@ -626,9 +573,7 @@ class LstmEncoder(nn.Module):
         else:
             self.hidden_size = args.hidden_size
         self.layers_num = args.layers_num
-        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=self.
-            hidden_size, num_layers=args.layers_num, dropout=args.dropout,
-            batch_first=True, bidirectional=self.bidirectional)
+        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=self.hidden_size, num_layers=args.layers_num, dropout=args.dropout, batch_first=True, bidirectional=self.bidirectional)
         self.drop = nn.Dropout(args.dropout)
 
     def forward(self, emb, seg):
@@ -639,13 +584,9 @@ class LstmEncoder(nn.Module):
 
     def init_hidden(self, batch_size, device):
         if self.bidirectional:
-            return torch.zeros(self.layers_num * 2, batch_size, self.
-                hidden_size, device=device), torch.zeros(self.layers_num * 
-                2, batch_size, self.hidden_size, device=device)
+            return torch.zeros(self.layers_num * 2, batch_size, self.hidden_size, device=device), torch.zeros(self.layers_num * 2, batch_size, self.hidden_size, device=device)
         else:
-            return torch.zeros(self.layers_num, batch_size, self.
-                hidden_size, device=device), torch.zeros(self.layers_num,
-                batch_size, self.hidden_size, device=device)
+            return torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device), torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device)
 
 
 class GruEncoder(nn.Module):
@@ -659,9 +600,7 @@ class GruEncoder(nn.Module):
         else:
             self.hidden_size = args.hidden_size
         self.layers_num = args.layers_num
-        self.rnn = nn.GRU(input_size=args.emb_size, hidden_size=self.
-            hidden_size, num_layers=args.layers_num, dropout=args.dropout,
-            batch_first=True, bidirectional=self.bidirectional)
+        self.rnn = nn.GRU(input_size=args.emb_size, hidden_size=self.hidden_size, num_layers=args.layers_num, dropout=args.dropout, batch_first=True, bidirectional=self.bidirectional)
         self.drop = nn.Dropout(args.dropout)
 
     def forward(self, emb, seg):
@@ -672,11 +611,9 @@ class GruEncoder(nn.Module):
 
     def init_hidden(self, batch_size, device):
         if self.bidirectional:
-            return torch.zeros(self.layers_num * 2, batch_size, self.
-                hidden_size, device=device)
+            return torch.zeros(self.layers_num * 2, batch_size, self.hidden_size, device=device)
         else:
-            return torch.zeros(self.layers_num, batch_size, self.
-                hidden_size, device=device)
+            return torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device)
 
 
 class BertEmbedding(nn.Module):
@@ -696,9 +633,7 @@ class BertEmbedding(nn.Module):
 
     def forward(self, src, seg):
         word_emb = self.word_embedding(src)
-        pos_emb = self.position_embedding(torch.arange(0, word_emb.size(1),
-            device=word_emb.device, dtype=torch.long).unsqueeze(0).repeat(
-            word_emb.size(0), 1))
+        pos_emb = self.position_embedding(torch.arange(0, word_emb.size(1), device=word_emb.device, dtype=torch.long).unsqueeze(0).repeat(word_emb.size(0), 1))
         seg_emb = self.segment_embedding(seg)
         emb = word_emb + pos_emb + seg_emb
         emb = self.dropout(self.layer_norm(emb))
@@ -746,8 +681,7 @@ class MultiHeadedAttention(nn.Module):
         self.hidden_size = hidden_size
         self.heads_num = heads_num
         self.per_head_size = hidden_size // heads_num
-        self.linear_layers = nn.ModuleList([nn.Linear(hidden_size,
-            hidden_size) for _ in range(3)])
+        self.linear_layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(3)])
         self.dropout = nn.Dropout(dropout)
         self.final_linear = nn.Linear(hidden_size, hidden_size)
 
@@ -767,15 +701,11 @@ class MultiHeadedAttention(nn.Module):
         per_head_size = self.per_head_size
 
         def shape(x):
-            return x.contiguous().view(batch_size, seq_length, heads_num,
-                per_head_size).transpose(1, 2)
+            return x.contiguous().view(batch_size, seq_length, heads_num, per_head_size).transpose(1, 2)
 
         def unshape(x):
-            return x.transpose(1, 2).contiguous().view(batch_size,
-                seq_length, hidden_size)
-        query, key, value = [l(x).view(batch_size, -1, heads_num,
-            per_head_size).transpose(1, 2) for l, x in zip(self.
-            linear_layers, (query, key, value))]
+            return x.transpose(1, 2).contiguous().view(batch_size, seq_length, hidden_size)
+        query, key, value = [l(x).view(batch_size, -1, heads_num, per_head_size).transpose(1, 2) for l, x in zip(self.linear_layers, (query, key, value))]
         scores = torch.matmul(query, key.transpose(-2, -1))
         scores = scores / math.sqrt(float(per_head_size))
         scores = scores + mask
@@ -808,12 +738,10 @@ class TransformerLayer(nn.Module):
 
     def __init__(self, args):
         super(TransformerLayer, self).__init__()
-        self.self_attn = MultiHeadedAttention(args.hidden_size, args.
-            heads_num, args.dropout)
+        self.self_attn = MultiHeadedAttention(args.hidden_size, args.heads_num, args.dropout)
         self.dropout_1 = nn.Dropout(args.dropout)
         self.layer_norm_1 = LayerNorm(args.hidden_size)
-        self.feed_forward = PositionwiseFeedForward(args.hidden_size, args.
-            feedforward_size)
+        self.feed_forward = PositionwiseFeedForward(args.hidden_size, args.feedforward_size)
         self.dropout_2 = nn.Dropout(args.dropout)
         self.layer_norm_2 = LayerNorm(args.hidden_size)
 
@@ -854,8 +782,7 @@ class BertModel(nn.Module):
         mask = mask.float()
         mask = (1.0 - mask) * -10000.0
         output = self.encoder(emb, mask)
-        loss_mlm, loss_nsp, correct_mlm, correct_nsp, denominator = (self.
-            target(output, tgt_mlm, tgt_nsp))
+        loss_mlm, loss_nsp, correct_mlm, correct_nsp, denominator = self.target(output, tgt_mlm, tgt_nsp)
         return loss_mlm, loss_nsp, correct_mlm, correct_nsp, denominator
 
 
@@ -871,8 +798,7 @@ def word2sub(word_ids, vocab, sub_vocab, subword_type):
     word_ids = word_ids.contiguous().view(-1).tolist()
     words = [vocab.i2w[i] for i in word_ids]
     max_length = max([len(w) for w in words])
-    sub_ids = torch.zeros((len(words), max_length), dtype=torch.long).to(device
-        )
+    sub_ids = torch.zeros((len(words), max_length), dtype=torch.long).to(device)
     for i in range(len(words)):
         for j, c in enumerate(words[i]):
             sub_ids[i, j] = sub_vocab.w2i.get(c, UNK_ID)
@@ -902,8 +828,7 @@ class Model(nn.Module):
     def forward(self, src, tgt, seg):
         emb = self.embedding(src, seg)
         if self.subencoder is not None:
-            sub_ids = word2sub(src, self.vocab, self.sub_vocab, self.
-                subword_type)
+            sub_ids = word2sub(src, self.vocab, self.sub_vocab, self.subword_type)
             emb = emb + self.subencoder(sub_ids).contiguous().view(*emb.size())
         output = self.encoder(emb, seg)
         loss_info = self.target(output, tgt)
@@ -929,13 +854,11 @@ class CnnSubencoder(nn.Module):
         self.kernel_size = args.kernel_size
         self.emb_size = args.emb_size
         self.embedding_layer = nn.Embedding(vocab_size, args.emb_size)
-        self.cnn = nn.Conv2d(1, args.emb_size, (args.kernel_size, args.
-            emb_size))
+        self.cnn = nn.Conv2d(1, args.emb_size, (args.kernel_size, args.emb_size))
 
     def forward(self, ids):
         emb = self.embedding_layer(ids)
-        padding = torch.zeros([emb.size(0), self.kernel_size - 1, self.
-            emb_size])
+        padding = torch.zeros([emb.size(0), self.kernel_size - 1, self.emb_size])
         emb = torch.cat([padding, emb], dim=1).unsqueeze(1)
         conv_output = F.relu(self.cnn(emb)).squeeze(3)
         conv_output = F.max_pool1d(conv_output, conv_output.size(2)).squeeze(2)
@@ -949,14 +872,11 @@ class LstmSubencoder(nn.Module):
         self.hidden_size = args.emb_size
         self.layers_num = args.sub_layers_num
         self.embedding_layer = nn.Embedding(vocab_size, args.emb_size)
-        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=self.
-            hidden_size, num_layers=self.layers_num, dropout=args.dropout,
-            batch_first=True)
+        self.rnn = nn.LSTM(input_size=args.emb_size, hidden_size=self.hidden_size, num_layers=self.layers_num, dropout=args.dropout, batch_first=True)
 
     def forward(self, ids):
         batch_size, _ = ids.size()
-        hidden = torch.zeros(self.layers_num, batch_size, self.hidden_size
-            ), torch.zeros(self.layers_num, batch_size, self.hidden_size)
+        hidden = torch.zeros(self.layers_num, batch_size, self.hidden_size), torch.zeros(self.layers_num, batch_size, self.hidden_size)
         emb = self.embedding_layer(ids)
         output, hidden = self.rnn(emb, hidden)
         output = output.mean(1)
@@ -990,8 +910,7 @@ class BertTarget(nn.Module):
         tgt_mlm = tgt_mlm[tgt_mlm > 0]
         output_mlm = self.mlm_linear_2(output_mlm)
         output_mlm = self.softmax(output_mlm)
-        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).scatter_(
-            1, tgt_mlm.contiguous().view(-1, 1), 1.0)
+        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).scatter_(1, tgt_mlm.contiguous().view(-1, 1), 1.0)
         numerator = -torch.sum(output_mlm * one_hot, 1)
         denominator = torch.tensor(output_mlm.size(0) + 1e-06)
         loss_mlm = torch.sum(numerator) / denominator
@@ -1045,42 +964,33 @@ class BilmTarget(nn.Module):
         """
         assert type(tgt) == tuple
         tgt_forward, tgt_backward = tgt[0], tgt[1]
-        output_forward = self.output_layer(memory_bank[:, :, :self.hidden_size]
-            )
+        output_forward = self.output_layer(memory_bank[:, :, :self.hidden_size])
         output_forward = output_forward.contiguous().view(-1, self.vocab_size)
         output_forward = self.softmax(output_forward)
         tgt_forward = tgt_forward.contiguous().view(-1, 1)
         label_mask_forward = (tgt_forward > 0).float()
-        one_hot_forward = torch.zeros(label_mask_forward.size(0), self.
-            vocab_size).scatter_(1, tgt_forward, 1.0)
+        one_hot_forward = torch.zeros(label_mask_forward.size(0), self.vocab_size).scatter_(1, tgt_forward, 1.0)
         numerator_forward = -torch.sum(output_forward * one_hot_forward, 1)
         label_mask_forward = label_mask_forward.contiguous().view(-1)
         tgt_forward = tgt_forward.contiguous().view(-1)
         numerator_forward = torch.sum(label_mask_forward * numerator_forward)
         denominator_forward = torch.sum(label_mask_forward) + 1e-06
         loss_forward = numerator_forward / denominator_forward
-        correct_forward = torch.sum(label_mask_forward * output_forward.
-            argmax(dim=-1).eq(tgt_forward).float())
-        output_backward = self.output_layer(memory_bank[:, :, self.
-            hidden_size:])
-        output_backward = output_backward.contiguous().view(-1, self.vocab_size
-            )
+        correct_forward = torch.sum(label_mask_forward * output_forward.argmax(dim=-1).eq(tgt_forward).float())
+        output_backward = self.output_layer(memory_bank[:, :, self.hidden_size:])
+        output_backward = output_backward.contiguous().view(-1, self.vocab_size)
         output_backward = self.softmax(output_backward)
         tgt_backward = tgt_backward.contiguous().view(-1, 1)
         label_mask_backward = (tgt_backward > 0).float()
-        one_hot_backward = torch.zeros(label_mask_backward.size(0), self.
-            vocab_size).scatter_(1, tgt_backward, 1.0)
+        one_hot_backward = torch.zeros(label_mask_backward.size(0), self.vocab_size).scatter_(1, tgt_backward, 1.0)
         numerator_backward = -torch.sum(output_backward * one_hot_backward, 1)
         label_mask_backward = label_mask_backward.contiguous().view(-1)
         tgt_backward = tgt_backward.contiguous().view(-1)
-        numerator_backward = torch.sum(label_mask_backward * numerator_backward
-            )
+        numerator_backward = torch.sum(label_mask_backward * numerator_backward)
         denominator_backward = torch.sum(label_mask_backward) + 1e-06
         loss_backward = numerator_backward / denominator_backward
-        correct_backward = torch.sum(label_mask_backward * output_backward.
-            argmax(dim=-1).eq(tgt_backward).float())
-        return (loss_forward, loss_backward, correct_forward,
-            correct_backward, denominator_backward)
+        correct_backward = torch.sum(label_mask_backward * output_backward.argmax(dim=-1).eq(tgt_backward).float())
+        return loss_forward, loss_backward, correct_forward, correct_backward, denominator_backward
 
 
 class ClsTarget(nn.Module):
@@ -1140,8 +1050,7 @@ class LmTarget(nn.Module):
         output = self.softmax(output)
         tgt = tgt.contiguous().view(-1, 1)
         label_mask = (tgt > 0).float()
-        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).scatter_(
-            1, tgt, 1.0)
+        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).scatter_(1, tgt, 1.0)
         numerator = -torch.sum(output * one_hot, 1)
         label_mask = label_mask.contiguous().view(-1)
         tgt = tgt.contiguous().view(-1)
@@ -1177,16 +1086,14 @@ class MlmTarget(nn.Module):
         tgt_mlm = tgt_mlm[tgt_mlm > 0]
         output_mlm = self.mlm_linear_2(output_mlm)
         output_mlm = self.softmax(output_mlm)
-        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).scatter_(
-            1, tgt_mlm.contiguous().view(-1, 1), 1.0)
+        one_hot = torch.zeros(output_mlm.size(0), self.vocab_size).scatter_(1, tgt_mlm.contiguous().view(-1, 1), 1.0)
         numerator = -torch.sum(output_mlm * one_hot, 1)
         denominator = torch.tensor(output_mlm.size(0) + 1e-06)
         loss_mlm = torch.sum(numerator) / denominator
         if output_mlm.size(0) == 0:
             correct_mlm = torch.tensor(0.0)
         else:
-            correct_mlm = torch.sum(output_mlm.argmax(dim=-1).eq(tgt_mlm).
-                float())
+            correct_mlm = torch.sum(output_mlm.argmax(dim=-1).eq(tgt_mlm).float())
         return loss_mlm, correct_mlm, denominator
 
     def forward(self, memory_bank, tgt):
@@ -1241,16 +1148,14 @@ class S2sTarget(nn.Module):
         self.vocab_size = vocab_size
         self.hidden_size = args.hidden_size
         self.embedding_layer = nn.Embedding(vocab_size, args.emb_size)
-        self.decoder = nn.LSTM(args.emb_size, args.hidden_size, 1,
-            batch_first=True)
+        self.decoder = nn.LSTM(args.emb_size, args.hidden_size, 1, batch_first=True)
         self.output_layer = nn.Linear(self.hidden_size, self.vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, memory_bank, tgt):
         emb = self.embedding_layer(tgt[:, :])
         output = []
-        hidden_state = memory_bank[:, (-1), :].unsqueeze(0).contiguous(
-            ), memory_bank[:, (-1), :].unsqueeze(0).contiguous()
+        hidden_state = memory_bank[:, (-1), :].unsqueeze(0).contiguous(), memory_bank[:, (-1), :].unsqueeze(0).contiguous()
         for i, emb_i in enumerate(emb.split(1, dim=1)):
             output_i, hidden_state = self.decoder(emb_i, hidden_state)
             output.append(self.output_layer(output_i))
@@ -1259,8 +1164,7 @@ class S2sTarget(nn.Module):
         output = self.softmax(output)
         tgt = tgt.contiguous().view(-1, 1)
         label_mask = (tgt > 0).float()
-        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).scatter_(
-            1, tgt, 1.0)
+        one_hot = torch.zeros(label_mask.size(0), self.vocab_size).scatter_(1, tgt, 1.0)
         numerator = -torch.sum(output * one_hot, 1)
         label_mask = label_mask.contiguous().view(-1)
         tgt = tgt.contiguous().view(-1)
@@ -1275,61 +1179,128 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttnEncoder,
+     lambda: ([], {'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (AvgSubencoder,
+     lambda: ([], {'args': _mock_config(emb_size=4), 'vocab_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (BertEmbedding,
+     lambda: ([], {'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (BertEncoder,
+     lambda: ([], {'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (BilstmEncoder,
+     lambda: ([], {'args': _mock_config(hidden_size=4, layers_num=1, emb_size=4, dropout=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CnnEncoder,
+     lambda: ([], {'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CrnnEncoder,
+     lambda: ([], {'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GatedcnnEncoder,
+     lambda: ([], {'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GptEncoder,
+     lambda: ([], {'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LmTarget,
+     lambda: ([], {'args': _mock_config(hidden_size=4), 'vocab_size': 4}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.zeros([1024], dtype=torch.int64)], {}),
+     True),
+    (LstmSubencoder,
+     lambda: ([], {'args': _mock_config(emb_size=4, sub_layers_num=1, dropout=0.5), 'vocab_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
+    (MultiHeadedAttention,
+     lambda: ([], {'hidden_size': 4, 'heads_num': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 64, 4]), torch.rand([4, 16, 4, 4]), torch.rand([4, 64, 4]), torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (PositionwiseFeedForward,
+     lambda: ([], {'hidden_size': 4, 'feedforward_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RcnnEncoder,
+     lambda: ([], {'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TransformerLayer,
+     lambda: ([], {'args': _mock_config(hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WordEmbedding,
+     lambda: ([], {'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_dbiir_UER_py(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AttnEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AvgSubencoder(*[], **{'args': _mock_config(emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BertEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(BertEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(BilstmEncoder(*[], **{'args': _mock_config(hidden_size=4, layers_num=1, emb_size=4, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(CnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(CrnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(GatedcnnEncoder(*[], **{'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(GptEncoder(*[], **{'args': _mock_config(layers_num=1, hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(LstmSubencoder(*[], **{'args': _mock_config(emb_size=4, sub_layers_num=1, dropout=0.5), 'vocab_size': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(MultiHeadedAttention(*[], **{'hidden_size': 4, 'heads_num': 4, 'dropout': 0.5}), [torch.rand([4, 64, 4]), torch.rand([4, 16, 4, 4]), torch.rand([4, 64, 4]), torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(PositionwiseFeedForward(*[], **{'hidden_size': 4, 'feedforward_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(RcnnEncoder(*[], **{'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(TransformerLayer(*[], **{'args': _mock_config(hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(WordEmbedding(*[], **{'args': _mock_config(dropout=0.5, emb_size=4), 'vocab_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -110,47 +111,36 @@ class FeaturePyramid(nn.Module):
 
     def _upsample(self, original_feature, scaled_feature, scale_factor=2):
         height, width = scaled_feature.size()[2:]
-        return F.upsample(original_feature, scale_factor=scale_factor)[:, :,
-            :height, :width]
+        return F.upsample(original_feature, scale_factor=scale_factor)[:, :, :height, :width]
 
     def forward(self, x):
-        _, resnet_feature_3, resnet_feature_4, resnet_feature_5 = self.resnet(x
-            )
+        _, resnet_feature_3, resnet_feature_4, resnet_feature_5 = self.resnet(x)
         pyramid_feature_6 = self.pyramid_transformation_6(resnet_feature_5)
-        pyramid_feature_7 = self.pyramid_transformation_7(F.relu(
-            pyramid_feature_6))
+        pyramid_feature_7 = self.pyramid_transformation_7(F.relu(pyramid_feature_6))
         pyramid_feature_5 = self.pyramid_transformation_5(resnet_feature_5)
         pyramid_feature_4 = self.pyramid_transformation_4(resnet_feature_4)
-        upsampled_feature_5 = self._upsample(pyramid_feature_5,
-            pyramid_feature_4)
-        pyramid_feature_4 = self.upsample_transform_1(torch.add(
-            upsampled_feature_5, pyramid_feature_4))
+        upsampled_feature_5 = self._upsample(pyramid_feature_5, pyramid_feature_4)
+        pyramid_feature_4 = self.upsample_transform_1(torch.add(upsampled_feature_5, pyramid_feature_4))
         pyramid_feature_3 = self.pyramid_transformation_3(resnet_feature_3)
-        upsampled_feature_4 = self._upsample(pyramid_feature_4,
-            pyramid_feature_3)
-        pyramid_feature_3 = self.upsample_transform_2(torch.add(
-            upsampled_feature_4, pyramid_feature_3))
-        return (pyramid_feature_3, pyramid_feature_4, pyramid_feature_5,
-            pyramid_feature_6, pyramid_feature_7)
+        upsampled_feature_4 = self._upsample(pyramid_feature_4, pyramid_feature_3)
+        pyramid_feature_3 = self.upsample_transform_2(torch.add(upsampled_feature_4, pyramid_feature_3))
+        return pyramid_feature_3, pyramid_feature_4, pyramid_feature_5, pyramid_feature_6, pyramid_feature_7
 
 
 class SubNet(nn.Module):
 
-    def __init__(self, mode, anchors=9, classes=80, depth=4,
-        base_activation=F.relu, output_activation=F.sigmoid):
+    def __init__(self, mode, anchors=9, classes=80, depth=4, base_activation=F.relu, output_activation=F.sigmoid):
         super(SubNet, self).__init__()
         self.anchors = anchors
         self.classes = classes
         self.depth = depth
         self.base_activation = base_activation
         self.output_activation = output_activation
-        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for
-            _ in range(depth)])
+        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for _ in range(depth)])
         if mode == 'boxes':
             self.subnet_output = conv3x3(256, 4 * self.anchors, padding=1)
         elif mode == 'classes':
-            self.subnet_output = conv3x3(256, (1 + self.classes) * self.
-                anchors, padding=1)
+            self.subnet_output = conv3x3(256, (1 + self.classes) * self.anchors, padding=1)
         self._output_layer_init(self.subnet_output.bias.data)
 
     def _output_layer_init(self, tensor, pi=0.01):
@@ -163,18 +153,11 @@ class SubNet(nn.Module):
         for layer in self.subnet_base:
             x = self.base_activation(layer(x))
         x = self.subnet_output(x)
-        x = x.permute(0, 2, 3, 1).contiguous().view(x.size(0), x.size(2) *
-            x.size(3) * self.anchors, -1)
+        x = x.permute(0, 2, 3, 1).contiguous().view(x.size(0), x.size(2) * x.size(3) * self.anchors, -1)
         return x
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
 
 
 def resnet50_features(pretrained=False, **kwargs):
@@ -206,10 +189,3 @@ class RetinaNet(nn.Module):
         classes = [self.subnet_classes(feature) for feature in features]
         return torch.cat(boxes, 1), torch.cat(classes, 1)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_c0nn3r_RetinaNet(_paritybench_base):
-    pass

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,8 +60,7 @@ class CapsuleLayer(nn.Module):
     The core implementation of the idea of capsules
     """
 
-    def __init__(self, in_unit, in_channel, num_unit, unit_size,
-        use_routing, num_routing, cuda_enabled):
+    def __init__(self, in_unit, in_channel, num_unit, unit_size, use_routing, num_routing, cuda_enabled):
         super(CapsuleLayer, self).__init__()
         self.in_unit = in_unit
         self.in_channel = in_channel
@@ -73,8 +73,7 @@ class CapsuleLayer(nn.Module):
             Based on the paper, DigitCaps which is capsule layer(s) with
             capsule inputs use a routing algorithm that uses this weight matrix, Wij
             """
-            self.weight = nn.Parameter(torch.randn(1, in_channel, num_unit,
-                unit_size, in_unit))
+            self.weight = nn.Parameter(torch.randn(1, in_channel, num_unit, unit_size, in_unit))
         else:
             """
             According to the CapsNet architecture section in the paper,
@@ -83,8 +82,7 @@ class CapsuleLayer(nn.Module):
 
             This means PrimaryCapsules is composed of several convolutional units.
             """
-            self.conv_units = nn.ModuleList([nn.Conv2d(self.in_channel, 32,
-                9, 2) for u in range(self.num_unit)])
+            self.conv_units = nn.ModuleList([nn.Conv2d(self.in_channel, 32, 9, 2) for u in range(self.num_unit)])
 
     def forward(self, x):
         if self.use_routing:
@@ -115,8 +113,7 @@ class CapsuleLayer(nn.Module):
             s_j = (c_ij * u_hat).sum(dim=1, keepdim=True)
             v_j = utils.squash(s_j, dim=3)
             v_j1 = torch.cat([v_j] * self.in_channel, dim=1)
-            u_vj1 = torch.matmul(u_hat.transpose(3, 4), v_j1).squeeze(4).mean(
-                dim=0, keepdim=True)
+            u_vj1 = torch.matmul(u_hat.transpose(3, 4), v_j1).squeeze(4).mean(dim=0, keepdim=True)
             b_ij = b_ij + u_vj1
         return v_j.squeeze(1)
 
@@ -142,8 +139,7 @@ class ConvLayer(nn.Module):
 
     def __init__(self, in_channel, out_channel, kernel_size):
         super(ConvLayer, self).__init__()
-        self.conv0 = nn.Conv2d(in_channels=in_channel, out_channels=
-            out_channel, kernel_size=kernel_size, stride=1)
+        self.conv0 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=kernel_size, stride=1)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -166,8 +162,7 @@ class Decoder(nn.Module):
     This Decoder network is used in training and prediction (testing).
     """
 
-    def __init__(self, num_classes, output_unit_size, input_width,
-        input_height, num_conv_in_channel, cuda_enabled):
+    def __init__(self, num_classes, output_unit_size, input_width, input_height, num_conv_in_channel, cuda_enabled):
         """
         The decoder network consists of 3 fully connected layers, with
         512, 1024, 784 (or 3072 for CIFAR10) neurons each.
@@ -208,8 +203,7 @@ class Decoder(nn.Module):
         fc1_out = self.relu(self.fc1(vector_j))
         fc2_out = self.relu(self.fc2(fc1_out))
         reconstruction = self.sigmoid(self.fc3(fc2_out))
-        assert reconstruction.size() == torch.Size([batch_size, self.
-            fc3_output_size])
+        assert reconstruction.size() == torch.Size([batch_size, self.fc3_output_size])
         return reconstruction
 
 
@@ -218,10 +212,7 @@ class Net(nn.Module):
     A simple CapsNet with 3 layers
     """
 
-    def __init__(self, num_conv_in_channel, num_conv_out_channel,
-        num_primary_unit, primary_unit_size, num_classes, output_unit_size,
-        num_routing, use_reconstruction_loss, regularization_scale,
-        input_width, input_height, cuda_enabled):
+    def __init__(self, num_conv_in_channel, num_conv_out_channel, num_primary_unit, primary_unit_size, num_classes, output_unit_size, num_routing, use_reconstruction_loss, regularization_scale, input_width, input_height, cuda_enabled):
         """
         In the constructor we instantiate one ConvLayer module and two CapsuleLayer modules
         and assign them as member variables.
@@ -233,19 +224,11 @@ class Net(nn.Module):
         self.image_height = input_height
         self.image_channel = num_conv_in_channel
         self.regularization_scale = regularization_scale
-        self.conv1 = ConvLayer(in_channel=num_conv_in_channel, out_channel=
-            num_conv_out_channel, kernel_size=9)
-        self.primary = CapsuleLayer(in_unit=0, in_channel=
-            num_conv_out_channel, num_unit=num_primary_unit, unit_size=
-            primary_unit_size, use_routing=False, num_routing=num_routing,
-            cuda_enabled=cuda_enabled)
-        self.digits = CapsuleLayer(in_unit=num_primary_unit, in_channel=
-            primary_unit_size, num_unit=num_classes, unit_size=
-            output_unit_size, use_routing=True, num_routing=num_routing,
-            cuda_enabled=cuda_enabled)
+        self.conv1 = ConvLayer(in_channel=num_conv_in_channel, out_channel=num_conv_out_channel, kernel_size=9)
+        self.primary = CapsuleLayer(in_unit=0, in_channel=num_conv_out_channel, num_unit=num_primary_unit, unit_size=primary_unit_size, use_routing=False, num_routing=num_routing, cuda_enabled=cuda_enabled)
+        self.digits = CapsuleLayer(in_unit=num_primary_unit, in_channel=primary_unit_size, num_unit=num_classes, unit_size=output_unit_size, use_routing=True, num_routing=num_routing, cuda_enabled=cuda_enabled)
         if use_reconstruction_loss:
-            self.decoder = Decoder(num_classes, output_unit_size,
-                input_width, input_height, num_conv_in_channel, cuda_enabled)
+            self.decoder = Decoder(num_classes, output_unit_size, input_width, input_height, num_conv_in_channel, cuda_enabled)
 
     def forward(self, x):
         """
@@ -340,8 +323,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvLayer,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_cedrickchee_capsule_net_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvLayer(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

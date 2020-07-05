@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,13 +97,11 @@ class AlraoModel(nn.Module):
         *args, **kwargs: arguments to be passed to the constructor of 'last_layer_gen'
     """
 
-    def __init__(self, task, loss, internal_nn, n_last_layers,
-        last_layer_gen, *args, **kwargs):
+    def __init__(self, task, loss, internal_nn, n_last_layers, last_layer_gen, *args, **kwargs):
         super(AlraoModel, self).__init__()
         self.task = task
         self.loss = loss
-        self.switch = Switch(n_last_layers, save_ll_perf=True, task=task,
-            loss=loss)
+        self.switch = Switch(n_last_layers, save_ll_perf=True, task=task, loss=loss)
         self.internal_nn = internal_nn
         self.n_last_layers = n_last_layers
         for i in range(n_last_layers):
@@ -133,9 +132,7 @@ class AlraoModel(nn.Module):
         """
         if method_name_dst is None:
             method_name_dst = method_name_src
-        assert getattr(self, method_name_dst, None
-            ) is None, 'The method {} cannot be forwarded: an attribute with the same name already exists.'.format(
-            method_name_dst)
+        assert getattr(self, method_name_dst, None) is None, 'The method {} cannot be forwarded: an attribute with the same name already exists.'.format(method_name_dst)
         method = getattr(self.internal_nn, method_name_src)
 
         def forwarded_method(*args, **kwargs):
@@ -168,11 +165,8 @@ class AlraoModel(nn.Module):
         """
         if method_name_dst is None:
             method_name_dst = method_name_src
-        assert getattr(self, method_name_src, None
-            ) is None, 'The method {} cannot be forwarded: an attribute with the same name already exists.'.format(
-            method_name_dst)
-        lst_methods = [getattr(ll, method_name_src) for ll in self.
-            last_layers()]
+        assert getattr(self, method_name_src, None) is None, 'The method {} cannot be forwarded: an attribute with the same name already exists.'.format(method_name_dst)
+        lst_methods = [getattr(ll, method_name_src) for ll in self.last_layers()]
 
         def forwarded_method(*args, **kwargs):
             return [method(*args, **kwargs) for method in lst_methods]
@@ -236,14 +230,11 @@ class AlraoModel(nn.Module):
         set their weights to the best last layer ones. This can be done periodically during learning
         """
         logpost = self.switch.logposterior
-        weak_ll = [ll for ll, lp in zip(self.last_layers(), logpost) if lp <
-            threshold]
+        weak_ll = [ll for ll, lp in zip(self.last_layers(), logpost) if lp < threshold]
         if not weak_ll:
             return
-        mean_weight = torch.stack([(ll.fc.weight * p) for ll, p in zip(self
-            .last_layers(), logpost.exp())], dim=-1).sum(dim=-1).detach()
-        mean_bias = torch.stack([(ll.fc.bias * p) for ll, p in zip(self.
-            last_layers(), logpost.exp())], dim=-1).sum(dim=-1).detach()
+        mean_weight = torch.stack([(ll.fc.weight * p) for ll, p in zip(self.last_layers(), logpost.exp())], dim=-1).sum(dim=-1).detach()
+        mean_bias = torch.stack([(ll.fc.bias * p) for ll, p in zip(self.last_layers(), logpost.exp())], dim=-1).sum(dim=-1).detach()
         for ll in weak_ll:
             ll.fc.weight.data = mean_weight.clone()
             ll.fc.bias.data = mean_bias.clone()
@@ -291,8 +282,7 @@ class AlraoModel(nn.Module):
         """
         post = self.posterior()
         bars = u' ▁▂▃▄▅▆▇█'
-        res = '|' + ''.join(bars[int(px)] for px in post / post.max() * 8
-            ) + '|'
+        res = '|' + ''.join(bars[int(px)] for px in post / post.max() * 8) + '|'
         return res
 
 
@@ -338,8 +328,7 @@ class LinearClassifierRNN(nn.Module):
         Forward pass method: flattening of the output (specific to RNNs), which is processed by a
             linear layer followed by a log_softmax activation
         """
-        ret = self.decoder(output.view(output.size(0) * output.size(1),
-            output.size(2)))
+        ret = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
         return F.log_softmax(ret, dim=1)
 
 
@@ -379,8 +368,7 @@ def log_sum_exp(tensor, dim=None):
     if dim is not None:
         m, _ = torch.max(tensor, dim=dim, keepdim=True)
         tensor0 = tensor - m
-        return m.squeeze(dim=dim) + torch.log(torch.sum(torch.exp(tensor0),
-            dim=dim))
+        return m.squeeze(dim=dim) + torch.log(torch.sum(torch.exp(tensor0), dim=dim))
     else:
         m = torch.max(tensor)
         sum_exp = torch.sum(torch.exp(tensor - m))
@@ -406,8 +394,7 @@ class Switch(nn.Module):
             the option 'size_average = True' returns the averaged loss
     """
 
-    def __init__(self, nb_models, theta=0.9999, alpha=0.001, save_ll_perf=
-        False, task='classification', loss=None):
+    def __init__(self, nb_models, theta=0.9999, alpha=0.001, save_ll_perf=False, task='classification', loss=None):
         super(Switch, self).__init__()
         self.task = task
         if task == 'classification' and loss is None:
@@ -415,17 +402,14 @@ class Switch(nn.Module):
         elif loss is not None:
             self.loss = loss
         else:
-            raise ValueError('Invalid combination task/loss: {} / {}.'.
-                format(task, loss))
+            raise ValueError('Invalid combination task/loss: {} / {}.'.format(task, loss))
         self.nb_models = nb_models
         self.theta = theta
         self.alpha = alpha
         self.t = 1
         self.save_ll_perf = save_ll_perf
-        self.register_buffer('logw', torch.zeros((2, nb_models),
-            requires_grad=False))
-        self.register_buffer('logposterior', torch.full((nb_models,), -np.
-            log(nb_models), requires_grad=False))
+        self.register_buffer('logw', torch.zeros((2, nb_models), requires_grad=False))
+        self.register_buffer('logposterior', torch.full((nb_models,), -np.log(nb_models), requires_grad=False))
         self.logw[0].fill_(np.log(theta))
         self.logw[1].fill_(np.log(1 - theta))
         self.logw -= np.log(nb_models)
@@ -445,8 +429,7 @@ class Switch(nn.Module):
         Return the performance (loss and acc) of each last layer
         """
         if self.task == 'classification':
-            return [(loss / self.ll_total, corr / self.ll_total) for loss,
-                corr in zip(self.ll_loss, self.ll_correct)]
+            return [(loss / self.ll_total, corr / self.ll_total) for loss, corr in zip(self.ll_loss, self.ll_correct)]
         elif self.task == 'regression':
             return [(loss / self.ll_total) for loss in self.ll_loss]
 
@@ -470,10 +453,8 @@ class Switch(nn.Module):
             for k, x in enumerate(lst_ll_out):
                 self.ll_loss[k] += self.loss(x, y).item()
                 if self.task == 'classification':
-                    self.ll_correct[k] += torch.max(x, 1)[1].eq(y.data).sum(
-                        ).item() / y.size(0)
-        logpx = torch.stack([(-self.loss(x, y)) for x in lst_ll_out], dim=0
-            ).detach()
+                    self.ll_correct[k] += torch.max(x, 1)[1].eq(y.data).sum().item() / y.size(0)
+        logpx = torch.stack([(-self.loss(x, y)) for x in lst_ll_out], dim=0).detach()
         if any(math.isnan(p) for p in logpx):
             raise ValueError
         if self.nb_models == 1:
@@ -485,8 +466,7 @@ class Switch(nn.Module):
         addtensor = torch.zeros_like(self.logw)
         addtensor[0].fill_(np.log(self.theta))
         addtensor[1].fill_(np.log(1 - self.theta))
-        self.logw = log_sum_exp(torch.stack([self.logw, addtensor + logpool -
-            np.log(self.nb_models)], dim=0), dim=0)
+        self.logw = log_sum_exp(torch.stack([self.logw, addtensor + logpool - np.log(self.nb_models)], dim=0), dim=0)
         self.logw -= log_sum_exp(self.logw)
         self.logposterior = log_sum_exp(self.logw, dim=0)
         self.t += 1
@@ -500,8 +480,7 @@ class Switch(nn.Module):
                 tensors of log-probabilities
         """
         if self.task == 'classification':
-            return log_sum_exp(torch.stack(lst_ll_out, -1) + self.
-                logposterior, dim=-1)
+            return log_sum_exp(torch.stack(lst_ll_out, -1) + self.logposterior, dim=-1)
         elif self.task == 'regression':
             return torch.stack(lst_ll_out, -1), self.logposterior.exp()
 
@@ -575,8 +554,7 @@ class StandardModel(nn.Module):
 
 class Inception(nn.Module):
 
-    def __init__(self, in_planes, n1x1, n3x3red, n3x3, n5x5red, n5x5,
-        pool_planes, gamma=1):
+    def __init__(self, in_planes, n1x1, n3x3red, n3x3, n5x5red, n5x5, pool_planes, gamma=1):
         super(Inception, self).__init__()
         in_planes *= gamma
         n1x1 *= gamma
@@ -585,20 +563,10 @@ class Inception(nn.Module):
         n5x5red *= gamma
         n5x5 *= gamma
         pool_planes *= gamma
-        self.b1 = nn.Sequential(nn.Conv2d(in_planes, n1x1, kernel_size=1),
-            nn.BatchNorm2d(n1x1), nn.ReLU(True))
-        self.b2 = nn.Sequential(nn.Conv2d(in_planes, n3x3red, kernel_size=1
-            ), nn.BatchNorm2d(n3x3red), nn.ReLU(True), nn.Conv2d(n3x3red,
-            n3x3, kernel_size=3, padding=1), nn.BatchNorm2d(n3x3), nn.ReLU(
-            True))
-        self.b3 = nn.Sequential(nn.Conv2d(in_planes, n5x5red, kernel_size=1
-            ), nn.BatchNorm2d(n5x5red), nn.ReLU(True), nn.Conv2d(n5x5red,
-            n5x5, kernel_size=3, padding=1), nn.BatchNorm2d(n5x5), nn.ReLU(
-            True), nn.Conv2d(n5x5, n5x5, kernel_size=3, padding=1), nn.
-            BatchNorm2d(n5x5), nn.ReLU(True))
-        self.b4 = nn.Sequential(nn.MaxPool2d(3, stride=1, padding=1), nn.
-            Conv2d(in_planes, pool_planes, kernel_size=1), nn.BatchNorm2d(
-            pool_planes), nn.ReLU(True))
+        self.b1 = nn.Sequential(nn.Conv2d(in_planes, n1x1, kernel_size=1), nn.BatchNorm2d(n1x1), nn.ReLU(True))
+        self.b2 = nn.Sequential(nn.Conv2d(in_planes, n3x3red, kernel_size=1), nn.BatchNorm2d(n3x3red), nn.ReLU(True), nn.Conv2d(n3x3red, n3x3, kernel_size=3, padding=1), nn.BatchNorm2d(n3x3), nn.ReLU(True))
+        self.b3 = nn.Sequential(nn.Conv2d(in_planes, n5x5red, kernel_size=1), nn.BatchNorm2d(n5x5red), nn.ReLU(True), nn.Conv2d(n5x5red, n5x5, kernel_size=3, padding=1), nn.BatchNorm2d(n5x5), nn.ReLU(True), nn.Conv2d(n5x5, n5x5, kernel_size=3, padding=1), nn.BatchNorm2d(n5x5), nn.ReLU(True))
+        self.b4 = nn.Sequential(nn.MaxPool2d(3, stride=1, padding=1), nn.Conv2d(in_planes, pool_planes, kernel_size=1), nn.BatchNorm2d(pool_planes), nn.ReLU(True))
 
     def forward(self, x):
         y1 = self.b1(x)
@@ -612,9 +580,7 @@ class GoogLeNet(nn.Module):
 
     def __init__(self, gamma=1):
         super(GoogLeNet, self).__init__()
-        self.pre_layers = nn.Sequential(nn.Conv2d(3, gamma * 192,
-            kernel_size=3, padding=1), nn.BatchNorm2d(gamma * 192), nn.ReLU
-            (True))
+        self.pre_layers = nn.Sequential(nn.Conv2d(3, gamma * 192, kernel_size=3, padding=1), nn.BatchNorm2d(gamma * 192), nn.ReLU(True))
         self.a3 = Inception(192, 64, 96, 128, 16, 32, 32, gamma=gamma)
         self.b3 = Inception(256, 128, 128, 192, 32, 96, 64, gamma=gamma)
         self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
@@ -653,20 +619,15 @@ class Block(nn.Module):
         super(Block, self).__init__()
         self.stride = stride
         planes = expansion * in_planes
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, groups=planes, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=planes, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, out_planes, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv3 = nn.Conv2d(planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm2d(out_planes)
         self.shortcut = nn.Sequential()
         if stride == 1 and in_planes != out_planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, out_planes,
-                kernel_size=1, stride=1, padding=0, bias=False), nn.
-                BatchNorm2d(out_planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(out_planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -677,17 +638,14 @@ class Block(nn.Module):
 
 
 class MobileNetV2(nn.Module):
-    cfg = [(1, 16, 1, 1), (6, 24, 2, 1), (6, 32, 3, 2), (6, 64, 4, 2), (6, 
-        96, 3, 1), (6, 160, 3, 2), (6, 320, 1, 1)]
+    cfg = [(1, 16, 1, 1), (6, 24, 2, 1), (6, 32, 3, 2), (6, 64, 4, 2), (6, 96, 3, 1), (6, 160, 3, 2), (6, 320, 1, 1)]
 
     def __init__(self, num_classes=10, gamma=1):
         super(MobileNetV2, self).__init__()
-        self.conv1 = nn.Conv2d(3, gamma * 32, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, gamma * 32, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(gamma * 32)
         self.layers = self._make_layers(32, gamma)
-        self.conv2 = nn.Conv2d(gamma * 320, gamma * 1280, kernel_size=1,
-            stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(gamma * 320, gamma * 1280, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(gamma * 1280)
         self.linearinputdim = gamma * 1280
 
@@ -696,8 +654,7 @@ class MobileNetV2(nn.Module):
         for expansion, out_planes, num_blocks, stride in self.cfg:
             strides = [stride] + [1] * (num_blocks - 1)
             for stride in strides:
-                layers.append(Block(gamma * in_planes, gamma * out_planes,
-                    expansion, stride))
+                layers.append(Block(gamma * in_planes, gamma * out_planes, expansion, stride))
                 in_planes = out_planes
         return nn.Sequential(*layers)
 
@@ -718,19 +675,14 @@ class RNNModel(nn.Module):
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         else:
             try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[
-                    rnn_type]
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
             except KeyError:
-                raise ValueError(
-                    """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']"""
-                    )
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=
-                nonlinearity, dropout=dropout)
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.linearinputdim = nhid
         self.init_weights()
         self.rnn_type = rnn_type
@@ -750,8 +702,7 @@ class RNNModel(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters())
         if self.rnn_type == 'LSTM':
-            return weight.new_zeros(self.nlayers, bsz, self.nhid
-                ), weight.new_zeros(self.nlayers, bsz, self.nhid)
+            return weight.new_zeros(self.nlayers, bsz, self.nhid), weight.new_zeros(self.nlayers, bsz, self.nhid)
         else:
             return weight.new_zeros(self.nlayers, bsz, self.nhid)
 
@@ -760,17 +711,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
         self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
 
@@ -791,14 +738,11 @@ class PreActBlock(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(PreActBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False))
         self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
         self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
 
@@ -820,17 +764,12 @@ class SENet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10, gamma=1):
         super(SENet, self).__init__()
         self.in_planes = gamma * 64
-        self.conv1 = nn.Conv2d(3, gamma * 64, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, gamma * 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(gamma * 64)
-        self.layer1 = self._make_layer(block, gamma * 64, num_blocks[0],
-            stride=1)
-        self.layer2 = self._make_layer(block, gamma * 128, num_blocks[1],
-            stride=2)
-        self.layer3 = self._make_layer(block, gamma * 256, num_blocks[2],
-            stride=2)
-        self.layer4 = self._make_layer(block, gamma * 512, num_blocks[3],
-            stride=2)
+        self.layer1 = self._make_layer(block, gamma * 64, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, gamma * 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, gamma * 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, gamma * 512, num_blocks[3], stride=2)
         self.linearinputdim = gamma * 512
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -871,8 +810,7 @@ class VGG(nn.Module):
             if x == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding
-                    =1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
                 in_channels = x
         layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
         return nn.Sequential(*layers)
@@ -882,46 +820,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlraoModel,
+     lambda: ([], {'task': 4, 'loss': MSELoss(), 'internal_nn': _mock_layer(), 'n_last_layers': 1, 'last_layer_gen': _mock_layer}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 64}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GoogLeNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Inception,
+     lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearClassifier,
+     lambda: ([], {'in_features': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearClassifierRNN,
+     lambda: ([], {'nhid': 4, 'ntoken': 4}),
+     lambda: ([torch.rand([16, 4, 4])], {}),
+     True),
+    (LinearRegressor,
+     lambda: ([], {'dim_input': 4, 'dim_output': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (PreActBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 64}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RegModel,
+     lambda: ([], {'input_dim': 4, 'pre_output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SENet,
+     lambda: ([], {'block': _mock_layer, 'num_blocks': [4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (StandardModel,
+     lambda: ([], {'internal_nn': _mock_layer(), 'classifier': _mock_layer}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_leonardblier_alrao(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AlraoModel(*[], **{'task': 4, 'loss': MSELoss(), 'internal_nn': _mock_layer(), 'n_last_layers': 1, 'last_layer_gen': _mock_layer}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4, 'expansion': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GoogLeNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Inception(*[], **{'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LinearClassifier(*[], **{'in_features': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(LinearClassifierRNN(*[], **{'nhid': 4, 'ntoken': 4}), [torch.rand([16, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(LinearRegressor(*[], **{'dim_input': 4, 'dim_output': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(RegModel(*[], **{'input_dim': 4, 'pre_output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SENet(*[], **{'block': _mock_layer, 'num_blocks': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(StandardModel(*[], **{'internal_nn': _mock_layer(), 'classifier': _mock_layer}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[12])
 

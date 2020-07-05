@@ -37,8 +37,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,14 +82,10 @@ class deepmind(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.conv3 = nn.Conv2d(64, 32, 3, stride=1)
         self.fc1 = nn.Linear(32 * 7 * 7, 512)
-        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.fc1.weight.data, gain=nn.init.
-            calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.fc1.weight.data, gain=nn.init.calculate_gain('relu'))
         nn.init.constant_(self.conv1.bias.data, 0)
         nn.init.constant_(self.conv2.bias.data, 0)
         nn.init.constant_(self.conv3.bias.data, 0)
@@ -160,12 +157,9 @@ class deepmind(nn.Module):
         self.conv1 = nn.Conv2d(4, 32, 8, stride=4)
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.conv3 = nn.Conv2d(64, 32, 3, stride=1)
-        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.
-            calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.calculate_gain('relu'))
         nn.init.constant_(self.conv1.bias.data, 0)
         nn.init.constant_(self.conv2.bias.data, 0)
         nn.init.constant_(self.conv3.bias.data, 0)
@@ -260,14 +254,10 @@ class deepmind(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
         self.conv3 = nn.Conv2d(64, 32, 3, stride=1)
         self.fc1 = nn.Linear(32 * 7 * 7, 512)
-        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.
-            calculate_gain('relu'))
-        nn.init.orthogonal_(self.fc1.weight.data, gain=nn.init.
-            calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.calculate_gain('relu'))
+        nn.init.orthogonal_(self.fc1.weight.data, gain=nn.init.calculate_gain('relu'))
         nn.init.constant_(self.conv1.bias.data, 0)
         nn.init.constant_(self.conv2.bias.data, 0)
         nn.init.constant_(self.conv3.bias.data, 0)
@@ -305,9 +295,7 @@ class flatten_mlp(nn.Module):
 
     def __init__(self, input_dims, hidden_size, action_dims=None):
         super(flatten_mlp, self).__init__()
-        self.fc1 = nn.Linear(input_dims, hidden_size
-            ) if action_dims is None else nn.Linear(input_dims +
-            action_dims, hidden_size)
+        self.fc1 = nn.Linear(input_dims, hidden_size) if action_dims is None else nn.Linear(input_dims + action_dims, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.q_value = nn.Linear(hidden_size, 1)
 
@@ -321,8 +309,7 @@ class flatten_mlp(nn.Module):
 
 class tanh_gaussian_actor(nn.Module):
 
-    def __init__(self, input_dims, action_dims, hidden_size, log_std_min,
-        log_std_max):
+    def __init__(self, input_dims, action_dims, hidden_size, log_std_min, log_std_max):
         super(tanh_gaussian_actor, self).__init__()
         self.fc1 = nn.Linear(input_dims, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -336,8 +323,7 @@ class tanh_gaussian_actor(nn.Module):
         x = F.relu(self.fc2(x))
         mean = self.mean(x)
         log_std = self.log_std(x)
-        log_std = torch.clamp(log_std, min=self.log_std_min, max=self.
-            log_std_max)
+        log_std = torch.clamp(log_std, min=self.log_std_min, max=self.log_std_max)
         return mean, torch.exp(log_std)
 
 
@@ -392,21 +378,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (actor,
+     lambda: ([], {'num_states': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (cnn_net,
+     lambda: ([], {'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 144, 144])], {}),
+     True),
+    (critic,
+     lambda: ([], {'num_states': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (deepmind,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 144, 144])], {}),
+     True),
+    (flatten_mlp,
+     lambda: ([], {'input_dims': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (network,
+     lambda: ([], {'num_states': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (tanh_gaussian_actor,
+     lambda: ([], {'input_dims': 4, 'action_dims': 4, 'hidden_size': 4, 'log_std_min': 4, 'log_std_max': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_TianhongDai_reinforcement_learning_algorithms(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(actor(*[], **{'num_states': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(critic(*[], **{'num_states': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(flatten_mlp(*[], **{'input_dims': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(network(*[], **{'num_states': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(tanh_gaussian_actor(*[], **{'input_dims': 4, 'action_dims': 4, 'hidden_size': 4, 'log_std_min': 4, 'log_std_max': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

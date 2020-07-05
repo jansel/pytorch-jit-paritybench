@@ -44,8 +44,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -117,25 +118,19 @@ class Rs_GCN(nn.Module):
         conv_nd = nn.Conv1d
         max_pool = nn.MaxPool1d
         bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
         self.theta = None
         self.phi = None
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, v):
         """
@@ -168,8 +163,7 @@ class RewardCriterion(nn.Module):
         input = input.contiguous().view(-1)
         reward = reward.contiguous().view(-1)
         mask = (seq > 0).float()
-        mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1
-            ).contiguous().view(-1)
+        mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).contiguous().view(-1)
         output = -input * reward * mask
         output = torch.sum(output) / torch.sum(mask)
         return output
@@ -208,8 +202,7 @@ def l2norm(X):
 
 class EncoderImageFull(nn.Module):
 
-    def __init__(self, embed_size, finetune=False, cnn_type='vgg19',
-        use_abs=False, no_imgnorm=False):
+    def __init__(self, embed_size, finetune=False, cnn_type='vgg19', use_abs=False, no_imgnorm=False):
         """Load pretrained VGG19 and replace top fc layer."""
         super(EncoderImageFull, self).__init__()
         self.embed_size = embed_size
@@ -219,10 +212,8 @@ class EncoderImageFull(nn.Module):
         for param in self.cnn.parameters():
             param.requires_grad = finetune
         if cnn_type.startswith('vgg'):
-            self.fc = nn.Linear(self.cnn.classifier._modules['6'].
-                in_features, embed_size)
-            self.cnn.classifier = nn.Sequential(*list(self.cnn.classifier.
-                children())[:-1])
+            self.fc = nn.Linear(self.cnn.classifier._modules['6'].in_features, embed_size)
+            self.cnn.classifier = nn.Sequential(*list(self.cnn.classifier.children())[:-1])
         elif cnn_type.startswith('resnet'):
             self.fc = nn.Linear(self.cnn.module.fc.in_features, embed_size)
             self.cnn.module.fc = nn.Sequential()
@@ -249,17 +240,13 @@ class EncoderImageFull(nn.Module):
         Handle the models saved before commit pytorch/vision@989d52a
         """
         if 'cnn.classifier.1.weight' in state_dict:
-            state_dict['cnn.classifier.0.weight'] = state_dict[
-                'cnn.classifier.1.weight']
+            state_dict['cnn.classifier.0.weight'] = state_dict['cnn.classifier.1.weight']
             del state_dict['cnn.classifier.1.weight']
-            state_dict['cnn.classifier.0.bias'] = state_dict[
-                'cnn.classifier.1.bias']
+            state_dict['cnn.classifier.0.bias'] = state_dict['cnn.classifier.1.bias']
             del state_dict['cnn.classifier.1.bias']
-            state_dict['cnn.classifier.3.weight'] = state_dict[
-                'cnn.classifier.4.weight']
+            state_dict['cnn.classifier.3.weight'] = state_dict['cnn.classifier.4.weight']
             del state_dict['cnn.classifier.4.weight']
-            state_dict['cnn.classifier.3.bias'] = state_dict[
-                'cnn.classifier.4.bias']
+            state_dict['cnn.classifier.3.bias'] = state_dict['cnn.classifier.4.bias']
             del state_dict['cnn.classifier.4.bias']
         super(EncoderImageFull, self).load_state_dict(state_dict)
 
@@ -322,8 +309,7 @@ class EncoderImagePrecomp(nn.Module):
 
 class EncoderImagePrecompAttn(nn.Module):
 
-    def __init__(self, img_dim, embed_size, data_name, use_abs=False,
-        no_imgnorm=False):
+    def __init__(self, img_dim, embed_size, data_name, use_abs=False, no_imgnorm=False):
         super(EncoderImagePrecompAttn, self).__init__()
         self.embed_size = embed_size
         self.no_imgnorm = no_imgnorm
@@ -332,14 +318,10 @@ class EncoderImagePrecompAttn(nn.Module):
         self.fc = nn.Linear(img_dim, embed_size)
         self.init_weights()
         self.img_rnn = nn.GRU(embed_size, embed_size, 1, batch_first=True)
-        self.Rs_GCN_1 = Rs_GCN(in_channels=embed_size, inter_channels=
-            embed_size)
-        self.Rs_GCN_2 = Rs_GCN(in_channels=embed_size, inter_channels=
-            embed_size)
-        self.Rs_GCN_3 = Rs_GCN(in_channels=embed_size, inter_channels=
-            embed_size)
-        self.Rs_GCN_4 = Rs_GCN(in_channels=embed_size, inter_channels=
-            embed_size)
+        self.Rs_GCN_1 = Rs_GCN(in_channels=embed_size, inter_channels=embed_size)
+        self.Rs_GCN_2 = Rs_GCN(in_channels=embed_size, inter_channels=embed_size)
+        self.Rs_GCN_3 = Rs_GCN(in_channels=embed_size, inter_channels=embed_size)
+        self.Rs_GCN_4 = Rs_GCN(in_channels=embed_size, inter_channels=embed_size)
         if self.data_name == 'f30k_precomp':
             self.bn = nn.BatchNorm1d(embed_size)
 
@@ -386,8 +368,7 @@ class EncoderImagePrecompAttn(nn.Module):
 
 class EncoderText(nn.Module):
 
-    def __init__(self, vocab_size, word_dim, embed_size, num_layers,
-        use_abs=False):
+    def __init__(self, vocab_size, word_dim, embed_size, num_layers, use_abs=False):
         super(EncoderText, self).__init__()
         self.use_abs = use_abs
         self.embed_size = embed_size
@@ -423,8 +404,7 @@ def cosine_sim(im, s):
 def order_sim(im, s):
     """Order embeddings similarity measure $max(0, s-im)$
     """
-    YmX = s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1)
-        ) - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1))
+    YmX = s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1)) - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1))
     score = -YmX.clamp(min=0).pow(2).sum(2).sqrt().t()
     return score
 
@@ -488,8 +468,7 @@ class Attention(nn.Module):
         """
         batch_size, seq_len, _ = encoder_outputs.size()
         hidden_state = hidden_state.unsqueeze(1).repeat(1, seq_len, 1)
-        inputs = torch.cat((encoder_outputs, hidden_state), 2).view(-1, 
-            self.dim * 2)
+        inputs = torch.cat((encoder_outputs, hidden_state), 2).view(-1, self.dim * 2)
         o = self.linear2(F.tanh(self.linear1(inputs)))
         e = o.view(batch_size, seq_len)
         alpha = F.softmax(e, dim=1)
@@ -512,9 +491,7 @@ class DecoderRNN(nn.Module):
 
     """
 
-    def __init__(self, vocab_size, max_len, dim_hidden, dim_word, n_layers=
-        1, rnn_cell='gru', bidirectional=False, input_dropout_p=0.1,
-        rnn_dropout_p=0.1):
+    def __init__(self, vocab_size, max_len, dim_hidden, dim_word, n_layers=1, rnn_cell='gru', bidirectional=False, input_dropout_p=0.1, rnn_dropout_p=0.1):
         super(DecoderRNN, self).__init__()
         self.bidirectional_encoder = bidirectional
         self.dim_output = vocab_size
@@ -530,13 +507,11 @@ class DecoderRNN(nn.Module):
             self.rnn_cell = nn.LSTM
         elif rnn_cell.lower() == 'gru':
             self.rnn_cell = nn.GRU
-        self.rnn = self.rnn_cell(self.dim_hidden + dim_word, self.
-            dim_hidden, n_layers, batch_first=True, dropout=rnn_dropout_p)
+        self.rnn = self.rnn_cell(self.dim_hidden + dim_word, self.dim_hidden, n_layers, batch_first=True, dropout=rnn_dropout_p)
         self.out = nn.Linear(self.dim_hidden, self.dim_output)
         self._init_weights()
 
-    def forward(self, encoder_outputs, encoder_hidden, targets=None, mode=
-        'train', opt={}):
+    def forward(self, encoder_outputs, encoder_hidden, targets=None, mode='train', opt={}):
         """
 
         Inputs: inputs, encoder_hidden, encoder_outputs, function, teacher_forcing_ratio
@@ -561,22 +536,18 @@ class DecoderRNN(nn.Module):
             targets_emb = self.embedding(targets)
             for i in range(self.max_length - 1):
                 current_words = targets_emb[:, (i), :]
-                context = self.attention(decoder_hidden.squeeze(0),
-                    encoder_outputs)
+                context = self.attention(decoder_hidden.squeeze(0), encoder_outputs)
                 decoder_input = torch.cat([current_words, context], dim=1)
                 decoder_input = self.input_dropout(decoder_input).unsqueeze(1)
-                decoder_output, decoder_hidden = self.rnn(decoder_input,
-                    decoder_hidden)
-                logprobs = F.log_softmax(self.out(decoder_output.squeeze(1)
-                    ), dim=1)
+                decoder_output, decoder_hidden = self.rnn(decoder_input, decoder_hidden)
+                logprobs = F.log_softmax(self.out(decoder_output.squeeze(1)), dim=1)
                 seq_logprobs.append(logprobs.unsqueeze(1))
             seq_logprobs = torch.cat(seq_logprobs, 1)
         elif mode == 'inference':
             if beam_size > 1:
                 return self.sample_beam(encoder_outputs, decoder_hidden, opt)
             for t in range(self.max_length - 1):
-                context = self.attention(decoder_hidden.squeeze(0),
-                    encoder_outputs)
+                context = self.attention(decoder_hidden.squeeze(0), encoder_outputs)
                 if t == 0:
                     it = torch.LongTensor([self.sos_id] * batch_size)
                 elif sample_max:
@@ -596,10 +567,8 @@ class DecoderRNN(nn.Module):
                 xt = self.embedding(it)
                 decoder_input = torch.cat([xt, context], dim=1)
                 decoder_input = self.input_dropout(decoder_input).unsqueeze(1)
-                decoder_output, decoder_hidden = self.rnn(decoder_input,
-                    decoder_hidden)
-                logprobs = F.log_softmax(self.out(decoder_output.squeeze(1)
-                    ), dim=1)
+                decoder_output, decoder_hidden = self.rnn(decoder_input, decoder_hidden)
+                logprobs = F.log_softmax(self.out(decoder_output.squeeze(1)), dim=1)
             seq_logprobs = torch.cat(seq_logprobs, 1)
             seq_preds = torch.cat(seq_preds[1:], 1)
         return seq_logprobs, seq_preds
@@ -614,8 +583,7 @@ class DecoderRNN(nn.Module):
         if encoder_hidden is None:
             return None
         if isinstance(encoder_hidden, tuple):
-            encoder_hidden = tuple([self._cat_directions(h) for h in
-                encoder_hidden])
+            encoder_hidden = tuple([self._cat_directions(h) for h in encoder_hidden])
         else:
             encoder_hidden = self._cat_directions(encoder_hidden)
         return encoder_hidden
@@ -631,8 +599,7 @@ class DecoderRNN(nn.Module):
 
 class EncoderRNN(nn.Module):
 
-    def __init__(self, dim_vid, dim_hidden, input_dropout_p=0.2,
-        rnn_dropout_p=0.5, n_layers=1, bidirectional=False, rnn_cell='gru'):
+    def __init__(self, dim_vid, dim_hidden, input_dropout_p=0.2, rnn_dropout_p=0.5, n_layers=1, bidirectional=False, rnn_cell='gru'):
         """
 
         Args:
@@ -656,9 +623,7 @@ class EncoderRNN(nn.Module):
             self.rnn_cell = nn.LSTM
         elif rnn_cell.lower() == 'gru':
             self.rnn_cell = nn.GRU
-        self.rnn = self.rnn_cell(dim_hidden, dim_hidden, n_layers,
-            batch_first=True, bidirectional=bidirectional, dropout=self.
-            rnn_dropout_p)
+        self.rnn = self.rnn_cell(dim_hidden, dim_hidden, n_layers, batch_first=True, bidirectional=bidirectional, dropout=self.rnn_dropout_p)
         self._init_hidden()
 
     def _init_hidden(self):
@@ -709,25 +674,20 @@ class S2VTAttModel(nn.Module):
             seq_preds: [] or Variable of shape [batch_size, max_len-1]
         """
         encoder_outputs, encoder_hidden = self.encoder(vid_feats)
-        seq_prob, seq_preds = self.decoder(encoder_outputs, encoder_hidden,
-            target_variable, mode, opt)
+        seq_prob, seq_preds = self.decoder(encoder_outputs, encoder_hidden, target_variable, mode, opt)
         return seq_prob, seq_preds
 
 
 class S2VTModel(nn.Module):
 
-    def __init__(self, vocab_size, max_len, dim_hidden, dim_word, dim_vid=
-        2048, sos_id=1, eos_id=0, n_layers=1, rnn_cell='gru', rnn_dropout_p=0.2
-        ):
+    def __init__(self, vocab_size, max_len, dim_hidden, dim_word, dim_vid=2048, sos_id=1, eos_id=0, n_layers=1, rnn_cell='gru', rnn_dropout_p=0.2):
         super(S2VTModel, self).__init__()
         if rnn_cell.lower() == 'lstm':
             self.rnn_cell = nn.LSTM
         elif rnn_cell.lower() == 'gru':
             self.rnn_cell = nn.GRU
-        self.rnn1 = self.rnn_cell(dim_vid, dim_hidden, n_layers,
-            batch_first=True, dropout=rnn_dropout_p)
-        self.rnn2 = self.rnn_cell(dim_hidden + dim_word, dim_hidden,
-            n_layers, batch_first=True, dropout=rnn_dropout_p)
+        self.rnn1 = self.rnn_cell(dim_vid, dim_hidden, n_layers, batch_first=True, dropout=rnn_dropout_p)
+        self.rnn2 = self.rnn_cell(dim_hidden + dim_word, dim_hidden, n_layers, batch_first=True, dropout=rnn_dropout_p)
         self.dim_vid = dim_vid
         self.dim_output = vocab_size
         self.dim_hidden = dim_hidden
@@ -740,10 +700,8 @@ class S2VTModel(nn.Module):
 
     def forward(self, vid_feats, target_variable=None, mode='train', opt={}):
         batch_size, n_frames, _ = vid_feats.shape
-        padding_words = Variable(vid_feats.data.new(batch_size, n_frames,
-            self.dim_word)).zero_()
-        padding_frames = Variable(vid_feats.data.new(batch_size, 1, self.
-            dim_vid)).zero_()
+        padding_words = Variable(vid_feats.data.new(batch_size, n_frames, self.dim_word)).zero_()
+        padding_frames = Variable(vid_feats.data.new(batch_size, 1, self.dim_vid)).zero_()
         state1 = None
         state2 = None
         output1, state1 = self.rnn1(vid_feats, state1)
@@ -757,22 +715,19 @@ class S2VTModel(nn.Module):
                 self.rnn1.flatten_parameters()
                 self.rnn2.flatten_parameters()
                 output1, state1 = self.rnn1(padding_frames, state1)
-                input2 = torch.cat((output1, current_words.unsqueeze(1)), dim=2
-                    )
+                input2 = torch.cat((output1, current_words.unsqueeze(1)), dim=2)
                 output2, state2 = self.rnn2(input2, state2)
                 logits = self.out(output2.squeeze(1))
                 logits = F.log_softmax(logits, dim=1)
                 seq_probs.append(logits.unsqueeze(1))
             seq_probs = torch.cat(seq_probs, 1)
         else:
-            current_words = self.embedding(Variable(torch.LongTensor([self.
-                sos_id] * batch_size)))
+            current_words = self.embedding(Variable(torch.LongTensor([self.sos_id] * batch_size)))
             for i in range(self.max_length - 1):
                 self.rnn1.flatten_parameters()
                 self.rnn2.flatten_parameters()
                 output1, state1 = self.rnn1(padding_frames, state1)
-                input2 = torch.cat((output1, current_words.unsqueeze(1)), dim=2
-                    )
+                input2 = torch.cat((output1, current_words.unsqueeze(1)), dim=2)
                 output2, state2 = self.rnn2(input2, state2)
                 logits = self.out(output2.squeeze(1))
                 logits = F.log_softmax(logits, dim=1)
@@ -789,35 +744,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_KunpengLi1994_VSRN(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Attention(*[], **{'dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (EncoderImageFull,
+     lambda: ([], {'embed_size': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (EncoderImagePrecomp,
+     lambda: ([], {'img_dim': 4, 'embed_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EncoderImagePrecompAttn,
+     lambda: ([], {'img_dim': 4, 'embed_size': 4, 'data_name': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (EncoderRNN,
+     lambda: ([], {'dim_vid': 4, 'dim_hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (EncoderText,
+     lambda: ([], {'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (RewardCriterion,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Rs_GCN,
+     lambda: ([], {'in_channels': 4, 'inter_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+]
+
+class Test_KunpengLi1994_VSRN(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(EncoderImageFull(*[], **{'embed_size': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EncoderImagePrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(EncoderImagePrecompAttn(*[], **{'img_dim': 4, 'embed_size': 4, 'data_name': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(EncoderRNN(*[], **{'dim_vid': 4, 'dim_hidden': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(EncoderText(*[], **{'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(RewardCriterion(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Rs_GCN(*[], **{'in_channels': 4, 'inter_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[7])
 

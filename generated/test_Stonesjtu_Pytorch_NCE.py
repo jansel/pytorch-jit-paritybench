@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,8 +71,7 @@ def get_mask(lengths, cut_tail=0, max_len=None):
     assert lengths.min() >= cut_tail
     batch_size = lengths.numel()
     max_len = max_len or lengths.max()
-    mask = torch.arange(0, max_len).type_as(lengths).repeat(batch_size, 1).lt(
-        lengths.unsqueeze(1))
+    mask = torch.arange(0, max_len).type_as(lengths).repeat(batch_size, 1).lt(lengths.unsqueeze(1))
     return mask
 
 
@@ -97,8 +97,7 @@ class RNNModel(nn.Module):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
-        self.rnn = nn.LSTM(ninp, nhid, nlayers, dropout=dropout,
-            batch_first=True)
+        self.rnn = nn.LSTM(ninp, nhid, nlayers, dropout=dropout, batch_first=True)
         self.proj = nn.Linear(nhid, ninp)
         self.nhid = nhid
         self.nlayers = nlayers
@@ -141,8 +140,7 @@ class AliasMultinomial(torch.nn.Module):
 
     def __init__(self, probs):
         super(AliasMultinomial, self).__init__()
-        assert isclose(probs.sum().item(), 1
-            ), 'The noise distribution must sum to 1'
+        assert isclose(probs.sum().item(), 1), 'The noise distribution must sum to 1'
         cpu_probs = probs.cpu()
         K = len(probs)
         self_prob = [0] * K
@@ -230,8 +228,7 @@ class NCELoss(nn.Module):
         else the loss matrix for every individual targets.
     """
 
-    def __init__(self, noise, noise_ratio=100, norm_term='auto', reduction=
-        'elementwise_mean', per_word=False, loss_type='nce'):
+    def __init__(self, noise, noise_ratio=100, norm_term='auto', reduction='elementwise_mean', per_word=False, loss_type='nce'):
         super(NCELoss, self).__init__()
         probs = noise / noise.sum()
         probs = probs.clamp(min=BACKOFF_PROB)
@@ -260,34 +257,22 @@ class NCELoss(nn.Module):
         max_len = target.size(1)
         if self.loss_type != 'full':
             noise_samples = self.get_noise(batch, max_len)
-            logit_noise_in_noise = self.logprob_noise[noise_samples.data.
-                view(-1)].view_as(noise_samples)
-            logit_target_in_noise = self.logprob_noise[target.data.view(-1)
-                ].view_as(target)
-            logit_target_in_model, logit_noise_in_model = self._get_logit(
-                target, noise_samples, *args, **kwargs)
+            logit_noise_in_noise = self.logprob_noise[noise_samples.data.view(-1)].view_as(noise_samples)
+            logit_target_in_noise = self.logprob_noise[target.data.view(-1)].view_as(target)
+            logit_target_in_model, logit_noise_in_model = self._get_logit(target, noise_samples, *args, **kwargs)
             if self.loss_type == 'nce':
                 if self.training:
-                    loss = self.nce_loss(logit_target_in_model,
-                        logit_noise_in_model, logit_noise_in_noise,
-                        logit_target_in_noise)
+                    loss = self.nce_loss(logit_target_in_model, logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise)
                 else:
                     loss = -logit_target_in_model
             elif self.loss_type == 'sampled':
-                loss = self.sampled_softmax_loss(logit_target_in_model,
-                    logit_noise_in_model, logit_noise_in_noise,
-                    logit_target_in_noise)
+                loss = self.sampled_softmax_loss(logit_target_in_model, logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise)
             elif self.loss_type == 'mix' and self.training:
-                loss = 0.5 * self.nce_loss(logit_target_in_model,
-                    logit_noise_in_model, logit_noise_in_noise,
-                    logit_target_in_noise)
-                loss += 0.5 * self.sampled_softmax_loss(logit_target_in_model,
-                    logit_noise_in_model, logit_noise_in_noise,
-                    logit_target_in_noise)
+                loss = 0.5 * self.nce_loss(logit_target_in_model, logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise)
+                loss += 0.5 * self.sampled_softmax_loss(logit_target_in_model, logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise)
             else:
                 current_stage = 'training' if self.training else 'inference'
-                raise NotImplementedError('loss type {} not implemented at {}'
-                    .format(self.loss_type, current_stage))
+                raise NotImplementedError('loss type {} not implemented at {}'.format(self.loss_type, current_stage))
         else:
             loss = self.ce_loss(target, *args, **kwargs)
         if self.reduction == 'elementwise_mean':
@@ -303,8 +288,7 @@ class NCELoss(nn.Module):
         if self.per_word:
             noise_samples = self.alias.draw(*noise_size)
         else:
-            noise_samples = self.alias.draw(1, 1, self.noise_ratio).expand(*
-                noise_size)
+            noise_samples = self.alias.draw(1, 1, self.noise_ratio).expand(*noise_size)
         noise_samples = noise_samples.contiguous()
         return noise_samples
 
@@ -318,8 +302,7 @@ class NCELoss(nn.Module):
             - Target_idx: :math:`(N)`
             - Noise_idx: :math:`(N, N_r)` where `N_r = noise ratio`
         """
-        target_logit, noise_logit = self.get_score(target_idx, noise_idx, *
-            args, **kwargs)
+        target_logit, noise_logit = self.get_score(target_idx, noise_idx, *args, **kwargs)
         target_logit = target_logit.sub(self.norm_term)
         noise_logit = noise_logit.sub(self.norm_term)
         return target_logit, noise_logit
@@ -350,8 +333,7 @@ class NCELoss(nn.Module):
         """
         raise NotImplementedError()
 
-    def nce_loss(self, logit_target_in_model, logit_noise_in_model,
-        logit_noise_in_noise, logit_target_in_noise):
+    def nce_loss(self, logit_target_in_model, logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise):
         """Compute the classification loss given all four probabilities
 
         Args:
@@ -363,33 +345,20 @@ class NCELoss(nn.Module):
         Returns:
             - loss: a mis-classification loss for every single case
         """
-        logit_model = torch.cat([logit_target_in_model.unsqueeze(2),
-            logit_noise_in_model], dim=2)
-        logit_noise = torch.cat([logit_target_in_noise.unsqueeze(2),
-            logit_noise_in_noise], dim=2)
+        logit_model = torch.cat([logit_target_in_model.unsqueeze(2), logit_noise_in_model], dim=2)
+        logit_noise = torch.cat([logit_target_in_noise.unsqueeze(2), logit_noise_in_noise], dim=2)
         logit_true = logit_model - logit_noise - math.log(self.noise_ratio)
         label = torch.zeros_like(logit_model)
         label[:, :, (0)] = 1
         loss = self.bce_with_logits(logit_true, label).sum(dim=2)
         return loss
 
-    def sampled_softmax_loss(self, logit_target_in_model,
-        logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise):
+    def sampled_softmax_loss(self, logit_target_in_model, logit_noise_in_model, logit_noise_in_noise, logit_target_in_noise):
         """Compute the sampled softmax loss based on the tensorflow's impl"""
-        logits = torch.cat([logit_target_in_model.unsqueeze(2),
-            logit_noise_in_model], dim=2)
-        q_logits = torch.cat([logit_target_in_noise.unsqueeze(2),
-            logit_noise_in_noise], dim=2)
+        logits = torch.cat([logit_target_in_model.unsqueeze(2), logit_noise_in_model], dim=2)
+        q_logits = torch.cat([logit_target_in_noise.unsqueeze(2), logit_noise_in_noise], dim=2)
         logits = logits - q_logits
         labels = torch.zeros_like(logits.narrow(2, 0, 1)).squeeze(2).long()
-        loss = self.ce(logits.view(-1, logits.size(-1)), labels.view(-1)
-            ).view_as(labels)
+        loss = self.ce(logits.view(-1, logits.size(-1)), labels.view(-1)).view_as(labels)
         return loss
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Stonesjtu_Pytorch_NCE(_paritybench_base):
-    pass

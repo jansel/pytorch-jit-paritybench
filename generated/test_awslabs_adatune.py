@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,17 +53,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -79,17 +76,13 @@ class BottleNeck(nn.Module):
         super(BottleNeck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -105,8 +98,7 @@ class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -139,16 +131,13 @@ class WideBasicBlock(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1):
         super(WideBasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=False)
         self.dropout = nn.Dropout(p=dropout_rate)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = self.dropout(self.conv1(F.relu(self.bn1(x))))
@@ -158,8 +147,7 @@ class WideBasicBlock(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class WideResNet(nn.Module):
@@ -172,12 +160,9 @@ class WideResNet(nn.Module):
         k = widen_factor
         n_stages = [16, 16 * k, 32 * k, 64 * k]
         self.conv1 = conv3x3(3, n_stages[0])
-        self.layer1 = self._wide_layer(WideBasicBlock, n_stages[1], n,
-            dropout_rate, stride=1)
-        self.layer2 = self._wide_layer(WideBasicBlock, n_stages[2], n,
-            dropout_rate, stride=2)
-        self.layer3 = self._wide_layer(WideBasicBlock, n_stages[3], n,
-            dropout_rate, stride=2)
+        self.layer1 = self._wide_layer(WideBasicBlock, n_stages[1], n, dropout_rate, stride=1)
+        self.layer2 = self._wide_layer(WideBasicBlock, n_stages[2], n, dropout_rate, stride=2)
+        self.layer3 = self._wide_layer(WideBasicBlock, n_stages[3], n, dropout_rate, stride=2)
         self.bn1 = nn.BatchNorm2d(n_stages[3], momentum=0.9)
         self.linear = nn.Linear(n_stages[3], num_classes)
 
@@ -251,11 +236,9 @@ class DenseNetBottleNeck(nn.Module):
         super(DenseNetBottleNeck, self).__init__()
         inter_channels = 4 * growth_rate
         self.bn1 = nn.BatchNorm2d(n_channels)
-        self.conv1 = nn.Conv2d(n_channels, inter_channels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(n_channels, inter_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(inter_channels)
-        self.conv2 = nn.Conv2d(inter_channels, growth_rate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(inter_channels, growth_rate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -269,8 +252,7 @@ class SingleLayer(nn.Module):
     def __init__(self, n_channels, growth_rate):
         super(SingleLayer, self).__init__()
         self.bn1 = nn.BatchNorm2d(n_channels)
-        self.conv1 = nn.Conv2d(n_channels, growth_rate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(n_channels, growth_rate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -283,8 +265,7 @@ class Transition(nn.Module):
     def __init__(self, n_channels, n_out_channels):
         super(Transition, self).__init__()
         self.bn1 = nn.BatchNorm2d(n_channels)
-        self.conv1 = nn.Conv2d(n_channels, n_out_channels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(n_channels, n_out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -300,22 +281,18 @@ class DenseNet(nn.Module):
         if bottleneck:
             n_dense_blocks //= 2
         n_channels = 2 * growth_rate
-        self.conv1 = nn.Conv2d(3, n_channels, kernel_size=3, padding=1,
-            bias=False)
-        self.dense1 = self._make_dense(n_channels, growth_rate,
-            n_dense_blocks, bottleneck)
+        self.conv1 = nn.Conv2d(3, n_channels, kernel_size=3, padding=1, bias=False)
+        self.dense1 = self._make_dense(n_channels, growth_rate, n_dense_blocks, bottleneck)
         n_channels += n_dense_blocks * growth_rate
         n_out_channels = int(math.floor(n_channels * reduction))
         self.trans1 = Transition(n_channels, n_out_channels)
         n_channels = n_out_channels
-        self.dense2 = self._make_dense(n_channels, growth_rate,
-            n_dense_blocks, bottleneck)
+        self.dense2 = self._make_dense(n_channels, growth_rate, n_dense_blocks, bottleneck)
         n_channels += n_dense_blocks * growth_rate
         n_out_channels = int(math.floor(n_channels * reduction))
         self.trans2 = Transition(n_channels, n_out_channels)
         n_channels = n_out_channels
-        self.dense3 = self._make_dense(n_channels, growth_rate,
-            n_dense_blocks, bottleneck)
+        self.dense3 = self._make_dense(n_channels, growth_rate, n_dense_blocks, bottleneck)
         n_channels += n_dense_blocks * growth_rate
         self.bn1 = nn.BatchNorm2d(n_channels)
         self.fc = nn.Linear(n_channels, num_classes)
@@ -373,8 +350,7 @@ class VGG(nn.Module):
             if x == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding
-                    =1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
                 in_channels = x
         layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
         return nn.Sequential(*layers)
@@ -384,26 +360,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BottleNeck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DenseNetBottleNeck,
+     lambda: ([], {'n_channels': 4, 'growth_rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MLP,
+     lambda: ([], {'num_classes': 4, 'n_1': 4, 'n_2': 4}),
+     lambda: ([torch.rand([4, 784])], {}),
+     True),
+    (SingleLayer,
+     lambda: ([], {'n_channels': 4, 'growth_rate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Transition,
+     lambda: ([], {'n_channels': 4, 'n_out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WideBasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_awslabs_adatune(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BottleNeck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DenseNetBottleNeck(*[], **{'n_channels': 4, 'growth_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MLP(*[], **{'num_classes': 4, 'n_1': 4, 'n_2': 4}), [torch.rand([4, 784])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(SingleLayer(*[], **{'n_channels': 4, 'growth_rate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Transition(*[], **{'n_channels': 4, 'n_out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(WideBasicBlock(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

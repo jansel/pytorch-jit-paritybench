@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,19 +88,15 @@ class MatchingNet(nn.Module):
         testTarget = input['testTarget']
         trainTarget = trainTarget.view(-1, 1)
         y_one_hot = trainTarget.clone()
-        y_one_hot = y_one_hot.expand(trainTarget.size()[0], opt['nClasses']
-            ['train'])
+        y_one_hot = y_one_hot.expand(trainTarget.size()[0], opt['nClasses']['train'])
         y_one_hot.data.zero_()
         y_one_hot = y_one_hot.float().scatter_(1, trainTarget, 1)
         gS = self.embedModel.embedG(trainInput)
         fX = self.embedModel.embedF(testInput, gS, opt['steps'])
         repeatgS = gS.repeat(fX.size(0), 1)
-        repeatfX = fX.repeat(1, gS.size(0)).view(fX.size(0) * gS.size(0),
-            fX.size(1))
-        weights = self.cosineSim(repeatgS, repeatfX).view(fX.size(0), gS.
-            size(0), 1)
-        expandOneHot = y_one_hot.view(1, y_one_hot.size(0), y_one_hot.size(1)
-            ).expand(fX.size(0), y_one_hot.size(0), y_one_hot.size(1))
+        repeatfX = fX.repeat(1, gS.size(0)).view(fX.size(0) * gS.size(0), fX.size(1))
+        weights = self.cosineSim(repeatgS, repeatfX).view(fX.size(0), gS.size(0), 1)
+        expandOneHot = y_one_hot.view(1, y_one_hot.size(0), y_one_hot.size(1)).expand(fX.size(0), y_one_hot.size(0), y_one_hot.size(1))
         expandWeights = weights.expand_as(expandOneHot)
         out = expandOneHot.mul(expandWeights).sum(1)
         if self.embedModel.isTraining():
@@ -111,9 +108,7 @@ class MatchingNet(nn.Module):
 
 def convLayer(opt, nInput, nOutput, k):
     """3x3 convolution with padding"""
-    seq = nn.Sequential(nn.Conv2d(nInput, nOutput, kernel_size=k, stride=1,
-        padding=1, bias=True), nn.BatchNorm2d(nOutput), nn.ReLU(True), nn.
-        MaxPool2d(kernel_size=2, stride=2))
+    seq = nn.Sequential(nn.Conv2d(nInput, nOutput, kernel_size=k, stride=1, padding=1, bias=True), nn.BatchNorm2d(nOutput), nn.ReLU(True), nn.MaxPool2d(kernel_size=2, stride=2))
     if opt['useDropout']:
         list_seq = list(seq.modules())[1:]
         list_seq.append(nn.Dropout(0.1))
@@ -133,8 +128,7 @@ class Classifier(nn.Module):
         self.outSize = opt['nFilters'] * finalSize * finalSize
         self.classify = opt['classify']
         if self.classify:
-            self.layer5 = nn.Linear(opt['nFilters'] * finalSize * finalSize,
-                opt['nClasses']['train'])
+            self.layer5 = nn.Linear(opt['nFilters'] * finalSize * finalSize, opt['nClasses']['train'])
         self.outSize = opt['nClasses']['train']
         self.reset()
 
@@ -175,8 +169,7 @@ class SeparatedBatchNorm1d(nn.Module):
     and variance separately per timestep.
     """
 
-    def __init__(self, num_features, max_length, eps=1e-05, momentum=0.1,
-        affine=True):
+    def __init__(self, num_features, max_length, eps=1e-05, momentum=0.1, affine=True):
         """
         Most parts are copied from
         torch.nn.modules.batchnorm._BatchNorm.
@@ -194,10 +187,8 @@ class SeparatedBatchNorm1d(nn.Module):
             self.register_parameter('weight', None)
             self.register_parameter('bias', None)
         for i in range(max_length):
-            self.register_buffer('running_mean_{}'.format(i), torch.zeros(
-                num_features))
-            self.register_buffer('running_var_{}'.format(i), torch.ones(
-                num_features))
+            self.register_buffer('running_mean_{}'.format(i), torch.zeros(num_features))
+            self.register_buffer('running_var_{}'.format(i), torch.ones(num_features))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -212,8 +203,7 @@ class SeparatedBatchNorm1d(nn.Module):
 
     def _check_input_dim(self, input_):
         if input_.size(1) != self.running_mean_0.nelement():
-            raise ValueError('got {}-feature tensor, expected {}'.format(
-                input_.size(1), self.num_features))
+            raise ValueError('got {}-feature tensor, expected {}'.format(input_.size(1), self.num_features))
 
     def forward(self, input_, time):
         self._check_input_dim(input_)
@@ -221,15 +211,10 @@ class SeparatedBatchNorm1d(nn.Module):
             time = self.max_length - 1
         running_mean = getattr(self, 'running_mean_{}'.format(time))
         running_var = getattr(self, 'running_var_{}'.format(time))
-        return functional.batch_norm(input=input_, running_mean=
-            running_mean, running_var=running_var, weight=self.weight, bias
-            =self.bias, training=self.training, momentum=self.momentum, eps
-            =self.eps)
+        return functional.batch_norm(input=input_, running_mean=running_mean, running_var=running_var, weight=self.weight, bias=self.bias, training=self.training, momentum=self.momentum, eps=self.eps)
 
     def __repr__(self):
-        return (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, max_length={max_length}, affine={affine})'
-            .format(name=self.__class__.__name__, **self.__dict__))
+        return '{name}({num_features}, eps={eps}, momentum={momentum}, max_length={max_length}, affine={affine})'.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class LSTMCell(nn.Module):
@@ -243,10 +228,8 @@ class LSTMCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.use_bias = use_bias
-        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 *
-            hidden_size))
-        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 *
-            hidden_size))
+        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 * hidden_size))
+        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 * hidden_size))
         if use_bias:
             self.bias = nn.Parameter(torch.FloatTensor(4 * hidden_size))
         else:
@@ -277,8 +260,7 @@ class LSTMCell(nn.Module):
         """
         h_0, c_0 = hx
         batch_size = h_0.size(0)
-        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.
-            size())
+        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.size())
         wh_b = torch.addmm(bias_batch, h_0, self.weight_hh)
         wi = torch.mm(input_, self.weight_ih)
         f, i, o, g = torch.split(wh_b + wi, split_size=self.hidden_size, dim=1)
@@ -300,20 +282,15 @@ class BNLSTMCell(nn.Module):
         self.hidden_size = hidden_size
         self.max_length = max_length
         self.use_bias = use_bias
-        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 *
-            hidden_size))
-        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 *
-            hidden_size))
+        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 * hidden_size))
+        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 * hidden_size))
         if use_bias:
             self.bias = nn.Parameter(torch.FloatTensor(4 * hidden_size))
         else:
             self.register_parameter('bias', None)
-        self.bn_ih = SeparatedBatchNorm1d(num_features=4 * hidden_size,
-            max_length=max_length)
-        self.bn_hh = SeparatedBatchNorm1d(num_features=4 * hidden_size,
-            max_length=max_length)
-        self.bn_c = SeparatedBatchNorm1d(num_features=hidden_size,
-            max_length=max_length)
+        self.bn_ih = SeparatedBatchNorm1d(num_features=4 * hidden_size, max_length=max_length)
+        self.bn_hh = SeparatedBatchNorm1d(num_features=4 * hidden_size, max_length=max_length)
+        self.bn_c = SeparatedBatchNorm1d(num_features=hidden_size, max_length=max_length)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -349,14 +326,12 @@ class BNLSTMCell(nn.Module):
         """
         h_0, c_0 = hx
         batch_size = h_0.size(0)
-        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.
-            size())
+        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.size())
         wh = torch.mm(h_0, self.weight_hh)
         wi = torch.mm(input_, self.weight_ih)
         bn_wh = self.bn_hh(wh, time=time)
         bn_wi = self.bn_ih(wi, time=time)
-        f, i, o, g = torch.split(bn_wh + bn_wi + bias_batch, split_size=
-            self.hidden_size, dim=1)
+        f, i, o, g = torch.split(bn_wh + bn_wi + bias_batch, split_size=self.hidden_size, dim=1)
         c_1 = torch.sigmoid(f) * c_0 + torch.sigmoid(i) * torch.tanh(g)
         h_1 = torch.sigmoid(o) * torch.tanh(self.bn_c(c_1, time=time))
         return h_1, c_1
@@ -365,8 +340,7 @@ class BNLSTMCell(nn.Module):
 class LSTM(nn.Module):
     """A module that runs multiple steps of LSTM."""
 
-    def __init__(self, cell_class, input_size, hidden_size, num_layers=1,
-        use_bias=True, batch_first=False, dropout=0, **kwargs):
+    def __init__(self, cell_class, input_size, hidden_size, num_layers=1, use_bias=True, batch_first=False, dropout=0, **kwargs):
         super(LSTM, self).__init__()
         self.cell_class = cell_class
         self.input_size = input_size
@@ -378,8 +352,7 @@ class LSTM(nn.Module):
         self.cells = []
         for layer in range(num_layers):
             layer_input_size = input_size if layer == 0 else hidden_size
-            cell = cell_class(input_size=layer_input_size, hidden_size=
-                hidden_size, **kwargs)
+            cell = cell_class(input_size=layer_input_size, hidden_size=hidden_size, **kwargs)
             self.cells.append(cell)
             setattr(self, 'cell_{}'.format(layer), cell)
         self.dropout_layer = nn.Dropout(dropout)
@@ -416,15 +389,13 @@ class LSTM(nn.Module):
             if input_.is_cuda:
                 length = length
         if hx is None:
-            hx = Variable(input_.data.new(batch_size, self.hidden_size).zero_()
-                )
+            hx = Variable(input_.data.new(batch_size, self.hidden_size).zero_())
             hx = hx, hx
         h_n = []
         c_n = []
         layer_output = None
         for layer in range(self.num_layers):
-            layer_output, (layer_h_n, layer_c_n) = LSTM._forward_rnn(cell=
-                self.cells[layer], input_=input_, length=length, hx=hx)
+            layer_output, (layer_h_n, layer_c_n) = LSTM._forward_rnn(cell=self.cells[layer], input_=input_, length=length, hx=hx)
             input_ = self.dropout_layer(layer_output)
             h_n.append(layer_h_n)
             c_n.append(layer_c_n)
@@ -442,16 +413,14 @@ class Learner(nn.Module):
         self.bn_layers = []
         for i in range(4):
             if 'BN_momentum' in opt.keys():
-                self.bn_layers.append(nn.BatchNorm2d(opt['nFilters'],
-                    momentum=opt['BN_momentum']))
+                self.bn_layers.append(nn.BatchNorm2d(opt['nFilters'], momentum=opt['BN_momentum']))
             else:
                 self.bn_layers.append(nn.BatchNorm2d(opt['nFilters']))
         opt['bnorm2d'] = self.bn_layers
         self.model = importlib.import_module(opt['learner']).build(opt)
         self.modelF = importlib.import_module(opt['learner']).build(opt)
         self.nParams = self.modelF.nParams
-        self.params = {param[0]: param[1] for param in self.modelF.net.
-            named_parameters()}
+        self.params = {param[0]: param[1] for param in self.modelF.net.named_parameters()}
 
     def unflattenParams_net(self, flatParams):
         flatParams = flatParams.squeeze()
@@ -470,8 +439,7 @@ class Learner(nn.Module):
         outputs = self.model.net(inputs)
         loss = self.model.criterion(outputs, targets)
         loss.backward()
-        grads = torch.cat([param.grad.view(-1) for param in self.model.net.
-            parameters()], 0)
+        grads = torch.cat([param.grad.view(-1) for param in self.model.net.parameters()], 0)
         return grads, loss
 
     def reset(self):
@@ -502,31 +470,22 @@ class MetaLearner(nn.Module):
     def __init__(self, opt):
         super(MetaLearner, self).__init__()
         self.nHidden = opt['nHidden'] if 'nHidden' in opt.keys() else 20
-        self.maxGradNorm = opt['maxGradNorm'] if 'maxGradNorm' in opt.keys(
-            ) else 0.25
+        self.maxGradNorm = opt['maxGradNorm'] if 'maxGradNorm' in opt.keys() else 0.25
         inputFeatures = 2
         batchNormalization1 = opt['BN1'] if 'BN1' in opt.keys() else False
-        maxBatchNormalizationLayers = opt['steps'] if 'steps' in opt.keys(
-            ) else 1
+        maxBatchNormalizationLayers = opt['steps'] if 'steps' in opt.keys() else 1
         batchNormalization1 = False
         if batchNormalization1:
-            self.lstm = bnlstm.LSTM(cell_class=bnlstm.BNLSTMCell,
-                input_size=inputFeatures, hidden_size=self.nHidden,
-                batch_first=True, max_length=maxBatchNormalizationLayers)
+            self.lstm = bnlstm.LSTM(cell_class=bnlstm.BNLSTMCell, input_size=inputFeatures, hidden_size=self.nHidden, batch_first=True, max_length=maxBatchNormalizationLayers)
         else:
-            self.lstm = nn.LSTM(input_size=inputFeatures, hidden_size=self.
-                nHidden, batch_first=True, num_layers=
-                maxBatchNormalizationLayers)
+            self.lstm = nn.LSTM(input_size=inputFeatures, hidden_size=self.nHidden, batch_first=True, num_layers=maxBatchNormalizationLayers)
         batch_size = 1
         self.lstm_h0_c0 = None
         batchNormalization2 = opt['BN2'] if 'BN2' in opt.keys() else False
-        self.lstm2 = metalstm.MetaLSTM(input_size=opt['nParams'],
-            hidden_size=self.nHidden, batch_first=True, num_layers=
-            maxBatchNormalizationLayers)
+        self.lstm2 = metalstm.MetaLSTM(input_size=opt['nParams'], hidden_size=self.nHidden, batch_first=True, num_layers=maxBatchNormalizationLayers)
         batch_size = 1
         self.lstm2_fS_iS_cS_deltaS = None
-        self.params = lambda : list(self.lstm.named_parameters()) + list(self
-            .lstm2.named_parameters())
+        self.params = lambda : list(self.lstm.named_parameters()) + list(self.lstm2.named_parameters())
         self.params = {param[0]: param[1] for param in self.params()}
         for names in self.lstm._all_weights:
             for name in filter(lambda n: 'weight' in n, names):
@@ -540,15 +499,13 @@ class MetaLearner(nn.Module):
                 params[0].data.uniform_(4, 5)
             if 'cell_0.bI' in names[0]:
                 params[0].data.uniform_(-4, -5)
-        initialParams = torch.cat([value.view(-1) for key, value in opt[
-            'learnerParams'].items()], 0)
+        initialParams = torch.cat([value.view(-1) for key, value in opt['learnerParams'].items()], 0)
         for params in self.lstm2.named_parameters():
             if 'cell_0.cI' in params[0]:
                 params[1].data = initialParams.data.clone()
         a = 0
 
-    def forward(self, learner, trainInput, trainTarget, testInput,
-        testTarget, steps, batchSize, evaluate=False):
+    def forward(self, learner, trainInput, trainTarget, testInput, testTarget, steps, batchSize, evaluate=False):
         trainSize = trainInput.size(0)
         learner.reset()
         learner.set('training')
@@ -560,8 +517,7 @@ class MetaLearner(nn.Module):
                 y = trainTarget[i:batchSize]
                 grad_model, loss_model = learner.feval(x, y)
                 grad_model = grad_model.view(grad_model.size()[0], 1, 1)
-                inputs = torch.cat((grad_model, loss_model.expand_as(
-                    grad_model)), 2)
+                inputs = torch.cat((grad_model, loss_model.expand_as(grad_model)), 2)
                 """
                 # preprocess grad & loss by DeepMind "Learning to learn"
                 preGrad, preLoss = preprocess(grad_model,loss_model)
@@ -570,10 +526,8 @@ class MetaLearner(nn.Module):
                 inputs = torch.cat((lossExpand,preGrad),2)
                 """
                 output, self.lstm_h0_c0 = self.lstm(inputs, self.lstm_h0_c0)
-                self.lstm2_fS_iS_cS_deltaS = self.lstm2((output, grad_model
-                    ), self.lstm2_fS_iS_cS_deltaS)
-                util.unflattenParams(learner.modelF, self.
-                    lstm2_fS_iS_cS_deltaS[2])
+                self.lstm2_fS_iS_cS_deltaS = self.lstm2((output, grad_model), self.lstm2_fS_iS_cS_deltaS)
+                util.unflattenParams(learner.modelF, self.lstm2_fS_iS_cS_deltaS[2])
                 output, loss = learner(testInput, testTarget)
                 output = self.lstm2_fS_iS_cS_deltaS[2]
                 util.unflattenParams(learner.model, output)
@@ -670,8 +624,7 @@ class MetaLSTMCell(nn.Module):
 class MetaLSTM(nn.Module):
     """A module that runs multiple steps of LSTM."""
 
-    def __init__(self, input_size, hidden_size, batch_first=False, num_layers=1
-        ):
+    def __init__(self, input_size, hidden_size, batch_first=False, num_layers=1):
         super(MetaLSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -680,8 +633,7 @@ class MetaLSTM(nn.Module):
         self.cells = []
         for layer in range(num_layers):
             layer_input_size = input_size if layer == 0 else hidden_size
-            cell = MetaLSTMCell(input_size=layer_input_size, hidden_size=
-                hidden_size)
+            cell = MetaLSTMCell(input_size=layer_input_size, hidden_size=hidden_size)
             self.cells.append(cell)
             setattr(self, 'cell_{}'.format(layer), cell)
         self.reset_parameters()
@@ -720,8 +672,7 @@ class MetaLSTM(nn.Module):
         cS_n = []
         deltaS_n = []
         for layer in range(self.num_layers):
-            hx_new = MetaLSTM._forward_rnn(cell=self.cells[layer], input_=
-                x_input, grads_=grad_input, length=length, hx=hx)
+            hx_new = MetaLSTM._forward_rnn(cell=self.cells[layer], input_=x_input, grads_=grad_input, length=length, hx=hx)
             fS_n.append(hx_new[0])
             iS_n.append(hx_new[1])
             cS_n.append(hx_new[2])
@@ -738,19 +689,13 @@ class RecurrentLSTMNetwork(nn.Module):
 
     def __init__(self, opt):
         super(RecurrentLSTMNetwork, self).__init__()
-        self.inputFeatures = opt['inputFeatures'
-            ] if 'inputFeatures' in opt.keys() else 10
-        self.hiddenFeatures = opt['hiddenFeatures'
-            ] if 'hiddenFeatures' in opt.keys() else 100
-        self.outputType = opt['outputType'] if 'outputType' in opt.keys(
-            ) else 'last'
-        self.batchNormalization = opt['batchNormalization'
-            ] if 'batchNormalization' in opt.keys() else False
-        self.maxBatchNormalizationLayers = opt['maxBatchNormalizationLayers'
-            ] if 'batchNormalization' in opt.keys() else 10
+        self.inputFeatures = opt['inputFeatures'] if 'inputFeatures' in opt.keys() else 10
+        self.hiddenFeatures = opt['hiddenFeatures'] if 'hiddenFeatures' in opt.keys() else 100
+        self.outputType = opt['outputType'] if 'outputType' in opt.keys() else 'last'
+        self.batchNormalization = opt['batchNormalization'] if 'batchNormalization' in opt.keys() else False
+        self.maxBatchNormalizationLayers = opt['maxBatchNormalizationLayers'] if 'batchNormalization' in opt.keys() else 10
         self.p = {}
-        self.p['W'] = Variable(torch.zeros(self.inputFeatures + self.
-            hiddenFeatures, 4 * self.hiddenFeatures), requires_grad=True)
+        self.p['W'] = Variable(torch.zeros(self.inputFeatures + self.hiddenFeatures, 4 * self.hiddenFeatures), requires_grad=True)
         self.params = [self.p['W']]
         self.batchNormalization = True
         if self.batchNormalization:
@@ -766,11 +711,9 @@ class RecurrentLSTMNetwork(nn.Module):
             self.layers['lstm_bn'][0].bias.data.zero_()
             self.layers['cell_bn'][0].weight.data.fill_(0.1)
             self.layers['cell_bn'][0].bias.data.zero_()
-            self.params = self.params + list(self.layers['lstm_bn'][0].
-                parameters()) + list(self.layers['lstm_bn'][0].parameters())
+            self.params = self.params + list(self.layers['lstm_bn'][0].parameters()) + list(self.layers['lstm_bn'][0].parameters())
         else:
-            self.p['b'] = Variable(torch.zeros(1, 4 * self.hiddenFeatures),
-                require_grad=True)
+            self.p['b'] = Variable(torch.zeros(1, 4 * self.hiddenFeatures), require_grad=True)
             self.params = self.params + [self.p['b']]
             self.layers = {}
 
@@ -816,8 +759,7 @@ class Classifier(nn.Module):
         self.outSize = nFilters * finalSize * finalSize
         self.classify = opt['classify']
         if self.classify:
-            self.layer5 = nn.Linear(nFilters * finalSize * finalSize, opt[
-                'nClasses']['train'])
+            self.layer5 = nn.Linear(nFilters * finalSize * finalSize, opt['nClasses']['train'])
             self.outSize = opt['nClasses']['train']
         self.weights_init(self.layer1)
         self.weights_init(self.layer2)
@@ -848,10 +790,3 @@ class Classifier(nn.Module):
             x = self.layer5(x)
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_gitabcworld_FewShotLearning(_paritybench_base):
-    pass

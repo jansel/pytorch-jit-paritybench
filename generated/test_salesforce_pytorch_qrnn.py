@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -152,8 +153,7 @@ class GPUForgetMult(torch.autograd.Function):
 
     def compile(self):
         if self.ptx is None:
-            program = Program(kernel.encode(), 'recurrent_forget_mult.cu'.
-                encode())
+            program = Program(kernel.encode(), 'recurrent_forget_mult.cu'.encode())
             GPUForgetMult.ptx = program.compile()
         if torch.cuda.current_device() not in GPUForgetMult.configured_gpus:
             m = function.Module()
@@ -162,10 +162,8 @@ class GPUForgetMult(torch.autograd.Function):
             self.bwd_forget_mult = m.get_function('bwd_recurrent_forget_mult')
             Stream = namedtuple('Stream', ['ptr'])
             self.stream = Stream(ptr=torch.cuda.current_stream().cuda_stream)
-            GPUForgetMult.configured_gpus[torch.cuda.current_device()
-                ] = self.forget_mult, self.bwd_forget_mult, self.stream
-        self.forget_mult, self.bwd_forget_mult, self.stream = (GPUForgetMult
-            .configured_gpus[torch.cuda.current_device()])
+            GPUForgetMult.configured_gpus[torch.cuda.current_device()] = self.forget_mult, self.bwd_forget_mult, self.stream
+        self.forget_mult, self.bwd_forget_mult, self.stream = GPUForgetMult.configured_gpus[torch.cuda.current_device()]
 
     def forward(self, f, x, hidden_init=None):
         self.compile()
@@ -177,9 +175,7 @@ class GPUForgetMult(torch.autograd.Function):
             result = result.zero_()
         grid_hidden_size = min(hidden_size, 512)
         grid = math.ceil(hidden_size / grid_hidden_size), batch_size
-        self.forget_mult(grid=grid, block=(grid_hidden_size, 1), args=[
-            result.data_ptr(), f.data_ptr(), x.data_ptr(), seq_size,
-            batch_size, hidden_size], stream=self.stream)
+        self.forget_mult(grid=grid, block=(grid_hidden_size, 1), args=[result.data_ptr(), f.data_ptr(), x.data_ptr(), seq_size, batch_size, hidden_size], stream=self.stream)
         self.save_for_backward(f, x, hidden_init)
         self.result = result
         return result[1:, :, :]
@@ -194,10 +190,7 @@ class GPUForgetMult(torch.autograd.Function):
         grad_h_init = f.new(batch_size, hidden_size)
         grid_hidden_size = min(hidden_size, 512)
         grid = math.ceil(hidden_size / grid_hidden_size), batch_size
-        self.bwd_forget_mult(grid=grid, block=(grid_hidden_size, 1), args=[
-            h.data_ptr(), f.data_ptr(), x.data_ptr(), grad_h.data_ptr(),
-            grad_f.data_ptr(), grad_x.data_ptr(), grad_h_init.data_ptr(),
-            seq_size, batch_size, hidden_size], stream=self.stream)
+        self.bwd_forget_mult(grid=grid, block=(grid_hidden_size, 1), args=[h.data_ptr(), f.data_ptr(), x.data_ptr(), grad_h.data_ptr(), grad_f.data_ptr(), grad_x.data_ptr(), grad_h_init.data_ptr(), seq_size, batch_size, hidden_size], stream=self.stream)
         if hidden_init is not None:
             return grad_f, grad_x, grad_h_init
         return grad_f, grad_x
@@ -225,8 +218,7 @@ class ForgetMult(torch.nn.Module):
             assert f.is_cuda and x.is_cuda, 'GPU ForgetMult with fast element-wise CUDA kernel requested but tensors not on GPU'
         if hidden_init is None:
             return GPUForgetMult()(f, x) if use_cuda else CPUForgetMult()(f, x)
-        return GPUForgetMult()(f, x, hidden_init
-            ) if use_cuda else CPUForgetMult()(f, x, hidden_init)
+        return GPUForgetMult()(f, x, hidden_init) if use_cuda else CPUForgetMult()(f, x, hidden_init)
 
 
 class QRNNLayer(nn.Module):
@@ -250,11 +242,9 @@ class QRNNLayer(nn.Module):
         - h_n (batch, hidden_size): tensor containing the hidden state for t=seq_len
     """
 
-    def __init__(self, input_size, hidden_size=None, save_prev_x=False,
-        zoneout=0, window=1, output_gate=True, use_cuda=True):
+    def __init__(self, input_size, hidden_size=None, save_prev_x=False, zoneout=0, window=1, output_gate=True, use_cuda=True):
         super(QRNNLayer, self).__init__()
-        assert window in [1, 2
-            ], 'This QRNN implementation currently only handles convolutional window of size 1 or size 2'
+        assert window in [1, 2], 'This QRNN implementation currently only handles convolutional window of size 1 or size 2'
         self.window = window
         self.input_size = input_size
         self.hidden_size = hidden_size if hidden_size else input_size
@@ -263,8 +253,7 @@ class QRNNLayer(nn.Module):
         self.prevX = None
         self.output_gate = output_gate
         self.use_cuda = use_cuda
-        self.linear = nn.Linear(self.window * self.input_size, 3 * self.
-            hidden_size if self.output_gate else 2 * self.hidden_size)
+        self.linear = nn.Linear(self.window * self.input_size, 3 * self.hidden_size if self.output_gate else 2 * self.hidden_size)
 
     def reset(self):
         self.prevX = None
@@ -276,8 +265,7 @@ class QRNNLayer(nn.Module):
             source = X
         elif self.window == 2:
             Xm1 = []
-            Xm1.append(self.prevX if self.prevX is not None else X[:1, :, :
-                ] * 0)
+            Xm1.append(self.prevX if self.prevX is not None else X[:1, :, :] * 0)
             if len(X) > 1:
                 Xm1.append(X[:-1, :, :])
             Xm1 = torch.cat(Xm1, 0)
@@ -293,8 +281,7 @@ class QRNNLayer(nn.Module):
         F = torch.nn.functional.sigmoid(F)
         if self.zoneout:
             if self.training:
-                mask = Variable(F.data.new(*F.size()).bernoulli_(1 - self.
-                    zoneout), requires_grad=False)
+                mask = Variable(F.data.new(*F.size()).bernoulli_(1 - self.zoneout), requires_grad=False)
                 F = F * mask
             else:
                 F *= 1 - self.zoneout
@@ -333,16 +320,12 @@ class QRNN(torch.nn.Module):
         - h_n (layers, batch, hidden_size): tensor containing the hidden state for t=seq_len
     """
 
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True,
-        batch_first=False, dropout=0, bidirectional=False, layers=None, **
-        kwargs):
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=0, bidirectional=False, layers=None, **kwargs):
         assert bidirectional == False, 'Bidirectional QRNN is not yet supported'
         assert batch_first == False, 'Batch first mode is not yet supported'
         assert bias == True, 'Removing underlying bias is not yet supported'
         super(QRNN, self).__init__()
-        self.layers = torch.nn.ModuleList(layers if layers else [QRNNLayer(
-            input_size if l == 0 else hidden_size, hidden_size, **kwargs) for
-            l in range(num_layers)])
+        self.layers = torch.nn.ModuleList(layers if layers else [QRNNLayer(input_size if l == 0 else hidden_size, hidden_size, **kwargs) for l in range(num_layers)])
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = len(layers) if layers else num_layers
@@ -361,10 +344,8 @@ class QRNN(torch.nn.Module):
             input, hn = layer(input, None if hidden is None else hidden[i])
             next_hidden.append(hn)
             if self.dropout != 0 and i < len(self.layers) - 1:
-                input = torch.nn.functional.dropout(input, p=self.dropout,
-                    training=self.training, inplace=False)
-        next_hidden = torch.cat(next_hidden, 0).view(self.num_layers, *
-            next_hidden[0].size()[-2:])
+                input = torch.nn.functional.dropout(input, p=self.dropout, training=self.training, inplace=False)
+        next_hidden = torch.cat(next_hidden, 0).view(self.num_layers, *next_hidden[0].size()[-2:])
         return input, next_hidden
 
 
@@ -372,9 +353,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CPUForgetMult,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_salesforce_pytorch_qrnn(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CPUForgetMult(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

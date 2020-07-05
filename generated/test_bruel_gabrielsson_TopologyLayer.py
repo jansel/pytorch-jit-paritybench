@@ -43,8 +43,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -98,12 +99,7 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        self.model = nn.Sequential(nn.Linear(100, 128), nn.LeakyReLU(0.2,
-            inplace=True), nn.Linear(128, 256), nn.BatchNorm1d(256, 0.8),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 512), nn.
-            BatchNorm1d(512, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.
-            Linear(512, 1024), nn.BatchNorm1d(1024, 0.8), nn.LeakyReLU(0.2,
-            inplace=True), nn.Linear(1024, int(np.prod(ape))), nn.Tanh())
+        self.model = nn.Sequential(nn.Linear(100, 128), nn.LeakyReLU(0.2, inplace=True), nn.Linear(128, 256), nn.BatchNorm1d(256, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 512), nn.BatchNorm1d(512, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 1024), nn.BatchNorm1d(1024, 0.8), nn.LeakyReLU(0.2, inplace=True), nn.Linear(1024, int(np.prod(ape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -457,8 +453,7 @@ class AlphaLayer(torch.nn.Module):
 
     def forward(self, x):
         dgm = self.fnobj.apply(x, self.maxdim, self.verbose)
-        dgms = tuple(remove_filler(dgm[i], -np.inf) for i in range(self.
-            maxdim + 1))
+        dgms = tuple(remove_filler(dgm[i], -np.inf) for i in range(self.maxdim + 1))
         return dgms, True
 
 
@@ -569,8 +564,7 @@ class BarcodePolyFeature(nn.Module):
         if self.remove_zero:
             dgm = remove_zero_bars(dgm)
         lengths, means = get_barcode_lengths_means(dgm, issublevel)
-        return torch.sum(torch.mul(torch.pow(lengths, self.p), torch.pow(
-            means, self.q)))
+        return torch.sum(torch.mul(torch.pow(lengths, self.p), torch.pow(means, self.q)))
 
 
 def pad_k(t, k, pad=0.0):
@@ -740,8 +734,7 @@ class LevelSetLayer(nn.Module):
 
     def forward(self, img):
         dgm = self.fnobj.apply(img, self.complex)
-        dgms = tuple(remove_filler(dgm[i], -np.inf) for i in range(self.
-            maxdim + 1))
+        dgms = tuple(remove_filler(dgm[i], -np.inf) for i in range(self.maxdim + 1))
         return dgms, False
 
 
@@ -818,8 +811,7 @@ class RipsLayer(nn.Module):
 
     def forward(self, x):
         dgm = self.fnobj.apply(x, self.rmax, self.maxdim, self.verbose)
-        dgms = tuple(remove_filler(dgm[i], -np.inf) for i in range(self.
-            maxdim + 1))
+        dgms = tuple(remove_filler(dgm[i], -np.inf) for i in range(self.maxdim + 1))
         return dgms, True
 
 
@@ -827,15 +819,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([100, 100])], {}),
+     False),
+    (NormLoss,
+     lambda: ([], {'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SobLoss,
+     lambda: ([], {'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_bruel_gabrielsson_TopologyLayer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Generator(*[], **{}), [torch.rand([100, 100])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(NormLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SobLoss(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

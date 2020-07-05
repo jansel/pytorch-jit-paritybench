@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,8 +56,7 @@ import torch.optim as optim
 
 class BaseModel(nn.Module):
 
-    def __init__(self, inputDim, hiddenNum, outputDim, layerNum, cell,
-        use_cuda=False):
+    def __init__(self, inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda=False):
         super(BaseModel, self).__init__()
         self.hiddenNum = hiddenNum
         self.inputDim = inputDim
@@ -64,25 +64,18 @@ class BaseModel(nn.Module):
         self.layerNum = layerNum
         self.use_cuda = use_cuda
         if cell == 'RNN':
-            self.cell = nn.RNN(input_size=self.inputDim, hidden_size=self.
-                hiddenNum, num_layers=self.layerNum, dropout=0.0,
-                nonlinearity='tanh', batch_first=True)
+            self.cell = nn.RNN(input_size=self.inputDim, hidden_size=self.hiddenNum, num_layers=self.layerNum, dropout=0.0, nonlinearity='tanh', batch_first=True)
         if cell == 'LSTM':
-            self.cell = nn.LSTM(input_size=self.inputDim, hidden_size=self.
-                hiddenNum, num_layers=self.layerNum, dropout=0.0,
-                batch_first=True)
+            self.cell = nn.LSTM(input_size=self.inputDim, hidden_size=self.hiddenNum, num_layers=self.layerNum, dropout=0.0, batch_first=True)
         if cell == 'GRU':
-            self.cell = nn.GRU(input_size=self.inputDim, hidden_size=self.
-                hiddenNum, num_layers=self.layerNum, dropout=0.0,
-                batch_first=True)
+            self.cell = nn.GRU(input_size=self.inputDim, hidden_size=self.hiddenNum, num_layers=self.layerNum, dropout=0.0, batch_first=True)
         None
         self.fc = nn.Linear(self.hiddenNum, self.outputDim)
 
 
 class ResRNN_Cell(nn.Module):
 
-    def __init__(self, inputDim, hiddenNum, outputDim, resDepth, use_cuda=False
-        ):
+    def __init__(self, inputDim, hiddenNum, outputDim, resDepth, use_cuda=False):
         super(ResRNN_Cell, self).__init__()
         self.hiddenNum = hiddenNum
         self.inputDim = inputDim
@@ -98,8 +91,7 @@ class ResRNN_Cell(nn.Module):
 
     def forward(self, x):
         batchSize = x.size(0)
-        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum)
-            )
+        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum))
         if self.use_cuda:
             h0 = h0
         ht = h0
@@ -125,8 +117,7 @@ class ResRNN_Cell(nn.Module):
 
 class ResRNNModel(nn.Module):
 
-    def __init__(self, inputDim, hiddenNum, outputDim, resDepth, use_cuda=False
-        ):
+    def __init__(self, inputDim, hiddenNum, outputDim, resDepth, use_cuda=False):
         super(ResRNNModel, self).__init__()
         self.hiddenNum = hiddenNum
         self.inputDim = inputDim
@@ -147,8 +138,7 @@ class ResRNNModel(nn.Module):
 
     def forward(self, x):
         batchSize = x.size(0)
-        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum)
-            )
+        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum))
         if self.use_cuda:
             h0 = h0
         lag = x.data.size()[1]
@@ -192,8 +182,7 @@ class TimeDistributed(nn.Module):
 
 class RNN_Attention(nn.Module):
 
-    def __init__(self, inputDim, hiddenNum, outputDim, resDepth, seq_len,
-        merge='concate', use_cuda=True):
+    def __init__(self, inputDim, hiddenNum, outputDim, resDepth, seq_len, merge='concate', use_cuda=True):
         super(RNN_Attention, self).__init__()
         self.att_fc = nn.Linear(hiddenNum, 1)
         self.time_distribut_layer = TimeDistributed(self.att_fc)
@@ -205,8 +194,7 @@ class RNN_Attention(nn.Module):
         self.merge = merge
         self.seq_len = seq_len
         self.use_cuda = use_cuda
-        self.cell = ResRNN_Cell(inputDim, hiddenNum, outputDim, resDepth,
-            use_cuda=use_cuda)
+        self.cell = ResRNN_Cell(inputDim, hiddenNum, outputDim, resDepth, use_cuda=use_cuda)
         if use_cuda:
             self.cell = self.cell
 
@@ -248,23 +236,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLPModel,
+     lambda: ([], {'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RNN_Attention,
+     lambda: ([], {'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4, 'seq_len': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResRNNModel,
+     lambda: ([], {'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ResRNN_Cell,
+     lambda: ([], {'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TimeDistributed,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_zhangxu0307_time_series_forecasting_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MLPModel(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(RNN_Attention(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4, 'seq_len': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResRNNModel(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ResRNN_Cell(*[], **{'inputDim': 4, 'hiddenNum': 4, 'outputDim': 4, 'resDepth': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(TimeDistributed(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,17 +76,8 @@ class EnergyFunction(torch.nn.Module):
         return self.energy(s, o).squeeze(-1)
 
     def optim_params(self):
-        return [{'params': self.lt.parameters(), 'rgrad': self.manifold.
-            rgrad, 'expm': self.manifold.expm, 'logm': self.manifold.logm,
-            'ptransp': self.manifold.ptransp}]
+        return [{'params': self.lt.parameters(), 'rgrad': self.manifold.rgrad, 'expm': self.manifold.expm, 'logm': self.manifold.logm, 'ptransp': self.manifold.ptransp}]
 
     def loss_function(self, inp, target, **kwargs):
         raise NotImplementedError
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_facebookresearch_poincare_embeddings(_paritybench_base):
-    pass

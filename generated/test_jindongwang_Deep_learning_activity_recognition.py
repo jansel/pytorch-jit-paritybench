@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -42,16 +43,10 @@ class Network(nn.Module):
 
     def __init__(self):
         super(Network, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=9, out_channels=32,
-            kernel_size=(1, 9)), nn.ReLU(), nn.MaxPool2d(kernel_size=(1, 2),
-            stride=2))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=
-            64, kernel_size=(1, 9)), nn.ReLU(), nn.MaxPool2d(kernel_size=(1,
-            2), stride=2))
-        self.fc1 = nn.Sequential(nn.Linear(in_features=64 * 26,
-            out_features=1000), nn.ReLU())
-        self.fc2 = nn.Sequential(nn.Linear(in_features=1000, out_features=
-            500), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=9, out_channels=32, kernel_size=(1, 9)), nn.ReLU(), nn.MaxPool2d(kernel_size=(1, 2), stride=2))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(1, 9)), nn.ReLU(), nn.MaxPool2d(kernel_size=(1, 2), stride=2))
+        self.fc1 = nn.Sequential(nn.Linear(in_features=64 * 26, out_features=1000), nn.ReLU())
+        self.fc2 = nn.Sequential(nn.Linear(in_features=1000, out_features=500), nn.ReLU())
         self.fc3 = nn.Sequential(nn.Linear(in_features=500, out_features=6))
 
     def forward(self, x):
@@ -64,10 +59,3 @@ class Network(nn.Module):
         out = F.softmax(out, dim=1)
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jindongwang_Deep_learning_activity_recognition(_paritybench_base):
-    pass

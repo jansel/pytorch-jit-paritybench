@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -106,8 +107,7 @@ class Attn(nn.Module):
 
 class AttnDecoderRNN(nn.Module):
 
-    def __init__(self, attn_model, hidden_size, output_size, n_layers=1,
-        dropout_p=0.1, max_length=10):
+    def __init__(self, attn_model, hidden_size, output_size, n_layers=1, dropout_p=0.1, max_length=10):
         super(AttnDecoderRNN, self).__init__()
         self.attn_model = attn_model
         self.hidden_size = hidden_size
@@ -116,8 +116,7 @@ class AttnDecoderRNN(nn.Module):
         self.dropout_p = dropout_p
         self.max_length = max_length
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size * 2, hidden_size, n_layers, dropout=
-            dropout_p)
+        self.gru = nn.GRU(hidden_size * 2, hidden_size, n_layers, dropout=dropout_p)
         self.out = nn.Linear(hidden_size * 2, output_size)
         if attn_model != 'none':
             self.attn = Attn(attn_model, hidden_size, self.max_length)
@@ -162,10 +161,8 @@ class seq2seq(nn.Module):
         self.alpha = 0.5
         self.enc_vec = []
         self.dec_vec = []
-        self.encoder = EncoderRNN(self.input_size, self.hidden_size, self.
-            n_layers)
-        self.decoder = AttnDecoderRNN('general', self.hidden_size, self.
-            output_size, self.n_layers, self.dropout_p, self.max_length)
+        self.encoder = EncoderRNN(self.input_size, self.hidden_size, self.n_layers)
+        self.decoder = AttnDecoderRNN('general', self.hidden_size, self.output_size, self.n_layers, self.dropout_p, self.max_length)
         if USE_CUDA:
             self.encoder = self.encoder
             self.decoder = self.decoder
@@ -201,19 +198,15 @@ class seq2seq(nn.Module):
             dec = self.dec_vec[self.batch_index:self.batch_index + batch_size]
             self.batch_index += batch_size
         for index in range(len(enc)):
-            enc = enc[0][:self.max_length] if len(enc[0]
-                ) > self.max_length else enc[0]
-            dec = dec[0][:self.max_length] if len(dec[0]
-                ) > self.max_length else dec[0]
+            enc = enc[0][:self.max_length] if len(enc[0]) > self.max_length else enc[0]
+            dec = dec[0][:self.max_length] if len(dec[0]) > self.max_length else dec[0]
             enc = [int(i) for i in enc]
             dec = [int(i) for i in dec]
             dec.append(eos_token)
             inputs.append(enc)
             targets.append(dec)
-        inputs = Variable(torch.LongTensor(inputs)).transpose(1, 0).contiguous(
-            )
-        targets = Variable(torch.LongTensor(targets)).transpose(1, 0
-            ).contiguous()
+        inputs = Variable(torch.LongTensor(inputs)).transpose(1, 0).contiguous()
+        targets = Variable(torch.LongTensor(targets)).transpose(1, 0).contiguous()
         if USE_CUDA:
             inputs = inputs
             targets = targets
@@ -253,8 +246,7 @@ class seq2seq(nn.Module):
         input_length = input_variable.size()[0]
         target_length = target_variable.size()[0]
         encoder_hidden = self.encoder.init_hidden()
-        encoder_outputs, encoder_hidden = self.encoder(input_variable,
-            encoder_hidden)
+        encoder_outputs, encoder_hidden = self.encoder(input_variable, encoder_hidden)
         decoder_input = Variable(torch.LongTensor([[SOS_token]]))
         decoder_context = Variable(torch.zeros(1, self.decoder.hidden_size))
         decoder_hidden = encoder_hidden
@@ -266,17 +258,13 @@ class seq2seq(nn.Module):
         use_teacher_forcing = True
         if use_teacher_forcing:
             for di in range(target_length):
-                (decoder_output, decoder_context, decoder_hidden,
-                    decoder_attention) = (self.decoder(decoder_input,
-                    decoder_context, decoder_hidden, encoder_outputs))
+                decoder_output, decoder_context, decoder_hidden, decoder_attention = self.decoder(decoder_input, decoder_context, decoder_hidden, encoder_outputs)
                 loss += self.criterion(decoder_output, target_variable[di])
                 decoder_input = target_variable[di]
                 decoder_outputs.append(decoder_output.unsqueeze(0))
         else:
             for di in range(target_length):
-                (decoder_output, decoder_context, decoder_hidden,
-                    decoder_attention) = (self.decoder(decoder_input,
-                    decoder_context, decoder_hidden, encoder_outputs))
+                decoder_output, decoder_context, decoder_hidden, decoder_attention = self.decoder(decoder_input, decoder_context, decoder_hidden, encoder_outputs)
                 loss += self.criterion(decoder_output, target_variable[di])
                 decoder_outputs.append(decoder_output.unsqueeze(0))
                 topv, topi = decoder_output.data.topk(1)
@@ -296,11 +284,9 @@ class seq2seq(nn.Module):
 
     def make_infer_fd(self, input_vec):
         inputs = []
-        enc = input_vec[:self.max_length] if len(input_vec
-            ) > self.max_length else input_vec
+        enc = input_vec[:self.max_length] if len(input_vec) > self.max_length else input_vec
         inputs.append(enc)
-        inputs = Variable(torch.LongTensor(inputs)).transpose(1, 0).contiguous(
-            )
+        inputs = Variable(torch.LongTensor(inputs)).transpose(1, 0).contiguous()
         if USE_CUDA:
             inputs = inputs
         return inputs
@@ -348,8 +334,7 @@ class seq2seq(nn.Module):
     def infer(self, input_variable):
         input_length = input_variable.size()[0]
         encoder_hidden = self.encoder.init_hidden()
-        encoder_outputs, encoder_hidden = self.encoder(input_variable,
-            encoder_hidden)
+        encoder_outputs, encoder_hidden = self.encoder(input_variable, encoder_hidden)
         decoder_input = Variable(torch.LongTensor([[SOS_token]]))
         decoder_context = Variable(torch.zeros(1, self.decoder.hidden_size))
         decoder_hidden = encoder_hidden
@@ -358,9 +343,7 @@ class seq2seq(nn.Module):
             decoder_context = decoder_context
         decoder_outputs = []
         for i in range(self.max_length):
-            (decoder_output, decoder_context, decoder_hidden, decoder_attention
-                ) = (self.decoder(decoder_input, decoder_context,
-                decoder_hidden, encoder_outputs))
+            decoder_output, decoder_context, decoder_hidden, decoder_attention = self.decoder(decoder_input, decoder_context, decoder_hidden, encoder_outputs)
             decoder_outputs.append(decoder_output.unsqueeze(0))
             topv, topi = decoder_output.data.topk(1)
             ni = topi[0][0]
@@ -378,17 +361,14 @@ class seq2seq(nn.Module):
     def beamSearchDecoder(self, input_variable):
         input_length = input_variable.size()[0]
         encoder_hidden = self.encoder.init_hidden()
-        encoder_outputs, encoder_hidden = self.encoder(input_variable,
-            encoder_hidden)
+        encoder_outputs, encoder_hidden = self.encoder(input_variable, encoder_hidden)
         decoder_input = Variable(torch.LongTensor([[SOS_token]]))
         decoder_context = Variable(torch.zeros(1, self.decoder.hidden_size))
         decoder_hidden = encoder_hidden
         if USE_CUDA:
             decoder_input = decoder_input
             decoder_context = decoder_context
-        (decoder_output, decoder_context, decoder_hidden, decoder_attention
-            ) = (self.decoder(decoder_input, decoder_context,
-            decoder_hidden, encoder_outputs))
+        decoder_output, decoder_context, decoder_hidden, decoder_attention = self.decoder(decoder_input, decoder_context, decoder_hidden, encoder_outputs)
         topk = decoder_output.data.topk(self.top_k)
         samples = [[] for i in range(self.top_k)]
         dead_k = 0
@@ -396,22 +376,17 @@ class seq2seq(nn.Module):
         for index in range(self.top_k):
             topk_prob = topk[0][0][index]
             topk_index = int(topk[1][0][index])
-            samples[index] = [[topk_index], topk_prob, 0, 0,
-                decoder_context, decoder_hidden, decoder_attention,
-                encoder_outputs]
+            samples[index] = [[topk_index], topk_prob, 0, 0, decoder_context, decoder_hidden, decoder_attention, encoder_outputs]
         for _ in range(self.max_length):
             tmp = []
             for index in range(len(samples)):
                 tmp.extend(self.beamSearchInfer(samples[index], index))
             samples = []
             df = pd.DataFrame(tmp)
-            df.columns = ['sequence', 'pre_socres', 'fin_scores',
-                'ave_scores', 'decoder_context', 'decoder_hidden',
-                'decoder_attention', 'encoder_outputs']
+            df.columns = ['sequence', 'pre_socres', 'fin_scores', 'ave_scores', 'decoder_context', 'decoder_hidden', 'decoder_attention', 'encoder_outputs']
             sequence_len = df.sequence.apply(lambda x: len(x))
             df['ave_scores'] = df['fin_scores'] / sequence_len
-            df = df.sort_values('ave_scores', ascending=False).reset_index(
-                ).drop(['index'], axis=1)
+            df = df.sort_values('ave_scores', ascending=False).reset_index().drop(['index'], axis=1)
             df = df[:self.top_k - dead_k]
             for index in range(len(df)):
                 group = df.ix[index]
@@ -432,20 +407,15 @@ class seq2seq(nn.Module):
         decoder_input = Variable(torch.LongTensor([[sample[0][-1]]]))
         if USE_CUDA:
             decoder_input = decoder_input
-        (sequence, pre_scores, fin_scores, ave_scores, decoder_context,
-            decoder_hidden, decoder_attention, encoder_outputs) = sample
-        (decoder_output, decoder_context, decoder_hidden, decoder_attention
-            ) = (self.decoder(decoder_input, decoder_context,
-            decoder_hidden, encoder_outputs))
+        sequence, pre_scores, fin_scores, ave_scores, decoder_context, decoder_hidden, decoder_attention, encoder_outputs = sample
+        decoder_output, decoder_context, decoder_hidden, decoder_attention = self.decoder(decoder_input, decoder_context, decoder_hidden, encoder_outputs)
         topk = decoder_output.data.topk(self.top_k)
         for k in range(self.top_k):
             topk_prob = topk[0][0][k]
             topk_index = int(topk[1][0][k])
             pre_scores += topk_prob
             fin_scores = pre_scores - (k - 1) * self.alpha
-            samples.append([sequence + [topk_index], pre_scores, fin_scores,
-                ave_scores, decoder_context, decoder_hidden,
-                decoder_attention, encoder_outputs])
+            samples.append([sequence + [topk_index], pre_scores, fin_scores, ave_scores, decoder_context, decoder_hidden, decoder_attention, encoder_outputs])
         return samples
 
     def retrain(self):
@@ -460,8 +430,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EncoderRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {}),
+     True),
+]
+
 class Test_yanwii_seq2seq(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {})
+        self._check(*TESTCASES[0])
 

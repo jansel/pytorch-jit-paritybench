@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,23 +64,19 @@ class Discriminator(nn.Module):
     def __init__(self, input_dim=28 ** 2, output_dim=10):
         super(Discriminator, self).__init__()
         self.input_dim = input_dim
-        self.layers = torch.nn.ModuleList([LinearWeightNorm(input_dim, 1000
-            ), LinearWeightNorm(1000, 500), LinearWeightNorm(500, 250),
-            LinearWeightNorm(250, 250), LinearWeightNorm(250, 250)])
+        self.layers = torch.nn.ModuleList([LinearWeightNorm(input_dim, 1000), LinearWeightNorm(1000, 500), LinearWeightNorm(500, 250), LinearWeightNorm(250, 250), LinearWeightNorm(250, 250)])
         self.final = LinearWeightNorm(250, output_dim, weight_scale=1)
 
     def forward(self, x, feature=False, cuda=False):
         x = x.view(-1, self.input_dim)
-        noise = torch.randn(x.size()) * 0.3 if self.training else torch.Tensor(
-            [0])
+        noise = torch.randn(x.size()) * 0.3 if self.training else torch.Tensor([0])
         if cuda:
             noise = noise
         x = x + Variable(noise, requires_grad=False)
         for i in range(len(self.layers)):
             m = self.layers[i]
             x_f = F.relu(m(x))
-            noise = torch.randn(x_f.size()
-                ) * 0.5 if self.training else torch.Tensor([0])
+            noise = torch.randn(x_f.size()) * 0.5 if self.training else torch.Tensor([0])
             if cuda:
                 noise = noise
             x = x_f + Variable(noise, requires_grad=False)
@@ -104,8 +101,7 @@ class Generator(nn.Module):
         nn.init.xavier_uniform(self.fc2.weight)
 
     def forward(self, batch_size, cuda=False):
-        x = Variable(torch.rand(batch_size, self.z_dim), requires_grad=
-            False, volatile=not self.training)
+        x = Variable(torch.rand(batch_size, self.z_dim), requires_grad=False, volatile=not self.training)
         if cuda:
             x = x
         x = F.softplus(self.bn1(self.fc1(x)) + self.bn1_b)
@@ -116,45 +112,50 @@ class Generator(nn.Module):
 
 class LinearWeightNorm(torch.nn.Module):
 
-    def __init__(self, in_features, out_features, bias=True, weight_scale=
-        None, weight_init_stdv=0.1):
+    def __init__(self, in_features, out_features, bias=True, weight_scale=None, weight_init_stdv=0.1):
         super(LinearWeightNorm, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = Parameter(torch.randn(out_features, in_features) *
-            weight_init_stdv)
+        self.weight = Parameter(torch.randn(out_features, in_features) * weight_init_stdv)
         if bias:
             self.bias = Parameter(torch.zeros(out_features))
         else:
             self.register_parameter('bias', None)
         if weight_scale is not None:
             assert type(weight_scale) == int
-            self.weight_scale = Parameter(torch.ones(out_features, 1) *
-                weight_scale)
+            self.weight_scale = Parameter(torch.ones(out_features, 1) * weight_scale)
         else:
             self.weight_scale = 1
 
     def forward(self, x):
-        W = self.weight * self.weight_scale / torch.sqrt(torch.sum(self.
-            weight ** 2, dim=1, keepdim=True))
+        W = self.weight * self.weight_scale / torch.sqrt(torch.sum(self.weight ** 2, dim=1, keepdim=True))
         return F.linear(x, W, self.bias)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.
-            in_features) + ', out_features=' + str(self.out_features
-            ) + ', weight_scale=' + str(self.weight_scale) + ')'
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', weight_scale=' + str(self.weight_scale) + ')'
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 784])], {}),
+     False),
+    (LinearWeightNorm,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Sleepychord_ImprovedGAN_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 784])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LinearWeightNorm(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

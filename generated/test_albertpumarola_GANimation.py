@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,11 +65,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, dim_in, dim_out):
         super(ResidualBlock, self).__init__()
-        self.main = nn.Sequential(nn.Conv2d(dim_in, dim_out, kernel_size=3,
-            stride=1, padding=1, bias=False), nn.InstanceNorm2d(dim_out,
-            affine=True), nn.ReLU(inplace=True), nn.Conv2d(dim_out, dim_out,
-            kernel_size=3, stride=1, padding=1, bias=False), nn.
-            InstanceNorm2d(dim_out, affine=True))
+        self.main = nn.Sequential(nn.Conv2d(dim_in, dim_out, kernel_size=3, stride=1, padding=1, bias=False), nn.InstanceNorm2d(dim_out, affine=True), nn.ReLU(inplace=True), nn.Conv2d(dim_out, dim_out, kernel_size=3, stride=1, padding=1, bias=False), nn.InstanceNorm2d(dim_out, affine=True))
 
     def forward(self, x):
         return x + self.main(x)
@@ -105,8 +102,7 @@ class NetworkBase(nn.Module):
         elif norm_type == 'batchnorm2d':
             norm_layer = nn.BatchNorm2d
         else:
-            raise NotImplementedError(
-                'normalization layer [%s] is not found' % norm_type)
+            raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
         return norm_layer
 
 
@@ -114,8 +110,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResidualBlock,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_albertpumarola_GANimation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ResidualBlock(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

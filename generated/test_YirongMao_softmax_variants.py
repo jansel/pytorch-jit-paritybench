@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -109,14 +110,11 @@ class RingLoss(nn.Module):
         if self.radius.data[0] < 0:
             self.radius.data.fill_(x.mean().data[0])
         if self.type == 'L1':
-            loss1 = F.smooth_l1_loss(x, self.radius.expand_as(x)).mul_(self
-                .loss_weight)
-            loss2 = F.smooth_l1_loss(self.radius.expand_as(x), x).mul_(self
-                .loss_weight)
+            loss1 = F.smooth_l1_loss(x, self.radius.expand_as(x)).mul_(self.loss_weight)
+            loss2 = F.smooth_l1_loss(self.radius.expand_as(x), x).mul_(self.loss_weight)
             ringloss = loss1 + loss2
         elif self.type == 'auto':
-            diff = x.sub(self.radius.expand_as(x)) / x.mean().detach().clamp(
-                min=0.5)
+            diff = x.sub(self.radius.expand_as(x)) / x.mean().detach().clamp(min=0.5)
             diff_sq = torch.pow(torch.abs(diff), 2).mean()
             ringloss = diff_sq.mul_(self.loss_weight)
         else:
@@ -206,8 +204,7 @@ class LGMLoss(nn.Module):
         log_covs = torch.unsqueeze(self.log_covs, dim=0)
         covs = torch.exp(log_covs)
         tcovs = covs.repeat(batch_size, 1, 1)
-        diff = torch.unsqueeze(feat, dim=1) - torch.unsqueeze(self.centers,
-            dim=0)
+        diff = torch.unsqueeze(feat, dim=1) - torch.unsqueeze(self.centers, dim=0)
         wdiff = torch.div(diff, tcovs)
         diff = torch.mul(diff, wdiff)
         dist = torch.sum(diff, dim=-1)
@@ -221,12 +218,10 @@ class LGMLoss(nn.Module):
         tslog_covs = slog_covs.repeat(batch_size, 1)
         margin_logits = -0.5 * (tslog_covs + margin_dist)
         logits = -0.5 * (tslog_covs + dist)
-        cdiff = feat - torch.index_select(self.centers, dim=0, index=label.
-            long())
+        cdiff = feat - torch.index_select(self.centers, dim=0, index=label.long())
         cdist = cdiff.pow(2).sum(1).sum(0) / 2.0
         slog_covs = torch.squeeze(slog_covs)
-        reg = 0.5 * torch.sum(torch.index_select(slog_covs, dim=0, index=
-            label.long()))
+        reg = 0.5 * torch.sum(torch.index_select(slog_covs, dim=0, index=label.long()))
         likelihood = 1.0 / batch_size * (cdist + reg)
         return logits, margin_logits, likelihood
 
@@ -245,8 +240,7 @@ class LGMLoss_v0(nn.Module):
 
     def forward(self, feat, label):
         batch_size = feat.shape[0]
-        diff = torch.unsqueeze(feat, dim=1) - torch.unsqueeze(self.centers,
-            dim=0)
+        diff = torch.unsqueeze(feat, dim=1) - torch.unsqueeze(self.centers, dim=0)
         diff = torch.mul(diff, diff)
         dist = torch.sum(diff, dim=-1)
         y_onehot = torch.FloatTensor(batch_size, self.num_classes)
@@ -257,8 +251,7 @@ class LGMLoss_v0(nn.Module):
         margin_dist = torch.mul(dist, y_onehot)
         margin_logits = -0.5 * margin_dist
         logits = -0.5 * dist
-        cdiff = feat - torch.index_select(self.centers, dim=0, index=label.
-            long())
+        cdiff = feat - torch.index_select(self.centers, dim=0, index=label.long())
         likelihood = 1.0 / batch_size * cdiff.pow(2).sum(1).sum(0) / 2.0
         return logits, margin_logits, likelihood
 
@@ -301,9 +294,7 @@ class CenterLoss(nn.Module):
         batch_size = feat.size(0)
         feat = feat.view(batch_size, 1, 1, -1).squeeze()
         if feat.size(1) != self.feat_dim:
-            raise ValueError(
-                "Center's dim: {0} should be equal to input feature's dim: {1}"
-                .format(self.feat_dim, feat.size(1)))
+            raise ValueError("Center's dim: {0} should be equal to input feature's dim: {1}".format(self.feat_dim, feat.size(1)))
         return self.centerlossfunction(feat, y, self.centers)
 
 
@@ -311,20 +302,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (COCOLoss,
+     lambda: ([], {'num_classes': 4, 'feat_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LGMLoss,
+     lambda: ([], {'num_classes': 4, 'feat_dim': 4, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LGMLoss_v0,
+     lambda: ([], {'num_classes': 4, 'feat_dim': 4, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LMCL_loss,
+     lambda: ([], {'num_classes': 4, 'feat_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 24, 24])], {}),
+     True),
+]
+
 class Test_YirongMao_softmax_variants(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(COCOLoss(*[], **{'num_classes': 4, 'feat_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(LGMLoss(*[], **{'num_classes': 4, 'feat_dim': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LGMLoss_v0(*[], **{'num_classes': 4, 'feat_dim': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LMCL_loss(*[], **{'num_classes': 4, 'feat_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

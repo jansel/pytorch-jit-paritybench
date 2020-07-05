@@ -151,8 +151,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -341,11 +342,9 @@ class LogisticRegression(Module):
             The dimension of the input vector
         """
         super().__init__()
-        self.encoder = MLPEncoder(input_size, output_size=1, n_layers=1,
-            output_activation=Sigmoid())
+        self.encoder = MLPEncoder(input_size, output_size=1, n_layers=1, output_activation=Sigmoid())
 
-    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[
-        Tensor, Tuple[Tensor, Tensor]]:
+    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[Tensor, Tuple[Tensor, Tensor]]:
         """Forward pass that encodes data
         Parameters
         ----------
@@ -379,9 +378,7 @@ class Embedder(Module):
 
     """
 
-    def __init__(self, embedding: Module, encoder: Module, pooling:
-        Optional[Module]=None, embedding_dropout: float=0, padding_idx:
-        Optional[int]=0, return_mask: bool=False) ->None:
+    def __init__(self, embedding: Module, encoder: Module, pooling: Optional[Module]=None, embedding_dropout: float=0, padding_idx: Optional[int]=0, return_mask: bool=False) ->None:
         """Initializes the TextEncoder module.
 
         Extra arguments are passed to the nn.Embedding module.
@@ -412,8 +409,7 @@ class Embedder(Module):
         self.padding_idx = padding_idx
         self.return_mask = return_mask
 
-    def forward(self, data: Tensor) ->Union[Tensor, Tuple[Tensor, Tensor],
-        Tuple[Tuple[Tensor, Tensor], Tensor]]:
+    def forward(self, data: Tensor) ->Union[Tensor, Tuple[Tensor, Tensor], Tuple[Tuple[Tensor, Tensor], Tensor]]:
         """Performs a forward pass through the network.
 
         Parameters
@@ -470,8 +466,7 @@ class TextClassifier(Module):
 
     """
 
-    def __init__(self, embedder: Embedder, output_layer: Module, dropout:
-        float=0) ->None:
+    def __init__(self, embedder: Embedder, output_layer: Module, dropout: float=0) ->None:
         """Initialize the TextClassifier model.
 
         Parameters
@@ -489,8 +484,7 @@ class TextClassifier(Module):
         self.output_layer = output_layer
         self.drop = nn.Dropout(dropout)
 
-    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[
-        Tensor, Tuple[Tensor, Tensor]]:
+    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[Tensor, Tuple[Tensor, Tensor]]:
         """Run a forward pass through the network.
 
         Parameters
@@ -525,9 +519,7 @@ class LanguageModel(Module):
 
     """
 
-    def __init__(self, embedder: Embedder, output_layer: Module, dropout:
-        float=0, pad_index: int=0, tie_weights: bool=False, tie_weight_attr:
-        str='embedding') ->None:
+    def __init__(self, embedder: Embedder, output_layer: Module, dropout: float=0, pad_index: int=0, tie_weights: bool=False, tie_weight_attr: str='embedding') ->None:
         """Initialize the LanguageModel model.
 
         Parameters
@@ -562,8 +554,7 @@ class LanguageModel(Module):
                 module = getattr(module, attr)
             self.output_layer.weight = module.weight
 
-    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[
-        Tensor, Tuple[Tensor, Tensor]]:
+    def forward(self, data: Tensor, target: Optional[Tensor]=None) ->Union[Tensor, Tuple[Tensor, Tensor]]:
         """Run a forward pass through the network.
 
         Parameters
@@ -594,8 +585,7 @@ class LanguageModel(Module):
             return pred
 
 
-def conv_block(conv_mod: nn.Module, activation: nn.Module, pooling: nn.
-    Module, dropout: float, batch_norm: Optional[nn.Module]=None) ->nn.Module:
+def conv_block(conv_mod: nn.Module, activation: nn.Module, pooling: nn.Module, dropout: float, batch_norm: Optional[nn.Module]=None) ->nn.Module:
     """Return a convolutional block.
 
     """
@@ -621,10 +611,7 @@ class CNNEncoder(Module):
 
     """
 
-    def __init__(self, input_channels: int, channels: List[int], conv_dim:
-        int=2, kernel_size: Union[int, List[Union[Tuple[int, ...], int]]]=3,
-        activation: nn.Module=None, pooling: nn.Module=None, dropout: float
-        =0, batch_norm: bool=True, stride: int=1, padding: int=0) ->None:
+    def __init__(self, input_channels: int, channels: List[int], conv_dim: int=2, kernel_size: Union[int, List[Union[Tuple[int, ...], int]]]=3, activation: nn.Module=None, pooling: nn.Module=None, dropout: float=0, batch_norm: bool=True, stride: int=1, padding: int=0) ->None:
         """Initializes the CNNEncoder object.
 
         Parameters
@@ -667,15 +654,11 @@ class CNNEncoder(Module):
 
         """
         super().__init__()
-        dim2mod = {(1): (nn.Conv1d, nn.BatchNorm1d, nn.MaxPool1d), (2): (nn
-            .Conv2d, nn.BatchNorm2d, nn.MaxPool2d), (3): (nn.Conv3d, nn.
-            BatchNorm3d, nn.MaxPool3d)}
+        dim2mod = {(1): (nn.Conv1d, nn.BatchNorm1d, nn.MaxPool1d), (2): (nn.Conv2d, nn.BatchNorm2d, nn.MaxPool2d), (3): (nn.Conv3d, nn.BatchNorm3d, nn.MaxPool3d)}
         if conv_dim not in dim2mod:
-            raise ValueError(
-                f'Invalid conv_dim value {conv_dim}. Values 1, 2, 3 supported')
+            raise ValueError(f'Invalid conv_dim value {conv_dim}. Values 1, 2, 3 supported')
         if isinstance(kernel_size, List) and len(kernel_size) != len(channels):
-            raise ValueError(
-                'Kernel size list should have same length as channels list')
+            raise ValueError('Kernel size list should have same length as channels list')
         conv, bn, pool = dim2mod[conv_dim]
         activation = activation or nn.ReLU()
         layers = []
@@ -687,11 +670,8 @@ class CNNEncoder(Module):
             else:
                 k = kernel_size[i]
                 if not isinstance(k, int) and len(k) != conv_dim:
-                    raise ValueError(
-                        'Kernel size tuple should have same length as conv_dim'
-                        )
-            layer = conv_block(conv(prev_c, c, k, stride, padding),
-                activation, pooling, dropout, bn(c))
+                    raise ValueError('Kernel size tuple should have same length as conv_dim')
+            layer = conv_block(conv(prev_c, c, k, stride, padding), activation, pooling, dropout, bn(c))
             layers.append(layer)
             prev_c = c
         self.cnn = nn.Sequential(*layers)
@@ -726,10 +706,7 @@ class MLPEncoder(Module):
 
     """
 
-    def __init__(self, input_size: int, output_size: int, n_layers: int=1,
-        dropout: float=0.0, output_activation: Optional[nn.Module]=None,
-        hidden_size: Optional[int]=None, hidden_activation: Optional[nn.
-        Module]=None) ->None:
+    def __init__(self, input_size: int, output_size: int, n_layers: int=1, dropout: float=0.0, output_activation: Optional[nn.Module]=None, hidden_size: Optional[int]=None, hidden_activation: Optional[nn.Module]=None) ->None:
         """Initializes the FullyConnected object.
 
         Parameters
@@ -829,8 +806,7 @@ class RegistrationError(Exception):
 logger = logging.getLogger(__name__)
 
 
-def make_from_yaml_with_metadata(from_yaml_fn: Callable[..., Any], tag: str,
-    factory_name: Optional[str]=None) ->Callable[..., Any]:
+def make_from_yaml_with_metadata(from_yaml_fn: Callable[..., Any], tag: str, factory_name: Optional[str]=None) ->Callable[..., Any]:
 
     @functools.wraps(from_yaml_fn)
     def wrapped(constructor: Any, node: Any) ->Any:
@@ -840,8 +816,7 @@ def make_from_yaml_with_metadata(from_yaml_fn: Callable[..., Any], tag: str,
     return wrapped
 
 
-def make_to_yaml_with_metadata(to_yaml_fn: Callable[..., Any]) ->Callable[
-    ..., Any]:
+def make_to_yaml_with_metadata(to_yaml_fn: Callable[..., Any]) ->Callable[..., Any]:
 
     @functools.wraps(to_yaml_fn)
     def wrapped(representer: Any, node: Any) ->Any:
@@ -880,8 +855,7 @@ class MalformedLinkError(LinkError):
     pass
 
 
-def create_link_str(schematic_path: Sequence[str], attr_path: Optional[
-    Sequence[str]]=None) ->str:
+def create_link_str(schematic_path: Sequence[str], attr_path: Optional[Sequence[str]]=None) ->str:
     """Create a string representation of the specified link
 
     Performs the reverse operation of
@@ -973,25 +947,20 @@ def parse_link_str(link_str: str) ->Tuple[Sequence[str], Sequence[str]]:
         if bracket_open:
             temp = x.split(']', 1)
             if '[' in temp[0]:
-                raise MalformedLinkError(
-                    f'Previous bracket unclosed in {link_str}')
+                raise MalformedLinkError(f'Previous bracket unclosed in {link_str}')
             if len(temp) != 2:
-                raise MalformedLinkError(
-                    f"Open bracket '[' not closed in {link_str}")
+                raise MalformedLinkError(f"Open bracket '[' not closed in {link_str}")
             schematic_path.append(temp[0])
             bracket_open = False
         else:
             temp = x.split('[', 1)
             if ']' in temp[0]:
-                raise MalformedLinkError(f"Close ']' before open in {link_str}"
-                    )
+                raise MalformedLinkError(f"Close ']' before open in {link_str}")
             if len(temp) != 2:
-                raise MalformedLinkError(
-                    f"']' encountered before '[' in {link_str}")
+                raise MalformedLinkError(f"']' encountered before '[' in {link_str}")
             if len(temp[0]) != 0:
                 if len(schematic_path) != 0:
-                    raise MalformedLinkError(
-                        f'Text between brackets in {link_str}')
+                    raise MalformedLinkError(f'Text between brackets in {link_str}')
                 schematic_path.append(temp[0])
                 root_extracted = True
             elif len(schematic_path) == 0:
@@ -1005,8 +974,7 @@ def parse_link_str(link_str: str) ->Tuple[Sequence[str], Sequence[str]]:
         schematic_path.append(attr_path[0])
     elif len(attr_path) > 1:
         if attr_path[0] != '':
-            raise MalformedLinkError(
-                f'Attribute without preceeding dot notation in {link_str}')
+            raise MalformedLinkError(f'Attribute without preceeding dot notation in {link_str}')
         if attr_path[-1] == '':
             raise MalformedLinkError(f'Trailing dot in {link_str}')
     attr_path = attr_path[1:]
@@ -1068,8 +1036,7 @@ class contextualized_linking:
 _EMPTY = inspect.Parameter.empty
 
 
-def fill_defaults(kwargs: Dict[str, Any], function: Callable[..., Any]) ->Dict[
-    str, Any]:
+def fill_defaults(kwargs: Dict[str, Any], function: Callable[..., Any]) ->Dict[str, Any]:
     """Use function signature to add missing kwargs to a dictionary"""
     signature = inspect.signature(function)
     kwargs_with_defaults = kwargs.copy()
@@ -1105,8 +1072,7 @@ VERSION_FILE_NAME = 'version.txt'
 
 def _extract_prefix(root, directory):
     if directory.startswith(root):
-        return directory[len(root):].lstrip(os.sep).replace(os.sep,
-            STATE_DICT_DELIMETER)
+        return directory[len(root):].lstrip(os.sep).replace(os.sep, STATE_DICT_DELIMETER)
     else:
         raise Exception()
 
@@ -1169,12 +1135,10 @@ def download_s3_folder(url: str, destination: str) ->None:
 
     """
     try:
-        subprocess.check_output(f'aws s3 cp --recursive {url} {destination}'
-            .split(), stderr=subprocess.STDOUT, universal_newlines=True)
+        subprocess.check_output(f'aws s3 cp --recursive {url} {destination}'.split(), stderr=subprocess.STDOUT, universal_newlines=True)
     except subprocess.CalledProcessError as exc:
         logger.debug(exc.output)
-        raise ValueError(f'Error downlaoding artifacts from s3. ' +
-            'Check logs for more information')
+        raise ValueError(f'Error downlaoding artifacts from s3. ' + 'Check logs for more information')
 
 
 def http_exists(url: str) ->bool:
@@ -1202,8 +1166,7 @@ class CompilationError(Exception):
     pass
 
 
-def merge_kwargs(kwargs: Dict[str, Any], compiled_kwargs: Dict[str, Any]
-    ) ->Dict[str, Any]:
+def merge_kwargs(kwargs: Dict[str, Any], compiled_kwargs: Dict[str, Any]) ->Dict[str, Any]:
     """Replace non links in kwargs with corresponding compiled values
 
     For every key in `kwargs` if the value is NOT a link and IS a
@@ -1227,8 +1190,7 @@ def merge_kwargs(kwargs: Dict[str, Any], compiled_kwargs: Dict[str, Any]
     for kw in kwargs:
         if not isinstance(kwargs[kw], Link) and isinstance(kwargs[kw], Schema):
             if kw not in compiled_kwargs:
-                raise CompilationError(
-                    'Non matching kwargs and compiled_kwargs')
+                raise CompilationError('Non matching kwargs and compiled_kwargs')
             merged_kwargs[kw] = compiled_kwargs[kw]
         else:
             merged_kwargs[kw] = kwargs[kw]
@@ -1266,9 +1228,7 @@ class registrable_factory:
 
     def __set_name__(self, owner: type, name: str) ->None:
         if not hasattr(owner, '_yaml_registered_factories'):
-            raise RegistrationError(
-                f"class {owner} doesn't have property _yaml_registered_factories; {owner} should subclass Registrable or Component"
-                )
+            raise RegistrationError(f"class {owner} doesn't have property _yaml_registered_factories; {owner} should subclass Registrable or Component")
         owner._yaml_registered_factories.add(name)
         setattr(owner, name, self.fn)
 
@@ -1285,8 +1245,7 @@ class MixtureOfSoftmax(Module):
 
     """
 
-    def __init__(self, input_size: int, output_size: int, k: int=1,
-        take_log: bool=True) ->None:
+    def __init__(self, input_size: int, output_size: int, k: int=1, take_log: bool=True) ->None:
         """Initialize the MOS layer.
 
         Parameters
@@ -1321,8 +1280,7 @@ class MixtureOfSoftmax(Module):
 
         """
         w = self.softmax(self.pi_w(data))
-        out = [(w[:, :, (i)] * self.tanh(W(data))) for i, W in enumerate(
-            self.layers)]
+        out = [(w[:, :, (i)] * self.tanh(W(data))) for i, W in enumerate(self.layers)]
         out = torch.cat(out, dim=0).sum(dim=0)
         return self.activation(out)
 
@@ -1330,8 +1288,7 @@ class MixtureOfSoftmax(Module):
 class FirstPooling(Module):
     """Get the last hidden state of a sequence."""
 
-    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.
-        Tensor]=None) ->torch.Tensor:
+    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Performs a forward pass.
 
         Parameters
@@ -1353,8 +1310,7 @@ class FirstPooling(Module):
 class LastPooling(Module):
     """Get the last hidden state of a sequence."""
 
-    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.
-        Tensor]=None) ->torch.Tensor:
+    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Performs a forward pass.
 
         Parameters
@@ -1395,8 +1351,7 @@ def _default_padding_mask(data: torch.Tensor) ->torch.Tensor:
     return torch.ones((data.size(0), data.size(1))).to(data)
 
 
-def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor
-    ) ->torch.Tensor:
+def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor) ->torch.Tensor:
     """
     Applies padding_mask and performs summation over the data
 
@@ -1418,8 +1373,7 @@ def _sum_with_padding_mask(data: torch.Tensor, padding_mask: torch.Tensor
 class SumPooling(Module):
     """Get the sum of the hidden state of a sequence."""
 
-    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.
-        Tensor]=None) ->torch.Tensor:
+    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Performs a forward pass.
 
         Parameters
@@ -1443,8 +1397,7 @@ class SumPooling(Module):
 class AvgPooling(Module):
     """Get the average of the hidden state of a sequence."""
 
-    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.
-        Tensor]=None) ->torch.Tensor:
+    def forward(self, data: torch.Tensor, padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Performs a forward pass.
 
         Parameters
@@ -1470,11 +1423,7 @@ class AvgPooling(Module):
 class StructuredSelfAttentivePooling(Module):
     """Structured Self Attentive Pooling."""
 
-    def __init__(self, input_size: int, attention_heads: int=16,
-        attention_units: Sequence[int]=(300,), output_activation: Optional[
-        torch.nn.Module]=None, hidden_activation: Optional[torch.nn.Module]
-        =None, is_biased: bool=False, input_dropout: float=0.0,
-        attention_dropout: float=0.0):
+    def __init__(self, input_size: int, attention_heads: int=16, attention_units: Sequence[int]=(300,), output_activation: Optional[torch.nn.Module]=None, hidden_activation: Optional[torch.nn.Module]=None, is_biased: bool=False, input_dropout: float=0.0, attention_dropout: float=0.0):
         """Initialize a self attention pooling layer
 
         A generalized implementation of:
@@ -1516,24 +1465,19 @@ class StructuredSelfAttentivePooling(Module):
             from the input dropout
         """
         super().__init__()
-        self.in_drop = nn.Dropout(input_dropout
-            ) if input_dropout > 0.0 else nn.Identity()
+        self.in_drop = nn.Dropout(input_dropout) if input_dropout > 0.0 else nn.Identity()
         dimensions = [input_size, *attention_units, attention_heads]
         layers = []
         for l in range(len(dimensions) - 2):
-            layers.append(nn.Linear(dimensions[l], dimensions[l + 1], bias=
-                is_biased))
-            layers.append(nn.Tanh() if hidden_activation is None else
-                hidden_activation)
+            layers.append(nn.Linear(dimensions[l], dimensions[l + 1], bias=is_biased))
+            layers.append(nn.Tanh() if hidden_activation is None else hidden_activation)
         layers.append(nn.Linear(dimensions[-2], dimensions[-1], bias=False))
         if attention_dropout > 0.0:
             layers.append(nn.Dropout(attention_dropout))
         self.mlp = nn.Sequential(*layers)
-        self.output_activation = nn.Softmax(dim=1
-            ) if output_activation is None else output_activation
+        self.output_activation = nn.Softmax(dim=1) if output_activation is None else output_activation
 
-    def _compute_attention(self, data: torch.Tensor, mask: torch.Tensor
-        ) ->torch.Tensor:
+    def _compute_attention(self, data: torch.Tensor, mask: torch.Tensor) ->torch.Tensor:
         """Computes the attention
 
         Parameters
@@ -1551,16 +1495,14 @@ class StructuredSelfAttentivePooling(Module):
         """
         batch_size, num_encs, dim = data.shape
         data = self.in_drop(data)
-        attention_logits = self.mlp(data.reshape(-1, dim)).reshape(batch_size,
-            num_encs, -1)
+        attention_logits = self.mlp(data.reshape(-1, dim)).reshape(batch_size, num_encs, -1)
         if mask is not None:
             mask = mask.unsqueeze(2).float()
             attention_logits = attention_logits * mask + (1.0 - mask) * -1e+20
         attention = self.output_activation(attention_logits)
         return attention
 
-    def forward(self, data: torch.Tensor, mask: Optional[torch.Tensor]=None
-        ) ->torch.Tensor:
+    def forward(self, data: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Performs a forward pass.
 
         Parameters
@@ -1598,10 +1540,7 @@ class RNNEncoder(Module):
 
     """
 
-    def __init__(self, input_size: int, hidden_size: int, n_layers: int=1,
-        rnn_type: str='lstm', dropout: float=0, bidirectional: bool=False,
-        layer_norm: bool=False, highway_bias: float=0, rescale: bool=True,
-        enforce_sorted: bool=False, **kwargs) ->None:
+    def __init__(self, input_size: int, hidden_size: int, n_layers: int=1, rnn_type: str='lstm', dropout: float=0, bidirectional: bool=False, layer_norm: bool=False, highway_bias: float=0, rescale: bool=True, enforce_sorted: bool=False, **kwargs) ->None:
         """Initializes the RNNEncoder object.
 
         Parameters
@@ -1646,27 +1585,18 @@ class RNNEncoder(Module):
         self.output_size = 2 * hidden_size if bidirectional else hidden_size
         if rnn_type in ['lstm', 'gru']:
             if kwargs:
-                logger.warn(f"The following '{kwargs}' will be ignored " +
-                    "as they are only considered when using 'sru' as " +
-                    "'rnn_type'")
+                logger.warn(f"The following '{kwargs}' will be ignored " + "as they are only considered when using 'sru' as " + "'rnn_type'")
             rnn_fn = nn.LSTM if rnn_type == 'lstm' else nn.GRU
-            self.rnn = rnn_fn(input_size=input_size, hidden_size=
-                hidden_size, num_layers=n_layers, dropout=dropout,
-                bidirectional=bidirectional)
+            self.rnn = rnn_fn(input_size=input_size, hidden_size=hidden_size, num_layers=n_layers, dropout=dropout, bidirectional=bidirectional)
         elif rnn_type == 'sru':
             try:
-                self.rnn = SRU(input_size, hidden_size, num_layers=n_layers,
-                    dropout=dropout, bidirectional=bidirectional,
-                    layer_norm=layer_norm, rescale=rescale, highway_bias=
-                    highway_bias, **kwargs)
+                self.rnn = SRU(input_size, hidden_size, num_layers=n_layers, dropout=dropout, bidirectional=bidirectional, layer_norm=layer_norm, rescale=rescale, highway_bias=highway_bias, **kwargs)
             except TypeError:
                 raise ValueError(f'Unkown kwargs passed to SRU: {kwargs}')
         else:
-            raise ValueError(
-                f'Unkown rnn type: {rnn_type}, use of of: gru, sru, lstm')
+            raise ValueError(f'Unkown rnn type: {rnn_type}, use of of: gru, sru, lstm')
 
-    def forward(self, data: Tensor, state: Optional[Tensor]=None,
-        padding_mask: Optional[Tensor]=None) ->Tuple[Tensor, Tensor]:
+    def forward(self, data: Tensor, state: Optional[Tensor]=None, padding_mask: Optional[Tensor]=None) ->Tuple[Tensor, Tensor]:
         """Performs a forward pass through the network.
 
         Parameters
@@ -1695,8 +1625,7 @@ class RNNEncoder(Module):
             output, state = self.rnn(data, state, mask_pad=~padding_mask)
         else:
             lengths = padding_mask.long().sum(dim=0)
-            packed = nn.utils.rnn.pack_padded_sequence(data, lengths,
-                enforce_sorted=self.enforce_sorted)
+            packed = nn.utils.rnn.pack_padded_sequence(data, lengths, enforce_sorted=self.enforce_sorted)
             output, state = self.rnn(packed, state)
             output, _ = nn.utils.rnn.pad_packed_sequence(output)
         return output.transpose(0, 1).contiguous(), state
@@ -1710,10 +1639,7 @@ class PooledRNNEncoder(Module):
 
     """
 
-    def __init__(self, input_size: int, hidden_size: int, n_layers: int=1,
-        rnn_type: str='lstm', dropout: float=0, bidirectional: bool=False,
-        layer_norm: bool=False, highway_bias: float=0, rescale: bool=True,
-        pooling: str='last') ->None:
+    def __init__(self, input_size: int, hidden_size: int, n_layers: int=1, rnn_type: str='lstm', dropout: float=0, bidirectional: bool=False, layer_norm: bool=False, highway_bias: float=0, rescale: bool=True, pooling: str='last') ->None:
         """Initializes the PooledRNNEncoder object.
 
         Parameters
@@ -1749,18 +1675,12 @@ class PooledRNNEncoder(Module):
 
         """
         super().__init__()
-        warnings.warn(
-            'PooledRNNEncoder is deprecated, please use the Pooling                        module in the Embedder object'
-            , DeprecationWarning)
+        warnings.warn('PooledRNNEncoder is deprecated, please use the Pooling                        module in the Embedder object', DeprecationWarning)
         self.pooling = pooling
-        self.rnn = RNNEncoder(input_size=input_size, hidden_size=
-            hidden_size, n_layers=n_layers, rnn_type=rnn_type, dropout=
-            dropout, bidirectional=bidirectional, layer_norm=layer_norm,
-            highway_bias=highway_bias, rescale=rescale)
+        self.rnn = RNNEncoder(input_size=input_size, hidden_size=hidden_size, n_layers=n_layers, rnn_type=rnn_type, dropout=dropout, bidirectional=bidirectional, layer_norm=layer_norm, highway_bias=highway_bias, rescale=rescale)
         self.output_size = 2 * hidden_size if bidirectional else hidden_size
 
-    def forward(self, data: Tensor, state: Optional[Tensor]=None,
-        padding_mask: Optional[Tensor]=None) ->Tensor:
+    def forward(self, data: Tensor, state: Optional[Tensor]=None, padding_mask: Optional[Tensor]=None) ->Tensor:
         """Perform a forward pass through the network.
 
         Parameters
@@ -1789,8 +1709,7 @@ class PooledRNNEncoder(Module):
             output = (output * padding_mask.unsqueeze(2)).sum(dim=1)
         elif self.pooling == 'last':
             lengths = padding_mask.long().sum(dim=1)
-            output = output[(torch.arange(output.size(0)).long()), (lengths -
-                1), :]
+            output = output[(torch.arange(output.size(0)).long()), (lengths - 1), :]
         elif self.pooling == 'first':
             output = output[(torch.arange(output.size(0)).long()), (0), :]
         else:
@@ -1806,8 +1725,7 @@ class Sequential(Module):
 
     """
 
-    def __init__(self, **kwargs: Dict[str, Union[Module, torch.nn.Module]]
-        ) ->None:
+    def __init__(self, **kwargs: Dict[str, Union[Module, torch.nn.Module]]) ->None:
         """Initialize the Sequential module.
 
         Parameters
@@ -1850,9 +1768,7 @@ class SoftmaxLayer(Module):
 
     """
 
-    def __init__(self, input_size: int, output_size: int, mlp_layers: int=1,
-        mlp_dropout: float=0.0, mlp_hidden_activation: Optional[nn.Module]=
-        None, take_log: bool=True) ->None:
+    def __init__(self, input_size: int, output_size: int, mlp_layers: int=1, mlp_dropout: float=0.0, mlp_hidden_activation: Optional[nn.Module]=None, take_log: bool=True) ->None:
         """Initialize the SoftmaxLayer.
 
         Parameters
@@ -1875,9 +1791,7 @@ class SoftmaxLayer(Module):
         """
         super().__init__()
         softmax = nn.LogSoftmax(dim=-1) if take_log else nn.Softmax()
-        self.mlp = MLPEncoder(input_size=input_size, output_size=
-            output_size, n_layers=mlp_layers, dropout=mlp_dropout,
-            hidden_activation=mlp_hidden_activation, output_activation=softmax)
+        self.mlp = MLPEncoder(input_size=input_size, output_size=output_size, n_layers=mlp_layers, dropout=mlp_dropout, hidden_activation=mlp_hidden_activation, output_activation=softmax)
 
     def forward(self, data: torch.Tensor) ->torch.Tensor:
         """Performs a forward pass through the network.
@@ -1908,9 +1822,7 @@ class Transformer(Module):
 
     """
 
-    def __init__(self, input_size, d_model: int=512, nhead: int=8,
-        num_encoder_layers: int=6, num_decoder_layers: int=6,
-        dim_feedforward: int=2048, dropout: float=0.1) ->None:
+    def __init__(self, input_size, d_model: int=512, nhead: int=8, num_encoder_layers: int=6, num_decoder_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1) ->None:
         """Initialize the Transformer Model.
 
         Parameters
@@ -1939,17 +1851,10 @@ class Transformer(Module):
 
         """
         super().__init__()
-        self.encoder = TransformerEncoder(input_size, d_model, nhead,
-            dim_feedforward, num_encoder_layers, dropout)
-        self.decoder = TransformerDecoder(input_size, d_model, nhead,
-            dim_feedforward, num_encoder_layers, dropout)
+        self.encoder = TransformerEncoder(input_size, d_model, nhead, dim_feedforward, num_encoder_layers, dropout)
+        self.decoder = TransformerDecoder(input_size, d_model, nhead, dim_feedforward, num_encoder_layers, dropout)
 
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask:
-        Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None,
-        memory_mask: Optional[torch.Tensor]=None, src_key_padding_mask:
-        Optional[torch.Tensor]=None, tgt_key_padding_mask: Optional[torch.
-        Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None
-        ) ->torch.Tensor:
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=None, src_key_padding_mask: Optional[torch.Tensor]=None, tgt_key_padding_mask: Optional[torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Take in and process masked source/target sequences.
 
         Parameters
@@ -2007,22 +1912,16 @@ class Transformer(Module):
         if src.size(1) != tgt.size(1):
             raise RuntimeError('the batch number of src and tgt must be equal')
         if src.size(2) != self.d_model or tgt.size(2) != self.d_model:
-            raise RuntimeError(
-                'the feature number of src and tgt must be equal to d_model')
-        memory = self.encoder(src, mask=src_mask, padding_mask=
-            src_key_padding_mask)
-        output = self.decoder(tgt, memory, tgt_mask=tgt_mask, memory_mask=
-            memory_mask, padding_mask=tgt_key_padding_mask,
-            memory_key_padding_mask=memory_key_padding_mask)
+            raise RuntimeError('the feature number of src and tgt must be equal to d_model')
+        memory = self.encoder(src, mask=src_mask, padding_mask=src_key_padding_mask)
+        output = self.decoder(tgt, memory, tgt_mask=tgt_mask, memory_mask=memory_mask, padding_mask=tgt_key_padding_mask, memory_key_padding_mask=memory_key_padding_mask)
         return output
 
 
 class TransformerEncoder(Module):
     """TransformerEncoder is a stack of N encoder layers."""
 
-    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8,
-        num_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1
-        ) ->None:
+    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8, num_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1) ->None:
         """Initialize the TransformerEncoder.
 
         Parameters
@@ -2050,16 +1949,12 @@ class TransformerEncoder(Module):
         self.d_model = d_model
         if input_size != d_model:
             self.proj = nn.Linear(input_size, d_model)
-        layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
-            dropout)
-        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            num_layers)])
+        layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout)
+        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(num_layers)])
         self.num_layers = num_layers
         self._reset_parameters()
 
-    def forward(self, src: torch.Tensor, memory: Optional[torch.Tensor]=
-        None, mask: Optional[torch.Tensor]=None, padding_mask: Optional[
-        torch.Tensor]=None) ->torch.Tensor:
+    def forward(self, src: torch.Tensor, memory: Optional[torch.Tensor]=None, mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Pass the input through the endocder layers in turn.
 
         Parameters
@@ -2080,8 +1975,7 @@ class TransformerEncoder(Module):
         if self.input_size != self.d_model:
             output = self.proj(output)
         for i in range(self.num_layers):
-            output = self.layers[i](output, memory=memory, src_mask=mask,
-                padding_mask=padding_mask)
+            output = self.layers[i](output, memory=memory, src_mask=mask, padding_mask=padding_mask)
         return output.transpose(0, 1)
 
     def _reset_parameters(self):
@@ -2094,8 +1988,7 @@ class TransformerEncoder(Module):
 class TransformerDecoder(Module):
     """TransformerDecoder is a stack of N decoder layers"""
 
-    def __init__(self, input_size: int, d_model: int, nhead: int,
-        num_layers: int, dim_feedforward: int=2048, dropout: float=0.1) ->None:
+    def __init__(self, input_size: int, d_model: int, nhead: int, num_layers: int, dim_feedforward: int=2048, dropout: float=0.1) ->None:
         """Initialize the TransformerDecoder.
 
         Parameters
@@ -2120,17 +2013,12 @@ class TransformerDecoder(Module):
         self.d_model = d_model
         if input_size != d_model:
             self.proj = nn.Linear(input_size, d_model)
-        layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
-            dropout)
-        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            num_layers)])
+        layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout)
+        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(num_layers)])
         self.num_layers = num_layers
         self._reset_parameters()
 
-    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask:
-        Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=
-        None, padding_mask: Optional[torch.Tensor]=None,
-        memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
+    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Pass the inputs (and mask) through the decoder layer in turn.
 
         Parameters
@@ -2159,9 +2047,7 @@ class TransformerDecoder(Module):
         if self.input_size != self.d_model:
             output = self.proj(output)
         for i in range(self.num_layers):
-            output = self.layers[i](output, memory, tgt_mask=tgt_mask,
-                memory_mask=memory_mask, padding_mask=padding_mask,
-                memory_key_padding_mask=memory_key_padding_mask)
+            output = self.layers[i](output, memory, tgt_mask=tgt_mask, memory_mask=memory_mask, padding_mask=padding_mask, memory_key_padding_mask=memory_key_padding_mask)
         return output.transpose(0, 1)
 
     def _reset_parameters(self):
@@ -2183,8 +2069,7 @@ class TransformerEncoderLayer(Module):
 
     """
 
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048,
-        dropout: float=0.1) ->None:
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048, dropout: float=0.1) ->None:
         """Initialize a TransformerEncoderLayer.
 
         Parameters
@@ -2209,9 +2094,7 @@ class TransformerEncoderLayer(Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-    def forward(self, src: torch.Tensor, memory: Optional[torch.Tensor]=
-        None, src_mask: Optional[torch.Tensor]=None, padding_mask: Optional
-        [torch.Tensor]=None) ->torch.Tensor:
+    def forward(self, src: torch.Tensor, memory: Optional[torch.Tensor]=None, src_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Pass the input through the endocder layer.
 
         Parameters
@@ -2235,8 +2118,7 @@ class TransformerEncoderLayer(Module):
         """
         if padding_mask is not None:
             padding_mask = ~padding_mask.bool()
-        src2 = self.self_attn(src, src, src, attn_mask=src_mask,
-            key_padding_mask=padding_mask)[0]
+        src2 = self.self_attn(src, src, src, attn_mask=src_mask, key_padding_mask=padding_mask)[0]
         src = src + self.dropout1(src2)
         src = self.norm1(src)
         src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
@@ -2259,8 +2141,7 @@ class TransformerDecoderLayer(Module):
 
     """
 
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048,
-        dropout: float=0.1) ->None:
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048, dropout: float=0.1) ->None:
         """Initialize a TransformerDecoder.
 
         Parameters
@@ -2277,8 +2158,7 @@ class TransformerDecoderLayer(Module):
         """
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout
-            =dropout)
+        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
@@ -2289,10 +2169,7 @@ class TransformerDecoderLayer(Module):
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
 
-    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask:
-        Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=
-        None, padding_mask: Optional[torch.Tensor]=None,
-        memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
+    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Pass the inputs (and mask) through the decoder layer.
 
         Parameters
@@ -2320,12 +2197,10 @@ class TransformerDecoderLayer(Module):
         """
         if padding_mask is not None:
             padding_mask = ~padding_mask
-        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
-            key_padding_mask=padding_mask)[0]
+        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, key_padding_mask=padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
-        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=
-            memory_mask, key_padding_mask=memory_key_padding_mask)[0]
+        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask, key_padding_mask=memory_key_padding_mask)[0]
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
@@ -2337,11 +2212,7 @@ class TransformerDecoderLayer(Module):
 class TransformerSRU(Module):
     """A Transformer with an SRU replacing the FFN."""
 
-    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8,
-        num_encoder_layers: int=6, num_decoder_layers: int=6,
-        dim_feedforward: int=2048, dropout: float=0.1, sru_dropout:
-        Optional[float]=None, bidrectional: bool=False, **kwargs: Dict[str,
-        Any]) ->None:
+    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8, num_encoder_layers: int=6, num_decoder_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1, sru_dropout: Optional[float]=None, bidrectional: bool=False, **kwargs: Dict[str, Any]) ->None:
         """Initialize the TransformerSRU Model.
 
         Parameters
@@ -2378,19 +2249,10 @@ class TransformerSRU(Module):
 
         """
         super().__init__()
-        self.encoder = TransformerSRUEncoder(input_size, d_model, nhead,
-            dim_feedforward, num_encoder_layers, dropout, sru_dropout,
-            bidrectional, **kwargs)
-        self.decoder = TransformerSRUDecoder(input_size, d_model, nhead,
-            dim_feedforward, num_encoder_layers, dropout, sru_dropout, **kwargs
-            )
+        self.encoder = TransformerSRUEncoder(input_size, d_model, nhead, dim_feedforward, num_encoder_layers, dropout, sru_dropout, bidrectional, **kwargs)
+        self.decoder = TransformerSRUDecoder(input_size, d_model, nhead, dim_feedforward, num_encoder_layers, dropout, sru_dropout, **kwargs)
 
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask:
-        Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None,
-        memory_mask: Optional[torch.Tensor]=None, src_key_padding_mask:
-        Optional[torch.Tensor]=None, tgt_key_padding_mask: Optional[torch.
-        Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None
-        ) ->torch.Tensor:
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=None, src_key_padding_mask: Optional[torch.Tensor]=None, tgt_key_padding_mask: Optional[torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Take in and process masked source/target sequences.
 
         Parameters
@@ -2448,23 +2310,16 @@ class TransformerSRU(Module):
         if src.size(1) != tgt.size(1):
             raise RuntimeError('the batch number of src and tgt must be equal')
         if src.size(2) != self.d_model or tgt.size(2) != self.d_model:
-            raise RuntimeError(
-                'the feature number of src and tgt must be equal to d_model')
-        memory, state = self.encoder(src, mask=src_mask, padding_mask=
-            src_key_padding_mask)
-        output = self.decoder(tgt, memory, state=state, tgt_mask=tgt_mask,
-            memory_mask=memory_mask, padding_mask=tgt_key_padding_mask,
-            memory_key_padding_mask=memory_key_padding_mask)
+            raise RuntimeError('the feature number of src and tgt must be equal to d_model')
+        memory, state = self.encoder(src, mask=src_mask, padding_mask=src_key_padding_mask)
+        output = self.decoder(tgt, memory, state=state, tgt_mask=tgt_mask, memory_mask=memory_mask, padding_mask=tgt_key_padding_mask, memory_key_padding_mask=memory_key_padding_mask)
         return output
 
 
 class TransformerSRUEncoder(Module):
     """A TransformerSRUEncoder with an SRU replacing the FFN."""
 
-    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8,
-        num_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1,
-        sru_dropout: Optional[float]=None, bidirectional: bool=False, **
-        kwargs: Dict[str, Any]) ->None:
+    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8, num_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1, sru_dropout: Optional[float]=None, bidirectional: bool=False, **kwargs: Dict[str, Any]) ->None:
         """Initialize the TransformerEncoder.
 
         Parameters
@@ -2500,16 +2355,12 @@ class TransformerSRUEncoder(Module):
         self.d_model = d_model
         if input_size != d_model:
             self.proj = nn.Linear(input_size, d_model)
-        layer = TransformerSRUEncoderLayer(d_model, nhead, dim_feedforward,
-            dropout, sru_dropout, bidirectional)
-        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            num_layers)])
+        layer = TransformerSRUEncoderLayer(d_model, nhead, dim_feedforward, dropout, sru_dropout, bidirectional)
+        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(num_layers)])
         self.num_layers = num_layers
         self._reset_parameters()
 
-    def forward(self, src: torch.Tensor, state: Optional[torch.Tensor]=None,
-        mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.
-        Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, src: torch.Tensor, state: Optional[torch.Tensor]=None, mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
         """Pass the input through the endocder layers in turn.
 
         Parameters
@@ -2534,8 +2385,7 @@ class TransformerSRUEncoder(Module):
         new_states = []
         for i in range(self.num_layers):
             input_state = state[i] if state is not None else None
-            output, new_state = self.layers[i](output, state=input_state,
-                src_mask=mask, padding_mask=padding_mask)
+            output, new_state = self.layers[i](output, state=input_state, src_mask=mask, padding_mask=padding_mask)
             new_states.append(new_state)
         new_states = torch.stack(new_states, dim=0)
         return output.transpose(0, 1), new_states
@@ -2550,9 +2400,7 @@ class TransformerSRUEncoder(Module):
 class TransformerSRUDecoder(Module):
     """A TransformerSRUDecoderwith an SRU replacing the FFN."""
 
-    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8,
-        num_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1,
-        sru_dropout: Optional[float]=None, **kwargs: Dict[str, Any]) ->None:
+    def __init__(self, input_size: int=512, d_model: int=512, nhead: int=8, num_layers: int=6, dim_feedforward: int=2048, dropout: float=0.1, sru_dropout: Optional[float]=None, **kwargs: Dict[str, Any]) ->None:
         """Initialize the TransformerEncoder.
 
         Parameters
@@ -2585,18 +2433,12 @@ class TransformerSRUDecoder(Module):
         self.d_model = d_model
         if input_size != d_model:
             self.proj = nn.Linear(input_size, d_model)
-        layer = TransformerSRUDecoderLayer(d_model, nhead, dim_feedforward,
-            dropout, sru_dropout)
-        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            num_layers)])
+        layer = TransformerSRUDecoderLayer(d_model, nhead, dim_feedforward, dropout, sru_dropout)
+        self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(num_layers)])
         self.num_layers = num_layers
         self._reset_parameters()
 
-    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, state:
-        Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None,
-        memory_mask: Optional[torch.Tensor]=None, padding_mask: Optional[
-        torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]
-        =None) ->torch.Tensor:
+    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, state: Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Pass the inputs (and mask) through the decoder layer in turn.
 
         Parameters
@@ -2630,9 +2472,7 @@ class TransformerSRUDecoder(Module):
         if self.input_size != self.d_model:
             output = self.proj(output)
         for i in range(self.num_layers):
-            output = self.layers[i](output, memory, state=state[i],
-                tgt_mask=tgt_mask, memory_mask=memory_mask, padding_mask=
-                padding_mask, memory_key_padding_mask=memory_key_padding_mask)
+            output = self.layers[i](output, memory, state=state[i], tgt_mask=tgt_mask, memory_mask=memory_mask, padding_mask=padding_mask, memory_key_padding_mask=memory_key_padding_mask)
         return output.transpose(0, 1)
 
     def _reset_parameters(self):
@@ -2645,9 +2485,7 @@ class TransformerSRUDecoder(Module):
 class TransformerSRUEncoderLayer(Module):
     """A TransformerSRUEncoderLayer with an SRU replacing the FFN."""
 
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048,
-        dropout: float=0.1, sru_dropout: Optional[float]=None,
-        bidirectional: bool=False, **kwargs: Dict[str, Any]) ->None:
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048, dropout: float=0.1, sru_dropout: Optional[float]=None, bidirectional: bool=False, **kwargs: Dict[str, Any]) ->None:
         """Initialize a TransformerSRUEncoderLayer.
 
         Parameters
@@ -2672,18 +2510,14 @@ class TransformerSRUEncoderLayer(Module):
         """
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.sru = SRUCell(d_model, dim_feedforward, dropout, sru_dropout or
-            dropout, bidirectional=bidirectional, has_skip_term=False, **kwargs
-            )
+        self.sru = SRUCell(d_model, dim_feedforward, dropout, sru_dropout or dropout, bidirectional=bidirectional, has_skip_term=False, **kwargs)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-    def forward(self, src: torch.Tensor, state: Optional[torch.Tensor]=None,
-        src_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch
-        .Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, src: torch.Tensor, state: Optional[torch.Tensor]=None, src_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
         """Pass the input through the endocder layer.
 
         Parameters
@@ -2712,8 +2546,7 @@ class TransformerSRUEncoderLayer(Module):
         reversed_mask = None
         if padding_mask is not None:
             reversed_mask = ~padding_mask
-        src2 = self.self_attn(src, src, src, attn_mask=src_mask,
-            key_padding_mask=reversed_mask)[0]
+        src2 = self.self_attn(src, src, src, attn_mask=src_mask, key_padding_mask=reversed_mask)[0]
         src = src + self.dropout1(src2)
         src = self.norm1(src)
         src2, state = self.sru(src, state, mask_pad=padding_mask)
@@ -2726,9 +2559,7 @@ class TransformerSRUEncoderLayer(Module):
 class TransformerSRUDecoderLayer(Module):
     """A TransformerSRUDecoderLayer with an SRU replacing the FFN."""
 
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048,
-        dropout: float=0.1, sru_dropout: Optional[float]=None, **kwargs:
-        Dict[str, Any]) ->None:
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int=2048, dropout: float=0.1, sru_dropout: Optional[float]=None, **kwargs: Dict[str, Any]) ->None:
         """Initialize a TransformerDecoder.
 
         Parameters
@@ -2750,10 +2581,8 @@ class TransformerSRUDecoderLayer(Module):
         """
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout
-            =dropout)
-        self.sru = SRUCell(d_model, dim_feedforward, dropout, sru_dropout or
-            dropout, bidirectional=False, has_skip_term=False, **kwargs)
+        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        self.sru = SRUCell(d_model, dim_feedforward, dropout, sru_dropout or dropout, bidirectional=False, has_skip_term=False, **kwargs)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
@@ -2762,11 +2591,7 @@ class TransformerSRUDecoderLayer(Module):
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
 
-    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, state:
-        Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None,
-        memory_mask: Optional[torch.Tensor]=None, padding_mask: Optional[
-        torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]
-        =None) ->torch.Tensor:
+    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, state: Optional[torch.Tensor]=None, tgt_mask: Optional[torch.Tensor]=None, memory_mask: Optional[torch.Tensor]=None, padding_mask: Optional[torch.Tensor]=None, memory_key_padding_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Pass the inputs (and mask) through the decoder layer.
 
         Parameters
@@ -2797,12 +2622,10 @@ class TransformerSRUDecoderLayer(Module):
         reversed_mask = None
         if padding_mask is not None:
             reversed_mask = ~padding_mask
-        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
-            key_padding_mask=reversed_mask)[0]
+        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, key_padding_mask=reversed_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
-        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=
-            memory_mask, key_padding_mask=memory_key_padding_mask)[0]
+        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask, key_padding_mask=memory_key_padding_mask)[0]
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2, _ = self.sru(tgt, state, mask_pad=padding_mask)
@@ -2828,66 +2651,128 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_asappresearch_flambe(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(AvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AvgPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CNNEncoder,
+     lambda: ([], {'input_channels': 4, 'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (FirstPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LanguageModel,
+     lambda: ([], {'embedder': _mock_layer(), 'output_layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LastPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LogisticRegression,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLPEncoder,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MixtureOfSoftmax,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PooledRNNEncoder,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (RNNEncoder,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SoftmaxLayer,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StructuredSelfAttentivePooling,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SumPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TextClassifier,
+     lambda: ([], {'embedder': _mock_layer(), 'output_layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TransformerDecoder,
+     lambda: ([], {'input_size': 4, 'd_model': 4, 'nhead': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (TransformerDecoderLayer,
+     lambda: ([], {'d_model': 4, 'nhead': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TransformerEncoderLayer,
+     lambda: ([], {'d_model': 4, 'nhead': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_asappresearch_flambe(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(CNNEncoder(*[], **{'input_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FirstPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LanguageModel(*[], **{'embedder': _mock_layer(), 'output_layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LogisticRegression(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(MLPEncoder(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MixtureOfSoftmax(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(PooledRNNEncoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(RNNEncoder(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(SoftmaxLayer(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(StructuredSelfAttentivePooling(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(SumPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(TextClassifier(*[], **{'embedder': _mock_layer(), 'output_layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(TransformerDecoder(*[], **{'input_size': 4, 'd_model': 4, 'nhead': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(TransformerDecoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(TransformerEncoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 

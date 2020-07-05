@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -101,24 +102,17 @@ class DFL_VGG16(nn.Module):
         self.k = k
         self.nclass = nclass
         vgg16featuremap = torchvision.models.vgg16_bn(pretrained=True).features
-        conv1_conv4 = torch.nn.Sequential(*list(vgg16featuremap.children())
-            [:-11])
+        conv1_conv4 = torch.nn.Sequential(*list(vgg16featuremap.children())[:-11])
         conv5 = torch.nn.Sequential(*list(vgg16featuremap.children())[-11:])
-        conv6 = torch.nn.Conv2d(512, k * nclass, kernel_size=1, stride=1,
-            padding=0)
-        pool6 = torch.nn.MaxPool2d((56, 56), stride=(56, 56),
-            return_indices=True)
+        conv6 = torch.nn.Conv2d(512, k * nclass, kernel_size=1, stride=1, padding=0)
+        pool6 = torch.nn.MaxPool2d((56, 56), stride=(56, 56), return_indices=True)
         self.conv1_conv4 = conv1_conv4
         self.conv5 = conv5
-        self.cls5 = nn.Sequential(nn.Conv2d(512, 200, kernel_size=1, stride
-            =1, padding=0), nn.BatchNorm2d(200), nn.ReLU(True), nn.
-            AdaptiveAvgPool2d((1, 1)))
+        self.cls5 = nn.Sequential(nn.Conv2d(512, 200, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(200), nn.ReLU(True), nn.AdaptiveAvgPool2d((1, 1)))
         self.conv6 = conv6
         self.pool6 = pool6
-        self.cls6 = nn.Sequential(nn.Conv2d(k * nclass, nclass, kernel_size
-            =1, stride=1, padding=0), nn.AdaptiveAvgPool2d((1, 1)))
-        self.cross_channel_pool = nn.AvgPool1d(kernel_size=k, stride=k,
-            padding=0)
+        self.cls6 = nn.Sequential(nn.Conv2d(k * nclass, nclass, kernel_size=1, stride=1, padding=0), nn.AdaptiveAvgPool2d((1, 1)))
+        self.cross_channel_pool = nn.AvgPool1d(kernel_size=k, stride=k, padding=0)
 
     def forward(self, x):
         batchsize = x.size(0)
@@ -141,5 +135,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DFL_VGG16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     True),
+]
+
 class Test_songdejia_DFL_CNN(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

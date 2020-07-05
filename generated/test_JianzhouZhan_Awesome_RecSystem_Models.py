@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,8 +66,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class DCN_layer(nn.Module):
 
-    def __init__(self, num_dense_feat, num_sparse_feat_list, dropout_deep,
-        deep_layer_sizes, reg_l1=0.01, reg_l2=0.01, num_cross_layers=4):
+    def __init__(self, num_dense_feat, num_sparse_feat_list, dropout_deep, deep_layer_sizes, reg_l1=0.01, reg_l2=0.01, num_cross_layers=4):
         super().__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -74,8 +74,7 @@ class DCN_layer(nn.Module):
         embedding_sizes = []
         self.sparse_feat_embeddings = nn.ModuleList()
         for i, num_sparse_feat in enumerate(num_sparse_feat_list):
-            embedding_dim = min(num_sparse_feat, 6 * int(np.power(
-                num_sparse_feat, 1 / 4)))
+            embedding_dim = min(num_sparse_feat, 6 * int(np.power(num_sparse_feat, 1 / 4)))
             embedding_sizes.append(embedding_dim)
             feat_embedding = nn.Embedding(num_sparse_feat, embedding_dim)
             nn.init.xavier_uniform_(feat_embedding.weight)
@@ -84,23 +83,18 @@ class DCN_layer(nn.Module):
         self.num_cross_layers = num_cross_layers
         self.deep_layer_sizes = deep_layer_sizes
         self.input_dim = num_dense_feat + sum(embedding_sizes)
-        self.cross_bias = nn.Parameter(torch.randn(num_cross_layers, self.
-            input_dim))
+        self.cross_bias = nn.Parameter(torch.randn(num_cross_layers, self.input_dim))
         nn.init.zeros_(self.cross_bias)
-        self.cross_W = nn.Parameter(torch.randn(num_cross_layers, self.
-            input_dim))
+        self.cross_W = nn.Parameter(torch.randn(num_cross_layers, self.input_dim))
         nn.init.xavier_uniform_(self.cross_W)
         self.batchNorm_list = nn.ModuleList()
         for _ in range(num_cross_layers):
             self.batchNorm_list.append(nn.BatchNorm1d(self.input_dim))
         all_dims = [self.input_dim] + deep_layer_sizes
         for i in range(len(deep_layer_sizes)):
-            setattr(self, 'linear_' + str(i + 1), nn.Linear(all_dims[i],
-                all_dims[i + 1]))
-            setattr(self, 'batchNorm_' + str(i + 1), nn.BatchNorm1d(
-                all_dims[i + 1]))
-            setattr(self, 'dropout_' + str(i + 1), nn.Dropout(dropout_deep[
-                i + 1]))
+            setattr(self, 'linear_' + str(i + 1), nn.Linear(all_dims[i], all_dims[i + 1]))
+            setattr(self, 'batchNorm_' + str(i + 1), nn.BatchNorm1d(all_dims[i + 1]))
+            setattr(self, 'dropout_' + str(i + 1), nn.Dropout(dropout_deep[i + 1]))
         self.fc = nn.Linear(self.input_dim + all_dims[-1], 1)
         nn.init.xavier_uniform_(self.fc.weight)
 
@@ -129,9 +123,7 @@ class DCN_layer(nn.Module):
 
 class DeepFM(nn.Module):
 
-    def __init__(self, num_feat, num_field, dropout_deep, dropout_fm,
-        reg_l1=0.01, reg_l2=0.01, layer_sizes=[400, 400, 400],
-        embedding_size=10):
+    def __init__(self, num_feat, num_field, dropout_deep, dropout_fm, reg_l1=0.01, reg_l2=0.01, layer_sizes=[400, 400, 400], embedding_size=10):
         super().__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -147,8 +139,7 @@ class DeepFM(nn.Module):
         nn.init.xavier_uniform_(self.feat_embeddings.weight)
         all_dims = [self.num_field * self.embedding_size] + layer_sizes
         for i in range(1, len(layer_sizes) + 1):
-            setattr(self, 'linear_' + str(i), nn.Linear(all_dims[i - 1],
-                all_dims[i]))
+            setattr(self, 'linear_' + str(i), nn.Linear(all_dims[i - 1], all_dims[i]))
             setattr(self, 'batchNorm_' + str(i), nn.BatchNorm1d(all_dims[i]))
             setattr(self, 'dropout_' + str(i), nn.Dropout(dropout_deep[i]))
         self.fc = nn.Linear(num_field + embedding_size + all_dims[-1], 1)
@@ -169,8 +160,7 @@ class DeepFM(nn.Module):
         y_secd_order = 0.5 * torch.sub(interaction_part1, interaction_part2)
         if use_dropout:
             y_secd_order = nn.Dropout(self.dropout_fm[1])(y_secd_order)
-        y_deep = feat_emd_value.reshape(-1, self.num_field * self.
-            embedding_size)
+        y_deep = feat_emd_value.reshape(-1, self.num_field * self.embedding_size)
         if use_dropout:
             y_deep = nn.Dropout(self.dropout_deep[0])(y_deep)
         for i in range(1, len(self.layer_sizes) + 1):
@@ -186,8 +176,7 @@ class DeepFM(nn.Module):
 
 class FFM_layer(nn.Module):
 
-    def __init__(self, field_map_dict, fea_num, reg_l1=0.01, reg_l2=0.01,
-        class_num=1, latent_factor_dim=10):
+    def __init__(self, field_map_dict, fea_num, reg_l1=0.01, reg_l2=0.01, class_num=1, latent_factor_dim=10):
         super(FFM_layer, self).__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -195,8 +184,7 @@ class FFM_layer(nn.Module):
         self.field_map_dict = field_map_dict
         field_num = len(field_map_dict)
         self.linear = nn.Linear(fea_num, class_num)
-        self.v = nn.Parameter(torch.randn(fea_num, field_num,
-            latent_factor_dim, class_num))
+        self.v = nn.Parameter(torch.randn(fea_num, field_num, latent_factor_dim, class_num))
 
     def forward(self, x):
         linear_part = self.linear(x)
@@ -206,8 +194,7 @@ class FFM_layer(nn.Module):
                 v_ifj = self.v[(i), (self.field_map_dict[j]), :, :]
                 v_jfi = self.v[(j), (self.field_map_dict[i]), :, :]
                 xij = torch.unsqueeze(x[:, (i)] * x[:, (j)], dim=1)
-                v_ijji = torch.unsqueeze(torch.sum(v_ifj * v_jfi, dim=0), dim=0
-                    )
+                v_ijji = torch.unsqueeze(torch.sum(v_ifj * v_jfi, dim=0), dim=0)
                 interaction_part += torch.mm(xij, v_ijji)
         output = linear_part + interaction_part
         output = torch.log_softmax(output, dim=1)
@@ -216,8 +203,7 @@ class FFM_layer(nn.Module):
 
 class FFM_layer(nn.Module):
 
-    def __init__(self, num_feat, num_field, reg_l1=0.0001, reg_l2=0.0001,
-        embedding_size=10):
+    def __init__(self, num_feat, num_field, reg_l1=0.0001, reg_l2=0.0001, embedding_size=10):
         super(FFM_layer, self).__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -227,8 +213,7 @@ class FFM_layer(nn.Module):
 
 class FM_layer(nn.Module):
 
-    def __init__(self, reg_l1=0.01, reg_l2=0.01, class_num=1, feature_num=
-        10, latent_factor_dim=5):
+    def __init__(self, reg_l1=0.01, reg_l2=0.01, class_num=1, feature_num=10, latent_factor_dim=5):
         super().__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -240,14 +225,12 @@ class FM_layer(nn.Module):
 
     def forward(self, x):
         linear_part = self.linear(x)
-        interaction_part1 = torch.matmul(self.v.permute(2, 1, 0), x.T).permute(
-            2, 1, 0)
+        interaction_part1 = torch.matmul(self.v.permute(2, 1, 0), x.T).permute(2, 1, 0)
         interaction_part1 = torch.pow(interaction_part1, 2)
         interaction_part1 = 0.5 * torch.sum(interaction_part1, dim=1)
         interaction_part1 = torch.squeeze(interaction_part1, dim=1)
         x_square, v_square = torch.pow(x, 2), torch.pow(self.v, 2)
-        interaction_part2 = torch.matmul(v_square.permute(2, 1, 0), x_square.T
-            ).permute(2, 1, 0)
+        interaction_part2 = torch.matmul(v_square.permute(2, 1, 0), x_square.T).permute(2, 1, 0)
         interaction_part2 = -0.5 * torch.sum(interaction_part2, dim=1)
         interaction_part2 = torch.squeeze(interaction_part2, dim=1)
         output = linear_part + interaction_part1 + interaction_part2
@@ -257,8 +240,7 @@ class FM_layer(nn.Module):
 
 class FM_layer(nn.Module):
 
-    def __init__(self, num_feat, num_field, reg_l1=0.01, reg_l2=0.01,
-        embedding_size=16):
+    def __init__(self, num_feat, num_field, reg_l1=0.01, reg_l2=0.01, embedding_size=16):
         super().__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -292,9 +274,7 @@ class FM_layer(nn.Module):
 
 class PNN_layer(nn.Module):
 
-    def __init__(self, num_feat, num_field, dropout_deep, deep_layer_sizes,
-        product_layer_dim=10, reg_l1=0.01, reg_l2=1e-05, embedding_size=10,
-        product_type='outer'):
+    def __init__(self, num_feat, num_field, dropout_deep, deep_layer_sizes, product_layer_dim=10, reg_l1=0.01, reg_l2=1e-05, embedding_size=10, product_type='outer'):
         super().__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -305,8 +285,7 @@ class PNN_layer(nn.Module):
         feat_embeddings = nn.Embedding(num_feat, embedding_size)
         nn.init.xavier_uniform_(feat_embeddings.weight)
         self.feat_embeddings = feat_embeddings
-        linear_weights = torch.randn((product_layer_dim, num_field,
-            embedding_size))
+        linear_weights = torch.randn((product_layer_dim, num_field, embedding_size))
         nn.init.xavier_uniform_(linear_weights)
         self.linear_weights = nn.Parameter(linear_weights)
         self.product_type = product_type
@@ -315,16 +294,13 @@ class PNN_layer(nn.Module):
             nn.init.xavier_uniform_(theta)
             self.theta = nn.Parameter(theta)
         else:
-            quadratic_weights = torch.randn((product_layer_dim,
-                embedding_size, embedding_size))
+            quadratic_weights = torch.randn((product_layer_dim, embedding_size, embedding_size))
             nn.init.xavier_uniform_(quadratic_weights)
             self.quadratic_weights = nn.Parameter(quadratic_weights)
         self.deep_layer_sizes = deep_layer_sizes
-        all_dims = [self.product_layer_dim + self.product_layer_dim
-            ] + deep_layer_sizes
+        all_dims = [self.product_layer_dim + self.product_layer_dim] + deep_layer_sizes
         for i in range(1, len(deep_layer_sizes) + 1):
-            setattr(self, 'linear_' + str(i), nn.Linear(all_dims[i - 1],
-                all_dims[i]))
+            setattr(self, 'linear_' + str(i), nn.Linear(all_dims[i - 1], all_dims[i]))
             setattr(self, 'batchNorm_' + str(i), nn.BatchNorm1d(all_dims[i]))
             setattr(self, 'dropout_' + str(i), nn.Dropout(dropout_deep[i]))
         self.fc = nn.Linear(deep_layer_sizes[-1], 1)
@@ -354,9 +330,7 @@ class PNN_layer(nn.Module):
 
 class xDeepFM_layer(nn.Module):
 
-    def __init__(self, num_feat, num_field, dropout_deep, deep_layer_sizes,
-        cin_layer_sizes, split_half=True, reg_l1=0.01, reg_l2=1e-05,
-        embedding_size=10):
+    def __init__(self, num_feat, num_field, dropout_deep, deep_layer_sizes, cin_layer_sizes, split_half=True, reg_l1=0.01, reg_l2=1e-05, embedding_size=10):
         super().__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
@@ -375,8 +349,7 @@ class xDeepFM_layer(nn.Module):
         prev_dim, fc_input_dim = self.num_field, 0
         self.conv1ds = nn.ModuleList()
         for k in range(1, len(cin_layer_dims)):
-            conv1d = nn.Conv1d(cin_layer_dims[0] * prev_dim, cin_layer_dims
-                [k], 1)
+            conv1d = nn.Conv1d(cin_layer_dims[0] * prev_dim, cin_layer_dims[k], 1)
             nn.init.xavier_uniform_(conv1d.weight)
             self.conv1ds.append(conv1d)
             if self.split_half and k != len(self.cin_layer_sizes):
@@ -386,15 +359,11 @@ class xDeepFM_layer(nn.Module):
             fc_input_dim += prev_dim
         all_dims = [self.input_dim] + deep_layer_sizes
         for i in range(len(deep_layer_sizes)):
-            setattr(self, 'linear_' + str(i + 1), nn.Linear(all_dims[i],
-                all_dims[i + 1]))
-            setattr(self, 'batchNorm_' + str(i + 1), nn.BatchNorm1d(
-                all_dims[i + 1]))
-            setattr(self, 'dropout_' + str(i + 1), nn.Dropout(dropout_deep[
-                i + 1]))
+            setattr(self, 'linear_' + str(i + 1), nn.Linear(all_dims[i], all_dims[i + 1]))
+            setattr(self, 'batchNorm_' + str(i + 1), nn.BatchNorm1d(all_dims[i + 1]))
+            setattr(self, 'dropout_' + str(i + 1), nn.Dropout(dropout_deep[i + 1]))
         self.linear = nn.Linear(self.input_dim, 1)
-        self.output_layer = nn.Linear(1 + fc_input_dim + deep_layer_sizes[-
-            1], 1)
+        self.output_layer = nn.Linear(1 + fc_input_dim + deep_layer_sizes[-1], 1)
 
     def forward(self, feat_index, feat_value, use_dropout=True):
         fea_embedding = self.feat_embedding(feat_index)
@@ -404,8 +373,7 @@ class xDeepFM_layer(nn.Module):
         res = []
         for k in range(1, len(self.cin_layer_sizes) + 1):
             z_k = torch.einsum('bhd,bmd->bhmd', x_list[-1], x_list[0])
-            z_k = z_k.reshape(x0.shape[0], x_list[-1].shape[1] * x0.shape[1
-                ], x0.shape[2])
+            z_k = z_k.reshape(x0.shape[0], x_list[-1].shape[1] * x0.shape[1], x0.shape[2])
             x_k = self.conv1ds[k - 1](z_k)
             x_k = torch.relu(x_k)
             if self.split_half and k != len(self.cin_layer_sizes):
@@ -416,8 +384,7 @@ class xDeepFM_layer(nn.Module):
             res.append(hi)
         res = torch.cat(res, dim=1)
         res = torch.sum(res, dim=2)
-        y_deep = fea_embedding.reshape(-1, self.num_field * self.embedding_size
-            )
+        y_deep = fea_embedding.reshape(-1, self.num_field * self.embedding_size)
         if use_dropout:
             y_deep = nn.Dropout(self.dropout_deep[0])(y_deep)
         for i in range(1, len(self.deep_layer_sizes) + 1):
@@ -435,8 +402,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FM_layer,
+     lambda: ([], {'num_feat': 4, 'num_field': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_JianzhouZhan_Awesome_RecSystem_Models(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FM_layer(*[], **{'num_feat': 4, 'num_field': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

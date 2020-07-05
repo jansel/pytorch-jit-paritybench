@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -142,12 +143,10 @@ def get_normalization_2d(channels, normalization):
     elif normalization == 'none':
         return None
     else:
-        raise ValueError('Unrecognized normalization type "%s"' % normalization
-            )
+        raise ValueError('Unrecognized normalization type "%s"' % normalization)
 
 
-def build_cnn(arch, normalization='batch', activation='relu', padding=
-    'same', pooling='max', init='default'):
+def build_cnn(arch, normalization='batch', activation='relu', padding='same', pooling='max', init='default'):
     """
     Build a CNN from an architecture string, which is a list of layer
     specification strings. The overall architecture can be given as a list or as
@@ -193,15 +192,13 @@ def build_cnn(arch, normalization='batch', activation='relu', padding=
             elif len(vals) == 3:
                 K, next_C, stride = vals
             P = _get_padding(K, padding)
-            conv = nn.Conv2d(cur_C, next_C, kernel_size=K, padding=P,
-                stride=stride)
+            conv = nn.Conv2d(cur_C, next_C, kernel_size=K, padding=P, stride=stride)
             layers.append(conv)
             _init_conv(layers[-1], init)
             cur_C = next_C
         elif s[0] == 'R':
             norm = 'none' if first_conv else normalization
-            res = ResidualBlock(cur_C, normalization=norm, activation=
-                activation, padding=padding, init=init)
+            res = ResidualBlock(cur_C, normalization=norm, activation=activation, padding=padding, init=init)
             layers.append(res)
             first_conv = False
         elif s[0] == 'U':
@@ -232,12 +229,10 @@ def build_cnn(arch, normalization='batch', activation='relu', padding=
 
 class AcDiscriminator(nn.Module):
 
-    def __init__(self, vocab, arch, normalization='none', activation='relu',
-        padding='same', pooling='avg'):
+    def __init__(self, vocab, arch, normalization='none', activation='relu', padding='same', pooling='avg'):
         super(AcDiscriminator, self).__init__()
         self.vocab = vocab
-        cnn_kwargs = {'arch': arch, 'normalization': normalization,
-            'activation': activation, 'pooling': pooling, 'padding': padding}
+        cnn_kwargs = {'arch': arch, 'normalization': normalization, 'activation': activation, 'pooling': pooling, 'padding': padding}
         cnn, D = build_cnn(**cnn_kwargs)
         self.cnn = nn.Sequential(cnn, GlobalAvgPool(), nn.Linear(D, 1024))
         num_objects = len(vocab['object_to_idx'])
@@ -427,12 +422,10 @@ def crop_bbox_batch(feats, bbox, bbox_to_feats, HH, WW=None, backend='cudnn'):
 
 class AcCropDiscriminator(nn.Module):
 
-    def __init__(self, vocab, arch, normalization='none', activation='relu',
-        object_size=64, padding='same', pooling='avg'):
+    def __init__(self, vocab, arch, normalization='none', activation='relu', object_size=64, padding='same', pooling='avg'):
         super(AcCropDiscriminator, self).__init__()
         self.vocab = vocab
-        self.discriminator = AcDiscriminator(vocab, arch, normalization,
-            activation, padding, pooling)
+        self.discriminator = AcDiscriminator(vocab, arch, normalization, activation, padding, pooling)
         self.object_size = object_size
 
     def forward(self, imgs, objs, boxes, obj_to_img):
@@ -443,19 +436,15 @@ class AcCropDiscriminator(nn.Module):
 
 class MultiscaleMaskDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, num_D=3, num_objects=None):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, num_D=3, num_objects=None):
         super(MultiscaleMaskDiscriminator, self).__init__()
         self.num_D = num_D
         self.n_layers = n_layers
         for i in range(num_D):
-            netD = NLayerMaskDiscriminator(input_nc, ndf, n_layers,
-                norm_layer, use_sigmoid, num_objects)
+            netD = NLayerMaskDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, num_objects)
             for j in range(n_layers + 2):
-                setattr(self, 'scale' + str(i) + '_layer' + str(j), getattr
-                    (netD, 'model' + str(j)))
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1],
-            count_include_pad=False)
+                setattr(self, 'scale' + str(i) + '_layer' + str(j), getattr(netD, 'model' + str(j)))
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
 
     def singleD_forward(self, model, input, cond):
         result = [input]
@@ -473,8 +462,7 @@ class MultiscaleMaskDiscriminator(nn.Module):
         result = []
         input_downsampled = input
         for i in range(num_D):
-            model = [getattr(self, 'scale' + str(num_D - 1 - i) + '_layer' +
-                str(j)) for j in range(self.n_layers + 2)]
+            model = [getattr(self, 'scale' + str(num_D - 1 - i) + '_layer' + str(j)) for j in range(self.n_layers + 2)]
             result.append(self.singleD_forward(model, input_downsampled, cond))
             if i != num_D - 1:
                 input_downsampled = self.downsample(input_downsampled)
@@ -483,27 +471,22 @@ class MultiscaleMaskDiscriminator(nn.Module):
 
 class NLayerMaskDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, num_objects=None):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, num_objects=None):
         super(NLayerMaskDiscriminator, self).__init__()
         self.n_layers = n_layers
         kw = 3
         padw = int(np.ceil((kw - 1.0) / 2))
-        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]]
+        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]]
         nf = ndf
         for n in range(1, n_layers):
             nf_prev = nf
             nf = min(nf * 2, 512)
-            sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2,
-                padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
+            sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
         nf_prev = nf
         nf = min(nf * 2, 512)
         nf_prev += num_objects
-        sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1,
-            padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
-        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]
-            ]
+        sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
         if use_sigmoid:
             sequence += [[nn.Sigmoid()]]
         for n in range(len(sequence)):
@@ -519,19 +502,15 @@ class NLayerMaskDiscriminator(nn.Module):
 
 class MultiscaleDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, num_D=3):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, num_D=3):
         super(MultiscaleDiscriminator, self).__init__()
         self.num_D = num_D
         self.n_layers = n_layers
         for i in range(num_D):
-            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer,
-                use_sigmoid)
+            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid)
             for j in range(n_layers + 2):
-                setattr(self, 'scale' + str(i) + '_layer' + str(j), getattr
-                    (netD, 'model' + str(j)))
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1],
-            count_include_pad=False)
+                setattr(self, 'scale' + str(i) + '_layer' + str(j), getattr(netD, 'model' + str(j)))
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
 
     def singleD_forward(self, model, input):
         result = [input]
@@ -544,8 +523,7 @@ class MultiscaleDiscriminator(nn.Module):
         result = []
         input_downsampled = input
         for i in range(num_D):
-            model = [getattr(self, 'scale' + str(num_D - 1 - i) + '_layer' +
-                str(j)) for j in range(self.n_layers + 2)]
+            model = [getattr(self, 'scale' + str(num_D - 1 - i) + '_layer' + str(j)) for j in range(self.n_layers + 2)]
             result.append(self.singleD_forward(model, input_downsampled))
             if i != num_D - 1:
                 input_downsampled = self.downsample(input_downsampled)
@@ -554,26 +532,21 @@ class MultiscaleDiscriminator(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(NLayerDiscriminator, self).__init__()
         self.n_layers = n_layers
         kw = 4
         padw = int(np.ceil((kw - 1.0) / 2))
-        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]]
+        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]]
         nf = ndf
         for n in range(1, n_layers):
             nf_prev = nf
             nf = min(nf * 2, 512)
-            sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2,
-                padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
+            sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
         nf_prev = nf
         nf = min(nf * 2, 512)
-        sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1,
-            padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
-        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]
-            ]
+        sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
         if use_sigmoid:
             sequence += [[nn.Sigmoid()]]
         for n in range(len(sequence)):
@@ -589,15 +562,12 @@ class NLayerDiscriminator(nn.Module):
 
 class AppearanceEncoder(nn.Module):
 
-    def __init__(self, vocab, arch, normalization='none', activation='relu',
-        padding='same', vecs_size=1024, pooling='avg'):
+    def __init__(self, vocab, arch, normalization='none', activation='relu', padding='same', vecs_size=1024, pooling='avg'):
         super(AppearanceEncoder, self).__init__()
         self.vocab = vocab
-        cnn_kwargs = {'arch': arch, 'normalization': normalization,
-            'activation': activation, 'pooling': pooling, 'padding': padding}
+        cnn_kwargs = {'arch': arch, 'normalization': normalization, 'activation': activation, 'pooling': pooling, 'padding': padding}
         cnn, channels = build_cnn(**cnn_kwargs)
-        self.cnn = nn.Sequential(cnn, GlobalAvgPool(), nn.Linear(channels,
-            vecs_size))
+        self.cnn = nn.Sequential(cnn, GlobalAvgPool(), nn.Linear(channels, vecs_size))
 
     def forward(self, crops):
         return self.cnn(crops)
@@ -605,28 +575,21 @@ class AppearanceEncoder(nn.Module):
 
 class GlobalGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3,
-        n_blocks=9, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
         assert n_blocks >= 0
         super(GlobalGenerator, self).__init__()
         activation = nn.ReLU(True)
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0), norm_layer(ngf), activation]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), activation]
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1), norm_layer(ngf * mult * 2), activation]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1), norm_layer(ngf * mult * 2), activation]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                activation=activation, norm_layer=norm_layer)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, norm_layer=norm_layer)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1),
-                norm_layer(int(ngf * mult / 2)), activation]
-        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc,
-            kernel_size=7, padding=0), nn.Tanh()]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1), norm_layer(int(ngf * mult / 2)), activation]
+        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.Tanh()]
         self.model = nn.Sequential(*model)
 
     def forward(self, input):
@@ -639,8 +602,7 @@ def _init_weights(module):
             nn.init.kaiming_normal_(module.weight)
 
 
-def build_mlp(dim_list, activation='relu', batch_norm='none', dropout=0,
-    final_nonlinearity=True):
+def build_mlp(dim_list, activation='relu', batch_norm='none', dropout=0, final_nonlinearity=True):
     layers = []
     for i in range(len(dim_list) - 1):
         dim_in, dim_out = dim_list[i], dim_list[i + 1]
@@ -663,8 +625,7 @@ class GraphTripleConv(nn.Module):
     A single layer of scene graph convolution.
     """
 
-    def __init__(self, input_dim, attributes_dim=0, output_dim=None,
-        hidden_dim=512, pooling='avg', mlp_normalization='none'):
+    def __init__(self, input_dim, attributes_dim=0, output_dim=None, hidden_dim=512, pooling='avg', mlp_normalization='none'):
         super(GraphTripleConv, self).__init__()
         if output_dim is None:
             output_dim = input_dim
@@ -673,8 +634,7 @@ class GraphTripleConv(nn.Module):
         self.hidden_dim = hidden_dim
         assert pooling in ['sum', 'avg'], 'Invalid pooling "%s"' % pooling
         self.pooling = pooling
-        net1_layers = [3 * input_dim + 2 * attributes_dim, hidden_dim, 2 *
-            hidden_dim + output_dim]
+        net1_layers = [3 * input_dim + 2 * attributes_dim, hidden_dim, 2 * hidden_dim + output_dim]
         net1_layers = [l for l in net1_layers if l is not None]
         self.net1 = build_mlp(net1_layers, batch_norm=mlp_normalization)
         self.net1.apply(_init_weights)
@@ -725,13 +685,11 @@ class GraphTripleConv(nn.Module):
 class GraphTripleConvNet(nn.Module):
     """ A sequence of scene graph convolution layers  """
 
-    def __init__(self, input_dim, num_layers=5, hidden_dim=512, pooling=
-        'avg', mlp_normalization='none'):
+    def __init__(self, input_dim, num_layers=5, hidden_dim=512, pooling='avg', mlp_normalization='none'):
         super(GraphTripleConvNet, self).__init__()
         self.num_layers = num_layers
         self.gconvs = nn.ModuleList()
-        gconv_kwargs = {'input_dim': input_dim, 'hidden_dim': hidden_dim,
-            'pooling': pooling, 'mlp_normalization': mlp_normalization}
+        gconv_kwargs = {'input_dim': input_dim, 'hidden_dim': hidden_dim, 'pooling': pooling, 'mlp_normalization': mlp_normalization}
         for _ in range(self.num_layers):
             self.gconvs.append(GraphTripleConv(**gconv_kwargs))
 
@@ -774,17 +732,13 @@ class GlobalAvgPool(nn.Module):
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, channels, normalization='batch', activation='relu',
-        padding='same', kernel_size=3, init='default'):
+    def __init__(self, channels, normalization='batch', activation='relu', padding='same', kernel_size=3, init='default'):
         super(ResidualBlock, self).__init__()
         K = kernel_size
         P = _get_padding(K, padding)
         C = channels
         self.padding = P
-        layers = [get_normalization_2d(C, normalization), get_activation(
-            activation), nn.Conv2d(C, C, kernel_size=K, padding=P),
-            get_normalization_2d(C, normalization), get_activation(
-            activation), nn.Conv2d(C, C, kernel_size=K, padding=P)]
+        layers = [get_normalization_2d(C, normalization), get_activation(activation), nn.Conv2d(C, C, kernel_size=K, padding=P), get_normalization_2d(C, normalization), get_activation(activation), nn.Conv2d(C, C, kernel_size=K, padding=P)]
         layers = [layer for layer in layers if layer is not None]
         for layer in layers:
             _init_conv(layer, method=init)
@@ -801,14 +755,11 @@ class ResidualBlock(nn.Module):
 
 class ResnetBlock(nn.Module):
 
-    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(
-        True), use_dropout=False):
+    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, activation, use_dropout)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, activation, use_dropout)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, activation,
-        use_dropout):
+    def build_conv_block(self, dim, padding_type, norm_layer, activation, use_dropout):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -818,10 +769,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p),
-            norm_layer(dim), activation]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p), norm_layer(dim), activation]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -832,10 +781,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p),
-            norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -856,15 +803,13 @@ class ConditionalBatchNorm2d(nn.Module):
     def forward(self, x, y):
         out = self.bn(x)
         gamma, beta = self.embed(y).chunk(2, 1)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
 class Interpolate(nn.Module):
 
-    def __init__(self, size=None, scale_factor=None, mode='nearest',
-        align_corners=None):
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None):
         super(Interpolate, self).__init__()
         self.size = size
         self.scale_factor = scale_factor
@@ -872,14 +817,12 @@ class Interpolate(nn.Module):
         self.align_corners = align_corners
 
     def forward(self, x):
-        return interpolate(x, size=self.size, scale_factor=self.
-            scale_factor, mode=self.mode, align_corners=self.align_corners)
+        return interpolate(x, size=self.size, scale_factor=self.scale_factor, mode=self.mode, align_corners=self.align_corners)
 
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -893,20 +836,16 @@ class GANLoss(nn.Module):
 
     def get_target_tensor(self, input, target_is_real):
         if target_is_real:
-            create_label = (self.real_label_var is None or self.
-                real_label_var.numel() != input.numel())
+            create_label = self.real_label_var is None or self.real_label_var.numel() != input.numel()
             if create_label:
                 real_tensor = self.Tensor(input.size()).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False
-                    )
+                self.real_label_var = Variable(real_tensor, requires_grad=False)
             target_tensor = self.real_label_var
         else:
-            create_label = (self.fake_label_var is None or self.
-                fake_label_var.numel() != input.numel())
+            create_label = self.fake_label_var is None or self.fake_label_var.numel() != input.numel()
             if create_label:
                 fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False
-                    )
+                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
             target_tensor = self.fake_label_var
         return target_tensor
 
@@ -969,8 +908,7 @@ class VGGLoss(nn.Module):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
 
@@ -1014,8 +952,7 @@ def get_norm_layer(norm_type='instance'):
     elif norm_type == 'conditional':
         norm_layer = functools.partial(ConditionalBatchNorm2d)
     else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
+        raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
 
 
@@ -1028,11 +965,9 @@ def weights_init(m):
         m.bias.data.fill_(0)
 
 
-def define_G(input_nc, output_nc, ngf, n_downsample_global=3,
-    n_blocks_global=9, norm='instance'):
+def define_G(input_nc, output_nc, ngf, n_downsample_global=3, n_blocks_global=9, norm='instance'):
     norm_layer = get_norm_layer(norm_type=norm)
-    netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global,
-        n_blocks_global, norm_layer)
+    netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer)
     assert torch.cuda.is_available()
     netG.cuda()
     netG.apply(weights_init)
@@ -1104,16 +1039,12 @@ def _pool_samples(samples, clean_mask_sampled, obj_to_img, pooling='sum'):
         for i in range(N):
             start = obj_to_img_list.index(i)
             end = len(obj_to_img_list) - obj_to_img_list[::-1].index(i)
-            mass = [torch.sum(samples[(j), :, :, :]).item() for j in range(
-                start, end)]
+            mass = [torch.sum(samples[(j), :, :, :]).item() for j in range(start, end)]
             argsort = np.argsort(mass)
-            result = torch.zeros((d, h, w), device=samples.device, dtype=
-                samples.dtype)
-            result_clean = torch.zeros((h, w), device=samples.device, dtype
-                =samples.dtype)
+            result = torch.zeros((d, h, w), device=samples.device, dtype=samples.dtype)
+            result_clean = torch.zeros((h, w), device=samples.device, dtype=samples.dtype)
             for j in argsort:
-                masked_mask = (result_clean == 0).float() * (clean_mask_sampled
-                    [start + j, 0] > 0.5).float()
+                masked_mask = (result_clean == 0).float() * (clean_mask_sampled[start + j, 0] > 0.5).float()
                 result_clean += masked_mask
                 result += samples[start + j] * masked_mask
             all_out.append(result)
@@ -1129,8 +1060,7 @@ def _pool_samples(samples, clean_mask_sampled, obj_to_img, pooling='sum'):
     return out
 
 
-def masks_to_layout(vecs, boxes, masks, obj_to_img, H, W=None, pooling=
-    'sum', test_mode=False):
+def masks_to_layout(vecs, boxes, masks, obj_to_img, H, W=None, pooling='sum', test_mode=False):
     """
     Inputs:
     - vecs: Tensor of shape (O, D) giving vectors
@@ -1152,23 +1082,16 @@ def masks_to_layout(vecs, boxes, masks, obj_to_img, H, W=None, pooling=
     img_in = vecs.view(O, D, 1, 1) * masks.float().view(O, 1, M, M)
     sampled = F.grid_sample(img_in, grid)
     if test_mode:
-        clean_mask_sampled = F.grid_sample(masks.float().view(O, 1, M, M), grid
-            )
+        clean_mask_sampled = F.grid_sample(masks.float().view(O, 1, M, M), grid)
     else:
         clean_mask_sampled = None
-    out = _pool_samples(sampled, clean_mask_sampled, obj_to_img, pooling=
-        pooling)
+    out = _pool_samples(sampled, clean_mask_sampled, obj_to_img, pooling=pooling)
     return out
 
 
 class Model(nn.Module):
 
-    def __init__(self, vocab, image_size=(64, 64), embedding_dim=128,
-        gconv_dim=128, gconv_hidden_dim=512, gconv_pooling='avg',
-        gconv_num_layers=5, mask_size=32, mlp_normalization='none',
-        appearance_normalization='', activation='', n_downsample_global=4,
-        box_dim=128, use_attributes=False, box_noise_dim=64, mask_noise_dim
-        =64, pool_size=100, rep_size=32):
+    def __init__(self, vocab, image_size=(64, 64), embedding_dim=128, gconv_dim=128, gconv_hidden_dim=512, gconv_pooling='avg', gconv_num_layers=5, mask_size=32, mlp_normalization='none', appearance_normalization='', activation='', n_downsample_global=4, box_dim=128, use_attributes=False, box_noise_dim=64, mask_noise_dim=64, pool_size=100, rep_size=32):
         super(Model, self).__init__()
         self.vocab = vocab
         self.image_size = image_size
@@ -1188,16 +1111,11 @@ class Model(nn.Module):
         if gconv_num_layers == 0:
             self.gconv = nn.Linear(embedding_dim, gconv_dim)
         elif gconv_num_layers > 0:
-            gconv_kwargs = {'input_dim': embedding_dim, 'attributes_dim':
-                attributes_dim, 'output_dim': gconv_dim, 'hidden_dim':
-                gconv_hidden_dim, 'pooling': gconv_pooling,
-                'mlp_normalization': mlp_normalization}
+            gconv_kwargs = {'input_dim': embedding_dim, 'attributes_dim': attributes_dim, 'output_dim': gconv_dim, 'hidden_dim': gconv_hidden_dim, 'pooling': gconv_pooling, 'mlp_normalization': mlp_normalization}
             self.gconv = GraphTripleConv(**gconv_kwargs)
         self.gconv_net = None
         if gconv_num_layers > 1:
-            gconv_kwargs = {'input_dim': gconv_dim, 'hidden_dim':
-                gconv_hidden_dim, 'pooling': gconv_pooling, 'num_layers': 
-                gconv_num_layers - 1, 'mlp_normalization': mlp_normalization}
+            gconv_kwargs = {'input_dim': gconv_dim, 'hidden_dim': gconv_hidden_dim, 'pooling': gconv_pooling, 'num_layers': gconv_num_layers - 1, 'mlp_normalization': mlp_normalization}
             self.gconv_net = GraphTripleConvNet(**gconv_kwargs)
         box_net_dim = 4
         self.box_dim = box_dim
@@ -1210,28 +1128,19 @@ class Model(nn.Module):
         rep_hidden_size = 64
         repr_layers = [self.repr_input, rep_hidden_size, rep_size]
         self.repr_net = build_mlp(repr_layers, batch_norm=mlp_normalization)
-        appearance_encoder_kwargs = {'vocab': vocab, 'arch':
-            'C4-64-2,C4-128-2,C4-256-2', 'normalization':
-            appearance_normalization, 'activation': activation, 'padding':
-            'valid', 'vecs_size': self.g_mask_dim}
+        appearance_encoder_kwargs = {'vocab': vocab, 'arch': 'C4-64-2,C4-128-2,C4-256-2', 'normalization': appearance_normalization, 'activation': activation, 'padding': 'valid', 'vecs_size': self.g_mask_dim}
         self.image_encoder = AppearanceEncoder(**appearance_encoder_kwargs)
         netG_input_nc = self.num_objs + rep_size
         output_nc = 3
         ngf = 64
         n_blocks_global = 9
         norm = 'instance'
-        self.layout_to_image = define_G(netG_input_nc, output_nc, ngf,
-            n_downsample_global, n_blocks_global, norm)
+        self.layout_to_image = define_G(netG_input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm)
 
-    def forward(self, gt_imgs, objs, triples, obj_to_img, boxes_gt=None,
-        masks_gt=None, attributes=None, test_mode=False, use_gt_box=False,
-        features=None):
+    def forward(self, gt_imgs, objs, triples, obj_to_img, boxes_gt=None, masks_gt=None, attributes=None, test_mode=False, use_gt_box=False, features=None):
         O, T = objs.size(0), triples.size(0)
-        obj_vecs, pred_vecs = self.scene_graph_to_vectors(objs, triples,
-            attributes)
-        box_vecs, mask_vecs, scene_layout_vecs, wrong_layout_vecs = (self.
-            create_components_vecs(gt_imgs, boxes_gt, obj_to_img, objs,
-            obj_vecs, features))
+        obj_vecs, pred_vecs = self.scene_graph_to_vectors(objs, triples, attributes)
+        box_vecs, mask_vecs, scene_layout_vecs, wrong_layout_vecs = self.create_components_vecs(gt_imgs, boxes_gt, obj_to_img, objs, obj_vecs, features)
         boxes_pred = self.box_net(box_vecs)
         mask_scores = self.mask_net(mask_vecs.view(O, -1, 1, 1))
         masks_pred = mask_scores.squeeze(1).sigmoid()
@@ -1240,20 +1149,15 @@ class Model(nn.Module):
             boxes = boxes_gt if use_gt_box else boxes_pred
             masks = masks_gt if masks_gt is not None else masks_pred
             gt_layout = None
-            pred_layout = masks_to_layout(scene_layout_vecs, boxes, masks,
-                obj_to_img, H, W, test_mode=True)
+            pred_layout = masks_to_layout(scene_layout_vecs, boxes, masks, obj_to_img, H, W, test_mode=True)
             wrong_layout = None
             imgs_pred = self.layout_to_image(pred_layout)
         else:
-            gt_layout = masks_to_layout(scene_layout_vecs, boxes_gt,
-                masks_gt, obj_to_img, H, W, test_mode=False)
-            pred_layout = masks_to_layout(scene_layout_vecs, boxes_gt,
-                masks_pred, obj_to_img, H, W, test_mode=False)
-            wrong_layout = masks_to_layout(wrong_layout_vecs, boxes_gt,
-                masks_gt, obj_to_img, H, W, test_mode=False)
+            gt_layout = masks_to_layout(scene_layout_vecs, boxes_gt, masks_gt, obj_to_img, H, W, test_mode=False)
+            pred_layout = masks_to_layout(scene_layout_vecs, boxes_gt, masks_pred, obj_to_img, H, W, test_mode=False)
+            wrong_layout = masks_to_layout(wrong_layout_vecs, boxes_gt, masks_gt, obj_to_img, H, W, test_mode=False)
             imgs_pred = self.layout_to_image(gt_layout)
-        return (imgs_pred, boxes_pred, masks_pred, gt_layout, pred_layout,
-            wrong_layout)
+        return imgs_pred, boxes_pred, masks_pred, gt_layout, pred_layout, wrong_layout
 
     def scene_graph_to_vectors(self, objs, triples, attributes):
         s, p, o = triples.chunk(3, dim=1)
@@ -1271,14 +1175,11 @@ class Model(nn.Module):
             obj_vecs, pred_vecs = self.gconv_net(obj_vecs, pred_vecs, edges)
         return obj_vecs, pred_vecs
 
-    def create_components_vecs(self, imgs, boxes, obj_to_img, objs,
-        obj_vecs, features):
+    def create_components_vecs(self, imgs, boxes, obj_to_img, objs, obj_vecs, features):
         O = objs.size(0)
         box_vecs = obj_vecs
         mask_vecs = obj_vecs
-        layout_noise = torch.randn((1, self.mask_noise_dim), dtype=
-            mask_vecs.dtype, device=mask_vecs.device).repeat((O, 1)).view(O,
-            self.mask_noise_dim)
+        layout_noise = torch.randn((1, self.mask_noise_dim), dtype=mask_vecs.dtype, device=mask_vecs.device).repeat((O, 1)).view(O, self.mask_noise_dim)
         mask_vecs = torch.cat([mask_vecs, layout_noise], dim=1)
         if features is None:
             crops = crop_bbox_batch(imgs, boxes, obj_to_img, self.object_size)
@@ -1289,8 +1190,7 @@ class Model(nn.Module):
                 if feature is not None:
                     obj_repr[(ind), :] = feature
         one_hot_size = O, self.num_objs
-        one_hot_obj = torch.zeros(one_hot_size, dtype=obj_repr.dtype,
-            device=obj_repr.device)
+        one_hot_obj = torch.zeros(one_hot_size, dtype=obj_repr.dtype, device=obj_repr.device)
         one_hot_obj = one_hot_obj.scatter_(1, objs.view(-1, 1).long(), 1.0)
         layout_vecs = torch.cat([one_hot_obj, obj_repr], dim=1)
         wrong_objs_rep = self.fake_pool.query(objs, obj_repr)
@@ -1330,16 +1230,14 @@ class Model(nn.Module):
         all_features = []
         obj_offset = 0
         for i, sg in enumerate(scene_graphs):
-            attributes = torch.zeros([len(sg['objects']) + 1, 25 + 10],
-                dtype=torch.float, device=device)
+            attributes = torch.zeros([len(sg['objects']) + 1, 25 + 10], dtype=torch.float, device=device)
             sg['objects'].append('__image__')
             sg['features'].append(sg['image_id'])
             image_idx = len(sg['objects']) - 1
             for j in range(image_idx):
                 sg['relationships'].append([j, '__in_image__', image_idx])
             for obj in sg['objects']:
-                obj_idx = self.vocab['object_to_idx'][str(self.vocab[
-                    'object_name_to_idx'][obj])]
+                obj_idx = self.vocab['object_to_idx'][str(self.vocab['object_name_to_idx'][obj])]
                 if obj_idx is None:
                     raise ValueError('Object "%s" not in vocab' % obj)
                 objs.append(obj_idx)
@@ -1374,11 +1272,8 @@ class Model(nn.Module):
 
     def forward_json(self, scene_graphs):
         """ Convenience method that combines encode_scene_graphs and forward. """
-        objs, triples, obj_to_img, attributes, features = (self.
-            encode_scene_graphs(scene_graphs))
-        return self.forward(None, objs, triples, obj_to_img, attributes=
-            attributes, test_mode=True, use_gt_box=False, features=features
-            ), objs
+        objs, triples, obj_to_img, attributes, features = self.encode_scene_graphs(scene_graphs)
+        return self.forward(None, objs, triples, obj_to_img, attributes=attributes, test_mode=True, use_gt_box=False, features=features), objs
 
 
 class InceptionScore(nn.Module):
@@ -1392,8 +1287,7 @@ class InceptionScore(nn.Module):
         self.device = 'cuda' if cuda else 'cpu'
         if not cuda and torch.is_available():
             None
-        self.inception_model = inception_v3(pretrained=True,
-            transform_input=False)
+        self.inception_model = inception_v3(pretrained=True, transform_input=False)
         self.inception_model.eval()
         self.up = Interpolate(size=(299, 299), mode='bilinear')
         self.clean()
@@ -1430,31 +1324,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (MultiscaleDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualBlock,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGGLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Vgg19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_ashual_scene_generation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GlobalAvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(VGGLoss(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 

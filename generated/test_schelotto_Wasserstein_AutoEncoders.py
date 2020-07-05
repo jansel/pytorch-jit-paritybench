@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -57,13 +58,7 @@ class Encoder(nn.Module):
         self.n_channel = args.n_channel
         self.dim_h = args.dim_h
         self.n_z = args.n_z
-        self.main = nn.Sequential(nn.Conv2d(self.n_channel, self.dim_h, 4, 
-            2, 1, bias=False), nn.ReLU(True), nn.Conv2d(self.dim_h, self.
-            dim_h * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 2),
-            nn.ReLU(True), nn.Conv2d(self.dim_h * 2, self.dim_h * 4, 4, 2, 
-            1, bias=False), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True),
-            nn.Conv2d(self.dim_h * 4, self.dim_h * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(self.dim_h * 8), nn.ReLU(True))
+        self.main = nn.Sequential(nn.Conv2d(self.n_channel, self.dim_h, 4, 2, 1, bias=False), nn.ReLU(True), nn.Conv2d(self.dim_h, self.dim_h * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 2), nn.ReLU(True), nn.Conv2d(self.dim_h * 2, self.dim_h * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True), nn.Conv2d(self.dim_h * 4, self.dim_h * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 8), nn.ReLU(True))
         self.fc = nn.Linear(self.dim_h * 2 ** 3, self.n_z)
 
     def forward(self, x):
@@ -80,13 +75,8 @@ class Decoder(nn.Module):
         self.n_channel = args.n_channel
         self.dim_h = args.dim_h
         self.n_z = args.n_z
-        self.proj = nn.Sequential(nn.Linear(self.n_z, self.dim_h * 8 * 7 * 
-            7), nn.ReLU())
-        self.main = nn.Sequential(nn.ConvTranspose2d(self.dim_h * 8, self.
-            dim_h * 4, 4), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True),
-            nn.ConvTranspose2d(self.dim_h * 4, self.dim_h * 2, 4), nn.
-            BatchNorm2d(self.dim_h * 2), nn.ReLU(True), nn.ConvTranspose2d(
-            self.dim_h * 2, 1, 4, stride=2), nn.Sigmoid())
+        self.proj = nn.Sequential(nn.Linear(self.n_z, self.dim_h * 8 * 7 * 7), nn.ReLU())
+        self.main = nn.Sequential(nn.ConvTranspose2d(self.dim_h * 8, self.dim_h * 4, 4), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True), nn.ConvTranspose2d(self.dim_h * 4, self.dim_h * 2, 4), nn.BatchNorm2d(self.dim_h * 2), nn.ReLU(True), nn.ConvTranspose2d(self.dim_h * 2, 1, 4, stride=2), nn.Sigmoid())
 
     def forward(self, x):
         x = self.proj(x)
@@ -102,11 +92,7 @@ class Discriminator(nn.Module):
         self.n_channel = args.n_channel
         self.dim_h = args.dim_h
         self.n_z = args.n_z
-        self.main = nn.Sequential(nn.Linear(self.n_z, self.dim_h * 4), nn.
-            ReLU(True), nn.Linear(self.dim_h * 4, self.dim_h * 4), nn.ReLU(
-            True), nn.Linear(self.dim_h * 4, self.dim_h * 4), nn.ReLU(True),
-            nn.Linear(self.dim_h * 4, self.dim_h * 4), nn.ReLU(True), nn.
-            Linear(self.dim_h * 4, 1), nn.Sigmoid())
+        self.main = nn.Sequential(nn.Linear(self.n_z, self.dim_h * 4), nn.ReLU(True), nn.Linear(self.dim_h * 4, self.dim_h * 4), nn.ReLU(True), nn.Linear(self.dim_h * 4, self.dim_h * 4), nn.ReLU(True), nn.Linear(self.dim_h * 4, self.dim_h * 4), nn.ReLU(True), nn.Linear(self.dim_h * 4, 1), nn.Sigmoid())
 
     def forward(self, x):
         x = self.main(x)
@@ -120,13 +106,7 @@ class Encoder(nn.Module):
         self.n_channel = args.n_channel
         self.dim_h = args.dim_h
         self.n_z = args.n_z
-        self.main = nn.Sequential(nn.Conv2d(self.n_channel, self.dim_h, 4, 
-            2, 1, bias=False), nn.ReLU(True), nn.Conv2d(self.dim_h, self.
-            dim_h * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 2),
-            nn.ReLU(True), nn.Conv2d(self.dim_h * 2, self.dim_h * 4, 4, 2, 
-            1, bias=False), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True),
-            nn.Conv2d(self.dim_h * 4, self.dim_h * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(self.dim_h * 8), nn.ReLU(True))
+        self.main = nn.Sequential(nn.Conv2d(self.n_channel, self.dim_h, 4, 2, 1, bias=False), nn.ReLU(True), nn.Conv2d(self.dim_h, self.dim_h * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 2), nn.ReLU(True), nn.Conv2d(self.dim_h * 2, self.dim_h * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True), nn.Conv2d(self.dim_h * 4, self.dim_h * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(self.dim_h * 8), nn.ReLU(True))
         self.fc = nn.Linear(self.dim_h * 2 ** 3, self.n_z)
 
     def forward(self, x):
@@ -143,13 +123,8 @@ class Decoder(nn.Module):
         self.n_channel = args.n_channel
         self.dim_h = args.dim_h
         self.n_z = args.n_z
-        self.proj = nn.Sequential(nn.Linear(self.n_z, self.dim_h * 8 * 7 * 
-            7), nn.ReLU())
-        self.main = nn.Sequential(nn.ConvTranspose2d(self.dim_h * 8, self.
-            dim_h * 4, 4), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True),
-            nn.ConvTranspose2d(self.dim_h * 4, self.dim_h * 2, 4), nn.
-            BatchNorm2d(self.dim_h * 2), nn.ReLU(True), nn.ConvTranspose2d(
-            self.dim_h * 2, 1, 4, stride=2), nn.Sigmoid())
+        self.proj = nn.Sequential(nn.Linear(self.n_z, self.dim_h * 8 * 7 * 7), nn.ReLU())
+        self.main = nn.Sequential(nn.ConvTranspose2d(self.dim_h * 8, self.dim_h * 4, 4), nn.BatchNorm2d(self.dim_h * 4), nn.ReLU(True), nn.ConvTranspose2d(self.dim_h * 4, self.dim_h * 2, 4), nn.BatchNorm2d(self.dim_h * 2), nn.ReLU(True), nn.ConvTranspose2d(self.dim_h * 2, 1, 4, stride=2), nn.Sigmoid())
 
     def forward(self, x):
         x = self.proj(x)
@@ -162,11 +137,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {'args': _mock_config(n_channel=4, dim_h=4, n_z=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'args': _mock_config(n_channel=4, dim_h=4, n_z=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_schelotto_Wasserstein_AutoEncoders(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Decoder(*[], **{'args': _mock_config(n_channel=4, dim_h=4, n_z=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Discriminator(*[], **{'args': _mock_config(n_channel=4, dim_h=4, n_z=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -140,8 +141,7 @@ def get_self_critical_reward(greedy_res, data_gts, gen_result, opt):
         res[gen_result_size + i] = [array_to_str(greedy_res[i])]
     gts = OrderedDict()
     for i in range(len(data_gts)):
-        gts[i] = [array_to_str(data_gts[i][j]) for j in range(len(data_gts[i]))
-            ]
+        gts[i] = [array_to_str(data_gts[i][j]) for j in range(len(data_gts[i]))]
     res_ = [{'image_id': i, 'caption': res[i]} for i in range(len(res))]
     res__ = {i: res[i] for i in range(len(res_))}
     gts_ = {i: gts[i // seq_per_img] for i in range(gen_result_size)}
@@ -157,10 +157,8 @@ def get_self_critical_reward(greedy_res, data_gts, gen_result, opt):
         print('Bleu scores:', _[3])
     else:
         bleu_scores = 0
-    scores = (opt.cider_reward_weight * cider_scores + opt.
-        bleu_reward_weight * bleu_scores)
-    scores = scores[:gen_result_size].reshape(batch_size, seq_per_img
-        ) - scores[-batch_size:][:, (np.newaxis)]
+    scores = opt.cider_reward_weight * cider_scores + opt.bleu_reward_weight * bleu_scores
+    scores = scores[:gen_result_size].reshape(batch_size, seq_per_img) - scores[-batch_size:][:, (np.newaxis)]
     scores = scores.reshape(gen_result_size)
     rewards = np.repeat(scores[:, (np.newaxis)], gen_result.shape[1], 1)
     return rewards
@@ -179,51 +177,34 @@ class LossWrapper(torch.nn.Module):
         self.rl_crit = utils.RewardCriterion()
         self.struc_crit = utils.StructureLosses(opt)
 
-    def forward(self, fc_feats, att_feats, labels, masks, att_masks, gts,
-        gt_indices, sc_flag, struc_flag):
+    def forward(self, fc_feats, att_feats, labels, masks, att_masks, gts, gt_indices, sc_flag, struc_flag):
         opt = self.opt
         out = {}
         if struc_flag:
             if opt.structure_loss_weight < 1:
-                lm_loss = self.crit(self.model(fc_feats, att_feats, labels,
-                    att_masks), labels[(...), 1:], masks[(...), 1:])
+                lm_loss = self.crit(self.model(fc_feats, att_feats, labels, att_masks), labels[(...), 1:], masks[(...), 1:])
             else:
                 lm_loss = torch.tensor(0).type_as(fc_feats)
             if opt.structure_loss_weight > 0:
-                gen_result, sample_logprobs = self.model(fc_feats,
-                    att_feats, att_masks, opt={'sample_method': opt.
-                    train_sample_method, 'beam_size': opt.train_beam_size,
-                    'output_logsoftmax': opt.struc_use_logsoftmax or opt.
-                    structure_loss_type == 'softmax_margin' or not 'margin' in
-                    opt.structure_loss_type, 'sample_n': opt.train_sample_n
-                    }, mode='sample')
+                gen_result, sample_logprobs = self.model(fc_feats, att_feats, att_masks, opt={'sample_method': opt.train_sample_method, 'beam_size': opt.train_beam_size, 'output_logsoftmax': opt.struc_use_logsoftmax or opt.structure_loss_type == 'softmax_margin' or not 'margin' in opt.structure_loss_type, 'sample_n': opt.train_sample_n}, mode='sample')
                 gts = [gts[_] for _ in gt_indices.tolist()]
                 struc_loss = self.struc_crit(sample_logprobs, gen_result, gts)
             else:
-                struc_loss = {'loss': torch.tensor(0).type_as(fc_feats),
-                    'reward': torch.tensor(0).type_as(fc_feats)}
-            loss = (1 - opt.structure_loss_weight
-                ) * lm_loss + opt.structure_loss_weight * struc_loss['loss']
+                struc_loss = {'loss': torch.tensor(0).type_as(fc_feats), 'reward': torch.tensor(0).type_as(fc_feats)}
+            loss = (1 - opt.structure_loss_weight) * lm_loss + opt.structure_loss_weight * struc_loss['loss']
             out['lm_loss'] = lm_loss
             out['struc_loss'] = struc_loss['loss']
             out['reward'] = struc_loss['reward']
         elif not sc_flag:
-            loss = self.crit(self.model(fc_feats, att_feats, labels,
-                att_masks), labels[(...), 1:], masks[(...), 1:])
+            loss = self.crit(self.model(fc_feats, att_feats, labels, att_masks), labels[(...), 1:], masks[(...), 1:])
         else:
             self.model.eval()
             with torch.no_grad():
-                greedy_res, _ = self.model(fc_feats, att_feats, att_masks,
-                    mode='sample', opt={'sample_method': opt.
-                    sc_sample_method, 'beam_size': opt.sc_beam_size})
+                greedy_res, _ = self.model(fc_feats, att_feats, att_masks, mode='sample', opt={'sample_method': opt.sc_sample_method, 'beam_size': opt.sc_beam_size})
             self.model.train()
-            gen_result, sample_logprobs = self.model(fc_feats, att_feats,
-                att_masks, opt={'sample_method': opt.train_sample_method,
-                'beam_size': opt.train_beam_size, 'sample_n': opt.
-                train_sample_n}, mode='sample')
+            gen_result, sample_logprobs = self.model(fc_feats, att_feats, att_masks, opt={'sample_method': opt.train_sample_method, 'beam_size': opt.train_beam_size, 'sample_n': opt.train_sample_n}, mode='sample')
             gts = [gts[_] for _ in gt_indices.tolist()]
-            reward = get_self_critical_reward(greedy_res, gts, gen_result,
-                self.opt)
+            reward = get_self_critical_reward(greedy_res, gts, gen_result, self.opt)
             reward = torch.from_numpy(reward).float()
             loss = self.rl_crit(sample_logprobs, gen_result.data, reward)
             out['reward'] = reward[:, (0)].mean()
@@ -248,8 +229,7 @@ class myResnet(nn.Module):
         x = self.resnet.layer3(x)
         x = self.resnet.layer4(x)
         fc = x.mean(3).mean(2).squeeze()
-        att = F.adaptive_avg_pool2d(x, [att_size, att_size]).squeeze().permute(
-            1, 2, 0)
+        att = F.adaptive_avg_pool2d(x, [att_size, att_size]).squeeze().permute(1, 2, 0)
         return fc, att
 
 
@@ -263,8 +243,7 @@ class RewardCriterion(nn.Module):
         input = input.reshape(-1)
         reward = reward.reshape(-1)
         mask = (seq > 0).float()
-        mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1
-            ).reshape(-1)
+        mask = torch.cat([mask.new(mask.size(0), 1).fill_(1), mask[:, :-1]], 1).reshape(-1)
         output = -input * reward * mask
         output = torch.sum(output) / torch.sum(mask)
         return output
@@ -279,8 +258,7 @@ def get_scores(data_gts, gen_result, opt):
         res[i] = [array_to_str(gen_result[i])]
     gts = OrderedDict()
     for i in range(len(data_gts)):
-        gts[i] = [array_to_str(data_gts[i][j]) for j in range(len(data_gts[i]))
-            ]
+        gts[i] = [array_to_str(data_gts[i][j]) for j in range(len(data_gts[i]))]
     res_ = [{'image_id': i, 'caption': res[i]} for i in range(batch_size)]
     res__ = {i: res[i] for i in range(batch_size)}
     gts = {i: gts[i // seq_per_img] for i in range(batch_size)}
@@ -295,8 +273,7 @@ def get_scores(data_gts, gen_result, opt):
         print('Bleu scores:', _[3])
     else:
         bleu_scores = 0
-    scores = (opt.cider_reward_weight * cider_scores + opt.
-        bleu_reward_weight * bleu_scores)
+    scores = opt.cider_reward_weight * cider_scores + opt.bleu_reward_weight * bleu_scores
     return scores
 
 
@@ -312,13 +289,11 @@ def get_self_cider_scores(data_gts, gen_result, opt):
         res.append(array_to_str(gen_result[i]))
     scores = []
     for i in range(len(data_gts)):
-        tmp = Cider_scorer.my_self_cider([res[i * seq_per_img:(i + 1) *
-            seq_per_img]])
+        tmp = Cider_scorer.my_self_cider([res[i * seq_per_img:(i + 1) * seq_per_img]])
 
         def get_div(eigvals):
             eigvals = np.clip(eigvals, 0, None)
-            return -np.log(np.sqrt(eigvals[-1]) / np.sqrt(eigvals).sum()
-                ) / np.log(len(eigvals))
+            return -np.log(np.sqrt(eigvals[-1]) / np.sqrt(eigvals).sum()) / np.log(len(eigvals))
         scores.append(get_div(np.linalg.eigvalsh(tmp[0] / 10)))
     scores = np.array(scores)
     return scores
@@ -343,18 +318,15 @@ class StructureLosses(nn.Module):
         seq_per_img = batch_size // len(data_gts)
         assert seq_per_img == self.opt.train_sample_n, seq_per_img
         mask = (seq > 0).float()
-        mask = torch.cat([mask.new_full((mask.size(0), 1), 1), mask[:, :-1]], 1
-            )
+        mask = torch.cat([mask.new_full((mask.size(0), 1), 1), mask[:, :-1]], 1)
         scores = get_scores(data_gts, seq, self.opt)
         scores = torch.from_numpy(scores).type_as(input).view(-1, seq_per_img)
         out['reward'] = scores
         if self.opt.entropy_reward_weight > 0:
-            entropy = -(F.softmax(input, dim=2) * F.log_softmax(input, dim=2)
-                ).sum(2).data
+            entropy = -(F.softmax(input, dim=2) * F.log_softmax(input, dim=2)).sum(2).data
             entropy = (entropy * mask).sum(1) / mask.sum(1)
             None
-            scores = scores + self.opt.entropy_reward_weight * entropy.view(
-                -1, seq_per_img)
+            scores = scores + self.opt.entropy_reward_weight * entropy.view(-1, seq_per_img)
         costs = -scores
         if self.loss_type == 'risk' or self.loss_type == 'softmax_margin':
             costs = costs - costs.min(1, keepdim=True)[0]
@@ -378,8 +350,7 @@ class StructureLosses(nn.Module):
             _, __ = costs.min(1, keepdim=True)
             costs_star = _
             input_star = input.gather(1, __)
-            output = F.relu(costs - costs_star - input_star + input).max(1)[0
-                ] / 2
+            output = F.relu(costs - costs_star - input_star + input).max(1)[0] / 2
             output = output.mean()
         elif self.loss_type == 'multi_margin':
             input = input * mask
@@ -411,8 +382,7 @@ class StructureLosses(nn.Module):
             This setting uses the average score of the rest samples as baseline
             (suppose c1...cn n samples, reward1 = score1 - 1/(n-1)(score2+..+scoren) )
             """
-            baseline = (scores.sum(1, keepdim=True) - scores) / (scores.
-                shape[1] - 1)
+            baseline = (scores.sum(1, keepdim=True) - scores) / (scores.shape[1] - 1)
             scores = scores - baseline
             if getattr(self.opt, 'self_cider_reward_weight', 0) > 0:
                 _scores = get_self_cider_scores(data_gts, seq, self.opt)
@@ -464,8 +434,7 @@ class LabelSmoothing(nn.Module):
         true_dist = input.data.clone()
         true_dist.fill_(self.smoothing / (self.size - 1))
         true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
-        return (self.criterion(input, true_dist).sum(1) * mask).sum(
-            ) / mask.sum()
+        return (self.criterion(input, true_dist).sum(1) * mask).sum() / mask.sum()
 
 
 class AdaAtt_lstm(nn.Module):
@@ -480,14 +449,10 @@ class AdaAtt_lstm(nn.Module):
         self.att_feat_size = opt.att_feat_size
         self.att_hid_size = opt.att_hid_size
         self.use_maxout = use_maxout
-        self.w2h = nn.Linear(self.input_encoding_size, (4 + (use_maxout == 
-            True)) * self.rnn_size)
-        self.v2h = nn.Linear(self.rnn_size, (4 + (use_maxout == True)) *
-            self.rnn_size)
-        self.i2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout ==
-            True)) * self.rnn_size) for _ in range(self.num_layers - 1)])
-        self.h2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout ==
-            True)) * self.rnn_size) for _ in range(self.num_layers)])
+        self.w2h = nn.Linear(self.input_encoding_size, (4 + (use_maxout == True)) * self.rnn_size)
+        self.v2h = nn.Linear(self.rnn_size, (4 + (use_maxout == True)) * self.rnn_size)
+        self.i2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout == True)) * self.rnn_size) for _ in range(self.num_layers - 1)])
+        self.h2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout == True)) * self.rnn_size) for _ in range(self.num_layers)])
         if self.num_layers == 1:
             self.r_w2h = nn.Linear(self.input_encoding_size, self.rnn_size)
             self.r_v2h = nn.Linear(self.rnn_size, self.rnn_size)
@@ -513,17 +478,12 @@ class AdaAtt_lstm(nn.Module):
             sigmoid_chunk = torch.sigmoid(sigmoid_chunk)
             in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
             forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
-            out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size
-                )
+            out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
             if not self.use_maxout:
-                in_transform = torch.tanh(all_input_sums.narrow(1, 3 * self
-                    .rnn_size, self.rnn_size))
+                in_transform = torch.tanh(all_input_sums.narrow(1, 3 * self.rnn_size, self.rnn_size))
             else:
-                in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 
-                    2 * self.rnn_size)
-                in_transform = torch.max(in_transform.narrow(1, 0, self.
-                    rnn_size), in_transform.narrow(1, self.rnn_size, self.
-                    rnn_size))
+                in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self.rnn_size)
+                in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size), in_transform.narrow(1, self.rnn_size, self.rnn_size))
             next_c = forget_gate * prev_c + in_gate * in_transform
             tanh_nex_c = torch.tanh(next_c)
             next_h = out_gate * tanh_nex_c
@@ -539,8 +499,7 @@ class AdaAtt_lstm(nn.Module):
         top_h = hs[-1]
         top_h = F.dropout(top_h, self.drop_prob_lm, self.training)
         fake_region = F.dropout(fake_region, self.drop_prob_lm, self.training)
-        state = torch.cat([_.unsqueeze(0) for _ in hs], 0), torch.cat([_.
-            unsqueeze(0) for _ in cs], 0)
+        state = torch.cat([_.unsqueeze(0) for _ in hs], 0), torch.cat([_.unsqueeze(0) for _ in cs], 0)
         return top_h, fake_region, state
 
 
@@ -552,17 +511,14 @@ class AdaAtt_attention(nn.Module):
         self.rnn_size = opt.rnn_size
         self.drop_prob_lm = opt.drop_prob_lm
         self.att_hid_size = opt.att_hid_size
-        self.fr_linear = nn.Sequential(nn.Linear(self.rnn_size, self.
-            input_encoding_size), nn.ReLU(), nn.Dropout(self.drop_prob_lm))
+        self.fr_linear = nn.Sequential(nn.Linear(self.rnn_size, self.input_encoding_size), nn.ReLU(), nn.Dropout(self.drop_prob_lm))
         self.fr_embed = nn.Linear(self.input_encoding_size, self.att_hid_size)
-        self.ho_linear = nn.Sequential(nn.Linear(self.rnn_size, self.
-            input_encoding_size), nn.Tanh(), nn.Dropout(self.drop_prob_lm))
+        self.ho_linear = nn.Sequential(nn.Linear(self.rnn_size, self.input_encoding_size), nn.Tanh(), nn.Dropout(self.drop_prob_lm))
         self.ho_embed = nn.Linear(self.input_encoding_size, self.att_hid_size)
         self.alpha_net = nn.Linear(self.att_hid_size, 1)
         self.att2h = nn.Linear(self.rnn_size, self.rnn_size)
 
-    def forward(self, h_out, fake_region, conv_feat, conv_feat_embed,
-        att_masks=None):
+    def forward(self, h_out, fake_region, conv_feat, conv_feat_embed, att_masks=None):
         att_size = conv_feat.numel() // conv_feat.size(0) // self.rnn_size
         conv_feat = conv_feat.view(-1, att_size, self.rnn_size)
         conv_feat_embed = conv_feat_embed.view(-1, att_size, self.att_hid_size)
@@ -570,12 +526,9 @@ class AdaAtt_attention(nn.Module):
         fake_region_embed = self.fr_embed(fake_region)
         h_out_linear = self.ho_linear(h_out)
         h_out_embed = self.ho_embed(h_out_linear)
-        txt_replicate = h_out_embed.unsqueeze(1).expand(h_out_embed.size(0),
-            att_size + 1, h_out_embed.size(1))
-        img_all = torch.cat([fake_region.view(-1, 1, self.
-            input_encoding_size), conv_feat], 1)
-        img_all_embed = torch.cat([fake_region_embed.view(-1, 1, self.
-            input_encoding_size), conv_feat_embed], 1)
+        txt_replicate = h_out_embed.unsqueeze(1).expand(h_out_embed.size(0), att_size + 1, h_out_embed.size(1))
+        img_all = torch.cat([fake_region.view(-1, 1, self.input_encoding_size), conv_feat], 1)
+        img_all_embed = torch.cat([fake_region_embed.view(-1, 1, self.input_encoding_size), conv_feat_embed], 1)
         hA = torch.tanh(img_all_embed + txt_replicate)
         hA = F.dropout(hA, self.drop_prob_lm, self.training)
         hAflat = self.alpha_net(hA.view(-1, self.att_hid_size))
@@ -599,11 +552,9 @@ class AdaAttCore(nn.Module):
         self.lstm = AdaAtt_lstm(opt, use_maxout)
         self.attention = AdaAtt_attention(opt)
 
-    def forward(self, xt, fc_feats, att_feats, p_att_feats, state,
-        att_masks=None):
+    def forward(self, xt, fc_feats, att_feats, p_att_feats, state, att_masks=None):
         h_out, p_out, state = self.lstm(xt, fc_feats, state)
-        atten_out = self.attention(h_out, p_out, att_feats, p_att_feats,
-            att_masks)
+        atten_out = self.attention(h_out, p_out, att_feats, p_att_feats, att_masks)
         return atten_out, state
 
 
@@ -612,21 +563,17 @@ class UpDownCore(nn.Module):
     def __init__(self, opt, use_maxout=False):
         super(UpDownCore, self).__init__()
         self.drop_prob_lm = opt.drop_prob_lm
-        self.att_lstm = nn.LSTMCell(opt.input_encoding_size + opt.rnn_size *
-            2, opt.rnn_size)
+        self.att_lstm = nn.LSTMCell(opt.input_encoding_size + opt.rnn_size * 2, opt.rnn_size)
         self.lang_lstm = nn.LSTMCell(opt.rnn_size * 2, opt.rnn_size)
         self.attention = Attention(opt)
 
-    def forward(self, xt, fc_feats, att_feats, p_att_feats, state,
-        att_masks=None):
+    def forward(self, xt, fc_feats, att_feats, p_att_feats, state, att_masks=None):
         prev_h = state[0][-1]
         att_lstm_input = torch.cat([prev_h, fc_feats, xt], 1)
-        h_att, c_att = self.att_lstm(att_lstm_input, (state[0][0], state[1][0])
-            )
+        h_att, c_att = self.att_lstm(att_lstm_input, (state[0][0], state[1][0]))
         att = self.attention(h_att, att_feats, p_att_feats, att_masks)
         lang_lstm_input = torch.cat([att, h_att], 1)
-        h_lang, c_lang = self.lang_lstm(lang_lstm_input, (state[0][1],
-            state[1][1]))
+        h_lang, c_lang = self.lang_lstm(lang_lstm_input, (state[0][1], state[1][1]))
         output = F.dropout(h_lang, self.drop_prob_lm, self.training)
         state = torch.stack([h_att, h_lang]), torch.stack([c_att, c_lang])
         return output, state
@@ -648,17 +595,12 @@ class StackAttCore(nn.Module):
         opt.input_encoding_size = opt_input_encoding_size
         self.emb2 = nn.Linear(opt.rnn_size, opt.rnn_size)
 
-    def forward(self, xt, fc_feats, att_feats, p_att_feats, state,
-        att_masks=None):
-        h_0, state_0 = self.lstm0(torch.cat([xt, fc_feats], 1), [state[0][0
-            :1], state[1][0:1]])
+    def forward(self, xt, fc_feats, att_feats, p_att_feats, state, att_masks=None):
+        h_0, state_0 = self.lstm0(torch.cat([xt, fc_feats], 1), [state[0][0:1], state[1][0:1]])
         att_res_1 = self.att1(h_0, att_feats, p_att_feats, att_masks)
-        h_1, state_1 = self.lstm1(torch.cat([h_0, att_res_1], 1), [state[0]
-            [1:2], state[1][1:2]])
-        att_res_2 = self.att2(h_1 + self.emb2(att_res_1), att_feats,
-            p_att_feats, att_masks)
-        h_2, state_2 = self.lstm2(torch.cat([h_1, att_res_2], 1), [state[0]
-            [2:3], state[1][2:3]])
+        h_1, state_1 = self.lstm1(torch.cat([h_0, att_res_1], 1), [state[0][1:2], state[1][1:2]])
+        att_res_2 = self.att2(h_1 + self.emb2(att_res_1), att_feats, p_att_feats, att_masks)
+        h_2, state_2 = self.lstm2(torch.cat([h_1, att_res_2], 1), [state[0][2:3], state[1][2:3]])
         return h_2, [torch.cat(_, 0) for _ in zip(state_0, state_1, state_2)]
 
 
@@ -677,24 +619,16 @@ class DenseAttCore(nn.Module):
         self.lstm2 = LSTMCore(opt)
         opt.input_encoding_size = opt_input_encoding_size
         self.emb2 = nn.Linear(opt.rnn_size, opt.rnn_size)
-        self.fusion1 = nn.Sequential(nn.Linear(opt.rnn_size * 2, opt.
-            rnn_size), nn.ReLU(), nn.Dropout(opt.drop_prob_lm))
-        self.fusion2 = nn.Sequential(nn.Linear(opt.rnn_size * 3, opt.
-            rnn_size), nn.ReLU(), nn.Dropout(opt.drop_prob_lm))
+        self.fusion1 = nn.Sequential(nn.Linear(opt.rnn_size * 2, opt.rnn_size), nn.ReLU(), nn.Dropout(opt.drop_prob_lm))
+        self.fusion2 = nn.Sequential(nn.Linear(opt.rnn_size * 3, opt.rnn_size), nn.ReLU(), nn.Dropout(opt.drop_prob_lm))
 
-    def forward(self, xt, fc_feats, att_feats, p_att_feats, state,
-        att_masks=None):
-        h_0, state_0 = self.lstm0(torch.cat([xt, fc_feats], 1), [state[0][0
-            :1], state[1][0:1]])
+    def forward(self, xt, fc_feats, att_feats, p_att_feats, state, att_masks=None):
+        h_0, state_0 = self.lstm0(torch.cat([xt, fc_feats], 1), [state[0][0:1], state[1][0:1]])
         att_res_1 = self.att1(h_0, att_feats, p_att_feats, att_masks)
-        h_1, state_1 = self.lstm1(torch.cat([h_0, att_res_1], 1), [state[0]
-            [1:2], state[1][1:2]])
-        att_res_2 = self.att2(h_1 + self.emb2(att_res_1), att_feats,
-            p_att_feats, att_masks)
-        h_2, state_2 = self.lstm2(torch.cat([self.fusion1(torch.cat([h_0,
-            h_1], 1)), att_res_2], 1), [state[0][2:3], state[1][2:3]])
-        return self.fusion2(torch.cat([h_0, h_1, h_2], 1)), [torch.cat(_, 0
-            ) for _ in zip(state_0, state_1, state_2)]
+        h_1, state_1 = self.lstm1(torch.cat([h_0, att_res_1], 1), [state[0][1:2], state[1][1:2]])
+        att_res_2 = self.att2(h_1 + self.emb2(att_res_1), att_feats, p_att_feats, att_masks)
+        h_2, state_2 = self.lstm2(torch.cat([self.fusion1(torch.cat([h_0, h_1], 1)), att_res_2], 1), [state[0][2:3], state[1][2:3]])
+        return self.fusion2(torch.cat([h_0, h_1, h_2], 1)), [torch.cat(_, 0) for _ in zip(state_0, state_1, state_2)]
 
 
 class Attention(nn.Module):
@@ -741,20 +675,16 @@ class Att2in2Core(nn.Module):
         self.dropout = nn.Dropout(self.drop_prob_lm)
         self.attention = Attention(opt)
 
-    def forward(self, xt, fc_feats, att_feats, p_att_feats, state,
-        att_masks=None):
-        att_res = self.attention(state[0][-1], att_feats, p_att_feats,
-            att_masks)
+    def forward(self, xt, fc_feats, att_feats, p_att_feats, state, att_masks=None):
+        att_res = self.attention(state[0][-1], att_feats, p_att_feats, att_masks)
         all_input_sums = self.i2h(xt) + self.h2h(state[0][-1])
         sigmoid_chunk = all_input_sums.narrow(1, 0, 3 * self.rnn_size)
         sigmoid_chunk = torch.sigmoid(sigmoid_chunk)
         in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
         forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
         out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
-        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self
-            .rnn_size) + self.a2c(att_res)
-        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size),
-            in_transform.narrow(1, self.rnn_size, self.rnn_size))
+        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self.rnn_size) + self.a2c(att_res)
+        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size), in_transform.narrow(1, self.rnn_size, self.rnn_size))
         next_c = forget_gate * state[1][-1] + in_gate * in_transform
         next_h = out_gate * torch.tanh(next_c)
         output = self.dropout(next_h)
@@ -778,21 +708,16 @@ class Att2all2Core(nn.Module):
         self.dropout = nn.Dropout(self.drop_prob_lm)
         self.attention = Attention(opt)
 
-    def forward(self, xt, fc_feats, att_feats, p_att_feats, state,
-        att_masks=None):
-        att_res = self.attention(state[0][-1], att_feats, p_att_feats,
-            att_masks)
-        all_input_sums = self.i2h(xt) + self.h2h(state[0][-1]) + self.a2h(
-            att_res)
+    def forward(self, xt, fc_feats, att_feats, p_att_feats, state, att_masks=None):
+        att_res = self.attention(state[0][-1], att_feats, p_att_feats, att_masks)
+        all_input_sums = self.i2h(xt) + self.h2h(state[0][-1]) + self.a2h(att_res)
         sigmoid_chunk = all_input_sums.narrow(1, 0, 3 * self.rnn_size)
         sigmoid_chunk = torch.sigmoid(sigmoid_chunk)
         in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
         forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
         out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
-        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self
-            .rnn_size)
-        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size),
-            in_transform.narrow(1, self.rnn_size, self.rnn_size))
+        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self.rnn_size)
+        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size), in_transform.narrow(1, self.rnn_size, self.rnn_size))
         next_c = forget_gate * state[1][-1] + in_gate * in_transform
         next_h = out_gate * torch.tanh(next_c)
         output = self.dropout(next_h)
@@ -820,8 +745,7 @@ class EncoderDecoder(nn.Module):
         return self.encoder(inputs_embeds=src, attention_mask=src_mask)[0]
 
     def decode(self, memory, src_mask, tgt, tgt_mask):
-        return self.decoder(input_ids=tgt, attention_mask=tgt_mask,
-            encoder_hidden_states=memory, encoder_attention_mask=src_mask)[0]
+        return self.decoder(input_ids=tgt, attention_mask=tgt_mask, encoder_hidden_states=memory, encoder_attention_mask=src_mask)[0]
 
 
 class CaptionModel(nn.Module):
@@ -837,29 +761,23 @@ class CaptionModel(nn.Module):
 
     def beam_search(self, init_state, init_logprobs, *args, **kwargs):
 
-        def add_diversity(beam_seq_table, logprobs, t, divm,
-            diversity_lambda, bdash):
+        def add_diversity(beam_seq_table, logprobs, t, divm, diversity_lambda, bdash):
             local_time = t - divm
             unaug_logprobs = logprobs.clone()
             batch_size = beam_seq_table[0].shape[0]
             if divm > 0:
                 change = logprobs.new_zeros(batch_size, logprobs.shape[-1])
                 for prev_choice in range(divm):
-                    prev_decisions = beam_seq_table[prev_choice][:, :, (
-                        local_time)]
+                    prev_decisions = beam_seq_table[prev_choice][:, :, (local_time)]
                     for prev_labels in range(bdash):
-                        change.scatter_add_(1, prev_decisions[:, (
-                            prev_labels)].unsqueeze(-1), change.new_ones(
-                            batch_size, 1))
+                        change.scatter_add_(1, prev_decisions[:, (prev_labels)].unsqueeze(-1), change.new_ones(batch_size, 1))
                 if local_time == 0:
                     logprobs = logprobs - change * diversity_lambda
                 else:
-                    logprobs = logprobs - self.repeat_tensor(bdash, change
-                        ) * diversity_lambda
+                    logprobs = logprobs - self.repeat_tensor(bdash, change) * diversity_lambda
             return logprobs, unaug_logprobs
 
-        def beam_step(logprobs, unaug_logprobs, beam_size, t, beam_seq,
-            beam_seq_logprobs, beam_logprobs_sum, state):
+        def beam_step(logprobs, unaug_logprobs, beam_size, t, beam_seq, beam_seq_logprobs, beam_logprobs_sum, state):
             batch_size = beam_logprobs_sum.shape[0]
             vocab_size = logprobs.shape[-1]
             logprobs = logprobs.reshape(batch_size, -1, vocab_size)
@@ -867,32 +785,22 @@ class CaptionModel(nn.Module):
                 assert logprobs.shape[1] == 1
                 beam_logprobs_sum = beam_logprobs_sum[:, :1]
             candidate_logprobs = beam_logprobs_sum.unsqueeze(-1) + logprobs
-            ys, ix = torch.sort(candidate_logprobs.reshape(
-                candidate_logprobs.shape[0], -1), -1, True)
+            ys, ix = torch.sort(candidate_logprobs.reshape(candidate_logprobs.shape[0], -1), -1, True)
             ys, ix = ys[:, :beam_size], ix[:, :beam_size]
             beam_ix = ix // vocab_size
             selected_ix = ix % vocab_size
-            state_ix = (beam_ix + torch.arange(batch_size).type_as(beam_ix)
-                .unsqueeze(-1) * logprobs.shape[1]).reshape(-1)
+            state_ix = (beam_ix + torch.arange(batch_size).type_as(beam_ix).unsqueeze(-1) * logprobs.shape[1]).reshape(-1)
             if t > 0:
-                assert (beam_seq.gather(1, beam_ix.unsqueeze(-1).expand_as(
-                    beam_seq)) == beam_seq.reshape(-1, beam_seq.shape[-1])[
-                    state_ix].view_as(beam_seq)).all()
-                beam_seq = beam_seq.gather(1, beam_ix.unsqueeze(-1).
-                    expand_as(beam_seq))
-                beam_seq_logprobs = beam_seq_logprobs.gather(1, beam_ix.
-                    unsqueeze(-1).unsqueeze(-1).expand_as(beam_seq_logprobs))
+                assert (beam_seq.gather(1, beam_ix.unsqueeze(-1).expand_as(beam_seq)) == beam_seq.reshape(-1, beam_seq.shape[-1])[state_ix].view_as(beam_seq)).all()
+                beam_seq = beam_seq.gather(1, beam_ix.unsqueeze(-1).expand_as(beam_seq))
+                beam_seq_logprobs = beam_seq_logprobs.gather(1, beam_ix.unsqueeze(-1).unsqueeze(-1).expand_as(beam_seq_logprobs))
             beam_seq = torch.cat([beam_seq, selected_ix.unsqueeze(-1)], -1)
-            beam_logprobs_sum = beam_logprobs_sum.gather(1, beam_ix
-                ) + logprobs.reshape(batch_size, -1).gather(1, ix)
+            beam_logprobs_sum = beam_logprobs_sum.gather(1, beam_ix) + logprobs.reshape(batch_size, -1).gather(1, ix)
             assert (beam_logprobs_sum == ys).all()
-            _tmp_beam_logprobs = unaug_logprobs[state_ix].reshape(batch_size,
-                -1, vocab_size)
-            beam_logprobs = unaug_logprobs.reshape(batch_size, -1, vocab_size
-                ).gather(1, beam_ix.unsqueeze(-1).expand(-1, -1, vocab_size))
+            _tmp_beam_logprobs = unaug_logprobs[state_ix].reshape(batch_size, -1, vocab_size)
+            beam_logprobs = unaug_logprobs.reshape(batch_size, -1, vocab_size).gather(1, beam_ix.unsqueeze(-1).expand(-1, -1, vocab_size))
             assert (_tmp_beam_logprobs == beam_logprobs).all()
-            beam_seq_logprobs = torch.cat([beam_seq_logprobs, beam_logprobs
-                .reshape(batch_size, -1, 1, vocab_size)], 2)
+            beam_seq_logprobs = torch.cat([beam_seq_logprobs, beam_logprobs.reshape(batch_size, -1, 1, vocab_size)], 2)
             new_state = [None for _ in state]
             for _ix in range(len(new_state)):
                 new_state[_ix] = state[_ix][:, (state_ix)]
@@ -910,48 +818,30 @@ class CaptionModel(nn.Module):
         bdash = beam_size // group_size
         batch_size = init_logprobs.shape[0]
         device = init_logprobs.device
-        beam_seq_table = [torch.LongTensor(batch_size, bdash, 0) for _ in
-            range(group_size)]
-        beam_seq_logprobs_table = [torch.FloatTensor(batch_size, bdash, 0, 
-            self.vocab_size + 1) for _ in range(group_size)]
-        beam_logprobs_sum_table = [torch.zeros(batch_size, bdash) for _ in
-            range(group_size)]
-        done_beams_table = [[[] for __ in range(group_size)] for _ in range
-            (batch_size)]
-        state_table = [[_.clone() for _ in init_state] for _ in range(
-            group_size)]
+        beam_seq_table = [torch.LongTensor(batch_size, bdash, 0) for _ in range(group_size)]
+        beam_seq_logprobs_table = [torch.FloatTensor(batch_size, bdash, 0, self.vocab_size + 1) for _ in range(group_size)]
+        beam_logprobs_sum_table = [torch.zeros(batch_size, bdash) for _ in range(group_size)]
+        done_beams_table = [[[] for __ in range(group_size)] for _ in range(batch_size)]
+        state_table = [[_.clone() for _ in init_state] for _ in range(group_size)]
         logprobs_table = [init_logprobs.clone() for _ in range(group_size)]
         args = list(args)
         args = utils.split_tensors(group_size, args)
         if self.__class__.__name__ == 'AttEnsemble':
-            args = [[[args[j][i][k] for i in range(len(self.models))] for j in
-                range(len(args))] for k in range(group_size)]
+            args = [[[args[j][i][k] for i in range(len(self.models))] for j in range(len(args))] for k in range(group_size)]
         else:
-            args = [[args[i][j] for i in range(len(args))] for j in range(
-                group_size)]
+            args = [[args[i][j] for i in range(len(args))] for j in range(group_size)]
         for t in range(self.seq_length + group_size - 1):
             for divm in range(group_size):
                 if t >= divm and t <= self.seq_length + divm - 1:
                     logprobs = logprobs_table[divm]
                     if decoding_constraint and t - divm > 0:
-                        logprobs.scatter_(1, beam_seq_table[divm][:, :, (t -
-                            divm - 1)].reshape(-1, 1), float('-inf'))
+                        logprobs.scatter_(1, beam_seq_table[divm][:, :, (t - divm - 1)].reshape(-1, 1), float('-inf'))
                     if remove_bad_endings and t - divm > 0:
-                        logprobs[torch.from_numpy(np.isin(beam_seq_table[
-                            divm][:, :, (t - divm - 1)].cpu().numpy(), self
-                            .bad_endings_ix)).reshape(-1), 0] = float('-inf')
-                    if suppress_UNK and hasattr(self, 'vocab') and self.vocab[
-                        str(logprobs.size(1) - 1)] == 'UNK':
-                        logprobs[:, (logprobs.size(1) - 1)] = logprobs[:, (
-                            logprobs.size(1) - 1)] - 1000
-                    logprobs, unaug_logprobs = add_diversity(beam_seq_table,
-                        logprobs, t, divm, diversity_lambda, bdash)
-                    beam_seq_table[divm], beam_seq_logprobs_table[divm
-                        ], beam_logprobs_sum_table[divm], state_table[divm
-                        ] = beam_step(logprobs, unaug_logprobs, bdash, t -
-                        divm, beam_seq_table[divm], beam_seq_logprobs_table
-                        [divm], beam_logprobs_sum_table[divm], state_table[
-                        divm])
+                        logprobs[torch.from_numpy(np.isin(beam_seq_table[divm][:, :, (t - divm - 1)].cpu().numpy(), self.bad_endings_ix)).reshape(-1), 0] = float('-inf')
+                    if suppress_UNK and hasattr(self, 'vocab') and self.vocab[str(logprobs.size(1) - 1)] == 'UNK':
+                        logprobs[:, (logprobs.size(1) - 1)] = logprobs[:, (logprobs.size(1) - 1)] - 1000
+                    logprobs, unaug_logprobs = add_diversity(beam_seq_table, logprobs, t, divm, diversity_lambda, bdash)
+                    beam_seq_table[divm], beam_seq_logprobs_table[divm], beam_logprobs_sum_table[divm], state_table[divm] = beam_step(logprobs, unaug_logprobs, bdash, t - divm, beam_seq_table[divm], beam_seq_logprobs_table[divm], beam_logprobs_sum_table[divm], state_table[divm])
                     for b in range(batch_size):
                         is_end = beam_seq_table[divm][(b), :, (t - divm)] == 0
                         assert beam_seq_table[divm].shape[-1] == t - divm + 1
@@ -959,47 +849,30 @@ class CaptionModel(nn.Module):
                             is_end.fill_(1)
                         for vix in range(bdash):
                             if is_end[vix]:
-                                final_beam = {'seq': beam_seq_table[divm][b,
-                                    vix].clone(), 'logps':
-                                    beam_seq_logprobs_table[divm][b, vix].
-                                    clone(), 'unaug_p':
-                                    beam_seq_logprobs_table[divm][b, vix].
-                                    sum().item(), 'p':
-                                    beam_logprobs_sum_table[divm][b, vix].
-                                    item()}
-                                final_beam['p'] = length_penalty(t - divm +
-                                    1, final_beam['p'])
+                                final_beam = {'seq': beam_seq_table[divm][b, vix].clone(), 'logps': beam_seq_logprobs_table[divm][b, vix].clone(), 'unaug_p': beam_seq_logprobs_table[divm][b, vix].sum().item(), 'p': beam_logprobs_sum_table[divm][b, vix].item()}
+                                final_beam['p'] = length_penalty(t - divm + 1, final_beam['p'])
                                 done_beams_table[b][divm].append(final_beam)
                         beam_logprobs_sum_table[divm][b, is_end] -= 1000
                     it = beam_seq_table[divm][:, :, (t - divm)].reshape(-1)
-                    logprobs_table[divm], state_table[divm
-                        ] = self.get_logprobs_state(it, *(args[divm] + [
-                        state_table[divm]]))
-                    logprobs_table[divm] = F.log_softmax(logprobs_table[
-                        divm] / temperature, dim=-1)
-        done_beams_table = [[sorted(done_beams_table[b][i], key=lambda x: -
-            x['p'])[:bdash] for i in range(group_size)] for b in range(
-            batch_size)]
+                    logprobs_table[divm], state_table[divm] = self.get_logprobs_state(it, *(args[divm] + [state_table[divm]]))
+                    logprobs_table[divm] = F.log_softmax(logprobs_table[divm] / temperature, dim=-1)
+        done_beams_table = [[sorted(done_beams_table[b][i], key=lambda x: -x['p'])[:bdash] for i in range(group_size)] for b in range(batch_size)]
         done_beams = [sum(_, []) for _ in done_beams_table]
         return done_beams
 
     def old_beam_search(self, init_state, init_logprobs, *args, **kwargs):
 
-        def add_diversity(beam_seq_table, logprobsf, t, divm,
-            diversity_lambda, bdash):
+        def add_diversity(beam_seq_table, logprobsf, t, divm, diversity_lambda, bdash):
             local_time = t - divm
             unaug_logprobsf = logprobsf.clone()
             for prev_choice in range(divm):
                 prev_decisions = beam_seq_table[prev_choice][local_time]
                 for sub_beam in range(bdash):
                     for prev_labels in range(bdash):
-                        logprobsf[sub_beam][prev_decisions[prev_labels]
-                            ] = logprobsf[sub_beam][prev_decisions[prev_labels]
-                            ] - diversity_lambda
+                        logprobsf[sub_beam][prev_decisions[prev_labels]] = logprobsf[sub_beam][prev_decisions[prev_labels]] - diversity_lambda
             return unaug_logprobsf
 
-        def beam_step(logprobsf, unaug_logprobsf, beam_size, t, beam_seq,
-            beam_seq_logprobs, beam_logprobs_sum, state):
+        def beam_step(logprobsf, unaug_logprobsf, beam_size, t, beam_seq, beam_seq_logprobs, beam_logprobs_sum, state):
             ys, ix = torch.sort(logprobsf, 1, True)
             candidates = []
             cols = min(beam_size, ys.size(1))
@@ -1010,8 +883,7 @@ class CaptionModel(nn.Module):
                 for q in range(rows):
                     local_logprob = ys[q, c].item()
                     candidate_logprob = beam_logprobs_sum[q] + local_logprob
-                    candidates.append({'c': ix[q, c], 'q': q, 'p':
-                        candidate_logprob, 'r': unaug_logprobsf[q]})
+                    candidates.append({'c': ix[q, c], 'q': q, 'p': candidate_logprob, 'r': unaug_logprobsf[q]})
             candidates = sorted(candidates, key=lambda x: -x['p'])
             new_state = [_.clone() for _ in state]
             if t >= 1:
@@ -1021,17 +893,14 @@ class CaptionModel(nn.Module):
                 v = candidates[vix]
                 if t >= 1:
                     beam_seq[:t, (vix)] = beam_seq_prev[:, (v['q'])]
-                    beam_seq_logprobs[:t, (vix)] = beam_seq_logprobs_prev[:,
-                        (v['q'])]
+                    beam_seq_logprobs[:t, (vix)] = beam_seq_logprobs_prev[:, (v['q'])]
                 for state_ix in range(len(new_state)):
-                    new_state[state_ix][:, (vix)] = state[state_ix][:, (v['q'])
-                        ]
+                    new_state[state_ix][:, (vix)] = state[state_ix][:, (v['q'])]
                 beam_seq[t, vix] = v['c']
                 beam_seq_logprobs[t, vix] = v['r']
                 beam_logprobs_sum[vix] = v['p']
             state = new_state
-            return (beam_seq, beam_seq_logprobs, beam_logprobs_sum, state,
-                candidates)
+            return beam_seq, beam_seq_logprobs, beam_logprobs_sum, state, candidates
         opt = kwargs['opt']
         temperature = opt.get('temperature', 1)
         beam_size = opt.get('beam_size', 10)
@@ -1042,70 +911,41 @@ class CaptionModel(nn.Module):
         suppress_UNK = opt.get('suppress_UNK', 0)
         length_penalty = utils.penalty_builder(opt.get('length_penalty', ''))
         bdash = beam_size // group_size
-        beam_seq_table = [torch.LongTensor(self.seq_length, bdash).zero_() for
-            _ in range(group_size)]
-        beam_seq_logprobs_table = [torch.FloatTensor(self.seq_length, bdash,
-            self.vocab_size + 1).zero_() for _ in range(group_size)]
-        beam_logprobs_sum_table = [torch.zeros(bdash) for _ in range(
-            group_size)]
+        beam_seq_table = [torch.LongTensor(self.seq_length, bdash).zero_() for _ in range(group_size)]
+        beam_seq_logprobs_table = [torch.FloatTensor(self.seq_length, bdash, self.vocab_size + 1).zero_() for _ in range(group_size)]
+        beam_logprobs_sum_table = [torch.zeros(bdash) for _ in range(group_size)]
         done_beams_table = [[] for _ in range(group_size)]
         state_table = list(zip(*[_.chunk(group_size, 1) for _ in init_state]))
         logprobs_table = list(init_logprobs.chunk(group_size, 0))
         args = list(args)
         if self.__class__.__name__ == 'AttEnsemble':
-            args = [[(_.chunk(group_size) if _ is not None else [None] *
-                group_size) for _ in args_] for args_ in args]
-            args = [[[args[j][i][k] for i in range(len(self.models))] for j in
-                range(len(args))] for k in range(group_size)]
+            args = [[(_.chunk(group_size) if _ is not None else [None] * group_size) for _ in args_] for args_ in args]
+            args = [[[args[j][i][k] for i in range(len(self.models))] for j in range(len(args))] for k in range(group_size)]
         else:
-            args = [(_.chunk(group_size) if _ is not None else [None] *
-                group_size) for _ in args]
-            args = [[args[i][j] for i in range(len(args))] for j in range(
-                group_size)]
+            args = [(_.chunk(group_size) if _ is not None else [None] * group_size) for _ in args]
+            args = [[args[i][j] for i in range(len(args))] for j in range(group_size)]
         for t in range(self.seq_length + group_size - 1):
             for divm in range(group_size):
                 if t >= divm and t <= self.seq_length + divm - 1:
                     logprobsf = logprobs_table[divm].float()
                     if decoding_constraint and t - divm > 0:
-                        logprobsf.scatter_(1, beam_seq_table[divm][t - divm -
-                            1].unsqueeze(1), float('-inf'))
+                        logprobsf.scatter_(1, beam_seq_table[divm][t - divm - 1].unsqueeze(1), float('-inf'))
                     if remove_bad_endings and t - divm > 0:
-                        logprobsf[torch.from_numpy(np.isin(beam_seq_table[
-                            divm][t - divm - 1].cpu().numpy(), self.
-                            bad_endings_ix)), 0] = float('-inf')
-                    if suppress_UNK and hasattr(self, 'vocab') and self.vocab[
-                        str(logprobsf.size(1) - 1)] == 'UNK':
-                        logprobsf[:, (logprobsf.size(1) - 1)] = logprobsf[:,
-                            (logprobsf.size(1) - 1)] - 1000
-                    unaug_logprobsf = add_diversity(beam_seq_table,
-                        logprobsf, t, divm, diversity_lambda, bdash)
-                    beam_seq_table[divm], beam_seq_logprobs_table[divm
-                        ], beam_logprobs_sum_table[divm], state_table[divm
-                        ], candidates_divm = beam_step(logprobsf,
-                        unaug_logprobsf, bdash, t - divm, beam_seq_table[
-                        divm], beam_seq_logprobs_table[divm],
-                        beam_logprobs_sum_table[divm], state_table[divm])
+                        logprobsf[torch.from_numpy(np.isin(beam_seq_table[divm][t - divm - 1].cpu().numpy(), self.bad_endings_ix)), 0] = float('-inf')
+                    if suppress_UNK and hasattr(self, 'vocab') and self.vocab[str(logprobsf.size(1) - 1)] == 'UNK':
+                        logprobsf[:, (logprobsf.size(1) - 1)] = logprobsf[:, (logprobsf.size(1) - 1)] - 1000
+                    unaug_logprobsf = add_diversity(beam_seq_table, logprobsf, t, divm, diversity_lambda, bdash)
+                    beam_seq_table[divm], beam_seq_logprobs_table[divm], beam_logprobs_sum_table[divm], state_table[divm], candidates_divm = beam_step(logprobsf, unaug_logprobsf, bdash, t - divm, beam_seq_table[divm], beam_seq_logprobs_table[divm], beam_logprobs_sum_table[divm], state_table[divm])
                     for vix in range(bdash):
-                        if beam_seq_table[divm][t - divm, vix
-                            ] == 0 or t == self.seq_length + divm - 1:
-                            final_beam = {'seq': beam_seq_table[divm][:, (
-                                vix)].clone(), 'logps':
-                                beam_seq_logprobs_table[divm][:, (vix)].
-                                clone(), 'unaug_p': beam_seq_logprobs_table
-                                [divm][:, (vix)].sum().item(), 'p':
-                                beam_logprobs_sum_table[divm][vix].item()}
-                            final_beam['p'] = length_penalty(t - divm + 1,
-                                final_beam['p'])
+                        if beam_seq_table[divm][t - divm, vix] == 0 or t == self.seq_length + divm - 1:
+                            final_beam = {'seq': beam_seq_table[divm][:, (vix)].clone(), 'logps': beam_seq_logprobs_table[divm][:, (vix)].clone(), 'unaug_p': beam_seq_logprobs_table[divm][:, (vix)].sum().item(), 'p': beam_logprobs_sum_table[divm][vix].item()}
+                            final_beam['p'] = length_penalty(t - divm + 1, final_beam['p'])
                             done_beams_table[divm].append(final_beam)
                             beam_logprobs_sum_table[divm][vix] = -1000
                     it = beam_seq_table[divm][t - divm]
-                    logprobs_table[divm], state_table[divm
-                        ] = self.get_logprobs_state(it, *(args[divm] + [
-                        state_table[divm]]))
-                    logprobs_table[divm] = F.log_softmax(logprobs_table[
-                        divm] / temperature, dim=-1)
-        done_beams_table = [sorted(done_beams_table[i], key=lambda x: -x[
-            'p'])[:bdash] for i in range(group_size)]
+                    logprobs_table[divm], state_table[divm] = self.get_logprobs_state(it, *(args[divm] + [state_table[divm]]))
+                    logprobs_table[divm] = F.log_softmax(logprobs_table[divm] / temperature, dim=-1)
+        done_beams_table = [sorted(done_beams_table[i], key=lambda x: -x['p'])[:bdash] for i in range(group_size)]
         done_beams = sum(done_beams_table, [])
         return done_beams
 
@@ -1131,15 +971,12 @@ class CaptionModel(nn.Module):
                 top_num = float(sample_method[3:])
                 if 0 < top_num < 1:
                     probs = F.softmax(logprobs, dim=1)
-                    sorted_probs, sorted_indices = torch.sort(probs,
-                        descending=True, dim=1)
+                    sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=1)
                     _cumsum = sorted_probs.cumsum(1)
                     mask = _cumsum < top_num
-                    mask = torch.cat([torch.ones_like(mask[:, :1]), mask[:,
-                        :-1]], 1)
+                    mask = torch.cat([torch.ones_like(mask[:, :1]), mask[:, :-1]], 1)
                     sorted_probs = sorted_probs * mask.float()
-                    sorted_probs = sorted_probs / sorted_probs.sum(1,
-                        keepdim=True)
+                    sorted_probs = sorted_probs / sorted_probs.sum(1, keepdim=True)
                     logprobs.scatter_(1, sorted_indices, sorted_probs.log())
                 else:
                     the_k = int(top_num)
@@ -1147,8 +984,7 @@ class CaptionModel(nn.Module):
                     topk, indices = torch.topk(logprobs, the_k, dim=1)
                     tmp = tmp.scatter(1, indices, topk)
                     logprobs = tmp
-            it = torch.distributions.Categorical(logits=logprobs.detach()
-                ).sample()
+            it = torch.distributions.Categorical(logits=logprobs.detach()).sample()
             sampleLogprobs = logprobs.gather(1, it.unsqueeze(1))
         return it, sampleLogprobs
 
@@ -1174,9 +1010,7 @@ class LSTMCore(nn.Module):
         in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
         forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
         out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
-        in_transform = torch.max(all_input_sums.narrow(1, 3 * self.rnn_size,
-            self.rnn_size), all_input_sums.narrow(1, 4 * self.rnn_size,
-            self.rnn_size))
+        in_transform = torch.max(all_input_sums.narrow(1, 3 * self.rnn_size, self.rnn_size), all_input_sums.narrow(1, 4 * self.rnn_size, self.rnn_size))
         next_c = forget_gate * state[1][-1] + in_gate * in_transform
         next_h = out_gate * torch.tanh(next_c)
         output = self.dropout(next_h)
@@ -1349,12 +1183,9 @@ class MultiHeadedAttention(nn.Module):
         if mask is not None:
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
-        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).
-            transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self
-            .dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k
-            )
+        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
+        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
 
@@ -1390,8 +1221,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.
-            log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -1406,36 +1236,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_ruotianluo_self_critical_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(AdaAtt_attention(*[], **{'opt': _mock_config(input_encoding_size=4, rnn_size=4, drop_prob_lm=0.5, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaAtt_attention,
+     lambda: ([], {'opt': _mock_config(input_encoding_size=4, rnn_size=4, drop_prob_lm=0.5, att_hid_size=4)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Attention,
+     lambda: ([], {'opt': _mock_config(rnn_size=4, att_hid_size=4)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Embeddings,
+     lambda: ([], {'d_model': 4, 'vocab': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (Generator,
+     lambda: ([], {'d_model': 4, 'vocab': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadedAttention,
+     lambda: ([], {'h': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SublayerConnection,
+     lambda: ([], {'size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+]
+
+class Test_ruotianluo_self_critical_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Attention(*[], **{'opt': _mock_config(rnn_size=4, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Embeddings(*[], **{'d_model': 4, 'vocab': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Generator(*[], **{'d_model': 4, 'vocab': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[8])
 

@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,8 +88,7 @@ class _PointnetSAModuleBase(nn.Module):
         self.groupers = None
         self.mlps = None
 
-    def forward(self, xyz: torch.Tensor, features: Optional[torch.Tensor]
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, xyz: torch.Tensor, features: Optional[torch.Tensor]) ->Tuple[torch.Tensor, torch.Tensor]:
         """
         Parameters
         ----------
@@ -106,14 +106,11 @@ class _PointnetSAModuleBase(nn.Module):
         """
         new_features_list = []
         xyz_flipped = xyz.transpose(1, 2).contiguous()
-        new_xyz = pointnet2_utils.gather_operation(xyz_flipped,
-            pointnet2_utils.furthest_point_sample(xyz, self.npoint)).transpose(
-            1, 2).contiguous() if self.npoint is not None else None
+        new_xyz = pointnet2_utils.gather_operation(xyz_flipped, pointnet2_utils.furthest_point_sample(xyz, self.npoint)).transpose(1, 2).contiguous() if self.npoint is not None else None
         for i in range(len(self.groupers)):
             new_features = self.groupers[i](xyz, new_xyz, features)
             new_features = self.mlps[i](new_features)
-            new_features = F.max_pool2d(new_features, kernel_size=[1,
-                new_features.size(3)])
+            new_features = F.max_pool2d(new_features, kernel_size=[1, new_features.size(3)])
             new_features = new_features.squeeze(-1)
             new_features_list.append(new_features)
         return new_xyz, torch.cat(new_features_list, dim=1)
@@ -122,8 +119,7 @@ class _PointnetSAModuleBase(nn.Module):
 def build_shared_mlp(mlp_spec: List[int], bn: bool=True):
     layers = []
     for i in range(1, len(mlp_spec)):
-        layers.append(nn.Conv2d(mlp_spec[i - 1], mlp_spec[i], kernel_size=1,
-            bias=not bn))
+        layers.append(nn.Conv2d(mlp_spec[i - 1], mlp_spec[i], kernel_size=1, bias=not bn))
         if bn:
             layers.append(nn.BatchNorm2d(mlp_spec[i]))
         layers.append(nn.ReLU(True))
@@ -168,11 +164,9 @@ class PointnetFPModule(nn.Module):
             dist_recip = 1.0 / (dist + 1e-08)
             norm = torch.sum(dist_recip, dim=2, keepdim=True)
             weight = dist_recip / norm
-            interpolated_feats = pointnet2_utils.three_interpolate(known_feats,
-                idx, weight)
+            interpolated_feats = pointnet2_utils.three_interpolate(known_feats, idx, weight)
         else:
-            interpolated_feats = known_feats.expand(*(known_feats.size()[0:
-                2] + [unknown.size(1)]))
+            interpolated_feats = known_feats.expand(*(known_feats.size()[0:2] + [unknown.size(1)]))
         if unknow_feats is not None:
             new_features = torch.cat([interpolated_feats, unknow_feats], dim=1)
         else:
@@ -300,8 +294,7 @@ class QueryAndGroup(nn.Module):
         if features is not None:
             grouped_features = grouping_operation(features, idx)
             if self.use_xyz:
-                new_features = torch.cat([grouped_xyz, grouped_features], dim=1
-                    )
+                new_features = torch.cat([grouped_xyz, grouped_features], dim=1)
             else:
                 new_features = grouped_features
         else:
@@ -342,8 +335,7 @@ class GroupAll(nn.Module):
         if features is not None:
             grouped_features = features.unsqueeze(2)
             if self.use_xyz:
-                new_features = torch.cat([grouped_xyz, grouped_features], dim=1
-                    )
+                new_features = torch.cat([grouped_xyz, grouped_features], dim=1)
             else:
                 new_features = grouped_features
         else:
@@ -355,9 +347,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GroupAll,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_erikwijmans_Pointnet2_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GroupAll(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -98,10 +99,8 @@ class MaskedLinear(nn.Module):
         mask_d = torch.zeros_like(weight)
         mask_o = torch.zeros_like(weight)
         for i in range(data_dim):
-            h = slice(i * out_features // data_dim, (i + 1) * out_features //
-                data_dim)
-            w = slice(i * in_features // data_dim, (i + 1) * in_features //
-                data_dim)
+            h = slice(i * out_features // data_dim, (i + 1) * out_features // data_dim)
+            w = slice(i * in_features // data_dim, (i + 1) * in_features // data_dim)
             w_row = slice(0, (i + 1) * in_features // data_dim)
             nn.init.kaiming_uniform_(weight[h, w_row], a=math.sqrt(5))
             mask_d[h, w] = 1
@@ -109,8 +108,7 @@ class MaskedLinear(nn.Module):
         mask_o = mask_o - mask_d
         self.weight = nn.Parameter(weight)
         self.logg = nn.Parameter(torch.rand(out_features, 1).log())
-        self.bias = nn.Parameter(nn.init.uniform_(torch.rand(out_features),
-            -1 / math.sqrt(in_features), 1 / math.sqrt(in_features)))
+        self.bias = nn.Parameter(nn.init.uniform_(torch.rand(out_features), -1 / math.sqrt(in_features), 1 / math.sqrt(in_features)))
         self.register_buffer('mask_d', mask_d)
         self.register_buffer('mask_o', mask_o)
 
@@ -121,16 +119,12 @@ class MaskedLinear(nn.Module):
         out = F.linear(x, w, self.bias)
         logdet = self.logg + self.weight - 0.5 * v_norm.pow(2).log()
         logdet = logdet[self.mask_d.byte()]
-        logdet = logdet.view(1, self.data_dim, out.shape[1] // self.
-            data_dim, x.shape[1] // self.data_dim).expand(x.shape[0], -1, -
-            1, -1)
-        sum_logdets = torch.logsumexp(sum_logdets.transpose(2, 3) + logdet,
-            dim=-1, keepdim=True)
+        logdet = logdet.view(1, self.data_dim, out.shape[1] // self.data_dim, x.shape[1] // self.data_dim).expand(x.shape[0], -1, -1, -1)
+        sum_logdets = torch.logsumexp(sum_logdets.transpose(2, 3) + logdet, dim=-1, keepdim=True)
         return out, sum_logdets
 
     def extra_repr(self):
-        return 'in_features={}, out_features={}, bias={}'.format(self.
-            in_features, self.out_features, self.bias is not None)
+        return 'in_features={}, out_features={}, bias={}'.format(self.in_features, self.out_features, self.bias is not None)
 
 
 class Tanh(nn.Module):
@@ -186,18 +180,15 @@ class Actnorm(nn.Module):
 
     def forward(self, x):
         if not self.initialized:
-            self.bias.squeeze().data.copy_(x.transpose(0, 1).flatten(1).mean(1)
-                ).view_as(self.scale)
-            self.scale.squeeze().data.copy_(x.transpose(0, 1).flatten(1).
-                std(1, False) + 1e-06).view_as(self.bias)
+            self.bias.squeeze().data.copy_(x.transpose(0, 1).flatten(1).mean(1)).view_as(self.scale)
+            self.scale.squeeze().data.copy_(x.transpose(0, 1).flatten(1).std(1, False) + 1e-06).view_as(self.bias)
             self.initialized += 1
         z = (x - self.bias) / self.scale
         logdet = -self.scale.abs().log().sum() * x.shape[2] * x.shape[3]
         return z, logdet
 
     def inverse(self, z):
-        return z * self.scale + self.bias, self.scale.abs().log().sum(
-            ) * z.shape[2] * z.shape[3]
+        return z * self.scale + self.bias, self.scale.abs().log().sum() * z.shape[2] * z.shape[3]
 
 
 class Invertible1x1Conv(nn.Module):
@@ -210,13 +201,11 @@ class Invertible1x1Conv(nn.Module):
         w = torch.qr(w)[0]
         if lu_factorize:
             p, l, u = torch.btriunpack(*w.unsqueeze(0).btrifact())
-            self.p, self.l, self.u = nn.Parameter(p.squeeze()), nn.Parameter(l
-                .squeeze()), nn.Parameter(u.squeeze())
+            self.p, self.l, self.u = nn.Parameter(p.squeeze()), nn.Parameter(l.squeeze()), nn.Parameter(u.squeeze())
             s = self.u.diag()
             self.log_s = nn.Parameter(s.abs().log())
             self.register_buffer('sign_s', s.sign())
-            self.register_buffer('l_mask', torch.tril(torch.ones_like(self.
-                l), -1))
+            self.register_buffer('l_mask', torch.tril(torch.ones_like(self.l), -1))
         else:
             self.w = nn.Parameter(w)
 
@@ -224,8 +213,7 @@ class Invertible1x1Conv(nn.Module):
         B, C, H, W = x.shape
         if self.lu_factorize:
             l = self.l * self.l_mask + torch.eye(C)
-            u = self.u * self.l_mask.t() + torch.diag(self.sign_s * self.
-                log_s.exp())
+            u = self.u * self.l_mask.t() + torch.diag(self.sign_s * self.log_s.exp())
             self.w = self.p @ l @ u
             logdet = self.log_s.sum() * H * W
         else:
@@ -236,8 +224,7 @@ class Invertible1x1Conv(nn.Module):
         B, C, H, W = z.shape
         if self.lu_factorize:
             l = torch.inverse(self.l * self.l_mask + torch.eye(C))
-            u = torch.inverse(self.u * self.l_mask.t() + torch.diag(self.
-                sign_s * self.log_s.exp()))
+            u = torch.inverse(self.u * self.l_mask.t() + torch.diag(self.sign_s * self.log_s.exp()))
             w_inv = u @ l @ self.p.inverse()
             logdet = -self.log_s.sum() * H * W
         else:
@@ -251,11 +238,9 @@ class AffineCoupling(nn.Module):
 
     def __init__(self, n_channels, width):
         super().__init__()
-        self.conv1 = nn.Conv2d(n_channels // 2, width, kernel_size=3,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(n_channels // 2, width, kernel_size=3, padding=1, bias=False)
         self.actnorm1 = Actnorm(param_dim=(1, width, 1, 1))
-        self.conv2 = nn.Conv2d(width, width, kernel_size=1, padding=1, bias
-            =False)
+        self.conv2 = nn.Conv2d(width, width, kernel_size=1, padding=1, bias=False)
         self.actnorm2 = Actnorm(param_dim=(1, width, 1, 1))
         self.conv3 = nn.Conv2d(width, n_channels, kernel_size=3)
         self.log_scale_factor = nn.Parameter(torch.zeros(n_channels, 1, 1))
@@ -346,8 +331,7 @@ class Gaussianize(nn.Module):
 
     def __init__(self, n_channels):
         super().__init__()
-        self.net = nn.Conv2d(n_channels, 2 * n_channels, kernel_size=3,
-            padding=1)
+        self.net = nn.Conv2d(n_channels, 2 * n_channels, kernel_size=3, padding=1)
         self.log_scale_factor = nn.Parameter(torch.zeros(2 * n_channels, 1, 1))
         self.net.weight.data.zero_()
         self.net.bias.data.zero_()
@@ -391,8 +375,7 @@ class FlowSequential(nn.Sequential):
     def forward(self, x):
         sum_logdets = 0.0
         for module in self:
-            x, logdet = module(x) if not self.checkpoint_grads else checkpoint(
-                module, x)
+            x, logdet = module(x) if not self.checkpoint_grads else checkpoint(module, x)
             sum_logdets = sum_logdets + logdet
         return x, sum_logdets
 
@@ -408,21 +391,16 @@ class FlowStep(FlowSequential):
     """ One step of Glow flow (Actnorm -> Invertible 1x1 conv -> Affine coupling); cf Glow Figure 2a """
 
     def __init__(self, n_channels, width, lu_factorize=False):
-        super().__init__(Actnorm(param_dim=(1, n_channels, 1, 1)),
-            Invertible1x1Conv(n_channels, lu_factorize), AffineCoupling(
-            n_channels, width))
+        super().__init__(Actnorm(param_dim=(1, n_channels, 1, 1)), Invertible1x1Conv(n_channels, lu_factorize), AffineCoupling(n_channels, width))
 
 
 class FlowLevel(nn.Module):
     """ One depth level of Glow flow (Squeeze -> FlowStep x K -> Split); cf Glow figure 2b """
 
-    def __init__(self, n_channels, width, depth, checkpoint_grads=False,
-        lu_factorize=False):
+    def __init__(self, n_channels, width, depth, checkpoint_grads=False, lu_factorize=False):
         super().__init__()
         self.squeeze = Squeeze()
-        self.flowsteps = FlowSequential(*[FlowStep(4 * n_channels, width,
-            lu_factorize) for _ in range(depth)], checkpoint_grads=
-            checkpoint_grads)
+        self.flowsteps = FlowSequential(*[FlowStep(4 * n_channels, width, lu_factorize) for _ in range(depth)], checkpoint_grads=checkpoint_grads)
         self.split = Split(4 * n_channels)
 
     def forward(self, x):
@@ -443,21 +421,16 @@ class FlowLevel(nn.Module):
 class Glow(nn.Module):
     """ Glow multi-scale architecture with depth of flow K and number of levels L; cf Glow figure 2; section 3"""
 
-    def __init__(self, width, depth, n_levels, input_dims=(3, 32, 32),
-        checkpoint_grads=False, lu_factorize=False):
+    def __init__(self, width, depth, n_levels, input_dims=(3, 32, 32), checkpoint_grads=False, lu_factorize=False):
         super().__init__()
         in_channels, H, W = input_dims
         out_channels = int(in_channels * 4 ** (n_levels + 1) / 2 ** n_levels)
         out_HW = int(H / 2 ** (n_levels + 1))
         self.output_dims = out_channels, out_HW, out_HW
         self.preprocess = Preprocess()
-        self.flowlevels = nn.ModuleList([FlowLevel(in_channels * 2 ** i,
-            width, depth, checkpoint_grads, lu_factorize) for i in range(
-            n_levels)])
+        self.flowlevels = nn.ModuleList([FlowLevel(in_channels * 2 ** i, width, depth, checkpoint_grads, lu_factorize) for i in range(n_levels)])
         self.squeeze = Squeeze()
-        self.flowstep = FlowSequential(*[FlowStep(out_channels, width,
-            lu_factorize) for _ in range(depth)], checkpoint_grads=
-            checkpoint_grads)
+        self.flowstep = FlowSequential(*[FlowStep(out_channels, width, lu_factorize) for _ in range(depth)], checkpoint_grads=checkpoint_grads)
         self.gaussianize = Gaussianize(out_channels)
         self.register_buffer('base_dist_mean', torch.zeros(1))
         self.register_buffer('base_dist_var', torch.ones(1))
@@ -480,16 +453,13 @@ class Glow(nn.Module):
     def inverse(self, zs=None, batch_size=None, z_std=1.0):
         if zs is None:
             assert batch_size is not None, 'Must either specify batch_size or pass a batch of z random numbers.'
-            zs = [z_std * self.base_dist.sample((batch_size, *self.
-                output_dims)).squeeze()]
-        z, sum_logdets = self.gaussianize.inverse(torch.zeros_like(zs[-1]),
-            zs[-1])
+            zs = [z_std * self.base_dist.sample((batch_size, *self.output_dims)).squeeze()]
+        z, sum_logdets = self.gaussianize.inverse(torch.zeros_like(zs[-1]), zs[-1])
         x, logdet = self.flowstep.inverse(z)
         sum_logdets = sum_logdets + logdet
         x = self.squeeze.inverse(x)
         for i, m in enumerate(reversed(self.flowlevels)):
-            z = z_std * (self.base_dist.sample(x.shape).squeeze() if len(zs
-                ) == 1 else zs[-i - 2])
+            z = z_std * (self.base_dist.sample(x.shape).squeeze() if len(zs) == 1 else zs[-i - 2])
             x, logdet = m.inverse(x, z)
             sum_logdets = sum_logdets + logdet
         x, logdet = self.preprocess.inverse(x)
@@ -502,8 +472,7 @@ class Glow(nn.Module):
 
     def log_prob(self, x, bits_per_pixel=False):
         zs, logdet = self.forward(x)
-        log_prob = sum(self.base_dist.log_prob(z).sum([1, 2, 3]) for z in zs
-            ) + logdet
+        log_prob = sum(self.base_dist.log_prob(z).sum([1, 2, 3]) for z in zs) + logdet
         if bits_per_pixel:
             log_prob /= math.log(2) * x[0].numel()
         return log_prob
@@ -517,8 +486,7 @@ class MaskedLinear(nn.Linear):
         self.register_buffer('mask', mask)
         self.cond_label_size = cond_label_size
         if cond_label_size is not None:
-            self.cond_weight = nn.Parameter(torch.rand(n_outputs,
-                cond_label_size) / math.sqrt(cond_label_size))
+            self.cond_weight = nn.Parameter(torch.rand(n_outputs, cond_label_size) / math.sqrt(cond_label_size))
 
     def forward(self, x, y=None):
         out = F.linear(x, self.weight * self.mask, self.bias)
@@ -527,21 +495,16 @@ class MaskedLinear(nn.Linear):
         return out
 
     def extra_repr(self):
-        return 'in_features={}, out_features={}, bias={}'.format(self.
-            in_features, self.out_features, self.bias is not None) + (self.
-            cond_label_size != None) * ', cond_features={}'.format(self.
-            cond_label_size)
+        return 'in_features={}, out_features={}, bias={}'.format(self.in_features, self.out_features, self.bias is not None) + (self.cond_label_size != None) * ', cond_features={}'.format(self.cond_label_size)
 
 
 class LinearMaskedCoupling(nn.Module):
     """ Modified RealNVP Coupling Layers per the MAF paper """
 
-    def __init__(self, input_size, hidden_size, n_hidden, mask,
-        cond_label_size=None):
+    def __init__(self, input_size, hidden_size, n_hidden, mask, cond_label_size=None):
         super().__init__()
         self.register_buffer('mask', mask)
-        s_net = [nn.Linear(input_size + (cond_label_size if cond_label_size
-             is not None else 0), hidden_size)]
+        s_net = [nn.Linear(input_size + (cond_label_size if cond_label_size is not None else 0), hidden_size)]
         for _ in range(n_hidden):
             s_net += [nn.Tanh(), nn.Linear(hidden_size, hidden_size)]
         s_net += [nn.Tanh(), nn.Linear(hidden_size, input_size)]
@@ -584,10 +547,8 @@ class BatchNorm(nn.Module):
         if self.training:
             self.batch_mean = x.mean(0)
             self.batch_var = x.var(0)
-            self.running_mean.mul_(self.momentum).add_(self.batch_mean.data *
-                (1 - self.momentum))
-            self.running_var.mul_(self.momentum).add_(self.batch_var.data *
-                (1 - self.momentum))
+            self.running_mean.mul_(self.momentum).add_(self.batch_mean.data * (1 - self.momentum))
+            self.running_var.mul_(self.momentum).add_(self.batch_var.data * (1 - self.momentum))
             mean = self.batch_mean
             var = self.batch_var
         else:
@@ -618,39 +579,31 @@ class FlowSequential(nn.Sequential):
         sum_log_abs_det_jacobians = 0
         for module in self:
             x, log_abs_det_jacobian = module(x, y)
-            sum_log_abs_det_jacobians = (sum_log_abs_det_jacobians +
-                log_abs_det_jacobian)
+            sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
         return x, sum_log_abs_det_jacobians
 
     def inverse(self, u, y):
         sum_log_abs_det_jacobians = 0
         for module in reversed(self):
             u, log_abs_det_jacobian = module.inverse(u, y)
-            sum_log_abs_det_jacobians = (sum_log_abs_det_jacobians +
-                log_abs_det_jacobian)
+            sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
         return u, sum_log_abs_det_jacobians
 
 
-def create_masks(input_size, hidden_size, n_hidden, input_order=
-    'sequential', input_degrees=None):
+def create_masks(input_size, hidden_size, n_hidden, input_order='sequential', input_degrees=None):
     degrees = []
     if input_order == 'sequential':
-        degrees += [torch.arange(input_size)] if input_degrees is None else [
-            input_degrees]
+        degrees += [torch.arange(input_size)] if input_degrees is None else [input_degrees]
         for _ in range(n_hidden + 1):
             degrees += [torch.arange(hidden_size) % (input_size - 1)]
-        degrees += [torch.arange(input_size) % input_size - 1
-            ] if input_degrees is None else [input_degrees % input_size - 1]
+        degrees += [torch.arange(input_size) % input_size - 1] if input_degrees is None else [input_degrees % input_size - 1]
     elif input_order == 'random':
-        degrees += [torch.randperm(input_size)] if input_degrees is None else [
-            input_degrees]
+        degrees += [torch.randperm(input_size)] if input_degrees is None else [input_degrees]
         for _ in range(n_hidden + 1):
             min_prev_degree = min(degrees[-1].min().item(), input_size - 1)
-            degrees += [torch.randint(min_prev_degree, input_size, (
-                hidden_size,))]
+            degrees += [torch.randint(min_prev_degree, input_size, (hidden_size,))]
         min_prev_degree = min(degrees[-1].min().item(), input_size - 1)
-        degrees += [torch.randint(min_prev_degree, input_size, (input_size,
-            )) - 1] if input_degrees is None else [input_degrees - 1]
+        degrees += [torch.randint(min_prev_degree, input_size, (input_size,)) - 1] if input_degrees is None else [input_degrees - 1]
     masks = []
     for d0, d1 in zip(degrees[:-1], degrees[1:]):
         masks += [(d1.unsqueeze(-1) >= d0.unsqueeze(0)).float()]
@@ -659,8 +612,7 @@ def create_masks(input_size, hidden_size, n_hidden, input_order=
 
 class MADE(nn.Module):
 
-    def __init__(self, input_size, hidden_size, n_hidden, cond_label_size=
-        None, activation='relu', input_order='sequential', input_degrees=None):
+    def __init__(self, input_size, hidden_size, n_hidden, cond_label_size=None, activation='relu', input_order='sequential', input_degrees=None):
         """
         Args:
             input_size -- scalar; dim of inputs
@@ -674,22 +626,18 @@ class MADE(nn.Module):
         super().__init__()
         self.register_buffer('base_dist_mean', torch.zeros(input_size))
         self.register_buffer('base_dist_var', torch.ones(input_size))
-        masks, self.input_degrees = create_masks(input_size, hidden_size,
-            n_hidden, input_order, input_degrees)
+        masks, self.input_degrees = create_masks(input_size, hidden_size, n_hidden, input_order, input_degrees)
         if activation == 'relu':
             activation_fn = nn.ReLU()
         elif activation == 'tanh':
             activation_fn = nn.Tanh()
         else:
             raise ValueError('Check activation function.')
-        self.net_input = MaskedLinear(input_size, hidden_size, masks[0],
-            cond_label_size)
+        self.net_input = MaskedLinear(input_size, hidden_size, masks[0], cond_label_size)
         self.net = []
         for m in masks[1:-1]:
-            self.net += [activation_fn, MaskedLinear(hidden_size,
-                hidden_size, m)]
-        self.net += [activation_fn, MaskedLinear(hidden_size, 2 *
-            input_size, masks[-1].repeat(2, 1))]
+            self.net += [activation_fn, MaskedLinear(hidden_size, hidden_size, m)]
+        self.net += [activation_fn, MaskedLinear(hidden_size, 2 * input_size, masks[-1].repeat(2, 1))]
         self.net = nn.Sequential(*self.net)
 
     @property
@@ -713,16 +661,13 @@ class MADE(nn.Module):
 
     def log_prob(self, x, y=None):
         u, log_abs_det_jacobian = self.forward(x, y)
-        return torch.sum(self.base_dist.log_prob(u) + log_abs_det_jacobian,
-            dim=1)
+        return torch.sum(self.base_dist.log_prob(u) + log_abs_det_jacobian, dim=1)
 
 
 class MADEMOG(nn.Module):
     """ Mixture of Gaussians MADE """
 
-    def __init__(self, n_components, input_size, hidden_size, n_hidden,
-        cond_label_size=None, activation='relu', input_order='sequential',
-        input_degrees=None):
+    def __init__(self, n_components, input_size, hidden_size, n_hidden, cond_label_size=None, activation='relu', input_order='sequential', input_degrees=None):
         """
         Args:
             n_components -- scalar; number of gauassian components in the mixture
@@ -738,22 +683,18 @@ class MADEMOG(nn.Module):
         self.n_components = n_components
         self.register_buffer('base_dist_mean', torch.zeros(input_size))
         self.register_buffer('base_dist_var', torch.ones(input_size))
-        masks, self.input_degrees = create_masks(input_size, hidden_size,
-            n_hidden, input_order, input_degrees)
+        masks, self.input_degrees = create_masks(input_size, hidden_size, n_hidden, input_order, input_degrees)
         if activation == 'relu':
             activation_fn = nn.ReLU()
         elif activation == 'tanh':
             activation_fn = nn.Tanh()
         else:
             raise ValueError('Check activation function.')
-        self.net_input = MaskedLinear(input_size, hidden_size, masks[0],
-            cond_label_size)
+        self.net_input = MaskedLinear(input_size, hidden_size, masks[0], cond_label_size)
         self.net = []
         for m in masks[1:-1]:
-            self.net += [activation_fn, MaskedLinear(hidden_size,
-                hidden_size, m)]
-        self.net += [activation_fn, MaskedLinear(hidden_size, n_components *
-            3 * input_size, masks[-1].repeat(n_components * 3, 1))]
+            self.net += [activation_fn, MaskedLinear(hidden_size, hidden_size, m)]
+        self.net += [activation_fn, MaskedLinear(hidden_size, n_components * 3 * input_size, masks[-1].repeat(n_components * 3, 1))]
         self.net = nn.Sequential(*self.net)
 
     @property
@@ -763,8 +704,7 @@ class MADEMOG(nn.Module):
     def forward(self, x, y=None):
         N, L = x.shape
         C = self.n_components
-        m, loga, logr = self.net(self.net_input(x, y)).view(N, C, 3 * L).chunk(
-            chunks=3, dim=-1)
+        m, loga, logr = self.net(self.net_input(x, y)).view(N, C, 3 * L).chunk(chunks=3, dim=-1)
         x = x.repeat(1, C).view(N, C, L)
         u = (x - m) * torch.exp(-loga)
         log_abs_det_jacobian = -loga
@@ -775,8 +715,7 @@ class MADEMOG(nn.Module):
         N, C, L = u.shape
         x = torch.zeros(N, L)
         for i in self.input_degrees:
-            m, loga, logr = self.net(self.net_input(x, y)).view(N, C, 3 * L
-                ).chunk(chunks=3, dim=-1)
+            m, loga, logr = self.net(self.net_input(x, y)).view(N, C, 3 * L).chunk(chunks=3, dim=-1)
             logr = logr - logr.logsumexp(1, keepdim=True)
             z = D.Categorical(logits=logr[:, :, (i)]).sample().unsqueeze(-1)
             u_z = torch.gather(u[:, :, (i)], 1, z).squeeze()
@@ -788,24 +727,20 @@ class MADEMOG(nn.Module):
 
     def log_prob(self, x, y=None):
         u, log_abs_det_jacobian = self.forward(x, y)
-        log_probs = torch.logsumexp(self.logr + self.base_dist.log_prob(u) +
-            log_abs_det_jacobian, dim=1)
+        log_probs = torch.logsumexp(self.logr + self.base_dist.log_prob(u) + log_abs_det_jacobian, dim=1)
         return log_probs.sum(1)
 
 
 class MAF(nn.Module):
 
-    def __init__(self, n_blocks, input_size, hidden_size, n_hidden,
-        cond_label_size=None, activation='relu', input_order='sequential',
-        batch_norm=True):
+    def __init__(self, n_blocks, input_size, hidden_size, n_hidden, cond_label_size=None, activation='relu', input_order='sequential', batch_norm=True):
         super().__init__()
         self.register_buffer('base_dist_mean', torch.zeros(input_size))
         self.register_buffer('base_dist_var', torch.ones(input_size))
         modules = []
         self.input_degrees = None
         for i in range(n_blocks):
-            modules += [MADE(input_size, hidden_size, n_hidden,
-                cond_label_size, activation, input_order, self.input_degrees)]
+            modules += [MADE(input_size, hidden_size, n_hidden, cond_label_size, activation, input_order, self.input_degrees)]
             self.input_degrees = modules[-1].input_degrees.flip(0)
             modules += batch_norm * [BatchNorm(input_size)]
         self.net = FlowSequential(*modules)
@@ -822,24 +757,19 @@ class MAF(nn.Module):
 
     def log_prob(self, x, y=None):
         u, sum_log_abs_det_jacobians = self.forward(x, y)
-        return torch.sum(self.base_dist.log_prob(u) +
-            sum_log_abs_det_jacobians, dim=1)
+        return torch.sum(self.base_dist.log_prob(u) + sum_log_abs_det_jacobians, dim=1)
 
 
 class MAFMOG(nn.Module):
     """ MAF on mixture of gaussian MADE """
 
-    def __init__(self, n_blocks, n_components, input_size, hidden_size,
-        n_hidden, cond_label_size=None, activation='relu', input_order=
-        'sequential', batch_norm=True):
+    def __init__(self, n_blocks, n_components, input_size, hidden_size, n_hidden, cond_label_size=None, activation='relu', input_order='sequential', batch_norm=True):
         super().__init__()
         self.register_buffer('base_dist_mean', torch.zeros(input_size))
         self.register_buffer('base_dist_var', torch.ones(input_size))
-        self.maf = MAF(n_blocks, input_size, hidden_size, n_hidden,
-            cond_label_size, activation, input_order, batch_norm)
+        self.maf = MAF(n_blocks, input_size, hidden_size, n_hidden, cond_label_size, activation, input_order, batch_norm)
         input_degrees = self.maf.input_degrees
-        self.mademog = MADEMOG(n_components, input_size, hidden_size,
-            n_hidden, cond_label_size, activation, input_order, input_degrees)
+        self.mademog = MADEMOG(n_components, input_size, hidden_size, n_hidden, cond_label_size, activation, input_order, input_degrees)
 
     @property
     def base_dist(self):
@@ -848,36 +778,31 @@ class MAFMOG(nn.Module):
     def forward(self, x, y=None):
         u, maf_log_abs_dets = self.maf(x, y)
         u, made_log_abs_dets = self.mademog(u, y)
-        sum_log_abs_det_jacobians = maf_log_abs_dets.unsqueeze(1
-            ) + made_log_abs_dets
+        sum_log_abs_det_jacobians = maf_log_abs_dets.unsqueeze(1) + made_log_abs_dets
         return u, sum_log_abs_det_jacobians
 
     def inverse(self, u, y=None):
         x, made_log_abs_dets = self.mademog.inverse(u, y)
         x, maf_log_abs_dets = self.maf.inverse(x, y)
-        sum_log_abs_det_jacobians = maf_log_abs_dets.unsqueeze(1
-            ) + made_log_abs_dets
+        sum_log_abs_det_jacobians = maf_log_abs_dets.unsqueeze(1) + made_log_abs_dets
         return x, sum_log_abs_det_jacobians
 
     def log_prob(self, x, y=None):
         u, log_abs_det_jacobian = self.forward(x, y)
-        log_probs = torch.logsumexp(self.mademog.logr + self.base_dist.
-            log_prob(u) + log_abs_det_jacobian, dim=1)
+        log_probs = torch.logsumexp(self.mademog.logr + self.base_dist.log_prob(u) + log_abs_det_jacobian, dim=1)
         return log_probs.sum(1)
 
 
 class RealNVP(nn.Module):
 
-    def __init__(self, n_blocks, input_size, hidden_size, n_hidden,
-        cond_label_size=None, batch_norm=True):
+    def __init__(self, n_blocks, input_size, hidden_size, n_hidden, cond_label_size=None, batch_norm=True):
         super().__init__()
         self.register_buffer('base_dist_mean', torch.zeros(input_size))
         self.register_buffer('base_dist_var', torch.ones(input_size))
         modules = []
         mask = torch.arange(input_size).float() % 2
         for i in range(n_blocks):
-            modules += [LinearMaskedCoupling(input_size, hidden_size,
-                n_hidden, mask, cond_label_size)]
+            modules += [LinearMaskedCoupling(input_size, hidden_size, n_hidden, mask, cond_label_size)]
             mask = 1 - mask
             modules += batch_norm * [BatchNorm(input_size)]
         self.net = FlowSequential(*modules)
@@ -894,8 +819,7 @@ class RealNVP(nn.Module):
 
     def log_prob(self, x, y=None):
         u, sum_log_abs_det_jacobians = self.forward(x, y)
-        return torch.sum(self.base_dist.log_prob(u) +
-            sum_log_abs_det_jacobians, dim=1)
+        return torch.sum(self.base_dist.log_prob(u) + sum_log_abs_det_jacobians, dim=1)
 
 
 class PlanarTransform(nn.Module):
@@ -920,8 +844,7 @@ class PlanarTransform(nn.Module):
         psi = (1 - torch.tanh(z @ self.w.t() + self.b) ** 2) @ self.w
         det = 1 + psi @ u_hat.t()
         log_abs_det_jacobian = torch.log(torch.abs(det) + 1e-06).squeeze()
-        sum_log_abs_det_jacobians = (sum_log_abs_det_jacobians +
-            log_abs_det_jacobian)
+        sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
         return f_z, sum_log_abs_det_jacobians
 
 
@@ -942,61 +865,121 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AffineCoupling,
+     lambda: ([], {'n_channels': 4, 'width': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AffineTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 2])], {}),
+     True),
+    (BatchNorm,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FlowSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FlowStep,
+     lambda: ([], {'n_channels': 4, 'width': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Gaussianize,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MADE,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (MADEMOG,
+     lambda: ([], {'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (MAF,
+     lambda: ([], {'n_blocks': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (MAFMOG,
+     lambda: ([], {'n_blocks': 4, 'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (PlanarTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([2, 2])], {}),
+     False),
+    (Preprocess,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RealNVP,
+     lambda: ([], {'n_blocks': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Split,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Squeeze,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Tanh,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kamenbliznashki_normalizing_flows(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AffineCoupling(*[], **{'n_channels': 4, 'width': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AffineTransform(*[], **{}), [torch.rand([4, 4, 4, 2])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BatchNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(FlowStep(*[], **{'n_channels': 4, 'width': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Gaussianize(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MADE(*[], **{'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MADEMOG(*[], **{'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(MAF(*[], **{'n_blocks': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(MAFMOG(*[], **{'n_blocks': 4, 'n_components': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(PlanarTransform(*[], **{}), [torch.rand([2, 2])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Preprocess(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(RealNVP(*[], **{'n_blocks': 4, 'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Split(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Tanh(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 

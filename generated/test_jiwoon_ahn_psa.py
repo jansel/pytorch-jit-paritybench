@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,21 +75,17 @@ from torchvision import transforms
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, mid_channels, out_channels, stride=1,
-        first_dilation=None, dilation=1):
+    def __init__(self, in_channels, mid_channels, out_channels, stride=1, first_dilation=None, dilation=1):
         super(ResBlock, self).__init__()
         self.same_shape = in_channels == out_channels and stride == 1
         if first_dilation == None:
             first_dilation = dilation
         self.bn_branch2a = nn.BatchNorm2d(in_channels)
-        self.conv_branch2a = nn.Conv2d(in_channels, mid_channels, 3, stride,
-            padding=first_dilation, dilation=first_dilation, bias=False)
+        self.conv_branch2a = nn.Conv2d(in_channels, mid_channels, 3, stride, padding=first_dilation, dilation=first_dilation, bias=False)
         self.bn_branch2b1 = nn.BatchNorm2d(mid_channels)
-        self.conv_branch2b1 = nn.Conv2d(mid_channels, out_channels, 3,
-            padding=dilation, dilation=dilation, bias=False)
+        self.conv_branch2b1 = nn.Conv2d(mid_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False)
         if not self.same_shape:
-            self.conv_branch1 = nn.Conv2d(in_channels, out_channels, 1,
-                stride, bias=False)
+            self.conv_branch1 = nn.Conv2d(in_channels, out_channels, 1, stride, bias=False)
 
     def forward(self, x, get_x_bn_relu=False):
         branch2 = self.bn_branch2a(x)
@@ -113,24 +110,19 @@ class ResBlock(nn.Module):
 
 class ResBlock_bot(nn.Module):
 
-    def __init__(self, in_channels, out_channels, stride=1, dilation=1,
-        dropout=0.0):
+    def __init__(self, in_channels, out_channels, stride=1, dilation=1, dropout=0.0):
         super(ResBlock_bot, self).__init__()
         self.same_shape = in_channels == out_channels and stride == 1
         self.bn_branch2a = nn.BatchNorm2d(in_channels)
-        self.conv_branch2a = nn.Conv2d(in_channels, out_channels // 4, 1,
-            stride, bias=False)
+        self.conv_branch2a = nn.Conv2d(in_channels, out_channels // 4, 1, stride, bias=False)
         self.bn_branch2b1 = nn.BatchNorm2d(out_channels // 4)
         self.dropout_2b1 = torch.nn.Dropout2d(dropout)
-        self.conv_branch2b1 = nn.Conv2d(out_channels // 4, out_channels // 
-            2, 3, padding=dilation, dilation=dilation, bias=False)
+        self.conv_branch2b1 = nn.Conv2d(out_channels // 4, out_channels // 2, 3, padding=dilation, dilation=dilation, bias=False)
         self.bn_branch2b2 = nn.BatchNorm2d(out_channels // 2)
         self.dropout_2b2 = torch.nn.Dropout2d(dropout)
-        self.conv_branch2b2 = nn.Conv2d(out_channels // 2, out_channels, 1,
-            bias=False)
+        self.conv_branch2b2 = nn.Conv2d(out_channels // 2, out_channels, 1, bias=False)
         if not self.same_shape:
-            self.conv_branch1 = nn.Conv2d(in_channels, out_channels, 1,
-                stride, bias=False)
+            self.conv_branch1 = nn.Conv2d(in_channels, out_channels, 1, stride, bias=False)
 
     def forward(self, x, get_x_bn_relu=False):
         branch2 = self.bn_branch2a(x)
@@ -186,8 +178,7 @@ class Net(nn.Module):
         self.b4_3 = ResBlock(512, 512, 512)
         self.b4_4 = ResBlock(512, 512, 512)
         self.b4_5 = ResBlock(512, 512, 512)
-        self.b5 = ResBlock(512, 512, 1024, stride=1, first_dilation=1,
-            dilation=2)
+        self.b5 = ResBlock(512, 512, 1024, stride=1, first_dilation=1, dilation=2)
         self.b5_1 = ResBlock(1024, 512, 1024, dilation=2)
         self.b5_2 = ResBlock(1024, 512, 1024, dilation=2)
         self.b6 = ResBlock_bot(1024, 2048, stride=1, dilation=4, dropout=0.3)
@@ -263,8 +254,7 @@ class Net(nn.Module):
         self.conv5_3 = nn.Conv2d(512, 512, 3, padding=2, dilation=2)
         self.pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
         self.pool5a = nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
-        self.fc6 = nn.Conv2d(512, 1024, 3, padding=fc6_dilation, dilation=
-            fc6_dilation)
+        self.fc6 = nn.Conv2d(512, 1024, 3, padding=fc6_dilation, dilation=fc6_dilation)
         self.drop6 = nn.Dropout2d(p=0.5)
         self.fc7 = nn.Conv2d(1024, 1024, 1)
         self.normalize = Normalize()
@@ -319,8 +309,7 @@ class BatchNorm2dFixed(torch.nn.Module):
         self.register_buffer('running_var', torch.ones(num_features))
 
     def forward(self, input):
-        return F.batch_norm(input, self.running_mean, self.running_var,
-            self.weight, self.bias, False, eps=self.eps)
+        return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, eps=self.eps)
 
     def __call__(self, x):
         return self.forward(x)
@@ -330,16 +319,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm2dFixed,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_jiwoon_ahn_psa(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BatchNorm2dFixed(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,8 +95,7 @@ def sequence_mask(sequence_length, max_len=None):
     seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
     if sequence_length.is_cuda:
         seq_range_expand = seq_range_expand.cuda()
-    seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand
-        )
+    seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand)
     return (seq_range_expand < seq_length_expand).float()
 
 
@@ -123,8 +123,7 @@ def log_sum_exp(x):
     return m + torch.log(torch.sum(torch.exp(x - m2), dim=axis))
 
 
-def discretized_mix_logistic_loss(y_hat, y, num_classes=256, log_scale_min=
-    -7.0, reduce=True):
+def discretized_mix_logistic_loss(y_hat, y, num_classes=256, log_scale_min=-7.0, reduce=True):
     """Discretized mixture of logistic distributions loss
 
     Note that it is assumed that input is scaled to [-1, 1].
@@ -146,8 +145,7 @@ def discretized_mix_logistic_loss(y_hat, y, num_classes=256, log_scale_min=
     y_hat = y_hat.transpose(1, 2)
     logit_probs = y_hat[:, :, :nr_mix]
     means = y_hat[:, :, nr_mix:2 * nr_mix]
-    log_scales = torch.clamp(y_hat[:, :, 2 * nr_mix:3 * nr_mix], min=
-        log_scale_min)
+    log_scales = torch.clamp(y_hat[:, :, 2 * nr_mix:3 * nr_mix], min=log_scale_min)
     y = y.expand_as(means)
     centered_y = y - means
     inv_stdv = torch.exp(-log_scales)
@@ -168,12 +166,9 @@ def discretized_mix_logistic_loss(y_hat, y, num_classes=256, log_scale_min=
                                            log_pdf_mid - np.log(127.5))))
     """
     inner_inner_cond = (cdf_delta > 1e-05).float()
-    inner_inner_out = inner_inner_cond * torch.log(torch.clamp(cdf_delta,
-        min=1e-12)) + (1.0 - inner_inner_cond) * (log_pdf_mid - np.log((
-        num_classes - 1) / 2))
+    inner_inner_out = inner_inner_cond * torch.log(torch.clamp(cdf_delta, min=1e-12)) + (1.0 - inner_inner_cond) * (log_pdf_mid - np.log((num_classes - 1) / 2))
     inner_cond = (y > 0.999).float()
-    inner_out = inner_cond * log_one_minus_cdf_min + (1.0 - inner_cond
-        ) * inner_inner_out
+    inner_out = inner_cond * log_one_minus_cdf_min + (1.0 - inner_cond) * inner_inner_out
     cond = (y < -0.999).float()
     log_probs = cond * log_cdf_plus + (1.0 - cond) * inner_out
     log_probs = log_probs + F.log_softmax(logit_probs, -1)
@@ -201,51 +196,41 @@ def _cast_to_type_if_compatible(name, param_type, value):
       * If `param_type` is an integer type, but `value` is not.
       * If `param_type` is a float type, but `value` is not a numeric type.
   """
-    fail_msg = "Could not cast hparam '%s' of type '%s' from value %r" % (name,
-        param_type, value)
+    fail_msg = "Could not cast hparam '%s' of type '%s' from value %r" % (name, param_type, value)
     if issubclass(param_type, type(None)):
         return value
-    if issubclass(param_type, (six.string_types, six.binary_type)
-        ) and not isinstance(value, (six.string_types, six.binary_type)):
+    if issubclass(param_type, (six.string_types, six.binary_type)) and not isinstance(value, (six.string_types, six.binary_type)):
         raise ValueError(fail_msg)
     if issubclass(param_type, bool) != isinstance(value, bool):
         raise ValueError(fail_msg)
-    if issubclass(param_type, numbers.Integral) and not isinstance(value,
-        numbers.Integral):
+    if issubclass(param_type, numbers.Integral) and not isinstance(value, numbers.Integral):
         raise ValueError(fail_msg)
-    if issubclass(param_type, numbers.Number) and not isinstance(value,
-        numbers.Number):
+    if issubclass(param_type, numbers.Number) and not isinstance(value, numbers.Number):
         raise ValueError(fail_msg)
     return param_type(value)
 
 
-PARAM_RE = re.compile(
-    """
+PARAM_RE = re.compile("""
   (?P<name>[a-zA-Z][\\w\\.]*)      # variable name: "var" or "x"
   (\\[\\s*(?P<index>\\d+)\\s*\\])?  # (optional) index: "1" or None
   \\s*=\\s*
   ((?P<val>[^,\\[]*)            # single value: "a" or None
    |
    \\[(?P<vals>[^\\]]*)\\])       # list of values: None or "1,2,3"
-  ($|,\\s*)"""
-    , re.VERBOSE)
+  ($|,\\s*)""", re.VERBOSE)
 
 
 def _parse_fail(name, var_type, value, values):
     """Helper function for raising a value error for bad assignment."""
-    raise ValueError(
-        "Could not parse hparam '%s' of type '%s' with value '%s' in %s" %
-        (name, var_type.__name__, value, values))
+    raise ValueError("Could not parse hparam '%s' of type '%s' with value '%s' in %s" % (name, var_type.__name__, value, values))
 
 
 def _reuse_fail(name, values):
     """Helper function for raising a value error for reuse of name."""
-    raise ValueError("Multiple assignments to variable '%s' in %s" % (name,
-        values))
+    raise ValueError("Multiple assignments to variable '%s' in %s" % (name, values))
 
 
-def _process_list_value(name, parse_fn, var_type, m_dict, values,
-    results_dictionary):
+def _process_list_value(name, parse_fn, var_type, m_dict, values, results_dictionary):
     """Update results_dictionary from a list of values.
 
   Used to update results_dictionary to be returned by parse_values when
@@ -277,8 +262,7 @@ def _process_list_value(name, parse_fn, var_type, m_dict, values,
         _parse_fail(name, var_type, m_dict['vals'], values)
 
 
-def _process_scalar_value(name, parse_fn, var_type, m_dict, values,
-    results_dictionary):
+def _process_scalar_value(name, parse_fn, var_type, m_dict, values, results_dictionary):
     """Update results_dictionary with a scalar value.
 
   Used to update the results_dictionary to be returned by parse_values when
@@ -386,8 +370,7 @@ def parse_values(values, type_map):
     while pos < len(values):
         m = PARAM_RE.match(values, pos)
         if not m:
-            raise ValueError('Malformed hyperparameter value: %s' % values[
-                pos:])
+            raise ValueError('Malformed hyperparameter value: %s' % values[pos:])
         pos = m.end()
         m_dict = m.groupdict()
         name = m_dict['name']
@@ -410,11 +393,9 @@ def parse_values(values, type_map):
         else:
             parse = type_
         if m_dict['val'] is not None:
-            _process_scalar_value(name, parse, type_, m_dict, values,
-                results_dictionary)
+            _process_scalar_value(name, parse, type_, m_dict, values, results_dictionary)
         elif m_dict['vals'] is not None:
-            _process_list_value(name, parse, type_, m_dict, values,
-                results_dictionary)
+            _process_list_value(name, parse, type_, m_dict, values, results_dictionary)
         else:
             _parse_fail(name, type_, '', values)
     return results_dictionary
@@ -551,8 +532,7 @@ class HParams(object):
             raise ValueError('Hyperparameter name is reserved: %s' % name)
         if isinstance(value, (list, tuple)):
             if not value:
-                raise ValueError(
-                    'Multi-valued hyperparameters cannot be empty: %s' % name)
+                raise ValueError('Multi-valued hyperparameters cannot be empty: %s' % name)
             self._hparam_types[name] = type(value[0]), True
         else:
             self._hparam_types[name] = type(value), False
@@ -574,17 +554,12 @@ class HParams(object):
         param_type, is_list = self._hparam_types[name]
         if isinstance(value, list):
             if not is_list:
-                raise ValueError(
-                    'Must not pass a list for single-valued parameter: %s' %
-                    name)
-            setattr(self, name, [_cast_to_type_if_compatible(name,
-                param_type, v) for v in value])
+                raise ValueError('Must not pass a list for single-valued parameter: %s' % name)
+            setattr(self, name, [_cast_to_type_if_compatible(name, param_type, v) for v in value])
         else:
             if is_list:
-                raise ValueError(
-                    'Must pass a list for multi-valued parameter: %s.' % name)
-            setattr(self, name, _cast_to_type_if_compatible(name,
-                param_type, value))
+                raise ValueError('Must pass a list for multi-valued parameter: %s.' % name)
+            setattr(self, name, _cast_to_type_if_compatible(name, param_type, value))
 
     def del_hparam(self, name):
         """Removes the hyperparameter with key 'name'.
@@ -659,8 +634,7 @@ class HParams(object):
     Returns:
       A JSON string.
     """
-        return json.dumps(self.values(), indent=indent, separators=
-            separators, sort_keys=sort_keys)
+        return json.dumps(self.values(), indent=indent, separators=separators, sort_keys=sort_keys)
 
     def parse_json(self, values_json):
         """Override hyperparameter values, parsing new values from a json object.
@@ -691,11 +665,8 @@ class HParams(object):
         if key in self._hparam_types:
             if default is not None:
                 param_type, is_param_list = self._hparam_types[key]
-                type_str = 'list<%s>' % param_type if is_param_list else str(
-                    param_type)
-                fail_msg = (
-                    "Hparam '%s' of type '%s' is incompatible with default=%s"
-                     % (key, type_str, default))
+                type_str = 'list<%s>' % param_type if is_param_list else str(param_type)
+                fail_msg = "Hparam '%s' of type '%s' is incompatible with default=%s" % (key, type_str, default)
                 is_default_list = isinstance(default, list)
                 if is_param_list != is_default_list:
                     raise ValueError(fail_msg)
@@ -742,8 +713,7 @@ class HParams(object):
         elif issubclass(param_type, float):
             typename = 'float'
         else:
-            raise ValueError('Unsupported parameter type: %s' % str(param_type)
-                )
+            raise ValueError('Unsupported parameter type: %s' % str(param_type))
         suffix = 'list' if is_list else 'value'
         return '_'.join([typename, suffix])
 
@@ -759,9 +729,7 @@ class DiscretizedMixturelogisticLoss(nn.Module):
         if mask is None:
             mask = sequence_mask(lengths, max_len).unsqueeze(-1)
         mask_ = mask.expand_as(target)
-        losses = discretized_mix_logistic_loss(input, target, num_classes=
-            hparams.quantize_channels, log_scale_min=hparams.log_scale_min,
-            reduce=False)
+        losses = discretized_mix_logistic_loss(input, target, num_classes=hparams.quantize_channels, log_scale_min=hparams.log_scale_min, reduce=False)
         assert losses.size() == target.size()
         return (losses * mask_).sum() / mask_.sum()
 
@@ -795,8 +763,7 @@ def mix_gaussian_loss(y_hat, y, log_scale_min=-7.0, reduce=True):
     else:
         logit_probs = y_hat[:, :, :nr_mix]
         means = y_hat[:, :, nr_mix:2 * nr_mix]
-        log_scales = torch.clamp(y_hat[:, :, 2 * nr_mix:3 * nr_mix], min=
-            log_scale_min)
+        log_scales = torch.clamp(y_hat[:, :, 2 * nr_mix:3 * nr_mix], min=log_scale_min)
     y = y.expand_as(means)
     centered_y = y - means
     dist = Normal(loc=0.0, scale=torch.exp(log_scales))
@@ -825,8 +792,7 @@ class MixtureGaussianLoss(nn.Module):
         if mask is None:
             mask = sequence_mask(lengths, max_len).unsqueeze(-1)
         mask_ = mask.expand_as(target)
-        losses = mix_gaussian_loss(input, target, log_scale_min=hparams.
-            log_scale_min, reduce=False)
+        losses = mix_gaussian_loss(input, target, log_scale_min=hparams.log_scale_min, reduce=False)
         assert losses.size() == target.size()
         return (losses * mask_).sum() / mask_.sum()
 
@@ -853,12 +819,10 @@ class Conv1d(nn.Conv1d):
         if kw > 1:
             input = input.data
             if self.input_buffer is None:
-                self.input_buffer = input.new(bsz, kw + (kw - 1) * (
-                    dilation - 1), input.size(2))
+                self.input_buffer = input.new(bsz, kw + (kw - 1) * (dilation - 1), input.size(2))
                 self.input_buffer.zero_()
             else:
-                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :
-                    ].clone()
+                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :].clone()
             self.input_buffer[:, (-1), :] = input[:, (-1), :]
             input = self.input_buffer
             if dilation > 1:
@@ -875,8 +839,7 @@ class Conv1d(nn.Conv1d):
             if self.weight.size() == (self.out_channels, self.in_channels, kw):
                 weight = self.weight.transpose(1, 2).contiguous()
             else:
-                weight = self.weight.transpose(2, 1).transpose(1, 0
-                    ).contiguous()
+                weight = self.weight.transpose(2, 1).transpose(1, 0).contiguous()
             assert weight.size() == (self.out_channels, kw, self.in_channels)
             self._linearized_weight = weight.view(self.out_channels, -1)
         return self._linearized_weight
@@ -888,8 +851,7 @@ class Conv1d(nn.Conv1d):
 def Conv1d1x1(in_channels, out_channels, bias=True):
     """1-by-1 convolution layer
     """
-    return Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
-        dilation=1, bias=bias)
+    return Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=bias)
 
 
 def _conv1x1_forward(conv, x, is_incremental):
@@ -921,10 +883,7 @@ class ResidualConv1dGLU(nn.Module):
         dilation (int): Dilation factor.
     """
 
-    def __init__(self, residual_channels, gate_channels, kernel_size,
-        skip_out_channels=None, cin_channels=-1, gin_channels=-1, dropout=1 -
-        0.95, padding=None, dilation=1, causal=True, bias=True, *args, **kwargs
-        ):
+    def __init__(self, residual_channels, gate_channels, kernel_size, skip_out_channels=None, cin_channels=-1, gin_channels=-1, dropout=1 - 0.95, padding=None, dilation=1, causal=True, bias=True, *args, **kwargs):
         super(ResidualConv1dGLU, self).__init__()
         self.dropout = dropout
         if skip_out_channels is None:
@@ -935,8 +894,7 @@ class ResidualConv1dGLU(nn.Module):
             else:
                 padding = (kernel_size - 1) // 2 * dilation
         self.causal = causal
-        self.conv = Conv1d(residual_channels, gate_channels, kernel_size, *
-            args, padding=padding, dilation=dilation, bias=bias, **kwargs)
+        self.conv = Conv1d(residual_channels, gate_channels, kernel_size, *args, padding=padding, dilation=dilation, bias=bias, **kwargs)
         if cin_channels > 0:
             self.conv1x1c = Conv1d1x1(cin_channels, gate_channels, bias=False)
         else:
@@ -946,10 +904,8 @@ class ResidualConv1dGLU(nn.Module):
         else:
             self.conv1x1g = None
         gate_out_channels = gate_channels // 2
-        self.conv1x1_out = Conv1d1x1(gate_out_channels, residual_channels,
-            bias=bias)
-        self.conv1x1_skip = Conv1d1x1(gate_out_channels, skip_out_channels,
-            bias=bias)
+        self.conv1x1_out = Conv1d1x1(gate_out_channels, residual_channels, bias=bias)
+        self.conv1x1_skip = Conv1d1x1(gate_out_channels, skip_out_channels, bias=bias)
 
     def forward(self, x, c=None, g=None):
         return self._forward(x, c, g, False)
@@ -996,8 +952,7 @@ class ResidualConv1dGLU(nn.Module):
         return x, s
 
     def clear_buffer(self):
-        for c in [self.conv, self.conv1x1_out, self.conv1x1_skip, self.
-            conv1x1c, self.conv1x1g]:
+        for c in [self.conv, self.conv1x1_out, self.conv1x1_skip, self.conv1x1c, self.conv1x1g]:
             if c is not None:
                 c.clear_buffer()
 
@@ -1011,8 +966,7 @@ class Stretch2d(nn.Module):
         self.mode = mode
 
     def forward(self, x):
-        return F.interpolate(x, scale_factor=(self.y_scale, self.x_scale),
-            mode=self.mode)
+        return F.interpolate(x, scale_factor=(self.y_scale, self.x_scale), mode=self.mode)
 
 
 def _get_activation(upsample_activation):
@@ -1022,9 +976,7 @@ def _get_activation(upsample_activation):
 
 class UpsampleNetwork(nn.Module):
 
-    def __init__(self, upsample_scales, upsample_activation='none',
-        upsample_activation_params={}, mode='nearest',
-        freq_axis_kernel_size=1, cin_pad=0, cin_channels=80):
+    def __init__(self, upsample_scales, upsample_activation='none', upsample_activation_params={}, mode='nearest', freq_axis_kernel_size=1, cin_pad=0, cin_channels=80):
         super(UpsampleNetwork, self).__init__()
         self.up_layers = nn.ModuleList()
         total_scale = np.prod(upsample_scales)
@@ -1034,8 +986,7 @@ class UpsampleNetwork(nn.Module):
             k_size = freq_axis_kernel_size, scale * 2 + 1
             padding = freq_axis_padding, scale
             stretch = Stretch2d(scale, 1, mode)
-            conv = nn.Conv2d(1, 1, kernel_size=k_size, padding=padding,
-                bias=False)
+            conv = nn.Conv2d(1, 1, kernel_size=k_size, padding=padding, bias=False)
             conv.weight.data.fill_(1.0 / np.prod(k_size))
             conv = nn.utils.weight_norm(conv)
             self.up_layers.append(stretch)
@@ -1060,16 +1011,11 @@ class UpsampleNetwork(nn.Module):
 
 class ConvInUpsampleNetwork(nn.Module):
 
-    def __init__(self, upsample_scales, upsample_activation='none',
-        upsample_activation_params={}, mode='nearest',
-        freq_axis_kernel_size=1, cin_pad=0, cin_channels=80):
+    def __init__(self, upsample_scales, upsample_activation='none', upsample_activation_params={}, mode='nearest', freq_axis_kernel_size=1, cin_pad=0, cin_channels=80):
         super(ConvInUpsampleNetwork, self).__init__()
         ks = 2 * cin_pad + 1
-        self.conv_in = nn.Conv1d(cin_channels, cin_channels, kernel_size=ks,
-            bias=False)
-        self.upsample = UpsampleNetwork(upsample_scales,
-            upsample_activation, upsample_activation_params, mode,
-            freq_axis_kernel_size, cin_pad=0, cin_channels=cin_channels)
+        self.conv_in = nn.Conv1d(cin_channels, cin_channels, kernel_size=ks, bias=False)
+        self.upsample = UpsampleNetwork(upsample_scales, upsample_activation, upsample_activation_params, mode, freq_axis_kernel_size, cin_pad=0, cin_channels=cin_channels)
 
     def forward(self, c):
         c_up = self.upsample(self.conv_in(c))
@@ -1105,8 +1051,7 @@ def _expand_global_features(B, T, g, bct=True):
         return g_btc.contiguous()
 
 
-def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
-    x: 2 ** x):
+def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda x: 2 ** x):
     """Compute receptive field size
 
     Args:
@@ -1134,8 +1079,7 @@ def to_one_hot(tensor, n, fill_with=1.0):
     return one_hot
 
 
-def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0,
-    clamp_log_scale=False):
+def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0, clamp_log_scale=False):
     """
     Sample from discretized mixture of logistic distributions
 
@@ -1150,8 +1094,7 @@ def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0,
     nr_mix = y.size(1) // 3
     y = y.transpose(1, 2)
     logit_probs = y[:, :, :nr_mix]
-    temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05
-        )
+    temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05)
     temp = logit_probs.data - torch.log(-torch.log(temp))
     _, argmax = temp.max(dim=-1)
     one_hot = to_one_hot(argmax, nr_mix)
@@ -1186,14 +1129,12 @@ def sample_from_mix_gaussian(y, log_scale_min=-7.0):
     else:
         logit_probs = y[:, :, :nr_mix]
     if nr_mix > 1:
-        temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 -
-            1e-05)
+        temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05)
         temp = logit_probs.data - torch.log(-torch.log(temp))
         _, argmax = temp.max(dim=-1)
         one_hot = to_one_hot(argmax, nr_mix)
         means = torch.sum(y[:, :, nr_mix:2 * nr_mix] * one_hot, dim=-1)
-        log_scales = torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1
-            )
+        log_scales = torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1)
     elif C == 2:
         means, log_scales = y[:, :, (0)], y[:, :, (1)]
     elif C == 3:
@@ -1242,13 +1183,7 @@ class WaveNet(nn.Module):
           directly.
     """
 
-    def __init__(self, out_channels=256, layers=20, stacks=2,
-        residual_channels=512, gate_channels=512, skip_out_channels=512,
-        kernel_size=3, dropout=1 - 0.95, cin_channels=-1, gin_channels=-1,
-        n_speakers=None, upsample_conditional_features=False, upsample_net=
-        'ConvInUpsampleNetwork', upsample_params={'upsample_scales': [4, 4,
-        4, 4]}, scalar_input=False, use_speaker_embedding=False,
-        output_distribution='Logistic', cin_pad=0):
+    def __init__(self, out_channels=256, layers=20, stacks=2, residual_channels=512, gate_channels=512, skip_out_channels=512, kernel_size=3, dropout=1 - 0.95, cin_channels=-1, gin_channels=-1, n_speakers=None, upsample_conditional_features=False, upsample_net='ConvInUpsampleNetwork', upsample_params={'upsample_scales': [4, 4, 4, 4]}, scalar_input=False, use_speaker_embedding=False, output_distribution='Logistic', cin_pad=0):
         super(WaveNet, self).__init__()
         self.scalar_input = scalar_input
         self.out_channels = out_channels
@@ -1263,27 +1198,19 @@ class WaveNet(nn.Module):
         self.conv_layers = nn.ModuleList()
         for layer in range(layers):
             dilation = 2 ** (layer % layers_per_stack)
-            conv = ResidualConv1dGLU(residual_channels, gate_channels,
-                kernel_size=kernel_size, skip_out_channels=
-                skip_out_channels, bias=True, dilation=dilation, dropout=
-                dropout, cin_channels=cin_channels, gin_channels=gin_channels)
+            conv = ResidualConv1dGLU(residual_channels, gate_channels, kernel_size=kernel_size, skip_out_channels=skip_out_channels, bias=True, dilation=dilation, dropout=dropout, cin_channels=cin_channels, gin_channels=gin_channels)
             self.conv_layers.append(conv)
-        self.last_conv_layers = nn.ModuleList([nn.ReLU(inplace=True),
-            Conv1d1x1(skip_out_channels, skip_out_channels), nn.ReLU(
-            inplace=True), Conv1d1x1(skip_out_channels, out_channels)])
+        self.last_conv_layers = nn.ModuleList([nn.ReLU(inplace=True), Conv1d1x1(skip_out_channels, skip_out_channels), nn.ReLU(inplace=True), Conv1d1x1(skip_out_channels, out_channels)])
         if gin_channels > 0 and use_speaker_embedding:
             assert n_speakers is not None
-            self.embed_speakers = Embedding(n_speakers, gin_channels,
-                padding_idx=None, std=0.1)
+            self.embed_speakers = Embedding(n_speakers, gin_channels, padding_idx=None, std=0.1)
         else:
             self.embed_speakers = None
         if upsample_conditional_features:
-            self.upsample_net = getattr(upsample, upsample_net)(**
-                upsample_params)
+            self.upsample_net = getattr(upsample, upsample_net)(**upsample_params)
         else:
             self.upsample_net = None
-        self.receptive_field = receptive_field_size(layers, stacks, kernel_size
-            )
+        self.receptive_field = receptive_field_size(layers, stacks, kernel_size)
 
     def has_speaker_embedding(self):
         return self.embed_speakers is not None
@@ -1332,9 +1259,7 @@ class WaveNet(nn.Module):
         x = F.softmax(x, dim=1) if softmax else x
         return x
 
-    def incremental_forward(self, initial_input=None, c=None, g=None, T=100,
-        test_inputs=None, tqdm=lambda x: x, softmax=True, quantize=True,
-        log_scale_min=-50.0):
+    def incremental_forward(self, initial_input=None, c=None, g=None, T=100, test_inputs=None, tqdm=lambda x: x, softmax=True, quantize=True, log_scale_min=-50.0):
         """Incremental forward step
 
         Due to linearized convolutions, inputs of shape (B x C x T) are reshaped
@@ -1418,16 +1343,13 @@ class WaveNet(nn.Module):
                     x = f(x)
             if self.scalar_input:
                 if self.output_distribution == 'Logistic':
-                    x = sample_from_discretized_mix_logistic(x.view(B, -1, 
-                        1), log_scale_min=log_scale_min)
+                    x = sample_from_discretized_mix_logistic(x.view(B, -1, 1), log_scale_min=log_scale_min)
                 elif self.output_distribution == 'Normal':
-                    x = sample_from_mix_gaussian(x.view(B, -1, 1),
-                        log_scale_min=log_scale_min)
+                    x = sample_from_mix_gaussian(x.view(B, -1, 1), log_scale_min=log_scale_min)
                 else:
                     assert False
             else:
-                x = F.softmax(x.view(B, -1), dim=1) if softmax else x.view(B,
-                    -1)
+                x = F.softmax(x.view(B, -1), dim=1) if softmax else x.view(B, -1)
                 if quantize:
                     dist = torch.distributions.OneHotCategorical(x)
                     x = dist.sample()
@@ -1461,19 +1383,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_r9y9_wavenet_vocoder(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ResidualConv1dGLU,
+     lambda: ([], {'residual_channels': 4, 'gate_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (Stretch2d,
+     lambda: ([], {'x_scale': 1.0, 'y_scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WaveNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64])], {}),
+     False),
+]
+
+class Test_r9y9_wavenet_vocoder(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ResidualConv1dGLU(*[], **{'residual_channels': 4, 'gate_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Stretch2d(*[], **{'x_scale': 1.0, 'y_scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(WaveNet(*[], **{}), [torch.rand([4, 256, 64])], {})
+        self._check(*TESTCASES[3])
 

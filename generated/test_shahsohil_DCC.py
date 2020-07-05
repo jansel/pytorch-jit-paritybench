@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,23 +89,18 @@ class DCCLoss(nn.Module):
         self.nsamples = nsamples
         self.size_average = size_average
         self.U = nn.Parameter(torch.Tensor(self.nsamples, self.dim))
-        self.reset_parameters(initU + 1e-06 * np.random.randn(*initU.shape)
-            .astype(np.float32))
+        self.reset_parameters(initU + 1e-06 * np.random.randn(*initU.shape).astype(np.float32))
 
     def reset_parameters(self, initU):
         assert np.isfinite(initU).all(), 'Nan found in initialization'
         self.U.data = torch.from_numpy(initU)
 
-    def forward(self, enc_out, sampweights, pairweights, pairs, index,
-        _sigma1, _sigma2, _lambda):
+    def forward(self, enc_out, sampweights, pairweights, pairs, index, _sigma1, _sigma2, _lambda):
         centroids = self.U[index]
-        out1 = torch.norm((enc_out - centroids).view(len(enc_out), -1), p=2,
-            dim=1) ** 2
+        out1 = torch.norm((enc_out - centroids).view(len(enc_out), -1), p=2, dim=1) ** 2
         out11 = torch.sum(_sigma1 * sampweights * out1 / (_sigma1 + out1))
-        out2 = torch.norm((centroids[pairs[:, (0)]] - centroids[pairs[:, (1
-            )]]).view(len(pairs), -1), p=2, dim=1) ** 2
-        out21 = _lambda * torch.sum(_sigma2 * pairweights * out2 / (_sigma2 +
-            out2))
+        out2 = torch.norm((centroids[pairs[:, (0)]] - centroids[pairs[:, (1)]]).view(len(pairs), -1), p=2, dim=1) ** 2
+        out21 = _lambda * torch.sum(_sigma2 * pairweights * out2 / (_sigma2 + out2))
         out = out11 + out21
         if self.size_average:
             out = out / enc_out.nelement()
@@ -143,8 +139,7 @@ class SDAE(nn.Module):
             if i < index:
                 encoded = encoder(encoded)
                 if i < self.nlayers - 1:
-                    encoded = F.leaky_relu(encoded, negative_slope=self.
-                        reluslope)
+                    encoded = F.leaky_relu(encoded, negative_slope=self.reluslope)
             if i == index:
                 inp = encoded
                 out = encoded
@@ -181,27 +176,19 @@ class convSDAE(nn.Module):
         self.benc, self.bdec = [], []
         for i in range(self.nlayers):
             if i == self.nlayers - 1:
-                self.enc.append(nn.Linear(dim[i] * numpen * numpen, dim[i + 1])
-                    )
+                self.enc.append(nn.Linear(dim[i] * numpen * numpen, dim[i + 1]))
                 self.benc.append(nn.BatchNorm2d(dim[i + 1]))
-                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i],
-                    kernel_size=numpen, stride=1))
+                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i], kernel_size=numpen, stride=1))
                 self.bdec.append(nn.BatchNorm2d(dim[i]))
             elif i == 0:
-                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=4,
-                    stride=2, padding=1))
+                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=4, stride=2, padding=1))
                 self.benc.append(nn.BatchNorm2d(dim[i + 1]))
-                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i],
-                    kernel_size=4, stride=2, padding=1, output_padding=
-                    output_padding[i]))
+                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i], kernel_size=4, stride=2, padding=1, output_padding=output_padding[i]))
                 self.bdec.append(nn.BatchNorm2d(dim[i]))
             else:
-                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=5,
-                    stride=2, padding=2))
+                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=5, stride=2, padding=2))
                 self.benc.append(nn.BatchNorm2d(dim[i + 1]))
-                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i],
-                    kernel_size=5, stride=2, padding=2, output_padding=
-                    output_padding[i]))
+                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i], kernel_size=5, stride=2, padding=2, output_padding=output_padding[i]))
                 self.bdec.append(nn.BatchNorm2d(dim[i]))
             setattr(self, 'enc_{}'.format(i), self.enc[-1])
             setattr(self, 'benc_{}'.format(i), self.benc[-1])
@@ -235,8 +222,7 @@ class convSDAE(nn.Module):
                 encoded = encoder(encoded)
                 if i < self.nlayers - 1:
                     encoded = bencoder(encoded)
-                    encoded = F.leaky_relu(encoded, negative_slope=self.
-                        reluslope)
+                    encoded = F.leaky_relu(encoded, negative_slope=self.reluslope)
             if i == index:
                 inp = encoded
                 out = encoded
@@ -250,8 +236,7 @@ class convSDAE(nn.Module):
             out = self.dropmodule2(out)
         if index >= self.nlayers:
             out = encoded
-        for i, (decoder, bdecoder) in reversed(list(enumerate(zip(self.dec,
-            self.bdec)))):
+        for i, (decoder, bdecoder) in reversed(list(enumerate(zip(self.dec, self.bdec)))):
             if index >= self.nlayers - 1 and i == self.nlayers - 1:
                 out = out.view(out.size(0), -1, 1, 1)
             if index >= self.nlayers:
@@ -327,27 +312,19 @@ class extractconvSDAE(nn.Module):
         self.benc, self.bdec = [], []
         for i in range(self.nlayers):
             if i == self.nlayers - 1:
-                self.enc.append(nn.Linear(dim[i] * numpen * numpen, dim[i + 1])
-                    )
+                self.enc.append(nn.Linear(dim[i] * numpen * numpen, dim[i + 1]))
                 self.benc.append(nn.BatchNorm2d(dim[i + 1]))
-                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i],
-                    kernel_size=numpen, stride=1))
+                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i], kernel_size=numpen, stride=1))
                 self.bdec.append(nn.BatchNorm2d(dim[i]))
             elif i == 0:
-                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=4,
-                    stride=2, padding=1))
+                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=4, stride=2, padding=1))
                 self.benc.append(nn.BatchNorm2d(dim[i + 1]))
-                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i],
-                    kernel_size=4, stride=2, padding=1, output_padding=
-                    output_padding[i]))
+                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i], kernel_size=4, stride=2, padding=1, output_padding=output_padding[i]))
                 self.bdec.append(nn.BatchNorm2d(dim[i]))
             else:
-                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=5,
-                    stride=2, padding=2))
+                self.enc.append(nn.Conv2d(dim[i], dim[i + 1], kernel_size=5, stride=2, padding=2))
                 self.benc.append(nn.BatchNorm2d(dim[i + 1]))
-                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i],
-                    kernel_size=5, stride=2, padding=2, output_padding=
-                    output_padding[i]))
+                self.dec.append(nn.ConvTranspose2d(dim[i + 1], dim[i], kernel_size=5, stride=2, padding=2, output_padding=output_padding[i]))
                 self.bdec.append(nn.BatchNorm2d(dim[i]))
             setattr(self, 'enc_{}'.format(i), self.enc[-1])
             setattr(self, 'benc_{}'.format(i), self.benc[-1])
@@ -378,8 +355,7 @@ class extractconvSDAE(nn.Module):
                 encoded = bencoder(encoded)
                 encoded = F.leaky_relu(encoded, negative_slope=self.reluslope)
         out = encoded
-        for i, (decoder, bdecoder) in reversed(list(enumerate(zip(self.dec,
-            self.bdec)))):
+        for i, (decoder, bdecoder) in reversed(list(enumerate(zip(self.dec, self.bdec)))):
             if i == self.nlayers - 1:
                 out = out.view(out.size(0), -1, 1, 1)
             out = decoder(out)
@@ -393,20 +369,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DCCWeightedELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IdentityNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (extractSDAE,
+     lambda: ([], {'dim': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (extractconvSDAE,
+     lambda: ([], {'dim': [4, 4], 'output_padding': 4, 'numpen': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_shahsohil_DCC(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DCCWeightedELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(IdentityNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(extractSDAE(*[], **{'dim': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(extractconvSDAE(*[], **{'dim': [4, 4], 'output_padding': 4, 'numpen': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

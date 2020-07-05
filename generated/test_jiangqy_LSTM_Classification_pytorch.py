@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -47,8 +48,7 @@ import torch.nn.functional as F
 
 class LSTMClassifier(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, label_size,
-        batch_size, use_gpu):
+    def __init__(self, embedding_dim, hidden_dim, vocab_size, label_size, batch_size, use_gpu):
         super(LSTMClassifier, self).__init__()
         self.hidden_dim = hidden_dim
         self.batch_size = batch_size
@@ -74,10 +74,3 @@ class LSTMClassifier(nn.Module):
         y = self.hidden2label(lstm_out[-1])
         return y
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jiangqy_LSTM_Classification_pytorch(_paritybench_base):
-    pass

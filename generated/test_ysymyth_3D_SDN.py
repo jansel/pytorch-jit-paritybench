@@ -94,8 +94,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -230,8 +231,7 @@ class Renderer(object):
         self.fill_back = True
         self.perspective = True
         self.viewing_angle = 30
-        self.eye = [0, 0, -(old_div(1.0, math.tan(math.radians(self.
-            viewing_angle))) + 1)]
+        self.eye = [0, 0, -(old_div(1.0, math.tan(math.radians(self.viewing_angle))) + 1)]
         self.camera_mode = 'look_at'
         self.camera_direction = [0, 0, 1]
         self.near = 0.1
@@ -249,14 +249,11 @@ class Renderer(object):
         if self.camera_mode == 'look_at':
             vertices = neural_renderer.look_at(vertices, self.eye)
         elif self.camera_mode == 'look':
-            vertices = neural_renderer.look(vertices, self.eye, self.
-                camera_direction)
+            vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
         if self.perspective:
-            vertices = neural_renderer.perspective(vertices, angle=self.
-                viewing_angle)
+            vertices = neural_renderer.perspective(vertices, angle=self.viewing_angle)
         faces = neural_renderer.vertices_to_faces(vertices, faces)
-        images = neural_renderer.rasterize_silhouettes(faces, self.
-            image_size, self.anti_aliasing)
+        images = neural_renderer.rasterize_silhouettes(faces, self.image_size, self.anti_aliasing)
         return images
 
     def render_depth(self, vertices, faces):
@@ -265,38 +262,27 @@ class Renderer(object):
         if self.camera_mode == 'look_at':
             vertices = neural_renderer.look_at(vertices, self.eye)
         elif self.camera_mode == 'look':
-            vertices = neural_renderer.look(vertices, self.eye, self.
-                camera_direction)
+            vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
         if self.perspective:
-            vertices = neural_renderer.perspective(vertices, angle=self.
-                viewing_angle)
+            vertices = neural_renderer.perspective(vertices, angle=self.viewing_angle)
         faces = neural_renderer.vertices_to_faces(vertices, faces)
-        images = neural_renderer.rasterize_depth(faces, self.image_size,
-            self.anti_aliasing)
+        images = neural_renderer.rasterize_depth(faces, self.image_size, self.anti_aliasing)
         return images
 
     def render(self, vertices, faces, textures):
         if self.fill_back:
             faces = cf.concat((faces, faces[:, :, ::-1]), axis=1).data
-            textures = cf.concat((textures, textures.transpose((0, 1, 4, 3,
-                2, 5))), axis=1)
+            textures = cf.concat((textures, textures.transpose((0, 1, 4, 3, 2, 5))), axis=1)
         faces_lighting = neural_renderer.vertices_to_faces(vertices, faces)
-        textures = neural_renderer.lighting(faces_lighting, textures, self.
-            light_intensity_ambient, self.light_intensity_directional, self
-            .light_color_ambient, self.light_color_directional, self.
-            light_direction)
+        textures = neural_renderer.lighting(faces_lighting, textures, self.light_intensity_ambient, self.light_intensity_directional, self.light_color_ambient, self.light_color_directional, self.light_direction)
         if self.camera_mode == 'look_at':
             vertices = neural_renderer.look_at(vertices, self.eye)
         elif self.camera_mode == 'look':
-            vertices = neural_renderer.look(vertices, self.eye, self.
-                camera_direction)
+            vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
         if self.perspective:
-            vertices = neural_renderer.perspective(vertices, angle=self.
-                viewing_angle)
+            vertices = neural_renderer.perspective(vertices, angle=self.viewing_angle)
         faces = neural_renderer.vertices_to_faces(vertices, faces)
-        images = neural_renderer.rasterize(faces, textures, self.image_size,
-            self.anti_aliasing, self.near, self.far, self.rasterizer_eps,
-            self.background_color)
+        images = neural_renderer.rasterize(faces, textures, self.image_size, self.anti_aliasing, self.near, self.far, self.rasterizer_eps, self.background_color)
         return images
 
 
@@ -321,32 +307,15 @@ class Derenderer3d(Module):
         self.derenderer = Derenderer()
         self._force_no_sample = False
         if mode & TargetType.reproject:
-            self.objs = [ShapenetObj(class_id='02958343', obj_id=
-                '137f67657cdc9da5f985cd98f7d73e9a'), ShapenetObj(class_id=
-                '02958343', obj_id='5343e944a7753108aa69dfdc5532bb13'),
-                ShapenetObj(class_id='02958343', obj_id=
-                '3776e4d1e2587fd3253c03b7df20edd5'), ShapenetObj(class_id=
-                '02958343', obj_id='3ba5bce1b29f0be725f689444c7effe2'),
-                ShapenetObj(class_id='02958343', obj_id=
-                '53a031dd120e81dc3aa562f24645e326'), ShapenetObj(class_id=
-                '02924116', obj_id='7905d83af08a0ca6dafc1d33c05cbcf8'),
-                ShapenetObj(class_id='02958343', obj_id=
-                'a0fe4aac120d5f8a5145cad7315443b3'), ShapenetObj(class_id=
-                '02958343', obj_id='cd7feedd6041209131ac5fb37e6c8324')]
-            self.ffds = [FFD(obj.vertices, constraints=[FFD.Constraint.
-                symmetry(axis=FFD.Constraint.Axis.z), FFD.Constraint.
-                homogeneity(axis=FFD.Constraint.Axis.y, index=[0, 1])]) for
-                obj in self.objs]
+            self.objs = [ShapenetObj(class_id='02958343', obj_id='137f67657cdc9da5f985cd98f7d73e9a'), ShapenetObj(class_id='02958343', obj_id='5343e944a7753108aa69dfdc5532bb13'), ShapenetObj(class_id='02958343', obj_id='3776e4d1e2587fd3253c03b7df20edd5'), ShapenetObj(class_id='02958343', obj_id='3ba5bce1b29f0be725f689444c7effe2'), ShapenetObj(class_id='02958343', obj_id='53a031dd120e81dc3aa562f24645e326'), ShapenetObj(class_id='02924116', obj_id='7905d83af08a0ca6dafc1d33c05cbcf8'), ShapenetObj(class_id='02958343', obj_id='a0fe4aac120d5f8a5145cad7315443b3'), ShapenetObj(class_id='02958343', obj_id='cd7feedd6041209131ac5fb37e6c8324')]
+            self.ffds = [FFD(obj.vertices, constraints=[FFD.Constraint.symmetry(axis=FFD.Constraint.Axis.z), FFD.Constraint.homogeneity(axis=FFD.Constraint.Axis.y, index=[0, 1])]) for obj in self.objs]
             self.perspective_transform = PerspectiveTransform()
             self.renderer = Renderer(image_size=render_size)
 
     def forward(self, images, roi_norms, focals):
-        _mroi_norms = torch.stack([roi_norms[:, (2)] + roi_norms[:, (0)], 
-            roi_norms[:, (3)] + roi_norms[:, (1)]], dim=1) / 2.0
-        _droi_norms = torch.stack([roi_norms[:, (2)] - roi_norms[:, (0)], 
-            roi_norms[:, (3)] - roi_norms[:, (1)]], dim=1)
-        _blob = {'_roi_norms': roi_norms, '_mroi_norms': _mroi_norms,
-            '_droi_norms': _droi_norms, '_focals': focals}
+        _mroi_norms = torch.stack([roi_norms[:, (2)] + roi_norms[:, (0)], roi_norms[:, (3)] + roi_norms[:, (1)]], dim=1) / 2.0
+        _droi_norms = torch.stack([roi_norms[:, (2)] - roi_norms[:, (0)], roi_norms[:, (3)] - roi_norms[:, (1)]], dim=1)
+        _blob = {'_roi_norms': roi_norms, '_mroi_norms': _mroi_norms, '_droi_norms': _droi_norms, '_focals': focals}
         _blob.update(self.derenderer(images, _mroi_norms, _droi_norms))
         if not self.mode & TargetType.reproject:
             return _blob
@@ -364,23 +333,16 @@ class Derenderer3d(Module):
         _class_probs = blob['_class_probs']
         _ffd_coeffs = blob['_ffd_coeffs']
         batch_size = len(_focals)
-        _thetas = torch.unsqueeze(torch.atan2(_theta_deltas[:, (1)],
-            _theta_deltas[:, (0)]), dim=1)
-        _rotations = torch.cat([torch.cos(_thetas / 2), torch.zeros(
-            batch_size, 1), torch.sin(_thetas / 2), torch.zeros(batch_size,
-            1)], dim=1)
-        _areas = torch.unsqueeze(_droi_norms[:, (0)] * _droi_norms[:, (1)],
-            dim=1)
+        _thetas = torch.unsqueeze(torch.atan2(_theta_deltas[:, (1)], _theta_deltas[:, (0)]), dim=1)
+        _rotations = torch.cat([torch.cos(_thetas / 2), torch.zeros(batch_size, 1), torch.sin(_thetas / 2), torch.zeros(batch_size, 1)], dim=1)
+        _areas = torch.unsqueeze(_droi_norms[:, (0)] * _droi_norms[:, (1)], dim=1)
         _scales = torch.exp(_log_scales)
         _depths = torch.sqrt(torch.exp(_log_depths) / _areas)
         _center2ds = _mroi_norms + _translation2ds * _droi_norms
-        _translation_units = torch.stack([_center2ds[:, (1)], -_center2ds[:,
-            (0)], -torch.ones(batch_size)], dim=1)
-        _translation_units = _translation_units / torch.norm(_translation_units
-            , p=2, dim=1, keepdim=True)
+        _translation_units = torch.stack([_center2ds[:, (1)], -_center2ds[:, (0)], -torch.ones(batch_size)], dim=1)
+        _translation_units = _translation_units / torch.norm(_translation_units, p=2, dim=1, keepdim=True)
         _translations = _depths * _translation_units
-        _alphas = -(_thetas - torch.atan(_translations[:, 0:1] /
-            _translations[:, 2:3]))
+        _alphas = -(_thetas - torch.atan(_translations[:, 0:1] / _translations[:, 2:3]))
         _alphas = torch.remainder(_alphas + np.pi, 2 * np.pi) - np.pi
         if self.training and not self._force_no_sample:
             _class_dists = Categorical(_class_probs)
@@ -390,15 +352,10 @@ class Derenderer3d(Module):
             _class_max_probs, _class_samples = torch.max(_class_probs, dim=1)
             _class_log_probs = torch.log(_class_max_probs)
         if self.training:
-            _perspective_translation_units = torch.stack([_mroi_norms[:, (1
-                )], -_mroi_norms[:, (0)], -torch.ones(batch_size)], dim=1)
-            _perspective_translation_units = (
-                _perspective_translation_units / torch.norm(
-                _perspective_translation_units, p=2, dim=1, keepdim=True))
-            _perspective_translations = (_depths *
-                _perspective_translation_units)
-            _zooms = self.image_size / _focals / torch.max(_droi_norms, dim
-                =1, keepdim=True)[0]
+            _perspective_translation_units = torch.stack([_mroi_norms[:, (1)], -_mroi_norms[:, (0)], -torch.ones(batch_size)], dim=1)
+            _perspective_translation_units = _perspective_translation_units / torch.norm(_perspective_translation_units, p=2, dim=1, keepdim=True)
+            _perspective_translations = _depths * _perspective_translation_units
+            _zooms = self.image_size / _focals / torch.max(_droi_norms, dim=1, keepdim=True)[0]
         else:
             _zoom_tos = self.render_size / (2.0 * _focals)
             _zooms = []
@@ -419,32 +376,21 @@ class Derenderer3d(Module):
             __rotations = _rotations[size].unsqueeze(dim=0)
             __translations = _translations[size].unsqueeze(dim=0)
             if self.training:
-                __perspective_translations = _perspective_translations[size
-                    ].unsqueeze(dim=0)
+                __perspective_translations = _perspective_translations[size].unsqueeze(dim=0)
                 __zooms = _zooms[size].unsqueeze(dim=0)
-                __vertices = self.perspective_transform(__vertices, scales=
-                    __scales, rotations=__rotations, translations=
-                    __translations, perspective_translations=
-                    __perspective_translations, zooms=__zooms)
+                __vertices = self.perspective_transform(__vertices, scales=__scales, rotations=__rotations, translations=__translations, perspective_translations=__perspective_translations, zooms=__zooms)
             else:
                 __zoom_tos = _zoom_tos[size].unsqueeze(dim=0)
-                __vertices, __zooms = self.perspective_transform(__vertices,
-                    scales=__scales, rotations=__rotations, translations=
-                    __translations, perspective_translations=__translations,
-                    zoom_tos=__zoom_tos)
+                __vertices, __zooms = self.perspective_transform(__vertices, scales=__scales, rotations=__rotations, translations=__translations, perspective_translations=__translations, zoom_tos=__zoom_tos)
                 _zooms.append(__zooms)
-            self.renderer.viewing_angle = np.arctan(self.render_size / (2.0 *
-                _focals[size].item())) / np.pi * 180
-            __masks = self.renderer(vertices=__vertices, faces=__faces,
-                render_type=RenderType.Silhouette)
+            self.renderer.viewing_angle = np.arctan(self.render_size / (2.0 * _focals[size].item())) / np.pi * 180
+            __masks = self.renderer(vertices=__vertices, faces=__faces, render_type=RenderType.Silhouette)
             _masks.append(__masks)
             if self.mode & TargetType.normal:
-                __normals = self.renderer(vertices=__vertices, faces=
-                    __faces, render_type=RenderType.Normal)
+                __normals = self.renderer(vertices=__vertices, faces=__faces, render_type=RenderType.Normal)
                 _normals.append(__normals)
             if self.mode & TargetType.depth:
-                __depth_maps = self.renderer(vertices=__vertices, faces=
-                    __faces, render_type=RenderType.Depth)
+                __depth_maps = self.renderer(vertices=__vertices, faces=__faces, render_type=RenderType.Depth)
                 _depth_maps.append(__depth_maps)
         if not self.training:
             _zooms = torch.cat(_zooms, dim=0)
@@ -453,11 +399,7 @@ class Derenderer3d(Module):
             _normals = torch.cat(_normals, dim=0)
         if self.mode & TargetType.depth:
             _depth_maps = torch.cat(_depth_maps, dim=0)
-        return {'_thetas': _thetas, '_alphas': _alphas, '_rotations':
-            _rotations, '_scales': _scales, '_depths': _depths,
-            '_center2ds': _center2ds, '_translations': _translations,
-            '_class_log_probs': _class_log_probs, '_zooms': _zooms,
-            '_masks': _masks, '_normals': _normals, '_depth_maps': _depth_maps}
+        return {'_thetas': _thetas, '_alphas': _alphas, '_rotations': _rotations, '_scales': _scales, '_depths': _depths, '_center2ds': _center2ds, '_translations': _translations, '_class_log_probs': _class_log_probs, '_zooms': _zooms, '_masks': _masks, '_normals': _normals, '_depth_maps': _depth_maps}
 
 
 class Derenderer(Module):
@@ -468,18 +410,14 @@ class Derenderer(Module):
         super(Derenderer, self).__init__()
         self.num_classes = num_classes
         self.grid_size = grid_size
-        self.out_sizes = {'_theta_deltas': 2, '_translation2ds': 2,
-            '_log_scales': 3, '_log_depths': 1, '_class_probs': num_classes,
-            '_ffd_coeffs': num_classes * grid_size ** 3 * 3}
+        self.out_sizes = {'_theta_deltas': 2, '_translation2ds': 2, '_log_scales': 3, '_log_depths': 1, '_class_probs': num_classes, '_ffd_coeffs': num_classes * grid_size ** 3 * 3}
         self.net = torchvision.models.resnet18(pretrained=True)
         self.net.avgpool = torch.nn.AdaptiveAvgPool2d(1)
         self.net.fc = torch.nn.Linear(512, Derenderer.hidden_size)
         self.relu = torch.nn.ReLU(inplace=True)
-        self.fc1 = torch.nn.Linear(self.hidden_size + self.in_size, self.
-            hidden_size)
+        self.fc1 = torch.nn.Linear(self.hidden_size + self.in_size, self.hidden_size)
         self.fc2 = torch.nn.Linear(self.hidden_size, self.hidden_size)
-        self._fc3 = torch.nn.Linear(self.hidden_size, sum(self.out_sizes.
-            values()))
+        self._fc3 = torch.nn.Linear(self.hidden_size, sum(self.out_sizes.values()))
 
     def forward(self, images, mroi_norms, droi_norms):
         x = self.net(images)
@@ -490,18 +428,11 @@ class Derenderer(Module):
         x = self.fc2(x)
         x = self.relu(x)
         x = self._fc3(x)
-        (_theta_deltas, _translation2ds, _log_scales, _log_depths,
-            _class_probs, _ffd_coeffs) = torch.split(x, list(self.out_sizes
-            .values()), dim=1)
-        _theta_deltas = _theta_deltas / torch.norm(_theta_deltas, p=2, dim=
-            1, keepdim=True)
+        _theta_deltas, _translation2ds, _log_scales, _log_depths, _class_probs, _ffd_coeffs = torch.split(x, list(self.out_sizes.values()), dim=1)
+        _theta_deltas = _theta_deltas / torch.norm(_theta_deltas, p=2, dim=1, keepdim=True)
         _class_probs = torch.nn.functional.softmax(_class_probs, dim=1)
-        _ffd_coeffs = _ffd_coeffs.view(-1, self.num_classes, self.grid_size **
-            3 * 3)
-        return {'_theta_deltas': _theta_deltas, '_translation2ds':
-            _translation2ds, '_log_scales': _log_scales, '_log_depths':
-            _log_depths, '_class_probs': _class_probs, '_ffd_coeffs':
-            _ffd_coeffs}
+        _ffd_coeffs = _ffd_coeffs.view(-1, self.num_classes, self.grid_size ** 3 * 3)
+        return {'_theta_deltas': _theta_deltas, '_translation2ds': _translation2ds, '_log_scales': _log_scales, '_log_depths': _log_depths, '_class_probs': _class_probs, '_ffd_coeffs': _ffd_coeffs}
 
 
 class RenderFunction(Function):
@@ -517,28 +448,23 @@ class RenderFunction(Function):
     @staticmethod
     def torch2chainer(torch_tensor):
         device = torch_tensor.get_device()
-        return chainer.cuda.to_gpu(RenderFunction.torch2numpy(torch_tensor),
-            device=device)
+        return chainer.cuda.to_gpu(RenderFunction.torch2numpy(torch_tensor), device=device)
 
     @staticmethod
     def chainer2torch(chainer_tensor):
         device = chainer.cuda.get_device_from_array(chainer_tensor).id
-        return torch.Tensor(RenderFunction.chainer2numpy(chainer_tensor)).cuda(
-            device=device)
+        return torch.Tensor(RenderFunction.chainer2numpy(chainer_tensor)).cuda(device=device)
 
     @staticmethod
-    def forward(ctx, vertices, faces, textures, renderer, render_type, eye,
-        camera_mode, camera_direction, camera_up):
+    def forward(ctx, vertices, faces, textures, renderer, render_type, eye, camera_mode, camera_direction, camera_up):
         _vertices = chainer.Variable(RenderFunction.torch2chainer(vertices))
         _faces = chainer.Variable(RenderFunction.torch2chainer(faces))
         _textures = None
         _eye = chainer.Variable(RenderFunction.torch2chainer(eye))
-        _camera_direction = chainer.Variable(RenderFunction.torch2chainer(
-            camera_direction))
+        _camera_direction = chainer.Variable(RenderFunction.torch2chainer(camera_direction))
         _camera_up = chainer.Variable(RenderFunction.torch2chainer(camera_up))
         if render_type == RenderType.RGB:
-            _textures = chainer.Variable(RenderFunction.torch2chainer(textures)
-                )
+            _textures = chainer.Variable(RenderFunction.torch2chainer(textures))
         renderer.eye = _eye
         renderer.camera_mode = camera_mode
         renderer.camera_direction = _camera_direction
@@ -562,20 +488,16 @@ class RenderFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_images):
-        _grad_images = chainer.Variable(RenderFunction.torch2chainer(
-            grad_images.data))
+        _grad_images = chainer.Variable(RenderFunction.torch2chainer(grad_images.data))
         ctx._images.grad_var = _grad_images
         ctx._images.backward()
         grad_vertices = None
         if ctx.needs_input_grad[0]:
-            grad_vertices = RenderFunction.chainer2torch(ctx._vertices.
-                grad_var.data)
+            grad_vertices = RenderFunction.chainer2torch(ctx._vertices.grad_var.data)
         grad_textures = None
         if ctx.needs_input_grad[2] and ctx._render_type == RenderType.RGB:
-            grad_textures = RenderFunction.chainer2torch(ctx._textures.
-                grad_var.data)
-        return (grad_vertices, None, grad_textures, None, None, None, None,
-            None, None)
+            grad_textures = RenderFunction.chainer2torch(ctx._textures.grad_var.data)
+        return grad_vertices, None, grad_textures, None, None, None, None, None, None
 
 
 class Renderer(Module):
@@ -589,8 +511,7 @@ class Renderer(Module):
         self.camera_direction = Tensor([0, 0, -1])
         self.camera_up = Tensor([0, 1, 0])
 
-    def forward(self, vertices, faces, textures=None, render_type=
-        RenderType.RGB):
+    def forward(self, vertices, faces, textures=None, render_type=RenderType.RGB):
         _renderer = _Renderer()
         _renderer.image_size = self.image_size
         _renderer.viewing_angle = self.viewing_angle
@@ -603,8 +524,7 @@ class Renderer(Module):
         eye = eye[(None), :].expand(batch_size, -1)
         camera_direction = camera_direction[(None), :].expand(batch_size, -1)
         camera_up = camera_up[(None), :].expand(batch_size, -1)
-        images = RenderFunction.apply(vertices, faces, textures, _renderer,
-            render_type, eye, camera_mode, camera_direction, camera_up)
+        images = RenderFunction.apply(vertices, faces, textures, _renderer, render_type, eye, camera_mode, camera_direction, camera_up)
         if render_type == RenderType.Normal:
             x, y, z = torch.unbind(images, dim=1)
             images = torch.stack([-x, y, z], dim=1)
@@ -658,9 +578,7 @@ class FFD(Module):
         binoms = Tensor(scipy.special.binom(num_grids - 1, grids))
         grid_1ds = Tensor(grids)
         grid_3ds = Tensor(np.meshgrid(grids, grids, grids, indexing='ij'))
-        coeff = binoms * torch.pow(torch.unsqueeze(0.5 + vertices, dim=2),
-            grid_1ds) * torch.pow(torch.unsqueeze(0.5 - vertices, dim=2), 
-            num_grids - 1 - grid_1ds)
+        coeff = binoms * torch.pow(torch.unsqueeze(0.5 + vertices, dim=2), grid_1ds) * torch.pow(torch.unsqueeze(0.5 - vertices, dim=2), num_grids - 1 - grid_1ds)
         self.B = torch.einsum('ni,nj,nk->nijk', torch.unbind(coeff, dim=1))
         self.B = torch.unsqueeze(self.B, dim=1)
         self.P0 = grid_3ds / (num_grids - 1) - 0.5
@@ -687,33 +605,25 @@ class FFD(Module):
                     _dPs.append(_dP)
                 dP = torch.stack(_dPs, dim=constraint.axis + 1)
         PB = (self.P0 + dP) * self.B
-        V = PB.view(-1, 3, self.num_grids * self.num_grids * self.num_grids
-            ).sum(dim=2)
+        V = PB.view(-1, 3, self.num_grids * self.num_grids * self.num_grids).sum(dim=2)
         return V
 
 
 class PerspectiveTransform(Module):
 
-    def forward(self, vertices, scales=None, rotations=None, translations=
-        None, perspective_translations=None, zooms=None, zoom_tos=None):
+    def forward(self, vertices, scales=None, rotations=None, translations=None, perspective_translations=None, zooms=None, zoom_tos=None):
         if scales is not None:
             scales = scales.unsqueeze(dim=1)
             vertices = vertices * scales
         if rotations is not None:
             a, b, c, d = torch.unbind(rotations, dim=1)
-            T = torch.stack([a * a + b * b - c * c - d * d, 2 * b * c - 2 *
-                a * d, 2 * b * d + 2 * a * c, 2 * b * c + 2 * a * d, a * a -
-                b * b + c * c - d * d, 2 * c * d - 2 * a * b, 2 * b * d - 2 *
-                a * c, 2 * c * d + 2 * a * b, a * a - b * b - c * c + d * d
-                ], dim=1).view(-1, 3, 3)
-            vertices = torch.matmul(vertices, torch.transpose(T, dim0=1,
-                dim1=2))
+            T = torch.stack([a * a + b * b - c * c - d * d, 2 * b * c - 2 * a * d, 2 * b * d + 2 * a * c, 2 * b * c + 2 * a * d, a * a - b * b + c * c - d * d, 2 * c * d - 2 * a * b, 2 * b * d - 2 * a * c, 2 * c * d + 2 * a * b, a * a - b * b - c * c + d * d], dim=1).view(-1, 3, 3)
+            vertices = torch.matmul(vertices, torch.transpose(T, dim0=1, dim1=2))
         if translations is not None:
             translations = translations.unsqueeze(dim=1)
             vertices = vertices + translations
         if perspective_translations is not None:
-            perspective_translations = perspective_translations.unsqueeze(dim=1
-                )
+            perspective_translations = perspective_translations.unsqueeze(dim=1)
         else:
             perspective_translations = translations
         x, y, z = torch.unbind(vertices, dim=2)
@@ -721,8 +631,7 @@ class PerspectiveTransform(Module):
         x = x - x0 / z0 * z
         y = y - y0 / z0 * z
         if zoom_tos is not None:
-            zooms = torch.min(torch.abs(z) / torch.max(torch.abs(x), torch.
-                abs(y)), dim=1, keepdim=True)[0] * zoom_tos
+            zooms = torch.min(torch.abs(z) / torch.max(torch.abs(x), torch.abs(y)), dim=1, keepdim=True)[0] * zoom_tos
         z = z / zooms
         vertices = torch.stack([x, y, z], dim=2)
         if zoom_tos is None:
@@ -745,16 +654,13 @@ class SamePad2d(nn.Module):
         in_height = input.size()[3]
         out_width = math.ceil(float(in_width) / float(self.stride[0]))
         out_height = math.ceil(float(in_height) / float(self.stride[1]))
-        pad_along_width = (out_width - 1) * self.stride[0] + self.kernel_size[0
-            ] - in_width
-        pad_along_height = (out_height - 1) * self.stride[1
-            ] + self.kernel_size[1] - in_height
+        pad_along_width = (out_width - 1) * self.stride[0] + self.kernel_size[0] - in_width
+        pad_along_height = (out_height - 1) * self.stride[1] + self.kernel_size[1] - in_height
         pad_left = math.floor(pad_along_width / 2)
         pad_top = math.floor(pad_along_height / 2)
         pad_right = pad_along_width - pad_left
         pad_bottom = pad_along_height - pad_top
-        return F.pad(input, (pad_left, pad_right, pad_top, pad_bottom),
-            'constant', 0)
+        return F.pad(input, (pad_left, pad_right, pad_top, pad_bottom), 'constant', 0)
 
     def __repr__(self):
         return self.__class__.__name__
@@ -764,11 +670,9 @@ class TopDownLayer(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(TopDownLayer, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            stride=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1)
         self.padding2 = SamePad2d(kernel_size=3, stride=1)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1)
 
     def forward(self, x, y):
         y = F.upsample(y, scale_factor=2)
@@ -787,26 +691,14 @@ class FPN(nn.Module):
         self.C4 = C4
         self.C5 = C5
         self.P6 = nn.MaxPool2d(kernel_size=1, stride=2)
-        self.P5_conv1 = nn.Conv2d(2048, self.out_channels, kernel_size=1,
-            stride=1)
-        self.P5_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1),
-            nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3,
-            stride=1))
-        self.P4_conv1 = nn.Conv2d(1024, self.out_channels, kernel_size=1,
-            stride=1)
-        self.P4_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1),
-            nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3,
-            stride=1))
-        self.P3_conv1 = nn.Conv2d(512, self.out_channels, kernel_size=1,
-            stride=1)
-        self.P3_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1),
-            nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3,
-            stride=1))
-        self.P2_conv1 = nn.Conv2d(256, self.out_channels, kernel_size=1,
-            stride=1)
-        self.P2_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1),
-            nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3,
-            stride=1))
+        self.P5_conv1 = nn.Conv2d(2048, self.out_channels, kernel_size=1, stride=1)
+        self.P5_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1), nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, stride=1))
+        self.P4_conv1 = nn.Conv2d(1024, self.out_channels, kernel_size=1, stride=1)
+        self.P4_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1), nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, stride=1))
+        self.P3_conv1 = nn.Conv2d(512, self.out_channels, kernel_size=1, stride=1)
+        self.P3_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1), nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, stride=1))
+        self.P2_conv1 = nn.Conv2d(256, self.out_channels, kernel_size=1, stride=1)
+        self.P2_conv2 = nn.Sequential(SamePad2d(kernel_size=3, stride=1), nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, stride=1))
 
     def forward(self, x):
         x = self.C1(x)
@@ -872,16 +764,12 @@ class ResNet(nn.Module):
         self.layers = [3, 4, {'resnet50': 6, 'resnet101': 23}[architecture], 3]
         self.block = Bottleneck
         self.stage5 = stage5
-        self.C1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=7, stride=2,
-            padding=3), nn.BatchNorm2d(64, eps=0.001, momentum=0.01), nn.
-            ReLU(inplace=True), SamePad2d(kernel_size=3, stride=2), nn.
-            MaxPool2d(kernel_size=3, stride=2))
+        self.C1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3), nn.BatchNorm2d(64, eps=0.001, momentum=0.01), nn.ReLU(inplace=True), SamePad2d(kernel_size=3, stride=2), nn.MaxPool2d(kernel_size=3, stride=2))
         self.C2 = self.make_layer(self.block, 64, self.layers[0])
         self.C3 = self.make_layer(self.block, 128, self.layers[1], stride=2)
         self.C4 = self.make_layer(self.block, 256, self.layers[2], stride=2)
         if self.stage5:
-            self.C5 = self.make_layer(self.block, 512, self.layers[3], stride=2
-                )
+            self.C5 = self.make_layer(self.block, 512, self.layers[3], stride=2)
         else:
             self.C5 = None
 
@@ -899,10 +787,7 @@ class ResNet(nn.Module):
     def make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride), nn.
-                BatchNorm2d(planes * block.expansion, eps=0.001, momentum=0.01)
-                )
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride), nn.BatchNorm2d(planes * block.expansion, eps=0.001, momentum=0.01))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -931,14 +816,11 @@ class RPN(nn.Module):
         self.anchor_stride = anchor_stride
         self.depth = depth
         self.padding = SamePad2d(kernel_size=3, stride=self.anchor_stride)
-        self.conv_shared = nn.Conv2d(self.depth, 512, kernel_size=3, stride
-            =self.anchor_stride)
+        self.conv_shared = nn.Conv2d(self.depth, 512, kernel_size=3, stride=self.anchor_stride)
         self.relu = nn.ReLU(inplace=True)
-        self.conv_class = nn.Conv2d(512, 2 * anchors_per_location,
-            kernel_size=1, stride=1)
+        self.conv_class = nn.Conv2d(512, 2 * anchors_per_location, kernel_size=1, stride=1)
         self.softmax = nn.Softmax(dim=2)
-        self.conv_bbox = nn.Conv2d(512, 4 * anchors_per_location,
-            kernel_size=1, stride=1)
+        self.conv_bbox = nn.Conv2d(512, 4 * anchors_per_location, kernel_size=1, stride=1)
 
     def forward(self, x):
         x = self.relu(self.conv_shared(self.padding(x)))
@@ -964,12 +846,9 @@ class CropAndResizeFunction(Function):
     def forward(self, image, boxes, box_ind):
         crops = torch.zeros_like(image)
         if image.is_cuda:
-            _backend.crop_and_resize_gpu_forward(image, boxes, box_ind,
-                self.extrapolation_value, self.crop_height, self.crop_width,
-                crops)
+            _backend.crop_and_resize_gpu_forward(image, boxes, box_ind, self.extrapolation_value, self.crop_height, self.crop_width, crops)
         else:
-            _backend.crop_and_resize_forward(image, boxes, box_ind, self.
-                extrapolation_value, self.crop_height, self.crop_width, crops)
+            _backend.crop_and_resize_forward(image, boxes, box_ind, self.extrapolation_value, self.crop_height, self.crop_width, crops)
         self.im_size = image.size()
         self.save_for_backward(boxes, box_ind)
         return crops
@@ -979,11 +858,9 @@ class CropAndResizeFunction(Function):
         grad_outputs = grad_outputs.contiguous()
         grad_image = torch.zeros_like(grad_outputs).resize_(*self.im_size)
         if grad_outputs.is_cuda:
-            _backend.crop_and_resize_gpu_backward(grad_outputs, boxes,
-                box_ind, grad_image)
+            _backend.crop_and_resize_gpu_backward(grad_outputs, boxes, box_ind, grad_image)
         else:
-            _backend.crop_and_resize_backward(grad_outputs, boxes, box_ind,
-                grad_image)
+            _backend.crop_and_resize_backward(grad_outputs, boxes, box_ind, grad_image)
         return grad_image, None, None
 
 
@@ -1020,8 +897,7 @@ def pyramid_roi_align(inputs, pool_size, image_shape):
     y1, x1, y2, x2 = boxes.chunk(4, dim=1)
     h = y2 - y1
     w = x2 - x1
-    image_area = Variable(torch.FloatTensor([float(image_shape[0] *
-        image_shape[1])]), requires_grad=False)
+    image_area = Variable(torch.FloatTensor([float(image_shape[0] * image_shape[1])]), requires_grad=False)
     if boxes.is_cuda:
         image_area = image_area.cuda()
     roi_level = 4 + log2(torch.sqrt(h * w) / (224.0 / torch.sqrt(image_area)))
@@ -1037,13 +913,11 @@ def pyramid_roi_align(inputs, pool_size, image_shape):
         level_boxes = boxes[(ix.data), :]
         box_to_level.append(ix.data)
         level_boxes = level_boxes.detach()
-        ind = Variable(torch.zeros(level_boxes.size()[0]), requires_grad=False
-            ).int()
+        ind = Variable(torch.zeros(level_boxes.size()[0]), requires_grad=False).int()
         if level_boxes.is_cuda:
             ind = ind.cuda()
         feature_maps[i] = feature_maps[i].unsqueeze(0)
-        pooled_features = CropAndResizeFunction(pool_size, pool_size, 0)(
-            feature_maps[i], level_boxes, ind)
+        pooled_features = CropAndResizeFunction(pool_size, pool_size, 0)(feature_maps[i], level_boxes, ind)
         pooled.append(pooled_features)
     pooled = torch.cat(pooled, dim=0)
     box_to_level = torch.cat(box_to_level, dim=0)
@@ -1060,8 +934,7 @@ class Classifier(nn.Module):
         self.pool_size = pool_size
         self.image_shape = image_shape
         self.num_classes = num_classes
-        self.conv1 = nn.Conv2d(self.depth, 1024, kernel_size=self.pool_size,
-            stride=1)
+        self.conv1 = nn.Conv2d(self.depth, 1024, kernel_size=self.pool_size, stride=1)
         self.bn1 = nn.BatchNorm2d(1024, eps=0.001, momentum=0.01)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, stride=1)
         self.bn2 = nn.BatchNorm2d(1024, eps=0.001, momentum=0.01)
@@ -1168,8 +1041,7 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
         ids = np.random.choice(ids, extra, replace=False)
         rpn_match[ids] = 0
     ids = np.where(rpn_match == -1)[0]
-    extra = len(ids) - (config.RPN_TRAIN_ANCHORS_PER_IMAGE - np.sum(
-        rpn_match == 1))
+    extra = len(ids) - (config.RPN_TRAIN_ANCHORS_PER_IMAGE - np.sum(rpn_match == 1))
     if extra > 0:
         ids = np.random.choice(ids, extra, replace=False)
         rpn_match[ids] = 0
@@ -1185,8 +1057,7 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
         a_w = a[3] - a[1]
         a_center_y = a[0] + 0.5 * a_h
         a_center_x = a[1] + 0.5 * a_w
-        rpn_bbox[ix] = [(gt_center_y - a_center_y) / a_h, (gt_center_x -
-            a_center_x) / a_w, np.log(gt_h / a_h), np.log(gt_w / a_w)]
+        rpn_bbox[ix] = [(gt_center_y - a_center_y) / a_h, (gt_center_x - a_center_x) / a_w, np.log(gt_h / a_h), np.log(gt_w / a_w)]
         rpn_bbox[ix] /= config.RPN_BBOX_STD_DEV
         ix += 1
     return rpn_match, rpn_bbox
@@ -1204,13 +1075,11 @@ def compose_image_meta(image_id, image_shape, window, active_class_ids):
         the image came. Useful if training on images from multiple datasets
         where not all classes are present in all datasets.
     """
-    meta = np.array([image_id] + list(image_shape) + list(window) + list(
-        active_class_ids))
+    meta = np.array([image_id] + list(image_shape) + list(window) + list(active_class_ids))
     return meta
 
 
-def load_image_gt(dataset, config, image_id, augment=False, use_mini_mask=False
-    ):
+def load_image_gt(dataset, config, image_id, augment=False, use_mini_mask=False):
     """Load and return ground truth data for an image (image, mask, bounding boxes).
 
     augment: If true, apply random image augmentation. Currently, only
@@ -1233,9 +1102,7 @@ def load_image_gt(dataset, config, image_id, augment=False, use_mini_mask=False
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
-    image, window, scale, padding = utils.resize_image(image, min_dim=
-        config.IMAGE_MIN_DIM, max_dim=config.IMAGE_MAX_DIM, padding=config.
-        IMAGE_PADDING)
+    image, window, scale, padding = utils.resize_image(image, min_dim=config.IMAGE_MIN_DIM, max_dim=config.IMAGE_MAX_DIM, padding=config.IMAGE_PADDING)
     mask = utils.resize_mask(mask, scale, padding)
     if augment:
         if random.randint(0, 1):
@@ -1243,8 +1110,7 @@ def load_image_gt(dataset, config, image_id, augment=False, use_mini_mask=False
             mask = np.fliplr(mask)
     bbox = utils.extract_bboxes(mask)
     active_class_ids = np.zeros([dataset.num_classes], dtype=np.int32)
-    source_class_ids = dataset.source_class_ids[dataset.image_info[image_id
-        ]['source']]
+    source_class_ids = dataset.source_class_ids[dataset.image_info[image_id]['source']]
     active_class_ids[source_class_ids] = 1
     if use_mini_mask:
         mask = utils.minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
@@ -1297,22 +1163,16 @@ class Dataset(torch.utils.data.Dataset):
         self.dataset = dataset
         self.config = config
         self.augment = augment
-        self.anchors = utils.generate_pyramid_anchors(config.
-            RPN_ANCHOR_SCALES, config.RPN_ANCHOR_RATIOS, config.
-            BACKBONE_SHAPES, config.BACKBONE_STRIDES, config.RPN_ANCHOR_STRIDE)
+        self.anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES, config.RPN_ANCHOR_RATIOS, config.BACKBONE_SHAPES, config.BACKBONE_STRIDES, config.RPN_ANCHOR_STRIDE)
 
     def __getitem__(self, image_index):
         image_id = self.image_ids[image_index]
-        image, image_metas, gt_class_ids, gt_boxes, gt_masks = load_image_gt(
-            self.dataset, self.config, image_id, augment=self.augment,
-            use_mini_mask=self.config.USE_MINI_MASK)
+        image, image_metas, gt_class_ids, gt_boxes, gt_masks = load_image_gt(self.dataset, self.config, image_id, augment=self.augment, use_mini_mask=self.config.USE_MINI_MASK)
         if not np.any(gt_class_ids > 0):
             return None
-        rpn_match, rpn_bbox = build_rpn_targets(image.shape, self.anchors,
-            gt_class_ids, gt_boxes, self.config)
+        rpn_match, rpn_bbox = build_rpn_targets(image.shape, self.anchors, gt_class_ids, gt_boxes, self.config)
         if gt_boxes.shape[0] > self.config.MAX_GT_INSTANCES:
-            ids = np.random.choice(np.arange(gt_boxes.shape[0]), self.
-                config.MAX_GT_INSTANCES, replace=False)
+            ids = np.random.choice(np.arange(gt_boxes.shape[0]), self.config.MAX_GT_INSTANCES, replace=False)
             gt_class_ids = gt_class_ids[ids]
             gt_boxes = gt_boxes[ids]
             gt_masks = gt_masks[:, :, (ids)]
@@ -1324,10 +1184,8 @@ class Dataset(torch.utils.data.Dataset):
         rpn_bbox = torch.from_numpy(rpn_bbox).float()
         gt_class_ids = torch.from_numpy(gt_class_ids)
         gt_boxes = torch.from_numpy(gt_boxes).float()
-        gt_masks = torch.from_numpy(gt_masks.astype(int).transpose(2, 0, 1)
-            ).float()
-        return (images, image_metas, rpn_match, rpn_bbox, gt_class_ids,
-            gt_boxes, gt_masks)
+        gt_masks = torch.from_numpy(gt_masks.astype(int).transpose(2, 0, 1)).float()
+        return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
 
     def __len__(self):
         return self.image_ids.shape[0]
@@ -1345,8 +1203,7 @@ def compute_mrcnn_bbox_loss(target_bbox, target_class_ids, pred_bbox):
         positive_roi_class_ids = target_class_ids[positive_roi_ix.data].long()
         indices = torch.stack((positive_roi_ix, positive_roi_class_ids), dim=1)
         target_bbox = target_bbox[(indices[:, (0)].data), :]
-        pred_bbox = pred_bbox[(indices[:, (0)].data), (indices[:, (1)].data), :
-            ]
+        pred_bbox = pred_bbox[(indices[:, (0)].data), (indices[:, (1)].data), :]
         loss = F.smooth_l1_loss(pred_bbox, target_bbox)
     else:
         loss = Variable(torch.FloatTensor([0]), requires_grad=False)
@@ -1385,8 +1242,7 @@ def compute_mrcnn_mask_loss(target_masks, target_class_ids, pred_masks):
         positive_class_ids = target_class_ids[positive_ix.data].long()
         indices = torch.stack((positive_ix, positive_class_ids), dim=1)
         y_true = target_masks[(indices[:, (0)].data), :, :]
-        y_pred = pred_masks[(indices[:, (0)].data), (indices[:, (1)].data),
-            :, :]
+        y_pred = pred_masks[(indices[:, (0)].data), (indices[:, (1)].data), :, :]
         loss = F.binary_cross_entropy(y_pred, y_true)
     else:
         loss = Variable(torch.FloatTensor([0]), requires_grad=False)
@@ -1422,26 +1278,19 @@ def compute_rpn_class_loss(rpn_match, rpn_class_logits):
     rpn_match = rpn_match.squeeze(2)
     anchor_class = (rpn_match == 1).long()
     indices = torch.nonzero(rpn_match != 0)
-    rpn_class_logits = rpn_class_logits[(indices.data[:, (0)]), (indices.
-        data[:, (1)]), :]
+    rpn_class_logits = rpn_class_logits[(indices.data[:, (0)]), (indices.data[:, (1)]), :]
     anchor_class = anchor_class[indices.data[:, (0)], indices.data[:, (1)]]
     loss = F.cross_entropy(rpn_class_logits, anchor_class)
     return loss
 
 
-def compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
-    target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
-    target_mask, mrcnn_mask):
+def compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask):
     rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
     rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
-    mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids,
-        mrcnn_class_logits)
-    mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas,
-        target_class_ids, mrcnn_bbox)
-    mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids,
-        mrcnn_mask)
-    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss,
-        mrcnn_bbox_loss, mrcnn_mask_loss]
+    mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
+    mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
+    mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
+    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss]
 
 
 def parse_image_meta(meta):
@@ -1569,14 +1418,12 @@ def refine_detections(rois, probs, deltas, window, config):
         idx = idx.cuda()
     class_scores = probs[idx, class_ids.data]
     deltas_specific = deltas[idx, class_ids.data]
-    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV,
-        [1, 4])).float(), requires_grad=False)
+    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV, [1, 4])).float(), requires_grad=False)
     if config.GPU_COUNT:
         std_dev = std_dev.cuda()
     refined_rois = apply_box_deltas(rois, deltas_specific * std_dev)
     height, width = config.IMAGE_SHAPE[:2]
-    scale = Variable(torch.from_numpy(np.array([height, width, height,
-        width])).float(), requires_grad=False)
+    scale = Variable(torch.from_numpy(np.array([height, width, height, width])).float(), requires_grad=False)
     if config.GPU_COUNT:
         scale = scale.cuda()
     refined_rois *= scale
@@ -1584,8 +1431,7 @@ def refine_detections(rois, probs, deltas, window, config):
     refined_rois = torch.round(refined_rois)
     keep_bool = class_ids > 0
     if config.DETECTION_MIN_CONFIDENCE:
-        keep_bool = keep_bool & (class_scores >= config.
-            DETECTION_MIN_CONFIDENCE)
+        keep_bool = keep_bool & (class_scores >= config.DETECTION_MIN_CONFIDENCE)
     keep = torch.nonzero(keep_bool)[:, (0)]
     pre_nms_class_ids = class_ids[keep.data]
     pre_nms_scores = class_scores[keep.data]
@@ -1596,8 +1442,7 @@ def refine_detections(rois, probs, deltas, window, config):
         ix_scores = pre_nms_scores[ixs]
         ix_scores, order = ix_scores.sort(descending=True)
         ix_rois = ix_rois[(order.data), :]
-        class_keep = nms(torch.cat((ix_rois, ix_scores.unsqueeze(1)), dim=1
-            ).data, config.DETECTION_NMS_THRESHOLD)
+        class_keep = nms(torch.cat((ix_rois, ix_scores.unsqueeze(1)), dim=1).data, config.DETECTION_NMS_THRESHOLD)
         class_keep = keep[ixs[order[class_keep].data].data]
         if i == 0:
             nms_keep = class_keep
@@ -1607,8 +1452,7 @@ def refine_detections(rois, probs, deltas, window, config):
     roi_count = config.DETECTION_MAX_INSTANCES
     top_ids = class_scores[keep.data].sort(descending=True)[1][:roi_count]
     keep = keep[top_ids.data]
-    result = torch.cat((refined_rois[keep.data], class_ids[keep.data].
-        unsqueeze(1).float(), class_scores[keep.data].unsqueeze(1)), dim=1)
+    result = torch.cat((refined_rois[keep.data], class_ids[keep.data].unsqueeze(1).float(), class_scores[keep.data].unsqueeze(1)), dim=1)
     return result
 
 
@@ -1622,8 +1466,7 @@ def detection_layer(config, rois, mrcnn_class, mrcnn_bbox, image_meta):
     rois = rois.squeeze(0)
     _, _, window, _ = parse_image_meta(image_meta)
     window = window[0]
-    detections = refine_detections(rois, mrcnn_class, mrcnn_bbox, window,
-        config)
+    detections = refine_detections(rois, mrcnn_class, mrcnn_bbox, window, config)
     return detections
 
 
@@ -1653,8 +1496,7 @@ def bbox_overlaps(boxes1, boxes2):
     return overlaps
 
 
-def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
-    ):
+def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config):
     """Subsamples proposals and generates target box refinment, class_ids,
     and masks for each.
 
@@ -1694,8 +1536,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
         crowd_iou_max = torch.max(crowd_overlaps, dim=1)[0]
         no_crowd_bool = crowd_iou_max < 0.001
     else:
-        no_crowd_bool = Variable(torch.ByteTensor(proposals.size()[0] * [
-            True]), requires_grad=False)
+        no_crowd_bool = Variable(torch.ByteTensor(proposals.size()[0] * [True]), requires_grad=False)
         if config.GPU_COUNT:
             no_crowd_bool = no_crowd_bool.cuda()
     overlaps = bbox_overlaps(proposals, gt_boxes)
@@ -1703,8 +1544,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
     positive_roi_bool = roi_iou_max >= 0.5
     if positive_roi_bool.any():
         positive_indices = torch.nonzero(positive_roi_bool)[:, (0)]
-        positive_count = int(config.TRAIN_ROIS_PER_IMAGE * config.
-            ROI_POSITIVE_RATIO)
+        positive_count = int(config.TRAIN_ROIS_PER_IMAGE * config.ROI_POSITIVE_RATIO)
         rand_idx = torch.randperm(positive_indices.size()[0])
         rand_idx = rand_idx[:positive_count]
         if config.GPU_COUNT:
@@ -1716,10 +1556,8 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
         roi_gt_box_assignment = torch.max(positive_overlaps, dim=1)[1]
         roi_gt_boxes = gt_boxes[(roi_gt_box_assignment.data), :]
         roi_gt_class_ids = gt_class_ids[roi_gt_box_assignment.data]
-        deltas = Variable(utils.box_refinement(positive_rois.data,
-            roi_gt_boxes.data), requires_grad=False)
-        std_dev = Variable(torch.from_numpy(config.BBOX_STD_DEV).float(),
-            requires_grad=False)
+        deltas = Variable(utils.box_refinement(positive_rois.data, roi_gt_boxes.data), requires_grad=False)
+        std_dev = Variable(torch.from_numpy(config.BBOX_STD_DEV).float(), requires_grad=False)
         if config.GPU_COUNT:
             std_dev = std_dev.cuda()
         deltas /= std_dev
@@ -1735,13 +1573,10 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
             y2 = (y2 - gt_y1) / gt_h
             x2 = (x2 - gt_x1) / gt_w
             boxes = torch.cat([y1, x1, y2, x2], dim=1)
-        box_ids = Variable(torch.arange(roi_masks.size()[0]), requires_grad
-            =False).int()
+        box_ids = Variable(torch.arange(roi_masks.size()[0]), requires_grad=False).int()
         if config.GPU_COUNT:
             box_ids = box_ids.cuda()
-        masks = Variable(CropAndResizeFunction(config.MASK_SHAPE[0], config
-            .MASK_SHAPE[1], 0)(roi_masks.unsqueeze(1), boxes, box_ids).data,
-            requires_grad=False)
+        masks = Variable(CropAndResizeFunction(config.MASK_SHAPE[0], config.MASK_SHAPE[1], 0)(roi_masks.unsqueeze(1), boxes, box_ids).data, requires_grad=False)
         masks = masks.squeeze(1)
         masks = torch.round(masks)
     else:
@@ -1763,8 +1598,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
         negative_count = 0
     if positive_count > 0 and negative_count > 0:
         rois = torch.cat((positive_rois, negative_rois), dim=0)
-        zeros = Variable(torch.zeros(negative_count), requires_grad=False).int(
-            )
+        zeros = Variable(torch.zeros(negative_count), requires_grad=False).int()
         if config.GPU_COUNT:
             zeros = zeros.cuda()
         roi_gt_class_ids = torch.cat([roi_gt_class_ids.int(), zeros], dim=0)
@@ -1772,8 +1606,7 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
         if config.GPU_COUNT:
             zeros = zeros.cuda()
         deltas = torch.cat([deltas, zeros], dim=0)
-        zeros = Variable(torch.zeros(negative_count, config.MASK_SHAPE[0],
-            config.MASK_SHAPE[1]), requires_grad=False)
+        zeros = Variable(torch.zeros(negative_count, config.MASK_SHAPE[0], config.MASK_SHAPE[1]), requires_grad=False)
         if config.GPU_COUNT:
             zeros = zeros.cuda()
         masks = torch.cat([masks, zeros], dim=0)
@@ -1785,13 +1618,11 @@ def detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config
         if config.GPU_COUNT:
             zeros = zeros.cuda()
         roi_gt_class_ids = zeros
-        zeros = Variable(torch.zeros(negative_count, 4), requires_grad=False
-            ).int()
+        zeros = Variable(torch.zeros(negative_count, 4), requires_grad=False).int()
         if config.GPU_COUNT:
             zeros = zeros.cuda()
         deltas = zeros
-        zeros = Variable(torch.zeros(negative_count, config.MASK_SHAPE[0],
-            config.MASK_SHAPE[1]), requires_grad=False)
+        zeros = Variable(torch.zeros(negative_count, config.MASK_SHAPE[0], config.MASK_SHAPE[1]), requires_grad=False)
         if config.GPU_COUNT:
             zeros = zeros.cuda()
         masks = zeros
@@ -1814,14 +1645,11 @@ def log(text, array=None):
     """
     if array is not None:
         text = text.ljust(25)
-        text += 'shape: {:20}  min: {:10.5f}  max: {:10.5f}'.format(str(
-            array.shape), array.min() if array.size else '', array.max() if
-            array.size else '')
+        text += 'shape: {:20}  min: {:10.5f}  max: {:10.5f}'.format(str(array.shape), array.min() if array.size else '', array.max() if array.size else '')
     print(text)
 
 
-def printProgressBar(iteration, total, prefix='', suffix='', decimals=1,
-    length=100, fill='█'):
+def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
     """
     Call in a loop to create terminal progress bar
     @params:
@@ -1833,8 +1661,7 @@ def printProgressBar(iteration, total, prefix='', suffix='', decimals=1,
         length      - Optional  : character length of bar (Int)
         fill        - Optional  : bar fill character (Str)
     """
-    percent = ('{0:.' + str(decimals) + 'f}').format(100 * (iteration /
-        float(total)))
+    percent = ('{0:.' + str(decimals) + 'f}').format(100 * (iteration / float(total)))
     filledLength = int(length * iteration // total)
     bar = fill * filledLength + '-' * (length - filledLength)
     print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end='\n')
@@ -1847,15 +1674,11 @@ def clip_boxes(boxes, window):
     boxes: [N, 4] each col is y1, x1, y2, x2
     window: [4] in the form y1, x1, y2, x2
     """
-    boxes = torch.stack([boxes[:, (0)].clamp(float(window[0]), float(window
-        [2])), boxes[:, (1)].clamp(float(window[1]), float(window[3])),
-        boxes[:, (2)].clamp(float(window[0]), float(window[2])), boxes[:, (
-        3)].clamp(float(window[1]), float(window[3]))], 1)
+    boxes = torch.stack([boxes[:, (0)].clamp(float(window[0]), float(window[2])), boxes[:, (1)].clamp(float(window[1]), float(window[3])), boxes[:, (2)].clamp(float(window[0]), float(window[2])), boxes[:, (3)].clamp(float(window[1]), float(window[3]))], 1)
     return boxes
 
 
-def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None
-    ):
+def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     """Receives anchor scores and selects a subset to pass as proposals
     to the second stage. Filtering is done based on anchor scores and
     non-max suppression to remove overlaps. It also applies bounding
@@ -1872,8 +1695,7 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None
     inputs[1] = inputs[1].squeeze(0)
     scores = inputs[0][:, (1)]
     deltas = inputs[1]
-    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV,
-        [1, 4])).float(), requires_grad=False)
+    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV, [1, 4])).float(), requires_grad=False)
     if config.GPU_COUNT:
         std_dev = std_dev.cuda()
     deltas = deltas * std_dev
@@ -1890,8 +1712,7 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None
     keep = nms(torch.cat((boxes, scores.unsqueeze(1)), 1).data, nms_threshold)
     keep = keep[:proposal_count]
     boxes = boxes[(keep), :]
-    norm = Variable(torch.from_numpy(np.array([height, width, height, width
-        ])).float(), requires_grad=False)
+    norm = Variable(torch.from_numpy(np.array([height, width, height, width])).float(), requires_grad=False)
     if config.GPU_COUNT:
         norm = norm.cuda()
     normalized_boxes = boxes / norm
@@ -1922,25 +1743,16 @@ class MaskRCNN(nn.Module):
         """
         h, w = config.IMAGE_SHAPE[:2]
         if h / 2 ** 6 != int(h / 2 ** 6) or w / 2 ** 6 != int(w / 2 ** 6):
-            raise Exception(
-                'Image size must be dividable by 2 at least 6 times to avoid fractions when downscaling and upscaling.For example, use 256, 320, 384, 448, 512, ... etc. '
-                )
+            raise Exception('Image size must be dividable by 2 at least 6 times to avoid fractions when downscaling and upscaling.For example, use 256, 320, 384, 448, 512, ... etc. ')
         resnet = ResNet('resnet101', stage5=True)
         C1, C2, C3, C4, C5 = resnet.stages()
         self.fpn = FPN(C1, C2, C3, C4, C5, out_channels=256)
-        self.anchors = Variable(torch.from_numpy(utils.
-            generate_pyramid_anchors(config.RPN_ANCHOR_SCALES, config.
-            RPN_ANCHOR_RATIOS, config.BACKBONE_SHAPES, config.
-            BACKBONE_STRIDES, config.RPN_ANCHOR_STRIDE)).float(),
-            requires_grad=False)
+        self.anchors = Variable(torch.from_numpy(utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES, config.RPN_ANCHOR_RATIOS, config.BACKBONE_SHAPES, config.BACKBONE_STRIDES, config.RPN_ANCHOR_STRIDE)).float(), requires_grad=False)
         if self.config.GPU_COUNT:
             self.anchors = self.anchors
-        self.rpn = RPN(len(config.RPN_ANCHOR_RATIOS), config.
-            RPN_ANCHOR_STRIDE, 256)
-        self.classifier = Classifier(256, config.POOL_SIZE, config.
-            IMAGE_SHAPE, config.NUM_CLASSES)
-        self.mask = Mask(256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE,
-            config.NUM_CLASSES)
+        self.rpn = RPN(len(config.RPN_ANCHOR_RATIOS), config.RPN_ANCHOR_STRIDE, 256)
+        self.classifier = Classifier(256, config.POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
+        self.mask = Mask(256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
 
         def set_bn_fix(m):
             classname = m.__class__.__name__
@@ -1986,20 +1798,14 @@ class MaskRCNN(nn.Module):
         self.epoch = 0
         now = datetime.datetime.now()
         if model_path:
-            regex = (
-                '.*/\\w+(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})/mask\\_rcnn\\_\\w+(\\d{4})\\.pth'
-                )
+            regex = '.*/\\w+(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})/mask\\_rcnn\\_\\w+(\\d{4})\\.pth'
             m = re.match(regex, model_path)
             if m:
-                now = datetime.datetime(int(m.group(1)), int(m.group(2)),
-                    int(m.group(3)), int(m.group(4)), int(m.group(5)))
+                now = datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)))
                 self.epoch = int(m.group(6))
-        self.log_dir = os.path.join(self.model_dir, '{}{:%Y%m%dT%H%M}'.
-            format(self.config.NAME.lower(), now))
-        self.checkpoint_path = os.path.join(self.log_dir,
-            'mask_rcnn_{}_*epoch*.pth'.format(self.config.NAME.lower()))
-        self.checkpoint_path = self.checkpoint_path.replace('*epoch*', '{:04d}'
-            )
+        self.log_dir = os.path.join(self.model_dir, '{}{:%Y%m%dT%H%M}'.format(self.config.NAME.lower(), now))
+        self.checkpoint_path = os.path.join(self.log_dir, 'mask_rcnn_{}_*epoch*.pth'.format(self.config.NAME.lower()))
+        self.checkpoint_path = self.checkpoint_path.replace('*epoch*', '{:04d}')
 
     def load_last_model(self):
         """Find the last checkpoint file of the model directory, and load the weights.
@@ -2043,11 +1849,7 @@ class MaskRCNN(nn.Module):
         if os.path.exists(filepath):
             load_dict = torch.load(filepath)
             if transfer:
-                remove_list = ['classifier.linear_bbox.bias',
-                    'classifier.linear_bbox.weight',
-                    'classifier.linear_class.bias',
-                    'classifier.linear_class.weight', 'mask.conv5.weight',
-                    'mask.conv5.bias']
+                remove_list = ['classifier.linear_bbox.bias', 'classifier.linear_bbox.weight', 'classifier.linear_class.bias', 'classifier.linear_class.weight', 'mask.conv5.weight', 'mask.conv5.bias']
                 for remove_weight in remove_list:
                     load_dict.pop(remove_weight)
                 state_dict = self.state_dict()
@@ -2073,22 +1875,17 @@ class MaskRCNN(nn.Module):
         masks: [H, W, N] instance binary masks
         """
         molded_images, image_metas, windows = self.mold_inputs(images)
-        molded_images = torch.from_numpy(molded_images.transpose(0, 3, 1, 2)
-            ).float()
+        molded_images = torch.from_numpy(molded_images.transpose(0, 3, 1, 2)).float()
         if self.config.GPU_COUNT:
             molded_images = molded_images
         molded_images = Variable(molded_images, volatile=True)
-        detections, mrcnn_mask = self.predict([molded_images, image_metas],
-            mode='inference')
+        detections, mrcnn_mask = self.predict([molded_images, image_metas], mode='inference')
         detections = detections.data.cpu().numpy()
         mrcnn_mask = mrcnn_mask.permute(0, 1, 3, 4, 2).data.cpu().numpy()
         results = []
         for i, image in enumerate(images):
-            final_rois, final_class_ids, final_scores, final_masks = (self.
-                unmold_detections(detections[i], mrcnn_mask[i], image.shape,
-                windows[i]))
-            results.append({'rois': final_rois, 'class_ids':
-                final_class_ids, 'scores': final_scores, 'masks': final_masks})
+            final_rois, final_class_ids, final_scores, final_masks = self.unmold_detections(detections[i], mrcnn_mask[i], image.shape, windows[i])
+            results.append({'rois': final_rois, 'class_ids': final_class_ids, 'scores': final_scores, 'masks': final_masks})
         return results
 
     def generate_inst_maps(self, images):
@@ -2105,8 +1902,7 @@ class MaskRCNN(nn.Module):
             masks = detection['masks']
             inst_tensor = np.zeros(masks.shape[:2])
             for i in range(masks.shape[2]):
-                inst_tensor = np.maximum(inst_tensor, (i + 1) * masks[:, :,
-                    (i)].astype(int))
+                inst_tensor = np.maximum(inst_tensor, (i + 1) * masks[:, :, (i)].astype(int))
             inst_tensors.append(inst_tensor)
         inst_tensors = np.stack(inst_tensors, axis=0)
         return inst_tensors
@@ -2128,11 +1924,9 @@ class MaskRCNN(nn.Module):
             w = masks.shape[1]
             inst_tensor = np.zeros((h, w))
             for i in range(masks.shape[2]):
-                inst_tensor = np.maximum(inst_tensor, (i + 1) * masks[:, :,
-                    (i)].astype(int))
+                inst_tensor = np.maximum(inst_tensor, (i + 1) * masks[:, :, (i)].astype(int))
                 if return_more:
-                    d[int(i + 1)] = {'rois': image_dict['rois'][i].tolist(),
-                        'class_id': int(image_dict['class_ids'][i])}
+                    d[int(i + 1)] = {'rois': image_dict['rois'][i].tolist(), 'class_id': int(image_dict['class_ids'][i])}
             inst_tensors.append(inst_tensor)
         inst_tensors = np.stack(inst_tensors, axis=0)
         if return_more:
@@ -2162,19 +1956,13 @@ class MaskRCNN(nn.Module):
         outputs = list(zip(*layer_outputs))
         outputs = [torch.cat(list(o), dim=1) for o in outputs]
         rpn_class_logits, rpn_class, rpn_bbox = outputs
-        proposal_count = (self.config.POST_NMS_ROIS_TRAINING if mode ==
-            'training' else self.config.POST_NMS_ROIS_INFERENCE)
-        rpn_rois = proposal_layer([rpn_class, rpn_bbox], proposal_count=
-            proposal_count, nms_threshold=self.config.RPN_NMS_THRESHOLD,
-            anchors=self.anchors, config=self.config)
+        proposal_count = self.config.POST_NMS_ROIS_TRAINING if mode == 'training' else self.config.POST_NMS_ROIS_INFERENCE
+        rpn_rois = proposal_layer([rpn_class, rpn_bbox], proposal_count=proposal_count, nms_threshold=self.config.RPN_NMS_THRESHOLD, anchors=self.anchors, config=self.config)
         if mode == 'inference':
-            mrcnn_class_logits, mrcnn_class, mrcnn_bbox = self.classifier(
-                mrcnn_feature_maps, rpn_rois)
-            detections = detection_layer(self.config, rpn_rois, mrcnn_class,
-                mrcnn_bbox, image_metas)
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox = self.classifier(mrcnn_feature_maps, rpn_rois)
+            detections = detection_layer(self.config, rpn_rois, mrcnn_class, mrcnn_bbox, image_metas)
             h, w = self.config.IMAGE_SHAPE[:2]
-            scale = Variable(torch.from_numpy(np.array([h, w, h, w])).float
-                (), requires_grad=False)
+            scale = Variable(torch.from_numpy(np.array([h, w, h, w])).float(), requires_grad=False)
             if self.config.GPU_COUNT:
                 scale = scale
             detection_boxes = detections[:, :4] / scale
@@ -2188,14 +1976,11 @@ class MaskRCNN(nn.Module):
             gt_boxes = input[3]
             gt_masks = input[4]
             h, w = self.config.IMAGE_SHAPE[:2]
-            scale = Variable(torch.from_numpy(np.array([h, w, h, w])).float
-                (), requires_grad=False)
+            scale = Variable(torch.from_numpy(np.array([h, w, h, w])).float(), requires_grad=False)
             if self.config.GPU_COUNT:
                 scale = scale
             gt_boxes = gt_boxes / scale
-            rois, target_class_ids, target_deltas, target_mask = (
-                detection_target_layer(rpn_rois, gt_class_ids, gt_boxes,
-                gt_masks, self.config))
+            rois, target_class_ids, target_deltas, target_mask = detection_target_layer(rpn_rois, gt_class_ids, gt_boxes, gt_masks, self.config)
             if not rois.size():
                 mrcnn_class_logits = Variable(torch.FloatTensor())
                 mrcnn_class = Variable(torch.IntTensor())
@@ -2207,15 +1992,11 @@ class MaskRCNN(nn.Module):
                     mrcnn_bbox = mrcnn_bbox
                     mrcnn_mask = mrcnn_mask
             else:
-                mrcnn_class_logits, mrcnn_class, mrcnn_bbox = self.classifier(
-                    mrcnn_feature_maps, rois)
+                mrcnn_class_logits, mrcnn_class, mrcnn_bbox = self.classifier(mrcnn_feature_maps, rois)
                 mrcnn_mask = self.mask(mrcnn_feature_maps, rois)
-            return [rpn_class_logits, rpn_bbox, target_class_ids,
-                mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask,
-                mrcnn_mask]
+            return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask]
 
-    def train_model(self, train_dataset, val_dataset, learning_rate, epochs,
-        layers):
+    def train_model(self, train_dataset, val_dataset, learning_rate, epochs, layers):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
@@ -2236,64 +2017,34 @@ class MaskRCNN(nn.Module):
         if layers == 'transfer':
             transfer = True
             layers = 'heads'
-        layer_regex = {'heads':
-            '(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)'
-            , '3+':
-            '(fpn.C3.*)|(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)'
-            , '4+':
-            '(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)'
-            , '5+':
-            '(fpn.C5.*)|(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)'
-            , 'all': '.*'}
+        layer_regex = {'heads': '(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)', '3+': '(fpn.C3.*)|(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)', '4+': '(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)', '5+': '(fpn.C5.*)|(fpn.P5\\_.*)|(fpn.P4\\_.*)|(fpn.P3\\_.*)|(fpn.P2\\_.*)|(rpn.*)|(classifier.*)|(mask.*)', 'all': '.*'}
         if layers in layer_regex.keys():
             layers = layer_regex[layers]
         train_set = Dataset(train_dataset, self.config, augment=True)
-        train_generator = torch.utils.data.DataLoader(train_set, batch_size
-            =1, shuffle=True, num_workers=16)
+        train_generator = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True, num_workers=16)
         val_set = Dataset(val_dataset, self.config, augment=True)
-        val_generator = torch.utils.data.DataLoader(val_set, batch_size=1,
-            shuffle=True, num_workers=16)
-        log('\nStarting at epoch {}. LR={}\n'.format(self.epoch + 1,
-            learning_rate))
+        val_generator = torch.utils.data.DataLoader(val_set, batch_size=1, shuffle=True, num_workers=16)
+        log('\nStarting at epoch {}. LR={}\n'.format(self.epoch + 1, learning_rate))
         log('Checkpoint Path: {}'.format(self.checkpoint_path))
         self.set_trainable(layers)
-        trainables_wo_bn = [param for name, param in self.named_parameters(
-            ) if param.requires_grad and not 'bn' in name]
-        trainables_only_bn = [param for name, param in self.
-            named_parameters() if param.requires_grad and 'bn' in name]
+        trainables_wo_bn = [param for name, param in self.named_parameters() if param.requires_grad and not 'bn' in name]
+        trainables_only_bn = [param for name, param in self.named_parameters() if param.requires_grad and 'bn' in name]
         if transfer:
-            transfer_layers = (
-                '(mask.conv5.*)|(classifier.linear_class.*)|(classifier.linear_bbox.*)'
-                )
-            trainables_transfer = [param for name, param in self.
-                named_parameters() if param.requires_grad and not 'bn' in
-                name and re.fullmatch(transfer_layers, name)]
-            trainables_wo_bn = [param for name, param in self.
-                named_parameters() if param.requires_grad and not 'bn' in
-                name and not re.fullmatch(transfer_layers, name)]
-            optimizer = optim.SGD([{'params': trainables_transfer, 'lr': 
-                0.01, 'weight_decay': self.config.WEIGHT_DECAY}, {'params':
-                trainables_wo_bn, 'lr': learning_rate, 'weight_decay': self
-                .config.WEIGHT_DECAY}, {'params': trainables_only_bn, 'lr':
-                learning_rate}], momentum=self.config.LEARNING_MOMENTUM)
+            transfer_layers = '(mask.conv5.*)|(classifier.linear_class.*)|(classifier.linear_bbox.*)'
+            trainables_transfer = [param for name, param in self.named_parameters() if param.requires_grad and not 'bn' in name and re.fullmatch(transfer_layers, name)]
+            trainables_wo_bn = [param for name, param in self.named_parameters() if param.requires_grad and not 'bn' in name and not re.fullmatch(transfer_layers, name)]
+            optimizer = optim.SGD([{'params': trainables_transfer, 'lr': 0.01, 'weight_decay': self.config.WEIGHT_DECAY}, {'params': trainables_wo_bn, 'lr': learning_rate, 'weight_decay': self.config.WEIGHT_DECAY}, {'params': trainables_only_bn, 'lr': learning_rate}], momentum=self.config.LEARNING_MOMENTUM)
         else:
-            optimizer = optim.SGD([{'params': trainables_wo_bn,
-                'weight_decay': self.config.WEIGHT_DECAY}, {'params':
-                trainables_only_bn}], lr=learning_rate, momentum=self.
-                config.LEARNING_MOMENTUM)
+            optimizer = optim.SGD([{'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY}, {'params': trainables_only_bn}], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
         for epoch in range(self.epoch + 1, epochs + 1):
             log('Epoch {}/{}.'.format(epoch, epochs))
-            loss = self.train_epoch(train_generator, optimizer, self.config
-                .STEPS_PER_EPOCH)
-            val_loss = self.valid_epoch(val_generator, self.config.
-                VALIDATION_STEPS)
+            loss = self.train_epoch(train_generator, optimizer, self.config.STEPS_PER_EPOCH)
+            val_loss = self.valid_epoch(val_generator, self.config.VALIDATION_STEPS)
             self.loss_history.append(loss)
             self.val_loss_history.append(val_loss)
-            visualize.plot_loss(self.loss_history, self.val_loss_history,
-                save=True, log_dir=self.log_dir)
+            visualize.plot_loss(self.loss_history, self.val_loss_history, save=True, log_dir=self.log_dir)
             if epoch % 5 == 0:
-                torch.save(self.state_dict(), self.checkpoint_path.format(
-                    epoch))
+                torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
         self.epoch = epochs
 
     def train_epoch(self, datagenerator, optimizer, steps):
@@ -2323,17 +2074,9 @@ class MaskRCNN(nn.Module):
                 gt_class_ids = gt_class_ids
                 gt_boxes = gt_boxes
                 gt_masks = gt_masks
-            (rpn_class_logits, rpn_pred_bbox, target_class_ids,
-                mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask,
-                mrcnn_mask) = (self.predict([images, image_metas,
-                gt_class_ids, gt_boxes, gt_masks], mode='training'))
-            (rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss,
-                mrcnn_bbox_loss, mrcnn_mask_loss) = (compute_losses(
-                rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
-                target_class_ids, mrcnn_class_logits, target_deltas,
-                mrcnn_bbox, target_mask, mrcnn_mask))
-            loss = (rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss +
-                mrcnn_bbox_loss + mrcnn_mask_loss)
+            rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask = self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks], mode='training')
+            rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss = compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask)
+            loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
             if batch_count % self.config.BATCH_SIZE == 0:
                 optimizer.zero_grad()
             loss.backward()
@@ -2342,13 +2085,7 @@ class MaskRCNN(nn.Module):
                 optimizer.step()
                 batch_count = 0
             if (step + 1) % self.config.DISPLAY_SIZE == 0:
-                printProgressBar(step + 1, steps, prefix='\t{}/{}'.format(
-                    step + 1, steps), suffix=
-                    'Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f}'
-                    .format(loss.data.cpu()[0], rpn_class_loss.data.cpu()[0
-                    ], rpn_bbox_loss.data.cpu()[0], mrcnn_class_loss.data.
-                    cpu()[0], mrcnn_bbox_loss.data.cpu()[0],
-                    mrcnn_mask_loss.data.cpu()[0]), length=10)
+                printProgressBar(step + 1, steps, prefix='\t{}/{}'.format(step + 1, steps), suffix='Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f}'.format(loss.data.cpu()[0], rpn_class_loss.data.cpu()[0], rpn_bbox_loss.data.cpu()[0], mrcnn_class_loss.data.cpu()[0], mrcnn_bbox_loss.data.cpu()[0], mrcnn_mask_loss.data.cpu()[0]), length=10)
             loss_sum += loss.data.cpu()[0] / steps
             if step == steps - 1:
                 break
@@ -2380,26 +2117,12 @@ class MaskRCNN(nn.Module):
                 gt_class_ids = gt_class_ids
                 gt_boxes = gt_boxes
                 gt_masks = gt_masks
-            (rpn_class_logits, rpn_pred_bbox, target_class_ids,
-                mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask,
-                mrcnn_mask) = (self.predict([images, image_metas,
-                gt_class_ids, gt_boxes, gt_masks], mode='training'))
+            rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask = self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks], mode='training')
             if not target_class_ids.size():
                 continue
-            (rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss,
-                mrcnn_bbox_loss, mrcnn_mask_loss) = (compute_losses(
-                rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
-                target_class_ids, mrcnn_class_logits, target_deltas,
-                mrcnn_bbox, target_mask, mrcnn_mask))
-            loss = (rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss +
-                mrcnn_bbox_loss + mrcnn_mask_loss)
-            printProgressBar(step + 1, steps, prefix='\t{}/{}'.format(step +
-                1, steps), suffix=
-                'Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f}'
-                .format(loss.data.cpu()[0], rpn_class_loss.data.cpu()[0],
-                rpn_bbox_loss.data.cpu()[0], mrcnn_class_loss.data.cpu()[0],
-                mrcnn_bbox_loss.data.cpu()[0], mrcnn_mask_loss.data.cpu()[0
-                ]), length=10)
+            rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss = compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask)
+            loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
+            printProgressBar(step + 1, steps, prefix='\t{}/{}'.format(step + 1, steps), suffix='Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f}'.format(loss.data.cpu()[0], rpn_class_loss.data.cpu()[0], rpn_bbox_loss.data.cpu()[0], mrcnn_class_loss.data.cpu()[0], mrcnn_bbox_loss.data.cpu()[0], mrcnn_mask_loss.data.cpu()[0]), length=10)
             loss_sum += loss.data.cpu()[0] / steps
             if step == steps - 1:
                 break
@@ -2422,12 +2145,9 @@ class MaskRCNN(nn.Module):
         image_metas = []
         windows = []
         for image in images:
-            molded_image, window, scale, padding = utils.resize_image(image,
-                min_dim=self.config.IMAGE_MIN_DIM, max_dim=self.config.
-                IMAGE_MAX_DIM, padding=self.config.IMAGE_PADDING)
+            molded_image, window, scale, padding = utils.resize_image(image, min_dim=self.config.IMAGE_MIN_DIM, max_dim=self.config.IMAGE_MAX_DIM, padding=self.config.IMAGE_PADDING)
             molded_image = mold_image(molded_image, self.config)
-            image_meta = compose_image_meta(0, image.shape, window, np.
-                zeros([self.config.NUM_CLASSES], dtype=np.int32))
+            image_meta = compose_image_meta(0, image.shape, window, np.zeros([self.config.NUM_CLASSES], dtype=np.int32))
             molded_images.append(molded_image)
             windows.append(window)
             image_metas.append(image_meta)
@@ -2466,8 +2186,7 @@ class MaskRCNN(nn.Module):
         scales = np.array([scale, scale, scale, scale])
         shifts = np.array([shift[0], shift[1], shift[0], shift[1]])
         boxes = np.multiply(boxes - shifts, scales).astype(np.int32)
-        exclude_ix = np.where((boxes[:, (2)] - boxes[:, (0)]) * (boxes[:, (
-            3)] - boxes[:, (1)]) <= 0)[0]
+        exclude_ix = np.where((boxes[:, (2)] - boxes[:, (0)]) * (boxes[:, (3)] - boxes[:, (1)]) <= 0)[0]
         if exclude_ix.shape[0] > 0:
             boxes = np.delete(boxes, exclude_ix, axis=0)
             class_ids = np.delete(class_ids, exclude_ix, axis=0)
@@ -2478,8 +2197,7 @@ class MaskRCNN(nn.Module):
         for i in range(N):
             full_mask = utils.unmold_mask(masks[i], boxes[i], image_shape)
             full_masks.append(full_mask)
-        full_masks = np.stack(full_masks, axis=-1) if full_masks else np.empty(
-            (0,) + masks.shape[1:3])
+        full_masks = np.stack(full_masks, axis=-1) if full_masks else np.empty((0,) + masks.shape[1:3])
         return boxes, class_ids, scores, full_masks
 
 
@@ -2496,14 +2214,12 @@ class CropAndResize(nn.Module):
         self.extrapolation_value = extrapolation_value
 
     def forward(self, image, boxes, box_ind):
-        return CropAndResizeFunction(self.crop_height, self.crop_width,
-            self.extrapolation_value)(image, boxes, box_ind)
+        return CropAndResizeFunction(self.crop_height, self.crop_width, self.extrapolation_value)(image, boxes, box_ind)
 
 
 class RoIAlign(nn.Module):
 
-    def __init__(self, crop_height, crop_width, extrapolation_value=0,
-        transform_fpcoor=True):
+    def __init__(self, crop_height, crop_width, extrapolation_value=0, transform_fpcoor=True):
         super(RoIAlign, self).__init__()
         self.crop_height = crop_height
         self.crop_width = crop_width
@@ -2526,10 +2242,8 @@ class RoIAlign(nn.Module):
             spacing_h = (y2 - y1) / float(self.crop_height)
             nx0 = (x1 + spacing_w / 2 - 0.5) / float(image_width - 1)
             ny0 = (y1 + spacing_h / 2 - 0.5) / float(image_height - 1)
-            nw = spacing_w * float(self.crop_width - 1) / float(image_width - 1
-                )
-            nh = spacing_h * float(self.crop_height - 1) / float(
-                image_height - 1)
+            nw = spacing_w * float(self.crop_width - 1) / float(image_width - 1)
+            nh = spacing_h * float(self.crop_height - 1) / float(image_height - 1)
             boxes = torch.cat((ny0, nx0, ny0 + nh, nx0 + nw), 1)
         else:
             x1 = x1 / float(image_width - 1)
@@ -2539,8 +2253,7 @@ class RoIAlign(nn.Module):
             boxes = torch.cat((y1, x1, y2, x2), 1)
         boxes = boxes.detach().contiguous()
         box_ind = box_ind.detach()
-        return CropAndResizeFunction(self.crop_height, self.crop_width,
-            self.extrapolation_value)(featuremap, boxes, box_ind)
+        return CropAndResizeFunction(self.crop_height, self.crop_width, self.extrapolation_value)(featuremap, boxes, box_ind)
 
 
 class FutureResult(object):
@@ -2566,8 +2279,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -2616,8 +2328,7 @@ class SyncMaster(object):
 
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -2643,8 +2354,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -2658,8 +2368,7 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
@@ -2678,15 +2387,13 @@ def _unsqueeze_ft(tensor):
 class _SynchronizedBatchNorm(_BatchNorm):
 
     def __init__(self, num_features, eps=1e-05, momentum=0.001, affine=True):
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
         self._slave_pipe = None
         self._moving_average_fraction = 1.0 - momentum
-        self.register_buffer('_tmp_running_mean', torch.zeros(self.
-            num_features))
+        self.register_buffer('_tmp_running_mean', torch.zeros(self.num_features))
         self.register_buffer('_tmp_running_var', torch.ones(self.num_features))
         self.register_buffer('_running_iter', torch.ones(1))
         self._tmp_running_mean = self.running_mean.clone() * self._running_iter
@@ -2694,22 +2401,18 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input):
         if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -2724,8 +2427,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -2735,8 +2437,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _add_weighted(self, dest, delta, alpha=1, beta=1, bias=0):
@@ -2751,12 +2452,9 @@ class _SynchronizedBatchNorm(_BatchNorm):
         sumvar = ssum - sum_ * mean
         unbias_var = sumvar / (size - 1)
         bias_var = sumvar / size
-        self._tmp_running_mean = self._add_weighted(self._tmp_running_mean,
-            mean.data, alpha=self._moving_average_fraction)
-        self._tmp_running_var = self._add_weighted(self._tmp_running_var,
-            unbias_var.data, alpha=self._moving_average_fraction)
-        self._running_iter = self._add_weighted(self._running_iter, 1,
-            alpha=self._moving_average_fraction)
+        self._tmp_running_mean = self._add_weighted(self._tmp_running_mean, mean.data, alpha=self._moving_average_fraction)
+        self._tmp_running_var = self._add_weighted(self._tmp_running_var, unbias_var.data, alpha=self._moving_average_fraction)
+        self._running_iter = self._add_weighted(self._running_iter, 1, alpha=self._moving_average_fraction)
         self.running_mean = self._tmp_running_mean / self._running_iter
         self.running_var = self._tmp_running_var / self._running_iter
         return mean, bias_var.clamp(self.eps) ** -0.5
@@ -2803,8 +2501,7 @@ class DataParallelWithCallback(DataParallel):
     """
 
     def replicate(self, module, device_ids):
-        modules = super(DataParallelWithCallback, self).replicate(module,
-            device_ids)
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
 
@@ -2995,19 +2692,16 @@ class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
 
     def _check_input_dim(self, input):
         if input.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'.format(
-                input.dim()))
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
         super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
 
 
 def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1, bias=True)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=True)
 
 
 def conv3x3_bn_relu(in_planes, out_planes, stride=1):
-    return nn.Sequential(conv3x3(in_planes, out_planes, stride),
-        SynchronizedBatchNorm2d(out_planes), nn.ReLU(inplace=True))
+    return nn.Sequential(conv3x3(in_planes, out_planes, stride), SynchronizedBatchNorm2d(out_planes), nn.ReLU(inplace=True))
 
 
 class C1BilinearDeepSup(nn.Module):
@@ -3058,28 +2752,21 @@ class C1Bilinear(nn.Module):
 
 class PPMBilinear(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, use_softmax=False,
-        pool_scales=(1, 2, 3, 6)):
+    def __init__(self, num_class=150, fc_dim=4096, use_softmax=False, pool_scales=(1, 2, 3, 6)):
         super(PPMBilinear, self).__init__()
         self.use_softmax = use_softmax
         self.ppm = []
         for scale in pool_scales:
-            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.
-                Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
+            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm = nn.ModuleList(self.ppm)
-        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) *
-            512, 512, kernel_size=3, padding=1, bias=False),
-            SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.
-            Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
+        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) * 512, 512, kernel_size=3, padding=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
 
     def forward(self, conv_out, segSize=None):
         conv5 = conv_out[-1]
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale in self.ppm:
-            ppm_out.append(nn.functional.upsample(pool_scale(conv5), (
-                input_size[2], input_size[3]), mode='bilinear'))
+            ppm_out.append(nn.functional.upsample(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear'))
         ppm_out = torch.cat(ppm_out, 1)
         x = self.conv_last(ppm_out)
         if self.use_softmax:
@@ -3092,21 +2779,15 @@ class PPMBilinear(nn.Module):
 
 class PPMBilinearDeepsup(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, use_softmax=False,
-        pool_scales=(1, 2, 3, 6)):
+    def __init__(self, num_class=150, fc_dim=4096, use_softmax=False, pool_scales=(1, 2, 3, 6)):
         super(PPMBilinearDeepsup, self).__init__()
         self.use_softmax = use_softmax
         self.ppm = []
         for scale in pool_scales:
-            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.
-                Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
+            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm = nn.ModuleList(self.ppm)
         self.cbr_deepsup = conv3x3_bn_relu(fc_dim // 2, fc_dim // 4, 1)
-        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) *
-            512, 512, kernel_size=3, padding=1, bias=False),
-            SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.
-            Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
+        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) * 512, 512, kernel_size=3, padding=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
         self.conv_last_deepsup = nn.Conv2d(fc_dim // 4, num_class, 1, 1, 0)
         self.dropout_deepsup = nn.Dropout2d(0.1)
 
@@ -3115,8 +2796,7 @@ class PPMBilinearDeepsup(nn.Module):
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale in self.ppm:
-            ppm_out.append(nn.functional.upsample(pool_scale(conv5), (
-                input_size[2], input_size[3]), mode='bilinear'))
+            ppm_out.append(nn.functional.upsample(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear'))
         ppm_out = torch.cat(ppm_out, 1)
         x = self.conv_last(ppm_out)
         if self.use_softmax:
@@ -3166,8 +2846,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = SynchronizedBatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = SynchronizedBatchNorm2d(planes * 4)
@@ -3224,9 +2903,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                SynchronizedBatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -3314,8 +2991,7 @@ class BaseModel(torch.nn.Module):
             except:
                 model_dict = network.state_dict()
                 try:
-                    pretrained_dict = {k: v for k, v in pretrained_dict.
-                        items() if k in model_dict}
+                    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
                     network.load_state_dict(pretrained_dict)
                     None
                 except:
@@ -3328,8 +3004,7 @@ class BaseModel(torch.nn.Module):
                         if v.size() == model_dict[k].size():
                             model_dict[k] = v
                     for k, v in model_dict.items():
-                        if k not in pretrained_dict or v.size(
-                            ) != pretrained_dict[k].size():
+                        if k not in pretrained_dict or v.size() != pretrained_dict[k].size():
                             not_initialized.add(k.split('.')[0])
                     None
                     network.load_state_dict(model_dict)
@@ -3362,8 +3037,7 @@ class BaseModel(torch.nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -3378,20 +3052,16 @@ class GANLoss(nn.Module):
     def get_target_tensor(self, input, target_is_real):
         target_tensor = None
         if target_is_real:
-            create_label = (self.real_label_var is None or self.
-                real_label_var.numel() != input.numel())
+            create_label = self.real_label_var is None or self.real_label_var.numel() != input.numel()
             if create_label:
                 real_tensor = self.Tensor(input.size()).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False
-                    )
+                self.real_label_var = Variable(real_tensor, requires_grad=False)
             target_tensor = self.real_label_var
         else:
-            create_label = (self.fake_label_var is None or self.
-                fake_label_var.numel() != input.numel())
+            create_label = self.fake_label_var is None or self.fake_label_var.numel() != input.numel()
             if create_label:
                 fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False
-                    )
+                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
             target_tensor = self.fake_label_var
         return target_tensor
 
@@ -3420,46 +3090,31 @@ class VGGLoss(nn.Module):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
 
 class LocalEnhancer(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3,
-        n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3,
-        norm_layer=nn.BatchNorm2d, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
         super(LocalEnhancer, self).__init__()
         self.n_local_enhancers = n_local_enhancers
         ngf_global = ngf * 2 ** n_local_enhancers
-        model_global = GlobalGenerator(input_nc, output_nc, ngf_global,
-            n_downsample_global, n_blocks_global, norm_layer).model
+        model_global = GlobalGenerator(input_nc, output_nc, ngf_global, n_downsample_global, n_blocks_global, norm_layer).model
         model_global = [model_global[i] for i in range(len(model_global) - 3)]
         self.model = nn.Sequential(*model_global)
         for n in range(1, n_local_enhancers + 1):
             ngf_global = ngf * 2 ** (n_local_enhancers - n)
-            model_downsample = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc,
-                ngf_global, kernel_size=7, padding=0), norm_layer(
-                ngf_global), nn.ReLU(True), nn.Conv2d(ngf_global, 
-                ngf_global * 2, kernel_size=3, stride=2, padding=1),
-                norm_layer(ngf_global * 2), nn.ReLU(True)]
+            model_downsample = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf_global, kernel_size=7, padding=0), norm_layer(ngf_global), nn.ReLU(True), nn.Conv2d(ngf_global, ngf_global * 2, kernel_size=3, stride=2, padding=1), norm_layer(ngf_global * 2), nn.ReLU(True)]
             model_upsample = []
             for i in range(n_blocks_local):
-                model_upsample += [ResnetBlock(ngf_global * 2, padding_type
-                    =padding_type, norm_layer=norm_layer)]
-            model_upsample += [nn.ConvTranspose2d(ngf_global * 2,
-                ngf_global, kernel_size=3, stride=2, padding=1,
-                output_padding=1), norm_layer(ngf_global), nn.ReLU(True)]
+                model_upsample += [ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer)]
+            model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=3, stride=2, padding=1, output_padding=1), norm_layer(ngf_global), nn.ReLU(True)]
             if n == n_local_enhancers:
-                model_upsample += [nn.ReflectionPad2d(3), nn.Conv2d(ngf,
-                    output_nc, kernel_size=7, padding=0), nn.Tanh()]
-            setattr(self, 'model' + str(n) + '_1', nn.Sequential(*
-                model_downsample))
-            setattr(self, 'model' + str(n) + '_2', nn.Sequential(*
-                model_upsample))
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1],
-            count_include_pad=False)
+                model_upsample += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.Tanh()]
+            setattr(self, 'model' + str(n) + '_1', nn.Sequential(*model_downsample))
+            setattr(self, 'model' + str(n) + '_2', nn.Sequential(*model_upsample))
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
 
     def forward(self, input):
         input_downsampled = [input]
@@ -3467,41 +3122,30 @@ class LocalEnhancer(nn.Module):
             input_downsampled.append(self.downsample(input_downsampled[-1]))
         output_prev = self.model(input_downsampled[-1])
         for n_local_enhancers in range(1, self.n_local_enhancers + 1):
-            model_downsample = getattr(self, 'model' + str(
-                n_local_enhancers) + '_1')
-            model_upsample = getattr(self, 'model' + str(n_local_enhancers) +
-                '_2')
-            input_i = input_downsampled[self.n_local_enhancers -
-                n_local_enhancers]
-            output_prev = model_upsample(model_downsample(input_i) +
-                output_prev)
+            model_downsample = getattr(self, 'model' + str(n_local_enhancers) + '_1')
+            model_upsample = getattr(self, 'model' + str(n_local_enhancers) + '_2')
+            input_i = input_downsampled[self.n_local_enhancers - n_local_enhancers]
+            output_prev = model_upsample(model_downsample(input_i) + output_prev)
         return output_prev
 
 
 class GlobalGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3,
-        n_blocks=9, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
         assert n_blocks >= 0
         super(GlobalGenerator, self).__init__()
         activation = nn.ReLU(True)
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0), norm_layer(ngf), activation]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), activation]
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1), norm_layer(ngf * mult * 2), activation]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1), norm_layer(ngf * mult * 2), activation]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                activation=activation, norm_layer=norm_layer)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, norm_layer=norm_layer)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1),
-                norm_layer(int(ngf * mult / 2)), activation]
-        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc,
-            kernel_size=7, padding=0), nn.Tanh()]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1), norm_layer(int(ngf * mult / 2)), activation]
+        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.Tanh()]
         self.model = nn.Sequential(*model)
 
     def forward(self, input):
@@ -3510,14 +3154,11 @@ class GlobalGenerator(nn.Module):
 
 class ResnetBlock(nn.Module):
 
-    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(
-        True), use_dropout=False):
+    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, activation, use_dropout)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, activation, use_dropout)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, activation,
-        use_dropout):
+    def build_conv_block(self, dim, padding_type, norm_layer, activation, use_dropout):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -3527,10 +3168,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p),
-            norm_layer(dim), activation]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p), norm_layer(dim), activation]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -3541,10 +3180,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p),
-            norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -3554,25 +3191,18 @@ class ResnetBlock(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=32, n_downsampling=4,
-        norm_layer=nn.BatchNorm2d, isTrain=True):
+    def __init__(self, input_nc, output_nc, ngf=32, n_downsampling=4, norm_layer=nn.BatchNorm2d, isTrain=True):
         super(Encoder, self).__init__()
         self.isTrain = isTrain
         self.output_nc = output_nc
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0), norm_layer(ngf), nn.ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), nn.ReLU(True)]
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1), norm_layer(ngf * mult * 2), nn.ReLU(True)
-                ]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1),
-                norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
-        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc,
-            kernel_size=7, padding=0)]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
+        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
         self.model = nn.Sequential(*model)
 
@@ -3588,13 +3218,10 @@ class Encoder(nn.Module):
             assert np.any(inst == i), (inst_list, inst)
             indices = (inst == i).nonzero()
             for j in range(self.output_nc):
-                output_ins = outputs[indices[:, (0)], indices[:, (1)] + j,
-                    indices[:, (2)], indices[:, (3)]]
+                output_ins = outputs[indices[:, (0)], indices[:, (1)] + j, indices[:, (2)], indices[:, (3)]]
                 mean_feat = torch.mean(output_ins).expand_as(output_ins)
-                outputs_mean[indices[:, (0)], indices[:, (1)] + j, indices[
-                    :, (2)], indices[:, (3)]] = mean_feat
-        return (outputs_mean[:, :self.output_nc, :, :], 0
-            ) if self.isTrain else outputs_mean[:, :self.output_nc, :, :]
+                outputs_mean[indices[:, (0)], indices[:, (1)] + j, indices[:, (2)], indices[:, (3)]] = mean_feat
+        return (outputs_mean[:, :self.output_nc, :, :], 0) if self.isTrain else outputs_mean[:, :self.output_nc, :, :]
 
     def generate_feat_dict(self, input, inst):
         outputs = self.model(input)
@@ -3608,8 +3235,7 @@ class Encoder(nn.Module):
             feat_dict[i] = []
             indices = (inst == i).nonzero()
             for j in range(self.output_nc):
-                output_ins = outputs[indices[:, (0)], indices[:, (1)] + j,
-                    indices[:, (2)], indices[:, (3)]]
+                output_ins = outputs[indices[:, (0)], indices[:, (1)] + j, indices[:, (2)], indices[:, (3)]]
                 mean_feat = torch.mean(output_ins)
                 feat_dict[i] += [float(mean_feat)]
         return feat_dict
@@ -3617,23 +3243,19 @@ class Encoder(nn.Module):
 
 class MultiscaleDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, num_D=3, getIntermFeat=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, num_D=3, getIntermFeat=False):
         super(MultiscaleDiscriminator, self).__init__()
         self.num_D = num_D
         self.n_layers = n_layers
         self.getIntermFeat = getIntermFeat
         for i in range(num_D):
-            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer,
-                use_sigmoid, getIntermFeat)
+            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, getIntermFeat)
             if getIntermFeat:
                 for j in range(n_layers + 2):
-                    setattr(self, 'scale' + str(i) + '_layer' + str(j),
-                        getattr(netD, 'model' + str(j)))
+                    setattr(self, 'scale' + str(i) + '_layer' + str(j), getattr(netD, 'model' + str(j)))
             else:
                 setattr(self, 'layer' + str(i), netD.model)
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1],
-            count_include_pad=False)
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
 
     def singleD_forward(self, model, input):
         if self.getIntermFeat:
@@ -3650,8 +3272,7 @@ class MultiscaleDiscriminator(nn.Module):
         input_downsampled = input
         for i in range(num_D):
             if self.getIntermFeat:
-                model = [getattr(self, 'scale' + str(num_D - 1 - i) +
-                    '_layer' + str(j)) for j in range(self.n_layers + 2)]
+                model = [getattr(self, 'scale' + str(num_D - 1 - i) + '_layer' + str(j)) for j in range(self.n_layers + 2)]
             else:
                 model = getattr(self, 'layer' + str(num_D - 1 - i))
             result.append(self.singleD_forward(model, input_downsampled))
@@ -3662,27 +3283,22 @@ class MultiscaleDiscriminator(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, getIntermFeat=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, getIntermFeat=False):
         super(NLayerDiscriminator, self).__init__()
         self.getIntermFeat = getIntermFeat
         self.n_layers = n_layers
         kw = 4
         padw = int(np.ceil((kw - 1.0) / 2))
-        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]]
+        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]]
         nf = ndf
         for n in range(1, n_layers):
             nf_prev = nf
             nf = min(nf * 2, 512)
-            sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2,
-                padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
+            sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
         nf_prev = nf
         nf = min(nf * 2, 512)
-        sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1,
-            padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
-        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]
-            ]
+        sequence += [[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw), norm_layer(nf), nn.LeakyReLU(0.2, True)]]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
         if use_sigmoid:
             sequence += [[nn.Sigmoid()]]
         if getIntermFeat:
@@ -3743,53 +3359,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseModel,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     True),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (Derenderer3d,
+     lambda: ([], {'mode': 4, 'image_size': 4, 'render_size': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DictGatherDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (GlobalGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (LocalEnhancer,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (MultiscaleDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RPN,
+     lambda: ([], {'anchors_per_location': 4, 'anchor_stride': 1, 'depth': 1}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (SamePad2d,
+     lambda: ([], {'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TopDownLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGGLoss,
+     lambda: ([], {'gpu_ids': False}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Vgg19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_ysymyth_3D_SDN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BaseModel(*[], **{}), [], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Derenderer3d(*[], **{'mode': 4, 'image_size': 4, 'render_size': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DictGatherDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LocalEnhancer(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MultiscaleDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(RPN(*[], **{'anchors_per_location': 4, 'anchor_stride': 1, 'depth': 1}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(SamePad2d(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(TopDownLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[12])
 

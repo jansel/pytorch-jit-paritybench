@@ -51,8 +51,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -116,8 +117,7 @@ from scipy import ndimage
 
 class D_NLayersMulti(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, num_D=1):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, num_D=1):
         super(D_NLayersMulti, self).__init__()
         self.num_D = num_D
         if num_D == 1:
@@ -126,34 +126,26 @@ class D_NLayersMulti(nn.Module):
         else:
             layers = self.get_layers(input_nc, ndf, n_layers, norm_layer)
             self.add_module('model_0', nn.Sequential(*layers))
-            self.down = nn.AvgPool2d(3, stride=2, padding=[1, 1],
-                count_include_pad=False)
+            self.down = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
             for i in range(1, num_D):
                 ndf_i = int(round(ndf / 2 ** i))
                 layers = self.get_layers(input_nc, ndf_i, n_layers, norm_layer)
                 self.add_module('model_%d' % i, nn.Sequential(*layers))
 
-    def get_layers(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d):
+    def get_layers(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw), norm_layer(ndf *
-                nf_mult), nn.LeakyReLU(0.2, True)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw), norm_layer(ndf *
-            nf_mult), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
         return sequence
 
     def forward(self, input):
@@ -171,12 +163,10 @@ class D_NLayersMulti(nn.Module):
 
 class G_NLayers(nn.Module):
 
-    def __init__(self, output_nc=3, nz=100, ngf=64, n_layers=3, norm_layer=
-        None, nl_layer=None):
+    def __init__(self, output_nc=3, nz=100, ngf=64, n_layers=3, norm_layer=None, nl_layer=None):
         super(G_NLayers, self).__init__()
         kw, s, padw = 4, 2, 1
-        sequence = [nn.ConvTranspose2d(nz, ngf * 4, kernel_size=kw, stride=
-            1, padding=0, bias=True)]
+        sequence = [nn.ConvTranspose2d(nz, ngf * 4, kernel_size=kw, stride=1, padding=0, bias=True)]
         if norm_layer is not None:
             sequence += [norm_layer(ngf * 4)]
         sequence += [nl_layer()]
@@ -185,13 +175,11 @@ class G_NLayers(nn.Module):
         for n in range(n_layers, 0, -1):
             nf_mult_prev = nf_mult
             nf_mult = min(n, 4)
-            sequence += [nn.ConvTranspose2d(ngf * nf_mult_prev, ngf *
-                nf_mult, kernel_size=kw, stride=s, padding=padw, bias=True)]
+            sequence += [nn.ConvTranspose2d(ngf * nf_mult_prev, ngf * nf_mult, kernel_size=kw, stride=s, padding=padw, bias=True)]
             if norm_layer is not None:
                 sequence += [norm_layer(ngf * nf_mult)]
             sequence += [nl_layer()]
-        sequence += [nn.ConvTranspose2d(ngf, output_nc, kernel_size=4,
-            stride=s, padding=padw, bias=True)]
+        sequence += [nn.ConvTranspose2d(ngf, output_nc, kernel_size=4, stride=s, padding=padw, bias=True)]
         sequence += [nn.Tanh()]
         self.model = nn.Sequential(*sequence)
 
@@ -201,31 +189,26 @@ class G_NLayers(nn.Module):
 
 class D_NLayers(nn.Module):
 
-    def __init__(self, input_nc=3, ndf=64, n_layers=3, norm_layer=None,
-        nl_layer=None):
+    def __init__(self, input_nc=3, ndf=64, n_layers=3, norm_layer=None, nl_layer=None):
         super(D_NLayers, self).__init__()
         kw, padw, use_bias = 4, 1, True
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw, bias=use_bias), nl_layer()]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw, bias=use_bias), nl_layer()]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=use_bias)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias)]
             if norm_layer is not None:
                 sequence += [norm_layer(ndf * nf_mult)]
             sequence += [nl_layer()]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias)]
         if norm_layer is not None:
             sequence += [norm_layer(ndf * nf_mult)]
         sequence += [nl_layer()]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=4, stride=1,
-            padding=0, bias=use_bias)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=4, stride=1, padding=0, bias=use_bias)]
         self.model = nn.Sequential(*sequence)
 
     def forward(self, input):
@@ -286,8 +269,7 @@ class GANLoss(nn.Module):
         all_losses = []
         for prediction in predictions:
             if self.gan_mode in ['lsgan', 'vanilla']:
-                target_tensor = self.get_target_tensor(prediction,
-                    target_is_real)
+                target_tensor = self.get_target_tensor(prediction, target_is_real)
                 loss = self.loss(prediction, target_tensor)
             elif self.gan_mode == 'wgangp':
                 if target_is_real:
@@ -300,33 +282,22 @@ class GANLoss(nn.Module):
 
 class G_Unet_add_input(nn.Module):
 
-    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64,
-        norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
+    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
         super(G_Unet_add_input, self).__init__()
         self.nz = nz
         max_nchn = 8
-        unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf *
-            max_nchn, innermost=True, norm_layer=norm_layer, nl_layer=
-            nl_layer, upsample=upsample)
+        unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf * max_nchn, innermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
         for i in range(num_downs - 5):
-            unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf *
-                max_nchn, unet_block, norm_layer=norm_layer, nl_layer=
-                nl_layer, use_dropout=use_dropout, upsample=upsample)
-        unet_block = UnetBlock(ngf * 4, ngf * 4, ngf * max_nchn, unet_block,
-            norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock(ngf * 2, ngf * 2, ngf * 4, unet_block,
-            norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock(ngf, ngf, ngf * 2, unet_block, norm_layer=
-            norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock(input_nc + nz, output_nc, ngf, unet_block,
-            outermost=True, norm_layer=norm_layer, nl_layer=nl_layer,
-            upsample=upsample)
+            unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf * max_nchn, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
+        unet_block = UnetBlock(ngf * 4, ngf * 4, ngf * max_nchn, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock(ngf * 2, ngf * 2, ngf * 4, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock(ngf, ngf, ngf * 2, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock(input_nc + nz, output_nc, ngf, unet_block, outermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
         self.model = unet_block
 
     def forward(self, x, z=None):
         if self.nz > 0:
-            z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.
-                size(1), x.size(2), x.size(3))
+            z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
             x_with_z = torch.cat([x, z_img], 1)
         else:
             x_with_z = x
@@ -341,29 +312,22 @@ class Upsample(nn.Module):
         self.mode = mode
 
     def forward(self, x):
-        return torch.nn.functional.interpolate(x, scale_factor=self.factor,
-            mode=self.mode)
+        return torch.nn.functional.interpolate(x, scale_factor=self.factor, mode=self.mode)
 
 
 def upsampleLayer(inplanes, outplanes, upsample='basic', padding_type='zero'):
     if upsample == 'basic':
-        upconv = [nn.ConvTranspose2d(inplanes, outplanes, kernel_size=4,
-            stride=2, padding=1)]
+        upconv = [nn.ConvTranspose2d(inplanes, outplanes, kernel_size=4, stride=2, padding=1)]
     elif upsample == 'bilinear':
-        upconv = [Upsample(scale_factor=2, mode='bilinear'), nn.
-            ReflectionPad2d(1), nn.Conv2d(inplanes, outplanes, kernel_size=
-            3, stride=1, padding=0)]
+        upconv = [Upsample(scale_factor=2, mode='bilinear'), nn.ReflectionPad2d(1), nn.Conv2d(inplanes, outplanes, kernel_size=3, stride=1, padding=0)]
     else:
-        raise NotImplementedError('upsample layer [%s] not implemented' %
-            upsample)
+        raise NotImplementedError('upsample layer [%s] not implemented' % upsample)
     return upconv
 
 
 class UnetBlock(nn.Module):
 
-    def __init__(self, input_nc, outer_nc, inner_nc, submodule=None,
-        outermost=False, innermost=False, norm_layer=None, nl_layer=None,
-        use_dropout=False, upsample='basic', padding_type='zero'):
+    def __init__(self, input_nc, outer_nc, inner_nc, submodule=None, outermost=False, innermost=False, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic', padding_type='zero'):
         super(UnetBlock, self).__init__()
         self.outermost = outermost
         p = 0
@@ -375,31 +339,26 @@ class UnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        downconv += [nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=p)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        downconv += [nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=p)]
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc) if norm_layer is not None else None
         uprelu = nl_layer()
         upnorm = norm_layer(outer_nc) if norm_layer is not None else None
         if outermost:
-            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=
-                upsample, padding_type=padding_type)
+            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=upsample, padding_type=padding_type)
             down = downconv
             up = [uprelu] + upconv + [nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
-            upconv = upsampleLayer(inner_nc, outer_nc, upsample=upsample,
-                padding_type=padding_type)
+            upconv = upsampleLayer(inner_nc, outer_nc, upsample=upsample, padding_type=padding_type)
             down = [downrelu] + downconv
             up = [uprelu] + upconv
             if upnorm is not None:
                 up += [upnorm]
             model = down + up
         else:
-            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=
-                upsample, padding_type=padding_type)
+            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=upsample, padding_type=padding_type)
             down = [downrelu] + downconv
             if downnorm is not None:
                 down += [downnorm]
@@ -420,15 +379,13 @@ class UnetBlock(nn.Module):
 
 
 def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1, bias=True)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=True)
 
 
 def upsampleConv(inplanes, outplanes, kw, padw):
     sequence = []
     sequence += [Upsample(scale_factor=2, mode='nearest')]
-    sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=kw, stride=1,
-        padding=padw, bias=True)]
+    sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=kw, stride=1, padding=padw, bias=True)]
     return nn.Sequential(*sequence)
 
 
@@ -462,8 +419,7 @@ def convMeanpool(inplanes, outplanes):
 def meanpoolConv(inplanes, outplanes):
     sequence = []
     sequence += [nn.AvgPool2d(kernel_size=2, stride=2)]
-    sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=1,
-        padding=0, bias=True)]
+    sequence += [nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=1, padding=0, bias=True)]
     return nn.Sequential(*sequence)
 
 
@@ -490,18 +446,15 @@ class BasicBlock(nn.Module):
 
 class E_ResNet(nn.Module):
 
-    def __init__(self, input_nc=3, output_nc=1, nef=64, n_blocks=4,
-        norm_layer=None, nl_layer=None, vae=False, all_z=False):
+    def __init__(self, input_nc=3, output_nc=1, nef=64, n_blocks=4, norm_layer=None, nl_layer=None, vae=False, all_z=False):
         super(E_ResNet, self).__init__()
         self.vae = vae
         max_ndf = 4
-        conv_layers = [nn.Conv2d(input_nc, nef, kernel_size=4, stride=2,
-            padding=1, bias=True)]
+        conv_layers = [nn.Conv2d(input_nc, nef, kernel_size=4, stride=2, padding=1, bias=True)]
         for n in range(1, n_blocks):
             input_ndf = nef * min(max_ndf, n)
             output_ndf = nef * min(max_ndf, n + 1)
-            conv_layers += [BasicBlock(input_ndf, output_ndf, norm_layer,
-                nl_layer)]
+            conv_layers += [BasicBlock(input_ndf, output_ndf, norm_layer, nl_layer)]
         conv_layers += [nl_layer(), nn.AvgPool2d(8)]
         if vae:
             self.fc = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
@@ -524,31 +477,17 @@ class E_ResNet(nn.Module):
 
 class G_Unet_add_all(nn.Module):
 
-    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64,
-        norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
+    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
         super(G_Unet_add_all, self).__init__()
         self.nz = nz
-        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, None,
-            innermost=True, norm_layer=norm_layer, nl_layer=nl_layer,
-            upsample=upsample)
-        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz,
-            unet_block, norm_layer=norm_layer, nl_layer=nl_layer,
-            use_dropout=use_dropout, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, None, innermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
         for i in range(num_downs - 6):
-            unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz,
-                unet_block, norm_layer=norm_layer, nl_layer=nl_layer,
-                use_dropout=use_dropout, upsample=upsample)
-        unet_block = UnetBlock_with_z(ngf * 4, ngf * 4, ngf * 8, nz,
-            unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=
-            upsample)
-        unet_block = UnetBlock_with_z(ngf * 2, ngf * 2, ngf * 4, nz,
-            unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=
-            upsample)
-        unet_block = UnetBlock_with_z(ngf, ngf, ngf * 2, nz, unet_block,
-            norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock_with_z(input_nc, output_nc, ngf, nz,
-            unet_block, outermost=True, norm_layer=norm_layer, nl_layer=
-            nl_layer, upsample=upsample)
+            unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 4, ngf * 4, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 2, ngf * 2, ngf * 4, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf, ngf, ngf * 2, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(input_nc, output_nc, ngf, nz, unet_block, outermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
         self.model = unet_block
 
     def forward(self, x, z):
@@ -557,9 +496,7 @@ class G_Unet_add_all(nn.Module):
 
 class UnetBlock_with_z(nn.Module):
 
-    def __init__(self, input_nc, outer_nc, inner_nc, nz=0, submodule=None,
-        outermost=False, innermost=False, norm_layer=None, nl_layer=None,
-        use_dropout=False, upsample='basic', padding_type='zero'):
+    def __init__(self, input_nc, outer_nc, inner_nc, nz=0, submodule=None, outermost=False, innermost=False, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic', padding_type='zero'):
         super(UnetBlock_with_z, self).__init__()
         p = 0
         downconv = []
@@ -570,31 +507,26 @@ class UnetBlock_with_z(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
         self.outermost = outermost
         self.innermost = innermost
         self.nz = nz
         input_nc = input_nc + nz
-        downconv += [nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=p)]
+        downconv += [nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=p)]
         downrelu = nn.LeakyReLU(0.2, True)
         uprelu = nl_layer()
         if outermost:
-            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=
-                upsample, padding_type=padding_type)
+            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=upsample, padding_type=padding_type)
             down = downconv
             up = [uprelu] + upconv + [nn.Tanh()]
         elif innermost:
-            upconv = upsampleLayer(inner_nc, outer_nc, upsample=upsample,
-                padding_type=padding_type)
+            upconv = upsampleLayer(inner_nc, outer_nc, upsample=upsample, padding_type=padding_type)
             down = [downrelu] + downconv
             up = [uprelu] + upconv
             if norm_layer is not None:
                 up += [norm_layer(outer_nc)]
         else:
-            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=
-                upsample, padding_type=padding_type)
+            upconv = upsampleLayer(inner_nc * 2, outer_nc, upsample=upsample, padding_type=padding_type)
             down = [downrelu] + downconv
             if norm_layer is not None:
                 down += [norm_layer(inner_nc)]
@@ -609,8 +541,7 @@ class UnetBlock_with_z(nn.Module):
 
     def forward(self, x, z):
         if self.nz > 0:
-            z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.
-                size(1), x.size(2), x.size(3))
+            z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
             x_and_z = torch.cat([x, z_img], 1)
         else:
             x_and_z = x
@@ -629,20 +560,17 @@ class UnetBlock_with_z(nn.Module):
 
 class E_NLayers(nn.Module):
 
-    def __init__(self, input_nc, output_nc=1, ndf=64, n_layers=3,
-        norm_layer=None, nl_layer=None, vae=False):
+    def __init__(self, input_nc, output_nc=1, ndf=64, n_layers=3, norm_layer=None, nl_layer=None, vae=False):
         super(E_NLayers, self).__init__()
         self.vae = vae
         kw, padw = 4, 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nl_layer()]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nl_layer()]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 4)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw)]
             if norm_layer is not None:
                 sequence += [norm_layer(ndf * nf_mult)]
             sequence += [nl_layer()]
@@ -664,21 +592,15 @@ class E_NLayers(nn.Module):
 
 class G_Resnet(nn.Module):
 
-    def __init__(self, input_nc, output_nc, nz, num_downs, n_res, ngf=64,
-        norm=None, nl_layer=None):
+    def __init__(self, input_nc, output_nc, nz, num_downs, n_res, ngf=64, norm=None, nl_layer=None):
         super(G_Resnet, self).__init__()
         n_downsample = num_downs
         pad_type = 'reflect'
-        self.enc_content = ContentEncoder(n_downsample, n_res, input_nc,
-            ngf, norm, nl_layer, pad_type=pad_type)
+        self.enc_content = ContentEncoder(n_downsample, n_res, input_nc, ngf, norm, nl_layer, pad_type=pad_type)
         if nz == 0:
-            self.dec = Decoder(n_downsample, n_res, self.enc_content.
-                output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=
-                pad_type, nz=nz)
+            self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=pad_type, nz=nz)
         else:
-            self.dec = Decoder_all(n_downsample, n_res, self.enc_content.
-                output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=
-                pad_type, nz=nz)
+            self.dec = Decoder_all(n_downsample, n_res, self.enc_content.output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=pad_type, nz=nz)
 
     def decode(self, content, style=None):
         return self.dec(content, style)
@@ -691,11 +613,9 @@ class G_Resnet(nn.Module):
 
 class E_adaIN(nn.Module):
 
-    def __init__(self, input_nc, output_nc=1, nef=64, n_layers=4, norm=None,
-        nl_layer=None, vae=False):
+    def __init__(self, input_nc, output_nc=1, nef=64, n_layers=4, norm=None, nl_layer=None, vae=False):
         super(E_adaIN, self).__init__()
-        self.enc_style = StyleEncoder(n_layers, input_nc, nef, output_nc,
-            norm='none', activ='relu', vae=vae)
+        self.enc_style = StyleEncoder(n_layers, input_nc, nef, output_nc, norm='none', activ='relu', vae=vae)
 
     def forward(self, image):
         style = self.enc_style(image)
@@ -704,20 +624,16 @@ class E_adaIN(nn.Module):
 
 class StyleEncoder(nn.Module):
 
-    def __init__(self, n_downsample, input_dim, dim, style_dim, norm, activ,
-        vae=False):
+    def __init__(self, n_downsample, input_dim, dim, style_dim, norm, activ, vae=False):
         super(StyleEncoder, self).__init__()
         self.vae = vae
         self.model = []
-        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm,
-            activation=activ, pad_type='reflect')]
+        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type='reflect')]
         for i in range(2):
-            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm,
-                activation=activ, pad_type='reflect')]
+            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
             dim *= 2
         for i in range(n_downsample - 2):
-            self.model += [Conv2dBlock(dim, dim, 4, 2, 1, norm=norm,
-                activation=activ, pad_type='reflect')]
+            self.model += [Conv2dBlock(dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
         self.model += [nn.AdaptiveAvgPool2d(1)]
         if self.vae:
             self.fc_mean = nn.Linear(dim, style_dim)
@@ -740,18 +656,14 @@ class StyleEncoder(nn.Module):
 
 class ContentEncoder(nn.Module):
 
-    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ,
-        pad_type='zero'):
+    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type='zero'):
         super(ContentEncoder, self).__init__()
         self.model = []
-        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm,
-            activation=activ, pad_type='reflect')]
+        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type='reflect')]
         for i in range(n_downsample):
-            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm,
-                activation=activ, pad_type='reflect')]
+            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
             dim *= 2
-        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ,
-            pad_type=pad_type)]
+        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
         self.output_dim = dim
 
@@ -760,30 +672,23 @@ class ContentEncoder(nn.Module):
 
 
 def cat_feature(x, y):
-    y_expand = y.view(y.size(0), y.size(1), 1, 1).expand(y.size(0), y.size(
-        1), x.size(2), x.size(3))
+    y_expand = y.view(y.size(0), y.size(1), 1, 1).expand(y.size(0), y.size(1), x.size(2), x.size(3))
     x_cat = torch.cat([x, y_expand], 1)
     return x_cat
 
 
 class Decoder_all(nn.Module):
 
-    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch',
-        activ='relu', pad_type='zero', nz=0):
+    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch', activ='relu', pad_type='zero', nz=0):
         super(Decoder_all, self).__init__()
-        self.resnet_block = ResBlocks(n_res, dim, norm, activ, pad_type=
-            pad_type, nz=nz)
+        self.resnet_block = ResBlocks(n_res, dim, norm, activ, pad_type=pad_type, nz=nz)
         self.n_blocks = 0
         for i in range(n_upsample):
-            block = [Upsample(scale_factor=2), Conv2dBlock(dim + nz, dim //
-                2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
-            setattr(self, 'block_{:d}'.format(self.n_blocks), nn.Sequential
-                (*block))
+            block = [Upsample(scale_factor=2), Conv2dBlock(dim + nz, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
+            setattr(self, 'block_{:d}'.format(self.n_blocks), nn.Sequential(*block))
             self.n_blocks += 1
             dim //= 2
-        setattr(self, 'block_{:d}'.format(self.n_blocks), Conv2dBlock(dim +
-            nz, output_dim, 7, 1, 3, norm='none', activation='tanh',
-            pad_type='reflect'))
+        setattr(self, 'block_{:d}'.format(self.n_blocks), Conv2dBlock(dim + nz, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect'))
         self.n_blocks += 1
 
     def forward(self, x, y=None):
@@ -800,23 +705,18 @@ class Decoder_all(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch',
-        activ='relu', pad_type='zero', nz=0):
+    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch', activ='relu', pad_type='zero', nz=0):
         super(Decoder, self).__init__()
         self.model = []
-        self.model += [ResBlocks(n_res, dim, norm, activ, pad_type=pad_type,
-            nz=nz)]
+        self.model += [ResBlocks(n_res, dim, norm, activ, pad_type=pad_type, nz=nz)]
         for i in range(n_upsample):
             if i == 0:
                 input_dim = dim + nz
             else:
                 input_dim = dim
-            self.model += [Upsample(scale_factor=2), Conv2dBlock(input_dim,
-                dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type=
-                'reflect')]
+            self.model += [Upsample(scale_factor=2), Conv2dBlock(input_dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
             dim //= 2
-        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none',
-            activation='tanh', pad_type='reflect')]
+        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect')]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x, y=None):
@@ -828,13 +728,11 @@ class Decoder(nn.Module):
 
 class ResBlocks(nn.Module):
 
-    def __init__(self, num_blocks, dim, norm='inst', activation='relu',
-        pad_type='zero', nz=0):
+    def __init__(self, num_blocks, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
         super(ResBlocks, self).__init__()
         self.model = []
         for i in range(num_blocks):
-            self.model += [ResBlock(dim, norm=norm, activation=activation,
-                pad_type=pad_type, nz=nz)]
+            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type, nz=nz)]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
@@ -843,14 +741,11 @@ class ResBlocks(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, dim, norm='inst', activation='relu', pad_type='zero',
-        nz=0):
+    def __init__(self, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
         super(ResBlock, self).__init__()
         model = []
-        model += [Conv2dBlock(dim + nz, dim, 3, 1, 1, norm=norm, activation
-            =activation, pad_type=pad_type)]
-        model += [Conv2dBlock(dim, dim + nz, 3, 1, 1, norm=norm, activation
-            ='none', pad_type=pad_type)]
+        model += [Conv2dBlock(dim + nz, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+        model += [Conv2dBlock(dim, dim + nz, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
         self.model = nn.Sequential(*model)
 
     def forward(self, x):
@@ -862,8 +757,7 @@ class ResBlock(nn.Module):
 
 class Conv2dBlock(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=
-        0, norm='none', activation='relu', pad_type='zero'):
+    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero'):
         super(Conv2dBlock, self).__init__()
         self.use_bias = True
         if pad_type == 'reflect':
@@ -897,8 +791,7 @@ class Conv2dBlock(nn.Module):
             self.activation = None
         else:
             assert 0, 'Unsupported activation: {}'.format(activation)
-        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride,
-            bias=self.use_bias)
+        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
 
     def forward(self, x):
         x = self.conv(self.pad(x))
@@ -991,16 +884,13 @@ def get_norm_layer(layer_type='inst'):
     elif layer_type == 'batch3d':
         norm_layer = functools.partial(nn.BatchNorm3d, affine=True)
     elif layer_type == 'inst':
-        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False,
-            track_running_stats=False)
+        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
     elif layer_type == 'inst3d':
-        norm_layer = functools.partial(nn.InstanceNorm3d, affine=False,
-            track_running_stats=False)
+        norm_layer = functools.partial(nn.InstanceNorm3d, affine=False, track_running_stats=False)
     elif layer_type == 'none':
         norm_layer = None
     else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            layer_type)
+        raise NotImplementedError('normalization layer [%s] is not found' % layer_type)
     return norm_layer
 
 
@@ -1013,25 +903,21 @@ def toRGB(input_nc, output_nc, bias, zero_mean=False, sig=True):
 
 class _netG0(nn.Module):
 
-    def __init__(self, bias, res, nz=200, ngf=64, max_nf=8, nc=1, norm='batch'
-        ):
+    def __init__(self, bias, res, nz=200, ngf=64, max_nf=8, nc=1, norm='batch'):
         super(_netG0, self).__init__()
         norm_layer = get_norm_layer(layer_type=norm)
         self.res = res
-        self.block_0 = nn.Sequential(*[nn.ConvTranspose3d(nz, ngf * max_nf,
-            4, 1, 0, bias=bias), norm_layer(ngf * 8), nn.ReLU(True)])
+        self.block_0 = nn.Sequential(*[nn.ConvTranspose3d(nz, ngf * max_nf, 4, 1, 0, bias=bias), norm_layer(ngf * 8), nn.ReLU(True)])
         self.n_blocks = 1
         input_dim = ngf * max_nf
         n_layers = int(math.log(res, 2)) - 3
         for n in range(n_layers):
             input_nc = int(max(ngf, input_dim))
             output_nc = int(max(ngf, input_dim // 2))
-            setattr(self, 'block_{:d}'.format(self.n_blocks), deconvBlock(
-                input_nc, output_nc, bias, norm_layer=norm_layer, nl='relu'))
+            setattr(self, 'block_{:d}'.format(self.n_blocks), deconvBlock(input_nc, output_nc, bias, norm_layer=norm_layer, nl='relu'))
             input_dim /= 2
             self.n_blocks += 1
-        setattr(self, 'toRGB_{:d}'.format(res), toRGB(output_nc, nc, bias,
-            sig=False))
+        setattr(self, 'toRGB_{:d}'.format(res), toRGB(output_nc, nc, bias, sig=False))
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, input, return_stat=False):
@@ -1043,8 +929,7 @@ class _netG0(nn.Module):
         output = toRGB(output)
         output = output / 2
         if return_stat:
-            stat = [output.max().item(), output.min().item(), output.std().
-                item(), output.mean().item()]
+            stat = [output.max().item(), output.min().item(), output.std().item(), output.mean().item()]
             return self.sigmoid(output), stat
         else:
             return self.sigmoid(output)
@@ -1067,8 +952,7 @@ def fromRGB(input_nc, output_nc, bias):
 
 class _netD0(nn.Module):
 
-    def __init__(self, bias=False, res=128, final_res=128, nc=1, ndf=64,
-        max_nf=8, norm='none'):
+    def __init__(self, bias=False, res=128, final_res=128, nc=1, ndf=64, max_nf=8, norm='none'):
         super(_netD0, self).__init__()
         self.res = res
         self.n_blocks = 0
@@ -1076,18 +960,15 @@ class _netD0(nn.Module):
         n_layers = int(math.log(res, 2)) - 3
         n_final_layers = int(math.log(final_res, 2)) - 3
         self.offset = n_final_layers - n_layers
-        setattr(self, 'fromRGB_{:d}'.format(res), fromRGB(1, ndf * min(2 **
-            max(0, self.offset - 1), max_nf), bias))
+        setattr(self, 'fromRGB_{:d}'.format(res), fromRGB(1, ndf * min(2 ** max(0, self.offset - 1), max_nf), bias))
         for n in range(n_final_layers - n_layers, n_final_layers):
             input_nc = ndf * min(2 ** max(0, n - 1), max_nf)
             output_nc = ndf * min(2 ** n, max_nf)
             block_name = 'block_{}'.format(n)
-            setattr(self, block_name, convBlock(input_nc, output_nc, bias,
-                norm_layer))
+            setattr(self, block_name, convBlock(input_nc, output_nc, bias, norm_layer))
             self.n_blocks += 1
         block_name = 'block_{:d}'.format(n_final_layers)
-        setattr(self, block_name, nn.Conv3d(ndf * max_nf, 1, 4, 1, 0, bias=
-            bias))
+        setattr(self, block_name, nn.Conv3d(ndf * max_nf, 1, 4, 1, 0, bias=bias))
         self.n_blocks += 1
 
     def forward(self, input):
@@ -1101,8 +982,7 @@ class _netD0(nn.Module):
 
 class GetRotationMatrix(nn.Module):
 
-    def __init__(self, az_min=-np.pi / 2, az_max=np.pi / 2, ele_min=0,
-        ele_max=2 * np.pi / 9):
+    def __init__(self, az_min=-np.pi / 2, az_max=np.pi / 2, ele_min=0, ele_max=2 * np.pi / 9):
         super().__init__()
         self.az_max = az_max
         self.az_min = az_min
@@ -1132,8 +1012,7 @@ class GetRotationMatrix(nn.Module):
         if is_cuda:
             R_0 = R_0
         R = torch.bmm(R_rot, R_0)
-        zeros = angles_in.data.new_zeros([bn, 3, 1]).zero_().requires_grad_(
-            True)
+        zeros = angles_in.data.new_zeros([bn, 3, 1]).zero_().requires_grad_(True)
         return torch.cat((R, zeros), dim=2)
 
     def create_Rele(self, ele_cos, ele_sin):
@@ -1185,8 +1064,7 @@ class CroppingLayer(nn.Module):
     crop and pad output to have consistant size
     """
 
-    def __init__(self, output_size, sil_th=0.8, padding_pct=0.03,
-        no_largest=False):
+    def __init__(self, output_size, sil_th=0.8, padding_pct=0.03, no_largest=False):
         super().__init__()
         self.output_size = output_size
         self.threshold = nn.Threshold(sil_th, 0)
@@ -1221,18 +1099,14 @@ class CroppingLayer(nn.Module):
                 bbox[x, 1] = np.min(nz[1])
                 bbox[x, 2] = np.max(nz[0])
                 bbox[x, 3] = np.max(nz[1])
-                mask_largest_batch[(x), (0), :, :] = torch.from_numpy(
-                    mask_th_binary[(x), (0), :, :].astype(np.float32)).float()
+                mask_largest_batch[(x), (0), :, :] = torch.from_numpy(mask_th_binary[(x), (0), :, :].astype(np.float32)).float()
             else:
-                mask_th_binary_pad = np.pad(mask_th_binary[(x), (0), :, :],
-                    ((1, 1),), 'constant', constant_values=0).astype(np.uint8)
-                labeled, nr_objects = ndimage.measurements.label(
-                    mask_th_binary_pad)
+                mask_th_binary_pad = np.pad(mask_th_binary[(x), (0), :, :], ((1, 1),), 'constant', constant_values=0).astype(np.uint8)
+                labeled, nr_objects = ndimage.measurements.label(mask_th_binary_pad)
                 counts = np.bincount(labeled.flatten())
                 largest = np.argmax(counts[1:]) + 1
                 mask_largest = np.where(labeled == largest, 1, 0)[1:-1, 1:-1]
-                mask_largest_batch[(x), (0), :, :] = torch.from_numpy(
-                    mask_largest.astype(np.float32)).float()
+                mask_largest_batch[(x), (0), :, :] = torch.from_numpy(mask_largest.astype(np.float32)).float()
                 nz = np.nonzero(mask_largest)
                 bbox[x, 0] = np.min(nz[0])
                 bbox[x, 1] = np.min(nz[1])
@@ -1256,22 +1130,18 @@ class CroppingLayer(nn.Module):
             w = bbox[x, 3] + 1 - bbox[x, 1]
             h = int(h)
             w = int(w)
-            cropped_sil = exp_sil[(x), (0), bbox[x, 0]:bbox[x, 0] + h, bbox
-                [x, 1]:bbox[x, 1] + w]
+            cropped_sil = exp_sil[(x), (0), bbox[x, 0]:bbox[x, 0] + h, bbox[x, 1]:bbox[x, 1] + w]
             cropped_sil = cropped_sil.contiguous().view(1, 1, h, w)
-            cropped_depth = exp_depth[(x), (0), bbox[x, 0]:bbox[x, 0] + h,
-                bbox[x, 1]:bbox[x, 1] + w]
+            cropped_depth = exp_depth[(x), (0), bbox[x, 0]:bbox[x, 0] + h, bbox[x, 1]:bbox[x, 1] + w]
             cropped_depth = cropped_depth.contiguous().view(1, 1, h, w)
             if h > w:
                 dim = h
                 m_sil = nn.ConstantPad2d(((h - w) // 2, (h - w) // 2, 0, 0), 0)
-                m_depth = nn.ConstantPad2d(((h - w) // 2, (h - w) // 2, 0, 
-                    0), 3)
+                m_depth = nn.ConstantPad2d(((h - w) // 2, (h - w) // 2, 0, 0), 3)
             else:
                 dim = w
                 m_sil = nn.ConstantPad2d((0, 0, (w - h) // 2, (w - h) // 2), 0)
-                m_depth = nn.ConstantPad2d((0, 0, (w - h) // 2, (w - h) // 
-                    2), 3)
+                m_depth = nn.ConstantPad2d((0, 0, (w - h) // 2, (w - h) // 2), 3)
             pad = int(np.floor(dim * self.padding_pct))
             space_pad_depth = nn.ConstantPad2d((pad, pad, pad, pad), 3)
             space_pad_sil = nn.ConstantPad2d((pad, pad, pad, pad), 0)
@@ -1292,14 +1162,11 @@ def affine_grid3d(theta, size):
     return AffineGridGen3DFunction.apply(theta, size)
 
 
-typename_to_func_infix = {'torch.FloatTensor': 'VTN_Float_',
-    'torch.DoubleTensor': 'VTN_Double_', 'torch.cuda.FloatTensor':
-    'VTN_Cuda_', 'torch.cuda.DoubleTensor': 'VTN_CudaDouble_'}
+typename_to_func_infix = {'torch.FloatTensor': 'VTN_Float_', 'torch.DoubleTensor': 'VTN_Double_', 'torch.cuda.FloatTensor': 'VTN_Cuda_', 'torch.cuda.DoubleTensor': 'VTN_CudaDouble_'}
 
 
 def function_by_type(name_, typename):
-    assert typename in typename_to_func_infix, 'GridSampler3D only support data type: %s, got: %s' % (
-        str(list(typename_to_func_infix.keys())), typename)
+    assert typename in typename_to_func_infix, 'GridSampler3D only support data type: %s, got: %s' % (str(list(typename_to_func_infix.keys())), typename)
     return typename_to_func_infix[typename] + name_
 
 
@@ -1316,8 +1183,7 @@ def grid_sample3d(input, grid):
 
 class VoxelRenderLayer(nn.Module):
 
-    def __init__(self, voxel_shape, camera_distance=2.0, fl=0.05, w=0.0612,
-        res=128, nsamples_factor=1.5):
+    def __init__(self, voxel_shape, camera_distance=2.0, fl=0.05, w=0.0612, res=128, nsamples_factor=1.5):
         super().__init__()
         self.camera_distance = camera_distance
         self.fl = fl
@@ -1334,8 +1200,7 @@ class VoxelRenderLayer(nn.Module):
         if rotation_matrix is None:
             voxel_rot = voxel_in
         else:
-            voxel_rot_grid = self.affine_grid3d(rotation_matrix, voxel_in.shape
-                )
+            voxel_rot_grid = self.affine_grid3d(rotation_matrix, voxel_in.shape)
             voxel_rot = self.grid_sampler3d(voxel_in, voxel_rot_grid)
         voxel_align = self.grid_sampler3d(voxel_rot, self.grid)
         voxel_align = voxel_align.permute(0, 1, 3, 4, 2)
@@ -1356,8 +1221,7 @@ class VoxelRenderLayer(nn.Module):
         res = self.res
         w = self.w
         dist = self.camera_distance
-        self.register_buffer('depth_weight', torch.linspace(dist - 1, dist +
-            1, nsamples))
+        self.register_buffer('depth_weight', torch.linspace(dist - 1, dist + 1, nsamples))
         fl = self.fl
         grid = np.zeros([n, nsamples, res, res, 3], dtype=numtype)
         h_linspace = np.linspace(w / 2, -w / 2, res)
@@ -1374,8 +1238,7 @@ class VoxelRenderLayer(nn.Module):
         grid_vec_b = grid_vec * ((dist + 1) / fl)
         for idn in range(n):
             for ids in range(nsamples):
-                grid[(idn), (ids), :, :, :] = grid_vec_b - (1 - ids / nsamples
-                    ) * (grid_vec_b - grid_vec_a)
+                grid[(idn), (ids), :, :, :] = grid_vec_b - (1 - ids / nsamples) * (grid_vec_b - grid_vec_a)
         grid = grid + cam
         return torch.from_numpy(grid.astype(numtype))
 
@@ -1396,40 +1259,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dBlock,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (D_NLayersMulti,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Decoder,
+     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 64, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     False),
+    (Decoder_all,
+     lambda: ([], {'n_upsample': 4, 'n_res': 4, 'dim': 64, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (E_adaIN,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearBlock,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlocks,
+     lambda: ([], {'num_blocks': 4, 'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Upsample,
+     lambda: ([], {'scale_factor': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_junyanz_VON(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(D_NLayersMulti(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Decoder_all(*[], **{'n_upsample': 4, 'n_res': 4, 'dim': 64, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(E_adaIN(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LinearBlock(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(ResBlocks(*[], **{'num_blocks': 4, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Upsample(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

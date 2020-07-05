@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,18 +93,15 @@ class A3CLSTMNet(nn.Module):
         self.softmax_policy = nn.Softmax()
         self.linear_value_1 = nn.Linear(256, 1)
         self.apply(weights_init)
-        self.linear_policy_1.weight.data = normalized_columns_initializer(self
-            .linear_policy_1.weight.data, 0.01)
+        self.linear_policy_1.weight.data = normalized_columns_initializer(self.linear_policy_1.weight.data, 0.01)
         self.linear_policy_1.bias.data.fill_(0)
-        self.linear_value_1.weight.data = normalized_columns_initializer(self
-            .linear_value_1.weight.data, 1.0)
+        self.linear_value_1.weight.data = normalized_columns_initializer(self.linear_value_1.weight.data, 1.0)
         self.linear_value_1.bias.data.fill_(0)
         self.lstm.bias_ih.data.fill_(0)
         self.lstm.bias_hh.data.fill_(0)
 
     def forward(self, x, hidden):
-        x = x.view(-1, self.state_shape[0], self.state_shape[1], self.
-            state_shape[2])
+        x = x.view(-1, self.state_shape[0], self.state_shape[1], self.state_shape[2])
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -115,10 +113,3 @@ class A3CLSTMNet(nn.Module):
         v = self.linear_value_1(x)
         return pl, v, (x, c)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_onlytailei_A3C_PyTorch(_paritybench_base):
-    pass

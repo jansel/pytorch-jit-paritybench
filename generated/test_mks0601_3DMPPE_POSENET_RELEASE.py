@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,19 +81,12 @@ from torch.nn import functional as F
 class ResNetBackbone(nn.Module):
 
     def __init__(self, resnet_type):
-        resnet_spec = {(18): (BasicBlock, [2, 2, 2, 2], [64, 64, 128, 256, 
-            512], 'resnet18'), (34): (BasicBlock, [3, 4, 6, 3], [64, 64, 
-            128, 256, 512], 'resnet34'), (50): (Bottleneck, [3, 4, 6, 3], [
-            64, 256, 512, 1024, 2048], 'resnet50'), (101): (Bottleneck, [3,
-            4, 23, 3], [64, 256, 512, 1024, 2048], 'resnet101'), (152): (
-            Bottleneck, [3, 8, 36, 3], [64, 256, 512, 1024, 2048], 'resnet152')
-            }
+        resnet_spec = {(18): (BasicBlock, [2, 2, 2, 2], [64, 64, 128, 256, 512], 'resnet18'), (34): (BasicBlock, [3, 4, 6, 3], [64, 64, 128, 256, 512], 'resnet34'), (50): (Bottleneck, [3, 4, 6, 3], [64, 256, 512, 1024, 2048], 'resnet50'), (101): (Bottleneck, [3, 4, 23, 3], [64, 256, 512, 1024, 2048], 'resnet101'), (152): (Bottleneck, [3, 8, 36, 3], [64, 256, 512, 1024, 2048], 'resnet152')}
         block, layers, channels, name = resnet_spec[resnet_type]
         self.name = name
         self.inplanes = 64
         super(ResNetBackbone, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -110,9 +104,7 @@ class ResNetBackbone(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -149,16 +141,12 @@ class HeadNet(nn.Module):
         self.outplanes = 256
         super(HeadNet, self).__init__()
         self.deconv_layers = self._make_deconv_layer(3)
-        self.final_layer = nn.Conv2d(in_channels=self.inplanes,
-            out_channels=joint_num * cfg.depth_dim, kernel_size=1, stride=1,
-            padding=0)
+        self.final_layer = nn.Conv2d(in_channels=self.inplanes, out_channels=joint_num * cfg.depth_dim, kernel_size=1, stride=1, padding=0)
 
     def _make_deconv_layer(self, num_layers):
         layers = []
         for i in range(num_layers):
-            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes,
-                out_channels=self.outplanes, kernel_size=4, stride=2,
-                padding=1, output_padding=0, bias=False))
+            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes, out_channels=self.outplanes, kernel_size=4, stride=2, padding=1, output_padding=0, bias=False))
             layers.append(nn.BatchNorm2d(self.outplanes))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = self.outplanes
@@ -186,23 +174,15 @@ _global_config['output_shape'] = 4
 
 
 def soft_argmax(heatmaps, joint_num):
-    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim * cfg.
-        output_shape[0] * cfg.output_shape[1]))
+    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim * cfg.output_shape[0] * cfg.output_shape[1]))
     heatmaps = F.softmax(heatmaps, 2)
-    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim, cfg.
-        output_shape[0], cfg.output_shape[1]))
+    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim, cfg.output_shape[0], cfg.output_shape[1]))
     accu_x = heatmaps.sum(dim=(2, 3))
     accu_y = heatmaps.sum(dim=(2, 4))
     accu_z = heatmaps.sum(dim=(3, 4))
-    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.
-        output_shape[1] + 1).type(torch.cuda.FloatTensor), devices=[accu_x.
-        device.index])[0]
-    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.
-        output_shape[0] + 1).type(torch.cuda.FloatTensor), devices=[accu_y.
-        device.index])[0]
-    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.
-        depth_dim + 1).type(torch.cuda.FloatTensor), devices=[accu_z.device
-        .index])[0]
+    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.cuda.FloatTensor), devices=[accu_x.device.index])[0]
+    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.cuda.FloatTensor), devices=[accu_y.device.index])[0]
+    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.cuda.FloatTensor), devices=[accu_z.device.index])[0]
     accu_x = accu_x.sum(dim=2, keepdim=True) - 1
     accu_y = accu_y.sum(dim=2, keepdim=True) - 1
     accu_z = accu_z.sum(dim=2, keepdim=True) - 1
@@ -229,8 +209,7 @@ class ResPoseNet(nn.Module):
             target_vis = target['vis']
             target_have_depth = target['have_depth']
             loss_coord = torch.abs(coord - target_coord) * target_vis
-            loss_coord = (loss_coord[:, :, (0)] + loss_coord[:, :, (1)] + 
-                loss_coord[:, :, (2)] * target_have_depth) / 3.0
+            loss_coord = (loss_coord[:, :, (0)] + loss_coord[:, :, (1)] + loss_coord[:, :, (2)] * target_have_depth) / 3.0
             return loss_coord
 
 
@@ -238,8 +217,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (HeadNet,
+     lambda: ([], {'joint_num': 4}),
+     lambda: ([torch.rand([4, 2048, 4, 4])], {}),
+     True),
+]
+
 class Test_mks0601_3DMPPE_POSENET_RELEASE(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(HeadNet(*[], **{'joint_num': 4}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

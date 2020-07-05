@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -101,8 +102,7 @@ class SphereTemplate(Template):
         assert shape[1] == 3, 'shape should have 3 in dim 1'
         rand_grid = torch.cuda.FloatTensor(shape).to(device).float()
         rand_grid.data.normal_(0, 1)
-        rand_grid = rand_grid / torch.sqrt(torch.sum(rand_grid ** 2, dim=1,
-            keepdim=True))
+        rand_grid = rand_grid / torch.sqrt(torch.sum(rand_grid ** 2, dim=1, keepdim=True))
         return Variable(rand_grid)
 
     def get_regular_points(self, npoints=None, device='gpu0'):
@@ -112,8 +112,7 @@ class SphereTemplate(Template):
         """
         if not self.npoints == npoints:
             self.mesh = pymesh.generate_icosphere(1, [0, 0, 0], 4)
-            self.vertex = torch.from_numpy(self.mesh.vertices).to(device
-                ).float()
+            self.vertex = torch.from_numpy(self.mesh.vertices).to(device).float()
             self.num_vertex = self.vertex.size(0)
             self.vertex = self.vertex.transpose(0, 1).contiguous().unsqueeze(0)
             self.npoints = npoints
@@ -145,8 +144,7 @@ class SquareTemplate(Template):
             self.npoints = npoints
             vertices, faces = self.generate_square(np.sqrt(npoints))
             self.mesh = pymesh.form_mesh(vertices=vertices, faces=faces)
-            self.vertex = torch.from_numpy(self.mesh.vertices).to(device
-                ).float()
+            self.vertex = torch.from_numpy(self.mesh.vertices).to(device).float()
             self.num_vertex = self.vertex.size(0)
             self.vertex = self.vertex.transpose(0, 1).contiguous().unsqueeze(0)
         return Variable(self.vertex[:, :2].contiguous().to(device))
@@ -167,12 +165,10 @@ class SquareTemplate(Template):
                 vertices.append([i / grain, j / grain, 0])
         for i in range(1, int(grain + 1)):
             for j in range(0, int(grain + 1) - 1):
-                faces.append([j + (grain + 1) * i, j + (grain + 1) * i + 1,
-                    j + (grain + 1) * (i - 1)])
+                faces.append([j + (grain + 1) * i, j + (grain + 1) * i + 1, j + (grain + 1) * (i - 1)])
         for i in range(0, int(grain + 1) - 1):
             for j in range(1, int(grain + 1)):
-                faces.append([j + (grain + 1) * i, j + (grain + 1) * i - 1,
-                    j + (grain + 1) * (i + 1)])
+                faces.append([j + (grain + 1) * i, j + (grain + 1) * i - 1, j + (grain + 1) * (i + 1)])
         return np.array(vertices), np.array(faces)
 
 
@@ -195,15 +191,12 @@ class Atlasnet(nn.Module):
         self.opt = opt
         self.device = opt.device
         self.nb_pts_in_primitive = opt.number_points // opt.nb_primitives
-        self.nb_pts_in_primitive_eval = (opt.number_points_eval // opt.
-            nb_primitives)
+        self.nb_pts_in_primitive_eval = opt.number_points_eval // opt.nb_primitives
         if opt.remove_all_batchNorms:
             torch.nn.BatchNorm1d = Identity
             None
-        self.template = [get_template(opt.template_type, device=opt.device) for
-            i in range(0, opt.nb_primitives)]
-        self.decoder = nn.ModuleList([Mapping2Dto3D(opt) for i in range(0,
-            opt.nb_primitives)])
+        self.template = [get_template(opt.template_type, device=opt.device) for i in range(0, opt.nb_primitives)]
+        self.decoder = nn.ModuleList([Mapping2Dto3D(opt) for i in range(0, opt.nb_primitives)])
 
     def forward(self, latent_vector, train=True):
         """
@@ -212,29 +205,18 @@ class Atlasnet(nn.Module):
         :return: A deformed pointcloud os size : batch, nb_prim, num_point, 3
         """
         if train:
-            input_points = [self.template[i].get_random_points(torch.Size((
-                1, self.template[i].dim, self.nb_pts_in_primitive)),
-                latent_vector.device) for i in range(self.opt.nb_primitives)]
+            input_points = [self.template[i].get_random_points(torch.Size((1, self.template[i].dim, self.nb_pts_in_primitive)), latent_vector.device) for i in range(self.opt.nb_primitives)]
         else:
-            input_points = [self.template[i].get_regular_points(self.
-                nb_pts_in_primitive_eval, device=latent_vector.device) for
-                i in range(self.opt.nb_primitives)]
-        output_points = torch.cat([self.decoder[i](input_points[i],
-            latent_vector.unsqueeze(2)).unsqueeze(1) for i in range(0, self
-            .opt.nb_primitives)], dim=1)
+            input_points = [self.template[i].get_regular_points(self.nb_pts_in_primitive_eval, device=latent_vector.device) for i in range(self.opt.nb_primitives)]
+        output_points = torch.cat([self.decoder[i](input_points[i], latent_vector.unsqueeze(2)).unsqueeze(1) for i in range(0, self.opt.nb_primitives)], dim=1)
         return output_points.contiguous()
 
     def generate_mesh(self, latent_vector):
         assert latent_vector.size(0) == 1, 'input should have batch size 1!'
-        input_points = [self.template[i].get_regular_points(self.
-            nb_pts_in_primitive, latent_vector.device) for i in range(self.
-            opt.nb_primitives)]
+        input_points = [self.template[i].get_regular_points(self.nb_pts_in_primitive, latent_vector.device) for i in range(self.opt.nb_primitives)]
         input_points = [input_points[i] for i in range(self.opt.nb_primitives)]
-        output_points = [self.decoder[i](input_points[i], latent_vector.
-            unsqueeze(2)).squeeze() for i in range(0, self.opt.nb_primitives)]
-        output_meshes = [pymesh.form_mesh(vertices=output_points[i].
-            transpose(1, 0).contiguous().cpu().numpy(), faces=self.template
-            [i].mesh.faces) for i in range(self.opt.nb_primitives)]
+        output_points = [self.decoder[i](input_points[i], latent_vector.unsqueeze(2)).squeeze() for i in range(0, self.opt.nb_primitives)]
+        output_meshes = [pymesh.form_mesh(vertices=output_points[i].transpose(1, 0).contiguous().cpu().numpy(), faces=self.template[i].mesh.faces) for i in range(self.opt.nb_primitives)]
         mesh = pymesh.merge_meshes(output_meshes)
         return mesh
 
@@ -255,8 +237,7 @@ class EncoderDecoder(nn.Module):
     def __init__(self, opt):
         super(EncoderDecoder, self).__init__()
         if opt.SVR:
-            self.encoder = resnet.resnet18(pretrained=False, num_classes=
-                opt.bottleneck_size)
+            self.encoder = resnet.resnet18(pretrained=False, num_classes=opt.bottleneck_size)
         else:
             self.encoder = PointNet(nlatent=opt.bottleneck_size)
         self.decoder = Atlasnet(opt)
@@ -315,8 +296,7 @@ class PointNet(nn.Module):
 
 
 def get_activation(argument):
-    getter = {'relu': F.relu, 'sigmoid': F.sigmoid, 'softplus': F.softplus,
-        'logsigmoid': F.logsigmoid, 'softsign': F.softsign, 'tanh': F.tanh}
+    getter = {'relu': F.relu, 'sigmoid': F.sigmoid, 'softplus': F.softplus, 'logsigmoid': F.logsigmoid, 'softsign': F.softsign, 'tanh': F.tanh}
     return getter.get(argument, 'Invalid activation')
 
 
@@ -340,16 +320,12 @@ class Mapping2Dto3D(nn.Module):
         super(Mapping2Dto3D, self).__init__()
         None
         self.conv1 = torch.nn.Conv1d(self.input_size, self.bottleneck_size, 1)
-        self.conv2 = torch.nn.Conv1d(self.bottleneck_size, self.
-            hidden_neurons, 1)
-        self.conv_list = nn.ModuleList([torch.nn.Conv1d(self.hidden_neurons,
-            self.hidden_neurons, 1) for i in range(self.num_layers)])
-        self.last_conv = torch.nn.Conv1d(self.hidden_neurons, self.
-            dim_output, 1)
+        self.conv2 = torch.nn.Conv1d(self.bottleneck_size, self.hidden_neurons, 1)
+        self.conv_list = nn.ModuleList([torch.nn.Conv1d(self.hidden_neurons, self.hidden_neurons, 1) for i in range(self.num_layers)])
+        self.last_conv = torch.nn.Conv1d(self.hidden_neurons, self.dim_output, 1)
         self.bn1 = torch.nn.BatchNorm1d(self.bottleneck_size)
         self.bn2 = torch.nn.BatchNorm1d(self.hidden_neurons)
-        self.bn_list = nn.ModuleList([torch.nn.BatchNorm1d(self.
-            hidden_neurons) for i in range(self.num_layers)])
+        self.bn_list = nn.ModuleList([torch.nn.BatchNorm1d(self.hidden_neurons) for i in range(self.num_layers)])
         self.activation = get_activation(opt.activation)
 
     def forward(self, x, latent):
@@ -363,8 +339,7 @@ class Mapping2Dto3D(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -401,8 +376,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -432,8 +406,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -454,9 +427,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -483,14 +454,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PointNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     True),
+]
+
 class Test_ThibaultGROUEIX_AtlasNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(PointNet(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[2])
 

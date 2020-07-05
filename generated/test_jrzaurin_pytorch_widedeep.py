@@ -54,8 +54,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -258,8 +259,7 @@ class FocalLoss(nn.Module):
             binary_target = binary_target
         binary_target = binary_target.contiguous()
         weight = self.get_weight(input, binary_target)
-        return F.binary_cross_entropy_with_logits(input, binary_target,
-            weight, reduction='mean')
+        return F.binary_cross_entropy_with_logits(input, binary_target, weight, reduction='mean')
 
 
 def dense_layer(inp: int, out: int, p: float=0.0, bn=False):
@@ -329,17 +329,13 @@ class DeepDense(nn.Module):
            grad_fn=<LeakyReluBackward1>)
     """
 
-    def __init__(self, deep_column_idx: Dict[str, int], hidden_layers: List
-        [int], batchnorm: bool=False, dropout: Optional[List[float]]=None,
-        embed_input: Optional[List[Tuple[str, int, int]]]=None, embed_p:
-        float=0.0, continuous_cols: Optional[List[str]]=None):
+    def __init__(self, deep_column_idx: Dict[str, int], hidden_layers: List[int], batchnorm: bool=False, dropout: Optional[List[float]]=None, embed_input: Optional[List[Tuple[str, int, int]]]=None, embed_p: float=0.0, continuous_cols: Optional[List[str]]=None):
         super(DeepDense, self).__init__()
         self.embed_input = embed_input
         self.continuous_cols = continuous_cols
         self.deep_column_idx = deep_column_idx
         if self.embed_input is not None:
-            self.embed_layers = nn.ModuleDict({('emb_layer_' + col): nn.
-                Embedding(val, dim) for col, val, dim in self.embed_input})
+            self.embed_layers = nn.ModuleDict({('emb_layer_' + col): nn.Embedding(val, dim) for col, val, dim in self.embed_input})
             self.embed_dropout = nn.Dropout(embed_p)
             emb_inp_dim = np.sum([embed[2] for embed in self.embed_input])
         else:
@@ -354,37 +350,27 @@ class DeepDense(nn.Module):
             dropout = [0.0] * len(hidden_layers)
         self.dense = nn.Sequential()
         for i in range(1, len(hidden_layers)):
-            self.dense.add_module('dense_layer_{}'.format(i - 1),
-                dense_layer(hidden_layers[i - 1], hidden_layers[i], dropout
-                [i - 1], batchnorm))
+            self.dense.add_module('dense_layer_{}'.format(i - 1), dense_layer(hidden_layers[i - 1], hidden_layers[i], dropout[i - 1], batchnorm))
         self.output_dim = hidden_layers[-1]
 
     def forward(self, X: Tensor) ->Tensor:
         if self.embed_input is not None:
-            x = [self.embed_layers['emb_layer_' + col](X[:, (self.
-                deep_column_idx[col])].long()) for col, _, _ in self.
-                embed_input]
+            x = [self.embed_layers['emb_layer_' + col](X[:, (self.deep_column_idx[col])].long()) for col, _, _ in self.embed_input]
             x = torch.cat(x, 1)
             x = self.embed_dropout(x)
         if self.continuous_cols is not None:
-            cont_idx = [self.deep_column_idx[col] for col in self.
-                continuous_cols]
+            cont_idx = [self.deep_column_idx[col] for col in self.continuous_cols]
             x_cont = X[:, (cont_idx)].float()
-            x = torch.cat([x, x_cont], 1
-                ) if self.embed_input is not None else x_cont
+            x = torch.cat([x, x_cont], 1) if self.embed_input is not None else x_cont
         return self.dense(x)
 
 
-def conv_layer(ni: int, nf: int, ks: int=3, stride: int=1, maxpool: bool=
-    True, adaptiveavgpool: bool=False):
-    layer = nn.Sequential(nn.Conv2d(ni, nf, kernel_size=ks, bias=True,
-        stride=stride, padding=ks // 2), nn.BatchNorm2d(nf, momentum=0.01),
-        nn.LeakyReLU(negative_slope=0.1, inplace=True))
+def conv_layer(ni: int, nf: int, ks: int=3, stride: int=1, maxpool: bool=True, adaptiveavgpool: bool=False):
+    layer = nn.Sequential(nn.Conv2d(ni, nf, kernel_size=ks, bias=True, stride=stride, padding=ks // 2), nn.BatchNorm2d(nf, momentum=0.01), nn.LeakyReLU(negative_slope=0.1, inplace=True))
     if maxpool:
         layer.add_module('maxpool', nn.MaxPool2d(2, 2))
     if adaptiveavgpool:
-        layer.add_module('adaptiveavgpool', nn.AdaptiveAvgPool2d(
-            output_size=(1, 1)))
+        layer.add_module('adaptiveavgpool', nn.AdaptiveAvgPool2d(output_size=(1, 1)))
     return layer
 
 
@@ -444,9 +430,7 @@ class DeepImage(nn.Module):
               1.5416e-01,  3.9227e-01,  5.5048e-01]], grad_fn=<LeakyReluBackward1>)
     """
 
-    def __init__(self, pretrained: bool=True, resnet: int=18, freeze: Union
-        [str, int]=6, head_layers: Optional[List[int]]=None, head_dropout:
-        Optional[List[float]]=None, head_batchnorm: Optional[bool]=False):
+    def __init__(self, pretrained: bool=True, resnet: int=18, freeze: Union[str, int]=6, head_layers: Optional[List[int]]=None, head_dropout: Optional[List[float]]=None, head_batchnorm: Optional[bool]=False):
         super(DeepImage, self).__init__()
         self.head_layers = head_layers
         if pretrained:
@@ -475,22 +459,15 @@ class DeepImage(nn.Module):
                 backbone_layers = frozen_layers + trainable_layers
                 self.backbone = nn.Sequential(*backbone_layers)
         else:
-            self.backbone = nn.Sequential(conv_layer(3, 64, 3), conv_layer(
-                64, 128, 1, maxpool=False), conv_layer(128, 256, 1, maxpool
-                =False), conv_layer(256, 512, 1, maxpool=False,
-                adaptiveavgpool=True))
+            self.backbone = nn.Sequential(conv_layer(3, 64, 3), conv_layer(64, 128, 1, maxpool=False), conv_layer(128, 256, 1, maxpool=False), conv_layer(256, 512, 1, maxpool=False, adaptiveavgpool=True))
         self.output_dim = 512
         if self.head_layers is not None:
-            assert self.head_layers[0
-                ] == self.output_dim, 'The output dimension from the backbone ({}) is not consistent with the expected input dimension ({}) of the fc-head'.format(
-                self.output_dim, self.head_layers[0])
+            assert self.head_layers[0] == self.output_dim, 'The output dimension from the backbone ({}) is not consistent with the expected input dimension ({}) of the fc-head'.format(self.output_dim, self.head_layers[0])
             if not head_dropout:
                 head_dropout = [0.0] * len(head_layers)
             self.imagehead = nn.Sequential()
             for i in range(1, len(head_layers)):
-                self.imagehead.add_module('dense_layer_{}'.format(i - 1),
-                    dense_layer(head_layers[i - 1], head_layers[i],
-                    head_dropout[i - 1], head_batchnorm))
+                self.imagehead.add_module('dense_layer_{}'.format(i - 1), dense_layer(head_layers[i - 1], head_layers[i], head_dropout[i - 1], head_batchnorm))
             self.output_dim = head_layers[-1]
 
     def forward(self, x: Tensor) ->Tensor:
@@ -564,45 +541,28 @@ class DeepText(nn.Module):
             [-0.0268,  0.0294, -0.0988, -0.0666]], grad_fn=<SelectBackward>)
     """
 
-    def __init__(self, vocab_size: int, hidden_dim: int=64, n_layers: int=3,
-        rnn_dropout: float=0.0, bidirectional: bool=False, padding_idx: int
-        =1, embed_dim: Optional[int]=None, embedding_matrix: Optional[np.
-        ndarray]=None, head_layers: Optional[List[int]]=None, head_dropout:
-        Optional[List[float]]=None, head_batchnorm: Optional[bool]=False):
+    def __init__(self, vocab_size: int, hidden_dim: int=64, n_layers: int=3, rnn_dropout: float=0.0, bidirectional: bool=False, padding_idx: int=1, embed_dim: Optional[int]=None, embedding_matrix: Optional[np.ndarray]=None, head_layers: Optional[List[int]]=None, head_dropout: Optional[List[float]]=None, head_batchnorm: Optional[bool]=False):
         super(DeepText, self).__init__()
-        if (embed_dim is not None and embedding_matrix is not None and not 
-            embed_dim == embedding_matrix.shape[1]):
-            warnings.warn(
-                'the input embedding dimension {} and the dimension of the pretrained embeddings {} do not match. The pretrained embeddings dimension ({}) will be used'
-                .format(embed_dim, embedding_matrix.shape[1],
-                embedding_matrix.shape[1]), UserWarning)
+        if embed_dim is not None and embedding_matrix is not None and not embed_dim == embedding_matrix.shape[1]:
+            warnings.warn('the input embedding dimension {} and the dimension of the pretrained embeddings {} do not match. The pretrained embeddings dimension ({}) will be used'.format(embed_dim, embedding_matrix.shape[1], embedding_matrix.shape[1]), UserWarning)
         self.bidirectional = bidirectional
         self.head_layers = head_layers
         if isinstance(embedding_matrix, np.ndarray):
-            assert embedding_matrix.dtype == 'float32', "'embedding_matrix' must be of dtype 'float32', got dtype '{}'".format(
-                str(embedding_matrix.dtype))
-            self.word_embed = nn.Embedding(vocab_size, embedding_matrix.
-                shape[1], padding_idx=padding_idx)
-            self.word_embed.weight = nn.Parameter(torch.tensor(
-                embedding_matrix), requires_grad=True)
+            assert embedding_matrix.dtype == 'float32', "'embedding_matrix' must be of dtype 'float32', got dtype '{}'".format(str(embedding_matrix.dtype))
+            self.word_embed = nn.Embedding(vocab_size, embedding_matrix.shape[1], padding_idx=padding_idx)
+            self.word_embed.weight = nn.Parameter(torch.tensor(embedding_matrix), requires_grad=True)
             embed_dim = embedding_matrix.shape[1]
         else:
-            self.word_embed = nn.Embedding(vocab_size, embed_dim,
-                padding_idx=padding_idx)
-        self.rnn = nn.LSTM(embed_dim, hidden_dim, num_layers=n_layers,
-            bidirectional=bidirectional, dropout=rnn_dropout, batch_first=True)
+            self.word_embed = nn.Embedding(vocab_size, embed_dim, padding_idx=padding_idx)
+        self.rnn = nn.LSTM(embed_dim, hidden_dim, num_layers=n_layers, bidirectional=bidirectional, dropout=rnn_dropout, batch_first=True)
         self.output_dim = hidden_dim * 2 if bidirectional else hidden_dim
         if self.head_layers is not None:
-            assert self.head_layers[0
-                ] == self.output_dim, 'The hidden dimension from the stack or RNNs ({}) is not consistent with the expected input dimension ({}) of the fc-head'.format(
-                self.output_dim, self.head_layers[0])
+            assert self.head_layers[0] == self.output_dim, 'The hidden dimension from the stack or RNNs ({}) is not consistent with the expected input dimension ({}) of the fc-head'.format(self.output_dim, self.head_layers[0])
             if not head_dropout:
                 head_dropout = [0.0] * len(head_layers)
             self.texthead = nn.Sequential()
             for i in range(1, len(head_layers)):
-                self.texthead.add_module('dense_layer_{}'.format(i - 1),
-                    dense_layer(head_layers[i - 1], head_layers[i],
-                    head_dropout[i - 1], head_batchnorm))
+                self.texthead.add_module('dense_layer_{}'.format(i - 1), dense_layer(head_layers[i - 1], head_layers[i], head_dropout[i - 1], head_batchnorm))
             self.output_dim = head_layers[-1]
 
     def forward(self, X: Tensor) ->Tensor:
@@ -787,12 +747,10 @@ class Metric(object):
         self._name = ''
 
     def reset(self):
-        raise NotImplementedError('Custom Metrics must implement this function'
-            )
+        raise NotImplementedError('Custom Metrics must implement this function')
 
     def __call__(self, y_pred: Tensor, y_true: Tensor):
-        raise NotImplementedError('Custom Metrics must implement this function'
-            )
+        raise NotImplementedError('Custom Metrics must implement this function')
 
 
 class MultipleMetrics(object):
@@ -872,11 +830,7 @@ class MultipleOptimizer(object):
             op.step()
 
 
-Transforms = Union[CenterCrop, ColorJitter, Compose, FiveCrop, Grayscale,
-    Lambda, LinearTransformation, Normalize, Pad, RandomAffine, RandomApply,
-    RandomChoice, RandomCrop, RandomGrayscale, RandomHorizontalFlip,
-    RandomOrder, RandomResizedCrop, RandomRotation, RandomSizedCrop,
-    RandomVerticalFlip, Resize, Scale, TenCrop, ToPILImage, ToTensor]
+Transforms = Union[CenterCrop, ColorJitter, Compose, FiveCrop, Grayscale, Lambda, LinearTransformation, Normalize, Pad, RandomAffine, RandomApply, RandomChoice, RandomCrop, RandomGrayscale, RandomHorizontalFlip, RandomOrder, RandomResizedCrop, RandomRotation, RandomSizedCrop, RandomVerticalFlip, Resize, Scale, TenCrop, ToPILImage, ToTensor]
 
 
 class MultipleTransforms(object):
@@ -922,8 +876,7 @@ class WarmUp(object):
     verbose: Boolean
     """
 
-    def __init__(self, activation_fn: Any, loss_fn: Any, metric: Union[
-        Metric, MultipleMetrics], method: str, verbose: int):
+    def __init__(self, activation_fn: Any, loss_fn: Any, metric: Union[Metric, MultipleMetrics], method: str, verbose: int):
         super(WarmUp, self).__init__()
         self.activation_fn = activation_fn
         self.loss_fn = loss_fn
@@ -931,8 +884,7 @@ class WarmUp(object):
         self.method = method
         self.verbose = verbose
 
-    def warm_all(self, model: nn.Module, model_name: str, loader:
-        DataLoader, n_epochs: int, max_lr: float):
+    def warm_all(self, model: nn.Module, model_name: str, loader: DataLoader, n_epochs: int, max_lr: float):
         """
         Warm up all trainable layers in a model using a one cyclic learning rate
         with a triangular pattern. This is refereed as Slanted Triangular learing
@@ -963,17 +915,11 @@ class WarmUp(object):
             print('Warming up {} for {} epochs'.format(model_name, n_epochs))
         model.train()
         optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr / 10.0)
-        step_size_up, step_size_down = self._steps_up_down(len(loader),
-            n_epochs)
-        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=
-            max_lr / 10.0, max_lr=max_lr, step_size_up=step_size_up,
-            step_size_down=step_size_down, cycle_momentum=False)
-        self._warm(model, model_name, loader, optimizer, scheduler,
-            n_epochs=n_epochs)
+        step_size_up, step_size_down = self._steps_up_down(len(loader), n_epochs)
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=max_lr / 10.0, max_lr=max_lr, step_size_up=step_size_up, step_size_down=step_size_down, cycle_momentum=False)
+        self._warm(model, model_name, loader, optimizer, scheduler, n_epochs=n_epochs)
 
-    def warm_gradual(self, model: nn.Module, model_name: str, loader:
-        DataLoader, last_layer_max_lr: float, layers: List[nn.Module],
-        routine: str):
+    def warm_gradual(self, model: nn.Module, model_name: str, loader: DataLoader, last_layer_max_lr: float, layers: List[nn.Module], routine: str):
         """
         Warm up certain layers within the model following a gradual warm up routine.
         The approaches implemented in this method are inspired by the work of Felbo
@@ -1023,8 +969,7 @@ class WarmUp(object):
         original_setup = {}
         for n, p in model.named_parameters():
             original_setup[n] = p.requires_grad
-        layers_max_lr = [last_layer_max_lr] + [(last_layer_max_lr / (2.5 *
-            n)) for n in range(1, len(layers))]
+        layers_max_lr = [last_layer_max_lr] + [(last_layer_max_lr / (2.5 * n)) for n in range(1, len(layers))]
         for layer in layers:
             for p in layer.parameters():
                 p.requires_grad = False
@@ -1034,8 +979,7 @@ class WarmUp(object):
             base_lr: List = []
         for i, (lr, layer) in enumerate(zip(layers_max_lr, layers)):
             if self.verbose:
-                print('Warming up {}, layer {} of {}'.format(model_name, i +
-                    1, len(layers)))
+                print('Warming up {}, layer {} of {}'.format(model_name, i + 1, len(layers)))
             for p in layer.parameters():
                 p.requires_grad = True
             if routine == 'felbo':
@@ -1045,18 +989,14 @@ class WarmUp(object):
                 max_lr += [lr]
                 base_lr += [lr / 10.0]
             optimizer = torch.optim.AdamW(params)
-            scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
-                base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,
-                step_size_down=step_size_down, cycle_momentum=False)
+            scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up, step_size_down=step_size_down, cycle_momentum=False)
             self._warm(model, model_name, loader, optimizer, scheduler)
             if routine == 'felbo':
                 for p in layer.parameters():
                     p.requires_grad = False
         if routine == 'felbo':
             if self.verbose:
-                print(
-                    'Warming up one last epoch with all warmed up layers trainable'
-                    )
+                print('Warming up one last epoch with all warmed up layers trainable')
             for layer in layers:
                 for p in layer.parameters():
                     p.requires_grad = True
@@ -1066,15 +1006,12 @@ class WarmUp(object):
                 max_lr += [lr]
                 base_lr += [lr / 10.0]
             optimizer = torch.optim.AdamW(params)
-            scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,
-                base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,
-                step_size_down=step_size_down, cycle_momentum=False)
+            scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up, step_size_down=step_size_down, cycle_momentum=False)
             self._warm(model, model_name, loader, optimizer, scheduler)
         for n, p in model.named_parameters():
             p.requires_grad = original_setup[n]
 
-    def _warm(self, model: nn.Module, model_name: str, loader: DataLoader,
-        optimizer: Optimizer, scheduler: LRScheduler, n_epochs: int=1):
+    def _warm(self, model: nn.Module, model_name: str, loader: DataLoader, optimizer: Optimizer, scheduler: LRScheduler, n_epochs: int=1):
         """
         Standard Pytorch training loop
         """
@@ -1084,10 +1021,8 @@ class WarmUp(object):
             with trange(steps, disable=self.verbose != 1) as t:
                 for batch_idx, (data, target) in zip(t, loader):
                     t.set_description('epoch %i' % (epoch + 1))
-                    X = data[model_name].cuda() if use_cuda else data[
-                        model_name]
-                    y = target.float(
-                        ) if self.method != 'multiclass' else target
+                    X = data[model_name].cuda() if use_cuda else data[model_name]
+                    y = target.float() if self.method != 'multiclass' else target
                     y = y.cuda() if use_cuda else y
                     optimizer.zero_grad()
                     y_pred = self.activation_fn(model(X))
@@ -1147,18 +1082,14 @@ class WideDeepDataset(Dataset):
         Compose). See in models/_multiple_transforms.py
     """
 
-    def __init__(self, X_wide: Union[np.ndarray, sparse_matrix], X_deep: np
-        .ndarray, target: Optional[np.ndarray]=None, X_text: Optional[np.
-        ndarray]=None, X_img: Optional[np.ndarray]=None, transforms:
-        Optional[Any]=None):
+    def __init__(self, X_wide: Union[np.ndarray, sparse_matrix], X_deep: np.ndarray, target: Optional[np.ndarray]=None, X_text: Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, transforms: Optional[Any]=None):
         self.X_wide = X_wide
         self.X_deep = X_deep
         self.X_text = X_text
         self.X_img = X_img
         self.transforms = transforms
         if self.transforms:
-            self.transforms_names = [tr.__class__.__name__ for tr in self.
-                transforms.transforms]
+            self.transforms_names = [tr.__class__.__name__ for tr in self.transforms.transforms]
         else:
             self.transforms_names = []
         self.Y = target
@@ -1276,11 +1207,7 @@ class WideDeep(nn.Module):
             [-0.2010]], grad_fn=<AddBackward0>)
     """
 
-    def __init__(self, wide: nn.Module, deepdense: nn.Module, output_dim:
-        int=1, deeptext: Optional[nn.Module]=None, deepimage: Optional[nn.
-        Module]=None, deephead: Optional[nn.Module]=None, head_layers:
-        Optional[List[int]]=None, head_dropout: Optional[List]=None,
-        head_batchnorm: Optional[bool]=None):
+    def __init__(self, wide: nn.Module, deepdense: nn.Module, output_dim: int=1, deeptext: Optional[nn.Module]=None, deepimage: Optional[nn.Module]=None, deephead: Optional[nn.Module]=None, head_layers: Optional[List[int]]=None, head_dropout: Optional[List]=None, head_batchnorm: Optional[bool]=None):
         super(WideDeep, self).__init__()
         self.wide = wide
         self.deepdense = deepdense
@@ -1299,20 +1226,14 @@ class WideDeep(nn.Module):
                     head_dropout = [0.0] * (len(head_layers) - 1)
                 self.deephead = nn.Sequential()
                 for i in range(1, len(head_layers)):
-                    self.deephead.add_module('head_layer_{}'.format(i - 1),
-                        dense_layer(head_layers[i - 1], head_layers[i],
-                        head_dropout[i - 1], head_batchnorm))
-                self.deephead.add_module('head_out', nn.Linear(head_layers[
-                    -1], output_dim))
+                    self.deephead.add_module('head_layer_{}'.format(i - 1), dense_layer(head_layers[i - 1], head_layers[i], head_dropout[i - 1], head_batchnorm))
+                self.deephead.add_module('head_out', nn.Linear(head_layers[-1], output_dim))
             else:
-                self.deepdense = nn.Sequential(self.deepdense, nn.Linear(
-                    self.deepdense.output_dim, output_dim))
+                self.deepdense = nn.Sequential(self.deepdense, nn.Linear(self.deepdense.output_dim, output_dim))
                 if self.deeptext is not None:
-                    self.deeptext = nn.Sequential(self.deeptext, nn.Linear(
-                        self.deeptext.output_dim, output_dim))
+                    self.deeptext = nn.Sequential(self.deeptext, nn.Linear(self.deeptext.output_dim, output_dim))
                 if self.deepimage is not None:
-                    self.deepimage = nn.Sequential(self.deepimage, nn.
-                        Linear(self.deepimage.output_dim, output_dim))
+                    self.deepimage = nn.Sequential(self.deepimage, nn.Linear(self.deepimage.output_dim, output_dim))
 
     def forward(self, X: Dict[str, Tensor]) ->Tensor:
         """
@@ -1327,11 +1248,9 @@ class WideDeep(nn.Module):
         if self.deephead:
             deepside = self.deepdense(X['deepdense'])
             if self.deeptext is not None:
-                deepside = torch.cat([deepside, self.deeptext(X['deeptext']
-                    )], axis=1)
+                deepside = torch.cat([deepside, self.deeptext(X['deeptext'])], axis=1)
             if self.deepimage is not None:
-                deepside = torch.cat([deepside, self.deepimage(X[
-                    'deepimage'])], axis=1)
+                deepside = torch.cat([deepside, self.deepimage(X['deepimage'])], axis=1)
             deepside_out = self.deephead(deepside)
             return out.add_(deepside_out)
         else:
@@ -1342,14 +1261,7 @@ class WideDeep(nn.Module):
                 out.add_(self.deepimage(X['deepimage']))
             return out
 
-    def compile(self, method: str, optimizers: Optional[Union[Optimizer,
-        Dict[str, Optimizer]]]=None, lr_schedulers: Optional[Union[
-        LRScheduler, Dict[str, LRScheduler]]]=None, initializers: Optional[
-        Dict[str, Initializer]]=None, transforms: Optional[List[Transforms]
-        ]=None, callbacks: Optional[List[Callback]]=None, metrics: Optional
-        [List[Metric]]=None, class_weight: Optional[Union[float, List[float
-        ], Tuple[float]]]=None, with_focal_loss: bool=False, alpha: float=
-        0.25, gamma: float=2, verbose: int=1, seed: int=1):
+    def compile(self, method: str, optimizers: Optional[Union[Optimizer, Dict[str, Optimizer]]]=None, lr_schedulers: Optional[Union[LRScheduler, Dict[str, LRScheduler]]]=None, initializers: Optional[Dict[str, Initializer]]=None, transforms: Optional[List[Transforms]]=None, callbacks: Optional[List[Callback]]=None, metrics: Optional[List[Metric]]=None, class_weight: Optional[Union[float, List[float], Tuple[float]]]=None, with_focal_loss: bool=False, alpha: float=0.25, gamma: float=2, verbose: int=1, seed: int=1):
         """
         Function to set a number of attributes that will be used during the
         training process.
@@ -1444,45 +1356,37 @@ class WideDeep(nn.Module):
         if self.with_focal_loss:
             self.alpha, self.gamma = alpha, gamma
         if isinstance(class_weight, float):
-            self.class_weight = torch.tensor([1.0 - class_weight, class_weight]
-                )
+            self.class_weight = torch.tensor([1.0 - class_weight, class_weight])
         elif isinstance(class_weight, (tuple, list)):
             self.class_weight = torch.tensor(class_weight)
         else:
             self.class_weight = None
         if initializers is not None:
-            self.initializer = MultipleInitializer(initializers, verbose=
-                self.verbose)
+            self.initializer = MultipleInitializer(initializers, verbose=self.verbose)
             self.initializer.apply(self)
         if optimizers is not None:
             if isinstance(optimizers, Optimizer):
-                self.optimizer: Union[Optimizer, MultipleOptimizer
-                    ] = optimizers
+                self.optimizer: Union[Optimizer, MultipleOptimizer] = optimizers
             elif len(optimizers) > 1:
                 opt_names = list(optimizers.keys())
                 mod_names = [n for n, c in self.named_children()]
                 for mn in mod_names:
-                    assert mn in opt_names, 'No optimizer found for {}'.format(
-                        mn)
+                    assert mn in opt_names, 'No optimizer found for {}'.format(mn)
                 self.optimizer = MultipleOptimizer(optimizers)
         else:
             self.optimizer = torch.optim.AdamW(self.parameters())
         if lr_schedulers is not None:
             if isinstance(lr_schedulers, LRScheduler):
-                self.lr_scheduler: Union[LRScheduler, MultipleLRScheduler
-                    ] = lr_schedulers
-                self.cyclic = ('cycl' in self.lr_scheduler.__class__.
-                    __name__.lower())
+                self.lr_scheduler: Union[LRScheduler, MultipleLRScheduler] = lr_schedulers
+                self.cyclic = 'cycl' in self.lr_scheduler.__class__.__name__.lower()
             elif len(lr_schedulers) > 1:
                 self.lr_scheduler = MultipleLRScheduler(lr_schedulers)
-                scheduler_names = [sc.__class__.__name__.lower() for _, sc in
-                    self.lr_scheduler._schedulers.items()]
+                scheduler_names = [sc.__class__.__name__.lower() for _, sc in self.lr_scheduler._schedulers.items()]
                 self.cyclic = any([('cycl' in sn) for sn in scheduler_names])
         else:
             self.lr_scheduler, self.cyclic = None, False
         if transforms is not None:
-            self.transforms: MultipleTransforms = MultipleTransforms(transforms
-                )()
+            self.transforms: MultipleTransforms = MultipleTransforms(transforms)()
         else:
             self.transforms = None
         self.history = History()
@@ -1502,18 +1406,7 @@ class WideDeep(nn.Module):
         if use_cuda:
             self
 
-    def fit(self, X_wide: Optional[np.ndarray]=None, X_deep: Optional[np.
-        ndarray]=None, X_text: Optional[np.ndarray]=None, X_img: Optional[
-        np.ndarray]=None, X_train: Optional[Dict[str, np.ndarray]]=None,
-        X_val: Optional[Dict[str, np.ndarray]]=None, val_split: Optional[
-        float]=None, target: Optional[np.ndarray]=None, n_epochs: int=1,
-        validation_freq: int=1, batch_size: int=32, patience: int=10,
-        warm_up: bool=False, warm_epochs: int=4, warm_max_lr: float=0.01,
-        warm_deeptext_gradual: bool=False, warm_deeptext_max_lr: float=0.01,
-        warm_deeptext_layers: Optional[List[nn.Module]]=None,
-        warm_deepimage_gradual: bool=False, warm_deepimage_max_lr: float=
-        0.01, warm_deepimage_layers: Optional[List[nn.Module]]=None,
-        warm_routine: str='howard'):
+    def fit(self, X_wide: Optional[np.ndarray]=None, X_deep: Optional[np.ndarray]=None, X_text: Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_train: Optional[Dict[str, np.ndarray]]=None, X_val: Optional[Dict[str, np.ndarray]]=None, val_split: Optional[float]=None, target: Optional[np.ndarray]=None, n_epochs: int=1, validation_freq: int=1, batch_size: int=32, patience: int=10, warm_up: bool=False, warm_epochs: int=4, warm_max_lr: float=0.01, warm_deeptext_gradual: bool=False, warm_deeptext_max_lr: float=0.01, warm_deeptext_layers: Optional[List[nn.Module]]=None, warm_deepimage_gradual: bool=False, warm_deepimage_max_lr: float=0.01, warm_deepimage_layers: Optional[List[nn.Module]]=None, warm_routine: str='howard'):
         """
         fit method that must run after calling 'compile'
 
@@ -1603,24 +1496,15 @@ class WideDeep(nn.Module):
         >>> X_val = {'X_wide': X_wide_val, 'X_deep': X_deep_val, 'target': y_val}
         >>> model.fit(X_train=X_train, X_val=X_val n_epochs=10, batch_size=256)
         """
-        if X_train is None and (X_wide is None or X_deep is None or target is
-            None):
-            raise ValueError(
-                'Training data is missing. Either a dictionary (X_train) with the training dataset or at least 3 arrays (X_wide, X_deep, target) must be passed to the fit method'
-                )
+        if X_train is None and (X_wide is None or X_deep is None or target is None):
+            raise ValueError('Training data is missing. Either a dictionary (X_train) with the training dataset or at least 3 arrays (X_wide, X_deep, target) must be passed to the fit method')
         self.batch_size = batch_size
-        train_set, eval_set = self._train_val_split(X_wide, X_deep, X_text,
-            X_img, X_train, X_val, val_split, target)
-        train_loader = DataLoader(dataset=train_set, batch_size=batch_size,
-            num_workers=n_cpus)
+        train_set, eval_set = self._train_val_split(X_wide, X_deep, X_text, X_img, X_train, X_val, val_split, target)
+        train_loader = DataLoader(dataset=train_set, batch_size=batch_size, num_workers=n_cpus)
         if warm_up:
-            self._warm_up(train_loader, warm_epochs, warm_max_lr,
-                warm_deeptext_gradual, warm_deeptext_layers,
-                warm_deeptext_max_lr, warm_deepimage_gradual,
-                warm_deepimage_layers, warm_deepimage_max_lr, warm_routine)
+            self._warm_up(train_loader, warm_epochs, warm_max_lr, warm_deeptext_gradual, warm_deeptext_layers, warm_deeptext_max_lr, warm_deepimage_gradual, warm_deepimage_layers, warm_deepimage_max_lr, warm_routine)
         train_steps = len(train_loader)
-        self.callback_container.on_train_begin({'batch_size': batch_size,
-            'train_steps': train_steps, 'n_epochs': n_epochs})
+        self.callback_container.on_train_begin({'batch_size': batch_size, 'train_steps': train_steps, 'n_epochs': n_epochs})
         if self.verbose:
             None
         for epoch in range(n_epochs):
@@ -1630,8 +1514,7 @@ class WideDeep(nn.Module):
             with trange(train_steps, disable=self.verbose != 1) as t:
                 for batch_idx, (data, target) in zip(t, train_loader):
                     t.set_description('epoch %i' % (epoch + 1))
-                    acc, train_loss = self._training_step(data, target,
-                        batch_idx)
+                    acc, train_loss = self._training_step(data, target, batch_idx)
                     if acc is not None:
                         t.set_postfix(metrics=acc, loss=train_loss)
                     else:
@@ -1644,15 +1527,13 @@ class WideDeep(nn.Module):
                 epoch_logs['train_acc'] = acc['acc']
             if epoch % validation_freq == validation_freq - 1:
                 if eval_set is not None:
-                    eval_loader = DataLoader(dataset=eval_set, batch_size=
-                        batch_size, num_workers=n_cpus, shuffle=False)
+                    eval_loader = DataLoader(dataset=eval_set, batch_size=batch_size, num_workers=n_cpus, shuffle=False)
                     eval_steps = len(eval_loader)
                     self.valid_running_loss = 0.0
                     with trange(eval_steps, disable=self.verbose != 1) as v:
                         for i, (data, target) in zip(v, eval_loader):
                             v.set_description('valid')
-                            acc, val_loss = self._validation_step(data,
-                                target, i)
+                            acc, val_loss = self._validation_step(data, target, i)
                             if acc is not None:
                                 v.set_postfix(metrics=acc, loss=val_loss)
                             else:
@@ -1669,9 +1550,7 @@ class WideDeep(nn.Module):
             self.callback_container.on_train_end(epoch_logs)
         self.train()
 
-    def predict(self, X_wide: np.ndarray, X_deep: np.ndarray, X_text:
-        Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_test:
-        Optional[Dict[str, np.ndarray]]=None) ->np.ndarray:
+    def predict(self, X_wide: np.ndarray, X_deep: np.ndarray, X_text: Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_test: Optional[Dict[str, np.ndarray]]=None) ->np.ndarray:
         """
         fit method that must run after calling 'compile'
 
@@ -1708,9 +1587,7 @@ class WideDeep(nn.Module):
             preds = np.vstack(preds_l)
             return np.argmax(preds, 1)
 
-    def predict_proba(self, X_wide: np.ndarray, X_deep: np.ndarray, X_text:
-        Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_test:
-        Optional[Dict[str, np.ndarray]]=None) ->np.ndarray:
+    def predict_proba(self, X_wide: np.ndarray, X_deep: np.ndarray, X_text: Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_test: Optional[Dict[str, np.ndarray]]=None) ->np.ndarray:
         """
         Returns
         -------
@@ -1728,8 +1605,7 @@ class WideDeep(nn.Module):
         if self.method == 'multiclass':
             return np.vstack(preds_l)
 
-    def get_embeddings(self, col_name: str, cat_encoding_dict: Dict[str,
-        Dict[str, int]]) ->Dict[str, np.ndarray]:
+    def get_embeddings(self, col_name: str, cat_encoding_dict: Dict[str, Dict[str, int]]) ->Dict[str, np.ndarray]:
         """
         Get the learned embeddings for the categorical features passed through deepdense.
 
@@ -1789,16 +1665,11 @@ class WideDeep(nn.Module):
         if self.method == 'regression':
             return F.mse_loss(y_pred, y_true.view(-1, 1))
         if self.method == 'binary':
-            return F.binary_cross_entropy(y_pred, y_true.view(-1, 1),
-                weight=self.class_weight)
+            return F.binary_cross_entropy(y_pred, y_true.view(-1, 1), weight=self.class_weight)
         if self.method == 'multiclass':
             return F.cross_entropy(y_pred, y_true, weight=self.class_weight)
 
-    def _train_val_split(self, X_wide: Optional[np.ndarray]=None, X_deep:
-        Optional[np.ndarray]=None, X_text: Optional[np.ndarray]=None, X_img:
-        Optional[np.ndarray]=None, X_train: Optional[Dict[str, np.ndarray]]
-        =None, X_val: Optional[Dict[str, np.ndarray]]=None, val_split:
-        Optional[float]=None, target: Optional[np.ndarray]=None):
+    def _train_val_split(self, X_wide: Optional[np.ndarray]=None, X_deep: Optional[np.ndarray]=None, X_text: Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_train: Optional[Dict[str, np.ndarray]]=None, X_val: Optional[Dict[str, np.ndarray]]=None, val_split: Optional[float]=None, target: Optional[np.ndarray]=None):
         """
         If a validation set (X_val) is passed to the fit method, or val_split
         is specified, the train/val split will happen internally. A number of
@@ -1816,8 +1687,7 @@ class WideDeep(nn.Module):
         """
         if X_val is None and val_split is None:
             if X_train is not None:
-                X_wide, X_deep, target = X_train['X_wide'], X_train['X_deep'
-                    ], X_train['target']
+                X_wide, X_deep, target = X_train['X_wide'], X_train['X_deep'], X_train['target']
                 if 'X_text' in X_train.keys():
                     X_text = X_train['X_text']
                 if 'X_img' in X_train.keys():
@@ -1836,78 +1706,54 @@ class WideDeep(nn.Module):
         else:
             if X_val is not None:
                 if X_train is None:
-                    X_train = {'X_wide': X_wide, 'X_deep': X_deep, 'target':
-                        target}
+                    X_train = {'X_wide': X_wide, 'X_deep': X_deep, 'target': target}
                     if X_text is not None:
                         X_train.update({'X_text': X_text})
                     if X_img is not None:
                         X_train.update({'X_img': X_img})
             else:
                 if X_train is not None:
-                    X_wide, X_deep, target = X_train['X_wide'], X_train[
-                        'X_deep'], X_train['target']
+                    X_wide, X_deep, target = X_train['X_wide'], X_train['X_deep'], X_train['target']
                     if 'X_text' in X_train.keys():
                         X_text = X_train['X_text']
                     if 'X_img' in X_train.keys():
                         X_img = X_train['X_img']
-                (X_tr_wide, X_val_wide, X_tr_deep, X_val_deep, y_tr, y_val) = (
-                    train_test_split(X_wide, X_deep, target, test_size=
-                    val_split, random_state=self.seed, stratify=target if 
-                    self.method != 'regression' else None))
-                X_train = {'X_wide': X_tr_wide, 'X_deep': X_tr_deep,
-                    'target': y_tr}
-                X_val = {'X_wide': X_val_wide, 'X_deep': X_val_deep,
-                    'target': y_val}
+                X_tr_wide, X_val_wide, X_tr_deep, X_val_deep, y_tr, y_val = train_test_split(X_wide, X_deep, target, test_size=val_split, random_state=self.seed, stratify=target if self.method != 'regression' else None)
+                X_train = {'X_wide': X_tr_wide, 'X_deep': X_tr_deep, 'target': y_tr}
+                X_val = {'X_wide': X_val_wide, 'X_deep': X_val_deep, 'target': y_val}
                 try:
-                    X_tr_text, X_val_text = train_test_split(X_text,
-                        test_size=val_split, random_state=self.seed,
-                        stratify=target if self.method != 'regression' else
-                        None)
-                    X_train.update({'X_text': X_tr_text}), X_val.update({
-                        'X_text': X_val_text})
+                    X_tr_text, X_val_text = train_test_split(X_text, test_size=val_split, random_state=self.seed, stratify=target if self.method != 'regression' else None)
+                    X_train.update({'X_text': X_tr_text}), X_val.update({'X_text': X_val_text})
                 except:
                     pass
                 try:
-                    X_tr_img, X_val_img = train_test_split(X_img, test_size
-                        =val_split, random_state=self.seed, stratify=target if
-                        self.method != 'regression' else None)
-                    X_train.update({'X_img': X_tr_img}), X_val.update({
-                        'X_img': X_val_img})
+                    X_tr_img, X_val_img = train_test_split(X_img, test_size=val_split, random_state=self.seed, stratify=target if self.method != 'regression' else None)
+                    X_train.update({'X_img': X_tr_img}), X_val.update({'X_img': X_val_img})
                 except:
                     pass
             train_set = WideDeepDataset(**X_train, transforms=self.transforms)
             eval_set = WideDeepDataset(**X_val, transforms=self.transforms)
         return train_set, eval_set
 
-    def _warm_up(self, loader: DataLoader, n_epochs: int, max_lr: float,
-        deeptext_gradual: bool, deeptext_layers: List[nn.Module],
-        deeptext_max_lr: float, deepimage_gradual: bool, deepimage_layers:
-        List[nn.Module], deepimage_max_lr: float, routine: str='felbo'):
+    def _warm_up(self, loader: DataLoader, n_epochs: int, max_lr: float, deeptext_gradual: bool, deeptext_layers: List[nn.Module], deeptext_max_lr: float, deepimage_gradual: bool, deepimage_layers: List[nn.Module], deepimage_max_lr: float, routine: str='felbo'):
         """
         Simple wrappup to individually warm up model components
         """
         if self.deephead is not None:
-            raise ValueError(
-                "Currently warming up is only supported without a fully connected 'DeepHead'"
-                )
-        warmer = WarmUp(self._activation_fn, self._loss_fn, self.metric,
-            self.method, self.verbose)
+            raise ValueError("Currently warming up is only supported without a fully connected 'DeepHead'")
+        warmer = WarmUp(self._activation_fn, self._loss_fn, self.metric, self.method, self.verbose)
         warmer.warm_all(self.wide, 'wide', loader, n_epochs, max_lr)
         warmer.warm_all(self.deepdense, 'deepdense', loader, n_epochs, max_lr)
         if self.deeptext:
             if deeptext_gradual:
-                warmer.warm_gradual(self.deeptext, 'deeptext', loader,
-                    deeptext_max_lr, deeptext_layers, routine)
+                warmer.warm_gradual(self.deeptext, 'deeptext', loader, deeptext_max_lr, deeptext_layers, routine)
             else:
-                warmer.warm_all(self.deeptext, 'deeptext', loader, n_epochs,
-                    max_lr)
+                warmer.warm_all(self.deeptext, 'deeptext', loader, n_epochs, max_lr)
         if self.deepimage:
             if deepimage_gradual:
-                warmer.warm_gradual(self.deepimage, 'deepimage', loader,
-                    deepimage_max_lr, deepimage_layers, routine)
+                warmer.warm_gradual(self.deepimage, 'deepimage', loader, deepimage_max_lr, deepimage_layers, routine)
             else:
-                warmer.warm_all(self.deepimage, 'deepimage', loader,
-                    n_epochs, max_lr)
+                warmer.warm_all(self.deepimage, 'deepimage', loader, n_epochs, max_lr)
 
     def _lr_scheduler_step(self, step_location: str):
         """
@@ -1922,16 +1768,13 @@ class WideDeep(nn.Module):
         step_location: Str
             Indicates where to run the lr_scheduler step
         """
-        if (self.lr_scheduler.__class__.__name__ == 'MultipleLRScheduler' and
-            self.cyclic):
+        if self.lr_scheduler.__class__.__name__ == 'MultipleLRScheduler' and self.cyclic:
             if step_location == 'on_batch_end':
-                for model_name, scheduler in self.lr_scheduler._schedulers.items(
-                    ):
+                for model_name, scheduler in self.lr_scheduler._schedulers.items():
                     if 'cycl' in scheduler.__class__.__name__.lower():
                         scheduler.step()
             elif step_location == 'on_epoch_end':
-                for scheduler_name, scheduler in self.lr_scheduler._schedulers.items(
-                    ):
+                for scheduler_name, scheduler in self.lr_scheduler._schedulers.items():
                     if 'cycl' not in scheduler.__class__.__name__.lower():
                         scheduler.step()
         elif self.cyclic:
@@ -1949,8 +1792,7 @@ class WideDeep(nn.Module):
         else:
             pass
 
-    def _training_step(self, data: Dict[str, Tensor], target: Tensor,
-        batch_idx: int):
+    def _training_step(self, data: Dict[str, Tensor], target: Tensor, batch_idx: int):
         self.train()
         X = {k: v for k, v in data.items()} if use_cuda else data
         y = target.float() if self.method != 'multiclass' else target
@@ -1968,8 +1810,7 @@ class WideDeep(nn.Module):
         else:
             return None, avg_loss
 
-    def _validation_step(self, data: Dict[str, Tensor], target: Tensor,
-        batch_idx: int):
+    def _validation_step(self, data: Dict[str, Tensor], target: Tensor, batch_idx: int):
         self.eval()
         with torch.no_grad():
             X = {k: v for k, v in data.items()} if use_cuda else data
@@ -1985,9 +1826,7 @@ class WideDeep(nn.Module):
         else:
             return None, avg_loss
 
-    def _predict(self, X_wide: np.ndarray, X_deep: np.ndarray, X_text:
-        Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_test:
-        Optional[Dict[str, np.ndarray]]=None) ->List:
+    def _predict(self, X_wide: np.ndarray, X_deep: np.ndarray, X_text: Optional[np.ndarray]=None, X_img: Optional[np.ndarray]=None, X_test: Optional[Dict[str, np.ndarray]]=None) ->List:
         """
         Hidden method to avoid code repetition in predict and predict_proba.
         For parameter information, please, see the .predict() method
@@ -2002,8 +1841,7 @@ class WideDeep(nn.Module):
             if X_img is not None:
                 load_dict.update({'X_img': X_img})
             test_set = WideDeepDataset(**load_dict)
-        test_loader = DataLoader(dataset=test_set, batch_size=self.
-            batch_size, num_workers=n_cpus, shuffle=False)
+        test_loader = DataLoader(dataset=test_set, batch_size=self.batch_size, num_workers=n_cpus, shuffle=False)
         test_steps = len(test_loader.dataset) // test_loader.batch_size + 1
         self.eval()
         preds_l = []
@@ -2039,8 +1877,7 @@ class TestDeepImage(nn.Module):
 
     def __init__(self):
         super(TestDeepImage, self).__init__()
-        self.conv_block = nn.Sequential(conv_layer(3, 64, 3), conv_layer(64,
-            128, 1, maxpool=False, adaptiveavgpool=True))
+        self.conv_block = nn.Sequential(conv_layer(3, 64, 3), conv_layer(64, 128, 1, maxpool=False, adaptiveavgpool=True))
         self.linear = nn.Linear(128, 1)
 
     def forward(self, X):
@@ -2053,17 +1890,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DeepImage,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (TestDeepImage,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (TestDeepText,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (Wide,
+     lambda: ([], {'wide_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jrzaurin_pytorch_widedeep(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DeepImage(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(TestDeepImage(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TestDeepText(*[], **{}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Wide(*[], **{'wide_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

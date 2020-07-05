@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,8 +66,7 @@ import math
 
 class Bin_Mean_Shift(nn.Module):
 
-    def __init__(self, train_iter=5, test_iter=10, bandwidth=0.5, device='cpu'
-        ):
+    def __init__(self, train_iter=5, test_iter=10, bandwidth=0.5, device='cpu'):
         super(Bin_Mean_Shift, self).__init__()
         self.train_iter = train_iter
         self.test_iter = test_iter
@@ -106,8 +106,7 @@ class Bin_Mean_Shift(nn.Module):
         :return: filtered_seed_points
         """
         distance_matrix = self.cal_distance_matrix(seed_point, point)
-        thres_matrix = (distance_matrix < bandwidth).type(torch.float32
-            ) * prob.t()
+        thres_matrix = (distance_matrix < bandwidth).type(torch.float32) * prob.t()
         count = thres_matrix.sum(dim=1)
         valid = count > min_count
         return seed_point[valid]
@@ -134,11 +133,9 @@ class Bin_Mean_Shift(nn.Module):
         :return:  shifted points with size (n, 2)
         """
         distance_matrix = self.cal_distance_matrix(seed_point, point)
-        kernel_matrix = torch.exp(-0.5 / bandwidth ** 2 * distance_matrix ** 2
-            ) * (1.0 / (bandwidth * np.sqrt(2 * np.pi)))
+        kernel_matrix = torch.exp(-0.5 / bandwidth ** 2 * distance_matrix ** 2) * (1.0 / (bandwidth * np.sqrt(2 * np.pi)))
         weighted_matrix = kernel_matrix * prob.t()
-        normalized_matrix = weighted_matrix / weighted_matrix.sum(dim=1,
-            keepdim=True)
+        normalized_matrix = weighted_matrix / weighted_matrix.sum(dim=1, keepdim=True)
         shifted_point = torch.matmul(normalized_matrix, point)
         return shifted_point
 
@@ -163,8 +160,7 @@ class Bin_Mean_Shift(nn.Module):
         """
         n = seed_point.size(0)
         distance_matrix = self.cal_distance_matrix(seed_point, seed_point)
-        intensity = (distance_matrix < bandwidth).type(torch.float32).sum(dim=1
-            )
+        intensity = (distance_matrix < bandwidth).type(torch.float32).sum(dim=1)
         sorted_intensity, indices = torch.sort(intensity, descending=True)
         is_center = np.ones(n, dtype=np.bool)
         indices = indices.cpu().numpy()
@@ -192,8 +188,7 @@ class Bin_Mean_Shift(nn.Module):
         :param center: tensor with size (n, 2)
         :return: clustering results, tensor with size (K, n) and sum to one for each row
         """
-        distance_matrix = 1.0 / (self.cal_distance_matrix(point, center) + 0.01
-            )
+        distance_matrix = 1.0 / (self.cal_distance_matrix(point, center) + 0.01)
         segmentation = F.softmax(distance_matrix, dim=1)
         return segmentation
 
@@ -217,47 +212,38 @@ class Bin_Mean_Shift(nn.Module):
         param = param.view(3, h * w)
         prob = prob.view(h * w, 1)
         seg = gt_seg.view(-1)
-        rand_index = np.random.choice(np.arange(0, h * w)[seg.cpu().numpy() !=
-            20], self.sample_num)
+        rand_index = np.random.choice(np.arange(0, h * w)[seg.cpu().numpy() != 20], self.sample_num)
         sample_embedding = embedding[rand_index]
         sample_prob = prob[rand_index]
         sample_param = param[:, (rand_index)]
         seed_point = self.generate_seed(sample_embedding, self.anchor_num)
-        seed_point = self.filter_seed(sample_embedding, sample_prob,
-            seed_point, bandwidth=self.bandwidth, min_count=3)
+        seed_point = self.filter_seed(sample_embedding, sample_prob, seed_point, bandwidth=self.bandwidth, min_count=3)
         if torch.numel(seed_point) <= 0:
             return None, None, None, None, None, None
         with torch.no_grad():
             for iter in range(self.train_iter):
-                seed_point = self.shift(sample_embedding, sample_prob,
-                    seed_point, self.bandwidth)
-        seed_point = self.filter_seed(sample_embedding, sample_prob,
-            seed_point, bandwidth=self.bandwidth, min_count=10)
+                seed_point = self.shift(sample_embedding, sample_prob, seed_point, self.bandwidth)
+        seed_point = self.filter_seed(sample_embedding, sample_prob, seed_point, bandwidth=self.bandwidth, min_count=10)
         if torch.numel(seed_point) <= 0:
             return None, None, None, None, None, None
         center = self.merge_center(seed_point, bandwidth=self.bandwidth)
         segmentation = self.cluster(embedding, center)
         sampled_segmentation = segmentation[rand_index]
-        return segmentation, sampled_segmentation, center, sample_prob, seg[
-            rand_index].view(-1, 1), sample_param
+        return segmentation, sampled_segmentation, center, sample_prob, seg[rand_index].view(-1, 1), sample_param
 
     def forward(self, logit, embedding, param, gt_seg):
         batch_size, c, h, w = embedding.size()
         assert c == 2
-        (segmentations, sample_segmentations, centers, sample_probs,
-            sample_gt_segs, sample_params) = [], [], [], [], [], []
+        segmentations, sample_segmentations, centers, sample_probs, sample_gt_segs, sample_params = [], [], [], [], [], []
         for b in range(batch_size):
-            (segmentation, sample_segmentation, center, prob, sample_seg,
-                sample_param) = (self.bin_shift(torch.sigmoid(logit[b]),
-                embedding[b], param[b], gt_seg[b], self.bandwidth))
+            segmentation, sample_segmentation, center, prob, sample_seg, sample_param = self.bin_shift(torch.sigmoid(logit[b]), embedding[b], param[b], gt_seg[b], self.bandwidth)
             segmentations.append(segmentation)
             sample_segmentations.append(sample_segmentation)
             centers.append(center)
             sample_probs.append(prob)
             sample_gt_segs.append(sample_seg)
             sample_params.append(sample_param)
-        return (segmentations, sample_segmentations, sample_params, centers,
-            sample_probs, sample_gt_segs)
+        return segmentations, sample_segmentations, sample_params, centers, sample_probs, sample_gt_segs
 
     def test_forward(self, prob, embedding, param, mask_threshold):
         """
@@ -272,20 +258,16 @@ class Bin_Mean_Shift(nn.Module):
         embedding = embedding.view(c, h * w).t()
         prob = prob.view(h * w, 1)
         param = param.view(3, h * w)
-        rand_index = np.random.choice(np.arange(0, h * w)[prob.cpu().numpy(
-            ).reshape(-1) > mask_threshold], self.sample_num)
+        rand_index = np.random.choice(np.arange(0, h * w)[prob.cpu().numpy().reshape(-1) > mask_threshold], self.sample_num)
         sample_embedding = embedding[rand_index]
         sample_prob = prob[rand_index]
         sample_param = param[:, (rand_index)]
         seed_point = self.generate_seed(sample_embedding, self.anchor_num)
-        seed_point = self.filter_seed(sample_embedding, sample_prob,
-            seed_point, bandwidth=self.bandwidth, min_count=3)
+        seed_point = self.filter_seed(sample_embedding, sample_prob, seed_point, bandwidth=self.bandwidth, min_count=3)
         with torch.no_grad():
             for iter in range(self.test_iter):
-                seed_point = self.shift(sample_embedding, sample_prob,
-                    seed_point, self.bandwidth)
-        seed_point = self.filter_seed(sample_embedding, sample_prob,
-            seed_point, bandwidth=self.bandwidth, min_count=10)
+                seed_point = self.shift(sample_embedding, sample_prob, seed_point, self.bandwidth)
+        seed_point = self.filter_seed(sample_embedding, sample_prob, seed_point, bandwidth=self.bandwidth, min_count=10)
         center = self.merge_center(seed_point, bandwidth=self.bandwidth)
         segmentation = self.cluster(embedding, center)
         sampled_segmentation = segmentation[rand_index]
@@ -298,8 +280,7 @@ class InstanceParameterLoss(nn.Module):
         super(InstanceParameterLoss, self).__init__()
         self.k_inv_dot_xy1 = k_inv_dot_xy1
 
-    def forward(self, segmentation, sample_segmentation, sample_params,
-        valid_region, gt_depth, return_loss=True):
+    def forward(self, segmentation, sample_segmentation, sample_params, valid_region, gt_depth, return_loss=True):
         """
         calculate loss of parameters
         first we combine sample segmentation with sample params to get K plane parameters
@@ -317,9 +298,7 @@ class InstanceParameterLoss(nn.Module):
         """
         n = sample_segmentation.size(0)
         _, _, h, w = gt_depth.size()
-        assert segmentation.size(1) == sample_segmentation.size(1
-            ) and segmentation.size(0) == h * w and sample_params.size(1
-            ) == sample_segmentation.size(0)
+        assert segmentation.size(1) == sample_segmentation.size(1) and segmentation.size(0) == h * w and sample_params.size(1) == sample_segmentation.size(0)
         if not return_loss:
             sample_segmentation[sample_segmentation < 0.5] = 0.0
         weight_matrix = F.normalize(sample_segmentation, p=1, dim=0)
@@ -338,8 +317,7 @@ class InstanceParameterLoss(nn.Module):
         Q_loss = torch.abs(torch.matmul(instance_param.t(), Q) - 1.0)
         weighted_Q_loss = Q_loss * segmentation.t()
         loss = torch.sum(torch.mean(weighted_Q_loss, dim=1))
-        abs_distance = torch.mean(torch.abs(valid_inferred_depth - valid_depth)
-            )
+        abs_distance = torch.mean(torch.abs(valid_inferred_depth - valid_depth))
         return loss, inferred_depth, abs_distance, instance_param
 
 
@@ -364,8 +342,7 @@ class MatchSegmentation(nn.Module):
         gt_instance = gt_instance[:gt_plane_num, :, :].view(1, -1, h * w)
         segmentation = segmentation.t().view(k, 1, h * w)
         gt_instance = gt_instance.type(torch.float32)
-        ce_loss = -(gt_instance * torch.log(segmentation + 1e-06) + (1 -
-            gt_instance) * torch.log(1 - segmentation + 1e-06))
+        ce_loss = -(gt_instance * torch.log(segmentation + 1e-06) + (1 - gt_instance) * torch.log(1 - segmentation + 1e-06))
         ce_loss = torch.mean(ce_loss, dim=2)
         matching = torch.argmin(ce_loss, dim=1, keepdim=True)
         return matching
@@ -453,8 +430,7 @@ class Baseline(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -491,8 +467,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -549,9 +524,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -578,8 +551,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_svip_lab_PlanarReconstruction(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

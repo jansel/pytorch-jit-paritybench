@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,10 +84,8 @@ class DuoDecoder(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.prev_lstm = nn.LSTM(Encoder.thought_size + self.word_size,
-            self.word_size)
-        self.next_lstm = nn.LSTM(Encoder.thought_size + self.word_size,
-            self.word_size)
+        self.prev_lstm = nn.LSTM(Encoder.thought_size + self.word_size, self.word_size)
+        self.next_lstm = nn.LSTM(Encoder.thought_size + self.word_size, self.word_size)
         self.worder = nn.Linear(self.word_size, VOCAB_SIZE)
 
     def forward(self, thoughts, word_embeddings):
@@ -95,14 +94,10 @@ class DuoDecoder(nn.Module):
         next_thoughts = thoughts[:, 1:, :]
         prev_word_embeddings = word_embeddings[:, :-1, :]
         next_word_embeddings = word_embeddings[:, 1:, :]
-        delayed_prev_word_embeddings = torch.cat([0 * prev_word_embeddings[
-            -1:, :, :], prev_word_embeddings[:-1, :, :]])
-        delayed_next_word_embeddings = torch.cat([0 * next_word_embeddings[
-            -1:, :, :], next_word_embeddings[:-1, :, :]])
-        prev_pred_embds, _ = self.prev_lstm(torch.cat([next_thoughts,
-            delayed_prev_word_embeddings], dim=2))
-        next_pred_embds, _ = self.next_lstm(torch.cat([prev_thoughts,
-            delayed_next_word_embeddings], dim=2))
+        delayed_prev_word_embeddings = torch.cat([0 * prev_word_embeddings[-1:, :, :], prev_word_embeddings[:-1, :, :]])
+        delayed_next_word_embeddings = torch.cat([0 * next_word_embeddings[-1:, :, :], next_word_embeddings[:-1, :, :]])
+        prev_pred_embds, _ = self.prev_lstm(torch.cat([next_thoughts, delayed_prev_word_embeddings], dim=2))
+        next_pred_embds, _ = self.next_lstm(torch.cat([prev_thoughts, delayed_next_word_embeddings], dim=2))
         a, b, c = prev_pred_embds.size()
         prev_pred = self.worder(prev_pred_embds.view(a * b, c)).view(a, b, -1)
         a, b, c = next_pred_embds.size()
@@ -136,10 +131,8 @@ class UniSkip(nn.Module):
         next_mask = self.create_mask(next_pred, lengths[1:])
         masked_prev_pred = prev_pred * prev_mask
         masked_next_pred = next_pred * next_mask
-        prev_loss = F.cross_entropy(masked_prev_pred.view(-1, VOCAB_SIZE),
-            sentences[:-1, :].view(-1))
-        next_loss = F.cross_entropy(masked_next_pred.view(-1, VOCAB_SIZE),
-            sentences[1:, :].view(-1))
+        prev_loss = F.cross_entropy(masked_prev_pred.view(-1, VOCAB_SIZE), sentences[:-1, :].view(-1))
+        next_loss = F.cross_entropy(masked_next_pred.view(-1, VOCAB_SIZE), sentences[1:, :].view(-1))
         loss = prev_loss + next_loss
         _, prev_pred_ids = prev_pred[0].max(1)
         _, next_pred_ids = next_pred[0].max(1)
@@ -150,9 +143,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_sanyam5_skip_thoughts(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Encoder(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

@@ -44,8 +44,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -193,12 +194,10 @@ class CooccurAttrFeaturizer(Featurizer):
                 if val == NULL_REPR or other_val == NULL_REPR:
                     fv = NA_COOCCUR_FV
                 else:
-                    cooccur = self.cooccur_freq[attr][other_attr].get(val, {}
-                        ).get(other_val, NA_COOCCUR_FV)
+                    cooccur = self.cooccur_freq[attr][other_attr].get(val, {}).get(other_val, NA_COOCCUR_FV)
                     freq = self.freq[other_attr][row[other_attr]]
                     fv = float(cooccur) / float(freq)
-                feat_idx = self.attr_to_idx[attr
-                    ] * self.n_attrs + other_attr_idx
+                feat_idx = self.attr_to_idx[attr] * self.n_attrs + other_attr_idx
                 tensor[val_idx, feat_idx] = fv
         return tensor
 
@@ -264,26 +263,21 @@ class Logistic(Estimator, torch.nn.Module):
         torch.nn.Module.__init__(self)
         Estimator.__init__(self, env, dataset)
         self.active_attrs = active_attrs
-        self.domain_records = domain_df.sort_values('_vid_')[['_vid_',
-            '_tid_', 'attribute', 'domain', 'init_value']].to_records()
+        self.domain_records = domain_df.sort_values('_vid_')[['_vid_', '_tid_', 'attribute', 'domain', 'init_value']].to_records()
         self.n_samples = int(domain_df['domain_size'].sum())
         self.featurizers = [CooccurAttrFeaturizer(self.ds)]
         for f in self.featurizers:
             f.setup()
-        self.num_features = sum(feat.num_features() for feat in self.
-            featurizers)
+        self.num_features = sum(feat.num_features() for feat in self.featurizers)
         self._gen_training_data()
         self._W = torch.nn.Parameter(torch.zeros(self.num_features, 1))
         torch.nn.init.xavier_uniform_(self._W)
         self._B = torch.nn.Parameter(torch.Tensor([1e-06]))
         self._loss = torch.nn.BCELoss()
         if self.env['optimizer'] == 'sgd':
-            self._optimizer = SGD(self.parameters(), lr=self.env[
-                'learning_rate'], momentum=self.env['momentum'],
-                weight_decay=self.WEIGHT_DECAY)
+            self._optimizer = SGD(self.parameters(), lr=self.env['learning_rate'], momentum=self.env['momentum'], weight_decay=self.WEIGHT_DECAY)
         else:
-            self._optimizer = Adam(self.parameters(), lr=self.env[
-                'learning_rate'], weight_decay=self.WEIGHT_DECAY)
+            self._optimizer = Adam(self.parameters(), lr=self.env['learning_rate'], weight_decay=self.WEIGHT_DECAY)
 
     def _gen_training_data(self):
         """
@@ -305,12 +299,10 @@ class Logistic(Estimator, torch.nn.Module):
         for rec in tqdm(list(self.domain_records)):
             init_row = raw_data_dict[rec['_tid_']]
             domain_vals = rec['domain'].split('|||')
-            feat_tensor = self._gen_feat_tensor(init_row, rec['attribute'],
-                domain_vals)
+            feat_tensor = self._gen_feat_tensor(init_row, rec['attribute'], domain_vals)
             assert feat_tensor.shape[0] == len(domain_vals)
             self._X[sample_idx:sample_idx + len(domain_vals)] = feat_tensor
-            self.vid_to_idxs[rec['_vid_']] = sample_idx, sample_idx + len(
-                domain_vals)
+            self.vid_to_idxs[rec['_vid_']] = sample_idx, sample_idx + len(domain_vals)
             if rec['init_value'] == NULL_REPR:
                 sample_idx += len(domain_vals)
                 continue
@@ -319,8 +311,7 @@ class Logistic(Estimator, torch.nn.Module):
             self._Y[sample_idx + init_idx] = 1
             sample_idx += len(domain_vals)
         self._train_idx = (self._train_idx == 1).nonzero()[:, (0)]
-        logging.debug('Logistic: DONE featurization in %.2fs', time.clock() -
-            tic)
+        logging.debug('Logistic: DONE featurization in %.2fs', time.clock() - tic)
 
     def _gen_feat_tensor(self, init_row, attr, domain_vals):
         """
@@ -334,8 +325,7 @@ class Logistic(Estimator, torch.nn.Module):
 
         :return: Tensor with dimensions (len(values), total # of features across all featurizers)
         """
-        return torch.cat([f.create_tensor(init_row, attr, domain_vals) for
-            f in self.featurizers], dim=1)
+        return torch.cat([f.create_tensor(init_row, attr, domain_vals) for f in self.featurizers], dim=1)
 
     def forward(self, X):
         linear = X.matmul(self._W) + self._B
@@ -348,14 +338,12 @@ class Logistic(Estimator, torch.nn.Module):
         :param num_epochs: (int) number of epochs.
         """
         batch_losses = []
-        X_train, Y_train = self._X.index_select(0, self._train_idx
-            ), self._Y.index_select(0, self._train_idx)
+        X_train, Y_train = self._X.index_select(0, self._train_idx), self._Y.index_select(0, self._train_idx)
         torch_ds = TensorDataset(X_train, Y_train)
         for epoch_idx in range(1, num_epochs + 1):
             logging.debug('Logistic: epoch %d', epoch_idx)
             batch_cnt = 0
-            for batch_X, batch_Y in tqdm(DataLoader(torch_ds, batch_size=
-                batch_size)):
+            for batch_X, batch_Y in tqdm(DataLoader(torch_ds, batch_size=batch_size)):
                 batch_pred = self.forward(batch_X)
                 batch_loss = self._loss(batch_pred, batch_Y.reshape(-1, 1))
                 batch_losses.append(float(batch_loss))
@@ -363,8 +351,7 @@ class Logistic(Estimator, torch.nn.Module):
                 batch_loss.backward()
                 self._optimizer.step()
                 batch_cnt += 1
-            logging.debug('Logistic: average batch loss: %f', sum(
-                batch_losses[-1 * batch_cnt:]) / batch_cnt)
+            logging.debug('Logistic: average batch loss: %f', sum(batch_losses[-1 * batch_cnt:]) / batch_cnt)
         return batch_losses
 
     def predict_pp(self, row, attr=None, values=None):
@@ -422,14 +409,12 @@ class TiedLinear(torch.nn.Module):
             feat_size = feat_entry.size
             init_weight = feat_entry.init_weight
             self.in_features += feat_size
-            feat_weight = Parameter(init_weight * torch.ones(1, feat_size),
-                requires_grad=learnable)
+            feat_weight = Parameter(init_weight * torch.ones(1, feat_size), requires_grad=learnable)
             if learnable:
                 self.reset_parameters(feat_weight)
             self.weight_list.append(feat_weight)
             if bias:
-                feat_bias = Parameter(torch.zeros(1, feat_size),
-                    requires_grad=learnable)
+                feat_bias = Parameter(torch.zeros(1, feat_size), requires_grad=learnable)
                 if learnable:
                     self.reset_parameters(feat_bias)
                 self.bias_list.append(feat_bias)
@@ -444,8 +429,7 @@ class TiedLinear(torch.nn.Module):
             self.W = self.W.div(self.W.norm(p=2))
         self.W = self.W.expand(self.output_dim, -1)
         if self.bias_flag:
-            self.B = torch.cat([t.expand(self.output_dim, -1) for t in self
-                .bias_list], -1)
+            self.B = torch.cat([t.expand(self.output_dim, -1) for t in self.bias_list], -1)
 
     def forward(self, X, index, mask):
         self.concat_weights()
@@ -456,10 +440,3 @@ class TiedLinear(torch.nn.Module):
         output.index_add_(0, index, mask)
         return output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_HoloClean_holoclean(_paritybench_base):
-    pass

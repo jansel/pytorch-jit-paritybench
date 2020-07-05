@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -51,10 +52,8 @@ class AttentionWalkLayer(torch.nn.Module):
         Define the model weights.
         """
         half_dim = int(self.args.dimensions / 2)
-        self.left_factors = torch.nn.Parameter(torch.Tensor(self.shapes[1],
-            half_dim))
-        self.right_factors = torch.nn.Parameter(torch.Tensor(half_dim, self
-            .shapes[1]))
+        self.left_factors = torch.nn.Parameter(torch.Tensor(self.shapes[1], half_dim))
+        self.right_factors = torch.nn.Parameter(torch.Tensor(half_dim, self.shapes[1]))
         self.attention = torch.nn.Parameter(torch.Tensor(self.shapes[0], 1))
 
     def initialize_weights(self):
@@ -72,33 +71,19 @@ class AttentionWalkLayer(torch.nn.Module):
         :param adjacency_opposite: No-edge indicator matrix.
         :return loss: Loss being minimized.
         """
-        self.attention_probs = torch.nn.functional.softmax(self.attention,
-            dim=0)
-        probs = self.attention_probs.unsqueeze(1).expand_as(
-            weighted_target_tensor)
+        self.attention_probs = torch.nn.functional.softmax(self.attention, dim=0)
+        probs = self.attention_probs.unsqueeze(1).expand_as(weighted_target_tensor)
         weighted_target_tensor = weighted_target_tensor * probs
         weighted_tar_mat = torch.sum(weighted_target_tensor, dim=0)
-        weighted_tar_mat = weighted_tar_mat.view(self.shapes[1], self.shapes[2]
-            )
+        weighted_tar_mat = weighted_tar_mat.view(self.shapes[1], self.shapes[2])
         estimate = torch.mm(self.left_factors, self.right_factors)
         loss_on_target = -weighted_tar_mat * torch.log(torch.sigmoid(estimate))
-        loss_opposite = -adjacency_opposite * torch.log(1 - torch.sigmoid(
-            estimate))
-        loss_on_mat = self.args.num_of_walks * weighted_tar_mat.shape[0
-            ] * loss_on_target + loss_opposite
+        loss_opposite = -adjacency_opposite * torch.log(1 - torch.sigmoid(estimate))
+        loss_on_mat = self.args.num_of_walks * weighted_tar_mat.shape[0] * loss_on_target + loss_opposite
         abs_loss_on_mat = torch.abs(loss_on_mat)
         average_loss_on_mat = torch.mean(abs_loss_on_mat)
-        norms = torch.mean(torch.abs(self.left_factors)) + torch.mean(torch
-            .abs(self.right_factors))
+        norms = torch.mean(torch.abs(self.left_factors)) + torch.mean(torch.abs(self.right_factors))
         loss_on_regularization = self.args.beta * self.attention.norm(2) ** 2
-        loss = (average_loss_on_mat + loss_on_regularization + self.args.
-            gamma * norms)
+        loss = average_loss_on_mat + loss_on_regularization + self.args.gamma * norms
         return loss
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_benedekrozemberczki_AttentionWalk(_paritybench_base):
-    pass

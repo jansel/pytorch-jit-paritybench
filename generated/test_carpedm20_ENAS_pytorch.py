@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -137,12 +138,10 @@ class Controller(torch.nn.Module):
                 self.num_tokens += [idx + 1, len(args.shared_rnn_activations)]
             self.func_names = args.shared_rnn_activations
         elif self.args.network_type == 'cnn':
-            self.num_tokens = [len(args.shared_cnn_types), self.args.num_blocks
-                ]
+            self.num_tokens = [len(args.shared_cnn_types), self.args.num_blocks]
             self.func_names = args.shared_cnn_types
         num_total_tokens = sum(self.num_tokens)
-        self.encoder = torch.nn.Embedding(num_total_tokens, args.controller_hid
-            )
+        self.encoder = torch.nn.Embedding(num_total_tokens, args.controller_hid)
         self.lstm = torch.nn.LSTMCell(args.controller_hid, args.controller_hid)
         self.decoders = []
         for idx, size in enumerate(self.num_tokens):
@@ -153,8 +152,7 @@ class Controller(torch.nn.Module):
         self.static_init_hidden = utils.keydefaultdict(self.init_hidden)
 
         def _get_default_hidden(key):
-            return utils.get_variable(torch.zeros(key, self.args.
-                controller_hid), self.args.cuda, requires_grad=False)
+            return utils.get_variable(torch.zeros(key, self.args.controller_hid), self.args.cuda, requires_grad=False)
         self.static_inputs = utils.keydefaultdict(_get_default_hidden)
 
     def reset_parameters(self):
@@ -190,40 +188,33 @@ class Controller(torch.nn.Module):
         log_probs = []
         prev_nodes = []
         for block_idx in range(2 * (self.args.num_blocks - 1) + 1):
-            logits, hidden = self.forward(inputs, hidden, block_idx,
-                is_embed=block_idx == 0)
+            logits, hidden = self.forward(inputs, hidden, block_idx, is_embed=block_idx == 0)
             probs = F.softmax(logits, dim=-1)
             log_prob = F.log_softmax(logits, dim=-1)
             entropy = -(log_prob * probs).sum(1, keepdim=False)
             action = probs.multinomial(num_samples=1).data
-            selected_log_prob = log_prob.gather(1, utils.get_variable(
-                action, requires_grad=False))
+            selected_log_prob = log_prob.gather(1, utils.get_variable(action, requires_grad=False))
             entropies.append(entropy)
             log_probs.append(selected_log_prob[:, (0)])
             mode = block_idx % 2
-            inputs = utils.get_variable(action[:, (0)] + sum(self.
-                num_tokens[:mode]), requires_grad=False)
+            inputs = utils.get_variable(action[:, (0)] + sum(self.num_tokens[:mode]), requires_grad=False)
             if mode == 0:
                 activations.append(action[:, (0)])
             elif mode == 1:
                 prev_nodes.append(action[:, (0)])
         prev_nodes = torch.stack(prev_nodes).transpose(0, 1)
         activations = torch.stack(activations).transpose(0, 1)
-        dags = _construct_dags(prev_nodes, activations, self.func_names,
-            self.args.num_blocks)
+        dags = _construct_dags(prev_nodes, activations, self.func_names, self.args.num_blocks)
         if save_dir is not None:
             for idx, dag in enumerate(dags):
-                utils.draw_network(dag, os.path.join(save_dir,
-                    f'graph{idx}.png'))
+                utils.draw_network(dag, os.path.join(save_dir, f'graph{idx}.png'))
         if with_details:
             return dags, torch.cat(log_probs), torch.cat(entropies)
         return dags
 
     def init_hidden(self, batch_size):
         zeros = torch.zeros(batch_size, self.args.controller_hid)
-        return utils.get_variable(zeros, self.args.cuda, requires_grad=False
-            ), utils.get_variable(zeros.clone(), self.args.cuda,
-            requires_grad=False)
+        return utils.get_variable(zeros, self.args.cuda, requires_grad=False), utils.get_variable(zeros.clone(), self.args.cuda, requires_grad=False)
 
 
 def size(p):
@@ -262,9 +253,7 @@ class EmbeddingDropout(torch.nn.Embedding):
     Networks', (Gal and Ghahramani, 2016).
     """
 
-    def __init__(self, num_embeddings, embedding_dim, max_norm=None,
-        norm_type=2, scale_grad_by_freq=False, sparse=False, dropout=0.1,
-        scale=None):
+    def __init__(self, num_embeddings, embedding_dim, max_norm=None, norm_type=2, scale_grad_by_freq=False, sparse=False, dropout=0.1, scale=None):
         """Embedding constructor.
 
         Args:
@@ -275,9 +264,7 @@ class EmbeddingDropout(torch.nn.Embedding):
 
         See `torch.nn.Embedding` for remaining arguments.
         """
-        torch.nn.Embedding.__init__(self, num_embeddings=num_embeddings,
-            embedding_dim=embedding_dim, max_norm=max_norm, norm_type=
-            norm_type, scale_grad_by_freq=scale_grad_by_freq, sparse=sparse)
+        torch.nn.Embedding.__init__(self, num_embeddings=num_embeddings, embedding_dim=embedding_dim, max_norm=max_norm, norm_type=norm_type, scale_grad_by_freq=scale_grad_by_freq, sparse=sparse)
         self.dropout = dropout
         assert dropout >= 0.0 and dropout < 1.0, 'Dropout must be >= 0.0 and < 1.0'
         self.scale = scale
@@ -298,9 +285,7 @@ class EmbeddingDropout(torch.nn.Embedding):
             masked_weight = self.weight
         if self.scale and self.scale != 1:
             masked_weight = masked_weight * self.scale
-        return F.embedding(inputs, masked_weight, max_norm=self.max_norm,
-            norm_type=self.norm_type, scale_grad_by_freq=self.
-            scale_grad_by_freq, sparse=self.sparse)
+        return F.embedding(inputs, masked_weight, max_norm=self.max_norm, norm_type=self.norm_type, scale_grad_by_freq=self.scale_grad_by_freq, sparse=self.sparse)
 
 
 class LockedDropout(nn.Module):
@@ -321,13 +306,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_carpedm20_ENAS_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(EmbeddingDropout(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EmbeddingDropout,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LockedDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_carpedm20_ENAS_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(LockedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -91,8 +92,7 @@ MAX_LENGTH = 10
 
 class AttnDecoderRNN(nn.Module):
 
-    def __init__(self, hidden_size, output_size, n_layers=1, dropout_p=0.1,
-        max_length=MAX_LENGTH):
+    def __init__(self, hidden_size, output_size, n_layers=1, dropout_p=0.1, max_length=MAX_LENGTH):
         super(AttnDecoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.output_size = output_size
@@ -109,10 +109,8 @@ class AttnDecoderRNN(nn.Module):
     def forward(self, inputs, hidden, encoder_output, encoder_outputs):
         embedded = self.embedding(inputs).view(1, 1, -1)
         embedded = self.dropout(embedded)
-        attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0
-            ]), 1)))
-        attn_applied = torch.bmm(attn_weights.unsqueeze(0), encoder_outputs
-            .unsqueeze(0))
+        attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)))
+        attn_applied = torch.bmm(attn_weights.unsqueeze(0), encoder_outputs.unsqueeze(0))
         output = torch.cat((embedded[0], attn_applied[0]), 1)
         output = self.attn_combine(output).unsqueeze(0)
         for i in range(self.n_layers):
@@ -128,10 +126,3 @@ class AttnDecoderRNN(nn.Module):
         else:
             return result
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jinfagang_pytorch_chatbot(_paritybench_base):
-    pass

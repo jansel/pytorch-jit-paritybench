@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,17 +93,14 @@ from torch.nn.parameter import Parameter
 
 class FP_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, dropout=0, groups=1, channel_shuffle=0,
-        shuffle_groups=1, last=0, first=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, dropout=0, groups=1, channel_shuffle=0, shuffle_groups=1, last=0, first=0):
         super(FP_Conv2d, self).__init__()
         self.dropout_ratio = dropout
         self.last = last
         self.first_flag = first
         if dropout != 0:
             self.dropout = nn.Dropout(dropout)
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding, groups=groups)
+        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -123,20 +121,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [192, 160, 96, 192, 192, 192, 192, 192]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0]), FP_Conv2d(cfg[0],
-            cfg[1], kernel_size=1, stride=1, padding=0, first=1), FP_Conv2d
-            (cfg[1], cfg[2], kernel_size=1, stride=1, padding=0), nn.
-            MaxPool2d(kernel_size=3, stride=2, padding=1), FP_Conv2d(cfg[2],
-            cfg[3], kernel_size=5, stride=1, padding=2), FP_Conv2d(cfg[3],
-            cfg[4], kernel_size=1, stride=1, padding=0), FP_Conv2d(cfg[4],
-            cfg[5], kernel_size=1, stride=1, padding=0), nn.AvgPool2d(
-            kernel_size=3, stride=2, padding=1), FP_Conv2d(cfg[5], cfg[6],
-            kernel_size=3, stride=1, padding=1), FP_Conv2d(cfg[6], cfg[7],
-            kernel_size=1, stride=1, padding=0), nn.Conv2d(cfg[7], 10,
-            kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.
-            ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1,
-            padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0]), FP_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, first=1), FP_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), FP_Conv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding=2), FP_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0), FP_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0), nn.AvgPool2d(kernel_size=3, stride=2, padding=1), FP_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1), FP_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
         """
         self.dorefa = nn.Sequential(
                 nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2),
@@ -178,9 +163,7 @@ def channel_shuffle(x, groups):
 
 class FP_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, dropout=0, groups=1, channel_shuffle=0,
-        shuffle_groups=1, last=0, bin_mp=0, bin_nor=1, last_relu=0, first=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, dropout=0, groups=1, channel_shuffle=0, shuffle_groups=1, last=0, bin_mp=0, bin_nor=1, last_relu=0, first=0):
         super(FP_Conv2d, self).__init__()
         self.dropout_ratio = dropout
         self.last = last
@@ -189,8 +172,7 @@ class FP_Conv2d(nn.Module):
         self.shuffle_groups = shuffle_groups
         if dropout != 0:
             self.dropout = nn.Dropout(dropout)
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding, groups=groups)
+        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -213,26 +195,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [256, 256, 256, 512, 512, 512, 1024, 1024]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0]), FP_Conv2d(cfg[0],
-            cfg[1], kernel_size=1, stride=1, padding=0, first=1, groups=2,
-            channel_shuffle=0), FP_Conv2d(cfg[1], cfg[2], kernel_size=1,
-            stride=1, padding=0, groups=2, channel_shuffle=1,
-            shuffle_groups=2, bin_mp=1), nn.MaxPool2d(kernel_size=2, stride
-            =2, padding=0), FP_Conv2d(cfg[2], cfg[3], kernel_size=3, stride
-            =1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2,
-            bin_nor=0), FP_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1,
-            padding=0, groups=4, channel_shuffle=1, shuffle_groups=16),
-            FP_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0,
-            groups=4, channel_shuffle=1, shuffle_groups=4, bin_mp=1), nn.
-            MaxPool2d(kernel_size=2, stride=2, padding=0), FP_Conv2d(cfg[5],
-            cfg[6], kernel_size=3, stride=1, padding=1, groups=32,
-            channel_shuffle=1, shuffle_groups=4, bin_nor=0), FP_Conv2d(cfg[
-            6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8,
-            channel_shuffle=1, shuffle_groups=32), nn.Conv2d(cfg[7], 10,
-            kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.
-            ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1,
-            padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0]), FP_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, first=1, groups=2, channel_shuffle=0), FP_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1, shuffle_groups=2, bin_mp=1), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), FP_Conv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2, bin_nor=0), FP_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=16), FP_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=4, bin_mp=1), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), FP_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32, channel_shuffle=1, shuffle_groups=4, bin_nor=0), FP_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1, shuffle_groups=32), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
         """
         self.dorefa = nn.Sequential(
                 nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2),
@@ -272,16 +235,12 @@ class DummyModule(nn.Module):
 
 class Tnn_Bin_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=
-        1, last_bin=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=1, last_bin=0):
         super(Tnn_Bin_Conv2d, self).__init__()
         self.channel_shuffle_flag = channel_shuffle
         self.shuffle_groups = shuffle_groups
         self.last_bin = last_bin
-        self.tnn_bin_conv = nn.Conv2d(input_channels, output_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, groups
-            =groups)
+        self.tnn_bin_conv = nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
         self.bin_a = activation_bin(A=2)
@@ -303,27 +262,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [256, 256, 256, 512, 512, 512, 1024, 1024]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(
-            cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2,
-            channel_shuffle=0), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=
-            1, stride=1, padding=0, groups=2, channel_shuffle=1,
-            shuffle_groups=2), nn.MaxPool2d(kernel_size=2, stride=2,
-            padding=0), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=3,
-            stride=1, padding=1, groups=16, channel_shuffle=1,
-            shuffle_groups=2), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=16), Tnn_Bin_Conv2d(cfg[4], cfg[5], kernel_size=
-            1, stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=4), nn.MaxPool2d(kernel_size=2, stride=2,
-            padding=0), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3,
-            stride=1, padding=1, groups=32, channel_shuffle=1,
-            shuffle_groups=4), Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1,
-            stride=1, padding=0, groups=8, channel_shuffle=1,
-            shuffle_groups=32, last_bin=1), nn.Conv2d(cfg[7], 10,
-            kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.
-            ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1,
-            padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=0), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1, shuffle_groups=2), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=16), Tnn_Bin_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=4), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32, channel_shuffle=1, shuffle_groups=4), Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1, shuffle_groups=32, last_bin=1), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.tnn_bin(x)
@@ -333,17 +272,13 @@ class Net(nn.Module):
 
 class Tnn_Bin_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=
-        1, A=2, W=2, last_relu=0, last_bin=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=1, A=2, W=2, last_relu=0, last_bin=0):
         super(Tnn_Bin_Conv2d, self).__init__()
         self.channel_shuffle_flag = channel_shuffle
         self.shuffle_groups = shuffle_groups
         self.last_relu = last_relu
         self.last_bin = last_bin
-        self.tnn_bin_conv = Conv2d_Q(input_channels, output_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, groups
-            =groups, A=A, W=W)
+        self.tnn_bin_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, A=A, W=W)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
         self.bin_a = activation_bin(A=A)
@@ -366,27 +301,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [256, 256, 256, 512, 512, 512, 1024, 1024]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(
-            cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2,
-            channel_shuffle=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[1], cfg[2],
-            kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1,
-            shuffle_groups=2, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride
-            =2, padding=0), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=3,
-            stride=1, padding=1, groups=16, channel_shuffle=1,
-            shuffle_groups=2, A=A, W=W), Tnn_Bin_Conv2d(cfg[3], cfg[4],
-            kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=16, A=A, W=W), Tnn_Bin_Conv2d(cfg[4], cfg[5],
-            kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=4, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride
-            =2, padding=0), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3,
-            stride=1, padding=1, groups=32, channel_shuffle=1,
-            shuffle_groups=4, A=A, W=W), Tnn_Bin_Conv2d(cfg[6], cfg[7],
-            kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1,
-            shuffle_groups=32, A=A, W=W, last_relu=0, last_bin=1), nn.
-            Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.
-            BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(
-            kernel_size=8, stride=1, padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1, shuffle_groups=2, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2, A=A, W=W), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=16, A=A, W=W), Tnn_Bin_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=4, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32, channel_shuffle=1, shuffle_groups=4, A=A, W=W), Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1, shuffle_groups=32, A=A, W=W, last_relu=0, last_bin=1), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.tnn_bin(x)
@@ -444,8 +359,7 @@ class Ternary(Function):
     def forward(self, input):
         E = torch.mean(torch.abs(input), (3, 2, 1), keepdim=True)
         threshold = E * 0.7
-        output = torch.sign(torch.add(torch.sign(torch.add(input, threshold
-            )), torch.sign(torch.add(input, -threshold))))
+        output = torch.sign(torch.add(torch.sign(torch.add(input, threshold)), torch.sign(torch.add(input, -threshold))))
         return output, threshold
 
     @staticmethod
@@ -491,10 +405,8 @@ class weight_tnn_bin(nn.Module):
                 mask_gt = output_abs.gt(threshold)
                 output_abs[mask_le] = 0
                 output_abs_th = output_abs.clone()
-                output_abs_th_sum = torch.sum(output_abs_th, (3, 2, 1),
-                    keepdim=True)
-                mask_gt_sum = torch.sum(mask_gt, (3, 2, 1), keepdim=True
-                    ).float()
+                output_abs_th_sum = torch.sum(output_abs_th, (3, 2, 1), keepdim=True)
+                mask_gt_sum = torch.sum(mask_gt, (3, 2, 1), keepdim=True).float()
                 alpha = output_abs_th_sum / mask_gt_sum
                 output = output * alpha
         else:
@@ -504,34 +416,26 @@ class weight_tnn_bin(nn.Module):
 
 class Conv2d_Q(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, A=2, W=2):
-        super().__init__(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=groups, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, A=2, W=2):
+        super().__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.activation_quantizer = activation_bin(A=A)
         self.weight_quantizer = weight_tnn_bin(W=W)
 
     def forward(self, input):
         bin_input = self.activation_quantizer(input)
         tnn_bin_weight = self.weight_quantizer(self.weight)
-        output = F.conv2d(input=bin_input, weight=tnn_bin_weight, bias=self
-            .bias, stride=self.stride, padding=self.padding, dilation=self.
-            dilation, groups=self.groups)
+        output = F.conv2d(input=bin_input, weight=tnn_bin_weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
         return output
 
 
 class Tnn_Bin_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, last_relu=0, A=2, W=2):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, last_relu=0, A=2, W=2):
         super(Tnn_Bin_Conv2d, self).__init__()
         self.A = A
         self.W = W
         self.last_relu = last_relu
-        self.tnn_bin_conv = Conv2d_Q(input_channels, output_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, groups
-            =groups, A=A, W=W)
+        self.tnn_bin_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, A=A, W=W)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -549,21 +453,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [192, 160, 96, 192, 192, 192, 192, 192]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(
-            cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, A=A, W=W),
-            Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding
-            =0, A=A, W=W), nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding
-            =2, A=A, W=W), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[4], cfg[5],
-            kernel_size=1, stride=1, padding=0, A=A, W=W), nn.MaxPool2d(
-            kernel_size=3, stride=2, padding=1), Tnn_Bin_Conv2d(cfg[5], cfg
-            [6], kernel_size=3, stride=1, padding=1, A=A, W=W),
-            Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding
-            =0, last_relu=1, A=A, W=W), nn.Conv2d(cfg[7], 10, kernel_size=1,
-            stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True),
-            nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, A=A, W=W), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding=2, A=A, W=W), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, A=A, W=W), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, A=A, W=W), Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, last_relu=1, A=A, W=W), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.tnn_bin(x)
@@ -598,21 +488,18 @@ class BinActive(torch.autograd.Function):
 
 class Tnn_Bin_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, dropout=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, dropout=0):
         super(Tnn_Bin_Conv2d, self).__init__()
         self.layer_type = 'Tnn_Bin_Conv2d'
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
         self.dropout_ratio = dropout
-        self.bn = nn.BatchNorm2d(input_channels, eps=0.0001, momentum=0.1,
-            affine=True)
+        self.bn = nn.BatchNorm2d(input_channels, eps=0.0001, momentum=0.1, affine=True)
         self.bn.weight.data = self.bn.weight.data.zero_().add(1.0)
         if dropout != 0:
             self.dropout = nn.Dropout(dropout)
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding)
+        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -631,23 +518,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [192, 160, 96, 192, 192, 192, 192, 192]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0], eps=0.0001,
-            momentum=0.1, affine=False), nn.ReLU(inplace=True),
-            Tnn_Bin_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding
-            =0), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1,
-            padding=0), nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding
-            =2, dropout=0.5), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0), Tnn_Bin_Conv2d(cfg[4], cfg[5],
-            kernel_size=1, stride=1, padding=0), nn.AvgPool2d(kernel_size=3,
-            stride=2, padding=1), Tnn_Bin_Conv2d(cfg[5], cfg[6],
-            kernel_size=3, stride=1, padding=1, dropout=0.5),
-            Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding
-            =0), nn.BatchNorm2d(cfg[7], eps=0.0001, momentum=0.1, affine=
-            False), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=
-            0), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1,
-            padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0], eps=0.0001, momentum=0.1, affine=False), nn.ReLU(inplace=True), Tnn_Bin_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding=2, dropout=0.5), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0), Tnn_Bin_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0), nn.AvgPool2d(kernel_size=3, stride=2, padding=1), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, dropout=0.5), Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(cfg[7], eps=0.0001, momentum=0.1, affine=False), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         for m in self.modules():
@@ -661,17 +532,13 @@ class Net(nn.Module):
 
 class Tnn_Bin_Conv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=
-        1, A=2, W=2, last_relu=0, last_bin=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=1, A=2, W=2, last_relu=0, last_bin=0):
         super(Tnn_Bin_Conv2d, self).__init__()
         self.channel_shuffle_flag = channel_shuffle
         self.shuffle_groups = shuffle_groups
         self.last_relu = last_relu
         self.last_bin = last_bin
-        self.tnn_bin_conv = Conv2d_Q(input_channels, output_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, groups
-            =groups, A=A, W=W)
+        self.tnn_bin_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, A=A, W=W)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
         self.bin_a = activation_bin(A=A)
@@ -694,27 +561,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [256, 256, 256, 512, 512, 512, 1024, 1024]
-        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(
-            cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2,
-            channel_shuffle=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[1], cfg[2],
-            kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1,
-            shuffle_groups=2, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride
-            =2, padding=0), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=3,
-            stride=1, padding=1, groups=16, channel_shuffle=1,
-            shuffle_groups=2, A=A, W=W), Tnn_Bin_Conv2d(cfg[3], cfg[4],
-            kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=16, A=A, W=W), Tnn_Bin_Conv2d(cfg[4], cfg[5],
-            kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=4, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride
-            =2, padding=0), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3,
-            stride=1, padding=1, groups=32, channel_shuffle=1,
-            shuffle_groups=4, A=A, W=W), Tnn_Bin_Conv2d(cfg[6], cfg[7],
-            kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1,
-            shuffle_groups=32, A=A, W=W, last_relu=0, last_bin=1), nn.
-            Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.
-            BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(
-            kernel_size=8, stride=1, padding=0))
+        self.tnn_bin = nn.Sequential(nn.Conv2d(3, cfg[0], kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(cfg[0]), Tnn_Bin_Conv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=0, A=A, W=W), Tnn_Bin_Conv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1, shuffle_groups=2, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), Tnn_Bin_Conv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2, A=A, W=W), Tnn_Bin_Conv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=16, A=A, W=W), Tnn_Bin_Conv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=4, A=A, W=W), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), Tnn_Bin_Conv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32, channel_shuffle=1, shuffle_groups=4, A=A, W=W), Tnn_Bin_Conv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1, shuffle_groups=32, A=A, W=W, last_relu=0, last_bin=1), nn.Conv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(10), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.tnn_bin(x)
@@ -809,10 +656,8 @@ class weight_tnn_bin(nn.Module):
                 mask_gt = output_abs.gt(threshold)
                 output_abs[mask_le] = 0
                 output_abs_th = output_abs.clone()
-                output_abs_th_sum = torch.sum(output_abs_th, (3, 2, 1),
-                    keepdim=True)
-                mask_gt_sum = torch.sum(mask_gt, (3, 2, 1), keepdim=True
-                    ).float()
+                output_abs_th_sum = torch.sum(output_abs_th, (3, 2, 1), keepdim=True)
+                mask_gt_sum = torch.sum(mask_gt, (3, 2, 1), keepdim=True).float()
                 alpha = output_abs_th_sum / mask_gt_sum
                 output = output * alpha
         else:
@@ -822,20 +667,15 @@ class weight_tnn_bin(nn.Module):
 
 class Conv2d_Q(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, A=2, W=2):
-        super().__init__(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=groups, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, A=2, W=2):
+        super().__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.activation_quantizer = activation_bin(A=A)
         self.weight_quantizer = weight_tnn_bin(W=W)
 
     def forward(self, input):
         bin_input = self.activation_quantizer(input)
         tnn_bin_weight = self.weight_quantizer(self.weight)
-        output = F.conv2d(input=bin_input, weight=tnn_bin_weight, bias=self
-            .bias, stride=self.stride, padding=self.padding, dilation=self.
-            dilation, groups=self.groups)
+        output = F.conv2d(input=bin_input, weight=tnn_bin_weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
         return output
 
 
@@ -853,12 +693,8 @@ def reshape_to_weight(input):
 
 class BNFold_Conv2d_Q(Conv2d_Q):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=False, eps=1e-05, momentum=
-        0.01, a_bits=8, w_bits=8, q_type=1, first_layer=0):
-        super().__init__(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=groups, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, eps=1e-05, momentum=0.01, a_bits=8, w_bits=8, q_type=1, first_layer=0):
+        super().__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.eps = eps
         self.momentum = momentum
         self.gamma = Parameter(torch.Tensor(out_channels))
@@ -869,24 +705,16 @@ class BNFold_Conv2d_Q(Conv2d_Q):
         init.uniform_(self.gamma)
         init.zeros_(self.beta)
         if q_type == 0:
-            self.activation_quantizer = SymmetricQuantizer(bits=a_bits,
-                range_tracker=AveragedRangeTracker(q_level='L'))
-            self.weight_quantizer = SymmetricQuantizer(bits=w_bits,
-                range_tracker=GlobalRangeTracker(q_level='C', out_channels=
-                out_channels))
+            self.activation_quantizer = SymmetricQuantizer(bits=a_bits, range_tracker=AveragedRangeTracker(q_level='L'))
+            self.weight_quantizer = SymmetricQuantizer(bits=w_bits, range_tracker=GlobalRangeTracker(q_level='C', out_channels=out_channels))
         else:
-            self.activation_quantizer = AsymmetricQuantizer(bits=a_bits,
-                range_tracker=AveragedRangeTracker(q_level='L'))
-            self.weight_quantizer = AsymmetricQuantizer(bits=w_bits,
-                range_tracker=GlobalRangeTracker(q_level='C', out_channels=
-                out_channels))
+            self.activation_quantizer = AsymmetricQuantizer(bits=a_bits, range_tracker=AveragedRangeTracker(q_level='L'))
+            self.weight_quantizer = AsymmetricQuantizer(bits=w_bits, range_tracker=GlobalRangeTracker(q_level='C', out_channels=out_channels))
         self.first_layer = first_layer
 
     def forward(self, input):
         if self.training:
-            output = F.conv2d(input=input, weight=self.weight, bias=self.
-                bias, stride=self.stride, padding=self.padding, dilation=
-                self.dilation, groups=self.groups)
+            output = F.conv2d(input=input, weight=self.weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
             dims = [dim for dim in range(4) if dim != 1]
             batch_mean = torch.mean(output, dim=dims)
             batch_var = torch.var(output, dim=dims)
@@ -896,65 +724,43 @@ class BNFold_Conv2d_Q(Conv2d_Q):
                     self.running_mean.add_(batch_mean)
                     self.running_var.add_(batch_var)
                 else:
-                    self.running_mean.mul_(1 - self.momentum).add_(
-                        batch_mean * self.momentum)
-                    self.running_var.mul_(1 - self.momentum).add_(batch_var *
-                        self.momentum)
+                    self.running_mean.mul_(1 - self.momentum).add_(batch_mean * self.momentum)
+                    self.running_var.mul_(1 - self.momentum).add_(batch_var * self.momentum)
             if self.bias is not None:
-                bias = reshape_to_bias(self.beta + (self.bias - batch_mean) *
-                    (self.gamma / torch.sqrt(batch_var + self.eps)))
+                bias = reshape_to_bias(self.beta + (self.bias - batch_mean) * (self.gamma / torch.sqrt(batch_var + self.eps)))
             else:
-                bias = reshape_to_bias(self.beta - batch_mean * (self.gamma /
-                    torch.sqrt(batch_var + self.eps)))
-            weight = self.weight * reshape_to_weight(self.gamma / torch.
-                sqrt(self.running_var + self.eps))
+                bias = reshape_to_bias(self.beta - batch_mean * (self.gamma / torch.sqrt(batch_var + self.eps)))
+            weight = self.weight * reshape_to_weight(self.gamma / torch.sqrt(self.running_var + self.eps))
         else:
             if self.bias is not None:
-                bias = reshape_to_bias(self.beta + (self.bias - self.
-                    running_mean) * (self.gamma / torch.sqrt(self.
-                    running_var + self.eps)))
+                bias = reshape_to_bias(self.beta + (self.bias - self.running_mean) * (self.gamma / torch.sqrt(self.running_var + self.eps)))
             else:
-                bias = reshape_to_bias(self.beta - self.running_mean * (
-                    self.gamma / torch.sqrt(self.running_var + self.eps)))
-            weight = self.weight * reshape_to_weight(self.gamma / torch.
-                sqrt(self.running_var + self.eps))
+                bias = reshape_to_bias(self.beta - self.running_mean * (self.gamma / torch.sqrt(self.running_var + self.eps)))
+            weight = self.weight * reshape_to_weight(self.gamma / torch.sqrt(self.running_var + self.eps))
         if not self.first_layer:
             input = self.activation_quantizer(input)
         q_input = input
         q_weight = self.weight_quantizer(weight)
         if self.training:
-            output = F.conv2d(input=q_input, weight=q_weight, bias=self.
-                bias, stride=self.stride, padding=self.padding, dilation=
-                self.dilation, groups=self.groups)
-            output *= reshape_to_activation(torch.sqrt(self.running_var +
-                self.eps) / torch.sqrt(batch_var + self.eps))
+            output = F.conv2d(input=q_input, weight=q_weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
+            output *= reshape_to_activation(torch.sqrt(self.running_var + self.eps) / torch.sqrt(batch_var + self.eps))
             output += reshape_to_activation(bias)
         else:
-            output = F.conv2d(input=q_input, weight=q_weight, bias=bias,
-                stride=self.stride, padding=self.padding, dilation=self.
-                dilation, groups=self.groups)
+            output = F.conv2d(input=q_input, weight=q_weight, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
         return output
 
 
 class QuanConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, last_relu=0, abits=8, wbits=8,
-        bn_fold=0, q_type=1, first_layer=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, last_relu=0, abits=8, wbits=8, bn_fold=0, q_type=1, first_layer=0):
         super(QuanConv2d, self).__init__()
         self.last_relu = last_relu
         self.bn_fold = bn_fold
         self.first_layer = first_layer
         if self.bn_fold == 1:
-            self.bn_q_conv = BNFold_Conv2d_Q(input_channels,
-                output_channels, kernel_size=kernel_size, stride=stride,
-                padding=padding, groups=groups, a_bits=abits, w_bits=wbits,
-                q_type=q_type, first_layer=first_layer)
+            self.bn_q_conv = BNFold_Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, a_bits=abits, w_bits=wbits, q_type=q_type, first_layer=first_layer)
         else:
-            self.q_conv = Conv2d_Q(input_channels, output_channels,
-                kernel_size=kernel_size, stride=stride, padding=padding,
-                groups=groups, a_bits=abits, w_bits=wbits, q_type=q_type,
-                first_layer=first_layer)
+            self.q_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, a_bits=abits, w_bits=wbits, q_type=q_type, first_layer=first_layer)
             self.bn = nn.BatchNorm2d(output_channels, momentum=0.01)
         self.relu = nn.ReLU(inplace=True)
 
@@ -977,27 +783,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [192, 160, 96, 192, 192, 192, 192, 192]
-        self.quan_model = nn.Sequential(QuanConv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type, first_layer=1), QuanConv2d(cfg[0], cfg[1],
-            kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits,
-            bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[1], cfg[2],
-            kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits,
-            bn_fold=bn_fold, q_type=q_type), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1), QuanConv2d(cfg[2], cfg[3], kernel_size=5,
-            stride=1, padding=2, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type), QuanConv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type), QuanConv2d(cfg[4], cfg[5], kernel_size=1,
-            stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type), nn.MaxPool2d(kernel_size=3, stride=2, padding=1
-            ), QuanConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=
-            1, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type),
-            QuanConv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0,
-            abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type),
-            QuanConv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0,
-            last_relu=1, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=
-            q_type), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
+        self.quan_model = nn.Sequential(QuanConv2d(3, cfg[0], kernel_size=5, stride=1, padding=2, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type, first_layer=1), QuanConv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), QuanConv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding=2, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), QuanConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0, last_relu=1, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.quan_model(x)
@@ -1007,9 +793,7 @@ class Net(nn.Module):
 
 class QuanConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=
-        1, last_relu=0, abits=8, wbits=8, bn_fold=0, q_type=1, first_layer=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=1, last_relu=0, abits=8, wbits=8, bn_fold=0, q_type=1, first_layer=0):
         super(QuanConv2d, self).__init__()
         self.last_relu = last_relu
         self.channel_shuffle_flag = channel_shuffle
@@ -1017,15 +801,9 @@ class QuanConv2d(nn.Module):
         self.bn_fold = bn_fold
         self.first_layer = first_layer
         if self.bn_fold == 1:
-            self.bn_q_conv = BNFold_Conv2d_Q(input_channels,
-                output_channels, kernel_size=kernel_size, stride=stride,
-                padding=padding, groups=groups, a_bits=abits, w_bits=wbits,
-                q_type=q_type, first_layer=first_layer)
+            self.bn_q_conv = BNFold_Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, a_bits=abits, w_bits=wbits, q_type=q_type, first_layer=first_layer)
         else:
-            self.q_conv = Conv2d_Q(input_channels, output_channels,
-                kernel_size=kernel_size, stride=stride, padding=padding,
-                groups=groups, a_bits=abits, w_bits=wbits, q_type=q_type,
-                first_layer=first_layer)
+            self.q_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, a_bits=abits, w_bits=wbits, q_type=q_type, first_layer=first_layer)
             self.bn = nn.BatchNorm2d(output_channels, momentum=0.01)
         self.relu = nn.ReLU(inplace=True)
 
@@ -1050,33 +828,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [256, 256, 256, 512, 512, 512, 1024, 1024]
-        self.quan_model = nn.Sequential(QuanConv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type, first_layer=1), QuanConv2d(cfg[0], cfg[1],
-            kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=0,
-            abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type),
-            QuanConv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0,
-            groups=2, channel_shuffle=1, shuffle_groups=2, abits=abits,
-            wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.MaxPool2d(
-            kernel_size=2, stride=2, padding=0), QuanConv2d(cfg[2], cfg[3],
-            kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=
-            1, shuffle_groups=2, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type), QuanConv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=16, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type), QuanConv2d(cfg[4], cfg[5], kernel_size=1,
-            stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=4, abits=abits, wbits=wbits, bn_fold=bn_fold,
-            q_type=q_type), nn.MaxPool2d(kernel_size=2, stride=2, padding=0
-            ), QuanConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=
-            1, groups=32, channel_shuffle=1, shuffle_groups=4, abits=abits,
-            wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[6],
-            cfg[7], kernel_size=1, stride=1, padding=0, groups=8,
-            channel_shuffle=1, shuffle_groups=32, abits=abits, wbits=wbits,
-            bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[7], 10,
-            kernel_size=1, stride=1, padding=0, last_relu=1, abits=abits,
-            wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.AvgPool2d(
-            kernel_size=8, stride=1, padding=0))
+        self.quan_model = nn.Sequential(QuanConv2d(3, cfg[0], kernel_size=5, stride=1, padding=2, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type, first_layer=1), QuanConv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=0, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1, shuffle_groups=2, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), QuanConv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=16, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=4, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), QuanConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32, channel_shuffle=1, shuffle_groups=4, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1, shuffle_groups=32, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), QuanConv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0, last_relu=1, abits=abits, wbits=wbits, bn_fold=bn_fold, q_type=q_type), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.quan_model(x)
@@ -1099,10 +851,8 @@ class RangeTracker(nn.Module):
             min_val = torch.min(input)
             max_val = torch.max(input)
         elif self.q_level == 'C':
-            min_val = torch.min(torch.min(torch.min(input, 3, keepdim=True)
-                [0], 2, keepdim=True)[0], 1, keepdim=True)[0]
-            max_val = torch.max(torch.max(torch.max(input, 3, keepdim=True)
-                [0], 2, keepdim=True)[0], 1, keepdim=True)[0]
+            min_val = torch.min(torch.min(torch.min(input, 3, keepdim=True)[0], 2, keepdim=True)[0], 1, keepdim=True)[0]
+            max_val = torch.max(torch.max(torch.max(input, 3, keepdim=True)[0], 2, keepdim=True)[0], 1, keepdim=True)[0]
         self.update_range(min_val, max_val)
 
 
@@ -1165,24 +915,14 @@ class Quantizer(nn.Module):
 
 class Conv2d_Q(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, a_bits=8, w_bits=8,
-        q_type=1, first_layer=0):
-        super().__init__(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=groups, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, a_bits=8, w_bits=8, q_type=1, first_layer=0):
+        super().__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         if q_type == 0:
-            self.activation_quantizer = SymmetricQuantizer(bits=a_bits,
-                range_tracker=AveragedRangeTracker(q_level='L'))
-            self.weight_quantizer = SymmetricQuantizer(bits=w_bits,
-                range_tracker=GlobalRangeTracker(q_level='C', out_channels=
-                out_channels))
+            self.activation_quantizer = SymmetricQuantizer(bits=a_bits, range_tracker=AveragedRangeTracker(q_level='L'))
+            self.weight_quantizer = SymmetricQuantizer(bits=w_bits, range_tracker=GlobalRangeTracker(q_level='C', out_channels=out_channels))
         else:
-            self.activation_quantizer = AsymmetricQuantizer(bits=a_bits,
-                range_tracker=AveragedRangeTracker(q_level='L'))
-            self.weight_quantizer = AsymmetricQuantizer(bits=w_bits,
-                range_tracker=GlobalRangeTracker(q_level='C', out_channels=
-                out_channels))
+            self.activation_quantizer = AsymmetricQuantizer(bits=a_bits, range_tracker=AveragedRangeTracker(q_level='L'))
+            self.weight_quantizer = AsymmetricQuantizer(bits=w_bits, range_tracker=GlobalRangeTracker(q_level='C', out_channels=out_channels))
         self.first_layer = first_layer
 
     def forward(self, input):
@@ -1190,23 +930,17 @@ class Conv2d_Q(nn.Conv2d):
             input = self.activation_quantizer(input)
         q_input = input
         q_weight = self.weight_quantizer(self.weight)
-        output = F.conv2d(input=q_input, weight=q_weight, bias=self.bias,
-            stride=self.stride, padding=self.padding, dilation=self.
-            dilation, groups=self.groups)
+        output = F.conv2d(input=q_input, weight=q_weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
         return output
 
 
 class DorefaConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, last_relu=0, abits=8, wbits=8,
-        first_layer=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, last_relu=0, abits=8, wbits=8, first_layer=0):
         super(DorefaConv2d, self).__init__()
         self.last_relu = last_relu
         self.first_layer = first_layer
-        self.q_conv = Conv2d_Q(input_channels, output_channels, kernel_size
-            =kernel_size, stride=stride, padding=padding, groups=groups,
-            a_bits=abits, w_bits=wbits, first_layer=first_layer)
+        self.q_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, a_bits=abits, w_bits=wbits, first_layer=first_layer)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -1226,23 +960,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [192, 160, 96, 192, 192, 192, 192, 192]
-        self.dorefa = nn.Sequential(DorefaConv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2, abits=abits, wbits=wbits, first_layer=1),
-            DorefaConv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0,
-            abits=abits, wbits=wbits), DorefaConv2d(cfg[1], cfg[2],
-            kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1), DorefaConv2d(
-            cfg[2], cfg[3], kernel_size=5, stride=1, padding=2, abits=abits,
-            wbits=wbits), DorefaConv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0, abits=abits, wbits=wbits), DorefaConv2d(
-            cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, abits=abits,
-            wbits=wbits), nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            DorefaConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1,
-            abits=abits, wbits=wbits), DorefaConv2d(cfg[6], cfg[7],
-            kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits),
-            DorefaConv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0,
-            last_relu=1, abits=abits, wbits=wbits), nn.AvgPool2d(
-            kernel_size=8, stride=1, padding=0))
+        self.dorefa = nn.Sequential(DorefaConv2d(3, cfg[0], kernel_size=5, stride=1, padding=2, abits=abits, wbits=wbits, first_layer=1), DorefaConv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits), DorefaConv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), DorefaConv2d(cfg[2], cfg[3], kernel_size=5, stride=1, padding=2, abits=abits, wbits=wbits), DorefaConv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits), DorefaConv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), DorefaConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, abits=abits, wbits=wbits), DorefaConv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, abits=abits, wbits=wbits), DorefaConv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0, last_relu=1, abits=abits, wbits=wbits), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.dorefa(x)
@@ -1252,17 +970,13 @@ class Net(nn.Module):
 
 class DorefaConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1,
-        stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=
-        1, last_relu=0, abits=8, wbits=8, first_layer=0):
+    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, channel_shuffle=0, shuffle_groups=1, last_relu=0, abits=8, wbits=8, first_layer=0):
         super(DorefaConv2d, self).__init__()
         self.last_relu = last_relu
         self.channel_shuffle_flag = channel_shuffle
         self.shuffle_groups = shuffle_groups
         self.first_layer = first_layer
-        self.q_conv = Conv2d_Q(input_channels, output_channels, kernel_size
-            =kernel_size, stride=stride, padding=padding, groups=groups,
-            a_bits=abits, w_bits=wbits, first_layer=first_layer)
+        self.q_conv = Conv2d_Q(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, a_bits=abits, w_bits=wbits, first_layer=first_layer)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -1284,28 +998,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         if cfg is None:
             cfg = [256, 256, 256, 512, 512, 512, 1024, 1024]
-        self.dorefa = nn.Sequential(DorefaConv2d(3, cfg[0], kernel_size=5,
-            stride=1, padding=2, abits=abits, wbits=wbits, first_layer=1),
-            DorefaConv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0,
-            groups=2, channel_shuffle=0, abits=abits, wbits=wbits),
-            DorefaConv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0,
-            groups=2, channel_shuffle=1, shuffle_groups=2, abits=abits,
-            wbits=wbits), nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
-            DorefaConv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1,
-            groups=16, channel_shuffle=1, shuffle_groups=2, abits=abits,
-            wbits=wbits), DorefaConv2d(cfg[3], cfg[4], kernel_size=1,
-            stride=1, padding=0, groups=4, channel_shuffle=1,
-            shuffle_groups=16, abits=abits, wbits=wbits), DorefaConv2d(cfg[
-            4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4,
-            channel_shuffle=1, shuffle_groups=4, abits=abits, wbits=wbits),
-            nn.MaxPool2d(kernel_size=2, stride=2, padding=0), DorefaConv2d(
-            cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32,
-            channel_shuffle=1, shuffle_groups=4, abits=abits, wbits=wbits),
-            DorefaConv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0,
-            groups=8, channel_shuffle=1, shuffle_groups=32, abits=abits,
-            wbits=wbits), DorefaConv2d(cfg[7], 10, kernel_size=1, stride=1,
-            padding=0, last_relu=1, abits=abits, wbits=wbits), nn.AvgPool2d
-            (kernel_size=8, stride=1, padding=0))
+        self.dorefa = nn.Sequential(DorefaConv2d(3, cfg[0], kernel_size=5, stride=1, padding=2, abits=abits, wbits=wbits, first_layer=1), DorefaConv2d(cfg[0], cfg[1], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=0, abits=abits, wbits=wbits), DorefaConv2d(cfg[1], cfg[2], kernel_size=1, stride=1, padding=0, groups=2, channel_shuffle=1, shuffle_groups=2, abits=abits, wbits=wbits), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), DorefaConv2d(cfg[2], cfg[3], kernel_size=3, stride=1, padding=1, groups=16, channel_shuffle=1, shuffle_groups=2, abits=abits, wbits=wbits), DorefaConv2d(cfg[3], cfg[4], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=16, abits=abits, wbits=wbits), DorefaConv2d(cfg[4], cfg[5], kernel_size=1, stride=1, padding=0, groups=4, channel_shuffle=1, shuffle_groups=4, abits=abits, wbits=wbits), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), DorefaConv2d(cfg[5], cfg[6], kernel_size=3, stride=1, padding=1, groups=32, channel_shuffle=1, shuffle_groups=4, abits=abits, wbits=wbits), DorefaConv2d(cfg[6], cfg[7], kernel_size=1, stride=1, padding=0, groups=8, channel_shuffle=1, shuffle_groups=32, abits=abits, wbits=wbits), DorefaConv2d(cfg[7], 10, kernel_size=1, stride=1, padding=0, last_relu=1, abits=abits, wbits=wbits), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
 
     def forward(self, x):
         x = self.dorefa(x)
@@ -1367,12 +1060,8 @@ class weight_quantize(nn.Module):
 
 class Conv2d_Q(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, a_bits=8, w_bits=8,
-        first_layer=0):
-        super().__init__(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=groups, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, a_bits=8, w_bits=8, first_layer=0):
+        super().__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.activation_quantizer = activation_quantize(a_bits=a_bits)
         self.weight_quantizer = weight_quantize(w_bits=w_bits)
         self.first_layer = first_layer
@@ -1382,18 +1071,14 @@ class Conv2d_Q(nn.Conv2d):
             input = self.activation_quantizer(input)
         q_input = input
         q_weight = self.weight_quantizer(self.weight)
-        output = F.conv2d(input=q_input, weight=q_weight, bias=self.bias,
-            stride=self.stride, padding=self.padding, dilation=self.
-            dilation, groups=self.groups)
+        output = F.conv2d(input=q_input, weight=q_weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
         return output
 
 
 class Linear_Q(nn.Linear):
 
-    def __init__(self, in_features, out_features, bias=True, a_bits=2, w_bits=2
-        ):
-        super().__init__(in_features=in_features, out_features=out_features,
-            bias=bias)
+    def __init__(self, in_features, out_features, bias=True, a_bits=2, w_bits=2):
+        super().__init__(in_features=in_features, out_features=out_features, bias=bias)
         self.activation_quantizer = activation_quantize(a_bits=a_bits)
         self.weight_quantizer = weight_quantize(w_bits=w_bits)
 
@@ -1408,36 +1093,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2d_Q,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DummyModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear_Q,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (activation_bin,
+     lambda: ([], {'A': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (activation_quantize,
+     lambda: ([], {'a_bits': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (weight_quantize,
+     lambda: ([], {'w_bits': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (weight_tnn_bin,
+     lambda: ([], {'W': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_666DZY666_model_compression(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Conv2d_Q(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Linear_Q(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(activation_bin(*[], **{'A': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(activation_quantize(*[], **{'a_bits': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(weight_quantize(*[], **{'w_bits': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(weight_tnn_bin(*[], **{'W': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

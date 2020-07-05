@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -104,9 +105,7 @@ class _CopyLinear(nn.Module):
             self.register_parameter(None, '_b')
 
     def forward(self, context, state, input_):
-        output = torch.matmul(context, self._v_c.unsqueeze(1)) + torch.matmul(
-            state, self._v_s.unsqueeze(1)) + torch.matmul(input_, self._v_i
-            .unsqueeze(1))
+        output = torch.matmul(context, self._v_c.unsqueeze(1)) + torch.matmul(state, self._v_s.unsqueeze(1)) + torch.matmul(input_, self._v_i.unsqueeze(1))
         if self._b is not None:
             output = output + self._b.unsqueeze(0)
         return output
@@ -121,17 +120,14 @@ class ConvSentEncoder(nn.Module):
     def __init__(self, vocab_size, emb_dim, n_hidden, dropout):
         super().__init__()
         self._embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
-        self._convs = nn.ModuleList([nn.Conv1d(emb_dim, n_hidden, i) for i in
-            range(3, 6)])
+        self._convs = nn.ModuleList([nn.Conv1d(emb_dim, n_hidden, i) for i in range(3, 6)])
         self._dropout = dropout
         self._grad_handle = None
 
     def forward(self, input_):
         emb_input = self._embedding(input_)
-        conv_in = F.dropout(emb_input.transpose(1, 2), self._dropout,
-            training=self.training)
-        output = torch.cat([F.relu(conv(conv_in)).max(dim=2)[0] for conv in
-            self._convs], dim=1)
+        conv_in = F.dropout(emb_input.transpose(1, 2), self._dropout, training=self.training)
+        output = torch.cat([F.relu(conv(conv_in)).max(dim=2)[0] for conv in self._convs], dim=1)
         return output
 
     def set_embedding(self, embedding):
@@ -146,8 +142,7 @@ INI = 0.01
 def init_lstm_states(lstm, batch_size, device):
     n_layer = lstm.num_layers * (2 if lstm.bidirectional else 1)
     n_hidden = lstm.hidden_size
-    states = torch.zeros(n_layer, batch_size, n_hidden).to(device
-        ), torch.zeros(n_layer, batch_size, n_hidden).to(device)
+    states = torch.zeros(n_layer, batch_size, n_hidden).to(device), torch.zeros(n_layer, batch_size, n_hidden).to(device)
     return states
 
 
@@ -161,8 +156,7 @@ def reorder_lstm_states(lstm_states, order):
     assert lstm_states[0].size() == lstm_states[1].size()
     assert len(order) == lstm_states[0].size()[1]
     order = torch.LongTensor(order).to(lstm_states[0].device)
-    sorted_states = lstm_states[0].index_select(index=order, dim=1
-        ), lstm_states[1].index_select(index=order, dim=1)
+    sorted_states = lstm_states[0].index_select(index=order, dim=1), lstm_states[1].index_select(index=order, dim=1)
     return sorted_states
 
 
@@ -178,22 +172,18 @@ def reorder_sequence(sequence_emb, order, batch_first=False):
     return sorted_
 
 
-def lstm_encoder(sequence, lstm, seq_lens=None, init_states=None, embedding
-    =None):
+def lstm_encoder(sequence, lstm, seq_lens=None, init_states=None, embedding=None):
     """ functional LSTM encoder (sequence is [b, t]/[b, t, d],
     lstm should be rolled lstm)"""
     batch_size = sequence.size(0)
     if not lstm.batch_first:
         sequence = sequence.transpose(0, 1)
-        emb_sequence = embedding(sequence
-            ) if embedding is not None else sequence
+        emb_sequence = embedding(sequence) if embedding is not None else sequence
     if seq_lens:
         assert batch_size == len(seq_lens)
-        sort_ind = sorted(range(len(seq_lens)), key=lambda i: seq_lens[i],
-            reverse=True)
+        sort_ind = sorted(range(len(seq_lens)), key=lambda i: seq_lens[i], reverse=True)
         seq_lens = [seq_lens[i] for i in sort_ind]
-        emb_sequence = reorder_sequence(emb_sequence, sort_ind, lstm.
-            batch_first)
+        emb_sequence = reorder_sequence(emb_sequence, sort_ind, lstm.batch_first)
     if init_states is None:
         device = sequence.device
         init_states = init_lstm_states(lstm, batch_size, device)
@@ -216,20 +206,16 @@ class LSTMEncoder(nn.Module):
 
     def __init__(self, input_dim, n_hidden, n_layer, dropout, bidirectional):
         super().__init__()
-        self._init_h = nn.Parameter(torch.Tensor(n_layer * (2 if
-            bidirectional else 1), n_hidden))
-        self._init_c = nn.Parameter(torch.Tensor(n_layer * (2 if
-            bidirectional else 1), n_hidden))
+        self._init_h = nn.Parameter(torch.Tensor(n_layer * (2 if bidirectional else 1), n_hidden))
+        self._init_c = nn.Parameter(torch.Tensor(n_layer * (2 if bidirectional else 1), n_hidden))
         init.uniform_(self._init_h, -INI, INI)
         init.uniform_(self._init_c, -INI, INI)
-        self._lstm = nn.LSTM(input_dim, n_hidden, n_layer, dropout=dropout,
-            bidirectional=bidirectional)
+        self._lstm = nn.LSTM(input_dim, n_hidden, n_layer, dropout=dropout, bidirectional=bidirectional)
 
     def forward(self, input_, in_lens=None):
         """ [batch_size, max_num_sent, input_dim] Tensor"""
         size = self._init_h.size(0), input_.size(0), self._init_h.size(1)
-        init_states = self._init_h.unsqueeze(1).expand(*size
-            ), self._init_c.unsqueeze(1).expand(*size)
+        init_states = self._init_h.unsqueeze(1).expand(*size), self._init_c.unsqueeze(1).expand(*size)
         lstm_out, _ = lstm_encoder(input_, self._lstm, in_lens, init_states)
         return lstm_out.transpose(0, 1)
 
@@ -263,13 +249,10 @@ def sequence_mean(sequence, seq_lens, dim=1):
 class ExtractSumm(nn.Module):
     """ ff-ext """
 
-    def __init__(self, vocab_size, emb_dim, conv_hidden, lstm_hidden,
-        lstm_layer, bidirectional, dropout=0.0):
+    def __init__(self, vocab_size, emb_dim, conv_hidden, lstm_hidden, lstm_layer, bidirectional, dropout=0.0):
         super().__init__()
-        self._sent_enc = ConvSentEncoder(vocab_size, emb_dim, conv_hidden,
-            dropout)
-        self._art_enc = LSTMEncoder(3 * conv_hidden, lstm_hidden,
-            lstm_layer, dropout=dropout, bidirectional=bidirectional)
+        self._sent_enc = ConvSentEncoder(vocab_size, emb_dim, conv_hidden, dropout)
+        self._art_enc = LSTMEncoder(3 * conv_hidden, lstm_hidden, lstm_layer, dropout=dropout, bidirectional=bidirectional)
         lstm_out_dim = lstm_hidden * (2 if bidirectional else 1)
         self._sent_linear = nn.Linear(lstm_out_dim, 1)
         self._art_linear = nn.Linear(lstm_out_dim, lstm_out_dim)
@@ -277,10 +260,8 @@ class ExtractSumm(nn.Module):
     def forward(self, article_sents, sent_nums):
         enc_sent, enc_art = self._encode(article_sents, sent_nums)
         saliency = torch.matmul(enc_sent, enc_art.unsqueeze(2))
-        saliency = torch.cat([s[:n] for s, n in zip(saliency, sent_nums)],
-            dim=0)
-        content = self._sent_linear(torch.cat([s[:n] for s, n in zip(
-            enc_sent, sent_nums)], dim=0))
+        saliency = torch.cat([s[:n] for s, n in zip(saliency, sent_nums)], dim=0)
+        content = self._sent_linear(torch.cat([s[:n] for s, n in zip(enc_sent, sent_nums)], dim=0))
         logit = (content + saliency).squeeze(1)
         return logit
 
@@ -293,11 +274,9 @@ class ExtractSumm(nn.Module):
         if sent_nums is None:
             assert len(article_sents) == 1
             n_sent = logit.size(1)
-            extracted = logit[0].topk(k if k < n_sent else n_sent, sorted=False
-                )[1].tolist()
+            extracted = logit[0].topk(k if k < n_sent else n_sent, sorted=False)[1].tolist()
         else:
-            extracted = [l[:n].topk(k if k < n else n)[1].tolist() for n, l in
-                zip(sent_nums, logit)]
+            extracted = [l[:n].topk(k if k < n else n)[1].tolist() for n, l in zip(sent_nums, logit)]
         return extracted
 
     def _encode(self, article_sents, sent_nums):
@@ -305,18 +284,14 @@ class ExtractSumm(nn.Module):
             enc_sent = self._sent_enc(article_sents[0]).unsqueeze(0)
         else:
             max_n = max(sent_nums)
-            enc_sents = [self._sent_enc(art_sent) for art_sent in article_sents
-                ]
+            enc_sents = [self._sent_enc(art_sent) for art_sent in article_sents]
 
             def zero(n, device):
                 z = torch.zeros(n, self._art_enc.input_size)
                 return z
-            enc_sent = torch.stack([(torch.cat([s, zero(max_n - n, s.device
-                )], dim=0) if n != max_n else s) for s, n in zip(enc_sents,
-                sent_nums)], dim=0)
+            enc_sent = torch.stack([(torch.cat([s, zero(max_n - n, s.device)], dim=0) if n != max_n else s) for s, n in zip(enc_sents, sent_nums)], dim=0)
         lstm_out = self._art_enc(enc_sent, sent_nums)
-        enc_art = F.tanh(self._art_linear(sequence_mean(lstm_out, sent_nums,
-            dim=1)))
+        enc_art = F.tanh(self._art_linear(sequence_mean(lstm_out, sent_nums, dim=1)))
         return lstm_out, enc_art
 
     def set_embedding(self, embedding):
@@ -355,8 +330,7 @@ class LSTMPointerNet(nn.Module):
         init.uniform_(self._init_h, -INI, INI)
         init.uniform_(self._init_c, -INI, INI)
         init.uniform_(self._init_i, -0.1, 0.1)
-        self._lstm = nn.LSTM(input_dim, n_hidden, n_layer, bidirectional=
-            False, dropout=dropout)
+        self._lstm = nn.LSTM(input_dim, n_hidden, n_layer, bidirectional=False, dropout=dropout)
         self._lstm_cell = None
         self._attn_wm = nn.Parameter(torch.Tensor(input_dim, n_hidden))
         self._attn_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
@@ -379,10 +353,8 @@ class LSTMPointerNet(nn.Module):
         query, final_states = self._lstm(lstm_in, lstm_states)
         query = query.transpose(0, 1)
         for _ in range(self._n_hop):
-            query = LSTMPointerNet.attention(hop_feat, query, self._hop_v,
-                self._hop_wq, mem_sizes)
-        output = LSTMPointerNet.attention_score(attn_feat, query, self.
-            _attn_v, self._attn_wq)
+            query = LSTMPointerNet.attention(hop_feat, query, self._hop_v, self._hop_wq, mem_sizes)
+        output = LSTMPointerNet.attention_score(attn_feat, query, self._attn_v, self._attn_wq)
         return output
 
     def extract(self, attn_mem, mem_sizes, k):
@@ -396,10 +368,8 @@ class LSTMPointerNet(nn.Module):
             h, c = self._lstm_cell(lstm_in, lstm_states)
             query = h[-1]
             for _ in range(self._n_hop):
-                query = LSTMPointerNet.attention(hop_feat, query, self.
-                    _hop_v, self._hop_wq, mem_sizes)
-            score = LSTMPointerNet.attention_score(attn_feat, query, self.
-                _attn_v, self._attn_wq)
+                query = LSTMPointerNet.attention(hop_feat, query, self._hop_v, self._hop_wq, mem_sizes)
+            score = LSTMPointerNet.attention_score(attn_feat, query, self._attn_v, self._attn_wq)
             score = score.squeeze()
             for e in extracts:
                 score[e] = -1000000.0
@@ -415,8 +385,7 @@ class LSTMPointerNet(nn.Module):
         bs = attn_mem.size(0)
         n_l, d = self._init_h.size()
         size = n_l, bs, d
-        lstm_states = self._init_h.unsqueeze(1).expand(*size).contiguous(
-            ), self._init_c.unsqueeze(1).expand(*size).contiguous()
+        lstm_states = self._init_h.unsqueeze(1).expand(*size).contiguous(), self._init_c.unsqueeze(1).expand(*size).contiguous()
         d = self._init_i.size(0)
         init_i = self._init_i.unsqueeze(0).unsqueeze(1).expand(bs, 1, d)
         return attn_feat, hop_feat, lstm_states, init_i
@@ -424,10 +393,8 @@ class LSTMPointerNet(nn.Module):
     @staticmethod
     def attention_score(attention, query, v, w):
         """ unnormalized attention score"""
-        sum_ = attention.unsqueeze(1) + torch.matmul(query, w.unsqueeze(0)
-            ).unsqueeze(2)
-        score = torch.matmul(F.tanh(sum_), v.unsqueeze(0).unsqueeze(1).
-            unsqueeze(3)).squeeze(3)
+        sum_ = attention.unsqueeze(1) + torch.matmul(query, w.unsqueeze(0)).unsqueeze(2)
+        score = torch.matmul(F.tanh(sum_), v.unsqueeze(0).unsqueeze(1).unsqueeze(3)).squeeze(3)
         return score
 
     @staticmethod
@@ -446,23 +413,18 @@ class LSTMPointerNet(nn.Module):
 class PtrExtractSumm(nn.Module):
     """ rnn-ext"""
 
-    def __init__(self, emb_dim, vocab_size, conv_hidden, lstm_hidden,
-        lstm_layer, bidirectional, n_hop=1, dropout=0.0):
+    def __init__(self, emb_dim, vocab_size, conv_hidden, lstm_hidden, lstm_layer, bidirectional, n_hop=1, dropout=0.0):
         super().__init__()
-        self._sent_enc = ConvSentEncoder(vocab_size, emb_dim, conv_hidden,
-            dropout)
-        self._art_enc = LSTMEncoder(3 * conv_hidden, lstm_hidden,
-            lstm_layer, dropout=dropout, bidirectional=bidirectional)
+        self._sent_enc = ConvSentEncoder(vocab_size, emb_dim, conv_hidden, dropout)
+        self._art_enc = LSTMEncoder(3 * conv_hidden, lstm_hidden, lstm_layer, dropout=dropout, bidirectional=bidirectional)
         enc_out_dim = lstm_hidden * (2 if bidirectional else 1)
-        self._extractor = LSTMPointerNet(enc_out_dim, lstm_hidden,
-            lstm_layer, dropout, n_hop)
+        self._extractor = LSTMPointerNet(enc_out_dim, lstm_hidden, lstm_layer, dropout, n_hop)
 
     def forward(self, article_sents, sent_nums, target):
         enc_out = self._encode(article_sents, sent_nums)
         bs, nt = target.size()
         d = enc_out.size(2)
-        ptr_in = torch.gather(enc_out, dim=1, index=target.unsqueeze(2).
-            expand(bs, nt, d))
+        ptr_in = torch.gather(enc_out, dim=1, index=target.unsqueeze(2).expand(bs, nt, d))
         output = self._extractor(enc_out, sent_nums, ptr_in)
         return output
 
@@ -476,15 +438,12 @@ class PtrExtractSumm(nn.Module):
             enc_sent = self._sent_enc(article_sents[0]).unsqueeze(0)
         else:
             max_n = max(sent_nums)
-            enc_sents = [self._sent_enc(art_sent) for art_sent in article_sents
-                ]
+            enc_sents = [self._sent_enc(art_sent) for art_sent in article_sents]
 
             def zero(n, device):
                 z = torch.zeros(n, self._art_enc.input_size)
                 return z
-            enc_sent = torch.stack([(torch.cat([s, zero(max_n - n, s.device
-                )], dim=0) if n != max_n else s) for s, n in zip(enc_sents,
-                sent_nums)], dim=0)
+            enc_sent = torch.stack([(torch.cat([s, zero(max_n - n, s.device)], dim=0) if n != max_n else s) for s, n in zip(enc_sents, sent_nums)], dim=0)
         lstm_out = self._art_enc(enc_sent, sent_nums)
         return lstm_out
 
@@ -521,10 +480,8 @@ class PtrExtractorRL(nn.Module):
             h, c = self._lstm_cell(lstm_in, lstm_states)
             query = h[:, (-1), :]
             for _ in range(self._n_hop):
-                query = PtrExtractorRL.attention(hop_feat, query, self.
-                    _hop_v, self._hop_wq)
-            score = PtrExtractorRL.attention_score(attn_feat, query, self.
-                _attn_v, self._attn_wq)
+                query = PtrExtractorRL.attention(hop_feat, query, self._hop_v, self._hop_wq)
+            score = PtrExtractorRL.attention_score(attn_feat, query, self._attn_v, self._attn_wq)
             if self.training:
                 prob = F.softmax(score, dim=-1)
                 out = torch.distributions.Categorical(prob)
@@ -547,8 +504,7 @@ class PtrExtractorRL(nn.Module):
     @staticmethod
     def attention(attention, query, v, w):
         """ attention context vector"""
-        score = F.softmax(PtrExtractorRL.attention_score(attention, query,
-            v, w), dim=-1)
+        score = F.softmax(PtrExtractorRL.attention_score(attention, query, v, w), dim=-1)
         output = torch.mm(score, attention)
         return output
 
@@ -583,10 +539,8 @@ class PtrScorer(nn.Module):
             h, c = self._lstm_cell(lstm_in, lstm_states)
             query = h[:, (-1), :]
             for _ in range(self._n_hop):
-                query = PtrScorer.attention(hop_feat, hop_feat, query, self
-                    ._hop_v, self._hop_wq)
-            output = PtrScorer.attention(attn_mem, attn_feat, query, self.
-                _attn_v, self._attn_wq)
+                query = PtrScorer.attention(hop_feat, hop_feat, query, self._hop_v, self._hop_wq)
+            output = PtrScorer.attention(attn_mem, attn_feat, query, self._attn_v, self._attn_wq)
             score = self._score_linear(output)
             scores.append(score)
             lstm_in = output
@@ -629,10 +583,8 @@ class PtrExtractorRLStop(PtrExtractorRL):
             h, c = self._lstm_cell(lstm_in, lstm_states)
             query = h[:, (-1), :]
             for _ in range(self._n_hop):
-                query = PtrExtractorRL.attention(hop_feat, query, self.
-                    _hop_v, self._hop_wq)
-            score = PtrExtractorRL.attention_score(attn_feat, query, self.
-                _attn_v, self._attn_wq)
+                query = PtrExtractorRL.attention(hop_feat, query, self._hop_v, self._hop_wq)
+            score = PtrExtractorRL.attention_score(attn_feat, query, self._attn_v, self._attn_wq)
             for o in outputs:
                 score[0, o.item()] = -1e+18
             if self.training:
@@ -794,19 +746,16 @@ class AttentionalLSTMDecoder(object):
 
 class Seq2SeqSumm(nn.Module):
 
-    def __init__(self, vocab_size, emb_dim, n_hidden, bidirectional,
-        n_layer, dropout=0.0):
+    def __init__(self, vocab_size, emb_dim, n_hidden, bidirectional, n_layer, dropout=0.0):
         super().__init__()
         self._embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
-        self._enc_lstm = nn.LSTM(emb_dim, n_hidden, n_layer, bidirectional=
-            bidirectional, dropout=dropout)
+        self._enc_lstm = nn.LSTM(emb_dim, n_hidden, n_layer, bidirectional=bidirectional, dropout=dropout)
         state_layer = n_layer * (2 if bidirectional else 1)
         self._init_enc_h = nn.Parameter(torch.Tensor(state_layer, n_hidden))
         self._init_enc_c = nn.Parameter(torch.Tensor(state_layer, n_hidden))
         init.uniform_(self._init_enc_h, -INIT, INIT)
         init.uniform_(self._init_enc_c, -INIT, INIT)
-        self._dec_lstm = MultiLayerLSTMCells(2 * emb_dim, n_hidden, n_layer,
-            dropout=dropout)
+        self._dec_lstm = MultiLayerLSTMCells(2 * emb_dim, n_hidden, n_layer, dropout=dropout)
         enc_out_dim = n_hidden * (2 if bidirectional else 1)
         self._dec_h = nn.Linear(enc_out_dim, n_hidden, bias=False)
         self._dec_c = nn.Linear(enc_out_dim, n_hidden, bias=False)
@@ -814,10 +763,8 @@ class Seq2SeqSumm(nn.Module):
         self._attn_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
         init.xavier_normal_(self._attn_wm)
         init.xavier_normal_(self._attn_wq)
-        self._projection = nn.Sequential(nn.Linear(2 * n_hidden, n_hidden),
-            nn.Tanh(), nn.Linear(n_hidden, emb_dim, bias=False))
-        self._decoder = AttentionalLSTMDecoder(self._embedding, self.
-            _dec_lstm, self._attn_wq, self._projection)
+        self._projection = nn.Sequential(nn.Linear(2 * n_hidden, n_hidden), nn.Tanh(), nn.Linear(n_hidden, emb_dim, bias=False))
+        self._decoder = AttentionalLSTMDecoder(self._embedding, self._dec_lstm, self._attn_wq, self._projection)
 
     def forward(self, article, art_lens, abstract):
         attention, init_dec_states = self.encode(article, art_lens)
@@ -826,22 +773,17 @@ class Seq2SeqSumm(nn.Module):
         return logit
 
     def encode(self, article, art_lens=None):
-        size = self._init_enc_h.size(0), len(art_lens
-            ) if art_lens else 1, self._init_enc_h.size(1)
-        init_enc_states = self._init_enc_h.unsqueeze(1).expand(*size
-            ), self._init_enc_c.unsqueeze(1).expand(*size)
-        enc_art, final_states = lstm_encoder(article, self._enc_lstm,
-            art_lens, init_enc_states, self._embedding)
+        size = self._init_enc_h.size(0), len(art_lens) if art_lens else 1, self._init_enc_h.size(1)
+        init_enc_states = self._init_enc_h.unsqueeze(1).expand(*size), self._init_enc_c.unsqueeze(1).expand(*size)
+        enc_art, final_states = lstm_encoder(article, self._enc_lstm, art_lens, init_enc_states, self._embedding)
         if self._enc_lstm.bidirectional:
             h, c = final_states
-            final_states = torch.cat(h.chunk(2, dim=0), dim=2), torch.cat(c
-                .chunk(2, dim=0), dim=2)
+            final_states = torch.cat(h.chunk(2, dim=0), dim=2), torch.cat(c.chunk(2, dim=0), dim=2)
         init_h = torch.stack([self._dec_h(s) for s in final_states[0]], dim=0)
         init_c = torch.stack([self._dec_c(s) for s in final_states[1]], dim=0)
         init_dec_states = init_h, init_c
         attention = torch.matmul(enc_art, self._attn_wm).transpose(0, 1)
-        init_attn_out = self._projection(torch.cat([init_h[-1],
-            sequence_mean(attention, art_lens, dim=1)], dim=1))
+        init_attn_out = self._projection(torch.cat([init_h[-1], sequence_mean(attention, art_lens, dim=1)], dim=1))
         return attention, (init_dec_states, init_attn_out)
 
     def batch_decode(self, article, art_lens, go, eos, max_len):
@@ -855,8 +797,7 @@ class Seq2SeqSumm(nn.Module):
         attns = []
         states = init_dec_states
         for i in range(max_len):
-            tok, states, attn_score = self._decoder.decode_step(tok, states,
-                attention)
+            tok, states, attn_score = self._decoder.decode_step(tok, states, attention)
             outputs.append(tok[:, (0)])
             attns.append(attn_score)
         return outputs, attns
@@ -869,8 +810,7 @@ class Seq2SeqSumm(nn.Module):
         attns = []
         states = init_dec_states
         for i in range(max_len):
-            tok, states, attn_score = self._decoder.decode_step(tok, states,
-                attention)
+            tok, states, attn_score = self._decoder.decode_step(tok, states, attention)
             if tok[0, 0].item() == eos:
                 break
             outputs.append(tok[0, 0].item())
@@ -887,8 +827,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (_CopyLinear,
+     lambda: ([], {'context_dim': 4, 'state_dim': 4, 'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ChenRocks_fast_abs_rl(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(_CopyLinear(*[], **{'context_dim': 4, 'state_dim': 4, 'input_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

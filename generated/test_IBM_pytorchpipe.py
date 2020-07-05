@@ -121,8 +121,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -177,8 +178,7 @@ class SingletonMetaClass(type):
 
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
-            cls._instances[cls] = super(SingletonMetaClass, cls).__call__(*
-                args, **kwargs)
+            cls._instances[cls] = super(SingletonMetaClass, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
 
 
@@ -235,13 +235,9 @@ class AppState(metaclass=SingletonMetaClass):
             if torch.cuda.device_count() > 1:
                 self.use_dataparallel = True
         elif self.args.use_gpu:
-            self.logger.warning(
-                'GPU utilization is demanded but there are no available GPU devices! Using CPUs instead'
-                )
+            self.logger.warning('GPU utilization is demanded but there are no available GPU devices! Using CPUs instead')
         else:
-            self.logger.info(
-                'GPU utilization is disabled, performing all computations on CPUs'
-                )
+            self.logger.info('GPU utilization is disabled, performing all computations on CPUs')
 
     def set_cpu_types(self):
         """
@@ -299,9 +295,7 @@ class AppState(metaclass=SingletonMetaClass):
         """
         if not override and key in self.__globals.keys():
             if self.__globals[key] != value:
-                raise KeyError(
-                    "Global key '{}' already exists and has different value (existing {} vs received {})!"
-                    .format(key, self.__globals[key], value))
+                raise KeyError("Global key '{}' already exists and has different value (existing {} vs received {})!".format(key, self.__globals[key], value))
         else:
             self.__globals[key] = value
 
@@ -393,27 +387,20 @@ def load_class_default_config_file(class_type):
     """
     module = class_type.__module__.replace('.', '/')
     rel_path = module[module.find('ptp') + 4:]
-    abs_default_config = os.path.join(AppState().absolute_config_path,
-        'default', rel_path) + '.yml'
+    abs_default_config = os.path.join(AppState().absolute_config_path, 'default', rel_path) + '.yml'
     if not os.path.isfile(abs_default_config):
-        print(
-            "ERROR: The default configuration file '{}' for '{}' does not exist"
-            .format(abs_default_config, class_type.__module__))
+        print("ERROR: The default configuration file '{}' for '{}' does not exist".format(abs_default_config, class_type.__module__))
         exit(-1)
     try:
         with open(abs_default_config, 'r') as stream:
             param_dict = yaml.safe_load(stream)
         if param_dict is None:
-            print("WARNING: The default configuration file '{}' is empty!".
-                format(abs_default_config))
+            print("WARNING: The default configuration file '{}' is empty!".format(abs_default_config))
             return {}
         else:
             return param_dict
     except yaml.YAMLError as e:
-        print(
-            """ERROR: Couldn't properly parse the '{}' default configuration file. YAML error:
-  {}"""
-            .format(abs_default_config, e))
+        print("ERROR: Couldn't properly parse the '{}' default configuration file. YAML error:\n  {}".format(abs_default_config, e))
         exit(-2)
 
 
@@ -443,8 +430,7 @@ class Component(abc.ABC):
         self.app_state = AppState()
         self.logger = logging.initialize_logger(self.name)
         if class_type is not None:
-            self.config.add_default_params(load_class_default_config_file(
-                class_type))
+            self.config.add_default_params(load_class_default_config_file(class_type))
         if 'streams' not in config or config['streams'] is None:
             self.__stream_keys = {}
         else:
@@ -471,16 +457,13 @@ class Component(abc.ABC):
         :return: Summary as a str.
 
         """
-        summary_str = '  + {} ({}) [{}] \n'.format(self.name, type(self).
-            __name__, priority)
+        summary_str = '  + {} ({}) [{}] \n'.format(self.name, type(self).__name__, priority)
         summary_str += '      Inputs:\n'
         for key, value in self.input_data_definitions().items():
-            summary_str += '        {}: {}, {}, {}\n'.format(key, value.
-                dimensions, value.types, value.description)
+            summary_str += '        {}: {}, {}, {}\n'.format(key, value.dimensions, value.types, value.description)
         summary_str += '      Outputs:\n'
         for key, value in self.output_data_definitions().items():
-            summary_str += '        {}: {}, {}, {}\n'.format(key, value.
-                dimensions, value.types, value.description)
+            summary_str += '        {}: {}, {}, {}\n'.format(key, value.dimensions, value.types, value.description)
         return summary_str
 
     @abc.abstractmethod
@@ -517,41 +500,29 @@ class Component(abc.ABC):
         for key, id in self.input_data_definitions().items():
             if key not in all_definitions.keys():
                 if log_errors:
-                    self.logger.error(
-                        "Input definition: expected field '{}' not found in DataStreams keys ({})"
-                        .format(key, all_definitions.keys()))
+                    self.logger.error("Input definition: expected field '{}' not found in DataStreams keys ({})".format(key, all_definitions.keys()))
                 errors += 1
                 continue
             dd = all_definitions[key]
             if len(id.dimensions) != len(dd.dimensions):
                 if log_errors:
-                    self.logger.error(
-                        "Input definition: field '{}' in DataStreams has different dimensions from expected (expected {} while received {})"
-                        .format(key, id.dimensions, dd.dimensions))
+                    self.logger.error("Input definition: field '{}' in DataStreams has different dimensions from expected (expected {} while received {})".format(key, id.dimensions, dd.dimensions))
                 errors += 1
             else:
-                for index, (did, ddd) in enumerate(zip(id.dimensions, dd.
-                    dimensions)):
+                for index, (did, ddd) in enumerate(zip(id.dimensions, dd.dimensions)):
                     if did != -1 and did != ddd:
                         if log_errors:
-                            self.logger.error(
-                                "Input definition: field '{}' in DataStreams has dimension {} different from expected (expected {} while received {})"
-                                .format(key, index, id.dimensions, dd.
-                                dimensions))
+                            self.logger.error("Input definition: field '{}' in DataStreams has dimension {} different from expected (expected {} while received {})".format(key, index, id.dimensions, dd.dimensions))
                         errors += 1
             if len(id.types) != len(dd.types):
                 if log_errors:
-                    self.logger.error(
-                        "Input definition: field '{}' in DataStreams has number of types different from expected (expected {} while received {})"
-                        .format(key, id.types, dd.types))
+                    self.logger.error("Input definition: field '{}' in DataStreams has number of types different from expected (expected {} while received {})".format(key, id.types, dd.types))
                 errors += 1
             else:
                 for index, (tid, tdd) in enumerate(zip(id.types, dd.types)):
                     if tid != tdd:
                         if log_errors:
-                            self.logger.error(
-                                "Input definition: field '{}' in DataStreams has type {} different from expected (expected {} while received {})"
-                                .format(key, index, id.types, dd.types))
+                            self.logger.error("Input definition: field '{}' in DataStreams has type {} different from expected (expected {} while received {})".format(key, index, id.types, dd.types))
                         errors += 1
         return errors
 
@@ -569,9 +540,7 @@ class Component(abc.ABC):
         for key, od in self.output_data_definitions().items():
             if key in all_definitions.keys():
                 if log_errors:
-                    self.logger.error(
-                        "Output definition error: field '{}' cannot be added to DataStreams, as it is already present in its keys ({})"
-                        .format(key, all_definitions.keys()))
+                    self.logger.error("Output definition error: field '{}' cannot be added to DataStreams, as it is already present in its keys ({})".format(key, all_definitions.keys()))
                 errors += 1
             else:
                 all_definitions[key] = od
@@ -721,14 +690,10 @@ class Model(Module, Component):
         """
         summary_str = self.recursive_summarize(self, 0, self.name)
         num_total_params = sum([np.prod(p.size()) for p in self.parameters()])
-        mod_trainable_params = filter(lambda p: p.requires_grad, self.
-            parameters())
-        num_trainable_params = sum([np.prod(p.size()) for p in
-            mod_trainable_params])
-        summary_str += 'Total Trainable Params: {}\n'.format(
-            num_trainable_params)
-        summary_str += 'Total Non-trainable Params: {}\n'.format(
-            num_total_params - num_trainable_params)
+        mod_trainable_params = filter(lambda p: p.requires_grad, self.parameters())
+        num_trainable_params = sum([np.prod(p.size()) for p in mod_trainable_params])
+        summary_str += 'Total Trainable Params: {}\n'.format(num_trainable_params)
+        summary_str += 'Total Non-trainable Params: {}\n'.format(num_total_params - num_trainable_params)
         summary_str += '=' * 80 + '\n'
         return summary_str
 
@@ -749,8 +714,7 @@ class Model(Module, Component):
         """
         child_lines = []
         for key, module in module_._modules.items():
-            child_lines.append(self.recursive_summarize(module, indent_ + 1,
-                key))
+            child_lines.append(self.recursive_summarize(module, indent_ + 1, key))
         mod_str = ''
         if indent_ > 0:
             mod_str += ' ' + '| ' * (indent_ - 1) + '+ '
@@ -762,23 +726,15 @@ class Model(Module, Component):
                 mod_str += '\t\t[TRAINABLE]'
         mod_str += '\n'
         mod_str += ''.join(child_lines)
-        mod_direct_params = list(filter(lambda np: np[0].find('.') == -1,
-            module_.named_parameters()))
+        mod_direct_params = list(filter(lambda np: np[0].find('.') == -1, module_.named_parameters()))
         if len(mod_direct_params) != 0:
             mod_weights = [(n, tuple(p.size())) for n, p in mod_direct_params]
-            mod_str += ' ' + '| ' * indent_ + '+ ' + 'Matrices: {}\n'.format(
-                mod_weights)
-            num_total_params = sum([np.prod(p.size()) for _, p in
-                mod_direct_params])
-            mod_trainable_params = filter(lambda np: np[1].requires_grad,
-                mod_direct_params)
-            num_trainable_params = sum([np.prod(p.size()) for _, p in
-                mod_trainable_params])
-            mod_str += (' ' + '| ' * indent_ + '  Trainable Params: {}\n'.
-                format(num_trainable_params))
-            mod_str += (' ' + '| ' * indent_ +
-                '  Non-trainable Params: {}\n'.format(num_total_params -
-                num_trainable_params))
+            mod_str += ' ' + '| ' * indent_ + '+ ' + 'Matrices: {}\n'.format(mod_weights)
+            num_total_params = sum([np.prod(p.size()) for _, p in mod_direct_params])
+            mod_trainable_params = filter(lambda np: np[1].requires_grad, mod_direct_params)
+            num_trainable_params = sum([np.prod(p.size()) for _, p in mod_trainable_params])
+            mod_str += ' ' + '| ' * indent_ + '  Trainable Params: {}\n'.format(num_trainable_params)
+            mod_str += ' ' + '| ' * indent_ + '  Non-trainable Params: {}\n'.format(num_total_params - num_trainable_params)
         mod_str += ' ' + '| ' * indent_ + '\n'
         return mod_str
 
@@ -824,8 +780,7 @@ class DataStreams(collections.abc.MutableMapping):
             `addkey` is set to ``False`` by default as setting it to ``True`` removes the constraints of the            ``DataStreams`` and enables it to become mutable.
         """
         if not addkey and key not in self.keys():
-            msg = ('Cannot modify a non-existing key "{}" in DataStreams'.
-                format(key))
+            msg = 'Cannot modify a non-existing key "{}" in DataStreams'.format(key)
             raise KeyError(msg)
         else:
             self.__dict__[key] = value
@@ -844,9 +799,7 @@ class DataStreams(collections.abc.MutableMapping):
         """
         for key, value in dict_to_add.items():
             if key in self.keys():
-                msg = (
-                    'Cannot extend DataStreams, as {} already present in its keys'
-                    .format(key))
+                msg = 'Cannot extend DataStreams, as {} already present in its keys'.format(key)
                 raise KeyError(msg)
             self.__setitem__(key, value, addkey=True)
 
@@ -854,8 +807,7 @@ class DataStreams(collections.abc.MutableMapping):
         """
         Removes all streams (keys and associated values) from DataStreams EXCEPT the ones passed in ``streams_to_leave``.
         """
-        rem_keys = [key for key in self.keys() if key not in
-            streams_to_leave.keys()]
+        rem_keys = [key for key in self.keys() if key not in streams_to_leave.keys()]
         if 'index' in rem_keys:
             rem_keys.remove('index')
         for key in rem_keys:
@@ -910,8 +862,7 @@ class DataStreams(collections.abc.MutableMapping):
         :return: Echoes class, id, & reproducible representation in the Read–Eval–Print Loop.
 
         """
-        return '{}, DataStreams({})'.format(super(DataStreams, self).
-            __repr__(), self.__dict__)
+        return '{}, DataStreams({})'.format(super(DataStreams, self).__repr__(), self.__dict__)
 
     def to(self, device=None, keys_to_move=None, non_blocking=False):
         """
@@ -951,13 +902,11 @@ def data_streams_gather(outputs, target_device, dim=0):
         if isinstance(out, DataStreams):
             if not all(len(out) == len(d) for d in outputs):
                 raise ValueError('All dicts must have the same number of keys')
-            return type(out)((k, gather_map([d[k] for d in outputs])) for k in
-                out)
+            return type(out)((k, gather_map([d[k] for d in outputs])) for k in out)
         if isinstance(out, dict):
             if not all(len(out) == len(d) for d in outputs):
                 raise ValueError('All dicts must have the same number of keys')
-            return type(out)((k, gather_map([d[k] for d in outputs])) for k in
-                out)
+            return type(out)((k, gather_map([d[k] for d in outputs])) for k in out)
         return type(out)(map(gather_map, zip(*outputs)))
     try:
         return gather_map(outputs)
@@ -1013,8 +962,7 @@ class DataStreamsParallel(torch.nn.DataParallel):
     """
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
-        super(DataStreamsParallel, self).__init__(module, device_ids,
-            output_device, dim)
+        super(DataStreamsParallel, self).__init__(module, device_ids, output_device, dim)
 
     def forward(self, *inputs, **kwargs):
         """
@@ -1029,14 +977,11 @@ class DataStreamsParallel(torch.nn.DataParallel):
             return self.module(*inputs[0], **kwargs[0])
         inputs_tuple = []
         for i, item in enumerate(inputs):
-            input_dict = DataStreams({key: value for key, value in item.
-                items() if key in self.module.input_data_definitions().keys()})
+            input_dict = DataStreams({key: value for key, value in item.items() if key in self.module.input_data_definitions().keys()})
             inputs_tuple.append(input_dict)
         inputs_tuple = tuple(inputs_tuple)
-        inputs_tuple, kwargs = self.scatter(inputs_tuple, kwargs, self.
-            device_ids)
-        replicas = self.replicate(self.module, self.device_ids[:len(
-            inputs_tuple)])
+        inputs_tuple, kwargs = self.scatter(inputs_tuple, kwargs, self.device_ids)
+        replicas = self.replicate(self.module, self.device_ids[:len(inputs_tuple)])
         self.parallel_apply(replicas, inputs_tuple, kwargs)
         gathered_tuple = self.gather(inputs_tuple, self.output_device)
         return gathered_tuple[0]
@@ -1045,12 +990,10 @@ class DataStreamsParallel(torch.nn.DataParallel):
         return replicate(module, device_ids)
 
     def scatter(self, inputs, kwargs, device_ids):
-        return data_streams_scatter_kwargs(inputs, kwargs, device_ids, dim=
-            self.dim)
+        return data_streams_scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:
-            len(replicas)])
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
     def gather(self, outputs, output_device):
         return data_streams_gather(outputs, output_device, dim=self.dim)
@@ -1097,9 +1040,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DataStreamsParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_IBM_pytorchpipe(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DataStreamsParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 

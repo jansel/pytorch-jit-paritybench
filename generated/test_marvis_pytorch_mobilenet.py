@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,20 +60,11 @@ class MobileNet(nn.Module):
         super(MobileNet, self).__init__()
 
         def conv_bn(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=
-                False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
         def conv_dw(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=
-                inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True
-                ), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d
-                (oup), nn.ReLU(inplace=True))
-        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1),
-            conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2),
-            conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1
-            ), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512,
-            1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 
-            1024, 1), nn.AvgPool2d(7))
+            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1), conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2), conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 1024, 1), nn.AvgPool2d(7))
         self.fc = nn.Linear(1024, 1000)
 
     def forward(self, x):
@@ -88,20 +80,11 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         def conv_bn(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=
-                False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
         def conv_dw(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=
-                inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True
-                ), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d
-                (oup), nn.ReLU(inplace=True))
-        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1),
-            conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2),
-            conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1
-            ), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512,
-            1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 
-            1024, 1), nn.AvgPool2d(7))
+            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1), conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2), conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 1024, 1), nn.AvgPool2d(7))
         self.fc = nn.Linear(1024, 1000)
 
     def forward(self, x):
@@ -115,11 +98,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MobileNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+]
+
 class Test_marvis_pytorch_mobilenet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[1])
 

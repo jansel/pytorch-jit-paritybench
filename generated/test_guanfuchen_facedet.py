@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,16 +68,13 @@ import itertools
 
 class LRN(nn.Module):
 
-    def __init__(self, local_size=1, alpha=1.0, beta=0.75, ACROSS_CHANNELS=True
-        ):
+    def __init__(self, local_size=1, alpha=1.0, beta=0.75, ACROSS_CHANNELS=True):
         super(LRN, self).__init__()
         self.ACROSS_CHANNELS = ACROSS_CHANNELS
         if ACROSS_CHANNELS:
-            self.average = nn.AvgPool3d(kernel_size=(local_size, 1, 1),
-                stride=1, padding=(int((local_size - 1.0) / 2), 0, 0))
+            self.average = nn.AvgPool3d(kernel_size=(local_size, 1, 1), stride=1, padding=(int((local_size - 1.0) / 2), 0, 0))
         else:
-            self.average = nn.AvgPool2d(kernel_size=local_size, stride=1,
-                padding=int((local_size - 1.0) / 2))
+            self.average = nn.AvgPool2d(kernel_size=local_size, stride=1, padding=int((local_size - 1.0) / 2))
         self.alpha = alpha
         self.beta = beta
 
@@ -97,8 +95,7 @@ class Cascade12Net(nn.Module):
 
     def __init__(self):
         super(Cascade12Net, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=
-            3, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1)
         self.relu1 = nn.ReLU(inplace=True)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.fc1 = nn.Linear(400, 16)
@@ -121,8 +118,7 @@ class Cascade12CalNet(nn.Module):
 
     def __init__(self):
         super(Cascade12CalNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=
-            3, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1)
         self.relu1 = nn.ReLU(inplace=True)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.fc1 = nn.Linear(400, 128)
@@ -145,8 +141,7 @@ class Cascade24Net(nn.Module):
 
     def __init__(self):
         super(Cascade24Net, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=
-            5, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=1)
         self.relu1 = nn.ReLU(inplace=True)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.fc1 = nn.Linear(6400, 128)
@@ -169,8 +164,7 @@ class Cascade24CalNet(nn.Module):
 
     def __init__(self):
         super(Cascade24CalNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=
-            5, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=5, stride=1)
         self.relu1 = nn.ReLU(inplace=True)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.fc1 = nn.Linear(3200, 64)
@@ -193,13 +187,11 @@ class Cascade48Net(nn.Module):
 
     def __init__(self):
         super(Cascade48Net, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=
-            5, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=1)
         self.relu1 = nn.ReLU(inplace=True)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.norm1 = nn.LocalResponseNorm(size=5, alpha=5e-05, beta=0.75)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =5, stride=1)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=1)
         self.relu2 = nn.ReLU(inplace=True)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.norm2 = nn.LocalResponseNorm(size=5, alpha=5e-05, beta=0.75)
@@ -228,13 +220,11 @@ class Cascade48CalNet(nn.Module):
 
     def __init__(self):
         super(Cascade48CalNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=
-            5, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=1)
         self.relu1 = nn.ReLU(inplace=True)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.norm1 = nn.LocalResponseNorm(size=5, alpha=5e-05, beta=0.75)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =5, stride=1)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=1)
         self.relu2 = nn.ReLU(inplace=True)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
         self.norm2 = nn.LocalResponseNorm(size=5, alpha=5e-05, beta=0.75)
@@ -273,8 +263,7 @@ class StrideConv(nn.Module):
     StrideConv：H，W根据stride进行下采样，H*W->(H/stride)*(W/stride)
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
         """
         :param in_channels:
         :param out_channels:
@@ -286,9 +275,7 @@ class StrideConv(nn.Module):
         """
         super(StrideConv, self).__init__()
         padding = (kernel_size - 1) // 2
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride=stride, padding=padding, dilation=dilation, groups=
-            groups, bias=bias)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
 
     def forward(self, x):
         return self.conv(x)
@@ -315,16 +302,12 @@ class Inception(nn.Module):
 
     def __init__(self):
         super(Inception, self).__init__()
-        self.conv1 = StrideConv(in_channels=128, out_channels=32, kernel_size=1
-            )
+        self.conv1 = StrideConv(in_channels=128, out_channels=32, kernel_size=1)
         self.pool1 = StridePool(kernel_size=3, stride=1)
-        self.conv2 = StrideConv(in_channels=128, out_channels=32, kernel_size=1
-            )
-        self.conv3 = StrideConv(in_channels=128, out_channels=24, kernel_size=1
-            )
+        self.conv2 = StrideConv(in_channels=128, out_channels=32, kernel_size=1)
+        self.conv3 = StrideConv(in_channels=128, out_channels=24, kernel_size=1)
         self.conv4 = StrideConv(in_channels=24, out_channels=32, kernel_size=3)
-        self.conv5 = StrideConv(in_channels=128, out_channels=24, kernel_size=1
-            )
+        self.conv5 = StrideConv(in_channels=128, out_channels=24, kernel_size=1)
         self.conv6 = StrideConv(in_channels=24, out_channels=32, kernel_size=3)
         self.conv7 = StrideConv(in_channels=32, out_channels=32, kernel_size=3)
 
@@ -344,25 +327,19 @@ class FaceBoxExtractor(nn.Module):
 
     def __init__(self):
         super(FaceBoxExtractor, self).__init__()
-        self.conv1 = StrideConv(in_channels=3, out_channels=24, kernel_size
-            =7, stride=4)
+        self.conv1 = StrideConv(in_channels=3, out_channels=24, kernel_size=7, stride=4)
         self.crelu1 = CReLU()
         self.pool1 = StridePool(kernel_size=3, stride=2)
-        self.conv2 = StrideConv(in_channels=24 * 2, out_channels=64,
-            kernel_size=5, stride=2)
+        self.conv2 = StrideConv(in_channels=24 * 2, out_channels=64, kernel_size=5, stride=2)
         self.crelu2 = CReLU()
         self.pool2 = StridePool(kernel_size=3, stride=2)
         self.inception1 = Inception()
         self.inception2 = Inception()
         self.inception3 = Inception()
-        self.conv3_1 = StrideConv(in_channels=128, out_channels=128,
-            kernel_size=1, stride=1)
-        self.conv3_2 = StrideConv(in_channels=128, out_channels=256,
-            kernel_size=3, stride=2)
-        self.conv4_1 = StrideConv(in_channels=256, out_channels=128,
-            kernel_size=1, stride=1)
-        self.conv4_2 = StrideConv(in_channels=128, out_channels=256,
-            kernel_size=3, stride=2)
+        self.conv3_1 = StrideConv(in_channels=128, out_channels=128, kernel_size=1, stride=1)
+        self.conv3_2 = StrideConv(in_channels=128, out_channels=256, kernel_size=3, stride=2)
+        self.conv4_1 = StrideConv(in_channels=256, out_channels=128, kernel_size=1, stride=1)
+        self.conv4_2 = StrideConv(in_channels=128, out_channels=256, kernel_size=3, stride=2)
 
     def forward(self, x):
         xs = []
@@ -404,10 +381,8 @@ class FaceBox(nn.Module):
         self.loc_layers = nn.ModuleList()
         self.conf_layers = nn.ModuleList()
         for i in range(len(self.in_channels)):
-            self.loc_layers.append(StrideConv(self.in_channels[i], self.
-                num_anchors[i] * 4, kernel_size=3))
-            self.conf_layers.append(StrideConv(self.in_channels[i], self.
-                num_anchors[i] * self.num_classes, kernel_size=3))
+            self.loc_layers.append(StrideConv(self.in_channels[i], self.num_anchors[i] * 4, kernel_size=3))
+            self.conf_layers.append(StrideConv(self.in_channels[i], self.num_anchors[i] * self.num_classes, kernel_size=3))
 
     def forward(self, x):
         loc_preds = []
@@ -437,8 +412,7 @@ class FaceBoxLoss(nn.Module):
         x = x.detach()
         y = y.detach()
         xmax = x.data.max()
-        log_sum_exp = torch.log(torch.sum(torch.exp(x - xmax), 1, keepdim=True)
-            ) + xmax
+        log_sum_exp = torch.log(torch.sum(torch.exp(x - xmax), 1, keepdim=True)) + xmax
         return log_sum_exp - x.gather(1, y.view(-1, 1))
 
     def hard_negative_mining(self, conf_loss, pos):
@@ -473,10 +447,8 @@ class FaceBoxLoss(nn.Module):
         pos_mask1 = pos.unsqueeze(2).expand_as(loc_preds)
         pos_loc_preds = loc_preds[pos_mask1].view(-1, 4)
         pos_loc_targets = loc_targets[pos_mask1].view(-1, 4)
-        loc_loss = F.smooth_l1_loss(pos_loc_preds, pos_loc_targets,
-            size_average=False)
-        conf_loss = self.cross_entropy_loss(conf_preds.view(-1, self.
-            num_classes), conf_targets.view(-1, 1))
+        loc_loss = F.smooth_l1_loss(pos_loc_preds, pos_loc_targets, size_average=False)
+        conf_loss = self.cross_entropy_loss(conf_preds.view(-1, self.num_classes), conf_targets.view(-1, 1))
         neg = self.hard_negative_mining(conf_loss, pos)
         pos_mask = pos.unsqueeze(2).expand_as(conf_preds)
         neg_mask = neg.unsqueeze(2).expand_as(conf_preds)
@@ -496,22 +468,16 @@ class PNet(nn.Module):
 
     def __init__(self):
         super(PNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=10, kernel_size=
-            3, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=10, kernel_size=3, stride=1)
         self.relu1 = nn.PReLU()
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
-        self.conv2 = nn.Conv2d(in_channels=10, out_channels=16, kernel_size
-            =3, stride=1)
+        self.conv2 = nn.Conv2d(in_channels=10, out_channels=16, kernel_size=3, stride=1)
         self.relu2 = nn.PReLU()
-        self.conv3 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size
-            =3, stride=1)
+        self.conv3 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1)
         self.relu3 = nn.PReLU()
-        self.conv4_1 = nn.Conv2d(in_channels=32, out_channels=1,
-            kernel_size=1, stride=1)
-        self.conv4_2 = nn.Conv2d(in_channels=32, out_channels=4,
-            kernel_size=1, stride=1)
-        self.conv4_3 = nn.Conv2d(in_channels=32, out_channels=10,
-            kernel_size=1, stride=1)
+        self.conv4_1 = nn.Conv2d(in_channels=32, out_channels=1, kernel_size=1, stride=1)
+        self.conv4_2 = nn.Conv2d(in_channels=32, out_channels=4, kernel_size=1, stride=1)
+        self.conv4_3 = nn.Conv2d(in_channels=32, out_channels=10, kernel_size=1, stride=1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -530,16 +496,13 @@ class RNet(nn.Module):
 
     def __init__(self):
         super(RNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=28, kernel_size=
-            3, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=28, kernel_size=3, stride=1)
         self.relu1 = nn.PReLU()
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
-        self.conv2 = nn.Conv2d(in_channels=28, out_channels=48, kernel_size
-            =3, stride=1)
+        self.conv2 = nn.Conv2d(in_channels=28, out_channels=48, kernel_size=3, stride=1)
         self.relu2 = nn.PReLU()
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
-        self.conv3 = nn.Conv2d(in_channels=48, out_channels=64, kernel_size
-            =2, stride=1)
+        self.conv3 = nn.Conv2d(in_channels=48, out_channels=64, kernel_size=2, stride=1)
         self.relu3 = nn.PReLU()
         self.fc4 = nn.Linear(in_features=576, out_features=128)
         self.relu4 = nn.PReLU()
@@ -569,20 +532,16 @@ class ONet(nn.Module):
 
     def __init__(self):
         super(ONet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=
-            3, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1)
         self.relu1 = nn.PReLU()
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size
-            =3, stride=1)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1)
         self.relu2 = nn.PReLU()
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
-        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =3, stride=1)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
         self.relu3 = nn.PReLU()
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
-        self.conv4 = nn.Conv2d(in_channels=64, out_channels=128,
-            kernel_size=2, stride=1)
+        self.conv4 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=2, stride=1)
         self.relu4 = nn.PReLU()
         self.fc5 = nn.Linear(in_features=1152, out_features=256)
         self.relu5 = nn.PReLU()
@@ -616,30 +575,121 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_guanfuchen_facedet(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(CReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CReLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Cascade12CalNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 12, 12])], {}),
+     True),
+    (Cascade12Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 12, 12])], {}),
+     True),
+    (Cascade24CalNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 24, 24])], {}),
+     True),
+    (Cascade24Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 24, 24])], {}),
+     True),
+    (Cascade48CalNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 48, 48])], {}),
+     True),
+    (Cascade48Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 48, 48])], {}),
+     True),
+    (FaceBox,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (FaceBoxExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Inception,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (LRN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ONet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 48, 48])], {}),
+     True),
+    (PNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (RNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 24, 24])], {}),
+     True),
+    (StrideConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StridePool,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_guanfuchen_facedet(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(FaceBox(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FaceBoxExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LRN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(StrideConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(StridePool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

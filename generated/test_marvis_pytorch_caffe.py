@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,9 +82,7 @@ def save_prototxt(net_info, protofile, region=True):
     def format_value(value):
         if is_number(value):
             return value
-        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN',
-            'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC',
-            'LANCZOS4', 'CENTER', 'LMDB']:
+        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN', 'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC', 'LANCZOS4', 'CENTER', 'LMDB']:
             return value
         else:
             return '"%s"' % value
@@ -96,11 +95,9 @@ def save_prototxt(net_info, protofile, region=True):
                 print_block(value, key, indent + 4)
             elif type(value) == list:
                 for v in value:
-                    print('%s    %s: %s' % (blanks, key, format_value(v)),
-                        file=fp)
+                    print('%s    %s: %s' % (blanks, key, format_value(v)), file=fp)
             else:
-                print('%s    %s: %s' % (blanks, key, format_value(value)),
-                    file=fp)
+                print('%s    %s: %s' % (blanks, key, format_value(value)), file=fp)
         print('%s}' % blanks, file=fp)
     props = net_info['props']
     print('name: "%s"' % props['name'], file=fp)
@@ -219,8 +216,7 @@ class Scale(nn.Module):
         nC = x.size(1)
         nH = x.size(2)
         nW = x.size(3)
-        x = x * self.weight.view(1, nC, 1, 1).expand(nB, nC, nH, nW
-            ) + self.bias.view(1, nC, 1, 1).expand(nB, nC, nH, nW)
+        x = x * self.weight.view(1, nC, 1, 1).expand(nB, nC, nH, nW) + self.bias.view(1, nC, 1, 1).expand(nB, nC, nH, nW)
         return x
 
 
@@ -251,8 +247,7 @@ class Slice(nn.Module):
         self.slice_points = slice_points
 
     def __repr__(self):
-        return 'Slice(axis=%d, slice_points=%s)' % (self.axis, self.
-            slice_points)
+        return 'Slice(axis=%d, slice_points=%s)' % (self.axis, self.slice_points)
 
     def forward(self, x):
         prev = 0
@@ -295,12 +290,10 @@ class Permute(nn.Module):
         self.order3 = order3
 
     def __repr__(self):
-        return 'Permute(%d, %d, %d, %d)' % (self.order0, self.order1, self.
-            order2, self.order3)
+        return 'Permute(%d, %d, %d, %d)' % (self.order0, self.order1, self.order2, self.order3)
 
     def forward(self, x):
-        x = x.permute(self.order0, self.order1, self.order2, self.order3
-            ).contiguous()
+        x = x.permute(self.order0, self.order1, self.order2, self.order3).contiguous()
         return x
 
 
@@ -348,8 +341,7 @@ class Normalize(nn.Module):
         self.register_parameter('bias', None)
 
     def __repr__(self):
-        return 'Normalize(channels=%d, scale=%f)' % (self.n_channels, self.
-            scale)
+        return 'Normalize(channels=%d, scale=%f)' % (self.n_channels, self.scale)
 
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
@@ -384,8 +376,7 @@ class LRNFunc(Function):
 
     def forward(self, input):
         self.save_for_backward(input)
-        self.lrn = SpatialCrossMapLRNOld(self.size, self.alpha, self.beta,
-            self.k)
+        self.lrn = SpatialCrossMapLRNOld(self.size, self.alpha, self.beta, self.k)
         self.lrn.type(input.type())
         return self.lrn.forward(input)
 
@@ -404,8 +395,7 @@ class LRN(nn.Module):
         self.k = k
 
     def __repr__(self):
-        return 'LRN(size=%d, alpha=%f, beta=%f, k=%d)' % (self.size, self.
-            alpha, self.beta, self.k)
+        return 'LRN(size=%d, alpha=%f, beta=%f, k=%d)' % (self.size, self.alpha, self.beta, self.k)
 
     def forward(self, input):
         return LRNFunc(self.size, self.alpha, self.beta, self.k)(input)
@@ -422,8 +412,7 @@ class Reshape(nn.Module):
 
     def forward(self, x):
         orig_dims = x.size()
-        new_dims = [(orig_dims[i] if self.dims[i] == 0 else self.dims[i]) for
-            i in range(len(self.dims))]
+        new_dims = [(orig_dims[i] if self.dims[i] == 0 else self.dims[i]) for i in range(len(self.dims))]
         return x.view(*new_dims).contiguous()
 
 
@@ -454,8 +443,7 @@ class PriorBox(nn.Module):
     recent version of the paper.
     """
 
-    def __init__(self, min_size, max_size, aspects, clip, flip, step,
-        offset, variances):
+    def __init__(self, min_size, max_size, aspects, clip, flip, step, offset, variances):
         super(PriorBox, self).__init__()
         self.min_size = min_size
         self.max_size = max_size
@@ -467,10 +455,7 @@ class PriorBox(nn.Module):
         self.variances = variances
 
     def __repr__(self):
-        return (
-            'PriorBox(min_size=%f, max_size=%f, clip=%d, step=%d, offset=%f, variances=%s)'
-             % (self.min_size, self.max_size, self.clip, self.step, self.
-            offset, self.variances))
+        return 'PriorBox(min_size=%f, max_size=%f, clip=%d, step=%d, offset=%f, variances=%s)' % (self.min_size, self.max_size, self.clip, self.step, self.offset, self.variances)
 
     def forward(self, feature, image):
         mean = []
@@ -484,26 +469,21 @@ class PriorBox(nn.Module):
                 cy = (j + self.offset) * self.step / image_height
                 mw = float(self.min_size) / image_width
                 mh = float(self.min_size) / image_height
-                mean += [cx - mw / 2.0, cy - mh / 2.0, cx + mw / 2.0, cy + 
-                    mh / 2.0]
+                mean += [cx - mw / 2.0, cy - mh / 2.0, cx + mw / 2.0, cy + mh / 2.0]
                 if self.max_size > self.min_size:
                     ww = math.sqrt(mw * float(self.max_size) / image_width)
                     hh = math.sqrt(mh * float(self.max_size) / image_height)
-                    mean += [cx - ww / 2.0, cy - hh / 2.0, cx + ww / 2.0, 
-                        cy + hh / 2.0]
+                    mean += [cx - ww / 2.0, cy - hh / 2.0, cx + ww / 2.0, cy + hh / 2.0]
                     for aspect in self.aspects:
                         ww = mw * math.sqrt(aspect)
                         hh = mh / math.sqrt(aspect)
-                        mean += [cx - ww / 2.0, cy - hh / 2.0, cx + ww / 
-                            2.0, cy + hh / 2.0]
+                        mean += [cx - ww / 2.0, cy - hh / 2.0, cx + ww / 2.0, cy + hh / 2.0]
                         if self.flip:
                             ww = mw / math.sqrt(aspect)
                             hh = mh * math.sqrt(aspect)
-                            mean += [cx - ww / 2.0, cy - hh / 2.0, cx + ww /
-                                2.0, cy + hh / 2.0]
+                            mean += [cx - ww / 2.0, cy - hh / 2.0, cx + ww / 2.0, cy + hh / 2.0]
         output1 = torch.Tensor(mean).view(-1, 4)
-        output2 = torch.FloatTensor(self.variances).view(1, 4).expand_as(
-            output1)
+        output2 = torch.FloatTensor(self.variances).view(1, 4).expand_as(output1)
         if self.clip:
             output1.clamp_(max=1, min=0)
         output1 = output1.view(1, 1, -1)
@@ -516,9 +496,7 @@ class PriorBox(nn.Module):
             return Variable(output)
 
 
-SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU',
-    'Permute', 'Flatten', 'Slice', 'Concat', 'Softmax', 'SoftmaxWithLoss',
-    'LRN', 'Dropout', 'Reshape', 'PriorBox', 'DetectionOutput']
+SUPPORTED_LAYERS = ['Data', 'AnnotatedData', 'Pooling', 'Eltwise', 'ReLU', 'Permute', 'Flatten', 'Slice', 'Concat', 'Softmax', 'SoftmaxWithLoss', 'LRN', 'Dropout', 'Reshape', 'PriorBox', 'DetectionOutput']
 
 
 def parse_caffemodel(caffemodel):
@@ -605,9 +583,7 @@ def print_prototxt(net_info):
     def format_value(value):
         if is_number(value):
             return value
-        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN',
-            'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC',
-            'LANCZOS4', 'CENTER', 'LMDB']:
+        elif value in ['true', 'false', 'MAX', 'SUM', 'AVE', 'TRAIN', 'TEST', 'WARP', 'LINEAR', 'AREA', 'NEAREST', 'CUBIC', 'LANCZOS4', 'CENTER', 'LMDB']:
             return value
         else:
             return '"%s"' % value
@@ -639,14 +615,12 @@ def print_prototxt(net_info):
 
 class CaffeNet(nn.Module):
 
-    def __init__(self, protofile, width=None, height=None, channels=None,
-        omit_data_layer=False, phase='TRAIN'):
+    def __init__(self, protofile, width=None, height=None, channels=None, omit_data_layer=False, phase='TRAIN'):
         super(CaffeNet, self).__init__()
         self.omit_data_layer = omit_data_layer
         self.phase = phase
         self.net_info = parse_prototxt(protofile)
-        self.models = self.create_network(self.net_info, width, height,
-            channels)
+        self.models = self.create_network(self.net_info, width, height, channels)
         for name, model in self.models.items():
             self.add_module(name, model)
         self.has_mean = False
@@ -720,8 +694,7 @@ class CaffeNet(nn.Module):
                 nC = data.data.size(1)
                 nH = data.data.size(2)
                 nW = data.data.size(3)
-                data = data - Variable(self.mean_img.view(1, nC, nH, nW).
-                    expand(nB, nC, nH, nW))
+                data = data - Variable(self.mean_img.view(1, nC, nH, nW).expand(nB, nC, nH, nW))
         elif len(inputs) == 1:
             data = inputs[0]
             self.blobs['data'] = data
@@ -730,8 +703,7 @@ class CaffeNet(nn.Module):
                 nC = data.data.size(1)
                 nH = data.data.size(2)
                 nW = data.data.size(3)
-                data = data - Variable(self.mean_img.view(1, nC, nH, nW).
-                    expand(nB, nC, nH, nW))
+                data = data - Variable(self.mean_img.view(1, nC, nH, nW).expand(nB, nC, nH, nW))
         layers = self.net_info['layers']
         layer_num = len(layers)
         i = 0
@@ -825,10 +797,8 @@ class CaffeNet(nn.Module):
             mu = np.array(mean_blob.data)
             mu.resize(channels, height, width)
             mu = mu.mean(1).mean(1)
-            mean_img = torch.from_numpy(mu).view(channels, 1, 1).expand(
-                channels, height, width).float()
-            self.register_buffer('mean_img', torch.zeros(channels, height,
-                width))
+            mean_img = torch.from_numpy(mu).view(channels, 1, 1).expand(channels, height, width).float()
+            self.register_buffer('mean_img', torch.zeros(channels, height, width))
             self.mean_img.copy_(mean_img)
         model = parse_caffemodel(caffemodel)
         layers = model.layer
@@ -855,60 +825,45 @@ class CaffeNet(nn.Module):
                 None
                 convolution_param = layer['convolution_param']
                 bias = True
-                if convolution_param.has_key('bias_term'
-                    ) and convolution_param['bias_term'] == 'false':
+                if convolution_param.has_key('bias_term') and convolution_param['bias_term'] == 'false':
                     bias = False
                 caffe_weight = np.array(lmap[lname].blobs[0].data)
-                caffe_weight = torch.from_numpy(caffe_weight).view_as(self.
-                    models[lname].weight)
+                caffe_weight = torch.from_numpy(caffe_weight).view_as(self.models[lname].weight)
                 self.models[lname].weight.data.copy_(caffe_weight)
                 if bias and len(lmap[lname].blobs) > 1:
-                    self.models[lname].bias.data.copy_(torch.from_numpy(np.
-                        array(lmap[lname].blobs[1].data)))
+                    self.models[lname].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 i = i + 1
             elif ltype == 'BatchNorm':
                 None
-                self.models[lname].running_mean.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[0].data) / lmap[lname].blobs[2]
-                    .data[0]))
-                self.models[lname].running_var.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[1].data) / lmap[lname].blobs[2]
-                    .data[0]))
+                self.models[lname].running_mean.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data) / lmap[lname].blobs[2].data[0]))
+                self.models[lname].running_var.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data) / lmap[lname].blobs[2].data[0]))
                 i = i + 1
             elif ltype == 'Scale':
                 None
-                self.models[lname].weight.data.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[0].data)))
-                self.models[lname].bias.data.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[1].data)))
+                self.models[lname].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
+                self.models[lname].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 i = i + 1
             elif ltype == 'Normalize':
                 None
-                self.models[lname].weight.data.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[0].data)))
+                self.models[lname].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
                 i = i + 1
             elif ltype == 'InnerProduct':
                 None
                 if type(self.models[lname]) == nn.Sequential:
-                    self.models[lname][1].weight.data.copy_(torch.
-                        from_numpy(np.array(lmap[lname].blobs[0].data)))
+                    self.models[lname][1].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
                     if len(lmap[lname].blobs) > 1:
-                        self.models[lname][1].bias.data.copy_(torch.
-                            from_numpy(np.array(lmap[lname].blobs[1].data)))
+                        self.models[lname][1].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 else:
-                    self.models[lname].weight.data.copy_(torch.from_numpy(
-                        np.array(lmap[lname].blobs[0].data)))
+                    self.models[lname].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
                     if len(lmap[lname].blobs) > 1:
-                        self.models[lname].bias.data.copy_(torch.from_numpy
-                            (np.array(lmap[lname].blobs[1].data)))
+                        self.models[lname].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 i = i + 1
             else:
                 if not ltype in SUPPORTED_LAYERS:
                     None
                 i = i + 1
 
-    def create_network(self, net_info, input_width=None, input_height=None,
-        input_channels=None):
+    def create_network(self, net_info, input_width=None, input_height=None, input_channels=None):
         models = OrderedDict()
         blob_channels = dict()
         blob_width = dict()
@@ -969,37 +924,26 @@ class CaffeNet(nn.Module):
                 channels = blob_channels[bname]
                 out_filters = int(convolution_param['num_output'])
                 kernel_size = int(convolution_param['kernel_size'])
-                stride = int(convolution_param['stride']
-                    ) if convolution_param.has_key('stride') else 1
-                pad = int(convolution_param['pad']
-                    ) if convolution_param.has_key('pad') else 0
-                group = int(convolution_param['group']
-                    ) if convolution_param.has_key('group') else 1
+                stride = int(convolution_param['stride']) if convolution_param.has_key('stride') else 1
+                pad = int(convolution_param['pad']) if convolution_param.has_key('pad') else 0
+                group = int(convolution_param['group']) if convolution_param.has_key('group') else 1
                 dilation = 1
                 if convolution_param.has_key('dilation'):
                     dilation = int(convolution_param['dilation'])
                 bias = True
-                if convolution_param.has_key('bias_term'
-                    ) and convolution_param['bias_term'] == 'false':
+                if convolution_param.has_key('bias_term') and convolution_param['bias_term'] == 'false':
                     bias = False
-                models[lname] = nn.Conv2d(channels, out_filters,
-                    kernel_size=kernel_size, stride=stride, padding=pad,
-                    dilation=dilation, groups=group, bias=bias)
+                models[lname] = nn.Conv2d(channels, out_filters, kernel_size=kernel_size, stride=stride, padding=pad, dilation=dilation, groups=group, bias=bias)
                 blob_channels[tname] = out_filters
-                blob_width[tname] = (blob_width[bname] + 2 * pad - kernel_size
-                    ) / stride + 1
-                blob_height[tname] = (blob_height[bname] + 2 * pad -
-                    kernel_size) / stride + 1
+                blob_width[tname] = (blob_width[bname] + 2 * pad - kernel_size) / stride + 1
+                blob_height[tname] = (blob_height[bname] + 2 * pad - kernel_size) / stride + 1
                 i = i + 1
             elif ltype == 'BatchNorm':
                 momentum = 0.9
-                if layer.has_key('batch_norm_param') and layer[
-                    'batch_norm_param'].has_key('moving_average_fraction'):
-                    momentum = float(layer['batch_norm_param'][
-                        'moving_average_fraction'])
+                if layer.has_key('batch_norm_param') and layer['batch_norm_param'].has_key('moving_average_fraction'):
+                    momentum = float(layer['batch_norm_param']['moving_average_fraction'])
                 channels = blob_channels[bname]
-                models[lname] = nn.BatchNorm2d(channels, momentum=momentum,
-                    affine=False)
+                models[lname] = nn.BatchNorm2d(channels, momentum=momentum, affine=False)
                 blob_channels[tname] = channels
                 blob_width[tname] = blob_width[bname]
                 blob_height[tname] = blob_height[bname]
@@ -1013,12 +957,9 @@ class CaffeNet(nn.Module):
                 i = i + 1
             elif ltype == 'ReLU':
                 inplace = bname == tname
-                if layer.has_key('relu_param') and layer['relu_param'].has_key(
-                    'negative_slope'):
-                    negative_slope = float(layer['relu_param'][
-                        'negative_slope'])
-                    models[lname] = nn.LeakyReLU(negative_slope=
-                        negative_slope, inplace=inplace)
+                if layer.has_key('relu_param') and layer['relu_param'].has_key('negative_slope'):
+                    negative_slope = float(layer['relu_param']['negative_slope'])
+                    models[lname] = nn.LeakyReLU(negative_slope=negative_slope, inplace=inplace)
                 else:
                     models[lname] = nn.ReLU(inplace=inplace)
                 blob_channels[tname] = blob_channels[bname]
@@ -1033,21 +974,16 @@ class CaffeNet(nn.Module):
                     padding = int(layer['pooling_param']['pad'])
                 pool_type = layer['pooling_param']['pool']
                 if pool_type == 'MAX':
-                    models[lname] = nn.MaxPool2d(kernel_size, stride,
-                        padding=padding, ceil_mode=True)
+                    models[lname] = nn.MaxPool2d(kernel_size, stride, padding=padding, ceil_mode=True)
                 elif pool_type == 'AVE':
-                    models[lname] = nn.AvgPool2d(kernel_size, stride,
-                        padding=padding, ceil_mode=True)
-                blob_width[tname] = int(math.ceil((blob_width[bname] + 2 *
-                    padding - kernel_size) / float(stride))) + 1
-                blob_height[tname] = int(math.ceil((blob_height[bname] + 2 *
-                    padding - kernel_size) / float(stride))) + 1
+                    models[lname] = nn.AvgPool2d(kernel_size, stride, padding=padding, ceil_mode=True)
+                blob_width[tname] = int(math.ceil((blob_width[bname] + 2 * padding - kernel_size) / float(stride))) + 1
+                blob_height[tname] = int(math.ceil((blob_height[bname] + 2 * padding - kernel_size) / float(stride))) + 1
                 blob_channels[tname] = blob_channels[bname]
                 i = i + 1
             elif ltype == 'Eltwise':
                 operation = 'SUM'
-                if layer.has_key('eltwise_param') and layer['eltwise_param'
-                    ].has_key('operation'):
+                if layer.has_key('eltwise_param') and layer['eltwise_param'].has_key('operation'):
                     operation = layer['eltwise_param']['operation']
                 bname0 = bname[0]
                 bname1 = bname[1]
@@ -1059,10 +995,8 @@ class CaffeNet(nn.Module):
             elif ltype == 'InnerProduct':
                 filters = int(layer['inner_product_param']['num_output'])
                 if blob_width[bname] != -1 or blob_height[bname] != -1:
-                    channels = blob_channels[bname] * blob_width[bname
-                        ] * blob_height[bname]
-                    models[lname] = nn.Sequential(FCView(), nn.Linear(
-                        channels, filters))
+                    channels = blob_channels[bname] * blob_width[bname] * blob_height[bname]
+                    models[lname] = nn.Sequential(FCView(), nn.Linear(channels, filters))
                 else:
                     channels = blob_channels[bname]
                     models[lname] = nn.Linear(channels, filters)
@@ -1102,8 +1036,7 @@ class CaffeNet(nn.Module):
                 order2 = int(orders[2])
                 order3 = int(orders[3])
                 models[lname] = Permute(order0, order1, order2, order3)
-                shape = [1, blob_channels[bname], blob_height[bname],
-                    blob_width[bname]]
+                shape = [1, blob_channels[bname], blob_height[bname], blob_width[bname]]
                 blob_channels[tname] = shape[order1]
                 blob_height[tname] = shape[order2]
                 blob_width[tname] = shape[order3]
@@ -1111,8 +1044,7 @@ class CaffeNet(nn.Module):
             elif ltype == 'Flatten':
                 axis = int(layer['flatten_param']['axis'])
                 models[lname] = Flatten(axis)
-                blob_channels[tname] = blob_channels[bname] * blob_width[bname
-                    ] * blob_height[bname]
+                blob_channels[tname] = blob_channels[bname] * blob_width[bname] * blob_height[bname]
                 blob_width[tname] = 1
                 blob_height[tname] = 1
                 i = i + 1
@@ -1124,8 +1056,7 @@ class CaffeNet(nn.Module):
                 assert type(slice_points) == list
                 assert len(slice_points) == len(tname) - 1
                 slice_points = [int(s) for s in slice_points]
-                shape = [1, blob_channels[bname], blob_height[bname],
-                    blob_width[bname]]
+                shape = [1, blob_channels[bname], blob_height[bname], blob_width[bname]]
                 slice_points.append(shape[axis])
                 models[lname] = Slice(axis, slice_points)
                 prev = 0
@@ -1137,8 +1068,7 @@ class CaffeNet(nn.Module):
                 i = i + 1
             elif ltype == 'Concat':
                 axis = 1
-                if layer.has_key('concat_param') and layer['concat_param'
-                    ].has_key('axis'):
+                if layer.has_key('concat_param') and layer['concat_param'].has_key('axis'):
                     axis = int(layer['concat_param']['axis'])
                 models[lname] = Concat(axis)
                 if axis == 1:
@@ -1172,45 +1102,32 @@ class CaffeNet(nn.Module):
                 offset = float(layer['prior_box_param']['offset'])
                 variances = layer['prior_box_param']['variance']
                 variances = [float(v) for v in variances]
-                models[lname] = PriorBox(min_size, max_size, aspects, clip,
-                    flip, step, offset, variances)
+                models[lname] = PriorBox(min_size, max_size, aspects, clip, flip, step, offset, variances)
                 blob_channels[tname] = 1
                 blob_width[tname] = 1
                 blob_height[tname] = 1
                 i = i + 1
             elif ltype == 'DetectionOutput':
-                num_classes = int(layer['detection_output_param'][
-                    'num_classes'])
-                bkg_label = int(layer['detection_output_param'][
-                    'background_label_id'])
-                top_k = int(layer['detection_output_param']['nms_param'][
-                    'top_k'])
+                num_classes = int(layer['detection_output_param']['num_classes'])
+                bkg_label = int(layer['detection_output_param']['background_label_id'])
+                top_k = int(layer['detection_output_param']['nms_param']['top_k'])
                 keep_top_k = int(layer['detection_output_param']['keep_top_k'])
-                conf_thresh = float(layer['detection_output_param'][
-                    'confidence_threshold'])
-                nms_thresh = float(layer['detection_output_param'][
-                    'nms_param']['nms_threshold'])
-                models[lname] = Detection(num_classes, bkg_label, top_k,
-                    conf_thresh, nms_thresh, keep_top_k)
+                conf_thresh = float(layer['detection_output_param']['confidence_threshold'])
+                nms_thresh = float(layer['detection_output_param']['nms_param']['nms_threshold'])
+                models[lname] = Detection(num_classes, bkg_label, top_k, conf_thresh, nms_thresh, keep_top_k)
                 blob_channels[tname] = 1
                 blob_width[tname] = 1
                 blob_height[tname] = 1
                 i = i + 1
             elif ltype == 'MultiBoxLoss':
                 num_classes = int(layer['multibox_loss_param']['num_classes'])
-                overlap_threshold = float(layer['multibox_loss_param'][
-                    'overlap_threshold'])
-                prior_for_matching = layer['multibox_loss_param'][
-                    'use_prior_for_matching'] == 'true'
-                bkg_label = int(layer['multibox_loss_param'][
-                    'background_label_id'])
+                overlap_threshold = float(layer['multibox_loss_param']['overlap_threshold'])
+                prior_for_matching = layer['multibox_loss_param']['use_prior_for_matching'] == 'true'
+                bkg_label = int(layer['multibox_loss_param']['background_label_id'])
                 neg_mining = True
                 neg_pos = float(layer['multibox_loss_param']['neg_pos_ratio'])
-                neg_overlap = float(layer['multibox_loss_param']['neg_overlap']
-                    )
-                models[lname] = MultiBoxLoss(num_classes, overlap_threshold,
-                    prior_for_matching, bkg_label, neg_mining, neg_pos,
-                    neg_overlap, use_gpu=True)
+                neg_overlap = float(layer['multibox_loss_param']['neg_overlap'])
+                models[lname] = MultiBoxLoss(num_classes, overlap_threshold, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, use_gpu=True)
                 blob_channels[tname] = 1
                 blob_width[tname] = 1
                 blob_height[tname] = 1
@@ -1237,9 +1154,7 @@ class CaffeNet(nn.Module):
                 stride = stride_h, stride_w
                 padding = pad_h, pad_w
                 bias_term = layer['convolution_param']['bias_term'] != 'false'
-                models[lname] = nn.ConvTranspose2d(in_channels,
-                    out_channels, kernel_size=kernel_size, stride=stride,
-                    padding=padding, groups=group, bias=bias_term)
+                models[lname] = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=group, bias=bias_term)
                 blob_channels[tname] = out_channels
                 blob_width[tname] = 2 * blob_width[bname]
                 blob_height[tname] = 2 * blob_height[bname]
@@ -1254,8 +1169,7 @@ class CaffeNet(nn.Module):
                 i = i + 1
             elif ltype == 'Softmax':
                 axis = 1
-                if layer.has_key('softmax_param') and layer['softmax_param'
-                    ].has_key('axis'):
+                if layer.has_key('softmax_param') and layer['softmax_param'].has_key('axis'):
                     axis = int(layer['softmax_param']['axis'])
                 models[lname] = Softmax(axis)
                 blob_channels[tname] = blob_channels[bname]
@@ -1277,18 +1191,12 @@ class CaffeNet(nn.Module):
             else:
                 None
                 i = i + 1
-            input_width = blob_width[bname] if type(bname
-                ) != list else blob_width[bname[0]]
-            input_height = blob_height[bname] if type(bname
-                ) != list else blob_height[bname[0]]
-            input_channels = blob_channels[bname] if type(bname
-                ) != list else blob_channels[bname[0]]
-            output_width = blob_width[tname] if type(tname
-                ) != list else blob_width[tname[0]]
-            output_height = blob_height[tname] if type(tname
-                ) != list else blob_height[tname[0]]
-            output_channels = blob_channels[tname] if type(tname
-                ) != list else blob_channels[tname[0]]
+            input_width = blob_width[bname] if type(bname) != list else blob_width[bname[0]]
+            input_height = blob_height[bname] if type(bname) != list else blob_height[bname[0]]
+            input_channels = blob_channels[bname] if type(bname) != list else blob_channels[bname[0]]
+            output_width = blob_width[tname] if type(tname) != list else blob_width[tname[0]]
+            output_height = blob_height[tname] if type(tname) != list else blob_height[tname[0]]
+            output_channels = blob_channels[tname] if type(tname) != list else blob_channels[tname[0]]
             None
         return models
 
@@ -1301,8 +1209,7 @@ def center_size(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]], 1)
+    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] - boxes[:, :2]], 1)
 
 
 def decode(loc, priors, variances):
@@ -1317,8 +1224,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -1388,8 +1294,7 @@ class Detection(nn.Module):
     confidence score and locations.
     """
 
-    def __init__(self, num_classes, bkg_label, top_k, conf_thresh,
-        nms_thresh, keep_top_k):
+    def __init__(self, num_classes, bkg_label, top_k, conf_thresh, nms_thresh, keep_top_k):
         super(Detection, self).__init__()
         self.num_classes = num_classes
         self.background_label = bkg_label
@@ -1418,11 +1323,9 @@ class Detection(nn.Module):
         num_classes = self.num_classes
         num_priors = prior_data.size(2) / 4
         if num == 1:
-            conf_preds = conf_data.view(num_priors, self.num_classes).t(
-                ).contiguous().unsqueeze(0)
+            conf_preds = conf_data.view(num_priors, self.num_classes).t().contiguous().unsqueeze(0)
         else:
-            conf_preds = conf_data.view(num, num_priors, self.num_classes
-                ).transpose(2, 1)
+            conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
         assert num == 1
         if num_classes == 2:
             loc_data = loc_data[0].view(-1, 4).clone()
@@ -1433,21 +1336,16 @@ class Detection(nn.Module):
             cl = 1
             c_mask = conf_scores[cl].gt(self.conf_thresh)
             if c_mask.sum() == 0:
-                output = torch.Tensor([0.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]
-                    ).view(1, 1, 1, 7)
-                return Variable(conf.data.new().resize_(output.size()).
-                    copy_(output))
+                output = torch.Tensor([0.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]).view(1, 1, 1, 7)
+                return Variable(conf.data.new().resize_(output.size()).copy_(output))
             scores = conf_scores[cl][c_mask]
             l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
             boxes = decoded_boxes[l_mask].view(-1, 4)
             ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
             count = min(count, self.keep_top_k)
-            extra_info = torch.FloatTensor([0.0, 1.0]).view(1, 2).expand(
-                num_priors, 2)
-            extra_info = conf.data.new().resize_(extra_info.size()).copy_(
-                extra_info)
-            output = torch.cat((extra_info[ids[:count]], scores[ids[:count]
-                ].unsqueeze(1), boxes[ids[:count]]), 1)
+            extra_info = torch.FloatTensor([0.0, 1.0]).view(1, 2).expand(num_priors, 2)
+            extra_info = conf.data.new().resize_(extra_info.size()).copy_(extra_info)
+            output = torch.cat((extra_info[ids[:count]], scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
             return Variable(output.unsqueeze(0).unsqueeze(0))
         else:
             loc_data = loc_data[0].view(-1, 4).clone()
@@ -1466,12 +1364,9 @@ class Detection(nn.Module):
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
                 count = min(count, self.keep_top_k)
-                extra_info = torch.FloatTensor([0.0, cl]).view(1, 2).expand(
-                    count, 2)
-                extra_info = conf.data.new().resize_(extra_info.size()).copy_(
-                    extra_info)
-                output = torch.cat((extra_info, scores[ids[:count]].
-                    unsqueeze(1), boxes[ids[:count]]), 1)
+                extra_info = torch.FloatTensor([0.0, cl]).view(1, 2).expand(count, 2)
+                extra_info = conf.data.new().resize_(extra_info.size()).copy_(extra_info)
+                output = torch.cat((extra_info, scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
                 outputs.append(output)
             outputs = torch.cat(outputs, 0)
             return Variable(outputs.unsqueeze(0).unsqueeze(0))
@@ -1520,10 +1415,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -1541,10 +1434,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -1557,8 +1448,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -1617,8 +1507,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, use_gpu=True):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, use_gpu=True):
         super(MultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -1654,14 +1543,12 @@ class MultiBoxLoss(nn.Module):
             sub_mask = targets[:, (0)] == idx
             if sub_mask.data.float().sum() == 0:
                 continue
-            sub_targets = targets[sub_mask.view(-1, 1).expand_as(targets)
-                ].view(-1, 8)
+            sub_targets = targets[sub_mask.view(-1, 1).expand_as(targets)].view(-1, 8)
             truths = sub_targets[:, 3:7].data
             labels = sub_targets[:, (1)].data
             defaults = priors.data
             defaults = center_size(defaults)
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -1674,20 +1561,17 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf).view(-1, 1) - batch_conf.gather(1,
-            conf_t.view(-1, 1))
+        loss_c = log_sum_exp(batch_conf).view(-1, 1) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
         _, idx_rank = loss_idx.sort(1)
         num_pos = pos.long().sum(1, keepdim=True)
-        num_neg = Variable(torch.clamp(self.negpos_ratio * num_pos.data.
-            float(), max=pos.size(1) - 1).long())
+        num_neg = Variable(torch.clamp(self.negpos_ratio * num_pos.data.float(), max=pos.size(1) - 1).long())
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum()
@@ -1719,8 +1603,7 @@ class ParallelCaffeNet(nn.Module):
     def forward(self):
         self.module.module.set_forward_data_only(True)
         data, label = self.module.module()
-        label_data = self.convert2batch(label.data, data.size(0), len(self.
-            device_ids))
+        label_data = self.convert2batch(label.data, data.size(0), len(self.device_ids))
         label = Variable(label_data)
         self.module.module.set_forward_net_only(True)
         return self.module(data, label)
@@ -1730,29 +1613,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_marvis_pytorch_caffe(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Accuracy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 64])], {}),
+     False),
+    (Crop,
+     lambda: ([], {'axis': 4, 'offset': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FCView,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {'axis': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Normalize,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PriorBox,
+     lambda: ([], {'min_size': 4, 'max_size': 4, 'aspects': 4, 'clip': 4, 'flip': 4, 'step': 4, 'offset': 4, 'variances': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Scale,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_marvis_pytorch_caffe(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Crop(*[], **{'axis': 4, 'offset': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{'axis': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Normalize(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(PriorBox(*[], **{'min_size': 4, 'max_size': 4, 'aspects': 4, 'clip': 4, 'flip': 4, 'step': 4, 'offset': 4, 'variances': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Scale(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

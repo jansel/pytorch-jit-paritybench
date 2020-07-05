@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -41,20 +42,17 @@ from functools import partial
 
 
 def conv_S(in_planes, out_planes, stride=1, padding=1):
-    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=1,
-        padding=padding, bias=False)
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=1, padding=padding, bias=False)
 
 
 def conv_T(in_planes, out_planes, stride=1, padding=1):
-    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=1,
-        padding=padding, bias=False)
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=1, padding=padding, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, n_s=0,
-        depth_3d=47, ST_struc=('A', 'B', 'C')):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, n_s=0, depth_3d=47, ST_struc=('A', 'B', 'C')):
         super(Bottleneck, self).__init__()
         self.downsample = downsample
         self.depth_3d = depth_3d
@@ -66,16 +64,14 @@ class Bottleneck(nn.Module):
         if n_s < self.depth_3d:
             if n_s == 0:
                 stride_p = 1
-            self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, bias=
-                False, stride=stride_p)
+            self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, bias=False, stride=stride_p)
             self.bn1 = nn.BatchNorm3d(planes)
         else:
             if n_s == self.depth_3d:
                 stride_p = 2
             else:
                 stride_p = 1
-            self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=
-                False, stride=stride_p)
+            self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False, stride=stride_p)
             self.bn1 = nn.BatchNorm2d(planes)
         self.id = n_s
         self.ST = list(self.ST_struc)[self.id % self.len_ST]
@@ -85,16 +81,13 @@ class Bottleneck(nn.Module):
             self.conv3 = conv_T(planes, planes, stride=1, padding=(1, 0, 0))
             self.bn3 = nn.BatchNorm3d(planes)
         else:
-            self.conv_normal = nn.Conv2d(planes, planes, kernel_size=3,
-                stride=1, padding=1, bias=False)
+            self.conv_normal = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn_normal = nn.BatchNorm2d(planes)
         if n_s < self.depth_3d:
-            self.conv4 = nn.Conv3d(planes, planes * 4, kernel_size=1, bias=
-                False)
+            self.conv4 = nn.Conv3d(planes, planes * 4, kernel_size=1, bias=False)
             self.bn4 = nn.BatchNorm3d(planes * 4)
         else:
-            self.conv4 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=
-                False)
+            self.conv4 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
             self.bn4 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.stride = stride
@@ -153,8 +146,7 @@ class Bottleneck(nn.Module):
 
 def downsample_basic_block(x, planes, stride):
     out = F.avg_pool3d(x, kernel_size=1, stride=stride)
-    zero_pads = torch.Tensor(out.size(0), planes - out.size(1), out.size(2),
-        out.size(3), out.size(4)).zero_()
+    zero_pads = torch.Tensor(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4)).zero_()
     if isinstance(out.data, torch.cuda.FloatTensor):
         zero_pads = zero_pads.cuda()
     out = Variable(torch.cat([out.data, zero_pads], dim=1))
@@ -163,29 +155,22 @@ def downsample_basic_block(x, planes, stride):
 
 class P3D(nn.Module):
 
-    def __init__(self, block, layers, modality='RGB', shortcut_type='B',
-        num_classes=400, dropout=0.5, ST_struc=('A', 'B', 'C')):
+    def __init__(self, block, layers, modality='RGB', shortcut_type='B', num_classes=400, dropout=0.5, ST_struc=('A', 'B', 'C')):
         self.inplanes = 64
         super(P3D, self).__init__()
         self.input_channel = 3 if modality == 'RGB' else 2
         self.ST_struc = ST_struc
-        self.conv1_custom = nn.Conv3d(self.input_channel, 64, kernel_size=(
-            1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
+        self.conv1_custom = nn.Conv3d(self.input_channel, 64, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.depth_3d = sum(layers[:3])
         self.bn1 = nn.BatchNorm3d(64)
         self.cnt = 0
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2,
-            padding=(0, 1, 1))
-        self.maxpool_2 = nn.MaxPool3d(kernel_size=(2, 1, 1), padding=0,
-            stride=(2, 1, 1))
+        self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2, padding=(0, 1, 1))
+        self.maxpool_2 = nn.MaxPool3d(kernel_size=(2, 1, 1), padding=0, stride=(2, 1, 1))
         self.layer1 = self._make_layer(block, 64, layers[0], shortcut_type)
-        self.layer2 = self._make_layer(block, 128, layers[1], shortcut_type,
-            stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], shortcut_type,
-            stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], shortcut_type,
-            stride=2)
+        self.layer2 = self._make_layer(block, 128, layers[1], shortcut_type, stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], shortcut_type, stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], shortcut_type, stride=2)
         self.avgpool = nn.AvgPool2d(kernel_size=(5, 5), stride=1)
         self.dropout = nn.Dropout(p=dropout)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
@@ -198,8 +183,7 @@ class P3D(nn.Module):
                 m.bias.data.zero_()
         self.input_size = self.input_channel, 16, 160, 160
         self.input_mean = [0.485, 0.456, 0.406] if modality == 'RGB' else [0.5]
-        self.input_std = [0.229, 0.224, 0.225] if modality == 'RGB' else [np
-            .mean([0.229, 0.224, 0.225])]
+        self.input_std = [0.229, 0.224, 0.225] if modality == 'RGB' else [np.mean([0.229, 0.224, 0.225])]
 
     @property
     def scale_size(self):
@@ -223,29 +207,20 @@ class P3D(nn.Module):
                 stride_p = 1, 2, 2
             if stride != 1 or self.inplanes != planes * block.expansion:
                 if shortcut_type == 'A':
-                    downsample = partial(downsample_basic_block, planes=
-                        planes * block.expansion, stride=stride)
+                    downsample = partial(downsample_basic_block, planes=planes * block.expansion, stride=stride)
                 else:
-                    downsample = nn.Sequential(nn.Conv3d(self.inplanes, 
-                        planes * block.expansion, kernel_size=1, stride=
-                        stride_p, bias=False), nn.BatchNorm3d(planes *
-                        block.expansion))
+                    downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride_p, bias=False), nn.BatchNorm3d(planes * block.expansion))
         elif stride != 1 or self.inplanes != planes * block.expansion:
             if shortcut_type == 'A':
-                downsample = partial(downsample_basic_block, planes=planes *
-                    block.expansion, stride=stride)
+                downsample = partial(downsample_basic_block, planes=planes * block.expansion, stride=stride)
             else:
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                    block.expansion, kernel_size=1, stride=2, bias=False),
-                    nn.BatchNorm2d(planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=2, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, n_s=
-            self.cnt, depth_3d=self.depth_3d, ST_struc=self.ST_struc))
+        layers.append(block(self.inplanes, planes, stride, downsample, n_s=self.cnt, depth_3d=self.depth_3d, ST_struc=self.ST_struc))
         self.cnt += 1
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, n_s=self.cnt,
-                depth_3d=self.depth_3d, ST_struc=self.ST_struc))
+            layers.append(block(self.inplanes, planes, n_s=self.cnt, depth_3d=self.depth_3d, ST_struc=self.ST_struc))
             self.cnt += 1
         return nn.Sequential(*layers)
 
@@ -265,10 +240,3 @@ class P3D(nn.Module):
         x = self.fc(self.dropout(x))
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_qijiezhao_pseudo_3d_pytorch(_paritybench_base):
-    pass

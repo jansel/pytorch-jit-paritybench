@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,8 +85,7 @@ class MelResNet(nn.Module):
 
     def __init__(self, res_blocks, in_dims, compute_dims, res_out_dims):
         super().__init__()
-        self.conv_in = nn.Conv1d(in_dims, compute_dims, kernel_size=5, bias
-            =False)
+        self.conv_in = nn.Conv1d(in_dims, compute_dims, kernel_size=5, bias=False)
         self.batch_norm = nn.BatchNorm1d(compute_dims)
         self.layers = nn.ModuleList()
         for i in range(res_blocks):
@@ -118,21 +118,18 @@ class Stretch2d(nn.Module):
 
 class UpsampleNetwork(nn.Module):
 
-    def __init__(self, feat_dims, upsample_scales, compute_dims, res_blocks,
-        res_out_dims, pad):
+    def __init__(self, feat_dims, upsample_scales, compute_dims, res_blocks, res_out_dims, pad):
         super().__init__()
         total_scale = np.cumproduct(upsample_scales)[-1]
         self.indent = pad * total_scale
-        self.resnet = MelResNet(res_blocks, feat_dims, compute_dims,
-            res_out_dims)
+        self.resnet = MelResNet(res_blocks, feat_dims, compute_dims, res_out_dims)
         self.resnet_stretch = Stretch2d(total_scale, 1)
         self.up_layers = nn.ModuleList()
         for scale in upsample_scales:
             k_size = 1, scale * 2 + 1
             padding = 0, scale
             stretch = Stretch2d(scale, 1)
-            conv = nn.Conv2d(1, 1, kernel_size=k_size, padding=padding,
-                bias=False)
+            conv = nn.Conv2d(1, 1, kernel_size=k_size, padding=padding, bias=False)
             conv.weight.data.fill_(1.0 / k_size[1])
             self.up_layers.append(stretch)
             self.up_layers.append(conv)
@@ -171,8 +168,7 @@ def inv_mulaw_quantize(x_mu, quantization_channels=256, cuda=False):
         else:
             mu = torch.FloatTensor([mu])
         x = x_mu / mu * 2 - 1.0
-        x = torch.sign(x) * (torch.exp(torch.abs(x) * torch.log1p(mu)) - 1.0
-            ) / mu
+        x = torch.sign(x) * (torch.exp(torch.abs(x) * torch.log1p(mu)) - 1.0) / mu
     return x
 
 
@@ -213,16 +209,14 @@ def sample_from_gaussian(y_hat, log_std_min=-7.0, scale_factor=1.0):
     log_std = torch.clamp(y_hat[:, :, 1:], min=log_std_min)
     dist = Normal(mean, torch.exp(log_std))
     sample = dist.sample()
-    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=
-        scale_factor)
+    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=scale_factor)
     del dist
     return sample
 
 
 class Model(nn.Module):
 
-    def __init__(self, rnn_dims, fc_dims, bits, pad, upsample_factors,
-        feat_dims, compute_dims, res_out_dims, res_blocks):
+    def __init__(self, rnn_dims, fc_dims, bits, pad, upsample_factors, feat_dims, compute_dims, res_out_dims, res_blocks):
         super().__init__()
         if hp.input_type == 'raw':
             self.n_classes = 2
@@ -236,12 +230,10 @@ class Model(nn.Module):
             raise ValueError('input_type: {hp.input_type} not supported')
         self.rnn_dims = rnn_dims
         self.aux_dims = res_out_dims // 4
-        self.upsample = UpsampleNetwork(feat_dims, upsample_factors,
-            compute_dims, res_blocks, res_out_dims, pad)
+        self.upsample = UpsampleNetwork(feat_dims, upsample_factors, compute_dims, res_blocks, res_out_dims, pad)
         self.I = nn.Linear(feat_dims + self.aux_dims + 1, rnn_dims)
         self.rnn1 = nn.GRU(rnn_dims, rnn_dims, batch_first=True)
-        self.rnn2 = nn.GRU(rnn_dims + self.aux_dims, rnn_dims, batch_first=True
-            )
+        self.rnn2 = nn.GRU(rnn_dims + self.aux_dims, rnn_dims, batch_first=True)
         self.fc1 = nn.Linear(rnn_dims + self.aux_dims, fc_dims)
         self.fc2 = nn.Linear(fc_dims + self.aux_dims, fc_dims)
         self.fc3 = nn.Linear(fc_dims, self.n_classes)
@@ -325,18 +317,15 @@ class Model(nn.Module):
                     elif hp.distribution == 'gaussian':
                         sample = sample_from_gaussian(x.unsqueeze(0))
                 elif hp.input_type == 'mixture':
-                    sample = sample_from_discretized_mix_logistic(x.
-                        unsqueeze(-1), hp.log_scale_min)
+                    sample = sample_from_discretized_mix_logistic(x.unsqueeze(-1), hp.log_scale_min)
                 elif hp.input_type == 'bits':
                     posterior = F.softmax(x, dim=1).view(-1)
                     distrib = torch.distributions.Categorical(posterior)
-                    sample = 2 * distrib.sample().float() / (self.n_classes -
-                        1.0) - 1.0
+                    sample = 2 * distrib.sample().float() / (self.n_classes - 1.0) - 1.0
                 elif hp.input_type == 'mulaw':
                     posterior = F.softmax(x, dim=1).view(-1)
                     distrib = torch.distributions.Categorical(posterior)
-                    sample = inv_mulaw_quantize(distrib.sample(), hp.
-                        mulaw_quantize_channels, True)
+                    sample = inv_mulaw_quantize(distrib.sample(), hp.mulaw_quantize_channels, True)
                 output.append(sample.view(-1))
                 x = torch.FloatTensor([[sample]])
         output = torch.stack(output).cpu().numpy()
@@ -351,8 +340,7 @@ class Model(nn.Module):
         rnn1 = self.get_gru_cell(self.rnn1)
         rnn2 = self.get_gru_cell(self.rnn2)
         b_size = mels.shape[0]
-        assert len(mels.shape
-            ) == 3, 'mels should have shape [batch_size x 80 x mel_length]'
+        assert len(mels.shape) == 3, 'mels should have shape [batch_size x 80 x mel_length]'
         with torch.no_grad():
             x = torch.zeros(b_size, 1)
             h1 = torch.zeros(b_size, self.rnn_dims)
@@ -386,19 +374,16 @@ class Model(nn.Module):
                 if hp.input_type == 'raw':
                     sample = sample_from_beta_dist(x.unsqueeze(0))
                 elif hp.input_type == 'mixture':
-                    sample = sample_from_discretized_mix_logistic(x.
-                        unsqueeze(-1), hp.log_scale_min)
+                    sample = sample_from_discretized_mix_logistic(x.unsqueeze(-1), hp.log_scale_min)
                 elif hp.input_type == 'bits':
                     posterior = F.softmax(x, dim=1).view(b_size, -1)
                     distrib = torch.distributions.Categorical(posterior)
-                    sample = 2 * distrib.sample().float() / (self.n_classes -
-                        1.0) - 1.0
+                    sample = 2 * distrib.sample().float() / (self.n_classes - 1.0) - 1.0
                 elif hp.input_type == 'mulaw':
                     posterior = F.softmax(x, dim=1).view(b_size, -1)
                     distrib = torch.distributions.Categorical(posterior)
                     None
-                    sample = inv_mulaw_quantize(distrib.sample(), hp.
-                        mulaw_quantize_channels, True)
+                    sample = inv_mulaw_quantize(distrib.sample(), hp.mulaw_quantize_channels, True)
                 output.append(sample.view(-1))
                 x = sample.view(b_size, 1)
         output = torch.stack(output).cpu().numpy()
@@ -420,11 +405,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MelResNet,
+     lambda: ([], {'res_blocks': 4, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'dims': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+]
+
 class Test_G_Wang_WaveRNN_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MelResNet(*[], **{'res_blocks': 4, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResBlock(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,35 +95,17 @@ class CharCNN(nn.Module):
         embed_size = vocab_size
         self.embeddings = nn.Embedding(vocab_size, embed_size)
         self.embeddings.weight = nn.Parameter(embeddings, requires_grad=False)
-        conv1 = nn.Sequential(nn.Conv1d(in_channels=embed_size,
-            out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(
-            ), nn.MaxPool1d(kernel_size=3))
-        conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU())
-        conv4 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU())
-        conv5 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU())
-        conv6 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv_output_size = self.config.num_channels * ((self.config.seq_len -
-            96) // 27)
-        linear1 = nn.Sequential(nn.Linear(conv_output_size, self.config.
-            linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
-        linear2 = nn.Sequential(nn.Linear(self.config.linear_size, self.
-            config.linear_size), nn.ReLU(), nn.Dropout(self.config.
-            dropout_keep))
-        linear3 = nn.Sequential(nn.Linear(self.config.linear_size, self.
-            config.output_size), nn.Softmax())
-        self.convolutional_layers = nn.Sequential(conv1, conv2, conv3,
-            conv4, conv5, conv6)
+        conv1 = nn.Sequential(nn.Conv1d(in_channels=embed_size, out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
+        conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
+        conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
+        conv4 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
+        conv5 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
+        conv6 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
+        conv_output_size = self.config.num_channels * ((self.config.seq_len - 96) // 27)
+        linear1 = nn.Sequential(nn.Linear(conv_output_size, self.config.linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
+        linear2 = nn.Sequential(nn.Linear(self.config.linear_size, self.config.linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
+        linear3 = nn.Sequential(nn.Linear(self.config.linear_size, self.config.output_size), nn.Softmax())
+        self.convolutional_layers = nn.Sequential(conv1, conv2, conv3, conv4, conv5, conv6)
         self.linear_layers = nn.Sequential(linear1, linear2, linear3)
 
     def forward(self, x):
@@ -179,35 +162,17 @@ class CharCNN(nn.Module):
     def __init__(self, config):
         super(CharCNN, self).__init__()
         self.config = config
-        conv1 = nn.Sequential(nn.Conv1d(in_channels=self.config.vocab_size,
-            out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(
-            ), nn.MaxPool1d(kernel_size=3))
-        conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU())
-        conv4 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU())
-        conv5 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU())
-        conv6 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            num_channels, out_channels=self.config.num_channels,
-            kernel_size=3), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv_output_size = self.config.num_channels * ((self.config.max_len -
-            96) // 27)
-        linear1 = nn.Sequential(nn.Linear(conv_output_size, self.config.
-            linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
-        linear2 = nn.Sequential(nn.Linear(self.config.linear_size, self.
-            config.linear_size), nn.ReLU(), nn.Dropout(self.config.
-            dropout_keep))
-        linear3 = nn.Sequential(nn.Linear(self.config.linear_size, self.
-            config.output_size), nn.Softmax())
-        self.convolutional_layers = nn.Sequential(conv1, conv2, conv3,
-            conv4, conv5, conv6)
+        conv1 = nn.Sequential(nn.Conv1d(in_channels=self.config.vocab_size, out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
+        conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
+        conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
+        conv4 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
+        conv5 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
+        conv6 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
+        conv_output_size = self.config.num_channels * ((self.config.max_len - 96) // 27)
+        linear1 = nn.Sequential(nn.Linear(conv_output_size, self.config.linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
+        linear2 = nn.Sequential(nn.Linear(self.config.linear_size, self.config.linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
+        linear3 = nn.Sequential(nn.Linear(self.config.linear_size, self.config.output_size), nn.Softmax())
+        self.convolutional_layers = nn.Sequential(conv1, conv2, conv3, conv4, conv5, conv6)
         self.linear_layers = nn.Sequential(linear1, linear2, linear3)
         self._create_weights(mean=0.0, std=0.05)
 
@@ -272,28 +237,21 @@ class RCNN(nn.Module):
         super(RCNN, self).__init__()
         self.config = config
         self.embeddings = nn.Embedding(vocab_size, self.config.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings,
-            requires_grad=False)
-        self.lstm = nn.LSTM(input_size=self.config.embed_size, hidden_size=
-            self.config.hidden_size, num_layers=self.config.hidden_layers,
-            dropout=self.config.dropout_keep, bidirectional=True)
+        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=False)
+        self.lstm = nn.LSTM(input_size=self.config.embed_size, hidden_size=self.config.hidden_size, num_layers=self.config.hidden_layers, dropout=self.config.dropout_keep, bidirectional=True)
         self.dropout = nn.Dropout(self.config.dropout_keep)
-        self.W = nn.Linear(self.config.embed_size + 2 * self.config.
-            hidden_size, self.config.hidden_size_linear)
+        self.W = nn.Linear(self.config.embed_size + 2 * self.config.hidden_size, self.config.hidden_size_linear)
         self.tanh = nn.Tanh()
-        self.fc = nn.Linear(self.config.hidden_size_linear, self.config.
-            output_size)
+        self.fc = nn.Linear(self.config.hidden_size_linear, self.config.output_size)
         self.softmax = nn.Softmax()
 
     def forward(self, x):
         embedded_sent = self.embeddings(x)
         lstm_out, (h_n, c_n) = self.lstm(embedded_sent)
-        input_features = torch.cat([lstm_out, embedded_sent], 2).permute(1,
-            0, 2)
+        input_features = torch.cat([lstm_out, embedded_sent], 2).permute(1, 0, 2)
         linear_output = self.tanh(self.W(input_features))
         linear_output = linear_output.permute(0, 2, 1)
-        max_out_features = F.max_pool1d(linear_output, linear_output.shape[2]
-            ).squeeze(2)
+        max_out_features = F.max_pool1d(linear_output, linear_output.shape[2]).squeeze(2)
         max_out_features = self.dropout(max_out_features)
         final_out = self.fc(max_out_features)
         return self.softmax(final_out)
@@ -313,8 +271,7 @@ class RCNN(nn.Module):
         train_losses = []
         val_accuracies = []
         losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 *
-            self.config.max_epochs / 3):
+        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
@@ -347,14 +304,10 @@ class Seq2SeqAttention(nn.Module):
         super(Seq2SeqAttention, self).__init__()
         self.config = config
         self.embeddings = nn.Embedding(vocab_size, self.config.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings,
-            requires_grad=False)
-        self.lstm = nn.LSTM(input_size=self.config.embed_size, hidden_size=
-            self.config.hidden_size, num_layers=self.config.hidden_layers,
-            bidirectional=self.config.bidirectional)
+        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=False)
+        self.lstm = nn.LSTM(input_size=self.config.embed_size, hidden_size=self.config.hidden_size, num_layers=self.config.hidden_layers, bidirectional=self.config.bidirectional)
         self.dropout = nn.Dropout(self.config.dropout_keep)
-        self.fc = nn.Linear(self.config.hidden_size * (1 + self.config.
-            bidirectional) * 2, self.config.output_size)
+        self.fc = nn.Linear(self.config.hidden_size * (1 + self.config.bidirectional) * 2, self.config.output_size)
         self.softmax = nn.Softmax()
 
     def apply_attention(self, rnn_output, final_hidden_state):
@@ -371,23 +324,17 @@ class Seq2SeqAttention(nn.Module):
         hidden_state = final_hidden_state.unsqueeze(2)
         attention_scores = torch.bmm(rnn_output, hidden_state).squeeze(2)
         soft_attention_weights = F.softmax(attention_scores, 1).unsqueeze(2)
-        attention_output = torch.bmm(rnn_output.permute(0, 2, 1),
-            soft_attention_weights).squeeze(2)
+        attention_output = torch.bmm(rnn_output.permute(0, 2, 1), soft_attention_weights).squeeze(2)
         return attention_output
 
     def forward(self, x):
         embedded_sent = self.embeddings(x)
         lstm_output, (h_n, c_n) = self.lstm(embedded_sent)
         batch_size = h_n.shape[1]
-        h_n_final_layer = h_n.view(self.config.hidden_layers, self.config.
-            bidirectional + 1, batch_size, self.config.hidden_size)[(-1), :,
-            :, :]
-        final_hidden_state = torch.cat([h_n_final_layer[(i), :, :] for i in
-            range(h_n_final_layer.shape[0])], dim=1)
-        attention_out = self.apply_attention(lstm_output.permute(1, 0, 2),
-            final_hidden_state)
-        concatenated_vector = torch.cat([final_hidden_state, attention_out],
-            dim=1)
+        h_n_final_layer = h_n.view(self.config.hidden_layers, self.config.bidirectional + 1, batch_size, self.config.hidden_size)[(-1), :, :, :]
+        final_hidden_state = torch.cat([h_n_final_layer[(i), :, :] for i in range(h_n_final_layer.shape[0])], dim=1)
+        attention_out = self.apply_attention(lstm_output.permute(1, 0, 2), final_hidden_state)
+        concatenated_vector = torch.cat([final_hidden_state, attention_out], dim=1)
         final_feature_map = self.dropout(concatenated_vector)
         final_out = self.fc(final_feature_map)
         return self.softmax(final_out)
@@ -407,8 +354,7 @@ class Seq2SeqAttention(nn.Module):
         train_losses = []
         val_accuracies = []
         losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 *
-            self.config.max_epochs / 3):
+        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
@@ -441,23 +387,12 @@ class TextCNN(nn.Module):
         super(TextCNN, self).__init__()
         self.config = config
         self.embeddings = nn.Embedding(vocab_size, self.config.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings,
-            requires_grad=False)
-        self.conv1 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            embed_size, out_channels=self.config.num_channels, kernel_size=
-            self.config.kernel_size[0]), nn.ReLU(), nn.MaxPool1d(self.
-            config.max_sen_len - self.config.kernel_size[0] + 1))
-        self.conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            embed_size, out_channels=self.config.num_channels, kernel_size=
-            self.config.kernel_size[1]), nn.ReLU(), nn.MaxPool1d(self.
-            config.max_sen_len - self.config.kernel_size[1] + 1))
-        self.conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.
-            embed_size, out_channels=self.config.num_channels, kernel_size=
-            self.config.kernel_size[2]), nn.ReLU(), nn.MaxPool1d(self.
-            config.max_sen_len - self.config.kernel_size[2] + 1))
+        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=False)
+        self.conv1 = nn.Sequential(nn.Conv1d(in_channels=self.config.embed_size, out_channels=self.config.num_channels, kernel_size=self.config.kernel_size[0]), nn.ReLU(), nn.MaxPool1d(self.config.max_sen_len - self.config.kernel_size[0] + 1))
+        self.conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.embed_size, out_channels=self.config.num_channels, kernel_size=self.config.kernel_size[1]), nn.ReLU(), nn.MaxPool1d(self.config.max_sen_len - self.config.kernel_size[1] + 1))
+        self.conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.embed_size, out_channels=self.config.num_channels, kernel_size=self.config.kernel_size[2]), nn.ReLU(), nn.MaxPool1d(self.config.max_sen_len - self.config.kernel_size[2] + 1))
         self.dropout = nn.Dropout(self.config.dropout_keep)
-        self.fc = nn.Linear(self.config.num_channels * len(self.config.
-            kernel_size), self.config.output_size)
+        self.fc = nn.Linear(self.config.num_channels * len(self.config.kernel_size), self.config.output_size)
         self.softmax = nn.Softmax()
 
     def forward(self, x):
@@ -485,8 +420,7 @@ class TextCNN(nn.Module):
         train_losses = []
         val_accuracies = []
         losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 *
-            self.config.max_epochs / 3):
+        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
@@ -535,27 +469,17 @@ class CNNText(nn.Module):
     def __init__(self, config):
         super(CNNText, self).__init__()
         self.config = config
-        self.conv1 = nn.Conv2d(in_channels=self.config.in_channels,
-            out_channels=self.config.num_channels, kernel_size=(self.config
-            .kernel_size[0], self.config.embed_size), stride=1, padding=0)
+        self.conv1 = nn.Conv2d(in_channels=self.config.in_channels, out_channels=self.config.num_channels, kernel_size=(self.config.kernel_size[0], self.config.embed_size), stride=1, padding=0)
         self.activation1 = nn.ReLU()
-        self.max_out1 = nn.MaxPool1d(self.config.max_sen_len - self.config.
-            kernel_size[0] + 1)
-        self.conv2 = nn.Conv2d(in_channels=self.config.in_channels,
-            out_channels=self.config.num_channels, kernel_size=(self.config
-            .kernel_size[1], self.config.embed_size), stride=1, padding=0)
+        self.max_out1 = nn.MaxPool1d(self.config.max_sen_len - self.config.kernel_size[0] + 1)
+        self.conv2 = nn.Conv2d(in_channels=self.config.in_channels, out_channels=self.config.num_channels, kernel_size=(self.config.kernel_size[1], self.config.embed_size), stride=1, padding=0)
         self.activation2 = nn.ReLU()
-        self.max_out2 = nn.MaxPool1d(self.config.max_sen_len - self.config.
-            kernel_size[1] + 1)
-        self.conv3 = nn.Conv2d(in_channels=self.config.in_channels,
-            out_channels=self.config.num_channels, kernel_size=(self.config
-            .kernel_size[2], self.config.embed_size), stride=1, padding=0)
+        self.max_out2 = nn.MaxPool1d(self.config.max_sen_len - self.config.kernel_size[1] + 1)
+        self.conv3 = nn.Conv2d(in_channels=self.config.in_channels, out_channels=self.config.num_channels, kernel_size=(self.config.kernel_size[2], self.config.embed_size), stride=1, padding=0)
         self.activation3 = nn.ReLU()
-        self.max_out3 = nn.MaxPool1d(self.config.max_sen_len - self.config.
-            kernel_size[2] + 1)
+        self.max_out3 = nn.MaxPool1d(self.config.max_sen_len - self.config.kernel_size[2] + 1)
         self.dropout = nn.Dropout(self.config.dropout_keep)
-        self.fc = nn.Linear(self.config.num_channels * len(self.config.
-            kernel_size), self.config.output_size)
+        self.fc = nn.Linear(self.config.num_channels * len(self.config.kernel_size), self.config.output_size)
         self.softmax = nn.Softmax()
 
     def forward(self, x):
@@ -603,8 +527,7 @@ class CNNText(nn.Module):
                 losses = []
                 self.eval()
                 all_preds = []
-                val_iterator = data_iterator(val_x, val_y, self.config.
-                    batch_size)
+                val_iterator = data_iterator(val_x, val_y, self.config.batch_size)
                 for j, (x, y) in enumerate(val_iterator):
                     x = Variable(Tensor(x))
                     y_pred = self.__call__(x)
@@ -623,24 +546,17 @@ class TextRNN(nn.Module):
         super(TextRNN, self).__init__()
         self.config = config
         self.embeddings = nn.Embedding(vocab_size, self.config.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings,
-            requires_grad=False)
-        self.lstm = nn.LSTM(input_size=self.config.embed_size, hidden_size=
-            self.config.hidden_size, num_layers=self.config.hidden_layers,
-            dropout=self.config.dropout_keep, bidirectional=self.config.
-            bidirectional)
+        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=False)
+        self.lstm = nn.LSTM(input_size=self.config.embed_size, hidden_size=self.config.hidden_size, num_layers=self.config.hidden_layers, dropout=self.config.dropout_keep, bidirectional=self.config.bidirectional)
         self.dropout = nn.Dropout(self.config.dropout_keep)
-        self.fc = nn.Linear(self.config.hidden_size * self.config.
-            hidden_layers * (1 + self.config.bidirectional), self.config.
-            output_size)
+        self.fc = nn.Linear(self.config.hidden_size * self.config.hidden_layers * (1 + self.config.bidirectional), self.config.output_size)
         self.softmax = nn.Softmax()
 
     def forward(self, x):
         embedded_sent = self.embeddings(x)
         lstm_out, (h_n, c_n) = self.lstm(embedded_sent)
         final_feature_map = self.dropout(h_n)
-        final_feature_map = torch.cat([final_feature_map[(i), :, :] for i in
-            range(final_feature_map.shape[0])], dim=1)
+        final_feature_map = torch.cat([final_feature_map[(i), :, :] for i in range(final_feature_map.shape[0])], dim=1)
         final_out = self.fc(final_feature_map)
         return self.softmax(final_out)
 
@@ -659,8 +575,7 @@ class TextRNN(nn.Module):
         train_losses = []
         val_accuracies = []
         losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 *
-            self.config.max_epochs / 3):
+        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
@@ -721,12 +636,9 @@ class MultiHeadedAttention(nn.Module):
         if mask is not None:
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
-        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).
-            transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self
-            .dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k
-            )
+        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
+        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
 
@@ -793,10 +705,8 @@ class Transformer(nn.Module):
         attn = MultiHeadedAttention(h, d_model)
         ff = PositionwiseFeedForward(d_model, d_ff, dropout)
         position = PositionalEncoding(d_model, dropout)
-        self.encoder = Encoder(EncoderLayer(config.d_model, deepcopy(attn),
-            deepcopy(ff), dropout), N)
-        self.src_embed = nn.Sequential(Embeddings(config.d_model, src_vocab
-            ), deepcopy(position))
+        self.encoder = Encoder(EncoderLayer(config.d_model, deepcopy(attn), deepcopy(ff), dropout), N)
+        self.src_embed = nn.Sequential(Embeddings(config.d_model, src_vocab), deepcopy(position))
         self.fc = nn.Linear(self.config.d_model, self.config.output_size)
         self.softmax = nn.Softmax()
 
@@ -822,8 +732,7 @@ class Transformer(nn.Module):
         train_losses = []
         val_accuracies = []
         losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 *
-            self.config.max_epochs / 3):
+        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
@@ -902,12 +811,9 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.
-            log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(torch.as_tensor(position.numpy() * div_term
-            .unsqueeze(0).numpy()))
-        pe[:, 1::2] = torch.cos(torch.as_tensor(position.numpy() * div_term
-            .unsqueeze(0).numpy()))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(torch.as_tensor(position.numpy() * div_term.unsqueeze(0).numpy()))
+        pe[:, 1::2] = torch.cos(torch.as_tensor(position.numpy() * div_term.unsqueeze(0).numpy()))
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
@@ -922,8 +828,7 @@ class fastText(nn.Module):
         super(fastText, self).__init__()
         self.config = config
         self.embeddings = nn.Embedding(vocab_size, self.config.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings,
-            requires_grad=False)
+        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=False)
         self.fc1 = nn.Linear(self.config.embed_size, self.config.hidden_size)
         self.fc2 = nn.Linear(self.config.hidden_size, self.config.output_size)
         self.softmax = nn.Softmax()
@@ -949,8 +854,7 @@ class fastText(nn.Module):
         train_losses = []
         val_accuracies = []
         losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 *
-            self.config.max_epochs / 3):
+        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
@@ -1020,8 +924,7 @@ class fastText(nn.Module):
                 losses = []
                 self.eval()
                 all_preds = []
-                val_iterator = data_iterator(val_x, val_y, self.config.
-                    batch_size)
+                val_iterator = data_iterator(val_x, val_y, self.config.batch_size)
                 for x, y in val_iterator:
                     x = Variable(Tensor(x))
                     y_pred = self.__call__(x)
@@ -1038,29 +941,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Embeddings,
+     lambda: ([], {'d_model': 4, 'vocab': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadedAttention,
+     lambda: ([], {'h': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SublayerOutput,
+     lambda: ([], {'size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+    (fastText,
+     lambda: ([], {'config': _mock_config(embed_size=4, hidden_size=4, output_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_AnubhavGupta3377_Text_Classification_Models_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Embeddings(*[], **{'d_model': 4, 'vocab': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SublayerOutput(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(fastText(*[], **{'config': _mock_config(embed_size=4, hidden_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

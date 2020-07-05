@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ from collections import OrderedDict
 
 class _ConvNd(Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, transposed, output_padding, groups, bias):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding, groups, bias):
         super(_ConvNd, self).__init__()
         if in_channels % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
@@ -109,11 +109,9 @@ class _ConvNd(Module):
         self.output_padding = output_padding
         self.groups = groups
         if transposed:
-            self.weight = Parameter(torch.Tensor(in_channels, out_channels //
-                groups, *kernel_size))
+            self.weight = Parameter(torch.Tensor(in_channels, out_channels // groups, *kernel_size))
         else:
-            self.weight = Parameter(torch.Tensor(out_channels, in_channels //
-                groups, *kernel_size))
+            self.weight = Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size))
         if bias:
             self.bias = Parameter(torch.Tensor(out_channels))
         else:
@@ -130,9 +128,7 @@ class _ConvNd(Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def __repr__(self):
-        s = (
-            '{name}({in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{name}({in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
@@ -147,48 +143,39 @@ class _ConvNd(Module):
         return s.format(name=self.__class__.__name__, **self.__dict__)
 
 
-def conv2d_same_padding(input, weight, bias=None, stride=1, padding=1,
-    dilation=1, groups=1):
+def conv2d_same_padding(input, weight, bias=None, stride=1, padding=1, dilation=1, groups=1):
     input_rows = input.size(2)
     filter_rows = weight.size(2)
     effective_filter_size_rows = (filter_rows - 1) * dilation[0] + 1
     out_rows = (input_rows + stride[0] - 1) // stride[0]
-    padding_needed = max(0, (out_rows - 1) * stride[0] +
-        effective_filter_size_rows - input_rows)
-    padding_rows = max(0, (out_rows - 1) * stride[0] + (filter_rows - 1) *
-        dilation[0] + 1 - input_rows)
+    padding_needed = max(0, (out_rows - 1) * stride[0] + effective_filter_size_rows - input_rows)
+    padding_rows = max(0, (out_rows - 1) * stride[0] + (filter_rows - 1) * dilation[0] + 1 - input_rows)
     rows_odd = padding_rows % 2 != 0
-    padding_cols = max(0, (out_rows - 1) * stride[0] + (filter_rows - 1) *
-        dilation[0] + 1 - input_rows)
+    padding_cols = max(0, (out_rows - 1) * stride[0] + (filter_rows - 1) * dilation[0] + 1 - input_rows)
     cols_odd = padding_rows % 2 != 0
     if rows_odd or cols_odd:
         input = pad(input, [0, int(cols_odd), 0, int(rows_odd)])
-    return F.conv2d(input, weight, bias, stride, padding=(padding_rows // 2,
-        padding_cols // 2), dilation=dilation, groups=groups)
+    return F.conv2d(input, weight, bias, stride, padding=(padding_rows // 2, padding_cols // 2), dilation=dilation, groups=groups)
 
 
 class Conv2d(_ConvNd):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, False, _pair(0), groups, bias)
+        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias)
 
     def forward(self, input):
-        return conv2d_same_padding(input, self.weight, self.bias, self.
-            stride, self.padding, self.dilation, self.groups)
+        return conv2d_same_padding(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class _ConvLayer(nn.Sequential):
 
     def __init__(self, input_features, output_features):
         super(_ConvLayer, self).__init__()
-        self.add_module('conv2', Conv2d(input_features, output_features,
-            kernel_size=5, stride=2))
+        self.add_module('conv2', Conv2d(input_features, output_features, kernel_size=5, stride=2))
         self.add_module('leakyrelu', nn.LeakyReLU(0.1, inplace=True))
 
 
@@ -196,8 +183,7 @@ class _UpScale(nn.Sequential):
 
     def __init__(self, input_features, output_features):
         super(_UpScale, self).__init__()
-        self.add_module('conv2_', Conv2d(input_features, output_features * 
-            4, kernel_size=3))
+        self.add_module('conv2_', Conv2d(input_features, output_features * 4, kernel_size=3))
         self.add_module('leakyrelu', nn.LeakyReLU(0.1, inplace=True))
         self.add_module('pixelshuffler', _PixelShuffler())
 
@@ -233,16 +219,9 @@ class SwapNet(nn.Module):
 
     def __init__(self):
         super(SwapNet, self).__init__()
-        self.encoder = nn.Sequential(_ConvLayer(3, 128), _ConvLayer(128, 
-            256), _ConvLayer(256, 512), _ConvLayer(512, 1024), Flatten(),
-            nn.Linear(1024 * 4 * 4, 1024), nn.Linear(1024, 1024 * 4 * 4),
-            Reshape(), _UpScale(1024, 512))
-        self.decoder_A = nn.Sequential(_UpScale(512, 256), _UpScale(256, 
-            128), _UpScale(128, 64), Conv2d(64, 3, kernel_size=5, padding=1
-            ), nn.Sigmoid())
-        self.decoder_B = nn.Sequential(_UpScale(512, 256), _UpScale(256, 
-            128), _UpScale(128, 64), Conv2d(64, 3, kernel_size=5, padding=1
-            ), nn.Sigmoid())
+        self.encoder = nn.Sequential(_ConvLayer(3, 128), _ConvLayer(128, 256), _ConvLayer(256, 512), _ConvLayer(512, 1024), Flatten(), nn.Linear(1024 * 4 * 4, 1024), nn.Linear(1024, 1024 * 4 * 4), Reshape(), _UpScale(1024, 512))
+        self.decoder_A = nn.Sequential(_UpScale(512, 256), _UpScale(256, 128), _UpScale(128, 64), Conv2d(64, 3, kernel_size=5, padding=1), nn.Sigmoid())
+        self.decoder_B = nn.Sequential(_UpScale(512, 256), _UpScale(256, 128), _UpScale(128, 64), Conv2d(64, 3, kernel_size=5, padding=1), nn.Sigmoid())
 
     def forward(self, x, select='A'):
         if select == 'A':
@@ -258,30 +237,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reshape,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 4, 4])], {}),
+     True),
+    (SwapNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (_ConvLayer,
+     lambda: ([], {'input_features': 4, 'output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_PixelShuffler,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_UpScale,
+     lambda: ([], {'input_features': 4, 'output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_jinfagang_faceswap_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Reshape(*[], **{}), [torch.rand([4, 1024, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(SwapNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(_ConvLayer(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(_PixelShuffler(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(_UpScale(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

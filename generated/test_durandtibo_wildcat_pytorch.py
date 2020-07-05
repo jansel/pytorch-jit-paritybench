@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,14 +88,12 @@ class WildcatPool2dFunction(Function):
         kmax = self.get_positive_k(self.kmax, n)
         kmin = self.get_positive_k(self.kmin, n)
         sorted, indices = input.new(), input.new().long()
-        torch.sort(input.view(batch_size, num_channels, n), dim=2,
-            descending=True, out=(sorted, indices))
+        torch.sort(input.view(batch_size, num_channels, n), dim=2, descending=True, out=(sorted, indices))
         self.indices_max = indices.narrow(2, 0, kmax)
         output = sorted.narrow(2, 0, kmax).sum(2).div_(kmax)
         if kmin > 0 and self.alpha is not 0:
             self.indices_min = indices.narrow(2, n - kmin, kmin)
-            output.add_(sorted.narrow(2, n - kmin, kmin).sum(2).mul_(self.
-                alpha / kmin)).div_(2)
+            output.add_(sorted.narrow(2, n - kmin, kmin).sum(2).mul_(self.alpha / kmin)).div_(2)
         self.save_for_backward(input)
         return output.view(batch_size, num_channels)
 
@@ -107,17 +106,11 @@ class WildcatPool2dFunction(Function):
         n = h * w
         kmax = self.get_positive_k(self.kmax, n)
         kmin = self.get_positive_k(self.kmin, n)
-        grad_output_max = grad_output.view(batch_size, num_channels, 1).expand(
-            batch_size, num_channels, kmax)
-        grad_input = grad_output.new().resize_(batch_size, num_channels, n
-            ).fill_(0).scatter_(2, self.indices_max, grad_output_max).div_(kmax
-            )
+        grad_output_max = grad_output.view(batch_size, num_channels, 1).expand(batch_size, num_channels, kmax)
+        grad_input = grad_output.new().resize_(batch_size, num_channels, n).fill_(0).scatter_(2, self.indices_max, grad_output_max).div_(kmax)
         if kmin > 0 and self.alpha is not 0:
-            grad_output_min = grad_output.view(batch_size, num_channels, 1
-                ).expand(batch_size, num_channels, kmin)
-            grad_input_min = grad_output.new().resize_(batch_size,
-                num_channels, n).fill_(0).scatter_(2, self.indices_min,
-                grad_output_min).mul_(self.alpha / kmin)
+            grad_output_min = grad_output.view(batch_size, num_channels, 1).expand(batch_size, num_channels, kmin)
+            grad_input_min = grad_output.new().resize_(batch_size, num_channels, n).fill_(0).scatter_(2, self.indices_min, grad_output_min).mul_(self.alpha / kmin)
             grad_input.add_(grad_input_min).div_(2)
         return grad_input.view(batch_size, num_channels, h, w)
 
@@ -136,8 +129,7 @@ class WildcatPool2d(nn.Module):
         return WildcatPool2dFunction(self.kmax, self.kmin, self.alpha)(input)
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (kmax=' + str(self.kmax
-            ) + ', kmin=' + str(self.kmin) + ', alpha=' + str(self.alpha) + ')'
+        return self.__class__.__name__ + ' (kmax=' + str(self.kmax) + ', kmin=' + str(self.kmin) + ', alpha=' + str(self.alpha) + ')'
 
 
 class ClassWisePoolFunction(Function):
@@ -149,9 +141,7 @@ class ClassWisePoolFunction(Function):
     def forward(self, input):
         batch_size, num_channels, h, w = input.size()
         if num_channels % self.num_maps != 0:
-            print(
-                'Error in ClassWisePoolFunction. The number of channels has to be a multiple of the number of maps per class'
-                )
+            print('Error in ClassWisePoolFunction. The number of channels has to be a multiple of the number of maps per class')
             sys.exit(-1)
         num_outputs = int(num_channels / self.num_maps)
         x = input.view(batch_size, num_outputs, self.num_maps, h, w)
@@ -163,8 +153,7 @@ class ClassWisePoolFunction(Function):
         input, = self.saved_tensors
         batch_size, num_channels, h, w = input.size()
         num_outputs = grad_output.size(1)
-        grad_input = grad_output.view(batch_size, num_outputs, 1, h, w).expand(
-            batch_size, num_outputs, self.num_maps, h, w).contiguous()
+        grad_input = grad_output.view(batch_size, num_outputs, 1, h, w).expand(batch_size, num_outputs, self.num_maps, h, w).contiguous()
         return grad_input.view(batch_size, num_channels, h, w)
 
 
@@ -178,13 +167,5 @@ class ClassWisePool(nn.Module):
         return ClassWisePoolFunction(self.num_maps)(input)
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (num_maps={num_maps})'.format(
-            num_maps=self.num_maps)
+        return self.__class__.__name__ + ' (num_maps={num_maps})'.format(num_maps=self.num_maps)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_durandtibo_wildcat_pytorch(_paritybench_base):
-    pass

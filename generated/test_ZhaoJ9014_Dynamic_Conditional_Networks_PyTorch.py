@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -45,9 +46,7 @@ from torch.nn.modules.utils import _triple
 
 class ConvBasis2d(nn.Module):
 
-    def __init__(self, idfcn, in_channels, out_channels, kernel_size,
-        stride=1, padding=0, dilation=1, transposed=False, output_padding=
-        _pair(0), groups=1, bias=True):
+    def __init__(self, idfcn, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, transposed=False, output_padding=_pair(0), groups=1, bias=True):
         super(ConvBasis2d, self).__init__()
         if in_channels % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
@@ -63,8 +62,7 @@ class ConvBasis2d(nn.Module):
         self.transposed = transposed
         self.output_padding = output_padding
         self.groups = groups
-        self.weight_basis = Parameter(torch.Tensor(idfcn * out_channels, 
-            in_channels // groups, *self.kernel_size))
+        self.weight_basis = Parameter(torch.Tensor(idfcn * out_channels, in_channels // groups, *self.kernel_size))
         if bias:
             self.bias = Parameter(torch.Tensor(out_channels))
         else:
@@ -81,9 +79,7 @@ class ConvBasis2d(nn.Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def __repr__(self):
-        s = (
-            '{name}({in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{name}({in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
@@ -98,14 +94,9 @@ class ConvBasis2d(nn.Module):
         return s.format(name=self.__class__.__name__, **self.__dict__)
 
     def forward(self, input, idw):
-        output = F.conv2d(input, self.weight_basis, self.bias, self.stride,
-            self.padding, self.dilation, self.groups)
-        output = output.view(output.size(0), self.idfcn, self.out_channels,
-            output.size(2), output.size(3)) * idw.view(-1, self.idfcn, 1, 1, 1
-            ).expand(output.size(0), self.idfcn, self.out_channels, output.
-            size(2), output.size(3))
-        output = output.sum(1).view(output.size(0), output.size(2), output.
-            size(3), output.size(4))
+        output = F.conv2d(input, self.weight_basis, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        output = output.view(output.size(0), self.idfcn, self.out_channels, output.size(2), output.size(3)) * idw.view(-1, self.idfcn, 1, 1, 1).expand(output.size(0), self.idfcn, self.out_channels, output.size(2), output.size(3))
+        output = output.sum(1).view(output.size(0), output.size(2), output.size(3), output.size(4))
         return output
 
 
@@ -116,8 +107,7 @@ class condition_idfcn_basis_comb_resnet(nn.Module):
         self.resnet = resnet
         self.id_fc = nn.Linear(459558, fcn)
         self.id_tanh = nn.Tanh()
-        self.conv_basis = ConvBasis2d(fcn, resnet.fc.in_features, 512,
-            kernel_size=3, padding=1, bias=False)
+        self.conv_basis = ConvBasis2d(fcn, resnet.fc.in_features, 512, kernel_size=3, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.fc_output = nn.Linear(512, 5)
 
@@ -139,10 +129,3 @@ class condition_idfcn_basis_comb_resnet(nn.Module):
         x3 = self.fc_output(x3)
         return x3
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ZhaoJ9014_Dynamic_Conditional_Networks_PyTorch(_paritybench_base):
-    pass

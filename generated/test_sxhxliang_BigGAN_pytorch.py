@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,8 +77,7 @@ from torchvision.utils import save_image
 class _BatchNorm(nn.Module):
     _version = 2
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
         super(_BatchNorm, self).__init__()
         self.num_features = num_features
         self.eps = eps
@@ -93,8 +93,7 @@ class _BatchNorm(nn.Module):
         if self.track_running_stats:
             self.register_buffer('running_mean', torch.zeros(num_features))
             self.register_buffer('running_var', torch.ones(num_features))
-            self.register_buffer('num_batches_tracked', torch.tensor(0,
-                dtype=torch.long))
+            self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long))
         else:
             self.register_parameter('running_mean', None)
             self.register_parameter('running_var', None)
@@ -122,29 +121,21 @@ class _BatchNorm(nn.Module):
         if self.training and self.track_running_stats:
             self.num_batches_tracked += 1
             if self.momentum is None:
-                exponential_average_factor = (1.0 / self.
-                    num_batches_tracked.item())
+                exponential_average_factor = 1.0 / self.num_batches_tracked.item()
             else:
                 exponential_average_factor = self.momentum
-        return F.batch_norm(input, self.running_mean, self.running_var,
-            self.weight, self.bias, self.training or not self.
-            track_running_stats, exponential_average_factor, self.eps)
+        return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training or not self.track_running_stats, exponential_average_factor, self.eps)
 
     def extra_repr(self):
-        return (
-            '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'
-            .format(**self.__dict__))
+        return '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'.format(**self.__dict__)
 
-    def _load_from_state_dict(self, state_dict, prefix, metadata, strict,
-        missing_keys, unexpected_keys, error_msgs):
+    def _load_from_state_dict(self, state_dict, prefix, metadata, strict, missing_keys, unexpected_keys, error_msgs):
         version = metadata.get('version', None)
         if (version is None or version < 2) and self.track_running_stats:
             num_batches_tracked_key = prefix + 'num_batches_tracked'
             if num_batches_tracked_key not in state_dict:
-                state_dict[num_batches_tracked_key] = torch.tensor(0, dtype
-                    =torch.long)
-        super(_BatchNorm, self)._load_from_state_dict(state_dict, prefix,
-            metadata, strict, missing_keys, unexpected_keys, error_msgs)
+                state_dict[num_batches_tracked_key] = torch.tensor(0, dtype=torch.long)
+        super(_BatchNorm, self)._load_from_state_dict(state_dict, prefix, metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
 
 def init_conv(conv, glu=True):
@@ -160,12 +151,9 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self.chanel_in = in_dim
         self.activation = activation
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,
-            kernel_size=1)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
         init_conv(self.query_conv)
@@ -181,8 +169,7 @@ class SelfAttention(nn.Module):
                 attention: B X N X N (N is Width*Height)
         """
         m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height
-            ).permute(0, 2, 1)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -214,19 +201,14 @@ class ConditionalNorm(nn.Module):
 
 class GBlock(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size=[3, 3], padding
-        =1, stride=1, n_class=None, bn=True, activation=F.relu, upsample=
-        True, downsample=False):
+    def __init__(self, in_channel, out_channel, kernel_size=[3, 3], padding=1, stride=1, n_class=None, bn=True, activation=F.relu, upsample=True, downsample=False):
         super().__init__()
         gain = 2 ** 0.5
-        self.conv0 = SpectralNorm(nn.Conv2d(in_channel, out_channel,
-            kernel_size, stride, padding, bias=True if bn else True))
-        self.conv1 = SpectralNorm(nn.Conv2d(out_channel, out_channel,
-            kernel_size, stride, padding, bias=True if bn else True))
+        self.conv0 = SpectralNorm(nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
+        self.conv1 = SpectralNorm(nn.Conv2d(out_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
         self.skip_proj = False
         if in_channel != out_channel or upsample or downsample:
-            self.conv_sc = SpectralNorm(nn.Conv2d(in_channel, out_channel, 
-                1, 1, 0))
+            self.conv_sc = SpectralNorm(nn.Conv2d(in_channel, out_channel, 1, 1, 0))
             self.skip_proj = True
         self.upsample = upsample
         self.downsample = downsample
@@ -329,8 +311,7 @@ class ScaledCrossReplicaBatchNorm2d(_BatchNorm):
 
     def _check_input_dim(self, input):
         if input.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'.format(
-                input.dim()))
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
 
 
 class Generator(nn.Module):
@@ -342,11 +323,7 @@ class Generator(nn.Module):
             chn = 8
         self.first_view = 16 * chn
         self.G_linear = SpectralNorm(nn.Linear(20, 4 * 4 * 16 * chn))
-        self.conv = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=
-            n_class), GBlock(16 * chn, 8 * chn, n_class=n_class), GBlock(8 *
-            chn, 4 * chn, n_class=n_class), GBlock(4 * chn, 2 * chn,
-            n_class=n_class), SelfAttention(2 * chn), GBlock(2 * chn, 1 *
-            chn, n_class=n_class)])
+        self.conv = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=n_class), GBlock(16 * chn, 8 * chn, n_class=n_class), GBlock(8 * chn, 4 * chn, n_class=n_class), GBlock(4 * chn, 2 * chn, n_class=n_class), SelfAttention(2 * chn), GBlock(2 * chn, 1 * chn, n_class=n_class)])
         self.ScaledCrossReplicaBN = ScaledCrossReplicaBatchNorm2d(1 * chn)
         self.colorize = SpectralNorm(nn.Conv2d(1 * chn, 3, [3, 3], padding=1))
 
@@ -419,21 +396,14 @@ class Discriminator(nn.Module):
         super().__init__()
 
         def conv(in_channel, out_channel, downsample=True):
-            return GBlock(in_channel, out_channel, bn=False, upsample=False,
-                downsample=downsample)
+            return GBlock(in_channel, out_channel, bn=False, upsample=False, downsample=downsample)
         gain = 2 ** 0.5
         if debug:
             chn = 8
         self.debug = debug
-        self.pre_conv = nn.Sequential(SpectralNorm(nn.Conv2d(3, 1 * chn, 3,
-            padding=1)), nn.ReLU(), SpectralNorm(nn.Conv2d(1 * chn, 1 * chn,
-            3, padding=1)), nn.AvgPool2d(2))
+        self.pre_conv = nn.Sequential(SpectralNorm(nn.Conv2d(3, 1 * chn, 3, padding=1)), nn.ReLU(), SpectralNorm(nn.Conv2d(1 * chn, 1 * chn, 3, padding=1)), nn.AvgPool2d(2))
         self.pre_skip = SpectralNorm(nn.Conv2d(3, 1 * chn, 1))
-        self.conv = nn.Sequential(conv(1 * chn, 1 * chn, downsample=True),
-            SelfAttention(1 * chn), conv(1 * chn, 2 * chn, downsample=True),
-            conv(2 * chn, 4 * chn, downsample=True), conv(4 * chn, 8 * chn,
-            downsample=True), conv(8 * chn, 16 * chn, downsample=True),
-            conv(16 * chn, 16 * chn, downsample=False))
+        self.conv = nn.Sequential(conv(1 * chn, 1 * chn, downsample=True), SelfAttention(1 * chn), conv(1 * chn, 2 * chn, downsample=True), conv(2 * chn, 4 * chn, downsample=True), conv(4 * chn, 8 * chn, downsample=True), conv(8 * chn, 16 * chn, downsample=True), conv(16 * chn, 16 * chn, downsample=False))
         self.linear = SpectralNorm(nn.Linear(16 * chn, 1))
         self.embed = nn.Embedding(n_class, 16 * chn)
         self.embed.weight.data.uniform_(-0.1, 0.1)
@@ -472,8 +442,7 @@ class SpectralNorm(nn.Module):
         w = getattr(self.module, self.name + '_bar')
         height = w.data.shape[0]
         for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data),
-                u.data))
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
             u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
         sigma = u.dot(w.view(height, -1).mv(v))
         setattr(self.module, self.name, w / sigma.expand_as(w))
@@ -510,11 +479,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ScaledCrossReplicaBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfAttention,
+     lambda: ([], {'in_dim': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_sxhxliang_BigGAN_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ScaledCrossReplicaBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SelfAttention(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

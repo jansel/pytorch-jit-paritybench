@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -40,11 +41,7 @@ class BaseConv(nn.Module):
 
     def __init__(self, num_inputs):
         super(BaseConv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(num_inputs, 64, 3, stride=2,
-            padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1
-            ), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.
-            ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(num_inputs, 64, 3, stride=2, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU())
 
     def forward(self, x):
         return self.conv(x)
@@ -81,11 +78,8 @@ class IntrinsicCuriosityModule(nn.Module):
         super(IntrinsicCuriosityModule, self).__init__()
         self.conv = BaseConv(num_inputs)
         self.feature_size = 64 * 6 * 6
-        self.inverse_net = nn.Sequential(nn.Linear(self.feature_size * 2, 
-            1024), nn.LeakyReLU(), nn.Linear(1024, num_actions))
-        self.forward_net = nn.Sequential(nn.Linear(self.feature_size +
-            num_actions, 1024), nn.LeakyReLU(), nn.Linear(1024, self.
-            feature_size))
+        self.inverse_net = nn.Sequential(nn.Linear(self.feature_size * 2, 1024), nn.LeakyReLU(), nn.Linear(1024, num_actions))
+        self.forward_net = nn.Sequential(nn.Linear(self.feature_size + num_actions, 1024), nn.LeakyReLU(), nn.Linear(1024, self.feature_size))
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -99,17 +93,23 @@ class IntrinsicCuriosityModule(nn.Module):
         next_state_ft = self.conv(next_state)
         state_ft = state_ft.view(-1, self.feature_size)
         next_state_ft = next_state_ft.view(-1, self.feature_size)
-        return self.inverse_net(torch.cat((state_ft, next_state_ft), 1)
-            ), self.forward_net(torch.cat((state_ft, action), 1)
-            ), next_state_ft
+        return self.inverse_net(torch.cat((state_ft, next_state_ft), 1)), self.forward_net(torch.cat((state_ft, action), 1)), next_state_ft
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseConv,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_uvipen_Street_fighter_A3C_ICM_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BaseConv(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

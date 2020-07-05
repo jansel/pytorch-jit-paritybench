@@ -40,8 +40,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -110,11 +111,9 @@ class LinearFeatureBaseline(nn.Module):
         super(LinearFeatureBaseline, self).__init__()
         self.input_size = input_size
         self._reg_coeff = reg_coeff
-        self.weight = nn.Parameter(torch.Tensor(self.feature_size),
-            requires_grad=False)
+        self.weight = nn.Parameter(torch.Tensor(self.feature_size), requires_grad=False)
         self.weight.data.zero_()
-        self._eye = torch.eye(self.feature_size, dtype=torch.float32,
-            device=self.weight.device)
+        self._eye = torch.eye(self.feature_size, dtype=torch.float32, device=self.weight.device)
 
     @property
     def feature_size(self):
@@ -124,8 +123,7 @@ class LinearFeatureBaseline(nn.Module):
         ones = episodes.mask.unsqueeze(2)
         observations = episodes.observations
         time_step = torch.arange(len(episodes)).view(-1, 1, 1) * ones / 100.0
-        return torch.cat([observations, observations ** 2, time_step, 
-            time_step ** 2, time_step ** 3, ones], dim=2)
+        return torch.cat([observations, observations ** 2, time_step, time_step ** 2, time_step ** 3, ones], dim=2)
 
     def fit(self, episodes):
         featmat = self._feature(episodes).view(-1, self.feature_size)
@@ -140,9 +138,7 @@ class LinearFeatureBaseline(nn.Module):
             except RuntimeError:
                 reg_coeff *= 10
         else:
-            raise RuntimeError(
-                'Unable to solve the normal equations in `LinearFeatureBaseline`. The matrix X^T*X (with X the design matrix) is not full-rank, regardless of the regularization (maximum regularization: {0}).'
-                .format(reg_coeff))
+            raise RuntimeError('Unable to solve the normal equations in `LinearFeatureBaseline`. The matrix X^T*X (with X the design matrix) is not full-rank, regardless of the regularization (maximum regularization: {0}).'.format(reg_coeff))
         self.weight.copy_(coeffs.flatten())
 
     def forward(self, episodes):
@@ -160,25 +156,16 @@ class Policy(nn.Module):
         self.named_meta_parameters = self.named_parameters
         self.meta_parameters = self.parameters
 
-    def update_params(self, loss, params=None, step_size=0.5, first_order=False
-        ):
+    def update_params(self, loss, params=None, step_size=0.5, first_order=False):
         """Apply one step of gradient descent on the loss function `loss`, with 
         step-size `step_size`, and returns the updated parameters of the neural 
         network.
         """
         if params is None:
             params = OrderedDict(self.named_meta_parameters())
-        grads = torch.autograd.grad(loss, params.values(), create_graph=not
-            first_order)
+        grads = torch.autograd.grad(loss, params.values(), create_graph=not first_order)
         updated_params = OrderedDict()
         for (name, param), grad in zip(params.items(), grads):
             updated_params[name] = param - step_size * grad
         return updated_params
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_tristandeleu_pytorch_maml_rl(_paritybench_base):
-    pass

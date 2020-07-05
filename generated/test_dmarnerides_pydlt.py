@@ -51,8 +51,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -98,8 +99,7 @@ from torch import nn
 
 def selu_init(model):
     for m in model.modules():
-        if any([isinstance(m, x) for x in [nn.Conv2d, nn.ConvTranspose2d,
-            nn.Linear]]):
+        if any([isinstance(m, x) for x in [nn.Conv2d, nn.ConvTranspose2d, nn.Linear]]):
             nn.init.kaiming_normal_(m.weight, 1)
             if m.bias is not None:
                 nn.init.constant_(m.bias, val=0)
@@ -111,14 +111,11 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.num_pix = num_pix
         self.num_chan = num_chan
-        self.main = nn.Sequential(nn.Linear(z_dim, num_hidden), nn.SELU(),
-            nn.Linear(num_hidden, num_hidden), nn.SELU(), nn.Linear(
-            num_hidden, num_chan * num_pix * num_pix), nn.Tanh())
+        self.main = nn.Sequential(nn.Linear(z_dim, num_hidden), nn.SELU(), nn.Linear(num_hidden, num_hidden), nn.SELU(), nn.Linear(num_hidden, num_chan * num_pix * num_pix), nn.Tanh())
         selu_init(self)
 
     def forward(self, v_input):
-        return self.main(v_input).view(v_input.size(0), self.num_chan, self
-            .num_pix, self.num_pix)
+        return self.main(v_input).view(v_input.size(0), self.num_chan, self.num_pix, self.num_pix)
 
 
 class Discriminator(nn.Module):
@@ -127,9 +124,7 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.num_pix = num_pix
         self.num_chan = num_chan
-        self.main = nn.Sequential(nn.Linear(num_chan * num_pix * num_pix,
-            num_hidden), nn.SELU(), nn.Linear(num_hidden, num_hidden), nn.
-            SELU())
+        self.main = nn.Sequential(nn.Linear(num_chan * num_pix * num_pix, num_hidden), nn.SELU(), nn.Linear(num_hidden, num_hidden), nn.SELU())
         self.last_layer = nn.Linear(num_hidden, 1)
         selu_init(self)
 
@@ -139,8 +134,7 @@ class Discriminator(nn.Module):
             noisy_main = nn.functional.dropout(main, p=0.1)
             return main, self.last_layer(noisy_main)
         else:
-            return self.last_layer(self.main(v_input.view(v_input.size(0), -1))
-                )
+            return self.last_layer(self.main(v_input.view(v_input.size(0), -1)))
 
 
 class DiscriminatorBEGAN(nn.Module):
@@ -149,30 +143,42 @@ class DiscriminatorBEGAN(nn.Module):
         super(DiscriminatorBEGAN, self).__init__()
         self.num_pix = num_pix
         self.num_chan = num_chan
-        self.main = nn.Sequential(nn.Linear(num_chan * num_pix * num_pix,
-            num_hidden), nn.SELU(), nn.Linear(num_hidden, num_hidden), nn.
-            SELU(), nn.Linear(num_hidden, num_chan * num_pix * num_pix))
+        self.main = nn.Sequential(nn.Linear(num_chan * num_pix * num_pix, num_hidden), nn.SELU(), nn.Linear(num_hidden, num_hidden), nn.SELU(), nn.Linear(num_hidden, num_chan * num_pix * num_pix))
         selu_init(self)
 
     def forward(self, v_input):
         res = self.main(v_input.view(v_input.size(0), -1))
-        return res.view(v_input.size(0), self.num_chan, self.num_pix, self.
-            num_pix)
+        return res.view(v_input.size(0), self.num_chan, self.num_pix, self.num_pix)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {'num_hidden': 4, 'num_chan': 4, 'num_pix': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DiscriminatorBEGAN,
+     lambda: ([], {'num_hidden': 4, 'num_chan': 4, 'num_pix': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Generator,
+     lambda: ([], {'num_hidden': 4, 'z_dim': 4, 'num_chan': 4, 'num_pix': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_dmarnerides_pydlt(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Discriminator(*[], **{'num_hidden': 4, 'num_chan': 4, 'num_pix': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DiscriminatorBEGAN(*[], **{'num_hidden': 4, 'num_chan': 4, 'num_pix': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Generator(*[], **{'num_hidden': 4, 'z_dim': 4, 'num_chan': 4, 'num_pix': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

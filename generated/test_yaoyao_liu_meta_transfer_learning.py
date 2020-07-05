@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,8 +76,7 @@ import time
 class _ConvNdMtl(Module):
     """The class for meta-transfer convolution"""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, transposed, output_padding, groups, bias):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding, groups, bias):
         super(_ConvNdMtl, self).__init__()
         if in_channels % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
@@ -92,15 +92,11 @@ class _ConvNdMtl(Module):
         self.output_padding = output_padding
         self.groups = groups
         if transposed:
-            self.weight = Parameter(torch.Tensor(in_channels, out_channels //
-                groups, *kernel_size))
-            self.mtl_weight = Parameter(torch.ones(in_channels, 
-                out_channels // groups, 1, 1))
+            self.weight = Parameter(torch.Tensor(in_channels, out_channels // groups, *kernel_size))
+            self.mtl_weight = Parameter(torch.ones(in_channels, out_channels // groups, 1, 1))
         else:
-            self.weight = Parameter(torch.Tensor(out_channels, in_channels //
-                groups, *kernel_size))
-            self.mtl_weight = Parameter(torch.ones(out_channels, 
-                in_channels // groups, 1, 1))
+            self.weight = Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size))
+            self.mtl_weight = Parameter(torch.ones(out_channels, in_channels // groups, 1, 1))
         self.weight.requires_grad = False
         if bias:
             self.bias = Parameter(torch.Tensor(out_channels))
@@ -123,9 +119,7 @@ class _ConvNdMtl(Module):
             self.mtl_bias.data.uniform_(0, 0)
 
     def extra_repr(self):
-        s = (
-            '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
@@ -180,8 +174,7 @@ class MtlLearner(nn.Module):
             self.encoder = ResNetMtl()
         else:
             self.encoder = ResNetMtl(mtl=False)
-            self.pre_fc = nn.Sequential(nn.Linear(640, 1000), nn.ReLU(), nn
-                .Linear(1000, num_cls))
+            self.pre_fc = nn.Sequential(nn.Linear(640, 1000), nn.ReLU(), nn.Linear(1000, num_cls))
 
     def forward(self, inp):
         """The function to forward the model.
@@ -224,15 +217,13 @@ class MtlLearner(nn.Module):
         logits = self.base_learner(embedding_shot)
         loss = F.cross_entropy(logits, label_shot)
         grad = torch.autograd.grad(loss, self.base_learner.parameters())
-        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip
-            (grad, self.base_learner.parameters())))
+        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.base_learner.parameters())))
         logits_q = self.base_learner(embedding_query, fast_weights)
         for _ in range(1, self.update_step):
             logits = self.base_learner(embedding_shot, fast_weights)
             loss = F.cross_entropy(logits, label_shot)
             grad = torch.autograd.grad(loss, fast_weights)
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0],
-                zip(grad, fast_weights)))
+            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
             logits_q = self.base_learner(embedding_query, fast_weights)
         return logits_q
 
@@ -250,22 +241,19 @@ class MtlLearner(nn.Module):
         logits = self.base_learner(embedding_shot)
         loss = F.cross_entropy(logits, label_shot)
         grad = torch.autograd.grad(loss, self.base_learner.parameters())
-        fast_weights = list(map(lambda p: p[1] - 0.01 * p[0], zip(grad,
-            self.base_learner.parameters())))
+        fast_weights = list(map(lambda p: p[1] - 0.01 * p[0], zip(grad, self.base_learner.parameters())))
         logits_q = self.base_learner(embedding_query, fast_weights)
         for _ in range(1, 100):
             logits = self.base_learner(embedding_shot, fast_weights)
             loss = F.cross_entropy(logits, label_shot)
             grad = torch.autograd.grad(loss, fast_weights)
-            fast_weights = list(map(lambda p: p[1] - 0.01 * p[0], zip(grad,
-                fast_weights)))
+            fast_weights = list(map(lambda p: p[1] - 0.01 * p[0], zip(grad, fast_weights)))
             logits_q = self.base_learner(embedding_query, fast_weights)
         return logits_q
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -302,11 +290,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -332,15 +318,12 @@ class Bottleneck(nn.Module):
 class Conv2dMtl(_ConvNdMtl):
     """The class for meta-transfer convolution"""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        super(Conv2dMtl, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, False, _pair(0), groups,
-            bias)
+        super(Conv2dMtl, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias)
 
     def forward(self, inp):
         new_mtl_weight = self.mtl_weight.expand(self.weight.shape)
@@ -349,13 +332,11 @@ class Conv2dMtl(_ConvNdMtl):
             new_bias = self.bias + self.mtl_bias
         else:
             new_bias = None
-        return F.conv2d(inp, new_weight, new_bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return F.conv2d(inp, new_weight, new_bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 def conv3x3mtl(in_planes, out_planes, stride=1):
-    return Conv2dMtl(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return Conv2dMtl(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlockMtl(nn.Module):
@@ -392,11 +373,9 @@ class BottleneckMtl(nn.Module):
         super(BottleneckMtl, self).__init__()
         self.conv1 = Conv2dMtl(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = Conv2dMtl(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = Conv2dMtl(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = Conv2dMtl(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = Conv2dMtl(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -431,8 +410,7 @@ class ResNetMtl(nn.Module):
             block = BasicBlock
         cfg = [160, 320, 640]
         self.inplanes = iChannels = int(cfg[0] / 2)
-        self.conv1 = self.Conv2d(3, iChannels, kernel_size=3, stride=1,
-            padding=1)
+        self.conv1 = self.Conv2d(3, iChannels, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(iChannels)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, cfg[0], layers[0], stride=2)
@@ -441,8 +419,7 @@ class ResNetMtl(nn.Module):
         self.avgpool = nn.AvgPool2d(10, stride=1)
         for m in self.modules():
             if isinstance(m, self.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -450,9 +427,7 @@ class ResNetMtl(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(self.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(self.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -476,21 +451,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseLearner,
+     lambda: ([], {'args': _mock_config(way=4), 'z_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlockMtl,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv2dMtl,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetMtl,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+]
+
 class Test_yaoyao_liu_meta_transfer_learning(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BaseLearner(*[], **{'args': _mock_config(way=4), 'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicBlockMtl(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Conv2dMtl(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ResNetMtl(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[4])
 

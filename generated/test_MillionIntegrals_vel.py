@@ -250,8 +250,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -378,8 +379,7 @@ class Model(nn.Module):
         children = list(self.children())
         result = []
         for child in children:
-            result.extend(hashlib.sha256(x.detach().cpu().numpy().tobytes()
-                ).hexdigest() for x in child.parameters())
+            result.extend(hashlib.sha256(x.detach().cpu().numpy().tobytes()).hexdigest() for x in child.parameters())
         return result
 
     def get_layer_groups(self):
@@ -433,8 +433,7 @@ class Flatten(nn.Module):
 def one_hot_encoding(input_tensor, num_labels):
     """ One-hot encode labels from input """
     xview = input_tensor.view(-1, 1).to(torch.long)
-    onehot = torch.zeros(xview.size(0), num_labels, device=input_tensor.
-        device, dtype=torch.float)
+    onehot = torch.zeros(xview.size(0), num_labels, device=input_tensor.device, dtype=torch.float)
     onehot.scatter_(1, xview, 1)
     return onehot.view(list(input_tensor.shape) + [-1])
 
@@ -455,8 +454,7 @@ def conv3x3(in_channels, out_channels, stride=1):
     3x3 convolution with padding.
     Original code has had bias turned off, because Batch Norm would remove the bias either way
     """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=1, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -469,9 +467,7 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.divisor = divisor
         if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, bias=False), nn
-                .BatchNorm2d(out_channels))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_channels))
         else:
             self.shortcut = None
         self.conv1 = conv3x3(in_channels, out_channels, stride)
@@ -505,20 +501,15 @@ class Bottleneck(nn.Module):
         self.stride = stride
         self.divisor = divisor
         if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, bias=False), nn
-                .BatchNorm2d(out_channels))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_channels))
         else:
             self.shortcut = None
         self.bottleneck_channels = out_channels // divisor
-        self.conv1 = nn.Conv2d(in_channels, self.bottleneck_channels,
-            kernel_size=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, self.bottleneck_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(self.bottleneck_channels)
-        self.conv2 = conv3x3(self.bottleneck_channels, self.
-            bottleneck_channels, stride)
+        self.conv2 = conv3x3(self.bottleneck_channels, self.bottleneck_channels, stride)
         self.bn2 = nn.BatchNorm2d(self.bottleneck_channels)
-        self.conv3 = nn.Conv2d(self.bottleneck_channels, out_channels,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(self.bottleneck_channels, out_channels, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -549,8 +540,7 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.divisor = divisor
         if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Conv2d(in_channels, out_channels,
-                kernel_size=1, stride=stride, bias=False)
+            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False)
         else:
             self.shortcut = None
         self.bn1 = nn.BatchNorm2d(in_channels)
@@ -584,21 +574,16 @@ class Bottleneck(nn.Module):
         self.stride = stride
         self.divisor = divisor
         if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False))
         else:
             self.shortcut = None
         self.bottleneck_channels = out_channels // divisor
         self.bn1 = nn.BatchNorm2d(in_channels)
-        self.conv1 = nn.Conv2d(in_channels, self.bottleneck_channels,
-            kernel_size=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, self.bottleneck_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(self.bottleneck_channels)
-        self.conv2 = nn.Conv2d(self.bottleneck_channels, self.
-            bottleneck_channels, kernel_size=3, stride=stride, padding=1,
-            bias=False)
+        self.conv2 = nn.Conv2d(self.bottleneck_channels, self.bottleneck_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.bottleneck_channels)
-        self.conv3 = nn.Conv2d(self.bottleneck_channels, out_channels,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(self.bottleneck_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -618,8 +603,7 @@ class ResNeXtBottleneck(nn.Module):
     RexNeXt bottleneck type C (https://github.com/facebookresearch/ResNeXt/blob/master/models/resnext.lua)
     """
 
-    def __init__(self, in_channels, out_channels, cardinality, divisor,
-        stride=1):
+    def __init__(self, in_channels, out_channels, cardinality, divisor, stride=1):
         super(ResNeXtBottleneck, self).__init__()
         self.cardinality = cardinality
         self.stride = stride
@@ -627,19 +611,14 @@ class ResNeXtBottleneck(nn.Module):
         D = out_channels // divisor
         C = cardinality
         if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, bias=False), nn
-                .BatchNorm2d(out_channels))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_channels))
         else:
             self.shortcut = None
-        self.conv_reduce = nn.Conv2d(in_channels, D * C, kernel_size=1,
-            stride=1, padding=0, bias=False)
+        self.conv_reduce = nn.Conv2d(in_channels, D * C, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_reduce = nn.BatchNorm2d(D * C)
-        self.conv_conv = nn.Conv2d(D * C, D * C, kernel_size=3, stride=
-            stride, padding=1, groups=cardinality, bias=False)
+        self.conv_conv = nn.Conv2d(D * C, D * C, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn = nn.BatchNorm2d(D * C)
-        self.conv_expand = nn.Conv2d(D * C, out_channels, kernel_size=1,
-            stride=1, padding=0, bias=False)
+        self.conv_expand = nn.Conv2d(D * C, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_expand = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -691,8 +670,7 @@ class DiagGaussianActionHead(nn.Module):
         log_std = pd_params[:, :, (1)]
         std = torch.exp(log_std)
         z_score = (action_sample - means) / std
-        return -(0.5 * (z_score ** 2 + self.LOG2PI).sum(dim=-1) + log_std.
-            sum(dim=-1))
+        return -(0.5 * (z_score ** 2 + self.LOG2PI).sum(dim=-1) + log_std.sum(dim=-1))
 
     def reset_weights(self):
         init.orthogonal_(self.linear_layer.weight, gain=0.01)
@@ -720,8 +698,7 @@ class DiagGaussianActionHead(nn.Module):
         log_std_p = params_p[:, :, (1)]
         std_q = torch.exp(log_std_q)
         std_p = torch.exp(log_std_p)
-        kl_div = log_std_p - log_std_q + (std_q ** 2 + (means_q - means_p) ** 2
-            ) / (2.0 * std_p ** 2) - 0.5
+        kl_div = log_std_p - log_std_q + (std_q ** 2 + (means_q - means_p) ** 2) / (2.0 * std_p ** 2) - 0.5
         return kl_div.sum(dim=-1)
 
 
@@ -767,8 +744,7 @@ class CategoricalActionHead(nn.Module):
         When talking about logits this is:
         sum exp(Q_i) * (Q_i - P_i)
         """
-        return (torch.exp(logits_q) * (logits_q - logits_p)).sum(1, keepdim
-            =True)
+        return (torch.exp(logits_q) * (logits_q - logits_p)).sum(1, keepdim=True)
 
 
 class ActionHead(nn.Module):
@@ -781,8 +757,7 @@ class ActionHead(nn.Module):
         self.action_space = action_space
         if isinstance(action_space, spaces.Box):
             assert len(action_space.shape) == 1
-            self.head = DiagGaussianActionHead(input_dim, action_space.shape[0]
-                )
+            self.head = DiagGaussianActionHead(input_dim, action_space.shape[0])
         elif isinstance(action_space, spaces.Discrete):
             self.head = CategoricalActionHead(input_dim, action_space.n)
         else:
@@ -896,8 +871,7 @@ class EpsGreedy(nn.Module):
             epsilon = self.epsilon_schedule.value(batch_info['progress'])
         random_samples = torch.randint_like(actions, self.action_space.n)
         selector = torch.rand_like(random_samples, dtype=torch.float32)
-        noisy_actions = torch.where(selector > epsilon, actions, random_samples
-            )
+        noisy_actions = torch.where(selector > epsilon, actions, random_samples)
         return noisy_actions
 
     def reset_training_state(self, dones, batch_info):
@@ -920,19 +894,15 @@ class OrnsteinUhlenbeckNoiseProcess:
         self.reset()
 
     def __call__(self):
-        x = self.x_prev + self.theta * (self.mu - self.x_prev
-            ) * self.dt + self.sigma * np.sqrt(self.dt) * np.random.normal(size
-            =self.mu.shape)
+        x = self.x_prev + self.theta * (self.mu - self.x_prev) * self.dt + self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
         self.x_prev = x
         return x
 
     def reset(self):
-        self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu
-            )
+        self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
 
     def __repr__(self):
-        return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.
-            mu, self.sigma)
+        return 'OrnsteinUhlenbeckActionNoise(mu={}, sigma={})'.format(self.mu, self.sigma)
 
 
 class OuNoise(nn.Module):
@@ -943,10 +913,8 @@ class OuNoise(nn.Module):
         self.std_dev = std_dev
         self.action_space = environment.action_space
         self.processes = []
-        self.register_buffer('low_tensor', torch.from_numpy(self.
-            action_space.low).unsqueeze(0))
-        self.register_buffer('high_tensor', torch.from_numpy(self.
-            action_space.high).unsqueeze(0))
+        self.register_buffer('low_tensor', torch.from_numpy(self.action_space.low).unsqueeze(0))
+        self.register_buffer('high_tensor', torch.from_numpy(self.action_space.high).unsqueeze(0))
 
     def reset_training_state(self, dones, batch_info):
         """ A hook for a model to react when during training episode is finished """
@@ -958,13 +926,9 @@ class OuNoise(nn.Module):
         """ Return model step after applying noise """
         while len(self.processes) < actions.shape[0]:
             len_action_space = self.action_space.shape[-1]
-            self.processes.append(OrnsteinUhlenbeckNoiseProcess(np.zeros(
-                len_action_space), float(self.std_dev) * np.ones(
-                len_action_space)))
-        noise = torch.from_numpy(np.stack([x() for x in self.processes])
-            ).float()
-        return torch.min(torch.max(actions + noise, self.low_tensor), self.
-            high_tensor)
+            self.processes.append(OrnsteinUhlenbeckNoiseProcess(np.zeros(len_action_space), float(self.std_dev) * np.ones(len_action_space)))
+        noise = torch.from_numpy(np.stack([x() for x in self.processes])).float()
+        return torch.min(torch.max(actions + noise, self.low_tensor), self.high_tensor)
 
 
 def scaled_noise(size, device):
@@ -984,44 +948,36 @@ def factorized_gaussian_noise(in_features, out_features, device):
 
 def gaussian_noise(in_features, out_features, device):
     """ Normal gaussian N(0, 1) noise """
-    return torch.randn((in_features, out_features), device=device
-        ), torch.randn(out_features, device=device)
+    return torch.randn((in_features, out_features), device=device), torch.randn(out_features, device=device)
 
 
 class NoisyLinear(nn.Module):
     """ NoisyNets noisy linear layer """
 
-    def __init__(self, in_features, out_features, initial_std_dev: float=
-        0.4, factorized_noise: bool=True):
+    def __init__(self, in_features, out_features, initial_std_dev: float=0.4, factorized_noise: bool=True):
         super(NoisyLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.initial_std_dev = initial_std_dev
         self.factorized_noise = factorized_noise
         self.weight_mu = nn.Parameter(torch.empty(out_features, in_features))
-        self.weight_sigma = nn.Parameter(torch.empty(out_features, in_features)
-            )
+        self.weight_sigma = nn.Parameter(torch.empty(out_features, in_features))
         self.bias_mu = nn.Parameter(torch.empty(out_features))
         self.bias_sigma = nn.Parameter(torch.empty(out_features))
 
     def reset_weights(self):
         init.orthogonal_(self.weight_mu, gain=math.sqrt(2))
         init.constant_(self.bias_mu, 0.0)
-        self.weight_sigma.data.fill_(self.initial_std_dev / math.sqrt(self.
-            in_features))
-        self.bias_sigma.data.fill_(self.initial_std_dev / math.sqrt(self.
-            out_features))
+        self.weight_sigma.data.fill_(self.initial_std_dev / math.sqrt(self.in_features))
+        self.bias_sigma.data.fill_(self.initial_std_dev / math.sqrt(self.out_features))
 
     def forward(self, input_data):
         if self.training:
             if self.factorized_noise:
-                weight_epsilon, bias_epsilon = factorized_gaussian_noise(self
-                    .in_features, self.out_features, device=input_data.device)
+                weight_epsilon, bias_epsilon = factorized_gaussian_noise(self.in_features, self.out_features, device=input_data.device)
             else:
-                weight_epsilon, bias_epsilon = gaussian_noise(self.
-                    in_features, self.out_features, device=input_data.device)
-            return F.linear(input_data, self.weight_mu + self.weight_sigma *
-                weight_epsilon, self.bias_mu + self.bias_sigma * bias_epsilon)
+                weight_epsilon, bias_epsilon = gaussian_noise(self.in_features, self.out_features, device=input_data.device)
+            return F.linear(input_data, self.weight_mu + self.weight_sigma * weight_epsilon, self.bias_mu + self.bias_sigma * bias_epsilon)
         else:
             return F.linear(input_data, self.weight_mu, self.bias_mu)
 
@@ -1032,16 +988,13 @@ class NoisyLinear(nn.Module):
         this method in your own modules. Both single-line and multi-line
         strings are acceptable.
         """
-        return (
-            f'{self.in_features}, {self.out_features}, initial_std_dev={self.initial_std_dev}, factorized_noise={{self.factorized_noise}} '
-            )
+        return f'{self.in_features}, {self.out_features}, initial_std_dev={self.initial_std_dev}, factorized_noise={{self.factorized_noise}} '
 
 
 class QDistributionalHead(nn.Module):
     """ Network head calculating Q-function value for each (discrete) action. """
 
-    def __init__(self, input_dim, action_space, vmin: float, vmax: float,
-        atoms: int=1):
+    def __init__(self, input_dim, action_space, vmin: float, vmax: float, atoms: int=1):
         super().__init__()
         assert isinstance(action_space, spaces.Discrete)
         assert vmax > vmin
@@ -1052,22 +1005,18 @@ class QDistributionalHead(nn.Module):
         self.action_size = action_space.n
         self.atom_delta = (self.vmax - self.vmin) / (self.atoms - 1)
         self.linear_layer = nn.Linear(input_dim, self.action_size * self.atoms)
-        self.register_buffer('support_atoms', torch.linspace(self.vmin,
-            self.vmax, self.atoms))
+        self.register_buffer('support_atoms', torch.linspace(self.vmin, self.vmax, self.atoms))
 
     def histogram_info(self) ->dict:
         """ Return extra information about histogram """
-        return {'support_atoms': self.support_atoms, 'atom_delta': self.
-            atom_delta, 'vmin': self.vmin, 'vmax': self.vmax, 'num_atoms':
-            self.atoms}
+        return {'support_atoms': self.support_atoms, 'atom_delta': self.atom_delta, 'vmin': self.vmin, 'vmax': self.vmax, 'num_atoms': self.atoms}
 
     def reset_weights(self):
         init.orthogonal_(self.linear_layer.weight, gain=1.0)
         init.constant_(self.linear_layer.bias, 0.0)
 
     def forward(self, input_data):
-        histogram_logits = self.linear_layer(input_data).view(input_data.
-            size(0), self.action_size, self.atoms)
+        histogram_logits = self.linear_layer(input_data).view(input_data.size(0), self.action_size, self.atoms)
         histogram_log = F.log_softmax(histogram_logits, dim=2)
         return histogram_log
 
@@ -1081,8 +1030,7 @@ class QDistributionalHead(nn.Module):
 class QDistributionalNoisyDuelingHead(nn.Module):
     """ Network head calculating Q-function value for each (discrete) action. """
 
-    def __init__(self, input_dim, action_space, vmin: float, vmax: float,
-        atoms: int=1, initial_std_dev: float=0.4, factorized_noise: bool=True):
+    def __init__(self, input_dim, action_space, vmin: float, vmax: float, atoms: int=1, initial_std_dev: float=0.4, factorized_noise: bool=True):
         super().__init__()
         assert isinstance(action_space, spaces.Discrete)
         assert vmax > vmin
@@ -1092,27 +1040,20 @@ class QDistributionalNoisyDuelingHead(nn.Module):
         self.action_size = action_space.n
         self.action_space = action_space
         self.atom_delta = (self.vmax - self.vmin) / (self.atoms - 1)
-        self.linear_layer_advantage = NoisyLinear(input_dim, self.
-            action_size * self.atoms, initial_std_dev=initial_std_dev,
-            factorized_noise=factorized_noise)
-        self.linear_layer_value = NoisyLinear(input_dim, self.atoms,
-            initial_std_dev=initial_std_dev, factorized_noise=factorized_noise)
-        self.register_buffer('support_atoms', torch.linspace(self.vmin,
-            self.vmax, self.atoms))
+        self.linear_layer_advantage = NoisyLinear(input_dim, self.action_size * self.atoms, initial_std_dev=initial_std_dev, factorized_noise=factorized_noise)
+        self.linear_layer_value = NoisyLinear(input_dim, self.atoms, initial_std_dev=initial_std_dev, factorized_noise=factorized_noise)
+        self.register_buffer('support_atoms', torch.linspace(self.vmin, self.vmax, self.atoms))
 
     def histogram_info(self) ->dict:
         """ Return extra information about histogram """
-        return {'support_atoms': self.support_atoms, 'atom_delta': self.
-            atom_delta, 'vmin': self.vmin, 'vmax': self.vmax, 'num_atoms':
-            self.atoms}
+        return {'support_atoms': self.support_atoms, 'atom_delta': self.atom_delta, 'vmin': self.vmin, 'vmax': self.vmax, 'num_atoms': self.atoms}
 
     def reset_weights(self):
         self.linear_layer_advantage.reset_weights()
         self.linear_layer_value.reset_weights()
 
     def forward(self, advantage_features, value_features):
-        adv = self.linear_layer_advantage(advantage_features).view(-1, self
-            .action_size, self.atoms)
+        adv = self.linear_layer_advantage(advantage_features).view(-1, self.action_size, self.atoms)
         val = self.linear_layer_value(value_features).view(-1, 1, self.atoms)
         histogram_output = val + adv - adv.mean(dim=1, keepdim=True)
         return F.log_softmax(histogram_output, dim=2)
@@ -1174,13 +1115,11 @@ class QHead(nn.Module):
 class QNoisyHead(nn.Module):
     """ Network head calculating Q-function value for each (discrete) action. """
 
-    def __init__(self, input_dim, action_space, initial_std_dev=0.4,
-        factorized_noise=True):
+    def __init__(self, input_dim, action_space, initial_std_dev=0.4, factorized_noise=True):
         super().__init__()
         assert isinstance(action_space, spaces.Discrete)
         self.action_space = action_space
-        self.linear_layer = NoisyLinear(input_dim, action_space.n,
-            initial_std_dev=initial_std_dev, factorized_noise=factorized_noise)
+        self.linear_layer = NoisyLinear(input_dim, action_space.n, initial_std_dev=initial_std_dev, factorized_noise=factorized_noise)
 
     def reset_weights(self):
         self.linear_layer.reset_weights()
@@ -1212,45 +1151,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveConcatPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Bottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CategoricalActionHead,
+     lambda: ([], {'input_dim': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeterministicCriticHead,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiagGaussianActionHead,
+     lambda: ([], {'input_dim': 4, 'num_dimensions': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Lambda,
+     lambda: ([], {'f': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OneHotEncode,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResNeXtBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'cardinality': 4, 'divisor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ValueHead,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_MillionIntegrals_vel(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Bottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CategoricalActionHead(*[], **{'input_dim': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DeterministicCriticHead(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(DiagGaussianActionHead(*[], **{'input_dim': 4, 'num_dimensions': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Lambda(*[], **{'f': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(OneHotEncode(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'cardinality': 4, 'divisor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(ValueHead(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 

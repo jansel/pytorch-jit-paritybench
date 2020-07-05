@@ -67,8 +67,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,8 +144,7 @@ class Registry(object):
         self._module_dict = dict()
 
     def __repr__(self):
-        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
-            self._name, list(self._module_dict.keys()))
+        format_str = self.__class__.__name__ + '(name={}, items={})'.format(self._name, list(self._module_dict.keys()))
         return format_str
 
     @property
@@ -164,12 +164,10 @@ class Registry(object):
             module (:obj:`nn.Module`): Module to be registered.
         """
         if not inspect.isclass(module_class):
-            raise TypeError('module must be a class, but got {}'.format(
-                type(module_class)))
+            raise TypeError('module must be a class, but got {}'.format(type(module_class)))
         module_name = module_class.__name__
         if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
+            raise KeyError('{} is already registered in {}'.format(module_name, self.name))
         self._module_dict[module_name] = module_class
 
     def register_module(self, cls):
@@ -204,8 +202,7 @@ def obj_from_dict_module(info, parent=None, default_args=None):
         else:
             obj_type = sys.modules[obj_type]
     elif not isinstance(obj_type, type):
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
+        raise TypeError('type must be a str or valid type, but got {}'.format(type(obj_type)))
     if default_args is not None:
         for name, value in default_args.items():
             args.setdefault(name, value)
@@ -228,13 +225,11 @@ def obj_from_dict_registry(cfg, registry, default_args=None):
     if isinstance(obj_type, str):
         obj_cls = registry.get(obj_type)
         if obj_cls is None:
-            raise KeyError('{} is not in the {} registry'.format(obj_type,
-                registry.name))
+            raise KeyError('{} is not in the {} registry'.format(obj_type, registry.name))
     elif inspect.isclass(obj_type):
         obj_cls = obj_type
     else:
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
+        raise TypeError('type must be a str or valid type, but got {}'.format(type(obj_type)))
     if default_args is not None:
         for name, value in default_args.items():
             args.setdefault(name, value)
@@ -330,8 +325,7 @@ class JunctionBlock(nn.Module):
             if lateral is not None:
                 feat = lateral
             else:
-                raise ValueError(
-                    'There is neither top down feature nor lateral feature')
+                raise ValueError('There is neither top down feature nor lateral feature')
         feat = self.post_block(feat)
         return feat
 
@@ -343,10 +337,7 @@ class FusionBlock(nn.Module):
         Args:
     """
 
-    def __init__(self, method, from_layers, feat_strides, in_channels_list,
-        out_channels_list, upsample, conv_cfg=dict(type='Conv'), norm_cfg=
-        dict(type='BN'), act_cfg=dict(type='Relu', inplace=True),
-        common_stride=4):
+    def __init__(self, method, from_layers, feat_strides, in_channels_list, out_channels_list, upsample, conv_cfg=dict(type='Conv'), norm_cfg=dict(type='BN'), act_cfg=dict(type='Relu', inplace=True), common_stride=4):
         super().__init__()
         assert method in ('add', 'concat')
         self.method = method
@@ -358,14 +349,11 @@ class FusionBlock(nn.Module):
             out_channels = out_channels_list[idx]
             from_layer = from_layers[idx]
             feat_stride = feat_strides[idx]
-            ups_num = int(max(1, math.log2(feat_stride) - math.log2(
-                common_stride)))
+            ups_num = int(max(1, math.log2(feat_stride) - math.log2(common_stride)))
             head_ops = []
             for idx2 in range(ups_num):
                 cur_in_channels = in_channels if idx2 == 0 else out_channels
-                conv = ConvModule(cur_in_channels, out_channels,
-                    kernel_size=3, padding=1, conv_cfg=conv_cfg, norm_cfg=
-                    norm_cfg, act_cfg=act_cfg)
+                conv = ConvModule(cur_in_channels, out_channels, kernel_size=3, padding=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, act_cfg=act_cfg)
                 head_ops.append(conv)
                 if int(feat_stride) != int(common_stride):
                     head_ops.append(build_module(upsample))
@@ -425,15 +413,12 @@ def constant_init(module, val, bias=0):
         nn.init.constant_(module.bias, bias)
 
 
-def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0,
-    distribution='normal'):
+def kaiming_init(module, a=0, mode='fan_out', nonlinearity='relu', bias=0, distribution='normal'):
     assert distribution in ['uniform', 'normal']
     if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, a=a, mode=mode,
-            nonlinearity=nonlinearity)
+        nn.init.kaiming_uniform_(module.weight, a=a, mode=mode, nonlinearity=nonlinearity)
     else:
-        nn.init.kaiming_normal_(module.weight, a=a, mode=mode, nonlinearity
-            =nonlinearity)
+        nn.init.kaiming_normal_(module.weight, a=a, mode=mode, nonlinearity=nonlinearity)
     if hasattr(module, 'bias') and module.bias is not None:
         nn.init.constant_(module.bias, bias)
 
@@ -493,22 +478,18 @@ class GFPN(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, norm_layer, act_layer, stride=1,
-        downsample=None, groups=1, base_width=64, dilation=1):
+    def __init__(self, inplanes, planes, norm_layer, act_layer, stride=1, downsample=None, groups=1, base_width=64, dilation=1):
         super(BasicBlock, self).__init__()
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
-            raise NotImplementedError(
-                'Dilation > 1 not supported in BasicBlock')
+            raise NotImplementedError('Dilation > 1 not supported in BasicBlock')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu1 = act_layer(planes)
@@ -534,15 +515,13 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, norm_layer, act_layer, stride=1,
-        downsample=None, groups=1, base_width=64, dilation=1):
+    def __init__(self, inplanes, planes, norm_layer, act_layer, stride=1, downsample=None, groups=1, base_width=64, dilation=1):
         super(Bottleneck, self).__init__()
         width = int(planes * (base_width / 64.0)) * groups
         self.conv1 = conv1x1(inplanes, width)
@@ -658,9 +637,7 @@ def build_norm_layer(cfg, num_features, postfix='', layer_only=False):
 
 class ResNetCls(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, replace_stride_with_dilation=
-        None, multi_grid=None, norm_cfg=None, act_cfg=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, multi_grid=None, norm_cfg=None, act_cfg=None):
         super(ResNetCls, self).__init__()
         if norm_cfg is None:
             norm_cfg = dict(type='BN')
@@ -673,29 +650,22 @@ class ResNetCls(nn.Module):
         if replace_stride_with_dilation is None:
             replace_stride_with_dilation = [False, False, False]
         if len(replace_stride_with_dilation) != 3:
-            raise ValueError(
-                'replace_stride_with_dilation should be None or a 3-element tuple, got {}'
-                .format(replace_stride_with_dilation))
+            raise ValueError('replace_stride_with_dilation should be None or a 3-element tuple, got {}'.format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = self._norm_layer(self.inplanes)
         self.relu1 = self._act_layer(self.inplanes)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            dilate=replace_stride_with_dilation[2], multi_grid=multi_grid)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2], multi_grid=multi_grid)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -706,8 +676,7 @@ class ResNetCls(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilate=False,
-        multi_grid=None):
+    def _make_layer(self, block, planes, blocks, stride=1, dilate=False, multi_grid=None):
         norm_layer = self._norm_layer
         act_layer = self._act_layer
         downsample = None
@@ -720,18 +689,12 @@ class ResNetCls(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, norm_layer, act_layer,
-            stride, downsample, self.groups, self.base_width, 
-            previous_dilation * multi_grid[0]))
+        layers.append(block(self.inplanes, planes, norm_layer, act_layer, stride, downsample, self.groups, self.base_width, previous_dilation * multi_grid[0]))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, norm_layer=
-                norm_layer, act_layer=act_layer, groups=self.groups,
-                base_width=self.base_width, dilation=self.dilation *
-                multi_grid[i]))
+            layers.append(block(self.inplanes, planes, norm_layer=norm_layer, act_layer=act_layer, groups=self.groups, base_width=self.base_width, dilation=self.dilation * multi_grid[i]))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -751,20 +714,15 @@ class ResNetCls(nn.Module):
 
 class ASPPConv(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, dilation, norm_layer,
-        act_layer):
-        modules = [nn.Conv2d(in_channels, out_channels, 3, padding=dilation,
-            dilation=dilation, bias=False), norm_layer(out_channels),
-            act_layer(out_channels)]
+    def __init__(self, in_channels, out_channels, dilation, norm_layer, act_layer):
+        modules = [nn.Conv2d(in_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False), norm_layer(out_channels), act_layer(out_channels)]
         super(ASPPConv, self).__init__(*modules)
 
 
 class ASPPPooling(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, norm_layer, act_layer):
-        super(ASPPPooling, self).__init__(nn.AdaptiveAvgPool2d(1), nn.
-            Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(
-            out_channels), act_layer(out_channels))
+        super(ASPPPooling, self).__init__(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), act_layer(out_channels))
 
     def forward(self, x):
         size = x.shape[-2:]
@@ -778,8 +736,7 @@ ENHANCE_MODULES = Registry('enhance_module')
 @ENHANCE_MODULES.register_module
 class ASPP(nn.Module):
 
-    def __init__(self, in_channels, out_channels, atrous_rates, from_layer,
-        to_layer, dropout=None, norm_cfg=None, act_cfg=None):
+    def __init__(self, in_channels, out_channels, atrous_rates, from_layer, to_layer, dropout=None, norm_cfg=None, act_cfg=None):
         super(ASPP, self).__init__()
         self.from_layer = from_layer
         self.to_layer = to_layer
@@ -790,21 +747,14 @@ class ASPP(nn.Module):
             act_cfg = dict(type='Relu', inplace=True)
         act_layer = partial(build_act_layer, act_cfg, layer_only=True)
         modules = []
-        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), norm_layer(out_channels), act_layer(out_channels)))
+        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), act_layer(out_channels)))
         rate1, rate2, rate3 = tuple(atrous_rates)
-        modules.append(ASPPConv(in_channels, out_channels, rate1,
-            norm_layer, act_layer))
-        modules.append(ASPPConv(in_channels, out_channels, rate2,
-            norm_layer, act_layer))
-        modules.append(ASPPConv(in_channels, out_channels, rate3,
-            norm_layer, act_layer))
-        modules.append(ASPPPooling(in_channels, out_channels, norm_layer,
-            act_layer))
+        modules.append(ASPPConv(in_channels, out_channels, rate1, norm_layer, act_layer))
+        modules.append(ASPPConv(in_channels, out_channels, rate2, norm_layer, act_layer))
+        modules.append(ASPPConv(in_channels, out_channels, rate3, norm_layer, act_layer))
+        modules.append(ASPPPooling(in_channels, out_channels, norm_layer, act_layer))
         self.convs = nn.ModuleList(modules)
-        self.project = nn.Sequential(nn.Conv2d(5 * out_channels,
-            out_channels, 1, bias=False), norm_layer(out_channels),
-            act_layer(out_channels))
+        self.project = nn.Sequential(nn.Conv2d(5 * out_channels, out_channels, 1, bias=False), norm_layer(out_channels), act_layer(out_channels))
         self.with_dropout = dropout is not None
         if self.with_dropout:
             self.dropout = nn.Dropout(dropout)
@@ -828,8 +778,7 @@ class ASPP(nn.Module):
 @ENHANCE_MODULES.register_module
 class PPM(nn.Module):
 
-    def __init__(self, in_channels, out_channels, bins, from_layer,
-        to_layer, norm_cfg=None, act_cfg=None):
+    def __init__(self, in_channels, out_channels, bins, from_layer, to_layer, norm_cfg=None, act_cfg=None):
         super(PPM, self).__init__()
         self.from_layer = from_layer
         self.to_layer = to_layer
@@ -839,10 +788,7 @@ class PPM(nn.Module):
             act_cfg = dict(type='Relu', inplace=True)
         self.blocks = nn.ModuleList()
         for bin_ in bins:
-            self.blocks.append(nn.Sequential(nn.AdaptiveAvgPool2d(bin_), nn
-                .Conv2d(in_channels, out_channels, 1, bias=False),
-                build_norm_layer(norm_cfg, out_channels, layer_only=True),
-                build_act_layer(act_cfg, out_channels, layer_only=True)))
+            self.blocks.append(nn.Sequential(nn.AdaptiveAvgPool2d(bin_), nn.Conv2d(in_channels, out_channels, 1, bias=False), build_norm_layer(norm_cfg, out_channels, layer_only=True), build_act_layer(act_cfg, out_channels, layer_only=True)))
         logger.info('PPM init weights')
         init_weights(self.modules())
 
@@ -852,8 +798,7 @@ class PPM(nn.Module):
         h, w = x.shape[2:]
         out = [x]
         for block in self.blocks:
-            feat = F.interpolate(block(x), (h, w), mode='bilinear',
-                align_corners=True)
+            feat = F.interpolate(block(x), (h, w), mode='bilinear', align_corners=True)
             out.append(feat)
         out = torch.cat(out, 1)
         feats_[self.to_layer] = out
@@ -870,15 +815,10 @@ class Head(nn.Module):
     Args:
     """
 
-    def __init__(self, in_channels, out_channels, inter_channels=None,
-        conv_cfg=dict(type='Conv'), norm_cfg=dict(type='BN'), act_cfg=dict(
-        type='Relu', inplace=True), num_convs=0, upsample=None, dropouts=None):
+    def __init__(self, in_channels, out_channels, inter_channels=None, conv_cfg=dict(type='Conv'), norm_cfg=dict(type='BN'), act_cfg=dict(type='Relu', inplace=True), num_convs=0, upsample=None, dropouts=None):
         super().__init__()
         if num_convs > 0:
-            layers = [ConvModules(in_channels, inter_channels, 3, padding=1,
-                conv_cfg=conv_cfg, norm_cfg=norm_cfg, act_cfg=act_cfg,
-                num_convs=num_convs, dropouts=dropouts), nn.Conv2d(
-                inter_channels, out_channels, 1)]
+            layers = [ConvModules(in_channels, inter_channels, 3, padding=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, act_cfg=act_cfg, num_convs=num_convs, dropouts=dropouts), nn.Conv2d(inter_channels, out_channels, 1)]
         else:
             layers = [nn.Conv2d(in_channels, out_channels, 1)]
         if upsample:
@@ -898,8 +838,7 @@ class TLU(nn.Module):
     def __init__(self, num_features):
         super(TLU, self).__init__()
         self.num_features = num_features
-        self.tau = Parameter(torch.Tensor(1, num_features, 1, 1),
-            requires_grad=True)
+        self.tau = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -960,10 +899,7 @@ class ConvModule(nn.Module):
             ("conv", "norm", "act") and ("act", "conv", "norm").
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias='auto', conv_cfg=dict(type=
-        'Conv'), norm_cfg=None, act_cfg=dict(type='Relu', inplace=True),
-        order=('conv', 'norm', 'act'), dropout=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=dict(type='Conv'), norm_cfg=None, act_cfg=dict(type='Relu', inplace=True), order=('conv', 'norm', 'act'), dropout=None):
         super(ConvModule, self).__init__()
         assert isinstance(conv_cfg, dict)
         assert norm_cfg is None or isinstance(norm_cfg, dict)
@@ -981,9 +917,7 @@ class ConvModule(nn.Module):
         self.with_bias = bias
         if self.with_norm and self.with_bias:
             warnings.warn('ConvModule has norm and bias at the same time')
-        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels,
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
+        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.in_channels = self.conv.in_channels
         self.out_channels = self.conv.out_channels
         self.kernel_size = self.conv.kernel_size
@@ -1038,27 +972,20 @@ class ConvModules(nn.Module):
     Args:
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias='auto', conv_cfg=dict(type=
-        'Conv'), norm_cfg=None, act_cfg=dict(type='Relu', inplace=True),
-        order=('conv', 'norm', 'act'), dropouts=None, num_convs=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=dict(type='Conv'), norm_cfg=None, act_cfg=dict(type='Relu', inplace=True), order=('conv', 'norm', 'act'), dropouts=None, num_convs=1):
         super().__init__()
         if dropouts is not None:
             assert num_convs == len(dropouts)
             dropout = dropouts[0]
         else:
             dropout = None
-        layers = [ConvModule(in_channels, out_channels, kernel_size, stride,
-            padding, dilation, groups, bias, conv_cfg, norm_cfg, act_cfg,
-            order, dropout)]
+        layers = [ConvModule(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, conv_cfg, norm_cfg, act_cfg, order, dropout)]
         for ii in range(1, num_convs):
             if dropouts is not None:
                 dropout = dropouts[ii]
             else:
                 dropout = None
-            layers.append(ConvModule(out_channels, out_channels,
-                kernel_size, stride, padding, dilation, groups, bias,
-                conv_cfg, norm_cfg, act_cfg, order, dropout))
+            layers.append(ConvModule(out_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, conv_cfg, norm_cfg, act_cfg, order, dropout))
         self.block = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1071,10 +998,8 @@ class FRN(nn.Module):
     def __init__(self, num_features, eps=1e-06):
         super(FRN, self).__init__()
         self.num_features = num_features
-        self.gamma = Parameter(torch.Tensor(1, num_features, 1, 1),
-            requires_grad=True)
-        self.beta = Parameter(torch.Tensor(1, num_features, 1, 1),
-            requires_grad=True)
+        self.gamma = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
+        self.beta = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
         self.register_buffer('eps', torch.Tensor([eps]))
         self.reset_parameters()
 
@@ -1094,11 +1019,9 @@ class FRN(nn.Module):
 
 @UTILS.register_module
 class Upsample(nn.Module):
-    __constants__ = ['size', 'scale_factor', 'scale_bias', 'mode',
-        'align_corners', 'name']
+    __constants__ = ['size', 'scale_factor', 'scale_bias', 'mode', 'align_corners', 'name']
 
-    def __init__(self, size=None, scale_factor=None, scale_bias=0, mode=
-        'nearest', align_corners=None):
+    def __init__(self, size=None, scale_factor=None, scale_bias=0, mode='nearest', align_corners=None):
         super(Upsample, self).__init__()
         self.size = size
         self.scale_factor = scale_factor
@@ -1115,8 +1038,7 @@ class Upsample(nn.Module):
             new_h = int(h * self.scale_factor + self.scale_bias)
             new_w = int(w * self.scale_factor + self.scale_bias)
             size = new_h, new_w
-        return F.interpolate(x, size=size, mode=self.mode, align_corners=
-            self.align_corners)
+        return F.interpolate(x, size=size, mode=self.mode, align_corners=self.align_corners)
 
     def extra_repr(self):
         if self.size is not None:
@@ -1132,27 +1054,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Media_Smart_vedaseg(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(ASPPConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ASPPConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dilation': 1, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ASPPPooling,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CollectBlock,
+     lambda: ([], {'from_layer': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FRN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Head,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TLU,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_Media_Smart_vedaseg(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ASPPPooling(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4, 'norm_layer': _mock_layer, 'act_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CollectBlock(*[], **{'from_layer': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(FRN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Head(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(TLU(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

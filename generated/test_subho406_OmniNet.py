@@ -38,8 +38,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -106,8 +107,7 @@ from torch.autograd import Variable
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -139,8 +139,7 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
@@ -177,12 +176,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -194,8 +191,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -209,9 +205,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -236,14 +230,11 @@ class EncoderLayer(nn.Module):
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
         super(EncoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=
-            dropout)
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
     def forward(self, enc_input, non_pad_mask, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input,
-            enc_input, mask=slf_attn_mask)
+        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
         if non_pad_mask is not None:
             enc_output *= non_pad_mask
         enc_output = self.pos_ffn(enc_output)
@@ -255,32 +246,23 @@ class EncoderLayer(nn.Module):
 class DecoderLayer(nn.Module):
     """ Compose with three layers """
 
-    def __init__(self, d_model, d_inner, n_head, d_k, d_v, temporal_dim,
-        spatial_dim, dropout=0.1, gpu_id=-1):
+    def __init__(self, d_model, d_inner, n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=0.1, gpu_id=-1):
         super(DecoderLayer, self).__init__()
         self.gpu_id = gpu_id
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.temporal_cache_attn = MultiHeadAttention(n_head, temporal_dim,
-            d_k, d_v, dropout=dropout)
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.temporal_cache_attn = MultiHeadAttention(n_head, temporal_dim, d_k, d_v, dropout=dropout)
         self.temporal_proj = nn.Linear(d_model, temporal_dim)
         self.spatial_proj = nn.Linear(temporal_dim, spatial_dim)
-        self.spatial_cache_attn = MultiHeadAttention(n_head, spatial_dim,
-            d_k, d_v, dropout=dropout)
+        self.spatial_cache_attn = MultiHeadAttention(n_head, spatial_dim, d_k, d_v, dropout=dropout)
         self.spat_dec_proj = nn.Linear(spatial_dim, d_model)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=
-            dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
-    def forward(self, dec_input, temporal_cache, spatial_cache,
-        temporal_spatial_link, non_pad_mask, slf_attn_mask=None,
-        dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input,
-            dec_input, mask=slf_attn_mask)
+    def forward(self, dec_input, temporal_cache, spatial_cache, temporal_spatial_link, non_pad_mask, slf_attn_mask=None, dec_enc_attn_mask=None):
+        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
         if non_pad_mask is not None:
             dec_output *= non_pad_mask
         dec_temp = self.temporal_proj(dec_output)
-        dec_temp, dec_temp_attn = self.temporal_cache_attn(dec_temp,
-            temporal_cache, temporal_cache, mask=dec_enc_attn_mask)
+        dec_temp, dec_temp_attn = self.temporal_cache_attn(dec_temp, temporal_cache, temporal_cache, mask=dec_enc_attn_mask)
         if non_pad_mask is not None:
             dec_temp *= non_pad_mask
         dec_spat = self.spatial_proj(dec_temp)
@@ -293,14 +275,12 @@ class DecoderLayer(nn.Module):
                 if s > 1:
                     temp_sel = dec_temp_attn[:, :, :, idx_start:idx_start + t]
                     b, nh, dq, t = temp_sel.shape
-                    temp_sel = temp_sel.unsqueeze(4).expand(b, nh, dq, t, s
-                        ).transpose(3, 4)
+                    temp_sel = temp_sel.unsqueeze(4).expand(b, nh, dq, t, s).transpose(3, 4)
                     temp_sel = temp_sel.reshape(b, nh, dq, t * s)
                     spatial_gate.append(temp_sel)
                 idx_start = idx_start + t
             spatial_gate = torch.cat(spatial_gate, dim=3)
-            dec_spat, dec_spat_attn = self.spatial_cache_attn(dec_spat,
-                spatial_cache, spatial_cache, k_gate=spatial_gate)
+            dec_spat, dec_spat_attn = self.spatial_cache_attn(dec_spat, spatial_cache, spatial_cache, k_gate=spatial_gate)
             if non_pad_mask is not None:
                 dec_spat *= non_pad_mask
         dec_output = self.spat_dec_proj(dec_spat)
@@ -343,14 +323,10 @@ class MultiHeadAttention(nn.Module):
         self.w_qs = nn.Linear(d_model, n_head * d_k)
         self.w_ks = nn.Linear(d_model, n_head * d_k)
         self.w_vs = nn.Linear(d_model, n_head * d_v)
-        nn.init.normal_(self.w_qs.weight, mean=0, std=np.sqrt(2.0 / (
-            d_model + d_k)))
-        nn.init.normal_(self.w_ks.weight, mean=0, std=np.sqrt(2.0 / (
-            d_model + d_k)))
-        nn.init.normal_(self.w_vs.weight, mean=0, std=np.sqrt(2.0 / (
-            d_model + d_v)))
-        self.attention = ScaledDotProductAttention(temperature=np.power(d_k,
-            0.5))
+        nn.init.normal_(self.w_qs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_ks.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_vs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_v)))
+        self.attention = ScaledDotProductAttention(temperature=np.power(d_k, 0.5))
         self.layer_norm = nn.LayerNorm(d_model)
         self.fc = nn.Linear(n_head * d_v, d_model)
         nn.init.xavier_normal_(self.fc.weight)
@@ -409,8 +385,7 @@ class CNP(nn.Module):
         if conf != None:
             for k in conf.keys():
                 if k not in conf:
-                    raise ValueError(
-                        'The provided configuration does not contain %s' % k)
+                    raise ValueError('The provided configuration does not contain %s' % k)
         else:
             conf = default_conf
         self.gpu_id = gpu_id
@@ -438,47 +413,30 @@ class CNP(nn.Module):
             self.task_clflen = list(tasks.values())
             self.task_dict = {t: i for i, t in enumerate(tasks.keys())}
         else:
-            raise ValueError(
-                'Tasks must be of type dict containing the tasks and output classifier dimension'
-                )
-        self.output_clfs = nn.ModuleList([nn.Linear(self.output_dim, t) for
-            t in self.task_clflen])
-        self.output_embs = nn.ModuleList([nn.Embedding(t + 1, self.
-            output_embedding_dim, padding_idx=t) for t in self.task_clflen])
+            raise ValueError('Tasks must be of type dict containing the tasks and output classifier dimension')
+        self.output_clfs = nn.ModuleList([nn.Linear(self.output_dim, t) for t in self.task_clflen])
+        self.output_embs = nn.ModuleList([nn.Embedding(t + 1, self.output_embedding_dim, padding_idx=t) for t in self.task_clflen])
         control_states = domains + list(tasks.keys())
-        self.control_peripheral = ControlPeripheral(self.control_dim,
-            control_states, gpu_id=gpu_id)
-        self.temporal_encoder = TemporalCacheEncoder(self.max_seq_len, self
-            .temporal_n_layers, self.temporal_n_heads, self.temporal_d_k,
-            self.temporal_d_v, self.temporal_dim, self.temporal_hidden_dim,
-            dropout=self.dropout, gpu_id=self.gpu_id)
-        self.decoder = Decoder(self.max_seq_len, self.decoder_n_layers,
-            self.decoder_n_heads, self.decoder_d_k, self.decoder_d_v, self.
-            decoder_dim, self.decoder_hidden_dim, self.temporal_dim, self.
-            spatial_dim, self.output_dim, dropout=self.dropout, gpu_id=self
-            .gpu_id)
+        self.control_peripheral = ControlPeripheral(self.control_dim, control_states, gpu_id=gpu_id)
+        self.temporal_encoder = TemporalCacheEncoder(self.max_seq_len, self.temporal_n_layers, self.temporal_n_heads, self.temporal_d_k, self.temporal_d_v, self.temporal_dim, self.temporal_hidden_dim, dropout=self.dropout, gpu_id=self.gpu_id)
+        self.decoder = Decoder(self.max_seq_len, self.decoder_n_layers, self.decoder_n_heads, self.decoder_d_k, self.decoder_d_v, self.decoder_dim, self.decoder_hidden_dim, self.temporal_dim, self.spatial_dim, self.output_dim, dropout=self.dropout, gpu_id=self.gpu_id)
         self.spatial_cache = None
         self.temporal_cache = None
         self.decoder_cache = None
         self.temporal_spatial_link = []
         self.pad_cache = None
         self.spatial_pool = nn.AdaptiveAvgPool1d(1)
-        self.inpcont_input_proj = nn.Linear(self.input_dim + self.
-            control_dim, self.input_dim)
+        self.inpcont_input_proj = nn.Linear(self.input_dim + self.control_dim, self.input_dim)
         self.input_spatial_proj = nn.Linear(self.input_dim, self.spatial_dim)
         self.input_temporal_proj = nn.Linear(self.input_dim, self.temporal_dim)
-        self.emb_decoder_proj = nn.Linear(self.output_embedding_dim, self.
-            decoder_dim)
+        self.emb_decoder_proj = nn.Linear(self.output_embedding_dim, self.decoder_dim)
         self.cont_decoder_proj = nn.Linear(self.control_dim, self.decoder_dim)
 
-    def decode(self, task, targets=None, num_steps=100, recurrent_steps=1,
-        pad_mask=None, beam_width=1):
+    def decode(self, task, targets=None, num_steps=100, recurrent_steps=1, pad_mask=None, beam_width=1):
         if targets is not None:
             b, t = targets.shape
             if len(targets.shape) != 2 or targets.shape[0] != self.batch_size:
-                raise ValueError(
-                    'Target tensor must be of shape (batch_size,length of sequence).'
-                    )
+                raise ValueError('Target tensor must be of shape (batch_size,length of sequence).')
             if task not in self.task_dict.keys():
                 raise ValueError('Invalid task %s' % task)
             dec_inputs = self.output_embs[self.task_dict[task]](targets)
@@ -488,12 +446,9 @@ class CNP(nn.Module):
             control = self.cont_decoder_proj(control)
             dec_inputs = torch.cat([control, dec_inputs], 1)
             if pad_mask is not None:
-                pad_extra = torch.zeros((b, 1), device=self.gpu_id, dtype=
-                    pad_mask.dtype)
+                pad_extra = torch.zeros((b, 1), device=self.gpu_id, dtype=pad_mask.dtype)
                 pad_mask = torch.cat([pad_extra, pad_mask], 1)
-            logits, = self.decoder(dec_inputs, self.spatial_cache, self.
-                temporal_cache, self.temporal_spatial_link, self.pad_cache,
-                recurrent_steps=recurrent_steps, pad_mask=pad_mask)
+            logits, = self.decoder(dec_inputs, self.spatial_cache, self.temporal_cache, self.temporal_spatial_link, self.pad_cache, recurrent_steps=recurrent_steps, pad_mask=pad_mask)
             predictions = self.output_clfs[self.task_dict[task]](logits)
             predictions = predictions[:, 0:t, :]
             return log_softmax(predictions, dim=2)
@@ -503,9 +458,7 @@ class CNP(nn.Module):
             control = self.cont_decoder_proj(control)
             dec_inputs = control
             for i in range(num_steps - 1):
-                logits, = self.decoder(dec_inputs, self.spatial_cache, self
-                    .temporal_cache, self.temporal_spatial_link, self.
-                    pad_cache, recurrent_steps=recurrent_steps)
+                logits, = self.decoder(dec_inputs, self.spatial_cache, self.temporal_cache, self.temporal_spatial_link, self.pad_cache, recurrent_steps=recurrent_steps)
                 prediction = self.output_clfs[self.task_dict[task]](logits)
                 prediction = prediction[:, (-1), :].unsqueeze(1)
                 prediction = log_softmax(prediction, dim=2).argmax(-1)
@@ -514,9 +467,7 @@ class CNP(nn.Module):
                 if beam_width > 1:
                     p = torch.topk(softmax(prediction), beam_width)
                 dec_inputs = torch.cat([dec_inputs, prediction], 1)
-            logits, = self.decoder(dec_inputs, self.spatial_cache, self.
-                temporal_cache, self.temporal_spatial_link, self.pad_cache,
-                recurrent_steps=recurrent_steps)
+            logits, = self.decoder(dec_inputs, self.spatial_cache, self.temporal_cache, self.temporal_spatial_link, self.pad_cache, recurrent_steps=recurrent_steps)
             predictions = self.output_clfs[self.task_dict[task]](logits)
             return log_softmax(predictions, dim=2)
 
@@ -536,21 +487,17 @@ class CNP(nn.Module):
             if self.spatial_cache is None:
                 self.spatial_cache = spatial_f
             else:
-                self.spatial_cache = torch.cat([self.spatial_cache,
-                    spatial_f], 1)
+                self.spatial_cache = torch.cat([self.spatial_cache, spatial_f], 1)
         temp_data = input.transpose(2, 3).reshape(b * t, f, s)
         temp_data = self.spatial_pool(temp_data).reshape(b, t, f)
         temp_data = self.input_temporal_proj(temp_data)
-        temp_data, = self.temporal_encoder(temp_data, pad_mask=pad_mask,
-            recurrent_steps=recurrent_steps)
+        temp_data, = self.temporal_encoder(temp_data, pad_mask=pad_mask, recurrent_steps=recurrent_steps)
         if self.temporal_cache is None:
             self.temporal_cache = temp_data
         else:
-            self.temporal_cache = torch.cat([self.temporal_cache, temp_data], 1
-                )
+            self.temporal_cache = torch.cat([self.temporal_cache, temp_data], 1)
         if pad_mask is None:
-            pad_mask = torch.zeros((b, t), device=self.gpu_id, dtype=torch.
-                uint8)
+            pad_mask = torch.zeros((b, t), device=self.gpu_id, dtype=torch.uint8)
         if self.pad_cache is None:
             self.pad_cache = pad_mask
         else:
@@ -573,13 +520,7 @@ class CNP(nn.Module):
 
     @staticmethod
     def __defaultconf__():
-        conf = {'input_dim': 128, 'control_dim': 32, 'output_dim': 128,
-            'spatial_dim': 128, 'temporal_dim': 512, 'temporal_n_layers': 6,
-            'temporal_n_heads': 8, 'temporal_d_k': 64, 'temporal_d_v': 64,
-            'temporal_hidden_dim': 2048, 'decoder_dim': 512,
-            'decoder_n_layers': 6, 'decoder_n_heads': 8, 'decoder_d_k': 64,
-            'decoder_d_v': 64, 'decoder_hidden_dim': 2048, 'max_seq_len': 
-            1000, 'output_embedding_dim': 300, 'dropout': 0.1}
+        conf = {'input_dim': 128, 'control_dim': 32, 'output_dim': 128, 'spatial_dim': 128, 'temporal_dim': 512, 'temporal_n_layers': 6, 'temporal_n_heads': 8, 'temporal_d_k': 64, 'temporal_d_v': 64, 'temporal_hidden_dim': 2048, 'decoder_dim': 512, 'decoder_n_layers': 6, 'decoder_n_heads': 8, 'decoder_d_k': 64, 'decoder_d_v': 64, 'decoder_hidden_dim': 2048, 'max_seq_len': 1000, 'output_embedding_dim': 300, 'dropout': 0.1}
         return conf
 
 
@@ -601,16 +542,13 @@ class ControlPeripheral(nn.Module):
         self.control_dict = {}
         for i, c in enumerate(control_states):
             self.control_dict[c] = i
-        self.control_embeddings = nn.Embedding(len(control_states) + 1,
-            self.control_dim)
+        self.control_embeddings = nn.Embedding(len(control_states) + 1, self.control_dim)
 
     def forward(self, control_state, shape=()):
         if self.gpu_id >= 0:
-            control_ids = torch.ones(shape, dtype=torch.long, device=self.
-                gpu_id) * self.control_dict[control_state]
+            control_ids = torch.ones(shape, dtype=torch.long, device=self.gpu_id) * self.control_dict[control_state]
         else:
-            control_ids = torch.ones(shape, dtype=torch.long
-                ) * self.control_dict[control_state]
+            control_ids = torch.ones(shape, dtype=torch.long) * self.control_dict[control_state]
         return self.control_embeddings(control_ids)
 
 
@@ -636,8 +574,7 @@ def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
 
     def get_posi_angle_vec(position):
         return [cal_angle(position, hid_j) for hid_j in range(d_hid)]
-    sinusoid_table = np.array([get_posi_angle_vec(pos_i) for pos_i in range
-        (n_position)])
+    sinusoid_table = np.array([get_posi_angle_vec(pos_i) for pos_i in range(n_position)])
     sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])
     sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])
     if padding_idx is not None:
@@ -647,20 +584,15 @@ def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
 
 class TemporalCacheEncoder(nn.Module):
 
-    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model,
-        d_inner, dropout=0.1, gpu_id=-1):
+    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1, gpu_id=-1):
         super().__init__()
         n_position = len_max_seq + 1
         self.dropout_emb = nn.Dropout(dropout)
-        self.position_enc = nn.Embedding.from_pretrained(
-            get_sinusoid_encoding_table(n_position, d_model, padding_idx=0),
-            freeze=True)
-        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner,
-            n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
+        self.position_enc = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(n_position, d_model, padding_idx=0), freeze=True)
+        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
         self.gpu_id = gpu_id
 
-    def forward(self, src_seq, return_attns=False, recurrent_steps=1,
-        pad_mask=None):
+    def forward(self, src_seq, return_attns=False, recurrent_steps=1, pad_mask=None):
         enc_slf_attn_list = []
         b, t, _ = src_seq.shape
         if self.gpu_id >= 0:
@@ -676,8 +608,7 @@ class TemporalCacheEncoder(nn.Module):
         non_pad_mask = get_non_pad_mask(src_seq, pad_mask)
         for i in range(recurrent_steps):
             for enc_layer in self.layer_stack:
-                enc_output, enc_slf_attn = enc_layer(enc_output,
-                    non_pad_mask, slf_attn_mask=slf_attn_mask)
+                enc_output, enc_slf_attn = enc_layer(enc_output, non_pad_mask, slf_attn_mask=slf_attn_mask)
                 if return_attns:
                     enc_slf_attn_list += [enc_slf_attn]
         if return_attns:
@@ -689,34 +620,24 @@ def get_subsequent_mask(shape, gpu_id):
     """ For masking out the subsequent info. """
     sz_b, len_s = shape
     if gpu_id >= 0:
-        subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=
-            gpu_id, dtype=torch.uint8), diagonal=1)
+        subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=gpu_id, dtype=torch.uint8), diagonal=1)
     else:
-        subsequent_mask = torch.triu(torch.ones((len_s, len_s), dtype=torch
-            .uint8), diagonal=1)
+        subsequent_mask = torch.triu(torch.ones((len_s, len_s), dtype=torch.uint8), diagonal=1)
     subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
     return subsequent_mask
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model,
-        d_inner, temporal_dim, spatial_dim, output_dim, dropout=0.1, gpu_id=-1
-        ):
+    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model, d_inner, temporal_dim, spatial_dim, output_dim, dropout=0.1, gpu_id=-1):
         super().__init__()
         n_position = len_max_seq + 1
-        self.position_enc = nn.Embedding.from_pretrained(
-            get_sinusoid_encoding_table(n_position, d_model, padding_idx=0),
-            freeze=True)
-        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner,
-            n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=dropout,
-            gpu_id=gpu_id) for _ in range(n_layers)])
+        self.position_enc = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(n_position, d_model, padding_idx=0), freeze=True)
+        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner, n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=dropout, gpu_id=gpu_id) for _ in range(n_layers)])
         self.output_fc = nn.Linear(d_model, output_dim)
         self.gpu_id = gpu_id
 
-    def forward(self, dec_inputs, spatial_cache, temporal_cache,
-        temporal_spatial_link, pad_cache, pad_mask=None, return_attns=False,
-        recurrent_steps=1):
+    def forward(self, dec_inputs, spatial_cache, temporal_cache, temporal_spatial_link, pad_cache, pad_mask=None, return_attns=False, recurrent_steps=1):
         b, t, _ = dec_inputs.shape
         if self.gpu_id >= 0:
             dec_pos = torch.arange(1, t + 1, device=self.gpu_id).repeat(b, 1)
@@ -733,23 +654,14 @@ class Decoder(nn.Module):
         non_pad_mask = get_non_pad_mask(dec_inputs, pad_mask)
         for i in range(recurrent_steps):
             for dec_layer in self.layer_stack:
-                dec_outputs, attns = dec_layer(dec_outputs, temporal_cache,
-                    spatial_cache, temporal_spatial_link, non_pad_mask,
-                    slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=
-                    dec_enc_attn_mask)
+                dec_outputs, attns = dec_layer(dec_outputs, temporal_cache, spatial_cache, temporal_spatial_link, non_pad_mask, slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=dec_enc_attn_mask)
         dec_outputs = self.output_fc(dec_outputs)
         if return_attns:
             return dec_outputs, attns
         return dec_outputs,
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
 
 
 def resnet152(pretrained=False, **kwargs):
@@ -776,20 +688,11 @@ class OmniNet(nn.Module):
             cc['dropout'] = dropout
             pc['dropout'] = dropout
         self.gpu_id = gpu_id
-        tasks = {'PENN': pc['penn_output_classes'], 'HMDB': pc[
-            'hmdb_output_classes'], 'IMAGE_CAPTION': pc[
-            'english_language_output_vocab'], 'VQA': pc['vqa_output_vocab']}
+        tasks = {'PENN': pc['penn_output_classes'], 'HMDB': pc['hmdb_output_classes'], 'IMAGE_CAPTION': pc['english_language_output_vocab'], 'VQA': pc['vqa_output_vocab']}
         self.cnp = CNP(tasks, conf=cc, domains=d, gpu_id=gpu_id)
-        self.image_input_perph = ImageInputPeripheral(output_dim=cc[
-            'input_dim'], dropout=pc['dropout'], freeze_layers=True)
-        self.english_language_perph = LanguagePeripheral(vocab_size=pc[
-            'english_language_input_vocab'], embed_dim=pc[
-            'english_language_input_embed'], output_dim=cc['input_dim'],
-            lang='en', gpu_id=gpu_id, dropout=pc['dropout'])
-        self.german_language_perph = LanguagePeripheral(vocab_size=pc[
-            'german_language_input_vocab'], embed_dim=pc[
-            'german_language_input_embed'], output_dim=cc['input_dim'],
-            lang='de', gpu_id=gpu_id)
+        self.image_input_perph = ImageInputPeripheral(output_dim=cc['input_dim'], dropout=pc['dropout'], freeze_layers=True)
+        self.english_language_perph = LanguagePeripheral(vocab_size=pc['english_language_input_vocab'], embed_dim=pc['english_language_input_embed'], output_dim=cc['input_dim'], lang='en', gpu_id=gpu_id, dropout=pc['dropout'])
+        self.german_language_perph = LanguagePeripheral(vocab_size=pc['german_language_input_vocab'], embed_dim=pc['german_language_input_embed'], output_dim=cc['input_dim'], lang='de', gpu_id=gpu_id)
 
     def reset(self, batch_size):
         self.cnp.reset(batch_size)
@@ -803,8 +706,7 @@ class OmniNet(nn.Module):
         self.cnp.encode(image_encodings, domain=domain)
 
     def encode_englishtexts(self, texts, domain='ENGLISH'):
-        sent_encodings, input_pad_mask = (self.english_language_perph.
-            embed_sentences(texts))
+        sent_encodings, input_pad_mask = self.english_language_perph.embed_sentences(texts)
         self.cnp.encode(sent_encodings, pad_mask=input_pad_mask, domain=domain)
 
     def decode_from_targets(self, task, targets, target_pad_mask=None):
@@ -826,16 +728,14 @@ class OmniNet(nn.Module):
         save_dir = os.path.join(checkpoint_dir, str(iterations), 'model.pth')
         pretrained_dict = torch.load(save_dir)
         model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            model_dict and model_dict[k].shape == pretrained_dict[k].shape}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and model_dict[k].shape == pretrained_dict[k].shape}
         self.load_state_dict(pretrained_dict, strict=False)
         None
 
     def restore_file(self, file):
         pretrained_dict = torch.load(file)
         model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            model_dict and model_dict[k].shape == pretrained_dict[k].shape}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and model_dict[k].shape == pretrained_dict[k].shape}
         self.load_state_dict(pretrained_dict, strict=False)
 
     @staticmethod
@@ -844,21 +744,8 @@ class OmniNet(nn.Module):
         The default confurigation as specified in the original paper
 
         """
-        cnp_conf = {'input_dim': 512, 'control_dim': 32, 'output_dim': 512,
-            'spatial_dim': 512, 'temporal_dim': 512, 'temporal_n_layers': 6,
-            'temporal_n_heads': 8, 'temporal_d_k': 64, 'temporal_d_v': 64,
-            'temporal_hidden_dim': 2048, 'decoder_dim': 512,
-            'decoder_n_layers': 6, 'decoder_n_heads': 8, 'decoder_d_k': 64,
-            'decoder_d_v': 64, 'decoder_hidden_dim': 2048, 'max_seq_len': 
-            500, 'output_embedding_dim': 300, 'dropout': 0.1}
-        perph_conf = {'german_language_input_vocab': 25000,
-            'german_language_input_embed': 300,
-            'english_language_input_vocab': 25000,
-            'english_language_input_embed': 300,
-            'english_language_output_vocab': 25000,
-            'german_language_output_vocab': 25000, 'dropout': 0.1,
-            'vqa_output_vocab': 3500, 'hmdb_output_classes': 52,
-            'penn_output_classes': 48}
+        cnp_conf = {'input_dim': 512, 'control_dim': 32, 'output_dim': 512, 'spatial_dim': 512, 'temporal_dim': 512, 'temporal_n_layers': 6, 'temporal_n_heads': 8, 'temporal_d_k': 64, 'temporal_d_v': 64, 'temporal_hidden_dim': 2048, 'decoder_dim': 512, 'decoder_n_layers': 6, 'decoder_n_heads': 8, 'decoder_d_k': 64, 'decoder_d_v': 64, 'decoder_hidden_dim': 2048, 'max_seq_len': 500, 'output_embedding_dim': 300, 'dropout': 0.1}
+        perph_conf = {'german_language_input_vocab': 25000, 'german_language_input_embed': 300, 'english_language_input_vocab': 25000, 'english_language_input_embed': 300, 'english_language_output_vocab': 25000, 'german_language_output_vocab': 25000, 'dropout': 0.1, 'vqa_output_vocab': 3500, 'hmdb_output_classes': 52, 'penn_output_classes': 48}
         domains = ['ENGLISH', 'GERMAN', 'IMAGE']
         return cnp_conf, perph_conf, domains
 
@@ -880,27 +767,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EncoderLayer,
+     lambda: ([], {'d_model': 4, 'd_inner': 4, 'n_head': 4, 'd_k': 4, 'd_v': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (MultiHeadAttention,
+     lambda: ([], {'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_in': 4, 'd_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ScaledDotProductAttention,
+     lambda: ([], {'temperature': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (TemporalCacheEncoder,
+     lambda: ([], {'len_max_seq': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_subho406_OmniNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(EncoderLayer(*[], **{'d_model': 4, 'd_inner': 4, 'n_head': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MultiHeadAttention(*[], **{'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_in': 4, 'd_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(TemporalCacheEncoder(*[], **{'len_max_seq': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

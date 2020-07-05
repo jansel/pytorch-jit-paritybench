@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,13 +61,11 @@ import math
 
 class mfm(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1, type=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, type=1):
         super(mfm, self).__init__()
         self.out_channels = out_channels
         if type == 1:
-            self.filter = nn.Conv2d(in_channels, 2 * out_channels,
-                kernel_size=kernel_size, stride=stride, padding=padding)
+            self.filter = nn.Conv2d(in_channels, 2 * out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         else:
             self.filter = nn.Linear(in_channels, 2 * out_channels)
 
@@ -78,12 +77,10 @@ class mfm(nn.Module):
 
 class group(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(group, self).__init__()
         self.conv_a = mfm(in_channels, in_channels, 1, 1, 0)
-        self.conv = mfm(in_channels, out_channels, kernel_size, stride, padding
-            )
+        self.conv = mfm(in_channels, out_channels, kernel_size, stride, padding)
 
     def forward(self, x):
         x = self.conv_a(x)
@@ -95,10 +92,8 @@ class resblock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(resblock, self).__init__()
-        self.conv1 = mfm(in_channels, out_channels, kernel_size=3, stride=1,
-            padding=1)
-        self.conv2 = mfm(in_channels, out_channels, kernel_size=3, stride=1,
-            padding=1)
+        self.conv1 = mfm(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = mfm(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         res = x
@@ -112,12 +107,7 @@ class network_9layers(nn.Module):
 
     def __init__(self, num_classes=79077):
         super(network_9layers, self).__init__()
-        self.features = nn.Sequential(mfm(1, 48, 5, 1, 2), nn.MaxPool2d(
-            kernel_size=2, stride=2, ceil_mode=True), group(48, 96, 3, 1, 1
-            ), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group
-            (96, 192, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2,
-            ceil_mode=True), group(192, 128, 3, 1, 1), group(128, 128, 3, 1,
-            1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+        self.features = nn.Sequential(mfm(1, 48, 5, 1, 2), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(48, 96, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(96, 192, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(192, 128, 3, 1, 1), group(128, 128, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
         self.fc1 = mfm(8 * 8 * 128, 256, type=0)
         self.fc2 = nn.Linear(256, num_classes)
 
@@ -224,14 +214,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (group,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (mfm,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (network_9layers,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 128, 128])], {}),
+     True),
+    (resblock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_AlfredXiangWu_LightCNN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(group(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(mfm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(resblock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

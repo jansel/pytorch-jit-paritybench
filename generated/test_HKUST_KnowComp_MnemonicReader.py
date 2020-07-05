@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,9 +72,7 @@ class StackedBRNN(nn.Module):
     for each sequence input is num_layers * hidden_size).
     """
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0,
-        dropout_output=False, rnn_type=nn.LSTM, concat_layers=False,
-        padding=False):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0, dropout_output=False, rnn_type=nn.LSTM, concat_layers=False, padding=False):
         super(StackedBRNN, self).__init__()
         self.padding = padding
         self.dropout_output = dropout_output
@@ -83,8 +82,7 @@ class StackedBRNN(nn.Module):
         self.rnns = nn.ModuleList()
         for i in range(num_layers):
             input_size = input_size if i == 0 else 2 * hidden_size
-            self.rnns.append(rnn_type(input_size, hidden_size, num_layers=1,
-                bidirectional=True))
+            self.rnns.append(rnn_type(input_size, hidden_size, num_layers=1, bidirectional=True))
 
     def forward(self, x, x_mask):
         """Encode either padded or non-padded sequences.
@@ -98,8 +96,7 @@ class StackedBRNN(nn.Module):
         Output:
             x_encoded: batch * len * hdim_encoded
         """
-        if x_mask.data.sum() == 0 or x_mask.data.eq(1).long().sum(1).min(
-            ) == 0:
+        if x_mask.data.sum() == 0 or x_mask.data.eq(1).long().sum(1).min() == 0:
             output = self._forward_unpadded(x, x_mask)
         elif self.padding or not self.training:
             output = self._forward_padded(x, x_mask)
@@ -114,8 +111,7 @@ class StackedBRNN(nn.Module):
         for i in range(self.num_layers):
             rnn_input = outputs[-1]
             if self.dropout_rate > 0:
-                rnn_input = F.dropout(rnn_input, p=self.dropout_rate,
-                    training=self.training)
+                rnn_input = F.dropout(rnn_input, p=self.dropout_rate, training=self.training)
             rnn_output = self.rnns[i](rnn_input)[0]
             outputs.append(rnn_output)
         if self.concat_layers:
@@ -124,8 +120,7 @@ class StackedBRNN(nn.Module):
             output = outputs[-1]
         output = output.transpose(0, 1)
         if self.dropout_output and self.dropout_rate > 0:
-            output = F.dropout(output, p=self.dropout_rate, training=self.
-                training)
+            output = F.dropout(output, p=self.dropout_rate, training=self.training)
         return output
 
     def _forward_padded(self, x, x_mask):
@@ -145,10 +140,8 @@ class StackedBRNN(nn.Module):
         for i in range(self.num_layers):
             rnn_input = outputs[-1]
             if self.dropout_rate > 0:
-                dropout_input = F.dropout(rnn_input.data, p=self.
-                    dropout_rate, training=self.training)
-                rnn_input = nn.utils.rnn.PackedSequence(dropout_input,
-                    rnn_input.batch_sizes)
+                dropout_input = F.dropout(rnn_input.data, p=self.dropout_rate, training=self.training)
+                rnn_input = nn.utils.rnn.PackedSequence(dropout_input, rnn_input.batch_sizes)
             outputs.append(self.rnns[i](rnn_input)[0])
         for i, o in enumerate(outputs[1:], 1):
             outputs[i] = nn.utils.rnn.pad_packed_sequence(o)[0]
@@ -159,12 +152,10 @@ class StackedBRNN(nn.Module):
         output = output.transpose(0, 1)
         output = output.index_select(0, idx_unsort)
         if output.size(1) != x_mask.size(1):
-            padding = torch.zeros(output.size(0), x_mask.size(1) - output.
-                size(1), output.size(2)).type(output.data.type())
+            padding = torch.zeros(output.size(0), x_mask.size(1) - output.size(1), output.size(2)).type(output.data.type())
             output = torch.cat([output, Variable(padding)], 1)
         if self.dropout_output and self.dropout_rate > 0:
-            output = F.dropout(output, p=self.dropout_rate, training=self.
-                training)
+            output = F.dropout(output, p=self.dropout_rate, training=self.training)
         return output
 
 
@@ -177,16 +168,14 @@ class FeedForwardNetwork(nn.Module):
         self.linear2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        x_proj = F.dropout(F.relu(self.linear1(x)), p=self.dropout_rate,
-            training=self.training)
+        x_proj = F.dropout(F.relu(self.linear1(x)), p=self.dropout_rate, training=self.training)
         x_proj = self.linear2(x_proj)
         return x_proj
 
 
 class PointerNetwork(nn.Module):
 
-    def __init__(self, x_size, y_size, hidden_size, dropout_rate=0,
-        cell_type=nn.GRUCell, normalize=True):
+    def __init__(self, x_size, y_size, hidden_size, dropout_rate=0, cell_type=nn.GRUCell, normalize=True):
         super(PointerNetwork, self).__init__()
         self.normalize = normalize
         self.hidden_size = hidden_size
@@ -228,8 +217,7 @@ class PointerNetwork(nn.Module):
 
 class MemoryAnsPointer(nn.Module):
 
-    def __init__(self, x_size, y_size, hidden_size, hop=1, dropout_rate=0,
-        normalize=True):
+    def __init__(self, x_size, y_size, hidden_size, hop=1, dropout_rate=0, normalize=True):
         super(MemoryAnsPointer, self).__init__()
         self.normalize = normalize
         self.hidden_size = hidden_size
@@ -240,11 +228,9 @@ class MemoryAnsPointer(nn.Module):
         self.FFNs_end = nn.ModuleList()
         self.SFUs_end = nn.ModuleList()
         for i in range(self.hop):
-            self.FFNs_start.append(FeedForwardNetwork(x_size + y_size + 2 *
-                hidden_size, hidden_size, 1, dropout_rate))
+            self.FFNs_start.append(FeedForwardNetwork(x_size + y_size + 2 * hidden_size, hidden_size, 1, dropout_rate))
             self.SFUs_start.append(SFU(y_size, 2 * hidden_size))
-            self.FFNs_end.append(FeedForwardNetwork(x_size + y_size + 2 *
-                hidden_size, hidden_size, 1, dropout_rate))
+            self.FFNs_end.append(FeedForwardNetwork(x_size + y_size + 2 * hidden_size, hidden_size, 1, dropout_rate))
             self.SFUs_end.append(SFU(y_size, 2 * hidden_size))
 
     def forward(self, x, y, x_mask, y_mask):
@@ -256,8 +242,7 @@ class MemoryAnsPointer(nn.Module):
         p_e = None
         for i in range(self.hop):
             z_s_ = z_s.repeat(1, x.size(1), 1)
-            s = self.FFNs_start[i](torch.cat([x, z_s_, x * z_s_], 2)).squeeze(2
-                )
+            s = self.FFNs_start[i](torch.cat([x, z_s_, x * z_s_], 2)).squeeze(2)
             s.data.masked_fill_(x_mask.data, -float('inf'))
             p_s = F.softmax(s, dim=1)
             u_s = p_s.unsqueeze(1).bmm(x)
@@ -496,22 +481,11 @@ class MnemonicReader(nn.Module):
     def __init__(self, args, normalize=True):
         super(MnemonicReader, self).__init__()
         self.args = args
-        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim,
-            padding_idx=0)
-        self.char_embedding = nn.Embedding(args.char_size, args.
-            char_embedding_dim, padding_idx=0)
-        self.char_rnn = layers.StackedBRNN(input_size=args.
-            char_embedding_dim, hidden_size=args.char_hidden_size,
-            num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=
-            args.dropout_rnn_output, concat_layers=False, rnn_type=self.
-            RNN_TYPES[args.rnn_type], padding=False)
-        doc_input_size = (args.embedding_dim + args.char_hidden_size * 2 +
-            args.num_features)
-        self.encoding_rnn = layers.StackedBRNN(input_size=doc_input_size,
-            hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.
-            dropout_rnn, dropout_output=args.dropout_rnn_output,
-            concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type],
-            padding=args.rnn_padding)
+        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim, padding_idx=0)
+        self.char_embedding = nn.Embedding(args.char_size, args.char_embedding_dim, padding_idx=0)
+        self.char_rnn = layers.StackedBRNN(input_size=args.char_embedding_dim, hidden_size=args.char_hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=False)
+        doc_input_size = args.embedding_dim + args.char_hidden_size * 2 + args.num_features
+        self.encoding_rnn = layers.StackedBRNN(input_size=doc_input_size, hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
         doc_hidden_size = 2 * args.hidden_size
         self.interactive_aligners = nn.ModuleList()
         self.interactive_SFUs = nn.ModuleList()
@@ -519,23 +493,12 @@ class MnemonicReader(nn.Module):
         self.self_SFUs = nn.ModuleList()
         self.aggregate_rnns = nn.ModuleList()
         for i in range(args.hop):
-            self.interactive_aligners.append(layers.SeqAttnMatch(
-                doc_hidden_size, identity=True))
-            self.interactive_SFUs.append(layers.SFU(doc_hidden_size, 3 *
-                doc_hidden_size))
-            self.self_aligners.append(layers.SelfAttnMatch(doc_hidden_size,
-                identity=True, diag=False))
-            self.self_SFUs.append(layers.SFU(doc_hidden_size, 3 *
-                doc_hidden_size))
-            self.aggregate_rnns.append(layers.StackedBRNN(input_size=
-                doc_hidden_size, hidden_size=args.hidden_size, num_layers=1,
-                dropout_rate=args.dropout_rnn, dropout_output=args.
-                dropout_rnn_output, concat_layers=False, rnn_type=self.
-                RNN_TYPES[args.rnn_type], padding=args.rnn_padding))
-        self.mem_ans_ptr = layers.MemoryAnsPointer(x_size=2 * args.
-            hidden_size, y_size=2 * args.hidden_size, hidden_size=args.
-            hidden_size, hop=args.hop, dropout_rate=args.dropout_rnn,
-            normalize=normalize)
+            self.interactive_aligners.append(layers.SeqAttnMatch(doc_hidden_size, identity=True))
+            self.interactive_SFUs.append(layers.SFU(doc_hidden_size, 3 * doc_hidden_size))
+            self.self_aligners.append(layers.SelfAttnMatch(doc_hidden_size, identity=True, diag=False))
+            self.self_SFUs.append(layers.SFU(doc_hidden_size, 3 * doc_hidden_size))
+            self.aggregate_rnns.append(layers.StackedBRNN(input_size=doc_hidden_size, hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding))
+        self.mem_ans_ptr = layers.MemoryAnsPointer(x_size=2 * args.hidden_size, y_size=2 * args.hidden_size, hidden_size=args.hidden_size, hop=args.hop, dropout_rate=args.dropout_rnn, normalize=normalize)
 
     def forward(self, x1, x1_c, x1_f, x1_mask, x2, x2_c, x2_f, x2_mask):
         """Inputs:
@@ -553,26 +516,12 @@ class MnemonicReader(nn.Module):
         x1_c_emb = self.char_embedding(x1_c)
         x2_c_emb = self.char_embedding(x2_c)
         if self.args.dropout_emb > 0:
-            x1_emb = F.dropout(x1_emb, p=self.args.dropout_emb, training=
-                self.training)
-            x2_emb = F.dropout(x2_emb, p=self.args.dropout_emb, training=
-                self.training)
-            x1_c_emb = F.dropout(x1_c_emb, p=self.args.dropout_emb,
-                training=self.training)
-            x2_c_emb = F.dropout(x2_c_emb, p=self.args.dropout_emb,
-                training=self.training)
-        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) *
-            x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask
-            .unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.
-            size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((
-            x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :,
-            (-1), :]
-        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) *
-            x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask
-            .unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.
-            size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((
-            x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :,
-            (-1), :]
+            x1_emb = F.dropout(x1_emb, p=self.args.dropout_emb, training=self.training)
+            x2_emb = F.dropout(x2_emb, p=self.args.dropout_emb, training=self.training)
+            x1_c_emb = F.dropout(x1_c_emb, p=self.args.dropout_emb, training=self.training)
+            x2_c_emb = F.dropout(x2_c_emb, p=self.args.dropout_emb, training=self.training)
+        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask.unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :, (-1), :]
+        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask.unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :, (-1), :]
         crnn_input = [x1_emb, x1_c_features]
         qrnn_input = [x2_emb, x2_c_features]
         if self.args.num_features > 0:
@@ -583,14 +532,11 @@ class MnemonicReader(nn.Module):
         c_check = c
         for i in range(self.args.hop):
             q_tilde = self.interactive_aligners[i].forward(c_check, q, x2_mask)
-            c_bar = self.interactive_SFUs[i].forward(c_check, torch.cat([
-                q_tilde, c_check * q_tilde, c_check - q_tilde], 2))
+            c_bar = self.interactive_SFUs[i].forward(c_check, torch.cat([q_tilde, c_check * q_tilde, c_check - q_tilde], 2))
             c_tilde = self.self_aligners[i].forward(c_bar, x1_mask)
-            c_hat = self.self_SFUs[i].forward(c_bar, torch.cat([c_tilde, 
-                c_bar * c_tilde, c_bar - c_tilde], 2))
+            c_hat = self.self_SFUs[i].forward(c_bar, torch.cat([c_tilde, c_bar * c_tilde, c_bar - c_tilde], 2))
             c_check = self.aggregate_rnns[i].forward(c_hat, x1_mask)
-        start_scores, end_scores = self.mem_ans_ptr.forward(c_check, q,
-            x1_mask, x2_mask)
+        start_scores, end_scores = self.mem_ans_ptr.forward(c_check, q, x1_mask, x2_mask)
         return start_scores, end_scores
 
 
@@ -601,56 +547,26 @@ class R_Net(nn.Module):
     def __init__(self, args, normalize=True):
         super(R_Net, self).__init__()
         self.args = args
-        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim,
-            padding_idx=0)
-        self.char_embedding = nn.Embedding(args.char_size, args.
-            char_embedding_dim, padding_idx=0)
-        self.char_rnn = layers.StackedBRNN(input_size=args.
-            char_embedding_dim, hidden_size=args.char_hidden_size,
-            num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=
-            args.dropout_rnn_output, concat_layers=False, rnn_type=self.
-            RNN_TYPES[args.rnn_type], padding=False)
+        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim, padding_idx=0)
+        self.char_embedding = nn.Embedding(args.char_size, args.char_embedding_dim, padding_idx=0)
+        self.char_rnn = layers.StackedBRNN(input_size=args.char_embedding_dim, hidden_size=args.char_hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=False)
         doc_input_size = args.embedding_dim + args.char_hidden_size * 2
-        self.encode_rnn = layers.StackedBRNN(input_size=doc_input_size,
-            hidden_size=args.hidden_size, num_layers=args.doc_layers,
-            dropout_rate=args.dropout_rnn, dropout_output=args.
-            dropout_rnn_output, concat_layers=args.concat_rnn_layers,
-            rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
+        self.encode_rnn = layers.StackedBRNN(input_size=doc_input_size, hidden_size=args.hidden_size, num_layers=args.doc_layers, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=args.concat_rnn_layers, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
         doc_hidden_size = 2 * args.hidden_size
         question_hidden_size = 2 * args.hidden_size
         if args.concat_rnn_layers:
             doc_hidden_size *= args.doc_layers
             question_hidden_size *= args.question_layers
-        self.question_attn = layers.SeqAttnMatch(question_hidden_size,
-            identity=False)
-        self.question_attn_gate = layers.Gate(doc_hidden_size +
-            question_hidden_size)
-        self.question_attn_rnn = layers.StackedBRNN(input_size=
-            doc_hidden_size + question_hidden_size, hidden_size=args.
-            hidden_size, num_layers=1, dropout_rate=args.dropout_rnn,
-            dropout_output=args.dropout_rnn_output, concat_layers=False,
-            rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
+        self.question_attn = layers.SeqAttnMatch(question_hidden_size, identity=False)
+        self.question_attn_gate = layers.Gate(doc_hidden_size + question_hidden_size)
+        self.question_attn_rnn = layers.StackedBRNN(input_size=doc_hidden_size + question_hidden_size, hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
         question_attn_hidden_size = 2 * args.hidden_size
-        self.doc_self_attn = layers.SelfAttnMatch(question_attn_hidden_size,
-            identity=False)
-        self.doc_self_attn_gate = layers.Gate(question_attn_hidden_size +
-            question_attn_hidden_size)
-        self.doc_self_attn_rnn = layers.StackedBRNN(input_size=
-            question_attn_hidden_size + question_attn_hidden_size,
-            hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.
-            dropout_rnn, dropout_output=args.dropout_rnn_output,
-            concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type],
-            padding=args.rnn_padding)
+        self.doc_self_attn = layers.SelfAttnMatch(question_attn_hidden_size, identity=False)
+        self.doc_self_attn_gate = layers.Gate(question_attn_hidden_size + question_attn_hidden_size)
+        self.doc_self_attn_rnn = layers.StackedBRNN(input_size=question_attn_hidden_size + question_attn_hidden_size, hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
         doc_self_attn_hidden_size = 2 * args.hidden_size
-        self.doc_self_attn_rnn2 = layers.StackedBRNN(input_size=
-            doc_self_attn_hidden_size, hidden_size=args.hidden_size,
-            num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=
-            args.dropout_rnn_output, concat_layers=False, rnn_type=self.
-            RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
-        self.ptr_net = layers.PointerNetwork(x_size=
-            doc_self_attn_hidden_size, y_size=question_hidden_size,
-            hidden_size=args.hidden_size, dropout_rate=args.dropout_rnn,
-            cell_type=nn.GRUCell, normalize=normalize)
+        self.doc_self_attn_rnn2 = layers.StackedBRNN(input_size=doc_self_attn_hidden_size, hidden_size=args.hidden_size, num_layers=1, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=False, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
+        self.ptr_net = layers.PointerNetwork(x_size=doc_self_attn_hidden_size, y_size=question_hidden_size, hidden_size=args.hidden_size, dropout_rate=args.dropout_rnn, cell_type=nn.GRUCell, normalize=normalize)
 
     def forward(self, x1, x1_c, x1_f, x1_mask, x2, x2_c, x2_f, x2_mask):
         """Inputs:
@@ -668,37 +584,21 @@ class R_Net(nn.Module):
         x1_c_emb = self.char_embedding(x1_c)
         x2_c_emb = self.char_embedding(x2_c)
         if self.args.dropout_emb > 0:
-            x1_emb = F.dropout(x1_emb, p=self.args.dropout_emb, training=
-                self.training)
-            x2_emb = F.dropout(x2_emb, p=self.args.dropout_emb, training=
-                self.training)
-            x1_c_emb = F.dropout(x1_c_emb, p=self.args.dropout_emb,
-                training=self.training)
-            x2_c_emb = F.dropout(x2_c_emb, p=self.args.dropout_emb,
-                training=self.training)
-        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) *
-            x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask
-            .unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.
-            size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((
-            x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :,
-            (-1), :]
-        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) *
-            x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask
-            .unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.
-            size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((
-            x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :,
-            (-1), :]
+            x1_emb = F.dropout(x1_emb, p=self.args.dropout_emb, training=self.training)
+            x2_emb = F.dropout(x2_emb, p=self.args.dropout_emb, training=self.training)
+            x1_c_emb = F.dropout(x1_c_emb, p=self.args.dropout_emb, training=self.training)
+            x2_c_emb = F.dropout(x2_c_emb, p=self.args.dropout_emb, training=self.training)
+        x1_c_features = self.char_rnn(x1_c_emb.reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2), x1_c_emb.size(3))), x1_mask.unsqueeze(2).repeat(1, 1, x1_c_emb.size(2)).reshape((x1_c_emb.size(0) * x1_c_emb.size(1), x1_c_emb.size(2)))).reshape((x1_c_emb.size(0), x1_c_emb.size(1), x1_c_emb.size(2), -1))[:, :, (-1), :]
+        x2_c_features = self.char_rnn(x2_c_emb.reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2), x2_c_emb.size(3))), x2_mask.unsqueeze(2).repeat(1, 1, x2_c_emb.size(2)).reshape((x2_c_emb.size(0) * x2_c_emb.size(1), x2_c_emb.size(2)))).reshape((x2_c_emb.size(0), x2_c_emb.size(1), x2_c_emb.size(2), -1))[:, :, (-1), :]
         crnn_input = [x1_emb, x1_c_features]
         qrnn_input = [x2_emb, x2_c_features]
         c = self.encode_rnn(torch.cat(crnn_input, 2), x1_mask)
         q = self.encode_rnn(torch.cat(qrnn_input, 2), x2_mask)
         question_attn_hiddens = self.question_attn(c, q, x2_mask)
-        rnn_input = self.question_attn_gate(torch.cat([c,
-            question_attn_hiddens], 2))
+        rnn_input = self.question_attn_gate(torch.cat([c, question_attn_hiddens], 2))
         c = self.question_attn_rnn(rnn_input, x1_mask)
         doc_self_attn_hiddens = self.doc_self_attn(c, x1_mask)
-        rnn_input = self.doc_self_attn_gate(torch.cat([c,
-            doc_self_attn_hiddens], 2))
+        rnn_input = self.doc_self_attn_gate(torch.cat([c, doc_self_attn_hiddens], 2))
         c = self.doc_self_attn_rnn(rnn_input, x1_mask)
         c = self.doc_self_attn_rnn2(c, x1_mask)
         start_scores, end_scores = self.ptr_net(c, q, x1_mask, x2_mask)
@@ -712,23 +612,14 @@ class RnnDocReader(nn.Module):
     def __init__(self, args, normalize=True):
         super(RnnDocReader, self).__init__()
         self.args = args
-        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim,
-            padding_idx=0)
+        self.embedding = nn.Embedding(args.vocab_size, args.embedding_dim, padding_idx=0)
         if args.use_qemb:
             self.qemb_match = layers.SeqAttnMatch(args.embedding_dim)
         doc_input_size = args.embedding_dim + args.num_features
         if args.use_qemb:
             doc_input_size += args.embedding_dim
-        self.doc_rnn = layers.StackedBRNN(input_size=doc_input_size,
-            hidden_size=args.hidden_size, num_layers=args.doc_layers,
-            dropout_rate=args.dropout_rnn, dropout_output=args.
-            dropout_rnn_output, concat_layers=args.concat_rnn_layers,
-            rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
-        self.question_rnn = layers.StackedBRNN(input_size=args.
-            embedding_dim, hidden_size=args.hidden_size, num_layers=args.
-            question_layers, dropout_rate=args.dropout_rnn, dropout_output=
-            args.dropout_rnn_output, concat_layers=args.concat_rnn_layers,
-            rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
+        self.doc_rnn = layers.StackedBRNN(input_size=doc_input_size, hidden_size=args.hidden_size, num_layers=args.doc_layers, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=args.concat_rnn_layers, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
+        self.question_rnn = layers.StackedBRNN(input_size=args.embedding_dim, hidden_size=args.hidden_size, num_layers=args.question_layers, dropout_rate=args.dropout_rnn, dropout_output=args.dropout_rnn_output, concat_layers=args.concat_rnn_layers, rnn_type=self.RNN_TYPES[args.rnn_type], padding=args.rnn_padding)
         doc_hidden_size = 2 * args.hidden_size
         question_hidden_size = 2 * args.hidden_size
         if args.concat_rnn_layers:
@@ -738,10 +629,8 @@ class RnnDocReader(nn.Module):
             raise NotImplementedError('merge_mode = %s' % args.merge_mode)
         if args.question_merge == 'self_attn':
             self.self_attn = layers.LinearSeqAttn(question_hidden_size)
-        self.start_attn = layers.BilinearSeqAttn(doc_hidden_size,
-            question_hidden_size, normalize=normalize)
-        self.end_attn = layers.BilinearSeqAttn(doc_hidden_size,
-            question_hidden_size, normalize=normalize)
+        self.start_attn = layers.BilinearSeqAttn(doc_hidden_size, question_hidden_size, normalize=normalize)
+        self.end_attn = layers.BilinearSeqAttn(doc_hidden_size, question_hidden_size, normalize=normalize)
 
     def forward(self, x1, x1_c, x1_f, x1_mask, x2, x2_c, x2_f, x2_mask):
         """Inputs:
@@ -754,10 +643,8 @@ class RnnDocReader(nn.Module):
         x1_emb = self.embedding(x1)
         x2_emb = self.embedding(x2)
         if self.args.dropout_emb > 0:
-            x1_emb = nn.functional.dropout(x1_emb, p=self.args.dropout_emb,
-                training=self.training)
-            x2_emb = nn.functional.dropout(x2_emb, p=self.args.dropout_emb,
-                training=self.training)
+            x1_emb = nn.functional.dropout(x1_emb, p=self.args.dropout_emb, training=self.training)
+            x2_emb = nn.functional.dropout(x2_emb, p=self.args.dropout_emb, training=self.training)
         drnn_input = [x1_emb]
         if self.args.use_qemb:
             x2_weighted_emb = self.qemb_match(x1_emb, x2_emb, x2_mask)
@@ -770,8 +657,7 @@ class RnnDocReader(nn.Module):
             q_merge_weights = layers.uniform_weights(question_hiddens, x2_mask)
         elif self.args.question_merge == 'self_attn':
             q_merge_weights = self.self_attn(question_hiddens, x2_mask)
-        question_hidden = layers.weighted_avg(question_hiddens, q_merge_weights
-            )
+        question_hidden = layers.weighted_avg(question_hiddens, q_merge_weights)
         start_scores = self.start_attn(doc_hiddens, question_hidden, x1_mask)
         end_scores = self.end_attn(doc_hiddens, question_hidden, x1_mask)
         return start_scores, end_scores
@@ -781,19 +667,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FeedForwardNetwork,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Gate,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SFU,
+     lambda: ([], {'input_size': 4, 'fusion_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (StackedBRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_HKUST_KnowComp_MnemonicReader(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FeedForwardNetwork(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Gate(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SFU(*[], **{'input_size': 4, 'fusion_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(StackedBRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

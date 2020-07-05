@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -38,8 +39,7 @@ import numpy as np
 import random
 
 
-activation_getter = {'iden': lambda x: x, 'relu': F.relu, 'tanh': torch.
-    tanh, 'sigm': torch.sigmoid}
+activation_getter = {'iden': lambda x: x, 'relu': F.relu, 'tanh': torch.tanh, 'sigm': torch.sigmoid}
 
 
 class Caser(nn.Module):
@@ -73,8 +73,7 @@ class Caser(nn.Module):
         self.item_embeddings = nn.Embedding(num_items, dims)
         self.conv_v = nn.Conv2d(1, self.n_v, (L, 1))
         lengths = [(i + 1) for i in range(L)]
-        self.conv_h = nn.ModuleList([nn.Conv2d(1, self.n_h, (i, dims)) for
-            i in lengths])
+        self.conv_h = nn.ModuleList([nn.Conv2d(1, self.n_h, (i, dims)) for i in lengths])
         self.fc1_dim_v = self.n_v * dims
         self.fc1_dim_h = self.n_h * len(lengths)
         fc1_dim_in = self.fc1_dim_v + self.fc1_dim_h
@@ -82,10 +81,8 @@ class Caser(nn.Module):
         self.W2 = nn.Embedding(num_items, dims + dims)
         self.b2 = nn.Embedding(num_items, 1)
         self.dropout = nn.Dropout(self.drop_ratio)
-        self.user_embeddings.weight.data.normal_(0, 1.0 / self.
-            user_embeddings.embedding_dim)
-        self.item_embeddings.weight.data.normal_(0, 1.0 / self.
-            item_embeddings.embedding_dim)
+        self.user_embeddings.weight.data.normal_(0, 1.0 / self.user_embeddings.embedding_dim)
+        self.item_embeddings.weight.data.normal_(0, 1.0 / self.item_embeddings.embedding_dim)
         self.W2.weight.data.normal_(0, 1.0 / self.W2.embedding_dim)
         self.b2.weight.data.zero_()
         self.cache_x = None
@@ -134,10 +131,3 @@ class Caser(nn.Module):
             res = torch.baddbmm(b2, w2, x.unsqueeze(2)).squeeze()
         return res
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_graytowne_caser_pytorch(_paritybench_base):
-    pass

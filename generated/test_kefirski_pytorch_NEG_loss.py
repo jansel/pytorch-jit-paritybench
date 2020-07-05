@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -49,14 +50,10 @@ class NEG_loss(nn.Module):
         super(NEG_loss, self).__init__()
         self.num_classes = num_classes
         self.embed_size = embed_size
-        self.out_embed = nn.Embedding(self.num_classes, self.embed_size,
-            sparse=True)
-        self.out_embed.weight = Parameter(t.FloatTensor(self.num_classes,
-            self.embed_size).uniform_(-1, 1))
-        self.in_embed = nn.Embedding(self.num_classes, self.embed_size,
-            sparse=True)
-        self.in_embed.weight = Parameter(t.FloatTensor(self.num_classes,
-            self.embed_size).uniform_(-1, 1))
+        self.out_embed = nn.Embedding(self.num_classes, self.embed_size, sparse=True)
+        self.out_embed.weight = Parameter(t.FloatTensor(self.num_classes, self.embed_size).uniform_(-1, 1))
+        self.in_embed = nn.Embedding(self.num_classes, self.embed_size, sparse=True)
+        self.in_embed.weight = Parameter(t.FloatTensor(self.num_classes, self.embed_size).uniform_(-1, 1))
         self.weights = weights
         if self.weights is not None:
             assert min(self.weights) >= 0, 'Each weight should be >= 0'
@@ -79,24 +76,21 @@ class NEG_loss(nn.Module):
         """
         use_cuda = self.out_embed.weight.is_cuda
         [batch_size, window_size] = out_labels.size()
-        input = self.in_embed(input_labes.repeat(1, window_size).contiguous
-            ().view(-1))
+        input = self.in_embed(input_labes.repeat(1, window_size).contiguous().view(-1))
         output = self.out_embed(out_labels.contiguous().view(-1))
         if self.weights is not None:
             noise_sample_count = batch_size * window_size * num_sampled
             draw = self.sample(noise_sample_count)
             noise = draw.view(batch_size * window_size, num_sampled)
         else:
-            noise = Variable(t.Tensor(batch_size * window_size, num_sampled
-                ).uniform_(0, self.num_classes - 1).long())
+            noise = Variable(t.Tensor(batch_size * window_size, num_sampled).uniform_(0, self.num_classes - 1).long())
         if use_cuda:
             noise = noise
         noise = self.out_embed(noise).neg()
         log_target = (input * output).sum(1).squeeze().sigmoid().log()
         """ ∑[batch_size * window_size, num_sampled, embed_size] * [batch_size * window_size, embed_size, 1] ->
             ∑[batch_size, num_sampled, 1] -> [batch_size] """
-        sum_log_sampled = t.bmm(noise, input.unsqueeze(2)).sigmoid().log().sum(
-            1).squeeze()
+        sum_log_sampled = t.bmm(noise, input.unsqueeze(2)).sigmoid().log().sum(1).squeeze()
         loss = log_target + sum_log_sampled
         return -loss.sum() / batch_size
 
@@ -108,9 +102,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NEG_loss,
+     lambda: ([], {'num_classes': 4, 'embed_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), 4], {}),
+     False),
+]
+
 class Test_kefirski_pytorch_NEG_loss(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(NEG_loss(*[], **{'num_classes': 4, 'embed_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), 4], {})
+        self._check(*TESTCASES[0])
 

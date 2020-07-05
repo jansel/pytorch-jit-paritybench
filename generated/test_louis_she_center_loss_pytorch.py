@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -47,14 +48,6 @@ class FaceModel(nn.Module):
         self.num_classes = num_classes
         self.feature_dim = feature_dim
         if num_classes:
-            self.register_buffer('centers', (torch.rand(num_classes,
-                feature_dim) - 0.5) * 2)
+            self.register_buffer('centers', (torch.rand(num_classes, feature_dim) - 0.5) * 2)
             self.classifier = nn.Linear(self.feature_dim, num_classes)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_louis_she_center_loss_pytorch(_paritybench_base):
-    pass

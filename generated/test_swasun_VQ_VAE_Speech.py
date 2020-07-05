@@ -81,8 +81,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,8 +144,7 @@ from torch.nn import functional as F
 
 class Conv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dilation=1,
-        causal=False, mode='SAME'):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, causal=False, mode='SAME'):
         super(Conv, self).__init__()
         self.causal = causal
         self.mode = mode
@@ -154,8 +154,7 @@ class Conv(nn.Module):
             self.padding = dilation * (kernel_size - 1) // 2
         else:
             self.padding = 0
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-            dilation=dilation, padding=self.padding)
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation, padding=self.padding)
         self.conv = nn.utils.weight_norm(self.conv)
         nn.init.kaiming_normal_(self.conv.weight)
 
@@ -168,18 +167,14 @@ class Conv(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, skip_channels,
-        kernel_size, dilation, cin_channels=None, local_conditioning=True,
-        causal=False, mode='SAME'):
+    def __init__(self, in_channels, out_channels, skip_channels, kernel_size, dilation, cin_channels=None, local_conditioning=True, causal=False, mode='SAME'):
         super(ResBlock, self).__init__()
         self.causal = causal
         self.local_conditioning = local_conditioning
         self.cin_channels = cin_channels
         self.mode = mode
-        self.filter_conv = Conv(in_channels, out_channels, kernel_size,
-            dilation, causal, mode)
-        self.gate_conv = Conv(in_channels, out_channels, kernel_size,
-            dilation, causal, mode)
+        self.filter_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal, mode)
+        self.gate_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal, mode)
         self.res_conv = nn.Conv1d(out_channels, in_channels, kernel_size=1)
         self.skip_conv = nn.Conv1d(out_channels, skip_channels, kernel_size=1)
         self.res_conv = nn.utils.weight_norm(self.res_conv)
@@ -187,10 +182,8 @@ class ResBlock(nn.Module):
         nn.init.kaiming_normal_(self.res_conv.weight)
         nn.init.kaiming_normal_(self.skip_conv.weight)
         if self.local_conditioning:
-            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels,
-                kernel_size=1)
-            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels,
-                kernel_size=1)
+            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
+            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
             self.filter_conv_c = nn.utils.weight_norm(self.filter_conv_c)
             self.gate_conv_c = nn.utils.weight_norm(self.gate_conv_c)
             nn.init.kaiming_normal_(self.filter_conv_c.weight)
@@ -217,8 +210,7 @@ def gaussian_loss(y_hat, y, log_std_min=-7.0):
     y_hat = y_hat.transpose(1, 2)
     mean = y_hat[:, :, :1]
     log_std = torch.clamp(y_hat[:, :, 1:], min=log_std_min)
-    log_probs = -0.5 * (-math.log(2.0 * math.pi) - 2.0 * log_std - torch.
-        pow(y - mean, 2) * torch.exp(-2.0 * log_std))
+    log_probs = -0.5 * (-math.log(2.0 * math.pi) - 2.0 * log_std - torch.pow(y - mean, 2) * torch.exp(-2.0 * log_std))
     return log_probs.squeeze()
 
 
@@ -235,12 +227,10 @@ class GaussianLoss(nn.Module):
             return losses.mean(1).sum(0)
 
 
-def KL_gaussians(mu_q, logs_q, mu_p, logs_p, log_std_min=-7.0,
-    regularization=True):
+def KL_gaussians(mu_q, logs_q, mu_p, logs_p, log_std_min=-7.0, regularization=True):
     logs_q = torch.clamp(logs_q, min=log_std_min)
     logs_p = torch.clamp(logs_p, min=log_std_min)
-    KL_loss = logs_p - logs_q + 0.5 * ((torch.exp(2.0 * logs_q) + torch.pow
-        (mu_p - mu_q, 2)) * torch.exp(-2.0 * logs_p) - 1.0)
+    KL_loss = logs_p - logs_q + 0.5 * ((torch.exp(2.0 * logs_q) + torch.pow(mu_p - mu_q, 2)) * torch.exp(-2.0 * logs_p) - 1.0)
     if regularization:
         reg_loss = torch.pow(logs_q - logs_p, 2)
     else:
@@ -253,10 +243,8 @@ class KL_Loss(nn.Module):
     def __init__(self):
         super(KL_Loss, self).__init__()
 
-    def forward(self, mu_q, logs_q, mu_p, logs_p, regularization=True,
-        size_average=True):
-        KL_loss, reg_loss = KL_gaussians(mu_q, logs_q, mu_p, logs_p,
-            regularization=regularization)
+    def forward(self, mu_q, logs_q, mu_p, logs_p, regularization=True, size_average=True):
+        KL_loss, reg_loss = KL_gaussians(mu_q, logs_q, mu_p, logs_p, regularization=regularization)
         loss_tot = KL_loss + reg_loss * 4.0
         if size_average:
             return loss_tot.mean(), KL_loss.mean(), reg_loss.mean()
@@ -274,32 +262,26 @@ class STFT(torch.nn.Module):
         scale = self.filter_length / self.hop_length
         fourier_basis = np.fft.fft(np.eye(self.filter_length))
         cutoff = int(self.filter_length / 2 + 1)
-        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.
-            imag(fourier_basis[:cutoff, :])])
+        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
         forward_basis = torch.tensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.tensor(np.linalg.pinv(scale * fourier_basis).
-            T[:, (None), :])
+        inverse_basis = torch.tensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
         self.register_buffer('forward_basis', forward_basis.float())
         self.register_buffer('inverse_basis', inverse_basis.float())
 
     def forward(self, input_data):
         num_batches, _, num_samples = input_data.size()
         self.num_samples = num_samples
-        forward_transform = F.conv1d(input_data, self.forward_basis, stride
-            =self.hop_length, padding=self.filter_length)
+        forward_transform = F.conv1d(input_data, self.forward_basis, stride=self.hop_length, padding=self.filter_length)
         cutoff = int(self.filter_length / 2 + 1)
         real_part = forward_transform[:, :cutoff, :]
         imag_part = forward_transform[:, cutoff:, :]
         magnitude = torch.sqrt(real_part ** 2 + imag_part ** 2)
-        phase = torch.autograd.Variable(torch.atan2(imag_part.data,
-            real_part.data))
+        phase = torch.autograd.Variable(torch.atan2(imag_part.data, real_part.data))
         return magnitude, phase
 
     def inverse(self, magnitude, phase):
-        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase),
-            magnitude * torch.sin(phase)], dim=1)
-        inverse_transform = F.conv_transpose1d(recombine_magnitude_phase,
-            self.inverse_basis, stride=self.hop_length, padding=0)
+        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
+        inverse_transform = F.conv_transpose1d(recombine_magnitude_phase, self.inverse_basis, stride=self.hop_length, padding=0)
         inverse_transform = inverse_transform[:, :, self.filter_length:]
         inverse_transform = inverse_transform[:, :, :self.num_samples]
         return inverse_transform
@@ -312,17 +294,14 @@ def sample_from_gaussian(y_hat, log_std_min=-7.0, scale_factor=1.0):
     log_std = torch.clamp(y_hat[:, :, 1:], min=log_std_min)
     dist = Normal(mean, torch.exp(log_std))
     sample = dist.sample()
-    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=
-        scale_factor)
+    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=scale_factor)
     del dist
     return sample
 
 
 class Wavenet(nn.Module):
 
-    def __init__(self, out_channels=1, num_blocks=3, num_layers=10,
-        residual_channels=512, gate_channels=512, skip_channels=512,
-        kernel_size=2, cin_channels=128, upsample_scales=None, causal=True):
+    def __init__(self, out_channels=1, num_blocks=3, num_layers=10, residual_channels=512, gate_channels=512, skip_channels=512, kernel_size=2, cin_channels=128, upsample_scales=None, causal=True):
         super(Wavenet, self).__init__()
         self.causal = causal
         self.num_blocks = num_blocks
@@ -334,23 +313,15 @@ class Wavenet(nn.Module):
         self.cin_channels = cin_channels
         self.kernel_size = kernel_size
         self.front_channels = 32
-        self.front_conv = nn.Sequential(Conv(1, self.residual_channels,
-            self.front_channels, causal=self.causal), nn.ReLU())
+        self.front_conv = nn.Sequential(Conv(1, self.residual_channels, self.front_channels, causal=self.causal), nn.ReLU())
         self.res_blocks = nn.ModuleList()
         for b in range(self.num_blocks):
             for n in range(self.num_layers):
-                self.res_blocks.append(ResBlock(self.residual_channels,
-                    self.gate_channels, self.skip_channels, self.
-                    kernel_size, dilation=self.kernel_size ** n,
-                    cin_channels=self.cin_channels, local_conditioning=True,
-                    causal=self.causal, mode='SAME'))
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels,
-            self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(
-            self.skip_channels, self.out_channels, 1, causal=self.causal))
+                self.res_blocks.append(ResBlock(self.residual_channels, self.gate_channels, self.skip_channels, self.kernel_size, dilation=self.kernel_size ** n, cin_channels=self.cin_channels, local_conditioning=True, causal=self.causal, mode='SAME'))
+        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels, self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(self.skip_channels, self.out_channels, 1, causal=self.causal))
         self.upsample_conv = nn.ModuleList()
         for s in upsample_scales:
-            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2
-                ), stride=(1, s))
+            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2), stride=(1, s))
             convt = nn.utils.weight_norm(convt)
             nn.init.kaiming_normal_(convt.weight)
             self.upsample_conv.append(convt)
@@ -400,29 +371,20 @@ class Wavenet(nn.Module):
 
     def receptive_field_size(self):
         num_dir = 1 if self.causal else 2
-        dilations = [(2 ** (i % self.num_layers)) for i in range(self.
-            num_layers * self.num_blocks)]
-        return num_dir * (self.kernel_size - 1) * sum(dilations
-            ) + self.front_channels
+        dilations = [(2 ** (i % self.num_layers)) for i in range(self.num_layers * self.num_blocks)]
+        return num_dir * (self.kernel_size - 1) * sum(dilations) + self.front_channels
 
 
 class Wavenet_Student(nn.Module):
 
-    def __init__(self, num_blocks_student=[1, 1, 1, 4], num_layers=6,
-        front_channels=32, residual_channels=128, gate_channels=256,
-        skip_channels=128, kernel_size=3, cin_channels=80, causal=True):
+    def __init__(self, num_blocks_student=[1, 1, 1, 4], num_layers=6, front_channels=32, residual_channels=128, gate_channels=256, skip_channels=128, kernel_size=3, cin_channels=80, causal=True):
         super(Wavenet_Student, self).__init__()
         self.num_blocks = num_blocks_student
         self.num_flow = len(self.num_blocks)
         self.num_layers = num_layers
         self.iafs = nn.ModuleList()
         for i in range(self.num_flow):
-            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.
-                num_blocks[i], num_layers=self.num_layers, front_channels=
-                front_channels, residual_channels=residual_channels,
-                gate_channels=gate_channels, skip_channels=skip_channels,
-                kernel_size=kernel_size, cin_channels=cin_channels, causal=
-                causal))
+            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.num_blocks[i], num_layers=self.num_layers, front_channels=front_channels, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, kernel_size=kernel_size, cin_channels=cin_channels, causal=causal))
 
     def forward(self, z, c):
         return self.iaf(z, c)
@@ -452,9 +414,7 @@ class Wavenet_Student(nn.Module):
 
 class Wavenet_Flow(nn.Module):
 
-    def __init__(self, out_channels=1, num_blocks=4, num_layers=6,
-        front_channels=32, residual_channels=64, gate_channels=32,
-        skip_channels=None, kernel_size=3, cin_channels=80, causal=True):
+    def __init__(self, out_channels=1, num_blocks=4, num_layers=6, front_channels=32, residual_channels=64, gate_channels=32, skip_channels=None, kernel_size=3, cin_channels=80, causal=True):
         super(Wavenet_Flow, self).__init__()
         self.causal = causal
         self.num_blocks = num_blocks
@@ -466,20 +426,13 @@ class Wavenet_Flow(nn.Module):
         self.skip_channels = skip_channels
         self.cin_channels = cin_channels
         self.kernel_size = kernel_size
-        self.front_conv = nn.Sequential(Conv(1, self.residual_channels,
-            self.front_channels, causal=self.causal), nn.ReLU())
+        self.front_conv = nn.Sequential(Conv(1, self.residual_channels, self.front_channels, causal=self.causal), nn.ReLU())
         self.res_blocks = nn.ModuleList()
         self.res_blocks_fast = nn.ModuleList()
         for b in range(self.num_blocks):
             for n in range(self.num_layers):
-                self.res_blocks.append(ResBlock(self.residual_channels,
-                    self.gate_channels, self.skip_channels, self.
-                    kernel_size, dilation=self.kernel_size ** n,
-                    cin_channels=self.cin_channels, local_conditioning=True,
-                    causal=self.causal, mode='SAME'))
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels,
-            self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(
-            self.skip_channels, self.out_channels, 1, causal=self.causal))
+                self.res_blocks.append(ResBlock(self.residual_channels, self.gate_channels, self.skip_channels, self.kernel_size, dilation=self.kernel_size ** n, cin_channels=self.cin_channels, local_conditioning=True, causal=self.causal, mode='SAME'))
+        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels, self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(self.skip_channels, self.out_channels, 1, causal=self.causal))
 
     def forward(self, x, c):
         return self.wavenet(x, c)
@@ -495,10 +448,8 @@ class Wavenet_Flow(nn.Module):
 
     def receptive_field_size(self):
         num_dir = 1 if self.causal else 2
-        dilations = [(2 ** (i % self.num_layers)) for i in range(self.
-            num_layers * self.num_blocks)]
-        return num_dir * (self.kernel_size - 1) * sum(dilations) + 1 + (self
-            .front_channels - 1)
+        dilations = [(2 ** (i % self.num_layers)) for i in range(self.num_layers * self.num_blocks)]
+        return num_dir * (self.kernel_size - 1) * sum(dilations) + 1 + (self.front_channels - 1)
 
 
 logabs = lambda x: torch.log(torch.abs(x))
@@ -539,15 +490,10 @@ class ActNorm(nn.Module):
 
 class AffineCoupling(nn.Module):
 
-    def __init__(self, in_channel, cin_channel, filter_size=256, num_layer=
-        6, affine=True):
+    def __init__(self, in_channel, cin_channel, filter_size=256, num_layer=6, affine=True):
         super().__init__()
         self.affine = affine
-        self.net = Wavenet(in_channels=in_channel // 2, out_channels=
-            in_channel if self.affine else in_channel // 2, num_blocks=1,
-            num_layers=num_layer, residual_channels=filter_size,
-            gate_channels=filter_size, skip_channels=filter_size,
-            kernel_size=3, cin_channels=cin_channel // 2, causal=False)
+        self.net = Wavenet(in_channels=in_channel // 2, out_channels=in_channel if self.affine else in_channel // 2, num_blocks=1, num_layers=num_layer, residual_channels=filter_size, gate_channels=filter_size, skip_channels=filter_size, kernel_size=3, cin_channels=cin_channel // 2, causal=False)
 
     def forward(self, x, c=None):
         in_a, in_b = x.chunk(2, 1)
@@ -582,12 +528,10 @@ def change_order(x, c=None):
 
 class Flow(nn.Module):
 
-    def __init__(self, in_channel, cin_channel, filter_size, num_layer,
-        affine=True, pretrained=False):
+    def __init__(self, in_channel, cin_channel, filter_size, num_layer, affine=True, pretrained=False):
         super().__init__()
         self.actnorm = ActNorm(in_channel, pretrained=pretrained)
-        self.coupling = AffineCoupling(in_channel, cin_channel, filter_size
-            =filter_size, num_layer=num_layer, affine=affine)
+        self.coupling = AffineCoupling(in_channel, cin_channel, filter_size=filter_size, num_layer=num_layer, affine=affine)
 
     def forward(self, x, c=None):
         out, logdet = self.actnorm(x)
@@ -605,8 +549,7 @@ class Flow(nn.Module):
 
 
 def gaussian_log_p(x, mean, log_sd):
-    return -0.5 * log(2 * pi) - log_sd - 0.5 * (x - mean) ** 2 / torch.exp(
-        2 * log_sd)
+    return -0.5 * log(2 * pi) - log_sd - 0.5 * (x - mean) ** 2 / torch.exp(2 * log_sd)
 
 
 def gaussian_sample(eps, mean, log_sd):
@@ -615,21 +558,16 @@ def gaussian_sample(eps, mean, log_sd):
 
 class Block(nn.Module):
 
-    def __init__(self, in_channel, cin_channel, n_flow, n_layer, affine=
-        True, pretrained=False, split=False):
+    def __init__(self, in_channel, cin_channel, n_flow, n_layer, affine=True, pretrained=False, split=False):
         super().__init__()
         self.split = split
         squeeze_dim = in_channel * 2
         squeeze_dim_c = cin_channel * 2
         self.flows = nn.ModuleList()
         for i in range(n_flow):
-            self.flows.append(Flow(squeeze_dim, squeeze_dim_c, filter_size=
-                256, num_layer=n_layer, affine=affine, pretrained=pretrained))
+            self.flows.append(Flow(squeeze_dim, squeeze_dim_c, filter_size=256, num_layer=n_layer, affine=affine, pretrained=pretrained))
         if self.split:
-            self.prior = Wavenet(in_channels=squeeze_dim // 2, out_channels
-                =squeeze_dim, num_blocks=1, num_layers=2, residual_channels
-                =256, gate_channels=256, skip_channels=256, kernel_size=3,
-                cin_channels=squeeze_dim_c, causal=False)
+            self.prior = Wavenet(in_channels=squeeze_dim // 2, out_channels=squeeze_dim, num_blocks=1, num_layers=2, residual_channels=256, gate_channels=256, skip_channels=256, kernel_size=3, cin_channels=squeeze_dim_c, causal=False)
 
     def forward(self, x, c):
         b_size, n_channel, T = x.size()
@@ -658,8 +596,7 @@ class Block(nn.Module):
             x, c = flow.reverse(x, c)
         b_size, n_channel, T = x.size()
         unsqueezed_x = x.view(b_size, n_channel // 2, 2, T).permute(0, 1, 3, 2)
-        unsqueezed_x = unsqueezed_x.contiguous().view(b_size, n_channel // 
-            2, T * 2)
+        unsqueezed_x = unsqueezed_x.contiguous().view(b_size, n_channel // 2, T * 2)
         unsqueezed_c = c.view(b_size, -1, 2, T).permute(0, 1, 3, 2)
         unsqueezed_c = unsqueezed_c.contiguous().view(b_size, -1, T * 2)
         return unsqueezed_x, unsqueezed_c
@@ -667,24 +604,20 @@ class Block(nn.Module):
 
 class Flowavenet(nn.Module):
 
-    def __init__(self, in_channel, cin_channel, n_block, n_flow, n_layer,
-        affine=True, pretrained=False, block_per_split=8):
+    def __init__(self, in_channel, cin_channel, n_block, n_flow, n_layer, affine=True, pretrained=False, block_per_split=8):
         super().__init__()
         self.block_per_split = block_per_split
         self.blocks = nn.ModuleList()
         self.n_block = n_block
         for i in range(self.n_block):
-            split = False if (i + 1
-                ) % self.block_per_split or i == self.n_block - 1 else True
-            self.blocks.append(Block(in_channel, cin_channel, n_flow,
-                n_layer, affine=affine, pretrained=pretrained, split=split))
+            split = False if (i + 1) % self.block_per_split or i == self.n_block - 1 else True
+            self.blocks.append(Block(in_channel, cin_channel, n_flow, n_layer, affine=affine, pretrained=pretrained, split=split))
             cin_channel *= 2
             if not split:
                 in_channel *= 2
         self.upsample_conv = nn.ModuleList()
         for s in [16, 16]:
-            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2
-                ), stride=(1, s))
+            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2), stride=(1, s))
             convt = nn.utils.weight_norm(convt)
             nn.init.kaiming_normal_(convt.weight)
             self.upsample_conv.append(convt)
@@ -723,8 +656,7 @@ class Flowavenet(nn.Module):
         for i, block in enumerate(self.blocks[::-1]):
             index = self.n_block - i
             if not (index % self.block_per_split or index == self.n_block):
-                x, c = block.reverse(x, c, z_list[index // self.
-                    block_per_split - 1])
+                x, c = block.reverse(x, c, z_list[index // self.block_per_split - 1])
             else:
                 x, c = block.reverse(x, c)
         return x
@@ -739,16 +671,14 @@ class Flowavenet(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1,
-        causal=True):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, causal=True):
         super(Conv, self).__init__()
         self.causal = causal
         if self.causal:
             self.padding = dilation * (kernel_size - 1)
         else:
             self.padding = dilation * (kernel_size - 1) // 2
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-            dilation=dilation, padding=self.padding)
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation, padding=self.padding)
         self.conv = nn.utils.weight_norm(self.conv)
         nn.init.kaiming_normal_(self.conv.weight)
 
@@ -776,31 +706,24 @@ class ZeroConv1d(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, skip_channels,
-        kernel_size, dilation, cin_channels=None, local_conditioning=True,
-        causal=False):
+    def __init__(self, in_channels, out_channels, skip_channels, kernel_size, dilation, cin_channels=None, local_conditioning=True, causal=False):
         super(ResBlock, self).__init__()
         self.causal = causal
         self.local_conditioning = local_conditioning
         self.cin_channels = cin_channels
         self.skip = True if skip_channels is not None else False
-        self.filter_conv = Conv(in_channels, out_channels, kernel_size,
-            dilation, causal)
-        self.gate_conv = Conv(in_channels, out_channels, kernel_size,
-            dilation, causal)
+        self.filter_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal)
+        self.gate_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal)
         self.res_conv = nn.Conv1d(out_channels, in_channels, kernel_size=1)
         self.res_conv = nn.utils.weight_norm(self.res_conv)
         nn.init.kaiming_normal_(self.res_conv.weight)
         if self.skip:
-            self.skip_conv = nn.Conv1d(out_channels, skip_channels,
-                kernel_size=1)
+            self.skip_conv = nn.Conv1d(out_channels, skip_channels, kernel_size=1)
             self.skip_conv = nn.utils.weight_norm(self.skip_conv)
             nn.init.kaiming_normal_(self.skip_conv.weight)
         if self.local_conditioning:
-            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels,
-                kernel_size=1)
-            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels,
-                kernel_size=1)
+            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
+            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
             self.filter_conv_c = nn.utils.weight_norm(self.filter_conv_c)
             self.gate_conv_c = nn.utils.weight_norm(self.gate_conv_c)
             nn.init.kaiming_normal_(self.filter_conv_c.weight)
@@ -820,24 +743,16 @@ class ResBlock(nn.Module):
 
 class Wavenet(nn.Module):
 
-    def __init__(self, in_channels=1, out_channels=2, num_blocks=1,
-        num_layers=6, residual_channels=256, gate_channels=256,
-        skip_channels=256, kernel_size=3, cin_channels=80, causal=True):
+    def __init__(self, in_channels=1, out_channels=2, num_blocks=1, num_layers=6, residual_channels=256, gate_channels=256, skip_channels=256, kernel_size=3, cin_channels=80, causal=True):
         super(Wavenet, self).__init__()
         self.skip = True if skip_channels is not None else False
-        self.front_conv = nn.Sequential(Conv(in_channels, residual_channels,
-            3, causal=causal), nn.ReLU())
+        self.front_conv = nn.Sequential(Conv(in_channels, residual_channels, 3, causal=causal), nn.ReLU())
         self.res_blocks = nn.ModuleList()
         for b in range(num_blocks):
             for n in range(num_layers):
-                self.res_blocks.append(ResBlock(residual_channels,
-                    gate_channels, skip_channels, kernel_size, dilation=2 **
-                    n, cin_channels=cin_channels, local_conditioning=True,
-                    causal=causal))
+                self.res_blocks.append(ResBlock(residual_channels, gate_channels, skip_channels, kernel_size, dilation=2 ** n, cin_channels=cin_channels, local_conditioning=True, causal=causal))
         last_channels = skip_channels if self.skip else residual_channels
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(last_channels,
-            last_channels, 1, causal=causal), nn.ReLU(), ZeroConv1d(
-            last_channels, out_channels))
+        self.final_conv = nn.Sequential(nn.ReLU(), Conv(last_channels, last_channels, 1, causal=causal), nn.ReLU(), ZeroConv1d(last_channels, out_channels))
 
     def forward(self, x, c=None):
         h = self.front_conv(x)
@@ -909,9 +824,7 @@ class ConsoleLogger(object):
     def error(message):
         if sys.exc_info()[2]:
             line = traceback.extract_tb(sys.exc_info()[2])[-1].lineno
-            error_message = ('[-] {message} with cause: {cause} (line {line})'
-                .format(message=message, cause=str(sys.exc_info()[1]), line
-                =line))
+            error_message = '[-] {message} with cause: {cause} (line {line})'.format(message=message, cause=str(sys.exc_info()[1]), line=line)
         else:
             error_message = '[-] {message}'.format(message=message)
         if os.name == 'nt':
@@ -930,9 +843,7 @@ class ConsoleLogger(object):
     def critical(message):
         if sys.exc_info()[2]:
             line = traceback.extract_tb(sys.exc_info()[2])[-1].lineno
-            error_message = ('[!] {message} with cause: {cause} (line {line})'
-                .format(message=message, cause=str(sys.exc_info()[1]), line
-                =line))
+            error_message = '[!] {message} with cause: {cause} (line {line})'.format(message=message, cause=str(sys.exc_info()[1]), line=line)
         else:
             error_message = '[!] {message}'.format(message=message)
         if os.name == 'nt':
@@ -944,10 +855,8 @@ class ConsoleLogger(object):
 class Conv1DBuilder(object):
 
     @staticmethod
-    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
-        use_kaiming_normal=False):
-        conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding)
+    def build(in_channels, out_channels, kernel_size, stride=1, padding=0, use_kaiming_normal=False):
+        conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         if use_kaiming_normal:
             conv = nn.utils.weight_norm(conv)
             nn.init.kaiming_normal_(conv.weight)
@@ -956,45 +865,30 @@ class Conv1DBuilder(object):
 
 class ConvolutionalEncoder(nn.Module):
 
-    def __init__(self, in_channels, num_hiddens, num_residual_layers,
-        num_residual_hiddens, use_kaiming_normal, input_features_type,
-        features_filters, sampling_rate, device, verbose=False):
+    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal, input_features_type, features_filters, sampling_rate, device, verbose=False):
         super(ConvolutionalEncoder, self).__init__()
         """
         2 preprocessing convolution layers with filter length 3
         and residual connections.
         """
-        self._conv_1 = Conv1DBuilder.build(in_channels=features_filters,
-            out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=
-            use_kaiming_normal, padding=1)
-        self._conv_2 = Conv1DBuilder.build(in_channels=num_hiddens,
-            out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=
-            use_kaiming_normal, padding=1)
+        self._conv_1 = Conv1DBuilder.build(in_channels=features_filters, out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=use_kaiming_normal, padding=1)
+        self._conv_2 = Conv1DBuilder.build(in_channels=num_hiddens, out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=use_kaiming_normal, padding=1)
         """
         1 strided convolution length reduction layer with filter
         length 4 and stride 2 (downsampling the signal by a factor
         of two).
         """
-        self._conv_3 = Conv1DBuilder.build(in_channels=num_hiddens,
-            out_channels=num_hiddens, kernel_size=4, stride=2,
-            use_kaiming_normal=use_kaiming_normal, padding=2)
+        self._conv_3 = Conv1DBuilder.build(in_channels=num_hiddens, out_channels=num_hiddens, kernel_size=4, stride=2, use_kaiming_normal=use_kaiming_normal, padding=2)
         """
         2 convolutional layers with length 3 and
         residual connections.
         """
-        self._conv_4 = Conv1DBuilder.build(in_channels=num_hiddens,
-            out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=
-            use_kaiming_normal, padding=1)
-        self._conv_5 = Conv1DBuilder.build(in_channels=num_hiddens,
-            out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=
-            use_kaiming_normal, padding=1)
+        self._conv_4 = Conv1DBuilder.build(in_channels=num_hiddens, out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=use_kaiming_normal, padding=1)
+        self._conv_5 = Conv1DBuilder.build(in_channels=num_hiddens, out_channels=num_hiddens, kernel_size=3, use_kaiming_normal=use_kaiming_normal, padding=1)
         """
         4 feedforward ReLu layers with residual connections.
         """
-        self._residual_stack = ResidualStack(in_channels=num_hiddens,
-            num_hiddens=num_hiddens, num_residual_layers=
-            num_residual_layers, num_residual_hiddens=num_residual_hiddens,
-            use_kaiming_normal=use_kaiming_normal)
+        self._residual_stack = ResidualStack(in_channels=num_hiddens, num_hiddens=num_hiddens, num_residual_layers=num_residual_layers, num_residual_hiddens=num_residual_hiddens, use_kaiming_normal=use_kaiming_normal)
         self._input_features_type = input_features_type
         self._features_filters = features_filters
         self._sampling_rate = sampling_rate
@@ -1006,27 +900,22 @@ class ConvolutionalEncoder(nn.Module):
             ConsoleLogger.status('inputs size: {}'.format(inputs.size()))
         x_conv_1 = F.relu(self._conv_1(inputs))
         if self._verbose:
-            ConsoleLogger.status('x_conv_1 output size: {}'.format(x_conv_1
-                .size()))
+            ConsoleLogger.status('x_conv_1 output size: {}'.format(x_conv_1.size()))
         x = F.relu(self._conv_2(x_conv_1)) + x_conv_1
         if self._verbose:
             ConsoleLogger.status('_conv_2 output size: {}'.format(x.size()))
         x_conv_3 = F.relu(self._conv_3(x))
         if self._verbose:
-            ConsoleLogger.status('_conv_3 output size: {}'.format(x_conv_3.
-                size()))
+            ConsoleLogger.status('_conv_3 output size: {}'.format(x_conv_3.size()))
         x_conv_4 = F.relu(self._conv_4(x_conv_3)) + x_conv_3
         if self._verbose:
-            ConsoleLogger.status('_conv_4 output size: {}'.format(x_conv_4.
-                size()))
+            ConsoleLogger.status('_conv_4 output size: {}'.format(x_conv_4.size()))
         x_conv_5 = F.relu(self._conv_5(x_conv_4)) + x_conv_4
         if self._verbose:
-            ConsoleLogger.status('x_conv_5 output size: {}'.format(x_conv_5
-                .size()))
+            ConsoleLogger.status('x_conv_5 output size: {}'.format(x_conv_5.size()))
         x = self._residual_stack(x_conv_5) + x_conv_5
         if self._verbose:
-            ConsoleLogger.status('_residual_stack output size: {}'.format(x
-                .size()))
+            ConsoleLogger.status('_residual_stack output size: {}'.format(x.size()))
         return x
 
 
@@ -1034,44 +923,16 @@ class ConvolutionalVQVAE(nn.Module):
 
     def __init__(self, configuration, device):
         super(ConvolutionalVQVAE, self).__init__()
-        self._output_features_filters = configuration['output_features_filters'
-            ] * 3 if configuration['augment_output_features'
-            ] else configuration['output_features_filters']
+        self._output_features_filters = configuration['output_features_filters'] * 3 if configuration['augment_output_features'] else configuration['output_features_filters']
         self._output_features_dim = configuration['output_features_dim']
         self._verbose = configuration['verbose']
-        self._encoder = ConvolutionalEncoder(in_channels=configuration[
-            'input_features_dim'], num_hiddens=configuration['num_hiddens'],
-            num_residual_layers=configuration['num_residual_layers'],
-            num_residual_hiddens=configuration['num_hiddens'],
-            use_kaiming_normal=configuration['use_kaiming_normal'],
-            input_features_type=configuration['input_features_type'],
-            features_filters=configuration['input_features_filters'] * 3 if
-            configuration['augment_input_features'] else configuration[
-            'input_features_filters'], sampling_rate=configuration[
-            'sampling_rate'], device=device, verbose=self._verbose)
-        self._pre_vq_conv = nn.Conv1d(in_channels=configuration[
-            'num_hiddens'], out_channels=configuration['embedding_dim'],
-            kernel_size=3, padding=1)
+        self._encoder = ConvolutionalEncoder(in_channels=configuration['input_features_dim'], num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['num_hiddens'], use_kaiming_normal=configuration['use_kaiming_normal'], input_features_type=configuration['input_features_type'], features_filters=configuration['input_features_filters'] * 3 if configuration['augment_input_features'] else configuration['input_features_filters'], sampling_rate=configuration['sampling_rate'], device=device, verbose=self._verbose)
+        self._pre_vq_conv = nn.Conv1d(in_channels=configuration['num_hiddens'], out_channels=configuration['embedding_dim'], kernel_size=3, padding=1)
         if configuration['decay'] > 0.0:
-            self._vq = VectorQuantizerEMA(num_embeddings=configuration[
-                'num_embeddings'], embedding_dim=configuration[
-                'embedding_dim'], commitment_cost=configuration[
-                'commitment_cost'], decay=configuration['decay'], device=device
-                )
+            self._vq = VectorQuantizerEMA(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], decay=configuration['decay'], device=device)
         else:
-            self._vq = VectorQuantizer(num_embeddings=configuration[
-                'num_embeddings'], embedding_dim=configuration[
-                'embedding_dim'], commitment_cost=configuration[
-                'commitment_cost'], device=device)
-        self._decoder = DeconvolutionalDecoder(in_channels=configuration[
-            'embedding_dim'], out_channels=self._output_features_filters,
-            num_hiddens=configuration['num_hiddens'], num_residual_layers=
-            configuration['num_residual_layers'], num_residual_hiddens=
-            configuration['residual_channels'], use_kaiming_normal=
-            configuration['use_kaiming_normal'], use_jitter=configuration[
-            'use_jitter'], jitter_probability=configuration[
-            'jitter_probability'], use_speaker_conditioning=configuration[
-            'use_speaker_conditioning'], device=device, verbose=self._verbose)
+            self._vq = VectorQuantizer(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], device=device)
+        self._decoder = DeconvolutionalDecoder(in_channels=configuration['embedding_dim'], out_channels=self._output_features_filters, num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['residual_channels'], use_kaiming_normal=configuration['use_kaiming_normal'], use_jitter=configuration['use_jitter'], jitter_probability=configuration['jitter_probability'], use_speaker_conditioning=configuration['use_speaker_conditioning'], device=device, verbose=self._verbose)
         self._device = device
         self._record_codebook_stats = configuration['record_codebook_stats']
 
@@ -1095,34 +956,24 @@ class ConvolutionalVQVAE(nn.Module):
         x = x.permute(0, 2, 1).contiguous().float()
         z = self._encoder(x)
         if self._verbose:
-            ConsoleLogger.status('[ConvVQVAE] _encoder output size: {}'.
-                format(z.size()))
+            ConsoleLogger.status('[ConvVQVAE] _encoder output size: {}'.format(z.size()))
         z = self._pre_vq_conv(z)
         if self._verbose:
-            ConsoleLogger.status('[ConvVQVAE] _pre_vq_conv output size: {}'
-                .format(z.size()))
-        (vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _,
-            _, _, concatenated_quantized) = (self._vq(z,
-            record_codebook_stats=self._record_codebook_stats))
+            ConsoleLogger.status('[ConvVQVAE] _pre_vq_conv output size: {}'.format(z.size()))
+        vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _, _, _, concatenated_quantized = self._vq(z, record_codebook_stats=self._record_codebook_stats)
         reconstructed_x = self._decoder(quantized, speaker_dic, speaker_id)
         input_features_size = x.size(2)
         output_features_size = reconstructed_x.size(2)
-        reconstructed_x = reconstructed_x.view(-1, self.
-            _output_features_filters, output_features_size)
-        reconstructed_x = reconstructed_x[:, :, :-(output_features_size -
-            input_features_size)]
-        return (reconstructed_x, vq_loss, losses, perplexity,
-            encoding_indices, concatenated_quantized)
+        reconstructed_x = reconstructed_x.view(-1, self._output_features_filters, output_features_size)
+        reconstructed_x = reconstructed_x[:, :, :-(output_features_size - input_features_size)]
+        return reconstructed_x, vq_loss, losses, perplexity, encoding_indices, concatenated_quantized
 
 
 class ConvTranspose1DBuilder(object):
 
     @staticmethod
-    def build(in_channels, out_channels, kernel_size, stride=1, padding=0,
-        use_kaiming_normal=False):
-        conv = nn.ConvTranspose1d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding)
+    def build(in_channels, out_channels, kernel_size, stride=1, padding=0, use_kaiming_normal=False):
+        conv = nn.ConvTranspose1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         if use_kaiming_normal:
             conv = nn.utils.weight_norm(conv)
             nn.init.kaiming_normal_(conv.weight)
@@ -1132,13 +983,10 @@ class ConvTranspose1DBuilder(object):
 class GlobalConditioning(object):
 
     @staticmethod
-    def compute(speaker_dic, speaker_ids, x_one_hot, device, gin_channels=
-        128, expand=True):
-        speakers_embedding = GlobalConditioning._Embedding(len(speaker_dic),
-            gin_channels, padding_idx=None, std=0.1).to(device)
+    def compute(speaker_dic, speaker_ids, x_one_hot, device, gin_channels=128, expand=True):
+        speakers_embedding = GlobalConditioning._Embedding(len(speaker_dic), gin_channels, padding_idx=None, std=0.1).to(device)
         B, _, T = x_one_hot.size()
-        global_conditioning = speakers_embedding(speaker_ids.view(B, -1).long()
-            )
+        global_conditioning = speakers_embedding(speaker_ids.view(B, -1).long())
         global_conditioning = global_conditioning.transpose(1, 2)
         assert global_conditioning.dim() == 3
         """
@@ -1147,14 +995,12 @@ class GlobalConditioning(object):
         """
         if not expand:
             return global_conditioning
-        expanded_global_conditioning = (GlobalConditioning.
-            _expand_global_features(B, T, global_conditioning, bct=True))
+        expanded_global_conditioning = GlobalConditioning._expand_global_features(B, T, global_conditioning, bct=True)
         return expanded_global_conditioning
 
     @staticmethod
     def _Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
-        m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx
-            )
+        m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
         m.weight.data.normal_(0, std)
         return m
 
@@ -1185,10 +1031,7 @@ class GlobalConditioning(object):
 
 class DeconvolutionalDecoder(nn.Module):
 
-    def __init__(self, in_channels, out_channels, num_hiddens,
-        num_residual_layers, num_residual_hiddens, use_kaiming_normal,
-        use_jitter, jitter_probability, use_speaker_conditioning, device,
-        verbose=False):
+    def __init__(self, in_channels, out_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal, use_jitter, jitter_probability, use_speaker_conditioning, device, verbose=False):
         super(DeconvolutionalDecoder, self).__init__()
         self._use_jitter = use_jitter
         self._use_speaker_conditioning = use_speaker_conditioning
@@ -1196,63 +1039,41 @@ class DeconvolutionalDecoder(nn.Module):
         self._verbose = verbose
         if self._use_jitter:
             self._jitter = Jitter(jitter_probability)
-        in_channels = (in_channels + 40 if self._use_speaker_conditioning else
-            in_channels)
-        self._conv_1 = Conv1DBuilder.build(in_channels=in_channels,
-            out_channels=num_hiddens, kernel_size=3, padding=1,
-            use_kaiming_normal=use_kaiming_normal)
+        in_channels = in_channels + 40 if self._use_speaker_conditioning else in_channels
+        self._conv_1 = Conv1DBuilder.build(in_channels=in_channels, out_channels=num_hiddens, kernel_size=3, padding=1, use_kaiming_normal=use_kaiming_normal)
         self._upsample = nn.Upsample(scale_factor=2)
-        self._residual_stack = ResidualStack(in_channels=num_hiddens,
-            num_hiddens=num_hiddens, num_residual_layers=
-            num_residual_layers, num_residual_hiddens=num_residual_hiddens,
-            use_kaiming_normal=use_kaiming_normal)
-        self._conv_trans_1 = ConvTranspose1DBuilder.build(in_channels=
-            num_hiddens, out_channels=num_hiddens, kernel_size=3, padding=1,
-            use_kaiming_normal=use_kaiming_normal)
-        self._conv_trans_2 = ConvTranspose1DBuilder.build(in_channels=
-            num_hiddens, out_channels=num_hiddens, kernel_size=3, padding=0,
-            use_kaiming_normal=use_kaiming_normal)
-        self._conv_trans_3 = ConvTranspose1DBuilder.build(in_channels=
-            num_hiddens, out_channels=out_channels, kernel_size=2, padding=
-            0, use_kaiming_normal=use_kaiming_normal)
+        self._residual_stack = ResidualStack(in_channels=num_hiddens, num_hiddens=num_hiddens, num_residual_layers=num_residual_layers, num_residual_hiddens=num_residual_hiddens, use_kaiming_normal=use_kaiming_normal)
+        self._conv_trans_1 = ConvTranspose1DBuilder.build(in_channels=num_hiddens, out_channels=num_hiddens, kernel_size=3, padding=1, use_kaiming_normal=use_kaiming_normal)
+        self._conv_trans_2 = ConvTranspose1DBuilder.build(in_channels=num_hiddens, out_channels=num_hiddens, kernel_size=3, padding=0, use_kaiming_normal=use_kaiming_normal)
+        self._conv_trans_3 = ConvTranspose1DBuilder.build(in_channels=num_hiddens, out_channels=out_channels, kernel_size=2, padding=0, use_kaiming_normal=use_kaiming_normal)
 
     def forward(self, inputs, speaker_dic, speaker_id):
         x = inputs
         if self._verbose:
-            ConsoleLogger.status('[FEATURES_DEC] input size: {}'.format(x.
-                size()))
+            ConsoleLogger.status('[FEATURES_DEC] input size: {}'.format(x.size()))
         if self._use_jitter and self.training:
             x = self._jitter(x)
         if self._use_speaker_conditioning:
-            speaker_embedding = GlobalConditioning.compute(speaker_dic,
-                speaker_id, x, device=self._device, gin_channels=40, expand
-                =True)
+            speaker_embedding = GlobalConditioning.compute(speaker_dic, speaker_id, x, device=self._device, gin_channels=40, expand=True)
             x = torch.cat([x, speaker_embedding], dim=1)
         x = self._conv_1(x)
         if self._verbose:
-            ConsoleLogger.status('[FEATURES_DEC] _conv_1 output size: {}'.
-                format(x.size()))
+            ConsoleLogger.status('[FEATURES_DEC] _conv_1 output size: {}'.format(x.size()))
         x = self._upsample(x)
         if self._verbose:
-            ConsoleLogger.status('[FEATURES_DEC] _upsample output size: {}'
-                .format(x.size()))
+            ConsoleLogger.status('[FEATURES_DEC] _upsample output size: {}'.format(x.size()))
         x = self._residual_stack(x)
         if self._verbose:
-            ConsoleLogger.status(
-                '[FEATURES_DEC] _residual_stack output size: {}'.format(x.
-                size()))
+            ConsoleLogger.status('[FEATURES_DEC] _residual_stack output size: {}'.format(x.size()))
         x = F.relu(self._conv_trans_1(x))
         if self._verbose:
-            ConsoleLogger.status('[FEATURES_DEC] _conv_trans_1 output size: {}'
-                .format(x.size()))
+            ConsoleLogger.status('[FEATURES_DEC] _conv_trans_1 output size: {}'.format(x.size()))
         x = F.relu(self._conv_trans_2(x))
         if self._verbose:
-            ConsoleLogger.status('[FEATURES_DEC] _conv_trans_2 output size: {}'
-                .format(x.size()))
+            ConsoleLogger.status('[FEATURES_DEC] _conv_trans_2 output size: {}'.format(x.size()))
         x = self._conv_trans_3(x)
         if self._verbose:
-            ConsoleLogger.status('[FEATURES_DEC] _conv_trans_3 output size: {}'
-                .format(x.size()))
+            ConsoleLogger.status('[FEATURES_DEC] _conv_trans_3 output size: {}'.format(x.size()))
         return x
 
 
@@ -1285,15 +1106,12 @@ class VectorQuantizer(nn.Module):
         super(VectorQuantizer, self).__init__()
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
-        self._embedding = nn.Embedding(self._num_embeddings, self.
-            _embedding_dim)
-        self._embedding.weight.data.uniform_(-1 / self._num_embeddings, 1 /
-            self._num_embeddings)
+        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
+        self._embedding.weight.data.uniform_(-1 / self._num_embeddings, 1 / self._num_embeddings)
         self._commitment_cost = commitment_cost
         self._device = device
 
-    def forward(self, inputs, compute_distances_if_possible=True,
-        record_codebook_stats=False):
+    def forward(self, inputs, compute_distances_if_possible=True, record_codebook_stats=False):
         """
         Connects the module to some inputs.
 
@@ -1313,43 +1131,31 @@ class VectorQuantizer(nn.Module):
         input_shape = inputs.shape
         _, time, batch_size = input_shape
         flat_input = inputs.view(-1, self._embedding_dim)
-        distances = torch.sum(flat_input ** 2, dim=1, keepdim=True
-            ) + torch.sum(self._embedding.weight ** 2, dim=1
-            ) - 2 * torch.matmul(flat_input, self._embedding.weight.t())
+        distances = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self._embedding.weight ** 2, dim=1) - 2 * torch.matmul(flat_input, self._embedding.weight.t())
         """
         encoding_indices: Tensor containing the discrete encoding indices, ie
         which element of the quantized space each input element was mapped to.
         """
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        encodings = torch.zeros(encoding_indices.shape[0], self.
-            _num_embeddings, dtype=torch.float)
+        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, dtype=torch.float)
         encodings.scatter_(1, encoding_indices, 1)
         if not self.training and compute_distances_if_possible:
-            _encoding_distances = [torch.dist(items[0], items[1], 2) for
-                items in combinations(flat_input, r=2)]
-            encoding_distances = torch.tensor(_encoding_distances).view(
-                batch_size, -1)
+            _encoding_distances = [torch.dist(items[0], items[1], 2) for items in combinations(flat_input, r=2)]
+            encoding_distances = torch.tensor(_encoding_distances).view(batch_size, -1)
         else:
             encoding_distances = None
         if not self.training and compute_distances_if_possible:
-            _embedding_distances = [torch.dist(items[0], items[1], 2) for
-                items in combinations(self._embedding.weight, r=2)]
+            _embedding_distances = [torch.dist(items[0], items[1], 2) for items in combinations(self._embedding.weight, r=2)]
             embedding_distances = torch.tensor(_embedding_distances)
         else:
             embedding_distances = None
         if not self.training and compute_distances_if_possible:
-            _frames_vs_embedding_distances = [torch.dist(items[0], items[1],
-                2) for items in product(flat_input, self._embedding.weight.
-                detach())]
-            frames_vs_embedding_distances = torch.tensor(
-                _frames_vs_embedding_distances).view(batch_size, time, -1)
+            _frames_vs_embedding_distances = [torch.dist(items[0], items[1], 2) for items in product(flat_input, self._embedding.weight.detach())]
+            frames_vs_embedding_distances = torch.tensor(_frames_vs_embedding_distances).view(batch_size, time, -1)
         else:
             frames_vs_embedding_distances = None
-        quantized = torch.matmul(encodings, self._embedding.weight).view(
-            input_shape)
-        concatenated_quantized = self._embedding.weight[torch.argmin(
-            distances, dim=1).detach().cpu()
-            ] if not self.training or record_codebook_stats else None
+        quantized = torch.matmul(encodings, self._embedding.weight).view(input_shape)
+        concatenated_quantized = self._embedding.weight[torch.argmin(distances, dim=1).detach().cpu()] if not self.training or record_codebook_stats else None
         e_latent_loss = torch.mean((quantized.detach() - inputs) ** 2)
         q_latent_loss = torch.mean((quantized - inputs.detach()) ** 2)
         commitment_loss = self._commitment_cost * e_latent_loss
@@ -1360,15 +1166,8 @@ class VectorQuantizer(nn.Module):
         The perplexity a useful value to track during training.
         It indicates how many codes are 'active' on average.
         """
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs +
-            1e-10)))
-        return (vq_loss, quantized.permute(2, 0, 1).contiguous(),
-            perplexity, encodings.view(batch_size, time, -1), distances.
-            view(batch_size, time, -1), encoding_indices, {'e_latent_loss':
-            e_latent_loss.item(), 'q_latent_loss': q_latent_loss.item(),
-            'commitment_loss': commitment_loss.item(), 'vq_loss': vq_loss.
-            item()}, encoding_distances, embedding_distances,
-            frames_vs_embedding_distances, concatenated_quantized)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+        return vq_loss, quantized.permute(2, 0, 1).contiguous(), perplexity, encodings.view(batch_size, time, -1), distances.view(batch_size, time, -1), encoding_indices, {'e_latent_loss': e_latent_loss.item(), 'q_latent_loss': q_latent_loss.item(), 'commitment_loss': commitment_loss.item(), 'vq_loss': vq_loss.item()}, encoding_distances, embedding_distances, frames_vs_embedding_distances, concatenated_quantized
 
     @property
     def embedding(self):
@@ -1407,25 +1206,21 @@ class VectorQuantizerEMA(nn.Module):
         epsilon: small float constant to avoid numerical instability.
     """
 
-    def __init__(self, num_embeddings, embedding_dim, commitment_cost,
-        decay, device, epsilon=1e-05):
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost, decay, device, epsilon=1e-05):
         super(VectorQuantizerEMA, self).__init__()
         self._num_embeddings = num_embeddings
         self._embedding_dim = embedding_dim
-        self._embedding = nn.Embedding(self._num_embeddings, self.
-            _embedding_dim)
+        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
         self._embedding.weight.data.normal_()
         self._commitment_cost = commitment_cost
         self.register_buffer('_ema_cluster_size', torch.zeros(num_embeddings))
-        self._ema_w = nn.Parameter(torch.Tensor(num_embeddings, self.
-            _embedding_dim))
+        self._ema_w = nn.Parameter(torch.Tensor(num_embeddings, self._embedding_dim))
         self._ema_w.data.normal_()
         self._decay = decay
         self._device = device
         self._epsilon = epsilon
 
-    def forward(self, inputs, compute_distances_if_possible=True,
-        record_codebook_stats=False):
+    def forward(self, inputs, compute_distances_if_possible=True, record_codebook_stats=False):
         """
         Connects the module to some inputs.
 
@@ -1445,54 +1240,38 @@ class VectorQuantizerEMA(nn.Module):
         input_shape = inputs.shape
         _, time, batch_size = input_shape
         flat_input = inputs.view(-1, self._embedding_dim)
-        distances = torch.sum(flat_input ** 2, dim=1, keepdim=True
-            ) + torch.sum(self._embedding.weight ** 2, dim=1
-            ) - 2 * torch.matmul(flat_input, self._embedding.weight.t())
+        distances = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self._embedding.weight ** 2, dim=1) - 2 * torch.matmul(flat_input, self._embedding.weight.t())
         """
         encoding_indices: Tensor containing the discrete encoding indices, ie
         which element of the quantized space each input element was mapped to.
         """
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        encodings = torch.zeros(encoding_indices.shape[0], self.
-            _num_embeddings, dtype=torch.float)
+        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, dtype=torch.float)
         encodings.scatter_(1, encoding_indices, 1)
         if not self.training and compute_distances_if_possible:
-            _encoding_distances = [torch.dist(items[0], items[1], 2) for
-                items in combinations(flat_input, r=2)]
-            encoding_distances = torch.tensor(_encoding_distances).view(
-                batch_size, -1)
+            _encoding_distances = [torch.dist(items[0], items[1], 2) for items in combinations(flat_input, r=2)]
+            encoding_distances = torch.tensor(_encoding_distances).view(batch_size, -1)
         else:
             encoding_distances = None
         if not self.training and compute_distances_if_possible:
-            _embedding_distances = [torch.dist(items[0], items[1], 2) for
-                items in combinations(self._embedding.weight, r=2)]
+            _embedding_distances = [torch.dist(items[0], items[1], 2) for items in combinations(self._embedding.weight, r=2)]
             embedding_distances = torch.tensor(_embedding_distances)
         else:
             embedding_distances = None
         if not self.training and compute_distances_if_possible:
-            _frames_vs_embedding_distances = [torch.dist(items[0], items[1],
-                2) for items in product(flat_input, self._embedding.weight.
-                detach())]
-            frames_vs_embedding_distances = torch.tensor(
-                _frames_vs_embedding_distances).view(batch_size, time, -1)
+            _frames_vs_embedding_distances = [torch.dist(items[0], items[1], 2) for items in product(flat_input, self._embedding.weight.detach())]
+            frames_vs_embedding_distances = torch.tensor(_frames_vs_embedding_distances).view(batch_size, time, -1)
         else:
             frames_vs_embedding_distances = None
         if self.training:
-            self._ema_cluster_size = self._ema_cluster_size * self._decay + (
-                1 - self._decay) * torch.sum(encodings, 0)
+            self._ema_cluster_size = self._ema_cluster_size * self._decay + (1 - self._decay) * torch.sum(encodings, 0)
             n = torch.sum(self._ema_cluster_size.data)
-            self._ema_cluster_size = (self._ema_cluster_size + self._epsilon
-                ) / (n + self._num_embeddings * self._epsilon) * n
+            self._ema_cluster_size = (self._ema_cluster_size + self._epsilon) / (n + self._num_embeddings * self._epsilon) * n
             dw = torch.matmul(encodings.t(), flat_input)
-            self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 -
-                self._decay) * dw)
-            self._embedding.weight = nn.Parameter(self._ema_w / self.
-                _ema_cluster_size.unsqueeze(1))
-        quantized = torch.matmul(encodings, self._embedding.weight).view(
-            input_shape)
-        concatenated_quantized = self._embedding.weight[torch.argmin(
-            distances, dim=1).detach().cpu()
-            ] if not self.training or record_codebook_stats else None
+            self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 - self._decay) * dw)
+            self._embedding.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))
+        quantized = torch.matmul(encodings, self._embedding.weight).view(input_shape)
+        concatenated_quantized = self._embedding.weight[torch.argmin(distances, dim=1).detach().cpu()] if not self.training or record_codebook_stats else None
         e_latent_loss = torch.mean((quantized.detach() - inputs) ** 2)
         commitment_loss = self._commitment_cost * e_latent_loss
         vq_loss = commitment_loss
@@ -1502,13 +1281,8 @@ class VectorQuantizerEMA(nn.Module):
         The perplexity a useful value to track during training.
         It indicates how many codes are 'active' on average.
         """
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs +
-            1e-10)))
-        return (vq_loss, quantized.permute(2, 0, 1).contiguous(),
-            perplexity, encodings.view(batch_size, time, -1), distances.
-            view(batch_size, time, -1), encoding_indices, {'vq_loss':
-            vq_loss.item()}, encoding_distances, embedding_distances,
-            frames_vs_embedding_distances, concatenated_quantized)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+        return vq_loss, quantized.permute(2, 0, 1).contiguous(), perplexity, encodings.view(batch_size, time, -1), distances.view(batch_size, time, -1), encoding_indices, {'vq_loss': vq_loss.item()}, encoding_distances, embedding_distances, frames_vs_embedding_distances, concatenated_quantized
 
     @property
     def embedding(self):
@@ -1527,17 +1301,8 @@ class WaveNetDecoder(nn.Module):
         convolutional layer with filter length 3 and 128 hidden
         units to mix information across neighboring timesteps.
         """
-        self._conv_1 = Conv1DBuilder.build(in_channels=64, out_channels=768,
-            kernel_size=2, use_kaiming_normal=configuration[
-            'use_kaiming_normal'])
-        self._wavenet = WaveNet(configuration['quantize'], configuration[
-            'n_layers'], configuration['n_loop'], configuration[
-            'residual_channels'], configuration['gate_channels'],
-            configuration['skip_out_channels'], configuration['filter_size'
-            ], cin_channels=configuration['local_condition_dim'],
-            gin_channels=configuration['global_condition_dim'], n_speakers=
-            len(speaker_dic), upsample_conditional_features=True,
-            upsample_scales=[2, 2, 2, 2, 2, 12])
+        self._conv_1 = Conv1DBuilder.build(in_channels=64, out_channels=768, kernel_size=2, use_kaiming_normal=configuration['use_kaiming_normal'])
+        self._wavenet = WaveNet(configuration['quantize'], configuration['n_layers'], configuration['n_loop'], configuration['residual_channels'], configuration['gate_channels'], configuration['skip_out_channels'], configuration['filter_size'], cin_channels=configuration['local_condition_dim'], gin_channels=configuration['global_condition_dim'], n_speakers=len(speaker_dic), upsample_conditional_features=True, upsample_scales=[2, 2, 2, 2, 2, 12])
         self._device = device
 
     def forward(self, y, local_condition, global_condition):
@@ -1552,30 +1317,12 @@ class WaveNetVQVAE(nn.Module):
 
     def __init__(self, configuration, speaker_dic, device):
         super(WaveNetVQVAE, self).__init__()
-        self._encoder = ConvolutionalEncoder(in_channels=configuration[
-            'input_features_dim'], num_hiddens=configuration['num_hiddens'],
-            num_residual_layers=configuration['num_residual_layers'],
-            num_residual_hiddens=configuration['residual_channels'],
-            use_kaiming_normal=configuration['use_kaiming_normal'],
-            input_features_type=configuration['input_features_type'],
-            features_filters=configuration['input_features_filters'] * 3 if
-            configuration['augment_input_features'] else configuration[
-            'input_features_filters'], sampling_rate=configuration[
-            'sampling_rate'], device=device)
-        self._pre_vq_conv = nn.Conv1d(in_channels=configuration[
-            'num_hiddens'], out_channels=configuration['embedding_dim'],
-            kernel_size=1, stride=1, padding=1)
+        self._encoder = ConvolutionalEncoder(in_channels=configuration['input_features_dim'], num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['residual_channels'], use_kaiming_normal=configuration['use_kaiming_normal'], input_features_type=configuration['input_features_type'], features_filters=configuration['input_features_filters'] * 3 if configuration['augment_input_features'] else configuration['input_features_filters'], sampling_rate=configuration['sampling_rate'], device=device)
+        self._pre_vq_conv = nn.Conv1d(in_channels=configuration['num_hiddens'], out_channels=configuration['embedding_dim'], kernel_size=1, stride=1, padding=1)
         if configuration['decay'] > 0.0:
-            self._vq = VectorQuantizerEMA(num_embeddings=configuration[
-                'num_embeddings'], embedding_dim=configuration[
-                'embedding_dim'], commitment_cost=configuration[
-                'commitment_cost'], decay=configuration['decay'], device=device
-                )
+            self._vq = VectorQuantizerEMA(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], decay=configuration['decay'], device=device)
         else:
-            self._vq = VectorQuantizer(num_embeddings=configuration[
-                'num_embeddings'], embedding_dim=configuration[
-                'embedding_dim'], commitment_cost=configuration[
-                'commitment_cost'], device=device)
+            self._vq = VectorQuantizer(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], device=device)
         self._decoder = WaveNetDecoder(configuration, speaker_dic, device)
         self._device = device
         self._record_codebook_stats = configuration['record_codebook_stats']
@@ -1599,18 +1346,14 @@ class WaveNetVQVAE(nn.Module):
     def forward(self, x_enc, x_dec, global_condition):
         z = self._encoder(x_enc)
         z = self._pre_vq_conv(z)
-        (vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _,
-            _, _, concatenated_quantized) = (self._vq(z,
-            record_codebook_stats=self._record_codebook_stats))
+        vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _, _, _, concatenated_quantized = self._vq(z, record_codebook_stats=self._record_codebook_stats)
         local_condition = quantized
         local_condition = local_condition.squeeze(-1)
         x_dec = x_dec.squeeze(-1)
-        reconstructed_x = self._decoder(x_dec, local_condition,
-            global_condition)
+        reconstructed_x = self._decoder(x_dec, local_condition, global_condition)
         reconstructed_x = reconstructed_x.unsqueeze(-1)
         x_dec = x_dec.unsqueeze(-1)
-        return (reconstructed_x, x_dec, vq_loss, losses, perplexity,
-            encoding_indices, concatenated_quantized)
+        return reconstructed_x, x_dec, vq_loss, losses, perplexity, encoding_indices, concatenated_quantized
 
     def save(self, path):
         torch.save(self.state_dict(), path)
@@ -1645,8 +1388,7 @@ class Jitter(nn.Module):
             Each latent vector is replace with either of its neighbors with a certain probability
             (0.12 from the paper).
             """
-            replace = [True, False][np.random.choice([1, 0], p=[self.
-                _probability, 1 - self._probability])]
+            replace = [True, False][np.random.choice([1, 0], p=[self._probability, 1 - self._probability])]
             if replace:
                 if i == 0:
                     neighbor_index = i + 1
@@ -1658,28 +1400,22 @@ class Jitter(nn.Module):
                     be replaced with the token right after
                     or before it."
                     """
-                    neighbor_index = i + np.random.choice([-1, 1], p=[0.5, 0.5]
-                        )
-                quantized[:, :, (i)] = original_quantized[:, :, (
-                    neighbor_index)]
+                    neighbor_index = i + np.random.choice([-1, 1], p=[0.5, 0.5])
+                quantized[:, :, (i)] = original_quantized[:, :, (neighbor_index)]
         return quantized
 
 
 class Residual(nn.Module):
 
-    def __init__(self, in_channels, num_hiddens, num_residual_hiddens,
-        use_kaiming_normal):
+    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal):
         super(Residual, self).__init__()
         relu_1 = nn.ReLU(True)
-        conv_1 = nn.Conv1d(in_channels=in_channels, out_channels=
-            num_residual_hiddens, kernel_size=3, stride=1, padding=1, bias=
-            False)
+        conv_1 = nn.Conv1d(in_channels=in_channels, out_channels=num_residual_hiddens, kernel_size=3, stride=1, padding=1, bias=False)
         if use_kaiming_normal:
             conv_1 = nn.utils.weight_norm(conv_1)
             nn.init.kaiming_normal_(conv_1.weight)
         relu_2 = nn.ReLU(True)
-        conv_2 = nn.Conv1d(in_channels=num_residual_hiddens, out_channels=
-            num_hiddens, kernel_size=1, stride=1, bias=False)
+        conv_2 = nn.Conv1d(in_channels=num_residual_hiddens, out_channels=num_hiddens, kernel_size=1, stride=1, bias=False)
         if use_kaiming_normal:
             conv_2 = nn.utils.weight_norm(conv_2)
             nn.init.kaiming_normal_(conv_2.weight)
@@ -1691,13 +1427,10 @@ class Residual(nn.Module):
 
 class ResidualStack(nn.Module):
 
-    def __init__(self, in_channels, num_hiddens, num_residual_layers,
-        num_residual_hiddens, use_kaiming_normal):
+    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal):
         super(ResidualStack, self).__init__()
         self._num_residual_layers = num_residual_layers
-        self._layers = nn.ModuleList([Residual(in_channels, num_hiddens,
-            num_residual_hiddens, use_kaiming_normal)] * self.
-            _num_residual_layers)
+        self._layers = nn.ModuleList([Residual(in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal)] * self._num_residual_layers)
 
     def forward(self, x):
         for i in range(self._num_residual_layers):
@@ -1727,12 +1460,10 @@ class Conv1d(nn.Conv1d):
         if kw > 1:
             input = input.data
             if self.input_buffer is None:
-                self.input_buffer = input.new(bsz, kw + (kw - 1) * (
-                    dilation - 1), input.size(2))
+                self.input_buffer = input.new(bsz, kw + (kw - 1) * (dilation - 1), input.size(2))
                 self.input_buffer.zero_()
             else:
-                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :
-                    ].clone()
+                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :].clone()
             self.input_buffer[:, (-1), :] = input[:, (-1), :]
             input = self.input_buffer
             if dilation > 1:
@@ -1749,8 +1480,7 @@ class Conv1d(nn.Conv1d):
             if self.weight.size() == (self.out_channels, self.in_channels, kw):
                 weight = self.weight.transpose(1, 2).contiguous()
             else:
-                weight = self.weight.transpose(2, 1).transpose(1, 0
-                    ).contiguous()
+                weight = self.weight.transpose(2, 1).transpose(1, 0).contiguous()
             assert weight.size() == (self.out_channels, kw, self.in_channels)
             self._linearized_weight = weight.view(self.out_channels, -1)
         return self._linearized_weight
@@ -1764,11 +1494,9 @@ def Conv1d1x1(in_channels, out_channels, bias=True, weight_normalization=True):
     """
     if weight_normalization:
         assert bias
-        return Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
-            dilation=1, bias=bias, std_mul=1.0)
+        return Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=bias, std_mul=1.0)
     else:
-        return conv.Conv1d(in_channels, out_channels, kernel_size=1,
-            padding=0, dilation=1, bias=bias)
+        return conv.Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=bias)
 
 
 def _conv1x1_forward(conv, x, is_incremental):
@@ -1802,10 +1530,7 @@ class ResidualConv1dGLU(nn.Module):
           normalization is applied.
     """
 
-    def __init__(self, residual_channels, gate_channels, kernel_size,
-        skip_out_channels=None, cin_channels=-1, gin_channels=-1, dropout=1 -
-        0.95, padding=None, dilation=1, causal=True, bias=True,
-        weight_normalization=True, *args, **kwargs):
+    def __init__(self, residual_channels, gate_channels, kernel_size, skip_out_channels=None, cin_channels=-1, gin_channels=-1, dropout=1 - 0.95, padding=None, dilation=1, causal=True, bias=True, weight_normalization=True, *args, **kwargs):
         super(ResidualConv1dGLU, self).__init__()
         self.dropout = dropout
         if skip_out_channels is None:
@@ -1818,28 +1543,20 @@ class ResidualConv1dGLU(nn.Module):
         self.causal = causal
         if weight_normalization:
             assert bias
-            self.conv = Conv1d(residual_channels, gate_channels,
-                kernel_size, *args, padding=padding, dilation=dilation,
-                bias=bias, std_mul=1.0, **kwargs)
+            self.conv = Conv1d(residual_channels, gate_channels, kernel_size, *args, padding=padding, dilation=dilation, bias=bias, std_mul=1.0, **kwargs)
         else:
-            self.conv = conv.Conv1d(residual_channels, gate_channels,
-                kernel_size, *args, padding=padding, dilation=dilation,
-                bias=bias, **kwargs)
+            self.conv = conv.Conv1d(residual_channels, gate_channels, kernel_size, *args, padding=padding, dilation=dilation, bias=bias, **kwargs)
         if cin_channels > 0:
-            self.conv1x1c = Conv1d1x1(cin_channels, gate_channels, bias=
-                bias, weight_normalization=weight_normalization)
+            self.conv1x1c = Conv1d1x1(cin_channels, gate_channels, bias=bias, weight_normalization=weight_normalization)
         else:
             self.conv1x1c = None
         if gin_channels > 0:
-            self.conv1x1g = Conv1d1x1(gin_channels, gate_channels, bias=
-                bias, weight_normalization=weight_normalization)
+            self.conv1x1g = Conv1d1x1(gin_channels, gate_channels, bias=bias, weight_normalization=weight_normalization)
         else:
             self.conv1x1g = None
         gate_out_channels = gate_channels // 2
-        self.conv1x1_out = Conv1d1x1(gate_out_channels, residual_channels,
-            bias=bias, weight_normalization=weight_normalization)
-        self.conv1x1_skip = Conv1d1x1(gate_out_channels, skip_out_channels,
-            bias=bias, weight_normalization=weight_normalization)
+        self.conv1x1_out = Conv1d1x1(gate_out_channels, residual_channels, bias=bias, weight_normalization=weight_normalization)
+        self.conv1x1_skip = Conv1d1x1(gate_out_channels, skip_out_channels, bias=bias, weight_normalization=weight_normalization)
 
     def forward(self, x, c=None, g=None):
         return self._forward(x, c, g, False)
@@ -1886,14 +1603,12 @@ class ResidualConv1dGLU(nn.Module):
         return x, s
 
     def clear_buffer(self):
-        for c in [self.conv, self.conv1x1_out, self.conv1x1_skip, self.
-            conv1x1c, self.conv1x1g]:
+        for c in [self.conv, self.conv1x1_out, self.conv1x1_skip, self.conv1x1c, self.conv1x1g]:
             if c is not None:
                 c.clear_buffer()
 
 
-def ConvTranspose2d(in_channels, out_channels, kernel_size,
-    weight_normalization=True, **kwargs):
+def ConvTranspose2d(in_channels, out_channels, kernel_size, weight_normalization=True, **kwargs):
     freq_axis_kernel_size = kernel_size[0]
     m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
     m.weight.data.fill_(1.0 / freq_axis_kernel_size)
@@ -1933,8 +1648,7 @@ def _expand_global_features(B, T, g, bct=True):
         return g_btc.contiguous()
 
 
-def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda
-    x: 2 ** x):
+def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda x: 2 ** x):
     """Compute receptive field size
 
     Args:
@@ -1977,14 +1691,12 @@ def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0):
     nr_mix = y.size(1) // 3
     y = y.transpose(1, 2)
     logit_probs = y[:, :, :nr_mix]
-    temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05
-        )
+    temp = logit_probs.data.new(logit_probs.size()).uniform_(1e-05, 1.0 - 1e-05)
     temp = logit_probs.data - torch.log(-torch.log(temp))
     _, argmax = temp.max(dim=-1)
     one_hot = to_one_hot(argmax, nr_mix)
     means = torch.sum(y[:, :, nr_mix:2 * nr_mix] * one_hot, dim=-1)
-    log_scales = torch.clamp(torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] *
-        one_hot, dim=-1), min=log_scale_min)
+    log_scales = torch.clamp(torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1), min=log_scale_min)
     u = means.data.new(means.size()).uniform_(1e-05, 1.0 - 1e-05)
     x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1.0 - u))
     x = torch.clamp(torch.clamp(x, min=-1.0), max=1.0)
@@ -2030,13 +1742,7 @@ class WaveNet(nn.Module):
           compatibility.
     """
 
-    def __init__(self, out_channels=256, layers=20, stacks=2,
-        residual_channels=512, gate_channels=512, skip_out_channels=512,
-        kernel_size=3, dropout=1 - 0.95, cin_channels=-1, gin_channels=-1,
-        n_speakers=None, weight_normalization=True,
-        upsample_conditional_features=False, upsample_scales=None,
-        freq_axis_kernel_size=3, scalar_input=False, use_speaker_embedding=
-        True, legacy=True):
+    def __init__(self, out_channels=256, layers=20, stacks=2, residual_channels=512, gate_channels=512, skip_out_channels=512, kernel_size=3, dropout=1 - 0.95, cin_channels=-1, gin_channels=-1, n_speakers=None, weight_normalization=True, upsample_conditional_features=False, upsample_scales=None, freq_axis_kernel_size=3, scalar_input=False, use_speaker_embedding=True, legacy=True):
         super(WaveNet, self).__init__()
         self.scalar_input = scalar_input
         self.out_channels = out_channels
@@ -2051,36 +1757,24 @@ class WaveNet(nn.Module):
         self.conv_layers = nn.ModuleList()
         for layer in range(layers):
             dilation = 2 ** (layer % layers_per_stack)
-            conv = ResidualConv1dGLU(residual_channels, gate_channels,
-                kernel_size=kernel_size, skip_out_channels=
-                skip_out_channels, bias=True, dilation=dilation, dropout=
-                dropout, cin_channels=cin_channels, gin_channels=
-                gin_channels, weight_normalization=weight_normalization)
+            conv = ResidualConv1dGLU(residual_channels, gate_channels, kernel_size=kernel_size, skip_out_channels=skip_out_channels, bias=True, dilation=dilation, dropout=dropout, cin_channels=cin_channels, gin_channels=gin_channels, weight_normalization=weight_normalization)
             self.conv_layers.append(conv)
-        self.last_conv_layers = nn.ModuleList([nn.ReLU(inplace=True),
-            Conv1d1x1(skip_out_channels, skip_out_channels,
-            weight_normalization=weight_normalization), nn.ReLU(inplace=
-            True), Conv1d1x1(skip_out_channels, out_channels,
-            weight_normalization=weight_normalization)])
+        self.last_conv_layers = nn.ModuleList([nn.ReLU(inplace=True), Conv1d1x1(skip_out_channels, skip_out_channels, weight_normalization=weight_normalization), nn.ReLU(inplace=True), Conv1d1x1(skip_out_channels, out_channels, weight_normalization=weight_normalization)])
         if gin_channels > 0 and use_speaker_embedding:
             assert n_speakers is not None
-            self.embed_speakers = Embedding(n_speakers, gin_channels,
-                padding_idx=None, std=0.1)
+            self.embed_speakers = Embedding(n_speakers, gin_channels, padding_idx=None, std=0.1)
         else:
             self.embed_speakers = None
         if upsample_conditional_features:
             self.upsample_conv = nn.ModuleList()
             for s in upsample_scales:
                 freq_axis_padding = (freq_axis_kernel_size - 1) // 2
-                convt = ConvTranspose2d(1, 1, (freq_axis_kernel_size, s),
-                    padding=(freq_axis_padding, 0), dilation=1, stride=(1,
-                    s), weight_normalization=weight_normalization)
+                convt = ConvTranspose2d(1, 1, (freq_axis_kernel_size, s), padding=(freq_axis_padding, 0), dilation=1, stride=(1, s), weight_normalization=weight_normalization)
                 self.upsample_conv.append(convt)
                 self.upsample_conv.append(nn.ReLU(inplace=True))
         else:
             self.upsample_conv = None
-        self.receptive_field = receptive_field_size(layers, stacks, kernel_size
-            )
+        self.receptive_field = receptive_field_size(layers, stacks, kernel_size)
 
     def has_speaker_embedding(self):
         return self.embed_speakers is not None
@@ -2136,9 +1830,7 @@ class WaveNet(nn.Module):
         x = F.softmax(x, dim=1) if softmax else x
         return x
 
-    def incremental_forward(self, initial_input=None, c=None, g=None, T=100,
-        test_inputs=None, tqdm=lambda x: x, softmax=True, quantize=True,
-        log_scale_min=-7.0):
+    def incremental_forward(self, initial_input=None, c=None, g=None, T=100, test_inputs=None, tqdm=lambda x: x, softmax=True, quantize=True, log_scale_min=-7.0):
         """Incremental forward step
 
         Due to linearized convolutions, inputs of shape (B x C x T) are reshaped
@@ -2214,8 +1906,7 @@ class WaveNet(nn.Module):
             for f in self.conv_layers:
                 x, h = f.incremental_forward(x, ct, gt)
                 if self.legacy:
-                    skips = h if skips is None else (skips + h) * math.sqrt(0.5
-                        )
+                    skips = h if skips is None else (skips + h) * math.sqrt(0.5)
                 else:
                     skips = h if skips is None else skips + h
             x = skips
@@ -2225,14 +1916,11 @@ class WaveNet(nn.Module):
                 except AttributeError:
                     x = f(x)
             if self.scalar_input:
-                x = sample_from_discretized_mix_logistic(x.view(B, -1, 1),
-                    log_scale_min=log_scale_min)
+                x = sample_from_discretized_mix_logistic(x.view(B, -1, 1), log_scale_min=log_scale_min)
             else:
-                x = F.softmax(x.view(B, -1), dim=1) if softmax else x.view(B,
-                    -1)
+                x = F.softmax(x.view(B, -1), dim=1) if softmax else x.view(B, -1)
                 if quantize:
-                    sample = np.random.choice(np.arange(self.out_channels),
-                        p=x.view(-1).data.cpu().numpy())
+                    sample = np.random.choice(np.arange(self.out_channels), p=x.view(-1).data.cpu().numpy())
                     x.zero_()
                     x[:, (sample)] = 1.0
             outputs += [x.data]
@@ -2265,53 +1953,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_swasun_VQ_VAE_Speech(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ActNorm(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActNorm,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Block,
+     lambda: ([], {'in_channel': 4, 'cin_channel': 4, 'n_flow': 4, 'n_layer': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (Conv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (Conv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ConvolutionalEncoder,
+     lambda: ([], {'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4, 'input_features_type': 4, 'features_filters': 4, 'sampling_rate': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (Jitter,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (KL_Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Residual,
+     lambda: ([], {'in_channels': 4, 'num_hiddens': 4, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ResidualStack,
+     lambda: ([], {'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (STFT,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64])], {}),
+     False),
+    (VectorQuantizer,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (VectorQuantizerEMA,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'decay': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ZeroConv1d,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+]
+
+class Test_swasun_VQ_VAE_Speech(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Block(*[], **{'in_channel': 4, 'cin_channel': 4, 'n_flow': 4, 'n_layer': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ConvolutionalEncoder(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4, 'input_features_type': 4, 'features_filters': 4, 'sampling_rate': 4, 'device': 0}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(Jitter(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(KL_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Residual(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(ResidualStack(*[], **{'in_channels': 4, 'num_hiddens': 4, 'num_residual_layers': 1, 'num_residual_hiddens': 4, 'use_kaiming_normal': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(STFT(*[], **{}), [torch.rand([4, 1, 64])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(VectorQuantizer(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'device': 0}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(VectorQuantizerEMA(*[], **{'num_embeddings': 4, 'embedding_dim': 4, 'commitment_cost': 4, 'decay': 4, 'device': 0}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(ZeroConv1d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[12])
 

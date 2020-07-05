@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,8 +88,7 @@ class Agent(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, vocabSize, embedSize, rnnHiddenSize, numLayers,
-        startToken, endToken, dropout=0, **kwargs):
+    def __init__(self, vocabSize, embedSize, rnnHiddenSize, numLayers, startToken, endToken, dropout=0, **kwargs):
         super(Decoder, self).__init__()
         self.vocabSize = vocabSize
         self.embedSize = embedSize
@@ -97,8 +97,7 @@ class Decoder(nn.Module):
         self.startToken = startToken
         self.endToken = endToken
         self.dropout = dropout
-        self.rnn = nn.LSTM(self.embedSize, self.rnnHiddenSize, self.
-            numLayers, batch_first=True, dropout=self.dropout)
+        self.rnn = nn.LSTM(self.embedSize, self.rnnHiddenSize, self.numLayers, batch_first=True, dropout=self.dropout)
         self.outNet = nn.Linear(self.rnnHiddenSize, self.vocabSize)
         self.logSoftmax = nn.LogSoftmax(dim=1)
 
@@ -133,8 +132,7 @@ class Decoder(nn.Module):
             logProbs = flatLogProbs.view(outputSize[0], outputSize[1], -1)
         return logProbs
 
-    def forwardDecode(self, encStates, maxSeqLen=20, inference='sample',
-        beamSize=1):
+    def forwardDecode(self, encStates, maxSeqLen=20, inference='sample', beamSize=1):
         """
         Decode a sequence of tokens given an encoder state, using either
         sampling or greedy inference.
@@ -190,8 +188,7 @@ class Decoder(nn.Module):
             elif inference == 'greedy':
                 _, sample = torch.max(probs, dim=1, keepdim=True)
             else:
-                raise ValueError("Invalid inference type: '{}'".format(
-                    inference))
+                raise ValueError("Invalid inference type: '{}'".format(inference))
             sample = sample + 1
             self.samples.append(sample)
             seq.data[:, (t + 1)] = sample.data
@@ -231,8 +228,7 @@ class Decoder(nn.Module):
         """
         batchSize, numOptions, maxLen = options.size()
         optionsFlat = options.contiguous().view(-1, maxLen)
-        encStates = [x.unsqueeze(2).repeat(1, 1, numOptions, 1).view(self.
-            numLayers, -1, self.rnnHiddenSize) for x in encStates]
+        encStates = [x.unsqueeze(2).repeat(1, 1, numOptions, 1).view(self.numLayers, -1, self.rnnHiddenSize) for x in encStates]
         logProbs = self.forward(encStates, inputSeq=optionsFlat)
         scores = scoringFunction(logProbs, optionsFlat, returnScores=True)
         return scores.view(batchSize, numOptions)
@@ -280,8 +276,7 @@ class Decoder(nn.Module):
         startTokenArray = Variable(startTokenArray)
         backVector = Variable(backVector)
         hiddenStates = initStates
-        beamTokensTable = th.LongTensor(batchSize, beamSize, maxLen).fill_(self
-            .endToken)
+        beamTokensTable = th.LongTensor(batchSize, beamSize, maxLen).fill_(self.endToken)
         beamTokensTable = Variable(beamTokensTable)
         backIndices = th.LongTensor(batchSize, beamSize, maxLen).fill_(-1)
         backIndices = Variable(backIndices)
@@ -295,23 +290,17 @@ class Decoder(nn.Module):
                 topLogProbs, topIdx = logProbs.topk(beamSize, dim=1)
                 beamTokensTable[:, :, (0)] = topIdx.transpose(0, 1).data
                 logProbSums = topLogProbs
-                hiddenStates = [x.unsqueeze(2).repeat(1, 1, beamSize, 1) for
-                    x in hiddenStates]
-                hiddenStates = [x.view(self.numLayers, -1, self.
-                    rnnHiddenSize) for x in hiddenStates]
+                hiddenStates = [x.unsqueeze(2).repeat(1, 1, beamSize, 1) for x in hiddenStates]
+                hiddenStates = [x.view(self.numLayers, -1, self.rnnHiddenSize) for x in hiddenStates]
             else:
                 emb = self.wordEmbed(beamTokensTable[:, :, (t - 1)])
-                output, hiddenStates = self.rnn(emb.view(-1, 1, self.
-                    embedSize), hiddenStates)
+                output, hiddenStates = self.rnn(emb.view(-1, 1, self.embedSize), hiddenStates)
                 scores = self.outNet(output.squeeze())
                 logProbsCurrent = self.logSoftmax(scores)
-                logProbsCurrent = logProbsCurrent.view(batchSize, beamSize,
-                    self.vocabSize)
+                logProbsCurrent = logProbsCurrent.view(batchSize, beamSize, self.vocabSize)
                 if LENGTH_NORM:
-                    logProbs = logProbsCurrent * (aliveVector.float() / (t + 1)
-                        )
-                    coeff_ = aliveVector.eq(0).float() + aliveVector.float(
-                        ) * t / (t + 1)
+                    logProbs = logProbsCurrent * (aliveVector.float() / (t + 1))
+                    coeff_ = aliveVector.eq(0).float() + aliveVector.float() * t / (t + 1)
                     logProbs += logProbSums.unsqueeze(2) * coeff_
                 else:
                     logProbs = logProbsCurrent * aliveVector.float()
@@ -321,12 +310,10 @@ class Decoder(nn.Module):
                 minus_infinity_ = torch.min(logProbs).data[0]
                 logProbs.data.masked_fill_(mask_.data, minus_infinity_)
                 logProbs = logProbs.view(batchSize, -1)
-                tokensArray = tokenArange.unsqueeze(0).unsqueeze(0).repeat(
-                    batchSize, beamSize, 1)
+                tokensArray = tokenArange.unsqueeze(0).unsqueeze(0).repeat(batchSize, beamSize, 1)
                 tokensArray.masked_fill_(aliveVector.eq(0), self.endToken)
                 tokensArray = tokensArray.view(batchSize, -1)
-                backIndexArray = backVector.unsqueeze(2).repeat(1, 1, self.
-                    vocabSize).view(batchSize, -1)
+                backIndexArray = backVector.unsqueeze(2).repeat(1, 1, self.vocabSize).view(batchSize, -1)
                 topLogProbs, topIdx = logProbs.topk(beamSize, dim=1)
                 logProbSums = topLogProbs
                 beamTokensTable[:, :, (t)] = tokensArray.gather(1, topIdx)
@@ -334,12 +321,9 @@ class Decoder(nn.Module):
                 hiddenCurrent, cellCurrent = hiddenStates
                 original_state_size = hiddenCurrent.size()
                 num_layers, _, rnnHiddenSize = original_state_size
-                hiddenCurrent = hiddenCurrent.view(num_layers, batchSize,
-                    beamSize, rnnHiddenSize)
-                cellCurrent = cellCurrent.view(num_layers, batchSize,
-                    beamSize, rnnHiddenSize)
-                backIndexVector = backIndices[:, :, (t)].unsqueeze(0
-                    ).unsqueeze(-1).repeat(num_layers, 1, 1, rnnHiddenSize)
+                hiddenCurrent = hiddenCurrent.view(num_layers, batchSize, beamSize, rnnHiddenSize)
+                cellCurrent = cellCurrent.view(num_layers, batchSize, beamSize, rnnHiddenSize)
+                backIndexVector = backIndices[:, :, (t)].unsqueeze(0).unsqueeze(-1).repeat(num_layers, 1, 1, rnnHiddenSize)
                 hiddenCurrent = hiddenCurrent.gather(2, backIndexVector)
                 cellCurrent = cellCurrent.gather(2, backIndexVector)
                 hiddenCurrent = hiddenCurrent.view(*original_state_size)
@@ -357,8 +341,7 @@ class Decoder(nn.Module):
         backID = backIndices[:, :, (tokenIdx)]
         tokens = []
         while tokenIdx >= 0:
-            tokens.append(beamTokensTable[:, :, (tokenIdx)].gather(1,
-                backID).unsqueeze(2))
+            tokens.append(beamTokensTable[:, :, (tokenIdx)].gather(1, backID).unsqueeze(2))
             backID = backIndices[:, :, (tokenIdx)].gather(1, backID)
             tokenIdx = tokenIdx - 1
         tokens.append(startTokenArray.unsqueeze(2).repeat(1, beamSize, 1).data)
@@ -373,9 +356,7 @@ class Decoder(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, vocabSize, embedSize, rnnHiddenSize, numLayers,
-        useIm, imgEmbedSize, imgFeatureSize, numRounds, isAnswerer, dropout
-        =0, startToken=None, endToken=None, **kwargs):
+    def __init__(self, vocabSize, embedSize, rnnHiddenSize, numLayers, useIm, imgEmbedSize, imgFeatureSize, numRounds, isAnswerer, dropout=0, startToken=None, endToken=None, **kwargs):
         super(Encoder, self).__init__()
         self.vocabSize = vocabSize
         self.embedSize = embedSize
@@ -393,8 +374,7 @@ class Encoder(nn.Module):
         self.isAnswerer = isAnswerer
         self.startToken = startToken
         self.endToken = endToken
-        self.wordEmbed = nn.Embedding(self.vocabSize, self.embedSize,
-            padding_idx=0)
+        self.wordEmbed = nn.Embedding(self.vocabSize, self.embedSize, padding_idx=0)
         if self.useIm == 'early':
             quesInputSize = self.embedSize + self.imgEmbedSize
             dialogInputSize = 2 * self.rnnHiddenSize
@@ -411,10 +391,8 @@ class Encoder(nn.Module):
         else:
             dialogInputSize = self.rnnHiddenSize
         if self.isAnswerer:
-            self.quesRNN = nn.LSTM(quesInputSize, self.rnnHiddenSize, self.
-                numLayers, batch_first=True, dropout=0)
-        self.factRNN = nn.LSTM(self.embedSize, self.rnnHiddenSize, self.
-            numLayers, batch_first=True, dropout=0)
+            self.quesRNN = nn.LSTM(quesInputSize, self.rnnHiddenSize, self.numLayers, batch_first=True, dropout=0)
+        self.factRNN = nn.LSTM(self.embedSize, self.rnnHiddenSize, self.numLayers, batch_first=True, dropout=0)
         self.dialogRNN = nn.LSTMCell(dialogInputSize, self.rnnHiddenSize)
 
     def reset(self):
@@ -443,8 +421,7 @@ class Encoder(nn.Module):
         c = someTensor.new(self.batchSize, self.dialogRNN.hidden_size).zero_()
         return Variable(h), Variable(c)
 
-    def observe(self, round, image=None, caption=None, ques=None, ans=None,
-        captionLens=None, quesLens=None, ansLens=None):
+    def observe(self, round, image=None, caption=None, ques=None, ans=None, captionLens=None, quesLens=None, ansLens=None):
         """
         Store dialog input to internal model storage
 
@@ -495,8 +472,7 @@ class Encoder(nn.Module):
             self.captionEmbed = self.wordEmbed(self.captionTokens)
         while len(self.questionEmbeds) < len(self.questionTokens):
             idx = len(self.questionEmbeds)
-            self.questionEmbeds.append(self.wordEmbed(self.questionTokens[idx])
-                )
+            self.questionEmbeds.append(self.wordEmbed(self.questionTokens[idx]))
         while len(self.answerEmbeds) < len(self.answerTokens):
             idx = len(self.answerEmbeds)
             self.answerEmbeds.append(self.wordEmbed(self.answerTokens[idx]))
@@ -505,19 +481,14 @@ class Encoder(nn.Module):
         """Embed facts i.e. caption and round 0 or question-answer pair otherwise"""
         if factIdx == 0:
             seq, seqLens = self.captionEmbed, self.captionLens
-            factEmbed, states = utils.dynamicRNN(self.factRNN, seq, seqLens,
-                returnStates=True)
+            factEmbed, states = utils.dynamicRNN(self.factRNN, seq, seqLens, returnStates=True)
         elif factIdx > 0:
-            quesTokens, quesLens = self.questionTokens[factIdx - 1
-                ], self.questionLens[factIdx - 1]
-            ansTokens, ansLens = self.answerTokens[factIdx - 1
-                ], self.answerLengths[factIdx - 1]
-            qaTokens = utils.concatPaddedSequences(quesTokens, quesLens,
-                ansTokens, ansLens, padding='right')
+            quesTokens, quesLens = self.questionTokens[factIdx - 1], self.questionLens[factIdx - 1]
+            ansTokens, ansLens = self.answerTokens[factIdx - 1], self.answerLengths[factIdx - 1]
+            qaTokens = utils.concatPaddedSequences(quesTokens, quesLens, ansTokens, ansLens, padding='right')
             qa = self.wordEmbed(qaTokens)
             qaLens = quesLens + ansLens
-            qaEmbed, states = utils.dynamicRNN(self.factRNN, qa, qaLens,
-                returnStates=True)
+            qaEmbed, states = utils.dynamicRNN(self.factRNN, qa, qaLens, returnStates=True)
             factEmbed = qaEmbed
         factRNNstates = states
         self.factEmbeds.append((factEmbed, factRNNstates))
@@ -529,8 +500,7 @@ class Encoder(nn.Module):
         if self.useIm == 'early':
             image = self.imageEmbed.unsqueeze(1).repeat(1, quesIn.size(1), 1)
             quesIn = torch.cat([quesIn, image], 2)
-        qEmbed, states = utils.dynamicRNN(self.quesRNN, quesIn, quesLens,
-            returnStates=True)
+        qEmbed, states = utils.dynamicRNN(self.quesRNN, quesIn, quesLens, returnStates=True)
         quesRNNstates = states
         self.questionRNNStates.append((qEmbed, quesRNNstates))
 
@@ -605,10 +575,3 @@ class Encoder(nn.Module):
             H_link = torch.cat([H_link, dialogHidden.unsqueeze(0)], 0)
         return H_link, C_link
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_batra_mlp_lab_visdial_rl(_paritybench_base):
-    pass

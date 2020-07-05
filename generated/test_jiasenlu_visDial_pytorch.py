@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ class _netE(nn.Module):
         self.nlayers = nlayers
         self.nhid = nhid
         self.ninp = ninp
-        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-            dropout)
+        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         self.fc1 = nn.Linear(self.nhid, self.ninp)
 
     def forward(self, emb, hidden):
@@ -109,8 +109,7 @@ class _netE(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -127,8 +126,7 @@ class _netE(nn.Module):
         self.nhid = nhid
         self.ninp = ninp
         self.img_embed = nn.Linear(512, 512)
-        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-            dropout)
+        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         self.Wq_2 = nn.Linear(self.nhid, self.nhid)
         self.Wi_2 = nn.Linear(self.nhid, self.nhid)
         self.Wa_2 = nn.Linear(self.nhid, 1)
@@ -141,20 +139,16 @@ class _netE(nn.Module):
         ques_emb_2 = self.Wq_2(ques_feat).view(-1, 1, self.nhid)
         img_emb_2 = self.Wi_2(img_emb).view(-1, 49, self.nhid)
         atten_emb_2 = F.tanh(img_emb_2 + ques_emb_2.expand_as(img_emb_2))
-        img_atten_weight = F.softmax(self.Wa_2(F.dropout(atten_emb_2, self.
-            d, training=self.training).view(-1, self.nhid)).view(-1, 49))
-        img_attn_feat = torch.bmm(img_atten_weight.view(-1, 1, 49), img_emb
-            .view(-1, 49, self.nhid))
-        concat_feat = F.dropout(torch.cat((img_attn_feat.view(-1, self.nhid
-            ), ques_feat), 1), self.d, training=self.training)
+        img_atten_weight = F.softmax(self.Wa_2(F.dropout(atten_emb_2, self.d, training=self.training).view(-1, self.nhid)).view(-1, 49))
+        img_attn_feat = torch.bmm(img_atten_weight.view(-1, 1, 49), img_emb.view(-1, 49, self.nhid))
+        concat_feat = F.dropout(torch.cat((img_attn_feat.view(-1, self.nhid), ques_feat), 1), self.d, training=self.training)
         encoder_feat = F.tanh(self.fc1(concat_feat))
         return encoder_feat, ques_hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -171,10 +165,8 @@ class _netE(nn.Module):
         self.nhid = nhid
         self.ninp = ninp
         self.img_embed = nn.Linear(img_feat_size, nhid)
-        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-            dropout)
-        self.his_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-            dropout)
+        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
+        self.his_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         self.Wq_1 = nn.Linear(self.nhid, self.nhid)
         self.Wh_1 = nn.Linear(self.nhid, self.nhid)
         self.Wa_1 = nn.Linear(self.nhid, 1)
@@ -184,8 +176,7 @@ class _netE(nn.Module):
         self.Wa_2 = nn.Linear(self.nhid, 1)
         self.fc1 = nn.Linear(self.nhid * 3, self.ninp)
 
-    def forward(self, ques_emb, his_emb, img_raw, ques_hidden, his_hidden, rnd
-        ):
+    def forward(self, ques_emb, his_emb, img_raw, ques_hidden, his_hidden, rnd):
         img_emb = F.tanh(self.img_embed(img_raw))
         ques_feat, ques_hidden = self.ques_rnn(ques_emb, ques_hidden)
         ques_feat = ques_feat[-1]
@@ -194,31 +185,23 @@ class _netE(nn.Module):
         ques_emb_1 = self.Wq_1(ques_feat).view(-1, 1, self.nhid)
         his_emb_1 = self.Wh_1(his_feat).view(-1, rnd, self.nhid)
         atten_emb_1 = F.tanh(his_emb_1 + ques_emb_1.expand_as(his_emb_1))
-        his_atten_weight = F.softmax(self.Wa_1(F.dropout(atten_emb_1, self.
-            d, training=self.training).view(-1, self.nhid)).view(-1, rnd))
-        his_attn_feat = torch.bmm(his_atten_weight.view(-1, 1, rnd),
-            his_feat.view(-1, rnd, self.nhid))
+        his_atten_weight = F.softmax(self.Wa_1(F.dropout(atten_emb_1, self.d, training=self.training).view(-1, self.nhid)).view(-1, rnd))
+        his_attn_feat = torch.bmm(his_atten_weight.view(-1, 1, rnd), his_feat.view(-1, rnd, self.nhid))
         his_attn_feat = his_attn_feat.view(-1, self.nhid)
         ques_emb_2 = self.Wq_2(ques_feat).view(-1, 1, self.nhid)
         his_emb_2 = self.Wh_2(his_attn_feat).view(-1, 1, self.nhid)
         img_emb_2 = self.Wi_2(img_emb).view(-1, 49, self.nhid)
-        atten_emb_2 = F.tanh(img_emb_2 + ques_emb_2.expand_as(img_emb_2) +
-            his_emb_2.expand_as(img_emb_2))
-        img_atten_weight = F.softmax(self.Wa_2(F.dropout(atten_emb_2, self.
-            d, training=self.training).view(-1, self.nhid)).view(-1, 49))
-        img_attn_feat = torch.bmm(img_atten_weight.view(-1, 1, 49), img_emb
-            .view(-1, 49, self.nhid))
-        concat_feat = torch.cat((ques_feat, his_attn_feat.view(-1, self.
-            nhid), img_attn_feat.view(-1, self.nhid)), 1)
-        encoder_feat = F.tanh(self.fc1(F.dropout(concat_feat, self.d,
-            training=self.training)))
+        atten_emb_2 = F.tanh(img_emb_2 + ques_emb_2.expand_as(img_emb_2) + his_emb_2.expand_as(img_emb_2))
+        img_atten_weight = F.softmax(self.Wa_2(F.dropout(atten_emb_2, self.d, training=self.training).view(-1, self.nhid)).view(-1, 49))
+        img_attn_feat = torch.bmm(img_atten_weight.view(-1, 1, 49), img_emb.view(-1, 49, self.nhid))
+        concat_feat = torch.cat((ques_feat, his_attn_feat.view(-1, self.nhid), img_attn_feat.view(-1, self.nhid)), 1)
+        encoder_feat = F.tanh(self.fc1(F.dropout(concat_feat, self.d, training=self.training)))
         return encoder_feat, ques_hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -240,15 +223,13 @@ class _netW(nn.Module):
         if format == 'onehot':
             out = F.dropout(self.Linear(input), self.d, training=self.training)
         elif format == 'index':
-            out = F.dropout(self.word_embed(input), self.d, training=self.
-                training)
+            out = F.dropout(self.word_embed(input), self.d, training=self.training)
         return out
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -277,8 +258,7 @@ class _netD(nn.Module):
         mask[idx.data == vocab_size] = 1
         if isinstance(input_feat, Variable):
             mask = Variable(mask, volatile=input_feat.volatile)
-        atten = self.W2(F.dropout(F.tanh(self.W1(output.view(-1, self.nhid)
-            )), self.d, training=self.training)).view(idx.size())
+        atten = self.W2(F.dropout(F.tanh(self.W1(output.view(-1, self.nhid))), self.d, training=self.training)).view(idx.size())
         atten.masked_fill_(mask, -99999)
         weight = F.softmax(atten.t()).view(-1, 1, idx.size(0))
         feat = torch.bmm(weight, output.transpose(0, 1)).view(-1, self.nhid)
@@ -289,8 +269,7 @@ class _netD(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -321,8 +300,7 @@ class mixture_of_softmaxes(torch.nn.Module):
         self.ntoken = ntoken
         self.n_experts = n_experts
         self.prior = nn.Linear(nhid, n_experts, bias=False)
-        self.latent = nn.Sequential(nn.Linear(nhid, n_experts * nhid), nn.
-            Tanh())
+        self.latent = nn.Sequential(nn.Linear(nhid, n_experts * nhid), nn.Tanh())
         self.decoder = nn.Linear(nhid, ntoken)
 
     def forward(self, x):
@@ -330,8 +308,7 @@ class mixture_of_softmaxes(torch.nn.Module):
         logit = self.decoder(latent.view(-1, self.nhid))
         prior_logit = self.prior(x).view(-1, self.n_experts)
         prior = nn.functional.softmax(prior_logit)
-        prob = nn.functional.softmax(logit.view(-1, self.ntoken)).view(-1,
-            self.n_experts, self.ntoken)
+        prob = nn.functional.softmax(logit.view(-1, self.ntoken)).view(-1, self.n_experts, self.ntoken)
         prob = (prob * prior.unsqueeze(2).expand_as(prob)).sum(1)
         return prob
 
@@ -351,24 +328,19 @@ class nPairLoss(nn.Module):
         self.ninp = ninp
         self.margin = np.log(margin)
 
-    def forward(self, feat, right, wrong, batch_wrong, fake=None,
-        fake_diff_mask=None):
+    def forward(self, feat, right, wrong, batch_wrong, fake=None, fake_diff_mask=None):
         num_wrong = wrong.size(1)
         batch_size = feat.size(0)
         feat = feat.view(-1, self.ninp, 1)
         right_dis = torch.bmm(right.view(-1, 1, self.ninp), feat)
         wrong_dis = torch.bmm(wrong, feat)
         batch_wrong_dis = torch.bmm(batch_wrong, feat)
-        wrong_score = torch.sum(torch.exp(wrong_dis - right_dis.expand_as(
-            wrong_dis)), 1) + torch.sum(torch.exp(batch_wrong_dis -
-            right_dis.expand_as(batch_wrong_dis)), 1)
+        wrong_score = torch.sum(torch.exp(wrong_dis - right_dis.expand_as(wrong_dis)), 1) + torch.sum(torch.exp(batch_wrong_dis - right_dis.expand_as(batch_wrong_dis)), 1)
         loss_dis = torch.sum(torch.log(wrong_score + 1))
-        loss_norm = right.norm() + feat.norm() + wrong.norm(
-            ) + batch_wrong.norm()
+        loss_norm = right.norm() + feat.norm() + wrong.norm() + batch_wrong.norm()
         if fake:
             fake_dis = torch.bmm(fake.view(-1, 1, self.ninp), feat)
-            fake_score = torch.masked_select(torch.exp(fake_dis - right_dis
-                ), fake_diff_mask)
+            fake_score = torch.masked_select(torch.exp(fake_dis - right_dis), fake_diff_mask)
             margin_score = F.relu(torch.log(fake_score + 1) - self.margin)
             loss_fake = torch.sum(margin_score)
             loss_dis += loss_fake
@@ -427,8 +399,7 @@ class AxB(nn.Module):
         self.nhid = nhid
 
     def forward(self, nhA, nhB):
-        mat = torch.bmm(nhB.view(-1, 100, self.nhid), nhA.view(-1, self.
-            nhid, 1))
+        mat = torch.bmm(nhB.view(-1, 100, self.nhid), nhA.view(-1, self.nhid, 1))
         return mat.view(-1, 100)
 
 
@@ -456,45 +427,38 @@ class _netG(nn.Module):
         output, hidden = self.rnn(emb, hidden)
         output = F.dropout(output, self.d, training=self.training)
         if self.mos_flag:
-            decoded = self.mos_layer(output.view(output.size(0) * output.
-                size(1), output.size(2)))
+            decoded = self.mos_layer(output.view(output.size(0) * output.size(1), output.size(2)))
             logprob = torch.log(self.beta * decoded)
         else:
-            decoded = self.decoder(output.view(output.size(0) * output.size
-                (1), output.size(2)))
+            decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
             logprob = F.log_softmax(self.beta * decoded)
         return logprob, hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
     def sample_beam(self, netW, input, hidden_state, opt={}):
         beam_size = opt.get('beam_size', 10)
         batch_size = input.size(1)
-        seq_all = torch.LongTensor(self.seq_length, batch_size, beam_size
-            ).zero_()
+        seq_all = torch.LongTensor(self.seq_length, batch_size, beam_size).zero_()
         seq = torch.LongTensor(self.seq_length, batch_size).zero_()
         seqLogprobs = torch.FloatTensor(self.seq_length, batch_size)
         self.done_beams = [[] for _ in range(batch_size)]
         for k in range(batch_size):
             state = []
             for state_tmp in hidden_state:
-                state.append(state_tmp[:, (k), :].view(1, 1, -1).expand(1,
-                    beam_size, self.nhid).clone())
+                state.append(state_tmp[:, (k), :].view(1, 1, -1).expand(1, beam_size, self.nhid).clone())
             state = tuple(state)
             beam_seq = torch.LongTensor(self.seq_length, beam_size).zero_()
-            beam_seq_logprobs = torch.FloatTensor(self.seq_length, beam_size
-                ).zero_()
+            beam_seq_logprobs = torch.FloatTensor(self.seq_length, beam_size).zero_()
             beam_logprobs_sum = torch.zeros(beam_size)
             for t in range(self.seq_length + 1):
                 if t == 0:
-                    it = input.data.resize_(1, beam_size).fill_(self.vocab_size
-                        )
+                    it = input.data.resize_(1, beam_size).fill_(self.vocab_size)
                     xt = netW(Variable(it, requires_grad=False))
                 else:
                     """perform a beam merge. that is,
@@ -513,34 +477,25 @@ class _netG(nn.Module):
                             local_logprob = ys[qq, cc]
                             if beam_seq[t - 2, qq] == self.vocab_size:
                                 local_logprob.data.fill_(-9999)
-                            candidate_logprob = beam_logprobs_sum[qq
-                                ] + local_logprob
-                            candidates.append({'c': ix.data[qq, cc], 'q':
-                                qq, 'p': candidate_logprob.data[0], 'r':
-                                local_logprob.data[0]})
+                            candidate_logprob = beam_logprobs_sum[qq] + local_logprob
+                            candidates.append({'c': ix.data[qq, cc], 'q': qq, 'p': candidate_logprob.data[0], 'r': local_logprob.data[0]})
                     candidates = sorted(candidates, key=lambda x: -x['p'])
                     new_state = [_.clone() for _ in state]
                     if t > 1:
                         beam_seq_prev = beam_seq[:t - 1].clone()
-                        beam_seq_logprobs_prev = beam_seq_logprobs[:t - 1
-                            ].clone()
+                        beam_seq_logprobs_prev = beam_seq_logprobs[:t - 1].clone()
                     for vix in range(beam_size):
                         v = candidates[vix]
                         if t > 1:
-                            beam_seq[:t - 1, (vix)] = beam_seq_prev[:, (v['q'])
-                                ]
-                            beam_seq_logprobs[:t - 1, (vix)
-                                ] = beam_seq_logprobs_prev[:, (v['q'])]
+                            beam_seq[:t - 1, (vix)] = beam_seq_prev[:, (v['q'])]
+                            beam_seq_logprobs[:t - 1, (vix)] = beam_seq_logprobs_prev[:, (v['q'])]
                         for state_ix in range(len(new_state)):
-                            new_state[state_ix][0, vix] = state[state_ix][0,
-                                v['q']]
+                            new_state[state_ix][0, vix] = state[state_ix][0, v['q']]
                         beam_seq[t - 1, vix] = v['c']
                         beam_seq_logprobs[t - 1, vix] = v['r']
                         beam_logprobs_sum[vix] = v['p']
                         if v['c'] == self.vocab_size or t == self.seq_length:
-                            self.done_beams[k].append({'seq': beam_seq[:, (
-                                vix)].clone(), 'logps': beam_seq_logprobs[:,
-                                (vix)].clone(), 'p': beam_logprobs_sum[vix]})
+                            self.done_beams[k].append({'seq': beam_seq[:, (vix)].clone(), 'logps': beam_seq_logprobs[:, (vix)].clone(), 'p': beam_logprobs_sum[vix]})
                     it = beam_seq[t - 1].view(1, -1)
                     xt = netW(Variable(it))
                 if t >= 1:
@@ -548,15 +503,12 @@ class _netG(nn.Module):
                 output, state = self.rnn(xt, state)
                 output = F.dropout(output, self.d, training=self.training)
                 if self.mos_flag:
-                    decoded = self.mos_layer(output.view(output.size(0) *
-                        output.size(1), output.size(2)))
+                    decoded = self.mos_layer(output.view(output.size(0) * output.size(1), output.size(2)))
                     logprob = torch.log(self.beta * decoded)
                 else:
-                    decoded = self.decoder(output.view(output.size(0) *
-                        output.size(1), output.size(2)))
+                    decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
                     logprob = F.log_softmax(self.beta * decoded)
-            self.done_beams[k] = sorted(self.done_beams[k], key=lambda x: -
-                x['p'])
+            self.done_beams[k] = sorted(self.done_beams[k], key=lambda x: -x['p'])
             seq[:, (k)] = self.done_beams[k][0]['seq']
             seqLogprobs[:, (k)] = self.done_beams[k][0]['logps']
             for ii in range(beam_size):
@@ -584,11 +536,9 @@ class _netG(nn.Module):
                 if temperature == 1.0:
                     prob_prev = torch.exp(logprobs.data).cpu()
                 else:
-                    prob_prev = torch.exp(torch.div(logprobs.data, temperature)
-                        ).cpu()
+                    prob_prev = torch.exp(torch.div(logprobs.data, temperature)).cpu()
                 it = torch.multinomial(prob_prev, 1)
-                sampleLogprobs = logprobs.gather(1, Variable(it,
-                    requires_grad=False))
+                sampleLogprobs = logprobs.gather(1, Variable(it, requires_grad=False))
                 it = it.view(-1).long()
             xt = netW(Variable(it.view(1, -1), requires_grad=False))
             if t >= 1:
@@ -597,15 +547,12 @@ class _netG(nn.Module):
             output, state = self.rnn(xt, state)
             output = F.dropout(output, self.d, training=self.training)
             if self.mos_flag:
-                decoded = self.mos_layer(output.view(output.size(0) *
-                    output.size(1), output.size(2)))
+                decoded = self.mos_layer(output.view(output.size(0) * output.size(1), output.size(2)))
                 logprob = torch.log(self.beta * decoded)
             else:
-                decoded = self.decoder(output.view(output.size(0) * output.
-                    size(1), output.size(2)))
+                decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
                 logprob = F.log_softmax(self.beta * decoded)
-        return torch.cat([_.unsqueeze(1) for _ in seq], 1), torch.cat([_.
-            unsqueeze(1) for _ in seqLogprobs], 1)
+        return torch.cat([_.unsqueeze(1) for _ in seq], 1), torch.cat([_.unsqueeze(1) for _ in seqLogprobs], 1)
 
 
 class share_Linear(Module):
@@ -638,34 +585,58 @@ class share_Linear(Module):
         return F.linear(input, self.weight, self.bias)
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AxB,
+     lambda: ([], {'nhid': 4}),
+     lambda: ([torch.rand([400, 100, 4]), torch.rand([40000, 100, 4])], {}),
+     True),
+    (_netW,
+     lambda: ([], {'ntoken': 4, 'ninp': 4, 'dropout': 0.5}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (gumbel_sampler,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (mixture_of_softmaxes,
+     lambda: ([], {'nhid': 4, 'n_experts': 4, 'ntoken': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (nPairLoss,
+     lambda: ([], {'ninp': 4, 'margin': 4}),
+     lambda: ([torch.rand([16, 4, 4]), torch.rand([64, 4]), torch.rand([64, 4, 4]), torch.rand([64, 4, 4])], {}),
+     False),
+    (share_Linear,
+     lambda: ([], {'weight': torch.rand([4, 4])}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jiasenlu_visDial_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AxB(*[], **{'nhid': 4}), [torch.rand([400, 100, 4]), torch.rand([40000, 100, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(_netW(*[], **{'ntoken': 4, 'ninp': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(gumbel_sampler(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(mixture_of_softmaxes(*[], **{'nhid': 4, 'n_experts': 4, 'ntoken': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(nPairLoss(*[], **{'ninp': 4, 'margin': 4}), [torch.rand([16, 4, 4]), torch.rand([64, 4]), torch.rand([64, 4, 4]), torch.rand([64, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(share_Linear(*[], **{'weight': torch.rand([4, 4])}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

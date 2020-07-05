@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,10 +62,8 @@ class skipgram(nn.Module):
 
     def __init__(self, vocab_size, embedding_dim):
         super(skipgram, self).__init__()
-        self.u_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True
-            )
-        self.v_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True
-            )
+        self.u_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True)
+        self.v_embeddings = nn.Embedding(vocab_size, embedding_dim, sparse=True)
         self.embedding_dim = embedding_dim
         self.init_emb()
 
@@ -97,10 +96,3 @@ class skipgram(nn.Module):
             embed = ' '.join(embeds[idx])
             fo.write(word + ' ' + embed + '\n')
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_fanglanting_skip_gram_pytorch(_paritybench_base):
-    pass

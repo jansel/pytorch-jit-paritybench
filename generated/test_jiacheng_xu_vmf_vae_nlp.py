@@ -104,8 +104,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -274,15 +275,13 @@ class vMF(torch.nn.Module):
                 w = self._sample_weight(self.kappa, id_dim)
                 wtorch = GVar(w * torch.ones(id_dim))
                 v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.
-                    pow(wtorch, 2))
+                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.pow(wtorch, 2))
                 orth_term = v * scale_factr
                 muscale = mu[i] * wtorch / munorm
                 sampled_vec = (orth_term + muscale) * munoise
             else:
                 rand_draw = GVar(torch.randn(id_dim))
-                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
-                    id_dim)
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
                 rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
                 sampled_vec = rand_draw * GVar(rand_norms)
             result_list.append(sampled_vec)
@@ -298,15 +297,13 @@ class vMF(torch.nn.Module):
                 w = vMF.sample_vmf_w(self.kappa, id_dim)
                 wtorch = GVar(w * torch.ones(id_dim))
                 v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.
-                    pow(wtorch, 2))
+                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.pow(wtorch, 2))
                 orth_term = v * scale_factr
                 muscale = mu[i] * wtorch / munorm
                 sampled_vec = (orth_term + muscale) * munorm
             else:
                 rand_draw = GVar(torch.randn(id_dim))
-                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
-                    id_dim)
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
                 rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
                 sampled_vec = rand_draw * GVar(rand_norms)
             result_list.append(sampled_vec)
@@ -398,13 +395,11 @@ class Gauss(nn.Module):
     def compute_KLD(self, tup):
         mean = tup['mean']
         logvar = tup['logvar']
-        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) + 2 * logvar -
-            torch.exp(2 * logvar), dim=1)
+        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) + 2 * logvar - torch.exp(2 * logvar), dim=1)
         return kld
 
     def sample_cell(self, batch_size):
-        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size,
-            self.lat_dim))))
+        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
         eps
         return eps.unsqueeze(0)
 
@@ -451,8 +446,7 @@ class vMF(torch.nn.Module):
         mu = self.func_mu(latent_code)
         norm = torch.norm(mu, 2, 1, keepdim=True)
         mu_norm_sq_diff_from_one = torch.pow(torch.add(norm, -1), 2)
-        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim
-            =True)
+        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim=True)
         ret_dict['norm'] = torch.ones_like(mu)
         ret_dict['redundant_norm'] = redundant_norm
         mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
@@ -464,10 +458,7 @@ class vMF(torch.nn.Module):
 
     @staticmethod
     def _vmf_kld(k, d):
-        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 *
-            k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 -
-            np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log
-            (2) / 2).real
+        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 * k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 - np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log(2) / 2).real
         if tmp != tmp:
             exit()
         return np.array([tmp])
@@ -478,10 +469,7 @@ class vMF(torch.nn.Module):
         This should be the correct KLD.
         Empirically we find that _vmf_kld (as in the Guu paper) only deviates a little (<2%) in most cases we use.
         """
-        tmp = k * sp.iv(d / 2, k) / sp.iv(d / 2 - 1, k) + (d / 2 - 1
-            ) * torch.log(k) - torch.log(sp.iv(d / 2 - 1, k)) + np.log(np.pi
-            ) * d / 2 + np.log(2) - sp.loggamma(d / 2).real - d / 2 * np.log(
-            2 * np.pi)
+        tmp = k * sp.iv(d / 2, k) / sp.iv(d / 2 - 1, k) + (d / 2 - 1) * torch.log(k) - torch.log(sp.iv(d / 2 - 1, k)) + np.log(np.pi) * d / 2 + np.log(2) - sp.loggamma(d / 2).real - d / 2 * np.log(2 * np.pi)
         if tmp != tmp:
             exit()
         return np.array([tmp])
@@ -509,8 +497,7 @@ class vMF(torch.nn.Module):
         w = w.unsqueeze(1)
         w_var = GVar(w * torch.ones(batch_sz, lat_dim))
         v = self._sample_ortho_batch(mu, lat_dim)
-        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) -
-            torch.pow(w_var, 2))
+        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) - torch.pow(w_var, 2))
         orth_term = v * scale_factr
         muscale = mu * w_var
         sampled_vec = orth_term + muscale
@@ -596,8 +583,7 @@ class BesselIv(torch.autograd.Function):
         """
         dim, kappa = ctx.saved_tensors
         grad_input = grad_output.clone()
-        grad = grad_input * (bessel_iv(dim - 1, kappa) + bessel_iv(dim + 1,
-            kappa)) * 0.5
+        grad = grad_input * (bessel_iv(dim - 1, kappa) + bessel_iv(dim + 1, kappa)) * 0.5
         return None, grad
 
 
@@ -616,13 +602,11 @@ class VmfDiff(torch.nn.Module):
 
     def estimate_param(self, latent_code):
         ret_dict = {}
-        ret_dict['kappa'] = torch.max(torch.min(self.func_kappa(latent_code
-            ) * 10 + 50, torch.tensor(150.0)), torch.tensor(10.0))
+        ret_dict['kappa'] = torch.max(torch.min(self.func_kappa(latent_code) * 10 + 50, torch.tensor(150.0)), torch.tensor(10.0))
         mu = self.func_mu(latent_code)
         norm = torch.norm(mu, 2, 1, keepdim=True)
         mu_norm_sq_diff_from_one = torch.pow(torch.add(norm, -1), 2)
-        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim
-            =True)
+        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim=True)
         ret_dict['norm'] = torch.ones_like(mu)
         ret_dict['redundant_norm'] = redundant_norm
         mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
@@ -633,16 +617,14 @@ class VmfDiff(torch.nn.Module):
         kappa = tup['kappa']
         d = self.lat_dim
         rt_bag = []
-        const = torch.tensor(np.log(np.pi) * d / 2 + np.log(2) - sp.
-            loggamma(d / 2).real - d / 2 * np.log(2 * np.pi))
+        const = torch.tensor(np.log(np.pi) * d / 2 + np.log(2) - sp.loggamma(d / 2).real - d / 2 * np.log(2 * np.pi))
         d = torch.tensor([d], dtype=torch.float)
         batchsz = kappa.size()[0]
         rt_tensor = torch.zeros(batchsz)
         for k_idx in range(batchsz):
             k = kappa[k_idx]
             first = k * bessel_iv(d / 2, k) / bessel_iv(d / 2 - 1, k)
-            second = (d / 2 - 1) * torch.log(k) - torch.log(bessel_iv(d / 2 -
-                1, k))
+            second = (d / 2 - 1) * torch.log(k) - torch.log(bessel_iv(d / 2 - 1, k))
             combin = first + second + const
             rt_tensor[k_idx] = combin
         return rt_tensor
@@ -671,8 +653,7 @@ class VmfDiff(torch.nn.Module):
         w = w.unsqueeze(1)
         w_var = GVar(w * torch.ones(batch_sz, lat_dim))
         v = self._sample_ortho_batch(mu, lat_dim)
-        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) -
-            torch.pow(w_var, 2))
+        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) - torch.pow(w_var, 2))
         orth_term = v * scale_factr
         muscale = mu * w_var
         sampled_vec = orth_term + muscale
@@ -745,8 +726,7 @@ class vMF(torch.nn.Module):
         mu = self.func_mu(latent_code)
         norm = torch.norm(mu, 2, 1, keepdim=True)
         mu_norm_sq_diff_from_one = torch.pow(torch.add(norm, -1), 2)
-        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim
-            =True)
+        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim=True)
         ret_dict['norm'] = torch.ones_like(mu)
         ret_dict['redundant_norm'] = redundant_norm
         mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
@@ -758,10 +738,7 @@ class vMF(torch.nn.Module):
 
     @staticmethod
     def _vmf_kld(k, d):
-        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 *
-            k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 -
-            np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log
-            (2) / 2).real
+        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 * k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 - np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log(2) / 2).real
         if tmp != tmp:
             exit()
         return np.array([tmp])
@@ -792,8 +769,7 @@ class vMF(torch.nn.Module):
             w = self._sample_weight(kappa, lat_dim)
             w_var = GVar(w * torch.ones(lat_dim))
             v = self._sample_orthonormal_to(this_mu, lat_dim)
-            scale_factr = torch.sqrt(GVar(torch.ones(lat_dim)) - torch.pow(
-                w_var, 2))
+            scale_factr = torch.sqrt(GVar(torch.ones(lat_dim)) - torch.pow(w_var, 2))
             orth_term = v * scale_factr
             muscale = this_mu * w_var
             sampled_vec = orth_term + muscale
@@ -837,11 +813,9 @@ class unif_vMF(torch.nn.Module):
         self.func_norm = torch.nn.Linear(hid_dim, 1)
         self.norm_eps = 1
         self.norm_max = norm_max
-        self.norm_clip = torch.nn.Hardtanh(1e-05, self.norm_max - self.norm_eps
-            )
+        self.norm_clip = torch.nn.Hardtanh(1e-05, self.norm_max - self.norm_eps)
         self.norm_func = norm_func
-        kld_value = unif_vMF._vmf_kld(kappa, lat_dim) + unif_vMF._uniform_kld(
-            0.0, self.norm_eps, 0.0, self.norm_max)
+        kld_value = unif_vMF._vmf_kld(kappa, lat_dim) + unif_vMF._uniform_kld(0.0, self.norm_eps, 0.0, self.norm_max)
         self.kld = GVar(torch.from_numpy(np.array([kld_value])).float())
         None
 
@@ -869,17 +843,13 @@ class unif_vMF(torch.nn.Module):
 
     @staticmethod
     def _vmf_kld(k, d):
-        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 *
-            k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 -
-            np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log
-            (2) / 2).real
+        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 * k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 - np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log(2) / 2).real
         return tmp
 
     @staticmethod
     def _uniform_kld(x1, x2, y1, y2):
         if x1 < y1 or x2 > y2:
-            raise Exception('KLD is infinite: Unif([' + repr(x1) + ',' +
-                repr(x2) + '])||Unif([' + repr(y1) + ',' + repr(y2) + '])')
+            raise Exception('KLD is infinite: Unif([' + repr(x1) + ',' + repr(x2) + '])||Unif([' + repr(y1) + ',' + repr(y2) + '])')
         return np.log((y2 - y1) / (x2 - x1))
 
     def build_bow_rep(self, lat_code, n_sample):
@@ -918,8 +888,7 @@ class unif_vMF(torch.nn.Module):
         w = w.unsqueeze(1)
         w_var = GVar(w * torch.ones(batch_sz, lat_dim))
         v = self._sample_ortho_batch(mu, lat_dim)
-        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) -
-            torch.pow(w_var, 2))
+        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) - torch.pow(w_var, 2))
         orth_term = v * scale_factr
         muscale = mu * w_var
         sampled_vec = (orth_term + muscale) * norm_with_noise
@@ -1019,8 +988,7 @@ class BowVAE(torch.nn.Module):
         elif self.dist_type == 'vmf':
             self.dist = vMF(n_hidden, n_lat, kappa=self.args.kappa)
         elif self.dist_type == 'unifvmf':
-            self.dist = unif_vMF(n_hidden, n_lat, kappa=self.args.kappa,
-                norm_func=self.args.norm_func)
+            self.dist = unif_vMF(n_hidden, n_lat, kappa=self.args.kappa, norm_func=self.args.norm_func)
         elif self.dist_type == 'sph':
             self.dist = VmfDiff(n_hidden, n_lat)
         else:
@@ -1049,8 +1017,7 @@ class BowVAE(torch.nn.Module):
         logit = self.dropout(self.out(flatten_vecs))
         logit = torch.nn.functional.log_softmax(logit, dim=1)
         logit = logit.view(self.n_sample, batch_sz, self.vocab_size)
-        flatten_x = x.unsqueeze(0).expand(self.n_sample, batch_sz, self.
-            vocab_size)
+        flatten_x = x.unsqueeze(0).expand(self.n_sample, batch_sz, self.vocab_size)
         error = torch.mul(flatten_x, logit)
         error = torch.mean(error, dim=0)
         recon_loss = -torch.sum(error, dim=1, keepdim=False)
@@ -1100,11 +1067,8 @@ def check_dispersion(vecs, num_sam=10):
 class RNNVAE(nn.Module):
     """Container module with an optional encoder, a prob latent module, and a RNN decoder."""
 
-    def __init__(self, args, enc_type, ntoken, ninp, nhid, lat_dim, nlayers,
-        dropout=0.5, tie_weights=False, input_z=False, mix_unk=0, condition
-        =False, input_cd_bow=0, input_cd_bit=0):
-        assert not condition or condition and (input_cd_bow > 1 or 
-            input_cd_bit > 1)
+    def __init__(self, args, enc_type, ntoken, ninp, nhid, lat_dim, nlayers, dropout=0.5, tie_weights=False, input_z=False, mix_unk=0, condition=False, input_cd_bow=0, input_cd_bit=0):
+        assert not condition or condition and (input_cd_bow > 1 or input_cd_bit > 1)
         assert type(input_cd_bit) == int and input_cd_bit >= 0
         assert type(input_cd_bow) == int and input_cd_bow >= 0
         super(RNNVAE, self).__init__()
@@ -1141,11 +1105,9 @@ class RNNVAE(nn.Module):
             if enc_type == 'lstm' or enc_type == 'gru':
                 if enc_type == 'lstm':
                     _factor *= 2
-                    self.enc_rnn = nn.LSTM(_inp_dim, nhid, 1, bidirectional
-                        =self.bi, dropout=dropout)
+                    self.enc_rnn = nn.LSTM(_inp_dim, nhid, 1, bidirectional=self.bi, dropout=dropout)
                 elif enc_type == 'gru':
-                    self.enc_rnn = nn.GRU(_inp_dim, nhid, 1, bidirectional=
-                        self.bi, dropout=dropout)
+                    self.enc_rnn = nn.GRU(_inp_dim, nhid, 1, bidirectional=self.bi, dropout=dropout)
                 else:
                     raise NotImplementedError
                 if self.bi:
@@ -1170,8 +1132,7 @@ class RNNVAE(nn.Module):
         elif args.dist == 'zero':
             pass
         elif args.dist == 'unifvmf':
-            self.dist = unif_vMF(nhid, lat_dim, kappa=self.args.kappa,
-                norm_max=self.args.norm_max)
+            self.dist = unif_vMF(nhid, lat_dim, kappa=self.args.kappa, norm_max=self.args.norm_max)
         else:
             raise NotImplementedError
         self.mix_unk = mix_unk
@@ -1184,12 +1145,10 @@ class RNNVAE(nn.Module):
             _dec_rnn_inp_dim += int(input_cd_bit)
         if input_cd_bow > 1:
             _dec_rnn_inp_dim += int(input_cd_bow)
-        self.decoder_rnn = nn.LSTM(_dec_rnn_inp_dim, nhid, nlayers, dropout
-            =dropout)
+        self.decoder_rnn = nn.LSTM(_dec_rnn_inp_dim, nhid, nlayers, dropout=dropout)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder_out.weight = self.emb.weight
         self.criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
 
@@ -1204,8 +1163,7 @@ class RNNVAE(nn.Module):
         if self.enc_type == 'lstm':
             output, (h_n, c_n) = self.enc_rnn(x)
             if self.bi:
-                concated_h_c = torch.cat((h_n[0], h_n[1], c_n[0], c_n[1]),
-                    dim=1)
+                concated_h_c = torch.cat((h_n[0], h_n[1], c_n[0], c_n[1]), dim=1)
             else:
                 concated_h_c = torch.cat((h_n[0], c_n[0]), dim=1)
         elif self.enc_type == 'gru':
@@ -1228,8 +1186,7 @@ class RNNVAE(nn.Module):
         """
         UNKs = GVar(torch.ones(emb.size()[0], emb.size()[1]).long() * 2)
         UNKs = self.emb(UNKs)
-        masks = numpy.random.binomial(1, drop_rate, size=(emb.size()[0],
-            emb.size()[1]))
+        masks = numpy.random.binomial(1, drop_rate, size=(emb.size()[0], emb.size()[1]))
         masks = GVar(torch.FloatTensor(masks)).unsqueeze(2).expand_as(UNKs)
         emb = emb * (1 - masks) + UNKs * masks
         return emb
@@ -1347,8 +1304,7 @@ class RNNVAE(nn.Module):
         init_h, init_c = self.convert_z_to_hidden(lat_code, batch_sz)
         output, hidden = self.decoder_rnn(emb, (init_h, init_c))
         output = self.drop(output)
-        decoded = self.decoder_out(output.view(output.size(0) * output.size
-            (1), output.size(2)))
+        decoded = self.decoder_out(output.view(output.size(0) * output.size(1), output.size(2)))
         decoded = decoded.view(output.size(0), output.size(1), decoded.size(1))
         return decoded
 
@@ -1364,8 +1320,7 @@ class RNNVAE(nn.Module):
         c = hidden[1]
         assert h.size()[0] == self.nlayers * 2
         assert h.size()[1] == batch_sz
-        x = torch.cat((h, c), dim=0).permute(1, 0, 2).contiguous().view(
-            batch_sz, -1)
+        x = torch.cat((h, c), dim=0).permute(1, 0, 2).contiguous().view(batch_sz, -1)
         if self.dist == 'nor':
             return self.fc_mu(x), self.fc_logvar(x)
         elif self.dist == 'vmf':
@@ -1380,17 +1335,14 @@ class RNNVAE(nn.Module):
         :param batch_sz:
         :return:
         """
-        h = self.z_to_h(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2
-            ).contiguous()
-        c = self.z_to_c(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2
-            ).contiguous()
+        h = self.z_to_h(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2).contiguous()
+        c = self.z_to_c(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2).contiguous()
         return h, c
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return GVar(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), GVar(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return GVar(weight.new(self.nlayers, bsz, self.nhid).zero_()), GVar(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return GVar(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -1409,22 +1361,19 @@ class RNNLM(nn.Module):
         self.hid_dim = opt.hid_dim
         embeds = SingleEmbeddings(opt, pretrain)
         self.emb = embeds
-        rnn_dec = SimpleRNNDecoder(opt, rnn_type='lstm', input_size=opt.
-            inp_dim, hidden_size=opt.hid_dim, emb=self.emb)
+        rnn_dec = SimpleRNNDecoder(opt, rnn_type='lstm', input_size=opt.inp_dim, hidden_size=opt.hid_dim, emb=self.emb)
         self.dec = rnn_dec
 
     def forward(self, inp_var, inp_msk, tgt_var=None, tgt_msk=None, aux=None):
         batch_size = inp_var.size()[0]
         h_t = self.init_hidden(batch_size)
-        decoder_outputs_prob, decoder_outputs = self.dec.forward(h_t,
-            tgt_var, tgt_msk, aux)
+        decoder_outputs_prob, decoder_outputs = self.dec.forward(h_t, tgt_var, tgt_msk, aux)
         return decoder_outputs_prob, decoder_outputs
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.opt.dec == 'lstm':
-            return Variable(weight.new(bsz, self.hid_dim).zero_()), Variable(
-                weight.new(bsz, self.hid_dim).zero_())
+            return Variable(weight.new(bsz, self.hid_dim).zero_()), Variable(weight.new(bsz, self.hid_dim).zero_())
         else:
             return Variable(weight.new(bsz, self.hid_dim).zero_())
 
@@ -1437,20 +1386,17 @@ class RNNLM_VAE(nn.Module):
         embeds = SingleEmbeddings(opt, pretrain)
         self.emb = embeds
         if self.opt.enc == 'lstm':
-            enc = RNNEncoder(opt, opt.inp_dim, opt.hid_dim, rnn_type=opt.
-                enc.lower())
+            enc = RNNEncoder(opt, opt.inp_dim, opt.hid_dim, rnn_type=opt.enc.lower())
         else:
             raise NotImplementedError
         self.enc = enc
-        rnn_dec = SimpleRNNDecoder(opt, rnn_type='lstm', input_size=opt.
-            inp_dim, hidden_size=opt.hid_dim, emb=self.emb)
+        rnn_dec = SimpleRNNDecoder(opt, rnn_type='lstm', input_size=opt.inp_dim, hidden_size=opt.hid_dim, emb=self.emb)
         self.dec = rnn_dec
 
     def forward(self, inp_var, inp_msk, tgt_var=None, tgt_msk=None, aux=None):
         emb = self.emb.forward(inp_var)
         h_t = self.enc.forward(emb, inp_msk)
-        decoder_outputs_prob, decoder_outputs = self.dec.forward(h_t,
-            tgt_var, tgt_msk, aux)
+        decoder_outputs_prob, decoder_outputs = self.dec.forward(h_t, tgt_var, tgt_msk, aux)
         return decoder_outputs_prob, decoder_outputs
 
 
@@ -1462,8 +1408,7 @@ class Seq2seq(nn.Module):
         embeds = SingleEmbeddings(opt, pretrain)
         self.emb = embeds
         if self.opt.enc == 'lstm':
-            enc = RNNEncoder(opt, opt.inp_dim + opt.tag_dim * 2, opt.
-                hid_dim, rnn_type=opt.enc.lower())
+            enc = RNNEncoder(opt, opt.inp_dim + opt.tag_dim * 2, opt.hid_dim, rnn_type=opt.enc.lower())
         elif self.opt.enc == 'dconv':
             raise NotImplementedError
         elif self.opt.enc == 'conv':
@@ -1472,12 +1417,7 @@ class Seq2seq(nn.Module):
             raise NotImplementedError
         self.enc = enc
         self.feat = None
-        rnn_dec = RNNDecoder(opt, rnn_type='lstm', num_layers=1,
-            hidden_size=opt.hid_dim, input_size=opt.inp_dim, attn_type=
-            'general', coverage=opt.coverage, copy=opt.copy, dropout=opt.
-            dropout, emb=self.emb, full_dict_size=self.opt.full_dict_size,
-            word_dict_size=self.opt.word_dict_size, max_len_dec=opt.max_len_dec
-            )
+        rnn_dec = RNNDecoder(opt, rnn_type='lstm', num_layers=1, hidden_size=opt.hid_dim, input_size=opt.inp_dim, attn_type='general', coverage=opt.coverage, copy=opt.copy, dropout=opt.dropout, emb=self.emb, full_dict_size=self.opt.full_dict_size, word_dict_size=self.opt.word_dict_size, max_len_dec=opt.max_len_dec)
         self.dec = rnn_dec
 
     def forward(self, inp_var, inp_msk, tgt_var=None, tgt_msk=None, aux=None):
@@ -1489,11 +1429,8 @@ class Seq2seq(nn.Module):
     def forward_train(self, inp_var, inp_msk, tgt_var, tgt_msk, aux):
         emb = self.emb.forward(inp_var)
         context, h_t = self.enc.forward(emb, inp_msk)
-        (decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov,
-            p_copys) = (self.dec.forward(context, inp_msk, h_t, tgt_var,
-            tgt_msk, inp_var, aux))
-        return (decoder_outputs_prob, decoder_outputs, attns, discount,
-            loss_cov, p_copys)
+        decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov, p_copys = self.dec.forward(context, inp_msk, h_t, tgt_var, tgt_msk, inp_var, aux)
+        return decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov, p_copys
 
     def forward_eval(self, inp_var, inp_mask, aux):
         """
@@ -1512,15 +1449,13 @@ class Seq2seq(nn.Module):
         context_len__, batch_size__ = inp_var[0].size()
         assert batch_size == 1
         assert context_len__ == contxt_len
-        decoder_outputs, attns, p_gens = self.dec.beam_decode(context,
-            inp_mask, h_t, inp_var[0], feats, max_oov_len, scatter_mask)
+        decoder_outputs, attns, p_gens = self.dec.beam_decode(context, inp_mask, h_t, inp_var[0], feats, max_oov_len, scatter_mask)
         return decoder_outputs, attns, p_gens
 
 
 class Attention(nn.Module):
 
-    def __init__(self, opt, dim, attn_type='general', coverage=False,
-        nn_feat_dim=None, sp_feat_dim=None):
+    def __init__(self, opt, dim, attn_type='general', coverage=False, nn_feat_dim=None, sp_feat_dim=None):
         super(Attention, self).__init__()
         self.opt = opt
         self.dim = dim
@@ -1534,10 +1469,8 @@ class Attention(nn.Module):
             self.W_coverage = nn.Linear(1, dim, bias=True)
         if sp_feat_dim is not None:
             self.sp = True
-            _feat_num_activat = sum([(1 if i else 0) for i in [opt.
-                feat_word, opt.feat_ent, opt.feat_sent]])
-            self.W_sp = nn.Linear(_feat_num_activat * sp_feat_dim, dim,
-                bias=True)
+            _feat_num_activat = sum([(1 if i else 0) for i in [opt.feat_word, opt.feat_ent, opt.feat_sent]])
+            self.W_sp = nn.Linear(_feat_num_activat * sp_feat_dim, dim, bias=True)
         else:
             self.sp = False
         if nn_feat_dim is not None:
@@ -1585,8 +1518,7 @@ class Attention(nn.Module):
         else:
             raise NotImplementedError
 
-    def forward(self, current_state, context, context_mask, last_attn,
-        coverage=None, feats=None):
+    def forward(self, current_state, context, context_mask, last_attn, coverage=None, feats=None):
         """
 
         :param current_state : (FloatTensor): batch x dim: decoder's rnn's output.
@@ -1631,10 +1563,7 @@ class Attention(nn.Module):
 
 class RNNDecoder(nn.Module):
 
-    def __init__(self, opt, rnn_type='lstm', num_layers=1, hidden_size=100,
-        input_size=50, attn_type='dot', coverage=False, copy=False, dropout
-        =0.1, emb=None, full_dict_size=None, word_dict_size=None,
-        max_len_dec=100, beam=True):
+    def __init__(self, opt, rnn_type='lstm', num_layers=1, hidden_size=100, input_size=50, attn_type='dot', coverage=False, copy=False, dropout=0.1, emb=None, full_dict_size=None, word_dict_size=None, max_len_dec=100, beam=True):
         super(RNNDecoder, self).__init__()
         self.opt = opt
         self.rnn_type = rnn_type
@@ -1645,18 +1574,15 @@ class RNNDecoder(nn.Module):
         self.full_dict_size = full_dict_size
         self.embeddings = emb
         self.max_len_dec = max_len_dec
-        self.rnn = self.build_rnn(rnn_type, self.input_size, hidden_size,
-            num_layers)
+        self.rnn = self.build_rnn(rnn_type, self.input_size, hidden_size, num_layers)
         self.mask = None
-        self.attn = Attention(opt, hidden_size, attn_type, coverage, opt.
-            feat_nn_dim, opt.feat_sp_dim)
+        self.attn = Attention(opt, hidden_size, attn_type, coverage, opt.feat_nn_dim, opt.feat_sp_dim)
         self.W_out_0 = nn.Linear(hidden_size * 3, word_dict_size, bias=True)
         self.sampling = opt.schedule
         self._coverage = coverage
         self._copy = copy
         if copy:
-            self.copy_linear = nn.Linear(hidden_size * 3 + input_size, 1,
-                bias=True)
+            self.copy_linear = nn.Linear(hidden_size * 3 + input_size, 1, bias=True)
         if beam is True:
             self.beam_size = opt.beam_size
             assert self.beam_size >= 1
@@ -1671,9 +1597,7 @@ class RNNDecoder(nn.Module):
         else:
             raise NotImplementedError
 
-    def run_forward_step(self, input, context, context_mask, feats,
-        prev_state, prev_attn, coverage=None, inp_var=None, max_oov_len=
-        None, scatter_mask=None):
+    def run_forward_step(self, input, context, context_mask, feats, prev_state, prev_attn, coverage=None, inp_var=None, max_oov_len=None, scatter_mask=None):
         """
         :param input: (LongTensor): a sequence of input tokens tensors
                                 of size (1 x batch).
@@ -1705,30 +1629,24 @@ class RNNDecoder(nn.Module):
         elif self.rnn_type == 'gru':
             current_state_h = current_raw_state
             current_state_c = current_raw_state
-        attn_h_weighted, a = self.attn.forward(current_raw_state, context.
-            clone().transpose(0, 1), context_mask, prev_attn, coverage, feats)
+        attn_h_weighted, a = self.attn.forward(current_raw_state, context.clone().transpose(0, 1), context_mask, prev_attn, coverage, feats)
         if self._copy:
-            copy_mat = self.copy_linear(torch.cat([attn_h_weighted,
-                current_state_h, current_state_c, emb], dim=1))
+            copy_mat = self.copy_linear(torch.cat([attn_h_weighted, current_state_h, current_state_c, emb], dim=1))
             p_gen = F.sigmoid(copy_mat)
-        hidden_state_vocab = torch.cat([attn_h_weighted, current_state_h,
-            current_state_c], 1)
+        hidden_state_vocab = torch.cat([attn_h_weighted, current_state_h, current_state_c], 1)
         hidden_state_vocab = self.W_out_0(hidden_state_vocab)
-        max_hidden_state_vocab = torch.max(hidden_state_vocab, dim=1,
-            keepdim=True)[0]
+        max_hidden_state_vocab = torch.max(hidden_state_vocab, dim=1, keepdim=True)[0]
         hidden_state_vocab = hidden_state_vocab - max_hidden_state_vocab
         prob_vocab = F.softmax(hidden_state_vocab)
         if self._copy:
             prob_vocab = p_gen * prob_vocab
             new_a = a.clone()
-            zeros = Var(torch.zeros(batch_size_, self.word_dict_size +
-                max_oov_len))
+            zeros = Var(torch.zeros(batch_size_, self.word_dict_size + max_oov_len))
             assert a.size()[1] == src_len
             assert inp_var.size()[0] == src_len
             assert inp_var.size()[1] == batch_size
             new_attn = torch.bmm(scatter_mask, new_a.unsqueeze(2)).squeeze(2)
-            prob_copy = zeros.scatter_(1, inp_var.transpose(1, 0).cpu(),
-                new_attn.cpu())
+            prob_copy = zeros.scatter_(1, inp_var.transpose(1, 0).cpu(), new_attn.cpu())
             prob_final = Var(torch.zeros(prob_copy.size()))
             prob_final[:, :self.opt.word_dict_size] = prob_vocab
             prob_final = prob_final + (1 - p_gen) * prob_copy
@@ -1758,8 +1676,7 @@ class RNNDecoder(nn.Module):
         assert batch_size_ == batch_size
         padding_mask = context_mask.transpose(1, 0)
         decoder_outputs = torch.LongTensor(tgt_len, batch_size)
-        decoder_outputs_prob = Var(torch.zeros((tgt_len, batch_size, self.
-            word_dict_size + max_oov_len)))
+        decoder_outputs_prob = Var(torch.zeros((tgt_len, batch_size, self.word_dict_size + max_oov_len)))
         decoder_input = np.ones((1, batch_size), dtype=int) * self.opt.sos
         decoder_input = Var(torch.LongTensor(decoder_input))
         loss_cov = Var(torch.zeros(tgt_len, batch_size))
@@ -1772,9 +1689,7 @@ class RNNDecoder(nn.Module):
         attn = Var(torch.zeros((batch_size, src_len)))
         Attns = Var(torch.zeros((tgt_len, batch_size, src_len)))
         for t in range(tgt_len):
-            state, prob_final, coverage, attn, p_gen = self._run_forward_one(
-                decoder_input, context, padding_mask, feat, state, attn,
-                coverage, inp_var, max_oov_len, scatter_mask)
+            state, prob_final, coverage, attn, p_gen = self._run_forward_one(decoder_input, context, padding_mask, feat, state, attn, coverage, inp_var, max_oov_len, scatter_mask)
             if self._copy:
                 p_copys[:, (t)] = p_gen.data
             decoder_outputs_prob[t] = prob_final
@@ -1824,10 +1739,8 @@ class RNNDecoder(nn.Module):
                             _sum = torch.sum(_bigram)
                             if (_sum.data > 0).all():
                                 tmp = _bigram
-                                zeros = Var(torch.zeros(self.word_dict_size +
-                                    max_oov_len))
-                                x = zeros.scatter_(0, inp_var[:, (bidx)].
-                                    cpu(), tmp.cpu())
+                                zeros = Var(torch.zeros(self.word_dict_size + max_oov_len))
+                                x = zeros.scatter_(0, inp_var[:, (bidx)].cpu(), tmp.cpu())
                             else:
                                 x = 0
                     else:
@@ -1855,13 +1768,11 @@ class RNNDecoder(nn.Module):
             else:
                 decoder_input = Var(tgt[t]).unsqueeze(0)
             if self._coverage:
-                merged_attn_coverage = torch.cat((attn.unsqueeze(2),
-                    coverage.unsqueeze(2)), dim=2)
+                merged_attn_coverage = torch.cat((attn.unsqueeze(2), coverage.unsqueeze(2)), dim=2)
                 merge_min = torch.min(merged_attn_coverage, 2)
                 loss_cov[(t), :] = torch.sum(merge_min[0], dim=1)
                 coverage = coverage + attn
-        return (decoder_outputs_prob, decoder_outputs, Attns, Discount,
-            loss_cov, p_copys)
+        return decoder_outputs_prob, decoder_outputs, Attns, Discount, loss_cov, p_copys
 
 
 class SimpleRNNDecoder(nn.Module):
@@ -1878,8 +1789,7 @@ class SimpleRNNDecoder(nn.Module):
         self.full_dict_size = opt.full_dict_size
         self.embeddings = emb
         self.rnn = self.build_rnn(rnn_type, self.input_size, hidden_size)
-        self.W_out_0 = nn.Linear(hidden_size * 2, opt.full_dict_size, bias=True
-            )
+        self.W_out_0 = nn.Linear(hidden_size * 2, opt.full_dict_size, bias=True)
 
     def build_rnn(self, rnn_type, input_size, hidden_size, num_layers=1):
         if num_layers > 1:
@@ -1933,8 +1843,7 @@ class SimpleRNNDecoder(nn.Module):
         batch_size, tgt_len = tgt_var.size()
         mode = self.training
         decoder_outputs = torch.LongTensor(tgt_len, batch_size)
-        decoder_outputs_prob = Var(torch.zeros((tgt_len, batch_size, self.
-            full_dict_size)))
+        decoder_outputs_prob = Var(torch.zeros((tgt_len, batch_size, self.full_dict_size)))
         if self.opt.use_cuda:
             decoder_outputs_prob = decoder_outputs_prob
         decoder_input = np.ones((1, batch_size), dtype=int) * self.opt.unk
@@ -1972,8 +1881,7 @@ class MultiEmbeddings(nn.Module):
         self.opt = opt
         self.word_embedding = nn.Embedding(opt.full_dict_size, opt.inp_dim)
         if pretrain is not None:
-            self.word_embedding.weight = nn.Parameter(torch.FloatTensor(
-                pretrain))
+            self.word_embedding.weight = nn.Parameter(torch.FloatTensor(pretrain))
         self.pos_embedding = nn.Embedding(opt.pos_dict_size, opt.tag_dim)
         self.ner_embedding = nn.Embedding(opt.ner_dict_size, opt.tag_dim)
 
@@ -1987,16 +1895,13 @@ class MultiEmbeddings(nn.Module):
         embedded_word = self.word_embedding(seq_word)
         embedded_pos = self.pos_embedding(seq_pos)
         embedded_ner = self.ner_embedding(seq_ner)
-        final_embedding = torch.cat((embedded_word, embedded_pos,
-            embedded_ner), dim=2)
+        final_embedding = torch.cat((embedded_word, embedded_pos, embedded_ner), dim=2)
         if self.opt.pe:
             seq_len, batch_sz, dim = final_embedding.size()
-            position_enc = np.array([[(pos / np.power(10000, 2.0 * i / dim)
-                ) for i in range(dim)] for pos in range(seq_len)])
+            position_enc = np.array([[(pos / np.power(10000, 2.0 * i / dim)) for i in range(dim)] for pos in range(seq_len)])
             position_enc[:, 0::2] = np.sin(position_enc[:, 0::2])
             position_enc[:, 1::2] = np.cos(position_enc[:, 1::2])
-            position_enc = torch.from_numpy(position_enc).type(torch.
-                FloatTensor)
+            position_enc = torch.from_numpy(position_enc).type(torch.FloatTensor)
             x = position_enc.unsqueeze(1)
             x = Var(x.expand_as(final_embedding))
             final_embedding = final_embedding + 0.5 * x
@@ -2015,8 +1920,7 @@ class SingleEmbeddings(nn.Module):
         self.drop = nn.Dropout(opt.dropout_emb)
         self.word_embedding = nn.Embedding(opt.full_dict_size, opt.inp_dim)
         if pretrain is not None:
-            self.word_embedding.weight = nn.Parameter(torch.FloatTensor(
-                pretrain))
+            self.word_embedding.weight = nn.Parameter(torch.FloatTensor(pretrain))
 
     def forward(self, inp):
         """
@@ -2038,9 +1942,7 @@ class CNNEncoder(nn.Module):
 
     def __init__(self, inp_dim, hid_dim, kernel_sz, pad, dilat):
         super(CNNEncoder, self).__init__()
-        self.encoder = torch.nn.Conv1d(in_channels=inp_dim, out_channels=
-            hid_dim, kernel_size=kernel_sz, stride=1, padding=pad, dilation
-            =dilat)
+        self.encoder = torch.nn.Conv1d(in_channels=inp_dim, out_channels=hid_dim, kernel_size=kernel_sz, stride=1, padding=pad, dilation=dilat)
 
     def forward(self, inp, inp_mask):
         inp = inp.permute(1, 2, 0)
@@ -2054,8 +1956,7 @@ class DCNNEncoder(nn.Module):
 
     def __init__(self, inp_dim, hid_dim=150, kernel_sz=5, pad=2, dilat=1):
         super(DCNNEncoder, self).__init__()
-        self.encoder = torch.nn.Conv1d(in_channels=inp_dim, out_channels=
-            hid_dim, kernel_size=kernel_sz, stride=1, padding=pad, dilation=1)
+        self.encoder = torch.nn.Conv1d(in_channels=inp_dim, out_channels=hid_dim, kernel_size=kernel_sz, stride=1, padding=pad, dilation=1)
 
     def forward(self, inp, mask):
         inp = inp.permute(1, 2, 0)
@@ -2075,12 +1976,9 @@ class RNNEncoder(nn.Module):
         self.reduce_h_W = nn.Linear(hidden_size * 2, hidden_size, bias=True)
         self.reduce_c_W = nn.Linear(hidden_size * 2, hidden_size, bias=True)
         if rnn_type == 'gru':
-            self.rnn = nn.GRU(input_size, hidden_size, batch_first=True,
-                dropout=opt.dropout, bidirectional=self.bidirect)
+            self.rnn = nn.GRU(input_size, hidden_size, batch_first=True, dropout=opt.dropout, bidirectional=self.bidirect)
         elif rnn_type == 'lstm':
-            self.rnn = nn.LSTM(input_size, hidden_size, num_layers=1,
-                batch_first=True, dropout=opt.dropout, bidirectional=self.
-                bidirect)
+            self.rnn = nn.LSTM(input_size, hidden_size, num_layers=1, batch_first=True, dropout=opt.dropout, bidirectional=self.bidirect)
         else:
             raise NotImplementedError
         self.init_weight()
@@ -2101,11 +1999,9 @@ class RNNEncoder(nn.Module):
 
     def init_hidden(self, batch_size):
         if self.bidirect:
-            result = Var(torch.zeros(self.n_layers * 2, batch_size, self.
-                hidden_size))
+            result = Var(torch.zeros(self.n_layers * 2, batch_size, self.hidden_size))
         else:
-            result = Var(torch.zeros(self.n_layers, batch_size, self.
-                hidden_size))
+            result = Var(torch.zeros(self.n_layers, batch_size, self.hidden_size))
         if self.use_cuda:
             return result
         else:
@@ -2121,13 +2017,11 @@ class RNNEncoder(nn.Module):
                 hidden tupple ((batch, hidden_size*2), ....)
         """
         batch_size = embedded.data.shape[0]
-        packed_embedding = nn.utils.rnn.pack_padded_sequence(embedded,
-            inp_msk, batch_first=True)
+        packed_embedding = nn.utils.rnn.pack_padded_sequence(embedded, inp_msk, batch_first=True)
         if self.rnn_type == 'lstm':
             output, hn = self.rnn(packed_embedding)
         else:
-            output, hn = self.rnn(packed_embedding, self.init_hidden(
-                batch_size))
+            output, hn = self.rnn(packed_embedding, self.init_hidden(batch_size))
 
         def _fix_hidden(hidden):
             """
@@ -2176,20 +2070,17 @@ class Gauss(nn.Module):
         mean = self.func_mean(latent_code)
         mean = self.gate_mean * mean
         logvar = self.func_logvar(latent_code)
-        logvar = self.gate_var * logvar + (1 - self.gate_var
-            ) * torch.ones_like(logvar)
+        logvar = self.gate_var * logvar + (1 - self.gate_var) * torch.ones_like(logvar)
         return {'mean': mean, 'logvar': logvar}
 
     def compute_KLD(self, tup):
         mean = tup['mean']
         logvar = tup['logvar']
-        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) + 2 * logvar -
-            torch.exp(2 * logvar), dim=1)
+        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) + 2 * logvar - torch.exp(2 * logvar), dim=1)
         return kld
 
     def sample_cell(self, batch_size):
-        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size,
-            self.lat_dim))))
+        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
         eps = eps
         return eps
 
@@ -2224,13 +2115,11 @@ class HighVarGauss(nn.Module):
     def compute_KLD(self, tup):
         mean = tup['mean']
         logvar = tup['logvar']
-        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) / self.k + 2 *
-            logvar - torch.exp(2 * logvar) / self.k - 2, dim=1)
+        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) / self.k + 2 * logvar - torch.exp(2 * logvar) / self.k - 2, dim=1)
         return kld
 
     def sample_cell(self, batch_size):
-        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size,
-            self.lat_dim))))
+        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
         eps = eps
         return eps
 
@@ -2273,15 +2162,13 @@ class vMF(nn.Module):
                 w = self._sample_weight(self.kappa, id_dim)
                 wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
                 v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(torch.autograd.Variable(torch.ones
-                    (id_dim)) - torch.pow(wtorch, 2))
+                scale_factr = torch.sqrt(torch.autograd.Variable(torch.ones(id_dim)) - torch.pow(wtorch, 2))
                 orth_term = v * scale_factr
                 muscale = mu[i] * wtorch / munorm
                 sampled_vec = (orth_term + muscale) * munoise
             else:
                 rand_draw = torch.autograd.Variable(torch.randn(id_dim))
-                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
-                    id_dim)
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
                 rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
                 sampled_vec = rand_draw * torch.autograd.Variable(rand_norms)
             result_list.append(sampled_vec)
@@ -2297,15 +2184,13 @@ class vMF(nn.Module):
                 w = vMF.sample_vmf_w(self.kappa, id_dim)
                 wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
                 v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(Variable(torch.ones(id_dim)) -
-                    torch.pow(wtorch, 2))
+                scale_factr = torch.sqrt(Variable(torch.ones(id_dim)) - torch.pow(wtorch, 2))
                 orth_term = v * scale_factr
                 muscale = mu[i] * wtorch / munorm
                 sampled_vec = (orth_term + muscale) * munorm
             else:
                 rand_draw = Variable(torch.randn(id_dim))
-                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(
-                    id_dim)
+                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
                 rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
                 sampled_vec = rand_draw * Variable(rand_norms)
             result_list.append(sampled_vec)
@@ -2382,8 +2267,7 @@ class vMF(nn.Module):
 
 class BowVAE(torch.nn.Module):
 
-    def __init__(self, vocab_size, n_hidden, n_lat, n_sample, batch_size,
-        non_linearity, dist):
+    def __init__(self, vocab_size, n_hidden, n_lat, n_sample, batch_size, non_linearity, dist):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_hidden = n_hidden
@@ -2429,30 +2313,23 @@ class BowVAE(torch.nn.Module):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-        tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         else:
             try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[
-                    rnn_type]
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
             except KeyError:
-                raise ValueError(
-                    """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']"""
-                    )
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=
-                nonlinearity, dropout=dropout)
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder.weight = self.encoder.weight
         self.init_weights()
         self.rnn_type = rnn_type
@@ -2469,48 +2346,38 @@ class RNNModel(nn.Module):
         emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0) * output.size(1),
-            output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), hidden
+        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
 
 class LanguageModel(Module):
 
-    def __init__(self, vocab_size, input_dim, hidden_dim, agenda_dim,
-        num_layers=1, drop_rate=0.6, tie=False, logger=None):
+    def __init__(self, vocab_size, input_dim, hidden_dim, agenda_dim, num_layers=1, drop_rate=0.6, tie=False, logger=None):
         super(LanguageModel, self).__init__()
         self.embed = Embedding(vocab_size, input_dim)
-        self.decoder_rnn = LSTM(input_dim + agenda_dim, hidden_dim,
-            num_layers=num_layers, dropout=drop_rate)
+        self.decoder_rnn = LSTM(input_dim + agenda_dim, hidden_dim, num_layers=num_layers, dropout=drop_rate)
         self.decoder_out = Linear(hidden_dim, vocab_size)
         self.agenda_dim = agenda_dim
         self.logger = logger
         if tie:
             if hidden_dim != input_dim:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.embed.weight = self.encoder.weight
         self.init_weights(input_dim, hidden_dim, agenda_dim)
 
     def init_weights(self, input_dim, hidden_dim, agenda_dim):
-        torch.nn.init.xavier_uniform(self.decoder_rnn.weight_ih_l0.data,
-            gain=nn.init.calculate_gain('sigmoid'))
-        torch.nn.init.orthogonal(self.decoder_rnn.weight_hh_l0.data, gain=
-            nn.init.calculate_gain('sigmoid'))
+        torch.nn.init.xavier_uniform(self.decoder_rnn.weight_ih_l0.data, gain=nn.init.calculate_gain('sigmoid'))
+        torch.nn.init.orthogonal(self.decoder_rnn.weight_hh_l0.data, gain=nn.init.calculate_gain('sigmoid'))
         self.decoder_rnn.bias.data.fill_(0)
-        torch.nn.init.xavier_uniform(self.embed.weight.data, gain=nn.init.
-            calculate_gain('linear'))
-        torch.nn.init.xavier_uniform(self.decoder_out.weight.data, gain=nn.
-            init.calculate_gain('linear'))
+        torch.nn.init.xavier_uniform(self.embed.weight.data, gain=nn.init.calculate_gain('linear'))
+        torch.nn.init.xavier_uniform(self.decoder_out.weight.data, gain=nn.init.calculate_gain('linear'))
 
     def _encoder_output(self, batch_size):
         return tile_state(self.agenda, batch_size)
@@ -2519,8 +2386,7 @@ class LanguageModel(Module):
         batch_size = len(examples)
         decoder_input = TrainDecoderInput(examples, self.vocab)
         encoder_output = self._encoder_output(batch_size)
-        return self.train_decoder.per_instance_losses(encoder_output,
-            decoder_input)
+        return self.train_decoder.per_instance_losses(encoder_output, decoder_input)
 
     def loss(self, examples, train_step):
         """Compute training loss.
@@ -2541,16 +2407,12 @@ class LanguageModel(Module):
         prefix_hints = [[]] * num_samples
         encoder_output = self._encoder_output(num_samples)
         if decode_method == 'sample':
-            output_beams, decoder_traces = self.sample_decoder.decode(examples,
-                encoder_output, beam_size=1, prefix_hints=prefix_hints)
+            output_beams, decoder_traces = self.sample_decoder.decode(examples, encoder_output, beam_size=1, prefix_hints=prefix_hints)
         elif decode_method == 'argmax':
             value_estimators = []
             beam_size = 1
             sibling_penalty = 0.0
-            output_beams, decoder_traces = self.beam_decoder.decode(examples,
-                encoder_output, weighted_value_estimators=value_estimators,
-                beam_size=beam_size, prefix_hints=prefix_hints,
-                sibling_penalty=sibling_penalty)
+            output_beams, decoder_traces = self.beam_decoder.decode(examples, encoder_output, weighted_value_estimators=value_estimators, beam_size=beam_size, prefix_hints=prefix_hints, sibling_penalty=sibling_penalty)
         else:
             raise ValueError(decode_method)
         return [beam[0] for beam in output_beams]
@@ -2558,16 +2420,14 @@ class LanguageModel(Module):
 
 class Encoder(Module):
 
-    def __init__(self, token_embedder, hidden_dim, agenda_dim, num_layers,
-        rnn_cell_factory):
+    def __init__(self, token_embedder, hidden_dim, agenda_dim, num_layers, rnn_cell_factory):
         super(Encoder, self).__init__()
         self.token_embedder = token_embedder
         self.word_vocab = token_embedder.vocab
         self.hidden_dim = hidden_dim
         self.agenda_dim = agenda_dim
         self.num_layers = num_layers
-        self.source_encoder = MultiLayerSourceEncoder(token_embedder.
-            embed_dim, hidden_dim, num_layers, rnn_cell_factory)
+        self.source_encoder = MultiLayerSourceEncoder(token_embedder.embed_dim, hidden_dim, num_layers, rnn_cell_factory)
 
     def preprocess(self, examples):
         return SequenceBatch.from_sequences(examples, self.word_vocab)
@@ -2584,8 +2444,7 @@ class Encoder(Module):
 
 class EncoderNoiser(Module):
 
-    def __init__(self, encoder, kl_weight_steps, kl_weight_rate, kl_weight_cap
-        ):
+    def __init__(self, encoder, kl_weight_steps, kl_weight_rate, kl_weight_cap):
         super(EncoderNoiser, self).__init__()
         self.encoder = encoder
         self.noise_mu = 0
@@ -2602,8 +2461,7 @@ class EncoderNoiser(Module):
         Computes KL penalty given encoder output
         """
         batch_size, agenda_dim = agenda.size()
-        return 0.5 * torch.sum(torch.pow(agenda, 2)
-            ) * self.noise_sigma / batch_size
+        return 0.5 * torch.sum(torch.pow(agenda, 2)) * self.noise_sigma / batch_size
 
     def kl_weight(self, curr_step):
         """
@@ -2625,18 +2483,15 @@ class EncoderNoiser(Module):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, ntoken, ninp, nhid, agenda_dim, nlayers=1, dropout=
-        0.5, tie_weights=False):
+    def __init__(self, ntoken, ninp, nhid, agenda_dim, nlayers=1, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.embed = nn.Embedding(ntoken, ninp)
-        self.decoder_rnn = nn.LSTM(ninp + agenda_dim, nhid, nlayers,
-            dropout=dropout)
+        self.decoder_rnn = nn.LSTM(ninp + agenda_dim, nhid, nlayers, dropout=dropout)
         self.decoder_out = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder_out.weight = self.embed.weight
         self.init_weights()
         self.nhid = nhid
@@ -2655,10 +2510,8 @@ class RNNModel(nn.Module):
         emb = self.drop(self.embed(input))
         output, hidden = self.decoder_rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder_out(output.view(output.size(0) * output.size
-            (1), output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), hidden
+        decoded = self.decoder_out(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def forward_decode(self, args, input, ntokens):
         seq_len = input.size()[0]
@@ -2689,15 +2542,13 @@ class RNNModel(nn.Module):
         return outputs_prob, outputs
 
     def init_hidden(self, bsz):
-        return Variable(torch.zeros(self.nlayers, bsz, self.nhid)), Variable(
-            torch.zeros(self.nlayers, bsz, self.nhid))
+        return Variable(torch.zeros(self.nlayers, bsz, self.nhid)), Variable(torch.zeros(self.nlayers, bsz, self.nhid))
 
 
 class VAEModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, args, dec_type, ntoken, ninp, nhid, lat_dim, nlayers,
-        dropout=0.5, tie_weights=False):
+    def __init__(self, args, dec_type, ntoken, ninp, nhid, lat_dim, nlayers, dropout=0.5, tie_weights=False):
         super(VAEModel, self).__init__()
         self.args = args
         self.lat_dim = lat_dim
@@ -2706,8 +2557,7 @@ class VAEModel(nn.Module):
         self.ninp = ninp
         self.dist = args.dist
         self.emb = nn.Embedding(ntoken, ninp)
-        self.enc_rnn = nn.LSTM(ninp, nhid, nlayers, bidirectional=True,
-            dropout=dropout)
+        self.enc_rnn = nn.LSTM(ninp, nhid, nlayers, bidirectional=True, dropout=dropout)
         self.drop = nn.Dropout(dropout)
         if args.dist == 'nor':
             self.fc_mu = nn.Linear(2 * nhid * nlayers * 2, lat_dim)
@@ -2725,16 +2575,14 @@ class VAEModel(nn.Module):
             if args.fly:
                 self.decoder_rnn = nn.LSTMCell(ninp + nhid, nhid, nlayers)
             else:
-                self.decoder_rnn = nn.LSTM(ninp + nhid, nhid, nlayers,
-                    dropout=dropout)
+                self.decoder_rnn = nn.LSTM(ninp + nhid, nhid, nlayers, dropout=dropout)
         elif dec_type == 'bow':
             self.linear = nn.Linear(nhid + ninp, nhid)
         else:
             raise NotImplementedError
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder_out.weight = self.emb.weight
 
     def reparameterize(self, mu, logvar):
@@ -2784,8 +2632,7 @@ class VAEModel(nn.Module):
         c = hidden[1]
         assert h.size()[0] == self.nlayers * 2
         assert h.size()[1] == batch_sz
-        x = torch.cat((h, c), dim=0).permute(1, 0, 2).contiguous().view(
-            batch_sz, -1)
+        x = torch.cat((h, c), dim=0).permute(1, 0, 2).contiguous().view(batch_sz, -1)
         if self.dist == 'nor':
             return self.fc_mu(x), self.fc_logvar(x)
         elif self.dist == 'vmf':
@@ -2807,8 +2654,7 @@ class VAEModel(nn.Module):
             emb, hidden, mu = self.blstm_enc(input)
             logvar = None
         if self.dec_type == 'lstm':
-            lat_to_cat = hidden[0][0].unsqueeze(0).expand(seq_len, batch_sz, -1
-                )
+            lat_to_cat = hidden[0][0].unsqueeze(0).expand(seq_len, batch_sz, -1)
             emb = torch.cat([emb, lat_to_cat], dim=2)
             output, hidden = self.decoder_rnn(emb, hidden)
         elif self.dec_type == 'bow':
@@ -2819,8 +2665,7 @@ class VAEModel(nn.Module):
             if self.args.cuda:
                 output = output
             for t in range(seq_len):
-                noise = 0.1 * Variable(fusion.data.new(fusion.size()).
-                    normal_(0, 1))
+                noise = 0.1 * Variable(fusion.data.new(fusion.size()).normal_(0, 1))
                 if self.args.cuda:
                     noise = noise
                 fusion_with_noise = fusion + noise
@@ -2829,10 +2674,8 @@ class VAEModel(nn.Module):
         else:
             raise NotImplementedError
         output = self.drop(output)
-        decoded = self.decoder_out(output.view(output.size(0) * output.size
-            (1), output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), mu, logvar
+        decoded = self.decoder_out(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), mu, logvar
 
     def forward_decode(self, args, input, ntokens):
         """
@@ -2886,17 +2729,14 @@ class VAEModel(nn.Module):
         :param batch_sz:
         :return:
         """
-        h = self.z_to_h(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2
-            ).contiguous()
-        c = self.z_to_c(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2
-            ).contiguous()
+        h = self.z_to_h(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2).contiguous()
+        c = self.z_to_c(z).view(batch_sz, self.nlayers, -1).permute(1, 0, 2).contiguous()
         return h, c
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -2911,14 +2751,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Code2Code,
+     lambda: ([], {'inp_dim': 4, 'tgt_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DCNNEncoder,
+     lambda: ([], {'inp_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (SingleEmbeddings,
+     lambda: ([], {'opt': _mock_config(dropout_emb=0.5, full_dict_size=4, inp_dim=4)}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_jiacheng_xu_vmf_vae_nlp(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Code2Code(*[], **{'inp_dim': 4, 'tgt_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DCNNEncoder(*[], **{'inp_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SingleEmbeddings(*[], **{'opt': _mock_config(dropout_emb=0.5, full_dict_size=4, inp_dim=4)}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

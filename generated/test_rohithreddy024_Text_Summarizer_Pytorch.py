@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,8 +68,7 @@ def init_lstm_wt(lstm):
     for name, _ in lstm.named_parameters():
         if 'weight' in name:
             wt = getattr(lstm, name)
-            wt.data.uniform_(-config.rand_unif_init_mag, config.
-                rand_unif_init_mag)
+            wt.data.uniform_(-config.rand_unif_init_mag, config.rand_unif_init_mag)
         elif 'bias' in name:
             bias = getattr(lstm, name)
             n = bias.size(0)
@@ -87,8 +87,7 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder, self).__init__()
-        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1,
-            batch_first=True, bidirectional=True)
+        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1, batch_first=True, bidirectional=True)
         init_lstm_wt(self.lstm)
         self.reduce_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim)
         init_linear_wt(self.reduce_h)
@@ -121,8 +120,7 @@ class encoder_attention(nn.Module):
 
     def __init__(self):
         super(encoder_attention, self).__init__()
-        self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2,
-            bias=False)
+        self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2, bias=False)
         self.W_s = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2)
         self.v = nn.Linear(config.hidden_dim * 2, 1, bias=False)
 
@@ -142,8 +140,7 @@ class encoder_attention(nn.Module):
             exp_et = T.exp(et)
             if sum_temporal_srcs is None:
                 et1 = exp_et
-                sum_temporal_srcs = get_cuda(T.FloatTensor(et.size()).fill_
-                    (1e-10)) + exp_et
+                sum_temporal_srcs = get_cuda(T.FloatTensor(et.size()).fill_(1e-10)) + exp_et
             else:
                 et1 = exp_et / sum_temporal_srcs
                 sum_temporal_srcs = sum_temporal_srcs + exp_et
@@ -167,8 +164,7 @@ class decoder_attention(nn.Module):
     def __init__(self):
         super(decoder_attention, self).__init__()
         if config.intra_decoder:
-            self.W_prev = nn.Linear(config.hidden_dim, config.hidden_dim,
-                bias=False)
+            self.W_prev = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
             self.W_s = nn.Linear(config.hidden_dim, config.hidden_dim)
             self.v = nn.Linear(config.hidden_dim, 1, bias=False)
 
@@ -204,24 +200,20 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.enc_attention = encoder_attention()
         self.dec_attention = decoder_attention()
-        self.x_context = nn.Linear(config.hidden_dim * 2 + config.emb_dim,
-            config.emb_dim)
+        self.x_context = nn.Linear(config.hidden_dim * 2 + config.emb_dim, config.emb_dim)
         self.lstm = nn.LSTMCell(config.emb_dim, config.hidden_dim)
         init_lstm_wt(self.lstm)
-        self.p_gen_linear = nn.Linear(config.hidden_dim * 5 + config.emb_dim, 1
-            )
+        self.p_gen_linear = nn.Linear(config.hidden_dim * 5 + config.emb_dim, 1)
         self.V = nn.Linear(config.hidden_dim * 4, config.hidden_dim)
         self.V1 = nn.Linear(config.hidden_dim, config.vocab_size)
         init_linear_wt(self.V1)
 
-    def forward(self, x_t, s_t, enc_out, enc_padding_mask, ct_e,
-        extra_zeros, enc_batch_extend_vocab, sum_temporal_srcs, prev_s):
+    def forward(self, x_t, s_t, enc_out, enc_padding_mask, ct_e, extra_zeros, enc_batch_extend_vocab, sum_temporal_srcs, prev_s):
         x = self.x_context(T.cat([x_t, ct_e], dim=1))
         s_t = self.lstm(x, s_t)
         dec_h, dec_c = s_t
         st_hat = T.cat([dec_h, dec_c], dim=1)
-        ct_e, attn_dist, sum_temporal_srcs = self.enc_attention(st_hat,
-            enc_out, enc_padding_mask, sum_temporal_srcs)
+        ct_e, attn_dist, sum_temporal_srcs = self.enc_attention(st_hat, enc_out, enc_padding_mask, sum_temporal_srcs)
         ct_d, prev_s = self.dec_attention(dec_h, prev_s)
         p_gen = T.cat([ct_e, ct_d, st_hat, x], 1)
         p_gen = self.p_gen_linear(p_gen)
@@ -234,8 +226,7 @@ class Decoder(nn.Module):
         attn_dist_ = (1 - p_gen) * attn_dist
         if extra_zeros is not None:
             vocab_dist = T.cat([vocab_dist, extra_zeros], dim=1)
-        final_dist = vocab_dist.scatter_add(1, enc_batch_extend_vocab,
-            attn_dist_)
+        final_dist = vocab_dist.scatter_add(1, enc_batch_extend_vocab, attn_dist_)
         return final_dist, s_t, ct_e, sum_temporal_srcs, prev_s
 
 
@@ -260,17 +251,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (decoder_attention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (encoder_attention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([8, 8]), torch.rand([8, 8, 8]), torch.rand([8, 8]), torch.rand([8, 8])], {}),
+     False),
+]
+
 class Test_rohithreddy024_Text_Summarizer_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(decoder_attention(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(encoder_attention(*[], **{}), [torch.rand([8, 8]), torch.rand([8, 8, 8]), torch.rand([8, 8]), torch.rand([8, 8])], {})
+        self._check(*TESTCASES[2])
 

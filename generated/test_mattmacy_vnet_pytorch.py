@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,14 +64,12 @@ class ContBatchNorm3d(nn.modules.batchnorm._BatchNorm):
 
     def _check_input_dim(self, input):
         if input.dim() != 5:
-            raise ValueError('expected 5D input (got {}D input)'.format(
-                input.dim()))
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
         super(ContBatchNorm3d, self)._check_input_dim(input)
 
     def forward(self, input):
         self._check_input_dim(input)
-        return F.batch_norm(input, self.running_mean, self.running_var,
-            self.weight, self.bias, True, self.momentum, self.eps)
+        return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, True, self.momentum, self.eps)
 
 
 def ELUCons(elu, nchan):
@@ -145,8 +144,7 @@ class UpTransition(nn.Module):
 
     def __init__(self, inChans, outChans, nConvs, elu, dropout=False):
         super(UpTransition, self).__init__()
-        self.up_conv = nn.ConvTranspose3d(inChans, outChans // 2,
-            kernel_size=2, stride=2)
+        self.up_conv = nn.ConvTranspose3d(inChans, outChans // 2, kernel_size=2, stride=2)
         self.bn1 = ContBatchNorm3d(outChans // 2)
         self.do1 = passthrough
         self.do2 = nn.Dropout3d()
@@ -216,10 +214,3 @@ class VNet(nn.Module):
         out = self.out_tr(out)
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_mattmacy_vnet_pytorch(_paritybench_base):
-    pass

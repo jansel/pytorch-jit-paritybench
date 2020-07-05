@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -103,11 +104,7 @@ class AuxiliaryHead(nn.Module):
         """ assuming input size 7x7 or 8x8 """
         assert input_size in [7, 8]
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5,
-            stride=input_size - 5, padding=0, count_include_pad=False), nn.
-            Conv2d(C, 128, kernel_size=1, bias=False), nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True), nn.Conv2d(128, 768, kernel_size=2, bias=
-            False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
+        self.net = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=input_size - 5, padding=0, count_include_pad=False), nn.Conv2d(C, 128, kernel_size=1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, kernel_size=2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
         self.linear = nn.Linear(768, n_classes)
 
     def forward(self, x):
@@ -120,8 +117,7 @@ class AuxiliaryHead(nn.Module):
 class AugmentCNN(nn.Module):
     """ Augmented CNN model """
 
-    def __init__(self, input_size, C_in, C, n_classes, n_layers, auxiliary,
-        genotype, stem_multiplier=3):
+    def __init__(self, input_size, C_in, C, n_classes, n_layers, auxiliary, genotype, stem_multiplier=3):
         """
         Args:
             input_size: size of height and width (assuming height = width)
@@ -136,8 +132,7 @@ class AugmentCNN(nn.Module):
         self.genotype = genotype
         self.aux_pos = 2 * n_layers // 3 if auxiliary else -1
         C_cur = stem_multiplier * C
-        self.stem = nn.Sequential(nn.Conv2d(C_in, C_cur, 3, 1, 1, bias=
-            False), nn.BatchNorm2d(C_cur))
+        self.stem = nn.Sequential(nn.Conv2d(C_in, C_cur, 3, 1, 1, bias=False), nn.BatchNorm2d(C_cur))
         C_pp, C_p, C_cur = C_cur, C_cur, C
         self.cells = nn.ModuleList()
         reduction_p = False
@@ -147,8 +142,7 @@ class AugmentCNN(nn.Module):
                 reduction = True
             else:
                 reduction = False
-            cell = AugmentCell(genotype, C_pp, C_p, C_cur, reduction_p,
-                reduction)
+            cell = AugmentCell(genotype, C_pp, C_p, C_cur, reduction_p, reduction)
             reduction_p = reduction
             self.cells.append(cell)
             C_cur_out = C_cur * len(cell.concat)
@@ -208,8 +202,7 @@ class PoolBN(nn.Module):
     AvgPool or MaxPool - BN
     """
 
-    def __init__(self, pool_type, C, kernel_size, stride, padding, affine=True
-        ):
+    def __init__(self, pool_type, C, kernel_size, stride, padding, affine=True):
         """
         Args:
             pool_type: 'max' or 'avg'
@@ -218,8 +211,7 @@ class PoolBN(nn.Module):
         if pool_type.lower() == 'max':
             self.pool = nn.MaxPool2d(kernel_size, stride, padding)
         elif pool_type.lower() == 'avg':
-            self.pool = nn.AvgPool2d(kernel_size, stride, padding,
-                count_include_pad=False)
+            self.pool = nn.AvgPool2d(kernel_size, stride, padding, count_include_pad=False)
         else:
             raise ValueError()
         self.bn = nn.BatchNorm2d(C, affine=affine)
@@ -237,9 +229,7 @@ class StdConv(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_out,
-            kernel_size, stride, padding, bias=False), nn.BatchNorm2d(C_out,
-            affine=affine))
+        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_out, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
 
     def forward(self, x):
         return self.net(x)
@@ -250,13 +240,9 @@ class FacConv(nn.Module):
     ReLU - Conv(Kx1) - Conv(1xK) - BN
     """
 
-    def __init__(self, C_in, C_out, kernel_length, stride, padding, affine=True
-        ):
+    def __init__(self, C_in, C_out, kernel_length, stride, padding, affine=True):
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, (
-            kernel_length, 1), stride, padding, bias=False), nn.Conv2d(C_in,
-            C_out, (1, kernel_length), stride, padding, bias=False), nn.
-            BatchNorm2d(C_out, affine=affine))
+        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, (kernel_length, 1), stride, padding, bias=False), nn.Conv2d(C_in, C_out, (1, kernel_length), stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
 
     def forward(self, x):
         return self.net(x)
@@ -270,13 +256,9 @@ class DilConv(nn.Module):
                       5x5 conv => 9x9 receptive field
     """
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation,
-        affine=True):
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in,
-            kernel_size, stride, padding, dilation=dilation, groups=C_in,
-            bias=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0,
-            bias=False), nn.BatchNorm2d(C_out, affine=affine))
+        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, kernel_size, stride, padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
 
     def forward(self, x):
         return self.net(x)
@@ -289,9 +271,7 @@ class SepConv(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
         super().__init__()
-        self.net = nn.Sequential(DilConv(C_in, C_in, kernel_size, stride,
-            padding, dilation=1, affine=affine), DilConv(C_in, C_out,
-            kernel_size, 1, padding, dilation=1, affine=affine))
+        self.net = nn.Sequential(DilConv(C_in, C_in, kernel_size, stride, padding, dilation=1, affine=affine), DilConv(C_in, C_out, kernel_size, 1, padding, dilation=1, affine=affine))
 
     def forward(self, x):
         return self.net(x)
@@ -326,10 +306,8 @@ class FactorizedReduce(nn.Module):
     def __init__(self, C_in, C_out, affine=True):
         super().__init__()
         self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
-        self.conv2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(C_out, affine=affine)
 
     def forward(self, x):
@@ -339,19 +317,7 @@ class FactorizedReduce(nn.Module):
         return out
 
 
-OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
-    C, stride, affine: PoolBN('avg', C, 3, stride, 1, affine=affine),
-    'max_pool_3x3': lambda C, stride, affine: PoolBN('max', C, 3, stride, 1,
-    affine=affine), 'skip_connect': lambda C, stride, affine: Identity() if
-    stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3':
-    lambda C, stride, affine: SepConv(C, C, 3, stride, 1, affine=affine),
-    'sep_conv_5x5': lambda C, stride, affine: SepConv(C, C, 5, stride, 2,
-    affine=affine), 'sep_conv_7x7': lambda C, stride, affine: SepConv(C, C,
-    7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C, stride, affine:
-    DilConv(C, C, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C,
-    stride, affine: DilConv(C, C, 5, stride, 4, 2, affine=affine),
-    'conv_7x1_1x7': lambda C, stride, affine: FacConv(C, C, 7, stride, 3,
-    affine=affine)}
+OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C, stride, affine: PoolBN('avg', C, 3, stride, 1, affine=affine), 'max_pool_3x3': lambda C, stride, affine: PoolBN('max', C, 3, stride, 1, affine=affine), 'skip_connect': lambda C, stride, affine: Identity() if stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C, stride, affine: SepConv(C, C, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine: SepConv(C, C, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C, stride, affine: SepConv(C, C, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C, stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C, stride, affine: FacConv(C, C, 7, stride, 3, affine=affine)}
 
 
 class MixedOp(nn.Module):
@@ -409,8 +375,7 @@ class SearchCell(nn.Module):
         s1 = self.preproc1(s1)
         states = [s0, s1]
         for edges, w_list in zip(self.dag, w_dag):
-            s_cur = sum(edges[i](s, w) for i, (s, w) in enumerate(zip(
-                states, w_list)))
+            s_cur = sum(edges[i](s, w) for i, (s, w) in enumerate(zip(states, w_list)))
             states.append(s_cur)
         s_out = torch.cat(states[2:], dim=1)
         return s_out
@@ -419,8 +384,7 @@ class SearchCell(nn.Module):
 class SearchCNN(nn.Module):
     """ Search CNN model """
 
-    def __init__(self, C_in, C, n_classes, n_layers, n_nodes=4,
-        stem_multiplier=3):
+    def __init__(self, C_in, C, n_classes, n_layers, n_nodes=4, stem_multiplier=3):
         """
         Args:
             C_in: # of input channels
@@ -436,8 +400,7 @@ class SearchCNN(nn.Module):
         self.n_classes = n_classes
         self.n_layers = n_layers
         C_cur = stem_multiplier * C
-        self.stem = nn.Sequential(nn.Conv2d(C_in, C_cur, 3, 1, 1, bias=
-            False), nn.BatchNorm2d(C_cur))
+        self.stem = nn.Sequential(nn.Conv2d(C_in, C_cur, 3, 1, 1, bias=False), nn.BatchNorm2d(C_cur))
         C_pp, C_p, C_cur = C_cur, C_cur, C
         self.cells = nn.ModuleList()
         reduction_p = False
@@ -447,8 +410,7 @@ class SearchCNN(nn.Module):
                 reduction = True
             else:
                 reduction = False
-            cell = SearchCell(n_nodes, C_pp, C_p, C_cur, reduction_p, reduction
-                )
+            cell = SearchCell(n_nodes, C_pp, C_p, C_cur, reduction_p, reduction)
             reduction_p = reduction
             self.cells.append(cell)
             C_cur_out = C_cur * n_nodes
@@ -470,16 +432,14 @@ class SearchCNN(nn.Module):
 def broadcast_list(l, device_ids):
     """ Broadcasting list """
     l_copies = Broadcast.apply(device_ids, *l)
-    l_copies = [l_copies[i:i + len(l)] for i in range(0, len(l_copies), len(l))
-        ]
+    l_copies = [l_copies[i:i + len(l)] for i in range(0, len(l_copies), len(l))]
     return l_copies
 
 
 class SearchCNNController(nn.Module):
     """ SearchCNN controller supporting multi-gpu """
 
-    def __init__(self, C_in, C, n_classes, n_layers, criterion, n_nodes=4,
-        stem_multiplier=3, device_ids=None):
+    def __init__(self, C_in, C, n_classes, n_layers, criterion, n_nodes=4, stem_multiplier=3, device_ids=None):
         super().__init__()
         self.n_nodes = n_nodes
         self.criterion = criterion
@@ -490,30 +450,24 @@ class SearchCNNController(nn.Module):
         self.alpha_normal = nn.ParameterList()
         self.alpha_reduce = nn.ParameterList()
         for i in range(n_nodes):
-            self.alpha_normal.append(nn.Parameter(0.001 * torch.randn(i + 2,
-                n_ops)))
-            self.alpha_reduce.append(nn.Parameter(0.001 * torch.randn(i + 2,
-                n_ops)))
+            self.alpha_normal.append(nn.Parameter(0.001 * torch.randn(i + 2, n_ops)))
+            self.alpha_reduce.append(nn.Parameter(0.001 * torch.randn(i + 2, n_ops)))
         self._alphas = []
         for n, p in self.named_parameters():
             if 'alpha' in n:
                 self._alphas.append((n, p))
-        self.net = SearchCNN(C_in, C, n_classes, n_layers, n_nodes,
-            stem_multiplier)
+        self.net = SearchCNN(C_in, C, n_classes, n_layers, n_nodes, stem_multiplier)
 
     def forward(self, x):
-        weights_normal = [F.softmax(alpha, dim=-1) for alpha in self.
-            alpha_normal]
-        weights_reduce = [F.softmax(alpha, dim=-1) for alpha in self.
-            alpha_reduce]
+        weights_normal = [F.softmax(alpha, dim=-1) for alpha in self.alpha_normal]
+        weights_reduce = [F.softmax(alpha, dim=-1) for alpha in self.alpha_reduce]
         if len(self.device_ids) == 1:
             return self.net(x, weights_normal, weights_reduce)
         xs = nn.parallel.scatter(x, self.device_ids)
         wnormal_copies = broadcast_list(weights_normal, self.device_ids)
         wreduce_copies = broadcast_list(weights_reduce, self.device_ids)
         replicas = nn.parallel.replicate(self.net, self.device_ids)
-        outputs = nn.parallel.parallel_apply(replicas, list(zip(xs,
-            wnormal_copies, wreduce_copies)), devices=self.device_ids)
+        outputs = nn.parallel.parallel_apply(replicas, list(zip(xs, wnormal_copies, wreduce_copies)), devices=self.device_ids)
         return nn.parallel.gather(outputs, self.device_ids[0])
 
     def loss(self, X, y):
@@ -540,8 +494,7 @@ class SearchCNNController(nn.Module):
         gene_normal = gt.parse(self.alpha_normal, k=2)
         gene_reduce = gt.parse(self.alpha_reduce, k=2)
         concat = range(2, 2 + self.n_nodes)
-        return gt.Genotype(normal=gene_normal, normal_concat=concat, reduce
-            =gene_reduce, reduce_concat=concat)
+        return gt.Genotype(normal=gene_normal, normal_concat=concat, reduce=gene_reduce, reduce_concat=concat)
 
     def weights(self):
         return self.net.parameters()
@@ -562,30 +515,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_khanrc_pt_darts(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AuxiliaryHead,
+     lambda: ([], {'input_size': 7, 'C': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8])], {}),
+     True),
+    (DilConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DropPath_,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FacConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_length': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorizedReduce,
+     lambda: ([], {'C_in': 4, 'C_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SepConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StdConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Zero,
+     lambda: ([], {'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_khanrc_pt_darts(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DropPath_(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FacConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_length': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(StdConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

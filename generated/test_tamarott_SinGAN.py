@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=
-        False, normalize_input=True, requires_grad=False):
+    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=False, normalize_input=True, requires_grad=False):
         """Build pretrained InceptionV3
 
         Parameters
@@ -124,22 +124,16 @@ class InceptionV3(nn.Module):
         assert self.last_needed_block <= 3, 'Last possible output block index is 3'
         self.blocks = nn.ModuleList()
         inception = models.inception_v3(pretrained=True)
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [nn.MaxPool2d(kernel_size=3, stride=2), inception.
-                Conv2d_3b_1x1, inception.Conv2d_4a_3x3]
+            block1 = [nn.MaxPool2d(kernel_size=3, stride=2), inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [nn.MaxPool2d(kernel_size=3, stride=2), inception.
-                Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception
-                .Mixed_6a, inception.Mixed_6b, inception.Mixed_6c,
-                inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [nn.MaxPool2d(kernel_size=3, stride=2), inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c]
             self.blocks.append(nn.Sequential(*block3))
         if self.last_needed_block >= 4:
             block4 = [nn.AdaptiveAvgPool2d(output_size=(1, 1))]
@@ -164,8 +158,7 @@ class InceptionV3(nn.Module):
         outp = []
         x = inp
         if self.resize_input:
-            x = F.upsample(x, size=(299, 299), mode='bilinear',
-                align_corners=False)
+            x = F.upsample(x, size=(299, 299), mode='bilinear', align_corners=False)
         if self.normalize_input:
             x = 2 * x - 1
         for idx, block in enumerate(self.blocks):
@@ -181,8 +174,7 @@ class ConvBlock(nn.Sequential):
 
     def __init__(self, in_channel, out_channel, ker_size, padd, stride):
         super(ConvBlock, self).__init__()
-        self.add_module('conv', nn.Conv2d(in_channel, out_channel,
-            kernel_size=ker_size, stride=stride, padding=padd)),
+        self.add_module('conv', nn.Conv2d(in_channel, out_channel, kernel_size=ker_size, stride=stride, padding=padd)),
         self.add_module('norm', nn.BatchNorm2d(out_channel)),
         self.add_module('LeakyRelu', nn.LeakyReLU(0.2, inplace=True))
 
@@ -197,11 +189,9 @@ class WDiscriminator(nn.Module):
         self.body = nn.Sequential()
         for i in range(opt.num_layer - 2):
             N = int(opt.nfc / pow(2, i + 1))
-            block = ConvBlock(max(2 * N, opt.min_nfc), max(N, opt.min_nfc),
-                opt.ker_size, opt.padd_size, 1)
+            block = ConvBlock(max(2 * N, opt.min_nfc), max(N, opt.min_nfc), opt.ker_size, opt.padd_size, 1)
             self.body.add_module('block%d' % (i + 1), block)
-        self.tail = nn.Conv2d(max(N, opt.min_nfc), 1, kernel_size=opt.
-            ker_size, stride=1, padding=opt.padd_size)
+        self.tail = nn.Conv2d(max(N, opt.min_nfc), 1, kernel_size=opt.ker_size, stride=1, padding=opt.padd_size)
 
     def forward(self, x):
         x = self.head(x)
@@ -220,12 +210,9 @@ class GeneratorConcatSkip2CleanAdd(nn.Module):
         self.body = nn.Sequential()
         for i in range(opt.num_layer - 2):
             N = int(opt.nfc / pow(2, i + 1))
-            block = ConvBlock(max(2 * N, opt.min_nfc), max(N, opt.min_nfc),
-                opt.ker_size, opt.padd_size, 1)
+            block = ConvBlock(max(2 * N, opt.min_nfc), max(N, opt.min_nfc), opt.ker_size, opt.padd_size, 1)
             self.body.add_module('block%d' % (i + 1), block)
-        self.tail = nn.Sequential(nn.Conv2d(max(N, opt.min_nfc), opt.nc_im,
-            kernel_size=opt.ker_size, stride=1, padding=opt.padd_size), nn.
-            Tanh())
+        self.tail = nn.Sequential(nn.Conv2d(max(N, opt.min_nfc), opt.nc_im, kernel_size=opt.ker_size, stride=1, padding=opt.padd_size), nn.Tanh())
 
     def forward(self, x, y):
         x = self.head(x)
@@ -240,8 +227,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'ker_size': 4, 'padd': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_tamarott_SinGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'ker_size': 4, 'padd': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

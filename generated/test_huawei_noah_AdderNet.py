@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,9 +53,7 @@ def adder2d_function(X, W, stride=1, padding=0):
     h_out = (h_x - h_filter + 2 * padding) / stride + 1
     w_out = (w_x - w_filter + 2 * padding) / stride + 1
     h_out, w_out = int(h_out), int(w_out)
-    X_col = torch.nn.functional.unfold(X.view(1, -1, h_x, w_x), h_filter,
-        dilation=1, padding=padding, stride=stride).view(n_x, -1, h_out * w_out
-        )
+    X_col = torch.nn.functional.unfold(X.view(1, -1, h_x, w_x), h_filter, dilation=1, padding=padding, stride=stride).view(n_x, -1, h_out * w_out)
     X_col = X_col.permute(1, 2, 0).contiguous().view(X_col.size(1), -1)
     W_col = W.view(n_filters, -1)
     out = -torch.cdist(W_col, X_col.transpose(0, 1), 1)
@@ -65,20 +64,17 @@ def adder2d_function(X, W, stride=1, padding=0):
 
 class adder2d(nn.Module):
 
-    def __init__(self, input_channel, output_channel, kernel_size, stride=1,
-        padding=0, bias=False):
+    def __init__(self, input_channel, output_channel, kernel_size, stride=1, padding=0, bias=False):
         super(adder2d, self).__init__()
         self.stride = stride
         self.padding = padding
         self.input_channel = input_channel
         self.output_channel = output_channel
         self.kernel_size = kernel_size
-        self.adder = torch.nn.Parameter(nn.init.normal_(torch.randn(
-            output_channel, input_channel, kernel_size, kernel_size)))
+        self.adder = torch.nn.Parameter(nn.init.normal_(torch.randn(output_channel, input_channel, kernel_size, kernel_size)))
         self.bias = bias
         if bias:
-            self.b = torch.nn.Parameter(nn.init.uniform_(torch.zeros(
-                output_channel)))
+            self.b = torch.nn.Parameter(nn.init.uniform_(torch.zeros(output_channel)))
 
     def forward(self, x):
         output = adder2d_function(x, self.adder, self.stride, self.padding)
@@ -89,8 +85,7 @@ class adder2d(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return adder.adder2d(in_planes, out_planes, kernel_size=3, stride=
-        stride, padding=1, bias=False)
+    return adder.adder2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -125,8 +120,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=10):
         super(ResNet, self).__init__()
         self.inplanes = 16
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, 16, layers[0])
@@ -143,12 +137,9 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(adder.adder2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(adder.adder2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(inplanes=self.inplanes, planes=planes, stride=
-            stride, downsample=downsample))
+        layers.append(block(inplanes=self.inplanes, planes=planes, stride=stride, downsample=downsample))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(inplanes=self.inplanes, planes=planes))
@@ -169,8 +160,7 @@ class ResNet(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return adder.adder2d(in_planes, out_planes, kernel_size=1, stride=
-        stride, bias=False)
+    return adder.adder2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
@@ -210,8 +200,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -224,8 +213,7 @@ class ResNet(nn.Module):
         self.bn2 = nn.BatchNorm2d(num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -233,9 +221,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -262,13 +248,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_huawei_noah_AdderNet(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (adder2d,
+     lambda: ([], {'input_channel': 4, 'output_channel': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_huawei_noah_AdderNet(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(adder2d(*[], **{'input_channel': 4, 'output_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

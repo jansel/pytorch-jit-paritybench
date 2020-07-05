@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -44,8 +45,7 @@ class CLSTM_cell(nn.Module):
         self.filter_size = filter_size
         self.num_features = num_features
         self.padding = (filter_size - 1) / 2
-        self.conv = nn.Conv2d(self.input_chans + self.num_features, 4 *
-            self.num_features, self.filter_size, 1, self.padding)
+        self.conv = nn.Conv2d(self.input_chans + self.num_features, 4 * self.num_features, self.filter_size, 1, self.padding)
 
     def forward(self, input, hidden_state):
         hidden, c = hidden_state
@@ -61,9 +61,7 @@ class CLSTM_cell(nn.Module):
         return next_h, next_c
 
     def init_hidden(self, batch_size):
-        return Variable(torch.zeros(batch_size, self.num_features, self.
-            shape[0], self.shape[1])), Variable(torch.zeros(batch_size,
-            self.num_features, self.shape[0], self.shape[1]))
+        return Variable(torch.zeros(batch_size, self.num_features, self.shape[0], self.shape[1])), Variable(torch.zeros(batch_size, self.num_features, self.shape[0], self.shape[1]))
 
 
 class CLSTM(nn.Module):
@@ -75,8 +73,7 @@ class CLSTM(nn.Module):
       
     """
 
-    def __init__(self, shape, input_chans, filter_size, num_features,
-        num_layers):
+    def __init__(self, shape, input_chans, filter_size, num_features, num_layers):
         super(CLSTM, self).__init__()
         self.shape = shape
         self.input_chans = input_chans
@@ -84,11 +81,9 @@ class CLSTM(nn.Module):
         self.num_features = num_features
         self.num_layers = num_layers
         cell_list = []
-        cell_list.append(CLSTM_cell(self.shape, self.input_chans, self.
-            filter_size, self.num_features))
+        cell_list.append(CLSTM_cell(self.shape, self.input_chans, self.filter_size, self.num_features))
         for idcell in range(1, self.num_layers):
-            cell_list.append(CLSTM_cell(self.shape, self.num_features, self
-                .filter_size, self.num_features))
+            cell_list.append(CLSTM_cell(self.shape, self.num_features, self.filter_size, self.num_features))
         self.cell_list = nn.ModuleList(cell_list)
 
     def forward(self, input, hidden_state):
@@ -106,12 +101,10 @@ class CLSTM(nn.Module):
             all_output = []
             output_inner = []
             for t in range(seq_len):
-                hidden_c = self.cell_list[idlayer](current_input[t, ...],
-                    hidden_c)
+                hidden_c = self.cell_list[idlayer](current_input[t, ...], hidden_c)
                 output_inner.append(hidden_c[0])
             next_hidden.append(hidden_c)
-            current_input = torch.cat(output_inner, 0).view(current_input.
-                size(0), *output_inner[0].size())
+            current_input = torch.cat(output_inner, 0).view(current_input.size(0), *output_inner[0].size())
         return next_hidden, current_input
 
     def init_hidden(self, batch_size):
@@ -120,10 +113,3 @@ class CLSTM(nn.Module):
             init_states.append(self.cell_list[i].init_hidden(batch_size))
         return init_states
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_rogertrullo_pytorch_convlstm(_paritybench_base):
-    pass

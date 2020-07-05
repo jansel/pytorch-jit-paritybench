@@ -48,8 +48,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -110,19 +111,15 @@ from torchvision import models
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, NL
-        ='relu', same_padding=False, bn=False, dilation=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, NL='relu', same_padding=False, bn=False, dilation=1):
         super(Conv2d, self).__init__()
         padding = int((kernel_size - 1) // 2) if same_padding else 0
         self.conv = []
         if dilation == 1:
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                stride, padding=padding, dilation=dilation)
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, dilation=dilation)
         else:
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                stride, padding=dilation, dilation=dilation)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0,
-            affine=True) if bn else None
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=dilation, dilation=dilation)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0, affine=True) if bn else None
         if NL == 'relu':
             self.relu = nn.ReLU(inplace=True)
         elif NL == 'prelu':
@@ -162,9 +159,7 @@ class convDU(nn.Module):
 
     def __init__(self, in_out_channels=2048, kernel_size=(9, 1)):
         super(convDU, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_out_channels,
-            in_out_channels, kernel_size, stride=1, padding=((kernel_size[0
-            ] - 1) // 2, (kernel_size[1] - 1) // 2)), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_out_channels, in_out_channels, kernel_size, stride=1, padding=((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)), nn.ReLU(inplace=True))
 
     def forward(self, fea):
         n, c, h, w = fea.size()
@@ -188,9 +183,7 @@ class convLR(nn.Module):
 
     def __init__(self, in_out_channels=2048, kernel_size=(1, 9)):
         super(convLR, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_out_channels,
-            in_out_channels, kernel_size, stride=1, padding=((kernel_size[0
-            ] - 1) // 2, (kernel_size[1] - 1) // 2)), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_out_channels, in_out_channels, kernel_size, stride=1, padding=((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)), nn.ReLU(inplace=True))
 
     def forward(self, fea):
         n, c, h, w = fea.size()
@@ -216,16 +209,12 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2,
-        groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2,
-        groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2,
-        groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
-        C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -233,17 +222,14 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
 
@@ -258,8 +244,7 @@ class SSIM(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -268,8 +253,7 @@ class SSIM(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return _ssim(img1, img2, window, self.window_size, channel, self.
-            size_average)
+        return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
 
 def gaussian_kernel(size, sigma):
@@ -290,28 +274,21 @@ class SSIM_Loss(_Loss):
         kernel = gaussian_kernel(self.size, self.sigma)
         self.kernel_size = kernel.shape
         weight = np.tile(kernel, (in_channels, 1, 1, 1))
-        self.weight = Parameter(torch.from_numpy(weight).float(),
-            requires_grad=False)
+        self.weight = Parameter(torch.from_numpy(weight).float(), requires_grad=False)
 
     def forward(self, input, target, mask=None):
         _assert_no_grad(target)
-        mean1 = F.conv2d(input, self.weight, padding=self.size, groups=self
-            .in_channels)
-        mean2 = F.conv2d(target, self.weight, padding=self.size, groups=
-            self.in_channels)
+        mean1 = F.conv2d(input, self.weight, padding=self.size, groups=self.in_channels)
+        mean2 = F.conv2d(target, self.weight, padding=self.size, groups=self.in_channels)
         mean1_sq = mean1 * mean1
         mean2_sq = mean2 * mean2
         mean_12 = mean1 * mean2
-        sigma1_sq = F.conv2d(input * input, self.weight, padding=self.size,
-            groups=self.in_channels) - mean1_sq
-        sigma2_sq = F.conv2d(target * target, self.weight, padding=self.
-            size, groups=self.in_channels) - mean2_sq
-        sigma_12 = F.conv2d(input * target, self.weight, padding=self.size,
-            groups=self.in_channels) - mean_12
+        sigma1_sq = F.conv2d(input * input, self.weight, padding=self.size, groups=self.in_channels) - mean1_sq
+        sigma2_sq = F.conv2d(target * target, self.weight, padding=self.size, groups=self.in_channels) - mean2_sq
+        sigma_12 = F.conv2d(input * target, self.weight, padding=self.size, groups=self.in_channels) - mean_12
         C1 = 0.01 ** 2
         C2 = 0.03 ** 2
-        ssim = (2 * mean_12 + C1) * (2 * sigma_12 + C2) / ((mean1_sq +
-            mean2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
+        ssim = (2 * mean_12 + C1) * (2 * sigma_12 + C2) / ((mean1_sq + mean2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
         if self.size_average:
             out = 1 - ssim.mean()
         else:
@@ -356,31 +333,14 @@ class CMTL(nn.Module):
     def __init__(self, bn=False, num_classes=10):
         super(CMTL, self).__init__()
         self.num_classes = num_classes
-        self.base_layer = nn.Sequential(Conv2d(3, 16, 9, same_padding=True,
-            NL='prelu', bn=bn), Conv2d(16, 32, 7, same_padding=True, NL=
-            'prelu', bn=bn))
-        self.hl_prior_1 = nn.Sequential(Conv2d(32, 16, 9, same_padding=True,
-            NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(16, 32, 7,
-            same_padding=True, NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(
-            32, 16, 7, same_padding=True, NL='prelu', bn=bn), Conv2d(16, 8,
-            7, same_padding=True, NL='prelu', bn=bn))
-        self.hl_prior_2 = nn.Sequential(nn.AdaptiveMaxPool2d((32, 32)),
-            Conv2d(8, 4, 1, same_padding=True, NL='prelu', bn=bn))
+        self.base_layer = nn.Sequential(Conv2d(3, 16, 9, same_padding=True, NL='prelu', bn=bn), Conv2d(16, 32, 7, same_padding=True, NL='prelu', bn=bn))
+        self.hl_prior_1 = nn.Sequential(Conv2d(32, 16, 9, same_padding=True, NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(16, 32, 7, same_padding=True, NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(32, 16, 7, same_padding=True, NL='prelu', bn=bn), Conv2d(16, 8, 7, same_padding=True, NL='prelu', bn=bn))
+        self.hl_prior_2 = nn.Sequential(nn.AdaptiveMaxPool2d((32, 32)), Conv2d(8, 4, 1, same_padding=True, NL='prelu', bn=bn))
         self.hl_prior_fc1 = FC(4 * 1024, 512, NL='prelu')
         self.hl_prior_fc2 = FC(512, 256, NL='prelu')
         self.hl_prior_fc3 = FC(256, self.num_classes, NL='prelu')
-        self.de_stage_1 = nn.Sequential(Conv2d(32, 20, 7, same_padding=True,
-            NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(20, 40, 5,
-            same_padding=True, NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(
-            40, 20, 5, same_padding=True, NL='prelu', bn=bn), Conv2d(20, 10,
-            5, same_padding=True, NL='prelu', bn=bn))
-        self.de_stage_2 = nn.Sequential(Conv2d(18, 24, 3, same_padding=True,
-            NL='prelu', bn=bn), Conv2d(24, 32, 3, same_padding=True, NL=
-            'prelu', bn=bn), nn.ConvTranspose2d(32, 16, 4, stride=2,
-            padding=1, output_padding=0, bias=True), nn.PReLU(), nn.
-            ConvTranspose2d(16, 8, 4, stride=2, padding=1, output_padding=0,
-            bias=True), nn.PReLU(), Conv2d(8, 1, 1, same_padding=True, NL=
-            'relu', bn=bn))
+        self.de_stage_1 = nn.Sequential(Conv2d(32, 20, 7, same_padding=True, NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(20, 40, 5, same_padding=True, NL='prelu', bn=bn), nn.MaxPool2d(2), Conv2d(40, 20, 5, same_padding=True, NL='prelu', bn=bn), Conv2d(20, 10, 5, same_padding=True, NL='prelu', bn=bn))
+        self.de_stage_2 = nn.Sequential(Conv2d(18, 24, 3, same_padding=True, NL='prelu', bn=bn), Conv2d(24, 32, 3, same_padding=True, NL='prelu', bn=bn), nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1, output_padding=0, bias=True), nn.PReLU(), nn.ConvTranspose2d(16, 8, 4, stride=2, padding=1, output_padding=0, bias=True), nn.PReLU(), Conv2d(8, 1, 1, same_padding=True, NL='relu', bn=bn))
         initialize_weights(self.modules())
 
     def forward(self, im_data):
@@ -404,10 +364,8 @@ class BasicConv(nn.Module):
     def __init__(self, in_channels, out_channels, use_bn=False, **kwargs):
         super(BasicConv, self).__init__()
         self.use_bn = use_bn
-        self.conv = nn.Conv2d(in_channels, out_channels, bias=not self.
-            use_bn, **kwargs)
-        self.bn = nn.InstanceNorm2d(out_channels, affine=True
-            ) if self.use_bn else None
+        self.conv = nn.Conv2d(in_channels, out_channels, bias=not self.use_bn, **kwargs)
+        self.bn = nn.InstanceNorm2d(out_channels, affine=True) if self.use_bn else None
 
     def forward(self, x):
         x = self.conv(x)
@@ -418,14 +376,11 @@ class BasicConv(nn.Module):
 
 class BasicDeconv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        use_bn=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, use_bn=False):
         super(BasicDeconv, self).__init__()
         self.use_bn = use_bn
-        self.tconv = nn.ConvTranspose2d(in_channels, out_channels,
-            kernel_size, stride=stride, bias=not self.use_bn)
-        self.bn = nn.InstanceNorm2d(out_channels, affine=True
-            ) if self.use_bn else None
+        self.tconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, bias=not self.use_bn)
+        self.bn = nn.InstanceNorm2d(out_channels, affine=True) if self.use_bn else None
 
     def forward(self, x):
         x = self.tconv(x)
@@ -439,14 +394,10 @@ class SAModule_Head(nn.Module):
     def __init__(self, in_channels, out_channels, use_bn):
         super(SAModule_Head, self).__init__()
         branch_out = out_channels // 4
-        self.branch1x1 = BasicConv(in_channels, branch_out, use_bn=use_bn,
-            kernel_size=1)
-        self.branch3x3 = BasicConv(in_channels, branch_out, use_bn=use_bn,
-            kernel_size=3, padding=1)
-        self.branch5x5 = BasicConv(in_channels, branch_out, use_bn=use_bn,
-            kernel_size=5, padding=2)
-        self.branch7x7 = BasicConv(in_channels, branch_out, use_bn=use_bn,
-            kernel_size=7, padding=3)
+        self.branch1x1 = BasicConv(in_channels, branch_out, use_bn=use_bn, kernel_size=1)
+        self.branch3x3 = BasicConv(in_channels, branch_out, use_bn=use_bn, kernel_size=3, padding=1)
+        self.branch5x5 = BasicConv(in_channels, branch_out, use_bn=use_bn, kernel_size=5, padding=2)
+        self.branch7x7 = BasicConv(in_channels, branch_out, use_bn=use_bn, kernel_size=7, padding=3)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -462,17 +413,10 @@ class SAModule(nn.Module):
     def __init__(self, in_channels, out_channels, use_bn):
         super(SAModule, self).__init__()
         branch_out = out_channels // 4
-        self.branch1x1 = BasicConv(in_channels, branch_out, use_bn=use_bn,
-            kernel_size=1)
-        self.branch3x3 = nn.Sequential(BasicConv(in_channels, 2 *
-            branch_out, use_bn=use_bn, kernel_size=1), BasicConv(2 *
-            branch_out, branch_out, use_bn=use_bn, kernel_size=3, padding=1))
-        self.branch5x5 = nn.Sequential(BasicConv(in_channels, 2 *
-            branch_out, use_bn=use_bn, kernel_size=1), BasicConv(2 *
-            branch_out, branch_out, use_bn=use_bn, kernel_size=5, padding=2))
-        self.branch7x7 = nn.Sequential(BasicConv(in_channels, 2 *
-            branch_out, use_bn=use_bn, kernel_size=1), BasicConv(2 *
-            branch_out, branch_out, use_bn=use_bn, kernel_size=7, padding=3))
+        self.branch1x1 = BasicConv(in_channels, branch_out, use_bn=use_bn, kernel_size=1)
+        self.branch3x3 = nn.Sequential(BasicConv(in_channels, 2 * branch_out, use_bn=use_bn, kernel_size=1), BasicConv(2 * branch_out, branch_out, use_bn=use_bn, kernel_size=3, padding=1))
+        self.branch5x5 = nn.Sequential(BasicConv(in_channels, 2 * branch_out, use_bn=use_bn, kernel_size=1), BasicConv(2 * branch_out, branch_out, use_bn=use_bn, kernel_size=5, padding=2))
+        self.branch7x7 = nn.Sequential(BasicConv(in_channels, 2 * branch_out, use_bn=use_bn, kernel_size=1), BasicConv(2 * branch_out, branch_out, use_bn=use_bn, kernel_size=7, padding=3))
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -491,18 +435,8 @@ class SANet(nn.Module):
             in_channels = 1
         else:
             in_channels = 3
-        self.encoder = nn.Sequential(SAModule_Head(in_channels, 64, use_bn),
-            nn.MaxPool2d(2, 2), SAModule(64, 128, use_bn), nn.MaxPool2d(2, 
-            2), SAModule(128, 128, use_bn), nn.MaxPool2d(2, 2), SAModule(
-            128, 128, use_bn))
-        self.decoder = nn.Sequential(BasicConv(128, 64, use_bn=use_bn,
-            kernel_size=9, padding=4), BasicDeconv(64, 64, 2, stride=2,
-            use_bn=use_bn), BasicConv(64, 32, use_bn=use_bn, kernel_size=7,
-            padding=3), BasicDeconv(32, 32, 2, stride=2, use_bn=use_bn),
-            BasicConv(32, 16, use_bn=use_bn, kernel_size=5, padding=2),
-            BasicDeconv(16, 16, 2, stride=2, use_bn=use_bn), BasicConv(16, 
-            16, use_bn=use_bn, kernel_size=3, padding=1), BasicConv(16, 1,
-            use_bn=False, kernel_size=1))
+        self.encoder = nn.Sequential(SAModule_Head(in_channels, 64, use_bn), nn.MaxPool2d(2, 2), SAModule(64, 128, use_bn), nn.MaxPool2d(2, 2), SAModule(128, 128, use_bn), nn.MaxPool2d(2, 2), SAModule(128, 128, use_bn))
+        self.decoder = nn.Sequential(BasicConv(128, 64, use_bn=use_bn, kernel_size=9, padding=4), BasicDeconv(64, 64, 2, stride=2, use_bn=use_bn), BasicConv(64, 32, use_bn=use_bn, kernel_size=7, padding=3), BasicDeconv(32, 32, 2, stride=2, use_bn=use_bn), BasicConv(32, 16, use_bn=use_bn, kernel_size=5, padding=2), BasicDeconv(16, 16, 2, stride=2, use_bn=use_bn), BasicConv(16, 16, use_bn=use_bn, kernel_size=3, padding=1), BasicConv(16, 1, use_bn=False, kernel_size=1))
         initialize_weights(self.modules())
 
     def forward(self, x):
@@ -518,12 +452,10 @@ class AlexNet(nn.Module):
         alex = models.alexnet(pretrained=pretrained)
         features = list(alex.features.children())
         self.layer1 = nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=4)
-        self.layer1plus = nn.Sequential(nn.ReLU(inplace=True), nn.MaxPool2d
-            (kernel_size=3, stride=2))
+        self.layer1plus = nn.Sequential(nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
         self.layer2 = nn.Conv2d(64, 192, kernel_size=5, padding=3)
         self.layer2plus_to_5 = nn.Sequential(*features[4:12])
-        self.de_pred = nn.Sequential(Conv2d(256, 128, 1, same_padding=True,
-            NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
+        self.de_pred = nn.Sequential(Conv2d(256, 128, 1, same_padding=True, NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
         self.layer1.load_state_dict(alex.features[0].state_dict())
         self.layer2.load_state_dict(alex.features[3].state_dict())
 
@@ -547,8 +479,7 @@ def make_layers(cfg, in_channels=3, batch_norm=False, dilation=False):
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=
-                d_rate, dilation=d_rate)
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=d_rate, dilation=d_rate)
             if batch_norm:
                 layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
             else:
@@ -562,12 +493,10 @@ class CSRNet(nn.Module):
     def __init__(self, load_weights=False):
         super(CSRNet, self).__init__()
         self.seen = 0
-        self.frontend_feat = [64, 64, 'M', 128, 128, 'M', 256, 256, 256,
-            'M', 512, 512, 512]
+        self.frontend_feat = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512]
         self.backend_feat = [512, 512, 512, 256, 128, 64]
         self.frontend = make_layers(self.frontend_feat)
-        self.backend = make_layers(self.backend_feat, in_channels=512,
-            dilation=True)
+        self.backend = make_layers(self.backend_feat, in_channels=512, dilation=True)
         self.output_layer = nn.Conv2d(64, 1, kernel_size=1)
         if not load_weights:
             mod = models.vgg16(pretrained=True)
@@ -600,18 +529,9 @@ class MCNN(nn.Module):
 
     def __init__(self, bn=False):
         super(MCNN, self).__init__()
-        self.branch1 = nn.Sequential(Conv2d(3, 16, 9, same_padding=True, bn
-            =bn), nn.MaxPool2d(2), Conv2d(16, 32, 7, same_padding=True, bn=
-            bn), nn.MaxPool2d(2), Conv2d(32, 16, 7, same_padding=True, bn=
-            bn), Conv2d(16, 8, 7, same_padding=True, bn=bn))
-        self.branch2 = nn.Sequential(Conv2d(3, 20, 7, same_padding=True, bn
-            =bn), nn.MaxPool2d(2), Conv2d(20, 40, 5, same_padding=True, bn=
-            bn), nn.MaxPool2d(2), Conv2d(40, 20, 5, same_padding=True, bn=
-            bn), Conv2d(20, 10, 5, same_padding=True, bn=bn))
-        self.branch3 = nn.Sequential(Conv2d(3, 24, 5, same_padding=True, bn
-            =bn), nn.MaxPool2d(2), Conv2d(24, 48, 3, same_padding=True, bn=
-            bn), nn.MaxPool2d(2), Conv2d(48, 24, 3, same_padding=True, bn=
-            bn), Conv2d(24, 12, 3, same_padding=True, bn=bn))
+        self.branch1 = nn.Sequential(Conv2d(3, 16, 9, same_padding=True, bn=bn), nn.MaxPool2d(2), Conv2d(16, 32, 7, same_padding=True, bn=bn), nn.MaxPool2d(2), Conv2d(32, 16, 7, same_padding=True, bn=bn), Conv2d(16, 8, 7, same_padding=True, bn=bn))
+        self.branch2 = nn.Sequential(Conv2d(3, 20, 7, same_padding=True, bn=bn), nn.MaxPool2d(2), Conv2d(20, 40, 5, same_padding=True, bn=bn), nn.MaxPool2d(2), Conv2d(40, 20, 5, same_padding=True, bn=bn), Conv2d(20, 10, 5, same_padding=True, bn=bn))
+        self.branch3 = nn.Sequential(Conv2d(3, 24, 5, same_padding=True, bn=bn), nn.MaxPool2d(2), Conv2d(24, 48, 3, same_padding=True, bn=bn), nn.MaxPool2d(2), Conv2d(48, 24, 3, same_padding=True, bn=bn), Conv2d(24, 12, 3, same_padding=True, bn=bn))
         self.fuse = nn.Sequential(Conv2d(30, 1, 1, same_padding=True, bn=bn))
         initialize_weights(self.modules())
 
@@ -629,9 +549,7 @@ def make_res_layer(block, planes, blocks, stride=1):
     downsample = None
     inplanes = 512
     if stride != 1 or inplanes != planes * block.expansion:
-        downsample = nn.Sequential(nn.Conv2d(inplanes, planes * block.
-            expansion, kernel_size=1, stride=stride, bias=False), nn.
-            BatchNorm2d(planes * block.expansion))
+        downsample = nn.Sequential(nn.Conv2d(inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
     layers = []
     layers.append(block(inplanes, planes, stride, downsample))
     inplanes = planes * block.expansion
@@ -644,11 +562,9 @@ class Res101(nn.Module):
 
     def __init__(self, pretrained=True):
         super(Res101, self).__init__()
-        self.de_pred = nn.Sequential(Conv2d(1024, 128, 1, same_padding=True,
-            NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
+        self.de_pred = nn.Sequential(Conv2d(1024, 128, 1, same_padding=True, NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
         res = models.resnet101(pretrained=pretrained)
-        self.frontend = nn.Sequential(res.conv1, res.bn1, res.relu, res.
-            maxpool, res.layer1, res.layer2)
+        self.frontend = nn.Sequential(res.conv1, res.bn1, res.relu, res.maxpool, res.layer1, res.layer2)
         self.own_reslayer_3 = make_res_layer(Bottleneck, 256, 23, stride=1)
         self.own_reslayer_3.load_state_dict(res.layer3.state_dict())
 
@@ -677,11 +593,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -711,16 +625,13 @@ class Res101_SFCN(nn.Module):
         self.seen = 0
         self.backend_feat = [512, 512, 512, 256, 128, 64]
         self.frontend = []
-        self.backend = make_layers(self.backend_feat, in_channels=1024,
-            dilation=True)
+        self.backend = make_layers(self.backend_feat, in_channels=1024, dilation=True)
         self.convDU = convDU(in_out_channels=64, kernel_size=(1, 9))
         self.convLR = convLR(in_out_channels=64, kernel_size=(9, 1))
-        self.output_layer = nn.Sequential(nn.Conv2d(64, 1, kernel_size=1),
-            nn.ReLU())
+        self.output_layer = nn.Sequential(nn.Conv2d(64, 1, kernel_size=1), nn.ReLU())
         initialize_weights(self.modules())
         res = models.resnet101(pretrained=pretrained)
-        self.frontend = nn.Sequential(res.conv1, res.bn1, res.relu, res.
-            maxpool, res.layer1, res.layer2)
+        self.frontend = nn.Sequential(res.conv1, res.bn1, res.relu, res.maxpool, res.layer1, res.layer2)
         self.own_reslayer_3 = make_res_layer(Bottleneck, 256, 23, stride=1)
         self.own_reslayer_3.load_state_dict(res.layer3.state_dict())
 
@@ -742,11 +653,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -773,12 +682,10 @@ class Res50(nn.Module):
 
     def __init__(self, pretrained=True):
         super(Res50, self).__init__()
-        self.de_pred = nn.Sequential(Conv2d(1024, 128, 1, same_padding=True,
-            NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
+        self.de_pred = nn.Sequential(Conv2d(1024, 128, 1, same_padding=True, NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
         initialize_weights(self.modules())
         res = models.resnet50(pretrained=pretrained)
-        self.frontend = nn.Sequential(res.conv1, res.bn1, res.relu, res.
-            maxpool, res.layer1, res.layer2)
+        self.frontend = nn.Sequential(res.conv1, res.bn1, res.relu, res.maxpool, res.layer1, res.layer2)
         self.own_reslayer_3 = make_res_layer(Bottleneck, 256, 6, stride=1)
         self.own_reslayer_3.load_state_dict(res.layer3.state_dict())
 
@@ -807,11 +714,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -841,8 +746,7 @@ class VGG(nn.Module):
         vgg = models.vgg16(pretrained=pretrained)
         features = list(vgg.features.children())
         self.features4 = nn.Sequential(*features[0:23])
-        self.de_pred = nn.Sequential(Conv2d(512, 128, 1, same_padding=True,
-            NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
+        self.de_pred = nn.Sequential(Conv2d(512, 128, 1, same_padding=True, NL='relu'), Conv2d(128, 1, 1, same_padding=True, NL='relu'))
 
     def forward(self, x):
         x = self.features4(x)
@@ -858,13 +762,7 @@ class VGG_decoder(nn.Module):
         vgg = models.vgg16(pretrained=pretrained)
         features = list(vgg.features.children())
         self.features4 = nn.Sequential(*features[0:23])
-        self.de_pred = nn.Sequential(Conv2d(512, 128, 3, same_padding=True,
-            NL='relu'), nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1,
-            output_padding=0, bias=True), nn.ReLU(), nn.ConvTranspose2d(64,
-            32, 4, stride=2, padding=1, output_padding=0, bias=True), nn.
-            ReLU(), nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1,
-            output_padding=0, bias=True), nn.ReLU(), Conv2d(16, 1, 1,
-            same_padding=True, NL='relu'))
+        self.de_pred = nn.Sequential(Conv2d(512, 128, 3, same_padding=True, NL='relu'), nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1, output_padding=0, bias=True), nn.ReLU(), nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1, output_padding=0, bias=True), nn.ReLU(), nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1, output_padding=0, bias=True), nn.ReLU(), Conv2d(16, 1, 1, same_padding=True, NL='relu'))
 
     def forward(self, x):
         x = self.features4(x)
@@ -876,75 +774,142 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlexNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (BasicConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicDeconv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CMTL,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (CSRNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FC,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MCNN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Res101,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Res101_SFCN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Res50,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SAModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'use_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SAModule_Head,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'use_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SANet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SSIM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGG,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (VGG_decoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (convDU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 4, 4])], {}),
+     False),
+    (convLR,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 4, 4])], {}),
+     False),
+]
+
 class Test_gjy3035_C_3_Framework(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BasicConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BasicDeconv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CMTL(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(CSRNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MCNN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Res101(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(Res101_SFCN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(Res50(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SAModule(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(SAModule_Head(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(SANet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(VGG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(VGG_decoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(convDU(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(convLR(*[], **{}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(*TESTCASES[18])
 

@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ class Model(nn.Module):
         return score[0:self.config.batch_size]
 
     def get_negative_score(self, score):
-        negative_score = score[self.config.batch_size:self.config.
-            batch_seq_size]
+        negative_score = score[self.config.batch_size:self.config.batch_seq_size]
         negative_score = negative_score.view(-1, self.config.batch_size)
         negative_score = torch.mean(negative_score, 0)
         return negative_score
@@ -105,9 +105,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MyDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_daiquocnguyen_ConvKB(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MyDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 

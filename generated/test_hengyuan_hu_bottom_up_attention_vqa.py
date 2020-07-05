@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -139,9 +140,7 @@ class SimpleClassifier(nn.Module):
 
     def __init__(self, in_dim, hid_dim, out_dim, dropout):
         super(SimpleClassifier, self).__init__()
-        layers = [weight_norm(nn.Linear(in_dim, hid_dim), dim=None), nn.
-            ReLU(), nn.Dropout(dropout, inplace=True), weight_norm(nn.
-            Linear(hid_dim, out_dim), dim=None)]
+        layers = [weight_norm(nn.Linear(in_dim, hid_dim), dim=None), nn.ReLU(), nn.Dropout(dropout, inplace=True), weight_norm(nn.Linear(hid_dim, out_dim), dim=None)]
         self.main = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -196,15 +195,13 @@ class WordEmbedding(nn.Module):
 
 class QuestionEmbedding(nn.Module):
 
-    def __init__(self, in_dim, num_hid, nlayers, bidirect, dropout,
-        rnn_type='GRU'):
+    def __init__(self, in_dim, num_hid, nlayers, bidirect, dropout, rnn_type='GRU'):
         """Module for question embedding
         """
         super(QuestionEmbedding, self).__init__()
         assert rnn_type == 'LSTM' or rnn_type == 'GRU'
         rnn_cls = nn.LSTM if rnn_type == 'LSTM' else nn.GRU
-        self.rnn = rnn_cls(in_dim, num_hid, nlayers, bidirectional=bidirect,
-            dropout=dropout, batch_first=True)
+        self.rnn = rnn_cls(in_dim, num_hid, nlayers, bidirectional=bidirect, dropout=dropout, batch_first=True)
         self.in_dim = in_dim
         self.num_hid = num_hid
         self.nlayers = nlayers
@@ -215,8 +212,7 @@ class QuestionEmbedding(nn.Module):
         weight = next(self.parameters()).data
         hid_shape = self.nlayers * self.ndirections, batch, self.num_hid
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(*hid_shape).zero_()), Variable(weight
-                .new(*hid_shape).zero_())
+            return Variable(weight.new(*hid_shape).zero_()), Variable(weight.new(*hid_shape).zero_())
         else:
             return Variable(weight.new(*hid_shape).zero_())
 
@@ -243,20 +239,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'v_dim': 4, 'q_dim': 4, 'num_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (FCNet,
+     lambda: ([], {'dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NewAttention,
+     lambda: ([], {'v_dim': 4, 'q_dim': 4, 'num_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (SimpleClassifier,
+     lambda: ([], {'in_dim': 4, 'hid_dim': 4, 'out_dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WordEmbedding,
+     lambda: ([], {'ntoken': 4, 'emb_dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_hengyuan_hu_bottom_up_attention_vqa(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Attention(*[], **{'v_dim': 4, 'q_dim': 4, 'num_hid': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FCNet(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NewAttention(*[], **{'v_dim': 4, 'q_dim': 4, 'num_hid': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SimpleClassifier(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(WordEmbedding(*[], **{'ntoken': 4, 'emb_dim': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 

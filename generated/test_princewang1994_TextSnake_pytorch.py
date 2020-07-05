@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,22 +86,17 @@ class TextLoss(nn.Module):
         neg = ((1 - target) * train_mask).byte()
         n_pos = pos.float().sum()
         if n_pos.item() > 0:
-            loss_pos = F.cross_entropy(predict[pos], target[pos], reduction
-                ='sum')
-            loss_neg = F.cross_entropy(predict[neg], target[neg], reduction
-                ='none')
-            n_neg = min(int(neg.float().sum().item()), int(negative_ratio *
-                n_pos.float()))
+            loss_pos = F.cross_entropy(predict[pos], target[pos], reduction='sum')
+            loss_neg = F.cross_entropy(predict[neg], target[neg], reduction='none')
+            n_neg = min(int(neg.float().sum().item()), int(negative_ratio * n_pos.float()))
         else:
             loss_pos = 0.0
-            loss_neg = F.cross_entropy(predict[neg], target[neg], reduction
-                ='none')
+            loss_neg = F.cross_entropy(predict[neg], target[neg], reduction='none')
             n_neg = 100
         loss_neg, _ = torch.topk(loss_neg, n_neg)
         return (loss_pos + loss_neg.sum()) / (n_pos + n_neg).float()
 
-    def forward(self, input, tr_mask, tcl_mask, sin_map, cos_map, radii_map,
-        train_mask):
+    def forward(self, input, tr_mask, tcl_mask, sin_map, cos_map, radii_map, train_mask):
         """
         calculate textsnake loss
         :param input: (Variable), network predict, (BS, 7, H, W)
@@ -130,15 +126,12 @@ class TextLoss(nn.Module):
         loss_tcl = 0.0
         tr_train_mask = train_mask * tr_mask
         if tr_train_mask.sum().item() > 0:
-            loss_tcl = F.cross_entropy(tcl_pred[tr_train_mask], tcl_mask[
-                tr_train_mask].long())
+            loss_tcl = F.cross_entropy(tcl_pred[tr_train_mask], tcl_mask[tr_train_mask].long())
         loss_radii, loss_sin, loss_cos = 0.0, 0.0, 0.0
         tcl_train_mask = train_mask * tcl_mask
         if tcl_train_mask.sum().item() > 0:
-            ones = radii_map.new(radii_pred[tcl_mask].size()).fill_(1.0).float(
-                )
-            loss_radii = F.smooth_l1_loss(radii_pred[tcl_mask] / radii_map[
-                tcl_mask], ones)
+            ones = radii_map.new(radii_pred[tcl_mask].size()).fill_(1.0).float()
+            loss_radii = F.smooth_l1_loss(radii_pred[tcl_mask] / radii_map[tcl_mask], ones)
             loss_sin = F.smooth_l1_loss(sin_pred[tcl_mask], sin_map[tcl_mask])
             loss_cos = F.smooth_l1_loss(cos_pred[tcl_mask], cos_map[tcl_mask])
         return loss_tr, loss_tcl, loss_radii, loss_sin, loss_cos
@@ -149,8 +142,7 @@ class ResNet50(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = resnet.resnet50(pretrained=True)
-        self.stage1 = nn.Sequential(self.net.conv1, self.net.bn1, self.net.
-            relu, self.net.maxpool)
+        self.stage1 = nn.Sequential(self.net.conv1, self.net.bn1, self.net.relu, self.net.maxpool)
         self.stage2 = self.net.layer1
         self.stage3 = self.net.layer2
         self.stage4 = self.net.layer3
@@ -169,12 +161,9 @@ class Upsample(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1x1 = nn.Conv2d(in_channels, in_channels, kernel_size=1,
-            stride=1, padding=0)
-        self.conv3x3 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=1, padding=1)
-        self.deconv = nn.ConvTranspose2d(out_channels, out_channels,
-            kernel_size=4, stride=2, padding=1)
+        self.conv1x1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.conv3x3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.deconv = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=4, stride=2, padding=1)
 
     def forward(self, upsampled, shortcut):
         x = torch.cat([upsampled, shortcut], dim=1)
@@ -195,15 +184,12 @@ class TextNet(nn.Module):
         self.output_channel = output_channel
         if backbone == 'vgg':
             self.backbone = VGG16(pretrain=self.is_training)
-            self.deconv5 = nn.ConvTranspose2d(512, 256, kernel_size=4,
-                stride=2, padding=1)
+            self.deconv5 = nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1)
             self.merge4 = Upsample(512 + 256, 128)
             self.merge3 = Upsample(256 + 128, 64)
             self.merge2 = Upsample(128 + 64, 32)
             self.merge1 = Upsample(64 + 32, 16)
-            self.predict = nn.Sequential(nn.Conv2d(16, 16, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(16, self.output_channel,
-                kernel_size=1, stride=1, padding=0))
+            self.predict = nn.Sequential(nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1), nn.Conv2d(16, self.output_channel, kernel_size=1, stride=1, padding=0))
         elif backbone == 'resnet':
             pass
 
@@ -232,9 +218,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         if init_weights:
             self._initialize_weights()
 
@@ -247,8 +231,7 @@ class VGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -275,15 +258,7 @@ def make_layers(cfg, batch_norm=False):
     return nn.Sequential(*layers)
 
 
-model_urls = {'vgg11':
-    'https://download.pytorch.org/models/vgg11-bbd30ac9.pth', 'vgg13':
-    'https://download.pytorch.org/models/vgg13-c768596a.pth', 'vgg16':
-    'https://download.pytorch.org/models/vgg16-397923af.pth', 'vgg19':
-    'https://download.pytorch.org/models/vgg19-dcbb9e9d.pth', 'vgg11_bn':
-    'https://download.pytorch.org/models/vgg11_bn-6002323d.pth', 'vgg13_bn':
-    'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth', 'vgg16_bn':
-    'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth', 'vgg19_bn':
-    'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth'}
+model_urls = {'vgg11': 'https://download.pytorch.org/models/vgg11-bbd30ac9.pth', 'vgg13': 'https://download.pytorch.org/models/vgg13-c768596a.pth', 'vgg16': 'https://download.pytorch.org/models/vgg16-397923af.pth', 'vgg19': 'https://download.pytorch.org/models/vgg19-dcbb9e9d.pth', 'vgg11_bn': 'https://download.pytorch.org/models/vgg11_bn-6002323d.pth', 'vgg13_bn': 'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth', 'vgg16_bn': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth', 'vgg19_bn': 'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth'}
 
 
 _global_config['D'] = 4
@@ -296,16 +271,11 @@ class VGG16(nn.Module):
         net = VGG(make_layers(cfg['D']), init_weights=False)
         if pretrain:
             net.load_state_dict(model_zoo.load_url(model_urls['vgg16']))
-        self.stage1 = nn.Sequential(*[net.features[layer] for layer in
-            range(0, 5)])
-        self.stage2 = nn.Sequential(*[net.features[layer] for layer in
-            range(5, 10)])
-        self.stage3 = nn.Sequential(*[net.features[layer] for layer in
-            range(10, 17)])
-        self.stage4 = nn.Sequential(*[net.features[layer] for layer in
-            range(17, 24)])
-        self.stage5 = nn.Sequential(*[net.features[layer] for layer in
-            range(24, 31)])
+        self.stage1 = nn.Sequential(*[net.features[layer] for layer in range(0, 5)])
+        self.stage2 = nn.Sequential(*[net.features[layer] for layer in range(5, 10)])
+        self.stage3 = nn.Sequential(*[net.features[layer] for layer in range(10, 17)])
+        self.stage4 = nn.Sequential(*[net.features[layer] for layer in range(17, 24)])
+        self.stage5 = nn.Sequential(*[net.features[layer] for layer in range(24, 31)])
 
     def forward(self, x):
         C1 = self.stage1(x)
@@ -320,14 +290,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResNet50,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Upsample,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+]
+
 class Test_princewang1994_TextSnake_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ResNet50(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Upsample(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[2])
 

@@ -57,8 +57,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -134,17 +135,14 @@ class MeanShift(nn.Conv2d):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.ReLU(True), atrous=False):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.ReLU(True), atrous=False):
         super(ResBlock, self).__init__()
         m = []
         _repr = []
         for i in range(2):
             atrous_rate = 1 if not atrous or i == 0 else atrous
-            m.append(conv(n_feats, n_feats, kernel_size, rate=atrous_rate,
-                bias=bias))
-            _repr.append(f'Conv({n_feats}x{kernel_size}' + (
-                f';A*{atrous_rate})' if atrous_rate != 1 else '') + ')')
+            m.append(conv(n_feats, n_feats, kernel_size, rate=atrous_rate, bias=bias))
+            _repr.append(f'Conv({n_feats}x{kernel_size}' + (f';A*{atrous_rate})' if atrous_rate != 1 else '') + ')')
             if bn:
                 m.append(nn.BatchNorm2d(n_feats))
                 _repr.append(f'BN({n_feats})')
@@ -197,8 +195,7 @@ class RGBHead(nn.Module):
     def __init__(self, config_ms):
         super(RGBHead, self).__init__()
         assert 'Subsampling' not in config_ms.enc.cls, 'For Subsampling encoders, head should be ID'
-        self.head = nn.Sequential(edsr.MeanShift(0, (0.0, 0.0, 0.0), (128.0,
-            128.0, 128.0)), Head(config_ms, Cin=3))
+        self.head = nn.Sequential(edsr.MeanShift(0, (0.0, 0.0, 0.0), (128.0, 128.0, 128.0)), Head(config_ms, Cin=3))
         self._repr = 'MeanShift//Head(C=3)'
 
     def __repr__(self):
@@ -273,8 +270,7 @@ def resize_bicubic(t, fac):
 def resize_bicubic_batch(t, fac):
     assert len(t.shape) == 4
     N = t.shape[0]
-    return torch.stack([resize_bicubic(t[n, ...], fac) for n in range(N)],
-        dim=0)
+    return torch.stack([resize_bicubic(t[n, ...], fac) for n in range(N)], dim=0)
 
 
 class Net(nn.Module):
@@ -282,8 +278,7 @@ class Net(nn.Module):
     def __init__(self, config_ms, scale):
         super(Net, self).__init__()
         self.config_ms = config_ms
-        self.enc = {'EDSRLikeEnc': EDSRLikeEnc, 'BicubicSubsampling':
-            BicubicDownsamplingEnc}[config_ms.enc.cls](config_ms, scale)
+        self.enc = {'EDSRLikeEnc': EDSRLikeEnc, 'BicubicSubsampling': BicubicDownsamplingEnc}[config_ms.enc.cls](config_ms, scale)
         self.dec = {'EDSRDec': EDSRDec}[config_ms.dec.cls](config_ms, scale)
 
     def forward(self, x):
@@ -304,8 +299,7 @@ class EDSRDec(nn.Module):
         C = config_ms.q.C
         after_q_kernel = 1
         self.head = conv(C, config_ms.Cf, after_q_kernel)
-        m_body = [edsr.ResBlock(conv, Cf, kernel_size, act=nn.ReLU(True)) for
-            _ in range(n_resblock)]
+        m_body = [edsr.ResBlock(conv, Cf, kernel_size, act=nn.ReLU(True)) for _ in range(n_resblock)]
         m_body.append(conv(Cf, Cf, kernel_size))
         self.body = nn.Sequential(*m_body)
         self.tail = edsr.Upsampler(conv, 2, Cf, act=False)
@@ -343,8 +337,7 @@ class AtrousProbabilityClassifier(nn.Module):
         super(AtrousProbabilityClassifier, self).__init__()
         K = config_ms.prob.K
         Kp = non_shared_get_Kp(K, C)
-        self.atrous = StackedAtrousConvs(atrous_rates_str, config_ms.Cf, Kp,
-            kernel_size=config_ms.kernel_size)
+        self.atrous = StackedAtrousConvs(atrous_rates_str, config_ms.Cf, Kp, kernel_size=config_ms.kernel_size)
         self._repr = f'C={C}; K={K}; Kp={Kp}; rates={atrous_rates_str}'
 
     def __repr__(self):
@@ -363,8 +356,7 @@ class StackedAtrousConvs(nn.Module):
     def __init__(self, atrous_rates_str, Cin, Cout, bias=True, kernel_size=3):
         super(StackedAtrousConvs, self).__init__()
         atrous_rates = self._parse_atrous_rates_str(atrous_rates_str)
-        self.atrous = nn.ModuleList([conv(Cin, Cin, kernel_size, rate=rate) for
-            rate in atrous_rates])
+        self.atrous = nn.ModuleList([conv(Cin, Cin, kernel_size, rate=rate) for rate in atrous_rates])
         self.lin = conv(len(atrous_rates) * Cin, Cout, 1, bias=bias)
         self._extra_repr = 'rates={}'.format(atrous_rates)
 
@@ -442,8 +434,7 @@ class ChannelToLogitsTranspose(nn.Module):
         return x
 
     def __repr__(self):
-        return 'ChannelToLogitsTranspose(Cout={}, Lout={})'.format(self.
-            Cout, self.Lout)
+        return 'ChannelToLogitsTranspose(Cout={}, Lout={})'.format(self.Cout, self.Lout)
 
 
 class LogitsToChannelTranspose(nn.Module):
@@ -518,15 +509,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LambdaModule,
+     lambda: ([], {'forward_lambda': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LogitsToChannelTranspose,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (OneHot,
+     lambda: ([], {'L': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_fab_jul_L3C_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(LambdaModule(*[], **{'forward_lambda': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LogitsToChannelTranspose(*[], **{}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(OneHot(*[], **{'L': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

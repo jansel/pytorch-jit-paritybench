@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -77,38 +78,8 @@ class AutoEncoder(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.encoder = torchlayers.Sequential(torchlayers.Conv(64,
-            kernel_size=7), torchlayers.activations.Swish(), torchlayers.
-            InvertedResidualBottleneck(squeeze_excitation=False),
-            torchlayers.AvgPool(), torchlayers.HardSwish(), torchlayers.
-            SeparableConv(128), torchlayers.InvertedResidualBottleneck(),
-            torch.nn.ReLU(), torchlayers.AvgPool(), torchlayers.
-            DepthwiseConv(256), torchlayers.Poly(torchlayers.
-            InvertedResidualBottleneck(), order=3), torchlayers.ReLU(),
-            torchlayers.MaxPool(), torchlayers.Fire(out_channels=512),
-            torchlayers.SqueezeExcitation(hidden=64), torchlayers.
-            InvertedResidualBottleneck(), torchlayers.MaxPool(),
-            torchlayers.InvertedResidualBottleneck(squeeze_excitation=False
-            ), torchlayers.Dropout(), torchlayers.StochasticDepth(torch.nn.
-            Sequential(torchlayers.InvertedResidualBottleneck(
-            squeeze_excitation=False), torchlayers.
-            InvertedResidualBottleneck(squeeze_excitation=False)), p=0.5),
-            torchlayers.AvgPool())
-        self.decoder = torchlayers.Sequential(torchlayers.Poly(torchlayers.
-            InvertedResidualBottleneck(), order=2), torchlayers.
-            ConvPixelShuffle(out_channels=512, upscale_factor=2),
-            torchlayers.Poly(torchlayers.InvertedResidualBottleneck(),
-            order=3), torchlayers.ConvPixelShuffle(out_channels=256,
-            upscale_factor=2), torchlayers.StandardNormalNoise(),
-            torchlayers.Poly(torchlayers.InvertedResidualBottleneck(),
-            order=3), torchlayers.ConvPixelShuffle(out_channels=128,
-            upscale_factor=2), torchlayers.Poly(torchlayers.
-            InvertedResidualBottleneck(), order=4), torchlayers.
-            ConvPixelShuffle(out_channels=64, upscale_factor=2),
-            torchlayers.InvertedResidualBottleneck(), torchlayers.Conv(256),
-            torchlayers.Swish(), torchlayers.BatchNorm(), torchlayers.
-            ConvPixelShuffle(out_channels=32, upscale_factor=2),
-            torchlayers.Conv(16), torchlayers.Swish(), torchlayers.Conv(3))
+        self.encoder = torchlayers.Sequential(torchlayers.Conv(64, kernel_size=7), torchlayers.activations.Swish(), torchlayers.InvertedResidualBottleneck(squeeze_excitation=False), torchlayers.AvgPool(), torchlayers.HardSwish(), torchlayers.SeparableConv(128), torchlayers.InvertedResidualBottleneck(), torch.nn.ReLU(), torchlayers.AvgPool(), torchlayers.DepthwiseConv(256), torchlayers.Poly(torchlayers.InvertedResidualBottleneck(), order=3), torchlayers.ReLU(), torchlayers.MaxPool(), torchlayers.Fire(out_channels=512), torchlayers.SqueezeExcitation(hidden=64), torchlayers.InvertedResidualBottleneck(), torchlayers.MaxPool(), torchlayers.InvertedResidualBottleneck(squeeze_excitation=False), torchlayers.Dropout(), torchlayers.StochasticDepth(torch.nn.Sequential(torchlayers.InvertedResidualBottleneck(squeeze_excitation=False), torchlayers.InvertedResidualBottleneck(squeeze_excitation=False)), p=0.5), torchlayers.AvgPool())
+        self.decoder = torchlayers.Sequential(torchlayers.Poly(torchlayers.InvertedResidualBottleneck(), order=2), torchlayers.ConvPixelShuffle(out_channels=512, upscale_factor=2), torchlayers.Poly(torchlayers.InvertedResidualBottleneck(), order=3), torchlayers.ConvPixelShuffle(out_channels=256, upscale_factor=2), torchlayers.StandardNormalNoise(), torchlayers.Poly(torchlayers.InvertedResidualBottleneck(), order=3), torchlayers.ConvPixelShuffle(out_channels=128, upscale_factor=2), torchlayers.Poly(torchlayers.InvertedResidualBottleneck(), order=4), torchlayers.ConvPixelShuffle(out_channels=64, upscale_factor=2), torchlayers.InvertedResidualBottleneck(), torchlayers.Conv(256), torchlayers.Swish(), torchlayers.BatchNorm(), torchlayers.ConvPixelShuffle(out_channels=32, upscale_factor=2), torchlayers.Conv(16), torchlayers.Swish(), torchlayers.Conv(3))
 
     def forward(self, inputs):
         return self.decoder(self.encoder(inputs))
@@ -404,29 +375,18 @@ class SeparableConv(torch.nn.Module):
 
     """
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_size=3,
-        stride=1, padding='same', dilation=1, bias: bool=True, padding_mode:
-        str='zeros'):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size=3, stride=1, padding='same', dilation=1, bias: bool=True, padding_mode: str='zeros'):
         super().__init__()
         self.in_channels: int = in_channels
         self.out_channels: int = out_channels
-        self.kernel_size: typing.Union[int, typing.Tuple[int, int], typing.
-            Tuple[int, int, int]] = kernel_size
-        self.stride: typing.Union[int, typing.Tuple[int, int], typing.Tuple
-            [int, int, int]] = stride
-        self.padding: typing.Union[str, int, typing.Tuple[int, int], typing
-            .Tuple[int, int, int]] = padding
-        self.dilation: typing.Union[int, typing.Tuple[int, int], typing.
-            Tuple[int, int, int]] = dilation
+        self.kernel_size: typing.Union[int, typing.Tuple[int, int], typing.Tuple[int, int, int]] = kernel_size
+        self.stride: typing.Union[int, typing.Tuple[int, int], typing.Tuple[int, int, int]] = stride
+        self.padding: typing.Union[str, int, typing.Tuple[int, int], typing.Tuple[int, int, int]] = padding
+        self.dilation: typing.Union[int, typing.Tuple[int, int], typing.Tuple[int, int, int]] = dilation
         self.bias: bool = bias
         self.padding_mode: str = padding_mode
-        self.depthwise = Conv(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=in_channels, bias=bias,
-            padding_mode=padding_mode)
-        self.pointwise = Conv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0, dilation=1,
-            groups=1, bias=False, padding_mode=padding_mode)
+        self.depthwise = Conv(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=bias, padding_mode=padding_mode)
+        self.pointwise = Conv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode=padding_mode)
 
     def forward(self, inputs):
         return self.pointwise(self.depthwise(inputs))
@@ -471,8 +431,7 @@ class ChannelShuffle(torch.nn.Module):
         self.groups: int = groups
 
     def forward(self, inputs):
-        return inputs.reshape(inputs.shape[0], self.groups, -1, *inputs.
-            shape[2:]).transpose(1, 2).reshape(*inputs.shape)
+        return inputs.reshape(inputs.shape[0], self.groups, -1, *inputs.shape[2:]).transpose(1, 2).reshape(*inputs.shape)
 
 
 class ChannelSplit(torch.nn.Module):
@@ -509,8 +468,7 @@ class ChannelSplit(torch.nn.Module):
     def __init__(self, p: float, dim: int=1):
         super().__init__()
         if not 0.0 < p < 1.0:
-            raise ValueError(
-                'Ratio of small expand fire module has to be between 0 and 1.')
+            raise ValueError('Ratio of small expand fire module has to be between 0 and 1.')
         self.p: float = p
         self.dim: int = dim
 
@@ -567,8 +525,7 @@ class Residual(torch.nn.Module):
 
     """
 
-    def __init__(self, module: torch.nn.Module, projection: torch.nn.Module
-        =None):
+    def __init__(self, module: torch.nn.Module, projection: torch.nn.Module=None):
         super().__init__()
         self.module: torch.nn.Module = module
         self.projection: torch.nn.Module = projection
@@ -783,24 +740,19 @@ class SqueezeExcitation(torch.nn.Module):
 
     """
 
-    def __init__(self, in_channels: int, hidden: int=None, activation=None,
-        sigmoid=None):
+    def __init__(self, in_channels: int, hidden: int=None, activation=None, sigmoid=None):
         super().__init__()
         self.in_channels: int = in_channels
         self.hidden: int = hidden if hidden is not None else in_channels // 16
-        self.activation: typing.Callable[[torch.Tensor], torch.Tensor
-            ] = activation if activation is not None else torch.nn.ReLU()
-        self.sigmoid: typing.Callable[[torch.Tensor], torch.Tensor
-            ] = sigmoid if sigmoid is not None else torch.nn.Sigmoid()
+        self.activation: typing.Callable[[torch.Tensor], torch.Tensor] = activation if activation is not None else torch.nn.ReLU()
+        self.sigmoid: typing.Callable[[torch.Tensor], torch.Tensor] = sigmoid if sigmoid is not None else torch.nn.Sigmoid()
         self._pooling = pooling.GlobalAvgPool()
         self._first = torch.nn.Linear(in_channels, self.hidden)
         self._second = torch.nn.Linear(self.hidden, in_channels)
 
     def forward(self, inputs):
-        excitation = self.sigmoid(self._second(self.activation(self._first(
-            self._pooling(inputs)))))
-        return inputs * excitation.view(*excitation.shape, *([1] * (len(
-            inputs.shape) - 2)))
+        excitation = self.sigmoid(self._second(self.activation(self._first(self._pooling(inputs)))))
+        return inputs * excitation.view(*excitation.shape, *([1] * (len(inputs.shape) - 2)))
 
 
 class Fire(torch.nn.Module):
@@ -829,8 +781,7 @@ class Fire(torch.nn.Module):
 
     """
 
-    def __init__(self, in_channels: int, out_channels: int, hidden_channels
-        =None, p: float=0.5):
+    def __init__(self, in_channels: int, out_channels: int, hidden_channels=None, p: float=0.5):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -842,20 +793,16 @@ class Fire(torch.nn.Module):
         else:
             self.hidden_channels = hidden_channels
         if not 0.0 < p < 1.0:
-            raise ValueError("Fire's p has to be between 0 and 1, got {}".
-                format(p))
+            raise ValueError("Fire's p has to be between 0 and 1, got {}".format(p))
         self.p: float = p
         self.squeeze = Conv(in_channels, self.hidden_channels, kernel_size=1)
         small_out_channels = int(out_channels * self.p)
-        self.expand_small = Conv(self.hidden_channels, small_out_channels,
-            kernel_size=1)
-        self.expand_large = Conv(self.hidden_channels, out_channels -
-            small_out_channels, kernel_size=3, padding=1)
+        self.expand_small = Conv(self.hidden_channels, small_out_channels, kernel_size=1)
+        self.expand_large = Conv(self.hidden_channels, out_channels - small_out_channels, kernel_size=3, padding=1)
 
     def forward(self, inputs):
         squeeze = self.squeeze(inputs)
-        return torch.cat((self.expand_small(squeeze), self.expand_large(
-            squeeze)), dim=1)
+        return torch.cat((self.expand_small(squeeze), self.expand_large(squeeze)), dim=1)
 
 
 class InvertedResidualBottleneck(torch.nn.Module):
@@ -903,10 +850,7 @@ class InvertedResidualBottleneck(torch.nn.Module):
 
     """
 
-    def __init__(self, in_channels: int, hidden_channels: int=None,
-        activation=None, batchnorm: bool=True, squeeze_excitation: bool=
-        True, squeeze_excitation_hidden: int=None,
-        squeeze_excitation_activation=None, squeeze_excitation_sigmoid=None):
+    def __init__(self, in_channels: int, hidden_channels: int=None, activation=None, batchnorm: bool=True, squeeze_excitation: bool=True, squeeze_excitation_hidden: int=None, squeeze_excitation_activation=None, squeeze_excitation_sigmoid=None):
 
         def _add_batchnorm(block, channels):
             if batchnorm:
@@ -914,31 +858,19 @@ class InvertedResidualBottleneck(torch.nn.Module):
             return block
         super().__init__()
         self.in_channels: int = in_channels
-        self.hidden_channels: int = (hidden_channels if hidden_channels is not
-            None else in_channels * 4)
-        self.activation: typing.Callable[[torch.Tensor], torch.Tensor
-            ] = torch.nn.ReLU6() if activation is None else activation
+        self.hidden_channels: int = hidden_channels if hidden_channels is not None else in_channels * 4
+        self.activation: typing.Callable[[torch.Tensor], torch.Tensor] = torch.nn.ReLU6() if activation is None else activation
         self.batchnorm: bool = batchnorm
         self.squeeze_excitation: bool = squeeze_excitation
         self.squeeze_excitation_hidden: int = squeeze_excitation_hidden
-        self.squeeze_excitation_activation: typing.Callable[[torch.Tensor],
-            torch.Tensor] = squeeze_excitation_activation
-        self.squeeze_excitation_sigmoid: typing.Callable[[torch.Tensor],
-            torch.Tensor] = squeeze_excitation_sigmoid
-        initial = torch.nn.Sequential(*_add_batchnorm([Conv(self.
-            in_channels, self.hidden_channels, kernel_size=1), self.
-            activation], self.hidden_channels))
-        depthwise_modules = _add_batchnorm([Conv(self.hidden_channels, self
-            .hidden_channels, kernel_size=3, groups=self.hidden_channels),
-            self.activation], self.hidden_channels)
+        self.squeeze_excitation_activation: typing.Callable[[torch.Tensor], torch.Tensor] = squeeze_excitation_activation
+        self.squeeze_excitation_sigmoid: typing.Callable[[torch.Tensor], torch.Tensor] = squeeze_excitation_sigmoid
+        initial = torch.nn.Sequential(*_add_batchnorm([Conv(self.in_channels, self.hidden_channels, kernel_size=1), self.activation], self.hidden_channels))
+        depthwise_modules = _add_batchnorm([Conv(self.hidden_channels, self.hidden_channels, kernel_size=3, groups=self.hidden_channels), self.activation], self.hidden_channels)
         if squeeze_excitation:
-            depthwise_modules.append(SqueezeExcitation(self.hidden_channels,
-                squeeze_excitation_hidden, squeeze_excitation_activation,
-                squeeze_excitation_sigmoid))
+            depthwise_modules.append(SqueezeExcitation(self.hidden_channels, squeeze_excitation_hidden, squeeze_excitation_activation, squeeze_excitation_sigmoid))
         depthwise = torch.nn.Sequential(*depthwise_modules)
-        squeeze = torch.nn.Sequential(*_add_batchnorm([Conv(self.
-            hidden_channels, self.in_channels, kernel_size=1)], self.
-            in_channels))
+        squeeze = torch.nn.Sequential(*_add_batchnorm([Conv(self.hidden_channels, self.in_channels, kernel_size=1)], self.in_channels))
         self.block = Residual(torch.nn.Sequential(initial, depthwise, squeeze))
 
     def forward(self, inputs):
@@ -1002,23 +934,19 @@ class InferDimension(torch.nn.Module):
 
     """
 
-    def __init__(self, dispatcher: typing.Dict[int, torch.nn.Module],
-        initializer: typing.Callable=None, **kwargs):
+    def __init__(self, dispatcher: typing.Dict[int, torch.nn.Module], initializer: typing.Callable=None, **kwargs):
         super().__init__()
         self._dispatcher = dispatcher
         self._inner_module_name = '_inner_module'
         if initializer is None:
-            self._initializer = (lambda dispatched_class, _, **kwargs:
-                dispatched_class(**kwargs))
+            self._initializer = lambda dispatched_class, _, **kwargs: dispatched_class(**kwargs)
         else:
             self._initializer = initializer
         for key, value in kwargs.items():
             setattr(self, key, value)
         self._noninferable_attributes = [key for key in kwargs]
-        self._repr = _dev_utils.infer.create_repr(self._inner_module_name,
-            **kwargs)
-        self._reduce = _dev_utils.infer.create_reduce(self.
-            _inner_module_name, self._noninferable_attributes)
+        self._repr = _dev_utils.infer.create_repr(self._inner_module_name, **kwargs)
+        self._reduce = _dev_utils.infer.create_reduce(self._inner_module_name, self._noninferable_attributes)
 
     def __repr__(self):
         return self._repr(self)
@@ -1034,13 +962,8 @@ class InferDimension(torch.nn.Module):
             if dispatched_class is None:
                 dispatched_class = self._dispatcher.get('*')
                 if dispatched_class is None:
-                    raise ValueError(
-                        '{} could not be inferred from shape. Got tensor of dimensionality: {} but only {} are allowed'
-                        .format(self._module_name, dimensionality, list(
-                        self._dispatcher.keys())))
-            self.add_module(self._inner_module_name, self._initializer(
-                dispatched_class, inputs, **{key: getattr(self, key) for
-                key in self._noninferable_attributes}))
+                    raise ValueError('{} could not be inferred from shape. Got tensor of dimensionality: {} but only {} are allowed'.format(self._module_name, dimensionality, list(self._dispatcher.keys())))
+            self.add_module(self._inner_module_name, self._initializer(dispatched_class, inputs, **{key: getattr(self, key) for key in self._noninferable_attributes}))
         return getattr(self, self._inner_module_name)(inputs)
 
 
@@ -1065,10 +988,8 @@ class GroupNorm(torch.nn.GroupNorm):
 
     """
 
-    def __init__(self, num_channels: int, num_groups: int, eps: float=1e-05,
-        affine: bool=True):
-        super().__init__(num_groups=num_groups, num_channels=num_channels,
-            eps=eps, affine=affine)
+    def __init__(self, num_channels: int, num_groups: int, eps: float=1e-05, affine: bool=True):
+        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
 
 
 class _GlobalPool(torch.nn.Module):
@@ -1113,9 +1034,7 @@ class StochasticDepth(torch.nn.Module):
     def __init__(self, module: torch.nn.Module, p: float=0.5):
         super().__init__()
         if not 0 < p < 1:
-            raise ValueError(
-                'Stochastic Depth p has to be between 0 and 1 but got {}'.
-                format(p))
+            raise ValueError('Stochastic Depth p has to be between 0 and 1 but got {}'.format(p))
         self.module: torch.nn.Module = module
         self.p: float = p
         self._sampler = torch.Tensor(1)
@@ -1192,9 +1111,7 @@ class WeightDecay(torch.nn.Module):
 
     def __init__(self, module, weight_decay, name: str=None):
         if weight_decay <= 0.0:
-            raise ValueError(
-                "Regularization's weight_decay should be greater than 0.0, got {}"
-                .format(weight_decay))
+            raise ValueError("Regularization's weight_decay should be greater than 0.0, got {}".format(weight_decay))
         super().__init__()
         self.module = module
         self.weight_decay = weight_decay
@@ -1211,8 +1128,7 @@ class WeightDecay(torch.nn.Module):
                     param.grad = self.regularize(param)
         else:
             for name, param in self.module.named_parameters():
-                if self.name in name and (param.grad is None or torch.all(
-                    param.grad == 0.0)):
+                if self.name in name and (param.grad is None or torch.all(param.grad == 0.0)):
                     param.grad = self.regularize(param)
 
     def forward(self, *args, **kwargs):
@@ -1300,14 +1216,9 @@ class ConvPixelShuffle(torch.nn.Module):
 
     """
 
-    def __init__(self, in_channels, out_channels, upscale_factor: int=2,
-        kernel_size: int=3, stride: int=1, padding='same', dilation: int=1,
-        groups: int=1, bias: bool=True, padding_mode: str='zeros',
-        initializer=None):
+    def __init__(self, in_channels, out_channels, upscale_factor: int=2, kernel_size: int=3, stride: int=1, padding='same', dilation: int=1, groups: int=1, bias: bool=True, padding_mode: str='zeros', initializer=None):
         super().__init__()
-        self.convolution = convolution.Conv(in_channels, out_channels *
-            upscale_factor * upscale_factor, kernel_size, stride, padding,
-            dilation, groups, bias, padding_mode)
+        self.convolution = convolution.Conv(in_channels, out_channels * upscale_factor * upscale_factor, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
         self.upsample = torch.nn.PixelShuffle(upscale_factor)
         if initializer is None:
             self.initializer = torch.nn.init.kaiming_normal_
@@ -1339,13 +1250,10 @@ class ConvPixelShuffle(torch.nn.Module):
         """
         if self.upsample.upscale_factor == 1:
             return self.initializer(tensor)
-        new_shape = [int(tensor.shape[0] / self.upsample.upscale_factor ** 2)
-            ] + list(tensor.shape[1:])
+        new_shape = [int(tensor.shape[0] / self.upsample.upscale_factor ** 2)] + list(tensor.shape[1:])
         subkernel = self.initializer(torch.zeros(new_shape)).transpose(0, 1)
-        kernel = subkernel.reshape(subkernel.shape[0], subkernel.shape[1], -1
-            ).repeat(1, 1, self.upsample.upscale_factor ** 2)
-        return kernel.reshape([-1, tensor.shape[0]] + list(tensor.shape[2:])
-            ).transpose(0, 1)
+        kernel = subkernel.reshape(subkernel.shape[0], subkernel.shape[1], -1).repeat(1, 1, self.upsample.upscale_factor ** 2)
+        return kernel.reshape([-1, tensor.shape[0]] + list(tensor.shape[2:])).transpose(0, 1)
 
     def forward(self, inputs):
         return self.upsample(self.convolution(inputs))
@@ -1355,57 +1263,121 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ChannelShuffle,
+     lambda: ([], {'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConcatenateProxy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GroupNorm,
+     lambda: ([], {'num_channels': 4, 'num_groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HardSigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (HardSwish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Lambda,
+     lambda: ([], {'function': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (Poly,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reshape,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4])], {}),
+     True),
+    (Residual,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StandardNormalNoise,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StochasticDepth,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UniformNoise,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WayPoly,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WeightDecay,
+     lambda: ([], {'module': _mock_layer(), 'weight_decay': 4}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (_CustomLinearImpl,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_szymonmaszke_torchlayers(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ChannelShuffle(*[], **{'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConcatenateProxy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(Lambda(*[], **{'function': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Poly(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Reshape(*[], **{}), [torch.rand([4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Residual(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(StandardNormalNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(StochasticDepth(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(UniformNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(WayPoly(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(WeightDecay(*[], **{'module': _mock_layer(), 'weight_decay': 4}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(_CustomLinearImpl(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 

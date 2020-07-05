@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,17 +61,14 @@ import time
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResBlock(nn.Module):
 
     def __init__(self, channel_num):
         super(ResBlock, self).__init__()
-        self.block = nn.Sequential(conv3x3(channel_num, channel_num), nn.
-            BatchNorm2d(channel_num), nn.ReLU(True), conv3x3(channel_num,
-            channel_num), nn.BatchNorm2d(channel_num))
+        self.block = nn.Sequential(conv3x3(channel_num, channel_num), nn.BatchNorm2d(channel_num), nn.ReLU(True), conv3x3(channel_num, channel_num), nn.BatchNorm2d(channel_num))
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -81,13 +79,13 @@ class ResBlock(nn.Module):
         return out
 
 
+_global_config['TEXT'] = 4
+
+
 _global_config['CUDA'] = 4
 
 
 _global_config['GAN'] = 4
-
-
-_global_config['TEXT'] = 4
 
 
 class CA_NET(nn.Module):
@@ -128,12 +126,9 @@ class D_GET_LOGITS(nn.Module):
         self.ef_dim = nef
         self.bcondition = bcondition
         if bcondition:
-            self.outlogits = nn.Sequential(conv3x3(ndf * 8 + nef, ndf * 8),
-                nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True),
-                nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4), nn.Sigmoid())
+            self.outlogits = nn.Sequential(conv3x3(ndf * 8 + nef, ndf * 8), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4), nn.Sigmoid())
         else:
-            self.outlogits = nn.Sequential(nn.Conv2d(ndf * 8, 1,
-                kernel_size=4, stride=4), nn.Sigmoid())
+            self.outlogits = nn.Sequential(nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4), nn.Sigmoid())
 
     def forward(self, h_code, c_code=None):
         if self.bcondition and c_code is not None:
@@ -147,9 +142,7 @@ class D_GET_LOGITS(nn.Module):
 
 
 def upBlock(in_planes, out_planes):
-    block = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'),
-        conv3x3(in_planes, out_planes), nn.BatchNorm2d(out_planes), nn.ReLU
-        (True))
+    block = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'), conv3x3(in_planes, out_planes), nn.BatchNorm2d(out_planes), nn.ReLU(True))
     return block
 
 
@@ -169,8 +162,7 @@ class STAGE1_G(nn.Module):
         ninput = self.z_dim + self.ef_dim
         ngf = self.gf_dim
         self.ca_net = CA_NET()
-        self.fc = nn.Sequential(nn.Linear(ninput, ngf * 4 * 4, bias=False),
-            nn.BatchNorm1d(ngf * 4 * 4), nn.ReLU(True))
+        self.fc = nn.Sequential(nn.Linear(ninput, ngf * 4 * 4, bias=False), nn.BatchNorm1d(ngf * 4 * 4), nn.ReLU(True))
         self.upsample1 = upBlock(ngf, ngf // 2)
         self.upsample2 = upBlock(ngf // 2, ngf // 4)
         self.upsample3 = upBlock(ngf // 4, ngf // 8)
@@ -200,13 +192,7 @@ class STAGE1_D(nn.Module):
 
     def define_module(self):
         ndf, nef = self.df_dim, self.ef_dim
-        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2,
-            4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True))
+        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True))
         self.get_cond_logits = D_GET_LOGITS(ndf, nef)
         self.get_uncond_logits = None
 
@@ -236,12 +222,8 @@ class STAGE2_G(nn.Module):
     def define_module(self):
         ngf = self.gf_dim
         self.ca_net = CA_NET()
-        self.encoder = nn.Sequential(conv3x3(3, ngf), nn.ReLU(True), nn.
-            Conv2d(ngf, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf *
-            2), nn.ReLU(True), nn.Conv2d(ngf * 2, ngf * 4, 4, 2, 1, bias=
-            False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
-        self.hr_joint = nn.Sequential(conv3x3(self.ef_dim + ngf * 4, ngf * 
-            4), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
+        self.encoder = nn.Sequential(conv3x3(3, ngf), nn.ReLU(True), nn.Conv2d(ngf, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.Conv2d(ngf * 2, ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
+        self.hr_joint = nn.Sequential(conv3x3(self.ef_dim + ngf * 4, ngf * 4), nn.BatchNorm2d(ngf * 4), nn.ReLU(True))
         self.residual = self._make_layer(ResBlock, ngf * 4)
         self.upsample1 = upBlock(ngf * 4, ngf * 2)
         self.upsample2 = upBlock(ngf * 2, ngf)
@@ -277,19 +259,7 @@ class STAGE2_D(nn.Module):
 
     def define_module(self):
         ndf, nef = self.df_dim, self.ef_dim
-        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2,
-            4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 
-            ndf * 16, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 16), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 16, ndf * 32, 4, 
-            2, 1, bias=False), nn.BatchNorm2d(ndf * 32), nn.LeakyReLU(0.2,
-            inplace=True), conv3x3(ndf * 32, ndf * 16), nn.BatchNorm2d(ndf *
-            16), nn.LeakyReLU(0.2, inplace=True), conv3x3(ndf * 16, ndf * 8
-            ), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True))
+        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 16, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 16), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 16, ndf * 32, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 32), nn.LeakyReLU(0.2, inplace=True), conv3x3(ndf * 32, ndf * 16), nn.BatchNorm2d(ndf * 16), nn.LeakyReLU(0.2, inplace=True), conv3x3(ndf * 16, ndf * 8), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True))
         self.get_cond_logits = D_GET_LOGITS(ndf, nef, bcondition=True)
         self.get_uncond_logits = D_GET_LOGITS(ndf, nef, bcondition=False)
 
@@ -302,12 +272,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (D_GET_LOGITS,
+     lambda: ([], {'ndf': 4, 'nef': 4}),
+     lambda: ([torch.rand([4, 36, 64, 64])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'channel_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_hanzhanggit_StackGAN_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(D_GET_LOGITS(*[], **{'ndf': 4, 'nef': 4}), [torch.rand([4, 36, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

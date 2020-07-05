@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,8 +71,7 @@ class ConditionalBatchNorm2d(nn.Module):
     def forward(self, x, y):
         out = self.bn(x)
         gamma, beta = self.embed(y).chunk(2, 1)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
@@ -79,15 +79,11 @@ class FFTBlock(nn.Module):
 
     def __init__(self, channel=64):
         super(FFTBlock, self).__init__()
-        self.conv_fc = nn.Sequential(nn.Conv2d(1, channel, 1, padding=0,
-            bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, 1, 1,
-            padding=0, bias=True), nn.Softplus())
+        self.conv_fc = nn.Sequential(nn.Conv2d(1, channel, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, 1, 1, padding=0, bias=True), nn.Softplus())
 
     def forward(self, x, u, d, sigma):
         rho = self.conv_fc(sigma)
-        x = torch.irfft(self.divcomplex(u + rho.unsqueeze(-1) * torch.rfft(
-            x, 2, onesided=False), d + self.real2complex(rho)), 2, onesided
-            =False)
+        x = torch.irfft(self.divcomplex(u + rho.unsqueeze(-1) * torch.rfft(x, 2, onesided=False), d + self.real2complex(rho)), 2, onesided=False)
         return x
 
     def divcomplex(self, x, y):
@@ -136,8 +132,7 @@ class ShortcutBlock(nn.Module):
 def sequential(*args):
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
+            raise NotImplementedError('sequential does not support OrderedDict input.')
         return args[0]
     modules = []
     for module in args:
@@ -149,21 +144,15 @@ def sequential(*args):
     return nn.Sequential(*modules)
 
 
-def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
-    1, bias=True, mode='CBR'):
+def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CBR'):
     L = []
     for t in mode:
         if t == 'C':
-            L.append(nn.Conv2d(in_channels=in_channels, out_channels=
-                out_channels, kernel_size=kernel_size, stride=stride,
-                padding=padding, bias=bias))
+            L.append(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
         elif t == 'T':
-            L.append(nn.ConvTranspose2d(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=kernel_size, stride=
-                stride, padding=padding, bias=bias))
+            L.append(nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
         elif t == 'B':
-            L.append(nn.BatchNorm2d(out_channels, momentum=0.9, eps=0.0001,
-                affine=True))
+            L.append(nn.BatchNorm2d(out_channels, momentum=0.9, eps=0.0001, affine=True))
         elif t == 'I':
             L.append(nn.InstanceNorm2d(out_channels, affine=True))
         elif t == 'R':
@@ -185,11 +174,9 @@ def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
         elif t == 'u':
             L.append(nn.Upsample(scale_factor=3, mode='nearest'))
         elif t == 'M':
-            L.append(nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-                padding=0))
+            L.append(nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=0))
         elif t == 'A':
-            L.append(nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-                padding=0))
+            L.append(nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=0))
         else:
             raise NotImplementedError('Undefined type: '.format(t))
     return sequential(*L)
@@ -197,14 +184,12 @@ def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CRC'):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CRC'):
         super(ResBlock, self).__init__()
         assert in_channels == out_channels, 'Only support in_channels==out_channels.'
         if mode[0] in ['R', 'L']:
             mode = mode[0].lower() + mode[1:]
-        self.res = conv(in_channels, out_channels, kernel_size, stride,
-            padding, bias, mode)
+        self.res = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode)
 
     def forward(self, x):
         res = self.res(x)
@@ -216,10 +201,7 @@ class CALayer(nn.Module):
     def __init__(self, channel=64, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_fc = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_fc = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -229,14 +211,12 @@ class CALayer(nn.Module):
 
 class RCABlock(nn.Module):
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CRC', reduction=16):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CRC', reduction=16):
         super(RCABlock, self).__init__()
         assert in_channels == out_channels, 'Only support in_channels==out_channels.'
         if mode[0] in ['R', 'L']:
             mode = mode[0].lower() + mode[1:]
-        self.res = conv(in_channels, out_channels, kernel_size, stride,
-            padding, bias, mode)
+        self.res = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode)
         self.ca = CALayer(out_channels, reduction)
 
     def forward(self, x):
@@ -247,14 +227,12 @@ class RCABlock(nn.Module):
 
 class RCAGroup(nn.Module):
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CRC', reduction=16, nb=12):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CRC', reduction=16, nb=12):
         super(RCAGroup, self).__init__()
         assert in_channels == out_channels, 'Only support in_channels==out_channels.'
         if mode[0] in ['R', 'L']:
             mode = mode[0].lower() + mode[1:]
-        RG = [RCABlock(in_channels, out_channels, kernel_size, stride,
-            padding, bias, mode, reduction) for _ in range(nb)]
+        RG = [RCABlock(in_channels, out_channels, kernel_size, stride, padding, bias, mode, reduction) for _ in range(nb)]
         RG.append(conv(out_channels, out_channels, mode='C'))
         self.rg = nn.Sequential(*RG)
 
@@ -265,18 +243,13 @@ class RCAGroup(nn.Module):
 
 class ResidualDenseBlock_5C(nn.Module):
 
-    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1,
-        bias=True, mode='CR'):
+    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1, bias=True, mode='CR'):
         super(ResidualDenseBlock_5C, self).__init__()
         self.conv1 = conv(nc, gc, kernel_size, stride, padding, bias, mode)
-        self.conv2 = conv(nc + gc, gc, kernel_size, stride, padding, bias, mode
-            )
-        self.conv3 = conv(nc + 2 * gc, gc, kernel_size, stride, padding,
-            bias, mode)
-        self.conv4 = conv(nc + 3 * gc, gc, kernel_size, stride, padding,
-            bias, mode)
-        self.conv5 = conv(nc + 4 * gc, nc, kernel_size, stride, padding,
-            bias, mode[:-1])
+        self.conv2 = conv(nc + gc, gc, kernel_size, stride, padding, bias, mode)
+        self.conv3 = conv(nc + 2 * gc, gc, kernel_size, stride, padding, bias, mode)
+        self.conv4 = conv(nc + 3 * gc, gc, kernel_size, stride, padding, bias, mode)
+        self.conv5 = conv(nc + 4 * gc, nc, kernel_size, stride, padding, bias, mode[:-1])
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -289,15 +262,11 @@ class ResidualDenseBlock_5C(nn.Module):
 
 class RRDB(nn.Module):
 
-    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1,
-        bias=True, mode='CR'):
+    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1, bias=True, mode='CR'):
         super(RRDB, self).__init__()
-        self.RDB1 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride,
-            padding, bias, mode)
-        self.RDB2 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride,
-            padding, bias, mode)
-        self.RDB3 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride,
-            padding, bias, mode)
+        self.RDB1 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode)
+        self.RDB2 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode)
+        self.RDB3 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode)
 
     def forward(self, x):
         out = self.RDB1(x)
@@ -306,55 +275,43 @@ class RRDB(nn.Module):
         return out.mul_(0.2) + x
 
 
-def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3,
-    stride=1, padding=1, bias=True, mode='2R'):
-    assert len(mode) < 4 and mode[0] in ['2', '3'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
+def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='2R'):
+    assert len(mode) < 4 and mode[0] in ['2', '3'], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
     kernel_size_pool = int(mode[0])
     stride_pool = int(mode[0])
     mode = mode.replace(mode[0], 'AC')
     pool = conv(kernel_size=kernel_size_pool, stride=stride_pool, mode=mode[0])
-    pool_tail = conv(in_channels, out_channels, kernel_size, stride,
-        padding, bias, mode=mode[1:])
+    pool_tail = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode=mode[1:])
     return sequential(pool, pool_tail)
 
 
-def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
-    stride=1, padding=0, bias=True, mode='2R'):
-    assert len(mode) < 4 and mode[0] in ['2', '3'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
+def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0, bias=True, mode='2R'):
+    assert len(mode) < 4 and mode[0] in ['2', '3'], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
     kernel_size_pool = int(mode[0])
     stride_pool = int(mode[0])
     mode = mode.replace(mode[0], 'MC')
     pool = conv(kernel_size=kernel_size_pool, stride=stride_pool, mode=mode[0])
-    pool_tail = conv(in_channels, out_channels, kernel_size, stride,
-        padding, bias, mode=mode[1:])
+    pool_tail = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode=mode[1:])
     return sequential(pool, pool_tail)
 
 
-def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
-    stride=2, padding=0, bias=True, mode='2R'):
-    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
+def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2, stride=2, padding=0, bias=True, mode='2R'):
+    assert len(mode) < 4 and mode[0] in ['2', '3', '4'], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
     kernel_size = int(mode[0])
     stride = int(mode[0])
     mode = mode.replace(mode[0], 'C')
-    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
-        bias, mode)
+    down1 = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode)
     return down1
 
 
 class NonLocalBlock2D(nn.Module):
 
-    def __init__(self, nc=64, kernel_size=1, stride=1, padding=0, bias=True,
-        act_mode='B', downsample=False, downsample_mode='maxpool'):
+    def __init__(self, nc=64, kernel_size=1, stride=1, padding=0, bias=True, act_mode='B', downsample=False, downsample_mode='maxpool'):
         super(NonLocalBlock2D, self).__init__()
         inter_nc = nc // 2
         self.inter_nc = inter_nc
-        self.W = conv(inter_nc, nc, kernel_size, stride, padding, bias,
-            mode='C' + act_mode)
-        self.theta = conv(nc, inter_nc, kernel_size, stride, padding, bias,
-            mode='C')
+        self.W = conv(inter_nc, nc, kernel_size, stride, padding, bias, mode='C' + act_mode)
+        self.theta = conv(nc, inter_nc, kernel_size, stride, padding, bias, mode='C')
         if downsample:
             if downsample_mode == 'avgpool':
                 downsample_block = downsample_avgpool
@@ -363,17 +320,12 @@ class NonLocalBlock2D(nn.Module):
             elif downsample_mode == 'strideconv':
                 downsample_block = downsample_strideconv
             else:
-                raise NotImplementedError('downsample mode [{:s}] is not found'
-                    .format(downsample_mode))
-            self.phi = downsample_block(nc, inter_nc, kernel_size, stride,
-                padding, bias, mode='2')
-            self.g = downsample_block(nc, inter_nc, kernel_size, stride,
-                padding, bias, mode='2')
+                raise NotImplementedError('downsample mode [{:s}] is not found'.format(downsample_mode))
+            self.phi = downsample_block(nc, inter_nc, kernel_size, stride, padding, bias, mode='2')
+            self.g = downsample_block(nc, inter_nc, kernel_size, stride, padding, bias, mode='2')
         else:
-            self.phi = conv(nc, inter_nc, kernel_size, stride, padding,
-                bias, mode='C')
-            self.g = conv(nc, inter_nc, kernel_size, stride, padding, bias,
-                mode='C')
+            self.phi = conv(nc, inter_nc, kernel_size, stride, padding, bias, mode='C')
+            self.g = conv(nc, inter_nc, kernel_size, stride, padding, bias, mode='C')
 
     def forward(self, x):
         """
@@ -398,9 +350,7 @@ class NonLocalBlock2D(nn.Module):
 
 class ResUNet(nn.Module):
 
-    def __init__(self, in_nc=4, out_nc=3, nc=[64, 128, 256, 512], nb=2,
-        act_mode='R', downsample_mode='strideconv', upsample_mode=
-        'convtranspose'):
+    def __init__(self, in_nc=4, out_nc=3, nc=[64, 128, 256, 512], nb=2, act_mode='R', downsample_mode='strideconv', upsample_mode='convtranspose'):
         super(ResUNet, self).__init__()
         self.m_head = B.conv(in_nc, nc[0], bias=False, mode='C')
         if downsample_mode == 'avgpool':
@@ -410,19 +360,11 @@ class ResUNet(nn.Module):
         elif downsample_mode == 'strideconv':
             downsample_block = B.downsample_strideconv
         else:
-            raise NotImplementedError('downsample mode [{:s}] is not found'
-                .format(downsample_mode))
-        self.m_down1 = B.sequential(*[B.ResBlock(nc[0], nc[0], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)],
-            downsample_block(nc[0], nc[1], bias=False, mode='2'))
-        self.m_down2 = B.sequential(*[B.ResBlock(nc[1], nc[1], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)],
-            downsample_block(nc[1], nc[2], bias=False, mode='2'))
-        self.m_down3 = B.sequential(*[B.ResBlock(nc[2], nc[2], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)],
-            downsample_block(nc[2], nc[3], bias=False, mode='2'))
-        self.m_body = B.sequential(*[B.ResBlock(nc[3], nc[3], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)])
+            raise NotImplementedError('downsample mode [{:s}] is not found'.format(downsample_mode))
+        self.m_down1 = B.sequential(*[B.ResBlock(nc[0], nc[0], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)], downsample_block(nc[0], nc[1], bias=False, mode='2'))
+        self.m_down2 = B.sequential(*[B.ResBlock(nc[1], nc[1], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)], downsample_block(nc[1], nc[2], bias=False, mode='2'))
+        self.m_down3 = B.sequential(*[B.ResBlock(nc[2], nc[2], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)], downsample_block(nc[2], nc[3], bias=False, mode='2'))
+        self.m_body = B.sequential(*[B.ResBlock(nc[3], nc[3], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
         if upsample_mode == 'upconv':
             upsample_block = B.upsample_upconv
         elif upsample_mode == 'pixelshuffle':
@@ -430,17 +372,10 @@ class ResUNet(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
-        self.m_up3 = B.sequential(upsample_block(nc[3], nc[2], bias=False,
-            mode='2'), *[B.ResBlock(nc[2], nc[2], bias=False, mode='C' +
-            act_mode + 'C') for _ in range(nb)])
-        self.m_up2 = B.sequential(upsample_block(nc[2], nc[1], bias=False,
-            mode='2'), *[B.ResBlock(nc[1], nc[1], bias=False, mode='C' +
-            act_mode + 'C') for _ in range(nb)])
-        self.m_up1 = B.sequential(upsample_block(nc[1], nc[0], bias=False,
-            mode='2'), *[B.ResBlock(nc[0], nc[0], bias=False, mode='C' +
-            act_mode + 'C') for _ in range(nb)])
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
+        self.m_up3 = B.sequential(upsample_block(nc[3], nc[2], bias=False, mode='2'), *[B.ResBlock(nc[2], nc[2], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
+        self.m_up2 = B.sequential(upsample_block(nc[2], nc[1], bias=False, mode='2'), *[B.ResBlock(nc[1], nc[1], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
+        self.m_up1 = B.sequential(upsample_block(nc[1], nc[0], bias=False, mode='2'), *[B.ResBlock(nc[0], nc[0], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
         self.m_tail = B.conv(nc[0], out_nc, bias=False, mode='C')
 
     def forward(self, x):
@@ -476,8 +411,7 @@ def cmul(t1, t2):
     """
     real1, imag1 = t1[..., 0], t1[..., 1]
     real2, imag2 = t2[..., 0], t2[..., 1]
-    return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + 
-        imag1 * real2], dim=-1)
+    return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2], dim=-1)
 
 
 def csum(x, y):
@@ -516,10 +450,7 @@ class HyPaNet(nn.Module):
 
     def __init__(self, in_nc=2, out_nc=8, channel=64):
         super(HyPaNet, self).__init__()
-        self.mlp = nn.Sequential(nn.Conv2d(in_nc, channel, 1, padding=0,
-            bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, channel, 
-            1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(
-            channel, out_nc, 1, padding=0, bias=True), nn.Softplus())
+        self.mlp = nn.Sequential(nn.Conv2d(in_nc, channel, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, channel, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, out_nc, 1, padding=0, bias=True), nn.Softplus())
 
     def forward(self, x):
         x = self.mlp(x) + 1e-06
@@ -555,10 +486,8 @@ def p2o(psf, shape):
     for axis, axis_size in enumerate(psf.shape[2:]):
         otf = torch.roll(otf, -int(axis_size / 2), dims=axis + 2)
     otf = torch.rfft(otf, 2, onesided=False)
-    n_ops = torch.sum(torch.tensor(psf.shape).type_as(psf) * torch.log2(
-        torch.tensor(psf.shape).type_as(psf)))
-    otf[..., 1][torch.abs(otf[..., 1]) < n_ops * 2.22e-16] = torch.tensor(0
-        ).type_as(psf)
+    n_ops = torch.sum(torch.tensor(psf.shape).type_as(psf) * torch.log2(torch.tensor(psf.shape).type_as(psf)))
+    otf[..., 1][torch.abs(otf[..., 1]) < n_ops * 2.22e-16] = torch.tensor(0).type_as(psf)
     return otf
 
 
@@ -571,22 +500,17 @@ def upsample(x, sf=3, center=False):
     x: tensor image, NxCxWxH
     """
     st = (sf - 1) // 2 if center else 0
-    z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)
-        ).type_as(x)
+    z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)).type_as(x)
     z[(...), st::sf, st::sf].copy_(x)
     return z
 
 
 class USRNet(nn.Module):
 
-    def __init__(self, n_iter=8, h_nc=64, in_nc=4, out_nc=3, nc=[64, 128, 
-        256, 512], nb=2, act_mode='R', downsample_mode='strideconv',
-        upsample_mode='convtranspose'):
+    def __init__(self, n_iter=8, h_nc=64, in_nc=4, out_nc=3, nc=[64, 128, 256, 512], nb=2, act_mode='R', downsample_mode='strideconv', upsample_mode='convtranspose'):
         super(USRNet, self).__init__()
         self.d = DataNet()
-        self.p = ResUNet(in_nc=in_nc, out_nc=out_nc, nc=nc, nb=nb, act_mode
-            =act_mode, downsample_mode=downsample_mode, upsample_mode=
-            upsample_mode)
+        self.p = ResUNet(in_nc=in_nc, out_nc=out_nc, nc=nc, nb=nb, act_mode=act_mode, downsample_mode=downsample_mode, upsample_mode=upsample_mode)
         self.h = HyPaNet(in_nc=2, out_nc=n_iter * 2, channel=h_nc)
         self.n = n_iter
 
@@ -604,12 +528,10 @@ class USRNet(nn.Module):
         STy = upsample(x, sf=sf)
         FBFy = cmul(FBC, torch.rfft(STy, 2, onesided=False))
         x = nn.functional.interpolate(x, scale_factor=sf, mode='nearest')
-        ab = self.h(torch.cat((sigma, torch.tensor(sf).type_as(sigma).
-            expand_as(sigma)), dim=1))
+        ab = self.h(torch.cat((sigma, torch.tensor(sf).type_as(sigma).expand_as(sigma)), dim=1))
         for i in range(self.n):
             x = self.d(x, FB, FBC, F2B, FBFy, ab[:, i:i + 1, (...)], sf)
-            x = self.p(torch.cat((x, ab[:, i + self.n:i + self.n + 1, (...)
-                ].repeat(1, 1, x.size(2), x.size(3))), dim=1))
+            x = self.p(torch.cat((x, ab[:, i + self.n:i + self.n + 1, (...)].repeat(1, 1, x.size(2), x.size(3))), dim=1))
         return x
 
 
@@ -617,39 +539,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CALayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (ConcatBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (HyPaNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 64, 64])], {}),
+     True),
+    (NonLocalBlock2D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (RCABlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (RCAGroup,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (RRDB,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResidualDenseBlock_5C,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ShortcutBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_cszn_USRNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CALayer(*[], **{}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(HyPaNet(*[], **{}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(NonLocalBlock2D(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(RRDB(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -41,8 +42,7 @@ class MnistCNNModel(nn.Module):
 
     def __init__(self):
         super(MnistCNNModel, self).__init__()
-        self.cnn1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5,
-            stride=1, padding=0)
+        self.cnn1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=0)
         self.relu1 = nn.ReLU()
         self.maxpool1 = nn.MaxPool2d(kernel_size=4)
         self.fc1 = nn.Linear(576, 10)
@@ -55,10 +55,3 @@ class MnistCNNModel(nn.Module):
         out = self.fc1(out)
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_utkuozbulak_pytorch_custom_dataset_examples(_paritybench_base):
-    pass

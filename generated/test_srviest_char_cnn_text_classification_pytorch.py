@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,23 +53,14 @@ class CharCNN(nn.Module):
 
     def __init__(self, args):
         super(CharCNN, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv1d(args.num_features, 256,
-            kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3,
-            stride=3))
-        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7,
-            stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
-        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            stride=1), nn.ReLU())
-        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            stride=1), nn.ReLU())
-        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            stride=1), nn.ReLU())
-        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
-        self.fc1 = nn.Sequential(nn.Linear(8704, 1024), nn.ReLU(), nn.
-            Dropout(p=args.dropout))
-        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.
-            Dropout(p=args.dropout))
+        self.conv1 = nn.Sequential(nn.Conv1d(args.num_features, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.fc1 = nn.Sequential(nn.Linear(8704, 1024), nn.ReLU(), nn.Dropout(p=args.dropout))
+        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.Dropout(p=args.dropout))
         self.fc3 = nn.Linear(1024, 4)
         self.log_softmax = nn.LogSoftmax()
 
@@ -92,25 +84,17 @@ class CharCNN(nn.Module):
     def __init__(self, num_features):
         super(CharCNN, self).__init__()
         self.num_features = num_features
-        self.conv1 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(7, self.
-            num_features), stride=1), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(7, self.num_features), stride=1), nn.ReLU())
         self.maxpool1 = nn.MaxPool2d(kernel_size=(3, 1), stride=(3, 1))
-        self.conv2 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(7, 256),
-            stride=1), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(7, 256), stride=1), nn.ReLU())
         self.maxpool2 = nn.MaxPool2d(kernel_size=(3, 1), stride=(3, 1))
-        self.conv3 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256),
-            stride=1), nn.ReLU())
-        self.conv4 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256),
-            stride=1), nn.ReLU())
-        self.conv5 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256),
-            stride=1), nn.ReLU())
-        self.conv6 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256),
-            stride=1), nn.ReLU())
+        self.conv3 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256), stride=1), nn.ReLU())
+        self.conv4 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256), stride=1), nn.ReLU())
+        self.conv5 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256), stride=1), nn.ReLU())
+        self.conv6 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=(3, 256), stride=1), nn.ReLU())
         self.maxpool6 = nn.MaxPool2d(kernel_size=(3, 1), stride=(3, 1))
-        self.fc1 = nn.Sequential(nn.Linear(8704, 1024), nn.ReLU(), nn.
-            Dropout(p=0.5))
-        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.
-            Dropout(p=0.5))
+        self.fc1 = nn.Sequential(nn.Linear(8704, 1024), nn.ReLU(), nn.Dropout(p=0.5))
+        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.Dropout(p=0.5))
         self.fc3 = nn.Linear(1024, 4)
         self.softmax = nn.LogSoftmax()
 
@@ -224,10 +208,3 @@ class CNN_Text(nn.Module):
         logit = self.fc1(x)
         return logit
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_srviest_char_cnn_text_classification_pytorch(_paritybench_base):
-    pass

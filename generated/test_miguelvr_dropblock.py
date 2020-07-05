@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,8 +82,7 @@ class DropBlock2D(nn.Module):
         self.block_size = block_size
 
     def forward(self, x):
-        assert x.dim(
-            ) == 4, 'Expected input with 4 dimensions (bsize, channels, height, width)'
+        assert x.dim() == 4, 'Expected input with 4 dimensions (bsize, channels, height, width)'
         if not self.training or self.drop_prob == 0.0:
             return x
         else:
@@ -95,9 +95,7 @@ class DropBlock2D(nn.Module):
             return out
 
     def _compute_block_mask(self, mask):
-        block_mask = F.max_pool2d(input=mask[:, (None), :, :], kernel_size=
-            (self.block_size, self.block_size), stride=(1, 1), padding=self
-            .block_size // 2)
+        block_mask = F.max_pool2d(input=mask[:, (None), :, :], kernel_size=(self.block_size, self.block_size), stride=(1, 1), padding=self.block_size // 2)
         if self.block_size % 2 == 0:
             block_mask = block_mask[:, :, :-1, :-1]
         block_mask = 1 - block_mask.squeeze(1)
@@ -113,8 +111,7 @@ class LinearScheduler(nn.Module):
         super(LinearScheduler, self).__init__()
         self.dropblock = dropblock
         self.i = 0
-        self.drop_values = np.linspace(start=start_value, stop=stop_value,
-            num=nr_steps)
+        self.drop_values = np.linspace(start=start_value, stop=stop_value, num=nr_steps)
 
     def forward(self, x):
         return self.dropblock(x)
@@ -129,12 +126,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DropBlock2D,
+     lambda: ([], {'drop_prob': 4, 'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearScheduler,
+     lambda: ([], {'dropblock': _mock_layer(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_miguelvr_dropblock(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DropBlock2D(*[], **{'drop_prob': 4, 'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LinearScheduler(*[], **{'dropblock': _mock_layer(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

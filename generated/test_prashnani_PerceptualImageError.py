@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,15 +77,12 @@ class PieAPP(nn.Module):
         return matrix.view((self.batch_size * self.num_patches, -1))
 
     def compute_features(self, input):
-        x3 = F.relu(self.conv3(self.pool2(F.relu(self.conv2(F.relu(self.
-            conv1(input)))))))
+        x3 = F.relu(self.conv3(self.pool2(F.relu(self.conv2(F.relu(self.conv1(input)))))))
         x5 = F.relu(self.conv5(self.pool4(F.relu(self.conv4(x3)))))
         x7 = F.relu(self.conv7(self.pool6(F.relu(self.conv6(x5)))))
         x9 = F.relu(self.conv9(self.pool8(F.relu(self.conv8(x7)))))
-        x11 = self.flatten(F.relu(self.conv11(self.pool10(F.relu(self.
-            conv10(x9))))))
-        feature_ms = torch.cat((self.flatten(x3), self.flatten(x5), self.
-            flatten(x7), self.flatten(x9), x11), 1)
+        x11 = self.flatten(F.relu(self.conv11(self.pool10(F.relu(self.conv10(x9))))))
+        feature_ms = torch.cat((self.flatten(x3), self.flatten(x5), self.flatten(x7), self.flatten(x9), x11), 1)
         return feature_ms, x11
 
     def compute_score(self, image_A_patches, image_ref_patches):
@@ -92,25 +90,14 @@ class PieAPP(nn.Module):
         ref_multi_scale, ref_coarse = self.compute_features(image_ref_patches)
         diff_ms = ref_multi_scale - A_multi_scale
         diff_coarse = ref_coarse - A_coarse
-        per_patch_score = self.ref_score_subtract(0.01 * self.fc2_score(F.
-            relu(self.fc1_score(diff_ms))))
+        per_patch_score = self.ref_score_subtract(0.01 * self.fc2_score(F.relu(self.fc1_score(diff_ms))))
         per_patch_score.view((-1, self.num_patches))
-        const = Variable(torch.from_numpy(1e-06 * np.ones((1,))).float(),
-            requires_grad=False)
+        const = Variable(torch.from_numpy(1e-06 * np.ones((1,))).float(), requires_grad=False)
         const_cuda = const
-        per_patch_weight = self.fc2_weight(F.relu(self.fc1_weight(diff_coarse))
-            ) + const_cuda
+        per_patch_weight = self.fc2_weight(F.relu(self.fc1_weight(diff_coarse))) + const_cuda
         per_patch_weight.view((-1, self.num_patches))
         product_val = torch.mul(per_patch_weight, per_patch_score)
         dot_product_val = torch.sum(product_val)
         norm_factor = torch.sum(per_patch_weight)
-        return torch.div(dot_product_val, norm_factor
-            ), per_patch_score, per_patch_weight
+        return torch.div(dot_product_val, norm_factor), per_patch_score, per_patch_weight
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_prashnani_PerceptualImageError(_paritybench_base):
-    pass

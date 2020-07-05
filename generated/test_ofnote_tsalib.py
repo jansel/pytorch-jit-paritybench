@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -132,9 +133,7 @@ class DimVar:
         if self._e in DimVar.decls:
             prevd = DimVar.decls[self._e]
             if not exists_ok:
-                raise ValueError(
-                    f'DimVar {self._sname} already declared as {prevd._name}({self._e}). Use exists_ok=True to skip check.'
-                    )
+                raise ValueError(f'DimVar {self._sname} already declared as {prevd._name}({self._e}). Use exists_ok=True to skip check.')
         elif cache:
             DimVar.decls[self._e] = self
 
@@ -240,8 +239,7 @@ class DimExpr:
 
     def update_len(self, new_len):
         if self.dim_var is None:
-            raise ValueError(
-                'Cannot update length of arbitrary dim expression.')
+            raise ValueError('Cannot update length of arbitrary dim expression.')
         else:
             self.dim_var.update_len(new_len)
             self._val = new_len
@@ -250,9 +248,7 @@ class DimExpr:
         if self._val != nan:
             return int(self._val)
         else:
-            raise ValueError(
-                f'Cannot cast to integer: Default value of {self._e} not provided'
-                )
+            raise ValueError(f'Cannot cast to integer: Default value of {self._e} not provided')
 
     def __index__(self):
         return self.__int__()
@@ -351,8 +347,7 @@ def _sexprs_to_ts(exprs, strict=False, num_to_sym=False):
     dummy_idx = 0
     res = []
     for e in exprs:
-        t, dummy_idx = _sexpr_to_ts(e, dummy_idx=dummy_idx, strict=strict,
-            num_to_sym=num_to_sym)
+        t, dummy_idx = _sexpr_to_ts(e, dummy_idx=dummy_idx, strict=strict, num_to_sym=num_to_sym)
         res.append(t)
     return tuple(res)
 
@@ -439,8 +434,7 @@ def _permute_transform(src, to):
     rhs = tsn_to_tuple(to, num_to_sym=True)
     assert isinstance(lhs, tuple)
     assert isinstance(rhs, tuple)
-    assert len(lhs) == len(rhs
-        ), 'Source and Target shapes for permutation are not same'
+    assert len(lhs) == len(rhs), 'Source and Target shapes for permutation are not same'
     sub_map = [(d.exp, f'{i}') for i, d in enumerate(lhs)]
     perm_indices = tuple([t.exp.subs(sub_map) for t in rhs])
     perm_indices = tuple([int(str(s)) for s in perm_indices])
@@ -498,8 +492,7 @@ def _view_transform(src, to, in_shape, checkin=False):
     assert isinstance(src, tuple)
     assert isinstance(to, tuple)
     sub_map = [(d.exp, in_shape[i]) for i, d in enumerate(src)]
-    out_shape = tuple([(t.exp.subs(sub_map) if isinstance(t, DimExpr) else
-        int(t)) for t in to])
+    out_shape = tuple([(t.exp.subs(sub_map) if isinstance(t, DimExpr) else int(t)) for t in to])
     out_shape = resolve_to_int_tuple(out_shape)
     return out_shape
 
@@ -533,8 +526,7 @@ def align_transform(src, to, tile=False):
                 except:
                     expand_ratio.append(S)
     if lhs_pos != len(lhs):
-        print(f'Unable to align {src} to {to}: {src} not a subsequence of {to}'
-            )
+        print(f'Unable to align {src} to {to}: {src} not a subsequence of {to}')
         raise ValueError
     return ','.join(expand_dims), expand_ratio
 
@@ -743,13 +735,11 @@ def get_backend_by_name(b):
     if isinstance(b, (Numpy, TF, PyTorch)):
         return b
     assert isinstance(b, str)
-    bemap = {'numpy': Numpy, 'np': Numpy, 'torch': PyTorch, 'pytorch':
-        PyTorch, 'tensorflow': TF, 'tf': TF}
+    bemap = {'numpy': Numpy, 'np': Numpy, 'torch': PyTorch, 'pytorch': PyTorch, 'tensorflow': TF, 'tf': TF}
     if b in bemap:
         return from_cache(bemap[b])
     else:
-        raise NotImplementedError(
-            f'Unsupported backend {b}. Contributions welcome.')
+        raise NotImplementedError(f'Unsupported backend {b}. Contributions welcome.')
 
 
 def get_str_type(x):
@@ -780,8 +770,7 @@ def get_backend_for_tensor(x):
     """
     tlib = get_tensor_lib(x)
     if tlib is None:
-        raise NotImplementedError(
-            f'Unsupported tensor type {type(x)}. Contributions welcome.')
+        raise NotImplementedError(f'Unsupported tensor type {type(x)}. Contributions welcome.')
     ret = from_cache(tlib)
     return ret
 
@@ -866,8 +855,7 @@ def tfm_seq_decompose(tfms, tfm_names):
     tfm_symbols = norm_tfm_names(tfm_names)
     tfm_symbols_no_c = [n for n in tfm_symbols if n != 'c']
     shape_pairs = norm_tfms_to_shape_pairs(tfms)
-    assert len(tfm_symbols_no_c) == len(shape_pairs
-        ), f'Num of transform steps {len(shape_pairs)} and names {len(tfm_symbols_no_c)} do not match'
+    assert len(tfm_symbols_no_c) == len(shape_pairs), f'Num of transform steps {len(shape_pairs)} and names {len(tfm_symbols_no_c)} do not match'
     tfm_list = []
     curr_pos = 0
     for sym in tfm_symbols:
@@ -916,8 +904,7 @@ def warp(x, tfms, tfm_names, backend=None, debug=False):
 
 
 def gelu(x: torch.Tensor) ->torch.Tensor:
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
-        torch.pow(x, 3))))
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 
 def swish(x: torch.Tensor) ->torch.Tensor:
@@ -941,8 +928,7 @@ def dim_vars(names, exists_ok=False, cache=True):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class Bottleneck(nn.Module):
@@ -952,11 +938,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -983,8 +967,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LayerNorm,
+     lambda: ([], {'n_state': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ofnote_tsalib(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(LayerNorm(*[], **{'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

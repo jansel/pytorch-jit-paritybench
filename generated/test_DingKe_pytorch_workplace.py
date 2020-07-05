@@ -45,8 +45,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,12 +101,8 @@ class CNN(nn.Module):
 
     def __init__(self):
         super(CNN, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, padding
-            =2), nn.BatchNorm2d(16, momentum=momentum, eps=eps), nn.
-            MaxPool2d(2), nn.ReLU())
-        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5,
-            padding=2), nn.BatchNorm2d(32, momentum=momentum, eps=eps), nn.
-            MaxPool2d(2), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, padding=2), nn.BatchNorm2d(16, momentum=momentum, eps=eps), nn.MaxPool2d(2), nn.ReLU())
+        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, padding=2), nn.BatchNorm2d(32, momentum=momentum, eps=eps), nn.MaxPool2d(2), nn.ReLU())
         self.fc = nn.Linear(7 * 7 * 32, 10)
 
     def forward(self, x):
@@ -261,8 +258,7 @@ class Linear(nn.Module):
         return linear(input, self.weight, self.bias)
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class Net(nn.Module):
@@ -284,12 +280,8 @@ class CNN(nn.Module):
 
     def __init__(self):
         super(CNN, self).__init__()
-        self.layer1 = nn.Sequential(BinaryConv2d(1, 16, kernel_size=5,
-            padding=2), nn.BatchNorm2d(16, momentum=momentum, eps=eps), nn.
-            MaxPool2d(2), BinaryTanh())
-        self.layer2 = nn.Sequential(BinaryConv2d(16, 32, kernel_size=5,
-            padding=2), nn.BatchNorm2d(32, momentum=momentum, eps=eps), nn.
-            MaxPool2d(2), BinaryTanh())
+        self.layer1 = nn.Sequential(BinaryConv2d(1, 16, kernel_size=5, padding=2), nn.BatchNorm2d(16, momentum=momentum, eps=eps), nn.MaxPool2d(2), BinaryTanh())
+        self.layer2 = nn.Sequential(BinaryConv2d(16, 32, kernel_size=5, padding=2), nn.BatchNorm2d(32, momentum=momentum, eps=eps), nn.MaxPool2d(2), BinaryTanh())
         self.fc = BinaryLinear(7 * 7 * 32, 10)
 
     def forward(self, x):
@@ -315,9 +307,7 @@ class MLP(nn.Module):
         for i in range(1, self.num_layers + 1):
             in_features = input_size if i == 1 else hidden_size
             out_features = hidden_size
-            layer = nn.Sequential(BinaryLinear(in_features, out_features,
-                bias=False), nn.BatchNorm1d(out_features, momentum=momentum,
-                eps=eps), BinaryTanh(), nn.Dropout(p=drop_hid))
+            layer = nn.Sequential(BinaryLinear(in_features, out_features, bias=False), nn.BatchNorm1d(out_features, momentum=momentum, eps=eps), BinaryTanh(), nn.Dropout(p=drop_hid))
             setattr(self, 'layer{}'.format(i), layer)
         self.fc = BinaryLinear(hidden_size, num_classes, bias=False)
 
@@ -381,8 +371,7 @@ class BinaryConv2d(nn.Conv2d):
 
     def forward(self, input):
         bw = binarize(self.weight)
-        return F.conv2d(input, bw, self.bias, self.stride, self.padding,
-            self.dilation, self.groups)
+        return F.conv2d(input, bw, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
     def reset_parameters(self):
         in_features = self.in_channels
@@ -454,8 +443,7 @@ class Net1(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(Net1, self).__init__()
-        self.mlp = nn.Sequential(nn.Linear(input_size, hidden_size), nn.
-            BatchNorm1d(hidden_size), nn.ReLU())
+        self.mlp = nn.Sequential(nn.Linear(input_size, hidden_size), nn.BatchNorm1d(hidden_size), nn.ReLU())
 
     def forward(self, x):
         return self.mlp.forward(x)
@@ -528,12 +516,8 @@ class CNN(nn.Module):
 
     def __init__(self):
         super(CNN, self).__init__()
-        self.layer1 = nn.Sequential(meConv2d(1, 16, kernel_size=5, padding=
-            2, k=k, simplified=simplified), nn.BatchNorm2d(16, momentum=
-            momentum, eps=eps), nn.MaxPool2d(2), nn.ReLU())
-        self.layer2 = nn.Sequential(meConv2d(16, 32, kernel_size=5, padding
-            =2, k=k, simplified=simplified), nn.BatchNorm2d(32, momentum=
-            momentum, eps=eps), nn.MaxPool2d(2), nn.ReLU())
+        self.layer1 = nn.Sequential(meConv2d(1, 16, kernel_size=5, padding=2, k=k, simplified=simplified), nn.BatchNorm2d(16, momentum=momentum, eps=eps), nn.MaxPool2d(2), nn.ReLU())
+        self.layer2 = nn.Sequential(meConv2d(16, 32, kernel_size=5, padding=2, k=k, simplified=simplified), nn.BatchNorm2d(32, momentum=momentum, eps=eps), nn.MaxPool2d(2), nn.ReLU())
         self.fc = nn.Linear(7 * 7 * 32, 10)
 
     def forward(self, x):
@@ -546,14 +530,11 @@ class CNN(nn.Module):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None, k=1, simplified=False):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None, k=1, simplified=False):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = meLSTM(input_size, hidden_size, num_layers=num_layers,
-            bias=bias, return_sequences=False, grad_clip=None, k=k,
-            simplified=simplified)
+        self.rnn = meLSTM(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=None, k=k, simplified=simplified)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
@@ -573,10 +554,7 @@ class MLP(nn.Module):
         for i in range(1, self.num_layers + 1):
             in_features = input_size if i == 1 else hidden_size
             out_features = hidden_size
-            layer = nn.Sequential(meLinear(in_features, out_features, bias=
-                False, k=k, simplified=simplified), nn.BatchNorm1d(
-                out_features, momentum=momentum, eps=eps), nn.ReLU(), nn.
-                Dropout(p=drop_hid))
+            layer = nn.Sequential(meLinear(in_features, out_features, bias=False, k=k, simplified=simplified), nn.BatchNorm1d(out_features, momentum=momentum, eps=eps), nn.ReLU(), nn.Dropout(p=drop_hid))
             setattr(self, 'layer{}'.format(i), layer)
         self.fc = nn.Linear(hidden_size, num_classes, bias=False)
 
@@ -633,8 +611,7 @@ def sparsify_grad(v, k, simplified=True):
 
 class meLinear(nn.Linear):
 
-    def __init__(self, in_features, out_features, bias=False, k=1,
-        simplified=True):
+    def __init__(self, in_features, out_features, bias=False, k=1, simplified=True):
         super(meLinear, self).__init__(in_features, out_features, bias)
         self.k = k
         self.simplified = simplified
@@ -653,18 +630,13 @@ class meLinear(nn.Linear):
 
 class meConv2d(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, k=1, simplified=True):
-        super(meConv2d, self).__init__(in_channels=in_channels,
-            out_channels=out_channels, kernel_size=kernel_size, stride=
-            stride, padding=padding, dilation=dilation, groups=groups, bias
-            =bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, k=1, simplified=True):
+        super(meConv2d, self).__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.k = k
         self.simplified = simplified
 
     def forward(self, input):
-        output = F.conv2d(input, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        output = F.conv2d(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         return sparsify_grad(output, self.k, self.simplified)
 
     def reset_parameters(self):
@@ -688,18 +660,15 @@ def clip_grad(v, min, max):
 
 class meLSTMCell(nn.Module):
 
-    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None,
-        k=1, simplified=False):
+    def __init__(self, input_size, hidden_size, bias=True, grad_clip=None, k=1, simplified=False):
         super(meLSTMCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.grad_clip = grad_clip
         self.k = k
         self.simplified = simplified
-        self.weight_ih = nn.Parameter(torch.Tensor(4 * hidden_size, input_size)
-            )
-        self.weight_hh = nn.Parameter(torch.Tensor(4 * hidden_size,
-            hidden_size))
+        self.weight_ih = nn.Parameter(torch.Tensor(4 * hidden_size, input_size))
+        self.weight_hh = nn.Parameter(torch.Tensor(4 * hidden_size, hidden_size))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(4 * hidden_size))
         else:
@@ -713,8 +682,7 @@ class meLSTMCell(nn.Module):
 
     def forward(self, input, hx):
         h, c = hx
-        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
-            .weight_hh)
+        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self.weight_hh)
         pre = sparsify_grad(pre, self.k, self.simplified)
         if self.grad_clip:
             pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
@@ -729,8 +697,7 @@ class meLSTMCell(nn.Module):
 
 class meLSTM(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True,
-        return_sequences=True, grad_clip=None, k=1, simplified=False):
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, return_sequences=True, grad_clip=None, k=1, simplified=False):
         super(meLSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -740,9 +707,7 @@ class meLSTM(nn.Module):
         self.grad_clip = grad_clip
         self.k = k
         self.simplified = simplified
-        kwargs = {'input_size': input_size, 'hidden_size': hidden_size,
-            'bias': bias, 'grad_clip': grad_clip, 'k': k, 'simplified':
-            simplified}
+        kwargs = {'input_size': input_size, 'hidden_size': hidden_size, 'bias': bias, 'grad_clip': grad_clip, 'k': k, 'simplified': simplified}
         self.cell0 = meLSTMCell(**kwargs)
         for i in range(1, num_layers):
             kwargs['input_size'] = hidden_size
@@ -809,8 +774,7 @@ class GRUCell(RNNCellBase):
         self.hidden_size = hidden_size
         self.grad_clip = grad_clip
         self.weight_ih = Parameter(torch.Tensor(3 * hidden_size, input_size))
-        self.weight_hh_rz = Parameter(torch.Tensor(2 * hidden_size,
-            hidden_size))
+        self.weight_hh_rz = Parameter(torch.Tensor(2 * hidden_size, hidden_size))
         self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
         if bias:
             self.bias = Parameter(torch.Tensor(3 * hidden_size))
@@ -830,8 +794,7 @@ class GRUCell(RNNCellBase):
             ih = clip_grad(ih, -self.grad_clip, self.grad_clip)
             hh_rz = clip_grad(hh_rz, -self.grad_clip, self.grad_clip)
         r = F.sigmoid(ih[:, :self.hidden_size] + hh_rz[:, :self.hidden_size])
-        i = F.sigmoid(ih[:, self.hidden_size:self.hidden_size * 2] + hh_rz[
-            :, self.hidden_size:])
+        i = F.sigmoid(ih[:, self.hidden_size:self.hidden_size * 2] + hh_rz[:, self.hidden_size:])
         hhr = F.linear(h * r, self.weight_hh)
         if self.grad_clip:
             hhr = clip_grad(hhr, -self.grad_clip, self.grad_clip)
@@ -865,8 +828,7 @@ class IndRNNCell(RNNCellBase):
             weight.data.uniform_(-stdv, stdv)
 
     def forward(self, input, h):
-        output = F.linear(input, self.weight_ih, self.bias
-            ) + h * self.weight_hh
+        output = F.linear(input, self.weight_ih, self.bias) + h * self.weight_hh
         if self.grad_clip:
             output = clip_grad(output, -self.grad_clip, self.grad_clip)
         output = F.relu(output)
@@ -895,8 +857,7 @@ class LSTMCell(RNNCellBase):
 
     def forward(self, input, hx):
         h, c = hx
-        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
-            .weight_hh)
+        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self.weight_hh)
         if self.grad_clip:
             pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
         i = F.sigmoid(pre[:, :self.hidden_size])
@@ -937,8 +898,7 @@ class LSTMONCell(RNNCellBase):
 
     def forward(self, input, hx):
         h, c = hx
-        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
-            .weight_hh)
+        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self.weight_hh)
         if self.grad_clip:
             pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
         i = F.sigmoid(pre[:, :self.hidden_size])
@@ -957,16 +917,14 @@ class LSTMONCell(RNNCellBase):
 
 class LSTMPCell(RNNCellBase):
 
-    def __init__(self, input_size, hidden_size, recurrent_size, bias=True,
-        grad_clip=None):
+    def __init__(self, input_size, hidden_size, recurrent_size, bias=True, grad_clip=None):
         super(LSTMPCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.recurrent_size = recurrent_size
         self.grad_clip = grad_clip
         self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
-        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size,
-            recurrent_size))
+        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size, recurrent_size))
         self.weight_rec = Parameter(torch.Tensor(recurrent_size, hidden_size))
         if bias:
             self.bias = Parameter(torch.Tensor(4 * hidden_size))
@@ -981,8 +939,7 @@ class LSTMPCell(RNNCellBase):
 
     def forward(self, input, hx):
         h, c = hx
-        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self
-            .weight_hh)
+        pre = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self.weight_hh)
         if self.grad_clip:
             pre = clip_grad(pre, -self.grad_clip, self.grad_clip)
         i = F.sigmoid(pre[:, :self.hidden_size])
@@ -1016,8 +973,7 @@ class RNNCell(RNNCellBase):
             weight.data.uniform_(-stdv, stdv)
 
     def forward(self, input, h):
-        output = F.linear(input, self.weight_ih, self.bias) + F.linear(h,
-            self.weight_hh)
+        output = F.linear(input, self.weight_ih, self.bias) + F.linear(h, self.weight_hh)
         if self.grad_clip:
             output = clip_grad(output, -self.grad_clip, self.grad_clip)
         output = F.relu(output)
@@ -1026,8 +982,7 @@ class RNNCell(RNNCellBase):
 
 class RNNBase(Module):
 
-    def __init__(self, mode, input_size, hidden_size, recurrent_size=None,
-        num_layers=1, bias=True, return_sequences=True, grad_clip=None):
+    def __init__(self, mode, input_size, hidden_size, recurrent_size=None, num_layers=1, bias=True, return_sequences=True, grad_clip=None):
         super(RNNBase, self).__init__()
         self.mode = mode
         self.input_size = input_size
@@ -1037,18 +992,14 @@ class RNNBase(Module):
         self.bias = bias
         self.return_sequences = return_sequences
         self.grad_clip = grad_clip
-        mode2cell = {'RNN': RNNCell, 'IndRNN': IndRNNCell, 'GRU': GRUCell,
-            'MGRU': GRUCell, 'LSTM': LSTMCell, 'LSTMON': LSTMONCell,
-            'LSTMP': LSTMPCell}
+        mode2cell = {'RNN': RNNCell, 'IndRNN': IndRNNCell, 'GRU': GRUCell, 'MGRU': GRUCell, 'LSTM': LSTMCell, 'LSTMON': LSTMONCell, 'LSTMP': LSTMPCell}
         Cell = mode2cell[mode]
-        kwargs = {'input_size': input_size, 'hidden_size': hidden_size,
-            'bias': bias, 'grad_clip': grad_clip}
+        kwargs = {'input_size': input_size, 'hidden_size': hidden_size, 'bias': bias, 'grad_clip': grad_clip}
         if self.mode == 'LSTMP':
             kwargs['recurrent_size'] = recurrent_size
         self.cell0 = Cell(**kwargs)
         for i in range(1, num_layers):
-            kwargs['input_size'
-                ] = recurrent_size if self.mode == 'LSTMP' else hidden_size
+            kwargs['input_size'] = recurrent_size if self.mode == 'LSTMP' else hidden_size
             cell = Cell(**kwargs)
             setattr(self, 'cell{}'.format(i), cell)
 
@@ -1058,8 +1009,7 @@ class RNNBase(Module):
             if self.mode == 'LSTM' or self.mode == 'LSTMON':
                 initial_states = [(zeros, zeros)] * self.num_layers
             elif self.mode == 'LSTMP':
-                zeros_h = Variable(torch.zeros(input.size(0), self.
-                    recurrent_size))
+                zeros_h = Variable(torch.zeros(input.size(0), self.recurrent_size))
                 initial_states = [(zeros_h, zeros)] * self.num_layers
             else:
                 initial_states = [zeros] * self.num_layers
@@ -1098,18 +1048,15 @@ class GRU(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = GRU(input_size, hidden_size, num_layers=num_layers, bias
-            =bias, return_sequences=False, grad_clip=grad_clip)
+        self.rnn = GRU(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
-        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)
-            ) for _ in range(self.num_layers)]
+        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)) for _ in range(self.num_layers)]
         out = self.rnn(x, initial_states)
         out = self.fc(out)
         return out
@@ -1127,18 +1074,15 @@ class IndRNN(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = IndRNN(input_size, hidden_size, num_layers=num_layers,
-            bias=bias, return_sequences=False, grad_clip=grad_clip)
+        self.rnn = IndRNN(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
-        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)
-            ) for _ in range(self.num_layers)]
+        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)) for _ in range(self.num_layers)]
         out = self.rnn(x, initial_states)
         out = self.fc(out)
         return out
@@ -1152,13 +1096,11 @@ class LSTM(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = LSTM(input_size, hidden_size, num_layers=num_layers,
-            bias=bias, return_sequences=False, grad_clip=grad_clip)
+        self.rnn = LSTM(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
@@ -1177,13 +1119,11 @@ class LSTMON(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = LSTMON(input_size, hidden_size, num_layers=num_layers,
-            bias=bias, return_sequences=False, grad_clip=grad_clip)
+        self.rnn = LSTMON(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
@@ -1202,15 +1142,12 @@ class LSTMP(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, recurrent_size, num_layers,
-        num_classes, bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, recurrent_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.recurrent_size = recurrent_size
         self.num_layers = num_layers
-        self.rnn = LSTMP(input_size, hidden_size, recurrent_size,
-            num_layers=num_layers, bias=bias, return_sequences=False,
-            grad_clip=grad_clip)
+        self.rnn = LSTMP(input_size, hidden_size, recurrent_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(recurrent_size, num_classes, bias=bias)
 
     def forward(self, x):
@@ -1230,18 +1167,15 @@ class MGRU(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = MGRU(input_size, hidden_size, num_layers=num_layers,
-            bias=bias, return_sequences=False, grad_clip=grad_clip)
+        self.rnn = MGRU(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
-        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)
-            ) for _ in range(self.num_layers)]
+        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)) for _ in range(self.num_layers)]
         out = self.rnn(x, initial_states)
         out = self.fc(out)
         return out
@@ -1255,18 +1189,15 @@ class RNN(RNNBase):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, num_classes,
-        bias=True, grad_clip=None):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, bias=True, grad_clip=None):
         super(RNNModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.rnn = RNN(input_size, hidden_size, num_layers=num_layers, bias
-            =bias, return_sequences=False, grad_clip=grad_clip)
+        self.rnn = RNN(input_size, hidden_size, num_layers=num_layers, bias=bias, return_sequences=False, grad_clip=grad_clip)
         self.fc = nn.Linear(hidden_size, num_classes, bias=bias)
 
     def forward(self, x):
-        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)
-            ) for _ in range(self.num_layers)]
+        initial_states = [Variable(torch.zeros(x.size(0), self.hidden_size)) for _ in range(self.num_layers)]
         out = self.rnn(x, initial_states)
         out = self.fc(out)
         return out
@@ -1279,12 +1210,8 @@ class CNN(nn.Module):
 
     def __init__(self):
         super(CNN, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, padding
-            =2), SEWrapper(16, ratio), nn.BatchNorm2d(16), nn.MaxPool2d(2),
-            nn.ReLU())
-        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5,
-            padding=2), SEWrapper(32, ratio), nn.BatchNorm2d(32), nn.
-            MaxPool2d(2), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, padding=2), SEWrapper(16, ratio), nn.BatchNorm2d(16), nn.MaxPool2d(2), nn.ReLU())
+        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, padding=2), SEWrapper(32, ratio), nn.BatchNorm2d(32), nn.MaxPool2d(2), nn.ReLU())
         self.fc = nn.Linear(7 * 7 * 32, 10)
 
     def forward(self, x):
@@ -1299,8 +1226,7 @@ class SEWrapper(nn.Module):
 
     def __init__(self, channels, ratio=4):
         super(SEWrapper, self).__init__()
-        self.linear = nn.Sequential(nn.Linear(channels, channels // ratio),
-            nn.ReLU(), nn.Linear(channels // ratio, channels), nn.Sigmoid())
+        self.linear = nn.Sequential(nn.Linear(channels, channels // ratio), nn.ReLU(), nn.Linear(channels // ratio, channels), nn.Sigmoid())
 
     def forward(self, input):
         sq = input.mean(-1).mean(-1)
@@ -1336,99 +1262,184 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BinaryConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BinaryLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BinaryTanh,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DNI,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GRU,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (GRUCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (IndRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IndRNNCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LSTM,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LSTMON,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (MGRU,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MLP,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Net1,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Net2,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (RNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RNNCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RNNModel,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ReLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SEWrapper,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SiLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (meConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (meLSTM,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (meLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_DingKe_pytorch_workplace(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BinaryConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BinaryLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BinaryTanh(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DNI(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(GRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(IndRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(IndRNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(LSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(LSTMON(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(MGRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MLP(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Net(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Net1(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Net2(*[], **{'input_size': 4, 'hidden_size': 4, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(RNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(RNNCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(RNNModel(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
-    @_fails_compile()
     def test_019(self):
-        self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(SEWrapper(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(SiLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
-    @_fails_compile()
     def test_022(self):
-        self._check(meConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
 
-    @_fails_compile()
     def test_023(self):
-        self._check(meLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
-    @_fails_compile()
     def test_024(self):
-        self._check(meLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[24])
 

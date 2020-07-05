@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -119,8 +120,7 @@ class VolumetricSoftmax(nn.Module):
         self.channel = channel
         self.xsize, self.ysize, self.zsize = sizes[0], sizes[1], sizes[2]
         self.volume_size = self.xsize * self.ysize * self.zsize
-        pos_x, pos_y, pos_z = np.meshgrid(np.arange(self.xsize), np.arange(
-            self.ysize), np.arange(self.zsize), indexing='ij')
+        pos_x, pos_y, pos_z = np.meshgrid(np.arange(self.xsize), np.arange(self.ysize), np.arange(self.zsize), indexing='ij')
         pos_x = torch.from_numpy(pos_x.reshape(-1)).float()
         pos_y = torch.from_numpy(pos_y.reshape(-1)).float()
         pos_z = torch.from_numpy(pos_z.reshape(-1)).float()
@@ -145,8 +145,7 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.output_res = output_res
         self.basic_model = V2VModel(in_channels, out_channels)
-        self.spatial_softmax = VolumetricSoftmax(out_channels, (self.
-            output_res, self.output_res, self.output_res))
+        self.spatial_softmax = VolumetricSoftmax(out_channels, (self.output_res, self.output_res, self.output_res))
 
     def forward(self, x):
         heatmap = self.basic_model(x)
@@ -159,9 +158,7 @@ class Basic3DBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size):
         super(Basic3DBlock, self).__init__()
-        self.block = nn.Sequential(nn.Conv3d(in_planes, out_planes,
-            kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) //
-            2), nn.BatchNorm3d(out_planes), nn.ReLU(True))
+        self.block = nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) // 2), nn.BatchNorm3d(out_planes), nn.ReLU(True))
 
     def forward(self, x):
         return self.block(x)
@@ -171,16 +168,11 @@ class Res3DBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes):
         super(Res3DBlock, self).__init__()
-        self.res_branch = nn.Sequential(nn.Conv3d(in_planes, out_planes,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_planes),
-            nn.ReLU(True), nn.Conv3d(out_planes, out_planes, kernel_size=3,
-            stride=1, padding=1), nn.BatchNorm3d(out_planes))
+        self.res_branch = nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_planes), nn.ReLU(True), nn.Conv3d(out_planes, out_planes, kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_planes))
         if in_planes == out_planes:
             self.skip_con = nn.Sequential()
         else:
-            self.skip_con = nn.Sequential(nn.Conv3d(in_planes, out_planes,
-                kernel_size=1, stride=1, padding=0), nn.BatchNorm3d(out_planes)
-                )
+            self.skip_con = nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=1, stride=1, padding=0), nn.BatchNorm3d(out_planes))
 
     def forward(self, x):
         res = self.res_branch(x)
@@ -195,8 +187,7 @@ class Pool3DBlock(nn.Module):
         self.pool_size = pool_size
 
     def forward(self, x):
-        return F.max_pool3d(x, kernel_size=self.pool_size, stride=self.
-            pool_size)
+        return F.max_pool3d(x, kernel_size=self.pool_size, stride=self.pool_size)
 
 
 class Upsample3DBlock(nn.Module):
@@ -205,9 +196,7 @@ class Upsample3DBlock(nn.Module):
         super(Upsample3DBlock, self).__init__()
         assert kernel_size == 2
         assert stride == 2
-        self.block = nn.Sequential(nn.ConvTranspose3d(in_planes, out_planes,
-            kernel_size=kernel_size, stride=stride, padding=0,
-            output_padding=0), nn.BatchNorm3d(out_planes), nn.ReLU(True))
+        self.block = nn.Sequential(nn.ConvTranspose3d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=0, output_padding=0), nn.BatchNorm3d(out_planes), nn.ReLU(True))
 
     def forward(self, x):
         return self.block(x)
@@ -250,14 +239,10 @@ class V2VModel(nn.Module):
 
     def __init__(self, input_channels, output_channels):
         super(V2VModel, self).__init__()
-        self.front_layers = nn.Sequential(Basic3DBlock(input_channels, 16, 
-            7), Pool3DBlock(2), Res3DBlock(16, 32), Res3DBlock(32, 32),
-            Res3DBlock(32, 32))
+        self.front_layers = nn.Sequential(Basic3DBlock(input_channels, 16, 7), Pool3DBlock(2), Res3DBlock(16, 32), Res3DBlock(32, 32), Res3DBlock(32, 32))
         self.encoder_decoder = EncoderDecorder()
-        self.back_layers = nn.Sequential(Res3DBlock(32, 32), Basic3DBlock(
-            32, 32, 1), Basic3DBlock(32, 32, 1))
-        self.output_layer = nn.Conv3d(32, output_channels, kernel_size=1,
-            stride=1, padding=0)
+        self.back_layers = nn.Sequential(Res3DBlock(32, 32), Basic3DBlock(32, 32, 1), Basic3DBlock(32, 32, 1))
+        self.output_layer = nn.Conv3d(32, output_channels, kernel_size=1, stride=1, padding=0)
         self._initialize_weights()
 
     def forward(self, x):
@@ -281,9 +266,7 @@ class Basic3DBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size):
         super(Basic3DBlock, self).__init__()
-        self.block = nn.Sequential(nn.Conv3d(in_planes, out_planes,
-            kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) //
-            2), nn.BatchNorm3d(out_planes), nn.ReLU(True))
+        self.block = nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=kernel_size, stride=1, padding=(kernel_size - 1) // 2), nn.BatchNorm3d(out_planes), nn.ReLU(True))
 
     def forward(self, x):
         return self.block(x)
@@ -293,16 +276,11 @@ class Res3DBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes):
         super(Res3DBlock, self).__init__()
-        self.res_branch = nn.Sequential(nn.Conv3d(in_planes, out_planes,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_planes),
-            nn.ReLU(True), nn.Conv3d(out_planes, out_planes, kernel_size=3,
-            stride=1, padding=1), nn.BatchNorm3d(out_planes))
+        self.res_branch = nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_planes), nn.ReLU(True), nn.Conv3d(out_planes, out_planes, kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_planes))
         if in_planes == out_planes:
             self.skip_con = nn.Sequential()
         else:
-            self.skip_con = nn.Sequential(nn.Conv3d(in_planes, out_planes,
-                kernel_size=1, stride=1, padding=0), nn.BatchNorm3d(out_planes)
-                )
+            self.skip_con = nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=1, stride=1, padding=0), nn.BatchNorm3d(out_planes))
 
     def forward(self, x):
         res = self.res_branch(x)
@@ -317,8 +295,7 @@ class Pool3DBlock(nn.Module):
         self.pool_size = pool_size
 
     def forward(self, x):
-        return F.max_pool3d(x, kernel_size=self.pool_size, stride=self.
-            pool_size)
+        return F.max_pool3d(x, kernel_size=self.pool_size, stride=self.pool_size)
 
 
 class Upsample3DBlock(nn.Module):
@@ -327,9 +304,7 @@ class Upsample3DBlock(nn.Module):
         super(Upsample3DBlock, self).__init__()
         assert kernel_size == 2
         assert stride == 2
-        self.block = nn.Sequential(nn.ConvTranspose3d(in_planes, out_planes,
-            kernel_size=kernel_size, stride=stride, padding=0,
-            output_padding=0), nn.BatchNorm3d(out_planes), nn.ReLU(True))
+        self.block = nn.Sequential(nn.ConvTranspose3d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=0, output_padding=0), nn.BatchNorm3d(out_planes), nn.ReLU(True))
 
     def forward(self, x):
         return self.block(x)
@@ -372,14 +347,10 @@ class V2VModel(nn.Module):
 
     def __init__(self, input_channels, output_channels):
         super(V2VModel, self).__init__()
-        self.front_layers = nn.Sequential(Basic3DBlock(input_channels, 16, 
-            7), Pool3DBlock(2), Res3DBlock(16, 32), Res3DBlock(32, 32),
-            Res3DBlock(32, 32))
+        self.front_layers = nn.Sequential(Basic3DBlock(input_channels, 16, 7), Pool3DBlock(2), Res3DBlock(16, 32), Res3DBlock(32, 32), Res3DBlock(32, 32))
         self.encoder_decoder = EncoderDecorder()
-        self.back_layers = nn.Sequential(Res3DBlock(32, 32), Basic3DBlock(
-            32, 32, 1), Basic3DBlock(32, 32, 1))
-        self.output_layer = nn.Conv3d(32, output_channels, kernel_size=1,
-            stride=1, padding=0)
+        self.back_layers = nn.Sequential(Res3DBlock(32, 32), Basic3DBlock(32, 32, 1), Basic3DBlock(32, 32, 1))
+        self.output_layer = nn.Conv3d(32, output_channels, kernel_size=1, stride=1, padding=0)
         self._initialize_weights()
 
     def forward(self, x):
@@ -403,23 +374,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Basic3DBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (Pool3DBlock,
+     lambda: ([], {'pool_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Res3DBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (SoftmaxCrossEntropyWithLogits,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Upsample3DBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 2, 'stride': 2}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (VolumetricSoftmax,
+     lambda: ([], {'channel': 4, 'sizes': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_dragonbook_V2V_PoseNet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Basic3DBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Pool3DBlock(*[], **{'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Res3DBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SoftmaxCrossEntropyWithLogits(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Upsample3DBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 2, 'stride': 2}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(VolumetricSoftmax(*[], **{'channel': 4, 'sizes': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

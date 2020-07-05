@@ -75,8 +75,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -203,8 +204,7 @@ class Net(nn.Module):
 
 
 def _reset_parameters(model):
-    if isinstance(model, torch.nn.Sequential) or isinstance(model, torch.nn
-        .ModuleList):
+    if isinstance(model, torch.nn.Sequential) or isinstance(model, torch.nn.ModuleList):
         for submodel in model:
             _reset_parameters(submodel)
     elif isinstance(model, torch.nn.ModuleDict):
@@ -255,9 +255,7 @@ class ExtendedSequential(torch.nn.Sequential):
         if n_repeat <= 0:
             return ExtendedSequential()
         if mode not in ['copy', 'share', 'init']:
-            raise ValueError(
-                "The 'mode' argument should be either 'init','copy', or 'share'. But {} was given."
-                .format(mode))
+            raise ValueError("The 'mode' argument should be either 'init','copy', or 'share'. But {} was given.".format(mode))
         model_list = []
         for _ in range(n_repeat):
             model_list.append(self._copy_model(mode))
@@ -273,11 +271,7 @@ class UninitializedParameter(torch.nn.Parameter):
     def is_leaf(self):
         frame = inspect.currentframe()
         if frame.f_back.f_globals['__package__'].startswith('torch.optim'):
-            warnings.warn(
-                """
-    Use of uninitialized lazy parameter in Optimizer has been detected.
-    Maybe you forgot to run forward before passing `module.parameters()` to the optimizer?"""
-                )
+            warnings.warn('\n    Use of uninitialized lazy parameter in Optimizer has been detected.\n    Maybe you forgot to run forward before passing `module.parameters()` to the optimizer?')
         return True
 
 
@@ -325,8 +319,7 @@ class LazyInitializationMixin:
         parameters are determined.  Note that this may be called during
         ``__init__``.
         """
-        return self._lazy_ready and all([(not isinstance(getattr(self, x),
-            UninitializedParameter)) for x in self.lazy_parameter_names])
+        return self._lazy_ready and all([(not isinstance(getattr(self, x), UninitializedParameter)) for x in self.lazy_parameter_names])
 
     def state_dict(self, *args, **kwargs):
         """Returns a dictionary containing a whole state of the module.
@@ -345,8 +338,7 @@ class LazyInitializationMixin:
                 del destination[name]
         return destination
 
-    def _lazy_load_hook(self, state_dict, prefix, local_metadata, strict,
-        missing_keys, unexpected_keys, error_msgs):
+    def _lazy_load_hook(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         """load_state_dict pre-hook function for lazy buffers and parameters.
 
         The purpose of this hook is to adjust the current state and/or
@@ -362,8 +354,7 @@ class LazyInitializationMixin:
         for name in self.lazy_parameter_names:
             key = prefix + name
             if key in state_dict:
-                self.register_parameter(name, torch.nn.Parameter(state_dict
-                    [key]))
+                self.register_parameter(name, torch.nn.Parameter(state_dict[key]))
             else:
                 param = UninitializedParameter()
                 self.register_parameter(name, param)
@@ -383,11 +374,9 @@ class _LazyConvNd(LazyInitializationMixin):
         if isinstance(self.weight, UninitializedParameter):
             self.in_channels = input.shape[1]
             if self.transposed:
-                shape = (self.in_channels, self.out_channels // self.groups,
-                    *self.kernel_size)
+                shape = self.in_channels, self.out_channels // self.groups, *self.kernel_size
             else:
-                shape = (self.out_channels, self.in_channels // self.groups,
-                    *self.kernel_size)
+                shape = self.out_channels, self.in_channels // self.groups, *self.kernel_size
             self.weight = torch.nn.Parameter(self.weight.new_empty(*shape))
             self.reset_parameters()
         return super().forward(input)
@@ -441,8 +430,7 @@ class LazyLinear(LazyInitializationMixin, torch.nn.Linear):
     def forward(self, input):
         if isinstance(self.weight, UninitializedParameter):
             self.in_features = input.shape[-1]
-            self.weight = torch.nn.Parameter(self.weight.new_empty(self.
-                out_features, self.in_features))
+            self.weight = torch.nn.Parameter(self.weight.new_empty(self.out_features, self.in_features))
             self.reset_parameters()
         return super().forward(input)
 
@@ -558,31 +546,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ExtendedSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LazyConv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (LazyConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LazyConv3d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
+    (LazyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_MyFunc,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_StateDictModel,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+]
+
 class Test_pfnet_pytorch_pfn_extras(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ExtendedSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(LazyConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LazyConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LazyConv3d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LazyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(_MyFunc(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(_StateDictModel(*[], **{}), [], {})
+        self._check(*TESTCASES[6])
 

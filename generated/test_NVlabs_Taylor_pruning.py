@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -103,50 +104,40 @@ class GateLayer(nn.Module):
         return input * self.weight.view(*self.size_mask)
 
     def extra_repr(self):
-        return 'in_features={}, out_features={}'.format(self.input_features,
-            self.output_features is not None)
+        return 'in_features={}, out_features={}'.format(self.input_features, self.output_features is not None)
 
 
 class _DenseLayer(nn.Sequential):
 
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate,
-        gate_types):
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, gate_types):
         super(_DenseLayer, self).__init__()
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
         if 'input' in gate_types:
-            self.add_module('gate1): (input', GateLayer(num_input_features,
-                num_input_features, [1, -1, 1, 1]))
-        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
-            growth_rate, kernel_size=1, stride=1, bias=False)),
+            self.add_module('gate1): (input', GateLayer(num_input_features, num_input_features, [1, -1, 1, 1]))
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
         self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
         if 'output_bn' in gate_types:
-            self.add_module('gate2): (output_bn', GateLayer(bn_size *
-                growth_rate, bn_size * growth_rate, [1, -1, 1, 1]))
+            self.add_module('gate2): (output_bn', GateLayer(bn_size * growth_rate, bn_size * growth_rate, [1, -1, 1, 1]))
         self.add_module('relu2', nn.ReLU(inplace=True)),
-        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate,
-            growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         if 'output_conv' in gate_types:
-            self.add_module('gate3): (output_conv', GateLayer(growth_rate,
-                growth_rate, [1, -1, 1, 1]))
+            self.add_module('gate3): (output_conv', GateLayer(growth_rate, growth_rate, [1, -1, 1, 1]))
         self.drop_rate = drop_rate
 
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
-        drop_rate, gate_types):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, gate_types):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, bn_size, drop_rate, gate_types)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate, gate_types)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
@@ -157,14 +148,11 @@ class _Transition(nn.Sequential):
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
         if 'input' in gate_types:
-            self.add_module('gate): (input', GateLayer(num_input_features,
-                num_input_features, [1, -1, 1, 1]))
-        self.add_module('conv', nn.Conv2d(num_input_features,
-            num_output_features, kernel_size=1, stride=1, bias=False))
+            self.add_module('gate): (input', GateLayer(num_input_features, num_input_features, [1, -1, 1, 1]))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
         if 'output_conv' in gate_types:
-            self.add_module('gate): (output_conv', GateLayer(
-                num_output_features, num_output_features, [1, -1, 1, 1]))
+            self.add_module('gate): (output_conv', GateLayer(num_output_features, num_output_features, [1, -1, 1, 1]))
 
 
 class DenseNet(nn.Module):
@@ -181,35 +169,23 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
     """
 
-    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16),
-        num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000,
-        gate_types=['input', 'output_bn', 'output_conv', 'bottom', 'top']):
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16), num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000, gate_types=['input', 'output_bn', 'output_conv', 'bottom', 'top']):
         super(DenseNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3,
-            num_init_features, kernel_size=7, stride=2, padding=3, bias=
-            False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0',
-            nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0', nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
         if 'bottom' in gate_types:
-            self.features.add_module('gate0): (bottom', GateLayer(
-                num_init_features, num_init_features, [1, -1, 1, 1]))
+            self.features.add_module('gate0): (bottom', GateLayer(num_init_features, num_init_features, [1, -1, 1, 1]))
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, bn_size=bn_size, growth_rate=growth_rate,
-                drop_rate=drop_rate, gate_types=gate_types)
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate, gate_types=gate_types)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features,
-                    num_output_features=num_features // 2, gate_types=
-                    gate_types)
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2, gate_types=gate_types)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
         if 'top' in gate_types:
-            self.features.add_module('gate5): (top', GateLayer(num_features,
-                num_features, [1, -1, 1, 1]))
+            self.features.add_module('gate5): (top', GateLayer(num_features, num_features, [1, -1, 1, 1]))
         self.classifier = nn.Linear(num_features, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -223,8 +199,7 @@ class DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        out = F.avg_pool2d(out, kernel_size=7, stride=1).view(features.size
-            (0), -1)
+        out = F.avg_pool2d(out, kernel_size=7, stride=1).view(features.size(0), -1)
         out = self.classifier(out)
         return out
 
@@ -281,18 +256,14 @@ class PreActBlock(nn.Module):
     def __init__(self, in_planes, planes, stride=1, group_norm=0):
         super(PreActBlock, self).__init__()
         self.bn1 = norm2d(in_planes, group_norm)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.gate1 = GateLayer(planes, planes, [1, -1, 1, 1])
         self.bn2 = norm2d(planes, group_norm)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.gate_out = GateLayer(planes, planes, [1, -1, 1, 1])
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
-            self.gate_shortcut = GateLayer(self.expansion * planes, self.
-                expansion * planes, [1, -1, 1, 1])
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.gate_shortcut = GateLayer(self.expansion * planes, self.expansion * planes, [1, -1, 1, 1])
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -321,19 +292,14 @@ class PreActBottleneck(nn.Module):
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn2 = norm2d(planes, group_norm)
         self.gate1 = GateLayer(planes, planes, [1, -1, 1, 1])
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = norm2d(planes, group_norm)
         self.gate2 = GateLayer(planes, planes, [1, -1, 1, 1])
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
-        self.gate3 = GateLayer(self.expansion * planes, self.expansion *
-            planes, [1, -1, 1, 1])
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
+        self.gate3 = GateLayer(self.expansion * planes, self.expansion * planes, [1, -1, 1, 1])
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
-            self.gate_shortcut = GateLayer(self.expansion * planes, self.
-                expansion * planes, [1, -1, 1, 1])
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.gate_shortcut = GateLayer(self.expansion * planes, self.expansion * planes, [1, -1, 1, 1])
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -359,31 +325,24 @@ class PreActBottleneck(nn.Module):
 
 class PreActResNet(nn.Module):
 
-    def __init__(self, block, num_blocks, num_classes=10, group_norm=0,
-        dataset='CIFAR10'):
+    def __init__(self, block, num_blocks, num_classes=10, group_norm=0, dataset='CIFAR10'):
         super(PreActResNet, self).__init__()
         self.in_planes = 64
         self.dataset = dataset
         if dataset == 'CIFAR10':
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=
-                1, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
             num_classes = 10
         elif dataset == 'Imagenet':
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.relu = nn.ReLU(inplace=True)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
             num_classes = 1000
         self.gate_in = GateLayer(64, 64, [1, -1, 1, 1])
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1,
-            group_norm=group_norm)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2,
-            group_norm=group_norm)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2,
-            group_norm=group_norm)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2,
-            group_norm=group_norm)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1, group_norm=group_norm)
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2, group_norm=group_norm)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2, group_norm=group_norm)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2, group_norm=group_norm)
         if dataset == 'CIFAR10':
             self.avgpool = nn.AvgPool2d(4, stride=1)
             self.linear = nn.Linear(512 * block.expansion, num_classes)
@@ -392,8 +351,7 @@ class PreActResNet(nn.Module):
             self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if isinstance(m, nn.BatchNorm2d):
                 m.bias.data.zero_()
 
@@ -401,8 +359,7 @@ class PreActResNet(nn.Module):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride, group_norm=
-                group_norm))
+            layers.append(block(self.in_planes, planes, stride, group_norm=group_norm))
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
@@ -428,8 +385,7 @@ class PreActResNet(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -475,13 +431,11 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         self.gate1 = GateLayer(planes, planes, [1, -1, 1, 1])
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.gate2 = GateLayer(planes, planes, [1, -1, 1, 1])
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu3 = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -514,8 +468,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000, skip_gate=True):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -536,20 +489,15 @@ class ResNet(nn.Module):
             self.gate_skip128 = None
             self.gate_skip256 = None
             self.gate_skip512 = None
-        self.layer1 = self._make_layer(block, 64, layers[0], gate=self.
-            gate_skip64)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            gate=self.gate_skip128)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            gate=self.gate_skip256)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            gate=self.gate_skip512)
+        self.layer1 = self._make_layer(block, 64, layers[0], gate=self.gate_skip64)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, gate=self.gate_skip128)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, gate=self.gate_skip256)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, gate=self.gate_skip512)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -557,12 +505,9 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, gate=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, gate
-            =gate))
+        layers.append(block(self.inplanes, planes, stride, downsample, gate=gate))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, gate=gate))
@@ -597,10 +542,7 @@ class VGG(nn.Module):
     def __init__(self, features, cfg, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(cfg[0] * 7 * 7, cfg[1]),
-            nn.BatchNorm1d(cfg[1]), nn.ReLU(True), nn.Linear(cfg[1], cfg[2]
-            ), nn.BatchNorm1d(cfg[2]), nn.ReLU(True), nn.Linear(cfg[2],
-            num_classes))
+        self.classifier = nn.Sequential(nn.Linear(cfg[0] * 7 * 7, cfg[1]), nn.BatchNorm1d(cfg[1]), nn.ReLU(True), nn.Linear(cfg[1], cfg[2]), nn.BatchNorm1d(cfg[2]), nn.ReLU(True), nn.Linear(cfg[2], num_classes))
         if init_weights:
             self._initialize_weights()
 
@@ -631,20 +573,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LeNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (LinView,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreActBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreActBottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_NVlabs_Taylor_pruning(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LinView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

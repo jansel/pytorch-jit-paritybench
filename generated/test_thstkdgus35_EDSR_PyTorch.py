@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,16 +100,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -121,8 +119,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -188,8 +185,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.get_loss_module():
             if hasattr(l, 'scheduler'):
@@ -205,9 +201,7 @@ class Adversarial(nn.Module):
         self.gan_k = args.gan_k
         self.dis = discriminator.Discriminator(args)
         if gan_type == 'WGAN_GP':
-            optim_dict = {'optimizer': 'ADAM', 'betas': (0, 0.9), 'epsilon':
-                1e-08, 'lr': 1e-05, 'weight_decay': args.weight_decay,
-                'decay': args.decay, 'gamma': args.gamma}
+            optim_dict = {'optimizer': 'ADAM', 'betas': (0, 0.9), 'epsilon': 1e-08, 'lr': 1e-05, 'weight_decay': args.weight_decay, 'decay': args.decay, 'gamma': args.gamma}
             optim_args = SimpleNamespace(**optim_dict)
         else:
             optim_args = args
@@ -230,9 +224,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.dis(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -287,9 +279,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -300,8 +290,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -359,8 +348,7 @@ class Model(nn.Module):
         self.model = module.make_model(args)
         if args.precision == 'half':
             self.model.half()
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -397,21 +385,18 @@ class Model(nn.Module):
         if cpu:
             kwargs = {'map_location': lambda storage, loc: storage}
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.model.url,
-                    model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.model.url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.model.load_state_dict(load_from, strict=False)
 
@@ -423,8 +408,7 @@ class Model(nn.Module):
         bottom = slice(h - h // 2 - shave, h)
         left = slice(0, w // 2 + shave)
         right = slice(w - w // 2 - shave, w)
-        x_chops = [torch.cat([a[..., top, left], a[..., top, right], a[...,
-            bottom, left], a[..., bottom, right]]) for a in args]
+        x_chops = [torch.cat([a[..., top, left], a[..., top, right], a[..., bottom, left], a[..., bottom, right]]) for a in args]
         y_chops = []
         if h * w < 4 * min_size:
             for i in range(0, 4, n_GPUs):
@@ -433,8 +417,7 @@ class Model(nn.Module):
                 if not isinstance(y, list):
                     y = [y]
                 if not y_chops:
-                    y_chops = [[c for c in _y.chunk(n_GPUs, dim=0)] for _y in y
-                        ]
+                    y_chops = [[c for c in _y.chunk(n_GPUs, dim=0)] for _y in y]
                 else:
                     for y_chop, _y in zip(y_chops, y):
                         y_chop.extend(_y.chunk(n_GPUs, dim=0))
@@ -515,8 +498,7 @@ class Model(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -527,8 +509,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -539,8 +520,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(ResBlock, self).__init__()
         m = []
         for i in range(2):
@@ -587,14 +567,12 @@ class Upsampler(nn.Sequential):
 
 
 def projection_conv(in_channels, out_channels, scale, up=True):
-    kernel_size, stride, padding = {(2): (6, 2, 2), (4): (8, 4, 2), (8): (
-        12, 8, 2)}[scale]
+    kernel_size, stride, padding = {(2): (6, 2, 2), (4): (8, 4, 2), (8): (12, 8, 2)}[scale]
     if up:
         conv_f = nn.ConvTranspose2d
     else:
         conv_f = nn.Conv2d
-    return conv_f(in_channels, out_channels, kernel_size, stride=stride,
-        padding=padding)
+    return conv_f(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
 
 
 class DenseProjection(nn.Module):
@@ -602,18 +580,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -637,24 +611,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -684,10 +654,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -697,8 +664,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -719,13 +685,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -741,8 +704,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -774,27 +736,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -814,26 +765,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'conv': _mock_layer, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CALayer,
+     lambda: ([], {'channel': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MeanShift,
+     lambda: ([], {'rgb_range': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (RCAB,
+     lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RDB,
+     lambda: ([], {'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RDB_Conv,
+     lambda: ([], {'inChannels': 4, 'growRate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_thstkdgus35_EDSR_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'conv': _mock_layer, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(MeanShift(*[], **{'rgb_range': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RCAB(*[], **{'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ResBlock(*[], **{'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

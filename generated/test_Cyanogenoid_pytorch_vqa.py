@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,13 +89,9 @@ class Net(nn.Module):
         question_features = 1024
         vision_features = config.output_features
         glimpses = 2
-        self.text = TextProcessor(embedding_tokens=embedding_tokens,
-            embedding_features=300, lstm_features=question_features, drop=0.5)
-        self.attention = Attention(v_features=vision_features, q_features=
-            question_features, mid_features=512, glimpses=2, drop=0.5)
-        self.classifier = Classifier(in_features=glimpses * vision_features +
-            question_features, mid_features=1024, out_features=config.
-            max_answers, drop=0.5)
+        self.text = TextProcessor(embedding_tokens=embedding_tokens, embedding_features=300, lstm_features=question_features, drop=0.5)
+        self.attention = Attention(v_features=vision_features, q_features=question_features, mid_features=512, glimpses=2, drop=0.5)
+        self.classifier = Classifier(in_features=glimpses * vision_features + question_features, mid_features=1024, out_features=config.max_answers, drop=0.5)
         for m in self.modules():
             if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
                 init.xavier_uniform(m.weight)
@@ -124,15 +121,12 @@ class Classifier(nn.Sequential):
 
 class TextProcessor(nn.Module):
 
-    def __init__(self, embedding_tokens, embedding_features, lstm_features,
-        drop=0.0):
+    def __init__(self, embedding_tokens, embedding_features, lstm_features, drop=0.0):
         super(TextProcessor, self).__init__()
-        self.embedding = nn.Embedding(embedding_tokens, embedding_features,
-            padding_idx=0)
+        self.embedding = nn.Embedding(embedding_tokens, embedding_features, padding_idx=0)
         self.drop = nn.Dropout(drop)
         self.tanh = nn.Tanh()
-        self.lstm = nn.LSTM(input_size=embedding_features, hidden_size=
-            lstm_features, num_layers=1)
+        self.lstm = nn.LSTM(input_size=embedding_features, hidden_size=lstm_features, num_layers=1)
         self.features = lstm_features
         self._init_lstm(self.lstm.weight_ih_l0)
         self._init_lstm(self.lstm.weight_hh_l0)
@@ -158,15 +152,13 @@ def tile_2d_over_nd(feature_vector, feature_map):
     """
     n, c = feature_vector.size()
     spatial_size = feature_map.dim() - 2
-    tiled = feature_vector.view(n, c, *([1] * spatial_size)).expand_as(
-        feature_map)
+    tiled = feature_vector.view(n, c, *([1] * spatial_size)).expand_as(feature_map)
     return tiled
 
 
 class Attention(nn.Module):
 
-    def __init__(self, v_features, q_features, mid_features, glimpses, drop=0.0
-        ):
+    def __init__(self, v_features, q_features, mid_features, glimpses, drop=0.0):
         super(Attention, self).__init__()
         self.v_conv = nn.Conv2d(v_features, mid_features, 1, bias=False)
         self.q_lin = nn.Linear(q_features, mid_features)
@@ -202,15 +194,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 4])], {}),
+     False),
+    (Classifier,
+     lambda: ([], {'in_features': 4, 'mid_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TextProcessor,
+     lambda: ([], {'embedding_tokens': 4, 'embedding_features': 4, 'lstm_features': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_Cyanogenoid_pytorch_vqa(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Attention(*[], **{'v_features': 4, 'q_features': 4, 'mid_features': 4, 'glimpses': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Classifier(*[], **{'in_features': 4, 'mid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TextProcessor(*[], **{'embedding_tokens': 4, 'embedding_features': 4, 'lstm_features': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

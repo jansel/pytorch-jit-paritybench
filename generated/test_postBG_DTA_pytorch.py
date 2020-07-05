@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -115,8 +116,7 @@ class KLDivLossWithLogits(AbstractConsistencyLoss):
         self.kl_div_loss = nn.KLDivLoss(reduction=reduction)
 
     def forward(self, logits1, logits2):
-        return self.kl_div_loss(F.log_softmax(logits1, dim=1), F.softmax(
-            logits2, dim=1))
+        return self.kl_div_loss(F.log_softmax(logits1, dim=1), F.softmax(logits2, dim=1))
 
 
 class LDSLoss(nn.Module):
@@ -124,8 +124,7 @@ class LDSLoss(nn.Module):
     def __init__(self, model, xi=1e-06, eps=2.0, ip=1):
         super().__init__()
         self.model = model
-        self.vap_generator = VirtualAdversarialPerturbationGenerator(model,
-            xi=xi, eps=eps, ip=ip)
+        self.vap_generator = VirtualAdversarialPerturbationGenerator(model, xi=xi, eps=eps, ip=ip)
         self.kl_div = KLDivLossWithLogits()
 
     def forward(self, inputs):
@@ -139,8 +138,7 @@ class LDSLoss(nn.Module):
 class AbstractModel(nn.Module, ABC):
 
     def state_dict(self, destination=None, prefix='', keep_vars=False):
-        state_dict = super().state_dict(destination=destination, prefix=
-            prefix, keep_vars=keep_vars)
+        state_dict = super().state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars)
         new_state_dict = OrderedDict()
         for k, v in state_dict.items():
             name = k.replace('module.', '')
@@ -179,8 +177,7 @@ class AbstractModel(nn.Module, ABC):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -213,13 +210,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dropout
-        =None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dropout=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -292,17 +287,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ClassBalanceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (KLDivLossWithLogits,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_postBG_DTA_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ClassBalanceLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(KLDivLossWithLogits(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

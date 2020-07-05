@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -140,20 +141,13 @@ class InceptionA(nn.Module):
 
     def __init__(self, in_channels, pool_features, have_bn, have_bias):
         super(InceptionA, self).__init__()
-        self.branch1x1 = BasicConv2d(in_channels, 64, kernel_size=1, bn=
-            have_bn, bias=have_bias)
-        self.branch5x5_1 = BasicConv2d(in_channels, 48, kernel_size=1, bn=
-            have_bn, bias=have_bias)
-        self.branch5x5_2 = BasicConv2d(48, 64, kernel_size=5, padding=2, bn
-            =have_bn, bias=have_bias)
-        self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1,
-            bn=have_bn, bias=have_bias)
-        self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1,
-            bn=have_bn, bias=have_bias)
-        self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1,
-            bn=have_bn, bias=have_bias)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch1x1 = BasicConv2d(in_channels, 64, kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch5x5_1 = BasicConv2d(in_channels, 48, kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch5x5_2 = BasicConv2d(48, 64, kernel_size=5, padding=2, bn=have_bn, bias=have_bias)
+        self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1, bn=have_bn, bias=have_bias)
+        self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1, bn=have_bn, bias=have_bias)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1, bn=have_bn, bias=have_bias)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -170,14 +164,11 @@ class InceptionA(nn.Module):
 
 class dilation_layer(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=
-        'same_padding', dilation=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding='same_padding', dilation=1):
         super(dilation_layer, self).__init__()
         if padding == 'same_padding':
             padding = (kernel_size - 1) / 2 * dilation
-        self.Dconv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, padding=padding,
-            dilation=dilation)
+        self.Dconv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, dilation=dilation)
         self.Drelu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -192,17 +183,12 @@ class stage_block(nn.Module):
         super(stage_block, self).__init__()
         self.Dconv_1 = dilation_layer(in_channels, out_channels=64)
         self.Dconv_2 = dilation_layer(in_channels=64, out_channels=64)
-        self.Dconv_3 = dilation_layer(in_channels=64, out_channels=64,
-            dilation=2)
-        self.Dconv_4 = dilation_layer(in_channels=64, out_channels=32,
-            dilation=4)
-        self.Dconv_5 = dilation_layer(in_channels=32, out_channels=32,
-            dilation=8)
-        self.Mconv_6 = nn.Conv2d(in_channels=256, out_channels=128,
-            kernel_size=1, padding=0)
+        self.Dconv_3 = dilation_layer(in_channels=64, out_channels=64, dilation=2)
+        self.Dconv_4 = dilation_layer(in_channels=64, out_channels=32, dilation=4)
+        self.Dconv_5 = dilation_layer(in_channels=32, out_channels=32, dilation=8)
+        self.Mconv_6 = nn.Conv2d(in_channels=256, out_channels=128, kernel_size=1, padding=0)
         self.Mrelu_6 = nn.ReLU(inplace=True)
-        self.Mconv_7 = nn.Conv2d(in_channels=128, out_channels=out_channels,
-            kernel_size=1, padding=0)
+        self.Mconv_7 = nn.Conv2d(in_channels=128, out_channels=out_channels, kernel_size=1, padding=0)
 
     def forward(self, x):
         x_1 = self.Dconv_1(x)
@@ -222,20 +208,13 @@ class feature_extractor(nn.Module):
     def __init__(self, have_bn, have_bias):
         super(feature_extractor, self).__init__()
         None
-        self.conv1_3x3_s2 = BasicConv2d(3, 32, kernel_size=3, stride=2,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv2_3x3_s1 = BasicConv2d(32, 32, kernel_size=3, stride=1,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv3_3x3_s1 = BasicConv2d(32, 64, kernel_size=3, stride=1,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv4_3x3_reduce = BasicConv2d(64, 80, kernel_size=1, stride=1,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv4_3x3 = BasicConv2d(80, 192, kernel_size=3, bn=have_bn,
-            bias=have_bias)
-        self.inception_a1 = InceptionA(192, pool_features=32, have_bn=
-            have_bn, have_bias=have_bias)
-        self.inception_a2 = InceptionA(256, pool_features=64, have_bn=
-            have_bn, have_bias=have_bias)
+        self.conv1_3x3_s2 = BasicConv2d(3, 32, kernel_size=3, stride=2, padding=1, bn=have_bn, bias=have_bias)
+        self.conv2_3x3_s1 = BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1, bn=have_bn, bias=have_bias)
+        self.conv3_3x3_s1 = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1, bn=have_bn, bias=have_bias)
+        self.conv4_3x3_reduce = BasicConv2d(64, 80, kernel_size=1, stride=1, padding=1, bn=have_bn, bias=have_bias)
+        self.conv4_3x3 = BasicConv2d(80, 192, kernel_size=3, bn=have_bn, bias=have_bias)
+        self.inception_a1 = InceptionA(192, pool_features=32, have_bn=have_bn, have_bias=have_bias)
+        self.inception_a2 = InceptionA(256, pool_features=64, have_bn=have_bn, have_bias=have_bias)
 
     def forward(self, x):
         x = self.conv1_3x3_s2(x)
@@ -263,19 +242,11 @@ class Atrous_model(nn.Module):
     def __init__(self, stages=5, have_bn=True, have_bias=False):
         super(Atrous_model, self).__init__()
         self.stages = stages
-        self.feature_extractor = feature_extractor(have_bn=have_bn,
-            have_bias=have_bias)
-        self.stage_0 = nn.Sequential(nn.Conv2d(in_channels=288,
-            out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size
-            =3, padding=1), nn.ReLU(inplace=True))
+        self.feature_extractor = feature_extractor(have_bn=have_bn, have_bias=have_bias)
+        self.stage_0 = nn.Sequential(nn.Conv2d(in_channels=288, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1), nn.ReLU(inplace=True))
         for i in range(stages):
-            setattr(self, 'PAF_stage{}'.format(i + 2), stage_block(
-                in_channels=128, out_channels=38) if i == 0 else
-                stage_block(in_channels=185, out_channels=38))
-            setattr(self, 'heatmap_stage{}'.format(i + 2), stage_block(
-                in_channels=128, out_channels=19) if i == 0 else
-                stage_block(in_channels=185, out_channels=19))
+            setattr(self, 'PAF_stage{}'.format(i + 2), stage_block(in_channels=128, out_channels=38) if i == 0 else stage_block(in_channels=185, out_channels=38))
+            setattr(self, 'heatmap_stage{}'.format(i + 2), stage_block(in_channels=128, out_channels=19) if i == 0 else stage_block(in_channels=185, out_channels=19))
         self.init_weight()
 
     def forward(self, x):
@@ -285,8 +256,7 @@ class Atrous_model(nn.Module):
         x_in = x_in_0
         for i in range(self.stages):
             x_PAF_pred = getattr(self, 'PAF_stage{}'.format(i + 2))(x_in)
-            x_heatmap_pred = getattr(self, 'heatmap_stage{}'.format(i + 2))(
-                x_in)
+            x_heatmap_pred = getattr(self, 'heatmap_stage{}'.format(i + 2))(x_in)
             saved_for_loss.append(x_PAF_pred)
             saved_for_loss.append(x_heatmap_pred)
             if i != self.stages - 1:
@@ -303,8 +273,7 @@ class Atrous_model(nn.Module):
                     init.constant(m.bias, 0.0)
 
     @staticmethod
-    def build_loss(saved_for_loss, heat_temp, heat_weight, vec_temp,
-        vec_weight, batch_size, gpus):
+    def build_loss(saved_for_loss, heat_temp, heat_weight, vec_temp, vec_weight, batch_size, gpus):
         names = build_names()
         saved_for_log = OrderedDict()
         criterion = nn.MSELoss(size_average=False)
@@ -356,20 +325,13 @@ class InceptionA(nn.Module):
 
     def __init__(self, in_channels, pool_features, have_bn, have_bias):
         super(InceptionA, self).__init__()
-        self.branch1x1 = BasicConv2d(in_channels, 64, kernel_size=1, bn=
-            have_bn, bias=have_bias)
-        self.branch5x5_1 = BasicConv2d(in_channels, 48, kernel_size=1, bn=
-            have_bn, bias=have_bias)
-        self.branch5x5_2 = BasicConv2d(48, 64, kernel_size=5, padding=2, bn
-            =have_bn, bias=have_bias)
-        self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1,
-            bn=have_bn, bias=have_bias)
-        self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1,
-            bn=have_bn, bias=have_bias)
-        self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1,
-            bn=have_bn, bias=have_bias)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch1x1 = BasicConv2d(in_channels, 64, kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch5x5_1 = BasicConv2d(in_channels, 48, kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch5x5_2 = BasicConv2d(48, 64, kernel_size=5, padding=2, bn=have_bn, bias=have_bias)
+        self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1, bn=have_bn, bias=have_bias)
+        self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1, bn=have_bn, bias=have_bias)
+        self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1, bn=have_bn, bias=have_bias)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1, bn=have_bn, bias=have_bias)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -386,14 +348,11 @@ class InceptionA(nn.Module):
 
 class dilation_layer(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=
-        'same_padding', dilation=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding='same_padding', dilation=1):
         super(dilation_layer, self).__init__()
         if padding == 'same_padding':
             padding = int((kernel_size - 1) / 2 * dilation)
-        self.Dconv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, padding=padding,
-            dilation=dilation)
+        self.Dconv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, dilation=dilation)
         self.Drelu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -409,19 +368,13 @@ class stage_block(nn.Module):
         super(stage_block, self).__init__()
         self.Dconv_1 = dilation_layer(in_channels, out_channels=64)
         self.Dconv_2 = dilation_layer(in_channels=64, out_channels=64)
-        self.Dconv_3 = dilation_layer(in_channels=64, out_channels=64,
-            dilation=2)
-        self.Dconv_4 = dilation_layer(in_channels=64, out_channels=32,
-            dilation=4)
-        self.Dconv_5 = dilation_layer(in_channels=32, out_channels=32,
-            dilation=8)
-        self.Mconv_6 = nn.Conv2d(in_channels=256, out_channels=128,
-            kernel_size=1, padding=0)
+        self.Dconv_3 = dilation_layer(in_channels=64, out_channels=64, dilation=2)
+        self.Dconv_4 = dilation_layer(in_channels=64, out_channels=32, dilation=4)
+        self.Dconv_5 = dilation_layer(in_channels=32, out_channels=32, dilation=8)
+        self.Mconv_6 = nn.Conv2d(in_channels=256, out_channels=128, kernel_size=1, padding=0)
         self.Mrelu_6 = nn.ReLU(inplace=True)
-        self.paf = nn.Conv2d(in_channels=128, out_channels=14, kernel_size=
-            1, padding=0)
-        self.heatmap = nn.Conv2d(in_channels=128, out_channels=9,
-            kernel_size=1, padding=0)
+        self.paf = nn.Conv2d(in_channels=128, out_channels=14, kernel_size=1, padding=0)
+        self.heatmap = nn.Conv2d(in_channels=128, out_channels=9, kernel_size=1, padding=0)
 
     def forward(self, x):
         x_1 = self.Dconv_1(x)
@@ -452,20 +405,13 @@ class feature_extractor(nn.Module):
         self.Mixed_5b = InceptionA(192, pool_features=32)
         self.Mixed_5c = InceptionA(256, pool_features=64)
         """
-        self.conv1_3x3_s2 = BasicConv2d(3, 32, kernel_size=3, stride=2,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv2_3x3_s1 = BasicConv2d(32, 32, kernel_size=3, stride=1,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv3_3x3_s1 = BasicConv2d(32, 64, kernel_size=3, stride=1,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv4_3x3_reduce = BasicConv2d(64, 80, kernel_size=1, stride=1,
-            padding=1, bn=have_bn, bias=have_bias)
-        self.conv4_3x3 = BasicConv2d(80, 192, kernel_size=3, bn=have_bn,
-            bias=have_bias)
-        self.inception_a1 = InceptionA(192, pool_features=32, have_bn=
-            have_bn, have_bias=have_bias)
-        self.inception_a2 = InceptionA(256, pool_features=64, have_bn=
-            have_bn, have_bias=have_bias)
+        self.conv1_3x3_s2 = BasicConv2d(3, 32, kernel_size=3, stride=2, padding=1, bn=have_bn, bias=have_bias)
+        self.conv2_3x3_s1 = BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1, bn=have_bn, bias=have_bias)
+        self.conv3_3x3_s1 = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1, bn=have_bn, bias=have_bias)
+        self.conv4_3x3_reduce = BasicConv2d(64, 80, kernel_size=1, stride=1, padding=1, bn=have_bn, bias=have_bias)
+        self.conv4_3x3 = BasicConv2d(80, 192, kernel_size=3, bn=have_bn, bias=have_bias)
+        self.inception_a1 = InceptionA(192, pool_features=32, have_bn=have_bn, have_bias=have_bias)
+        self.inception_a2 = InceptionA(256, pool_features=64, have_bn=have_bn, have_bias=have_bias)
 
     def forward(self, x):
         x = self.conv1_3x3_s2(x)
@@ -485,16 +431,10 @@ class Ying_model(nn.Module):
     def __init__(self, stages=5, have_bn=True, have_bias=False):
         super(Ying_model, self).__init__()
         self.stages = stages
-        self.feature_extractor = feature_extractor(have_bn=have_bn,
-            have_bias=have_bias)
-        self.stage_0 = nn.Sequential(nn.Conv2d(in_channels=288,
-            out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size
-            =3, padding=1), nn.ReLU(inplace=True))
+        self.feature_extractor = feature_extractor(have_bn=have_bn, have_bias=have_bias)
+        self.stage_0 = nn.Sequential(nn.Conv2d(in_channels=288, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1), nn.ReLU(inplace=True))
         for i in range(stages):
-            setattr(self, 'stage{}'.format(i + 2), stage_block(in_channels=
-                128, out_channels=14) if i == 0 else stage_block(
-                in_channels=151, out_channels=14))
+            setattr(self, 'stage{}'.format(i + 2), stage_block(in_channels=128, out_channels=14) if i == 0 else stage_block(in_channels=151, out_channels=14))
         self._initialize_weights_norm()
 
     def forward(self, x):
@@ -504,16 +444,14 @@ class Ying_model(nn.Module):
         x_in_0 = self.stage_0(x_in)
         x_in = x_in_0
         for i in range(self.stages):
-            x_PAF_pred, x_heatmap_pred = getattr(self, 'stage{}'.format(i + 2)
-                )(x_in)
+            x_PAF_pred, x_heatmap_pred = getattr(self, 'stage{}'.format(i + 2))(x_in)
             paf_ret.append(x_PAF_pred)
             heat_ret.append(x_heatmap_pred)
             if i != self.stages - 1:
                 x_in = torch.cat([x_PAF_pred, x_heatmap_pred, x_in_0], 1)
         saved_for_loss.append(paf_ret)
         saved_for_loss.append(heat_ret)
-        return [(paf_ret[-2], heat_ret[-2]), (paf_ret[-1], heat_ret[-1])
-            ], saved_for_loss
+        return [(paf_ret[-2], heat_ret[-2]), (paf_ret[-1], heat_ret[-1])], saved_for_loss
 
     def _initialize_weights_norm(self):
         for m in self.modules():
@@ -523,8 +461,7 @@ class Ying_model(nn.Module):
                     init.constant(m.bias, 0.001)
 
     @staticmethod
-    def build_loss(saved_for_loss, heat_temp, heat_weight, vec_temp,
-        vec_weight, batch_size, gpus):
+    def build_loss(saved_for_loss, heat_temp, heat_weight, vec_temp, vec_weight, batch_size, gpus):
         names = build_names()
         saved_for_log = OrderedDict()
         criterion = nn.MSELoss(size_average=True)
@@ -559,17 +496,13 @@ class ASPP_ASP(nn.Module):
 
     def __init__(self, in_, out_=16):
         super(ASPP_ASP, self).__init__()
-        self.conv_1x1_1 = nn.Conv2d(in_, 128, kernel_size=3, stride=1,
-            padding=1, dilation=1)
+        self.conv_1x1_1 = nn.Conv2d(in_, 128, kernel_size=3, stride=1, padding=1, dilation=1)
         self.bn_conv_1x1_1 = nn.BatchNorm2d(128)
-        self.conv_3x3_1 = nn.Conv2d(in_, 128, kernel_size=3, stride=1,
-            padding=4, dilation=4)
+        self.conv_3x3_1 = nn.Conv2d(in_, 128, kernel_size=3, stride=1, padding=4, dilation=4)
         self.bn_conv_3x3_1 = nn.BatchNorm2d(128)
-        self.conv_3x3_2 = nn.Conv2d(in_, 128, kernel_size=3, stride=1,
-            padding=8, dilation=8)
+        self.conv_3x3_2 = nn.Conv2d(in_, 128, kernel_size=3, stride=1, padding=8, dilation=8)
         self.bn_conv_3x3_2 = nn.BatchNorm2d(128)
-        self.conv_3x3_3 = nn.Conv2d(in_, 128, kernel_size=3, stride=1,
-            padding=16, dilation=16)
+        self.conv_3x3_3 = nn.Conv2d(in_, 128, kernel_size=3, stride=1, padding=16, dilation=16)
         self.bn_conv_3x3_3 = nn.BatchNorm2d(128)
         self.bn_out = nn.BatchNorm2d(512)
 
@@ -594,14 +527,11 @@ class Upsample(nn.Module):
         self.mode = mode
 
     def forward(self, x):
-        return F.interpolate(x, scale_factor=self.scale_factor, mode=self.
-            mode, align_corners=True)
+        return F.interpolate(x, scale_factor=self.scale_factor, mode=self.mode, align_corners=True)
 
 
-def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True,
-    dilation=1, stride=1, relu=True, bias=True):
-    modules = [nn.Conv2d(in_channels, out_channels, kernel_size, stride,
-        padding, dilation, bias=bias)]
+def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True, dilation=1, stride=1, relu=True, bias=True):
+    modules = [nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, bias=bias)]
     if bn:
         modules.append(nn.BatchNorm2d(out_channels))
     if relu:
@@ -622,21 +552,12 @@ class AtrousPose(nn.Module):
         self.smooth_ups2 = self._lateral(1024, 2)
         self.smooth_ups3 = self._lateral(512, 1)
         self.aspp1 = ASPP_ASP(512, out_=16)
-        self.h1 = nn.Sequential(conv(512, 512, kernel_size=3, padding=1),
-            conv(512, 512, kernel_size=3, padding=1), conv(512, 512,
-            kernel_size=3, padding=1), conv(512, 512, kernel_size=1,
-            padding=0, bn=False), conv(512, heat_out_channels, kernel_size=
-            1, padding=0, bn=False, relu=False))
-        self.p1 = nn.Sequential(conv(512, 512, kernel_size=3, padding=1),
-            conv(512, 512, kernel_size=3, padding=1), conv(512, 512,
-            kernel_size=3, padding=1), conv(512, 512, kernel_size=1,
-            padding=0, bn=False), conv(512, paf_out_channels, kernel_size=1,
-            padding=0, bn=False, relu=False))
+        self.h1 = nn.Sequential(conv(512, 512, kernel_size=3, padding=1), conv(512, 512, kernel_size=3, padding=1), conv(512, 512, kernel_size=3, padding=1), conv(512, 512, kernel_size=1, padding=0, bn=False), conv(512, heat_out_channels, kernel_size=1, padding=0, bn=False, relu=False))
+        self.p1 = nn.Sequential(conv(512, 512, kernel_size=3, padding=1), conv(512, 512, kernel_size=3, padding=1), conv(512, 512, kernel_size=3, padding=1), conv(512, 512, kernel_size=1, padding=0, bn=False), conv(512, paf_out_channels, kernel_size=1, padding=0, bn=False, relu=False))
 
     def _lateral(self, input_size, factor):
         layers = []
-        layers.append(nn.Conv2d(input_size, 256, kernel_size=1, stride=1,
-            bias=False))
+        layers.append(nn.Conv2d(input_size, 256, kernel_size=1, stride=1, bias=False))
         layers.append(nn.BatchNorm2d(256))
         layers.append(nn.ReLU(inplace=True))
         layers.append(Upsample(scale_factor=factor, mode='bilinear'))
@@ -656,12 +577,9 @@ class AtrousPose(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super(ConvBlock, self).__init__()
-        self.Mconv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding)
+        self.Mconv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         self.MPrelu = nn.PReLU(num_parameters=out_channels)
 
     def forward(self, x):
@@ -673,8 +591,7 @@ class ConvBlock(nn.Module):
 class StageBlock(nn.Module):
     """ L1/L2 StageBlock Template """
 
-    def __init__(self, in_channels, inner_channels, innerout_channels,
-        out_channels):
+    def __init__(self, in_channels, inner_channels, innerout_channels, out_channels):
         super(StageBlock, self).__init__()
         self.Mconv1_0 = ConvBlock(in_channels, inner_channels)
         self.Mconv1_1 = ConvBlock(inner_channels, inner_channels)
@@ -691,10 +608,8 @@ class StageBlock(nn.Module):
         self.Mconv5_0 = ConvBlock(inner_channels * 3, inner_channels)
         self.Mconv5_1 = ConvBlock(inner_channels, inner_channels)
         self.Mconv5_2 = ConvBlock(inner_channels, inner_channels)
-        self.Mconv6 = ConvBlock(inner_channels * 3, innerout_channels,
-            kernel_size=1, stride=1, padding=0)
-        self.Mconv7 = nn.Conv2d(in_channels=innerout_channels, out_channels
-            =out_channels, kernel_size=1, stride=1, padding=0)
+        self.Mconv6 = ConvBlock(inner_channels * 3, innerout_channels, kernel_size=1, stride=1, padding=0)
+        self.Mconv7 = nn.Conv2d(in_channels=innerout_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         out1_1 = self.Mconv1_0(x)
@@ -732,19 +647,16 @@ def make_vgg19_block(block):
         one_ = block[i]
         for k, v in one_.items():
             if 'pool' in k:
-                layers += [nn.MaxPool2d(kernel_size=v[0], stride=v[1],
-                    padding=v[2])]
+                layers += [nn.MaxPool2d(kernel_size=v[0], stride=v[1], padding=v[2])]
             else:
-                conv2d = nn.Conv2d(in_channels=v[0], out_channels=v[1],
-                    kernel_size=v[2], stride=v[3], padding=v[4])
+                conv2d = nn.Conv2d(in_channels=v[0], out_channels=v[1], kernel_size=v[2], stride=v[3], padding=v[4])
                 layers += [conv2d, nn.ReLU(inplace=True)]
     return nn.Sequential(*layers)
 
 
 class OpenPose_Model(nn.Module):
 
-    def __init__(self, l2_stages=4, l1_stages=2, paf_out_channels=14,
-        heat_out_channels=9):
+    def __init__(self, l2_stages=4, l1_stages=2, paf_out_channels=14, heat_out_channels=9):
         """
         :param feature_extractor:
         :param l2_stages:
@@ -767,10 +679,7 @@ class OpenPose_Model(nn.Module):
             L2_INNER_CHS.append(128)
             L2_INNEROUT_CHS.append(512)
             L2_OUT_CHS.append(paf_out_channels)
-        self.l2_stages = nn.ModuleList([StageBlock(in_channels=L2_IN_CHS[i],
-            inner_channels=L2_INNER_CHS[i], innerout_channels=
-            L2_INNEROUT_CHS[i], out_channels=L2_OUT_CHS[i]) for i in range(
-            len(L2_IN_CHS))])
+        self.l2_stages = nn.ModuleList([StageBlock(in_channels=L2_IN_CHS[i], inner_channels=L2_INNER_CHS[i], innerout_channels=L2_INNEROUT_CHS[i], out_channels=L2_OUT_CHS[i]) for i in range(len(L2_IN_CHS))])
         L1_IN_CHS = [128 + paf_out_channels]
         L1_INNER_CHS = [96]
         L1_INNEROUT_CHS = [256]
@@ -780,10 +689,7 @@ class OpenPose_Model(nn.Module):
             L1_INNER_CHS.append(128)
             L1_INNEROUT_CHS.append(512)
             L1_OUT_CHS.append(heat_out_channels)
-        self.l1_stages = nn.ModuleList([StageBlock(in_channels=L1_IN_CHS[i],
-            inner_channels=L1_INNER_CHS[i], innerout_channels=
-            L1_INNEROUT_CHS[i], out_channels=L1_OUT_CHS[i]) for i in range(
-            len(L1_IN_CHS))])
+        self.l1_stages = nn.ModuleList([StageBlock(in_channels=L1_IN_CHS[i], inner_channels=L1_INNER_CHS[i], innerout_channels=L1_INNEROUT_CHS[i], out_channels=L1_OUT_CHS[i]) for i in range(len(L1_IN_CHS))])
         self._initialize_weights_norm()
 
     def forward(self, x):
@@ -801,8 +707,7 @@ class OpenPose_Model(nn.Module):
             heat_ret.append(heat_pred)
         saved_for_loss.append(paf_ret)
         saved_for_loss.append(heat_ret)
-        return [(paf_ret[-2], heat_ret[-2]), (paf_ret[-1], heat_ret[-1])
-            ], saved_for_loss
+        return [(paf_ret[-2], heat_ret[-2]), (paf_ret[-1], heat_ret[-1])], saved_for_loss
 
     def _initialize_weights_norm(self):
         for m in self.modules():
@@ -813,28 +718,21 @@ class OpenPose_Model(nn.Module):
             elif isinstance(m, nn.PReLU):
                 init.normal_(m.weight, std=0.01)
 
-    def init_w_pretrained_weights(self, pkl_weights=
-        '/home/tomas/Desktop/AIFI/internal-repos/aifi-pose/network/weights/openpose/openpose.pkl'
-        ):
+    def init_w_pretrained_weights(self, pkl_weights='/home/tomas/Desktop/AIFI/internal-repos/aifi-pose/network/weights/openpose/openpose.pkl'):
         with open(pkl_weights, 'rb') as f:
             weights = pickle.load(f, encoding='latin1')
-        conv_idxs = [i for i, d in enumerate(weights) if 'conv' in d['name'
-            ] and 'split' not in d['name'] and 'concat' not in d['name']]
-        prelu_idxs = [i for i, d in enumerate(weights) if 'prelu' in d[
-            'name'] and 'split' not in d['name'] and 'concat' not in d['name']]
+        conv_idxs = [i for i, d in enumerate(weights) if 'conv' in d['name'] and 'split' not in d['name'] and 'concat' not in d['name']]
+        prelu_idxs = [i for i, d in enumerate(weights) if 'prelu' in d['name'] and 'split' not in d['name'] and 'concat' not in d['name']]
         conv_idxs = iter(conv_idxs)
         prelu_idxs = iter(prelu_idxs)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 idx = next(conv_idxs)
-                m.weight = torch.nn.Parameter(torch.Tensor(weights[idx][
-                    'weights'][0]))
-                m.bias = torch.nn.Parameter(torch.Tensor(weights[idx][
-                    'weights'][1]))
+                m.weight = torch.nn.Parameter(torch.Tensor(weights[idx]['weights'][0]))
+                m.bias = torch.nn.Parameter(torch.Tensor(weights[idx]['weights'][1]))
             elif isinstance(m, nn.PReLU):
                 idx = next(prelu_idxs)
-                m.weight = torch.nn.Parameter(torch.Tensor(weights[idx][
-                    'weights'][0]))
+                m.weight = torch.nn.Parameter(torch.Tensor(weights[idx]['weights'][0]))
 
 
 class Bottleneck(nn.Module):
@@ -845,8 +743,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=True)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True)
         self.bn3 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=True)
         self.relu = nn.ReLU(inplace=True)
@@ -922,14 +819,12 @@ NUM_LIMBS = 38
 class HourglassNet(nn.Module):
     """Hourglass model from Newell et al ECCV 2016"""
 
-    def __init__(self, block, num_stacks=2, num_blocks=4, paf_classes=
-        NUM_LIMBS * 2, ht_classes=NUM_JOINTS + 1):
+    def __init__(self, block, num_stacks=2, num_blocks=4, paf_classes=NUM_LIMBS * 2, ht_classes=NUM_JOINTS + 1):
         super(HourglassNet, self).__init__()
         self.inplanes = 64
         self.num_feats = 128
         self.num_stacks = num_stacks
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=True)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=True)
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_residual(block, self.inplanes, 1)
@@ -937,22 +832,17 @@ class HourglassNet(nn.Module):
         self.layer3 = self._make_residual(block, self.num_feats, 1)
         self.maxpool = nn.MaxPool2d(2, stride=2)
         ch = self.num_feats * block.expansion
-        hg, res, fc, score_paf, score_ht, fc_, paf_score_, ht_score_ = [], [
-            ], [], [], [], [], [], []
+        hg, res, fc, score_paf, score_ht, fc_, paf_score_, ht_score_ = [], [], [], [], [], [], [], []
         for i in range(num_stacks):
             hg.append(Hourglass(block, num_blocks, self.num_feats, 4))
             res.append(self._make_residual(block, self.num_feats, num_blocks))
             fc.append(self._make_fc(ch, ch))
-            score_paf.append(nn.Conv2d(ch, paf_classes, kernel_size=1, bias
-                =True))
-            score_ht.append(nn.Conv2d(ch, ht_classes, kernel_size=1, bias=True)
-                )
+            score_paf.append(nn.Conv2d(ch, paf_classes, kernel_size=1, bias=True))
+            score_ht.append(nn.Conv2d(ch, ht_classes, kernel_size=1, bias=True))
             if i < num_stacks - 1:
                 fc_.append(nn.Conv2d(ch, ch, kernel_size=1, bias=True))
-                paf_score_.append(nn.Conv2d(paf_classes, ch, kernel_size=1,
-                    bias=True))
-                ht_score_.append(nn.Conv2d(ht_classes, ch, kernel_size=1,
-                    bias=True))
+                paf_score_.append(nn.Conv2d(paf_classes, ch, kernel_size=1, bias=True))
+                ht_score_.append(nn.Conv2d(ht_classes, ch, kernel_size=1, bias=True))
         self.hg = nn.ModuleList(hg)
         self.res = nn.ModuleList(res)
         self.fc = nn.ModuleList(fc)
@@ -966,8 +856,7 @@ class HourglassNet(nn.Module):
     def _make_residual(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=True))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=True))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1025,17 +914,9 @@ class InvertedResidual(nn.Module):
         hidden_dim = round(inp * expand_ratio)
         self.use_res_connect = self.stride == 1 and inp == oup
         if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3,
-                stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(
-                hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim,
-                oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
         else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=
-                True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1,
-                groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim),
-                nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -1045,13 +926,11 @@ class InvertedResidual(nn.Module):
 
 
 def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -1061,28 +940,22 @@ class MobileNetV2(nn.Module):
         block = InvertedResidual
         input_channel = 32
         last_channel = 1280
-        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 
-            32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 
-            320, 1, 1]]
+        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
         assert input_size % 32 == 0
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2)]
         for t, c, n, s in interverted_residual_setting:
             output_channel = int(c * width_mult)
             for i in range(n):
                 if i == 0:
-                    self.features.append(block(input_channel,
-                        output_channel, s, expand_ratio=t))
+                    self.features.append(block(input_channel, output_channel, s, expand_ratio=t))
                 else:
-                    self.features.append(block(input_channel,
-                        output_channel, 1, expand_ratio=t))
+                    self.features.append(block(input_channel, output_channel, 1, expand_ratio=t))
                 input_channel = output_channel
         self.features.append(conv_1x1_bn(input_channel, self.last_channel))
         self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.
-            last_channel, n_class))
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.last_channel, n_class))
         self._initialize_weights()
 
     def forward(self, x):
@@ -1109,8 +982,7 @@ class MobileNetV2(nn.Module):
 
 class BasicBlock(nn.Module):
 
-    def __init__(self, name, in_channels, out_channels, stride, downsample,
-        dilation):
+    def __init__(self, name, in_channels, out_channels, stride, downsample, dilation):
         super(BasicBlock, self).__init__()
         self.g_name = name
         self.in_channels = in_channels
@@ -1119,21 +991,10 @@ class BasicBlock(nn.Module):
         channels = out_channels // 2
         if not self.downsample and self.stride == 1:
             assert in_channels == out_channels
-            self.conv = nn.Sequential(slim.conv_bn_relu(name + '/conv1',
-                channels, channels, 1), slim.conv_bn(name + '/conv2',
-                channels, channels, 3, stride=stride, dilation=dilation,
-                padding=dilation, groups=channels), slim.conv_bn_relu(name +
-                '/conv3', channels, channels, 1))
+            self.conv = nn.Sequential(slim.conv_bn_relu(name + '/conv1', channels, channels, 1), slim.conv_bn(name + '/conv2', channels, channels, 3, stride=stride, dilation=dilation, padding=dilation, groups=channels), slim.conv_bn_relu(name + '/conv3', channels, channels, 1))
         else:
-            self.conv = nn.Sequential(slim.conv_bn_relu(name + '/conv1',
-                in_channels, channels, 1), slim.conv_bn(name + '/conv2',
-                channels, channels, 3, stride=stride, dilation=dilation,
-                padding=dilation, groups=channels), slim.conv_bn_relu(name +
-                '/conv3', channels, channels, 1))
-            self.conv0 = nn.Sequential(slim.conv_bn(name + '/conv4',
-                in_channels, in_channels, 3, stride=stride, dilation=
-                dilation, padding=dilation, groups=in_channels), slim.
-                conv_bn_relu(name + '/conv5', in_channels, channels, 1))
+            self.conv = nn.Sequential(slim.conv_bn_relu(name + '/conv1', in_channels, channels, 1), slim.conv_bn(name + '/conv2', channels, channels, 3, stride=stride, dilation=dilation, padding=dilation, groups=channels), slim.conv_bn_relu(name + '/conv3', channels, channels, 1))
+            self.conv0 = nn.Sequential(slim.conv_bn(name + '/conv4', in_channels, in_channels, 3, stride=stride, dilation=dilation, padding=dilation, groups=in_channels), slim.conv_bn_relu(name + '/conv5', in_channels, channels, 1))
         self.shuffle = slim.channel_shuffle(name + '/shuffle', 2)
 
     def forward(self, x):
@@ -1147,17 +1008,13 @@ class BasicBlock(nn.Module):
 
     def generate_caffe_prototxt(self, caffe_net, layer):
         if self.stride == 1:
-            layer_x1, layer_x2 = L.Slice(layer, ntop=2, axis=1, slice_point
-                =[self.in_channels // 2])
+            layer_x1, layer_x2 = L.Slice(layer, ntop=2, axis=1, slice_point=[self.in_channels // 2])
             caffe_net[self.g_name + '/slice1'] = layer_x1
             caffe_net[self.g_name + '/slice2'] = layer_x2
-            layer_x2 = slim.generate_caffe_prototxt(self.conv, caffe_net,
-                layer_x2)
+            layer_x2 = slim.generate_caffe_prototxt(self.conv, caffe_net, layer_x2)
         else:
-            layer_x1 = slim.generate_caffe_prototxt(self.conv0, caffe_net,
-                layer)
-            layer_x2 = slim.generate_caffe_prototxt(self.conv, caffe_net, layer
-                )
+            layer_x1 = slim.generate_caffe_prototxt(self.conv0, caffe_net, layer)
+            layer_x2 = slim.generate_caffe_prototxt(self.conv, caffe_net, layer)
         layer = L.Concat(layer_x1, layer_x2, axis=1)
         caffe_net[self.g_name + '/concat'] = layer
         layer = slim.generate_caffe_prototxt(self.shuffle, caffe_net, layer)
@@ -1171,17 +1028,10 @@ class Network(nn.Module):
 
     def __init__(self, width_multiplier):
         super(Network, self).__init__()
-        width_config = {(0.25): (24, 48, 96, 512), (0.33): (32, 64, 128, 
-            512), (0.5): (48, 96, 192, 1024), (1.0): (116, 232, 464, 1024),
-            (1.5): (176, 352, 704, 1024), (2.0): (244, 488, 976, 2048)}
+        width_config = {(0.25): (24, 48, 96, 512), (0.33): (32, 64, 128, 512), (0.5): (48, 96, 192, 1024), (1.0): (116, 232, 464, 1024), (1.5): (176, 352, 704, 1024), (2.0): (244, 488, 976, 2048)}
         width_config = width_config[width_multiplier]
         in_channels = 24
-        self.network_config = [g_name('data/bn', nn.BatchNorm2d(3)), slim.
-            conv_bn_relu('stage1/conv', 3, in_channels, 3, 2, 1), g_name(
-            'stage1/pool', nn.MaxPool2d(3, 2, 0, ceil_mode=True)), (
-            width_config[0], 2, 1, 4, 'b'), (width_config[1], 1, 1, 8, 'b'),
-            (width_config[2], 1, 1, 4, 'b'), slim.conv_bn_relu('conv5',
-            width_config[2], width_config[3], 1)]
+        self.network_config = [g_name('data/bn', nn.BatchNorm2d(3)), slim.conv_bn_relu('stage1/conv', 3, in_channels, 3, 2, 1), g_name('stage1/pool', nn.MaxPool2d(3, 2, 0, ceil_mode=True)), (width_config[0], 2, 1, 4, 'b'), (width_config[1], 1, 1, 8, 'b'), (width_config[2], 1, 1, 4, 'b'), slim.conv_bn_relu('conv5', width_config[2], width_config[3], 1)]
         self.paf = nn.Conv2d(width_config[3], 38, 1)
         self.heatmap = nn.Conv2d(width_config[3], 19, 1)
         self.network = []
@@ -1193,28 +1043,23 @@ class Network(nn.Module):
             if stride == 2:
                 downsample = True
             stage_prefix = 'stage_{}'.format(i - 1)
-            blocks = [BasicBlock(stage_prefix + '_1', in_channels,
-                out_channels, stride, downsample, dilation)]
+            blocks = [BasicBlock(stage_prefix + '_1', in_channels, out_channels, stride, downsample, dilation)]
             for i in range(1, num_blocks):
-                blocks.append(BasicBlock(stage_prefix + '_{}'.format(i + 1),
-                    out_channels, out_channels, 1, False, dilation))
+                blocks.append(BasicBlock(stage_prefix + '_{}'.format(i + 1), out_channels, out_channels, 1, False, dilation))
             self.network += [nn.Sequential(*blocks)]
             in_channels = out_channels
         self.network = nn.Sequential(*self.network)
         for name, m in self.named_modules():
-            if any(map(lambda x: isinstance(m, x), [nn.Linear, nn.Conv1d,
-                nn.Conv2d])):
+            if any(map(lambda x: isinstance(m, x), [nn.Linear, nn.Conv1d, nn.Conv2d])):
                 nn.init.kaiming_uniform_(m.weight, mode='fan_in')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
     def trainable_parameters(self):
-        parameters = [{'params': self.cls_head_list.parameters(), 'lr_mult':
-            1.0}, {'params': self.loc_head_list.parameters(), 'lr_mult': 1.0}]
+        parameters = [{'params': self.cls_head_list.parameters(), 'lr_mult': 1.0}, {'params': self.loc_head_list.parameters(), 'lr_mult': 1.0}]
         for i in range(len(self.network)):
             lr_mult = 0.1 if i in (0, 1, 2, 3, 4, 5) else 1
-            parameters.append({'params': self.network[i].parameters(),
-                'lr_mult': lr_mult})
+            parameters.append({'params': self.network[i].parameters(), 'lr_mult': lr_mult})
         return parameters
 
     def forward(self, x):
@@ -1225,8 +1070,7 @@ class Network(nn.Module):
 
     def generate_caffe_prototxt(self, caffe_net, layer):
         data_layer = layer
-        network = slim.generate_caffe_prototxt(self.network, caffe_net,
-            data_layer)
+        network = slim.generate_caffe_prototxt(self.network, caffe_net, data_layer)
         return network
 
     def convert_to_caffe(self, name):
@@ -1246,46 +1090,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ASPP_ASP,
+     lambda: ([], {'in_': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AtrousPose,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'bn': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4, 'have_bn': 4, 'have_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (StageBlock,
+     lambda: ([], {'in_channels': 4, 'inner_channels': 4, 'innerout_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Ying_model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (dilation_layer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (feature_extractor,
+     lambda: ([], {'have_bn': 4, 'have_bias': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (stage_block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_tensorboy_pytorch_Realtime_Multi_Person_Pose_Estimation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ASPP_ASP(*[], **{'in_': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(AtrousPose(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'bn': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4, 'have_bn': 4, 'have_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(StageBlock(*[], **{'in_channels': 4, 'inner_channels': 4, 'innerout_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Ying_model(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(dilation_layer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(feature_extractor(*[], **{'have_bn': 4, 'have_bias': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(stage_block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 

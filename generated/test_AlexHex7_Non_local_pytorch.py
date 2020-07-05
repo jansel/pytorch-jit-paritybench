@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,12 +51,10 @@ from torch.nn import functional as F
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3, mode=
-        'embedded_gaussian', sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, mode='embedded_gaussian', sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
-        assert mode in ['embedded_gaussian', 'gaussian', 'dot_product',
-            'concatenation']
+        assert mode in ['embedded_gaussian', 'gaussian', 'dot_product', 'concatenation']
         self.mode = mode
         self.dimension = dimension
         self.sub_sample = sub_sample
@@ -77,28 +76,21 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
         self.theta = None
         self.phi = None
         self.concat_project = None
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
-        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels *
-            2, 1, 1, 1, 0, bias=False), nn.ReLU())
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels * 2, 1, 1, 1, 0, bias=False), nn.ReLU())
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             if self.phi is None:
@@ -203,8 +195,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -227,23 +218,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -271,28 +256,16 @@ class _NonLocalBlockND(nn.Module):
 
 class NONLocalBlock2D(_NonLocalBlockND):
 
-    def __init__(self, in_channels, inter_channels=None, sub_sample=True,
-        bn_layer=True):
-        super(NONLocalBlock2D, self).__init__(in_channels, inter_channels=
-            inter_channels, dimension=2, sub_sample=sub_sample, bn_layer=
-            bn_layer)
+    def __init__(self, in_channels, inter_channels=None, sub_sample=True, bn_layer=True):
+        super(NONLocalBlock2D, self).__init__(in_channels, inter_channels=inter_channels, dimension=2, sub_sample=sub_sample, bn_layer=bn_layer)
 
 
 class Network(nn.Module):
 
     def __init__(self):
         super(Network, self).__init__()
-        self.convs = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(32), nn.
-            ReLU(), nn.MaxPool2d(2), NONLocalBlock2D(in_channels=32), nn.
-            Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1,
-            padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2),
-            NONLocalBlock2D(in_channels=64), nn.Conv2d(in_channels=64,
-            out_channels=128, kernel_size=3, stride=1, padding=1), nn.
-            BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2))
-        self.fc = nn.Sequential(nn.Linear(in_features=128 * 3 * 3,
-            out_features=256), nn.ReLU(), nn.Dropout(0.5), nn.Linear(
-            in_features=256, out_features=10))
+        self.convs = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2), NONLocalBlock2D(in_channels=32), nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2), NONLocalBlock2D(in_channels=64), nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2))
+        self.fc = nn.Sequential(nn.Linear(in_features=128 * 3 * 3, out_features=256), nn.ReLU(), nn.Dropout(0.5), nn.Linear(in_features=256, out_features=10))
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -303,8 +276,7 @@ class Network(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -327,25 +299,18 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
-        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels *
-            2, 1, 1, 1, 0, bias=False), nn.ReLU())
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels * 2, 1, 1, 1, 0, bias=False), nn.ReLU())
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -380,8 +345,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -404,23 +368,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -449,8 +407,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -473,23 +430,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -517,8 +468,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -541,17 +491,13 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant(self.W[1].weight, 0)
             nn.init.constant(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant(self.W.weight, 0)
             nn.init.constant(self.W.bias, 0)
         if sub_sample:
@@ -586,17 +532,8 @@ class Network(nn.Module):
 
     def __init__(self):
         super(Network, self).__init__()
-        self.convs = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(32), nn.
-            ReLU(), nn.MaxPool2d(2), NONLocalBlock2D(in_channels=32), nn.
-            Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1,
-            padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2),
-            NONLocalBlock2D(in_channels=64), nn.Conv2d(in_channels=64,
-            out_channels=128, kernel_size=3, stride=1, padding=1), nn.
-            BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2))
-        self.fc = nn.Sequential(nn.Linear(in_features=128 * 3 * 3,
-            out_features=256), nn.ReLU(), nn.Dropout(0.5), nn.Linear(
-            in_features=256, out_features=10))
+        self.convs = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2), NONLocalBlock2D(in_channels=32), nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2), NONLocalBlock2D(in_channels=64), nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2))
+        self.fc = nn.Sequential(nn.Linear(in_features=128 * 3 * 3, out_features=256), nn.ReLU(), nn.Dropout(0.5), nn.Linear(in_features=256, out_features=10))
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -607,8 +544,7 @@ class Network(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -631,25 +567,18 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
-        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels *
-            2, 1, 1, 1, 0, bias=False), nn.ReLU())
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels * 2, 1, 1, 1, 0, bias=False), nn.ReLU())
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -684,8 +613,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -708,23 +636,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -753,8 +675,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -777,23 +698,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -821,8 +736,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -845,17 +759,13 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
         if sub_sample:
@@ -890,20 +800,12 @@ class Network(nn.Module):
 
     def __init__(self):
         super(Network, self).__init__()
-        self.conv_1 = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=
-            32, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(32), nn
-            .ReLU(), nn.MaxPool2d(2))
+        self.conv_1 = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2))
         self.nl_1 = NONLocalBlock2D(in_channels=32)
-        self.conv_2 = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=
-            64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn
-            .ReLU(), nn.MaxPool2d(2))
+        self.conv_2 = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2))
         self.nl_2 = NONLocalBlock2D(in_channels=64)
-        self.conv_3 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=
-            128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128),
-            nn.ReLU(), nn.MaxPool2d(2))
-        self.fc = nn.Sequential(nn.Linear(in_features=128 * 3 * 3,
-            out_features=256), nn.ReLU(), nn.Dropout(0.5), nn.Linear(
-            in_features=256, out_features=10))
+        self.conv_3 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2))
+        self.fc = nn.Sequential(nn.Linear(in_features=128 * 3 * 3, out_features=256), nn.ReLU(), nn.Dropout(0.5), nn.Linear(in_features=256, out_features=10))
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -928,8 +830,7 @@ class Network(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -952,25 +853,18 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
-        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels *
-            2, 1, 1, 1, 0, bias=False), nn.ReLU())
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels * 2, 1, 1, 1, 0, bias=False), nn.ReLU())
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -1008,8 +902,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -1032,23 +925,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -1080,8 +967,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         """
         :param in_channels:
         :param inter_channels:
@@ -1111,23 +997,17 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if sub_sample:
             self.g = nn.Sequential(self.g, max_pool_layer)
             self.phi = nn.Sequential(self.phi, max_pool_layer)
@@ -1158,8 +1038,7 @@ class _NonLocalBlockND(nn.Module):
 
 class _NonLocalBlockND(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
         super(_NonLocalBlockND, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -1182,17 +1061,13 @@ class _NonLocalBlockND(nn.Module):
             conv_nd = nn.Conv1d
             max_pool_layer = nn.MaxPool1d(kernel_size=2)
             bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
         if sub_sample:
@@ -1227,10 +1102,3 @@ class _NonLocalBlockND(nn.Module):
             return z, f_div_C
         return z
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_AlexHex7_Non_local_pytorch(_paritybench_base):
-    pass

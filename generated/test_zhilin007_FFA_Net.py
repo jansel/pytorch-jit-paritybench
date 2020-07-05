@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,9 +86,7 @@ class PALayer(nn.Module):
 
     def __init__(self, channel):
         super(PALayer, self).__init__()
-        self.pa = nn.Sequential(nn.Conv2d(channel, channel // 8, 1, padding
-            =0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // 8, 
-            1, 1, padding=0, bias=True), nn.Sigmoid())
+        self.pa = nn.Sequential(nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // 8, 1, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.pa(x)
@@ -99,9 +98,7 @@ class CALayer(nn.Module):
     def __init__(self, channel):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.ca = nn.Sequential(nn.Conv2d(channel, channel // 8, 1, padding
-            =0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // 8,
-            channel, 1, padding=0, bias=True), nn.Sigmoid())
+        self.ca = nn.Sequential(nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // 8, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -144,8 +141,7 @@ class Group(nn.Module):
 
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
-    return nn.Conv2d(in_channels, out_channels, kernel_size, padding=
-        kernel_size // 2, bias=bias)
+    return nn.Conv2d(in_channels, out_channels, kernel_size, padding=kernel_size // 2, bias=bias)
 
 
 class FFA(nn.Module):
@@ -160,13 +156,9 @@ class FFA(nn.Module):
         self.g1 = Group(conv, self.dim, kernel_size, blocks=blocks)
         self.g2 = Group(conv, self.dim, kernel_size, blocks=blocks)
         self.g3 = Group(conv, self.dim, kernel_size, blocks=blocks)
-        self.ca = nn.Sequential(*[nn.AdaptiveAvgPool2d(1), nn.Conv2d(self.
-            dim * self.gps, self.dim // 16, 1, padding=0), nn.ReLU(inplace=
-            True), nn.Conv2d(self.dim // 16, self.dim * self.gps, 1,
-            padding=0, bias=True), nn.Sigmoid()])
+        self.ca = nn.Sequential(*[nn.AdaptiveAvgPool2d(1), nn.Conv2d(self.dim * self.gps, self.dim // 16, 1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(self.dim // 16, self.dim * self.gps, 1, padding=0, bias=True), nn.Sigmoid()])
         self.palayer = PALayer(self.dim)
-        post_precess = [conv(self.dim, self.dim, kernel_size), conv(self.
-            dim, 3, kernel_size)]
+        post_precess = [conv(self.dim, self.dim, kernel_size), conv(self.dim, 3, kernel_size)]
         self.pre = nn.Sequential(*pre_process)
         self.post = nn.Sequential(*post_precess)
 
@@ -188,8 +180,7 @@ class LossNetwork(torch.nn.Module):
     def __init__(self, vgg_model):
         super(LossNetwork, self).__init__()
         self.vgg_layers = vgg_model
-        self.layer_name_mapping = {'3': 'relu1_2', '8': 'relu2_2', '15':
-            'relu3_3'}
+        self.layer_name_mapping = {'3': 'relu1_2', '8': 'relu2_2', '15': 'relu3_3'}
 
     def output_features(self, x):
         output = {}
@@ -212,14 +203,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CALayer,
+     lambda: ([], {'channel': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (FFA,
+     lambda: ([], {'gps': 3, 'blocks': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (PALayer,
+     lambda: ([], {'channel': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_zhilin007_FFA_Net(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FFA(*[], **{'gps': 3, 'blocks': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(PALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

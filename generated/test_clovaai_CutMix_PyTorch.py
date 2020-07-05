@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,8 +68,7 @@ import numpy as np
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -102,9 +102,7 @@ class BasicBlock(nn.Module):
         residual_channel = out.size()[1]
         shortcut_channel = shortcut.size()[1]
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size,
-                residual_channel - shortcut_channel, featuremap_size[0],
-                featuremap_size[1]).fill_(0))
+            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut
@@ -114,17 +112,14 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     outchannel_ratio = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=16):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=16):
         super(Bottleneck, self).__init__()
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False, groups=1)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False, groups=1)
         self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.outchannel_ratio,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False)
         self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -150,9 +145,7 @@ class Bottleneck(nn.Module):
         residual_channel = out.size()[1]
         shortcut_channel = shortcut.size()[1]
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size,
-                residual_channel - shortcut_channel, featuremap_size[0],
-                featuremap_size[1]).fill_(0))
+            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut
@@ -174,8 +167,7 @@ class PyramidNet(nn.Module):
                 block = BasicBlock
             self.addrate = alpha / (3 * n * 1.0)
             self.input_featuremap_dim = self.inplanes
-            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim,
-                kernel_size=3, stride=1, padding=1, bias=False)
+            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(self.input_featuremap_dim)
             self.featuremap_dim = self.input_featuremap_dim
             self.layer1 = self.pyramidal_make_layer(block, n)
@@ -187,11 +179,8 @@ class PyramidNet(nn.Module):
             self.avgpool = nn.AvgPool2d(8)
             self.fc = nn.Linear(self.final_featuremap_dim, num_classes)
         elif dataset == 'imagenet':
-            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck,
-                (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
-            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 
-                6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [
-                3, 24, 36, 3]}
+            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck, (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
+            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [3, 24, 36, 3]}
             if layers.get(depth) is None:
                 if bottleneck == True:
                     blocks[depth] = Bottleneck
@@ -204,20 +193,15 @@ class PyramidNet(nn.Module):
             self.inplanes = 64
             self.addrate = alpha / (sum(layers[depth]) * 1.0)
             self.input_featuremap_dim = self.inplanes
-            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim,
-                kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(self.input_featuremap_dim)
             self.relu = nn.ReLU(inplace=True)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
             self.featuremap_dim = self.input_featuremap_dim
-            self.layer1 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][0])
-            self.layer2 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][1], stride=2)
-            self.layer3 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][2], stride=2)
-            self.layer4 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][3], stride=2)
+            self.layer1 = self.pyramidal_make_layer(blocks[depth], layers[depth][0])
+            self.layer2 = self.pyramidal_make_layer(blocks[depth], layers[depth][1], stride=2)
+            self.layer3 = self.pyramidal_make_layer(blocks[depth], layers[depth][2], stride=2)
+            self.layer4 = self.pyramidal_make_layer(blocks[depth], layers[depth][3], stride=2)
             self.final_featuremap_dim = self.input_featuremap_dim
             self.bn_final = nn.BatchNorm2d(self.final_featuremap_dim)
             self.relu_final = nn.ReLU(inplace=True)
@@ -237,15 +221,12 @@ class PyramidNet(nn.Module):
             downsample = nn.AvgPool2d((2, 2), stride=(2, 2), ceil_mode=True)
         layers = []
         self.featuremap_dim = self.featuremap_dim + self.addrate
-        layers.append(block(self.input_featuremap_dim, int(round(self.
-            featuremap_dim)), stride, downsample))
+        layers.append(block(self.input_featuremap_dim, int(round(self.featuremap_dim)), stride, downsample))
         for i in range(1, block_depth):
             temp_featuremap_dim = self.featuremap_dim + self.addrate
-            layers.append(block(int(round(self.featuremap_dim)) * block.
-                outchannel_ratio, int(round(temp_featuremap_dim)), 1))
+            layers.append(block(int(round(self.featuremap_dim)) * block.outchannel_ratio, int(round(temp_featuremap_dim)), 1))
             self.featuremap_dim = temp_featuremap_dim
-        self.input_featuremap_dim = int(round(self.featuremap_dim)
-            ) * block.outchannel_ratio
+        self.input_featuremap_dim = int(round(self.featuremap_dim)) * block.outchannel_ratio
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -311,11 +292,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -352,8 +331,7 @@ class ResNet(nn.Module):
             else:
                 n = int((depth - 2) / 6)
                 block = BasicBlock
-            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=
-                1, padding=1, bias=False)
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(self.inplanes)
             self.relu = nn.ReLU(inplace=True)
             self.layer1 = self._make_layer(block, 16, n)
@@ -362,26 +340,18 @@ class ResNet(nn.Module):
             self.avgpool = nn.AvgPool2d(8)
             self.fc = nn.Linear(64 * block.expansion, num_classes)
         elif dataset == 'imagenet':
-            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck,
-                (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
-            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 
-                6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [
-                3, 24, 36, 3]}
-            assert layers[depth
-                ], 'invalid detph for ResNet (depth should be one of 18, 34, 50, 101, 152, and 200)'
+            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck, (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
+            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [3, 24, 36, 3]}
+            assert layers[depth], 'invalid detph for ResNet (depth should be one of 18, 34, 50, 101, 152, and 200)'
             self.inplanes = 64
-            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=
-                2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.relu = nn.ReLU(inplace=True)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
             self.layer1 = self._make_layer(blocks[depth], 64, layers[depth][0])
-            self.layer2 = self._make_layer(blocks[depth], 128, layers[depth
-                ][1], stride=2)
-            self.layer3 = self._make_layer(blocks[depth], 256, layers[depth
-                ][2], stride=2)
-            self.layer4 = self._make_layer(blocks[depth], 512, layers[depth
-                ][3], stride=2)
+            self.layer2 = self._make_layer(blocks[depth], 128, layers[depth][1], stride=2)
+            self.layer3 = self._make_layer(blocks[depth], 256, layers[depth][2], stride=2)
+            self.layer4 = self._make_layer(blocks[depth], 512, layers[depth][3], stride=2)
             self.avgpool = nn.AvgPool2d(7)
             self.fc = nn.Linear(512 * blocks[depth].expansion, num_classes)
         for m in self.modules():
@@ -395,9 +365,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -435,8 +403,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_clovaai_CutMix_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

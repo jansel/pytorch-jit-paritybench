@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -42,8 +43,7 @@ from torchvision import transforms
 
 class AngularPenaltySMLoss(nn.Module):
 
-    def __init__(self, in_features, out_features, loss_type='arcface', eps=
-        1e-07, s=None, m=None):
+    def __init__(self, in_features, out_features, loss_type='arcface', eps=1e-07, s=None, m=None):
         """
         Angular Penalty Softmax Loss
 
@@ -85,20 +85,13 @@ class AngularPenaltySMLoss(nn.Module):
         x = F.normalize(x, p=2, dim=1)
         wf = self.fc(x)
         if self.loss_type == 'cosface':
-            numerator = self.s * (torch.diagonal(wf.transpose(0, 1)[labels]
-                ) - self.m)
+            numerator = self.s * (torch.diagonal(wf.transpose(0, 1)[labels]) - self.m)
         if self.loss_type == 'arcface':
-            numerator = self.s * torch.cos(torch.acos(torch.clamp(torch.
-                diagonal(wf.transpose(0, 1)[labels]), -1.0 + self.eps, 1 -
-                self.eps)) + self.m)
+            numerator = self.s * torch.cos(torch.acos(torch.clamp(torch.diagonal(wf.transpose(0, 1)[labels]), -1.0 + self.eps, 1 - self.eps)) + self.m)
         if self.loss_type == 'sphereface':
-            numerator = self.s * torch.cos(self.m * torch.acos(torch.clamp(
-                torch.diagonal(wf.transpose(0, 1)[labels]), -1.0 + self.eps,
-                1 - self.eps)))
-        excl = torch.cat([torch.cat((wf[(i), :y], wf[(i), y + 1:])).
-            unsqueeze(0) for i, y in enumerate(labels)], dim=0)
-        denominator = torch.exp(numerator) + torch.sum(torch.exp(self.s *
-            excl), dim=1)
+            numerator = self.s * torch.cos(self.m * torch.acos(torch.clamp(torch.diagonal(wf.transpose(0, 1)[labels]), -1.0 + self.eps, 1 - self.eps)))
+        excl = torch.cat([torch.cat((wf[(i), :y], wf[(i), y + 1:])).unsqueeze(0) for i, y in enumerate(labels)], dim=0)
+        denominator = torch.exp(numerator) + torch.sum(torch.exp(self.s * excl), dim=1)
         L = numerator - torch.log(denominator)
         return -torch.mean(L)
 
@@ -123,8 +116,7 @@ class ConvAngularPen(nn.Module):
     def __init__(self, num_classes=10, loss_type='arcface'):
         super(ConvAngularPen, self).__init__()
         self.convlayers = ConvNet()
-        self.adms_loss = AngularPenaltySMLoss(3, num_classes, loss_type=
-            loss_type)
+        self.adms_loss = AngularPenaltySMLoss(3, num_classes, loss_type=loss_type)
 
     def forward(self, x, labels=None, embed=False):
         x = self.convlayers(x)
@@ -138,18 +130,11 @@ class ConvNet(nn.Module):
 
     def __init__(self):
         super(ConvNet, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, stride=
-            1, padding=0), nn.ReLU(), nn.BatchNorm2d(32))
-        self.layer2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=3, stride
-            =1, padding=0), nn.ReLU(), nn.BatchNorm2d(64))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3,
-            stride=1, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.
-            MaxPool2d(kernel_size=2, stride=2))
-        self.layer4 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3,
-            stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(256))
-        self.layer5 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=3,
-            stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(512), nn.
-            MaxPool2d(kernel_size=8, stride=1))
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(32))
+        self.layer2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(64))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(kernel_size=2, stride=2))
+        self.layer4 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(256))
+        self.layer5 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(512), nn.MaxPool2d(kernel_size=8, stride=1))
         self.fc_projection = nn.Linear(512, 3)
 
     def forward(self, x, embed=False):
@@ -167,9 +152,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AngularPenaltySMLoss,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_cvqluu_Angular_Penalty_Softmax_Losses_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AngularPenaltySMLoss(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

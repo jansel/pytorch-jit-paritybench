@@ -48,8 +48,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -111,17 +112,14 @@ class CustomModule(torch.nn.Module):
         super().__init__()
         self.model = torchani.models.ANI1x(periodic_table_index=True).double()
 
-    def forward(self, species: Tensor, coordinates: Tensor, return_forces:
-        bool=False, return_hessians: bool=False) ->Tuple[Tensor, Optional[
-        Tensor], Optional[Tensor]]:
+    def forward(self, species: Tensor, coordinates: Tensor, return_forces: bool=False, return_hessians: bool=False) ->Tuple[Tensor, Optional[Tensor], Optional[Tensor]]:
         if return_forces or return_hessians:
             coordinates.requires_grad_(True)
         energies = self.model((species, coordinates)).energies
         forces: Optional[Tensor] = None
         hessians: Optional[Tensor] = None
         if return_forces or return_hessians:
-            grad = torch.autograd.grad([energies.sum()], [coordinates],
-                create_graph=return_hessians)[0]
+            grad = torch.autograd.grad([energies.sum()], [coordinates], create_graph=return_hessians)[0]
             assert grad is not None
             forces = -grad
             if return_hessians:
@@ -138,8 +136,7 @@ def cutoff_cosine(distances: Tensor, cutoff: float) ->Tensor:
     return 0.5 * torch.cos(distances * (math.pi / cutoff)) + 0.5
 
 
-def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
-    ShfA: Tensor, vectors12: Tensor) ->Tensor:
+def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor, ShfA: Tensor, vectors12: Tensor) ->Tensor:
     """Compute the angular subAEV terms of the center atom given neighbor pairs.
 
     This correspond to equation (4) in the `ANI paper`_. This function just
@@ -152,11 +149,9 @@ def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
     .. _ANI paper:
         http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A#!divAbstract
     """
-    vectors12 = vectors12.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(
-        -1)
+    vectors12 = vectors12.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
     distances12 = vectors12.norm(2, dim=-5)
-    cos_angles = 0.95 * torch.nn.functional.cosine_similarity(vectors12[0],
-        vectors12[1], dim=-5)
+    cos_angles = 0.95 * torch.nn.functional.cosine_similarity(vectors12[0], vectors12[1], dim=-5)
     angles = torch.acos(cos_angles)
     fcj12 = cutoff_cosine(distances12, Rca)
     factor1 = ((1 + torch.cos(angles - ShfZ)) / 2) ** Zeta
@@ -165,8 +160,7 @@ def angular_terms(Rca: float, ShfZ: Tensor, EtaA: Tensor, Zeta: Tensor,
     return ret.flatten(start_dim=-4)
 
 
-def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
-    shifts: Tensor, cutoff: float) ->Tuple[Tensor, Tensor]:
+def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor, shifts: Tensor, cutoff: float) ->Tuple[Tensor, Tensor]:
     """Compute pairs of atoms that are neighbors
 
     Arguments:
@@ -184,8 +178,7 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
     num_atoms = padding_mask.shape[1]
     num_mols = padding_mask.shape[0]
     all_atoms = torch.arange(num_atoms, device=cell.device)
-    p12_center = torch.triu_indices(num_atoms, num_atoms, 1, device=cell.device
-        )
+    p12_center = torch.triu_indices(num_atoms, num_atoms, 1, device=cell.device)
     shifts_center = shifts.new_zeros((p12_center.shape[1], 3))
     num_shifts = shifts.shape[0]
     all_shifts = torch.arange(num_shifts, device=cell.device)
@@ -196,12 +189,9 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
     shifts_all = torch.cat([shifts_center, shifts_outside])
     p12_all = torch.cat([p12_center, p12], dim=1)
     shift_values = shifts_all.to(cell.dtype) @ cell
-    selected_coordinates = coordinates.index_select(1, p12_all.view(-1)).view(
-        num_mols, 2, -1, 3)
-    distances = (selected_coordinates[:, (0), (...)] - selected_coordinates
-        [:, (1), (...)] + shift_values).norm(2, -1)
-    padding_mask = padding_mask.index_select(1, p12_all.view(-1)).view(2, -1
-        ).any(0)
+    selected_coordinates = coordinates.index_select(1, p12_all.view(-1)).view(num_mols, 2, -1, 3)
+    distances = (selected_coordinates[:, (0), (...)] - selected_coordinates[:, (1), (...)] + shift_values).norm(2, -1)
+    padding_mask = padding_mask.index_select(1, p12_all.view(-1)).view(2, -1).any(0)
     distances.masked_fill_(padding_mask, math.inf)
     in_cutoff = (distances <= cutoff).nonzero()
     molecule_index, pair_index = in_cutoff.unbind(1)
@@ -211,8 +201,7 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor,
     return molecule_index + atom_index12, shifts
 
 
-def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
-    float) ->Tensor:
+def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff: float) ->Tensor:
     """Compute pairs of atoms that are neighbors (doesn't use PBC)
 
     This function bypasses the calculation of shifts and duplication
@@ -229,15 +218,11 @@ def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
     current_device = coordinates.device
     num_atoms = padding_mask.shape[1]
     num_mols = padding_mask.shape[0]
-    p12_all = torch.triu_indices(num_atoms, num_atoms, 1, device=current_device
-        )
+    p12_all = torch.triu_indices(num_atoms, num_atoms, 1, device=current_device)
     p12_all_flattened = p12_all.view(-1)
-    pair_coordinates = coordinates.index_select(1, p12_all_flattened).view(
-        num_mols, 2, -1, 3)
-    distances = (pair_coordinates[:, (0), (...)] - pair_coordinates[:, (1),
-        (...)]).norm(2, -1)
-    padding_mask = padding_mask.index_select(1, p12_all_flattened).view(
-        num_mols, 2, -1).any(dim=1)
+    pair_coordinates = coordinates.index_select(1, p12_all_flattened).view(num_mols, 2, -1, 3)
+    distances = (pair_coordinates[:, (0), (...)] - pair_coordinates[:, (1), (...)]).norm(2, -1)
+    padding_mask = padding_mask.index_select(1, p12_all_flattened).view(num_mols, 2, -1).any(dim=1)
     distances.masked_fill_(padding_mask, math.inf)
     in_cutoff = (distances <= cutoff).nonzero()
     molecule_index, pair_index = in_cutoff.unbind(1)
@@ -246,8 +231,7 @@ def neighbor_pairs_nopbc(padding_mask: Tensor, coordinates: Tensor, cutoff:
     return atom_index12
 
 
-def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor
-    ) ->Tensor:
+def radial_terms(Rcr: float, EtaR: Tensor, ShfR: Tensor, distances: Tensor) ->Tensor:
     """Compute the radial subAEV terms of the center atom given neighbors
 
     This correspond to equation (3) in the `ANI paper`_. This function just
@@ -285,34 +269,25 @@ def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
     """
     ai1 = atom_index12.view(-1)
     sorted_ai1, rev_indices = ai1.sort()
-    uniqued_central_atom_index, counts = torch.unique_consecutive(sorted_ai1,
-        return_inverse=False, return_counts=True)
+    uniqued_central_atom_index, counts = torch.unique_consecutive(sorted_ai1, return_inverse=False, return_counts=True)
     pair_sizes = counts * (counts - 1) // 2
     pair_indices = torch.repeat_interleave(pair_sizes)
-    central_atom_index = uniqued_central_atom_index.index_select(0,
-        pair_indices)
+    central_atom_index = uniqued_central_atom_index.index_select(0, pair_indices)
     m = counts.max().item() if counts.numel() > 0 else 0
     n = pair_sizes.shape[0]
-    intra_pair_indices = torch.tril_indices(m, m, -1, device=ai1.device
-        ).unsqueeze(1).expand(-1, n, -1)
-    mask = (torch.arange(intra_pair_indices.shape[2], device=ai1.device) <
-        pair_sizes.unsqueeze(1)).flatten()
+    intra_pair_indices = torch.tril_indices(m, m, -1, device=ai1.device).unsqueeze(1).expand(-1, n, -1)
+    mask = (torch.arange(intra_pair_indices.shape[2], device=ai1.device) < pair_sizes.unsqueeze(1)).flatten()
     sorted_local_index12 = intra_pair_indices.flatten(1, 2)[:, (mask)]
-    sorted_local_index12 += cumsum_from_zero(counts).index_select(0,
-        pair_indices)
+    sorted_local_index12 += cumsum_from_zero(counts).index_select(0, pair_indices)
     local_index12 = rev_indices[sorted_local_index12]
     n = atom_index12.shape[1]
     sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
     return central_atom_index, local_index12 % n, sign12
 
 
-def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
-    constants: Tuple[float, Tensor, Tensor, float, Tensor, Tensor, Tensor,
-    Tensor], sizes: Tuple[int, int, int, int, int], cell_shifts: Optional[
-    Tuple[Tensor, Tensor]]) ->Tensor:
+def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor, constants: Tuple[float, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor], sizes: Tuple[int, int, int, int, int], cell_shifts: Optional[Tuple[Tensor, Tensor]]) ->Tensor:
     Rcr, EtaR, ShfR, Rca, ShfZ, EtaA, Zeta, ShfA = constants
-    (num_species, radial_sublength, radial_length, angular_sublength,
-        angular_length) = sizes
+    num_species, radial_sublength, radial_length, angular_sublength, angular_length = sizes
     num_molecules = species.shape[0]
     num_atoms = species.shape[1]
     num_species_pairs = angular_length // angular_sublength
@@ -320,23 +295,19 @@ def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
     coordinates = coordinates_.flatten(0, 1)
     if cell_shifts is None:
         atom_index12 = neighbor_pairs_nopbc(species == -1, coordinates_, Rcr)
-        selected_coordinates = coordinates.index_select(0, atom_index12.
-            view(-1)).view(2, -1, 3)
+        selected_coordinates = coordinates.index_select(0, atom_index12.view(-1)).view(2, -1, 3)
         vec = selected_coordinates[0] - selected_coordinates[1]
     else:
         cell, shifts = cell_shifts
-        atom_index12, shifts = neighbor_pairs(species == -1, coordinates_,
-            cell, shifts, Rcr)
+        atom_index12, shifts = neighbor_pairs(species == -1, coordinates_, cell, shifts, Rcr)
         shift_values = shifts.to(cell.dtype) @ cell
-        selected_coordinates = coordinates.index_select(0, atom_index12.
-            view(-1)).view(2, -1, 3)
+        selected_coordinates = coordinates.index_select(0, atom_index12.view(-1)).view(2, -1, 3)
         vec = selected_coordinates[0] - selected_coordinates[1] + shift_values
     species = species.flatten()
     species12 = species[atom_index12]
     distances = vec.norm(2, -1)
     radial_terms_ = radial_terms(Rcr, EtaR, ShfR, distances)
-    radial_aev = radial_terms_.new_zeros((num_molecules * num_atoms *
-        num_species, radial_sublength))
+    radial_aev = radial_terms_.new_zeros((num_molecules * num_atoms * num_species, radial_sublength))
     index12 = atom_index12 * num_species + species12.flip(0)
     radial_aev.index_add_(0, index12[0], radial_terms_)
     radial_aev.index_add_(0, index12[1], radial_terms_)
@@ -347,15 +318,11 @@ def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor,
     vec = vec.index_select(0, even_closer_indices)
     central_atom_index, pair_index12, sign12 = triple_by_molecule(atom_index12)
     species12_small = species12[:, (pair_index12)]
-    vec12 = vec.index_select(0, pair_index12.view(-1)).view(2, -1, 3
-        ) * sign12.unsqueeze(-1)
-    species12_ = torch.where(sign12 == 1, species12_small[1],
-        species12_small[0])
+    vec12 = vec.index_select(0, pair_index12.view(-1)).view(2, -1, 3) * sign12.unsqueeze(-1)
+    species12_ = torch.where(sign12 == 1, species12_small[1], species12_small[0])
     angular_terms_ = angular_terms(Rca, ShfZ, EtaA, Zeta, ShfA, vec12)
-    angular_aev = angular_terms_.new_zeros((num_molecules * num_atoms *
-        num_species_pairs, angular_sublength))
-    index = central_atom_index * num_species_pairs + triu_index[species12_[
-        0], species12_[1]]
+    angular_aev = angular_terms_.new_zeros((num_molecules * num_atoms * num_species_pairs, angular_sublength))
+    index = central_atom_index * num_species_pairs + triu_index[species12_[0], species12_[1]]
     angular_aev.index_add_(0, index, angular_terms_)
     angular_aev = angular_aev.reshape(num_molecules, num_atoms, angular_length)
     return torch.cat([radial_aev, angular_aev], dim=-1)
@@ -386,13 +353,7 @@ def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
     r2 = torch.arange(1, num_repeats[1] + 1, device=cell.device)
     r3 = torch.arange(1, num_repeats[2] + 1, device=cell.device)
     o = torch.zeros(1, dtype=torch.long, device=cell.device)
-    return torch.cat([torch.cartesian_prod(r1, r2, r3), torch.
-        cartesian_prod(r1, r2, o), torch.cartesian_prod(r1, r2, -r3), torch
-        .cartesian_prod(r1, o, r3), torch.cartesian_prod(r1, o, o), torch.
-        cartesian_prod(r1, o, -r3), torch.cartesian_prod(r1, -r2, r3),
-        torch.cartesian_prod(r1, -r2, o), torch.cartesian_prod(r1, -r2, -r3
-        ), torch.cartesian_prod(o, r2, r3), torch.cartesian_prod(o, r2, o),
-        torch.cartesian_prod(o, r2, -r3), torch.cartesian_prod(o, o, r3)])
+    return torch.cat([torch.cartesian_prod(r1, r2, r3), torch.cartesian_prod(r1, r2, o), torch.cartesian_prod(r1, r2, -r3), torch.cartesian_prod(r1, o, r3), torch.cartesian_prod(r1, o, o), torch.cartesian_prod(r1, o, -r3), torch.cartesian_prod(r1, -r2, r3), torch.cartesian_prod(r1, -r2, o), torch.cartesian_prod(r1, -r2, -r3), torch.cartesian_prod(o, r2, r3), torch.cartesian_prod(o, r2, o), torch.cartesian_prod(o, r2, -r3), torch.cartesian_prod(o, o, r3)])
 
 
 def triu_index(num_species: int) ->Tensor:
@@ -439,8 +400,7 @@ class AEVComputer(torch.nn.Module):
     aev_length: Final[int]
     sizes: Final[Tuple[int, int, int, int, int]]
 
-    def __init__(self, Rcr, Rca, EtaR, ShfR, EtaA, Zeta, ShfA, ShfZ,
-        num_species):
+    def __init__(self, Rcr, Rca, EtaR, ShfR, EtaA, Zeta, ShfA, ShfZ, num_species):
         super(AEVComputer, self).__init__()
         self.Rcr = Rcr
         self.Rca = Rca
@@ -454,28 +414,22 @@ class AEVComputer(torch.nn.Module):
         self.register_buffer('ShfZ', ShfZ.view(1, 1, 1, -1))
         self.radial_sublength = self.EtaR.numel() * self.ShfR.numel()
         self.radial_length = self.num_species * self.radial_sublength
-        self.angular_sublength = self.EtaA.numel() * self.Zeta.numel(
-            ) * self.ShfA.numel() * self.ShfZ.numel()
-        self.angular_length = self.num_species * (self.num_species + 1
-            ) // 2 * self.angular_sublength
+        self.angular_sublength = self.EtaA.numel() * self.Zeta.numel() * self.ShfA.numel() * self.ShfZ.numel()
+        self.angular_length = self.num_species * (self.num_species + 1) // 2 * self.angular_sublength
         self.aev_length = self.radial_length + self.angular_length
-        self.sizes = (self.num_species, self.radial_sublength, self.
-            radial_length, self.angular_sublength, self.angular_length)
+        self.sizes = self.num_species, self.radial_sublength, self.radial_length, self.angular_sublength, self.angular_length
         self.register_buffer('triu_index', triu_index(num_species))
         cutoff = max(self.Rcr, self.Rca)
-        default_cell = torch.eye(3, dtype=self.EtaR.dtype, device=self.EtaR
-            .device)
+        default_cell = torch.eye(3, dtype=self.EtaR.dtype, device=self.EtaR.device)
         default_pbc = torch.zeros(3, dtype=torch.bool, device=self.EtaR.device)
         default_shifts = compute_shifts(default_cell, default_pbc, cutoff)
         self.register_buffer('default_cell', default_cell)
         self.register_buffer('default_shifts', default_shifts)
 
     def constants(self):
-        return (self.Rcr, self.EtaR, self.ShfR, self.Rca, self.ShfZ, self.
-            EtaA, self.Zeta, self.ShfA)
+        return self.Rcr, self.EtaR, self.ShfR, self.Rca, self.ShfZ, self.EtaA, self.Zeta, self.ShfA
 
-    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]
-        =None, pbc: Optional[Tensor]=None) ->SpeciesAEV:
+    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesAEV:
         """Compute AEVs
 
         Arguments:
@@ -516,14 +470,12 @@ class AEVComputer(torch.nn.Module):
         """
         species, coordinates = input_
         if cell is None and pbc is None:
-            aev = compute_aev(species, coordinates, self.triu_index, self.
-                constants(), self.sizes, None)
+            aev = compute_aev(species, coordinates, self.triu_index, self.constants(), self.sizes, None)
         else:
             assert cell is not None and pbc is not None
             cutoff = max(self.Rcr, self.Rca)
             shifts = compute_shifts(cell, pbc, cutoff)
-            aev = compute_aev(species, coordinates, self.triu_index, self.
-                constants(), self.sizes, (cell, shifts))
+            aev = compute_aev(species, coordinates, self.triu_index, self.constants(), self.sizes, (cell, shifts))
         return SpeciesAEV(species, aev)
 
 
@@ -590,27 +542,22 @@ class NeuroChem:
         cell = mol.get_cell(complete=True)
         pbc = mol.get_pbc().astype(numpy.uint8)
         coordinates = mol.get_positions()
-        species = numpy.array([species_indices[i] for i in mol.
-            get_chemical_symbols()])
-        return coordinates, species, self._get_radial_part(aevs
-            ), self._get_angular_part(aevs), energy, force, cell, pbc
+        species = numpy.array([species_indices[i] for i in mol.get_chemical_symbols()])
+        return coordinates, species, self._get_radial_part(aevs), self._get_angular_part(aevs), energy, force, cell, pbc
 
     def from_coordinates_and_species(self, coordinates, species):
         if len(coordinates.shape) == 2:
             coordinates = coordinates.reshape(1, -1, 3)
         conformations = coordinates.shape[0]
-        results = [self._per_conformation(coordinates[i], species) for i in
-            range(conformations)]
+        results = [self._per_conformation(coordinates[i], species) for i in range(conformations)]
         aevs, energies, forces = zip(*results)
         aevs = numpy.stack(aevs)
         energies = numpy.stack(energies)
         forces = numpy.stack(forces)
         species = numpy.array([species_indices[i] for i in species])
         species = species.reshape(1, -1)
-        species = numpy.broadcast_to(species, (coordinates.shape[0],
-            species.shape[1]))
-        return coordinates, species, self._get_radial_part(aevs
-            ), self._get_angular_part(aevs), energies, forces
+        species = numpy.broadcast_to(species, (coordinates.shape[0], species.shape[1]))
+        return coordinates, species, self._get_radial_part(aevs), self._get_angular_part(aevs), energies, forces
 
 
 neurochem = NeuroChem()
@@ -619,9 +566,7 @@ neurochem = NeuroChem()
 class BuiltinModel(torch.nn.Module):
     """Private template for the builtin ANI models """
 
-    def __init__(self, species_converter, aev_computer, neural_networks,
-        energy_shifter, species_to_tensor, consts, sae_dict,
-        periodic_table_index):
+    def __init__(self, species_converter, aev_computer, neural_networks, energy_shifter, species_to_tensor, consts, sae_dict, periodic_table_index):
         super(BuiltinModel, self).__init__()
         self.species_converter = species_converter
         self.aev_computer = aev_computer
@@ -634,25 +579,17 @@ class BuiltinModel(torch.nn.Module):
         self.sae_dict = sae_dict
 
     @classmethod
-    def _from_neurochem_resources(cls, info_file_path, periodic_table_index
-        =False, model_index=0):
-        consts, sae_file, ensemble_prefix, ensemble_size = (cls.
-            _parse_neurochem_resources(info_file_path))
+    def _from_neurochem_resources(cls, info_file_path, periodic_table_index=False, model_index=0):
+        consts, sae_file, ensemble_prefix, ensemble_size = cls._parse_neurochem_resources(info_file_path)
         if model_index >= ensemble_size:
-            raise ValueError(
-                "The ensemble size is only {}, model {} can't be loaded".
-                format(ensemble_size, model_index))
+            raise ValueError("The ensemble size is only {}, model {} can't be loaded".format(ensemble_size, model_index))
         species_converter = SpeciesConverter(consts.species)
         aev_computer = AEVComputer(**consts)
-        energy_shifter, sae_dict = neurochem.load_sae(sae_file, return_dict
-            =True)
+        energy_shifter, sae_dict = neurochem.load_sae(sae_file, return_dict=True)
         species_to_tensor = consts.species_to_tensor
-        network_dir = os.path.join('{}{}'.format(ensemble_prefix,
-            model_index), 'networks')
+        network_dir = os.path.join('{}{}'.format(ensemble_prefix, model_index), 'networks')
         neural_networks = neurochem.load_model(consts.species, network_dir)
-        return cls(species_converter, aev_computer, neural_networks,
-            energy_shifter, species_to_tensor, consts, sae_dict,
-            periodic_table_index)
+        return cls(species_converter, aev_computer, neural_networks, energy_shifter, species_to_tensor, consts, sae_dict, periodic_table_index)
 
     @staticmethod
     def _parse_neurochem_resources(info_file_path):
@@ -664,14 +601,12 @@ class BuiltinModel(torch.nn.Module):
         repo_name = 'ani-model-zoo'
         tag_name = 'ani-2x'
         extracted_name = '{}-{}'.format(repo_name, tag_name)
-        url = 'https://github.com/aiqm/{}/archive/{}.zip'.format(repo_name,
-            tag_name)
+        url = 'https://github.com/aiqm/{}/archive/{}.zip'.format(repo_name, tag_name)
         if not os.path.isfile(get_resource(resource_path, info_file_path)):
             if not os.path.isfile(get_resource(local_dir, info_file_path)):
                 None
                 resource_res = requests.get(url)
-                resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content)
-                    )
+                resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content))
                 try:
                     resource_zip.extractall(resource_path)
                 except PermissionError:
@@ -679,8 +614,7 @@ class BuiltinModel(torch.nn.Module):
                     resource_path = local_dir
             else:
                 resource_path = local_dir
-            files = glob.glob(os.path.join(resource_path, extracted_name,
-                'resources', '*'))
+            files = glob.glob(os.path.join(resource_path, extracted_name, 'resources', '*'))
             for f in files:
                 try:
                     shutil.move(f, resource_path)
@@ -690,8 +624,7 @@ class BuiltinModel(torch.nn.Module):
         info_file = get_resource(resource_path, info_file_path)
         with open(info_file) as f:
             lines = [x.strip() for x in f.readlines()][:4]
-            (const_file_path, sae_file_path, ensemble_prefix_path,
-                ensemble_size) = lines
+            const_file_path, sae_file_path, ensemble_prefix_path, ensemble_size = lines
             const_file = get_resource(resource_path, const_file_path)
             sae_file = get_resource(resource_path, sae_file_path)
             ensemble_prefix = get_resource(resource_path, ensemble_prefix_path)
@@ -699,8 +632,7 @@ class BuiltinModel(torch.nn.Module):
             consts = neurochem.Constants(const_file)
         return consts, sae_file, ensemble_prefix, ensemble_size
 
-    def forward(self, species_coordinates: Tuple[Tensor, Tensor], cell:
-        Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
+    def forward(self, species_coordinates: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
         """Calculates predicted properties for minibatch of configurations
 
         Args:
@@ -716,8 +648,7 @@ class BuiltinModel(torch.nn.Module):
         """
         if self.periodic_table_index:
             species_coordinates = self.species_converter(species_coordinates)
-        species_aevs = self.aev_computer(species_coordinates, cell=cell,
-            pbc=pbc)
+        species_aevs = self.aev_computer(species_coordinates, cell=cell, pbc=pbc)
         species_energies = self.neural_networks(species_aevs)
         return self.energy_shifter(species_energies)
 
@@ -787,8 +718,7 @@ class ANIModel(torch.nn.ModuleDict):
     def __init__(self, modules):
         super(ANIModel, self).__init__(self.ensureOrderedDict(modules))
 
-    def forward(self, species_aev: Tuple[Tensor, Tensor], cell: Optional[
-        Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
+    def forward(self, species_aev: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
         species, aev = species_aev
         species_ = species.flatten()
         aev = aev.flatten(0, 1)
@@ -810,8 +740,7 @@ class Ensemble(torch.nn.ModuleList):
         super().__init__(modules)
         self.size = len(modules)
 
-    def forward(self, species_input: Tuple[Tensor, Tensor], cell: Optional[
-        Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
+    def forward(self, species_input: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
         sum_ = 0
         for x in self:
             sum_ += x(species_input)[1]
@@ -825,8 +754,7 @@ class Sequential(torch.nn.ModuleList):
     def __init__(self, *modules):
         super(Sequential, self).__init__(modules)
 
-    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]
-        =None, pbc: Optional[Tensor]=None):
+    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None):
         for module in self:
             input_ = module(input_, cell=cell, pbc=pbc)
         return input_
@@ -861,13 +789,11 @@ class SpeciesConverter(torch.nn.Module):
         super().__init__()
         rev_idx = {s: k for k, s in enumerate(utils.PERIODIC_TABLE, 1)}
         maxidx = max(rev_idx.values())
-        self.register_buffer('conv_tensor', torch.full((maxidx + 2,), -1,
-            dtype=torch.long))
+        self.register_buffer('conv_tensor', torch.full((maxidx + 2,), -1, dtype=torch.long))
         for i, s in enumerate(species):
             self.conv_tensor[rev_idx[s]] = i
 
-    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]
-        =None, pbc: Optional[Tensor]=None):
+    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None):
         """Convert species from periodic table element index to 0, 1, 2, 3, ... indexing"""
         species, coordinates = input_
         return SpeciesCoordinates(self.conv_tensor[species], coordinates)
@@ -911,12 +837,10 @@ class EnergyShifter(torch.nn.Module):
         if self.fit_intercept:
             intercept = self.self_energies[-1]
         self_energies = self.self_energies[species]
-        self_energies[species == torch.tensor(-1, device=species.device)
-            ] = torch.tensor(0, device=species.device, dtype=torch.double)
+        self_energies[species == torch.tensor(-1, device=species.device)] = torch.tensor(0, device=species.device, dtype=torch.double)
         return self_energies.sum(dim=1) + intercept
 
-    def forward(self, species_energies: Tuple[Tensor, Tensor], cell:
-        Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
+    def forward(self, species_energies: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None) ->SpeciesEnergies:
         """(species, molecular energies)->(species, molecular energies + sae)
         """
         species, energies = species_energies
@@ -928,11 +852,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Gaussian,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Sequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_aiqm_torchani(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Gaussian(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

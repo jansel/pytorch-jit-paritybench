@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,21 +93,14 @@ class SoftToAngle(nn.Module):
     def __init__(self, mixture_size):
         super(SoftToAngle, self).__init__()
         omega_components1 = np.random.uniform(0, 1, int(mixture_size * 0.1))
-        omega_components2 = np.random.uniform(2, math.pi, int(mixture_size *
-            0.9))
-        omega_components = np.concatenate((omega_components1,
-            omega_components2))
+        omega_components2 = np.random.uniform(2, math.pi, int(mixture_size * 0.9))
+        omega_components = np.concatenate((omega_components1, omega_components2))
         np.random.shuffle(omega_components)
-        phi_components = np.genfromtxt('data/mixture_model_pfam_' + str(
-            mixture_size) + '.txt')[:, (1)]
-        psi_components = np.genfromtxt('data/mixture_model_pfam_' + str(
-            mixture_size) + '.txt')[:, (2)]
-        self.phi_components = nn.Parameter(torch.from_numpy(phi_components)
-            .contiguous().view(-1, 1).float())
-        self.psi_components = nn.Parameter(torch.from_numpy(psi_components)
-            .contiguous().view(-1, 1).float())
-        self.omega_components = nn.Parameter(torch.from_numpy(
-            omega_components).view(-1, 1).float())
+        phi_components = np.genfromtxt('data/mixture_model_pfam_' + str(mixture_size) + '.txt')[:, (1)]
+        psi_components = np.genfromtxt('data/mixture_model_pfam_' + str(mixture_size) + '.txt')[:, (2)]
+        self.phi_components = nn.Parameter(torch.from_numpy(phi_components).contiguous().view(-1, 1).float())
+        self.psi_components = nn.Parameter(torch.from_numpy(psi_components).contiguous().view(-1, 1).float())
+        self.omega_components = nn.Parameter(torch.from_numpy(omega_components).view(-1, 1).float())
 
     def forward(self, x):
         phi_input_sin = torch.matmul(x, torch.sin(self.phi_components))
@@ -130,22 +124,18 @@ def calc_angular_difference(values_1, values_2):
         assert values_2[idx].shape[1] == 3
         a1_element = values_1[idx].view(-1, 1)
         a2_element = values_2[idx].view(-1, 1)
-        acc += torch.sqrt(torch.mean(torch.min(torch.abs(a2_element -
-            a1_element), 2 * math.pi - torch.abs(a2_element - a1_element)) **
-            2))
+        acc += torch.sqrt(torch.mean(torch.min(torch.abs(a2_element - a1_element), 2 * math.pi - torch.abs(a2_element - a1_element)) ** 2))
     return acc / values_1.shape[0]
 
 
 def calc_pairwise_distances(chain_a, chain_b, use_gpu):
-    distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(
-        torch.float)
+    distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(torch.float)
     epsilon = 10 ** -4 * torch.ones(chain_a.size(0), chain_b.size(0))
     if use_gpu:
         distance_matrix = distance_matrix.cuda()
         epsilon = epsilon.cuda()
     for idx, row in enumerate(chain_a.split(1)):
-        distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) **
-            2, 1).view(1, -1)
+        distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) ** 2, 1).view(1, -1)
     return torch.sqrt(distance_matrix + epsilon)
 
 
@@ -153,14 +143,11 @@ def calc_drmsd(chain_a, chain_b, use_gpu=False):
     assert len(chain_a) == len(chain_b)
     distance_matrix_a = calc_pairwise_distances(chain_a, chain_a, use_gpu)
     distance_matrix_b = calc_pairwise_distances(chain_b, chain_b, use_gpu)
-    return torch.norm(distance_matrix_a - distance_matrix_b, 2) / math.sqrt(
-        len(chain_a) * (len(chain_a) - 1))
+    return torch.norm(distance_matrix_a - distance_matrix_b, 2) / math.sqrt(len(chain_a) * (len(chain_a) - 1))
 
 
 def transpose_atoms_to_center_of_mass(atoms_matrix):
-    center_of_mass = np.matrix([[atoms_matrix[(0), :].sum() / atoms_matrix.
-        shape[1]], [atoms_matrix[(1), :].sum() / atoms_matrix.shape[1]], [
-        atoms_matrix[(2), :].sum() / atoms_matrix.shape[1]]])
+    center_of_mass = np.matrix([[atoms_matrix[(0), :].sum() / atoms_matrix.shape[1]], [atoms_matrix[(1), :].sum() / atoms_matrix.shape[1]], [atoms_matrix[(2), :].sum() / atoms_matrix.shape[1]]])
     return atoms_matrix - center_of_mass
 
 
@@ -171,8 +158,7 @@ def calc_rmsd(chain_a, chain_b):
     Y = transpose_atoms_to_center_of_mass(chain_b_value)
     R = Y * X.transpose()
     _, S, _ = np.linalg.svd(R)
-    E0 = sum(list(np.linalg.norm(x) ** 2 for x in X.transpose()) + list(np.
-        linalg.norm(x) ** 2 for x in Y.transpose()))
+    E0 = sum(list(np.linalg.norm(x) ** 2 for x in X.transpose()) + list(np.linalg.norm(x) ** 2 for x in Y.transpose()))
     TraceS = sum(S)
     RMSD = np.sqrt(1 / len(X.transpose()) * (E0 - 2 * TraceS))
     return RMSD
@@ -215,19 +201,16 @@ def calculate_dihedral_angles(atomic_coords, use_gpu):
     zero_tensor = torch.zeros(1)
     if use_gpu:
         zero_tensor = zero_tensor.cuda()
-    angles = torch.cat((zero_tensor, zero_tensor, compute_dihedral_list(
-        atomic_coords), zero_tensor)).view(-1, 3)
+    angles = torch.cat((zero_tensor, zero_tensor, compute_dihedral_list(atomic_coords), zero_tensor)).view(-1, 3)
     return angles
 
 
-def calculate_dihedral_angles_over_minibatch(atomic_coords_padded,
-    batch_sizes, use_gpu):
+def calculate_dihedral_angles_over_minibatch(atomic_coords_padded, batch_sizes, use_gpu):
     angles = []
     batch_sizes = torch.LongTensor(batch_sizes)
     atomic_coords = atomic_coords_padded.transpose(0, 1)
     for idx, coordinate in enumerate(atomic_coords.split(1, dim=0)):
-        angles_from_coords = torch.index_select(coordinate.squeeze(0), 0,
-            torch.arange(int(batch_sizes[idx].item())))
+        angles_from_coords = torch.index_select(coordinate.squeeze(0), 0, torch.arange(int(batch_sizes[idx].item())))
         angles.append(calculate_dihedral_angles(angles_from_coords, use_gpu))
     return torch.nn.utils.rnn.pad_sequence(angles), batch_sizes
 
@@ -247,8 +230,7 @@ NUM_DIHEDRALS = 3
 NUM_DIMENSIONS = 3
 
 
-def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
-    bond_angles=BOND_ANGLES):
+def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS, bond_angles=BOND_ANGLES):
     """
     Takes triplets of dihedral angles (phi, psi, omega) and returns 3D points
     ready for use in reconstruction of coordinates. Bond lengths and angles
@@ -269,14 +251,11 @@ def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
     point_z = torch.sin(dihedral) * r_sin_theta
     point = torch.stack([point_x, point_y, point_z])
     point_perm = point.permute(1, 3, 2, 0)
-    point_final = point_perm.contiguous().view(num_steps * NUM_DIHEDRALS,
-        batch_size, NUM_DIMENSIONS)
+    point_final = point_perm.contiguous().view(num_steps * NUM_DIHEDRALS, batch_size, NUM_DIMENSIONS)
     return point_final
 
 
-PNERF_INIT_MATRIX = [torch.tensor([-torch.sqrt(torch.tensor([1.0 / 2.0])),
-    torch.sqrt(torch.tensor([3.0 / 2.0])), 0]), torch.tensor([-torch.sqrt(
-    torch.tensor([2.0])), 0, 0]), torch.tensor([0, 0, 0])]
+PNERF_INIT_MATRIX = [torch.tensor([-torch.sqrt(torch.tensor([1.0 / 2.0])), torch.sqrt(torch.tensor([3.0 / 2.0])), 0]), torch.tensor([-torch.sqrt(torch.tensor([2.0])), 0, 0]), torch.tensor([0, 0, 0])]
 
 
 def point_to_coordinate(points, use_gpu, num_fragments):
@@ -304,14 +283,12 @@ def point_to_coordinate(points, use_gpu, num_fragments):
     batch_size = points.shape[1]
     init_coords = []
     for row in PNERF_INIT_MATRIX:
-        row_tensor = row.repeat([num_fragments * batch_size, 1]).view(
-            num_fragments, batch_size, NUM_DIMENSIONS)
+        row_tensor = row.repeat([num_fragments * batch_size, 1]).view(num_fragments, batch_size, NUM_DIMENSIONS)
         if use_gpu:
             row_tensor = row_tensor.cuda()
         init_coords.append(row_tensor)
     init_coords = Triplet(*init_coords)
-    padding = torch.fmod(num_fragments - total_num_angles % num_fragments,
-        num_fragments)
+    padding = torch.fmod(num_fragments - total_num_angles % num_fragments, num_fragments)
     padding_tensor = torch.zeros((padding, points.size(1), points.size(2)))
     points = torch.cat((points, padding_tensor))
     points = points.view(num_fragments, -1, batch_size, NUM_DIMENSIONS)
@@ -335,52 +312,38 @@ def point_to_coordinate(points, use_gpu, num_fragments):
         :return: Coordinates of the atom/ fragment.
         """
         bc = F.normalize(prev_three_coords.c - prev_three_coords.b, dim=-1)
-        n = F.normalize(compute_cross(prev_three_coords.b -
-            prev_three_coords.a, bc, dim=2 if multi_m else 1), dim=-1)
+        n = F.normalize(compute_cross(prev_three_coords.b - prev_three_coords.a, bc, dim=2 if multi_m else 1), dim=-1)
         if multi_m:
-            m = torch.stack([bc, compute_cross(n, bc, dim=2), n]).permute(1,
-                2, 3, 0)
+            m = torch.stack([bc, compute_cross(n, bc, dim=2), n]).permute(1, 2, 3, 0)
         else:
             s = point.shape + (3,)
-            m = torch.stack([bc, compute_cross(n, bc, dim=1), n]).permute(1,
-                2, 0)
+            m = torch.stack([bc, compute_cross(n, bc, dim=1), n]).permute(1, 2, 0)
             m = m.repeat(s[0], 1, 1).view(s)
-        coord = torch.squeeze(torch.matmul(m, point.unsqueeze(3)), dim=3
-            ) + prev_three_coords.c
+        coord = torch.squeeze(torch.matmul(m, point.unsqueeze(3)), dim=3) + prev_three_coords.c
         return coord
     coords_list = []
     prev_three_coords = init_coords
     for point in points.split(1, dim=0):
         coord = extend(prev_three_coords, point.squeeze(0), True)
         coords_list.append(coord)
-        prev_three_coords = Triplet(prev_three_coords.b, prev_three_coords.
-            c, coord)
+        prev_three_coords = Triplet(prev_three_coords.b, prev_three_coords.c, coord)
     coords_pretrans = torch.stack(coords_list).permute(1, 0, 2, 3)
     coords_trans = coords_pretrans[-1]
-    for idx in torch.arange(end=-1, start=coords_pretrans.shape[0] - 2, step=-1
-        ).split(1, dim=0):
-        transformed_coords = extend(Triplet(*[di.index_select(0, idx).
-            squeeze(0) for di in prev_three_coords]), coords_trans, False)
-        coords_trans = torch.cat([coords_pretrans.index_select(0, idx).
-            squeeze(0), transformed_coords], 0)
-    coords_to_pad = torch.index_select(coords_trans, 0, torch.arange(
-        total_num_angles - 1))
+    for idx in torch.arange(end=-1, start=coords_pretrans.shape[0] - 2, step=-1).split(1, dim=0):
+        transformed_coords = extend(Triplet(*[di.index_select(0, idx).squeeze(0) for di in prev_three_coords]), coords_trans, False)
+        coords_trans = torch.cat([coords_pretrans.index_select(0, idx).squeeze(0), transformed_coords], 0)
+    coords_to_pad = torch.index_select(coords_trans, 0, torch.arange(total_num_angles - 1))
     coords = F.pad(coords_to_pad, (0, 0, 0, 0, 1, 0))
     return coords
 
 
-def get_backbone_positions_from_angles(angular_emissions, batch_sizes, use_gpu
-    ):
+def get_backbone_positions_from_angles(angular_emissions, batch_sizes, use_gpu):
     points = dihedral_to_point(angular_emissions, use_gpu)
-    coordinates = point_to_coordinate(points, use_gpu, num_fragments=
-        NUM_FRAGMENTS) / 100
-    return coordinates.transpose(0, 1).contiguous().view(len(batch_sizes), 
-        -1, 9).transpose(0, 1), batch_sizes
+    coordinates = point_to_coordinate(points, use_gpu, num_fragments=NUM_FRAGMENTS) / 100
+    return coordinates.transpose(0, 1).contiguous().view(len(batch_sizes), -1, 9).transpose(0, 1), batch_sizes
 
 
-AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 
-    8, 'K': 9, 'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 
-    16, 'T': 17, 'V': 18, 'W': 19, 'Y': 20}
+AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9, 'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17, 'V': 18, 'W': 19, 'Y': 20}
 
 
 def protein_id_to_str(protein_id_list):
@@ -397,20 +360,15 @@ def get_structure_from_angles(aa_list_encoded, angles):
     omega_list = angles[1:, (0)]
     phi_list = angles[1:, (1)]
     psi_list = angles[:-1, (2)]
-    assert len(aa_list) == len(phi_list) + 1 == len(psi_list) + 1 == len(
-        omega_list) + 1
-    structure = PeptideBuilder.make_structure(aa_list, list(map(lambda x:
-        math.degrees(x), phi_list)), list(map(lambda x: math.degrees(x),
-        psi_list)), list(map(lambda x: math.degrees(x), omega_list)))
+    assert len(aa_list) == len(phi_list) + 1 == len(psi_list) + 1 == len(omega_list) + 1
+    structure = PeptideBuilder.make_structure(aa_list, list(map(lambda x: math.degrees(x), phi_list)), list(map(lambda x: math.degrees(x), psi_list)), list(map(lambda x: math.degrees(x), omega_list)))
     return structure
 
 
 def write_out(*args, end='\n'):
-    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S'
-        ) + ': ' + str.join(' ', [str(a) for a in args]) + end
+    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ': ' + str.join(' ', [str(a) for a in args]) + end
     if globals().get('experiment_id') is not None:
-        with open('output/' + globals().get('experiment_id') + '.txt', 'a+'
-            ) as output_file:
+        with open('output/' + globals().get('experiment_id') + '.txt', 'a+') as output_file:
             output_file.write(output_string)
             output_file.flush()
     print(output_string, end='')
@@ -442,8 +400,7 @@ class BaseModel(nn.Module):
             seqs.append(torch.cat((tensor, padding_to_add)))
         data = torch.stack(seqs).transpose(0, 1)
         start_compute_embed = time.time()
-        arange_tensor = torch.arange(21).int().repeat(len(
-            original_aa_string), 1).unsqueeze(0).repeat(max_len, 1, 1)
+        arange_tensor = torch.arange(21).int().repeat(len(original_aa_string), 1).unsqueeze(0).repeat(max_len, 1, 1)
         data_tensor = data.unsqueeze(2).repeat(1, 1, 21)
         embed_tensor = (arange_tensor == data_tensor).float()
         if self.use_gpu:
@@ -454,17 +411,14 @@ class BaseModel(nn.Module):
 
     def compute_loss(self, minibatch):
         original_aa_string, actual_coords_list, _ = minibatch
-        emissions, _backbone_atoms_padded, _batch_sizes = (self.
-            _get_network_emissions(original_aa_string))
-        actual_coords_list_padded = torch.nn.utils.rnn.pad_sequence(
-            actual_coords_list)
+        emissions, _backbone_atoms_padded, _batch_sizes = self._get_network_emissions(original_aa_string)
+        actual_coords_list_padded = torch.nn.utils.rnn.pad_sequence(actual_coords_list)
         if self.use_gpu:
             actual_coords_list_padded = actual_coords_list_padded
         start = time.time()
         if isinstance(_batch_sizes[0], int):
             _batch_sizes = torch.tensor(_batch_sizes)
-        emissions_actual, _ = calculate_dihedral_angles_over_minibatch(
-            actual_coords_list_padded, _batch_sizes, self.use_gpu)
+        emissions_actual, _ = calculate_dihedral_angles_over_minibatch(actual_coords_list_padded, _batch_sizes, self.use_gpu)
         write_out('Angle calculation time:', time.time() - start)
         if self.use_gpu:
             emissions_actual = emissions_actual
@@ -482,33 +436,24 @@ class BaseModel(nn.Module):
         for _, data in enumerate(data_loader, 0):
             primary_sequence, tertiary_positions, _mask = data
             start = time.time()
-            predicted_angles, backbone_atoms, batch_sizes = self(
-                primary_sequence)
-            write_out('Apply model to validation minibatch:', time.time() -
-                start)
+            predicted_angles, backbone_atoms, batch_sizes = self(primary_sequence)
+            write_out('Apply model to validation minibatch:', time.time() - start)
             if predicted_angles == []:
-                output_angles, _ = calculate_dihedral_angles_over_minibatch(
-                    backbone_atoms, batch_sizes, self.use_gpu)
+                output_angles, _ = calculate_dihedral_angles_over_minibatch(backbone_atoms, batch_sizes, self.use_gpu)
             else:
                 output_angles = predicted_angles
             cpu_predicted_angles = output_angles.transpose(0, 1).cpu().detach()
             if backbone_atoms == []:
-                output_positions, _ = get_backbone_positions_from_angles(
-                    predicted_angles, batch_sizes, self.use_gpu)
+                output_positions, _ = get_backbone_positions_from_angles(predicted_angles, batch_sizes, self.use_gpu)
             else:
                 output_positions = backbone_atoms
-            cpu_predicted_backbone_atoms = output_positions.transpose(0, 1
-                ).cpu().detach()
-            minibatch_data = list(zip(primary_sequence, tertiary_positions,
-                cpu_predicted_angles, cpu_predicted_backbone_atoms))
+            cpu_predicted_backbone_atoms = output_positions.transpose(0, 1).cpu().detach()
+            minibatch_data = list(zip(primary_sequence, tertiary_positions, cpu_predicted_angles, cpu_predicted_backbone_atoms))
             data_total.extend(minibatch_data)
             start = time.time()
             for primary_sequence, tertiary_positions, _predicted_pos, predicted_backbone_atoms in minibatch_data:
-                actual_coords = tertiary_positions.transpose(0, 1).contiguous(
-                    ).view(-1, 3)
-                predicted_coords = predicted_backbone_atoms[:len(
-                    primary_sequence)].transpose(0, 1).contiguous().view(-1, 3
-                    ).detach()
+                actual_coords = tertiary_positions.transpose(0, 1).contiguous().view(-1, 3)
+                predicted_coords = predicted_backbone_atoms[:len(primary_sequence)].transpose(0, 1).contiguous().view(-1, 3).detach()
                 rmsd = calc_rmsd(predicted_coords, actual_coords)
                 drmsd = calc_drmsd(predicted_coords, actual_coords)
                 RMSD_list.append(rmsd)
@@ -516,13 +461,10 @@ class BaseModel(nn.Module):
                 error = rmsd
                 loss += error
                 end = time.time()
-            write_out('Calculate validation loss for minibatch took:', end -
-                start)
+            write_out('Calculate validation loss for minibatch took:', end - start)
         loss /= data_loader.dataset.__len__()
-        self.historical_rmsd_avg_values.append(float(torch.Tensor(RMSD_list
-            ).mean()))
-        self.historical_drmsd_avg_values.append(float(torch.Tensor(
-            dRMSD_list).mean()))
+        self.historical_rmsd_avg_values.append(float(torch.Tensor(RMSD_list).mean()))
+        self.historical_drmsd_avg_values.append(float(torch.Tensor(dRMSD_list).mean()))
         prim = data_total[0][0]
         pos = data_total[0][1]
         pos_pred = data_total[0][3]
@@ -534,26 +476,14 @@ class BaseModel(nn.Module):
         write_to_pdb(get_structure_from_angles(prim, angles), 'test')
         write_to_pdb(get_structure_from_angles(prim, angles_pred), 'test_pred')
         data = {}
-        data['pdb_data_pred'] = open('output/protein_test_pred.pdb', 'r').read(
-            )
+        data['pdb_data_pred'] = open('output/protein_test_pred.pdb', 'r').read()
         data['pdb_data_true'] = open('output/protein_test.pdb', 'r').read()
-        data['phi_actual'] = list([math.degrees(float(v)) for v in angles[1
-            :, (1)]])
-        data['psi_actual'] = list([math.degrees(float(v)) for v in angles[:
-            -1, (2)]])
-        data['phi_predicted'] = list([math.degrees(float(v)) for v in
-            angles_pred[1:, (1)]])
-        data['psi_predicted'] = list([math.degrees(float(v)) for v in
-            angles_pred[:-1, (2)]])
+        data['phi_actual'] = list([math.degrees(float(v)) for v in angles[1:, (1)]])
+        data['psi_actual'] = list([math.degrees(float(v)) for v in angles[:-1, (2)]])
+        data['phi_predicted'] = list([math.degrees(float(v)) for v in angles_pred[1:, (1)]])
+        data['psi_predicted'] = list([math.degrees(float(v)) for v in angles_pred[:-1, (2)]])
         data['rmsd_avg'] = self.historical_rmsd_avg_values
         data['drmsd_avg'] = self.historical_drmsd_avg_values
         prediction_data = None
         return loss, data, prediction_data
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_biolib_openprotein(_paritybench_base):
-    pass

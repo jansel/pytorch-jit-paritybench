@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,11 +86,9 @@ class UNetConvBlock(nn.Module):
 
     def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu):
         super(UNetConvBlock, self).__init__()
-        self.conv = nn.Conv3d(in_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv = nn.Conv3d(in_size, out_size, kernel_size, stride=1, padding=1)
         self.bn = nn.BatchNorm3d(out_size)
-        self.conv2 = nn.Conv3d(out_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv3d(out_size, out_size, kernel_size, stride=1, padding=1)
         self.bn2 = nn.BatchNorm3d(out_size)
         self.activation = activation
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
@@ -105,15 +104,12 @@ class UNetConvBlock(nn.Module):
 
 class residualUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=
-        1, activation=F.relu):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=1, activation=F.relu):
         super(residualUnit, self).__init__()
-        self.conv1 = nn.Conv3d(in_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv1 = nn.Conv3d(in_size, out_size, kernel_size, stride=1, padding=1)
         init.xavier_uniform(self.conv1.weight, gain=np.sqrt(2.0))
         init.constant(self.conv1.bias, 0)
-        self.conv2 = nn.Conv3d(out_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv3d(out_size, out_size, kernel_size, stride=1, padding=1)
         init.xavier_uniform(self.conv2.weight, gain=np.sqrt(2.0))
         init.constant(self.conv2.bias, 0)
         self.activation = activation
@@ -122,8 +118,7 @@ class residualUnit(nn.Module):
         self.in_size = in_size
         self.out_size = out_size
         if in_size != out_size:
-            self.convX = nn.Conv3d(in_size, out_size, kernel_size=1, stride
-                =1, padding=0)
+            self.convX = nn.Conv3d(in_size, out_size, kernel_size=1, stride=1, padding=0)
             self.bnX = nn.BatchNorm3d(out_size)
 
     def forward(self, x):
@@ -137,16 +132,13 @@ class residualUnit(nn.Module):
 
 class UNetUpBlock(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        space_dropout=False):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, space_dropout=False):
         super(UNetUpBlock, self).__init__()
         self.up = nn.ConvTranspose3d(in_size, out_size, 2, stride=2)
         self.bnup = nn.BatchNorm3d(out_size)
-        self.conv = nn.Conv3d(in_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv = nn.Conv3d(in_size, out_size, kernel_size, stride=1, padding=1)
         self.bn = nn.BatchNorm3d(out_size)
-        self.conv2 = nn.Conv3d(out_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv3d(out_size, out_size, kernel_size, stride=1, padding=1)
         self.bn2 = nn.BatchNorm3d(out_size)
         self.activation = activation
         init.xavier_uniform(self.up.weight, gain=np.sqrt(2.0))
@@ -157,8 +149,7 @@ class UNetUpBlock(nn.Module):
         init.constant(self.conv2.bias, 0)
 
     def center_crop(self, layer, target_size):
-        batch_size, n_channels, layer_width, layer_height, layer_depth = (layer
-            .size())
+        batch_size, n_channels, layer_width, layer_height, layer_depth = layer.size()
         xy1 = (layer_width - target_size) // 2
         return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size]
 
@@ -174,8 +165,7 @@ class UNetUpBlock(nn.Module):
 
 class UNetUpResBlock(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        space_dropout=False):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, space_dropout=False):
         super(UNetUpResBlock, self).__init__()
         self.up = nn.ConvTranspose3d(in_size, out_size, 2, stride=2)
         self.bnup = nn.BatchNorm3d(out_size)
@@ -185,11 +175,9 @@ class UNetUpResBlock(nn.Module):
         self.resUnit = residualUnit(in_size, out_size, kernel_size=kernel_size)
 
     def center_crop(self, layer, target_size):
-        batch_size, n_channels, layer_width, layer_height, layer_depth = (layer
-            .size())
+        batch_size, n_channels, layer_width, layer_height, layer_depth = layer.size()
         xy1 = (layer_width - target_size) // 2
-        return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size,
-            xy1:xy1 + target_size]
+        return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size, xy1:xy1 + target_size]
 
     def forward(self, x, bridge):
         up = self.activation(self.bnup(self.up(x)))
@@ -371,11 +359,9 @@ class UNetConvBlock(nn.Module):
 
     def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu):
         super(UNetConvBlock, self).__init__()
-        self.conv = nn.Conv2d(in_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv = nn.Conv2d(in_size, out_size, kernel_size, stride=1, padding=1)
         self.bn = nn.BatchNorm2d(out_size)
-        self.conv2 = nn.Conv2d(out_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(out_size, out_size, kernel_size, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(out_size)
         self.activation = activation
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
@@ -391,15 +377,12 @@ class UNetConvBlock(nn.Module):
 
 class residualUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=
-        1, activation=F.relu):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=1, activation=F.relu):
         super(residualUnit, self).__init__()
-        self.conv1 = nn.Conv2d(in_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv1 = nn.Conv2d(in_size, out_size, kernel_size, stride=1, padding=1)
         init.xavier_uniform(self.conv1.weight, gain=np.sqrt(2.0))
         init.constant(self.conv1.bias, 0)
-        self.conv2 = nn.Conv2d(out_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(out_size, out_size, kernel_size, stride=1, padding=1)
         init.xavier_uniform(self.conv2.weight, gain=np.sqrt(2.0))
         init.constant(self.conv2.bias, 0)
         self.activation = activation
@@ -408,8 +391,7 @@ class residualUnit(nn.Module):
         self.in_size = in_size
         self.out_size = out_size
         if in_size != out_size:
-            self.convX = nn.Conv2d(in_size, out_size, kernel_size=1, stride
-                =1, padding=0)
+            self.convX = nn.Conv2d(in_size, out_size, kernel_size=1, stride=1, padding=0)
             self.bnX = nn.BatchNorm2d(out_size)
 
     def forward(self, x):
@@ -423,16 +405,13 @@ class residualUnit(nn.Module):
 
 class UNetUpBlock(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        space_dropout=False):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, space_dropout=False):
         super(UNetUpBlock, self).__init__()
         self.up = nn.ConvTranspose2d(in_size, out_size, 2, stride=2)
         self.bnup = nn.BatchNorm2d(out_size)
-        self.conv = nn.Conv2d(in_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv = nn.Conv2d(in_size, out_size, kernel_size, stride=1, padding=1)
         self.bn = nn.BatchNorm2d(out_size)
-        self.conv2 = nn.Conv2d(out_size, out_size, kernel_size, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(out_size, out_size, kernel_size, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(out_size)
         self.activation = activation
         init.xavier_uniform(self.up.weight, gain=np.sqrt(2.0))
@@ -459,8 +438,7 @@ class UNetUpBlock(nn.Module):
 
 class UNetUpResBlock(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        space_dropout=False):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, space_dropout=False):
         super(UNetUpResBlock, self).__init__()
         self.up = nn.ConvTranspose2d(in_size, out_size, 2, stride=2)
         self.bnup = nn.BatchNorm2d(out_size)
@@ -681,8 +659,7 @@ class UNet3D(nn.Module):
         self.in_channel = in_channel
         self.n_classes = n_classes
         super(UNet3D, self).__init__()
-        self.ec0 = self.encoder(self.in_channel, 32, bias=False, batchnorm=
-            False)
+        self.ec0 = self.encoder(self.in_channel, 32, bias=False, batchnorm=False)
         self.ec1 = self.encoder(32, 64, bias=False, batchnorm=False)
         self.ec2 = self.encoder(64, 64, bias=False, batchnorm=False)
         self.ec3 = self.encoder(64, 128, bias=False, batchnorm=False)
@@ -693,44 +670,26 @@ class UNet3D(nn.Module):
         self.pool0 = nn.MaxPool3d(2)
         self.pool1 = nn.MaxPool3d(2)
         self.pool2 = nn.MaxPool3d(2)
-        self.dc9 = self.decoder(512, 512, kernel_size=4, stride=2, padding=
-            1, bias=False)
-        self.dc8 = self.decoder(256 + 512, 256, kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.dc7 = self.decoder(256, 256, kernel_size=3, stride=1, padding=
-            1, bias=False)
-        self.dc6 = self.decoder(256, 256, kernel_size=4, stride=2, padding=
-            1, bias=False)
-        self.dc5 = self.decoder(128 + 256, 128, kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.dc4 = self.decoder(128, 128, kernel_size=3, stride=1, padding=
-            1, bias=False)
-        self.dc3 = self.decoder(128, 128, kernel_size=4, stride=2, padding=
-            1, bias=False)
-        self.dc2 = self.decoder(64 + 128, 64, kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.dc1 = self.decoder(64, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
-        self.dc0 = self.decoder(64, n_classes, kernel_size=1, stride=1,
-            bias=False)
+        self.dc9 = self.decoder(512, 512, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dc8 = self.decoder(256 + 512, 256, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc7 = self.decoder(256, 256, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc6 = self.decoder(256, 256, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dc5 = self.decoder(128 + 256, 128, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc4 = self.decoder(128, 128, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc3 = self.decoder(128, 128, kernel_size=4, stride=2, padding=1, bias=False)
+        self.dc2 = self.decoder(64 + 128, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc1 = self.decoder(64, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc0 = self.decoder(64, n_classes, kernel_size=1, stride=1, bias=False)
 
-    def encoder(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1, bias=True, batchnorm=False):
+    def encoder(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=True, batchnorm=False):
         if batchnorm:
-            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, bias=bias), nn
-                .BatchNorm2d(out_channels), nn.ReLU())
+            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(out_channels), nn.ReLU())
         else:
-            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, bias=bias), nn
-                .ReLU())
+            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=bias), nn.ReLU())
         return layer
 
-    def decoder(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, bias=True):
-        layer = nn.Sequential(nn.ConvTranspose3d(in_channels, out_channels,
-            kernel_size, stride=stride, padding=padding, output_padding=
-            output_padding, bias=bias), nn.ReLU())
+    def decoder(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, bias=True):
+        layer = nn.Sequential(nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, bias=bias), nn.ReLU())
         return layer
 
     def forward(self, x):
@@ -770,22 +729,15 @@ class UNet3D(nn.Module):
 
 class conv23DUnit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1, bias=True, dilation=1, nd=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1, bias=True, dilation=1, nd=2):
         super(conv23DUnit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
         elif nd == 3:
-            self.conv = nn.Conv3d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
         else:
-            self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
         init.constant(self.conv.bias, 0)
 
@@ -795,24 +747,17 @@ class conv23DUnit(nn.Module):
 
 class conv23D_bn_Unit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1, bias=True, dilation=1, nd=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1, bias=True, dilation=1, nd=2):
         super(conv23D_bn_Unit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm2d(out_channels)
         elif nd == 3:
-            self.conv = nn.Conv3d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm3d(out_channels)
         else:
-            self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm1d(out_channels)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
         init.constant(self.conv.bias, 0)
@@ -823,24 +768,17 @@ class conv23D_bn_Unit(nn.Module):
 
 class conv23D_bn_relu_Unit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1, bias=True, dilation=1, nd=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1, bias=True, dilation=1, nd=2):
         super(conv23D_bn_relu_Unit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm2d(out_channels)
         elif nd == 3:
-            self.conv = nn.Conv3d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm3d(out_channels)
         else:
-            self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-                stride=stride, padding=padding, groups=groups, bias=bias,
-                dilation=dilation)
+            self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm1d(out_channels)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
         init.constant(self.conv.bias, 0)
@@ -852,22 +790,15 @@ class conv23D_bn_relu_Unit(nn.Module):
 
 class convTranspose23DUnit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, groups=1, bias=True, dilation=1, nd=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, nd=2):
         super(convTranspose23DUnit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.conv = nn.ConvTranspose2d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
         elif nd == 3:
-            self.conv = nn.ConvTranspose3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
         else:
-            self.conv = nn.ConvTranspose1d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
         init.constant(self.conv.bias, 0)
 
@@ -877,24 +808,17 @@ class convTranspose23DUnit(nn.Module):
 
 class convTranspose23D_bn_Unit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, groups=1, bias=True, dilation=1, nd=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, nd=2):
         super(convTranspose23D_bn_Unit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.conv = nn.ConvTranspose2d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm2d(out_channels)
         elif nd == 3:
-            self.conv = nn.ConvTranspose3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm3d(out_channels)
         else:
-            self.conv = nn.ConvTranspose1d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm1d(out_channels)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
         init.constant(self.conv.bias, 0)
@@ -905,24 +829,17 @@ class convTranspose23D_bn_Unit(nn.Module):
 
 class convTranspose23D_bn_relu_Unit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, groups=1, bias=True, dilation=1, nd=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, nd=2):
         super(convTranspose23D_bn_relu_Unit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.conv = nn.ConvTranspose2d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm2d(out_channels)
         elif nd == 3:
-            self.conv = nn.ConvTranspose3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm3d(out_channels)
         else:
-            self.conv = nn.ConvTranspose1d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, output_padding
-                =output_padding, groups=groups, bias=bias, dilation=dilation)
+            self.conv = nn.ConvTranspose1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
             self.bn = nn.BatchNorm1d(out_channels)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
         init.constant(self.conv.bias, 0)
@@ -954,14 +871,11 @@ class maxPool23DUinit(nn.Module):
         super(maxPool23DUinit, self).__init__()
         assert nd == 1 or nd == 2 or nd == 3, 'nd is not correctly specified!!!!, it should be {1,2,3}'
         if nd == 2:
-            self.pool1 = nn.MaxPool2d(kernel_size=kernel_size, stride=
-                stride, padding=padding, dilation=dilation)
+            self.pool1 = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
         elif nd == 3:
-            self.pool1 = nn.MaxPool3d(kernel_size=kernel_size, stride=
-                stride, padding=padding, dilation=dilation)
+            self.pool1 = nn.MaxPool3d(kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
         else:
-            self.pool1 = nn.MaxPool1d(kernel_size=kernel_size, stride=
-                stride, padding=padding, dilation=dilation)
+            self.pool1 = nn.MaxPool1d(kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
 
     def forward(self, x):
         return self.pool1(x)
@@ -969,8 +883,7 @@ class maxPool23DUinit(nn.Module):
 
 class convUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=
-        1, activation=F.relu):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=1, activation=F.relu):
         super(convUnit, self).__init__()
         self.conv = nn.Conv2d(in_size, out_size, kernel_size, stride, padding)
         init.xavier_uniform(self.conv.weight, gain=np.sqrt(2.0))
@@ -984,13 +897,10 @@ class convUnit(nn.Module):
 
 class residualUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=
-        1, activation=F.relu, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=1, activation=F.relu, nd=2):
         super(residualUnit, self).__init__()
-        self.conv1 = conv23DUnit(in_size, out_size, kernel_size, stride,
-            padding, nd=nd)
-        self.conv2 = conv23DUnit(out_size, out_size, kernel_size, stride,
-            padding, nd=nd)
+        self.conv1 = conv23DUnit(in_size, out_size, kernel_size, stride, padding, nd=nd)
+        self.conv2 = conv23DUnit(out_size, out_size, kernel_size, stride, padding, nd=nd)
 
     def forward(self, x):
         return F.relu(self.conv2(F.elu(self.conv1(x))) + x)
@@ -998,14 +908,11 @@ class residualUnit(nn.Module):
 
 class residualUnit1(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=
-        1, activation=F.relu, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=1, activation=F.relu, nd=2):
         super(residualUnit1, self).__init__()
-        self.conv1_bn_relu = conv23D_bn_relu_Unit(in_size, out_size,
-            kernel_size, stride, padding, nd=nd)
+        self.conv1_bn_relu = conv23D_bn_relu_Unit(in_size, out_size, kernel_size, stride, padding, nd=nd)
         self.relu = nn.ReLU()
-        self.conv2_bn_relu = nn.conv23D_bn_relu_Unit(out_size, out_size,
-            kernel_size, stride, padding, nd=nd)
+        self.conv2_bn_relu = nn.conv23D_bn_relu_Unit(out_size, out_size, kernel_size, stride, padding, nd=nd)
 
     def forward(self, x):
         identity_data = x
@@ -1018,45 +925,28 @@ class residualUnit1(nn.Module):
 
 class residualUnit3(nn.Module):
 
-    def __init__(self, in_size, out_size, isDilation=None, isEmptyBranch1=
-        None, activation=F.relu, nd=2):
+    def __init__(self, in_size, out_size, isDilation=None, isEmptyBranch1=None, activation=F.relu, nd=2):
         super(residualUnit3, self).__init__()
         mid_size = out_size / 2
         if isDilation:
-            self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels=in_size,
-                out_channels=mid_size, kernel_size=1, stride=1, padding=0,
-                dilation=2, nd=nd)
+            self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels=in_size, out_channels=mid_size, kernel_size=1, stride=1, padding=0, dilation=2, nd=nd)
         else:
-            self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels=in_size,
-                out_channels=mid_size, kernel_size=1, stride=1, padding=0,
-                nd=nd)
+            self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels=in_size, out_channels=mid_size, kernel_size=1, stride=1, padding=0, nd=nd)
         self.relu = nn.ReLU()
         if isDilation:
-            self.conv2_bn_relu = conv23D_bn_relu_Unit(in_channels=mid_size,
-                out_channels=mid_size, kernel_size=3, stride=1, padding=2,
-                dilation=2, nd=nd)
+            self.conv2_bn_relu = conv23D_bn_relu_Unit(in_channels=mid_size, out_channels=mid_size, kernel_size=3, stride=1, padding=2, dilation=2, nd=nd)
         else:
-            self.conv2_bn_relu = conv23D_bn_relu_Unit(in_channels=mid_size,
-                out_channels=mid_size, kernel_size=3, stride=1, padding=1,
-                nd=nd)
+            self.conv2_bn_relu = conv23D_bn_relu_Unit(in_channels=mid_size, out_channels=mid_size, kernel_size=3, stride=1, padding=1, nd=nd)
         if isDilation:
-            self.conv3_bn = conv23D_bn_Unit(in_channels=mid_size,
-                out_channels=out_size, kernel_size=1, stride=1, padding=0,
-                dilation=2, nd=nd)
+            self.conv3_bn = conv23D_bn_Unit(in_channels=mid_size, out_channels=out_size, kernel_size=1, stride=1, padding=0, dilation=2, nd=nd)
         else:
-            self.conv3_bn = conv23D_bn_Unit(in_channels=mid_size,
-                out_channels=out_size, kernel_size=1, stride=1, padding=0,
-                nd=nd)
+            self.conv3_bn = conv23D_bn_Unit(in_channels=mid_size, out_channels=out_size, kernel_size=1, stride=1, padding=0, nd=nd)
         self.isEmptyBranch1 = isEmptyBranch1
         if in_size != out_size or isEmptyBranch1 == False:
             if isDilation:
-                self.convX_bn = conv23D_bn_Unit(in_channels=in_size,
-                    out_channels=out_size, kernel_size=1, stride=1, padding
-                    =0, dilation=2, nd=nd)
+                self.convX_bn = conv23D_bn_Unit(in_channels=in_size, out_channels=out_size, kernel_size=1, stride=1, padding=0, dilation=2, nd=nd)
             else:
-                self.convX_bn = conv23D_bn_Unit(in_channels=in_size,
-                    out_channels=out_size, kernel_size=1, stride=1, padding
-                    =0, nd=nd)
+                self.convX_bn = conv23D_bn_Unit(in_channels=in_size, out_channels=out_size, kernel_size=1, stride=1, padding=0, nd=nd)
 
     def forward(self, x):
         identity_data = x
@@ -1074,12 +964,9 @@ class residualUnit3(nn.Module):
 
 class longResidualUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=
-        1, activation=F.relu, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, padding=1, activation=F.relu, nd=2):
         super(residualUnit1, self).__init__()
-        self.conv1_bn = conv23D_bn_Unit(in_channels=in_size, out_channels=
-            out_size, kernel_size=kernel_size, stride=stride, padding=
-            padding, nd=nd)
+        self.conv1_bn = conv23D_bn_Unit(in_channels=in_size, out_channels=out_size, kernel_size=kernel_size, stride=stride, padding=padding, nd=nd)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -1092,30 +979,24 @@ class longResidualUnit(nn.Module):
 
 class ResUpUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        spatial_dropout_rate=0, isConvDilation=None, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, spatial_dropout_rate=0, isConvDilation=None, nd=2):
         super(ResUpUnit, self).__init__()
         self.nd = nd
-        self.up = convTranspose23D_bn_relu_Unit(in_size, out_size,
-            kernel_size=4, stride=2, padding=1, nd=nd)
-        self.conv = residualUnit3(out_size, out_size, isDilation=
-            isConvDilation, nd=nd)
+        self.up = convTranspose23D_bn_relu_Unit(in_size, out_size, kernel_size=4, stride=2, padding=1, nd=nd)
+        self.conv = residualUnit3(out_size, out_size, isDilation=isConvDilation, nd=nd)
         self.dp = dropout23DUnit(prob=spatial_dropout_rate, nd=nd)
         self.spatial_dropout_rate = spatial_dropout_rate
-        self.conv2 = residualUnit3(out_size, out_size, isDilation=
-            isConvDilation, isEmptyBranch1=False, nd=nd)
+        self.conv2 = residualUnit3(out_size, out_size, isDilation=isConvDilation, isEmptyBranch1=False, nd=nd)
         self.relu = nn.ReLU()
 
     def center_crop(self, layer, target_size):
         if self.nd == 2:
             batch_size, n_channels, layer_width, layer_height = layer.size()
         elif self.nd == 3:
-            (batch_size, n_channels, layer_width, layer_height, layer_depth
-                ) = layer.size()
+            batch_size, n_channels, layer_width, layer_height, layer_depth = layer.size()
         xy1 = (layer_width - target_size) // 2
         if self.nd == 3:
-            return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size,
-                xy1:xy1 + target_size]
+            return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size, xy1:xy1 + target_size]
         return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size]
 
     def forward(self, x, bridge):
@@ -1131,18 +1012,13 @@ class ResUpUnit(nn.Module):
 
 class DilatedResUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, stride=1, dilation
-        =2, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, stride=1, dilation=2, nd=2):
         super(DilatedResUnit, self).__init__()
         self.nd = nd
         mid_size = out_size / 1
         padding = dilation * (kernel_size - 1) / 2
-        self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels=in_size,
-            out_channels=mid_size, kernel_size=kernel_size, stride=stride,
-            padding=padding, dilation=dilation, nd=nd)
-        self.conv2_bn_relu = conv23D_bn_relu_Unit(in_channels=mid_size,
-            out_channels=mid_size, kernel_size=kernel_size, stride=stride,
-            padding=padding, dilation=dilation, nd=nd)
+        self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels=in_size, out_channels=mid_size, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, nd=nd)
+        self.conv2_bn_relu = conv23D_bn_relu_Unit(in_channels=mid_size, out_channels=mid_size, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, nd=nd)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -1157,24 +1033,20 @@ class DilatedResUnit(nn.Module):
 
 class BaseResUpUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        space_dropout=False, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, space_dropout=False, nd=2):
         super(BaseResUpUnit, self).__init__()
         self.nd = nd
-        self.up = convTranspose23D_bn_relu_Unit(in_size, out_size,
-            kernel_size=4, stride=2, padding=1, nd=nd)
+        self.up = convTranspose23D_bn_relu_Unit(in_size, out_size, kernel_size=4, stride=2, padding=1, nd=nd)
         self.relu = nn.ReLU()
 
     def center_crop(self, layer, target_size):
         if self.nd == 2:
             batch_size, n_channels, layer_width, layer_height = layer.size()
         elif self.nd == 3:
-            (batch_size, n_channels, layer_width, layer_height, layer_depth
-                ) = layer.size()
+            batch_size, n_channels, layer_width, layer_height, layer_depth = layer.size()
         xy1 = (layer_width - target_size) // 2
         if self.nd == 3:
-            return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size,
-                xy1:xy1 + target_size]
+            return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size, xy1:xy1 + target_size]
         return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size]
 
     def forward(self, x, bridge):
@@ -1189,8 +1061,7 @@ class upsampleUnit(nn.Module):
     def __init__(self, in_channels, out_channels, nd=2):
         super(upsampleUnit, self).__init__()
         self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels, out_channels,
-            3, stride=1, padding=1, nd=nd)
+        self.conv1_bn_relu = conv23D_bn_relu_Unit(in_channels, out_channels, 3, stride=1, padding=1, nd=nd)
 
     def forward(self, x):
         return self.conv1_bn_relu(x)
@@ -1198,13 +1069,10 @@ class upsampleUnit(nn.Module):
 
 class unetConvUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, nd=2):
         super(unetConvUnit, self).__init__()
-        self.conv = conv23DUnit(in_size, out_size, kernel_size=3, stride=1,
-            padding=1, nd=nd)
-        self.conv2 = conv23DUnit(out_size, out_size, kernel_size=3, stride=
-            1, padding=1, nd=nd)
+        self.conv = conv23DUnit(in_size, out_size, kernel_size=3, stride=1, padding=1, nd=nd)
+        self.conv2 = conv23DUnit(out_size, out_size, kernel_size=3, stride=1, padding=1, nd=nd)
         self.activation = activation
 
     def forward(self, x):
@@ -1215,15 +1083,11 @@ class unetConvUnit(nn.Module):
 
 class unetUpUnit(nn.Module):
 
-    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu,
-        space_dropout=False, nd=2):
+    def __init__(self, in_size, out_size, kernel_size=3, activation=F.relu, space_dropout=False, nd=2):
         super(unetUpUnit, self).__init__()
-        self.up = convTranspose23DUnit(in_size, out_size, kernel_size=4,
-            stride=2, padding=1, nd=nd)
-        self.conv = conv23DUnit(in_size, out_size, kernel_size=3, stride=1,
-            padding=1, nd=nd)
-        self.conv2 = conv23DUnit(out_size, out_size, kernel_size=3, stride=
-            1, padding=1, nd=nd)
+        self.up = convTranspose23DUnit(in_size, out_size, kernel_size=4, stride=2, padding=1, nd=nd)
+        self.conv = conv23DUnit(in_size, out_size, kernel_size=3, stride=1, padding=1, nd=nd)
+        self.conv2 = conv23DUnit(out_size, out_size, kernel_size=3, stride=1, padding=1, nd=nd)
         self.activation = activation
         self.nd = nd
 
@@ -1231,12 +1095,10 @@ class unetUpUnit(nn.Module):
         if self.nd == 2:
             batch_size, n_channels, layer_width, layer_height = layer.size()
         elif self.nd == 3:
-            (batch_size, n_channels, layer_width, layer_height, layer_depth
-                ) = layer.size()
+            batch_size, n_channels, layer_width, layer_height, layer_depth = layer.size()
         xy1 = (layer_width - target_size) // 2
         if self.nd == 3:
-            return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size,
-                xy1:xy1 + target_size]
+            return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size, xy1:xy1 + target_size]
         return layer[:, :, xy1:xy1 + target_size, xy1:xy1 + target_size]
 
     def forward(self, x, bridge):
@@ -1250,8 +1112,7 @@ class unetUpUnit(nn.Module):
 
 class WeightedCrossEntropy3d(nn.Module):
 
-    def __init__(self, weight=None, size_average=True, reduce=True,
-        ignore_label=255):
+    def __init__(self, weight=None, size_average=True, reduce=True, ignore_label=255):
         """weight (Tensor, optional): a manual rescaling weight given to each class.
                                            If given, has to be a Tensor of size "nclasses\""""
         super(WeightedCrossEntropy3d, self).__init__()
@@ -1270,14 +1131,10 @@ class WeightedCrossEntropy3d(nn.Module):
         assert not target.requires_grad
         assert predict.dim() == 5
         assert target.dim() == 4
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(2))
-        assert predict.size(4) == target.size(3), '{0} vs {1} '.format(predict
-            .size(4), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(2))
+        assert predict.size(4) == target.size(3), '{0} vs {1} '.format(predict.size(4), target.size(3))
         n, c, h, w, d = predict.size()
         logits = self.logsoftmax(predict)
         voxel_loss = self.nll_loss(logits, target)
@@ -1305,23 +1162,16 @@ class CrossEntropy3d(nn.Module):
         assert not target.requires_grad
         assert predict.dim() == 5
         assert target.dim() == 4
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(2))
-        assert predict.size(4) == target.size(3), '{0} vs {1} '.format(predict
-            .size(4), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(2))
+        assert predict.size(4) == target.size(3), '{0} vs {1} '.format(predict.size(4), target.size(3))
         n, c, h, w, d = predict.size()
         target_mask = (target >= 0) * (target != self.ignore_label)
         target = target[target_mask]
-        predict = predict.transpose(1, 2).transpose(2, 3).transpose(3, 4
-            ).contiguous()
-        predict = predict[target_mask.view(n, h, w, d, 1).repeat(1, 1, 1, 1, c)
-            ].view(-1, c)
-        loss = F.cross_entropy(predict, target, weight=self.weight,
-            size_average=self.size_average)
+        predict = predict.transpose(1, 2).transpose(2, 3).transpose(3, 4).contiguous()
+        predict = predict[target_mask.view(n, h, w, d, 1).repeat(1, 1, 1, 1, c)].view(-1, c)
+        loss = F.cross_entropy(predict, target, weight=self.weight, size_average=self.size_average)
         return loss
 
 
@@ -1344,20 +1194,15 @@ class CrossEntropy2d(nn.Module):
         assert not target.requires_grad
         assert predict.dim() == 4
         assert target.dim() == 3
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
         n, c, h, w = predict.size()
         target_mask = (target >= 0) * (target != self.ignore_label)
         target = target[target_mask]
         predict = predict.transpose(1, 2).transpose(2, 3).contiguous()
-        predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)
-            ].view(-1, c)
-        loss = F.cross_entropy(predict, target, weight=self.weight,
-            size_average=self.size_average)
+        predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)].view(-1, c)
+        loss = F.cross_entropy(predict, target, weight=self.weight, size_average=self.size_average)
         return loss
 
 
@@ -1425,32 +1270,25 @@ class myWeightedDiceLoss4Organs(nn.Module):
         assert not targets.requires_grad
         assert inputs.dim() == 5, inputs.shape
         assert targets.dim() == 4, targets.shape
-        assert inputs.size(0) == targets.size(0), '{0} vs {1} '.format(inputs
-            .size(0), targets.size(0))
-        assert inputs.size(2) == targets.size(1), '{0} vs {1} '.format(inputs
-            .size(2), targets.size(1))
-        assert inputs.size(3) == targets.size(2), '{0} vs {1} '.format(inputs
-            .size(3), targets.size(2))
-        assert inputs.size(4) == targets.size(3), '{0} vs {1} '.format(inputs
-            .size(4), targets.size(3))
+        assert inputs.size(0) == targets.size(0), '{0} vs {1} '.format(inputs.size(0), targets.size(0))
+        assert inputs.size(2) == targets.size(1), '{0} vs {1} '.format(inputs.size(2), targets.size(1))
+        assert inputs.size(3) == targets.size(2), '{0} vs {1} '.format(inputs.size(3), targets.size(2))
+        assert inputs.size(4) == targets.size(3), '{0} vs {1} '.format(inputs.size(4), targets.size(3))
         eps = Variable(torch.FloatTensor(1).fill_(1e-06))
         one = Variable(torch.FloatTensor(1).fill_(1.0))
         two = Variable(torch.FloatTensor(1).fill_(2.0))
         inputSZ = inputs.size()
         inputs = F.softmax(inputs, dim=1)
         numOfCategories = inputSZ[1]
-        assert numOfCategories == len(self.organWeights
-            ), 'organ weights is not matched with organs (bg should be included)'
+        assert numOfCategories == len(self.organWeights), 'organ weights is not matched with organs (bg should be included)'
         results_one_hot = inputs
         target1 = Variable(torch.unsqueeze(targets.data, 1))
         targets_one_hot = Variable(torch.FloatTensor(inputSZ).zero_())
         targets_one_hot.scatter_(1, target1, 1)
         out = Variable(torch.FloatTensor(1).zero_(), requires_grad=True)
         for organID in range(0, numOfCategories):
-            target = targets_one_hot[:, (organID), (...)].contiguous().view(
-                -1, 1).squeeze(1)
-            result = results_one_hot[:, (organID), (...)].contiguous().view(
-                -1, 1).squeeze(1)
+            target = targets_one_hot[:, (organID), (...)].contiguous().view(-1, 1).squeeze(1)
+            result = results_one_hot[:, (organID), (...)].contiguous().view(-1, 1).squeeze(1)
             intersect_vec = result * target
             intersect = torch.sum(intersect_vec)
             result_sum = torch.sum(result)
@@ -1458,8 +1296,7 @@ class myWeightedDiceLoss4Organs(nn.Module):
             union = result_sum + target_sum + two * eps
             IoU = intersect / union
             out = out + self.organWeights[organID] * (one - two * IoU)
-        denominator = Variable(torch.FloatTensor(1).fill_(sum(self.
-            organWeights)))
+        denominator = Variable(torch.FloatTensor(1).fill_(sum(self.organWeights)))
         out = out / denominator
         return out
 
@@ -1480,22 +1317,17 @@ class GeneralizedDiceLoss4Organs(nn.Module):
         assert not targets.requires_grad
         assert inputs.dim() == 5, inputs.shape
         assert targets.dim() == 4, targets.shape
-        assert inputs.size(0) == targets.size(0), '{0} vs {1} '.format(inputs
-            .size(0), targets.size(0))
-        assert inputs.size(2) == targets.size(1), '{0} vs {1} '.format(inputs
-            .size(2), targets.size(1))
-        assert inputs.size(3) == targets.size(2), '{0} vs {1} '.format(inputs
-            .size(3), targets.size(2))
-        assert inputs.size(4) == targets.size(3), '{0} vs {1} '.format(inputs
-            .size(4), targets.size(3))
+        assert inputs.size(0) == targets.size(0), '{0} vs {1} '.format(inputs.size(0), targets.size(0))
+        assert inputs.size(2) == targets.size(1), '{0} vs {1} '.format(inputs.size(2), targets.size(1))
+        assert inputs.size(3) == targets.size(2), '{0} vs {1} '.format(inputs.size(3), targets.size(2))
+        assert inputs.size(4) == targets.size(3), '{0} vs {1} '.format(inputs.size(4), targets.size(3))
         eps = Variable(torch.FloatTensor(1).fill_(1e-06))
         one = Variable(torch.FloatTensor(1).fill_(1.0))
         two = Variable(torch.FloatTensor(1).fill_(2.0))
         inputSZ = inputs.size()
         inputs = F.softmax(inputs, dim=1)
         numOfCategories = inputSZ[1]
-        assert numOfCategories == len(self.organIDs
-            ), 'organ weights is not matched with organs (bg should be included)'
+        assert numOfCategories == len(self.organIDs), 'organ weights is not matched with organs (bg should be included)'
         results_one_hot = inputs
         target1 = Variable(torch.unsqueeze(targets.data, 1))
         targets_one_hot = Variable(torch.FloatTensor(inputSZ).zero_())
@@ -1504,10 +1336,8 @@ class GeneralizedDiceLoss4Organs(nn.Module):
         intersect = Variable(torch.FloatTensor(1).fill_(0.0))
         union = Variable(torch.FloatTensor(1).fill_(0.0))
         for organID in range(0, numOfCategories):
-            target = targets_one_hot[:, (organID), (...)].contiguous().view(
-                -1, 1).squeeze(1)
-            result = results_one_hot[:, (organID), (...)].contiguous().view(
-                -1, 1).squeeze(1)
+            target = targets_one_hot[:, (organID), (...)].contiguous().view(-1, 1).squeeze(1)
+            result = results_one_hot[:, (organID), (...)].contiguous().view(-1, 1).squeeze(1)
             if torch.sum(target).cpu().data[0] == 0:
                 organWeight = Variable(torch.FloatTensor(1).fill_(0.0))
             else:
@@ -1539,12 +1369,9 @@ class topK_RegLoss(nn.Module):
         assert preds.shape == targets.shape, 'dim of preds and targets are different'
         K = torch.abs(preds - targets).view(-1)
         if len(preds.shape) == 4:
-            V, I = torch.topk(K, int(preds.size(0) * preds.size(1) * preds.
-                size(2) * preds.size(3) * self.topK), largest=True, sorted=True
-                )
+            V, I = torch.topk(K, int(preds.size(0) * preds.size(1) * preds.size(2) * preds.size(3) * self.topK), largest=True, sorted=True)
         else:
-            V, I = torch.topk(K, int(preds.size(0) * preds.size(1) * preds.
-                size(2) * self.topK), largest=True, sorted=True)
+            V, I = torch.topk(K, int(preds.size(0) * preds.size(1) * preds.size(2) * self.topK), largest=True, sorted=True)
         loss = torch.mean(V)
         return loss
 
@@ -1579,10 +1406,8 @@ class gdl_loss(nn.Module):
 
     def __init__(self, pNorm=2):
         super(gdl_loss, self).__init__()
-        self.convX = nn.Conv2d(1, 1, kernel_size=(1, 2), stride=1, padding=
-            (0, 1), bias=False)
-        self.convY = nn.Conv2d(1, 1, kernel_size=(2, 1), stride=1, padding=
-            (1, 0), bias=False)
+        self.convX = nn.Conv2d(1, 1, kernel_size=(1, 2), stride=1, padding=(0, 1), bias=False)
+        self.convY = nn.Conv2d(1, 1, kernel_size=(2, 1), stride=1, padding=(1, 0), bias=False)
         filterX = torch.FloatTensor([[[[-1, 1]]]])
         filterY = torch.FloatTensor([[[[1], [-1]]]])
         self.convX.weight = torch.nn.Parameter(filterX, requires_grad=False)
@@ -1593,8 +1418,7 @@ class gdl_loss(nn.Module):
         assert not gt.requires_grad
         assert pred.dim() == 4
         assert gt.dim() == 4
-        assert pred.size() == gt.size(), '{0} vs {1} '.format(pred.size(),
-            gt.size())
+        assert pred.size() == gt.size(), '{0} vs {1} '.format(pred.size(), gt.size())
         pred_dx = torch.abs(self.convX(pred))
         pred_dy = torch.abs(self.convY(pred))
         gt_dx = torch.abs(self.convX(gt))
@@ -1604,8 +1428,7 @@ class gdl_loss(nn.Module):
         mat_loss_x = grad_diff_x ** self.pNorm
         mat_loss_y = grad_diff_y ** self.pNorm
         shape = gt.shape
-        mean_loss = (torch.sum(mat_loss_x) + torch.sum(mat_loss_y)) / (
-            shape[0] * shape[1] * shape[2] * shape[3])
+        mean_loss = (torch.sum(mat_loss_x) + torch.sum(mat_loss_y)) / (shape[0] * shape[1] * shape[2] * shape[3])
         return mean_loss
 
 
@@ -1613,8 +1436,7 @@ class FeatureExtractor(nn.Module):
 
     def __init__(self, cnn, feature_layer=8):
         super(FeatureExtractor, self).__init__()
-        self.features = nn.Sequential(*list(cnn.features.children())[:
-            feature_layer + 1])
+        self.features = nn.Sequential(*list(cnn.features.children())[:feature_layer + 1])
 
     def forward(self, x):
         return self.features(x)
@@ -1624,66 +1446,142 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseResUpUnit,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (RelativeThreshold_RegLoss,
+     lambda: ([], {'threshold': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UNetConvBlock,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNet_LRes,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64]), torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (conv23DUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (conv23D_bn_Unit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (conv23D_bn_relu_Unit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (convTranspose23DUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (convTranspose23D_bn_Unit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (convTranspose23D_bn_relu_Unit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (convUnit,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (dropout23DUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (maxPool23DUinit,
+     lambda: ([], {'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (myFocalLoss,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (residualUnit,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (unetConvUnit,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (upsampleUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ginobilinie_medSynthesisV1(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BaseResUpUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(RelativeThreshold_RegLoss(*[], **{'threshold': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(UNet_LRes(*[], **{}), [torch.rand([4, 1, 64, 64]), torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(conv23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(conv23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(conv23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(convTranspose23DUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(convTranspose23D_bn_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(convTranspose23D_bn_relu_Unit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(convUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(dropout23DUnit(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(maxPool23DUinit(*[], **{'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(myFocalLoss(*[], **{'class_num': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(residualUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(unetConvUnit(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(upsampleUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 

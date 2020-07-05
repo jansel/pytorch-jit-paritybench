@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,8 +75,7 @@ from scipy import linalg
 
 class ResBlk(nn.Module):
 
-    def __init__(self, dim_in, dim_out, actv=nn.LeakyReLU(0.2), normalize=
-        False, downsample=False):
+    def __init__(self, dim_in, dim_out, actv=nn.LeakyReLU(0.2), normalize=False, downsample=False):
         super().__init__()
         self.actv = actv
         self.normalize = normalize
@@ -133,8 +133,7 @@ class AdaIN(nn.Module):
 
 class AdainResBlk(nn.Module):
 
-    def __init__(self, dim_in, dim_out, style_dim=64, w_hpf=0, actv=nn.
-        LeakyReLU(0.2), upsample=False):
+    def __init__(self, dim_in, dim_out, style_dim=64, w_hpf=0, actv=nn.LeakyReLU(0.2), upsample=False):
         super().__init__()
         self.w_hpf = w_hpf
         self.actv = actv
@@ -179,12 +178,10 @@ class HighPass(nn.Module):
 
     def __init__(self, w_hpf, device):
         super(HighPass, self).__init__()
-        self.filter = torch.tensor([[-1, -1, -1], [-1, 8.0, -1], [-1, -1, -1]]
-            ) / w_hpf
+        self.filter = torch.tensor([[-1, -1, -1], [-1, 8.0, -1], [-1, -1, -1]]) / w_hpf
 
     def forward(self, x):
-        filter = self.filter.unsqueeze(0).unsqueeze(1).repeat(x.size(1), 1,
-            1, 1)
+        filter = self.filter.unsqueeze(0).unsqueeze(1).repeat(x.size(1), 1, 1, 1)
         return F.conv2d(x, filter, padding=1, groups=x.size(1))
 
 
@@ -197,22 +194,18 @@ class Generator(nn.Module):
         self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
         self.encode = nn.ModuleList()
         self.decode = nn.ModuleList()
-        self.to_rgb = nn.Sequential(nn.InstanceNorm2d(dim_in, affine=True),
-            nn.LeakyReLU(0.2), nn.Conv2d(dim_in, 3, 1, 1, 0))
+        self.to_rgb = nn.Sequential(nn.InstanceNorm2d(dim_in, affine=True), nn.LeakyReLU(0.2), nn.Conv2d(dim_in, 3, 1, 1, 0))
         repeat_num = int(np.log2(img_size)) - 4
         if w_hpf > 0:
             repeat_num += 1
         for _ in range(repeat_num):
             dim_out = min(dim_in * 2, max_conv_dim)
-            self.encode.append(ResBlk(dim_in, dim_out, normalize=True,
-                downsample=True))
-            self.decode.insert(0, AdainResBlk(dim_out, dim_in, style_dim,
-                w_hpf=w_hpf, upsample=True))
+            self.encode.append(ResBlk(dim_in, dim_out, normalize=True, downsample=True))
+            self.decode.insert(0, AdainResBlk(dim_out, dim_in, style_dim, w_hpf=w_hpf, upsample=True))
             dim_in = dim_out
         for _ in range(2):
             self.encode.append(ResBlk(dim_out, dim_out, normalize=True))
-            self.decode.insert(0, AdainResBlk(dim_out, dim_out, style_dim,
-                w_hpf=w_hpf))
+            self.decode.insert(0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
         if w_hpf > 0:
             device = torch.device('cuda' if torch.is_available() else 'cpu')
             self.hpf = HighPass(w_hpf, device)
@@ -246,9 +239,7 @@ class MappingNetwork(nn.Module):
         self.shared = nn.Sequential(*layers)
         self.unshared = nn.ModuleList()
         for _ in range(num_domains):
-            self.unshared += [nn.Sequential(nn.Linear(512, 512), nn.ReLU(),
-                nn.Linear(512, 512), nn.ReLU(), nn.Linear(512, 512), nn.
-                ReLU(), nn.Linear(512, style_dim))]
+            self.unshared += [nn.Sequential(nn.Linear(512, 512), nn.ReLU(), nn.Linear(512, 512), nn.ReLU(), nn.Linear(512, 512), nn.ReLU(), nn.Linear(512, style_dim))]
 
     def forward(self, z, y):
         h = self.shared(z)
@@ -263,8 +254,7 @@ class MappingNetwork(nn.Module):
 
 class StyleEncoder(nn.Module):
 
-    def __init__(self, img_size=256, style_dim=64, num_domains=2,
-        max_conv_dim=512):
+    def __init__(self, img_size=256, style_dim=64, num_domains=2, max_conv_dim=512):
         super().__init__()
         dim_in = 2 ** 14 // img_size
         blocks = []
@@ -356,8 +346,7 @@ class InputFetcher:
         self.loader = loader
         self.loader_ref = loader_ref
         self.latent_dim = latent_dim
-        self.device = torch.device('cuda' if torch.cuda.is_available() else
-            'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.mode = mode
 
     def _fetch_inputs(self):
@@ -382,8 +371,7 @@ class InputFetcher:
             x_ref, x_ref2, y_ref = self._fetch_refs()
             z_trg = torch.randn(x.size(0), self.latent_dim)
             z_trg2 = torch.randn(x.size(0), self.latent_dim)
-            inputs = Munch(x_src=x, y_src=y, y_ref=y_ref, x_ref=x_ref,
-                x_ref2=x_ref2, z_trg=z_trg, z_trg2=z_trg2)
+            inputs = Munch(x_src=x, y_src=y, y_ref=y_ref, x_ref=x_ref, x_ref2=x_ref2, z_trg=z_trg, z_trg2=z_trg2)
         elif self.mode == 'val':
             x_ref, y_ref = self._fetch_inputs()
             inputs = Munch(x_src=x, y_src=y, x_ref=x_ref, y_ref=y_ref)
@@ -396,18 +384,14 @@ class InputFetcher:
 
 def build_model(args):
     generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
-    mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.
-        num_domains)
-    style_encoder = StyleEncoder(args.img_size, args.style_dim, args.
-        num_domains)
+    mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
+    style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains)
     discriminator = Discriminator(args.img_size, args.num_domains)
     generator_ema = copy.deepcopy(generator)
     mapping_network_ema = copy.deepcopy(mapping_network)
     style_encoder_ema = copy.deepcopy(style_encoder)
-    nets = Munch(generator=generator, mapping_network=mapping_network,
-        style_encoder=style_encoder, discriminator=discriminator)
-    nets_ema = Munch(generator=generator_ema, mapping_network=
-        mapping_network_ema, style_encoder=style_encoder_ema)
+    nets = Munch(generator=generator, mapping_network=mapping_network, style_encoder=style_encoder, discriminator=discriminator)
+    nets_ema = Munch(generator=generator_ema, mapping_network=mapping_network_ema, style_encoder=style_encoder_ema)
     if args.w_hpf > 0:
         fan = FAN(fname_pretrained=args.wing_path).eval()
         nets.fan = fan
@@ -422,13 +406,11 @@ def frechet_distance(mu, cov, mu2, cov2):
 
 
 def listdir(dname):
-    fnames = list(chain(*[list(Path(dname).rglob('*.' + ext)) for ext in [
-        'png', 'jpg', 'jpeg', 'JPG']]))
+    fnames = list(chain(*[list(Path(dname).rglob('*.' + ext)) for ext in ['png', 'jpg', 'jpeg', 'JPG']]))
     return fnames
 
 
-def get_eval_loader(root, img_size=256, batch_size=32, imagenet_normalize=
-    True, shuffle=True, num_workers=4, drop_last=False):
+def get_eval_loader(root, img_size=256, batch_size=32, imagenet_normalize=True, shuffle=True, num_workers=4, drop_last=False):
     print('Preparing DataLoader for the evaluation phase...')
     if imagenet_normalize:
         height, width = 299, 299
@@ -438,12 +420,9 @@ def get_eval_loader(root, img_size=256, batch_size=32, imagenet_normalize=
         height, width = img_size, img_size
         mean = [0.5, 0.5, 0.5]
         std = [0.5, 0.5, 0.5]
-    transform = transforms.Compose([transforms.Resize([img_size, img_size]),
-        transforms.Resize([height, width]), transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std)])
+    transform = transforms.Compose([transforms.Resize([img_size, img_size]), transforms.Resize([height, width]), transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
     dataset = DefaultDataset(root, transform=transform)
-    return data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=
-        shuffle, num_workers=num_workers, pin_memory=True, drop_last=drop_last)
+    return data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True, drop_last=drop_last)
 
 
 @torch.no_grad()
@@ -475,9 +454,7 @@ def calculate_fid_for_all_tasks(args, domains, step, mode):
             path_real = os.path.join(args.train_img_dir, trg_domain)
             path_fake = os.path.join(args.eval_dir, task)
             print('Calculating FID for %s...' % task)
-            fid_value = calculate_fid_given_paths(paths=[path_real,
-                path_fake], img_size=args.img_size, batch_size=args.
-                val_batch_size)
+            fid_value = calculate_fid_given_paths(paths=[path_real, path_fake], img_size=args.img_size, batch_size=args.val_batch_size)
             fid_values['FID_%s/%s' % (mode, task)] = fid_value
     fid_mean = 0
     for _, value in fid_values.items():
@@ -514,14 +491,10 @@ def calculate_metrics(nets, args, step, mode):
         src_domains = [x for x in domains if x != trg_domain]
         if mode == 'reference':
             path_ref = os.path.join(args.val_img_dir, trg_domain)
-            loader_ref = get_eval_loader(root=path_ref, img_size=args.
-                img_size, batch_size=args.val_batch_size,
-                imagenet_normalize=False, drop_last=True)
+            loader_ref = get_eval_loader(root=path_ref, img_size=args.img_size, batch_size=args.val_batch_size, imagenet_normalize=False, drop_last=True)
         for src_idx, src_domain in enumerate(src_domains):
             path_src = os.path.join(args.val_img_dir, src_domain)
-            loader_src = get_eval_loader(root=path_src, img_size=args.
-                img_size, batch_size=args.val_batch_size,
-                imagenet_normalize=False)
+            loader_src = get_eval_loader(root=path_src, img_size=args.img_size, batch_size=args.val_batch_size, imagenet_normalize=False)
             task = '%s2%s' % (src_domain, trg_domain)
             path_fake = os.path.join(args.eval_dir, task)
             shutil.rmtree(path_fake, ignore_errors=True)
@@ -550,8 +523,7 @@ def calculate_metrics(nets, args, step, mode):
                     x_fake = nets.generator(x_src, s_trg, masks=masks)
                     group_of_images.append(x_fake)
                     for k in range(N):
-                        filename = os.path.join(path_fake, '%.4i_%.2i.png' %
-                            (i * args.val_batch_size + (k + 1), j + 1))
+                        filename = os.path.join(path_fake, '%.4i_%.2i.png' % (i * args.val_batch_size + (k + 1), j + 1))
                         utils.save_image(x_fake[k], ncol=1, filename=filename)
                 lpips_value = calculate_lpips_given_images(group_of_images)
                 lpips_values.append(lpips_value)
@@ -579,16 +551,14 @@ def adv_loss(logits, target):
 
 def r1_reg(d_out, x_in):
     batch_size = x_in.size(0)
-    grad_dout = torch.autograd.grad(outputs=d_out.sum(), inputs=x_in,
-        create_graph=True, retain_graph=True, only_inputs=True)[0]
+    grad_dout = torch.autograd.grad(outputs=d_out.sum(), inputs=x_in, create_graph=True, retain_graph=True, only_inputs=True)[0]
     grad_dout2 = grad_dout.pow(2)
     assert grad_dout2.size() == x_in.size()
     reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
     return reg
 
 
-def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None,
-    masks=None):
+def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None):
     assert (z_trg is None) != (x_ref is None)
     x_real.requires_grad_()
     out = nets.discriminator(x_real, y_org)
@@ -603,12 +573,10 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None,
     out = nets.discriminator(x_fake, y_trg)
     loss_fake = adv_loss(out, 0)
     loss = loss_real + loss_fake + args.lambda_reg * loss_reg
-    return loss, Munch(real=loss_real.item(), fake=loss_fake.item(), reg=
-        loss_reg.item())
+    return loss, Munch(real=loss_real.item(), fake=loss_fake.item(), reg=loss_reg.item())
 
 
-def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=
-    None, masks=None):
+def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None):
     assert (z_trgs is None) != (x_refs is None)
     if z_trgs is not None:
         z_trg, z_trg2 = z_trgs
@@ -634,10 +602,8 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=
     s_org = nets.style_encoder(x_real, y_org)
     x_rec = nets.generator(x_fake, s_org, masks=masks)
     loss_cyc = torch.mean(torch.abs(x_rec - x_real))
-    loss = (loss_adv + args.lambda_sty * loss_sty - args.lambda_ds *
-        loss_ds + args.lambda_cyc * loss_cyc)
-    return loss, Munch(adv=loss_adv.item(), sty=loss_sty.item(), ds=loss_ds
-        .item(), cyc=loss_cyc.item())
+    loss = loss_adv + args.lambda_sty * loss_sty - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc
+    return loss, Munch(adv=loss_adv.item(), sty=loss_sty.item(), ds=loss_ds.item(), cyc=loss_cyc.item())
 
 
 def moving_average(model, model_test, beta=0.999):
@@ -662,18 +628,10 @@ class Solver(nn.Module):
             for net in self.nets.keys():
                 if net == 'fan':
                     continue
-                self.optims[net] = torch.optim.Adam(params=self.nets[net].
-                    parameters(), lr=args.f_lr if net == 'mapping_network' else
-                    args.lr, betas=[args.beta1, args.beta2], weight_decay=
-                    args.weight_decay)
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir,
-                '{:06d}_nets.ckpt'), **self.nets), CheckpointIO(ospj(args.
-                checkpoint_dir, '{:06d}_nets_ema.ckpt'), **self.nets_ema),
-                CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_optims.ckpt'
-                ), **self.optims)]
+                self.optims[net] = torch.optim.Adam(params=self.nets[net].parameters(), lr=args.f_lr if net == 'mapping_network' else args.lr, betas=[args.beta1, args.beta2], weight_decay=args.weight_decay)
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets.ckpt'), **self.nets), CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), **self.nets_ema), CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_optims.ckpt'), **self.optims)]
         else:
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir,
-                '{:06d}_nets_ema.ckpt'), **self.nets_ema)]
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), **self.nets_ema)]
         self
         for name, network in self.named_children():
             if 'ema' not in name and 'fan' not in name:
@@ -697,8 +655,7 @@ class Solver(nn.Module):
         nets = self.nets
         nets_ema = self.nets_ema
         optims = self.optims
-        fetcher = InputFetcher(loaders.src, loaders.ref, args.latent_dim,
-            'train')
+        fetcher = InputFetcher(loaders.src, loaders.ref, args.latent_dim, 'train')
         fetcher_val = InputFetcher(loaders.val, None, args.latent_dim, 'val')
         inputs_val = next(fetcher_val)
         if args.resume_iter > 0:
@@ -712,54 +669,43 @@ class Solver(nn.Module):
             x_ref, x_ref2, y_trg = inputs.x_ref, inputs.x_ref2, inputs.y_ref
             z_trg, z_trg2 = inputs.z_trg, inputs.z_trg2
             masks = nets.fan.get_heatmap(x_real) if args.w_hpf > 0 else None
-            d_loss, d_losses_latent = compute_d_loss(nets, args, x_real,
-                y_org, y_trg, z_trg=z_trg, masks=masks)
+            d_loss, d_losses_latent = compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
-            d_loss, d_losses_ref = compute_d_loss(nets, args, x_real, y_org,
-                y_trg, x_ref=x_ref, masks=masks)
+            d_loss, d_losses_ref = compute_d_loss(nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
-            g_loss, g_losses_latent = compute_g_loss(nets, args, x_real,
-                y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+            g_loss, g_losses_latent = compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
             optims.mapping_network.step()
             optims.style_encoder.step()
-            g_loss, g_losses_ref = compute_g_loss(nets, args, x_real, y_org,
-                y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+            g_loss, g_losses_ref = compute_g_loss(nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
             moving_average(nets.generator, nets_ema.generator, beta=0.999)
-            moving_average(nets.mapping_network, nets_ema.mapping_network,
-                beta=0.999)
-            moving_average(nets.style_encoder, nets_ema.style_encoder, beta
-                =0.999)
+            moving_average(nets.mapping_network, nets_ema.mapping_network, beta=0.999)
+            moving_average(nets.style_encoder, nets_ema.style_encoder, beta=0.999)
             if args.lambda_ds > 0:
                 args.lambda_ds -= initial_lambda_ds / args.ds_iter
             if (i + 1) % args.print_every == 0:
                 elapsed = time.time() - start_time
                 elapsed = str(datetime.timedelta(seconds=elapsed))[:-7]
-                log = 'Elapsed time [%s], Iteration [%i/%i], ' % (elapsed, 
-                    i + 1, args.total_iters)
+                log = 'Elapsed time [%s], Iteration [%i/%i], ' % (elapsed, i + 1, args.total_iters)
                 all_losses = dict()
-                for loss, prefix in zip([d_losses_latent, d_losses_ref,
-                    g_losses_latent, g_losses_ref], ['D/latent_', 'D/ref_',
-                    'G/latent_', 'G/ref_']):
+                for loss, prefix in zip([d_losses_latent, d_losses_ref, g_losses_latent, g_losses_ref], ['D/latent_', 'D/ref_', 'G/latent_', 'G/ref_']):
                     for key, value in loss.items():
                         all_losses[prefix + key] = value
                 all_losses['G/lambda_ds'] = args.lambda_ds
-                log += ' '.join([('%s: [%.4f]' % (key, value)) for key,
-                    value in all_losses.items()])
+                log += ' '.join([('%s: [%.4f]' % (key, value)) for key, value in all_losses.items()])
                 None
             if (i + 1) % args.sample_every == 0:
                 os.makedirs(args.sample_dir, exist_ok=True)
-                utils.debug_image(nets_ema, args, inputs=inputs_val, step=i + 1
-                    )
+                utils.debug_image(nets_ema, args, inputs=inputs_val, step=i + 1)
             if (i + 1) % args.save_every == 0:
                 self._save_checkpoint(step=i + 1)
             if (i + 1) % args.eval_every == 0:
@@ -776,8 +722,7 @@ class Solver(nn.Module):
         ref = next(InputFetcher(loaders.ref, None, args.latent_dim, 'test'))
         fname = ospj(args.result_dir, 'reference.jpg')
         None
-        utils.translate_using_reference(nets_ema, args, src.x, ref.x, ref.y,
-            fname)
+        utils.translate_using_reference(nets_ema, args, src.x, ref.x, ref.y, fname)
         fname = ospj(args.result_dir, 'video_ref.mp4')
         None
         utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
@@ -799,8 +744,7 @@ class HourGlass(nn.Module):
         self.num_modules = num_modules
         self.depth = depth
         self.features = num_features
-        self.coordconv = CoordConvTh(64, 64, True, True, 256, first_one,
-            out_channels=256, kernel_size=1, stride=1, padding=0)
+        self.coordconv = CoordConvTh(64, 64, True, True, 256, first_one, out_channels=256, kernel_size=1, stride=1, padding=0)
         self._generate_network(self.depth)
 
     def _generate_network(self, level):
@@ -840,16 +784,13 @@ class AddCoordsTh(nn.Module):
         self.with_boundary = with_boundary
         device = torch.device('cuda' if torch.is_available() else 'cpu')
         with torch.no_grad():
-            x_coords = torch.arange(height).unsqueeze(1).expand(height, width
-                ).float()
-            y_coords = torch.arange(width).unsqueeze(0).expand(height, width
-                ).float()
+            x_coords = torch.arange(height).unsqueeze(1).expand(height, width).float()
+            y_coords = torch.arange(width).unsqueeze(0).expand(height, width).float()
             x_coords = x_coords / (height - 1) * 2 - 1
             y_coords = y_coords / (width - 1) * 2 - 1
             coords = torch.stack([x_coords, y_coords], dim=0)
             if self.with_r:
-                rr = torch.sqrt(torch.pow(x_coords, 2) + torch.pow(y_coords, 2)
-                    )
+                rr = torch.sqrt(torch.pow(x_coords, 2) + torch.pow(y_coords, 2))
                 rr = (rr / torch.max(rr)).unsqueeze(0)
                 coords = torch.cat([coords, rr], dim=0)
             self.coords = coords.unsqueeze(0)
@@ -864,12 +805,9 @@ class AddCoordsTh(nn.Module):
         if self.with_boundary and heatmap is not None:
             boundary_channel = torch.clamp(heatmap[:, -1:, :, :], 0.0, 1.0)
             zero_tensor = torch.zeros_like(self.x_coords)
-            xx_boundary_channel = torch.where(boundary_channel > 0.05, self
-                .x_coords, zero_tensor)
-            yy_boundary_channel = torch.where(boundary_channel > 0.05, self
-                .y_coords, zero_tensor)
-            coords = torch.cat([coords, xx_boundary_channel,
-                yy_boundary_channel], dim=1)
+            xx_boundary_channel = torch.where(boundary_channel > 0.05, self.x_coords, zero_tensor)
+            yy_boundary_channel = torch.where(boundary_channel > 0.05, self.y_coords, zero_tensor)
+            coords = torch.cat([coords, xx_boundary_channel, yy_boundary_channel], dim=1)
         x_and_coords = torch.cat([x, coords], dim=1)
         return x_and_coords
 
@@ -877,8 +815,7 @@ class AddCoordsTh(nn.Module):
 class CoordConvTh(nn.Module):
     """CoordConv layer as in the paper."""
 
-    def __init__(self, height, width, with_r, with_boundary, in_channels,
-        first_one=False, *args, **kwargs):
+    def __init__(self, height, width, with_r, with_boundary, in_channels, first_one=False, *args, **kwargs):
         super(CoordConvTh, self).__init__()
         self.addcoords = AddCoordsTh(height, width, with_r, with_boundary)
         in_channels += 2
@@ -900,8 +837,7 @@ class ConvBlock(nn.Module):
     def __init__(self, in_planes, out_planes):
         super(ConvBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        conv3x3 = partial(nn.Conv2d, kernel_size=3, stride=1, padding=1,
-            bias=False, dilation=1)
+        conv3x3 = partial(nn.Conv2d, kernel_size=3, stride=1, padding=1, bias=False, dilation=1)
         self.conv1 = conv3x3(in_planes, int(out_planes / 2))
         self.bn2 = nn.BatchNorm2d(int(out_planes / 2))
         self.conv2 = conv3x3(int(out_planes / 2), int(out_planes / 4))
@@ -909,8 +845,7 @@ class ConvBlock(nn.Module):
         self.conv3 = conv3x3(int(out_planes / 4), int(out_planes / 4))
         self.downsample = None
         if in_planes != out_planes:
-            self.downsample = nn.Sequential(nn.BatchNorm2d(in_planes), nn.
-                ReLU(True), nn.Conv2d(in_planes, out_planes, 1, 1, bias=False))
+            self.downsample = nn.Sequential(nn.BatchNorm2d(in_planes), nn.ReLU(True), nn.Conv2d(in_planes, out_planes, 1, 1, bias=False))
 
     def forward(self, x):
         residual = x
@@ -931,8 +866,7 @@ class ConvBlock(nn.Module):
 
 
 def get_preds_fromhm(hm):
-    max, idx = torch.max(hm.view(hm.size(0), hm.size(1), hm.size(2) * hm.
-        size(3)), 2)
+    max, idx = torch.max(hm.view(hm.size(0), hm.size(1), hm.size(2) * hm.size(3)), 2)
     idx += 1
     preds = idx.view(idx.size(0), idx.size(1), 1).repeat(1, 1, 2).float()
     preds[..., 0].apply_(lambda x: (x - 1) % hm.size(3) + 1)
@@ -942,8 +876,7 @@ def get_preds_fromhm(hm):
             hm_ = hm[(i), (j), :]
             pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
             if pX > 0 and pX < 63 and pY > 0 and pY < 63:
-                diff = torch.FloatTensor([hm_[pY, pX + 1] - hm_[pY, pX - 1],
-                    hm_[pY + 1, pX] - hm_[pY - 1, pX]])
+                diff = torch.FloatTensor([hm_[pY, pX + 1] - hm_[pY, pX - 1], hm_[pY + 1, pX] - hm_[pY - 1, pX]])
                 preds[i, j].add_(diff.sign_().mul_(0.25))
     preds.add_(-0.5)
     return preds
@@ -993,24 +926,18 @@ def preprocess(x):
     x = truncate(x)
     x = normalize(x)
     sw = H // 256
-    operations = Munch(chin=OPPAIR(0, 3), eyebrows=OPPAIR(-7 * sw, 2),
-        nostrils=OPPAIR(8 * sw, 4), lipupper=OPPAIR(-8 * sw, 4), liplower=
-        OPPAIR(8 * sw, 4), lipinner=OPPAIR(-2 * sw, 3))
+    operations = Munch(chin=OPPAIR(0, 3), eyebrows=OPPAIR(-7 * sw, 2), nostrils=OPPAIR(8 * sw, 4), lipupper=OPPAIR(-8 * sw, 4), liplower=OPPAIR(8 * sw, 4), lipinner=OPPAIR(-2 * sw, 3))
     for part, ops in operations.items():
         start, end = index_map[part]
         x[:, start:end] = resize(shift(x[:, start:end], ops.shift), ops.resize)
-    zero_out = torch.cat([torch.arange(0, index_map.chin.start), torch.
-        arange(index_map.chin.end, 33), torch.LongTensor([index_map.
-        eyebrowsedges.start, index_map.eyebrowsedges.end, index_map.
-        lipedges.start, index_map.lipedges.end])])
+    zero_out = torch.cat([torch.arange(0, index_map.chin.start), torch.arange(index_map.chin.end, 33), torch.LongTensor([index_map.eyebrowsedges.start, index_map.eyebrowsedges.end, index_map.lipedges.start, index_map.lipedges.end])])
     x[:, (zero_out)] = 0
     start, end = index_map.nose
     x[:, start + 1:end] = shift(x[:, start + 1:end], 4 * sw)
     x[:, start:end] = resize(x[:, start:end], 1)
     start, end = index_map.eyes
     x[:, start:end] = resize(x[:, start:end], 1)
-    x[:, start:end] = resize(shift(x[:, start:end], -8), 3) + shift(x[:,
-        start:end], -24)
+    x[:, start:end] = resize(shift(x[:, start:end], -8), 3) + shift(x[:, start:end], -24)
     x2 = deepcopy(x)
     x2[:, index_map.chin.start:index_map.chin.end] = 0
     x2[:, index_map.lipedges.start:index_map.lipinner.end] = 0
@@ -1024,13 +951,11 @@ def preprocess(x):
 
 class FAN(nn.Module):
 
-    def __init__(self, num_modules=1, end_relu=False, num_landmarks=98,
-        fname_pretrained=None):
+    def __init__(self, num_modules=1, end_relu=False, num_landmarks=98, fname_pretrained=None):
         super(FAN, self).__init__()
         self.num_modules = num_modules
         self.end_relu = end_relu
-        self.conv1 = CoordConvTh(256, 256, True, False, in_channels=3,
-            out_channels=64, kernel_size=7, stride=2, padding=3)
+        self.conv1 = CoordConvTh(256, 256, True, False, in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3)
         self.bn1 = nn.BatchNorm2d(64)
         self.conv2 = ConvBlock(64, 128)
         self.conv3 = ConvBlock(128, 128)
@@ -1049,8 +974,7 @@ class FAN(nn.Module):
         else:
             checkpoint = torch.load(fname, map_location=torch.device('cpu'))
         model_weights = self.state_dict()
-        model_weights.update({k: v for k, v in checkpoint['state_dict'].
-            items() if k in model_weights})
+        model_weights.update({k: v for k, v in checkpoint['state_dict'].items() if k in model_weights})
         self.load_state_dict(model_weights)
 
     def forward(self, x):
@@ -1064,8 +988,7 @@ class FAN(nn.Module):
         tmp_out = None
         ll, boundary_channel = self._modules['m0'](x, tmp_out)
         ll = self._modules['top_m_0'](ll)
-        ll = F.relu(self._modules['bn_end0'](self._modules['conv_last0'](ll
-            )), True)
+        ll = F.relu(self._modules['bn_end0'](self._modules['conv_last0'](ll)), True)
         tmp_out = self._modules['l0'](ll)
         if self.end_relu:
             tmp_out = F.relu(tmp_out)
@@ -1082,8 +1005,7 @@ class FAN(nn.Module):
         heatmaps = outputs[-1][:, :-1, :, :]
         scale_factor = x.size(2) // heatmaps.size(2)
         if b_preprocess:
-            heatmaps = F.interpolate(heatmaps, scale_factor=scale_factor,
-                mode='bilinear', align_corners=True)
+            heatmaps = F.interpolate(heatmaps, scale_factor=scale_factor, mode='bilinear', align_corners=True)
             heatmaps = preprocess(heatmaps)
         return heatmaps
 
@@ -1105,16 +1027,10 @@ class InceptionV3(nn.Module):
     def __init__(self):
         super().__init__()
         inception = models.inception_v3(pretrained=True)
-        self.block1 = nn.Sequential(inception.Conv2d_1a_3x3, inception.
-            Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(
-            kernel_size=3, stride=2))
-        self.block2 = nn.Sequential(inception.Conv2d_3b_1x1, inception.
-            Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
-        self.block3 = nn.Sequential(inception.Mixed_5b, inception.Mixed_5c,
-            inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b,
-            inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e)
-        self.block4 = nn.Sequential(inception.Mixed_7a, inception.Mixed_7b,
-            inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1)))
+        self.block1 = nn.Sequential(inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
+        self.block2 = nn.Sequential(inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
+        self.block3 = nn.Sequential(inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e)
+        self.block4 = nn.Sequential(inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1)))
 
     def forward(self, x):
         x = self.block1(x)
@@ -1147,8 +1063,7 @@ class Conv1x1(nn.Module):
 
     def __init__(self, in_channels, out_channels=1):
         super().__init__()
-        self.main = nn.Sequential(nn.Dropout(0.5), nn.Conv2d(in_channels,
-            out_channels, 1, 1, 0, bias=False))
+        self.main = nn.Sequential(nn.Dropout(0.5), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False))
 
     def forward(self, x):
         return self.main(x)
@@ -1171,8 +1086,7 @@ class LPIPS(nn.Module):
         if torch.is_available():
             state_dict = torch.load('metrics/lpips_weights.ckpt')
         else:
-            state_dict = torch.load('metrics/lpips_weights.ckpt',
-                map_location=torch.device('cpu'))
+            state_dict = torch.load('metrics/lpips_weights.ckpt', map_location=torch.device('cpu'))
         for name, param in state_dict.items():
             if name in own_state_dict:
                 own_state_dict[name].copy_(param)
@@ -1183,8 +1097,7 @@ class LPIPS(nn.Module):
         x_fmaps = self.alexnet(x)
         y_fmaps = self.alexnet(y)
         lpips_value = 0
-        for x_fmap, y_fmap, conv1x1 in zip(x_fmaps, y_fmaps, self.lpips_weights
-            ):
+        for x_fmap, y_fmap, conv1x1 in zip(x_fmaps, y_fmaps, self.lpips_weights):
             x_fmap = normalize(x_fmap)
             y_fmap = normalize(y_fmap)
             lpips_value += torch.mean(conv1x1((x_fmap - y_fmap) ** 2))
@@ -1195,33 +1108,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlexNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Conv1x1,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (HighPass,
+     lambda: ([], {'w_hpf': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MappingNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([16, 16]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (ResBlk,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (StyleEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_clovaai_stargan_v2(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv1x1(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(HighPass(*[], **{'w_hpf': 4, 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MappingNetwork(*[], **{}), [torch.rand([16, 16]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ResBlk(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(StyleEncoder(*[], **{}), [torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[7])
 

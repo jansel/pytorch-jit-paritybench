@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,8 +80,7 @@ class LSTM(nn.Module):
 
     def __init__(self, n_in, n_hidden, n_out):
         super(LSTM, self).__init__()
-        self.rnn = nn.LSTM(n_in, n_hidden, bidirectional=True, batch_first=True
-            )
+        self.rnn = nn.LSTM(n_in, n_hidden, bidirectional=True, batch_first=True)
         self.linear = nn.Linear(2 * n_hidden, n_out)
 
     def forward(self, x):
@@ -128,8 +128,7 @@ def pad_gap_scores(s, gap):
 
 class OrdinalRegression(nn.Module):
 
-    def __init__(self, embedding, n_classes, compare=L1(), align_method=
-        'ssa', beta_init=10, allow_insertions=False, gap_init=-10):
+    def __init__(self, embedding, n_classes, compare=L1(), align_method='ssa', beta_init=10, allow_insertions=False, gap_init=-10):
         super(OrdinalRegression, self).__init__()
         self.embedding = embedding
         self.n_out = n_classes
@@ -178,14 +177,12 @@ class OrdinalRegression(nn.Module):
 
 class LMEmbed(nn.Module):
 
-    def __init__(self, nin, nout, lm, padding_idx=-1, transform=nn.ReLU(),
-        sparse=False):
+    def __init__(self, nin, nout, lm, padding_idx=-1, transform=nn.ReLU(), sparse=False):
         super(LMEmbed, self).__init__()
         if padding_idx == -1:
             padding_idx = nin - 1
         self.lm = lm
-        self.embed = nn.Embedding(nin, nout, padding_idx=padding_idx,
-            sparse=sparse)
+        self.embed = nn.Embedding(nin, nout, padding_idx=padding_idx, sparse=sparse)
         self.proj = nn.Linear(lm.hidden_size(), nout)
         self.transform = transform
         self.nout = nout
@@ -207,19 +204,16 @@ class LMEmbed(nn.Module):
 
 class Linear(nn.Module):
 
-    def __init__(self, nin, nhidden, nout, padding_idx=-1, sparse=False, lm
-        =None):
+    def __init__(self, nin, nhidden, nout, padding_idx=-1, sparse=False, lm=None):
         super(Linear, self).__init__()
         if padding_idx == -1:
             padding_idx = nin - 1
         if lm is not None:
-            self.embed = LMEmbed(nin, nhidden, lm, padding_idx=padding_idx,
-                sparse=sparse)
+            self.embed = LMEmbed(nin, nhidden, lm, padding_idx=padding_idx, sparse=sparse)
             self.proj = nn.Linear(self.embed.nout, nout)
             self.lm = True
         else:
-            self.proj = nn.Embedding(nin, nout, padding_idx=padding_idx,
-                sparse=sparse)
+            self.proj = nn.Embedding(nin, nout, padding_idx=padding_idx, sparse=sparse)
             self.lm = False
         self.nout = nout
 
@@ -244,19 +238,16 @@ class Linear(nn.Module):
 
 class StackedRNN(nn.Module):
 
-    def __init__(self, nin, nembed, nunits, nout, nlayers=2, padding_idx=-1,
-        dropout=0, rnn_type='lstm', sparse=False, lm=None):
+    def __init__(self, nin, nembed, nunits, nout, nlayers=2, padding_idx=-1, dropout=0, rnn_type='lstm', sparse=False, lm=None):
         super(StackedRNN, self).__init__()
         if padding_idx == -1:
             padding_idx = nin - 1
         if lm is not None:
-            self.embed = LMEmbed(nin, nembed, lm, padding_idx=padding_idx,
-                sparse=sparse)
+            self.embed = LMEmbed(nin, nembed, lm, padding_idx=padding_idx, sparse=sparse)
             nembed = self.embed.nout
             self.lm = True
         else:
-            self.embed = nn.Embedding(nin, nembed, padding_idx=padding_idx,
-                sparse=sparse)
+            self.embed = nn.Embedding(nin, nembed, padding_idx=padding_idx, sparse=sparse)
             self.lm = False
         if rnn_type == 'lstm':
             RNN = nn.LSTM
@@ -265,8 +256,7 @@ class StackedRNN(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         if nlayers == 1:
             dropout = 0
-        self.rnn = RNN(nembed, nunits, nlayers, batch_first=True,
-            bidirectional=True, dropout=dropout)
+        self.rnn = RNN(nembed, nunits, nlayers, batch_first=True, bidirectional=True, dropout=dropout)
         self.proj = nn.Linear(2 * nunits, nout)
         self.nout = nout
 
@@ -343,8 +333,7 @@ class ConvContactMap(nn.Module):
 
 class OrdinalRegression(nn.Module):
 
-    def __init__(self, n_classes, compare=L1(), align_method='ssa',
-        beta_init=10, allow_insertions=False, gap_init=-10):
+    def __init__(self, n_classes, compare=L1(), align_method='ssa', beta_init=10, allow_insertions=False, gap_init=-10):
         super(OrdinalRegression, self).__init__()
         self.n_out = n_classes
         self.compare = compare
@@ -389,8 +378,7 @@ class OrdinalRegression(nn.Module):
 
 class BiLM(nn.Module):
 
-    def __init__(self, nin, nout, embedding_dim, hidden_dim, num_layers,
-        tied=True, mask_idx=None, dropout=0):
+    def __init__(self, nin, nout, embedding_dim, hidden_dim, num_layers, tied=True, mask_idx=None, dropout=0):
         super(BiLM, self).__init__()
         if mask_idx is None:
             mask_idx = nin - 1
@@ -516,10 +504,8 @@ class BiLM(nn.Module):
         concat = []
         for h_fwd, h_rvs in zip(h_fwd_layers, h_rvs_layers):
             if packed:
-                h_fwd, batch_sizes = pad_packed_sequence(h_fwd, batch_first
-                    =True)
-                h_rvs, batch_sizes = pad_packed_sequence(h_rvs, batch_first
-                    =True)
+                h_fwd, batch_sizes = pad_packed_sequence(h_fwd, batch_first=True)
+                h_rvs, batch_sizes = pad_packed_sequence(h_rvs, batch_first=True)
             h_fwd = h_fwd[:, :-1]
             h_rvs = h_rvs[:, 1:]
             concat.append(h_fwd)
@@ -541,10 +527,8 @@ class BiLM(nn.Module):
             h_flat = h_rvs.data
             logp_rvs = self.linear(h_flat)
             logp_rvs = PackedSequence(logp_rvs, h_rvs.batch_sizes)
-            logp_fwd, batch_sizes = pad_packed_sequence(logp_fwd,
-                batch_first=True)
-            logp_rvs, batch_sizes = pad_packed_sequence(logp_rvs,
-                batch_first=True)
+            logp_fwd, batch_sizes = pad_packed_sequence(logp_fwd, batch_first=True)
+            logp_rvs, batch_sizes = pad_packed_sequence(logp_rvs, batch_first=True)
         else:
             b = h_fwd.size(0)
             n = h_fwd.size(1)
@@ -569,25 +553,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvContactMap,
+     lambda: ([], {'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (DotProduct,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (L1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LSTM,
+     lambda: ([], {'n_in': 4, 'n_hidden': 4, 'n_out': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (OrdinalRegression,
+     lambda: ([], {'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_tbepler_protein_sequence_embedding_iclr2019(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvContactMap(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DotProduct(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LSTM(*[], **{'n_in': 4, 'n_hidden': 4, 'n_out': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(OrdinalRegression(*[], **{'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

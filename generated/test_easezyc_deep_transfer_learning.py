@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ import torchvision
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -126,8 +126,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -158,8 +157,7 @@ class ADDneck(nn.Module):
         super(ADDneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
@@ -184,8 +182,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -194,8 +191,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -208,9 +204,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -230,14 +224,11 @@ class ResNet(nn.Module):
         return x
 
 
-def guassian_kernel(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma
-    =None):
+def guassian_kernel(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
     n_samples = int(source.size()[0]) + int(target.size()[0])
     total = torch.cat([source, target], dim=0)
-    total0 = total.unsqueeze(0).expand(int(total.size(0)), int(total.size(0
-        )), int(total.size(1)))
-    total1 = total.unsqueeze(1).expand(int(total.size(0)), int(total.size(0
-        )), int(total.size(1)))
+    total0 = total.unsqueeze(0).expand(int(total.size(0)), int(total.size(0)), int(total.size(1)))
+    total1 = total.unsqueeze(1).expand(int(total.size(0)), int(total.size(0)), int(total.size(1)))
     L2_distance = ((total0 - total1) ** 2).sum(2)
     if fix_sigma:
         bandwidth = fix_sigma
@@ -245,15 +236,13 @@ def guassian_kernel(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma
         bandwidth = torch.sum(L2_distance.data) / (n_samples ** 2 - n_samples)
     bandwidth /= kernel_mul ** (kernel_num // 2)
     bandwidth_list = [(bandwidth * kernel_mul ** i) for i in range(kernel_num)]
-    kernel_val = [torch.exp(-L2_distance / bandwidth_temp) for
-        bandwidth_temp in bandwidth_list]
+    kernel_val = [torch.exp(-L2_distance / bandwidth_temp) for bandwidth_temp in bandwidth_list]
     return sum(kernel_val)
 
 
 def mmd(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
     batch_size = int(source.size()[0])
-    kernels = guassian_kernel(source, target, kernel_mul=kernel_mul,
-        kernel_num=kernel_num, fix_sigma=fix_sigma)
+    kernels = guassian_kernel(source, target, kernel_mul=kernel_mul, kernel_num=kernel_num, fix_sigma=fix_sigma)
     XX = kernels[:batch_size, :batch_size]
     YY = kernels[batch_size:, batch_size:]
     XY = kernels[:batch_size, batch_size:]
@@ -262,8 +251,7 @@ def mmd(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None):
     return loss
 
 
-model_urls = {'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth'}
+model_urls = {'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth'}
 
 
 def resnet50(pretrained=False, **kwargs):
@@ -307,13 +295,10 @@ class MFSAN(nn.Module):
                 data_tgt_son2 = self.avgpool(data_tgt_son2)
                 data_tgt_son2 = data_tgt_son2.view(data_tgt_son2.size(0), -1)
                 data_tgt_son2 = self.cls_fc_son2(data_tgt_son2)
-                l1_loss = torch.abs(torch.nn.functional.softmax(
-                    data_tgt_son1, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son2, dim=1))
+                l1_loss = torch.abs(torch.nn.functional.softmax(data_tgt_son1, dim=1) - torch.nn.functional.softmax(data_tgt_son2, dim=1))
                 l1_loss = torch.mean(l1_loss)
                 pred_src = self.cls_fc_son1(data_src)
-                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src
-                    )
+                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src)
                 return cls_loss, mmd_loss, l1_loss
             if mark == 2:
                 data_src = self.sharedNet(data_src)
@@ -330,13 +315,10 @@ class MFSAN(nn.Module):
                 data_tgt_son1 = self.avgpool(data_tgt_son1)
                 data_tgt_son1 = data_tgt_son1.view(data_tgt_son1.size(0), -1)
                 data_tgt_son1 = self.cls_fc_son1(data_tgt_son1)
-                l1_loss = torch.abs(torch.nn.functional.softmax(
-                    data_tgt_son1, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son2, dim=1))
+                l1_loss = torch.abs(torch.nn.functional.softmax(data_tgt_son1, dim=1) - torch.nn.functional.softmax(data_tgt_son2, dim=1))
                 l1_loss = torch.mean(l1_loss)
                 pred_src = self.cls_fc_son2(data_src)
-                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src
-                    )
+                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src)
                 return cls_loss, mmd_loss, l1_loss
         else:
             data = self.sharedNet(data_src)
@@ -385,8 +367,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -417,8 +398,7 @@ class ADDneck(nn.Module):
         super(ADDneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
@@ -443,8 +423,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -453,8 +432,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -467,9 +445,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -524,45 +500,30 @@ class MFSAN(nn.Module):
                 data_src = self.avgpool(data_src)
                 data_src = data_src.view(data_src.size(0), -1)
                 mmd_loss += mmd.mmd(data_src, data_tgt_son1)
-                l1_loss = torch.mean(torch.abs(torch.nn.functional.softmax(
-                    data_tgt_son1, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son2, dim=1)))
-                l1_loss += torch.mean(torch.abs(torch.nn.functional.softmax
-                    (data_tgt_son1, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son3, dim=1)))
+                l1_loss = torch.mean(torch.abs(torch.nn.functional.softmax(data_tgt_son1, dim=1) - torch.nn.functional.softmax(data_tgt_son2, dim=1)))
+                l1_loss += torch.mean(torch.abs(torch.nn.functional.softmax(data_tgt_son1, dim=1) - torch.nn.functional.softmax(data_tgt_son3, dim=1)))
                 pred_src = self.cls_fc_son1(data_src)
-                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src
-                    )
+                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src)
                 return cls_loss, mmd_loss, l1_loss / 2
             if mark == 2:
                 data_src = self.sonnet2(data_src)
                 data_src = self.avgpool(data_src)
                 data_src = data_src.view(data_src.size(0), -1)
                 mmd_loss += mmd.mmd(data_src, data_tgt_son2)
-                l1_loss = torch.mean(torch.abs(torch.nn.functional.softmax(
-                    data_tgt_son2, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son1, dim=1)))
-                l1_loss += torch.mean(torch.abs(torch.nn.functional.softmax
-                    (data_tgt_son2, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son3, dim=1)))
+                l1_loss = torch.mean(torch.abs(torch.nn.functional.softmax(data_tgt_son2, dim=1) - torch.nn.functional.softmax(data_tgt_son1, dim=1)))
+                l1_loss += torch.mean(torch.abs(torch.nn.functional.softmax(data_tgt_son2, dim=1) - torch.nn.functional.softmax(data_tgt_son3, dim=1)))
                 pred_src = self.cls_fc_son2(data_src)
-                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src
-                    )
+                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src)
                 return cls_loss, mmd_loss, l1_loss / 2
             if mark == 3:
                 data_src = self.sonnet3(data_src)
                 data_src = self.avgpool(data_src)
                 data_src = data_src.view(data_src.size(0), -1)
                 mmd_loss += mmd.mmd(data_src, data_tgt_son3)
-                l1_loss = torch.mean(torch.abs(torch.nn.functional.softmax(
-                    data_tgt_son3, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son1, dim=1)))
-                l1_loss += torch.mean(torch.abs(torch.nn.functional.softmax
-                    (data_tgt_son3, dim=1) - torch.nn.functional.softmax(
-                    data_tgt_son2, dim=1)))
+                l1_loss = torch.mean(torch.abs(torch.nn.functional.softmax(data_tgt_son3, dim=1) - torch.nn.functional.softmax(data_tgt_son1, dim=1)))
+                l1_loss += torch.mean(torch.abs(torch.nn.functional.softmax(data_tgt_son3, dim=1) - torch.nn.functional.softmax(data_tgt_son2, dim=1)))
                 pred_src = self.cls_fc_son3(data_src)
-                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src
-                    )
+                cls_loss = F.nll_loss(F.log_softmax(pred_src, dim=1), label_src)
                 return cls_loss, mmd_loss, l1_loss / 2
         else:
             data = self.sharedNet(data_src)
@@ -615,8 +576,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -646,8 +606,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -656,8 +615,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -669,9 +627,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -744,8 +700,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -775,8 +730,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -785,8 +739,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -798,9 +751,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -873,8 +824,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -904,8 +854,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -914,8 +863,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -927,9 +875,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1013,8 +959,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1044,8 +989,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1054,8 +998,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -1067,9 +1010,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1136,13 +1077,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1169,39 +1108,31 @@ class Bottleneck(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1217,15 +1148,12 @@ class ResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1293,8 +1221,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1324,8 +1251,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1334,8 +1260,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -1348,9 +1273,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1396,8 +1319,7 @@ class DSAN(nn.Module):
             if bottle_neck:
                 target = self.bottle(target)
             t_label = self.cls_fc(target)
-            loss = mmd.lmmd(source, target, s_label, torch.nn.functional.
-                softmax(t_label, dim=1))
+            loss = mmd.lmmd(source, target, s_label, torch.nn.functional.softmax(t_label, dim=1))
         else:
             loss = 0
         return s_pred, loss
@@ -1433,13 +1355,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1466,33 +1386,26 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1508,15 +1421,12 @@ class ResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1584,8 +1494,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1615,8 +1524,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1625,8 +1533,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(8, stride=1)
-        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2,
-            self.layer3, self.layer4]
+        self.baselayer = [self.conv1, self.bn1, self.layer1, self.layer2, self.layer3, self.layer4]
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -1639,9 +1546,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1698,8 +1603,7 @@ class InceptionA(nn.Module):
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1)
         self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1)
         self.avg_pool = nn.AvgPool2d(7, stride=1)
         self.source_fc = nn.Linear(288, num_classes)
 
@@ -1710,8 +1614,7 @@ class InceptionA(nn.Module):
         s_branch3x3dbl = self.branch3x3dbl_1(source)
         s_branch3x3dbl = self.branch3x3dbl_2(s_branch3x3dbl)
         s_branch3x3dbl = self.branch3x3dbl_3(s_branch3x3dbl)
-        s_branch_pool = F.avg_pool2d(source, kernel_size=3, stride=1, padding=1
-            )
+        s_branch_pool = F.avg_pool2d(source, kernel_size=3, stride=1, padding=1)
         s_branch_pool = self.branch_pool(s_branch_pool)
         s_branch1x1 = self.avg_pool(s_branch1x1)
         s_branch5x5 = self.avg_pool(s_branch5x5)
@@ -1727,8 +1630,7 @@ class InceptionA(nn.Module):
         t_branch3x3dbl = self.branch3x3dbl_1(target)
         t_branch3x3dbl = self.branch3x3dbl_2(t_branch3x3dbl)
         t_branch3x3dbl = self.branch3x3dbl_3(t_branch3x3dbl)
-        t_branch_pool = F.avg_pool2d(target, kernel_size=3, stride=1, padding=1
-            )
+        t_branch_pool = F.avg_pool2d(target, kernel_size=3, stride=1, padding=1)
         t_branch_pool = self.branch_pool(t_branch_pool)
         t_branch1x1 = self.avg_pool(t_branch1x1)
         t_branch5x5 = self.avg_pool(t_branch5x5)
@@ -1738,10 +1640,8 @@ class InceptionA(nn.Module):
         t_branch5x5 = t_branch5x5.view(t_branch5x5.size(0), -1)
         t_branch3x3dbl = t_branch3x3dbl.view(t_branch3x3dbl.size(0), -1)
         t_branch_pool = t_branch_pool.view(t_branch_pool.size(0), -1)
-        source = torch.cat([s_branch1x1, s_branch5x5, s_branch3x3dbl,
-            s_branch_pool], 1)
-        target = torch.cat([t_branch1x1, t_branch5x5, t_branch3x3dbl,
-            t_branch_pool], 1)
+        source = torch.cat([s_branch1x1, s_branch5x5, s_branch3x3dbl, s_branch_pool], 1)
+        target = torch.cat([t_branch1x1, t_branch5x5, t_branch3x3dbl, t_branch_pool], 1)
         source = self.source_fc(source)
         t_label = self.source_fc(target)
         t_label = t_label.data.max(1)[1]
@@ -1789,8 +1689,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1820,8 +1719,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1844,9 +1742,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1886,9 +1782,7 @@ class AdversarialLayer(torch.autograd.Function):
         return output
 
     def backward(self, gradOutput):
-        self.coeff = np.float(2.0 * (self.high - self.low) / (1.0 + np.exp(
-            -self.alpha * self.iter_num / self.max_iter)) - (self.high -
-            self.low) + self.low)
+        self.coeff = np.float(2.0 * (self.high - self.low) / (1.0 + np.exp(-self.alpha * self.iter_num / self.max_iter)) - (self.high - self.low) + self.low)
         return -self.coeff * gradOutput
 
 
@@ -1945,33 +1839,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ADDneck,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AdversarialNetwork,
+     lambda: ([], {'in_feature': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DANNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DDCNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DSAN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DeepCoral,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_easezyc_deep_transfer_learning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ADDneck(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AdversarialNetwork(*[], **{'in_feature': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DANNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(DDCNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(DSAN(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(DeepCoral(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

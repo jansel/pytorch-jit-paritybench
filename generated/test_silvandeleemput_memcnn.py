@@ -48,8 +48,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -97,9 +98,7 @@ class ExampleOperation(nn.Module):
 
     def __init__(self, channels):
         super(ExampleOperation, self).__init__()
-        self.seq = nn.Sequential(nn.Conv2d(in_channels=channels,
-            out_channels=channels, kernel_size=(3, 3), padding=1), nn.
-            BatchNorm2d(num_features=channels), nn.ReLU(inplace=True))
+        self.seq = nn.Sequential(nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=(3, 3), padding=1), nn.BatchNorm2d(num_features=channels), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.seq(x)
@@ -167,8 +166,7 @@ class AdditiveBlockFunction(torch.autograd.Function):
             y1 = x1 + Fm.forward(x2)
             y2 = x2 + Gm.forward(y1)
             y = torch.cat([y1, y2], dim=1)
-            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) +
-                tuple(Fm.parameters()), grad_output)
+            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) + tuple(Fm.parameters()), grad_output)
             GWgrads = dd[2:2 + len(GWeights)]
             FWgrads = dd[2 + len(GWeights):]
             grad_input = torch.cat([dd[0], dd[1]], dim=1)
@@ -246,12 +244,10 @@ class AdditiveBlockFunction2(torch.autograd.Function):
             x1_stop.requires_grad = True
             y1 = x1_stop + F_x2
             y2 = x2_stop + G_z1
-            dd = torch.autograd.grad(y2, (z1_stop,) + tuple(Gm.parameters()
-                ), y2_grad, retain_graph=False)
+            dd = torch.autograd.grad(y2, (z1_stop,) + tuple(Gm.parameters()), y2_grad, retain_graph=False)
             z1_grad = dd[0] + y1_grad
             GWgrads = dd[1:]
-            dd = torch.autograd.grad(y1, (x1_stop, x2_stop) + tuple(Fm.
-                parameters()), z1_grad, retain_graph=False)
+            dd = torch.autograd.grad(y1, (x1_stop, x2_stop) + tuple(Fm.parameters()), z1_grad, retain_graph=False)
             FWgrads = dd[2:]
             x2_grad = dd[1] + y2_grad
             x1_grad = dd[0]
@@ -323,8 +319,7 @@ class AdditiveBlockInverseFunction(torch.autograd.Function):
             x2 = y2 - Gm.forward(y1)
             x1 = y1 - Fm.forward(x2)
             x = torch.cat([x1, x2], dim=1)
-            dd = torch.autograd.grad(x, (y2, y1) + tuple(Fm.parameters()) +
-                tuple(Gm.parameters()), grad_output)
+            dd = torch.autograd.grad(x, (y2, y1) + tuple(Fm.parameters()) + tuple(Gm.parameters()), grad_output)
             FWgrads = dd[2:2 + len(FWeights)]
             GWgrads = dd[2 + len(FWeights):]
             grad_input = torch.cat([dd[0], dd[1]], dim=1)
@@ -402,12 +397,10 @@ class AdditiveBlockInverseFunction2(torch.autograd.Function):
             z1 = y2_stop - G_y1
             x1 = y1_stop - F_z1
             x2 = z1
-            dd = torch.autograd.grad(x1, (z1_stop,) + tuple(Fm.parameters()
-                ), x1_grad)
+            dd = torch.autograd.grad(x1, (z1_stop,) + tuple(Fm.parameters()), x1_grad)
             z1_grad = dd[0] + x2_grad
             FWgrads = dd[1:]
-            dd = torch.autograd.grad(x2, (y2_stop, y1_stop) + tuple(Gm.
-                parameters()), z1_grad, retain_graph=False)
+            dd = torch.autograd.grad(x2, (y2_stop, y1_stop) + tuple(Gm.parameters()), z1_grad, retain_graph=False)
             GWgrads = dd[2:]
             y1_grad = dd[1] + x1_grad
             y2_grad = dd[0]
@@ -417,8 +410,7 @@ class AdditiveBlockInverseFunction2(torch.autograd.Function):
 
 class AdditiveCoupling(nn.Module):
 
-    def __init__(self, Fm, Gm=None, implementation_fwd=-1,
-        implementation_bwd=-1):
+    def __init__(self, Fm, Gm=None, implementation_fwd=-1, implementation_bwd=-1):
         """
         This computes the output :math:`y` on forward given input :math:`x` and arbitrary modules :math:`Fm` and :math:`Gm` according to:
 
@@ -454,13 +446,10 @@ class AdditiveCoupling(nn.Module):
         self.implementation_fwd = implementation_fwd
         self.implementation_bwd = implementation_bwd
         if implementation_bwd != -1 or implementation_fwd != -1:
-            warnings.warn(
-                'Other implementations than the default (-1) are now deprecated.'
-                , DeprecationWarning)
+            warnings.warn('Other implementations than the default (-1) are now deprecated.', DeprecationWarning)
 
     def forward(self, x):
-        args = [x, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w
-             for w in self.Gm.parameters()]
+        args = [x, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w for w in self.Gm.parameters()]
         if self.implementation_fwd == 0:
             out = AdditiveBlockFunction.apply(*args)
         elif self.implementation_fwd == 1:
@@ -474,14 +463,11 @@ class AdditiveCoupling(nn.Module):
             y2 = x2 + gmd
             out = torch.cat([y1, y2], dim=1)
         else:
-            raise NotImplementedError(
-                'Selected implementation ({}) not implemented...'.format(
-                self.implementation_fwd))
+            raise NotImplementedError('Selected implementation ({}) not implemented...'.format(self.implementation_fwd))
         return out
 
     def inverse(self, y):
-        args = [y, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w
-             for w in self.Gm.parameters()]
+        args = [y, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w for w in self.Gm.parameters()]
         if self.implementation_bwd == 0:
             x = AdditiveBlockInverseFunction.apply(*args)
         elif self.implementation_bwd == 1:
@@ -495,9 +481,7 @@ class AdditiveCoupling(nn.Module):
             x1 = y1 - fmd
             x = torch.cat([x1, x2], dim=1)
         else:
-            raise NotImplementedError(
-                'Inverse for selected implementation ({}) not implemented...'
-                .format(self.implementation_bwd))
+            raise NotImplementedError('Inverse for selected implementation ({}) not implemented...'.format(self.implementation_bwd))
         return x
 
 
@@ -606,8 +590,7 @@ class AffineBlockFunction(torch.autograd.Function):
             gmr1, gmr2 = Gm.forward(y1)
             y2 = x2 * gmr1 + gmr2
             y = torch.cat([y1, y2], dim=1)
-            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) +
-                tuple(Fm.parameters()), grad_output)
+            dd = torch.autograd.grad(y, (x1, x2) + tuple(Gm.parameters()) + tuple(Fm.parameters()), grad_output)
             GWgrads = dd[2:2 + len(GWeights)]
             FWgrads = dd[2 + len(GWeights):]
             grad_input = torch.cat([dd[0], dd[1]], dim=1)
@@ -692,12 +675,10 @@ class AffineBlockFunction2(torch.autograd.Function):
             z1 = x1_stop * F_x21 + F_x22
             y2_ = x2_stop * G_z11 + G_z12
             y1_ = z1
-            dd = torch.autograd.grad(y2_, (z1_stop,) + tuple(Gm.parameters(
-                )), y2_grad)
+            dd = torch.autograd.grad(y2_, (z1_stop,) + tuple(Gm.parameters()), y2_grad)
             z1_grad = dd[0] + y1_grad
             GWgrads = dd[1:]
-            dd = torch.autograd.grad(y1_, (x1_stop, x2_stop) + tuple(Fm.
-                parameters()), z1_grad, retain_graph=False)
+            dd = torch.autograd.grad(y1_, (x1_stop, x2_stop) + tuple(Fm.parameters()), z1_grad, retain_graph=False)
             FWgrads = dd[2:]
             x2_grad = dd[1] + y2_grad
             x1_grad = dd[0]
@@ -778,8 +759,7 @@ class AffineBlockInverseFunction(torch.autograd.Function):
             fmr1, fmr2 = Fm.forward(x2)
             x1 = (y1 - fmr2) / fmr1
             x = torch.cat([x1, x2], dim=1)
-            dd = torch.autograd.grad(x, (y2, y1) + tuple(Fm.parameters()) +
-                tuple(Gm.parameters()), grad_output)
+            dd = torch.autograd.grad(x, (y2, y1) + tuple(Fm.parameters()) + tuple(Gm.parameters()), grad_output)
             FWgrads = dd[2:2 + len(FWeights)]
             GWgrads = dd[2 + len(FWeights):]
             grad_input = torch.cat([dd[0], dd[1]], dim=1)
@@ -856,12 +836,10 @@ class AffineBlockInverseFunction2(torch.autograd.Function):
             z1 = (y2_stop - G_y12) / G_y11
             x1_ = (y1_stop - F_z12) / F_z11
             x2_ = z1
-            dd = torch.autograd.grad(x1_, (z1_stop,) + tuple(Fm.parameters(
-                )), x1_grad)
+            dd = torch.autograd.grad(x1_, (z1_stop,) + tuple(Fm.parameters()), x1_grad)
             z1_grad = dd[0] + x2_grad
             FWgrads = dd[1:]
-            dd = torch.autograd.grad(x2_, (y2_stop, y1_stop) + tuple(Gm.
-                parameters()), z1_grad, retain_graph=False)
+            dd = torch.autograd.grad(x2_, (y2_stop, y1_stop) + tuple(Gm.parameters()), z1_grad, retain_graph=False)
             GWgrads = dd[2:]
             y1_grad = dd[1] + x1_grad
             y2_grad = dd[0]
@@ -871,8 +849,7 @@ class AffineBlockInverseFunction2(torch.autograd.Function):
 
 class AffineCoupling(nn.Module):
 
-    def __init__(self, Fm, Gm=None, adapter=None, implementation_fwd=-1,
-        implementation_bwd=-1):
+    def __init__(self, Fm, Gm=None, adapter=None, implementation_fwd=-1, implementation_bwd=-1):
         """
         This computes the output :math:`y` on forward given input :math:`x` and arbitrary modules :math:`Fm` and :math:`Gm` according to:
 
@@ -921,13 +898,10 @@ class AffineCoupling(nn.Module):
         self.implementation_fwd = implementation_fwd
         self.implementation_bwd = implementation_bwd
         if implementation_bwd != -1 or implementation_fwd != -1:
-            warnings.warn(
-                'Other implementations than the default (-1) are now deprecated.'
-                , DeprecationWarning)
+            warnings.warn('Other implementations than the default (-1) are now deprecated.', DeprecationWarning)
 
     def forward(self, x):
-        args = [x, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w
-             for w in self.Gm.parameters()]
+        args = [x, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w for w in self.Gm.parameters()]
         if self.implementation_fwd == 0:
             out = AffineBlockFunction.apply(*args)
         elif self.implementation_fwd == 1:
@@ -941,14 +915,11 @@ class AffineCoupling(nn.Module):
             y2 = x2 * gmr1 + gmr2
             out = torch.cat([y1, y2], dim=1)
         else:
-            raise NotImplementedError(
-                'Selected implementation ({}) not implemented...'.format(
-                self.implementation_fwd))
+            raise NotImplementedError('Selected implementation ({}) not implemented...'.format(self.implementation_fwd))
         return out
 
     def inverse(self, y):
-        args = [y, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w
-             for w in self.Gm.parameters()]
+        args = [y, self.Fm, self.Gm] + [w for w in self.Fm.parameters()] + [w for w in self.Gm.parameters()]
         if self.implementation_bwd == 0:
             x = AffineBlockInverseFunction.apply(*args)
         elif self.implementation_bwd == 1:
@@ -962,20 +933,16 @@ class AffineCoupling(nn.Module):
             x1 = (y1 - fmr2) / fmr1
             x = torch.cat([x1, x2], dim=1)
         else:
-            raise NotImplementedError(
-                'Inverse for selected implementation ({}) not implemented...'
-                .format(self.implementation_bwd))
+            raise NotImplementedError('Inverse for selected implementation ({}) not implemented...'.format(self.implementation_bwd))
         return x
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        noactivation=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
         super(BasicBlock, self).__init__()
-        self.basicblock_sub = BasicBlockSub(inplanes, planes, stride,
-            noactivation)
+        self.basicblock_sub = BasicBlockSub(inplanes, planes, stride, noactivation)
         self.downsample = downsample
         self.stride = stride
 
@@ -991,11 +958,9 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        noactivation=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
         super(Bottleneck, self).__init__()
-        self.bottleneck_sub = BottleneckSub(inplanes, planes, stride,
-            noactivation)
+        self.bottleneck_sub = BottleneckSub(inplanes, planes, stride, noactivation)
         self.downsample = downsample
         self.stride = stride
 
@@ -1008,14 +973,11 @@ class Bottleneck(nn.Module):
         return out
 
 
-def create_coupling(Fm, Gm=None, coupling='additive', implementation_fwd=-1,
-    implementation_bwd=-1, adapter=None):
+def create_coupling(Fm, Gm=None, coupling='additive', implementation_fwd=-1, implementation_bwd=-1, adapter=None):
     if coupling == 'additive':
-        fn = AdditiveCoupling(Fm, Gm, implementation_fwd=implementation_fwd,
-            implementation_bwd=implementation_bwd)
+        fn = AdditiveCoupling(Fm, Gm, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
     elif coupling == 'affine':
-        fn = AffineCoupling(Fm, Gm, adapter=adapter, implementation_fwd=
-            implementation_fwd, implementation_bwd=implementation_bwd)
+        fn = AffineCoupling(Fm, Gm, adapter=adapter, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
     else:
         raise NotImplementedError('Unknown coupling method: %s' % coupling)
     return fn
@@ -1024,20 +986,15 @@ def create_coupling(Fm, Gm=None, coupling='additive', implementation_fwd=-1,
 class RevBasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        noactivation=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
         super(RevBasicBlock, self).__init__()
         if downsample is None and stride == 1:
-            gm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation
-                )
-            fm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation
-                )
+            gm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation)
+            fm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation)
             coupling = create_coupling(Fm=fm, Gm=gm, coupling='additive')
-            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input
-                =False)
+            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input=False)
         else:
-            self.basicblock_sub = BasicBlockSub(inplanes, planes, stride,
-                noactivation)
+            self.basicblock_sub = BasicBlockSub(inplanes, planes, stride, noactivation)
         self.downsample = downsample
         self.stride = stride
 
@@ -1054,20 +1011,15 @@ class RevBasicBlock(nn.Module):
 class RevBottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        noactivation=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
         super(RevBottleneck, self).__init__()
         if downsample is None and stride == 1:
-            gm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation
-                )
-            fm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation
-                )
+            gm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation)
+            fm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation)
             coupling = create_coupling(Fm=fm, Gm=gm, coupling='additive')
-            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input
-                =False)
+            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input=False)
         else:
-            self.bottleneck_sub = BottleneckSub(inplanes, planes, stride,
-                noactivation)
+            self.bottleneck_sub = BottleneckSub(inplanes, planes, stride, noactivation)
         self.downsample = downsample
         self.stride = stride
 
@@ -1095,8 +1047,7 @@ class BottleneckSub(nn.Module):
             self.bn1 = batch_norm(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = batch_norm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = batch_norm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -1117,8 +1068,7 @@ class BottleneckSub(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlockSub(nn.Module):
@@ -1146,9 +1096,7 @@ class BasicBlockSub(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, channels_per_layer=
-        None, strides=None, init_max_pool=False, init_kernel_size=7,
-        batch_norm_fix=True, implementation=0):
+    def __init__(self, block, layers, num_classes=1000, channels_per_layer=None, strides=None, init_max_pool=False, init_kernel_size=7, batch_norm_fix=True, implementation=0):
         if channels_per_layer is None:
             channels_per_layer = [(2 ** (i + 6)) for i in range(len(layers))]
             channels_per_layer = [channels_per_layer[0]] + channels_per_layer
@@ -1162,27 +1110,20 @@ class ResNet(nn.Module):
         assert len(self.channels_per_layer) == len(layers) + 1
         self.inplanes = channels_per_layer[0]
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=
-            init_kernel_size, stride=strides[0], padding=(init_kernel_size -
-            1) // 2, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=init_kernel_size, stride=strides[0], padding=(init_kernel_size - 1) // 2, bias=False)
         self.bn1 = batch_norm(self.inplanes)
         self.relu = nn.ReLU(inplace=False)
         if self.init_max_pool:
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, channels_per_layer[1], layers
-            [0], stride=strides[1], noactivation=True)
-        self.layer2 = self._make_layer(block, channels_per_layer[2], layers
-            [1], stride=strides[2])
-        self.layer3 = self._make_layer(block, channels_per_layer[3], layers
-            [2], stride=strides[3])
+        self.layer1 = self._make_layer(block, channels_per_layer[1], layers[0], stride=strides[1], noactivation=True)
+        self.layer2 = self._make_layer(block, channels_per_layer[2], layers[1], stride=strides[2])
+        self.layer3 = self._make_layer(block, channels_per_layer[3], layers[2], stride=strides[3])
         self.has_4_layers = len(layers) >= 4
         if self.has_4_layers:
-            self.layer4 = self._make_layer(block, channels_per_layer[4],
-                layers[3], stride=strides[4])
+            self.layer4 = self._make_layer(block, channels_per_layer[4], layers[3], stride=strides[4])
         self.bn_final = batch_norm(self.inplanes)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(channels_per_layer[-1] * block.expansion,
-            num_classes)
+        self.fc = nn.Linear(channels_per_layer[-1] * block.expansion, num_classes)
         self.configure()
         self.init_weights()
 
@@ -1211,11 +1152,8 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, noactivation=False):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                batch_norm(planes * block.expansion))
-        layers = [block(self.inplanes, planes, stride, downsample,
-            noactivation)]
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), batch_norm(planes * block.expansion))
+        layers = [block(self.inplanes, planes, stride, downsample, noactivation)]
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.inplanes, planes))
@@ -1243,8 +1181,7 @@ class ResNet(nn.Module):
 class InvertibleCheckpointFunction(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, fn, fn_inverse, keep_input, num_bwd_passes, num_inputs,
-        *inputs_and_weights):
+    def forward(ctx, fn, fn_inverse, keep_input, num_bwd_passes, num_inputs, *inputs_and_weights):
         ctx.fn = fn
         ctx.fn_inverse = fn_inverse
         ctx.keep_input = keep_input
@@ -1273,13 +1210,9 @@ class InvertibleCheckpointFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_outputs):
         if not torch.autograd._is_checkpoint_valid():
-            raise RuntimeError(
-                'InvertibleCheckpointFunction is not compatible with .grad(), please use .backward() if possible'
-                )
+            raise RuntimeError('InvertibleCheckpointFunction is not compatible with .grad(), please use .backward() if possible')
         if len(ctx.outputs) == 0:
-            raise RuntimeError(
-                'Trying to perform backward on the InvertibleCheckpointFunction for more than {} times! Try raising `num_bwd_passes` by one.'
-                .format(ctx.num_bwd_passes))
+            raise RuntimeError('Trying to perform backward on the InvertibleCheckpointFunction for more than {} times! Try raising `num_bwd_passes` by one.'.format(ctx.num_bwd_passes))
         inputs = ctx.inputs.pop()
         outputs = ctx.outputs.pop()
         if not ctx.keep_input:
@@ -1288,23 +1221,18 @@ class InvertibleCheckpointFunction(torch.autograd.Function):
                 if not isinstance(inputs_inverted, tuple):
                     inputs_inverted = inputs_inverted,
                 if pytorch_version_one_and_above:
-                    for element_original, element_inverted in zip(inputs,
-                        inputs_inverted):
-                        element_original.storage().resize_(int(np.prod(
-                            element_original.size())))
+                    for element_original, element_inverted in zip(inputs, inputs_inverted):
+                        element_original.storage().resize_(int(np.prod(element_original.size())))
                         element_original.set_(element_inverted)
                 else:
-                    for element_original, element_inverted in zip(inputs,
-                        inputs_inverted):
+                    for element_original, element_inverted in zip(inputs, inputs_inverted):
                         element_original.set_(element_inverted)
         with torch.set_grad_enabled(True):
-            detached_inputs = tuple([element.detach().requires_grad_() for
-                element in inputs])
+            detached_inputs = tuple([element.detach().requires_grad_() for element in inputs])
             temp_output = ctx.fn(*detached_inputs)
         if not isinstance(temp_output, tuple):
             temp_output = temp_output,
-        gradients = torch.autograd.grad(outputs=temp_output, inputs=
-            detached_inputs + ctx.weights, grad_outputs=grad_outputs)
+        gradients = torch.autograd.grad(outputs=temp_output, inputs=detached_inputs + ctx.weights, grad_outputs=grad_outputs)
         for element, element_grad in zip(inputs, gradients[:ctx.num_inputs]):
             element.grad = element_grad
         for element, element_grad in zip(outputs, grad_outputs):
@@ -1314,8 +1242,7 @@ class InvertibleCheckpointFunction(torch.autograd.Function):
 
 class InvertibleModuleWrapper(nn.Module):
 
-    def __init__(self, fn, keep_input=False, keep_input_inverse=False,
-        num_bwd_passes=1, disable=False):
+    def __init__(self, fn, keep_input=False, keep_input_inverse=False, num_bwd_passes=1, disable=False):
         """
         The InvertibleModuleWrapper which enables memory savings during training by exploiting
         the invertible properties of the wrapped module.
@@ -1384,10 +1311,7 @@ class InvertibleModuleWrapper(nn.Module):
 
         """
         if not self.disable:
-            y = InvertibleCheckpointFunction.apply(self._fn.forward, self.
-                _fn.inverse, self.keep_input, self.num_bwd_passes, len(xin),
-                *(xin + tuple([p for p in self._fn.parameters() if p.
-                requires_grad])))
+            y = InvertibleCheckpointFunction.apply(self._fn.forward, self._fn.inverse, self.keep_input, self.num_bwd_passes, len(xin), *(xin + tuple([p for p in self._fn.parameters() if p.requires_grad])))
         else:
             y = self._fn(*xin)
         if isinstance(y, tuple) and len(y) == 1:
@@ -1409,10 +1333,7 @@ class InvertibleModuleWrapper(nn.Module):
 
         """
         if not self.disable:
-            x = InvertibleCheckpointFunction.apply(self._fn.inverse, self.
-                _fn.forward, self.keep_input_inverse, self.num_bwd_passes,
-                len(yin), *(yin + tuple([p for p in self._fn.parameters() if
-                p.requires_grad])))
+            x = InvertibleCheckpointFunction.apply(self._fn.inverse, self._fn.forward, self.keep_input_inverse, self.num_bwd_passes, len(yin), *(yin + tuple([p for p in self._fn.parameters() if p.requires_grad])))
         else:
             x = self._fn.inverse(*yin)
         if isinstance(x, tuple) and len(x) == 1:
@@ -1478,16 +1399,10 @@ class SubModule(torch.nn.Module):
 
 class SubModuleStack(torch.nn.Module):
 
-    def __init__(self, Gm, coupling='additive', depth=10,
-        implementation_fwd=-1, implementation_bwd=-1, keep_input=False,
-        adapter=None, num_bwd_passes=1):
+    def __init__(self, Gm, coupling='additive', depth=10, implementation_fwd=-1, implementation_bwd=-1, keep_input=False, adapter=None, num_bwd_passes=1):
         super(SubModuleStack, self).__init__()
-        fn = create_coupling(Fm=Gm, Gm=Gm, coupling=coupling,
-            implementation_fwd=implementation_fwd, implementation_bwd=
-            implementation_bwd, adapter=adapter)
-        self.stack = torch.nn.ModuleList([InvertibleModuleWrapper(fn=fn,
-            keep_input=keep_input, keep_input_inverse=keep_input,
-            num_bwd_passes=num_bwd_passes) for _ in range(depth)])
+        fn = create_coupling(Fm=Gm, Gm=Gm, coupling=coupling, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd, adapter=adapter)
+        self.stack = torch.nn.ModuleList([InvertibleModuleWrapper(fn=fn, keep_input=keep_input, keep_input_inverse=keep_input, num_bwd_passes=num_bwd_passes) for _ in range(depth)])
 
     def forward(self, x):
         for rev_module in self.stack:
@@ -1507,8 +1422,7 @@ class SplitChannels(torch.nn.Module):
         super(SplitChannels, self).__init__()
 
     def forward(self, x):
-        return x[:, :self.split_location, :].clone(), x[:, self.
-            split_location:, :].clone()
+        return x[:, :self.split_location, :].clone(), x[:, self.split_location:, :].clone()
 
     def inverse(self, x, y):
         return torch.cat([x, y], dim=1)
@@ -1524,8 +1438,7 @@ class ConcatenateChannels(torch.nn.Module):
         return torch.cat([x, y], dim=1)
 
     def inverse(self, x):
-        return x[:, :self.split_location, :].clone(), x[:, self.
-            split_location:, :].clone()
+        return x[:, :self.split_location, :].clone(), x[:, self.split_location:, :].clone()
 
 
 class SimpleTestingModel(torch.nn.Module):
@@ -1552,9 +1465,7 @@ class DummyModel(torch.nn.Module):
 
 
 def _assert_no_grad(variable):
-    msg = (
-        "nn criterions don't compute the gradient w.r.t. targets - please mark these variables as not requiring gradients"
-        )
+    msg = "nn criterions don't compute the gradient w.r.t. targets - please mark these variables as not requiring gradients"
     assert not variable.requires_grad, msg
 
 
@@ -1566,8 +1477,7 @@ class CrossEntropyLossTF(Module):
     def forward(self, Ypred, Y, W=None):
         _assert_no_grad(Y)
         lsm = nn.Softmax(dim=1)
-        y_onehot = torch.zeros(Ypred.shape[0], Ypred.shape[1], dtype=torch.
-            float32, device=Ypred.device)
+        y_onehot = torch.zeros(Ypred.shape[0], Ypred.shape[1], dtype=torch.float32, device=Ypred.device)
         y_onehot.scatter_(1, Y.data.view(-1, 1), 1)
         if W is not None:
             y_onehot = y_onehot * W
@@ -1578,48 +1488,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AffineAdapterNaive,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AffineAdapterSigmoid,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlockSub,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BottleneckSub,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConcatenateChannels,
+     lambda: ([], {'split_location': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CrossEntropyLossTF,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (DummyModel,
+     lambda: ([], {'block': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (ExampleOperation,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IdentityInverse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiSharedOutputs,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiplicationInverse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SplitChannels,
+     lambda: ([], {'split_location': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SubModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 64, 64])], {}),
+     True),
+]
+
 class Test_silvandeleemput_memcnn(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AffineAdapterNaive(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AffineAdapterSigmoid(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicBlockSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BottleneckSub(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ConcatenateChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(CrossEntropyLossTF(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(DummyModel(*[], **{'block': 4}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ExampleOperation(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(IdentityInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(MultiSharedOutputs(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(MultiplicationInverse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(SplitChannels(*[], **{'split_location': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(SubModule(*[], **{}), [torch.rand([4, 5, 64, 64])], {})
+        self._check(*TESTCASES[13])
 

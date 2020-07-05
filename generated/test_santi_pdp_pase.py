@@ -100,8 +100,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -246,13 +247,10 @@ class MLP(nn.Module):
         self.input_dim = inp_dim
         self.dnn_lay = list(map(int, options['dnn_lay'].split(',')))
         self.dnn_drop = list(map(float, options['dnn_drop'].split(',')))
-        self.dnn_use_batchnorm = list(map(strtobool, options[
-            'dnn_use_batchnorm'].split(',')))
-        self.dnn_use_laynorm = list(map(strtobool, options[
-            'dnn_use_laynorm'].split(',')))
+        self.dnn_use_batchnorm = list(map(strtobool, options['dnn_use_batchnorm'].split(',')))
+        self.dnn_use_laynorm = list(map(strtobool, options['dnn_use_laynorm'].split(',')))
         self.dnn_use_laynorm_inp = strtobool(options['dnn_use_laynorm_inp'])
-        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp']
-            )
+        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp'])
         self.dnn_act = options['dnn_act'].split(',')
         self.wx = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -273,12 +271,8 @@ class MLP(nn.Module):
             self.bn.append(nn.BatchNorm1d(self.dnn_lay[i], momentum=0.05))
             if self.dnn_use_laynorm[i] or self.dnn_use_batchnorm[i]:
                 add_bias = False
-            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=
-                add_bias))
-            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.
-                dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i])), np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i]))))
+            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=add_bias))
+            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (current_input + self.dnn_lay[i])), np.sqrt(0.01 / (current_input + self.dnn_lay[i]))))
             self.wx[i].bias = torch.nn.Parameter(torch.zeros(self.dnn_lay[i]))
             current_input = self.dnn_lay[i]
         self.out_dim = current_input
@@ -293,12 +287,9 @@ class MLP(nn.Module):
                 x = self.drop[i](self.act[i](self.ln[i](self.wx[i](x))))
             if self.dnn_use_batchnorm[i] and not self.dnn_use_laynorm[i]:
                 x = self.drop[i](self.act[i](self.bn[i](self.wx[i](x))))
-            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i
-                ] == True:
-                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[
-                    i](x)))))
-            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i
-                ] == False:
+            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i] == True:
+                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[i](x)))))
+            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i] == False:
                 x = self.drop[i](self.act[i](self.wx[i](x)))
         return x
 
@@ -314,9 +305,7 @@ class LSTM_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -344,9 +333,7 @@ class GRU_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -372,9 +359,7 @@ class RNN_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size,
-            self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias,
-            dropout=self.dropout, bidirectional=self.bidirectional)])
+        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size, self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -393,8 +378,7 @@ def flip(x, dim):
     dim = x.dim() + dim if dim < 0 else dim
     x = x.contiguous()
     x = x.view(-1, *xsize[dim:])
-    x = x.view(x.size(0), x.size(1), -1)[:, (getattr(torch.arange(x.size(1) -
-        1, -1, -1), ('cpu', 'cuda')[x.is_cuda])().long()), :]
+    x = x.view(x.size(0), x.size(1), -1)[:, (getattr(torch.arange(x.size(1) - 1, -1, -1), ('cpu', 'cuda')[x.is_cuda])().long()), :]
     return x.view(xsize)
 
 
@@ -405,13 +389,10 @@ class LSTM(nn.Module):
         self.input_dim = inp_dim
         self.lstm_lay = list(map(int, options['lstm_lay'].split(',')))
         self.lstm_drop = list(map(float, options['lstm_drop'].split(',')))
-        self.lstm_use_batchnorm = list(map(strtobool, options[
-            'lstm_use_batchnorm'].split(',')))
-        self.lstm_use_laynorm = list(map(strtobool, options[
-            'lstm_use_laynorm'].split(',')))
+        self.lstm_use_batchnorm = list(map(strtobool, options['lstm_use_batchnorm'].split(',')))
+        self.lstm_use_laynorm = list(map(strtobool, options['lstm_use_laynorm'].split(',')))
         self.lstm_use_laynorm_inp = strtobool(options['lstm_use_laynorm_inp'])
-        self.lstm_use_batchnorm_inp = strtobool(options[
-            'lstm_use_batchnorm_inp'])
+        self.lstm_use_batchnorm_inp = strtobool(options['lstm_use_batchnorm_inp'])
         self.lstm_act = options['lstm_act'].split(',')
         self.lstm_orthinit = strtobool(options['lstm_orthinit'])
         self.bidir = strtobool(options['lstm_bidir'])
@@ -446,22 +427,14 @@ class LSTM(nn.Module):
             add_bias = True
             if self.lstm_use_laynorm[i] or self.lstm_use_batchnorm[i]:
                 add_bias = False
-            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
+            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
             if self.lstm_orthinit:
                 nn.init.orthogonal_(self.ufh[i].weight)
                 nn.init.orthogonal_(self.uih[i].weight)
@@ -491,8 +464,7 @@ class LSTM(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.lstm_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.lstm_drop[i]])
             if self.use_cuda:
@@ -503,22 +475,14 @@ class LSTM(nn.Module):
             wox_out = self.wox[i](x)
             wcx_out = self.wcx[i](x)
             if self.lstm_use_batchnorm[i]:
-                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] *
-                    wfx_out.shape[1], wfx_out.shape[2]))
-                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1
-                    ], wfx_out.shape[2])
-                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] *
-                    wix_out.shape[1], wix_out.shape[2]))
-                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1
-                    ], wix_out.shape[2])
-                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] *
-                    wox_out.shape[1], wox_out.shape[2]))
-                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1
-                    ], wox_out.shape[2])
-                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] *
-                    wcx_out.shape[1], wcx_out.shape[2]))
-                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1
-                    ], wcx_out.shape[2])
+                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] * wfx_out.shape[1], wfx_out.shape[2]))
+                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1], wfx_out.shape[2])
+                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] * wix_out.shape[1], wix_out.shape[2]))
+                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1], wix_out.shape[2])
+                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] * wox_out.shape[1], wox_out.shape[2]))
+                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1], wox_out.shape[2])
+                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] * wcx_out.shape[1], wcx_out.shape[2]))
+                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1], wcx_out.shape[2])
             hiddens = []
             ct = h_init
             ht = h_init
@@ -526,8 +490,7 @@ class LSTM(nn.Module):
                 ft = torch.sigmoid(wfx_out[k] + self.ufh[i](ht))
                 it = torch.sigmoid(wix_out[k] + self.uih[i](ht))
                 ot = torch.sigmoid(wox_out[k] + self.uoh[i](ht))
-                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)
-                    ) * drop_mask + ft * ct
+                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)) * drop_mask + ft * ct
                 ht = ot * self.act[i](ct)
                 if self.lstm_use_laynorm[i]:
                     ht = self.ln[i](ht)
@@ -535,8 +498,7 @@ class LSTM(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -549,13 +511,10 @@ class GRU(nn.Module):
         self.input_dim = inp_dim
         self.gru_lay = list(map(int, options['gru_lay'].split(',')))
         self.gru_drop = list(map(float, options['gru_drop'].split(',')))
-        self.gru_use_batchnorm = list(map(strtobool, options[
-            'gru_use_batchnorm'].split(',')))
-        self.gru_use_laynorm = list(map(strtobool, options[
-            'gru_use_laynorm'].split(',')))
+        self.gru_use_batchnorm = list(map(strtobool, options['gru_use_batchnorm'].split(',')))
+        self.gru_use_laynorm = list(map(strtobool, options['gru_use_laynorm'].split(',')))
         self.gru_use_laynorm_inp = strtobool(options['gru_use_laynorm_inp'])
-        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp']
-            )
+        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp'])
         self.gru_orthinit = strtobool(options['gru_orthinit'])
         self.gru_act = options['gru_act'].split(',')
         self.bidir = strtobool(options['gru_bidir'])
@@ -587,18 +546,12 @@ class GRU(nn.Module):
             add_bias = True
             if self.gru_use_laynorm[i] or self.gru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
             if self.gru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -626,8 +579,7 @@ class GRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.gru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.gru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.gru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.gru_drop[i]])
             if self.use_cuda:
@@ -637,18 +589,12 @@ class GRU(nn.Module):
             wz_out = self.wz[i](x)
             wr_out = self.wr[i](x)
             if self.gru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
-                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] *
-                    wr_out.shape[1], wr_out.shape[2]))
-                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1],
-                    wr_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
+                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] * wr_out.shape[1], wr_out.shape[2]))
+                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1], wr_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -663,8 +609,7 @@ class GRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -677,14 +622,10 @@ class liGRU(nn.Module):
         self.input_dim = inp_dim
         self.ligru_lay = list(map(int, options['ligru_lay'].split(',')))
         self.ligru_drop = list(map(float, options['ligru_drop'].split(',')))
-        self.ligru_use_batchnorm = list(map(strtobool, options[
-            'ligru_use_batchnorm'].split(',')))
-        self.ligru_use_laynorm = list(map(strtobool, options[
-            'ligru_use_laynorm'].split(',')))
-        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp']
-            )
-        self.ligru_use_batchnorm_inp = strtobool(options[
-            'ligru_use_batchnorm_inp'])
+        self.ligru_use_batchnorm = list(map(strtobool, options['ligru_use_batchnorm'].split(',')))
+        self.ligru_use_laynorm = list(map(strtobool, options['ligru_use_laynorm'].split(',')))
+        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp'])
+        self.ligru_use_batchnorm_inp = strtobool(options['ligru_use_batchnorm_inp'])
         self.ligru_orthinit = strtobool(options['ligru_orthinit'])
         self.ligru_act = options['ligru_act'].split(',')
         self.bidir = strtobool(options['ligru_bidir'])
@@ -713,14 +654,10 @@ class liGRU(nn.Module):
             add_bias = True
             if self.ligru_use_laynorm[i] or self.ligru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
-            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
+            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
             if self.ligru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -746,8 +683,7 @@ class liGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.ligru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.ligru_drop[i]])
             if self.use_cuda:
@@ -756,14 +692,10 @@ class liGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.ligru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -777,8 +709,7 @@ class liGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -789,18 +720,12 @@ class minimalGRU(nn.Module):
     def __init__(self, options, inp_dim):
         super(minimalGRU, self).__init__()
         self.input_dim = inp_dim
-        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split
-            (',')))
-        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].
-            split(',')))
-        self.minimalgru_use_batchnorm = list(map(strtobool, options[
-            'minimalgru_use_batchnorm'].split(',')))
-        self.minimalgru_use_laynorm = list(map(strtobool, options[
-            'minimalgru_use_laynorm'].split(',')))
-        self.minimalgru_use_laynorm_inp = strtobool(options[
-            'minimalgru_use_laynorm_inp'])
-        self.minimalgru_use_batchnorm_inp = strtobool(options[
-            'minimalgru_use_batchnorm_inp'])
+        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split(',')))
+        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].split(',')))
+        self.minimalgru_use_batchnorm = list(map(strtobool, options['minimalgru_use_batchnorm'].split(',')))
+        self.minimalgru_use_laynorm = list(map(strtobool, options['minimalgru_use_laynorm'].split(',')))
+        self.minimalgru_use_laynorm_inp = strtobool(options['minimalgru_use_laynorm_inp'])
+        self.minimalgru_use_batchnorm_inp = strtobool(options['minimalgru_use_batchnorm_inp'])
         self.minimalgru_orthinit = strtobool(options['minimalgru_orthinit'])
         self.minimalgru_act = options['minimalgru_act'].split(',')
         self.bidir = strtobool(options['minimalgru_bidir'])
@@ -827,31 +752,23 @@ class minimalGRU(nn.Module):
         for i in range(self.N_minimalgru_lay):
             self.act.append(act_fun(self.minimalgru_act[i]))
             add_bias = True
-            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[
-                i]:
+            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
-            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
+            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
             if self.minimalgru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
-            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
-            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
+            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
+            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
             self.ln.append(LayerNorm(self.minimalgru_lay[i]))
             if self.bidir:
                 current_input = 2 * self.minimalgru_lay[i]
             else:
                 current_input = self.minimalgru_lay[i]
-        self.out_dim = self.minimalgru_lay[i
-            ] + self.bidir * self.minimalgru_lay[i]
+        self.out_dim = self.minimalgru_lay[i] + self.bidir * self.minimalgru_lay[i]
 
     def forward(self, x):
         if bool(self.minimalgru_use_laynorm_inp):
@@ -866,8 +783,7 @@ class minimalGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.minimalgru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.minimalgru_drop[i]])
             if self.use_cuda:
@@ -876,14 +792,10 @@ class minimalGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.minimalgru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -897,8 +809,7 @@ class minimalGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -911,13 +822,10 @@ class RNN(nn.Module):
         self.input_dim = inp_dim
         self.rnn_lay = list(map(int, options['rnn_lay'].split(',')))
         self.rnn_drop = list(map(float, options['rnn_drop'].split(',')))
-        self.rnn_use_batchnorm = list(map(strtobool, options[
-            'rnn_use_batchnorm'].split(',')))
-        self.rnn_use_laynorm = list(map(strtobool, options[
-            'rnn_use_laynorm'].split(',')))
+        self.rnn_use_batchnorm = list(map(strtobool, options['rnn_use_batchnorm'].split(',')))
+        self.rnn_use_laynorm = list(map(strtobool, options['rnn_use_laynorm'].split(',')))
         self.rnn_use_laynorm_inp = strtobool(options['rnn_use_laynorm_inp'])
-        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp']
-            )
+        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp'])
         self.rnn_orthinit = strtobool(options['rnn_orthinit'])
         self.rnn_act = options['rnn_act'].split(',')
         self.bidir = strtobool(options['rnn_bidir'])
@@ -943,10 +851,8 @@ class RNN(nn.Module):
             add_bias = True
             if self.rnn_use_laynorm[i] or self.rnn_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias=False))
             if self.rnn_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
             self.bn_wh.append(nn.BatchNorm1d(self.rnn_lay[i], momentum=0.05))
@@ -970,8 +876,7 @@ class RNN(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.rnn_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.rnn_drop[i]])
             if self.use_cuda:
@@ -979,10 +884,8 @@ class RNN(nn.Module):
                 drop_mask = drop_mask
             wh_out = self.wh[i](x)
             if self.rnn_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -994,8 +897,7 @@ class RNN(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -1008,17 +910,13 @@ class CNN(nn.Module):
         self.input_dim = inp_dim
         self.cnn_N_filt = list(map(int, options['cnn_N_filt'].split(',')))
         self.cnn_len_filt = list(map(int, options['cnn_len_filt'].split(',')))
-        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].
-            split(',')))
+        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].split(',')))
         self.cnn_act = options['cnn_act'].split(',')
         self.cnn_drop = list(map(float, options['cnn_drop'].split(',')))
-        self.cnn_use_laynorm = list(map(strtobool, options[
-            'cnn_use_laynorm'].split(',')))
-        self.cnn_use_batchnorm = list(map(strtobool, options[
-            'cnn_use_batchnorm'].split(',')))
+        self.cnn_use_laynorm = list(map(strtobool, options['cnn_use_laynorm'].split(',')))
+        self.cnn_use_batchnorm = list(map(strtobool, options['cnn_use_batchnorm'].split(',')))
         self.cnn_use_laynorm_inp = strtobool(options['cnn_use_laynorm_inp'])
-        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp']
-            )
+        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp'])
         self.N_cnn_lay = len(self.cnn_N_filt)
         self.conv = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -1035,18 +933,13 @@ class CNN(nn.Module):
             len_filt = int(self.cnn_len_filt[i])
             self.drop.append(nn.Dropout(p=self.cnn_drop[i]))
             self.act.append(act_fun(self.cnn_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum
-                =0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum=0.05))
             if i == 0:
                 self.conv.append(nn.Conv1d(1, N_filt, len_filt))
             else:
-                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.
-                    cnn_N_filt[i], self.cnn_len_filt[i]))
-            current_input = int((current_input - self.cnn_len_filt[i] + 1) /
-                self.cnn_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.cnn_N_filt[i], self.cnn_len_filt[i]))
+            current_input = int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -1059,15 +952,11 @@ class CNN(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_cnn_lay):
             if self.cnn_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
             if self.cnn_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
-            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.cnn_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
+            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -1078,19 +967,14 @@ class SincNet(nn.Module):
         super(SincNet, self).__init__()
         self.input_dim = inp_dim
         self.sinc_N_filt = list(map(int, options['sinc_N_filt'].split(',')))
-        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(','))
-            )
-        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len']
-            .split(',')))
+        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(',')))
+        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len'].split(',')))
         self.sinc_act = options['sinc_act'].split(',')
         self.sinc_drop = list(map(float, options['sinc_drop'].split(',')))
-        self.sinc_use_laynorm = list(map(strtobool, options[
-            'sinc_use_laynorm'].split(',')))
-        self.sinc_use_batchnorm = list(map(strtobool, options[
-            'sinc_use_batchnorm'].split(',')))
+        self.sinc_use_laynorm = list(map(strtobool, options['sinc_use_laynorm'].split(',')))
+        self.sinc_use_batchnorm = list(map(strtobool, options['sinc_use_batchnorm'].split(',')))
         self.sinc_use_laynorm_inp = strtobool(options['sinc_use_laynorm_inp'])
-        self.sinc_use_batchnorm_inp = strtobool(options[
-            'sinc_use_batchnorm_inp'])
+        self.sinc_use_batchnorm_inp = strtobool(options['sinc_use_batchnorm_inp'])
         self.N_sinc_lay = len(self.sinc_N_filt)
         self.sinc_sample_rate = int(options['sinc_sample_rate'])
         self.sinc_min_low_hz = int(options['sinc_min_low_hz'])
@@ -1110,20 +994,13 @@ class SincNet(nn.Module):
             len_filt = int(self.sinc_len_filt[i])
             self.drop.append(nn.Dropout(p=self.sinc_drop[i]))
             self.act.append(act_fun(self.sinc_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]),
-                momentum=0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]), momentum=0.05))
             if i == 0:
-                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=
-                    self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz,
-                    min_band_hz=self.sinc_min_band_hz))
+                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz, min_band_hz=self.sinc_min_band_hz))
             else:
-                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.
-                    sinc_N_filt[i], self.sinc_len_filt[i]))
-            current_input = int((current_input - self.sinc_len_filt[i] + 1) /
-                self.sinc_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.sinc_N_filt[i], self.sinc_len_filt[i]))
+            current_input = int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -1136,15 +1013,11 @@ class SincNet(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_sinc_lay):
             if self.sinc_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
             if self.sinc_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
-            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.sinc_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
+            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -1179,14 +1052,10 @@ class SincConv(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -1204,14 +1073,12 @@ class SincConv(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel) / self.sample_rate
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
         n_lin = torch.linspace(0, self.kernel_size, steps=self.kernel_size)
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2
         self.n_ = torch.arange(-n, n + 1).view(1, -1) / self.sample_rate
 
@@ -1236,21 +1103,16 @@ class SincConv(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
-        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
-            band_hz_)
+        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.band_hz_)
         f_times_t = torch.matmul(low, self.n_)
-        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         f_times_t = torch.matmul(high, self.n_)
-        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         band_pass = low_pass2 - low_pass1
         max_, _ = torch.max(band_pass, dim=1, keepdim=True)
         band_pass = band_pass / max_
-        self.filters = (band_pass * self.window_).view(self.out_channels, 1,
-            self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        self.filters = (band_pass * self.window_).view(self.out_channels, 1, self.kernel_size)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SincConv_fast(nn.Module):
@@ -1283,14 +1145,10 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv_fast, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -1308,18 +1166,14 @@ class SincConv_fast(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
-        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.
-            kernel_size / 2))
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.kernel_size / 2))
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2.0
-        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1
-            ) / self.sample_rate
+        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1) / self.sample_rate
 
     def forward(self, waveforms):
         """
@@ -1335,21 +1189,17 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
-            ), self.min_low_hz, self.sample_rate / 2)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
         band = (high - low)[:, (0)]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
-        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)
-            ) / (self.n_ / 2) * self.window_
+        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-        band_pass = torch.cat([band_pass_left, band_pass_center,
-            band_pass_right], dim=1)
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, (None)])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SRU(nn.Module):
@@ -1367,20 +1217,12 @@ class SRU(nn.Module):
         self.weight_norm = bool(strtobool(options['sru_weight_norm']))
         self.layer_norm = bool(strtobool(options['sru_layer_norm']))
         self.bidirectional = bool(strtobool(options['sru_bidirectional']))
-        self.is_input_normalized = bool(strtobool(options[
-            'sru_is_input_normalized']))
+        self.is_input_normalized = bool(strtobool(options['sru_is_input_normalized']))
         self.has_skip_term = bool(strtobool(options['sru_has_skip_term']))
         self.rescale = bool(strtobool(options['sru_rescale']))
         self.highway_bias = float(options['sru_highway_bias'])
         self.n_proj = int(options['sru_n_proj'])
-        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=
-            self.num_layers, dropout=self.dropout, rnn_dropout=self.
-            rnn_dropout, bidirectional=self.bidirectional, n_proj=self.
-            n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu,
-            use_relu=self.use_relu, weight_norm=self.weight_norm,
-            layer_norm=self.layer_norm, has_skip_term=self.has_skip_term,
-            is_input_normalized=self.is_input_normalized, highway_bias=self
-            .highway_bias, rescale=self.rescale)
+        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=self.num_layers, dropout=self.dropout, rnn_dropout=self.rnn_dropout, bidirectional=self.bidirectional, n_proj=self.n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu, use_relu=self.use_relu, weight_norm=self.weight_norm, layer_norm=self.layer_norm, has_skip_term=self.has_skip_term, is_input_normalized=self.is_input_normalized, highway_bias=self.highway_bias, rescale=self.rescale)
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -1397,8 +1239,7 @@ class SRU(nn.Module):
 class SpectrumLM(nn.Module):
     """ RNN lang model for spectrum frame preds """
 
-    def __init__(self, rnn_size, rnn_layers, out_dim, dropout, cuda,
-        rnn_type='LSTM', bidirectional=False):
+    def __init__(self, rnn_size, rnn_layers, out_dim, dropout, cuda, rnn_type='LSTM', bidirectional=False):
         super().__init__()
         self.do_cuda = cuda
         self.rnn_size = rnn_size
@@ -1412,9 +1253,7 @@ class SpectrumLM(nn.Module):
         else:
             self.dirs = 1
         assert rnn_type == 'LSTM' or rnn_type == 'GRU', rnn_type
-        self.rnn = getattr(nn, rnn_type)(self.out_dim, self.rnn_size, self.
-            rnn_layers, batch_first=True, dropout=self.dropout,
-            bidirectional=bidirectional)
+        self.rnn = getattr(nn, rnn_type)(self.out_dim, self.rnn_size, self.rnn_layers, batch_first=True, dropout=self.dropout, bidirectional=bidirectional)
         self.out_fc = nn.Linear(self.rnn_size, self.out_dim)
 
     def forward(self, x, dec_steps, state=None, dec_cps={}):
@@ -1437,8 +1276,7 @@ class SpectrumLM(nn.Module):
         return frames, state
 
     def init_hidden(self, bsz):
-        h0 = Variable(torch.randn(self.dirs * self.rnn_layers, bsz, self.
-            rnn_size))
+        h0 = Variable(torch.randn(self.dirs * self.rnn_layers, bsz, self.rnn_size))
         if self.do_cuda:
             h0 = h0
         if self.rnn_type == 'LSTM':
@@ -1457,18 +1295,7 @@ class AhoCNNEncoder(nn.Module):
             norm_layer = LayerNorm
         else:
             norm_layer = nn.BatchNorm1d
-        self.enc = nn.Sequential(nn.Conv1d(input_dim, 256, kwidth, stride=1,
-            padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 
-            256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(
-            256), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(256, 512,
-            kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512),
-            nn.Conv1d(512, 512, kwidth, stride=1, padding=pad), norm_layer(
-            512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(0.2), nn.
-            Conv1d(512, 1024, kwidth, stride=1, padding=pad), norm_layer(
-            1024), nn.PReLU(1024), nn.Conv1d(1024, 1024, kwidth, stride=1,
-            padding=pad), norm_layer(1024), nn.PReLU(1024), nn.MaxPool1d(2),
-            nn.Dropout(0.2), nn.Conv1d(1024, 1024, kwidth, stride=1,
-            padding=pad))
+        self.enc = nn.Sequential(nn.Conv1d(input_dim, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(256, 512, kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512), nn.Conv1d(512, 512, kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(512, 1024, kwidth, stride=1, padding=pad), norm_layer(1024), nn.PReLU(1024), nn.Conv1d(1024, 1024, kwidth, stride=1, padding=pad), norm_layer(1024), nn.PReLU(1024), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(1024, 1024, kwidth, stride=1, padding=pad))
 
     def forward(self, x):
         return self.enc(x)
@@ -1483,18 +1310,7 @@ class AhoCNNHourGlassEncoder(nn.Module):
             norm_layer = LayerNorm
         else:
             norm_layer = nn.BatchNorm1d
-        self.enc = nn.Sequential(nn.Conv1d(input_dim, 64, kwidth, stride=1,
-            padding=pad), norm_layer(64), nn.PReLU(64), nn.Conv1d(64, 128,
-            kwidth, stride=1, padding=pad), norm_layer(128), nn.PReLU(128),
-            nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(128, 256,
-            kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256),
-            nn.Conv1d(256, 512, kwidth, stride=1, padding=pad), norm_layer(
-            512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(dropout), nn.
-            Conv1d(512, 256, kwidth, stride=1, padding=pad), norm_layer(256
-            ), nn.PReLU(256), nn.Conv1d(256, 128, kwidth, stride=1, padding
-            =pad), norm_layer(128), nn.PReLU(128), nn.MaxPool1d(2), nn.
-            Dropout(dropout), nn.Conv1d(128, 64, kwidth, stride=1, padding=
-            pad), norm_layer(64), nn.PReLU(64))
+        self.enc = nn.Sequential(nn.Conv1d(input_dim, 64, kwidth, stride=1, padding=pad), norm_layer(64), nn.PReLU(64), nn.Conv1d(64, 128, kwidth, stride=1, padding=pad), norm_layer(128), nn.PReLU(128), nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(128, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 512, kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(512, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 128, kwidth, stride=1, padding=pad), norm_layer(128), nn.PReLU(128), nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(128, 64, kwidth, stride=1, padding=pad), norm_layer(64), nn.PReLU(64))
 
     def forward(self, x):
         return self.enc(x)
@@ -1521,8 +1337,7 @@ class NeuralBlock(nn.Module):
 
 
 def sinc(band, t_right, cuda=False):
-    y_right = torch.sin(2 * math.pi * band * t_right) / (2 * math.pi * band *
-        t_right)
+    y_right = torch.sin(2 * math.pi * band * t_right) / (2 * math.pi * band * t_right)
     y_left = flip(y_right, 0)
     ones = torch.ones(1)
     if cuda:
@@ -1533,8 +1348,7 @@ def sinc(band, t_right, cuda=False):
 
 class SincConv(nn.Module):
 
-    def __init__(self, N_filt, Filt_dim, fs, stride=1, padding='VALID',
-        pad_mode='reflect'):
+    def __init__(self, N_filt, Filt_dim, fs, stride=1, padding='VALID', pad_mode='reflect'):
         super(SincConv, self).__init__()
         low_freq_mel = 80
         high_freq_mel = 2595 * np.log10(1 + fs / 2 / 700)
@@ -1546,8 +1360,7 @@ class SincConv(nn.Module):
         b2[-1] = fs / 2 - 100
         self.freq_scale = fs * 1.0
         self.filt_b1 = nn.Parameter(torch.from_numpy(b1 / self.freq_scale))
-        self.filt_band = nn.Parameter(torch.from_numpy((b2 - b1) / self.
-            freq_scale))
+        self.filt_band = nn.Parameter(torch.from_numpy((b2 - b1) / self.freq_scale))
         self.N_filt = N_filt
         self.Filt_dim = Filt_dim
         self.fs = fs
@@ -1559,25 +1372,21 @@ class SincConv(nn.Module):
         cuda = x.is_cuda
         filters = torch.zeros((self.N_filt, self.Filt_dim))
         N = self.Filt_dim
-        t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)
-            ) / self.fs
+        t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)) / self.fs
         if cuda:
             filters = filters
             t_right = t_right
         min_freq = 50.0
         min_band = 50.0
         filt_beg_freq = torch.abs(self.filt_b1) + min_freq / self.freq_scale
-        filt_end_freq = filt_beg_freq + (torch.abs(self.filt_band) + 
-            min_band / self.freq_scale)
+        filt_end_freq = filt_beg_freq + (torch.abs(self.filt_band) + min_band / self.freq_scale)
         n = torch.linspace(0, N, steps=N)
         window = (0.54 - 0.46 * torch.cos(2 * math.pi * n / N)).float()
         if cuda:
             window = window
         for i in range(self.N_filt):
-            low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i
-                ].float() * self.freq_scale, t_right, cuda)
-            low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i
-                ].float() * self.freq_scale, t_right, cuda)
+            low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i].float() * self.freq_scale, t_right, cuda)
+            low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i].float() * self.freq_scale, t_right, cuda)
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
             if cuda:
@@ -1585,15 +1394,12 @@ class SincConv(nn.Module):
             filters[(i), :] = band_pass * window
         if self.padding == 'SAME':
             if self.stride > 1:
-                x_p = F.pad(x, (self.Filt_dim // 2 - 1, self.Filt_dim // 2),
-                    mode=self.pad_mode)
+                x_p = F.pad(x, (self.Filt_dim // 2 - 1, self.Filt_dim // 2), mode=self.pad_mode)
             else:
-                x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2),
-                    mode=self.pad_mode)
+                x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2), mode=self.pad_mode)
         else:
             x_p = x
-        out = F.conv1d(x_p, filters.view(self.N_filt, 1, self.Filt_dim),
-            stride=self.stride)
+        out = F.conv1d(x_p, filters.view(self.N_filt, 1, self.Filt_dim), stride=self.stride)
         return out
 
 
@@ -1627,14 +1433,10 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding='VALID', pad_mode='reflect', dilation=1, bias=False, groups
-        =1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding='VALID', pad_mode='reflect', dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv_fast, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -1653,18 +1455,14 @@ class SincConv_fast(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
-        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.
-            kernel_size / 2))
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.kernel_size / 2))
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2.0
-        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1
-            ) / self.sample_rate
+        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1) / self.sample_rate
 
     def forward(self, waveforms):
         """
@@ -1680,31 +1478,25 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
-            ), self.min_low_hz, self.sample_rate / 2)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
         band = (high - low)[:, (0)]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
-        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)
-            ) / (self.n_ / 2) * self.window_
+        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-        band_pass = torch.cat([band_pass_left, band_pass_center,
-            band_pass_right], dim=1)
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, (None)])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
         x = waveforms
         if self.padding == 'SAME':
             if self.stride > 1:
-                x_p = F.pad(x, (self.kernel_size // 2 - 1, self.kernel_size //
-                    2), mode=self.pad_mode)
+                x_p = F.pad(x, (self.kernel_size // 2 - 1, self.kernel_size // 2), mode=self.pad_mode)
             else:
-                x_p = F.pad(x, (self.kernel_size // 2, self.kernel_size // 
-                    2), mode=self.pad_mode)
+                x_p = F.pad(x, (self.kernel_size // 2, self.kernel_size // 2), mode=self.pad_mode)
         else:
             x_p = x
-        return F.conv1d(x_p, self.filters, stride=self.stride, padding=0,
-            dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(x_p, self.filters, stride=self.stride, padding=0, dilation=self.dilation, bias=None, groups=1)
 
 
 class VQEMA(nn.Module):
@@ -1733,23 +1525,17 @@ class VQEMA(nn.Module):
         input_shape = inputs.shape
         flat_input = inputs.view(-1, self.emb_dim)
         device = 'cuda' if inputs.is_cuda else 'cpu'
-        dist = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(
-            self.emb.weight ** 2, dim=1) - 2 * torch.matmul(flat_input,
-            self.emb.weight.t())
+        dist = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self.emb.weight ** 2, dim=1) - 2 * torch.matmul(flat_input, self.emb.weight.t())
         enc_indices = torch.argmin(dist, dim=1).unsqueeze(1)
         enc = torch.zeros(enc_indices.shape[0], self.emb_K)
         enc.scatter_(1, enc_indices, 1)
         if self.training:
-            self.ema_cluster_size = self.ema_cluster_size * self.gamma + (1 -
-                self.gamma) * torch.sum(enc, 0)
+            self.ema_cluster_size = self.ema_cluster_size * self.gamma + (1 - self.gamma) * torch.sum(enc, 0)
             n = torch.sum(self.ema_cluster_size.data)
-            self.ema_cluster_size = (self.ema_cluster_size + self.eps) / (n +
-                self.emb_K * self.eps) * n
+            self.ema_cluster_size = (self.ema_cluster_size + self.eps) / (n + self.emb_K * self.eps) * n
             dw = torch.matmul(enc.t(), flat_input)
-            self.ema_w = nn.Parameter(self.ema_w * self.gamma + (1 - self.
-                gamma) * dw)
-            self.emb.weight = nn.Parameter(self.ema_w / self.
-                ema_cluster_size.unsqueeze(1))
+            self.ema_w = nn.Parameter(self.ema_w * self.gamma + (1 - self.gamma) * dw)
+            self.emb.weight = nn.Parameter(self.ema_w / self.ema_cluster_size.unsqueeze(1))
         Q = torch.matmul(enc, self.emb.weight).view(input_shape)
         e_latent_loss = torch.mean((Q.detach() - inputs) ** 2)
         loss = self.beta * e_latent_loss
@@ -1780,13 +1566,10 @@ class MLP(nn.Module):
         self.input_dim = inp_dim
         self.dnn_lay = list(map(int, options['dnn_lay'].split(',')))
         self.dnn_drop = list(map(float, options['dnn_drop'].split(',')))
-        self.dnn_use_batchnorm = list(map(strtobool, options[
-            'dnn_use_batchnorm'].split(',')))
-        self.dnn_use_laynorm = list(map(strtobool, options[
-            'dnn_use_laynorm'].split(',')))
+        self.dnn_use_batchnorm = list(map(strtobool, options['dnn_use_batchnorm'].split(',')))
+        self.dnn_use_laynorm = list(map(strtobool, options['dnn_use_laynorm'].split(',')))
         self.dnn_use_laynorm_inp = strtobool(options['dnn_use_laynorm_inp'])
-        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp']
-            )
+        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp'])
         self.dnn_act = options['dnn_act'].split(',')
         self.wx = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -1807,12 +1590,8 @@ class MLP(nn.Module):
             self.bn.append(nn.BatchNorm1d(self.dnn_lay[i], momentum=0.05))
             if self.dnn_use_laynorm[i] or self.dnn_use_batchnorm[i]:
                 add_bias = False
-            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=
-                add_bias))
-            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.
-                dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i])), np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i]))))
+            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=add_bias))
+            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (current_input + self.dnn_lay[i])), np.sqrt(0.01 / (current_input + self.dnn_lay[i]))))
             self.wx[i].bias = torch.nn.Parameter(torch.zeros(self.dnn_lay[i]))
             current_input = self.dnn_lay[i]
         self.out_dim = current_input
@@ -1827,12 +1606,9 @@ class MLP(nn.Module):
                 x = self.drop[i](self.act[i](self.ln[i](self.wx[i](x))))
             if self.dnn_use_batchnorm[i] and not self.dnn_use_laynorm[i]:
                 x = self.drop[i](self.act[i](self.bn[i](self.wx[i](x))))
-            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i
-                ] == True:
-                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[
-                    i](x)))))
-            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i
-                ] == False:
+            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i] == True:
+                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[i](x)))))
+            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i] == False:
                 x = self.drop[i](self.act[i](self.wx[i](x)))
         return x
 
@@ -1848,9 +1624,7 @@ class LSTM_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -1878,9 +1652,7 @@ class GRU_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -1906,9 +1678,7 @@ class RNN_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size,
-            self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias,
-            dropout=self.dropout, bidirectional=self.bidirectional)])
+        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size, self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -1929,13 +1699,10 @@ class LSTM(nn.Module):
         self.input_dim = inp_dim
         self.lstm_lay = list(map(int, options['lstm_lay'].split(',')))
         self.lstm_drop = list(map(float, options['lstm_drop'].split(',')))
-        self.lstm_use_batchnorm = list(map(strtobool, options[
-            'lstm_use_batchnorm'].split(',')))
-        self.lstm_use_laynorm = list(map(strtobool, options[
-            'lstm_use_laynorm'].split(',')))
+        self.lstm_use_batchnorm = list(map(strtobool, options['lstm_use_batchnorm'].split(',')))
+        self.lstm_use_laynorm = list(map(strtobool, options['lstm_use_laynorm'].split(',')))
         self.lstm_use_laynorm_inp = strtobool(options['lstm_use_laynorm_inp'])
-        self.lstm_use_batchnorm_inp = strtobool(options[
-            'lstm_use_batchnorm_inp'])
+        self.lstm_use_batchnorm_inp = strtobool(options['lstm_use_batchnorm_inp'])
         self.lstm_act = options['lstm_act'].split(',')
         self.lstm_orthinit = strtobool(options['lstm_orthinit'])
         self.bidir = strtobool(options['lstm_bidir'])
@@ -1970,22 +1737,14 @@ class LSTM(nn.Module):
             add_bias = True
             if self.lstm_use_laynorm[i] or self.lstm_use_batchnorm[i]:
                 add_bias = False
-            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
+            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
             if self.lstm_orthinit:
                 nn.init.orthogonal_(self.ufh[i].weight)
                 nn.init.orthogonal_(self.uih[i].weight)
@@ -2015,8 +1774,7 @@ class LSTM(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.lstm_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.lstm_drop[i]])
             if self.use_cuda:
@@ -2027,22 +1785,14 @@ class LSTM(nn.Module):
             wox_out = self.wox[i](x)
             wcx_out = self.wcx[i](x)
             if self.lstm_use_batchnorm[i]:
-                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] *
-                    wfx_out.shape[1], wfx_out.shape[2]))
-                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1
-                    ], wfx_out.shape[2])
-                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] *
-                    wix_out.shape[1], wix_out.shape[2]))
-                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1
-                    ], wix_out.shape[2])
-                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] *
-                    wox_out.shape[1], wox_out.shape[2]))
-                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1
-                    ], wox_out.shape[2])
-                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] *
-                    wcx_out.shape[1], wcx_out.shape[2]))
-                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1
-                    ], wcx_out.shape[2])
+                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] * wfx_out.shape[1], wfx_out.shape[2]))
+                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1], wfx_out.shape[2])
+                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] * wix_out.shape[1], wix_out.shape[2]))
+                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1], wix_out.shape[2])
+                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] * wox_out.shape[1], wox_out.shape[2]))
+                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1], wox_out.shape[2])
+                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] * wcx_out.shape[1], wcx_out.shape[2]))
+                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1], wcx_out.shape[2])
             hiddens = []
             ct = h_init
             ht = h_init
@@ -2050,8 +1800,7 @@ class LSTM(nn.Module):
                 ft = torch.sigmoid(wfx_out[k] + self.ufh[i](ht))
                 it = torch.sigmoid(wix_out[k] + self.uih[i](ht))
                 ot = torch.sigmoid(wox_out[k] + self.uoh[i](ht))
-                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)
-                    ) * drop_mask + ft * ct
+                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)) * drop_mask + ft * ct
                 ht = ot * self.act[i](ct)
                 if self.lstm_use_laynorm[i]:
                     ht = self.ln[i](ht)
@@ -2059,8 +1808,7 @@ class LSTM(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -2073,13 +1821,10 @@ class GRU(nn.Module):
         self.input_dim = inp_dim
         self.gru_lay = list(map(int, options['gru_lay'].split(',')))
         self.gru_drop = list(map(float, options['gru_drop'].split(',')))
-        self.gru_use_batchnorm = list(map(strtobool, options[
-            'gru_use_batchnorm'].split(',')))
-        self.gru_use_laynorm = list(map(strtobool, options[
-            'gru_use_laynorm'].split(',')))
+        self.gru_use_batchnorm = list(map(strtobool, options['gru_use_batchnorm'].split(',')))
+        self.gru_use_laynorm = list(map(strtobool, options['gru_use_laynorm'].split(',')))
         self.gru_use_laynorm_inp = strtobool(options['gru_use_laynorm_inp'])
-        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp']
-            )
+        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp'])
         self.gru_orthinit = strtobool(options['gru_orthinit'])
         self.gru_act = options['gru_act'].split(',')
         self.bidir = strtobool(options['gru_bidir'])
@@ -2111,18 +1856,12 @@ class GRU(nn.Module):
             add_bias = True
             if self.gru_use_laynorm[i] or self.gru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
             if self.gru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -2150,8 +1889,7 @@ class GRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.gru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.gru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.gru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.gru_drop[i]])
             if self.use_cuda:
@@ -2161,18 +1899,12 @@ class GRU(nn.Module):
             wz_out = self.wz[i](x)
             wr_out = self.wr[i](x)
             if self.gru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
-                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] *
-                    wr_out.shape[1], wr_out.shape[2]))
-                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1],
-                    wr_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
+                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] * wr_out.shape[1], wr_out.shape[2]))
+                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1], wr_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -2187,8 +1919,7 @@ class GRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -2201,14 +1932,10 @@ class liGRU(nn.Module):
         self.input_dim = inp_dim
         self.ligru_lay = list(map(int, options['ligru_lay'].split(',')))
         self.ligru_drop = list(map(float, options['ligru_drop'].split(',')))
-        self.ligru_use_batchnorm = list(map(strtobool, options[
-            'ligru_use_batchnorm'].split(',')))
-        self.ligru_use_laynorm = list(map(strtobool, options[
-            'ligru_use_laynorm'].split(',')))
-        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp']
-            )
-        self.ligru_use_batchnorm_inp = strtobool(options[
-            'ligru_use_batchnorm_inp'])
+        self.ligru_use_batchnorm = list(map(strtobool, options['ligru_use_batchnorm'].split(',')))
+        self.ligru_use_laynorm = list(map(strtobool, options['ligru_use_laynorm'].split(',')))
+        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp'])
+        self.ligru_use_batchnorm_inp = strtobool(options['ligru_use_batchnorm_inp'])
         self.ligru_orthinit = strtobool(options['ligru_orthinit'])
         self.ligru_act = options['ligru_act'].split(',')
         self.bidir = strtobool(options['ligru_bidir'])
@@ -2237,14 +1964,10 @@ class liGRU(nn.Module):
             add_bias = True
             if self.ligru_use_laynorm[i] or self.ligru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
-            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
+            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
             if self.ligru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -2270,8 +1993,7 @@ class liGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.ligru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.ligru_drop[i]])
             if self.use_cuda:
@@ -2280,14 +2002,10 @@ class liGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.ligru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -2301,8 +2019,7 @@ class liGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -2313,18 +2030,12 @@ class minimalGRU(nn.Module):
     def __init__(self, options, inp_dim):
         super(minimalGRU, self).__init__()
         self.input_dim = inp_dim
-        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split
-            (',')))
-        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].
-            split(',')))
-        self.minimalgru_use_batchnorm = list(map(strtobool, options[
-            'minimalgru_use_batchnorm'].split(',')))
-        self.minimalgru_use_laynorm = list(map(strtobool, options[
-            'minimalgru_use_laynorm'].split(',')))
-        self.minimalgru_use_laynorm_inp = strtobool(options[
-            'minimalgru_use_laynorm_inp'])
-        self.minimalgru_use_batchnorm_inp = strtobool(options[
-            'minimalgru_use_batchnorm_inp'])
+        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split(',')))
+        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].split(',')))
+        self.minimalgru_use_batchnorm = list(map(strtobool, options['minimalgru_use_batchnorm'].split(',')))
+        self.minimalgru_use_laynorm = list(map(strtobool, options['minimalgru_use_laynorm'].split(',')))
+        self.minimalgru_use_laynorm_inp = strtobool(options['minimalgru_use_laynorm_inp'])
+        self.minimalgru_use_batchnorm_inp = strtobool(options['minimalgru_use_batchnorm_inp'])
         self.minimalgru_orthinit = strtobool(options['minimalgru_orthinit'])
         self.minimalgru_act = options['minimalgru_act'].split(',')
         self.bidir = strtobool(options['minimalgru_bidir'])
@@ -2351,31 +2062,23 @@ class minimalGRU(nn.Module):
         for i in range(self.N_minimalgru_lay):
             self.act.append(act_fun(self.minimalgru_act[i]))
             add_bias = True
-            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[
-                i]:
+            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
-            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
+            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
             if self.minimalgru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
-            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
-            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
+            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
+            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
             self.ln.append(LayerNorm(self.minimalgru_lay[i]))
             if self.bidir:
                 current_input = 2 * self.minimalgru_lay[i]
             else:
                 current_input = self.minimalgru_lay[i]
-        self.out_dim = self.minimalgru_lay[i
-            ] + self.bidir * self.minimalgru_lay[i]
+        self.out_dim = self.minimalgru_lay[i] + self.bidir * self.minimalgru_lay[i]
 
     def forward(self, x):
         if bool(self.minimalgru_use_laynorm_inp):
@@ -2390,8 +2093,7 @@ class minimalGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.minimalgru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.minimalgru_drop[i]])
             if self.use_cuda:
@@ -2400,14 +2102,10 @@ class minimalGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.minimalgru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -2421,8 +2119,7 @@ class minimalGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -2435,13 +2132,10 @@ class RNN(nn.Module):
         self.input_dim = inp_dim
         self.rnn_lay = list(map(int, options['rnn_lay'].split(',')))
         self.rnn_drop = list(map(float, options['rnn_drop'].split(',')))
-        self.rnn_use_batchnorm = list(map(strtobool, options[
-            'rnn_use_batchnorm'].split(',')))
-        self.rnn_use_laynorm = list(map(strtobool, options[
-            'rnn_use_laynorm'].split(',')))
+        self.rnn_use_batchnorm = list(map(strtobool, options['rnn_use_batchnorm'].split(',')))
+        self.rnn_use_laynorm = list(map(strtobool, options['rnn_use_laynorm'].split(',')))
         self.rnn_use_laynorm_inp = strtobool(options['rnn_use_laynorm_inp'])
-        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp']
-            )
+        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp'])
         self.rnn_orthinit = strtobool(options['rnn_orthinit'])
         self.rnn_act = options['rnn_act'].split(',')
         self.bidir = strtobool(options['rnn_bidir'])
@@ -2467,10 +2161,8 @@ class RNN(nn.Module):
             add_bias = True
             if self.rnn_use_laynorm[i] or self.rnn_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias=False))
             if self.rnn_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
             self.bn_wh.append(nn.BatchNorm1d(self.rnn_lay[i], momentum=0.05))
@@ -2494,8 +2186,7 @@ class RNN(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.rnn_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.rnn_drop[i]])
             if self.use_cuda:
@@ -2503,10 +2194,8 @@ class RNN(nn.Module):
                 drop_mask = drop_mask
             wh_out = self.wh[i](x)
             if self.rnn_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -2518,8 +2207,7 @@ class RNN(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -2532,17 +2220,13 @@ class CNN(nn.Module):
         self.input_dim = inp_dim
         self.cnn_N_filt = list(map(int, options['cnn_N_filt'].split(',')))
         self.cnn_len_filt = list(map(int, options['cnn_len_filt'].split(',')))
-        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].
-            split(',')))
+        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].split(',')))
         self.cnn_act = options['cnn_act'].split(',')
         self.cnn_drop = list(map(float, options['cnn_drop'].split(',')))
-        self.cnn_use_laynorm = list(map(strtobool, options[
-            'cnn_use_laynorm'].split(',')))
-        self.cnn_use_batchnorm = list(map(strtobool, options[
-            'cnn_use_batchnorm'].split(',')))
+        self.cnn_use_laynorm = list(map(strtobool, options['cnn_use_laynorm'].split(',')))
+        self.cnn_use_batchnorm = list(map(strtobool, options['cnn_use_batchnorm'].split(',')))
         self.cnn_use_laynorm_inp = strtobool(options['cnn_use_laynorm_inp'])
-        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp']
-            )
+        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp'])
         self.N_cnn_lay = len(self.cnn_N_filt)
         self.conv = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -2559,18 +2243,13 @@ class CNN(nn.Module):
             len_filt = int(self.cnn_len_filt[i])
             self.drop.append(nn.Dropout(p=self.cnn_drop[i]))
             self.act.append(act_fun(self.cnn_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum
-                =0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum=0.05))
             if i == 0:
                 self.conv.append(nn.Conv1d(1, N_filt, len_filt))
             else:
-                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.
-                    cnn_N_filt[i], self.cnn_len_filt[i]))
-            current_input = int((current_input - self.cnn_len_filt[i] + 1) /
-                self.cnn_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.cnn_N_filt[i], self.cnn_len_filt[i]))
+            current_input = int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -2583,15 +2262,11 @@ class CNN(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_cnn_lay):
             if self.cnn_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
             if self.cnn_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
-            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.cnn_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
+            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -2602,19 +2277,14 @@ class SincNet(nn.Module):
         super(SincNet, self).__init__()
         self.input_dim = inp_dim
         self.sinc_N_filt = list(map(int, options['sinc_N_filt'].split(',')))
-        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(','))
-            )
-        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len']
-            .split(',')))
+        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(',')))
+        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len'].split(',')))
         self.sinc_act = options['sinc_act'].split(',')
         self.sinc_drop = list(map(float, options['sinc_drop'].split(',')))
-        self.sinc_use_laynorm = list(map(strtobool, options[
-            'sinc_use_laynorm'].split(',')))
-        self.sinc_use_batchnorm = list(map(strtobool, options[
-            'sinc_use_batchnorm'].split(',')))
+        self.sinc_use_laynorm = list(map(strtobool, options['sinc_use_laynorm'].split(',')))
+        self.sinc_use_batchnorm = list(map(strtobool, options['sinc_use_batchnorm'].split(',')))
         self.sinc_use_laynorm_inp = strtobool(options['sinc_use_laynorm_inp'])
-        self.sinc_use_batchnorm_inp = strtobool(options[
-            'sinc_use_batchnorm_inp'])
+        self.sinc_use_batchnorm_inp = strtobool(options['sinc_use_batchnorm_inp'])
         self.N_sinc_lay = len(self.sinc_N_filt)
         self.sinc_sample_rate = int(options['sinc_sample_rate'])
         self.sinc_min_low_hz = int(options['sinc_min_low_hz'])
@@ -2634,20 +2304,13 @@ class SincNet(nn.Module):
             len_filt = int(self.sinc_len_filt[i])
             self.drop.append(nn.Dropout(p=self.sinc_drop[i]))
             self.act.append(act_fun(self.sinc_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]),
-                momentum=0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]), momentum=0.05))
             if i == 0:
-                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=
-                    self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz,
-                    min_band_hz=self.sinc_min_band_hz))
+                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz, min_band_hz=self.sinc_min_band_hz))
             else:
-                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.
-                    sinc_N_filt[i], self.sinc_len_filt[i]))
-            current_input = int((current_input - self.sinc_len_filt[i] + 1) /
-                self.sinc_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.sinc_N_filt[i], self.sinc_len_filt[i]))
+            current_input = int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -2660,15 +2323,11 @@ class SincNet(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_sinc_lay):
             if self.sinc_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
             if self.sinc_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
-            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.sinc_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
+            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -2703,14 +2362,10 @@ class SincConv(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -2728,14 +2383,12 @@ class SincConv(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel) / self.sample_rate
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
         n_lin = torch.linspace(0, self.kernel_size, steps=self.kernel_size)
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2
         self.n_ = torch.arange(-n, n + 1).view(1, -1) / self.sample_rate
 
@@ -2760,21 +2413,16 @@ class SincConv(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
-        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
-            band_hz_)
+        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.band_hz_)
         f_times_t = torch.matmul(low, self.n_)
-        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         f_times_t = torch.matmul(high, self.n_)
-        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         band_pass = low_pass2 - low_pass1
         max_, _ = torch.max(band_pass, dim=1, keepdim=True)
         band_pass = band_pass / max_
-        self.filters = (band_pass * self.window_).view(self.out_channels, 1,
-            self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        self.filters = (band_pass * self.window_).view(self.out_channels, 1, self.kernel_size)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SincConv_fast(nn.Module):
@@ -2807,14 +2455,10 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv_fast, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -2832,18 +2476,14 @@ class SincConv_fast(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
-        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.
-            kernel_size / 2))
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.kernel_size / 2))
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2.0
-        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1
-            ) / self.sample_rate
+        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1) / self.sample_rate
 
     def forward(self, waveforms):
         """
@@ -2859,21 +2499,17 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
-            ), self.min_low_hz, self.sample_rate / 2)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
         band = (high - low)[:, (0)]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
-        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)
-            ) / (self.n_ / 2) * self.window_
+        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-        band_pass = torch.cat([band_pass_left, band_pass_center,
-            band_pass_right], dim=1)
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, (None)])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SRU(nn.Module):
@@ -2891,20 +2527,12 @@ class SRU(nn.Module):
         self.weight_norm = bool(strtobool(options['sru_weight_norm']))
         self.layer_norm = bool(strtobool(options['sru_layer_norm']))
         self.bidirectional = bool(strtobool(options['sru_bidirectional']))
-        self.is_input_normalized = bool(strtobool(options[
-            'sru_is_input_normalized']))
+        self.is_input_normalized = bool(strtobool(options['sru_is_input_normalized']))
         self.has_skip_term = bool(strtobool(options['sru_has_skip_term']))
         self.rescale = bool(strtobool(options['sru_rescale']))
         self.highway_bias = float(options['sru_highway_bias'])
         self.n_proj = int(options['sru_n_proj'])
-        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=
-            self.num_layers, dropout=self.dropout, rnn_dropout=self.
-            rnn_dropout, bidirectional=self.bidirectional, n_proj=self.
-            n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu,
-            use_relu=self.use_relu, weight_norm=self.weight_norm,
-            layer_norm=self.layer_norm, has_skip_term=self.has_skip_term,
-            is_input_normalized=self.is_input_normalized, highway_bias=self
-            .highway_bias, rescale=self.rescale)
+        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=self.num_layers, dropout=self.dropout, rnn_dropout=self.rnn_dropout, bidirectional=self.bidirectional, n_proj=self.n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu, use_relu=self.use_relu, weight_norm=self.weight_norm, layer_norm=self.layer_norm, has_skip_term=self.has_skip_term, is_input_normalized=self.is_input_normalized, highway_bias=self.highway_bias, rescale=self.rescale)
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -2920,8 +2548,7 @@ class SRU(nn.Module):
 
 class WaveAdversarialLoss(nn.Module):
 
-    def __init__(self, discriminator, d_optimizer, size_average=True, loss=
-        'L2', batch_acum=1, device='cpu'):
+    def __init__(self, discriminator, d_optimizer, size_average=True, loss='L2', batch_acum=1, device='cpu'):
         super().__init__()
         self.discriminator = discriminator
         self.d_optimizer = d_optimizer
@@ -2943,8 +2570,7 @@ class WaveAdversarialLoss(nn.Module):
         label = label
         return label
 
-    def forward(self, iteration, x_fake, x_real, c_real=None, c_fake=None,
-        grad=True):
+    def forward(self, iteration, x_fake, x_real, c_real=None, c_fake=None, grad=True):
         if grad:
             d_real = self.discriminator(x_real, cond=c_real)
             if self.loss:
@@ -2978,8 +2604,7 @@ class WaveAdversarialLoss(nn.Module):
         else:
             g_real_loss = -g_real.mean()
         if grad:
-            return {'g_loss': g_real_loss, 'd_real_loss': d_real_loss,
-                'd_fake_loss': d_fake_loss}
+            return {'g_loss': g_real_loss, 'd_real_loss': d_real_loss, 'd_fake_loss': d_fake_loss}
         else:
             return {'g_loss': g_real_loss}
 
@@ -2987,8 +2612,7 @@ class WaveAdversarialLoss(nn.Module):
 class SpectrumLM(nn.Module):
     """ RNN lang model for spectrum frame preds """
 
-    def __init__(self, rnn_size, rnn_layers, out_dim, dropout, cuda,
-        rnn_type='LSTM', bidirectional=False):
+    def __init__(self, rnn_size, rnn_layers, out_dim, dropout, cuda, rnn_type='LSTM', bidirectional=False):
         super().__init__()
         self.do_cuda = cuda
         self.rnn_size = rnn_size
@@ -3002,9 +2626,7 @@ class SpectrumLM(nn.Module):
         else:
             self.dirs = 1
         assert rnn_type == 'LSTM' or rnn_type == 'GRU', rnn_type
-        self.rnn = getattr(nn, rnn_type)(self.out_dim, self.rnn_size, self.
-            rnn_layers, batch_first=True, dropout=self.dropout,
-            bidirectional=bidirectional)
+        self.rnn = getattr(nn, rnn_type)(self.out_dim, self.rnn_size, self.rnn_layers, batch_first=True, dropout=self.dropout, bidirectional=bidirectional)
         self.out_fc = nn.Linear(self.rnn_size, self.out_dim)
 
     def forward(self, x, dec_steps, state=None, dec_cps={}):
@@ -3027,8 +2649,7 @@ class SpectrumLM(nn.Module):
         return frames, state
 
     def init_hidden(self, bsz):
-        h0 = Variable(torch.randn(self.dirs * self.rnn_layers, bsz, self.
-            rnn_size))
+        h0 = Variable(torch.randn(self.dirs * self.rnn_layers, bsz, self.rnn_size))
         if self.do_cuda:
             h0 = h0
         if self.rnn_type == 'LSTM':
@@ -3094,8 +2715,7 @@ def forward_norm(x, norm_layer):
 
 class GConv1DBlock(NeuralBlock):
 
-    def __init__(self, ninp, fmaps, kwidth, stride=1, norm_type=None, act=
-        'prelu', name='GConv1DBlock'):
+    def __init__(self, ninp, fmaps, kwidth, stride=1, norm_type=None, act='prelu', name='GConv1DBlock'):
         super().__init__(name=name)
         if act is not None and act == 'glu':
             Wfmaps = 2 * fmaps
@@ -3121,15 +2741,12 @@ class GConv1DBlock(NeuralBlock):
 
 class WaveDiscriminator(nn.Module):
 
-    def __init__(self, ninputs=1, fmaps=[128, 128, 256, 256, 512, 100],
-        strides=[10, 4, 4, 1, 1, 1], kwidths=[30, 30, 30, 3, 3, 3],
-        norm_type='snorm'):
+    def __init__(self, ninputs=1, fmaps=[128, 128, 256, 256, 512, 100], strides=[10, 4, 4, 1, 1, 1], kwidths=[30, 30, 30, 3, 3, 3], norm_type='snorm'):
         super().__init__()
         self.aco_decimator = nn.ModuleList()
         ninp = ninputs
         for fmap, kwidth, stride in zip(fmaps, kwidths, strides):
-            self.aco_decimator.append(GConv1DBlock(ninp, fmap, kwidth,
-                stride, norm_type=norm_type))
+            self.aco_decimator.append(GConv1DBlock(ninp, fmap, kwidth, stride, norm_type=norm_type))
             ninp = fmap
         self.out_fc = nn.Conv1d(fmaps[-1], 1, 1)
         if norm_type == 'snorm':
@@ -3175,18 +2792,7 @@ class AhoCNNEncoder(nn.Module):
             norm_layer = LayerNorm
         else:
             norm_layer = nn.BatchNorm1d
-        self.enc = nn.Sequential(nn.Conv1d(input_dim, 256, kwidth, stride=1,
-            padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 
-            256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(
-            256), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(256, 512,
-            kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512),
-            nn.Conv1d(512, 512, kwidth, stride=1, padding=pad), norm_layer(
-            512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(0.2), nn.
-            Conv1d(512, 1024, kwidth, stride=1, padding=pad), norm_layer(
-            1024), nn.PReLU(1024), nn.Conv1d(1024, 1024, kwidth, stride=1,
-            padding=pad), norm_layer(1024), nn.PReLU(1024), nn.MaxPool1d(2),
-            nn.Dropout(0.2), nn.Conv1d(1024, 1024, kwidth, stride=1,
-            padding=pad))
+        self.enc = nn.Sequential(nn.Conv1d(input_dim, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(256, 512, kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512), nn.Conv1d(512, 512, kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(512, 1024, kwidth, stride=1, padding=pad), norm_layer(1024), nn.PReLU(1024), nn.Conv1d(1024, 1024, kwidth, stride=1, padding=pad), norm_layer(1024), nn.PReLU(1024), nn.MaxPool1d(2), nn.Dropout(0.2), nn.Conv1d(1024, 1024, kwidth, stride=1, padding=pad))
 
     def forward(self, x):
         return self.enc(x)
@@ -3201,18 +2807,7 @@ class AhoCNNHourGlassEncoder(nn.Module):
             norm_layer = LayerNorm
         else:
             norm_layer = nn.BatchNorm1d
-        self.enc = nn.Sequential(nn.Conv1d(input_dim, 64, kwidth, stride=1,
-            padding=pad), norm_layer(64), nn.PReLU(64), nn.Conv1d(64, 128,
-            kwidth, stride=1, padding=pad), norm_layer(128), nn.PReLU(128),
-            nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(128, 256,
-            kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256),
-            nn.Conv1d(256, 512, kwidth, stride=1, padding=pad), norm_layer(
-            512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(dropout), nn.
-            Conv1d(512, 256, kwidth, stride=1, padding=pad), norm_layer(256
-            ), nn.PReLU(256), nn.Conv1d(256, 128, kwidth, stride=1, padding
-            =pad), norm_layer(128), nn.PReLU(128), nn.MaxPool1d(2), nn.
-            Dropout(dropout), nn.Conv1d(128, 64, kwidth, stride=1, padding=
-            pad), norm_layer(64), nn.PReLU(64))
+        self.enc = nn.Sequential(nn.Conv1d(input_dim, 64, kwidth, stride=1, padding=pad), norm_layer(64), nn.PReLU(64), nn.Conv1d(64, 128, kwidth, stride=1, padding=pad), norm_layer(128), nn.PReLU(128), nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(128, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 512, kwidth, stride=1, padding=pad), norm_layer(512), nn.PReLU(512), nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(512, 256, kwidth, stride=1, padding=pad), norm_layer(256), nn.PReLU(256), nn.Conv1d(256, 128, kwidth, stride=1, padding=pad), norm_layer(128), nn.PReLU(128), nn.MaxPool1d(2), nn.Dropout(dropout), nn.Conv1d(128, 64, kwidth, stride=1, padding=pad), norm_layer(64), nn.PReLU(64))
 
     def forward(self, x):
         return self.enc(x)
@@ -3240,56 +2835,42 @@ class NeuralBlock(nn.Module):
 
 class PatternedDropout(nn.Module):
 
-    def __init__(self, emb_size, p=0.5, dropout_mode=['fixed_rand'],
-        ratio_fixed=None, range_fixed=None, drop_whole_channels=False):
+    def __init__(self, emb_size, p=0.5, dropout_mode=['fixed_rand'], ratio_fixed=None, range_fixed=None, drop_whole_channels=False):
         """Applies a fixed pattern of dropout for the whole training
         session (i.e applies different only among pre-specified dimensions)
         """
         super(PatternedDropout, self).__init__()
         if p < 0 or p > 1:
-            raise ValueError(
-                'dropout probability has to be between 0 and 1, but got {}'
-                .format(p))
+            raise ValueError('dropout probability has to be between 0 and 1, but got {}'.format(p))
         self.p = p
         if self.p > 0:
             d_modes = ['std', 'fixed_rand', 'fixed_given']
-            assert dropout_mode in d_modes, 'Expected dropout mode in {}, got {}'.format(
-                d_modes, dropout_mode)
+            assert dropout_mode in d_modes, 'Expected dropout mode in {}, got {}'.format(d_modes, dropout_mode)
             self.drop_whole_channels = drop_whole_channels
             self.dropout_fixed = False
             if dropout_mode == 'fixed_rand':
                 self.dropout_fixed = True
-                assert ratio_fixed is not None, "{} needs 'ratio_fixed' arg set.".format(
-                    dropout_mode)
+                assert ratio_fixed is not None, "{} needs 'ratio_fixed' arg set.".format(dropout_mode)
                 if ratio_fixed <= 0 or ratio_fixed > 1:
-                    raise ValueError(
-                        "{} mode needs 'ratio_fixed' to be set and in (0, 1) range, got {}"
-                        .format(dropout_mode, ratio_fixed))
+                    raise ValueError("{} mode needs 'ratio_fixed' to be set and in (0, 1) range, got {}".format(dropout_mode, ratio_fixed))
                 self.ratio_fixed = ratio_fixed
                 self.dropped_dimsize = int(emb_size - emb_size * ratio_fixed)
                 tot_idx = np.arange(emb_size)
-                sel_idx = np.sort(np.random.choice(tot_idx, size=self.
-                    dropped_dimsize, replace=False))
+                sel_idx = np.sort(np.random.choice(tot_idx, size=self.dropped_dimsize, replace=False))
             elif dropout_mode == 'fixed_given':
                 self.dropout_fixed = True
-                if range_fixed is None or not isinstance(range_fixed, str
-                    ) or len(range_fixed.split(':')) < 2:
-                    raise ValueError(
-                        "{} mode needs 'range_dropped' to be set (i.e. 10:20)"
-                        .format(dropout_mode))
+                if range_fixed is None or not isinstance(range_fixed, str) or len(range_fixed.split(':')) < 2:
+                    raise ValueError("{} mode needs 'range_dropped' to be set (i.e. 10:20)".format(dropout_mode))
                 rng = range_fixed.split(':')
                 beg = int(rng[0])
                 end = int(rng[1])
-                assert beg < end and end <= emb_size, 'Incorrect range {}'.format(
-                    range_fixed)
+                assert beg < end and end <= emb_size, 'Incorrect range {}'.format(range_fixed)
                 self.dropped_dimsize = int(emb_size - (end - beg))
                 tot_idx = np.arange(emb_size)
                 fixed_idx = np.arange(beg, end, 1)
                 sel_idx = np.setdiff1d(tot_idx, fixed_idx, assume_unique=True)
             if self.dropout_fixed:
-                assert len(sel_idx
-                    ) > 0, 'Asked for fixed dropout, but sel_idx {}'.format(
-                    sel_idx)
+                assert len(sel_idx) > 0, 'Asked for fixed dropout, but sel_idx {}'.format(sel_idx)
                 None
                 self.dindexes = torch.LongTensor(sel_idx)
                 self.p = p
@@ -3305,15 +2886,11 @@ class PatternedDropout(nn.Module):
             return x
         if self.dropout_fixed and self.training:
             self.dindexes = self.dindexes
-            assert len(x.size()
-                ) == 3, 'Expected to get 3 dimensional tensor, got {}'.format(
-                len(x.size()))
+            assert len(x.size()) == 3, 'Expected to get 3 dimensional tensor, got {}'.format(len(x.size()))
             bsize, emb_size, tsize = x.size()
             if self.drop_whole_channels:
-                batch_mask = torch.full(size=(bsize, emb_size), fill_value=
-                    1.0, device=x.device)
-                probs = torch.full(size=(bsize, self.dropped_dimsize),
-                    fill_value=1.0 - self.p)
+                batch_mask = torch.full(size=(bsize, emb_size), fill_value=1.0, device=x.device)
+                probs = torch.full(size=(bsize, self.dropped_dimsize), fill_value=1.0 - self.p)
                 b = Binomial(total_count=1, probs=probs)
                 mask = b.sample()
                 mask = mask
@@ -3321,8 +2898,7 @@ class PatternedDropout(nn.Module):
                 x = x * batch_mask.view(bsize, emb_size, -1)
             else:
                 batch_mask = torch.ones_like(x, device=x.device)
-                probs = torch.full(size=(bsize, self.dropped_dimsize, tsize
-                    ), fill_value=1.0 - self.p)
+                probs = torch.full(size=(bsize, self.dropped_dimsize, tsize), fill_value=1.0 - self.p)
                 b = Binomial(total_count=1, probs=probs)
                 mask = b.sample()
                 mask = mask
@@ -3335,8 +2911,7 @@ class PatternedDropout(nn.Module):
 
 class SincConv(nn.Module):
 
-    def __init__(self, N_filt, Filt_dim, fs, stride=1, padding='VALID',
-        pad_mode='reflect'):
+    def __init__(self, N_filt, Filt_dim, fs, stride=1, padding='VALID', pad_mode='reflect'):
         super(SincConv, self).__init__()
         low_freq_mel = 80
         high_freq_mel = 2595 * np.log10(1 + fs / 2 / 700)
@@ -3348,8 +2923,7 @@ class SincConv(nn.Module):
         b2[-1] = fs / 2 - 100
         self.freq_scale = fs * 1.0
         self.filt_b1 = nn.Parameter(torch.from_numpy(b1 / self.freq_scale))
-        self.filt_band = nn.Parameter(torch.from_numpy((b2 - b1) / self.
-            freq_scale))
+        self.filt_band = nn.Parameter(torch.from_numpy((b2 - b1) / self.freq_scale))
         self.N_filt = N_filt
         self.Filt_dim = Filt_dim
         self.fs = fs
@@ -3361,25 +2935,21 @@ class SincConv(nn.Module):
         cuda = x.is_cuda
         filters = torch.zeros((self.N_filt, self.Filt_dim))
         N = self.Filt_dim
-        t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)
-            ) / self.fs
+        t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)) / self.fs
         if cuda:
             filters = filters
             t_right = t_right
         min_freq = 50.0
         min_band = 50.0
         filt_beg_freq = torch.abs(self.filt_b1) + min_freq / self.freq_scale
-        filt_end_freq = filt_beg_freq + (torch.abs(self.filt_band) + 
-            min_band / self.freq_scale)
+        filt_end_freq = filt_beg_freq + (torch.abs(self.filt_band) + min_band / self.freq_scale)
         n = torch.linspace(0, N, steps=N)
         window = (0.54 - 0.46 * torch.cos(2 * math.pi * n / N)).float()
         if cuda:
             window = window
         for i in range(self.N_filt):
-            low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i
-                ].float() * self.freq_scale, t_right, cuda)
-            low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i
-                ].float() * self.freq_scale, t_right, cuda)
+            low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i].float() * self.freq_scale, t_right, cuda)
+            low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i].float() * self.freq_scale, t_right, cuda)
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
             if cuda:
@@ -3387,15 +2957,12 @@ class SincConv(nn.Module):
             filters[(i), :] = band_pass * window
         if self.padding == 'SAME':
             if self.stride > 1:
-                x_p = F.pad(x, (self.Filt_dim // 2 - 1, self.Filt_dim // 2),
-                    mode=self.pad_mode)
+                x_p = F.pad(x, (self.Filt_dim // 2 - 1, self.Filt_dim // 2), mode=self.pad_mode)
             else:
-                x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2),
-                    mode=self.pad_mode)
+                x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2), mode=self.pad_mode)
         else:
             x_p = x
-        out = F.conv1d(x_p, filters.view(self.N_filt, 1, self.Filt_dim),
-            stride=self.stride)
+        out = F.conv1d(x_p, filters.view(self.N_filt, 1, self.Filt_dim), stride=self.stride)
         return out
 
 
@@ -3429,14 +2996,10 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding='VALID', pad_mode='reflect', dilation=1, bias=False, groups
-        =1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding='VALID', pad_mode='reflect', dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv_fast, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -3455,18 +3018,14 @@ class SincConv_fast(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
-        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.
-            kernel_size / 2))
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.kernel_size / 2))
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2.0
-        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1
-            ) / self.sample_rate
+        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1) / self.sample_rate
 
     def forward(self, waveforms):
         """
@@ -3482,31 +3041,25 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
-            ), self.min_low_hz, self.sample_rate / 2)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
         band = (high - low)[:, (0)]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
-        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)
-            ) / (self.n_ / 2) * self.window_
+        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-        band_pass = torch.cat([band_pass_left, band_pass_center,
-            band_pass_right], dim=1)
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, (None)])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
         x = waveforms
         if self.padding == 'SAME':
             if self.stride > 1:
-                x_p = F.pad(x, (self.kernel_size // 2 - 1, self.kernel_size //
-                    2), mode=self.pad_mode)
+                x_p = F.pad(x, (self.kernel_size // 2 - 1, self.kernel_size // 2), mode=self.pad_mode)
             else:
-                x_p = F.pad(x, (self.kernel_size // 2, self.kernel_size // 
-                    2), mode=self.pad_mode)
+                x_p = F.pad(x, (self.kernel_size // 2, self.kernel_size // 2), mode=self.pad_mode)
         else:
             x_p = x
-        return F.conv1d(x_p, self.filters, stride=self.stride, padding=0,
-            dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(x_p, self.filters, stride=self.stride, padding=0, dilation=self.dilation, bias=None, groups=1)
 
 
 class VQEMA(nn.Module):
@@ -3535,23 +3088,17 @@ class VQEMA(nn.Module):
         input_shape = inputs.shape
         flat_input = inputs.view(-1, self.emb_dim)
         device = 'cuda' if inputs.is_cuda else 'cpu'
-        dist = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(
-            self.emb.weight ** 2, dim=1) - 2 * torch.matmul(flat_input,
-            self.emb.weight.t())
+        dist = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self.emb.weight ** 2, dim=1) - 2 * torch.matmul(flat_input, self.emb.weight.t())
         enc_indices = torch.argmin(dist, dim=1).unsqueeze(1)
         enc = torch.zeros(enc_indices.shape[0], self.emb_K)
         enc.scatter_(1, enc_indices, 1)
         if self.training:
-            self.ema_cluster_size = self.ema_cluster_size * self.gamma + (1 -
-                self.gamma) * torch.sum(enc, 0)
+            self.ema_cluster_size = self.ema_cluster_size * self.gamma + (1 - self.gamma) * torch.sum(enc, 0)
             n = torch.sum(self.ema_cluster_size.data)
-            self.ema_cluster_size = (self.ema_cluster_size + self.eps) / (n +
-                self.emb_K * self.eps) * n
+            self.ema_cluster_size = (self.ema_cluster_size + self.eps) / (n + self.emb_K * self.eps) * n
             dw = torch.matmul(enc.t(), flat_input)
-            self.ema_w = nn.Parameter(self.ema_w * self.gamma + (1 - self.
-                gamma) * dw)
-            self.emb.weight = nn.Parameter(self.ema_w / self.
-                ema_cluster_size.unsqueeze(1))
+            self.ema_w = nn.Parameter(self.ema_w * self.gamma + (1 - self.gamma) * dw)
+            self.emb.weight = nn.Parameter(self.ema_w / self.ema_cluster_size.unsqueeze(1))
         Q = torch.matmul(enc, self.emb.weight).view(input_shape)
         e_latent_loss = torch.mean((Q.detach() - inputs) ** 2)
         loss = self.beta * e_latent_loss
@@ -3591,8 +3138,7 @@ class MelResNet(nn.Module):
     def __init__(self, res_blocks, in_dims, compute_dims, res_out_dims, pad):
         super().__init__()
         k_size = pad * 2 + 1
-        self.conv_in = nn.Conv1d(in_dims, compute_dims, kernel_size=k_size,
-            bias=False)
+        self.conv_in = nn.Conv1d(in_dims, compute_dims, kernel_size=k_size, bias=False)
         self.batch_norm = nn.BatchNorm1d(compute_dims)
         self.layers = nn.ModuleList()
         for i in range(res_blocks):
@@ -3631,22 +3177,19 @@ class UpsampleNetwork(nn.Module):
         https://github.com/fatchord/WaveRNN/blob/master/models/fatchord_version.py
     """
 
-    def __init__(self, feat_dims, upsample_scales=[4, 4, 10], compute_dims=
-        128, res_blocks=10, res_out_dims=128, pad=2):
+    def __init__(self, feat_dims, upsample_scales=[4, 4, 10], compute_dims=128, res_blocks=10, res_out_dims=128, pad=2):
         super().__init__()
         self.num_outputs = res_out_dims
         total_scale = np.cumproduct(upsample_scales)[-1]
         self.indent = pad * total_scale
-        self.resnet = MelResNet(res_blocks, feat_dims, compute_dims,
-            res_out_dims, pad)
+        self.resnet = MelResNet(res_blocks, feat_dims, compute_dims, res_out_dims, pad)
         self.resnet_stretch = Stretch2d(total_scale, 1)
         self.up_layers = nn.ModuleList()
         for scale in upsample_scales:
             k_size = 1, scale * 2 + 1
             padding = 0, scale
             stretch = Stretch2d(scale, 1)
-            conv = nn.Conv2d(1, 1, kernel_size=k_size, padding=padding,
-                bias=False)
+            conv = nn.Conv2d(1, 1, kernel_size=k_size, padding=padding, bias=False)
             conv.weight.data.fill_(1.0 / k_size[1])
             self.up_layers.append(stretch)
             self.up_layers.append(conv)
@@ -3683,13 +3226,10 @@ class MLP(nn.Module):
         self.input_dim = inp_dim
         self.dnn_lay = list(map(int, options['dnn_lay'].split(',')))
         self.dnn_drop = list(map(float, options['dnn_drop'].split(',')))
-        self.dnn_use_batchnorm = list(map(strtobool, options[
-            'dnn_use_batchnorm'].split(',')))
-        self.dnn_use_laynorm = list(map(strtobool, options[
-            'dnn_use_laynorm'].split(',')))
+        self.dnn_use_batchnorm = list(map(strtobool, options['dnn_use_batchnorm'].split(',')))
+        self.dnn_use_laynorm = list(map(strtobool, options['dnn_use_laynorm'].split(',')))
         self.dnn_use_laynorm_inp = strtobool(options['dnn_use_laynorm_inp'])
-        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp']
-            )
+        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp'])
         self.dnn_act = options['dnn_act'].split(',')
         self.wx = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -3710,12 +3250,8 @@ class MLP(nn.Module):
             self.bn.append(nn.BatchNorm1d(self.dnn_lay[i], momentum=0.05))
             if self.dnn_use_laynorm[i] or self.dnn_use_batchnorm[i]:
                 add_bias = False
-            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=
-                add_bias))
-            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.
-                dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i])), np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i]))))
+            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=add_bias))
+            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (current_input + self.dnn_lay[i])), np.sqrt(0.01 / (current_input + self.dnn_lay[i]))))
             self.wx[i].bias = torch.nn.Parameter(torch.zeros(self.dnn_lay[i]))
             current_input = self.dnn_lay[i]
         self.out_dim = current_input
@@ -3730,12 +3266,9 @@ class MLP(nn.Module):
                 x = self.drop[i](self.act[i](self.ln[i](self.wx[i](x))))
             if self.dnn_use_batchnorm[i] and not self.dnn_use_laynorm[i]:
                 x = self.drop[i](self.act[i](self.bn[i](self.wx[i](x))))
-            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i
-                ] == True:
-                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[
-                    i](x)))))
-            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i
-                ] == False:
+            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i] == True:
+                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[i](x)))))
+            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i] == False:
                 x = self.drop[i](self.act[i](self.wx[i](x)))
         return x
 
@@ -3751,9 +3284,7 @@ class LSTM_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -3781,9 +3312,7 @@ class GRU_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -3809,9 +3338,7 @@ class RNN_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size,
-            self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias,
-            dropout=self.dropout, bidirectional=self.bidirectional)])
+        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size, self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -3832,13 +3359,10 @@ class LSTM(nn.Module):
         self.input_dim = inp_dim
         self.lstm_lay = list(map(int, options['lstm_lay'].split(',')))
         self.lstm_drop = list(map(float, options['lstm_drop'].split(',')))
-        self.lstm_use_batchnorm = list(map(strtobool, options[
-            'lstm_use_batchnorm'].split(',')))
-        self.lstm_use_laynorm = list(map(strtobool, options[
-            'lstm_use_laynorm'].split(',')))
+        self.lstm_use_batchnorm = list(map(strtobool, options['lstm_use_batchnorm'].split(',')))
+        self.lstm_use_laynorm = list(map(strtobool, options['lstm_use_laynorm'].split(',')))
         self.lstm_use_laynorm_inp = strtobool(options['lstm_use_laynorm_inp'])
-        self.lstm_use_batchnorm_inp = strtobool(options[
-            'lstm_use_batchnorm_inp'])
+        self.lstm_use_batchnorm_inp = strtobool(options['lstm_use_batchnorm_inp'])
         self.lstm_act = options['lstm_act'].split(',')
         self.lstm_orthinit = strtobool(options['lstm_orthinit'])
         self.bidir = strtobool(options['lstm_bidir'])
@@ -3873,22 +3397,14 @@ class LSTM(nn.Module):
             add_bias = True
             if self.lstm_use_laynorm[i] or self.lstm_use_batchnorm[i]:
                 add_bias = False
-            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
+            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
             if self.lstm_orthinit:
                 nn.init.orthogonal_(self.ufh[i].weight)
                 nn.init.orthogonal_(self.uih[i].weight)
@@ -3918,8 +3434,7 @@ class LSTM(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.lstm_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.lstm_drop[i]])
             if self.use_cuda:
@@ -3930,22 +3445,14 @@ class LSTM(nn.Module):
             wox_out = self.wox[i](x)
             wcx_out = self.wcx[i](x)
             if self.lstm_use_batchnorm[i]:
-                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] *
-                    wfx_out.shape[1], wfx_out.shape[2]))
-                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1
-                    ], wfx_out.shape[2])
-                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] *
-                    wix_out.shape[1], wix_out.shape[2]))
-                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1
-                    ], wix_out.shape[2])
-                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] *
-                    wox_out.shape[1], wox_out.shape[2]))
-                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1
-                    ], wox_out.shape[2])
-                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] *
-                    wcx_out.shape[1], wcx_out.shape[2]))
-                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1
-                    ], wcx_out.shape[2])
+                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] * wfx_out.shape[1], wfx_out.shape[2]))
+                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1], wfx_out.shape[2])
+                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] * wix_out.shape[1], wix_out.shape[2]))
+                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1], wix_out.shape[2])
+                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] * wox_out.shape[1], wox_out.shape[2]))
+                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1], wox_out.shape[2])
+                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] * wcx_out.shape[1], wcx_out.shape[2]))
+                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1], wcx_out.shape[2])
             hiddens = []
             ct = h_init
             ht = h_init
@@ -3953,8 +3460,7 @@ class LSTM(nn.Module):
                 ft = torch.sigmoid(wfx_out[k] + self.ufh[i](ht))
                 it = torch.sigmoid(wix_out[k] + self.uih[i](ht))
                 ot = torch.sigmoid(wox_out[k] + self.uoh[i](ht))
-                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)
-                    ) * drop_mask + ft * ct
+                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)) * drop_mask + ft * ct
                 ht = ot * self.act[i](ct)
                 if self.lstm_use_laynorm[i]:
                     ht = self.ln[i](ht)
@@ -3962,8 +3468,7 @@ class LSTM(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -3976,13 +3481,10 @@ class GRU(nn.Module):
         self.input_dim = inp_dim
         self.gru_lay = list(map(int, options['gru_lay'].split(',')))
         self.gru_drop = list(map(float, options['gru_drop'].split(',')))
-        self.gru_use_batchnorm = list(map(strtobool, options[
-            'gru_use_batchnorm'].split(',')))
-        self.gru_use_laynorm = list(map(strtobool, options[
-            'gru_use_laynorm'].split(',')))
+        self.gru_use_batchnorm = list(map(strtobool, options['gru_use_batchnorm'].split(',')))
+        self.gru_use_laynorm = list(map(strtobool, options['gru_use_laynorm'].split(',')))
         self.gru_use_laynorm_inp = strtobool(options['gru_use_laynorm_inp'])
-        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp']
-            )
+        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp'])
         self.gru_orthinit = strtobool(options['gru_orthinit'])
         self.gru_act = options['gru_act'].split(',')
         self.bidir = strtobool(options['gru_bidir'])
@@ -4014,18 +3516,12 @@ class GRU(nn.Module):
             add_bias = True
             if self.gru_use_laynorm[i] or self.gru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
             if self.gru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -4053,8 +3549,7 @@ class GRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.gru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.gru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.gru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.gru_drop[i]])
             if self.use_cuda:
@@ -4064,18 +3559,12 @@ class GRU(nn.Module):
             wz_out = self.wz[i](x)
             wr_out = self.wr[i](x)
             if self.gru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
-                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] *
-                    wr_out.shape[1], wr_out.shape[2]))
-                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1],
-                    wr_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
+                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] * wr_out.shape[1], wr_out.shape[2]))
+                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1], wr_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -4090,8 +3579,7 @@ class GRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -4104,14 +3592,10 @@ class liGRU(nn.Module):
         self.input_dim = inp_dim
         self.ligru_lay = list(map(int, options['ligru_lay'].split(',')))
         self.ligru_drop = list(map(float, options['ligru_drop'].split(',')))
-        self.ligru_use_batchnorm = list(map(strtobool, options[
-            'ligru_use_batchnorm'].split(',')))
-        self.ligru_use_laynorm = list(map(strtobool, options[
-            'ligru_use_laynorm'].split(',')))
-        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp']
-            )
-        self.ligru_use_batchnorm_inp = strtobool(options[
-            'ligru_use_batchnorm_inp'])
+        self.ligru_use_batchnorm = list(map(strtobool, options['ligru_use_batchnorm'].split(',')))
+        self.ligru_use_laynorm = list(map(strtobool, options['ligru_use_laynorm'].split(',')))
+        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp'])
+        self.ligru_use_batchnorm_inp = strtobool(options['ligru_use_batchnorm_inp'])
         self.ligru_orthinit = strtobool(options['ligru_orthinit'])
         self.ligru_act = options['ligru_act'].split(',')
         self.bidir = strtobool(options['ligru_bidir'])
@@ -4140,14 +3624,10 @@ class liGRU(nn.Module):
             add_bias = True
             if self.ligru_use_laynorm[i] or self.ligru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
-            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
+            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
             if self.ligru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -4173,8 +3653,7 @@ class liGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.ligru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.ligru_drop[i]])
             if self.use_cuda:
@@ -4183,14 +3662,10 @@ class liGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.ligru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -4204,8 +3679,7 @@ class liGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -4216,18 +3690,12 @@ class minimalGRU(nn.Module):
     def __init__(self, options, inp_dim):
         super(minimalGRU, self).__init__()
         self.input_dim = inp_dim
-        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split
-            (',')))
-        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].
-            split(',')))
-        self.minimalgru_use_batchnorm = list(map(strtobool, options[
-            'minimalgru_use_batchnorm'].split(',')))
-        self.minimalgru_use_laynorm = list(map(strtobool, options[
-            'minimalgru_use_laynorm'].split(',')))
-        self.minimalgru_use_laynorm_inp = strtobool(options[
-            'minimalgru_use_laynorm_inp'])
-        self.minimalgru_use_batchnorm_inp = strtobool(options[
-            'minimalgru_use_batchnorm_inp'])
+        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split(',')))
+        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].split(',')))
+        self.minimalgru_use_batchnorm = list(map(strtobool, options['minimalgru_use_batchnorm'].split(',')))
+        self.minimalgru_use_laynorm = list(map(strtobool, options['minimalgru_use_laynorm'].split(',')))
+        self.minimalgru_use_laynorm_inp = strtobool(options['minimalgru_use_laynorm_inp'])
+        self.minimalgru_use_batchnorm_inp = strtobool(options['minimalgru_use_batchnorm_inp'])
         self.minimalgru_orthinit = strtobool(options['minimalgru_orthinit'])
         self.minimalgru_act = options['minimalgru_act'].split(',')
         self.bidir = strtobool(options['minimalgru_bidir'])
@@ -4254,31 +3722,23 @@ class minimalGRU(nn.Module):
         for i in range(self.N_minimalgru_lay):
             self.act.append(act_fun(self.minimalgru_act[i]))
             add_bias = True
-            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[
-                i]:
+            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
-            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
+            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
             if self.minimalgru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
-            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
-            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
+            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
+            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
             self.ln.append(LayerNorm(self.minimalgru_lay[i]))
             if self.bidir:
                 current_input = 2 * self.minimalgru_lay[i]
             else:
                 current_input = self.minimalgru_lay[i]
-        self.out_dim = self.minimalgru_lay[i
-            ] + self.bidir * self.minimalgru_lay[i]
+        self.out_dim = self.minimalgru_lay[i] + self.bidir * self.minimalgru_lay[i]
 
     def forward(self, x):
         if bool(self.minimalgru_use_laynorm_inp):
@@ -4293,8 +3753,7 @@ class minimalGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.minimalgru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.minimalgru_drop[i]])
             if self.use_cuda:
@@ -4303,14 +3762,10 @@ class minimalGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.minimalgru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -4324,8 +3779,7 @@ class minimalGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -4338,13 +3792,10 @@ class RNN(nn.Module):
         self.input_dim = inp_dim
         self.rnn_lay = list(map(int, options['rnn_lay'].split(',')))
         self.rnn_drop = list(map(float, options['rnn_drop'].split(',')))
-        self.rnn_use_batchnorm = list(map(strtobool, options[
-            'rnn_use_batchnorm'].split(',')))
-        self.rnn_use_laynorm = list(map(strtobool, options[
-            'rnn_use_laynorm'].split(',')))
+        self.rnn_use_batchnorm = list(map(strtobool, options['rnn_use_batchnorm'].split(',')))
+        self.rnn_use_laynorm = list(map(strtobool, options['rnn_use_laynorm'].split(',')))
         self.rnn_use_laynorm_inp = strtobool(options['rnn_use_laynorm_inp'])
-        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp']
-            )
+        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp'])
         self.rnn_orthinit = strtobool(options['rnn_orthinit'])
         self.rnn_act = options['rnn_act'].split(',')
         self.bidir = strtobool(options['rnn_bidir'])
@@ -4370,10 +3821,8 @@ class RNN(nn.Module):
             add_bias = True
             if self.rnn_use_laynorm[i] or self.rnn_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias=False))
             if self.rnn_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
             self.bn_wh.append(nn.BatchNorm1d(self.rnn_lay[i], momentum=0.05))
@@ -4397,8 +3846,7 @@ class RNN(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.rnn_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.rnn_drop[i]])
             if self.use_cuda:
@@ -4406,10 +3854,8 @@ class RNN(nn.Module):
                 drop_mask = drop_mask
             wh_out = self.wh[i](x)
             if self.rnn_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -4421,8 +3867,7 @@ class RNN(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -4435,17 +3880,13 @@ class CNN(nn.Module):
         self.input_dim = inp_dim
         self.cnn_N_filt = list(map(int, options['cnn_N_filt'].split(',')))
         self.cnn_len_filt = list(map(int, options['cnn_len_filt'].split(',')))
-        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].
-            split(',')))
+        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].split(',')))
         self.cnn_act = options['cnn_act'].split(',')
         self.cnn_drop = list(map(float, options['cnn_drop'].split(',')))
-        self.cnn_use_laynorm = list(map(strtobool, options[
-            'cnn_use_laynorm'].split(',')))
-        self.cnn_use_batchnorm = list(map(strtobool, options[
-            'cnn_use_batchnorm'].split(',')))
+        self.cnn_use_laynorm = list(map(strtobool, options['cnn_use_laynorm'].split(',')))
+        self.cnn_use_batchnorm = list(map(strtobool, options['cnn_use_batchnorm'].split(',')))
         self.cnn_use_laynorm_inp = strtobool(options['cnn_use_laynorm_inp'])
-        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp']
-            )
+        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp'])
         self.N_cnn_lay = len(self.cnn_N_filt)
         self.conv = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -4462,18 +3903,13 @@ class CNN(nn.Module):
             len_filt = int(self.cnn_len_filt[i])
             self.drop.append(nn.Dropout(p=self.cnn_drop[i]))
             self.act.append(act_fun(self.cnn_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum
-                =0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum=0.05))
             if i == 0:
                 self.conv.append(nn.Conv1d(1, N_filt, len_filt))
             else:
-                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.
-                    cnn_N_filt[i], self.cnn_len_filt[i]))
-            current_input = int((current_input - self.cnn_len_filt[i] + 1) /
-                self.cnn_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.cnn_N_filt[i], self.cnn_len_filt[i]))
+            current_input = int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -4486,15 +3922,11 @@ class CNN(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_cnn_lay):
             if self.cnn_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
             if self.cnn_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
-            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.cnn_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
+            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -4505,19 +3937,14 @@ class SincNet(nn.Module):
         super(SincNet, self).__init__()
         self.input_dim = inp_dim
         self.sinc_N_filt = list(map(int, options['sinc_N_filt'].split(',')))
-        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(','))
-            )
-        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len']
-            .split(',')))
+        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(',')))
+        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len'].split(',')))
         self.sinc_act = options['sinc_act'].split(',')
         self.sinc_drop = list(map(float, options['sinc_drop'].split(',')))
-        self.sinc_use_laynorm = list(map(strtobool, options[
-            'sinc_use_laynorm'].split(',')))
-        self.sinc_use_batchnorm = list(map(strtobool, options[
-            'sinc_use_batchnorm'].split(',')))
+        self.sinc_use_laynorm = list(map(strtobool, options['sinc_use_laynorm'].split(',')))
+        self.sinc_use_batchnorm = list(map(strtobool, options['sinc_use_batchnorm'].split(',')))
         self.sinc_use_laynorm_inp = strtobool(options['sinc_use_laynorm_inp'])
-        self.sinc_use_batchnorm_inp = strtobool(options[
-            'sinc_use_batchnorm_inp'])
+        self.sinc_use_batchnorm_inp = strtobool(options['sinc_use_batchnorm_inp'])
         self.N_sinc_lay = len(self.sinc_N_filt)
         self.sinc_sample_rate = int(options['sinc_sample_rate'])
         self.sinc_min_low_hz = int(options['sinc_min_low_hz'])
@@ -4537,20 +3964,13 @@ class SincNet(nn.Module):
             len_filt = int(self.sinc_len_filt[i])
             self.drop.append(nn.Dropout(p=self.sinc_drop[i]))
             self.act.append(act_fun(self.sinc_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]),
-                momentum=0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]), momentum=0.05))
             if i == 0:
-                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=
-                    self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz,
-                    min_band_hz=self.sinc_min_band_hz))
+                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz, min_band_hz=self.sinc_min_band_hz))
             else:
-                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.
-                    sinc_N_filt[i], self.sinc_len_filt[i]))
-            current_input = int((current_input - self.sinc_len_filt[i] + 1) /
-                self.sinc_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.sinc_N_filt[i], self.sinc_len_filt[i]))
+            current_input = int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -4563,15 +3983,11 @@ class SincNet(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_sinc_lay):
             if self.sinc_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
             if self.sinc_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
-            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.sinc_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
+            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -4606,14 +4022,10 @@ class SincConv(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -4631,14 +4043,12 @@ class SincConv(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel) / self.sample_rate
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
         n_lin = torch.linspace(0, self.kernel_size, steps=self.kernel_size)
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2
         self.n_ = torch.arange(-n, n + 1).view(1, -1) / self.sample_rate
 
@@ -4663,21 +4073,16 @@ class SincConv(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
-        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
-            band_hz_)
+        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.band_hz_)
         f_times_t = torch.matmul(low, self.n_)
-        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         f_times_t = torch.matmul(high, self.n_)
-        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         band_pass = low_pass2 - low_pass1
         max_, _ = torch.max(band_pass, dim=1, keepdim=True)
         band_pass = band_pass / max_
-        self.filters = (band_pass * self.window_).view(self.out_channels, 1,
-            self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        self.filters = (band_pass * self.window_).view(self.out_channels, 1, self.kernel_size)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SincConv_fast(nn.Module):
@@ -4710,14 +4115,10 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv_fast, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -4735,18 +4136,14 @@ class SincConv_fast(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
-        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.
-            kernel_size / 2))
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.kernel_size / 2))
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2.0
-        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1
-            ) / self.sample_rate
+        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1) / self.sample_rate
 
     def forward(self, waveforms):
         """
@@ -4762,21 +4159,17 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
-            ), self.min_low_hz, self.sample_rate / 2)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
         band = (high - low)[:, (0)]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
-        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)
-            ) / (self.n_ / 2) * self.window_
+        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-        band_pass = torch.cat([band_pass_left, band_pass_center,
-            band_pass_right], dim=1)
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, (None)])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SRU(nn.Module):
@@ -4794,20 +4187,12 @@ class SRU(nn.Module):
         self.weight_norm = bool(strtobool(options['sru_weight_norm']))
         self.layer_norm = bool(strtobool(options['sru_layer_norm']))
         self.bidirectional = bool(strtobool(options['sru_bidirectional']))
-        self.is_input_normalized = bool(strtobool(options[
-            'sru_is_input_normalized']))
+        self.is_input_normalized = bool(strtobool(options['sru_is_input_normalized']))
         self.has_skip_term = bool(strtobool(options['sru_has_skip_term']))
         self.rescale = bool(strtobool(options['sru_rescale']))
         self.highway_bias = float(options['sru_highway_bias'])
         self.n_proj = int(options['sru_n_proj'])
-        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=
-            self.num_layers, dropout=self.dropout, rnn_dropout=self.
-            rnn_dropout, bidirectional=self.bidirectional, n_proj=self.
-            n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu,
-            use_relu=self.use_relu, weight_norm=self.weight_norm,
-            layer_norm=self.layer_norm, has_skip_term=self.has_skip_term,
-            is_input_normalized=self.is_input_normalized, highway_bias=self
-            .highway_bias, rescale=self.rescale)
+        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=self.num_layers, dropout=self.dropout, rnn_dropout=self.rnn_dropout, bidirectional=self.bidirectional, n_proj=self.n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu, use_relu=self.use_relu, weight_norm=self.weight_norm, layer_norm=self.layer_norm, has_skip_term=self.has_skip_term, is_input_normalized=self.is_input_normalized, highway_bias=self.highway_bias, rescale=self.rescale)
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -4850,13 +4235,10 @@ class MLP(nn.Module):
         self.input_dim = inp_dim
         self.dnn_lay = list(map(int, options['dnn_lay'].split(',')))
         self.dnn_drop = list(map(float, options['dnn_drop'].split(',')))
-        self.dnn_use_batchnorm = list(map(strtobool, options[
-            'dnn_use_batchnorm'].split(',')))
-        self.dnn_use_laynorm = list(map(strtobool, options[
-            'dnn_use_laynorm'].split(',')))
+        self.dnn_use_batchnorm = list(map(strtobool, options['dnn_use_batchnorm'].split(',')))
+        self.dnn_use_laynorm = list(map(strtobool, options['dnn_use_laynorm'].split(',')))
         self.dnn_use_laynorm_inp = strtobool(options['dnn_use_laynorm_inp'])
-        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp']
-            )
+        self.dnn_use_batchnorm_inp = strtobool(options['dnn_use_batchnorm_inp'])
         self.dnn_act = options['dnn_act'].split(',')
         self.wx = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -4877,12 +4259,8 @@ class MLP(nn.Module):
             self.bn.append(nn.BatchNorm1d(self.dnn_lay[i], momentum=0.05))
             if self.dnn_use_laynorm[i] or self.dnn_use_batchnorm[i]:
                 add_bias = False
-            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=
-                add_bias))
-            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.
-                dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i])), np.sqrt(0.01 / (
-                current_input + self.dnn_lay[i]))))
+            self.wx.append(nn.Linear(current_input, self.dnn_lay[i], bias=add_bias))
+            self.wx[i].weight = torch.nn.Parameter(torch.Tensor(self.dnn_lay[i], current_input).uniform_(-np.sqrt(0.01 / (current_input + self.dnn_lay[i])), np.sqrt(0.01 / (current_input + self.dnn_lay[i]))))
             self.wx[i].bias = torch.nn.Parameter(torch.zeros(self.dnn_lay[i]))
             current_input = self.dnn_lay[i]
         self.out_dim = current_input
@@ -4897,12 +4275,9 @@ class MLP(nn.Module):
                 x = self.drop[i](self.act[i](self.ln[i](self.wx[i](x))))
             if self.dnn_use_batchnorm[i] and not self.dnn_use_laynorm[i]:
                 x = self.drop[i](self.act[i](self.bn[i](self.wx[i](x))))
-            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i
-                ] == True:
-                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[
-                    i](x)))))
-            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i
-                ] == False:
+            if self.dnn_use_batchnorm[i] == True and self.dnn_use_laynorm[i] == True:
+                x = self.drop[i](self.act[i](self.bn[i](self.ln[i](self.wx[i](x)))))
+            if self.dnn_use_batchnorm[i] == False and self.dnn_use_laynorm[i] == False:
                 x = self.drop[i](self.act[i](self.wx[i](x)))
         return x
 
@@ -4918,9 +4293,7 @@ class LSTM_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.lstm = nn.ModuleList([nn.LSTM(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -4948,9 +4321,7 @@ class GRU_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size,
-            self.num_layers, bias=self.bias, dropout=self.dropout,
-            bidirectional=self.bidirectional)])
+        self.gru = nn.ModuleList([nn.GRU(self.input_dim, self.hidden_size, self.num_layers, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -4976,9 +4347,7 @@ class RNN_cudnn(nn.Module):
         self.batch_first = bool(strtobool(options['batch_first']))
         self.dropout = float(options['dropout'])
         self.bidirectional = bool(strtobool(options['bidirectional']))
-        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size,
-            self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias,
-            dropout=self.dropout, bidirectional=self.bidirectional)])
+        self.rnn = nn.ModuleList([nn.RNN(self.input_dim, self.hidden_size, self.num_layers, nonlinearity=self.nonlinearity, bias=self.bias, dropout=self.dropout, bidirectional=self.bidirectional)])
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -4999,13 +4368,10 @@ class LSTM(nn.Module):
         self.input_dim = inp_dim
         self.lstm_lay = list(map(int, options['lstm_lay'].split(',')))
         self.lstm_drop = list(map(float, options['lstm_drop'].split(',')))
-        self.lstm_use_batchnorm = list(map(strtobool, options[
-            'lstm_use_batchnorm'].split(',')))
-        self.lstm_use_laynorm = list(map(strtobool, options[
-            'lstm_use_laynorm'].split(',')))
+        self.lstm_use_batchnorm = list(map(strtobool, options['lstm_use_batchnorm'].split(',')))
+        self.lstm_use_laynorm = list(map(strtobool, options['lstm_use_laynorm'].split(',')))
         self.lstm_use_laynorm_inp = strtobool(options['lstm_use_laynorm_inp'])
-        self.lstm_use_batchnorm_inp = strtobool(options[
-            'lstm_use_batchnorm_inp'])
+        self.lstm_use_batchnorm_inp = strtobool(options['lstm_use_batchnorm_inp'])
         self.lstm_act = options['lstm_act'].split(',')
         self.lstm_orthinit = strtobool(options['lstm_orthinit'])
         self.bidir = strtobool(options['lstm_bidir'])
@@ -5040,22 +4406,14 @@ class LSTM(nn.Module):
             add_bias = True
             if self.lstm_use_laynorm[i] or self.lstm_use_batchnorm[i]:
                 add_bias = False
-            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias
-                =add_bias))
-            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
-            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i],
-                bias=False))
+            self.wfx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wix.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wox.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.wcx.append(nn.Linear(current_input, self.lstm_lay[i], bias=add_bias))
+            self.ufh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uih.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uoh.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            self.uch.append(nn.Linear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
             if self.lstm_orthinit:
                 nn.init.orthogonal_(self.ufh[i].weight)
                 nn.init.orthogonal_(self.uih[i].weight)
@@ -5085,8 +4443,7 @@ class LSTM(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.lstm_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.lstm_drop[i]])
             if self.use_cuda:
@@ -5097,22 +4454,14 @@ class LSTM(nn.Module):
             wox_out = self.wox[i](x)
             wcx_out = self.wcx[i](x)
             if self.lstm_use_batchnorm[i]:
-                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] *
-                    wfx_out.shape[1], wfx_out.shape[2]))
-                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1
-                    ], wfx_out.shape[2])
-                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] *
-                    wix_out.shape[1], wix_out.shape[2]))
-                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1
-                    ], wix_out.shape[2])
-                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] *
-                    wox_out.shape[1], wox_out.shape[2]))
-                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1
-                    ], wox_out.shape[2])
-                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] *
-                    wcx_out.shape[1], wcx_out.shape[2]))
-                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1
-                    ], wcx_out.shape[2])
+                wfx_out_bn = self.bn_wfx[i](wfx_out.view(wfx_out.shape[0] * wfx_out.shape[1], wfx_out.shape[2]))
+                wfx_out = wfx_out_bn.view(wfx_out.shape[0], wfx_out.shape[1], wfx_out.shape[2])
+                wix_out_bn = self.bn_wix[i](wix_out.view(wix_out.shape[0] * wix_out.shape[1], wix_out.shape[2]))
+                wix_out = wix_out_bn.view(wix_out.shape[0], wix_out.shape[1], wix_out.shape[2])
+                wox_out_bn = self.bn_wox[i](wox_out.view(wox_out.shape[0] * wox_out.shape[1], wox_out.shape[2]))
+                wox_out = wox_out_bn.view(wox_out.shape[0], wox_out.shape[1], wox_out.shape[2])
+                wcx_out_bn = self.bn_wcx[i](wcx_out.view(wcx_out.shape[0] * wcx_out.shape[1], wcx_out.shape[2]))
+                wcx_out = wcx_out_bn.view(wcx_out.shape[0], wcx_out.shape[1], wcx_out.shape[2])
             hiddens = []
             ct = h_init
             ht = h_init
@@ -5120,8 +4469,7 @@ class LSTM(nn.Module):
                 ft = torch.sigmoid(wfx_out[k] + self.ufh[i](ht))
                 it = torch.sigmoid(wix_out[k] + self.uih[i](ht))
                 ot = torch.sigmoid(wox_out[k] + self.uoh[i](ht))
-                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)
-                    ) * drop_mask + ft * ct
+                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)) * drop_mask + ft * ct
                 ht = ot * self.act[i](ct)
                 if self.lstm_use_laynorm[i]:
                     ht = self.ln[i](ht)
@@ -5129,8 +4477,7 @@ class LSTM(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -5143,13 +4490,10 @@ class GRU(nn.Module):
         self.input_dim = inp_dim
         self.gru_lay = list(map(int, options['gru_lay'].split(',')))
         self.gru_drop = list(map(float, options['gru_drop'].split(',')))
-        self.gru_use_batchnorm = list(map(strtobool, options[
-            'gru_use_batchnorm'].split(',')))
-        self.gru_use_laynorm = list(map(strtobool, options[
-            'gru_use_laynorm'].split(',')))
+        self.gru_use_batchnorm = list(map(strtobool, options['gru_use_batchnorm'].split(',')))
+        self.gru_use_laynorm = list(map(strtobool, options['gru_use_laynorm'].split(',')))
         self.gru_use_laynorm_inp = strtobool(options['gru_use_laynorm_inp'])
-        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp']
-            )
+        self.gru_use_batchnorm_inp = strtobool(options['gru_use_batchnorm_inp'])
         self.gru_orthinit = strtobool(options['gru_orthinit'])
         self.gru_act = options['gru_act'].split(',')
         self.bidir = strtobool(options['gru_bidir'])
@@ -5181,18 +4525,12 @@ class GRU(nn.Module):
             add_bias = True
             if self.gru_use_laynorm[i] or self.gru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
-            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.wr.append(nn.Linear(current_input, self.gru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
+            self.ur.append(nn.Linear(self.gru_lay[i], self.gru_lay[i], bias=False))
             if self.gru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -5220,8 +4558,7 @@ class GRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.gru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.gru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.gru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.gru_drop[i]])
             if self.use_cuda:
@@ -5231,18 +4568,12 @@ class GRU(nn.Module):
             wz_out = self.wz[i](x)
             wr_out = self.wr[i](x)
             if self.gru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
-                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] *
-                    wr_out.shape[1], wr_out.shape[2]))
-                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1],
-                    wr_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
+                wr_out_bn = self.bn_wr[i](wr_out.view(wr_out.shape[0] * wr_out.shape[1], wr_out.shape[2]))
+                wr_out = wr_out_bn.view(wr_out.shape[0], wr_out.shape[1], wr_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -5257,8 +4588,7 @@ class GRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -5271,14 +4601,10 @@ class liGRU(nn.Module):
         self.input_dim = inp_dim
         self.ligru_lay = list(map(int, options['ligru_lay'].split(',')))
         self.ligru_drop = list(map(float, options['ligru_drop'].split(',')))
-        self.ligru_use_batchnorm = list(map(strtobool, options[
-            'ligru_use_batchnorm'].split(',')))
-        self.ligru_use_laynorm = list(map(strtobool, options[
-            'ligru_use_laynorm'].split(',')))
-        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp']
-            )
-        self.ligru_use_batchnorm_inp = strtobool(options[
-            'ligru_use_batchnorm_inp'])
+        self.ligru_use_batchnorm = list(map(strtobool, options['ligru_use_batchnorm'].split(',')))
+        self.ligru_use_laynorm = list(map(strtobool, options['ligru_use_laynorm'].split(',')))
+        self.ligru_use_laynorm_inp = strtobool(options['ligru_use_laynorm_inp'])
+        self.ligru_use_batchnorm_inp = strtobool(options['ligru_use_batchnorm_inp'])
         self.ligru_orthinit = strtobool(options['ligru_orthinit'])
         self.ligru_act = options['ligru_act'].split(',')
         self.bidir = strtobool(options['ligru_bidir'])
@@ -5307,14 +4633,10 @@ class liGRU(nn.Module):
             add_bias = True
             if self.ligru_use_laynorm[i] or self.ligru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias
-                =add_bias))
-            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
-            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i],
-                bias=False))
+            self.wh.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.ligru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.ligru_lay[i], self.ligru_lay[i], bias=False))
             if self.ligru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
@@ -5340,8 +4662,7 @@ class liGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.ligru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.ligru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.ligru_drop[i]])
             if self.use_cuda:
@@ -5350,14 +4671,10 @@ class liGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.ligru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -5371,8 +4688,7 @@ class liGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -5383,18 +4699,12 @@ class minimalGRU(nn.Module):
     def __init__(self, options, inp_dim):
         super(minimalGRU, self).__init__()
         self.input_dim = inp_dim
-        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split
-            (',')))
-        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].
-            split(',')))
-        self.minimalgru_use_batchnorm = list(map(strtobool, options[
-            'minimalgru_use_batchnorm'].split(',')))
-        self.minimalgru_use_laynorm = list(map(strtobool, options[
-            'minimalgru_use_laynorm'].split(',')))
-        self.minimalgru_use_laynorm_inp = strtobool(options[
-            'minimalgru_use_laynorm_inp'])
-        self.minimalgru_use_batchnorm_inp = strtobool(options[
-            'minimalgru_use_batchnorm_inp'])
+        self.minimalgru_lay = list(map(int, options['minimalgru_lay'].split(',')))
+        self.minimalgru_drop = list(map(float, options['minimalgru_drop'].split(',')))
+        self.minimalgru_use_batchnorm = list(map(strtobool, options['minimalgru_use_batchnorm'].split(',')))
+        self.minimalgru_use_laynorm = list(map(strtobool, options['minimalgru_use_laynorm'].split(',')))
+        self.minimalgru_use_laynorm_inp = strtobool(options['minimalgru_use_laynorm_inp'])
+        self.minimalgru_use_batchnorm_inp = strtobool(options['minimalgru_use_batchnorm_inp'])
         self.minimalgru_orthinit = strtobool(options['minimalgru_orthinit'])
         self.minimalgru_act = options['minimalgru_act'].split(',')
         self.bidir = strtobool(options['minimalgru_bidir'])
@@ -5421,31 +4731,23 @@ class minimalGRU(nn.Module):
         for i in range(self.N_minimalgru_lay):
             self.act.append(act_fun(self.minimalgru_act[i]))
             add_bias = True
-            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[
-                i]:
+            if self.minimalgru_use_laynorm[i] or self.minimalgru_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i],
-                bias=add_bias))
-            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
-            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.
-                minimalgru_lay[i], bias=False))
+            self.wh.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.wz.append(nn.Linear(current_input, self.minimalgru_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
+            self.uz.append(nn.Linear(self.minimalgru_lay[i], self.minimalgru_lay[i], bias=False))
             if self.minimalgru_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
                 nn.init.orthogonal_(self.uz[i].weight)
-            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
-            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i],
-                momentum=0.05))
+            self.bn_wh.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
+            self.bn_wz.append(nn.BatchNorm1d(self.minimalgru_lay[i], momentum=0.05))
             self.ln.append(LayerNorm(self.minimalgru_lay[i]))
             if self.bidir:
                 current_input = 2 * self.minimalgru_lay[i]
             else:
                 current_input = self.minimalgru_lay[i]
-        self.out_dim = self.minimalgru_lay[i
-            ] + self.bidir * self.minimalgru_lay[i]
+        self.out_dim = self.minimalgru_lay[i] + self.bidir * self.minimalgru_lay[i]
 
     def forward(self, x):
         if bool(self.minimalgru_use_laynorm_inp):
@@ -5460,8 +4762,7 @@ class minimalGRU(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.minimalgru_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.minimalgru_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.minimalgru_drop[i]])
             if self.use_cuda:
@@ -5470,14 +4771,10 @@ class minimalGRU(nn.Module):
             wh_out = self.wh[i](x)
             wz_out = self.wz[i](x)
             if self.minimalgru_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
-                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] *
-                    wz_out.shape[1], wz_out.shape[2]))
-                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1],
-                    wz_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
+                wz_out_bn = self.bn_wz[i](wz_out.view(wz_out.shape[0] * wz_out.shape[1], wz_out.shape[2]))
+                wz_out = wz_out_bn.view(wz_out.shape[0], wz_out.shape[1], wz_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -5491,8 +4788,7 @@ class minimalGRU(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -5505,13 +4801,10 @@ class RNN(nn.Module):
         self.input_dim = inp_dim
         self.rnn_lay = list(map(int, options['rnn_lay'].split(',')))
         self.rnn_drop = list(map(float, options['rnn_drop'].split(',')))
-        self.rnn_use_batchnorm = list(map(strtobool, options[
-            'rnn_use_batchnorm'].split(',')))
-        self.rnn_use_laynorm = list(map(strtobool, options[
-            'rnn_use_laynorm'].split(',')))
+        self.rnn_use_batchnorm = list(map(strtobool, options['rnn_use_batchnorm'].split(',')))
+        self.rnn_use_laynorm = list(map(strtobool, options['rnn_use_laynorm'].split(',')))
         self.rnn_use_laynorm_inp = strtobool(options['rnn_use_laynorm_inp'])
-        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp']
-            )
+        self.rnn_use_batchnorm_inp = strtobool(options['rnn_use_batchnorm_inp'])
         self.rnn_orthinit = strtobool(options['rnn_orthinit'])
         self.rnn_act = options['rnn_act'].split(',')
         self.bidir = strtobool(options['rnn_bidir'])
@@ -5537,10 +4830,8 @@ class RNN(nn.Module):
             add_bias = True
             if self.rnn_use_laynorm[i] or self.rnn_use_batchnorm[i]:
                 add_bias = False
-            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=
-                add_bias))
-            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias
-                =False))
+            self.wh.append(nn.Linear(current_input, self.rnn_lay[i], bias=add_bias))
+            self.uh.append(nn.Linear(self.rnn_lay[i], self.rnn_lay[i], bias=False))
             if self.rnn_orthinit:
                 nn.init.orthogonal_(self.uh[i].weight)
             self.bn_wh.append(nn.BatchNorm1d(self.rnn_lay[i], momentum=0.05))
@@ -5564,8 +4855,7 @@ class RNN(nn.Module):
             else:
                 h_init = torch.zeros(x.shape[1], self.rnn_lay[i])
             if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0],
-                    h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.rnn_drop[i]))
             else:
                 drop_mask = torch.FloatTensor([1 - self.rnn_drop[i]])
             if self.use_cuda:
@@ -5573,10 +4863,8 @@ class RNN(nn.Module):
                 drop_mask = drop_mask
             wh_out = self.wh[i](x)
             if self.rnn_use_batchnorm[i]:
-                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] *
-                    wh_out.shape[1], wh_out.shape[2]))
-                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1],
-                    wh_out.shape[2])
+                wh_out_bn = self.bn_wh[i](wh_out.view(wh_out.shape[0] * wh_out.shape[1], wh_out.shape[2]))
+                wh_out = wh_out_bn.view(wh_out.shape[0], wh_out.shape[1], wh_out.shape[2])
             hiddens = []
             ht = h_init
             for k in range(x.shape[0]):
@@ -5588,8 +4876,7 @@ class RNN(nn.Module):
             h = torch.stack(hiddens)
             if self.bidir:
                 h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0
-                    )
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
                 h = torch.cat([h_f, h_b], 2)
             x = h
         return x
@@ -5602,17 +4889,13 @@ class CNN(nn.Module):
         self.input_dim = inp_dim
         self.cnn_N_filt = list(map(int, options['cnn_N_filt'].split(',')))
         self.cnn_len_filt = list(map(int, options['cnn_len_filt'].split(',')))
-        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].
-            split(',')))
+        self.cnn_max_pool_len = list(map(int, options['cnn_max_pool_len'].split(',')))
         self.cnn_act = options['cnn_act'].split(',')
         self.cnn_drop = list(map(float, options['cnn_drop'].split(',')))
-        self.cnn_use_laynorm = list(map(strtobool, options[
-            'cnn_use_laynorm'].split(',')))
-        self.cnn_use_batchnorm = list(map(strtobool, options[
-            'cnn_use_batchnorm'].split(',')))
+        self.cnn_use_laynorm = list(map(strtobool, options['cnn_use_laynorm'].split(',')))
+        self.cnn_use_batchnorm = list(map(strtobool, options['cnn_use_batchnorm'].split(',')))
         self.cnn_use_laynorm_inp = strtobool(options['cnn_use_laynorm_inp'])
-        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp']
-            )
+        self.cnn_use_batchnorm_inp = strtobool(options['cnn_use_batchnorm_inp'])
         self.N_cnn_lay = len(self.cnn_N_filt)
         self.conv = nn.ModuleList([])
         self.bn = nn.ModuleList([])
@@ -5629,18 +4912,13 @@ class CNN(nn.Module):
             len_filt = int(self.cnn_len_filt[i])
             self.drop.append(nn.Dropout(p=self.cnn_drop[i]))
             self.act.append(act_fun(self.cnn_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum
-                =0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i]), momentum=0.05))
             if i == 0:
                 self.conv.append(nn.Conv1d(1, N_filt, len_filt))
             else:
-                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.
-                    cnn_N_filt[i], self.cnn_len_filt[i]))
-            current_input = int((current_input - self.cnn_len_filt[i] + 1) /
-                self.cnn_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.cnn_N_filt[i - 1], self.cnn_N_filt[i], self.cnn_len_filt[i]))
+            current_input = int((current_input - self.cnn_len_filt[i] + 1) / self.cnn_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -5653,15 +4931,11 @@ class CNN(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_cnn_lay):
             if self.cnn_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
             if self.cnn_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.cnn_max_pool_len[i]))))
-            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.cnn_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i]))))
+            if self.cnn_use_batchnorm[i] == False and self.cnn_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.cnn_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -5672,19 +4946,14 @@ class SincNet(nn.Module):
         super(SincNet, self).__init__()
         self.input_dim = inp_dim
         self.sinc_N_filt = list(map(int, options['sinc_N_filt'].split(',')))
-        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(','))
-            )
-        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len']
-            .split(',')))
+        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(',')))
+        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len'].split(',')))
         self.sinc_act = options['sinc_act'].split(',')
         self.sinc_drop = list(map(float, options['sinc_drop'].split(',')))
-        self.sinc_use_laynorm = list(map(strtobool, options[
-            'sinc_use_laynorm'].split(',')))
-        self.sinc_use_batchnorm = list(map(strtobool, options[
-            'sinc_use_batchnorm'].split(',')))
+        self.sinc_use_laynorm = list(map(strtobool, options['sinc_use_laynorm'].split(',')))
+        self.sinc_use_batchnorm = list(map(strtobool, options['sinc_use_batchnorm'].split(',')))
         self.sinc_use_laynorm_inp = strtobool(options['sinc_use_laynorm_inp'])
-        self.sinc_use_batchnorm_inp = strtobool(options[
-            'sinc_use_batchnorm_inp'])
+        self.sinc_use_batchnorm_inp = strtobool(options['sinc_use_batchnorm_inp'])
         self.N_sinc_lay = len(self.sinc_N_filt)
         self.sinc_sample_rate = int(options['sinc_sample_rate'])
         self.sinc_min_low_hz = int(options['sinc_min_low_hz'])
@@ -5704,20 +4973,13 @@ class SincNet(nn.Module):
             len_filt = int(self.sinc_len_filt[i])
             self.drop.append(nn.Dropout(p=self.sinc_drop[i]))
             self.act.append(act_fun(self.sinc_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.
-                sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self
-                .sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]),
-                momentum=0.05))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]), momentum=0.05))
             if i == 0:
-                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=
-                    self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz,
-                    min_band_hz=self.sinc_min_band_hz))
+                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz, min_band_hz=self.sinc_min_band_hz))
             else:
-                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.
-                    sinc_N_filt[i], self.sinc_len_filt[i]))
-            current_input = int((current_input - self.sinc_len_filt[i] + 1) /
-                self.sinc_max_pool_len[i])
+                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.sinc_N_filt[i], self.sinc_len_filt[i]))
+            current_input = int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])
         self.out_dim = current_input * N_filt
 
     def forward(self, x):
@@ -5730,15 +4992,11 @@ class SincNet(nn.Module):
         x = x.view(batch, 1, seq_len)
         for i in range(self.N_sinc_lay):
             if self.sinc_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
             if self.sinc_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.
-                    conv[i](x), self.sinc_max_pool_len[i]))))
-            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i
-                ] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x),
-                    self.sinc_max_pool_len[i])))
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
+            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i])))
         x = x.view(batch, -1)
         return x
 
@@ -5773,14 +5031,10 @@ class SincConv(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -5798,14 +5052,12 @@ class SincConv(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel) / self.sample_rate
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
         n_lin = torch.linspace(0, self.kernel_size, steps=self.kernel_size)
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2
         self.n_ = torch.arange(-n, n + 1).view(1, -1) / self.sample_rate
 
@@ -5830,21 +5082,16 @@ class SincConv(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz / self.sample_rate + torch.abs(self.low_hz_)
-        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.
-            band_hz_)
+        high = low + self.min_band_hz / self.sample_rate + torch.abs(self.band_hz_)
         f_times_t = torch.matmul(low, self.n_)
-        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass1 = 2 * low * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         f_times_t = torch.matmul(high, self.n_)
-        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.
-            sample_rate)
+        low_pass2 = 2 * high * self.sinc(2 * math.pi * f_times_t * self.sample_rate)
         band_pass = low_pass2 - low_pass1
         max_, _ = torch.max(band_pass, dim=1, keepdim=True)
         band_pass = band_pass / max_
-        self.filters = (band_pass * self.window_).view(self.out_channels, 1,
-            self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        self.filters = (band_pass * self.window_).view(self.out_channels, 1, self.kernel_size)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SincConv_fast(nn.Module):
@@ -5877,14 +5124,10 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=False, groups=1, sample_rate=16000,
-        min_low_hz=50, min_band_hz=50):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False, groups=1, sample_rate=16000, min_low_hz=50, min_band_hz=50):
         super(SincConv_fast, self).__init__()
         if in_channels != 1:
-            msg = (
-                'SincConv only support one input channel (here, in_channels = {%i})'
-                 % in_channels)
+            msg = 'SincConv only support one input channel (here, in_channels = {%i})' % in_channels
             raise ValueError(msg)
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -5902,18 +5145,14 @@ class SincConv_fast(nn.Module):
         self.min_band_hz = min_band_hz
         low_hz = 30
         high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
-        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.
-            out_channels + 1)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.out_channels + 1)
         hz = self.to_hz(mel)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
-        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.
-            kernel_size / 2))
-        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.
-            kernel_size)
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1, steps=int(self.kernel_size / 2))
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
         n = (self.kernel_size - 1) / 2.0
-        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1
-            ) / self.sample_rate
+        self.n_ = 2 * math.pi * torch.arange(-n, 0).view(1, -1) / self.sample_rate
 
     def forward(self, waveforms):
         """
@@ -5929,21 +5168,17 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_
         self.window_ = self.window_
         low = self.min_low_hz + torch.abs(self.low_hz_)
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_
-            ), self.min_low_hz, self.sample_rate / 2)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
         band = (high - low)[:, (0)]
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
-        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)
-            ) / (self.n_ / 2) * self.window_
+        band_pass_left = (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-        band_pass = torch.cat([band_pass_left, band_pass_center,
-            band_pass_right], dim=1)
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, (None)])
         self.filters = band_pass.view(self.out_channels, 1, self.kernel_size)
-        return F.conv1d(waveforms, self.filters, stride=self.stride,
-            padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+        return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
 
 
 class SRU(nn.Module):
@@ -5961,20 +5196,12 @@ class SRU(nn.Module):
         self.weight_norm = bool(strtobool(options['sru_weight_norm']))
         self.layer_norm = bool(strtobool(options['sru_layer_norm']))
         self.bidirectional = bool(strtobool(options['sru_bidirectional']))
-        self.is_input_normalized = bool(strtobool(options[
-            'sru_is_input_normalized']))
+        self.is_input_normalized = bool(strtobool(options['sru_is_input_normalized']))
         self.has_skip_term = bool(strtobool(options['sru_has_skip_term']))
         self.rescale = bool(strtobool(options['sru_rescale']))
         self.highway_bias = float(options['sru_highway_bias'])
         self.n_proj = int(options['sru_n_proj'])
-        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=
-            self.num_layers, dropout=self.dropout, rnn_dropout=self.
-            rnn_dropout, bidirectional=self.bidirectional, n_proj=self.
-            n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu,
-            use_relu=self.use_relu, weight_norm=self.weight_norm,
-            layer_norm=self.layer_norm, has_skip_term=self.has_skip_term,
-            is_input_normalized=self.is_input_normalized, highway_bias=self
-            .highway_bias, rescale=self.rescale)
+        self.sru = sru.SRU(self.input_dim, self.hidden_size, num_layers=self.num_layers, dropout=self.dropout, rnn_dropout=self.rnn_dropout, bidirectional=self.bidirectional, n_proj=self.n_proj, use_tanh=self.use_tanh, use_selu=self.use_selu, use_relu=self.use_relu, weight_norm=self.weight_norm, layer_norm=self.layer_norm, has_skip_term=self.has_skip_term, is_input_normalized=self.is_input_normalized, highway_bias=self.highway_bias, rescale=self.rescale)
         self.out_dim = self.hidden_size + self.bidirectional * self.hidden_size
 
     def forward(self, x):
@@ -5992,35 +5219,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AhoCNNEncoder,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (AhoCNNHourGlassEncoder,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (GConv1DBlock,
+     lambda: ([], {'ninp': 4, 'fmaps': 4, 'kwidth': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MelResNet,
+     lambda: ([], {'res_blocks': 4, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (SimpleResBlock1D,
+     lambda: ([], {'dims': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (StatisticalPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpsampleNetwork,
+     lambda: ([], {'feat_dims': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (VQEMA,
+     lambda: ([], {'emb_K': 4, 'emb_dim': 4, 'beta': 4, 'gamma': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_santi_pdp_pase(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AhoCNNEncoder(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AhoCNNHourGlassEncoder(*[], **{'input_dim': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GConv1DBlock(*[], **{'ninp': 4, 'fmaps': 4, 'kwidth': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MelResNet(*[], **{'res_blocks': 4, 'in_dims': 4, 'compute_dims': 4, 'res_out_dims': 4, 'pad': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SimpleResBlock1D(*[], **{'dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(StatisticalPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(UpsampleNetwork(*[], **{'feat_dims': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(VQEMA(*[], **{'emb_K': 4, 'emb_dim': 4, 'beta': 4, 'gamma': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

@@ -104,8 +104,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -269,8 +270,7 @@ class LayerNorm(nn.Module):
         mu = torch.mean(input, dim=-1, keepdim=True)
         sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
         output = (input - mu) / sigma
-        return output * self.gamma.expand_as(output) + self.beta.expand_as(
-            output)
+        return output * self.gamma.expand_as(output) + self.beta.expand_as(output)
 
 
 class GELU(nn.Module):
@@ -286,8 +286,7 @@ class PositionWise(nn.Module):
 
     def __init__(self, d_model, d_ff, dropout):
         super().__init__()
-        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), GELU(), nn.
-            Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
+        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), GELU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
         self.lm = LayerNorm(d_model)
 
     def forward(self, input):
@@ -319,8 +318,7 @@ class MultiHeadAtt(nn.Module):
         self.n_head = n_head
         self.d_v = self.d_k = d_k = d_model // n_head
         for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head,
-                d_model, d_k)))
+            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
         self.attention = ScaledDotProductAttention(d_k, dropout)
         self.lm = LayerNorm(d_model)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
@@ -341,10 +339,8 @@ class MultiHeadAtt(nn.Module):
         k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
         v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
         outputs = self.attention(q_s, k_s, v_s, attn_mask.repeat(n_head, 1, 1))
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(
-            -1, n_head * d_v)
-        outputs = F.dropout(self.w_o(outputs), p=self.dropout).view(bsz,
-            len_q, -1)
+        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
+        outputs = F.dropout(self.w_o(outputs), p=self.dropout).view(bsz, len_q, -1)
         return self.lm(outputs + residual)
 
     def reset_parameters(self):
@@ -390,8 +386,7 @@ def get_attn_padding_mask(seq_q, seq_k):
 
 
 def position(n_position, d_model):
-    position_enc = np.array([[(pos / np.power(10000, 2 * i / d_model)) for
-        i in range(d_model)] for pos in range(n_position)])
+    position_enc = np.array([[(pos / np.power(10000, 2 * i / d_model)) for i in range(d_model)] for pos in range(n_position)])
     position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2])
     position_enc[1:, 1::2] = np.sin(position_enc[1:, 1::2])
     return torch.from_numpy(position_enc).float()
@@ -410,8 +405,7 @@ class BERT(nn.Module):
         self.dropout = nn.Dropout(p=args.dropout)
         self.ebd_normal = LayerNorm(args.d_model)
         self.out_normal = LayerNorm(args.d_model)
-        self.encodes = nn.ModuleList([EncoderLayer(args.d_model, args.d_ff,
-            args.n_head, args.dropout) for _ in range(args.n_stack_layers)])
+        self.encodes = nn.ModuleList([EncoderLayer(args.d_model, args.d_ff, args.n_head, args.dropout) for _ in range(args.n_stack_layers)])
         self.pooler = Pooler(args.d_model)
         self.transform = nn.Linear(args.d_model, args.d_model)
         self.gelu = GELU()
@@ -423,8 +417,7 @@ class BERT(nn.Module):
         self.transform.bias.data.zero_()
 
     def forward(self, inp, pos, segment_label):
-        encode = self.enc_ebd(inp) + self.seg_ebd(segment_label
-            ) + self.pos_ebd(pos)
+        encode = self.enc_ebd(inp) + self.seg_ebd(segment_label) + self.pos_ebd(pos)
         encode = self.dropout(self.ebd_normal(encode))
         slf_attn_mask = get_attn_padding_mask(inp)
         for layer in self.encodes:
@@ -440,8 +433,7 @@ class BERT(nn.Module):
         return sum(x.numel() for x in self.parameters())
 
     def save_model(self, args, data, path='model.pt'):
-        torch.save({'args': args, 'weights': self.state_dict(), 'dict':
-            data['dict'], 'max_len': data['max_len']}, path)
+        torch.save({'args': args, 'weights': self.state_dict(), 'dict': data['dict'], 'max_len': data['max_len']}, path)
 
     def load_model(self, weights):
         self.load_state_dict(weights)
@@ -468,11 +460,7 @@ class Pretraining(nn.Module):
         self.word_predict.bias.data.zero_()
 
     def get_optimizer_parameters(self, decay):
-        return [{'params': [p for n, p in self.named_parameters() if n.
-            split('.')[-1] not in NOT_USE_WEIGHT_DECAY and p.requires_grad],
-            'weight_decay': decay}, {'params': [p for n, p in self.
-            named_parameters() if n.split('.')[-1] in NOT_USE_WEIGHT_DECAY and
-            p.requires_grad], 'weight_decay': 0.0}]
+        return [{'params': [p for n, p in self.named_parameters() if n.split('.')[-1] not in NOT_USE_WEIGHT_DECAY and p.requires_grad], 'weight_decay': decay}, {'params': [p for n, p in self.named_parameters() if n.split('.')[-1] in NOT_USE_WEIGHT_DECAY and p.requires_grad], 'weight_decay': 0.0}]
 
     def forward(self, inp, pos, segment_label):
         word_encode, sent_encode = self.bert(inp, pos, segment_label)
@@ -520,8 +508,7 @@ class Highway(nn.Module):
 
     def __init__(self, num_layers, hsz, active):
         super().__init__()
-        self.layers = nn.ModuleList([highway_layer(hsz, active) for _ in
-            range(num_layers)])
+        self.layers = nn.ModuleList([highway_layer(hsz, active) for _ in range(num_layers)])
 
     def forward(self, x):
         for layer in self.layers:
@@ -546,11 +533,9 @@ class C_LSTMCell(nn.Module):
 
     def forward(self, input, hidden):
         hx, cx = hidden
-        gates = F.linear(input, self.w_ih, self.b_ih) + F.linear(hx, self.
-            w_hh, self.b_hh)
+        gates = F.linear(input, self.w_ih, self.b_ih) + F.linear(hx, self.w_hh, self.b_hh)
         in_gate, forget_gate, cell_gate, out_gate = gates.chunk(4, 1)
-        in_gate, forget_gate, out_gate = map(F.sigmoid, [in_gate,
-            forget_gate, out_gate])
+        in_gate, forget_gate, out_gate = map(F.sigmoid, [in_gate, forget_gate, out_gate])
         cell_gate = F.tanh(cell_gate)
         cy = forget_gate * cx + in_gate * cell_gate
         hy = out_gate * F.tanh(cy)
@@ -559,8 +544,7 @@ class C_LSTMCell(nn.Module):
 
 class model(nn.Module):
 
-    def __init__(self, vocab_size, label_size, max_len, embed_dim=128,
-        dropout=0.5):
+    def __init__(self, vocab_size, label_size, max_len, embed_dim=128, dropout=0.5):
         super().__init__()
         self.lookup_table = nn.Embedding(vocab_size, embed_dim)
         self.logistic = nn.Linear(embed_dim * max_len, label_size)
@@ -577,9 +561,7 @@ class _Transition(nn.Module):
 
     def __init__(self, in_channels, out_channels, dropout):
         super().__init__()
-        self.layer = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size
-            =1, bias=False), nn.AvgPool2d(2, stride=2))
+        self.layer = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), nn.AvgPool2d(2, stride=2))
         self.dropout = dropout
 
     def forward(self, input):
@@ -593,11 +575,7 @@ class _DenseBLayer(nn.Module):
 
     def __init__(self, in_channels, growth_rate, dropout):
         super().__init__()
-        self.layer = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels, 4 * growth_rate,
-            kernel_size=1, bias=False), nn.BatchNorm2d(4 * growth_rate), nn
-            .ReLU(inplace=True), nn.Conv2d(4 * growth_rate, growth_rate,
-            kernel_size=3, padding=1, bias=False))
+        self.layer = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, 4 * growth_rate, kernel_size=1, bias=False), nn.BatchNorm2d(4 * growth_rate), nn.ReLU(inplace=True), nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3, padding=1, bias=False))
         self.dropout = dropout
 
     def forward(self, input):
@@ -612,9 +590,7 @@ class _DenseBlock(nn.Module):
 
     def __init__(self, num_layers, growth_rate, in_channels, dropout):
         super().__init__()
-        self.bottleneck = nn.Sequential(OrderedDict([('dbl_{}'.format(l),
-            _DenseBLayer(in_channels + growth_rate * l, growth_rate,
-            dropout)) for l in range(num_layers)]))
+        self.bottleneck = nn.Sequential(OrderedDict([('dbl_{}'.format(l), _DenseBLayer(in_channels + growth_rate * l, growth_rate, dropout)) for l in range(num_layers)]))
 
     def forward(self, input):
         return self.bottleneck(input)
@@ -624,19 +600,14 @@ class DenseNet(nn.Module):
 
     def __init__(self, args):
         super().__init__()
-        self.init_cnn_layer = nn.Sequential(OrderedDict([('conv0', nn.
-            Conv2d(3, args.channels, kernel_size=3, padding=1, bias=False)),
-            ('norm0', nn.BatchNorm2d(args.channels)), ('relu0', nn.ReLU(
-            inplace=True))]))
+        self.init_cnn_layer = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, args.channels, kernel_size=3, padding=1, bias=False)), ('norm0', nn.BatchNorm2d(args.channels)), ('relu0', nn.ReLU(inplace=True))]))
         denseblocks = []
         for l, nums in enumerate(args.layer_nums):
-            denseblocks += [('db_{}'.format(l), _DenseBlock(nums, args.
-                growth_rate, args.channels, args.dropout))]
+            denseblocks += [('db_{}'.format(l), _DenseBlock(nums, args.growth_rate, args.channels, args.dropout))]
             _in_channels = args.channels + args.growth_rate * nums
             args.channels = _in_channels // 2
             if l != len(args.layer_nums) - 1:
-                denseblocks += [('t_{}'.format(l), _Transition(_in_channels,
-                    args.channels, args.dropout))]
+                denseblocks += [('t_{}'.format(l), _Transition(_in_channels, args.channels, args.dropout))]
         denseblocks += [('nb_5', nn.BatchNorm2d(_in_channels))]
         denseblocks += [('relu_5', nn.ReLU(inplace=True))]
         if args.dropout != 0.0:
@@ -683,8 +654,7 @@ PAD = 0
 
 class Actor(nn.Module):
 
-    def __init__(self, vocab_size, dec_hsz, rnn_layers, bsz, max_len,
-        dropout, use_cuda):
+    def __init__(self, vocab_size, dec_hsz, rnn_layers, bsz, max_len, dropout, use_cuda):
         super().__init__()
         self.torch = torch if use_cuda else torch
         self.dec_hsz = dec_hsz
@@ -696,8 +666,7 @@ class Actor(nn.Module):
         self.enc = inception_v3(True)
         self.enc_out = nn.Linear(1000, dec_hsz)
         self.lookup_table = nn.Embedding(vocab_size, dec_hsz, padding_idx=PAD)
-        self.rnn = nn.LSTM(dec_hsz + dec_hsz, dec_hsz, rnn_layers,
-            batch_first=True, dropout=dropout)
+        self.rnn = nn.LSTM(dec_hsz + dec_hsz, dec_hsz, rnn_layers, batch_first=True, dropout=dropout)
         self.attn = Attention(dec_hsz)
         self.out = nn.Linear(self.dec_hsz, vocab_size)
         self._reset_parameters()
@@ -736,10 +705,8 @@ class Actor(nn.Module):
 
     def feed_enc(self, enc):
         weight = next(self.parameters()).data
-        c = Variable(weight.new(self.rnn_layers, self.bsz, self.dec_hsz).
-            zero_())
-        h = Variable(enc.data.unsqueeze(0).expand(self.rnn_layers, *enc.size())
-            )
+        c = Variable(weight.new(self.rnn_layers, self.bsz, self.dec_hsz).zero_())
+        h = Variable(enc.data.unsqueeze(0).expand(self.rnn_layers, *enc.size()))
         return h.contiguous(), c.contiguous()
 
     def _reset_parameters(self):
@@ -756,8 +723,7 @@ class Actor(nn.Module):
 
 class Critic(nn.Module):
 
-    def __init__(self, vocab_size, dec_hsz, rnn_layers, bsz, max_len,
-        dropout, use_cuda):
+    def __init__(self, vocab_size, dec_hsz, rnn_layers, bsz, max_len, dropout, use_cuda):
         super().__init__()
         self.use_cuda = use_cuda
         self.dec_hsz = dec_hsz
@@ -767,17 +733,14 @@ class Critic(nn.Module):
         self.vocab_size = vocab_size
         self.dropout = dropout
         self.lookup_table = nn.Embedding(vocab_size, dec_hsz, padding_idx=PAD)
-        self.rnn = nn.LSTM(self.dec_hsz, self.dec_hsz, self.rnn_layers,
-            batch_first=True, dropout=dropout)
+        self.rnn = nn.LSTM(self.dec_hsz, self.dec_hsz, self.rnn_layers, batch_first=True, dropout=dropout)
         self.value = nn.Linear(self.dec_hsz, 1)
         self._reset_parameters()
 
     def feed_enc(self, enc):
         weight = next(self.parameters()).data
-        c = Variable(weight.new(self.rnn_layers, self.bsz, self.dec_hsz).
-            zero_())
-        h = Variable(enc.data.unsqueeze(0).expand(self.rnn_layers, *enc.size())
-            )
+        c = Variable(weight.new(self.rnn_layers, self.bsz, self.dec_hsz).zero_())
+        h = Variable(enc.data.unsqueeze(0).expand(self.rnn_layers, *enc.size()))
         return h.contiguous(), c.contiguous()
 
     def forward(self, inputs, hidden):
@@ -799,23 +762,20 @@ STOP = 2
 
 
 def gather_index(encode, k1, k2, n=6):
-    x = torch.arange(start=0, end=n / (n - 1.0), step=1.0 / (n - 1), dtype=
-        torch.float)
+    x = torch.arange(start=0, end=n / (n - 1.0), step=1.0 / (n - 1), dtype=torch.float)
     if k1.is_cuda:
         x = x.cuda()
     k1 = x * k1.float()
     k2 = (1 - x) * k2.float()
     index = torch.round(k1 + k2).long()
-    return torch.stack([torch.index_select(encode[idx], 0, index[idx]) for
-        idx in range(encode.size(0))], dim=0)
+    return torch.stack([torch.index_select(encode[idx], 0, index[idx]) for idx in range(encode.size(0))], dim=0)
 
 
 def log_sum_exp(input, keepdim=False):
     assert input.dim() == 2
     max_scores, _ = input.max(dim=-1, keepdim=True)
     output = input - max_scores
-    return max_scores + torch.log(torch.sum(torch.exp(output), dim=-1,
-        keepdim=keepdim))
+    return max_scores + torch.log(torch.sum(torch.exp(output), dim=-1, keepdim=keepdim))
 
 
 class CRF(nn.Module):
@@ -844,14 +804,12 @@ class CRF(nn.Module):
             w_step_score = gather_index(words, tags[:, (i + 1)])
             score = score + bsz_t + w_step_score
         temp = self.transitions.index_select(1, tags[:, (-1)])
-        bsz_t = gather_index(temp.transpose(0, 1), Variable(self.torch.
-            LongTensor([STOP] * bsz)))
+        bsz_t = gather_index(temp.transpose(0, 1), Variable(self.torch.LongTensor([STOP] * bsz)))
         return score + bsz_t
 
     def forward(self, input):
         bsz, sent_len, l_size = input.size()
-        init_alphas = self.torch.FloatTensor(bsz, self.label_size).fill_(-
-            10000.0)
+        init_alphas = self.torch.FloatTensor(bsz, self.label_size).fill_(-10000.0)
         init_alphas[:, (START)].fill_(0.0)
         forward_var = Variable(init_alphas)
         input_t = input.transpose(0, 1)
@@ -869,8 +827,7 @@ class CRF(nn.Module):
     def viterbi_decode(self, input):
         backpointers = []
         bsz, sent_len, l_size = input.size()
-        init_vvars = self.torch.FloatTensor(bsz, self.label_size).fill_(-
-            10000.0)
+        init_vvars = self.torch.FloatTensor(bsz, self.label_size).fill_(-10000.0)
         init_vvars[:, (START)].fill_(0.0)
         forward_var = Variable(init_vvars)
         input_t = input.transpose(0, 1)
@@ -878,11 +835,9 @@ class CRF(nn.Module):
             bptrs_t = []
             viterbivars_t = []
             for next_tag in range(self.label_size):
-                _trans = self.transitions[next_tag].view(1, -1).expand_as(words
-                    )
+                _trans = self.transitions[next_tag].view(1, -1).expand_as(words)
                 next_tag_var = forward_var + _trans
-                best_tag_scores, best_tag_ids = torch.max(next_tag_var, 1,
-                    keepdim=True)
+                best_tag_scores, best_tag_ids = torch.max(next_tag_var, 1, keepdim=True)
                 bptrs_t.append(best_tag_ids)
                 viterbivars_t.append(best_tag_scores)
             forward_var = torch.cat(viterbivars_t, -1) + words
@@ -900,16 +855,13 @@ class CRF(nn.Module):
 
 class BiLSTM(nn.Module):
 
-    def __init__(self, word_size, word_ebd_dim, kernel_num, lstm_hsz,
-        lstm_layers, dropout, batch_size):
+    def __init__(self, word_size, word_ebd_dim, kernel_num, lstm_hsz, lstm_layers, dropout, batch_size):
         super().__init__()
         self.lstm_layers = lstm_layers
         self.lstm_hsz = lstm_hsz
         self.batch_size = batch_size
         self.word_ebd = nn.Embedding(word_size, word_ebd_dim)
-        self.lstm = nn.LSTM(word_ebd_dim + kernel_num, hidden_size=lstm_hsz //
-            2, num_layers=lstm_layers, batch_first=True, dropout=dropout,
-            bidirectional=True)
+        self.lstm = nn.LSTM(word_ebd_dim + kernel_num, hidden_size=lstm_hsz // 2, num_layers=lstm_layers, batch_first=True, dropout=dropout, bidirectional=True)
         self._init_weights()
 
     def _init_weights(self, scope=1.0):
@@ -923,15 +875,12 @@ class BiLSTM(nn.Module):
 
     def init_hidden(self):
         weight = next(self.parameters()).data
-        return Variable(weight.new(self.lstm_layers * 2, self.batch_size, 
-            self.lstm_hsz // 2).zero_()), Variable(weight.new(self.
-            lstm_layers * 2, self.batch_size, self.lstm_hsz // 2).zero_())
+        return Variable(weight.new(self.lstm_layers * 2, self.batch_size, self.lstm_hsz // 2).zero_()), Variable(weight.new(self.lstm_layers * 2, self.batch_size, self.lstm_hsz // 2).zero_())
 
 
 class CNN(nn.Module):
 
-    def __init__(self, char_size, char_ebd_dim, kernel_num, filter_size,
-        dropout):
+    def __init__(self, char_size, char_ebd_dim, kernel_num, filter_size, dropout):
         super().__init__()
         self.char_size = char_size
         self.char_ebd_dim = char_ebd_dim
@@ -939,8 +888,7 @@ class CNN(nn.Module):
         self.filter_size = filter_size
         self.dropout = dropout
         self.char_ebd = nn.Embedding(self.char_size, self.char_ebd_dim)
-        self.char_cnn = nn.Conv2d(in_channels=1, out_channels=self.
-            kernel_num, kernel_size=(self.filter_size, self.char_ebd_dim))
+        self.char_cnn = nn.Conv2d(in_channels=1, out_channels=self.kernel_num, kernel_size=(self.filter_size, self.char_ebd_dim))
         self._init_weight()
 
     def _init_weight(self, scope=1.0):
@@ -962,11 +910,8 @@ class Model(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.cnn = CNN(self.char_size, self.char_ebd_dim, self.kernel_num,
-            self.filter_size, self.dropout)
-        self.bilstm = BiLSTM(self.word_size, self.word_ebd_dim, self.
-            kernel_num, self.lstm_hsz, self.lstm_layers, self.dropout, self
-            .batch_size)
+        self.cnn = CNN(self.char_size, self.char_ebd_dim, self.kernel_num, self.filter_size, self.dropout)
+        self.bilstm = BiLSTM(self.word_size, self.word_ebd_dim, self.kernel_num, self.lstm_hsz, self.lstm_layers, self.dropout, self.batch_size)
         self.logistic = nn.Linear(self.lstm_hsz, self.label_size)
         self.crf = CRF(self.label_size, self.use_cuda)
         self._init_weights()
@@ -995,14 +940,9 @@ RES_BLOCK_FILLTERS = 128
 
 class ResBlockNet(nn.Module):
 
-    def __init__(self, ind=RES_BLOCK_FILLTERS, block_filters=
-        RES_BLOCK_FILLTERS, kr_size=3, stride=1, padding=1, bias=False):
+    def __init__(self, ind=RES_BLOCK_FILLTERS, block_filters=RES_BLOCK_FILLTERS, kr_size=3, stride=1, padding=1, bias=False):
         super().__init__()
-        self.layers = nn.Sequential(nn.Conv2d(ind, block_filters, kr_size,
-            stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(
-            block_filters), nn.ReLU(), nn.Conv2d(block_filters,
-            block_filters, kr_size, stride=stride, padding=padding, bias=
-            bias), nn.BatchNorm2d(block_filters))
+        self.layers = nn.Sequential(nn.Conv2d(ind, block_filters, kr_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(block_filters), nn.ReLU(), nn.Conv2d(block_filters, block_filters, kr_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(block_filters))
 
     def forward(self, x):
         res = x
@@ -1023,9 +963,7 @@ class Feature(nn.Module):
 
     def __init__(self, ind=IND, outd=RES_BLOCK_FILLTERS):
         super().__init__()
-        self.layer = nn.Sequential(nn.Conv2d(ind, outd, stride=1,
-            kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(outd), nn
-            .ReLU())
+        self.layer = nn.Sequential(nn.Conv2d(ind, outd, stride=1, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(outd), nn.ReLU())
         self.encodes = nn.ModuleList([ResBlockNet() for _ in range(BLOCKS)])
 
     def forward(self, x):
@@ -1046,8 +984,7 @@ class Policy(nn.Module):
     def __init__(self, ind=RES_BLOCK_FILLTERS, outd=OUTD, kernels=2):
         super().__init__()
         self.out = outd * kernels
-        self.conv = nn.Sequential(nn.Conv2d(ind, kernels, kernel_size=1),
-            nn.BatchNorm2d(kernels), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(ind, kernels, kernel_size=1), nn.BatchNorm2d(kernels), nn.ReLU())
         self.linear = nn.Linear(kernels * outd, outd)
         self.linear.weight.data.uniform_(-0.1, 0.1)
 
@@ -1063,10 +1000,8 @@ class Value(nn.Module):
     def __init__(self, ind=RES_BLOCK_FILLTERS, outd=OUTD, hsz=256, kernels=1):
         super().__init__()
         self.outd = outd
-        self.conv = nn.Sequential(nn.Conv2d(ind, kernels, kernel_size=1),
-            nn.BatchNorm2d(kernels), nn.ReLU())
-        self.linear = nn.Sequential(nn.Linear(outd, hsz), nn.ReLU(), nn.
-            Linear(hsz, 1), nn.Tanh())
+        self.conv = nn.Sequential(nn.Conv2d(ind, kernels, kernel_size=1), nn.BatchNorm2d(kernels), nn.ReLU())
+        self.linear = nn.Sequential(nn.Linear(outd, hsz), nn.ReLU(), nn.Linear(hsz, 1), nn.Tanh())
         self._reset_parameters()
 
     def forward(self, x):
@@ -1102,8 +1037,7 @@ class Net(nn.Module):
             self.load_state_dict(torch.load(path))
             self
         else:
-            self.load_state_dict(torch.load(path, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.cpu()
 
 
@@ -1126,9 +1060,7 @@ class BiLSTM_Cut(nn.Module):
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
         self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim)
-        self.bi_lstm = nn.LSTM(self.embed_dim, self.lstm_hsz, num_layers=
-            self.lstm_layers, batch_first=True, dropout=self.dropout,
-            bidirectional=True)
+        self.bi_lstm = nn.LSTM(self.embed_dim, self.lstm_hsz, num_layers=self.lstm_layers, batch_first=True, dropout=self.dropout, bidirectional=True)
         self.logistic = nn.Linear(2 * self.lstm_hsz, self.tag_size)
         self._init_weights(scope=self.w_init)
 
@@ -1150,9 +1082,7 @@ class BiLSTM_CRF_Size(nn.Module):
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
         self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim)
-        self.bi_lstm = nn.LSTM(self.embed_dim, self.lstm_hsz, num_layers=
-            self.lstm_layers, batch_first=True, dropout=self.dropout,
-            bidirectional=True)
+        self.bi_lstm = nn.LSTM(self.embed_dim, self.lstm_hsz, num_layers=self.lstm_layers, batch_first=True, dropout=self.dropout, bidirectional=True)
         self.logistic = nn.Linear(2 * self.lstm_hsz, self.tag_size)
         self._init_weights(scope=self.w_init)
 
@@ -1182,8 +1112,7 @@ class FullMatchLay(nn.Module):
         super().__init__()
         self.cont_dim = cont_dim
         self.mp_dim = mp_dim
-        self.register_parameter('weight', nn.Parameter(torch.Tensor(mp_dim,
-            cont_dim)))
+        self.register_parameter('weight', nn.Parameter(torch.Tensor(mp_dim, cont_dim)))
         self.weight.data.uniform_(-1.0, 1.0)
 
     def forward(self, cont_repres, other_cont_first):
@@ -1208,11 +1137,9 @@ class FullMatchLay(nn.Module):
             context = context.unsqueeze(2)
             return torch.mul(context, weight)
         cont_repres = expand(cont_repres, self.weight)
-        other_cont_first = multi_perspective_expand_for_2D(other_cont_first,
-            self.weight)
+        other_cont_first = multi_perspective_expand_for_2D(other_cont_first, self.weight)
         other_cont_first = other_cont_first.unsqueeze(1)
-        return cosine_similarity(cont_repres, other_cont_first, cont_repres
-            .dim() - 1)
+        return cosine_similarity(cont_repres, other_cont_first, cont_repres.dim() - 1)
 
 
 class MaxpoolMatchLay(nn.Module):
@@ -1221,8 +1148,7 @@ class MaxpoolMatchLay(nn.Module):
         super().__init__()
         self.cont_dim = cont_dim
         self.mp_dim = mp_dim
-        self.register_parameter('weight', nn.Parameter(torch.Tensor(mp_dim,
-            cont_dim)))
+        self.register_parameter('weight', nn.Parameter(torch.Tensor(mp_dim, cont_dim)))
         self.weight.data.uniform_(-1.0, 1.0)
 
     def forward(self, cont_repres, other_cont_repres):
@@ -1239,16 +1165,12 @@ class MaxpoolMatchLay(nn.Module):
         cont_repres = cont_repres.view(-1, self.cont_dim)
         other_cont_repres = other_cont_repres.view(-1, self.cont_dim)
         cont_repres = multi_perspective_expand_for_2D(cont_repres, self.weight)
-        other_cont_repres = multi_perspective_expand_for_2D(other_cont_repres,
-            self.weight)
-        cont_repres = cont_repres.view(bsz, this_len, self.mp_dim, self.
-            cont_dim)
-        other_cont_repres = other_cont_repres.view(bsz, other_len, self.
-            mp_dim, self.cont_dim)
+        other_cont_repres = multi_perspective_expand_for_2D(other_cont_repres, self.weight)
+        cont_repres = cont_repres.view(bsz, this_len, self.mp_dim, self.cont_dim)
+        other_cont_repres = other_cont_repres.view(bsz, other_len, self.mp_dim, self.cont_dim)
         cont_repres = cont_repres.unsqueeze(2)
         other_cont_repres = other_cont_repres.unsqueeze(1)
-        simi = cosine_similarity(cont_repres, other_cont_repres, 
-            cont_repres.dim() - 1)
+        simi = cosine_similarity(cont_repres, other_cont_repres, cont_repres.dim() - 1)
         t_max, _ = simi.max(2)
         t_mean = simi.mean(2)
         return torch.cat((t_max, t_mean), 2)
@@ -1260,8 +1182,7 @@ class AtteMatchLay(nn.Module):
         super(AtteMatchLay, self).__init__()
         self.cont_dim = cont_dim
         self.mp_dim = mp_dim
-        self.register_parameter('weight', nn.Parameter(torch.Tensor(mp_dim,
-            cont_dim)))
+        self.register_parameter('weight', nn.Parameter(torch.Tensor(mp_dim, cont_dim)))
         self.weight.data.uniform_(-1.0, 1.0)
 
     def forward(self, repres, max_att):
@@ -1360,12 +1281,8 @@ class biMPModule(nn.Module):
         self.corpus_emb = nn.Embedding(self.corpora_len, self.corpus_emb_dim)
         self._init_corpus_embedding()
         self.word_emb = nn.Embedding(self.words_len, self.word_emb_dim)
-        self.word_lstm = nn.LSTM(self.word_emb_dim, self.word_lstm_dim,
-            num_layers=self.word_layer_num, dropout=self.dropout,
-            batch_first=True)
-        self.context_lstm = nn.LSTM(self.context_dim, self.context_lstm_dim,
-            num_layers=self.context_layer_num, dropout=self.dropout,
-            batch_first=True, bidirectional=True)
+        self.word_lstm = nn.LSTM(self.word_emb_dim, self.word_lstm_dim, num_layers=self.word_layer_num, dropout=self.dropout, batch_first=True)
+        self.context_lstm = nn.LSTM(self.context_dim, self.context_lstm_dim, num_layers=self.context_layer_num, dropout=self.dropout, batch_first=True, bidirectional=True)
         self.pre_q_attmath_layer = AtteMatchLay(self.mp_dim, self.context_dim)
         self.pre_a_attmath_layer = AtteMatchLay(self.mp_dim, self.context_dim)
         self.f_full_layer = FullMatchLay(self.mp_dim, self.context_lstm_dim)
@@ -1376,11 +1293,8 @@ class biMPModule(nn.Module):
         self.b_att_layer = AtteMatchLay(self.mp_dim, self.context_lstm_dim)
         self.f_max_att_layer = AtteMatchLay(self.mp_dim, self.context_lstm_dim)
         self.b_max_att_layer = AtteMatchLay(self.mp_dim, self.context_lstm_dim)
-        self.aggre_lstm = nn.LSTM(11 * self.mp_dim + 6, self.
-            aggregation_lstm_dim, num_layers=self.aggregation_layer_num,
-            dropout=self.dropout, batch_first=True, bidirectional=True)
-        self.l1 = nn.Linear(self.aggregation_lstm_dim * 4, self.
-            aggregation_lstm_dim * 2)
+        self.aggre_lstm = nn.LSTM(11 * self.mp_dim + 6, self.aggregation_lstm_dim, num_layers=self.aggregation_layer_num, dropout=self.dropout, batch_first=True, bidirectional=True)
+        self.l1 = nn.Linear(self.aggregation_lstm_dim * 4, self.aggregation_lstm_dim * 2)
         self.l2 = nn.Linear(self.aggregation_lstm_dim * 2, self.num_class)
         self._init_weights_and_bias()
 
@@ -1416,8 +1330,7 @@ class biMPModule(nn.Module):
         sentence, words = input
         s_encode = self.corpus_emb(sentence)
         w_encode = self._word_repre_forward(words)
-        w_encode = F.dropout(w_encode, p=self.dropout, training=True,
-            inplace=False)
+        w_encode = F.dropout(w_encode, p=self.dropout, training=True, inplace=False)
         out = torch.cat((s_encode, w_encode), 2)
         return out
 
@@ -1452,26 +1365,18 @@ class biMPModule(nn.Module):
             a_aware_reps: [bsz, a_len, mp_dim*11+6]
         """
         cos_simi_q = cos_simi.permute(0, 2, 1)
-        q_aware_reps = [torch.max(cos_simi, 2, keepdim=True)[0], torch.mean
-            (cos_simi, 2, keepdim=True)]
-        a_aware_reps = [torch.max(cos_simi_q, 2, keepdim=True)[0], torch.
-            mean(cos_simi_q, 2, keepdim=True)]
+        q_aware_reps = [torch.max(cos_simi, 2, keepdim=True)[0], torch.mean(cos_simi, 2, keepdim=True)]
+        a_aware_reps = [torch.max(cos_simi_q, 2, keepdim=True)[0], torch.mean(cos_simi_q, 2, keepdim=True)]
         q_max_att = max_repres((self.q_repres, cos_simi))
         q_max_att_rep = self.pre_q_attmath_layer(self.a_repres, q_max_att)
         q_aware_reps.append(q_max_att_rep)
         a_max_att = max_repres((self.a_repres, cos_simi_q))
         a_max_att_rep = self.pre_a_attmath_layer(self.q_repres, a_max_att)
         a_aware_reps.append(a_max_att_rep)
-        q_repr_context_f, q_repr_context_b = self._context_repre_forward(self
-            .q_repres)
-        a_repr_context_f, a_repr_context_b = self._context_repre_forward(self
-            .a_repres)
-        left_match = self._all_match_layer(a_repr_context_f,
-            a_repr_context_b, self.a_mask, q_repr_context_f,
-            q_repr_context_b, self.q_mask)
-        right_match = self._all_match_layer(q_repr_context_f,
-            q_repr_context_b, self.q_mask, a_repr_context_f,
-            a_repr_context_b, self.a_mask)
+        q_repr_context_f, q_repr_context_b = self._context_repre_forward(self.q_repres)
+        a_repr_context_f, a_repr_context_b = self._context_repre_forward(self.a_repres)
+        left_match = self._all_match_layer(a_repr_context_f, a_repr_context_b, self.a_mask, q_repr_context_f, q_repr_context_b, self.q_mask)
+        right_match = self._all_match_layer(q_repr_context_f, q_repr_context_b, self.q_mask, a_repr_context_f, a_repr_context_b, self.a_mask)
         q_aware_reps.extend(left_match)
         a_aware_reps.extend(right_match)
         q_aware_reps = torch.cat(q_aware_reps, dim=2)
@@ -1506,8 +1411,7 @@ class biMPModule(nn.Module):
         _aggres.append(a_hidden[-1])
         return torch.cat(_aggres, dim=1)
 
-    def _all_match_layer(self, repr_context_f, repr_context_b, mask,
-        other_repr_context_f, other_repr_context_b, other_mask):
+    def _all_match_layer(self, repr_context_f, repr_context_b, mask, other_repr_context_f, other_repr_context_b, other_mask):
         """
         Args:
             repr_context_f, repr_context_b|other_repr_context_f, other_repr_context_b - size: [bsz, this_len, context_lstm_dim], [bsz, other_len, context_lstm_dim]
@@ -1521,26 +1425,16 @@ class biMPModule(nn.Module):
         other_repr_context_b = other_repr_context_b.contiguous()
         all_aware_repres = []
         this_cont_dim = repr_context_f.dim()
-        repr_context_f = torch.mul(repr_context_f, mask.unsqueeze(
-            this_cont_dim - 1).float()).clamp(min=eps)
-        repr_context_b = torch.mul(repr_context_b, mask.unsqueeze(
-            this_cont_dim - 1).float()).clamp(min=eps)
-        other_repr_context_f = torch.mul(other_repr_context_f, other_mask.
-            unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
-        other_repr_context_b = torch.mul(other_repr_context_b, other_mask.
-            unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
-        f_relevancy = F.cosine_similarity(other_repr_context_f.unsqueeze(1),
-            repr_context_f.unsqueeze(2), dim=this_cont_dim)
-        f_relevancy = torch.mul(f_relevancy, mask.unsqueeze(this_cont_dim -
-            1).float()).clamp(min=eps)
-        f_relevancy = torch.mul(f_relevancy, other_mask.unsqueeze(
-            this_cont_dim - 2).float()).clamp(min=eps)
-        b_relevancy = F.cosine_similarity(other_repr_context_b.unsqueeze(1),
-            repr_context_b.unsqueeze(2), dim=this_cont_dim)
-        b_relevancy = torch.mul(b_relevancy, mask.unsqueeze(this_cont_dim -
-            1).float()).clamp(min=eps)
-        b_relevancy = torch.mul(b_relevancy, other_mask.unsqueeze(
-            this_cont_dim - 2).float()).clamp(min=eps)
+        repr_context_f = torch.mul(repr_context_f, mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
+        repr_context_b = torch.mul(repr_context_b, mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
+        other_repr_context_f = torch.mul(other_repr_context_f, other_mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
+        other_repr_context_b = torch.mul(other_repr_context_b, other_mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
+        f_relevancy = F.cosine_similarity(other_repr_context_f.unsqueeze(1), repr_context_f.unsqueeze(2), dim=this_cont_dim)
+        f_relevancy = torch.mul(f_relevancy, mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
+        f_relevancy = torch.mul(f_relevancy, other_mask.unsqueeze(this_cont_dim - 2).float()).clamp(min=eps)
+        b_relevancy = F.cosine_similarity(other_repr_context_b.unsqueeze(1), repr_context_b.unsqueeze(2), dim=this_cont_dim)
+        b_relevancy = torch.mul(b_relevancy, mask.unsqueeze(this_cont_dim - 1).float()).clamp(min=eps)
+        b_relevancy = torch.mul(b_relevancy, other_mask.unsqueeze(this_cont_dim - 2).float()).clamp(min=eps)
         other_context_f_first = other_repr_context_f[:, (-1), :]
         other_context_b_first = other_repr_context_b[:, (0), :]
         f_full_match = self.f_full_layer(repr_context_f, other_context_f_first)
@@ -1593,8 +1487,7 @@ class BiRNN(nn.Module):
     def __init__(self, vsz, embed_dim, dropout, hsz, layers):
         super().__init__()
         self.lookup_table = nn.Embedding(vsz, embed_dim, padding_idx=const.PAD)
-        self.lstm = nn.LSTM(embed_dim, hsz, layers, dropout=dropout,
-            batch_first=True, bidirectional=True)
+        self.lstm = nn.LSTM(embed_dim, hsz, layers, dropout=dropout, batch_first=True, bidirectional=True)
         scope = 1.0 / math.sqrt(vsz)
         self.lookup_table.weight.data.uniform_(-scope, scope)
 
@@ -1609,8 +1502,7 @@ class ConvUnit(nn.Module):
 
     def __init__(self):
         super(ConvUnit, self).__init__()
-        self.conv = nn.Conv2d(in_channels=256, out_channels=32, kernel_size
-            =5, stride=1)
+        self.conv = nn.Conv2d(in_channels=256, out_channels=32, kernel_size=5, stride=1)
 
     def forward(self, x):
         return self.conv(x)
@@ -1628,8 +1520,7 @@ class PrimaryCap(nn.Module):
     def __init__(self, num_primary_units):
         super().__init__()
         self.num_primary_units = num_primary_units
-        self.convUnits = nn.ModuleList([ConvUnit() for _ in range(
-            num_primary_units)])
+        self.convUnits = nn.ModuleList([ConvUnit() for _ in range(num_primary_units)])
 
     def forward(self, input):
         bsz = input.size(0)
@@ -1641,15 +1532,13 @@ class PrimaryCap(nn.Module):
 
 class DigitCap(nn.Module):
 
-    def __init__(self, use_cuda, num_primary_units, labels,
-        output_unit_size, primary_unit_size, iterations):
+    def __init__(self, use_cuda, num_primary_units, labels, output_unit_size, primary_unit_size, iterations):
         super().__init__()
         self.labels = labels
         self.use_cuda = use_cuda
         self.primary_unit_size = primary_unit_size
         self.iterations = iterations
-        self.W = nn.Parameter(torch.randn(1, primary_unit_size, labels,
-            output_unit_size, num_primary_units))
+        self.W = nn.Parameter(torch.randn(1, primary_unit_size, labels, output_unit_size, num_primary_units))
 
     def forward(self, input):
         bsz = input.size(0)
@@ -1666,8 +1555,7 @@ class DigitCap(nn.Module):
             s_j = (c_ij * u_hat).sum(dim=1, keepdim=True)
             v_j = squash(s_j)
             v_j1 = torch.cat([v_j] * self.primary_unit_size, dim=1)
-            u_vj1 = torch.matmul(u_hat.transpose(3, 4), v_j1).squeeze(4).mean(
-                dim=0, keepdim=True)
+            u_vj1 = torch.matmul(u_hat.transpose(3, 4), v_j1).squeeze(4).mean(dim=0, keepdim=True)
             b_ij = b_ij + u_vj1
         return v_j.squeeze()
 
@@ -1694,17 +1582,12 @@ class Capsule(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.rnn = BiRNN(self.vsz, self.embed_dim, self.dropout, self.hsz,
-            self.layers)
+        self.rnn = BiRNN(self.vsz, self.embed_dim, self.dropout, self.hsz, self.layers)
         self.fc = nn.Linear(self.hsz * 2, self.max_len)
-        self.conv1 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=7), nn.
-            ReLU(inplace=True))
+        self.conv1 = nn.Sequential(nn.Conv2d(1, 256, kernel_size=7), nn.ReLU(inplace=True))
         self.pCap = PrimaryCap(self.num_primary_units)
-        self.dCap = DigitCap(self.use_cuda, self.num_primary_units, self.
-            labels, self.output_unit_size, self.primary_unit_size, self.
-            iterations)
-        self.recon = nn.Sequential(nn.Linear(self.output_unit_size, self.
-            hsz), nn.ReLU(inplace=True), nn.Linear(self.hsz, self.hsz * 2))
+        self.dCap = DigitCap(self.use_cuda, self.num_primary_units, self.labels, self.output_unit_size, self.primary_unit_size, self.iterations)
+        self.recon = nn.Sequential(nn.Linear(self.output_unit_size, self.hsz), nn.ReLU(inplace=True), nn.Linear(self.hsz, self.hsz * 2))
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -1725,8 +1608,7 @@ class Capsule(nn.Module):
     def loss(self, props, target, lstm_feats):
         zero_t = to_one_hot(target, self.labels, self.use_cuda)
         unzero_t = to_one_hot(target, self.labels, self.use_cuda, False)
-        return self.margin_loss(props, zero_t) + self.reconstruction_loss(
-            lstm_feats, props, unzero_t) * 0.05
+        return self.margin_loss(props, zero_t) + self.reconstruction_loss(lstm_feats, props, unzero_t) * 0.05
 
     def margin_loss(self, props, target):
         bsz = props.size(0)
@@ -1785,11 +1667,8 @@ class Model(nn.Module):
             self.__setattr__(k, v)
         self.num_directions = 2 if self.bidirectional else 1
         self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim)
-        self.lstm = nn.LSTM(self.embed_dim, self.hidden_size, self.
-            lstm_layers, batch_first=True, dropout=self.dropout,
-            bidirectional=self.bidirectional)
-        self.lr = nn.Linear(self.hidden_size * self.num_directions, self.
-            vocab_size)
+        self.lstm = nn.LSTM(self.embed_dim, self.hidden_size, self.lstm_layers, batch_first=True, dropout=self.dropout, bidirectional=self.bidirectional)
+        self.lr = nn.Linear(self.hidden_size * self.num_directions, self.vocab_size)
         self._init_weights()
 
     def _init_weights(self, scope=0.1):
@@ -1800,8 +1679,7 @@ class Model(nn.Module):
     def init_hidden(self, bsz):
         num_layers = self.lstm_layers * self.num_directions
         weight = next(self.parameters()).data
-        return Variable(weight.new(num_layers, bsz, self.hidden_size).zero_()
-            ), Variable(weight.new(num_layers, bsz, self.hidden_size).zero_())
+        return Variable(weight.new(num_layers, bsz, self.hidden_size).zero_()), Variable(weight.new(num_layers, bsz, self.hidden_size).zero_())
 
     def forward(self, input, hidden):
         encode = self.lookup_table(input)
@@ -1821,12 +1699,9 @@ class CNN_Text(nn.Module):
         self.encoders = []
         for i, filter_size in enumerate(self.filter_sizes):
             enc_attr_name = 'encoder_%d' % i
-            self.__setattr__(enc_attr_name, nn.Conv2d(in_channels=1,
-                out_channels=self.kernel_num, kernel_size=(filter_size,
-                self.embed_dim)))
+            self.__setattr__(enc_attr_name, nn.Conv2d(in_channels=1, out_channels=self.kernel_num, kernel_size=(filter_size, self.embed_dim)))
             self.encoders.append(self.__getattr__(enc_attr_name))
-        self.logistic = nn.Linear(len(self.filter_sizes) * self.kernel_num,
-            self.label_size)
+        self.logistic = nn.Linear(len(self.filter_sizes) * self.kernel_num, self.label_size)
         self.dropout = nn.Dropout(self.dropout)
         self._init_weight()
 
@@ -1857,9 +1732,7 @@ class Score(nn.Module):
 
     def __init__(self, in_dim, hidden_dim=150):
         super().__init__()
-        self.score = nn.Sequential(nn.Linear(in_dim, 2 * hidden_dim), nn.
-            ReLU(), nn.Dropout(0.2), nn.Linear(2 * hidden_dim, hidden_dim),
-            nn.ReLU(), nn.Dropout(0.2), nn.Linear(hidden_dim, 1))
+        self.score = nn.Sequential(nn.Linear(in_dim, 2 * hidden_dim), nn.ReLU(), nn.Dropout(0.2), nn.Linear(2 * hidden_dim, hidden_dim), nn.ReLU(), nn.Dropout(0.2), nn.Linear(hidden_dim, 1))
 
     def forward(self, x):
         return self.score(x)
@@ -1886,8 +1759,7 @@ class LayerNorm(nn.Module):
         mu = torch.mean(input, dim=-1, keepdim=True)
         sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
         output = (input - mu) / sigma
-        return output * self.gamma.expand_as(output) + self.beta.expand_as(
-            output)
+        return output * self.gamma.expand_as(output) + self.beta.expand_as(output)
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -1912,8 +1784,7 @@ class MultiHeadAtt(nn.Module):
         self.n_head = n_head
         self.d_v = self.d_k = d_k = d_model // n_head
         for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head,
-                d_model, d_k)))
+            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
         self.attention = ScaledDotProductAttention(d_k, dropout)
         self.lm = LayerNorm(d_model)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
@@ -1936,8 +1807,7 @@ class MultiHeadAtt(nn.Module):
         k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
         v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
         outputs = self.attention(q_s, k_s, v_s)
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(
-            -1, n_head * d_v)
+        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
         outputs = self.dropout(self.w_o(outputs)).view(bsz, len_q, -1)
         return self.lm(outputs + residual)
 
@@ -1948,8 +1818,7 @@ class Distance(nn.Module):
     def __init__(self, distance_dim=20):
         super().__init__()
         self.dim = distance_dim
-        self.embeds = nn.Sequential(nn.Embedding(len(self.bins) + 1,
-            distance_dim), nn.Dropout(0.2))
+        self.embeds = nn.Sequential(nn.Embedding(len(self.bins) + 1, distance_dim), nn.Dropout(0.2))
 
     def forward(self, lengths):
         return self.embeds(lengths)
@@ -1959,8 +1828,7 @@ class RnnEncoder(nn.Module):
 
     def __init__(self, d_model, embedding_dim, dropout):
         super().__init__()
-        self.rnn = nn.GRU(embedding_dim, hidden_size=d_model, batch_first=
-            True, bidirectional=True)
+        self.rnn = nn.GRU(embedding_dim, hidden_size=d_model, batch_first=True, bidirectional=True)
         self.ln = LayerNorm(d_model * 2)
         self.dropout = nn.Dropout(dropout)
 
@@ -1976,52 +1844,36 @@ class MentionPairScore(nn.Module):
         super().__init__()
         self.args = args
         self.position_embedding = nn.Embedding(args.max_len + 1, args.pos_dim)
-        self.word_embedding = nn.Embedding(args.word_ebd_weight.shape[0],
-            args.word_ebd_weight.shape[1])
-        self.word_embedding.weight.data.copy_(torch.from_numpy(args.
-            word_ebd_weight))
-        self.embedding_transform = nn.Linear(args.pos_dim + args.
-            word_ebd_weight.shape[1], args.d_model)
+        self.word_embedding = nn.Embedding(args.word_ebd_weight.shape[0], args.word_ebd_weight.shape[1])
+        self.word_embedding.weight.data.copy_(torch.from_numpy(args.word_ebd_weight))
+        self.embedding_transform = nn.Linear(args.pos_dim + args.word_ebd_weight.shape[1], args.d_model)
         self.transform_activate = GELU()
-        self.rnn_rncoder = RnnEncoder(args.rnn_hidden_size, args.
-            word_ebd_weight.shape[1], args.dropout)
+        self.rnn_rncoder = RnnEncoder(args.rnn_hidden_size, args.word_ebd_weight.shape[1], args.dropout)
         self.dropout = nn.Dropout(args.dropout)
         self.head_att = MultiHeadAtt(args.n_head, args.d_model, args.dropout)
         self.distance_embedding = Distance()
-        score_in_dim = (4 * args.d_model + 4 * args.rnn_hidden_size + args.
-            pos_dim)
+        score_in_dim = 4 * args.d_model + 4 * args.rnn_hidden_size + args.pos_dim
         self.score = Score(score_in_dim)
         self._reset_parameters()
 
     def forward(self, doc, word2idx):
         doc_encoding = self.doc_encode(doc)
-        (mention_rnn_encode, coref_rnn_encode, distances_embedding_encode,
-            corefs_idxs, mention_idxs, labels) = self.mention_encode(doc,
-            word2idx)
-        doc_features = torch.stack([torch.cat((doc_encoding[mention_start],
-            doc_encoding[mention_end], doc_encoding[coref_start],
-            doc_encoding[coref_end])) for (mention_start, mention_end), (
-            coref_start, coref_end) in zip(mention_idxs, corefs_idxs)], dim=0)
-        mention_features = torch.cat((doc_features, mention_rnn_encode,
-            coref_rnn_encode, distances_embedding_encode), dim=1)
+        mention_rnn_encode, coref_rnn_encode, distances_embedding_encode, corefs_idxs, mention_idxs, labels = self.mention_encode(doc, word2idx)
+        doc_features = torch.stack([torch.cat((doc_encoding[mention_start], doc_encoding[mention_end], doc_encoding[coref_start], doc_encoding[coref_end])) for (mention_start, mention_end), (coref_start, coref_end) in zip(mention_idxs, corefs_idxs)], dim=0)
+        mention_features = torch.cat((doc_features, mention_rnn_encode, coref_rnn_encode, distances_embedding_encode), dim=1)
         scores = self.score(mention_features).squeeze()
         return torch.sigmoid(scores), labels
 
     def doc_encode(self, doc):
         doc_embedding_encode = self.word_embedding(doc.token_tensors)
-        doc_postion_encode = self.position_embedding(doc.pos2tensor(self.
-            args.use_cuda))
-        doc_encode = self.dropout(torch.cat((doc_embedding_encode,
-            doc_postion_encode), dim=-1))
+        doc_postion_encode = self.position_embedding(doc.pos2tensor(self.args.use_cuda))
+        doc_encode = self.dropout(torch.cat((doc_embedding_encode, doc_postion_encode), dim=-1))
         transform_encode = self.embedding_transform(doc_encode)
-        transform_encode = self.transform_activate(transform_encode).unsqueeze(
-            0)
-        return self.head_att(transform_encode, transform_encode,
-            transform_encode).squeeze()
+        transform_encode = self.transform_activate(transform_encode).unsqueeze(0)
+        return self.head_att(transform_encode, transform_encode, transform_encode).squeeze()
 
     def mention_encode(self, doc, word2idx):
-        (corefs_idxs, mention_idxs, mention_spans, labels, distances, corefs
-            ) = doc.sample(self.args.use_cuda, self.args.batch_size)
+        corefs_idxs, mention_idxs, mention_spans, labels, distances, corefs = doc.sample(self.args.use_cuda, self.args.batch_size)
         distances_embedding_encode = self.distance_embedding(distances)
         mention_embedding_encode = self.word_embedding(mention_spans)
         coref_embedding_encode = self.word_embedding(corefs)
@@ -2030,20 +1882,15 @@ class MentionPairScore(nn.Module):
         coref_embedding_encode = self.dropout(coref_embedding_encode)
         mention_rnn_encode = self.rnn_rncoder(mention_embedding_encode)
         coref_rnn_encode = self.rnn_rncoder(coref_embedding_encode)
-        return (mention_rnn_encode, coref_rnn_encode,
-            distances_embedding_encode, corefs_idxs, mention_idxs, labels)
+        return mention_rnn_encode, coref_rnn_encode, distances_embedding_encode, corefs_idxs, mention_idxs, labels
 
-    def mention_predict(self, tokens, positions, mention, coref_idx,
-        mention_idx, distance, coref):
+    def mention_predict(self, tokens, positions, mention, coref_idx, mention_idx, distance, coref):
         doc_embedding_encode = self.word_embedding(tokens)
         doc_postion_encode = self.position_embedding(positions)
-        doc_encode = self.dropout(torch.cat((doc_embedding_encode,
-            doc_postion_encode), dim=-1))
+        doc_encode = self.dropout(torch.cat((doc_embedding_encode, doc_postion_encode), dim=-1))
         transform_encode = self.embedding_transform(doc_encode)
-        transform_encode = self.transform_activate(transform_encode).unsqueeze(
-            0)
-        doc_encoding = self.head_att(transform_encode, transform_encode,
-            transform_encode).squeeze()
+        transform_encode = self.transform_activate(transform_encode).unsqueeze(0)
+        doc_encoding = self.head_att(transform_encode, transform_encode, transform_encode).squeeze()
         distance_embedding_encode = self.distance_embedding(distance)
         mention_embedding_encode = self.word_embedding(mention)
         coref_embedding_encode = self.word_embedding(coref)
@@ -2052,12 +1899,8 @@ class MentionPairScore(nn.Module):
         coref_embedding_encode = self.dropout(coref_embedding_encode)
         mention_rnn_encode = self.rnn_rncoder(mention_embedding_encode)
         coref_rnn_encode = self.rnn_rncoder(coref_embedding_encode)
-        doc_feature = torch.cat((doc_encoding[mention_idx[0]], doc_encoding
-            [mention_idx[1]], doc_encoding[coref_idx[0]], doc_encoding[
-            coref_idx[1]]))
-        mention_feature = torch.cat((doc_feature.unsqueeze(0),
-            mention_rnn_encode, coref_rnn_encode, distance_embedding_encode
-            .squeeze(0)), dim=1)
+        doc_feature = torch.cat((doc_encoding[mention_idx[0]], doc_encoding[mention_idx[1]], doc_encoding[coref_idx[0]], doc_encoding[coref_idx[1]]))
+        mention_feature = torch.cat((doc_feature.unsqueeze(0), mention_rnn_encode, coref_rnn_encode, distance_embedding_encode.squeeze(0)), dim=1)
         score = self.score(mention_feature).squeeze()
         return torch.sigmoid(score)
 
@@ -2075,8 +1918,7 @@ class MentionPairScore(nn.Module):
             self.load_state_dict(torch.load(path))
             self
         else:
-            self.load_state_dict(torch.load(path, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.cpu()
 
 
@@ -2096,20 +1938,10 @@ class Generator(nn.Module):
         super().__init__()
         assert len(channel_dims) == 4, 'length of channel dims should be 4'
         conv1_dim, conv2_dim, conv3_dim, conv4_dim = channel_dims
-        conv1_h, conv2_h, conv3_h, conv4_h = map(conv_size, [(out_h, step) for
-            step in [4, 3, 2, 1]])
-        conv1_w, conv2_w, conv3_w, conv4_w = map(conv_size, [(out_w, step) for
-            step in [4, 3, 2, 1]])
+        conv1_h, conv2_h, conv3_h, conv4_h = map(conv_size, [(out_h, step) for step in [4, 3, 2, 1]])
+        conv1_w, conv2_w, conv3_w, conv4_w = map(conv_size, [(out_w, step) for step in [4, 3, 2, 1]])
         self.fc = nn.Linear(z_dim, conv1_dim * conv1_h * conv1_w)
-        self.deconvs = nn.Sequential(nn.BatchNorm2d(conv1_dim), nn.ReLU(),
-            nn.ConvTranspose2d(conv1_dim, conv2_dim, kernel_size=4, stride=
-            2, padding=1, bias=False), nn.BatchNorm2d(conv2_dim), nn.ReLU(),
-            nn.ConvTranspose2d(conv2_dim, conv3_dim, kernel_size=4, stride=
-            2, padding=1, bias=False), nn.BatchNorm2d(conv3_dim), nn.ReLU(),
-            nn.ConvTranspose2d(conv3_dim, conv4_dim, kernel_size=4, stride=
-            2, padding=1, bias=False), nn.BatchNorm2d(conv4_dim), nn.ReLU(),
-            nn.ConvTranspose2d(conv4_dim, 3, kernel_size=4, stride=2,
-            padding=1, bias=False), nn.Tanh())
+        self.deconvs = nn.Sequential(nn.BatchNorm2d(conv1_dim), nn.ReLU(), nn.ConvTranspose2d(conv1_dim, conv2_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(conv2_dim), nn.ReLU(), nn.ConvTranspose2d(conv2_dim, conv3_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(conv3_dim), nn.ReLU(), nn.ConvTranspose2d(conv3_dim, conv4_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(conv4_dim), nn.ReLU(), nn.ConvTranspose2d(conv4_dim, 3, kernel_size=4, stride=2, padding=1, bias=False), nn.Tanh())
         self.conv1_size = conv1_dim, conv1_h, conv1_w
         self._init_weight()
 
@@ -2134,19 +1966,9 @@ class Discriminator(nn.Module):
         super().__init__()
         assert len(channel_dims) == 4, 'length of channel dims should be 4'
         conv4_dim, conv3_dim, conv2_dim, conv1_dim = channel_dims
-        conv4_h, conv3_h, conv2_h, conv1_h = map(conv_size, [(out_h, step) for
-            step in [4, 3, 2, 1]])
-        conv4_w, conv3_w, conv2_w, conv1_w = map(conv_size, [(out_w, step) for
-            step in [4, 3, 2, 1]])
-        self.convs = nn.Sequential(nn.Conv2d(3, conv1_dim, kernel_size=4,
-            stride=2, padding=1, bias=False), nn.LeakyReLU(relu_leak), nn.
-            Conv2d(conv1_dim, conv2_dim, kernel_size=4, stride=2, padding=1,
-            bias=False), nn.BatchNorm2d(conv2_dim), nn.LeakyReLU(relu_leak),
-            nn.Conv2d(conv2_dim, conv3_dim, kernel_size=4, stride=2,
-            padding=1, bias=False), nn.BatchNorm2d(conv3_dim), nn.LeakyReLU
-            (relu_leak), nn.Conv2d(conv3_dim, conv4_dim, kernel_size=4,
-            stride=2, padding=1, bias=False), nn.BatchNorm2d(conv4_dim), nn
-            .LeakyReLU(relu_leak))
+        conv4_h, conv3_h, conv2_h, conv1_h = map(conv_size, [(out_h, step) for step in [4, 3, 2, 1]])
+        conv4_w, conv3_w, conv2_w, conv1_w = map(conv_size, [(out_w, step) for step in [4, 3, 2, 1]])
+        self.convs = nn.Sequential(nn.Conv2d(3, conv1_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(relu_leak), nn.Conv2d(conv1_dim, conv2_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(conv2_dim), nn.LeakyReLU(relu_leak), nn.Conv2d(conv2_dim, conv3_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(conv3_dim), nn.LeakyReLU(relu_leak), nn.Conv2d(conv3_dim, conv4_dim, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(conv4_dim), nn.LeakyReLU(relu_leak))
         self.fc = nn.Linear(conv4_dim * conv4_h * conv4_w, 1)
         self.fc_dim = conv4_dim * conv4_h * conv4_w
         self._init_weight()
@@ -2170,8 +1992,7 @@ class RnnDropout(nn.Module):
 
     def __init__(self, dropout_prob, hidden_size, is_cuda):
         super().__init__()
-        self.mask = torch.bernoulli(torch.Tensor(1, hidden_size).fill_(1.0 -
-            dropout_prob))
+        self.mask = torch.bernoulli(torch.Tensor(1, hidden_size).fill_(1.0 - dropout_prob))
         if is_cuda:
             self.mask = self.mask
         self.dropout_prob = dropout_prob
@@ -2206,8 +2027,7 @@ class HwLSTMCell(nn.Module):
         input = F.linear(input, self.w_ih, self.b_ih)
         gates = F.linear(hx, self.w_hh) + input[(...), :-self.hsz]
         in_gate, forget_gate, cell_gate, out_gate, r_gate = gates.chunk(5, 1)
-        in_gate, forget_gate, out_gate, r_gate = map(torch.sigmoid, [
-            in_gate, forget_gate, out_gate, r_gate])
+        in_gate, forget_gate, out_gate, r_gate = map(torch.sigmoid, [in_gate, forget_gate, out_gate, r_gate])
         cell_gate = torch.tanh(cell_gate)
         k = input[(...), -self.hsz:]
         cy = forget_gate * cx + in_gate * cell_gate
@@ -2235,14 +2055,11 @@ class HwLSTMlayer(nn.Module):
 
 class DeepBiLSTMModel(nn.Module):
 
-    def __init__(self, vsz, lsz, ebd_dim, lstm_hsz, lstm_layers,
-        dropout_prob, is_cuda, ebd_weights=None):
+    def __init__(self, vsz, lsz, ebd_dim, lstm_hsz, lstm_layers, dropout_prob, is_cuda, ebd_weights=None):
         super().__init__()
         self.ebd_weights = ebd_weights
         self.ebd = nn.Embedding(vsz, ebd_dim, padding_idx=PAD)
-        self.lstms = nn.ModuleList([(HwLSTMlayer(lstm_hsz, lstm_hsz,
-            dropout_prob, is_cuda) if layer != 0 else HwLSTMlayer(ebd_dim,
-            lstm_hsz, dropout_prob, is_cuda)) for layer in range(lstm_layers)])
+        self.lstms = nn.ModuleList([(HwLSTMlayer(lstm_hsz, lstm_hsz, dropout_prob, is_cuda) if layer != 0 else HwLSTMlayer(ebd_dim, lstm_hsz, dropout_prob, is_cuda)) for layer in range(lstm_layers)])
         self.logistic = nn.Linear(lstm_hsz, lsz)
         self.reset_parameters(ebd_dim)
 
@@ -2292,8 +2109,7 @@ FINAL_EPSILON = 0.01
 INITIAL_EPSILON = 0.5
 
 
-Transition = namedtuple('Transition', ('state', 'action', 'next_state',
-    'reward'))
+Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
 
 
 class DQN(nn.Module):
@@ -2318,8 +2134,7 @@ class DQN(nn.Module):
     def action(self, state):
         self.epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / 10000
         if random.random() > self.epsilon:
-            return self(Variable(state, volatile=True)).data.max(1)[1].view(
-                1, 1)
+            return self(Variable(state, volatile=True)).data.max(1)[1].view(1, 1)
         else:
             return longTensor([[random.randrange(2)]])
 
@@ -2379,15 +2194,12 @@ class Model(nn.Module):
             self.__setattr__(k, v)
         self.torch = torch if use_cuda else torch
         self.emb = nn.Embedding(self.dict_size, self.emb_dim)
-        self.encode = torch.nn.LSTM(input_size=self.emb_dim, hidden_size=
-            self.rnn_hsz, num_layers=1, bidirectional=True)
-        self.decode = torch.nn.LSTM(input_size=self.rnn_hsz, hidden_size=
-            self.rnn_hsz, num_layers=1)
+        self.encode = torch.nn.LSTM(input_size=self.emb_dim, hidden_size=self.rnn_hsz, num_layers=1, bidirectional=True)
+        self.decode = torch.nn.LSTM(input_size=self.rnn_hsz, hidden_size=self.rnn_hsz, num_layers=1)
         self.summ_att_w = nn.Linear(self.rnn_hsz, self.rnn_hsz, bias=False)
         self.cls_att_w = nn.Linear(self.rnn_hsz, self.rnn_hsz, bias=False)
         self.summ_gen = nn.Linear(self.rnn_hsz, self.dict_size)
-        self.cls_pred = nn.Linear((self.max_ori_len + self.max_sum_len) *
-            self.rnn_hsz, self.label_size)
+        self.cls_pred = nn.Linear((self.max_ori_len + self.max_sum_len) * self.rnn_hsz, self.label_size)
         self.dropout = nn.Dropout(self.dropout)
         self._reset_parameters()
 
@@ -2406,11 +2218,9 @@ class Model(nn.Module):
         ori_emb = self.emb(original)
         ori_emb_t = ori_emb.transpose(0, 1)
         encodes, (h, _) = self.encode(ori_emb_t)
-        ori_memory = encodes[:, :, :self.rnn_hsz] + encodes[:, :, self.rnn_hsz:
-            ]
+        ori_memory = encodes[:, :, :self.rnn_hsz] + encodes[:, :, self.rnn_hsz:]
         ori_hidden = (h[0] + h[1]).unsqueeze(0)
-        c = Variable(next(self.parameters()).data.new(1, bsz, self.rnn_hsz)
-            .zero_())
+        c = Variable(next(self.parameters()).data.new(1, bsz, self.rnn_hsz).zero_())
         ori_memory = self.dropout(ori_memory)
         ori_hidden = self.dropout(ori_hidden)
         dec_hidden = ori_hidden, c
@@ -2420,10 +2230,8 @@ class Model(nn.Module):
             summ_emb = self.emb(word).transpose(0, 1)
             _, dec_hidden = self.decode(summ_emb, dec_hidden)
             h_state = self.dropout(dec_hidden[0])
-            v_c = multi_view_att(ori_memory, self.summ_att_w, h_state, bsz,
-                self.max_ori_len, self.rnn_hsz)
-            v_t = multi_view_att(ori_memory, self.cls_att_w, h_state, bsz,
-                self.max_ori_len, self.rnn_hsz)
+            v_c = multi_view_att(ori_memory, self.summ_att_w, h_state, bsz, self.max_ori_len, self.rnn_hsz)
+            v_t = multi_view_att(ori_memory, self.cls_att_w, h_state, bsz, self.max_ori_len, self.rnn_hsz)
             props = F.log_softmax(self.summ_gen(v_c), -1)
             _, word = torch.max(props, -1, keepdim=True)
             v_ts.append(v_t.unsqueeze(1))
@@ -2452,8 +2260,7 @@ class DilatedGatedConv1D(nn.Module):
         super().__init__()
         self.dim = dim
         self.dropout = nn.Dropout(p=0.1)
-        self.cnn = nn.Conv1d(dim, dim * 2, 3, padding=dilation_rate,
-            dilation=dilation_rate)
+        self.cnn = nn.Conv1d(dim, dim * 2, 3, padding=dilation_rate, dilation=dilation_rate)
 
     def forward(self, x):
         residual = x
@@ -2467,8 +2274,7 @@ class DgCNN(nn.Module):
 
     def __init__(self, dim, dilation_rates: list):
         super().__init__()
-        self.cnn1ds = nn.ModuleList([DilatedGatedConv1D(dilation_rate, dim) for
-            dilation_rate in dilation_rates])
+        self.cnn1ds = nn.ModuleList([DilatedGatedConv1D(dilation_rate, dim) for dilation_rate in dilation_rates])
 
     def forward(self, x, mask):
         for layer in self.cnn1ds:
@@ -2488,8 +2294,7 @@ class LayerNorm(nn.Module):
         mu = torch.mean(input, dim=-1, keepdim=True)
         sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
         output = (input - mu) / sigma
-        return output * self.gamma.expand_as(output) + self.beta.expand_as(
-            output)
+        return output * self.gamma.expand_as(output) + self.beta.expand_as(output)
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -2515,8 +2320,7 @@ class MultiHeadAtt(nn.Module):
         self.n_head = n_head
         self.d_v = self.d_k = d_k = d_model // n_head
         for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head,
-                d_model, d_k)))
+            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
         self.attention = ScaledDotProductAttention(d_k, dropout)
         self.lm = LayerNorm(d_model)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
@@ -2539,8 +2343,7 @@ class MultiHeadAtt(nn.Module):
         k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
         v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
         outputs = self.attention(q_s, k_s, v_s, attn_mask.repeat(n_head, 1, 1))
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(
-            -1, n_head * d_v)
+        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
         outputs = self.dropout(self.w_o(outputs)).view(bsz, len_q, -1)
         return self.lm(outputs + residual)
 
@@ -2549,8 +2352,7 @@ class SubjectLinear(nn.Module):
 
     def __init__(self, dim):
         super().__init__()
-        self.seq = nn.Sequential(nn.Linear(dim, dim), nn.ReLU(), nn.Linear(
-            dim, 1), nn.Sigmoid())
+        self.seq = nn.Sequential(nn.Linear(dim, dim), nn.ReLU(), nn.Linear(dim, 1), nn.Sigmoid())
 
     def forward(self, x):
         return self.seq(x)
@@ -2594,8 +2396,7 @@ class ObjectRnn(nn.Module):
 
     def __init__(self, d_model):
         super().__init__()
-        self.rnn = nn.GRU(d_model, hidden_size=d_model, batch_first=True,
-            bidirectional=True)
+        self.rnn = nn.GRU(d_model, hidden_size=d_model, batch_first=True, bidirectional=True)
         self.ln = LayerNorm(d_model * 2)
 
     def forward(self, x, sub_slidx, sub_elidx, pos_ebd):
@@ -2659,8 +2460,7 @@ class Model(nn.Module):
     def encode(self, chars, words, posits):
         mask = get_padding_mask(chars)
         attn_mask = get_attn_padding_mask(chars, chars)
-        ebd_encode = self.char_lr(self.char_ebd(chars)) + self.word_lr(self
-            .word_ebd(words)) + self.pos_ebd(posits)
+        ebd_encode = self.char_lr(self.char_ebd(chars)) + self.word_lr(self.word_ebd(words)) + self.pos_ebd(posits)
         ebd_encode = self.encode_dropout(ebd_encode)
         encode = self.dgcnn(ebd_encode, mask)
         shareFeat1 = self.sl1(encode)
@@ -2673,8 +2473,7 @@ class Model(nn.Module):
         sub_sidx, sub_eidx = self.subModel(output)
         return sub_sidx * shareFeat1, sub_eidx * shareFeat2
 
-    def obj_predict(self, encode, shareFeat1, shareFeat2, sub_slidx,
-        sub_elidx, attn_mask):
+    def obj_predict(self, encode, shareFeat1, shareFeat2, sub_slidx, sub_elidx, attn_mask):
         rnn_encode = self.objectRnn(encode, sub_slidx, sub_elidx, self.pos_ebd)
         attn = self.obj_att(encode, encode, encode, attn_mask)
         encode = torch.cat((attn, encode, rnn_encode), dim=-1)
@@ -2682,12 +2481,9 @@ class Model(nn.Module):
         return obj_sidx, obj_eidx
 
     def forward(self, chars, words, posits, sub_slidx, sub_elidx):
-        encode, shareFeat1, shareFeat2, attn_mask, mask = self.encode(chars,
-            words, posits)
-        sub_sidx, sub_eidx = self.sub_predict(encode, attn_mask, shareFeat1,
-            shareFeat2)
-        obj_sidx, obj_eidx = self.obj_predict(encode, shareFeat1,
-            shareFeat2, sub_slidx, sub_elidx, attn_mask)
+        encode, shareFeat1, shareFeat2, attn_mask, mask = self.encode(chars, words, posits)
+        sub_sidx, sub_eidx = self.sub_predict(encode, attn_mask, shareFeat1, shareFeat2)
+        obj_sidx, obj_eidx = self.obj_predict(encode, shareFeat1, shareFeat2, sub_slidx, sub_elidx, attn_mask)
         return sub_sidx, sub_eidx, obj_sidx, obj_eidx, mask
 
     def save_model(self, path):
@@ -2698,8 +2494,7 @@ class Model(nn.Module):
             self.load_state_dict(torch.load(path))
             self
         else:
-            self.load_state_dict(torch.load(path, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.cpu()
 
 
@@ -2715,8 +2510,7 @@ class LayerNorm(nn.Module):
         mu = torch.mean(input, dim=-1, keepdim=True)
         sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
         output = (input - mu) / sigma
-        return output * self.weight.expand_as(output) + self.bias.expand_as(
-            output)
+        return output * self.weight.expand_as(output) + self.bias.expand_as(output)
 
 
 class LSTM_Text(nn.Module):
@@ -2726,14 +2520,10 @@ class LSTM_Text(nn.Module):
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
         self.num_directions = 2 if self.bidirectional else 1
-        self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim,
-            padding_idx=const.PAD)
-        self.lstm = nn.LSTM(self.embed_dim, self.hidden_size, self.
-            lstm_layers, dropout=self.dropout, bidirectional=self.bidirectional
-            )
+        self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim, padding_idx=const.PAD)
+        self.lstm = nn.LSTM(self.embed_dim, self.hidden_size, self.lstm_layers, dropout=self.dropout, bidirectional=self.bidirectional)
         self.ln = LayerNorm(self.hidden_size * self.num_directions)
-        self.logistic = nn.Linear(self.hidden_size * self.num_directions,
-            self.label_size)
+        self.logistic = nn.Linear(self.hidden_size * self.num_directions, self.label_size)
         self._init_weights()
 
     def _init_weights(self, scope=1.0):
@@ -2744,9 +2534,7 @@ class LSTM_Text(nn.Module):
     def init_hidden(self):
         num_layers = self.lstm_layers * self.num_directions
         weight = next(self.parameters()).data
-        return Variable(weight.new(num_layers, self.batch_size, self.
-            hidden_size).zero_()), Variable(weight.new(num_layers, self.
-            batch_size, self.hidden_size).zero_())
+        return Variable(weight.new(num_layers, self.batch_size, self.hidden_size).zero_()), Variable(weight.new(num_layers, self.batch_size, self.hidden_size).zero_())
 
     def forward(self, input, hidden):
         encode = self.lookup_table(input)
@@ -2840,21 +2628,15 @@ class CNN_Ranking(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.embedded_chars_left = nn.Embedding(self.src_vocab_size, self.
-            embed_dim)
-        self.embedded_chars_right = nn.Embedding(self.tgt_vocab_size, self.
-            embed_dim)
+        self.embedded_chars_left = nn.Embedding(self.src_vocab_size, self.embed_dim)
+        self.embedded_chars_right = nn.Embedding(self.tgt_vocab_size, self.embed_dim)
         self.conv_left, self.conv_right = [], []
         for i, filter_size in enumerate(self.filter_sizes):
             conv_left_name = 'conv_left_%d' % i
             conv_right_name = 'conv_right_%d' % i
-            self.__setattr__(conv_left_name, nn.Conv2d(in_channels=1,
-                out_channels=self.num_filters, kernel_size=(filter_size,
-                self.embed_dim)))
+            self.__setattr__(conv_left_name, nn.Conv2d(in_channels=1, out_channels=self.num_filters, kernel_size=(filter_size, self.embed_dim)))
             self.conv_left.append(self.__getattr__(conv_left_name))
-            self.__setattr__(conv_right_name, nn.Conv2d(in_channels=1,
-                out_channels=self.num_filters, kernel_size=(filter_size,
-                self.embed_dim)))
+            self.__setattr__(conv_right_name, nn.Conv2d(in_channels=1, out_channels=self.num_filters, kernel_size=(filter_size, self.embed_dim)))
             self.conv_right.append(self.__getattr__(conv_right_name))
         ins = len(self.filter_sizes) * self.num_filters
         self.simi_weight = nn.Parameter(torch.zeros(ins, ins))
@@ -2872,8 +2654,7 @@ class CNN_Ranking(nn.Module):
         enc_left = enc_left.unsqueeze(c_idx)
         enc_right = enc_right.unsqueeze(c_idx)
         enc_outs_left, enc_outs_right = [], []
-        for index, (encoder_left, encoder_right) in enumerate(zip(self.
-            conv_left, self.conv_right)):
+        for index, (encoder_left, encoder_right) in enumerate(zip(self.conv_left, self.conv_right)):
             enc_left_ = F.relu(encoder_left(enc_left))
             enc_right_ = F.relu(encoder_right(enc_right))
             h_left = enc_left_.size()[h_idx]
@@ -2889,8 +2670,7 @@ class CNN_Ranking(nn.Module):
         hid_in_left = torch.cat(enc_outs_left, c_idx)
         enc_outs_right = torch.cat(enc_outs_right, c_idx)
         transform_left = torch.mm(hid_in_left, self.simi_weight)
-        sims = torch.sum(torch.mm(transform_left, enc_outs_right.t()), dim=
-            c_idx, keepdim=True)
+        sims = torch.sum(torch.mm(transform_left, enc_outs_right.t()), dim=c_idx, keepdim=True)
         new_input = torch.cat([hid_in_left, sims, enc_outs_right], c_idx)
         out = F.dropout(self.out_lr(new_input), p=self.dropout)
         return F.log_softmax(self.logistic(out))
@@ -2963,8 +2743,7 @@ class PositionWise(nn.Module):
 
     def __init__(self, d_model, d_ff, dropout):
         super().__init__()
-        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn
-            .Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
+        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
         self.lm = nn.LayerNorm(d_model)
 
     def forward(self, input):
@@ -2982,8 +2761,7 @@ class EncoderLayer(nn.Module):
         self.pw = PositionWise(d_model, d_ff, dropout)
 
     def forward(self, enc_input, non_pad_mask=None, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.mh(enc_input, enc_input, enc_input,
-            slf_attn_mask)
+        enc_output, enc_slf_attn = self.mh(enc_input, enc_input, enc_input, slf_attn_mask)
         enc_output *= non_pad_mask
         enc_output = self.pw(enc_output)
         enc_output *= non_pad_mask
@@ -2998,14 +2776,11 @@ class DecoderLayer(nn.Module):
         self.dec_mh = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout)
         self.pw = PositionWise(d_model, d_ff, dropout)
 
-    def forward(self, dec_input, enc_output, non_pad_mask=None,
-        slf_attn_mask=None, dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_mh(dec_input, dec_input,
-            dec_input, slf_attn_mask)
+    def forward(self, dec_input, enc_output, non_pad_mask=None, slf_attn_mask=None, dec_enc_attn_mask=None):
+        dec_output, dec_slf_attn = self.slf_mh(dec_input, dec_input, dec_input, slf_attn_mask)
         dec_output *= non_pad_mask
         m_dec_output = dec_output
-        dec_output, dec_enc_attn = self.dec_mh(dec_output, enc_output,
-            enc_output, dec_enc_attn_mask)
+        dec_output, dec_enc_attn = self.dec_mh(dec_output, enc_output, enc_output, dec_enc_attn_mask)
         dec_output *= non_pad_mask
         dec_output = self.pw(dec_output)
         dec_output *= non_pad_mask
@@ -3027,8 +2802,7 @@ class Encoder(nn.Module):
 
     def __init__(self, n_enc, d_model, d_ff, d_k, d_v, n_head, dropout):
         super().__init__()
-        self.encodes = nn.ModuleList([EncoderLayer(d_model, d_ff, d_k, d_v,
-            n_head, dropout) for _ in range(n_enc)])
+        self.encodes = nn.ModuleList([EncoderLayer(d_model, d_ff, d_k, d_v, n_head, dropout) for _ in range(n_enc)])
 
     def forward(self, encode, slf_attn_mask, non_pad_mask):
         enc_output = encode
@@ -3041,14 +2815,11 @@ class Decoder(nn.Module):
 
     def __init__(self, n_dec, d_model, d_ff, d_k, d_v, n_head, dropout):
         super().__init__()
-        self.decodes = nn.ModuleList([DecoderLayer(d_model, d_ff, d_k, d_v,
-            n_head, dropout) for _ in range(n_dec)])
+        self.decodes = nn.ModuleList([DecoderLayer(d_model, d_ff, d_k, d_v, n_head, dropout) for _ in range(n_dec)])
 
-    def forward(self, dec_output, enc_output, non_pad_mask, slf_attn_mask,
-        dec_enc_attn_mask):
+    def forward(self, dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask):
         for layer in self.decodes:
-            dec_output, m_dec_output = layer(dec_output, enc_output,
-                non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
+            dec_output, m_dec_output = layer(dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
         return dec_output, m_dec_output
 
 
@@ -3058,17 +2829,11 @@ class Transformer(nn.Module):
         super().__init__()
         self.args = args
         self.n_position = args.max_context_len
-        self.turn_embedding = nn.Embedding(args.turn_size, args.d_model,
-            padding_idx=const.PAD)
-        self.word_embedding = nn.Embedding(args.vocab_size, args.d_model,
-            padding_idx=const.PAD)
-        self.pos_embedding = nn.Embedding.from_pretrained(common.
-            get_sinusoid_encoding_table(self.n_position, args.d_model,
-            padding_idx=const.PAD))
-        self.enc = Encoder(args.n_stack_layers, args.d_model, args.d_ff,
-            args.d_k, args.d_v, args.n_head, args.dropout)
-        self.dec = Decoder(args.n_stack_layers, args.d_model, args.d_ff,
-            args.d_k, args.d_v, args.n_head, args.dropout)
+        self.turn_embedding = nn.Embedding(args.turn_size, args.d_model, padding_idx=const.PAD)
+        self.word_embedding = nn.Embedding(args.vocab_size, args.d_model, padding_idx=const.PAD)
+        self.pos_embedding = nn.Embedding.from_pretrained(common.get_sinusoid_encoding_table(self.n_position, args.d_model, padding_idx=const.PAD))
+        self.enc = Encoder(args.n_stack_layers, args.d_model, args.d_ff, args.d_k, args.d_v, args.n_head, args.dropout)
+        self.dec = Decoder(args.n_stack_layers, args.d_model, args.d_ff, args.d_k, args.d_v, args.n_head, args.dropout)
         self.encode_w = nn.Linear(args.d_model, args.d_model, bias=False)
         self.decode_w = nn.Linear(args.d_model, args.d_model, bias=False)
         self.vt = nn.Linear(args.d_model, 1, bias=False)
@@ -3086,8 +2851,7 @@ class Transformer(nn.Module):
         return filter(lambda m: m.requires_grad, self.parameters())
 
     def forward(self, src_tensor, src_postion, turns_tensor, tgt_tensor):
-        encode = self.word_embedding(src_tensor) + self.pos_embedding(
-            src_postion) + self.turn_embedding(turns_tensor)
+        encode = self.word_embedding(src_tensor) + self.pos_embedding(src_postion) + self.turn_embedding(turns_tensor)
         encode = self.droupout(encode)
         slf_attn_mask = common.get_attn_key_pad_mask(src_tensor, src_tensor)
         non_pad_mask = common.get_non_pad_mask(src_tensor)
@@ -3096,13 +2860,10 @@ class Transformer(nn.Module):
         dec_output = self.droupout(dec_output)
         non_pad_mask = common.get_non_pad_mask(tgt_tensor)
         slf_attn_mask_subseq = common.get_subsequent_mask(tgt_tensor)
-        slf_attn_mask_keypad = common.get_attn_key_pad_mask(tgt_tensor,
-            tgt_tensor, True)
+        slf_attn_mask_keypad = common.get_attn_key_pad_mask(tgt_tensor, tgt_tensor, True)
         slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
-        dec_enc_attn_mask = common.get_attn_key_pad_mask(src_tensor, tgt_tensor
-            )
-        dec_output, m_dec_output = self.dec(dec_output, enc_output,
-            non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
+        dec_enc_attn_mask = common.get_attn_key_pad_mask(src_tensor, tgt_tensor)
+        dec_output, m_dec_output = self.dec(dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
         distributes = self.attention(m_dec_output, enc_output)
         return distributes
 
@@ -3117,8 +2878,7 @@ class Transformer(nn.Module):
         return torch.stack(distributes, dim=1)
 
     def encode(self, src_tensor, src_postion, turns_tensor):
-        encode = self.word_embedding(src_tensor) + self.pos_embedding(
-            src_postion) + self.turn_embedding(turns_tensor)
+        encode = self.word_embedding(src_tensor) + self.pos_embedding(src_postion) + self.turn_embedding(turns_tensor)
         slf_attn_mask = common.get_attn_key_pad_mask(src_tensor, src_tensor)
         non_pad_mask = common.get_non_pad_mask(src_tensor)
         enc_output = self.enc(encode, slf_attn_mask, non_pad_mask)
@@ -3129,13 +2889,10 @@ class Transformer(nn.Module):
         dec_output = self.droupout(dec_output)
         non_pad_mask = common.get_non_pad_mask(tgt_tensor)
         slf_attn_mask_subseq = common.get_subsequent_mask(tgt_tensor)
-        slf_attn_mask_keypad = common.get_attn_key_pad_mask(tgt_tensor,
-            tgt_tensor, True)
+        slf_attn_mask_keypad = common.get_attn_key_pad_mask(tgt_tensor, tgt_tensor, True)
         slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
-        dec_enc_attn_mask = common.get_attn_key_pad_mask(src_tensor, tgt_tensor
-            )
-        dec_output, m_dec_output = self.dec(dec_output, enc_output,
-            non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
+        dec_enc_attn_mask = common.get_attn_key_pad_mask(src_tensor, tgt_tensor)
+        dec_output, m_dec_output = self.dec(dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
         distributes = self.attention(m_dec_output, enc_output)
         return distributes
 
@@ -3147,8 +2904,7 @@ class Transformer(nn.Module):
             self.load_state_dict(torch.load(path))
             self
         else:
-            self.load_state_dict(torch.load(path, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.cpu()
 
 
@@ -3169,8 +2925,7 @@ class SelfCriticCriterion(nn.Module):
         super().__init__()
 
     def forward(self, props, s_words, tgt, advantage):
-        advantage = (advantage - advantage.mean()) / advantage.std().clamp(min
-            =1e-08)
+        advantage = (advantage - advantage.mean()) / advantage.std().clamp(min=1e-08)
         s_props = props.gather(2, s_words.unsqueeze(2)).squeeze()
         mask = (tgt > 0).float()
         advantage = advantage.unsqueeze(1).repeat(1, mask.size(1))
@@ -3190,11 +2945,9 @@ class Model(nn.Module):
         self.max_len = args.max_len
         self.src_emb = nn.Embedding(args.src_vs, args.emb_dim, padding_idx=PAD)
         self.tgt_emb = nn.Embedding(args.tgt_vs, args.emb_dim, padding_idx=PAD)
-        self.enc = nn.LSTM(args.emb_dim, args.rnn_hsz, 1, batch_first=True,
-            dropout=args.dropout)
+        self.enc = nn.LSTM(args.emb_dim, args.rnn_hsz, 1, batch_first=True, dropout=args.dropout)
         self.dec_hidden = nn.Linear(args.rnn_hsz, args.rnn_hsz)
-        self.dec = nn.LSTM(args.rnn_hsz, args.rnn_hsz, 1, batch_first=True,
-            dropout=args.dropout)
+        self.dec = nn.LSTM(args.rnn_hsz, args.rnn_hsz, 1, batch_first=True, dropout=args.dropout)
         self.out = nn.Linear(self.rnn_hsz, args.tgt_vs)
 
     def encode(self, src_inp):
@@ -3241,9 +2994,7 @@ class Model(nn.Module):
 
 class RelationNet(nn.Module):
 
-    def __init__(self, word_size, answer_size, max_s_len, max_q_len,
-        use_cuda, story_len=20, emb_dim=32, story_hsz=32, story_layers=1,
-        question_hsz=32, question_layers=1):
+    def __init__(self, word_size, answer_size, max_s_len, max_q_len, use_cuda, story_len=20, emb_dim=32, story_hsz=32, story_layers=1, question_hsz=32, question_layers=1):
         super().__init__()
         self.use_cuda = use_cuda
         self.max_s_len = max_s_len
@@ -3252,10 +3003,8 @@ class RelationNet(nn.Module):
         self.emb_dim = emb_dim
         self.story_hsz = story_hsz
         self.emb = nn.Embedding(word_size, emb_dim)
-        self.story_rnn = torch.nn.LSTM(input_size=emb_dim, hidden_size=
-            story_hsz, num_layers=story_layers, batch_first=True)
-        self.question_rnn = torch.nn.LSTM(input_size=emb_dim, hidden_size=
-            question_hsz, num_layers=question_layers, batch_first=True)
+        self.story_rnn = torch.nn.LSTM(input_size=emb_dim, hidden_size=story_hsz, num_layers=story_layers, batch_first=True)
+        self.question_rnn = torch.nn.LSTM(input_size=emb_dim, hidden_size=question_hsz, num_layers=question_layers, batch_first=True)
         self.g1 = nn.Linear(2 * story_len + 2 * story_hsz + question_hsz, 256)
         self.g2 = nn.Linear(256, 256)
         self.g3 = nn.Linear(256, 256)
@@ -3315,8 +3064,7 @@ class RelationNet(nn.Module):
         for i in range(self.story_len):
             this_tensor = story_objects[:, (i), :]
             for j in range(self.story_len):
-                u = torch.cat((this_tensor, story_objects[:, (j), :],
-                    q_state), dim=1)
+                u = torch.cat((this_tensor, story_objects[:, (j), :], q_state), dim=1)
                 g = self.g_theta(u)
                 sum_g_theta = torch.add(sum_g_theta, g)
         out = F.relu(self.f1(sum_g_theta))
@@ -3332,15 +3080,11 @@ class Model(nn.Module):
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
         self.emb = nn.Embedding(self.dict_size, self.emb_dim)
-        self.first_gru = nn.GRU(input_size=self.emb_dim, hidden_size=self.
-            first_rnn_hsz, num_layers=1, batch_first=True)
-        self.transform_A = nn.Linear(self.first_rnn_hsz, self.first_rnn_hsz,
-            bias=False)
-        self.cnn = nn.Conv2d(in_channels=2, out_channels=self.fillters,
-            kernel_size=self.kernel_size)
+        self.first_gru = nn.GRU(input_size=self.emb_dim, hidden_size=self.first_rnn_hsz, num_layers=1, batch_first=True)
+        self.transform_A = nn.Linear(self.first_rnn_hsz, self.first_rnn_hsz, bias=False)
+        self.cnn = nn.Conv2d(in_channels=2, out_channels=self.fillters, kernel_size=self.kernel_size)
         self.match_vec = nn.Linear(16 * 16 * 8, self.match_vec_dim)
-        self.second_gru = nn.GRU(input_size=self.match_vec_dim, hidden_size
-            =self.second_rnn_hsz, num_layers=1)
+        self.second_gru = nn.GRU(input_size=self.match_vec_dim, hidden_size=self.second_rnn_hsz, num_layers=1)
         self.pred = nn.Linear(self.match_vec_dim, 2)
         self._reset_parameters()
 
@@ -3370,8 +3114,7 @@ class Model(nn.Module):
             mat_2 = torch.matmul(self.transform_A(utte_gru), resps_gru_t)
             M = torch.stack([mat_1, mat_2], 1)
             cnn_layer = F.relu(self.cnn(M))
-            pool_layer = F.max_pool2d(cnn_layer, self.kernel_size, stride=
-                self.kernel_size)
+            pool_layer = F.max_pool2d(cnn_layer, self.kernel_size, stride=self.kernel_size)
             pool_layer = pool_layer.view(bsz, -1)
             match_vec = F.relu(self.match_vec(pool_layer))
             match_vecs.append(match_vec)
@@ -3395,8 +3138,7 @@ class LayerNorm(nn.Module):
         mu = torch.mean(input, dim=-1, keepdim=True)
         sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
         output = (input - mu) / sigma
-        return output * self.weight.expand_as(output) + self.bias.expand_as(
-            output)
+        return output * self.weight.expand_as(output) + self.bias.expand_as(output)
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -3422,8 +3164,7 @@ class MultiHeadAtt(nn.Module):
         self.n_head = n_head
         self.d_v = self.d_k = d_k = d_model // n_head
         for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head,
-                d_model, d_k)))
+            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
         self.attention = ScaledDotProductAttention(d_k, dropout)
         self.lm = LayerNorm(d_model)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
@@ -3444,10 +3185,8 @@ class MultiHeadAtt(nn.Module):
         k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
         v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
         outputs = self.attention(q_s, k_s, v_s, attn_mask.repeat(n_head, 1, 1))
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(
-            -1, n_head * d_v)
-        outputs = F.dropout(self.w_o(outputs), p=self.dropout).view(bsz,
-            len_q, -1)
+        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
+        outputs = F.dropout(self.w_o(outputs), p=self.dropout).view(bsz, len_q, -1)
         return self.lm(outputs + residual)
 
     def _init_weight(self):
@@ -3461,8 +3200,7 @@ class PositionWise(nn.Module):
 
     def __init__(self, d_model, d_ff, dropout):
         super().__init__()
-        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn
-            .Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
+        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
         self.lm = LayerNorm(d_model)
 
     def forward(self, input):
@@ -3493,26 +3231,22 @@ class DecoderLayer(nn.Module):
         self.pw = PositionWise(d_model, d_ff, dropout)
 
     def forward(self, dec_input, enc_output, slf_attn_mask, dec_enc_attn_mask):
-        dec_output = self.slf_mh(dec_input, dec_input, dec_input, slf_attn_mask
-            )
-        dec_output = self.dec_mh(dec_output, enc_output, enc_output,
-            dec_enc_attn_mask)
+        dec_output = self.slf_mh(dec_input, dec_input, dec_input, slf_attn_mask)
+        dec_output = self.dec_mh(dec_output, enc_output, enc_output, dec_enc_attn_mask)
         dec_output = self.pw(dec_output)
         return dec_output
 
 
 class Encoder(nn.Module):
 
-    def __init__(self, enc_vocab_size, max_word_len, n_enc, d_model, d_ff,
-        n_head, dropout):
+    def __init__(self, enc_vocab_size, max_word_len, n_enc, d_model, d_ff, n_head, dropout):
         super().__init__()
         self.n_position = max_word_len + 1
         self.enc_vocab_size = enc_vocab_size
         self.d_model = d_model
         self.enc_ebd = nn.Embedding(enc_vocab_size, d_model, padding_idx=PAD)
         self.pos_ebd = nn.Embedding(self.n_position, d_model, padding_idx=PAD)
-        self.encodes = nn.ModuleList([EncoderLayer(d_model, d_ff, n_head,
-            dropout) for _ in range(n_enc)])
+        self.encodes = nn.ModuleList([EncoderLayer(d_model, d_ff, n_head, dropout) for _ in range(n_enc)])
         self._init_weight()
 
     def _init_weight(self, scope=0.1):
@@ -3542,15 +3276,13 @@ def get_attn_subsequent_mask(seq):
 
 class Decoder(nn.Module):
 
-    def __init__(self, dec_vocab_size, max_word_len, n_dec, d_model, d_ff,
-        n_head, dropout):
+    def __init__(self, dec_vocab_size, max_word_len, n_dec, d_model, d_ff, n_head, dropout):
         super().__init__()
         self.d_model = d_model
         self.n_position = max_word_len + 1
         self.pos_ebd = nn.Embedding(self.n_position, d_model, padding_idx=PAD)
         self.dec_ebd = nn.Embedding(dec_vocab_size, d_model, padding_idx=PAD)
-        self.decodes = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head,
-            dropout) for _ in range(n_dec)])
+        self.decodes = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, dropout) for _ in range(n_dec)])
         self._init_weight()
 
     def _init_weight(self, scope=0.1):
@@ -3560,12 +3292,10 @@ class Decoder(nn.Module):
 
     def forward(self, enc_outputs, enc_input, dec_input, dec_pos):
         dec_output = self.dec_ebd(dec_input) + self.pos_ebd(dec_pos)
-        dec_slf_attn_mask = torch.gt(get_attn_padding_mask(dec_input,
-            dec_input) + get_attn_subsequent_mask(dec_input), 0)
+        dec_slf_attn_mask = torch.gt(get_attn_padding_mask(dec_input, dec_input) + get_attn_subsequent_mask(dec_input), 0)
         dec_enc_attn_pad_mask = get_attn_padding_mask(dec_input, enc_input)
         for layer, enc_output in zip(self.decodes, enc_outputs):
-            dec_output = layer(dec_output, enc_output, dec_slf_attn_mask,
-                dec_enc_attn_pad_mask)
+            dec_output = layer(dec_output, enc_output, dec_slf_attn_mask, dec_enc_attn_pad_mask)
         return dec_output
 
 
@@ -3575,10 +3305,8 @@ class Transformer(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.enc = Encoder(self.enc_vocab_size, self.max_word_len, self.
-            n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
-        self.dec = Decoder(self.dec_vocab_size, self.max_word_len, self.
-            n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
+        self.enc = Encoder(self.enc_vocab_size, self.max_word_len, self.n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
+        self.dec = Decoder(self.dec_vocab_size, self.max_word_len, self.n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
         self.linear = nn.Linear(self.d_model, self.dec_vocab_size, bias=False)
         self._init_weight()
 
@@ -3626,8 +3354,7 @@ class Highway(nn.Module):
 
     def __init__(self, num_layers, hsz, active):
         super().__init__()
-        self.layers = nn.ModuleList([highway_layer(hsz, active) for _ in
-            range(num_layers)])
+        self.layers = nn.ModuleList([highway_layer(hsz, active) for _ in range(num_layers)])
 
     def forward(self, x):
         for layer in self.layers:
@@ -3642,33 +3369,28 @@ class Encoder(nn.Module):
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.dropout = dropout
-        self.rnn = nn.LSTM(embed_dim, hidden_size, num_layers, dropout,
-            bidirectional=True)
+        self.rnn = nn.LSTM(embed_dim, hidden_size, num_layers, dropout, bidirectional=True)
 
     def forward(self, input, hidden):
         _, hidden = self.rnn(input.transpose(0, 1), hidden)
-        out = F.dropout(torch.cat((hidden[0][-2], hidden[0][-1]), -1), p=
-            self.dropout)
+        out = F.dropout(torch.cat((hidden[0][-2], hidden[0][-1]), -1), p=self.dropout)
         return out, hidden
 
     def init_hidden(self, bsz):
         size = self.num_layers * 2, bsz, self.hidden_size
         weight = next(self.parameters()).data
-        return Variable(weight.new(*size).zero_()), Variable(weight.new(*
-            size).zero_())
+        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, embed_dim, latent_dim, hidden_size, num_layers,
-        dropout, vocab_size):
+    def __init__(self, embed_dim, latent_dim, hidden_size, num_layers, dropout, vocab_size):
         super().__init__()
         self.hidden_size = hidden_size
         self.dropout = dropout
         self.num_layers = num_layers
         self.latent_dim = latent_dim
-        self.rnn = nn.LSTM(embed_dim + latent_dim, hidden_size, num_layers,
-            dropout=dropout, batch_first=True)
+        self.rnn = nn.LSTM(embed_dim + latent_dim, hidden_size, num_layers, dropout=dropout, batch_first=True)
         self.lr = nn.Linear(hidden_size, vocab_size)
         self._init_weight()
 
@@ -3684,8 +3406,7 @@ class Decoder(nn.Module):
     def init_hidden(self, bsz):
         size = self.num_layers, bsz, self.hidden_size
         weight = next(self.parameters()).data
-        return Variable(weight.new(*size).zero_()), Variable(weight.new(*
-            size).zero_())
+        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
 
     def _init_weight(self, scope=0.1):
         self.lr.weight.data.uniform_(-scope, scope)
@@ -3701,12 +3422,10 @@ class VAE(nn.Module):
         self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim)
         self.lookup_table.weight.data.copy_(torch.from_numpy(self.pre_w2v))
         self.hw = Highway(self.hw_layers, self.hw_hsz, F.relu)
-        self.encode = Encoder(self.embed_dim, self.enc_hsz, self.enc_layers,
-            self.dropout)
+        self.encode = Encoder(self.embed_dim, self.enc_hsz, self.enc_layers, self.dropout)
         self._enc_mu = nn.Linear(self.enc_hsz * 2, self.latent_dim)
         self._enc_log_sigma = nn.Linear(self.enc_hsz * 2, self.latent_dim)
-        self.decode = Decoder(self.embed_dim, self.latent_dim, self.dec_hsz,
-            self.dec_layers, self.dropout, self.vocab_size)
+        self.decode = Decoder(self.embed_dim, self.latent_dim, self.dec_hsz, self.dec_layers, self.dropout, self.vocab_size)
         self._init_weight()
 
     def forward(self, enc_input, dec_input, enc_hidden, dec_hidden):
@@ -3723,8 +3442,7 @@ class VAE(nn.Module):
         def latent_loss(mu, sigma):
             pow_mu = mu * mu
             pow_sigma = sigma * sigma
-            return 0.5 * torch.sum(pow_mu + pow_sigma - torch.log(pow_sigma
-                ) - 1, dim=-1).mean()
+            return 0.5 * torch.sum(pow_mu + pow_sigma - torch.log(pow_sigma) - 1, dim=-1).mean()
         mu = self._enc_mu(enc_output)
         sigma = torch.exp(0.5 * self._enc_log_sigma(enc_output))
         self.latent_loss = latent_loss(mu, sigma)
@@ -3769,12 +3487,7 @@ def load_classes(inp='data/coco.names'):
 OUT_DIM = 3 * (len(load_classes()) + 5)
 
 
-DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1,
-    0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (OUT_DIM, 1, 1, 0,
-    0)], 'second': [768, (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (
-    512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)],
-    'third': [384, (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3,
-    1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)]}
+DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)], 'second': [768, (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)], 'third': [384, (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)]}
 
 
 LOSS_NAMES = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
@@ -3785,15 +3498,11 @@ class DarkNet(nn.Module):
     def __init__(self, use_cuda, nClasses):
         super().__init__()
         self.conv_1 = BasicConv(256, 512, 3, 2, 1)
-        self.seq_1 = nn.Sequential(BasicConv(3, 32, 3, 1, 1), BasicConv(32,
-            64, 3, 2, 1), LayerOne(), BasicConv(64, 128, 3, 2, 1), LayerTwo
-            (), BasicConv(128, 256, 3, 2, 1), LayerThree())
+        self.seq_1 = nn.Sequential(BasicConv(3, 32, 3, 1, 1), BasicConv(32, 64, 3, 2, 1), LayerOne(), BasicConv(64, 128, 3, 2, 1), LayerTwo(), BasicConv(128, 256, 3, 2, 1), LayerThree())
         self.seq_2 = nn.Sequential(BasicConv(512, 1024, 3, 2, 1), LayerFive())
         self.layer_4 = LayerFour()
-        self.uns_1 = nn.Sequential(BasicConv(512, 256, 1, 1, 0), nn.
-            Upsample(scale_factor=2, mode='bilinear'))
-        self.uns_2 = nn.Sequential(BasicConv(256, 128, 1, 1, 0), nn.
-            Upsample(scale_factor=2, mode='bilinear'))
+        self.uns_1 = nn.Sequential(BasicConv(512, 256, 1, 1, 0), nn.Upsample(scale_factor=2, mode='bilinear'))
+        self.uns_2 = nn.Sequential(BasicConv(256, 128, 1, 1, 0), nn.Upsample(scale_factor=2, mode='bilinear'))
         self.pred_1 = FirstPred(DETECT_DICT['first'], use_cuda, nClasses)
         self.pred_2 = SecondPred(DETECT_DICT['second'], use_cuda, nClasses)
         self.pred_3 = ThirdPred(DETECT_DICT['third'], use_cuda, nClasses)
@@ -3846,11 +3555,9 @@ class DarkNet(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, ind, outd, kr_size, stride, padding, lr=0.1, bias=False
-        ):
+    def __init__(self, ind, outd, kr_size, stride, padding, lr=0.1, bias=False):
         super().__init__()
-        self.layers = nn.Sequential(nn.Conv2d(ind, outd, kr_size, stride,
-            padding, bias=bias), nn.BatchNorm2d(outd), nn.LeakyReLU(lr))
+        self.layers = nn.Sequential(nn.Conv2d(ind, outd, kr_size, stride, padding, bias=bias), nn.BatchNorm2d(outd), nn.LeakyReLU(lr))
 
     def forward(self, x):
         return self.layers(x)
@@ -3877,25 +3584,18 @@ class BasicLayer(nn.Module):
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
     if not x1y1x2y2:
-        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:,
-            (2)] / 2
-        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:,
-            (3)] / 2
-        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:,
-            (2)] / 2
-        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:,
-            (3)] / 2
+        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:, (2)] / 2
+        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:, (3)] / 2
+        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:, (2)] / 2
+        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:, (3)] / 2
     else:
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)
-            ], box1[:, (3)]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)
-            ], box2[:, (3)]
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)], box1[:, (3)]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)], box2[:, (3)]
     inter_rect_x1 = torch.max(b1_x1, b2_x1)
     inter_rect_y1 = torch.max(b1_y1, b2_y1)
     inter_rect_x2 = torch.min(b1_x2, b2_x2)
     inter_rect_y2 = torch.min(b1_y2, b2_y2)
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0
-        ) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
     b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
     iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
@@ -3904,8 +3604,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
 
 class BasicPred(nn.Module):
 
-    def __init__(self, structs, use_cuda, anchors, classes, height=416,
-        route_index=0):
+    def __init__(self, structs, use_cuda, anchors, classes, height=416, route_index=0):
         super().__init__()
         self.ri = route_index
         self.classes = classes
@@ -3943,8 +3642,7 @@ class BasicPred(nn.Module):
         Code originally from https://github.com/eriklindernoren/PyTorch-YOLOv3.
         """
 
-        def build_targets(pred_boxes, pred_conf, pred_cls, target, anchors,
-            num_anchors, num_classes, grid_size, ignore_thres, img_dim):
+        def build_targets(pred_boxes, pred_conf, pred_cls, target, anchors, num_anchors, num_classes, grid_size, ignore_thres, img_dim):
             """
             target - [bsz, max_obj, 5]
             """
@@ -3973,32 +3671,26 @@ class BasicPred(nn.Module):
                     gh = target[b, t, 4] * nG
                     gi = int(gx)
                     gj = int(gy)
-                    gt_box = torch.FloatTensor(np.array([0, 0, gw, gh])
-                        ).unsqueeze(0)
-                    anchor_shapes = torch.FloatTensor(np.concatenate((np.
-                        zeros((len(anchors), 2)), np.array(anchors)), 1))
+                    gt_box = torch.FloatTensor(np.array([0, 0, gw, gh])).unsqueeze(0)
+                    anchor_shapes = torch.FloatTensor(np.concatenate((np.zeros((len(anchors), 2)), np.array(anchors)), 1))
                     anch_ious = bbox_iou(gt_box, anchor_shapes)
                     conf_mask[b, anch_ious > ignore_thres, gj, gi] = 0
                     best_n = np.argmax(anch_ious)
-                    gt_box = torch.FloatTensor(np.array([gx, gy, gw, gh])
-                        ).unsqueeze(0)
+                    gt_box = torch.FloatTensor(np.array([gx, gy, gw, gh])).unsqueeze(0)
                     pred_box = pred_boxes[b, best_n, gj, gi].unsqueeze(0)
                     mask[b, best_n, gj, gi] = 1
                     conf_mask[b, best_n, gj, gi] = 1
                     tx[b, best_n, gj, gi] = gx - gi
                     ty[b, best_n, gj, gi] = gy - gj
-                    tw[b, best_n, gj, gi] = math.log(gw / anchors[best_n][0
-                        ] + 1e-16)
-                    th[b, best_n, gj, gi] = math.log(gh / anchors[best_n][1
-                        ] + 1e-16)
+                    tw[b, best_n, gj, gi] = math.log(gw / anchors[best_n][0] + 1e-16)
+                    th[b, best_n, gj, gi] = math.log(gh / anchors[best_n][1] + 1e-16)
                     target_label = int(target[b, t, 0])
                     tcls[b, best_n, gj, gi, target_label] = 1
                     tconf[b, best_n, gj, gi] = 1
                     iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False)
                     pred_label = torch.argmax(pred_cls[b, best_n, gj, gi])
                     score = pred_conf[b, best_n, gj, gi]
-                    if (iou > 0.5 and pred_label == target_label and score >
-                        0.5):
+                    if iou > 0.5 and pred_label == target_label and score > 0.5:
                         nCorrect += 1
             return nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls
         bsz = inp.size(0)
@@ -4006,20 +3698,16 @@ class BasicPred(nn.Module):
         stride = self.height // grid_size
         bbox_attrs = 5 + self.classes
         num_anchors = len(self.anchors)
-        prediction = inp.view(bsz, num_anchors, bbox_attrs, grid_size,
-            grid_size).permute(0, 1, 3, 4, 2).contiguous()
-        anchors = self.torch.FloatTensor([(a[0] / stride, a[1] / stride) for
-            a in self.anchors])
+        prediction = inp.view(bsz, num_anchors, bbox_attrs, grid_size, grid_size).permute(0, 1, 3, 4, 2).contiguous()
+        anchors = self.torch.FloatTensor([(a[0] / stride, a[1] / stride) for a in self.anchors])
         x = torch.sigmoid(prediction[..., 0])
         y = torch.sigmoid(prediction[..., 1])
         w = prediction[..., 2]
         h = prediction[..., 3]
         pred_conf = torch.sigmoid(prediction[..., 4])
         pred_cls = torch.sigmoid(prediction[(...), 5:])
-        grid_x = torch.arange(grid_size).repeat(grid_size, 1).view([1, 1,
-            grid_size, grid_size]).type(self.torch.FloatTensor)
-        grid_y = torch.arange(grid_size).repeat(grid_size, 1).t().view([1, 
-            1, grid_size, grid_size]).type(self.torch.FloatTensor)
+        grid_x = torch.arange(grid_size).repeat(grid_size, 1).view([1, 1, grid_size, grid_size]).type(self.torch.FloatTensor)
+        grid_y = torch.arange(grid_size).repeat(grid_size, 1).t().view([1, 1, grid_size, grid_size]).type(self.torch.FloatTensor)
         anchor_w = anchors[:, (0)].view((1, num_anchors, 1, 1))
         anchor_h = anchors[:, (1)].view((1, num_anchors, 1, 1))
         pred_boxes = self.torch.FloatTensor(prediction[(...), :4].shape)
@@ -4028,12 +3716,7 @@ class BasicPred(nn.Module):
         pred_boxes[..., 2] = torch.exp(w.data) * anchor_w
         pred_boxes[..., 3] = torch.exp(h.data) * anchor_h
         if targets is not None:
-            nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls = (
-                build_targets(pred_boxes=pred_boxes.cpu().data, pred_conf=
-                pred_conf.cpu().data, pred_cls=pred_cls.cpu().data, target=
-                targets.cpu().data, anchors=anchors.cpu().data, num_anchors
-                =num_anchors, num_classes=self.classes, grid_size=grid_size,
-                ignore_thres=0.5, img_dim=self.height))
+            nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls = build_targets(pred_boxes=pred_boxes.cpu().data, pred_conf=pred_conf.cpu().data, pred_cls=pred_cls.cpu().data, target=targets.cpu().data, anchors=anchors.cpu().data, num_anchors=num_anchors, num_classes=self.classes, grid_size=grid_size, ignore_thres=0.5, img_dim=self.height)
             nProposals = int((pred_conf > 0.5).sum().item())
             recall = float(nCorrect / nGT) if nGT else 1
             precision = float(nCorrect / nProposals)
@@ -4052,19 +3735,12 @@ class BasicPred(nn.Module):
             loss_y = self.mse_loss(y[mask], ty[mask])
             loss_w = self.mse_loss(w[mask], tw[mask])
             loss_h = self.mse_loss(h[mask], th[mask])
-            loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[
-                conf_mask_false]) + self.bce_loss(pred_conf[conf_mask_true],
-                tconf[conf_mask_true])
-            loss_cls = self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1)
-                )
+            loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[conf_mask_false]) + self.bce_loss(pred_conf[conf_mask_true], tconf[conf_mask_true])
+            loss_cls = self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
             loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
-            return loss, loss_x.item(), loss_y.item(), loss_w.item(
-                ), loss_h.item(), loss_conf.item(), loss_cls.item(
-                ), recall, precision
+            return loss, loss_x.item(), loss_y.item(), loss_w.item(), loss_h.item(), loss_conf.item(), loss_cls.item(), recall, precision
         else:
-            output = torch.cat((pred_boxes.view(bsz, -1, 4) * stride,
-                pred_conf.view(bsz, -1, 1), pred_cls.view(bsz, -1, self.
-                classes)), -1)
+            output = torch.cat((pred_boxes.view(bsz, -1, 4) * stride, pred_conf.view(bsz, -1, 1), pred_cls.view(bsz, -1, self.classes)), -1)
             return output
 
 
@@ -4072,121 +3748,268 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActorCritic,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AlphaEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AtteMatchLay,
+     lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
+     lambda: ([torch.rand([16, 4, 4]), torch.rand([64, 4])], {}),
+     True),
+    (BasicConv,
+     lambda: ([], {'ind': 4, 'outd': 4, 'kr_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Beauty,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (CNN,
+     lambda: ([], {'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     True),
+    (CRF,
+     lambda: ([], {'label_size': 4, 'is_cuda': False}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ConvUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64])], {}),
+     True),
+    (DQN,
+     lambda: ([], {'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DigitCap,
+     lambda: ([], {'use_cuda': False, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (DilatedGatedConv1D,
+     lambda: ([], {'dilation_rate': 1, 'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Distance,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (Feature,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (FullMatchLay,
+     lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GELU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GramMatrix,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HwLSTMCell,
+     lambda: ([], {'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (HwLSTMlayer,
+     lambda: ([], {'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxpoolMatchLay,
+     lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (ObjModel,
+     lambda: ([], {'dim': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {}),
+     True),
+    (Policy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (Pooler,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionWise,
+     lambda: ([], {'d_model': 4, 'd_ff': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (PrimaryCap,
+     lambda: ([], {'num_primary_units': 4}),
+     lambda: ([torch.rand([4, 256, 64, 64])], {}),
+     True),
+    (ResBlockNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (RnnDropout,
+     lambda: ([], {'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': False}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RnnEncoder,
+     lambda: ([], {'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Score,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SubModel,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 8, 8])], {}),
+     True),
+    (SubjectLinear,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Value,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (_DenseBLayer,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_Transition,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (highway_layer,
+     lambda: ([], {'hsz': 4, 'active': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ne7ermore_torch_light(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ActorCritic(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AlphaEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(AtteMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([16, 4, 4]), torch.rand([64, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicConv(*[], **{'ind': 4, 'outd': 4, 'kr_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Beauty(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(CNN(*[], **{'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}), [torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(CRF(*[], **{'label_size': 4, 'is_cuda': False}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ConvUnit(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(DQN(*[], **{'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(DigitCap(*[], **{'use_cuda': False, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(DilatedGatedConv1D(*[], **{'dilation_rate': 1, 'dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Distance(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(Feature(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(FullMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(GELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(GramMatrix(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(HwLSTMCell(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(HwLSTMlayer(*[], **{'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(MaxpoolMatchLay(*[], **{'mp_dim': 4, 'cont_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 8, 64, 64])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(ObjModel(*[], **{'dim': 4, 'num_classes': 4}), [torch.rand([4, 16, 16]), torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 16, 4])], {})
+        self._check(*TESTCASES[21])
 
     def test_022(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[22])
 
     def test_023(self):
-        self._check(Pooler(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
     def test_024(self):
-        self._check(PositionWise(*[], **{'d_model': 4, 'd_ff': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[24])
 
     def test_025(self):
-        self._check(PrimaryCap(*[], **{'num_primary_units': 4}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(*TESTCASES[25])
 
     def test_026(self):
-        self._check(ResBlockNet(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[26])
 
     def test_027(self):
-        self._check(RnnDropout(*[], **{'dropout_prob': 0.5, 'hidden_size': 4, 'is_cuda': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[27])
 
     def test_028(self):
-        self._check(RnnEncoder(*[], **{'d_model': 4, 'embedding_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[28])
 
     def test_029(self):
-        self._check(Score(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[29])
 
     def test_030(self):
-        self._check(SubModel(*[], **{'dim': 4}), [torch.rand([4, 8, 8])], {})
+        self._check(*TESTCASES[30])
 
     def test_031(self):
-        self._check(SubjectLinear(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[31])
 
     def test_032(self):
-        self._check(Value(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[32])
 
     def test_033(self):
-        self._check(_DenseBLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[33])
 
     def test_034(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'growth_rate': 4, 'in_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[34])
 
     def test_035(self):
-        self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[35])
 
     def test_036(self):
-        self._check(highway_layer(*[], **{'hsz': 4, 'active': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[36])
 

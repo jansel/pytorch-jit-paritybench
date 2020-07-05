@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -46,9 +47,7 @@ class ContrastiveLoss(nn.Module):
 
     def forward(self, output1, output2, target, size_average=True):
         distances = (output2 - output1).pow(2).sum(1)
-        losses = 0.5 * (target.float() * distances + (1 + -1 * target).
-            float() * F.relu(self.margin - (distances + self.eps).sqrt()).
-            pow(2))
+        losses = 0.5 * (target.float() * distances + (1 + -1 * target).float() * F.relu(self.margin - (distances + self.eps).sqrt()).pow(2))
         return losses.mean() if size_average else losses.sum()
 
 
@@ -83,16 +82,12 @@ class OnlineContrastiveLoss(nn.Module):
         self.pair_selector = pair_selector
 
     def forward(self, embeddings, target):
-        positive_pairs, negative_pairs = self.pair_selector.get_pairs(
-            embeddings, target)
+        positive_pairs, negative_pairs = self.pair_selector.get_pairs(embeddings, target)
         if embeddings.is_cuda:
             positive_pairs = positive_pairs
             negative_pairs = negative_pairs
-        positive_loss = (embeddings[positive_pairs[:, (0)]] - embeddings[
-            positive_pairs[:, (1)]]).pow(2).sum(1)
-        negative_loss = F.relu(self.margin - (embeddings[negative_pairs[:,
-            (0)]] - embeddings[negative_pairs[:, (1)]]).pow(2).sum(1).sqrt()
-            ).pow(2)
+        positive_loss = (embeddings[positive_pairs[:, (0)]] - embeddings[positive_pairs[:, (1)]]).pow(2).sum(1)
+        negative_loss = F.relu(self.margin - (embeddings[negative_pairs[:, (0)]] - embeddings[negative_pairs[:, (1)]]).pow(2).sum(1).sqrt()).pow(2)
         loss = torch.cat([positive_loss, negative_loss], dim=0)
         return loss.mean()
 
@@ -114,10 +109,8 @@ class OnlineTripletLoss(nn.Module):
         triplets = self.triplet_selector.get_triplets(embeddings, target)
         if embeddings.is_cuda:
             triplets = triplets
-        ap_distances = (embeddings[triplets[:, (0)]] - embeddings[triplets[
-            :, (1)]]).pow(2).sum(1)
-        an_distances = (embeddings[triplets[:, (0)]] - embeddings[triplets[
-            :, (2)]]).pow(2).sum(1)
+        ap_distances = (embeddings[triplets[:, (0)]] - embeddings[triplets[:, (1)]]).pow(2).sum(1)
+        an_distances = (embeddings[triplets[:, (0)]] - embeddings[triplets[:, (2)]]).pow(2).sum(1)
         losses = F.relu(ap_distances - an_distances + self.margin)
         return losses.mean(), len(triplets)
 
@@ -126,11 +119,8 @@ class EmbeddingNet(nn.Module):
 
     def __init__(self):
         super(EmbeddingNet, self).__init__()
-        self.convnet = nn.Sequential(nn.Conv2d(1, 32, 5), nn.PReLU(), nn.
-            MaxPool2d(2, stride=2), nn.Conv2d(32, 64, 5), nn.PReLU(), nn.
-            MaxPool2d(2, stride=2))
-        self.fc = nn.Sequential(nn.Linear(64 * 4 * 4, 256), nn.PReLU(), nn.
-            Linear(256, 256), nn.PReLU(), nn.Linear(256, 2))
+        self.convnet = nn.Sequential(nn.Conv2d(1, 32, 5), nn.PReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(32, 64, 5), nn.PReLU(), nn.MaxPool2d(2, stride=2))
+        self.fc = nn.Sequential(nn.Linear(64 * 4 * 4, 256), nn.PReLU(), nn.Linear(256, 256), nn.PReLU(), nn.Linear(256, 2))
 
     def forward(self, x):
         output = self.convnet(x)
@@ -196,22 +186,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_adambielski_siamese_triplet(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(ClassificationNet(*[], **{'embedding_net': _mock_layer(), 'n_classes': 4}), [torch.rand([2, 2])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ClassificationNet,
+     lambda: ([], {'embedding_net': _mock_layer(), 'n_classes': 4}),
+     lambda: ([torch.rand([2, 2])], {}),
+     True),
+    (ContrastiveLoss,
+     lambda: ([], {'margin': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SiameseNet,
+     lambda: ([], {'embedding_net': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TripletLoss,
+     lambda: ([], {'margin': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TripletNet,
+     lambda: ([], {'embedding_net': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_adambielski_siamese_triplet(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ContrastiveLoss(*[], **{'margin': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SiameseNet(*[], **{'embedding_net': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(TripletLoss(*[], **{'margin': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(TripletNet(*[], **{'embedding_net': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

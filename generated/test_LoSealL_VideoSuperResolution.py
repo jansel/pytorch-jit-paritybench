@@ -170,8 +170,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -229,17 +230,14 @@ from torch.nn.modules.utils import _pair
 
 class EasyConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding='same', dilation=1, groups=1, activation=None, use_bias=
-        True, use_bn=False, use_sn=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding='same', dilation=1, groups=1, activation=None, use_bias=True, use_bn=False, use_sn=False):
         super(EasyConv2d, self).__init__()
         assert padding.lower() in ('same', 'valid')
         if padding == 'same':
             padding_ = (kernel_size - 1) // 2
         else:
             padding_ = 0
-        net = [nn.Conv2d(in_channels, out_channels, kernel_size, stride,
-            padding_, dilation, groups, use_bias)]
+        net = [nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding_, dilation, groups, use_bias)]
         if use_sn:
             net[0] = nn.utils.spectral_norm(net[0])
         if use_bn:
@@ -260,12 +258,10 @@ class EasyConv2d(nn.Module):
     """
         dtype = self.body[0].weight.dtype
         device = self.body[0].weight.device
-        kernel = torch.tensor(kernel, dtype=dtype, device=device,
-            requires_grad=True)
+        kernel = torch.tensor(kernel, dtype=dtype, device=device, requires_grad=True)
         assert kernel.shape == self.body[0].weight.shape, 'Wrong kernel shape!'
         if bias is not None:
-            bias = torch.tensor(bias, dtype=dtype, device=device,
-                requires_grad=True)
+            bias = torch.tensor(bias, dtype=dtype, device=device, requires_grad=True)
             assert bias.shape == self.body[0].bias.shape, 'Wrong bias shape!'
         self.body[0].weight.data.copy_(kernel)
         self.body[0].bias.data.copy_(bias)
@@ -292,14 +288,11 @@ def to_list(x, repeat=1):
 
 class RB(nn.Module):
 
-    def __init__(self, channels, kernel_size, activation=None, use_bias=
-        True, use_bn=False, use_sn=False, act_first=None):
+    def __init__(self, channels, kernel_size, activation=None, use_bias=True, use_bn=False, use_sn=False, act_first=None):
         super(RB, self).__init__()
         in_c, out_c = to_list(channels, 2)
-        conv1 = nn.Conv2d(in_c, out_c, kernel_size, 1, kernel_size // 2,
-            bias=use_bias)
-        conv2 = nn.Conv2d(out_c, out_c, kernel_size, 1, kernel_size // 2,
-            bias=use_bias)
+        conv1 = nn.Conv2d(in_c, out_c, kernel_size, 1, kernel_size // 2, bias=use_bias)
+        conv2 = nn.Conv2d(out_c, out_c, kernel_size, 1, kernel_size // 2, bias=use_bias)
         if use_sn:
             conv1 = nn.utils.spectral_norm(conv1)
             conv2 = nn.utils.spectral_norm(conv2)
@@ -307,8 +300,7 @@ class RB(nn.Module):
         if use_bn:
             net.insert(1, nn.BatchNorm2d(out_c))
             if act_first:
-                net = [nn.BatchNorm2d(in_c), Activation(activation,
-                    in_place=True)] + net
+                net = [nn.BatchNorm2d(in_c), Activation(activation, in_place=True)] + net
             else:
                 net.append(nn.BatchNorm2d(out_c))
         self.body = nn.Sequential(*net)
@@ -339,8 +331,7 @@ class Rdb(nn.Module):
         bias = kwargs.get('bias', True)
         act = kwargs.get('activation', 'relu')
         for i in range(depth):
-            conv = nn.Conv2d(in_c + out_c * i, out_c, ks, stride, padding,
-                dilation, group, bias)
+            conv = nn.Conv2d(in_c + out_c * i, out_c, ks, stride, padding, dilation, group, bias)
             if i < depth - 1:
                 conv = nn.Sequential(conv, Activation(act))
             setattr(self, f'conv_{i}', conv)
@@ -367,13 +358,10 @@ class Rcab(nn.Module):
         padding = kwargs.get('padding', ks // 2)
         group = kwargs.get('group', 1)
         bias = kwargs.get('bias', True)
-        self.c1 = nn.Sequential(nn.Conv2d(in_c, out_c, ks, 1, padding, 1,
-            group, bias), nn.ReLU(True))
+        self.c1 = nn.Sequential(nn.Conv2d(in_c, out_c, ks, 1, padding, 1, group, bias), nn.ReLU(True))
         self.c2 = nn.Conv2d(out_c, out_c, ks, 1, padding, 1, group, bias)
-        self.c3 = nn.Sequential(nn.Conv2d(out_c, out_c // ratio, 1, groups=
-            group, bias=bias), nn.ReLU(True))
-        self.c4 = nn.Sequential(nn.Conv2d(out_c // ratio, in_c, 1, groups=
-            group, bias=bias), nn.Sigmoid())
+        self.c3 = nn.Sequential(nn.Conv2d(out_c, out_c // ratio, 1, groups=group, bias=bias), nn.ReLU(True))
+        self.c4 = nn.Sequential(nn.Conv2d(out_c // ratio, in_c, 1, groups=group, bias=bias), nn.Sigmoid())
         self.pooling = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, inputs):
@@ -391,16 +379,14 @@ class Rcab(nn.Module):
 
 class CascadeRdn(nn.Module):
 
-    def __init__(self, channels, depth=3, use_ca=False, name='CascadeRdn',
-        **kwargs):
+    def __init__(self, channels, depth=3, use_ca=False, name='CascadeRdn', **kwargs):
         super(CascadeRdn, self).__init__()
         self.name = name
         self.depth = to_list(depth, 2)
         self.ca = use_ca
         in_c, out_c = to_list(channels, 2)
         for i in range(self.depth[0]):
-            setattr(self, f'conv11_{i}', nn.Conv2d(in_c + out_c * (i + 1),
-                out_c, 1))
+            setattr(self, f'conv11_{i}', nn.Conv2d(in_c + out_c * (i + 1), out_c, 1))
             setattr(self, f'rdn_{i}', Rdb(channels, self.depth[1], **kwargs))
             if use_ca:
                 setattr(self, f'rcab_{i}', Rcab(channels))
@@ -467,8 +453,7 @@ class _UpsampleLinear(nn.Module):
     def forward(self, x, scale=None):
         scale = scale or self.scale
         mode = self._mode[x.dim() - 3]
-        return F.interpolate(x, scale_factor=scale, mode=mode,
-            align_corners=False)
+        return F.interpolate(x, scale_factor=scale, mode=mode, align_corners=False)
 
 
 class Upsample(nn.Module):
@@ -499,8 +484,7 @@ class Upsample(nn.Module):
         if method == 'ps':
             p = k // 2
             s = 1
-            body = [nn.Conv2d(self.channel, self.channel * scale * scale, k,
-                s, p), nn.PixelShuffle(scale)]
+            body = [nn.Conv2d(self.channel, self.channel * scale * scale, k, s, p), nn.PixelShuffle(scale)]
             if activation:
                 body.insert(1, Activation(activation))
         if method == 'deconv':
@@ -511,11 +495,9 @@ class Upsample(nn.Module):
             if activation:
                 body.insert(1, Activation(activation))
         if method == 'nearest':
-            body = [_UpsampleNearest(scale), EasyConv2d(self.channel, self.
-                channel, k, activation=activation)]
+            body = [_UpsampleNearest(scale), EasyConv2d(self.channel, self.channel, k, activation=activation)]
         if method == 'linear':
-            body = [_UpsampleLinear(scale), EasyConv2d(self.channel, self.
-                channel, k, activation=activation)]
+            body = [_UpsampleLinear(scale), EasyConv2d(self.channel, self.channel, k, activation=activation)]
         return nn.Sequential(*body)
 
     def forward(self, inputs):
@@ -536,10 +518,8 @@ class SpaceToDim(nn.Module):
     def forward(self, x):
         _shape = list(x.shape)
         shape = _shape.copy()
-        dims = [x.dim() + self.dims[0] if self.dims[0] < 0 else self.dims[0
-            ], x.dim() + self.dims[1] if self.dims[1] < 0 else self.dims[1]]
-        dims = [max(abs(dims[0]), abs(dims[1])), min(abs(dims[0]), abs(dims
-            [1]))]
+        dims = [x.dim() + self.dims[0] if self.dims[0] < 0 else self.dims[0], x.dim() + self.dims[1] if self.dims[1] < 0 else self.dims[1]]
+        dims = [max(abs(dims[0]), abs(dims[1])), min(abs(dims[0]), abs(dims[1]))]
         if self.dim in dims:
             raise RuntimeError("Integrate dimension can't be space dimension!")
         shape[dims[0]] //= self.scale_factor
@@ -601,8 +581,7 @@ class CBAM(nn.Module):
             super(CBAM.CA, self).__init__()
             self.max_pool = nn.AdaptiveMaxPool2d(1)
             self.avg_pool = nn.AdaptiveAvgPool2d(1)
-            self.mlp = nn.Sequential(nn.Conv2d(channels, channels // ratio,
-                1), nn.ReLU(), nn.Conv2d(channels // ratio, channels, 1))
+            self.mlp = nn.Sequential(nn.Conv2d(channels, channels // ratio, 1), nn.ReLU(), nn.Conv2d(channels // ratio, channels, 1))
 
         def forward(self, x):
             maxpool = self.max_pool(x)
@@ -647,8 +626,7 @@ class Espcn(nn.Module):
         conv2 = nn.Conv2d(64, 32, 3, 1, 1)
         conv3 = nn.Conv2d(32, channel * scale * scale, 3, 1, 1)
         ps = nn.PixelShuffle(scale)
-        self.body = nn.Sequential(conv1, nn.Tanh(), conv2, nn.Tanh(), conv3,
-            nn.Tanh(), ps)
+        self.body = nn.Sequential(conv1, nn.Tanh(), conv2, nn.Tanh(), conv3, nn.Tanh(), ps)
 
     def forward(self, x):
         return self.body(x)
@@ -658,9 +636,7 @@ class Srcnn(nn.Module):
 
     def __init__(self, channel, filters=(9, 5, 5)):
         super(Srcnn, self).__init__()
-        self.net = nn.Sequential(EasyConv2d(channel, 64, filters[0],
-            activation='relu'), EasyConv2d(64, 32, filters[1], activation=
-            'relu'), EasyConv2d(32, channel, filters[2], activation=None))
+        self.net = nn.Sequential(EasyConv2d(channel, 64, filters[0], activation='relu'), EasyConv2d(64, 32, filters[1], activation='relu'), EasyConv2d(32, channel, filters[2], activation=None))
 
     def forward(self, x):
         return self.net(x)
@@ -743,8 +719,7 @@ def weights_upsample(scale_factor):
     weights = [[] for _ in range(ss)]
     for i in range(ss):
         for lambd in range(ksize):
-            dist = int((1 + ss + 2 * i) / 2 / ss) + lambd - 1.5 - (2 * i + 1
-                ) / 2 / ss
+            dist = int((1 + ss + 2 * i) / 2 / ss) + lambd - 1.5 - (2 * i + 1) / 2 / ss
             weights[i].append(bicubic_filter(dist))
     w = [(np.array([i]) / np.sum(i)) for i in weights]
     w = list_rshift(w, ss - ss // 2)
@@ -776,10 +751,8 @@ def upsample(img, scale, border='reflect'):
     c = img_ex.shape[1]
     assert c is not None, 'img must define channel number'
     c = int(c)
-    filters = [(torch.reshape(torch.eye(c, c), [c, c, 1, 1]) * k) for k in
-        kernels]
-    weights = torch.stack(filters, dim=0).transpose(0, 1).reshape([-1, c, 5, 5]
-        )
+    filters = [(torch.reshape(torch.eye(c, c), [c, c, 1, 1]) * k) for k in kernels]
+    weights = torch.stack(filters, dim=0).transpose(0, 1).reshape([-1, c, 5, 5])
     img_s = F.conv2d(img_ex, weights.to(device))
     img_s = F.pixel_shuffle(img_s, s)
     more = s // 2 * s
@@ -793,11 +766,8 @@ class Drcn(nn.Module):
     def __init__(self, scale, channel, n_recur, filters):
         from torch.nn import Parameter
         super(Drcn, self).__init__()
-        self.entry = nn.Sequential(EasyConv2d(channel, filters, 3,
-            activation='relu'), EasyConv2d(filters, filters, 3, activation=
-            'relu'))
-        self.exit = nn.Sequential(EasyConv2d(filters, filters, 3,
-            activation='relu'), EasyConv2d(filters, channel, 3))
+        self.entry = nn.Sequential(EasyConv2d(channel, filters, 3, activation='relu'), EasyConv2d(filters, filters, 3, activation='relu'))
+        self.exit = nn.Sequential(EasyConv2d(filters, filters, 3, activation='relu'), EasyConv2d(filters, channel, 3))
         self.conv = EasyConv2d(filters, filters, 3, activation='relu')
         self.output_weights = Parameter(torch.empty(n_recur + 1))
         torch.nn.init.uniform_(self.output_weights, 0, 1)
@@ -822,8 +792,7 @@ class Drrn(nn.Module):
         super(Drrn, self).__init__()
         self.entry0 = EasyConv2d(channel, filters, 3, activation='relu')
         for i in range(1, n_rb):
-            setattr(self, f'entry{i}', EasyConv2d(filters, filters, 3,
-                activation='relu'))
+            setattr(self, f'entry{i}', EasyConv2d(filters, filters, 3, activation='relu'))
         self.n_rb = n_rb
         self.rb = RB(filters, 3, activation='relu')
         self.n_ru = n_ru
@@ -859,10 +828,8 @@ class Crdn(nn.Module):
     def __init__(self, blocks=(4, 4), **kwargs):
         super(Crdn, self).__init__()
         self.blocks = to_list(blocks, 2)
-        self.entry = nn.Sequential(nn.Conv2d(3, 32, 7, 1, 3), nn.Conv2d(32,
-            32, 5, 1, 2))
-        self.exit = nn.Sequential(nn.Conv2d(32, 32, 3, 1, 1), nn.Conv2d(32,
-            3, 3, 1, 1))
+        self.entry = nn.Sequential(nn.Conv2d(3, 32, 7, 1, 3), nn.Conv2d(32, 32, 5, 1, 2))
+        self.exit = nn.Sequential(nn.Conv2d(32, 32, 3, 1, 1), nn.Conv2d(32, 3, 3, 1, 1))
         self.down1 = nn.Conv2d(32, 64, 3, 2, 1)
         self.down2 = nn.Conv2d(64, 128, 3, 2, 1)
         self.up1 = Upsample([128, 64])
@@ -944,33 +911,28 @@ class DCGAN(nn.Module):
     def __init__(self, channel, num_layers, norm=None, favor='A', **kwargs):
         super(DCGAN, self).__init__()
         f, ks, act, bias, bn, sn = _pull_conv_args(norm=norm, **kwargs)
-        net = [EasyConv2d(channel, f, ks, activation=act, use_bn=bn, use_sn
-            =sn, use_bias=bias)]
+        net = [EasyConv2d(channel, f, ks, activation=act, use_bn=bn, use_sn=sn, use_bias=bias)]
         self.n_strided = 0
         counter = 1
         assert favor in ('A', 'B', 'C'), 'favor must be A | B | C'
         while True:
             f *= 2
-            net.append(EasyConv2d(f // 2, f, ks + 1, 2, activation=act,
-                use_bias=bias, use_bn=bn, use_sn=sn))
+            net.append(EasyConv2d(f // 2, f, ks + 1, 2, activation=act, use_bias=bias, use_bn=bn, use_sn=sn))
             self.n_strided += 1
             counter += 1
             if counter >= num_layers:
                 break
             if favor in ('A', 'C'):
-                net.append(EasyConv2d(f, f, ks, 1, activation=act, use_bias
-                    =bias, use_bn=bn, use_sn=sn))
+                net.append(EasyConv2d(f, f, ks, 1, activation=act, use_bias=bias, use_bn=bn, use_sn=sn))
                 counter += 1
                 if counter >= num_layers:
                     break
         if favor == 'C':
             self.body = nn.Sequential(*net, nn.AdaptiveAvgPool2d(1))
-            linear = [nn.Linear(f, 100, bias), Activation(act, in_place=
-                True), nn.Linear(100, 1, bias)]
+            linear = [nn.Linear(f, 100, bias), Activation(act, in_place=True), nn.Linear(100, 1, bias)]
         else:
             self.body = nn.Sequential(*net)
-            linear = [nn.Linear(f * 4 * 4, 100, bias), Activation(act,
-                in_place=True), nn.Linear(100, 1, bias)]
+            linear = [nn.Linear(f * 4 * 4, 100, bias), Activation(act, in_place=True), nn.Linear(100, 1, bias)]
         if sn:
             linear[0] = nn.utils.spectral_norm(linear[0])
             linear[2] = nn.utils.spectral_norm(linear[2])
@@ -1002,15 +964,13 @@ class Residual(nn.Module):
     def __init__(self, channel, num_residual, norm=None, favor='A', **kwargs):
         super(Residual, self).__init__()
         f, ks, act, bias, bn, sn = _pull_conv_args(norm=norm, **kwargs)
-        net = [EasyConv2d(channel, f, ks, activation=act, use_bn=bn, use_sn
-            =sn, use_bias=bias)]
+        net = [EasyConv2d(channel, f, ks, activation=act, use_bn=bn, use_sn=sn, use_bias=bias)]
         for i in range(num_residual):
             net.append(RB(f, ks, act, bias, bn, sn, favor == 'A'))
             net.append(nn.AvgPool2d(2))
         net.append(Activation(act, in_place=True))
         self.body = nn.Sequential(*net)
-        linear = [nn.Linear(f * 4 * 4, 100, bias), Activation(act, in_place
-            =True), nn.Linear(100, 1, bias)]
+        linear = [nn.Linear(f * 4 * 4, 100, bias), Activation(act, in_place=True), nn.Linear(100, 1, bias)]
         if sn:
             linear[0] = nn.utils.spectral_norm(linear[0])
             linear[2] = nn.utils.spectral_norm(linear[2])
@@ -1068,8 +1028,7 @@ class NCL(nn.Module):
                 conv.append(EasyConv2d(3, f, ks, activation='lrelu'))
             else:
                 conv.append(EasyConv2d(f, f, ks, activation='lrelu'))
-        self.gamma = nn.Sequential(*conv, EasyConv2d(f, c, ks, activation=
-            'sigmoid'))
+        self.gamma = nn.Sequential(*conv, EasyConv2d(f, c, ks, activation='sigmoid'))
         self.beta = nn.Sequential(*conv.copy(), EasyConv2d(f, c, ks))
 
     def forward(self, x, noise=None):
@@ -1093,8 +1052,7 @@ class CRDB(nn.Module):
         bias = kwargs.get('bias', True)
         c = channels
         for i in range(depth):
-            conv = nn.Conv2d(c + c * i, c, ks, stride, padding, dilation,
-                group, bias)
+            conv = nn.Conv2d(c + c * i, c, ks, stride, padding, dilation, group, bias)
             if i < depth - 1:
                 conv = nn.Sequential(conv, nn.ReLU(True))
             setattr(self, f'conv_{i}', conv)
@@ -1137,13 +1095,11 @@ class Drn(nn.Module):
     def __init__(self, channel, scale, n_cb, **kwargs):
         super(Drn, self).__init__()
         f = kwargs.get('filters', 64)
-        self.entry = nn.Sequential(nn.Conv2d(channel, f, 3, 1, 1), nn.
-            Conv2d(f, f, 3, 1, 1))
+        self.entry = nn.Sequential(nn.Conv2d(channel, f, 3, 1, 1), nn.Conv2d(f, f, 3, 1, 1))
         for i in range(n_cb):
             setattr(self, f'cb{i}', CascadeRdn(f))
         self.n_cb = n_cb
-        self.tail = nn.Sequential(Upsample(f, scale), nn.Conv2d(f, channel,
-            3, 1, 1))
+        self.tail = nn.Sequential(Upsample(f, scale), nn.Conv2d(f, channel, 3, 1, 1))
 
     def forward(self, x, noise=None):
         x0 = self.entry(x)
@@ -1162,8 +1118,7 @@ class Net(nn.Module):
         self.spd = SpaceToDepth(2)
         body = [EasyConv2d(channel * 4 + 1, filters, 3, activation='relu')]
         for i in range(1, layers):
-            body.append(EasyConv2d(filters, filters, 3, activation='relu',
-                use_bn=bn))
+            body.append(EasyConv2d(filters, filters, 3, activation='relu', use_bn=bn))
         body += [Upsample(filters, 2), EasyConv2d(filters, channel, 3)]
         self.body = nn.Sequential(*body)
 
@@ -1194,12 +1149,7 @@ class FRNet(nn.Module):
 
 
 class VggFeatureLoss(nn.Module):
-    _LAYER_NAME = {'block1_conv1': 1, 'block1_conv2': 3, 'block2_conv1': 6,
-        'block2_conv2': 8, 'block3_conv1': 11, 'block3_conv2': 13,
-        'block3_conv3': 15, 'block3_conv4': 17, 'block4_conv1': 20,
-        'block4_conv2': 22, 'block4_conv3': 24, 'block4_conv4': 26,
-        'block5_conv1': 29, 'block5_conv2': 31, 'block5_conv3': 33,
-        'block5_conv4': 35}
+    _LAYER_NAME = {'block1_conv1': 1, 'block1_conv2': 3, 'block2_conv1': 6, 'block2_conv2': 8, 'block3_conv1': 11, 'block3_conv2': 13, 'block3_conv3': 15, 'block3_conv4': 17, 'block4_conv1': 20, 'block4_conv2': 22, 'block4_conv3': 24, 'block4_conv4': 26, 'block5_conv1': 29, 'block5_conv2': 31, 'block5_conv3': 33, 'block5_conv4': 35}
     """VGG19 based perceptual loss from ECCV 2016.
   
   Args:
@@ -1220,11 +1170,9 @@ class VggFeatureLoss(nn.Module):
             p.requires_grad = False
         self.childs = nn.Sequential(*net.features.children())
         self.eval()
-        self.exit_id = [(self._LAYER_NAME[n] - int(before_relu)) for n in
-            layer_names]
+        self.exit_id = [(self._LAYER_NAME[n] - int(before_relu)) for n in layer_names]
 
-    def normalize(self, x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 
-        0.225)):
+    def normalize(self, x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
         assert x.size(1) == 3, 'wrong channel! must be 3!!'
         mean = torch.tensor(mean, dtype=torch.float32).view(1, 3, 1, 1)
         std = torch.tensor(std, dtype=torch.float32).view(1, 3, 1, 1)
@@ -1306,12 +1254,9 @@ class Fnet(nn.Module):
 
     def __init__(self, channel, L=2, gain=64):
         super(Fnet, self).__init__()
-        self.lq_entry = nn.Sequential(nn.Conv2d(channel * (L + 1), 16, 3, 1,
-            1), SpaceToDepth(4), nn.Conv2d(256, 64, 1, 1, 0), Rdb(64), Rdb(64))
-        self.hq_entry = nn.Sequential(nn.Conv2d(channel * L, 16, 3, 1, 1),
-            SpaceToDepth(4), nn.Conv2d(256, 64, 1, 1, 0), Rdb(64), Rdb(64))
-        self.flownet = nn.Sequential(nn.Conv2d(128, 64, 1, 1, 0), Rdb(64),
-            Rdb(64), Upsample(64, 4), nn.Conv2d(64, 3, 3, 1, 1), nn.Tanh())
+        self.lq_entry = nn.Sequential(nn.Conv2d(channel * (L + 1), 16, 3, 1, 1), SpaceToDepth(4), nn.Conv2d(256, 64, 1, 1, 0), Rdb(64), Rdb(64))
+        self.hq_entry = nn.Sequential(nn.Conv2d(channel * L, 16, 3, 1, 1), SpaceToDepth(4), nn.Conv2d(256, 64, 1, 1, 0), Rdb(64), Rdb(64))
+        self.flownet = nn.Sequential(nn.Conv2d(128, 64, 1, 1, 0), Rdb(64), Rdb(64), Upsample(64, 4), nn.Conv2d(64, 3, 3, 1, 1), nn.Tanh())
         gain = torch.as_tensor([L, gain, gain], dtype=torch.float32)
         self.gain = gain.reshape(1, 3, 1, 1)
 
@@ -1330,10 +1275,8 @@ class Unet(nn.Module):
 
     def __init__(self, channel, N=2):
         super(Unet, self).__init__()
-        self.entry = nn.Sequential(nn.Conv2d(channel * N, 32, 3, 1, 1),
-            SpaceToDepth(2), nn.Conv2d(128, 32, 1, 1, 0))
-        self.exit = nn.Sequential(Upsample(32, 2), nn.Conv2d(32, channel, 3,
-            1, 1))
+        self.entry = nn.Sequential(nn.Conv2d(channel * N, 32, 3, 1, 1), SpaceToDepth(2), nn.Conv2d(128, 32, 1, 1, 0))
+        self.exit = nn.Sequential(Upsample(32, 2), nn.Conv2d(32, channel, 3, 1, 1))
         self.down1 = nn.Conv2d(32, 64, 3, 2, 1)
         self.up1 = RsrUp([64, 32])
         self.cb = CascadeRdn(64, 3, True)
@@ -1464,8 +1407,7 @@ class Net(nn.Module):
         self.c1 = ops.BasicBlock(64 * 2, 64, 1, 1, 0)
         self.c2 = ops.BasicBlock(64 * 3, 64, 1, 1, 0)
         self.c3 = ops.BasicBlock(64 * 4, 64, 1, 1, 0)
-        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=
-            multi_scale, group=group)
+        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=multi_scale, group=group)
         self.exit = nn.Conv2d(64, 3, 3, 1, 1)
 
     def forward(self, x, scale):
@@ -1526,8 +1468,7 @@ class Net(nn.Module):
         self.c1 = ops.BasicBlock(64 * 2, 64, 1, 1, 0)
         self.c2 = ops.BasicBlock(64 * 3, 64, 1, 1, 0)
         self.c3 = ops.BasicBlock(64 * 4, 64, 1, 1, 0)
-        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=
-            multi_scale, group=group)
+        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=multi_scale, group=group)
         self.exit = nn.Conv2d(64, 3, 3, 1, 1)
 
     def forward(self, x, scale):
@@ -1576,8 +1517,7 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, ksize=3, stride=1, pad=1):
         super(BasicBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            ksize, stride, pad), nn.ReLU(inplace=True))
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, ksize, stride, pad), nn.ReLU(inplace=True))
         init_weights(self.modules)
 
     def forward(self, x):
@@ -1589,9 +1529,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ResidualBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1,
-            1), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels,
-            3, 1, 1))
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, 3, 1, 1))
         init_weights(self.modules)
 
     def forward(self, x):
@@ -1604,10 +1542,7 @@ class EResidualBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, group=1):
         super(EResidualBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1,
-            1, groups=group), nn.ReLU(inplace=True), nn.Conv2d(out_channels,
-            out_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True), nn
-            .Conv2d(out_channels, out_channels, 1, 1, 0))
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, 1, 1, 0))
         init_weights(self.modules)
 
     def forward(self, x):
@@ -1647,12 +1582,10 @@ class _UpsampleBlock(nn.Module):
         modules = []
         if scale == 2 or scale == 4 or scale == 8:
             for _ in range(int(math.log(scale, 2))):
-                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1,
-                    groups=group), nn.ReLU(inplace=True)]
+                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
                 modules += [nn.PixelShuffle(2)]
         elif scale == 3:
-            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1,
-                groups=group), nn.ReLU(inplace=True)]
+            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
             modules += [nn.PixelShuffle(3)]
         self.body = nn.Sequential(*modules)
         init_weights(self.modules)
@@ -1664,8 +1597,7 @@ class _UpsampleBlock(nn.Module):
 
 class DenseBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, bias=True, activation=
-        'relu', norm='batch'):
+    def __init__(self, input_size, output_size, bias=True, activation='relu', norm='batch'):
         super(DenseBlock, self).__init__()
         self.fc = torch.nn.Linear(input_size, output_size, bias=bias)
         self.norm = norm
@@ -1698,11 +1630,9 @@ class DenseBlock(torch.nn.Module):
 
 class ConvBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, kernel_size=3, stride=1,
-        padding=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, input_size, output_size, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None):
         super(ConvBlock, self).__init__()
-        self.conv = torch.nn.Conv2d(input_size, output_size, kernel_size,
-            stride, padding, bias=bias)
+        self.conv = torch.nn.Conv2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
         self.norm = norm
         if self.norm == 'batch':
             self.bn = torch.nn.BatchNorm2d(output_size)
@@ -1733,11 +1663,9 @@ class ConvBlock(torch.nn.Module):
 
 class DeconvBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, kernel_size=4, stride=2,
-        padding=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, input_size, output_size, kernel_size=4, stride=2, padding=1, bias=True, activation='prelu', norm=None):
         super(DeconvBlock, self).__init__()
-        self.deconv = torch.nn.ConvTranspose2d(input_size, output_size,
-            kernel_size, stride, padding, bias=bias)
+        self.deconv = torch.nn.ConvTranspose2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
         self.norm = norm
         if self.norm == 'batch':
             self.bn = torch.nn.BatchNorm2d(output_size)
@@ -1768,13 +1696,10 @@ class DeconvBlock(torch.nn.Module):
 
 class ResnetBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias
-        =True, activation='prelu', norm='batch'):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
         super(ResnetBlock, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size,
-            stride, padding, bias=bias)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size,
-            stride, padding, bias=bias)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
         self.norm = norm
         if self.norm == 'batch':
             self.bn = torch.nn.BatchNorm2d(num_filter)
@@ -1810,15 +1735,11 @@ class ResnetBlock(torch.nn.Module):
 
 class UpBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias
-        =True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
         super(UpBlock, self).__init__()
-        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         h0 = self.up_conv1(x)
@@ -1829,12 +1750,10 @@ class UpBlock(torch.nn.Module):
 
 class UpBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='prelu', norm=None):
         super(UpBlockPix, self).__init__()
         self.up_conv1 = Upsampler(scale, num_filter)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.up_conv3 = Upsampler(scale, num_filter)
 
     def forward(self, x):
@@ -1846,17 +1765,12 @@ class UpBlockPix(torch.nn.Module):
 
 class D_UpBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
         super(D_UpBlock, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
-        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
+        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         x = self.conv(x)
@@ -1868,14 +1782,11 @@ class D_UpBlock(torch.nn.Module):
 
 class D_UpBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
         super(D_UpBlockPix, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
         self.up_conv1 = Upsampler(scale, num_filter)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.up_conv3 = Upsampler(scale, num_filter)
 
     def forward(self, x):
@@ -1888,15 +1799,11 @@ class D_UpBlockPix(torch.nn.Module):
 
 class DownBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias
-        =True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
         super(DownBlock, self).__init__()
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         l0 = self.down_conv1(x)
@@ -1907,14 +1814,11 @@ class DownBlock(torch.nn.Module):
 
 class DownBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='prelu', norm=None):
         super(DownBlockPix, self).__init__()
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.down_conv2 = Upsampler(scale, num_filter)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         l0 = self.down_conv1(x)
@@ -1925,17 +1829,12 @@ class DownBlockPix(torch.nn.Module):
 
 class D_DownBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
         super(D_DownBlock, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         x = self.conv(x)
@@ -1947,16 +1846,12 @@ class D_DownBlock(torch.nn.Module):
 
 class D_DownBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
         super(D_DownBlockPix, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.down_conv2 = Upsampler(scale, num_filter)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         x = self.conv(x)
@@ -1968,11 +1863,9 @@ class D_DownBlockPix(torch.nn.Module):
 
 class PSBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, scale_factor, kernel_size=3,
-        stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
+    def __init__(self, input_size, output_size, scale_factor, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
         super(PSBlock, self).__init__()
-        self.conv = torch.nn.Conv2d(input_size, output_size * scale_factor **
-            2, kernel_size, stride, padding, bias=bias)
+        self.conv = torch.nn.Conv2d(input_size, output_size * scale_factor ** 2, kernel_size, stride, padding, bias=bias)
         self.ps = torch.nn.PixelShuffle(scale_factor)
         self.norm = norm
         if self.norm == 'batch':
@@ -2007,8 +1900,7 @@ class Upsampler(torch.nn.Module):
         super(Upsampler, self).__init__()
         modules = []
         for _ in range(int(math.log(scale, 2))):
-            modules.append(ConvBlock(n_feat, 4 * n_feat, 3, 1, 1, bias,
-                activation=None, norm=None))
+            modules.append(ConvBlock(n_feat, 4 * n_feat, 3, 1, 1, bias, activation=None, norm=None))
             modules.append(torch.nn.PixelShuffle(2))
             if bn:
                 modules.append(torch.nn.BatchNorm2d(n_feat))
@@ -2034,22 +1926,15 @@ class Upsampler(torch.nn.Module):
 
 class Upsample2xBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, bias=True, upsample=
-        'deconv', activation='relu', norm='batch'):
+    def __init__(self, input_size, output_size, bias=True, upsample='deconv', activation='relu', norm='batch'):
         super(Upsample2xBlock, self).__init__()
         scale_factor = 2
         if upsample == 'deconv':
-            self.upsample = DeconvBlock(input_size, output_size,
-                kernel_size=4, stride=2, padding=1, bias=bias, activation=
-                activation, norm=norm)
+            self.upsample = DeconvBlock(input_size, output_size, kernel_size=4, stride=2, padding=1, bias=bias, activation=activation, norm=norm)
         elif upsample == 'ps':
-            self.upsample = PSBlock(input_size, output_size, scale_factor=
-                scale_factor, bias=bias, activation=activation, norm=norm)
+            self.upsample = PSBlock(input_size, output_size, scale_factor=scale_factor, bias=bias, activation=activation, norm=norm)
         elif upsample == 'rnc':
-            self.upsample = torch.nn.Sequential(torch.nn.Upsample(
-                scale_factor=scale_factor, mode='nearest'), ConvBlock(
-                input_size, output_size, kernel_size=3, stride=1, padding=1,
-                bias=bias, activation=activation, norm=norm))
+            self.upsample = torch.nn.Sequential(torch.nn.Upsample(scale_factor=scale_factor, mode='nearest'), ConvBlock(input_size, output_size, kernel_size=3, stride=1, padding=1, bias=bias, activation=activation, norm=norm))
 
     def forward(self, x):
         out = self.upsample(x)
@@ -2087,8 +1972,7 @@ class CascadedBlock(torch.nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, num_channels, base_filter, feat, num_stages,
-        scale_factor):
+    def __init__(self, num_channels, base_filter, feat, num_stages, scale_factor):
         super(Net, self).__init__()
         if scale_factor == 2:
             kernel = 6
@@ -2102,10 +1986,8 @@ class Net(nn.Module):
             kernel = 12
             stride = 8
             padding = 2
-        self.feat0 = ConvBlock(num_channels, feat, 3, 1, 1, activation=
-            'prelu', norm=None)
-        self.feat1 = ConvBlock(feat, base_filter, 1, 1, 0, activation=
-            'prelu', norm=None)
+        self.feat0 = ConvBlock(num_channels, feat, 3, 1, 1, activation='prelu', norm=None)
+        self.feat1 = ConvBlock(feat, base_filter, 1, 1, 0, activation='prelu', norm=None)
         self.up1 = UpBlock(base_filter, kernel, stride, padding)
         self.down1 = DownBlock(base_filter, kernel, stride, padding)
         self.up2 = UpBlock(base_filter, kernel, stride, padding)
@@ -2119,8 +2001,7 @@ class Net(nn.Module):
         self.up6 = D_UpBlock(base_filter, kernel, stride, padding, 5)
         self.down6 = D_DownBlock(base_filter, kernel, stride, padding, 6)
         self.up7 = D_UpBlock(base_filter, kernel, stride, padding, 6)
-        self.output_conv = ConvBlock(num_stages * base_filter, num_channels,
-            3, 1, 1, activation=None, norm=None)
+        self.output_conv = ConvBlock(num_stages * base_filter, num_channels, 3, 1, 1, activation=None, norm=None)
         for m in self.modules():
             classname = m.__class__.__name__
             if classname.find('Conv2d') != -1:
@@ -2165,8 +2046,7 @@ class Net(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, num_channels, base_filter, feat, num_stages,
-        scale_factor):
+    def __init__(self, num_channels, base_filter, feat, num_stages, scale_factor):
         super(Net, self).__init__()
         if scale_factor == 2:
             kernel = 6
@@ -2180,10 +2060,8 @@ class Net(nn.Module):
             kernel = 12
             stride = 8
             padding = 2
-        self.feat0 = ConvBlock(num_channels, feat, 3, 1, 1, activation=
-            'prelu', norm=None)
-        self.feat1 = ConvBlock(feat, base_filter, 1, 1, 0, activation=
-            'prelu', norm=None)
+        self.feat0 = ConvBlock(num_channels, feat, 3, 1, 1, activation='prelu', norm=None)
+        self.feat1 = ConvBlock(feat, base_filter, 1, 1, 0, activation='prelu', norm=None)
         self.up1 = UpBlock(base_filter, kernel, stride, padding)
         self.down1 = DownBlock(base_filter, kernel, stride, padding)
         self.up2 = UpBlock(base_filter, kernel, stride, padding)
@@ -2203,8 +2081,7 @@ class Net(nn.Module):
         self.up9 = D_UpBlock(base_filter, kernel, stride, padding, 8)
         self.down9 = D_DownBlock(base_filter, kernel, stride, padding, 9)
         self.up10 = D_UpBlock(base_filter, kernel, stride, padding, 9)
-        self.output_conv = ConvBlock(num_stages * base_filter, num_channels,
-            3, 1, 1, activation=None, norm=None)
+        self.output_conv = ConvBlock(num_stages * base_filter, num_channels, 3, 1, 1, activation=None, norm=None)
         for m in self.modules():
             classname = m.__class__.__name__
             if classname.find('Conv2d') != -1:
@@ -2261,8 +2138,7 @@ class Net(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, num_channels, base_filter, feat, num_stages,
-        scale_factor):
+    def __init__(self, num_channels, base_filter, feat, num_stages, scale_factor):
         super(Net, self).__init__()
         if scale_factor == 2:
             kernel = 6
@@ -2276,15 +2152,12 @@ class Net(nn.Module):
             kernel = 12
             stride = 8
             padding = 2
-        self.feat0 = ConvBlock(num_channels, feat, 3, 1, 1, activation=
-            'prelu', norm=None)
-        self.feat1 = ConvBlock(feat, base_filter, 1, 1, 0, activation=
-            'prelu', norm=None)
+        self.feat0 = ConvBlock(num_channels, feat, 3, 1, 1, activation='prelu', norm=None)
+        self.feat1 = ConvBlock(feat, base_filter, 1, 1, 0, activation='prelu', norm=None)
         self.up1 = UpBlock(base_filter, kernel, stride, padding)
         self.down1 = DownBlock(base_filter, kernel, stride, padding)
         self.up2 = UpBlock(base_filter, kernel, stride, padding)
-        self.output_conv = ConvBlock(num_stages * base_filter, num_channels,
-            3, 1, 1, activation=None, norm=None)
+        self.output_conv = ConvBlock(num_stages * base_filter, num_channels, 3, 1, 1, activation=None, norm=None)
         for m in self.modules():
             classname = m.__class__.__name__
             if classname.find('Conv2d') != -1:
@@ -2307,8 +2180,7 @@ class Net(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -2319,8 +2191,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -2331,8 +2202,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(ResBlock, self).__init__()
         m = []
         for i in range(2):
@@ -2378,45 +2248,32 @@ class Upsampler(nn.Sequential):
         super(Upsampler, self).__init__(*m)
 
 
-url = {'r16f64':
-    'https://cv.snu.ac.kr/research/EDSR/models/mdsr_baseline-a00cab12.pt',
-    'r80f64': 'https://cv.snu.ac.kr/research/EDSR/models/mdsr-4a78bedf.pt'}
+url = {'r16f64': 'https://cv.snu.ac.kr/research/EDSR/models/mdsr_baseline-a00cab12.pt', 'r80f64': 'https://cv.snu.ac.kr/research/EDSR/models/mdsr-4a78bedf.pt'}
 
 
 class RRDB_Net(nn.Module):
 
-    def __init__(self, in_nc, out_nc, nf, nb, gc=32, upscale=4, norm_type=
-        None, act_type='leakyrelu', mode='CNA', res_scale=1, upsample_mode=
-        'upconv'):
+    def __init__(self, in_nc, out_nc, nf, nb, gc=32, upscale=4, norm_type=None, act_type='leakyrelu', mode='CNA', res_scale=1, upsample_mode='upconv'):
         super(RRDB_Net, self).__init__()
         n_upscale = int(math.log(upscale, 2))
         if upscale == 3:
             n_upscale = 1
-        fea_conv = B.conv_block(in_nc, nf, kernel_size=3, norm_type=None,
-            act_type=None)
-        rb_blocks = [B.RRDB(nf, kernel_size=3, gc=32, stride=1, bias=True,
-            pad_type='zero', norm_type=norm_type, act_type=act_type, mode=
-            'CNA') for _ in range(nb)]
-        LR_conv = B.conv_block(nf, nf, kernel_size=3, norm_type=norm_type,
-            act_type=None, mode=mode)
+        fea_conv = B.conv_block(in_nc, nf, kernel_size=3, norm_type=None, act_type=None)
+        rb_blocks = [B.RRDB(nf, kernel_size=3, gc=32, stride=1, bias=True, pad_type='zero', norm_type=norm_type, act_type=act_type, mode='CNA') for _ in range(nb)]
+        LR_conv = B.conv_block(nf, nf, kernel_size=3, norm_type=norm_type, act_type=None, mode=mode)
         if upsample_mode == 'upconv':
             upsample_block = B.upconv_blcok
         elif upsample_mode == 'pixelshuffle':
             upsample_block = B.pixelshuffle_block
         else:
-            raise NotImplementedError('upsample mode [%s] is not found' %
-                upsample_mode)
+            raise NotImplementedError('upsample mode [%s] is not found' % upsample_mode)
         if upscale == 3:
             upsampler = upsample_block(nf, nf, 3, act_type=act_type)
         else:
-            upsampler = [upsample_block(nf, nf, act_type=act_type) for _ in
-                range(n_upscale)]
-        HR_conv0 = B.conv_block(nf, nf, kernel_size=3, norm_type=None,
-            act_type=act_type)
-        HR_conv1 = B.conv_block(nf, out_nc, kernel_size=3, norm_type=None,
-            act_type=None)
-        self.model = B.sequential(fea_conv, B.ShortcutBlock(B.sequential(*
-            rb_blocks, LR_conv)), *upsampler, HR_conv0, HR_conv1)
+            upsampler = [upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)]
+        HR_conv0 = B.conv_block(nf, nf, kernel_size=3, norm_type=None, act_type=act_type)
+        HR_conv1 = B.conv_block(nf, out_nc, kernel_size=3, norm_type=None, act_type=None)
+        self.model = B.sequential(fea_conv, B.ShortcutBlock(B.sequential(*rb_blocks, LR_conv)), *upsampler, HR_conv0, HR_conv1)
 
     def forward(self, x):
         x = self.model(x)
@@ -2466,8 +2323,7 @@ def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
     elif act_type == 'prelu':
         layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
     else:
-        raise NotImplementedError('activation layer [%s] is not found' %
-            act_type)
+        raise NotImplementedError('activation layer [%s] is not found' % act_type)
     return layer
 
 
@@ -2484,8 +2340,7 @@ def norm(norm_type, nc):
     elif norm_type == 'instance':
         layer = nn.InstanceNorm2d(nc, affine=False)
     else:
-        raise NotImplementedError('normalization layer [%s] is not found' %
-            norm_type)
+        raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return layer
 
 
@@ -2498,16 +2353,14 @@ def pad(pad_type, padding):
     elif pad_type == 'replicate':
         layer = nn.ReplicationPad2d(padding)
     else:
-        raise NotImplementedError('padding layer [%s] is not implemented' %
-            pad_type)
+        raise NotImplementedError('padding layer [%s] is not implemented' % pad_type)
     return layer
 
 
 def sequential(*args):
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
+            raise NotImplementedError('sequential does not support OrderedDict input.')
         return args[0]
     modules = []
     for module in args:
@@ -2519,8 +2372,7 @@ def sequential(*args):
     return nn.Sequential(*modules)
 
 
-def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
-    bias=True, pad_type='zero', norm_type=None, act_type='relu', mode='CNA'):
+def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1, bias=True, pad_type='zero', norm_type=None, act_type='relu', mode='CNA'):
     """
   Conv layer with padding, normalization, activation
   mode: CNA --> Conv -> Norm -> Act
@@ -2530,8 +2382,7 @@ def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
     padding = get_valid_padding(kernel_size, dilation)
     p = pad(pad_type, padding) if pad_type and pad_type != 'zero' else None
     padding = padding if pad_type == 'zero' else 0
-    c = nn.Conv2d(in_nc, out_nc, kernel_size=kernel_size, stride=stride,
-        padding=padding, dilation=dilation, bias=bias, groups=groups)
+    c = nn.Conv2d(in_nc, out_nc, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, groups=groups)
     a = act(act_type) if act_type else None
     if 'CNA' in mode:
         n = norm(norm_type, out_nc) if norm_type else None
@@ -2550,19 +2401,15 @@ class ResNetBlock(nn.Module):
   (Enhanced Deep Residual Networks for Single Image Super-Resolution, CVPRW 17)
   """
 
-    def __init__(self, in_nc, mid_nc, out_nc, kernel_size=3, stride=1,
-        dilation=1, groups=1, bias=True, pad_type='zero', norm_type=None,
-        act_type='relu', mode='CNA', res_scale=1):
+    def __init__(self, in_nc, mid_nc, out_nc, kernel_size=3, stride=1, dilation=1, groups=1, bias=True, pad_type='zero', norm_type=None, act_type='relu', mode='CNA', res_scale=1):
         super(ResNetBlock, self).__init__()
-        conv0 = conv_block(in_nc, mid_nc, kernel_size, stride, dilation,
-            groups, bias, pad_type, norm_type, act_type, mode)
+        conv0 = conv_block(in_nc, mid_nc, kernel_size, stride, dilation, groups, bias, pad_type, norm_type, act_type, mode)
         if mode == 'CNA':
             act_type = None
         if mode == 'CNAC':
             act_type = None
             norm_type = None
-        conv1 = conv_block(mid_nc, out_nc, kernel_size, stride, dilation,
-            groups, bias, pad_type, norm_type, act_type, mode)
+        conv1 = conv_block(mid_nc, out_nc, kernel_size, stride, dilation, groups, bias, pad_type, norm_type, act_type, mode)
         self.res = sequential(conv0, conv1)
         self.res_scale = res_scale
 
@@ -2578,28 +2425,17 @@ class ResidualDenseBlock_5C(nn.Module):
   The core module of paper: (Residual Dense Network for Image Super-Resolution, CVPR 18)
   """
 
-    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True,
-        pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
+    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True, pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
         super(ResidualDenseBlock_5C, self).__init__()
-        self.conv1 = conv_block(nc, gc, kernel_size, stride, bias=bias,
-            pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode
-            =mode)
-        self.conv2 = conv_block(nc + gc, gc, kernel_size, stride, bias=bias,
-            pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode
-            =mode)
-        self.conv3 = conv_block(nc + 2 * gc, gc, kernel_size, stride, bias=
-            bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type,
-            mode=mode)
-        self.conv4 = conv_block(nc + 3 * gc, gc, kernel_size, stride, bias=
-            bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type,
-            mode=mode)
+        self.conv1 = conv_block(nc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.conv2 = conv_block(nc + gc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.conv3 = conv_block(nc + 2 * gc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.conv4 = conv_block(nc + 3 * gc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
         if mode == 'CNA':
             last_act = None
         else:
             last_act = act_type
-        self.conv5 = conv_block(nc + 4 * gc, nc, 3, stride, bias=bias,
-            pad_type=pad_type, norm_type=norm_type, act_type=last_act, mode
-            =mode)
+        self.conv5 = conv_block(nc + 4 * gc, nc, 3, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=last_act, mode=mode)
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -2615,15 +2451,11 @@ class RRDB(nn.Module):
   Residual in Residual Dense Block
   """
 
-    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True,
-        pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
+    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True, pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
         super(RRDB, self).__init__()
-        self.RDB1 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias,
-            pad_type, norm_type, act_type, mode)
-        self.RDB2 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias,
-            pad_type, norm_type, act_type, mode)
-        self.RDB3 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias,
-            pad_type, norm_type, act_type, mode)
+        self.RDB1 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias, pad_type, norm_type, act_type, mode)
+        self.RDB2 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias, pad_type, norm_type, act_type, mode)
+        self.RDB3 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias, pad_type, norm_type, act_type, mode)
 
     def forward(self, x):
         out = self.RDB1(x)
@@ -2639,8 +2471,7 @@ class BilinerUp(nn.Module):
         self.scale = scale_factor
 
     def forward(self, x):
-        return interpolate(x, scale_factor=self.scale, mode='bilinear',
-            align_corners=False)
+        return interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=False)
 
 
 class FNet(nn.Module):
@@ -2651,23 +2482,18 @@ class FNet(nn.Module):
         layers = []
         in_c = channel * 2
         for i in range(3):
-            layers += [nn.Conv2d(in_c, f, 3, 1, 1), nn.LeakyReLU(0.2,
-                inplace=True)]
-            layers += [nn.Conv2d(f, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=
-                True)]
+            layers += [nn.Conv2d(in_c, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=True)]
+            layers += [nn.Conv2d(f, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=True)]
             layers += [nn.MaxPool2d(2)]
             in_c = f
             f *= 2
         for i in range(3):
-            layers += [nn.Conv2d(in_c, f, 3, 1, 1), nn.LeakyReLU(0.2,
-                inplace=True)]
-            layers += [nn.Conv2d(f, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=
-                True)]
+            layers += [nn.Conv2d(in_c, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=True)]
+            layers += [nn.Conv2d(f, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=True)]
             layers += [BilinerUp(2)]
             in_c = f
             f //= 2
-        layers += [nn.Conv2d(in_c, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=True)
-            ]
+        layers += [nn.Conv2d(in_c, f, 3, 1, 1), nn.LeakyReLU(0.2, inplace=True)]
         layers += [nn.Conv2d(f, 2, 3, 1, 1), nn.Tanh()]
         self.body = nn.Sequential(*layers)
         self.gain = gain
@@ -2694,8 +2520,7 @@ class SRNet(nn.Module):
     def __init__(self, channel, scale, n_rb=10):
         super(SRNet, self).__init__()
         rbs = [RB(64) for _ in range(n_rb)]
-        entry = [nn.Conv2d(channel * (scale ** 2 + 1), 64, 3, 1, 1), nn.
-            ReLU(True)]
+        entry = [nn.Conv2d(channel * (scale ** 2 + 1), 64, 3, 1, 1), nn.ReLU(True)]
         up = Upsample(64, scale, method='ps')
         out = nn.Conv2d(64, channel, 3, 1, 1)
         self.body = nn.Sequential(*entry, *rbs, up, out)
@@ -2710,10 +2535,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, wn, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(wn(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True)), nn.ReLU(inplace=True), wn
-            (nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=
-            True)), nn.Sigmoid())
+        self.conv_du = nn.Sequential(wn(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True)), nn.ReLU(inplace=True), wn(nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True)), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -2740,10 +2562,7 @@ class Residual_Block(nn.Module):
         super(Residual_Block, self).__init__()
         Cin = inChannels
         G0 = growRate0
-        self.conv = nn.Sequential(*[wn(nn.Conv2d(Cin, G0, kSize, padding=(
-            kSize - 1) // 2, stride=stride)), nn.ReLU(inplace=True), wn(nn.
-            Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=stride)),
-            CALayer(Cin, wn, 16)])
+        self.conv = nn.Sequential(*[wn(nn.Conv2d(Cin, G0, kSize, padding=(kSize - 1) // 2, stride=stride)), nn.ReLU(inplace=True), wn(nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=stride)), CALayer(Cin, wn, 16)])
 
     def forward(self, x):
         out = self.conv(x)
@@ -2761,8 +2580,7 @@ class RG(nn.Module):
         for c in range(C):
             convs_residual.append(Residual_Block(G0, G0, wn))
         self.convs_residual = nn.Sequential(*convs_residual)
-        self.last_conv = wn(nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) //
-            2, stride=1))
+        self.last_conv = wn(nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1))
 
     def forward(self, x):
         x = self.last_conv(self.convs_residual(x)) + x
@@ -2775,9 +2593,7 @@ _logger = logging.getLogger('VSR.EDRN')
 class EDRN(nn.Module):
 
     def __init__(self, args):
-        _logger.info(
-            'LICENSE: EDRN is implemented by IVIP-Lab. @yyknight https://github.com/yyknight/NTIRE2019_EDRN'
-            )
+        _logger.info('LICENSE: EDRN is implemented by IVIP-Lab. @yyknight https://github.com/yyknight/NTIRE2019_EDRN')
         super(EDRN, self).__init__()
         r = args.scale[0]
         G0 = args.G0
@@ -2787,37 +2603,21 @@ class EDRN(nn.Module):
         self.sub_mean = MeanShift(args.rgb_range, rgb_mean, rgb_std)
         wn = lambda x: torch.nn.utils.weight_norm(x)
         self.D, C, G = {'B': (4, 10, 16)}[args.EDRNconfig]
-        self.SFENet1 = wn(nn.Conv2d(args.n_colors, G0, kSize, padding=(
-            kSize - 1) // 2, stride=1))
-        self.encoder1 = nn.Sequential(*[wn(nn.Conv2d(G0, 2 * G0, kSize,
-            padding=(kSize - 1) // 2, stride=2)), nn.BatchNorm2d(2 * G0),
-            nn.ReLU(inplace=True)])
-        self.encoder2 = nn.Sequential(*[wn(nn.Conv2d(2 * G0, 4 * G0, kSize,
-            padding=(kSize - 1) // 2, stride=2)), nn.BatchNorm2d(4 * G0),
-            nn.ReLU(inplace=True)])
-        self.decoder1 = nn.Sequential(*[wn(nn.ConvTranspose2d(4 * G0, 2 *
-            G0, 3, padding=1, output_padding=1, stride=2)), nn.BatchNorm2d(
-            2 * G0), nn.ReLU(inplace=True)])
-        self.decoder2 = nn.Sequential(*[wn(nn.ConvTranspose2d(2 * G0, G0, 3,
-            padding=1, output_padding=1, stride=2)), nn.BatchNorm2d(G0), nn
-            .ReLU()])
-        RGs0 = [RG(growRate0=4 * G0, nConvLayers=C, wn=wn) for _ in range(
-            self.D)]
-        RGs0.append(wn(nn.Conv2d(4 * G0, 4 * G0, kSize, padding=(kSize - 1) //
-            2, stride=1)))
-        RGs1 = [RG(growRate0=2 * G0, nConvLayers=C, wn=wn) for _ in range(
-            self.D // 2)]
-        RGs1.append(wn(nn.Conv2d(2 * G0, 2 * G0, kSize, padding=(kSize - 1) //
-            2, stride=1)))
-        RGs2 = [RG(growRate0=G0, nConvLayers=C, wn=wn) for _ in range(self.
-            D // 4)]
-        RGs2.append(wn(nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)))
+        self.SFENet1 = wn(nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1))
+        self.encoder1 = nn.Sequential(*[wn(nn.Conv2d(G0, 2 * G0, kSize, padding=(kSize - 1) // 2, stride=2)), nn.BatchNorm2d(2 * G0), nn.ReLU(inplace=True)])
+        self.encoder2 = nn.Sequential(*[wn(nn.Conv2d(2 * G0, 4 * G0, kSize, padding=(kSize - 1) // 2, stride=2)), nn.BatchNorm2d(4 * G0), nn.ReLU(inplace=True)])
+        self.decoder1 = nn.Sequential(*[wn(nn.ConvTranspose2d(4 * G0, 2 * G0, 3, padding=1, output_padding=1, stride=2)), nn.BatchNorm2d(2 * G0), nn.ReLU(inplace=True)])
+        self.decoder2 = nn.Sequential(*[wn(nn.ConvTranspose2d(2 * G0, G0, 3, padding=1, output_padding=1, stride=2)), nn.BatchNorm2d(G0), nn.ReLU()])
+        RGs0 = [RG(growRate0=4 * G0, nConvLayers=C, wn=wn) for _ in range(self.D)]
+        RGs0.append(wn(nn.Conv2d(4 * G0, 4 * G0, kSize, padding=(kSize - 1) // 2, stride=1)))
+        RGs1 = [RG(growRate0=2 * G0, nConvLayers=C, wn=wn) for _ in range(self.D // 2)]
+        RGs1.append(wn(nn.Conv2d(2 * G0, 2 * G0, kSize, padding=(kSize - 1) // 2, stride=1)))
+        RGs2 = [RG(growRate0=G0, nConvLayers=C, wn=wn) for _ in range(self.D // 4)]
+        RGs2.append(wn(nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)))
         self.RGs0 = nn.Sequential(*RGs0)
         self.RGs1 = nn.Sequential(*RGs1)
         self.RGs2 = nn.Sequential(*RGs2)
-        self.restoration = wn(nn.Conv2d(G0, args.n_colors, kSize, padding=(
-            kSize - 1) // 2, stride=1))
+        self.restoration = wn(nn.Conv2d(G0, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1))
         self.add_mean = MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
     def forward(self, x):
@@ -2839,9 +2639,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True))
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True))
         self.sigmoid = nn.Sigmoid()
         self.ch = channel
 
@@ -2854,8 +2652,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.LeakyReLU(0.2, True), res_scale=1, px=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.LeakyReLU(0.2, True), res_scale=1, px=1):
         super(RCAB, self).__init__()
         modules_body = []
         modules_body.append(conv(n_feat, n_feat, kernel_size, bias=bias))
@@ -2877,18 +2674,13 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks, n_resgroups, px):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks, n_resgroups, px):
         super(ResidualGroup, self).__init__()
         modules_body = []
         if len(n_resgroups) == 0:
-            modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias
-                =True, bn=False, act=nn.ReLU(True), res_scale=1, px=px) for
-                _ in range(n_resblocks)]
+            modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1, px=px) for _ in range(n_resblocks)]
         else:
-            modules_body = [ResidualGroup(conv, n_feat, kernel_size,
-                reduction, act, res_scale, n_resblocks, n_resgroups[1:], px
-                =px) for _ in range(n_resgroups[0])]
+            modules_body = [ResidualGroup(conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks, n_resgroups[1:], px=px) for _ in range(n_resgroups[0])]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -2927,37 +2719,22 @@ class RAN(nn.Module):
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = MeanShift(255, rgb_mean, rgb_std, -1)
         self.add_mean = MeanShift(255, rgb_mean, rgb_std, 1)
-        self.conv1 = nn.Conv2d(nChannel, nFeat, kernel_size=3, padding=1,
-            bias=True)
-        self.conv2 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias
-            =True)
-        self.Mod = torch.nn.ModuleList([ST_Block5(args.n_resblocks, nFeat,
-            i) for i in range(args.n_resgroups)])
+        self.conv1 = nn.Conv2d(nChannel, nFeat, kernel_size=3, padding=1, bias=True)
+        self.conv2 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True)
+        self.Mod = torch.nn.ModuleList([ST_Block5(args.n_resblocks, nFeat, i) for i in range(args.n_resgroups)])
         self.spatial_att = Spatial_att_score2(nFeat, args.n_resgroups)
-        self.G_F1 = nn.Conv2d(nFeat * args.n_resgroups, nFeat, kernel_size=
-            1, padding=0, bias=True)
-        self.G_F33 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias
-            =True)
-        self.G_F3 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True
-            )
-        self.GFF_3x3 = nn.Conv2d(nFeat * 2, nFeat, kernel_size=1, padding=0,
-            bias=True)
-        self.GFF_3x3_2 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1,
-            bias=True)
-        self.G_F2 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True
-            )
+        self.G_F1 = nn.Conv2d(nFeat * args.n_resgroups, nFeat, kernel_size=1, padding=0, bias=True)
+        self.G_F33 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True)
+        self.G_F3 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True)
+        self.GFF_3x3 = nn.Conv2d(nFeat * 2, nFeat, kernel_size=1, padding=0, bias=True)
+        self.GFF_3x3_2 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True)
+        self.G_F2 = nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True)
         self.Dblock = Dilated_block(nFeat)
         if scale == 4:
-            self.up = nn.Sequential(nn.Conv2d(nFeat, nFeat * scale,
-                kernel_size=3, padding=1, bias=True), sub_pixel(2), nn.
-                Conv2d(nFeat, nFeat * scale, kernel_size=3, padding=1, bias
-                =True), sub_pixel(2))
+            self.up = nn.Sequential(nn.Conv2d(nFeat, nFeat * scale, kernel_size=3, padding=1, bias=True), sub_pixel(2), nn.Conv2d(nFeat, nFeat * scale, kernel_size=3, padding=1, bias=True), sub_pixel(2))
         else:
-            self.up = nn.Sequential(nn.Conv2d(nFeat, nFeat * scale * scale,
-                kernel_size=3, padding=1, bias=True), sub_pixel(2))
-        self.HR = nn.Sequential(nn.Conv2d(nFeat, nFeat, kernel_size=3,
-            padding=1, bias=True), nn.LeakyReLU(0.1), nn.Conv2d(nFeat, 3,
-            kernel_size=3, padding=1, bias=True))
+            self.up = nn.Sequential(nn.Conv2d(nFeat, nFeat * scale * scale, kernel_size=3, padding=1, bias=True), sub_pixel(2))
+        self.HR = nn.Sequential(nn.Conv2d(nFeat, nFeat, kernel_size=3, padding=1, bias=True), nn.LeakyReLU(0.1), nn.Conv2d(nFeat, 3, kernel_size=3, padding=1, bias=True))
 
     def forward(self, x):
         self.plot_cnt += 1
@@ -2984,14 +2761,11 @@ class RAN(nn.Module):
         if self.plot_cnt == 200 and s is not None:
             self.plot_cnt = 0
             for idx, sle in enumerate(s):
-                self.id[idx] = self.vis2.images(sle[(0), :, :, :].unsqueeze
-                    (dim=1), nrow=6, win=self.id[idx], opts={'title':
-                    'BLOCK-15'})
+                self.id[idx] = self.vis2.images(sle[(0), :, :, :].unsqueeze(dim=1), nrow=6, win=self.id[idx], opts={'title': 'BLOCK-15'})
         x = self.G_F1(torch.cat(out_list[1:], dim=1))
         x = self.G_F33(x)
         if not self.args.nvis:
-            self.id[self.idx] = self.vis2.heatmap(mask[(0), (0), :, :], win
-                =self.id[self.idx], opts={'title': 'SA'})
+            self.id[self.idx] = self.vis2.heatmap(mask[(0), (0), :, :], win=self.id[self.idx], opts={'title': 'SA'})
         self.idx += 1
         if self.idx == 20:
             self.idx = 0
@@ -3004,16 +2778,12 @@ class Dilated_block(nn.Module):
     def __init__(self, inChannel):
         super(Dilated_block, self).__init__()
         self.conv11 = nn.Conv2d(inChannel, inChannel, kernel_size=3, padding=1)
-        self.conv12 = nn.Conv2d(inChannel, inChannel, kernel_size=3,
-            padding=2, dilation=2)
+        self.conv12 = nn.Conv2d(inChannel, inChannel, kernel_size=3, padding=2, dilation=2)
         self.conv21 = nn.Conv2d(inChannel, inChannel, kernel_size=5, padding=2)
-        self.conv22 = nn.Conv2d(inChannel, inChannel, kernel_size=3,
-            padding=3, dilation=3)
+        self.conv22 = nn.Conv2d(inChannel, inChannel, kernel_size=3, padding=3, dilation=3)
         self.conv31 = nn.Conv2d(inChannel, inChannel, kernel_size=7, padding=3)
-        self.conv32 = nn.Conv2d(inChannel, inChannel, kernel_size=3,
-            padding=3, dilation=3)
-        self.Fuse = nn.Conv2d(inChannel * 3, inChannel, kernel_size=1,
-            padding=0)
+        self.conv32 = nn.Conv2d(inChannel, inChannel, kernel_size=3, padding=3, dilation=3)
+        self.Fuse = nn.Conv2d(inChannel * 3, inChannel, kernel_size=1, padding=0)
 
     def forward(self, x):
         i = x
@@ -3028,10 +2798,8 @@ class Spatial_att_score2(nn.Module):
 
     def __init__(self, inChannel, num_block):
         super(Spatial_att_score2, self).__init__()
-        self.conv1 = nn.Conv2d(inChannel * num_block, inChannel,
-            kernel_size=1, padding=0)
-        self.conv2 = nn.Conv2d(inChannel * 2, inChannel, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(inChannel * num_block, inChannel, kernel_size=1, padding=0)
+        self.conv2 = nn.Conv2d(inChannel * 2, inChannel, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(inChannel, inChannel, kernel_size=3, padding=1)
         self.conv4 = nn.Conv2d(inChannel, inChannel, kernel_size=3, padding=1)
         self.conv5 = nn.Conv2d(inChannel, 1, kernel_size=3, padding=1)
@@ -3063,15 +2831,11 @@ class Channel_att_score3(nn.Module):
     def __init__(self, inChannel, num_prev, r=8):
         super(Channel_att_score3, self).__init__()
         self.num_prev = num_prev
-        self.fc1_1 = nn.Conv2d(inChannel, inChannel // r, kernel_size=1,
-            bias=False)
-        self.fc1_2 = nn.Conv2d(inChannel // r, inChannel, kernel_size=1,
-            bias=False)
+        self.fc1_1 = nn.Conv2d(inChannel, inChannel // r, kernel_size=1, bias=False)
+        self.fc1_2 = nn.Conv2d(inChannel // r, inChannel, kernel_size=1, bias=False)
         if self.num_prev > 0:
-            self.fc1_3 = nn.Conv2d(inChannel, inChannel // r, kernel_size=[
-                num_prev + 1, 1], padding=0, bias=False)
-            self.fc1_4 = nn.Conv2d(inChannel // r, inChannel, kernel_size=1,
-                bias=False)
+            self.fc1_3 = nn.Conv2d(inChannel, inChannel // r, kernel_size=[num_prev + 1, 1], padding=0, bias=False)
+            self.fc1_4 = nn.Conv2d(inChannel // r, inChannel, kernel_size=1, bias=False)
         self.alpha = nn.Parameter(torch.FloatTensor(1).zero_())
         self.beta = nn.Parameter(torch.FloatTensor(1).zero_())
         self.register_parameter('norm_alpha', self.alpha)
@@ -3137,8 +2901,7 @@ class Global_att(nn.Module):
 
 class ST_Unit5(nn.Module):
 
-    def __init__(self, nChannel, prev=0, bias=True, dilation=1, conv1=None,
-        conv2=None):
+    def __init__(self, nChannel, prev=0, bias=True, dilation=1, conv1=None, conv2=None):
         super(ST_Unit5, self).__init__()
         self.nChannel = nChannel
         self.prev = prev
@@ -3153,11 +2916,8 @@ class ST_Unit5(nn.Module):
     self.filters = nn.Parameter(torch.FloatTensor(64,64,3,3).uniform_(-var,var))
     self.register_parameter('conv1x1',self.filters)
     """
-        self.Conv_1x1 = nn.Conv2d(nChannel, nChannel, kernel_size=3,
-            padding=dilation, dilation=dilation, bias=bias
-            ) if conv1 is None else conv1
-        self.DWconv_3x3 = nn.Conv2d(nChannel, nChannel, kernel_size=3,
-            padding=1, bias=bias) if conv2 is None else conv2
+        self.Conv_1x1 = nn.Conv2d(nChannel, nChannel, kernel_size=3, padding=dilation, dilation=dilation, bias=bias) if conv1 is None else conv1
+        self.DWconv_3x3 = nn.Conv2d(nChannel, nChannel, kernel_size=3, padding=1, bias=bias) if conv2 is None else conv2
         """
     self.conv3x3_1 = nn.Conv2d(nChannel, nChannel, kernel_size=3, padding=1, bias=bias)
     self.conv3x3_2 = nn.Conv2d(nChannel, nChannel, kernel_size=3, padding=2, dilation=2, bias=bias)
@@ -3191,21 +2951,15 @@ class ST_Block5(nn.Module):
         super(ST_Block5, self).__init__()
         self.nChannel = nChannel
         self.num_unit = num_unit
-        self.Conv_1x1 = nn.Conv2d(nChannel, nChannel, kernel_size=3,
-            padding=1, dilation=1, bias=bias)
-        self.DWconv_3x3 = nn.Conv2d(nChannel, nChannel, kernel_size=3,
-            padding=1, bias=bias)
+        self.Conv_1x1 = nn.Conv2d(nChannel, nChannel, kernel_size=3, padding=1, dilation=1, bias=bias)
+        self.DWconv_3x3 = nn.Conv2d(nChannel, nChannel, kernel_size=3, padding=1, bias=bias)
         self.prev = prev
         self.Spatial_att = Global_att(nChannel, num_unit, prev)
-        self.unit = torch.nn.ModuleList([ST_Unit5(64, i, dilation=1, conv1=
-            None, conv2=None) for i in range(num_unit)])
-        self.Fuse = nn.Conv2d(nChannel * 2, nChannel, kernel_size=1,
-            padding=0, bias=bias)
-        self.Infuse = nn.Conv2d(nChannel * (prev + 1), nChannel,
-            kernel_size=1, padding=0, bias=bias)
+        self.unit = torch.nn.ModuleList([ST_Unit5(64, i, dilation=1, conv1=None, conv2=None) for i in range(num_unit)])
+        self.Fuse = nn.Conv2d(nChannel * 2, nChannel, kernel_size=1, padding=0, bias=bias)
+        self.Infuse = nn.Conv2d(nChannel * (prev + 1), nChannel, kernel_size=1, padding=0, bias=bias)
         if prev > 0:
-            self.Conv = nn.Conv2d(nChannel * 2, nChannel, kernel_size=1,
-                padding=0, bias=bias)
+            self.Conv = nn.Conv2d(nChannel * 2, nChannel, kernel_size=1, padding=0, bias=bias)
 
     def forward(self, x, res_list, temp_list):
         i = x[:, -self.nChannel:, :, :]
@@ -3240,8 +2994,7 @@ class ST_Block5(nn.Module):
 
 class DenseBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, bias=True, activation=
-        'relu', norm='batch'):
+    def __init__(self, input_size, output_size, bias=True, activation='relu', norm='batch'):
         super(DenseBlock, self).__init__()
         self.fc = torch.nn.Linear(input_size, output_size, bias=bias)
         self.norm = norm
@@ -3274,11 +3027,9 @@ class DenseBlock(torch.nn.Module):
 
 class ConvBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, kernel_size=3, stride=1,
-        padding=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, input_size, output_size, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None):
         super(ConvBlock, self).__init__()
-        self.conv = torch.nn.Conv2d(input_size, output_size, kernel_size,
-            stride, padding, bias=bias)
+        self.conv = torch.nn.Conv2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
         self.norm = norm
         if self.norm == 'batch':
             self.bn = torch.nn.BatchNorm2d(output_size)
@@ -3309,11 +3060,9 @@ class ConvBlock(torch.nn.Module):
 
 class DeconvBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, kernel_size=4, stride=2,
-        padding=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, input_size, output_size, kernel_size=4, stride=2, padding=1, bias=True, activation='prelu', norm=None):
         super(DeconvBlock, self).__init__()
-        self.deconv = torch.nn.ConvTranspose2d(input_size, output_size,
-            kernel_size, stride, padding, bias=bias)
+        self.deconv = torch.nn.ConvTranspose2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
         self.norm = norm
         if self.norm == 'batch':
             self.bn = torch.nn.BatchNorm2d(output_size)
@@ -3344,13 +3093,10 @@ class DeconvBlock(torch.nn.Module):
 
 class ResnetBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias
-        =True, activation='prelu', norm='batch'):
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
         super(ResnetBlock, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size,
-            stride, padding, bias=bias)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size,
-            stride, padding, bias=bias)
+        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
+        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
         self.norm = norm
         if self.norm == 'batch':
             self.bn = torch.nn.BatchNorm2d(num_filter)
@@ -3388,15 +3134,11 @@ class ResnetBlock(torch.nn.Module):
 
 class UpBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias
-        =True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
         super(UpBlock, self).__init__()
-        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         h0 = self.up_conv1(x)
@@ -3407,12 +3149,10 @@ class UpBlock(torch.nn.Module):
 
 class UpBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='prelu', norm=None):
         super(UpBlockPix, self).__init__()
         self.up_conv1 = Upsampler(scale, num_filter)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.up_conv3 = Upsampler(scale, num_filter)
 
     def forward(self, x):
@@ -3424,17 +3164,12 @@ class UpBlockPix(torch.nn.Module):
 
 class D_UpBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
         super(D_UpBlock, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
-        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
+        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         x = self.conv(x)
@@ -3446,14 +3181,11 @@ class D_UpBlock(torch.nn.Module):
 
 class D_UpBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
         super(D_UpBlockPix, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
         self.up_conv1 = Upsampler(scale, num_filter)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.up_conv3 = Upsampler(scale, num_filter)
 
     def forward(self, x):
@@ -3466,15 +3198,11 @@ class D_UpBlockPix(torch.nn.Module):
 
 class DownBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias
-        =True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
         super(DownBlock, self).__init__()
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         l0 = self.down_conv1(x)
@@ -3485,14 +3213,11 @@ class DownBlock(torch.nn.Module):
 
 class DownBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='prelu', norm=None):
         super(DownBlockPix, self).__init__()
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.down_conv2 = Upsampler(scale, num_filter)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         l0 = self.down_conv1(x)
@@ -3503,17 +3228,12 @@ class DownBlockPix(torch.nn.Module):
 
 class D_DownBlock(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
         super(D_DownBlock, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         x = self.conv(x)
@@ -3525,16 +3245,12 @@ class D_DownBlock(torch.nn.Module):
 
 class D_DownBlockPix(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2,
-        num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
         super(D_DownBlockPix, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0,
-            activation, norm=None)
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
         self.down_conv2 = Upsampler(scale, num_filter)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size,
-            stride, padding, activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation, norm=None)
 
     def forward(self, x):
         x = self.conv(x)
@@ -3546,11 +3262,9 @@ class D_DownBlockPix(torch.nn.Module):
 
 class PSBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, scale_factor, kernel_size=3,
-        stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
+    def __init__(self, input_size, output_size, scale_factor, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
         super(PSBlock, self).__init__()
-        self.conv = torch.nn.Conv2d(input_size, output_size * scale_factor **
-            2, kernel_size, stride, padding, bias=bias)
+        self.conv = torch.nn.Conv2d(input_size, output_size * scale_factor ** 2, kernel_size, stride, padding, bias=bias)
         self.ps = torch.nn.PixelShuffle(scale_factor)
         self.norm = norm
         if self.norm == 'batch':
@@ -3585,8 +3299,7 @@ class Upsampler(torch.nn.Module):
         super(Upsampler, self).__init__()
         modules = []
         for _ in range(int(math.log(scale, 2))):
-            modules.append(ConvBlock(n_feat, 4 * n_feat, 3, 1, 1, bias,
-                activation=None, norm=None))
+            modules.append(ConvBlock(n_feat, 4 * n_feat, 3, 1, 1, bias, activation=None, norm=None))
             modules.append(torch.nn.PixelShuffle(2))
             if bn:
                 modules.append(torch.nn.BatchNorm2d(n_feat))
@@ -3612,22 +3325,15 @@ class Upsampler(torch.nn.Module):
 
 class Upsample2xBlock(torch.nn.Module):
 
-    def __init__(self, input_size, output_size, bias=True, upsample=
-        'deconv', activation='relu', norm='batch'):
+    def __init__(self, input_size, output_size, bias=True, upsample='deconv', activation='relu', norm='batch'):
         super(Upsample2xBlock, self).__init__()
         scale_factor = 2
         if upsample == 'deconv':
-            self.upsample = DeconvBlock(input_size, output_size,
-                kernel_size=4, stride=2, padding=1, bias=bias, activation=
-                activation, norm=norm)
+            self.upsample = DeconvBlock(input_size, output_size, kernel_size=4, stride=2, padding=1, bias=bias, activation=activation, norm=norm)
         elif upsample == 'ps':
-            self.upsample = PSBlock(input_size, output_size, scale_factor=
-                scale_factor, bias=bias, activation=activation, norm=norm)
+            self.upsample = PSBlock(input_size, output_size, scale_factor=scale_factor, bias=bias, activation=activation, norm=norm)
         elif upsample == 'rnc':
-            self.upsample = torch.nn.Sequential(torch.nn.Upsample(
-                scale_factor=scale_factor, mode='nearest'), ConvBlock(
-                input_size, output_size, kernel_size=3, stride=1, padding=1,
-                bias=bias, activation=activation, norm=norm))
+            self.upsample = torch.nn.Sequential(torch.nn.Upsample(scale_factor=scale_factor, mode='nearest'), ConvBlock(input_size, output_size, kernel_size=3, stride=1, padding=1, bias=bias, activation=activation, norm=norm))
 
     def forward(self, x):
         out = self.upsample(x)
@@ -3650,15 +3356,13 @@ class Dbpns(nn.Module):
             kernel = 12
             stride = 8
             padding = 2
-        self.feat1 = ConvBlock(base_filter, feat, 1, 1, 0, activation=
-            'prelu', norm=None)
+        self.feat1 = ConvBlock(base_filter, feat, 1, 1, 0, activation='prelu', norm=None)
         self.up1 = UpBlock(feat, kernel, stride, padding)
         self.down1 = DownBlock(feat, kernel, stride, padding)
         self.up2 = UpBlock(feat, kernel, stride, padding)
         self.down2 = DownBlock(feat, kernel, stride, padding)
         self.up3 = UpBlock(feat, kernel, stride, padding)
-        self.output = ConvBlock(num_stages * feat, feat, 1, 1, 0,
-            activation=None, norm=None)
+        self.output = ConvBlock(num_stages * feat, feat, 1, 1, 0, activation=None, norm=None)
         for m in self.modules():
             classname = m.__class__.__name__
             if classname.find('Conv2d') != -1:
@@ -3681,8 +3385,7 @@ class Dbpns(nn.Module):
 
 class Rbpn(nn.Module):
 
-    def __init__(self, num_channels, base_filter, feat, num_stages,
-        n_resblock, nFrames, scale_factor):
+    def __init__(self, num_channels, base_filter, feat, num_stages, n_resblock, nFrames, scale_factor):
         super(Rbpn, self).__init__()
         self.nFrames = nFrames
         if scale_factor == 2:
@@ -3697,31 +3400,19 @@ class Rbpn(nn.Module):
             kernel = 12
             stride = 8
             padding = 2
-        self.feat0 = ConvBlock(num_channels, base_filter, 3, 1, 1,
-            activation='prelu', norm=None)
-        self.feat1 = ConvBlock(8, base_filter, 3, 1, 1, activation='prelu',
-            norm=None)
+        self.feat0 = ConvBlock(num_channels, base_filter, 3, 1, 1, activation='prelu', norm=None)
+        self.feat1 = ConvBlock(8, base_filter, 3, 1, 1, activation='prelu', norm=None)
         self.DBPN = Dbpns(base_filter, feat, num_stages, scale_factor)
-        modules_body1 = [ResnetBlock(base_filter, kernel_size=3, stride=1,
-            padding=1, bias=True, activation='prelu', norm=None) for _ in
-            range(n_resblock)]
-        modules_body1.append(DeconvBlock(base_filter, feat, kernel, stride,
-            padding, activation='prelu', norm=None))
+        modules_body1 = [ResnetBlock(base_filter, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None) for _ in range(n_resblock)]
+        modules_body1.append(DeconvBlock(base_filter, feat, kernel, stride, padding, activation='prelu', norm=None))
         self.res_feat1 = nn.Sequential(*modules_body1)
-        modules_body2 = [ResnetBlock(feat, kernel_size=3, stride=1, padding
-            =1, bias=True, activation='prelu', norm=None) for _ in range(
-            n_resblock)]
-        modules_body2.append(ConvBlock(feat, feat, 3, 1, 1, activation=
-            'prelu', norm=None))
+        modules_body2 = [ResnetBlock(feat, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None) for _ in range(n_resblock)]
+        modules_body2.append(ConvBlock(feat, feat, 3, 1, 1, activation='prelu', norm=None))
         self.res_feat2 = nn.Sequential(*modules_body2)
-        modules_body3 = [ResnetBlock(feat, kernel_size=3, stride=1, padding
-            =1, bias=True, activation='prelu', norm=None) for _ in range(
-            n_resblock)]
-        modules_body3.append(ConvBlock(feat, base_filter, kernel, stride,
-            padding, activation='prelu', norm=None))
+        modules_body3 = [ResnetBlock(feat, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None) for _ in range(n_resblock)]
+        modules_body3.append(ConvBlock(feat, base_filter, kernel, stride, padding, activation='prelu', norm=None))
         self.res_feat3 = nn.Sequential(*modules_body3)
-        self.output = ConvBlock((nFrames - 1) * feat, num_channels, 3, 1, 1,
-            activation=None, norm=None)
+        self.output = ConvBlock((nFrames - 1) * feat, num_channels, 3, 1, 1, activation=None, norm=None)
         for m in self.modules():
             classname = m.__class__.__name__
             if classname.find('Conv2d') != -1:
@@ -3737,8 +3428,7 @@ class Rbpn(nn.Module):
         feat_input = self.feat0(x)
         feat_frame = []
         for j in range(len(neigbor)):
-            feat_frame.append(self.feat1(torch.cat((x, neigbor[j], flow[j]),
-                1)))
+            feat_frame.append(self.feat1(torch.cat((x, neigbor[j], flow[j]), 1)))
         Ht = []
         for j in range(len(neigbor)):
             h0 = self.DBPN(feat_input)
@@ -3767,10 +3457,8 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        bias=False, bn=True, act=nn.ReLU(True)):
-        m = [nn.Conv2d(in_channels, out_channels, kernel_size, padding=
-            kernel_size // 2, stride=stride, bias=bias)]
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
+        m = [nn.Conv2d(in_channels, out_channels, kernel_size, padding=kernel_size // 2, stride=stride, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
         if act is not None:
@@ -3780,8 +3468,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, bias=True, bn=False, act=
-        nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(ResBlock, self).__init__()
         m = []
         for i in range(2):
@@ -3828,10 +3515,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -3841,8 +3525,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -3863,13 +3546,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -3884,8 +3564,7 @@ class make_dense(nn.Module):
     def __init__(self, channels_in, channels_out, kernel_size=3):
         super(make_dense, self).__init__()
         self.leaky_relu = nn.LeakyReLU(0.1, inplace=True)
-        self.conv = nn.Conv2d(channels_in, channels_out, kernel_size=
-            kernel_size, padding=(kernel_size - 1) // 2, bias=False)
+        self.conv = nn.Conv2d(channels_in, channels_out, kernel_size=kernel_size, padding=(kernel_size - 1) // 2, bias=False)
 
     def forward(self, x):
         out = self.leaky_relu(self.conv(x))
@@ -3903,8 +3582,7 @@ class RDB(nn.Module):
             modules.append(make_dense(channels_buffer, growth))
             channels_buffer += growth
         self.dense_layers = nn.Sequential(*modules)
-        self.conv_1x1 = nn.Conv2d(channels_buffer, channels, kernel_size=1,
-            padding=0, bias=False)
+        self.conv_1x1 = nn.Conv2d(channels_buffer, channels, kernel_size=1, padding=0, bias=False)
 
     def forward(self, x):
         out = self.dense_layers(x)
@@ -3929,10 +3607,8 @@ def optical_flow_warp(image, image_optical_flow):
     grid = Variable(torch.Tensor(grid))
     if image_optical_flow.is_cuda == True:
         grid = grid.cuda()
-    flow_0 = torch.unsqueeze(image_optical_flow[:, (0), :, :] * 31 / (w - 1
-        ), dim=1)
-    flow_1 = torch.unsqueeze(image_optical_flow[:, (1), :, :] * 31 / (h - 1
-        ), dim=1)
+    flow_0 = torch.unsqueeze(image_optical_flow[:, (0), :, :] * 31 / (w - 1), dim=1)
+    flow_1 = torch.unsqueeze(image_optical_flow[:, (1), :, :] * 31 / (h - 1), dim=1)
     grid = grid + torch.cat((flow_0, flow_1), 1)
     grid = grid.transpose(1, 2)
     grid = grid.transpose(3, 2)
@@ -3945,10 +3621,8 @@ class OFRnet(nn.Module):
     def __init__(self, upscale_factor):
         super(OFRnet, self).__init__()
         self.pool = nn.AvgPool2d(kernel_size=2)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False)
-        self.final_upsample = nn.Upsample(scale_factor=upscale_factor, mode
-            ='bilinear', align_corners=False)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.final_upsample = nn.Upsample(scale_factor=upscale_factor, mode='bilinear', align_corners=False)
         self.shuffle = nn.PixelShuffle(upscale_factor)
         self.upscale_factor = upscale_factor
         self.conv_L1_1 = nn.Conv2d(2, 32, 3, 1, 1, bias=False)
@@ -3964,10 +3638,8 @@ class OFRnet(nn.Module):
         self.conv_L3_1 = nn.Conv2d(6, 32, 3, 1, 1, bias=False)
         self.RDB3_1 = RDB(4, 32, 32)
         self.RDB3_2 = RDB(4, 32, 32)
-        self.bottleneck_L3 = nn.Conv2d(64, 2 * upscale_factor ** 2, 3, 1, 1,
-            bias=False)
-        self.conv_L3_2 = nn.Conv2d(2 * upscale_factor ** 2, 2 * 
-            upscale_factor ** 2, 3, 1, 1, bias=True)
+        self.bottleneck_L3 = nn.Conv2d(64, 2 * upscale_factor ** 2, 3, 1, 1, bias=False)
+        self.conv_L3_2 = nn.Conv2d(2 * upscale_factor ** 2, 2 * upscale_factor ** 2, 3, 1, 1, bias=True)
 
     def forward(self, x):
         x_L1 = self.pool(x)
@@ -3979,8 +3651,7 @@ class OFRnet(nn.Module):
         optical_flow_L1 = self.bottleneck_L1(buffer)
         optical_flow_L1 = self.conv_L1_2(optical_flow_L1)
         optical_flow_L1_upscaled = self.upsample(optical_flow_L1)
-        x_L2 = optical_flow_warp(torch.unsqueeze(x[:, (0), :, :], dim=1),
-            optical_flow_L1_upscaled)
+        x_L2 = optical_flow_warp(torch.unsqueeze(x[:, (0), :, :], dim=1), optical_flow_L1_upscaled)
         x_L2_res = torch.unsqueeze(x[:, (1), :, :], dim=1) - x_L2
         x_L2 = torch.cat((x, x_L2, x_L2_res, optical_flow_L1_upscaled), 1)
         input_L2 = self.conv_L2_1(x_L2)
@@ -3990,8 +3661,7 @@ class OFRnet(nn.Module):
         optical_flow_L2 = self.bottleneck_L2(buffer)
         optical_flow_L2 = self.conv_L2_2(optical_flow_L2)
         optical_flow_L2 = optical_flow_L2 + optical_flow_L1_upscaled
-        x_L3 = optical_flow_warp(torch.unsqueeze(x[:, (0), :, :], dim=1),
-            optical_flow_L2)
+        x_L3 = optical_flow_warp(torch.unsqueeze(x[:, (0), :, :], dim=1), optical_flow_L2)
         x_L3_res = torch.unsqueeze(x[:, (1), :, :], dim=1) - x_L3
         x_L3 = torch.cat((x, x_L3, x_L3_res, optical_flow_L2), 1)
         input_L3 = self.conv_L3_1(x_L3)
@@ -4000,8 +3670,7 @@ class OFRnet(nn.Module):
         buffer = torch.cat((buffer_1, buffer_2), 1)
         optical_flow_L3 = self.bottleneck_L3(buffer)
         optical_flow_L3 = self.conv_L3_2(optical_flow_L3)
-        optical_flow_L3 = self.shuffle(optical_flow_L3) + self.final_upsample(
-            optical_flow_L2)
+        optical_flow_L3 = self.shuffle(optical_flow_L3) + self.final_upsample(optical_flow_L2)
         return optical_flow_L3, optical_flow_L2, optical_flow_L1
 
 
@@ -4032,8 +3701,7 @@ class SRnet(nn.Module):
         buffer_3 = self.RDB_3(buffer_2)
         buffer_4 = self.RDB_4(buffer_3)
         buffer_5 = self.RDB_5(buffer_4)
-        output = torch.cat((buffer_1, buffer_2, buffer_3, buffer_4,
-            buffer_5, input), 1)
+        output = torch.cat((buffer_1, buffer_2, buffer_3, buffer_4, buffer_5, input), 1)
         output = self.bottleneck(output)
         output = self.conv_2(output)
         output = self.shuffle(output)
@@ -4050,25 +3718,18 @@ class SOFVSR(nn.Module):
         self.SRnet = SRnet(scale, channel, depth)
 
     def forward(self, x):
-        input_01 = torch.cat((torch.unsqueeze(x[:, (0), :, :], dim=1),
-            torch.unsqueeze(x[:, (1), :, :], dim=1)), 1)
-        input_21 = torch.cat((torch.unsqueeze(x[:, (2), :, :], dim=1),
-            torch.unsqueeze(x[:, (1), :, :], dim=1)), 1)
+        input_01 = torch.cat((torch.unsqueeze(x[:, (0), :, :], dim=1), torch.unsqueeze(x[:, (1), :, :], dim=1)), 1)
+        input_21 = torch.cat((torch.unsqueeze(x[:, (2), :, :], dim=1), torch.unsqueeze(x[:, (1), :, :], dim=1)), 1)
         flow_01_L3, flow_01_L2, flow_01_L1 = self.OFRnet(input_01)
         flow_21_L3, flow_21_L2, flow_21_L1 = self.OFRnet(input_21)
         draft_cube = x
         for i in range(self.upscale_factor):
             for j in range(self.upscale_factor):
-                draft_01 = optical_flow_warp(x[:, :self.c, :, :], 
-                    flow_01_L3[:, :, i::self.upscale_factor, j::self.
-                    upscale_factor] / self.upscale_factor)
-                draft_21 = optical_flow_warp(x[:, self.c * 2:, :, :], 
-                    flow_21_L3[:, :, i::self.upscale_factor, j::self.
-                    upscale_factor] / self.upscale_factor)
+                draft_01 = optical_flow_warp(x[:, :self.c, :, :], flow_01_L3[:, :, i::self.upscale_factor, j::self.upscale_factor] / self.upscale_factor)
+                draft_21 = optical_flow_warp(x[:, self.c * 2:, :, :], flow_21_L3[:, :, i::self.upscale_factor, j::self.upscale_factor] / self.upscale_factor)
                 draft_cube = torch.cat((draft_cube, draft_01, draft_21), 1)
         output = self.SRnet(draft_cube)
-        return output, (flow_01_L3, flow_01_L2, flow_01_L1), (flow_21_L3,
-            flow_21_L2, flow_21_L1)
+        return output, (flow_01_L3, flow_01_L2, flow_01_L1), (flow_21_L3, flow_21_L2, flow_21_L1)
 
 
 def zip(url):
@@ -4085,8 +3746,7 @@ class Conv2dLSTMCell(nn.Module):
   Special thanks to @Kaixhin
   """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(Conv2dLSTMCell, self).__init__()
         if in_channels % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
@@ -4101,16 +3761,12 @@ class Conv2dLSTMCell(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
-        self.padding_h = tuple(k // 2 for k, s, p, d in zip(kernel_size,
-            stride, padding, dilation))
+        self.padding_h = tuple(k // 2 for k, s, p, d in zip(kernel_size, stride, padding, dilation))
         self.dilation = dilation
         self.groups = groups
-        self.weight_ih = Parameter(torch.Tensor(4 * out_channels, 
-            in_channels // groups, *kernel_size))
-        self.weight_hh = Parameter(torch.Tensor(4 * out_channels, 
-            out_channels // groups, *kernel_size))
-        self.weight_ch = Parameter(torch.Tensor(3 * out_channels, 
-            out_channels // groups, *kernel_size))
+        self.weight_ih = Parameter(torch.Tensor(4 * out_channels, in_channels // groups, *kernel_size))
+        self.weight_hh = Parameter(torch.Tensor(4 * out_channels, out_channels // groups, *kernel_size))
+        self.weight_ch = Parameter(torch.Tensor(3 * out_channels, out_channels // groups, *kernel_size))
         if bias:
             self.bias_ih = Parameter(torch.Tensor(4 * out_channels))
             self.bias_hh = Parameter(torch.Tensor(4 * out_channels))
@@ -4137,16 +3793,11 @@ class Conv2dLSTMCell(nn.Module):
 
     def forward(self, input, hx):
         h_0, c_0 = hx
-        wx = F.conv2d(input, self.weight_ih, self.bias_ih, self.stride,
-            self.padding, self.dilation, self.groups)
-        wh = F.conv2d(h_0, self.weight_hh, self.bias_hh, self.stride, self.
-            padding_h, self.dilation, self.groups)
-        wc = F.conv2d(c_0, self.weight_ch, self.bias_ch, self.stride, self.
-            padding_h, self.dilation, self.groups)
+        wx = F.conv2d(input, self.weight_ih, self.bias_ih, self.stride, self.padding, self.dilation, self.groups)
+        wh = F.conv2d(h_0, self.weight_hh, self.bias_hh, self.stride, self.padding_h, self.dilation, self.groups)
+        wc = F.conv2d(c_0, self.weight_ch, self.bias_ch, self.stride, self.padding_h, self.dilation, self.groups)
         v = Variable(self.wc_blank).reshape((1, -1, 1, 1))
-        wxhc = wx + wh + torch.cat((wc[:, :2 * self.out_channels], v.expand
-            (wc.size(0), wc.size(1) // 3, wc.size(2), wc.size(3)), wc[:, 2 *
-            self.out_channels:]), 1)
+        wxhc = wx + wh + torch.cat((wc[:, :2 * self.out_channels], v.expand(wc.size(0), wc.size(1) // 3, wc.size(2), wc.size(3)), wc[:, 2 * self.out_channels:]), 1)
         i = torch.sigmoid(wxhc[:, :self.out_channels])
         f = torch.sigmoid(wxhc[:, self.out_channels:2 * self.out_channels])
         g = torch.tanh(wxhc[:, 2 * self.out_channels:3 * self.out_channels])
@@ -4199,8 +3850,7 @@ class MotionEstimation(nn.Module):
         conv4 = nn.Sequential(nn.Conv2d(24, 24, 3, 1, 1), nn.ReLU(True))
         conv5 = nn.Sequential(nn.Conv2d(24, 32, 3, 1, 1), nn.Tanh())
         up1 = nn.PixelShuffle(4)
-        self.coarse_flow = nn.Sequential(conv1, conv2, conv3, conv4, conv5, up1
-            )
+        self.coarse_flow = nn.Sequential(conv1, conv2, conv3, conv4, conv5, up1)
         in_c = channel * 3 + 2
         conv1 = nn.Sequential(nn.Conv2d(in_c, 24, 5, 2, 2), nn.ReLU(True))
         conv2 = nn.Sequential(nn.Conv2d(24, 24, 3, 1, 1), nn.ReLU(True))
@@ -4227,16 +3877,12 @@ class DetailFusion(nn.Module):
         super(DetailFusion, self).__init__()
         f = base_filter
         self.enc1 = EasyConv2d(channel, f, 5, activation='relu')
-        self.enc2 = nn.Sequential(EasyConv2d(f, f * 2, 3, 2, activation=
-            'relu'), EasyConv2d(f * 2, f * 2, 3, activation='relu'))
+        self.enc2 = nn.Sequential(EasyConv2d(f, f * 2, 3, 2, activation='relu'), EasyConv2d(f * 2, f * 2, 3, activation='relu'))
         self.enc3 = EasyConv2d(f * 2, f * 4, 3, 2, activation='relu')
         self.lstm = Conv2dLSTMCell(f * 4, f * 4, 3, 1, 1)
-        self.dec1 = nn.Sequential(EasyConv2d(f * 4, f * 4, 3, activation=
-            'relu'), nn.ConvTranspose2d(f * 4, f * 2, 4, 2, 1), nn.ReLU(True))
-        self.dec2 = nn.Sequential(EasyConv2d(f * 2, f * 2, 3, activation=
-            'relu'), nn.ConvTranspose2d(f * 2, f, 4, 2, 1), nn.ReLU(True))
-        self.dec3 = nn.Sequential(EasyConv2d(f, f, 3, activation='relu'),
-            EasyConv2d(f, channel, 5))
+        self.dec1 = nn.Sequential(EasyConv2d(f * 4, f * 4, 3, activation='relu'), nn.ConvTranspose2d(f * 4, f * 2, 4, 2, 1), nn.ReLU(True))
+        self.dec2 = nn.Sequential(EasyConv2d(f * 2, f * 2, 3, activation='relu'), nn.ConvTranspose2d(f * 2, f, 4, 2, 1), nn.ReLU(True))
+        self.dec3 = nn.Sequential(EasyConv2d(f, f, 3, activation='relu'), EasyConv2d(f, channel, 5))
 
     def forward(self, x, hx):
         add1 = self.enc1(x)
@@ -4270,8 +3916,7 @@ class DetailRevealer(nn.Module):
         if self.hidden_state is None:
             batch, _, height, width = hr_ref.shape
             hidden_shape = batch, self.base_filter * 4, height // 4, width // 4
-            hx = torch.zeros(hidden_shape, device=ref.device), torch.zeros(
-                hidden_shape, device=ref.device)
+            hx = torch.zeros(hidden_shape, device=ref.device), torch.zeros(hidden_shape, device=ref.device)
         else:
             hx = self.hidden_state
         res, hx = self.vsr(hr_ref, hx)
@@ -4291,8 +3936,7 @@ class Generator(nn.Module):
         for i in range(num_rb):
             setattr(self, f'rb_{i:02d}', RB(filters, 3, 'lrelu', use_bn=True))
             setattr(self, f'merge_{i:02d}', nn.Conv2d(filters, filters, 1))
-        self.tail = nn.Sequential(Upsample(filters, scale), nn.Conv2d(
-            filters, channel, 3, 1, 1))
+        self.tail = nn.Sequential(Upsample(filters, scale), nn.Conv2d(filters, channel, 3, 1, 1))
         self.num_rb = num_rb
 
     def forward(self, inputs):
@@ -4310,24 +3954,18 @@ class Net(nn.Module):
   SRMD CNN network. 12 conv layers
   """
 
-    def __init__(self, scale=4, channels=3, layers=12, filters=128,
-        pca_length=15):
+    def __init__(self, scale=4, channels=3, layers=12, filters=128, pca_length=15):
         super(Net, self).__init__()
         self.pca_length = pca_length
-        net = [EasyConv2d(channels + pca_length + 1, filters, 3, activation
-            ='relu')]
-        net += [EasyConv2d(filters, filters, 3, activation='relu') for _ in
-            range(layers - 2)]
-        net += [EasyConv2d(filters, channels * scale ** 2, 3), nn.
-            PixelShuffle(scale)]
+        net = [EasyConv2d(channels + pca_length + 1, filters, 3, activation='relu')]
+        net += [EasyConv2d(filters, filters, 3, activation='relu') for _ in range(layers - 2)]
+        net += [EasyConv2d(filters, channels * scale ** 2, 3), nn.PixelShuffle(scale)]
         self.body = nn.Sequential(*net)
 
     def forward(self, x, kernel=None, noise=None):
         if kernel is None and noise is None:
-            kernel = torch.zeros(x.shape[0], 15, 1, device=x.device, dtype=
-                x.dtype)
-            noise = torch.zeros(x.shape[0], 1, 1, device=x.device, dtype=x.
-                dtype)
+            kernel = torch.zeros(x.shape[0], 15, 1, device=x.device, dtype=x.dtype)
+            noise = torch.zeros(x.shape[0], 1, 1, device=x.device, dtype=x.dtype)
         degpar = torch.cat([kernel, noise.reshape([-1, 1, 1])], dim=1)
         degpar = degpar.reshape([-1, 1 + self.pca_length, 1, 1])
         degpar = torch.ones_like(x)[:, 0:1] * degpar
@@ -4350,9 +3988,7 @@ class TecoGenerator(nn.Module):
         rbs = []
         for i in range(num_rb):
             rbs.append(RB(filters, 3, 'relu'))
-        self.body = nn.Sequential(EasyConv2d(channel * (1 + scale ** 2),
-            filters, 3, activation='relu'), *rbs, Upsample(filters, scale,
-            'nearest', activation='relu'), EasyConv2d(filters, channel, 3))
+        self.body = nn.Sequential(EasyConv2d(channel * (1 + scale ** 2), filters, 3, activation='relu'), *rbs, Upsample(filters, scale, 'nearest', activation='relu'), EasyConv2d(filters, channel, 3))
 
     def forward(self, x, prev, residual=None):
         """`residual` is the bicubically upsampled HR images"""
@@ -4370,10 +4006,8 @@ class TecoDiscriminator(nn.Module):
         self.conv0 = EasyConv2d(channel * 6, f, 3, activation='leaky')
         self.conv1 = EasyConv2d(f, f, 4, 2, activation='leaky', use_bn=True)
         self.conv2 = EasyConv2d(f, f, 4, 2, activation='leaky', use_bn=True)
-        self.conv3 = EasyConv2d(f, f * 2, 4, 2, activation='leaky', use_bn=True
-            )
-        self.conv4 = EasyConv2d(f * 2, f * 4, 4, 2, activation='leaky',
-            use_bn=True)
+        self.conv3 = EasyConv2d(f, f * 2, 4, 2, activation='leaky', use_bn=True)
+        self.conv4 = EasyConv2d(f * 2, f * 4, 4, 2, activation='leaky', use_bn=True)
         self.linear = nn.Linear(f * 4 * (patch_size // 16) ** 2, 1)
 
     def forward(self, x):
@@ -4422,8 +4056,7 @@ class MotionCompensation(nn.Module):
         conv4 = nn.Sequential(nn.Conv2d(24, 24, 3, 1, 1), nn.ReLU(True))
         conv5 = nn.Sequential(nn.Conv2d(24, 32, 3, 1, 1), nn.Tanh())
         up1 = nn.PixelShuffle(4)
-        self.coarse_flow = nn.Sequential(conv1, conv2, conv3, conv4, conv5, up1
-            )
+        self.coarse_flow = nn.Sequential(conv1, conv2, conv3, conv4, conv5, up1)
         in_c = channel * 3 + 2
         conv1 = nn.Sequential(nn.Conv2d(in_c, 24, 5, 2, 2), nn.ReLU(True))
         conv2 = nn.Sequential(nn.Conv2d(24, 24, 3, 1, 1), nn.ReLU(True))
@@ -4452,8 +4085,7 @@ class SRNet(nn.Module):
         super(SRNet, self).__init__()
         self.entry = nn.Conv2d(channel * depth, 64, 3, 1, 1)
         self.exit = nn.Conv2d(64, channel, 3, 1, 1)
-        self.body = nn.Sequential(RB(64, 64), RB(64, 64), RB(64, 64), nn.
-            ReLU(True))
+        self.body = nn.Sequential(RB(64, 64), RB(64, 64), RB(64, 64), nn.ReLU(True))
         self.conv = nn.Conv2d(64, 64 * scale ** 2, 3, 1, 1)
         self.up = nn.PixelShuffle(scale)
 
@@ -4491,9 +4123,7 @@ class VESPCN(nn.Module):
 
 
 def nd_meshgrid(*size, permute=None):
-    _error_msg = (
-        'Permute index must match mesh dimensions, should have {} indexes but got {}'
-        )
+    _error_msg = 'Permute index must match mesh dimensions, should have {} indexes but got {}'
     size = np.array(size)
     ranges = []
     for x in size:
@@ -4536,8 +4166,7 @@ class STN(nn.Module):
         flow = torch.stack([_u, _v], dim=-1)
         assert flow.shape == mesh.shape, f'Shape mis-match: {flow.shape} != {mesh.shape}'
         mesh = mesh + flow
-        return F.grid_sample(inputs, mesh, mode=self.mode, padding_mode=
-            self.padding_mode)
+        return F.grid_sample(inputs, mesh, mode=self.mode, padding_mode=self.padding_mode)
 
 
 def transpose(x: torch.Tensor, dims):
@@ -4570,8 +4199,7 @@ class STTN(nn.Module):
     normalize: flow value is normalized to [-1, 1] or absolute value
   """
 
-    def __init__(self, transpose_ncthw=(0, 1, 2, 3, 4), normalize=False,
-        mode='bilinear', padding_mode='zeros'):
+    def __init__(self, transpose_ncthw=(0, 1, 2, 3, 4), normalize=False, mode='bilinear', padding_mode='zeros'):
         super(STTN, self).__init__()
         self.normalized = normalize
         self.mode = mode
@@ -4597,8 +4225,7 @@ class STTN(nn.Module):
         assert st_flow.shape == mesh.shape, f'Shape mis-match: {st_flow.shape} != {mesh.shape}'
         mesh = mesh + st_flow
         inputs = transpose(inputs, self.t)
-        warp = F.grid_sample(inputs, mesh, mode=self.mode, padding_mode=
-            self.padding_mode)
+        warp = F.grid_sample(inputs, mesh, mode=self.mode, padding_mode=self.padding_mode)
         warp = warp[:, :, 0:1]
         return irtranspose(warp, self.t)
 
@@ -4607,178 +4234,387 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BilinerUp,
+     lambda: ([], {'scale_factor': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (CALayer,
+     lambda: ([], {'channel': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (CRDB,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (CascadeRdn,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (CascadedBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ConcatBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DBPNMaker,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (D_DownBlock,
+     lambda: ([], {'num_filter': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (D_UpBlock,
+     lambda: ([], {'num_filter': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeconvBlock,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DenseBlock,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Dilated_block,
+     lambda: ([], {'inChannel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DnCnn,
+     lambda: ([], {'channel': 4, 'layers': 1, 'bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownBlock,
+     lambda: ([], {'num_filter': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Drcn,
+     lambda: ([], {'scale': 1.0, 'channel': 4, 'n_recur': 4, 'filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EResidualBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EasyConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Espcn,
+     lambda: ([], {'channel': 4, 'scale': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MotionCompensation,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MotionEstimation,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NCL,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (NoiseExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (NoiseShifter,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (OFRnet,
+     lambda: ([], {'upscale_factor': 4}),
+     lambda: ([torch.rand([4, 2, 4, 4])], {}),
+     False),
+    (PSBlock,
+     lambda: ([], {'input_size': 4, 'output_size': 4, 'scale_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RB,
+     lambda: ([], {'inchannels': 4, 'outchannels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RCAB,
+     lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RDB,
+     lambda: ([], {'nDenselayer': 1, 'channels': 4, 'growth': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RRDB,
+     lambda: ([], {'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Rcab,
+     lambda: ([], {'channels': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (Rdb,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetBlock,
+     lambda: ([], {'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualDenseBlock_5C,
+     lambda: ([], {'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResnetBlock,
+     lambda: ([], {'num_filter': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SRNet,
+     lambda: ([], {'scale': 4, 'channel': 4, 'depth': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SRnet,
+     lambda: ([], {'s': 4, 'c': 4, 'd': 4}),
+     lambda: ([torch.rand([4, 144, 64, 64])], {}),
+     True),
+    (ShortcutBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SpaceToBatch,
+     lambda: ([], {'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SpaceToDepth,
+     lambda: ([], {'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Srcnn,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TecoDiscriminator,
+     lambda: ([], {'channel': 4, 'filters': 4, 'patch_size': 16}),
+     lambda: ([torch.rand([4, 24, 16, 16])], {}),
+     True),
+    (UpBlock,
+     lambda: ([], {'num_filter': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Upsample2xBlock,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Vdsr,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_UpsampleBlock,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_UpsampleLinear,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_UpsampleNearest,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (make_dense,
+     lambda: ([], {'channels_in': 4, 'channels_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_LoSealL_VideoSuperResolution(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BilinerUp(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(CRDB(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(CascadeRdn(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(CascadedBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ConvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(DBPNMaker(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(D_DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(D_UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(DeconvBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(DenseBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Dilated_block(*[], **{'inChannel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(DnCnn(*[], **{'channel': 4, 'layers': 1, 'bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(DownBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(Drcn(*[], **{'scale': 1.0, 'channel': 4, 'n_recur': 4, 'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(EasyConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(Espcn(*[], **{'channel': 4, 'scale': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
-    @_fails_compile()
     def test_021(self):
-        self._check(MotionCompensation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
-    @_fails_compile()
     def test_022(self):
-        self._check(MotionEstimation(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
 
-    @_fails_compile()
     def test_023(self):
-        self._check(NCL(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
-    @_fails_compile()
     def test_024(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[24])
 
     def test_025(self):
-        self._check(NoiseExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[25])
 
     def test_026(self):
-        self._check(NoiseShifter(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[26])
 
-    @_fails_compile()
     def test_027(self):
-        self._check(OFRnet(*[], **{'upscale_factor': 4}), [torch.rand([4, 2, 4, 4])], {})
+        self._check(*TESTCASES[27])
 
     def test_028(self):
-        self._check(PSBlock(*[], **{'input_size': 4, 'output_size': 4, 'scale_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[28])
 
     def test_029(self):
-        self._check(RB(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[29])
 
     def test_030(self):
-        self._check(RCAB(*[], **{'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[30])
 
     def test_031(self):
-        self._check(RDB(*[], **{'nDenselayer': 1, 'channels': 4, 'growth': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[31])
 
     def test_032(self):
-        self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[32])
 
     def test_033(self):
-        self._check(Rcab(*[], **{'channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[33])
 
-    @_fails_compile()
     def test_034(self):
-        self._check(Rdb(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[34])
 
     def test_035(self):
-        self._check(ResBlock(*[], **{'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[35])
 
     def test_036(self):
-        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[36])
 
     def test_037(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[37])
 
     def test_038(self):
-        self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[38])
 
     def test_039(self):
-        self._check(ResnetBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[39])
 
     def test_040(self):
-        self._check(SRNet(*[], **{'scale': 4, 'channel': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[40])
 
     def test_041(self):
-        self._check(SRnet(*[], **{'s': 4, 'c': 4, 'd': 4}), [torch.rand([4, 144, 64, 64])], {})
+        self._check(*TESTCASES[41])
 
     def test_042(self):
-        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[42])
 
-    @_fails_compile()
     def test_043(self):
-        self._check(SpaceToBatch(*[], **{'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[43])
 
-    @_fails_compile()
     def test_044(self):
-        self._check(SpaceToDepth(*[], **{'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[44])
 
     def test_045(self):
-        self._check(Srcnn(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[45])
 
     def test_046(self):
-        self._check(UpBlock(*[], **{'num_filter': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[46])
 
     def test_047(self):
-        self._check(Upsample2xBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[47])
 
     def test_048(self):
-        self._check(Vdsr(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[48])
 
     def test_049(self):
-        self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[49])
 
-    @_fails_compile()
     def test_050(self):
-        self._check(_UpsampleLinear(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[50])
 
-    @_fails_compile()
     def test_051(self):
-        self._check(_UpsampleNearest(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[51])
 
     def test_052(self):
-        self._check(make_dense(*[], **{'channels_in': 4, 'channels_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[52])
+
+    def test_053(self):
+        self._check(*TESTCASES[53])
 

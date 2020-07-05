@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -34,16 +35,13 @@ from torch.nn.parameter import Parameter
 
 class Block(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1,
-        act=nn.ReLU(True)):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1, act=nn.ReLU(True)):
         super(Block, self).__init__()
         self.res_scale = res_scale
         body = []
-        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding=kernel_size // 2)))
         body.append(act)
-        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding=kernel_size // 2)))
         self.body = nn.Sequential(*body)
 
     def forward(self, x):
@@ -63,14 +61,12 @@ class MODEL(nn.Module):
         kernel_size = 3
         act = nn.ReLU(True)
         wn = lambda x: torch.nn.utils.weight_norm(x)
-        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([args.
-            r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
+        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([args.r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
         head = []
         head.append(wn(nn.Conv2d(args.n_colors, n_feats, 3, padding=3 // 2)))
         body = []
         for i in range(n_resblocks):
-            body.append(Block(n_feats, kernel_size, args.block_feats, wn=wn,
-                res_scale=args.res_scale, act=act))
+            body.append(Block(n_feats, kernel_size, args.block_feats, wn=wn, res_scale=args.res_scale, act=act))
         tail = []
         out_feats = scale * scale * args.n_colors
         tail.append(wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2)))
@@ -96,20 +92,16 @@ class MODEL(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, wn, act=nn.ReLU(True), res_scale=1
-        ):
+    def __init__(self, n_feats, kernel_size, wn, act=nn.ReLU(True), res_scale=1):
         super(Block, self).__init__()
         self.res_scale = res_scale
         body = []
         expand = 6
         linear = 0.8
-        body.append(wn(nn.Conv2d(n_feats, n_feats * expand, 1, padding=1 // 2))
-            )
+        body.append(wn(nn.Conv2d(n_feats, n_feats * expand, 1, padding=1 // 2)))
         body.append(act)
-        body.append(wn(nn.Conv2d(n_feats * expand, int(n_feats * linear), 1,
-            padding=1 // 2)))
-        body.append(wn(nn.Conv2d(int(n_feats * linear), n_feats,
-            kernel_size, padding=kernel_size // 2)))
+        body.append(wn(nn.Conv2d(n_feats * expand, int(n_feats * linear), 1, padding=1 // 2)))
+        body.append(wn(nn.Conv2d(int(n_feats * linear), n_feats, kernel_size, padding=kernel_size // 2)))
         self.body = nn.Sequential(*body)
 
     def forward(self, x):
@@ -129,14 +121,12 @@ class MODEL(nn.Module):
         kernel_size = 3
         act = nn.ReLU(True)
         wn = lambda x: torch.nn.utils.weight_norm(x)
-        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([args.
-            r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
+        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([args.r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
         head = []
         head.append(wn(nn.Conv2d(args.n_colors, n_feats, 3, padding=3 // 2)))
         body = []
         for i in range(n_resblocks):
-            body.append(Block(n_feats, kernel_size, act=act, res_scale=args
-                .res_scale, wn=wn))
+            body.append(Block(n_feats, kernel_size, act=act, res_scale=args.res_scale, wn=wn))
         tail = []
         out_feats = scale * scale * args.n_colors
         tail.append(wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2)))
@@ -159,10 +149,3 @@ class MODEL(nn.Module):
         x = x * 127.5 + self.rgb_mean * 255
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_JiahuiYu_wdsr_ntire2018(_paritybench_base):
-    pass

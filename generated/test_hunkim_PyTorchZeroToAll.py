@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -278,8 +279,7 @@ class Model(nn.Module):
 
     def __init__(self):
         super(Model, self).__init__()
-        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size,
-            batch_first=True)
+        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, batch_first=True)
 
     def forward(self, hidden, x):
         x = x.view(batch_size, sequence_length, input_size)
@@ -302,8 +302,7 @@ class RNN(nn.Module):
         self.rnn = nn.RNN(input_size=5, hidden_size=5, batch_first=True)
 
     def forward(self, x):
-        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.
-            hidden_size))
+        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
         x.view(x.size(0), self.sequence_length, self.input_size)
         out, _ = self.rnn(x, h_0)
         return out.view(-1, num_classes)
@@ -317,13 +316,11 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
         self.embedding = nn.Embedding(input_size, embedding_size)
-        self.rnn = nn.RNN(input_size=embedding_size, hidden_size=5,
-            batch_first=True)
+        self.rnn = nn.RNN(input_size=embedding_size, hidden_size=5, batch_first=True)
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
-        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.
-            hidden_size))
+        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
         emb = self.embedding(x)
         emb = emb.view(batch_size, sequence_length, -1)
         out, _ = self.rnn(emb, h_0)
@@ -367,15 +364,13 @@ def create_variable(tensor):
 
 class RNNClassifier(nn.Module):
 
-    def __init__(self, input_size, hidden_size, output_size, n_layers=1,
-        bidirectional=True):
+    def __init__(self, input_size, hidden_size, output_size, n_layers=1, bidirectional=True):
         super(RNNClassifier, self).__init__()
         self.hidden_size = hidden_size
         self.n_layers = n_layers
         self.n_directions = int(bidirectional) + 1
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, bidirectional
-            =bidirectional)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, bidirectional=bidirectional)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, input, seq_lengths):
@@ -383,16 +378,14 @@ class RNNClassifier(nn.Module):
         batch_size = input.size(1)
         hidden = self._init_hidden(batch_size)
         embedded = self.embedding(input)
-        gru_input = pack_padded_sequence(embedded, seq_lengths.data.cpu().
-            numpy())
+        gru_input = pack_padded_sequence(embedded, seq_lengths.data.cpu().numpy())
         self.gru.flatten_parameters()
         output, hidden = self.gru(gru_input, hidden)
         fc_output = self.fc(hidden[-1])
         return fc_output
 
     def _init_hidden(self, batch_size):
-        hidden = torch.zeros(self.n_layers * self.n_directions, batch_size,
-            self.hidden_size)
+        hidden = torch.zeros(self.n_layers * self.n_directions, batch_size, self.hidden_size)
         return create_variable(hidden)
 
 
@@ -473,15 +466,13 @@ class AttnDecoderRNN(nn.Module):
         super(AttnDecoderRNN, self).__init__()
         self.attn = nn.Linear(hidden_size, hidden_size)
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=dropout_p
-            )
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=dropout_p)
         self.out = nn.Linear(hidden_size * 2, output_size)
 
     def forward(self, word_input, last_hidden, encoder_hiddens):
         rnn_input = self.embedding(word_input).view(1, 1, -1)
         rnn_output, hidden = self.gru(rnn_input, last_hidden)
-        attn_weights = self.get_att_weight(rnn_output.squeeze(0),
-            encoder_hiddens)
+        attn_weights = self.get_att_weight(rnn_output.squeeze(0), encoder_hiddens)
         context = attn_weights.bmm(encoder_hiddens.transpose(0, 1))
         rnn_output = rnn_output.squeeze(0)
         context = context.squeeze(1)
@@ -504,15 +495,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EncoderRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {}),
+     True),
+    (InceptionA,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RNNClassifier,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_hunkim_PyTorchZeroToAll(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 1, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(InceptionA(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(RNNClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

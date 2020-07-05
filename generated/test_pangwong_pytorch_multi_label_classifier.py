@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,18 +88,8 @@ class AlexNet(nn.Module):
 
     def __init__(self, num_classes=1000):
         super(AlexNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5,
-            padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=
-            1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2))
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6,
-            4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 
-            4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
 
     def forward(self, x):
         x = self.features(x)
@@ -111,18 +102,8 @@ class AlexNetTemplet(nn.Module):
 
     def __init__(self, input_channel):
         super(AlexNetTemplet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(input_channel, 64,
-            kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn
-            .MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192,
-            kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256,
-            256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            MaxPool2d(kernel_size=3, stride=2))
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6,
-            4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 
-            4096), nn.ReLU(inplace=True))
+        self.features = nn.Sequential(nn.Conv2d(input_channel, 64, kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True))
 
     def forward(self, x):
         x = self.features(x)
@@ -138,8 +119,7 @@ class MultiLabelModel(nn.Module):
         self.basemodel = basemodel
         self.num_classes = num_classes
         for index, num_class in enumerate(num_classes):
-            setattr(self, 'FullyConnectedLayer_' + str(index), nn.Linear(
-                basemodel_output, num_class))
+            setattr(self, 'FullyConnectedLayer_' + str(index), nn.Linear(basemodel_output, num_class))
 
     def forward(self, x):
         x = self.basemodel.forward(x)
@@ -154,13 +134,11 @@ class MultiLabelModel(nn.Module):
 
 class mfm(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1, type=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, type=1):
         super(mfm, self).__init__()
         self.out_channels = out_channels
         if type == 1:
-            self.filter = nn.Conv2d(in_channels, 2 * out_channels,
-                kernel_size=kernel_size, stride=stride, padding=padding)
+            self.filter = nn.Conv2d(in_channels, 2 * out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         else:
             self.filter = nn.Linear(in_channels, 2 * out_channels)
 
@@ -172,12 +150,10 @@ class mfm(nn.Module):
 
 class group(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(group, self).__init__()
         self.conv_a = mfm(in_channels, in_channels, 1, 1, 0)
-        self.conv = mfm(in_channels, out_channels, kernel_size, stride, padding
-            )
+        self.conv = mfm(in_channels, out_channels, kernel_size, stride, padding)
 
     def forward(self, x):
         x = self.conv_a(x)
@@ -189,10 +165,8 @@ class resblock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(resblock, self).__init__()
-        self.conv1 = mfm(in_channels, out_channels, kernel_size=3, stride=1,
-            padding=1)
-        self.conv2 = mfm(in_channels, out_channels, kernel_size=3, stride=1,
-            padding=1)
+        self.conv1 = mfm(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = mfm(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         res = x
@@ -206,12 +180,7 @@ class network_9layers(nn.Module):
 
     def __init__(self, num_classes=79077):
         super(network_9layers, self).__init__()
-        self.features = nn.Sequential(mfm(1, 48, 5, 1, 2), nn.MaxPool2d(
-            kernel_size=2, stride=2, ceil_mode=True), group(48, 96, 3, 1, 1
-            ), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group
-            (96, 192, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2,
-            ceil_mode=True), group(192, 128, 3, 1, 1), group(128, 128, 3, 1,
-            1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+        self.features = nn.Sequential(mfm(1, 48, 5, 1, 2), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(48, 96, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(96, 192, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(192, 128, 3, 1, 1), group(128, 128, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
         self.fc1 = mfm(8 * 8 * 128, 256, type=0)
         self.fc2 = nn.Linear(256, num_classes)
 
@@ -321,13 +290,7 @@ class network_9layers_templet(nn.Module):
 
     def __init__(self, in_channel):
         super(network_9layers_templet, self).__init__()
-        self.features = nn.Sequential(mfm(in_channel, 48, 5, 1, 2), nn.
-            MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(48, 
-            96, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=
-            True), group(96, 192, 3, 1, 1), nn.MaxPool2d(kernel_size=2,
-            stride=2, ceil_mode=True), group(192, 128, 3, 1, 1), group(128,
-            128, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=
-            True))
+        self.features = nn.Sequential(mfm(in_channel, 48, 5, 1, 2), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(48, 96, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(96, 192, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True), group(192, 128, 3, 1, 1), group(128, 128, 3, 1, 1), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
         self.fc1 = mfm(8 * 8 * 128, 256, type=0)
 
     def forward(self, x):
@@ -381,8 +344,7 @@ class network_29layers_v2_templet(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -419,8 +381,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -450,8 +411,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -472,9 +432,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -502,8 +460,7 @@ class ResNetTemplet(nn.Module):
     def __init__(self, block, layers, input_channel):
         self.inplanes = 64
         super(ResNetTemplet, self).__init__()
-        self.conv1 = nn.Conv2d(input_channel, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -524,9 +481,7 @@ class ResNetTemplet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -553,9 +508,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         self._initialize_weights()
 
     def forward(self, x):
@@ -584,9 +537,7 @@ class VGGTemplet(nn.Module):
     def __init__(self, features):
         super(VGGTemplet, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout())
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout())
         self._initialize_weights()
 
     def forward(self, x):
@@ -614,23 +565,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+    (VGGTemplet,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+    (group,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (mfm,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (network_9layers,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 128, 128])], {}),
+     True),
+    (network_9layers_templet,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 128, 128])], {}),
+     True),
+    (resblock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_pangwong_pytorch_multi_label_classifier(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(VGGTemplet(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(group(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(mfm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(resblock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,8 +83,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -120,8 +120,7 @@ class Attention(nn.Module):
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
         if layer_past is not None:
-            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[
-                1]
+            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[1]
             key = torch.cat((past_key, key), dim=-1)
             value = torch.cat((past_value, value), dim=-2)
         present = torch.stack((key.transpose(-2, -1), value))
@@ -132,8 +131,7 @@ class Attention(nn.Module):
 
 
 def gelu(x):
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
-        torch.pow(x, 3))))
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 
 class MLP(nn.Module):
@@ -179,8 +177,7 @@ class GPT2Model(nn.Module):
         self.wte = nn.Embedding(config.vocab_size, config.n_embd)
         self.wpe = nn.Embedding(config.n_positions, config.n_embd)
         block = Block(config.n_ctx, config, scale=True)
-        self.h = nn.ModuleList([copy.deepcopy(block) for _ in range(config.
-            n_layer)])
+        self.h = nn.ModuleList([copy.deepcopy(block) for _ in range(config.n_layer)])
         self.ln_f = LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
 
     def set_embeddings_weights(self, model_embeddings_weights):
@@ -188,16 +185,14 @@ class GPT2Model(nn.Module):
         self.decoder = nn.Linear(embed_shape[1], embed_shape[0], bias=False)
         self.decoder.weight = model_embeddings_weights
 
-    def forward(self, input_ids, position_ids=None, token_type_ids=None,
-        past=None):
+    def forward(self, input_ids, position_ids=None, token_type_ids=None, past=None):
         if past is None:
             past_length = 0
             past = [None] * len(self.h)
         else:
             past_length = past[0][0].size(-2)
         if position_ids is None:
-            position_ids = torch.arange(past_length, input_ids.size(-1) +
-                past_length, dtype=torch.long, device=input_ids.device)
+            position_ids = torch.arange(past_length, input_ids.size(-1) + past_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         input_shape = input_ids.size()
         input_ids = input_ids.view(-1, input_ids.size(-1))
@@ -248,15 +243,12 @@ class GPT2LMHeadModel(nn.Module):
         """
         self.lm_head.set_embeddings_weights(self.transformer.wte.weight)
 
-    def forward(self, input_ids, position_ids=None, token_type_ids=None,
-        lm_labels=None, past=None):
-        hidden_states, presents = self.transformer(input_ids, position_ids,
-            token_type_ids, past)
+    def forward(self, input_ids, position_ids=None, token_type_ids=None, lm_labels=None, past=None):
+        hidden_states, presents = self.transformer(input_ids, position_ids, token_type_ids, past)
         lm_logits = self.lm_head(hidden_states)
         if lm_labels is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)),
-                lm_labels.view(-1))
+            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), lm_labels.view(-1))
             return loss
         return lm_logits, presents
 
@@ -265,24 +257,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Block,
+     lambda: ([], {'n_ctx': 4, 'config': _mock_config(n_embd=4, layer_norm_epsilon=1, n_head=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Conv1D,
+     lambda: ([], {'nf': 4, 'nx': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MLP,
+     lambda: ([], {'n_state': 4, 'config': _mock_config(n_embd=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_graykode_gpt_2_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Attention(*[], **{'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Block(*[], **{'n_ctx': 4, 'config': _mock_config(n_embd=4, layer_norm_epsilon=1, n_head=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Conv1D(*[], **{'nf': 4, 'nx': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LayerNorm(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MLP(*[], **{'n_state': 4, 'config': _mock_config(n_embd=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

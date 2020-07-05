@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,13 +82,11 @@ class BasicBlock(nn.Module):
     def __init__(self, inplanes, planes, stride=1):
         super(BasicBlock, self).__init__()
         self.reflection1 = nn.ReflectionPad2d(1)
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=1,
-            padding=0)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=1, padding=0)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
         self.reflection2 = nn.ReflectionPad2d(1)
-        self.conv2 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=1,
-            padding=0)
+        self.conv2 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=1, padding=0)
         self.bn2 = nn.BatchNorm2d(planes)
         self.stride = stride
 
@@ -127,21 +126,17 @@ def init_weights(net, init_type='normal', gain=0.02):
 
     def init_func(m):
         classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or 
-            classname.find('Linear') != -1):
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
             if init_type == 'normal':
                 torch.nn.init.normal_(m.weight.data, 0.0, gain)
             elif init_type == 'xavier':
                 torch.nn.init.xavier_normal_(m.weight.data, gain=gain)
             elif init_type == 'kaiming':
-                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in'
-                    )
+                torch.nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
             elif init_type == 'orthogonal':
                 torch.nn.init.orthogonal_(m.weight.data, gain=gain)
             else:
-                raise NotImplementedError(
-                    'initialization method [%s] is not implemented' % init_type
-                    )
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
             if hasattr(m, 'bias') and m.bias is not None:
                 torch.nn.init.constant_(m.bias.data, 0.0)
         elif classname.find('BatchNorm2d') != -1:
@@ -155,14 +150,12 @@ class Generator(nn.Module):
 
     def __init__(self, conv_dim=64, c_dim=66, repeat_num=6):
         super(Generator, self).__init__()
-        initial_layer = [nn.Conv2d(3 + c_dim, conv_dim, kernel_size=7,
-            stride=1, padding=3, bias=False)]
+        initial_layer = [nn.Conv2d(3 + c_dim, conv_dim, kernel_size=7, stride=1, padding=3, bias=False)]
         initial_layer += [nn.InstanceNorm2d(conv_dim, affine=True)]
         initial_layer += [nn.LeakyReLU(0.2, inplace=True)]
         curr_dim = conv_dim
         for i in range(2):
-            initial_layer += [nn.Conv2d(curr_dim, curr_dim * 2, kernel_size
-                =4, stride=2, padding=1, bias=False)]
+            initial_layer += [nn.Conv2d(curr_dim, curr_dim * 2, kernel_size=4, stride=2, padding=1, bias=False)]
             initial_layer += [nn.InstanceNorm2d(curr_dim * 2, affine=True)]
             initial_layer += [nn.LeakyReLU(0.2, inplace=True)]
             curr_dim = curr_dim * 2
@@ -173,18 +166,15 @@ class Generator(nn.Module):
         self.bottleneck = nn.Sequential(*bottleneck)
         features = []
         for i in range(2):
-            features += [nn.ConvTranspose2d(curr_dim, curr_dim // 2,
-                kernel_size=4, stride=2, padding=1, bias=False)]
+            features += [nn.ConvTranspose2d(curr_dim, curr_dim // 2, kernel_size=4, stride=2, padding=1, bias=False)]
             features += [nn.InstanceNorm2d(curr_dim // 2, affine=True)]
             features += [nn.LeakyReLU(0.2, inplace=True)]
             curr_dim = curr_dim // 2
         self.feature_layer = nn.Sequential(*features)
-        colour = [nn.Conv2d(curr_dim, 3, kernel_size=7, stride=1, padding=3,
-            bias=False)]
+        colour = [nn.Conv2d(curr_dim, 3, kernel_size=7, stride=1, padding=3, bias=False)]
         colour += [nn.Tanh()]
         self.colour_layer = nn.Sequential(*colour)
-        mask = [nn.Conv2d(curr_dim, 1, kernel_size=7, stride=1, padding=3,
-            bias=False)]
+        mask = [nn.Conv2d(curr_dim, 1, kernel_size=7, stride=1, padding=3, bias=False)]
         mask += [nn.Sigmoid()]
         self.mask_layer = nn.Sequential(*mask)
         init_weights(self)
@@ -204,12 +194,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, dim_in, dim_out):
         super(ResidualBlock, self).__init__()
-        self.main = nn.Sequential(nn.Conv2d(dim_in, dim_out, kernel_size=3,
-            stride=1, padding=1, bias=False), nn.InstanceNorm2d(dim_out,
-            affine=True, track_running_stats=True), nn.ReLU(inplace=True),
-            nn.Conv2d(dim_out, dim_out, kernel_size=3, stride=1, padding=1,
-            bias=False), nn.InstanceNorm2d(dim_out, affine=True,
-            track_running_stats=True))
+        self.main = nn.Sequential(nn.Conv2d(dim_in, dim_out, kernel_size=3, stride=1, padding=1, bias=False), nn.InstanceNorm2d(dim_out, affine=True, track_running_stats=True), nn.ReLU(inplace=True), nn.Conv2d(dim_out, dim_out, kernel_size=3, stride=1, padding=1, bias=False), nn.InstanceNorm2d(dim_out, affine=True, track_running_stats=True))
 
     def forward(self, x):
         return x + self.main(x)
@@ -221,30 +206,23 @@ class Generator(nn.Module):
     def __init__(self, conv_dim=64, c_dim=3, repeat_num=6):
         super(Generator, self).__init__()
         layers = []
-        layers.append(nn.Conv2d(3 + c_dim, conv_dim, kernel_size=7, stride=
-            1, padding=3, bias=False))
-        layers.append(nn.InstanceNorm2d(conv_dim, affine=True,
-            track_running_stats=True))
+        layers.append(nn.Conv2d(3 + c_dim, conv_dim, kernel_size=7, stride=1, padding=3, bias=False))
+        layers.append(nn.InstanceNorm2d(conv_dim, affine=True, track_running_stats=True))
         layers.append(nn.ReLU(inplace=True))
         curr_dim = conv_dim
         for i in range(2):
-            layers.append(nn.Conv2d(curr_dim, curr_dim * 2, kernel_size=4,
-                stride=2, padding=1, bias=False))
-            layers.append(nn.InstanceNorm2d(curr_dim * 2, affine=True,
-                track_running_stats=True))
+            layers.append(nn.Conv2d(curr_dim, curr_dim * 2, kernel_size=4, stride=2, padding=1, bias=False))
+            layers.append(nn.InstanceNorm2d(curr_dim * 2, affine=True, track_running_stats=True))
             layers.append(nn.ReLU(inplace=True))
             curr_dim = curr_dim * 2
         for i in range(repeat_num):
             layers.append(ResidualBlock(dim_in=curr_dim, dim_out=curr_dim))
         for i in range(2):
-            layers.append(nn.ConvTranspose2d(curr_dim, curr_dim // 2,
-                kernel_size=4, stride=2, padding=1, bias=False))
-            layers.append(nn.InstanceNorm2d(curr_dim // 2, affine=True,
-                track_running_stats=True))
+            layers.append(nn.ConvTranspose2d(curr_dim, curr_dim // 2, kernel_size=4, stride=2, padding=1, bias=False))
+            layers.append(nn.InstanceNorm2d(curr_dim // 2, affine=True, track_running_stats=True))
             layers.append(nn.ReLU(inplace=True))
             curr_dim = curr_dim // 2
-        layers.append(nn.Conv2d(curr_dim, 3, kernel_size=7, stride=1,
-            padding=3, bias=False))
+        layers.append(nn.Conv2d(curr_dim, 3, kernel_size=7, stride=1, padding=3, bias=False))
         layers.append(nn.Tanh())
         self.main = nn.Sequential(*layers)
 
@@ -259,19 +237,16 @@ class Discriminator(nn.Module):
     def __init__(self, image_size=128, conv_dim=64, ndim=66, repeat_num=6):
         super(Discriminator, self).__init__()
         layers = []
-        layers.append(nn.Conv2d(3 + ndim, conv_dim, kernel_size=4, stride=2,
-            padding=1))
+        layers.append(nn.Conv2d(3 + ndim, conv_dim, kernel_size=4, stride=2, padding=1))
         layers.append(nn.LeakyReLU(0.01))
         curr_dim = conv_dim
         for i in range(1, repeat_num):
-            layers.append(nn.Conv2d(curr_dim, curr_dim * 2, kernel_size=4,
-                stride=2, padding=1))
+            layers.append(nn.Conv2d(curr_dim, curr_dim * 2, kernel_size=4, stride=2, padding=1))
             layers.append(nn.LeakyReLU(0.01))
             curr_dim = curr_dim * 2
         kernel_size = int(image_size / np.power(2, repeat_num))
         self.main = nn.Sequential(*layers)
-        self.conv1 = nn.Conv2d(curr_dim, 1, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(curr_dim, 1, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
         h = self.main(x)
@@ -283,12 +258,9 @@ class LossNetwork(torch.nn.Module):
 
     def __init__(self, vgg_model):
         super(LossNetwork, self).__init__()
-        self.LossOutput = collections.namedtuple('LossOutput', ['relu1_2',
-            'relu2_2', 'relu3_3', 'relu4_3'])
-        self.vgg_layers = vgg_model.features if hasattr(vgg_model, 'features'
-            ) else vgg_model.module.features
-        self.layer_name_mapping = {'3': 'relu1_2', '8': 'relu2_2', '15':
-            'relu3_3', '22': 'relu4_3'}
+        self.LossOutput = collections.namedtuple('LossOutput', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        self.vgg_layers = vgg_model.features if hasattr(vgg_model, 'features') else vgg_model.module.features
+        self.layer_name_mapping = {'3': 'relu1_2', '8': 'relu2_2', '15': 'relu3_3', '22': 'relu4_3'}
 
     def forward(self, x):
         output = {}
@@ -303,17 +275,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 69, 64, 64])], {}),
+     True),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ESanchezLozano_GANnotation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 69, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResidualBlock(*[], **{'dim_in': 4, 'dim_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

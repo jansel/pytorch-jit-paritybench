@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,8 +100,7 @@ class GraphConvolution(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 def gen_A(num_classes, t, adj_file):
@@ -128,9 +128,7 @@ class GCNResnet(nn.Module):
 
     def __init__(self, model, num_classes, in_channel=300, t=0, adj_file=None):
         super(GCNResnet, self).__init__()
-        self.features = nn.Sequential(model.conv1, model.bn1, model.relu,
-            model.maxpool, model.layer1, model.layer2, model.layer3, model.
-            layer4)
+        self.features = nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2, model.layer3, model.layer4)
         self.num_classes = num_classes
         self.pooling = nn.MaxPool2d(14, 14)
         self.gc1 = GraphConvolution(in_channel, 1024)
@@ -155,17 +153,23 @@ class GCNResnet(nn.Module):
         return x
 
     def get_config_optim(self, lr, lrp):
-        return [{'params': self.features.parameters(), 'lr': lr * lrp}, {
-            'params': self.gc1.parameters(), 'lr': lr}, {'params': self.gc2
-            .parameters(), 'lr': lr}]
+        return [{'params': self.features.parameters(), 'lr': lr * lrp}, {'params': self.gc1.parameters(), 'lr': lr}, {'params': self.gc2.parameters(), 'lr': lr}]
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GraphConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Megvii_Nanjing_ML_GCN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

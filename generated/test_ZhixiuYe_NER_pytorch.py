@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,8 +81,7 @@ def init_linear(input_linear):
     """
     Initialize linear transformation
     """
-    bias = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.weight
-        .size(1)))
+    bias = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.weight.size(1)))
     nn.init.uniform(input_linear.weight, -bias, bias)
     if input_linear.bias is not None:
         input_linear.bias.data.zero_()
@@ -140,16 +140,14 @@ def augment_with_pretrained(dictionary, ext_emb_path, words):
     """
     print('Loading pretrained embeddings from %s...' % ext_emb_path)
     assert os.path.isfile(ext_emb_path)
-    pretrained = set([line.rstrip().split()[0].strip() for line in codecs.
-        open(ext_emb_path, 'r', 'utf-8') if len(ext_emb_path) > 0])
+    pretrained = set([line.rstrip().split()[0].strip() for line in codecs.open(ext_emb_path, 'r', 'utf-8') if len(ext_emb_path) > 0])
     if words is None:
         for word in pretrained:
             if word not in dictionary:
                 dictionary[word] = 0
     else:
         for word in words:
-            if any(x in pretrained for x in [word, word.lower(), re.sub(
-                '\\d', '0', word.lower())]) and word not in dictionary:
+            if any(x in pretrained for x in [word, word.lower(), re.sub('\\d', '0', word.lower())]) and word not in dictionary:
                 dictionary[word] = 0
     word_to_id, id_to_word = create_mapping(dictionary)
     return dictionary, word_to_id, id_to_word
@@ -165,8 +163,7 @@ def word_mapping(sentences, lower):
     dico['<UNK>'] = 10000000
     dico = {k: v for k, v in dico.items() if v >= 3}
     word_to_id, id_to_word = create_mapping(dico)
-    print('Found %i unique words (%i in total)' % (len(dico), sum(len(x) for
-        x in words)))
+    print('Found %i unique words (%i in total)' % (len(dico), sum(len(x) for x in words)))
     return dico, word_to_id, id_to_word
 
 
@@ -204,8 +201,7 @@ def eval(model, datas, maxl=1):
                         continue
             chars2_length = [len(c) for c in chars2_sorted]
             char_maxl = max(chars2_length)
-            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int'
-                )
+            chars2_mask = np.zeros((len(chars2_sorted), char_maxl), dtype='int')
             for i, c in enumerate(chars2_sorted):
                 chars2_mask[(i), :chars2_length[i]] = c
             chars2_mask = Variable(torch.LongTensor(chars2_mask))
@@ -213,21 +209,18 @@ def eval(model, datas, maxl=1):
             d = {}
             chars2_length = [len(c) for c in chars2]
             char_maxl = max(chars2_length)
-            chars2_mask = np.zeros((len(chars2_length), char_maxl), dtype='int'
-                )
+            chars2_mask = np.zeros((len(chars2_length), char_maxl), dtype='int')
             for i, c in enumerate(chars2):
                 chars2_mask[(i), :chars2_length[i]] = c
             chars2_mask = Variable(torch.LongTensor(chars2_mask))
         dwords = Variable(torch.LongTensor(data['words']))
         dcaps = Variable(torch.LongTensor(caps))
         if use_gpu:
-            val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(
-                ), chars2_length, d)
+            val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(), chars2_length, d)
         else:
             val, out = model(dwords, chars2_mask, dcaps, chars2_length, d)
         predicted_id = out
-        for word, true_id, pred_id in zip(words, ground_truth_id, predicted_id
-            ):
+        for word, true_id, pred_id in zip(words, ground_truth_id, predicted_id):
             line = ' '.join([word, id_to_tag[true_id], id_to_tag[pred_id]])
             prediction.append(line)
             confusion_matrix[true_id, pred_id] += 1
@@ -240,15 +233,9 @@ def eval(model, datas, maxl=1):
     with open(scoref, 'rb') as f:
         for l in f.readlines():
             print(l.strip())
-    print(('{: >2}{: >7}{: >7}%s{: >9}' % ('{: >7}' * confusion_matrix.size
-        (0))).format('ID', 'NE', 'Total', *([id_to_tag[i] for i in range(
-        confusion_matrix.size(0))] + ['Percent'])))
+    print(('{: >2}{: >7}{: >7}%s{: >9}' % ('{: >7}' * confusion_matrix.size(0))).format('ID', 'NE', 'Total', *([id_to_tag[i] for i in range(confusion_matrix.size(0))] + ['Percent'])))
     for i in range(confusion_matrix.size(0)):
-        print(('{: >2}{: >7}{: >7}%s{: >9}' % ('{: >7}' * confusion_matrix.
-            size(0))).format(str(i), id_to_tag[i], str(confusion_matrix[i].
-            sum()), *([confusion_matrix[i][j] for j in range(
-            confusion_matrix.size(0))] + ['%.3f' % (confusion_matrix[i][i] *
-            100.0 / max(1, confusion_matrix[i].sum()))])))
+        print(('{: >2}{: >7}{: >7}%s{: >9}' % ('{: >7}' * confusion_matrix.size(0))).format(str(i), id_to_tag[i], str(confusion_matrix[i].sum()), *([confusion_matrix[i][j] for j in range(confusion_matrix.size(0))] + ['%.3f' % (confusion_matrix[i][i] * 100.0 / max(1, confusion_matrix[i].sum()))])))
 
 
 def init_lstm(input_lstm):
@@ -282,27 +269,21 @@ def init_lstm(input_lstm):
             for ind in range(0, input_lstm.num_layers):
                 weight = eval('input_lstm.bias_ih_l' + str(ind) + '_reverse')
                 weight.data.zero_()
-                weight.data[input_lstm.hidden_size:2 * input_lstm.hidden_size
-                    ] = 1
+                weight.data[input_lstm.hidden_size:2 * input_lstm.hidden_size] = 1
                 weight = eval('input_lstm.bias_hh_l' + str(ind) + '_reverse')
                 weight.data.zero_()
-                weight.data[input_lstm.hidden_size:2 * input_lstm.hidden_size
-                    ] = 1
+                weight.data[input_lstm.hidden_size:2 * input_lstm.hidden_size] = 1
 
 
 def log_sum_exp(vec):
     max_score = vec[0, argmax(vec)]
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
-    return max_score + torch.log(torch.sum(torch.exp(vec -
-        max_score_broadcast)))
+    return max_score + torch.log(torch.sum(torch.exp(vec - max_score_broadcast)))
 
 
 class BiLSTM_CRF(nn.Module):
 
-    def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim,
-        char_lstm_dim=25, char_to_ix=None, pre_word_embeds=None,
-        char_embedding_dim=25, use_gpu=False, n_cap=None, cap_embedding_dim
-        =None, use_crf=True, char_mode='CNN'):
+    def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim, char_lstm_dim=25, char_to_ix=None, pre_word_embeds=None, char_embedding_dim=25, use_gpu=False, n_cap=None, cap_embedding_dim=None, use_crf=True, char_mode='CNN'):
         super(BiLSTM_CRF, self).__init__()
         self.use_gpu = use_gpu
         self.embedding_dim = embedding_dim
@@ -321,39 +302,30 @@ class BiLSTM_CRF(nn.Module):
             init_embedding(self.cap_embeds.weight)
         if char_embedding_dim is not None:
             self.char_lstm_dim = char_lstm_dim
-            self.char_embeds = nn.Embedding(len(char_to_ix), char_embedding_dim
-                )
+            self.char_embeds = nn.Embedding(len(char_to_ix), char_embedding_dim)
             init_embedding(self.char_embeds.weight)
             if self.char_mode == 'LSTM':
-                self.char_lstm = nn.LSTM(char_embedding_dim, char_lstm_dim,
-                    num_layers=1, bidirectional=True)
+                self.char_lstm = nn.LSTM(char_embedding_dim, char_lstm_dim, num_layers=1, bidirectional=True)
                 init_lstm(self.char_lstm)
             if self.char_mode == 'CNN':
-                self.char_cnn3 = nn.Conv2d(in_channels=1, out_channels=self
-                    .out_channels, kernel_size=(3, char_embedding_dim),
-                    padding=(2, 0))
+                self.char_cnn3 = nn.Conv2d(in_channels=1, out_channels=self.out_channels, kernel_size=(3, char_embedding_dim), padding=(2, 0))
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
         if pre_word_embeds is not None:
             self.pre_word_embeds = True
-            self.word_embeds.weight = nn.Parameter(torch.FloatTensor(
-                pre_word_embeds))
+            self.word_embeds.weight = nn.Parameter(torch.FloatTensor(pre_word_embeds))
         else:
             self.pre_word_embeds = False
         self.dropout = nn.Dropout(0.5)
         if self.n_cap and self.cap_embedding_dim:
             if self.char_mode == 'LSTM':
-                self.lstm = nn.LSTM(embedding_dim + char_lstm_dim * 2 +
-                    cap_embedding_dim, hidden_dim, bidirectional=True)
+                self.lstm = nn.LSTM(embedding_dim + char_lstm_dim * 2 + cap_embedding_dim, hidden_dim, bidirectional=True)
             if self.char_mode == 'CNN':
-                self.lstm = nn.LSTM(embedding_dim + self.out_channels +
-                    cap_embedding_dim, hidden_dim, bidirectional=True)
+                self.lstm = nn.LSTM(embedding_dim + self.out_channels + cap_embedding_dim, hidden_dim, bidirectional=True)
         else:
             if self.char_mode == 'LSTM':
-                self.lstm = nn.LSTM(embedding_dim + char_lstm_dim * 2,
-                    hidden_dim, bidirectional=True)
+                self.lstm = nn.LSTM(embedding_dim + char_lstm_dim * 2, hidden_dim, bidirectional=True)
             if self.char_mode == 'CNN':
-                self.lstm = nn.LSTM(embedding_dim + self.out_channels,
-                    hidden_dim, bidirectional=True)
+                self.lstm = nn.LSTM(embedding_dim + self.out_channels, hidden_dim, bidirectional=True)
         init_lstm(self.lstm)
         self.hw_trans = nn.Linear(self.out_channels, self.out_channels)
         self.hw_gate = nn.Linear(self.out_channels, self.out_channels)
@@ -365,8 +337,7 @@ class BiLSTM_CRF(nn.Module):
         init_linear(self.hw_gate)
         init_linear(self.hw_trans)
         if self.use_crf:
-            self.transitions = nn.Parameter(torch.zeros(self.tagset_size,
-                self.tagset_size))
+            self.transitions = nn.Parameter(torch.zeros(self.tagset_size, self.tagset_size))
             self.transitions.data[(tag_to_ix[START_TAG]), :] = -10000
             self.transitions.data[:, (tag_to_ix[STOP_TAG])] = -10000
 
@@ -374,45 +345,33 @@ class BiLSTM_CRF(nn.Module):
         r = torch.LongTensor(range(feats.size()[0]))
         if self.use_gpu:
             r = r
-            pad_start_tags = torch.cat([torch.LongTensor([self.tag_to_ix[
-                START_TAG]]), tags])
-            pad_stop_tags = torch.cat([tags, torch.LongTensor([self.
-                tag_to_ix[STOP_TAG]])])
+            pad_start_tags = torch.cat([torch.LongTensor([self.tag_to_ix[START_TAG]]), tags])
+            pad_stop_tags = torch.cat([tags, torch.LongTensor([self.tag_to_ix[STOP_TAG]])])
         else:
-            pad_start_tags = torch.cat([torch.LongTensor([self.tag_to_ix[
-                START_TAG]]), tags])
-            pad_stop_tags = torch.cat([tags, torch.LongTensor([self.
-                tag_to_ix[STOP_TAG]])])
-        score = torch.sum(self.transitions[pad_stop_tags, pad_start_tags]
-            ) + torch.sum(feats[r, tags])
+            pad_start_tags = torch.cat([torch.LongTensor([self.tag_to_ix[START_TAG]]), tags])
+            pad_stop_tags = torch.cat([tags, torch.LongTensor([self.tag_to_ix[STOP_TAG]])])
+        score = torch.sum(self.transitions[pad_stop_tags, pad_start_tags]) + torch.sum(feats[r, tags])
         return score
 
     def _get_lstm_features(self, sentence, chars2, caps, chars2_length, d):
         if self.char_mode == 'LSTM':
             chars_embeds = self.char_embeds(chars2).transpose(0, 1)
-            packed = torch.nn.utils.rnn.pack_padded_sequence(chars_embeds,
-                chars2_length)
+            packed = torch.nn.utils.rnn.pack_padded_sequence(chars_embeds, chars2_length)
             lstm_out, _ = self.char_lstm(packed)
-            outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(
-                lstm_out)
+            outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(lstm_out)
             outputs = outputs.transpose(0, 1)
-            chars_embeds_temp = Variable(torch.FloatTensor(torch.zeros((
-                outputs.size(0), outputs.size(2)))))
+            chars_embeds_temp = Variable(torch.FloatTensor(torch.zeros((outputs.size(0), outputs.size(2)))))
             if self.use_gpu:
                 chars_embeds_temp = chars_embeds_temp
             for i, index in enumerate(output_lengths):
-                chars_embeds_temp[i] = torch.cat((outputs[(i), (index - 1),
-                    :self.char_lstm_dim], outputs[(i), (0), self.
-                    char_lstm_dim:]))
+                chars_embeds_temp[i] = torch.cat((outputs[(i), (index - 1), :self.char_lstm_dim], outputs[(i), (0), self.char_lstm_dim:]))
             chars_embeds = chars_embeds_temp.clone()
             for i in range(chars_embeds.size(0)):
                 chars_embeds[d[i]] = chars_embeds_temp[i]
         if self.char_mode == 'CNN':
             chars_embeds = self.char_embeds(chars2).unsqueeze(1)
             chars_cnn_out3 = self.char_cnn3(chars_embeds)
-            chars_embeds = nn.functional.max_pool2d(chars_cnn_out3,
-                kernel_size=(chars_cnn_out3.size(2), 1)).view(chars_cnn_out3
-                .size(0), self.out_channels)
+            chars_embeds = nn.functional.max_pool2d(chars_cnn_out3, kernel_size=(chars_cnn_out3.size(2), 1)).view(chars_cnn_out3.size(0), self.out_channels)
         embeds = self.word_embeds(sentence)
         if self.n_cap and self.cap_embedding_dim:
             cap_embedding = self.cap_embeds(caps)
@@ -439,10 +398,8 @@ class BiLSTM_CRF(nn.Module):
             tag_var = forward_var + self.transitions + emit_score
             max_tag_var, _ = torch.max(tag_var, dim=1)
             tag_var = tag_var - max_tag_var.view(-1, 1)
-            forward_var = max_tag_var + torch.log(torch.sum(torch.exp(
-                tag_var), dim=1)).view(1, -1)
-        terminal_var = (forward_var + self.transitions[self.tag_to_ix[
-            STOP_TAG]]).view(1, -1)
+            forward_var = max_tag_var + torch.log(torch.sum(torch.exp(tag_var), dim=1)).view(1, -1)
+        terminal_var = (forward_var + self.transitions[self.tag_to_ix[STOP_TAG]]).view(1, -1)
         alpha = log_sum_exp(terminal_var)
         return alpha
 
@@ -454,8 +411,7 @@ class BiLSTM_CRF(nn.Module):
         if self.use_gpu:
             forward_var = forward_var
         for feat in feats:
-            next_tag_var = forward_var.view(1, -1).expand(self.tagset_size,
-                self.tagset_size) + self.transitions
+            next_tag_var = forward_var.view(1, -1).expand(self.tagset_size, self.tagset_size) + self.transitions
             _, bptrs_t = torch.max(next_tag_var, dim=1)
             bptrs_t = bptrs_t.squeeze().data.cpu().numpy()
             next_tag_var = next_tag_var.data.cpu().numpy()
@@ -479,10 +435,8 @@ class BiLSTM_CRF(nn.Module):
         best_path.reverse()
         return path_score, best_path
 
-    def neg_log_likelihood(self, sentence, tags, chars2, caps, chars2_length, d
-        ):
-        feats = self._get_lstm_features(sentence, chars2, caps,
-            chars2_length, d)
+    def neg_log_likelihood(self, sentence, tags, chars2, caps, chars2_length, d):
+        feats = self._get_lstm_features(sentence, chars2, caps, chars2_length, d)
         if self.use_crf:
             forward_score = self._forward_alg(feats)
             gold_score = self._score_sentence(feats, tags)
@@ -493,8 +447,7 @@ class BiLSTM_CRF(nn.Module):
             return scores
 
     def forward(self, sentence, chars, caps, chars2_length, d):
-        feats = self._get_lstm_features(sentence, chars, caps, chars2_length, d
-            )
+        feats = self._get_lstm_features(sentence, chars, caps, chars2_length, d)
         if self.use_crf:
             score, tag_seq = self.viterbi_decode(feats)
         else:
@@ -502,10 +455,3 @@ class BiLSTM_CRF(nn.Module):
             tag_seq = list(tag_seq.cpu().data)
         return score, tag_seq
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ZhixiuYe_NER_pytorch(_paritybench_base):
-    pass

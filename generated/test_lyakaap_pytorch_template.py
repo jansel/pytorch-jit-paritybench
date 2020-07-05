@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,8 +76,7 @@ import torchvision
 
 class MixLoss(nn.Module):
 
-    def __init__(self, bce_w=1.0, dice_w=0.0, focal_w=0.0, lovasz_w=0.0,
-        bce_kwargs={}, dice_kwargs={}, focal_kwargs={}, lovasz_kwargs={}):
+    def __init__(self, bce_w=1.0, dice_w=0.0, focal_w=0.0, lovasz_w=0.0, bce_kwargs={}, dice_kwargs={}, focal_kwargs={}, lovasz_kwargs={}):
         super(MixLoss, self).__init__()
         self.bce_w = bce_w
         self.dice_w = dice_w
@@ -112,8 +112,7 @@ class DiceLoss(nn.Module):
         if torch.sum(target) == 0:
             output = 1.0 - output
             target = 1.0 - target
-        return 1.0 - (2 * torch.sum(output * target) + self.smooth) / (
-            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+        return 1.0 - (2 * torch.sum(output * target) + self.smooth) / (torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
 class SoftIoULoss(nn.Module):
@@ -125,8 +124,7 @@ class SoftIoULoss(nn.Module):
     @staticmethod
     def to_one_hot(tensor, n_classes):
         n, h, w = tensor.size()
-        one_hot = torch.zeros(n, n_classes, h, w).scatter_(1, tensor.view(n,
-            1, h, w), 1)
+        one_hot = torch.zeros(n, n_classes, h, w).scatter_(1, tensor.view(n, 1, h, w), 1)
         return one_hot
 
     def forward(self, logit, target):
@@ -213,8 +211,7 @@ def mean(l, ignore_nan=True, empty=0):
 
 class LovaszHinge(nn.Module):
 
-    def __init__(self, activation=lambda x: F.elu(x, inplace=True) + 1.0,
-        per_image=True, ignore=None):
+    def __init__(self, activation=lambda x: F.elu(x, inplace=True) + 1.0, per_image=True, ignore=None):
         super(LovaszHinge, self).__init__()
         self.activation = activation
         self.per_image = per_image
@@ -240,12 +237,9 @@ class LovaszHinge(nn.Module):
 
     def forward(self, logits, labels):
         if self.per_image:
-            loss = mean(self.lovasz_hinge_flat(*flatten_binary_scores(log.
-                unsqueeze(0), lab.unsqueeze(0), self.ignore)) for log, lab in
-                zip(logits, labels))
+            loss = mean(self.lovasz_hinge_flat(*flatten_binary_scores(log.unsqueeze(0), lab.unsqueeze(0), self.ignore)) for log, lab in zip(logits, labels))
         else:
-            loss = self.lovasz_hinge_flat(*flatten_binary_scores(logits,
-                labels, self.ignore))
+            loss = self.lovasz_hinge_flat(*flatten_binary_scores(logits, labels, self.ignore))
         return loss
 
 
@@ -306,35 +300,26 @@ class LovaszSoftmax(nn.Module):
     def forward(self, logits, labels):
         probas = F.softmax(logits, dim=1)
         if self.per_image:
-            loss = mean(lovasz_softmax_flat(*flatten_probas(prob.unsqueeze(
-                0), lab.unsqueeze(0), self.ignore), only_present=self.
-                only_present) for prob, lab in zip(probas, labels))
+            loss = mean(lovasz_softmax_flat(*flatten_probas(prob.unsqueeze(0), lab.unsqueeze(0), self.ignore), only_present=self.only_present) for prob, lab in zip(probas, labels))
         else:
-            loss = lovasz_softmax_flat(*flatten_probas(probas, labels, self
-                .ignore), only_present=self.only_present)
+            loss = lovasz_softmax_flat(*flatten_probas(probas, labels, self.ignore), only_present=self.only_present)
         return loss
 
 
 class OhemCrossEntropy2d(nn.Module):
 
-    def __init__(self, ignore_label=255, thresh=0.6, min_kept=0, use_weight
-        =True):
+    def __init__(self, ignore_label=255, thresh=0.6, min_kept=0, use_weight=True):
         super(OhemCrossEntropy2d, self).__init__()
         self.ignore_label = ignore_label
         self.thresh = float(thresh)
         self.min_kept = int(min_kept)
         if use_weight:
             None
-            weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 
-                1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 
-                0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507]
-                )
-            self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-                ignore_index=ignore_label)
+            weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+            self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_label)
         else:
             None
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=
-                ignore_label)
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
 
     def forward(self, predict, target, weight=None):
         """
@@ -347,12 +332,9 @@ class OhemCrossEntropy2d(nn.Module):
         assert not target.requires_grad
         assert predict.dim() == 4
         assert target.dim() == 3
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
         n, c, h, w = predict.size()
         input_label = target.data.cpu().numpy().ravel().astype(np.int32)
         x = np.rollaxis(predict.data.cpu().numpy(), 1).reshape((c, -1))
@@ -390,51 +372,36 @@ class CriterionCrossEntropy(nn.Module):
         super(CriterionCrossEntropy, self).__init__()
         self.ignore_index = ignore_index
         if weight == 'lightnet':
-            self.weight = torch.FloatTensor([0.05570516, 0.32337477, 
-                0.08998544, 1.03602707, 1.03413147, 1.68195437, 5.58540548,
-                3.56563995, 0.12704978, 1.0, 0.46783719, 1.34551528, 
-                5.29974114, 0.28342531, 0.9396095, 0.81551811, 0.42679146, 
-                3.6399074, 2.78376194])
+            self.weight = torch.FloatTensor([0.05570516, 0.32337477, 0.08998544, 1.03602707, 1.03413147, 1.68195437, 5.58540548, 3.56563995, 0.12704978, 1.0, 0.46783719, 1.34551528, 5.29974114, 0.28342531, 0.9396095, 0.81551811, 0.42679146, 3.6399074, 2.78376194])
         else:
-            self.weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 
-                1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 
-                0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507]
-                )
-        self.criterion = torch.nn.CrossEntropyLoss(weight=self.weight,
-            ignore_index=ignore_index)
+            self.weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+        self.criterion = torch.nn.CrossEntropyLoss(weight=self.weight, ignore_index=ignore_index)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
-        scale_pred = F.interpolate(input=preds, size=(h, w), mode=
-            'bilinear', align_corners=True)
+        scale_pred = F.interpolate(input=preds, size=(h, w), mode='bilinear', align_corners=True)
         loss = self.criterion(scale_pred, target)
         return loss
 
 
 class CriterionDSN(nn.Module):
 
-    def __init__(self, ignore_index=255, use_weight=True,
-        loss_balance_coefs=(0.4, 1.0)):
+    def __init__(self, ignore_index=255, use_weight=True, loss_balance_coefs=(0.4, 1.0)):
         super(CriterionDSN, self).__init__()
         self.ignore_index = ignore_index
         self.loss_balance_coefs = loss_balance_coefs
-        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 
-            0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116,
-            0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
         if use_weight:
-            self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-                ignore_index=ignore_index)
+            self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
         else:
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=
-                ignore_index)
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
         assert len(preds) == len(self.loss_balance_coefs)
         losses = []
         for pred, coef in zip(preds, self.loss_balance_coefs):
-            scale_pred = F.interpolate(input=pred, size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.interpolate(input=pred, size=(h, w), mode='bilinear', align_corners=True)
             losses.append(self.criterion(scale_pred, target) * coef)
         return sum(losses)
 
@@ -444,21 +411,17 @@ class CriterionOhemDSN(nn.Module):
     DSN + OHEM : We need to consider two supervision for the model.
     """
 
-    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000,
-        dsn_weight=0.4, use_weight=True):
+    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000, dsn_weight=0.4, use_weight=True):
         super(CriterionOhemDSN, self).__init__()
         self.ignore_index = ignore_index
         self.dsn_weight = dsn_weight
-        self.criterion = OhemCrossEntropy2d(ignore_index, thres, min_kept,
-            use_weight=use_weight)
+        self.criterion = OhemCrossEntropy2d(ignore_index, thres, min_kept, use_weight=use_weight)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
-        scale_pred = F.interpolate(input=preds[0], size=(h, w), mode=
-            'bilinear', align_corners=True)
+        scale_pred = F.interpolate(input=preds[0], size=(h, w), mode='bilinear', align_corners=True)
         loss1 = self.criterion(scale_pred, target)
-        scale_pred = F.interpolate(input=preds[1], size=(h, w), mode=
-            'bilinear', align_corners=True)
+        scale_pred = F.interpolate(input=preds[1], size=(h, w), mode='bilinear', align_corners=True)
         loss2 = self.criterion(scale_pred, target)
         return self.dsn_weight * loss1 + loss2
 
@@ -470,36 +433,26 @@ class CriterionOhemDSN_single(nn.Module):
                 and the hard-mining loss for the deeper supervision
     """
 
-    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000,
-        dsn_weight=0.4):
+    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000, dsn_weight=0.4):
         super(CriterionOhemDSN_single, self).__init__()
         self.ignore_index = ignore_index
         self.dsn_weight = dsn_weight
-        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 
-            0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116,
-            0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
-        self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-            ignore_index=ignore_index)
-        self.criterion_ohem = OhemCrossEntropy2d(ignore_index, thres,
-            min_kept, use_weight=True)
+        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+        self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+        self.criterion_ohem = OhemCrossEntropy2d(ignore_index, thres, min_kept, use_weight=True)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
-        scale_pred = F.interpolate(input=preds[0], size=(h, w), mode=
-            'bilinear', align_corners=True)
+        scale_pred = F.interpolate(input=preds[0], size=(h, w), mode='bilinear', align_corners=True)
         loss1 = self.criterion(scale_pred, target)
-        scale_pred = F.interpolate(input=preds[1], size=(h, w), mode=
-            'bilinear', align_corners=True)
+        scale_pred = F.interpolate(input=preds[1], size=(h, w), mode='bilinear', align_corners=True)
         loss2 = self.criterion_ohem(scale_pred, target)
         return self.dsn_weight * loss1 + loss2
 
 
 class MLSNet(nn.Module):
 
-    def __init__(self, n_classes: int=19, encoder_depth: int=18, pretrained:
-        bool=True, up_mode: str='bilinear', bn_module=nn.BatchNorm2d,
-        dilations: tuple=None, stop_level: int=3, multiple_oc_size: int=4,
-        n_oc: int=3):
+    def __init__(self, n_classes: int=19, encoder_depth: int=18, pretrained: bool=True, up_mode: str='bilinear', bn_module=nn.BatchNorm2d, dilations: tuple=None, stop_level: int=3, multiple_oc_size: int=4, n_oc: int=3):
         """
         :param stop_level: level for pruning calc.
             1: first level,
@@ -507,8 +460,7 @@ class MLSNet(nn.Module):
             3: third level (return all level preds),
         """
         super(MLSNet, self).__init__()
-        encoder = ResNetEncoder(encoder_depth=encoder_depth, pretrained=
-            pretrained, bn_module=bn_module, relu_inplace=True)
+        encoder = ResNetEncoder(encoder_depth=encoder_depth, pretrained=pretrained, bn_module=bn_module, relu_inplace=True)
         activation = nn.ReLU(inplace=True)
         self.encoder = encoder.encoder
         self.channels_list = encoder.channels_list
@@ -518,24 +470,17 @@ class MLSNet(nn.Module):
         self.stop_level = stop_level
         if dilations is None:
             dilations = [1] * self.depth
-        self.decoder = nn.ModuleList([nn.ModuleList([None for _ in range(i)
-            ]) for i in reversed(range(1, self.depth))])
+        self.decoder = nn.ModuleList([nn.ModuleList([None for _ in range(i)]) for i in reversed(range(1, self.depth))])
         for i in reversed(range(self.depth - 1)):
             for j in range(0, self.depth - i - 1):
                 in_ch = self.channels_list[i] + self.channels_list[i + 1]
                 out_ch = self.channels_list[i]
-                self.decoder[i][j] = ConvLayer(in_ch, out_ch, kernel_size=3,
-                    padding=dilations[j], dilation=dilations[j], activation
-                    =activation, bn_module=bn_module)
+                self.decoder[i][j] = ConvLayer(in_ch, out_ch, kernel_size=3, padding=dilations[j], dilation=dilations[j], activation=activation, bn_module=bn_module)
         if n_oc > 0:
             dilation_rates = [(6, 12, 24), (4, 8, 12), (2, 4, 6)]
             for i in range(n_oc):
-                self.decoder[i][0].add_module(f'oc_{i}', ASP_OC_Module(self
-                    .channels_list[i], self.channels_list[i], size=2 ** (
-                    multiple_oc_size - i), dilations=dilation_rates[i],
-                    bn_module=bn_module))
-        self.cls = nn.ModuleList(nn.Conv2d(self.channels_list[0], n_classes,
-            kernel_size=1) for _ in range(self.depth - 1))
+                self.decoder[i][0].add_module(f'oc_{i}', ASP_OC_Module(self.channels_list[i], self.channels_list[i], size=2 ** (multiple_oc_size - i), dilations=dilation_rates[i], bn_module=bn_module))
+        self.cls = nn.ModuleList(nn.Conv2d(self.channels_list[0], n_classes, kernel_size=1) for _ in range(self.depth - 1))
         self._init_weight()
 
     def _init_weight(self):
@@ -566,11 +511,8 @@ class MLSNet(nn.Module):
                 X[i][0] = self.encoder[i](X[i - 1][0])
             for j in range(i):
                 if i - (j + 1) == 0:
-                    cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(
-                        X[i - j][j], scale_factor=2, mode=self.up_mode,
-                        align_corners=self.align_corners)], dim=1)
-                    X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](
-                        cat_feat)
+                    cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i - j][j], scale_factor=2, mode=self.up_mode, align_corners=self.align_corners)], dim=1)
+                    X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
             if i > 0:
                 if return_all_preds or i == self.stop_level:
                     preds.append(self.cls[i - 1](X[0][i]))
@@ -588,9 +530,7 @@ class MLSNet(nn.Module):
             else:
                 X[i][0] = self.encoder[i](X[i - 1][0])
             for j in range(i):
-                cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i -
-                    j][j], scale_factor=2, mode=self.up_mode, align_corners
-                    =self.align_corners)], dim=1)
+                cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i - j][j], scale_factor=2, mode=self.up_mode, align_corners=self.align_corners)], dim=1)
                 X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
             if i > 0:
                 logits = self.cls[i - 1](X[0][i])
@@ -611,21 +551,17 @@ class NoOperation(nn.Module):
 
 class ConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1, dilation=1, bn_module=nn.BatchNorm2d, activation=nn.ReLU
-        (inplace=True), use_cbam=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, bn_module=nn.BatchNorm2d, activation=nn.ReLU(inplace=True), use_cbam=False):
         super(ConvLayer, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.add_module('conv', nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride, padding, dilation))
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation))
         if bn_module is not None:
             self.add_module('bn', bn_module(out_channels))
         if activation is not None:
             self.add_module('act', activation)
         if use_cbam:
-            self.add_module('cbam', attention.CBAM(out_channels, bn_module=
-                bn_module))
+            self.add_module('cbam', attention.CBAM(out_channels, bn_module=bn_module))
 
 
 class EncoderBase(nn.Module):
@@ -658,8 +594,7 @@ class SelfAttentionBlock(nn.Module):
         position-aware context features.(w/o concate or add with the input)
     """
 
-    def __init__(self, in_channels, key_channels, value_channels,
-        out_channels=None, scale=1, bn_module=nn.BatchNorm2d):
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1, bn_module=nn.BatchNorm2d):
         super(SelfAttentionBlock, self).__init__()
         self.scale = scale
         self.in_channels = in_channels
@@ -669,13 +604,9 @@ class SelfAttentionBlock(nn.Module):
         if out_channels is None:
             self.out_channels = in_channels
         self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
-        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels,
-            out_channels=self.key_channels, kernel_size=1, stride=1,
-            padding=0), bn_module(self.key_channels))
-        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels
-            =self.value_channels, kernel_size=1, stride=1, padding=0)
-        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=
-            self.out_channels, kernel_size=1, stride=1, padding=0)
+        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1, stride=1, padding=0), bn_module(self.key_channels))
+        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1, stride=1, padding=0)
+        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1, stride=1, padding=0)
         nn.init.constant_(self.W.weight, 0)
         nn.init.constant_(self.W.bias, 0)
 
@@ -695,8 +626,7 @@ class SelfAttentionBlock(nn.Module):
         context = context.view(batch_size, self.value_channels, *x.size()[2:])
         context = self.W(context)
         if self.scale > 1:
-            context = F.interpolate(input=context, size=(h, w), mode=
-                'bilinear', align_corners=True)
+            context = F.interpolate(input=context, size=(h, w), mode='bilinear', align_corners=True)
         return context
 
 
@@ -710,19 +640,14 @@ class BaseOC_Context_Module(nn.Module):
         features after "concat" or "add"
     """
 
-    def __init__(self, in_channels, out_channels, key_channels,
-        value_channels, sizes=[1], bn_module=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, sizes=[1], bn_module=nn.BatchNorm2d):
         super(BaseOC_Context_Module, self).__init__()
         self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels,
-            out_channels, key_channels, value_channels, size, bn_module) for
-            size in sizes])
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size, bn_module) for size in sizes])
 
     @staticmethod
-    def _make_stage(in_channels, output_channels, key_channels,
-        value_channels, size, bn_module):
-        return SelfAttentionBlock(in_channels, key_channels, value_channels,
-            output_channels, size, bn_module)
+    def _make_stage(in_channels, output_channels, key_channels, value_channels, size, bn_module):
+        return SelfAttentionBlock(in_channels, key_channels, value_channels, output_channels, size, bn_module)
 
     def forward(self, feats):
         priors = [stage(feats) for stage in self.stages]
@@ -738,39 +663,22 @@ class ASP_OC_Module(nn.Module):
     ref: https://github.com/PkuRainBow/OCNet/blob/master/LICENSE
     """
 
-    def __init__(self, in_features=2048, out_features=2048, dilations=(2, 5,
-        9), bn_module=nn.BatchNorm2d, size=1):
+    def __init__(self, in_features=2048, out_features=2048, dilations=(2, 5, 9), bn_module=nn.BatchNorm2d, size=1):
         super(ASP_OC_Module, self).__init__()
         internal_features = in_features // 4
-        self.context = nn.Sequential(nn.Conv2d(in_features,
-            internal_features, kernel_size=3, padding=1, dilation=1, bias=
-            True), bn_module(internal_features), BaseOC_Context_Module(
-            in_channels=internal_features, out_channels=internal_features,
-            key_channels=internal_features // 2, value_channels=
-            internal_features, sizes=[size], bn_module=bn_module))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_features, internal_features,
-            kernel_size=1, padding=0, dilation=1, bias=False), bn_module(
-            internal_features))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_features, internal_features,
-            kernel_size=3, padding=dilations[0], dilation=dilations[0],
-            bias=False), bn_module(internal_features))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_features, internal_features,
-            kernel_size=3, padding=dilations[1], dilation=dilations[1],
-            bias=False), bn_module(internal_features))
-        self.conv5 = nn.Sequential(nn.Conv2d(in_features, internal_features,
-            kernel_size=3, padding=dilations[2], dilation=dilations[2],
-            bias=False), bn_module(internal_features))
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(internal_features * 
-            5, out_features, kernel_size=1, padding=0, dilation=1, bias=
-            False), bn_module(out_features), nn.Dropout2d(0.1))
+        self.context = nn.Sequential(nn.Conv2d(in_features, internal_features, kernel_size=3, padding=1, dilation=1, bias=True), bn_module(internal_features), BaseOC_Context_Module(in_channels=internal_features, out_channels=internal_features, key_channels=internal_features // 2, value_channels=internal_features, sizes=[size], bn_module=bn_module))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_features, internal_features, kernel_size=1, padding=0, dilation=1, bias=False), bn_module(internal_features))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_features, internal_features, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), bn_module(internal_features))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_features, internal_features, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), bn_module(internal_features))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_features, internal_features, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), bn_module(internal_features))
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(internal_features * 5, out_features, kernel_size=1, padding=0, dilation=1, bias=False), bn_module(out_features), nn.Dropout2d(0.1))
 
     @staticmethod
     def _cat_each(feat1, feat2, feat3, feat4, feat5):
         assert len(feat1) == len(feat2)
         z = []
         for i in range(len(feat1)):
-            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i],
-                feat5[i]), 1))
+            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i], feat5[i]), 1))
         return z
 
     def forward(self, x):
@@ -797,8 +705,7 @@ class ASP_OC_Module(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, in_channels=1, n_classes=2, depth=5, ch_first=6,
-        padding=False, batch_norm=False, up_mode='upconv'):
+    def __init__(self, in_channels=1, n_classes=2, depth=5, ch_first=6, padding=False, batch_norm=False, up_mode='upconv'):
         """
         Implementation of
         U-Net: Convolutional Networks for Biomedical Image Segmentation
@@ -828,13 +735,11 @@ class UNet(nn.Module):
         prev_channels = in_channels
         self.down_path = nn.ModuleList()
         for i in range(depth):
-            self.down_path.append(UNetConvBlock(prev_channels, 2 ** (
-                ch_first + i), padding, batch_norm))
+            self.down_path.append(UNetConvBlock(prev_channels, 2 ** (ch_first + i), padding, batch_norm))
             prev_channels = 2 ** (ch_first + i)
         self.up_path = nn.ModuleList()
         for i in reversed(range(depth - 1)):
-            self.up_path.append(UNetUpBlock(prev_channels, 2 ** (ch_first +
-                i), up_mode, padding, batch_norm))
+            self.up_path.append(UNetUpBlock(prev_channels, 2 ** (ch_first + i), up_mode, padding, batch_norm))
             prev_channels = 2 ** (ch_first + i)
         self.last = nn.Conv2d(prev_channels, n_classes, kernel_size=1)
 
@@ -855,13 +760,11 @@ class UNetConvBlock(nn.Module):
     def __init__(self, in_size, out_size, padding, batch_norm):
         super(UNetConvBlock, self).__init__()
         block = []
-        block.append(nn.Conv2d(in_size, out_size, kernel_size=3, padding=
-            int(padding)))
+        block.append(nn.Conv2d(in_size, out_size, kernel_size=3, padding=int(padding)))
         block.append(nn.ReLU())
         if batch_norm:
             block.append(nn.BatchNorm2d(out_size))
-        block.append(nn.Conv2d(out_size, out_size, kernel_size=3, padding=
-            int(padding)))
+        block.append(nn.Conv2d(out_size, out_size, kernel_size=3, padding=int(padding)))
         block.append(nn.ReLU())
         if batch_norm:
             block.append(nn.BatchNorm2d(out_size))
@@ -877,19 +780,16 @@ class UNetUpBlock(nn.Module):
     def __init__(self, in_size, out_size, up_mode, padding, batch_norm):
         super(UNetUpBlock, self).__init__()
         if up_mode == 'deconv':
-            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2,
-                stride=2)
+            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
         elif up_mode == 'upconv':
-            self.up = nn.Sequential(nn.Upsample(mode='bilinear',
-                scale_factor=2), nn.Conv2d(in_size, out_size, kernel_size=1))
+            self.up = nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2), nn.Conv2d(in_size, out_size, kernel_size=1))
         self.conv_block = UNetConvBlock(in_size, out_size, padding, batch_norm)
 
     def center_crop(self, layer, target_size):
         _, _, layer_height, layer_width = layer.size()
         diff_y = (layer_height - target_size[0]) // 2
         diff_x = (layer_width - target_size[1]) // 2
-        return layer[:, :, diff_y:diff_y + target_size[0], diff_x:diff_x +
-            target_size[1]]
+        return layer[:, :, diff_y:diff_y + target_size[0], diff_x:diff_x + target_size[1]]
 
     def forward(self, x, bridge):
         up = self.up(x)
@@ -901,8 +801,7 @@ class UNetUpBlock(nn.Module):
 
 class MultiModalNN(nn.Module):
 
-    def __init__(self, emb_dims, n_numeric_feats, n_channels_list=(64, 128),
-        n_classes=1, emb_dropout=0.2, dropout_list=(0.5, 0.5)):
+    def __init__(self, emb_dims, n_numeric_feats, n_channels_list=(64, 128), n_classes=1, emb_dropout=0.2, dropout_list=(0.5, 0.5)):
         """
         Parameters
         ----------
@@ -944,31 +843,24 @@ class MultiModalNN(nn.Module):
         >>>                      lin_layer_dropouts=[0.001,0.01]).to(device)
         """
         super(MultiModalNN, self).__init__()
-        self.emb_layers = nn.ModuleList([nn.Embedding(x, y) for x, y in
-            emb_dims])
+        self.emb_layers = nn.ModuleList([nn.Embedding(x, y) for x, y in emb_dims])
         no_of_embs = sum([y for x, y in emb_dims])
         self.no_of_embs = no_of_embs
         self.n_numeric_feats = n_numeric_feats
-        first_lin_layer = nn.Linear(self.no_of_embs + self.n_numeric_feats,
-            n_channels_list[0])
-        self.lin_layers = nn.ModuleList([first_lin_layer] + [nn.Linear(
-            n_channels_list[i], n_channels_list[i + 1]) for i in range(len(
-            n_channels_list) - 1)])
+        first_lin_layer = nn.Linear(self.no_of_embs + self.n_numeric_feats, n_channels_list[0])
+        self.lin_layers = nn.ModuleList([first_lin_layer] + [nn.Linear(n_channels_list[i], n_channels_list[i + 1]) for i in range(len(n_channels_list) - 1)])
         for lin_layer in self.lin_layers:
             nn.init.kaiming_normal_(lin_layer.weight.data)
         self.output_layer = nn.Linear(n_channels_list[-1], n_classes)
         nn.init.kaiming_normal_(self.output_layer.weight.data)
         self.first_bn_layer = nn.BatchNorm1d(self.n_numeric_feats)
-        self.bn_layers = nn.ModuleList([nn.BatchNorm1d(size) for size in
-            n_channels_list])
+        self.bn_layers = nn.ModuleList([nn.BatchNorm1d(size) for size in n_channels_list])
         self.emb_dropout_layer = nn.Dropout(emb_dropout)
-        self.droput_layers = nn.ModuleList([nn.Dropout(size) for size in
-            dropout_list])
+        self.droput_layers = nn.ModuleList([nn.Dropout(size) for size in dropout_list])
 
     def forward(self, numeric_feats, categorical_feats):
         if self.no_of_embs != 0:
-            x = [emb_layer(categorical_feats[:, (i)]) for i, emb_layer in
-                enumerate(self.emb_layers)]
+            x = [emb_layer(categorical_feats[:, (i)]) for i, emb_layer in enumerate(self.emb_layers)]
             x = torch.cat(x, 1)
             x = self.emb_dropout_layer(x)
         if self.n_numeric_feats != 0:
@@ -977,8 +869,7 @@ class MultiModalNN(nn.Module):
                 x = torch.cat([x, normalized_numeric_feats], 1)
             else:
                 x = normalized_numeric_feats
-        for lin_layer, dropout_layer, bn_layer in zip(self.lin_layers, self
-            .droput_layers, self.bn_layers):
+        for lin_layer, dropout_layer, bn_layer in zip(self.lin_layers, self.droput_layers, self.bn_layers):
             x = F.relu(lin_layer(x))
             x = bn_layer(x)
             x = dropout_layer(x)
@@ -990,52 +881,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_lyakaap_pytorch_template(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ASP_OC_Module(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ASP_OC_Module,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 64, 64])], {}),
+     False),
+    (BaseOC_Context_Module,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FocalLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LovaszHinge,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MixLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoOperation,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfAttentionBlock,
+     lambda: ([], {'in_channels': 4, 'key_channels': 4, 'value_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SoftIoULoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 19, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 256, 256])], {}),
+     False),
+    (UNetConvBlock,
+     lambda: ([], {'in_size': 4, 'out_size': 4, 'padding': 4, 'batch_norm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_lyakaap_pytorch_template(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BaseOC_Context_Module(*[], **{'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(FocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LovaszHinge(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(LovaszSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MixLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(NoOperation(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(SelfAttentionBlock(*[], **{'in_channels': 4, 'key_channels': 4, 'value_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(SoftIoULoss(*[], **{}), [torch.rand([4, 19, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 1, 256, 256])], {})
-
-    def test_012(self):
-        self._check(UNetConvBlock(*[], **{'in_size': 4, 'out_size': 4, 'padding': 4, 'batch_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 

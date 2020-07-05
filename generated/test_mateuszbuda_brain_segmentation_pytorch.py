@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -47,8 +48,7 @@ class DiceLoss(nn.Module):
         y_pred = y_pred[:, (0)].contiguous().view(-1)
         y_true = y_true[:, (0)].contiguous().view(-1)
         intersection = (y_pred * y_true).sum()
-        dsc = (2.0 * intersection + self.smooth) / (y_pred.sum() + y_true.
-            sum() + self.smooth)
+        dsc = (2.0 * intersection + self.smooth) / (y_pred.sum() + y_true.sum() + self.smooth)
         return 1.0 - dsc
 
 
@@ -65,25 +65,16 @@ class UNet(nn.Module):
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.encoder4 = UNet._block(features * 4, features * 8, name='enc4')
         self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.bottleneck = UNet._block(features * 8, features * 16, name=
-            'bottleneck')
-        self.upconv4 = nn.ConvTranspose2d(features * 16, features * 8,
-            kernel_size=2, stride=2)
-        self.decoder4 = UNet._block(features * 8 * 2, features * 8, name='dec4'
-            )
-        self.upconv3 = nn.ConvTranspose2d(features * 8, features * 4,
-            kernel_size=2, stride=2)
-        self.decoder3 = UNet._block(features * 4 * 2, features * 4, name='dec3'
-            )
-        self.upconv2 = nn.ConvTranspose2d(features * 4, features * 2,
-            kernel_size=2, stride=2)
-        self.decoder2 = UNet._block(features * 2 * 2, features * 2, name='dec2'
-            )
-        self.upconv1 = nn.ConvTranspose2d(features * 2, features,
-            kernel_size=2, stride=2)
+        self.bottleneck = UNet._block(features * 8, features * 16, name='bottleneck')
+        self.upconv4 = nn.ConvTranspose2d(features * 16, features * 8, kernel_size=2, stride=2)
+        self.decoder4 = UNet._block(features * 8 * 2, features * 8, name='dec4')
+        self.upconv3 = nn.ConvTranspose2d(features * 8, features * 4, kernel_size=2, stride=2)
+        self.decoder3 = UNet._block(features * 4 * 2, features * 4, name='dec3')
+        self.upconv2 = nn.ConvTranspose2d(features * 4, features * 2, kernel_size=2, stride=2)
+        self.decoder2 = UNet._block(features * 2 * 2, features * 2, name='dec2')
+        self.upconv1 = nn.ConvTranspose2d(features * 2, features, kernel_size=2, stride=2)
         self.decoder1 = UNet._block(features * 2, features, name='dec1')
-        self.conv = nn.Conv2d(in_channels=features, out_channels=
-            out_channels, kernel_size=1)
+        self.conv = nn.Conv2d(in_channels=features, out_channels=out_channels, kernel_size=1)
 
     def forward(self, x):
         enc1 = self.encoder1(x)
@@ -107,25 +98,30 @@ class UNet(nn.Module):
 
     @staticmethod
     def _block(in_channels, features, name):
-        return nn.Sequential(OrderedDict([(name + 'conv1', nn.Conv2d(
-            in_channels=in_channels, out_channels=features, kernel_size=3,
-            padding=1, bias=False)), (name + 'norm1', nn.BatchNorm2d(
-            num_features=features)), (name + 'relu1', nn.ReLU(inplace=True)
-            ), (name + 'conv2', nn.Conv2d(in_channels=features,
-            out_channels=features, kernel_size=3, padding=1, bias=False)),
-            (name + 'norm2', nn.BatchNorm2d(num_features=features)), (name +
-            'relu2', nn.ReLU(inplace=True))]))
+        return nn.Sequential(OrderedDict([(name + 'conv1', nn.Conv2d(in_channels=in_channels, out_channels=features, kernel_size=3, padding=1, bias=False)), (name + 'norm1', nn.BatchNorm2d(num_features=features)), (name + 'relu1', nn.ReLU(inplace=True)), (name + 'conv2', nn.Conv2d(in_channels=features, out_channels=features, kernel_size=3, padding=1, bias=False)), (name + 'norm2', nn.BatchNorm2d(num_features=features)), (name + 'relu2', nn.ReLU(inplace=True))]))
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_mateuszbuda_brain_segmentation_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

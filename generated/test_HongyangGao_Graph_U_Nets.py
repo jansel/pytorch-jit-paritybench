@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,15 +70,11 @@ class Classifier(nn.Module):
     def __init__(self):
         super(Classifier, self).__init__()
         model = GUNet
-        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
-            cmd_args.out_dim, num_node_feats=cmd_args.feat_dim + cmd_args.
-            attr_dim, num_edge_feats=0, k=cmd_args.sortpooling_k)
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=cmd_args.out_dim, num_node_feats=cmd_args.feat_dim + cmd_args.attr_dim, num_edge_feats=0, k=cmd_args.sortpooling_k)
         out_dim = cmd_args.out_dim
         if out_dim == 0:
             out_dim = self.s2v.dense_dim
-        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.
-            hidden, num_class=cmd_args.num_class, with_dropout=cmd_args.dropout
-            )
+        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.hidden, num_class=cmd_args.num_class, with_dropout=cmd_args.dropout)
 
     def PrepareFeatureLabel(self, batch_graph):
         labels = torch.LongTensor(len(batch_graph))
@@ -98,8 +95,7 @@ class Classifier(nn.Module):
             if node_tag_flag:
                 concat_tag += batch_graph[i].node_tags
             if node_feat_flag:
-                tmp = torch.from_numpy(batch_graph[i].node_features).type(
-                    'torch.FloatTensor')
+                tmp = torch.from_numpy(batch_graph[i].node_features).type('torch.FloatTensor')
                 concat_feat.append(tmp)
         if node_tag_flag:
             concat_tag = torch.LongTensor(concat_tag).view(-1, 1)
@@ -205,8 +201,7 @@ class MLPClassifier(nn.Module):
             y = Variable(y)
             loss = F.nll_loss(logits, y)
             pred = logits.data.max(1, keepdim=True)[1]
-            acc = pred.eq(y.data.view_as(pred)).cpu().sum().item() / float(y
-                .size()[0])
+            acc = pred.eq(y.data.view_as(pred)).cpu().sum().item() / float(y.size()[0])
             return logits, loss, acc
         else:
             return logits
@@ -225,8 +220,7 @@ class MySpMM(torch.autograd.Function):
         grad_matrix1 = grad_matrix2 = None
         assert not ctx.needs_input_grad[0]
         if ctx.needs_input_grad[1]:
-            grad_matrix2 = Variable(torch.mm(sp_mat.data.t(), grad_output.data)
-                )
+            grad_matrix2 = Variable(torch.mm(sp_mat.data.t(), grad_output.data))
         return grad_matrix1, grad_matrix2
 
 
@@ -236,9 +230,7 @@ def gnn_spmm(sp_mat, dense_mat):
 
 class GUNet(nn.Module):
 
-    def __init__(self, output_dim, num_node_feats, num_edge_feats,
-        latent_dim=[32, 32, 32, 1], k=30, conv1d_channels=[16, 32],
-        conv1d_kws=[0, 5]):
+    def __init__(self, output_dim, num_node_feats, num_edge_feats, latent_dim=[32, 32, 32, 1], k=30, conv1d_channels=[16, 32], conv1d_kws=[0, 5]):
         None
         super(GUNet, self).__init__()
         self.latent_dim = latent_dim
@@ -251,13 +243,10 @@ class GUNet(nn.Module):
         self.conv_params = nn.ModuleList()
         self.conv_params.append(nn.Linear(num_node_feats, latent_dim[0]))
         for i in range(1, len(latent_dim)):
-            self.conv_params.append(nn.Linear(latent_dim[i - 1], latent_dim[i])
-                )
-        self.conv1d_params1 = nn.Conv1d(1, conv1d_channels[0], conv1d_kws[0
-            ], conv1d_kws[0])
+            self.conv_params.append(nn.Linear(latent_dim[i - 1], latent_dim[i]))
+        self.conv1d_params1 = nn.Conv1d(1, conv1d_channels[0], conv1d_kws[0], conv1d_kws[0])
         self.maxpool1d = nn.MaxPool1d(2, 2)
-        self.conv1d_params2 = nn.Conv1d(conv1d_channels[0], conv1d_channels
-            [1], conv1d_kws[1], 1)
+        self.conv1d_params2 = nn.Conv1d(conv1d_channels[0], conv1d_channels[1], conv1d_kws[1], 1)
         dense_dim = int((k - 2) / 2 + 1)
         self.dense_dim = (dense_dim - conv1d_kws[1] + 1) * conv1d_channels[1]
         if num_edge_feats > 0:
@@ -270,8 +259,7 @@ class GUNet(nn.Module):
 
     def forward(self, graph_list, node_feat, edge_feat):
         graph_sizes = [graph_list[i].num_nodes for i in range(len(graph_list))]
-        node_degs = [(torch.Tensor(graph_list[i].degs) + 1) for i in range(
-            len(graph_list))]
+        node_degs = [(torch.Tensor(graph_list[i].degs) + 1) for i in range(len(graph_list))]
         node_degs = torch.cat(node_degs).unsqueeze(1)
         n2n_sp, e2n_sp, subg_sp = S2VLIB.PrepareMeanField(graph_list)
         if isinstance(node_feat, torch.FloatTensor):
@@ -286,12 +274,10 @@ class GUNet(nn.Module):
         e2n_sp = Variable(e2n_sp)
         subg_sp = Variable(subg_sp)
         node_degs = Variable(node_degs)
-        h = self.sortpooling_embedding(node_feat, edge_feat, n2n_sp, e2n_sp,
-            subg_sp, graph_sizes, node_degs)
+        h = self.sortpooling_embedding(node_feat, edge_feat, n2n_sp, e2n_sp, subg_sp, graph_sizes, node_degs)
         return h
 
-    def sortpooling_embedding(self, node_feat, edge_feat, n2n_sp, e2n_sp,
-        subg_sp, graph_sizes, node_degs):
+    def sortpooling_embedding(self, node_feat, edge_feat, n2n_sp, e2n_sp, subg_sp, graph_sizes, node_degs):
         """ if exists edge feature, concatenate to node feature vector """
         if edge_feat is not None:
             input_edge_linear = self.w_e2l(edge_feat)
@@ -307,8 +293,7 @@ class GUNet(nn.Module):
             cur_message_layer = node_feat
             cat_message_layers = []
             while lv < len(self.latent_dim):
-                n2npool = gnn_spmm(n2n_sp, cur_message_layer
-                    ) + cur_message_layer
+                n2npool = gnn_spmm(n2n_sp, cur_message_layer) + cur_message_layer
                 node_linear = self.conv_params[lv](n2npool)
                 normalized_linear = node_linear.div(node_degs)
                 cur_message_layer = F.tanh(normalized_linear)
@@ -317,8 +302,7 @@ class GUNet(nn.Module):
             cur_message_layer = torch.cat(cat_message_layers, 1)
         """ sortpooling layer """
         sort_channel = cur_message_layer[:, (-1)]
-        batch_sortpooling_graphs = torch.zeros(len(graph_sizes), self.k,
-            self.total_latent_dim)
+        batch_sortpooling_graphs = torch.zeros(len(graph_sizes), self.k, self.total_latent_dim)
         if isinstance(node_feat.data, torch.FloatTensor):
             batch_sortpooling_graphs = batch_sortpooling_graphs
         batch_sortpooling_graphs = Variable(batch_sortpooling_graphs)
@@ -338,8 +322,7 @@ class GUNet(nn.Module):
             batch_sortpooling_graphs[i] = sortpooling_graph
             accum_count += graph_sizes[i]
         """ traditional 1d convlution and dense layers """
-        to_conv1d = batch_sortpooling_graphs.view((-1, 1, self.k * self.
-            total_latent_dim))
+        to_conv1d = batch_sortpooling_graphs.view((-1, 1, self.k * self.total_latent_dim))
         conv1d_res = self.conv1d_params1(to_conv1d)
         conv1d_res = F.relu(conv1d_res)
         conv1d_res = self.maxpool1d(conv1d_res)
@@ -455,14 +438,11 @@ class Classifier(nn.Module):
         else:
             None
             sys.exit()
-        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
-            cmd_args.out_dim, num_node_feats=cmd_args.feat_dim,
-            num_edge_feats=0, max_lv=cmd_args.max_lv)
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=cmd_args.out_dim, num_node_feats=cmd_args.feat_dim, num_edge_feats=0, max_lv=cmd_args.max_lv)
         out_dim = cmd_args.out_dim
         if out_dim == 0:
             out_dim = cmd_args.latent_dim
-        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.
-            hidden, num_class=cmd_args.num_class)
+        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.hidden, num_class=cmd_args.num_class)
 
     def PrepareFeatureLabel(self, batch_graph):
         labels = torch.LongTensor(len(batch_graph))
@@ -497,11 +477,8 @@ class Regressor(nn.Module):
         else:
             None
             sys.exit()
-        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
-            cmd_args.out_dim, num_node_feats=MOLLIB.num_node_feats,
-            num_edge_feats=MOLLIB.num_edge_feats, max_lv=cmd_args.max_lv)
-        self.mlp = MLPRegression(input_size=cmd_args.out_dim, hidden_size=
-            cmd_args.hidden)
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=cmd_args.out_dim, num_node_feats=MOLLIB.num_node_feats, num_edge_feats=MOLLIB.num_edge_feats, max_lv=cmd_args.max_lv)
+        self.mlp = MLPRegression(input_size=cmd_args.out_dim, hidden_size=cmd_args.hidden)
 
     def forward(self, batch_graph):
         node_feat, edge_feat, labels = MOLLIB.PrepareFeatureLabel(batch_graph)
@@ -515,8 +492,7 @@ class Regressor(nn.Module):
 
 class EmbedMeanField(nn.Module):
 
-    def __init__(self, latent_dim, output_dim, num_node_feats,
-        num_edge_feats, max_lv=3):
+    def __init__(self, latent_dim, output_dim, num_node_feats, num_edge_feats, max_lv=3):
         super(EmbedMeanField, self).__init__()
         self.latent_dim = latent_dim
         self.output_dim = output_dim
@@ -573,8 +549,7 @@ class EmbedMeanField(nn.Module):
 
 class EmbedLoopyBP(nn.Module):
 
-    def __init__(self, latent_dim, output_dim, num_node_feats,
-        num_edge_feats, max_lv=3):
+    def __init__(self, latent_dim, output_dim, num_node_feats, num_edge_feats, max_lv=3):
         super(EmbedLoopyBP, self).__init__()
         self.latent_dim = latent_dim
         self.max_lv = max_lv
@@ -597,8 +572,7 @@ class EmbedLoopyBP(nn.Module):
         e2e_sp = Variable(e2e_sp)
         e2n_sp = Variable(e2n_sp)
         subg_sp = Variable(subg_sp)
-        h = self.loopy_bp(node_feat, edge_feat, n2e_sp, e2e_sp, e2n_sp, subg_sp
-            )
+        h = self.loopy_bp(node_feat, edge_feat, n2e_sp, e2e_sp, e2n_sp, subg_sp)
         return h
 
     def loopy_bp(self, node_feat, edge_feat, n2e_sp, e2e_sp, e2n_sp, subg_sp):
@@ -661,8 +635,7 @@ class MLPClassifier(nn.Module):
             y = Variable(y)
             loss = F.nll_loss(logits, y)
             pred = logits.data.max(1, keepdim=True)[1]
-            acc = pred.eq(y.data.view_as(pred)).cpu().sum() / float(y.size()[0]
-                )
+            acc = pred.eq(y.data.view_as(pred)).cpu().sum() / float(y.size()[0])
             return logits, loss, acc
         else:
             return logits
@@ -672,16 +645,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GCN,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MLPClassifier,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_class': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLPRegression,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_HongyangGao_Graph_U_Nets(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(GCN(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MLPClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'num_class': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

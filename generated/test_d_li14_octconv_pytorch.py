@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -29,21 +30,14 @@ import torch
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, alpha_in=0.5, alpha_out=0.5, norm_layer=None,
-        output=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, alpha_in=0.5, alpha_out=0.5, norm_layer=None, output=False):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.0)) * groups
-        self.conv1 = Conv_BN_ACT(inplanes, width, kernel_size=1, alpha_in=
-            alpha_in, alpha_out=alpha_out, norm_layer=norm_layer)
-        self.conv2 = Conv_BN_ACT(width, width, kernel_size=3, stride=stride,
-            padding=1, groups=groups, norm_layer=norm_layer, alpha_in=0 if
-            output else 0.5, alpha_out=0 if output else 0.5)
-        self.conv3 = Conv_BN(width, planes * self.expansion, kernel_size=1,
-            norm_layer=norm_layer, alpha_in=0 if output else 0.5, alpha_out
-            =0 if output else 0.5)
+        self.conv1 = Conv_BN_ACT(inplanes, width, kernel_size=1, alpha_in=alpha_in, alpha_out=alpha_out, norm_layer=norm_layer)
+        self.conv2 = Conv_BN_ACT(width, width, kernel_size=3, stride=stride, padding=1, groups=groups, norm_layer=norm_layer, alpha_in=0 if output else 0.5, alpha_out=0 if output else 0.5)
+        self.conv3 = Conv_BN(width, planes * self.expansion, kernel_size=1, norm_layer=norm_layer, alpha_in=0 if output else 0.5, alpha_out=0 if output else 0.5)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -66,33 +60,26 @@ class Bottleneck(nn.Module):
 
 class OctResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(OctResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer, alpha_in=0)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer, alpha_out=0, output=True)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer, alpha_in=0)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer, alpha_out=0, output=True)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -103,24 +90,17 @@ class OctResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, alpha_in=0.5,
-        alpha_out=0.5, norm_layer=None, output=False):
+    def _make_layer(self, block, planes, blocks, stride=1, alpha_in=0.5, alpha_out=0.5, norm_layer=None, output=False):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(Conv_BN(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, alpha_in=
-                alpha_in, alpha_out=alpha_out))
+            downsample = nn.Sequential(Conv_BN(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, alpha_in=alpha_in, alpha_out=alpha_out))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, alpha_in, alpha_out, norm_layer, output))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, alpha_in, alpha_out, norm_layer, output))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer, alpha_in
-                =0 if output else 0.5, alpha_out=0 if output else 0.5,
-                output=output))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer, alpha_in=0 if output else 0.5, alpha_out=0 if output else 0.5, output=output))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -140,8 +120,7 @@ class OctResNet(nn.Module):
 
 class OctaveConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha_in=0.5,
-        alpha_out=0.5, stride=1, padding=0, dilation=1, groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha_in=0.5, alpha_out=0.5, stride=1, padding=0, dilation=1, groups=1, bias=False):
         super(OctaveConv, self).__init__()
         self.downsample = nn.AvgPool2d(kernel_size=(2, 2), stride=2)
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
@@ -149,35 +128,24 @@ class OctaveConv(nn.Module):
         self.stride = stride
         assert 0 <= alpha_in <= 1 and 0 <= alpha_out <= 1, 'Alphas should be in the interval from 0 to 1.'
         self.alpha_in, self.alpha_out = alpha_in, alpha_out
-        self.conv_l2l = None if alpha_in == 0 or alpha_out == 0 else nn.Conv2d(
-            int(alpha_in * in_channels), int(alpha_out * out_channels),
-            kernel_size, 1, padding, dilation, groups, bias)
-        self.conv_l2h = None if alpha_in == 0 or alpha_out == 1 else nn.Conv2d(
-            int(alpha_in * in_channels), out_channels - int(alpha_out *
-            out_channels), kernel_size, 1, padding, dilation, groups, bias)
-        self.conv_h2l = None if alpha_in == 1 or alpha_out == 0 else nn.Conv2d(
-            in_channels - int(alpha_in * in_channels), int(alpha_out *
-            out_channels), kernel_size, 1, padding, dilation, groups, bias)
-        self.conv_h2h = None if alpha_in == 1 or alpha_out == 1 else nn.Conv2d(
-            in_channels - int(alpha_in * in_channels), out_channels - int(
-            alpha_out * out_channels), kernel_size, 1, padding, dilation,
-            groups, bias)
+        self.conv_l2l = None if alpha_in == 0 or alpha_out == 0 else nn.Conv2d(int(alpha_in * in_channels), int(alpha_out * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.conv_l2h = None if alpha_in == 0 or alpha_out == 1 else nn.Conv2d(int(alpha_in * in_channels), out_channels - int(alpha_out * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.conv_h2l = None if alpha_in == 1 or alpha_out == 0 else nn.Conv2d(in_channels - int(alpha_in * in_channels), int(alpha_out * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.conv_h2h = None if alpha_in == 1 or alpha_out == 1 else nn.Conv2d(in_channels - int(alpha_in * in_channels), out_channels - int(alpha_out * out_channels), kernel_size, 1, padding, dilation, groups, bias)
 
     def forward(self, x):
         x_h, x_l = x if type(x) is tuple else (x, None)
         if x_h is not None:
             x_h = self.downsample(x_h) if self.stride == 2 else x_h
             x_h2h = self.conv_h2h(x_h)
-            x_h2l = self.conv_h2l(self.downsample(x_h)
-                ) if self.alpha_out > 0 else None
+            x_h2l = self.conv_h2l(self.downsample(x_h)) if self.alpha_out > 0 else None
         if x_l is not None:
             x_l2h = self.conv_l2h(x_l)
             x_l2h = self.upsample(x_l2h) if self.stride == 1 else x_l2h
             x_l2l = self.downsample(x_l) if self.stride == 2 else x_l
             x_l2l = self.conv_l2l(x_l2l) if self.alpha_out > 0 else None
             x_h = x_l2h + x_h2h
-            x_l = (x_h2l + x_l2l if x_h2l is not None and x_l2l is not None
-                 else None)
+            x_l = x_h2l + x_l2l if x_h2l is not None and x_l2l is not None else None
             return x_h, x_l
         else:
             return x_h2h, x_h2l
@@ -185,16 +153,11 @@ class OctaveConv(nn.Module):
 
 class Conv_BN(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha_in=0.5,
-        alpha_out=0.5, stride=1, padding=0, dilation=1, groups=1, bias=
-        False, norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha_in=0.5, alpha_out=0.5, stride=1, padding=0, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(Conv_BN, self).__init__()
-        self.conv = OctaveConv(in_channels, out_channels, kernel_size,
-            alpha_in, alpha_out, stride, padding, dilation, groups, bias)
-        self.bn_h = None if alpha_out == 1 else norm_layer(int(out_channels *
-            (1 - alpha_out)))
-        self.bn_l = None if alpha_out == 0 else norm_layer(int(out_channels *
-            alpha_out))
+        self.conv = OctaveConv(in_channels, out_channels, kernel_size, alpha_in, alpha_out, stride, padding, dilation, groups, bias)
+        self.bn_h = None if alpha_out == 1 else norm_layer(int(out_channels * (1 - alpha_out)))
+        self.bn_l = None if alpha_out == 0 else norm_layer(int(out_channels * alpha_out))
 
     def forward(self, x):
         x_h, x_l = self.conv(x)
@@ -205,16 +168,11 @@ class Conv_BN(nn.Module):
 
 class Conv_BN_ACT(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha_in=0.5,
-        alpha_out=0.5, stride=1, padding=0, dilation=1, groups=1, bias=
-        False, norm_layer=nn.BatchNorm2d, activation_layer=nn.ReLU):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha_in=0.5, alpha_out=0.5, stride=1, padding=0, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d, activation_layer=nn.ReLU):
         super(Conv_BN_ACT, self).__init__()
-        self.conv = OctaveConv(in_channels, out_channels, kernel_size,
-            alpha_in, alpha_out, stride, padding, dilation, groups, bias)
-        self.bn_h = None if alpha_out == 1 else norm_layer(int(out_channels *
-            (1 - alpha_out)))
-        self.bn_l = None if alpha_out == 0 else norm_layer(int(out_channels *
-            alpha_out))
+        self.conv = OctaveConv(in_channels, out_channels, kernel_size, alpha_in, alpha_out, stride, padding, dilation, groups, bias)
+        self.bn_h = None if alpha_out == 1 else norm_layer(int(out_channels * (1 - alpha_out)))
+        self.bn_l = None if alpha_out == 0 else norm_layer(int(out_channels * alpha_out))
         self.act = activation_layer(inplace=True)
 
     def forward(self, x):
@@ -228,17 +186,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv_BN,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 2, 64, 64])], {}),
+     False),
+    (Conv_BN_ACT,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 2, 64, 64])], {}),
+     False),
+    (OctaveConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 2, 64, 64])], {}),
+     False),
+]
+
 class Test_d_li14_octconv_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Conv_BN(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Conv_BN_ACT(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(OctaveConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

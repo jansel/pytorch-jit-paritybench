@@ -103,8 +103,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -167,16 +168,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -189,8 +187,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -256,8 +253,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -275,8 +271,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -289,8 +284,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -298,9 +292,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -314,8 +306,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -335,9 +326,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -348,8 +337,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -408,8 +396,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -455,21 +442,18 @@ class Model(nn.Module):
             kwargs = {}
         load_from = None
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.get_model()
-                    .url, model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.get_model().url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.get_model().load_state_dict(load_from, strict=False)
 
@@ -482,9 +466,7 @@ class Model(nn.Module):
         _, _, h, w = args[0].size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w -
-            w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:
-            h, w - w_size:w]] for a in args]
+        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w - w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:h, w - w_size:w]] for a in args]
         list_y = []
         if w_size * h_size < min_size:
             for i in range(0, 4, n_GPUs):
@@ -515,12 +497,9 @@ class Model(nn.Module):
         y = [_y[0].new(b, c, h, w) for _y in list_y]
         for _list_y, _y in zip(list_y, y):
             _y[:, :, :h_half, :w_half] = _list_y[0][:, :, :h_half, :w_half]
-            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size -
-                w + w_half:]
-            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h +
-                h_half:, :w_half]
-            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h +
-                h_half:, w_size - w + w_half:]
+            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size - w + w_half:]
+            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h + h_half:, :w_half]
+            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h + h_half:, w_size - w + w_half:]
         if len(y) == 1:
             y = y[0]
         return y
@@ -573,8 +552,7 @@ class Model(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -584,8 +562,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -596,8 +573,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.PReLU(1, 0.25), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.PReLU(1, 0.25), res_scale=1):
         super(ResBlock, self).__init__()
         self.conv1 = conv(n_feats, n_feats, kernel_size, bias=bias)
         self.conv2 = conv(n_feats, n_feats, kernel_size, bias=bias)
@@ -607,14 +583,10 @@ class ResBlock(nn.Module):
         self.relu2 = nn.PReLU(n_feats, 0.25)
         self.relu3 = nn.PReLU(n_feats, 0.25)
         self.relu4 = nn.PReLU(n_feats, 0.25)
-        self.scale1 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale3 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale4 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
+        self.scale1 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale3 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale4 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
 
     def forward(self, x):
         yn = x
@@ -665,14 +637,12 @@ class Upsampler(nn.Sequential):
 
 
 def projection_conv(in_channels, out_channels, scale, up=True):
-    kernel_size, stride, padding = {(2): (6, 2, 2), (4): (8, 4, 2), (8): (
-        12, 8, 2)}[scale]
+    kernel_size, stride, padding = {(2): (6, 2, 2), (4): (8, 4, 2), (8): (12, 8, 2)}[scale]
     if up:
         conv_f = nn.ConvTranspose2d
     else:
         conv_f = nn.Conv2d
-    return conv_f(in_channels, out_channels, kernel_size, stride=stride,
-        padding=padding)
+    return conv_f(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
 
 
 class DenseProjection(nn.Module):
@@ -680,18 +650,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -715,24 +681,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -762,10 +724,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -775,8 +734,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -797,13 +755,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -819,8 +774,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -852,27 +806,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -904,16 +847,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -926,8 +866,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -993,8 +932,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -1012,8 +950,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -1026,8 +963,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -1035,9 +971,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -1051,8 +985,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -1072,9 +1005,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -1085,8 +1016,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -1145,8 +1075,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -1192,21 +1121,18 @@ class Model(nn.Module):
             kwargs = {}
         load_from = None
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.get_model()
-                    .url, model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.get_model().url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.get_model().load_state_dict(load_from, strict=False)
 
@@ -1219,9 +1145,7 @@ class Model(nn.Module):
         _, _, h, w = args[0].size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w -
-            w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:
-            h, w - w_size:w]] for a in args]
+        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w - w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:h, w - w_size:w]] for a in args]
         list_y = []
         if w_size * h_size < min_size:
             for i in range(0, 4, n_GPUs):
@@ -1252,12 +1176,9 @@ class Model(nn.Module):
         y = [_y[0].new(b, c, h, w) for _y in list_y]
         for _list_y, _y in zip(list_y, y):
             _y[:, :, :h_half, :w_half] = _list_y[0][:, :, :h_half, :w_half]
-            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size -
-                w + w_half:]
-            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h +
-                h_half:, :w_half]
-            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h +
-                h_half:, w_size - w + w_half:]
+            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size - w + w_half:]
+            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h + h_half:, :w_half]
+            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h + h_half:, w_size - w + w_half:]
         if len(y) == 1:
             y = y[0]
         return y
@@ -1310,8 +1231,7 @@ class Model(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -1321,8 +1241,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -1333,8 +1252,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.PReLU(1, 0.25), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.PReLU(1, 0.25), res_scale=1):
         super(ResBlock, self).__init__()
         self.conv1 = conv(n_feats, n_feats, kernel_size, bias=bias)
         self.conv2 = conv(n_feats, n_feats, kernel_size, bias=bias)
@@ -1344,14 +1262,10 @@ class ResBlock(nn.Module):
         self.relu2 = nn.PReLU(n_feats, 0.25)
         self.relu3 = nn.PReLU(n_feats, 0.25)
         self.relu4 = nn.PReLU(n_feats, 0.25)
-        self.scale1 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale3 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale4 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
+        self.scale1 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale3 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale4 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
 
     def forward(self, x):
         yn = x
@@ -1406,18 +1320,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -1441,24 +1351,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -1485,10 +1391,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -1498,8 +1401,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -1520,13 +1422,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -1542,8 +1441,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -1575,27 +1473,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -1629,16 +1516,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.SmoothL1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -1651,8 +1535,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -1718,8 +1601,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -1737,8 +1619,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -1751,8 +1632,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -1760,9 +1640,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -1776,8 +1654,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -1797,9 +1674,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -1810,8 +1685,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -1870,8 +1744,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -1917,21 +1790,18 @@ class Model(nn.Module):
             kwargs = {}
         load_from = None
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.get_model()
-                    .url, model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.get_model().url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.get_model().load_state_dict(load_from, strict=False)
 
@@ -1944,9 +1814,7 @@ class Model(nn.Module):
         _, _, h, w = args[0].size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w -
-            w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:
-            h, w - w_size:w]] for a in args]
+        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w - w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:h, w - w_size:w]] for a in args]
         list_y = []
         if w_size * h_size < min_size:
             for i in range(0, 4, n_GPUs):
@@ -1977,12 +1845,9 @@ class Model(nn.Module):
         y = [_y[0].new(b, c, h, w) for _y in list_y]
         for _list_y, _y in zip(list_y, y):
             _y[:, :, :h_half, :w_half] = _list_y[0][:, :, :h_half, :w_half]
-            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size -
-                w + w_half:]
-            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h +
-                h_half:, :w_half]
-            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h +
-                h_half:, w_size - w + w_half:]
+            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size - w + w_half:]
+            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h + h_half:, :w_half]
+            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h + h_half:, w_size - w + w_half:]
         if len(y) == 1:
             y = y[0]
         return y
@@ -2035,15 +1900,11 @@ class Model(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU() if relu else None
 
     def forward(self, x):
@@ -2070,29 +1931,23 @@ def logsumexp_2d(tensor):
 
 class ChannelGate(nn.Module):
 
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg',
-        'max']):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max']):
         super(ChannelGate, self).__init__()
         self.gate_channels = gate_channels
-        self.mlp = nn.Sequential(Flatten(), nn.Linear(gate_channels, 
-            gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(
-            gate_channels // reduction_ratio, gate_channels))
+        self.mlp = nn.Sequential(Flatten(), nn.Linear(gate_channels, gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(gate_channels // reduction_ratio, gate_channels))
         self.pool_types = pool_types
 
     def forward(self, x):
         channel_att_sum = None
         for pool_type in self.pool_types:
             if pool_type == 'avg':
-                avg_pool = F.avg_pool2d(x, (x.size(2), x.size(3)), stride=(
-                    x.size(2), x.size(3)))
+                avg_pool = F.avg_pool2d(x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp(avg_pool)
             elif pool_type == 'max':
-                max_pool = F.max_pool2d(x, (x.size(2), x.size(3)), stride=(
-                    x.size(2), x.size(3)))
+                max_pool = F.max_pool2d(x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp(max_pool)
             elif pool_type == 'lp':
-                lp_pool = F.lp_pool2d(x, 2, (x.size(2), x.size(3)), stride=
-                    (x.size(2), x.size(3)))
+                lp_pool = F.lp_pool2d(x, 2, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp(lp_pool)
             elif pool_type == 'lse':
                 lse_pool = logsumexp_2d(x)
@@ -2101,16 +1956,14 @@ class ChannelGate(nn.Module):
                 channel_att_sum = channel_att_raw
             else:
                 channel_att_sum = channel_att_sum + channel_att_raw
-        scale = torch.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3
-            ).expand_as(x)
+        scale = torch.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3).expand_as(x)
         return x * scale
 
 
 class ChannelPool(nn.Module):
 
     def forward(self, x):
-        return torch.cat((torch.max(x, 1)[0].unsqueeze(1), torch.mean(x, 1)
-            .unsqueeze(1)), dim=1)
+        return torch.cat((torch.max(x, 1)[0].unsqueeze(1), torch.mean(x, 1).unsqueeze(1)), dim=1)
 
 
 class SpatialGate(nn.Module):
@@ -2119,8 +1972,7 @@ class SpatialGate(nn.Module):
         super(SpatialGate, self).__init__()
         kernel_size = 7
         self.compress = ChannelPool()
-        self.spatial = BasicConv(2, 1, kernel_size, stride=1, padding=(
-            kernel_size - 1) // 2, relu=False)
+        self.spatial = BasicConv(2, 1, kernel_size, stride=1, padding=(kernel_size - 1) // 2, relu=False)
 
     def forward(self, x):
         x_compress = self.compress(x)
@@ -2131,11 +1983,9 @@ class SpatialGate(nn.Module):
 
 class CBAM(nn.Module):
 
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg',
-        'max'], no_spatial=False):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max'], no_spatial=False):
         super(CBAM, self).__init__()
-        self.ChannelGate = ChannelGate(gate_channels, reduction_ratio,
-            pool_types)
+        self.ChannelGate = ChannelGate(gate_channels, reduction_ratio, pool_types)
         self.no_spatial = no_spatial
         if not no_spatial:
             self.SpatialGate = SpatialGate()
@@ -2149,8 +1999,7 @@ class CBAM(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -2160,8 +2009,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -2172,8 +2020,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.PReLU(1, 0.25), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.PReLU(1, 0.25), res_scale=1):
         super(ResBlock, self).__init__()
         self.conv1 = conv(n_feats, n_feats, kernel_size, bias=bias)
         self.conv2 = conv(n_feats, n_feats, kernel_size, bias=bias)
@@ -2187,16 +2034,11 @@ class ResBlock(nn.Module):
         self.relu4 = nn.PReLU(n_feats, 0.25)
         self.relu5 = nn.PReLU(n_feats, 0.25)
         self.relu6 = nn.PReLU(n_feats, 0.25)
-        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True
-            )
-        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale3 = nn.Parameter(torch.FloatTensor([-1.0]), requires_grad
-            =True)
-        self.scale4 = nn.Parameter(torch.FloatTensor([4.0]), requires_grad=True
-            )
-        self.scale5 = nn.Parameter(torch.FloatTensor([1 / 6]),
-            requires_grad=True)
+        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True)
+        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale3 = nn.Parameter(torch.FloatTensor([-1.0]), requires_grad=True)
+        self.scale4 = nn.Parameter(torch.FloatTensor([4.0]), requires_grad=True)
+        self.scale5 = nn.Parameter(torch.FloatTensor([1 / 6]), requires_grad=True)
         self.se0 = SE(n_feats)
         self.se1 = SE(n_feats)
         self.se2 = SE(n_feats)
@@ -2260,18 +2102,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -2295,24 +2133,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -2339,10 +2173,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -2352,8 +2183,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -2374,13 +2204,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -2396,8 +2223,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -2429,27 +2255,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -2473,45 +2288,35 @@ class Flatten(nn.Module):
 
 class ChannelGate(nn.Module):
 
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg',
-        'max']):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max']):
         super(ChannelGate, self).__init__()
         self.gate_channels = gate_channels
-        self.mlp0 = nn.Sequential(Flatten(), nn.Linear(gate_channels, 
-            gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(
-            gate_channels // reduction_ratio, gate_channels))
-        self.mlp1 = nn.Sequential(Flatten(), nn.Linear(gate_channels, 
-            gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(
-            gate_channels // reduction_ratio, gate_channels))
+        self.mlp0 = nn.Sequential(Flatten(), nn.Linear(gate_channels, gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(gate_channels // reduction_ratio, gate_channels))
+        self.mlp1 = nn.Sequential(Flatten(), nn.Linear(gate_channels, gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(gate_channels // reduction_ratio, gate_channels))
         self.pool_types = pool_types
 
     def forward(self, x):
         channel_att_sum = None
         for pool_type in self.pool_types:
             if pool_type == 'avg':
-                avg_pool = F.avg_pool2d(x, (x.size(2), x.size(3)), stride=(
-                    x.size(2), x.size(3)))
+                avg_pool = F.avg_pool2d(x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp0(avg_pool)
             elif pool_type == 'max':
-                max_pool = F.max_pool2d(x, (x.size(2), x.size(3)), stride=(
-                    x.size(2), x.size(3)))
+                max_pool = F.max_pool2d(x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp1(max_pool)
             if channel_att_sum is None:
                 channel_att_sum = channel_att_raw
             else:
                 channel_att_sum = channel_att_sum + channel_att_raw
-        scale = torch.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3
-            ).expand_as(x)
+        scale = torch.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3).expand_as(x)
         return x * scale
 
 
 class SE(nn.Module):
 
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg',
-        'max'], no_spatial=False):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max'], no_spatial=False):
         super(SE, self).__init__()
-        self.ChannelGate = ChannelGate(gate_channels, reduction_ratio,
-            pool_types)
+        self.ChannelGate = ChannelGate(gate_channels, reduction_ratio, pool_types)
 
     def forward(self, x):
         x_out = self.ChannelGate(x)
@@ -2520,16 +2325,13 @@ class SE(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1,
-        act=nn.ReLU(True)):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1, act=nn.ReLU(True)):
         super(Block, self).__init__()
         self.res_scale = res_scale
         body = []
-        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding=kernel_size // 2)))
         body.append(act)
-        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding=kernel_size // 2)))
         self.body = nn.Sequential(*body)
 
     def forward(self, x):
@@ -2549,14 +2351,12 @@ class WDSR(nn.Module):
         kernel_size = 3
         act = nn.ReLU(True)
         wn = lambda x: torch.nn.utils.weight_norm(x)
-        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([args.
-            r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
+        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([args.r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
         head = []
         head.append(wn(nn.Conv2d(args.n_colors, n_feats, 3, padding=3 // 2)))
         body = []
         for i in range(n_resblocks):
-            body.append(Block(n_feats, kernel_size, args.block_feats, wn=wn,
-                res_scale=args.res_scale, act=act))
+            body.append(Block(n_feats, kernel_size, args.block_feats, wn=wn, res_scale=args.res_scale, act=act))
         tail = []
         out_feats = scale * scale * args.n_colors
         tail.append(wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2)))
@@ -2594,16 +2394,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -2616,8 +2413,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -2683,8 +2479,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -2702,8 +2497,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -2716,8 +2510,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -2725,9 +2518,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -2741,8 +2532,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -2762,9 +2552,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -2775,8 +2563,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -2835,8 +2622,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -2882,21 +2668,18 @@ class Model(nn.Module):
             kwargs = {}
         load_from = None
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.get_model()
-                    .url, model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.get_model().url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.get_model().load_state_dict(load_from, strict=False)
 
@@ -2909,9 +2692,7 @@ class Model(nn.Module):
         _, _, h, w = args[0].size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w -
-            w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:
-            h, w - w_size:w]] for a in args]
+        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w - w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:h, w - w_size:w]] for a in args]
         list_y = []
         if w_size * h_size < min_size:
             for i in range(0, 4, n_GPUs):
@@ -2942,12 +2723,9 @@ class Model(nn.Module):
         y = [_y[0].new(b, c, h, w) for _y in list_y]
         for _list_y, _y in zip(list_y, y):
             _y[:, :, :h_half, :w_half] = _list_y[0][:, :, :h_half, :w_half]
-            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size -
-                w + w_half:]
-            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h +
-                h_half:, :w_half]
-            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h +
-                h_half:, w_size - w + w_half:]
+            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size - w + w_half:]
+            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h + h_half:, :w_half]
+            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h + h_half:, w_size - w + w_half:]
         if len(y) == 1:
             y = y[0]
         return y
@@ -3000,8 +2778,7 @@ class Model(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -3011,8 +2788,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -3023,8 +2799,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.PReLU(1, 0.25), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.PReLU(1, 0.25), res_scale=1):
         super(ResBlock, self).__init__()
         self.conv1 = conv(n_feats, n_feats, kernel_size, bias=bias)
         self.conv2 = conv(n_feats, n_feats, kernel_size, bias=bias)
@@ -3034,8 +2809,7 @@ class ResBlock(nn.Module):
         self.relu2 = nn.PReLU(n_feats, 0.25)
         self.relu3 = nn.PReLU(n_feats, 0.25)
         self.relu4 = nn.PReLU(n_feats, 0.25)
-        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True
-            )
+        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True)
 
     def forward(self, x):
         yn = x
@@ -3087,18 +2861,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -3122,24 +2892,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -3166,10 +2932,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -3179,8 +2942,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -3201,13 +2963,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -3223,8 +2982,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -3256,27 +3014,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -3308,16 +3055,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -3330,8 +3074,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -3397,8 +3140,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -3416,8 +3158,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -3430,8 +3171,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -3439,9 +3179,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -3455,8 +3193,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -3476,9 +3213,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -3489,8 +3224,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -3549,8 +3283,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -3596,21 +3329,18 @@ class Model(nn.Module):
             kwargs = {}
         load_from = None
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.get_model()
-                    .url, model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.get_model().url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.get_model().load_state_dict(load_from, strict=False)
 
@@ -3623,9 +3353,7 @@ class Model(nn.Module):
         _, _, h, w = args[0].size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w -
-            w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:
-            h, w - w_size:w]] for a in args]
+        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w - w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:h, w - w_size:w]] for a in args]
         list_y = []
         if w_size * h_size < min_size:
             for i in range(0, 4, n_GPUs):
@@ -3656,12 +3384,9 @@ class Model(nn.Module):
         y = [_y[0].new(b, c, h, w) for _y in list_y]
         for _list_y, _y in zip(list_y, y):
             _y[:, :, :h_half, :w_half] = _list_y[0][:, :, :h_half, :w_half]
-            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size -
-                w + w_half:]
-            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h +
-                h_half:, :w_half]
-            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h +
-                h_half:, w_size - w + w_half:]
+            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size - w + w_half:]
+            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h + h_half:, :w_half]
+            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h + h_half:, w_size - w + w_half:]
         if len(y) == 1:
             y = y[0]
         return y
@@ -3714,8 +3439,7 @@ class Model(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -3725,8 +3449,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -3737,8 +3460,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.PReLU(1, 0.25), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.PReLU(1, 0.25), res_scale=1):
         super(ResBlock, self).__init__()
         self.conv1 = conv(n_feats, n_feats, kernel_size, bias=bias)
         self.conv2 = conv(n_feats, n_feats, kernel_size, bias=bias)
@@ -3748,8 +3470,7 @@ class ResBlock(nn.Module):
         self.relu2 = nn.PReLU(n_feats, 0.25)
         self.relu3 = nn.PReLU(n_feats, 0.25)
         self.relu4 = nn.PReLU(n_feats, 0.25)
-        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True
-            )
+        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True)
 
     def forward(self, x):
         yn = x
@@ -3801,18 +3522,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -3836,24 +3553,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -3880,10 +3593,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -3893,8 +3603,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -3915,13 +3624,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -3937,8 +3643,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -3970,27 +3675,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -4022,16 +3716,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -4044,8 +3735,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -4111,8 +3801,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -4130,8 +3819,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -4144,8 +3832,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -4153,9 +3840,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -4169,8 +3854,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -4190,9 +3874,7 @@ class Discriminator(nn.Module):
         depth = 7
 
         def _block(_in_channels, _out_channels, stride=1):
-            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3,
-                padding=1, stride=stride, bias=False), nn.BatchNorm2d(
-                _out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            return nn.Sequential(nn.Conv2d(_in_channels, _out_channels, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(_out_channels), nn.LeakyReLU(negative_slope=0.2, inplace=True))
         m_features = [_block(in_channels, out_channels)]
         for i in range(depth):
             in_channels = out_channels
@@ -4203,8 +3885,7 @@ class Discriminator(nn.Module):
                 stride = 2
             m_features.append(_block(in_channels, out_channels, stride=stride))
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn
-            .LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Linear(1024, 1)]
         self.features = nn.Sequential(*m_features)
         self.classifier = nn.Sequential(*m_classifier)
 
@@ -4263,8 +3944,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=
-            args.resume, cpu=args.cpu)
+        self.load(ckp.get_path('model'), pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -4310,21 +3990,18 @@ class Model(nn.Module):
             kwargs = {}
         load_from = None
         if resume == -1:
-            load_from = torch.load(os.path.join(apath, 'model_latest.pt'),
-                **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_latest.pt'), **kwargs)
         elif resume == 0:
             if pre_train == 'download':
                 None
                 dir_model = os.path.join('..', 'models')
                 os.makedirs(dir_model, exist_ok=True)
-                load_from = torch.utils.model_zoo.load_url(self.get_model()
-                    .url, model_dir=dir_model, **kwargs)
+                load_from = torch.utils.model_zoo.load_url(self.get_model().url, model_dir=dir_model, **kwargs)
             elif pre_train:
                 None
                 load_from = torch.load(pre_train, **kwargs)
         else:
-            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format
-                (resume)), **kwargs)
+            load_from = torch.load(os.path.join(apath, 'model_{}.pt'.format(resume)), **kwargs)
         if load_from:
             self.get_model().load_state_dict(load_from, strict=False)
 
@@ -4337,9 +4014,7 @@ class Model(nn.Module):
         _, _, h, w = args[0].size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w -
-            w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:
-            h, w - w_size:w]] for a in args]
+        list_x = [[a[:, :, 0:h_size, 0:w_size], a[:, :, 0:h_size, w - w_size:w], a[:, :, h - h_size:h, 0:w_size], a[:, :, h - h_size:h, w - w_size:w]] for a in args]
         list_y = []
         if w_size * h_size < min_size:
             for i in range(0, 4, n_GPUs):
@@ -4370,12 +4045,9 @@ class Model(nn.Module):
         y = [_y[0].new(b, c, h, w) for _y in list_y]
         for _list_y, _y in zip(list_y, y):
             _y[:, :, :h_half, :w_half] = _list_y[0][:, :, :h_half, :w_half]
-            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size -
-                w + w_half:]
-            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h +
-                h_half:, :w_half]
-            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h +
-                h_half:, w_size - w + w_half:]
+            _y[:, :, :h_half, w_half:] = _list_y[1][:, :, :h_half, w_size - w + w_half:]
+            _y[:, :, h_half:, :w_half] = _list_y[2][:, :, h_size - h + h_half:, :w_half]
+            _y[:, :, h_half:, w_half:] = _list_y[3][:, :, h_size - h + h_half:, w_size - w + w_half:]
         if len(y) == 1:
             y = y[0]
         return y
@@ -4428,8 +4100,7 @@ class Model(nn.Module):
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std
-        =(1.0, 1.0, 1.0), sign=-1):
+    def __init__(self, rgb_range, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
         self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
@@ -4439,8 +4110,7 @@ class MeanShift(nn.Conv2d):
 
 class BasicBlock(nn.Sequential):
 
-    def __init__(self, conv, in_channels, out_channels, kernel_size, stride
-        =1, bias=False, bn=True, act=nn.ReLU(True)):
+    def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
         m = [conv(in_channels, out_channels, kernel_size, bias=bias)]
         if bn:
             m.append(nn.BatchNorm2d(out_channels))
@@ -4451,8 +4121,7 @@ class BasicBlock(nn.Sequential):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act
-        =nn.PReLU(1, 0.25), res_scale=1):
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.PReLU(1, 0.25), res_scale=1):
         super(ResBlock, self).__init__()
         self.conv1 = conv(n_feats, n_feats, kernel_size, bias=bias)
         self.conv2 = conv(n_feats, n_feats, kernel_size, bias=bias)
@@ -4460,16 +4129,11 @@ class ResBlock(nn.Module):
         self.relu1 = nn.PReLU(n_feats, 0.25)
         self.relu2 = nn.PReLU(n_feats, 0.25)
         self.relu3 = nn.PReLU(n_feats, 0.25)
-        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True
-            )
-        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True
-            )
-        self.scale3 = nn.Parameter(torch.FloatTensor([-1.0]), requires_grad
-            =True)
-        self.scale4 = nn.Parameter(torch.FloatTensor([4.0]), requires_grad=True
-            )
-        self.scale5 = nn.Parameter(torch.FloatTensor([1 / 6]),
-            requires_grad=True)
+        self.scale1 = nn.Parameter(torch.FloatTensor([0.5]), requires_grad=True)
+        self.scale2 = nn.Parameter(torch.FloatTensor([2.0]), requires_grad=True)
+        self.scale3 = nn.Parameter(torch.FloatTensor([-1.0]), requires_grad=True)
+        self.scale4 = nn.Parameter(torch.FloatTensor([4.0]), requires_grad=True)
+        self.scale5 = nn.Parameter(torch.FloatTensor([1 / 6]), requires_grad=True)
 
     def forward(self, x):
         yn = x
@@ -4521,18 +4185,14 @@ class DenseProjection(nn.Module):
     def __init__(self, in_channels, nr, scale, up=True, bottleneck=True):
         super(DenseProjection, self).__init__()
         if bottleneck:
-            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1),
-                nn.PReLU(nr)])
+            self.bottleneck = nn.Sequential(*[nn.Conv2d(in_channels, nr, 1), nn.PReLU(nr)])
             inter_channels = nr
         else:
             self.bottleneck = None
             inter_channels = in_channels
-        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
-        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels,
-            scale, not up), nn.PReLU(inter_channels)])
-        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr,
-            scale, up), nn.PReLU(nr)])
+        self.conv_1 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
+        self.conv_2 = nn.Sequential(*[projection_conv(nr, inter_channels, scale, not up), nn.PReLU(inter_channels)])
+        self.conv_3 = nn.Sequential(*[projection_conv(inter_channels, nr, scale, up), nn.PReLU(nr)])
 
     def forward(self, x):
         if self.bottleneck is not None:
@@ -4556,24 +4216,20 @@ class DDBPN(nn.Module):
         rgb_mean = 0.4488, 0.4371, 0.404
         rgb_std = 1.0, 1.0, 1.0
         self.sub_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std)
-        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0),
-            nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
+        initial = [nn.Conv2d(args.n_colors, n0, 3, padding=1), nn.PReLU(n0), nn.Conv2d(n0, nr, 1), nn.PReLU(nr)]
         self.initial = nn.Sequential(*initial)
         self.upmodules = nn.ModuleList()
         self.downmodules = nn.ModuleList()
         channels = nr
         for i in range(self.depth):
-            self.upmodules.append(DenseProjection(channels, nr, scale, True,
-                i > 1))
+            self.upmodules.append(DenseProjection(channels, nr, scale, True, i > 1))
             if i != 0:
                 channels += nr
         channels = nr
         for i in range(self.depth - 1):
-            self.downmodules.append(DenseProjection(channels, nr, scale, 
-                False, i != 0))
+            self.downmodules.append(DenseProjection(channels, nr, scale, False, i != 0))
             channels += nr
-        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3,
-            padding=1)]
+        reconstruction = [nn.Conv2d(self.depth * nr, args.n_colors, 3, padding=1)]
         self.reconstruction = nn.Sequential(*reconstruction)
         self.add_mean = common.MeanShift(args.rgb_range, rgb_mean, rgb_std, 1)
 
@@ -4600,10 +4256,7 @@ class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_du = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -4613,8 +4266,7 @@ class CALayer(nn.Module):
 
 class RCAB(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=
-        False, act=nn.ReLU(True), res_scale=1):
+    def __init__(self, conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
         super(RCAB, self).__init__()
         modules_body = []
         for i in range(2):
@@ -4635,13 +4287,10 @@ class RCAB(nn.Module):
 
 class ResidualGroup(nn.Module):
 
-    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale,
-        n_resblocks):
+    def __init__(self, conv, n_feat, kernel_size, reduction, act, res_scale, n_resblocks):
         super(ResidualGroup, self).__init__()
         modules_body = []
-        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=
-            True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(
-            n_resblocks)]
+        modules_body = [RCAB(conv, n_feat, kernel_size, reduction, bias=True, bn=False, act=nn.ReLU(True), res_scale=1) for _ in range(n_resblocks)]
         modules_body.append(conv(n_feat, n_feat, kernel_size))
         self.body = nn.Sequential(*modules_body)
 
@@ -4657,8 +4306,7 @@ class RDB_Conv(nn.Module):
         super(RDB_Conv, self).__init__()
         Cin = inChannels
         G = growRate
-        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize -
-            1) // 2, stride=1), nn.ReLU()])
+        self.conv = nn.Sequential(*[nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1), nn.ReLU()])
 
     def forward(self, x):
         out = self.conv(x)
@@ -4690,27 +4338,16 @@ class RDN(nn.Module):
         G0 = args.G0
         kSize = args.RDNkSize
         self.D, C, G = {'A': (20, 6, 32), 'B': (16, 8, 64)}[args.RDNconfig]
-        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize -
-            1) // 2, stride=1)
-        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)
+        self.SFENet1 = nn.Conv2d(args.n_colors, G0, kSize, padding=(kSize - 1) // 2, stride=1)
+        self.SFENet2 = nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)
         self.RDBs = nn.ModuleList()
         for i in range(self.D):
             self.RDBs.append(RDB(growRate0=G0, growRate=G, nConvLayers=C))
-        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0,
-            stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2,
-            stride=1)])
+        self.GFF = nn.Sequential(*[nn.Conv2d(self.D * G0, G0, 1, padding=0, stride=1), nn.Conv2d(G0, G0, kSize, padding=(kSize - 1) // 2, stride=1)])
         if r == 2 or r == 3:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn
-                .Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2,
-                stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * r * r, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(r), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         elif r == 4:
-            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize,
-                padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn
-                .Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1
-                ), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize,
-                padding=(kSize - 1) // 2, stride=1)])
+            self.UPNet = nn.Sequential(*[nn.Conv2d(G0, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, G * 4, kSize, padding=(kSize - 1) // 2, stride=1), nn.PixelShuffle(2), nn.Conv2d(G, args.n_colors, kSize, padding=(kSize - 1) // 2, stride=1)])
         else:
             raise ValueError('scale must be 2 or 3 or 4.')
 
@@ -4730,38 +4367,114 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'conv': _mock_layer, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CALayer,
+     lambda: ([], {'channel': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (CBAM,
+     lambda: ([], {'gate_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (ChannelGate,
+     lambda: ([], {'gate_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (ChannelPool,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'args': _mock_config(n_colors=4, patch_size=16)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MeanShift,
+     lambda: ([], {'rgb_range': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (RCAB,
+     lambda: ([], {'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RDB,
+     lambda: ([], {'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RDB_Conv,
+     lambda: ([], {'inChannels': 4, 'growRate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SE,
+     lambda: ([], {'gate_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (SpatialGate,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_HolmesShuan_OISR_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'conv': _mock_layer, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CALayer(*[], **{'channel': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MeanShift(*[], **{'rgb_range': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(RCAB(*[], **{'conv': _mock_layer, 'n_feat': 4, 'kernel_size': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(RDB(*[], **{'growRate0': 4, 'growRate': 4, 'nConvLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(RDB_Conv(*[], **{'inChannels': 4, 'growRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ResBlock(*[], **{'conv': _mock_layer, 'n_feats': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

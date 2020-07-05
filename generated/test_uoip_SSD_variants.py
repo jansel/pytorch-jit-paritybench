@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,8 +80,7 @@ class MultiBoxLoss(nn.Module):
         neg = label == 0
         label = label.clamp(min=0)
         pos_idx = pos.unsqueeze(-1).expand_as(xloc)
-        loc_loss = F.smooth_l1_loss(xloc[pos_idx].view(-1, 4), loc[pos_idx]
-            .view(-1, 4), size_average=False)
+        loc_loss = F.smooth_l1_loss(xloc[pos_idx].view(-1, 4), loc[pos_idx].view(-1, 4), size_average=False)
         conf_loss = _softmax_cross_entropy_with_logits(xconf, label)
         hard_neg = self._hard_negative_mining(conf_loss, pos, neg, k)
         conf_loss = conf_loss * (pos + hard_neg).gt(0).float()
@@ -109,16 +109,12 @@ class FocalLoss(nn.Module):
         pos = label > 0
         neg = label == 0
         pos_idx = pos.unsqueeze(-1).expand_as(xloc)
-        loc_loss = F.smooth_l1_loss(xloc[pos_idx].view(-1, 4), loc[pos_idx]
-            .view(-1, 4), size_average=False)
+        loc_loss = F.smooth_l1_loss(xloc[pos_idx].view(-1, 4), loc[pos_idx].view(-1, 4), size_average=False)
         pos_idx = pos.unsqueeze(-1).expand_as(xconf)
-        pos_conf_loss = _softmax_focal_loss(xconf[pos_idx].view(-1, xconf.
-            size(-1)), label[pos])
+        pos_conf_loss = _softmax_focal_loss(xconf[pos_idx].view(-1, xconf.size(-1)), label[pos])
         neg_idx = neg.unsqueeze(-1).expand_as(xconf)
-        neg_conf_loss = _softmax_focal_loss(xconf[neg_idx].view(-1, xconf.
-            size(-1)), label[neg])
-        conf_loss = self.alpha * pos_conf_loss + (1 - self.alpha
-            ) * neg_conf_loss
+        neg_conf_loss = _softmax_focal_loss(xconf[neg_idx].view(-1, xconf.size(-1)), label[neg])
+        conf_loss = self.alpha * pos_conf_loss + (1 - self.alpha) * neg_conf_loss
         self.count += 1
         if self.count % 1000 == 0:
             None
@@ -131,8 +127,7 @@ class L2Norm(nn.Module):
 
     def __init__(self, n_channels, scale=20):
         super(L2Norm, self).__init__()
-        self.scale = nn.Parameter(torch.FloatTensor(np.ones((1, n_channels,
-            1, 1))))
+        self.scale = nn.Parameter(torch.FloatTensor(np.ones((1, n_channels, 1, 1))))
         nn.init.constant(self.scale, scale)
 
     def forward(self, x):
@@ -141,46 +136,27 @@ class L2Norm(nn.Module):
 
 
 def bn_relu_conv(in_channels, out_channels, kernel_size, stride=1, padding=0):
-    return nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True),
-        nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding,
-        bias=False))
+    return nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False))
 
 
-def conv_bn_relu(in_channels, out_channels, kernel_size=1, stride=1, padding=0
-    ):
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU
-        (inplace=True))
+def conv_bn_relu(in_channels, out_channels, kernel_size=1, stride=1, padding=0):
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
 
 class DSOD300(nn.Module):
-    config = {'name': 'DSOD300-64-192-48-1', 'image_size': 300, 'grids': (
-        38, 19, 10, 5, 3, 1), 'aspect_ratios': ((1 / 2.0, 1, 2), (1 / 3.0, 
-        1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 
-        1, 2, 3), (1 / 2.0, 1, 2), (1 / 2.0, 1, 2)), 'steps': [(s / 300.0) for
-        s in [8, 16, 32, 64, 100, 300]], 'sizes': [(s / 300.0) for s in [30,
-        60, 111, 162, 213, 264, 315]]}
+    config = {'name': 'DSOD300-64-192-48-1', 'image_size': 300, 'grids': (38, 19, 10, 5, 3, 1), 'aspect_ratios': ((1 / 2.0, 1, 2), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 2.0, 1, 2), (1 / 2.0, 1, 2)), 'steps': [(s / 300.0) for s in [8, 16, 32, 64, 100, 300]], 'sizes': [(s / 300.0) for s in [30, 60, 111, 162, 213, 264, 315]]}
 
     def __init__(self, n_classes, growth_rate=48):
         super(DSOD300, self).__init__()
         self.n_classes = n_classes
         depth = [6, 8, 8, 8]
         channels = [(128 + growth_rate * _) for _ in np.cumsum(depth)]
-        self.Stem = nn.Sequential(conv_bn_relu(3, 64, 3, stride=2, padding=
-            1), conv_bn_relu(64, 64, 3, padding=1), conv_bn_relu(64, 128, 3,
-            padding=1), nn.MaxPool2d(2, ceil_mode=True))
-        self.Block12 = nn.Sequential(DenseBlock(128, depth[0], growth_rate),
-            Transition(channels[0], channels[0], pool=True, ceil_mode=True),
-            DenseBlock(channels[0], depth[1], growth_rate), Transition(
-            channels[1], channels[1]))
+        self.Stem = nn.Sequential(conv_bn_relu(3, 64, 3, stride=2, padding=1), conv_bn_relu(64, 64, 3, padding=1), conv_bn_relu(64, 128, 3, padding=1), nn.MaxPool2d(2, ceil_mode=True))
+        self.Block12 = nn.Sequential(DenseBlock(128, depth[0], growth_rate), Transition(channels[0], channels[0], pool=True, ceil_mode=True), DenseBlock(channels[0], depth[1], growth_rate), Transition(channels[1], channels[1]))
         self.pool2 = nn.MaxPool2d(2, ceil_mode=True)
         self.conv2 = bn_relu_conv(channels[1], 256, 1)
-        self.Block34 = nn.Sequential(DenseBlock(channels[1], depth[2],
-            growth_rate), Transition(channels[2], channels[2]), DenseBlock(
-            channels[2], depth[3], growth_rate), Transition(channels[3], 256))
-        self.Extra = nn.ModuleList([LHRH(512, 512, ceil_mode=True), LHRH(
-            512, 256, ceil_mode=True), LHRH(256, 256, ceil_mode=True), LHRH
-            (256, 256)])
+        self.Block34 = nn.Sequential(DenseBlock(channels[1], depth[2], growth_rate), Transition(channels[2], channels[2]), DenseBlock(channels[2], depth[3], growth_rate), Transition(channels[3], 256))
+        self.Extra = nn.ModuleList([LHRH(512, 512, ceil_mode=True), LHRH(512, 256, ceil_mode=True), LHRH(256, 256, ceil_mode=True), LHRH(256, 256)])
         n_channels = [channels[1], 512, 512, 256, 256, 256]
         self.L2Norm = nn.ModuleList()
         self.Loc = nn.ModuleList()
@@ -189,8 +165,7 @@ class DSOD300(nn.Module):
             n = len(ar) + 1
             self.L2Norm.append(L2Norm(n_channels[i], 20))
             self.Loc.append(nn.Conv2d(n_channels[i], n * 4, 3, padding=1))
-            self.Conf.append(nn.Conv2d(n_channels[i], n * (self.n_classes +
-                1), 3, padding=1))
+            self.Conf.append(nn.Conv2d(n_channels[i], n * (self.n_classes + 1), 3, padding=1))
         self.apply(self.weights_init)
 
     def forward(self, x):
@@ -217,8 +192,7 @@ class DSOD300(nn.Module):
             loc = loc.permute(0, 2, 3, 1).contiguous().view(loc.size(0), -1, 4)
             locs.append(loc)
             conf = self.Conf[i](x)
-            conf = conf.permute(0, 2, 3, 1).contiguous().view(conf.size(0),
-                -1, self.n_classes + 1)
+            conf = conf.permute(0, 2, 3, 1).contiguous().view(conf.size(0), -1, self.n_classes + 1)
             confs.append(conf)
         return torch.cat(locs, dim=1), torch.cat(confs, dim=1)
 
@@ -246,21 +220,18 @@ class DenseBlock(nn.Module):
             def __init__(self, in_channels, growth_rate, widen=1, dropout=0.0):
                 super(DenseLayer, self).__init__()
                 self.conv1 = bn_relu_conv(in_channels, growth_rate * widen, 1)
-                self.conv2 = bn_relu_conv(growth_rate * widen, growth_rate,
-                    3, padding=1)
+                self.conv2 = bn_relu_conv(growth_rate * widen, growth_rate, 3, padding=1)
                 self.dropout = dropout
 
             def forward(self, x):
                 out = self.conv1(x)
                 out = self.conv2(out)
                 if self.dropout > 0:
-                    out = F.dropout(out, p=self.dropout, training=self.training
-                        )
+                    out = F.dropout(out, p=self.dropout, training=self.training)
                 return torch.cat([x, out], 1)
         layers = []
         for i in range(block_depth):
-            layers.append(DenseLayer(in_channels + i * growth_rate,
-                growth_rate))
+            layers.append(DenseLayer(in_channels + i * growth_rate, growth_rate))
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -269,12 +240,10 @@ class DenseBlock(nn.Module):
 
 class Transition(nn.Module):
 
-    def __init__(self, in_channels, out_channels, pool=False, ceil_mode=
-        False, dropout=0.0):
+    def __init__(self, in_channels, out_channels, pool=False, ceil_mode=False, dropout=0.0):
         super(Transition, self).__init__()
         self.conv = bn_relu_conv(in_channels, out_channels, 1)
-        self.pool = nn.MaxPool2d(2, ceil_mode=ceil_mode
-            ) if pool else nn.Sequential()
+        self.pool = nn.MaxPool2d(2, ceil_mode=ceil_mode) if pool else nn.Sequential()
         self.dropout = dropout
 
     def forward(self, x):
@@ -286,13 +255,10 @@ class Transition(nn.Module):
 
 class LHRH(nn.Module):
 
-    def __init__(self, in_channels, out_channels, widen=1, dropout=0.0,
-        ceil_mode=False):
+    def __init__(self, in_channels, out_channels, widen=1, dropout=0.0, ceil_mode=False):
         super(LHRH, self).__init__()
-        self.conv1_1 = bn_relu_conv(in_channels, int(out_channels / 2 *
-            widen), 1)
-        self.conv1_2 = bn_relu_conv(int(out_channels / 2 * widen), 
-            out_channels // 2, 3, padding=1 * ceil_mode, stride=2)
+        self.conv1_1 = bn_relu_conv(in_channels, int(out_channels / 2 * widen), 1)
+        self.conv1_2 = bn_relu_conv(int(out_channels / 2 * widen), out_channels // 2, 3, padding=1 * ceil_mode, stride=2)
         self.pool2 = nn.MaxPool2d(2, ceil_mode=ceil_mode)
         self.conv2 = bn_relu_conv(in_channels, out_channels // 2, 1)
         self.dropout = dropout
@@ -316,70 +282,49 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-10
         x /= norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
 def conv_relu(in_channels, out_channels, kernel_size, stride=1, padding=0):
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding), nn.ReLU(inplace=True))
 
 
 def deconv_relu(in_channels, out_channels, in_size, out_size):
     if out_size == 2 * in_size:
-        dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4,
-            stride=2, padding=1)
+        dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1)
     elif out_size == 2 * in_size - 1:
-        dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3,
-            stride=2, padding=1)
+        dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1)
     elif out_size == 2 * in_size + 1:
-        dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3,
-            stride=2, padding=0)
+        dconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=2, padding=0)
     else:
         raise ValueError('invalid size')
     return nn.Sequential(dconv, nn.ReLU(inplace=True))
 
 
 class RUN300(nn.Module):
-    config = {'name': 'RUN300-VGG16', 'image_size': 300, 'grids': (38, 19, 
-        10, 5, 3, 1), 'aspect_ratios': (1 / 3.0, 1 / 2.0, 1, 2, 3), 'steps':
-        [(s / 300.0) for s in [8, 16, 32, 64, 100, 300]], 'sizes': [(s / 
-        300.0) for s in (30, 60, 111, 162, 213, 264, 315)]}
+    config = {'name': 'RUN300-VGG16', 'image_size': 300, 'grids': (38, 19, 10, 5, 3, 1), 'aspect_ratios': (1 / 3.0, 1 / 2.0, 1, 2, 3), 'steps': [(s / 300.0) for s in [8, 16, 32, 64, 100, 300]], 'sizes': [(s / 300.0) for s in (30, 60, 111, 162, 213, 264, 315)]}
 
     def __init__(self, n_classes):
         super(RUN300, self).__init__()
         self.n_classes = n_classes
         self.Base = VGG16()
-        self.Extra = nn.Sequential(OrderedDict([('extra1_1', nn.Conv2d(1024,
-            256, 1)), ('extra1_2', nn.Conv2d(256, 512, 3, padding=1, stride
-            =2)), ('extra2_1', nn.Conv2d(512, 128, 1)), ('extra2_2', nn.
-            Conv2d(128, 256, 3, padding=1, stride=2)), ('extra3_1', nn.
-            Conv2d(256, 128, 1)), ('extra3_2', nn.Conv2d(128, 256, 3)), (
-            'extra4_1', nn.Conv2d(256, 128, 1)), ('extra4_2', nn.Conv2d(128,
-            256, 3))]))
-        self.pred_layers = ['conv4_3', 'conv7', 'extra1_2', 'extra2_2',
-            'extra3_2', 'extra4_2']
+        self.Extra = nn.Sequential(OrderedDict([('extra1_1', nn.Conv2d(1024, 256, 1)), ('extra1_2', nn.Conv2d(256, 512, 3, padding=1, stride=2)), ('extra2_1', nn.Conv2d(512, 128, 1)), ('extra2_2', nn.Conv2d(128, 256, 3, padding=1, stride=2)), ('extra3_1', nn.Conv2d(256, 128, 1)), ('extra3_2', nn.Conv2d(128, 256, 3)), ('extra4_1', nn.Conv2d(256, 128, 1)), ('extra4_2', nn.Conv2d(128, 256, 3))]))
+        self.pred_layers = ['conv4_3', 'conv7', 'extra1_2', 'extra2_2', 'extra3_2', 'extra4_2']
         n_channels = [512, 1024, 512, 256, 256, 256]
         self.L2Norm = nn.ModuleList([L2Norm(512, 20)])
         self.l2norm_layers = ['conv4_3']
         self.ResBlocks = nn.ModuleList()
         for i in range(len(n_channels) - 1):
-            self.ResBlocks.append(ThreeWay(n_channels[i], n_channels[i + 1],
-                self.config['grids'][i], self.config['grids'][i + 1],
-                out_channels=256))
+            self.ResBlocks.append(ThreeWay(n_channels[i], n_channels[i + 1], self.config['grids'][i], self.config['grids'][i + 1], out_channels=256))
         self.ResBlocks.append(TwoWay(n_channels[-1], out_channels=256))
         n_boxes = len(self.config['aspect_ratios']) + 1
-        self.Loc = nn.Sequential(nn.Conv2d(256, 256, 1), nn.ReLU(inplace=
-            True), nn.Conv2d(256, n_boxes * 4, 3, padding=1))
-        self.Conf = nn.Sequential(nn.Conv2d(256, 256, 1), nn.ReLU(inplace=
-            True), nn.Conv2d(256, n_boxes * (self.n_classes + 1), 3, padding=1)
-            )
+        self.Loc = nn.Sequential(nn.Conv2d(256, 256, 1), nn.ReLU(inplace=True), nn.Conv2d(256, n_boxes * 4, 3, padding=1))
+        self.Conf = nn.Sequential(nn.Conv2d(256, 256, 1), nn.ReLU(inplace=True), nn.Conv2d(256, n_boxes * (self.n_classes + 1), 3, padding=1))
 
     def forward(self, x):
         xs = []
-        for name, m in itertools.chain(self.Base._modules.items(), self.
-            Extra._modules.items()):
+        for name, m in itertools.chain(self.Base._modules.items(), self.Extra._modules.items()):
             if isinstance(m, nn.Conv2d):
                 x = F.relu(m(x), inplace=True)
             else:
@@ -412,8 +357,7 @@ class RUN300(nn.Module):
             loc = loc.permute(0, 2, 3, 1).contiguous().view(loc.size(0), -1, 4)
             locs.append(loc)
             conf = self.Conf(y)
-            conf = conf.permute(0, 2, 3, 1).contiguous().view(conf.size(0),
-                -1, self.n_classes + 1)
+            conf = conf.permute(0, 2, 3, 1).contiguous().view(conf.size(0), -1, self.n_classes + 1)
             confs.append(conf)
         return torch.cat(locs, dim=1), torch.cat(confs, dim=1)
 
@@ -439,9 +383,7 @@ class TwoWay(nn.Module):
             self.branch1 = nn.Sequential()
         else:
             self.branch1 = conv_relu(in_channels, out_channels, 1)
-        self.branch2 = nn.Sequential(conv_relu(in_channels, out_channels //
-            2, 1), conv_relu(out_channels // 2, out_channels // 2, 3,
-            padding=1), conv_relu(out_channels // 2, out_channels, 1))
+        self.branch2 = nn.Sequential(conv_relu(in_channels, out_channels // 2, 1), conv_relu(out_channels // 2, out_channels // 2, 3, padding=1), conv_relu(out_channels // 2, out_channels, 1))
 
     def forward(self, x):
         return self.branch1(x) + self.branch2(x)
@@ -456,32 +398,19 @@ class L2Norm(nn.Module):
 
     def forward(self, x):
         x /= x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-10
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
 class SSD300(nn.Module):
-    config = {'name': 'SSD300-VGG16', 'image_size': 300, 'grids': (38, 19, 
-        10, 5, 3, 1), 'aspect_ratios': ((1 / 2.0, 1, 2), (1 / 3.0, 1 / 2.0,
-        1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3),
-        (1 / 2.0, 1, 2), (1 / 2.0, 1, 2)), 'steps': [(s / 300.0) for s in [
-        8, 16, 32, 64, 100, 300]], 'sizes': [(s / 300.0) for s in [30, 60, 
-        111, 162, 213, 264, 315]], 'prior_variance': [0.1, 0.1, 0.2, 0.2]}
+    config = {'name': 'SSD300-VGG16', 'image_size': 300, 'grids': (38, 19, 10, 5, 3, 1), 'aspect_ratios': ((1 / 2.0, 1, 2), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 2.0, 1, 2), (1 / 2.0, 1, 2)), 'steps': [(s / 300.0) for s in [8, 16, 32, 64, 100, 300]], 'sizes': [(s / 300.0) for s in [30, 60, 111, 162, 213, 264, 315]], 'prior_variance': [0.1, 0.1, 0.2, 0.2]}
 
     def __init__(self, n_classes):
         super(SSD300, self).__init__()
         self.n_classes = n_classes
         self.Base = VGG16()
-        self.Extra = nn.Sequential(OrderedDict([('extra1_1', nn.Conv2d(1024,
-            256, 1)), ('extra1_2', nn.Conv2d(256, 512, 3, padding=1, stride
-            =2)), ('extra2_1', nn.Conv2d(512, 128, 1)), ('extra2_2', nn.
-            Conv2d(128, 256, 3, padding=1, stride=2)), ('extra3_1', nn.
-            Conv2d(256, 128, 1)), ('extra3_2', nn.Conv2d(128, 256, 3)), (
-            'extra4_1', nn.Conv2d(256, 128, 1)), ('extra4_2', nn.Conv2d(128,
-            256, 3))]))
-        self.pred_layers = ['conv4_3', 'conv7', 'extra1_2', 'extra2_2',
-            'extra3_2', 'extra4_2']
+        self.Extra = nn.Sequential(OrderedDict([('extra1_1', nn.Conv2d(1024, 256, 1)), ('extra1_2', nn.Conv2d(256, 512, 3, padding=1, stride=2)), ('extra2_1', nn.Conv2d(512, 128, 1)), ('extra2_2', nn.Conv2d(128, 256, 3, padding=1, stride=2)), ('extra3_1', nn.Conv2d(256, 128, 1)), ('extra3_2', nn.Conv2d(128, 256, 3)), ('extra4_1', nn.Conv2d(256, 128, 1)), ('extra4_2', nn.Conv2d(128, 256, 3))]))
+        self.pred_layers = ['conv4_3', 'conv7', 'extra1_2', 'extra2_2', 'extra3_2', 'extra4_2']
         n_channels = [512, 1024, 512, 256, 256, 256]
         self.L2Norm = nn.ModuleList([L2Norm(512, 20)])
         self.norm_layers = ['conv4_3']
@@ -490,13 +419,11 @@ class SSD300(nn.Module):
         for i, ar in enumerate(self.config['aspect_ratios']):
             n = len(ar) + 1
             self.Loc.append(nn.Conv2d(n_channels[i], n * 4, 3, padding=1))
-            self.Conf.append(nn.Conv2d(n_channels[i], n * (self.n_classes +
-                1), 3, padding=1))
+            self.Conf.append(nn.Conv2d(n_channels[i], n * (self.n_classes + 1), 3, padding=1))
 
     def forward(self, x):
         xs = []
-        for name, m in itertools.chain(self.Base._modules.items(), self.
-            Extra._modules.items()):
+        for name, m in itertools.chain(self.Base._modules.items(), self.Extra._modules.items()):
             if isinstance(m, nn.Conv2d):
                 x = F.relu(m(x), inplace=True)
             else:
@@ -517,8 +444,7 @@ class SSD300(nn.Module):
             loc = loc.permute(0, 2, 3, 1).contiguous().view(loc.size(0), -1, 4)
             locs.append(loc)
             conf = self.Conf[i](x)
-            conf = conf.permute(0, 2, 3, 1).contiguous().view(conf.size(0),
-                -1, self.n_classes + 1)
+            conf = conf.permute(0, 2, 3, 1).contiguous().view(conf.size(0), -1, self.n_classes + 1)
             confs.append(conf)
         return torch.cat(locs, dim=1), torch.cat(confs, dim=1)
 
@@ -566,11 +492,7 @@ class VGG16(nn.Module):
 
     def load_pretrained(self, path):
         weights = torch.load(path)
-        lookup = {'conv1_1': '0', 'conv1_2': '2', 'conv2_1': '5', 'conv2_2':
-            '7', 'conv3_1': '10', 'conv3_2': '12', 'conv3_3': '14',
-            'conv4_1': '17', 'conv4_2': '19', 'conv4_3': '21', 'conv5_1':
-            '24', 'conv5_2': '26', 'conv5_3': '28', 'conv6': '31', 'conv7':
-            '33'}
+        lookup = {'conv1_1': '0', 'conv1_2': '2', 'conv2_1': '5', 'conv2_2': '7', 'conv3_1': '10', 'conv3_2': '12', 'conv3_3': '14', 'conv4_1': '17', 'conv4_2': '19', 'conv4_3': '21', 'conv5_1': '24', 'conv5_2': '26', 'conv5_3': '28', 'conv6': '31', 'conv7': '33'}
         model_dict = self.state_dict()
         pretrained_dict = {}
         for name, ind in lookup.items():
@@ -584,17 +506,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DenseBlock,
+     lambda: ([], {'in_channels': 4, 'block_depth': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SSD300,
+     lambda: ([], {'n_classes': 4}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (Transition,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TwoWay,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_uoip_SSD_variants(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DenseBlock(*[], **{'in_channels': 4, 'block_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Transition(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(TwoWay(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

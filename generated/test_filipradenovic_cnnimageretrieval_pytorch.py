@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,8 +106,7 @@ class ContrastiveLoss(nn.Module):
         return LF.contrastive_loss(x, label, margin=self.margin, eps=self.eps)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'margin=' + '{:.4f}'.format(self
-            .margin) + ')'
+        return self.__class__.__name__ + '(' + 'margin=' + '{:.4f}'.format(self.margin) + ')'
 
 
 class TripletLoss(nn.Module):
@@ -119,8 +119,7 @@ class TripletLoss(nn.Module):
         return LF.triplet_loss(x, label, margin=self.margin)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'margin=' + '{:.4f}'.format(self
-            .margin) + ')'
+        return self.__class__.__name__ + '(' + 'margin=' + '{:.4f}'.format(self.margin) + ')'
 
 
 class L2N(nn.Module):
@@ -184,8 +183,7 @@ class GeM(nn.Module):
         return LF.gem(x, p=self.p, eps=self.eps)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'p=' + '{:.4f}'.format(self.
-            p.data.tolist()[0]) + ', ' + 'eps=' + str(self.eps) + ')'
+        return self.__class__.__name__ + '(' + 'p=' + '{:.4f}'.format(self.p.data.tolist()[0]) + ', ' + 'eps=' + str(self.eps) + ')'
 
 
 class GeMmp(nn.Module):
@@ -200,8 +198,7 @@ class GeMmp(nn.Module):
         return LF.gem(x, p=self.p.unsqueeze(-1).unsqueeze(-1), eps=self.eps)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'p=' + '[{}]'.format(self.mp
-            ) + ', ' + 'eps=' + str(self.eps) + ')'
+        return self.__class__.__name__ + '(' + 'p=' + '[{}]'.format(self.mp) + ', ' + 'eps=' + str(self.eps) + ')'
 
 
 class RMAC(nn.Module):
@@ -241,8 +238,7 @@ class Rpool(nn.Module):
         return o
 
     def __repr__(self):
-        return super(Rpool, self).__repr__() + '(' + 'L=' + '{}'.format(self.L
-            ) + ')'
+        return super(Rpool, self).__repr__() + '(' + 'L=' + '{}'.format(self.L) + ')'
 
 
 class ImageRetrievalNet(nn.Module):
@@ -262,8 +258,7 @@ class ImageRetrievalNet(nn.Module):
             s = o.size()
             o = o.permute(0, 2, 3, 1).contiguous().view(-1, s[1])
             o = self.lwhiten(o)
-            o = o.view(s[0], s[2], s[3], self.lwhiten.out_features).permute(
-                0, 3, 1, 2)
+            o = o.view(s[0], s[2], s[3], self.lwhiten.out_features).permute(0, 3, 1, 2)
         o = self.norm(self.pool(o)).squeeze(-1).squeeze(-1)
         if self.whiten is not None:
             o = self.norm(self.whiten(o))
@@ -278,8 +273,7 @@ class ImageRetrievalNet(nn.Module):
     def meta_repr(self):
         tmpstr = '  (' + 'meta' + '): dict( \n'
         tmpstr += '     architecture: {}\n'.format(self.meta['architecture'])
-        tmpstr += '     local_whitening: {}\n'.format(self.meta[
-            'local_whitening'])
+        tmpstr += '     local_whitening: {}\n'.format(self.meta['local_whitening'])
         tmpstr += '     pooling: {}\n'.format(self.meta['pooling'])
         tmpstr += '     regional: {}\n'.format(self.meta['regional'])
         tmpstr += '     whitening: {}\n'.format(self.meta['whitening'])
@@ -289,10 +283,3 @@ class ImageRetrievalNet(nn.Module):
         tmpstr = tmpstr + '  )\n'
         return tmpstr
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_filipradenovic_cnnimageretrieval_pytorch(_paritybench_base):
-    pass

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -101,8 +102,7 @@ class HuEtAl(nn.Module):
             x = self.pool(self.conv(x))
         return x.numel()
 
-    def __init__(self, input_channels, n_classes, kernel_size=None,
-        pool_size=None):
+    def __init__(self, input_channels, n_classes, kernel_size=None, pool_size=None):
         super(HuEtAl, self).__init__()
         if kernel_size is None:
             kernel_size = math.ceil(input_channels / 9)
@@ -147,29 +147,21 @@ class HamidaEtAl(nn.Module):
         self.input_channels = input_channels
         dilation = dilation, 1, 1
         if patch_size == 3:
-            self.conv1 = nn.Conv3d(1, 20, (3, 3, 3), stride=(1, 1, 1),
-                dilation=dilation, padding=1)
+            self.conv1 = nn.Conv3d(1, 20, (3, 3, 3), stride=(1, 1, 1), dilation=dilation, padding=1)
         else:
-            self.conv1 = nn.Conv3d(1, 20, (3, 3, 3), stride=(1, 1, 1),
-                dilation=dilation, padding=0)
-        self.pool1 = nn.Conv3d(20, 20, (3, 1, 1), dilation=dilation, stride
-            =(2, 1, 1), padding=(1, 0, 0))
-        self.conv2 = nn.Conv3d(20, 35, (3, 3, 3), dilation=dilation, stride
-            =(1, 1, 1), padding=(1, 0, 0))
-        self.pool2 = nn.Conv3d(35, 35, (3, 1, 1), dilation=dilation, stride
-            =(2, 1, 1), padding=(1, 0, 0))
-        self.conv3 = nn.Conv3d(35, 35, (3, 1, 1), dilation=dilation, stride
-            =(1, 1, 1), padding=(1, 0, 0))
-        self.conv4 = nn.Conv3d(35, 35, (2, 1, 1), dilation=dilation, stride
-            =(2, 1, 1), padding=(1, 0, 0))
+            self.conv1 = nn.Conv3d(1, 20, (3, 3, 3), stride=(1, 1, 1), dilation=dilation, padding=0)
+        self.pool1 = nn.Conv3d(20, 20, (3, 1, 1), dilation=dilation, stride=(2, 1, 1), padding=(1, 0, 0))
+        self.conv2 = nn.Conv3d(20, 35, (3, 3, 3), dilation=dilation, stride=(1, 1, 1), padding=(1, 0, 0))
+        self.pool2 = nn.Conv3d(35, 35, (3, 1, 1), dilation=dilation, stride=(2, 1, 1), padding=(1, 0, 0))
+        self.conv3 = nn.Conv3d(35, 35, (3, 1, 1), dilation=dilation, stride=(1, 1, 1), padding=(1, 0, 0))
+        self.conv4 = nn.Conv3d(35, 35, (2, 1, 1), dilation=dilation, stride=(2, 1, 1), padding=(1, 0, 0))
         self.features_size = self._get_final_flattened_size()
         self.fc = nn.Linear(self.features_size, n_classes)
         self.apply(self.weight_init)
 
     def _get_final_flattened_size(self):
         with torch.no_grad():
-            x = torch.zeros((1, 1, self.input_channels, self.patch_size,
-                self.patch_size))
+            x = torch.zeros((1, 1, self.input_channels, self.patch_size, self.patch_size))
             x = self.pool1(self.conv1(x))
             x = self.pool2(self.conv2(x))
             x = self.conv3(x)
@@ -204,10 +196,8 @@ class LeeEtAl(nn.Module):
 
     def __init__(self, in_channels, n_classes):
         super(LeeEtAl, self).__init__()
-        self.conv_3x3 = nn.Conv3d(1, 128, (in_channels, 3, 3), stride=(1, 1,
-            1), padding=(0, 1, 1))
-        self.conv_1x1 = nn.Conv3d(1, 128, (in_channels, 1, 1), stride=(1, 1,
-            1), padding=0)
+        self.conv_3x3 = nn.Conv3d(1, 128, (in_channels, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1))
+        self.conv_1x1 = nn.Conv3d(1, 128, (in_channels, 1, 1), stride=(1, 1, 1), padding=0)
         self.conv1 = nn.Conv2d(256, 128, (1, 1))
         self.conv2 = nn.Conv2d(128, 128, (1, 1))
         self.conv3 = nn.Conv2d(128, 128, (1, 1))
@@ -274,8 +264,7 @@ class ChenEtAl(nn.Module):
 
     def _get_final_flattened_size(self):
         with torch.no_grad():
-            x = torch.zeros((1, 1, self.input_channels, self.patch_size,
-                self.patch_size))
+            x = torch.zeros((1, 1, self.input_channels, self.patch_size, self.patch_size))
             x = self.pool1(self.conv1(x))
             x = self.pool2(self.conv2(x))
             x = self.conv3(x)
@@ -317,16 +306,14 @@ class LiEtAl(nn.Module):
         self.n_planes = n_planes
         self.patch_size = patch_size
         self.conv1 = nn.Conv3d(1, n_planes, (7, 3, 3), padding=(1, 0, 0))
-        self.conv2 = nn.Conv3d(n_planes, 2 * n_planes, (3, 3, 3), padding=(
-            1, 0, 0))
+        self.conv2 = nn.Conv3d(n_planes, 2 * n_planes, (3, 3, 3), padding=(1, 0, 0))
         self.features_size = self._get_final_flattened_size()
         self.fc = nn.Linear(self.features_size, n_classes)
         self.apply(self.weight_init)
 
     def _get_final_flattened_size(self):
         with torch.no_grad():
-            x = torch.zeros((1, 1, self.input_channels, self.patch_size,
-                self.patch_size))
+            x = torch.zeros((1, 1, self.input_channels, self.patch_size, self.patch_size))
             x = self.conv1(x)
             x = self.conv2(x)
             _, t, c, w, h = x.size()
@@ -377,8 +364,7 @@ class HeEtAl(nn.Module):
 
     def _get_final_flattened_size(self):
         with torch.no_grad():
-            x = torch.zeros((1, 1, self.input_channels, self.patch_size,
-                self.patch_size))
+            x = torch.zeros((1, 1, self.input_channels, self.patch_size, self.patch_size))
             x = self.conv1(x)
             x2_1 = self.conv2_1(x)
             x2_2 = self.conv2_2(x)
@@ -442,8 +428,7 @@ class LuoEtAl(nn.Module):
 
     def _get_final_flattened_size(self):
         with torch.no_grad():
-            x = torch.zeros((1, 1, self.input_channels, self.patch_size,
-                self.patch_size))
+            x = torch.zeros((1, 1, self.input_channels, self.patch_size, self.patch_size))
             x = self.conv1(x)
             b = x.size(0)
             x = x.view(b, 1, -1, self.n_planes)
@@ -495,8 +480,7 @@ class SharmaEtAl(nn.Module):
 
     def _get_final_flattened_size(self):
         with torch.no_grad():
-            x = torch.zeros((1, 1, self.input_channels, self.patch_size,
-                self.patch_size))
+            x = torch.zeros((1, 1, self.input_channels, self.patch_size, self.patch_size))
             x = F.relu(self.conv1_bn(self.conv1(x)))
             x = self.pool1(x)
             None
@@ -552,21 +536,17 @@ class LiuEtAl(nn.Module):
         self.conv1_bn = nn.BatchNorm2d(80)
         self.features_sizes = self._get_sizes()
         self.fc_enc = nn.Linear(self.features_sizes[2], n_classes)
-        self.fc1_dec = nn.Linear(self.features_sizes[2], self.features_sizes[2]
-            )
+        self.fc1_dec = nn.Linear(self.features_sizes[2], self.features_sizes[2])
         self.fc1_dec_bn = nn.BatchNorm1d(self.features_sizes[2])
-        self.fc2_dec = nn.Linear(self.features_sizes[2], self.features_sizes[1]
-            )
+        self.fc2_dec = nn.Linear(self.features_sizes[2], self.features_sizes[1])
         self.fc2_dec_bn = nn.BatchNorm1d(self.features_sizes[1])
-        self.fc3_dec = nn.Linear(self.features_sizes[1], self.features_sizes[0]
-            )
+        self.fc3_dec = nn.Linear(self.features_sizes[1], self.features_sizes[0])
         self.fc3_dec_bn = nn.BatchNorm1d(self.features_sizes[0])
         self.fc4_dec = nn.Linear(self.features_sizes[0], input_channels)
         self.apply(self.weight_init)
 
     def _get_sizes(self):
-        x = torch.zeros((1, self.input_channels, self.patch_size, self.
-            patch_size))
+        x = torch.zeros((1, self.input_channels, self.patch_size, self.patch_size))
         x = F.relu(self.conv1_bn(self.conv1(x)))
         _, c, w, h = x.size()
         size0 = c * w * h
@@ -588,10 +568,8 @@ class LiuEtAl(nn.Module):
         x = x_enc
         x_classif = self.fc_enc(x)
         x = F.relu(self.fc1_dec(x))
-        x = F.relu(self.fc2_dec_bn(self.fc2_dec(x) + x_pool1.view(-1, self.
-            features_sizes[1])))
-        x = F.relu(self.fc3_dec_bn(self.fc3_dec(x) + x_conv1.view(-1, self.
-            features_sizes[0])))
+        x = F.relu(self.fc2_dec_bn(self.fc2_dec(x) + x_pool1.view(-1, self.features_sizes[1])))
+        x = F.relu(self.fc3_dec_bn(self.fc3_dec(x) + x_conv1.view(-1, self.features_sizes[0])))
         x = self.fc4_dec(x)
         return x_classif, x
 
@@ -701,21 +679,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Baseline,
+     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BoulchEtAl,
+     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (HamidaEtAl,
+     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
+     True),
+    (HuEtAl,
+     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (LiuEtAl,
+     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 9, 9])], {}),
+     True),
+    (MouEtAl,
+     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_eecn_Hyperspectral_Classification(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Baseline(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BoulchEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(HamidaEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 1, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(HuEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MouEtAl(*[], **{'input_channels': 4, 'n_classes': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

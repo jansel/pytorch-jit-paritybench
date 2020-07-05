@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -97,9 +98,7 @@ class MuRelCell(nn.Module):
 
 class MuRelNet(nn.Module):
 
-    def __init__(self, txt_enc={}, self_q_att=False, n_step=3, shared=False,
-        cell={}, agg={}, classif={}, wid_to_word={}, word_to_wid={},
-        aid_to_ans=[], ans_to_aid={}):
+    def __init__(self, txt_enc={}, self_q_att=False, n_step=3, shared=False, cell={}, agg={}, classif={}, wid_to_word={}, word_to_wid={}, aid_to_ans=[], ans_to_aid={}):
         super(MuRelNet, self).__init__()
         self.self_q_att = self_q_att
         self.n_step = n_step
@@ -119,28 +118,22 @@ class MuRelNet(nn.Module):
         if self.shared:
             self.cell = MuRelCell(**cell)
         else:
-            self.cells = nn.ModuleList([MuRelCell(**cell) for i in range(
-                self.n_step)])
+            self.cells = nn.ModuleList([MuRelCell(**cell) for i in range(self.n_step)])
         if 'fusion' in self.classif:
             self.classif_module = block.factory_fusion(self.classif['fusion'])
         elif 'mlp' in self.classif:
             self.classif_module = MLP(self.classif['mlp'])
         else:
             raise ValueError(self.classif.keys())
-        Logger().log_value('nparams', sum(p.numel() for p in self.
-            parameters() if p.requires_grad), should_print=True)
-        Logger().log_value('nparams_txt_enc', self.get_nparams_txt_enc(),
-            should_print=True)
+        Logger().log_value('nparams', sum(p.numel() for p in self.parameters() if p.requires_grad), should_print=True)
+        Logger().log_value('nparams_txt_enc', self.get_nparams_txt_enc(), should_print=True)
         self.buffer = None
 
     def get_nparams_txt_enc(self):
-        params = [p.numel() for p in self.txt_enc.parameters() if p.
-            requires_grad]
+        params = [p.numel() for p in self.txt_enc.parameters() if p.requires_grad]
         if self.self_q_att:
-            params += [p.numel() for p in self.q_att_linear0.parameters() if
-                p.requires_grad]
-            params += [p.numel() for p in self.q_att_linear1.parameters() if
-                p.requires_grad]
+            params += [p.numel() for p in self.q_att_linear0.parameters() if p.requires_grad]
+            params += [p.numel() for p in self.q_att_linear1.parameters() if p.requires_grad]
         return sum(params)
 
     def set_buffer(self):
@@ -153,13 +146,11 @@ class MuRelNet(nn.Module):
 
     def set_pairs_ids(self, n_regions, bsize, device='cuda'):
         if self.shared and self.cell.pairwise:
-            self.cell.pairwise_module.set_pairs_ids(n_regions, bsize,
-                device=device)
+            self.cell.pairwise_module.set_pairs_ids(n_regions, bsize, device=device)
         else:
             for i in self.n_step:
                 if self.cells[i].pairwise:
-                    self.cells[i].pairwise_module.set_pairs_ids(n_regions,
-                        bsize, device=device)
+                    self.cells[i].pairwise_module.set_pairs_ids(n_regions, bsize, device=device)
 
     def forward(self, batch):
         v = batch['visual']
@@ -248,17 +239,13 @@ class Pairwise(nn.Module):
         if self.fusion_coord:
             assert coords is not None
             coords_l = coords[:, :, (None), :]
-            coords_l = coords_l.expand(bsize, nregion, nregion, coords.
-                shape[-1])
+            coords_l = coords_l.expand(bsize, nregion, nregion, coords.shape[-1])
             coords_l = coords_l.contiguous()
-            coords_l = coords_l.view(bsize * nregion * nregion, coords.
-                shape[-1])
+            coords_l = coords_l.view(bsize * nregion * nregion, coords.shape[-1])
             coords_r = coords[:, (None), :, :]
-            coords_r = coords_r.expand(bsize, nregion, nregion, coords.
-                shape[-1])
+            coords_r = coords_r.expand(bsize, nregion, nregion, coords.shape[-1])
             coords_r = coords_r.contiguous()
-            coords_r = coords_r.view(bsize * nregion * nregion, coords.
-                shape[-1])
+            coords_r = coords_r.view(bsize * nregion * nregion, coords.shape[-1])
             Rij += self.f_coord_module([coords_l, coords_r])
         if self.fusion_feat:
             mm_l = mm[:, :, (None), :]
@@ -287,10 +274,3 @@ class Pairwise(nn.Module):
             mm_new += mm
         return mm_new
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Cadene_murel_bootstrap_pytorch(_paritybench_base):
-    pass

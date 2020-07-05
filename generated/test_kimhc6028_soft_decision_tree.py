@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -104,16 +105,14 @@ class InnerNode:
     def cal_prob(self, x, path_prob):
         self.prob = self.forward(x)
         self.path_prob = path_prob
-        left_leaf_accumulator = self.left.cal_prob(x, path_prob * (1 - self
-            .prob))
+        left_leaf_accumulator = self.left.cal_prob(x, path_prob * (1 - self.prob))
         right_leaf_accumulator = self.right.cal_prob(x, path_prob * self.prob)
         self.leaf_accumulator.extend(left_leaf_accumulator)
         self.leaf_accumulator.extend(right_leaf_accumulator)
         return self.leaf_accumulator
 
     def get_penalty(self):
-        penalty = torch.sum(self.prob * self.path_prob) / torch.sum(self.
-            path_prob), self.lmbda
+        penalty = torch.sum(self.prob * self.path_prob) / torch.sum(self.path_prob), self.lmbda
         if not self.left.leaf:
             left_penalty = self.left.get_penalty()
             right_penalty = self.right.get_penalty()
@@ -130,15 +129,13 @@ class SoftDecisionTree(nn.Module):
         self.args = args
         self.root = InnerNode(1, self.args)
         self.collect_parameters()
-        self.optimizer = optim.SGD(self.parameters(), lr=self.args.lr,
-            momentum=self.args.momentum)
+        self.optimizer = optim.SGD(self.parameters(), lr=self.args.lr, momentum=self.args.momentum)
         self.test_acc = []
         self.define_extras(self.args.batch_size)
         self.best_accuracy = 0.0
 
     def define_extras(self, batch_size):
-        self.target_onehot = torch.FloatTensor(batch_size, self.args.output_dim
-            )
+        self.target_onehot = torch.FloatTensor(batch_size, self.args.output_dim)
         self.target_onehot = Variable(self.target_onehot)
         self.path_prob_init = Variable(torch.ones(batch_size, 1))
         if self.args.cuda:
@@ -161,9 +158,7 @@ class SoftDecisionTree(nn.Module):
         max_prob = [(-1.0) for _ in range(batch_size)]
         max_Q = [torch.zeros(self.args.output_dim) for _ in range(batch_size)]
         for path_prob, Q in leaf_accumulator:
-            TQ = torch.bmm(y.view(batch_size, 1, self.args.output_dim),
-                torch.log(Q).view(batch_size, self.args.output_dim, 1)).view(
-                -1, 1)
+            TQ = torch.bmm(y.view(batch_size, 1, self.args.output_dim), torch.log(Q).view(batch_size, self.args.output_dim, 1)).view(-1, 1)
             loss += path_prob * TQ
             path_prob_numpy = path_prob.cpu().data.numpy().reshape(-1)
             for i in range(batch_size):
@@ -257,10 +252,3 @@ class SoftDecisionTree(nn.Module):
         with open(os.path.join(path, 'best_model.pkl'), 'wb') as output_file:
             pickle.dump(self, output_file)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_kimhc6028_soft_decision_tree(_paritybench_base):
-    pass

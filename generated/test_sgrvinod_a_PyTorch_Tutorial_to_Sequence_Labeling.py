@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -114,8 +115,7 @@ class CRF(nn.Module):
         super(CRF, self).__init__()
         self.tagset_size = tagset_size
         self.emission = nn.Linear(hidden_dim, self.tagset_size)
-        self.transition = nn.Parameter(torch.Tensor(self.tagset_size, self.
-            tagset_size))
+        self.transition = nn.Parameter(torch.Tensor(self.tagset_size, self.tagset_size))
         self.transition.data.zero_()
 
     def forward(self, feats):
@@ -128,10 +128,8 @@ class CRF(nn.Module):
         self.batch_size = feats.size(0)
         self.timesteps = feats.size(1)
         emission_scores = self.emission(feats)
-        emission_scores = emission_scores.unsqueeze(2).expand(self.
-            batch_size, self.timesteps, self.tagset_size, self.tagset_size)
-        crf_scores = emission_scores + self.transition.unsqueeze(0).unsqueeze(0
-            )
+        emission_scores = emission_scores.unsqueeze(2).expand(self.batch_size, self.timesteps, self.tagset_size, self.tagset_size)
+        crf_scores = emission_scores + self.transition.unsqueeze(0).unsqueeze(0)
         return crf_scores
 
 
@@ -140,10 +138,7 @@ class LM_LSTM_CRF(nn.Module):
     The encompassing LM-LSTM-CRF model.
     """
 
-    def __init__(self, tagset_size, charset_size, char_emb_dim,
-        char_rnn_dim, char_rnn_layers, vocab_size, lm_vocab_size,
-        word_emb_dim, word_rnn_dim, word_rnn_layers, dropout, highway_layers=1
-        ):
+    def __init__(self, tagset_size, charset_size, char_emb_dim, char_rnn_dim, char_rnn_layers, vocab_size, lm_vocab_size, word_emb_dim, word_rnn_dim, word_rnn_layers, dropout, highway_layers=1):
         """
         :param tagset_size: number of tags
         :param charset_size: size of character vocabulary
@@ -172,23 +167,14 @@ class LM_LSTM_CRF(nn.Module):
         self.highway_layers = highway_layers
         self.dropout = nn.Dropout(p=dropout)
         self.char_embeds = nn.Embedding(self.charset_size, self.char_emb_dim)
-        self.forw_char_lstm = nn.LSTM(self.char_emb_dim, self.char_rnn_dim,
-            num_layers=self.char_rnn_layers, bidirectional=False, dropout=
-            dropout)
-        self.back_char_lstm = nn.LSTM(self.char_emb_dim, self.char_rnn_dim,
-            num_layers=self.char_rnn_layers, bidirectional=False, dropout=
-            dropout)
+        self.forw_char_lstm = nn.LSTM(self.char_emb_dim, self.char_rnn_dim, num_layers=self.char_rnn_layers, bidirectional=False, dropout=dropout)
+        self.back_char_lstm = nn.LSTM(self.char_emb_dim, self.char_rnn_dim, num_layers=self.char_rnn_layers, bidirectional=False, dropout=dropout)
         self.word_embeds = nn.Embedding(self.wordset_size, self.word_emb_dim)
-        self.word_blstm = nn.LSTM(self.word_emb_dim + self.char_rnn_dim * 2,
-            self.word_rnn_dim // 2, num_layers=self.word_rnn_layers,
-            bidirectional=True, dropout=dropout)
+        self.word_blstm = nn.LSTM(self.word_emb_dim + self.char_rnn_dim * 2, self.word_rnn_dim // 2, num_layers=self.word_rnn_layers, bidirectional=True, dropout=dropout)
         self.crf = CRF(self.word_rnn_dim // 2 * 2, self.tagset_size)
-        self.forw_lm_hw = Highway(self.char_rnn_dim, num_layers=self.
-            highway_layers, dropout=dropout)
-        self.back_lm_hw = Highway(self.char_rnn_dim, num_layers=self.
-            highway_layers, dropout=dropout)
-        self.subword_hw = Highway(2 * self.char_rnn_dim, num_layers=self.
-            highway_layers, dropout=dropout)
+        self.forw_lm_hw = Highway(self.char_rnn_dim, num_layers=self.highway_layers, dropout=dropout)
+        self.back_lm_hw = Highway(self.char_rnn_dim, num_layers=self.highway_layers, dropout=dropout)
+        self.subword_hw = Highway(2 * self.char_rnn_dim, num_layers=self.highway_layers, dropout=dropout)
         self.forw_lm_out = nn.Linear(self.char_rnn_dim, self.lm_vocab_size)
         self.back_lm_out = nn.Linear(self.char_rnn_dim, self.lm_vocab_size)
 
@@ -209,8 +195,7 @@ class LM_LSTM_CRF(nn.Module):
         for p in self.word_embeds.parameters():
             p.requires_grad = fine_tune
 
-    def forward(self, cmaps_f, cmaps_b, cmarkers_f, cmarkers_b, wmaps,
-        tmaps, wmap_lengths, cmap_lengths):
+    def forward(self, cmaps_f, cmaps_b, cmarkers_f, cmarkers_b, wmaps, tmaps, wmap_lengths, cmap_lengths):
         """
         Forward propagation.
 
@@ -243,12 +228,9 @@ class LM_LSTM_CRF(nn.Module):
         cb, _ = self.back_char_lstm(cb)
         cf, _ = pad_packed_sequence(cf, batch_first=True)
         cb, _ = pad_packed_sequence(cb, batch_first=True)
-        assert cf.size(1) == max(cmap_lengths.tolist()) == list(cmap_lengths)[0
-            ]
-        cmarkers_f = cmarkers_f.unsqueeze(2).expand(self.batch_size, self.
-            word_pad_len, self.char_rnn_dim)
-        cmarkers_b = cmarkers_b.unsqueeze(2).expand(self.batch_size, self.
-            word_pad_len, self.char_rnn_dim)
+        assert cf.size(1) == max(cmap_lengths.tolist()) == list(cmap_lengths)[0]
+        cmarkers_f = cmarkers_f.unsqueeze(2).expand(self.batch_size, self.word_pad_len, self.char_rnn_dim)
+        cmarkers_b = cmarkers_b.unsqueeze(2).expand(self.batch_size, self.word_pad_len, self.char_rnn_dim)
         cf_selected = torch.gather(cf, 1, cmarkers_f)
         cb_selected = torch.gather(cb, 1, cmarkers_b)
         if self.training:
@@ -266,8 +248,7 @@ class LM_LSTM_CRF(nn.Module):
             lm_b_scores = lm_b_scores[word_sort_ind]
         w = self.word_embeds(wmaps)
         w = self.dropout(w)
-        subword = self.subword_hw(self.dropout(torch.cat((cf_selected,
-            cb_selected), dim=2)))
+        subword = self.subword_hw(self.dropout(torch.cat((cf_selected, cb_selected), dim=2)))
         subword = self.dropout(subword)
         w = torch.cat((w, subword), dim=2)
         w = pack_padded_sequence(w, list(wmap_lengths), batch_first=True)
@@ -276,11 +257,9 @@ class LM_LSTM_CRF(nn.Module):
         w = self.dropout(w)
         crf_scores = self.crf(w)
         if self.training:
-            return (crf_scores, lm_f_scores, lm_b_scores, wmaps, tmaps,
-                wmap_lengths, word_sort_ind, char_sort_ind)
+            return crf_scores, lm_f_scores, lm_b_scores, wmaps, tmaps, wmap_lengths, word_sort_ind, char_sort_ind
         else:
-            return (crf_scores, wmaps, tmaps, wmap_lengths, word_sort_ind,
-                char_sort_ind)
+            return crf_scores, wmaps, tmaps, wmap_lengths, word_sort_ind, char_sort_ind
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -325,21 +304,16 @@ class ViterbiLoss(nn.Module):
         batch_size = scores.size(0)
         word_pad_len = scores.size(1)
         targets = targets.unsqueeze(2)
-        scores_at_targets = torch.gather(scores.view(batch_size,
-            word_pad_len, -1), 2, targets).squeeze(2)
-        scores_at_targets, _ = pack_padded_sequence(scores_at_targets,
-            lengths, batch_first=True)
+        scores_at_targets = torch.gather(scores.view(batch_size, word_pad_len, -1), 2, targets).squeeze(2)
+        scores_at_targets, _ = pack_padded_sequence(scores_at_targets, lengths, batch_first=True)
         gold_score = scores_at_targets.sum()
         scores_upto_t = torch.zeros(batch_size, self.tagset_size)
         for t in range(max(lengths)):
             batch_size_t = sum([(l > t) for l in lengths])
             if t == 0:
-                scores_upto_t[:batch_size_t] = scores[:batch_size_t, (t), (
-                    self.start_tag), :]
+                scores_upto_t[:batch_size_t] = scores[:batch_size_t, (t), (self.start_tag), :]
             else:
-                scores_upto_t[:batch_size_t] = log_sum_exp(scores[:
-                    batch_size_t, (t), :, :] + scores_upto_t[:batch_size_t]
-                    .unsqueeze(2), dim=1)
+                scores_upto_t[:batch_size_t] = log_sum_exp(scores[:batch_size_t, (t), :, :] + scores_upto_t[:batch_size_t].unsqueeze(2), dim=1)
         all_paths_scores = scores_upto_t[:, (self.end_tag)].sum()
         viterbi_loss = all_paths_scores - gold_score
         viterbi_loss = viterbi_loss / batch_size
@@ -350,12 +324,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_sgrvinod_a_PyTorch_Tutorial_to_Sequence_Labeling(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(CRF(*[], **{'hidden_dim': 4, 'tagset_size': 4}), [torch.rand([4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CRF,
+     lambda: ([], {'hidden_dim': 4, 'tagset_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (Highway,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_sgrvinod_a_PyTorch_Tutorial_to_Sequence_Labeling(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Highway(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

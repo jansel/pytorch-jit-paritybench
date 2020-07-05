@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -47,20 +48,15 @@ from torch.utils.data import DataLoader
 
 class Unet(nn.Module):
 
-    def __init__(self, cfg={'PicaNet': 'GGLLL', 'Size': [28, 28, 28, 56, 
-        112, 224], 'Channel': [1024, 512, 512, 256, 128, 64], 'loss_ratio':
-        [0.5, 0.5, 0.5, 0.8, 0.8, 1]}):
+    def __init__(self, cfg={'PicaNet': 'GGLLL', 'Size': [28, 28, 28, 56, 112, 224], 'Channel': [1024, 512, 512, 256, 128, 64], 'loss_ratio': [0.5, 0.5, 0.5, 0.8, 0.8, 1]}):
         super(Unet, self).__init__()
         self.encoder = Encoder()
         self.decoder = nn.ModuleList()
         self.cfg = cfg
         for i in range(5):
             assert cfg['PicaNet'][i] == 'G' or cfg['PicaNet'][i] == 'L'
-            self.decoder.append(DecoderCell(size=cfg['Size'][i], in_channel
-                =cfg['Channel'][i], out_channel=cfg['Channel'][i + 1], mode
-                =cfg['PicaNet'][i]))
-        self.decoder.append(DecoderCell(size=cfg['Size'][5], in_channel=cfg
-            ['Channel'][5], out_channel=1, mode='C'))
+            self.decoder.append(DecoderCell(size=cfg['Size'][i], in_channel=cfg['Channel'][i], out_channel=cfg['Channel'][i + 1], mode=cfg['PicaNet'][i]))
+        self.decoder.append(DecoderCell(size=cfg['Size'][5], in_channel=cfg['Channel'][5], out_channel=1, mode='C'))
 
     def forward(self, *input):
         if len(input) == 2:
@@ -84,8 +80,7 @@ class Unet(nn.Module):
         loss = 0
         if not test_mode:
             for i in range(6):
-                loss += F.binary_cross_entropy(pred[5 - i], tar) * self.cfg[
-                    'loss_ratio'][5 - i]
+                loss += F.binary_cross_entropy(pred[5 - i], tar) * self.cfg['loss_ratio'][5 - i]
                 if tar.size()[2] > 28:
                     tar = F.max_pool2d(tar, 2, 2)
         return pred, loss
@@ -104,8 +99,7 @@ def make_layers(cfg, in_channels):
             if not dilation_flag:
                 conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
             else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=2,
-                    dilation=2)
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=2, dilation=2)
             layers += [conv2d, nn.ReLU(inplace=True)]
             in_channels = v
     return nn.Sequential(*layers)
@@ -115,11 +109,9 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder, self).__init__()
-        configure = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 
-            512, 512, 'm', 512, 512, 512, 'm']
+        configure = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'm', 512, 512, 512, 'm']
         self.seq = make_layers(configure, 3)
-        self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=
-            12, dilation=12)
+        self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=12, dilation=12)
         self.conv7 = nn.Conv2d(1024, 1024, 3, 1, 1)
 
     def forward(self, *input):
@@ -139,8 +131,7 @@ class DecoderCell(nn.Module):
     def __init__(self, size, in_channel, out_channel, mode):
         super(DecoderCell, self).__init__()
         self.bn_en = nn.BatchNorm2d(in_channel)
-        self.conv1 = nn.Conv2d(2 * in_channel, in_channel, kernel_size=1,
-            padding=0)
+        self.conv1 = nn.Conv2d(2 * in_channel, in_channel, kernel_size=1, padding=0)
         self.mode = mode
         if mode == 'G':
             self.picanet = PicanetG(size, in_channel)
@@ -151,8 +142,7 @@ class DecoderCell(nn.Module):
         else:
             assert 0
         if not mode == 'C':
-            self.conv2 = nn.Conv2d(2 * in_channel, out_channel, kernel_size
-                =1, padding=0)
+            self.conv2 = nn.Conv2d(2 * in_channel, out_channel, kernel_size=1, padding=0)
             self.bn_feature = nn.BatchNorm2d(out_channel)
             self.conv3 = nn.Conv2d(out_channel, 1, kernel_size=1, padding=0)
         else:
@@ -167,8 +157,7 @@ class DecoderCell(nn.Module):
             en = input[0]
             dec = input[1]
         if dec.size()[2] * 2 == en.size()[2]:
-            dec = F.interpolate(dec, scale_factor=2, mode='bilinear',
-                align_corners=True)
+            dec = F.interpolate(dec, scale_factor=2, mode='bilinear', align_corners=True)
         elif dec.size()[2] != en.size()[2]:
             assert 0
         en = self.bn_en(en)
@@ -214,8 +203,7 @@ class PicanetL(nn.Module):
 
     def __init__(self, in_channel):
         super(PicanetL, self).__init__()
-        self.conv1 = nn.Conv2d(in_channel, 128, kernel_size=7, dilation=2,
-            padding=6)
+        self.conv1 = nn.Conv2d(in_channel, 128, kernel_size=7, dilation=2, padding=6)
         self.conv2 = nn.Conv2d(128, 49, kernel_size=1)
 
     def forward(self, *input):
@@ -240,10 +228,8 @@ class Renet(nn.Module):
         self.size = size
         self.in_channel = in_channel
         self.out_channel = out_channel
-        self.vertical = nn.LSTM(input_size=in_channel, hidden_size=256,
-            batch_first=True, bidirectional=True)
-        self.horizontal = nn.LSTM(input_size=512, hidden_size=256,
-            batch_first=True, bidirectional=True)
+        self.vertical = nn.LSTM(input_size=in_channel, hidden_size=256, batch_first=True, bidirectional=True)
+        self.horizontal = nn.LSTM(input_size=512, hidden_size=256, batch_first=True, bidirectional=True)
         self.conv = nn.Conv2d(512, out_channel, 1)
 
     def forward(self, *input):
@@ -266,20 +252,15 @@ class Renet(nn.Module):
 
 class Unet(nn.Module):
 
-    def __init__(self, cfg={'PicaNet': 'GGLLL', 'Size': [28, 28, 28, 56, 
-        112, 224], 'Channel': [1024, 512, 512, 256, 128, 64], 'loss_ratio':
-        [0.5, 0.5, 0.5, 0.8, 0.8, 1]}):
+    def __init__(self, cfg={'PicaNet': 'GGLLL', 'Size': [28, 28, 28, 56, 112, 224], 'Channel': [1024, 512, 512, 256, 128, 64], 'loss_ratio': [0.5, 0.5, 0.5, 0.8, 0.8, 1]}):
         super(Unet, self).__init__()
         self.encoder = Encoder()
         self.decoder = nn.ModuleList()
         self.cfg = cfg
         for i in range(5):
             assert cfg['PicaNet'][i] == 'G' or cfg['PicaNet'][i] == 'L'
-            self.decoder.append(DecoderCell(size=cfg['Size'][i], in_channel
-                =cfg['Channel'][i], out_channel=cfg['Channel'][i + 1], mode
-                =cfg['PicaNet'][i]))
-        self.decoder.append(DecoderCell(size=cfg['Size'][5], in_channel=cfg
-            ['Channel'][5], out_channel=1, mode='C'))
+            self.decoder.append(DecoderCell(size=cfg['Size'][i], in_channel=cfg['Channel'][i], out_channel=cfg['Channel'][i + 1], mode=cfg['PicaNet'][i]))
+        self.decoder.append(DecoderCell(size=cfg['Size'][5], in_channel=cfg['Channel'][5], out_channel=1, mode='C'))
 
     def forward(self, *input):
         if len(input) == 2:
@@ -308,8 +289,7 @@ class Unet(nn.Module):
         loss = 0
         if not test_mode:
             for i in range(6):
-                loss += F.binary_cross_entropy(pred[5 - i], tar) * self.cfg[
-                    'loss_ratio'][5 - i]
+                loss += F.binary_cross_entropy(pred[5 - i], tar) * self.cfg['loss_ratio'][5 - i]
                 if tar.size()[2] > 28:
                     tar = F.max_pool2d(tar, 2, 2)
         return pred, loss, attention
@@ -319,11 +299,9 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder, self).__init__()
-        configure = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 
-            512, 512, 'm', 512, 512, 512, 'm']
+        configure = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'm', 512, 512, 512, 'm']
         self.seq = make_layers(configure, 3)
-        self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=
-            12, dilation=12)
+        self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=12, dilation=12)
         self.conv7 = nn.Conv2d(1024, 1024, 3, 1, 1)
 
     def forward(self, *input):
@@ -343,8 +321,7 @@ class DecoderCell(nn.Module):
     def __init__(self, size, in_channel, out_channel, mode):
         super(DecoderCell, self).__init__()
         self.bn_en = nn.BatchNorm2d(in_channel)
-        self.conv1 = nn.Conv2d(2 * in_channel, in_channel, kernel_size=1,
-            padding=0)
+        self.conv1 = nn.Conv2d(2 * in_channel, in_channel, kernel_size=1, padding=0)
         self.mode = mode
         if mode == 'G':
             self.picanet = PicanetG(size, in_channel)
@@ -355,8 +332,7 @@ class DecoderCell(nn.Module):
         else:
             assert 0
         if not mode == 'C':
-            self.conv2 = nn.Conv2d(2 * in_channel, out_channel, kernel_size
-                =1, padding=0)
+            self.conv2 = nn.Conv2d(2 * in_channel, out_channel, kernel_size=1, padding=0)
             self.bn_feature = nn.BatchNorm2d(out_channel)
             self.conv3 = nn.Conv2d(out_channel, 1, kernel_size=1, padding=0)
         else:
@@ -371,8 +347,7 @@ class DecoderCell(nn.Module):
             en = input[0]
             dec = input[1]
         if dec.size()[2] * 2 == en.size()[2]:
-            dec = F.interpolate(dec, scale_factor=2, mode='bilinear',
-                align_corners=True)
+            dec = F.interpolate(dec, scale_factor=2, mode='bilinear', align_corners=True)
         elif dec.size()[2] != en.size()[2]:
             assert 0
         en = self.bn_en(en)
@@ -415,10 +390,8 @@ class PicanetG(nn.Module):
         attention = kernel.data
         attention = attention.requires_grad_(False)
         attention = torch.reshape(attention, (size[0], -1, 10, 10))
-        attention = F.interpolate(attention, 224, mode='bilinear',
-            align_corners=True)
-        attention = torch.reshape(attention, (size[0], size[2], size[3], 
-            224, 224))
+        attention = F.interpolate(attention, 224, mode='bilinear', align_corners=True)
+        attention = torch.reshape(attention, (size[0], size[2], size[3], 224, 224))
         return x, attention
 
 
@@ -426,8 +399,7 @@ class PicanetL(nn.Module):
 
     def __init__(self, in_channel):
         super(PicanetL, self).__init__()
-        self.conv1 = nn.Conv2d(in_channel, 128, kernel_size=7, dilation=2,
-            padding=6)
+        self.conv1 = nn.Conv2d(in_channel, 128, kernel_size=7, dilation=2, padding=6)
         self.conv2 = nn.Conv2d(128, 49, kernel_size=1)
 
     def forward(self, *input):
@@ -445,10 +417,8 @@ class PicanetL(nn.Module):
         x = x.reshape(size[0], size[1], size[2], size[3])
         attention = attention.requires_grad_(False)
         attention = torch.reshape(attention, (size[0], -1, 7, 7))
-        attention = F.interpolate(attention, int(12 * 224 / size[2] + 1),
-            mode='bilinear', align_corners=True)
-        attention = torch.reshape(attention, (size[0], size[2], size[3],
-            int(12 * 224 / size[2] + 1), int(12 * 224 / size[2] + 1)))
+        attention = F.interpolate(attention, int(12 * 224 / size[2] + 1), mode='bilinear', align_corners=True)
+        attention = torch.reshape(attention, (size[0], size[2], size[3], int(12 * 224 / size[2] + 1), int(12 * 224 / size[2] + 1)))
         return x, attention
 
 
@@ -459,10 +429,8 @@ class Renet(nn.Module):
         self.size = size
         self.in_channel = in_channel
         self.out_channel = out_channel
-        self.vertical = nn.LSTM(input_size=in_channel, hidden_size=256,
-            batch_first=True, bidirectional=True)
-        self.horizontal = nn.LSTM(input_size=512, hidden_size=256,
-            batch_first=True, bidirectional=True)
+        self.vertical = nn.LSTM(input_size=in_channel, hidden_size=256, batch_first=True, bidirectional=True)
+        self.horizontal = nn.LSTM(input_size=512, hidden_size=256, batch_first=True, bidirectional=True)
         self.conv = nn.Conv2d(512, out_channel, 1)
 
     def forward(self, *input):
@@ -483,10 +451,3 @@ class Renet(nn.Module):
         x = self.conv(x)
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Ugness_PiCANet_Implementation(_paritybench_base):
-    pass

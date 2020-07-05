@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,8 +61,7 @@ class LSoftmaxLinear(nn.Module):
         self.beta_min = 0
         self.scale = 0.99
         self.device = device
-        self.weight = nn.Parameter(torch.FloatTensor(input_features,
-            output_features))
+        self.weight = nn.Parameter(torch.FloatTensor(input_features, output_features))
         self.divisor = math.pi / self.margin
         self.C_m_2n = torch.Tensor(binom(margin, range(0, margin + 1, 2)))
         self.cos_powers = torch.Tensor(range(self.margin, -1, -2))
@@ -73,8 +73,7 @@ class LSoftmaxLinear(nn.Module):
         sin2_theta = 1 - cos_theta ** 2
         cos_terms = cos_theta.unsqueeze(1) ** self.cos_powers.unsqueeze(0)
         sin2_terms = sin2_theta.unsqueeze(1) ** self.sin2_powers.unsqueeze(0)
-        cos_m_theta = (self.signs.unsqueeze(0) * self.C_m_2n.unsqueeze(0) *
-            cos_terms * sin2_terms).sum(1)
+        cos_m_theta = (self.signs.unsqueeze(0) * self.C_m_2n.unsqueeze(0) * cos_terms * sin2_terms).sum(1)
         return cos_m_theta
 
     def reset_parameters(self):
@@ -100,10 +99,8 @@ class LSoftmaxLinear(nn.Module):
             cos_theta_target = logit_target / (w_target_norm * x_norm + 1e-10)
             cos_m_theta_target = self.calculate_cos_m_theta(cos_theta_target)
             k = self.find_k(cos_theta_target)
-            logit_target_updated = w_target_norm * x_norm * ((-1) ** k *
-                cos_m_theta_target - 2 * k)
-            logit_target_updated_beta = (logit_target_updated + beta *
-                logit[indexes, target]) / (1 + beta)
+            logit_target_updated = w_target_norm * x_norm * ((-1) ** k * cos_m_theta_target - 2 * k)
+            logit_target_updated_beta = (logit_target_updated + beta * logit[indexes, target]) / (1 + beta)
             logit[indexes, target] = logit_target_updated_beta
             self.beta *= self.scale
             return logit
@@ -118,24 +115,12 @@ class MNISTNet(nn.Module):
         super(MNISTNet, self).__init__()
         self.margin = margin
         self.device = device
-        self.conv_0 = nn.Sequential(nn.BatchNorm2d(1), nn.Conv2d(1, 64, 3),
-            nn.PReLU(), nn.BatchNorm2d(64))
-        self.conv_1 = nn.Sequential(nn.Conv2d(64, 64, 3, padding=1), nn.
-            PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
-        self.conv_2 = nn.Sequential(nn.Conv2d(64, 64, 3, padding=1), nn.
-            PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
-        self.conv_3 = nn.Sequential(nn.Conv2d(64, 64, 3, padding=1), nn.
-            PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
+        self.conv_0 = nn.Sequential(nn.BatchNorm2d(1), nn.Conv2d(1, 64, 3), nn.PReLU(), nn.BatchNorm2d(64))
+        self.conv_1 = nn.Sequential(nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
+        self.conv_2 = nn.Sequential(nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
+        self.conv_3 = nn.Sequential(nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
         self.fc = nn.Sequential(nn.Linear(576, 256), nn.BatchNorm1d(256))
-        self.lsoftmax_linear = LSoftmaxLinear(input_features=256,
-            output_features=10, margin=margin, device=self.device)
+        self.lsoftmax_linear = LSoftmaxLinear(input_features=256, output_features=10, margin=margin, device=self.device)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -158,18 +143,11 @@ class MNISTFIG2Net(nn.Module):
         super(MNISTFIG2Net, self).__init__()
         self.margin = margin
         self.device = device
-        self.conv_1 = nn.Sequential(nn.Conv2d(1, 32, 5, padding=2), nn.
-            PReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 5, padding=2),
-            nn.PReLU(), nn.BatchNorm2d(32), nn.MaxPool2d(2, 2))
-        self.conv_2 = nn.Sequential(nn.Conv2d(32, 64, 5, padding=2), nn.
-            PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 5, padding=2),
-            nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
-        self.conv_3 = nn.Sequential(nn.Conv2d(64, 128, 5, padding=2), nn.
-            PReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 5, padding=2),
-            nn.PReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2))
+        self.conv_1 = nn.Sequential(nn.Conv2d(1, 32, 5, padding=2), nn.PReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 5, padding=2), nn.PReLU(), nn.BatchNorm2d(32), nn.MaxPool2d(2, 2))
+        self.conv_2 = nn.Sequential(nn.Conv2d(32, 64, 5, padding=2), nn.PReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 5, padding=2), nn.PReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
+        self.conv_3 = nn.Sequential(nn.Conv2d(64, 128, 5, padding=2), nn.PReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 5, padding=2), nn.PReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2))
         self.fc = nn.Sequential(nn.Linear(1152, 2), nn.BatchNorm1d(2))
-        self.lsoftmax_linear = LSoftmaxLinear(input_features=2,
-            output_features=10, margin=margin, device=self.device)
+        self.lsoftmax_linear = LSoftmaxLinear(input_features=2, output_features=10, margin=margin, device=self.device)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -189,9 +167,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LSoftmaxLinear,
+     lambda: ([], {'input_features': 4, 'output_features': 4, 'margin': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (MNISTFIG2Net,
+     lambda: ([], {'margin': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 1, 24, 24])], {}),
+     False),
+]
+
 class Test_amirhfarzaneh_lsoftmax_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LSoftmaxLinear(*[], **{'input_features': 4, 'output_features': 4, 'margin': 4, 'device': 0}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

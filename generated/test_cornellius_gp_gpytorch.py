@@ -291,8 +291,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -429,19 +430,16 @@ class _DenseLayer(nn.Sequential):
         super(_DenseLayer, self).__init__()
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
-        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
-            growth_rate, kernel_size=1, stride=1, bias=False)),
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
         self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
-        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate,
-            growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
@@ -451,19 +449,16 @@ class _Transition(nn.Sequential):
         super(_Transition, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(num_input_features,
-            num_output_features, kernel_size=1, stride=1, bias=False))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
 
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
-        drop_rate):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, bn_size, drop_rate)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
@@ -480,25 +475,18 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
     """
 
-    def __init__(self, growth_rate=12, block_config=(16, 16, 16),
-        compression=0.5, num_init_features=24, bn_size=4, drop_rate=0,
-        avgpool_size=8, num_classes=10):
+    def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5, num_init_features=24, bn_size=4, drop_rate=0, avgpool_size=8, num_classes=10):
         super(DenseNet, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between 0 and 1'
         self.avgpool_size = avgpool_size
-        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3,
-            num_init_features, kernel_size=3, stride=1, padding=1, bias=
-            False))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False))]))
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, bn_size=bn_size, growth_rate=growth_rate,
-                drop_rate=drop_rate)
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features,
-                    num_output_features=int(num_features * compression))
+                trans = _Transition(num_input_features=num_features, num_output_features=int(num_features * compression))
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = int(num_features * compression)
         self.features.add_module('norm_final', nn.BatchNorm2d(num_features))
@@ -507,8 +495,7 @@ class DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        out = F.avg_pool2d(out, kernel_size=self.avgpool_size).view(features
-            .size(0), -1)
+        out = F.avg_pool2d(out, kernel_size=self.avgpool_size).view(features.size(0), -1)
         out = self.classifier(out)
         return out
 
@@ -521,16 +508,14 @@ def inv_softplus(x):
     return x + torch.log(-torch.expm1(-x))
 
 
-TRANSFORM_REGISTRY = {torch.exp: torch.log, torch.nn.functional.softplus:
-    inv_softplus, torch.sigmoid: inv_sigmoid}
+TRANSFORM_REGISTRY = {torch.exp: torch.log, torch.nn.functional.softplus: inv_softplus, torch.sigmoid: inv_sigmoid}
 
 
 def _get_inv_param_transform(param_transform, inv_param_transform=None):
     reg_inv_tf = TRANSFORM_REGISTRY.get(param_transform, None)
     if reg_inv_tf is None:
         if inv_param_transform is None:
-            raise RuntimeError(
-                'Must specify inv_param_transform for custom param_transforms')
+            raise RuntimeError('Must specify inv_param_transform for custom param_transforms')
         return inv_param_transform
     elif inv_param_transform is not None and reg_inv_tf != inv_param_transform:
         raise RuntimeError('TODO')
@@ -539,8 +524,7 @@ def _get_inv_param_transform(param_transform, inv_param_transform=None):
 
 class Interval(Module):
 
-    def __init__(self, lower_bound, upper_bound, transform=sigmoid,
-        inv_transform=inv_sigmoid, initial_value=None):
+    def __init__(self, lower_bound, upper_bound, transform=sigmoid, inv_transform=inv_sigmoid, initial_value=None):
         """
         Defines an interval constraint for GP model parameters, specified by a lower bound and upper bound. For usage
         details, see the documentation for :meth:`~gpytorch.module.Module.register_constraint`.
@@ -572,12 +556,10 @@ class Interval(Module):
         return self._transform is not None
 
     def check(self, tensor):
-        return bool(torch.all(tensor <= self.upper_bound) and torch.all(
-            tensor >= self.lower_bound))
+        return bool(torch.all(tensor <= self.upper_bound) and torch.all(tensor >= self.lower_bound))
 
     def check_raw(self, tensor):
-        return bool(torch.all(self.transform(tensor) <= self.upper_bound) and
-            torch.all(self.transform(tensor) >= self.lower_bound))
+        return bool(torch.all(self.transform(tensor) <= self.upper_bound) and torch.all(self.transform(tensor) >= self.lower_bound))
 
     def intersect(self, other):
         """
@@ -590,9 +572,7 @@ class Interval(Module):
             Interval: intersection if this interval with the other one.
         """
         if self.transform != other.transform:
-            raise RuntimeError(
-                'Cant intersect Interval constraints with conflicting transforms!'
-                )
+            raise RuntimeError('Cant intersect Interval constraints with conflicting transforms!')
         lower_bound = torch.max(self.lower_bound, other.lower_bound)
         upper_bound = torch.min(self.upper_bound, other.upper_bound)
         return Interval(lower_bound, upper_bound)
@@ -613,11 +593,8 @@ class Interval(Module):
             max_bound = torch.max(self.upper_bound)
             min_bound = torch.min(self.lower_bound)
             if max_bound == math.inf or min_bound == -math.inf:
-                raise RuntimeError(
-                    'Cannot make an Interval directly with non-finite bounds. Use a derived class like GreaterThan or LessThan instead.'
-                    )
-        transformed_tensor = self._transform(tensor) * (self.upper_bound -
-            self.lower_bound) + self.lower_bound
+                raise RuntimeError('Cannot make an Interval directly with non-finite bounds. Use a derived class like GreaterThan or LessThan instead.')
+        transformed_tensor = self._transform(tensor) * (self.upper_bound - self.lower_bound) + self.lower_bound
         return transformed_tensor
 
     def inverse_transform(self, transformed_tensor):
@@ -630,11 +607,8 @@ class Interval(Module):
             max_bound = torch.max(self.upper_bound)
             min_bound = torch.min(self.lower_bound)
             if max_bound == math.inf or min_bound == -math.inf:
-                raise RuntimeError(
-                    'Cannot make an Interval directly with non-finite bounds. Use a derived class like GreaterThan or LessThan instead.'
-                    )
-        tensor = self._inv_transform((transformed_tensor - self.lower_bound
-            ) / (self.upper_bound - self.lower_bound))
+                raise RuntimeError('Cannot make an Interval directly with non-finite bounds. Use a derived class like GreaterThan or LessThan instead.')
+        tensor = self._inv_transform((transformed_tensor - self.lower_bound) / (self.upper_bound - self.lower_bound))
         return tensor
 
     @property
@@ -646,8 +620,7 @@ class Interval(Module):
 
     def __repr__(self):
         if self.lower_bound.numel() == 1 and self.upper_bound.numel() == 1:
-            return self._get_name(
-                ) + f'({self.lower_bound:.3E}, {self.upper_bound:.3E})'
+            return self._get_name() + f'({self.lower_bound:.3E}, {self.upper_bound:.3E})'
         else:
             return super().__repr__()
 
@@ -692,8 +665,7 @@ class Distance(torch.nn.Module):
 
 
 def _solve(lazy_tsr, rhs):
-    if settings.fast_computations.solves.off() or lazy_tsr.size(-1
-        ) <= settings.max_cholesky_size.value():
+    if settings.fast_computations.solves.off() or lazy_tsr.size(-1) <= settings.max_cholesky_size.value():
         return lazy_tsr._cholesky()._cholesky_solve(rhs)
     else:
         with torch.no_grad():
@@ -759,12 +731,9 @@ class InvMatmul(Function):
                 right_tensor = right_tensor.unsqueeze(-1)
                 grad_output = grad_output.unsqueeze(-1)
             if not ctx.has_left:
-                left_solves = InvMatmul.apply(ctx.representation_tree, 
-                    False, grad_output, *matrix_args)
+                left_solves = InvMatmul.apply(ctx.representation_tree, False, grad_output, *matrix_args)
                 if any(ctx.needs_input_grad[3:]):
-                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
-                        left_solves, right_solves], -1), torch.cat([
-                        right_solves, left_solves], -1).mul(-0.5))
+                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([left_solves, right_solves], -1), torch.cat([right_solves, left_solves], -1).mul(-0.5))
                 if ctx.needs_input_grad[2]:
                     right_grad = left_solves
                     if ctx.is_vector:
@@ -775,15 +744,12 @@ class InvMatmul(Function):
                 if ctx.needs_input_grad[3]:
                     left_grad = grad_output @ right_solves.transpose(-1, -2)
                 if any(ctx.needs_input_grad[4:]):
-                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([
-                        left_solves, right_solves], -1), torch.cat([
-                        right_solves, left_solves], -1).mul(-0.5))
+                    arg_grads = lazy_tsr._quad_form_derivative(torch.cat([left_solves, right_solves], -1), torch.cat([right_solves, left_solves], -1).mul(-0.5))
                 if ctx.needs_input_grad[2]:
                     right_grad = left_solves
                     if ctx.is_vector:
                         right_grad.squeeze_(-1)
-                return tuple([None, None] + [left_grad, right_grad] + list(
-                    arg_grads))
+                return tuple([None, None] + [left_grad, right_grad] + list(arg_grads))
 
 
 class InvQuad(Function):
@@ -826,14 +792,12 @@ class InvQuad(Function):
         else:
             lazy_tsr = ctx.representation_tree(*matrix_args)
         inv_quad_grad_output = inv_quad_grad_output.unsqueeze(-2)
-        neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(
-            inv_quad_grad_output).mul(-1)
+        neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(inv_quad_grad_output).mul(-1)
         matrix_arg_grads = [None] * len(matrix_args)
         if any(ctx.needs_input_grad[2:]):
             left_factors = neg_inv_quad_solves_times_grad_out
             right_factors = inv_quad_solves
-            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors,
-                right_factors)
+            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors, right_factors)
         if ctx.needs_input_grad[1]:
             inv_quad_rhs_grad = neg_inv_quad_solves_times_grad_out.mul(-2)
         else:
@@ -844,47 +808,31 @@ class InvQuad(Function):
         return tuple(res)
 
 
-def lanczos_tridiag(matmul_closure, max_iter, dtype, device, matrix_shape,
-    batch_shape=torch.Size(), init_vecs=None, num_init_vecs=1, tol=1e-05):
+def lanczos_tridiag(matmul_closure, max_iter, dtype, device, matrix_shape, batch_shape=torch.Size(), init_vecs=None, num_init_vecs=1, tol=1e-05):
     """
     """
     multiple_init_vecs = False
     if not callable(matmul_closure):
-        raise RuntimeError(
-            'matmul_closure should be a function callable object that multiples a (Lazy)Tensor by a vector. Got a {} instead.'
-            .format(matmul_closure.__class__.__name__))
+        raise RuntimeError('matmul_closure should be a function callable object that multiples a (Lazy)Tensor by a vector. Got a {} instead.'.format(matmul_closure.__class__.__name__))
     if init_vecs is None:
-        init_vecs = torch.randn(matrix_shape[-1], num_init_vecs, dtype=
-            dtype, device=device)
-        init_vecs = init_vecs.expand(*batch_shape, matrix_shape[-1],
-            num_init_vecs)
+        init_vecs = torch.randn(matrix_shape[-1], num_init_vecs, dtype=dtype, device=device)
+        init_vecs = init_vecs.expand(*batch_shape, matrix_shape[-1], num_init_vecs)
     else:
         if settings.debug.on():
             if dtype != init_vecs.dtype:
-                raise RuntimeError(
-                    'Supplied dtype {} and init_vecs.dtype {} do not agree!'
-                    .format(dtype, init_vecs.dtype))
+                raise RuntimeError('Supplied dtype {} and init_vecs.dtype {} do not agree!'.format(dtype, init_vecs.dtype))
             if device != init_vecs.device:
-                raise RuntimeError(
-                    'Supplied device {} and init_vecs.device {} do not agree!'
-                    .format(device, init_vecs.device))
+                raise RuntimeError('Supplied device {} and init_vecs.device {} do not agree!'.format(device, init_vecs.device))
             if batch_shape != init_vecs.shape[:-2]:
-                raise RuntimeError(
-                    'batch_shape {} and init_vecs.shape {} do not agree!'.
-                    format(batch_shape, init_vecs.shape))
+                raise RuntimeError('batch_shape {} and init_vecs.shape {} do not agree!'.format(batch_shape, init_vecs.shape))
             if matrix_shape[-1] != init_vecs.size(-2):
-                raise RuntimeError(
-                    'matrix_shape {} and init_vecs.shape {} do not agree!'.
-                    format(matrix_shape, init_vecs.shape))
+                raise RuntimeError('matrix_shape {} and init_vecs.shape {} do not agree!'.format(matrix_shape, init_vecs.shape))
         num_init_vecs = init_vecs.size(-1)
     num_iter = min(max_iter, matrix_shape[-1])
     dim_dimension = -2
-    q_mat = torch.zeros(num_iter, *batch_shape, matrix_shape[-1],
-        num_init_vecs, dtype=dtype, device=device)
-    t_mat = torch.zeros(num_iter, num_iter, *batch_shape, num_init_vecs,
-        dtype=dtype, device=device)
-    q_0_vec = init_vecs / torch.norm(init_vecs, 2, dim=dim_dimension
-        ).unsqueeze(dim_dimension)
+    q_mat = torch.zeros(num_iter, *batch_shape, matrix_shape[-1], num_init_vecs, dtype=dtype, device=device)
+    t_mat = torch.zeros(num_iter, num_iter, *batch_shape, num_init_vecs, dtype=dtype, device=device)
+    q_0_vec = init_vecs / torch.norm(init_vecs, 2, dim=dim_dimension).unsqueeze(dim_dimension)
     q_mat[0].copy_(q_0_vec)
     r_vec = matmul_closure(q_0_vec)
     alpha_0 = q_0_vec.mul(r_vec).sum(dim_dimension)
@@ -903,8 +851,7 @@ def lanczos_tridiag(matmul_closure, max_iter, dtype, device, matrix_shape,
         t_mat[k, k].copy_(alpha_curr.squeeze(dim_dimension))
         if k + 1 < num_iter:
             r_vec.sub_(alpha_curr.mul(q_curr_vec))
-            correction = r_vec.unsqueeze(0).mul(q_mat[:k + 1]).sum(
-                dim_dimension, keepdim=True)
+            correction = r_vec.unsqueeze(0).mul(q_mat[:k + 1]).sum(dim_dimension, keepdim=True)
             correction = q_mat[:k + 1].mul(correction).sum(0)
             r_vec.sub_(correction)
             r_vec_norm = torch.norm(r_vec, 2, dim=dim_dimension, keepdim=True)
@@ -912,31 +859,24 @@ def lanczos_tridiag(matmul_closure, max_iter, dtype, device, matrix_shape,
             beta_curr = r_vec_norm.squeeze_(dim_dimension)
             t_mat[k, k + 1].copy_(beta_curr)
             t_mat[k + 1, k].copy_(beta_curr)
-            inner_products = q_mat[:k + 1].mul(r_vec.unsqueeze(0)).sum(
-                dim_dimension)
+            inner_products = q_mat[:k + 1].mul(r_vec.unsqueeze(0)).sum(dim_dimension)
             could_reorthogonalize = False
             for _ in range(10):
                 if not torch.sum(inner_products > tol):
                     could_reorthogonalize = True
                     break
-                correction = r_vec.unsqueeze(0).mul(q_mat[:k + 1]).sum(
-                    dim_dimension, keepdim=True)
+                correction = r_vec.unsqueeze(0).mul(q_mat[:k + 1]).sum(dim_dimension, keepdim=True)
                 correction = q_mat[:k + 1].mul(correction).sum(0)
                 r_vec.sub_(correction)
-                r_vec_norm = torch.norm(r_vec, 2, dim=dim_dimension,
-                    keepdim=True)
+                r_vec_norm = torch.norm(r_vec, 2, dim=dim_dimension, keepdim=True)
                 r_vec.div_(r_vec_norm)
-                inner_products = q_mat[:k + 1].mul(r_vec.unsqueeze(0)).sum(
-                    dim_dimension)
+                inner_products = q_mat[:k + 1].mul(r_vec.unsqueeze(0)).sum(dim_dimension)
             q_mat[k + 1].copy_(r_vec)
-            if torch.sum(beta_curr.abs() > 1e-06
-                ) == 0 or not could_reorthogonalize:
+            if torch.sum(beta_curr.abs() > 1e-06) == 0 or not could_reorthogonalize:
                 break
     num_iter = k + 1
-    q_mat = q_mat[:num_iter + 1].permute(-1, *range(1, 1 + len(batch_shape)
-        ), -2, 0).contiguous()
-    t_mat = t_mat[:num_iter + 1, :num_iter + 1].permute(-1, *range(2, 2 +
-        len(batch_shape)), 0, 1).contiguous()
+    q_mat = q_mat[:num_iter + 1].permute(-1, *range(1, 1 + len(batch_shape)), -2, 0).contiguous()
+    t_mat = t_mat[:num_iter + 1, :num_iter + 1].permute(-1, *range(2, 2 + len(batch_shape)), 0, 1).contiguous()
     if not multiple_init_vecs:
         q_mat.squeeze_(0)
         t_mat.squeeze_(0)
@@ -969,10 +909,7 @@ class StochasticLQ(object):
         self.num_random_probes = num_random_probes
 
     def lanczos_batch(self, matmul_closure, rhs_vectors):
-        return lanczos_tridiag(matmul_closure, self.max_iter, init_vecs=
-            rhs_vectors, dtype=rhs_vectors.dtype, device=rhs_vectors.device,
-            batch_shape=rhs_vectors.shape[-2:], matrix_shape=torch.Size((
-            rhs_vectors.size(-2), rhs_vectors.size(-2))))
+        return lanczos_tridiag(matmul_closure, self.max_iter, init_vecs=rhs_vectors, dtype=rhs_vectors.dtype, device=rhs_vectors.device, batch_shape=rhs_vectors.shape[-2:], matrix_shape=torch.Size((rhs_vectors.size(-2), rhs_vectors.size(-2))))
 
     def evaluate(self, matrix_shape, eigenvalues, eigenvectors, funcs):
         """
@@ -997,20 +934,16 @@ class StochasticLQ(object):
                 [tr(f_1(A)),tr(f_2(A)),...,tr(f_k(A))].
         """
         batch_shape = torch.Size(eigenvalues.shape[1:-1])
-        results = [torch.zeros(batch_shape, dtype=eigenvalues.dtype, device
-            =eigenvalues.device) for _ in funcs]
+        results = [torch.zeros(batch_shape, dtype=eigenvalues.dtype, device=eigenvalues.device) for _ in funcs]
         num_random_probes = eigenvalues.size(0)
         for j in range(num_random_probes):
             eigenvalues_for_probe = eigenvalues[j]
             eigenvectors_for_probe = eigenvectors[j]
             for i, func in enumerate(funcs):
-                eigenvecs_first_component = eigenvectors_for_probe[(...), (
-                    0), :]
+                eigenvecs_first_component = eigenvectors_for_probe[(...), (0), :]
                 func_eigenvalues = func(eigenvalues_for_probe)
-                dot_products = (eigenvecs_first_component.pow(2) *
-                    func_eigenvalues).sum(-1)
-                results[i] = results[i] + matrix_shape[-1] / float(
-                    num_random_probes) * dot_products
+                dot_products = (eigenvecs_first_component.pow(2) * func_eigenvalues).sum(-1)
+                results[i] = results[i] + matrix_shape[-1] / float(num_random_probes) * dot_products
         return results
 
 
@@ -1043,9 +976,7 @@ class InvQuadLogDet(Function):
     """
 
     @staticmethod
-    def forward(ctx, representation_tree, dtype, device, matrix_shape,
-        batch_shape=torch.Size(), inv_quad=False, logdet=False,
-        probe_vectors=None, probe_vector_norms=None, *args):
+    def forward(ctx, representation_tree, dtype, device, matrix_shape, batch_shape=torch.Size(), inv_quad=False, logdet=False, probe_vectors=None, probe_vector_norms=None, *args):
         """
         *args - The arguments representing the PSD matrix A (or batch of PSD matrices A)
         If self.inv_quad is true, the first entry in *args is inv_quad_rhs (Tensor)
@@ -1056,8 +987,7 @@ class InvQuadLogDet(Function):
         - (Scalar) The log determinant (or None, self.if logdet is False)
         """
         if not (inv_quad or logdet):
-            raise RuntimeError(
-                'Either inv_quad or logdet must be true (or both)')
+            raise RuntimeError('Either inv_quad or logdet must be true (or both)')
         ctx.representation_tree = representation_tree
         ctx.dtype = dtype
         ctx.device = device
@@ -1074,71 +1004,48 @@ class InvQuadLogDet(Function):
             matrix_args = args
         lazy_tsr = ctx.representation_tree(*matrix_args)
         with torch.no_grad():
-            preconditioner, precond_lt, logdet_correction = (lazy_tsr.
-                _preconditioner())
+            preconditioner, precond_lt, logdet_correction = lazy_tsr._preconditioner()
         ctx.preconditioner = preconditioner
         if (probe_vectors is None or probe_vector_norms is None) and logdet:
             num_random_probes = settings.num_trace_samples.value()
             if preconditioner is None:
                 if settings.deterministic_probes.on():
-                    warnings.warn(
-                        "Deterministic probes will currently work only if you aren't training multiple independent models simultaneously."
-                        , UserWarning)
+                    warnings.warn("Deterministic probes will currently work only if you aren't training multiple independent models simultaneously.", UserWarning)
                     if settings.deterministic_probes.probe_vectors is None:
-                        probe_vectors = torch.empty(matrix_shape[-1],
-                            num_random_probes, dtype=dtype, device=device)
+                        probe_vectors = torch.empty(matrix_shape[-1], num_random_probes, dtype=dtype, device=device)
                         probe_vectors.bernoulli_().mul_(2).add_(-1)
-                        settings.deterministic_probes.probe_vectors = (
-                            probe_vectors)
+                        settings.deterministic_probes.probe_vectors = probe_vectors
                     else:
-                        probe_vectors = (settings.deterministic_probes.
-                            probe_vectors)
+                        probe_vectors = settings.deterministic_probes.probe_vectors
                 else:
-                    probe_vectors = torch.empty(matrix_shape[-1],
-                        num_random_probes, dtype=dtype, device=device)
+                    probe_vectors = torch.empty(matrix_shape[-1], num_random_probes, dtype=dtype, device=device)
                     probe_vectors.bernoulli_().mul_(2).add_(-1)
-                probe_vector_norms = torch.norm(probe_vectors, 2, dim=-2,
-                    keepdim=True)
+                probe_vector_norms = torch.norm(probe_vectors, 2, dim=-2, keepdim=True)
                 if batch_shape is not None:
-                    probe_vectors = probe_vectors.expand(*batch_shape,
-                        matrix_shape[-1], num_random_probes)
-                    probe_vector_norms = probe_vector_norms.expand(*
-                        batch_shape, 1, num_random_probes)
+                    probe_vectors = probe_vectors.expand(*batch_shape, matrix_shape[-1], num_random_probes)
+                    probe_vector_norms = probe_vector_norms.expand(*batch_shape, 1, num_random_probes)
             else:
                 if precond_lt.size()[-2:] == torch.Size([1, 1]):
                     covar_root = precond_lt.evaluate().sqrt()
                 else:
                     covar_root = precond_lt.root_decomposition().root
                 if settings.deterministic_probes.on():
-                    warnings.warn(
-                        "Deterministic probes will currently work only if you aren't training multiple independent models simultaneously."
-                        , UserWarning)
+                    warnings.warn("Deterministic probes will currently work only if you aren't training multiple independent models simultaneously.", UserWarning)
                     base_samples = settings.deterministic_probes.probe_vectors
-                    if base_samples is None or covar_root.size(-1
-                        ) != base_samples.size(-2):
-                        base_samples = torch.randn(*precond_lt.batch_shape,
-                            covar_root.size(-1), num_random_probes, dtype=
-                            precond_lt.dtype, device=precond_lt.device)
-                        settings.deterministic_probes.probe_vectors = (
-                            base_samples)
-                    probe_vectors = covar_root.matmul(base_samples).permute(
-                        -1, *range(precond_lt.dim() - 1))
+                    if base_samples is None or covar_root.size(-1) != base_samples.size(-2):
+                        base_samples = torch.randn(*precond_lt.batch_shape, covar_root.size(-1), num_random_probes, dtype=precond_lt.dtype, device=precond_lt.device)
+                        settings.deterministic_probes.probe_vectors = base_samples
+                    probe_vectors = covar_root.matmul(base_samples).permute(-1, *range(precond_lt.dim() - 1))
                 else:
-                    base_samples = torch.randn(*precond_lt.batch_shape,
-                        covar_root.size(-1), num_random_probes, dtype=
-                        precond_lt.dtype, device=precond_lt.device)
-                    probe_vectors = precond_lt.zero_mean_mvn_samples(
-                        num_random_probes)
-                probe_vectors = probe_vectors.unsqueeze(-2).transpose(0, -2
-                    ).squeeze(0).transpose(-2, -1).contiguous()
-                probe_vector_norms = torch.norm(probe_vectors, p=2, dim=-2,
-                    keepdim=True)
+                    base_samples = torch.randn(*precond_lt.batch_shape, covar_root.size(-1), num_random_probes, dtype=precond_lt.dtype, device=precond_lt.device)
+                    probe_vectors = precond_lt.zero_mean_mvn_samples(num_random_probes)
+                probe_vectors = probe_vectors.unsqueeze(-2).transpose(0, -2).squeeze(0).transpose(-2, -1).contiguous()
+                probe_vector_norms = torch.norm(probe_vectors, p=2, dim=-2, keepdim=True)
             probe_vectors = probe_vectors.div(probe_vector_norms)
         ctx.probe_vectors = probe_vectors
         ctx.probe_vector_norms = probe_vector_norms
         if ctx.logdet and not ctx.probe_vectors.numel():
-            raise RuntimeError(
-                'Probe vectors were not supplied for logdet computation')
+            raise RuntimeError('Probe vectors were not supplied for logdet computation')
         rhs_list = []
         num_random_probes = 0
         num_inv_quad_solves = 0
@@ -1155,30 +1062,24 @@ class InvQuadLogDet(Function):
         rhs = torch.cat(rhs_list, -1)
         t_mat = None
         if ctx.logdet and settings.skip_logdet_forward.off():
-            solves, t_mat = lazy_tsr._solve(rhs, preconditioner,
-                num_tridiag=num_random_probes)
+            solves, t_mat = lazy_tsr._solve(rhs, preconditioner, num_tridiag=num_random_probes)
         else:
             solves = lazy_tsr._solve(rhs, preconditioner, num_tridiag=0)
-        logdet_term = torch.zeros(lazy_tsr.batch_shape, dtype=ctx.dtype,
-            device=ctx.device)
-        inv_quad_term = torch.zeros(lazy_tsr.batch_shape, dtype=ctx.dtype,
-            device=ctx.device)
+        logdet_term = torch.zeros(lazy_tsr.batch_shape, dtype=ctx.dtype, device=ctx.device)
+        inv_quad_term = torch.zeros(lazy_tsr.batch_shape, dtype=ctx.dtype, device=ctx.device)
         if ctx.logdet and settings.skip_logdet_forward.off():
             if torch.any(torch.isnan(t_mat)).item():
-                logdet_term = torch.tensor(float('nan'), dtype=ctx.dtype,
-                    device=ctx.device)
+                logdet_term = torch.tensor(float('nan'), dtype=ctx.dtype, device=ctx.device)
             else:
                 if ctx.batch_shape is None:
                     t_mat = t_mat.unsqueeze(1)
                 eigenvalues, eigenvectors = lanczos_tridiag_to_diag(t_mat)
                 slq = StochasticLQ()
-                logdet_term, = slq.evaluate(ctx.matrix_shape, eigenvalues,
-                    eigenvectors, [lambda x: x.log()])
+                logdet_term, = slq.evaluate(ctx.matrix_shape, eigenvalues, eigenvectors, [lambda x: x.log()])
                 if logdet_correction is not None:
                     logdet_term = logdet_term + logdet_correction
         if ctx.inv_quad:
-            inv_quad_solves = solves.narrow(-1, num_random_probes,
-                num_inv_quad_solves)
+            inv_quad_solves = solves.narrow(-1, num_random_probes, num_inv_quad_solves)
             inv_quad_term = (inv_quad_solves * inv_quad_rhs).sum(-2)
         ctx.num_random_probes = num_random_probes
         ctx.num_inv_quad_solves = num_inv_quad_solves
@@ -1192,8 +1093,7 @@ class InvQuadLogDet(Function):
     def backward(ctx, inv_quad_grad_output, logdet_grad_output):
         matrix_arg_grads = None
         inv_quad_rhs_grad = None
-        compute_inv_quad_grad = inv_quad_grad_output.abs().sum(
-            ) and ctx.inv_quad
+        compute_inv_quad_grad = inv_quad_grad_output.abs().sum() and ctx.inv_quad
         compute_logdet_grad = logdet_grad_output.abs().sum() and ctx.logdet
         matrix_args = ctx.saved_tensors[:-1]
         solves = ctx.saved_tensors[-1]
@@ -1211,16 +1111,12 @@ class InvQuadLogDet(Function):
         neg_inv_quad_solves_times_grad_out = None
         if compute_logdet_grad:
             coef = 1.0 / ctx.probe_vectors.size(-1)
-            probe_vector_solves = solves.narrow(-1, 0, ctx.num_random_probes
-                ).mul(coef)
-            probe_vector_solves.mul_(ctx.probe_vector_norms).mul_(
-                logdet_grad_output)
+            probe_vector_solves = solves.narrow(-1, 0, ctx.num_random_probes).mul(coef)
+            probe_vector_solves.mul_(ctx.probe_vector_norms).mul_(logdet_grad_output)
             probe_vectors = ctx.probe_vectors.mul(ctx.probe_vector_norms)
         if ctx.inv_quad:
-            inv_quad_solves = solves.narrow(-1, ctx.num_random_probes, ctx.
-                num_inv_quad_solves)
-            neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(
-                inv_quad_grad_output).mul_(-1)
+            inv_quad_solves = solves.narrow(-1, ctx.num_random_probes, ctx.num_inv_quad_solves)
+            neg_inv_quad_solves_times_grad_out = inv_quad_solves.mul(inv_quad_grad_output).mul_(-1)
         if any(ctx.needs_input_grad):
             left_factors_list = []
             right_factors_list = []
@@ -1234,8 +1130,7 @@ class InvQuadLogDet(Function):
                 right_factors_list.append(inv_quad_solves)
             left_factors = torch.cat(left_factors_list, -1)
             right_factors = torch.cat(right_factors_list, -1)
-            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors,
-                right_factors)
+            matrix_arg_grads = lazy_tsr._quad_form_derivative(left_factors, right_factors)
         if compute_inv_quad_grad and ctx.needs_input_grad[9]:
             inv_quad_rhs_grad = neg_inv_quad_solves_times_grad_out.mul_(-2)
         elif ctx.inv_quad:
@@ -1259,8 +1154,7 @@ class LazyTensorRepresentationTree(object):
         for arg in lazy_tsr._args:
             if hasattr(arg, 'representation') and callable(arg.representation):
                 representation_size = len(arg.representation())
-                self.children.append((slice(counter, counter +
-                    representation_size, None), arg.representation_tree()))
+                self.children.append((slice(counter, counter + representation_size, None), arg.representation_tree()))
                 counter += representation_size
             else:
                 self.children.append((counter, None))
@@ -1270,8 +1164,7 @@ class LazyTensorRepresentationTree(object):
         unflattened_representation = []
         for index, subtree in self.children:
             if subtree is None:
-                unflattened_representation.append(flattened_representation[
-                    index])
+                unflattened_representation.append(flattened_representation[index])
             else:
                 sub_representation = flattened_representation[index]
                 unflattened_representation.append(subtree(*sub_representation))
@@ -1308,18 +1201,15 @@ class Matmul(Function):
         arg_grads = [None] * len(matrix_args)
         if any(ctx.needs_input_grad[2:]):
             rhs = rhs.unsqueeze(-1) if rhs.ndimension() == 1 else rhs
-            grad_output_matrix = grad_output.unsqueeze(-1
-                ) if grad_output.ndimension() == 1 else grad_output
-            arg_grads = ctx.representation_tree(*matrix_args
-                )._quad_form_derivative(grad_output_matrix, rhs)
+            grad_output_matrix = grad_output.unsqueeze(-1) if grad_output.ndimension() == 1 else grad_output
+            arg_grads = ctx.representation_tree(*matrix_args)._quad_form_derivative(grad_output_matrix, rhs)
         if ctx.needs_input_grad[1]:
             if hasattr(ctx, '_lazy_tsr'):
                 lazy_tsr = ctx._lazy_tsr
             else:
                 lazy_tsr = ctx.representation_tree(*matrix_args)
             if grad_output.dim() == 1:
-                rhs_grad = lazy_tsr._t_matmul(grad_output.unsqueeze(-1)
-                    ).squeeze(-1)
+                rhs_grad = lazy_tsr._t_matmul(grad_output.unsqueeze(-1)).squeeze(-1)
             else:
                 rhs_grad = lazy_tsr._t_matmul(grad_output)
             if rhs_grad.dim() > len(rhs_shape):
@@ -1337,9 +1227,7 @@ class NumericalWarning(RuntimeWarning):
 class RootDecomposition(Function):
 
     @staticmethod
-    def forward(ctx, representation_tree, max_iter, dtype, device,
-        batch_shape, matrix_shape, root, inverse, initial_vectors, *matrix_args
-        ):
+    def forward(ctx, representation_tree, max_iter, dtype, device, batch_shape, matrix_shape, root, inverse, initial_vectors, *matrix_args):
         """
         :param list matrix_args: The arguments representing the symmetric matrix A (or batch of PSD matrices A)
 
@@ -1359,10 +1247,7 @@ class RootDecomposition(Function):
         ctx.initial_vectors = initial_vectors
         lazy_tsr = ctx.representation_tree(*matrix_args)
         matmul_closure = lazy_tsr._matmul
-        q_mat, t_mat = lanczos.lanczos_tridiag(matmul_closure, ctx.max_iter,
-            dtype=ctx.dtype, device=ctx.device, matrix_shape=ctx.
-            matrix_shape, batch_shape=ctx.batch_shape, init_vecs=ctx.
-            initial_vectors)
+        q_mat, t_mat = lanczos.lanczos_tridiag(matmul_closure, ctx.max_iter, dtype=ctx.dtype, device=ctx.device, matrix_shape=ctx.matrix_shape, batch_shape=ctx.batch_shape, init_vecs=ctx.initial_vectors)
         if ctx.batch_shape is None:
             q_mat = q_mat.unsqueeze(-3)
             t_mat = t_mat.unsqueeze(-3)
@@ -1371,11 +1256,8 @@ class RootDecomposition(Function):
             t_mat = t_mat.unsqueeze(0)
         n_probes = t_mat.size(0)
         mins = lazify(t_mat).diag().min(dim=-1, keepdim=True)[0].unsqueeze(-1)
-        jitter_mat = settings.tridiagonal_jitter.value() * mins * torch.eye(
-            t_mat.size(-1), device=t_mat.device, dtype=t_mat.dtype).expand_as(
-            t_mat)
-        eigenvalues, eigenvectors = lanczos.lanczos_tridiag_to_diag(t_mat +
-            jitter_mat)
+        jitter_mat = settings.tridiagonal_jitter.value() * mins * torch.eye(t_mat.size(-1), device=t_mat.device, dtype=t_mat.dtype).expand_as(t_mat)
+        eigenvalues, eigenvectors = lanczos.lanczos_tridiag_to_diag(t_mat + jitter_mat)
         q_mat = q_mat.matmul(eigenvectors)
         root_evals = eigenvalues.sqrt()
         root = torch.empty(0, dtype=q_mat.dtype, device=q_mat.device)
@@ -1407,8 +1289,7 @@ class RootDecomposition(Function):
         if any(ctx.needs_input_grad):
 
             def is_empty(tensor):
-                return tensor.numel() == 0 or tensor.numel() == 1 and tensor[0
-                    ] == 0
+                return tensor.numel() == 0 or tensor.numel() == 1 and tensor[0] == 0
             if is_empty(root_grad_output):
                 root_grad_output = None
             if is_empty(inverse_grad_output):
@@ -1419,21 +1300,17 @@ class RootDecomposition(Function):
             inverse = ctx.saved_tensors[-1]
             is_batch = False
             if root_grad_output is not None:
-                if root_grad_output.ndimension() == 2 and q_mat.ndimension(
-                    ) > 2:
+                if root_grad_output.ndimension() == 2 and q_mat.ndimension() > 2:
                     root_grad_output = root_grad_output.unsqueeze(0)
                     is_batch = True
-                if root_grad_output.ndimension() == 3 and q_mat.ndimension(
-                    ) > 3:
+                if root_grad_output.ndimension() == 3 and q_mat.ndimension() > 3:
                     root_grad_output = root_grad_output.unsqueeze(0)
                     is_batch = True
             if inverse_grad_output is not None:
-                if inverse_grad_output.ndimension() == 2 and q_mat.ndimension(
-                    ) > 2:
+                if inverse_grad_output.ndimension() == 2 and q_mat.ndimension() > 2:
                     inverse_grad_output = inverse_grad_output.unsqueeze(0)
                     is_batch = True
-                if inverse_grad_output.ndimension() == 3 and q_mat.ndimension(
-                    ) > 3:
+                if inverse_grad_output.ndimension() == 3 and q_mat.ndimension() > 3:
                     inverse_grad_output = inverse_grad_output.unsqueeze(0)
                     is_batch = True
             if hasattr(ctx, '_lazy_tsr'):
@@ -1446,16 +1323,13 @@ class RootDecomposition(Function):
             if root_grad_output is not None:
                 left_factor.add_(root_grad_output)
             if inverse_grad_output is not None:
-                left_factor.sub_(torch.matmul(inverse, inverse_grad_output.
-                    transpose(-1, -2)).matmul(inverse))
+                left_factor.sub_(torch.matmul(inverse, inverse_grad_output.transpose(-1, -2)).matmul(inverse))
             right_factor = inverse.div(2.0)
             if is_batch:
                 left_factor = left_factor.permute(1, 0, 2, 3).contiguous()
-                left_factor = left_factor.view(inverse.size(1), -1,
-                    left_factor.size(-1))
+                left_factor = left_factor.view(inverse.size(1), -1, left_factor.size(-1))
                 right_factor = right_factor.permute(1, 0, 2, 3).contiguous()
-                right_factor = right_factor.view(inverse.size(1), -1,
-                    right_factor.size(-1))
+                right_factor = right_factor.view(inverse.size(1), -1, right_factor.size(-1))
             else:
                 left_factor = left_factor.contiguous()
                 right_factor = right_factor.contiguous()
@@ -1468,17 +1342,14 @@ class RootDecomposition(Function):
 def _mul_broadcast_shape(*shapes, error_msg=None):
     """Compute dimension suggested by multiple tensor indices (supports broadcasting)"""
     num_dims = max(len(shape) for shape in shapes)
-    shapes = tuple([1] * (num_dims - len(shape)) + list(shape) for shape in
-        shapes)
+    shapes = tuple([1] * (num_dims - len(shape)) + list(shape) for shape in shapes)
     final_size = []
     for size_by_dim in zip(*shapes):
         non_singleton_sizes = tuple(size for size in size_by_dim if size != 1)
         if len(non_singleton_sizes):
-            if any(size != non_singleton_sizes[0] for size in
-                non_singleton_sizes):
+            if any(size != non_singleton_sizes[0] for size in non_singleton_sizes):
                 if error_msg is None:
-                    raise RuntimeError(
-                        'Shapes are not broadcastable for mul operation')
+                    raise RuntimeError('Shapes are not broadcastable for mul operation')
                 else:
                     raise RuntimeError(error_msg)
             final_size.append(non_singleton_sizes[0])
@@ -1506,9 +1377,7 @@ def _compute_getitem_size(obj, indices):
         :class:`torch.Size`
     """
     if obj.dim() != len(indices):
-        raise RuntimeError(
-            '_compute_getitem_size assumes that obj (size: {}) and indices (len: {}) have the same dimensionality.'
-            .format(obj.shape, len(indices)))
+        raise RuntimeError('_compute_getitem_size assumes that obj (size: {}) and indices (len: {}) have the same dimensionality.'.format(obj.shape, len(indices)))
     final_shape = []
     tensor_idx = None
     tensor_idx_shape = None
@@ -1526,27 +1395,20 @@ def _compute_getitem_size(obj, indices):
                 try:
                     range(size)[idx]
                 except IndexError:
-                    raise IndexError(
-                        'index element {} ({}) is invalid: out of range for obj of size {}.'
-                        .format(i, idx, obj.shape))
+                    raise IndexError('index element {} ({}) is invalid: out of range for obj of size {}.'.format(i, idx, obj.shape))
         elif torch.is_tensor(idx):
             if tensor_idx_shape is None:
                 tensor_idx_shape = idx.shape
                 tensor_idx = len(final_shape)
             else:
                 try:
-                    tensor_idx_shape = _mul_broadcast_shape(tensor_idx_shape,
-                        idx.shape)
+                    tensor_idx_shape = _mul_broadcast_shape(tensor_idx_shape, idx.shape)
                 except RuntimeError:
-                    raise IndexError(
-                        'Incompatible tensor indices in index - got shapes of {} .'
-                        .format([idx.shape for idx in indices if torch.
-                        is_tensor(idx)]))
+                    raise IndexError('Incompatible tensor indices in index - got shapes of {} .'.format([idx.shape for idx in indices if torch.is_tensor(idx)]))
                 if slice_after_tensor_idx:
                     tensor_idx = 0
     if tensor_idx is not None:
-        final_shape = final_shape[:tensor_idx] + list(tensor_idx_shape
-            ) + final_shape[tensor_idx:]
+        final_shape = final_shape[:tensor_idx] + list(tensor_idx_shape) + final_shape[tensor_idx:]
     return torch.Size(final_shape)
 
 
@@ -1579,8 +1441,7 @@ def _pad_with_singletons(obj, num_singletons_before=0, num_singletons_after=0):
         >>> _pad_width_singletons(x, 2, 3).shape
         >>> # [1, 1, 10, 5, 1, 1, 1]
     """
-    new_shape = [1] * num_singletons_before + list(obj.shape) + [1
-        ] * num_singletons_after
+    new_shape = [1] * num_singletons_before + list(obj.shape) + [1] * num_singletons_after
     return obj.view(*new_shape)
 
 
@@ -1604,43 +1465,32 @@ def _convert_indices_to_tensors(obj, indices):
         >>> _convert_indices_to_tensors(x, (torch.tensor([0, 1]), 2, slice(None, None, None)))
         >>> # (torch.tensor([[[0]], [[1]]]), torch.tensor([[[2]]]), torch.tensor([[[0, 1, 2, 3]]]))
     """
-    slice_indices = tuple(index for index in indices if isinstance(index,
-        slice))
-    tensor_indices = tuple(index for index in indices if torch.is_tensor(index)
-        )
-    tensor_index_shape = _mul_broadcast_shape(*[tensor_index.shape for
-        tensor_index in tensor_indices])
+    slice_indices = tuple(index for index in indices if isinstance(index, slice))
+    tensor_indices = tuple(index for index in indices if torch.is_tensor(index))
+    tensor_index_shape = _mul_broadcast_shape(*[tensor_index.shape for tensor_index in tensor_indices])
     num_final_dims = len(slice_indices) + len(tensor_index_shape)
     tensor_index_moved_to_start = _is_tensor_index_moved_to_start(indices)
-    num_singletons_before = len(tensor_index_shape
-        ) if tensor_index_moved_to_start else 0
-    num_singletons_after = num_final_dims - len(tensor_index_shape
-        ) if tensor_index_moved_to_start else num_final_dims
+    num_singletons_before = len(tensor_index_shape) if tensor_index_moved_to_start else 0
+    num_singletons_after = num_final_dims - len(tensor_index_shape) if tensor_index_moved_to_start else num_final_dims
     num_singletons_before_tensor = 0 if tensor_index_moved_to_start else None
-    num_singletons_after_tensor = num_final_dims - len(tensor_index_shape
-        ) if tensor_index_moved_to_start else None
+    num_singletons_after_tensor = num_final_dims - len(tensor_index_shape) if tensor_index_moved_to_start else None
     new_indices = []
     for dim, index in enumerate(indices):
         if isinstance(index, slice):
             num_singletons_after -= 1
-            new_index = torch.arange(0, obj.size(dim), device=obj.device)[index
-                ]
-            new_index = _pad_with_singletons(new_index,
-                num_singletons_before, num_singletons_after)
+            new_index = torch.arange(0, obj.size(dim), device=obj.device)[index]
+            new_index = _pad_with_singletons(new_index, num_singletons_before, num_singletons_after)
             num_singletons_before += 1
         elif isinstance(index, int):
-            new_index = torch.tensor(index, dtype=torch.long, device=obj.device
-                )
-            new_index = _pad_with_singletons(new_index,
-                num_singletons_before, num_singletons_after)
+            new_index = torch.tensor(index, dtype=torch.long, device=obj.device)
+            new_index = _pad_with_singletons(new_index, num_singletons_before, num_singletons_after)
         elif torch.is_tensor(index):
             if num_singletons_before_tensor is None:
                 num_singletons_after -= len(tensor_index_shape)
                 num_singletons_before_tensor = num_singletons_before
                 num_singletons_after_tensor = num_singletons_after
                 num_singletons_before += len(tensor_index_shape)
-            new_index = _pad_with_singletons(index,
-                num_singletons_before_tensor, num_singletons_after_tensor)
+            new_index = _pad_with_singletons(index, num_singletons_before_tensor, num_singletons_after_tensor)
         new_indices.append(new_index)
     return tuple(new_indices)
 
@@ -1658,16 +1508,13 @@ def _matmul_broadcast_shape(shape_a, shape_b, error_msg=None):
     if len(shape_b) == 1:
         if n != p:
             if error_msg is None:
-                raise RuntimeError(
-                    f'Incompatible dimensions for matmul: {shape_a} and {shape_b}'
-                    )
+                raise RuntimeError(f'Incompatible dimensions for matmul: {shape_a} and {shape_b}')
             else:
                 raise RuntimeError(error_msg)
         return shape_a[:-1]
     if n != shape_b[-2]:
         if error_msg is None:
-            raise RuntimeError(
-                f'Incompatible dimensions for matmul: {shape_a} and {shape_b}')
+            raise RuntimeError(f'Incompatible dimensions for matmul: {shape_a} and {shape_b}')
         else:
             raise RuntimeError(error_msg)
     tail_shape = torch.Size([m, p])
@@ -1695,8 +1542,7 @@ def is_in_cache(obj, name):
 def get_from_cache(obj, name):
     """Get an item from the cache."""
     if not is_in_cache(obj, name):
-        raise RuntimeError('Object does not have item {} stored in cache.'.
-            format(name))
+        raise RuntimeError('Object does not have item {} stored in cache.'.format(name))
     return obj._memoize_cache[name]
 
 
@@ -1726,8 +1572,7 @@ def delazify(obj):
     elif isinstance(obj, LazyTensor):
         return obj.evaluate()
     else:
-        raise TypeError('object of class {} cannot be made into a Tensor'.
-            format(obj.__class__.__name__))
+        raise TypeError('object of class {} cannot be made into a Tensor'.format(obj.__class__.__name__))
 
 
 class NanError(RuntimeError):
@@ -1753,9 +1598,7 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
     except RuntimeError as e:
         isnan = torch.isnan(A)
         if isnan.any():
-            raise NanError(
-                f'cholesky_cpu: {isnan.sum().item()} of {A.numel()} elements of the {A.shape} tensor are NaN.'
-                )
+            raise NanError(f'cholesky_cpu: {isnan.sum().item()} of {A.numel()} elements of the {A.shape} tensor are NaN.')
         if jitter is None:
             jitter = 1e-06 if A.dtype == torch.float32 else 1e-08
         Aprime = A.clone()
@@ -1766,9 +1609,7 @@ def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
             jitter_prev = jitter_new
             try:
                 L = torch.cholesky(Aprime, upper=upper, out=out)
-                warnings.warn(
-                    f'A not p.d., added jitter of {jitter_new} to the diagonal'
-                    , NumericalWarning)
+                warnings.warn(f'A not p.d., added jitter of {jitter_new} to the diagonal', NumericalWarning)
                 return L
             except RuntimeError:
                 continue
@@ -1865,8 +1706,7 @@ class LazyTensor(ABC):
         Returns:
             :obj:`torch.tensor`: matrix * rhs
         """
-        raise NotImplementedError('The class {} requires a _matmul function!'
-            .format(self.__class__.__name__))
+        raise NotImplementedError('The class {} requires a _matmul function!'.format(self.__class__.__name__))
 
     @abstractmethod
     def _size(self):
@@ -1880,8 +1720,7 @@ class LazyTensor(ABC):
         Returns:
             :obj:`torch.Size`: The size of the matrix :math:`K` represented by this LazyTensor
         """
-        raise NotImplementedError('The class {} requires a _size function!'
-            .format(self.__class__.__name__))
+        raise NotImplementedError('The class {} requires a _size function!'.format(self.__class__.__name__))
 
     @abstractmethod
     def _transpose_nonbatch(self):
@@ -1893,9 +1732,7 @@ class LazyTensor(ABC):
             This method is used internally by the related function :func:`~gpytorch.lazy.LazyTensor.transpose`, which
             does some additional work. Calling this method directly is discouraged.
         """
-        raise NotImplementedError(
-            'The class {} requires a _transpose_nonbatch function!'.format(
-            self.__class__.__name__))
+        raise NotImplementedError('The class {} requires a _transpose_nonbatch function!'.format(self.__class__.__name__))
 
     def _permute_batch(self, *dims):
         """
@@ -1959,27 +1796,19 @@ class LazyTensor(ABC):
         """
         if _is_noop_index(row_index) and _is_noop_index(col_index):
             if len(batch_indices):
-                components = [component[batch_indices] for component in
-                    self._args]
+                components = [component[batch_indices] for component in self._args]
                 res = self.__class__(*components, **self._kwargs)
                 return res
             else:
                 return self
-        row_interp_indices = torch.arange(0, self.size(-2), dtype=torch.
-            long, device=self.device).view(-1, 1)
-        row_interp_indices = row_interp_indices.expand(*self.batch_shape, -1, 1
-            )
-        row_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self
-            .device).expand_as(row_interp_indices)
-        col_interp_indices = torch.arange(0, self.size(-1), dtype=torch.
-            long, device=self.device).view(-1, 1)
-        col_interp_indices = col_interp_indices.expand(*self.batch_shape, -1, 1
-            )
-        col_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self
-            .device).expand_as(col_interp_indices)
+        row_interp_indices = torch.arange(0, self.size(-2), dtype=torch.long, device=self.device).view(-1, 1)
+        row_interp_indices = row_interp_indices.expand(*self.batch_shape, -1, 1)
+        row_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self.device).expand_as(row_interp_indices)
+        col_interp_indices = torch.arange(0, self.size(-1), dtype=torch.long, device=self.device).view(-1, 1)
+        col_interp_indices = col_interp_indices.expand(*self.batch_shape, -1, 1)
+        col_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self.device).expand_as(col_interp_indices)
         from . import InterpolatedLazyTensor
-        res = InterpolatedLazyTensor(self, row_interp_indices,
-            row_interp_values, col_interp_indices, col_interp_values)
+        res = InterpolatedLazyTensor(self, row_interp_indices, row_interp_values, col_interp_indices, col_interp_values)
         return res._getitem(row_index, col_index, *batch_indices)
 
     def _unsqueeze_batch(self, dim):
@@ -2004,10 +1833,8 @@ class LazyTensor(ABC):
             This method is used internally by the related function :func:`~gpytorch.lazy.LazyTensor.expand`,
             which does some additional work. Calling this method directly is discouraged.
         """
-        current_shape = torch.Size([(1) for _ in range(len(batch_shape) -
-            self.dim() - 2)] + list(self.batch_shape))
-        batch_repeat = torch.Size([(expand_size // current_size) for 
-            expand_size, current_size in zip(batch_shape, current_shape)])
+        current_shape = torch.Size([(1) for _ in range(len(batch_shape) - self.dim() - 2)] + list(self.batch_shape))
+        batch_repeat = torch.Size([(expand_size // current_size) for expand_size, current_size in zip(batch_shape, current_shape)])
         return self.repeat(*batch_repeat, 1, 1)
 
     def _get_indices(self, row_index, col_index, *batch_indices):
@@ -2028,30 +1855,19 @@ class LazyTensor(ABC):
         Returns:
             Tensor (size determined by broadcasted shape of indices) of selected values
         """
-        final_shape = _mul_broadcast_shape(*(index.shape for index in
-            batch_indices), row_index.shape, col_index.shape)
+        final_shape = _mul_broadcast_shape(*(index.shape for index in batch_indices), row_index.shape, col_index.shape)
         row_index = row_index.expand(final_shape)
         col_index = col_index.expand(final_shape)
-        batch_indices = tuple(index.expand(final_shape) for index in
-            batch_indices)
-        base_lazy_tensor = self._getitem(_noop_index, _noop_index, *
-            batch_indices)._expand_batch(final_shape)
-        row_interp_indices = torch.arange(0, self.size(-2), dtype=torch.
-            long, device=self.device)
-        row_interp_indices = row_interp_indices[row_index].unsqueeze_(-1
-            ).unsqueeze_(-1)
-        row_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self
-            .device).expand_as(row_interp_indices)
-        col_interp_indices = torch.arange(0, self.size(-1), dtype=torch.
-            long, device=self.device)
-        col_interp_indices = col_interp_indices[col_index].unsqueeze_(-1
-            ).unsqueeze_(-1)
-        col_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self
-            .device).expand_as(col_interp_indices)
+        batch_indices = tuple(index.expand(final_shape) for index in batch_indices)
+        base_lazy_tensor = self._getitem(_noop_index, _noop_index, *batch_indices)._expand_batch(final_shape)
+        row_interp_indices = torch.arange(0, self.size(-2), dtype=torch.long, device=self.device)
+        row_interp_indices = row_interp_indices[row_index].unsqueeze_(-1).unsqueeze_(-1)
+        row_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self.device).expand_as(row_interp_indices)
+        col_interp_indices = torch.arange(0, self.size(-1), dtype=torch.long, device=self.device)
+        col_interp_indices = col_interp_indices[col_index].unsqueeze_(-1).unsqueeze_(-1)
+        col_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self.device).expand_as(col_interp_indices)
         from . import InterpolatedLazyTensor
-        res = InterpolatedLazyTensor(base_lazy_tensor, row_interp_indices,
-            row_interp_values, col_interp_indices, col_interp_values).evaluate(
-            ).squeeze(-2).squeeze(-1)
+        res = InterpolatedLazyTensor(base_lazy_tensor, row_interp_indices, row_interp_values, col_interp_indices, col_interp_values).evaluate().squeeze(-2).squeeze(-1)
         return res
 
     def _quad_form_derivative(self, left_vecs, right_vecs):
@@ -2076,8 +1892,7 @@ class LazyTensor(ABC):
         with torch.autograd.enable_grad():
             loss = (left_vecs * self._matmul(right_vecs)).sum()
             loss.requires_grad_(True)
-            actual_grads = deque(torch.autograd.grad(loss, args_with_grads,
-                allow_unused=True))
+            actual_grads = deque(torch.autograd.grad(loss, args_with_grads, allow_unused=True))
         grads = []
         for arg in args:
             if arg.requires_grad:
@@ -2124,16 +1939,12 @@ class LazyTensor(ABC):
         from .non_lazy_tensor import NonLazyTensor
         from .keops_lazy_tensor import KeOpsLazyTensor
         evaluated_kern_mat = self.evaluate_kernel()
-        if any(isinstance(sub_mat, KeOpsLazyTensor) for sub_mat in
-            evaluated_kern_mat._args):
-            raise RuntimeError(
-                'Cannot run Cholesky with KeOps: it will either be really slow or not work.'
-                )
+        if any(isinstance(sub_mat, KeOpsLazyTensor) for sub_mat in evaluated_kern_mat._args):
+            raise RuntimeError('Cannot run Cholesky with KeOps: it will either be really slow or not work.')
         evaluated_mat = evaluated_kern_mat.evaluate()
         if evaluated_mat.size(-1) == 1:
             return NonLazyTensor(evaluated_mat.clamp_min(0.0).sqrt())
-        cholesky = psd_safe_cholesky(evaluated_mat, jitter=settings.
-            cholesky_jitter.value()).contiguous()
+        cholesky = psd_safe_cholesky(evaluated_mat, jitter=settings.cholesky_jitter.value()).contiguous()
         return NonLazyTensor(cholesky)
 
     def _cholesky_solve(self, rhs):
@@ -2163,11 +1974,8 @@ class LazyTensor(ABC):
             if hasattr(self, '_default_preconditioner_cache'):
                 U, S, V = self._default_preconditioner_cache
             else:
-                precond_basis_size = min(gpytorch.settings.
-                    max_preconditioner_size.value(), self.size(-1))
-                random_basis = torch.randn(self.batch_shape + torch.Size((
-                    self.size(-2), precond_basis_size)), device=self.device,
-                    dtype=self.dtype)
+                precond_basis_size = min(gpytorch.settings.max_preconditioner_size.value(), self.size(-1))
+                random_basis = torch.randn(self.batch_shape + torch.Size((self.size(-2), precond_basis_size)), device=self.device, dtype=self.dtype)
                 projected_mat = self._matmul(random_basis)
                 proj_q = torch.qr(projected_mat)
                 orthog_projected_mat = self._matmul(proj_q).transpose(-2, -1)
@@ -2216,11 +2024,9 @@ class LazyTensor(ABC):
         if isinstance(self, NonLazyTensor) or isinstance(other, NonLazyTensor):
             return NonLazyTensor(self.evaluate() * other.evaluate())
         else:
-            left_lazy_tensor = self if self._root_decomposition_size(
-                ) < other._root_decomposition_size() else other
+            left_lazy_tensor = self if self._root_decomposition_size() < other._root_decomposition_size() else other
             right_lazy_tensor = other if left_lazy_tensor is self else self
-            return MulLazyTensor(left_lazy_tensor.root_decomposition(),
-                right_lazy_tensor.root_decomposition())
+            return MulLazyTensor(left_lazy_tensor.root_decomposition(), right_lazy_tensor.root_decomposition())
 
     def _preconditioner(self):
         """
@@ -2256,8 +2062,7 @@ class LazyTensor(ABC):
             if num_batch % 2:
                 shape = list(roots.shape)
                 shape[dim] = 1
-                extra_root = torch.full(shape, dtype=self.dtype, device=
-                    self.device, fill_value=1.0 / math.sqrt(self.size(-2)))
+                extra_root = torch.full(shape, dtype=self.dtype, device=self.device, fill_value=1.0 / math.sqrt(self.size(-2)))
                 roots = torch.cat([roots, extra_root], dim)
                 num_batch += 1
             part1_index = [_noop_index] * roots.dim()
@@ -2269,12 +2074,10 @@ class LazyTensor(ABC):
             if num_batch // 2 == 1:
                 part1 = part1.squeeze(dim)
                 part2 = part2.squeeze(dim)
-                res = MulLazyTensor(RootLazyTensor(part1), RootLazyTensor(
-                    part2))
+                res = MulLazyTensor(RootLazyTensor(part1), RootLazyTensor(part2))
                 break
             else:
-                res = MulLazyTensor(RootLazyTensor(part1), RootLazyTensor(
-                    part2))
+                res = MulLazyTensor(RootLazyTensor(part1), RootLazyTensor(part2))
                 roots = res.root_decomposition().root.evaluate()
                 num_batch = num_batch // 2
         return res
@@ -2292,10 +2095,7 @@ class LazyTensor(ABC):
             (Tensor or LazyTensor): The root of the root decomposition
         """
         func = RootDecomposition()
-        res, _ = func.apply(self.representation_tree(), self.
-            _root_decomposition_size(), self.dtype, self.device, self.
-            batch_shape, self.matrix_shape, True, False, None, *self.
-            representation())
+        res, _ = func.apply(self.representation_tree(), self._root_decomposition_size(), self.dtype, self.device, self.batch_shape, self.matrix_shape, True, False, None, *self.representation())
         return res
 
     def _root_decomposition_size(self):
@@ -2320,10 +2120,7 @@ class LazyTensor(ABC):
         """
         from .root_lazy_tensor import RootLazyTensor
         func = RootDecomposition()
-        roots, inv_roots = func.apply(self.representation_tree(), self.
-            _root_decomposition_size(), self.dtype, self.device, self.
-            batch_shape, self.matrix_shape, True, True, initial_vectors, *
-            self.representation())
+        roots, inv_roots = func.apply(self.representation_tree(), self._root_decomposition_size(), self.dtype, self.device, self.batch_shape, self.matrix_shape, True, True, initial_vectors, *self.representation())
         if initial_vectors is not None and initial_vectors.size(-1) > 1:
             add_to_cache(self, 'root_decomposition', RootLazyTensor(roots[0]))
         else:
@@ -2331,10 +2128,7 @@ class LazyTensor(ABC):
         return inv_roots
 
     def _solve(self, rhs, preconditioner, num_tridiag=0):
-        return utils.linear_cg(self._matmul, rhs, n_tridiag=num_tridiag,
-            max_iter=settings.max_cg_iterations.value(), max_tridiag_iter=
-            settings.max_lanczos_quadrature_iterations.value(),
-            preconditioner=preconditioner)
+        return utils.linear_cg(self._matmul, rhs, n_tridiag=num_tridiag, max_iter=settings.max_cg_iterations.value(), max_tridiag_iter=settings.max_lanczos_quadrature_iterations.value(), preconditioner=preconditioner)
 
     def _sum_batch(self, dim):
         """
@@ -2377,9 +2171,7 @@ class LazyTensor(ABC):
         try:
             expanded_diag = diag.expand(self.shape[:-1])
         except RuntimeError:
-            raise RuntimeError(
-                'add_diag for LazyTensor of size {} received invalid diagonal of size {}.'
-                .format(self.shape, diag.shape))
+            raise RuntimeError('add_diag for LazyTensor of size {} received invalid diagonal of size {}.'.format(self.shape, diag.shape))
         return AddedDiagLazyTensor(self, DiagLazyTensor(expanded_diag))
 
     def add_jitter(self, jitter_val=0.001):
@@ -2425,10 +2217,8 @@ class LazyTensor(ABC):
         """
         Clones the LazyTensor (creates clones of all underlying tensors)
         """
-        args = [(arg.clone() if hasattr(arg, 'clone') else arg) for arg in
-            self._args]
-        kwargs = {key: (val.clone() if hasattr(val, 'clone') else val) for 
-            key, val in self._kwargs.items()}
+        args = [(arg.clone() if hasattr(arg, 'clone') else arg) for arg in self._args]
+        kwargs = {key: (val.clone() if hasattr(val, 'clone') else val) for key, val in self._kwargs.items()}
         return self.__class__(*args, **kwargs)
 
     def cpu(self):
@@ -2510,10 +2300,8 @@ class LazyTensor(ABC):
         """
         if settings.debug.on():
             if not self.is_square:
-                raise RuntimeError('Diag works on square matrices (or batches)'
-                    )
-        row_col_iter = torch.arange(0, self.matrix_shape[-1], dtype=torch.
-            long, device=self.device)
+                raise RuntimeError('Diag works on square matrices (or batches)')
+        row_col_iter = torch.arange(0, self.matrix_shape[-1], dtype=torch.long, device=self.device)
         return self[..., row_col_iter, row_col_iter]
 
     def dim(self):
@@ -2530,9 +2318,7 @@ class LazyTensor(ABC):
         if len(sizes) == 1 and hasattr(sizes, '__iter__'):
             sizes = sizes[0]
         if len(sizes) < 2 or tuple(sizes[-2:]) != self.matrix_shape:
-            raise RuntimeError(
-                'Invalid expand arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'
-                .format(tuple(sizes)))
+            raise RuntimeError('Invalid expand arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'.format(tuple(sizes)))
         elif all(isinstance(size, int) for size in sizes):
             shape = torch.Size(sizes)
         else:
@@ -2550,8 +2336,7 @@ class LazyTensor(ABC):
         if num_rows < num_cols:
             eye = torch.eye(num_rows, dtype=self.dtype, device=self.device)
             eye = eye.expand(*self.batch_shape, num_rows, num_rows)
-            res = self.transpose(-1, -2).matmul(eye).transpose(-1, -2
-                ).contiguous()
+            res = self.transpose(-1, -2).matmul(eye).transpose(-1, -2).contiguous()
         else:
             eye = torch.eye(num_cols, dtype=self.dtype, device=self.device)
             eye = eye.expand(*self.batch_shape, num_cols, num_cols)
@@ -2597,21 +2382,15 @@ class LazyTensor(ABC):
             - :obj:`torch.tensor` - :math:`A^{-1}R` or :math:`LA^{-1}R`.
         """
         if not self.is_square:
-            raise RuntimeError(
-                'inv_matmul only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'
-                .format(self.__class__.__name__, self.size()))
+            raise RuntimeError('inv_matmul only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
         if self.dim() == 2 and right_tensor.dim() == 1:
             if self.shape[-1] != right_tensor.numel():
-                raise RuntimeError(
-                    'LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'
-                    .format(self.shape, right_tensor.shape))
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, right_tensor.shape))
         func = InvMatmul
         if left_tensor is None:
-            return func.apply(self.representation_tree(), False,
-                right_tensor, *self.representation())
+            return func.apply(self.representation_tree(), False, right_tensor, *self.representation())
         else:
-            return func.apply(self.representation_tree(), True, left_tensor,
-                right_tensor, *self.representation())
+            return func.apply(self.representation_tree(), True, left_tensor, right_tensor, *self.representation())
 
     def inv_quad(self, tensor, reduce_inv_quad=True):
         """
@@ -2628,22 +2407,14 @@ class LazyTensor(ABC):
             - tensor - tr( tensor^T (self)^{-1} tensor )
         """
         if not self.is_square:
-            raise RuntimeError(
-                'inv_quad only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'
-                .format(self.__class__.__name__, self.size()))
+            raise RuntimeError('inv_quad only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
         if self.dim() == 2 and tensor.dim() == 1:
             if self.shape[-1] != tensor.numel():
-                raise RuntimeError(
-                    'LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'
-                    .format(self.shape, tensor.shape))
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, tensor.shape))
         elif self.dim() != tensor.dim():
-            raise RuntimeError(
-                'LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'
-                .format(self.shape, tensor.shape))
+            raise RuntimeError('LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'.format(self.shape, tensor.shape))
         elif self.shape[-1] != tensor.shape[-2]:
-            raise RuntimeError(
-                'LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'
-                .format(self.shape, tensor.shape))
+            raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, tensor.shape))
         args = (tensor,) + self.representation()
         func = InvQuad.apply
         inv_quad_term = func(self.representation_tree(), *args)
@@ -2651,8 +2422,7 @@ class LazyTensor(ABC):
             inv_quad_term = inv_quad_term.sum(-1)
         return inv_quad_term
 
-    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False,
-        reduce_inv_quad=True):
+    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
         """
         Computes an inverse quadratic form (w.r.t self) with several right hand sides.
         I.e. computes tr( tensor^T self^{-1} tensor )
@@ -2665,40 +2435,26 @@ class LazyTensor(ABC):
             - scalar - tr( tensor^T (self)^{-1} tensor )
             - scalar - log determinant
         """
-        if settings.fast_computations.log_prob.off() or self.size(-1
-            ) <= settings.max_cholesky_size.value():
+        if settings.fast_computations.log_prob.off() or self.size(-1) <= settings.max_cholesky_size.value():
             from .chol_lazy_tensor import CholLazyTensor
             cholesky = CholLazyTensor(self.cholesky())
-            return cholesky.inv_quad_logdet(inv_quad_rhs=inv_quad_rhs,
-                logdet=logdet, reduce_inv_quad=reduce_inv_quad)
+            return cholesky.inv_quad_logdet(inv_quad_rhs=inv_quad_rhs, logdet=logdet, reduce_inv_quad=reduce_inv_quad)
         if not self.is_square:
-            raise RuntimeError(
-                'inv_quad_logdet only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'
-                .format(self.__class__.__name__, self.size()))
+            raise RuntimeError('inv_quad_logdet only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
         if inv_quad_rhs is not None:
             if self.dim() == 2 and inv_quad_rhs.dim() == 1:
                 if self.shape[-1] != inv_quad_rhs.numel():
-                    raise RuntimeError(
-                        'LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'
-                        .format(self.shape, inv_quad_rhs.shape))
+                    raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
             elif self.dim() != inv_quad_rhs.dim():
-                raise RuntimeError(
-                    'LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'
-                    .format(self.shape, inv_quad_rhs.shape))
-            elif self.batch_shape != inv_quad_rhs.shape[:-2] or self.shape[-1
-                ] != inv_quad_rhs.shape[-2]:
-                raise RuntimeError(
-                    'LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'
-                    .format(self.shape, inv_quad_rhs.shape))
+                raise RuntimeError('LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'.format(self.shape, inv_quad_rhs.shape))
+            elif self.batch_shape != inv_quad_rhs.shape[:-2] or self.shape[-1] != inv_quad_rhs.shape[-2]:
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
         args = self.representation()
         if inv_quad_rhs is not None:
             args = [inv_quad_rhs] + list(args)
         probe_vectors, probe_vector_norms = self._probe_vectors_and_norms()
         func = InvQuadLogDet.apply
-        inv_quad_term, logdet_term = func(self.representation_tree(), self.
-            dtype, self.device, self.matrix_shape, self.batch_shape, 
-            inv_quad_rhs is not None, logdet, probe_vectors,
-            probe_vector_norms, *args)
+        inv_quad_term, logdet_term = func(self.representation_tree(), self.dtype, self.device, self.matrix_shape, self.batch_shape, inv_quad_rhs is not None, logdet, probe_vectors, probe_vector_norms, *args)
         if inv_quad_term.numel() and reduce_inv_quad:
             inv_quad_term = inv_quad_term.sum(-1)
         return inv_quad_term, logdet_term
@@ -2738,8 +2494,7 @@ class LazyTensor(ABC):
             from .matmul_lazy_tensor import MatmulLazyTensor
             return MatmulLazyTensor(self, other)
         func = Matmul()
-        return func.apply(self.representation_tree(), other, *self.
-            representation())
+        return func.apply(self.representation_tree(), other, *self.representation())
 
     @property
     def matrix_shape(self):
@@ -2771,9 +2526,7 @@ class LazyTensor(ABC):
         try:
             _mul_broadcast_shape(self.shape, other.shape)
         except RuntimeError:
-            raise RuntimeError(
-                'Cannot multiply LazyTensor of size {} by an object of size {}'
-                .format(self.shape, other.shape))
+            raise RuntimeError('Cannot multiply LazyTensor of size {} by an object of size {}'.format(self.shape, other.shape))
         if torch.is_tensor(other):
             if other.numel() == 1:
                 return self._mul_constant(other.squeeze())
@@ -2810,13 +2563,9 @@ class LazyTensor(ABC):
                 raise RuntimeError('repeated dim in permute')
             for dim, orig_dim in zip(dims, orig_dims):
                 if dim >= num_dims:
-                    raise RuntimeError(
-                        'Dimension out of range (expected to be in range of [{}, {}], but got {}.'
-                        .format(-num_dims, num_dims - 1, orig_dim))
+                    raise RuntimeError('Dimension out of range (expected to be in range of [{}, {}], but got {}.'.format(-num_dims, num_dims - 1, orig_dim))
         if dims[-2:] != (num_dims - 2, num_dims - 1):
-            raise ValueError(
-                'At the moment, cannot permute the non-batch dimensions of LazyTensors.'
-                )
+            raise ValueError('At the moment, cannot permute the non-batch dimensions of LazyTensors.')
         return self._permute_batch(*dims[:-2])
 
     def prod(self, dim=None):
@@ -2849,16 +2598,12 @@ class LazyTensor(ABC):
             >>> # Returns: torch.Tensor([[[2, 4], [0, -2]], [[6, 2], [2, 0]]])
         """
         if dim is None:
-            raise ValueError(
-                'At the moment, LazyTensor.prod requires a dim argument (got None)'
-                )
+            raise ValueError('At the moment, LazyTensor.prod requires a dim argument (got None)')
         orig_dim = dim
         if dim < 0:
             dim = self.dim() + dim
         if dim >= len(self.batch_shape):
-            raise ValueError(
-                'At the moment, LazyTensor.prod only works on batch dimensions. Got dim={} for LazyTensor of shape {}'
-                .format(orig_dim, self.shape))
+            raise ValueError('At the moment, LazyTensor.prod only works on batch dimensions. Got dim={} for LazyTensor of shape {}'.format(orig_dim, self.shape))
         return self._prod_batch(dim)
 
     def repeat(self, *sizes):
@@ -2880,9 +2625,7 @@ class LazyTensor(ABC):
         """
         from .batch_repeat_lazy_tensor import BatchRepeatLazyTensor
         if len(sizes) < 3 or tuple(sizes[-2:]) != (1, 1):
-            raise RuntimeError(
-                'Invalid repeat arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'
-                .format(tuple(sizes)))
+            raise RuntimeError('Invalid repeat arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'.format(tuple(sizes)))
         return BatchRepeatLazyTensor(self, batch_repeat=torch.Size(sizes[:-2]))
 
     def representation(self):
@@ -2893,13 +2636,10 @@ class LazyTensor(ABC):
         for arg in self._args:
             if torch.is_tensor(arg):
                 representation.append(arg)
-            elif hasattr(arg, 'representation') and callable(arg.representation
-                ):
+            elif hasattr(arg, 'representation') and callable(arg.representation):
                 representation += list(arg.representation())
             else:
-                raise RuntimeError(
-                    'Representation of a LazyTensor should consist only of Tensors'
-                    )
+                raise RuntimeError('Representation of a LazyTensor should consist only of Tensors')
         return tuple(representation)
 
     def representation_tree(self):
@@ -2913,8 +2653,7 @@ class LazyTensor(ABC):
 
     @property
     def requires_grad(self):
-        return any(arg.requires_grad for arg in tuple(self._args) + tuple(
-            self._kwargs.values()) if hasattr(arg, 'requires_grad'))
+        return any(arg.requires_grad for arg in tuple(self._args) + tuple(self._kwargs.values()) if hasattr(arg, 'requires_grad'))
 
     @requires_grad.setter
     def requires_grad(self, val):
@@ -2944,18 +2683,13 @@ class LazyTensor(ABC):
         from .chol_lazy_tensor import CholLazyTensor
         from .root_lazy_tensor import RootLazyTensor
         if not self.is_square:
-            raise RuntimeError(
-                'root_decomposition only operates on (batches of) square (symmetric) LazyTensors. Got a {} of size {}.'
-                .format(self.__class__.__name__, self.size()))
-        if self.size(-1) <= settings.max_cholesky_size.value(
-            ) or settings.fast_computations.covar_root_decomposition.off():
+            raise RuntimeError('root_decomposition only operates on (batches of) square (symmetric) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
+        if self.size(-1) <= settings.max_cholesky_size.value() or settings.fast_computations.covar_root_decomposition.off():
             try:
                 res = self.cholesky()
                 return CholLazyTensor(res)
             except RuntimeError as e:
-                warnings.warn(
-                    'Runtime Error when computing Cholesky decomposition: {}. Using RootDecomposition.'
-                    .format(e), NumericalWarning)
+                warnings.warn('Runtime Error when computing Cholesky decomposition: {}. Using RootDecomposition.'.format(e), NumericalWarning)
         res = self._root_decomposition()
         return RootLazyTensor(res)
 
@@ -2970,8 +2704,7 @@ class LazyTensor(ABC):
         from .non_lazy_tensor import lazify
         if self.shape[-2:].numel() == 1:
             return RootLazyTensor(1 / self.evaluate().sqrt())
-        if self.size(-1) <= settings.max_cholesky_size.value(
-            ) or settings.fast_computations.covar_root_decomposition.off():
+        if self.size(-1) <= settings.max_cholesky_size.value() or settings.fast_computations.covar_root_decomposition.off():
             try:
                 L = delazify(self.cholesky())
                 Eye = torch.eye(L.shape[-2], device=L.device, dtype=L.dtype)
@@ -2979,40 +2712,25 @@ class LazyTensor(ABC):
                 res = lazify(Linv.transpose(-1, -2))
                 return RootLazyTensor(res)
             except RuntimeError as e:
-                warnings.warn(
-                    'Runtime Error when computing Cholesky decomposition: {}. Using RootDecomposition.'
-                    .format(e), NumericalWarning)
+                warnings.warn('Runtime Error when computing Cholesky decomposition: {}. Using RootDecomposition.'.format(e), NumericalWarning)
         if not self.is_square:
-            raise RuntimeError(
-                'root_inv_decomposition only operates on (batches of) square (symmetric) LazyTensors. Got a {} of size {}.'
-                .format(self.__class__.__name__, self.size()))
+            raise RuntimeError('root_inv_decomposition only operates on (batches of) square (symmetric) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
         if initial_vectors is not None:
             if self.dim() == 2 and initial_vectors.dim() == 1:
                 if self.shape[-1] != initial_vectors.numel():
-                    raise RuntimeError(
-                        'LazyTensor (size={}) cannot be multiplied with initial_vectors (size={}).'
-                        .format(self.shape, initial_vectors.shape))
+                    raise RuntimeError('LazyTensor (size={}) cannot be multiplied with initial_vectors (size={}).'.format(self.shape, initial_vectors.shape))
             elif self.dim() != initial_vectors.dim():
-                raise RuntimeError(
-                    'LazyTensor (size={}) and initial_vectors (size={}) should have the same number of dimensions.'
-                    .format(self.shape, initial_vectors.shape))
-            elif self.batch_shape != initial_vectors.shape[:-2] or self.shape[
-                -1] != initial_vectors.shape[-2]:
-                raise RuntimeError(
-                    'LazyTensor (size={}) cannot be multiplied with initial_vectors (size={}).'
-                    .format(self.shape, initial_vectors.shape))
+                raise RuntimeError('LazyTensor (size={}) and initial_vectors (size={}) should have the same number of dimensions.'.format(self.shape, initial_vectors.shape))
+            elif self.batch_shape != initial_vectors.shape[:-2] or self.shape[-1] != initial_vectors.shape[-2]:
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with initial_vectors (size={}).'.format(self.shape, initial_vectors.shape))
         inv_roots = self._root_inv_decomposition(initial_vectors)
         if initial_vectors is not None and initial_vectors.size(-1) > 1:
             num_probes = initial_vectors.size(-1)
             test_vectors = test_vectors.unsqueeze(0)
-            solves = inv_roots.matmul(inv_roots.transpose(-1, -2).matmul(
-                test_vectors))
-            solves = solves.permute(*range(1, self.dim() + 1), 0).contiguous(
-                ).view(*self.batch_shape, self.matrix_shape[-1], -1)
+            solves = inv_roots.matmul(inv_roots.transpose(-1, -2).matmul(test_vectors))
+            solves = solves.permute(*range(1, self.dim() + 1), 0).contiguous().view(*self.batch_shape, self.matrix_shape[-1], -1)
             mat_times_solves = self.matmul(solves)
-            mat_times_solves = mat_times_solves.view(*self.batch_shape,
-                self.matrix_shape[-1], -1, num_probes).permute(-1, *range(0,
-                self.dim()))
+            mat_times_solves = mat_times_solves.view(*self.batch_shape, self.matrix_shape[-1], -1, num_probes).permute(-1, *range(0, self.dim()))
             residuals = (mat_times_solves - test_vectors).norm(2, dim=-2)
             residuals = residuals.view(residuals.size(0), -1).sum(-1)
             _, best_solve_index = residuals.min(0)
@@ -3066,25 +2784,21 @@ class LazyTensor(ABC):
             >>> lazy_tensor.sum(0).evaluate()
         """
         if dim is None:
-            ones = torch.ones(self.size(-2), 1, dtype=self.dtype, device=
-                self.device)
+            ones = torch.ones(self.size(-2), 1, dtype=self.dtype, device=self.device)
             return (self @ ones).sum()
         orig_dim = dim
         if dim < 0:
             dim = self.dim() + dim
         if dim == self.dim() - 1:
-            ones = torch.ones(self.size(-1), 1, dtype=self.dtype, device=
-                self.device)
+            ones = torch.ones(self.size(-1), 1, dtype=self.dtype, device=self.device)
             return (self @ ones).squeeze(-1)
         elif dim == self.dim() - 2:
-            ones = torch.ones(self.size(-2), 1, dtype=self.dtype, device=
-                self.device)
+            ones = torch.ones(self.size(-2), 1, dtype=self.dtype, device=self.device)
             return (self.transpose(-1, -2) @ ones).squeeze(-1)
         elif dim < self.dim():
             return self._sum_batch(dim)
         else:
-            raise ValueError('Invalid dim ({}) for LazyTensor of size {}'.
-                format(orig_dim, self.shape))
+            raise ValueError('Invalid dim ({}) for LazyTensor of size {}'.format(orig_dim, self.shape))
 
     def to(self, device_id):
         """
@@ -3131,28 +2845,22 @@ class LazyTensor(ABC):
             dim1 = ndimension + dim1
         if dim2 < 0:
             dim2 = ndimension + dim2
-        if dim1 >= ndimension or dim2 >= ndimension or not isinstance(dim1, int
-            ) or not isinstance(dim2, int):
+        if dim1 >= ndimension or dim2 >= ndimension or not isinstance(dim1, int) or not isinstance(dim2, int):
             raise RuntimeError('Invalid dimension')
         if dim1 < ndimension - 2 and dim2 < ndimension - 2:
             small_dim = dim1 if dim1 < dim2 else dim2
             large_dim = dim2 if dim1 < dim2 else dim1
-            res = self._permute_batch(*range(small_dim), large_dim, *range(
-                small_dim + 1, large_dim), small_dim, *range(large_dim + 1,
-                ndimension - 2))
+            res = self._permute_batch(*range(small_dim), large_dim, *range(small_dim + 1, large_dim), small_dim, *range(large_dim + 1, ndimension - 2))
         elif dim1 >= ndimension - 2 and dim2 >= ndimension - 2:
             res = self._transpose_nonbatch()
         else:
-            raise RuntimeError(
-                'Cannot transpose batch dimension with non-batch dimension')
+            raise RuntimeError('Cannot transpose batch dimension with non-batch dimension')
         return res
 
     def unsqueeze(self, dim):
         positive_dim = self.dim() + dim + 1 if dim < 0 else dim
         if positive_dim > len(self.batch_shape):
-            raise ValueError(
-                'Can only unsqueeze batch dimensions of {} (size {}). Got dim={}.'
-                .format(self.__class__.__name__, self.shape, dim))
+            raise ValueError('Can only unsqueeze batch dimensions of {} (size {}). Got dim={}.'.format(self.__class__.__name__, self.shape, dim))
         res = self._unsqueeze_batch(positive_dim)
         return res
 
@@ -3175,10 +2883,8 @@ class LazyTensor(ABC):
             covar_root = self.evaluate().sqrt()
         else:
             covar_root = self.root_decomposition().root
-        base_samples = torch.randn(*self.batch_shape, covar_root.size(-1),
-            num_samples, dtype=self.dtype, device=self.device)
-        samples = covar_root.matmul(base_samples).permute(-1, *range(self.
-            dim() - 1)).contiguous()
+        base_samples = torch.randn(*self.batch_shape, covar_root.size(-1), num_samples, dtype=self.dtype, device=self.device)
+        samples = covar_root.matmul(base_samples).permute(-1, *range(self.dim() - 1)).contiguous()
         return samples
 
     def __add__(self, other):
@@ -3226,8 +2932,7 @@ class LazyTensor(ABC):
         """
         from .zero_lazy_tensor import ZeroLazyTensor
         if isinstance(other, ZeroLazyTensor):
-            raise RuntimeError(
-                'Attempted to divide by a ZeroLazyTensor (divison by zero)')
+            raise RuntimeError('Attempted to divide by a ZeroLazyTensor (divison by zero)')
         return self.mul(1.0 / other)
 
     def __getitem__(self, index):
@@ -3237,33 +2942,22 @@ class LazyTensor(ABC):
         """
         ndimension = self.ndimension()
         index = index if isinstance(index, tuple) else (index,)
-        index = tuple(torch.tensor(idx) if isinstance(idx, list) else idx for
-            idx in index)
-        index = tuple(idx.item() if torch.is_tensor(idx) and not len(idx.
-            shape) else idx for idx in index)
-        ellipsis_locs = tuple(index for index, item in enumerate(index) if 
-            item is Ellipsis)
+        index = tuple(torch.tensor(idx) if isinstance(idx, list) else idx for idx in index)
+        index = tuple(idx.item() if torch.is_tensor(idx) and not len(idx.shape) else idx for idx in index)
+        ellipsis_locs = tuple(index for index, item in enumerate(index) if item is Ellipsis)
         if settings.debug.on():
             if len(ellipsis_locs) > 1:
-                raise RuntimeError(
-                    'Cannot have multiple ellipsis in a __getitem__ call. LazyTensor {}  received index {}.'
-                    .format(self, index))
+                raise RuntimeError('Cannot have multiple ellipsis in a __getitem__ call. LazyTensor {}  received index {}.'.format(self, index))
         if len(ellipsis_locs) == 1:
             ellipsis_loc = ellipsis_locs[0]
             num_to_fill_in = ndimension - (len(index) - 1)
-            index = index[:ellipsis_loc] + tuple(_noop_index for _ in range
-                (num_to_fill_in)) + index[ellipsis_loc + 1:]
-        index = index + tuple(_noop_index for _ in range(ndimension - len(
-            index)))
+            index = index[:ellipsis_loc] + tuple(_noop_index for _ in range(num_to_fill_in)) + index[ellipsis_loc + 1:]
+        index = index + tuple(_noop_index for _ in range(ndimension - len(index)))
         *batch_indices, row_index, col_index = index
-        batch_has_tensor_index = bool(len(batch_indices)) and any(torch.
-            is_tensor(index) for index in batch_indices)
+        batch_has_tensor_index = bool(len(batch_indices)) and any(torch.is_tensor(index) for index in batch_indices)
         row_has_tensor_index = torch.is_tensor(row_index)
         col_has_tensor_index = torch.is_tensor(col_index)
-        row_col_are_absorbed = any((batch_has_tensor_index and (
-            row_has_tensor_index or col_has_tensor_index), not
-            batch_has_tensor_index and (row_has_tensor_index and
-            col_has_tensor_index)))
+        row_col_are_absorbed = any((batch_has_tensor_index and (row_has_tensor_index or col_has_tensor_index), not batch_has_tensor_index and (row_has_tensor_index and col_has_tensor_index)))
         squeeze_row = False
         squeeze_col = False
         if isinstance(row_index, int):
@@ -3273,8 +2967,7 @@ class LazyTensor(ABC):
             col_index = slice(col_index, col_index + 1, None)
             squeeze_col = True
         if row_col_are_absorbed:
-            *batch_indices, row_index, col_index = _convert_indices_to_tensors(
-                self, (*batch_indices, row_index, col_index))
+            *batch_indices, row_index, col_index = _convert_indices_to_tensors(self, (*batch_indices, row_index, col_index))
             res = self._get_indices(row_index, col_index, *batch_indices)
         else:
             res = self._getitem(row_index, col_index, *batch_indices)
@@ -3287,10 +2980,7 @@ class LazyTensor(ABC):
         if settings.debug.on() and self.__class__._check_size:
             expected_shape = _compute_getitem_size(self, index)
             if expected_shape != res.shape:
-                raise RuntimeError(
-                    '{}.__getitem__ failed! Expected a final shape of size {}, got {}. This is a bug with GPyTorch, or your custom LazyTensor.'
-                    .format(self.__class__.__name__, expected_shape, res.shape)
-                    )
+                raise RuntimeError('{}.__getitem__ failed! Expected a final shape of size {}, got {}. This is a bug with GPyTorch, or your custom LazyTensor.'.format(self.__class__.__name__, expected_shape, res.shape))
         return res
 
     def __matmul__(self, other):
@@ -3314,15 +3004,9 @@ class BatchRepeatLazyTensor(LazyTensor):
     def __init__(self, base_lazy_tensor, batch_repeat=torch.Size((1,))):
         if settings.debug.on():
             if not isinstance(batch_repeat, torch.Size):
-                raise RuntimeError(
-                    'batch_repeat must be a torch.Size, got a {} instead'.
-                    format(batch_repeat.__class__.__name__))
+                raise RuntimeError('batch_repeat must be a torch.Size, got a {} instead'.format(batch_repeat.__class__.__name__))
             if isinstance(base_lazy_tensor, BatchRepeatLazyTensor):
-                raise RuntimeError(
-                    """BatchRepeatLazyTensor recieved the following args:
-base_lazy_tensor: {} (size: {}), batch_repeat: {}."""
-                    .format(base_lazy_tensor, base_lazy_tensor.shape,
-                    batch_repeat))
+                raise RuntimeError('BatchRepeatLazyTensor recieved the following args:\nbase_lazy_tensor: {} (size: {}), batch_repeat: {}.'.format(base_lazy_tensor, base_lazy_tensor.shape, batch_repeat))
         for _ in range(len(batch_repeat) + 2 - base_lazy_tensor.dim()):
             base_lazy_tensor = base_lazy_tensor.unsqueeze(0)
         super().__init__(base_lazy_tensor, batch_repeat=batch_repeat)
@@ -3344,28 +3028,20 @@ base_lazy_tensor: {} (size: {}), batch_repeat: {}."""
         res = self._move_repeat_batches_back(res, output_shape)
         return res
 
-    def _compute_batch_repeat_size(self, current_batch_shape,
-        desired_batch_shape):
-        batch_repeat = torch.Size(desired_batch_size // current_batch_size for
-            desired_batch_size, current_batch_size in zip(
-            desired_batch_shape, current_batch_shape))
+    def _compute_batch_repeat_size(self, current_batch_shape, desired_batch_shape):
+        batch_repeat = torch.Size(desired_batch_size // current_batch_size for desired_batch_size, current_batch_size in zip(desired_batch_shape, current_batch_shape))
         return batch_repeat
 
     def _expand_batch(self, batch_shape):
-        padding_dims = torch.Size(tuple(1 for _ in range(max(len(
-            batch_shape) + 2 - self.base_lazy_tensor.dim(), 0))))
+        padding_dims = torch.Size(tuple(1 for _ in range(max(len(batch_shape) + 2 - self.base_lazy_tensor.dim(), 0))))
         current_batch_shape = padding_dims + self.base_lazy_tensor.batch_shape
-        return self.__class__(self.base_lazy_tensor, batch_repeat=self.
-            _compute_batch_repeat_size(current_batch_shape, batch_shape))
+        return self.__class__(self.base_lazy_tensor, batch_repeat=self._compute_batch_repeat_size(current_batch_shape, batch_shape))
 
     def _get_indices(self, row_index, col_index, *batch_indices):
         num_true_batch_indices = self.base_lazy_tensor.dim() - 2
-        batch_indices = batch_indices[len(batch_indices) -
-            num_true_batch_indices:]
-        batch_indices = [batch_index.fmod(size) for batch_index, size in
-            zip(batch_indices, self.base_lazy_tensor.batch_shape)]
-        res = self.base_lazy_tensor._get_indices(row_index, col_index, *
-            batch_indices)
+        batch_indices = batch_indices[len(batch_indices) - num_true_batch_indices:]
+        batch_indices = [batch_index.fmod(size) for batch_index, size in zip(batch_indices, self.base_lazy_tensor.batch_shape)]
+        res = self.base_lazy_tensor._get_indices(row_index, col_index, *batch_indices)
         return res
 
     def _getitem(self, row_index, col_index, *batch_indices):
@@ -3375,8 +3051,7 @@ base_lazy_tensor: {} (size: {}), batch_repeat: {}."""
         for arg in self.base_lazy_tensor._args:
             if torch.is_tensor(arg) or isinstance(arg, LazyTensor):
                 arg_base_shape_len = max(arg.dim() - num_base_batch_dims, 0)
-                args.append(arg.repeat(*self.batch_repeat, *[(1) for _ in
-                    range(arg_base_shape_len)]))
+                args.append(arg.repeat(*self.batch_repeat, *[(1) for _ in range(arg_base_shape_len)]))
             else:
                 args.append(arg)
         new_lazy_tensor = self.base_lazy_tensor.__class__(*args, **kwargs)
@@ -3408,18 +3083,12 @@ base_lazy_tensor: {} (size: {}), batch_repeat: {}."""
             padded_base_batch_shape, batch_repeat = self.__batch_move_memo
             del self.__batch_move_memo
         else:
-            padding_dims = torch.Size(tuple(1 for _ in range(max(len(
-                output_shape) - self.base_lazy_tensor.dim(), 0))))
-            padded_base_batch_shape = (padding_dims + self.base_lazy_tensor
-                .batch_shape)
-            batch_repeat = self._compute_batch_repeat_size(
-                padded_base_batch_shape, output_shape[:-2])
-        batch_matrix = batch_matrix.view(*padded_base_batch_shape,
-            output_shape[-2], -1, *batch_repeat)
+            padding_dims = torch.Size(tuple(1 for _ in range(max(len(output_shape) - self.base_lazy_tensor.dim(), 0))))
+            padded_base_batch_shape = padding_dims + self.base_lazy_tensor.batch_shape
+            batch_repeat = self._compute_batch_repeat_size(padded_base_batch_shape, output_shape[:-2])
+        batch_matrix = batch_matrix.view(*padded_base_batch_shape, output_shape[-2], -1, *batch_repeat)
         output_dims = len(output_shape)
-        dims = tuple(itertools.chain.from_iterable([i + output_dims, i] for
-            i in range(len(padded_base_batch_shape)))) + (output_dims - 2, 
-            output_dims - 1)
+        dims = tuple(itertools.chain.from_iterable([i + output_dims, i] for i in range(len(padded_base_batch_shape)))) + (output_dims - 2, output_dims - 1)
         batch_matrix = batch_matrix.permute(*dims).contiguous()
         batch_matrix = batch_matrix.view(*output_shape)
         return batch_matrix
@@ -3430,117 +3099,81 @@ base_lazy_tensor: {} (size: {}), batch_repeat: {}."""
         So that the tensor is now b x m x nr.
         This allows us to use the base_lazy_tensor routines.
         """
-        padding_dims = torch.Size(tuple(1 for _ in range(max(len(
-            output_shape) - self.base_lazy_tensor.dim(), 0))))
-        padded_base_batch_shape = (padding_dims + self.base_lazy_tensor.
-            batch_shape)
-        batch_repeat = self._compute_batch_repeat_size(padded_base_batch_shape,
-            output_shape[:-2])
-        split_shape = torch.Size(tuple(itertools.chain.from_iterable([
-            repeat, size] for repeat, size in zip(batch_repeat,
-            padded_base_batch_shape))) + output_shape[-2:])
+        padding_dims = torch.Size(tuple(1 for _ in range(max(len(output_shape) - self.base_lazy_tensor.dim(), 0))))
+        padded_base_batch_shape = padding_dims + self.base_lazy_tensor.batch_shape
+        batch_repeat = self._compute_batch_repeat_size(padded_base_batch_shape, output_shape[:-2])
+        split_shape = torch.Size(tuple(itertools.chain.from_iterable([repeat, size] for repeat, size in zip(batch_repeat, padded_base_batch_shape))) + output_shape[-2:])
         batch_matrix = batch_matrix.view(*split_shape)
         repeat_dims = range(0, len(batch_repeat) * 2, 2)
         batch_dims = range(1, len(batch_repeat) * 2, 2)
-        batch_matrix = batch_matrix.permute(*batch_dims, -2, -1, *repeat_dims
-            ).contiguous()
-        batch_matrix = batch_matrix.view(*self.base_lazy_tensor.batch_shape,
-            output_shape[-2], -1)
-        self.__batch_move_memo = (output_shape, padded_base_batch_shape,
-            batch_repeat)
+        batch_matrix = batch_matrix.permute(*batch_dims, -2, -1, *repeat_dims).contiguous()
+        batch_matrix = batch_matrix.view(*self.base_lazy_tensor.batch_shape, output_shape[-2], -1)
+        self.__batch_move_memo = output_shape, padded_base_batch_shape, batch_repeat
         return batch_matrix
 
     def _permute_batch(self, *dims):
-        new_batch_repeat = torch.Size(tuple(self.batch_repeat[dim] for dim in
-            dims))
-        res = self.__class__(self.base_lazy_tensor._permute_batch(*dims),
-            batch_repeat=new_batch_repeat)
+        new_batch_repeat = torch.Size(tuple(self.batch_repeat[dim] for dim in dims))
+        res = self.__class__(self.base_lazy_tensor._permute_batch(*dims), batch_repeat=new_batch_repeat)
         return res
 
     def _quad_form_derivative(self, left_vectors, right_vectors):
         if self.is_square:
-            left_output_shape = _matmul_broadcast_shape(self.shape,
-                left_vectors.shape)
+            left_output_shape = _matmul_broadcast_shape(self.shape, left_vectors.shape)
             if left_output_shape != left_vectors.shape:
                 left_vectors = left_vectors.expand(left_output_shape)
-            right_output_shape = _matmul_broadcast_shape(self.shape,
-                right_vectors.shape)
+            right_output_shape = _matmul_broadcast_shape(self.shape, right_vectors.shape)
             if right_output_shape != right_vectors.shape:
                 right_vectors = right_vectors.expand(right_output_shape)
-            left_vectors = self._move_repeat_batches_to_columns(left_vectors,
-                left_output_shape)
-            right_vectors = self._move_repeat_batches_to_columns(right_vectors,
-                right_output_shape)
-            return self.base_lazy_tensor._quad_form_derivative(left_vectors,
-                right_vectors)
+            left_vectors = self._move_repeat_batches_to_columns(left_vectors, left_output_shape)
+            right_vectors = self._move_repeat_batches_to_columns(right_vectors, right_output_shape)
+            return self.base_lazy_tensor._quad_form_derivative(left_vectors, right_vectors)
         else:
             return super()._quad_form_derivative(left_vectors, right_vectors)
 
     def _root_decomposition(self):
-        return self.base_lazy_tensor._root_decomposition().repeat(*self.
-            batch_repeat, 1, 1)
+        return self.base_lazy_tensor._root_decomposition().repeat(*self.batch_repeat, 1, 1)
 
     def _root_inv_decomposition(self, initial_vectors=None):
-        return self.base_lazy_tensor._root_inv_decomposition().repeat(*self
-            .batch_repeat, 1, 1)
+        return self.base_lazy_tensor._root_inv_decomposition().repeat(*self.batch_repeat, 1, 1)
 
     def _size(self):
-        repeated_batch_shape = torch.Size(size * repeat for size, repeat in
-            zip(self.base_lazy_tensor.batch_shape, self.batch_repeat))
-        res = torch.Size(repeated_batch_shape + self.base_lazy_tensor.
-            matrix_shape)
+        repeated_batch_shape = torch.Size(size * repeat for size, repeat in zip(self.base_lazy_tensor.batch_shape, self.batch_repeat))
+        res = torch.Size(repeated_batch_shape + self.base_lazy_tensor.matrix_shape)
         return res
 
     def _transpose_nonbatch(self):
-        return self.__class__(self.base_lazy_tensor._transpose_nonbatch(),
-            batch_repeat=self.batch_repeat)
+        return self.__class__(self.base_lazy_tensor._transpose_nonbatch(), batch_repeat=self.batch_repeat)
 
     def _unsqueeze_batch(self, dim):
         base_lazy_tensor = self.base_lazy_tensor
         batch_repeat = list(self.batch_repeat)
         batch_repeat.insert(dim, 1)
         batch_repeat = torch.Size(batch_repeat)
-        base_unsqueeze_dim = dim - (len(self.base_lazy_tensor.batch_shape) -
-            len(self.base_lazy_tensor.batch_shape))
+        base_unsqueeze_dim = dim - (len(self.base_lazy_tensor.batch_shape) - len(self.base_lazy_tensor.batch_shape))
         if base_unsqueeze_dim > 0:
-            base_lazy_tensor = base_lazy_tensor._unsqueeze_batch(
-                base_unsqueeze_dim)
+            base_lazy_tensor = base_lazy_tensor._unsqueeze_batch(base_unsqueeze_dim)
         return self.__class__(base_lazy_tensor, batch_repeat=batch_repeat)
 
     def add_jitter(self, jitter_val=0.001):
-        return self.__class__(self.base_lazy_tensor.add_jitter(jitter_val=
-            jitter_val), batch_repeat=self.batch_repeat)
+        return self.__class__(self.base_lazy_tensor.add_jitter(jitter_val=jitter_val), batch_repeat=self.batch_repeat)
 
-    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False,
-        reduce_inv_quad=True):
+    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
         if not self.is_square:
-            raise RuntimeError(
-                'inv_quad_logdet only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'
-                .format(self.__class__.__name__, self.size()))
+            raise RuntimeError('inv_quad_logdet only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
         if inv_quad_rhs is not None:
             if self.dim() != inv_quad_rhs.dim():
-                raise RuntimeError(
-                    'LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'
-                    .format(self.shape, inv_quad_rhs.shape))
-            elif self.batch_shape != inv_quad_rhs.shape[:-2] or self.shape[-1
-                ] != inv_quad_rhs.shape[-2]:
-                raise RuntimeError(
-                    'LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'
-                    .format(self.shape, inv_quad_rhs.shape))
+                raise RuntimeError('LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'.format(self.shape, inv_quad_rhs.shape))
+            elif self.batch_shape != inv_quad_rhs.shape[:-2] or self.shape[-1] != inv_quad_rhs.shape[-2]:
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
         if inv_quad_rhs is not None:
-            output_shape = _matmul_broadcast_shape(self.shape, inv_quad_rhs
-                .shape)
-            inv_quad_rhs = self._move_repeat_batches_to_columns(inv_quad_rhs,
-                output_shape)
-        inv_quad_term, logdet_term = self.base_lazy_tensor.inv_quad_logdet(
-            inv_quad_rhs, logdet, reduce_inv_quad=False)
+            output_shape = _matmul_broadcast_shape(self.shape, inv_quad_rhs.shape)
+            inv_quad_rhs = self._move_repeat_batches_to_columns(inv_quad_rhs, output_shape)
+        inv_quad_term, logdet_term = self.base_lazy_tensor.inv_quad_logdet(inv_quad_rhs, logdet, reduce_inv_quad=False)
         if inv_quad_term is not None and inv_quad_term.numel():
-            inv_quad_term = inv_quad_term.view(*inv_quad_term.shape[:-1], -
-                1, 1, self.batch_repeat.numel())
+            inv_quad_term = inv_quad_term.view(*inv_quad_term.shape[:-1], -1, 1, self.batch_repeat.numel())
             output_shape = list(output_shape)
             output_shape[-2] = 1
-            inv_quad_term = self._move_repeat_batches_back(inv_quad_term,
-                output_shape).squeeze(-2)
+            inv_quad_term = self._move_repeat_batches_back(inv_quad_term, output_shape).squeeze(-2)
             if reduce_inv_quad:
                 inv_quad_term = inv_quad_term.sum(-1)
         if logdet_term is not None and logdet_term.numel():
@@ -3549,14 +3182,9 @@ base_lazy_tensor: {} (size: {}), batch_repeat: {}."""
 
     def repeat(self, *sizes):
         if len(sizes) < 3 or tuple(sizes[-2:]) != (1, 1):
-            raise RuntimeError(
-                'Invalid repeat arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'
-                .format(tuple(sizes)))
-        padded_batch_repeat = tuple(1 for _ in range(len(sizes) - 2 - len(
-            self.batch_repeat))) + self.batch_repeat
-        return self.__class__(self.base_lazy_tensor, batch_repeat=torch.
-            Size(orig_repeat_size * new_repeat_size for orig_repeat_size,
-            new_repeat_size in zip(padded_batch_repeat, sizes[:-2])))
+            raise RuntimeError('Invalid repeat arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'.format(tuple(sizes)))
+        padded_batch_repeat = tuple(1 for _ in range(len(sizes) - 2 - len(self.batch_repeat))) + self.batch_repeat
+        return self.__class__(self.base_lazy_tensor, batch_repeat=torch.Size(orig_repeat_size * new_repeat_size for orig_repeat_size, new_repeat_size in zip(padded_batch_repeat, sizes[:-2])))
 
 
 def lazify(obj):
@@ -3571,8 +3199,7 @@ def lazify(obj):
     elif isinstance(obj, LazyTensor):
         return obj
     else:
-        raise TypeError('object of class {} cannot be made into a LazyTensor'
-            .format(obj.__class__.__name__))
+        raise TypeError('object of class {} cannot be made into a LazyTensor'.format(obj.__class__.__name__))
 
 
 class MatmulLazyTensor(LazyTensor):
@@ -3585,21 +3212,16 @@ class MatmulLazyTensor(LazyTensor):
         self.right_lazy_tensor = right_lazy_tensor
 
     def _expand_batch(self, batch_shape):
-        return self.__class__(self.left_lazy_tensor._expand_batch(
-            batch_shape), self.right_lazy_tensor._expand_batch(batch_shape))
+        return self.__class__(self.left_lazy_tensor._expand_batch(batch_shape), self.right_lazy_tensor._expand_batch(batch_shape))
 
     def _get_indices(self, row_index, col_index, *batch_indices):
         row_index = row_index.unsqueeze(-1)
         col_index = col_index.unsqueeze(-1)
-        batch_indices = tuple(batch_index.unsqueeze(-1) for batch_index in
-            batch_indices)
-        inner_index = torch.arange(0, self.left_lazy_tensor.size(-1),
-            device=self.device)
+        batch_indices = tuple(batch_index.unsqueeze(-1) for batch_index in batch_indices)
+        inner_index = torch.arange(0, self.left_lazy_tensor.size(-1), device=self.device)
         inner_index = _pad_with_singletons(inner_index, row_index.dim() - 1, 0)
-        left_tensor = self.left_lazy_tensor._get_indices(row_index,
-            inner_index, *batch_indices)
-        right_tensor = self.right_lazy_tensor._get_indices(inner_index,
-            col_index, *batch_indices)
+        left_tensor = self.left_lazy_tensor._get_indices(row_index, inner_index, *batch_indices)
+        right_tensor = self.right_lazy_tensor._get_indices(inner_index, col_index, *batch_indices)
         res = (left_tensor * right_tensor).sum(-1)
         return res
 
@@ -3607,64 +3229,47 @@ class MatmulLazyTensor(LazyTensor):
         if torch.is_tensor(row_index) and torch.is_tensor(col_index):
             num_indices = row_index.numel()
             if num_indices > self.matrix_shape.numel():
-                return lazify(self.evaluate())._getitem(row_index,
-                    col_index, *batch_indices)
-        left_tensor = self.left_lazy_tensor._getitem(row_index, _noop_index,
-            *batch_indices)
-        right_tensor = self.right_lazy_tensor._getitem(_noop_index,
-            col_index, *batch_indices)
+                return lazify(self.evaluate())._getitem(row_index, col_index, *batch_indices)
+        left_tensor = self.left_lazy_tensor._getitem(row_index, _noop_index, *batch_indices)
+        right_tensor = self.right_lazy_tensor._getitem(_noop_index, col_index, *batch_indices)
         res = MatmulLazyTensor(left_tensor, right_tensor)
         return res
 
     def _matmul(self, right_lazy_tensor):
-        return self.left_lazy_tensor._matmul(self.right_lazy_tensor._matmul
-            (right_lazy_tensor))
+        return self.left_lazy_tensor._matmul(self.right_lazy_tensor._matmul(right_lazy_tensor))
 
     def _t_matmul(self, right_lazy_tensor):
-        return self.right_lazy_tensor._t_matmul(self.left_lazy_tensor.
-            _t_matmul(right_lazy_tensor))
+        return self.right_lazy_tensor._t_matmul(self.left_lazy_tensor._t_matmul(right_lazy_tensor))
 
     def _quad_form_derivative(self, left_vecs, right_vecs):
         if left_vecs.ndimension() == 1:
             left_vecs = left_vecs.unsqueeze(1)
             right_vecs = right_vecs.unsqueeze(1)
-        right_vecs_times_right_lazy_tensor = self.right_lazy_tensor._matmul(
-            right_vecs)
-        left_vecs_times_left_lazy_tensor_t = self.left_lazy_tensor._t_matmul(
-            left_vecs)
-        left_grad = self.left_lazy_tensor._quad_form_derivative(left_vecs,
-            right_vecs_times_right_lazy_tensor)
-        right_grad = self.right_lazy_tensor._quad_form_derivative(
-            left_vecs_times_left_lazy_tensor_t, right_vecs)
-        left_grad = (left_grad,) if not isinstance(left_grad, tuple
-            ) else left_grad
-        right_grad = (right_grad,) if not isinstance(right_grad, tuple
-            ) else right_grad
+        right_vecs_times_right_lazy_tensor = self.right_lazy_tensor._matmul(right_vecs)
+        left_vecs_times_left_lazy_tensor_t = self.left_lazy_tensor._t_matmul(left_vecs)
+        left_grad = self.left_lazy_tensor._quad_form_derivative(left_vecs, right_vecs_times_right_lazy_tensor)
+        right_grad = self.right_lazy_tensor._quad_form_derivative(left_vecs_times_left_lazy_tensor_t, right_vecs)
+        left_grad = (left_grad,) if not isinstance(left_grad, tuple) else left_grad
+        right_grad = (right_grad,) if not isinstance(right_grad, tuple) else right_grad
         return left_grad + right_grad
 
     def _size(self):
-        return _matmul_broadcast_shape(self.left_lazy_tensor.shape, self.
-            right_lazy_tensor.shape)
+        return _matmul_broadcast_shape(self.left_lazy_tensor.shape, self.right_lazy_tensor.shape)
 
     def _transpose_nonbatch(self, *args):
-        return self.__class__(self.right_lazy_tensor._transpose_nonbatch(),
-            self.left_lazy_tensor._transpose_nonbatch())
+        return self.__class__(self.right_lazy_tensor._transpose_nonbatch(), self.left_lazy_tensor._transpose_nonbatch())
 
     def diag(self):
-        if isinstance(self.left_lazy_tensor, NonLazyTensor) and isinstance(self
-            .right_lazy_tensor, NonLazyTensor):
-            return (self.left_lazy_tensor.tensor * self.right_lazy_tensor.
-                tensor.transpose(-1, -2)).sum(-1)
-        elif isinstance(self.left_lazy_tensor, DiagLazyTensor) or isinstance(
-            self.right_lazy_tensor, DiagLazyTensor):
+        if isinstance(self.left_lazy_tensor, NonLazyTensor) and isinstance(self.right_lazy_tensor, NonLazyTensor):
+            return (self.left_lazy_tensor.tensor * self.right_lazy_tensor.tensor.transpose(-1, -2)).sum(-1)
+        elif isinstance(self.left_lazy_tensor, DiagLazyTensor) or isinstance(self.right_lazy_tensor, DiagLazyTensor):
             return self.left_lazy_tensor.diag() * self.right_lazy_tensor.diag()
         else:
             return super().diag()
 
     @cached
     def evaluate(self):
-        return torch.matmul(self.left_lazy_tensor.evaluate(), self.
-            right_lazy_tensor.evaluate())
+        return torch.matmul(self.left_lazy_tensor.evaluate(), self.right_lazy_tensor.evaluate())
 
 
 def _equal_indices(a, b):
@@ -3692,17 +3297,14 @@ class RootLazyTensor(LazyTensor):
     def _get_indices(self, row_index, col_index, *batch_indices):
         row_index = row_index.unsqueeze(-1)
         col_index = col_index.unsqueeze(-1)
-        batch_indices = tuple(batch_index.unsqueeze(-1) for batch_index in
-            batch_indices)
+        batch_indices = tuple(batch_index.unsqueeze(-1) for batch_index in batch_indices)
         inner_index = torch.arange(0, self.root.size(-1), device=self.device)
         inner_index = _pad_with_singletons(inner_index, row_index.dim() - 1, 0)
-        left_tensor = self.root._get_indices(row_index, inner_index, *
-            batch_indices)
+        left_tensor = self.root._get_indices(row_index, inner_index, *batch_indices)
         if torch.equal(row_index, col_index):
             res = left_tensor.pow(2).sum(-1)
         else:
-            right_tensor = self.root._get_indices(col_index, inner_index, *
-                batch_indices)
+            right_tensor = self.root._get_indices(col_index, inner_index, *batch_indices)
             res = (left_tensor * right_tensor).sum(-1)
         return res
 
@@ -3710,15 +3312,12 @@ class RootLazyTensor(LazyTensor):
         if torch.is_tensor(row_index) and torch.is_tensor(col_index):
             num_indices = row_index.numel()
             if num_indices > self.matrix_shape.numel():
-                return lazify(self.evaluate())._getitem(row_index,
-                    col_index, *batch_indices)
-        left_tensor = self.root._getitem(row_index, _noop_index, *batch_indices
-            )
+                return lazify(self.evaluate())._getitem(row_index, col_index, *batch_indices)
+        left_tensor = self.root._getitem(row_index, _noop_index, *batch_indices)
         if _equal_indices(row_index, col_index):
             res = self.__class__(left_tensor)
         else:
-            right_tensor = self.root._getitem(col_index, _noop_index, *
-                batch_indices)
+            right_tensor = self.root._getitem(col_index, _noop_index, *batch_indices)
             res = MatmulLazyTensor(left_tensor, right_tensor.transpose(-1, -2))
         return res
 
@@ -3731,10 +3330,8 @@ class RootLazyTensor(LazyTensor):
     def _quad_form_derivative(self, left_vecs, right_vecs):
         right_vecs_times_rhs = self.root._t_matmul(right_vecs)
         left_vecs_times_lhs_t = self.root._t_matmul(left_vecs)
-        deriv_part_1 = self.root._quad_form_derivative(left_vecs,
-            right_vecs_times_rhs)
-        deriv_part_2 = self.root._quad_form_derivative(right_vecs,
-            left_vecs_times_lhs_t)
+        deriv_part_1 = self.root._quad_form_derivative(left_vecs, right_vecs_times_rhs)
+        deriv_part_2 = self.root._quad_form_derivative(right_vecs, left_vecs_times_lhs_t)
         deriv = []
         for item_part_1, item_part_2 in zip(deriv_part_1, deriv_part_2):
             deriv.append(item_part_1 + item_part_2)
@@ -3747,8 +3344,7 @@ class RootLazyTensor(LazyTensor):
         return self.root.size(-1)
 
     def _size(self):
-        return torch.Size((*self.root.batch_shape, self.root.size(-2), self
-            .root.size(-2)))
+        return torch.Size((*self.root.batch_shape, self.root.size(-2), self.root.size(-2)))
 
     def _transpose_nonbatch(self):
         return self
@@ -3785,24 +3381,20 @@ class ZeroLazyTensor(LazyTensor):
         return self._device
 
     def _expand_batch(self, batch_shape):
-        return self.__class__(*batch_shape, *self.sizes[-2:], dtype=self.
-            _dtype, device=self._device)
+        return self.__class__(*batch_shape, *self.sizes[-2:], dtype=self._dtype, device=self._device)
 
     def _get_indices(self, row_index, col_index, *batch_indices):
-        new_size = _compute_getitem_size(self, batch_indices + (row_index,
-            col_index))
+        new_size = _compute_getitem_size(self, batch_indices + (row_index, col_index))
         return ZeroLazyTensor(*new_size)
 
     def _getitem(self, row_index, col_index, *batch_indices):
-        new_size = _compute_getitem_size(self, batch_indices + (row_index,
-            col_index))
+        new_size = _compute_getitem_size(self, batch_indices + (row_index, col_index))
         return ZeroLazyTensor(*new_size)
 
     def _matmul(self, rhs):
         rhs_size_ind = -2 if rhs.ndimension() > 1 else -1
         if self.size(-1) != rhs.size(rhs_size_ind):
-            raise RuntimeError('Size mismatch, self: {}, rhs: {}'.format(
-                self.size(), rhs.size()))
+            raise RuntimeError('Size mismatch, self: {}, rhs: {}'.format(self.size(), rhs.size()))
         return rhs * 0
 
     def _prod_batch(self, dim):
@@ -3811,8 +3403,7 @@ class ZeroLazyTensor(LazyTensor):
         return self.__class__(*sizes, dtype=self._dtype, device=self._device)
 
     def _quad_form_derivative(self, left_vecs, right_vecs):
-        raise RuntimeError('Backwards through a ZeroLazyTensor is not possible'
-            )
+        raise RuntimeError('Backwards through a ZeroLazyTensor is not possible')
 
     def _root_decomposition(self):
         raise RuntimeError('ZeroLazyTensors are not positive definite!')
@@ -3834,8 +3425,7 @@ class ZeroLazyTensor(LazyTensor):
     def _t_matmul(self, rhs):
         rhs_size_ind = -2 if rhs.ndimension() > 1 else -1
         if self.size(-1) != rhs.size(rhs_size_ind):
-            raise RuntimeError('Size mismatch, self: {}, rhs: {}'.format(
-                self.size(), rhs.size()))
+            raise RuntimeError('Size mismatch, self: {}, rhs: {}'.format(self.size(), rhs.size()))
         return rhs * 0
 
     def _transpose_nonbatch(self):
@@ -3858,22 +3448,16 @@ class ZeroLazyTensor(LazyTensor):
             elif diag.ndimension() == 2:
                 diag = diag.expand(self.size(0), self.size(1))
             else:
-                raise RuntimeError(
-                    'For a 3D tensor ({}), add_diag expects a 1D or 2D diag. Got size ({})'
-                    .format(self.size(), diag.size()))
+                raise RuntimeError('For a 3D tensor ({}), add_diag expects a 1D or 2D diag. Got size ({})'.format(self.size(), diag.size()))
         elif diag.ndimension() == 0:
             diag = diag.view(1).expand(self.size(0))
         elif diag.ndimension() == 1:
             diag = diag.expand(self.size(0))
         else:
-            raise RuntimeError(
-                'For a 3D tensor ({}), add_diag expects a 1D or 2D diag. Got size ({})'
-                .format(self.size(), diag.size()))
+            raise RuntimeError('For a 3D tensor ({}), add_diag expects a 1D or 2D diag. Got size ({})'.format(self.size(), diag.size()))
         res = DiagLazyTensor(diag)
         if res.size() != self.size():
-            raise RuntimeError(
-                'Diag dimensions are incompatible with the base LazyTensor dimensions. Diag size corresponds to a {} Tensor - expected {}'
-                .format(res.size(), self.size()))
+            raise RuntimeError('Diag dimensions are incompatible with the base LazyTensor dimensions. Diag size corresponds to a {} Tensor - expected {}'.format(res.size(), self.size()))
         return res
 
     def diag(self):
@@ -3892,8 +3476,7 @@ class ZeroLazyTensor(LazyTensor):
     def inv_quad(self, tensor):
         raise RuntimeError('ZeroLazyTensors are not invertible!')
 
-    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False,
-        reduce_inv_quad=True):
+    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
         raise RuntimeError('ZeroLazyTensors are not invertible!')
 
     def logdet(self):
@@ -3902,8 +3485,7 @@ class ZeroLazyTensor(LazyTensor):
     def matmul(self, tensor):
         tensor_size_ind = -2 if tensor.ndimension() > 1 else -1
         if self.size(-1) != tensor.size(tensor_size_ind):
-            raise RuntimeError('Size mismatch, self: {}, tensor: {}'.format
-                (self.size(), tensor.size()))
+            raise RuntimeError('Size mismatch, self: {}, tensor: {}'.format(self.size(), tensor.size()))
         return tensor * 0
 
     def mul(self, other):
@@ -3933,11 +3515,9 @@ def clear_cache_hook(module, *args, **kwargs):
 
 class DefaultPredictionStrategy(object):
 
-    def __init__(self, train_inputs, train_prior_dist, train_labels,
-        likelihood, root=None, inv_root=None):
+    def __init__(self, train_inputs, train_prior_dist, train_labels, likelihood, root=None, inv_root=None):
         train_shape = train_prior_dist.event_shape
-        train_labels = train_labels.view(*train_labels.shape[:-len(
-            train_shape)], train_shape.numel())
+        train_labels = train_labels.view(*train_labels.shape[:-len(train_shape)], train_shape.numel())
         self.train_inputs = train_inputs
         self.train_prior_dist = train_prior_dist
         self.train_labels = train_labels
@@ -3946,17 +3526,14 @@ class DefaultPredictionStrategy(object):
         mvn = self.likelihood(train_prior_dist, train_inputs)
         self.lik_train_train_covar = mvn.lazy_covariance_matrix
         if root is not None:
-            add_to_cache(self.lik_train_train_covar, 'root_decomposition',
-                RootLazyTensor(root))
+            add_to_cache(self.lik_train_train_covar, 'root_decomposition', RootLazyTensor(root))
         if inv_root is not None:
-            add_to_cache(self.lik_train_train_covar,
-                'root_inv_decomposition', RootLazyTensor(inv_root))
+            add_to_cache(self.lik_train_train_covar, 'root_inv_decomposition', RootLazyTensor(inv_root))
 
     def __deepcopy__(self, memo):
         pass
 
-    def _exact_predictive_covar_inv_quad_form_cache(self,
-        train_train_covar_inv_root, test_train_covar):
+    def _exact_predictive_covar_inv_quad_form_cache(self, train_train_covar_inv_root, test_train_covar):
         """
         Computes a cache for K_X*X (K_XX + sigma^2 I)^-1 K_X*X if possible. By default, this does no work and returns
         the first argument.
@@ -3977,8 +3554,7 @@ class DefaultPredictionStrategy(object):
             res.grad_fn.register_hook(wrapper)
         return res
 
-    def _exact_predictive_covar_inv_quad_form_root(self, precomputed_cache,
-        test_train_covar):
+    def _exact_predictive_covar_inv_quad_form_root(self, precomputed_cache, test_train_covar):
         """
         Computes :math:`K_{X^{*}X} S` given a precomputed cache
         Where :math:`S` is a tensor such that :math:`SS^{\\top} = (K_{XX} + \\sigma^2 I)^{-1}`
@@ -3992,8 +3568,7 @@ class DefaultPredictionStrategy(object):
         """
         return test_train_covar.matmul(precomputed_cache)
 
-    def get_fantasy_strategy(self, inputs, targets, full_inputs,
-        full_targets, full_output, **kwargs):
+    def get_fantasy_strategy(self, inputs, targets, full_inputs, full_targets, full_output, **kwargs):
         """
         Returns a new PredictionStrategy that incorporates the specified inputs and targets as new training data.
 
@@ -4015,8 +3590,7 @@ class DefaultPredictionStrategy(object):
                 A `DefaultPredictionStrategy` model with `n + m` training examples, where the `m` fantasy examples have
                 been added and all test-time caches have been updated.
         """
-        full_mean, full_covar = (full_output.mean, full_output.
-            lazy_covariance_matrix)
+        full_mean, full_covar = full_output.mean, full_output.lazy_covariance_matrix
         batch_shape = full_inputs[0].shape[:-2]
         full_mean = full_mean.view(*batch_shape, -1)
         num_train = self.num_train
@@ -4042,24 +3616,17 @@ class DefaultPredictionStrategy(object):
         """
         K_inverse = self.lik_train_train_covar.root_inv_decomposition()
         fant_solve = K_inverse.matmul(fant_train_covar.transpose(-2, -1))
-        schur_complement = fant_fant_covar - fant_train_covar.matmul(fant_solve
-            )
-        prefix = string.ascii_lowercase[:max(fant_train_covar.dim() - self.
-            mean_cache.dim() - 1, 0)]
-        ftcm = torch.einsum(prefix + '...yz,...z->' + prefix + '...y', [
-            fant_train_covar, self.mean_cache])
+        schur_complement = fant_fant_covar - fant_train_covar.matmul(fant_solve)
+        prefix = string.ascii_lowercase[:max(fant_train_covar.dim() - self.mean_cache.dim() - 1, 0)]
+        ftcm = torch.einsum(prefix + '...yz,...z->' + prefix + '...y', [fant_train_covar, self.mean_cache])
         small_system_rhs = targets - fant_mean - ftcm
         small_system_rhs = small_system_rhs.unsqueeze(-1)
-        schur_cholesky = psd_safe_cholesky(schur_complement, jitter=
-            settings.cholesky_jitter.value())
-        fant_cache_lower = torch.cholesky_solve(small_system_rhs,
-            schur_cholesky)
-        fant_cache_upper = self.mean_cache.unsqueeze(-1) - fant_solve.matmul(
-            fant_cache_lower)
+        schur_cholesky = psd_safe_cholesky(schur_complement, jitter=settings.cholesky_jitter.value())
+        fant_cache_lower = torch.cholesky_solve(small_system_rhs, schur_cholesky)
+        fant_cache_upper = self.mean_cache.unsqueeze(-1) - fant_solve.matmul(fant_cache_lower)
         fant_cache_upper = fant_cache_upper.squeeze(-1)
         fant_cache_lower = fant_cache_lower.squeeze(-1)
-        fant_mean_cache = torch.cat((fant_cache_upper, fant_cache_lower),
-            dim=-1)
+        fant_mean_cache = torch.cat((fant_cache_upper, fant_cache_lower), dim=-1)
         """
         Compute a new covariance cache given the old covariance cache.
 
@@ -4081,14 +3648,11 @@ class DefaultPredictionStrategy(object):
         L = delazify(self.lik_train_train_covar.root_decomposition().root)
         m, n = L.shape[-2:]
         lower_left = fant_train_covar.matmul(L_inverse)
-        schur = fant_fant_covar - lower_left.matmul(lower_left.transpose(-2,
-            -1))
-        schur_root = psd_safe_cholesky(schur, jitter=settings.
-            cholesky_jitter.value())
+        schur = fant_fant_covar - lower_left.matmul(lower_left.transpose(-2, -1))
+        schur_root = psd_safe_cholesky(schur, jitter=settings.cholesky_jitter.value())
         num_fant = schur_root.size(-2)
         m, n = L.shape[-2:]
-        new_root = torch.zeros(*batch_shape, m + num_fant, n + num_fant,
-            device=L.device, dtype=L.dtype)
+        new_root = torch.zeros(*batch_shape, m + num_fant, n + num_fant, device=L.device, dtype=L.dtype)
         new_root[(...), :m, :n] = L
         new_root[(...), m:, :n] = lower_left
         new_root[(...), m:, n:] = schur_root
@@ -4098,34 +3662,25 @@ class DefaultPredictionStrategy(object):
         if torch.any(zeroish):
             jitter_diag = 1e-06 * torch.sign(Rdiag) * zeroish.to(Rdiag)
             R = R + torch.diag_embed(jitter_diag)
-        new_covar_cache = torch.triangular_solve(Q.transpose(-2, -1), R)[0
-            ].transpose(-2, -1)
+        new_covar_cache = torch.triangular_solve(Q.transpose(-2, -1), R)[0].transpose(-2, -1)
         if full_inputs[0].dim() <= full_targets.dim():
             fant_batch_shape = full_targets.shape[:1]
             n_batch = len(full_mean.shape[:-1])
             repeat_shape = fant_batch_shape + torch.Size([1] * n_batch)
-            full_inputs = [fi.expand(fant_batch_shape + fi.shape) for fi in
-                full_inputs]
+            full_inputs = [fi.expand(fant_batch_shape + fi.shape) for fi in full_inputs]
             full_mean = full_mean.expand(fant_batch_shape + full_mean.shape)
             full_covar = BatchRepeatLazyTensor(full_covar, repeat_shape)
-            new_root = BatchRepeatLazyTensor(NonLazyTensor(new_root),
-                repeat_shape)
-        fant_strat = self.__class__(train_inputs=full_inputs,
-            train_prior_dist=self.train_prior_dist.__class__(full_mean,
-            full_covar), train_labels=full_targets, likelihood=
-            fant_likelihood, root=new_root, inv_root=new_covar_cache)
-        fant_strat._memoize_cache = {'mean_cache': fant_mean_cache,
-            'covar_cache': new_covar_cache}
+            new_root = BatchRepeatLazyTensor(NonLazyTensor(new_root), repeat_shape)
+        fant_strat = self.__class__(train_inputs=full_inputs, train_prior_dist=self.train_prior_dist.__class__(full_mean, full_covar), train_labels=full_targets, likelihood=fant_likelihood, root=new_root, inv_root=new_covar_cache)
+        fant_strat._memoize_cache = {'mean_cache': fant_mean_cache, 'covar_cache': new_covar_cache}
         return fant_strat
 
     @property
     @cached(name='covar_cache')
     def covar_cache(self):
         train_train_covar = self.lik_train_train_covar
-        train_train_covar_inv_root = delazify(train_train_covar.
-            root_inv_decomposition().root)
-        return self._exact_predictive_covar_inv_quad_form_cache(
-            train_train_covar_inv_root, self._last_test_train_covar)
+        train_train_covar_inv_root = delazify(train_train_covar.root_inv_decomposition().root)
+        return self._exact_predictive_covar_inv_quad_form_cache(train_train_covar_inv_root, self._last_test_train_covar)
 
     @property
     @cached(name='mean_cache')
@@ -4133,8 +3688,7 @@ class DefaultPredictionStrategy(object):
         mvn = self.likelihood(self.train_prior_dist, self.train_inputs)
         train_mean, train_train_covar = mvn.loc, mvn.lazy_covariance_matrix
         train_labels_offset = (self.train_labels - train_mean).unsqueeze(-1)
-        mean_cache = train_train_covar.inv_matmul(train_labels_offset).squeeze(
-            -1)
+        mean_cache = train_train_covar.inv_matmul(train_labels_offset).squeeze(-1)
         if settings.detach_test_caches.on():
             mean_cache = mean_cache.detach()
         if mean_cache.grad_fn is not None:
@@ -4158,12 +3712,9 @@ class DefaultPredictionStrategy(object):
             test_test_covar = test_covar[(...), self.num_train:]
             test_train_covar = test_covar[(...), :self.num_train]
         else:
-            test_test_covar = joint_covar[(...), self.num_train:, self.
-                num_train:]
-            test_train_covar = joint_covar[(...), self.num_train:, :self.
-                num_train]
-        return self.exact_predictive_mean(test_mean, test_train_covar
-            ), self.exact_predictive_covar(test_test_covar, test_train_covar)
+            test_test_covar = joint_covar[(...), self.num_train:, self.num_train:]
+            test_train_covar = joint_covar[(...), self.num_train:, :self.num_train]
+        return self.exact_predictive_mean(test_mean, test_train_covar), self.exact_predictive_covar(test_test_covar, test_train_covar)
 
     def exact_predictive_mean(self, test_mean, test_train_covar):
         """
@@ -4197,41 +3748,27 @@ class DefaultPredictionStrategy(object):
         if settings.skip_posterior_variances.on():
             return ZeroLazyTensor(*test_test_covar.size())
         if settings.fast_pred_var.off():
-            dist = self.train_prior_dist.__class__(torch.zeros_like(self.
-                train_prior_dist.mean), self.train_prior_dist.
-                lazy_covariance_matrix)
+            dist = self.train_prior_dist.__class__(torch.zeros_like(self.train_prior_dist.mean), self.train_prior_dist.lazy_covariance_matrix)
             if settings.detach_test_caches.on():
-                train_train_covar = self.likelihood(dist, self.train_inputs
-                    ).lazy_covariance_matrix.detach()
+                train_train_covar = self.likelihood(dist, self.train_inputs).lazy_covariance_matrix.detach()
             else:
-                train_train_covar = self.likelihood(dist, self.train_inputs
-                    ).lazy_covariance_matrix
+                train_train_covar = self.likelihood(dist, self.train_inputs).lazy_covariance_matrix
             test_train_covar = delazify(test_train_covar)
             train_test_covar = test_train_covar.transpose(-1, -2)
-            covar_correction_rhs = train_train_covar.inv_matmul(
-                train_test_covar)
+            covar_correction_rhs = train_train_covar.inv_matmul(train_test_covar)
             if torch.is_tensor(test_test_covar):
                 if test_test_covar.dim() == 2:
-                    return lazify(torch.addmm(test_test_covar,
-                        test_train_covar, covar_correction_rhs, beta=1,
-                        alpha=-1))
+                    return lazify(torch.addmm(test_test_covar, test_train_covar, covar_correction_rhs, beta=1, alpha=-1))
                 else:
-                    return lazify(test_test_covar + test_train_covar @
-                        covar_correction_rhs.mul(-1))
+                    return lazify(test_test_covar + test_train_covar @ covar_correction_rhs.mul(-1))
             else:
-                return test_test_covar + MatmulLazyTensor(test_train_covar,
-                    covar_correction_rhs.mul(-1))
+                return test_test_covar + MatmulLazyTensor(test_train_covar, covar_correction_rhs.mul(-1))
         precomputed_cache = self.covar_cache
-        covar_inv_quad_form_root = (self.
-            _exact_predictive_covar_inv_quad_form_root(precomputed_cache,
-            test_train_covar))
+        covar_inv_quad_form_root = self._exact_predictive_covar_inv_quad_form_root(precomputed_cache, test_train_covar)
         if torch.is_tensor(test_test_covar):
-            return lazify(torch.add(test_test_covar, 
-                covar_inv_quad_form_root @ covar_inv_quad_form_root.
-                transpose(-1, -2), alpha=-1))
+            return lazify(torch.add(test_test_covar, covar_inv_quad_form_root @ covar_inv_quad_form_root.transpose(-1, -2), alpha=-1))
         else:
-            return test_test_covar + MatmulLazyTensor(covar_inv_quad_form_root,
-                covar_inv_quad_form_root.transpose(-1, -2).mul(-1))
+            return test_test_covar + MatmulLazyTensor(covar_inv_quad_form_root, covar_inv_quad_form_root.transpose(-1, -2).mul(-1))
 
 
 class SumLazyTensor(LazyTensor):
@@ -4240,53 +3777,41 @@ class SumLazyTensor(LazyTensor):
         try:
             lazy_tensors = tuple(lazify(lt) for lt in lazy_tensors)
         except TypeError:
-            raise TypeError(
-                'All arguments of a SumLazyTensor should be LazyTensors or Tensors'
-                )
-        batch_shape = _mul_broadcast_shape(*[lt.batch_shape for lt in
-            lazy_tensors])
-        lazy_tensors = tuple(lt._expand_batch(batch_shape) if lt.
-            batch_shape != batch_shape else lt for lt in lazy_tensors)
+            raise TypeError('All arguments of a SumLazyTensor should be LazyTensors or Tensors')
+        batch_shape = _mul_broadcast_shape(*[lt.batch_shape for lt in lazy_tensors])
+        lazy_tensors = tuple(lt._expand_batch(batch_shape) if lt.batch_shape != batch_shape else lt for lt in lazy_tensors)
         super(SumLazyTensor, self).__init__(*lazy_tensors, **kwargs)
         self.lazy_tensors = lazy_tensors
 
     def _expand_batch(self, batch_shape):
-        expanded_tensors = [lazy_tensor._expand_batch(batch_shape) for
-            lazy_tensor in self.lazy_tensors]
+        expanded_tensors = [lazy_tensor._expand_batch(batch_shape) for lazy_tensor in self.lazy_tensors]
         return self.__class__(*expanded_tensors)
 
     def _get_indices(self, row_index, col_index, *batch_indices):
-        results = [lazy_tensor._get_indices(row_index, col_index, *
-            batch_indices) for lazy_tensor in self.lazy_tensors]
+        results = [lazy_tensor._get_indices(row_index, col_index, *batch_indices) for lazy_tensor in self.lazy_tensors]
         return sum(results)
 
     def _getitem(self, row_index, col_index, *batch_indices):
-        results = [lazy_tensor._getitem(row_index, col_index, *
-            batch_indices) for lazy_tensor in self.lazy_tensors]
+        results = [lazy_tensor._getitem(row_index, col_index, *batch_indices) for lazy_tensor in self.lazy_tensors]
         return SumLazyTensor(*results)
 
     def _matmul(self, rhs):
-        return sum(lazy_tensor._matmul(rhs) for lazy_tensor in self.
-            lazy_tensors)
+        return sum(lazy_tensor._matmul(rhs) for lazy_tensor in self.lazy_tensors)
 
     def _quad_form_derivative(self, left_vecs, right_vecs):
-        return tuple(var for lazy_tensor in self.lazy_tensors for var in
-            lazy_tensor._quad_form_derivative(left_vecs, right_vecs))
+        return tuple(var for lazy_tensor in self.lazy_tensors for var in lazy_tensor._quad_form_derivative(left_vecs, right_vecs))
 
     def _size(self):
         return _mul_broadcast_shape(*[lt.shape for lt in self.lazy_tensors])
 
     def _sum_batch(self, dim):
-        return self.__class__(*(lazy_tensor._sum_batch(dim) for lazy_tensor in
-            self.lazy_tensors))
+        return self.__class__(*(lazy_tensor._sum_batch(dim) for lazy_tensor in self.lazy_tensors))
 
     def _t_matmul(self, rhs):
-        return sum(lazy_tensor._t_matmul(rhs) for lazy_tensor in self.
-            lazy_tensors)
+        return sum(lazy_tensor._t_matmul(rhs) for lazy_tensor in self.lazy_tensors)
 
     def _transpose_nonbatch(self):
-        lazy_tensors_t = [lazy_tensor.transpose(-1, -2) for lazy_tensor in
-            self.lazy_tensors]
+        lazy_tensors_t = [lazy_tensor.transpose(-1, -2) for lazy_tensor in self.lazy_tensors]
         return self.__class__(*lazy_tensors_t)
 
     @cached
@@ -4301,16 +3826,14 @@ class SumLazyTensor(LazyTensor):
         elif isinstance(other, DiagLazyTensor):
             return AddedDiagLazyTensor(self, other)
         elif isinstance(other, SumLazyTensor):
-            return SumLazyTensor(*(list(self.lazy_tensors) + list(other.
-                lazy_tensors)))
+            return SumLazyTensor(*(list(self.lazy_tensors) + list(other.lazy_tensors)))
         elif isinstance(other, LazyTensor):
             return SumLazyTensor(*(list(self.lazy_tensors) + [other]))
         elif isinstance(other, Tensor):
             broadcasted_shape = _mul_broadcast_shape(self.shape, other.shape)
             broadcasted_other = lazify(other.expand(broadcasted_shape))
             if broadcasted_shape != self.shape:
-                broadcasted_lts = [lt.expand(*broadcasted_shape, 1).squeeze
-                    (-1).transpose(-1, -2) for lt in self.lazy_tensors]
+                broadcasted_lts = [lt.expand(*broadcasted_shape, 1).squeeze(-1).transpose(-1, -2) for lt in self.lazy_tensors]
             else:
                 broadcasted_lts = list(self.lazy_tensors)
             return SumLazyTensor(*(broadcasted_lts + [broadcasted_other]))
@@ -4318,12 +3841,10 @@ class SumLazyTensor(LazyTensor):
             raise AttributeError('other must be a LazyTensor')
 
     def diag(self):
-        return sum(lazy_tensor.diag().contiguous() for lazy_tensor in self.
-            lazy_tensors)
+        return sum(lazy_tensor.diag().contiguous() for lazy_tensor in self.lazy_tensors)
 
 
-def prediction_strategy(train_inputs, train_prior_dist, train_labels,
-    likelihood):
+def prediction_strategy(train_inputs, train_prior_dist, train_labels, likelihood):
     train_train_covar = train_prior_dist.lazy_covariance_matrix
     if isinstance(train_train_covar, LazyEvaluatedKernelTensor):
         cls = train_train_covar.kernel.prediction_strategy
@@ -4337,50 +3858,30 @@ class SumPredictionStrategy(DefaultPredictionStrategy):
     @property
     def _sub_strategies(self):
         sub_strategies = []
-        for lazy_tensor in self.train_prior_dist.lazy_covariance_matrix.evaluate_kernel(
-            ).lazy_tensors:
-            pred_strat = prediction_strategy(self.train_inputs, self.
-                train_prior_dist.__class__(self.train_prior_dist.mean,
-                lazy_tensor), self.train_labels, self.likelihood)
+        for lazy_tensor in self.train_prior_dist.lazy_covariance_matrix.evaluate_kernel().lazy_tensors:
+            pred_strat = prediction_strategy(self.train_inputs, self.train_prior_dist.__class__(self.train_prior_dist.mean, lazy_tensor), self.train_labels, self.likelihood)
             sub_strategies.append(pred_strat)
         return sub_strategies
 
-    def _exact_predictive_covar_inv_quad_form_cache(self,
-        train_train_covar_inv_root, test_train_covar):
+    def _exact_predictive_covar_inv_quad_form_cache(self, train_train_covar_inv_root, test_train_covar):
         test_train_covar = test_train_covar.evaluate_kernel()
         if not isinstance(test_train_covar, SumLazyTensor):
-            return super(SumPredictionStrategy, self
-                )._exact_predictive_covar_inv_quad_form_cache(
-                train_train_covar_inv_root, test_train_covar)
+            return super(SumPredictionStrategy, self)._exact_predictive_covar_inv_quad_form_cache(train_train_covar_inv_root, test_train_covar)
         else:
-            return tuple(sub_strat.
-                _exact_predictive_covar_inv_quad_form_cache(
-                train_train_covar_inv_root, test_train_covar_comp) for 
-                sub_strat, test_train_covar_comp in zip(self.
-                _sub_strategies, test_train_covar.lazy_tensors))
+            return tuple(sub_strat._exact_predictive_covar_inv_quad_form_cache(train_train_covar_inv_root, test_train_covar_comp) for sub_strat, test_train_covar_comp in zip(self._sub_strategies, test_train_covar.lazy_tensors))
 
-    def _exact_predictive_covar_inv_quad_form_root(self, precomputed_cache,
-        test_train_covar):
+    def _exact_predictive_covar_inv_quad_form_root(self, precomputed_cache, test_train_covar):
         test_train_covar = test_train_covar.evaluate_kernel()
         if not isinstance(test_train_covar, SumLazyTensor):
-            return super(SumPredictionStrategy, self
-                )._exact_predictive_covar_inv_quad_form_root(precomputed_cache,
-                test_train_covar)
+            return super(SumPredictionStrategy, self)._exact_predictive_covar_inv_quad_form_root(precomputed_cache, test_train_covar)
         else:
-            return sum(sub_strat._exact_predictive_covar_inv_quad_form_root
-                (cache_comp, test_train_covar_comp) for sub_strat,
-                cache_comp, test_train_covar_comp in zip(self.
-                _sub_strategies, precomputed_cache, test_train_covar.
-                evaluate_kernel().lazy_tensors))
+            return sum(sub_strat._exact_predictive_covar_inv_quad_form_root(cache_comp, test_train_covar_comp) for sub_strat, cache_comp, test_train_covar_comp in zip(self._sub_strategies, precomputed_cache, test_train_covar.evaluate_kernel().lazy_tensors))
 
 
 class GreaterThan(Interval):
 
-    def __init__(self, lower_bound, transform=softplus, inv_transform=
-        inv_softplus, initial_value=None):
-        super().__init__(lower_bound=lower_bound, upper_bound=math.inf,
-            transform=transform, inv_transform=inv_transform, initial_value
-            =initial_value)
+    def __init__(self, lower_bound, transform=softplus, inv_transform=inv_softplus, initial_value=None):
+        super().__init__(lower_bound=lower_bound, upper_bound=math.inf, transform=transform, inv_transform=inv_transform, initial_value=initial_value)
 
     def __repr__(self):
         if self.lower_bound.numel() == 1:
@@ -4389,34 +3890,28 @@ class GreaterThan(Interval):
             return super().__repr__()
 
     def transform(self, tensor):
-        transformed_tensor = self._transform(tensor
-            ) + self.lower_bound if self.enforced else tensor
+        transformed_tensor = self._transform(tensor) + self.lower_bound if self.enforced else tensor
         return transformed_tensor
 
     def inverse_transform(self, transformed_tensor):
-        tensor = self._inv_transform(transformed_tensor - self.lower_bound
-            ) if self.enforced else transformed_tensor
+        tensor = self._inv_transform(transformed_tensor - self.lower_bound) if self.enforced else transformed_tensor
         return tensor
 
 
 class Positive(GreaterThan):
 
-    def __init__(self, transform=softplus, inv_transform=inv_softplus,
-        initial_value=None):
-        super().__init__(lower_bound=0.0, transform=transform,
-            inv_transform=inv_transform, initial_value=initial_value)
+    def __init__(self, transform=softplus, inv_transform=inv_softplus, initial_value=None):
+        super().__init__(lower_bound=0.0, transform=transform, inv_transform=inv_transform, initial_value=initial_value)
 
     def __repr__(self):
         return self._get_name() + '()'
 
     def transform(self, tensor):
-        transformed_tensor = self._transform(tensor
-            ) if self.enforced else tensor
+        transformed_tensor = self._transform(tensor) if self.enforced else tensor
         return transformed_tensor
 
     def inverse_transform(self, transformed_tensor):
-        tensor = self._inv_transform(transformed_tensor
-            ) if self.enforced else transformed_tensor
+        tensor = self._inv_transform(transformed_tensor) if self.enforced else transformed_tensor
         return tensor
 
 
@@ -4492,9 +3987,7 @@ class Kernel(Module):
     """
     has_lengthscale = False
 
-    def __init__(self, ard_num_dims=None, batch_shape=torch.Size([]),
-        active_dims=None, lengthscale_prior=None, lengthscale_constraint=
-        None, eps=1e-06, **kwargs):
+    def __init__(self, ard_num_dims=None, batch_shape=torch.Size([]), active_dims=None, lengthscale_prior=None, lengthscale_constraint=None, eps=1e-06, **kwargs):
         super(Kernel, self).__init__()
         self._batch_shape = batch_shape
         if active_dims is not None and not torch.is_tensor(active_dims):
@@ -4506,18 +3999,12 @@ class Kernel(Module):
         if lengthscale_constraint is None:
             lengthscale_constraint = Positive()
         if param_transform is not None:
-            warnings.warn(
-                "The 'param_transform' argument is now deprecated. If you want to use a different transformation, specify a different 'lengthscale_constraint' instead."
-                , DeprecationWarning)
+            warnings.warn("The 'param_transform' argument is now deprecated. If you want to use a different transformation, specify a different 'lengthscale_constraint' instead.", DeprecationWarning)
         if self.has_lengthscale:
             lengthscale_num_dims = 1 if ard_num_dims is None else ard_num_dims
-            self.register_parameter(name='raw_lengthscale', parameter=torch
-                .nn.Parameter(torch.zeros(*self.batch_shape, 1,
-                lengthscale_num_dims)))
+            self.register_parameter(name='raw_lengthscale', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, 1, lengthscale_num_dims)))
             if lengthscale_prior is not None:
-                self.register_prior('lengthscale_prior', lengthscale_prior,
-                    lambda : self.lengthscale, lambda v: self.
-                    _set_lengthscale(v))
+                self.register_prior('lengthscale_prior', lengthscale_prior, lambda : self.lengthscale, lambda v: self._set_lengthscale(v))
             self.register_constraint('raw_lengthscale', lengthscale_constraint)
         self.distance_module = None
         self.__pdist_supports_batch = True
@@ -4554,8 +4041,7 @@ class Kernel(Module):
     def batch_shape(self):
         kernels = list(self.sub_kernels())
         if len(kernels):
-            return _mul_broadcast_shape(self._batch_shape, *[k.batch_shape for
-                k in kernels])
+            return _mul_broadcast_shape(self._batch_shape, *[k.batch_shape for k in kernels])
         else:
             return self._batch_shape
 
@@ -4582,8 +4068,7 @@ class Kernel(Module):
     @property
     def lengthscale(self):
         if self.has_lengthscale:
-            return self.raw_lengthscale_constraint.transform(self.
-                raw_lengthscale)
+            return self.raw_lengthscale_constraint.transform(self.raw_lengthscale)
         else:
             return None
 
@@ -4596,17 +4081,14 @@ class Kernel(Module):
             raise RuntimeError('Kernel has no lengthscale.')
         if not torch.is_tensor(value):
             value = torch.as_tensor(value)
-        self.initialize(raw_lengthscale=self.raw_lengthscale_constraint.
-            inverse_transform(value))
+        self.initialize(raw_lengthscale=self.raw_lengthscale_constraint.inverse_transform(value))
 
     def local_load_samples(self, samples_dict, memo, prefix):
         num_samples = next(iter(samples_dict.values())).size(0)
         self.batch_shape = torch.Size([num_samples]) + self.batch_shape
         super().local_load_samples(samples_dict, memo, prefix)
 
-    def covar_dist(self, x1, x2, diag=False, last_dim_is_batch=False,
-        square_dist=False, dist_postprocess_func=default_postprocess_script,
-        postprocess=True, **params):
+    def covar_dist(self, x1, x2, diag=False, last_dim_is_batch=False, square_dist=False, dist_postprocess_func=default_postprocess_script, postprocess=True, **params):
         """
         This is a helper method for computing the Euclidean distance between
         all pairs of points in x1 and x2.
@@ -4637,13 +4119,11 @@ class Kernel(Module):
         x1_eq_x2 = torch.equal(x1, x2)
         postprocess = torch.tensor(postprocess)
         res = None
-        if (not self.distance_module or self.distance_module._postprocess !=
-            dist_postprocess_func):
+        if not self.distance_module or self.distance_module._postprocess != dist_postprocess_func:
             self.distance_module = Distance(dist_postprocess_func)
         if diag:
             if x1_eq_x2:
-                res = torch.zeros(*x1.shape[:-2], x1.shape[-2], dtype=x1.
-                    dtype, device=x1.device)
+                res = torch.zeros(*x1.shape[:-2], x1.shape[-2], dtype=x1.dtype, device=x1.device)
                 if postprocess:
                     res = dist_postprocess_func(res)
                 return res
@@ -4674,17 +4154,14 @@ class Kernel(Module):
         """
         return 1
 
-    def prediction_strategy(self, train_inputs, train_prior_dist,
-        train_labels, likelihood):
-        return DefaultPredictionStrategy(train_inputs, train_prior_dist,
-            train_labels, likelihood)
+    def prediction_strategy(self, train_inputs, train_prior_dist, train_labels, likelihood):
+        return DefaultPredictionStrategy(train_inputs, train_prior_dist, train_labels, likelihood)
 
     def sub_kernels(self):
         for _, kernel in self.named_sub_kernels():
             yield kernel
 
-    def __call__(self, x1, x2=None, diag=False, last_dim_is_batch=False, **
-        params):
+    def __call__(self, x1, x2=None, diag=False, last_dim_is_batch=False, **params):
         x1_, x2_ = x1, x2
         if self.active_dims is not None:
             x1_ = x1_.index_select(-1, self.active_dims)
@@ -4696,31 +4173,23 @@ class Kernel(Module):
             if x2_.ndimension() == 1:
                 x2_ = x2_.unsqueeze(1)
             if not x1_.size(-1) == x2_.size(-1):
-                raise RuntimeError(
-                    'x1_ and x2_ must have the same number of dimensions!')
+                raise RuntimeError('x1_ and x2_ must have the same number of dimensions!')
         if x2_ is None:
             x2_ = x1_
         if settings.debug.on():
-            if self.ard_num_dims is not None and self.ard_num_dims != x1_.size(
-                -1):
-                raise RuntimeError(
-                    'Expected the input to have {} dimensionality (based on the ard_num_dims argument). Got {}.'
-                    .format(self.ard_num_dims, x1_.size(-1)))
+            if self.ard_num_dims is not None and self.ard_num_dims != x1_.size(-1):
+                raise RuntimeError('Expected the input to have {} dimensionality (based on the ard_num_dims argument). Got {}.'.format(self.ard_num_dims, x1_.size(-1)))
         if diag:
-            res = super(Kernel, self).__call__(x1_, x2_, diag=True,
-                last_dim_is_batch=last_dim_is_batch, **params)
+            res = super(Kernel, self).__call__(x1_, x2_, diag=True, last_dim_is_batch=last_dim_is_batch, **params)
             if not isinstance(res, LazyEvaluatedKernelTensor):
-                if res.dim() == x1_.dim() and res.shape[-2:] == torch.Size((
-                    x1_.size(-2), x2_.size(-2))):
+                if res.dim() == x1_.dim() and res.shape[-2:] == torch.Size((x1_.size(-2), x2_.size(-2))):
                     res = res.diag()
             return res
         else:
             if settings.lazily_evaluate_kernels.on():
-                res = LazyEvaluatedKernelTensor(x1_, x2_, kernel=self,
-                    last_dim_is_batch=last_dim_is_batch, **params)
+                res = LazyEvaluatedKernelTensor(x1_, x2_, kernel=self, last_dim_is_batch=last_dim_is_batch, **params)
             else:
-                res = lazify(super(Kernel, self).__call__(x1_, x2_,
-                    last_dim_is_batch=last_dim_is_batch, **params))
+                res = lazify(super(Kernel, self).__call__(x1_, x2_, last_dim_is_batch=last_dim_is_batch, **params))
             return res
 
     def __getstate__(self):
@@ -4743,11 +4212,9 @@ class Kernel(Module):
         index = index if isinstance(index, tuple) else (index,)
         for param_name, param in self._parameters.items():
             new_kernel._parameters[param_name].data = param.__getitem__(index)
-            ndim_removed = len(param.shape) - len(new_kernel._parameters[
-                param_name].shape)
+            ndim_removed = len(param.shape) - len(new_kernel._parameters[param_name].shape)
             new_batch_shape_len = len(self.batch_shape) - ndim_removed
-            new_kernel.batch_shape = new_kernel._parameters[param_name].shape[:
-                new_batch_shape_len]
+            new_kernel.batch_shape = new_kernel._parameters[param_name].shape[:new_batch_shape_len]
         for sub_module_name, sub_module in self.named_sub_kernels():
             self._modules[sub_module_name] = sub_module.__getitem__(index)
         return new_kernel
@@ -4774,24 +4241,19 @@ class CatLazyTensor(LazyTensor):
         if len(lazy_tensors) == 0:
             raise RuntimeError('List of LazyTensors must be non-empty')
         elif len(lazy_tensors) == 1:
-            raise RuntimeError(
-                'Why are we trying to concatenate a single LazyTensor?')
+            raise RuntimeError('Why are we trying to concatenate a single LazyTensor?')
         if not all([isinstance(t, LazyTensor) for t in lazy_tensors]):
-            raise RuntimeError(
-                'CatLazyTensor requires a list of all LazyTensors')
+            raise RuntimeError('CatLazyTensor requires a list of all LazyTensors')
         rep_tensor = lazy_tensors[0]
         rep_tensor_noncat_shape = list(rep_tensor.shape)
         del rep_tensor_noncat_shape[dim]
         for t in lazy_tensors:
             if t.dim() != rep_tensor.dim():
-                raise RuntimeError(
-                    'All tensors must have the same number of dimensions')
+                raise RuntimeError('All tensors must have the same number of dimensions')
             t_noncat_shape = list(t.shape)
             del t_noncat_shape[dim]
             if t_noncat_shape != rep_tensor_noncat_shape:
-                raise RuntimeError(
-                    'All LazyTensors must have the same size in the non-concatenation dimension'
-                    )
+                raise RuntimeError('All LazyTensors must have the same size in the non-concatenation dimension')
 
     def __init__(self, *lazy_tensors, dim=0, output_device=None):
         rep_tensor = lazy_tensors[0]
@@ -4805,22 +4267,16 @@ class CatLazyTensor(LazyTensor):
         self.lazy_tensors = lazy_tensors
         self.cat_dim = dim
         self.output_device = output_device
-        cat_dim_sizes = torch.tensor([t.size(dim) for t in lazy_tensors],
-            device=output_device)
-        cat_dim_cum_sizes = torch.zeros(len(lazy_tensors) + 1, dtype=torch.
-            long, device=output_device)
+        cat_dim_sizes = torch.tensor([t.size(dim) for t in lazy_tensors], device=output_device)
+        cat_dim_cum_sizes = torch.zeros(len(lazy_tensors) + 1, dtype=torch.long, device=output_device)
         torch.cumsum(cat_dim_sizes, dim=-1, out=cat_dim_cum_sizes[1:])
-        idx_to_tensor_idx = torch.empty(cat_dim_cum_sizes[-1].item(), dtype
-            =torch.long, device=output_device)
-        for tsr_idx, (start_idx, end_idx) in enumerate(zip(
-            cat_dim_cum_sizes[:-1], cat_dim_cum_sizes[1:])):
+        idx_to_tensor_idx = torch.empty(cat_dim_cum_sizes[-1].item(), dtype=torch.long, device=output_device)
+        for tsr_idx, (start_idx, end_idx) in enumerate(zip(cat_dim_cum_sizes[:-1], cat_dim_cum_sizes[1:])):
             idx_to_tensor_idx[start_idx.item():end_idx.item()].fill_(tsr_idx)
         self.cat_dim_sizes = cat_dim_sizes
         self.cat_dim_cum_sizes = cat_dim_cum_sizes
         self.idx_to_tensor_idx = idx_to_tensor_idx
-        self._shape = torch.Size((*rep_tensor.shape[:positive_dim],
-            cat_dim_cum_sizes[-1].item(), *rep_tensor.shape[positive_dim + 1:])
-            )
+        self._shape = torch.Size((*rep_tensor.shape[:positive_dim], cat_dim_cum_sizes[-1].item(), *rep_tensor.shape[positive_dim + 1:]))
 
     def _split_slice(self, slice_idx):
         """
@@ -4828,62 +4284,43 @@ class CatLazyTensor(LazyTensor):
         so that each slice in the list slices in to a single tensor that we have concatenated with this LazyTensor.
         """
         if slice_idx.step is not None:
-            raise RuntimeError(
-                'Slicing a CatLazyTensor with a step is not currently supported!'
-                )
+            raise RuntimeError('Slicing a CatLazyTensor with a step is not currently supported!')
         start_idx = slice_idx.start if slice_idx.start is not None else 0
-        stop_idx = slice_idx.stop if slice_idx.stop is not None else self.size(
-            self.cat_dim)
+        stop_idx = slice_idx.stop if slice_idx.stop is not None else self.size(self.cat_dim)
         first_tensor_idx = self.idx_to_tensor_idx[start_idx].item()
         last_tensor_idx = self.idx_to_tensor_idx[stop_idx - 1].item()
-        first_tensor_start_index = start_idx - self.cat_dim_cum_sizes[
-            first_tensor_idx].item()
-        last_tensor_stop_index = stop_idx - self.cat_dim_cum_sizes[
-            last_tensor_idx].item()
+        first_tensor_start_index = start_idx - self.cat_dim_cum_sizes[first_tensor_idx].item()
+        last_tensor_stop_index = stop_idx - self.cat_dim_cum_sizes[last_tensor_idx].item()
         if first_tensor_idx == last_tensor_idx:
-            return [first_tensor_idx], [slice(first_tensor_start_index,
-                last_tensor_stop_index, None)]
+            return [first_tensor_idx], [slice(first_tensor_start_index, last_tensor_stop_index, None)]
         else:
             num_middle_tensors = last_tensor_idx - first_tensor_idx - 1
             first_slice = slice(first_tensor_start_index, None, None)
             last_slice = slice(None, last_tensor_stop_index, None)
-            return list(range(first_tensor_idx, last_tensor_idx + 1)), [
-                first_slice] + [_noop_index] * num_middle_tensors + [last_slice
-                ]
+            return list(range(first_tensor_idx, last_tensor_idx + 1)), [first_slice] + [_noop_index] * num_middle_tensors + [last_slice]
 
     def _expand_batch(self, batch_shape):
-        lazy_tensors = [lazy_tensor._expand_batch(batch_shape) for
-            lazy_tensor in self.lazy_tensors]
-        res = self.__class__(*lazy_tensors, dim=self.cat_dim, output_device
-            =self.output_device)
+        lazy_tensors = [lazy_tensor._expand_batch(batch_shape) for lazy_tensor in self.lazy_tensors]
+        res = self.__class__(*lazy_tensors, dim=self.cat_dim, output_device=self.output_device)
         return res
 
     def _get_indices(self, row_index, col_index, *batch_indices):
         indices = [*batch_indices, row_index, col_index]
-        target_shape = _mul_broadcast_shape(*[index.shape for index in indices]
-            )
+        target_shape = _mul_broadcast_shape(*[index.shape for index in indices])
         indices = [index.expand(target_shape).reshape(-1) for index in indices]
         cat_dim_indices = indices[self.cat_dim]
         target_tensors = self.idx_to_tensor_idx[cat_dim_indices]
-        does_switch_tensor = torch.ones(target_tensors.numel() + 1, dtype=
-            bool_compat, device=self.device)
-        torch.ne(target_tensors[:-1], target_tensors[1:], out=
-            does_switch_tensor[1:-1])
+        does_switch_tensor = torch.ones(target_tensors.numel() + 1, dtype=bool_compat, device=self.device)
+        torch.ne(target_tensors[:-1], target_tensors[1:], out=does_switch_tensor[1:-1])
         lazy_tensor_indices = target_tensors[does_switch_tensor[:-1]].tolist()
         lazy_tensors = [self.lazy_tensors[idx] for idx in lazy_tensor_indices]
         switch_tensor = does_switch_tensor.nonzero().squeeze(-1)
         split_sizes = (switch_tensor[1:] - switch_tensor[:-1]).tolist()
-        sub_indices = zip(*[(list(index.split(split_sizes)) if torch.
-            is_tensor(index) else [index] * len(split_sizes)) for index in
-            indices])
+        sub_indices = zip(*[(list(index.split(split_sizes)) if torch.is_tensor(index) else [index] * len(split_sizes)) for index in indices])
         sub_indices = [list(sub_index) for sub_index in sub_indices]
-        for lazy_tensor_idx, sub_index in zip(lazy_tensor_indices, sub_indices
-            ):
-            sub_index[self.cat_dim] = sub_index[self.cat_dim
-                ] - self.cat_dim_cum_sizes[lazy_tensor_idx]
-        res_list = [lazy_tensor._get_indices(sub_index[-2], sub_index[-1],
-            *sub_index[:-2]) for lazy_tensor, sub_index in zip(lazy_tensors,
-            sub_indices)]
+        for lazy_tensor_idx, sub_index in zip(lazy_tensor_indices, sub_indices):
+            sub_index[self.cat_dim] = sub_index[self.cat_dim] - self.cat_dim_cum_sizes[lazy_tensor_idx]
+        res_list = [lazy_tensor._get_indices(sub_index[-2], sub_index[-1], *sub_index[:-2]) for lazy_tensor, sub_index in zip(lazy_tensors, sub_indices)]
         if len(res_list) == 1:
             return res_list[0].view(target_shape).to(self.device)
         else:
@@ -4894,52 +4331,36 @@ class CatLazyTensor(LazyTensor):
         cat_dim_indices = indices[self.cat_dim]
         if isinstance(cat_dim_indices, slice):
             if cat_dim_indices == _noop_index:
-                res_list = [lazy_tensor._getitem(row_index, col_index, *
-                    batch_indices) for lazy_tensor in self.lazy_tensors]
+                res_list = [lazy_tensor._getitem(row_index, col_index, *batch_indices) for lazy_tensor in self.lazy_tensors]
             else:
                 res_list = []
                 tensor_idxs, target_slices = self._split_slice(cat_dim_indices)
-                for tensor_idx, target_slice in zip(tensor_idxs, target_slices
-                    ):
+                for tensor_idx, target_slice in zip(tensor_idxs, target_slices):
                     indices[self.cat_dim] = target_slice
-                    res = self.lazy_tensors[tensor_idx]._getitem(indices[-2
-                        ], indices[-1], *indices[:-2])
+                    res = self.lazy_tensors[tensor_idx]._getitem(indices[-2], indices[-1], *indices[:-2])
                     res_list.append(res)
         elif torch.is_tensor(cat_dim_indices):
             target_tensors = self.idx_to_tensor_idx[cat_dim_indices]
-            does_switch_tensor = torch.ones(target_tensors.numel() + 1,
-                dtype=bool_compat, device=self.device)
-            torch.ne(target_tensors[:-1], target_tensors[1:], out=
-                does_switch_tensor[1:-1])
-            lazy_tensor_indices = target_tensors[does_switch_tensor[:-1]
-                ].tolist()
-            lazy_tensors = [self.lazy_tensors[idx] for idx in
-                lazy_tensor_indices]
+            does_switch_tensor = torch.ones(target_tensors.numel() + 1, dtype=bool_compat, device=self.device)
+            torch.ne(target_tensors[:-1], target_tensors[1:], out=does_switch_tensor[1:-1])
+            lazy_tensor_indices = target_tensors[does_switch_tensor[:-1]].tolist()
+            lazy_tensors = [self.lazy_tensors[idx] for idx in lazy_tensor_indices]
             switch_tensor = does_switch_tensor.nonzero().squeeze(-1)
             split_sizes = (switch_tensor[1:] - switch_tensor[:-1]).tolist()
-            sub_indices = zip(*[(list(index.split(split_sizes)) if torch.
-                is_tensor(index) else [index] * len(split_sizes)) for index in
-                indices])
+            sub_indices = zip(*[(list(index.split(split_sizes)) if torch.is_tensor(index) else [index] * len(split_sizes)) for index in indices])
             sub_indices = [list(sub_index) for sub_index in sub_indices]
-            for lazy_tensor_idx, sub_index in zip(lazy_tensor_indices,
-                sub_indices):
-                sub_index[self.cat_dim] = sub_index[self.cat_dim
-                    ] - self.cat_dim_cum_sizes[lazy_tensor_idx]
-            res_list = [lazy_tensor._getitem(sub_index[-2], sub_index[-1],
-                *sub_index[:-2]) for lazy_tensor, sub_index in zip(
-                lazy_tensors, sub_indices)]
+            for lazy_tensor_idx, sub_index in zip(lazy_tensor_indices, sub_indices):
+                sub_index[self.cat_dim] = sub_index[self.cat_dim] - self.cat_dim_cum_sizes[lazy_tensor_idx]
+            res_list = [lazy_tensor._getitem(sub_index[-2], sub_index[-1], *sub_index[:-2]) for lazy_tensor, sub_index in zip(lazy_tensors, sub_indices)]
         elif isinstance(cat_dim_indices, int):
             target_tensor = self.idx_to_tensor_idx[cat_dim_indices].item()
-            cat_dim_indices = cat_dim_indices - self.cat_dim_cum_sizes[
-                target_tensor]
+            cat_dim_indices = cat_dim_indices - self.cat_dim_cum_sizes[target_tensor]
             indices[self.cat_dim] = cat_dim_indices
-            res_list = [self.lazy_tensors[target_tensor]._getitem(indices[-
-                2], indices[-1], *indices[:-2])]
+            res_list = [self.lazy_tensors[target_tensor]._getitem(indices[-2], indices[-1], *indices[:-2])]
         if len(res_list) == 1:
             return res_list[0].to(self.output_device)
         else:
-            res = self.__class__(*res_list, dim=self.cat_dim, output_device
-                =self.output_device)
+            res = self.__class__(*res_list, dim=self.cat_dim, output_device=self.output_device)
             return res
 
     def _matmul(self, rhs):
@@ -4951,16 +4372,14 @@ class CatLazyTensor(LazyTensor):
             else:
                 rhs_.append(rhs)
         if self.cat_dim == -2:
-            res_list = [t._matmul(rhs) for t, rhs in zip(self.lazy_tensors,
-                rhs_)]
+            res_list = [t._matmul(rhs) for t, rhs in zip(self.lazy_tensors, rhs_)]
             res_list = [x.to(output_device) for x in res_list]
             res = torch.cat(res_list, dim=-2)
         elif self.cat_dim == -1:
             curr_idx = 0
             res_list = []
             index = [slice(None, None, None) for _ in range(rhs.ndimension())]
-            for t, size, rhs in zip(self.lazy_tensors, self.cat_dim_sizes, rhs_
-                ):
+            for t, size, rhs in zip(self.lazy_tensors, self.cat_dim_sizes, rhs_):
                 index[-2] = slice(curr_idx, curr_idx + size, None)
                 res_list.append(t._matmul(rhs[index]))
                 curr_idx += size
@@ -4982,15 +4401,13 @@ class CatLazyTensor(LazyTensor):
         return res
 
     def _permute_batch(self, *dims):
-        lazy_tensors = [lazy_tensor._permute_batch(*dims) for lazy_tensor in
-            self.lazy_tensors]
+        lazy_tensors = [lazy_tensor._permute_batch(*dims) for lazy_tensor in self.lazy_tensors]
         if self.cat_dim < -2:
             positive_cat_dim = self.dim() + self.cat_dim
             new_cat_dim = dims.index(positive_cat_dim)
         else:
             new_cat_dim = self.cat_dim
-        return self.__class__(*lazy_tensors, dim=new_cat_dim, output_device
-            =self.output_device)
+        return self.__class__(*lazy_tensors, dim=new_cat_dim, output_device=self.output_device)
 
     def _size(self):
         return self._shape
@@ -5002,31 +4419,25 @@ class CatLazyTensor(LazyTensor):
             new_dim = -2
         else:
             new_dim = self.cat_dim
-        return self.__class__(*[t._transpose_nonbatch() for t in self.
-            lazy_tensors], dim=new_dim, output_device=self.output_device)
+        return self.__class__(*[t._transpose_nonbatch() for t in self.lazy_tensors], dim=new_dim, output_device=self.output_device)
 
     def _unsqueeze_batch(self, dim):
         cat_dim = self.dim() + self.cat_dim
-        lazy_tensors = [lazy_tensor._unsqueeze_batch(dim) for lazy_tensor in
-            self.lazy_tensors]
-        res = self.__class__(*lazy_tensors, dim=cat_dim + 1 if dim <=
-            cat_dim else cat_dim, output_device=self.output_device)
+        lazy_tensors = [lazy_tensor._unsqueeze_batch(dim) for lazy_tensor in self.lazy_tensors]
+        res = self.__class__(*lazy_tensors, dim=cat_dim + 1 if dim <= cat_dim else cat_dim, output_device=self.output_device)
         return res
 
     def diag(self):
         if settings.debug.on():
             if not self.is_square:
-                raise RuntimeError('Diag works on square matrices (or batches)'
-                    )
+                raise RuntimeError('Diag works on square matrices (or batches)')
         if self.cat_dim == -2:
             res = []
             curr_col = 0
             for t in self.lazy_tensors:
                 n_rows, n_cols = t.shape[-2:]
-                rows = torch.arange(0, n_rows, dtype=torch.long, device=t.
-                    device)
-                cols = torch.arange(curr_col, curr_col + n_rows, dtype=
-                    torch.long, device=t.device)
+                rows = torch.arange(0, n_rows, dtype=torch.long, device=t.device)
+                cols = torch.arange(curr_col, curr_col + n_rows, dtype=torch.long, device=t.device)
                 res.append(t[..., rows, cols].to(self.device))
                 curr_col += n_rows
             res = torch.cat(res, dim=-1)
@@ -5035,20 +4446,16 @@ class CatLazyTensor(LazyTensor):
             curr_row = 0
             for t in self.lazy_tensors:
                 n_rows, n_cols = t.shape[-2:]
-                rows = torch.arange(curr_row, curr_row + n_cols, dtype=
-                    torch.long, device=t.device)
-                cols = torch.arange(0, n_cols, dtype=torch.long, device=t.
-                    device)
+                rows = torch.arange(curr_row, curr_row + n_cols, dtype=torch.long, device=t.device)
+                cols = torch.arange(0, n_cols, dtype=torch.long, device=t.device)
                 curr_row += n_cols
                 res.append(t[..., rows, cols].to(self.device))
             res = torch.cat(res, dim=-1)
         else:
-            res = torch.cat([t.diag().to(self.device) for t in self.
-                lazy_tensors], dim=self.cat_dim + 1)
+            res = torch.cat([t.diag().to(self.device) for t in self.lazy_tensors], dim=self.cat_dim + 1)
         return res
 
-    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False,
-        reduce_inv_quad=True):
+    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
         res = super().inv_quad_logdet(inv_quad_rhs, logdet, reduce_inv_quad)
         return tuple(r.to(self.device) for r in res)
 
@@ -5106,13 +4513,11 @@ class MultiDeviceKernel(DataParallel, Kernel):
         - :attr:`output_device`: Device where outputs will be placed
     """
 
-    def __init__(self, base_kernel, device_ids, output_device=None,
-        create_cuda_context=True, **kwargs):
+    def __init__(self, base_kernel, device_ids, output_device=None, create_cuda_context=True, **kwargs):
         if create_cuda_context:
             for d in device_ids:
                 _ = torch.tensor([], device=d)
-        DataParallel.__init__(self, module=base_kernel, device_ids=
-            device_ids, output_device=output_device, dim=-2)
+        DataParallel.__init__(self, module=base_kernel, device_ids=device_ids, output_device=output_device, dim=-2)
         self.output_device = output_device if output_device else device_ids[0]
         self.__cached_x1 = torch.empty(1)
         self.__cached_x2 = torch.empty(1)
@@ -5126,17 +4531,13 @@ class MultiDeviceKernel(DataParallel, Kernel):
             return self.module.forward(x1, x2, diag=True, **kwargs)
         if x1.size(-2) < len(self.device_ids) + 1:
             return self.module.forward(x1, x2, diag=diag, **kwargs)
-        if not x1.device == self.__cached_x1.device or not torch.equal(x1,
-            self.__cached_x1):
-            self._x1_scattered, self._kwargs = self.scatter((x1,), kwargs,
-                self.device_ids)
+        if not x1.device == self.__cached_x1.device or not torch.equal(x1, self.__cached_x1):
+            self._x1_scattered, self._kwargs = self.scatter((x1,), kwargs, self.device_ids)
             self.__cached_x1 = x1
-        if not x2.device == self.__cached_x2.device or not torch.equal(x2,
-            self.__cached_x2):
+        if not x2.device == self.__cached_x2.device or not torch.equal(x2, self.__cached_x2):
             self._x2_subs = [x2 for x1_ in self._x1_scattered]
             self.__cached_x2 = x2
-        inputs = tuple((x1_[0], x2_) for x1_, x2_ in zip(self._x1_scattered,
-            self._x2_subs))
+        inputs = tuple((x1_[0], x2_) for x1_, x2_ in zip(self._x1_scattered, self._x2_subs))
         if not self.device_ids:
             return self.module.forward(*inputs, **self._kwargs)
         if len(self.device_ids) == 1:
@@ -5152,8 +4553,7 @@ class MultiDeviceKernel(DataParallel, Kernel):
         return self.gather(outputs, self.output_device)
 
     def gather(self, outputs, output_device):
-        return CatLazyTensor(*[lazify(o) for o in outputs], dim=self.dim,
-            output_device=self.output_device)
+        return CatLazyTensor(*[lazify(o) for o in outputs], dim=self.dim, output_device=self.output_device)
 
     def num_outputs_per_input(self, x1, x2):
         return self.base_kernel.num_outputs_per_input(x1, x2)
@@ -5177,8 +4577,7 @@ def _extract_named_added_loss_terms(module, memo=None, prefix=''):
                 yield prefix + ('.' if prefix else '') + name, strategy
     for mname, module_ in module.named_children():
         submodule_prefix = prefix + ('.' if prefix else '') + mname
-        for name, strategy in _extract_named_added_loss_terms(module=
-            module_, memo=memo, prefix=submodule_prefix):
+        for name, strategy in _extract_named_added_loss_terms(module=module_, memo=memo, prefix=submodule_prefix):
             yield name, strategy
 
 
@@ -5193,8 +4592,7 @@ def _extract_named_constraints(module, memo=None, prefix=''):
                 yield full_name, constraint
     for mname, module_ in module.named_children():
         submodule_prefix = prefix + ('.' if prefix else '') + mname
-        for name, constraint in _extract_named_constraints(module_, memo=
-            memo, prefix=submodule_prefix):
+        for name, constraint in _extract_named_constraints(module_, memo=memo, prefix=submodule_prefix):
             yield name, constraint
 
 
@@ -5209,8 +4607,7 @@ def _extract_named_priors(module, memo=None, prefix=''):
                 yield full_name, prior, closure, inv_closure
     for mname, module_ in module.named_children():
         submodule_prefix = prefix + ('.' if prefix else '') + mname
-        for name, prior, closure, inv_closure in _extract_named_priors(module_,
-            memo=memo, prefix=submodule_prefix):
+        for name, prior, closure, inv_closure in _extract_named_priors(module_, memo=memo, prefix=submodule_prefix):
             yield name, prior, closure, inv_closure
 
 
@@ -5221,35 +4618,28 @@ def _pyro_load_from_samples(module, samples_dict, memo=None, prefix=''):
         module.local_load_samples(samples_dict, memo, prefix)
     for mname, module_ in module.named_children():
         submodule_prefix = prefix + ('.' if prefix else '') + mname
-        _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=
-            submodule_prefix)
+        _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=submodule_prefix)
 
 
 def _pyro_sample_from_prior(module, memo=None, prefix=''):
     try:
         import pyro
     except ImportError:
-        raise RuntimeError(
-            'Cannot call pyro_sample_from_prior without pyro installed!')
+        raise RuntimeError('Cannot call pyro_sample_from_prior without pyro installed!')
     if memo is None:
         memo = set()
     if hasattr(module, '_priors'):
-        for prior_name, (prior, closure, setting_closure
-            ) in module._priors.items():
+        for prior_name, (prior, closure, setting_closure) in module._priors.items():
             if prior is not None and prior not in memo:
                 if setting_closure is None:
-                    raise RuntimeError(
-                        f'Cannot use Pyro for sampling without a setting_closure for each prior, but the following prior had none: {prior_name}, {prior}.'
-                        )
+                    raise RuntimeError(f'Cannot use Pyro for sampling without a setting_closure for each prior, but the following prior had none: {prior_name}, {prior}.')
                 memo.add(prior)
                 prior = prior.expand(closure().shape)
-                value = pyro.sample(prefix + ('.' if prefix else '') +
-                    prior_name, prior)
+                value = pyro.sample(prefix + ('.' if prefix else '') + prior_name, prior)
                 setting_closure(value)
     for mname, module_ in module.named_children():
         submodule_prefix = prefix + ('.' if prefix else '') + mname
-        _pyro_sample_from_prior(module=module_, memo=memo, prefix=
-            submodule_prefix)
+        _pyro_sample_from_prior(module=module_, memo=memo, prefix=submodule_prefix)
 
 
 def _set_strict(module, value, memo=None):
@@ -5263,22 +4653,15 @@ def _set_strict(module, value, memo=None):
 
 def _validate_module_outputs(outputs):
     if isinstance(outputs, tuple):
-        if not all(torch.is_tensor(output) or isinstance(output,
-            Distribution) or isinstance(output, LazyTensor) for output in
-            outputs):
-            raise RuntimeError(
-                'All outputs must be a Distribution, torch.Tensor, or LazyTensor. Got {}'
-                .format([output.__class__.__name__ for output in outputs]))
+        if not all(torch.is_tensor(output) or isinstance(output, Distribution) or isinstance(output, LazyTensor) for output in outputs):
+            raise RuntimeError('All outputs must be a Distribution, torch.Tensor, or LazyTensor. Got {}'.format([output.__class__.__name__ for output in outputs]))
         if len(outputs) == 1:
             outputs = outputs[0]
         return outputs
-    elif torch.is_tensor(outputs) or isinstance(outputs, Distribution
-        ) or isinstance(outputs, LazyTensor):
+    elif torch.is_tensor(outputs) or isinstance(outputs, Distribution) or isinstance(outputs, LazyTensor):
         return outputs
     else:
-        raise RuntimeError(
-            'Output must be a Distribution, torch.Tensor, or LazyTensor. Got {}'
-            .format(outputs.__class__.__name__))
+        raise RuntimeError('Output must be a Distribution, torch.Tensor, or LazyTensor. Got {}'.format(outputs.__class__.__name__))
 
 
 class Module(nn.Module):
@@ -5290,8 +4673,7 @@ class Module(nn.Module):
         self._constraints = OrderedDict()
         self._strict_init = True
         self._load_strict_shapes = True
-        self._register_load_state_dict_pre_hook(self.
-            _load_state_hook_ignore_shapes)
+        self._register_load_state_dict_pre_hook(self._load_state_hook_ignore_shapes)
 
     def __call__(self, *inputs, **kwargs):
         outputs = self.forward(*inputs, **kwargs)
@@ -5305,9 +4687,7 @@ class Module(nn.Module):
         if module in self._modules:
             return self.__getattr__(module), name
         else:
-            raise AttributeError(
-                'Invalid parameter name {}. {} has no module {}'.format(
-                parameter_name, type(self).__name__, module))
+            raise AttributeError('Invalid parameter name {}. {} has no module {}'.format(parameter_name, type(self).__name__, module))
 
     def _strict(self, value):
         _set_strict(self, value)
@@ -5350,48 +4730,34 @@ class Module(nn.Module):
                 module, name = self._get_module_and_name(name)
                 module.initialize(**{name: val})
             elif not hasattr(self, name):
-                raise AttributeError('Unknown parameter {p} for {c}'.format
-                    (p=name, c=self.__class__.__name__))
+                raise AttributeError('Unknown parameter {p} for {c}'.format(p=name, c=self.__class__.__name__))
             elif name not in self._parameters and name not in self._buffers:
                 setattr(self, name, val)
             elif torch.is_tensor(val):
                 constraint = self.constraint_for_parameter_name(name)
-                if (constraint is not None and constraint.enforced and not
-                    constraint.check_raw(val)):
-                    raise RuntimeError(
-                        f"""Attempting to manually set a parameter value that is out of bounds of its current constraints, {constraint}. Most likely, you want to do the following:
- likelihood = GaussianLikelihood(noise_constraint=gpytorch.constraints.GreaterThan(better_lower_bound))"""
-                        )
+                if constraint is not None and constraint.enforced and not constraint.check_raw(val):
+                    raise RuntimeError(f'Attempting to manually set a parameter value that is out of bounds of its current constraints, {constraint}. Most likely, you want to do the following:\n likelihood = GaussianLikelihood(noise_constraint=gpytorch.constraints.GreaterThan(better_lower_bound))')
                 try:
-                    self.__getattr__(name).data.copy_(val.expand_as(self.
-                        __getattr__(name)))
+                    self.__getattr__(name).data.copy_(val.expand_as(self.__getattr__(name)))
                 except RuntimeError:
                     if not self._strict_init:
                         self.__getattr__(name).data = val
                     else:
-                        self.__getattr__(name).data.copy_(val.view_as(self.
-                            __getattr__(name)))
+                        self.__getattr__(name).data.copy_(val.view_as(self.__getattr__(name)))
             elif isinstance(val, float):
                 constraint = self.constraint_for_parameter_name(name)
                 if constraint is not None and not constraint.check_raw(val):
-                    raise RuntimeError(
-                        f"""Attempting to manually set a parameter value that is out of bounds of its current constraints, {constraint}. Most likely, you want to do the following:
- likelihood = GaussianLikelihood(noise_constraint=gpytorch.constraints.GreaterThan(better_lower_bound))"""
-                        )
+                    raise RuntimeError(f'Attempting to manually set a parameter value that is out of bounds of its current constraints, {constraint}. Most likely, you want to do the following:\n likelihood = GaussianLikelihood(noise_constraint=gpytorch.constraints.GreaterThan(better_lower_bound))')
                 self.__getattr__(name).data.fill_(val)
             else:
-                raise AttributeError(
-                    'Type {t} not valid for initializing parameter {p}'.
-                    format(t=type(val), p=name))
+                raise AttributeError('Type {t} not valid for initializing parameter {p}'.format(t=type(val), p=name))
             prior_name = '_'.join([name, 'prior'])
             if prior_name in self._priors:
                 prior, closure, _ = self._priors[prior_name]
                 try:
                     prior._validate_sample(closure())
                 except ValueError as e:
-                    raise ValueError(
-                        'Invalid input value for prior {}. Error:\n{}'.
-                        format(prior_name, e))
+                    raise ValueError('Invalid input value for prior {}. Error:\n{}'.format(prior_name, e))
         return self
 
     def named_added_loss_terms(self):
@@ -5403,8 +4769,7 @@ class Module(nn.Module):
                 strategy and the strategy
 
         """
-        return _extract_named_added_loss_terms(module=self, memo=None,
-            prefix='')
+        return _extract_named_added_loss_terms(module=self, memo=None, prefix='')
 
     def named_hyperparameters(self):
         for name, param in self.named_parameters():
@@ -5446,16 +4811,12 @@ class Module(nn.Module):
                 The parameter
         """
         if prior is not None:
-            raise DeprecationError(
-                "Setting a prior upon registering a parameter is deprecated. Please use .register_prior('{name}_prior', prior, '{name}') instead."
-                .format(name=name))
+            raise DeprecationError("Setting a prior upon registering a parameter is deprecated. Please use .register_prior('{name}_prior', prior, '{name}') instead.".format(name=name))
         if '_parameters' not in self.__dict__:
-            raise AttributeError(
-                'Cannot assign parameter before Module.__init__() call')
+            raise AttributeError('Cannot assign parameter before Module.__init__() call')
         super().register_parameter(name, parameter)
 
-    def register_prior(self, name, prior, param_or_closure, setting_closure
-        =None):
+    def register_prior(self, name, prior, param_or_closure, setting_closure=None):
         """
         Adds a prior to the module. The prior can be accessed as an attribute using the given name.
 
@@ -5480,20 +4841,13 @@ class Module(nn.Module):
 
         """
         if isinstance(param_or_closure, str):
-            if param_or_closure not in self._parameters and not hasattr(self,
-                param_or_closure):
-                raise AttributeError(
-                    'Unknown parameter {name} for {module}'.format(name=
-                    param_or_closure, module=self.__class__.__name__) +
-                    ' Make sure the parameter is registered before registering a prior.'
-                    )
+            if param_or_closure not in self._parameters and not hasattr(self, param_or_closure):
+                raise AttributeError('Unknown parameter {name} for {module}'.format(name=param_or_closure, module=self.__class__.__name__) + ' Make sure the parameter is registered before registering a prior.')
 
             def closure():
                 return getattr(self, param_or_closure)
             if setting_closure is not None:
-                raise RuntimeError(
-                    'Must specify a closure instead of a parameter name when providing setting_closure'
-                    )
+                raise RuntimeError('Must specify a closure instead of a parameter name when providing setting_closure')
 
             def setting_closure(val):
                 return self.initialize(**{param_or_closure: val})
@@ -5504,8 +4858,7 @@ class Module(nn.Module):
 
     def register_constraint(self, param_name, constraint, replace=True):
         if param_name not in self._parameters:
-            raise RuntimeError(
-                'Attempting to register constraint for nonexistent parameter.')
+            raise RuntimeError('Attempting to register constraint for nonexistent parameter.')
         constraint_name = param_name + '_constraint'
         if constraint_name in self._constraints:
             current_constraint = self._constraints[constraint_name]
@@ -5535,11 +4888,9 @@ class Module(nn.Module):
         except AttributeError:
             return None
 
-    def _load_state_hook_ignore_shapes(self, state_dict, prefix,
-        local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+    def _load_state_hook_ignore_shapes(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         if not self._load_strict_shapes:
-            local_name_params = itertools.chain(self._parameters.items(),
-                self._buffers.items())
+            local_name_params = itertools.chain(self._parameters.items(), self._buffers.items())
             local_state = {k: v for k, v in local_name_params if v is not None}
             for name, param in local_state.items():
                 key = prefix + name
@@ -5562,9 +4913,7 @@ class Module(nn.Module):
             raise RuntimeError("Unknown prior name '{}'".format(prior_name))
         prior, _, setting_closure = self._priors[prior_name]
         if setting_closure is None:
-            raise RuntimeError(
-                'Must provide inverse transform to be able to sample from prior.'
-                )
+            raise RuntimeError('Must provide inverse transform to be able to sample from prior.')
         setting_closure(prior.sample())
 
     def pyro_sample_from_prior(self):
@@ -5590,8 +4939,7 @@ class Module(nn.Module):
         for name, (prior, closure, setting_closure) in self._priors.items():
             if prior is not None and prior not in memo:
                 memo.add(prior)
-                setting_closure(samples_dict[prefix + ('.' if prefix else
-                    '') + name])
+                setting_closure(samples_dict[prefix + ('.' if prefix else '') + name])
         self._strict(True)
 
     def pyro_load_from_samples(self, samples_dict):
@@ -5606,15 +4954,13 @@ class Module(nn.Module):
         Args:
             :attr:`samples_dict` (dict): Dictionary mapping *prior names* to sample values.
         """
-        return _pyro_load_from_samples(module=self, samples_dict=
-            samples_dict, memo=None, prefix='')
+        return _pyro_load_from_samples(module=self, samples_dict=samples_dict, memo=None, prefix='')
 
     def update_added_loss_term(self, name, added_loss_term):
         if not isinstance(added_loss_term, AddedLossTerm):
             raise RuntimeError('added_loss_term must be a AddedLossTerm')
         if name not in self._added_loss_terms.keys():
-            raise RuntimeError('added_loss_term {} not registered'.format(name)
-                )
+            raise RuntimeError('added_loss_term {} not registered'.format(name))
         self._added_loss_terms[name] = added_loss_term
 
     def variational_parameters(self):
@@ -5653,16 +4999,14 @@ class _VariationalStrategy(Module, ABC):
     Abstract base class for all Variational Strategies.
     """
 
-    def __init__(self, model, inducing_points, variational_distribution,
-        learn_inducing_locations=True):
+    def __init__(self, model, inducing_points, variational_distribution, learn_inducing_locations=True):
         super().__init__()
         object.__setattr__(self, 'model', model)
         inducing_points = inducing_points.clone()
         if inducing_points.dim() == 1:
             inducing_points = inducing_points.unsqueeze(-1)
         if learn_inducing_locations:
-            self.register_parameter(name='inducing_points', parameter=torch
-                .nn.Parameter(inducing_points))
+            self.register_parameter(name='inducing_points', parameter=torch.nn.Parameter(inducing_points))
         else:
             self.register_buffer('inducing_points', inducing_points)
         self._variational_distribution = variational_distribution
@@ -5686,8 +5030,7 @@ class _VariationalStrategy(Module, ABC):
     def variational_distribution(self):
         return self._variational_distribution()
 
-    def forward(self, x, inducing_points, inducing_values,
-        variational_inducing_covar=None):
+    def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None):
         """
         The :func:`~gpytorch.variational.VariationalStrategy.forward` method determines how to marginalize out the
         inducing point function values. Specifically, forward defines how to transform a variational distribution
@@ -5716,8 +5059,7 @@ class _VariationalStrategy(Module, ABC):
         :rtype: torch.Tensor
         """
         with settings.max_preconditioner_size(0):
-            kl_divergence = torch.distributions.kl.kl_divergence(self.
-                variational_distribution, self.prior_distribution)
+            kl_divergence = torch.distributions.kl.kl_divergence(self.variational_distribution, self.prior_distribution)
         return kl_divergence
 
     def train(self, mode=True):
@@ -5735,44 +5077,57 @@ class _VariationalStrategy(Module, ABC):
                 self._memoize_cache = dict()
         if not self.variational_params_initialized.item():
             prior_dist = self.prior_distribution
-            self._variational_distribution.initialize_variational_distribution(
-                prior_dist)
+            self._variational_distribution.initialize_variational_distribution(prior_dist)
             self.variational_params_initialized.fill_(1)
         inducing_points = self.inducing_points
         if inducing_points.shape[:-2] != x.shape[:-2]:
-            batch_shape = _mul_broadcast_shape(inducing_points.shape[:-2],
-                x.shape[:-2])
-            inducing_points = inducing_points.expand(*batch_shape, *
-                inducing_points.shape[-2:])
+            batch_shape = _mul_broadcast_shape(inducing_points.shape[:-2], x.shape[:-2])
+            inducing_points = inducing_points.expand(*batch_shape, *inducing_points.shape[-2:])
             x = x.expand(*batch_shape, *x.shape[-2:])
         variational_dist_u = self.variational_distribution
         if isinstance(variational_dist_u, MultivariateNormal):
-            return super().__call__(x, inducing_points, inducing_values=
-                variational_dist_u.mean, variational_inducing_covar=
-                variational_dist_u.lazy_covariance_matrix)
+            return super().__call__(x, inducing_points, inducing_values=variational_dist_u.mean, variational_inducing_covar=variational_dist_u.lazy_covariance_matrix)
         elif isinstance(variational_dist_u, Delta):
-            return super().__call__(x, inducing_points, inducing_values=
-                variational_dist_u.mean, variational_inducing_covar=None)
+            return super().__call__(x, inducing_points, inducing_values=variational_dist_u.mean, variational_inducing_covar=None)
         else:
-            raise RuntimeError(
-                f'Invalid variational distribuition ({type(variational_dist_u)}). Expected a multivariate normal or a delta distribution.'
-                )
+            raise RuntimeError(f'Invalid variational distribuition ({type(variational_dist_u)}). Expected a multivariate normal or a delta distribution.')
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_cornellius_gp_gpytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DenseNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_cornellius_gp_gpytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

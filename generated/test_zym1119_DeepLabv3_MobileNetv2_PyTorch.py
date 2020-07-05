@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,17 +72,14 @@ class InvertedResidual(nn.Module):
         block.append(nn.Conv2d(self.in_, self.in_ * self.t, 1, bias=False))
         block.append(nn.BatchNorm2d(self.in_ * self.t))
         block.append(nn.ReLU6())
-        block.append(nn.Conv2d(self.in_ * self.t, self.in_ * self.t, 3,
-            stride=self.s, padding=self.dilation, groups=self.in_ * self.t,
-            dilation=self.dilation, bias=False))
+        block.append(nn.Conv2d(self.in_ * self.t, self.in_ * self.t, 3, stride=self.s, padding=self.dilation, groups=self.in_ * self.t, dilation=self.dilation, bias=False))
         block.append(nn.BatchNorm2d(self.in_ * self.t))
         block.append(nn.ReLU6())
         block.append(nn.Conv2d(self.in_ * self.t, self.out_, 1, bias=False))
         block.append(nn.BatchNorm2d(self.out_))
         self.block = nn.Sequential(*block)
         if self.in_ != self.out_ and self.s != 2:
-            self.res_conv = nn.Sequential(nn.Conv2d(self.in_, self.out_, 1,
-                bias=False), nn.BatchNorm2d(self.out_))
+            self.res_conv = nn.Sequential(nn.Conv2d(self.in_, self.out_, 1, bias=False), nn.BatchNorm2d(self.out_))
         else:
             self.res_conv = None
 
@@ -100,19 +98,11 @@ class ASPP_plus(nn.Module):
 
     def __init__(self, params):
         super(ASPP_plus, self).__init__()
-        self.conv11 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 1, bias=
-            False), nn.BatchNorm2d(256))
-        self.conv33_1 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 3,
-            padding=params.aspp[0], dilation=params.aspp[0], bias=False),
-            nn.BatchNorm2d(256))
-        self.conv33_2 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 3,
-            padding=params.aspp[1], dilation=params.aspp[1], bias=False),
-            nn.BatchNorm2d(256))
-        self.conv33_3 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 3,
-            padding=params.aspp[2], dilation=params.aspp[2], bias=False),
-            nn.BatchNorm2d(256))
-        self.concate_conv = nn.Sequential(nn.Conv2d(256 * 5, 256, 1, bias=
-            False), nn.BatchNorm2d(256))
+        self.conv11 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 1, bias=False), nn.BatchNorm2d(256))
+        self.conv33_1 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 3, padding=params.aspp[0], dilation=params.aspp[0], bias=False), nn.BatchNorm2d(256))
+        self.conv33_2 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 3, padding=params.aspp[1], dilation=params.aspp[1], bias=False), nn.BatchNorm2d(256))
+        self.conv33_3 = nn.Sequential(nn.Conv2d(params.c[-1], 256, 3, padding=params.aspp[2], dilation=params.aspp[2], bias=False), nn.BatchNorm2d(256))
+        self.concate_conv = nn.Sequential(nn.Conv2d(256 * 5, 256, 1, bias=False), nn.BatchNorm2d(256))
 
     def forward(self, x):
         conv11 = self.conv11(x)
@@ -122,11 +112,9 @@ class ASPP_plus(nn.Module):
         image_pool = nn.AvgPool2d(kernel_size=x.size()[2:])
         image_pool = image_pool(x)
         image_pool = self.conv11(image_pool)
-        upsample = nn.Upsample(size=x.size()[2:], mode='bilinear',
-            align_corners=True)
+        upsample = nn.Upsample(size=x.size()[2:], mode='bilinear', align_corners=True)
         upsample = upsample(image_pool)
-        concate = torch.cat([conv11, conv33_1, conv33_2, conv33_3, upsample
-            ], dim=1)
+        concate = torch.cat([conv11, conv33_1, conv33_2, conv33_3, upsample], dim=1)
         return self.concate_conv(concate)
 
 
@@ -156,9 +144,7 @@ class bar(object):
             self.time = time.time() - self.start_time
             self.iter_per_sec = 1 / self.time
             perc = current_idx * total_length // max_idx
-            print('\r|' + '=' * perc + '>' + ' ' * (total_length - 1 - perc
-                ) + '| %d/%d (%.2f iter/s)' % (current_idx + 1, max_idx,
-                self.iter_per_sec), end='')
+            print('\r|' + '=' * perc + '>' + ' ' * (total_length - 1 - perc) + '| %d/%d (%.2f iter/s)' % (current_idx + 1, max_idx, self.iter_per_sec), end='')
             self.start_time = time.time()
 
     def close(self):
@@ -171,52 +157,17 @@ def logits2trainId(logits):
     Transform output of network into trainId map
     :param logits: output tensor of network, before softmax, should be in shape (#classes, h, w)
     """
-    upsample = torch.nn.Upsample(size=(1024, 2048), mode='bilinear',
-        align_corners=False)
+    upsample = torch.nn.Upsample(size=(1024, 2048), mode='bilinear', align_corners=False)
     logits = upsample(logits.unsqueeze_(0))
     logits.squeeze_(0)
     logits = torch.argmax(logits, dim=0)
     return logits
 
 
-Label = namedtuple('Label', ['name', 'id', 'trainId', 'category',
-    'categoryId', 'hasInstances', 'ignoreInEval', 'color'])
+Label = namedtuple('Label', ['name', 'id', 'trainId', 'category', 'categoryId', 'hasInstances', 'ignoreInEval', 'color'])
 
 
-labels = [Label('unlabeled', 0, 255, 'void', 0, False, True, (0, 0, 0)),
-    Label('ego vehicle', 1, 255, 'void', 0, False, True, (0, 0, 0)), Label(
-    'rectification border', 2, 255, 'void', 0, False, True, (0, 0, 0)),
-    Label('out of roi', 3, 255, 'void', 0, False, True, (0, 0, 0)), Label(
-    'static', 4, 255, 'void', 0, False, True, (0, 0, 0)), Label('dynamic', 
-    5, 255, 'void', 0, False, True, (111, 74, 0)), Label('ground', 6, 255,
-    'void', 0, False, True, (81, 0, 81)), Label('road', 7, 0, 'flat', 1, 
-    False, False, (128, 64, 128)), Label('sidewalk', 8, 1, 'flat', 1, False,
-    False, (244, 35, 232)), Label('parking', 9, 255, 'flat', 1, False, True,
-    (250, 170, 160)), Label('rail track', 10, 255, 'flat', 1, False, True,
-    (230, 150, 140)), Label('building', 11, 2, 'construction', 2, False, 
-    False, (70, 70, 70)), Label('wall', 12, 3, 'construction', 2, False, 
-    False, (102, 102, 156)), Label('fence', 13, 4, 'construction', 2, False,
-    False, (190, 153, 153)), Label('guard rail', 14, 255, 'construction', 2,
-    False, True, (180, 165, 180)), Label('bridge', 15, 255, 'construction',
-    2, False, True, (150, 100, 100)), Label('tunnel', 16, 255,
-    'construction', 2, False, True, (150, 120, 90)), Label('pole', 17, 5,
-    'object', 3, False, False, (153, 153, 153)), Label('polegroup', 18, 255,
-    'object', 3, False, True, (153, 153, 153)), Label('traffic light', 19, 
-    6, 'object', 3, False, False, (250, 170, 30)), Label('traffic sign', 20,
-    7, 'object', 3, False, False, (220, 220, 0)), Label('vegetation', 21, 8,
-    'nature', 4, False, False, (107, 142, 35)), Label('terrain', 22, 9,
-    'nature', 4, False, False, (152, 251, 152)), Label('sky', 23, 10, 'sky',
-    5, False, False, (70, 130, 180)), Label('person', 24, 11, 'human', 6, 
-    True, False, (220, 20, 60)), Label('rider', 25, 12, 'human', 6, True, 
-    False, (255, 0, 0)), Label('car', 26, 13, 'vehicle', 7, True, False, (0,
-    0, 142)), Label('truck', 27, 14, 'vehicle', 7, True, False, (0, 0, 70)),
-    Label('bus', 28, 15, 'vehicle', 7, True, False, (0, 60, 100)), Label(
-    'caravan', 29, 255, 'vehicle', 7, True, True, (0, 0, 90)), Label(
-    'trailer', 30, 255, 'vehicle', 7, True, True, (0, 0, 110)), Label(
-    'train', 31, 16, 'vehicle', 7, True, False, (0, 80, 100)), Label(
-    'motorcycle', 32, 17, 'vehicle', 7, True, False, (0, 0, 230)), Label(
-    'bicycle', 33, 18, 'vehicle', 7, True, False, (119, 11, 32)), Label(
-    'license plate', -1, -1, 'vehicle', 7, False, True, (0, 0, 142))]
+labels = [Label('unlabeled', 0, 255, 'void', 0, False, True, (0, 0, 0)), Label('ego vehicle', 1, 255, 'void', 0, False, True, (0, 0, 0)), Label('rectification border', 2, 255, 'void', 0, False, True, (0, 0, 0)), Label('out of roi', 3, 255, 'void', 0, False, True, (0, 0, 0)), Label('static', 4, 255, 'void', 0, False, True, (0, 0, 0)), Label('dynamic', 5, 255, 'void', 0, False, True, (111, 74, 0)), Label('ground', 6, 255, 'void', 0, False, True, (81, 0, 81)), Label('road', 7, 0, 'flat', 1, False, False, (128, 64, 128)), Label('sidewalk', 8, 1, 'flat', 1, False, False, (244, 35, 232)), Label('parking', 9, 255, 'flat', 1, False, True, (250, 170, 160)), Label('rail track', 10, 255, 'flat', 1, False, True, (230, 150, 140)), Label('building', 11, 2, 'construction', 2, False, False, (70, 70, 70)), Label('wall', 12, 3, 'construction', 2, False, False, (102, 102, 156)), Label('fence', 13, 4, 'construction', 2, False, False, (190, 153, 153)), Label('guard rail', 14, 255, 'construction', 2, False, True, (180, 165, 180)), Label('bridge', 15, 255, 'construction', 2, False, True, (150, 100, 100)), Label('tunnel', 16, 255, 'construction', 2, False, True, (150, 120, 90)), Label('pole', 17, 5, 'object', 3, False, False, (153, 153, 153)), Label('polegroup', 18, 255, 'object', 3, False, True, (153, 153, 153)), Label('traffic light', 19, 6, 'object', 3, False, False, (250, 170, 30)), Label('traffic sign', 20, 7, 'object', 3, False, False, (220, 220, 0)), Label('vegetation', 21, 8, 'nature', 4, False, False, (107, 142, 35)), Label('terrain', 22, 9, 'nature', 4, False, False, (152, 251, 152)), Label('sky', 23, 10, 'sky', 5, False, False, (70, 130, 180)), Label('person', 24, 11, 'human', 6, True, False, (220, 20, 60)), Label('rider', 25, 12, 'human', 6, True, False, (255, 0, 0)), Label('car', 26, 13, 'vehicle', 7, True, False, (0, 0, 142)), Label('truck', 27, 14, 'vehicle', 7, True, False, (0, 0, 70)), Label('bus', 28, 15, 'vehicle', 7, True, False, (0, 60, 100)), Label('caravan', 29, 255, 'vehicle', 7, True, True, (0, 0, 90)), Label('trailer', 30, 255, 'vehicle', 7, True, True, (0, 0, 110)), Label('train', 31, 16, 'vehicle', 7, True, False, (0, 80, 100)), Label('motorcycle', 32, 17, 'vehicle', 7, True, False, (0, 0, 230)), Label('bicycle', 33, 18, 'vehicle', 7, True, False, (119, 11, 32)), Label('license plate', -1, -1, 'vehicle', 7, False, True, (0, 0, 142))]
 
 
 def trainId2LabelId(dataset_root, train_id, name):
@@ -226,8 +177,7 @@ def trainId2LabelId(dataset_root, train_id, name):
         :param id_map: torch tensor
         :param name: name of image, eg. 'gtFine/test/leverkusen/leverkusen_000027_000019_gtFine_labelTrainIds.png'
         """
-    assert len(train_id.shape
-        ) == 2, 'Id_map must be a 2-D tensor of shape (h, w) where h, w = H, W / output_stride'
+    assert len(train_id.shape) == 2, 'Id_map must be a 2-D tensor of shape (h, w) where h, w = H, W / output_stride'
     h, w = train_id.shape
     label_id = np.zeros((h, w, 3))
     train_id = train_id.cpu().numpy()
@@ -246,8 +196,7 @@ def trainId2color(dataset_root, id_map, name):
     :param id_map: torch tensor
     :param name: name of image, eg. 'gtFine/test/leverkusen/leverkusen_000027_000019_gtFine_labelTrainIds.png'
     """
-    assert len(id_map.shape
-        ) == 2, 'Id_map must be a 2-D tensor of shape (h, w) where h, w = H, W / output_stride'
+    assert len(id_map.shape) == 2, 'Id_map must be a 2-D tensor of shape (h, w) where h, w = H, W / output_stride'
     h, w = id_map.shape
     color_map = np.zeros((h, w, 3))
     id_map = id_map.cpu().numpy()
@@ -282,29 +231,19 @@ class MobileNetv2_DeepLabv3(nn.Module):
         self.val_loss = []
         self.summary_writer = SummaryWriter(log_dir=self.params.summary_dir)
         block = []
-        block.append(nn.Sequential(nn.Conv2d(3, self.params.c[0], 3, stride
-            =self.params.s[0], padding=1, bias=False), nn.BatchNorm2d(self.
-            params.c[0]), nn.ReLU6()))
+        block.append(nn.Sequential(nn.Conv2d(3, self.params.c[0], 3, stride=self.params.s[0], padding=1, bias=False), nn.BatchNorm2d(self.params.c[0]), nn.ReLU6()))
         for i in range(6):
-            block.extend(layers.get_inverted_residual_block_arr(self.params
-                .c[i], self.params.c[i + 1], t=self.params.t[i + 1], s=self
-                .params.s[i + 1], n=self.params.n[i + 1]))
+            block.extend(layers.get_inverted_residual_block_arr(self.params.c[i], self.params.c[i + 1], t=self.params.t[i + 1], s=self.params.s[i + 1], n=self.params.n[i + 1]))
         rate = self.params.down_sample_rate // self.params.output_stride
-        block.append(layers.InvertedResidual(self.params.c[6], self.params.
-            c[6], t=self.params.t[6], s=1, dilation=rate))
+        block.append(layers.InvertedResidual(self.params.c[6], self.params.c[6], t=self.params.t[6], s=1, dilation=rate))
         for i in range(3):
-            block.append(layers.InvertedResidual(self.params.c[6], self.
-                params.c[6], t=self.params.t[6], s=1, dilation=rate * self.
-                params.multi_grid[i]))
+            block.append(layers.InvertedResidual(self.params.c[6], self.params.c[6], t=self.params.t[6], s=1, dilation=rate * self.params.multi_grid[i]))
         block.append(layers.ASPP_plus(self.params))
         block.append(nn.Conv2d(256, self.params.num_class, 1))
-        block.append(nn.Upsample(scale_factor=self.params.output_stride,
-            mode='bilinear', align_corners=False))
+        block.append(nn.Upsample(scale_factor=self.params.output_stride, mode='bilinear', align_corners=False))
         self.network = nn.Sequential(*block)
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=255)
-        self.opt = torch.optim.RMSprop(self.network.parameters(), lr=self.
-            params.base_lr, momentum=self.params.momentum, weight_decay=
-            self.params.weight_decay)
+        self.opt = torch.optim.RMSprop(self.network.parameters(), lr=self.params.base_lr, momentum=self.params.momentum, weight_decay=self.params.weight_decay)
         self.initialize()
         self.load_checkpoint()
         self.load_model()
@@ -319,9 +258,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
         None
         self.network.train()
         train_loss = 0
-        train_loader = DataLoader(self.datasets['train'], batch_size=self.
-            params.train_batch, shuffle=self.params.shuffle, num_workers=
-            self.params.dataloader_workers)
+        train_loader = DataLoader(self.datasets['train'], batch_size=self.params.train_batch, shuffle=self.params.shuffle, num_workers=self.params.dataloader_workers)
         train_size = len(self.datasets['train'])
         if train_size % self.params.train_batch != 0:
             total_batch = train_size // self.params.train_batch + 1
@@ -333,8 +270,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
             image_cuda, label_cuda = image, label
             if self.params.should_split:
                 image_cuda.requires_grad_()
-                out = checkpoint_sequential(self.network, self.params.split,
-                    image_cuda)
+                out = checkpoint_sequential(self.network, self.params.split, image_cuda)
             else:
                 out = self.network(image_cuda)
             loss = self.loss_fn(out, label_cuda)
@@ -344,13 +280,11 @@ class MobileNetv2_DeepLabv3(nn.Module):
             train_loss += loss.item()
             if self.train_loss == []:
                 self.train_loss.append(train_loss)
-                self.summary_writer.add_scalar('loss/train_loss', train_loss, 0
-                    )
+                self.summary_writer.add_scalar('loss/train_loss', train_loss, 0)
         self.pb.close()
         train_loss /= total_batch
         self.train_loss.append(train_loss)
-        self.summary_writer.add_scalar('loss/train_loss', train_loss, self.
-            epoch)
+        self.summary_writer.add_scalar('loss/train_loss', train_loss, self.epoch)
 
     def val_one_epoch(self):
         """
@@ -360,9 +294,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
         None
         self.network.eval()
         val_loss = 0
-        val_loader = DataLoader(self.datasets['val'], batch_size=self.
-            params.val_batch, shuffle=self.params.shuffle, num_workers=self
-            .params.dataloader_workers)
+        val_loader = DataLoader(self.datasets['val'], batch_size=self.params.val_batch, shuffle=self.params.shuffle, num_workers=self.params.dataloader_workers)
         val_size = len(self.datasets['val'])
         if val_size % self.params.val_batch != 0:
             total_batch = val_size // self.params.val_batch + 1
@@ -374,8 +306,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
             image_cuda, label_cuda = image, label
             if self.params.should_split:
                 image_cuda.requires_grad_()
-                out = checkpoint_sequential(self.network, self.params.split,
-                    image_cuda)
+                out = checkpoint_sequential(self.network, self.params.split, image_cuda)
             else:
                 out = self.network(image_cuda)
             loss = self.loss_fn(out, label_cuda)
@@ -394,9 +325,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
         """
         self.init_epoch = self.epoch
         if self.epoch >= self.params.num_epoch:
-            WARNING(
-                'Num_epoch should be smaller than current epoch. Skip training......\n'
-                )
+            WARNING('Num_epoch should be smaller than current epoch. Skip training......\n')
         else:
             for _ in range(self.epoch, self.params.num_epoch):
                 self.epoch += 1
@@ -423,9 +352,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
         None
         torch.empty_cache()
         self.network.eval()
-        test_loader = DataLoader(self.datasets['test'], batch_size=self.
-            params.test_batch, shuffle=False, num_workers=self.params.
-            dataloader_workers)
+        test_loader = DataLoader(self.datasets['test'], batch_size=self.params.test_batch, shuffle=False, num_workers=self.params.dataloader_workers)
         test_size = len(self.datasets['test'])
         if test_size % self.params.test_batch != 0:
             total_batch = test_size // self.params.test_batch + 1
@@ -433,46 +360,37 @@ class MobileNetv2_DeepLabv3(nn.Module):
             total_batch = test_size // self.params.test_batch
         for batch_idx, batch in enumerate(test_loader):
             self.pb.click(batch_idx, total_batch)
-            image, label, name = batch['image'], batch['label'], batch[
-                'label_name']
+            image, label, name = batch['image'], batch['label'], batch['label_name']
             image_cuda, label_cuda = image, label
             if self.params.should_split:
                 image_cuda.requires_grad_()
-                out = checkpoint_sequential(self.network, self.params.split,
-                    image_cuda)
+                out = checkpoint_sequential(self.network, self.params.split, image_cuda)
             else:
                 out = self.network(image_cuda)
             for i in range(self.params.test_batch):
                 idx = batch_idx * self.params.test_batch + i
                 id_map = logits2trainId(out[i, ...])
-                color_map = trainId2color(self.params.dataset_root, id_map,
-                    name=name[i])
+                color_map = trainId2color(self.params.dataset_root, id_map, name=name[i])
                 trainId2LabelId(self.params.dataset_root, id_map, name=name[i])
                 image_orig = image[i].numpy().transpose(1, 2, 0)
                 image_orig = image_orig * 255
                 image_orig = image_orig.astype(np.uint8)
-                self.summary_writer.add_image('test/img_%d/orig' % idx,
-                    image_orig, idx)
-                self.summary_writer.add_image('test/img_%d/seg' % idx,
-                    color_map, idx)
+                self.summary_writer.add_image('test/img_%d/orig' % idx, image_orig, idx)
+                self.summary_writer.add_image('test/img_%d/seg' % idx, color_map, idx)
     """##########################"""
     """# Model Save and Restore #"""
     """##########################"""
 
     def save_checkpoint(self):
-        save_dict = {'epoch': self.epoch, 'train_loss': self.train_loss,
-            'val_loss': self.val_loss, 'state_dict': self.network.
-            state_dict(), 'optimizer': self.opt.state_dict()}
-        torch.save(save_dict, self.params.ckpt_dir + 
-            'Checkpoint_epoch_%d.pth.tar' % self.epoch)
+        save_dict = {'epoch': self.epoch, 'train_loss': self.train_loss, 'val_loss': self.val_loss, 'state_dict': self.network.state_dict(), 'optimizer': self.opt.state_dict()}
+        torch.save(save_dict, self.params.ckpt_dir + 'Checkpoint_epoch_%d.pth.tar' % self.epoch)
         None
 
     def load_checkpoint(self):
         """
         Load checkpoint from given path
         """
-        if self.params.resume_from is not None and os.path.exists(self.
-            params.resume_from):
+        if self.params.resume_from is not None and os.path.exists(self.params.resume_from):
             try:
                 LOG('Loading Checkpoint at %s' % self.params.resume_from)
                 ckpt = torch.load(self.params.resume_from)
@@ -489,13 +407,9 @@ class MobileNetv2_DeepLabv3(nn.Module):
                 LOG('Current Epoch: %d' % self.epoch)
                 self.ckpt_flag = True
             except:
-                WARNING(
-                    'Cannot load checkpoint from %s. Start loading pre-trained model......'
-                     % self.params.resume_from)
+                WARNING('Cannot load checkpoint from %s. Start loading pre-trained model......' % self.params.resume_from)
         else:
-            WARNING(
-                'Checkpoint do not exists. Start loading pre-trained model......'
-                )
+            WARNING('Checkpoint do not exists. Start loading pre-trained model......')
 
     def load_model(self):
         """
@@ -504,11 +418,9 @@ class MobileNetv2_DeepLabv3(nn.Module):
         """
         if self.ckpt_flag:
             LOG('Skip Loading Pre-trained Model......')
-        elif self.params.pre_trained_from is not None and os.path.exists(self
-            .params.pre_trained_from):
+        elif self.params.pre_trained_from is not None and os.path.exists(self.params.pre_trained_from):
             try:
-                LOG('Loading Pre-trained Model at %s' % self.params.
-                    pre_trained_from)
+                LOG('Loading Pre-trained Model at %s' % self.params.pre_trained_from)
                 pretrain = torch.load(self.params.pre_trained_from)
                 self.network.load_state_dict(pretrain)
                 LOG('Pre-trained Model Loaded!')
@@ -537,22 +449,18 @@ class MobileNetv2_DeepLabv3(nn.Module):
         """
         Adjust learning rate at each epoch
         """
-        learning_rate = self.params.base_lr * (1 - float(self.epoch) / self
-            .params.num_epoch) ** self.params.power
+        learning_rate = self.params.base_lr * (1 - float(self.epoch) / self.params.num_epoch) ** self.params.power
         for param_group in self.opt.param_groups:
             param_group['lr'] = learning_rate
         None
-        self.summary_writer.add_scalar('learning_rate', learning_rate, self
-            .epoch)
+        self.summary_writer.add_scalar('learning_rate', learning_rate, self.epoch)
 
     def plot_curve(self):
         """
         Plot train/val loss curve
         """
-        x1 = np.arange(self.init_epoch, self.params.num_epoch + 1, dtype=np.int
-            ).tolist()
-        x2 = np.linspace(self.init_epoch, self.epoch, num=(self.epoch -
-            self.init_epoch) // self.params.val_every + 1, dtype=np.int64)
+        x1 = np.arange(self.init_epoch, self.params.num_epoch + 1, dtype=np.int).tolist()
+        x2 = np.linspace(self.init_epoch, self.epoch, num=(self.epoch - self.init_epoch) // self.params.val_every + 1, dtype=np.int64)
         plt.plot(x1, self.train_loss, label='train_loss')
         plt.plot(x2, self.val_loss, label='val_loss')
         plt.legend(loc='best')
@@ -567,8 +475,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (InvertedResidual,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_zym1119_DeepLabv3_MobileNetv2_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(InvertedResidual(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

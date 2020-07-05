@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,20 +60,15 @@ class FCN32s(nn.Module):
         self.n_class = n_class
         self.pretrained_net = pretrained_net
         self.relu = nn.ReLU(inplace=True)
-        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn1 = nn.BatchNorm2d(512)
-        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn2 = nn.BatchNorm2d(256)
-        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn3 = nn.BatchNorm2d(128)
-        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn4 = nn.BatchNorm2d(64)
-        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn5 = nn.BatchNorm2d(32)
         self.classifier = nn.Conv2d(32, n_class, kernel_size=1)
 
@@ -95,20 +91,15 @@ class FCN16s(nn.Module):
         self.n_class = n_class
         self.pretrained_net = pretrained_net
         self.relu = nn.ReLU(inplace=True)
-        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn1 = nn.BatchNorm2d(512)
-        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn2 = nn.BatchNorm2d(256)
-        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn3 = nn.BatchNorm2d(128)
-        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn4 = nn.BatchNorm2d(64)
-        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn5 = nn.BatchNorm2d(32)
         self.classifier = nn.Conv2d(32, n_class, kernel_size=1)
 
@@ -133,20 +124,15 @@ class FCN8s(nn.Module):
         self.n_class = n_class
         self.pretrained_net = pretrained_net
         self.relu = nn.ReLU(inplace=True)
-        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn1 = nn.BatchNorm2d(512)
-        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn2 = nn.BatchNorm2d(256)
-        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn3 = nn.BatchNorm2d(128)
-        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn4 = nn.BatchNorm2d(64)
-        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn5 = nn.BatchNorm2d(32)
         self.classifier = nn.Conv2d(32, n_class, kernel_size=1)
 
@@ -173,20 +159,15 @@ class FCNs(nn.Module):
         self.n_class = n_class
         self.pretrained_net = pretrained_net
         self.relu = nn.ReLU(inplace=True)
-        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv1 = nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn1 = nn.BatchNorm2d(512)
-        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv2 = nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn2 = nn.BatchNorm2d(256)
-        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv3 = nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn3 = nn.BatchNorm2d(128)
-        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv4 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn4 = nn.BatchNorm2d(64)
-        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2,
-            padding=1, dilation=1, output_padding=1)
+        self.deconv5 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, dilation=1, output_padding=1)
         self.bn5 = nn.BatchNorm2d(32)
         self.classifier = nn.Conv2d(32, n_class, kernel_size=1)
 
@@ -209,10 +190,3 @@ class FCNs(nn.Module):
         score = self.classifier(score)
         return score
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_yunlongdong_FCN_pytorch(_paritybench_base):
-    pass

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,8 +69,7 @@ class GraphAttentionLayer(nn.Module):
     def forward(self, input, adj):
         h = torch.mm(input, self.W)
         N = h.size()[0]
-        a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)
-            ], dim=1).view(N, -1, 2 * self.out_features)
+        a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1).view(N, -1, 2 * self.out_features)
         e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
         zero_vec = -9000000000000000.0 * torch.ones_like(e)
         attention = torch.where(adj > 0, e, zero_vec)
@@ -82,8 +82,7 @@ class GraphAttentionLayer(nn.Module):
             return h_prime
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class SpecialSpmmFunction(torch.autograd.Function):
@@ -141,12 +140,10 @@ class SpGraphAttentionLayer(nn.Module):
         edge = adj.nonzero().t()
         h = torch.mm(input, self.W)
         assert not torch.isnan(h).any()
-        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1
-            ).t()
+        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1).t()
         edge_e = torch.exp(-self.leakyrelu(self.a.mm(edge_h).squeeze()))
         assert not torch.isnan(edge_e).any()
-        e_rowsum = self.special_spmm(edge, edge_e, torch.Size([N, N]),
-            torch.ones(size=(N, 1), device=dv))
+        e_rowsum = self.special_spmm(edge, edge_e, torch.Size([N, N]), torch.ones(size=(N, 1), device=dv))
         edge_e = self.dropout(edge_e)
         h_prime = self.special_spmm(edge, edge_e, torch.Size([N, N]), h)
         assert not torch.isnan(h_prime).any()
@@ -158,8 +155,7 @@ class SpGraphAttentionLayer(nn.Module):
             return h_prime
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GAT(nn.Module):
@@ -168,12 +164,10 @@ class GAT(nn.Module):
         """Dense version of GAT."""
         super(GAT, self).__init__()
         self.dropout = dropout
-        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout,
-            alpha=alpha, concat=True) for _ in range(nheads)]
+        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
-        self.out_att = GraphAttentionLayer(nhid * nheads, nclass, dropout=
-            dropout, alpha=alpha, concat=False)
+        self.out_att = GraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
 
     def forward(self, x, adj):
         x = F.dropout(x, self.dropout, training=self.training)
@@ -189,12 +183,10 @@ class SpGAT(nn.Module):
         """Sparse version of GAT."""
         super(SpGAT, self).__init__()
         self.dropout = dropout
-        self.attentions = [SpGraphAttentionLayer(nfeat, nhid, dropout=
-            dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        self.attentions = [SpGraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
-        self.out_att = SpGraphAttentionLayer(nhid * nheads, nclass, dropout
-            =dropout, alpha=alpha, concat=False)
+        self.out_att = SpGraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
 
     def forward(self, x, adj):
         x = F.dropout(x, self.dropout, training=self.training)
@@ -208,21 +200,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GAT,
+     lambda: ([], {'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (GraphAttentionLayer,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SpGAT,
+     lambda: ([], {'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (SpGraphAttentionLayer,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_Diego999_pyGAT(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GAT(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SpGAT(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(SpGraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 

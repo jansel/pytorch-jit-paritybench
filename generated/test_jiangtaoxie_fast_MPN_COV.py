@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -107,18 +108,8 @@ class AlexNet(nn.Module):
 
     def __init__(self, num_classes=1000):
         super(AlexNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5,
-            padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=
-            1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2))
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6,
-            4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 
-            4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
 
     def forward(self, x):
         x = self.features(x)
@@ -196,14 +187,7 @@ class Basemodel(nn.Module):
 
     def _reconstruct_inception(self, basemodel):
         model = nn.Module()
-        model.features = nn.Sequential(basemodel.Conv2d_1a_3x3, basemodel.
-            Conv2d_2a_3x3, basemodel.Conv2d_2b_3x3, nn.MaxPool2d(
-            kernel_size=3, stride=2), basemodel.Conv2d_3b_1x1, basemodel.
-            Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), basemodel
-            .Mixed_5b, basemodel.Mixed_5c, basemodel.Mixed_5d, basemodel.
-            Mixed_6a, basemodel.Mixed_6b, basemodel.Mixed_6c, basemodel.
-            Mixed_6d, basemodel.Mixed_6e, basemodel.Mixed_7a, basemodel.
-            Mixed_7b, basemodel.Mixed_7c)
+        model.features = nn.Sequential(basemodel.Conv2d_1a_3x3, basemodel.Conv2d_2a_3x3, basemodel.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), basemodel.Conv2d_3b_1x1, basemodel.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), basemodel.Mixed_5b, basemodel.Mixed_5c, basemodel.Mixed_5d, basemodel.Mixed_6a, basemodel.Mixed_6b, basemodel.Mixed_6c, basemodel.Mixed_6d, basemodel.Mixed_6e, basemodel.Mixed_7a, basemodel.Mixed_7b, basemodel.Mixed_7c)
         model.representation = nn.AdaptiveAvgPool2d((1, 1))
         model.classifier = basemodel.fc
         model.representation_dim = basemodel.fc.weight.size(1)
@@ -252,30 +236,25 @@ class _DenseLayer(nn.Sequential):
         super(_DenseLayer, self).__init__()
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
-        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
-            growth_rate, kernel_size=1, stride=1, bias=False)),
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
         self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
-        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate,
-            growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
-        drop_rate):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, bn_size, drop_rate)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
@@ -285,8 +264,7 @@ class _Transition(nn.Sequential):
         super(_Transition, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(num_input_features,
-            num_output_features, kernel_size=1, stride=1, bias=False))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
 
 
@@ -304,24 +282,16 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
     """
 
-    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16),
-        num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000):
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16), num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000):
         super(DenseNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3,
-            num_init_features, kernel_size=7, stride=2, padding=3, bias=
-            False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0',
-            nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0', nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, bn_size=bn_size, growth_rate=growth_rate,
-                drop_rate=drop_rate)
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features,
-                    num_output_features=num_features // 2)
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
@@ -345,8 +315,7 @@ class DenseNet(nn.Module):
 
 class Inception3(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False
-        ):
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
         super(Inception3, self).__init__()
         self.aux_logits = aux_logits
         self.transform_input = transform_input
@@ -426,8 +395,7 @@ class InceptionA(nn.Module):
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1)
         self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -468,19 +436,13 @@ class InceptionC(nn.Module):
         self.branch1x1 = BasicConv2d(in_channels, 192, kernel_size=1)
         c7 = channels_7x7
         self.branch7x7_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=
-            (0, 3))
-        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding
-            =(3, 0))
+        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7dbl_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7),
-            padding=(0, 3))
+        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
@@ -506,10 +468,8 @@ class InceptionD(nn.Module):
         self.branch3x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
         self.branch3x3_2 = BasicConv2d(192, 320, kernel_size=3, stride=2)
         self.branch7x7x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
-        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1),
-            padding=(3, 0))
+        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7x3_4 = BasicConv2d(192, 192, kernel_size=3, stride=2)
 
     def forward(self, x):
@@ -530,28 +490,22 @@ class InceptionE(nn.Module):
         super(InceptionE, self).__init__()
         self.branch1x1 = BasicConv2d(in_channels, 320, kernel_size=1)
         self.branch3x3_1 = BasicConv2d(in_channels, 384, kernel_size=1)
-        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 448, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(448, 384, kernel_size=3, padding=1)
-        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -596,8 +550,7 @@ class MPNCOVResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(MPNCOVResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -605,15 +558,13 @@ class MPNCOVResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=1)
-        self.layer_reduce = nn.Conv2d(512 * block.expansion, 256,
-            kernel_size=1, stride=1, padding=0, bias=False)
+        self.layer_reduce = nn.Conv2d(512 * block.expansion, 256, kernel_size=1, stride=1, padding=0, bias=False)
         self.layer_reduce_bn = nn.BatchNorm2d(256)
         self.layer_reduce_relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(int(256 * (256 + 1) / 2), num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -621,9 +572,7 @@ class MPNCOVResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -656,11 +605,8 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features[:-1]
-        self.representation = MPNCOV(input_dim=512, dimension_reduction=256,
-            iterNum=5)
-        self.classifier = nn.Sequential(nn.Linear(32896, 4096), nn.ReLU(
-            True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.
-            Dropout(), nn.Linear(4096, num_classes))
+        self.representation = MPNCOV(input_dim=512, dimension_reduction=256, iterNum=5)
+        self.classifier = nn.Sequential(nn.Linear(32896, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         if init_weights:
             self._initialize_weights()
 
@@ -673,8 +619,7 @@ class VGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -687,8 +632,7 @@ class VGG(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -720,8 +664,7 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
@@ -758,12 +701,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -775,8 +716,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -790,9 +730,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -820,9 +758,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         if init_weights:
             self._initialize_weights()
 
@@ -835,8 +771,7 @@ class VGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -905,19 +840,11 @@ class CBP(nn.Module):
         self.input_dim = input_dim
         self.output_dim = projDim
         torch.manual_seed(1)
-        self.h_ = [torch.randint(0, self.output_dim, (self.input_dim,),
-            dtype=torch.long), torch.randint(0, self.output_dim, (self.
-            input_dim,), dtype=torch.long)]
-        self.weights_ = [(2 * torch.randint(0, 2, (self.input_dim,)) - 1).
-            float(), (2 * torch.randint(0, 2, (self.input_dim,)) - 1).float()]
-        indices1 = torch.cat((torch.arange(input_dim, dtype=torch.long).
-            reshape(1, -1), self.h_[0].reshape(1, -1)), dim=0)
-        indices2 = torch.cat((torch.arange(input_dim, dtype=torch.long).
-            reshape(1, -1), self.h_[1].reshape(1, -1)), dim=0)
-        self.sparseM = [torch.sparse.FloatTensor(indices1, self.weights_[0],
-            torch.Size([self.input_dim, self.output_dim])).to_dense(),
-            torch.sparse.FloatTensor(indices2, self.weights_[1], torch.Size
-            ([self.input_dim, self.output_dim])).to_dense()]
+        self.h_ = [torch.randint(0, self.output_dim, (self.input_dim,), dtype=torch.long), torch.randint(0, self.output_dim, (self.input_dim,), dtype=torch.long)]
+        self.weights_ = [(2 * torch.randint(0, 2, (self.input_dim,)) - 1).float(), (2 * torch.randint(0, 2, (self.input_dim,)) - 1).float()]
+        indices1 = torch.cat((torch.arange(input_dim, dtype=torch.long).reshape(1, -1), self.h_[0].reshape(1, -1)), dim=0)
+        indices2 = torch.cat((torch.arange(input_dim, dtype=torch.long).reshape(1, -1), self.h_[1].reshape(1, -1)), dim=0)
+        self.sparseM = [torch.sparse.FloatTensor(indices1, self.weights_[0], torch.Size([self.input_dim, self.output_dim])).to_dense(), torch.sparse.FloatTensor(indices2, self.weights_[1], torch.Size([self.input_dim, self.output_dim])).to_dense()]
 
     def _signed_sqrt(self, x):
         x = torch.mul(x.sign(), torch.sqrt(x.abs() + self.thresh))
@@ -935,25 +862,17 @@ class CBP(nn.Module):
         for img in range(batchSize // bsn):
             segLen = bsn * h * w
             upper = batchSize * h * w
-            interLarge = torch.arange(img * segLen, min(upper, (img + 1) *
-                segLen), dtype=torch.long)
-            interSmall = torch.arange(img * bsn, min(upper, (img + 1) * bsn
-                ), dtype=torch.long)
+            interLarge = torch.arange(img * segLen, min(upper, (img + 1) * segLen), dtype=torch.long)
+            interSmall = torch.arange(img * bsn, min(upper, (img + 1) * bsn), dtype=torch.long)
             batch_x = x_flat[(interLarge), :]
             sketch1 = batch_x.mm(self.sparseM[0]).unsqueeze(2)
-            sketch1 = torch.fft(torch.cat((sketch1, torch.zeros(sketch1.
-                size(), device=x.device)), dim=2), 1)
+            sketch1 = torch.fft(torch.cat((sketch1, torch.zeros(sketch1.size(), device=x.device)), dim=2), 1)
             sketch2 = batch_x.mm(self.sparseM[1]).unsqueeze(2)
-            sketch2 = torch.fft(torch.cat((sketch2, torch.zeros(sketch2.
-                size(), device=x.device)), dim=2), 1)
-            Re = sketch1[:, :, (0)].mul(sketch2[:, :, (0)]) - sketch1[:, :, (1)
-                ].mul(sketch2[:, :, (1)])
-            Im = sketch1[:, :, (0)].mul(sketch2[:, :, (1)]) + sketch1[:, :, (1)
-                ].mul(sketch2[:, :, (0)])
-            tmp_y = torch.ifft(torch.cat((Re.unsqueeze(2), Im.unsqueeze(2)),
-                dim=2), 1)[:, :, (0)]
-            y[(interSmall), :] = tmp_y.view(torch.numel(interSmall), h, w,
-                self.output_dim).sum(dim=1).sum(dim=1)
+            sketch2 = torch.fft(torch.cat((sketch2, torch.zeros(sketch2.size(), device=x.device)), dim=2), 1)
+            Re = sketch1[:, :, (0)].mul(sketch2[:, :, (0)]) - sketch1[:, :, (1)].mul(sketch2[:, :, (1)])
+            Im = sketch1[:, :, (0)].mul(sketch2[:, :, (1)]) + sketch1[:, :, (1)].mul(sketch2[:, :, (0)])
+            tmp_y = torch.ifft(torch.cat((Re.unsqueeze(2), Im.unsqueeze(2)), dim=2), 1)[:, :, (0)]
+            y[(interSmall), :] = tmp_y.view(torch.numel(interSmall), h, w, self.output_dim).sum(dim=1).sum(dim=1)
         y = self._signed_sqrt(y)
         y = self._l2norm(y)
         return y
@@ -995,8 +914,7 @@ class Covpool(Function):
         w = x.data.shape[3]
         M = h * w
         x = x.reshape(batchSize, dim, M)
-        I_hat = -1.0 / M / M * torch.ones(M, M, device=x.device
-            ) + 1.0 / M * torch.eye(M, M, device=x.device)
+        I_hat = -1.0 / M / M * torch.ones(M, M, device=x.device) + 1.0 / M * torch.eye(M, M, device=x.device)
         I_hat = I_hat.view(1, M, M).repeat(batchSize, 1, 1).type(x.dtype)
         y = x.bmm(I_hat).bmm(x.transpose(1, 2))
         ctx.save_for_backward(input, I_hat)
@@ -1026,14 +944,11 @@ class Sqrtm(Function):
         batchSize = x.data.shape[0]
         dim = x.data.shape[1]
         dtype = x.dtype
-        I3 = 3.0 * torch.eye(dim, dim, device=x.device).view(1, dim, dim
-            ).repeat(batchSize, 1, 1).type(dtype)
+        I3 = 3.0 * torch.eye(dim, dim, device=x.device).view(1, dim, dim).repeat(batchSize, 1, 1).type(dtype)
         normA = 1.0 / 3.0 * x.mul(I3).sum(dim=1).sum(dim=1)
         A = x.div(normA.view(batchSize, 1, 1).expand_as(x))
-        Y = torch.zeros(batchSize, iterN, dim, dim, requires_grad=False,
-            device=x.device).type(dtype)
-        Z = torch.eye(dim, dim, device=x.device).view(1, dim, dim).repeat(
-            batchSize, iterN, 1, 1).type(dtype)
+        Y = torch.zeros(batchSize, iterN, dim, dim, requires_grad=False, device=x.device).type(dtype)
+        Z = torch.eye(dim, dim, device=x.device).view(1, dim, dim).repeat(batchSize, iterN, 1, 1).type(dtype)
         if iterN < 2:
             ZY = 0.5 * (I3 - A)
             YZY = A.bmm(ZY)
@@ -1045,8 +960,7 @@ class Sqrtm(Function):
                 ZY = 0.5 * (I3 - Z[:, (i - 1), :, :].bmm(Y[:, (i - 1), :, :]))
                 Y[:, (i), :, :] = Y[:, (i - 1), :, :].bmm(ZY)
                 Z[:, (i), :, :] = ZY.bmm(Z[:, (i - 1), :, :])
-            YZY = 0.5 * Y[:, (iterN - 2), :, :].bmm(I3 - Z[:, (iterN - 2),
-                :, :].bmm(Y[:, (iterN - 2), :, :]))
+            YZY = 0.5 * Y[:, (iterN - 2), :, :].bmm(I3 - Z[:, (iterN - 2), :, :].bmm(Y[:, (iterN - 2), :, :]))
         y = YZY * torch.sqrt(normA).view(batchSize, 1, 1).expand_as(x)
         ctx.save_for_backward(input, A, YZY, normA, Y, Z)
         ctx.iterN = iterN
@@ -1060,27 +974,19 @@ class Sqrtm(Function):
         batchSize = x.data.shape[0]
         dim = x.data.shape[1]
         dtype = x.dtype
-        der_postCom = grad_output * torch.sqrt(normA).view(batchSize, 1, 1
-            ).expand_as(x)
-        der_postComAux = (grad_output * ZY).sum(dim=1).sum(dim=1).div(2 *
-            torch.sqrt(normA))
-        I3 = 3.0 * torch.eye(dim, dim, device=x.device).view(1, dim, dim
-            ).repeat(batchSize, 1, 1).type(dtype)
+        der_postCom = grad_output * torch.sqrt(normA).view(batchSize, 1, 1).expand_as(x)
+        der_postComAux = (grad_output * ZY).sum(dim=1).sum(dim=1).div(2 * torch.sqrt(normA))
+        I3 = 3.0 * torch.eye(dim, dim, device=x.device).view(1, dim, dim).repeat(batchSize, 1, 1).type(dtype)
         if iterN < 2:
             der_NSiter = 0.5 * (der_postCom.bmm(I3 - A) - A.bmm(der_postCom))
         else:
-            dldY = 0.5 * (der_postCom.bmm(I3 - Y[:, (iterN - 2), :, :].bmm(
-                Z[:, (iterN - 2), :, :])) - Z[:, (iterN - 2), :, :].bmm(Y[:,
-                (iterN - 2), :, :]).bmm(der_postCom))
-            dldZ = -0.5 * Y[:, (iterN - 2), :, :].bmm(der_postCom).bmm(Y[:,
-                (iterN - 2), :, :])
+            dldY = 0.5 * (der_postCom.bmm(I3 - Y[:, (iterN - 2), :, :].bmm(Z[:, (iterN - 2), :, :])) - Z[:, (iterN - 2), :, :].bmm(Y[:, (iterN - 2), :, :]).bmm(der_postCom))
+            dldZ = -0.5 * Y[:, (iterN - 2), :, :].bmm(der_postCom).bmm(Y[:, (iterN - 2), :, :])
             for i in range(iterN - 3, -1, -1):
                 YZ = I3 - Y[:, (i), :, :].bmm(Z[:, (i), :, :])
                 ZY = Z[:, (i), :, :].bmm(Y[:, (i), :, :])
-                dldY_ = 0.5 * (dldY.bmm(YZ) - Z[:, (i), :, :].bmm(dldZ).bmm
-                    (Z[:, (i), :, :]) - ZY.bmm(dldY))
-                dldZ_ = 0.5 * (YZ.bmm(dldZ) - Y[:, (i), :, :].bmm(dldY).bmm
-                    (Y[:, (i), :, :]) - dldZ.bmm(ZY))
+                dldY_ = 0.5 * (dldY.bmm(YZ) - Z[:, (i), :, :].bmm(dldZ).bmm(Z[:, (i), :, :]) - ZY.bmm(dldY))
+                dldZ_ = 0.5 * (YZ.bmm(dldZ) - Y[:, (i), :, :].bmm(dldY).bmm(Y[:, (i), :, :]) - dldZ.bmm(ZY))
                 dldY = dldY_
                 dldZ = dldZ_
             der_NSiter = 0.5 * (dldY.bmm(I3 - A) - dldZ - A.bmm(dldY))
@@ -1088,9 +994,7 @@ class Sqrtm(Function):
         grad_input = der_NSiter.div(normA.view(batchSize, 1, 1).expand_as(x))
         grad_aux = der_NSiter.mul(x).sum(dim=1).sum(dim=1)
         for i in range(batchSize):
-            grad_input[(i), :, :] += (der_postComAux[i] - grad_aux[i] / (
-                normA[i] * normA[i])) * torch.ones(dim, device=x.device).diag(
-                ).type(dtype)
+            grad_input[(i), :, :] += (der_postComAux[i] - grad_aux[i] / (normA[i] * normA[i])) * torch.ones(dim, device=x.device).diag().type(dtype)
         return grad_input, None
 
 
@@ -1105,8 +1009,7 @@ class Triuvec(Function):
         x = x.reshape(batchSize, dim * dim)
         I = torch.ones(dim, dim).triu().reshape(dim * dim)
         index = I.nonzero()
-        y = torch.zeros(batchSize, int(dim * (dim + 1) / 2), device=x.device
-            ).type(dtype)
+        y = torch.zeros(batchSize, int(dim * (dim + 1) / 2), device=x.device).type(dtype)
         y = x[:, (index)]
         ctx.save_for_backward(input, index)
         return y
@@ -1118,8 +1021,7 @@ class Triuvec(Function):
         batchSize = x.data.shape[0]
         dim = x.data.shape[1]
         dtype = x.dtype
-        grad_input = torch.zeros(batchSize, dim * dim, device=x.device,
-            requires_grad=False).type(dtype)
+        grad_input = torch.zeros(batchSize, dim * dim, device=x.device, requires_grad=False).type(dtype)
         grad_input[:, (index)] = grad_output
         grad_input = grad_input.reshape(batchSize, dim, dim)
         return grad_input
@@ -1141,17 +1043,14 @@ class MPNCOV(nn.Module):
                                will be reduced to 256 or others.
      """
 
-    def __init__(self, iterNum=3, is_sqrt=True, is_vec=True, input_dim=2048,
-        dimension_reduction=None):
+    def __init__(self, iterNum=3, is_sqrt=True, is_vec=True, input_dim=2048, dimension_reduction=None):
         super(MPNCOV, self).__init__()
         self.iterNum = iterNum
         self.is_sqrt = is_sqrt
         self.is_vec = is_vec
         self.dr = dimension_reduction
         if self.dr is not None:
-            self.conv_dr_block = nn.Sequential(nn.Conv2d(input_dim, self.dr,
-                kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(self.
-                dr), nn.ReLU(inplace=True))
+            self.conv_dr_block = nn.Sequential(nn.Conv2d(input_dim, self.dr, kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(self.dr), nn.ReLU(inplace=True))
         output_dim = self.dr if self.dr else input_dim
         if self.is_vec:
             self.output_dim = int(output_dim * (output_dim + 1) / 2)
@@ -1162,8 +1061,7 @@ class MPNCOV(nn.Module):
     def _init_weight(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1192,60 +1090,135 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BCNN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CBP,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 4, 512])], {}),
+     True),
+    (Custom,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DenseNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (GAvP,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionAux,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 18, 18])], {}),
+     True),
+    (InceptionB,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionC,
+     lambda: ([], {'in_channels': 4, 'channels_7x7': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionD,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MPNCOV,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jiangtaoxie_fast_MPN_COV(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BCNN(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CBP(*[], **{}), [torch.rand([4, 512, 4, 512])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Custom(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(GAvP(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MPNCOV(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

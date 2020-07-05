@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,8 +100,7 @@ ACTS = {'sigmoid': torch.sigmoid, 'relu': F.relu, 'elu': F.elu}
 
 class NNDynamics(nn.Module):
 
-    def __init__(self, n_state, n_ctrl, hidden_sizes=[100], activation=
-        'sigmoid', passthrough=True):
+    def __init__(self, n_state, n_ctrl, hidden_sizes=[100], activation='sigmoid', passthrough=True):
         super().__init__()
         self.passthrough = passthrough
         self.fcs = []
@@ -166,8 +166,7 @@ class NNDynamics(nn.Module):
         for i in range(len(zs) - 1, 0 - 1, -1):
             n_out, n_in = Ws[i].size()
             if self.activation == 'relu':
-                I = util.get_data_maybe(zs[i] <= 0.0).unsqueeze(2).repeat(1,
-                    1, n_in)
+                I = util.get_data_maybe(zs[i] <= 0.0).unsqueeze(2).repeat(1, 1, n_in)
                 Wi_grad = Ws[i].repeat(n_batch, 1, 1)
                 Wi_grad[I] = 0.0
             elif self.activation == 'sigmoid':
@@ -180,8 +179,7 @@ class NNDynamics(nn.Module):
         R = grad[:, :, :n_state]
         S = grad[:, :, n_state:]
         if self.passthrough:
-            I = torch.eye(n_state).type_as(util.get_data_maybe(R)).unsqueeze(0
-                ).repeat(n_batch, 1, 1)
+            I = torch.eye(n_state).type_as(util.get_data_maybe(R)).unsqueeze(0).repeat(n_batch, 1, 1)
             if diff:
                 I = Variable(I)
             R = R + I
@@ -295,8 +293,7 @@ class CartpoleDx(nn.Module):
         x, dx, cos_th, sin_th, dth = torch.unbind(state, dim=1)
         th = torch.atan2(sin_th, cos_th)
         cart_in = (u + polemass_length * dth ** 2 * sin_th) / total_mass
-        th_acc = (gravity * sin_th - cos_th * cart_in) / (length * (4.0 / 
-            3.0 - masspole * cos_th ** 2 / total_mass))
+        th_acc = (gravity * sin_th - cos_th * cart_in) / (length * (4.0 / 3.0 - masspole * cos_th ** 2 / total_mass))
         xacc = cart_in - polemass_length * th_acc * cos_th / total_mass
         x = x + self.dt * dx
         dx = dx + self.dt * xacc
@@ -320,8 +317,7 @@ class CartpoleDx(nn.Module):
         return fig, ax
 
     def get_true_obj(self):
-        q = torch.cat((self.goal_weights, self.ctrl_penalty * torch.ones(
-            self.n_ctrl)))
+        q = torch.cat((self.goal_weights, self.ctrl_penalty * torch.ones(self.n_ctrl)))
         assert not hasattr(self, 'mpc_lin')
         px = -torch.sqrt(self.goal_weights) * self.goal_state
         p = torch.cat((px, torch.zeros(self.n_ctrl)))
@@ -341,8 +337,7 @@ class PendulumDx(nn.Module):
             if simple:
                 self.params = Variable(torch.Tensor((10.0, 1.0, 1.0)))
             else:
-                self.params = Variable(torch.Tensor((10.0, 1.0, 1.0, 0.0, 0.0))
-                    )
+                self.params = Variable(torch.Tensor((10.0, 1.0, 1.0, 0.0, 0.0)))
         else:
             self.params = params
         assert len(self.params) == 3 if simple else 5
@@ -374,15 +369,12 @@ class PendulumDx(nn.Module):
         cos_th, sin_th, dth = torch.unbind(x, dim=1)
         th = torch.atan2(sin_th, cos_th)
         if not hasattr(self, 'simple') or self.simple:
-            newdth = dth + self.dt * (-3.0 * g / (2.0 * l) * -sin_th + 3.0 *
-                u / (m * l ** 2))
+            newdth = dth + self.dt * (-3.0 * g / (2.0 * l) * -sin_th + 3.0 * u / (m * l ** 2))
         else:
             sin_th_bias = torch.sin(th + b)
-            newdth = dth + self.dt * (-3.0 * g / (2.0 * l) * -sin_th_bias +
-                3.0 * u / (m * l ** 2) - d * th)
+            newdth = dth + self.dt * (-3.0 * g / (2.0 * l) * -sin_th_bias + 3.0 * u / (m * l ** 2) - d * th)
         newth = th + newdth * self.dt
-        state = torch.stack((torch.cos(newth), torch.sin(newth), newdth), dim=1
-            )
+        state = torch.stack((torch.cos(newth), torch.sin(newth), newdth), dim=1)
         if squeeze:
             state = state.squeeze(0)
         return state
@@ -405,8 +397,7 @@ class PendulumDx(nn.Module):
         return fig, ax
 
     def get_true_obj(self):
-        q = torch.cat((self.goal_weights, self.ctrl_penalty * torch.ones(
-            self.n_ctrl)))
+        q = torch.cat((self.goal_weights, self.ctrl_penalty * torch.ones(self.n_ctrl)))
         assert not hasattr(self, 'mpc_lin')
         px = -torch.sqrt(self.goal_weights) * self.goal_state
         p = torch.cat((px, torch.zeros(self.n_ctrl)))
@@ -443,8 +434,7 @@ class GradMethods(Enum):
 LqrBackOut = namedtuple('lqrBackOut', 'n_total_qp_iter')
 
 
-LqrForOut = namedtuple('lqrForOut',
-    'objs full_du_norm alpha_du_norm mean_alphas costs')
+LqrForOut = namedtuple('lqrForOut', 'objs full_du_norm alpha_du_norm mean_alphas costs')
 
 
 def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
@@ -497,8 +487,7 @@ def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
         while max_armijo <= GAMMA and count < 10:
             maybe_x = util.eclamp(x + torch.diag(alpha).mm(dx), lower, upper)
             armijos = (GAMMA + 1e-06) * torch.ones(n_batch).type_as(x)
-            armijos[J] = (obj(x) - obj(maybe_x))[J] / util.bdot(g, x - maybe_x
-                )[J]
+            armijos[J] = (obj(x) - obj(maybe_x))[J] / util.bdot(g, x - maybe_x)[J]
             I = armijos <= GAMMA
             alpha[I] *= decay
             max_armijo = torch.max(armijos)
@@ -522,11 +511,7 @@ class LQRStep(Function):
         TODO
     """
 
-    def __init__(self, n_state, n_ctrl, T, u_lower=None, u_upper=None,
-        u_zero_I=None, delta_u=None, linesearch_decay=0.2,
-        max_linesearch_iter=10, true_cost=None, true_dynamics=None,
-        delta_space=True, current_x=None, current_u=None, verbose=0,
-        back_eps=0.001, no_op_forward=False):
+    def __init__(self, n_state, n_ctrl, T, u_lower=None, u_upper=None, u_zero_I=None, delta_u=None, linesearch_decay=0.2, max_linesearch_iter=10, true_cost=None, true_dynamics=None, delta_space=True, current_x=None, current_u=None, verbose=0, back_eps=0.001, no_op_forward=False):
         self.n_state = n_state
         self.n_ctrl = n_ctrl
         self.T = T
@@ -555,8 +540,7 @@ class LQRStep(Function):
 
     def forward(self, x_init, C, c, F, f=None):
         if self.no_op_forward:
-            self.save_for_backward(x_init, C, c, F, f, self.current_x, self
-                .current_u)
+            self.save_for_backward(x_init, C, c, F, f, self.current_x, self.current_u)
             return self.current_x, self.current_u
         if self.delta_space:
             assert self.current_x is not None
@@ -572,8 +556,7 @@ class LQRStep(Function):
         else:
             assert False
         Ks, ks, self.back_out = self.lqr_backward(C, c_back, F, f_back)
-        new_x, new_u, self.for_out = self.lqr_forward(x_init, C, c, F, f,
-            Ks, ks)
+        new_x, new_u, self.for_out = self.lqr_forward(x_init, C, c, F, f, Ks, ks)
         self.save_for_backward(x_init, C, c, F, f, new_x, new_u)
         return new_x, new_u
 
@@ -588,12 +571,9 @@ class LQRStep(Function):
         if self.u_lower is None:
             I = None
         else:
-            I = (torch.abs(new_u - self.u_lower) <= 1e-08) | (torch.abs(
-                new_u - self.u_upper) <= 1e-08)
+            I = (torch.abs(new_u - self.u_lower) <= 1e-08) | (torch.abs(new_u - self.u_upper) <= 1e-08)
         dx_init = Variable(torch.zeros_like(x_init))
-        _mpc = mpc.MPC(self.n_state, self.n_ctrl, self.T, u_zero_I=I,
-            u_init=None, lqr_iter=1, verbose=-1, n_batch=C.size(1), delta_u
-            =None, exit_unconverged=False, eps=self.back_eps)
+        _mpc = mpc.MPC(self.n_state, self.n_ctrl, self.T, u_zero_I=I, u_init=None, lqr_iter=1, verbose=-1, n_batch=C.size(1), delta_u=None, exit_unconverged=False, eps=self.back_eps)
         dx, du, _ = _mpc(dx_init, mpc.QuadCost(C, -r), mpc.LinDx(F, None))
         dx, du = dx.data, du.data
         dxu = torch.cat((dx, du), 2)
@@ -672,8 +652,7 @@ class LQRStep(Function):
                     qt = c[t] + Ft_T.bmm(vtp1.unsqueeze(2)).squeeze(2)
                 else:
                     ft = f[t]
-                    qt = c[t] + Ft_T.bmm(Vtp1).bmm(ft.unsqueeze(2)).squeeze(2
-                        ) + Ft_T.bmm(vtp1.unsqueeze(2)).squeeze(2)
+                    qt = c[t] + Ft_T.bmm(Vtp1).bmm(ft.unsqueeze(2)).squeeze(2) + Ft_T.bmm(vtp1.unsqueeze(2)).squeeze(2)
             n_state = self.n_state
             Qt_xx = Qt[:, :n_state, :n_state]
             Qt_xu = Qt[:, :n_state, n_state:]
@@ -686,8 +665,7 @@ class LQRStep(Function):
                     Kt = -(1.0 / Qt_uu) * Qt_ux
                     kt = -(1.0 / Qt_uu.squeeze(2)) * qt_u
                 elif self.u_zero_I is None:
-                    Qt_uu_inv = [torch.pinverse(Qt_uu[i]) for i in range(
-                        Qt_uu.shape[0])]
+                    Qt_uu_inv = [torch.pinverse(Qt_uu[i]) for i in range(Qt_uu.shape[0])]
                     Qt_uu_inv = torch.stack(Qt_uu_inv)
                     Kt = -Qt_uu_inv.bmm(Qt_ux)
                     kt = util.bmv(-Qt_uu_inv, qt_u)
@@ -705,16 +683,14 @@ class LQRStep(Function):
                     Qt_uu_[Qt_uu_I.bool()] = 0.0
                     Qt_uu_[util.bdiag(I).bool()] += 1e-08
                     Qt_ux_ = Qt_ux.clone()
-                    Qt_ux_[I.unsqueeze(2).repeat(1, 1, Qt_ux.size(2)).bool()
-                        ] = 0.0
+                    Qt_ux_[I.unsqueeze(2).repeat(1, 1, Qt_ux.size(2)).bool()] = 0.0
                     if self.n_ctrl == 1:
                         Kt = -(1.0 / Qt_uu_) * Qt_ux_
                         kt = -(1.0 / Qt_uu.squeeze(2)) * qt_u_
                     else:
                         Qt_uu_LU_ = Qt_uu_.lu()
                         Kt = -Qt_ux_.lu_solve(*Qt_uu_LU_)
-                        kt = -qt_u_.unsqueeze(2).lu_solve(*Qt_uu_LU_).squeeze(2
-                            )
+                        kt = -qt_u_.unsqueeze(2).lu_solve(*Qt_uu_LU_).squeeze(2)
             else:
                 assert self.delta_space
                 lb = self.get_bound('lower', t) - u[t]
@@ -722,15 +698,13 @@ class LQRStep(Function):
                 if self.delta_u is not None:
                     lb[lb < -self.delta_u] = -self.delta_u
                     ub[ub > self.delta_u] = self.delta_u
-                kt, Qt_uu_free_LU, If, n_qp_iter = pnqp(Qt_uu, qt_u, lb, ub,
-                    x_init=prev_kt, n_iter=20)
+                kt, Qt_uu_free_LU, If, n_qp_iter = pnqp(Qt_uu, qt_u, lb, ub, x_init=prev_kt, n_iter=20)
                 if self.verbose > 1:
                     print('  + n_qp_iter: ', n_qp_iter + 1)
                 n_total_qp_iter += 1 + n_qp_iter
                 prev_kt = kt
                 Qt_ux_ = Qt_ux.clone()
-                Qt_ux_[(1 - If).unsqueeze(2).repeat(1, 1, Qt_ux.size(2)).bool()
-                    ] = 0
+                Qt_ux_[(1 - If).unsqueeze(2).repeat(1, 1, Qt_ux.size(2)).bool()] = 0
                 if self.n_ctrl == 1:
                     Kt = -(1.0 / Qt_uu_free_LU * Qt_ux_)
                 else:
@@ -738,26 +712,20 @@ class LQRStep(Function):
             Kt_T = Kt.transpose(1, 2)
             Ks.append(Kt)
             ks.append(kt)
-            Vtp1 = Qt_xx + Qt_xu.bmm(Kt) + Kt_T.bmm(Qt_ux) + Kt_T.bmm(Qt_uu
-                ).bmm(Kt)
-            vtp1 = qt_x + Qt_xu.bmm(kt.unsqueeze(2)).squeeze(2) + Kt_T.bmm(qt_u
-                .unsqueeze(2)).squeeze(2) + Kt_T.bmm(Qt_uu).bmm(kt.unsqueeze(2)
-                ).squeeze(2)
+            Vtp1 = Qt_xx + Qt_xu.bmm(Kt) + Kt_T.bmm(Qt_ux) + Kt_T.bmm(Qt_uu).bmm(Kt)
+            vtp1 = qt_x + Qt_xu.bmm(kt.unsqueeze(2)).squeeze(2) + Kt_T.bmm(qt_u.unsqueeze(2)).squeeze(2) + Kt_T.bmm(Qt_uu).bmm(kt.unsqueeze(2)).squeeze(2)
         return Ks, ks, LqrBackOut(n_total_qp_iter=n_total_qp_iter)
 
     def lqr_forward(self, x_init, C, c, F, f, Ks, ks):
         x = self.current_x
         u = self.current_u
         n_batch = C.size(1)
-        old_cost = util.get_cost(self.T, u, self.true_cost, self.
-            true_dynamics, x=x)
+        old_cost = util.get_cost(self.T, u, self.true_cost, self.true_dynamics, x=x)
         current_cost = None
         alphas = torch.ones(n_batch).type_as(C)
         full_du_norm = None
         i = 0
-        while (current_cost is None or old_cost is not None and torch.any(
-            current_cost > old_cost).cpu().item() == 1
-            ) and i < self.max_linesearch_iter:
+        while (current_cost is None or old_cost is not None and torch.any(current_cost > old_cost).cpu().item() == 1) and i < self.max_linesearch_iter:
             new_u = []
             new_x = [x_init]
             dx = [torch.zeros_like(x_init)]
@@ -782,11 +750,9 @@ class LQRStep(Function):
                         lb = u[t] - self.delta_u
                         ub = u[t] + self.delta_u
                         I = lb < lb_limit
-                        lb[I] = lb_limit if isinstance(lb_limit, float
-                            ) else lb_limit[I]
+                        lb[I] = lb_limit if isinstance(lb_limit, float) else lb_limit[I]
                         I = ub > ub_limit
-                        ub[I] = ub_limit if isinstance(lb_limit, float
-                            ) else ub_limit[I]
+                        ub[I] = ub_limit if isinstance(lb_limit, float) else ub_limit[I]
                     new_ut = util.eclamp(new_ut, lb, ub)
                 new_u.append(new_ut)
                 new_xut = torch.cat((new_xt, new_ut), dim=1)
@@ -797,14 +763,12 @@ class LQRStep(Function):
                         if f is not None and f.nelement() > 0:
                             new_xtp1 += f[t]
                     else:
-                        new_xtp1 = self.true_dynamics(Variable(new_xt),
-                            Variable(new_ut)).data
+                        new_xtp1 = self.true_dynamics(Variable(new_xt), Variable(new_ut)).data
                     new_x.append(new_xtp1)
                     dx.append(new_xtp1 - x[t + 1])
                 if isinstance(self.true_cost, mpc.QuadCost):
                     C, c = self.true_cost.C, self.true_cost.c
-                    obj = 0.5 * util.bquad(new_xut, C[t]) + util.bdot(new_xut,
-                        c[t])
+                    obj = 0.5 * util.bquad(new_xut, C[t]) + util.bdot(new_xut, c[t])
                 else:
                     obj = self.true_cost(new_xut)
                 objs.append(obj)
@@ -813,15 +777,12 @@ class LQRStep(Function):
             new_u = torch.stack(new_u)
             new_x = torch.stack(new_x)
             if full_du_norm is None:
-                full_du_norm = (u - new_u).transpose(1, 2).contiguous().view(
-                    n_batch, -1).norm(2, 1)
+                full_du_norm = (u - new_u).transpose(1, 2).contiguous().view(n_batch, -1).norm(2, 1)
             alphas[current_cost > old_cost] *= self.linesearch_decay
             i += 1
         alphas[current_cost > old_cost] /= self.linesearch_decay
-        alpha_du_norm = (u - new_u).transpose(1, 2).contiguous().view(n_batch,
-            -1).norm(2, 1)
-        return new_x, new_u, LqrForOut(objs, full_du_norm, alpha_du_norm,
-            torch.mean(alphas), current_cost)
+        alpha_du_norm = (u - new_u).transpose(1, 2).contiguous().view(n_batch, -1).norm(2, 1)
+        return new_x, new_u, LqrForOut(objs, full_du_norm, alpha_du_norm, torch.mean(alphas), current_cost)
 
     def get_bound(self, side, t):
         v = getattr(self, 'u_' + side)
@@ -902,13 +863,7 @@ class MPC(Module):
             to be updated.
     """
 
-    def __init__(self, n_state, n_ctrl, T, u_lower=None, u_upper=None,
-        u_zero_I=None, u_init=None, lqr_iter=10, grad_method=GradMethods.
-        ANALYTIC, delta_u=None, verbose=0, eps=1e-07, back_eps=1e-07,
-        n_batch=None, linesearch_decay=0.2, max_linesearch_iter=10,
-        exit_unconverged=True, detach_unconverged=True, backprop=True,
-        slew_rate_penalty=None, prev_ctrl=None, not_improved_lim=5,
-        best_cost_eps=0.0001):
+    def __init__(self, n_state, n_ctrl, T, u_lower=None, u_upper=None, u_zero_I=None, u_init=None, lqr_iter=10, grad_method=GradMethods.ANALYTIC, delta_u=None, verbose=0, eps=1e-07, back_eps=1e-07, n_batch=None, linesearch_decay=0.2, max_linesearch_iter=10, exit_unconverged=True, detach_unconverged=True, backprop=True, slew_rate_penalty=None, prev_ctrl=None, not_improved_lim=5, best_cost_eps=0.0001):
         super().__init__()
         assert (u_lower is None) == (u_upper is None)
         assert max_linesearch_iter > 0
@@ -941,10 +896,8 @@ class MPC(Module):
         self.prev_ctrl = prev_ctrl
 
     def forward(self, x_init, cost, dx):
-        assert isinstance(cost, QuadCost) or isinstance(cost, Module
-            ) or isinstance(cost, Function)
-        assert isinstance(dx, LinDx) or isinstance(dx, Module) or isinstance(dx
-            , Function)
+        assert isinstance(cost, QuadCost) or isinstance(cost, Module) or isinstance(cost, Function)
+        assert isinstance(dx, LinDx) or isinstance(dx, Module) or isinstance(dx, Function)
         if self.n_batch is not None:
             n_batch = self.n_batch
         elif isinstance(cost, QuadCost) and cost.C.ndimension() == 4:
@@ -955,11 +908,9 @@ class MPC(Module):
         if isinstance(cost, QuadCost):
             C, c = cost
             if C.ndimension() == 2:
-                C = C.unsqueeze(0).unsqueeze(0).expand(self.T, n_batch, 
-                    self.n_state + self.n_ctrl, -1)
+                C = C.unsqueeze(0).unsqueeze(0).expand(self.T, n_batch, self.n_state + self.n_ctrl, -1)
             elif C.ndimension() == 3:
-                C = C.unsqueeze(1).expand(self.T, n_batch, self.n_state +
-                    self.n_ctrl, -1)
+                C = C.unsqueeze(1).expand(self.T, n_batch, self.n_state + self.n_ctrl, -1)
             if c.ndimension() == 1:
                 c = c.unsqueeze(0).unsqueeze(0).expand(self.T, n_batch, -1)
             elif c.ndimension() == 2:
@@ -986,41 +937,29 @@ class MPC(Module):
             if isinstance(dx, LinDx):
                 F, f = dx.F, dx.f
             else:
-                F, f = self.linearize_dynamics(x, util.detach_maybe(u), dx,
-                    diff=False)
+                F, f = self.linearize_dynamics(x, util.detach_maybe(u), dx, diff=False)
             if isinstance(cost, QuadCost):
                 C, c = cost.C, cost.c
             else:
-                C, c, _ = self.approximate_cost(x, util.detach_maybe(u),
-                    cost, diff=False)
-            x, u, _lqr = self.solve_lqr_subproblem(x_init, C, c, F, f, cost,
-                dx, x, u)
+                C, c, _ = self.approximate_cost(x, util.detach_maybe(u), cost, diff=False)
+            x, u, _lqr = self.solve_lqr_subproblem(x_init, C, c, F, f, cost, dx, x, u)
             back_out, for_out = _lqr.back_out, _lqr.for_out
             n_not_improved += 1
             assert x.ndimension() == 3
             assert u.ndimension() == 3
             if best is None:
-                best = {'x': list(torch.split(x, split_size_or_sections=1,
-                    dim=1)), 'u': list(torch.split(u,
-                    split_size_or_sections=1, dim=1)), 'costs': for_out.
-                    costs, 'full_du_norm': for_out.full_du_norm}
+                best = {'x': list(torch.split(x, split_size_or_sections=1, dim=1)), 'u': list(torch.split(u, split_size_or_sections=1, dim=1)), 'costs': for_out.costs, 'full_du_norm': for_out.full_du_norm}
             else:
                 for j in range(n_batch):
-                    if for_out.costs[j] <= best['costs'][j
-                        ] + self.best_cost_eps:
+                    if for_out.costs[j] <= best['costs'][j] + self.best_cost_eps:
                         n_not_improved = 0
                         best['x'][j] = x[:, (j)].unsqueeze(1)
                         best['u'][j] = u[:, (j)].unsqueeze(1)
                         best['costs'][j] = for_out.costs[j]
                         best['full_du_norm'][j] = for_out.full_du_norm[j]
             if self.verbose > 0:
-                util.table_log('lqr', (('iter', i), ('mean(cost)', torch.
-                    mean(best['costs']).item(), '{:.4e}'), (
-                    '||full_du||_max', max(for_out.full_du_norm).item(),
-                    '{:.2e}'), ('mean(alphas)', for_out.mean_alphas.item(),
-                    '{:.2e}'), ('total_qp_iters', back_out.n_total_qp_iter)))
-            if max(for_out.full_du_norm
-                ) < self.eps or n_not_improved > self.not_improved_lim:
+                util.table_log('lqr', (('iter', i), ('mean(cost)', torch.mean(best['costs']).item(), '{:.4e}'), ('||full_du||_max', max(for_out.full_du_norm).item(), '{:.2e}'), ('mean(alphas)', for_out.mean_alphas.item(), '{:.2e}'), ('total_qp_iters', back_out.n_total_qp_iter)))
+            if max(for_out.full_du_norm) < self.eps or n_not_improved > self.not_improved_lim:
                 break
         x = torch.cat(best['x'], dim=1)
         u = torch.cat(best['u'], dim=1)
@@ -1033,8 +972,7 @@ class MPC(Module):
             C, c = cost.C, cost.c
         else:
             C, c, _ = self.approximate_cost(x, u, cost, diff=True)
-        x, u, _ = self.solve_lqr_subproblem(x_init, C, c, F, f, cost, dx, x,
-            u, no_op_forward=True)
+        x, u, _ = self.solve_lqr_subproblem(x_init, C, c, F, f, cost, dx, x, u, no_op_forward=True)
         if self.detach_unconverged:
             if max(best['full_du_norm']) > self.eps:
                 if self.exit_unconverged:
@@ -1043,26 +981,16 @@ class MPC(Module):
                     None
                     None
                 I = for_out.full_du_norm < self.eps
-                Ix = Variable(I.unsqueeze(0).unsqueeze(2).expand_as(x)
-                    ).type_as(x.data)
-                Iu = Variable(I.unsqueeze(0).unsqueeze(2).expand_as(u)
-                    ).type_as(u.data)
+                Ix = Variable(I.unsqueeze(0).unsqueeze(2).expand_as(x)).type_as(x.data)
+                Iu = Variable(I.unsqueeze(0).unsqueeze(2).expand_as(u)).type_as(u.data)
                 x = x * Ix + x.clone().detach() * (1.0 - Ix)
                 u = u * Iu + u.clone().detach() * (1.0 - Iu)
         costs = best['costs']
         return x, u, costs
 
-    def solve_lqr_subproblem(self, x_init, C, c, F, f, cost, dynamics, x, u,
-        no_op_forward=False):
+    def solve_lqr_subproblem(self, x_init, C, c, F, f, cost, dynamics, x, u, no_op_forward=False):
         if self.slew_rate_penalty is None or isinstance(cost, Module):
-            _lqr = LQRStep(n_state=self.n_state, n_ctrl=self.n_ctrl, T=self
-                .T, u_lower=self.u_lower, u_upper=self.u_upper, u_zero_I=
-                self.u_zero_I, true_cost=cost, true_dynamics=dynamics,
-                delta_u=self.delta_u, linesearch_decay=self.
-                linesearch_decay, max_linesearch_iter=self.
-                max_linesearch_iter, delta_space=True, current_x=x,
-                current_u=u, back_eps=self.back_eps, no_op_forward=
-                no_op_forward)
+            _lqr = LQRStep(n_state=self.n_state, n_ctrl=self.n_ctrl, T=self.T, u_lower=self.u_lower, u_upper=self.u_upper, u_zero_I=self.u_zero_I, true_cost=cost, true_dynamics=dynamics, delta_u=self.delta_u, linesearch_decay=self.linesearch_decay, max_linesearch_iter=self.max_linesearch_iter, delta_space=True, current_x=x, current_u=u, back_eps=self.back_eps, no_op_forward=no_op_forward)
             e = Variable(torch.Tensor())
             x, u = _lqr(x_init, C, c, F, f if f is not None else e)
             return x, u, _lqr
@@ -1072,25 +1000,19 @@ class MPC(Module):
             _nsc = _n_state + self.n_ctrl
             n_batch = C.size(1)
             _C = torch.zeros(self.T, n_batch, _nsc, _nsc).type_as(C)
-            half_gamI = self.slew_rate_penalty * torch.eye(self.n_ctrl
-                ).unsqueeze(0).unsqueeze(0).repeat(self.T, n_batch, 1, 1)
+            half_gamI = self.slew_rate_penalty * torch.eye(self.n_ctrl).unsqueeze(0).unsqueeze(0).repeat(self.T, n_batch, 1, 1)
             _C[:, :, :self.n_ctrl, :self.n_ctrl] = half_gamI
             _C[:, :, -self.n_ctrl:, :self.n_ctrl] = -half_gamI
             _C[:, :, :self.n_ctrl, -self.n_ctrl:] = -half_gamI
             _C[:, :, -self.n_ctrl:, -self.n_ctrl:] = half_gamI
             slew_C = _C.clone()
             _C = _C + torch.nn.ZeroPad2d((self.n_ctrl, 0, self.n_ctrl, 0))(C)
-            _c = torch.cat((torch.zeros(self.T, n_batch, self.n_ctrl).
-                type_as(c), c), 2)
-            _F0 = torch.cat((torch.zeros(self.n_ctrl, self.n_state + self.
-                n_ctrl), torch.eye(self.n_ctrl)), 1).type_as(F).unsqueeze(0
-                ).unsqueeze(0).repeat(self.T - 1, n_batch, 1, 1)
-            _F1 = torch.cat((torch.zeros(self.T - 1, n_batch, self.n_state,
-                self.n_ctrl).type_as(F), F), 3)
+            _c = torch.cat((torch.zeros(self.T, n_batch, self.n_ctrl).type_as(c), c), 2)
+            _F0 = torch.cat((torch.zeros(self.n_ctrl, self.n_state + self.n_ctrl), torch.eye(self.n_ctrl)), 1).type_as(F).unsqueeze(0).unsqueeze(0).repeat(self.T - 1, n_batch, 1, 1)
+            _F1 = torch.cat((torch.zeros(self.T - 1, n_batch, self.n_state, self.n_ctrl).type_as(F), F), 3)
             _F = torch.cat((_F0, _F1), 2)
             if f is not None:
-                _f = torch.cat((torch.zeros(self.T - 1, n_batch, self.
-                    n_ctrl).type_as(f), f), 2)
+                _f = torch.cat((torch.zeros(self.T - 1, n_batch, self.n_ctrl).type_as(f), f), 2)
             else:
                 _f = Variable(torch.Tensor())
             u_data = util.detach_maybe(u)
@@ -1113,16 +1035,8 @@ class MPC(Module):
             if isinstance(cost, QuadCost):
                 _true_cost = QuadCost(_C, _c)
             else:
-                _true_cost = SlewRateCost(cost, slew_C, self.n_state, self.
-                    n_ctrl)
-            _lqr = LQRStep(n_state=_n_state, n_ctrl=self.n_ctrl, T=self.T,
-                u_lower=self.u_lower, u_upper=self.u_upper, u_zero_I=self.
-                u_zero_I, true_cost=_true_cost, true_dynamics=_dynamics,
-                delta_u=self.delta_u, linesearch_decay=self.
-                linesearch_decay, max_linesearch_iter=self.
-                max_linesearch_iter, delta_space=True, current_x=_x,
-                current_u=u, back_eps=self.back_eps, no_op_forward=
-                no_op_forward)
+                _true_cost = SlewRateCost(cost, slew_C, self.n_state, self.n_ctrl)
+            _lqr = LQRStep(n_state=_n_state, n_ctrl=self.n_ctrl, T=self.T, u_lower=self.u_lower, u_upper=self.u_upper, u_zero_I=self.u_zero_I, true_cost=_true_cost, true_dynamics=_dynamics, delta_u=self.delta_u, linesearch_decay=self.linesearch_decay, max_linesearch_iter=self.max_linesearch_iter, delta_space=True, current_x=_x, current_u=u, back_eps=self.back_eps, no_op_forward=no_op_forward)
             x, u = _lqr(_x_init, _C, _c, _F, _f)
             x = x[:, :, self.n_ctrl:]
             return x, u, _lqr
@@ -1134,10 +1048,8 @@ class MPC(Module):
             if self.slew_rate_penalty is not None:
                 None
                 sys.exit(-1)
-                differences = tau[1:, :, -self.n_ctrl:] - tau[:-1, :, -self
-                    .n_ctrl:]
-                slew_penalty = (self.slew_rate_penalty * differences.pow(2)
-                    ).sum(-1)
+                differences = tau[1:, :, -self.n_ctrl:] - tau[:-1, :, -self.n_ctrl:]
+                slew_penalty = (self.slew_rate_penalty * differences.pow(2)).sum(-1)
             costs = list()
             hessians = list()
             grads = list()
@@ -1147,12 +1059,10 @@ class MPC(Module):
                     cost = Cf(tau_t) + (slew_penalty[t - 1] if t > 0 else 0)
                 else:
                     cost = Cf(tau_t)
-                grad = torch.autograd.grad(cost.sum(), tau_t, retain_graph=True
-                    )[0]
+                grad = torch.autograd.grad(cost.sum(), tau_t, retain_graph=True)[0]
                 hessian = list()
                 for v_i in range(tau.shape[2]):
-                    hessian.append(torch.autograd.grad(grad[:, (v_i)].sum(),
-                        tau_t, retain_graph=True)[0])
+                    hessian.append(torch.autograd.grad(grad[:, (v_i)].sum(), tau_t, retain_graph=True)[0])
                 hessian = torch.stack(hessian, dim=-1)
                 costs.append(cost)
                 grads.append(grad - util.bmv(hessian, tau_t))
@@ -1168,8 +1078,7 @@ class MPC(Module):
         n_batch = x[0].size(0)
         if self.grad_method == GradMethods.ANALYTIC:
             _u = Variable(u[:-1].view(-1, self.n_ctrl), requires_grad=True)
-            _x = Variable(x[:-1].contiguous().view(-1, self.n_state),
-                requires_grad=True)
+            _x = Variable(x[:-1].contiguous().view(-1, self.n_state), requires_grad=True)
             _new_x = dynamics(_x, _u)
             if not diff:
                 _new_x = _new_x.data
@@ -1178,10 +1087,8 @@ class MPC(Module):
             R, S = dynamics.grad_input(_x, _u)
             f = _new_x - util.bmv(R, _x) - util.bmv(S, _u)
             f = f.view(self.T - 1, n_batch, self.n_state)
-            R = R.contiguous().view(self.T - 1, n_batch, self.n_state, self
-                .n_state)
-            S = S.contiguous().view(self.T - 1, n_batch, self.n_state, self
-                .n_ctrl)
+            R = R.contiguous().view(self.T - 1, n_batch, self.n_state, self.n_state)
+            S = S.contiguous().view(self.T - 1, n_batch, self.n_state, self.n_ctrl)
             F = torch.cat((R, S), 3)
             if not diff:
                 F, f = list(map(Variable, [F, f]))
@@ -1196,12 +1103,10 @@ class MPC(Module):
                     ut = Variable(u[t], requires_grad=True)
                     xut = torch.cat((xt, ut), 1)
                     new_x = dynamics(xt, ut)
-                    if self.grad_method in [GradMethods.AUTO_DIFF,
-                        GradMethods.ANALYTIC_CHECK]:
+                    if self.grad_method in [GradMethods.AUTO_DIFF, GradMethods.ANALYTIC_CHECK]:
                         Rt, St = [], []
                         for j in range(self.n_state):
-                            Rj, Sj = torch.autograd.grad(new_x[:, (j)].sum(
-                                ), [xt, ut], retain_graph=True)
+                            Rj, Sj = torch.autograd.grad(new_x[:, (j)].sum(), [xt, ut], retain_graph=True)
                             if not diff:
                                 Rj, Sj = Rj.data, Sj.data
                             Rt.append(Rj)
@@ -1213,9 +1118,7 @@ class MPC(Module):
                             Rt_autograd, St_autograd = Rt, St
                             Rt, St = dynamics.grad_input(xt, ut)
                             eps = 1e-08
-                            if torch.max(torch.abs(Rt - Rt_autograd)).data[0
-                                ] > eps or torch.max(torch.abs(St -
-                                St_autograd)).data[0] > eps:
+                            if torch.max(torch.abs(Rt - Rt_autograd)).data[0] > eps or torch.max(torch.abs(St - St_autograd)).data[0] > eps:
                                 None
                             else:
                                 None
@@ -1223,10 +1126,8 @@ class MPC(Module):
                     elif self.grad_method == GradMethods.FINITE_DIFF:
                         Rt, St = [], []
                         for i in range(n_batch):
-                            Ri = util.jacobian(lambda s: dynamics(s, ut[i]),
-                                xt[i], 0.0001)
-                            Si = util.jacobian(lambda a: dynamics(xt[i], a),
-                                ut[i], 0.0001)
+                            Ri = util.jacobian(lambda s: dynamics(s, ut[i]), xt[i], 0.0001)
+                            Si = util.jacobian(lambda a: dynamics(xt[i], a), ut[i], 0.0001)
                             if not diff:
                                 Ri, Si = Ri.data, Si.data
                             Rt.append(Ri)
@@ -1254,9 +1155,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NNDynamics,
+     lambda: ([], {'n_state': 4, 'n_ctrl': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_locuslab_mpc_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(NNDynamics(*[], **{'n_state': 4, 'n_ctrl': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

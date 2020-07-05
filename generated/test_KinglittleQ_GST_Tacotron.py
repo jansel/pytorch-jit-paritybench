@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,15 +82,11 @@ class ReferenceEncoder(nn.Module):
         super().__init__()
         K = len(hp.ref_enc_filters)
         filters = [1] + hp.ref_enc_filters
-        convs = [nn.Conv2d(in_channels=filters[i], out_channels=filters[i +
-            1], kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)) for i in
-            range(K)]
+        convs = [nn.Conv2d(in_channels=filters[i], out_channels=filters[i + 1], kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)) for i in range(K)]
         self.convs = nn.ModuleList(convs)
-        self.bns = nn.ModuleList([nn.BatchNorm2d(num_features=hp.
-            ref_enc_filters[i]) for i in range(K)])
+        self.bns = nn.ModuleList([nn.BatchNorm2d(num_features=hp.ref_enc_filters[i]) for i in range(K)])
         out_channels = self.calculate_channels(hp.n_mels, 3, 2, 1, K)
-        self.gru = nn.GRU(input_size=hp.ref_enc_filters[-1] * out_channels,
-            hidden_size=hp.E // 2, batch_first=True)
+        self.gru = nn.GRU(input_size=hp.ref_enc_filters[-1] * out_channels, hidden_size=hp.E // 2, batch_first=True)
 
     def forward(self, inputs):
         N = inputs.size(0)
@@ -119,12 +116,10 @@ class STL(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.embed = nn.Parameter(torch.FloatTensor(hp.token_num, hp.E //
-            hp.num_heads))
+        self.embed = nn.Parameter(torch.FloatTensor(hp.token_num, hp.E // hp.num_heads))
         d_q = hp.E // 2
         d_k = hp.E // hp.num_heads
-        self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k,
-            num_units=hp.E, num_heads=hp.num_heads)
+        self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k, num_units=hp.E, num_heads=hp.num_heads)
         init.normal_(self.embed, mean=0, std=0.5)
 
     def forward(self, inputs):
@@ -149,12 +144,9 @@ class MultiHeadAttention(nn.Module):
         self.num_units = num_units
         self.num_heads = num_heads
         self.key_dim = key_dim
-        self.W_query = nn.Linear(in_features=query_dim, out_features=
-            num_units, bias=False)
-        self.W_key = nn.Linear(in_features=key_dim, out_features=num_units,
-            bias=False)
-        self.W_value = nn.Linear(in_features=key_dim, out_features=
-            num_units, bias=False)
+        self.W_query = nn.Linear(in_features=query_dim, out_features=num_units, bias=False)
+        self.W_key = nn.Linear(in_features=key_dim, out_features=num_units, bias=False)
+        self.W_value = nn.Linear(in_features=key_dim, out_features=num_units, bias=False)
 
     def forward(self, query, key):
         querys = self.W_query(query)
@@ -203,8 +195,7 @@ class MultiHeadAttention2(nn.Module):
         attention = F.softmax(attention, dim=-1)
         attention = torch.matmul(attention, V)
         restore_chunk_size = int(attention.size(0) / self._h)
-        attention = torch.cat(attention.split(split_size=restore_chunk_size,
-            dim=0), dim=2)
+        attention = torch.cat(attention.split(split_size=restore_chunk_size, dim=0), dim=2)
         return attention
 
 
@@ -216,15 +207,13 @@ class TacotronLoss(nn.Module):
     def forward(self, mels, mels_hat, mags, mags_hat):
         mel_loss = torch.mean(torch.abs(mels - mels_hat))
         mag_loss = torch.abs(mags - mags_hat)
-        mag_loss = 0.5 * torch.mean(mag_loss) + 0.5 * torch.mean(mag_loss[:,
-            :, :hp.n_priority_freq])
+        mag_loss = 0.5 * torch.mean(mag_loss) + 0.5 * torch.mean(mag_loss[:, :, :hp.n_priority_freq])
         return mel_loss, mag_loss
 
 
 class Conv1d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding='same'):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding='same'):
         """
         inputs: [N, T, C_in]
         outputs: [N, T, C_out]
@@ -347,8 +336,7 @@ class AttentionRNN(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.gru = nn.GRU(input_size=hp.E // 2, hidden_size=hp.E,
-            batch_first=True, bidirectional=False)
+        self.gru = nn.GRU(input_size=hp.E // 2, hidden_size=hp.E, batch_first=True, bidirectional=False)
         self.W = nn.Linear(in_features=hp.E, out_features=hp.E, bias=False)
         self.U = nn.Linear(in_features=hp.E, out_features=hp.E, bias=False)
         self.v = nn.Linear(in_features=hp.E, out_features=1, bias=False)
@@ -423,20 +411,15 @@ class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.prenet = PreNet(in_features=hp.E)
-        self.conv1d_bank = Conv1dBank(K=hp.K, in_channels=hp.E // 2,
-            out_channels=hp.E // 2)
-        self.conv1d_1 = Conv1d(in_channels=hp.K * hp.E // 2, out_channels=
-            hp.E // 2, kernel_size=3)
-        self.conv1d_2 = Conv1d(in_channels=hp.E // 2, out_channels=hp.E // 
-            2, kernel_size=3)
+        self.conv1d_bank = Conv1dBank(K=hp.K, in_channels=hp.E // 2, out_channels=hp.E // 2)
+        self.conv1d_1 = Conv1d(in_channels=hp.K * hp.E // 2, out_channels=hp.E // 2, kernel_size=3)
+        self.conv1d_2 = Conv1d(in_channels=hp.E // 2, out_channels=hp.E // 2, kernel_size=3)
         self.bn1 = BatchNorm1d(num_features=hp.E // 2)
         self.bn2 = BatchNorm1d(num_features=hp.E // 2)
         self.highways = nn.ModuleList()
         for i in range(hp.num_highways):
-            self.highways.append(Highway(in_features=hp.E // 2,
-                out_features=hp.E // 2))
-        self.gru = nn.GRU(input_size=hp.E // 2, hidden_size=hp.E // 2,
-            num_layers=2, bidirectional=True, batch_first=True)
+            self.highways.append(Highway(in_features=hp.E // 2, out_features=hp.E // 2))
+        self.gru = nn.GRU(input_size=hp.E // 2, hidden_size=hp.E // 2, num_layers=2, bidirectional=True, batch_first=True)
 
     def forward(self, inputs, prev_hidden=None):
         inputs = self.prenet(inputs)
@@ -470,12 +453,9 @@ class Decoder(nn.Module):
         super().__init__()
         self.prenet = PreNet(hp.n_mels)
         self.attn_rnn = AttentionRNN()
-        self.attn_projection = nn.Linear(in_features=2 * hp.E, out_features
-            =hp.E)
-        self.gru1 = nn.GRU(input_size=hp.E, hidden_size=hp.E, batch_first=
-            True, bidirectional=False)
-        self.gru2 = nn.GRU(input_size=hp.E, hidden_size=hp.E, batch_first=
-            True, bidirectional=False)
+        self.attn_projection = nn.Linear(in_features=2 * hp.E, out_features=hp.E)
+        self.gru1 = nn.GRU(input_size=hp.E, hidden_size=hp.E, batch_first=True, bidirectional=False)
+        self.gru2 = nn.GRU(input_size=hp.E, hidden_size=hp.E, batch_first=True, bidirectional=False)
         self.fc1 = nn.Linear(in_features=hp.E, out_features=hp.n_mels * hp.r)
         self.cbhg = DecoderCBHG()
         self.fc2 = nn.Linear(in_features=hp.E, out_features=1 + hp.n_fft // 2)
@@ -485,8 +465,7 @@ class Decoder(nn.Module):
             outputs = self.prenet(inputs)
             attn_weights, outputs, attn_hidden = self.attn_rnn(outputs, memory)
             attn_apply = torch.bmm(attn_weights, memory)
-            attn_project = self.attn_projection(torch.cat([attn_apply,
-                outputs], dim=2))
+            attn_project = self.attn_projection(torch.cat([attn_apply, outputs], dim=2))
             self.gru1.flatten_parameters()
             outputs1, gru1_hidden = self.gru1(attn_project)
             gru_outputs1 = outputs1 + attn_project
@@ -506,12 +485,10 @@ class Decoder(nn.Module):
             attn_weights = []
             for i in range(hp.max_Ty):
                 inputs = self.prenet(inputs)
-                attn_weight, outputs, attn_hidden = self.attn_rnn(inputs,
-                    memory, attn_hidden)
+                attn_weight, outputs, attn_hidden = self.attn_rnn(inputs, memory, attn_hidden)
                 attn_weights.append(attn_weight)
                 attn_apply = torch.bmm(attn_weight, memory)
-                attn_project = self.attn_projection(torch.cat([attn_apply,
-                    outputs], dim=-1))
+                attn_project = self.attn_projection(torch.cat([attn_apply, outputs], dim=-1))
                 self.gru1.flatten_parameters()
                 outputs1, gru1_hidden = self.gru1(attn_project, gru1_hidden)
                 outputs1 = outputs1 + attn_project
@@ -539,20 +516,15 @@ class DecoderCBHG(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.conv1d_bank = Conv1dBank(K=hp.decoder_K, in_channels=hp.n_mels,
-            out_channels=hp.E // 2)
-        self.conv1d_1 = Conv1d(in_channels=hp.decoder_K * hp.E // 2,
-            out_channels=hp.E, kernel_size=3)
+        self.conv1d_bank = Conv1dBank(K=hp.decoder_K, in_channels=hp.n_mels, out_channels=hp.E // 2)
+        self.conv1d_1 = Conv1d(in_channels=hp.decoder_K * hp.E // 2, out_channels=hp.E, kernel_size=3)
         self.bn1 = BatchNorm1d(hp.E)
-        self.conv1d_2 = Conv1d(in_channels=hp.E, out_channels=hp.n_mels,
-            kernel_size=3)
+        self.conv1d_2 = Conv1d(in_channels=hp.E, out_channels=hp.n_mels, kernel_size=3)
         self.bn2 = BatchNorm1d(hp.n_mels)
         self.highways = nn.ModuleList()
         for i in range(hp.num_highways):
-            self.highways.append(Highway(in_features=hp.n_mels,
-                out_features=hp.n_mels))
-        self.gru = nn.GRU(input_size=hp.n_mels, hidden_size=hp.E // 2,
-            num_layers=2, bidirectional=True, batch_first=True)
+            self.highways.append(Highway(in_features=hp.n_mels, out_features=hp.n_mels))
+        self.gru = nn.GRU(input_size=hp.n_mels, hidden_size=hp.E // 2, num_layers=2, bidirectional=True, batch_first=True)
 
     def forward(self, inputs, prev_hidden=None):
         inputs = inputs.view(inputs.size(0), -1, hp.n_mels)
@@ -575,21 +547,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Conv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Conv1dBank,
+     lambda: ([], {'K': 4, 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Highway,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadAttention,
+     lambda: ([], {'query_dim': 4, 'key_dim': 4, 'num_units': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_KinglittleQ_GST_Tacotron(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BatchNorm1d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Conv1dBank(*[], **{'K': 4, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Highway(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MultiHeadAttention(*[], **{'query_dim': 4, 'key_dim': 4, 'num_units': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

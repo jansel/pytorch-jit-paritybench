@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,8 +62,7 @@ class CompactBilinearPooling(nn.Module):
                   None.
     """
 
-    def __init__(self, input_dim1, input_dim2, output_dim, sum_pool=True,
-        cuda=True, rand_h_1=None, rand_s_1=None, rand_h_2=None, rand_s_2=None):
+    def __init__(self, input_dim1, input_dim2, output_dim, sum_pool=True, cuda=True, rand_h_1=None, rand_s_1=None, rand_h_2=None, rand_s_2=None):
         super(CompactBilinearPooling, self).__init__()
         self.input_dim1 = input_dim1
         self.input_dim2 = input_dim2
@@ -74,16 +74,14 @@ class CompactBilinearPooling(nn.Module):
         if rand_s_1 is None:
             np.random.seed(3)
             rand_s_1 = 2 * np.random.randint(2, size=self.input_dim1) - 1
-        self.sparse_sketch_matrix1 = Variable(self.generate_sketch_matrix(
-            rand_h_1, rand_s_1, self.output_dim))
+        self.sparse_sketch_matrix1 = Variable(self.generate_sketch_matrix(rand_h_1, rand_s_1, self.output_dim))
         if rand_h_2 is None:
             np.random.seed(5)
             rand_h_2 = np.random.randint(output_dim, size=self.input_dim2)
         if rand_s_2 is None:
             np.random.seed(7)
             rand_s_2 = 2 * np.random.randint(2, size=self.input_dim2) - 1
-        self.sparse_sketch_matrix2 = Variable(self.generate_sketch_matrix(
-            rand_h_2, rand_s_2, self.output_dim))
+        self.sparse_sketch_matrix2 = Variable(self.generate_sketch_matrix(rand_h_2, rand_s_2, self.output_dim))
         if cuda:
             self.sparse_sketch_matrix1 = self.sparse_sketch_matrix1
             self.sparse_sketch_matrix2 = self.sparse_sketch_matrix2
@@ -93,19 +91,14 @@ class CompactBilinearPooling(nn.Module):
         bottom1: 1st input, 4D Tensor of shape [batch_size, input_dim1, height, width].
         bottom2: 2nd input, 4D Tensor of shape [batch_size, input_dim2, height, width].
         """
-        assert bottom1.size(1) == self.input_dim1 and bottom2.size(1
-            ) == self.input_dim2
+        assert bottom1.size(1) == self.input_dim1 and bottom2.size(1) == self.input_dim2
         batch_size, _, height, width = bottom1.size()
-        bottom1_flat = bottom1.permute(0, 2, 3, 1).contiguous().view(-1,
-            self.input_dim1)
-        bottom2_flat = bottom2.permute(0, 2, 3, 1).contiguous().view(-1,
-            self.input_dim2)
+        bottom1_flat = bottom1.permute(0, 2, 3, 1).contiguous().view(-1, self.input_dim1)
+        bottom2_flat = bottom2.permute(0, 2, 3, 1).contiguous().view(-1, self.input_dim2)
         sketch_1 = bottom1_flat.mm(self.sparse_sketch_matrix1)
         sketch_2 = bottom2_flat.mm(self.sparse_sketch_matrix2)
-        fft1_real, fft1_imag = afft.Fft()(sketch_1, Variable(torch.zeros(
-            sketch_1.size())))
-        fft2_real, fft2_imag = afft.Fft()(sketch_2, Variable(torch.zeros(
-            sketch_2.size())))
+        fft1_real, fft1_imag = afft.Fft()(sketch_1, Variable(torch.zeros(sketch_1.size())))
+        fft2_real, fft2_imag = afft.Fft()(sketch_2, Variable(torch.zeros(sketch_2.size())))
         fft_product_real = fft1_real.mul(fft2_real) - fft1_imag.mul(fft2_imag)
         fft_product_imag = fft1_real.mul(fft2_imag) + fft1_imag.mul(fft2_real)
         cbp_flat = afft.Ifft()(fft_product_real, fft_product_imag)[0]
@@ -128,22 +121,12 @@ class CompactBilinearPooling(nn.Module):
         """
         rand_h = rand_h.astype(np.int64)
         rand_s = rand_s.astype(np.float32)
-        assert rand_h.ndim == 1 and rand_s.ndim == 1 and len(rand_h) == len(
-            rand_s)
+        assert rand_h.ndim == 1 and rand_s.ndim == 1 and len(rand_h) == len(rand_s)
         assert np.all(rand_h >= 0) and np.all(rand_h < output_dim)
         input_dim = len(rand_h)
-        indices = np.concatenate((np.arange(input_dim)[..., np.newaxis],
-            rand_h[..., np.newaxis]), axis=1)
+        indices = np.concatenate((np.arange(input_dim)[..., np.newaxis], rand_h[..., np.newaxis]), axis=1)
         indices = torch.from_numpy(indices)
         rand_s = torch.from_numpy(rand_s)
-        sparse_sketch_matrix = torch.sparse.FloatTensor(indices.t(), rand_s,
-            torch.Size([input_dim, output_dim]))
+        sparse_sketch_matrix = torch.sparse.FloatTensor(indices.t(), rand_s, torch.Size([input_dim, output_dim]))
         return sparse_sketch_matrix.to_dense()
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_DeepInsight_PCALab_CompactBilinearPooling_Pytorch(_paritybench_base):
-    pass

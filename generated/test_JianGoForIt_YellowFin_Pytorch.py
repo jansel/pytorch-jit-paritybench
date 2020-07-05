@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -156,8 +157,7 @@ def batch_matmul_bias(seq, weight, bias, nonlinearity=''):
 
 class AttentionWordRNN(nn.Module):
 
-    def __init__(self, batch_size, num_tokens, embed_size, word_gru_hidden,
-        bidirectional=True, init_range=0.1, use_lstm=False):
+    def __init__(self, batch_size, num_tokens, embed_size, word_gru_hidden, bidirectional=True, init_range=0.1, use_lstm=False):
         super(AttentionWordRNN, self).__init__()
         self.batch_size = batch_size
         self.num_tokens = num_tokens
@@ -169,28 +169,20 @@ class AttentionWordRNN(nn.Module):
         if bidirectional == True:
             if use_lstm:
                 None
-                self.word_gru = nn.LSTM(embed_size, word_gru_hidden,
-                    bidirectional=True)
+                self.word_gru = nn.LSTM(embed_size, word_gru_hidden, bidirectional=True)
             else:
-                self.word_gru = nn.GRU(embed_size, word_gru_hidden,
-                    bidirectional=True)
-            self.weight_W_word = nn.Parameter(torch.Tensor(2 *
-                word_gru_hidden, 2 * word_gru_hidden))
+                self.word_gru = nn.GRU(embed_size, word_gru_hidden, bidirectional=True)
+            self.weight_W_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 2 * word_gru_hidden))
             self.bias_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 1))
-            self.weight_proj_word = nn.Parameter(torch.Tensor(2 *
-                word_gru_hidden, 1))
+            self.weight_proj_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 1))
         else:
             if use_lstm:
-                self.word_gru = nn.LSTM(embed_size, word_gru_hidden,
-                    bidirectional=False)
+                self.word_gru = nn.LSTM(embed_size, word_gru_hidden, bidirectional=False)
             else:
-                self.word_gru = nn.GRU(embed_size, word_gru_hidden,
-                    bidirectional=False)
-            self.weight_W_word = nn.Parameter(torch.Tensor(word_gru_hidden,
-                word_gru_hidden))
+                self.word_gru = nn.GRU(embed_size, word_gru_hidden, bidirectional=False)
+            self.weight_W_word = nn.Parameter(torch.Tensor(word_gru_hidden, word_gru_hidden))
             self.bias_word = nn.Parameter(torch.Tensor(word_gru_hidden, 1))
-            self.weight_proj_word = nn.Parameter(torch.Tensor(
-                word_gru_hidden, 1))
+            self.weight_proj_word = nn.Parameter(torch.Tensor(word_gru_hidden, 1))
         self.softmax_word = nn.Softmax()
         self.weight_W_word.data.uniform_(-init_range, init_range)
         self.weight_proj_word.data.uniform_(-init_range, init_range)
@@ -198,36 +190,27 @@ class AttentionWordRNN(nn.Module):
     def forward(self, embed, state_word):
         embedded = self.lookup(embed)
         output_word, state_word = self.word_gru(embedded, state_word)
-        word_squish = batch_matmul_bias(output_word, self.weight_W_word,
-            self.bias_word, nonlinearity='tanh')
+        word_squish = batch_matmul_bias(output_word, self.weight_W_word, self.bias_word, nonlinearity='tanh')
         word_attn = batch_matmul(word_squish, self.weight_proj_word)
         word_attn_norm = self.softmax_word(word_attn.transpose(1, 0))
-        word_attn_vectors = attention_mul(output_word, word_attn_norm.
-            transpose(1, 0))
+        word_attn_vectors = attention_mul(output_word, word_attn_norm.transpose(1, 0))
         return word_attn_vectors, state_word, word_attn_norm
 
     def init_hidden(self):
         if self.bidirectional == True:
             if self.use_lstm == True:
-                return [Variable(torch.zeros(2, self.batch_size, self.
-                    word_gru_hidden)), Variable(torch.zeros(2, self.
-                    batch_size, self.word_gru_hidden))]
+                return [Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden)), Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden))]
             else:
-                return Variable(torch.zeros(2, self.batch_size, self.
-                    word_gru_hidden))
+                return Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden))
         elif self.use_lstm == True:
-            return [Variable(torch.zeros(1, self.batch_size, self.
-                word_gru_hidden)), Variable(torch.zeros(1, self.batch_size,
-                self.word_gru_hidden))]
+            return [Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden)), Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden))]
         else:
-            return Variable(torch.zeros(1, self.batch_size, self.
-                word_gru_hidden))
+            return Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden))
 
 
 class MixtureSoftmax(nn.Module):
 
-    def __init__(self, batch_size, word_gru_hidden, feature_dim, n_classes,
-        bidirectional=True):
+    def __init__(self, batch_size, word_gru_hidden, feature_dim, n_classes, bidirectional=True):
         super(MixtureSoftmax, self).__init__()
         word_gru_hidden = 0
         self.batch_size = batch_size
@@ -235,11 +218,9 @@ class MixtureSoftmax(nn.Module):
         self.word_gru_hidden = word_gru_hidden
         self.feature_dim = feature_dim
         if bidirectional == True:
-            self.linear = nn.Linear(2 * 2 * word_gru_hidden + feature_dim,
-                n_classes)
+            self.linear = nn.Linear(2 * 2 * word_gru_hidden + feature_dim, n_classes)
         else:
-            self.linear = nn.Linear(2 * word_gru_hidden + feature_dim,
-                n_classes)
+            self.linear = nn.Linear(2 * word_gru_hidden + feature_dim, n_classes)
 
     def forward(self, word_attention_vectors, features):
         mixture_input = features
@@ -249,8 +230,7 @@ class MixtureSoftmax(nn.Module):
 
 class AttentionWordRNN(nn.Module):
 
-    def __init__(self, batch_size, num_tokens, embed_size, word_gru_hidden,
-        bidirectional=True, init_range=0.1, use_lstm=False):
+    def __init__(self, batch_size, num_tokens, embed_size, word_gru_hidden, bidirectional=True, init_range=0.1, use_lstm=False):
         super(AttentionWordRNN, self).__init__()
         self.batch_size = batch_size
         self.num_tokens = num_tokens
@@ -262,28 +242,20 @@ class AttentionWordRNN(nn.Module):
         if bidirectional == True:
             if use_lstm:
                 None
-                self.word_gru = nn.LSTM(embed_size, word_gru_hidden,
-                    bidirectional=True)
+                self.word_gru = nn.LSTM(embed_size, word_gru_hidden, bidirectional=True)
             else:
-                self.word_gru = nn.GRU(embed_size, word_gru_hidden,
-                    bidirectional=True)
-            self.weight_W_word = nn.Parameter(torch.Tensor(2 *
-                word_gru_hidden, 2 * word_gru_hidden))
+                self.word_gru = nn.GRU(embed_size, word_gru_hidden, bidirectional=True)
+            self.weight_W_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 2 * word_gru_hidden))
             self.bias_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 1))
-            self.weight_proj_word = nn.Parameter(torch.Tensor(2 *
-                word_gru_hidden, 1))
+            self.weight_proj_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 1))
         else:
             if use_lstm:
-                self.word_gru = nn.LSTM(embed_size, word_gru_hidden,
-                    bidirectional=False)
+                self.word_gru = nn.LSTM(embed_size, word_gru_hidden, bidirectional=False)
             else:
-                self.word_gru = nn.GRU(embed_size, word_gru_hidden,
-                    bidirectional=False)
-            self.weight_W_word = nn.Parameter(torch.Tensor(word_gru_hidden,
-                word_gru_hidden))
+                self.word_gru = nn.GRU(embed_size, word_gru_hidden, bidirectional=False)
+            self.weight_W_word = nn.Parameter(torch.Tensor(word_gru_hidden, word_gru_hidden))
             self.bias_word = nn.Parameter(torch.Tensor(word_gru_hidden, 1))
-            self.weight_proj_word = nn.Parameter(torch.Tensor(
-                word_gru_hidden, 1))
+            self.weight_proj_word = nn.Parameter(torch.Tensor(word_gru_hidden, 1))
         self.softmax_word = nn.Softmax()
         self.weight_W_word.data.uniform_(-init_range, init_range)
         self.weight_proj_word.data.uniform_(-init_range, init_range)
@@ -291,36 +263,27 @@ class AttentionWordRNN(nn.Module):
     def forward(self, embed, state_word):
         embedded = self.lookup(embed)
         output_word, state_word = self.word_gru(embedded, state_word)
-        word_squish = batch_matmul_bias(output_word, self.weight_W_word,
-            self.bias_word, nonlinearity='tanh')
+        word_squish = batch_matmul_bias(output_word, self.weight_W_word, self.bias_word, nonlinearity='tanh')
         word_attn = batch_matmul(word_squish, self.weight_proj_word)
         word_attn_norm = self.softmax_word(word_attn.transpose(1, 0))
-        word_attn_vectors = attention_mul(output_word, word_attn_norm.
-            transpose(1, 0))
+        word_attn_vectors = attention_mul(output_word, word_attn_norm.transpose(1, 0))
         return word_attn_vectors, state_word, word_attn_norm
 
     def init_hidden(self):
         if self.bidirectional == True:
             if self.use_lstm == True:
-                return [Variable(torch.zeros(2, self.batch_size, self.
-                    word_gru_hidden)), Variable(torch.zeros(2, self.
-                    batch_size, self.word_gru_hidden))]
+                return [Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden)), Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden))]
             else:
-                return Variable(torch.zeros(2, self.batch_size, self.
-                    word_gru_hidden))
+                return Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden))
         elif self.use_lstm == True:
-            return [Variable(torch.zeros(1, self.batch_size, self.
-                word_gru_hidden)), Variable(torch.zeros(1, self.batch_size,
-                self.word_gru_hidden))]
+            return [Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden)), Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden))]
         else:
-            return Variable(torch.zeros(1, self.batch_size, self.
-                word_gru_hidden))
+            return Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden))
 
 
 class MixtureSoftmax(nn.Module):
 
-    def __init__(self, batch_size, word_gru_hidden, feature_dim, n_classes,
-        bidirectional=True):
+    def __init__(self, batch_size, word_gru_hidden, feature_dim, n_classes, bidirectional=True):
         super(MixtureSoftmax, self).__init__()
         word_gru_hidden = 0
         self.batch_size = batch_size
@@ -328,11 +291,9 @@ class MixtureSoftmax(nn.Module):
         self.word_gru_hidden = word_gru_hidden
         self.feature_dim = feature_dim
         if bidirectional == True:
-            self.linear = nn.Linear(2 * 2 * word_gru_hidden + feature_dim,
-                n_classes)
+            self.linear = nn.Linear(2 * 2 * word_gru_hidden + feature_dim, n_classes)
         else:
-            self.linear = nn.Linear(2 * word_gru_hidden + feature_dim,
-                n_classes)
+            self.linear = nn.Linear(2 * word_gru_hidden + feature_dim, n_classes)
 
     def forward(self, word_attention_vectors, features):
         mixture_input = features
@@ -344,24 +305,18 @@ class Block(nn.Module):
     """Grouped convolution block."""
     expansion = 2
 
-    def __init__(self, in_planes, cardinality=32, bottleneck_width=4, stride=1
-        ):
+    def __init__(self, in_planes, cardinality=32, bottleneck_width=4, stride=1):
         super(Block, self).__init__()
         group_width = cardinality * bottleneck_width
-        self.conv1 = nn.Conv2d(in_planes, group_width, kernel_size=1, bias=
-            False)
+        self.conv1 = nn.Conv2d(in_planes, group_width, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(group_width)
-        self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3,
-            stride=stride, padding=1, groups=cardinality, bias=False)
+        self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn2 = nn.BatchNorm2d(group_width)
-        self.conv3 = nn.Conv2d(group_width, self.expansion * group_width,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(group_width, self.expansion * group_width, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * group_width)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * group_width:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * group_width, kernel_size=1, stride=stride, bias
-                =False), nn.BatchNorm2d(self.expansion * group_width))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * group_width, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * group_width))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -374,8 +329,7 @@ class Block(nn.Module):
 
 class ResNeXt(nn.Module):
 
-    def __init__(self, num_blocks, cardinality, bottleneck_width,
-        num_classes=10):
+    def __init__(self, num_blocks, cardinality, bottleneck_width, num_classes=10):
         super(ResNeXt, self).__init__()
         self.cardinality = cardinality
         self.bottleneck_width = bottleneck_width
@@ -385,17 +339,14 @@ class ResNeXt(nn.Module):
         self.layer1 = self._make_layer(num_blocks[0], 1)
         self.layer2 = self._make_layer(num_blocks[1], 2)
         self.layer3 = self._make_layer(num_blocks[2], 2)
-        self.linear = nn.Linear(cardinality * bottleneck_width * 8, num_classes
-            )
+        self.linear = nn.Linear(cardinality * bottleneck_width * 8, num_classes)
 
     def _make_layer(self, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(Block(self.in_planes, self.cardinality, self.
-                bottleneck_width, stride))
-            self.in_planes = (Block.expansion * self.cardinality * self.
-                bottleneck_width)
+            layers.append(Block(self.in_planes, self.cardinality, self.bottleneck_width, stride))
+            self.in_planes = Block.expansion * self.cardinality * self.bottleneck_width
         self.bottleneck_width *= 2
         return nn.Sequential(*layers)
 
@@ -413,30 +364,23 @@ class ResNeXt(nn.Module):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-        tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         else:
             try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[
-                    rnn_type]
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
             except KeyError:
-                raise ValueError(
-                    """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']"""
-                    )
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=
-                nonlinearity, dropout=dropout)
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder.weight = self.encoder.weight
         self.init_weights()
         self.rnn_type = rnn_type
@@ -453,16 +397,13 @@ class RNNModel(nn.Module):
         emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0) * output.size(1),
-            output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), hidden
+        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -471,11 +412,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Block,
+     lambda: ([], {'in_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MixtureSoftmax,
+     lambda: ([], {'batch_size': 4, 'word_gru_hidden': 4, 'feature_dim': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNeXt,
+     lambda: ([], {'num_blocks': [4, 4, 4], 'cardinality': 4, 'bottleneck_width': 4}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+]
+
 class Test_JianGoForIt_YellowFin_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Block(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(MixtureSoftmax(*[], **{'batch_size': 4, 'word_gru_hidden': 4, 'feature_dim': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

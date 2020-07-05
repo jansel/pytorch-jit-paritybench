@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -128,9 +129,7 @@ def register_plugin(registrable: Any, alias: str=None):
     """
     alias = alias or registrable.__name__
     if alias in REGISTRY:
-        raise ValueError(
-            f'{alias} is already registered to registrable {REGISTRY[alias]}. Please select another name'
-            )
+        raise ValueError(f'{alias} is already registered to registrable {REGISTRY[alias]}. Please select another name')
     REGISTRY[alias] = registrable
     return registrable
 
@@ -140,19 +139,16 @@ logger = logging.getLogger(__name__)
 
 class ElmanRNN(torch.nn.Module):
 
-    def __init__(self, input_size: int, hidden_size: int, batch_first: bool
-        =False):
+    def __init__(self, input_size: int, hidden_size: int, batch_first: bool=False):
         super(ElmanRNN, self).__init__()
-        self.rnn_cell: torch.nn.RNNCell = torch.nn.RNNCell(input_size,
-            hidden_size)
+        self.rnn_cell: torch.nn.RNNCell = torch.nn.RNNCell(input_size, hidden_size)
         self.batch_first: bool = batch_first
         self.hidden_size: int = hidden_size
 
     def _initial_hidden(self, batch_size: int) ->torch.tensor:
         return torch.zeros((batch_size, self.hidden_size))
 
-    def forward(self, x_in: torch.Tensor, initial_hidden: torch.Tensor=None
-        ) ->torch.Tensor:
+    def forward(self, x_in: torch.Tensor, initial_hidden: torch.Tensor=None) ->torch.Tensor:
         """
 
         :param x_in: an input data tensor.
@@ -182,8 +178,7 @@ class ElmanRNN(torch.nn.Module):
         return hiddens
 
 
-def column_gather(y_out: torch.FloatTensor, x_lengths: torch.LongTensor
-    ) ->torch.FloatTensor:
+def column_gather(y_out: torch.FloatTensor, x_lengths: torch.LongTensor) ->torch.FloatTensor:
     x_lengths = x_lengths.long().detach().cpu().numpy() - 1
     out = []
     for batch_index, column_index in enumerate(x_lengths):
@@ -194,31 +189,21 @@ def column_gather(y_out: torch.FloatTensor, x_lengths: torch.LongTensor
 @register_plugin
 class Transformer(torch.nn.Module):
 
-    def __init__(self, embed_dim: int, hidden_dim: int, num_embeddings: int,
-        num_max_positions: int, num_heads: int, num_layers: int, dropout:
-        float, causal: bool):
+    def __init__(self, embed_dim: int, hidden_dim: int, num_embeddings: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool):
         super().__init__()
         self.causal: bool = causal
-        self.tokens_embeddings: torch.nn.Embedding = torch.nn.Embedding(
-            num_embeddings, embed_dim)
-        self.position_embeddings: torch.nn.Embedding = torch.nn.Embedding(
-            num_max_positions, embed_dim)
+        self.tokens_embeddings: torch.nn.Embedding = torch.nn.Embedding(num_embeddings, embed_dim)
+        self.position_embeddings: torch.nn.Embedding = torch.nn.Embedding(num_max_positions, embed_dim)
         self.dropout: torch.nn.Dropout = torch.nn.Dropout(dropout)
-        self.attentions, self.feed_forwards = torch.nn.ModuleList(
-            ), torch.nn.ModuleList()
-        self.layer_norms_1, self.layer_norms_2 = torch.nn.ModuleList(
-            ), torch.nn.ModuleList()
+        self.attentions, self.feed_forwards = torch.nn.ModuleList(), torch.nn.ModuleList()
+        self.layer_norms_1, self.layer_norms_2 = torch.nn.ModuleList(), torch.nn.ModuleList()
         for _ in range(num_layers):
-            self.attentions.append(torch.nn.MultiheadAttention(embed_dim,
-                num_heads, dropout=dropout))
-            self.feed_forwards.append(torch.nn.Sequential(torch.nn.Linear(
-                embed_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(
-                hidden_dim, embed_dim)))
+            self.attentions.append(torch.nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout))
+            self.feed_forwards.append(torch.nn.Sequential(torch.nn.Linear(embed_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, embed_dim)))
             self.layer_norms_1.append(torch.nn.LayerNorm(embed_dim, eps=1e-12))
             self.layer_norms_2.append(torch.nn.LayerNorm(embed_dim, eps=1e-12))
         self.attn_mask = None
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased',
-            do_lower_case=False)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
 
     def forward(self, x):
         """ x has shape [batch, seq length]"""
@@ -230,15 +215,11 @@ class Transformer(torch.nn.Module):
         h = self.dropout(h)
         attn_mask = None
         if self.causal:
-            attn_mask = torch.full((len(x), len(x)), -float('Inf'), device=
-                h.device, dtype=h.dtype)
+            attn_mask = torch.full((len(x), len(x)), -float('Inf'), device=h.device, dtype=h.dtype)
             attn_mask = torch.triu(attn_mask, diagonal=1)
-        for layer_norm_1, attention, layer_norm_2, feed_forward in zip(self
-            .layer_norms_1, self.attentions, self.layer_norms_2, self.
-            feed_forwards):
+        for layer_norm_1, attention, layer_norm_2, feed_forward in zip(self.layer_norms_1, self.attentions, self.layer_norms_2, self.feed_forwards):
             h = layer_norm_1(h)
-            x, _ = attention(h, h, h, attn_mask=attn_mask, need_weights=
-                False, key_padding_mask=padding_mask)
+            x, _ = attention(h, h, h, attn_mask=attn_mask, need_weights=False, key_padding_mask=padding_mask)
             x = self.dropout(x)
             h = x + h
             h = layer_norm_2(h)
@@ -251,18 +232,13 @@ class Transformer(torch.nn.Module):
 @register_plugin
 class TransformerWithLMHead(torch.nn.Module):
 
-    def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions:
-        int, num_heads: int, num_layers: int, dropout: float, causal: bool,
-        initializer_range: float):
+    def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float):
         """ Transformer with a language modeling head on top (tied weights) """
         super().__init__()
-        tokenizer = BertTokenizer.from_pretrained('bert-base-cased',
-            do_lower_case=False)
+        tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
         num_embeddings = len(tokenizer.vocab)
         self.initializer_range = initializer_range
-        self.transformer = Transformer(embed_dim, hidden_dim,
-            num_embeddings, num_max_positions, num_heads, num_layers,
-            dropout, causal=causal)
+        self.transformer = Transformer(embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, causal=causal)
         self.lm_head = torch.nn.Linear(embed_dim, num_embeddings, bias=False)
         self.apply(self.init_weights)
         self.tie_weights()
@@ -272,11 +248,9 @@ class TransformerWithLMHead(torch.nn.Module):
 
     def init_weights(self, module):
         """ initialize weights - nn.MultiheadAttention is already initalized by PyTorch (xavier) """
-        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.
-            nn.LayerNorm)):
+        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)
-            ) and module.bias is not None:
+        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def forward(self, x):
@@ -289,31 +263,23 @@ class TransformerWithLMHead(torch.nn.Module):
 @register_plugin
 class TransformerWithClfHead(torch.nn.Module):
 
-    def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions:
-        int, num_heads: int, num_layers: int, dropout: float, causal: bool,
-        initializer_range: float, num_classes: int):
+    def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float, num_classes: int):
         super().__init__()
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased',
-            do_lower_case=False)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
         num_embeddings = len(self.tokenizer.vocab)
         self.initializer_range = initializer_range
-        self.transformer = Transformer(embed_dim, hidden_dim,
-            num_embeddings, num_max_positions, num_heads, num_layers,
-            dropout, causal=causal)
+        self.transformer = Transformer(embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, causal=causal)
         self.classification_head = torch.nn.Linear(embed_dim, num_classes)
         self.apply(self.init_weights)
 
     def init_weights(self, module):
-        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.
-            nn.LayerNorm)):
+        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)
-            ) and module.bias is not None:
+        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def forward(self, x):
-        clf_tokens_mask = x.transpose(0, 1).contiguous(
-            ) == self.tokenizer.vocab['[CLS]']
+        clf_tokens_mask = x.transpose(0, 1).contiguous() == self.tokenizer.vocab['[CLS]']
         hidden_states = self.transformer(x)
         msk = clf_tokens_mask.unsqueeze(-1).float()
         clf_tokens_states = (hidden_states * msk).sum(dim=0)
@@ -323,20 +289,14 @@ class TransformerWithClfHead(torch.nn.Module):
 
 class TransformerWithAdapters(Transformer):
 
-    def __init__(self, adapters_dim, embed_dim, hidden_dim, num_embeddings,
-        num_max_positions, num_heads, num_layers, dropout, causal):
+    def __init__(self, adapters_dim, embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, causal):
         """ Transformer with adapters (small bottleneck layers) """
-        super().__init__(embed_dim, hidden_dim, num_embeddings,
-            num_max_positions, num_heads, num_layers, dropout, causal)
+        super().__init__(embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, causal)
         self.adapters_1 = torch.nn.ModuleList()
         self.adapters_2 = torch.nn.ModuleList()
         for _ in range(num_layers):
-            self.adapters_1.append(torch.nn.Sequential(torch.nn.Linear(
-                embed_dim, adapters_dim), torch.nn.ReLU(), torch.nn.Linear(
-                adapters_dim, embed_dim)))
-            self.adapters_2.append(torch.nn.Sequential(torch.nn.Linear(
-                embed_dim, adapters_dim), torch.nn.ReLU(), torch.nn.Linear(
-                adapters_dim, embed_dim)))
+            self.adapters_1.append(torch.nn.Sequential(torch.nn.Linear(embed_dim, adapters_dim), torch.nn.ReLU(), torch.nn.Linear(adapters_dim, embed_dim)))
+            self.adapters_2.append(torch.nn.Sequential(torch.nn.Linear(embed_dim, adapters_dim), torch.nn.ReLU(), torch.nn.Linear(adapters_dim, embed_dim)))
 
     def forward(self, x):
         """ x has shape [batch, seq length]"""
@@ -348,15 +308,11 @@ class TransformerWithAdapters(Transformer):
         h = self.dropout(h)
         attn_mask = None
         if self.causal:
-            attn_mask = torch.full((len(x), len(x)), -float('Inf'), device=
-                h.device, dtype=h.dtype)
+            attn_mask = torch.full((len(x), len(x)), -float('Inf'), device=h.device, dtype=h.dtype)
             attn_mask = torch.triu(attn_mask, diagonal=1)
-        for layer_norm_1, attention, adapter_1, layer_norm_2, feed_forward, adapter_2 in zip(
-            self.layer_norms_1, self.attentions, self.adapters_1, self.
-            layer_norms_2, self.feed_forwards, self.adapters_2):
+        for layer_norm_1, attention, adapter_1, layer_norm_2, feed_forward, adapter_2 in zip(self.layer_norms_1, self.attentions, self.adapters_1, self.layer_norms_2, self.feed_forwards, self.adapters_2):
             h = layer_norm_1(h)
-            x, _ = attention(h, h, h, attn_mask=attn_mask, need_weights=
-                False, key_padding_mask=padding_mask)
+            x, _ = attention(h, h, h, attn_mask=attn_mask, need_weights=False, key_padding_mask=padding_mask)
             x = self.dropout(x)
             x = adapter_1(x) + x
             h = x + h
@@ -371,36 +327,27 @@ class TransformerWithAdapters(Transformer):
 @register_plugin
 class TransformerWithClfHeadAndAdapters(torch.nn.Module):
 
-    def __init__(self, adapters_dim: int, embed_dim: int, hidden_dim: int,
-        num_max_positions: int, num_heads: int, num_layers: int, dropout:
-        float, causal: bool, initializer_range: float, num_classes: int):
+    def __init__(self, adapters_dim: int, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float, num_classes: int):
         """ Transformer with a classification head and adapters. """
         super().__init__()
         self.initializer_range: float = initializer_range
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased',
-            do_lower_case=False)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
         num_embeddings = len(self.tokenizer.vocab)
         self.num_layers = num_layers
-        self.transformer: TransformerWithAdapters = TransformerWithAdapters(
-            adapters_dim, embed_dim, hidden_dim, num_embeddings,
-            num_max_positions, num_heads, num_layers, dropout, causal=causal)
+        self.transformer: TransformerWithAdapters = TransformerWithAdapters(adapters_dim, embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, causal=causal)
         self.classification_head = torch.nn.Linear(embed_dim, num_classes)
         self.apply(self.init_weights)
 
     def init_weights(self, module):
-        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.
-            nn.LayerNorm)):
+        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)
-            ) and module.bias is not None:
+        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def forward(self, x):
-        clf_tokens_mask = x.transpose(0, 1).contiguous(
-            ) == self.tokenizer.vocab['[CLS]']
+        clf_tokens_mask = x.transpose(0, 1).contiguous() == self.tokenizer.vocab['[CLS]']
         hidden_states = self.transformer(x)
-        clf_tokens_states = (hidden_states * clf_tokens_mask.unsqueeze(-1).
-            float()).sum(dim=0)
+        clf_tokens_states = (hidden_states * clf_tokens_mask.unsqueeze(-1).float()).sum(dim=0)
         clf_logits = self.classification_head(clf_tokens_states)
         return clf_logits
 
@@ -408,18 +355,13 @@ class TransformerWithClfHeadAndAdapters(torch.nn.Module):
 @register_plugin
 class TransformerWithClfHeadAndLMHead(torch.nn.Module):
 
-    def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions:
-        int, num_heads: int, num_layers: int, dropout: float, causal: bool,
-        initializer_range: float, num_classes: int):
+    def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float, num_classes: int):
         super().__init__()
         self.initializer_range: float = initializer_range
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased',
-            do_lower_case=False)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
         num_embeddings = len(self.tokenizer.vocab)
         self.num_layers = num_layers
-        self.transformer = Transformer(embed_dim, hidden_dim,
-            num_embeddings, num_max_positions, num_heads, num_layers,
-            dropout, causal=causal)
+        self.transformer = Transformer(embed_dim, hidden_dim, num_embeddings, num_max_positions, num_heads, num_layers, dropout, causal=causal)
         self.lm_head = torch.nn.Linear(embed_dim, num_embeddings, bias=False)
         self.classification_head = torch.nn.Linear(embed_dim, num_classes)
         self.apply(self.init_weights)
@@ -429,21 +371,17 @@ class TransformerWithClfHeadAndLMHead(torch.nn.Module):
         self.lm_head.weight = self.transformer.tokens_embeddings.weight
 
     def init_weights(self, module):
-        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.
-            nn.LayerNorm)):
+        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)
-            ) and module.bias is not None:
+        if isinstance(module, (torch.nn.Linear, torch.nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def forward(self, x):
         """ x and clf_tokens_mask have shape [seq length, batch] padding_mask has shape [batch, seq length] """
-        clf_tokens_mask = x.transpose(0, 1).contiguous(
-            ) == self.tokenizer.vocab['[CLS]']
+        clf_tokens_mask = x.transpose(0, 1).contiguous() == self.tokenizer.vocab['[CLS]']
         hidden_states = self.transformer(x)
         lm_logits = self.lm_head(hidden_states)
-        clf_tokens_states = (hidden_states * clf_tokens_mask.unsqueeze(-1).
-            float()).sum(dim=0)
+        clf_tokens_states = (hidden_states * clf_tokens_mask.unsqueeze(-1).float()).sum(dim=0)
         clf_logits = self.classification_head(clf_tokens_states)
         return lm_logits, clf_logits
 
@@ -452,9 +390,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ElmanRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_feedly_transfer_nlp(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ElmanRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

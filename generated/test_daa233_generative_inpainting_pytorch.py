@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,10 +80,8 @@ class Generator(nn.Module):
         self.cnum = config['ngf']
         self.use_cuda = use_cuda
         self.device_ids = device_ids
-        self.coarse_generator = CoarseGenerator(self.input_dim, self.cnum,
-            self.use_cuda, self.device_ids)
-        self.fine_generator = FineGenerator(self.input_dim, self.cnum, self
-            .use_cuda, self.device_ids)
+        self.coarse_generator = CoarseGenerator(self.input_dim, self.cnum, self.use_cuda, self.device_ids)
+        self.fine_generator = FineGenerator(self.input_dim, self.cnum, self.use_cuda, self.device_ids)
 
     def forward(self, x, mask):
         x_stage1 = self.coarse_generator(x, mask)
@@ -90,10 +89,8 @@ class Generator(nn.Module):
         return x_stage1, x_stage2, offset_flow
 
 
-def gen_conv(input_dim, output_dim, kernel_size=3, stride=1, padding=0,
-    rate=1, activation='elu'):
-    return Conv2dBlock(input_dim, output_dim, kernel_size, stride,
-        conv_padding=padding, dilation=rate, activation=activation)
+def gen_conv(input_dim, output_dim, kernel_size=3, stride=1, padding=0, rate=1, activation='elu'):
+    return Conv2dBlock(input_dim, output_dim, kernel_size, stride, conv_padding=padding, dilation=rate, activation=activation)
 
 
 class CoarseGenerator(nn.Module):
@@ -118,8 +115,7 @@ class CoarseGenerator(nn.Module):
         self.conv14 = gen_conv(cnum * 2, cnum * 2, 3, 1, 1)
         self.conv15 = gen_conv(cnum * 2, cnum, 3, 1, 1)
         self.conv16 = gen_conv(cnum, cnum // 2, 3, 1, 1)
-        self.conv17 = gen_conv(cnum // 2, input_dim, 3, 1, 1, activation='none'
-            )
+        self.conv17 = gen_conv(cnum // 2, input_dim, 3, 1, 1, activation='none')
 
     def forward(self, x, mask):
         ones = torch.ones(x.size(0), 1, x.size(2), x.size(3))
@@ -171,9 +167,7 @@ class FineGenerator(nn.Module):
         self.pmconv4_downsample = gen_conv(cnum * 2, cnum * 4, 3, 2, 1)
         self.pmconv5 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
         self.pmconv6 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1, activation='relu')
-        self.contextul_attention = ContextualAttention(ksize=3, stride=1,
-            rate=2, fuse_k=3, softmax_scale=10, fuse=True, use_cuda=self.
-            use_cuda, device_ids=self.device_ids)
+        self.contextul_attention = ContextualAttention(ksize=3, stride=1, rate=2, fuse_k=3, softmax_scale=10, fuse=True, use_cuda=self.use_cuda, device_ids=self.device_ids)
         self.pmconv9 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
         self.pmconv10 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
         self.allconv11 = gen_conv(cnum * 8, cnum * 4, 3, 1, 1)
@@ -182,8 +176,7 @@ class FineGenerator(nn.Module):
         self.allconv14 = gen_conv(cnum * 2, cnum * 2, 3, 1, 1)
         self.allconv15 = gen_conv(cnum * 2, cnum, 3, 1, 1)
         self.allconv16 = gen_conv(cnum, cnum // 2, 3, 1, 1)
-        self.allconv17 = gen_conv(cnum // 2, input_dim, 3, 1, 1, activation
-            ='none')
+        self.allconv17 = gen_conv(cnum // 2, input_dim, 3, 1, 1, activation='none')
 
     def forward(self, xin, x_stage1, mask):
         x1_inpaint = x_stage1 * mask + xin * (1.0 - mask)
@@ -264,11 +257,8 @@ def extract_image_patches(images, ksizes, strides, rates, padding='same'):
     elif padding == 'valid':
         pass
     else:
-        raise NotImplementedError(
-            'Unsupported padding type: {}.                Only "same" or "valid" are supported.'
-            .format(padding))
-    unfold = torch.nn.Unfold(kernel_size=ksizes, dilation=rates, padding=0,
-        stride=strides)
+        raise NotImplementedError('Unsupported padding type: {}.                Only "same" or "valid" are supported.'.format(padding))
+    unfold = torch.nn.Unfold(kernel_size=ksizes, dilation=rates, padding=0, stride=strides)
     patches = unfold(images)
     return patches
 
@@ -281,24 +271,19 @@ def make_color_wheel():
     colorwheel[0:RY, (0)] = 255
     colorwheel[0:RY, (1)] = np.transpose(np.floor(255 * np.arange(0, RY) / RY))
     col += RY
-    colorwheel[col:col + YG, (0)] = 255 - np.transpose(np.floor(255 * np.
-        arange(0, YG) / YG))
+    colorwheel[col:col + YG, (0)] = 255 - np.transpose(np.floor(255 * np.arange(0, YG) / YG))
     colorwheel[col:col + YG, (1)] = 255
     col += YG
     colorwheel[col:col + GC, (1)] = 255
-    colorwheel[col:col + GC, (2)] = np.transpose(np.floor(255 * np.arange(0,
-        GC) / GC))
+    colorwheel[col:col + GC, (2)] = np.transpose(np.floor(255 * np.arange(0, GC) / GC))
     col += GC
-    colorwheel[col:col + CB, (1)] = 255 - np.transpose(np.floor(255 * np.
-        arange(0, CB) / CB))
+    colorwheel[col:col + CB, (1)] = 255 - np.transpose(np.floor(255 * np.arange(0, CB) / CB))
     colorwheel[col:col + CB, (2)] = 255
     col += CB
     colorwheel[col:col + BM, (2)] = 255
-    colorwheel[col:col + BM, (0)] = np.transpose(np.floor(255 * np.arange(0,
-        BM) / BM))
+    colorwheel[col:col + BM, (0)] = np.transpose(np.floor(255 * np.arange(0, BM) / BM))
     col += +BM
-    colorwheel[col:col + MR, (2)] = 255 - np.transpose(np.floor(255 * np.
-        arange(0, MR) / MR))
+    colorwheel[col:col + MR, (2)] = 255 - np.transpose(np.floor(255 * np.arange(0, MR) / MR))
     colorwheel[col:col + MR, (0)] = 255
     return colorwheel
 
@@ -378,8 +363,7 @@ def reduce_sum(x, axis=None, keepdim=False):
 
 class ContextualAttention(nn.Module):
 
-    def __init__(self, ksize=3, stride=1, rate=1, fuse_k=3, softmax_scale=
-        10, fuse=False, use_cuda=False, device_ids=None):
+    def __init__(self, ksize=3, stride=1, rate=1, fuse_k=3, softmax_scale=10, fuse=False, use_cuda=False, device_ids=None):
         super(ContextualAttention, self).__init__()
         self.ksize = ksize
         self.stride = stride
@@ -408,9 +392,7 @@ class ContextualAttention(nn.Module):
         raw_int_fs = list(f.size())
         raw_int_bs = list(b.size())
         kernel = 2 * self.rate
-        raw_w = extract_image_patches(b, ksizes=[kernel, kernel], strides=[
-            self.rate * self.stride, self.rate * self.stride], rates=[1, 1],
-            padding='same')
+        raw_w = extract_image_patches(b, ksizes=[kernel, kernel], strides=[self.rate * self.stride, self.rate * self.stride], rates=[1, 1], padding='same')
         raw_w = raw_w.view(raw_int_bs[0], raw_int_bs[1], kernel, kernel, -1)
         raw_w = raw_w.permute(0, 4, 1, 2, 3)
         raw_w_groups = torch.split(raw_w, 1, dim=0)
@@ -419,8 +401,7 @@ class ContextualAttention(nn.Module):
         int_fs = list(f.size())
         int_bs = list(b.size())
         f_groups = torch.split(f, 1, dim=0)
-        w = extract_image_patches(b, ksizes=[self.ksize, self.ksize],
-            strides=[self.stride, self.stride], rates=[1, 1], padding='same')
+        w = extract_image_patches(b, ksizes=[self.ksize, self.ksize], strides=[self.stride, self.stride], rates=[1, 1], padding='same')
         w = w.view(int_bs[0], int_bs[1], self.ksize, self.ksize, -1)
         w = w.permute(0, 4, 1, 2, 3)
         w_groups = torch.split(w, 1, dim=0)
@@ -429,11 +410,9 @@ class ContextualAttention(nn.Module):
             if self.use_cuda:
                 mask = mask
         else:
-            mask = F.interpolate(mask, scale_factor=1.0 / (4 * self.rate),
-                mode='nearest')
+            mask = F.interpolate(mask, scale_factor=1.0 / (4 * self.rate), mode='nearest')
         int_ms = list(mask.size())
-        m = extract_image_patches(mask, ksizes=[self.ksize, self.ksize],
-            strides=[self.stride, self.stride], rates=[1, 1], padding='same')
+        m = extract_image_patches(mask, ksizes=[self.ksize, self.ksize], strides=[self.stride, self.stride], rates=[1, 1], padding='same')
         m = m.view(int_ms[0], int_ms[1], self.ksize, self.ksize, -1)
         m = m.permute(0, 4, 1, 2, 3)
         m = m[0]
@@ -458,25 +437,20 @@ class ContextualAttention(nn.Module):
             if self.use_cuda:
                 escape_NaN = escape_NaN
             wi = wi[0]
-            max_wi = torch.max(torch.sqrt(reduce_sum(torch.pow(wi, 2), axis
-                =[1, 2, 3], keepdim=True)), escape_NaN)
+            max_wi = torch.max(torch.sqrt(reduce_sum(torch.pow(wi, 2), axis=[1, 2, 3], keepdim=True)), escape_NaN)
             wi_normed = wi / max_wi
             xi = same_padding(xi, [self.ksize, self.ksize], [1, 1], [1, 1])
             yi = F.conv2d(xi, wi_normed, stride=1)
             if self.fuse:
-                yi = yi.view(1, 1, int_bs[2] * int_bs[3], int_fs[2] * int_fs[3]
-                    )
+                yi = yi.view(1, 1, int_bs[2] * int_bs[3], int_fs[2] * int_fs[3])
                 yi = same_padding(yi, [k, k], [1, 1], [1, 1])
                 yi = F.conv2d(yi, fuse_weight, stride=1)
-                yi = yi.contiguous().view(1, int_bs[2], int_bs[3], int_fs[2
-                    ], int_fs[3])
+                yi = yi.contiguous().view(1, int_bs[2], int_bs[3], int_fs[2], int_fs[3])
                 yi = yi.permute(0, 2, 1, 4, 3)
-                yi = yi.contiguous().view(1, 1, int_bs[2] * int_bs[3], 
-                    int_fs[2] * int_fs[3])
+                yi = yi.contiguous().view(1, 1, int_bs[2] * int_bs[3], int_fs[2] * int_fs[3])
                 yi = same_padding(yi, [k, k], [1, 1], [1, 1])
                 yi = F.conv2d(yi, fuse_weight, stride=1)
-                yi = yi.contiguous().view(1, int_bs[3], int_bs[2], int_fs[3
-                    ], int_fs[2])
+                yi = yi.contiguous().view(1, int_bs[3], int_bs[2], int_fs[3], int_fs[2])
                 yi = yi.permute(0, 2, 1, 4, 3).contiguous()
             yi = yi.view(1, int_bs[2] * int_bs[3], int_fs[2], int_fs[3])
             yi = yi * mm
@@ -484,36 +458,29 @@ class ContextualAttention(nn.Module):
             yi = yi * mm
             offset = torch.argmax(yi, dim=1, keepdim=True)
             if int_bs != int_fs:
-                times = float(int_fs[2] * int_fs[3]) / float(int_bs[2] *
-                    int_bs[3])
+                times = float(int_fs[2] * int_fs[3]) / float(int_bs[2] * int_bs[3])
                 offset = (offset + 1).float() * times - 1
-            offset = torch.cat([offset // int_fs[3], offset % int_fs[3]], dim=1
-                )
+            offset = torch.cat([offset // int_fs[3], offset % int_fs[3]], dim=1)
             wi_center = raw_wi[0]
-            yi = F.conv_transpose2d(yi, wi_center, stride=self.rate, padding=1
-                ) / 4.0
+            yi = F.conv_transpose2d(yi, wi_center, stride=self.rate, padding=1) / 4.0
             y.append(yi)
             offsets.append(offset)
         y = torch.cat(y, dim=0)
         y.contiguous().view(raw_int_fs)
         offsets = torch.cat(offsets, dim=0)
         offsets = offsets.view(int_fs[0], 2, *int_fs[2:])
-        h_add = torch.arange(int_fs[2]).view([1, 1, int_fs[2], 1]).expand(
-            int_fs[0], -1, -1, int_fs[3])
-        w_add = torch.arange(int_fs[3]).view([1, 1, 1, int_fs[3]]).expand(
-            int_fs[0], -1, int_fs[2], -1)
+        h_add = torch.arange(int_fs[2]).view([1, 1, int_fs[2], 1]).expand(int_fs[0], -1, -1, int_fs[3])
+        w_add = torch.arange(int_fs[3]).view([1, 1, 1, int_fs[3]]).expand(int_fs[0], -1, int_fs[2], -1)
         ref_coordinate = torch.cat([h_add, w_add], dim=1)
         if self.use_cuda:
             ref_coordinate = ref_coordinate
         offsets = offsets - ref_coordinate
-        flow = torch.from_numpy(flow_to_image(offsets.permute(0, 2, 3, 1).
-            cpu().data.numpy())) / 255.0
+        flow = torch.from_numpy(flow_to_image(offsets.permute(0, 2, 3, 1).cpu().data.numpy())) / 255.0
         flow = flow.permute(0, 3, 1, 2)
         if self.use_cuda:
             flow = flow
         if self.rate != 1:
-            flow = F.interpolate(flow, scale_factor=self.rate * 4, mode=
-                'nearest')
+            flow = F.interpolate(flow, scale_factor=self.rate * 4, mode='nearest')
         return y, flow
 
 
@@ -553,10 +520,8 @@ class GlobalDis(nn.Module):
         return x
 
 
-def dis_conv(input_dim, output_dim, kernel_size=5, stride=2, padding=0,
-    rate=1, activation='lrelu'):
-    return Conv2dBlock(input_dim, output_dim, kernel_size, stride,
-        conv_padding=padding, dilation=rate, activation=activation)
+def dis_conv(input_dim, output_dim, kernel_size=5, stride=2, padding=0, rate=1, activation='lrelu'):
+    return Conv2dBlock(input_dim, output_dim, kernel_size, stride, conv_padding=padding, dilation=rate, activation=activation)
 
 
 class DisConvModule(nn.Module):
@@ -580,9 +545,7 @@ class DisConvModule(nn.Module):
 
 class Conv2dBlock(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=
-        0, conv_padding=0, dilation=1, weight_norm='none', norm='none',
-        activation='relu', pad_type='zero', transpose=False):
+    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, conv_padding=0, dilation=1, weight_norm='none', norm='none', activation='relu', pad_type='zero', transpose=False):
         super(Conv2dBlock, self).__init__()
         self.use_bias = True
         if pad_type == 'reflect':
@@ -629,13 +592,9 @@ class Conv2dBlock(nn.Module):
         else:
             assert 0, 'Unsupported activation: {}'.format(activation)
         if transpose:
-            self.conv = nn.ConvTranspose2d(input_dim, output_dim,
-                kernel_size, stride, padding=conv_padding, output_padding=
-                conv_padding, dilation=dilation, bias=self.use_bias)
+            self.conv = nn.ConvTranspose2d(input_dim, output_dim, kernel_size, stride, padding=conv_padding, output_padding=conv_padding, dilation=dilation, bias=self.use_bias)
         else:
-            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size,
-                stride, padding=conv_padding, dilation=dilation, bias=self.
-                use_bias)
+            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, padding=conv_padding, dilation=dilation, bias=self.use_bias)
         if self.weight_norm:
             self.conv = self.weight_norm(self.conv)
 
@@ -654,8 +613,7 @@ class Conv2dBlock(nn.Module):
 def get_model_list(dirname, key, iteration=0):
     if os.path.exists(dirname) is False:
         return None
-    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
-        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
+    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
     if gen_models is None:
         return None
     gen_models.sort()
@@ -685,8 +643,7 @@ def date_uid():
         str: Return uid string, e.g. '20171122171307111552'.
 
     """
-    return str(datetime.datetime.now()).replace('-', '').replace(' ', ''
-        ).replace(':', '').replace('.', '')
+    return str(datetime.datetime.now()).replace('-', '').replace(' ', '').replace(':', '').replace('.', '')
 
 
 def get_logger(checkpoint_path=None):
@@ -700,8 +657,7 @@ def get_logger(checkpoint_path=None):
         formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
         stream_hdlr = logging.StreamHandler(sys.stdout)
         log_filename = date_uid()
-        file_hdlr = logging.FileHandler(os.path.join(checkpoint_path, 
-            log_filename + '.log'))
+        file_hdlr = logging.FileHandler(os.path.join(checkpoint_path, log_filename + '.log'))
         stream_hdlr.setFormatter(formatter)
         file_hdlr.setFormatter(formatter)
         logger.addHandler(stream_hdlr)
@@ -736,17 +692,14 @@ def spatial_discounting_mask(config):
         mask_values = np.ones((height, width))
         for i in range(height):
             for j in range(width):
-                mask_values[i, j] = max(gamma ** min(i, height - i), gamma **
-                    min(j, width - j))
+                mask_values[i, j] = max(gamma ** min(i, height - i), gamma ** min(j, width - j))
         mask_values = np.expand_dims(mask_values, 0)
         mask_values = np.expand_dims(mask_values, 0)
     else:
         mask_values = np.ones(shape)
-    spatial_discounting_mask_tensor = torch.tensor(mask_values, dtype=torch
-        .float32)
+    spatial_discounting_mask_tensor = torch.tensor(mask_values, dtype=torch.float32)
     if config['cuda']:
-        spatial_discounting_mask_tensor = spatial_discounting_mask_tensor.cuda(
-            )
+        spatial_discounting_mask_tensor = spatial_discounting_mask_tensor.cuda()
     return spatial_discounting_mask_tensor
 
 
@@ -757,18 +710,12 @@ class Trainer(nn.Module):
         self.config = config
         self.use_cuda = self.config['cuda']
         self.device_ids = self.config['gpu_ids']
-        self.netG = Generator(self.config['netG'], self.use_cuda, self.
-            device_ids)
-        self.localD = LocalDis(self.config['netD'], self.use_cuda, self.
-            device_ids)
-        self.globalD = GlobalDis(self.config['netD'], self.use_cuda, self.
-            device_ids)
-        self.optimizer_g = torch.optim.Adam(self.netG.parameters(), lr=self
-            .config['lr'], betas=(self.config['beta1'], self.config['beta2']))
-        d_params = list(self.localD.parameters()) + list(self.globalD.
-            parameters())
-        self.optimizer_d = torch.optim.Adam(d_params, lr=config['lr'],
-            betas=(self.config['beta1'], self.config['beta2']))
+        self.netG = Generator(self.config['netG'], self.use_cuda, self.device_ids)
+        self.localD = LocalDis(self.config['netD'], self.use_cuda, self.device_ids)
+        self.globalD = GlobalDis(self.config['netD'], self.use_cuda, self.device_ids)
+        self.optimizer_g = torch.optim.Adam(self.netG.parameters(), lr=self.config['lr'], betas=(self.config['beta1'], self.config['beta2']))
+        d_params = list(self.localD.parameters()) + list(self.globalD.parameters())
+        self.optimizer_d = torch.optim.Adam(d_params, lr=config['lr'], betas=(self.config['beta1'], self.config['beta2']))
         if self.use_cuda:
             self.netG
             self.localD
@@ -784,33 +731,19 @@ class Trainer(nn.Module):
         x2_inpaint = x2 * masks + x * (1.0 - masks)
         local_patch_x1_inpaint = local_patch(x1_inpaint, bboxes)
         local_patch_x2_inpaint = local_patch(x2_inpaint, bboxes)
-        local_patch_real_pred, local_patch_fake_pred = self.dis_forward(self
-            .localD, local_patch_gt, local_patch_x2_inpaint.detach())
-        global_real_pred, global_fake_pred = self.dis_forward(self.globalD,
-            ground_truth, x2_inpaint.detach())
-        losses['wgan_d'] = torch.mean(local_patch_fake_pred -
-            local_patch_real_pred) + torch.mean(global_fake_pred -
-            global_real_pred) * self.config['global_wgan_loss_alpha']
-        local_penalty = self.calc_gradient_penalty(self.localD,
-            local_patch_gt, local_patch_x2_inpaint.detach())
-        global_penalty = self.calc_gradient_penalty(self.globalD,
-            ground_truth, x2_inpaint.detach())
+        local_patch_real_pred, local_patch_fake_pred = self.dis_forward(self.localD, local_patch_gt, local_patch_x2_inpaint.detach())
+        global_real_pred, global_fake_pred = self.dis_forward(self.globalD, ground_truth, x2_inpaint.detach())
+        losses['wgan_d'] = torch.mean(local_patch_fake_pred - local_patch_real_pred) + torch.mean(global_fake_pred - global_real_pred) * self.config['global_wgan_loss_alpha']
+        local_penalty = self.calc_gradient_penalty(self.localD, local_patch_gt, local_patch_x2_inpaint.detach())
+        global_penalty = self.calc_gradient_penalty(self.globalD, ground_truth, x2_inpaint.detach())
         losses['wgan_gp'] = local_penalty + global_penalty
         if compute_loss_g:
             sd_mask = spatial_discounting_mask(self.config)
-            losses['l1'] = l1_loss(local_patch_x1_inpaint * sd_mask, 
-                local_patch_gt * sd_mask) * self.config['coarse_l1_alpha'
-                ] + l1_loss(local_patch_x2_inpaint * sd_mask, 
-                local_patch_gt * sd_mask)
-            losses['ae'] = l1_loss(x1 * (1.0 - masks), ground_truth * (1.0 -
-                masks)) * self.config['coarse_l1_alpha'] + l1_loss(x2 * (
-                1.0 - masks), ground_truth * (1.0 - masks))
-            local_patch_real_pred, local_patch_fake_pred = self.dis_forward(
-                self.localD, local_patch_gt, local_patch_x2_inpaint)
-            global_real_pred, global_fake_pred = self.dis_forward(self.
-                globalD, ground_truth, x2_inpaint)
-            losses['wgan_g'] = -torch.mean(local_patch_fake_pred) - torch.mean(
-                global_fake_pred) * self.config['global_wgan_loss_alpha']
+            losses['l1'] = l1_loss(local_patch_x1_inpaint * sd_mask, local_patch_gt * sd_mask) * self.config['coarse_l1_alpha'] + l1_loss(local_patch_x2_inpaint * sd_mask, local_patch_gt * sd_mask)
+            losses['ae'] = l1_loss(x1 * (1.0 - masks), ground_truth * (1.0 - masks)) * self.config['coarse_l1_alpha'] + l1_loss(x2 * (1.0 - masks), ground_truth * (1.0 - masks))
+            local_patch_real_pred, local_patch_fake_pred = self.dis_forward(self.localD, local_patch_gt, local_patch_x2_inpaint)
+            global_real_pred, global_fake_pred = self.dis_forward(self.globalD, ground_truth, x2_inpaint)
+            losses['wgan_g'] = -torch.mean(local_patch_fake_pred) - torch.mean(global_fake_pred) * self.config['global_wgan_loss_alpha']
         return losses, x2_inpaint, offset_flow
 
     def dis_forward(self, netD, ground_truth, x_inpaint):
@@ -833,9 +766,7 @@ class Trainer(nn.Module):
         grad_outputs = torch.ones(disc_interpolates.size())
         if self.use_cuda:
             grad_outputs = grad_outputs
-        gradients = autograd.grad(outputs=disc_interpolates, inputs=
-            interpolates, grad_outputs=grad_outputs, create_graph=True,
-            retain_graph=True, only_inputs=True)[0]
+        gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates, grad_outputs=grad_outputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
         gradients = gradients.view(batch_size, -1)
         gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
         return gradient_penalty
@@ -851,29 +782,23 @@ class Trainer(nn.Module):
         dis_name = os.path.join(checkpoint_dir, 'dis_%08d.pt' % iteration)
         opt_name = os.path.join(checkpoint_dir, 'optimizer.pt')
         torch.save(self.netG.state_dict(), gen_name)
-        torch.save({'localD': self.localD.state_dict(), 'globalD': self.
-            globalD.state_dict()}, dis_name)
-        torch.save({'gen': self.optimizer_g.state_dict(), 'dis': self.
-            optimizer_d.state_dict()}, opt_name)
+        torch.save({'localD': self.localD.state_dict(), 'globalD': self.globalD.state_dict()}, dis_name)
+        torch.save({'gen': self.optimizer_g.state_dict(), 'dis': self.optimizer_d.state_dict()}, opt_name)
 
     def resume(self, checkpoint_dir, iteration=0, test=False):
-        last_model_name = get_model_list(checkpoint_dir, 'gen', iteration=
-            iteration)
+        last_model_name = get_model_list(checkpoint_dir, 'gen', iteration=iteration)
         self.netG.load_state_dict(torch.load(last_model_name))
         iteration = int(last_model_name[-11:-3])
         if not test:
-            last_model_name = get_model_list(checkpoint_dir, 'dis',
-                iteration=iteration)
+            last_model_name = get_model_list(checkpoint_dir, 'dis', iteration=iteration)
             state_dict = torch.load(last_model_name)
             self.localD.load_state_dict(state_dict['localD'])
             self.globalD.load_state_dict(state_dict['globalD'])
-            state_dict = torch.load(os.path.join(checkpoint_dir,
-                'optimizer.pt'))
+            state_dict = torch.load(os.path.join(checkpoint_dir, 'optimizer.pt'))
             self.optimizer_d.load_state_dict(state_dict['dis'])
             self.optimizer_g.load_state_dict(state_dict['gen'])
         None
-        logger.info('Resume from {} at iteration {}'.format(checkpoint_dir,
-            iteration))
+        logger.info('Resume from {} at iteration {}'.format(checkpoint_dir, iteration))
         return iteration
 
 
@@ -881,17 +806,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CoarseGenerator,
+     lambda: ([], {'input_dim': 4, 'cnum': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2dBlock,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DisConvModule,
+     lambda: ([], {'input_dim': 4, 'cnum': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalDis,
+     lambda: ([], {'config': _mock_config(input_dim=4, ndf=4)}),
+     lambda: ([torch.rand([4, 4, 256, 256])], {}),
+     False),
+    (LocalDis,
+     lambda: ([], {'config': _mock_config(input_dim=4, ndf=4)}),
+     lambda: ([torch.rand([4, 4, 128, 128])], {}),
+     False),
+]
+
 class Test_daa233_generative_inpainting_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CoarseGenerator(*[], **{'input_dim': 4, 'cnum': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Conv2dBlock(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DisConvModule(*[], **{'input_dim': 4, 'cnum': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

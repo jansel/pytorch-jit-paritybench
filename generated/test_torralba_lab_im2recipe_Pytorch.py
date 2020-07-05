@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -114,8 +115,7 @@ def get_parser():
     parser.add_argument('--cls_weight', default=0.01, type=float)
     parser.add_argument('--resume', default='', type=str)
     parser.add_argument('--path_results', default='results/', type=str)
-    parser.add_argument('--model_path', default=
-        'snapshots/model_e220_v-4.700.pth.tar', type=str)
+    parser.add_argument('--model_path', default='snapshots/model_e220_v-4.700.pth.tar', type=str)
     parser.add_argument('--test_image_path', default='chicken.jpg', type=str)
     parser.add_argument('--embtype', default='image', type=str)
     parser.add_argument('--medr', default=1000, type=int)
@@ -136,22 +136,18 @@ class stRNN(nn.Module):
 
     def __init__(self):
         super(stRNN, self).__init__()
-        self.lstm = nn.LSTM(input_size=opts.stDim, hidden_size=opts.srnnDim,
-            bidirectional=False, batch_first=True)
+        self.lstm = nn.LSTM(input_size=opts.stDim, hidden_size=opts.srnnDim, bidirectional=False, batch_first=True)
 
     def forward(self, x, sq_lengths):
         sorted_len, sorted_idx = sq_lengths.sort(0, descending=True)
         index_sorted_idx = sorted_idx.view(-1, 1, 1).expand_as(x)
         sorted_inputs = x.gather(0, index_sorted_idx.long())
-        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(sorted_inputs,
-            sorted_len.cpu().data.numpy(), batch_first=True)
+        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
         out, hidden = self.lstm(packed_seq)
         _, original_idx = sorted_idx.sort(0, descending=False)
-        unpacked, _ = torch.nn.utils.rnn.pad_packed_sequence(out,
-            batch_first=True)
+        unpacked, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
         unsorted_idx = original_idx.view(-1, 1, 1).expand_as(unpacked)
-        idx = (sq_lengths - 1).view(-1, 1).expand(unpacked.size(0),
-            unpacked.size(2)).unsqueeze(1)
+        idx = (sq_lengths - 1).view(-1, 1).expand(unpacked.size(0), unpacked.size(2)).unsqueeze(1)
         output = unpacked.gather(0, unsorted_idx.long()).gather(1, idx.long())
         output = output.view(output.size(0), output.size(1) * output.size(2))
         return output
@@ -161,8 +157,7 @@ class ingRNN(nn.Module):
 
     def __init__(self):
         super(ingRNN, self).__init__()
-        self.irnn = nn.LSTM(input_size=opts.ingrW2VDim, hidden_size=opts.
-            irnnDim, bidirectional=True, batch_first=True)
+        self.irnn = nn.LSTM(input_size=opts.ingrW2VDim, hidden_size=opts.irnnDim, bidirectional=True, batch_first=True)
         _, vec = torchwordemb.load_word2vec_bin(opts.ingrW2V)
         self.embs = nn.Embedding(vec.size(0), opts.ingrW2VDim, padding_idx=0)
         self.embs.weight.data.copy_(vec)
@@ -172,8 +167,7 @@ class ingRNN(nn.Module):
         sorted_len, sorted_idx = sq_lengths.sort(0, descending=True)
         index_sorted_idx = sorted_idx.view(-1, 1, 1).expand_as(x)
         sorted_inputs = x.gather(0, index_sorted_idx.long())
-        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(sorted_inputs,
-            sorted_len.cpu().data.numpy(), batch_first=True)
+        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
         out, hidden = self.irnn(packed_seq)
         _, original_idx = sorted_idx.sort(0, descending=False)
         unsorted_idx = original_idx.view(1, -1, 1).expand_as(hidden[0])
@@ -183,8 +177,7 @@ class ingRNN(nn.Module):
 
 
 def norm(input, p=2, dim=1, eps=1e-12):
-    return input / input.norm(p, dim, keepdim=True).clamp(min=eps).expand_as(
-        input)
+    return input / input.norm(p, dim, keepdim=True).clamp(min=eps).expand_as(input)
 
 
 class im2recipe(nn.Module):
@@ -195,10 +188,8 @@ class im2recipe(nn.Module):
             resnet = models.resnet50(pretrained=True)
             modules = list(resnet.children())[:-1]
             self.visionMLP = nn.Sequential(*modules)
-            self.visual_embedding = nn.Sequential(nn.Linear(opts.imfeatDim,
-                opts.embDim), nn.Tanh())
-            self.recipe_embedding = nn.Sequential(nn.Linear(opts.irnnDim * 
-                2 + opts.srnnDim, opts.embDim, opts.embDim), nn.Tanh())
+            self.visual_embedding = nn.Sequential(nn.Linear(opts.imfeatDim, opts.embDim), nn.Tanh())
+            self.recipe_embedding = nn.Sequential(nn.Linear(opts.irnnDim * 2 + opts.srnnDim, opts.embDim, opts.embDim), nn.Tanh())
         else:
             raise Exception('Only resNet50 model is implemented.')
         self.stRNN_ = stRNN()
@@ -223,10 +214,3 @@ class im2recipe(nn.Module):
             output = [visual_emb, recipe_emb]
         return output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_torralba_lab_im2recipe_Pytorch(_paritybench_base):
-    pass

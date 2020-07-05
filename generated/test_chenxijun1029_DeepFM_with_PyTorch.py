@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,8 +55,7 @@ class DeepFM(nn.Module):
     Huifeng Guo, Ruiming Tang, Yunming Yey, Zhenguo Li, Xiuqiang He.
     """
 
-    def __init__(self, feature_sizes, embedding_size=4, hidden_dims=[32, 32
-        ], num_classes=1, dropout=[0.5, 0.5], use_cuda=True, verbose=False):
+    def __init__(self, feature_sizes, embedding_size=4, hidden_dims=[32, 32], num_classes=1, dropout=[0.5, 0.5], use_cuda=True, verbose=False):
         """
         Initialize a new network
 
@@ -87,19 +87,14 @@ class DeepFM(nn.Module):
         """
             init fm part
         """
-        self.fm_first_order_embeddings = nn.ModuleList([nn.Embedding(
-            feature_size, 1) for feature_size in self.feature_sizes])
-        self.fm_second_order_embeddings = nn.ModuleList([nn.Embedding(
-            feature_size, self.embedding_size) for feature_size in self.
-            feature_sizes])
+        self.fm_first_order_embeddings = nn.ModuleList([nn.Embedding(feature_size, 1) for feature_size in self.feature_sizes])
+        self.fm_second_order_embeddings = nn.ModuleList([nn.Embedding(feature_size, self.embedding_size) for feature_size in self.feature_sizes])
         """
             init deep part
         """
-        all_dims = [self.field_size * self.embedding_size
-            ] + self.hidden_dims + [self.num_classes]
+        all_dims = [self.field_size * self.embedding_size] + self.hidden_dims + [self.num_classes]
         for i in range(1, len(hidden_dims) + 1):
-            setattr(self, 'linear_' + str(i), nn.Linear(all_dims[i - 1],
-                all_dims[i]))
+            setattr(self, 'linear_' + str(i), nn.Linear(all_dims[i - 1], all_dims[i]))
             setattr(self, 'batchNorm_' + str(i), nn.BatchNorm1d(all_dims[i]))
             setattr(self, 'dropout_' + str(i), nn.Dropout(dropout[i - 1]))
 
@@ -114,21 +109,14 @@ class DeepFM(nn.Module):
         """
             fm part
         """
-        fm_first_order_emb_arr = [(torch.sum(emb(Xi[:, (i), :]), 1).t() *
-            Xv[:, (i)]).t() for i, emb in enumerate(self.
-            fm_first_order_embeddings)]
+        fm_first_order_emb_arr = [(torch.sum(emb(Xi[:, (i), :]), 1).t() * Xv[:, (i)]).t() for i, emb in enumerate(self.fm_first_order_embeddings)]
         fm_first_order = torch.cat(fm_first_order_emb_arr, 1)
-        fm_second_order_emb_arr = [(torch.sum(emb(Xi[:, (i), :]), 1).t() *
-            Xv[:, (i)]).t() for i, emb in enumerate(self.
-            fm_second_order_embeddings)]
+        fm_second_order_emb_arr = [(torch.sum(emb(Xi[:, (i), :]), 1).t() * Xv[:, (i)]).t() for i, emb in enumerate(self.fm_second_order_embeddings)]
         fm_sum_second_order_emb = sum(fm_second_order_emb_arr)
-        fm_sum_second_order_emb_square = (fm_sum_second_order_emb *
-            fm_sum_second_order_emb)
-        fm_second_order_emb_square = [(item * item) for item in
-            fm_second_order_emb_arr]
+        fm_sum_second_order_emb_square = fm_sum_second_order_emb * fm_sum_second_order_emb
+        fm_second_order_emb_square = [(item * item) for item in fm_second_order_emb_arr]
         fm_second_order_emb_square_sum = sum(fm_second_order_emb_square)
-        fm_second_order = (fm_sum_second_order_emb_square -
-            fm_second_order_emb_square_sum) * 0.5
+        fm_second_order = (fm_sum_second_order_emb_square - fm_second_order_emb_square_sum) * 0.5
         """
             deep part
         """
@@ -141,12 +129,10 @@ class DeepFM(nn.Module):
         """
             sum
         """
-        total_sum = torch.sum(fm_first_order, 1) + torch.sum(fm_second_order, 1
-            ) + torch.sum(deep_out, 1) + self.bias
+        total_sum = torch.sum(fm_first_order, 1) + torch.sum(fm_second_order, 1) + torch.sum(deep_out, 1) + self.bias
         return total_sum
 
-    def fit(self, loader_train, loader_val, optimizer, epochs=100, verbose=
-        False, print_every=100):
+    def fit(self, loader_train, loader_val, optimizer, epochs=100, verbose=False, print_every=100):
         """
         Training a model and valid accuracy.
 
@@ -198,10 +184,3 @@ class DeepFM(nn.Module):
             acc = float(num_correct) / num_samples
             None
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_chenxijun1029_DeepFM_with_PyTorch(_paritybench_base):
-    pass

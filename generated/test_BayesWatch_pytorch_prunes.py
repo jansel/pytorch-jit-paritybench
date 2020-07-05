@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,9 +81,7 @@ class ZeroMake(nn.Module):
         self.channels = channels
 
     def forward(self, x):
-        return torch.zeros([x.size()[0], self.channels, x.size()[2] // self
-            .spatial, x.size()[3] // self.spatial], dtype=x.dtype, layout=x
-            .layout, device=x.device)
+        return torch.zeros([x.size()[0], self.channels, x.size()[2] // self.spatial, x.size()[3] // self.spatial], dtype=x.dtype, layout=x.layout, device=x.device)
 
 
 class MaskBlock(nn.Module):
@@ -91,11 +90,9 @@ class MaskBlock(nn.Module):
         super(MaskBlock, self).__init__()
         interChannels = 4 * growthRate
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(interChannels)
-        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3, padding=1, bias=False)
         self.activation = Identity()
         self.activation.register_backward_hook(self._fisher)
         self.register_buffer('mask', None)
@@ -147,27 +144,21 @@ class MaskBlock(nn.Module):
         middle_channels = int(self.mask.sum().item())
         conv1_size = self.conv1.weight.size()
         conv2_size = self.conv2.weight.size()
-        self.params = in_channels * middle_channels * conv1_size[2
-            ] * conv1_size[3] + middle_channels * out_channels * conv2_size[2
-            ] * conv2_size[3]
+        self.params = in_channels * middle_channels * conv1_size[2] * conv1_size[3] + middle_channels * out_channels * conv2_size[2] * conv2_size[3]
         self.params += 2 * in_channels + 2 * middle_channels
 
     def compress_weights(self):
         middle_dim = int(self.mask.sum().item())
         if middle_dim is not 0:
-            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3,
-                stride=1, bias=False)
-            conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1),
-                :, :, :])
+            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3, stride=1, bias=False)
+            conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1), :, :, :])
             bn2 = nn.BatchNorm2d(middle_dim)
             bn2.weight = nn.Parameter(self.bn2.weight[self.mask == 1])
             bn2.bias = nn.Parameter(self.bn2.bias[self.mask == 1])
             bn2.running_mean = self.bn2.running_mean[self.mask == 1]
             bn2.running_var = self.bn2.running_var[self.mask == 1]
-            conv2 = nn.Conv2d(middle_dim, self.out_channels, kernel_size=3,
-                stride=1, padding=1, bias=False)
-            conv2.weight = nn.Parameter(self.conv2.weight[:, (self.mask == 
-                1), :, :])
+            conv2 = nn.Conv2d(middle_dim, self.out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+            conv2.weight = nn.Parameter(self.conv2.weight[:, (self.mask == 1), :, :])
         if middle_dim is 0:
             conv1 = Zero()
             bn2 = Zero()
@@ -187,11 +178,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         interChannels = int(4 * growthRate * width)
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(interChannels)
-        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -205,8 +194,7 @@ class SingleLayer(nn.Module):
     def __init__(self, nChannels, growthRate):
         super(SingleLayer, self).__init__()
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, growthRate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(nChannels, growthRate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -219,8 +207,7 @@ class Transition(nn.Module):
     def __init__(self, nChannels, nOutChannels):
         super(Transition, self).__init__()
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, nOutChannels, kernel_size=1, bias
-            =False)
+        self.conv1 = nn.Conv2d(nChannels, nOutChannels, kernel_size=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -230,39 +217,30 @@ class Transition(nn.Module):
 
 class DenseNet(nn.Module):
 
-    def __init__(self, growthRate, depth, reduction, nClasses, bottleneck,
-        mask=False, width=1.0):
+    def __init__(self, growthRate, depth, reduction, nClasses, bottleneck, mask=False, width=1.0):
         super(DenseNet, self).__init__()
         nDenseBlocks = (depth - 4) // 3
         if bottleneck:
             nDenseBlocks //= 2
         nChannels = 2 * growthRate
-        self.conv1 = nn.Conv2d(3, nChannels, kernel_size=3, padding=1, bias
-            =False)
-        self.dense1 = self._make_dense(nChannels, growthRate, nDenseBlocks,
-            bottleneck, mask, width)
+        self.conv1 = nn.Conv2d(3, nChannels, kernel_size=3, padding=1, bias=False)
+        self.dense1 = self._make_dense(nChannels, growthRate, nDenseBlocks, bottleneck, mask, width)
         nChannels += nDenseBlocks * growthRate
         nOutChannels = int(math.floor(nChannels * reduction))
         self.trans1 = Transition(nChannels, nOutChannels)
         nChannels = nOutChannels
-        self.dense2 = self._make_dense(nChannels, growthRate, nDenseBlocks,
-            bottleneck, mask, width)
+        self.dense2 = self._make_dense(nChannels, growthRate, nDenseBlocks, bottleneck, mask, width)
         nChannels += nDenseBlocks * growthRate
         nOutChannels = int(math.floor(nChannels * reduction))
         self.trans2 = Transition(nChannels, nOutChannels)
         nChannels = nOutChannels
-        self.dense3 = self._make_dense(nChannels, growthRate, nDenseBlocks,
-            bottleneck, mask, width)
+        self.dense3 = self._make_dense(nChannels, growthRate, nDenseBlocks, bottleneck, mask, width)
         nChannels += nDenseBlocks * growthRate
         self.bn1 = nn.BatchNorm2d(nChannels)
         self.fc = nn.Linear(nChannels, nClasses)
-        self.fixed_params = len(self.conv1.weight.view(-1)) + len(self.bn1.
-            weight) + len(self.bn1.bias) + len(self.fc.weight.view(-1)) + len(
-            self.fc.bias)
-        self.fixed_params += len(self.trans1.conv1.weight.view(-1)) + 2 * len(
-            self.trans1.bn1.weight)
-        self.fixed_params += len(self.trans2.conv1.weight.view(-1)) + 2 * len(
-            self.trans2.bn1.weight)
+        self.fixed_params = len(self.conv1.weight.view(-1)) + len(self.bn1.weight) + len(self.bn1.bias) + len(self.fc.weight.view(-1)) + len(self.fc.bias)
+        self.fixed_params += len(self.trans1.conv1.weight.view(-1)) + 2 * len(self.trans1.bn1.weight)
+        self.fixed_params += len(self.trans2.conv1.weight.view(-1)) + 2 * len(self.trans2.bn1.weight)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -273,8 +251,7 @@ class DenseNet(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def _make_dense(self, nChannels, growthRate, nDenseBlocks, bottleneck,
-        mask=False, width=1):
+    def _make_dense(self, nChannels, growthRate, nDenseBlocks, bottleneck, mask=False, width=1):
         layers = []
         for i in range(int(nDenseBlocks)):
             if bottleneck and mask:
@@ -322,9 +299,7 @@ class ZeroMake(nn.Module):
         self.channels = channels
 
     def forward(self, x):
-        return torch.zeros([x.size()[0], self.channels, x.size()[2] // self
-            .spatial, x.size()[3] // self.spatial], dtype=x.dtype, layout=x
-            .layout, device=x.device)
+        return torch.zeros([x.size()[0], self.channels, x.size()[2] // self.spatial, x.size()[3] // self.spatial], dtype=x.dtype, layout=x.layout, device=x.device)
 
 
 class BasicBlock(nn.Module):
@@ -333,17 +308,13 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.droprate = dropRate
         self.equalInOut = in_channels == out_channels
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels,
-            out_channels, kernel_size=1, stride=stride, padding=0, bias=False
-            ) or None
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
         if not self.equalInOut:
@@ -359,22 +330,17 @@ class BasicBlock(nn.Module):
 
 class BottleBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, mid_channels, stride,
-        dropRate=0.0):
+    def __init__(self, in_channels, out_channels, mid_channels, stride, dropRate=0.0):
         super(BottleBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=3,
-            stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(mid_channels)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(mid_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(mid_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.droprate = dropRate
         self.equalInOut = in_channels == out_channels
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels,
-            out_channels, kernel_size=1, stride=stride, padding=0, bias=False
-            ) or None
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
         if not self.equalInOut:
@@ -395,17 +361,13 @@ class MaskBlock(nn.Module):
         super(MaskBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_channels)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.droprate = dropRate
         self.equalInOut = in_channels == out_channels
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels,
-            out_channels, kernel_size=1, stride=stride, padding=0, bias=False
-            ) or None
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False) or None
         self.activation = Identity()
         self.activation.register_backward_hook(self._fisher)
         self.register_buffer('mask', None)
@@ -458,9 +420,7 @@ class MaskBlock(nn.Module):
         middle_channels = int(self.mask.sum().item())
         conv1_size = self.conv1.weight.size()
         conv2_size = self.conv2.weight.size()
-        self.params = in_channels * middle_channels * conv1_size[2
-            ] * conv1_size[3] + middle_channels * out_channels * conv2_size[2
-            ] * conv2_size[3]
+        self.params = in_channels * middle_channels * conv1_size[2] * conv1_size[3] + middle_channels * out_channels * conv2_size[2] * conv2_size[3]
         self.params += 2 * in_channels + 2 * middle_channels
         if not self.equalInOut:
             self.params += in_channels * out_channels
@@ -471,19 +431,15 @@ class MaskBlock(nn.Module):
         middle_dim = int(self.mask.sum().item())
         None
         if middle_dim is not 0:
-            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3,
-                stride=self.stride, padding=1, bias=False)
-            conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1),
-                :, :, :])
+            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3, stride=self.stride, padding=1, bias=False)
+            conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1), :, :, :])
             bn2 = nn.BatchNorm2d(middle_dim)
             bn2.weight = nn.Parameter(self.bn2.weight[self.mask == 1])
             bn2.bias = nn.Parameter(self.bn2.bias[self.mask == 1])
             bn2.running_mean = self.bn2.running_mean[self.mask == 1]
             bn2.running_var = self.bn2.running_var[self.mask == 1]
-            conv2 = nn.Conv2d(middle_dim, self.out_channels, kernel_size=3,
-                stride=1, padding=1, bias=False)
-            conv2.weight = nn.Parameter(self.conv2.weight[:, (self.mask == 
-                1), :, :])
+            conv2 = nn.Conv2d(middle_dim, self.out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+            conv2.weight = nn.Parameter(self.conv2.weight[:, (self.mask == 1), :, :])
         if middle_dim is 0:
             conv1 = Zero()
             bn2 = Zero()
@@ -499,18 +455,14 @@ class MaskBlock(nn.Module):
 
 class NetworkBlock(nn.Module):
 
-    def __init__(self, nb_layers, in_channels, out_channels, block, stride,
-        dropRate=0.0):
+    def __init__(self, nb_layers, in_channels, out_channels, block, stride, dropRate=0.0):
         super(NetworkBlock, self).__init__()
-        self.layer = self._make_layer(block, in_channels, out_channels,
-            nb_layers, stride, dropRate)
+        self.layer = self._make_layer(block, in_channels, out_channels, nb_layers, stride, dropRate)
 
-    def _make_layer(self, block, in_channels, out_channels, nb_layers,
-        stride, dropRate):
+    def _make_layer(self, block, in_channels, out_channels, nb_layers, stride, dropRate):
         layers = []
         for i in range(int(nb_layers)):
-            layers.append(block(i == 0 and in_channels or out_channels,
-                out_channels, i == 0 and stride or 1, dropRate))
+            layers.append(block(i == 0 and in_channels or out_channels, out_channels, i == 0 and stride or 1, dropRate))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -519,18 +471,14 @@ class NetworkBlock(nn.Module):
 
 class NetworkBlockBottle(nn.Module):
 
-    def __init__(self, nb_layers, in_channels, out_channels, mid_channels,
-        block, stride, dropRate=0.0):
+    def __init__(self, nb_layers, in_channels, out_channels, mid_channels, block, stride, dropRate=0.0):
         super(NetworkBlockBottle, self).__init__()
-        self.layer = self._make_layer(block, in_channels, out_channels,
-            mid_channels, nb_layers, stride, dropRate)
+        self.layer = self._make_layer(block, in_channels, out_channels, mid_channels, nb_layers, stride, dropRate)
 
-    def _make_layer(self, block, in_channels, out_channels, mid_channels,
-        nb_layers, stride, dropRate):
+    def _make_layer(self, block, in_channels, out_channels, mid_channels, nb_layers, stride, dropRate):
         layers = []
         for i in range(int(nb_layers)):
-            layers.append(block(i == 0 and in_channels or out_channels,
-                out_channels, mid_channels, i == 0 and stride or 1, dropRate))
+            layers.append(block(i == 0 and in_channels or out_channels, out_channels, mid_channels, i == 0 and stride or 1, dropRate))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -539,32 +487,24 @@ class NetworkBlockBottle(nn.Module):
 
 class WideResNet(nn.Module):
 
-    def __init__(self, depth, widen_factor, num_classes=10, dropRate=0.0,
-        mask=False):
+    def __init__(self, depth, widen_factor, num_classes=10, dropRate=0.0, mask=False):
         super(WideResNet, self).__init__()
-        nChannels = [16, int(16 * widen_factor), int(32 * widen_factor),
-            int(64 * widen_factor)]
+        nChannels = [16, int(16 * widen_factor), int(32 * widen_factor), int(64 * widen_factor)]
         assert (depth - 4) % 6 == 0
         n = (depth - 4) / 6
         if mask == 1:
             block = MaskBlock
         else:
             block = BasicBlock
-        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,
-            dropRate)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,
-            dropRate)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,
-            dropRate)
+        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2, dropRate)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2, dropRate)
         self.bn1 = nn.BatchNorm2d(nChannels[3])
         self.relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(nChannels[3], num_classes)
         self.nChannels = nChannels[3]
-        self.fixed_params = len(self.conv1.weight.view(-1)) + len(self.bn1.
-            weight) + len(self.bn1.bias) + len(self.fc.weight.view(-1)) + len(
-            self.fc.bias)
+        self.fixed_params = len(self.conv1.weight.view(-1)) + len(self.bn1.weight) + len(self.bn1.bias) + len(self.fc.weight.view(-1)) + len(self.fc.bias)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -588,22 +528,16 @@ class WideResNet(nn.Module):
 
 class WideResNetBottle(nn.Module):
 
-    def __init__(self, depth, widen_factor, num_classes=10, dropRate=0.0,
-        bottle_mult=0.5):
+    def __init__(self, depth, widen_factor, num_classes=10, dropRate=0.0, bottle_mult=0.5):
         super(WideResNetBottle, self).__init__()
-        nChannels = [16, int(16 * widen_factor), int(32 * widen_factor),
-            int(64 * widen_factor)]
+        nChannels = [16, int(16 * widen_factor), int(32 * widen_factor), int(64 * widen_factor)]
         assert (depth - 4) % 6 == 0
         n = (depth - 4) / 6
         block = BottleBlock
-        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.block1 = NetworkBlockBottle(n, nChannels[0], nChannels[1], int
-            (nChannels[1] * bottle_mult), block, 1, dropRate)
-        self.block2 = NetworkBlockBottle(n, nChannels[1], nChannels[2], int
-            (nChannels[2] * bottle_mult), block, 2, dropRate)
-        self.block3 = NetworkBlockBottle(n, nChannels[2], nChannels[3], int
-            (nChannels[3] * bottle_mult), block, 2, dropRate)
+        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.block1 = NetworkBlockBottle(n, nChannels[0], nChannels[1], int(nChannels[1] * bottle_mult), block, 1, dropRate)
+        self.block2 = NetworkBlockBottle(n, nChannels[1], nChannels[2], int(nChannels[2] * bottle_mult), block, 2, dropRate)
+        self.block3 = NetworkBlockBottle(n, nChannels[2], nChannels[3], int(nChannels[3] * bottle_mult), block, 2, dropRate)
         self.bn1 = nn.BatchNorm2d(nChannels[3])
         self.relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(nChannels[3], num_classes)
@@ -633,41 +567,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_BayesWatch_pytorch_prunes(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BottleBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Bottleneck,
+     lambda: ([], {'nChannels': 4, 'growthRate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaskBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NetworkBlock,
+     lambda: ([], {'nb_layers': 1, 'in_channels': 4, 'out_channels': 4, 'block': _mock_layer, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NetworkBlockBottle,
+     lambda: ([], {'nb_layers': 1, 'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'block': _mock_layer, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SingleLayer,
+     lambda: ([], {'nChannels': 4, 'growthRate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Transition,
+     lambda: ([], {'nChannels': 4, 'nOutChannels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Zero,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ZeroMake,
+     lambda: ([], {'channels': 4, 'spatial': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_BayesWatch_pytorch_prunes(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BottleBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Bottleneck(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MaskBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(NetworkBlock(*[], **{'nb_layers': 1, 'in_channels': 4, 'out_channels': 4, 'block': _mock_layer, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(NetworkBlockBottle(*[], **{'nb_layers': 1, 'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'block': _mock_layer, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Zero(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(ZeroMake(*[], **{'channels': 4, 'spatial': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

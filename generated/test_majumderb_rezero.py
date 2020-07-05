@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,8 +85,7 @@ class RZTXEncoderLayer(Module):
         >>> out = encoder_layer(src)
     """
 
-    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
-        activation='relu'):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation='relu'):
         super().__init__()
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout)
         self.linear1 = Linear(d_model, dim_feedforward)
@@ -114,8 +114,7 @@ class RZTXEncoderLayer(Module):
             see the docs in PyTroch Transformer class.
         """
         src2 = src
-        src2 = self.self_attn(src2, src2, src2, attn_mask=src_mask,
-            key_padding_mask=src_key_padding_mask)
+        src2 = self.self_attn(src2, src2, src2, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)
         src2 = src2[0]
         src2 = src2 * self.resweight
         src = src + self.dropout1(src2)
@@ -146,12 +145,10 @@ class RZTXDecoderLayer(nn.Module):
         >>> out = decoder_layer(src)
     """
 
-    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
-        activation='relu'):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation='relu'):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout
-            =dropout)
+        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
@@ -164,8 +161,7 @@ class RZTXDecoderLayer(nn.Module):
         elif activation == 'gelu':
             self.activation = F.gelu
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None,
-        tgt_key_padding_mask=None, memory_key_padding_mask=None):
+    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None):
         """Pass the inputs (and mask) through the decoder layer.
 
         Args:
@@ -179,15 +175,12 @@ class RZTXDecoderLayer(nn.Module):
         Shape:
             see the docs in PyTroch Transformer class.
         """
-        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
-            key_padding_mask=tgt_key_padding_mask)[0]
+        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2) * self.resweight
-        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=
-            memory_mask, key_padding_mask=memory_key_padding_mask)[0]
+        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask, key_padding_mask=memory_key_padding_mask)[0]
         tgt = tgt + self.dropout2(tgt2) * self.resweight
         if hasattr(self, 'activation'):
-            tgt2 = self.linear2(self.dropout(self.activation(self.linear1(
-                tgt))))
+            tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         else:
             tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2) * self.resweight
@@ -198,13 +191,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_majumderb_rezero(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(RZTXDecoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (RZTXDecoderLayer,
+     lambda: ([], {'d_model': 4, 'nhead': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RZTXEncoderLayer,
+     lambda: ([], {'d_model': 4, 'nhead': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_majumderb_rezero(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(RZTXEncoderLayer(*[], **{'d_model': 4, 'nhead': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

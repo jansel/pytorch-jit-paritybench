@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,9 +62,7 @@ class SequentialDropout(nn.Module):
     def __init__(self, p=0.5):
         super(SequentialDropout, self).__init__()
         if p < 0 or p > 1:
-            raise ValueError(
-                'dropout probability has to be between 0 and 1, but got {}'
-                .format(p))
+            raise ValueError('dropout probability has to be between 0 and 1, but got {}'.format(p))
         self.p = p
         self.restart = True
 
@@ -199,8 +198,7 @@ class AbstractSkipThoughts(nn.Module):
         if self.save and os.path.exists(path):
             self.embedding = torch.load(path)
         else:
-            self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 
-                1, embedding_dim=620, padding_idx=0, sparse=False)
+            self.embedding = nn.Embedding(num_embeddings=len(self.vocab) + 1, embedding_dim=620, padding_idx=0, sparse=False)
             dictionary = self._load_dictionary()
             parameters = self._load_emb_params()
             state_dict = self._make_emb_state_dict(dictionary, parameters)
@@ -264,9 +262,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SequentialDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_Cadene_skip_thoughts_torch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(SequentialDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,42 +83,21 @@ class HCN(nn.Module):
       and M is the number of people.
     """
 
-    def __init__(self, in_channel=3, num_joint=25, num_person=2,
-        out_channel=64, window_size=64, num_class=60):
+    def __init__(self, in_channel=3, num_joint=25, num_person=2, out_channel=64, window_size=64, num_class=60):
         super(HCN, self).__init__()
         self.num_person = num_person
         self.num_class = num_class
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=in_channel,
-            out_channels=out_channel, kernel_size=1, stride=1, padding=0),
-            nn.ReLU())
-        self.conv2 = nn.Conv2d(in_channels=out_channel, out_channels=
-            window_size, kernel_size=(3, 1), stride=1, padding=(1, 0))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=num_joint,
-            out_channels=out_channel // 2, kernel_size=3, stride=1, padding
-            =1), nn.MaxPool2d(2))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=out_channel // 2,
-            out_channels=out_channel, kernel_size=3, stride=1, padding=1),
-            nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
-        self.conv1m = nn.Sequential(nn.Conv2d(in_channels=in_channel,
-            out_channels=out_channel, kernel_size=1, stride=1, padding=0),
-            nn.ReLU())
-        self.conv2m = nn.Conv2d(in_channels=out_channel, out_channels=
-            window_size, kernel_size=(3, 1), stride=1, padding=(1, 0))
-        self.conv3m = nn.Sequential(nn.Conv2d(in_channels=num_joint,
-            out_channels=out_channel // 2, kernel_size=3, stride=1, padding
-            =1), nn.MaxPool2d(2))
-        self.conv4m = nn.Sequential(nn.Conv2d(in_channels=out_channel // 2,
-            out_channels=out_channel, kernel_size=3, stride=1, padding=1),
-            nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=out_channel * 2,
-            out_channels=out_channel * 2, kernel_size=3, stride=1, padding=
-            1), nn.ReLU(), nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
-        self.conv6 = nn.Sequential(nn.Conv2d(in_channels=out_channel * 2,
-            out_channels=out_channel * 4, kernel_size=3, stride=1, padding=
-            1), nn.ReLU(), nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
-        self.fc7 = nn.Sequential(nn.Linear(out_channel * 4 * (window_size //
-            16) * (window_size // 16), 256 * 2), nn.ReLU(), nn.Dropout2d(p=0.5)
-            )
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=1, stride=1, padding=0), nn.ReLU())
+        self.conv2 = nn.Conv2d(in_channels=out_channel, out_channels=window_size, kernel_size=(3, 1), stride=1, padding=(1, 0))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=num_joint, out_channels=out_channel // 2, kernel_size=3, stride=1, padding=1), nn.MaxPool2d(2))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=out_channel // 2, out_channels=out_channel, kernel_size=3, stride=1, padding=1), nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
+        self.conv1m = nn.Sequential(nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=1, stride=1, padding=0), nn.ReLU())
+        self.conv2m = nn.Conv2d(in_channels=out_channel, out_channels=window_size, kernel_size=(3, 1), stride=1, padding=(1, 0))
+        self.conv3m = nn.Sequential(nn.Conv2d(in_channels=num_joint, out_channels=out_channel // 2, kernel_size=3, stride=1, padding=1), nn.MaxPool2d(2))
+        self.conv4m = nn.Sequential(nn.Conv2d(in_channels=out_channel // 2, out_channels=out_channel, kernel_size=3, stride=1, padding=1), nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=out_channel * 2, out_channels=out_channel * 2, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
+        self.conv6 = nn.Sequential(nn.Conv2d(in_channels=out_channel * 2, out_channels=out_channel * 4, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.Dropout2d(p=0.5), nn.MaxPool2d(2))
+        self.fc7 = nn.Sequential(nn.Linear(out_channel * 4 * (window_size // 16) * (window_size // 16), 256 * 2), nn.ReLU(), nn.Dropout2d(p=0.5))
         self.fc8 = nn.Linear(256 * 2, num_class)
         utils.initial_model_weight(layers=list(self.children()))
         None
@@ -125,11 +105,8 @@ class HCN(nn.Module):
     def forward(self, x, target=None):
         N, C, T, V, M = x.size()
         motion = x[:, :, 1:, :, :] - x[:, :, 0:-1, :, :]
-        motion = motion.permute(0, 1, 4, 2, 3).contiguous().view(N, C * M, 
-            T - 1, V)
-        motion = F.upsample(motion, size=(T, V), mode='bilinear',
-            align_corners=False).contiguous().view(N, C, M, T, V).permute(0,
-            1, 3, 4, 2)
+        motion = motion.permute(0, 1, 4, 2, 3).contiguous().view(N, C * M, T - 1, V)
+        motion = F.upsample(motion, size=(T, V), mode='bilinear', align_corners=False).contiguous().view(N, C, M, T, V).permute(0, 1, 3, 4, 2)
         logits = []
         for i in range(self.num_person):
             out = self.conv1(x[:, :, :, :, (i)])
@@ -155,10 +132,3 @@ class HCN(nn.Module):
         assert not t.abs().sum() == 0
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_huguyuehuhu_HCN_pytorch(_paritybench_base):
-    pass

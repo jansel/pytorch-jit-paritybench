@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,8 +87,7 @@ from torch.nn.utils import vector_to_parameters
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_scale=1, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_scale=1, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -111,16 +111,12 @@ class MLP(nn.Module):
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(400, 300),
-        activation=torch.relu, output_activation=torch.tanh):
+    def __init__(self, in_features, action_space, hidden_sizes=(400, 300), activation=torch.relu, output_activation=torch.tanh):
         super(ActorCritic, self).__init__()
         action_dim = action_space.shape[0]
         action_scale = action_space.high[0]
-        self.policy = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation, output_activation=
-            output_activation, output_scale=action_scale)
-        self.q = MLP(layers=[in_features + action_dim] + list(hidden_sizes) +
-            [1], activation=activation, output_squeeze=True)
+        self.policy = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation, output_activation=output_activation, output_scale=action_scale)
+        self.q = MLP(layers=[in_features + action_dim] + list(hidden_sizes) + [1], activation=activation, output_squeeze=True)
 
     def forward(self, x, a):
         pi = self.policy(x)
@@ -131,8 +127,7 @@ class ActorCritic(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_scale=1, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_scale=1, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -156,13 +151,10 @@ class MLP(nn.Module):
 
 class DQNetwork(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(400, 300),
-        activation=torch.relu, output_activation=None):
+    def __init__(self, in_features, action_space, hidden_sizes=(400, 300), activation=torch.relu, output_activation=None):
         super(DQNetwork, self).__init__()
         action_dim = action_space.n
-        self.q = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation, output_activation=
-            output_activation)
+        self.q = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation, output_activation=output_activation)
 
     def forward(self, x):
         return self.q(x)
@@ -173,8 +165,7 @@ class DQNetwork(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -197,11 +188,9 @@ class MLP(nn.Module):
 
 class CategoricalPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_dim):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_dim):
         super(CategoricalPolicy, self).__init__()
-        self.logits = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation)
+        self.logits = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation)
 
     def forward(self, x, a=None):
         logits = self.logits(x)
@@ -217,14 +206,10 @@ class CategoricalPolicy(nn.Module):
 
 class GaussianPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_dim):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_dim):
         super(GaussianPolicy, self).__init__()
-        self.mu = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation, output_activation=
-            output_activation)
-        self.log_std = nn.Parameter(-0.5 * torch.ones(action_dim, dtype=
-            torch.float32))
+        self.mu = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation, output_activation=output_activation)
+        self.log_std = nn.Parameter(-0.5 * torch.ones(action_dim, dtype=torch.float32))
 
     def forward(self, x, a=None):
         mu = self.mu(x)
@@ -240,21 +225,15 @@ class GaussianPolicy(nn.Module):
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(64, 64),
-        activation=torch.tanh, output_activation=None, policy=None):
+    def __init__(self, in_features, action_space, hidden_sizes=(64, 64), activation=torch.tanh, output_activation=None, policy=None):
         super(ActorCritic, self).__init__()
         if policy is None and isinstance(action_space, Box):
-            self.policy = GaussianPolicy(in_features, hidden_sizes,
-                activation, output_activation, action_dim=action_space.shape[0]
-                )
+            self.policy = GaussianPolicy(in_features, hidden_sizes, activation, output_activation, action_dim=action_space.shape[0])
         elif policy is None and isinstance(action_space, Discrete):
-            self.policy = CategoricalPolicy(in_features, hidden_sizes,
-                activation, output_activation, action_dim=action_space.n)
+            self.policy = CategoricalPolicy(in_features, hidden_sizes, activation, output_activation, action_dim=action_space.n)
         else:
-            self.policy = policy(in_features, hidden_sizes, activation,
-                output_activation, action_space)
-        self.value_function = MLP(layers=[in_features] + list(hidden_sizes) +
-            [1], activation=activation, output_squeeze=True)
+            self.policy = policy(in_features, hidden_sizes, activation, output_activation, action_space)
+        self.value_function = MLP(layers=[in_features] + list(hidden_sizes) + [1], activation=activation, output_squeeze=True)
 
     def forward(self, x, a=None):
         pi, logp, logp_pi = self.policy(x, a)
@@ -264,8 +243,7 @@ class ActorCritic(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_scale=1, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_scale=1, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -298,16 +276,13 @@ LOG_STD_MIN = -20
 
 class GaussianPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_space):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_space):
         super(GaussianPolicy, self).__init__()
         action_dim = action_space.shape[0]
         self.action_scale = action_space.high[0]
         self.output_activation = output_activation
-        self.net = MLP(layers=[in_features] + list(hidden_sizes),
-            activation=activation, output_activation=activation)
-        self.mu = nn.Linear(in_features=list(hidden_sizes)[-1],
-            out_features=action_dim)
+        self.net = MLP(layers=[in_features] + list(hidden_sizes), activation=activation, output_activation=activation)
+        self.mu = nn.Linear(in_features=list(hidden_sizes)[-1], out_features=action_dim)
         """
         Because this algorithm maximizes trade-off of reward and entropy,
         entropy must be unique to state---and therefore log_stds need
@@ -327,8 +302,7 @@ class GaussianPolicy(nn.Module):
         through log_std where clipping wouldn't, but I don't know if
         it makes much of a difference.
         """
-        self.log_std = nn.Sequential(nn.Linear(in_features=list(
-            hidden_sizes)[-1], out_features=action_dim), nn.Tanh())
+        self.log_std = nn.Sequential(nn.Linear(in_features=list(hidden_sizes)[-1], out_features=action_dim), nn.Tanh())
 
     def forward(self, x):
         output = self.net(x)
@@ -336,8 +310,7 @@ class GaussianPolicy(nn.Module):
         if self.output_activation:
             mu = self.output_activation(mu)
         log_std = self.log_std(output)
-        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std +
-            1)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
         policy = Normal(mu, torch.exp(log_std))
         pi = policy.rsample()
         logp_pi = torch.sum(policy.log_prob(pi), dim=1)
@@ -354,25 +327,19 @@ class GaussianPolicy(nn.Module):
     def _apply_squashing_func(self, mu, pi, logp_pi):
         mu = torch.tanh(mu)
         pi = torch.tanh(pi)
-        logp_pi -= torch.sum(torch.log(self._clip_but_pass_gradient(1 - pi **
-            2, l=0, u=1) + EPS), dim=1)
+        logp_pi -= torch.sum(torch.log(self._clip_but_pass_gradient(1 - pi ** 2, l=0, u=1) + EPS), dim=1)
         return mu, pi, logp_pi
 
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(400, 300),
-        activation=torch.relu, output_activation=None, policy=GaussianPolicy):
+    def __init__(self, in_features, action_space, hidden_sizes=(400, 300), activation=torch.relu, output_activation=None, policy=GaussianPolicy):
         super(ActorCritic, self).__init__()
         action_dim = action_space.shape[0]
-        self.policy = policy(in_features, hidden_sizes, activation,
-            output_activation, action_space)
-        self.vf_mlp = MLP([in_features] + list(hidden_sizes) + [1],
-            activation, output_squeeze=True)
-        self.q1 = MLP([in_features + action_dim] + list(hidden_sizes) + [1],
-            activation, output_squeeze=True)
-        self.q2 = MLP([in_features + action_dim] + list(hidden_sizes) + [1],
-            activation, output_squeeze=True)
+        self.policy = policy(in_features, hidden_sizes, activation, output_activation, action_space)
+        self.vf_mlp = MLP([in_features] + list(hidden_sizes) + [1], activation, output_squeeze=True)
+        self.q1 = MLP([in_features + action_dim] + list(hidden_sizes) + [1], activation, output_squeeze=True)
+        self.q2 = MLP([in_features + action_dim] + list(hidden_sizes) + [1], activation, output_squeeze=True)
 
     def forward(self, x, a):
         pi, mu, logp_pi = self.policy(x)
@@ -386,8 +353,7 @@ class ActorCritic(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_scale=1, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_scale=1, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -411,18 +377,13 @@ class MLP(nn.Module):
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(400, 300),
-        activation=torch.relu, output_activation=torch.tanh):
+    def __init__(self, in_features, action_space, hidden_sizes=(400, 300), activation=torch.relu, output_activation=torch.tanh):
         super(ActorCritic, self).__init__()
         action_dim = action_space.shape[0]
         action_scale = action_space.high[0]
-        self.policy = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation, output_activation=
-            output_activation, output_scale=action_scale)
-        self.q1 = MLP(layers=[in_features + action_dim] + list(hidden_sizes
-            ) + [1], activation=activation, output_squeeze=True)
-        self.q2 = MLP(layers=[in_features + action_dim] + list(hidden_sizes
-            ) + [1], activation=activation, output_squeeze=True)
+        self.policy = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation, output_activation=output_activation, output_scale=action_scale)
+        self.q1 = MLP(layers=[in_features + action_dim] + list(hidden_sizes) + [1], activation=activation, output_squeeze=True)
+        self.q2 = MLP(layers=[in_features + action_dim] + list(hidden_sizes) + [1], activation=activation, output_squeeze=True)
 
     def forward(self, x, a):
         pi = self.policy(x)
@@ -434,8 +395,7 @@ class ActorCritic(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -458,11 +418,9 @@ class MLP(nn.Module):
 
 class CategoricalPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_dim):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_dim):
         super(CategoricalPolicy, self).__init__()
-        self.logits = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation)
+        self.logits = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation)
 
     def forward(self, x, a=None, old_logits=None):
         logits = self.logits(x)
@@ -484,14 +442,10 @@ class CategoricalPolicy(nn.Module):
 
 class GaussianPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_dim):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_dim):
         super(GaussianPolicy, self).__init__()
-        self.mu = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation, output_activation=
-            output_activation)
-        self.log_std = nn.Parameter(-0.5 * torch.ones(action_dim, dtype=
-            torch.float32))
+        self.mu = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation, output_activation=output_activation)
+        self.log_std = nn.Parameter(-0.5 * torch.ones(action_dim, dtype=torch.float32))
 
     def forward(self, x, a=None, old_log_std=None, old_mu=None):
         mu = self.mu(x)
@@ -507,28 +461,21 @@ class GaussianPolicy(nn.Module):
             d_kl = kl_divergence(old_policy, policy).mean()
         else:
             d_kl = None
-        info = {'old_mu': np.squeeze(mu.detach().numpy()), 'old_log_std':
-            self.log_std.detach().numpy()}
+        info = {'old_mu': np.squeeze(mu.detach().numpy()), 'old_log_std': self.log_std.detach().numpy()}
         return pi, logp, logp_pi, info, d_kl
 
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(64, 64),
-        activation=torch.tanh, output_activation=None, policy=None):
+    def __init__(self, in_features, action_space, hidden_sizes=(64, 64), activation=torch.tanh, output_activation=None, policy=None):
         super(ActorCritic, self).__init__()
         if policy is None and isinstance(action_space, Box):
-            self.policy = GaussianPolicy(in_features, hidden_sizes,
-                activation, output_activation, action_dim=action_space.shape[0]
-                )
+            self.policy = GaussianPolicy(in_features, hidden_sizes, activation, output_activation, action_dim=action_space.shape[0])
         elif policy is None and isinstance(action_space, Discrete):
-            self.policy = CategoricalPolicy(in_features, hidden_sizes,
-                activation, output_activation, action_dim=action_space.n)
+            self.policy = CategoricalPolicy(in_features, hidden_sizes, activation, output_activation, action_dim=action_space.n)
         else:
-            self.policy = policy(in_features, hidden_sizes, activation,
-                output_activation, action_space)
-        self.value_function = MLP(layers=[in_features] + list(hidden_sizes) +
-            [1], activation=activation, output_squeeze=True)
+            self.policy = policy(in_features, hidden_sizes, activation, output_activation, action_space)
+        self.value_function = MLP(layers=[in_features] + list(hidden_sizes) + [1], activation=activation, output_squeeze=True)
 
     def forward(self, x, a=None, **kwargs):
         pi, logp, logp_pi, info, d_kl = self.policy(x, a, **kwargs)
@@ -538,8 +485,7 @@ class ActorCritic(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, layers, activation=torch.tanh, output_activation=
-        None, output_squeeze=False):
+    def __init__(self, layers, activation=torch.tanh, output_activation=None, output_squeeze=False):
         super(MLP, self).__init__()
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -562,11 +508,9 @@ class MLP(nn.Module):
 
 class CategoricalPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_dim):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_dim):
         super(CategoricalPolicy, self).__init__()
-        self.logits = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation)
+        self.logits = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation)
 
     def forward(self, x, a=None):
         logits = self.logits(x)
@@ -582,12 +526,9 @@ class CategoricalPolicy(nn.Module):
 
 class GaussianPolicy(nn.Module):
 
-    def __init__(self, in_features, hidden_sizes, activation,
-        output_activation, action_dim):
+    def __init__(self, in_features, hidden_sizes, activation, output_activation, action_dim):
         super(GaussianPolicy, self).__init__()
-        self.mu = MLP(layers=[in_features] + list(hidden_sizes) + [
-            action_dim], activation=activation, output_activation=
-            output_activation)
+        self.mu = MLP(layers=[in_features] + list(hidden_sizes) + [action_dim], activation=activation, output_activation=output_activation)
         self.log_std = nn.Parameter(-0.5 * torch.ones(action_dim))
 
     def forward(self, x, a=None):
@@ -603,21 +544,15 @@ class GaussianPolicy(nn.Module):
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, in_features, action_space, hidden_sizes=(64, 64),
-        activation=torch.tanh, output_activation=None, policy=None):
+    def __init__(self, in_features, action_space, hidden_sizes=(64, 64), activation=torch.tanh, output_activation=None, policy=None):
         super(ActorCritic, self).__init__()
         if policy is None and isinstance(action_space, Box):
-            self.policy = GaussianPolicy(in_features, hidden_sizes,
-                activation, output_activation, action_dim=action_space.shape[0]
-                )
+            self.policy = GaussianPolicy(in_features, hidden_sizes, activation, output_activation, action_dim=action_space.shape[0])
         elif policy is None and isinstance(action_space, Discrete):
-            self.policy = CategoricalPolicy(in_features, hidden_sizes,
-                activation, output_activation, action_dim=action_space.n)
+            self.policy = CategoricalPolicy(in_features, hidden_sizes, activation, output_activation, action_dim=action_space.n)
         else:
-            self.policy = policy(in_features, hidden_sizes, activation,
-                output_activation, action_space)
-        self.value_function = MLP(layers=[in_features] + list(hidden_sizes) +
-            [1], activation=activation, output_squeeze=True)
+            self.policy = policy(in_features, hidden_sizes, activation, output_activation, action_space)
+        self.value_function = MLP(layers=[in_features] + list(hidden_sizes) + [1], activation=activation, output_squeeze=True)
 
     def forward(self, x, a=None):
         pi, logp, logp_pi = self.policy(x, a)
@@ -629,9 +564,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {'layers': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_kashif_firedup(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MLP(*[], **{'layers': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

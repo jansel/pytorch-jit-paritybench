@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -223,18 +224,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4, 'max_action': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv_Q,
+     lambda: ([], {'frames': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 144, 144])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+    (FC_Q,
+     lambda: ([], {'state_dim': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VAE,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4, 'latent_dim': 4, 'max_action': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_sfujim_BCQ(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Actor(*[], **{'state_dim': 4, 'action_dim': 4, 'max_action': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FC_Q(*[], **{'state_dim': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(VAE(*[], **{'state_dim': 4, 'action_dim': 4, 'latent_dim': 4, 'max_action': 4, 'device': 0}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

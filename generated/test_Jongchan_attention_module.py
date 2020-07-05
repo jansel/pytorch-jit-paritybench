@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,42 +82,29 @@ class ChannelGate(nn.Module):
         gate_channels += [gate_channel // reduction_ratio] * num_layers
         gate_channels += [gate_channel]
         for i in range(len(gate_channels) - 2):
-            self.gate_c.add_module('gate_c_fc_%d' % i, nn.Linear(
-                gate_channels[i], gate_channels[i + 1]))
-            self.gate_c.add_module('gate_c_bn_%d' % (i + 1), nn.BatchNorm1d
-                (gate_channels[i + 1]))
+            self.gate_c.add_module('gate_c_fc_%d' % i, nn.Linear(gate_channels[i], gate_channels[i + 1]))
+            self.gate_c.add_module('gate_c_bn_%d' % (i + 1), nn.BatchNorm1d(gate_channels[i + 1]))
             self.gate_c.add_module('gate_c_relu_%d' % (i + 1), nn.ReLU())
-        self.gate_c.add_module('gate_c_fc_final', nn.Linear(gate_channels[-
-            2], gate_channels[-1]))
+        self.gate_c.add_module('gate_c_fc_final', nn.Linear(gate_channels[-2], gate_channels[-1]))
 
     def forward(self, in_tensor):
-        avg_pool = F.avg_pool2d(in_tensor, in_tensor.size(2), stride=
-            in_tensor.size(2))
-        return self.gate_c(avg_pool).unsqueeze(2).unsqueeze(3).expand_as(
-            in_tensor)
+        avg_pool = F.avg_pool2d(in_tensor, in_tensor.size(2), stride=in_tensor.size(2))
+        return self.gate_c(avg_pool).unsqueeze(2).unsqueeze(3).expand_as(in_tensor)
 
 
 class SpatialGate(nn.Module):
 
-    def __init__(self, gate_channel, reduction_ratio=16, dilation_conv_num=
-        2, dilation_val=4):
+    def __init__(self, gate_channel, reduction_ratio=16, dilation_conv_num=2, dilation_val=4):
         super(SpatialGate, self).__init__()
         self.gate_s = nn.Sequential()
-        self.gate_s.add_module('gate_s_conv_reduce0', nn.Conv2d(
-            gate_channel, gate_channel // reduction_ratio, kernel_size=1))
-        self.gate_s.add_module('gate_s_bn_reduce0', nn.BatchNorm2d(
-            gate_channel // reduction_ratio))
+        self.gate_s.add_module('gate_s_conv_reduce0', nn.Conv2d(gate_channel, gate_channel // reduction_ratio, kernel_size=1))
+        self.gate_s.add_module('gate_s_bn_reduce0', nn.BatchNorm2d(gate_channel // reduction_ratio))
         self.gate_s.add_module('gate_s_relu_reduce0', nn.ReLU())
         for i in range(dilation_conv_num):
-            self.gate_s.add_module('gate_s_conv_di_%d' % i, nn.Conv2d(
-                gate_channel // reduction_ratio, gate_channel //
-                reduction_ratio, kernel_size=3, padding=dilation_val,
-                dilation=dilation_val))
-            self.gate_s.add_module('gate_s_bn_di_%d' % i, nn.BatchNorm2d(
-                gate_channel // reduction_ratio))
+            self.gate_s.add_module('gate_s_conv_di_%d' % i, nn.Conv2d(gate_channel // reduction_ratio, gate_channel // reduction_ratio, kernel_size=3, padding=dilation_val, dilation=dilation_val))
+            self.gate_s.add_module('gate_s_bn_di_%d' % i, nn.BatchNorm2d(gate_channel // reduction_ratio))
             self.gate_s.add_module('gate_s_relu_di_%d' % i, nn.ReLU())
-        self.gate_s.add_module('gate_s_conv_final', nn.Conv2d(gate_channel //
-            reduction_ratio, 1, kernel_size=1))
+        self.gate_s.add_module('gate_s_conv_final', nn.Conv2d(gate_channel // reduction_ratio, 1, kernel_size=1))
 
     def forward(self, in_tensor):
         return self.gate_s(in_tensor).expand_as(in_tensor)
@@ -130,22 +118,17 @@ class BAM(nn.Module):
         self.spatial_att = SpatialGate(gate_channel)
 
     def forward(self, in_tensor):
-        att = 1 + F.sigmoid(self.channel_att(in_tensor) * self.spatial_att(
-            in_tensor))
+        att = 1 + F.sigmoid(self.channel_att(in_tensor) * self.spatial_att(in_tensor))
         return att * in_tensor
 
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU() if relu else None
 
     def forward(self, x):
@@ -172,29 +155,23 @@ def logsumexp_2d(tensor):
 
 class ChannelGate(nn.Module):
 
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg',
-        'max']):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max']):
         super(ChannelGate, self).__init__()
         self.gate_channels = gate_channels
-        self.mlp = nn.Sequential(Flatten(), nn.Linear(gate_channels, 
-            gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(
-            gate_channels // reduction_ratio, gate_channels))
+        self.mlp = nn.Sequential(Flatten(), nn.Linear(gate_channels, gate_channels // reduction_ratio), nn.ReLU(), nn.Linear(gate_channels // reduction_ratio, gate_channels))
         self.pool_types = pool_types
 
     def forward(self, x):
         channel_att_sum = None
         for pool_type in self.pool_types:
             if pool_type == 'avg':
-                avg_pool = F.avg_pool2d(x, (x.size(2), x.size(3)), stride=(
-                    x.size(2), x.size(3)))
+                avg_pool = F.avg_pool2d(x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp(avg_pool)
             elif pool_type == 'max':
-                max_pool = F.max_pool2d(x, (x.size(2), x.size(3)), stride=(
-                    x.size(2), x.size(3)))
+                max_pool = F.max_pool2d(x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp(max_pool)
             elif pool_type == 'lp':
-                lp_pool = F.lp_pool2d(x, 2, (x.size(2), x.size(3)), stride=
-                    (x.size(2), x.size(3)))
+                lp_pool = F.lp_pool2d(x, 2, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp(lp_pool)
             elif pool_type == 'lse':
                 lse_pool = logsumexp_2d(x)
@@ -203,16 +180,14 @@ class ChannelGate(nn.Module):
                 channel_att_sum = channel_att_raw
             else:
                 channel_att_sum = channel_att_sum + channel_att_raw
-        scale = F.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3).expand_as(
-            x)
+        scale = F.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3).expand_as(x)
         return x * scale
 
 
 class ChannelPool(nn.Module):
 
     def forward(self, x):
-        return torch.cat((torch.max(x, 1)[0].unsqueeze(1), torch.mean(x, 1)
-            .unsqueeze(1)), dim=1)
+        return torch.cat((torch.max(x, 1)[0].unsqueeze(1), torch.mean(x, 1).unsqueeze(1)), dim=1)
 
 
 class SpatialGate(nn.Module):
@@ -221,8 +196,7 @@ class SpatialGate(nn.Module):
         super(SpatialGate, self).__init__()
         kernel_size = 7
         self.compress = ChannelPool()
-        self.spatial = BasicConv(2, 1, kernel_size, stride=1, padding=(
-            kernel_size - 1) // 2, relu=False)
+        self.spatial = BasicConv(2, 1, kernel_size, stride=1, padding=(kernel_size - 1) // 2, relu=False)
 
     def forward(self, x):
         x_compress = self.compress(x)
@@ -233,11 +207,9 @@ class SpatialGate(nn.Module):
 
 class CBAM(nn.Module):
 
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg',
-        'max'], no_spatial=False):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max'], no_spatial=False):
         super(CBAM, self).__init__()
-        self.ChannelGate = ChannelGate(gate_channels, reduction_ratio,
-            pool_types)
+        self.ChannelGate = ChannelGate(gate_channels, reduction_ratio, pool_types)
         self.no_spatial = no_spatial
         if not no_spatial:
             self.SpatialGate = SpatialGate()
@@ -251,15 +223,13 @@ class CBAM(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        use_cbam=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, use_cbam=False):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -292,13 +262,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        use_cbam=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, use_cbam=False):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -331,19 +299,16 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, network_type, num_classes, att_type=None
-        ):
+    def __init__(self, block, layers, network_type, num_classes, att_type=None):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.network_type = network_type
         if network_type == 'ImageNet':
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
             self.avgpool = nn.AvgPool2d(7)
         else:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=
-                1, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         if att_type == 'BAM':
@@ -353,12 +318,9 @@ class ResNet(nn.Module):
         else:
             self.bam1, self.bam2, self.bam3 = None, None, None
         self.layer1 = self._make_layer(block, 64, layers[0], att_type=att_type)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            att_type=att_type)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            att_type=att_type)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            att_type=att_type)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, att_type=att_type)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, att_type=att_type)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, att_type=att_type)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         init.kaiming_normal(self.fc.weight)
         for key in self.state_dict():
@@ -376,16 +338,12 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, att_type=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            use_cbam=att_type == 'CBAM'))
+        layers.append(block(self.inplanes, planes, stride, downsample, use_cbam=att_type == 'CBAM'))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, use_cbam=att_type ==
-                'CBAM'))
+            layers.append(block(self.inplanes, planes, use_cbam=att_type == 'CBAM'))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -417,20 +375,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CBAM,
+     lambda: ([], {'gate_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (ChannelGate,
+     lambda: ([], {'gate_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (ChannelPool,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SpatialGate,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Jongchan_attention_module(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ChannelPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

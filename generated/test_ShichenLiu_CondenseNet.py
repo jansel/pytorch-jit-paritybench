@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,17 +73,14 @@ from functools import reduce
 class LearnedGroupConv(nn.Module):
     global_progress = 0.0
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, condense_factor=None, dropout_rate=0.0
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, condense_factor=None, dropout_rate=0.0):
         super(LearnedGroupConv, self).__init__()
         self.norm = nn.BatchNorm2d(in_channels)
         self.relu = nn.ReLU(inplace=True)
         self.dropout_rate = dropout_rate
         if self.dropout_rate > 0:
             self.drop = nn.Dropout(dropout_rate, inplace=False)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups=1, bias=False)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups=1, bias=False)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.groups = groups
@@ -103,8 +101,7 @@ class LearnedGroupConv(nn.Module):
         if self.dropout_rate > 0:
             x = self.drop(x)
         weight = self.conv.weight * self.mask
-        return F.conv2d(x, weight, None, self.conv.stride, self.conv.
-            padding, self.conv.dilation, 1)
+        return F.conv2d(x, weight, None, self.conv.stride, self.conv.padding, self.conv.dilation, 1)
 
     def _check_drop(self):
         progress = LearnedGroupConv.global_progress
@@ -209,36 +206,27 @@ class CondensingConv(nn.Module):
 
     def __init__(self, model):
         super(CondensingConv, self).__init__()
-        self.in_channels = (model.conv.in_channels * model.groups // model.
-            condense_factor)
+        self.in_channels = model.conv.in_channels * model.groups // model.condense_factor
         self.out_channels = model.conv.out_channels
         self.groups = model.groups
         self.condense_factor = model.condense_factor
         self.norm = nn.BatchNorm2d(self.in_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(self.in_channels, self.out_channels,
-            kernel_size=model.conv.kernel_size, padding=model.conv.padding,
-            groups=self.groups, bias=False, stride=model.conv.stride)
+        self.conv = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=model.conv.kernel_size, padding=model.conv.padding, groups=self.groups, bias=False, stride=model.conv.stride)
         self.register_buffer('index', torch.LongTensor(self.in_channels))
         index = 0
         mask = model._mask.mean(-1).mean(-1)
         for i in range(self.groups):
             for j in range(model.conv.in_channels):
-                if index < self.in_channels // self.groups * (i + 1) and mask[
-                    i, j] == 1:
+                if index < self.in_channels // self.groups * (i + 1) and mask[i, j] == 1:
                     for k in range(self.out_channels // self.groups):
                         idx_i = int(k + i * (self.out_channels // self.groups))
                         idx_j = index % (self.in_channels // self.groups)
-                        self.conv.weight.data[(idx_i), (idx_j), :, :
-                            ] = model.conv.weight.data[(int(i + k * self.
-                            groups)), (j), :, :]
-                        self.norm.weight.data[index] = model.norm.weight.data[j
-                            ]
+                        self.conv.weight.data[(idx_i), (idx_j), :, :] = model.conv.weight.data[(int(i + k * self.groups)), (j), :, :]
+                        self.norm.weight.data[index] = model.norm.weight.data[j]
                         self.norm.bias.data[index] = model.norm.bias.data[j]
-                        self.norm.running_mean[index
-                            ] = model.norm.running_mean[j]
-                        self.norm.running_var[index] = model.norm.running_var[j
-                            ]
+                        self.norm.running_mean[index] = model.norm.running_mean[j]
+                        self.norm.running_var[index] = model.norm.running_var[j]
                     self.index[index] = j
                     index += 1
 
@@ -268,17 +256,14 @@ class CondenseLinear(nn.Module):
 
 class CondenseConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
         super(CondenseConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.groups = groups
         self.norm = nn.BatchNorm2d(self.in_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(self.in_channels, self.out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, groups
-            =self.groups, bias=False)
+        self.conv = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=self.groups, bias=False)
         self.register_buffer('index', torch.LongTensor(self.in_channels))
         self.index.fill_(0)
 
@@ -293,14 +278,11 @@ class CondenseConv(nn.Module):
 
 class Conv(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
         super(Conv, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(in_channels))
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(in_channels, out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, bias=
-            False, groups=groups))
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False, groups=groups))
 
 
 class _DenseLayer(nn.Module):
@@ -309,12 +291,8 @@ class _DenseLayer(nn.Module):
         super(_DenseLayer, self).__init__()
         self.group_1x1 = args.group_1x1
         self.group_3x3 = args.group_3x3
-        self.conv_1 = LearnedGroupConv(in_channels, args.bottleneck *
-            growth_rate, kernel_size=1, groups=self.group_1x1,
-            condense_factor=args.condense_factor, dropout_rate=args.
-            dropout_rate)
-        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate,
-            kernel_size=3, padding=1, groups=self.group_3x3)
+        self.conv_1 = LearnedGroupConv(in_channels, args.bottleneck * growth_rate, kernel_size=1, groups=self.group_1x1, condense_factor=args.condense_factor, dropout_rate=args.dropout_rate)
+        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate, kernel_size=3, padding=1, groups=self.group_3x3)
 
     def forward(self, x):
         x_ = x
@@ -328,8 +306,7 @@ class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, in_channels, growth_rate, args):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate,
-                args)
+            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate, args)
             self.add_module('denselayer_%d' % (i + 1), layer)
 
 
@@ -361,9 +338,7 @@ class CondenseNet(nn.Module):
             self.pool_size = 7
         self.features = nn.Sequential()
         self.num_features = 2 * self.growth[0]
-        self.features.add_module('init_conv', nn.Conv2d(3, self.
-            num_features, kernel_size=3, stride=self.init_stride, padding=1,
-            bias=False))
+        self.features.add_module('init_conv', nn.Conv2d(3, self.num_features, kernel_size=3, stride=self.init_stride, padding=1, bias=False))
         for i in range(len(self.stages)):
             self.add_block(i)
         self.classifier = nn.Linear(self.num_features, args.num_classes)
@@ -380,16 +355,14 @@ class CondenseNet(nn.Module):
 
     def add_block(self, i):
         last = i == len(self.stages) - 1
-        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.
-            num_features, growth_rate=self.growth[i], args=self.args)
+        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.num_features, growth_rate=self.growth[i], args=self.args)
         self.features.add_module('denseblock_%d' % (i + 1), block)
         self.num_features += self.stages[i] * self.growth[i]
         if not last:
             trans = _Transition(in_channels=self.num_features, args=self.args)
             self.features.add_module('transition_%d' % (i + 1), trans)
         else:
-            self.features.add_module('norm_last', nn.BatchNorm2d(self.
-                num_features))
+            self.features.add_module('norm_last', nn.BatchNorm2d(self.num_features))
             self.features.add_module('relu_last', nn.ReLU(inplace=True))
             self.features.add_module('pool_last', nn.AvgPool2d(self.pool_size))
 
@@ -408,10 +381,8 @@ class _DenseLayer(nn.Module):
         super(_DenseLayer, self).__init__()
         self.group_1x1 = args.group_1x1
         self.group_3x3 = args.group_3x3
-        self.conv_1 = CondenseConv(in_channels, args.bottleneck *
-            growth_rate, kernel_size=1, groups=self.group_1x1)
-        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate,
-            kernel_size=3, padding=1, groups=self.group_3x3)
+        self.conv_1 = CondenseConv(in_channels, args.bottleneck * growth_rate, kernel_size=1, groups=self.group_1x1)
+        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate, kernel_size=3, padding=1, groups=self.group_3x3)
 
     def forward(self, x):
         x_ = x
@@ -425,8 +396,7 @@ class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, in_channels, growth_rate, args):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate,
-                args)
+            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate, args)
             self.add_module('denselayer_%d' % (i + 1), layer)
 
 
@@ -458,13 +428,10 @@ class CondenseNet(nn.Module):
             self.pool_size = 7
         self.features = nn.Sequential()
         self.num_features = 2 * self.growth[0]
-        self.features.add_module('init_conv', nn.Conv2d(3, self.
-            num_features, kernel_size=3, stride=self.init_stride, padding=1,
-            bias=False))
+        self.features.add_module('init_conv', nn.Conv2d(3, self.num_features, kernel_size=3, stride=self.init_stride, padding=1, bias=False))
         for i in range(len(self.stages)):
             self.add_block(i)
-        self.classifier = CondenseLinear(self.num_features, args.
-            num_classes, 0.5)
+        self.classifier = CondenseLinear(self.num_features, args.num_classes, 0.5)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -477,16 +444,14 @@ class CondenseNet(nn.Module):
 
     def add_block(self, i):
         last = i == len(self.stages) - 1
-        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.
-            num_features, growth_rate=self.growth[i], args=self.args)
+        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.num_features, growth_rate=self.growth[i], args=self.args)
         self.features.add_module('denseblock_%d' % (i + 1), block)
         self.num_features += self.stages[i] * self.growth[i]
         if not last:
             trans = _Transition(in_channels=self.num_features, args=self.args)
             self.features.add_module('transition_%d' % (i + 1), trans)
         else:
-            self.features.add_module('norm_last', nn.BatchNorm2d(self.
-                num_features))
+            self.features.add_module('norm_last', nn.BatchNorm2d(self.num_features))
             self.features.add_module('relu_last', nn.ReLU(inplace=True))
             self.features.add_module('pool_last', nn.AvgPool2d(self.pool_size))
 
@@ -503,10 +468,8 @@ class _DenseLayer(nn.Module):
         super(_DenseLayer, self).__init__()
         self.group_1x1 = args.group_1x1
         self.group_3x3 = args.group_3x3
-        self.conv_1 = Conv(in_channels, args.bottleneck * growth_rate,
-            kernel_size=1, groups=self.group_1x1)
-        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate,
-            kernel_size=3, padding=1, groups=self.group_3x3)
+        self.conv_1 = Conv(in_channels, args.bottleneck * growth_rate, kernel_size=1, groups=self.group_1x1)
+        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate, kernel_size=3, padding=1, groups=self.group_3x3)
 
     def forward(self, x):
         x_ = x
@@ -520,8 +483,7 @@ class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, in_channels, growth_rate, args):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate,
-                args)
+            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate, args)
             self.add_module('denselayer_%d' % (i + 1), layer)
 
 
@@ -529,8 +491,7 @@ class _Transition(nn.Module):
 
     def __init__(self, in_channels, out_channels, args):
         super(_Transition, self).__init__()
-        self.conv = Conv(in_channels, out_channels, kernel_size=1, groups=
-            args.group_1x1)
+        self.conv = Conv(in_channels, out_channels, kernel_size=1, groups=args.group_1x1)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
@@ -561,9 +522,7 @@ class DenseNet(nn.Module):
             self.pool_size = 7
         self.features = nn.Sequential()
         self.num_features = 2 * self.growth[0]
-        self.features.add_module('init_conv', nn.Conv2d(3, self.
-            num_features, kernel_size=3, stride=self.init_stride, padding=1,
-            bias=False))
+        self.features.add_module('init_conv', nn.Conv2d(3, self.num_features, kernel_size=3, stride=self.init_stride, padding=1, bias=False))
         for i in range(len(self.stages)):
             self.add_block(i)
         self.classifier = nn.Linear(self.num_features, args.num_classes)
@@ -579,20 +538,16 @@ class DenseNet(nn.Module):
 
     def add_block(self, i):
         last = i == len(self.stages) - 1
-        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.
-            num_features, growth_rate=self.growth[i], args=self.args)
+        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.num_features, growth_rate=self.growth[i], args=self.args)
         self.features.add_module('denseblock_%d' % (i + 1), block)
         self.num_features += self.stages[i] * self.growth[i]
         if not last:
-            out_features = make_divisible(math.ceil(self.num_features *
-                self.reduction), self.args.group_1x1)
-            trans = _Transition(in_channels=self.num_features, out_channels
-                =out_features, args=self.args)
+            out_features = make_divisible(math.ceil(self.num_features * self.reduction), self.args.group_1x1)
+            trans = _Transition(in_channels=self.num_features, out_channels=out_features, args=self.args)
             self.features.add_module('transition_%d' % (i + 1), trans)
             self.num_features = out_features
         else:
-            self.features.add_module('norm_last', nn.BatchNorm2d(self.
-                num_features))
+            self.features.add_module('norm_last', nn.BatchNorm2d(self.num_features))
             self.features.add_module('relu_last', nn.ReLU(inplace=True))
             self.features.add_module('pool_last', nn.AvgPool2d(self.pool_size))
 
@@ -609,12 +564,8 @@ class _DenseLayer(nn.Module):
         super(_DenseLayer, self).__init__()
         self.group_1x1 = args.group_1x1
         self.group_3x3 = args.group_3x3
-        self.conv_1 = LearnedGroupConv(in_channels, args.bottleneck *
-            growth_rate, kernel_size=1, groups=self.group_1x1,
-            condense_factor=args.condense_factor, dropout_rate=args.
-            dropout_rate)
-        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate,
-            kernel_size=3, padding=1, groups=self.group_3x3)
+        self.conv_1 = LearnedGroupConv(in_channels, args.bottleneck * growth_rate, kernel_size=1, groups=self.group_1x1, condense_factor=args.condense_factor, dropout_rate=args.dropout_rate)
+        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate, kernel_size=3, padding=1, groups=self.group_3x3)
 
     def forward(self, x):
         x_ = x
@@ -628,8 +579,7 @@ class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, in_channels, growth_rate, args):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate,
-                args)
+            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate, args)
             self.add_module('denselayer_%d' % (i + 1), layer)
 
 
@@ -637,8 +587,7 @@ class _Transition(nn.Module):
 
     def __init__(self, in_channels, out_channels, args):
         super(_Transition, self).__init__()
-        self.conv = LearnedGroupConv(in_channels, out_channels, kernel_size
-            =1, groups=args.group_1x1, condense_factor=args.condense_factor)
+        self.conv = LearnedGroupConv(in_channels, out_channels, kernel_size=1, groups=args.group_1x1, condense_factor=args.condense_factor)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
@@ -665,9 +614,7 @@ class DenseNet_LGC(nn.Module):
             self.pool_size = 7
         self.features = nn.Sequential()
         self.num_features = 2 * self.growth[0]
-        self.features.add_module('init_conv', nn.Conv2d(3, self.
-            num_features, kernel_size=3, stride=self.init_stride, padding=1,
-            bias=False))
+        self.features.add_module('init_conv', nn.Conv2d(3, self.num_features, kernel_size=3, stride=self.init_stride, padding=1, bias=False))
         for i in range(len(self.stages)):
             self.add_block(i)
         self.classifier = nn.Linear(self.num_features, args.num_classes)
@@ -683,20 +630,16 @@ class DenseNet_LGC(nn.Module):
 
     def add_block(self, i):
         last = i == len(self.stages) - 1
-        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.
-            num_features, growth_rate=self.growth[i], args=self.args)
+        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.num_features, growth_rate=self.growth[i], args=self.args)
         self.features.add_module('denseblock_%d' % (i + 1), block)
         self.num_features += self.stages[i] * self.growth[i]
         if not last:
-            out_features = make_divisible(math.ceil(self.num_features *
-                self.reduction), self.args.group_1x1)
-            trans = _Transition(in_channels=self.num_features, out_channels
-                =out_features, args=self.args)
+            out_features = make_divisible(math.ceil(self.num_features * self.reduction), self.args.group_1x1)
+            trans = _Transition(in_channels=self.num_features, out_channels=out_features, args=self.args)
             self.features.add_module('transition_%d' % (i + 1), trans)
             self.num_features = out_features
         else:
-            self.features.add_module('norm_last', nn.BatchNorm2d(self.
-                num_features))
+            self.features.add_module('norm_last', nn.BatchNorm2d(self.num_features))
             self.features.add_module('relu_last', nn.ReLU(inplace=True))
             self.features.add_module('pool_last', nn.AvgPool2d(self.pool_size))
 
@@ -713,28 +656,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CondenseConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LearnedGroupConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4, condense_factor=4, dropout_rate=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4, condense_factor=4, dropout_rate=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'args': _mock_config(group_1x1=4, condense_factor=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_ShichenLiu_CondenseNet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CondenseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LearnedGroupConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(_DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(_Transition(*[], **{'in_channels': 4, 'out_channels': 4, 'args': _mock_config(group_1x1=4, condense_factor=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

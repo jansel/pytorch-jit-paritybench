@@ -38,8 +38,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,8 +75,7 @@ class NatureConvBody(nn.Module):
     def __init__(self, in_channels=4):
         super(NatureConvBody, self).__init__()
         self.feature_dim = 512
-        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=8,
-            stride=4))
+        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=8, stride=4))
         self.conv2 = layer_init(nn.Conv2d(32, 64, kernel_size=4, stride=2))
         self.conv3 = layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1))
         self.fc4 = layer_init(nn.Linear(7 * 7 * 64, self.feature_dim))
@@ -94,8 +94,7 @@ class DDPGConvBody(nn.Module):
     def __init__(self, in_channels=4):
         super(DDPGConvBody, self).__init__()
         self.feature_dim = 39 * 39 * 32
-        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=3,
-            stride=2))
+        self.conv1 = layer_init(nn.Conv2d(in_channels, 32, kernel_size=3, stride=2))
         self.conv2 = layer_init(nn.Conv2d(32, 32, kernel_size=3))
 
     def forward(self, x):
@@ -110,8 +109,7 @@ class FCBody(nn.Module):
     def __init__(self, state_dim, hidden_units=(64, 64), gate=F.relu):
         super(FCBody, self).__init__()
         dims = (state_dim,) + hidden_units
-        self.layers = nn.ModuleList([layer_init(nn.Linear(dim_in, dim_out)) for
-            dim_in, dim_out in zip(dims[:-1], dims[1:])])
+        self.layers = nn.ModuleList([layer_init(nn.Linear(dim_in, dim_out)) for dim_in, dim_out in zip(dims[:-1], dims[1:])])
         self.gate = gate
         self.feature_dim = dims[-1]
 
@@ -123,13 +121,11 @@ class FCBody(nn.Module):
 
 class TwoLayerFCBodyWithAction(nn.Module):
 
-    def __init__(self, state_dim, action_dim, hidden_units=(64, 64), gate=F
-        .relu):
+    def __init__(self, state_dim, action_dim, hidden_units=(64, 64), gate=F.relu):
         super(TwoLayerFCBodyWithAction, self).__init__()
         hidden_size1, hidden_size2 = hidden_units
         self.fc1 = layer_init(nn.Linear(state_dim, hidden_size1))
-        self.fc2 = layer_init(nn.Linear(hidden_size1 + action_dim,
-            hidden_size2))
+        self.fc2 = layer_init(nn.Linear(hidden_size1 + action_dim, hidden_size2))
         self.gate = gate
         self.feature_dim = hidden_size2
 
@@ -307,8 +303,7 @@ class DuelingNet(nn.Module, BaseNet):
         phi = self.body(tensor(x))
         value = self.fc_value(phi)
         advantange = self.fc_advantage(phi)
-        q = value.expand_as(advantange) + (advantange - advantange.mean(1,
-            keepdim=True).expand_as(advantange))
+        q = value.expand_as(advantange) + (advantange - advantange.mean(1, keepdim=True).expand_as(advantange))
         return q
 
 
@@ -316,8 +311,7 @@ class CategoricalNet(nn.Module, BaseNet):
 
     def __init__(self, action_dim, num_atoms, body):
         super(CategoricalNet, self).__init__()
-        self.fc_categorical = layer_init(nn.Linear(body.feature_dim, 
-            action_dim * num_atoms))
+        self.fc_categorical = layer_init(nn.Linear(body.feature_dim, action_dim * num_atoms))
         self.action_dim = action_dim
         self.num_atoms = num_atoms
         self.body = body
@@ -325,8 +319,7 @@ class CategoricalNet(nn.Module, BaseNet):
 
     def forward(self, x):
         phi = self.body(tensor(x))
-        pre_prob = self.fc_categorical(phi).view((-1, self.action_dim, self
-            .num_atoms))
+        pre_prob = self.fc_categorical(phi).view((-1, self.action_dim, self.num_atoms))
         prob = F.softmax(pre_prob, dim=-1)
         log_prob = F.log_softmax(pre_prob, dim=-1)
         return prob, log_prob
@@ -336,8 +329,7 @@ class QuantileNet(nn.Module, BaseNet):
 
     def __init__(self, action_dim, num_quantiles, body):
         super(QuantileNet, self).__init__()
-        self.fc_quantiles = layer_init(nn.Linear(body.feature_dim, 
-            action_dim * num_quantiles))
+        self.fc_quantiles = layer_init(nn.Linear(body.feature_dim, action_dim * num_quantiles))
         self.action_dim = action_dim
         self.num_quantiles = num_quantiles
         self.body = body
@@ -355,8 +347,7 @@ class OptionCriticNet(nn.Module, BaseNet):
     def __init__(self, body, action_dim, num_options):
         super(OptionCriticNet, self).__init__()
         self.fc_q = layer_init(nn.Linear(body.feature_dim, num_options))
-        self.fc_pi = layer_init(nn.Linear(body.feature_dim, num_options *
-            action_dim))
+        self.fc_pi = layer_init(nn.Linear(body.feature_dim, num_options * action_dim))
         self.fc_beta = layer_init(nn.Linear(body.feature_dim, num_options))
         self.num_options = num_options
         self.action_dim = action_dim
@@ -376,8 +367,7 @@ class OptionCriticNet(nn.Module, BaseNet):
 
 class DeterministicActorCriticNet(nn.Module, BaseNet):
 
-    def __init__(self, state_dim, action_dim, actor_opt_fn, critic_opt_fn,
-        phi_body=None, actor_body=None, critic_body=None):
+    def __init__(self, state_dim, action_dim, actor_opt_fn, critic_opt_fn, phi_body=None, actor_body=None, critic_body=None):
         super(DeterministicActorCriticNet, self).__init__()
         if phi_body is None:
             phi_body = DummyBody(state_dim)
@@ -388,14 +378,10 @@ class DeterministicActorCriticNet(nn.Module, BaseNet):
         self.phi_body = phi_body
         self.actor_body = actor_body
         self.critic_body = critic_body
-        self.fc_action = layer_init(nn.Linear(actor_body.feature_dim,
-            action_dim), 0.001)
-        self.fc_critic = layer_init(nn.Linear(critic_body.feature_dim, 1), 
-            0.001)
-        self.actor_params = list(self.actor_body.parameters()) + list(self.
-            fc_action.parameters())
-        self.critic_params = list(self.critic_body.parameters()) + list(self
-            .fc_critic.parameters())
+        self.fc_action = layer_init(nn.Linear(actor_body.feature_dim, action_dim), 0.001)
+        self.fc_critic = layer_init(nn.Linear(critic_body.feature_dim, 1), 0.001)
+        self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters())
+        self.critic_params = list(self.critic_body.parameters()) + list(self.fc_critic.parameters())
         self.phi_params = list(self.phi_body.parameters())
         self.actor_opt = actor_opt_fn(self.actor_params + self.phi_params)
         self.critic_opt = critic_opt_fn(self.critic_params + self.phi_params)
@@ -419,8 +405,7 @@ class DeterministicActorCriticNet(nn.Module, BaseNet):
 
 class GaussianActorCriticNet(nn.Module, BaseNet):
 
-    def __init__(self, state_dim, action_dim, phi_body=None, actor_body=
-        None, critic_body=None):
+    def __init__(self, state_dim, action_dim, phi_body=None, actor_body=None, critic_body=None):
         super(GaussianActorCriticNet, self).__init__()
         if phi_body is None:
             phi_body = DummyBody(state_dim)
@@ -431,17 +416,13 @@ class GaussianActorCriticNet(nn.Module, BaseNet):
         self.phi_body = phi_body
         self.actor_body = actor_body
         self.critic_body = critic_body
-        self.fc_action = layer_init(nn.Linear(actor_body.feature_dim,
-            action_dim), 0.001)
-        self.fc_critic = layer_init(nn.Linear(critic_body.feature_dim, 1), 
-            0.001)
+        self.fc_action = layer_init(nn.Linear(actor_body.feature_dim, action_dim), 0.001)
+        self.fc_critic = layer_init(nn.Linear(critic_body.feature_dim, 1), 0.001)
         self.std = nn.Parameter(torch.zeros(action_dim))
         self.phi_params = list(self.phi_body.parameters())
-        self.actor_params = list(self.actor_body.parameters()) + list(self.
-            fc_action.parameters()) + self.phi_params
+        self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters()) + self.phi_params
         self.actor_params.append(self.std)
-        self.critic_params = list(self.critic_body.parameters()) + list(self
-            .fc_critic.parameters()) + self.phi_params
+        self.critic_params = list(self.critic_body.parameters()) + list(self.fc_critic.parameters()) + self.phi_params
         self
 
     def forward(self, obs, action=None):
@@ -456,14 +437,12 @@ class GaussianActorCriticNet(nn.Module, BaseNet):
             action = dist.sample()
         log_prob = dist.log_prob(action).sum(-1).unsqueeze(-1)
         entropy = dist.entropy().sum(-1).unsqueeze(-1)
-        return {'a': action, 'log_pi_a': log_prob, 'ent': entropy, 'mean':
-            mean, 'v': v}
+        return {'a': action, 'log_pi_a': log_prob, 'ent': entropy, 'mean': mean, 'v': v}
 
 
 class CategoricalActorCriticNet(nn.Module, BaseNet):
 
-    def __init__(self, state_dim, action_dim, phi_body=None, actor_body=
-        None, critic_body=None):
+    def __init__(self, state_dim, action_dim, phi_body=None, actor_body=None, critic_body=None):
         super(CategoricalActorCriticNet, self).__init__()
         if phi_body is None:
             phi_body = DummyBody(state_dim)
@@ -474,14 +453,10 @@ class CategoricalActorCriticNet(nn.Module, BaseNet):
         self.phi_body = phi_body
         self.actor_body = actor_body
         self.critic_body = critic_body
-        self.fc_action = layer_init(nn.Linear(actor_body.feature_dim,
-            action_dim), 0.001)
-        self.fc_critic = layer_init(nn.Linear(critic_body.feature_dim, 1), 
-            0.001)
-        self.actor_params = list(self.actor_body.parameters()) + list(self.
-            fc_action.parameters())
-        self.critic_params = list(self.critic_body.parameters()) + list(self
-            .fc_critic.parameters())
+        self.fc_action = layer_init(nn.Linear(actor_body.feature_dim, action_dim), 0.001)
+        self.fc_critic = layer_init(nn.Linear(critic_body.feature_dim, 1), 0.001)
+        self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters())
+        self.critic_params = list(self.critic_body.parameters()) + list(self.fc_critic.parameters())
         self.phi_params = list(self.phi_body.parameters())
         self
 
@@ -502,23 +477,16 @@ class CategoricalActorCriticNet(nn.Module, BaseNet):
 
 class TD3Net(nn.Module, BaseNet):
 
-    def __init__(self, action_dim, actor_body_fn, critic_body_fn,
-        actor_opt_fn, critic_opt_fn):
+    def __init__(self, action_dim, actor_body_fn, critic_body_fn, actor_opt_fn, critic_opt_fn):
         super(TD3Net, self).__init__()
         self.actor_body = actor_body_fn()
         self.critic_body_1 = critic_body_fn()
         self.critic_body_2 = critic_body_fn()
-        self.fc_action = layer_init(nn.Linear(self.actor_body.feature_dim,
-            action_dim), 0.001)
-        self.fc_critic_1 = layer_init(nn.Linear(self.critic_body_1.
-            feature_dim, 1), 0.001)
-        self.fc_critic_2 = layer_init(nn.Linear(self.critic_body_2.
-            feature_dim, 1), 0.001)
-        self.actor_params = list(self.actor_body.parameters()) + list(self.
-            fc_action.parameters())
-        self.critic_params = list(self.critic_body_1.parameters()) + list(self
-            .fc_critic_1.parameters()) + list(self.critic_body_2.parameters()
-            ) + list(self.fc_critic_2.parameters())
+        self.fc_action = layer_init(nn.Linear(self.actor_body.feature_dim, action_dim), 0.001)
+        self.fc_critic_1 = layer_init(nn.Linear(self.critic_body_1.feature_dim, 1), 0.001)
+        self.fc_critic_2 = layer_init(nn.Linear(self.critic_body_2.feature_dim, 1), 0.001)
+        self.actor_params = list(self.actor_body.parameters()) + list(self.fc_action.parameters())
+        self.critic_params = list(self.critic_body_1.parameters()) + list(self.fc_critic_1.parameters()) + list(self.critic_body_2.parameters()) + list(self.fc_critic_2.parameters())
         self.actor_opt = actor_opt_fn(self.actor_params)
         self.critic_opt = critic_opt_fn(self.critic_params)
         self
@@ -540,28 +508,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CategoricalActorCriticNet,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DDPGConvBody,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (DummyBody,
+     lambda: ([], {'state_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FCBody,
+     lambda: ([], {'state_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GaussianActorCriticNet,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NatureConvBody,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 90, 90])], {}),
+     True),
+    (OneLayerFCBodyWithAction,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4, 'hidden_units': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TwoLayerFCBodyWithAction,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_ShangtongZhang_DeepRL(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CategoricalActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DDPGConvBody(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DummyBody(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FCBody(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(GaussianActorCriticNet(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(OneLayerFCBodyWithAction(*[], **{'state_dim': 4, 'action_dim': 4, 'hidden_units': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(TwoLayerFCBodyWithAction(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

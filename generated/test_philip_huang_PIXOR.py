@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,8 +87,7 @@ class CustomLoss(nn.Module):
         return loss.mean()
 
     def cross_entropy(self, x, y):
-        return F.binary_cross_entropy(input=x, target=y, reduction=
-            'elementwise_mean')
+        return F.binary_cross_entropy(input=x, target=y, reduction='elementwise_mean')
 
     def forward(self, preds, targets):
         """Compute loss between (loc_preds, loc_targets) and (cls_preds, cls_targets).
@@ -111,8 +111,7 @@ class CustomLoss(nn.Module):
         cls = cls_loss.item()
         pos_pixels = cls_targets.sum()
         if pos_pixels > 0:
-            loc_loss = F.smooth_l1_loss(cls_targets * loc_preds,
-                loc_targets, reduction='sum') / pos_pixels * self.beta
+            loc_loss = F.smooth_l1_loss(cls_targets * loc_preds, loc_targets, reduction='sum') / pos_pixels * self.beta
             loc = loc_loss.item()
             loss = loc_loss + cls_loss
         else:
@@ -123,8 +122,7 @@ class CustomLoss(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=bias)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=bias)
 
 
 class BasicBlock(nn.Module):
@@ -155,18 +153,15 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, in_planes, planes, stride=1, downsample=None, use_bn
-        =True):
+    def __init__(self, in_planes, planes, stride=1, downsample=None, use_bn=True):
         super(Bottleneck, self).__init__()
         bias = not use_bn
         self.use_bn = use_bn
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=bias)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=bias)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=bias)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=bias)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=bias)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = downsample
         self.relu = nn.ReLU(inplace=True)
@@ -205,16 +200,12 @@ class BackBone(nn.Module):
         self.block3 = self._make_layer(block, 48, num_blocks=num_block[1])
         self.block4 = self._make_layer(block, 64, num_blocks=num_block[2])
         self.block5 = self._make_layer(block, 96, num_blocks=num_block[3])
-        self.latlayer1 = nn.Conv2d(384, 196, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer2 = nn.Conv2d(256, 128, kernel_size=1, stride=1, padding=0
-            )
+        self.latlayer1 = nn.Conv2d(384, 196, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(256, 128, kernel_size=1, stride=1, padding=0)
         self.latlayer3 = nn.Conv2d(192, 96, kernel_size=1, stride=1, padding=0)
-        self.deconv1 = nn.ConvTranspose2d(196, 128, kernel_size=3, stride=2,
-            padding=1, output_padding=1)
+        self.deconv1 = nn.ConvTranspose2d(196, 128, kernel_size=3, stride=2, padding=1, output_padding=1)
         p = 0 if geom['label_shape'][1] == 175 else 1
-        self.deconv2 = nn.ConvTranspose2d(128, 96, kernel_size=3, stride=2,
-            padding=1, output_padding=(1, p))
+        self.deconv2 = nn.ConvTranspose2d(128, 96, kernel_size=3, stride=2, padding=1, output_padding=(1, p))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -238,15 +229,11 @@ class BackBone(nn.Module):
 
     def _make_layer(self, block, planes, num_blocks):
         if self.use_bn:
-            downsample = nn.Sequential(nn.Conv2d(self.in_planes, planes *
-                block.expansion, kernel_size=1, stride=2, bias=False), nn.
-                BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.in_planes, planes * block.expansion, kernel_size=1, stride=2, bias=False), nn.BatchNorm2d(planes * block.expansion))
         else:
-            downsample = nn.Conv2d(self.in_planes, planes * block.expansion,
-                kernel_size=1, stride=2, bias=True)
+            downsample = nn.Conv2d(self.in_planes, planes * block.expansion, kernel_size=1, stride=2, bias=True)
         layers = []
-        layers.append(block(self.in_planes, planes, stride=2, downsample=
-            downsample))
+        layers.append(block(self.in_planes, planes, stride=2, downsample=downsample))
         self.in_planes = planes * block.expansion
         for i in range(1, num_blocks):
             layers.append(block(self.in_planes, planes, stride=1))
@@ -335,16 +322,13 @@ class Decoder(nn.Module):
         if x.is_cuda:
             device = x.get_device()
         for i in range(6):
-            x[:, (i), :, :] = x[:, (i), :, :] * self.target_std_dev[i
-                ] + self.target_mean[i]
+            x[:, (i), :, :] = x[:, (i), :, :] * self.target_std_dev[i] + self.target_mean[i]
         cos_t, sin_t, dx, dy, log_w, log_l = torch.chunk(x, 6, dim=1)
         theta = torch.atan2(sin_t, cos_t)
         cos_t = torch.cos(theta)
         sin_t = torch.sin(theta)
-        x = torch.arange(self.geometry[2], self.geometry[3], self.grid_size,
-            dtype=torch.float32, device=device)
-        y = torch.arange(self.geometry[0], self.geometry[1], self.grid_size,
-            dtype=torch.float32, device=device)
+        x = torch.arange(self.geometry[2], self.geometry[3], self.grid_size, dtype=torch.float32, device=device)
+        y = torch.arange(self.geometry[0], self.geometry[1], self.grid_size, dtype=torch.float32, device=device)
         yy, xx = torch.meshgrid([y, x])
         centre_y = yy + dy
         centre_x = xx + dx
@@ -358,9 +342,7 @@ class Decoder(nn.Module):
         front_right_y = centre_y + l / 2 * sin_t - w / 2 * cos_t
         front_left_x = centre_x + l / 2 * cos_t - w / 2 * sin_t
         front_left_y = centre_y + l / 2 * sin_t + w / 2 * cos_t
-        decoded_reg = torch.cat([rear_left_x, rear_left_y, rear_right_x,
-            rear_right_y, front_right_x, front_right_y, front_left_x,
-            front_left_y], dim=1)
+        decoded_reg = torch.cat([rear_left_x, rear_left_y, rear_right_x, rear_right_y, front_right_x, front_right_y, front_left_x, front_left_y], dim=1)
         return decoded_reg
 
 
@@ -427,11 +409,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Header,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 96, 64, 64])], {}),
+     True),
+]
+
 class Test_philip_huang_PIXOR(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Header(*[], **{}), [torch.rand([4, 96, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

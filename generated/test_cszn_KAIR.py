@@ -65,8 +65,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -142,8 +143,7 @@ def pixel_unshuffle(input, upscale_factor):
     batch_size, channels, in_height, in_width = input.size()
     out_height = in_height // upscale_factor
     out_width = in_width // upscale_factor
-    input_view = input.contiguous().view(batch_size, channels, out_height,
-        upscale_factor, out_width, upscale_factor)
+    input_view = input.contiguous().view(batch_size, channels, out_height, upscale_factor, out_width, upscale_factor)
     channels *= upscale_factor ** 2
     unshuffle_out = input_view.permute(0, 1, 3, 5, 2, 4).contiguous()
     return unshuffle_out.view(batch_size, channels, out_height, out_width)
@@ -185,8 +185,7 @@ class ConditionalBatchNorm2d(nn.Module):
     def forward(self, x, y):
         out = self.bn(x)
         gamma, beta = self.embed(y).chunk(2, 1)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
@@ -232,8 +231,7 @@ def sequential(*args):
     """
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
+            raise NotImplementedError('sequential does not support OrderedDict input.')
         return args[0]
     modules = []
     for module in args:
@@ -245,21 +243,15 @@ def sequential(*args):
     return nn.Sequential(*modules)
 
 
-def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
-    1, bias=True, mode='CBR', negative_slope=0.2):
+def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CBR', negative_slope=0.2):
     L = []
     for t in mode:
         if t == 'C':
-            L.append(nn.Conv2d(in_channels=in_channels, out_channels=
-                out_channels, kernel_size=kernel_size, stride=stride,
-                padding=padding, bias=bias))
+            L.append(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
         elif t == 'T':
-            L.append(nn.ConvTranspose2d(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=kernel_size, stride=
-                stride, padding=padding, bias=bias))
+            L.append(nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
         elif t == 'B':
-            L.append(nn.BatchNorm2d(out_channels, momentum=0.9, eps=0.0001,
-                affine=True))
+            L.append(nn.BatchNorm2d(out_channels, momentum=0.9, eps=0.0001, affine=True))
         elif t == 'I':
             L.append(nn.InstanceNorm2d(out_channels, affine=True))
         elif t == 'R':
@@ -269,8 +261,7 @@ def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
         elif t == 'L':
             L.append(nn.LeakyReLU(negative_slope=negative_slope, inplace=True))
         elif t == 'l':
-            L.append(nn.LeakyReLU(negative_slope=negative_slope, inplace=False)
-                )
+            L.append(nn.LeakyReLU(negative_slope=negative_slope, inplace=False))
         elif t == '2':
             L.append(nn.PixelShuffle(upscale_factor=2))
         elif t == '3':
@@ -284,11 +275,9 @@ def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
         elif t == 'v':
             L.append(nn.Upsample(scale_factor=4, mode='nearest'))
         elif t == 'M':
-            L.append(nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-                padding=0))
+            L.append(nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=0))
         elif t == 'A':
-            L.append(nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-                padding=0))
+            L.append(nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=0))
         else:
             raise NotImplementedError('Undefined type: '.format(t))
     return sequential(*L)
@@ -296,14 +285,12 @@ def conv(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CRC', negative_slope=0.2):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CRC', negative_slope=0.2):
         super(ResBlock, self).__init__()
         assert in_channels == out_channels, 'Only support in_channels==out_channels.'
         if mode[0] in ['R', 'L']:
             mode = mode[0].lower() + mode[1:]
-        self.res = conv(in_channels, out_channels, kernel_size, stride,
-            padding, bias, mode, negative_slope)
+        self.res = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode, negative_slope)
 
     def forward(self, x):
         res = self.res(x)
@@ -327,24 +314,16 @@ class IMDBlock(nn.Module):
     }
     """
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CL', d_rate=0.25,
-        negative_slope=0.05):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CL', d_rate=0.25, negative_slope=0.05):
         super(IMDBlock, self).__init__()
         self.d_nc = int(in_channels * d_rate)
         self.r_nc = int(in_channels - self.d_nc)
         assert mode[0] == 'C', 'convolutional layer first'
-        self.conv1 = conv(in_channels, in_channels, kernel_size, stride,
-            padding, bias, mode, negative_slope)
-        self.conv2 = conv(self.r_nc, in_channels, kernel_size, stride,
-            padding, bias, mode, negative_slope)
-        self.conv3 = conv(self.r_nc, in_channels, kernel_size, stride,
-            padding, bias, mode, negative_slope)
-        self.conv4 = conv(self.r_nc, self.d_nc, kernel_size, stride,
-            padding, bias, mode[0], negative_slope)
-        self.conv1x1 = conv(self.d_nc * 4, out_channels, kernel_size=1,
-            stride=1, padding=0, bias=bias, mode=mode[0], negative_slope=
-            negative_slope)
+        self.conv1 = conv(in_channels, in_channels, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv2 = conv(self.r_nc, in_channels, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv3 = conv(self.r_nc, in_channels, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv4 = conv(self.r_nc, self.d_nc, kernel_size, stride, padding, bias, mode[0], negative_slope)
+        self.conv1x1 = conv(self.d_nc * 4, out_channels, kernel_size=1, stride=1, padding=0, bias=bias, mode=mode[0], negative_slope=negative_slope)
 
     def forward(self, x):
         d1, r1 = torch.split(self.conv1(x), (self.d_nc, self.r_nc), dim=1)
@@ -360,10 +339,7 @@ class CALayer(nn.Module):
     def __init__(self, channel=64, reduction=16):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_fc = nn.Sequential(nn.Conv2d(channel, channel //
-            reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.
-            Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
-            nn.Sigmoid())
+        self.conv_fc = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -373,15 +349,12 @@ class CALayer(nn.Module):
 
 class RCABlock(nn.Module):
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CRC', reduction=16,
-        negative_slope=0.2):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CRC', reduction=16, negative_slope=0.2):
         super(RCABlock, self).__init__()
         assert in_channels == out_channels, 'Only support in_channels==out_channels.'
         if mode[0] in ['R', 'L']:
             mode = mode[0].lower() + mode[1:]
-        self.res = conv(in_channels, out_channels, kernel_size, stride,
-            padding, bias, mode, negative_slope)
+        self.res = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode, negative_slope)
         self.ca = CALayer(out_channels, reduction)
 
     def forward(self, x):
@@ -392,15 +365,12 @@ class RCABlock(nn.Module):
 
 class RCAGroup(nn.Module):
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3,
-        stride=1, padding=1, bias=True, mode='CRC', reduction=16, nb=12,
-        negative_slope=0.2):
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='CRC', reduction=16, nb=12, negative_slope=0.2):
         super(RCAGroup, self).__init__()
         assert in_channels == out_channels, 'Only support in_channels==out_channels.'
         if mode[0] in ['R', 'L']:
             mode = mode[0].lower() + mode[1:]
-        RG = [RCABlock(in_channels, out_channels, kernel_size, stride,
-            padding, bias, mode, reduction, negative_slope) for _ in range(nb)]
+        RG = [RCABlock(in_channels, out_channels, kernel_size, stride, padding, bias, mode, reduction, negative_slope) for _ in range(nb)]
         RG.append(conv(out_channels, out_channels, mode='C'))
         self.rg = nn.Sequential(*RG)
 
@@ -411,19 +381,13 @@ class RCAGroup(nn.Module):
 
 class ResidualDenseBlock_5C(nn.Module):
 
-    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1,
-        bias=True, mode='CR', negative_slope=0.2):
+    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1, bias=True, mode='CR', negative_slope=0.2):
         super(ResidualDenseBlock_5C, self).__init__()
-        self.conv1 = conv(nc, gc, kernel_size, stride, padding, bias, mode,
-            negative_slope)
-        self.conv2 = conv(nc + gc, gc, kernel_size, stride, padding, bias,
-            mode, negative_slope)
-        self.conv3 = conv(nc + 2 * gc, gc, kernel_size, stride, padding,
-            bias, mode, negative_slope)
-        self.conv4 = conv(nc + 3 * gc, gc, kernel_size, stride, padding,
-            bias, mode, negative_slope)
-        self.conv5 = conv(nc + 4 * gc, nc, kernel_size, stride, padding,
-            bias, mode[:-1], negative_slope)
+        self.conv1 = conv(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv2 = conv(nc + gc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv3 = conv(nc + 2 * gc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv4 = conv(nc + 3 * gc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.conv5 = conv(nc + 4 * gc, nc, kernel_size, stride, padding, bias, mode[:-1], negative_slope)
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -436,15 +400,11 @@ class ResidualDenseBlock_5C(nn.Module):
 
 class RRDB(nn.Module):
 
-    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1,
-        bias=True, mode='CR', negative_slope=0.2):
+    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1, bias=True, mode='CR', negative_slope=0.2):
         super(RRDB, self).__init__()
-        self.RDB1 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride,
-            padding, bias, mode, negative_slope)
-        self.RDB2 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride,
-            padding, bias, mode, negative_slope)
-        self.RDB3 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride,
-            padding, bias, mode, negative_slope)
+        self.RDB1 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.RDB2 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        self.RDB3 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
 
     def forward(self, x):
         out = self.RDB1(x)
@@ -453,58 +413,43 @@ class RRDB(nn.Module):
         return out.mul_(0.2) + x
 
 
-def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3,
-    stride=1, padding=1, bias=True, mode='2R', negative_slope=0.2):
-    assert len(mode) < 4 and mode[0] in ['2', '3'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
+def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='2R', negative_slope=0.2):
+    assert len(mode) < 4 and mode[0] in ['2', '3'], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
     kernel_size_pool = int(mode[0])
     stride_pool = int(mode[0])
     mode = mode.replace(mode[0], 'AC')
-    pool = conv(kernel_size=kernel_size_pool, stride=stride_pool, mode=mode
-        [0], negative_slope=negative_slope)
-    pool_tail = conv(in_channels, out_channels, kernel_size, stride,
-        padding, bias, mode=mode[1:], negative_slope=negative_slope)
+    pool = conv(kernel_size=kernel_size_pool, stride=stride_pool, mode=mode[0], negative_slope=negative_slope)
+    pool_tail = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode=mode[1:], negative_slope=negative_slope)
     return sequential(pool, pool_tail)
 
 
-def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3,
-    stride=1, padding=0, bias=True, mode='2R', negative_slope=0.2):
-    assert len(mode) < 4 and mode[0] in ['2', '3'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
+def downsample_maxpool(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0, bias=True, mode='2R', negative_slope=0.2):
+    assert len(mode) < 4 and mode[0] in ['2', '3'], 'mode examples: 2, 2R, 2BR, 3, ..., 3BR.'
     kernel_size_pool = int(mode[0])
     stride_pool = int(mode[0])
     mode = mode.replace(mode[0], 'MC')
-    pool = conv(kernel_size=kernel_size_pool, stride=stride_pool, mode=mode
-        [0], negative_slope=negative_slope)
-    pool_tail = conv(in_channels, out_channels, kernel_size, stride,
-        padding, bias, mode=mode[1:], negative_slope=negative_slope)
+    pool = conv(kernel_size=kernel_size_pool, stride=stride_pool, mode=mode[0], negative_slope=negative_slope)
+    pool_tail = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode=mode[1:], negative_slope=negative_slope)
     return sequential(pool, pool_tail)
 
 
-def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2,
-    stride=2, padding=0, bias=True, mode='2R', negative_slope=0.2):
-    assert len(mode) < 4 and mode[0] in ['2', '3', '4'
-        ], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
+def downsample_strideconv(in_channels=64, out_channels=64, kernel_size=2, stride=2, padding=0, bias=True, mode='2R', negative_slope=0.2):
+    assert len(mode) < 4 and mode[0] in ['2', '3', '4'], 'mode examples: 2, 2R, 2BR, 3, ..., 4BR.'
     kernel_size = int(mode[0])
     stride = int(mode[0])
     mode = mode.replace(mode[0], 'C')
-    down1 = conv(in_channels, out_channels, kernel_size, stride, padding,
-        bias, mode, negative_slope)
+    down1 = conv(in_channels, out_channels, kernel_size, stride, padding, bias, mode, negative_slope)
     return down1
 
 
 class NonLocalBlock2D(nn.Module):
 
-    def __init__(self, nc=64, kernel_size=1, stride=1, padding=0, bias=True,
-        act_mode='B', downsample=False, downsample_mode='maxpool',
-        negative_slope=0.2):
+    def __init__(self, nc=64, kernel_size=1, stride=1, padding=0, bias=True, act_mode='B', downsample=False, downsample_mode='maxpool', negative_slope=0.2):
         super(NonLocalBlock2D, self).__init__()
         inter_nc = nc // 2
         self.inter_nc = inter_nc
-        self.W = conv(inter_nc, nc, kernel_size, stride, padding, bias,
-            mode='C' + act_mode)
-        self.theta = conv(nc, inter_nc, kernel_size, stride, padding, bias,
-            mode='C')
+        self.W = conv(inter_nc, nc, kernel_size, stride, padding, bias, mode='C' + act_mode)
+        self.theta = conv(nc, inter_nc, kernel_size, stride, padding, bias, mode='C')
         if downsample:
             if downsample_mode == 'avgpool':
                 downsample_block = downsample_avgpool
@@ -513,17 +458,12 @@ class NonLocalBlock2D(nn.Module):
             elif downsample_mode == 'strideconv':
                 downsample_block = downsample_strideconv
             else:
-                raise NotImplementedError('downsample mode [{:s}] is not found'
-                    .format(downsample_mode))
-            self.phi = downsample_block(nc, inter_nc, kernel_size, stride,
-                padding, bias, mode='2')
-            self.g = downsample_block(nc, inter_nc, kernel_size, stride,
-                padding, bias, mode='2')
+                raise NotImplementedError('downsample mode [{:s}] is not found'.format(downsample_mode))
+            self.phi = downsample_block(nc, inter_nc, kernel_size, stride, padding, bias, mode='2')
+            self.g = downsample_block(nc, inter_nc, kernel_size, stride, padding, bias, mode='2')
         else:
-            self.phi = conv(nc, inter_nc, kernel_size, stride, padding,
-                bias, mode='C')
-            self.g = conv(nc, inter_nc, kernel_size, stride, padding, bias,
-                mode='C')
+            self.phi = conv(nc, inter_nc, kernel_size, stride, padding, bias, mode='C')
+            self.g = conv(nc, inter_nc, kernel_size, stride, padding, bias, mode='C')
 
     def forward(self, x):
         """
@@ -563,8 +503,7 @@ class GANLoss(nn.Module):
                 return -1 * input.mean() if target else input.mean()
             self.loss = wgan_loss
         else:
-            raise NotImplementedError('GAN type [{:s}] is not found'.format
-                (self.gan_type))
+            raise NotImplementedError('GAN type [{:s}] is not found'.format(self.gan_type))
 
     def get_target_label(self, input, target_is_real):
         if self.gan_type == 'wgan-gp':
@@ -600,8 +539,7 @@ class TVLoss(nn.Module):
         count_w = self.tensor_size(x[:, :, :, 1:])
         h_tv = torch.pow(x[:, :, 1:, :] - x[:, :, :h_x - 1, :], 2).sum()
         w_tv = torch.pow(x[:, :, :, 1:] - x[:, :, :, :w_x - 1], 2).sum()
-        return self.tv_loss_weight * 2 * (h_tv / count_h + w_tv / count_w
-            ) / batch_size
+        return self.tv_loss_weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
 
     @staticmethod
     def tensor_size(t):
@@ -622,9 +560,7 @@ class GradientPenaltyLoss(nn.Module):
 
     def forward(self, interp, interp_crit):
         grad_outputs = self.get_grad_outputs(interp_crit)
-        grad_interp = torch.autograd.grad(outputs=interp_crit, inputs=
-            interp, grad_outputs=grad_outputs, create_graph=True,
-            retain_graph=True, only_inputs=True)[0]
+        grad_interp = torch.autograd.grad(outputs=interp_crit, inputs=interp, grad_outputs=grad_outputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
         grad_interp = grad_interp.view(grad_interp.size(0), -1)
         grad_interp_norm = grad_interp.norm(2, dim=1)
         loss = ((grad_interp_norm - 1) ** 2).mean()
@@ -637,16 +573,12 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2,
-        groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2,
-        groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2,
-        groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
-        C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -654,17 +586,14 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
 
@@ -679,8 +608,7 @@ class SSIMLoss(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -689,8 +617,7 @@ class SSIMLoss(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return _ssim(img1, img2, window, self.window_size, channel, self.
-            size_average)
+        return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
 
 class Discriminator_VGG_96(nn.Module):
@@ -698,28 +625,17 @@ class Discriminator_VGG_96(nn.Module):
     def __init__(self, in_nc=3, base_nc=64, ac_type='BL'):
         super(Discriminator_VGG_96, self).__init__()
         conv0 = B.conv(in_nc, base_nc, kernel_size=3, mode='C')
-        conv1 = B.conv(base_nc, base_nc, kernel_size=4, stride=2, mode='C' +
-            ac_type)
-        conv2 = B.conv(base_nc, base_nc * 2, kernel_size=3, stride=1, mode=
-            'C' + ac_type)
-        conv3 = B.conv(base_nc * 2, base_nc * 2, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv4 = B.conv(base_nc * 2, base_nc * 4, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv5 = B.conv(base_nc * 4, base_nc * 4, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv6 = B.conv(base_nc * 4, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv7 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv8 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv9 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4,
-            conv5, conv6, conv7, conv8, conv9)
-        self.classifier = nn.Sequential(nn.Linear(512 * 3 * 3, 100), nn.
-            LeakyReLU(0.2, True), nn.Linear(100, 1))
+        conv1 = B.conv(base_nc, base_nc, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv2 = B.conv(base_nc, base_nc * 2, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv3 = B.conv(base_nc * 2, base_nc * 2, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv4 = B.conv(base_nc * 2, base_nc * 4, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv5 = B.conv(base_nc * 4, base_nc * 4, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv6 = B.conv(base_nc * 4, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv7 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv8 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv9 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9)
+        self.classifier = nn.Sequential(nn.Linear(512 * 3 * 3, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
 
     def forward(self, x):
         x = self.features(x)
@@ -733,28 +649,17 @@ class Discriminator_VGG_128(nn.Module):
     def __init__(self, in_nc=3, base_nc=64, ac_type='BL'):
         super(Discriminator_VGG_128, self).__init__()
         conv0 = B.conv(in_nc, base_nc, kernel_size=3, mode='C')
-        conv1 = B.conv(base_nc, base_nc, kernel_size=4, stride=2, mode='C' +
-            ac_type)
-        conv2 = B.conv(base_nc, base_nc * 2, kernel_size=3, stride=1, mode=
-            'C' + ac_type)
-        conv3 = B.conv(base_nc * 2, base_nc * 2, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv4 = B.conv(base_nc * 2, base_nc * 4, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv5 = B.conv(base_nc * 4, base_nc * 4, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv6 = B.conv(base_nc * 4, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv7 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv8 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv9 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4,
-            conv5, conv6, conv7, conv8, conv9)
-        self.classifier = nn.Sequential(nn.Linear(512 * 4 * 4, 100), nn.
-            LeakyReLU(0.2, True), nn.Linear(100, 1))
+        conv1 = B.conv(base_nc, base_nc, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv2 = B.conv(base_nc, base_nc * 2, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv3 = B.conv(base_nc * 2, base_nc * 2, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv4 = B.conv(base_nc * 2, base_nc * 4, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv5 = B.conv(base_nc * 4, base_nc * 4, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv6 = B.conv(base_nc * 4, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv7 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv8 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv9 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9)
+        self.classifier = nn.Sequential(nn.Linear(512 * 4 * 4, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
 
     def forward(self, x):
         x = self.features(x)
@@ -768,32 +673,19 @@ class Discriminator_VGG_192(nn.Module):
     def __init__(self, in_nc=3, base_nc=64, ac_type='BL'):
         super(Discriminator_VGG_192, self).__init__()
         conv0 = B.conv(in_nc, base_nc, kernel_size=3, mode='C')
-        conv1 = B.conv(base_nc, base_nc, kernel_size=4, stride=2, mode='C' +
-            ac_type)
-        conv2 = B.conv(base_nc, base_nc * 2, kernel_size=3, stride=1, mode=
-            'C' + ac_type)
-        conv3 = B.conv(base_nc * 2, base_nc * 2, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv4 = B.conv(base_nc * 2, base_nc * 4, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv5 = B.conv(base_nc * 4, base_nc * 4, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv6 = B.conv(base_nc * 4, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv7 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv8 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv9 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        conv10 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1,
-            mode='C' + ac_type)
-        conv11 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2,
-            mode='C' + ac_type)
-        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4,
-            conv5, conv6, conv7, conv8, conv9, conv10, conv11)
-        self.classifier = nn.Sequential(nn.Linear(512 * 3 * 3, 100), nn.
-            LeakyReLU(0.2, True), nn.Linear(100, 1))
+        conv1 = B.conv(base_nc, base_nc, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv2 = B.conv(base_nc, base_nc * 2, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv3 = B.conv(base_nc * 2, base_nc * 2, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv4 = B.conv(base_nc * 2, base_nc * 4, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv5 = B.conv(base_nc * 4, base_nc * 4, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv6 = B.conv(base_nc * 4, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv7 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv8 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv9 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        conv10 = B.conv(base_nc * 8, base_nc * 8, kernel_size=3, stride=1, mode='C' + ac_type)
+        conv11 = B.conv(base_nc * 8, base_nc * 8, kernel_size=4, stride=2, mode='C' + ac_type)
+        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9, conv10, conv11)
+        self.classifier = nn.Sequential(nn.Linear(512 * 3 * 3, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
 
     def forward(self, x):
         x = self.features(x)
@@ -861,8 +753,7 @@ class DnCNN(nn.Module):
         assert 'R' in act_mode or 'L' in act_mode, 'Examples of activation function: R, L, BR, BL, IR, IL'
         bias = True
         m_head = B.conv(in_nc, nc, mode='C' + act_mode[-1], bias=bias)
-        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in
-            range(nb - 2)]
+        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in range(nb - 2)]
         m_tail = B.conv(nc, out_nc, mode='C', bias=bias)
         self.model = B.sequential(m_head, *m_body, m_tail)
 
@@ -885,8 +776,7 @@ class FDnCNN(nn.Module):
         assert 'R' in act_mode or 'L' in act_mode, 'Examples of activation function: R, L, BR, BL, IR, IL'
         bias = True
         m_head = B.conv(in_nc, nc, mode='C' + act_mode[-1], bias=bias)
-        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in
-            range(nb - 2)]
+        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in range(nb - 2)]
         m_tail = B.conv(nc, out_nc, mode='C', bias=bias)
         self.model = B.sequential(m_head, *m_body, m_tail)
 
@@ -897,15 +787,13 @@ class FDnCNN(nn.Module):
 
 class MSRResNet_prior(nn.Module):
 
-    def __init__(self, in_nc=4, out_nc=3, nc=96, nb=16, upscale=4, act_mode
-        ='R', upsample_mode='upconv'):
+    def __init__(self, in_nc=4, out_nc=3, nc=96, nb=16, upscale=4, act_mode='R', upsample_mode='upconv'):
         super(MSRResNet_prior, self).__init__()
         n_upscale = int(math.log(upscale, 2))
         if upscale == 3:
             n_upscale = 1
         m_head = B.conv(in_nc, nc, mode='C')
-        m_body = [B.ResBlock(nc, nc, mode='C' + act_mode + 'C') for _ in
-            range(nb)]
+        m_body = [B.ResBlock(nc, nc, mode='C' + act_mode + 'C') for _ in range(nb)]
         m_body.append(B.conv(nc, nc, mode='C'))
         if upsample_mode == 'upconv':
             upsample_block = B.upsample_upconv
@@ -914,18 +802,15 @@ class MSRResNet_prior(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         if upscale == 3:
             m_uper = upsample_block(nc, nc, mode='3' + act_mode)
         else:
-            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in
-                range(n_upscale)]
+            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in range(n_upscale)]
         H_conv0 = B.conv(nc, nc, mode='C' + act_mode)
         H_conv1 = B.conv(nc, out_nc, bias=False, mode='C')
         m_tail = B.sequential(H_conv0, H_conv1)
-        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*
-            m_body)), *m_uper, m_tail)
+        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper, m_tail)
 
     def forward(self, x):
         x = self.model(x)
@@ -934,15 +819,13 @@ class MSRResNet_prior(nn.Module):
 
 class SRResNet(nn.Module):
 
-    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=16, upscale=4, act_mode
-        ='R', upsample_mode='upconv'):
+    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=16, upscale=4, act_mode='R', upsample_mode='upconv'):
         super(SRResNet, self).__init__()
         n_upscale = int(math.log(upscale, 2))
         if upscale == 3:
             n_upscale = 1
         m_head = B.conv(in_nc, nc, mode='C')
-        m_body = [B.ResBlock(nc, nc, mode='C' + act_mode + 'C') for _ in
-            range(nb)]
+        m_body = [B.ResBlock(nc, nc, mode='C' + act_mode + 'C') for _ in range(nb)]
         m_body.append(B.conv(nc, nc, mode='C'))
         if upsample_mode == 'upconv':
             upsample_block = B.upsample_upconv
@@ -951,18 +834,15 @@ class SRResNet(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         if upscale == 3:
             m_uper = upsample_block(nc, nc, mode='3' + act_mode)
         else:
-            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in
-                range(n_upscale)]
+            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in range(n_upscale)]
         H_conv0 = B.conv(nc, nc, mode='C' + act_mode)
         H_conv1 = B.conv(nc, out_nc, bias=False, mode='C')
         m_tail = B.sequential(H_conv0, H_conv1)
-        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*
-            m_body)), *m_uper, m_tail)
+        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper, m_tail)
 
     def forward(self, x):
         x = self.model(x)
@@ -971,8 +851,7 @@ class SRResNet(nn.Module):
 
 class VGGFeatureExtractor(nn.Module):
 
-    def __init__(self, feature_layer=34, use_bn=False, use_input_norm=True,
-        device=torch.device('cpu')):
+    def __init__(self, feature_layer=34, use_bn=False, use_input_norm=True, device=torch.device('cpu')):
         super(VGGFeatureExtractor, self).__init__()
         if use_bn:
             model = torchvision.models.vgg19_bn(pretrained=True)
@@ -984,8 +863,7 @@ class VGGFeatureExtractor(nn.Module):
             std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
             self.register_buffer('mean', mean)
             self.register_buffer('std', std)
-        self.features = nn.Sequential(*list(model.features.children())[:
-            feature_layer + 1])
+        self.features = nn.Sequential(*list(model.features.children())[:feature_layer + 1])
         for k, v in self.features.named_parameters():
             v.requires_grad = False
 
@@ -1014,10 +892,8 @@ class FFDNet(nn.Module):
         bias = True
         sf = 2
         self.m_down = B.PixelUnShuffle(upscale_factor=sf)
-        m_head = B.conv(in_nc * sf * sf + 1, nc, mode='C' + act_mode[-1],
-            bias=bias)
-        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in
-            range(nb - 2)]
+        m_head = B.conv(in_nc * sf * sf + 1, nc, mode='C' + act_mode[-1], bias=bias)
+        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in range(nb - 2)]
         m_tail = B.conv(nc, out_nc * sf * sf, mode='C', bias=bias)
         self.model = B.sequential(m_head, *m_body, m_tail)
         self.m_up = nn.PixelShuffle(upscale_factor=sf)
@@ -1038,8 +914,7 @@ class FFDNet(nn.Module):
 
 class IMDN(nn.Module):
 
-    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=8, upscale=4, act_mode=
-        'L', upsample_mode='pixelshuffle', negative_slope=0.05):
+    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=8, upscale=4, act_mode='L', upsample_mode='pixelshuffle', negative_slope=0.05):
         """
         in_nc: channel number of input
         out_nc: channel number of output
@@ -1052,8 +927,7 @@ class IMDN(nn.Module):
         super(IMDN, self).__init__()
         assert 'R' in act_mode or 'L' in act_mode, 'Examples of activation function: R, L, BR, BL, IR, IL'
         m_head = B.conv(in_nc, nc, mode='C')
-        m_body = [B.IMDBlock(nc, nc, mode='C' + act_mode, negative_slope=
-            negative_slope) for _ in range(nb)]
+        m_body = [B.IMDBlock(nc, nc, mode='C' + act_mode, negative_slope=negative_slope) for _ in range(nb)]
         m_body.append(B.conv(nc, nc, mode='C'))
         if upsample_mode == 'upconv':
             upsample_block = B.upsample_upconv
@@ -1062,11 +936,9 @@ class IMDN(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         m_uper = upsample_block(nc, out_nc, mode=str(upscale))
-        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*
-            m_body)), *m_uper)
+        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper)
 
     def forward(self, x):
         x = self.model(x)
@@ -1075,8 +947,7 @@ class IMDN(nn.Module):
 
 class MSRResNet0(nn.Module):
 
-    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=16, upscale=4, act_mode
-        ='R', upsample_mode='upconv'):
+    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=16, upscale=4, act_mode='R', upsample_mode='upconv'):
         """
         in_nc: channel number of input
         out_nc: channel number of output
@@ -1092,8 +963,7 @@ class MSRResNet0(nn.Module):
         if upscale == 3:
             n_upscale = 1
         m_head = B.conv(in_nc, nc, mode='C')
-        m_body = [B.ResBlock(nc, nc, mode='C' + act_mode + 'C') for _ in
-            range(nb)]
+        m_body = [B.ResBlock(nc, nc, mode='C' + act_mode + 'C') for _ in range(nb)]
         m_body.append(B.conv(nc, nc, mode='C'))
         if upsample_mode == 'upconv':
             upsample_block = B.upsample_upconv
@@ -1102,18 +972,15 @@ class MSRResNet0(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         if upscale == 3:
             m_uper = upsample_block(nc, nc, mode='3' + act_mode)
         else:
-            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in
-                range(n_upscale)]
+            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in range(n_upscale)]
         H_conv0 = B.conv(nc, nc, mode='C' + act_mode)
         H_conv1 = B.conv(nc, out_nc, bias=False, mode='C')
         m_tail = B.sequential(H_conv0, H_conv1)
-        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*
-            m_body)), *m_uper, m_tail)
+        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper, m_tail)
 
     def forward(self, x):
         x = self.model(x)
@@ -1149,8 +1016,7 @@ def make_layer(block, n_layers):
 
 class MSRResNet1(nn.Module):
 
-    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=16, upscale=4, act_mode
-        ='R', upsample_mode='upconv'):
+    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=16, upscale=4, act_mode='R', upsample_mode='upconv'):
         super(MSRResNet1, self).__init__()
         self.upscale = upscale
         self.conv_first = nn.Conv2d(in_nc, nc, 3, 1, 1, bias=True)
@@ -1169,8 +1035,7 @@ class MSRResNet1(nn.Module):
         self.HRconv = nn.Conv2d(nc, nc, 3, 1, 1, bias=True)
         self.conv_last = nn.Conv2d(nc, out_nc, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
-        initialize_weights([self.conv_first, self.upconv1, self.HRconv,
-            self.conv_last], 0.1)
+        initialize_weights([self.conv_first, self.upconv1, self.HRconv, self.conv_last], 0.1)
         if self.upscale == 4:
             initialize_weights(self.upconv2, 0.1)
 
@@ -1183,8 +1048,7 @@ class MSRResNet1(nn.Module):
         elif self.upscale == 3 or self.upscale == 2:
             out = self.lrelu(self.pixel_shuffle(self.upconv1(out)))
         out = self.conv_last(self.lrelu(self.HRconv(out)))
-        base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear',
-            align_corners=False)
+        base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear', align_corners=False)
         out += base
         return out
 
@@ -1214,8 +1078,7 @@ class RRDB(nn.Module):
     nb: number of RRDB
     """
 
-    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=23, gc=32, upscale=4,
-        act_mode='L', upsample_mode='upconv'):
+    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=23, gc=32, upscale=4, act_mode='L', upsample_mode='upconv'):
         super(RRDB, self).__init__()
         assert 'R' in act_mode or 'L' in act_mode, 'Examples of activation function: R, L, BR, BL, IR, IL'
         n_upscale = int(math.log(upscale, 2))
@@ -1231,18 +1094,15 @@ class RRDB(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         if upscale == 3:
             m_uper = upsample_block(nc, nc, mode='3' + act_mode)
         else:
-            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in
-                range(n_upscale)]
+            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in range(n_upscale)]
         H_conv0 = B.conv(nc, nc, mode='C' + act_mode)
         H_conv1 = B.conv(nc, out_nc, mode='C')
         m_tail = B.sequential(H_conv0, H_conv1)
-        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*
-            m_body)), *m_uper, m_tail)
+        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper, m_tail)
 
     def forward(self, x):
         x = self.model(x)
@@ -1251,8 +1111,7 @@ class RRDB(nn.Module):
 
 class SRMD(nn.Module):
 
-    def __init__(self, in_nc=19, out_nc=3, nc=128, nb=12, upscale=4,
-        act_mode='R', upsample_mode='pixelshuffle'):
+    def __init__(self, in_nc=19, out_nc=3, nc=128, nb=12, upscale=4, act_mode='R', upsample_mode='pixelshuffle'):
         """
         # ------------------------------------
         in_nc: channel number of input, default: 3+15
@@ -1274,11 +1133,9 @@ class SRMD(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         m_head = B.conv(in_nc, nc, mode='C' + act_mode[-1], bias=bias)
-        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in
-            range(nb - 2)]
+        m_body = [B.conv(nc, nc, mode='C' + act_mode, bias=bias) for _ in range(nb - 2)]
         m_tail = upsample_block(nc, out_nc, mode=str(upscale), bias=bias)
         self.model = B.sequential(m_head, *m_body, m_tail)
 
@@ -1289,9 +1146,7 @@ class SRMD(nn.Module):
 
 class ResUNet(nn.Module):
 
-    def __init__(self, in_nc=4, out_nc=3, nc=[64, 128, 256, 512], nb=2,
-        act_mode='R', downsample_mode='strideconv', upsample_mode=
-        'convtranspose'):
+    def __init__(self, in_nc=4, out_nc=3, nc=[64, 128, 256, 512], nb=2, act_mode='R', downsample_mode='strideconv', upsample_mode='convtranspose'):
         super(ResUNet, self).__init__()
         self.m_head = B.conv(in_nc, nc[0], bias=False, mode='C')
         if downsample_mode == 'avgpool':
@@ -1301,19 +1156,11 @@ class ResUNet(nn.Module):
         elif downsample_mode == 'strideconv':
             downsample_block = B.downsample_strideconv
         else:
-            raise NotImplementedError('downsample mode [{:s}] is not found'
-                .format(downsample_mode))
-        self.m_down1 = B.sequential(*[B.ResBlock(nc[0], nc[0], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)],
-            downsample_block(nc[0], nc[1], bias=False, mode='2'))
-        self.m_down2 = B.sequential(*[B.ResBlock(nc[1], nc[1], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)],
-            downsample_block(nc[1], nc[2], bias=False, mode='2'))
-        self.m_down3 = B.sequential(*[B.ResBlock(nc[2], nc[2], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)],
-            downsample_block(nc[2], nc[3], bias=False, mode='2'))
-        self.m_body = B.sequential(*[B.ResBlock(nc[3], nc[3], bias=False,
-            mode='C' + act_mode + 'C') for _ in range(nb)])
+            raise NotImplementedError('downsample mode [{:s}] is not found'.format(downsample_mode))
+        self.m_down1 = B.sequential(*[B.ResBlock(nc[0], nc[0], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)], downsample_block(nc[0], nc[1], bias=False, mode='2'))
+        self.m_down2 = B.sequential(*[B.ResBlock(nc[1], nc[1], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)], downsample_block(nc[1], nc[2], bias=False, mode='2'))
+        self.m_down3 = B.sequential(*[B.ResBlock(nc[2], nc[2], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)], downsample_block(nc[2], nc[3], bias=False, mode='2'))
+        self.m_body = B.sequential(*[B.ResBlock(nc[3], nc[3], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
         if upsample_mode == 'upconv':
             upsample_block = B.upsample_upconv
         elif upsample_mode == 'pixelshuffle':
@@ -1321,17 +1168,10 @@ class ResUNet(nn.Module):
         elif upsample_mode == 'convtranspose':
             upsample_block = B.upsample_convtranspose
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
-        self.m_up3 = B.sequential(upsample_block(nc[3], nc[2], bias=False,
-            mode='2'), *[B.ResBlock(nc[2], nc[2], bias=False, mode='C' +
-            act_mode + 'C') for _ in range(nb)])
-        self.m_up2 = B.sequential(upsample_block(nc[2], nc[1], bias=False,
-            mode='2'), *[B.ResBlock(nc[1], nc[1], bias=False, mode='C' +
-            act_mode + 'C') for _ in range(nb)])
-        self.m_up1 = B.sequential(upsample_block(nc[1], nc[0], bias=False,
-            mode='2'), *[B.ResBlock(nc[0], nc[0], bias=False, mode='C' +
-            act_mode + 'C') for _ in range(nb)])
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
+        self.m_up3 = B.sequential(upsample_block(nc[3], nc[2], bias=False, mode='2'), *[B.ResBlock(nc[2], nc[2], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
+        self.m_up2 = B.sequential(upsample_block(nc[2], nc[1], bias=False, mode='2'), *[B.ResBlock(nc[1], nc[1], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
+        self.m_up1 = B.sequential(upsample_block(nc[1], nc[0], bias=False, mode='2'), *[B.ResBlock(nc[0], nc[0], bias=False, mode='C' + act_mode + 'C') for _ in range(nb)])
         self.m_tail = B.conv(nc[0], out_nc, bias=False, mode='C')
 
     def forward(self, x):
@@ -1371,8 +1211,7 @@ def cmul(t1, t2):
     """
     real1, imag1 = t1[..., 0], t1[..., 1]
     real2, imag2 = t2[..., 0], t2[..., 1]
-    return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + 
-        imag1 * real2], dim=-1)
+    return torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2], dim=-1)
 
 
 def csum(x, y):
@@ -1415,10 +1254,7 @@ class HyPaNet(nn.Module):
 
     def __init__(self, in_nc=2, out_nc=8, channel=64):
         super(HyPaNet, self).__init__()
-        self.mlp = nn.Sequential(nn.Conv2d(in_nc, channel, 1, padding=0,
-            bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, channel, 
-            1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(
-            channel, out_nc, 1, padding=0, bias=True), nn.Softplus())
+        self.mlp = nn.Sequential(nn.Conv2d(in_nc, channel, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, channel, 1, padding=0, bias=True), nn.ReLU(inplace=True), nn.Conv2d(channel, out_nc, 1, padding=0, bias=True), nn.Softplus())
 
     def forward(self, x):
         x = self.mlp(x) + 1e-06
@@ -1462,10 +1298,8 @@ def p2o(psf, shape):
     for axis, axis_size in enumerate(psf.shape[2:]):
         otf = torch.roll(otf, -int(axis_size / 2), dims=axis + 2)
     otf = torch.rfft(otf, 2, onesided=False)
-    n_ops = torch.sum(torch.tensor(psf.shape).type_as(psf) * torch.log2(
-        torch.tensor(psf.shape).type_as(psf)))
-    otf[..., 1][torch.abs(otf[..., 1]) < n_ops * 2.22e-16] = torch.tensor(0
-        ).type_as(psf)
+    n_ops = torch.sum(torch.tensor(psf.shape).type_as(psf) * torch.log2(torch.tensor(psf.shape).type_as(psf)))
+    otf[..., 1][torch.abs(otf[..., 1]) < n_ops * 2.22e-16] = torch.tensor(0).type_as(psf)
     return otf
 
 
@@ -1481,22 +1315,17 @@ def upsample(x, sf=3):
     x: tensor image, NxCxWxH
     """
     st = 0
-    z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)
-        ).type_as(x)
+    z = torch.zeros((x.shape[0], x.shape[1], x.shape[2] * sf, x.shape[3] * sf)).type_as(x)
     z[(...), st::sf, st::sf].copy_(x)
     return z
 
 
 class USRNet(nn.Module):
 
-    def __init__(self, n_iter=8, h_nc=64, in_nc=4, out_nc=3, nc=[64, 128, 
-        256, 512], nb=2, act_mode='R', downsample_mode='strideconv',
-        upsample_mode='convtranspose'):
+    def __init__(self, n_iter=8, h_nc=64, in_nc=4, out_nc=3, nc=[64, 128, 256, 512], nb=2, act_mode='R', downsample_mode='strideconv', upsample_mode='convtranspose'):
         super(USRNet, self).__init__()
         self.d = DataNet()
-        self.p = ResUNet(in_nc=in_nc, out_nc=out_nc, nc=nc, nb=nb, act_mode
-            =act_mode, downsample_mode=downsample_mode, upsample_mode=
-            upsample_mode)
+        self.p = ResUNet(in_nc=in_nc, out_nc=out_nc, nc=nc, nb=nb, act_mode=act_mode, downsample_mode=downsample_mode, upsample_mode=upsample_mode)
         self.h = HyPaNet(in_nc=2, out_nc=n_iter * 2, channel=h_nc)
         self.n = n_iter
 
@@ -1514,12 +1343,10 @@ class USRNet(nn.Module):
         STy = upsample(x, sf=sf)
         FBFy = cmul(FBC, torch.rfft(STy, 2, onesided=False))
         x = nn.functional.interpolate(x, scale_factor=sf, mode='nearest')
-        ab = self.h(torch.cat((sigma, torch.tensor(sf).type_as(sigma).
-            expand_as(sigma)), dim=1))
+        ab = self.h(torch.cat((sigma, torch.tensor(sf).type_as(sigma).expand_as(sigma)), dim=1))
         for i in range(self.n):
             x = self.d(x, FB, FBC, F2B, FBFy, ab[:, i:i + 1, (...)], sf)
-            x = self.p(torch.cat((x, ab[:, i + self.n:i + self.n + 1, (...)
-                ].repeat(1, 1, x.size(2), x.size(3))), dim=1))
+            x = self.p(torch.cat((x, ab[:, i + self.n:i + self.n + 1, (...)].repeat(1, 1, x.size(2), x.size(3))), dim=1))
         return x
 
 
@@ -1527,57 +1354,128 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CALayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (ConcatBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (Discriminator_VGG_128_SN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (HyPaNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 64, 64])], {}),
+     True),
+    (IMDBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (MSRResNet1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (NonLocalBlock2D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (RCABlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (RCAGroup,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResidualBlock_noBN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResidualDenseBlock_5C,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (SSIMLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShortcutBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TVLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGGFeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_cszn_KAIR(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CALayer(*[], **{}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(HyPaNet(*[], **{}), [torch.rand([4, 2, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(IMDBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MSRResNet1(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(NonLocalBlock2D(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(RCABlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(RCAGroup(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ResBlock(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(ResidualBlock_noBN(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(ResidualDenseBlock_5C(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(SSIMLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(VGGFeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

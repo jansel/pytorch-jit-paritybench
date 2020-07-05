@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,24 +83,15 @@ class VAE(nn.Module):
         the encoder expects data as input of shape (batch_size, num_channels, width, height).
         """
         if self.input_type == 'binary':
-            q_z_nn = nn.Sequential(GatedConv2d(self.input_size[0], 32, 5, 1,
-                2), GatedConv2d(32, 32, 5, 2, 2), GatedConv2d(32, 64, 5, 1,
-                2), GatedConv2d(64, 64, 5, 2, 2), GatedConv2d(64, 64, 5, 1,
-                2), GatedConv2d(64, 256, self.last_kernel_size, 1, 0))
+            q_z_nn = nn.Sequential(GatedConv2d(self.input_size[0], 32, 5, 1, 2), GatedConv2d(32, 32, 5, 2, 2), GatedConv2d(32, 64, 5, 1, 2), GatedConv2d(64, 64, 5, 2, 2), GatedConv2d(64, 64, 5, 1, 2), GatedConv2d(64, 256, self.last_kernel_size, 1, 0))
             q_z_mean = nn.Linear(256, self.z_size)
             q_z_var = nn.Sequential(nn.Linear(256, self.z_size), nn.Softplus())
             return q_z_nn, q_z_mean, q_z_var
         elif self.input_type == 'multinomial':
             act = None
-            q_z_nn = nn.Sequential(GatedConv2d(self.input_size[0], 32, 5, 1,
-                2, activation=act), GatedConv2d(32, 32, 5, 2, 2, activation
-                =act), GatedConv2d(32, 64, 5, 1, 2, activation=act),
-                GatedConv2d(64, 64, 5, 2, 2, activation=act), GatedConv2d(
-                64, 64, 5, 1, 2, activation=act), GatedConv2d(64, 256, self
-                .last_kernel_size, 1, 0, activation=act))
+            q_z_nn = nn.Sequential(GatedConv2d(self.input_size[0], 32, 5, 1, 2, activation=act), GatedConv2d(32, 32, 5, 2, 2, activation=act), GatedConv2d(32, 64, 5, 1, 2, activation=act), GatedConv2d(64, 64, 5, 2, 2, activation=act), GatedConv2d(64, 64, 5, 1, 2, activation=act), GatedConv2d(64, 256, self.last_kernel_size, 1, 0, activation=act))
             q_z_mean = nn.Linear(256, self.z_size)
-            q_z_var = nn.Sequential(nn.Linear(256, self.z_size), nn.
-                Softplus(), nn.Hardtanh(min_val=0.01, max_val=7.0))
+            q_z_var = nn.Sequential(nn.Linear(256, self.z_size), nn.Softplus(), nn.Hardtanh(min_val=0.01, max_val=7.0))
             return q_z_nn, q_z_mean, q_z_var
 
     def create_decoder(self):
@@ -108,25 +100,13 @@ class VAE(nn.Module):
         """
         num_classes = 256
         if self.input_type == 'binary':
-            p_x_nn = nn.Sequential(GatedConvTranspose2d(self.z_size, 64,
-                self.last_kernel_size, 1, 0), GatedConvTranspose2d(64, 64, 
-                5, 1, 2), GatedConvTranspose2d(64, 32, 5, 2, 2, 1),
-                GatedConvTranspose2d(32, 32, 5, 1, 2), GatedConvTranspose2d
-                (32, 32, 5, 2, 2, 1), GatedConvTranspose2d(32, 32, 5, 1, 2))
-            p_x_mean = nn.Sequential(nn.Conv2d(32, self.input_size[0], 1, 1,
-                0), nn.Sigmoid())
+            p_x_nn = nn.Sequential(GatedConvTranspose2d(self.z_size, 64, self.last_kernel_size, 1, 0), GatedConvTranspose2d(64, 64, 5, 1, 2), GatedConvTranspose2d(64, 32, 5, 2, 2, 1), GatedConvTranspose2d(32, 32, 5, 1, 2), GatedConvTranspose2d(32, 32, 5, 2, 2, 1), GatedConvTranspose2d(32, 32, 5, 1, 2))
+            p_x_mean = nn.Sequential(nn.Conv2d(32, self.input_size[0], 1, 1, 0), nn.Sigmoid())
             return p_x_nn, p_x_mean
         elif self.input_type == 'multinomial':
             act = None
-            p_x_nn = nn.Sequential(GatedConvTranspose2d(self.z_size, 64,
-                self.last_kernel_size, 1, 0, activation=act),
-                GatedConvTranspose2d(64, 64, 5, 1, 2, activation=act),
-                GatedConvTranspose2d(64, 32, 5, 2, 2, 1, activation=act),
-                GatedConvTranspose2d(32, 32, 5, 1, 2, activation=act),
-                GatedConvTranspose2d(32, 32, 5, 2, 2, 1, activation=act),
-                GatedConvTranspose2d(32, 32, 5, 1, 2, activation=act))
-            p_x_mean = nn.Sequential(nn.Conv2d(32, 256, 5, 1, 2), nn.Conv2d
-                (256, self.input_size[0] * num_classes, 1, 1, 0))
+            p_x_nn = nn.Sequential(GatedConvTranspose2d(self.z_size, 64, self.last_kernel_size, 1, 0, activation=act), GatedConvTranspose2d(64, 64, 5, 1, 2, activation=act), GatedConvTranspose2d(64, 32, 5, 2, 2, 1, activation=act), GatedConvTranspose2d(32, 32, 5, 1, 2, activation=act), GatedConvTranspose2d(32, 32, 5, 2, 2, 1, activation=act), GatedConvTranspose2d(32, 32, 5, 1, 2, activation=act))
+            p_x_mean = nn.Sequential(nn.Conv2d(32, 256, 5, 1, 2), nn.Conv2d(256, self.input_size[0] * num_classes, 1, 1, 0))
             return p_x_nn, p_x_mean
         else:
             raise ValueError('invalid input type!!')
@@ -224,8 +204,7 @@ class Sylvester(nn.Module):
         super(Sylvester, self).__init__()
         self.num_ortho_vecs = num_ortho_vecs
         self.h = nn.Tanh()
-        triu_mask = torch.triu(torch.ones(num_ortho_vecs, num_ortho_vecs),
-            diagonal=1).unsqueeze(0)
+        triu_mask = torch.triu(torch.ones(num_ortho_vecs, num_ortho_vecs), diagonal=1).unsqueeze(0)
         diag_idx = torch.arange(0, num_ortho_vecs).long()
         self.register_buffer('triu_mask', Variable(triu_mask))
         self.triu_mask.requires_grad = False
@@ -350,8 +329,7 @@ class IAF(nn.Module):
      Note that the size of h needs to be the same as h_size, which is the width of the MADE layers.
      """
 
-    def __init__(self, z_size, num_flows=2, num_hidden=0, h_size=50,
-        forget_bias=1.0, conv2d=False):
+    def __init__(self, z_size, num_flows=2, num_hidden=0, h_size=50, forget_bias=1.0, conv2d=False):
         super(IAF, self).__init__()
         self.z_size = z_size
         self.num_flows = num_flows
@@ -415,15 +393,12 @@ class Identity(nn.Module):
 
 class GatedConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size, stride,
-        padding, dilation=1, activation=None):
+    def __init__(self, input_channels, output_channels, kernel_size, stride, padding, dilation=1, activation=None):
         super(GatedConv2d, self).__init__()
         self.activation = activation
         self.sigmoid = nn.Sigmoid()
-        self.h = nn.Conv2d(input_channels, output_channels, kernel_size,
-            stride, padding, dilation)
-        self.g = nn.Conv2d(input_channels, output_channels, kernel_size,
-            stride, padding, dilation)
+        self.h = nn.Conv2d(input_channels, output_channels, kernel_size, stride, padding, dilation)
+        self.g = nn.Conv2d(input_channels, output_channels, kernel_size, stride, padding, dilation)
 
     def forward(self, x):
         if self.activation is None:
@@ -436,15 +411,12 @@ class GatedConv2d(nn.Module):
 
 class GatedConvTranspose2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size, stride,
-        padding, output_padding=0, dilation=1, activation=None):
+    def __init__(self, input_channels, output_channels, kernel_size, stride, padding, output_padding=0, dilation=1, activation=None):
         super(GatedConvTranspose2d, self).__init__()
         self.activation = activation
         self.sigmoid = nn.Sigmoid()
-        self.h = nn.ConvTranspose2d(input_channels, output_channels,
-            kernel_size, stride, padding, output_padding, dilation=dilation)
-        self.g = nn.ConvTranspose2d(input_channels, output_channels,
-            kernel_size, stride, padding, output_padding, dilation=dilation)
+        self.h = nn.ConvTranspose2d(input_channels, output_channels, kernel_size, stride, padding, output_padding, dilation=dilation)
+        self.g = nn.ConvTranspose2d(input_channels, output_channels, kernel_size, stride, padding, output_padding, dilation=dilation)
 
     def forward(self, x):
         if self.activation is None:
@@ -464,8 +436,7 @@ class MaskedLinear(nn.Module):
     Else if output depends on input through y_i = f(x_{<=i}) set diagonal_zeros = False.
     """
 
-    def __init__(self, in_features, out_features, diagonal_zeros=False,
-        bias=True):
+    def __init__(self, in_features, out_features, diagonal_zeros=False, bias=True):
         super(MaskedLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -516,9 +487,7 @@ class MaskedLinear(nn.Module):
             bias = True
         else:
             bias = False
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ', diagonal_zeros=' + str(
-            self.diagonal_zeros) + ', bias=' + str(bias) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ', diagonal_zeros=' + str(self.diagonal_zeros) + ', bias=' + str(bias) + ')'
 
 
 class MaskedConv2d(nn.Module):
@@ -530,15 +499,13 @@ class MaskedConv2d(nn.Module):
     Else if output depends on input through y_i = f(x_{<=i}) set diagonal_zeros = False.
     """
 
-    def __init__(self, in_features, out_features, size_kernel=(3, 3),
-        diagonal_zeros=False, bias=True):
+    def __init__(self, in_features, out_features, size_kernel=(3, 3), diagonal_zeros=False, bias=True):
         super(MaskedConv2d, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.size_kernel = size_kernel
         self.diagonal_zeros = diagonal_zeros
-        self.weight = Parameter(torch.FloatTensor(out_features, in_features,
-            *self.size_kernel))
+        self.weight = Parameter(torch.FloatTensor(out_features, in_features, *self.size_kernel))
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))
         else:
@@ -556,12 +523,10 @@ class MaskedConv2d(nn.Module):
 
     def build_mask(self):
         n_in, n_out = self.in_features, self.out_features
-        assert n_out % n_in == 0 or n_in % n_out == 0, '%d - %d' % (n_in, n_out
-            )
+        assert n_out % n_in == 0 or n_in % n_out == 0, '%d - %d' % (n_in, n_out)
         l = (self.size_kernel[0] - 1) // 2
         m = (self.size_kernel[1] - 1) // 2
-        mask = np.ones((n_out, n_in, self.size_kernel[0], self.size_kernel[
-            1]), dtype=np.float32)
+        mask = np.ones((n_out, n_in, self.size_kernel[0], self.size_kernel[1]), dtype=np.float32)
         mask[:, :, :l, :] = 0
         mask[:, :, (l), :m] = 0
         if n_out >= n_in:
@@ -579,8 +544,7 @@ class MaskedConv2d(nn.Module):
         return mask
 
     def forward(self, x):
-        output = F.conv2d(x, self.mask * self.weight, bias=self.bias,
-            padding=(1, 1))
+        output = F.conv2d(x, self.mask * self.weight, bias=self.bias, padding=(1, 1))
         return output
 
     def __repr__(self):
@@ -588,27 +552,44 @@ class MaskedConv2d(nn.Module):
             bias = True
         else:
             bias = False
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ', diagonal_zeros=' + str(
-            self.diagonal_zeros) + ', bias=' + str(bias
-            ) + ', size_kernel=' + str(self.size_kernel) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ', diagonal_zeros=' + str(self.diagonal_zeros) + ', bias=' + str(bias) + ', size_kernel=' + str(self.size_kernel) + ')'
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GatedConv2d,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedConvTranspose2d,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Planar,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_riannevdberg_sylvester_flows(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(GatedConv2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GatedConvTranspose2d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Planar(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -41,8 +42,7 @@ from torch.nn import functional as F
 
 class PGConv2d(nn.Module):
 
-    def __init__(self, ch_in, ch_out, ksize=3, stride=1, pad=1, pixelnorm=
-        True, wscale=True, act='lrelu'):
+    def __init__(self, ch_in, ch_out, ksize=3, stride=1, pad=1, pixelnorm=True, wscale=True, act='lrelu'):
         super(PGConv2d, self).__init__()
         if wscale:
             init = lambda x: nn.init.kaiming_normal(x)
@@ -81,8 +81,7 @@ class GFirstBlock(nn.Module):
         super(GFirstBlock, self).__init__()
         self.c1 = PGConv2d(ch_in, ch_out, 4, 1, 3, **layer_settings)
         self.c2 = PGConv2d(ch_out, ch_out, **layer_settings)
-        self.toRGB = PGConv2d(ch_out, num_channels, ksize=1, pad=0,
-            pixelnorm=False, act=None)
+        self.toRGB = PGConv2d(ch_out, num_channels, ksize=1, pad=0, pixelnorm=False, act=None)
 
     def forward(self, x, last=False):
         x = self.c1(x)
@@ -98,8 +97,7 @@ class GBlock(nn.Module):
         super(GBlock, self).__init__()
         self.c1 = PGConv2d(ch_in, ch_out, **layer_settings)
         self.c2 = PGConv2d(ch_out, ch_out, **layer_settings)
-        self.toRGB = PGConv2d(ch_out, num_channels, ksize=1, pad=0,
-            pixelnorm=False, act=None)
+        self.toRGB = PGConv2d(ch_out, num_channels, ksize=1, pad=0, pixelnorm=False, act=None)
 
     def forward(self, x, last=False):
         x = self.c1(x)
@@ -111,9 +109,7 @@ class GBlock(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, dataset_shape, fmap_base=4096, fmap_decay=1.0,
-        fmap_max=512, latent_size=512, normalize_latents=True, wscale=True,
-        pixelnorm=True, leakyrelu=True):
+    def __init__(self, dataset_shape, fmap_base=4096, fmap_decay=1.0, fmap_max=512, latent_size=512, normalize_latents=True, wscale=True, pixelnorm=True, leakyrelu=True):
         super(Generator, self).__init__()
         resolution = dataset_shape[-1]
         num_channels = dataset_shape[1]
@@ -126,12 +122,9 @@ class Generator(nn.Module):
         if latent_size is None:
             latent_size = nf(0)
         self.normalize_latents = normalize_latents
-        layer_settings = {'wscale': wscale, 'pixelnorm': pixelnorm, 'act': 
-            'lrelu' if leakyrelu else 'relu'}
-        self.block0 = GFirstBlock(latent_size, nf(1), num_channels, **
-            layer_settings)
-        self.blocks = nn.ModuleList([GBlock(nf(i - 1), nf(i), num_channels,
-            **layer_settings) for i in range(2, R)])
+        layer_settings = {'wscale': wscale, 'pixelnorm': pixelnorm, 'act': 'lrelu' if leakyrelu else 'relu'}
+        self.block0 = GFirstBlock(latent_size, nf(1), num_channels, **layer_settings)
+        self.blocks = nn.ModuleList([GBlock(nf(i - 1), nf(i), num_channels, **layer_settings) for i in range(2, R)])
         self.depth = 0
         self.alpha = 1.0
         self.eps = 1e-08
@@ -166,8 +159,7 @@ class DBlock(nn.Module):
 
     def __init__(self, ch_in, ch_out, num_channels, **layer_settings):
         super(DBlock, self).__init__()
-        self.fromRGB = PGConv2d(num_channels, ch_in, ksize=1, pad=0,
-            pixelnorm=False)
+        self.fromRGB = PGConv2d(num_channels, ch_in, ksize=1, pad=0, pixelnorm=False)
         self.c1 = PGConv2d(ch_in, ch_in, **layer_settings)
         self.c2 = PGConv2d(ch_in, ch_out, **layer_settings)
 
@@ -183,8 +175,7 @@ class DLastBlock(nn.Module):
 
     def __init__(self, ch_in, ch_out, num_channels, **layer_settings):
         super(DLastBlock, self).__init__()
-        self.fromRGB = PGConv2d(num_channels, ch_in, ksize=1, pad=0,
-            pixelnorm=False)
+        self.fromRGB = PGConv2d(num_channels, ch_in, ksize=1, pad=0, pixelnorm=False)
         self.stddev = MinibatchStddev()
         self.c1 = PGConv2d(ch_in + 1, ch_in, **layer_settings)
         self.c2 = PGConv2d(ch_in, ch_out, 4, 1, 0, **layer_settings)
@@ -217,8 +208,7 @@ class MinibatchStddev(nn.Module):
 
 class Discriminator(nn.Module):
 
-    def __init__(self, dataset_shape, fmap_base=4096, fmap_decay=1.0,
-        fmap_max=512, wscale=True, pixelnorm=False, leakyrelu=True):
+    def __init__(self, dataset_shape, fmap_base=4096, fmap_decay=1.0, fmap_max=512, wscale=True, pixelnorm=False, leakyrelu=True):
         super(Discriminator, self).__init__()
         resolution = dataset_shape[-1]
         num_channels = dataset_shape[1]
@@ -228,11 +218,8 @@ class Discriminator(nn.Module):
 
         def nf(stage):
             return min(int(fmap_base / 2.0 ** (stage * fmap_decay)), fmap_max)
-        layer_settings = {'wscale': wscale, 'pixelnorm': pixelnorm, 'act': 
-            'lrelu' if leakyrelu else 'relu'}
-        self.blocks = nn.ModuleList([DBlock(nf(i), nf(i - 1), num_channels,
-            **layer_settings) for i in range(R - 1, 1, -1)] + [DLastBlock(
-            nf(1), nf(0), num_channels, **layer_settings)])
+        layer_settings = {'wscale': wscale, 'pixelnorm': pixelnorm, 'act': 'lrelu' if leakyrelu else 'relu'}
+        self.blocks = nn.ModuleList([DBlock(nf(i), nf(i - 1), num_channels, **layer_settings) for i in range(R - 1, 1, -1)] + [DLastBlock(nf(1), nf(0), num_channels, **layer_settings)])
         self.linear = nn.Linear(nf(0), 1)
         self.depth = 0
         self.alpha = 1.0
@@ -260,27 +247,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DBlock,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4, 'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DLastBlock,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4, 'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GBlock,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4, 'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GFirstBlock,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4, 'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MinibatchStddev,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PGConv2d,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_deepsound_project_pggan_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DLastBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GFirstBlock(*[], **{'ch_in': 4, 'ch_out': 4, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MinibatchStddev(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PGConv2d(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

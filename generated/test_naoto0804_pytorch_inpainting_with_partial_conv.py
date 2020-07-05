@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,8 +53,7 @@ def gram_matrix(feat):
 
 
 def total_variation_loss(image):
-    loss = torch.mean(torch.abs(image[:, :, :, :-1] - image[:, :, :, 1:])
-        ) + torch.mean(torch.abs(image[:, :, :-1, :] - image[:, :, 1:, :]))
+    loss = torch.mean(torch.abs(image[:, :, :, :-1] - image[:, :, :, 1:])) + torch.mean(torch.abs(image[:, :, :-1, :] - image[:, :, 1:, :]))
     return loss
 
 
@@ -85,10 +85,8 @@ class InpaintingLoss(nn.Module):
             loss_dict['prc'] += self.l1(feat_output_comp[i], feat_gt[i])
         loss_dict['style'] = 0.0
         for i in range(3):
-            loss_dict['style'] += self.l1(gram_matrix(feat_output[i]),
-                gram_matrix(feat_gt[i]))
-            loss_dict['style'] += self.l1(gram_matrix(feat_output_comp[i]),
-                gram_matrix(feat_gt[i]))
+            loss_dict['style'] += self.l1(gram_matrix(feat_output[i]), gram_matrix(feat_gt[i]))
+            loss_dict['style'] += self.l1(gram_matrix(feat_output_comp[i]), gram_matrix(feat_gt[i]))
         loss_dict['tv'] = total_variation_loss(output_comp)
         return loss_dict
 
@@ -117,8 +115,7 @@ def weights_init(init_type='gaussian'):
 
     def init_fun(m):
         classname = m.__class__.__name__
-        if (classname.find('Conv') == 0 or classname.find('Linear') == 0
-            ) and hasattr(m, 'weight'):
+        if (classname.find('Conv') == 0 or classname.find('Linear') == 0) and hasattr(m, 'weight'):
             if init_type == 'gaussian':
                 nn.init.normal_(m.weight, 0.0, 0.02)
             elif init_type == 'xavier':
@@ -138,13 +135,10 @@ def weights_init(init_type='gaussian'):
 
 class PartialConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super().__init__()
-        self.input_conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups, bias)
-        self.mask_conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups, False)
+        self.input_conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.mask_conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, False)
         self.input_conv.apply(weights_init('kaiming'))
         torch.nn.init.constant_(self.mask_conv.weight, 1.0)
         for param in self.mask_conv.parameters():
@@ -153,8 +147,7 @@ class PartialConv(nn.Module):
     def forward(self, input, mask):
         output = self.input_conv(input * mask)
         if self.input_conv.bias is not None:
-            output_bias = self.input_conv.bias.view(1, -1, 1, 1).expand_as(
-                output)
+            output_bias = self.input_conv.bias.view(1, -1, 1, 1).expand_as(output)
         else:
             output_bias = torch.zeros_like(output)
         with torch.no_grad():
@@ -170,8 +163,7 @@ class PartialConv(nn.Module):
 
 class PCBActiv(nn.Module):
 
-    def __init__(self, in_ch, out_ch, bn=True, sample='none-3', activ=
-        'relu', conv_bias=False):
+    def __init__(self, in_ch, out_ch, bn=True, sample='none-3', activ='relu', conv_bias=False):
         super().__init__()
         if sample == 'down-5':
             self.conv = PartialConv(in_ch, out_ch, 5, 2, 2, bias=conv_bias)
@@ -199,8 +191,7 @@ class PCBActiv(nn.Module):
 
 class PConvUNet(nn.Module):
 
-    def __init__(self, layer_size=7, input_channels=3, upsampling_mode=
-        'nearest'):
+    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest'):
         super().__init__()
         self.freeze_enc_bn = False
         self.upsampling_mode = upsampling_mode
@@ -218,8 +209,7 @@ class PConvUNet(nn.Module):
         self.dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
         self.dec_3 = PCBActiv(256 + 128, 128, activ='leaky')
         self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
-        self.dec_1 = PCBActiv(64 + input_channels, input_channels, bn=False,
-            activ=None, conv_bias=True)
+        self.dec_1 = PCBActiv(64 + input_channels, input_channels, bn=False, activ=None, conv_bias=True)
 
     def forward(self, input, input_mask):
         h_dict = {}
@@ -229,8 +219,7 @@ class PConvUNet(nn.Module):
         for i in range(1, self.layer_size + 1):
             l_key = 'enc_{:d}'.format(i)
             h_key = 'h_{:d}'.format(i)
-            h_dict[h_key], h_mask_dict[h_key] = getattr(self, l_key)(h_dict
-                [h_key_prev], h_mask_dict[h_key_prev])
+            h_dict[h_key], h_mask_dict[h_key] = getattr(self, l_key)(h_dict[h_key_prev], h_mask_dict[h_key_prev])
             h_key_prev = h_key
         h_key = 'h_{:d}'.format(self.layer_size)
         h, h_mask = h_dict[h_key], h_mask_dict[h_key]
@@ -259,17 +248,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (PCBActiv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PartialConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGG16FeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_naoto0804_pytorch_inpainting_with_partial_conv(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PCBActiv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(PartialConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(VGG16FeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

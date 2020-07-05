@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,11 +59,9 @@ class LstmClassifier(nn.Module):
         super(LstmClassifier, self).__init__()
         self.hparams = hparams
         self.weights = weights
-        self.embedding = nn.Embedding(hparams['vocab_size'], hparams['emb_dim']
-            )
+        self.embedding = nn.Embedding(hparams['vocab_size'], hparams['emb_dim'])
         if weights:
-            self.embedding.weight = nn.Parameter(weights['glove'],
-                requires_grad=False)
+            self.embedding.weight = nn.Parameter(weights['glove'], requires_grad=False)
         self.lstm = nn.LSTM(hparams['emb_dim'], hparams['hidden_dim'])
         self.linear = nn.Linear(hparams['hidden_dim'], hparams['output_size'])
 
@@ -78,15 +77,11 @@ class LstmClassifier(nn.Module):
         input = input.permute(1, 0, 2)
         batch_size = batch_size if batch_size else self.hparams['batch_size']
         if torch.is_available():
-            h0 = Variable(torch.zeros(1, batch_size, self.hparams[
-                'hidden_dim']))
-            c0 = Variable(torch.zeros(1, batch_size, self.hparams[
-                'hidden_dim']))
+            h0 = Variable(torch.zeros(1, batch_size, self.hparams['hidden_dim']))
+            c0 = Variable(torch.zeros(1, batch_size, self.hparams['hidden_dim']))
         else:
-            h0 = Variable(torch.zeros(1, batch_size, self.hparams[
-                'hidden_dim']))
-            c0 = Variable(torch.zeros(1, batch_size, self.hparams[
-                'hidden_dim']))
+            h0 = Variable(torch.zeros(1, batch_size, self.hparams['hidden_dim']))
+            c0 = Variable(torch.zeros(1, batch_size, self.hparams['hidden_dim']))
         self.lstm.flatten_parameters()
         lstm_out, (h, c) = self.lstm(input, (h0, c0))
         self.h = h[-1]
@@ -95,10 +90,3 @@ class LstmClassifier(nn.Module):
             return linear_out, self.h
         return linear_out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_suriyadeepan_torchtest(_paritybench_base):
-    pass

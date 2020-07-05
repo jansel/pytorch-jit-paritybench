@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,13 +59,7 @@ class InvertedResidual(nn.Module):
         self.stride = stride
         assert stride in [1, 2]
         self.use_res_connect = use_res_connect
-        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expand_ratio, 1, 1, 
-            0, bias=False), nn.BatchNorm2d(inp * expand_ratio), nn.ReLU(
-            inplace=True), nn.Conv2d(inp * expand_ratio, inp * expand_ratio,
-            3, stride, 1, groups=inp * expand_ratio, bias=False), nn.
-            BatchNorm2d(inp * expand_ratio), nn.ReLU(inplace=True), nn.
-            Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False), nn.
-            BatchNorm2d(oup))
+        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expand_ratio, 1, 1, 0, bias=False), nn.BatchNorm2d(inp * expand_ratio), nn.ReLU(inplace=True), nn.Conv2d(inp * expand_ratio, inp * expand_ratio, 3, stride, 1, groups=inp * expand_ratio, bias=False), nn.BatchNorm2d(inp * expand_ratio), nn.ReLU(inplace=True), nn.Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -74,20 +69,17 @@ class InvertedResidual(nn.Module):
 
 
 def conv_bn(inp, oup, kernel, stride, padding=1):
-    return nn.Sequential(nn.Conv2d(inp, oup, kernel, stride, padding, bias=
-        False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, kernel, stride, padding, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
 class PFLDInference(nn.Module):
 
     def __init__(self):
         super(PFLDInference, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.conv3_1 = InvertedResidual(64, 64, 2, False, 2)
@@ -176,15 +168,10 @@ class PNet(nn.Module):
 
     def __init__(self):
         super(PNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 
-            10, 3, 1)), ('prelu1', nn.PReLU(10)), ('pool1', nn.MaxPool2d(2,
-            2, ceil_mode=True)), ('conv2', nn.Conv2d(10, 16, 3, 1)), (
-            'prelu2', nn.PReLU(16)), ('conv3', nn.Conv2d(16, 32, 3, 1)), (
-            'prelu3', nn.PReLU(32))]))
+        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 10, 3, 1)), ('prelu1', nn.PReLU(10)), ('pool1', nn.MaxPool2d(2, 2, ceil_mode=True)), ('conv2', nn.Conv2d(10, 16, 3, 1)), ('prelu2', nn.PReLU(16)), ('conv3', nn.Conv2d(16, 32, 3, 1)), ('prelu3', nn.PReLU(32))]))
         self.conv4_1 = nn.Conv2d(32, 2, 1, 1)
         self.conv4_2 = nn.Conv2d(32, 4, 1, 1)
-        weights = np.load(os.path.join(os.path.dirname(__file__),
-            'pnet.npy'), allow_pickle=True)[()]
+        weights = np.load(os.path.join(os.path.dirname(__file__), 'pnet.npy'), allow_pickle=True)[()]
         for n, p in self.named_parameters():
             p.data = torch.FloatTensor(weights[n])
 
@@ -200,17 +187,10 @@ class RNet(nn.Module):
 
     def __init__(self):
         super(RNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 
-            28, 3, 1)), ('prelu1', nn.PReLU(28)), ('pool1', nn.MaxPool2d(3,
-            2, ceil_mode=True)), ('conv2', nn.Conv2d(28, 48, 3, 1)), (
-            'prelu2', nn.PReLU(48)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode
-            =True)), ('conv3', nn.Conv2d(48, 64, 2, 1)), ('prelu3', nn.
-            PReLU(64)), ('flatten', Flatten()), ('conv4', nn.Linear(576, 
-            128)), ('prelu4', nn.PReLU(128))]))
+        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 28, 3, 1)), ('prelu1', nn.PReLU(28)), ('pool1', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv2', nn.Conv2d(28, 48, 3, 1)), ('prelu2', nn.PReLU(48)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv3', nn.Conv2d(48, 64, 2, 1)), ('prelu3', nn.PReLU(64)), ('flatten', Flatten()), ('conv4', nn.Linear(576, 128)), ('prelu4', nn.PReLU(128))]))
         self.conv5_1 = nn.Linear(128, 2)
         self.conv5_2 = nn.Linear(128, 4)
-        weights = np.load(os.path.join(os.path.dirname(__file__),
-            'rnet.npy'), allow_pickle=True)[()]
+        weights = np.load(os.path.join(os.path.dirname(__file__), 'rnet.npy'), allow_pickle=True)[()]
         for n, p in self.named_parameters():
             p.data = torch.FloatTensor(weights[n])
 
@@ -226,20 +206,11 @@ class ONet(nn.Module):
 
     def __init__(self):
         super(ONet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 
-            32, 3, 1)), ('prelu1', nn.PReLU(32)), ('pool1', nn.MaxPool2d(3,
-            2, ceil_mode=True)), ('conv2', nn.Conv2d(32, 64, 3, 1)), (
-            'prelu2', nn.PReLU(64)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode
-            =True)), ('conv3', nn.Conv2d(64, 64, 3, 1)), ('prelu3', nn.
-            PReLU(64)), ('pool3', nn.MaxPool2d(2, 2, ceil_mode=True)), (
-            'conv4', nn.Conv2d(64, 128, 2, 1)), ('prelu4', nn.PReLU(128)),
-            ('flatten', Flatten()), ('conv5', nn.Linear(1152, 256)), (
-            'drop5', nn.Dropout(0.25)), ('prelu5', nn.PReLU(256))]))
+        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 32, 3, 1)), ('prelu1', nn.PReLU(32)), ('pool1', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv2', nn.Conv2d(32, 64, 3, 1)), ('prelu2', nn.PReLU(64)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv3', nn.Conv2d(64, 64, 3, 1)), ('prelu3', nn.PReLU(64)), ('pool3', nn.MaxPool2d(2, 2, ceil_mode=True)), ('conv4', nn.Conv2d(64, 128, 2, 1)), ('prelu4', nn.PReLU(128)), ('flatten', Flatten()), ('conv5', nn.Linear(1152, 256)), ('drop5', nn.Dropout(0.25)), ('prelu5', nn.PReLU(256))]))
         self.conv6_1 = nn.Linear(256, 2)
         self.conv6_2 = nn.Linear(256, 4)
         self.conv6_3 = nn.Linear(256, 10)
-        weights = np.load(os.path.join(os.path.dirname(__file__),
-            'onet.npy'), allow_pickle=True)[()]
+        weights = np.load(os.path.join(os.path.dirname(__file__), 'onet.npy'), allow_pickle=True)[()]
         for n, p in self.named_parameters():
             p.data = torch.FloatTensor(weights[n])
 
@@ -260,33 +231,58 @@ class PFLDLoss(nn.Module):
     def __init__(self):
         super(PFLDLoss, self).__init__()
 
-    def forward(self, attribute_gt, landmark_gt, euler_angle_gt, angle,
-        landmarks, train_batchsize):
+    def forward(self, attribute_gt, landmark_gt, euler_angle_gt, angle, landmarks, train_batchsize):
         weight_angle = torch.sum(1 - torch.cos(angle - euler_angle_gt), axis=1)
         attributes_w_n = attribute_gt[:, 1:6].float()
         mat_ratio = torch.mean(attributes_w_n, axis=0)
-        mat_ratio = torch.Tensor([(1.0 / x if x > 0 else train_batchsize) for
-            x in mat_ratio])
+        mat_ratio = torch.Tensor([(1.0 / x if x > 0 else train_batchsize) for x in mat_ratio])
         weight_attribute = torch.sum(attributes_w_n.mul(mat_ratio), axis=1)
-        l2_distant = torch.sum((landmark_gt - landmarks) * (landmark_gt -
-            landmarks), axis=1)
-        return torch.mean(weight_angle * weight_attribute * l2_distant
-            ), torch.mean(l2_distant)
+        l2_distant = torch.sum((landmark_gt - landmarks) * (landmark_gt - landmarks), axis=1)
+        return torch.mean(weight_angle * weight_attribute * l2_distant), torch.mean(l2_distant)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AuxiliaryNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 32, 32])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'use_res_connect': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PFLDInference,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 108, 108])], {}),
+     True),
+    (PFLDLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_polarisZhao_PFLD_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'use_res_connect': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PFLDLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

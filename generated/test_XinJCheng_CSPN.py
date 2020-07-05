@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -104,8 +105,7 @@ class Affinity_Propagate(nn.Module):
         self.out_feature = 1
 
     def forward(self, guidance, blur_depth, sparse_depth=None):
-        self.sum_conv = nn.Conv3d(in_channels=8, out_channels=1,
-            kernel_size=(1, 1, 1), stride=1, padding=0, bias=False)
+        self.sum_conv = nn.Conv3d(in_channels=8, out_channels=1, kernel_size=(1, 1, 1), stride=1, padding=0, bias=False)
         weight = torch.ones(1, 8, 1, 1, 1)
         self.sum_conv.weight = nn.Parameter(weight)
         for param in self.sum_conv.parameters():
@@ -123,33 +123,24 @@ class Affinity_Propagate(nn.Module):
             neigbor_weighted_sum = neigbor_weighted_sum[:, :, 1:-1, 1:-1]
             result_depth = neigbor_weighted_sum
             if '8sum' in self.norm_type:
-                result_depth = (1.0 - gate_sum
-                    ) * raw_depth_input + result_depth
+                result_depth = (1.0 - gate_sum) * raw_depth_input + result_depth
             else:
                 raise ValueError('unknown norm %s' % self.norm_type)
             if sparse_depth is not None:
-                result_depth = (1 - sparse_mask
-                    ) * result_depth + sparse_mask * raw_depth_input
+                result_depth = (1 - sparse_mask) * result_depth + sparse_mask * raw_depth_input
         return result_depth
 
     def affinity_normalization(self, guidance):
         if 'abs' in self.norm_type:
             guidance = torch.abs(guidance)
         gate1_wb_cmb = guidance.narrow(1, 0, self.out_feature)
-        gate2_wb_cmb = guidance.narrow(1, 1 * self.out_feature, self.
-            out_feature)
-        gate3_wb_cmb = guidance.narrow(1, 2 * self.out_feature, self.
-            out_feature)
-        gate4_wb_cmb = guidance.narrow(1, 3 * self.out_feature, self.
-            out_feature)
-        gate5_wb_cmb = guidance.narrow(1, 4 * self.out_feature, self.
-            out_feature)
-        gate6_wb_cmb = guidance.narrow(1, 5 * self.out_feature, self.
-            out_feature)
-        gate7_wb_cmb = guidance.narrow(1, 6 * self.out_feature, self.
-            out_feature)
-        gate8_wb_cmb = guidance.narrow(1, 7 * self.out_feature, self.
-            out_feature)
+        gate2_wb_cmb = guidance.narrow(1, 1 * self.out_feature, self.out_feature)
+        gate3_wb_cmb = guidance.narrow(1, 2 * self.out_feature, self.out_feature)
+        gate4_wb_cmb = guidance.narrow(1, 3 * self.out_feature, self.out_feature)
+        gate5_wb_cmb = guidance.narrow(1, 4 * self.out_feature, self.out_feature)
+        gate6_wb_cmb = guidance.narrow(1, 5 * self.out_feature, self.out_feature)
+        gate7_wb_cmb = guidance.narrow(1, 6 * self.out_feature, self.out_feature)
+        gate8_wb_cmb = guidance.narrow(1, 7 * self.out_feature, self.out_feature)
         left_top_pad = nn.ZeroPad2d((0, 2, 0, 2))
         gate1_wb_cmb = left_top_pad(gate1_wb_cmb).unsqueeze(1)
         center_top_pad = nn.ZeroPad2d((1, 1, 0, 2))
@@ -166,9 +157,7 @@ class Affinity_Propagate(nn.Module):
         gate7_wb_cmb = center_bottom_pad(gate7_wb_cmb).unsqueeze(1)
         right_bottm_pad = nn.ZeroPad2d((2, 0, 2, 0))
         gate8_wb_cmb = right_bottm_pad(gate8_wb_cmb).unsqueeze(1)
-        gate_wb = torch.cat((gate1_wb_cmb, gate2_wb_cmb, gate3_wb_cmb,
-            gate4_wb_cmb, gate5_wb_cmb, gate6_wb_cmb, gate7_wb_cmb,
-            gate8_wb_cmb), 1)
+        gate_wb = torch.cat((gate1_wb_cmb, gate2_wb_cmb, gate3_wb_cmb, gate4_wb_cmb, gate5_wb_cmb, gate6_wb_cmb, gate7_wb_cmb, gate8_wb_cmb), 1)
         gate_wb_abs = torch.abs(gate_wb)
         abs_weight = self.sum_conv(gate_wb_abs)
         gate_wb = torch.div(gate_wb, abs_weight)
@@ -194,9 +183,7 @@ class Affinity_Propagate(nn.Module):
         blur_depth_7 = center_bottom_pad(blur_depth).unsqueeze(1)
         right_bottm_pad = nn.ZeroPad2d((2, 0, 2, 0))
         blur_depth_8 = right_bottm_pad(blur_depth).unsqueeze(1)
-        result_depth = torch.cat((blur_depth_1, blur_depth_2, blur_depth_3,
-            blur_depth_4, blur_depth_5, blur_depth_6, blur_depth_7,
-            blur_depth_8), 1)
+        result_depth = torch.cat((blur_depth_1, blur_depth_2, blur_depth_3, blur_depth_4, blur_depth_5, blur_depth_6, blur_depth_7, blur_depth_8), 1)
         return result_depth
 
     def normalize_gate(self, guidance):
@@ -214,12 +201,9 @@ class Affinity_Propagate(nn.Module):
         max_element3_4 = torch.max(element3, element4)
         return torch.max(max_element1_2, max_element3_4)
 
-    def max_of_8_tensor(self, element1, element2, element3, element4,
-        element5, element6, element7, element8):
-        max_element1_2 = self.max_of_4_tensor(element1, element2, element3,
-            element4)
-        max_element3_4 = self.max_of_4_tensor(element5, element6, element7,
-            element8)
+    def max_of_8_tensor(self, element1, element2, element3, element4, element5, element6, element7, element8):
+        max_element1_2 = self.max_of_4_tensor(element1, element2, element3, element4)
+        max_element3_4 = self.max_of_4_tensor(element5, element6, element7, element8)
         return torch.max(max_element1_2, max_element3_4)
 
 
@@ -229,19 +213,16 @@ class Unpool(nn.Module):
         super(Unpool, self).__init__()
         self.num_channels = num_channels
         self.stride = stride
-        self.weights = torch.autograd.Variable(torch.zeros(num_channels, 1,
-            stride, stride))
+        self.weights = torch.autograd.Variable(torch.zeros(num_channels, 1, stride, stride))
         self.weights[:, :, (0), (0)] = 1
 
     def forward(self, x):
-        return F.conv_transpose2d(x, self.weights, stride=self.stride,
-            groups=self.num_channels)
+        return F.conv_transpose2d(x, self.weights, stride=self.stride, groups=self.num_channels)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -278,8 +259,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -308,14 +288,11 @@ class UpProj_Block(nn.Module):
 
     def __init__(self, in_channels, out_channels, oheight=0, owidth=0):
         super(UpProj_Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.sc_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.sc_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.sc_bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.oheight = oheight
@@ -349,8 +326,7 @@ class Simple_Gudi_UpConv_Block(nn.Module):
 
     def __init__(self, in_channels, out_channels, oheight=0, owidth=0):
         super(Simple_Gudi_UpConv_Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.oheight = oheight
@@ -374,8 +350,7 @@ class Simple_Gudi_UpConv_Block_Last_Layer(nn.Module):
 
     def __init__(self, in_channels, out_channels, oheight=0, owidth=0):
         super(Simple_Gudi_UpConv_Block_Last_Layer, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.oheight = oheight
         self.owidth = owidth
         self._up_pool = Unpool(in_channels)
@@ -397,14 +372,11 @@ class Gudi_UpProj_Block(nn.Module):
 
     def __init__(self, in_channels, out_channels, oheight=0, owidth=0):
         super(Gudi_UpProj_Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.sc_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.sc_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.sc_bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.oheight = oheight
@@ -435,17 +407,13 @@ class Gudi_UpProj_Block_Cat(nn.Module):
 
     def __init__(self, in_channels, out_channels, oheight=0, owidth=0):
         super(Gudi_UpProj_Block_Cat, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv1_1 = nn.Conv2d(out_channels * 2, out_channels,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1_1 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1_1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.sc_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5,
-            stride=1, padding=2, bias=False)
+        self.sc_conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
         self.sc_bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
         self.oheight = oheight
@@ -480,8 +448,7 @@ class ResNet(nn.Module):
             cspn_config_default.update(cspn_config)
         None
         super(ResNet, self).__init__()
-        self.conv1_1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1_1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -490,40 +457,25 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.mid_channel = 256 * block.expansion
-        self.conv2 = nn.Conv2d(512 * block.expansion, 512 * block.expansion,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(512 * block.expansion, 512 * block.expansion, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(512 * block.expansion)
-        self.up_proj_layer1 = self._make_up_conv_layer(up_proj_block, self.
-            mid_channel, int(self.mid_channel / 2))
-        self.up_proj_layer2 = self._make_up_conv_layer(up_proj_block, int(
-            self.mid_channel / 2), int(self.mid_channel / 4))
-        self.up_proj_layer3 = self._make_up_conv_layer(up_proj_block, int(
-            self.mid_channel / 4), int(self.mid_channel / 8))
-        self.up_proj_layer4 = self._make_up_conv_layer(up_proj_block, int(
-            self.mid_channel / 8), int(self.mid_channel / 16))
-        self.conv3 = nn.Conv2d(128, 1, kernel_size=3, stride=1, padding=1,
-            bias=False)
-        self.post_process_layer = self._make_post_process_layer(
-            cspn_config_default)
-        self.gud_up_proj_layer1 = self._make_gud_up_conv_layer(
-            Gudi_UpProj_Block, 2048, 1024, 15, 19)
-        self.gud_up_proj_layer2 = self._make_gud_up_conv_layer(
-            Gudi_UpProj_Block_Cat, 1024, 512, 29, 38)
-        self.gud_up_proj_layer3 = self._make_gud_up_conv_layer(
-            Gudi_UpProj_Block_Cat, 512, 256, 57, 76)
-        self.gud_up_proj_layer4 = self._make_gud_up_conv_layer(
-            Gudi_UpProj_Block_Cat, 256, 64, 114, 152)
-        self.gud_up_proj_layer5 = self._make_gud_up_conv_layer(
-            Simple_Gudi_UpConv_Block_Last_Layer, 64, 1, 228, 304)
-        self.gud_up_proj_layer6 = self._make_gud_up_conv_layer(
-            Simple_Gudi_UpConv_Block_Last_Layer, 64, 8, 228, 304)
+        self.up_proj_layer1 = self._make_up_conv_layer(up_proj_block, self.mid_channel, int(self.mid_channel / 2))
+        self.up_proj_layer2 = self._make_up_conv_layer(up_proj_block, int(self.mid_channel / 2), int(self.mid_channel / 4))
+        self.up_proj_layer3 = self._make_up_conv_layer(up_proj_block, int(self.mid_channel / 4), int(self.mid_channel / 8))
+        self.up_proj_layer4 = self._make_up_conv_layer(up_proj_block, int(self.mid_channel / 8), int(self.mid_channel / 16))
+        self.conv3 = nn.Conv2d(128, 1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.post_process_layer = self._make_post_process_layer(cspn_config_default)
+        self.gud_up_proj_layer1 = self._make_gud_up_conv_layer(Gudi_UpProj_Block, 2048, 1024, 15, 19)
+        self.gud_up_proj_layer2 = self._make_gud_up_conv_layer(Gudi_UpProj_Block_Cat, 1024, 512, 29, 38)
+        self.gud_up_proj_layer3 = self._make_gud_up_conv_layer(Gudi_UpProj_Block_Cat, 512, 256, 57, 76)
+        self.gud_up_proj_layer4 = self._make_gud_up_conv_layer(Gudi_UpProj_Block_Cat, 256, 64, 114, 152)
+        self.gud_up_proj_layer5 = self._make_gud_up_conv_layer(Simple_Gudi_UpConv_Block_Last_Layer, 64, 1, 228, 304)
+        self.gud_up_proj_layer6 = self._make_gud_up_conv_layer(Simple_Gudi_UpConv_Block_Last_Layer, 64, 8, 228, 304)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -534,13 +486,11 @@ class ResNet(nn.Module):
     def _make_up_conv_layer(self, up_proj_block, in_channels, out_channels):
         return up_proj_block(in_channels, out_channels)
 
-    def _make_gud_up_conv_layer(self, up_proj_block, in_channels,
-        out_channels, oheight, owidth):
+    def _make_gud_up_conv_layer(self, up_proj_block, in_channels, out_channels, oheight, owidth):
         return up_proj_block(in_channels, out_channels, oheight, owidth)
 
     def _make_post_process_layer(self, cspn_config=None):
-        return post_process.Affinity_Propagate(cspn_config['step'],
-            cspn_config['kernel'], norm_type=cspn_config['norm_type'])
+        return post_process.Affinity_Propagate(cspn_config['step'], cspn_config['kernel'], norm_type=cspn_config['norm_type'])
 
     def forward(self, x):
         [batch_size, channel, height, width] = x.size()
@@ -571,34 +521,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Gudi_UpProj_Block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Gudi_UpProj_Block_Cat,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {}),
+     False),
+    (Simple_Gudi_UpConv_Block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Simple_Gudi_UpConv_Block_Last_Layer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Unpool,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpProj_Block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Wighted_L1_Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_XinJCheng_CSPN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Gudi_UpProj_Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Gudi_UpProj_Block_Cat(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Simple_Gudi_UpConv_Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Simple_Gudi_UpConv_Block_Last_Layer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Unpool(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(UpProj_Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Wighted_L1_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

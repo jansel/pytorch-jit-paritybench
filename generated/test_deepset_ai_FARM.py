@@ -92,8 +92,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -174,9 +175,7 @@ def pick_single_fn(heads, fn_name):
     elif len(merge_fns) == 1:
         return merge_fns[0]
     else:
-        raise Exception(
-            f'More than one of the prediction heads have a {fn_name}() function'
-            )
+        raise Exception(f'More than one of the prediction heads have a {fn_name}() function')
 
 
 def stack(list_of_lists):
@@ -247,8 +246,7 @@ class BaseAdaptiveModel:
         """
         n_heads = len(self.prediction_heads)
         if n_heads == 0:
-            preds_final = self.language_model.formatted_preds(logits=logits,
-                **kwargs)
+            preds_final = self.language_model.formatted_preds(logits=logits, **kwargs)
         elif n_heads == 1:
             preds_final = []
             try:
@@ -273,13 +271,10 @@ class BaseAdaptiveModel:
             samples = [s for b in kwargs['baskets'] for s in b.samples]
             kwargs['samples'] = samples
             del kwargs['preds_p']
-            for i, (head, preds_p_for_head, logits_for_head) in enumerate(zip
-                (self.prediction_heads, preds_for_heads, logits_for_heads)):
-                preds = head.formatted_preds(logits=logits_for_head,
-                    preds_p=preds_p_for_head, **kwargs)
+            for i, (head, preds_p_for_head, logits_for_head) in enumerate(zip(self.prediction_heads, preds_for_heads, logits_for_heads)):
+                preds = head.formatted_preds(logits=logits_for_head, preds_p=preds_p_for_head, **kwargs)
                 preds_final[i].append(preds)
-            merge_fn = pick_single_fn(self.prediction_heads,
-                'merge_formatted_preds')
+            merge_fn = pick_single_fn(self.prediction_heads, 'merge_formatted_preds')
             if merge_fn:
                 preds_final = merge_fn(preds_final)
         return preds_final
@@ -298,17 +293,13 @@ class BaseAdaptiveModel:
                 if ph.task_name == 'nextsentence':
                     idx = i
             if idx is not None:
-                logger.info(
-                    'Removing the NextSentenceHead since next_sent_pred is set to False in the BertStyleLMProcessor'
-                    )
+                logger.info('Removing the NextSentenceHead since next_sent_pred is set to False in the BertStyleLMProcessor')
                 del self.prediction_heads[i]
         for head in self.prediction_heads:
             head.label_tensor_name = tasks[head.task_name]['label_tensor_name']
             label_list = tasks[head.task_name]['label_list']
             if not label_list and require_labels:
-                raise Exception(
-                    f"The task '{head.task_name}' is missing a valid set of labels"
-                    )
+                raise Exception(f"The task '{head.task_name}' is missing a valid set of labels")
             label_list = tasks[head.task_name]['label_list']
             head.label_list = label_list
             if 'RegressionHead' in str(type(head)):
@@ -321,19 +312,14 @@ class BaseAdaptiveModel:
     def _get_prediction_head_files(cls, load_dir, strict=True):
         load_dir = Path(load_dir)
         files = os.listdir(load_dir)
-        model_files = [(load_dir / f) for f in files if '.bin' in f and 
-            'prediction_head' in f]
-        config_files = [(load_dir / f) for f in files if 'config.json' in f and
-            'prediction_head' in f]
+        model_files = [(load_dir / f) for f in files if '.bin' in f and 'prediction_head' in f]
+        config_files = [(load_dir / f) for f in files if 'config.json' in f and 'prediction_head' in f]
         model_files.sort()
         config_files.sort()
         if strict:
-            error_str = (
-                f'There is a mismatch in number of model files ({len(model_files)}) and config files ({len(config_files)}).This might be because the Language Model Prediction Head does not currently support saving and loading'
-                )
+            error_str = f'There is a mismatch in number of model files ({len(model_files)}) and config files ({len(config_files)}).This might be because the Language Model Prediction Head does not currently support saving and loading'
             assert len(model_files) == len(config_files), error_str
-        logger.info(
-            f'Found files for loading {len(model_files)} prediction heads')
+        logger.info(f'Found files for loading {len(model_files)} prediction heads')
         return model_files, config_files
 
 
@@ -347,33 +333,26 @@ def load_from_cache(pretrained_model_name_or_path, s3_dict, **kwargs):
     proxies = kwargs.pop('proxies', None)
     s3_file = s3_dict[pretrained_model_name_or_path]
     try:
-        resolved_file = cached_path(s3_file, cache_dir=cache_dir,
-            force_download=force_download, proxies=proxies, resume_download
-            =resume_download)
+        resolved_file = cached_path(s3_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies, resume_download=resume_download)
         if resolved_file is None:
             raise EnvironmentError
     except EnvironmentError:
         if pretrained_model_name_or_path in s3_dict:
-            msg = "Couldn't reach server at '{}' to download data.".format(
-                s3_file)
+            msg = "Couldn't reach server at '{}' to download data.".format(s3_file)
         else:
-            msg = (
-                "Model name '{}' was not found in model name list. We assumed '{}' was a path, a model identifier, or url to a configuration file or a directory containing such a file but couldn't find any such file at this path or url."
-                .format(pretrained_model_name_or_path, s3_file))
+            msg = "Model name '{}' was not found in model name list. We assumed '{}' was a path, a model identifier, or url to a configuration file or a directory containing such a file but couldn't find any such file at this path or url.".format(pretrained_model_name_or_path, s3_file)
         raise EnvironmentError(msg)
     if resolved_file == s3_file:
         logger.info('loading file {}'.format(s3_file))
     else:
-        logger.info('loading file {} from cache at {}'.format(s3_file,
-            resolved_file))
+        logger.info('loading file {} from cache at {}'.format(s3_file, resolved_file))
     return resolved_file
 
 
 def _is_punctuation(char):
     """Checks whether `chars` is a punctuation character."""
     cp = ord(char)
-    if (cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <=
-        96 or cp >= 123 and cp <= 126):
+    if cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <= 96 or cp >= 123 and cp <= 126:
         return True
     cat = unicodedata.category(char)
     if cat.startswith('P'):
@@ -414,12 +393,10 @@ TRACTOR_SMALL = """
  """
 
 
-def calc_chunksize(num_dicts, min_chunksize=4, max_chunksize=2000,
-    max_processes=128):
+def calc_chunksize(num_dicts, min_chunksize=4, max_chunksize=2000, max_processes=128):
     num_cpus = min(mp.cpu_count() - 1 or 1, max_processes)
     dicts_per_cpu = np.ceil(num_dicts / num_cpus)
-    multiprocessing_chunk_size = int(np.clip(np.ceil(dicts_per_cpu / 5),
-        a_min=min_chunksize, a_max=max_chunksize))
+    multiprocessing_chunk_size = int(np.clip(np.ceil(dicts_per_cpu / 5), a_min=min_chunksize, a_max=max_chunksize))
     if num_dicts != 1:
         while num_dicts % multiprocessing_chunk_size == 1:
             multiprocessing_chunk_size -= -1
@@ -432,8 +409,7 @@ def get_dict_checksum(payload_dict):
     """
     Get MD5 checksum for a dict.
     """
-    checksum = hashlib.md5(json.dumps(payload_dict, sort_keys=True).encode(
-        'utf-8')).hexdigest()
+    checksum = hashlib.md5(json.dumps(payload_dict, sort_keys=True).encode('utf-8')).hexdigest()
     return checksum
 
 
@@ -547,8 +523,7 @@ class DocumentPred:
     """ Contains a collection of Span predictions for one document. Used in Question Answering. Also contains all
     attributes needed to generate the appropriate output json"""
 
-    def __init__(self, id, document_text, question, preds, no_ans_gap,
-        token_offsets, context_window_size, question_id=None):
+    def __init__(self, id, document_text, question, preds, no_ans_gap, token_offsets, context_window_size, question_id=None):
         self.id = id
         self.preds = preds
         self.n_samples = preds[0].n_samples
@@ -561,9 +536,7 @@ class DocumentPred:
 
     def __str__(self):
         preds_str = '\n'.join([f'{p}' for p in self.preds])
-        ret = (
-            f'id: {self.id}\ndocument: {self.document_text}\npreds:\n{preds_str}'
-            )
+        ret = f'id: {self.id}\ndocument: {self.document_text}\npreds:\n{preds_str}'
         return ret
 
     def __repr__(self):
@@ -571,9 +544,7 @@ class DocumentPred:
 
     def to_json(self):
         answers = self.answers_to_json()
-        ret = {'task': 'qa', 'predictions': [{'question': self.question,
-            'question_id': self.question_id, 'ground_truth': None,
-            'answers': answers, 'no_ans_gap': self.no_ans_gap}]}
+        ret = {'task': 'qa', 'predictions': [{'question': self.question, 'question_id': self.question_id, 'ground_truth': None, 'answers': answers, 'no_ans_gap': self.no_ans_gap}]}
         return ret
 
     def answers_to_json(self):
@@ -584,15 +555,9 @@ class DocumentPred:
             end_t = span.end
             score = span.score
             classification = span.classification
-            _, ans_start_ch, ans_end_ch = span_to_string(start_t, end_t,
-                self.token_offsets, self.document_text)
-            context_string, context_start_ch, context_end_ch = (self.
-                create_context(ans_start_ch, ans_end_ch, self.document_text))
-            curr = {'score': score, 'probability': -1, 'answer': string,
-                'offset_answer_start': ans_start_ch, 'offset_answer_end':
-                ans_end_ch, 'context': context_string, 'classification':
-                classification, 'offset_context_start': context_start_ch,
-                'offset_context_end': context_end_ch, 'document_id': self.id}
+            _, ans_start_ch, ans_end_ch = span_to_string(start_t, end_t, self.token_offsets, self.document_text)
+            context_string, context_start_ch, context_end_ch = self.create_context(ans_start_ch, ans_end_ch, self.document_text)
+            curr = {'score': score, 'probability': -1, 'answer': string, 'offset_answer_start': ans_start_ch, 'offset_answer_end': ans_end_ch, 'context': context_string, 'classification': classification, 'offset_context_start': context_start_ch, 'offset_context_end': context_end_ch, 'document_id': self.id}
             ret.append(curr)
         return ret
 
@@ -622,9 +587,7 @@ class DocumentPred:
 
 class Span:
 
-    def __init__(self, start, end, score=None, sample_idx=None, n_samples=
-        None, classification=None, unit=None, pred_str=None, id=None, level
-        =None):
+    def __init__(self, start, end, score=None, sample_idx=None, n_samples=None, classification=None, unit=None, pred_str=None, id=None, level=None):
         self.start = start
         self.end = end
         self.score = score
@@ -637,8 +600,7 @@ class Span:
         self.level = level
 
     def to_list(self):
-        return [self.pred_str, self.start, self.end, self.score, self.
-            sample_idx]
+        return [self.pred_str, self.start, self.end, self.score, self.sample_idx]
 
     def __str__(self):
         if self.pred_str is None:
@@ -688,11 +650,9 @@ class Sample(object):
 
     def __str__(self):
         if self.clear_text:
-            clear_text_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in
-                self.clear_text.items()])
+            clear_text_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in self.clear_text.items()])
             if len(clear_text_str) > 10000:
-                clear_text_str = clear_text_str[:10000] + f"""
-THE REST IS TOO LONG TO DISPLAY. Remaining chars :{len(clear_text_str) - 10000}"""
+                clear_text_str = clear_text_str[:10000] + f'\nTHE REST IS TOO LONG TO DISPLAY. Remaining chars :{len(clear_text_str) - 10000}'
         else:
             clear_text_str = 'None'
         if self.features:
@@ -700,28 +660,16 @@ THE REST IS TOO LONG TO DISPLAY. Remaining chars :{len(clear_text_str) - 10000}"
                 features = self.features[0]
             else:
                 features = self.features
-            feature_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in
-                features.items()])
+            feature_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in features.items()])
         else:
             feature_str = 'None'
         if self.tokenized:
-            tokenized_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in
-                self.tokenized.items()])
+            tokenized_str = '\n \t'.join([(k + ': ' + str(v)) for k, v in self.tokenized.items()])
             if len(tokenized_str) > 10000:
-                tokenized_str = tokenized_str[:10000] + f"""
-THE REST IS TOO LONG TO DISPLAY. Remaining chars: {len(tokenized_str) - 10000}"""
+                tokenized_str = tokenized_str[:10000] + f'\nTHE REST IS TOO LONG TO DISPLAY. Remaining chars: {len(tokenized_str) - 10000}'
         else:
             tokenized_str = 'None'
-        s = f"""
-{SAMPLE}
-ID: {self.id}
-Clear Text: 
- 	{clear_text_str}
-Tokenized: 
- 	{tokenized_str}
-Features: 
- 	{feature_str}
-_____________________________________________________"""
+        s = f'\n{SAMPLE}\nID: {self.id}\nClear Text: \n \t{clear_text_str}\nTokenized: \n \t{tokenized_str}\nFeatures: \n \t{feature_str}\n_____________________________________________________'
         return s
 
 
@@ -753,8 +701,7 @@ class Tokenizer:
     """
 
     @classmethod
-    def load(cls, pretrained_model_name_or_path, tokenizer_class=None, **kwargs
-        ):
+    def load(cls, pretrained_model_name_or_path, tokenizer_class=None, **kwargs):
         """
         Enables loading of different Tokenizer classes with a uniform interface. Either infer the class from
         `pretrained_model_name_or_path` or define it manually via `tokenizer_class`.
@@ -782,39 +729,27 @@ class Tokenizer:
                 tokenizer_class = 'XLNetTokenizer'
             elif 'electra' in pretrained_model_name_or_path.lower():
                 tokenizer_class = 'ElectraTokenizer'
-            elif 'word2vec' in pretrained_model_name_or_path.lower(
-                ) or 'glove' in pretrained_model_name_or_path.lower(
-                ) or 'fasttext' in pretrained_model_name_or_path.lower():
+            elif 'word2vec' in pretrained_model_name_or_path.lower() or 'glove' in pretrained_model_name_or_path.lower() or 'fasttext' in pretrained_model_name_or_path.lower():
                 tokenizer_class = 'EmbeddingTokenizer'
             else:
-                raise ValueError(
-                    f"Could not infer tokenizer_class from name '{pretrained_model_name_or_path}'. Set arg `tokenizer_class` in Tokenizer.load() to one of: AlbertTokenizer, XLMRobertaTokenizer, RobertaTokenizer, DistilBertTokenizer, BertTokenizer, or XLNetTokenizer."
-                    )
+                raise ValueError(f"Could not infer tokenizer_class from name '{pretrained_model_name_or_path}'. Set arg `tokenizer_class` in Tokenizer.load() to one of: AlbertTokenizer, XLMRobertaTokenizer, RobertaTokenizer, DistilBertTokenizer, BertTokenizer, or XLNetTokenizer.")
             logger.info(f"Loading tokenizer of type '{tokenizer_class}'")
         if tokenizer_class == 'AlbertTokenizer':
-            ret = AlbertTokenizer.from_pretrained(pretrained_model_name_or_path
-                , keep_accents=True, **kwargs)
+            ret = AlbertTokenizer.from_pretrained(pretrained_model_name_or_path, keep_accents=True, **kwargs)
         elif tokenizer_class == 'XLMRobertaTokenizer':
-            ret = XLMRobertaTokenizer.from_pretrained(
-                pretrained_model_name_or_path, **kwargs)
+            ret = XLMRobertaTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif tokenizer_class == 'RobertaTokenizer':
-            ret = RobertaTokenizer.from_pretrained(
-                pretrained_model_name_or_path, **kwargs)
+            ret = RobertaTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif tokenizer_class == 'DistilBertTokenizer':
-            ret = DistilBertTokenizer.from_pretrained(
-                pretrained_model_name_or_path, **kwargs)
+            ret = DistilBertTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif tokenizer_class == 'BertTokenizer':
-            ret = BertTokenizer.from_pretrained(pretrained_model_name_or_path,
-                **kwargs)
+            ret = BertTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif tokenizer_class == 'XLNetTokenizer':
-            ret = XLNetTokenizer.from_pretrained(pretrained_model_name_or_path,
-                keep_accents=True, **kwargs)
+            ret = XLNetTokenizer.from_pretrained(pretrained_model_name_or_path, keep_accents=True, **kwargs)
         elif tokenizer_class == 'ElectraTokenizer':
-            ret = ElectraTokenizer.from_pretrained(
-                pretrained_model_name_or_path, **kwargs)
+            ret = ElectraTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         elif tokenizer_class == 'EmbeddingTokenizer':
-            ret = EmbeddingTokenizer.from_pretrained(
-                pretrained_model_name_or_path, **kwargs)
+            ret = EmbeddingTokenizer.from_pretrained(pretrained_model_name_or_path, **kwargs)
         if ret is None:
             raise Exception('Unable to load tokenizer')
         else:
@@ -835,11 +770,9 @@ def convert_features_to_dataset(features):
     all_tensors = []
     for t_name in tensor_names:
         try:
-            cur_tensor = torch.tensor([sample[t_name] for sample in
-                features], dtype=torch.long)
+            cur_tensor = torch.tensor([sample[t_name] for sample in features], dtype=torch.long)
         except ValueError:
-            cur_tensor = torch.tensor([sample[t_name] for sample in
-                features], dtype=torch.float32)
+            cur_tensor = torch.tensor([sample[t_name] for sample in features], dtype=torch.float32)
         all_tensors.append(cur_tensor)
     dataset = TensorDataset(*all_tensors)
     return dataset, tensor_names
@@ -864,8 +797,7 @@ def convert_qa_input_dict(infer_dict):
         questions = infer_dict['questions']
         text = infer_dict['text']
         document_id = infer_dict.get('document_id', None)
-        qas = [{'question': q, 'id': None, 'answers': [], 'is_impossible': 
-            False} for i, q in enumerate(questions)]
+        qas = [{'question': q, 'id': None, 'answers': [], 'is_impossible': False} for i, q in enumerate(questions)]
         converted = {'qas': qas, 'context': text, 'document_id': document_id}
         return converted
     except KeyError:
@@ -888,9 +820,7 @@ def chunk_into_passages(doc_offsets, doc_stride, passage_len_t, doc_text):
             end_ch_idx = doc_offsets[passage_end_t + 1]
             raw_passage_text = doc_text[:end_ch_idx]
             passage_end_c = len(raw_passage_text.strip())
-        passage_span = {'passage_start_t': passage_start_t, 'passage_end_t':
-            passage_end_t, 'passage_start_c': passage_start_c,
-            'passage_end_c': passage_end_c, 'passage_id': passage_id}
+        passage_span = {'passage_start_t': passage_start_t, 'passage_end_t': passage_end_t, 'passage_start_c': passage_start_c, 'passage_end_c': passage_end_c, 'passage_id': passage_id}
         passage_spans.append(passage_span)
         passage_id += 1
         if passage_end_t >= doc_len_t:
@@ -902,8 +832,7 @@ def offset_to_token_idx(token_offsets, ch_idx):
     """ Returns the idx of the token at the given character idx"""
     n_tokens = len(token_offsets)
     for i in range(n_tokens):
-        if i + 1 == n_tokens or token_offsets[i] <= ch_idx < token_offsets[
-            i + 1]:
+        if i + 1 == n_tokens or token_offsets[i] <= ch_idx < token_offsets[i + 1]:
             return i
 
 
@@ -922,17 +851,14 @@ def process_answers(answers, doc_offsets, passage_start_c, passage_start_t):
         answer_end_c -= passage_start_c
         answer_start_t -= passage_start_t
         answer_end_t -= passage_start_t
-        curr_answer_clear = {'text': answer_text, 'start_c': answer_start_c,
-            'end_c': answer_end_c}
-        curr_answer_tokenized = {'start_t': answer_start_t, 'end_t':
-            answer_end_t, 'answer_type': answer['answer_type']}
+        curr_answer_clear = {'text': answer_text, 'start_c': answer_start_c, 'end_c': answer_end_c}
+        curr_answer_tokenized = {'start_t': answer_start_t, 'end_t': answer_end_t, 'answer_type': answer['answer_type']}
         answers_clear.append(curr_answer_clear)
         answers_tokenized.append(curr_answer_tokenized)
     return answers_clear, answers_tokenized
 
 
-def create_samples_qa(dictionary, max_query_len, max_seq_len, doc_stride,
-    n_special_tokens):
+def create_samples_qa(dictionary, max_query_len, max_seq_len, doc_stride, n_special_tokens):
     """
     This method will split question-document pairs from the SampleBasket into question-passage pairs which will
     each form one sample. The "t" and "c" in variables stand for token and character respectively.
@@ -946,8 +872,7 @@ def create_samples_qa(dictionary, max_query_len, max_seq_len, doc_stride,
     doc_start_of_word = dictionary['document_start_of_word']
     samples = []
     passage_len_t = max_seq_len - question_len_t - n_special_tokens
-    passage_spans = chunk_into_passages(doc_offsets, doc_stride,
-        passage_len_t, doc_text)
+    passage_spans = chunk_into_passages(doc_offsets, doc_stride, passage_len_t, doc_text)
     for passage_span in passage_spans:
         passage_start_t = passage_span['passage_start_t']
         passage_end_t = passage_span['passage_end_t']
@@ -955,64 +880,18 @@ def create_samples_qa(dictionary, max_query_len, max_seq_len, doc_stride,
         passage_end_c = passage_span['passage_end_c']
         passage_id = passage_span['passage_id']
         passage_offsets = doc_offsets[passage_start_t:passage_end_t]
-        passage_start_of_word = doc_start_of_word[passage_start_t:passage_end_t
-            ]
+        passage_start_of_word = doc_start_of_word[passage_start_t:passage_end_t]
         passage_offsets = [(x - passage_offsets[0]) for x in passage_offsets]
         passage_tokens = doc_tokens[passage_start_t:passage_end_t]
-        passage_text = dictionary['document_text'][passage_start_c:
-            passage_end_c]
-        answers_clear, answers_tokenized = process_answers(dictionary[
-            'answers'], doc_offsets, passage_start_c, passage_start_t)
-        clear_text = {'passage_text': passage_text, 'question_text':
-            dictionary['question_text'], 'passage_id': passage_id,
-            'answers': answers_clear}
-        tokenized = {'passage_start_t': passage_start_t, 'passage_tokens':
-            passage_tokens, 'passage_offsets': passage_offsets,
-            'passage_start_of_word': passage_start_of_word,
-            'question_tokens': question_tokens, 'question_offsets':
-            question_offsets, 'question_start_of_word': dictionary[
-            'question_start_of_word'][:max_query_len], 'answers':
-            answers_tokenized, 'document_offsets': doc_offsets}
-        samples.append(Sample(id=passage_id, clear_text=clear_text,
-            tokenized=tokenized))
+        passage_text = dictionary['document_text'][passage_start_c:passage_end_c]
+        answers_clear, answers_tokenized = process_answers(dictionary['answers'], doc_offsets, passage_start_c, passage_start_t)
+        clear_text = {'passage_text': passage_text, 'question_text': dictionary['question_text'], 'passage_id': passage_id, 'answers': answers_clear}
+        tokenized = {'passage_start_t': passage_start_t, 'passage_tokens': passage_tokens, 'passage_offsets': passage_offsets, 'passage_start_of_word': passage_start_of_word, 'question_tokens': question_tokens, 'question_offsets': question_offsets, 'question_start_of_word': dictionary['question_start_of_word'][:max_query_len], 'answers': answers_tokenized, 'document_offsets': doc_offsets}
+        samples.append(Sample(id=passage_id, clear_text=clear_text, tokenized=tokenized))
     return samples
 
 
-DOWNSTREAM_TASK_MAP = {'gnad':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/gnad.tar.gz'
-    , 'germeval14':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval14.tar.gz'
-    , 'germeval18':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval18.tar.gz'
-    , 'squad20':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/squad20.tar.gz'
-    , 'conll03detrain':
-    'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.train'
-    , 'conll03dedev':
-    'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.testa'
-    , 'conll03detest':
-    'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.testb'
-    , 'conll03entrain':
-    'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.train'
-    , 'conll03endev':
-    'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.testa'
-    , 'conll03entest':
-    'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.testb'
-    , 'cord_19':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/cord_19.tar.gz'
-    , 'lm_finetune_nips':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/lm_finetune_nips.tar.gz'
-    , 'toxic-comments':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/toxic-comments.tar.gz'
-    , 'cola':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/cola.tar.gz'
-    , 'asnq_binary':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/asnq_binary.tar.gz'
-    , 'germeval17':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval17.tar.gz'
-    , 'natural_questions':
-    'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/natural_questions.tar.gz'
-    }
+DOWNSTREAM_TASK_MAP = {'gnad': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/gnad.tar.gz', 'germeval14': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval14.tar.gz', 'germeval18': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval18.tar.gz', 'squad20': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/squad20.tar.gz', 'conll03detrain': 'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.train', 'conll03dedev': 'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.testa', 'conll03detest': 'https://raw.githubusercontent.com/MaviccPRP/ger_ner_evals/master/corpora/conll2003/deu.testb', 'conll03entrain': 'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.train', 'conll03endev': 'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.testa', 'conll03entest': 'https://raw.githubusercontent.com/synalp/NER/master/corpus/CoNLL-2003/eng.testb', 'cord_19': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/cord_19.tar.gz', 'lm_finetune_nips': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/lm_finetune_nips.tar.gz', 'toxic-comments': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/toxic-comments.tar.gz', 'cola': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/cola.tar.gz', 'asnq_binary': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/asnq_binary.tar.gz', 'germeval17': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/germeval17.tar.gz', 'natural_questions': 'https://s3.eu-central-1.amazonaws.com/deepset.ai-farm-downstream/natural_questions.tar.gz'}
 
 
 def _get_md5checksum(fname):
@@ -1028,26 +907,14 @@ def _conll03get(dataset, directory, language):
         response = get(DOWNSTREAM_TASK_MAP[f'conll03{language}{dataset}'])
         file.write(response.content)
     if f'conll03{language}{dataset}' == 'conll03detrain':
-        if 'ae4be68b11dc94e0001568a9095eb391' != _get_md5checksum(str(
-            directory / f'{dataset}.txt')):
-            logger.error(
-                f"""Someone has changed the file for conll03detrain. This data was collected from an external github repository.
-Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py"""
-                )
+        if 'ae4be68b11dc94e0001568a9095eb391' != _get_md5checksum(str(directory / f'{dataset}.txt')):
+            logger.error(f'Someone has changed the file for conll03detrain. This data was collected from an external github repository.\nPlease make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
     elif f'conll03{language}{dataset}' == 'conll03detest':
-        if 'b8514f44366feae8f317e767cf425f28' != _get_md5checksum(str(
-            directory / f'{dataset}.txt')):
-            logger.error(
-                f"""Someone has changed the file for conll03detest. This data was collected from an external github repository.
-Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py"""
-                )
+        if 'b8514f44366feae8f317e767cf425f28' != _get_md5checksum(str(directory / f'{dataset}.txt')):
+            logger.error(f'Someone has changed the file for conll03detest. This data was collected from an external github repository.\nPlease make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
     elif f'conll03{language}{dataset}' == 'conll03entrain':
-        if '11a942ce9db6cc64270372825e964d26' != _get_md5checksum(str(
-            directory / f'{dataset}.txt')):
-            logger.error(
-                f"""Someone has changed the file for conll03entrain. This data was collected from an external github repository.
-Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py"""
-                )
+        if '11a942ce9db6cc64270372825e964d26' != _get_md5checksum(str(directory / f'{dataset}.txt')):
+            logger.error(f'Someone has changed the file for conll03entrain. This data was collected from an external github repository.\nPlease make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
 
 
 def http_get(url, temp_file, proxies=None):
@@ -1067,8 +934,7 @@ def _download_extract_downstream_data(input_file, proxies=None):
     directory = full_path.parent
     taskname = directory.stem
     datadir = directory.parent
-    logger.info('downloading and extracting file {} to dir {}'.format(
-        taskname, datadir))
+    logger.info('downloading and extracting file {} to dir {}'.format(taskname, datadir))
     if 'conll03-' in taskname:
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -1078,11 +944,9 @@ def _download_extract_downstream_data(input_file, proxies=None):
             elif 'en' in taskname:
                 _conll03get(dataset, directory, 'en')
             else:
-                logger.error('Cannot download {}. Unknown data source.'.
-                    format(taskname))
+                logger.error('Cannot download {}. Unknown data source.'.format(taskname))
     elif taskname not in DOWNSTREAM_TASK_MAP:
-        logger.error('Cannot download {}. Unknown data source.'.format(
-            taskname))
+        logger.error('Cannot download {}. Unknown data source.'.format(taskname))
     else:
         if os.name == 'nt':
             delete_tmp_file = False
@@ -1093,29 +957,17 @@ def _download_extract_downstream_data(input_file, proxies=None):
             temp_file.flush()
             temp_file.seek(0)
             if 'germeval14' in taskname:
-                if '2c9d5337d7a25b9a4bf6f5672dd091bc' != _get_md5checksum(
-                    temp_file.name):
-                    logger.error(
-                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
-                        )
+                if '2c9d5337d7a25b9a4bf6f5672dd091bc' != _get_md5checksum(temp_file.name):
+                    logger.error(f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
             elif 'germeval18' in taskname:
-                if '23244fa042dcc39e844635285c455205' != _get_md5checksum(
-                    temp_file.name):
-                    logger.error(
-                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
-                        )
+                if '23244fa042dcc39e844635285c455205' != _get_md5checksum(temp_file.name):
+                    logger.error(f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
             elif 'gnad' in taskname:
-                if 'ef62fe3f59c1ad54cf0271d8532b8f22' != _get_md5checksum(
-                    temp_file.name):
-                    logger.error(
-                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
-                        )
+                if 'ef62fe3f59c1ad54cf0271d8532b8f22' != _get_md5checksum(temp_file.name):
+                    logger.error(f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
             elif 'germeval17' in taskname:
-                if 'f1bf67247dcfe7c3c919b7b20b3f736e' != _get_md5checksum(
-                    temp_file.name):
-                    logger.error(
-                        f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py'
-                        )
+                if 'f1bf67247dcfe7c3c919b7b20b3f736e' != _get_md5checksum(temp_file.name):
+                    logger.error(f'Someone has changed the file for {taskname}. Please make sure the correct file is used and update the md5sum in farm/data_handler/utils.py')
             tfile = tarfile.open(temp_file.name)
             tfile.extractall(datadir)
 
@@ -1123,8 +975,7 @@ def _download_extract_downstream_data(input_file, proxies=None):
 def read_squad_file(filename, proxies=None):
     """Read a SQuAD json file"""
     if not os.path.exists(filename):
-        logger.info(
-            f" Couldn't find {filename} locally. Trying to download ...")
+        logger.info(f" Couldn't find {filename} locally. Trying to download ...")
         _download_extract_downstream_data(filename, proxies)
     with open(filename, 'r', encoding='utf-8') as reader:
         input_data = json.load(reader)['data']
@@ -1134,12 +985,9 @@ def read_squad_file(filename, proxies=None):
 def combine_vecs(question_vec, passage_vec, tokenizer, spec_tok_val=-1):
     """ Combine a question_vec and passage_vec in a style that is appropriate to the model. Will add slots in
     the returned vector for special tokens like [CLS] where the value is determine by spec_tok_val."""
-    vec = tokenizer.build_inputs_with_special_tokens(token_ids_0=
-        question_vec, token_ids_1=passage_vec)
-    spec_toks_mask = tokenizer.get_special_tokens_mask(token_ids_0=
-        question_vec, token_ids_1=passage_vec)
-    combined = [(v if not special_token else spec_tok_val) for v,
-        special_token in zip(vec, spec_toks_mask)]
+    vec = tokenizer.build_inputs_with_special_tokens(token_ids_0=question_vec, token_ids_1=passage_vec)
+    spec_toks_mask = tokenizer.get_special_tokens_mask(token_ids_0=question_vec, token_ids_1=passage_vec)
+    combined = [(v if not special_token else spec_tok_val) for v, special_token in zip(vec, spec_toks_mask)]
     return combined
 
 
@@ -1168,8 +1016,7 @@ def answer_in_passage(start_idx, end_idx, passage_len):
     return False
 
 
-def generate_labels(answers, passage_len_t, question_len_t, tokenizer,
-    max_answers, answer_type_list=None):
+def generate_labels(answers, passage_len_t, question_len_t, tokenizer, max_answers, answer_type_list=None):
     """
     Creates QA label for each answer in answers. The labels are the index of the start and end token
     relative to the passage. They are contained in an array of size (max_answers, 2).
@@ -1196,10 +1043,8 @@ def generate_labels(answers, passage_len_t, question_len_t, tokenizer,
         if answer_in_passage(start_idx, end_idx, passage_len_t):
             start_vec_passage[start_idx] = 1
             end_vec_passage[end_idx] = 1
-        start_vec = combine_vecs(start_vec_question, start_vec_passage,
-            tokenizer, spec_tok_val=0)
-        end_vec = combine_vecs(end_vec_question, end_vec_passage, tokenizer,
-            spec_tok_val=0)
+        start_vec = combine_vecs(start_vec_question, start_vec_passage, tokenizer, spec_tok_val=0)
+        end_vec = combine_vecs(end_vec_question, end_vec_passage, tokenizer, spec_tok_val=0)
         start_label_present = 1 in start_vec
         end_label_present = 1 in end_vec
         if start_label_present is False and end_label_present is False:
@@ -1207,8 +1052,7 @@ def generate_labels(answers, passage_len_t, question_len_t, tokenizer,
             end_vec[0] = 1
             answer_type = 'is_impossible'
         elif start_label_present is False or end_label_present is False:
-            raise Exception(
-                'The label vectors are lacking either a start or end label')
+            raise Exception('The label vectors are lacking either a start or end label')
         assert sum(start_vec) == 1
         assert sum(end_vec) == 1
         start_idx = start_vec.index(1)
@@ -1227,8 +1071,7 @@ def get_roberta_seq_2_start(input_ids):
     return second_backslash_s + 1
 
 
-def sample_to_features_qa(sample, tokenizer, max_seq_len, answer_type_list=
-    None, max_answers=6):
+def sample_to_features_qa(sample, tokenizer, max_seq_len, answer_type_list=None, max_answers=6):
     """ Prepares data for processing by the model. Supports cases where there are
     multiple answers for the one question/document pair. max_answers is by default set to 6 since
     that is the most number of answers in the squad2.0 dev set."""
@@ -1241,19 +1084,12 @@ def sample_to_features_qa(sample, tokenizer, max_seq_len, answer_type_list=
     passage_len_t = len(passage_tokens)
     answers = sample.tokenized['answers']
     sample_id = convert_id(sample.id)
-    labels, answer_types = generate_labels(answers, passage_len_t,
-        question_len_t, tokenizer, answer_type_list=answer_type_list,
-        max_answers=max_answers)
-    start_of_word = combine_vecs(question_start_of_word,
-        passage_start_of_word, tokenizer, spec_tok_val=0)
-    encoded = tokenizer.encode_plus(text=sample.tokenized['question_tokens'
-        ], text_pair=sample.tokenized['passage_tokens'], add_special_tokens
-        =True, max_length=None, truncation_strategy='only_second',
-        return_token_type_ids=True, return_tensors=None)
+    labels, answer_types = generate_labels(answers, passage_len_t, question_len_t, tokenizer, answer_type_list=answer_type_list, max_answers=max_answers)
+    start_of_word = combine_vecs(question_start_of_word, passage_start_of_word, tokenizer, spec_tok_val=0)
+    encoded = tokenizer.encode_plus(text=sample.tokenized['question_tokens'], text_pair=sample.tokenized['passage_tokens'], add_special_tokens=True, max_length=None, truncation_strategy='only_second', return_token_type_ids=True, return_tensors=None)
     input_ids = encoded['input_ids']
     segment_ids = encoded['token_type_ids']
-    if tokenizer.__class__.__name__ in ['RobertaTokenizer',
-        'XLMRobertaTokenizer']:
+    if tokenizer.__class__.__name__ in ['RobertaTokenizer', 'XLMRobertaTokenizer']:
         seq_2_start_t = get_roberta_seq_2_start(input_ids)
     else:
         seq_2_start_t = segment_ids.index(1)
@@ -1265,13 +1101,9 @@ def sample_to_features_qa(sample, tokenizer, max_seq_len, answer_type_list=
     padding_mask += zero_padding
     segment_ids += zero_padding
     start_of_word += zero_padding
-    if tokenizer.__class__.__name__ in ['XLMRobertaTokenizer',
-        'RobertaTokenizer']:
+    if tokenizer.__class__.__name__ in ['XLMRobertaTokenizer', 'RobertaTokenizer']:
         segment_ids = np.zeros_like(segment_ids)
-    feature_dict = {'input_ids': input_ids, 'padding_mask': padding_mask,
-        'segment_ids': segment_ids, 'answer_type_ids': answer_types, 'id':
-        sample_id, 'passage_start_t': passage_start_t, 'start_of_word':
-        start_of_word, 'labels': labels, 'seq_2_start_t': seq_2_start_t}
+    feature_dict = {'input_ids': input_ids, 'padding_mask': padding_mask, 'segment_ids': segment_ids, 'answer_type_ids': answer_types, 'id': sample_id, 'passage_start_t': passage_start_t, 'start_of_word': start_of_word, 'labels': labels, 'seq_2_start_t': seq_2_start_t}
     return [feature_dict]
 
 
@@ -1353,10 +1185,8 @@ def tokenize_with_metadata(text, tokenizer):
     for idx, word in enumerate(words):
         word_offsets.append(cumulated)
         cumulated += len(word) + 1
-    tokens, offsets, start_of_word = _words_to_tokens(words, word_offsets,
-        tokenizer)
-    tokenized = {'tokens': tokens, 'offsets': offsets, 'start_of_word':
-        start_of_word}
+    tokens, offsets, start_of_word = _words_to_tokens(words, word_offsets, tokenizer)
+    tokenized = {'tokens': tokens, 'offsets': offsets, 'start_of_word': start_of_word}
     return tokenized
 
 
@@ -1392,9 +1222,7 @@ def convert_iob_to_simple_tags(preds, spans):
         simple_tags.append(cur_tag)
         open_tag = False
     if contains_named_entity and len(simple_tags) == 0:
-        raise Exception(
-            'Predicted Named Entities lost when converting from IOB to simple tags. Please check the formatof the training data adheres to either adheres to IOB2 format or is converted when read_ner_file() is called.'
-            )
+        raise Exception('Predicted Named Entities lost when converting from IOB to simple tags. Please check the formatof the training data adheres to either adheres to IOB2 format or is converted when read_ner_file() is called.')
     return simple_tags, merged_spans
 
 
@@ -1410,9 +1238,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
     """ PyTorch implementation containing all the modelling needed for your NLP task. Combines a language
     model and a prediction head. Allows for gradient flow back to the language model component."""
 
-    def __init__(self, language_model, prediction_heads,
-        embeds_dropout_prob, lm_output_types, device, loss_aggregation_fn=None
-        ):
+    def __init__(self, language_model, prediction_heads, embeds_dropout_prob, lm_output_types, device, loss_aggregation_fn=None):
         """
         :param language_model: Any model that turns token ids into vector representations
         :type language_model: LanguageModel
@@ -1448,11 +1274,9 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         self.fit_heads_to_lm()
         for head in self.prediction_heads:
             if head.model_type == 'language_modelling':
-                head.set_shared_weights(language_model.model.embeddings.
-                    word_embeddings.weight)
+                head.set_shared_weights(language_model.model.embeddings.word_embeddings.weight)
         self.dropout = nn.Dropout(embeds_dropout_prob)
-        self.lm_output_types = [lm_output_types] if isinstance(lm_output_types,
-            str) else lm_output_types
+        self.lm_output_types = [lm_output_types] if isinstance(lm_output_types, str) else lm_output_types
         assert len(self.lm_output_types) == len(self.prediction_heads)
         self.log_params()
         if not loss_aggregation_fn:
@@ -1515,8 +1339,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
             head = PredictionHead.load(config_file, strict=strict)
             prediction_heads.append(head)
             ph_output_type.append(head.ph_output_type)
-        model = cls(language_model, prediction_heads, 0.1, ph_output_type,
-            device)
+        model = cls(language_model, prediction_heads, 0.1, ph_output_type, device)
         if processor:
             model.connect_heads_with_processor(processor.tasks)
         return model
@@ -1531,10 +1354,8 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         """
         all_losses = []
         for head, logits_for_one_head in zip(self.prediction_heads, logits):
-            assert hasattr(head, 'label_tensor_name'
-                ), f"Label_tensor_names are missing inside the {head.task_name} Prediction Head. Did you connect the model with the processor through either 'model.connect_heads_with_processor(processor.tasks)' or by passing the processor to the Adaptive Model?"
-            all_losses.append(head.logits_to_loss(logits=
-                logits_for_one_head, **kwargs))
+            assert hasattr(head, 'label_tensor_name'), f"Label_tensor_names are missing inside the {head.task_name} Prediction Head. Did you connect the model with the processor through either 'model.connect_heads_with_processor(processor.tasks)' or by passing the processor to the Adaptive Model?"
+            all_losses.append(head.logits_to_loss(logits=logits_for_one_head, **kwargs))
         return all_losses
 
     def logits_to_loss(self, logits, global_step=None, **kwargs):
@@ -1551,8 +1372,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         :return loss: torch.tensor that is the per sample loss (len: batch_size)
         """
         all_losses = self.logits_to_loss_per_head(logits, **kwargs)
-        loss = self.loss_aggregation_fn(all_losses, global_step=global_step,
-            batch=kwargs)
+        loss = self.loss_aggregation_fn(all_losses, global_step=global_step, batch=kwargs)
         return loss
 
     def prepare_labels(self, **kwargs):
@@ -1580,8 +1400,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         sequence_output, pooled_output = self.forward_lm(**kwargs)
         all_logits = []
         if len(self.prediction_heads) > 0:
-            for head, lm_out in zip(self.prediction_heads, self.lm_output_types
-                ):
+            for head, lm_out in zip(self.prediction_heads, self.lm_output_types):
                 if lm_out == 'per_token':
                     output = self.dropout(sequence_output)
                 elif lm_out == 'per_sequence' or lm_out == 'per_sequence_continuous':
@@ -1589,9 +1408,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
                 elif lm_out == 'per_token_squad':
                     output = self.dropout(sequence_output)
                 else:
-                    raise ValueError(
-                        'Unknown extraction strategy from language model: {}'
-                        .format(lm_out))
+                    raise ValueError('Unknown extraction strategy from language model: {}'.format(lm_out))
                 all_logits.append(head(output))
         else:
             all_logits.append((sequence_output, pooled_output))
@@ -1609,12 +1426,10 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         except:
             extraction_layer = -1
         if extraction_layer == -1:
-            sequence_output, pooled_output = self.language_model(**kwargs,
-                output_all_encoded_layers=False)
+            sequence_output, pooled_output = self.language_model(**kwargs, output_all_encoded_layers=False)
         else:
             self.language_model.enable_hidden_states_output()
-            sequence_output, pooled_output, all_hidden_states = (self.
-                language_model(**kwargs))
+            sequence_output, pooled_output, all_hidden_states = self.language_model(**kwargs)
             sequence_output = all_hidden_states[extraction_layer]
             pooled_output = None
             self.language_model.disable_hidden_states_output()
@@ -1624,10 +1439,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         """
         Logs paramteres to generic logger MlLogger
         """
-        params = {'lm_type': self.language_model.__class__.__name__,
-            'lm_name': self.language_model.name, 'prediction_heads': ','.
-            join([head.__class__.__name__ for head in self.prediction_heads
-            ]), 'lm_output_types': ','.join(self.lm_output_types)}
+        params = {'lm_type': self.language_model.__class__.__name__, 'lm_name': self.language_model.name, 'prediction_heads': ','.join([head.__class__.__name__ for head in self.prediction_heads]), 'lm_output_types': ','.join(self.lm_output_types)}
         try:
             MlLogger.log_params(params)
         except Exception as e:
@@ -1636,11 +1448,8 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
     def verify_vocab_size(self, vocab_size):
         """ Verifies that the model fits to the tokenizer vocabulary.
         They could diverge in case of custom vocabulary added via tokenizer.add_tokens()"""
-        model_vocab_len = self.language_model.model.resize_token_embeddings(
-            new_num_tokens=None).num_embeddings
-        msg = (
-            f"Vocab size of tokenizer {vocab_size} doesn't match with model {model_vocab_len}. If you added a custom vocabulary to the tokenizer, make sure to supply 'n_added_tokens' to LanguageModel.load() and BertStyleLM.load()"
-            )
+        model_vocab_len = self.language_model.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
+        msg = f"Vocab size of tokenizer {vocab_size} doesn't match with model {model_vocab_len}. If you added a custom vocabulary to the tokenizer, make sure to supply 'n_added_tokens' to LanguageModel.load() and BertStyleLM.load()"
         assert vocab_size == model_vocab_len, msg
         for head in self.prediction_heads:
             if head.model_type == 'language_modelling':
@@ -1652,88 +1461,52 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
 
     def convert_to_transformers(self):
         if len(self.prediction_heads) != 1:
-            raise ValueError(
-                f'Currently conversion only works for models with a SINGLE prediction head. Your model has {len(self.prediction_heads)}'
-                )
+            raise ValueError(f'Currently conversion only works for models with a SINGLE prediction head. Your model has {len(self.prediction_heads)}')
         elif len(self.prediction_heads[0].layer_dims) != 2:
-            raise ValueError(
-                f"""Currently conversion only works for PredictionHeads that are a single layer Feed Forward NN with dimensions [LM_output_dim, number_classes].
-            Your PredictionHead has {str(self.prediction_heads[0].layer_dims)} dimensions."""
-                )
+            raise ValueError(f"""Currently conversion only works for PredictionHeads that are a single layer Feed Forward NN with dimensions [LM_output_dim, number_classes].
+            Your PredictionHead has {str(self.prediction_heads[0].layer_dims)} dimensions.""")
         if self.prediction_heads[0].model_type == 'span_classification':
-            transformers_model = AutoModelForQuestionAnswering.from_config(self
-                .language_model.model.config)
-            setattr(transformers_model, transformers_model.
-                base_model_prefix, self.language_model.model)
-            transformers_model.qa_outputs.load_state_dict(self.
-                prediction_heads[0].feed_forward.feed_forward[0].state_dict())
+            transformers_model = AutoModelForQuestionAnswering.from_config(self.language_model.model.config)
+            setattr(transformers_model, transformers_model.base_model_prefix, self.language_model.model)
+            transformers_model.qa_outputs.load_state_dict(self.prediction_heads[0].feed_forward.feed_forward[0].state_dict())
         elif self.prediction_heads[0].model_type == 'language_modelling':
-            transformers_model = AutoModelWithLMHead.from_config(self.
-                language_model.model.config)
-            setattr(transformers_model, transformers_model.
-                base_model_prefix, self.language_model.model)
+            transformers_model = AutoModelWithLMHead.from_config(self.language_model.model.config)
+            setattr(transformers_model, transformers_model.base_model_prefix, self.language_model.model)
             ph_state_dict = self.prediction_heads[0].state_dict()
-            ph_state_dict['transform.dense.weight'] = ph_state_dict.pop(
-                'dense.weight')
-            ph_state_dict['transform.dense.bias'] = ph_state_dict.pop(
-                'dense.bias')
-            ph_state_dict['transform.LayerNorm.weight'] = ph_state_dict.pop(
-                'LayerNorm.weight')
-            ph_state_dict['transform.LayerNorm.bias'] = ph_state_dict.pop(
-                'LayerNorm.bias')
+            ph_state_dict['transform.dense.weight'] = ph_state_dict.pop('dense.weight')
+            ph_state_dict['transform.dense.bias'] = ph_state_dict.pop('dense.bias')
+            ph_state_dict['transform.LayerNorm.weight'] = ph_state_dict.pop('LayerNorm.weight')
+            ph_state_dict['transform.LayerNorm.bias'] = ph_state_dict.pop('LayerNorm.bias')
             transformers_model.cls.predictions.load_state_dict(ph_state_dict)
-            logger.warning(
-                'Currently only the Masked Language Modeling component of the prediction head is converted, not the Next Sentence Prediction or Sentence Order Prediction components'
-                )
+            logger.warning('Currently only the Masked Language Modeling component of the prediction head is converted, not the Next Sentence Prediction or Sentence Order Prediction components')
         elif self.prediction_heads[0].model_type == 'text_classification':
             if self.language_model.model.base_model_prefix == 'roberta':
-                logger.error(
-                    'Conversion for Text Classification with Roberta or XLMRoberta not possible at the moment.'
-                    )
+                logger.error('Conversion for Text Classification with Roberta or XLMRoberta not possible at the moment.')
                 raise NotImplementedError
-            self.language_model.model.config.id2label = {id: label for id,
-                label in enumerate(self.prediction_heads[0].label_list)}
-            self.language_model.model.config.label2id = {label: id for id,
-                label in enumerate(self.prediction_heads[0].label_list)}
-            self.language_model.model.config.finetuning_task = (
-                'text_classification')
-            self.language_model.model.config.language = (self.
-                language_model.language)
-            self.language_model.model.config.num_labels = (self.
-                prediction_heads[0].num_labels)
-            transformers_model = (AutoModelForSequenceClassification.
-                from_config(self.language_model.model.config))
-            setattr(transformers_model, transformers_model.
-                base_model_prefix, self.language_model.model)
-            transformers_model.classifier.load_state_dict(self.
-                prediction_heads[0].feed_forward.feed_forward[0].state_dict())
+            self.language_model.model.config.id2label = {id: label for id, label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.label2id = {label: id for id, label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.finetuning_task = 'text_classification'
+            self.language_model.model.config.language = self.language_model.language
+            self.language_model.model.config.num_labels = self.prediction_heads[0].num_labels
+            transformers_model = AutoModelForSequenceClassification.from_config(self.language_model.model.config)
+            setattr(transformers_model, transformers_model.base_model_prefix, self.language_model.model)
+            transformers_model.classifier.load_state_dict(self.prediction_heads[0].feed_forward.feed_forward[0].state_dict())
         elif self.prediction_heads[0].model_type == 'token_classification':
-            self.language_model.model.config.id2label = {id: label for id,
-                label in enumerate(self.prediction_heads[0].label_list)}
-            self.language_model.model.config.label2id = {label: id for id,
-                label in enumerate(self.prediction_heads[0].label_list)}
-            self.language_model.model.config.finetuning_task = (
-                'token_classification')
-            self.language_model.model.config.language = (self.
-                language_model.language)
-            self.language_model.model.config.num_labels = (self.
-                prediction_heads[0].num_labels)
-            transformers_model = AutoModelForTokenClassification.from_config(
-                self.language_model.model.config)
-            setattr(transformers_model, transformers_model.
-                base_model_prefix, self.language_model.model)
-            transformers_model.classifier.load_state_dict(self.
-                prediction_heads[0].feed_forward.feed_forward[0].state_dict())
+            self.language_model.model.config.id2label = {id: label for id, label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.label2id = {label: id for id, label in enumerate(self.prediction_heads[0].label_list)}
+            self.language_model.model.config.finetuning_task = 'token_classification'
+            self.language_model.model.config.language = self.language_model.language
+            self.language_model.model.config.num_labels = self.prediction_heads[0].num_labels
+            transformers_model = AutoModelForTokenClassification.from_config(self.language_model.model.config)
+            setattr(transformers_model, transformers_model.base_model_prefix, self.language_model.model)
+            transformers_model.classifier.load_state_dict(self.prediction_heads[0].feed_forward.feed_forward[0].state_dict())
         else:
-            raise NotImplementedError(
-                f'FARM -> Transformers conversion is not supported yet for prediction heads of type {self.prediction_heads[0].model_type}'
-                )
+            raise NotImplementedError(f'FARM -> Transformers conversion is not supported yet for prediction heads of type {self.prediction_heads[0].model_type}')
         pass
         return transformers_model
 
     @classmethod
-    def convert_from_transformers(cls, model_name_or_path, device,
-        task_type, processor=None):
+    def convert_from_transformers(cls, model_name_or_path, device, task_type, processor=None):
         """
         Load a (downstream) model from huggingface's transformers format. Use cases:
          - continue training in FARM (e.g. take a squad QA model and fine-tune on your own data)
@@ -1759,38 +1532,25 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         lm = LanguageModel.load(model_name_or_path)
         if task_type == 'question_answering':
             ph = QuestionAnsweringHead.load(model_name_or_path)
-            adaptive_model = cls(language_model=lm, prediction_heads=[ph],
-                embeds_dropout_prob=0.1, lm_output_types='per_token',
-                device=device)
+            adaptive_model = cls(language_model=lm, prediction_heads=[ph], embeds_dropout_prob=0.1, lm_output_types='per_token', device=device)
         elif task_type == 'text_classification':
             if 'roberta' in model_name_or_path:
-                logger.error(
-                    'Conversion for Text Classification with Roberta or XLMRoberta not possible at the moment.'
-                    )
+                logger.error('Conversion for Text Classification with Roberta or XLMRoberta not possible at the moment.')
                 raise NotImplementedError
             ph = TextClassificationHead.load(model_name_or_path)
-            adaptive_model = cls(language_model=lm, prediction_heads=[ph],
-                embeds_dropout_prob=0.1, lm_output_types='per_sequence',
-                device=device)
+            adaptive_model = cls(language_model=lm, prediction_heads=[ph], embeds_dropout_prob=0.1, lm_output_types='per_sequence', device=device)
         elif task_type == 'ner':
             ph = TokenClassificationHead.load(model_name_or_path)
-            adaptive_model = cls(language_model=lm, prediction_heads=[ph],
-                embeds_dropout_prob=0.1, lm_output_types='per_token',
-                device=device)
+            adaptive_model = cls(language_model=lm, prediction_heads=[ph], embeds_dropout_prob=0.1, lm_output_types='per_token', device=device)
         elif task_type == 'embeddings':
-            adaptive_model = cls(language_model=lm, prediction_heads=[],
-                embeds_dropout_prob=0.1, lm_output_types=['per_token',
-                'per_sequence'], device=device)
+            adaptive_model = cls(language_model=lm, prediction_heads=[], embeds_dropout_prob=0.1, lm_output_types=['per_token', 'per_sequence'], device=device)
         else:
-            raise NotImplementedError(
-                f"Huggingface's transformer models of type {task_type} are not supported yet"
-                )
+            raise NotImplementedError(f"Huggingface's transformer models of type {task_type} are not supported yet")
         if processor:
             adaptive_model.connect_heads_with_processor(processor.tasks)
         return adaptive_model
 
-    def convert_to_onnx(self, output_path, opset_version=11, optimize_for=None
-        ):
+    def convert_to_onnx(self, output_path, opset_version=11, optimize_for=None):
         """
         Convert a PyTorch AdaptiveModel to ONNX.
 
@@ -1808,49 +1568,27 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
         """
         if type(self.prediction_heads[0]) is not QuestionAnsweringHead:
             raise NotImplementedError
-        tokenizer = Tokenizer.load(pretrained_model_name_or_path=
-            'deepset/bert-base-cased-squad2')
+        tokenizer = Tokenizer.load(pretrained_model_name_or_path='deepset/bert-base-cased-squad2')
         label_list = ['start_token', 'end_token']
         metric = 'squad'
         max_seq_len = 384
         batch_size = 1
-        processor = SquadProcessor(tokenizer=tokenizer, max_seq_len=
-            max_seq_len, label_list=label_list, metric=metric,
-            train_filename='stub-file', dev_filename=None, test_filename=
-            None, data_dir='stub-dir')
-        data_silo = DataSilo(processor=processor, batch_size=1, distributed
-            =False, automatic_loading=False)
-        sample_dict = [{'context':
-            'The Normans were the people who in the 10th and 11th centuries gave their name to Normandy, a region in France. They were descended from Norse ("Norman" comes from "Norseman") raiders and pirates from Denmark, Iceland and Norway who, under their leader Rollo, agreed to swear fealty to King Charles III of West Francia.'
-            , 'qas': [{'question': 'In what country is Normandy located?',
-            'id': '56ddde6b9a695914005b9628', 'answers': [{'text': 'France',
-            'answer_start': 159}], 'is_impossible': False}]}]
+        processor = SquadProcessor(tokenizer=tokenizer, max_seq_len=max_seq_len, label_list=label_list, metric=metric, train_filename='stub-file', dev_filename=None, test_filename=None, data_dir='stub-dir')
+        data_silo = DataSilo(processor=processor, batch_size=1, distributed=False, automatic_loading=False)
+        sample_dict = [{'context': 'The Normans were the people who in the 10th and 11th centuries gave their name to Normandy, a region in France. They were descended from Norse ("Norman" comes from "Norseman") raiders and pirates from Denmark, Iceland and Norway who, under their leader Rollo, agreed to swear fealty to King Charles III of West Francia.', 'qas': [{'question': 'In what country is Normandy located?', 'id': '56ddde6b9a695914005b9628', 'answers': [{'text': 'France', 'answer_start': 159}], 'is_impossible': False}]}]
         data_silo._load_data(train_dicts=sample_dict)
         data_loader = data_silo.get_data_loader('train')
         data = next(iter(data_loader))
         data = list(data.values())
-        inputs = {'input_ids': data[0].reshape(batch_size, max_seq_len),
-            'padding_mask': data[1].reshape(batch_size, max_seq_len),
-            'segment_ids': data[2].reshape(batch_size, max_seq_len)}
+        inputs = {'input_ids': data[0].reshape(batch_size, max_seq_len), 'padding_mask': data[1].reshape(batch_size, max_seq_len), 'segment_ids': data[2].reshape(batch_size, max_seq_len)}
         model = ONNXWrapper.load_from_adaptive_model(self)
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         with torch.no_grad():
             symbolic_names = {(0): 'batch_size', (1): 'max_seq_len'}
-            torch.onnx.export(model, args=tuple(inputs.values()), f=
-                output_path / 'model.onnx'.format(opset_version),
-                opset_version=opset_version, do_constant_folding=True,
-                input_names=['input_ids', 'padding_mask', 'segment_ids'],
-                output_names=['logits'], dynamic_axes={'input_ids':
-                symbolic_names, 'padding_mask': symbolic_names,
-                'segment_ids': symbolic_names, 'logits': symbolic_names})
+            torch.onnx.export(model, args=tuple(inputs.values()), f=output_path / 'model.onnx'.format(opset_version), opset_version=opset_version, do_constant_folding=True, input_names=['input_ids', 'padding_mask', 'segment_ids'], output_names=['logits'], dynamic_axes={'input_ids': symbolic_names, 'padding_mask': symbolic_names, 'segment_ids': symbolic_names, 'logits': symbolic_names})
         if optimize_for:
-            optimize_args = Namespace(disable_attention=False,
-                disable_bias_gelu=False, disable_embed_layer_norm=False,
-                opt_level=99, disable_skip_layer_norm=False,
-                disable_bias_skip_layer_norm=False, hidden_size=768,
-                verbose=False, input='onnx-export/model.onnx', model_type=
-                'bert', num_heads=12, output='onnx-export/model.onnx')
+            optimize_args = Namespace(disable_attention=False, disable_bias_gelu=False, disable_embed_layer_norm=False, opt_level=99, disable_skip_layer_norm=False, disable_bias_skip_layer_norm=False, hidden_size=768, verbose=False, input='onnx-export/model.onnx', model_type='bert', num_heads=12, output='onnx-export/model.onnx')
             if optimize_for == 'gpu_tensor_core':
                 optimize_args.float16 = True
                 optimize_args.input_int32 = True
@@ -1862,19 +1600,14 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
                 optimize_args.float16 = False
                 optimize_args.input_int32 = False
             else:
-                raise NotImplementedError(
-                    f"ONNXRuntime model optimization is not available for {optimize_for}. Choose one of 'gpu_tensor_core'(V100 or T4), 'gpu_without_tensor_core' or 'cpu'."
-                    )
+                raise NotImplementedError(f"ONNXRuntime model optimization is not available for {optimize_for}. Choose one of 'gpu_tensor_core'(V100 or T4), 'gpu_without_tensor_core' or 'cpu'.")
             optimize_onnx_model(optimize_args)
         else:
-            logger.info(
-                "Exporting unoptimized ONNX model. To enable optimization, supply 'optimize_for' parameter with the target device.'"
-                )
+            logger.info("Exporting unoptimized ONNX model. To enable optimization, supply 'optimize_for' parameter with the target device.'")
         for i, ph in enumerate(self.prediction_heads):
             ph.save_config(output_path, i)
         processor.save(output_path)
-        onnx_model_config = {'onnx_opset_version': opset_version,
-            'language': self.get_language()}
+        onnx_model_config = {'onnx_opset_version': opset_version, 'language': self.get_language()}
         with open(output_path / 'model_config.json', 'w') as f:
             json.dump(onnx_model_config, f)
         logger.info(f'Model exported at path {output_path}')
@@ -1883,8 +1616,7 @@ class AdaptiveModel(nn.Module, BaseAdaptiveModel):
 OUTPUT_DIM_NAMES = ['dim', 'hidden_size', 'd_model']
 
 
-def s3e_pooling(token_embs, token_ids, token_weights, centroids,
-    token_to_cluster, mask, svd_components=None):
+def s3e_pooling(token_embs, token_ids, token_weights, centroids, token_to_cluster, mask, svd_components=None):
     """
     Pooling of word/token embeddings as described by Wang et al in their paper
     "Efficient Sentence Embedding via Semantic Subspace Analysis"
@@ -1922,12 +1654,10 @@ def s3e_pooling(token_embs, token_ids, token_weights, centroids,
         for k, v in stage_vec[-2].items():
             cluster = token_to_cluster[k]
             if cluster in stage_vec[-1]:
-                stage_vec[-1][cluster].append(stage_vec[-2][k] *
-                    token_weights[k])
+                stage_vec[-1][cluster].append(stage_vec[-2][k] * token_weights[k])
             else:
                 stage_vec[-1][cluster] = []
-                stage_vec[-1][cluster].append(stage_vec[-2][k] *
-                    token_weights[k])
+                stage_vec[-1][cluster].append(stage_vec[-2][k] * token_weights[k])
         for k, v in stage_vec[-1].items():
             centroid_vec = centroids[k]
             v = [(wv - centroid_vec) for wv in v]
@@ -1953,8 +1683,7 @@ def s3e_pooling(token_embs, token_ids, token_weights, centroids,
         embeddings.append(sentvec)
     embeddings = np.vstack(embeddings)
     if svd_components is not None:
-        embeddings = embeddings - embeddings.dot(svd_components.transpose()
-            ) * svd_components
+        embeddings = embeddings - embeddings.dot(svd_components.transpose()) * svd_components
     return embeddings
 
 
@@ -1983,8 +1712,7 @@ class LanguageModel(nn.Module):
         return model.from_scratch(vocab_size)
 
     @classmethod
-    def load(cls, pretrained_model_name_or_path, n_added_tokens=0,
-        language_model_class=None, **kwargs):
+    def load(cls, pretrained_model_name_or_path, n_added_tokens=0, language_model_class=None, **kwargs):
         """
         Load a pretrained language model either by
 
@@ -2026,18 +1754,14 @@ class LanguageModel(nn.Module):
         :type language_model_class: str
 
         """
-        config_file = Path(pretrained_model_name_or_path
-            ) / 'language_model_config.json'
+        config_file = Path(pretrained_model_name_or_path) / 'language_model_config.json'
         if os.path.exists(config_file):
             config = json.load(open(config_file))
-            language_model = cls.subclasses[config['name']].load(
-                pretrained_model_name_or_path)
+            language_model = cls.subclasses[config['name']].load(pretrained_model_name_or_path)
         else:
             if language_model_class is None:
-                pretrained_model_name_or_path = str(
-                    pretrained_model_name_or_path)
-                if ('xlm' in pretrained_model_name_or_path and 'roberta' in
-                    pretrained_model_name_or_path):
+                pretrained_model_name_or_path = str(pretrained_model_name_or_path)
+                if 'xlm' in pretrained_model_name_or_path and 'roberta' in pretrained_model_name_or_path:
                     language_model_class = 'XLMRoberta'
                 elif 'roberta' in pretrained_model_name_or_path:
                     language_model_class = 'Roberta'
@@ -2051,28 +1775,20 @@ class LanguageModel(nn.Module):
                     language_model_class = 'XLNet'
                 elif 'electra' in pretrained_model_name_or_path:
                     language_model_class = 'Electra'
-                elif 'word2vec' in pretrained_model_name_or_path.lower(
-                    ) or 'glove' in pretrained_model_name_or_path.lower():
+                elif 'word2vec' in pretrained_model_name_or_path.lower() or 'glove' in pretrained_model_name_or_path.lower():
                     language_model_class = 'WordEmbedding_LM'
             if language_model_class:
-                language_model = cls.subclasses[language_model_class].load(
-                    pretrained_model_name_or_path, **kwargs)
+                language_model = cls.subclasses[language_model_class].load(pretrained_model_name_or_path, **kwargs)
             else:
                 language_model = None
         if not language_model:
-            raise Exception(
-                f"Model not found for {pretrained_model_name_or_path}. Either supply the local path for a saved model or one of bert/roberta/xlnet/albert/distilbert models that can be downloaded from remote. Ensure that the model class name can be inferred from the directory name when loading a Transformers' model. Here's a list of available models: https://farm.deepset.ai/api/modeling.html#farm.modeling.language_model.LanguageModel.load"
-                )
+            raise Exception(f"Model not found for {pretrained_model_name_or_path}. Either supply the local path for a saved model or one of bert/roberta/xlnet/albert/distilbert models that can be downloaded from remote. Ensure that the model class name can be inferred from the directory name when loading a Transformers' model. Here's a list of available models: https://farm.deepset.ai/api/modeling.html#farm.modeling.language_model.LanguageModel.load")
         if n_added_tokens != 0:
-            model_emb_size = language_model.model.resize_token_embeddings(
-                new_num_tokens=None).num_embeddings
+            model_emb_size = language_model.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
             vocab_size = model_emb_size + n_added_tokens
-            logger.info(
-                f'Resizing embedding layer of LM from {model_emb_size} to {vocab_size} to cope with custom vocab.'
-                )
+            logger.info(f'Resizing embedding layer of LM from {model_emb_size} to {vocab_size} to cope with custom vocab.')
             language_model.model.resize_token_embeddings(vocab_size)
-            model_emb_size = language_model.model.resize_token_embeddings(
-                new_num_tokens=None).num_embeddings
+            model_emb_size = language_model.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
             assert vocab_size == model_emb_size
         return language_model
 
@@ -2082,8 +1798,7 @@ class LanguageModel(nn.Module):
             if odn in dir(config):
                 return getattr(config, odn)
         else:
-            raise Exception(
-                'Could not infer the output dimensions of the language model')
+            raise Exception('Could not infer the output dimensions of the language model')
 
     def freeze(self, layers):
         """ To be implemented"""
@@ -2109,8 +1824,7 @@ class LanguageModel(nn.Module):
         :type save_dir: str
         """
         save_name = Path(save_dir) / 'language_model.bin'
-        model_to_save = self.model.module if hasattr(self.model, 'module'
-            ) else self.model
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
         torch.save(model_to_save.state_dict(), save_name)
         self.save_config(save_dir)
 
@@ -2123,32 +1837,19 @@ class LanguageModel(nn.Module):
 
     @classmethod
     def _infer_language_from_name(cls, name):
-        known_languages = ('german', 'english', 'chinese', 'indian',
-            'french', 'polish', 'spanish', 'multilingual')
+        known_languages = 'german', 'english', 'chinese', 'indian', 'french', 'polish', 'spanish', 'multilingual'
         matches = [lang for lang in known_languages if lang in name]
         if len(matches) == 0:
             language = 'english'
-            logger.warning(
-                """Could not automatically detect from language model name what language it is. 
-	 We guess it's an *ENGLISH* model ... 
-	 If not: Init the language model by supplying the 'language' param."""
-                )
+            logger.warning("Could not automatically detect from language model name what language it is. \n\t We guess it's an *ENGLISH* model ... \n\t If not: Init the language model by supplying the 'language' param.")
         elif len(matches) > 1:
-            raise ValueError(
-                f"""Could not automatically detect from language model name what language it is.
-	 Found multiple matches: {matches}
-	 Please init the language model by manually supplying the 'language' as a parameter.
-"""
-                )
+            raise ValueError(f"Could not automatically detect from language model name what language it is.\n\t Found multiple matches: {matches}\n\t Please init the language model by manually supplying the 'language' as a parameter.\n")
         else:
             language = matches[0]
-            logger.info(
-                f'Automatically detected language from language model name: {language}'
-                )
+            logger.info(f'Automatically detected language from language model name: {language}')
         return language
 
-    def formatted_preds(self, logits, samples, ignore_first_token=True,
-        padding_mask=None, input_ids=None, **kwargs):
+    def formatted_preds(self, logits, samples, ignore_first_token=True, padding_mask=None, input_ids=None, **kwargs):
         """
         Extracting vectors from language model (e.g. for extracting sentence embeddings).
         Different pooling strategies and layers are available and will be determined from the object attributes
@@ -2166,33 +1867,24 @@ class LanguageModel(nn.Module):
         :param kwargs: kwargs
         :return: list of dicts containing preds, e.g. [{"context": "some text", "vec": [-0.01, 0.5 ...]}]
         """
-        if not hasattr(self, 'extraction_layer') or not hasattr(self,
-            'extraction_strategy'):
-            raise ValueError(
-                "`extraction_layer` or `extraction_strategy` not specified for LM. Make sure to set both, e.g. via Inferencer(extraction_strategy='cls_token', extraction_layer=-1)`"
-                )
+        if not hasattr(self, 'extraction_layer') or not hasattr(self, 'extraction_strategy'):
+            raise ValueError("`extraction_layer` or `extraction_strategy` not specified for LM. Make sure to set both, e.g. via Inferencer(extraction_strategy='cls_token', extraction_layer=-1)`")
         sequence_output = logits[0][0]
         pooled_output = logits[0][1]
         if self.extraction_strategy == 'pooled':
             if self.extraction_layer != -1:
-                raise ValueError(
-                    f'Pooled output only works for the last layer, but got extraction_layer = {self.extraction_layer}. Please set `extraction_layer=-1`.)'
-                    )
+                raise ValueError(f'Pooled output only works for the last layer, but got extraction_layer = {self.extraction_layer}. Please set `extraction_layer=-1`.)')
             vecs = pooled_output.cpu().numpy()
         elif self.extraction_strategy == 'per_token':
             vecs = sequence_output.cpu().numpy()
         elif self.extraction_strategy == 'reduce_mean':
-            vecs = self._pool_tokens(sequence_output, padding_mask, self.
-                extraction_strategy, ignore_first_token=ignore_first_token)
+            vecs = self._pool_tokens(sequence_output, padding_mask, self.extraction_strategy, ignore_first_token=ignore_first_token)
         elif self.extraction_strategy == 'reduce_max':
-            vecs = self._pool_tokens(sequence_output, padding_mask, self.
-                extraction_strategy, ignore_first_token=ignore_first_token)
+            vecs = self._pool_tokens(sequence_output, padding_mask, self.extraction_strategy, ignore_first_token=ignore_first_token)
         elif self.extraction_strategy == 'cls_token':
             vecs = sequence_output[:, (0), :].cpu().numpy()
         elif self.extraction_strategy == 's3e':
-            vecs = self._pool_tokens(sequence_output, padding_mask, self.
-                extraction_strategy, ignore_first_token=ignore_first_token,
-                input_ids=input_ids, s3e_stats=self.s3e_stats)
+            vecs = self._pool_tokens(sequence_output, padding_mask, self.extraction_strategy, ignore_first_token=ignore_first_token, input_ids=input_ids, s3e_stats=self.s3e_stats)
         else:
             raise NotImplementedError
         preds = []
@@ -2203,8 +1895,7 @@ class LanguageModel(nn.Module):
             preds.append(pred)
         return preds
 
-    def _pool_tokens(self, sequence_output, padding_mask, strategy,
-        ignore_first_token, input_ids=None, s3e_stats=None):
+    def _pool_tokens(self, sequence_output, padding_mask, strategy, ignore_first_token, input_ids=None, s3e_stats=None):
         token_vecs = sequence_output.cpu().numpy()
         padding_mask = padding_mask.cpu().numpy()
         ignore_mask_2d = padding_mask == 0
@@ -2213,18 +1904,12 @@ class LanguageModel(nn.Module):
         ignore_mask_3d = np.zeros(token_vecs.shape, dtype=bool)
         ignore_mask_3d[:, :, :] = ignore_mask_2d[:, :, (np.newaxis)]
         if strategy == 'reduce_max':
-            pooled_vecs = np.ma.array(data=token_vecs, mask=ignore_mask_3d
-                ).max(axis=1).data
+            pooled_vecs = np.ma.array(data=token_vecs, mask=ignore_mask_3d).max(axis=1).data
         if strategy == 'reduce_mean':
-            pooled_vecs = np.ma.array(data=token_vecs, mask=ignore_mask_3d
-                ).mean(axis=1).data
+            pooled_vecs = np.ma.array(data=token_vecs, mask=ignore_mask_3d).mean(axis=1).data
         if strategy == 's3e':
             input_ids = input_ids.cpu().numpy()
-            pooled_vecs = s3e_pooling(token_embs=token_vecs, token_ids=
-                input_ids, token_weights=s3e_stats['token_weights'],
-                centroids=s3e_stats['centroids'], token_to_cluster=
-                s3e_stats['token_to_cluster'], svd_components=s3e_stats.get
-                ('svd_components', None), mask=padding_mask == 0)
+            pooled_vecs = s3e_pooling(token_embs=token_vecs, token_ids=input_ids, token_weights=s3e_stats['token_weights'], centroids=s3e_stats['centroids'], token_to_cluster=s3e_stats['token_to_cluster'], svd_components=s3e_stats.get('svd_components', None), mask=padding_mask == 0)
         return pooled_vecs
 
 
@@ -2282,8 +1967,7 @@ class PredictionHead(nn.Module):
         :type class_weights: list[Float]
         :return: Prediction Head of class prediction_head_name
         """
-        return cls.subclasses[prediction_head_name](layer_dims=layer_dims,
-            class_weights=class_weights)
+        return cls.subclasses[prediction_head_name](layer_dims=layer_dims, class_weights=class_weights)
 
     def save_config(self, save_dir, head_num=0):
         """
@@ -2295,8 +1979,7 @@ class PredictionHead(nn.Module):
         :type head_num: int
         """
         self.generate_config()
-        output_config_file = Path(save_dir
-            ) / f'prediction_head_{head_num}_config.json'
+        output_config_file = Path(save_dir) / f'prediction_head_{head_num}_config.json'
         with open(output_config_file, 'w') as file:
             json.dump(self.config, file)
 
@@ -2343,8 +2026,7 @@ class PredictionHead(nn.Module):
         if load_weights:
             model_file = cls._get_model_file(config_file=config_file)
             logger.info('Loading prediction head from {}'.format(model_file))
-            prediction_head.load_state_dict(torch.load(model_file,
-                map_location=torch.device('cpu')), strict=strict)
+            prediction_head.load_state_dict(torch.load(model_file, map_location=torch.device('cpu')), strict=strict)
         return prediction_head
 
     def logits_to_loss(self, logits, labels):
@@ -2393,25 +2075,18 @@ class PredictionHead(nn.Module):
             if input_dim == old_dims[0]:
                 return
             new_dims = [input_dim] + old_dims[1:]
-            logger.info(
-                f'Resizing input dimensions of {type(self).__name__} ({self.task_name}) from {old_dims} to {new_dims} to match language model'
-                )
+            logger.info(f'Resizing input dimensions of {type(self).__name__} ({self.task_name}) from {old_dims} to {new_dims} to match language model')
             self.feed_forward = FeedForwardBlock(new_dims)
             self.layer_dims[0] = input_dim
             self.feed_forward.layer_dims[0] = input_dim
 
     @classmethod
     def _get_model_file(cls, config_file):
-        if 'config.json' in str(config_file) and 'prediction_head' in str(
-            config_file):
-            head_num = int(''.join([char for char in os.path.basename(
-                config_file) if char.isdigit()]))
-            model_file = Path(os.path.dirname(config_file)
-                ) / f'prediction_head_{head_num}.bin'
+        if 'config.json' in str(config_file) and 'prediction_head' in str(config_file):
+            head_num = int(''.join([char for char in os.path.basename(config_file) if char.isdigit()]))
+            model_file = Path(os.path.dirname(config_file)) / f'prediction_head_{head_num}.bin'
         else:
-            raise ValueError(
-                f"This doesn't seem to be a proper prediction_head config file: '{config_file}'"
-                )
+            raise ValueError(f"This doesn't seem to be a proper prediction_head config file: '{config_file}'")
         return model_file
 
     def _set_name(self, name):
@@ -2443,12 +2118,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_deepset_ai_FARM(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(FeedForwardBlock(*[], **{'layer_dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FeedForwardBlock,
+     lambda: ([], {'layer_dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WrappedDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
+class Test_deepset_ai_FARM(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(WrappedDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[1])
 

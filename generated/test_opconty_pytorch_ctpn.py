@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -62,8 +63,7 @@ class RPN_REGR_Loss(nn.Module):
             regr_pred = input[0][regr_keep]
             diff = torch.abs(regr_true - regr_pred)
             less_one = (diff < 1.0 / self.sigma).float()
-            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 -
-                less_one) * (diff - 0.5 / self.sigma)
+            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 - less_one) * (diff - 0.5 / self.sigma)
             loss = torch.sum(loss, 1)
             loss = torch.mean(loss) if loss.numel() > 0 else torch.tensor(0.0)
         except Exception as e:
@@ -84,22 +84,17 @@ class RPN_CLS_Loss(nn.Module):
         cls_true = y_true[cls_keep].long()
         cls_pred = input[0][cls_keep]
         loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
-        loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
-            ) > 0 else torch.tensor(0.0)
+        loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel() > 0 else torch.tensor(0.0)
         return loss
 
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -149,18 +144,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CTPN_Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (RPN_CLS_Loss,
+     lambda: ([], {'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RPN_REGR_Loss,
+     lambda: ([], {'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_opconty_pytorch_ctpn(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CTPN_Model(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(RPN_CLS_Loss(*[], **{'device': 0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(RPN_REGR_Loss(*[], **{'device': 0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,15 +80,7 @@ def make_layers(cfg, batch_norm=False):
     return nn.Sequential(*layers)
 
 
-model_urls = {'vgg11':
-    'https://download.pytorch.org/models/vgg11-bbd30ac9.pth', 'vgg13':
-    'https://download.pytorch.org/models/vgg13-c768596a.pth', 'vgg16':
-    'https://download.pytorch.org/models/vgg16-397923af.pth', 'vgg19':
-    'https://download.pytorch.org/models/vgg19-dcbb9e9d.pth', 'vgg11_bn':
-    'https://download.pytorch.org/models/vgg11_bn-6002323d.pth', 'vgg13_bn':
-    'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth', 'vgg16_bn':
-    'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth', 'vgg19_bn':
-    'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth'}
+model_urls = {'vgg11': 'https://download.pytorch.org/models/vgg11-bbd30ac9.pth', 'vgg13': 'https://download.pytorch.org/models/vgg13-c768596a.pth', 'vgg16': 'https://download.pytorch.org/models/vgg16-397923af.pth', 'vgg19': 'https://download.pytorch.org/models/vgg19-dcbb9e9d.pth', 'vgg11_bn': 'https://download.pytorch.org/models/vgg11_bn-6002323d.pth', 'vgg13_bn': 'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth', 'vgg16_bn': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth', 'vgg19_bn': 'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth'}
 
 
 _global_config['E'] = 4
@@ -121,10 +114,8 @@ class RACNN(nn.Module):
         self.feature_pool1 = nn.AvgPool2d(kernel_size=28, stride=28)
         self.feature_pool2 = nn.AvgPool2d(kernel_size=14, stride=14)
         self.atten_pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.apn1 = nn.Sequential(nn.Linear(512 * 14 * 14, 1024), nn.Tanh(),
-            nn.Linear(1024, 3), nn.Sigmoid())
-        self.apn2 = nn.Sequential(nn.Linear(512 * 14 * 14, 1024), nn.Tanh(),
-            nn.Linear(1024, 3), nn.Sigmoid())
+        self.apn1 = nn.Sequential(nn.Linear(512 * 14 * 14, 1024), nn.Tanh(), nn.Linear(1024, 3), nn.Sigmoid())
+        self.apn2 = nn.Sequential(nn.Linear(512 * 14 * 14, 1024), nn.Tanh(), nn.Linear(1024, 3), nn.Sigmoid())
         self.crop_resize = AttentionCropLayer()
         self.classifier1 = nn.Linear(512, num_classes)
         self.classifier2 = nn.Linear(512, num_classes)
@@ -150,8 +141,7 @@ class RACNN(nn.Module):
         logits1 = self.classifier1(pool5)
         logits2 = self.classifier2(pool5_A)
         logits3 = self.classifier3(pool5_AA)
-        return [logits1, logits2, logits3], [conv5_4, conv5_4_A], [atten1,
-            atten2], [scaledA_x, scaledAA_x]
+        return [logits1, logits2, logits3], [conv5_4, conv5_4_A], [atten1, atten2], [scaledA_x, scaledAA_x]
 
 
 class AttentionCropFunction(torch.autograd.Function):
@@ -182,8 +172,7 @@ class AttentionCropFunction(torch.autograd.Function):
             xatt = images[i] * mk
             xatt_cropped = xatt[:, w_off:w_end, h_off:h_end]
             before_upsample = Variable(xatt_cropped.unsqueeze(0))
-            xamp = F.interpolate(before_upsample, size=(224, 224), mode=
-                'bilinear', align_corners=True)
+            xamp = F.interpolate(before_upsample, size=(224, 224), mode='bilinear', align_corners=True)
             ret.append(xamp.data.squeeze())
         ret_tensor = torch.stack(ret)
         self.save_for_backward(images, ret_tensor)
@@ -201,8 +190,7 @@ class AttentionCropFunction(torch.autograd.Function):
         short_size = in_size / 3
         mx = (x >= long_size).float() - (x < short_size).float()
         my = (y >= long_size).float() - (y < short_size).float()
-        ml = ((x < short_size) + (x >= long_size) + (y < short_size) + (y >=
-            long_size) > 0).float() * 2 - 1
+        ml = ((x < short_size) + (x >= long_size) + (y < short_size) + (y >= long_size) > 0).float() * 2 - 1
         mx_batch = torch.stack([mx.float()] * grad_output.size(0))
         my_batch = torch.stack([my.float()] * grad_output.size(0))
         ml_batch = torch.stack([ml.float()] * grad_output.size(0))
@@ -233,9 +221,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         if init_weights:
             self._initialize_weights()
 
@@ -248,8 +234,7 @@ class VGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -264,8 +249,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+]
+
 class Test_jeong_tae_RACNN_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[0])
 

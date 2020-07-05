@@ -70,8 +70,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -181,9 +182,7 @@ class MlpExtractor(nn.Module):
     :param device: (th.device)
     """
 
-    def __init__(self, feature_dim: int, net_arch: List[Union[int, Dict[str,
-        List[int]]]], activation_fn: Type[nn.Module], device: Union[th.
-        device, str]='auto'):
+    def __init__(self, feature_dim: int, net_arch: List[Union[int, Dict[str, List[int]]]], activation_fn: Type[nn.Module], device: Union[th.device, str]='auto'):
         super(MlpExtractor, self).__init__()
         device = get_device(device)
         shared_net, policy_net, value_net = [], [], []
@@ -197,30 +196,24 @@ class MlpExtractor(nn.Module):
                 shared_net.append(activation_fn())
                 last_layer_dim_shared = layer_size
             else:
-                assert isinstance(layer, dict
-                    ), 'Error: the net_arch list can only contain ints and dicts'
+                assert isinstance(layer, dict), 'Error: the net_arch list can only contain ints and dicts'
                 if 'pi' in layer:
-                    assert isinstance(layer['pi'], list
-                        ), "Error: net_arch[-1]['pi'] must contain a list of integers."
+                    assert isinstance(layer['pi'], list), "Error: net_arch[-1]['pi'] must contain a list of integers."
                     policy_only_layers = layer['pi']
                 if 'vf' in layer:
-                    assert isinstance(layer['vf'], list
-                        ), "Error: net_arch[-1]['vf'] must contain a list of integers."
+                    assert isinstance(layer['vf'], list), "Error: net_arch[-1]['vf'] must contain a list of integers."
                     value_only_layers = layer['vf']
                 break
         last_layer_dim_pi = last_layer_dim_shared
         last_layer_dim_vf = last_layer_dim_shared
-        for idx, (pi_layer_size, vf_layer_size) in enumerate(zip_longest(
-            policy_only_layers, value_only_layers)):
+        for idx, (pi_layer_size, vf_layer_size) in enumerate(zip_longest(policy_only_layers, value_only_layers)):
             if pi_layer_size is not None:
-                assert isinstance(pi_layer_size, int
-                    ), "Error: net_arch[-1]['pi'] must only contain integers."
+                assert isinstance(pi_layer_size, int), "Error: net_arch[-1]['pi'] must only contain integers."
                 policy_net.append(nn.Linear(last_layer_dim_pi, pi_layer_size))
                 policy_net.append(activation_fn())
                 last_layer_dim_pi = pi_layer_size
             if vf_layer_size is not None:
-                assert isinstance(vf_layer_size, int
-                    ), "Error: net_arch[-1]['vf'] must only contain integers."
+                assert isinstance(vf_layer_size, int), "Error: net_arch[-1]['vf'] must only contain integers."
                 value_net.append(nn.Linear(last_layer_dim_vf, vf_layer_size))
                 value_net.append(activation_fn())
                 last_layer_dim_vf = vf_layer_size
@@ -243,8 +236,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MlpExtractor,
+     lambda: ([], {'feature_dim': 4, 'net_arch': [4, 4], 'activation_fn': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_DLR_RM_stable_baselines3(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MlpExtractor(*[], **{'feature_dim': 4, 'net_arch': [4, 4], 'activation_fn': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

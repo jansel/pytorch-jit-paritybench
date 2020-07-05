@@ -73,8 +73,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -153,8 +154,7 @@ from torch.nn import ReflectionPad2d
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -190,10 +190,7 @@ class Scattering2dResNet(nn.Module):
         self.inplanes = 16 * k
         self.ichannels = 16 * k
         self.K = in_channels
-        self.init_conv = nn.Sequential(nn.BatchNorm2d(in_channels, eps=
-            1e-05, affine=False), nn.Conv2d(in_channels, self.ichannels,
-            kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d
-            (self.ichannels), nn.ReLU(True))
+        self.init_conv = nn.Sequential(nn.BatchNorm2d(in_channels, eps=1e-05, affine=False), nn.Conv2d(in_channels, self.ichannels, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(self.ichannels), nn.ReLU(True))
         self.layer2 = self._make_layer(BasicBlock, 32 * k, n)
         self.layer3 = self._make_layer(BasicBlock, 64 * k, n)
         self.avgpool = nn.AdaptiveAvgPool2d(2)
@@ -202,9 +199,7 @@ class Scattering2dResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes
@@ -265,17 +260,12 @@ class Scattering2dResNet(nn.Module):
         self.inplanes = 16 * k
         self.ichannels = 16 * k
         if standard:
-            self.init_conv = nn.Sequential(nn.Conv2d(3, self.ichannels,
-                kernel_size=3, stride=1, padding=1, bias=False), nn.
-                BatchNorm2d(self.ichannels), nn.ReLU(True))
+            self.init_conv = nn.Sequential(nn.Conv2d(3, self.ichannels, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(self.ichannels), nn.ReLU(True))
             self.layer1 = self._make_layer(BasicBlock, 16 * k, n)
             self.standard = True
         else:
             self.K = in_channels
-            self.init_conv = nn.Sequential(nn.BatchNorm2d(in_channels, eps=
-                1e-05, affine=False), nn.Conv2d(in_channels, self.ichannels,
-                kernel_size=3, stride=1, padding=1, bias=False), nn.
-                BatchNorm2d(self.ichannels), nn.ReLU(True))
+            self.init_conv = nn.Sequential(nn.BatchNorm2d(in_channels, eps=1e-05, affine=False), nn.Conv2d(in_channels, self.ichannels, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(self.ichannels), nn.ReLU(True))
             self.standard = False
         self.layer2 = self._make_layer(BasicBlock, 32 * k, n)
         self.layer3 = self._make_layer(BasicBlock, 64 * k, n)
@@ -285,9 +275,7 @@ class Scattering2dResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes
@@ -330,18 +318,14 @@ class Scattering2dCNN(nn.Module):
                 if v == 'M':
                     layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
                 else:
-                    conv2d = nn.Conv2d(self.in_channels, v, kernel_size=3,
-                        padding=1)
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    conv2d = nn.Conv2d(self.in_channels, v, kernel_size=3, padding=1)
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                     self.in_channels = v
             layers += [nn.AdaptiveAvgPool2d(2)]
             self.features = nn.Sequential(*layers)
             self.classifier = nn.Linear(1024 * 4, 10)
         elif self.classifier_type == 'mlp':
-            self.classifier = nn.Sequential(nn.Linear(self.K * 8 * 8, 1024),
-                nn.ReLU(), nn.Linear(1024, 1024), nn.ReLU(), nn.Linear(1024,
-                10))
+            self.classifier = nn.Sequential(nn.Linear(self.K * 8 * 8, 1024), nn.ReLU(), nn.Linear(1024, 1024), nn.ReLU(), nn.Linear(1024, 10))
             self.features = None
         elif self.classifier_type == 'linear':
             self.classifier = nn.Linear(self.K * 8 * 8, 10)
@@ -368,8 +352,7 @@ class View(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, num_input_channels, num_hidden_channels,
-        num_output_channels=1, filter_size=3):
+    def __init__(self, num_input_channels, num_hidden_channels, num_output_channels=1, filter_size=3):
         super(Generator, self).__init__()
         self.num_input_channels = num_input_channels
         self.num_hidden_channels = num_hidden_channels
@@ -379,20 +362,7 @@ class Generator(nn.Module):
 
     def build(self):
         padding = (self.filter_size - 1) // 2
-        self.main = nn.Sequential(nn.ReflectionPad2d(padding), nn.Conv2d(
-            self.num_input_channels, self.num_hidden_channels, self.
-            filter_size, bias=False), nn.BatchNorm2d(self.
-            num_hidden_channels, eps=0.001, momentum=0.9), nn.ReLU(inplace=
-            True), nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False), nn.ReflectionPad2d(padding), nn.Conv2d(
-            self.num_hidden_channels, self.num_hidden_channels, self.
-            filter_size, bias=False), nn.BatchNorm2d(self.
-            num_hidden_channels, eps=0.001, momentum=0.9), nn.ReLU(inplace=
-            True), nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False), nn.ReflectionPad2d(padding), nn.Conv2d(
-            self.num_hidden_channels, self.num_output_channels, self.
-            filter_size, bias=False), nn.BatchNorm2d(self.
-            num_output_channels, eps=0.001, momentum=0.9), nn.Tanh())
+        self.main = nn.Sequential(nn.ReflectionPad2d(padding), nn.Conv2d(self.num_input_channels, self.num_hidden_channels, self.filter_size, bias=False), nn.BatchNorm2d(self.num_hidden_channels, eps=0.001, momentum=0.9), nn.ReLU(inplace=True), nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), nn.ReflectionPad2d(padding), nn.Conv2d(self.num_hidden_channels, self.num_hidden_channels, self.filter_size, bias=False), nn.BatchNorm2d(self.num_hidden_channels, eps=0.001, momentum=0.9), nn.ReLU(inplace=True), nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), nn.ReflectionPad2d(padding), nn.Conv2d(self.num_hidden_channels, self.num_output_channels, self.filter_size, bias=False), nn.BatchNorm2d(self.num_output_channels, eps=0.001, momentum=0.9), nn.Tanh())
 
     def forward(self, input_tensor):
         return self.main(input_tensor)
@@ -442,25 +412,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Generator,
+     lambda: ([], {'num_input_channels': 4, 'num_hidden_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Scattering2dCNN,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Scattering2dResNet,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8])], {}),
+     False),
+    (View,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kymatio_kymatio(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Generator(*[], **{'num_input_channels': 4, 'num_hidden_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Scattering2dCNN(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Scattering2dResNet(*[], **{'in_channels': 4}), [torch.rand([4, 4, 8, 8])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(View(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

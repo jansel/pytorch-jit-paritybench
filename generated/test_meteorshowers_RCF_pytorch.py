@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class DilateConv(nn.Module):
 
     def __init__(self, d_rate, in_ch, out_ch):
         super(DilateConv, self).__init__()
-        self.d_conv = nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1,
-            padding=d_rate, dilation=d_rate)
+        self.d_conv = nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=1, padding=d_rate, dilation=d_rate)
 
     def forward(self, x):
         return self.d_conv(x)
@@ -113,8 +113,7 @@ def make_bilinear_weights(size, num_channels):
     else:
         center = factor - 0.5
     og = np.ogrid[:size, :size]
-    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
+    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
     filt = torch.from_numpy(filt)
     w = torch.zeros(num_channels, num_channels, size, size)
     w.requires_grad = False
@@ -139,12 +138,9 @@ class RCF(nn.Module):
         self.conv4_1 = nn.Conv2d(256, 512, 3, padding=1)
         self.conv4_2 = nn.Conv2d(512, 512, 3, padding=1)
         self.conv4_3 = nn.Conv2d(512, 512, 3, padding=1)
-        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding
-            =2, dilation=2)
-        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding
-            =2, dilation=2)
-        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding
-            =2, dilation=2)
+        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)
+        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)
+        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=2, dilation=2)
         self.relu = nn.ReLU()
         self.maxpool = nn.MaxPool2d(2, stride=2, ceil_mode=True)
         self.maxpool4 = nn.MaxPool2d(2, stride=1, ceil_mode=True)
@@ -209,14 +205,10 @@ class RCF(nn.Module):
         weight_deconv3 = make_bilinear_weights(8, 1)
         weight_deconv4 = make_bilinear_weights(16, 1)
         weight_deconv5 = make_bilinear_weights(32, 1)
-        upsample2 = torch.nn.functional.conv_transpose2d(so2_out,
-            weight_deconv2, stride=2)
-        upsample3 = torch.nn.functional.conv_transpose2d(so3_out,
-            weight_deconv3, stride=4)
-        upsample4 = torch.nn.functional.conv_transpose2d(so4_out,
-            weight_deconv4, stride=8)
-        upsample5 = torch.nn.functional.conv_transpose2d(so5_out,
-            weight_deconv5, stride=8)
+        upsample2 = torch.nn.functional.conv_transpose2d(so2_out, weight_deconv2, stride=2)
+        upsample3 = torch.nn.functional.conv_transpose2d(so3_out, weight_deconv3, stride=4)
+        upsample4 = torch.nn.functional.conv_transpose2d(so4_out, weight_deconv4, stride=8)
+        upsample5 = torch.nn.functional.conv_transpose2d(so5_out, weight_deconv5, stride=8)
         so1 = crop(so1_out, img_H, img_W)
         so2 = crop(upsample2, img_H, img_W)
         so3 = crop(upsample3, img_H, img_W)
@@ -233,12 +225,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_meteorshowers_RCF_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(DilateConv(*[], **{'d_rate': 4, 'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DilateConv,
+     lambda: ([], {'d_rate': 4, 'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RCF,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_meteorshowers_RCF_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(RCF(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

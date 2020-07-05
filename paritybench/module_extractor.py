@@ -8,30 +8,35 @@ import subprocess
 import tempfile
 import types
 import zipfile
+from functools import partial
 from typing import TextIO, List
 
+import astor
 import torch
-from astor import to_source
 from torch.nn.parallel import DistributedDataParallel
 
 from .deduce_parameters import DeduceParameters, DeduceParameter
 from .reporting import Stats, ErrorAggregatorDict
-from .static_analysis import ASTCleanup, ExtractReadsWrites, ExtractConfigUsage, CONFIG_NAMES, CheckCallableMembers, \
-    split_import
+from .static_analysis import ASTCleanup
+from .static_analysis import CONFIG_NAMES
+from .static_analysis import CheckCallableMembers
+from .static_analysis import ExtractConfigUsage
+from .static_analysis import ExtractReadsWrites
 from .static_analysis import IMPORT_WHITELIST
+from .static_analysis import split_import
 from .utils import call_with_timeout
 
 log = logging.getLogger(__name__)
 
-RUN_SCRIPT = False  # some scripts hang when run, so this causes many timeouts
 NN_MODULE_RE = re.compile(r"(\btorch[.]nn\b)|(\bnn[.]Module\b)", re.MULTILINE)
 PREFIX = f'''
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import {', '.join(IMPORT_WHITELIST)}
+import {', '.join(sorted(IMPORT_WHITELIST))}
 import numpy as np
+from torch import Tensor
 
 patch_functional()
 open = mock_open()
@@ -47,14 +52,13 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_{basename}(_paritybench_base):
-    pass
 '''
 
-TESTCASE_TEMPLATE = '''    def test_{index:03}(self):
-        self._check({script}, {args}, {kwargs})
 
-'''
+def to_source(node):
+    return astor.to_source(node,
+                           pretty_source=''.join,
+                           pretty_string=partial(astor.string_repr.pretty_string, max_line=8192))
 
 
 class PyTorchModuleExtractor(object):
@@ -113,8 +117,8 @@ class PyTorchModuleExtractor(object):
             # perhaps python2?
             with tempfile.NamedTemporaryFile(mode="wb", suffix=".py") as tmp:
                 tmp.write(re.sub(r"\basync *=", "non_blocking=", source)
-                            .replace("\t", "    ")
-                            .encode('utf-8'))
+                          .replace("\t", "    ")
+                          .encode('utf-8'))
                 tmp.flush()
                 with open("/dev/null", "w") as null:
                     subprocess.check_call(["2to3", "-w", tmp.name], stderr=null, stdout=null)
@@ -289,22 +293,22 @@ class PyTorchModuleExtractor(object):
         log.info(f"{basename}: {self.stats}")
 
     def write_testcases(self, basename):
+        if not self.testcases:
+            return
         self.output.write(SUFFIX.format(basename=basename))
-        index = 0
+        self.output.write("\nTESTCASES = [\n")
+        self.output.write("    # (nn.Module, init_args, forward_args, jit_compiles)\n")
         for name, init_args, forward_args, compiles in self.testcases:
-            script = f"{name}(*{init_args[0]}, **{init_args[1]})"
-            args, kwargs = forward_args
-            if kwargs:
-                if not compiles:
-                    self.output.write("    @_fails_compile()\n")
-                self.output.write(TESTCASE_TEMPLATE.format(
-                    index=index,
-                    script=script,
-                    args=args,
-                    kwargs=kwargs,
-                ))
+            self.output.write(f"    ({name},\n")
+            self.output.write(f"     lambda: ({init_args[0]}, {init_args[1]}),\n")
+            self.output.write(f"     lambda: ({forward_args[0]}, {forward_args[1]}),\n")
+            self.output.write(f"     {repr(compiles)}),\n")
+        self.output.write("]\n\n")
 
-            index += 1
+        self.output.write(f"class Test_{basename}(_paritybench_base):\n")
+        for index in range(len(self.testcases)):
+            self.output.write(f"    def test_{index:03}(self):\n")
+            self.output.write(f"        self._check(*TESTCASES[{index}])\n\n")
 
 
 def extract_nn_module(name: str, nn_cls: type, checker, context):

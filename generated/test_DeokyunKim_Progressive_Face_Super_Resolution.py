@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,10 +91,7 @@ class ResBlock(nn.Module):
 
     def __init__(self, dim, kernel_size=3, padding=1, stride=1):
         super(ResBlock, self).__init__()
-        self.conv = nn.Sequential(EqualConv2d(dim, dim, kernel_size=3,
-            padding=1, stride=1), nn.BatchNorm2d(dim), nn.ReLU(),
-            EqualConv2d(dim, dim, kernel_size=3, padding=1, stride=1), nn.
-            BatchNorm2d(dim), nn.ReLU())
+        self.conv = nn.Sequential(EqualConv2d(dim, dim, kernel_size=3, padding=1, stride=1), nn.BatchNorm2d(dim), nn.ReLU(), EqualConv2d(dim, dim, kernel_size=3, padding=1, stride=1), nn.BatchNorm2d(dim), nn.ReLU())
 
     def forward(self, x):
         return self.conv(x) + x
@@ -101,13 +99,9 @@ class ResBlock(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_plane, out_plane, kernel_size=3, padding=1, stride=1
-        ):
+    def __init__(self, in_plane, out_plane, kernel_size=3, padding=1, stride=1):
         super(ConvBlock, self).__init__()
-        self.conv = nn.Sequential(EqualConv2d(in_plane, out_plane,
-            kernel_size=3, padding=1, stride=1), nn.LeakyReLU(0.2),
-            EqualConv2d(out_plane, out_plane, kernel_size=3, padding=1,
-            stride=1), nn.LeakyReLU(0.2))
+        self.conv = nn.Sequential(EqualConv2d(in_plane, out_plane, kernel_size=3, padding=1, stride=1), nn.LeakyReLU(0.2), EqualConv2d(out_plane, out_plane, kernel_size=3, padding=1, stride=1), nn.LeakyReLU(0.2))
 
     def forward(self, x):
         return self.conv(x)
@@ -117,20 +111,11 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        step1 = [nn.Conv2d(3, 512, kernel_size=3, stride=1, padding=1), nn.
-            BatchNorm2d(512), nn.ReLU()]
-        step1 += [ResBlock(dim=512, kernel_size=3, stride=1, padding=1), nn
-            .ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(256), nn.ReLU()]
-        step2 = [ResBlock(dim=256, kernel_size=3, stride=1, padding=1), nn.
-            ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(128), nn.ReLU()]
-        step3 = [ResBlock(dim=128, kernel_size=3, stride=1, padding=1), nn.
-            ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(64), nn.ReLU()]
-        self.to_rgb = nn.ModuleList([nn.Conv2d(256, 3, kernel_size=1,
-            stride=1, padding=0), nn.Conv2d(128, 3, kernel_size=1, stride=1,
-            padding=0), nn.Conv2d(64, 3, kernel_size=1, stride=1, padding=0)])
+        step1 = [nn.Conv2d(3, 512, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(512), nn.ReLU()]
+        step1 += [ResBlock(dim=512, kernel_size=3, stride=1, padding=1), nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(256), nn.ReLU()]
+        step2 = [ResBlock(dim=256, kernel_size=3, stride=1, padding=1), nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(128), nn.ReLU()]
+        step3 = [ResBlock(dim=128, kernel_size=3, stride=1, padding=1), nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(64), nn.ReLU()]
+        self.to_rgb = nn.ModuleList([nn.Conv2d(256, 3, kernel_size=1, stride=1, padding=0), nn.Conv2d(128, 3, kernel_size=1, stride=1, padding=0), nn.Conv2d(64, 3, kernel_size=1, stride=1, padding=0)])
         self.step1 = nn.Sequential(*step1)
         self.step2 = nn.Sequential(*step2)
         self.step3 = nn.Sequential(*step3)
@@ -143,18 +128,15 @@ class Generator(nn.Module):
         elif step == 2:
             if 0 <= alpha < 1:
                 prev = self.step1(input)
-                skip_rgb = F.interpolate(self.to_rgb[step - 2](prev),
-                    scale_factor=2, mode='nearest')
+                skip_rgb = F.interpolate(self.to_rgb[step - 2](prev), scale_factor=2, mode='nearest')
                 out = self.step2(prev)
-                out = (1 - alpha) * skip_rgb + alpha * self.to_rgb[step - 1](
-                    out)
+                out = (1 - alpha) * skip_rgb + alpha * self.to_rgb[step - 1](out)
             else:
                 out = self.step2(self.step1(input))
                 out = self.to_rgb[step - 1](out)
         elif 0 <= alpha < 1:
             prev = self.step2(self.step1(input))
-            skip_rgb = F.interpolate(self.to_rgb[step - 2](prev),
-                scale_factor=2, mode='nearest')
+            skip_rgb = F.interpolate(self.to_rgb[step - 2](prev), scale_factor=2, mode='nearest')
             out = self.step3(prev)
             out = (1 - alpha) * skip_rgb + alpha * self.to_rgb[step - 1](out)
         else:
@@ -168,20 +150,14 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.from_rgb = nn.ModuleList([nn.Conv2d(3, 256, kernel_size=1,
-            stride=1, padding=0), nn.Conv2d(3, 128, kernel_size=1, stride=1,
-            padding=0), nn.Conv2d(3, 64, kernel_size=1, stride=1, padding=0)])
-        step1 = [ConvBlock(256, 512, kernel_size=3, padding=1, stride=1),
-            nn.AvgPool2d(kernel_size=2, stride=2)]
-        step2 = [ConvBlock(128, 256, kernel_size=3, padding=1, stride=1),
-            nn.AvgPool2d(kernel_size=2, stride=2)]
-        step3 = [ConvBlock(64, 128, kernel_size=3, padding=1, stride=1), nn
-            .AvgPool2d(kernel_size=2, stride=2)]
+        self.from_rgb = nn.ModuleList([nn.Conv2d(3, 256, kernel_size=1, stride=1, padding=0), nn.Conv2d(3, 128, kernel_size=1, stride=1, padding=0), nn.Conv2d(3, 64, kernel_size=1, stride=1, padding=0)])
+        step1 = [ConvBlock(256, 512, kernel_size=3, padding=1, stride=1), nn.AvgPool2d(kernel_size=2, stride=2)]
+        step2 = [ConvBlock(128, 256, kernel_size=3, padding=1, stride=1), nn.AvgPool2d(kernel_size=2, stride=2)]
+        step3 = [ConvBlock(64, 128, kernel_size=3, padding=1, stride=1), nn.AvgPool2d(kernel_size=2, stride=2)]
         self.step1 = nn.Sequential(*step1)
         self.step2 = nn.Sequential(*step2)
         self.step3 = nn.Sequential(*step3)
-        self.equal_conv = EqualConv2d(513, 512, kernel_size=3, stride=1,
-            padding=1)
+        self.equal_conv = EqualConv2d(513, 512, kernel_size=3, stride=1, padding=1)
         self.linear = nn.Linear(512, 2048)
         self.linear2 = nn.Linear(2048, 1)
 
@@ -231,18 +207,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvBlock,
+     lambda: ([], {'in_plane': 4, 'out_plane': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EqualConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_DeokyunKim_Progressive_Face_Super_Resolution(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvBlock(*[], **{'in_plane': 4, 'out_plane': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(EqualConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

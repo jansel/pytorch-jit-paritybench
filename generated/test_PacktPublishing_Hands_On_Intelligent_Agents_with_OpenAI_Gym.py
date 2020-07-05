@@ -64,8 +64,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -115,12 +116,9 @@ class CNN(torch.nn.Module):
         """
         super(CNN, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[0], 
-            32, kernel_size=8, stride=4, padding=0), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64,
-            kernel_size=3, stride=2, padding=0), torch.nn.ReLU())
-        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64,
-            kernel_size=3, stride=1, padding=0), torch.nn.ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4, padding=0), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=0), torch.nn.ReLU())
+        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0), torch.nn.ReLU())
         self.out = torch.nn.Linear(64 * 7 * 7, output_shape)
 
     def forward(self, x):
@@ -172,14 +170,10 @@ class Actor(torch.nn.Module):
         """
         super(Actor, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 
-            32, 8, stride=4, padding=0), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride
-            =2, padding=0), torch.nn.ReLU())
-        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride
-            =1, padding=0), torch.nn.ReLU())
-        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512),
-            torch.nn.ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 32, 8, stride=4, padding=0), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride=2, padding=0), torch.nn.ReLU())
+        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride=1, padding=0), torch.nn.ReLU())
+        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512), torch.nn.ReLU())
         self.actor_mu = torch.nn.Linear(512, actor_shape)
         self.actor_sigma = torch.nn.Linear(512, actor_shape)
 
@@ -216,14 +210,10 @@ class DiscreteActor(torch.nn.Module):
         """
         super(DiscreteActor, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 
-            32, 8, stride=4, padding=0), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride
-            =2, padding=0), torch.nn.ReLU())
-        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride
-            =1, padding=0), torch.nn.ReLU())
-        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512),
-            torch.nn.ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 32, 8, stride=4, padding=0), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride=2, padding=0), torch.nn.ReLU())
+        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride=1, padding=0), torch.nn.ReLU())
+        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512), torch.nn.ReLU())
         self.logits = torch.nn.Linear(512, actor_shape)
 
     def forward(self, x):
@@ -246,8 +236,7 @@ class DiscreteActor(torch.nn.Module):
 
 class Critic(torch.nn.Module):
 
-    def __init__(self, input_shape, critic_shape=1, device=torch.device('cpu')
-        ):
+    def __init__(self, input_shape, critic_shape=1, device=torch.device('cpu')):
         """
         Deep convolutional Neural Network to represent the Critic in an Actor-Critic algorithm
         :param input_shape: Shape of each of the observations
@@ -256,14 +245,10 @@ class Critic(torch.nn.Module):
         """
         super(Critic, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 
-            32, 8, stride=4, padding=0), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride
-            =2, padding=0), torch.nn.ReLU())
-        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride
-            =1, padding=0), torch.nn.ReLU())
-        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512),
-            torch.nn.ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 32, 8, stride=4, padding=0), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride=2, padding=0), torch.nn.ReLU())
+        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride=1, padding=0), torch.nn.ReLU())
+        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512), torch.nn.ReLU())
         self.critic = torch.nn.Linear(512, critic_shape)
 
     def forward(self, x):
@@ -286,8 +271,7 @@ class Critic(torch.nn.Module):
 
 class ActorCritic(torch.nn.Module):
 
-    def __init__(self, input_shape, actor_shape, critic_shape, device=torch
-        .device('cpu')):
+    def __init__(self, input_shape, actor_shape, critic_shape, device=torch.device('cpu')):
         """
         Deep convolutional Neural Network to represent both policy  (Actor) and a value function (Critic).
         The Policy is parametrized using a Gaussian distribution with mean mu and variance sigma
@@ -300,14 +284,10 @@ class ActorCritic(torch.nn.Module):
         """
         super(ActorCritic, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 
-            32, 8, stride=4, padding=0), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride
-            =2, padding=0), torch.nn.ReLU())
-        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride
-            =1, padding=0), torch.nn.ReLU())
-        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512),
-            torch.nn.ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[2], 32, 8, stride=4, padding=0), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Conv2d(32, 64, 3, stride=2, padding=0), torch.nn.ReLU())
+        self.layer3 = torch.nn.Sequential(torch.nn.Conv2d(64, 64, 3, stride=1, padding=0), torch.nn.ReLU())
+        self.layer4 = torch.nn.Sequential(torch.nn.Linear(64 * 7 * 7, 512), torch.nn.ReLU())
         self.actor_mu = torch.nn.Linear(512, actor_shape)
         self.actor_sigma = torch.nn.Linear(512, actor_shape)
         self.critic = torch.nn.Linear(512, critic_shape)
@@ -345,10 +325,8 @@ class Actor(torch.nn.Module):
         """
         super(Actor, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 
-            64), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn
-            .ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 64), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn.ReLU())
         self.actor_mu = torch.nn.Linear(32, output_shape)
         self.actor_sigma = torch.nn.Linear(32, output_shape)
 
@@ -379,10 +357,8 @@ class DiscreteActor(torch.nn.Module):
         """
         super(DiscreteActor, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 
-            64), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn
-            .ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 64), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn.ReLU())
         self.logits = torch.nn.Linear(32, output_shape)
 
     def forward(self, x):
@@ -401,8 +377,7 @@ class DiscreteActor(torch.nn.Module):
 
 class Critic(torch.nn.Module):
 
-    def __init__(self, input_shape, output_shape=1, device=torch.device('cpu')
-        ):
+    def __init__(self, input_shape, output_shape=1, device=torch.device('cpu')):
         """
         A feed forward neural network that produces a continuous value. Used to represent the Critic
         in an Actor-Critic algorithm that estimates the value of the current observation/state
@@ -413,10 +388,8 @@ class Critic(torch.nn.Module):
         """
         super(Critic, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 
-            64), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn
-            .ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 64), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Linear(64, 32), torch.nn.ReLU())
         self.critic = torch.nn.Linear(32, output_shape)
 
     def forward(self, x):
@@ -435,8 +408,7 @@ class Critic(torch.nn.Module):
 
 class ActorCritic(torch.nn.Module):
 
-    def __init__(self, input_shape, actor_shape, critic_shape, device=torch
-        .device('cpu')):
+    def __init__(self, input_shape, actor_shape, critic_shape, device=torch.device('cpu')):
         """
         A feed forward neural network used to represent both an Actor and the Critic in an Actor-Critic algorithm.
         :param input_shape: Shape of the inputs. This is typically the shape of the observations
@@ -447,10 +419,8 @@ class ActorCritic(torch.nn.Module):
         """
         super(ActorCritic, self).__init__()
         self.device = device
-        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 
-            32), torch.nn.ReLU())
-        self.layer2 = torch.nn.Sequential(torch.nn.Linear(32, 16), torch.nn
-            .ReLU())
+        self.layer1 = torch.nn.Sequential(torch.nn.Linear(input_shape[0], 32), torch.nn.ReLU())
+        self.layer2 = torch.nn.Sequential(torch.nn.Linear(32, 16), torch.nn.ReLU())
         self.actor_mu = torch.nn.Linear(16, actor_shape)
         self.actor_sigma = torch.nn.Linear(16, actor_shape)
         self.critic = torch.nn.Linear(16, critic_shape)
@@ -477,17 +447,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'input_shape': [4, 4], 'output_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ActorCritic,
+     lambda: ([], {'input_shape': [4, 4], 'actor_shape': 4, 'critic_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'input_shape': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiscreteActor,
+     lambda: ([], {'input_shape': [4, 4], 'output_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_PacktPublishing_Hands_On_Intelligent_Agents_with_OpenAI_Gym(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Actor(*[], **{'input_shape': [4, 4], 'output_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ActorCritic(*[], **{'input_shape': [4, 4], 'actor_shape': 4, 'critic_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Critic(*[], **{'input_shape': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DiscreteActor(*[], **{'input_shape': [4, 4], 'output_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

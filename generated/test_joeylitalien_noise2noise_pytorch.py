@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,26 +82,12 @@ class UNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3):
         """Initializes U-Net."""
         super(UNet, self).__init__()
-        self._block1 = nn.Sequential(nn.Conv2d(in_channels, 48, 3, stride=1,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(48, 48, 3, padding
-            =1), nn.ReLU(inplace=True), nn.MaxPool2d(2))
-        self._block2 = nn.Sequential(nn.Conv2d(48, 48, 3, stride=1, padding
-            =1), nn.ReLU(inplace=True), nn.MaxPool2d(2))
-        self._block3 = nn.Sequential(nn.Conv2d(48, 48, 3, stride=1, padding
-            =1), nn.ReLU(inplace=True), nn.ConvTranspose2d(48, 48, 3,
-            stride=2, padding=1, output_padding=1))
-        self._block4 = nn.Sequential(nn.Conv2d(96, 96, 3, stride=1, padding
-            =1), nn.ReLU(inplace=True), nn.Conv2d(96, 96, 3, stride=1,
-            padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(96, 96, 3,
-            stride=2, padding=1, output_padding=1))
-        self._block5 = nn.Sequential(nn.Conv2d(144, 96, 3, stride=1,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(96, 96, 3, stride=
-            1, padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(96, 96,
-            3, stride=2, padding=1, output_padding=1))
-        self._block6 = nn.Sequential(nn.Conv2d(96 + in_channels, 64, 3,
-            stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 32, 
-            3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(32,
-            out_channels, 3, stride=1, padding=1), nn.LeakyReLU(0.1))
+        self._block1 = nn.Sequential(nn.Conv2d(in_channels, 48, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(48, 48, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2))
+        self._block2 = nn.Sequential(nn.Conv2d(48, 48, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2))
+        self._block3 = nn.Sequential(nn.Conv2d(48, 48, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(48, 48, 3, stride=2, padding=1, output_padding=1))
+        self._block4 = nn.Sequential(nn.Conv2d(96, 96, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(96, 96, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(96, 96, 3, stride=2, padding=1, output_padding=1))
+        self._block5 = nn.Sequential(nn.Conv2d(144, 96, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(96, 96, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(96, 96, 3, stride=2, padding=1, output_padding=1))
+        self._block6 = nn.Sequential(nn.Conv2d(96 + in_channels, 64, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(64, 32, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(32, out_channels, 3, stride=1, padding=1), nn.LeakyReLU(0.1))
         self._init_weights()
 
     def _init_weights(self):
@@ -134,11 +121,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (HDRLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_joeylitalien_noise2noise_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(HDRLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -40,8 +40,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,8 +88,7 @@ from torchvision import transforms
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
         super(GANLoss, self).__init__()
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
@@ -111,18 +111,14 @@ class GANLoss(nn.Module):
 
 class VGGLoss(nn.Module):
 
-    def __init__(self, gpu_ids, content_weights=[1.0 / 32, 1.0 / 16, 1.0 / 
-        8, 1.0 / 4, 1.0], style_weights=[1.0, 1.0, 1.0, 1.0, 1.0],
-        shifted_style=False):
+    def __init__(self, gpu_ids, content_weights=[1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0], style_weights=[1.0, 1.0, 1.0, 1.0, 1.0], shifted_style=False):
         super(VGGLoss, self).__init__()
         self.gpu_ids = gpu_ids
         self.shifted_style = shifted_style
         self.content_weights = content_weights
         self.style_weights = style_weights
-        self.shift_delta = [[0, 2, 4, 8, 16], [0, 2, 4, 8], [0, 2, 4], [0, 
-            2], [0]]
-        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True
-            ).features
+        self.shift_delta = [[0, 2, 4, 8, 16], [0, 2, 4, 8], [0, 2, 4], [0, 2], [0]]
+        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -162,56 +158,33 @@ class VGGLoss(nn.Module):
             device_mode = 'multi' if len(self.gpu_ids) > 1 else 'single'
         if device_mode == 'multi':
             if mask is None:
-                return nn.parallel.data_parallel(self, (X, Y),
-                    module_kwargs={'loss_type': loss_type, 'device_mode':
-                    'sub', 'mask': None}).mean(dim=0)
+                return nn.parallel.data_parallel(self, (X, Y), module_kwargs={'loss_type': loss_type, 'device_mode': 'sub', 'mask': None}).mean(dim=0)
             else:
-                return nn.parallel.data_parallel(self, (X, Y, mask),
-                    module_kwargs={'loss_type': loss_type, 'device_mode':
-                    'sub'}).mean(dim=0)
+                return nn.parallel.data_parallel(self, (X, Y, mask), module_kwargs={'loss_type': loss_type, 'device_mode': 'sub'}).mean(dim=0)
         else:
             features_x = self.compute_feature(self.normalize(X))
             features_y = self.compute_feature(self.normalize(Y))
             if mask is not None:
-                features_x = [(feat * F.adaptive_max_pool2d(mask, (feat.
-                    size(2), feat.size(3)))) for feat in features_x]
-                features_y = [(feat * F.adaptive_max_pool2d(mask, (feat.
-                    size(2), feat.size(3)))) for feat in features_y]
+                features_x = [(feat * F.adaptive_max_pool2d(mask, (feat.size(2), feat.size(3)))) for feat in features_x]
+                features_y = [(feat * F.adaptive_max_pool2d(mask, (feat.size(2), feat.size(3)))) for feat in features_y]
             if loss_type == 'content':
                 loss = 0
-                for i, (feat_x, feat_y) in enumerate(zip(features_x,
-                    features_y)):
-                    loss += self.content_weights[i] * F.l1_loss(feat_x,
-                        feat_y, reduce=False).view(bsz, -1).mean(dim=1)
+                for i, (feat_x, feat_y) in enumerate(zip(features_x, features_y)):
+                    loss += self.content_weights[i] * F.l1_loss(feat_x, feat_y, reduce=False).view(bsz, -1).mean(dim=1)
             if loss_type == 'style':
                 loss = 0
                 if self.shifted_style:
-                    for i, (feat_x, feat_y) in enumerate(zip(features_x,
-                        features_y)):
+                    for i, (feat_x, feat_y) in enumerate(zip(features_x, features_y)):
                         if self.style_weights[i] > 0:
                             for delta in self.shift_delta[i]:
                                 if delta == 0:
-                                    loss += self.style_weights[i] * F.mse_loss(
-                                        self.gram_matrix(feat_x), self.
-                                        gram_matrix(feat_y), reduce=False
-                                        ).view(bsz, -1).sum(dim=1)
+                                    loss += self.style_weights[i] * F.mse_loss(self.gram_matrix(feat_x), self.gram_matrix(feat_y), reduce=False).view(bsz, -1).sum(dim=1)
                                 else:
-                                    loss += 0.5 * self.style_weights[i] * (F
-                                        .mse_loss(self.shifted_gram_matrix(
-                                        feat_x, delta, 0), self.
-                                        shifted_gram_matrix(feat_y, delta, 
-                                        0), reduce=False) + F.mse_loss(self
-                                        .shifted_gram_matrix(feat_x, 0,
-                                        delta), self.shifted_gram_matrix(
-                                        feat_y, 0, delta), reduce=False)).view(
-                                        bsz, -1).sum(dim=1)
+                                    loss += 0.5 * self.style_weights[i] * (F.mse_loss(self.shifted_gram_matrix(feat_x, delta, 0), self.shifted_gram_matrix(feat_y, delta, 0), reduce=False) + F.mse_loss(self.shifted_gram_matrix(feat_x, 0, delta), self.shifted_gram_matrix(feat_y, 0, delta), reduce=False)).view(bsz, -1).sum(dim=1)
                 else:
-                    for i, (feat_x, feat_y) in enumerate(zip(features_x,
-                        features_y)):
+                    for i, (feat_x, feat_y) in enumerate(zip(features_x, features_y)):
                         if self.style_weights[i] > 0:
-                            loss += self.style_weights[i] * F.mse_loss(self
-                                .gram_matrix(feat_x), self.gram_matrix(
-                                feat_y), reduce=False).view(bsz, -1).sum(dim=1)
+                            loss += self.style_weights[i] * F.mse_loss(self.gram_matrix(feat_x), self.gram_matrix(feat_y), reduce=False).view(bsz, -1).sum(dim=1)
             if device_mode == 'single':
                 loss = loss.mean(dim=0)
             return loss
@@ -234,8 +207,7 @@ class VGGLoss(nn.Module):
         bsz, c, h, w = feat.size()
         assert shift_x < w and shift_y < h
         feat1 = feat[:, :, shift_y:, shift_x:].contiguous().view(bsz, c, -1)
-        feat2 = feat[:, :, :h - shift_y, :w - shift_x].contiguous().view(bsz,
-            c, -1)
+        feat2 = feat[:, :, :h - shift_y, :w - shift_x].contiguous().view(bsz, c, -1)
         g = torch.matmul(feat1, feat2.transpose(1, 2)) / (c * h * w)
         return g
 
@@ -284,19 +256,15 @@ class MultiScaleFlowLoss(nn.Module):
     Derived from NVIDIA/flownet2-pytorch repo.
     """
 
-    def __init__(self, start_scale=2, num_scale=5, l_weight=0.32, loss_type
-        ='l1'):
+    def __init__(self, start_scale=2, num_scale=5, l_weight=0.32, loss_type='l1'):
         super(MultiScaleFlowLoss, self).__init__()
         self.start_scale = start_scale
         self.num_scale = num_scale
-        self.loss_weights = [(l_weight / 2 ** scale) for scale in range(
-            self.num_scale)]
+        self.loss_weights = [(l_weight / 2 ** scale) for scale in range(self.num_scale)]
         self.loss_type = loss_type
         self.div_flow = 0.05
-        self.avg_pools = [nn.AvgPool2d(self.start_scale * 2 ** scale, self.
-            start_scale * 2 ** scale) for scale in range(num_scale)]
-        self.max_pools = [nn.MaxPool2d(self.start_scale * 2 ** scale, self.
-            start_scale * 2 ** scale) for scale in range(num_scale)]
+        self.avg_pools = [nn.AvgPool2d(self.start_scale * 2 ** scale, self.start_scale * 2 ** scale) for scale in range(num_scale)]
+        self.max_pools = [nn.MaxPool2d(self.start_scale * 2 ** scale, self.start_scale * 2 ** scale) for scale in range(num_scale)]
         if loss_type == 'l1':
             self.loss_func = L1
         elif loss_type == 'l2':
@@ -309,11 +277,8 @@ class MultiScaleFlowLoss(nn.Module):
         for i, input_ in enumerate(input_flows):
             target_ = self.avg_pools[i](target_flow)
             mask_ = self.max_pools[i](vis_mask)
-            assert input_.is_same_size(target_
-                ), 'scale %d size mismatch: input(%s) vs. target(%s)' % (i,
-                input_.size(), target_.size())
-            loss += self.loss_weights[i] * self.loss_func(input_, target_,
-                mask_)
+            assert input_.is_same_size(target_), 'scale %d size mismatch: input(%s) vs. target(%s)' % (i, input_.size(), target_.size())
+            loss += self.loss_weights[i] * self.loss_func(input_, target_, mask_)
             epe += self.loss_weights[i] * EPE(input_, target_, mask_)
         return loss, epe
 
@@ -340,8 +305,7 @@ def warp_acc_flow(x, flow, mode='bilinear', mask=None, mask_value=-1):
     grid = grid.permute(0, 2, 3, 1)
     output = F.grid_sample(x, grid, mode=mode, padding_mode='zeros')
     if mask is not None:
-        output = torch.where(mask > 0.5, output, output.new_ones(1).mul_(
-            mask_value))
+        output = torch.where(mask > 0.5, output, output.new_ones(1).mul_(mask_value))
     return output
 
 
@@ -382,11 +346,9 @@ class PSNR(nn.Module):
 
     def forward(self, images_1, images_2):
         numpy_imgs_1 = images_1.cpu().detach().numpy().transpose(0, 2, 3, 1)
-        numpy_imgs_1 = ((numpy_imgs_1 + 1.0) * 127.5).clip(0, 255).astype(np
-            .uint8)
+        numpy_imgs_1 = ((numpy_imgs_1 + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
         numpy_imgs_2 = images_2.cpu().detach().numpy().transpose(0, 2, 3, 1)
-        numpy_imgs_2 = ((numpy_imgs_2 + 1.0) * 127.5).clip(0, 255).astype(np
-            .uint8)
+        numpy_imgs_2 = ((numpy_imgs_2 + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
         psnr_score = []
         for img_1, img_2 in zip(numpy_imgs_1, numpy_imgs_2):
             psnr_score.append(compare_psnr(img_2, img_1))
@@ -397,14 +359,11 @@ class SSIM(nn.Module):
 
     def forward(self, images_1, images_2, mask=None):
         numpy_imgs_1 = images_1.cpu().detach().numpy().transpose(0, 2, 3, 1)
-        numpy_imgs_1 = ((numpy_imgs_1 + 1.0) * 127.5).clip(0, 255).astype(np
-            .uint8)
+        numpy_imgs_1 = ((numpy_imgs_1 + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
         numpy_imgs_2 = images_2.cpu().detach().numpy().transpose(0, 2, 3, 1)
-        numpy_imgs_2 = ((numpy_imgs_2 + 1.0) * 127.5).clip(0, 255).astype(np
-            .uint8)
+        numpy_imgs_2 = ((numpy_imgs_2 + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
         if mask is not None:
-            mask = mask.cpu().detach().numpy().transpose(0, 2, 3, 1).astype(np
-                .uint8)
+            mask = mask.cpu().detach().numpy().transpose(0, 2, 3, 1).astype(np.uint8)
             numpy_imgs_1 = numpy_imgs_1 * mask
             numpy_imgs_2 = numpy_imgs_2 * mask
         ssim_score = []
@@ -422,17 +381,13 @@ class Identity(nn.Module):
         return x
 
 
-def conv(in_channels, out_channels, kernel_size=3, stride=1, padding=0,
-    dilation=1, bias=False, norm_layer=nn.BatchNorm2d):
-    model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size,
-        stride, padding, dilation, bias=bias), norm_layer(out_channels))
+def conv(in_channels, out_channels, kernel_size=3, stride=1, padding=0, dilation=1, bias=False, norm_layer=nn.BatchNorm2d):
+    model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, bias=bias), norm_layer(out_channels))
     return model
 
 
-def channel_mapping(in_channels, out_channels, norm_layer=nn.BatchNorm2d,
-    bias=False):
-    return conv(in_channels, out_channels, kernel_size=1, norm_layer=
-        norm_layer, bias=bias)
+def channel_mapping(in_channels, out_channels, norm_layer=nn.BatchNorm2d, bias=False):
+    return conv(in_channels, out_channels, kernel_size=1, norm_layer=norm_layer, bias=bias)
 
 
 class ResidualBlock(nn.Module):
@@ -440,30 +395,21 @@ class ResidualBlock(nn.Module):
     Derived from Variational UNet.
     """
 
-    def __init__(self, dim, dim_a, norm_layer=nn.BatchNorm2d, use_bias=
-        False, activation=nn.ReLU(False), use_dropout=False, no_end_norm=False
-        ):
+    def __init__(self, dim, dim_a, norm_layer=nn.BatchNorm2d, use_bias=False, activation=nn.ReLU(False), use_dropout=False, no_end_norm=False):
         super(ResidualBlock, self).__init__()
         self.use_dropout = use_dropout
         self.activation = activation
         if dim_a <= 0 or dim_a is None:
             if no_end_norm:
-                self.conv = conv(in_channels=dim, out_channels=dim,
-                    kernel_size=3, padding=1, norm_layer=Identity, bias=True)
+                self.conv = conv(in_channels=dim, out_channels=dim, kernel_size=3, padding=1, norm_layer=Identity, bias=True)
             else:
-                self.conv = conv(in_channels=dim, out_channels=dim,
-                    kernel_size=3, padding=1, norm_layer=norm_layer, bias=
-                    use_bias)
+                self.conv = conv(in_channels=dim, out_channels=dim, kernel_size=3, padding=1, norm_layer=norm_layer, bias=use_bias)
         else:
-            self.conv_a = channel_mapping(in_channels=dim_a, out_channels=
-                dim, norm_layer=norm_layer, bias=use_bias)
+            self.conv_a = channel_mapping(in_channels=dim_a, out_channels=dim, norm_layer=norm_layer, bias=use_bias)
             if no_end_norm:
-                self.conv = conv(in_channels=dim * 2, out_channels=dim,
-                    kernel_size=3, padding=1, norm_layer=Identity, bias=True)
+                self.conv = conv(in_channels=dim * 2, out_channels=dim, kernel_size=3, padding=1, norm_layer=Identity, bias=True)
             else:
-                self.conv = conv(in_channels=dim * 2, out_channels=dim,
-                    kernel_size=3, padding=1, norm_layer=norm_layer, bias=
-                    use_bias)
+                self.conv = conv(in_channels=dim * 2, out_channels=dim, kernel_size=3, padding=1, norm_layer=norm_layer, bias=use_bias)
 
     def forward(self, x, a=None):
         if a is None:
@@ -483,8 +429,7 @@ class GateBlock(nn.Module):
     def __init__(self, dim, dim_a, activation=nn.ReLU(False)):
         super(GateBlock, self).__init__()
         self.activation = activation
-        self.conv = nn.Conv2d(in_channels=dim_a, out_channels=dim,
-            kernel_size=1)
+        self.conv = nn.Conv2d(in_channels=dim_a, out_channels=dim, kernel_size=1)
 
     def forward(self, x, a):
         """
@@ -501,9 +446,7 @@ class UnetGenerator(nn.Module):
     A variation of Unet that use residual blocks instead of convolution layer at each scale
     """
 
-    def __init__(self, input_nc, output_nc, nf=64, max_nf=256, num_scales=7,
-        n_residual_blocks=2, norm='batch', activation=nn.ReLU(False),
-        use_dropout=False, gpu_ids=[]):
+    def __init__(self, input_nc, output_nc, nf=64, max_nf=256, num_scales=7, n_residual_blocks=2, norm='batch', activation=nn.ReLU(False), use_dropout=False, gpu_ids=[]):
         super(UnetGenerator, self).__init__()
         self.input_nc = input_nc
         self.output_nc = output_nc
@@ -527,27 +470,18 @@ class UnetGenerator(nn.Module):
             c_in = min(nf * (l + 1), max_nf)
             c_out = min(nf * (l + 2), max_nf)
             for i in range(n_residual_blocks):
-                self.__setattr__('enc_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, None, norm_layer, use_bias, activation,
-                    use_dropout=False))
-            downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(c_out))
+                self.__setattr__('enc_%d_res_%d' % (l, i), ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=False))
+            downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(c_out))
             self.__setattr__('enc_%d_downsample' % l, downsample)
-            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4,
-                kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2
-                ), norm_layer(c_in))
+            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4, kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2), norm_layer(c_in))
             self.__setattr__('dec_%d_upsample' % l, upsample)
             for i in range(n_residual_blocks):
-                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, c_in, norm_layer, use_bias, activation, use_dropout))
-        self.dec_output = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(nf,
-            output_nc, kernel_size=7, padding=0, bias=True))
+                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(c_in, c_in, norm_layer, use_bias, activation, use_dropout))
+        self.dec_output = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(nf, output_nc, kernel_size=7, padding=0, bias=True))
 
     def forward(self, x, single_device=False):
         if len(self.gpu_ids) > 1 and not single_device:
-            return nn.parallel.data_parallel(self, x, module_kwargs={
-                'single_device': True})
+            return nn.parallel.data_parallel(self, x, module_kwargs={'single_device': True})
         else:
             hiddens = []
             x = self.pre_conv(x)
@@ -570,13 +504,10 @@ class UnetGenerator_MultiOutput(nn.Module):
     A variation of UnetGenerator that support multiple output branches
     """
 
-    def __init__(self, input_nc, output_nc=[3], nf=64, max_nf=256,
-        num_scales=7, n_residual_blocks=2, norm='batch', activation=nn.ReLU
-        (False), use_dropout=False, gpu_ids=[]):
+    def __init__(self, input_nc, output_nc=[3], nf=64, max_nf=256, num_scales=7, n_residual_blocks=2, norm='batch', activation=nn.ReLU(False), use_dropout=False, gpu_ids=[]):
         super(UnetGenerator_MultiOutput, self).__init__()
         self.input_nc = input_nc
-        self.output_nc = output_nc if isinstance(output_nc, list) else [
-            output_nc]
+        self.output_nc = output_nc if isinstance(output_nc, list) else [output_nc]
         self.nf = nf
         self.max_nf = max_nf
         self.num_scales = num_scales
@@ -597,30 +528,20 @@ class UnetGenerator_MultiOutput(nn.Module):
             c_in = min(nf * (l + 1), max_nf)
             c_out = min(nf * (l + 2), max_nf)
             for i in range(n_residual_blocks):
-                self.__setattr__('enc_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, None, norm_layer, use_bias, activation,
-                    use_dropout=False))
-            downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(c_out))
+                self.__setattr__('enc_%d_res_%d' % (l, i), ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=False))
+            downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(c_out))
             self.__setattr__('enc_%d_downsample' % l, downsample)
-            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4,
-                kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2
-                ), norm_layer(c_in))
+            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4, kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2), norm_layer(c_in))
             self.__setattr__('dec_%d_upsample' % l, upsample)
             for i in range(n_residual_blocks):
-                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, c_in, norm_layer, use_bias, activation, use_dropout))
+                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(c_in, c_in, norm_layer, use_bias, activation, use_dropout))
         for i, c_out in enumerate(output_nc):
-            dec_output_i = nn.Sequential(channel_mapping(nf, nf, norm_layer,
-                use_bias), activation, nn.ReflectionPad2d(3), nn.Conv2d(nf,
-                c_out, kernel_size=7, padding=0, bias=True))
+            dec_output_i = nn.Sequential(channel_mapping(nf, nf, norm_layer, use_bias), activation, nn.ReflectionPad2d(3), nn.Conv2d(nf, c_out, kernel_size=7, padding=0, bias=True))
             self.__setattr__('dec_output_%d' % i, dec_output_i)
 
     def forward(self, x, single_device=False):
         if len(self.gpu_ids) > 1 and not single_device:
-            return nn.parallel.data_parallel(self, x, module_kwargs={
-                'single_device': True})
+            return nn.parallel.data_parallel(self, x, module_kwargs={'single_device': True})
         else:
             hiddens = []
             x = self.pre_conv(x)
@@ -646,10 +567,7 @@ class DualUnetGenerator(nn.Module):
     by input flow. There are skip connections from both encoders to the decoder.
     """
 
-    def __init__(self, pose_nc, appearance_nc, output_nc, aux_output_nc=[],
-        nf=32, max_nf=128, num_scales=7, num_warp_scales=5,
-        n_residual_blocks=2, norm='batch', vis_mode='none', activation=nn.
-        ReLU(False), use_dropout=False, no_end_norm=False, gpu_ids=[]):
+    def __init__(self, pose_nc, appearance_nc, output_nc, aux_output_nc=[], nf=32, max_nf=128, num_scales=7, num_warp_scales=5, n_residual_blocks=2, norm='batch', vis_mode='none', activation=nn.ReLU(False), use_dropout=False, no_end_norm=False, gpu_ids=[]):
         """
         vis_mode: ['none', 'hard_gate', 'soft_gate', 'residual']
         no_end_norm: remove normalization layer at the start and the end.
@@ -679,82 +597,53 @@ class DualUnetGenerator(nn.Module):
         else:
             raise NotImplementedError()
         if not no_end_norm:
-            self.encp_pre_conv = channel_mapping(pose_nc, nf, norm_layer,
-                use_bias)
-            self.enca_pre_conv = channel_mapping(appearance_nc, nf,
-                norm_layer, use_bias)
+            self.encp_pre_conv = channel_mapping(pose_nc, nf, norm_layer, use_bias)
+            self.enca_pre_conv = channel_mapping(appearance_nc, nf, norm_layer, use_bias)
         else:
             self.encp_pre_conv = channel_mapping(pose_nc, nf, Identity, True)
-            self.enca_pre_conv = channel_mapping(appearance_nc, nf,
-                Identity, True)
+            self.enca_pre_conv = channel_mapping(appearance_nc, nf, Identity, True)
         for l in range(num_scales):
             c_in = min(nf * (l + 1), max_nf)
             c_out = min(nf * (l + 2), max_nf)
             for i in range(n_residual_blocks):
-                self.__setattr__('encp_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, None, norm_layer, use_bias, activation,
-                    use_dropout=False))
-            p_downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(c_out))
+                self.__setattr__('encp_%d_res_%d' % (l, i), ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=False))
+            p_downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(c_out))
             self.__setattr__('encp_%d_downsample' % l, p_downsample)
             for i in range(n_residual_blocks):
-                self.__setattr__('enca_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, None, norm_layer, use_bias, activation,
-                    use_dropout=False))
+                self.__setattr__('enca_%d_res_%d' % (l, i), ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=False))
                 if l < num_warp_scales:
                     if vis_mode == 'hard_gate':
                         pass
                     elif vis_mode == 'soft_gate':
-                        self.__setattr__('enca_%d_vis_%d' % (l, i),
-                            GateBlock(c_in, c_in * self.vis_expand_mult,
-                            activation))
+                        self.__setattr__('enca_%d_vis_%d' % (l, i), GateBlock(c_in, c_in * self.vis_expand_mult, activation))
                     elif vis_mode == 'residual':
-                        self.__setattr__('enca_%d_vis_%d' % (l, i),
-                            ResidualBlock(c_in, c_in * self.vis_expand_mult,
-                            norm_layer, use_bias, activation, use_dropout=
-                            False))
+                        self.__setattr__('enca_%d_vis_%d' % (l, i), ResidualBlock(c_in, c_in * self.vis_expand_mult, norm_layer, use_bias, activation, use_dropout=False))
                     elif vis_mode == 'res_no_vis':
-                        self.__setattr__('enca_%d_vis_%d' % (l, i),
-                            ResidualBlock(c_in, None, norm_layer, use_bias,
-                            activation, use_dropout=False))
-            a_downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(c_out))
+                        self.__setattr__('enca_%d_vis_%d' % (l, i), ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=False))
+            a_downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(c_out))
             self.__setattr__('enca_%d_downsample' % l, p_downsample)
             if l == num_scales - 1:
-                self.dec_fuse = channel_mapping(c_out * 2, c_out,
-                    norm_layer, use_bias)
-            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4,
-                kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2
-                ), norm_layer(c_in))
+                self.dec_fuse = channel_mapping(c_out * 2, c_out, norm_layer, use_bias)
+            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4, kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2), norm_layer(c_in))
             self.__setattr__('dec_%d_upsample' % l, upsample)
             for i in range(n_residual_blocks):
                 if l == num_scales - 1 and i == n_residual_blocks - 1:
-                    self.__setattr__('dec_%d_res_%d' % (l, i),
-                        ResidualBlock(c_in, c_in * 2, norm_layer, use_bias,
-                        activation, use_dropout, no_end_norm=no_end_norm))
+                    self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(c_in, c_in * 2, norm_layer, use_bias, activation, use_dropout, no_end_norm=no_end_norm))
                 else:
-                    self.__setattr__('dec_%d_res_%d' % (l, i),
-                        ResidualBlock(c_in, c_in * 2, norm_layer, use_bias,
-                        activation, use_dropout))
-        self.dec_output = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(nf,
-            output_nc, kernel_size=7, padding=0, bias=True))
+                    self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(c_in, c_in * 2, norm_layer, use_bias, activation, use_dropout))
+        self.dec_output = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(nf, output_nc, kernel_size=7, padding=0, bias=True))
         for i, a_nc in enumerate(aux_output_nc):
-            dec_aux_output = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d
-                (nf, a_nc, kernel_size=7, padding=0, bias=True))
+            dec_aux_output = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(nf, a_nc, kernel_size=7, padding=0, bias=True))
             self.__setattr__('dec_aux_output_%d' % i, dec_aux_output)
 
     def _vis_expand(self, feat, vis):
         """
         expand feature from n channels to n*vis_expand_mult channels
         """
-        feat_exp = [(feat * (vis == i).float()) for i in range(self.
-            vis_expand_mult)]
+        feat_exp = [(feat * (vis == i).float()) for i in range(self.vis_expand_mult)]
         return torch.cat(feat_exp, dim=1)
 
-    def forward(self, x_p, x_a, flow=None, vis=None, output_feats=False,
-        single_device=False):
+    def forward(self, x_p, x_a, flow=None, vis=None, output_feats=False, single_device=False):
         """
         x_p: (bsz, pose_nc, h, w), pose input
         x_a: (bsz, appearance_nc, h, w), appearance input
@@ -764,13 +653,9 @@ class DualUnetGenerator(nn.Module):
         if len(self.gpu_ids) > 1 and not single_device:
             if flow is not None:
                 assert vis is not None
-                return nn.parallel.data_parallel(self, (x_p, x_a, flow, vis
-                    ), module_kwargs={'single_device': True, 'output_feats':
-                    output_feats})
+                return nn.parallel.data_parallel(self, (x_p, x_a, flow, vis), module_kwargs={'single_device': True, 'output_feats': output_feats})
             else:
-                return nn.parallel.data_parallel(self, (x_p, x_a),
-                    module_kwargs={'flow': None, 'vis': None,
-                    'single_device': True, 'output_feats': output_feats})
+                return nn.parallel.data_parallel(self, (x_p, x_a), module_kwargs={'flow': None, 'vis': None, 'single_device': True, 'output_feats': output_feats})
         else:
             use_fw = flow is not None
             if use_fw:
@@ -789,10 +674,8 @@ class DualUnetGenerator(nn.Module):
                     x_a = self.__getattr__('enca_%d_res_%d' % (l, i))(x_a)
                     if use_fw and l < self.num_warp_scales:
                         if i == 0:
-                            flow_l = F.avg_pool2d(flow, kernel_size=2 ** l
-                                ).div_(2 ** l) if l > 0 else flow
-                            vis_l = -F.max_pool2d(-vis, kernel_size=2 ** l
-                                ) if l > 0 else vis
+                            flow_l = F.avg_pool2d(flow, kernel_size=2 ** l).div_(2 ** l) if l > 0 else flow
+                            vis_l = -F.max_pool2d(-vis, kernel_size=2 ** l) if l > 0 else vis
                         x_w = warp_acc_flow(x_a, flow_l)
                         if self.vis_mode == 'none':
                             pass
@@ -800,15 +683,12 @@ class DualUnetGenerator(nn.Module):
                             x_w = x_w * (vis_l < 2).float()
                         elif self.vis_mode == 'soft_gate':
                             x_we = self._vis_expand(x_w, vis_l)
-                            x_w = self.__getattr__('enca_%d_vis_%d' % (l, i))(
-                                x_w, x_we)
+                            x_w = self.__getattr__('enca_%d_vis_%d' % (l, i))(x_w, x_we)
                         elif self.vis_mode == 'residual':
                             x_we = self._vis_expand(x_w, vis_l)
-                            x_w = self.__getattr__('enca_%d_vis_%d' % (l, i))(
-                                x_w, x_we)
+                            x_w = self.__getattr__('enca_%d_vis_%d' % (l, i))(x_w, x_we)
                         elif self.vis_mode == 'res_no_vis':
-                            x_w = self.__getattr__('enca_%d_vis_%d' % (l, i))(
-                                x_w)
+                            x_w = self.__getattr__('enca_%d_vis_%d' % (l, i))(x_w)
                         hidden_a.append(x_w)
                     else:
                         hidden_a.append(x_a)
@@ -821,15 +701,13 @@ class DualUnetGenerator(nn.Module):
                 for i in range(self.n_residual_blocks - 1, -1, -1):
                     h_p = hidden_p.pop()
                     h_a = hidden_a.pop()
-                    x = self.__getattr__('dec_%d_res_%d' % (l, i))(x, torch
-                        .cat((h_p, h_a), dim=1))
+                    x = self.__getattr__('dec_%d_res_%d' % (l, i))(x, torch.cat((h_p, h_a), dim=1))
             out = self.dec_output(x)
             if self.aux_output_nc or output_feats:
                 aux_out = []
                 if self.aux_output_nc:
                     for i in range(len(self.aux_output_nc)):
-                        aux_out.append(self.__getattr__('dec_aux_output_%d' %
-                            i)(x))
+                        aux_out.append(self.__getattr__('dec_aux_output_%d' % i)(x))
                 if output_feats:
                     aux_out.append(feats)
                 return out, aux_out
@@ -842,9 +720,7 @@ class UnetDecoder(nn.Module):
     Decoder that decodes hierarachical features. Support multi-task output. Used as an external decoder of a DualUnetGenerator network
     """
 
-    def __init__(self, output_nc=[], nf=32, max_nf=128, num_scales=7,
-        n_residual_blocks=2, norm='batch', activation=nn.ReLU(False),
-        gpu_ids=[]):
+    def __init__(self, output_nc=[], nf=32, max_nf=128, num_scales=7, n_residual_blocks=2, norm='batch', activation=nn.ReLU(False), gpu_ids=[]):
         super(UnetDecoder, self).__init__()
         output_nc = output_nc if isinstance(output_nc, list) else [output_nc]
         self.output_nc = output_nc
@@ -865,24 +741,17 @@ class UnetDecoder(nn.Module):
         for l in range(num_scales):
             c_in = min(nf * (l + 1), max_nf)
             c_out = min(nf * (l + 2), max_nf)
-            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4,
-                kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2
-                ), norm_layer(c_in))
+            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4, kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2), norm_layer(c_in))
             self.__setattr__('dec_%d_upsample' % l, upsample)
             for i in range(n_residual_blocks):
-                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, c_in if i == 0 else None, norm_layer, use_bias,
-                    activation))
+                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(c_in, c_in if i == 0 else None, norm_layer, use_bias, activation))
         for i, c_out in enumerate(output_nc):
-            dec_output_i = nn.Sequential(channel_mapping(nf, nf, norm_layer,
-                use_bias), activation, nn.ReflectionPad2d(3), nn.Conv2d(nf,
-                c_out, kernel_size=7))
+            dec_output_i = nn.Sequential(channel_mapping(nf, nf, norm_layer, use_bias), activation, nn.ReflectionPad2d(3), nn.Conv2d(nf, c_out, kernel_size=7))
             self.__setattr__('dec_output_%d' % i, dec_output_i)
 
     def forward(self, feats, single_device=False):
         if len(self.gpu_ids) > 1 and not single_device:
-            nn.parallel.data_parallel(self, feats, module_kwargs={
-                'single_device': True})
+            nn.parallel.data_parallel(self, feats, module_kwargs={'single_device': True})
         else:
             x, hiddens = feats[-1], feats[:-1]
             for l in range(self.num_scales - 1, -1, -1):
@@ -901,8 +770,7 @@ class UnetDecoder(nn.Module):
 
 class FlowUnetSkipConnectionBlock(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None,
-        outermost=False, innermost=False, norm_layer=nn.BatchNorm2d):
+    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d):
         super(FlowUnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
         self.innermost = innermost
@@ -912,32 +780,27 @@ class FlowUnetSkipConnectionBlock(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         if input_nc is None:
             input_nc = outer_nc
-        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=1, bias=use_bias)
+        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         if outermost:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1)
             down = [downconv, downnorm]
             up = [uprelu, upconv, upnorm]
         elif innermost:
-            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4,
-                stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
         else:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
         self.down = nn.Sequential(*down)
         self.up = nn.Sequential(*up)
         self.submodule = submodule
-        self.predict_flow = nn.Sequential(nn.LeakyReLU(0.1), nn.Conv2d(
-            outer_nc, 2, kernel_size=3, stride=1, padding=1))
+        self.predict_flow = nn.Sequential(nn.LeakyReLU(0.1), nn.Conv2d(outer_nc, 2, kernel_size=3, stride=1, padding=1))
 
     def forward(self, x):
         if self.outermost:
@@ -963,8 +826,7 @@ class FlowUnetSkipConnectionBlock(nn.Module):
 
 class FlowUnet(nn.Module):
 
-    def __init__(self, input_nc, nf=16, start_scale=2, num_scale=5, norm=
-        'batch', gpu_ids=[], max_nf=512):
+    def __init__(self, input_nc, nf=16, start_scale=2, num_scale=5, norm='batch', gpu_ids=[], max_nf=512):
         super(FlowUnet, self).__init__()
         self.gpu_ids = gpu_ids
         self.nf = nf
@@ -983,13 +845,10 @@ class FlowUnet(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        conv_downsample = [nn.Conv2d(input_nc, nf, kernel_size=7, padding=3,
-            bias=use_bias), norm_layer(nf), nn.LeakyReLU(0.1)]
+        conv_downsample = [nn.Conv2d(input_nc, nf, kernel_size=7, padding=3, bias=use_bias), norm_layer(nf), nn.LeakyReLU(0.1)]
         nc = nf
         for i in range(np.log2(start_scale).astype(np.int)):
-            conv_downsample += [nn.Conv2d(nc, 2 * nc, kernel_size=3, stride
-                =2, padding=1, bias=use_bias), norm_layer(2 * nc), nn.
-                LeakyReLU(0.1)]
+            conv_downsample += [nn.Conv2d(nc, 2 * nc, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(2 * nc), nn.LeakyReLU(0.1)]
             nc = nc * 2
         self.conv_downsample = nn.Sequential(*conv_downsample)
         unet_block = None
@@ -998,26 +857,20 @@ class FlowUnet(nn.Module):
             inner_nc = min(max_nf, nc * 2 ** (l + 1))
             innermost = l == num_scale - 1
             outermost = l == 0
-            unet_block = FlowUnetSkipConnectionBlock(outer_nc, inner_nc,
-                input_nc=None, submodule=unet_block, norm_layer=norm_layer,
-                innermost=innermost, outermost=outermost)
+            unet_block = FlowUnetSkipConnectionBlock(outer_nc, inner_nc, input_nc=None, submodule=unet_block, norm_layer=norm_layer, innermost=innermost, outermost=outermost)
         self.unet_block = unet_block
         self.nf_out = min(max_nf, nc)
-        self.predict_vis = nn.Sequential(nn.LeakyReLU(0.1), nn.Conv2d(min(
-            max_nf, nc), 3, kernel_size=3, stride=1, padding=1))
+        self.predict_vis = nn.Sequential(nn.LeakyReLU(0.1), nn.Conv2d(min(max_nf, nc), 3, kernel_size=3, stride=1, padding=1))
 
     def forward(self, input, single_device=False):
         if len(self.gpu_ids) > 1 and not single_device:
-            return nn.parallel.data_parallel(self, input, module_kwargs={
-                'single_device': True})
+            return nn.parallel.data_parallel(self, input, module_kwargs={'single_device': True})
         else:
             x = self.conv_downsample(input)
             feat_out, x_pyr, flow_pyr = self.unet_block(x)
             vis = self.predict_vis(feat_out)
-            flow_out = F.upsample(flow_pyr[0], scale_factor=self.
-                start_scale, mode='bilinear', align_corners=False)
-            vis = F.upsample(vis, scale_factor=self.start_scale, mode=
-                'bilinear', align_corners=False)
+            flow_out = F.upsample(flow_pyr[0], scale_factor=self.start_scale, mode='bilinear', align_corners=False)
+            vis = F.upsample(vis, scale_factor=self.start_scale, mode='bilinear', align_corners=False)
             return flow_out, vis, flow_pyr, feat_out
 
 
@@ -1026,9 +879,7 @@ class FlowUnet_v2(nn.Module):
     A variation of Unet that use residual blocks instead of convolution layer at each scale
     """
 
-    def __init__(self, input_nc, nf=64, max_nf=256, start_scale=2,
-        num_scales=7, n_residual_blocks=2, norm='batch', activation=nn.ReLU
-        (False), use_dropout=False, gpu_ids=[]):
+    def __init__(self, input_nc, nf=64, max_nf=256, start_scale=2, num_scales=7, n_residual_blocks=2, norm='batch', activation=nn.ReLU(False), use_dropout=False, gpu_ids=[]):
         super(FlowUnet_v2, self).__init__()
         self.input_nc = input_nc
         self.nf = nf
@@ -1052,39 +903,26 @@ class FlowUnet_v2(nn.Module):
         for i in range(start_level):
             c_in = min(nf * (i + 1), max_nf)
             c_out = min(nf * (i + 2), max_nf)
-            pre_conv += [ResidualBlock(c_in, None, norm_layer, use_bias,
-                activation, use_dropout=use_dropout), activation, nn.Conv2d
-                (c_in, c_out, kernel_size=3, stride=2, padding=1, bias=
-                use_bias), norm_layer(c_out)]
+            pre_conv += [ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=use_dropout), activation, nn.Conv2d(c_in, c_out, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(c_out)]
         self.pre_conv = nn.Sequential(*pre_conv)
         for l in range(num_scales):
             c_in = min(nf * (start_level + l + 1), max_nf)
             c_out = min(nf * (start_level + l + 2), max_nf)
             for i in range(n_residual_blocks):
-                self.__setattr__('enc_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, None, norm_layer, use_bias, activation,
-                    use_dropout=use_dropout))
-            downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(c_out))
+                self.__setattr__('enc_%d_res_%d' % (l, i), ResidualBlock(c_in, None, norm_layer, use_bias, activation, use_dropout=use_dropout))
+            downsample = nn.Sequential(activation, nn.Conv2d(c_in, c_out, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(c_out))
             self.__setattr__('enc_%d_downsample' % l, downsample)
-            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4,
-                kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2
-                ), norm_layer(c_in))
+            upsample = nn.Sequential(activation, nn.Conv2d(c_out, c_in * 4, kernel_size=3, padding=1, bias=use_bias), nn.PixelShuffle(2), norm_layer(c_in))
             self.__setattr__('dec_%d_upsample' % l, upsample)
             for i in range(n_residual_blocks):
-                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(
-                    c_in, c_in, norm_layer, use_bias, activation, use_dropout))
-            pred_flow = nn.Sequential(activation, nn.Conv2d(c_in, 2,
-                kernel_size=3, padding=1, bias=True))
+                self.__setattr__('dec_%d_res_%d' % (l, i), ResidualBlock(c_in, c_in, norm_layer, use_bias, activation, use_dropout))
+            pred_flow = nn.Sequential(activation, nn.Conv2d(c_in, 2, kernel_size=3, padding=1, bias=True))
             self.__setattr__('pred_flow_%d' % l, pred_flow)
-        self.pred_vis = nn.Sequential(activation, nn.Conv2d(nf * (1 +
-            start_level), 3, kernel_size=3, padding=1, bias=True))
+        self.pred_vis = nn.Sequential(activation, nn.Conv2d(nf * (1 + start_level), 3, kernel_size=3, padding=1, bias=True))
 
     def forward(self, x, single_device=False):
         if len(self.gpu_ids) > 1 and not single_device:
-            return nn.parallel.data_parallel(self, x, module_kwargs={
-                'single_device': True})
+            return nn.parallel.data_parallel(self, x, module_kwargs={'single_device': True})
         else:
             hiddens = []
             flow_pyr = []
@@ -1101,17 +939,14 @@ class FlowUnet_v2(nn.Module):
                     x = self.__getattr__('dec_%d_res_%d' % (l, i))(x, h)
                 flow_pyr = [self.__getattr__('pred_flow_%d' % l)(x)] + flow_pyr
             feat_out = x
-            flow_out = F.upsample(flow_pyr[0], scale_factor=self.
-                start_scale, mode='bilinear', align_corners=False)
-            vis_out = F.upsample(self.pred_vis(x), scale_factor=self.
-                start_scale, mode='bilinear', align_corners=False)
+            flow_out = F.upsample(flow_pyr[0], scale_factor=self.start_scale, mode='bilinear', align_corners=False)
+            vis_out = F.upsample(self.pred_vis(x), scale_factor=self.start_scale, mode='bilinear', align_corners=False)
             return flow_out, vis_out, flow_pyr, feat_out
 
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, output_bias=True, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, output_bias=True, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
@@ -1120,23 +955,17 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw, bias=output_bias)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw, bias=output_bias)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -1152,23 +981,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FlowUnet,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (GateBlock,
+     lambda: ([], {'dim': 4, 'dim_a': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (SS_FlowLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {}),
+     False),
+]
+
 class Test_ly015_intrinsic_flow(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FlowUnet(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GateBlock(*[], **{'dim': 4, 'dim_a': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(SS_FlowLoss(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

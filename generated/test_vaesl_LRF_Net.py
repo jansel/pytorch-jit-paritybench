@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -143,10 +143,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -164,10 +162,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -180,8 +176,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -242,8 +237,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
         super(MultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.threshold = overlap_thresh
@@ -278,8 +272,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if GPU:
             loc_t = loc_t
             conf_t = conf_t
@@ -291,8 +284,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -302,8 +294,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum()
@@ -329,15 +320,11 @@ class LDS(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(ConvBlock, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=False) if relu else None
 
     def forward(self, x):
@@ -355,13 +342,8 @@ class LSN_init(nn.Module):
         super(LSN_init, self).__init__()
         self.out_channels = out_planes
         inter_planes = out_planes // 4
-        self.part_a = nn.Sequential(ConvBlock(in_planes, inter_planes,
-            kernel_size=(3, 3), stride=stride, padding=1), ConvBlock(
-            inter_planes, inter_planes, kernel_size=1, stride=1), ConvBlock
-            (inter_planes, inter_planes, kernel_size=(3, 3), stride=stride,
-            padding=1))
-        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1,
-            stride=1, relu=False)
+        self.part_a = nn.Sequential(ConvBlock(in_planes, inter_planes, kernel_size=(3, 3), stride=stride, padding=1), ConvBlock(inter_planes, inter_planes, kernel_size=1, stride=1), ConvBlock(inter_planes, inter_planes, kernel_size=(3, 3), stride=stride, padding=1))
+        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
 
     def forward(self, x):
         out1 = self.part_a(x)
@@ -375,10 +357,8 @@ class LSN_later(nn.Module):
         super(LSN_later, self).__init__()
         self.out_channels = out_planes
         inter_planes = out_planes // 4
-        self.part_a = ConvBlock(in_planes, inter_planes, kernel_size=(3, 3),
-            stride=stride, padding=1)
-        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1,
-            stride=1, relu=False)
+        self.part_a = ConvBlock(in_planes, inter_planes, kernel_size=(3, 3), stride=stride, padding=1)
+        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
 
     def forward(self, x):
         out1 = self.part_a(x)
@@ -391,8 +371,7 @@ class IBN(nn.Module):
     def __init__(self, out_planes, bn=True):
         super(IBN, self).__init__()
         self.out_channels = out_planes
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
 
     def forward(self, x):
         if self.bn is not None:
@@ -406,10 +385,7 @@ class One_Three_Conv(nn.Module):
         super(One_Three_Conv, self).__init__()
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.single_branch = nn.Sequential(ConvBlock(in_planes,
-            inter_planes, kernel_size=1, stride=1), ConvBlock(inter_planes,
-            out_planes, kernel_size=(3, 3), stride=stride, padding=1, relu=
-            False))
+        self.single_branch = nn.Sequential(ConvBlock(in_planes, inter_planes, kernel_size=1, stride=1), ConvBlock(inter_planes, out_planes, kernel_size=(3, 3), stride=stride, padding=1, relu=False))
 
     def forward(self, x):
         out = self.single_branch(x)
@@ -422,8 +398,7 @@ class Relu_Conv(nn.Module):
         super(Relu_Conv, self).__init__()
         self.out_channels = out_planes
         self.relu = nn.ReLU(inplace=False)
-        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes,
-            kernel_size=(3, 3), stride=stride, padding=1))
+        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes, kernel_size=(3, 3), stride=stride, padding=1))
 
     def forward(self, x):
         x = self.relu(x)
@@ -436,8 +411,7 @@ class Ds_Conv(nn.Module):
     def __init__(self, in_planes, out_planes, stride=1, padding=(1, 1)):
         super(Ds_Conv, self).__init__()
         self.out_channels = out_planes
-        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes,
-            kernel_size=(3, 3), stride=stride, padding=padding, relu=False))
+        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes, kernel_size=(3, 3), stride=stride, padding=padding, relu=False))
 
     def forward(self, x):
         out = self.single_branch(x)
@@ -581,11 +555,9 @@ class LRFNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -615,15 +587,11 @@ class LDS(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(ConvBlock, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=False) if relu else None
 
     def forward(self, x):
@@ -641,13 +609,8 @@ class LSN_init(nn.Module):
         super(LSN_init, self).__init__()
         self.out_channels = out_planes
         inter_planes = out_planes // 4
-        self.part_a = nn.Sequential(ConvBlock(in_planes, inter_planes,
-            kernel_size=(3, 3), stride=stride, padding=1), ConvBlock(
-            inter_planes, inter_planes, kernel_size=1, stride=1), ConvBlock
-            (inter_planes, inter_planes, kernel_size=(3, 3), stride=stride,
-            padding=1))
-        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1,
-            stride=1, relu=False)
+        self.part_a = nn.Sequential(ConvBlock(in_planes, inter_planes, kernel_size=(3, 3), stride=stride, padding=1), ConvBlock(inter_planes, inter_planes, kernel_size=1, stride=1), ConvBlock(inter_planes, inter_planes, kernel_size=(3, 3), stride=stride, padding=1))
+        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
 
     def forward(self, x):
         out1 = self.part_a(x)
@@ -661,10 +624,8 @@ class LSN_later(nn.Module):
         super(LSN_later, self).__init__()
         self.out_channels = out_planes
         inter_planes = out_planes // 4
-        self.part_a = ConvBlock(in_planes, inter_planes, kernel_size=(3, 3),
-            stride=stride, padding=1)
-        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1,
-            stride=1, relu=False)
+        self.part_a = ConvBlock(in_planes, inter_planes, kernel_size=(3, 3), stride=stride, padding=1)
+        self.part_b = ConvBlock(inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
 
     def forward(self, x):
         out1 = self.part_a(x)
@@ -677,8 +638,7 @@ class IBN(nn.Module):
     def __init__(self, out_planes, bn=True):
         super(IBN, self).__init__()
         self.out_channels = out_planes
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
 
     def forward(self, x):
         if self.bn is not None:
@@ -692,10 +652,7 @@ class One_Three_Conv(nn.Module):
         super(One_Three_Conv, self).__init__()
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.single_branch = nn.Sequential(ConvBlock(in_planes,
-            inter_planes, kernel_size=1, stride=1), ConvBlock(inter_planes,
-            out_planes, kernel_size=(3, 3), stride=stride, padding=1, relu=
-            False))
+        self.single_branch = nn.Sequential(ConvBlock(in_planes, inter_planes, kernel_size=1, stride=1), ConvBlock(inter_planes, out_planes, kernel_size=(3, 3), stride=stride, padding=1, relu=False))
 
     def forward(self, x):
         out = self.single_branch(x)
@@ -708,8 +665,7 @@ class Relu_Conv(nn.Module):
         super(Relu_Conv, self).__init__()
         self.out_channels = out_planes
         self.relu = nn.ReLU(inplace=False)
-        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes,
-            kernel_size=(3, 3), stride=stride, padding=1))
+        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes, kernel_size=(3, 3), stride=stride, padding=1))
 
     def forward(self, x):
         x = self.relu(x)
@@ -722,8 +678,7 @@ class Ds_Conv(nn.Module):
     def __init__(self, in_planes, out_planes, stride=1, padding=(1, 1)):
         super(Ds_Conv, self).__init__()
         self.out_channels = out_planes
-        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes,
-            kernel_size=(3, 3), stride=stride, padding=padding, relu=False))
+        self.single_branch = nn.Sequential(ConvBlock(in_planes, out_planes, kernel_size=(3, 3), stride=stride, padding=padding, relu=False))
 
     def forward(self, x):
         out = self.single_branch(x)
@@ -888,11 +843,9 @@ class LRFNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -909,32 +862,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Ds_Conv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IBN,
+     lambda: ([], {'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LDS,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (LSN_init,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LSN_later,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (One_Three_Conv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Relu_Conv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_vaesl_LRF_Net(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Ds_Conv(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(IBN(*[], **{'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LDS(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LSN_init(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(LSN_later(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(One_Three_Conv(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Relu_Conv(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

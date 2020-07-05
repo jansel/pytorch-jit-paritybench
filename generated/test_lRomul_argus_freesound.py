@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -122,8 +123,7 @@ class LSoftLoss(nn.Module):
 
 class NoisyCuratedLoss(nn.Module):
 
-    def __init__(self, noisy_loss, curated_loss, noisy_weight=0.5,
-        curated_weight=0.5):
+    def __init__(self, noisy_loss, curated_loss, noisy_weight=0.5, curated_weight=0.5):
         super().__init__()
         self.noisy_loss = noisy_loss
         self.curated_loss = curated_loss
@@ -186,8 +186,7 @@ class BCEMaxOutlierLoss(nn.Module):
         self.alpha = alpha
 
     def forward(self, output, target, noisy):
-        loss = F.binary_cross_entropy_with_logits(output, target, reduction
-            ='none')
+        loss = F.binary_cross_entropy_with_logits(output, target, reduction='none')
         loss = loss.mean(dim=1)
         with torch.no_grad():
             outlier_mask = loss > self.alpha * loss.max()
@@ -249,10 +248,8 @@ class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3,
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
         self._init_weights()
 
     def _init_weights(self):
@@ -295,10 +292,7 @@ class AuxBlock(nn.Module):
     def __init__(self, last_fc, num_classes, base_size, dropout):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 
-            8, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size *
-            last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size *
-            last_fc, num_classes))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 8, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size * last_fc, num_classes))
 
     def forward(self, x):
         x = self.avg_pool(x)
@@ -309,30 +303,19 @@ class AuxBlock(nn.Module):
 
 class AuxSkipAttention(nn.Module):
 
-    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16,
-        kernel_size=7, last_filters=8, last_fc=2):
+    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16, kernel_size=7, last_filters=8, last_fc=2):
         super().__init__()
         self.conv1 = ConvBlock(in_channels=3, out_channels=base_size)
-        self.skip1 = SkipBlock(in_channels=base_size, out_channels=
-            base_size * 8, scale_factor=8)
-        self.conv2 = ConvBlock(in_channels=base_size, out_channels=
-            base_size * 2)
-        self.skip2 = SkipBlock(in_channels=base_size * 2, out_channels=
-            base_size * 8, scale_factor=4)
-        self.conv3 = ConvBlock(in_channels=base_size * 2, out_channels=
-            base_size * 4)
-        self.skip3 = SkipBlock(in_channels=base_size * 4, out_channels=
-            base_size * 8, scale_factor=2)
-        self.conv4 = ConvBlock(in_channels=base_size * 4, out_channels=
-            base_size * 8)
-        self.attention = ConvolutionalBlockAttentionModule(base_size * 8 * 
-            4, ratio=ratio, kernel_size=kernel_size)
+        self.skip1 = SkipBlock(in_channels=base_size, out_channels=base_size * 8, scale_factor=8)
+        self.conv2 = ConvBlock(in_channels=base_size, out_channels=base_size * 2)
+        self.skip2 = SkipBlock(in_channels=base_size * 2, out_channels=base_size * 8, scale_factor=4)
+        self.conv3 = ConvBlock(in_channels=base_size * 2, out_channels=base_size * 4)
+        self.skip3 = SkipBlock(in_channels=base_size * 4, out_channels=base_size * 8, scale_factor=2)
+        self.conv4 = ConvBlock(in_channels=base_size * 4, out_channels=base_size * 8)
+        self.attention = ConvolutionalBlockAttentionModule(base_size * 8 * 4, ratio=ratio, kernel_size=kernel_size)
         self.merge = SkipBlock(base_size * 8 * 4, base_size * last_filters, 1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size *
-            last_filters, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(
-            base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(
-            base_size * last_fc, num_classes))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * last_filters, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size * last_fc, num_classes))
         self.aux1 = AuxBlock(last_fc, num_classes, base_size, dropout)
         self.aux2 = AuxBlock(last_fc, num_classes, base_size, dropout)
         self.aux3 = AuxBlock(last_fc, num_classes, base_size, dropout)
@@ -359,12 +342,9 @@ class AuxSkipAttention(nn.Module):
 
 class BasicConv2d(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1):
         super().__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, bias=False,
-            dilation=dilation)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False, dilation=dilation)
         self.bn = nn.BatchNorm2d(out_planes)
         self.relu = nn.ReLU(inplace=True)
 
@@ -377,8 +357,7 @@ class BasicConv2d(nn.Module):
 
 class FeatureExtractor(nn.Module):
 
-    def __init__(self, num_classes, input_channels=3, base_size=32, dropout
-        =0.25):
+    def __init__(self, num_classes, input_channels=3, base_size=32, dropout=0.25):
         super(FeatureExtractor, self).__init__()
         self.input_channels = input_channels
         self.base_size = base_size
@@ -421,21 +400,18 @@ class FeatureExtractor(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, groups=groups, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -460,15 +436,13 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -502,33 +476,26 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -544,15 +511,12 @@ class ResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -622,10 +586,8 @@ class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3,
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
         self._init_weights()
 
     def _init_weights(self):
@@ -668,10 +630,7 @@ class AuxBlock(nn.Module):
     def __init__(self, last_fc, num_classes, base_size, dropout):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 
-            8, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size *
-            last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size *
-            last_fc, num_classes))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 8, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size * last_fc, num_classes))
 
     def forward(self, x):
         x = self.avg_pool(x)
@@ -698,34 +657,22 @@ class BidirectionalLSTM(nn.Module):
 
 class RnnAuxSkipAttention(nn.Module):
 
-    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16,
-        kernel_size=7, last_filters=8, last_fc=2):
+    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16, kernel_size=7, last_filters=8, last_fc=2):
         super().__init__()
         self.conv1 = ConvBlock(in_channels=3, out_channels=base_size)
-        self.skip1 = SkipBlock(in_channels=base_size, out_channels=
-            base_size * 8, scale_factor=8)
-        self.conv2 = ConvBlock(in_channels=base_size, out_channels=
-            base_size * 2)
-        self.skip2 = SkipBlock(in_channels=base_size * 2, out_channels=
-            base_size * 8, scale_factor=4)
-        self.conv3 = ConvBlock(in_channels=base_size * 2, out_channels=
-            base_size * 4)
-        self.skip3 = SkipBlock(in_channels=base_size * 4, out_channels=
-            base_size * 8, scale_factor=2)
-        self.conv4 = ConvBlock(in_channels=base_size * 4, out_channels=
-            base_size * 8)
-        self.attention = ConvolutionalBlockAttentionModule(base_size * 8 * 
-            4, ratio=ratio, kernel_size=kernel_size)
+        self.skip1 = SkipBlock(in_channels=base_size, out_channels=base_size * 8, scale_factor=8)
+        self.conv2 = ConvBlock(in_channels=base_size, out_channels=base_size * 2)
+        self.skip2 = SkipBlock(in_channels=base_size * 2, out_channels=base_size * 8, scale_factor=4)
+        self.conv3 = ConvBlock(in_channels=base_size * 2, out_channels=base_size * 4)
+        self.skip3 = SkipBlock(in_channels=base_size * 4, out_channels=base_size * 8, scale_factor=2)
+        self.conv4 = ConvBlock(in_channels=base_size * 4, out_channels=base_size * 8)
+        self.attention = ConvolutionalBlockAttentionModule(base_size * 8 * 4, ratio=ratio, kernel_size=kernel_size)
         self.merge = SkipBlock(base_size * 8 * 4, base_size * last_filters, 1)
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size *
-            last_filters, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(
-            base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(
-            base_size * last_fc, num_classes))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * last_filters, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size * last_fc, num_classes))
         self.aux1 = AuxBlock(last_fc, num_classes, base_size, dropout)
         self.aux2 = AuxBlock(last_fc, num_classes, base_size, dropout)
         self.aux3 = AuxBlock(last_fc, num_classes, base_size, dropout)
-        self.rnn = BidirectionalLSTM(base_size * last_filters, base_size *
-            last_filters, base_size * last_filters)
+        self.rnn = BidirectionalLSTM(base_size * last_filters, base_size * last_filters, base_size * last_filters)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -759,11 +706,9 @@ class SEModule(nn.Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -800,9 +745,7 @@ class Bottleneck(nn.Module):
 
 class SENet(nn.Module):
 
-    def __init__(self, block, layers, groups, reduction, dropout_p=0.2,
-        inplanes=128, input_3x3=True, downsample_kernel_size=3,
-        downsample_padding=1, num_classes=1000):
+    def __init__(self, block, layers, groups, reduction, dropout_p=0.2, inplanes=128, input_3x3=True, downsample_kernel_size=3, downsample_padding=1, num_classes=1000):
         """
         Parameters
         ----------
@@ -849,49 +792,24 @@ class SENet(nn.Module):
         super(SENet, self).__init__()
         self.inplanes = inplanes
         if input_3x3:
-            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2,
-                padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), (
-                'relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64,
-                3, stride=1, padding=1, bias=False)), ('bn2', nn.
-                BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), (
-                'conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1,
-                bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3',
-                nn.ReLU(inplace=True))]
+            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), ('relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)), ('bn2', nn.BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1, bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3', nn.ReLU(inplace=True))]
         else:
-            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=
-                7, stride=2, padding=3, bias=False)), ('bn1', nn.
-                BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
+            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False)), ('bn1', nn.BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
         self.layer0 = nn.Sequential(OrderedDict(layer0_modules))
-        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0],
-            groups=groups, reduction=reduction, downsample_kernel_size=1,
-            downsample_padding=0)
-        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
-        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
-        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
+        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0], groups=groups, reduction=reduction, downsample_kernel_size=1, downsample_padding=0)
+        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
         self.last_linear = nn.Linear(512 * block.expansion, num_classes)
 
-    def _make_layer(self, block, planes, blocks, groups, reduction, stride=
-        1, downsample_kernel_size=1, downsample_padding=0):
+    def _make_layer(self, block, planes, blocks, groups, reduction, stride=1, downsample_kernel_size=1, downsample_padding=0):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=downsample_kernel_size, stride
-                =stride, padding=downsample_padding, bias=False), nn.
-                BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=downsample_kernel_size, stride=stride, padding=downsample_padding, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, groups, reduction,
-            stride, downsample))
+        layers.append(block(self.inplanes, planes, groups, reduction, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups, reduction))
@@ -971,10 +889,8 @@ class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3,
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
         self._init_weights()
 
     def _init_weights(self):
@@ -996,20 +912,12 @@ class ConvBlock(nn.Module):
 
 class SimpleAttention(nn.Module):
 
-    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16,
-        kernel_size=7):
+    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16, kernel_size=7):
         super().__init__()
-        self.conv = nn.Sequential(ConvBlock(in_channels=3, out_channels=
-            base_size), ConvBlock(in_channels=base_size, out_channels=
-            base_size * 2), ConvBlock(in_channels=base_size * 2,
-            out_channels=base_size * 4), ConvBlock(in_channels=base_size * 
-            4, out_channels=base_size * 8))
-        self.attention = ConvolutionalBlockAttentionModule(base_size * 8,
-            ratio=ratio, kernel_size=kernel_size)
+        self.conv = nn.Sequential(ConvBlock(in_channels=3, out_channels=base_size), ConvBlock(in_channels=base_size, out_channels=base_size * 2), ConvBlock(in_channels=base_size * 2, out_channels=base_size * 4), ConvBlock(in_channels=base_size * 4, out_channels=base_size * 8))
+        self.attention = ConvolutionalBlockAttentionModule(base_size * 8, ratio=ratio, kernel_size=kernel_size)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 
-            8, base_size * 2), nn.PReLU(), nn.BatchNorm1d(base_size * 2),
-            nn.Dropout(dropout / 2), nn.Linear(base_size * 2, num_classes))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 8, base_size * 2), nn.PReLU(), nn.BatchNorm1d(base_size * 2), nn.Dropout(dropout / 2), nn.Linear(base_size * 2, num_classes))
 
     def forward(self, x):
         x = self.conv(x)
@@ -1024,10 +932,8 @@ class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 
-            1, 1), nn.BatchNorm2d(out_channels), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3,
-            1, 1), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3, 1, 1), nn.BatchNorm2d(out_channels), nn.ReLU())
         self._init_weights()
 
     def _init_weights(self):
@@ -1051,14 +957,8 @@ class SimpleKaggle(nn.Module):
 
     def __init__(self, num_classes, base_size=64, dropout=0.2):
         super().__init__()
-        self.conv = nn.Sequential(ConvBlock(in_channels=3, out_channels=
-            base_size), ConvBlock(in_channels=base_size, out_channels=
-            base_size * 2), ConvBlock(in_channels=base_size * 2,
-            out_channels=base_size * 4), ConvBlock(in_channels=base_size * 
-            4, out_channels=base_size * 8))
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 
-            8, base_size * 2), nn.PReLU(), nn.BatchNorm1d(base_size * 2),
-            nn.Dropout(dropout / 2), nn.Linear(base_size * 2, num_classes))
+        self.conv = nn.Sequential(ConvBlock(in_channels=3, out_channels=base_size), ConvBlock(in_channels=base_size, out_channels=base_size * 2), ConvBlock(in_channels=base_size * 2, out_channels=base_size * 4), ConvBlock(in_channels=base_size * 4, out_channels=base_size * 8))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * 8, base_size * 2), nn.PReLU(), nn.BatchNorm1d(base_size * 2), nn.Dropout(dropout / 2), nn.Linear(base_size * 2, num_classes))
 
     def forward(self, x):
         x = self.conv(x)
@@ -1120,10 +1020,8 @@ class ConvBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3,
-            1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
         self._init_weights()
 
     def _init_weights(self):
@@ -1163,30 +1061,19 @@ class SkipBlock(nn.Module):
 
 class SkipAttention(nn.Module):
 
-    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16,
-        kernel_size=7, last_filters=8, last_fc=2):
+    def __init__(self, num_classes, base_size=64, dropout=0.2, ratio=16, kernel_size=7, last_filters=8, last_fc=2):
         super().__init__()
         self.conv1 = ConvBlock(in_channels=3, out_channels=base_size)
-        self.skip1 = SkipBlock(in_channels=base_size, out_channels=
-            base_size * 8, scale_factor=8)
-        self.conv2 = ConvBlock(in_channels=base_size, out_channels=
-            base_size * 2)
-        self.skip2 = SkipBlock(in_channels=base_size * 2, out_channels=
-            base_size * 8, scale_factor=4)
-        self.conv3 = ConvBlock(in_channels=base_size * 2, out_channels=
-            base_size * 4)
-        self.skip3 = SkipBlock(in_channels=base_size * 4, out_channels=
-            base_size * 8, scale_factor=2)
-        self.conv4 = ConvBlock(in_channels=base_size * 4, out_channels=
-            base_size * 8)
-        self.attention = ConvolutionalBlockAttentionModule(base_size * 8 * 
-            4, ratio=ratio, kernel_size=kernel_size)
+        self.skip1 = SkipBlock(in_channels=base_size, out_channels=base_size * 8, scale_factor=8)
+        self.conv2 = ConvBlock(in_channels=base_size, out_channels=base_size * 2)
+        self.skip2 = SkipBlock(in_channels=base_size * 2, out_channels=base_size * 8, scale_factor=4)
+        self.conv3 = ConvBlock(in_channels=base_size * 2, out_channels=base_size * 4)
+        self.skip3 = SkipBlock(in_channels=base_size * 4, out_channels=base_size * 8, scale_factor=2)
+        self.conv4 = ConvBlock(in_channels=base_size * 4, out_channels=base_size * 8)
+        self.attention = ConvolutionalBlockAttentionModule(base_size * 8 * 4, ratio=ratio, kernel_size=kernel_size)
         self.merge = SkipBlock(base_size * 8 * 4, base_size * last_filters, 1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size *
-            last_filters, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(
-            base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(
-            base_size * last_fc, num_classes))
+        self.fc = nn.Sequential(nn.Dropout(dropout), nn.Linear(base_size * last_filters, base_size * last_fc), nn.PReLU(), nn.BatchNorm1d(base_size * last_fc), nn.Dropout(dropout / 2), nn.Linear(base_size * last_fc, num_classes))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1223,8 +1110,7 @@ class SEScale(nn.Module):
 
 class FCNet(nn.Module):
 
-    def __init__(self, in_channels, num_classes, base_size=64,
-        reduction_scale=8, p_dropout=0.2):
+    def __init__(self, in_channels, num_classes, base_size=64, reduction_scale=8, p_dropout=0.2):
         super().__init__()
         self.p_dropout = p_dropout
         self.scale = SEScale(in_channels, in_channels // reduction_scale)
@@ -1252,80 +1138,177 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AuxBlock,
+     lambda: ([], {'last_fc': 4, 'num_classes': 4, 'base_size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 32, 4, 32])], {}),
+     True),
+    (AuxSkipAttention,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (BCEMaxOutlierLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BidirectionalLSTM,
+     lambda: ([], {'in_channels': 4, 'hidden': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (ChannelAttention,
+     lambda: ([], {'in_planes': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvolutionalBlockAttentionModule,
+     lambda: ([], {'in_planes': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (FCNet,
+     lambda: ([], {'in_channels': 8, 'num_classes': 4}),
+     lambda: ([torch.rand([8, 8])], {}),
+     True),
+    (FeatureExtractor,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (LSoftLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LqLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoisyCuratedLoss,
+     lambda: ([], {'noisy_loss': MSELoss(), 'curated_loss': MSELoss()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OnlyNoisyLSoftLoss,
+     lambda: ([], {'beta': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OnlyNoisyLqLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RnnAuxSkipAttention,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SEScale,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SimpleAttention,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SimpleKaggle,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SkipAttention,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SkipBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SpatialAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lRomul_argus_freesound(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AuxBlock(*[], **{'last_fc': 4, 'num_classes': 4, 'base_size': 4, 'dropout': 0.5}), [torch.rand([4, 32, 4, 32])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AuxSkipAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BCEMaxOutlierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(BidirectionalLSTM(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ChannelAttention(*[], **{'in_planes': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ConvolutionalBlockAttentionModule(*[], **{'in_planes': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(FeatureExtractor(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(LSoftLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(LqLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(NoisyCuratedLoss(*[], **{'noisy_loss': MSELoss(), 'curated_loss': MSELoss()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(OnlyNoisyLSoftLoss(*[], **{'beta': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(OnlyNoisyLqLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(RnnAuxSkipAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(SEScale(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(SimpleAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(SimpleKaggle(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(SkipAttention(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(SkipBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
     def test_022(self):
-        self._check(SpatialAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
 

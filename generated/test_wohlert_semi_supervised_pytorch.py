@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,8 +65,7 @@ def log_sum_exp(tensor, dim=-1, sum_op=torch.sum):
     :return: LSE
     """
     max, _ = torch.max(tensor, dim=dim, keepdim=True)
-    return torch.log(sum_op(torch.exp(tensor - max), dim=dim, keepdim=True) +
-        1e-08) + max
+    return torch.log(sum_op(torch.exp(tensor - max), dim=dim, keepdim=True) + 1e-08) + max
 
 
 class ImportanceWeightedSampler(object):
@@ -136,8 +136,7 @@ class SVI(nn.Module):
     """
     base_sampler = ImportanceWeightedSampler(mc=1, iw=1)
 
-    def __init__(self, model, likelihood=F.binary_cross_entropy, beta=
-        repeat(1), sampler=base_sampler):
+    def __init__(self, model, likelihood=F.binary_cross_entropy, beta=repeat(1), sampler=base_sampler):
         """
         Initialises a new SVI optimizer for semi-
         supervised learning.
@@ -192,8 +191,7 @@ class PlanarNormalizingFlow(nn.Module):
     def forward(self, z):
         uw = torch.dot(self.u, self.w)
         muw = -1 + F.softplus(uw)
-        uhat = self.u + (muw - uw) * torch.transpose(self.w, 0, -1
-            ) / torch.sum(self.w ** 2)
+        uhat = self.u + (muw - uw) * torch.transpose(self.w, 0, -1) / torch.sum(self.w ** 2)
         zwb = torch.mv(z, self.w) + self.b
         f_z = z + uhat.view(1, -1) * F.tanh(zwb).view(-1, 1)
         psi = (1 - F.tanh(zwb) ** 2).view(-1, 1) * self.w.view(1, -1)
@@ -207,11 +205,9 @@ class NormalizingFlows(nn.Module):
     Presents a sequence of normalizing flows as a torch.nn.Module.
     """
 
-    def __init__(self, in_features, flow_type=PlanarNormalizingFlow, n_flows=1
-        ):
+    def __init__(self, in_features, flow_type=PlanarNormalizingFlow, n_flows=1):
         super(NormalizingFlows, self).__init__()
-        self.flows = nn.ModuleList([flow_type(in_features) for _ in range(
-            n_flows)])
+        self.flows = nn.ModuleList([flow_type(in_features) for _ in range(n_flows)])
 
     def forward(self, z):
         log_det_jacobian = []
@@ -263,14 +259,12 @@ class Perceptron(nn.Module):
         self.dims = dims
         self.activation_fn = activation_fn
         self.output_activation = output_activation
-        self.layers = nn.ModuleList(list(map(lambda d: nn.Linear(*d), list(
-            zip(dims, dims[1:])))))
+        self.layers = nn.ModuleList(list(map(lambda d: nn.Linear(*d), list(zip(dims, dims[1:])))))
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
             x = layer(x)
-            if i == len(self.layers
-                ) - 1 and self.output_activation is not None:
+            if i == len(self.layers) - 1 and self.output_activation is not None:
                 x = self.output_activation(x)
             else:
                 x = self.activation_fn(x)
@@ -314,8 +308,7 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         [x_dim, h_dim, z_dim] = dims
         neurons = [x_dim, *h_dim]
-        linear_layers = [nn.Linear(neurons[i - 1], neurons[i]) for i in
-            range(1, len(neurons))]
+        linear_layers = [nn.Linear(neurons[i - 1], neurons[i]) for i in range(1, len(neurons))]
         self.hidden = nn.ModuleList(linear_layers)
         self.sample = sample_layer(h_dim[-1], z_dim)
 
@@ -342,8 +335,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         [z_dim, h_dim, x_dim] = dims
         neurons = [z_dim, *h_dim]
-        linear_layers = [nn.Linear(neurons[i - 1], neurons[i]) for i in
-            range(1, len(neurons))]
+        linear_layers = [nn.Linear(neurons[i - 1], neurons[i]) for i in range(1, len(neurons))]
         self.hidden = nn.ModuleList(linear_layers)
         self.reconstruction = nn.Linear(h_dim[-1], x_dim)
         self.output_activation = nn.Sigmoid()
@@ -364,8 +356,7 @@ def log_gaussian(x, mu, log_var):
     :param log_var: log variance of distribution
     :return: log N(x|µ,σ)
     """
-    log_pdf = -0.5 * math.log(2 * math.pi) - log_var / 2 - (x - mu) ** 2 / (
-        2 * torch.exp(log_var))
+    log_pdf = -0.5 * math.log(2 * math.pi) - log_var / 2 - (x - mu) ** 2 / (2 * torch.exp(log_var))
     return torch.sum(log_pdf, dim=-1)
 
 
@@ -475,8 +466,7 @@ class GumbelSoftmax(Stochastic):
     def forward(self, x, tau=1.0):
         logits = self.logits(x).view(-1, self.n_distributions)
         softmax = F.softmax(logits, dim=-1)
-        sample = self.reparametrize(logits, tau).view(-1, self.
-            n_distributions, self.out_features)
+        sample = self.reparametrize(logits, tau).view(-1, self.n_distributions, self.out_features)
         sample = torch.mean(sample, dim=1)
         return sample, softmax
 
@@ -498,8 +488,7 @@ class GumbelAutoencoder(nn.Module):
         self.n_samples = n_samples
         self.encoder = Perceptron([x_dim, *h_dim])
         self.sampler = GumbelSoftmax(h_dim[-1], z_dim, n_samples)
-        self.decoder = Perceptron([z_dim, *reversed(h_dim), x_dim],
-            output_activation=F.sigmoid)
+        self.decoder = Perceptron([z_dim, *reversed(h_dim), x_dim], output_activation=F.sigmoid)
         self.kl_divergence = 0
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -563,8 +552,7 @@ class GaussianMerge(GaussianSample):
     def forward(self, z, mu1, log_var1):
         mu2 = self.mu(z)
         log_var2 = F.softplus(self.log_var(z))
-        precision1, precision2 = 1 / torch.exp(log_var1), 1 / torch.exp(
-            log_var2)
+        precision1, precision2 = 1 / torch.exp(log_var1), 1 / torch.exp(log_var2)
         mu = (mu1 * precision1 + mu2 * precision2) / (precision1 + precision2)
         var = 1 / (precision1 + precision2)
         log_var = torch.log(var + 1e-08)
@@ -609,39 +597,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'dims': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GaussianMerge,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GaussianSample,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GumbelSoftmax,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'n_distributions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LadderDecoder,
+     lambda: ([], {'dims': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LadderEncoder,
+     lambda: ([], {'dims': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (NormalizingFlows,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Perceptron,
+     lambda: ([], {'dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PlanarNormalizingFlow,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_wohlert_semi_supervised_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Classifier(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GaussianMerge(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GaussianSample(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GumbelSoftmax(*[], **{'in_features': 4, 'out_features': 4, 'n_distributions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LadderDecoder(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LadderEncoder(*[], **{'dims': [4, 4, 4]}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(NormalizingFlows(*[], **{'in_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Perceptron(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(PlanarNormalizingFlow(*[], **{'in_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[8])
 

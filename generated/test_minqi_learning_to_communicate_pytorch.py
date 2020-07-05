@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,37 +65,27 @@ class SwitchCNet(nn.Module):
         self.prev_message_lookup = None
         if opt.model_action_aware:
             if opt.model_dial:
-                self.prev_action_lookup = nn.Embedding(opt.
-                    game_action_space_total, opt.model_rnn_size)
+                self.prev_action_lookup = nn.Embedding(opt.game_action_space_total, opt.model_rnn_size)
             else:
-                self.prev_action_lookup = nn.Embedding(opt.
-                    game_action_space + 1, opt.model_rnn_size)
-                self.prev_message_lookup = nn.Embedding(opt.game_comm_bits +
-                    1, opt.model_rnn_size)
+                self.prev_action_lookup = nn.Embedding(opt.game_action_space + 1, opt.model_rnn_size)
+                self.prev_message_lookup = nn.Embedding(opt.game_comm_bits + 1, opt.model_rnn_size)
         if opt.comm_enabled:
             self.messages_mlp = nn.Sequential()
             if opt.model_bn:
-                self.messages_mlp.add_module('batchnorm1', nn.BatchNorm1d(
-                    self.comm_size))
-            self.messages_mlp.add_module('linear1', nn.Linear(self.
-                comm_size, opt.model_rnn_size))
+                self.messages_mlp.add_module('batchnorm1', nn.BatchNorm1d(self.comm_size))
+            self.messages_mlp.add_module('linear1', nn.Linear(self.comm_size, opt.model_rnn_size))
             if opt.model_comm_narrow:
                 self.messages_mlp.add_module('relu1', nn.ReLU(inplace=True))
         dropout_rate = opt.model_rnn_dropout_rate or 0
-        self.rnn = nn.GRU(input_size=opt.model_rnn_size, hidden_size=opt.
-            model_rnn_size, num_layers=opt.model_rnn_layers, dropout=
-            dropout_rate, batch_first=True)
+        self.rnn = nn.GRU(input_size=opt.model_rnn_size, hidden_size=opt.model_rnn_size, num_layers=opt.model_rnn_layers, dropout=dropout_rate, batch_first=True)
         self.outputs = nn.Sequential()
         if dropout_rate > 0:
             self.outputs.add_module('dropout1', nn.Dropout(dropout_rate))
-        self.outputs.add_module('linear1', nn.Linear(opt.model_rnn_size,
-            opt.model_rnn_size))
+        self.outputs.add_module('linear1', nn.Linear(opt.model_rnn_size, opt.model_rnn_size))
         if opt.model_bn:
-            self.outputs.add_module('batchnorm1', nn.BatchNorm1d(opt.
-                model_rnn_size))
+            self.outputs.add_module('batchnorm1', nn.BatchNorm1d(opt.model_rnn_size))
         self.outputs.add_module('relu1', nn.ReLU(inplace=True))
-        self.outputs.add_module('linear2', nn.Linear(opt.model_rnn_size,
-            opt.game_action_space_total))
+        self.outputs.add_module('linear2', nn.Linear(opt.model_rnn_size, opt.game_action_space_total))
 
     def get_params(self):
         return list(self.parameters())
@@ -149,9 +140,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SwitchCNet,
+     lambda: ([], {'opt': _mock_config(game_comm_bits=4, game_nagents=4, model_rnn_size=4, model_action_aware=4, model_dial=4, game_action_space_total=4, comm_enabled=4, model_bn=4, model_comm_narrow=4, model_rnn_dropout_rate=0.5, model_rnn_layers=1)}),
+     lambda: ([torch.zeros([1024], dtype=torch.int64), torch.rand([64, 4, 4, 4]), torch.rand([1, 1024, 4]), torch.zeros([1024], dtype=torch.int64), torch.zeros([1024], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_minqi_learning_to_communicate_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(SwitchCNet(*[], **{'opt': _mock_config(game_comm_bits=4, game_nagents=4, model_rnn_size=4, model_action_aware=4, model_dial=4, game_action_space_total=4, comm_enabled=4, model_bn=4, model_comm_narrow=4, model_rnn_dropout_rate=0.5, model_rnn_layers=1)}), [torch.zeros([1024], dtype=torch.int64), torch.rand([64, 4, 4, 4]), torch.rand([1, 1024, 4]), torch.zeros([1024], dtype=torch.int64), torch.zeros([1024], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,32 +66,22 @@ class _netG(nn.Module):
         self.ngpu = ngpu
         self.nz = nz
         self.fc1 = nn.Linear(110, 768)
-        self.tconv2 = nn.Sequential(nn.ConvTranspose2d(768, 384, 5, 2, 0,
-            bias=False), nn.BatchNorm2d(384), nn.ReLU(True))
-        self.tconv3 = nn.Sequential(nn.ConvTranspose2d(384, 256, 5, 2, 0,
-            bias=False), nn.BatchNorm2d(256), nn.ReLU(True))
-        self.tconv4 = nn.Sequential(nn.ConvTranspose2d(256, 192, 5, 2, 0,
-            bias=False), nn.BatchNorm2d(192), nn.ReLU(True))
-        self.tconv5 = nn.Sequential(nn.ConvTranspose2d(192, 64, 5, 2, 0,
-            bias=False), nn.BatchNorm2d(64), nn.ReLU(True))
-        self.tconv6 = nn.Sequential(nn.ConvTranspose2d(64, 3, 8, 2, 0, bias
-            =False), nn.Tanh())
+        self.tconv2 = nn.Sequential(nn.ConvTranspose2d(768, 384, 5, 2, 0, bias=False), nn.BatchNorm2d(384), nn.ReLU(True))
+        self.tconv3 = nn.Sequential(nn.ConvTranspose2d(384, 256, 5, 2, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(True))
+        self.tconv4 = nn.Sequential(nn.ConvTranspose2d(256, 192, 5, 2, 0, bias=False), nn.BatchNorm2d(192), nn.ReLU(True))
+        self.tconv5 = nn.Sequential(nn.ConvTranspose2d(192, 64, 5, 2, 0, bias=False), nn.BatchNorm2d(64), nn.ReLU(True))
+        self.tconv6 = nn.Sequential(nn.ConvTranspose2d(64, 3, 8, 2, 0, bias=False), nn.Tanh())
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             input = input.view(-1, self.nz)
             fc1 = nn.parallel.data_parallel(self.fc1, input, range(self.ngpu))
             fc1 = fc1.view(-1, 768, 1, 1)
-            tconv2 = nn.parallel.data_parallel(self.tconv2, fc1, range(self
-                .ngpu))
-            tconv3 = nn.parallel.data_parallel(self.tconv3, tconv2, range(
-                self.ngpu))
-            tconv4 = nn.parallel.data_parallel(self.tconv4, tconv3, range(
-                self.ngpu))
-            tconv5 = nn.parallel.data_parallel(self.tconv5, tconv4, range(
-                self.ngpu))
-            tconv5 = nn.parallel.data_parallel(self.tconv6, tconv5, range(
-                self.ngpu))
+            tconv2 = nn.parallel.data_parallel(self.tconv2, fc1, range(self.ngpu))
+            tconv3 = nn.parallel.data_parallel(self.tconv3, tconv2, range(self.ngpu))
+            tconv4 = nn.parallel.data_parallel(self.tconv4, tconv3, range(self.ngpu))
+            tconv5 = nn.parallel.data_parallel(self.tconv5, tconv4, range(self.ngpu))
+            tconv5 = nn.parallel.data_parallel(self.tconv6, tconv5, range(self.ngpu))
             output = tconv5
         else:
             input = input.view(-1, self.nz)
@@ -110,23 +101,12 @@ class _netD(nn.Module):
     def __init__(self, ngpu, num_classes=10):
         super(_netD, self).__init__()
         self.ngpu = ngpu
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, 3, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
-        self.conv2 = nn.Sequential(nn.Conv2d(16, 32, 3, 1, 0, bias=False),
-            nn.BatchNorm2d(32), nn.LeakyReLU(0.2, inplace=True), nn.Dropout
-            (0.5, inplace=False))
-        self.conv3 = nn.Sequential(nn.Conv2d(32, 64, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(64), nn.LeakyReLU(0.2, inplace=True), nn.Dropout
-            (0.5, inplace=False))
-        self.conv4 = nn.Sequential(nn.Conv2d(64, 128, 3, 1, 0, bias=False),
-            nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.
-            Dropout(0.5, inplace=False))
-        self.conv5 = nn.Sequential(nn.Conv2d(128, 256, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(256), nn.LeakyReLU(0.2, inplace=True), nn.
-            Dropout(0.5, inplace=False))
-        self.conv6 = nn.Sequential(nn.Conv2d(256, 512, 3, 1, 0, bias=False),
-            nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.
-            Dropout(0.5, inplace=False))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, 3, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv2 = nn.Sequential(nn.Conv2d(16, 32, 3, 1, 0, bias=False), nn.BatchNorm2d(32), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv3 = nn.Sequential(nn.Conv2d(32, 64, 3, 2, 1, bias=False), nn.BatchNorm2d(64), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv4 = nn.Sequential(nn.Conv2d(64, 128, 3, 1, 0, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv5 = nn.Sequential(nn.Conv2d(128, 256, 3, 2, 1, bias=False), nn.BatchNorm2d(256), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv6 = nn.Sequential(nn.Conv2d(256, 512, 3, 1, 0, bias=False), nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
         self.fc_dis = nn.Linear(13 * 13 * 512, 1)
         self.fc_aux = nn.Linear(13 * 13 * 512, num_classes)
         self.softmax = nn.Softmax()
@@ -134,23 +114,15 @@ class _netD(nn.Module):
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
-            conv1 = nn.parallel.data_parallel(self.conv1, input, range(self
-                .ngpu))
-            conv2 = nn.parallel.data_parallel(self.conv2, conv1, range(self
-                .ngpu))
-            conv3 = nn.parallel.data_parallel(self.conv3, conv2, range(self
-                .ngpu))
-            conv4 = nn.parallel.data_parallel(self.conv4, conv3, range(self
-                .ngpu))
-            conv5 = nn.parallel.data_parallel(self.conv5, conv4, range(self
-                .ngpu))
-            conv6 = nn.parallel.data_parallel(self.conv6, conv5, range(self
-                .ngpu))
+            conv1 = nn.parallel.data_parallel(self.conv1, input, range(self.ngpu))
+            conv2 = nn.parallel.data_parallel(self.conv2, conv1, range(self.ngpu))
+            conv3 = nn.parallel.data_parallel(self.conv3, conv2, range(self.ngpu))
+            conv4 = nn.parallel.data_parallel(self.conv4, conv3, range(self.ngpu))
+            conv5 = nn.parallel.data_parallel(self.conv5, conv4, range(self.ngpu))
+            conv6 = nn.parallel.data_parallel(self.conv6, conv5, range(self.ngpu))
             flat6 = conv6.view(-1, 13 * 13 * 512)
-            fc_dis = nn.parallel.data_parallel(self.fc_dis, flat6, range(
-                self.ngpu))
-            fc_aux = nn.parallel.data_parallel(self.fc_aux, flat6, range(
-                self.ngpu))
+            fc_dis = nn.parallel.data_parallel(self.fc_dis, flat6, range(self.ngpu))
+            fc_aux = nn.parallel.data_parallel(self.fc_aux, flat6, range(self.ngpu))
         else:
             conv1 = self.conv1(input)
             conv2 = self.conv2(conv1)
@@ -173,28 +145,20 @@ class _netG_CIFAR10(nn.Module):
         self.ngpu = ngpu
         self.nz = nz
         self.fc1 = nn.Linear(110, 384)
-        self.tconv2 = nn.Sequential(nn.ConvTranspose2d(384, 192, 4, 1, 0,
-            bias=False), nn.BatchNorm2d(192), nn.ReLU(True))
-        self.tconv3 = nn.Sequential(nn.ConvTranspose2d(192, 96, 4, 2, 1,
-            bias=False), nn.BatchNorm2d(96), nn.ReLU(True))
-        self.tconv4 = nn.Sequential(nn.ConvTranspose2d(96, 48, 4, 2, 1,
-            bias=False), nn.BatchNorm2d(48), nn.ReLU(True))
-        self.tconv5 = nn.Sequential(nn.ConvTranspose2d(48, 3, 4, 2, 1, bias
-            =False), nn.Tanh())
+        self.tconv2 = nn.Sequential(nn.ConvTranspose2d(384, 192, 4, 1, 0, bias=False), nn.BatchNorm2d(192), nn.ReLU(True))
+        self.tconv3 = nn.Sequential(nn.ConvTranspose2d(192, 96, 4, 2, 1, bias=False), nn.BatchNorm2d(96), nn.ReLU(True))
+        self.tconv4 = nn.Sequential(nn.ConvTranspose2d(96, 48, 4, 2, 1, bias=False), nn.BatchNorm2d(48), nn.ReLU(True))
+        self.tconv5 = nn.Sequential(nn.ConvTranspose2d(48, 3, 4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
             input = input.view(-1, self.nz)
             fc1 = nn.parallel.data_parallel(self.fc1, input, range(self.ngpu))
             fc1 = fc1.view(-1, 384, 1, 1)
-            tconv2 = nn.parallel.data_parallel(self.tconv2, fc1, range(self
-                .ngpu))
-            tconv3 = nn.parallel.data_parallel(self.tconv3, tconv2, range(
-                self.ngpu))
-            tconv4 = nn.parallel.data_parallel(self.tconv4, tconv3, range(
-                self.ngpu))
-            tconv5 = nn.parallel.data_parallel(self.tconv5, tconv4, range(
-                self.ngpu))
+            tconv2 = nn.parallel.data_parallel(self.tconv2, fc1, range(self.ngpu))
+            tconv3 = nn.parallel.data_parallel(self.tconv3, tconv2, range(self.ngpu))
+            tconv4 = nn.parallel.data_parallel(self.tconv4, tconv3, range(self.ngpu))
+            tconv5 = nn.parallel.data_parallel(self.tconv5, tconv4, range(self.ngpu))
             output = tconv5
         else:
             input = input.view(-1, self.nz)
@@ -213,23 +177,12 @@ class _netD_CIFAR10(nn.Module):
     def __init__(self, ngpu, num_classes=10):
         super(_netD_CIFAR10, self).__init__()
         self.ngpu = ngpu
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, 3, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
-        self.conv2 = nn.Sequential(nn.Conv2d(16, 32, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(32), nn.LeakyReLU(0.2, inplace=True), nn.Dropout
-            (0.5, inplace=False))
-        self.conv3 = nn.Sequential(nn.Conv2d(32, 64, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(64), nn.LeakyReLU(0.2, inplace=True), nn.Dropout
-            (0.5, inplace=False))
-        self.conv4 = nn.Sequential(nn.Conv2d(64, 128, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.
-            Dropout(0.5, inplace=False))
-        self.conv5 = nn.Sequential(nn.Conv2d(128, 256, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(256), nn.LeakyReLU(0.2, inplace=True), nn.
-            Dropout(0.5, inplace=False))
-        self.conv6 = nn.Sequential(nn.Conv2d(256, 512, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.
-            Dropout(0.5, inplace=False))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, 3, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv2 = nn.Sequential(nn.Conv2d(16, 32, 3, 1, 1, bias=False), nn.BatchNorm2d(32), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv3 = nn.Sequential(nn.Conv2d(32, 64, 3, 2, 1, bias=False), nn.BatchNorm2d(64), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv4 = nn.Sequential(nn.Conv2d(64, 128, 3, 1, 1, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv5 = nn.Sequential(nn.Conv2d(128, 256, 3, 2, 1, bias=False), nn.BatchNorm2d(256), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
+        self.conv6 = nn.Sequential(nn.Conv2d(256, 512, 3, 1, 1, bias=False), nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.Dropout(0.5, inplace=False))
         self.fc_dis = nn.Linear(4 * 4 * 512, 1)
         self.fc_aux = nn.Linear(4 * 4 * 512, num_classes)
         self.softmax = nn.Softmax()
@@ -237,23 +190,15 @@ class _netD_CIFAR10(nn.Module):
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
-            conv1 = nn.parallel.data_parallel(self.conv1, input, range(self
-                .ngpu))
-            conv2 = nn.parallel.data_parallel(self.conv2, conv1, range(self
-                .ngpu))
-            conv3 = nn.parallel.data_parallel(self.conv3, conv2, range(self
-                .ngpu))
-            conv4 = nn.parallel.data_parallel(self.conv4, conv3, range(self
-                .ngpu))
-            conv5 = nn.parallel.data_parallel(self.conv5, conv4, range(self
-                .ngpu))
-            conv6 = nn.parallel.data_parallel(self.conv6, conv5, range(self
-                .ngpu))
+            conv1 = nn.parallel.data_parallel(self.conv1, input, range(self.ngpu))
+            conv2 = nn.parallel.data_parallel(self.conv2, conv1, range(self.ngpu))
+            conv3 = nn.parallel.data_parallel(self.conv3, conv2, range(self.ngpu))
+            conv4 = nn.parallel.data_parallel(self.conv4, conv3, range(self.ngpu))
+            conv5 = nn.parallel.data_parallel(self.conv5, conv4, range(self.ngpu))
+            conv6 = nn.parallel.data_parallel(self.conv6, conv5, range(self.ngpu))
             flat6 = conv6.view(-1, 4 * 4 * 512)
-            fc_dis = nn.parallel.data_parallel(self.fc_dis, flat6, range(
-                self.ngpu))
-            fc_aux = nn.parallel.data_parallel(self.fc_aux, flat6, range(
-                self.ngpu))
+            fc_dis = nn.parallel.data_parallel(self.fc_dis, flat6, range(self.ngpu))
+            fc_aux = nn.parallel.data_parallel(self.fc_aux, flat6, range(self.ngpu))
         else:
             conv1 = self.conv1(input)
             conv2 = self.conv2(conv1)
@@ -273,9 +218,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (_netD,
+     lambda: ([], {'ngpu': False}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+    (_netD_CIFAR10,
+     lambda: ([], {'ngpu': False}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_clvrai_ACGAN_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(_netD_CIFAR10(*[], **{'ngpu': False}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

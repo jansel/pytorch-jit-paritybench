@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,11 +51,9 @@ from torch.nn import functional as F
 
 class WNConv2d(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size, stride=1,
-        padding=0, bias=True, activation=None):
+    def __init__(self, in_channel, out_channel, kernel_size, stride=1, padding=0, bias=True, activation=None):
         super().__init__()
-        self.conv = nn.utils.weight_norm(nn.Conv2d(in_channel, out_channel,
-            kernel_size, stride=stride, padding=padding, bias=bias))
+        self.conv = nn.utils.weight_norm(nn.Conv2d(in_channel, out_channel, kernel_size, stride=stride, padding=padding, bias=bias))
         self.out_channel = out_channel
         if isinstance(kernel_size, int):
             kernel_size = [kernel_size, kernel_size]
@@ -70,8 +69,7 @@ class WNConv2d(nn.Module):
 
 class CausalConv2d(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size, stride=1,
-        padding='downright', activation=None):
+    def __init__(self, in_channel, out_channel, kernel_size, stride=1, padding='downright', activation=None):
         super().__init__()
         if isinstance(kernel_size, int):
             kernel_size = [kernel_size] * 2
@@ -85,8 +83,7 @@ class CausalConv2d(nn.Module):
         if padding == 'causal':
             self.causal = kernel_size[1] // 2
         self.pad = nn.ZeroPad2d(pad)
-        self.conv = WNConv2d(in_channel, out_channel, kernel_size, stride=
-            stride, padding=0, activation=activation)
+        self.conv = WNConv2d(in_channel, out_channel, kernel_size, stride=stride, padding=0, activation=activation)
 
     def forward(self, input):
         out = self.pad(input)
@@ -98,8 +95,7 @@ class CausalConv2d(nn.Module):
 
 class GatedResBlock(nn.Module):
 
-    def __init__(self, in_channel, channel, kernel_size, conv='wnconv2d',
-        activation=nn.ELU, dropout=0.1, auxiliary_channel=0, condition_dim=0):
+    def __init__(self, in_channel, channel, kernel_size, conv='wnconv2d', activation=nn.ELU, dropout=0.1, auxiliary_channel=0, condition_dim=0):
         super().__init__()
         if conv == 'wnconv2d':
             conv_module = partial(WNConv2d, padding=kernel_size // 2)
@@ -114,8 +110,7 @@ class GatedResBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.conv2 = conv_module(channel, in_channel * 2, kernel_size)
         if condition_dim > 0:
-            self.condition = WNConv2d(condition_dim, in_channel * 2, 1,
-                bias=False)
+            self.condition = WNConv2d(condition_dim, in_channel * 2, 1, bias=False)
         self.gate = nn.GLU(1)
 
     def forward(self, input, aux_input=None, condition=None):
@@ -139,8 +134,7 @@ def causal_mask(size):
     mask = np.triu(np.ones(shape), k=1).astype(np.uint8).T
     start_mask = np.ones(size).astype(np.float32)
     start_mask[0] = 0
-    return torch.from_numpy(mask).unsqueeze(0), torch.from_numpy(start_mask
-        ).unsqueeze(1)
+    return torch.from_numpy(mask).unsqueeze(0), torch.from_numpy(start_mask).unsqueeze(1)
 
 
 def wn_linear(in_dim, out_dim):
@@ -149,8 +143,7 @@ def wn_linear(in_dim, out_dim):
 
 class CausalAttention(nn.Module):
 
-    def __init__(self, query_channel, key_channel, channel, n_head=8,
-        dropout=0.1):
+    def __init__(self, query_channel, key_channel, channel, n_head=8, dropout=0.1):
         super().__init__()
         self.query = wn_linear(query_channel, channel)
         self.key = wn_linear(key_channel, channel)
@@ -163,8 +156,7 @@ class CausalAttention(nn.Module):
         batch, _, height, width = key.shape
 
         def reshape(input):
-            return input.view(batch, -1, self.n_head, self.dim_head).transpose(
-                1, 2)
+            return input.view(batch, -1, self.n_head, self.dim_head).transpose(1, 2)
         query_flat = query.view(batch, query.shape[1], -1).transpose(1, 2)
         key_flat = key.view(batch, key.shape[1], -1).transpose(1, 2)
         query = reshape(self.query(query_flat))
@@ -178,32 +170,25 @@ class CausalAttention(nn.Module):
         attn = torch.softmax(attn, 3) * start_mask
         attn = self.dropout(attn)
         out = attn @ value
-        out = out.transpose(1, 2).reshape(batch, height, width, self.
-            dim_head * self.n_head)
+        out = out.transpose(1, 2).reshape(batch, height, width, self.dim_head * self.n_head)
         out = out.permute(0, 3, 1, 2)
         return out
 
 
 class PixelBlock(nn.Module):
 
-    def __init__(self, in_channel, channel, kernel_size, n_res_block,
-        attention=True, dropout=0.1, condition_dim=0):
+    def __init__(self, in_channel, channel, kernel_size, n_res_block, attention=True, dropout=0.1, condition_dim=0):
         super().__init__()
         resblocks = []
         for i in range(n_res_block):
-            resblocks.append(GatedResBlock(in_channel, channel, kernel_size,
-                conv='causal', dropout=dropout, condition_dim=condition_dim))
+            resblocks.append(GatedResBlock(in_channel, channel, kernel_size, conv='causal', dropout=dropout, condition_dim=condition_dim))
         self.resblocks = nn.ModuleList(resblocks)
         self.attention = attention
         if attention:
-            self.key_resblock = GatedResBlock(in_channel * 2 + 2,
-                in_channel, 1, dropout=dropout)
-            self.query_resblock = GatedResBlock(in_channel + 2, in_channel,
-                1, dropout=dropout)
-            self.causal_attention = CausalAttention(in_channel + 2, 
-                in_channel * 2 + 2, in_channel // 2, dropout=dropout)
-            self.out_resblock = GatedResBlock(in_channel, in_channel, 1,
-                auxiliary_channel=in_channel // 2, dropout=dropout)
+            self.key_resblock = GatedResBlock(in_channel * 2 + 2, in_channel, 1, dropout=dropout)
+            self.query_resblock = GatedResBlock(in_channel + 2, in_channel, 1, dropout=dropout)
+            self.causal_attention = CausalAttention(in_channel + 2, in_channel * 2 + 2, in_channel // 2, dropout=dropout)
+            self.out_resblock = GatedResBlock(in_channel, in_channel, 1, auxiliary_channel=in_channel // 2, dropout=dropout)
         else:
             self.out = WNConv2d(in_channel + 2, in_channel, 1)
 
@@ -228,8 +213,7 @@ class CondResNet(nn.Module):
 
     def __init__(self, in_channel, channel, kernel_size, n_res_block):
         super().__init__()
-        blocks = [WNConv2d(in_channel, channel, kernel_size, padding=
-            kernel_size // 2)]
+        blocks = [WNConv2d(in_channel, channel, kernel_size, padding=kernel_size // 2)]
         for i in range(n_res_block):
             blocks.append(GatedResBlock(channel, channel, kernel_size))
         self.blocks = nn.Sequential(*blocks)
@@ -248,10 +232,7 @@ def shift_right(input, size=1):
 
 class PixelSNAIL(nn.Module):
 
-    def __init__(self, shape, n_class, channel, kernel_size, n_block,
-        n_res_block, res_channel, attention=True, dropout=0.1,
-        n_cond_res_block=0, cond_res_channel=0, cond_res_kernel=3,
-        n_out_res_block=0):
+    def __init__(self, shape, n_class, channel, kernel_size, n_block, n_res_block, res_channel, attention=True, dropout=0.1, n_cond_res_block=0, cond_res_channel=0, cond_res_kernel=3, n_out_res_block=0):
         super().__init__()
         height, width = shape
         self.n_class = n_class
@@ -259,10 +240,8 @@ class PixelSNAIL(nn.Module):
             kernel = kernel_size + 1
         else:
             kernel = kernel_size
-        self.horizontal = CausalConv2d(n_class, channel, [kernel // 2,
-            kernel], padding='down')
-        self.vertical = CausalConv2d(n_class, channel, [(kernel + 1) // 2, 
-            kernel // 2], padding='downright')
+        self.horizontal = CausalConv2d(n_class, channel, [kernel // 2, kernel], padding='down')
+        self.vertical = CausalConv2d(n_class, channel, [(kernel + 1) // 2, kernel // 2], padding='downright')
         coord_x = (torch.arange(height).float() - height / 2) / height
         coord_x = coord_x.view(1, 1, height, 1).expand(1, 1, height, width)
         coord_y = (torch.arange(width).float() - width / 2) / width
@@ -270,12 +249,9 @@ class PixelSNAIL(nn.Module):
         self.register_buffer('background', torch.cat([coord_x, coord_y], 1))
         self.blocks = nn.ModuleList()
         for i in range(n_block):
-            self.blocks.append(PixelBlock(channel, res_channel, kernel_size,
-                n_res_block, attention=attention, dropout=dropout,
-                condition_dim=cond_res_channel))
+            self.blocks.append(PixelBlock(channel, res_channel, kernel_size, n_res_block, attention=attention, dropout=dropout, condition_dim=cond_res_channel))
         if n_cond_res_block > 0:
-            self.cond_resnet = CondResNet(n_class, cond_res_channel,
-                cond_res_kernel, n_cond_res_block)
+            self.cond_resnet = CondResNet(n_class, cond_res_channel, cond_res_kernel, n_cond_res_block)
         out = []
         for i in range(n_out_res_block):
             out.append(GatedResBlock(channel, res_channel, 1))
@@ -286,20 +262,17 @@ class PixelSNAIL(nn.Module):
         if cache is None:
             cache = {}
         batch, height, width = input.shape
-        input = F.one_hot(input, self.n_class).permute(0, 3, 1, 2).type_as(self
-            .background)
+        input = F.one_hot(input, self.n_class).permute(0, 3, 1, 2).type_as(self.background)
         horizontal = shift_down(self.horizontal(input))
         vertical = shift_right(self.vertical(input))
         out = horizontal + vertical
-        background = self.background[:, :, :height, :].expand(batch, 2,
-            height, width)
+        background = self.background[:, :, :height, :].expand(batch, 2, height, width)
         if condition is not None:
             if 'condition' in cache:
                 condition = cache['condition']
                 condition = condition[:, :, :height, :]
             else:
-                condition = F.one_hot(condition, self.n_class).permute(0, 3,
-                    1, 2).type_as(self.background)
+                condition = F.one_hot(condition, self.n_class).permute(0, 3, 1, 2).type_as(self.background)
                 condition = self.cond_resnet(condition)
                 condition = F.interpolate(condition, scale_factor=2)
                 cache['condition'] = condition.detach().clone()
@@ -325,22 +298,17 @@ class Quantize(nn.Module):
 
     def forward(self, input):
         flatten = input.reshape(-1, self.dim)
-        dist = flatten.pow(2).sum(1, keepdim=True
-            ) - 2 * flatten @ self.embed + self.embed.pow(2).sum(0, keepdim
-            =True)
+        dist = flatten.pow(2).sum(1, keepdim=True) - 2 * flatten @ self.embed + self.embed.pow(2).sum(0, keepdim=True)
         _, embed_ind = (-dist).max(1)
         embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)
         embed_ind = embed_ind.view(*input.shape[:-1])
         quantize = self.embed_code(embed_ind)
         if self.training:
-            self.cluster_size.data.mul_(self.decay).add_(1 - self.decay,
-                embed_onehot.sum(0))
+            self.cluster_size.data.mul_(self.decay).add_(1 - self.decay, embed_onehot.sum(0))
             embed_sum = flatten.transpose(0, 1) @ embed_onehot
-            self.embed_avg.data.mul_(self.decay).add_(1 - self.decay, embed_sum
-                )
+            self.embed_avg.data.mul_(self.decay).add_(1 - self.decay, embed_sum)
             n = self.cluster_size.sum()
-            cluster_size = (self.cluster_size + self.eps) / (n + self.
-                n_embed * self.eps) * n
+            cluster_size = (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
             self.embed.data.copy_(embed_normalized)
         diff = (quantize.detach() - input).pow(2).mean()
@@ -355,9 +323,7 @@ class ResBlock(nn.Module):
 
     def __init__(self, in_channel, channel):
         super().__init__()
-        self.conv = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(
-            in_channel, channel, 3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(channel, in_channel, 1))
+        self.conv = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(in_channel, channel, 3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel, in_channel, 1))
 
     def forward(self, input):
         out = self.conv(input)
@@ -367,18 +333,12 @@ class ResBlock(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, in_channel, channel, n_res_block, n_res_channel, stride
-        ):
+    def __init__(self, in_channel, channel, n_res_block, n_res_channel, stride):
         super().__init__()
         if stride == 4:
-            blocks = [nn.Conv2d(in_channel, channel // 2, 4, stride=2,
-                padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel // 2,
-                channel, 4, stride=2, padding=1), nn.ReLU(inplace=True), nn
-                .Conv2d(channel, channel, 3, padding=1)]
+            blocks = [nn.Conv2d(in_channel, channel // 2, 4, stride=2, padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel // 2, channel, 4, stride=2, padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel, channel, 3, padding=1)]
         elif stride == 2:
-            blocks = [nn.Conv2d(in_channel, channel // 2, 4, stride=2,
-                padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel // 2,
-                channel, 3, padding=1)]
+            blocks = [nn.Conv2d(in_channel, channel // 2, 4, stride=2, padding=1), nn.ReLU(inplace=True), nn.Conv2d(channel // 2, channel, 3, padding=1)]
         for i in range(n_res_block):
             blocks.append(ResBlock(channel, n_res_channel))
         blocks.append(nn.ReLU(inplace=True))
@@ -390,21 +350,16 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, in_channel, out_channel, channel, n_res_block,
-        n_res_channel, stride):
+    def __init__(self, in_channel, out_channel, channel, n_res_block, n_res_channel, stride):
         super().__init__()
         blocks = [nn.Conv2d(in_channel, channel, 3, padding=1)]
         for i in range(n_res_block):
             blocks.append(ResBlock(channel, n_res_channel))
         blocks.append(nn.ReLU(inplace=True))
         if stride == 4:
-            blocks.extend([nn.ConvTranspose2d(channel, channel // 2, 4,
-                stride=2, padding=1), nn.ReLU(inplace=True), nn.
-                ConvTranspose2d(channel // 2, out_channel, 4, stride=2,
-                padding=1)])
+            blocks.extend([nn.ConvTranspose2d(channel, channel // 2, 4, stride=2, padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(channel // 2, out_channel, 4, stride=2, padding=1)])
         elif stride == 2:
-            blocks.append(nn.ConvTranspose2d(channel, out_channel, 4,
-                stride=2, padding=1))
+            blocks.append(nn.ConvTranspose2d(channel, out_channel, 4, stride=2, padding=1))
         self.blocks = nn.Sequential(*blocks)
 
     def forward(self, input):
@@ -413,23 +368,17 @@ class Decoder(nn.Module):
 
 class VQVAE(nn.Module):
 
-    def __init__(self, in_channel=3, channel=128, n_res_block=2,
-        n_res_channel=32, embed_dim=64, n_embed=512, decay=0.99):
+    def __init__(self, in_channel=3, channel=128, n_res_block=2, n_res_channel=32, embed_dim=64, n_embed=512, decay=0.99):
         super().__init__()
-        self.enc_b = Encoder(in_channel, channel, n_res_block,
-            n_res_channel, stride=4)
-        self.enc_t = Encoder(channel, channel, n_res_block, n_res_channel,
-            stride=2)
+        self.enc_b = Encoder(in_channel, channel, n_res_block, n_res_channel, stride=4)
+        self.enc_t = Encoder(channel, channel, n_res_block, n_res_channel, stride=2)
         self.quantize_conv_t = nn.Conv2d(channel, embed_dim, 1)
         self.quantize_t = Quantize(embed_dim, n_embed)
-        self.dec_t = Decoder(embed_dim, embed_dim, channel, n_res_block,
-            n_res_channel, stride=2)
+        self.dec_t = Decoder(embed_dim, embed_dim, channel, n_res_block, n_res_channel, stride=2)
         self.quantize_conv_b = nn.Conv2d(embed_dim + channel, embed_dim, 1)
         self.quantize_b = Quantize(embed_dim, n_embed)
-        self.upsample_t = nn.ConvTranspose2d(embed_dim, embed_dim, 4,
-            stride=2, padding=1)
-        self.dec = Decoder(embed_dim + embed_dim, in_channel, channel,
-            n_res_block, n_res_channel, stride=4)
+        self.upsample_t = nn.ConvTranspose2d(embed_dim, embed_dim, 4, stride=2, padding=1)
+        self.dec = Decoder(embed_dim + embed_dim, in_channel, channel, n_res_block, n_res_channel, stride=4)
 
     def forward(self, input):
         quant_t, quant_b, diff, _, _ = self.encode(input)
@@ -470,25 +419,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CausalConv2d,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Decoder,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'channel': 4, 'n_res_block': 4, 'n_res_channel': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Quantize,
+     lambda: ([], {'dim': 4, 'n_embed': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'in_channel': 4, 'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VQVAE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (WNConv2d,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_rosinality_vq_vae_2_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CausalConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Decoder(*[], **{'in_channel': 4, 'out_channel': 4, 'channel': 4, 'n_res_block': 4, 'n_res_channel': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Quantize(*[], **{'dim': 4, 'n_embed': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResBlock(*[], **{'in_channel': 4, 'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(VQVAE(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(WNConv2d(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

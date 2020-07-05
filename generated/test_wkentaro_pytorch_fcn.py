@@ -37,8 +37,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,9 +69,7 @@ import torch.nn.functional as F
 
 
 def conv_relu(bottom, nout, ks=3, stride=1, pad=1):
-    conv = L.Convolution(bottom, kernel_size=ks, stride=stride, num_output=
-        nout, pad=pad, param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=2,
-        decay_mult=0)])
+    conv = L.Convolution(bottom, kernel_size=ks, stride=stride, num_output=nout, pad=pad, param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)])
     return conv, L.ReLU(conv, in_place=True)
 
 
@@ -80,9 +79,7 @@ def max_pool(bottom, ks=2, stride=2):
 
 def fcn(split, tops):
     n = caffe.NetSpec()
-    n.color, n.depth, n.label = L.Python(module='nyud_layers', layer=
-        'NYUDSegDataLayer', ntop=3, param_str=str(dict(nyud_dir=
-        '../data/nyud', split=split, tops=tops, seed=1337)))
+    n.color, n.depth, n.label = L.Python(module='nyud_layers', layer='NYUDSegDataLayer', ntop=3, param_str=str(dict(nyud_dir='../data/nyud', split=split, tops=tops, seed=1337)))
     n.data = L.Concat(n.color, n.depth)
     n.conv1_1_bgrd, n.relu1_1 = conv_relu(n.data, 64, pad=100)
     n.conv1_2, n.relu1_2 = conv_relu(n.relu1_1, 64)
@@ -106,14 +103,10 @@ def fcn(split, tops):
     n.drop6 = L.Dropout(n.relu6, dropout_ratio=0.5, in_place=True)
     n.fc7, n.relu7 = conv_relu(n.drop6, 4096, ks=1, pad=0)
     n.drop7 = L.Dropout(n.relu7, dropout_ratio=0.5, in_place=True)
-    n.score_fr = L.Convolution(n.drop7, num_output=40, kernel_size=1, pad=0,
-        param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)])
-    n.upscore = L.Deconvolution(n.score_fr, convolution_param=dict(
-        num_output=40, kernel_size=64, stride=32, bias_term=False), param=[
-        dict(lr_mult=0)])
+    n.score_fr = L.Convolution(n.drop7, num_output=40, kernel_size=1, pad=0, param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)])
+    n.upscore = L.Deconvolution(n.score_fr, convolution_param=dict(num_output=40, kernel_size=64, stride=32, bias_term=False), param=[dict(lr_mult=0)])
     n.score = crop(n.upscore, n.data)
-    n.loss = L.SoftmaxWithLoss(n.score, n.label, loss_param=dict(normalize=
-        False, ignore_label=255))
+    n.loss = L.SoftmaxWithLoss(n.score, n.label, loss_param=dict(normalize=False, ignore_label=255))
     return n.to_proto()
 
 
@@ -125,17 +118,8 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
     else:
         center = factor - 0.5
     og = np.ogrid[:kernel_size, :kernel_size]
-    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
-    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size),
-        dtype=np.float64)
+    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
+    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size), dtype=np.float64)
     weight[(range(in_channels)), (range(out_channels)), :, :] = filt
     return torch.from_numpy(weight).float()
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_wkentaro_pytorch_fcn(_paritybench_base):
-    pass

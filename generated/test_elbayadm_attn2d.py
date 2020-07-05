@@ -45,8 +45,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -165,8 +166,7 @@ class SmoothMLCriterion(nn.Module):
         target : the ground truth labels (N, seq_length)
         """
         mask = target.gt(self.th_mask).float()
-        output, ml_loss = get_smooth_ml_loss(logp, target, mask, norm=self.
-            normalize_batch, eps=self.eps)
+        output, ml_loss = get_smooth_ml_loss(logp, target, mask, norm=self.normalize_batch, eps=self.eps)
         return {'final': output, 'ml': ml_loss}, {}
 
 
@@ -244,8 +244,7 @@ class MLCriterionNLL(nn.Module):
         target : the ground truth labels (N, seq_length)
         """
         logp = logp.view(-1, logp.size(-1))
-        loss = F.nll_loss(logp, target.view(-1), size_average=False,
-            ignore_index=self.pad_token, reduce=True)
+        loss = F.nll_loss(logp, target.view(-1), size_average=False, ignore_index=self.pad_token, reduce=True)
         None
         sample_size = target.size(0) if self.sentence_avg else ntokens
         None
@@ -283,13 +282,9 @@ def max_code(tensor, src_lengths=None, track=False):
         activ_distrib = []
         activ = []
         for n in range(batch_size):
-            align.append(np.array([(torch.sum(attn[(n), :, (-1)] == k, dim=
-                -1).data.item() / nchannels) for k in targets]))
-            activ_distrib.append(np.array([torch.sum((attn[(n), :, (-1)] ==
-                k).float() * xpool[(n), :, (-1)], dim=-1).data.item() for k in
-                targets]))
-            activ.append(np.array([((attn[(n), :, (-1)] == k).float() *
-                xpool[(n), :, (-1)]).data.cpu().numpy() for k in targets]))
+            align.append(np.array([(torch.sum(attn[(n), :, (-1)] == k, dim=-1).data.item() / nchannels) for k in targets]))
+            activ_distrib.append(np.array([torch.sum((attn[(n), :, (-1)] == k).float() * xpool[(n), :, (-1)], dim=-1).data.item() for k in targets]))
+            activ.append(np.array([((attn[(n), :, (-1)] == k).float() * xpool[(n), :, (-1)]).data.cpu().numpy() for k in targets]))
         align = np.array(align)
         activ = np.array(activ)
         activ_distrib = np.array(activ_distrib)
@@ -366,9 +361,7 @@ class Aggregator(nn.Module):
                 None
             elif num_fc == 2:
                 interm = (self.output_channels + force_output_channels) // 2
-                lin = nn.Sequential(nn.Linear(self.output_channels, interm),
-                    nn.ReLU(inplace=True), nn.Linear(interm,
-                    force_output_channels))
+                lin = nn.Sequential(nn.Linear(self.output_channels, interm), nn.ReLU(inplace=True), nn.Linear(interm, force_output_channels))
                 None
             else:
                 raise ValueError('Not yet implemented')
@@ -409,9 +402,7 @@ class Beam(object):
        global_scorer (:obj:`GlobalScorer`)
     """
 
-    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False,
-        global_scorer=None, min_length=0, stepwise_penalty=False,
-        block_ngram_repeat=0, exclusion_tokens=set()):
+    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False, global_scorer=None, min_length=0, stepwise_penalty=False, block_ngram_repeat=0, exclusion_tokens=set()):
         self.size = size
         self.tt = torch.cuda if cuda else torch
         self.scores = self.tt.FloatTensor(size).zero_()
@@ -459,8 +450,7 @@ class Beam(object):
             for k in range(len(word_probs)):
                 word_probs[k][self._eos] = -1e+20
         if len(self.prev_ks) > 0:
-            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(
-                word_probs)
+            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(word_probs)
             for i in range(self.next_ys[-1].size(0)):
                 if self.next_ys[-1][i] == self._eos:
                     beam_scores[i] = -1e+20
@@ -484,8 +474,7 @@ class Beam(object):
         else:
             beam_scores = word_probs[0]
         flat_beam_scores = beam_scores.view(-1)
-        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, 
-            True, True)
+        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, True, True)
         self.all_scores.append(self.scores)
         self.scores = best_scores
         prev_k = best_scores_id / num_words
@@ -542,12 +531,10 @@ class CondDecoder(nn.Module):
         self.pad_token = 0
         self.eos_token = special_tokens['EOS']
         self.bos_token = special_tokens['BOS']
-        self.embedding = nn.Embedding(self.vocab_size, self.input_dim, self
-            .pad_token, scale_grad_by_freq=bool(params['scale_grad_by_freq']))
+        self.embedding = nn.Embedding(self.vocab_size, self.input_dim, self.pad_token, scale_grad_by_freq=bool(params['scale_grad_by_freq']))
         self.input_dropout = nn.Dropout(params['input_dropout'])
         if params['attention_mode'] == 'none':
-            self.cell = LSTM(self.input_dim, self.size, self.nlayers,
-                batch_first=True)
+            self.cell = LSTM(self.input_dim, self.size, self.nlayers, batch_first=True)
         elif params['state_update'] == 1:
             self.cell = LSTMAttention(params, enc_params)
         elif params['state_update'] == 2:
@@ -564,18 +551,15 @@ class CondDecoder(nn.Module):
     def forward_(self, source, data):
         labels = data['labels']
         emb = self.input_dropout(self.embedding(labels))
-        h, (_, _), _ = self.cell(emb, source['state'], source['ctx'],
-            source['emb'])
+        h, (_, _), _ = self.cell(emb, source['state'], source['ctx'], source['emb'])
         return h
 
     def forward(self, source, data):
         labels = data['labels']
         emb = self.input_dropout(self.embedding(labels))
-        h, (_, _), _ = self.cell(emb, source['state'], source['ctx'],
-            source['emb'])
+        h, (_, _), _ = self.cell(emb, source['state'], source['ctx'], source['emb'])
         h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.size()[2])
-        logits = F.log_softmax(self.prediction(self.prediction_dropout(
-            h_reshape)), dim=1)
+        logits = F.log_softmax(self.prediction(self.prediction_dropout(h_reshape)), dim=1)
         logits = logits.view(h.size(0), h.size(1), logits.size(1))
         return logits
 
@@ -585,31 +569,22 @@ class CondDecoder(nn.Module):
         source['emb'] = source['emb'].repeat(beam_size, 1, 1)
         source['ctx'] = source['ctx'].repeat(beam_size, 1, 1)
         batch_size = state[0].size(0)
-        dec_states = [state[0].repeat(beam_size, 1), state[1].repeat(
-            beam_size, 1)]
+        dec_states = [state[0].repeat(beam_size, 1), state[1].repeat(beam_size, 1)]
         beam_args = {}
         for k in ['EOS', 'BOS', 'PAD']:
             beam_args[k.lower()] = kwargs[k]
         beam = [Beam(beam_size, kwargs) for k in range(batch_size)]
-        beam = [Beam_ONMT(beam_size, **beam_args, cuda=True, global_scorer=
-            scorer, block_ngram_repeat=kwargs['block_ngram_repeat'],
-            exclusion_tokens=set([self.eos_token, self.bos_token]),
-            stepwise_penalty=kwargs['stepwise_penalty']) for k in range(
-            batch_size)]
+        beam = [Beam_ONMT(beam_size, **beam_args, cuda=True, global_scorer=scorer, block_ngram_repeat=kwargs['block_ngram_repeat'], exclusion_tokens=set([self.eos_token, self.bos_token]), stepwise_penalty=kwargs['stepwise_penalty']) for k in range(batch_size)]
         batch_idx = list(range(batch_size))
         remaining_sents = batch_size
         max_length = kwargs.get('max_length', 50)
         for t in range(max_length):
-            input = torch.stack([b.get_current_state() for b in beam if not
-                b.done()]).t().contiguous().view(1, -1)
+            input = torch.stack([b.get_current_state() for b in beam if not b.done()]).t().contiguous().view(1, -1)
             emb = self.embedding(input.transpose(1, 0))
-            h, dec_states, attn = self.cell(emb, dec_states, source['ctx'],
-                source['emb'])
-            h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.
-                size()[2])
+            h, dec_states, attn = self.cell(emb, dec_states, source['ctx'], source['emb'])
+            h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.size()[2])
             out = F.log_softmax(self.prediction(h_reshape), dim=1)
-            word_lk = out.view(beam_size, remaining_sents, -1).transpose(0, 1
-                ).contiguous()
+            word_lk = out.view(beam_size, remaining_sents, -1).transpose(0, 1).contiguous()
             active = []
             for b in range(batch_size):
                 if beam[b].done():
@@ -619,25 +594,20 @@ class CondDecoder(nn.Module):
                     active += [b]
                 for dec_state in dec_states:
                     dec_size = dec_state.size()
-                    sent_states = dec_state.view(beam_size, remaining_sents,
-                        dec_size[-1])[:, (idx), :]
-                    sent_states.data.copy_(sent_states.data.index_select(0,
-                        beam[b].get_current_origin()))
+                    sent_states = dec_state.view(beam_size, remaining_sents, dec_size[-1])[:, (idx), :]
+                    sent_states.data.copy_(sent_states.data.index_select(0, beam[b].get_current_origin()))
             if not active:
                 break
             active_idx = torch.LongTensor([batch_idx[k] for k in active])
             batch_idx = {beam: idx for idx, beam in enumerate(active)}
 
             def update_active(t):
-                view = t.data.contiguous().view(-1, remaining_sents, t.size(-1)
-                    )
+                view = t.data.contiguous().view(-1, remaining_sents, t.size(-1))
                 new_size = list(t.size())
-                new_size[-2] = new_size[-2] * len(active_idx
-                    ) // remaining_sents
+                new_size[-2] = new_size[-2] * len(active_idx) // remaining_sents
                 result = view.index_select(1, active_idx).view(*new_size)
                 return result
-            dec_states = update_active(dec_states[0]), update_active(dec_states
-                [1])
+            dec_states = update_active(dec_states[0]), update_active(dec_states[1])
             source['ctx'] = update_active(source['ctx'].t()).t()
             source['emb'] = update_active(source['emb'].t()).t()
             remaining_sents = len(active)
@@ -656,23 +626,18 @@ class CondDecoder(nn.Module):
         source['emb'] = source['emb'].repeat(beam_size, 1, 1)
         source['ctx'] = source['ctx'].repeat(beam_size, 1, 1)
         batch_size = state[0].size(0)
-        dec_states = [state[0].repeat(beam_size, 1), state[1].repeat(
-            beam_size, 1)]
+        dec_states = [state[0].repeat(beam_size, 1), state[1].repeat(beam_size, 1)]
         beam = [Beam(beam_size, kwargs) for k in range(batch_size)]
         batch_idx = list(range(batch_size))
         remaining_sents = batch_size
         max_length = kwargs.get('max_length', 50)
         for t in range(max_length):
-            input = torch.stack([b.get_current_state() for b in beam if not
-                b.done]).t().contiguous().view(1, -1)
+            input = torch.stack([b.get_current_state() for b in beam if not b.done]).t().contiguous().view(1, -1)
             emb = self.embedding(input.transpose(1, 0))
-            h, dec_states, _ = self.cell(emb, dec_states, source['ctx'],
-                source['emb'])
-            h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.
-                size()[2])
+            h, dec_states, _ = self.cell(emb, dec_states, source['ctx'], source['emb'])
+            h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.size()[2])
             out = F.log_softmax(self.prediction(h_reshape), dim=1)
-            word_lk = out.view(beam_size, remaining_sents, -1).transpose(0, 1
-                ).contiguous()
+            word_lk = out.view(beam_size, remaining_sents, -1).transpose(0, 1).contiguous()
             active = []
             for b in range(batch_size):
                 if beam[b].done:
@@ -682,25 +647,20 @@ class CondDecoder(nn.Module):
                     active += [b]
                 for dec_state in dec_states:
                     dec_size = dec_state.size()
-                    sent_states = dec_state.view(beam_size, remaining_sents,
-                        dec_size[-1])[:, (idx), :]
-                    sent_states.data.copy_(sent_states.data.index_select(0,
-                        beam[b].get_current_origin()))
+                    sent_states = dec_state.view(beam_size, remaining_sents, dec_size[-1])[:, (idx), :]
+                    sent_states.data.copy_(sent_states.data.index_select(0, beam[b].get_current_origin()))
             if not active:
                 break
             active_idx = torch.LongTensor([batch_idx[k] for k in active])
             batch_idx = {beam: idx for idx, beam in enumerate(active)}
 
             def update_active(t):
-                view = t.data.contiguous().view(-1, remaining_sents, t.size(-1)
-                    )
+                view = t.data.contiguous().view(-1, remaining_sents, t.size(-1))
                 new_size = list(t.size())
-                new_size[-2] = new_size[-2] * len(active_idx
-                    ) // remaining_sents
+                new_size[-2] = new_size[-2] * len(active_idx) // remaining_sents
                 result = view.index_select(1, active_idx).view(*new_size)
                 return result
-            dec_states = update_active(dec_states[0]), update_active(dec_states
-                [1])
+            dec_states = update_active(dec_states[0]), update_active(dec_states[1])
             source['ctx'] = update_active(source['ctx'].t()).t()
             source['emb'] = update_active(source['emb'].t()).t()
             remaining_sents = len(active)
@@ -724,12 +684,10 @@ class CondDecoder(nn.Module):
         scores = None
         for t in range(max_length):
             if t == 0:
-                input = torch.LongTensor([[self.bos_token] for i in range(
-                    batch_size)])
+                input = torch.LongTensor([[self.bos_token] for i in range(batch_size)])
             emb = self.embedding(input)
             h, state, _ = self.cell(emb, state, source['ctx'], source['emb'])
-            h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.
-                size()[2])
+            h_reshape = h.contiguous().view(h.size()[0] * h.size()[1], h.size()[2])
             logits = F.log_softmax(self.prediction(h_reshape), dim=1)[:, 1:]
             np_logits = logits.data.cpu().numpy()
             decoder_argmax = 1 + np_logits.argmax(axis=-1)
@@ -741,8 +699,7 @@ class CondDecoder(nn.Module):
             seq.append(next_preds)
             input = next_preds
             if t >= 2:
-                unfinished = torch.add(torch.mul((input == self.eos_token).
-                    type_as(logits), -1), 1)
+                unfinished = torch.add(torch.mul((input == self.eos_token).type_as(logits), -1), 1)
                 if unfinished.sum().data[0] == 0:
                     break
         seq = torch.cat(seq, 1).data.cpu().numpy()
@@ -754,11 +711,8 @@ class MaskedConv1d(nn.Conv1d):
     Masked (autoregressive) conv1d
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1,
-        dilation=1, groups=1, bias=False):
-        super(MaskedConv1d, self).__init__(in_channels, out_channels,
-            kernel_size, padding=padding, groups=groups, dilation=dilation,
-            bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dilation=1, groups=1, bias=False):
+        super(MaskedConv1d, self).__init__(in_channels, out_channels, kernel_size, padding=padding, groups=groups, dilation=dilation, bias=bias)
         self.register_buffer('mask', self.weight.data.clone())
         self.incremental_state = t.zeros(1, 1, 1)
         _, _, kH = self.weight.size()
@@ -790,11 +744,9 @@ class AsymmetricMaskedConv2d(nn.Conv2d):
     FIXME: particular case of the MaskedConv2d
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1,
-        groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, groups=1, bias=False):
         pad = dilation * (kernel_size - 1) // 2
-        super().__init__(in_channels, out_channels, (kernel_size, 1),
-            padding=(pad, 0), groups=groups, dilation=dilation, bias=bias)
+        super().__init__(in_channels, out_channels, (kernel_size, 1), padding=(pad, 0), groups=groups, dilation=dilation, bias=bias)
         self.register_buffer('mask', self.weight.data.clone())
         _, _, kH, kW = self.weight.size()
         self.mask.fill_(1)
@@ -825,12 +777,9 @@ class MaskedConv2d(nn.Conv2d):
     Masked (autoregressive) conv2d
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1,
-        groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, groups=1, bias=False):
         pad = dilation * (kernel_size - 1) // 2
-        super(MaskedConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, padding=pad, groups=groups, dilation=dilation,
-            bias=bias)
+        super(MaskedConv2d, self).__init__(in_channels, out_channels, kernel_size, padding=pad, groups=groups, dilation=dilation, bias=bias)
         self.register_buffer('mask', self.weight.data.clone())
         _, _, kH, kW = self.weight.size()
         self.mask.fill_(1)
@@ -871,8 +820,7 @@ class _MainDenseLayer(nn.Module):
     def forward(self, x):
         new_features = self.seq(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
     def reset_buffers(self):
@@ -918,19 +866,14 @@ class DenseLayer_Asym(nn.Module):
         dim2 = bn_size // 2 * growth_rate
         conv1 = nn.Conv2d(num_input_features, dim1, kernel_size=1, bias=False)
         pad = (kernel_size - 1) // 2
-        conv2s = nn.Conv2d(dim1, dim2, kernel_size=(1, kernel_size),
-            padding=(0, pad), bias=False)
-        conv2t = AsymmetricMaskedConv2d(dim2, growth_rate, kernel_size=
-            kernel_size, bias=False)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.BatchNorm2d(dim1), nn.ReLU(
-            inplace=True), conv2s, conv2t)
+        conv2s = nn.Conv2d(dim1, dim2, kernel_size=(1, kernel_size), padding=(0, pad), bias=False)
+        conv2t = AsymmetricMaskedConv2d(dim2, growth_rate, kernel_size=kernel_size, bias=False)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(dim1), nn.ReLU(inplace=True), conv2s, conv2t)
 
     def forward(self, x):
         new_features = self.seq(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
     def reset_buffers(self):
@@ -960,10 +903,8 @@ class GatedConv2d(MaskedConv2d):
     Gated version of the masked conv2d
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1,
-        bias=False, groups=1):
-        super(GatedConv2d, self).__init__(in_channels, 2 * out_channels,
-            kernel_size, dilation=dilation, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, bias=False, groups=1):
+        super(GatedConv2d, self).__init__(in_channels, 2 * out_channels, kernel_size, dilation=dilation, bias=bias)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -987,11 +928,9 @@ def _setup_conv(num_input_features, kernel_size, params, first=False):
     depthwise = params.get('depthwise', 0)
     CV = GatedConv2d if gated else MaskedConv2d
     interm_features = bn_size * growth_rate
-    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1,
-        bias=bias)
+    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1, bias=bias)
     gp = growth_rate if depthwise else 1
-    conv2 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=
-        bias, groups=gp)
+    conv2 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=bias, groups=gp)
     if init_weights == 'manual':
         if not first:
             cst = 2 * (1 - drop_rate)
@@ -999,17 +938,14 @@ def _setup_conv(num_input_features, kernel_size, params, first=False):
             cst = 1
         std1 = sqrt(cst / num_input_features)
         conv1.weight.data.normal_(0, std1)
-        std2 = sqrt(2 / (bn_size * growth_rate * kernel_size * (kernel_size -
-            1) // 2))
+        std2 = sqrt(2 / (bn_size * growth_rate * kernel_size * (kernel_size - 1) // 2))
         conv2.weight.data.normal_(0, std2)
         if bias:
             conv1.bias.data.zero_()
             conv2.bias.data.zero_()
     elif init_weights == 'kaiming':
-        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity=
-            'relu')
-        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity=
-            'relu')
+        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
     if weight_norm:
         conv1 = nn.utils.weight_norm(conv1, dim=0)
         conv2 = nn.utils.weight_norm(conv2, dim=0)
@@ -1024,9 +960,7 @@ class DenseLayer(_MainDenseLayer):
     def __init__(self, num_input_features, kernel_size, params, first=False):
         super().__init__(num_input_features, kernel_size, params)
         conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
-            growth_rate), nn.ReLU(inplace=True), conv2)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2)
 
 
 def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
@@ -1044,12 +978,9 @@ def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
     print('Dilation: ', dilation)
     CV = GatedConv2d if gated else MaskedConv2d
     interm_features = bn_size * growth_rate
-    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1,
-        bias=bias)
-    conv2 = CV(interm_features, interm_features, kernel_size=kernel_size,
-        bias=bias)
-    conv3 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=
-        bias, dilation=dilation)
+    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1, bias=bias)
+    conv2 = CV(interm_features, interm_features, kernel_size=kernel_size, bias=bias)
+    conv3 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=bias, dilation=dilation)
     if init_weights == 'manual':
         if not first:
             cst = 2 * (1 - drop_rate)
@@ -1057,8 +988,7 @@ def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
             cst = 1
         std1 = sqrt(cst / num_input_features)
         conv1.weight.data.normal_(0, std1)
-        std2 = sqrt(2 / (interm_featires * kernel_size * (kernel_size - 1) //
-            2))
+        std2 = sqrt(2 / (interm_featires * kernel_size * (kernel_size - 1) // 2))
         conv2.weight.data.normal_(0, std2)
         conv3.weight.data.normal_(0, std2)
         if bias:
@@ -1066,12 +996,9 @@ def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
             conv2.bias.data.zero_()
             conv3.bias.data.zero_()
     elif init_weights == 'kaiming':
-        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity=
-            'relu')
-        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity=
-            'relu')
-        nn.init.kaiming_normal_(conv3.weight, mode='fan_out', nonlinearity=
-            'relu')
+        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(conv3.weight, mode='fan_out', nonlinearity='relu')
     if weight_norm:
         conv1 = nn.utils.weight_norm(conv1, dim=0)
         conv2 = nn.utils.weight_norm(conv2, dim=0)
@@ -1089,12 +1016,8 @@ class DenseLayer_Dil(_MainDenseLayer):
 
     def __init__(self, num_input_features, kernel_size, params, first=False):
         super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2, conv3 = _setup_conv_dilated(num_input_features,
-            kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.
-            growth_rate), nn.ReLU(inplace=True), conv2, nn.BatchNorm2d(self
-            .bn_size * self.growth_rate), nn.ReLU(inplace=True), conv3)
+        conv1, conv2, conv3 = _setup_conv_dilated(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv3)
 
 
 class DenseLayer_midDP(_MainDenseLayer):
@@ -1105,10 +1028,7 @@ class DenseLayer_midDP(_MainDenseLayer):
     def __init__(self, num_input_features, kernel_size, params, first=False):
         super().__init__(num_input_features, kernel_size, params)
         conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.
-            ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace
-            =True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.
-            ReLU(inplace=True), conv2)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace=True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2)
 
 
 class DenseLayer_noBN(_MainDenseLayer):
@@ -1119,10 +1039,8 @@ class DenseLayer_noBN(_MainDenseLayer):
 
     def __init__(self, num_input_features, kernel_size, params, first=False):
         super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params,
-            first=first)
-        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(
-            inplace=True), conv2)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params, first=first)
+        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(inplace=True), conv2)
 
 
 class DenseBlock(nn.Sequential):
@@ -1146,8 +1064,7 @@ class DenseBlock(nn.Sequential):
         None
         for i in range(num_layers):
             None
-            layer = LayerModule(num_input_features + i * growth_rate,
-                kernels[i], params, first=i == 0)
+            layer = LayerModule(num_input_features + i * growth_rate, kernels[i], params, first=i == 0)
             self.add_module('denselayer%d' % (i + 1), layer)
 
     def update(self, x):
@@ -1187,8 +1104,7 @@ class DenseNet(nn.Module):
         self.features = nn.Sequential()
         num_features = num_init_features
         if normalize_channels:
-            self.features.add_module('initial_norm', nn.GroupNorm(1,
-                num_features))
+            self.features.add_module('initial_norm', nn.GroupNorm(1, num_features))
         if divide_channels > 1:
             trans = nn.Conv2d(num_features, num_features // divide_channels, 1)
             if init_weights == 'manual':
@@ -1196,15 +1112,12 @@ class DenseNet(nn.Module):
                 trans.weight.data.normal_(0, std)
             self.features.add_module('initial_transition', trans)
             num_features = num_features // divide_channels
-        for i, (num_layers, kernels) in enumerate(zip(block_layers,
-            block_kernels)):
+        for i, (num_layers, kernels) in enumerate(zip(block_layers, block_kernels)):
             block = DenseBlock(num_layers, num_features, kernels, params)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if not i == len(block_layers) - 1 or not skip_last_trans:
-                trans = TransitionLayer(num_input_features=num_features,
-                    num_output_features=num_features // 2, init_weights=
-                    init_weights)
+                trans = TransitionLayer(num_input_features=num_features, num_output_features=num_features // 2, init_weights=init_weights)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
                 None
@@ -1259,9 +1172,7 @@ def _bn_function_factory(norm, relu, conv, index, mode=1):
 
 class _DenseLayer(nn.Module):
 
-    def __init__(self, num_input_features, growth_rate, kernel_size=3,
-        bn_size=4, drop_rate=0, gated=False, bias=False, init_weights=0,
-        weight_norm=False, efficient=False):
+    def __init__(self, num_input_features, growth_rate, kernel_size=3, bn_size=4, drop_rate=0, gated=False, bias=False, init_weights=0, weight_norm=False, efficient=False):
         super(_DenseLayer, self).__init__()
         self.kernel_size = kernel_size
         self.drop_rate = drop_rate
@@ -1270,24 +1181,19 @@ class _DenseLayer(nn.Module):
             CV = GatedConv2d
         else:
             CV = MaskedConv2d
-        conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate,
-            kernel_size=1, bias=bias)
-        conv2 = CV(bn_size * growth_rate, growth_rate, kernel_size=
-            kernel_size, bias=bias)
+        conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, bias=bias)
+        conv2 = CV(bn_size * growth_rate, growth_rate, kernel_size=kernel_size, bias=bias)
         if init_weights == 'manual':
             std1 = sqrt(2 / num_input_features)
             conv1.weight.data.normal_(0, std1)
-            std2 = sqrt(2 * (1 - drop_rate) / (bn_size * growth_rate *
-                kernel_size * (kernel_size - 1) // 2))
+            std2 = sqrt(2 * (1 - drop_rate) / (bn_size * growth_rate * kernel_size * (kernel_size - 1) // 2))
             conv2.weight.data.normal_(0, std2)
             if bias:
                 conv1.bias.data.zero_()
                 conv2.bias.data.zero_()
         elif init_weights == 'kaiming':
-            nn.init.kaiming_normal_(conv1.weight, mode='fan_out',
-                nonlinearity='relu')
-            nn.init.kaiming_normal_(conv2.weight, mode='fan_out',
-                nonlinearity='relu')
+            nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
         if weight_norm:
             conv1 = nn.utils.weight_norm(conv1, dim=0)
             conv2 = nn.utils.weight_norm(conv2, dim=0)
@@ -1300,15 +1206,13 @@ class _DenseLayer(nn.Module):
 
     def forward(self, *prev_features):
         bn_function = _bn_function_factory(self.norm1, self.relu1, self.conv1)
-        if self.efficient and any(prev_feature.requires_grad for
-            prev_feature in prev_features):
+        if self.efficient and any(prev_feature.requires_grad for prev_feature in prev_features):
             bottleneck_output = cp.checkpoint(bn_function, *prev_features)
         else:
             bottleneck_output = bn_function(*prev_features)
         new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features
 
     def reset_buffers(self):
@@ -1326,17 +1230,12 @@ class _DenseLayer(nn.Module):
 
 class _DenseBlock(nn.Module):
 
-    def __init__(self, num_layers, num_input_features, kernels, bn_size,
-        growth_rate, drop_rate, gated, bias, init_weights, weight_norm,
-        efficient=False):
+    def __init__(self, num_layers, num_input_features, kernels, bn_size, growth_rate, drop_rate, gated, bias, init_weights, weight_norm, efficient=False):
         super(_DenseBlock, self).__init__()
         None
         for i in range(num_layers):
             None
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, kernels[i], bn_size, drop_rate, gated=gated,
-                bias=bias, init_weights=init_weights, weight_norm=
-                weight_norm, efficient=efficient)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, kernels[i], bn_size, drop_rate, gated=gated, bias=bias, init_weights=init_weights, weight_norm=weight_norm, efficient=efficient)
             self.add_module('denselayer%d' % (i + 1), layer)
 
     def forward(self, init_features):
@@ -1384,18 +1283,11 @@ class Efficient_DenseNet(nn.Module):
                 trans.weight.data.normal_(0, std)
             self.features.add_module('initial_transition', trans)
             num_features = num_features // divide_channels
-        for i, (num_layers, kernels) in enumerate(zip(block_layers,
-            block_kernels)):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, kernels=kernels, bn_size=bn_size, growth_rate
-                =growth_rate, drop_rate=drop_rate, gated=gated, bias=bias,
-                init_weights=init_weights, weight_norm=weight_norm,
-                efficient=efficient)
+        for i, (num_layers, kernels) in enumerate(zip(block_layers, block_kernels)):
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, kernels=kernels, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate, gated=gated, bias=bias, init_weights=init_weights, weight_norm=weight_norm, efficient=efficient)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
-            trans = Transition(num_input_features=num_features,
-                num_output_features=num_features // 2, init_weights=
-                init_weights)
+            trans = Transition(num_input_features=num_features, num_output_features=num_features // 2, init_weights=init_weights)
             self.features.add_module('transition%d' % (i + 1), trans)
             num_features = num_features // 2
             None
@@ -1430,8 +1322,7 @@ def make_positions(tensor, padding_idx, left_pad):
     final = tensor.clone().masked_scatter_(mask, positions[mask])
     if left_pad:
         zero_left = torch.zeros(tensor.size(0), 1).type_as(final)
-        final = torch.cat([torch.zeros(tensor.size(0), 1).type_as(final),
-            final[:, :-1]], dim=1)
+        final = torch.cat([torch.zeros(tensor.size(0), 1).type_as(final), final[:, :-1]], dim=1)
     return final
 
 
@@ -1460,15 +1351,12 @@ class Embedding(nn.Module):
         self.init_std = params.get('init_std', 0.01)
         self.zero_pad = params.get('zero_pad', 0)
         self.padding_idx = padding_idx
-        self.label_embedding = nn.Embedding(vocab_size, self.dimension,
-            padding_idx, scale_grad_by_freq=False)
+        self.label_embedding = nn.Embedding(vocab_size, self.dimension, padding_idx, scale_grad_by_freq=False)
         if self.encode_position:
-            self.pos_embedding = PosEmbedding(params['max_length'], self.
-                dimension, pad_left=pad_left)
+            self.pos_embedding = PosEmbedding(params['max_length'], self.dimension, pad_left=pad_left)
         if self.encode_length:
             self.dimension += self.encode_length
-            self.length_embedding = nn.Embedding(params['max_length'], self
-                .encode_length)
+            self.length_embedding = nn.Embedding(params['max_length'], self.encode_length)
 
     def init_weights(self):
         std = self.init_std
@@ -1487,8 +1375,7 @@ class Embedding(nn.Module):
             pos = self.pos_embedding(labels)
             emb = sqrt(0.5) * (emb + pos)
         if self.encode_length:
-            lens = self.length_embedding(data['lengths']).unsqueeze(1).repeat(
-                1, emb.size(1), 1)
+            lens = self.length_embedding(data['lengths']).unsqueeze(1).repeat(1, emb.size(1), 1)
             emb = torch.cat((emb, lens), dim=2)
         if self.dropout:
             emb = F.dropout(emb, p=self.dropout, training=self.training)
@@ -1501,8 +1388,7 @@ class Embedding(nn.Module):
             pos = self.pos_embedding.map(position)
             emb += pos
         if self.encode_length:
-            lens = self.length_embedding(length).unsqueeze(1).repeat(1, emb
-                .size(1), 1)
+            lens = self.length_embedding(length).unsqueeze(1).repeat(1, emb.size(1), 1)
             emb = torch.cat((emb, lens), dim=2)
         if self.dropout:
             emb = F.dropout(emb, p=self.dropout, training=self.training)
@@ -1534,15 +1420,12 @@ class ConvEmbedding(nn.Module):
         self.nlayers = params['num_layers']
         kernels = read_list(params['kernels'])
         out_channels = read_list(params['channels'])
-        assert len(out_channels
-            ) == self.nlayers, 'Number of channels should match the depth'
-        assert len(kernels
-            ) == self.nlayers, 'Number of kernel sizes should match the depth'
+        assert len(out_channels) == self.nlayers, 'Number of channels should match the depth'
+        assert len(kernels) == self.nlayers, 'Number of kernel sizes should match the depth'
         out_channels.insert(0, self.dimension)
         None
         self.kernel_size = max(kernels)
-        self.label_embedding = nn.Embedding(vocab_size, self.dimension,
-            padding_idx, scale_grad_by_freq=False)
+        self.label_embedding = nn.Embedding(vocab_size, self.dimension, padding_idx, scale_grad_by_freq=False)
         self.conv = nn.Sequential()
         if is_target:
             conv = MaskedConv1d
@@ -1552,8 +1435,7 @@ class ConvEmbedding(nn.Module):
         for l in range(self.nlayers):
             kernel = kernels[l]
             pad = (kernel - 1) // 2
-            self.conv.add_module('conv%d' % l, conv(out_channels[l],
-                out_channels[l + 1], kernel, padding=pad, bias=False))
+            self.conv.add_module('conv%d' % l, conv(out_channels[l], out_channels[l + 1], kernel, padding=pad, bias=False))
             None
         self.dimension = out_channels[-1]
 
@@ -1609,14 +1491,11 @@ class Encoder(nn.Module):
         self.size = params['cell_dim']
         self.parallel = params['parallel']
         self.hidden_dim = self.size // self.nd
-        self.embedding = nn.Embedding(self.vocab_size, self.input_dim, self
-            .pad_token, scale_grad_by_freq=bool(params['scale_grad_by_freq']))
+        self.embedding = nn.Embedding(self.vocab_size, self.input_dim, self.pad_token, scale_grad_by_freq=bool(params['scale_grad_by_freq']))
         self.input_dropout = nn.Dropout(params['input_dropout'])
         if params['cell_dropout'] and self.nlayers == 1:
             params['cell_dropout'] = 0
-        self.cell = getattr(nn, self.cell_type)(self.input_dim, self.
-            hidden_dim, self.nlayers, bidirectional=self.bidirectional,
-            batch_first=True, dropout=params['cell_dropout'])
+        self.cell = getattr(nn, self.cell_type)(self.input_dim, self.hidden_dim, self.nlayers, bidirectional=self.bidirectional, batch_first=True, dropout=params['cell_dropout'])
 
     def init_weights(self):
         """Initialize weights."""
@@ -1674,22 +1553,19 @@ class _DenseLayer(nn.Module):
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
         self.add_module('conv1', conv1)
-        self.add_module('norm2', nn.BatchNorm2d(self.bn_size * self.
-            growth_rate)),
+        self.add_module('norm2', nn.BatchNorm2d(self.bn_size * self.growth_rate)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
         self.add_module('conv2', conv2)
 
     def forward(self, *prev_features):
-        bn_function = _bn_function_factory(self.norm1, self.relu1, self.
-            conv1, self.index, self.mode)
+        bn_function = _bn_function_factory(self.norm1, self.relu1, self.conv1, self.index, self.mode)
         if any(prev_feature.requires_grad for prev_feature in prev_features):
             bottleneck_output = cp.checkpoint(bn_function, *prev_features)
         else:
             bottleneck_output = bn_function(*prev_features)
         new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features
 
 
@@ -1757,15 +1633,12 @@ class Log_Efficient_DenseNet(nn.Module):
                 trans.weight.data.normal_(0, std)
             self.features.add_module('initial_transition', trans)
             num_features = num_features // divide_channels
-        for i, (num_layers, kernels) in enumerate(zip(block_layers,
-            block_kernels)):
+        for i, (num_layers, kernels) in enumerate(zip(block_layers, block_kernels)):
             block = _DenseBlock(num_layers, num_features, kernels, params)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features += num_layers * growth_rate
             if not i == len(block_layers) - 1 or not skip_last_trans:
-                trans = Transition(num_input_features=num_features,
-                    num_output_features=num_features // 2, init_weights=
-                    init_weights)
+                trans = Transition(num_input_features=num_features, num_output_features=num_features // 2, init_weights=init_weights)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
                 None
@@ -1916,11 +1789,8 @@ class ConvAttentionHidCat(nn.Module):
             dim1, dim2, dim3 = [int(d) for d in dims]
             None
         else:
-            raise ValueError(
-                'Number of layers is either 3 or 4, still working on a general form'
-                )
-        self.conv1 = nn.Conv1d(src_dim + trg_dim, dim1, w1, padding=(w1 - 1
-            ) // 2)
+            raise ValueError('Number of layers is either 3 or 4, still working on a general form')
+        self.conv1 = nn.Conv1d(src_dim + trg_dim, dim1, w1, padding=(w1 - 1) // 2)
         self.relu = nn.ReLU()
         self.conv2 = nn.Conv1d(dim1, dim2, w2, padding=(w2 - 1) // 2)
         if self.num_conv_layers == 3:
@@ -1938,8 +1808,7 @@ class ConvAttentionHidCat(nn.Module):
         context: batch x sourceL x dim
         """
         context = context.transpose(1, 2)
-        input_cat = torch.cat((context, input.unsqueeze(2).repeat(1, 1,
-            context.size(2))), 1)
+        input_cat = torch.cat((context, input.unsqueeze(2).repeat(1, 1, context.size(2))), 1)
         L1 = self.relu(self.conv1(input_cat))
         L2 = self.conv2(L1)
         if self.normalize:
@@ -1994,8 +1863,7 @@ class LocalDotAttention(nn.Module):
         None
         pt = Tx * self.sigmoid(pt)
         bl, bh = (pt - self.window).int(), (pt + self.window).int()
-        indices = torch.cat([torch.arange(i.item(), j.item()).unsqueeze(0) for
-            i, j in zip(bl, bh)], dim=0).long()
+        indices = torch.cat([torch.arange(i.item(), j.item()).unsqueeze(0) for i, j in zip(bl, bh)], dim=0).long()
         None
         target = self.linear_in(input).unsqueeze(2)
         None
@@ -2058,8 +1926,7 @@ class AllamanisConvAttentionBis(AllamanisConvAttention):
     def forward(self, input, context, src_emb):
         attn_sm = self.score(input, context, src_emb)
         attn_reshape = attn_sm.transpose(1, 2)
-        weighted_context = torch.bmm(context.transpose(1, 2), attn_reshape
-            ).squeeze(2)
+        weighted_context = torch.bmm(context.transpose(1, 2), attn_reshape).squeeze(2)
         h_tilde = torch.cat((weighted_context, input), 1)
         h_tilde = self.tanh(self.linear_out(h_tilde))
         return h_tilde, attn_sm
@@ -2085,8 +1952,7 @@ class LSTMAttention(nn.Module):
         elif self.mode == 'allamanis':
             self.attention_layer = AllamanisConvAttention(params, enc_params)
         elif self.mode == 'allamanis-v2':
-            self.attention_layer = AllamanisConvAttentionBis(params, enc_params
-                )
+            self.attention_layer = AllamanisConvAttentionBis(params, enc_params)
         elif self.mode == 'conv-hid':
             self.attention_layer = ConvAttentionHid(params, enc_params)
         elif self.mode == 'conv-hid-cat':
@@ -2158,21 +2024,17 @@ class positional_encoding(nn.Module):
 
     def forward(self, inputs):
         N, T = inputs.size()[0:2]
-        position_ind = torch.unsqueeze(torch.arange(0, T), 0).repeat(N, 1
-            ).long()
-        position_enc = torch.Tensor([[(pos / np.power(10000, 2.0 * i / self
-            .num_units)) for i in range(self.num_units)] for pos in range(T)])
+        position_ind = torch.unsqueeze(torch.arange(0, T), 0).repeat(N, 1).long()
+        position_enc = torch.Tensor([[(pos / np.power(10000, 2.0 * i / self.num_units)) for i in range(self.num_units)] for pos in range(T)])
         position_enc[:, 0::2] = torch.sin(position_enc[:, 0::2])
         position_enc[:, 1::2] = torch.cos(position_enc[:, 1::2])
         lookup_table = position_enc
         if self.zeros_pad:
-            lookup_table = torch.cat((torch.zeros(1, self.num_units),
-                lookup_table[1:, :]), 0)
+            lookup_table = torch.cat((torch.zeros(1, self.num_units), lookup_table[1:, :]), 0)
             padding_idx = 0
         else:
             padding_idx = -1
-        outputs = F.embedding(position_ind, lookup_table, padding_idx, None,
-            2, False, False)
+        outputs = F.embedding(position_ind, lookup_table, padding_idx, None, 2, False, False)
         if self.scale:
             outputs = outputs * self.num_units ** 0.5
         return outputs
@@ -2183,17 +2045,14 @@ class ChannelsNormalization(nn.Module):
     def __init__(self, n_channels, eps=0.001):
         super(ChannelsNormalization, self).__init__()
         self.eps = eps
-        self.a_2 = nn.Parameter(torch.ones(1, n_channels, 1, 1),
-            requires_grad=True)
-        self.b_2 = nn.Parameter(torch.zeros(1, n_channels, 1, 1),
-            requires_grad=True)
+        self.a_2 = nn.Parameter(torch.ones(1, n_channels, 1, 1), requires_grad=True)
+        self.b_2 = nn.Parameter(torch.zeros(1, n_channels, 1, 1), requires_grad=True)
 
     def forward(self, z):
         mu = torch.mean(z, keepdim=True, dim=1)
         sigma = torch.std(z, keepdim=True, dim=1)
         ln_out = (z - mu.expand_as(z)) / (sigma.expand_as(z) + self.eps)
-        ln_out = ln_out * self.a_2.expand_as(ln_out) + self.b_2.expand_as(
-            ln_out)
+        ln_out = ln_out * self.a_2.expand_as(ln_out) + self.b_2.expand_as(ln_out)
         return ln_out
 
 
@@ -2211,8 +2070,7 @@ class LayerNormalization(nn.Module):
         mu = torch.mean(z, keepdim=True, dim=-1)
         sigma = torch.std(z, keepdim=True, dim=-1)
         ln_out = (z - mu.expand_as(z)) / (sigma.expand_as(z) + self.eps)
-        ln_out = ln_out * self.a_2.expand_as(ln_out) + self.b_2.expand_as(
-            ln_out)
+        ln_out = ln_out * self.a_2.expand_as(ln_out) + self.b_2.expand_as(ln_out)
         return ln_out
 
 
@@ -2242,8 +2100,7 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         size = x.size()
         x = x.view(x.size(0), -1)
-        x = (x - torch.mean(x, 1).expand_as(x)) / torch.sqrt(torch.var(x, 1
-            ).expand_as(x) + self.epsilon)
+        x = (x - torch.mean(x, 1).expand_as(x)) / torch.sqrt(torch.var(x, 1).expand_as(x) + self.epsilon)
         if self.learnable:
             x = self.alpha.expand_as(x) * x + self.beta.expand_as(x)
         return x.view(size)
@@ -2260,8 +2117,7 @@ def _expand(tensor, dim, reps):
 
 class Pervasive(nn.Module):
 
-    def __init__(self, jobname, params, src_vocab_size, trg_vocab_size,
-        special_tokens):
+    def __init__(self, jobname, params, src_vocab_size, trg_vocab_size, special_tokens):
         nn.Module.__init__(self)
         self.logger = logging.getLogger(jobname)
         self.version = 'conv'
@@ -2273,19 +2129,14 @@ class Pervasive(nn.Module):
         self.mask_version = params.get('mask_version', -1)
         self.bos_token = special_tokens['BOS']
         self.eos_token = special_tokens['EOS']
-        self.kernel_size = max(list(itertools.chain.from_iterable(params[
-            'network']['kernels'])))
+        self.kernel_size = max(list(itertools.chain.from_iterable(params['network']['kernels'])))
         if params['encoder']['type'] == 'none':
-            self.src_embedding = Embedding(params['encoder'],
-                src_vocab_size, padding_idx=self.padding_idx)
+            self.src_embedding = Embedding(params['encoder'], src_vocab_size, padding_idx=self.padding_idx)
         elif params['encoder']['type'] == 'conv':
-            self.src_embedding = ConvEmbedding(params['encoder'],
-                src_vocab_size, padding_idx=self.padding_idx)
-        self.trg_embedding = Embedding(params['decoder'], trg_vocab_size,
-            padding_idx=self.padding_idx, pad_left=True)
+            self.src_embedding = ConvEmbedding(params['encoder'], src_vocab_size, padding_idx=self.padding_idx)
+        self.trg_embedding = Embedding(params['decoder'], trg_vocab_size, padding_idx=self.padding_idx, pad_left=True)
         if self.merge_mode == 'concat':
-            self.input_channels = (self.src_embedding.dimension + self.
-                trg_embedding.dimension)
+            self.input_channels = self.src_embedding.dimension + self.trg_embedding.dimension
         elif self.merge_mode == 'product':
             self.input_channels = self.src_embedding.dimension
         elif self.merge_mode == 'bilinear':
@@ -2297,36 +2148,30 @@ class Pervasive(nn.Module):
             self.sim_dim = params['network'].get('similarity_dimension', 128)
             self.input_channels = self.sim_dim
             std = params['encoder'].get('init_std', 0.01)
-            self.bw = nn.Parameter(std * torch.randn(self.sim_dim, self.
-                trg_embedding.dimension, self.src_embedding.dimension))
+            self.bw = nn.Parameter(std * torch.randn(self.sim_dim, self.trg_embedding.dimension, self.src_embedding.dimension))
         elif self.merge_mode == 'multi-sim2':
             self.sim_dim = params['network'].get('similarity_dimension', 128)
             self.input_channels = self.sim_dim
             std = params['encoder'].get('init_std', 0.01)
-            self.bw = nn.Parameter(torch.empty(self.sim_dim, self.
-                trg_embedding.dimension, self.src_embedding.dimension))
+            self.bw = nn.Parameter(torch.empty(self.sim_dim, self.trg_embedding.dimension, self.src_embedding.dimension))
             nn.init.orthogonal_(self.bw)
         else:
             raise ValueError('Unknown merging mode')
         self.logger.info('Model input channels: %d', self.input_channels)
         self.logger.info('Selected network: %s', params['network']['type'])
         if params['network']['divide_channels'] > 1:
-            self.logger.warning('Reducing the input channels by %d', params
-                ['network']['divide_channels'])
+            self.logger.warning('Reducing the input channels by %d', params['network']['divide_channels'])
         if params['network']['type'] == 'densenet':
             self.net = DenseNet(self.input_channels, params['network'])
             self.network_output_channels = self.net.output_channels
         elif params['network']['type'] == 'efficient-densenet':
-            self.net = Efficient_DenseNet(self.input_channels, params[
-                'network'])
+            self.net = Efficient_DenseNet(self.input_channels, params['network'])
             self.network_output_channels = self.net.output_channels
         elif params['network']['type'] == 'log-densenet':
-            self.net = Log_Efficient_DenseNet(self.input_channels, params[
-                'network'])
+            self.net = Log_Efficient_DenseNet(self.input_channels, params['network'])
             self.network_output_channels = self.net.output_channels
         else:
-            raise ValueError('Unknown architecture %s' % params['network'][
-                'type'])
+            raise ValueError('Unknown architecture %s' % params['network']['type'])
         self.tie_target_weights = params['decoder']['tie_target_weights']
         self.copy_source_weights = params['decoder']['copy_source_weights']
         if self.tie_target_weights:
@@ -2334,17 +2179,13 @@ class Pervasive(nn.Module):
             last_dim = params['decoder']['input_dim']
         else:
             last_dim = None
-        self.aggregator = Aggregator(self.network_output_channels, last_dim,
-            params['aggregator'])
+        self.aggregator = Aggregator(self.network_output_channels, last_dim, params['aggregator'])
         self.final_output_channels = self.aggregator.output_channels
-        self.prediction_dropout = nn.Dropout(params['decoder'][
-            'prediction_dropout'])
+        self.prediction_dropout = nn.Dropout(params['decoder']['prediction_dropout'])
         self.logger.info('Output channels: %d', self.final_output_channels)
-        self.prediction = nn.Linear(self.final_output_channels, self.
-            trg_vocab_size)
+        self.prediction = nn.Linear(self.final_output_channels, self.trg_vocab_size)
         if self.copy_source_weights:
-            self.trg_embedding.label_embedding.weight = (self.src_embedding
-                .label_embedding.weight)
+            self.trg_embedding.label_embedding.weight = self.src_embedding.label_embedding.weight
         if self.tie_target_weights:
             self.prediction.weight = self.trg_embedding.label_embedding.weight
 
@@ -2381,16 +2222,13 @@ class Pervasive(nn.Module):
             X = []
             for k in range(self.sim_dim):
                 w = self.bw[k].expand(N, -1, -1)
-                x = torch.bmm(torch.bmm(trg_emb[:, :, (0)], w), src_emb[:,
-                    (0)].transpose(1, 2)).unsqueeze(-1)
+                x = torch.bmm(torch.bmm(trg_emb[:, :, (0)], w), src_emb[:, (0)].transpose(1, 2)).unsqueeze(-1)
                 X.append(x)
             return torch.cat(X, dim=-1)
         elif self.merge_mode == 'multi-sim2':
             X = []
             for n in range(N):
-                x = torch.bmm(torch.bmm(trg_emb[n:n + 1, :, (0)].expand(
-                    self.sim_dim, -1, -1), self.bw), src_emb[n:n + 1, (0)].
-                    expand(self.sim_dim, -1, -1).transpose(1, 2)).unsqueeze(0)
+                x = torch.bmm(torch.bmm(trg_emb[n:n + 1, :, (0)].expand(self.sim_dim, -1, -1), self.bw), src_emb[n:n + 1, (0)].expand(self.sim_dim, -1, -1).transpose(1, 2)).unsqueeze(0)
                 X.append(x)
             return torch.cat(X, dim=0).permute(0, 2, 3, 1)
         else:
@@ -2405,8 +2243,7 @@ class Pervasive(nn.Module):
         trg_emb = _expand(trg_emb.unsqueeze(2), 2, Ts)
         X = self.merge(src_emb, trg_emb)
         X = self._forward(X, data_src['lengths'])
-        logits = F.log_softmax(self.prediction(self.prediction_dropout(X)),
-            dim=2)
+        logits = F.log_softmax(self.prediction(self.prediction_dropout(X)), dim=2)
         return logits
 
     def _forward(self, X, src_lengths=None, track=False):
@@ -2436,10 +2273,8 @@ class Pervasive(nn.Module):
         batch_size = data_src['labels'].size(0)
         src_emb = self.src_embedding(data_src)
         Ts = src_emb.size(1)
-        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get(
-            'max_length_b', 50))
-        trg_labels = torch.LongTensor([[self.bos_token] for i in range(
-            batch_size)])
+        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get('max_length_b', 50))
+        trg_labels = torch.LongTensor([[self.bos_token] for i in range(batch_size)])
         trg_emb = self.trg_embedding.single_token(trg_labels, 0)
         src_emb = src_emb.unsqueeze(1)
         src_emb_ = src_emb
@@ -2467,8 +2302,7 @@ class Pervasive(nn.Module):
                 npargmax = 1 + logits.data.cpu().numpy().argmax(axis=-1)
             next_preds = torch.from_numpy(npargmax).view(-1, 1)
             seq.append(next_preds)
-            trg_emb_t = self.trg_embedding.single_token(next_preds, t
-                ).unsqueeze(2)
+            trg_emb_t = self.trg_embedding.single_token(next_preds, t).unsqueeze(2)
             trg_emb_t = _expand(trg_emb_t, 2, Ts)
             max_h = self.kernel_size // 2 + 1
             if trg_emb.size(1) > max_h:
@@ -2476,8 +2310,7 @@ class Pervasive(nn.Module):
             trg_emb = torch.cat((trg_emb, trg_emb_t), dim=1)
             src_emb = _expand(src_emb_, 1, trg_emb.size(1))
             if t >= 1:
-                unfinished = torch.add(torch.mul((next_preds == self.
-                    eos_token).type_as(logits), -1), 1)
+                unfinished = torch.add(torch.mul((next_preds == self.eos_token).type_as(logits), -1), 1)
                 if unfinished.sum().data.item() == 0:
                     break
         seq = torch.cat(seq, 1)
@@ -2492,10 +2325,8 @@ class Pervasive(nn.Module):
         batch_size = data_src['labels'].size(0)
         src_emb = self.src_embedding(data_src)
         Ts = src_emb.size(1)
-        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get(
-            'max_length_b', 50))
-        trg_labels = torch.LongTensor([[self.bos_token] for i in range(
-            batch_size)])
+        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get('max_length_b', 50))
+        trg_labels = torch.LongTensor([[self.bos_token] for i in range(batch_size)])
         trg_emb = self.trg_embedding.single_token(trg_labels, 0)
         src_emb = src_emb.unsqueeze(1)
         src_emb_ = src_emb
@@ -2523,14 +2354,12 @@ class Pervasive(nn.Module):
                 npargmax = 1 + logits.data.cpu().numpy().argmax(axis=-1)
             next_preds = torch.from_numpy(npargmax).view(-1, 1)
             seq.append(next_preds)
-            trg_emb_t = self.trg_embedding.single_token(next_preds, t
-                ).unsqueeze(2)
+            trg_emb_t = self.trg_embedding.single_token(next_preds, t).unsqueeze(2)
             trg_emb_t = _expand(trg_emb_t, 2, Ts)
             trg_emb = torch.cat((trg_emb, trg_emb_t), dim=1)
             src_emb = _expand(src_emb_, 1, trg_emb.size(1))
             if t >= 1:
-                unfinished = torch.add(torch.mul((next_preds == self.
-                    eos_token).type_as(logits), -1), 1)
+                unfinished = torch.add(torch.mul((next_preds == self.eos_token).type_as(logits), -1), 1)
                 if unfinished.sum().data.item() == 0:
                     break
         seq = torch.cat(seq, 1)
@@ -2548,10 +2377,8 @@ class Pervasive(nn.Module):
         batch_size = data_src['labels'].size(0)
         src_emb = self.src_embedding(data_src)
         Ts = src_emb.size(1)
-        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get(
-            'max_length_b', 50))
-        trg_labels = torch.LongTensor([[self.bos_token] for i in range(
-            batch_size)])
+        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get('max_length_b', 50))
+        trg_labels = torch.LongTensor([[self.bos_token] for i in range(batch_size)])
         trg_emb = self.trg_embedding.single_token(trg_labels, 0)
         src_emb = src_emb.unsqueeze(1)
         src_emb_ = src_emb
@@ -2570,8 +2397,7 @@ class Pervasive(nn.Module):
                 npargmax = 1 + logits.data.cpu().numpy().argmax(axis=-1)
             next_preds = torch.from_numpy(npargmax).view(-1, 1)
             seq.append(next_preds)
-            trg_emb_t = self.trg_embedding.single_token(next_preds, t
-                ).unsqueeze(2)
+            trg_emb_t = self.trg_embedding.single_token(next_preds, t).unsqueeze(2)
             trg_emb_t = _expand(trg_emb_t, 2, Ts)
             max_h = self.kernel_size // 2 + 1
             if trg_emb.size(1) > max_h:
@@ -2579,8 +2405,7 @@ class Pervasive(nn.Module):
             trg_emb = torch.cat((trg_emb, trg_emb_t), dim=1)
             src_emb = _expand(src_emb_, 1, trg_emb.size(1))
             if t >= 1:
-                unfinished = torch.add(torch.mul((next_preds == self.
-                    eos_token).type_as(logits), -1), 1)
+                unfinished = torch.add(torch.mul((next_preds == self.eos_token).type_as(logits), -1), 1)
                 if unfinished.sum().data.item() == 0:
                     break
         seq = torch.cat(seq, 1)
@@ -2598,10 +2423,8 @@ class Pervasive(nn.Module):
         batch_size = data_src['labels'].size(0)
         src_emb = self.src_embedding(data_src)
         Ts = src_emb.size(1)
-        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get(
-            'max_length_b', 50))
-        trg_labels = torch.LongTensor([[self.bos_token] for i in range(
-            batch_size)])
+        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get('max_length_b', 50))
+        trg_labels = torch.LongTensor([[self.bos_token] for i in range(batch_size)])
         trg_emb = self.trg_embedding.single_token(trg_labels, 0)
         src_emb = src_emb.unsqueeze(1)
         src_emb_ = src_emb
@@ -2620,14 +2443,12 @@ class Pervasive(nn.Module):
                 npargmax = 1 + logits.data.cpu().numpy().argmax(axis=-1)
             next_preds = torch.from_numpy(npargmax).view(-1, 1)
             seq.append(next_preds)
-            trg_emb_t = self.trg_embedding.single_token(next_preds, t
-                ).unsqueeze(2)
+            trg_emb_t = self.trg_embedding.single_token(next_preds, t).unsqueeze(2)
             trg_emb_t = _expand(trg_emb_t, 2, Ts)
             trg_emb = torch.cat((trg_emb, trg_emb_t), dim=1)
             src_emb = _expand(src_emb_, 1, trg_emb.size(1))
             if t >= 1:
-                unfinished = torch.add(torch.mul((next_preds == self.
-                    eos_token).type_as(logits), -1), 1)
+                unfinished = torch.add(torch.mul((next_preds == self.eos_token).type_as(logits), -1), 1)
                 if unfinished.sum().data.item() == 0:
                     break
         seq = torch.cat(seq, 1)
@@ -2642,27 +2463,22 @@ class Pervasive(nn.Module):
         batch_idx = list(range(batch_size))
         remaining_sents = batch_size
         Ts = src_labels.size(1)
-        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get(
-            'max_length_b', 50))
+        max_length = int(kwargs.get('max_length_a', 0) * Ts + kwargs.get('max_length_b', 50))
         src_labels = src_labels.repeat(beam_size, 1)
         src_lengths = src_lengths.repeat(beam_size, 1)
         for t in range(max_length):
-            src_emb = self.src_embedding({'labels': src_labels, 'lengths':
-                None}).unsqueeze(1).repeat(1, t + 1, 1, 1)
-            trg_labels_t = torch.stack([b.get_current_state() for b in beam if
-                not b.done]).t().contiguous().view(-1, 1)
+            src_emb = self.src_embedding({'labels': src_labels, 'lengths': None}).unsqueeze(1).repeat(1, t + 1, 1, 1)
+            trg_labels_t = torch.stack([b.get_current_state() for b in beam if not b.done]).t().contiguous().view(-1, 1)
             if t:
                 trg_labels = torch.cat((trg_labels, trg_labels_t), dim=1)
             else:
                 trg_labels = trg_labels_t
-            trg_emb = self.trg_embedding({'labels': trg_labels, 'lengths':
-                None}).unsqueeze(2).repeat(1, 1, Ts, 1)
+            trg_emb = self.trg_embedding({'labels': trg_labels, 'lengths': None}).unsqueeze(2).repeat(1, 1, Ts, 1)
             X = self.merge(src_emb, trg_emb)
             Y = self._forward(X, src_lengths)
             proj = self.prediction_dropout(Y[:, (-1), :])
             logits = F.log_softmax(self.prediction(proj), dim=1)
-            word_lk = logits.view(beam_size, remaining_sents, -1).transpose(
-                0, 1).contiguous()
+            word_lk = logits.view(beam_size, remaining_sents, -1).transpose(0, 1).contiguous()
             active = []
             for b in range(batch_size):
                 if beam[b].done:
@@ -2670,18 +2486,15 @@ class Pervasive(nn.Module):
                 idx = batch_idx[b]
                 if not beam[b].advance(word_lk.data[idx], t):
                     active += [b]
-                trg_labels_prev = trg_labels.view(beam_size,
-                    remaining_sents, t + 1)
-                trg_labels = trg_labels_prev[beam[b].get_current_origin()
-                    ].view(-1, t + 1)
+                trg_labels_prev = trg_labels.view(beam_size, remaining_sents, t + 1)
+                trg_labels = trg_labels_prev[beam[b].get_current_origin()].view(-1, t + 1)
             if not active:
                 break
             active_idx = torch.LongTensor([batch_idx[k] for k in active])
             batch_idx = {beam: idx for idx, beam in enumerate(active)}
 
             def update_active(t):
-                view = t.data.contiguous().view(beam_size, remaining_sents,
-                    *t.size()[1:])
+                view = t.data.contiguous().view(beam_size, remaining_sents, *t.size()[1:])
                 new_size = list(view.size())
                 new_size[1] = new_size[1] * len(active_idx) // remaining_sents
                 result = view.index_select(1, active_idx).view(*new_size)
@@ -2705,10 +2518,8 @@ class Pervasive_Parallel(nn.DataParallel):
     Wrapper for parallel training
     """
 
-    def __init__(self, jobname, params, src_vocab_size, trg_vocab_size,
-        special_tokens):
-        model = Pervasive(jobname, params, src_vocab_size, trg_vocab_size,
-            special_tokens)
+    def __init__(self, jobname, params, src_vocab_size, trg_vocab_size, special_tokens):
+        model = Pervasive(jobname, params, src_vocab_size, trg_vocab_size, special_tokens)
         nn.DataParallel.__init__(self, model)
         self.logger = logging.getLogger(jobname)
         self.version = 'conv'
@@ -2718,8 +2529,7 @@ class Pervasive_Parallel(nn.DataParallel):
         self.pad_token = special_tokens['PAD']
         self.bos_token = special_tokens['BOS']
         self.eos_token = special_tokens['EOS']
-        self.kernel_size = max(list(itertools.chain.from_iterable(params[
-            'network']['kernels'])))
+        self.kernel_size = max(list(itertools.chain.from_iterable(params['network']['kernels'])))
 
     def init_weights(self):
         self.module.init_weights()
@@ -2755,8 +2565,7 @@ class MaxAttention(nn.Module):
         elif params['first_aggregator'] == 'skip':
             self.max = None
         else:
-            raise ValueError('Unknown mode for first aggregator ', params[
-                'first_aggregator'])
+            raise ValueError('Unknown mode for first aggregator ', params['first_aggregator'])
 
     def forward(self, X, src_lengths, track=False, *args):
         if track:
@@ -2771,8 +2580,7 @@ class MaxAttention(nn.Module):
             if self.max is not None:
                 Xpool, tracking = self.max(X, src_lengths, track=True)
                 feat = torch.cat((Xpool, context), dim=1)
-                return feat, (alphas[(0), (-1), :, (0)].data.cpu().numpy(),
-                    *tracking[1:])
+                return feat, (alphas[(0), (-1), :, (0)].data.cpu().numpy(), *tracking[1:])
             else:
                 return context
         else:
@@ -2793,16 +2601,14 @@ class MaxAttention(nn.Module):
 
 class Seq2Seq(nn.Module):
 
-    def __init__(self, jobname, params, src_vocab_size, trg_vocab_size,
-        trg_specials):
+    def __init__(self, jobname, params, src_vocab_size, trg_vocab_size, trg_specials):
         """Initialize model."""
         nn.Module.__init__(self)
         self.logger = logging.getLogger(jobname)
         self.version = 'seq2seq'
         self.params = params
         self.encoder = Encoder(params['encoder'], src_vocab_size)
-        self.decoder = CondDecoder(params['decoder'], params['encoder'],
-            trg_vocab_size, trg_specials)
+        self.decoder = CondDecoder(params['decoder'], params['encoder'], trg_vocab_size, trg_specials)
         self.mapper_dropout = nn.Dropout(params['mapper']['dropout'])
         self.mapper = nn.Linear(self.encoder.size, self.decoder.size)
 
@@ -2814,8 +2620,7 @@ class Seq2Seq(nn.Module):
 
     def map(self, source):
         """ map the source code to the decoder cell size """
-        source['state'][0] = nn.Tanh()(self.mapper_dropout(self.mapper(
-            source['state'][0])))
+        source['state'][0] = nn.Tanh()(self.mapper_dropout(self.mapper(source['state'][0])))
         return source
 
     def forward(self, data_src, data_trg):
@@ -2838,13 +2643,11 @@ class Transition(nn.Sequential):
     BN > ReLU > Conv(k=1) to reduce the number of channels
     """
 
-    def __init__(self, num_input_features, num_output_features, init_weights=0
-        ):
+    def __init__(self, num_input_features, num_output_features, init_weights=0):
         super(Transition, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
-        conv = nn.Conv2d(num_input_features, num_output_features,
-            kernel_size=1, bias=False)
+        conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, bias=False)
         if init_weights == 'manual':
             std = sqrt(2 / num_input_features)
             conv.weight.data.normal_(0, std)
@@ -2864,8 +2667,7 @@ class Transition2(nn.Sequential):
     def __init__(self, num_input_features, num_output_features):
         super(Transition2, self).__init__()
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(num_input_features,
-            num_output_features, kernel_size=1, bias=False))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, bias=False))
 
     def forward(self, x, *args):
         return super(Transition2, self).forward(x)
@@ -2875,46 +2677,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_elbayadm_attn2d(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Aggregator(*[], **{'input_channls': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Aggregator,
+     lambda: ([], {'input_channls': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AsymmetricMaskedConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelsNormalization,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (LayerNormalization,
+     lambda: ([], {'d_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaskedConv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (MaskedConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Transition2,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (positional_encoding,
+     lambda: ([], {'num_units': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_elbayadm_attn2d(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(AsymmetricMaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ChannelsNormalization(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GatedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LayerNormalization(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(Transition2(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(positional_encoding(*[], **{'num_units': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

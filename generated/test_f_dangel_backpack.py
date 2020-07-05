@@ -112,8 +112,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -275,17 +276,13 @@ class MyFirstResNet(torch.nn.Module):
 
     def __init__(self, C_in=1, C_hid=5, input_dim=(28, 28), output_dim=10):
         super().__init__()
-        self.conv1 = torch.nn.Conv2d(C_in, C_hid, kernel_size=3, stride=1,
-            padding=1)
-        self.conv2 = torch.nn.Conv2d(C_hid, C_hid, kernel_size=3, stride=1,
-            padding=1)
-        self.linear1 = torch.nn.Linear(input_dim[0] * input_dim[1] * C_hid,
-            output_dim)
+        self.conv1 = torch.nn.Conv2d(C_in, C_hid, kernel_size=3, stride=1, padding=1)
+        self.conv2 = torch.nn.Conv2d(C_hid, C_hid, kernel_size=3, stride=1, padding=1)
+        self.linear1 = torch.nn.Linear(input_dim[0] * input_dim[1] * C_hid, output_dim)
         if C_in == C_hid:
             self.shortcut = torch.nn.Identity()
         else:
-            self.shortcut = torch.nn.Conv2d(C_in, C_hid, kernel_size=1,
-                stride=1)
+            self.shortcut = torch.nn.Conv2d(C_in, C_hid, kernel_size=1, stride=1)
 
     def forward(self, x):
         residual = self.shortcut(x)
@@ -334,8 +331,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_f_dangel_backpack(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

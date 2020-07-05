@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,8 +66,7 @@ class LSTMLayer(nn.Module):
 
     def __init__(self, emb_dim, hidden_dim, num_layers, dropout, use_cuda):
         super(LSTMLayer, self).__init__()
-        self.rnn = nn.LSTM(emb_dim, hidden_dim, num_layers, batch_first=
-            True, dropout=dropout)
+        self.rnn = nn.LSTM(emb_dim, hidden_dim, num_layers, batch_first=True, dropout=dropout)
         self.use_cuda = use_cuda
 
     def forward(self, x, x_mask, init_state):
@@ -79,11 +79,9 @@ class LSTMLayer(nn.Module):
         _, idx_unsort = torch.sort(idx_sort, dim=0)
         lens = list(x_lens[idx_sort])
         x = x.index_select(0, idx_sort)
-        rnn_input = nn.utils.rnn.pack_padded_sequence(x, lens, batch_first=True
-            )
+        rnn_input = nn.utils.rnn.pack_padded_sequence(x, lens, batch_first=True)
         rnn_output, (ht, ct) = self.rnn(rnn_input, init_state)
-        rnn_output = nn.utils.rnn.pad_packed_sequence(rnn_output,
-            batch_first=True)[0]
+        rnn_output = nn.utils.rnn.pad_packed_sequence(rnn_output, batch_first=True)[0]
         rnn_output = rnn_output.index_select(0, idx_unsort)
         ht = ht.index_select(0, idx_unsort)
         ct = ct.index_select(0, idx_unsort)
@@ -126,19 +124,14 @@ class PositionAwareAttention(nn.Module):
         f : batch_size * seq_len * feature_size
         """
         batch_size, seq_len, _ = x.size()
-        x_proj = self.ulinear(x.contiguous().view(-1, self.input_size)).view(
-            batch_size, seq_len, self.attn_size)
-        q_proj = self.vlinear(q.view(-1, self.query_size)).contiguous().view(
-            batch_size, self.attn_size).unsqueeze(1).expand(batch_size,
-            seq_len, self.attn_size)
+        x_proj = self.ulinear(x.contiguous().view(-1, self.input_size)).view(batch_size, seq_len, self.attn_size)
+        q_proj = self.vlinear(q.view(-1, self.query_size)).contiguous().view(batch_size, self.attn_size).unsqueeze(1).expand(batch_size, seq_len, self.attn_size)
         if self.wlinear is not None:
-            f_proj = self.wlinear(f.view(-1, self.feature_size)).contiguous(
-                ).view(batch_size, seq_len, self.attn_size)
+            f_proj = self.wlinear(f.view(-1, self.feature_size)).contiguous().view(batch_size, seq_len, self.attn_size)
             projs = [x_proj, q_proj, f_proj]
         else:
             projs = [x_proj, q_proj]
-        scores = self.tlinear(torch.tanh(sum(projs)).view(-1, self.attn_size)
-            ).view(batch_size, seq_len)
+        scores = self.tlinear(torch.tanh(sum(projs)).view(-1, self.attn_size)).view(batch_size, seq_len)
         scores.data.masked_fill_(x_mask.data, -float('inf'))
         weights = F.softmax(scores, dim=1)
         outputs = weights.unsqueeze(1).bmm(x).squeeze(1)
@@ -151,22 +144,16 @@ class PositionAwareRNN(nn.Module):
     def __init__(self, opt, emb_matrix=None):
         super(PositionAwareRNN, self).__init__()
         self.drop = nn.Dropout(opt['dropout'])
-        self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'],
-            padding_idx=constant.PAD_ID)
+        self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'], padding_idx=constant.PAD_ID)
         if opt['pos_dim'] > 0:
-            self.pos_emb = nn.Embedding(len(constant.POS_TO_ID), opt[
-                'pos_dim'], padding_idx=constant.PAD_ID)
+            self.pos_emb = nn.Embedding(len(constant.POS_TO_ID), opt['pos_dim'], padding_idx=constant.PAD_ID)
         if opt['ner_dim'] > 0:
-            self.ner_emb = nn.Embedding(len(constant.NER_TO_ID), opt[
-                'ner_dim'], padding_idx=constant.PAD_ID)
+            self.ner_emb = nn.Embedding(len(constant.NER_TO_ID), opt['ner_dim'], padding_idx=constant.PAD_ID)
         input_size = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
-        self.rnn = nn.LSTM(input_size, opt['hidden_dim'], opt['num_layers'],
-            batch_first=True, dropout=opt['dropout'])
+        self.rnn = nn.LSTM(input_size, opt['hidden_dim'], opt['num_layers'], batch_first=True, dropout=opt['dropout'])
         self.linear = nn.Linear(opt['hidden_dim'], opt['num_class'])
         if opt['attn']:
-            self.attn_layer = layers.PositionAwareAttention(opt[
-                'hidden_dim'], opt['hidden_dim'], 2 * opt['pe_dim'], opt[
-                'attn_dim'])
+            self.attn_layer = layers.PositionAwareAttention(opt['hidden_dim'], opt['hidden_dim'], 2 * opt['pe_dim'], opt['attn_dim'])
             self.pe_emb = nn.Embedding(constant.MAX_LEN * 2 + 1, opt['pe_dim'])
         self.opt = opt
         self.topn = self.opt.get('topn', 10000000000.0)
@@ -193,14 +180,12 @@ class PositionAwareRNN(nn.Module):
             self.emb.weight.requires_grad = False
         elif self.topn < self.opt['vocab_size']:
             None
-            self.emb.weight.register_hook(lambda x: torch_utils.
-                keep_partial_grad(x, self.topn))
+            self.emb.weight.register_hook(lambda x: torch_utils.keep_partial_grad(x, self.topn))
         else:
             None
 
     def zero_state(self, batch_size):
-        state_shape = self.opt['num_layers'], batch_size, self.opt['hidden_dim'
-            ]
+        state_shape = self.opt['num_layers'], batch_size, self.opt['hidden_dim']
         h0 = c0 = torch.zeros(*state_shape, requires_grad=False)
         if self.use_cuda:
             return h0, c0
@@ -220,11 +205,9 @@ class PositionAwareRNN(nn.Module):
         inputs = self.drop(torch.cat(inputs, dim=2))
         input_size = inputs.size(2)
         h0, c0 = self.zero_state(batch_size)
-        inputs = nn.utils.rnn.pack_padded_sequence(inputs, seq_lens,
-            batch_first=True)
+        inputs = nn.utils.rnn.pack_padded_sequence(inputs, seq_lens, batch_first=True)
         outputs, (ht, ct) = self.rnn(inputs, (h0, c0))
-        outputs, output_lens = nn.utils.rnn.pad_packed_sequence(outputs,
-            batch_first=True)
+        outputs, output_lens = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
         hidden = self.drop(ht[(-1), :, :])
         outputs = self.drop(outputs)
         if self.opt['attn']:
@@ -237,10 +220,3 @@ class PositionAwareRNN(nn.Module):
         logits = self.linear(final_hidden)
         return logits, final_hidden
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_yuhaozhang_tacred_relation(_paritybench_base):
-    pass

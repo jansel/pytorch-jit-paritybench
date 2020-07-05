@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -48,18 +49,7 @@ class MediaPipeBlazeFace(nn.Module):
 
     def __init__(self):
         super(MediaPipeBlazeFace, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 24, kernel_size=5,
-            stride=2, padding=2, bias=True), nn.BatchNorm2d(24), nn.ReLU(
-            inplace=True), BlazeBlock(24, 24, kernel_size=3), BlazeBlock(24,
-            28, kernel_size=3), BlazeBlock(28, 32, kernel_size=3, stride=2),
-            BlazeBlock(32, 36, kernel_size=3), BlazeBlock(36, 42,
-            kernel_size=3), BlazeBlock(42, 48, kernel_size=3, stride=2),
-            BlazeBlock(48, 56, kernel_size=3), BlazeBlock(56, 64,
-            kernel_size=3), BlazeBlock(64, 72, kernel_size=3), BlazeBlock(
-            72, 80, kernel_size=3), BlazeBlock(80, 88, kernel_size=3),
-            BlazeBlock(88, 96, kernel_size=3, stride=2), BlazeBlock(96, 96,
-            kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(
-            96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3))
+        self.features = nn.Sequential(nn.Conv2d(3, 24, kernel_size=5, stride=2, padding=2, bias=True), nn.BatchNorm2d(24), nn.ReLU(inplace=True), BlazeBlock(24, 24, kernel_size=3), BlazeBlock(24, 28, kernel_size=3), BlazeBlock(28, 32, kernel_size=3, stride=2), BlazeBlock(32, 36, kernel_size=3), BlazeBlock(36, 42, kernel_size=3), BlazeBlock(42, 48, kernel_size=3, stride=2), BlazeBlock(48, 56, kernel_size=3), BlazeBlock(56, 64, kernel_size=3), BlazeBlock(64, 72, kernel_size=3), BlazeBlock(72, 80, kernel_size=3), BlazeBlock(80, 88, kernel_size=3), BlazeBlock(88, 96, kernel_size=3, stride=2), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3))
         self.apply(initialize)
 
     def forward(self, x):
@@ -80,16 +70,10 @@ class BlazeBlock(nn.Module):
         else:
             self.channel_pad = oup1 - inp
         padding = (kernel_size - 1) // 2
-        self.conv1 = nn.Sequential(nn.Conv2d(inp, inp, kernel_size=
-            kernel_size, stride=stride, padding=padding, groups=inp, bias=
-            True), nn.BatchNorm2d(inp), nn.Conv2d(inp, oup1, 1, 1, 0, bias=
-            True), nn.BatchNorm2d(oup1))
+        self.conv1 = nn.Sequential(nn.Conv2d(inp, inp, kernel_size=kernel_size, stride=stride, padding=padding, groups=inp, bias=True), nn.BatchNorm2d(inp), nn.Conv2d(inp, oup1, 1, 1, 0, bias=True), nn.BatchNorm2d(oup1))
         self.act = nn.ReLU(inplace=True)
         if self.use_double_block:
-            self.conv2 = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(
-                oup1, oup1, kernel_size=kernel_size, stride=1, padding=
-                padding, groups=oup1, bias=True), nn.BatchNorm2d(oup1), nn.
-                Conv2d(oup1, oup2, 1, 1, 0, bias=True), nn.BatchNorm2d(oup2))
+            self.conv2 = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(oup1, oup1, kernel_size=kernel_size, stride=1, padding=padding, groups=oup1, bias=True), nn.BatchNorm2d(oup1), nn.Conv2d(oup1, oup2, 1, 1, 0, bias=True), nn.BatchNorm2d(oup2))
         if self.use_pooling:
             self.mp = nn.MaxPool2d(kernel_size=self.stride, stride=self.stride)
 
@@ -113,13 +97,7 @@ class BlazeFace(nn.Module):
 
     def __init__(self):
         super(BlazeFace, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 24, kernel_size=3,
-            stride=2, padding=1, bias=True), nn.BatchNorm2d(24), nn.ReLU(
-            inplace=True), BlazeBlock(24, 24), BlazeBlock(24, 24),
-            BlazeBlock(24, 48, stride=2), BlazeBlock(48, 48), BlazeBlock(48,
-            48), BlazeBlock(48, 24, 96, stride=2), BlazeBlock(96, 24, 96),
-            BlazeBlock(96, 24, 96), BlazeBlock(96, 24, 96, stride=2),
-            BlazeBlock(96, 24, 96), BlazeBlock(96, 24, 96))
+        self.features = nn.Sequential(nn.Conv2d(3, 24, kernel_size=3, stride=2, padding=1, bias=True), nn.BatchNorm2d(24), nn.ReLU(inplace=True), BlazeBlock(24, 24), BlazeBlock(24, 24), BlazeBlock(24, 48, stride=2), BlazeBlock(48, 48), BlazeBlock(48, 48), BlazeBlock(48, 24, 96, stride=2), BlazeBlock(96, 24, 96), BlazeBlock(96, 24, 96), BlazeBlock(96, 24, 96, stride=2), BlazeBlock(96, 24, 96), BlazeBlock(96, 24, 96))
         self.apply(initialize)
 
     def forward(self, x):
@@ -131,17 +109,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BlazeBlock,
+     lambda: ([], {'inp': 4, 'oup1': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BlazeFace,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (MediaPipeBlazeFace,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_tkat0_PyTorch_BlazeFace(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BlazeBlock(*[], **{'inp': 4, 'oup1': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BlazeFace(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MediaPipeBlazeFace(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

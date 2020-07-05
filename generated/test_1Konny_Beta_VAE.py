@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,17 +85,8 @@ class BetaVAE_H(nn.Module):
         super(BetaVAE_H, self).__init__()
         self.z_dim = z_dim
         self.nc = nc
-        self.encoder = nn.Sequential(nn.Conv2d(nc, 32, 4, 2, 1), nn.ReLU(
-            True), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32,
-            64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.
-            ReLU(True), nn.Conv2d(64, 256, 4, 1), nn.ReLU(True), View((-1, 
-            256 * 1 * 1)), nn.Linear(256, z_dim * 2))
-        self.decoder = nn.Sequential(nn.Linear(z_dim, 256), View((-1, 256, 
-            1, 1)), nn.ReLU(True), nn.ConvTranspose2d(256, 64, 4), nn.ReLU(
-            True), nn.ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, nc, 4, 2, 1))
+        self.encoder = nn.Sequential(nn.Conv2d(nc, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 256, 4, 1), nn.ReLU(True), View((-1, 256 * 1 * 1)), nn.Linear(256, z_dim * 2))
+        self.decoder = nn.Sequential(nn.Linear(z_dim, 256), View((-1, 256, 1, 1)), nn.ReLU(True), nn.ConvTranspose2d(256, 64, 4), nn.ReLU(True), nn.ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, nc, 4, 2, 1))
         self.weight_init()
 
     def weight_init(self):
@@ -121,12 +113,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BetaVAE_H,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (View,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4])], {}),
+     True),
+]
+
 class Test_1Konny_Beta_VAE(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BetaVAE_H(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(View(*[], **{'size': 4}), [torch.rand([4])], {})
+        self._check(*TESTCASES[1])
 

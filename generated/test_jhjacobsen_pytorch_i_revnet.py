@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -97,8 +98,7 @@ def split(x):
 
 class irevnet_block(nn.Module):
 
-    def __init__(self, in_ch, out_ch, stride=1, first=False, dropout_rate=
-        0.0, affineBN=True, mult=4):
+    def __init__(self, in_ch, out_ch, stride=1, first=False, dropout_rate=0.0, affineBN=True, mult=4):
         """ buid invertible bottleneck block """
         super(irevnet_block, self).__init__()
         self.first = first
@@ -115,17 +115,14 @@ class irevnet_block(nn.Module):
         if not first:
             layers.append(nn.BatchNorm2d(in_ch // 2, affine=affineBN))
             layers.append(nn.ReLU(inplace=True))
-        layers.append(nn.Conv2d(in_ch // 2, int(out_ch // mult),
-            kernel_size=3, stride=stride, padding=1, bias=False))
+        layers.append(nn.Conv2d(in_ch // 2, int(out_ch // mult), kernel_size=3, stride=stride, padding=1, bias=False))
         layers.append(nn.BatchNorm2d(int(out_ch // mult), affine=affineBN))
         layers.append(nn.ReLU(inplace=True))
-        layers.append(nn.Conv2d(int(out_ch // mult), int(out_ch // mult),
-            kernel_size=3, padding=1, bias=False))
+        layers.append(nn.Conv2d(int(out_ch // mult), int(out_ch // mult), kernel_size=3, padding=1, bias=False))
         layers.append(nn.Dropout(p=dropout_rate))
         layers.append(nn.BatchNorm2d(int(out_ch // mult), affine=affineBN))
         layers.append(nn.ReLU(inplace=True))
-        layers.append(nn.Conv2d(int(out_ch // mult), out_ch, kernel_size=3,
-            padding=1, bias=False))
+        layers.append(nn.Conv2d(int(out_ch // mult), out_ch, kernel_size=3, padding=1, bias=False))
         self.bottleneck_block = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -165,8 +162,7 @@ class irevnet_block(nn.Module):
 
 class iRevNet(nn.Module):
 
-    def __init__(self, nBlocks, nStrides, nClasses, nChannels=None, init_ds
-        =2, dropout_rate=0.0, affineBN=True, in_shape=None, mult=4):
+    def __init__(self, nBlocks, nStrides, nClasses, nChannels=None, init_ds=2, dropout_rate=0.0, affineBN=True, in_shape=None, mult=4):
         super(iRevNet, self).__init__()
         self.ds = in_shape[2] // 2 ** (nStrides.count(2) + init_ds // 2)
         self.init_ds = init_ds
@@ -176,17 +172,13 @@ class iRevNet(nn.Module):
         None
         None
         if not nChannels:
-            nChannels = [self.in_ch // 2, self.in_ch // 2 * 4, self.in_ch //
-                2 * 4 ** 2, self.in_ch // 2 * 4 ** 3]
+            nChannels = [self.in_ch // 2, self.in_ch // 2 * 4, self.in_ch // 2 * 4 ** 2, self.in_ch // 2 * 4 ** 3]
         self.init_psi = psi(self.init_ds)
-        self.stack = self.irevnet_stack(irevnet_block, nChannels, nBlocks,
-            nStrides, dropout_rate=dropout_rate, affineBN=affineBN, in_ch=
-            self.in_ch, mult=mult)
+        self.stack = self.irevnet_stack(irevnet_block, nChannels, nBlocks, nStrides, dropout_rate=dropout_rate, affineBN=affineBN, in_ch=self.in_ch, mult=mult)
         self.bn1 = nn.BatchNorm2d(nChannels[-1] * 2, momentum=0.9)
         self.linear = nn.Linear(nChannels[-1] * 2, nClasses)
 
-    def irevnet_stack(self, _block, nChannels, nBlocks, nStrides,
-        dropout_rate, affineBN, in_ch, mult):
+    def irevnet_stack(self, _block, nChannels, nBlocks, nStrides, dropout_rate, affineBN, in_ch, mult):
         """ Create stack of irevnet blocks """
         block_list = nn.ModuleList()
         strides = []
@@ -195,9 +187,7 @@ class iRevNet(nn.Module):
             strides = strides + ([stride] + [1] * (depth - 1))
             channels = channels + [channel] * depth
         for channel, stride in zip(channels, strides):
-            block_list.append(_block(in_ch, channel, stride, first=self.
-                first, dropout_rate=dropout_rate, affineBN=affineBN, mult=mult)
-                )
+            block_list.append(_block(in_ch, channel, stride, first=self.first, dropout_rate=dropout_rate, affineBN=affineBN, mult=mult))
             in_ch = 2 * channel
             self.first = False
         return block_list
@@ -255,17 +245,13 @@ class psi(nn.Module):
 
     def inverse(self, input):
         bl, bl_sq = self.block_size, self.block_size_sq
-        bs, new_d, h, w = input.shape[0], input.shape[1] // bl_sq, input.shape[
-            2], input.shape[3]
-        return input.reshape(bs, bl, bl, new_d, h, w).permute(0, 3, 4, 1, 5, 2
-            ).reshape(bs, new_d, h * bl, w * bl)
+        bs, new_d, h, w = input.shape[0], input.shape[1] // bl_sq, input.shape[2], input.shape[3]
+        return input.reshape(bs, bl, bl, new_d, h, w).permute(0, 3, 4, 1, 5, 2).reshape(bs, new_d, h * bl, w * bl)
 
     def forward(self, input):
         bl, bl_sq = self.block_size, self.block_size_sq
-        bs, d, new_h, new_w = input.shape[0], input.shape[1], input.shape[2
-            ] // bl, input.shape[3] // bl
-        return input.reshape(bs, d, new_h, bl, new_w, bl).permute(0, 3, 5, 
-            1, 2, 4).reshape(bs, d * bl_sq, new_h, new_w)
+        bs, d, new_h, new_w = input.shape[0], input.shape[1], input.shape[2] // bl, input.shape[3] // bl
+        return input.reshape(bs, d, new_h, bl, new_w, bl).permute(0, 3, 5, 1, 2, 4).reshape(bs, d * bl_sq, new_h, new_w)
 
 
 class psi_legacy(nn.Module):
@@ -281,13 +267,10 @@ class psi_legacy(nn.Module):
         s_depth = int(d_depth / self.block_size_sq)
         s_width = int(d_width * self.block_size)
         s_height = int(d_height * self.block_size)
-        t_1 = output.contiguous().view(batch_size, d_height, d_width, self.
-            block_size_sq, s_depth)
+        t_1 = output.contiguous().view(batch_size, d_height, d_width, self.block_size_sq, s_depth)
         spl = t_1.split(self.block_size, 3)
-        stack = [t_t.contiguous().view(batch_size, d_height, s_width,
-            s_depth) for t_t in spl]
-        output = torch.stack(stack, 0).transpose(0, 1).permute(0, 2, 1, 3, 4
-            ).contiguous().view(batch_size, s_height, s_width, s_depth)
+        stack = [t_t.contiguous().view(batch_size, d_height, s_width, s_depth) for t_t in spl]
+        output = torch.stack(stack, 0).transpose(0, 1).permute(0, 2, 1, 3, 4).contiguous().view(batch_size, s_height, s_width, s_depth)
         output = output.permute(0, 3, 1, 2)
         return output.contiguous()
 
@@ -297,8 +280,7 @@ class psi_legacy(nn.Module):
         d_depth = s_depth * self.block_size_sq
         d_height = int(s_height / self.block_size)
         t_1 = output.split(self.block_size, 2)
-        stack = [t_t.contiguous().view(batch_size, d_height, d_depth) for
-            t_t in t_1]
+        stack = [t_t.contiguous().view(batch_size, d_height, d_depth) for t_t in t_1]
         output = torch.stack(stack, 1)
         output = output.permute(0, 2, 1, 3)
         output = output.permute(0, 3, 1, 2)
@@ -309,14 +291,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (injective_pad,
+     lambda: ([], {'pad_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (psi,
+     lambda: ([], {'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (psi_legacy,
+     lambda: ([], {'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jhjacobsen_pytorch_i_revnet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(injective_pad(*[], **{'pad_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(psi(*[], **{'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(psi_legacy(*[], **{'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

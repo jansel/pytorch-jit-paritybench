@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,19 +71,13 @@ import numpy as np
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1,
-            inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=True), nn.LeakyReLU(0.1, inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 def correlate(input1, input2):
-    out_corr = spatial_correlation_sample(input1, input2, kernel_size=1,
-        patch_size=21, stride=1, padding=0, dilation_patch=2)
+    out_corr = spatial_correlation_sample(input1, input2, kernel_size=1, patch_size=21, stride=1, padding=0, dilation_patch=2)
     b, ph, pw, h, w = out_corr.size()
     out_corr = out_corr.view(b, ph * pw, h, w) / input1.size(1)
     return F.leaky_relu_(out_corr, 0.1)
@@ -96,14 +91,11 @@ def crop_like(input, target):
 
 
 def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.1,
-        inplace=True))
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.1, inplace=True))
 
 
 def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =False)
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias=False)
 
 
 class FlowNetC(nn.Module):
@@ -115,8 +107,7 @@ class FlowNetC(nn.Module):
         self.conv1 = conv(self.batchNorm, 3, 64, kernel_size=7, stride=2)
         self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2)
         self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2)
-        self.conv_redir = conv(self.batchNorm, 256, 32, kernel_size=1, stride=1
-            )
+        self.conv_redir = conv(self.batchNorm, 256, 32, kernel_size=1, stride=1)
         self.conv3_1 = conv(self.batchNorm, 473, 256)
         self.conv4 = conv(self.batchNorm, 256, 512, stride=2)
         self.conv4_1 = conv(self.batchNorm, 512, 512)
@@ -133,14 +124,10 @@ class FlowNetC(nn.Module):
         self.predict_flow4 = predict_flow(770)
         self.predict_flow3 = predict_flow(386)
         self.predict_flow2 = predict_flow(194)
-        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
+        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 kaiming_normal_(m.weight, 0.1)
@@ -189,12 +176,10 @@ class FlowNetC(nn.Module):
             return flow2
 
     def weight_parameters(self):
-        return [param for name, param in self.named_parameters() if 
-            'weight' in name]
+        return [param for name, param in self.named_parameters() if 'weight' in name]
 
     def bias_parameters(self):
-        return [param for name, param in self.named_parameters() if 'bias' in
-            name]
+        return [param for name, param in self.named_parameters() if 'bias' in name]
 
 
 class FlowNetS(nn.Module):
@@ -222,14 +207,10 @@ class FlowNetS(nn.Module):
         self.predict_flow4 = predict_flow(770)
         self.predict_flow3 = predict_flow(386)
         self.predict_flow2 = predict_flow(194)
-        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
+        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 kaiming_normal_(m.weight, 0.1)
@@ -268,21 +249,26 @@ class FlowNetS(nn.Module):
             return flow2
 
     def weight_parameters(self):
-        return [param for name, param in self.named_parameters() if 
-            'weight' in name]
+        return [param for name, param in self.named_parameters() if 'weight' in name]
 
     def bias_parameters(self):
-        return [param for name, param in self.named_parameters() if 'bias' in
-            name]
+        return [param for name, param in self.named_parameters() if 'bias' in name]
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FlowNetS,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 6, 64, 64])], {}),
+     False),
+]
+
 class Test_ClementPinard_FlowNetPytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FlowNetS(*[], **{}), [torch.rand([4, 6, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

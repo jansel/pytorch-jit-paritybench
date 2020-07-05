@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -47,8 +48,7 @@ import torch.nn.functional as F
 
 class DiscriminativeLoss(nn.Module):
 
-    def __init__(self, delta_d, delta_v, alpha=1.0, beta=1.0, gamma=0.001,
-        reduction='mean'):
+    def __init__(self, delta_d, delta_v, alpha=1.0, beta=1.0, gamma=0.001, reduction='mean'):
         super(DiscriminativeLoss, self).__init__()
         self.alpha = alpha
         self.beta = beta
@@ -174,13 +174,8 @@ class STN3D(nn.Module):
     def __init__(self, input_channels=3):
         super(STN3D, self).__init__()
         self.input_channels = input_channels
-        self.mlp1 = nn.Sequential(nn.Conv1d(input_channels, 64, 1), nn.
-            BatchNorm1d(64), nn.ReLU(), nn.Conv1d(64, 128, 1), nn.
-            BatchNorm1d(128), nn.ReLU(), nn.Conv1d(128, 1024, 1), nn.
-            BatchNorm1d(1024), nn.ReLU())
-        self.mlp2 = nn.Sequential(nn.Linear(1024, 512), nn.BatchNorm1d(512),
-            nn.ReLU(), nn.Linear(512, 256), nn.BatchNorm1d(256), nn.ReLU(),
-            nn.Linear(256, input_channels * input_channels))
+        self.mlp1 = nn.Sequential(nn.Conv1d(input_channels, 64, 1), nn.BatchNorm1d(64), nn.ReLU(), nn.Conv1d(64, 128, 1), nn.BatchNorm1d(128), nn.ReLU(), nn.Conv1d(128, 1024, 1), nn.BatchNorm1d(1024), nn.ReLU())
+        self.mlp2 = nn.Sequential(nn.Linear(1024, 512), nn.BatchNorm1d(512), nn.ReLU(), nn.Linear(512, 256), nn.BatchNorm1d(256), nn.ReLU(), nn.Linear(256, input_channels * input_channels))
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -201,15 +196,9 @@ class PointNet(nn.Module):
         self.input_channels = input_channels
         self.stn1 = STN3D(input_channels)
         self.stn2 = STN3D(64)
-        self.mlp1 = nn.Sequential(nn.Conv1d(input_channels, 64, 1), nn.
-            BatchNorm1d(64), nn.ReLU(), nn.Conv1d(64, 64, 1), nn.
-            BatchNorm1d(64), nn.ReLU())
-        self.mlp2 = nn.Sequential(nn.Conv1d(64, 64, 1), nn.BatchNorm1d(64),
-            nn.ReLU(), nn.Conv1d(64, 128, 1), nn.BatchNorm1d(128), nn.ReLU(
-            ), nn.Conv1d(128, 1024, 1), nn.BatchNorm1d(1024), nn.ReLU())
-        self.mlp3 = nn.Sequential(nn.Conv1d(1088, 512, 1), nn.BatchNorm1d(
-            512), nn.ReLU(), nn.Conv1d(512, 256, 1), nn.BatchNorm1d(256),
-            nn.ReLU(), nn.Conv1d(256, 128, 1), nn.BatchNorm1d(128), nn.ReLU())
+        self.mlp1 = nn.Sequential(nn.Conv1d(input_channels, 64, 1), nn.BatchNorm1d(64), nn.ReLU(), nn.Conv1d(64, 64, 1), nn.BatchNorm1d(64), nn.ReLU())
+        self.mlp2 = nn.Sequential(nn.Conv1d(64, 64, 1), nn.BatchNorm1d(64), nn.ReLU(), nn.Conv1d(64, 128, 1), nn.BatchNorm1d(128), nn.ReLU(), nn.Conv1d(128, 1024, 1), nn.BatchNorm1d(1024), nn.ReLU())
+        self.mlp3 = nn.Sequential(nn.Conv1d(1088, 512, 1), nn.BatchNorm1d(512), nn.ReLU(), nn.Conv1d(512, 256, 1), nn.BatchNorm1d(256), nn.ReLU(), nn.Conv1d(256, 128, 1), nn.BatchNorm1d(128), nn.ReLU())
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -232,14 +221,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MTPNet,
+     lambda: ([], {'input_channels': 4, 'num_classes': 4, 'embedding_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (PointNet,
+     lambda: ([], {'input_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (STN3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     True),
+]
+
 class Test_pqhieu_jsis3d(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MTPNet(*[], **{'input_channels': 4, 'num_classes': 4, 'embedding_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(PointNet(*[], **{'input_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(STN3D(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[2])
 

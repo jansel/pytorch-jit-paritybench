@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,29 +64,12 @@ class BMN(nn.Module):
         self.hidden_dim_2d = 128
         self.hidden_dim_3d = 512
         self._get_interp1d_mask()
-        self.x_1d_b = nn.Sequential(nn.Conv1d(self.feat_dim, self.
-            hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(
-            inplace=True), nn.Conv1d(self.hidden_dim_1d, self.hidden_dim_1d,
-            kernel_size=3, padding=1, groups=4), nn.ReLU(inplace=True))
-        self.x_1d_s = nn.Sequential(nn.Conv1d(self.hidden_dim_1d, self.
-            hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(
-            inplace=True), nn.Conv1d(self.hidden_dim_1d, 1, kernel_size=1),
-            nn.Sigmoid())
-        self.x_1d_e = nn.Sequential(nn.Conv1d(self.hidden_dim_1d, self.
-            hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(
-            inplace=True), nn.Conv1d(self.hidden_dim_1d, 1, kernel_size=1),
-            nn.Sigmoid())
-        self.x_1d_p = nn.Sequential(nn.Conv1d(self.hidden_dim_1d, self.
-            hidden_dim_1d, kernel_size=3, padding=1), nn.ReLU(inplace=True))
-        self.x_3d_p = nn.Sequential(nn.Conv3d(self.hidden_dim_1d, self.
-            hidden_dim_3d, kernel_size=(self.num_sample, 1, 1)), nn.ReLU(
-            inplace=True))
-        self.x_2d_p = nn.Sequential(nn.Conv2d(self.hidden_dim_3d, self.
-            hidden_dim_2d, kernel_size=1), nn.ReLU(inplace=True), nn.Conv2d
-            (self.hidden_dim_2d, self.hidden_dim_2d, kernel_size=3, padding
-            =1), nn.ReLU(inplace=True), nn.Conv2d(self.hidden_dim_2d, self.
-            hidden_dim_2d, kernel_size=3, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(self.hidden_dim_2d, 2, kernel_size=1), nn.Sigmoid())
+        self.x_1d_b = nn.Sequential(nn.Conv1d(self.feat_dim, self.hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(inplace=True), nn.Conv1d(self.hidden_dim_1d, self.hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(inplace=True))
+        self.x_1d_s = nn.Sequential(nn.Conv1d(self.hidden_dim_1d, self.hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(inplace=True), nn.Conv1d(self.hidden_dim_1d, 1, kernel_size=1), nn.Sigmoid())
+        self.x_1d_e = nn.Sequential(nn.Conv1d(self.hidden_dim_1d, self.hidden_dim_1d, kernel_size=3, padding=1, groups=4), nn.ReLU(inplace=True), nn.Conv1d(self.hidden_dim_1d, 1, kernel_size=1), nn.Sigmoid())
+        self.x_1d_p = nn.Sequential(nn.Conv1d(self.hidden_dim_1d, self.hidden_dim_1d, kernel_size=3, padding=1), nn.ReLU(inplace=True))
+        self.x_3d_p = nn.Sequential(nn.Conv3d(self.hidden_dim_1d, self.hidden_dim_3d, kernel_size=(self.num_sample, 1, 1)), nn.ReLU(inplace=True))
+        self.x_2d_p = nn.Sequential(nn.Conv2d(self.hidden_dim_3d, self.hidden_dim_2d, kernel_size=1), nn.ReLU(inplace=True), nn.Conv2d(self.hidden_dim_2d, self.hidden_dim_2d, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(self.hidden_dim_2d, self.hidden_dim_2d, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(self.hidden_dim_2d, 2, kernel_size=1), nn.Sigmoid())
 
     def forward(self, x):
         base_feature = self.x_1d_b(x)
@@ -99,20 +83,16 @@ class BMN(nn.Module):
 
     def _boundary_matching_layer(self, x):
         input_size = x.size()
-        out = torch.matmul(x, self.sample_mask).reshape(input_size[0],
-            input_size[1], self.num_sample, self.tscale, self.tscale)
+        out = torch.matmul(x, self.sample_mask).reshape(input_size[0], input_size[1], self.num_sample, self.tscale, self.tscale)
         return out
 
-    def _get_interp1d_bin_mask(self, seg_xmin, seg_xmax, tscale, num_sample,
-        num_sample_perbin):
+    def _get_interp1d_bin_mask(self, seg_xmin, seg_xmax, tscale, num_sample, num_sample_perbin):
         plen = float(seg_xmax - seg_xmin)
         plen_sample = plen / (num_sample * num_sample_perbin - 1.0)
-        total_samples = [(seg_xmin + plen_sample * ii) for ii in range(
-            num_sample * num_sample_perbin)]
+        total_samples = [(seg_xmin + plen_sample * ii) for ii in range(num_sample * num_sample_perbin)]
         p_mask = []
         for idx in range(num_sample):
-            bin_samples = total_samples[idx * num_sample_perbin:(idx + 1) *
-                num_sample_perbin]
+            bin_samples = total_samples[idx * num_sample_perbin:(idx + 1) * num_sample_perbin]
             bin_vector = np.zeros([tscale])
             for sample in bin_samples:
                 sample_upper = math.ceil(sample)
@@ -135,13 +115,9 @@ class BMN(nn.Module):
                     p_xmin = start_index
                     p_xmax = start_index + duration_index
                     center_len = float(p_xmax - p_xmin) + 1
-                    sample_xmin = (p_xmin - center_len * self.
-                        prop_boundary_ratio)
-                    sample_xmax = (p_xmax + center_len * self.
-                        prop_boundary_ratio)
-                    p_mask = self._get_interp1d_bin_mask(sample_xmin,
-                        sample_xmax, self.tscale, self.num_sample, self.
-                        num_sample_perbin)
+                    sample_xmin = p_xmin - center_len * self.prop_boundary_ratio
+                    sample_xmax = p_xmax + center_len * self.prop_boundary_ratio
+                    p_mask = self._get_interp1d_bin_mask(sample_xmin, sample_xmax, self.tscale, self.num_sample, self.num_sample_perbin)
                 else:
                     p_mask = np.zeros([self.tscale, self.num_sample])
                 mask_mat_vector.append(p_mask)
@@ -149,16 +125,23 @@ class BMN(nn.Module):
             mask_mat.append(mask_mat_vector)
         mask_mat = np.stack(mask_mat, axis=3)
         mask_mat = mask_mat.astype(np.float32)
-        self.sample_mask = nn.Parameter(torch.Tensor(mask_mat).view(self.
-            tscale, -1), requires_grad=False)
+        self.sample_mask = nn.Parameter(torch.Tensor(mask_mat).view(self.tscale, -1), requires_grad=False)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BMN,
+     lambda: ([], {'opt': _mock_config(temporal_scale=1, prop_boundary_ratio=4, num_sample=4, num_sample_perbin=4, feat_dim=4)}),
+     lambda: ([torch.rand([4, 4, 1])], {}),
+     True),
+]
+
 class Test_JJBOY_BMN_Boundary_Matching_Network(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BMN(*[], **{'opt': _mock_config(temporal_scale=1, prop_boundary_ratio=4, num_sample=4, num_sample_perbin=4, feat_dim=4)}), [torch.rand([4, 4, 1])], {})
+        self._check(*TESTCASES[0])
 

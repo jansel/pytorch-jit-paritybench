@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,8 +61,7 @@ class MonodepthLoss(nn.modules.Module):
             ratio = 2 ** (i + 1)
             nh = h // ratio
             nw = w // ratio
-            scaled_imgs.append(nn.functional.interpolate(img, size=[nh, nw],
-                mode='bilinear', align_corners=True))
+            scaled_imgs.append(nn.functional.interpolate(img, size=[nh, nw], mode='bilinear', align_corners=True))
         return scaled_imgs
 
     def gradient_x(self, img):
@@ -76,14 +76,11 @@ class MonodepthLoss(nn.modules.Module):
 
     def apply_disparity(self, img, disp):
         batch_size, _, height, width = img.size()
-        x_base = torch.linspace(0, 1, width).repeat(batch_size, height, 1
-            ).type_as(img)
-        y_base = torch.linspace(0, 1, height).repeat(batch_size, width, 1
-            ).transpose(1, 2).type_as(img)
+        x_base = torch.linspace(0, 1, width).repeat(batch_size, height, 1).type_as(img)
+        y_base = torch.linspace(0, 1, height).repeat(batch_size, width, 1).transpose(1, 2).type_as(img)
         x_shifts = disp[:, (0), :, :]
         flow_field = torch.stack((x_base + x_shifts, y_base), dim=3)
-        output = F.grid_sample(img, 2 * flow_field - 1, mode='bilinear',
-            padding_mode='zeros')
+        output = F.grid_sample(img, 2 * flow_field - 1, mode='bilinear', padding_mode='zeros')
         return output
 
     def generate_image_left(self, img, disp):
@@ -113,16 +110,11 @@ class MonodepthLoss(nn.modules.Module):
         disp_gradients_y = [self.gradient_y(d) for d in disp]
         image_gradients_x = [self.gradient_x(img) for img in pyramid]
         image_gradients_y = [self.gradient_y(img) for img in pyramid]
-        weights_x = [torch.exp(-torch.mean(torch.abs(g), 1, keepdim=True)) for
-            g in image_gradients_x]
-        weights_y = [torch.exp(-torch.mean(torch.abs(g), 1, keepdim=True)) for
-            g in image_gradients_y]
-        smoothness_x = [(disp_gradients_x[i] * weights_x[i]) for i in range
-            (self.n)]
-        smoothness_y = [(disp_gradients_y[i] * weights_y[i]) for i in range
-            (self.n)]
-        return [(torch.abs(smoothness_x[i]) + torch.abs(smoothness_y[i])) for
-            i in range(self.n)]
+        weights_x = [torch.exp(-torch.mean(torch.abs(g), 1, keepdim=True)) for g in image_gradients_x]
+        weights_y = [torch.exp(-torch.mean(torch.abs(g), 1, keepdim=True)) for g in image_gradients_y]
+        smoothness_x = [(disp_gradients_x[i] * weights_x[i]) for i in range(self.n)]
+        smoothness_y = [(disp_gradients_y[i] * weights_y[i]) for i in range(self.n)]
+        return [(torch.abs(smoothness_x[i]) + torch.abs(smoothness_y[i])) for i in range(self.n)]
 
     def forward(self, input, target):
         """
@@ -140,45 +132,28 @@ class MonodepthLoss(nn.modules.Module):
         disp_right_est = [d[:, (1), :, :].unsqueeze(1) for d in input]
         self.disp_left_est = disp_left_est
         self.disp_right_est = disp_right_est
-        left_est = [self.generate_image_left(right_pyramid[i],
-            disp_left_est[i]) for i in range(self.n)]
-        right_est = [self.generate_image_right(left_pyramid[i],
-            disp_right_est[i]) for i in range(self.n)]
+        left_est = [self.generate_image_left(right_pyramid[i], disp_left_est[i]) for i in range(self.n)]
+        right_est = [self.generate_image_right(left_pyramid[i], disp_right_est[i]) for i in range(self.n)]
         self.left_est = left_est
         self.right_est = right_est
-        right_left_disp = [self.generate_image_left(disp_right_est[i],
-            disp_left_est[i]) for i in range(self.n)]
-        left_right_disp = [self.generate_image_right(disp_left_est[i],
-            disp_right_est[i]) for i in range(self.n)]
-        disp_left_smoothness = self.disp_smoothness(disp_left_est, left_pyramid
-            )
-        disp_right_smoothness = self.disp_smoothness(disp_right_est,
-            right_pyramid)
-        l1_left = [torch.mean(torch.abs(left_est[i] - left_pyramid[i])) for
-            i in range(self.n)]
-        l1_right = [torch.mean(torch.abs(right_est[i] - right_pyramid[i])) for
-            i in range(self.n)]
-        ssim_left = [torch.mean(self.SSIM(left_est[i], left_pyramid[i])) for
-            i in range(self.n)]
-        ssim_right = [torch.mean(self.SSIM(right_est[i], right_pyramid[i])) for
-            i in range(self.n)]
-        image_loss_left = [(self.SSIM_w * ssim_left[i] + (1 - self.SSIM_w) *
-            l1_left[i]) for i in range(self.n)]
-        image_loss_right = [(self.SSIM_w * ssim_right[i] + (1 - self.SSIM_w
-            ) * l1_right[i]) for i in range(self.n)]
+        right_left_disp = [self.generate_image_left(disp_right_est[i], disp_left_est[i]) for i in range(self.n)]
+        left_right_disp = [self.generate_image_right(disp_left_est[i], disp_right_est[i]) for i in range(self.n)]
+        disp_left_smoothness = self.disp_smoothness(disp_left_est, left_pyramid)
+        disp_right_smoothness = self.disp_smoothness(disp_right_est, right_pyramid)
+        l1_left = [torch.mean(torch.abs(left_est[i] - left_pyramid[i])) for i in range(self.n)]
+        l1_right = [torch.mean(torch.abs(right_est[i] - right_pyramid[i])) for i in range(self.n)]
+        ssim_left = [torch.mean(self.SSIM(left_est[i], left_pyramid[i])) for i in range(self.n)]
+        ssim_right = [torch.mean(self.SSIM(right_est[i], right_pyramid[i])) for i in range(self.n)]
+        image_loss_left = [(self.SSIM_w * ssim_left[i] + (1 - self.SSIM_w) * l1_left[i]) for i in range(self.n)]
+        image_loss_right = [(self.SSIM_w * ssim_right[i] + (1 - self.SSIM_w) * l1_right[i]) for i in range(self.n)]
         image_loss = sum(image_loss_left + image_loss_right)
-        lr_left_loss = [torch.mean(torch.abs(right_left_disp[i] -
-            disp_left_est[i])) for i in range(self.n)]
-        lr_right_loss = [torch.mean(torch.abs(left_right_disp[i] -
-            disp_right_est[i])) for i in range(self.n)]
+        lr_left_loss = [torch.mean(torch.abs(right_left_disp[i] - disp_left_est[i])) for i in range(self.n)]
+        lr_right_loss = [torch.mean(torch.abs(left_right_disp[i] - disp_right_est[i])) for i in range(self.n)]
         lr_loss = sum(lr_left_loss + lr_right_loss)
-        disp_left_loss = [(torch.mean(torch.abs(disp_left_smoothness[i])) /
-            2 ** i) for i in range(self.n)]
-        disp_right_loss = [(torch.mean(torch.abs(disp_right_smoothness[i])) /
-            2 ** i) for i in range(self.n)]
+        disp_left_loss = [(torch.mean(torch.abs(disp_left_smoothness[i])) / 2 ** i) for i in range(self.n)]
+        disp_right_loss = [(torch.mean(torch.abs(disp_right_smoothness[i])) / 2 ** i) for i in range(self.n)]
         disp_gradient_loss = sum(disp_left_loss + disp_right_loss)
-        loss = (image_loss + self.disp_gradient_w * disp_gradient_loss + 
-            self.lr_w * lr_loss)
+        loss = image_loss + self.disp_gradient_w * disp_gradient_loss + self.lr_w * lr_loss
         self.image_loss = image_loss
         self.disp_gradient_loss = disp_gradient_loss
         self.lr_loss = lr_loss
@@ -190,8 +165,7 @@ class conv(nn.Module):
     def __init__(self, num_in_layers, num_out_layers, kernel_size, stride):
         super(conv, self).__init__()
         self.kernel_size = kernel_size
-        self.conv_base = nn.Conv2d(num_in_layers, num_out_layers,
-            kernel_size=kernel_size, stride=stride)
+        self.conv_base = nn.Conv2d(num_in_layers, num_out_layers, kernel_size=kernel_size, stride=stride)
         self.normalize = nn.BatchNorm2d(num_out_layers)
 
     def forward(self, x):
@@ -234,10 +208,8 @@ class resconv(nn.Module):
         self.stride = stride
         self.conv1 = conv(num_in_layers, num_out_layers, 1, 1)
         self.conv2 = conv(num_out_layers, num_out_layers, 3, stride)
-        self.conv3 = nn.Conv2d(num_out_layers, 4 * num_out_layers,
-            kernel_size=1, stride=1)
-        self.conv4 = nn.Conv2d(num_in_layers, 4 * num_out_layers,
-            kernel_size=1, stride=stride)
+        self.conv3 = nn.Conv2d(num_out_layers, 4 * num_out_layers, kernel_size=1, stride=1)
+        self.conv4 = nn.Conv2d(num_in_layers, 4 * num_out_layers, kernel_size=1, stride=stride)
         self.normalize = nn.BatchNorm2d(4 * num_out_layers)
 
     def forward(self, x):
@@ -261,8 +233,7 @@ class resconv_basic(nn.Module):
         self.stride = stride
         self.conv1 = conv(num_in_layers, num_out_layers, 3, stride)
         self.conv2 = conv(num_out_layers, num_out_layers, 3, 1)
-        self.conv3 = nn.Conv2d(num_in_layers, num_out_layers, kernel_size=1,
-            stride=stride)
+        self.conv3 = nn.Conv2d(num_in_layers, num_out_layers, kernel_size=1, stride=stride)
         self.normalize = nn.BatchNorm2d(num_out_layers)
 
     def forward(self, x):
@@ -285,8 +256,7 @@ class upconv(nn.Module):
         self.conv1 = conv(num_in_layers, num_out_layers, kernel_size, 1)
 
     def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=self.scale, mode=
-            'bilinear', align_corners=True)
+        x = nn.functional.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
         return self.conv1(x)
 
 
@@ -367,20 +337,17 @@ class Resnet50_md(nn.Module):
         concat4 = torch.cat((upconv4, skip3), 1)
         iconv4 = self.iconv4(concat4)
         self.disp4 = self.disp4_layer(iconv4)
-        self.udisp4 = nn.functional.interpolate(self.disp4, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp4 = nn.functional.interpolate(self.disp4, scale_factor=2, mode='bilinear', align_corners=True)
         upconv3 = self.upconv3(iconv4)
         concat3 = torch.cat((upconv3, skip2, self.udisp4), 1)
         iconv3 = self.iconv3(concat3)
         self.disp3 = self.disp3_layer(iconv3)
-        self.udisp3 = nn.functional.interpolate(self.disp3, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp3 = nn.functional.interpolate(self.disp3, scale_factor=2, mode='bilinear', align_corners=True)
         upconv2 = self.upconv2(iconv3)
         concat2 = torch.cat((upconv2, skip1, self.udisp3), 1)
         iconv2 = self.iconv2(concat2)
         self.disp2 = self.disp2_layer(iconv2)
-        self.udisp2 = nn.functional.interpolate(self.disp2, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp2 = nn.functional.interpolate(self.disp2, scale_factor=2, mode='bilinear', align_corners=True)
         upconv1 = self.upconv1(iconv2)
         concat1 = torch.cat((upconv1, self.udisp2), 1)
         iconv1 = self.iconv1(concat1)
@@ -448,20 +415,17 @@ class Resnet18_md(nn.Module):
         concat4 = torch.cat((upconv4, skip3), 1)
         iconv4 = self.iconv4(concat4)
         self.disp4 = self.disp4_layer(iconv4)
-        self.udisp4 = nn.functional.interpolate(self.disp4, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp4 = nn.functional.interpolate(self.disp4, scale_factor=2, mode='bilinear', align_corners=True)
         upconv3 = self.upconv3(iconv4)
         concat3 = torch.cat((upconv3, skip2, self.udisp4), 1)
         iconv3 = self.iconv3(concat3)
         self.disp3 = self.disp3_layer(iconv3)
-        self.udisp3 = nn.functional.interpolate(self.disp3, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp3 = nn.functional.interpolate(self.disp3, scale_factor=2, mode='bilinear', align_corners=True)
         upconv2 = self.upconv2(iconv3)
         concat2 = torch.cat((upconv2, skip1, self.udisp3), 1)
         iconv2 = self.iconv2(concat2)
         self.disp2 = self.disp2_layer(iconv2)
-        self.udisp2 = nn.functional.interpolate(self.disp2, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp2 = nn.functional.interpolate(self.disp2, scale_factor=2, mode='bilinear', align_corners=True)
         upconv1 = self.upconv1(iconv2)
         concat1 = torch.cat((upconv1, self.udisp2), 1)
         iconv1 = self.iconv1(concat1)
@@ -478,17 +442,14 @@ class ResnetModel(nn.Module):
 
     def __init__(self, num_in_layers, encoder='resnet18', pretrained=False):
         super(ResnetModel, self).__init__()
-        assert encoder in ['resnet18', 'resnet34', 'resnet50', 'resnet101',
-            'resnet152'], 'Incorrect encoder type'
+        assert encoder in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'], 'Incorrect encoder type'
         if encoder in ['resnet18', 'resnet34']:
             filters = [64, 128, 256, 512]
         else:
             filters = [256, 512, 1024, 2048]
-        resnet = class_for_name('torchvision.models', encoder)(pretrained=
-            pretrained)
+        resnet = class_for_name('torchvision.models', encoder)(pretrained=pretrained)
         if num_in_layers != 3:
-            self.firstconv = nn.Conv2d(num_in_layers, 64, kernel_size=(7, 7
-                ), stride=(2, 2), padding=(3, 3), bias=False)
+            self.firstconv = nn.Conv2d(num_in_layers, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         else:
             self.firstconv = resnet.conv1
         self.firstbn = resnet.bn1
@@ -542,22 +503,18 @@ class ResnetModel(nn.Module):
         concat4 = torch.cat((upconv4, skip3), 1)
         iconv4 = self.iconv4(concat4)
         self.disp4 = self.disp4_layer(iconv4)
-        self.udisp4 = nn.functional.interpolate(self.disp4, scale_factor=1,
-            mode='bilinear', align_corners=True)
-        self.disp4 = nn.functional.interpolate(self.disp4, scale_factor=0.5,
-            mode='bilinear', align_corners=True)
+        self.udisp4 = nn.functional.interpolate(self.disp4, scale_factor=1, mode='bilinear', align_corners=True)
+        self.disp4 = nn.functional.interpolate(self.disp4, scale_factor=0.5, mode='bilinear', align_corners=True)
         upconv3 = self.upconv3(iconv4)
         concat3 = torch.cat((upconv3, skip2, self.udisp4), 1)
         iconv3 = self.iconv3(concat3)
         self.disp3 = self.disp3_layer(iconv3)
-        self.udisp3 = nn.functional.interpolate(self.disp3, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp3 = nn.functional.interpolate(self.disp3, scale_factor=2, mode='bilinear', align_corners=True)
         upconv2 = self.upconv2(iconv3)
         concat2 = torch.cat((upconv2, skip1, self.udisp3), 1)
         iconv2 = self.iconv2(concat2)
         self.disp2 = self.disp2_layer(iconv2)
-        self.udisp2 = nn.functional.interpolate(self.disp2, scale_factor=2,
-            mode='bilinear', align_corners=True)
+        self.udisp2 = nn.functional.interpolate(self.disp2, scale_factor=2, mode='bilinear', align_corners=True)
         upconv1 = self.upconv1(iconv2)
         concat1 = torch.cat((upconv1, self.udisp2), 1)
         iconv1 = self.iconv1(concat1)
@@ -569,40 +526,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Resnet18_md,
+     lambda: ([], {'num_in_layers': 1}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (Resnet50_md,
+     lambda: ([], {'num_in_layers': 1}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (conv,
+     lambda: ([], {'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (convblock,
+     lambda: ([], {'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (get_disp,
+     lambda: ([], {'num_in_layers': 1}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     True),
+    (maxpool,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (resconv,
+     lambda: ([], {'num_in_layers': 1, 'num_out_layers': 1, 'stride': 1}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (resconv_basic,
+     lambda: ([], {'num_in_layers': 1, 'num_out_layers': 1, 'stride': 1}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (upconv,
+     lambda: ([], {'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     False),
+]
+
 class Test_OniroAI_MonoDepth_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Resnet18_md(*[], **{'num_in_layers': 1}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Resnet50_md(*[], **{'num_in_layers': 1}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(conv(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(convblock(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(get_disp(*[], **{'num_in_layers': 1}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(maxpool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(resconv(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'stride': 1}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(resconv_basic(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'stride': 1}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(upconv(*[], **{'num_in_layers': 1, 'num_out_layers': 1, 'kernel_size': 4, 'scale': 1.0}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

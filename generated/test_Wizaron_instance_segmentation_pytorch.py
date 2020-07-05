@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -127,18 +128,14 @@ class InstanceCounter(nn.Module):
     def __generate_cnn(self):
         self.cnn = nn.Sequential()
         self.cnn.add_module('pool1', nn.MaxPool2d(2, stride=2))
-        self.cnn.add_module('conv1', nn.Conv2d(self.input_n_filters, self.
-            n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('conv1', nn.Conv2d(self.input_n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
         self.cnn.add_module('relu1', nn.ReLU())
-        self.cnn.add_module('conv2', nn.Conv2d(self.n_filters, self.
-            n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('conv2', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
         self.cnn.add_module('relu2', nn.ReLU())
         self.cnn.add_module('pool2', nn.MaxPool2d(2, stride=2))
-        self.cnn.add_module('conv3', nn.Conv2d(self.n_filters, self.
-            n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('conv3', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
         self.cnn.add_module('relu3', nn.ReLU())
-        self.cnn.add_module('conv4', nn.Conv2d(self.n_filters, self.
-            n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('conv4', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
         self.cnn.add_module('relu4', nn.ReLU())
         self.cnn.add_module('pool3', nn.AdaptiveAvgPool2d((1, 1)))
         if self.use_coordinates:
@@ -189,8 +186,7 @@ class ConvGRUCell(nn.Module):
         >>> output = conv_gru(input, hidden)
     """
 
-    def __init__(self, input_size, hidden_size, kernel_size,
-        use_coordinates=False, usegpu=True):
+    def __init__(self, input_size, hidden_size, kernel_size, use_coordinates=False, usegpu=True):
         super(ConvGRUCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -199,17 +195,11 @@ class ConvGRUCell(nn.Module):
         self.usegpu = usegpu
         _n_inputs = self.input_size + self.hidden_size
         if self.use_coordinates:
-            self.conv_gates = CoordConv(_n_inputs, 2 * self.hidden_size,
-                self.kernel_size, padding=self.kernel_size // 2, with_r=
-                True, usegpu=self.usegpu)
-            self.conv_ct = CoordConv(_n_inputs, self.hidden_size, self.
-                kernel_size, padding=self.kernel_size // 2, with_r=True,
-                usegpu=self.usegpu)
+            self.conv_gates = CoordConv(_n_inputs, 2 * self.hidden_size, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
+            self.conv_ct = CoordConv(_n_inputs, self.hidden_size, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
         else:
-            self.conv_gates = nn.Conv2d(_n_inputs, 2 * self.hidden_size,
-                self.kernel_size, padding=self.kernel_size // 2)
-            self.conv_ct = nn.Conv2d(_n_inputs, self.hidden_size, self.
-                kernel_size, padding=self.kernel_size // 2)
+            self.conv_gates = nn.Conv2d(_n_inputs, 2 * self.hidden_size, self.kernel_size, padding=self.kernel_size // 2)
+            self.conv_ct = nn.Conv2d(_n_inputs, self.hidden_size, self.kernel_size, padding=self.kernel_size // 2)
 
     def forward(self, x, hidden):
         batch_size, _, height, width = x.size()
@@ -266,10 +256,8 @@ class AddCoordinates(object):
 
     def __call__(self, image):
         batch_size, _, image_height, image_width = image.size()
-        y_coords = 2.0 * torch.arange(image_height).unsqueeze(1).expand(
-            image_height, image_width) / (image_height - 1.0) - 1.0
-        x_coords = 2.0 * torch.arange(image_width).unsqueeze(0).expand(
-            image_height, image_width) / (image_width - 1.0) - 1.0
+        y_coords = 2.0 * torch.arange(image_height).unsqueeze(1).expand(image_height, image_width) / (image_height - 1.0) - 1.0
+        x_coords = 2.0 * torch.arange(image_width).unsqueeze(0).expand(image_height, image_width) / (image_width - 1.0) - 1.0
         coords = torch.stack((y_coords, x_coords), dim=0)
         if self.with_r:
             rs = (y_coords ** 2 + x_coords ** 2) ** 0.5
@@ -310,15 +298,12 @@ class CoordConv(nn.Module):
         >>> output = coord_conv(input)
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, with_r=False, usegpu=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, with_r=False, usegpu=True):
         super(CoordConv, self).__init__()
         in_channels += 2
         if with_r:
             in_channels += 1
-        self.conv_layer = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride=stride, padding=padding, dilation=dilation, groups=
-            groups, bias=bias)
+        self.conv_layer = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.coord_adder = AddCoordinates(with_r, usegpu)
 
     def forward(self, x):
@@ -355,16 +340,12 @@ class CoordConvTranspose(nn.Module):
         >>> output = coord_conv_tr(input)
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, groups=1, bias=True, dilation=1,
-        with_r=False, usegpu=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, with_r=False, usegpu=True):
         super(CoordConvTranspose, self).__init__()
         in_channels += 2
         if with_r:
             in_channels += 1
-        self.conv_tr_layer = nn.ConvTranspose2d(in_channels, out_channels,
-            kernel_size, stride=stride, padding=padding, output_padding=
-            output_padding, groups=groups, bias=bias, dilation=dilation)
+        self.conv_tr_layer = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
         self.coord_adder = AddCoordinates(with_r, usegpu)
 
     def forward(self, x):
@@ -432,8 +413,7 @@ class CoordConvNet(nn.Module):
             if l.__str__().startswith('Conv2d'):
                 weights = l.weight.data
                 out_channels, in_channels, k_height, k_width = weights.size()
-                coord_weights = torch.zeros(out_channels, coord_channels,
-                    k_height, k_width)
+                coord_weights = torch.zeros(out_channels, coord_channels, k_height, k_width)
                 weights = torch.cat((coord_weights, weights), dim=1)
                 weights = nn.Parameter(weights)
                 l.weight = weights
@@ -485,8 +465,7 @@ class RecurrentHourglass(nn.Module):
         >>> output = hg(input)
     """
 
-    def __init__(self, input_n_filters, hidden_n_filters, kernel_size,
-        n_levels, embedding_size, use_coordinates=False, usegpu=True):
+    def __init__(self, input_n_filters, hidden_n_filters, kernel_size, n_levels, embedding_size, use_coordinates=False, usegpu=True):
         super(RecurrentHourglass, self).__init__()
         assert n_levels >= 1, 'n_levels should be greater than or equal to 1.'
         self.input_n_filters = input_n_filters
@@ -496,34 +475,25 @@ class RecurrentHourglass(nn.Module):
         self.embedding_size = embedding_size
         self.use_coordinates = use_coordinates
         self.usegpu = usegpu
-        self.convgru_cell = ConvGRUCell(self.hidden_n_filters, self.
-            hidden_n_filters, self.kernel_size, self.use_coordinates, self.
-            usegpu)
+        self.convgru_cell = ConvGRUCell(self.hidden_n_filters, self.hidden_n_filters, self.kernel_size, self.use_coordinates, self.usegpu)
         self.__generate_pre_post_convs()
 
     def __generate_pre_post_convs(self):
         if self.use_coordinates:
 
             def __get_conv(input_n_filters, output_n_filters):
-                return CoordConv(input_n_filters, output_n_filters, self.
-                    kernel_size, padding=self.kernel_size // 2, with_r=True,
-                    usegpu=self.usegpu)
+                return CoordConv(input_n_filters, output_n_filters, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
         else:
 
             def __get_conv(input_n_filters, output_n_filters):
-                return nn.Conv2d(input_n_filters, output_n_filters, self.
-                    kernel_size, padding=self.kernel_size // 2)
-        self.pre_conv_layers = [__get_conv(self.input_n_filters, self.
-            hidden_n_filters)]
+                return nn.Conv2d(input_n_filters, output_n_filters, self.kernel_size, padding=self.kernel_size // 2)
+        self.pre_conv_layers = [__get_conv(self.input_n_filters, self.hidden_n_filters)]
         for _ in range(self.n_levels - 1):
-            self.pre_conv_layers.append(__get_conv(self.hidden_n_filters,
-                self.hidden_n_filters))
+            self.pre_conv_layers.append(__get_conv(self.hidden_n_filters, self.hidden_n_filters))
         self.pre_conv_layers = ListModule(*self.pre_conv_layers)
-        self.post_conv_layers = [__get_conv(self.hidden_n_filters, self.
-            embedding_size)]
+        self.post_conv_layers = [__get_conv(self.hidden_n_filters, self.embedding_size)]
         for _ in range(self.n_levels - 1):
-            self.post_conv_layers.append(__get_conv(self.hidden_n_filters,
-                self.hidden_n_filters))
+            self.post_conv_layers.append(__get_conv(self.hidden_n_filters, self.hidden_n_filters))
         self.post_conv_layers = ListModule(*self.post_conv_layers)
 
     def forward_encoding(self, x):
@@ -579,8 +549,7 @@ class ReNet(nn.Module):
         >>> output = renet(input)
     """
 
-    def __init__(self, n_input, n_units, patch_size=(1, 1), use_coordinates
-        =False, usegpu=True):
+    def __init__(self, n_input, n_units, patch_size=(1, 1), use_coordinates=False, usegpu=True):
         super(ReNet, self).__init__()
         self.use_coordinates = use_coordinates
         self.usegpu = usegpu
@@ -588,47 +557,38 @@ class ReNet(nn.Module):
         self.patch_size_width = int(patch_size[1])
         assert self.patch_size_height >= 1
         assert self.patch_size_width >= 1
-        self.tiling = (False if self.patch_size_height == 1 and self.
-            patch_size_width == 1 else True)
+        self.tiling = False if self.patch_size_height == 1 and self.patch_size_width == 1 else True
         if self.use_coordinates:
             self.coord_adder = AddCoordinates(with_r=True, usegpu=self.usegpu)
-        rnn_hor_n_inputs = (n_input * self.patch_size_height * self.
-            patch_size_width)
+        rnn_hor_n_inputs = n_input * self.patch_size_height * self.patch_size_width
         if self.use_coordinates:
             rnn_hor_n_inputs += 3
-        self.rnn_hor = nn.GRU(rnn_hor_n_inputs, n_units, num_layers=1,
-            batch_first=True, bidirectional=True)
-        self.rnn_ver = nn.GRU(n_units * 2, n_units, num_layers=1,
-            batch_first=True, bidirectional=True)
+        self.rnn_hor = nn.GRU(rnn_hor_n_inputs, n_units, num_layers=1, batch_first=True, bidirectional=True)
+        self.rnn_ver = nn.GRU(n_units * 2, n_units, num_layers=1, batch_first=True, bidirectional=True)
 
     def __tile(self, x):
         if x.size(2) % self.patch_size_height == 0:
             n_height_padding = 0
         else:
-            n_height_padding = self.patch_size_height - x.size(2
-                ) % self.patch_size_height
+            n_height_padding = self.patch_size_height - x.size(2) % self.patch_size_height
         if x.size(3) % self.patch_size_width == 0:
             n_width_padding = 0
         else:
-            n_width_padding = self.patch_size_width - x.size(3
-                ) % self.patch_size_width
+            n_width_padding = self.patch_size_width - x.size(3) % self.patch_size_width
         n_top_padding = n_height_padding / 2
         n_bottom_padding = n_height_padding - n_top_padding
         n_left_padding = n_width_padding / 2
         n_right_padding = n_width_padding - n_left_padding
-        x = F.pad(x, (n_left_padding, n_right_padding, n_top_padding,
-            n_bottom_padding))
+        x = F.pad(x, (n_left_padding, n_right_padding, n_top_padding, n_bottom_padding))
         b, n_filters, n_height, n_width = x.size()
         assert n_height % self.patch_size_height == 0
         assert n_width % self.patch_size_width == 0
         new_height = n_height / self.patch_size_height
         new_width = n_width / self.patch_size_width
-        x = x.view(b, n_filters, new_height, self.patch_size_height,
-            new_width, self.patch_size_width)
+        x = x.view(b, n_filters, new_height, self.patch_size_height, new_width, self.patch_size_width)
         x = x.permute(0, 2, 4, 1, 3, 5)
         x = x.contiguous()
-        x = x.view(b, new_height, new_width, self.patch_size_height * self.
-            patch_size_width * n_filters)
+        x = x.view(b, new_height, new_width, self.patch_size_height * self.patch_size_width * n_filters)
         x = x.permute(0, 3, 1, 2)
         x = x.contiguous()
         return x
@@ -733,8 +693,7 @@ class VGG16(nn.Module):
         >>> output = vgg16(input)
     """
 
-    def __init__(self, n_layers, pretrained=True, use_coordinates=False,
-        return_intermediate_outputs=False, usegpu=True):
+    def __init__(self, n_layers, pretrained=True, use_coordinates=False, return_intermediate_outputs=False, usegpu=True):
         super(VGG16, self).__init__()
         self.use_coordinates = use_coordinates
         self.return_intermediate_outputs = return_intermediate_outputs
@@ -794,9 +753,7 @@ class SkipVGG16(nn.Module):
         self.use_coordinates = use_coordinates
         self.outputs = [3, 8]
         self.n_filters = [64, 128]
-        self.model = VGG16(n_layers=16, pretrained=pretrained,
-            use_coordinates=self.use_coordinates,
-            return_intermediate_outputs=True, usegpu=usegpu)
+        self.model = VGG16(n_layers=16, pretrained=pretrained, use_coordinates=self.use_coordinates, return_intermediate_outputs=True, usegpu=usegpu)
 
     def forward(self, x):
         if self.use_coordinates:
@@ -852,30 +809,21 @@ class ReSeg(nn.Module):
         >>> outputs = reseg(input)
     """
 
-    def __init__(self, n_classes, use_instance_seg=True, pretrained=True,
-        use_coordinates=False, usegpu=True):
+    def __init__(self, n_classes, use_instance_seg=True, pretrained=True, use_coordinates=False, usegpu=True):
         super(ReSeg, self).__init__()
         self.n_classes = n_classes
         self.use_instance_seg = use_instance_seg
-        self.cnn = SkipVGG16(pretrained=pretrained, use_coordinates=
-            use_coordinates, usegpu=usegpu)
-        self.renet1 = ReNet(256, 100, use_coordinates=use_coordinates,
-            usegpu=usegpu)
-        self.renet2 = ReNet(100 * 2, 100, use_coordinates=use_coordinates,
-            usegpu=usegpu)
-        self.upsampling1 = nn.ConvTranspose2d(100 * 2, 100, kernel_size=(2,
-            2), stride=(2, 2))
+        self.cnn = SkipVGG16(pretrained=pretrained, use_coordinates=use_coordinates, usegpu=usegpu)
+        self.renet1 = ReNet(256, 100, use_coordinates=use_coordinates, usegpu=usegpu)
+        self.renet2 = ReNet(100 * 2, 100, use_coordinates=use_coordinates, usegpu=usegpu)
+        self.upsampling1 = nn.ConvTranspose2d(100 * 2, 100, kernel_size=(2, 2), stride=(2, 2))
         self.relu1 = nn.ReLU()
-        self.upsampling2 = nn.ConvTranspose2d(100 + self.cnn.n_filters[1], 
-            100, kernel_size=(2, 2), stride=(2, 2))
+        self.upsampling2 = nn.ConvTranspose2d(100 + self.cnn.n_filters[1], 100, kernel_size=(2, 2), stride=(2, 2))
         self.relu2 = nn.ReLU()
-        self.sem_seg_output = nn.Conv2d(100 + self.cnn.n_filters[0], self.
-            n_classes, kernel_size=(1, 1), stride=(1, 1))
+        self.sem_seg_output = nn.Conv2d(100 + self.cnn.n_filters[0], self.n_classes, kernel_size=(1, 1), stride=(1, 1))
         if self.use_instance_seg:
-            self.ins_seg_output = nn.Conv2d(100 + self.cnn.n_filters[0], 32,
-                kernel_size=(1, 1), stride=(1, 1))
-        self.ins_cls_cnn = InstanceCounter(100 * 2, use_coordinates, usegpu
-            =usegpu)
+            self.ins_seg_output = nn.Conv2d(100 + self.cnn.n_filters[0], 32, kernel_size=(1, 1), stride=(1, 1))
+        self.ins_cls_cnn = InstanceCounter(100 * 2, use_coordinates, usegpu=usegpu)
 
     def forward(self, x):
         first_skip, second_skip, x_enc = self.cnn(x)
@@ -936,8 +884,7 @@ class StackedRecurrentHourglass(nn.Module):
         >>> outputs = srhg(input)
     """
 
-    def __init__(self, n_classes, use_instance_seg=True, pretrained=True,
-        use_coordinates=False, usegpu=True):
+    def __init__(self, n_classes, use_instance_seg=True, pretrained=True, use_coordinates=False, usegpu=True):
         super(StackedRecurrentHourglass, self).__init__()
         self.n_classes = n_classes
         self.use_instance_seg = use_instance_seg
@@ -948,64 +895,45 @@ class StackedRecurrentHourglass(nn.Module):
         self.enc_stacked_hourglass = self.__generate_enc_stacked_hg(64, 3)
         self.stacked_renet = self.__generate_stacked_renet(64, 2)
         self.decoder = self.__generate_decoder(64)
-        self.semantic_seg, self.instance_seg, self.instance_count = (self.
-            __generate_heads(64, 32))
+        self.semantic_seg, self.instance_seg, self.instance_count = self.__generate_heads(64, 32)
 
     def __generate_base_cnn(self):
-        base_cnn = VGG16(n_layers=4, pretrained=self.pretrained,
-            use_coordinates=self.use_coords, return_intermediate_outputs=
-            False, usegpu=self.usegpu)
+        base_cnn = VGG16(n_layers=4, pretrained=self.pretrained, use_coordinates=self.use_coords, return_intermediate_outputs=False, usegpu=self.usegpu)
         return base_cnn
 
     def __generate_enc_stacked_hg(self, input_n_filters, n_levels):
         stacked_hourglass = nn.Sequential()
-        stacked_hourglass.add_module('Hourglass_1', RecurrentHourglass(
-            input_n_filters=input_n_filters, hidden_n_filters=64,
-            kernel_size=3, n_levels=n_levels, embedding_size=64,
-            use_coordinates=self.use_coords, usegpu=self.usegpu))
+        stacked_hourglass.add_module('Hourglass_1', RecurrentHourglass(input_n_filters=input_n_filters, hidden_n_filters=64, kernel_size=3, n_levels=n_levels, embedding_size=64, use_coordinates=self.use_coords, usegpu=self.usegpu))
         stacked_hourglass.add_module('pool_1', nn.MaxPool2d(2, stride=2))
-        stacked_hourglass.add_module('Hourglass_2', RecurrentHourglass(
-            input_n_filters=64, hidden_n_filters=64, kernel_size=3,
-            n_levels=n_levels, embedding_size=64, use_coordinates=self.
-            use_coords, usegpu=self.usegpu))
+        stacked_hourglass.add_module('Hourglass_2', RecurrentHourglass(input_n_filters=64, hidden_n_filters=64, kernel_size=3, n_levels=n_levels, embedding_size=64, use_coordinates=self.use_coords, usegpu=self.usegpu))
         stacked_hourglass.add_module('pool_2', nn.MaxPool2d(2, stride=2))
         return stacked_hourglass
 
     def __generate_stacked_renet(self, input_n_filters, n_renets):
         assert n_renets >= 1, 'n_renets should be 1 at least.'
         renet = nn.Sequential()
-        renet.add_module('ReNet_1', ReNet(input_n_filters, 32, patch_size=(
-            1, 1), use_coordinates=self.use_coords, usegpu=self.usegpu))
+        renet.add_module('ReNet_1', ReNet(input_n_filters, 32, patch_size=(1, 1), use_coordinates=self.use_coords, usegpu=self.usegpu))
         for i in range(1, n_renets):
-            renet.add_module('ReNet_{}'.format(i + 1), ReNet(32 * 2, 32,
-                patch_size=(1, 1), use_coordinates=self.use_coords, usegpu=
-                self.usegpu))
+            renet.add_module('ReNet_{}'.format(i + 1), ReNet(32 * 2, 32, patch_size=(1, 1), use_coordinates=self.use_coords, usegpu=self.usegpu))
         return renet
 
     def __generate_decoder(self, input_n_filters):
         decoder = nn.Sequential()
-        decoder.add_module('ConvTranspose_1', nn.ConvTranspose2d(
-            input_n_filters, 64, kernel_size=(2, 2), stride=(2, 2)))
+        decoder.add_module('ConvTranspose_1', nn.ConvTranspose2d(input_n_filters, 64, kernel_size=(2, 2), stride=(2, 2)))
         decoder.add_module('ReLU_1', nn.ReLU())
-        decoder.add_module('ConvTranspose_2', nn.ConvTranspose2d(64, 64,
-            kernel_size=(2, 2), stride=(2, 2)))
+        decoder.add_module('ConvTranspose_2', nn.ConvTranspose2d(64, 64, kernel_size=(2, 2), stride=(2, 2)))
         decoder.add_module('ReLU_2', nn.ReLU())
         return decoder
 
     def __generate_heads(self, input_n_filters, embedding_size):
         semantic_segmentation = nn.Sequential()
-        semantic_segmentation.add_module('Conv_1', nn.Conv2d(
-            input_n_filters, self.n_classes, kernel_size=(1, 1), stride=(1, 1))
-            )
+        semantic_segmentation.add_module('Conv_1', nn.Conv2d(input_n_filters, self.n_classes, kernel_size=(1, 1), stride=(1, 1)))
         if self.use_instance_seg:
             instance_segmentation = nn.Sequential()
-            instance_segmentation.add_module('Conv_1', nn.Conv2d(
-                input_n_filters, embedding_size, kernel_size=(1, 1), stride
-                =(1, 1)))
+            instance_segmentation.add_module('Conv_1', nn.Conv2d(input_n_filters, embedding_size, kernel_size=(1, 1), stride=(1, 1)))
         else:
             instance_segmentation = None
-        instance_counting = InstanceCounter(input_n_filters,
-            use_coordinates=self.use_coords, usegpu=self.usegpu)
+        instance_counting = InstanceCounter(input_n_filters, use_coordinates=self.use_coords, usegpu=self.usegpu)
         return semantic_segmentation, instance_segmentation, instance_counting
 
     def forward(self, x):
@@ -1030,8 +958,7 @@ def dice_coefficient(input, target, smooth=1.0):
     assert input.size() == target.size(), 'Input sizes must be equal.'
     assert input.dim() == 4, 'Input must be a 4D Tensor.'
     uniques = np.unique(target.data.cpu().numpy())
-    assert set(list(uniques)) <= set([0, 1]
-        ), 'Target must only contain zeros and ones.'
+    assert set(list(uniques)) <= set([0, 1]), 'Target must only contain zeros and ones.'
     assert smooth > 0, 'Smooth must be greater than 0.'
     probs = F.softmax(input, dim=1)
     target_f = target.float()
@@ -1048,8 +975,7 @@ def dice_coefficient(input, target, smooth=1.0):
     return dice
 
 
-def dice_loss(input, target, optimize_bg=False, weight=None, smooth=1.0,
-    size_average=True, reduce=True):
+def dice_loss(input, target, optimize_bg=False, weight=None, smooth=1.0, size_average=True, reduce=True):
     """input : is a torch variable of size BatchxnclassesxHxW representing
     log probabilities for each class
     target : is a 1-hot representation of the groundtruth, shoud have same size
@@ -1075,8 +1001,7 @@ def dice_loss(input, target, optimize_bg=False, weight=None, smooth=1.0,
 
 class DiceLoss(_WeightedLoss):
 
-    def __init__(self, optimize_bg=False, weight=None, smooth=1.0,
-        size_average=True, reduce=True):
+    def __init__(self, optimize_bg=False, weight=None, smooth=1.0, size_average=True, reduce=True):
         """input : is a torch variable of size BatchxnclassesxHxW representing
         log probabilities for each class
         target : is a 1-hot representation of the groundtruth, shoud have same
@@ -1091,9 +1016,7 @@ class DiceLoss(_WeightedLoss):
 
     def forward(self, input, target):
         _assert_no_grad(target)
-        return dice_loss(input, target, optimize_bg=self.optimize_bg,
-            weight=self.weight, smooth=self.smooth, size_average=self.
-            size_average, reduce=self.reduce)
+        return dice_loss(input, target, optimize_bg=self.optimize_bg, weight=self.weight, smooth=self.smooth, size_average=self.size_average, reduce=self.reduce)
 
 
 class DiceCoefficient(torch.nn.Module):
@@ -1120,8 +1043,7 @@ def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
         if _n_objects_sample <= 1:
             continue
         _mean_sample = means[(i), :_n_objects_sample, :]
-        means_1 = _mean_sample.unsqueeze(1).expand(_n_objects_sample,
-            _n_objects_sample, n_filters)
+        means_1 = _mean_sample.unsqueeze(1).expand(_n_objects_sample, _n_objects_sample, n_filters)
         means_2 = means_1.permute(1, 0, 2)
         diff = means_1 - means_2
         _norm = torch.norm(diff, norm, 2)
@@ -1129,10 +1051,8 @@ def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
         if usegpu:
             margin = margin.cuda()
         margin = Variable(margin)
-        _dist_term_sample = torch.sum(torch.clamp(margin - _norm, min=0.0) ** 2
-            )
-        _dist_term_sample = _dist_term_sample / (_n_objects_sample * (
-            _n_objects_sample - 1))
+        _dist_term_sample = torch.sum(torch.clamp(margin - _norm, min=0.0) ** 2)
+        _dist_term_sample = _dist_term_sample / (_n_objects_sample * (_n_objects_sample - 1))
         dist_term += _dist_term_sample
     dist_term = dist_term / bs
     return dist_term
@@ -1185,8 +1105,7 @@ def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
     means = means.unsqueeze(1).expand(bs, n_loc, n_instances, n_filters)
     pred = pred.unsqueeze(2).expand(bs, n_loc, n_instances, n_filters)
     gt = gt.unsqueeze(3).expand(bs, n_loc, n_instances, n_filters)
-    _var = torch.clamp(torch.norm(pred - means, norm, 3) - delta_v, min=0.0
-        ) ** 2 * gt[:, :, :, (0)]
+    _var = torch.clamp(torch.norm(pred - means, norm, 3) - delta_v, min=0.0) ** 2 * gt[:, :, :, (0)]
     var_term = 0.0
     for i in range(bs):
         _var_sample = _var[(i), :, :n_objects[i]]
@@ -1196,8 +1115,7 @@ def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
     return var_term
 
 
-def discriminative_loss(input, target, n_objects, max_n_objects, delta_v,
-    delta_d, norm, usegpu):
+def discriminative_loss(input, target, n_objects, max_n_objects, delta_v, delta_d, norm, usegpu):
     """input: bs, n_filters, fmap, fmap
        target: bs, n_instances, fmap, fmap
        n_objects: bs"""
@@ -1205,16 +1123,11 @@ def discriminative_loss(input, target, n_objects, max_n_objects, delta_v,
     gamma = 0.001
     bs, n_filters, height, width = input.size()
     n_instances = target.size(1)
-    input = input.permute(0, 2, 3, 1).contiguous().view(bs, height * width,
-        n_filters)
-    target = target.permute(0, 2, 3, 1).contiguous().view(bs, height *
-        width, n_instances)
-    cluster_means = calculate_means(input, target, n_objects, max_n_objects,
-        usegpu)
-    var_term = calculate_variance_term(input, target, cluster_means,
-        n_objects, delta_v, norm)
-    dist_term = calculate_distance_term(cluster_means, n_objects, delta_d,
-        norm, usegpu)
+    input = input.permute(0, 2, 3, 1).contiguous().view(bs, height * width, n_filters)
+    target = target.permute(0, 2, 3, 1).contiguous().view(bs, height * width, n_instances)
+    cluster_means = calculate_means(input, target, n_objects, max_n_objects, usegpu)
+    var_term = calculate_variance_term(input, target, cluster_means, n_objects, delta_v, norm)
+    dist_term = calculate_distance_term(cluster_means, n_objects, delta_d, norm, usegpu)
     reg_term = calculate_regularization_term(cluster_means, n_objects, norm)
     loss = alpha * var_term + beta * dist_term + gamma * reg_term
     return loss
@@ -1222,8 +1135,7 @@ def discriminative_loss(input, target, n_objects, max_n_objects, delta_v,
 
 class DiscriminativeLoss(_Loss):
 
-    def __init__(self, delta_var, delta_dist, norm, size_average=True,
-        reduce=True, usegpu=True):
+    def __init__(self, delta_var, delta_dist, norm, size_average=True, reduce=True, usegpu=True):
         super(DiscriminativeLoss, self).__init__(size_average)
         self.reduce = reduce
         assert self.size_average
@@ -1236,44 +1148,72 @@ class DiscriminativeLoss(_Loss):
 
     def forward(self, input, target, n_objects, max_n_objects):
         _assert_no_grad(target)
-        return discriminative_loss(input, target, n_objects, max_n_objects,
-            self.delta_var, self.delta_dist, self.norm, self.usegpu)
+        return discriminative_loss(input, target, n_objects, max_n_objects, self.delta_var, self.delta_dist, self.norm, self.usegpu)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Wizaron_instance_segmentation_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CoordConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CoordConvTranspose,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InstanceCounter,
+     lambda: ([], {'input_n_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReNet,
+     lambda: ([], {'n_input': 4, 'n_units': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ReSeg,
+     lambda: ([], {'n_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SkipVGG16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (StackedRecurrentHourglass,
+     lambda: ([], {'n_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (VGG16,
+     lambda: ([], {'n_layers': 1}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_Wizaron_instance_segmentation_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(CoordConvTranspose(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InstanceCounter(*[], **{'input_n_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ReNet(*[], **{'n_input': 4, 'n_units': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ReSeg(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SkipVGG16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(StackedRecurrentHourglass(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(VGG16(*[], **{'n_layers': 1}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 

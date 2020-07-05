@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -118,8 +119,7 @@ from typing import Hashable
 
 class FocalLoss(nn.Module):
 
-    def __init__(self, alpha=Union[Tuple[float, int], List], gamma: int=0,
-        size_average: bool=True) ->None:
+    def __init__(self, alpha=Union[Tuple[float, int], List], gamma: int=0, size_average: bool=True) ->None:
         super(FocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
@@ -129,8 +129,7 @@ class FocalLoss(nn.Module):
             self.alpha = torch.Tensor(alpha)
         self.size_average = size_average
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, input: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
         if input.dim() > 2:
             input = input.view(input.size(0), input.size(1), -1)
             input = input.transpose(1, 2)
@@ -209,8 +208,7 @@ class DataParallelModel(Module):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:
-            len(replicas)])
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
 
 class Reduce(Function):
@@ -240,8 +238,7 @@ def get_a_var(obj):
     return None
 
 
-def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
-    devices=None):
+def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=None):
     assert len(modules) == len(inputs)
     assert len(targets) == len(inputs)
     if kwargs_tup is not None:
@@ -269,17 +266,13 @@ def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             with lock:
                 results[i] = e
     if len(modules) > 1:
-        threads = [threading.Thread(target=_worker, args=(i, module, input,
-            target, kwargs, device)) for i, (module, input, target, kwargs,
-            device) in enumerate(zip(modules, inputs, targets, kwargs_tup,
-            devices))]
+        threads = [threading.Thread(target=_worker, args=(i, module, input, target, kwargs, device)) for i, (module, input, target, kwargs, device) in enumerate(zip(modules, inputs, targets, kwargs_tup, devices))]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
     else:
-        _worker(0, modules[0], inputs[0], targets[0], kwargs_tup[0], devices[0]
-            )
+        _worker(0, modules[0], inputs[0], targets[0], kwargs_tup[0], devices[0])
     outputs = []
     for i in range(len(inputs)):
         output = results[i]
@@ -325,8 +318,7 @@ class DataParallelCriterion(Module):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def parallel_apply(self, replicas, inputs, targets, kwargs):
-        return criterion_parallel_apply(replicas, inputs, targets, kwargs,
-            self.device_ids[:len(replicas)])
+        return criterion_parallel_apply(replicas, inputs, targets, kwargs, self.device_ids[:len(replicas)])
 
     @staticmethod
     def gather(outputs, output_device):
@@ -350,14 +342,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveConcatPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ParameterModule,
+     lambda: ([], {'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_belskikh_kekas(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ParameterModule(*[], **{'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -124,13 +125,8 @@ class FCN(nn.Module):
 
     def _classifier(self, inplanes):
         if inplanes == 32:
-            return nn.Sequential(nn.Conv2d(inplanes, self.num_classes, 1),
-                nn.Conv2d(self.num_classes, self.num_classes, kernel_size=3,
-                padding=1))
-        return nn.Sequential(nn.Conv2d(inplanes, inplanes / 2, 3, padding=1,
-            bias=False), nn.BatchNorm2d(inplanes / 2, momentum=0.95), nn.
-            ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(inplanes / 2,
-            self.num_classes, 1))
+            return nn.Sequential(nn.Conv2d(inplanes, self.num_classes, 1), nn.Conv2d(self.num_classes, self.num_classes, kernel_size=3, padding=1))
+        return nn.Sequential(nn.Conv2d(inplanes, inplanes / 2, 3, padding=1, bias=False), nn.BatchNorm2d(inplanes / 2, momentum=0.95), nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(inplanes / 2, self.num_classes, 1))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -161,14 +157,10 @@ class GCN(nn.Module):
 
     def __init__(self, inplanes, planes, ks=7):
         super(GCN, self).__init__()
-        self.conv_l1 = nn.Conv2d(inplanes, planes, kernel_size=(ks, 1),
-            padding=(ks / 2, 0))
-        self.conv_l2 = nn.Conv2d(planes, planes, kernel_size=(1, ks),
-            padding=(0, ks / 2))
-        self.conv_r1 = nn.Conv2d(inplanes, planes, kernel_size=(1, ks),
-            padding=(0, ks / 2))
-        self.conv_r2 = nn.Conv2d(planes, planes, kernel_size=(ks, 1),
-            padding=(ks / 2, 0))
+        self.conv_l1 = nn.Conv2d(inplanes, planes, kernel_size=(ks, 1), padding=(ks / 2, 0))
+        self.conv_l2 = nn.Conv2d(planes, planes, kernel_size=(1, ks), padding=(0, ks / 2))
+        self.conv_r1 = nn.Conv2d(inplanes, planes, kernel_size=(1, ks), padding=(0, ks / 2))
+        self.conv_r2 = nn.Conv2d(planes, planes, kernel_size=(ks, 1), padding=(ks / 2, 0))
 
     def forward(self, x):
         x_l = self.conv_l1(x)
@@ -239,9 +231,7 @@ class FCN(nn.Module):
         self.transformer = nn.Conv2d(256, 64, kernel_size=1)
 
     def _classifier(self, inplanes):
-        return nn.Sequential(nn.Conv2d(inplanes, inplanes, 3, padding=1,
-            bias=False), nn.BatchNorm2d(inplanes / 2), nn.ReLU(inplace=True
-            ), nn.Dropout(0.1), nn.Conv2d(inplanes / 2, self.num_classes, 1))
+        return nn.Sequential(nn.Conv2d(inplanes, inplanes, 3, padding=1, bias=False), nn.BatchNorm2d(inplanes / 2), nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(inplanes / 2, self.num_classes, 1))
 
     def forward(self, x):
         input = x
@@ -283,14 +273,11 @@ class Bottleneck(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=stride, bias=False, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, bias=False, padding=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(out_channels * self.expansion)
         self.relu = nn.ReLU()
         self.downsample = downsample
@@ -315,23 +302,17 @@ class Bottleneck(nn.Module):
 
 class DeconvBottleneck(nn.Module):
 
-    def __init__(self, in_channels, out_channels, expansion=2, stride=1,
-        upsample=None):
+    def __init__(self, in_channels, out_channels, expansion=2, stride=1, upsample=None):
         super(DeconvBottleneck, self).__init__()
         self.expansion = expansion
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
         if stride == 1:
-            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=
-                3, stride=stride, bias=False, padding=1)
+            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, bias=False, padding=1)
         else:
-            self.conv2 = nn.ConvTranspose2d(out_channels, out_channels,
-                kernel_size=3, stride=stride, bias=False, padding=1,
-                output_padding=1)
+            self.conv2 = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=3, stride=stride, bias=False, padding=1, output_padding=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(out_channels * self.expansion)
         self.relu = nn.ReLU()
         self.upsample = upsample
@@ -359,42 +340,28 @@ class ResNet(nn.Module):
     def __init__(self, downblock, upblock, num_layers, n_classes):
         super(ResNet, self).__init__()
         self.in_channels = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU()
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.dlayer1 = self._make_downlayer(downblock, 64, num_layers[0])
-        self.dlayer2 = self._make_downlayer(downblock, 128, num_layers[1],
-            stride=2)
-        self.dlayer3 = self._make_downlayer(downblock, 256, num_layers[2],
-            stride=2)
-        self.dlayer4 = self._make_downlayer(downblock, 512, num_layers[3],
-            stride=2)
+        self.dlayer2 = self._make_downlayer(downblock, 128, num_layers[1], stride=2)
+        self.dlayer3 = self._make_downlayer(downblock, 256, num_layers[2], stride=2)
+        self.dlayer4 = self._make_downlayer(downblock, 512, num_layers[3], stride=2)
         self.uplayer1 = self._make_up_block(upblock, 512, 1, stride=2)
-        self.uplayer2 = self._make_up_block(upblock, 256, num_layers[2],
-            stride=2)
-        self.uplayer3 = self._make_up_block(upblock, 128, num_layers[1],
-            stride=2)
+        self.uplayer2 = self._make_up_block(upblock, 256, num_layers[2], stride=2)
+        self.uplayer3 = self._make_up_block(upblock, 128, num_layers[1], stride=2)
         self.uplayer4 = self._make_up_block(upblock, 64, 2, stride=2)
-        upsample = nn.Sequential(nn.ConvTranspose2d(self.in_channels, 64,
-            kernel_size=1, stride=2, bias=False, output_padding=1), nn.
-            BatchNorm2d(64))
-        self.uplayer_top = DeconvBottleneck(self.in_channels, 64, 1, 2,
-            upsample)
-        self.conv1_1 = nn.ConvTranspose2d(64, n_classes, kernel_size=1,
-            stride=1, bias=False)
+        upsample = nn.Sequential(nn.ConvTranspose2d(self.in_channels, 64, kernel_size=1, stride=2, bias=False, output_padding=1), nn.BatchNorm2d(64))
+        self.uplayer_top = DeconvBottleneck(self.in_channels, 64, 1, 2, upsample)
+        self.conv1_1 = nn.ConvTranspose2d(64, n_classes, kernel_size=1, stride=1, bias=False)
 
     def _make_downlayer(self, block, init_channels, num_layer, stride=1):
         downsample = None
         if stride != 1 or self.in_channels != init_channels * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.in_channels, 
-                init_channels * block.expansion, kernel_size=1, stride=
-                stride, bias=False), nn.BatchNorm2d(init_channels * block.
-                expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.in_channels, init_channels * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(init_channels * block.expansion))
         layers = []
-        layers.append(block(self.in_channels, init_channels, stride,
-            downsample))
+        layers.append(block(self.in_channels, init_channels, stride, downsample))
         self.in_channels = init_channels * block.expansion
         for i in range(1, num_layer):
             layers.append(block(self.in_channels, init_channels))
@@ -403,14 +370,11 @@ class ResNet(nn.Module):
     def _make_up_block(self, block, init_channels, num_layer, stride=1):
         upsample = None
         if stride != 1 or self.in_channels != init_channels * 2:
-            upsample = nn.Sequential(nn.ConvTranspose2d(self.in_channels, 
-                init_channels * 2, kernel_size=1, stride=stride, bias=False,
-                output_padding=1), nn.BatchNorm2d(init_channels * 2))
+            upsample = nn.Sequential(nn.ConvTranspose2d(self.in_channels, init_channels * 2, kernel_size=1, stride=stride, bias=False, output_padding=1), nn.BatchNorm2d(init_channels * 2))
         layers = []
         for i in range(1, num_layer):
             layers.append(block(self.in_channels, init_channels, 4))
-        layers.append(block(self.in_channels, init_channels, 2, stride,
-            upsample))
+        layers.append(block(self.in_channels, init_channels, 2, stride, upsample))
         self.in_channels = init_channels * 2
         return nn.Sequential(*layers)
 
@@ -497,12 +461,8 @@ class FCN(nn.Module):
 
     def _classifier(self, inplanes):
         if inplanes == 32:
-            return nn.Sequential(nn.Conv2d(inplanes, self.num_classes, 1),
-                nn.Conv2d(self.num_classes, self.num_classes, kernel_size=3,
-                padding=1))
-        return nn.Sequential(nn.Conv2d(inplanes, inplanes / 2, 3, padding=1,
-            bias=False), nn.BatchNorm2d(inplanes / 2), nn.ReLU(inplace=True
-            ), nn.Dropout(0.1), nn.Conv2d(inplanes / 2, self.num_classes, 1))
+            return nn.Sequential(nn.Conv2d(inplanes, self.num_classes, 1), nn.Conv2d(self.num_classes, self.num_classes, kernel_size=3, padding=1))
+        return nn.Sequential(nn.Conv2d(inplanes, inplanes / 2, 3, padding=1, bias=False), nn.BatchNorm2d(inplanes / 2), nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(inplanes / 2, self.num_classes, 1))
 
     def forward(self, x):
         input = x
@@ -534,14 +494,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DUC,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Fusion,
+     lambda: ([], {'inplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Refine,
+     lambda: ([], {'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ycszen_pytorch_segmentation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DUC(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Fusion(*[], **{'inplanes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Refine(*[], **{'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

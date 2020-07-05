@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,11 +73,9 @@ class RNNDropout(nn.Module):
         if not self.training:
             return inputs
         if self.batch_first:
-            mask = inputs.new_ones(inputs.size(0), 1, inputs.size(2),
-                requires_grad=False)
+            mask = inputs.new_ones(inputs.size(0), 1, inputs.size(2), requires_grad=False)
         else:
-            mask = inputs.new_ones(1, inputs.size(1), inputs.size(2),
-                requires_grad=False)
+            mask = inputs.new_ones(1, inputs.size(1), inputs.size(2), requires_grad=False)
         return self.dropout(mask) * inputs
 
 
@@ -84,8 +83,7 @@ class Gate(nn.Module):
 
     def __init__(self, input_size, dropout=0.3):
         super().__init__()
-        self.gate = nn.Sequential(RNNDropout(dropout), nn.Linear(input_size,
-            input_size, bias=False), nn.Sigmoid())
+        self.gate = nn.Sequential(RNNDropout(dropout), nn.Linear(input_size, input_size, bias=False), nn.Sigmoid())
 
     def forward(self, inputs):
         return inputs * self.gate(inputs)
@@ -93,15 +91,10 @@ class Gate(nn.Module):
 
 class StaticDotAttention(nn.Module):
 
-    def __init__(self, memory_size, input_size, attention_size, batch_first
-        =False, dropout=0.2):
+    def __init__(self, memory_size, input_size, attention_size, batch_first=False, dropout=0.2):
         super().__init__()
-        self.input_linear = nn.Sequential(RNNDropout(dropout, batch_first=
-            True), nn.Linear(input_size, attention_size, bias=False), nn.ReLU()
-            )
-        self.memory_linear = nn.Sequential(RNNDropout(dropout, batch_first=
-            True), nn.Linear(memory_size, attention_size, bias=False), nn.
-            ReLU())
+        self.input_linear = nn.Sequential(RNNDropout(dropout, batch_first=True), nn.Linear(input_size, attention_size, bias=False), nn.ReLU())
+        self.memory_linear = nn.Sequential(RNNDropout(dropout, batch_first=True), nn.Linear(memory_size, attention_size, bias=False), nn.ReLU())
         self.attention_size = attention_size
         self.batch_first = batch_first
 
@@ -112,8 +105,7 @@ class StaticDotAttention(nn.Module):
             memory_mask = memory_mask.transpose(0, 1)
         input_ = self.input_linear(inputs)
         memory_ = self.memory_linear(memory)
-        logits = torch.bmm(input_, memory_.transpose(2, 1)
-            ) / self.attention_size ** 0.5
+        logits = torch.bmm(input_, memory_.transpose(2, 1)) / self.attention_size ** 0.5
         memory_mask = memory_mask.unsqueeze(1).expand(-1, inputs.size(1), -1)
         score = masked_softmax(logits, memory_mask, dim=-1)
         context = torch.bmm(score, memory)
@@ -125,8 +117,7 @@ class StaticDotAttention(nn.Module):
 
 class _PairEncodeCell(nn.Module):
 
-    def __init__(self, input_size, cell, attention_size, memory_size=None,
-        use_state_in_attention=True, batch_first=False):
+    def __init__(self, input_size, cell, attention_size, memory_size=None, use_state_in_attention=True, batch_first=False):
         super().__init__()
         if memory_size is None:
             memory_size = input_size
@@ -135,13 +126,10 @@ class _PairEncodeCell(nn.Module):
         attention_input_size = input_size + memory_size
         if use_state_in_attention:
             attention_input_size += cell.hidden_size
-        self.attention_w = nn.Sequential(nn.Dropout(), nn.Linear(
-            attention_input_size, attention_size, bias=False), nn.Tanh(),
-            nn.Linear(attention_size, 1, bias=False))
+        self.attention_w = nn.Sequential(nn.Dropout(), nn.Linear(attention_input_size, attention_size, bias=False), nn.Tanh(), nn.Linear(attention_size, 1, bias=False))
         self.batch_first = batch_first
 
-    def forward(self, inputs: Tensor, memory: Tensor=None, memory_mask:
-        Tensor=None, state: Tensor=None):
+    def forward(self, inputs: Tensor, memory: Tensor=None, memory_mask: Tensor=None, state: Tensor=None):
         """
         :param inputs:  B x H
         :param memory: T x B x H if not batch_first
@@ -152,27 +140,21 @@ class _PairEncodeCell(nn.Module):
         if self.batch_first:
             memory = memory.transpose(0, 1)
             memory_mask = memory_mask.transpose(0, 1)
-        assert inputs.size(0) == memory.size(1) == memory_mask.size(1
-            ), 'inputs batch size does not match memory batch size'
+        assert inputs.size(0) == memory.size(1) == memory_mask.size(1), 'inputs batch size does not match memory batch size'
         memory_time_length = memory.size(0)
         if state is None:
-            state = inputs.new_zeros(inputs.size(0), self.cell.hidden_size,
-                requires_grad=False)
+            state = inputs.new_zeros(inputs.size(0), self.cell.hidden_size, requires_grad=False)
         if self.use_state:
             hx = state
             if isinstance(state, tuple):
                 hx = state[0]
             attention_input = torch.cat([inputs, hx], dim=-1)
-            attention_input = attention_input.unsqueeze(0).expand(
-                memory_time_length, -1, -1)
+            attention_input = attention_input.unsqueeze(0).expand(memory_time_length, -1, -1)
         else:
-            attention_input = inputs.unsqueeze(0).expand(memory_time_length,
-                -1, -1)
-        attention_logits = self.attention_w(torch.cat([attention_input,
-            memory], dim=-1)).squeeze(-1)
+            attention_input = inputs.unsqueeze(0).expand(memory_time_length, -1, -1)
+        attention_logits = self.attention_w(torch.cat([attention_input, memory], dim=-1)).squeeze(-1)
         attention_scores = masked_softmax(attention_logits, memory_mask, dim=0)
-        attention_vector = torch.sum(attention_scores.unsqueeze(-1) *
-            memory, dim=0)
+        attention_vector = torch.sum(attention_scores.unsqueeze(-1) * memory, dim=0)
         new_input = torch.cat([inputs, attention_vector], dim=-1)
         return self.cell(new_input, state)
 
@@ -181,13 +163,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_matthew_z_R_net(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Gate(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Gate,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RNNDropout,
+     lambda: ([], {'p': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_matthew_z_R_net(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(RNNDropout(*[], **{'p': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

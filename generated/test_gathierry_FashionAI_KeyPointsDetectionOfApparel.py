@@ -65,8 +65,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -137,8 +138,7 @@ class FocalLoss(nn.Module):
 
     def focal_loss(self, output, labels):
         pt = output * labels + (1 - output) * (1 - labels)
-        return torch.mean(-self.alpha * (1 - pt) ** self.gamma * torch.log(
-            pt + 1e-07))
+        return torch.mean(-self.alpha * (1 - pt) ** self.gamma * torch.log(pt + 1e-07))
 
     def forward(self, reg_preds, reg_targets, cls_preds, cls_targets):
         """
@@ -155,8 +155,7 @@ class FocalLoss(nn.Module):
             mask = pos.unsqueeze(2).expand_as(reg_preds)
             masked_reg_preds = reg_preds[mask].view(-1, 4)
             masked_reg_targets = reg_targets[mask].view(-1, 4)
-            regress_loss = F.smooth_l1_loss(masked_reg_preds,
-                masked_reg_targets, size_average=True)
+            regress_loss = F.smooth_l1_loss(masked_reg_preds, masked_reg_targets, size_average=True)
         else:
             regress_loss = 0
         neg = (cls_targets > -0.5) & (cls_targets < 0.5)
@@ -165,18 +164,13 @@ class FocalLoss(nn.Module):
         mask_neg = neg.unsqueeze(2).expand_as(cls_preds)
         masked_pos_cls_preds = F.sigmoid(cls_preds[mask_pos])
         masked_neg_cls_preds = F.sigmoid(cls_preds[mask_neg])
-        classify_loss = 0.5 * self.focal_loss(masked_pos_cls_preds,
-            cls_targets[pos]) + 0.5 * self.focal_loss(masked_neg_cls_preds,
-            cls_targets[neg])
+        classify_loss = 0.5 * self.focal_loss(masked_pos_cls_preds, cls_targets[pos]) + 0.5 * self.focal_loss(masked_neg_cls_preds, cls_targets[neg])
         loss = classify_loss + regress_loss
         pos_total = num_pos
         neg_total = num_neg
-        pos_correct = ((masked_pos_cls_preds > 0.5) * (cls_targets[pos] > 0.5)
-            ).data.long().sum()
-        neg_correct = ((masked_neg_cls_preds < 0.5) * (cls_targets[neg] < 0.5)
-            ).data.long().sum()
-        return [loss, classify_loss, regress_loss] + [pos_correct,
-            pos_total, neg_correct, neg_total]
+        pos_correct = ((masked_pos_cls_preds > 0.5) * (cls_targets[pos] > 0.5)).data.long().sum()
+        neg_correct = ((masked_neg_cls_preds < 0.5) * (cls_targets[neg] < 0.5)).data.long().sum()
+        return [loss, classify_loss, regress_loss] + [pos_correct, pos_total, neg_correct, neg_total]
 
 
 class Bottleneck(nn.Module):
@@ -186,17 +180,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -213,8 +203,7 @@ class FPN(nn.Module):
         super(FPN, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -229,16 +218,11 @@ class FPN(nn.Module):
             self.layer4 = pretrained_model.layer4
         self.conv6 = nn.Conv2d(2048, 256, kernel_size=3, stride=2, padding=1)
         self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -286,8 +270,7 @@ class FPN(nn.Module):
 
 def FPN101(pretrained=False):
     if pretrained:
-        return FPN(Bottleneck, [3, 4, 23, 3], torchvision.models.resnet50(
-            pretrained=True))
+        return FPN(Bottleneck, [3, 4, 23, 3], torchvision.models.resnet50(pretrained=True))
     return FPN(Bottleneck, [3, 4, 23, 3])
 
 
@@ -311,10 +294,8 @@ class RetinaNet(nn.Module):
         for fm in fms:
             reg_pred = self.reg_head(fm)
             cls_pred = self.cls_head(fm)
-            reg_pred = reg_pred.permute(0, 2, 3, 1).contiguous().view(x.
-                size(0), -1, 4)
-            cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(x.
-                size(0), -1, self.num_classes)
+            reg_pred = reg_pred.permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 4)
+            cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
             reg_preds.append(reg_pred)
             cls_preds.append(cls_pred)
         return torch.cat(reg_preds, 1), torch.cat(cls_preds, 1)
@@ -327,8 +308,7 @@ class RetinaNet(nn.Module):
             conv.bias.data.fill_(0)
             layers.append(conv)
             layers.append(nn.ReLU(True))
-        final_conv = nn.Conv2d(256, out_planes, kernel_size=3, stride=1,
-            padding=1)
+        final_conv = nn.Conv2d(256, out_planes, kernel_size=3, stride=1, padding=1)
         final_conv.weight.data.normal_(0.0, 0.01)
         final_conv.bias.data.fill_(-math.log((1 - 0.01) / 0.01))
         layers.append(final_conv)
@@ -348,17 +328,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -375,8 +351,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -389,20 +364,13 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -438,17 +406,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -460,8 +421,7 @@ class RefineNet(nn.Module):
 
 def GlobalNet152(config, pretrained=False):
     if pretrained:
-        return GlobalNet(config, Bottleneck, [3, 4, 23, 3], torchvision.
-            models.resnet152(pretrained=True))
+        return GlobalNet(config, Bottleneck, [3, 4, 23, 3], torchvision.models.resnet152(pretrained=True))
     return GlobalNet(config, Bottleneck, [3, 4, 23, 3])
 
 
@@ -485,17 +445,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -512,8 +468,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -526,18 +481,13 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
         self.toplayer1 = Bottleneck(256, 64, 1)
         self.toplayer2 = Bottleneck(256, 64, 1)
-        self.toplayer3 = nn.Sequential(Bottleneck(256, 64, 1), nn.Conv2d(
-            256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.toplayer3 = nn.Sequential(Bottleneck(256, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -573,17 +523,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -613,17 +556,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -640,15 +579,13 @@ class DilatedBottleneck(nn.Module):
         super(DilatedBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=2,
-            dilation=2, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=2, dilation=2, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if shortcut:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, bias=False), nn.BatchNorm2d(planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, bias=False), nn.BatchNorm2d(planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -670,20 +607,13 @@ class GlobalNet(nn.Module):
         self.layer2 = pretrained_model.layer2
         self.layer3 = self._make_layer2(DilatedBottleneck, 256, num_blocks[2])
         self.layer4 = self._make_layer2(DilatedBottleneck, 256, num_blocks[3])
-        self.latlayer1 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer2 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -727,17 +657,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2,
-            stride=2, padding=2 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 2, stride=2, padding=2 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -767,17 +690,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -794,8 +713,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -808,20 +726,13 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Sequential(nn.Conv2d(2048, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.latlayer2 = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.latlayer3 = nn.Sequential(nn.Conv2d(512, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.latlayer4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Sequential(nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.latlayer2 = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.latlayer3 = nn.Sequential(nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.latlayer4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -857,17 +768,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -897,17 +801,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -924,8 +824,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -936,18 +835,12 @@ class GlobalNet(nn.Module):
             self.layer1 = pretrained_model.layer1
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
-        self.latlayer2 = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU())
-        self.latlayer3 = nn.Sequential(nn.Conv2d(512, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU())
-        self.latlayer4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU())
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer4 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer2 = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0), nn.ReLU())
+        self.latlayer3 = nn.Sequential(nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0), nn.ReLU())
+        self.latlayer4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0), nn.ReLU())
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer4 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -980,14 +873,9 @@ class RefineNet(nn.Module):
 
     def __init__(self, config):
         super(RefineNet, self).__init__()
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.output = nn.Sequential(Bottleneck(256 * 3, 64, 1), nn.Conv2d(
-            256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.output = nn.Sequential(Bottleneck(256 * 3, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4):
         p3 = F.relu(self.bottleneck3(p3))
@@ -1015,17 +903,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1042,8 +926,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1056,18 +939,12 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.subnet = self._make_head(config.num_keypoints)
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -1086,8 +963,7 @@ class GlobalNet(nn.Module):
             conv.bias.data.fill_(0)
             layers.append(conv)
             layers.append(nn.ReLU(True))
-        final_conv = nn.Conv2d(256, out_planes, kernel_size=3, stride=1,
-            padding=1)
+        final_conv = nn.Conv2d(256, out_planes, kernel_size=3, stride=1, padding=1)
         layers.append(final_conv)
         return nn.Sequential(*layers)
 
@@ -1120,17 +996,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(256, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -1142,8 +1011,7 @@ class RefineNet(nn.Module):
 
 def GlobalNet101(config, pretrained=False):
     if pretrained:
-        return GlobalNet(config, Bottleneck, [3, 4, 23, 3], torchvision.
-            models.resnet50(pretrained=True))
+        return GlobalNet(config, Bottleneck, [3, 4, 23, 3], torchvision.models.resnet50(pretrained=True))
     return GlobalNet(config, Bottleneck, [3, 4, 23, 3])
 
 
@@ -1167,17 +1035,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1194,8 +1058,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1208,23 +1071,15 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
         self.latlayer5 = nn.Conv2d(64, 256, kernel_size=1, stride=1, padding=0)
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer4 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer4 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -1262,20 +1117,11 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck1 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck2 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 16, stride=16, padding=16 // 2))
-        self.output = nn.Sequential(Bottleneck(256 * 5, 64, 1), nn.Conv2d(
-            256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck2 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 16, stride=16, padding=16 // 2))
+        self.output = nn.Sequential(Bottleneck(256 * 5, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p1, p2, p3, p4, p5):
         p1 = self.bottleneck1(p1)
@@ -1306,17 +1152,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1333,8 +1175,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1347,20 +1188,13 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -1396,18 +1230,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            UpsamplingBilinear2d(scale_factor=2), nn.Conv2d(256, 256,
-            kernel_size=3, stride=1, padding=1))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.UpsamplingBilinear2d(scale_factor=4), nn.
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.UpsamplingBilinear2d(
-            scale_factor=8), nn.Conv2d(256, 256, kernel_size=3, stride=1,
-            padding=1))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.UpsamplingBilinear2d(scale_factor=2), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.UpsamplingBilinear2d(scale_factor=4), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.UpsamplingBilinear2d(scale_factor=8), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -1437,17 +1263,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1464,8 +1286,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1478,26 +1299,16 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
-        self.upsample1 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2,
-            stride=2, padding=2 // 2)
-        self.upsample2 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2,
-            stride=2, padding=2 // 2)
-        self.upsample3 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2,
-            stride=2, padding=2 // 2)
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
+        self.upsample1 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2)
+        self.upsample2 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2)
+        self.upsample3 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -1533,17 +1344,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -1573,17 +1377,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1600,8 +1400,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1614,20 +1413,13 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(2048, 
-            256, kernel_size=1, stride=1, padding=0))
-        self.latlayer2 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(1024, 
-            256, kernel_size=1, stride=1, padding=0))
-        self.latlayer3 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(512, 
-            256, kernel_size=1, stride=1, padding=0))
-        self.latlayer4 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(256, 
-            256, kernel_size=1, stride=1, padding=0))
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0))
+        self.latlayer2 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0))
+        self.latlayer3 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0))
+        self.latlayer4 = nn.Sequential(nn.Dropout2d(0.5), nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0))
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -1663,18 +1455,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(nn.Dropout2d(0.5), Bottleneck(1024, 64,
-            1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=
-            1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(nn.Dropout2d(0.5), Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -1719,10 +1503,8 @@ class VisErrorLoss(nn.Module):
         pos_ids = (hm_targets > amplitude / 10) & (vismap >= 0)
         neg_ids = (hm_targets <= amplitude / 10) & (vismap >= 0)
         diff = (hm_targets - hm_preds).abs()
-        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float(
-            ).sum(2).sum(0) + epsilon)
-        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float(
-            ).sum(2).sum(0) + epsilon)
+        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float().sum(2).sum(0) + epsilon)
+        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float().sum(2).sum(0) + epsilon)
         total_loss = 0.5 * pos_loss + 0.5 * neg_loss
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
@@ -1744,8 +1526,7 @@ class VisErrorLoss(nn.Module):
         vismap = vismap.view(b, k, 1).repeat(1, 1, h * w)
         ids = vismap == 1
         diff = (hm_targets - hm_preds) ** 2
-        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(
-            2).sum(0) + epsilon)
+        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(2).sum(0) + epsilon)
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
             total_loss, _ = total_loss.topk(k)
@@ -1759,8 +1540,7 @@ class VisErrorLoss(nn.Module):
         :return: 
         """
         loss1 = self.compute_l1_weighted_loss(hm_targets, hm_preds1, vismap)
-        loss2 = self.compute_l1_weighted_loss(hm_targets, hm_preds2, vismap,
-            ohem=0.5)
+        loss2 = self.compute_l1_weighted_loss(hm_targets, hm_preds2, vismap, ohem=0.5)
         return loss1 + loss2, loss1, loss2
 
 
@@ -1771,17 +1551,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1798,8 +1574,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1812,29 +1587,17 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Sequential(nn.Conv2d(2048, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.latlayer2 = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.latlayer3 = nn.Sequential(nn.Conv2d(512, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
-        self.latlayer4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(False))
+        self.latlayer1 = nn.Sequential(nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.latlayer2 = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.latlayer3 = nn.Sequential(nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
+        self.latlayer4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(False))
         self.toplayer1 = nn.Conv2d(256, 256, kernel_size=1, stride=1)
         self.toplayer2 = nn.Conv2d(256, 256, kernel_size=1, stride=1)
         self.toplayer3 = nn.Conv2d(256, 256, kernel_size=1, stride=1)
-        self.subnet1 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints,
-            kernel_size=3, stride=1, padding=1))
-        self.subnet2 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints,
-            kernel_size=3, stride=1, padding=1))
-        self.subnet3 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints,
-            kernel_size=3, stride=1, padding=1))
-        self.subnet4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1,
-            stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints,
-            kernel_size=3, stride=1, padding=1))
+        self.subnet1 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1))
+        self.subnet2 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1))
+        self.subnet3 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1))
+        self.subnet4 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=1, stride=1), nn.ReLU(False), nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1))
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -1870,17 +1633,10 @@ class RefineNet(nn.Module):
 
     def __init__(self, config):
         super(RefineNet, self).__init__()
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=3, stride=1, padding=1))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1))
 
     def forward(self, p2, p3, p4, p5):
         p3 = F.relu(self.bottleneck3(p3))
@@ -1924,10 +1680,8 @@ class VisErrorLossV13(nn.Module):
         pos_ids = (hm_targets > amplitude / 10) & (vismap == 1)
         neg_ids = (hm_targets <= amplitude / 10) & (vismap == 1)
         diff = (hm_targets - hm_preds).abs()
-        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float(
-            ).sum(2).sum(0) + epsilon)
-        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float(
-            ).sum(2).sum(0) + epsilon)
+        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float().sum(2).sum(0) + epsilon)
+        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float().sum(2).sum(0) + epsilon)
         total_loss = 0.5 * pos_loss + 0.5 * neg_loss
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
@@ -1949,8 +1703,7 @@ class VisErrorLossV13(nn.Module):
         vismap = vismap.view(b, k, 1).repeat(1, 1, h * w)
         ids = vismap == 1
         diff = (hm_targets - hm_preds) ** 2
-        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(
-            2).sum(0) + epsilon)
+        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(2).sum(0) + epsilon)
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
             total_loss, _ = total_loss.topk(k)
@@ -1967,8 +1720,7 @@ class VisErrorLossV13(nn.Module):
         for p in hm_preds1:
             loss1 += self.compute_l1_weighted_loss(hm_targets, p, vismap)
         loss1 /= 4.0
-        loss2 = self.compute_l1_weighted_loss(hm_targets, hm_preds2, vismap,
-            ohem=0.5)
+        loss2 = self.compute_l1_weighted_loss(hm_targets, hm_preds2, vismap, ohem=0.5)
         return loss1 + loss2, loss1, loss2
 
 
@@ -1979,17 +1731,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -2000,31 +1748,7 @@ class Bottleneck(nn.Module):
         return out
 
 
-pretrained_settings = {'senet154': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/senet154-c7b49a05.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnet50': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet50-ce0d4300.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnet101': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet101-7e38fcc6.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnet152': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet152-d17c99b7.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnext50_32x4d': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext50_32x4d-a260b3a4.pth'
-    , 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0,
-    1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnext101_32x4d': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext101_32x4d-3b2fe3d8.pth'
-    , 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0,
-    1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}}
+pretrained_settings = {'senet154': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/senet154-c7b49a05.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnet50': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet50-ce0d4300.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnet101': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet101-7e38fcc6.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnet152': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet152-d17c99b7.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnext50_32x4d': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext50_32x4d-a260b3a4.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnext101_32x4d': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext101_32x4d-3b2fe3d8.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}}
 
 
 def nasnetalarge(num_classes=1001, pretrained='imagenet'):
@@ -2033,9 +1757,7 @@ def nasnetalarge(num_classes=1001, pretrained='imagenet'):
     """
     if pretrained:
         settings = pretrained_settings['nasnetalarge'][pretrained]
-        assert num_classes == settings['num_classes'
-            ], 'num_classes should be {}, but is {}'.format(settings[
-            'num_classes'], num_classes)
+        assert num_classes == settings['num_classes'], 'num_classes should be {}, but is {}'.format(settings['num_classes'], num_classes)
         model = NASNetALarge(num_classes=1001)
         model.load_state_dict(model_zoo.load_url(settings['url']))
         if pretrained == 'imagenet':
@@ -2057,23 +1779,15 @@ class GlobalNet(nn.Module):
 
     def __init__(self, config):
         super(GlobalNet, self).__init__()
-        pretrained_model = nasnetalarge(num_classes=1000, pretrained='imagenet'
-            )
+        pretrained_model = nasnetalarge(num_classes=1000, pretrained='imagenet')
         self.pm = pretrained_model
-        self.latlayer1 = nn.Conv2d(4032, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(2016, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(1008, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer4 = nn.Conv2d(168, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(4032, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(2016, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(1008, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(168, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def features(self, input):
         x_conv0 = self.pm.conv0(input)
@@ -2122,17 +1836,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -2174,8 +1881,7 @@ class AvgPoolPad(nn.Module):
     def __init__(self, stride=2, padding=1):
         super(AvgPoolPad, self).__init__()
         self.pad = nn.ZeroPad2d((1, 0, 1, 0))
-        self.pool = nn.AvgPool2d(3, stride=stride, padding=padding,
-            count_include_pad=False)
+        self.pool = nn.AvgPool2d(3, stride=stride, padding=padding, count_include_pad=False)
 
     def forward(self, x):
         x = self.pad(x)
@@ -2186,14 +1892,10 @@ class AvgPoolPad(nn.Module):
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, dw_kernel, dw_stride,
-        dw_padding, bias=False):
+    def __init__(self, in_channels, out_channels, dw_kernel, dw_stride, dw_padding, bias=False):
         super(SeparableConv2d, self).__init__()
-        self.depthwise_conv2d = nn.Conv2d(in_channels, in_channels,
-            dw_kernel, stride=dw_stride, padding=dw_padding, bias=bias,
-            groups=in_channels)
-        self.pointwise_conv2d = nn.Conv2d(in_channels, out_channels, 1,
-            stride=1, bias=bias)
+        self.depthwise_conv2d = nn.Conv2d(in_channels, in_channels, dw_kernel, stride=dw_stride, padding=dw_padding, bias=bias, groups=in_channels)
+        self.pointwise_conv2d = nn.Conv2d(in_channels, out_channels, 1, stride=1, bias=bias)
 
     def forward(self, x):
         x = self.depthwise_conv2d(x)
@@ -2203,19 +1905,14 @@ class SeparableConv2d(nn.Module):
 
 class BranchSeparables(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias=False):
         super(BranchSeparables, self).__init__()
         self.relu = nn.ReLU()
-        self.separable_1 = SeparableConv2d(in_channels, in_channels,
-            kernel_size, stride, padding, bias=bias)
-        self.bn_sep_1 = nn.BatchNorm2d(in_channels, eps=0.001, momentum=0.1,
-            affine=True)
+        self.separable_1 = SeparableConv2d(in_channels, in_channels, kernel_size, stride, padding, bias=bias)
+        self.bn_sep_1 = nn.BatchNorm2d(in_channels, eps=0.001, momentum=0.1, affine=True)
         self.relu1 = nn.ReLU()
-        self.separable_2 = SeparableConv2d(in_channels, out_channels,
-            kernel_size, 1, padding, bias=bias)
-        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=
-            0.1, affine=True)
+        self.separable_2 = SeparableConv2d(in_channels, out_channels, kernel_size, 1, padding, bias=bias)
+        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True)
 
     def forward(self, x):
         x = self.relu(x)
@@ -2229,19 +1926,14 @@ class BranchSeparables(nn.Module):
 
 class BranchSeparablesStem(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias=False):
         super(BranchSeparablesStem, self).__init__()
         self.relu = nn.ReLU()
-        self.separable_1 = SeparableConv2d(in_channels, out_channels,
-            kernel_size, stride, padding, bias=bias)
-        self.bn_sep_1 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=
-            0.1, affine=True)
+        self.separable_1 = SeparableConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
+        self.bn_sep_1 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True)
         self.relu1 = nn.ReLU()
-        self.separable_2 = SeparableConv2d(out_channels, out_channels,
-            kernel_size, 1, padding, bias=bias)
-        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=
-            0.1, affine=True)
+        self.separable_2 = SeparableConv2d(out_channels, out_channels, kernel_size, 1, padding, bias=bias)
+        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True)
 
     def forward(self, x):
         x = self.relu(x)
@@ -2261,25 +1953,16 @@ class CellStem0(nn.Module):
         self.stem_filters = stem_filters
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(self.stem_filters, self.
-            num_filters, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(self.num_filters, eps
-            =0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparables(self.num_filters, self.
-            num_filters, 5, 2, 2)
-        self.comb_iter_0_right = BranchSeparablesStem(self.stem_filters,
-            self.num_filters, 7, 2, 3, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(self.stem_filters, self.num_filters, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(self.num_filters, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparables(self.num_filters, self.num_filters, 5, 2, 2)
+        self.comb_iter_0_right = BranchSeparablesStem(self.stem_filters, self.num_filters, 7, 2, 3, bias=False)
         self.comb_iter_1_left = nn.MaxPool2d(3, stride=2, padding=1)
-        self.comb_iter_1_right = BranchSeparablesStem(self.stem_filters,
-            self.num_filters, 7, 2, 3, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1,
-            count_include_pad=False)
-        self.comb_iter_2_right = BranchSeparablesStem(self.stem_filters,
-            self.num_filters, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(self.num_filters, self.
-            num_filters, 3, 1, 1, bias=False)
+        self.comb_iter_1_right = BranchSeparablesStem(self.stem_filters, self.num_filters, 7, 2, 3, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
+        self.comb_iter_2_right = BranchSeparablesStem(self.stem_filters, self.num_filters, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(self.num_filters, self.num_filters, 3, 1, 1, bias=False)
         self.comb_iter_4_right = nn.MaxPool2d(3, stride=2, padding=1)
 
     def forward(self, x):
@@ -2298,8 +1981,7 @@ class CellStem0(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x1)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
@@ -2311,39 +1993,25 @@ class CellStem1(nn.Module):
         self.stem_filters = stem_filters
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(2 * self.num_filters,
-            self.num_filters, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(self.num_filters, eps
-            =0.001, momentum=0.1, affine=True))
+        self.conv_1x1.add_module('conv', nn.Conv2d(2 * self.num_filters, self.num_filters, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(self.num_filters, eps=0.001, momentum=0.1, affine=True))
         self.relu = nn.ReLU()
         self.path_1 = nn.Sequential()
-        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_1.add_module('conv', nn.Conv2d(self.stem_filters, self.
-            num_filters // 2, 1, stride=1, bias=False))
+        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_1.add_module('conv', nn.Conv2d(self.stem_filters, self.num_filters // 2, 1, stride=1, bias=False))
         self.path_2 = nn.ModuleList()
         self.path_2.add_module('pad', nn.ZeroPad2d((0, 1, 0, 1)))
-        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_2.add_module('conv', nn.Conv2d(self.stem_filters, self.
-            num_filters // 2, 1, stride=1, bias=False))
-        self.final_path_bn = nn.BatchNorm2d(self.num_filters, eps=0.001,
-            momentum=0.1, affine=True)
-        self.comb_iter_0_left = BranchSeparables(self.num_filters, self.
-            num_filters, 5, 2, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(self.num_filters, self.
-            num_filters, 7, 2, 3, bias=False)
+        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_2.add_module('conv', nn.Conv2d(self.stem_filters, self.num_filters // 2, 1, stride=1, bias=False))
+        self.final_path_bn = nn.BatchNorm2d(self.num_filters, eps=0.001, momentum=0.1, affine=True)
+        self.comb_iter_0_left = BranchSeparables(self.num_filters, self.num_filters, 5, 2, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(self.num_filters, self.num_filters, 7, 2, 3, bias=False)
         self.comb_iter_1_left = nn.MaxPool2d(3, stride=2, padding=1)
-        self.comb_iter_1_right = BranchSeparables(self.num_filters, self.
-            num_filters, 7, 2, 3, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1,
-            count_include_pad=False)
-        self.comb_iter_2_right = BranchSeparables(self.num_filters, self.
-            num_filters, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(self.num_filters, self.
-            num_filters, 3, 1, 1, bias=False)
+        self.comb_iter_1_right = BranchSeparables(self.num_filters, self.num_filters, 7, 2, 3, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
+        self.comb_iter_2_right = BranchSeparables(self.num_filters, self.num_filters, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(self.num_filters, self.num_filters, 3, 1, 1, bias=False)
         self.comb_iter_4_right = nn.MaxPool2d(3, stride=2, padding=1)
 
     def forward(self, x_conv0, x_stem_0):
@@ -2369,52 +2037,35 @@ class CellStem1(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x_left)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class FirstCell(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(FirstCell, self).__init__()
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
         self.relu = nn.ReLU()
         self.path_1 = nn.Sequential()
-        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
+        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
         self.path_2 = nn.ModuleList()
         self.path_2.add_module('pad', nn.ZeroPad2d((0, 1, 0, 1)))
-        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_2.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.final_path_bn = nn.BatchNorm2d(out_channels_left * 2, eps=
-            0.001, momentum=0.1, affine=True)
-        self.comb_iter_0_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 1, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
-        self.comb_iter_1_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 1, 2, bias=False)
-        self.comb_iter_1_right = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_2.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.final_path_bn = nn.BatchNorm2d(out_channels_left * 2, eps=0.001, momentum=0.1, affine=True)
+        self.comb_iter_0_left = BranchSeparables(out_channels_right, out_channels_right, 5, 1, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_1_left = BranchSeparables(out_channels_right, out_channels_right, 5, 1, 2, bias=False)
+        self.comb_iter_1_right = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
 
     def forward(self, x, x_prev):
         x_relu = self.relu(x_prev)
@@ -2438,44 +2089,30 @@ class FirstCell(nn.Module):
         x_comb_iter_3 = x_comb_iter_3_left + x_comb_iter_3_right
         x_comb_iter_4_left = self.comb_iter_4_left(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_right
-        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1,
-            x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
+        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class NormalCell(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(NormalCell, self).__init__()
         self.conv_prev_1x1 = nn.Sequential()
         self.conv_prev_1x1.add_module('relu', nn.ReLU())
-        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(
-            out_channels_left, eps=0.001, momentum=0.1, affine=True))
+        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(out_channels_left, eps=0.001, momentum=0.1, affine=True))
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 1, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(out_channels_left,
-            out_channels_left, 3, 1, 1, bias=False)
-        self.comb_iter_1_left = BranchSeparables(out_channels_left,
-            out_channels_left, 5, 1, 2, bias=False)
-        self.comb_iter_1_right = BranchSeparables(out_channels_left,
-            out_channels_left, 3, 1, 1, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparables(out_channels_right, out_channels_right, 5, 1, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(out_channels_left, out_channels_left, 3, 1, 1, bias=False)
+        self.comb_iter_1_left = BranchSeparables(out_channels_left, out_channels_left, 5, 1, 2, bias=False)
+        self.comb_iter_1_right = BranchSeparables(out_channels_left, out_channels_left, 3, 1, 1, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
 
     def forward(self, x, x_prev):
         x_left = self.conv_prev_1x1(x_prev)
@@ -2493,17 +2130,14 @@ class NormalCell(nn.Module):
         x_comb_iter_3 = x_comb_iter_3_left + x_comb_iter_3_right
         x_comb_iter_4_left = self.comb_iter_4_left(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_right
-        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1,
-            x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
+        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class BranchSeparablesReduction(BranchSeparables):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, z_padding=1, bias=False):
-        BranchSeparables.__init__(self, in_channels, out_channels,
-            kernel_size, stride, padding, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, z_padding=1, bias=False):
+        BranchSeparables.__init__(self, in_channels, out_channels, kernel_size, stride, padding, bias)
         self.padding = nn.ZeroPad2d((z_padding, 0, z_padding, 0))
 
     def forward(self, x):
@@ -2520,35 +2154,24 @@ class BranchSeparablesReduction(BranchSeparables):
 
 class ReductionCell0(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(ReductionCell0, self).__init__()
         self.conv_prev_1x1 = nn.Sequential()
         self.conv_prev_1x1.add_module('relu', nn.ReLU())
-        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(
-            out_channels_left, eps=0.001, momentum=0.1, affine=True))
+        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(out_channels_left, eps=0.001, momentum=0.1, affine=True))
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparablesReduction(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparablesReduction(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
         self.comb_iter_1_left = MaxPoolPad()
-        self.comb_iter_1_right = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
+        self.comb_iter_1_right = BranchSeparablesReduction(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
         self.comb_iter_2_left = AvgPoolPad()
-        self.comb_iter_2_right = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_2_right = BranchSeparablesReduction(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparablesReduction(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
         self.comb_iter_4_right = MaxPoolPad()
 
     def forward(self, x, x_prev):
@@ -2568,43 +2191,30 @@ class ReductionCell0(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class ReductionCell1(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(ReductionCell1, self).__init__()
         self.conv_prev_1x1 = nn.Sequential()
         self.conv_prev_1x1.add_module('relu', nn.ReLU())
-        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(
-            out_channels_left, eps=0.001, momentum=0.1, affine=True))
+        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(out_channels_left, eps=0.001, momentum=0.1, affine=True))
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparables(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
         self.comb_iter_1_left = nn.MaxPool2d(3, stride=2, padding=1)
-        self.comb_iter_1_right = BranchSeparables(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1,
-            count_include_pad=False)
-        self.comb_iter_2_right = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_1_right = BranchSeparables(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
+        self.comb_iter_2_right = BranchSeparables(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
         self.comb_iter_4_right = nn.MaxPool2d(3, stride=2, padding=1)
 
     def forward(self, x, x_prev):
@@ -2624,16 +2234,14 @@ class ReductionCell1(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class NASNetALarge(nn.Module):
     """NASNetALarge (6 @ 4032) """
 
-    def __init__(self, num_classes=1001, stem_filters=96,
-        penultimate_filters=4032, filters_multiplier=2):
+    def __init__(self, num_classes=1001, stem_filters=96, penultimate_filters=4032, filters_multiplier=2):
         super(NASNetALarge, self).__init__()
         self.num_classes = num_classes
         self.stem_filters = stem_filters
@@ -2641,75 +2249,30 @@ class NASNetALarge(nn.Module):
         self.filters_multiplier = filters_multiplier
         filters = self.penultimate_filters // 24
         self.conv0 = nn.Sequential()
-        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels
-            =self.stem_filters, kernel_size=3, padding=0, stride=2, bias=False)
-            )
-        self.conv0.add_module('bn', nn.BatchNorm2d(self.stem_filters, eps=
-            0.001, momentum=0.1, affine=True))
-        self.cell_stem_0 = CellStem0(self.stem_filters, num_filters=filters //
-            filters_multiplier ** 2)
-        self.cell_stem_1 = CellStem1(self.stem_filters, num_filters=filters //
-            filters_multiplier)
-        self.cell_0 = FirstCell(in_channels_left=filters, out_channels_left
-            =filters // 2, in_channels_right=2 * filters,
-            out_channels_right=filters)
-        self.cell_1 = NormalCell(in_channels_left=2 * filters,
-            out_channels_left=filters, in_channels_right=6 * filters,
-            out_channels_right=filters)
-        self.cell_2 = NormalCell(in_channels_left=6 * filters,
-            out_channels_left=filters, in_channels_right=6 * filters,
-            out_channels_right=filters)
-        self.cell_3 = NormalCell(in_channels_left=6 * filters,
-            out_channels_left=filters, in_channels_right=6 * filters,
-            out_channels_right=filters)
-        self.cell_4 = NormalCell(in_channels_left=6 * filters,
-            out_channels_left=filters, in_channels_right=6 * filters,
-            out_channels_right=filters)
-        self.cell_5 = NormalCell(in_channels_left=6 * filters,
-            out_channels_left=filters, in_channels_right=6 * filters,
-            out_channels_right=filters)
-        self.reduction_cell_0 = ReductionCell0(in_channels_left=6 * filters,
-            out_channels_left=2 * filters, in_channels_right=6 * filters,
-            out_channels_right=2 * filters)
-        self.cell_6 = FirstCell(in_channels_left=6 * filters,
-            out_channels_left=filters, in_channels_right=8 * filters,
-            out_channels_right=2 * filters)
-        self.cell_7 = NormalCell(in_channels_left=8 * filters,
-            out_channels_left=2 * filters, in_channels_right=12 * filters,
-            out_channels_right=2 * filters)
-        self.cell_8 = NormalCell(in_channels_left=12 * filters,
-            out_channels_left=2 * filters, in_channels_right=12 * filters,
-            out_channels_right=2 * filters)
-        self.cell_9 = NormalCell(in_channels_left=12 * filters,
-            out_channels_left=2 * filters, in_channels_right=12 * filters,
-            out_channels_right=2 * filters)
-        self.cell_10 = NormalCell(in_channels_left=12 * filters,
-            out_channels_left=2 * filters, in_channels_right=12 * filters,
-            out_channels_right=2 * filters)
-        self.cell_11 = NormalCell(in_channels_left=12 * filters,
-            out_channels_left=2 * filters, in_channels_right=12 * filters,
-            out_channels_right=2 * filters)
-        self.reduction_cell_1 = ReductionCell1(in_channels_left=12 *
-            filters, out_channels_left=4 * filters, in_channels_right=12 *
-            filters, out_channels_right=4 * filters)
-        self.cell_12 = FirstCell(in_channels_left=12 * filters,
-            out_channels_left=2 * filters, in_channels_right=16 * filters,
-            out_channels_right=4 * filters)
-        self.cell_13 = NormalCell(in_channels_left=16 * filters,
-            out_channels_left=4 * filters, in_channels_right=24 * filters,
-            out_channels_right=4 * filters)
-        self.cell_14 = NormalCell(in_channels_left=24 * filters,
-            out_channels_left=4 * filters, in_channels_right=24 * filters,
-            out_channels_right=4 * filters)
-        self.cell_15 = NormalCell(in_channels_left=24 * filters,
-            out_channels_left=4 * filters, in_channels_right=24 * filters,
-            out_channels_right=4 * filters)
-        self.cell_16 = NormalCell(in_channels_left=24 * filters,
-            out_channels_left=4 * filters, in_channels_right=24 * filters,
-            out_channels_right=4 * filters)
-        self.cell_17 = NormalCell(in_channels_left=24 * filters,
-            out_channels_left=4 * filters, in_channels_right=24 * filters,
-            out_channels_right=4 * filters)
+        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels=self.stem_filters, kernel_size=3, padding=0, stride=2, bias=False))
+        self.conv0.add_module('bn', nn.BatchNorm2d(self.stem_filters, eps=0.001, momentum=0.1, affine=True))
+        self.cell_stem_0 = CellStem0(self.stem_filters, num_filters=filters // filters_multiplier ** 2)
+        self.cell_stem_1 = CellStem1(self.stem_filters, num_filters=filters // filters_multiplier)
+        self.cell_0 = FirstCell(in_channels_left=filters, out_channels_left=filters // 2, in_channels_right=2 * filters, out_channels_right=filters)
+        self.cell_1 = NormalCell(in_channels_left=2 * filters, out_channels_left=filters, in_channels_right=6 * filters, out_channels_right=filters)
+        self.cell_2 = NormalCell(in_channels_left=6 * filters, out_channels_left=filters, in_channels_right=6 * filters, out_channels_right=filters)
+        self.cell_3 = NormalCell(in_channels_left=6 * filters, out_channels_left=filters, in_channels_right=6 * filters, out_channels_right=filters)
+        self.cell_4 = NormalCell(in_channels_left=6 * filters, out_channels_left=filters, in_channels_right=6 * filters, out_channels_right=filters)
+        self.cell_5 = NormalCell(in_channels_left=6 * filters, out_channels_left=filters, in_channels_right=6 * filters, out_channels_right=filters)
+        self.reduction_cell_0 = ReductionCell0(in_channels_left=6 * filters, out_channels_left=2 * filters, in_channels_right=6 * filters, out_channels_right=2 * filters)
+        self.cell_6 = FirstCell(in_channels_left=6 * filters, out_channels_left=filters, in_channels_right=8 * filters, out_channels_right=2 * filters)
+        self.cell_7 = NormalCell(in_channels_left=8 * filters, out_channels_left=2 * filters, in_channels_right=12 * filters, out_channels_right=2 * filters)
+        self.cell_8 = NormalCell(in_channels_left=12 * filters, out_channels_left=2 * filters, in_channels_right=12 * filters, out_channels_right=2 * filters)
+        self.cell_9 = NormalCell(in_channels_left=12 * filters, out_channels_left=2 * filters, in_channels_right=12 * filters, out_channels_right=2 * filters)
+        self.cell_10 = NormalCell(in_channels_left=12 * filters, out_channels_left=2 * filters, in_channels_right=12 * filters, out_channels_right=2 * filters)
+        self.cell_11 = NormalCell(in_channels_left=12 * filters, out_channels_left=2 * filters, in_channels_right=12 * filters, out_channels_right=2 * filters)
+        self.reduction_cell_1 = ReductionCell1(in_channels_left=12 * filters, out_channels_left=4 * filters, in_channels_right=12 * filters, out_channels_right=4 * filters)
+        self.cell_12 = FirstCell(in_channels_left=12 * filters, out_channels_left=2 * filters, in_channels_right=16 * filters, out_channels_right=4 * filters)
+        self.cell_13 = NormalCell(in_channels_left=16 * filters, out_channels_left=4 * filters, in_channels_right=24 * filters, out_channels_right=4 * filters)
+        self.cell_14 = NormalCell(in_channels_left=24 * filters, out_channels_left=4 * filters, in_channels_right=24 * filters, out_channels_right=4 * filters)
+        self.cell_15 = NormalCell(in_channels_left=24 * filters, out_channels_left=4 * filters, in_channels_right=24 * filters, out_channels_right=4 * filters)
+        self.cell_16 = NormalCell(in_channels_left=24 * filters, out_channels_left=4 * filters, in_channels_right=24 * filters, out_channels_right=4 * filters)
+        self.cell_17 = NormalCell(in_channels_left=24 * filters, out_channels_left=4 * filters, in_channels_right=24 * filters, out_channels_right=4 * filters)
         self.relu = nn.ReLU()
         self.avg_pool = nn.AvgPool2d(11, stride=1, padding=0)
         self.dropout = nn.Dropout()
@@ -2761,17 +2324,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -2788,8 +2347,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -2802,18 +2360,12 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.subnet = self._make_head(config.num_keypoints)
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -2830,8 +2382,7 @@ class GlobalNet(nn.Module):
             conv = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
             layers.append(conv)
             layers.append(nn.ReLU(True))
-        final_conv = nn.Conv2d(256, out_planes, kernel_size=3, stride=1,
-            padding=1)
+        final_conv = nn.Conv2d(256, out_planes, kernel_size=3, stride=1, padding=1)
         layers.append(final_conv)
         return nn.Sequential(*layers)
 
@@ -2864,17 +2415,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(256, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -2919,10 +2463,8 @@ class VisErrorLossV2(nn.Module):
         pos_ids = (hm_targets > amplitude / 10) & (vismap == 1)
         neg_ids = (hm_targets <= amplitude / 10) & (vismap == 1)
         diff = (hm_targets - hm_preds).abs()
-        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float(
-            ).sum(2).sum(0) + epsilon)
-        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float(
-            ).sum(2).sum(0) + epsilon)
+        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float().sum(2).sum(0) + epsilon)
+        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float().sum(2).sum(0) + epsilon)
         total_loss = 0.5 * pos_loss + 0.5 * neg_loss
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
@@ -2944,8 +2486,7 @@ class VisErrorLossV2(nn.Module):
         vismap = vismap.view(b, k, 1).repeat(1, 1, h * w)
         ids = vismap == 1
         diff = (hm_targets - hm_preds) ** 2
-        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(
-            2).sum(0) + epsilon)
+        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(2).sum(0) + epsilon)
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
             total_loss, _ = total_loss.topk(k)
@@ -2962,8 +2503,7 @@ class VisErrorLossV2(nn.Module):
         for t, p in zip(hm_targets, hm_preds1):
             loss1 += self.compute_l1_weighted_loss(t, p, vismap)
             break
-        loss2 = self.compute_l1_weighted_loss(hm_targets[0], hm_preds2,
-            vismap, ohem=0.5)
+        loss2 = self.compute_l1_weighted_loss(hm_targets[0], hm_preds2, vismap, ohem=0.5)
         return loss1 + loss2, loss1, loss2
 
 
@@ -2974,17 +2514,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -3001,8 +2537,7 @@ class GlobalNet(nn.Module):
         super(GlobalNet, self).__init__()
         self.in_planes = 64
         if pretrained_model is None:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
             self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -3015,20 +2550,13 @@ class GlobalNet(nn.Module):
             self.layer2 = pretrained_model.layer2
             self.layer3 = pretrained_model.layer3
             self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -3065,18 +2593,12 @@ class RefineNet(nn.Module):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
         self.bottleneck3 = Bottleneck(256, 64, 1)
-        self.upsample2 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2,
-            stride=2, padding=2 // 2)
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1))
-        self.upsample4 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2)
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1))
-        self.upsample8 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 8,
-            stride=8, padding=8 // 2)
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.upsample2 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2)
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1))
+        self.upsample4 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2)
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1))
+        self.upsample8 = nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2)
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -3127,10 +2649,8 @@ class VisErrorLossV3(nn.Module):
         pos_ids = (hm_targets > amplitude / 10) & (vismap == 1)
         neg_ids = (hm_targets <= amplitude / 10) & (vismap == 1)
         diff = (hm_targets - hm_preds).abs()
-        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float(
-            ).sum(2).sum(0) + epsilon)
-        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float(
-            ).sum(2).sum(0) + epsilon)
+        pos_loss = (diff * pos_ids.float()).sum(2).sum(0) / (pos_ids.float().sum(2).sum(0) + epsilon)
+        neg_loss = (diff * neg_ids.float()).sum(2).sum(0) / (neg_ids.float().sum(2).sum(0) + epsilon)
         total_loss = 0.5 * pos_loss + 0.5 * neg_loss
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
@@ -3152,8 +2672,7 @@ class VisErrorLossV3(nn.Module):
         vismap = vismap.view(b, k, 1).repeat(1, 1, h * w)
         ids = vismap == 1
         diff = (hm_targets - hm_preds) ** 2
-        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(
-            2).sum(0) + epsilon)
+        total_loss = (diff * ids.float()).sum(2).sum(0) / (ids.float().sum(2).sum(0) + epsilon)
         if ohem < 1:
             k = int(total_loss.size(0) * ohem)
             total_loss, _ = total_loss.topk(k)
@@ -3167,10 +2686,8 @@ class VisErrorLossV3(nn.Module):
         :return: 
         """
         loss1 = self.compute_l1_weighted_loss(hm_targets, hm_preds1, vismap)
-        loss2 = self.compute_l1_weighted_loss(hm_targets, hm_preds2[0],
-            vismap, ohem=0.5)
-        loss3 = self.compute_l1_weighted_loss(hm_targets, hm_preds2[1],
-            vismap, ohem=0.3)
+        loss2 = self.compute_l1_weighted_loss(hm_targets, hm_preds2[0], vismap, ohem=0.5)
+        loss3 = self.compute_l1_weighted_loss(hm_targets, hm_preds2[1], vismap, ohem=0.3)
         return loss1 + loss2 + loss3, loss1, loss2, loss3
 
 
@@ -3181,17 +2698,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -3208,9 +2721,7 @@ def inceptionresnetv2(num_classes=1000, pretrained='imagenet'):
     """
     if pretrained:
         settings = pretrained_settings['inceptionresnetv2'][pretrained]
-        assert num_classes == settings['num_classes'
-            ], 'num_classes should be {}, but is {}'.format(settings[
-            'num_classes'], num_classes)
+        assert num_classes == settings['num_classes'], 'num_classes should be {}, but is {}'.format(settings['num_classes'], num_classes)
         model = InceptionResNetV2(num_classes=1001)
         model.load_state_dict(model_zoo.load_url(settings['url']))
         if pretrained == 'imagenet':
@@ -3232,8 +2743,7 @@ class GlobalNet(nn.Module):
 
     def __init__(self, config):
         super(GlobalNet, self).__init__()
-        pretrained_model = inceptionresnetv2(num_classes=1000, pretrained=
-            'imagenet')
+        pretrained_model = inceptionresnetv2(num_classes=1000, pretrained='imagenet')
         self.conv2d_1a = pretrained_model.conv2d_1a
         self.conv2d_2a = pretrained_model.conv2d_2a
         self.conv2d_2b = pretrained_model.conv2d_2b
@@ -3249,20 +2759,13 @@ class GlobalNet(nn.Module):
         self.repeat_2 = pretrained_model.repeat_2
         self.block8 = pretrained_model.block8
         self.conv2d_7b = pretrained_model.conv2d_7b
-        self.latlayer1 = nn.Conv2d(1536, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1088, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(320, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(192, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(1536, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1088, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(320, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(192, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _upsample_add(self, x, y):
         _, _, H, W = y.size()
@@ -3299,17 +2802,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -3336,10 +2832,8 @@ class BasicConv2d(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1,
-            affine=True)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -3354,14 +2848,9 @@ class Mixed_5b(nn.Module):
     def __init__(self):
         super(Mixed_5b, self).__init__()
         self.branch0 = BasicConv2d(192, 96, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1,
-            stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
-        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1,
-            stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False), BasicConv2d(192, 64, kernel_size=1,
-            stride=1))
+        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1, stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
+        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1, stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False), BasicConv2d(192, 64, kernel_size=1, stride=1))
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -3378,11 +2867,8 @@ class Block35(nn.Module):
         super(Block35, self).__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(320, 32, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
-        self.branch2 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 48, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1))
+        self.branch1 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1, stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
+        self.branch2 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1, stride=1), BasicConv2d(32, 48, kernel_size=3, stride=1, padding=1), BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1))
         self.conv2d = nn.Conv2d(128, 320, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -3401,12 +2887,8 @@ class Mixed_6a(nn.Module):
 
     def __init__(self):
         super(Mixed_6a, self).__init__()
-        self.branch0 = BasicConv2d(320, 384, kernel_size=3, stride=2, padding=1
-            )
-        self.branch1 = nn.Sequential(BasicConv2d(320, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1,
-            padding=1), BasicConv2d(256, 384, kernel_size=3, stride=2,
-            padding=1))
+        self.branch0 = BasicConv2d(320, 384, kernel_size=3, stride=2, padding=1)
+        self.branch1 = nn.Sequential(BasicConv2d(320, 256, kernel_size=1, stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1, padding=1), BasicConv2d(256, 384, kernel_size=3, stride=2, padding=1))
         self.branch2 = nn.MaxPool2d(3, stride=2, padding=1)
 
     def forward(self, x):
@@ -3423,10 +2905,7 @@ class Block17(nn.Module):
         super(Block17, self).__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(1088, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(1088, 128, kernel_size=1,
-            stride=1), BasicConv2d(128, 160, kernel_size=(1, 7), stride=1,
-            padding=(0, 3)), BasicConv2d(160, 192, kernel_size=(7, 1),
-            stride=1, padding=(3, 0)))
+        self.branch1 = nn.Sequential(BasicConv2d(1088, 128, kernel_size=1, stride=1), BasicConv2d(128, 160, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv2d(160, 192, kernel_size=(7, 1), stride=1, padding=(3, 0)))
         self.conv2d = nn.Conv2d(384, 1088, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -3444,16 +2923,9 @@ class Mixed_7a(nn.Module):
 
     def __init__(self):
         super(Mixed_7a, self).__init__()
-        self.branch0 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 384, kernel_size=3, stride=2,
-            padding=1))
-        self.branch1 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 288, kernel_size=3, stride=2,
-            padding=1))
-        self.branch2 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1,
-            padding=1), BasicConv2d(288, 320, kernel_size=3, stride=2,
-            padding=1))
+        self.branch0 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 384, kernel_size=3, stride=2, padding=1))
+        self.branch1 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 288, kernel_size=3, stride=2, padding=1))
+        self.branch2 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1, padding=1), BasicConv2d(288, 320, kernel_size=3, stride=2, padding=1))
         self.branch3 = nn.MaxPool2d(3, stride=2, padding=1)
 
     def forward(self, x):
@@ -3472,10 +2944,7 @@ class Block8(nn.Module):
         self.scale = scale
         self.noReLU = noReLU
         self.branch0 = BasicConv2d(2080, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(2080, 192, kernel_size=1,
-            stride=1), BasicConv2d(192, 224, kernel_size=(1, 3), stride=1,
-            padding=(0, 1)), BasicConv2d(224, 256, kernel_size=(3, 1),
-            stride=1, padding=(1, 0)))
+        self.branch1 = nn.Sequential(BasicConv2d(2080, 192, kernel_size=1, stride=1), BasicConv2d(192, 224, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv2d(224, 256, kernel_size=(3, 1), stride=1, padding=(1, 0)))
         self.conv2d = nn.Conv2d(448, 2080, kernel_size=1, stride=1)
         if not self.noReLU:
             self.relu = nn.ReLU(inplace=False)
@@ -3500,33 +2969,18 @@ class InceptionResNetV2(nn.Module):
         self.mean = None
         self.std = None
         self.conv2d_1a = BasicConv2d(3, 32, kernel_size=3, stride=2, padding=1)
-        self.conv2d_2a = BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1
-            )
-        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1
-            )
+        self.conv2d_2a = BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1)
+        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1)
         self.maxpool_3a = nn.MaxPool2d(3, stride=2, padding=1)
         self.conv2d_3b = BasicConv2d(64, 80, kernel_size=1, stride=1)
-        self.conv2d_4a = BasicConv2d(80, 192, kernel_size=3, stride=1,
-            padding=1)
+        self.conv2d_4a = BasicConv2d(80, 192, kernel_size=3, stride=1, padding=1)
         self.maxpool_5a = nn.MaxPool2d(3, stride=2, padding=1)
         self.mixed_5b = Mixed_5b()
-        self.repeat = nn.Sequential(Block35(scale=0.17), Block35(scale=0.17
-            ), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17
-            ), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17
-            ), Block35(scale=0.17), Block35(scale=0.17))
+        self.repeat = nn.Sequential(Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17))
         self.mixed_6a = Mixed_6a()
-        self.repeat_1 = nn.Sequential(Block17(scale=0.1), Block17(scale=0.1
-            ), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1))
+        self.repeat_1 = nn.Sequential(Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1))
         self.mixed_7a = Mixed_7a()
-        self.repeat_2 = nn.Sequential(Block8(scale=0.2), Block8(scale=0.2),
-            Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8
-            (scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale
-            =0.2))
+        self.repeat_2 = nn.Sequential(Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2))
         self.block8 = Block8(noReLU=True)
         self.conv2d_7b = BasicConv2d(2080, 1536, kernel_size=1, stride=1)
         self.avgpool_1a = nn.AvgPool2d(8, count_include_pad=False)
@@ -3569,17 +3023,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -3596,16 +3046,13 @@ class SEBottleneck(Bottleneck):
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, groups, reduction, stride=1,
-        downsample=None):
+    def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None):
         super(SEBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes * 2, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes * 2)
-        self.conv2 = nn.Conv2d(planes * 2, planes * 4, kernel_size=3,
-            stride=stride, padding=1, groups=groups, bias=False)
+        self.conv2 = nn.Conv2d(planes * 2, planes * 4, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
         self.bn2 = nn.BatchNorm2d(planes * 4)
-        self.conv3 = nn.Conv2d(planes * 4, planes * 4, kernel_size=1, bias=
-            False)
+        self.conv3 = nn.Conv2d(planes * 4, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.se_module = SEModule(planes * 4, reduction=reduction)
@@ -3614,9 +3061,7 @@ class SEBottleneck(Bottleneck):
 
 
 def initialize_pretrained_model(model, num_classes, settings):
-    assert num_classes == settings['num_classes'
-        ], 'num_classes should be {}, but is {}'.format(settings[
-        'num_classes'], num_classes)
+    assert num_classes == settings['num_classes'], 'num_classes should be {}, but is {}'.format(settings['num_classes'], num_classes)
     model.load_state_dict(model_zoo.load_url(settings['url']))
     model.input_space = settings['input_space']
     model.input_size = settings['input_size']
@@ -3626,8 +3071,7 @@ def initialize_pretrained_model(model, num_classes, settings):
 
 
 def senet154(num_classes=1000, pretrained='imagenet'):
-    model = SENet(SEBottleneck, [3, 8, 36, 3], groups=64, reduction=16,
-        dropout_p=0.2, num_classes=num_classes)
+    model = SENet(SEBottleneck, [3, 8, 36, 3], groups=64, reduction=16, dropout_p=0.2, num_classes=num_classes)
     if pretrained is not None:
         settings = pretrained_settings['senet154'][pretrained]
         initialize_pretrained_model(model, num_classes, settings)
@@ -3644,20 +3088,13 @@ class GlobalNet(nn.Module):
         self.layer2 = pretrained_model.layer2
         self.layer3 = pretrained_model.layer3
         self.layer4 = pretrained_model.layer4
-        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1
-            )
-        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3,
-            stride=1, padding=1)
+        self.latlayer1 = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer3 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer4 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
+        self.toplayer1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.toplayer3 = nn.Conv2d(256, config.num_keypoints, kernel_size=3, stride=1, padding=1)
 
     def _upsample_add(self, x, y):
         _, _, H, W = y.size()
@@ -3684,17 +3121,10 @@ class RefineNet(nn.Module):
     def __init__(self, config):
         super(RefineNet, self).__init__()
         self.bottleneck2 = Bottleneck(config.num_keypoints, 64, 1)
-        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.
-            ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=
-            2 // 2))
-        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4,
-            stride=4, padding=4 // 2))
-        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck
-            (256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 
-            256, kernel_size=2 * 8, stride=8, padding=8 // 2))
-        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256,
-            config.num_keypoints, kernel_size=1, stride=1, padding=0))
+        self.bottleneck3 = nn.Sequential(Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 2, stride=2, padding=2 // 2))
+        self.bottleneck4 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 4, stride=4, padding=4 // 2))
+        self.bottleneck5 = nn.Sequential(Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), Bottleneck(256, 64, 1), nn.ConvTranspose2d(256, 256, kernel_size=2 * 8, stride=8, padding=8 // 2))
+        self.output = nn.Sequential(Bottleneck(1024, 64, 1), nn.Conv2d(256, config.num_keypoints, kernel_size=1, stride=1, padding=0))
 
     def forward(self, p2, p3, p4, p5):
         p2 = self.bottleneck2(p2)
@@ -3722,11 +3152,9 @@ class SEModule(nn.Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -3763,9 +3191,7 @@ class Bottleneck(nn.Module):
 
 class SENet(nn.Module):
 
-    def __init__(self, block, layers, groups, reduction, dropout_p=0.2,
-        inplanes=128, input_3x3=True, downsample_kernel_size=3,
-        downsample_padding=1, num_classes=1000):
+    def __init__(self, block, layers, groups, reduction, dropout_p=0.2, inplanes=128, input_3x3=True, downsample_kernel_size=3, downsample_padding=1, num_classes=1000):
         """
         Parameters
         ----------
@@ -3812,51 +3238,25 @@ class SENet(nn.Module):
         super(SENet, self).__init__()
         self.inplanes = inplanes
         if input_3x3:
-            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2,
-                padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), (
-                'relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64,
-                3, stride=1, padding=1, bias=False)), ('bn2', nn.
-                BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), (
-                'conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1,
-                bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3',
-                nn.ReLU(inplace=True))]
+            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), ('relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)), ('bn2', nn.BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1, bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3', nn.ReLU(inplace=True))]
         else:
-            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=
-                7, stride=2, padding=3, bias=False)), ('bn1', nn.
-                BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
-        layer0_modules.append(('pool', nn.MaxPool2d(3, stride=2, ceil_mode=
-            True)))
+            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False)), ('bn1', nn.BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
+        layer0_modules.append(('pool', nn.MaxPool2d(3, stride=2, ceil_mode=True)))
         self.layer0 = nn.Sequential(OrderedDict(layer0_modules))
-        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0],
-            groups=groups, reduction=reduction, downsample_kernel_size=1,
-            downsample_padding=0)
-        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
-        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
-        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
+        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0], groups=groups, reduction=reduction, downsample_kernel_size=1, downsample_padding=0)
+        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
         self.avg_pool = nn.AvgPool2d(7, stride=1)
         self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
         self.last_linear = nn.Linear(512 * block.expansion, num_classes)
 
-    def _make_layer(self, block, planes, blocks, groups, reduction, stride=
-        1, downsample_kernel_size=1, downsample_padding=0):
+    def _make_layer(self, block, planes, blocks, groups, reduction, stride=1, downsample_kernel_size=1, downsample_padding=0):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=downsample_kernel_size, stride
-                =stride, padding=downsample_padding, bias=False), nn.
-                BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=downsample_kernel_size, stride=stride, padding=downsample_padding, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, groups, reduction,
-            stride, downsample))
+        layers.append(block(self.inplanes, planes, groups, reduction, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups, reduction))
@@ -3888,87 +3288,191 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AvgPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block17,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (Block35,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Block8,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2080, 64, 64])], {}),
+     True),
+    (BranchSeparables,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesReduction,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesStem,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CellStem0,
+     lambda: ([], {'stem_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CellStem1,
+     lambda: ([], {'stem_filters': 4, 'num_filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (DilatedBottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionResNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
+    (MaxPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mixed_5b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_6a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Mixed_7a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (NASNetALarge,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (NormalCell,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell0,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell1,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RetinaNet,
+     lambda: ([], {'config': _mock_config(anchor_num=4), 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VisErrorLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 1])], {}),
+     False),
+    (VisErrorLossV13,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 64]), torch.rand([4, 4, 1])], {}),
+     False),
+    (VisErrorLossV3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 64]), torch.rand([4, 4, 4]), torch.rand([4, 4, 1])], {}),
+     False),
+]
+
 class Test_gathierry_FashionAI_KeyPointsDetectionOfApparel(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(BranchSeparables(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(BranchSeparablesReduction(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(CellStem0(*[], **{'stem_filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(CellStem1(*[], **{'stem_filters': 4, 'num_filters': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 8, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(DilatedBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(InceptionResNetV2(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(NASNetALarge(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(NormalCell(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(ReductionCell0(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(ReductionCell1(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(RetinaNet(*[], **{'config': _mock_config(anchor_num=4), 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
     def test_022(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
 
-    @_fails_compile()
     def test_023(self):
-        self._check(VisErrorLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 1])], {})
+        self._check(*TESTCASES[23])
 
-    @_fails_compile()
     def test_024(self):
-        self._check(VisErrorLossV13(*[], **{}), [torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 64]), torch.rand([4, 4, 1])], {})
+        self._check(*TESTCASES[24])
 
-    @_fails_compile()
     def test_025(self):
-        self._check(VisErrorLossV3(*[], **{}), [torch.rand([4, 4, 16, 4]), torch.rand([4, 4, 64]), torch.rand([4, 4, 4]), torch.rand([4, 4, 1])], {})
+        self._check(*TESTCASES[25])
 

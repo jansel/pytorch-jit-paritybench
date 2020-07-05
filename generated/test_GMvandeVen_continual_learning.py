@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -140,20 +141,17 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
                 est_fisher_info[n] = p.detach().clone().zero_()
         mode = self.training
         self.eval()
-        data_loader = utils.get_data_loader(dataset, batch_size=1, cuda=
-            self._is_on_cuda(), collate_fn=collate_fn)
+        data_loader = utils.get_data_loader(dataset, batch_size=1, cuda=self._is_on_cuda(), collate_fn=collate_fn)
         for index, (x, y) in enumerate(data_loader):
             if self.fisher_n is not None:
                 if index >= self.fisher_n:
                     break
             x = x
-            output = self(x) if allowed_classes is None else self(x)[:, (
-                allowed_classes)]
+            output = self(x) if allowed_classes is None else self(x)[:, (allowed_classes)]
             if self.emp_FI:
                 label = torch.LongTensor([y]) if type(y) == int else y
                 if allowed_classes is not None:
-                    label = [int(np.where(i == allowed_classes)[0][0]) for
-                        i in label.numpy()]
+                    label = [int(np.where(i == allowed_classes)[0][0]) for i in label.numpy()]
                     label = torch.LongTensor(label)
                 label = label
             else:
@@ -170,16 +168,11 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
         for n, p in self.named_parameters():
             if p.requires_grad:
                 n = n.replace('.', '__')
-                self.register_buffer('{}_EWC_prev_task{}'.format(n, '' if
-                    self.online else self.EWC_task_count + 1), p.detach().
-                    clone())
+                self.register_buffer('{}_EWC_prev_task{}'.format(n, '' if self.online else self.EWC_task_count + 1), p.detach().clone())
                 if self.online and self.EWC_task_count == 1:
-                    existing_values = getattr(self,
-                        '{}_EWC_estimated_fisher'.format(n))
+                    existing_values = getattr(self, '{}_EWC_estimated_fisher'.format(n))
                     est_fisher_info[n] += self.gamma * existing_values
-                self.register_buffer('{}_EWC_estimated_fisher{}'.format(n, 
-                    '' if self.online else self.EWC_task_count + 1),
-                    est_fisher_info[n])
+                self.register_buffer('{}_EWC_estimated_fisher{}'.format(n, '' if self.online else self.EWC_task_count + 1), est_fisher_info[n])
         self.EWC_task_count = 1 if self.online else self.EWC_task_count + 1
         self.train(mode=mode)
 
@@ -191,10 +184,8 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
                 for n, p in self.named_parameters():
                     if p.requires_grad:
                         n = n.replace('.', '__')
-                        mean = getattr(self, '{}_EWC_prev_task{}'.format(n,
-                            '' if self.online else task))
-                        fisher = getattr(self, '{}_EWC_estimated_fisher{}'.
-                            format(n, '' if self.online else task))
+                        mean = getattr(self, '{}_EWC_prev_task{}'.format(n, '' if self.online else task))
+                        fisher = getattr(self, '{}_EWC_estimated_fisher{}'.format(n, '' if self.online else task))
                         fisher = self.gamma * fisher if self.online else fisher
                         losses.append((fisher * (p - mean) ** 2).sum())
             return 1.0 / 2 * sum(losses)
@@ -275,8 +266,7 @@ class LinearExcitability(nn.Module):
         bias:           the learnable bias of the module of shape (out_features)
         excit_buffer:   fixed multiplication variable (out_features)"""
 
-    def __init__(self, in_features, out_features, bias=True, excitability=
-        False, excit_buffer=False):
+    def __init__(self, in_features, out_features, bias=True, excitability=False, excit_buffer=False):
         super(LinearExcitability, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -318,8 +308,7 @@ class LinearExcitability(nn.Module):
         return linearExcitability(input, self.weight, excitability, self.bias)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.
-            in_features) + ', out_features=' + str(self.out_features) + ')'
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ')'
 
 
 class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
@@ -360,8 +349,7 @@ class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
         exemplar_set = []
         if self.herding:
             first_entry = True
-            dataloader = utils.get_data_loader(dataset, 128, cuda=self.
-                _is_on_cuda())
+            dataloader = utils.get_data_loader(dataset, 128, cuda=self._is_on_cuda())
             for image_batch, _ in dataloader:
                 image_batch = image_batch
                 with torch.no_grad():
@@ -380,14 +368,12 @@ class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
             list_of_selected = []
             for k in range(min(n, n_max)):
                 if k > 0:
-                    exemplar_sum = torch.sum(exemplar_features[:k], dim=0
-                        ).unsqueeze(0)
+                    exemplar_sum = torch.sum(exemplar_features[:k], dim=0).unsqueeze(0)
                     features_means = (features + exemplar_sum) / (k + 1)
                     features_dists = features_means - class_mean
                 else:
                     features_dists = features - class_mean
-                index_selected = np.argmin(torch.norm(features_dists, p=2,
-                    dim=1))
+                index_selected = np.argmin(torch.norm(features_dists, p=2, dim=1))
                 if index_selected in list_of_selected:
                     raise ValueError('Exemplars should not be repeated!!!!')
                 list_of_selected.append(index_selected)
@@ -395,8 +381,7 @@ class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
                 exemplar_features[k] = copy.deepcopy(features[index_selected])
                 features[index_selected] = features[index_selected] + 10000
         else:
-            indeces_selected = np.random.choice(n_max, size=min(n, n_max),
-                replace=False)
+            indeces_selected = np.random.choice(n_max, size=min(n, n_max), replace=False)
             for k in indeces_selected:
                 exemplar_set.append(dataset[k][0].numpy())
         self.exemplar_sets.append(np.array(exemplar_set))
@@ -429,8 +414,7 @@ class ExemplarHandler(nn.Module, metaclass=abc.ABCMeta):
                 exemplar_means.append(mu_y.squeeze())
             self.exemplar_means = exemplar_means
             self.compute_means = False
-        exemplar_means = self.exemplar_means if allowed_classes is None else [
-            self.exemplar_means[i] for i in allowed_classes]
+        exemplar_means = self.exemplar_means if allowed_classes is None else [self.exemplar_means[i] for i in allowed_classes]
         means = torch.stack(exemplar_means)
         means = torch.stack([means] * batch_size)
         means = means.transpose(1, 2)
@@ -452,14 +436,11 @@ class fc_layer(nn.Module):
     Input:  [batch_size] x ... x [in_size] tensor
     Output: [batch_size] x ... x [out_size] tensor"""
 
-    def __init__(self, in_size, out_size, nl=nn.ReLU(), drop=0.0, bias=True,
-        excitability=False, excit_buffer=False, batch_norm=False, gated=False):
+    def __init__(self, in_size, out_size, nl=nn.ReLU(), drop=0.0, bias=True, excitability=False, excit_buffer=False, batch_norm=False, gated=False):
         super().__init__()
         if drop > 0:
             self.dropout = nn.Dropout(drop)
-        self.linear = em.LinearExcitability(in_size, out_size, bias=False if
-            batch_norm else bias, excitability=excitability, excit_buffer=
-            excit_buffer)
+        self.linear = em.LinearExcitability(in_size, out_size, bias=False if batch_norm else bias, excitability=excitability, excit_buffer=excit_buffer)
         if batch_norm:
             self.bn = nn.BatchNorm1d(out_size)
         if gated:
@@ -468,24 +449,19 @@ class fc_layer(nn.Module):
         if isinstance(nl, nn.Module):
             self.nl = nl
         elif not nl == 'none':
-            self.nl = nn.ReLU() if nl == 'relu' else nn.LeakyReLU(
-                ) if nl == 'leakyrelu' else utils.Identity()
+            self.nl = nn.ReLU() if nl == 'relu' else nn.LeakyReLU() if nl == 'leakyrelu' else utils.Identity()
 
     def forward(self, x, return_pa=False):
         input = self.dropout(x) if hasattr(self, 'dropout') else x
-        pre_activ = self.bn(self.linear(input)) if hasattr(self, 'bn'
-            ) else self.linear(input)
+        pre_activ = self.bn(self.linear(input)) if hasattr(self, 'bn') else self.linear(input)
         gate = self.sigmoid(self.gate(x)) if hasattr(self, 'gate') else None
-        gated_pre_activ = gate * pre_activ if hasattr(self, 'gate'
-            ) else pre_activ
-        output = self.nl(gated_pre_activ) if hasattr(self, 'nl'
-            ) else gated_pre_activ
+        gated_pre_activ = gate * pre_activ if hasattr(self, 'gate') else pre_activ
+        output = self.nl(gated_pre_activ) if hasattr(self, 'nl') else gated_pre_activ
         return (output, gated_pre_activ) if return_pa else output
 
     def list_init_layers(self):
         """Return list of modules whose parameters could be initialized differently (i.e., conv- or fc-layers)."""
-        return [self.linear, self.gate] if hasattr(self, 'gate') else [self
-            .linear]
+        return [self.linear, self.gate] if hasattr(self, 'gate') else [self.linear]
 
 
 class fc_layer_split(nn.Module):
@@ -494,16 +470,10 @@ class fc_layer_split(nn.Module):
     Input:  [batch_size] x ... x [in_size] tensor
     Output: tuple with two [batch_size] x ... x [out_size] tensors"""
 
-    def __init__(self, in_size, out_size, nl_mean=nn.Sigmoid(), nl_logvar=
-        nn.Hardtanh(min_val=-4.5, max_val=0.0), drop=0.0, bias=True,
-        excitability=False, excit_buffer=False, batch_norm=False, gated=False):
+    def __init__(self, in_size, out_size, nl_mean=nn.Sigmoid(), nl_logvar=nn.Hardtanh(min_val=-4.5, max_val=0.0), drop=0.0, bias=True, excitability=False, excit_buffer=False, batch_norm=False, gated=False):
         super().__init__()
-        self.mean = fc_layer(in_size, out_size, drop=drop, bias=bias,
-            excitability=excitability, excit_buffer=excit_buffer,
-            batch_norm=batch_norm, gated=gated, nl=nl_mean)
-        self.logvar = fc_layer(in_size, out_size, drop=drop, bias=False,
-            excitability=excitability, excit_buffer=excit_buffer,
-            batch_norm=batch_norm, gated=gated, nl=nl_logvar)
+        self.mean = fc_layer(in_size, out_size, drop=drop, bias=bias, excitability=excitability, excit_buffer=excit_buffer, batch_norm=batch_norm, gated=gated, nl=nl_mean)
+        self.logvar = fc_layer(in_size, out_size, drop=drop, bias=False, excitability=excitability, excit_buffer=excit_buffer, batch_norm=batch_norm, gated=gated, nl=nl_logvar)
 
     def forward(self, x):
         return self.mean(x), self.logvar(x)
@@ -522,10 +492,7 @@ class MLP(nn.Module):
     Input:  [batch_size] x ... x [size_per_layer[0]] tensor
     Output: (tuple of) [batch_size] x ... x [size_per_layer[-1]] tensor"""
 
-    def __init__(self, input_size=1000, output_size=10, layers=2, hid_size=
-        1000, hid_smooth=None, size_per_layer=None, drop=0, batch_norm=True,
-        nl='relu', bias=True, excitability=False, excit_buffer=False, gated
-        =False, output='normal'):
+    def __init__(self, input_size=1000, output_size=10, layers=2, hid_size=1000, hid_smooth=None, size_per_layer=None, drop=0, batch_norm=True, nl='relu', bias=True, excitability=False, excit_buffer=False, gated=False, output='normal'):
         """sizes: 0th=[input], 1st=[hid_size], ..., 1st-to-last=[hid_smooth], last=[output].
         [input_size]       # of inputs
         [output_size]      # of units in final layer
@@ -547,38 +514,20 @@ class MLP(nn.Module):
             hidden_sizes = []
             if layers > 1:
                 if hid_smooth is not None:
-                    hidden_sizes = [int(x) for x in np.linspace(hid_size,
-                        hid_smooth, num=layers - 1)]
+                    hidden_sizes = [int(x) for x in np.linspace(hid_size, hid_smooth, num=layers - 1)]
                 else:
-                    hidden_sizes = [int(x) for x in np.repeat(hid_size, 
-                        layers - 1)]
+                    hidden_sizes = [int(x) for x in np.repeat(hid_size, layers - 1)]
             size_per_layer = [input_size] + hidden_sizes + [output_size]
         self.layers = len(size_per_layer) - 1
-        nd_label = '{drop}{bias}{exc}{bn}{nl}{gate}{out}'.format(drop='' if
-            drop == 0 else '-drop{}'.format(drop), bias='' if bias else
-            '-noBias', exc='-exc' if excitability else '', bn='-bn' if
-            batch_norm else '', nl='-lr' if nl == 'leakyrelu' else '', gate
-            ='-gated' if gated else '', out='' if output == 'normal' else
-            '-{}'.format(output))
-        self.label = 'MLP({}{})'.format(size_per_layer, nd_label
-            ) if self.layers > 0 else ''
+        nd_label = '{drop}{bias}{exc}{bn}{nl}{gate}{out}'.format(drop='' if drop == 0 else '-drop{}'.format(drop), bias='' if bias else '-noBias', exc='-exc' if excitability else '', bn='-bn' if batch_norm else '', nl='-lr' if nl == 'leakyrelu' else '', gate='-gated' if gated else '', out='' if output == 'normal' else '-{}'.format(output))
+        self.label = 'MLP({}{})'.format(size_per_layer, nd_label) if self.layers > 0 else ''
         for lay_id in range(1, self.layers + 1):
             in_size = size_per_layer[lay_id - 1]
             out_size = size_per_layer[lay_id]
             if lay_id == self.layers and output in ('logistic', 'gaussian'):
-                layer = fc_layer_split(in_size, out_size, bias=bias,
-                    excitability=excitability, excit_buffer=excit_buffer,
-                    drop=drop, batch_norm=False, gated=gated, nl_mean=nn.
-                    Sigmoid() if output == 'logistic' else utils.Identity(),
-                    nl_logvar=nn.Hardtanh(min_val=-4.5, max_val=0.0) if 
-                    output == 'logistic' else utils.Identity())
+                layer = fc_layer_split(in_size, out_size, bias=bias, excitability=excitability, excit_buffer=excit_buffer, drop=drop, batch_norm=False, gated=gated, nl_mean=nn.Sigmoid() if output == 'logistic' else utils.Identity(), nl_logvar=nn.Hardtanh(min_val=-4.5, max_val=0.0) if output == 'logistic' else utils.Identity())
             else:
-                layer = fc_layer(in_size, out_size, bias=bias, excitability
-                    =excitability, excit_buffer=excit_buffer, drop=drop,
-                    batch_norm=False if lay_id == self.layers and not 
-                    output == 'normal' else batch_norm, gated=gated, nl=nn.
-                    Sigmoid() if lay_id == self.layers and not output ==
-                    'normal' else nl)
+                layer = fc_layer(in_size, out_size, bias=bias, excitability=excitability, excit_buffer=excit_buffer, drop=drop, batch_norm=False if lay_id == self.layers and not output == 'normal' else batch_norm, gated=gated, nl=nn.Sigmoid() if lay_id == self.layers and not output == 'normal' else nl)
             setattr(self, 'fcLayer{}'.format(lay_id), layer)
         if self.layers < 1:
             self.noLayers = utils.Identity()
@@ -596,8 +545,7 @@ class MLP(nn.Module):
         """Return list of modules whose parameters could be initialized differently (i.e., conv- or fc-layers)."""
         list = []
         for layer_id in range(1, self.layers + 1):
-            list += getattr(self, 'fcLayer{}'.format(layer_id)
-                ).list_init_layers()
+            list += getattr(self, 'fcLayer{}'.format(layer_id)).list_init_layers()
         return list
 
 
@@ -645,13 +593,11 @@ class Reshape(nn.Module):
 
     def forward(self, x):
         batch_size = x.size(0)
-        image_size = int(np.sqrt(x.nelement() / (batch_size * self.
-            image_channels)))
+        image_size = int(np.sqrt(x.nelement() / (batch_size * self.image_channels)))
         return x.view(batch_size, self.image_channels, image_size, image_size)
 
     def __repr__(self):
-        tmpstr = self.__class__.__name__ + '(channels = {})'.format(self.
-            image_channels)
+        tmpstr = self.__class__.__name__ + '(channels = {})'.format(self.image_channels)
         return tmpstr
 
 
@@ -693,23 +639,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearExcitability,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Reshape,
+     lambda: ([], {'image_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ToImage,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_GMvandeVen_continual_learning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LinearExcitability(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Reshape(*[], **{'image_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ToImage(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

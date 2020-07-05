@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,11 +73,7 @@ class Discriminator(nn.Module):
     def __init__(self, z_dim):
         super(Discriminator, self).__init__()
         self.z_dim = z_dim
-        self.net = nn.Sequential(nn.Linear(z_dim, 1000), nn.LeakyReLU(0.2, 
-            True), nn.Linear(1000, 1000), nn.LeakyReLU(0.2, True), nn.
-            Linear(1000, 1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 
-            1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 1000), nn.
-            LeakyReLU(0.2, True), nn.Linear(1000, 2))
+        self.net = nn.Sequential(nn.Linear(z_dim, 1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 1000), nn.LeakyReLU(0.2, True), nn.Linear(1000, 2))
         self.weight_init()
 
     def weight_init(self, mode='normal'):
@@ -98,17 +95,8 @@ class FactorVAE1(nn.Module):
     def __init__(self, z_dim=10):
         super(FactorVAE1, self).__init__()
         self.z_dim = z_dim
-        self.encode = nn.Sequential(nn.Conv2d(1, 32, 4, 2, 1), nn.ReLU(True
-            ), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64,
-            4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(
-            True), nn.Conv2d(64, 128, 4, 1), nn.ReLU(True), nn.Conv2d(128, 
-            2 * z_dim, 1))
-        self.decode = nn.Sequential(nn.Conv2d(z_dim, 128, 1), nn.ReLU(True),
-            nn.ConvTranspose2d(128, 64, 4), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 1, 4, 2, 1))
+        self.encode = nn.Sequential(nn.Conv2d(1, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 128, 4, 1), nn.ReLU(True), nn.Conv2d(128, 2 * z_dim, 1))
+        self.decode = nn.Sequential(nn.Conv2d(z_dim, 128, 1), nn.ReLU(True), nn.ConvTranspose2d(128, 64, 4), nn.ReLU(True), nn.ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 1, 4, 2, 1))
         self.weight_init()
 
     def weight_init(self, mode='normal'):
@@ -143,17 +131,8 @@ class FactorVAE2(nn.Module):
     def __init__(self, z_dim=10):
         super(FactorVAE2, self).__init__()
         self.z_dim = z_dim
-        self.encode = nn.Sequential(nn.Conv2d(3, 32, 4, 2, 1), nn.ReLU(True
-            ), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64,
-            4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(
-            True), nn.Conv2d(64, 256, 4, 1), nn.ReLU(True), nn.Conv2d(256, 
-            2 * z_dim, 1))
-        self.decode = nn.Sequential(nn.Conv2d(z_dim, 256, 1), nn.ReLU(True),
-            nn.ConvTranspose2d(256, 64, 4), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 3, 4, 2, 1))
+        self.encode = nn.Sequential(nn.Conv2d(3, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 256, 4, 1), nn.ReLU(True), nn.Conv2d(256, 2 * z_dim, 1))
+        self.decode = nn.Sequential(nn.Conv2d(z_dim, 256, 1), nn.ReLU(True), nn.ConvTranspose2d(256, 64, 4), nn.ReLU(True), nn.ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 3, 4, 2, 1))
         self.weight_init()
 
     def weight_init(self, mode='normal'):
@@ -188,17 +167,8 @@ class FactorVAE3(nn.Module):
     def __init__(self, z_dim=10):
         super(FactorVAE3, self).__init__()
         self.z_dim = z_dim
-        self.encode = nn.Sequential(nn.Conv2d(1, 32, 4, 2, 1), nn.ReLU(True
-            ), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64,
-            4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(
-            True), nn.Conv2d(64, 256, 4, 1), nn.ReLU(True), nn.Conv2d(256, 
-            2 * z_dim, 1))
-        self.decode = nn.Sequential(nn.Conv2d(z_dim, 256, 1), nn.ReLU(True),
-            nn.ConvTranspose2d(256, 64, 4), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.
-            ConvTranspose2d(32, 1, 4, 2, 1))
+        self.encode = nn.Sequential(nn.Conv2d(1, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.Conv2d(32, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.Conv2d(64, 256, 4, 1), nn.ReLU(True), nn.Conv2d(256, 2 * z_dim, 1))
+        self.decode = nn.Sequential(nn.Conv2d(z_dim, 256, 1), nn.ReLU(True), nn.ConvTranspose2d(256, 64, 4), nn.ReLU(True), nn.ConvTranspose2d(64, 64, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 32, 4, 2, 1), nn.ReLU(True), nn.ConvTranspose2d(32, 1, 4, 2, 1))
         self.weight_init()
 
     def weight_init(self, mode='normal'):
@@ -231,20 +201,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {'z_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorVAE1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (FactorVAE2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (FactorVAE3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+]
+
 class Test_1Konny_FactorVAE(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Discriminator(*[], **{'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(FactorVAE1(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(FactorVAE2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(FactorVAE3(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

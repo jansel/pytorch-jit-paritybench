@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -62,13 +63,11 @@ from collections import OrderedDict
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, is_last
-        =False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, is_last=False):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -100,16 +99,14 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            is_last=True)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, is_last=True)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(2048, num_classes, bias=False)
         for m in self.modules():
@@ -123,9 +120,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, is_last=False):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -155,20 +150,17 @@ class ResNet(nn.Module):
 class ResNetBasicblock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, residual_transform=None,
-        output_activation='relu', norm='batch'):
+    def __init__(self, inplanes, planes, stride=1, residual_transform=None, output_activation='relu', norm='batch'):
         super(ResNetBasicblock, self).__init__()
         self.norm = norm
-        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         if norm == 'batch':
             self.bn_a = nn.BatchNorm2d(planes)
         elif norm == 'instance':
             self.bn_a = nn.InstanceNorm2d(planes)
         else:
             assert False, 'norm must be batch or instance'
-        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         if norm == 'batch':
             self.bn_b = nn.BatchNorm2d(planes)
         elif norm == 'instance':
@@ -176,8 +168,7 @@ class ResNetBasicblock(nn.Module):
         else:
             assert False, 'norm must be batch or instance'
         self.residual_transform = residual_transform
-        self.output_activation = nn.ReLU(
-            ) if output_activation == 'relu' else nn.Tanh()
+        self.output_activation = nn.ReLU() if output_activation == 'relu' else nn.Tanh()
 
     def forward(self, x):
         residual = x
@@ -327,8 +318,7 @@ class JointLoss(torch.nn.Module):
         self.margin = margin
         self.sim_margin = 1 - margin / 2
 
-    def forward(self, features, agents, labels, similarity, features_target,
-        similarity_target):
+    def forward(self, features, agents, labels, similarity, features_target, similarity_target):
         """
         :param features: shape=(BS/2, dim)
         :param agents: shape=(n_class, dim)
@@ -406,12 +396,10 @@ class MultilabelLoss(torch.nn.Module):
                 std = ml_in_v.std(dim=0)
                 stds.append(std)
         new_mean = torch.mean(torch.stack(means), dim=0)
-        self.center_mean = self.center_mean * (1 - self.moment
-            ) + new_mean * self.moment
+        self.center_mean = self.center_mean * (1 - self.moment) + new_mean * self.moment
         if self.use_std:
             new_std = torch.mean(torch.stack(stds), dim=0)
-            self.center_std = self.center_std * (1 - self.moment
-                ) + new_std * self.moment
+            self.center_std = self.center_std * (1 - self.moment) + new_std * self.moment
 
     def forward(self, log_multilabels, views):
         """
@@ -441,11 +429,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AgentLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ResNetBasicblock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_KovenYu_MAR(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AgentLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResNetBasicblock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

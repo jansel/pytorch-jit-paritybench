@@ -76,8 +76,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -155,8 +156,7 @@ def filter_shard_state(state, requires_grad=True, volatile=False):
     for k, v in state.items():
         if v is not None:
             if isinstance(v, Variable) and v.requires_grad:
-                v = Variable(v.data, requires_grad=requires_grad, volatile=
-                    volatile)
+                v = Variable(v.data, requires_grad=requires_grad, volatile=volatile)
             yield k, v
 
 
@@ -180,12 +180,10 @@ def shards(state, shard_size, eval=False):
         yield filter_shard_state(state, False, True)
     else:
         non_none = dict(filter_shard_state(state))
-        keys, values = zip(*((k, torch.split(v, shard_size)) for k, v in
-            non_none.items()))
+        keys, values = zip(*((k, torch.split(v, shard_size)) for k, v in non_none.items()))
         for shard_tensors in zip(*values):
             yield dict(zip(keys, shard_tensors))
-        variables = ((state[k], v.grad.data) for k, v in non_none.items() if
-            isinstance(v, Variable) and v.grad is not None)
+        variables = ((state[k], v.grad.data) for k, v in non_none.items() if isinstance(v, Variable) and v.grad is not None)
         inputs, grads = zip(*variables)
         torch.autograd.backward(inputs, grads)
 
@@ -262,8 +260,7 @@ class LossComputeBase(nn.Module):
         _, batch_stats = self._compute_loss(batch, **shard_state)
         return batch_stats
 
-    def sharded_compute_loss(self, batch, output, attns, cur_trunc,
-        trunc_size, shard_size, normalization):
+    def sharded_compute_loss(self, batch, output, attns, cur_trunc, trunc_size, shard_size, normalization):
         """Compute the forward loss and backpropagate.  Computation is done
         with shards and optionally truncation for memory efficiency.
 
@@ -328,8 +325,7 @@ def aeq(*args):
     """
     arguments = (arg for arg in args)
     first = next(arguments)
-    assert all(arg == first for arg in arguments
-        ), 'Not all arguments have the same value: ' + str(args)
+    assert all(arg == first for arg in arguments), 'Not all arguments have the same value: ' + str(args)
 
 
 class EncoderBase(nn.Module):
@@ -399,11 +395,9 @@ class DecoderState(object):
             sizes = e.size()
             br = sizes[1]
             if len(sizes) == 3:
-                sent_states = e.view(sizes[0], beam_size, br // beam_size,
-                    sizes[2])[:, :, (idx)]
+                sent_states = e.view(sizes[0], beam_size, br // beam_size, sizes[2])[:, :, (idx)]
             else:
-                sent_states = e.view(sizes[0], beam_size, br // beam_size,
-                    sizes[2], sizes[3])[:, :, (idx)]
+                sent_states = e.view(sizes[0], beam_size, br // beam_size, sizes[2], sizes[3])[:, :, (idx)]
             sent_states.data.copy_(sent_states.data.index_select(1, positions))
 
 
@@ -423,8 +417,7 @@ class RNNDecoderState(DecoderState):
         self.coverage = None
         batch_size = self.hidden[0].size(1)
         h_size = batch_size, hidden_size
-        self.input_feed = Variable(self.hidden[0].data.new(*h_size).zero_(),
-            requires_grad=False).unsqueeze(0)
+        self.input_feed = Variable(self.hidden[0].data.new(*h_size).zero_(), requires_grad=False).unsqueeze(0)
 
     @property
     def _all(self):
@@ -440,8 +433,7 @@ class RNNDecoderState(DecoderState):
 
     def repeat_beam_size_times(self, beam_size):
         """ Repeat beam_size times along batch dimension. """
-        vars = [Variable(e.data.repeat(1, beam_size, 1), volatile=True) for
-            e in self._all]
+        vars = [Variable(e.data.repeat(1, beam_size, 1), volatile=True) for e in self._all]
         self.hidden = tuple(vars[:-1])
         self.input_feed = vars[-1]
 
@@ -493,10 +485,7 @@ class RNNDecoderBase(nn.Module):
        embeddings (:obj:`onmt.modules.Embeddings`): embedding module to use
     """
 
-    def __init__(self, rnn_type, bidirectional_encoder, num_layers,
-        hidden_size, attn_type='general', coverage_attn=False, context_gate
-        =None, copy_attn=False, dropout=0.0, embeddings=None,
-        reuse_copy_attn=False):
+    def __init__(self, rnn_type, bidirectional_encoder, num_layers, hidden_size, attn_type='general', coverage_attn=False, context_gate=None, copy_attn=False, dropout=0.0, embeddings=None, reuse_copy_attn=False):
         super(RNNDecoderBase, self).__init__()
         self.decoder_type = 'rnn'
         self.bidirectional_encoder = bidirectional_encoder
@@ -504,19 +493,15 @@ class RNNDecoderBase(nn.Module):
         self.hidden_size = hidden_size
         self.embeddings = embeddings
         self.dropout = nn.Dropout(dropout)
-        self.rnn = self._build_rnn(rnn_type, input_size=self._input_size,
-            hidden_size=hidden_size, num_layers=num_layers, dropout=dropout)
+        self.rnn = self._build_rnn(rnn_type, input_size=self._input_size, hidden_size=hidden_size, num_layers=num_layers, dropout=dropout)
         self.context_gate = None
         if context_gate is not None:
-            self.context_gate = onmt.modules.context_gate_factory(context_gate,
-                self._input_size, hidden_size, hidden_size, hidden_size)
+            self.context_gate = onmt.modules.context_gate_factory(context_gate, self._input_size, hidden_size, hidden_size, hidden_size)
         self._coverage = coverage_attn
-        self.attn = onmt.modules.GlobalAttention(hidden_size, coverage=
-            coverage_attn, attn_type=attn_type)
+        self.attn = onmt.modules.GlobalAttention(hidden_size, coverage=coverage_attn, attn_type=attn_type)
         self._copy = False
         if copy_attn and not reuse_copy_attn:
-            self.copy_attn = onmt.modules.GlobalAttention(hidden_size,
-                attn_type=attn_type)
+            self.copy_attn = onmt.modules.GlobalAttention(hidden_size, attn_type=attn_type)
         if copy_attn:
             self._copy = True
         self._reuse_copy_attn = reuse_copy_attn
@@ -544,8 +529,7 @@ class RNNDecoderBase(nn.Module):
         tgt_len, tgt_batch, _ = tgt.size()
         _, memory_batch, _ = memory_bank.size()
         aeq(tgt_batch, memory_batch)
-        decoder_final, decoder_outputs, attns = self._run_forward_pass(tgt,
-            memory_bank, state, memory_lengths=memory_lengths)
+        decoder_final, decoder_outputs, attns = self._run_forward_pass(tgt, memory_bank, state, memory_lengths=memory_lengths)
         final_output = decoder_outputs[-1]
         coverage = None
         if 'coverage' in attns:
@@ -563,11 +547,9 @@ class RNNDecoderBase(nn.Module):
                 h = torch.cat([h[0:h.size(0):2], h[1:h.size(0):2]], 2)
             return h
         if isinstance(encoder_final, tuple):
-            return RNNDecoderState(self.hidden_size, tuple([_fix_enc_hidden
-                (enc_hid) for enc_hid in encoder_final]))
+            return RNNDecoderState(self.hidden_size, tuple([_fix_enc_hidden(enc_hid) for enc_hid in encoder_final]))
         else:
-            return RNNDecoderState(self.hidden_size, _fix_enc_hidden(
-                encoder_final))
+            return RNNDecoderState(self.hidden_size, _fix_enc_hidden(encoder_final))
 
 
 class NMTModel(nn.Module):
@@ -610,11 +592,8 @@ class NMTModel(nn.Module):
         """
         tgt = tgt[:-1]
         enc_final, memory_bank = self.encoder(src, lengths)
-        enc_state = self.decoder.init_decoder_state(src, memory_bank, enc_final
-            )
-        decoder_outputs, dec_state, attns = self.decoder(tgt, memory_bank, 
-            enc_state if dec_state is None else dec_state, memory_lengths=
-            lengths)
+        enc_state = self.decoder.init_decoder_state(src, memory_bank, enc_final)
+        decoder_outputs, dec_state, attns = self.decoder(tgt, memory_bank, enc_state if dec_state is None else dec_state, memory_lengths=lengths)
         if self.multigpu:
             dec_state = None
             attns = None
@@ -638,9 +617,7 @@ class NMTModelGCN(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, src, tgt, lengths, adj_arc_in, adj_arc_out,
-        adj_lab_in, adj_lab_out, mask_in, mask_out, mask_loop, mask_sent,
-        morph=None, mask_morph=None, dec_state=None):
+    def forward(self, src, tgt, lengths, adj_arc_in, adj_arc_out, adj_lab_in, adj_lab_out, mask_in, mask_out, mask_loop, mask_sent, morph=None, mask_morph=None, dec_state=None):
         """Forward propagate a `src` and `tgt` pair for training.
         Possible initialized with a beginning decoder state.
 
@@ -662,14 +639,9 @@ class NMTModelGCN(nn.Module):
                  * final decoder state
         """
         tgt = tgt[:-1]
-        enc_final, memory_bank = self.encoder(src, lengths, adj_arc_in,
-            adj_arc_out, adj_lab_in, adj_lab_out, mask_in, mask_out,
-            mask_loop, mask_sent, morph, mask_morph)
-        enc_state = self.decoder.init_decoder_state(src, memory_bank, enc_final
-            )
-        decoder_outputs, dec_state, attns = self.decoder(tgt, memory_bank, 
-            enc_state if dec_state is None else dec_state, memory_lengths=
-            lengths)
+        enc_final, memory_bank = self.encoder(src, lengths, adj_arc_in, adj_arc_out, adj_lab_in, adj_lab_out, mask_in, mask_out, mask_loop, mask_sent, morph, mask_morph)
+        enc_state = self.decoder.init_decoder_state(src, memory_bank, enc_final)
+        decoder_outputs, dec_state, attns = self.decoder(tgt, memory_bank, enc_state if dec_state is None else dec_state, memory_lengths=lengths)
         if self.multigpu:
             dec_state = None
             attns = None
@@ -691,24 +663,20 @@ class AudioEncoder(nn.Module):
 
     """
 
-    def __init__(self, num_layers, bidirectional, rnn_size, dropout,
-        sample_rate, window_size):
+    def __init__(self, num_layers, bidirectional, rnn_size, dropout, sample_rate, window_size):
         super(AudioEncoder, self).__init__()
         self.num_layers = num_layers
         self.num_directions = 2 if bidirectional else 1
         self.hidden_size = rnn_size
-        self.layer1 = nn.Conv2d(1, 32, kernel_size=(41, 11), padding=(0, 10
-            ), stride=(2, 2))
+        self.layer1 = nn.Conv2d(1, 32, kernel_size=(41, 11), padding=(0, 10), stride=(2, 2))
         self.batch_norm1 = nn.BatchNorm2d(32)
-        self.layer2 = nn.Conv2d(32, 32, kernel_size=(21, 11), padding=(0, 0
-            ), stride=(2, 1))
+        self.layer2 = nn.Conv2d(32, 32, kernel_size=(21, 11), padding=(0, 0), stride=(2, 1))
         self.batch_norm2 = nn.BatchNorm2d(32)
         input_size = int(math.floor(sample_rate * window_size / 2) + 1)
         input_size = int(math.floor(input_size - 41) / 2 + 1)
         input_size = int(math.floor(input_size - 21) / 2 + 1)
         input_size *= 32
-        self.rnn = nn.LSTM(input_size, rnn_size, num_layers=num_layers,
-            dropout=dropout, bidirectional=bidirectional)
+        self.rnn = nn.LSTM(input_size, rnn_size, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
 
     def load_pretrained_vectors(self, opt):
         pass
@@ -731,9 +699,7 @@ class GatedConv(nn.Module):
 
     def __init__(self, input_size, width=3, dropout=0.2, nopad=False):
         super(GatedConv, self).__init__()
-        self.conv = WeightNormConv2d(input_size, 2 * input_size,
-            kernel_size=(width, 1), stride=(1, 1), padding=(width // 2 * (1 -
-            nopad), 0))
+        self.conv = WeightNormConv2d(input_size, 2 * input_size, kernel_size=(width, 1), stride=(1, 1), padding=(width // 2 * (1 - nopad), 0))
         init.xavier_uniform(self.conv.weight, gain=(4 * (1 - dropout)) ** 0.5)
         self.dropout = nn.Dropout(dropout)
 
@@ -750,15 +716,13 @@ SCALE_WEIGHT = 0.5 ** 0.5
 
 class StackedCNN(nn.Module):
 
-    def __init__(self, num_layers, input_size, cnn_kernel_width=3, dropout=0.2
-        ):
+    def __init__(self, num_layers, input_size, cnn_kernel_width=3, dropout=0.2):
         super(StackedCNN, self).__init__()
         self.dropout = dropout
         self.num_layers = num_layers
         self.layers = nn.ModuleList()
         for i in range(num_layers):
-            self.layers.append(GatedConv(input_size, cnn_kernel_width, dropout)
-                )
+            self.layers.append(GatedConv(input_size, cnn_kernel_width, dropout))
 
     def forward(self, x, hidden=None):
         for conv in self.layers:
@@ -786,8 +750,7 @@ class CNNDecoderState(DecoderState):
 
     def repeat_beam_size_times(self, beam_size):
         """ Repeat beam_size times along batch dimension. """
-        self.init_src = Variable(self.init_src.data.repeat(1, beam_size, 1),
-            volatile=True)
+        self.init_src = Variable(self.init_src.data.repeat(1, beam_size, 1), volatile=True)
 
 
 def shape_transform(x):
@@ -803,8 +766,7 @@ class CNNDecoder(nn.Module):
     Consists of residual convolutional layers, with ConvMultiStepAttention.
     """
 
-    def __init__(self, num_layers, hidden_size, attn_type, copy_attn,
-        cnn_kernel_width, dropout, embeddings):
+    def __init__(self, num_layers, hidden_size, attn_type, copy_attn, cnn_kernel_width, dropout, embeddings):
         super(CNNDecoder, self).__init__()
         self.decoder_type = 'cnn'
         self.num_layers = num_layers
@@ -816,16 +778,13 @@ class CNNDecoder(nn.Module):
         self.linear = nn.Linear(input_size, self.hidden_size)
         self.conv_layers = nn.ModuleList()
         for i in range(self.num_layers):
-            self.conv_layers.append(GatedConv(self.hidden_size, self.
-                cnn_kernel_width, self.dropout, True))
+            self.conv_layers.append(GatedConv(self.hidden_size, self.cnn_kernel_width, self.dropout, True))
         self.attn_layers = nn.ModuleList()
         for i in range(self.num_layers):
-            self.attn_layers.append(onmt.modules.ConvMultiStepAttention(
-                self.hidden_size))
+            self.attn_layers.append(onmt.modules.ConvMultiStepAttention(self.hidden_size))
         self._copy = False
         if copy_attn:
-            self.copy_attn = onmt.modules.GlobalAttention(hidden_size,
-                attn_type=attn_type)
+            self.copy_attn = onmt.modules.GlobalAttention(hidden_size, attn_type=attn_type)
             self._copy = True
 
     def forward(self, tgt, memory_bank, state, memory_lengths=None):
@@ -846,20 +805,17 @@ class CNNDecoder(nn.Module):
         tgt_emb = emb.transpose(0, 1).contiguous()
         src_memory_bank_t = memory_bank.transpose(0, 1).contiguous()
         src_memory_bank_c = state.init_src.transpose(0, 1).contiguous()
-        emb_reshape = tgt_emb.contiguous().view(tgt_emb.size(0) * tgt_emb.
-            size(1), -1)
+        emb_reshape = tgt_emb.contiguous().view(tgt_emb.size(0) * tgt_emb.size(1), -1)
         linear_out = self.linear(emb_reshape)
         x = linear_out.view(tgt_emb.size(0), tgt_emb.size(1), -1)
         x = shape_transform(x)
-        pad = Variable(torch.zeros(x.size(0), x.size(1), self.
-            cnn_kernel_width - 1, 1))
+        pad = Variable(torch.zeros(x.size(0), x.size(1), self.cnn_kernel_width - 1, 1))
         pad = pad.type_as(x)
         base_target_emb = x
         for conv, attention in zip(self.conv_layers, self.attn_layers):
             new_target_input = torch.cat([pad, x], 2)
             out = conv(new_target_input)
-            c, attn = attention(base_target_emb, out, src_memory_bank_t,
-                src_memory_bank_c)
+            c, attn = attention(base_target_emb, out, src_memory_bank_t, src_memory_bank_c)
             x = (x + (c + out) * SCALE_WEIGHT) * SCALE_WEIGHT
         output = x.squeeze(3).transpose(1, 2)
         outputs = output.transpose(0, 1).contiguous()
@@ -879,8 +835,7 @@ class CNNDecoder(nn.Module):
 
 def seq_linear(linear, x):
     batch, hidden_size, length, _ = x.size()
-    h = linear(torch.transpose(x, 1, 2).contiguous().view(batch * length,
-        hidden_size))
+    h = linear(torch.transpose(x, 1, 2).contiguous().view(batch * length, hidden_size))
     return torch.transpose(h.view(batch, length, hidden_size, 1), 1, 2)
 
 
@@ -902,8 +857,7 @@ class ConvMultiStepAttention(nn.Module):
     def apply_mask(self, mask):
         self.mask = mask
 
-    def forward(self, base_target_emb, input, encoder_out_top,
-        encoder_out_combine):
+    def forward(self, base_target_emb, input, encoder_out_top, encoder_out_combine):
         """
         Args:
             base_target_emb: target emb tensor
@@ -933,10 +887,8 @@ class ConvMultiStepAttention(nn.Module):
         pre_attn = pre_attn.transpose(0, 2)
         attn = F.softmax(pre_attn)
         attn = attn.transpose(0, 2).contiguous()
-        context_output = torch.bmm(attn, torch.transpose(
-            encoder_out_combine, 1, 2))
-        context_output = torch.transpose(torch.unsqueeze(context_output, 3),
-            1, 2)
+        context_output = torch.bmm(attn, torch.transpose(encoder_out_combine, 1, 2))
+        context_output = torch.transpose(torch.unsqueeze(context_output, 3), 1, 2)
         return context_output, attn
 
 
@@ -1022,8 +974,7 @@ class CopyGenerator(nn.Module):
         p_copy = F.sigmoid(self.linear_copy(hidden))
         out_prob = torch.mul(prob, 1 - p_copy.expand_as(prob))
         mul_attn = torch.mul(attn, p_copy.expand_as(attn))
-        copy_prob = torch.bmm(mul_attn.view(-1, batch, slen).transpose(0, 1
-            ), src_map.transpose(0, 1)).transpose(0, 1)
+        copy_prob = torch.bmm(mul_attn.view(-1, batch, slen).transpose(0, 1), src_map.transpose(0, 1)).transpose(0, 1)
         copy_prob = copy_prob.contiguous().view(-1, cvocab)
         return torch.cat([out_prob, copy_prob], 1)
 
@@ -1044,8 +995,7 @@ class PositionalEncoding(nn.Module):
     def __init__(self, dropout, dim, max_len=5000):
         pe = torch.zeros(max_len, dim)
         position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2) * -(math.log(10000.0) /
-            dim))
+        div_term = torch.exp(torch.arange(0, dim, 2) * -(math.log(10000.0) / dim))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(1)
@@ -1104,10 +1054,7 @@ class Embeddings(nn.Module):
         dropout (float): dropout probability.
     """
 
-    def __init__(self, word_vec_size, word_vocab_size, word_padding_idx,
-        position_encoding=False, feat_merge='concat', feat_vec_exponent=0.7,
-        feat_vec_size=-1, feat_padding_idx=[], feat_vocab_sizes=[], dropout
-        =0, sparse=False):
+    def __init__(self, word_vec_size, word_vocab_size, word_padding_idx, position_encoding=False, feat_merge='concat', feat_vec_exponent=0.7, feat_vec_size=-1, feat_padding_idx=[], feat_vocab_sizes=[], dropout=0, sparse=False):
         self.word_padding_idx = word_padding_idx
         vocab_sizes = [word_vocab_size]
         emb_dims = [word_vec_size]
@@ -1117,17 +1064,14 @@ class Embeddings(nn.Module):
         elif feat_vec_size > 0:
             feat_dims = [feat_vec_size] * len(feat_vocab_sizes)
         else:
-            feat_dims = [int(vocab ** feat_vec_exponent) for vocab in
-                feat_vocab_sizes]
+            feat_dims = [int(vocab ** feat_vec_exponent) for vocab in feat_vocab_sizes]
         vocab_sizes.extend(feat_vocab_sizes)
         emb_dims.extend(feat_dims)
         pad_indices.extend(feat_padding_idx)
         emb_params = zip(vocab_sizes, emb_dims, pad_indices)
-        embeddings = [nn.Embedding(vocab, dim, padding_idx=pad, sparse=
-            sparse) for vocab, dim, pad in emb_params]
+        embeddings = [nn.Embedding(vocab, dim, padding_idx=pad, sparse=sparse) for vocab, dim, pad in emb_params]
         emb_luts = Elementwise(feat_merge, embeddings)
-        self.embedding_size = sum(emb_dims
-            ) if feat_merge == 'concat' else word_vec_size
+        self.embedding_size = sum(emb_dims) if feat_merge == 'concat' else word_vec_size
         super(Embeddings, self).__init__()
         self.make_embedding = nn.Sequential()
         self.make_embedding.add_module('emb_luts', emb_luts)
@@ -1189,15 +1133,13 @@ class ContextGate(nn.Module):
     (decoder state), from the source context (attention state) or both.
     """
 
-    def __init__(self, embeddings_size, decoder_size, attention_size,
-        output_size):
+    def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(ContextGate, self).__init__()
         input_size = embeddings_size + decoder_size + attention_size
         self.gate = nn.Linear(input_size, output_size, bias=True)
         self.sig = nn.Sigmoid()
         self.source_proj = nn.Linear(attention_size, output_size)
-        self.target_proj = nn.Linear(embeddings_size + decoder_size,
-            output_size)
+        self.target_proj = nn.Linear(embeddings_size + decoder_size, output_size)
 
     def forward(self, prev_emb, dec_state, attn_state):
         input_tensor = torch.cat((prev_emb, dec_state, attn_state), dim=1)
@@ -1210,11 +1152,9 @@ class ContextGate(nn.Module):
 class SourceContextGate(nn.Module):
     """Apply the context gate only to the source context"""
 
-    def __init__(self, embeddings_size, decoder_size, attention_size,
-        output_size):
+    def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(SourceContextGate, self).__init__()
-        self.context_gate = ContextGate(embeddings_size, decoder_size,
-            attention_size, output_size)
+        self.context_gate = ContextGate(embeddings_size, decoder_size, attention_size, output_size)
         self.tanh = nn.Tanh()
 
     def forward(self, prev_emb, dec_state, attn_state):
@@ -1225,11 +1165,9 @@ class SourceContextGate(nn.Module):
 class TargetContextGate(nn.Module):
     """Apply the context gate only to the target context"""
 
-    def __init__(self, embeddings_size, decoder_size, attention_size,
-        output_size):
+    def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(TargetContextGate, self).__init__()
-        self.context_gate = ContextGate(embeddings_size, decoder_size,
-            attention_size, output_size)
+        self.context_gate = ContextGate(embeddings_size, decoder_size, attention_size, output_size)
         self.tanh = nn.Tanh()
 
     def forward(self, prev_emb, dec_state, attn_state):
@@ -1240,11 +1178,9 @@ class TargetContextGate(nn.Module):
 class BothContextGate(nn.Module):
     """Apply the context gate to both contexts"""
 
-    def __init__(self, embeddings_size, decoder_size, attention_size,
-        output_size):
+    def __init__(self, embeddings_size, decoder_size, attention_size, output_size):
         super(BothContextGate, self).__init__()
-        self.context_gate = ContextGate(embeddings_size, decoder_size,
-            attention_size, output_size)
+        self.context_gate = ContextGate(embeddings_size, decoder_size, attention_size, output_size)
         self.tanh = nn.Tanh()
 
     def forward(self, prev_emb, dec_state, attn_state):
@@ -1258,8 +1194,7 @@ def sequence_mask(lengths, max_len=None):
     """
     batch_size = lengths.numel()
     max_len = max_len or lengths.max()
-    return torch.arange(0, max_len).type_as(lengths).repeat(batch_size, 1).lt(
-        lengths.unsqueeze(1))
+    return torch.arange(0, max_len).type_as(lengths).repeat(batch_size, 1).lt(lengths.unsqueeze(1))
 
 
 class GlobalAttention(nn.Module):
@@ -1321,8 +1256,7 @@ class GlobalAttention(nn.Module):
         super(GlobalAttention, self).__init__()
         self.dim = dim
         self.attn_type = attn_type
-        assert self.attn_type in ['dot', 'general', 'mlp'
-            ], 'Please select a valid attention type.'
+        assert self.attn_type in ['dot', 'general', 'mlp'], 'Please select a valid attention type.'
         if self.attn_type == 'general':
             self.linear_in = nn.Linear(dim, dim, bias=False)
         elif self.attn_type == 'mlp':
@@ -1457,24 +1391,17 @@ class ImageEncoder(nn.Module):
         self.num_layers = num_layers
         self.num_directions = 2 if bidirectional else 1
         self.hidden_size = rnn_size
-        self.layer1 = nn.Conv2d(3, 64, kernel_size=(3, 3), padding=(1, 1),
-            stride=(1, 1))
-        self.layer2 = nn.Conv2d(64, 128, kernel_size=(3, 3), padding=(1, 1),
-            stride=(1, 1))
-        self.layer3 = nn.Conv2d(128, 256, kernel_size=(3, 3), padding=(1, 1
-            ), stride=(1, 1))
-        self.layer4 = nn.Conv2d(256, 256, kernel_size=(3, 3), padding=(1, 1
-            ), stride=(1, 1))
-        self.layer5 = nn.Conv2d(256, 512, kernel_size=(3, 3), padding=(1, 1
-            ), stride=(1, 1))
-        self.layer6 = nn.Conv2d(512, 512, kernel_size=(3, 3), padding=(1, 1
-            ), stride=(1, 1))
+        self.layer1 = nn.Conv2d(3, 64, kernel_size=(3, 3), padding=(1, 1), stride=(1, 1))
+        self.layer2 = nn.Conv2d(64, 128, kernel_size=(3, 3), padding=(1, 1), stride=(1, 1))
+        self.layer3 = nn.Conv2d(128, 256, kernel_size=(3, 3), padding=(1, 1), stride=(1, 1))
+        self.layer4 = nn.Conv2d(256, 256, kernel_size=(3, 3), padding=(1, 1), stride=(1, 1))
+        self.layer5 = nn.Conv2d(256, 512, kernel_size=(3, 3), padding=(1, 1), stride=(1, 1))
+        self.layer6 = nn.Conv2d(512, 512, kernel_size=(3, 3), padding=(1, 1), stride=(1, 1))
         self.batch_norm1 = nn.BatchNorm2d(256)
         self.batch_norm2 = nn.BatchNorm2d(512)
         self.batch_norm3 = nn.BatchNorm2d(512)
         input_size = 512
-        self.rnn = nn.LSTM(input_size, rnn_size, num_layers=num_layers,
-            dropout=dropout, bidirectional=bidirectional)
+        self.rnn = nn.LSTM(input_size, rnn_size, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
         self.pos_lut = nn.Embedding(1000, input_size)
 
     def load_pretrained_vectors(self, opt):
@@ -1496,11 +1423,9 @@ class ImageEncoder(nn.Module):
         all_outputs = []
         for row in range(input.size(2)):
             inp = input[:, :, (row), :].transpose(0, 2).transpose(1, 2)
-            row_vec = torch.Tensor(batch_size).type_as(inp.data).long().fill_(
-                row)
+            row_vec = torch.Tensor(batch_size).type_as(inp.data).long().fill_(row)
             pos_emb = self.pos_lut(Variable(row_vec))
-            with_pos = torch.cat((pos_emb.view(1, pos_emb.size(0), pos_emb.
-                size(1)), inp), 0)
+            with_pos = torch.cat((pos_emb.view(1, pos_emb.size(0), pos_emb.size(1)), inp), 0)
             outputs, hidden_t = self.rnn(with_pos)
             all_outputs.append(outputs)
         out = torch.cat(all_outputs, 0)
@@ -1556,10 +1481,8 @@ class MultiHeadedAttention(nn.Module):
         super(MultiHeadedAttention, self).__init__()
         self.head_count = head_count
         self.linear_keys = nn.Linear(model_dim, head_count * self.dim_per_head)
-        self.linear_values = nn.Linear(model_dim, head_count * self.
-            dim_per_head)
-        self.linear_query = nn.Linear(model_dim, head_count * self.dim_per_head
-            )
+        self.linear_values = nn.Linear(model_dim, head_count * self.dim_per_head)
+        self.linear_query = nn.Linear(model_dim, head_count * self.dim_per_head)
         self.sm = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout)
         self.final_linear = nn.Linear(model_dim, model_dim)
@@ -1604,12 +1527,10 @@ class MultiHeadedAttention(nn.Module):
         query_len = query.size(1)
 
         def shape(x):
-            return x.view(batch_size, -1, head_count, dim_per_head).transpose(
-                1, 2)
+            return x.view(batch_size, -1, head_count, dim_per_head).transpose(1, 2)
 
         def unshape(x):
-            return x.transpose(1, 2).contiguous().view(batch_size, -1, 
-                head_count * dim_per_head)
+            return x.transpose(1, 2).contiguous().view(batch_size, -1, head_count * dim_per_head)
         key_up = shape(self.linear_keys(key))
         value_up = shape(self.linear_values(value))
         query_up = shape(self.linear_query(query))
@@ -1626,8 +1547,7 @@ class MultiHeadedAttention(nn.Module):
         aeq(q_len, q_len_)
         aeq(batch, batch_)
         aeq(d, d_)
-        top_attn = attn.view(batch_size, head_count, query_len, key_len)[:,
-            (0), :, :].contiguous()
+        top_attn = attn.view(batch_size, head_count, query_len, key_len)[:, (0), :, :].contiguous()
         return output, top_attn
 
 
@@ -1650,17 +1570,11 @@ class SRU_Compute(Function):
         thread_per_block = min(512, ncols)
         num_block = (ncols - 1) // thread_per_block + 1
         init_ = x.new(ncols).zero_() if init is None else init
-        size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d *
-            bidir)
+        size = (length, batch, d * bidir) if x.dim() == 3 else (batch, d * bidir)
         c = x.new(*size)
         h = x.new(*size)
         FUNC = SRU_FWD_FUNC if not self.bidirectional else SRU_BiFWD_FUNC
-        FUNC(args=[u.contiguous().data_ptr(), x.contiguous().data_ptr() if 
-            k_ == 3 else 0, bias.data_ptr(), init_.contiguous().data_ptr(),
-            mask_h.data_ptr() if mask_h is not None else 0, length, batch,
-            d, k_, h.data_ptr(), c.data_ptr(), self.activation_type], block
-            =(thread_per_block, 1, 1), grid=(num_block, 1, 1), stream=
-            SRU_STREAM)
+        FUNC(args=[u.contiguous().data_ptr(), x.contiguous().data_ptr() if k_ == 3 else 0, bias.data_ptr(), init_.contiguous().data_ptr(), mask_h.data_ptr() if mask_h is not None else 0, length, batch, d, k_, h.data_ptr(), c.data_ptr(), self.activation_type], block=(thread_per_block, 1, 1), grid=(num_block, 1, 1), stream=SRU_STREAM)
         self.save_for_backward(u, x, bias, init, mask_h)
         self.intermediate = c
         if x.dim() == 2:
@@ -1691,21 +1605,13 @@ class SRU_Compute(Function):
         grad_init = x.new(batch, d * bidir)
         grad_x = x.new(*x.size()) if k_ == 3 else None
         FUNC = SRU_BWD_FUNC if not self.bidirectional else SRU_BiBWD_FUNC
-        FUNC(args=[u.contiguous().data_ptr(), x.contiguous().data_ptr() if 
-            k_ == 3 else 0, bias.data_ptr(), init_.contiguous().data_ptr(),
-            mask_h.data_ptr() if mask_h is not None else 0, c.data_ptr(),
-            grad_h.contiguous().data_ptr(), grad_last.contiguous().data_ptr
-            (), length, batch, d, k_, grad_u.data_ptr(), grad_x.data_ptr() if
-            k_ == 3 else 0, grad_bias.data_ptr(), grad_init.data_ptr(),
-            self.activation_type], block=(thread_per_block, 1, 1), grid=(
-            num_block, 1, 1), stream=SRU_STREAM)
+        FUNC(args=[u.contiguous().data_ptr(), x.contiguous().data_ptr() if k_ == 3 else 0, bias.data_ptr(), init_.contiguous().data_ptr(), mask_h.data_ptr() if mask_h is not None else 0, c.data_ptr(), grad_h.contiguous().data_ptr(), grad_last.contiguous().data_ptr(), length, batch, d, k_, grad_u.data_ptr(), grad_x.data_ptr() if k_ == 3 else 0, grad_bias.data_ptr(), grad_init.data_ptr(), self.activation_type], block=(thread_per_block, 1, 1), grid=(num_block, 1, 1), stream=SRU_STREAM)
         return grad_u, grad_x, grad_bias.sum(1).view(-1), grad_init, None
 
 
 class SRUCell(nn.Module):
 
-    def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0, bidirectional
-        =False, use_tanh=1, use_relu=0):
+    def __init__(self, n_in, n_out, dropout=0, rnn_dropout=0, bidirectional=False, use_tanh=1, use_relu=0):
         super(SRUCell, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
@@ -1716,10 +1622,8 @@ class SRUCell(nn.Module):
         out_size = n_out * 2 if bidirectional else n_out
         k = 4 if n_in != out_size else 3
         self.size_per_dir = n_out * k
-        self.weight = nn.Parameter(torch.Tensor(n_in, self.size_per_dir * 2 if
-            bidirectional else self.size_per_dir))
-        self.bias = nn.Parameter(torch.Tensor(n_out * 4 if bidirectional else
-            n_out * 2))
+        self.weight = nn.Parameter(torch.Tensor(n_in, self.size_per_dir * 2 if bidirectional else self.size_per_dir))
+        self.bias = nn.Parameter(torch.Tensor(n_out * 4 if bidirectional else n_out * 2))
         self.init_weight()
 
     def init_weight(self):
@@ -1739,8 +1643,7 @@ class SRUCell(nn.Module):
         n_in, n_out = self.n_in, self.n_out
         batch = input.size(-2)
         if c0 is None:
-            c0 = Variable(input.data.new(batch, n_out if not self.
-                bidirectional else n_out * 2).zero_())
+            c0 = Variable(input.data.new(batch, n_out if not self.bidirectional else n_out * 2).zero_())
         if self.training and self.rnn_dropout > 0:
             mask = self.get_dropout_mask_((batch, n_in), self.rnn_dropout)
             x = input * mask.expand_as(input)
@@ -1750,13 +1653,10 @@ class SRUCell(nn.Module):
         u = x_2d.mm(self.weight)
         if self.training and self.dropout > 0:
             bidir = 2 if self.bidirectional else 1
-            mask_h = self.get_dropout_mask_((batch, n_out * bidir), self.
-                dropout)
-            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional
-                )(u, input, self.bias, c0, mask_h)
+            mask_h = self.get_dropout_mask_((batch, n_out * bidir), self.dropout)
+            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional)(u, input, self.bias, c0, mask_h)
         else:
-            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional
-                )(u, input, self.bias, c0)
+            h, c = SRU_Compute(self.activation_type, n_out, self.bidirectional)(u, input, self.bias, c0)
         return h, c
 
     def get_dropout_mask_(self, size, p):
@@ -1779,9 +1679,7 @@ def check_sru_requirement(abort=False):
     except subprocess.CalledProcessError:
         if not abort:
             return False
-        raise AssertionError(
-            "Using SRU requires 'cupy' and 'pynvrtc' python packages installed."
-            )
+        raise AssertionError("Using SRU requires 'cupy' and 'pynvrtc' python packages installed.")
     if torch.cuda.is_available() is False:
         if not abort:
             return False
@@ -1791,9 +1689,7 @@ def check_sru_requirement(abort=False):
     if re.match(pattern, ld_path) is None:
         if not abort:
             return False
-        raise AssertionError(
-            'Using SRU requires setting cuda lib path, e.g. export LD_LIBRARY_PATH=/usr/local/cuda/lib64.'
-            )
+        raise AssertionError('Using SRU requires setting cuda lib path, e.g. export LD_LIBRARY_PATH=/usr/local/cuda/lib64.')
     return True
 
 
@@ -1819,8 +1715,7 @@ class SRU(nn.Module):
 
     """
 
-    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0,
-        rnn_dropout=0, bidirectional=False, use_tanh=1, use_relu=0):
+    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0, bidirectional=False, use_tanh=1, use_relu=0):
         check_sru_requirement(abort=True)
         super(SRU, self).__init__()
         self.n_in = input_size
@@ -1832,10 +1727,7 @@ class SRU(nn.Module):
         self.bidirectional = bidirectional
         self.out_size = hidden_size * 2 if bidirectional else hidden_size
         for i in range(num_layers):
-            sru_cell = SRUCell(n_in=self.n_in if i == 0 else self.out_size,
-                n_out=self.n_out, dropout=dropout if i + 1 != num_layers else
-                0, rnn_dropout=rnn_dropout, bidirectional=bidirectional,
-                use_tanh=use_tanh, use_relu=use_relu)
+            sru_cell = SRUCell(n_in=self.n_in if i == 0 else self.out_size, n_out=self.n_out, dropout=dropout if i + 1 != num_layers else 0, rnn_dropout=rnn_dropout, bidirectional=bidirectional, use_tanh=use_tanh, use_relu=use_relu)
             self.rnn_lst.append(sru_cell)
 
     def set_bias(self, bias_val=0):
@@ -1846,8 +1738,7 @@ class SRU(nn.Module):
         assert input.dim() == 3
         dir_ = 2 if self.bidirectional else 1
         if c0 is None:
-            zeros = Variable(input.data.new(input.size(1), self.n_out *
-                dir_).zero_())
+            zeros = Variable(input.data.new(input.size(1), self.n_out * dir_).zero_())
             c0 = [zeros for i in range(self.depth)]
         else:
             if isinstance(c0, tuple):
@@ -1940,20 +1831,17 @@ class MatrixTree(nn.Module):
         laplacian = input.exp() + self.eps
         output = input.clone()
         for b in range(input.size(0)):
-            lap = laplacian[b].masked_fill(Variable(torch.eye(input.size(1)
-                ).ne(0)), 0)
+            lap = laplacian[b].masked_fill(Variable(torch.eye(input.size(1)).ne(0)), 0)
             lap = -lap + torch.diag(lap.sum(0))
             lap[0] = input[b].diag().exp()
             inv_laplacian = lap.inverse()
-            factor = inv_laplacian.diag().unsqueeze(1).expand_as(input[b]
-                ).transpose(0, 1)
+            factor = inv_laplacian.diag().unsqueeze(1).expand_as(input[b]).transpose(0, 1)
             term1 = input[b].exp().mul(factor).clone()
             term2 = input[b].exp().mul(inv_laplacian.transpose(0, 1)).clone()
             term1[:, (0)] = 0
             term2[0] = 0
             output[b] = term1 - term2
-            roots_output = input[b].diag().exp().mul(inv_laplacian.
-                transpose(0, 1)[0])
+            roots_output = input[b].diag().exp().mul(inv_laplacian.transpose(0, 1)[0])
             output[b] = output[b] + torch.diag(roots_output)
         return output
 
@@ -1998,16 +1886,14 @@ class TransformerEncoderLayer(nn.Module):
 
     def __init__(self, size, dropout, head_count=8, hidden_size=2048):
         super(TransformerEncoderLayer, self).__init__()
-        self.self_attn = onmt.modules.MultiHeadedAttention(head_count, size,
-            dropout=dropout)
+        self.self_attn = onmt.modules.MultiHeadedAttention(head_count, size, dropout=dropout)
         self.feed_forward = PositionwiseFeedForward(size, hidden_size, dropout)
         self.layer_norm = onmt.modules.LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, inputs, mask):
         input_norm = self.layer_norm(inputs)
-        context, _ = self.self_attn(input_norm, input_norm, input_norm,
-            mask=mask)
+        context, _ = self.self_attn(input_norm, input_norm, input_norm, mask=mask)
         out = self.dropout(context) + inputs
         return self.feed_forward(out)
 
@@ -2028,10 +1914,8 @@ class TransformerDecoderLayer(nn.Module):
 
     def __init__(self, size, dropout, head_count=8, hidden_size=2048):
         super(TransformerDecoderLayer, self).__init__()
-        self.self_attn = onmt.modules.MultiHeadedAttention(head_count, size,
-            dropout=dropout)
-        self.context_attn = onmt.modules.MultiHeadedAttention(head_count,
-            size, dropout=dropout)
+        self.self_attn = onmt.modules.MultiHeadedAttention(head_count, size, dropout=dropout)
+        self.context_attn = onmt.modules.MultiHeadedAttention(head_count, size, dropout=dropout)
         self.feed_forward = PositionwiseFeedForward(size, hidden_size, dropout)
         self.layer_norm_1 = onmt.modules.LayerNorm(size)
         self.layer_norm_2 = onmt.modules.LayerNorm(size)
@@ -2040,8 +1924,7 @@ class TransformerDecoderLayer(nn.Module):
         mask = self._get_attn_subsequent_mask(MAX_SIZE)
         self.register_buffer('mask', mask)
 
-    def forward(self, inputs, memory_bank, src_pad_mask, tgt_pad_mask,
-        previous_input=None):
+    def forward(self, inputs, memory_bank, src_pad_mask, tgt_pad_mask, previous_input=None):
         input_batch, input_len, _ = inputs.size()
         if previous_input is not None:
             pi_batch, _, _ = previous_input.size()
@@ -2052,19 +1935,16 @@ class TransformerDecoderLayer(nn.Module):
         tgt_batch, t_len_, t_len__ = tgt_pad_mask.size()
         aeq(input_batch, contxt_batch, src_batch, tgt_batch)
         aeq(s_len, contxt_len)
-        dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(
-            1), :tgt_pad_mask.size(1)], 0)
+        dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(1), :tgt_pad_mask.size(1)], 0)
         input_norm = self.layer_norm_1(inputs)
         all_input = input_norm
         if previous_input is not None:
             all_input = torch.cat((previous_input, input_norm), dim=1)
             dec_mask = None
-        query, attn = self.self_attn(all_input, all_input, input_norm, mask
-            =dec_mask)
+        query, attn = self.self_attn(all_input, all_input, input_norm, mask=dec_mask)
         query = self.drop(query) + inputs
         query_norm = self.layer_norm_2(query)
-        mid, attn = self.context_attn(memory_bank, memory_bank, query_norm,
-            mask=src_pad_mask)
+        mid, attn = self.context_attn(memory_bank, memory_bank, query_norm, mask=src_pad_mask)
         output = self.feed_forward(self.drop(mid) + query)
         output_batch, output_len, _ = output.size()
         aeq(input_len, output_len)
@@ -2111,8 +1991,7 @@ class TransformerDecoderState(DecoderState):
 
     def repeat_beam_size_times(self, beam_size):
         """ Repeat beam_size times along batch dimension. """
-        self.src = Variable(self.src.data.repeat(1, beam_size, 1), volatile
-            =True)
+        self.src = Variable(self.src.data.repeat(1, beam_size, 1), volatile=True)
 
 
 class TransformerDecoder(nn.Module):
@@ -2144,18 +2023,15 @@ class TransformerDecoder(nn.Module):
        attn_type (str): if using a seperate copy attention
     """
 
-    def __init__(self, num_layers, hidden_size, attn_type, copy_attn,
-        dropout, embeddings):
+    def __init__(self, num_layers, hidden_size, attn_type, copy_attn, dropout, embeddings):
         super(TransformerDecoder, self).__init__()
         self.decoder_type = 'transformer'
         self.num_layers = num_layers
         self.embeddings = embeddings
-        self.transformer_layers = nn.ModuleList([TransformerDecoderLayer(
-            hidden_size, dropout) for _ in range(num_layers)])
+        self.transformer_layers = nn.ModuleList([TransformerDecoderLayer(hidden_size, dropout) for _ in range(num_layers)])
         self._copy = False
         if copy_attn:
-            self.copy_attn = onmt.modules.GlobalAttention(hidden_size,
-                attn_type=attn_type)
+            self.copy_attn = onmt.modules.GlobalAttention(hidden_size, attn_type=attn_type)
             self._copy = True
         self.layer_norm = onmt.modules.LayerNorm(hidden_size)
 
@@ -2187,18 +2063,14 @@ class TransformerDecoder(nn.Module):
         output = emb.transpose(0, 1).contiguous()
         src_memory_bank = memory_bank.transpose(0, 1).contiguous()
         padding_idx = self.embeddings.word_padding_idx
-        src_pad_mask = src_words.data.eq(padding_idx).unsqueeze(1).expand(
-            src_batch, tgt_len, src_len)
-        tgt_pad_mask = tgt_words.data.eq(padding_idx).unsqueeze(1).expand(
-            tgt_batch, tgt_len, tgt_len)
+        src_pad_mask = src_words.data.eq(padding_idx).unsqueeze(1).expand(src_batch, tgt_len, src_len)
+        tgt_pad_mask = tgt_words.data.eq(padding_idx).unsqueeze(1).expand(tgt_batch, tgt_len, tgt_len)
         saved_inputs = []
         for i in range(self.num_layers):
             prev_layer_input = None
             if state.previous_input is not None:
                 prev_layer_input = state.previous_layer_inputs[i]
-            output, attn, all_input = self.transformer_layers[i](output,
-                src_memory_bank, src_pad_mask, tgt_pad_mask, previous_input
-                =prev_layer_input)
+            output, attn, all_input = self.transformer_layers[i](output, src_memory_bank, src_pad_mask, tgt_pad_mask, previous_input=prev_layer_input)
             saved_inputs.append(all_input)
         saved_inputs = torch.stack(saved_inputs)
         output = self.layer_norm(output)
@@ -2285,10 +2157,8 @@ class WeightNormLinear(nn.Linear):
     as BatchNormalization, but it doesn't depend on minibatch.
     """
 
-    def __init__(self, in_features, out_features, init_scale=1.0,
-        polyak_decay=0.9995):
-        super(WeightNormLinear, self).__init__(in_features, out_features,
-            bias=True)
+    def __init__(self, in_features, out_features, init_scale=1.0, polyak_decay=0.9995):
+        super(WeightNormLinear, self).__init__(in_features, out_features, bias=True)
         self.V = self.weight
         self.g = Parameter(torch.Tensor(out_features))
         self.b = self.bias
@@ -2304,38 +2174,30 @@ class WeightNormLinear(nn.Linear):
 
     def forward(self, x, init=False):
         if init is True:
-            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.
-                V.data) * 0.05)
-            v_norm = self.V.data / self.V.data.norm(2, 1).expand_as(self.V.data
-                )
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
+            v_norm = self.V.data / self.V.data.norm(2, 1).expand_as(self.V.data)
             x_init = F.linear(x, Variable(v_norm)).data
-            m_init, v_init = x_init.mean(0).squeeze(0), x_init.var(0).squeeze(0
-                )
+            m_init, v_init = x_init.mean(0).squeeze(0), x_init.var(0).squeeze(0)
             scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
             self.g.data.copy_(scale_init)
             self.b.data.copy_(-m_init * scale_init)
-            x_init = scale_init.view(1, -1).expand_as(x_init) * (x_init -
-                m_init.view(1, -1).expand_as(x_init))
+            x_init = scale_init.view(1, -1).expand_as(x_init) * (x_init - m_init.view(1, -1).expand_as(x_init))
             self.V_avg.copy_(self.V.data)
             self.g_avg.copy_(self.g.data)
             self.b_avg.copy_(self.b.data)
             return Variable(x_init)
         else:
-            V, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.
-                training, polyak_decay=self.polyak_decay)
+            V, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.training, polyak_decay=self.polyak_decay)
             x = F.linear(x, V)
             scalar = g / torch.norm(V, 2, 1).squeeze(1)
-            x = scalar.view(1, -1).expand_as(x) * x + b.view(1, -1).expand_as(x
-                )
+            x = scalar.view(1, -1).expand_as(x) * x + b.view(1, -1).expand_as(x)
             return x
 
 
 class WeightNormConv2d(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, init_scale=1.0, polyak_decay=0.9995):
-        super(WeightNormConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, init_scale=1.0, polyak_decay=0.9995):
+        super(WeightNormConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups)
         self.V = self.weight
         self.g = Parameter(torch.Tensor(out_channels))
         self.b = self.bias
@@ -2351,52 +2213,37 @@ class WeightNormConv2d(nn.Conv2d):
 
     def forward(self, x, init=False):
         if init is True:
-            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.
-                V.data) * 0.05)
-            v_norm = self.V.data / self.V.data.view(self.out_channels, -1
-                ).norm(2, 1).view(self.out_channels, *([1] * (len(self.
-                kernel_size) + 1))).expand_as(self.V.data)
-            x_init = F.conv2d(x, Variable(v_norm), None, self.stride, self.
-                padding, self.dilation, self.groups).data
-            t_x_init = x_init.transpose(0, 1).contiguous().view(self.
-                out_channels, -1)
-            m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1
-                ).squeeze(1)
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
+            v_norm = self.V.data / self.V.data.view(self.out_channels, -1).norm(2, 1).view(self.out_channels, *([1] * (len(self.kernel_size) + 1))).expand_as(self.V.data)
+            x_init = F.conv2d(x, Variable(v_norm), None, self.stride, self.padding, self.dilation, self.groups).data
+            t_x_init = x_init.transpose(0, 1).contiguous().view(self.out_channels, -1)
+            m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1).squeeze(1)
             scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
             self.g.data.copy_(scale_init)
             self.b.data.copy_(-m_init * scale_init)
-            scale_init_shape = scale_init.view(1, self.out_channels, *([1] *
-                (len(x_init.size()) - 2)))
-            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(
-                x_init.size()) - 2)))
-            x_init = scale_init_shape.expand_as(x_init) * (x_init -
-                m_init_shape.expand_as(x_init))
+            scale_init_shape = scale_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            x_init = scale_init_shape.expand_as(x_init) * (x_init - m_init_shape.expand_as(x_init))
             self.V_avg.copy_(self.V.data)
             self.g_avg.copy_(self.g.data)
             self.b_avg.copy_(self.b.data)
             return Variable(x_init)
         else:
-            v, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.
-                training, polyak_decay=self.polyak_decay)
+            v, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.training, polyak_decay=self.polyak_decay)
             scalar = torch.norm(v.view(self.out_channels, -1), 2, 1)
             if len(scalar.size()) == 2:
                 scalar = g / scalar.squeeze(1)
             else:
                 scalar = g / scalar
-            w = scalar.view(self.out_channels, *([1] * (len(v.size()) - 1))
-                ).expand_as(v) * v
-            x = F.conv2d(x, w, b, self.stride, self.padding, self.dilation,
-                self.groups)
+            w = scalar.view(self.out_channels, *([1] * (len(v.size()) - 1))).expand_as(v) * v
+            x = F.conv2d(x, w, b, self.stride, self.padding, self.dilation, self.groups)
             return x
 
 
 class WeightNormConvTranspose2d(nn.ConvTranspose2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, groups=1, init_scale=1.0, polyak_decay
-        =0.9995):
-        super(WeightNormConvTranspose2d, self).__init__(in_channels,
-            out_channels, kernel_size, stride, padding, output_padding, groups)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, init_scale=1.0, polyak_decay=0.9995):
+        super(WeightNormConvTranspose2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, output_padding, groups)
         self.V = self.weight
         self.g = Parameter(torch.Tensor(out_channels))
         self.b = self.bias
@@ -2412,40 +2259,26 @@ class WeightNormConvTranspose2d(nn.ConvTranspose2d):
 
     def forward(self, x, init=False):
         if init is True:
-            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.
-                V.data) * 0.05)
-            v_norm = self.V.data / self.V.data.transpose(0, 1).contiguous(
-                ).view(self.out_channels, -1).norm(2, 1).view(self.
-                in_channels, self.out_channels, *([1] * len(self.kernel_size))
-                ).expand_as(self.V.data)
-            x_init = F.conv_transpose2d(x, Variable(v_norm), None, self.
-                stride, self.padding, self.output_padding, self.groups).data
-            t_x_init = x_init.tranpose(0, 1).contiguous().view(self.
-                out_channels, -1)
-            m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1
-                ).squeeze(1)
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
+            v_norm = self.V.data / self.V.data.transpose(0, 1).contiguous().view(self.out_channels, -1).norm(2, 1).view(self.in_channels, self.out_channels, *([1] * len(self.kernel_size))).expand_as(self.V.data)
+            x_init = F.conv_transpose2d(x, Variable(v_norm), None, self.stride, self.padding, self.output_padding, self.groups).data
+            t_x_init = x_init.tranpose(0, 1).contiguous().view(self.out_channels, -1)
+            m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1).squeeze(1)
             scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
             self.g.data.copy_(scale_init)
             self.b.data.copy_(-m_init * scale_init)
-            scale_init_shape = scale_init.view(1, self.out_channels, *([1] *
-                (len(x_init.size()) - 2)))
-            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(
-                x_init.size()) - 2)))
-            x_init = scale_init_shape.expand_as(x_init) * (x_init -
-                m_init_shape.expand_as(x_init))
+            scale_init_shape = scale_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            x_init = scale_init_shape.expand_as(x_init) * (x_init - m_init_shape.expand_as(x_init))
             self.V_avg.copy_(self.V.data)
             self.g_avg.copy_(self.g.data)
             self.b_avg.copy_(self.b.data)
             return Variable(x_init)
         else:
-            V, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.
-                training, polyak_decay=self.polyak_decay)
-            scalar = g / torch.norm(V.transpose(0, 1).contiguous().view(
-                self.out_channels, -1), 2, 1).squeeze(1)
-            w = scalar.view(self.in_channels, self.out_channels, *([1] * (
-                len(V.size()) - 2))).expand_as(V) * V
-            x = F.conv_transpose2d(x, w, b, self.stride, self.padding, self
-                .output_padding, self.groups)
+            V, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.training, polyak_decay=self.polyak_decay)
+            scalar = g / torch.norm(V.transpose(0, 1).contiguous().view(self.out_channels, -1), 2, 1).squeeze(1)
+            w = scalar.view(self.in_channels, self.out_channels, *([1] * (len(V.size()) - 2))).expand_as(V) * V
+            x = F.conv_transpose2d(x, w, b, self.stride, self.padding, self.output_padding, self.groups)
             return x
 
 
@@ -2454,8 +2287,7 @@ class GCNLayer(nn.Module):
 
     """
 
-    def __init__(self, num_inputs, num_units, num_labels, in_arcs=True,
-        out_arcs=True, batch_first=False, use_gates=True, use_glus=False):
+    def __init__(self, num_inputs, num_units, num_labels, in_arcs=True, out_arcs=True, batch_first=False, use_gates=True, use_glus=False):
         super(GCNLayer, self).__init__()
         self.in_arcs = in_arcs
         self.out_arcs = out_arcs
@@ -2469,8 +2301,7 @@ class GCNLayer(nn.Module):
         self.use_gates = use_gates
         self.use_glus = use_glus
         if in_arcs:
-            self.V_in = Parameter(torch.Tensor(self.num_inputs, self.num_units)
-                )
+            self.V_in = Parameter(torch.Tensor(self.num_inputs, self.num_units))
             nn.init.xavier_normal(self.V_in)
             self.b_in = Parameter(torch.Tensor(num_labels, self.num_units))
             nn.init.constant(self.b_in, 0)
@@ -2480,8 +2311,7 @@ class GCNLayer(nn.Module):
                 self.b_in_gate = Parameter(torch.Tensor(num_labels, 1))
                 nn.init.constant(self.b_in_gate, 1)
         if out_arcs:
-            self.V_out = Parameter(torch.Tensor(self.num_inputs, self.
-                num_units))
+            self.V_out = Parameter(torch.Tensor(self.num_inputs, self.num_units))
             nn.init.xavier_normal(self.V_out)
             self.b_out = Parameter(torch.Tensor(num_labels, self.num_units))
             nn.init.constant(self.b_out, 0)
@@ -2490,16 +2320,13 @@ class GCNLayer(nn.Module):
                 nn.init.xavier_normal(self.V_out_gate)
                 self.b_out_gate = Parameter(torch.Tensor(num_labels, 1))
                 nn.init.constant(self.b_out_gate, 1)
-        self.W_self_loop = Parameter(torch.Tensor(self.num_inputs, self.
-            num_units))
+        self.W_self_loop = Parameter(torch.Tensor(self.num_inputs, self.num_units))
         nn.init.xavier_normal(self.W_self_loop)
         if self.use_gates:
             self.W_self_loop_gate = Parameter(torch.Tensor(self.num_inputs, 1))
             nn.init.xavier_normal(self.W_self_loop_gate)
 
-    def forward(self, src, lengths=None, arc_tensor_in=None, arc_tensor_out
-        =None, label_tensor_in=None, label_tensor_out=None, mask_in=None,
-        mask_out=None, mask_loop=None, sent_mask=None):
+    def forward(self, src, lengths=None, arc_tensor_in=None, arc_tensor_out=None, label_tensor_in=None, label_tensor_out=None, mask_in=None, mask_out=None, mask_loop=None, sent_mask=None):
         if not self.batch_first:
             encoder_outputs = src.permute(1, 0, 2).contiguous()
         else:
@@ -2510,8 +2337,7 @@ class GCNLayer(nn.Module):
         input_ = encoder_outputs.view((batch_size * seq_len, self.num_inputs))
         if self.in_arcs:
             input_in = torch.mm(input_, self.V_in)
-            first_in = input_in.index_select(0, arc_tensor_in[0] * seq_len +
-                arc_tensor_in[1])
+            first_in = input_in.index_select(0, arc_tensor_in[0] * seq_len + arc_tensor_in[1])
             second_in = self.b_in.index_select(0, label_tensor_in[0])
             in_ = first_in + second_in
             degr = int(first_in.size()[0] / batch_size / seq_len)
@@ -2521,47 +2347,33 @@ class GCNLayer(nn.Module):
                 in_ = self.glu(in_)
             if self.use_gates:
                 input_in_gate = torch.mm(input_, self.V_in_gate)
-                first_in_gate = input_in_gate.index_select(0, arc_tensor_in
-                    [0] * seq_len + arc_tensor_in[1])
-                second_in_gate = self.b_in_gate.index_select(0,
-                    label_tensor_in[0])
-                in_gate = (first_in_gate + second_in_gate).view((batch_size,
-                    seq_len, degr))
+                first_in_gate = input_in_gate.index_select(0, arc_tensor_in[0] * seq_len + arc_tensor_in[1])
+                second_in_gate = self.b_in_gate.index_select(0, label_tensor_in[0])
+                in_gate = (first_in_gate + second_in_gate).view((batch_size, seq_len, degr))
             max_degree += degr
         if self.out_arcs:
             input_out = torch.mm(input_, self.V_out)
-            first_out = input_out.index_select(0, arc_tensor_out[0] *
-                seq_len + arc_tensor_out[1])
+            first_out = input_out.index_select(0, arc_tensor_out[0] * seq_len + arc_tensor_out[1])
             second_out = self.b_out.index_select(0, label_tensor_out[0])
             degr = int(first_out.size()[0] / batch_size / seq_len)
             max_degree += degr
-            out_ = (first_out + second_out).view((batch_size, seq_len, degr,
-                self.num_units))
+            out_ = (first_out + second_out).view((batch_size, seq_len, degr, self.num_units))
             if self.use_glus:
                 out_ = torch.cat((out_, out_), 3)
                 out_ = self.glu(out_)
             if self.use_gates:
                 input_out_gate = torch.mm(input_, self.V_out_gate)
-                first_out_gate = input_out_gate.index_select(0, 
-                    arc_tensor_out[0] * seq_len + arc_tensor_out[1])
-                second_out_gate = self.b_out_gate.index_select(0,
-                    label_tensor_out[0])
-                out_gate = (first_out_gate + second_out_gate).view((
-                    batch_size, seq_len, degr))
-        same_input = torch.mm(encoder_outputs.view(-1, encoder_outputs.size
-            (2)), self.W_self_loop).view(encoder_outputs.size(0),
-            encoder_outputs.size(1), -1)
-        same_input = same_input.view(encoder_outputs.size(0),
-            encoder_outputs.size(1), 1, self.W_self_loop.size(1))
+                first_out_gate = input_out_gate.index_select(0, arc_tensor_out[0] * seq_len + arc_tensor_out[1])
+                second_out_gate = self.b_out_gate.index_select(0, label_tensor_out[0])
+                out_gate = (first_out_gate + second_out_gate).view((batch_size, seq_len, degr))
+        same_input = torch.mm(encoder_outputs.view(-1, encoder_outputs.size(2)), self.W_self_loop).view(encoder_outputs.size(0), encoder_outputs.size(1), -1)
+        same_input = same_input.view(encoder_outputs.size(0), encoder_outputs.size(1), 1, self.W_self_loop.size(1))
         if self.use_gates:
-            same_input_gate = torch.mm(encoder_outputs.view(-1,
-                encoder_outputs.size(2)), self.W_self_loop_gate).view(
-                encoder_outputs.size(0), encoder_outputs.size(1), -1)
+            same_input_gate = torch.mm(encoder_outputs.view(-1, encoder_outputs.size(2)), self.W_self_loop_gate).view(encoder_outputs.size(0), encoder_outputs.size(1), -1)
         if self.in_arcs and self.out_arcs:
             potentials = torch.cat((in_, out_, same_input), dim=2)
             if self.use_gates:
-                potentials_gate = torch.cat((in_gate, out_gate,
-                    same_input_gate), dim=2)
+                potentials_gate = torch.cat((in_gate, out_gate, same_input_gate), dim=2)
             mask_soft = torch.cat((mask_in, mask_out, mask_loop), dim=1)
         elif self.out_arcs:
             potentials = torch.cat((out_, same_input), dim=2)
@@ -2578,19 +2390,16 @@ class GCNLayer(nn.Module):
             if self.use_gates:
                 potentials_gate = same_input_gate
             mask_soft = mask_loop
-        potentials_resh = potentials.view((batch_size * seq_len, max_degree,
-            self.num_units))
+        potentials_resh = potentials.view((batch_size * seq_len, max_degree, self.num_units))
         if self.use_gates:
-            potentials_r = potentials_gate.view((batch_size * seq_len,
-                max_degree))
+            potentials_r = potentials_gate.view((batch_size * seq_len, max_degree))
             probs_det_ = (self.sigmoid(potentials_r) * mask_soft).unsqueeze(2)
             potentials_masked = potentials_resh * probs_det_
         else:
             potentials_masked = potentials_resh * mask_soft.unsqueeze(2)
         potentials_masked_ = potentials_masked.sum(dim=1)
         potentials_masked_ = self.relu(potentials_masked_)
-        result_ = potentials_masked_.view((batch_size, seq_len, self.num_units)
-            )
+        result_ = potentials_masked_.view((batch_size, seq_len, self.num_units))
         result_ = result_ * sent_mask.permute(1, 0).contiguous().unsqueeze(2)
         memory_bank = result_.permute(1, 0, 2).contiguous()
         return memory_bank
@@ -2600,50 +2409,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BothContextGate,
+     lambda: ([], {'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (ContextGate,
+     lambda: ([], {'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (GatedConv,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalAttention,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MatrixTree,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'dropout': 0.5, 'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionwiseFeedForward,
+     lambda: ([], {'size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SourceContextGate,
+     lambda: ([], {'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (StackedCNN,
+     lambda: ([], {'num_layers': 1, 'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (StackedGRU,
+     lambda: ([], {'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TargetContextGate,
+     lambda: ([], {'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (WeightNormConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_diegma_graph_2_text(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BothContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GatedConv(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GlobalAttention(*[], **{'dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MatrixTree(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(PositionalEncoding(*[], **{'dropout': 0.5, 'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(PositionwiseFeedForward(*[], **{'size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(SourceContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(StackedCNN(*[], **{'num_layers': 1, 'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(StackedGRU(*[], **{'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(TargetContextGate(*[], **{'embeddings_size': 4, 'decoder_size': 4, 'attention_size': 4, 'output_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(WeightNormConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 

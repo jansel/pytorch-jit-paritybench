@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,33 +65,27 @@ import logging
 
 class BatchGAT(nn.Module):
 
-    def __init__(self, pretrained_emb, vertex_feature, use_vertex_feature,
-        n_units=[1433, 8, 7], n_heads=[8, 1], dropout=0.1, attn_dropout=0.0,
-        fine_tune=False, instance_normalization=False):
+    def __init__(self, pretrained_emb, vertex_feature, use_vertex_feature, n_units=[1433, 8, 7], n_heads=[8, 1], dropout=0.1, attn_dropout=0.0, fine_tune=False, instance_normalization=False):
         super(BatchGAT, self).__init__()
         self.n_layer = len(n_units) - 1
         self.dropout = dropout
         self.inst_norm = instance_normalization
         if self.inst_norm:
-            self.norm = nn.InstanceNorm1d(pretrained_emb.size(1), momentum=
-                0.0, affine=True)
-        self.embedding = nn.Embedding(pretrained_emb.size(0),
-            pretrained_emb.size(1))
+            self.norm = nn.InstanceNorm1d(pretrained_emb.size(1), momentum=0.0, affine=True)
+        self.embedding = nn.Embedding(pretrained_emb.size(0), pretrained_emb.size(1))
         self.embedding.weight = nn.Parameter(pretrained_emb)
         self.embedding.weight.requires_grad = fine_tune
         n_units[0] += pretrained_emb.size(1)
         self.use_vertex_feature = use_vertex_feature
         if self.use_vertex_feature:
-            self.vertex_feature = nn.Embedding(vertex_feature.size(0),
-                vertex_feature.size(1))
+            self.vertex_feature = nn.Embedding(vertex_feature.size(0), vertex_feature.size(1))
             self.vertex_feature.weight = nn.Parameter(vertex_feature)
             self.vertex_feature.weight.requires_grad = False
             n_units[0] += vertex_feature.size(1)
         self.layer_stack = nn.ModuleList()
         for i in range(self.n_layer):
             f_in = n_units[i] * n_heads[i - 1] if i else n_units[i]
-            self.layer_stack.append(BatchMultiHeadGraphAttention(n_heads[i],
-                f_in=f_in, f_out=n_units[i + 1], attn_dropout=attn_dropout))
+            self.layer_stack.append(BatchMultiHeadGraphAttention(n_heads[i], f_in=f_in, f_out=n_units[i + 1], attn_dropout=attn_dropout))
 
     def forward(self, x, vertices, adj):
         emb = self.embedding(vertices)
@@ -136,8 +131,7 @@ class MultiHeadGraphAttention(nn.Module):
         h_prime = torch.matmul(h.unsqueeze(0), self.w)
         attn_src = torch.bmm(h_prime, self.a_src)
         attn_dst = torch.bmm(h_prime, self.a_dst)
-        attn = attn_src.expand(-1, -1, n) + attn_dst.expand(-1, -1, n).permute(
-            0, 2, 1)
+        attn = attn_src.expand(-1, -1, n) + attn_dst.expand(-1, -1, n).permute(0, 2, 1)
         attn = self.leaky_relu(attn)
         attn.data.masked_fill_(1 - adj, float('-inf'))
         attn = self.softmax(attn)
@@ -174,8 +168,7 @@ class BatchMultiHeadGraphAttention(nn.Module):
         h_prime = torch.matmul(h.unsqueeze(1), self.w)
         attn_src = torch.matmul(F.tanh(h_prime), self.a_src)
         attn_dst = torch.matmul(F.tanh(h_prime), self.a_dst)
-        attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n
-            ).permute(0, 1, 3, 2)
+        attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n).permute(0, 1, 3, 2)
         attn = self.leaky_relu(attn)
         mask = 1 - adj.unsqueeze(1)
         attn.data.masked_fill_(mask, float('-inf'))
@@ -190,31 +183,26 @@ class BatchMultiHeadGraphAttention(nn.Module):
 
 class BatchGCN(nn.Module):
 
-    def __init__(self, n_units, dropout, pretrained_emb, vertex_feature,
-        use_vertex_feature, fine_tune=False, instance_normalization=False):
+    def __init__(self, n_units, dropout, pretrained_emb, vertex_feature, use_vertex_feature, fine_tune=False, instance_normalization=False):
         super(BatchGCN, self).__init__()
         self.num_layer = len(n_units) - 1
         self.dropout = dropout
         self.inst_norm = instance_normalization
         if self.inst_norm:
-            self.norm = nn.InstanceNorm1d(pretrained_emb.size(1), momentum=
-                0.0, affine=True)
-        self.embedding = nn.Embedding(pretrained_emb.size(0),
-            pretrained_emb.size(1))
+            self.norm = nn.InstanceNorm1d(pretrained_emb.size(1), momentum=0.0, affine=True)
+        self.embedding = nn.Embedding(pretrained_emb.size(0), pretrained_emb.size(1))
         self.embedding.weight = nn.Parameter(pretrained_emb)
         self.embedding.weight.requires_grad = fine_tune
         n_units[0] += pretrained_emb.size(1)
         self.use_vertex_feature = use_vertex_feature
         if self.use_vertex_feature:
-            self.vertex_feature = nn.Embedding(vertex_feature.size(0),
-                vertex_feature.size(1))
+            self.vertex_feature = nn.Embedding(vertex_feature.size(0), vertex_feature.size(1))
             self.vertex_feature.weight = nn.Parameter(vertex_feature)
             self.vertex_feature.weight.requires_grad = False
             n_units[0] += vertex_feature.size(1)
         self.layer_stack = nn.ModuleList()
         for i in range(self.num_layer):
-            self.layer_stack.append(BatchGraphConvolution(n_units[i],
-                n_units[i + 1]))
+            self.layer_stack.append(BatchGraphConvolution(n_units[i], n_units[i + 1]))
 
     def forward(self, x, vertices, lap):
         emb = self.embedding(vertices)
@@ -258,35 +246,27 @@ class BatchGraphConvolution(Module):
 
 class BatchPSCN(nn.Module):
 
-    def __init__(self, n_units, dropout, pretrained_emb, vertex_feature,
-        use_vertex_feature, instance_normalization, neighbor_size,
-        sequence_size, fine_tune=False):
+    def __init__(self, n_units, dropout, pretrained_emb, vertex_feature, use_vertex_feature, instance_normalization, neighbor_size, sequence_size, fine_tune=False):
         super(BatchPSCN, self).__init__()
         assert len(n_units) == 4
         self.dropout = dropout
         self.inst_norm = instance_normalization
         if self.inst_norm:
-            self.norm = nn.InstanceNorm1d(pretrained_emb.size(1), momentum=
-                0.0, affine=True)
-        self.embedding = nn.Embedding(pretrained_emb.size(0),
-            pretrained_emb.size(1))
+            self.norm = nn.InstanceNorm1d(pretrained_emb.size(1), momentum=0.0, affine=True)
+        self.embedding = nn.Embedding(pretrained_emb.size(0), pretrained_emb.size(1))
         self.embedding.weight = nn.Parameter(pretrained_emb)
         self.embedding.weight.requires_grad = fine_tune
         n_units[0] += pretrained_emb.size(1)
         self.use_vertex_feature = use_vertex_feature
         if self.use_vertex_feature:
-            self.vertex_feature = nn.Embedding(vertex_feature.size(0),
-                vertex_feature.size(1))
+            self.vertex_feature = nn.Embedding(vertex_feature.size(0), vertex_feature.size(1))
             self.vertex_feature.weight = nn.Parameter(vertex_feature)
             self.vertex_feature.weight.requires_grad = False
             n_units[0] += vertex_feature.size(1)
-        self.conv1 = nn.Conv1d(in_channels=n_units[0], out_channels=n_units
-            [1], kernel_size=neighbor_size, stride=neighbor_size)
+        self.conv1 = nn.Conv1d(in_channels=n_units[0], out_channels=n_units[1], kernel_size=neighbor_size, stride=neighbor_size)
         k = 1
-        self.conv2 = nn.Conv1d(in_channels=n_units[1], out_channels=n_units
-            [2], kernel_size=k, stride=1)
-        self.fc = nn.Linear(in_features=n_units[2] * (sequence_size - k + 1
-            ), out_features=n_units[3])
+        self.conv2 = nn.Conv1d(in_channels=n_units[1], out_channels=n_units[2], kernel_size=k, stride=1)
+        self.fc = nn.Linear(in_features=n_units[2] * (sequence_size - k + 1), out_features=n_units[3])
 
     def forward(self, x, vertices, recep):
         emb = self.embedding(vertices)
@@ -298,8 +278,7 @@ class BatchPSCN(nn.Module):
             x = torch.cat((x, vfeature), dim=2)
         bs, l = recep.size()
         n = x.size()[1]
-        offset = torch.ger(torch.arange(0, bs).long(), torch.ones(l).long() * n
-            )
+        offset = torch.ger(torch.arange(0, bs).long(), torch.ones(l).long() * n)
         offset = Variable(offset, requires_grad=False)
         offset = offset
         recep = (recep.long() + offset).view(-1)
@@ -319,8 +298,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchGraphConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_xptree_DeepInf(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BatchGraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

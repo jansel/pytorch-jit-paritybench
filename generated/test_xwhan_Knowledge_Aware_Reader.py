@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,12 +85,9 @@ class MultiHeadedAttention(nn.Module):
         if mask is not None:
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
-        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).
-            transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self
-            .dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k
-            )
+        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
+        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
 
@@ -114,8 +112,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.
-            log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -200,8 +197,7 @@ class SimpleEncoder(nn.Module):
         self.position = PositionalEncoding(embed_dim, dropout)
         attn = MultiHeadedAttention(head, embed_dim)
         ff = PositionwiseFeedForward(embed_dim, d_ff)
-        self.encoder = Encoder(EncoderLayer(embed_dim, attn, ff, dropout),
-            layer)
+        self.encoder = Encoder(EncoderLayer(embed_dim, attn, ff, dropout), layer)
 
     def forward(self, x, mask):
         mask = mask.unsqueeze(-2)
@@ -244,35 +240,27 @@ class KAReader(nn.Module):
                 setattr(self, k, v)
             if k.endswith('emb_file'):
                 setattr(self, k, args['data_folder'] + v)
-        self.entity_emb = nn.Embedding(self.num_entity + 1, self.entity_dim,
-            padding_idx=self.num_entity)
-        self.entity_emb.weight.data.copy_(torch.from_numpy(np.pad(np.load(
-            self.entity_emb_file), ((0, 1), (0, 0)), 'constant')))
+        self.entity_emb = nn.Embedding(self.num_entity + 1, self.entity_dim, padding_idx=self.num_entity)
+        self.entity_emb.weight.data.copy_(torch.from_numpy(np.pad(np.load(self.entity_emb_file), ((0, 1), (0, 0)), 'constant')))
         self.entity_emb.weight.requires_grad = False
         self.entity_linear = nn.Linear(self.entity_dim, self.entity_dim)
-        self.word_emb = nn.Embedding(self.num_word, self.word_dim,
-            padding_idx=1)
-        self.word_emb.weight.data.copy_(torch.from_numpy(np.load(self.
-            word_emb_file)))
+        self.word_emb = nn.Embedding(self.num_word, self.word_dim, padding_idx=1)
+        self.word_emb.weight.data.copy_(torch.from_numpy(np.load(self.word_emb_file)))
         self.word_emb.weight.requires_grad = False
         self.word_emb_match = SeqAttnMatch(self.word_dim)
         self.hidden_dim = self.entity_dim
-        self.question_encoder = Packed(nn.LSTM(self.word_dim, self.
-            hidden_dim // 2, batch_first=True, bidirectional=True))
+        self.question_encoder = Packed(nn.LSTM(self.word_dim, self.hidden_dim // 2, batch_first=True, bidirectional=True))
         self.self_att_r = AttnEncoder(self.hidden_dim)
         self.self_att_q = AttnEncoder(self.hidden_dim)
         self.combine_q_rel = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
         self.ent_info_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
         self.input_proj = nn.Linear(2 * self.word_dim + 1, self.hidden_dim)
-        self.doc_encoder = Packed(nn.LSTM(self.hidden_dim, self.hidden_dim //
-            2, batch_first=True, bidirectional=True))
+        self.doc_encoder = Packed(nn.LSTM(self.hidden_dim, self.hidden_dim // 2, batch_first=True, bidirectional=True))
         self.doc_to_ent = nn.Linear(self.hidden_dim, self.hidden_dim)
         self.ent_info_gate = ConditionGate(self.hidden_dim)
         self.ent_info_gate_out = ConditionGate(self.hidden_dim)
-        self.kg_prop = nn.Linear(self.hidden_dim + self.entity_dim, self.
-            entity_dim)
-        self.kg_gate = nn.Linear(self.hidden_dim + self.entity_dim, self.
-            entity_dim)
+        self.kg_prop = nn.Linear(self.hidden_dim + self.entity_dim, self.entity_dim)
+        self.kg_gate = nn.Linear(self.hidden_dim + self.entity_dim, self.entity_dim)
         self.self_prop = nn.Linear(self.entity_dim, self.entity_dim)
         self.combine_q = nn.Linear(2 * self.hidden_dim, self.hidden_dim)
         self.reader_gate = nn.Linear(2 * self.hidden_dim, self.hidden_dim)
@@ -288,8 +276,7 @@ class KAReader(nn.Module):
         q_mask = (question != 1).float()
         q_len = q_mask.sum(-1)
         q_word_emb = self.word_drop(self.word_emb(question))
-        q_emb, _ = self.question_encoder(q_word_emb, q_len, max_length=
-            question.size(1))
+        q_emb, _ = self.question_encoder(q_word_emb, q_len, max_length=question.size(1))
         q_emb = self.hidden_drop(q_emb)
         B, max_q_len = question.size(0), question.size(1)
         ent_emb_ = self.entity_emb(feed['candidate_entities'])
@@ -302,42 +289,29 @@ class KAReader(nn.Module):
         rel_word_mask = (rel_word_ids != 1).float()
         rel_word_lens = rel_word_mask.sum(-1)
         rel_word_lens[rel_word_lens == 0] = 1
-        rel_encoded, _ = self.question_encoder(self.word_drop(self.word_emb
-            (rel_word_ids)), rel_word_lens, max_length=rel_word_ids.size(1))
+        rel_encoded, _ = self.question_encoder(self.word_drop(self.word_emb(rel_word_ids)), rel_word_lens, max_length=rel_word_ids.size(1))
         rel_encoded = self.hidden_drop(rel_encoded)
         rel_encoded = self.self_att_r(rel_encoded, rel_word_mask)
         neighbor_rel_ids = feed['entity_link_rels'].long().view(-1)
-        neighbor_rel_emb = torch.index_select(rel_encoded, dim=0, index=
-            neighbor_rel_ids).view(B * max_num_candidates,
-            max_num_neighbors, self.hidden_dim)
+        neighbor_rel_emb = torch.index_select(rel_encoded, dim=0, index=neighbor_rel_ids).view(B * max_num_candidates, max_num_neighbors, self.hidden_dim)
         neighbor_ent_local_index = feed['entity_link_ents'].long()
         neighbor_ent_local_index = neighbor_ent_local_index.view(B, -1)
         neighbor_ent_local_mask = (neighbor_ent_local_index != -1).long()
         fix_index = torch.arange(B).long() * max_num_candidates
         fix_index = fix_index
-        neighbor_ent_local_index = neighbor_ent_local_index + fix_index.view(
-            -1, 1)
-        neighbor_ent_local_index = (neighbor_ent_local_index + 1
-            ) * neighbor_ent_local_mask
+        neighbor_ent_local_index = neighbor_ent_local_index + fix_index.view(-1, 1)
+        neighbor_ent_local_index = (neighbor_ent_local_index + 1) * neighbor_ent_local_mask
         neighbor_ent_local_index = neighbor_ent_local_index.view(-1)
         ent_seed_info = feed['query_entities'].float()
-        ent_is_seed = torch.cat([torch.zeros(1), ent_seed_info.view(-1)], dim=0
-            )
-        ent_seed_indicator = torch.index_select(ent_is_seed, dim=0, index=
-            neighbor_ent_local_index).view(B * max_num_candidates,
-            max_num_neighbors)
-        q_emb_expand = q_emb.unsqueeze(1).expand(B, max_num_candidates,
-            max_q_len, -1).contiguous()
+        ent_is_seed = torch.cat([torch.zeros(1), ent_seed_info.view(-1)], dim=0)
+        ent_seed_indicator = torch.index_select(ent_is_seed, dim=0, index=neighbor_ent_local_index).view(B * max_num_candidates, max_num_neighbors)
+        q_emb_expand = q_emb.unsqueeze(1).expand(B, max_num_candidates, max_q_len, -1).contiguous()
         q_emb_expand = q_emb_expand.view(B * max_num_candidates, max_q_len, -1)
-        q_mask_expand = q_mask.unsqueeze(1).expand(B, max_num_candidates, -1
-            ).contiguous()
+        q_mask_expand = q_mask.unsqueeze(1).expand(B, max_num_candidates, -1).contiguous()
         q_mask_expand = q_mask_expand.view(B * max_num_candidates, -1)
-        q_n_affinity = torch.bmm(q_emb_expand, neighbor_rel_emb.transpose(1, 2)
-            )
-        q_n_affinity_mask_q = q_n_affinity - (1 - q_mask_expand.unsqueeze(2)
-            ) * 1e+20
-        q_n_affinity_mask_n = q_n_affinity - (1 - neighbor_mask.view(B *
-            max_num_candidates, 1, max_num_neighbors))
+        q_n_affinity = torch.bmm(q_emb_expand, neighbor_rel_emb.transpose(1, 2))
+        q_n_affinity_mask_q = q_n_affinity - (1 - q_mask_expand.unsqueeze(2)) * 1e+20
+        q_n_affinity_mask_n = q_n_affinity - (1 - neighbor_mask.view(B * max_num_candidates, 1, max_num_neighbors))
         normalize_over_q = F.softmax(q_n_affinity_mask_q, dim=1)
         normalize_over_n = F.softmax(q_n_affinity_mask_n, dim=2)
         retrieve_q = torch.bmm(normalize_over_q.transpose(1, 2), q_emb_expand)
@@ -345,35 +319,25 @@ class KAReader(nn.Module):
         init_q_emb = self.self_att_r(q_emb, q_mask)
         retrieve_r = torch.bmm(normalize_over_n, neighbor_rel_emb)
         q_and_rel = torch.cat([q_emb_expand, retrieve_r], dim=2)
-        rel_aware_q = self.combine_q_rel(q_and_rel).tanh().view(B,
-            max_num_candidates, -1, self.hidden_dim)
+        rel_aware_q = self.combine_q_rel(q_and_rel).tanh().view(B, max_num_candidates, -1, self.hidden_dim)
         q_node_emb = rel_aware_q.max(2)[0]
-        ent_emb = l_relu(self.combine_q(torch.cat([ent_emb, q_node_emb],
-            dim=2)))
+        ent_emb = l_relu(self.combine_q(torch.cat([ent_emb, q_node_emb], dim=2)))
         ent_emb_for_lookup = ent_emb.view(-1, self.entity_dim)
-        ent_emb_for_lookup = torch.cat([torch.zeros(1, self.entity_dim),
-            ent_emb_for_lookup], dim=0)
-        neighbor_ent_emb = torch.index_select(ent_emb_for_lookup, dim=0,
-            index=neighbor_ent_local_index)
-        neighbor_ent_emb = neighbor_ent_emb.view(B * max_num_candidates,
-            max_num_neighbors, -1)
-        neighbor_vec = torch.cat([neighbor_rel_emb, neighbor_ent_emb], dim=-1
-            ).view(B * max_num_candidates, max_num_neighbors, -1)
+        ent_emb_for_lookup = torch.cat([torch.zeros(1, self.entity_dim), ent_emb_for_lookup], dim=0)
+        neighbor_ent_emb = torch.index_select(ent_emb_for_lookup, dim=0, index=neighbor_ent_local_index)
+        neighbor_ent_emb = neighbor_ent_emb.view(B * max_num_candidates, max_num_neighbors, -1)
+        neighbor_vec = torch.cat([neighbor_rel_emb, neighbor_ent_emb], dim=-1).view(B * max_num_candidates, max_num_neighbors, -1)
         neighbor_scores = q_rel_simi * ent_seed_indicator
-        neighbor_scores = neighbor_scores - (1 - neighbor_mask.view(B *
-            max_num_candidates, max_num_neighbors)) * 100000000.0
+        neighbor_scores = neighbor_scores - (1 - neighbor_mask.view(B * max_num_candidates, max_num_neighbors)) * 100000000.0
         attn_score = F.softmax(neighbor_scores, dim=1)
         aggregate = self.kg_prop(neighbor_vec) * attn_score.unsqueeze(2)
         aggregate = l_relu(aggregate.sum(1)).view(B, max_num_candidates, -1)
         self_prop_ = l_relu(self.self_prop(ent_emb))
-        gate_value = self.kg_gate(torch.cat([aggregate, ent_emb], dim=-1)
-            ).sigmoid()
+        gate_value = self.kg_gate(torch.cat([aggregate, ent_emb], dim=-1)).sigmoid()
         ent_emb = gate_value * self_prop_ + (1 - gate_value) * aggregate
         if self.use_doc:
-            q_for_text = self.query_update(init_q_emb, ent_emb,
-                ent_seed_info, ent_mask)
-            q_node_emb = torch.cat([q_node_emb, q_for_text.unsqueeze(1).
-                expand_as(q_node_emb).contiguous()], dim=-1)
+            q_for_text = self.query_update(init_q_emb, ent_emb, ent_seed_info, ent_mask)
+            q_node_emb = torch.cat([q_node_emb, q_for_text.unsqueeze(1).expand_as(q_node_emb).contiguous()], dim=-1)
             ent_linked_doc_spans = feed['ent_link_doc_spans']
             doc = feed['documents']
             max_num_doc = doc.size(1)
@@ -382,63 +346,41 @@ class KAReader(nn.Module):
             doc_len = doc_mask.sum(-1)
             doc_len += (doc_len == 0).float()
             doc_len = doc_len.view(-1)
-            d_word_emb = self.word_drop(self.word_emb(doc.view(-1, doc.size
-                (-1))))
-            q_word_emb = q_word_emb.unsqueeze(1).expand(B, max_num_doc,
-                max_q_len, self.word_dim).contiguous()
+            d_word_emb = self.word_drop(self.word_emb(doc.view(-1, doc.size(-1))))
+            q_word_emb = q_word_emb.unsqueeze(1).expand(B, max_num_doc, max_q_len, self.word_dim).contiguous()
             q_word_emb = q_word_emb.view(B * max_num_doc, max_q_len, -1)
-            q_mask_ = (question == 1).unsqueeze(1).expand(B, max_num_doc,
-                max_q_len).contiguous()
+            q_mask_ = (question == 1).unsqueeze(1).expand(B, max_num_doc, max_q_len).contiguous()
             q_mask_ = q_mask_.view(B * max_num_doc, -1)
-            q_weighted_emb = self.word_emb_match(d_word_emb, q_word_emb,
-                q_mask_)
-            doc_em = feed['documents_em'].float().view(B * max_num_doc,
-                max_d_len, 1)
+            q_weighted_emb = self.word_emb_match(d_word_emb, q_word_emb, q_mask_)
+            doc_em = feed['documents_em'].float().view(B * max_num_doc, max_d_len, 1)
             doc_input = torch.cat([d_word_emb, q_weighted_emb, doc_em], dim=-1)
             doc_input = self.input_proj(doc_input).tanh()
-            word_entity_id = ent_linked_doc_spans.view(B,
-                max_num_candidates, -1).transpose(1, 2)
-            word_ent_info_mask = (word_entity_id.sum(-1, keepdim=True) != 0
-                ).float()
+            word_entity_id = ent_linked_doc_spans.view(B, max_num_candidates, -1).transpose(1, 2)
+            word_ent_info_mask = (word_entity_id.sum(-1, keepdim=True) != 0).float()
             word_ent_info = torch.bmm(word_entity_id.float(), ent_emb)
             word_ent_info = self.ent_info_proj(word_ent_info).tanh()
-            doc_input = self.ent_info_gate(q_for_text.unsqueeze(1),
-                word_ent_info, doc_input.view(B, max_num_doc * max_d_len, -
-                1), word_ent_info_mask)
-            d_emb, _ = self.doc_encoder(doc_input.view(B * max_num_doc,
-                max_d_len, -1), doc_len, max_length=doc.size(2))
+            doc_input = self.ent_info_gate(q_for_text.unsqueeze(1), word_ent_info, doc_input.view(B, max_num_doc * max_d_len, -1), word_ent_info_mask)
+            d_emb, _ = self.doc_encoder(doc_input.view(B * max_num_doc, max_d_len, -1), doc_len, max_length=doc.size(2))
             d_emb = self.hidden_drop(d_emb)
-            d_emb = self.ent_info_gate_out(q_for_text.unsqueeze(1),
-                word_ent_info, d_emb.view(B, max_num_doc * max_d_len, -1),
-                word_ent_info_mask).view(B * max_num_doc, max_d_len, -1)
-            q_for_text = q_for_text.unsqueeze(1).expand(B, max_num_doc,
-                self.hidden_dim).contiguous()
+            d_emb = self.ent_info_gate_out(q_for_text.unsqueeze(1), word_ent_info, d_emb.view(B, max_num_doc * max_d_len, -1), word_ent_info_mask).view(B * max_num_doc, max_d_len, -1)
+            q_for_text = q_for_text.unsqueeze(1).expand(B, max_num_doc, self.hidden_dim).contiguous()
             q_for_text = q_for_text.view(B * max_num_doc, -1)
             d_emb = d_emb.view(B * max_num_doc, max_d_len, -1)
-            q_over_d = torch.bmm(q_for_text.unsqueeze(1), d_emb.transpose(1, 2)
-                ).squeeze(1)
-            q_over_d = F.softmax(q_over_d - (1 - doc_mask.view(B *
-                max_num_doc, max_d_len)) * 100000000.0, dim=-1)
-            q_retrieve_d = torch.bmm(q_over_d.unsqueeze(1), d_emb).view(B,
-                max_num_doc, -1)
+            q_over_d = torch.bmm(q_for_text.unsqueeze(1), d_emb.transpose(1, 2)).squeeze(1)
+            q_over_d = F.softmax(q_over_d - (1 - doc_mask.view(B * max_num_doc, max_d_len)) * 100000000.0, dim=-1)
+            q_retrieve_d = torch.bmm(q_over_d.unsqueeze(1), d_emb).view(B, max_num_doc, -1)
             ent_linked_doc = (ent_linked_doc_spans.sum(-1) != 0).float()
             ent_emb_from_doc = torch.bmm(ent_linked_doc, q_retrieve_d)
-            ent_emb_from_span = torch.bmm(feed['ent_link_doc_norm_spans'].
-                float().view(B, max_num_candidates, -1), d_emb.view(B, 
-                max_num_doc * max_d_len, -1))
-            ent_emb_from_span = F.dropout(ent_emb_from_span, 0.2, self.training
-                )
+            ent_emb_from_span = torch.bmm(feed['ent_link_doc_norm_spans'].float().view(B, max_num_candidates, -1), d_emb.view(B, max_num_doc * max_d_len, -1))
+            ent_emb_from_span = F.dropout(ent_emb_from_span, 0.2, self.training)
         if self.use_doc:
-            ent_emb = l_relu(self.attn_match(torch.cat([ent_emb,
-                ent_emb_from_doc, ent_emb_from_span], dim=-1)))
+            ent_emb = l_relu(self.attn_match(torch.cat([ent_emb, ent_emb_from_doc, ent_emb_from_span], dim=-1)))
         ent_scores = (q_node_emb * ent_emb).sum(2)
         answers = feed['answers'].float()
         if self.label_smooth:
-            answers = (1.0 - self.label_smooth
-                ) * answers + self.label_smooth / answers.size(1)
+            answers = (1.0 - self.label_smooth) * answers + self.label_smooth / answers.size(1)
         loss = self.loss(ent_scores, feed['answers'].float())
-        pred_dist = (ent_scores - (1 - ent_mask) * 100000000.0).sigmoid(
-            ) * ent_mask
+        pred_dist = (ent_scores - (1 - ent_mask) * 100000000.0).sigmoid() * ent_mask
         pred = torch.max(ent_scores, dim=1)[1]
         return loss, pred, pred_dist
 
@@ -456,13 +398,10 @@ class Packed(nn.Module):
     def forward(self, inputs, lengths, hidden=None, max_length=None):
         lens, indices = torch.sort(lengths, 0, True)
         inputs = inputs[indices] if self.batch_first else inputs[:, (indices)]
-        outputs, (h, c) = self.rnn(nn.utils.rnn.pack_padded_sequence(inputs,
-            lens.tolist(), batch_first=self.batch_first), hidden)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=
-            self.batch_first, total_length=max_length)
+        outputs, (h, c) = self.rnn(nn.utils.rnn.pack_padded_sequence(inputs, lens.tolist(), batch_first=self.batch_first), hidden)
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=self.batch_first, total_length=max_length)
         _, _indices = torch.sort(indices, 0)
-        outputs = outputs[_indices] if self.batch_first else outputs[:, (
-            _indices)]
+        outputs = outputs[_indices] if self.batch_first else outputs[:, (_indices)]
         h, c = h[:, (_indices), :], c[:, (_indices), :]
         return outputs, (h, c)
 
@@ -607,10 +546,8 @@ class QueryReform(nn.Module):
         seed_info: (B, C)
         ent_mask: (B, C)
         """
-        q_ent_attn = (self.q_ent_attn(q_node).unsqueeze(1) * ent_emb).sum(2,
-            keepdim=True)
-        q_ent_attn = F.softmax(q_ent_attn - (1 - ent_mask.unsqueeze(2)) * 
-            100000000.0, dim=1)
+        q_ent_attn = (self.q_ent_attn(q_node).unsqueeze(1) * ent_emb).sum(2, keepdim=True)
+        q_ent_attn = F.softmax(q_ent_attn - (1 - ent_mask.unsqueeze(2)) * 100000000.0, dim=1)
         seed_retrieve = torch.bmm(seed_info.unsqueeze(1), ent_emb).squeeze(1)
         return self.fusion(q_node, seed_retrieve)
 
@@ -619,35 +556,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttnEncoder,
+     lambda: ([], {'d_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConditionGate,
+     lambda: ([], {'h_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Fusion,
+     lambda: ([], {'d_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadedAttention,
+     lambda: ([], {'h': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (QueryReform,
+     lambda: ([], {'h_dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (SublayerConnection,
+     lambda: ([], {'size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+]
+
 class Test_xwhan_Knowledge_Aware_Reader(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AttnEncoder(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConditionGate(*[], **{'h_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Fusion(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(QueryReform(*[], **{'h_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[8])
 

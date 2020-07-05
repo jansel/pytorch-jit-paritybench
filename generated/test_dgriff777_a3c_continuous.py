@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,14 +96,11 @@ class A3C_CONV(torch.nn.Module):
         self.conv2.weight.data.mul_(lrelu_gain)
         self.conv3.weight.data.mul_(lrelu_gain)
         self.conv4.weight.data.mul_(lrelu_gain)
-        self.actor_linear.weight.data = norm_col_init(self.actor_linear.
-            weight.data, 0.01)
+        self.actor_linear.weight.data = norm_col_init(self.actor_linear.weight.data, 0.01)
         self.actor_linear.bias.data.fill_(0)
-        self.actor_linear2.weight.data = norm_col_init(self.actor_linear2.
-            weight.data, 0.01)
+        self.actor_linear2.weight.data = norm_col_init(self.actor_linear2.weight.data, 0.01)
         self.actor_linear2.bias.data.fill_(0)
-        self.critic_linear.weight.data = norm_col_init(self.critic_linear.
-            weight.data, 1.0)
+        self.critic_linear.weight.data = norm_col_init(self.critic_linear.weight.data, 1.0)
         self.critic_linear.bias.data.fill_(0)
         self.lstm.bias_ih.data.fill_(0)
         self.lstm.bias_hh.data.fill_(0)
@@ -117,16 +115,14 @@ class A3C_CONV(torch.nn.Module):
         x = x.view(x.size(0), -1)
         hx, cx = self.lstm(x, (hx, cx))
         x = hx
-        return self.critic_linear(x), F.softsign(self.actor_linear(x)
-            ), self.actor_linear2(x), (hx, cx)
+        return self.critic_linear(x), F.softsign(self.actor_linear(x)), self.actor_linear2(x), (hx, cx)
 
 
 def weights_init_mlp(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
         m.weight.data.normal_(0, 1)
-        m.weight.data *= 1 / torch.sqrt(m.weight.data.pow(2).sum(1, keepdim
-            =True))
+        m.weight.data *= 1 / torch.sqrt(m.weight.data.pow(2).sum(1, keepdim=True))
         if m.bias is not None:
             m.bias.data.fill_(0)
 
@@ -155,14 +151,11 @@ class A3C_MLP(torch.nn.Module):
         self.fc2.weight.data.mul_(lrelu)
         self.fc3.weight.data.mul_(lrelu)
         self.fc4.weight.data.mul_(lrelu)
-        self.actor_linear.weight.data = norm_col_init(self.actor_linear.
-            weight.data, 0.01)
+        self.actor_linear.weight.data = norm_col_init(self.actor_linear.weight.data, 0.01)
         self.actor_linear.bias.data.fill_(0)
-        self.actor_linear2.weight.data = norm_col_init(self.actor_linear2.
-            weight.data, 0.01)
+        self.actor_linear2.weight.data = norm_col_init(self.actor_linear2.weight.data, 0.01)
         self.actor_linear2.bias.data.fill_(0)
-        self.critic_linear.weight.data = norm_col_init(self.critic_linear.
-            weight.data, 1.0)
+        self.critic_linear.weight.data = norm_col_init(self.critic_linear.weight.data, 1.0)
         self.critic_linear.bias.data.fill_(0)
         self.lstm.bias_ih.data.fill_(0)
         self.lstm.bias_hh.data.fill_(0)
@@ -177,13 +170,5 @@ class A3C_MLP(torch.nn.Module):
         x = x.view(1, self.m1)
         hx, cx = self.lstm(x, (hx, cx))
         x = hx
-        return self.critic_linear(x), F.softsign(self.actor_linear(x)
-            ), self.actor_linear2(x), (hx, cx)
+        return self.critic_linear(x), F.softsign(self.actor_linear(x)), self.actor_linear2(x), (hx, cx)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_dgriff777_a3c_continuous(_paritybench_base):
-    pass

@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,17 +68,13 @@ class ComplexConvBlock(nn.Module):
     Convolution block
     """
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_size:
-        int, padding: int=0, layers: int=4, bn_func=nn.BatchNorm1d,
-        act_func=nn.LeakyReLU, skip_res: bool=False):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, padding: int=0, layers: int=4, bn_func=nn.BatchNorm1d, act_func=nn.LeakyReLU, skip_res: bool=False):
         super().__init__()
         self.blocks = nn.ModuleList()
         self.skip_res = skip_res
         for idx in range(layers):
             in_ = in_channels if idx == 0 else out_channels
-            self.blocks.append(nn.Sequential(*[bn_func(in_), act_func(),
-                ComplexConv1d(in_, out_channels, kernel_size, padding=
-                padding)]))
+            self.blocks.append(nn.Sequential(*[bn_func(in_), act_func(), ComplexConv1d(in_, out_channels, kernel_size, padding=padding)]))
 
     def forward(self, x: torch.tensor) ->torch.tensor:
         temp = x
@@ -96,8 +93,7 @@ class _ComplexConvNd(nn.Module):
     B: img weight
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, transposed, output_padding):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, transposed, output_padding):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -113,11 +109,9 @@ class _ComplexConvNd(nn.Module):
 
     def make_weight(self, in_ch, out_ch, kernel_size):
         if self.transposed:
-            tensor = nn.Parameter(torch.Tensor(in_ch, out_ch // 2, *
-                kernel_size))
+            tensor = nn.Parameter(torch.Tensor(in_ch, out_ch // 2, *kernel_size))
         else:
-            tensor = nn.Parameter(torch.Tensor(out_ch, in_ch // 2, *
-                kernel_size))
+            tensor = nn.Parameter(torch.Tensor(out_ch, in_ch // 2, *kernel_size))
         return tensor
 
     def reset_parameters(self):
@@ -126,8 +120,7 @@ class _ComplexConvNd(nn.Module):
         std = gain / np.sqrt(fan_in)
         bound = np.sqrt(3.0) * std
         with torch.no_grad():
-            self.A.uniform_(-bound * (1 / np.pi ** 2), bound * (1 / np.pi ** 2)
-                )
+            self.A.uniform_(-bound * (1 / np.pi ** 2), bound * (1 / np.pi ** 2))
             self.B.uniform_(-1 / np.pi, 1 / np.pi)
 
 
@@ -147,8 +140,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ComplexActLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_AppleHolic_source_separation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ComplexActLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

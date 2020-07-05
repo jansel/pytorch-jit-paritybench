@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,8 +54,7 @@ class vgg(nn.Module):
     def __init__(self, dataset='cifar10', init_weights=True, cfg=None):
         super(vgg, self).__init__()
         if cfg is None:
-            cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512,
-                512, 512, 512, 'M', 512, 512, 512, 512]
+            cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]
         self.feature = self.make_layers(cfg, True)
         if dataset == 'cifar100':
             num_classes = 100
@@ -71,11 +71,9 @@ class vgg(nn.Module):
             if v == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1,
-                    bias=False)
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -107,5 +105,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (vgg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+]
+
 class Test_foolwood_pytorch_slimming(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

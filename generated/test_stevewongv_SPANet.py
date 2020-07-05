@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,14 +69,11 @@ class Bottleneck(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(Bottleneck, self).__init__()
         m = OrderedDict()
-        m['conv1'] = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            bias=False)
+        m['conv1'] = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         m['relu1'] = nn.ReLU(True)
-        m['conv2'] = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=2, bias=False, dilation=2)
+        m['conv2'] = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=2, bias=False, dilation=2)
         m['relu2'] = nn.ReLU(True)
-        m['conv3'] = nn.Conv2d(out_channels, out_channels, kernel_size=1,
-            bias=False)
+        m['conv3'] = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
         self.group1 = nn.Sequential(m)
         self.relu = nn.Sequential(nn.ReLU(True))
 
@@ -89,8 +87,7 @@ class irnn(torch.autograd.Function):
     def __init__(self):
         super(irnn, self).__init__()
 
-    def forward(self, input_feature, weight_up, weight_right, weight_down,
-        weight_left, bias_up, bias_right, bias_down, bias_left):
+    def forward(self, input_feature, weight_up, weight_right, weight_down, weight_left, bias_up, bias_right, bias_down, bias_left):
         assert input_feature.is_contiguous() == True
         assert weight_left.is_contiguous() == True
         assert weight_right.is_contiguous() == True
@@ -107,28 +104,14 @@ class irnn(torch.autograd.Function):
         if input_feature.is_cuda == True:
             n = input_feature.nelement()
             cuda_num_threads = 1024
-            cunnex('IRNNForward')(grid=tuple([int((n + cuda_num_threads - 1
-                ) / cuda_num_threads), 1, 1]), block=tuple([
-                cuda_num_threads, 1, 1]), args=[input_feature.data_ptr(),
-                weight_up.data_ptr(), weight_right.data_ptr(), weight_down.
-                data_ptr(), weight_left.data_ptr(), bias_up.data_ptr(),
-                bias_right.data_ptr(), bias_down.data_ptr(), bias_left.
-                data_ptr(), output_up.data_ptr(), output_right.data_ptr(),
-                output_down.data_ptr(), output_left.data_ptr(),
-                input_feature.size(1), input_feature.size(2), input_feature
-                .size(3), n], stream=Stream)
+            cunnex('IRNNForward')(grid=tuple([int((n + cuda_num_threads - 1) / cuda_num_threads), 1, 1]), block=tuple([cuda_num_threads, 1, 1]), args=[input_feature.data_ptr(), weight_up.data_ptr(), weight_right.data_ptr(), weight_down.data_ptr(), weight_left.data_ptr(), bias_up.data_ptr(), bias_right.data_ptr(), bias_down.data_ptr(), bias_left.data_ptr(), output_up.data_ptr(), output_right.data_ptr(), output_down.data_ptr(), output_left.data_ptr(), input_feature.size(1), input_feature.size(2), input_feature.size(3), n], stream=Stream)
         elif input_feature.is_cuda == False:
             raise NotImplementedError()
-        self.save_for_backward(input_feature, weight_up, weight_right,
-            weight_down, weight_left, output_up, output_right, output_down,
-            output_left)
+        self.save_for_backward(input_feature, weight_up, weight_right, weight_down, weight_left, output_up, output_right, output_down, output_left)
         return output_up, output_right, output_down, output_left
 
-    def backward(self, grad_output_up, grad_output_right, grad_output_down,
-        grad_output_left):
-        (input_feature, weight_up, weight_right, weight_down, weight_left,
-            output_up, output_right, output_down, output_left
-            ) = self.saved_tensors
+    def backward(self, grad_output_up, grad_output_right, grad_output_down, grad_output_left):
+        input_feature, weight_up, weight_right, weight_down, weight_left, output_up, output_right, output_down, output_left = self.saved_tensors
         if grad_output_up.is_contiguous() != True:
             grad_output_up = grad_output_up.contiguous()
         if grad_output_right.is_contiguous() != True:
@@ -153,79 +136,39 @@ class irnn(torch.autograd.Function):
         if input_feature.is_cuda == True:
             n = grad_input.nelement()
             cuda_num_threads = 1024
-            cunnex('IRNNBackward')(grid=tuple([int((n + cuda_num_threads - 
-                1) / cuda_num_threads), 1, 1]), block=tuple([
-                cuda_num_threads, 1, 1]), args=[grad_input.data_ptr(),
-                grad_weight_up_map.data_ptr(), grad_weight_right_map.
-                data_ptr(), grad_weight_down_map.data_ptr(),
-                grad_weight_left_map.data_ptr(), grad_bias_up_map.data_ptr(
-                ), grad_bias_right_map.data_ptr(), grad_bias_down_map.
-                data_ptr(), grad_bias_left_map.data_ptr(), weight_up.
-                data_ptr(), weight_right.data_ptr(), weight_down.data_ptr(),
-                weight_left.data_ptr(), grad_output_up.data_ptr(),
-                grad_output_right.data_ptr(), grad_output_down.data_ptr(),
-                grad_output_left.data_ptr(), output_up.data_ptr(),
-                output_right.data_ptr(), output_down.data_ptr(),
-                output_left.data_ptr(), input_feature.size(1),
-                input_feature.size(2), input_feature.size(3), n], stream=Stream
-                )
-            grad_bias_up = torch.zeros_like(weight_left).reshape(weight_left
-                .size(0))
-            grad_bias_right = torch.zeros_like(weight_left).reshape(weight_left
-                .size(0))
-            grad_bias_down = torch.zeros_like(weight_left).reshape(weight_left
-                .size(0))
-            grad_bias_left = torch.zeros_like(weight_left).reshape(weight_left
-                .size(0))
-            grad_weight_left = grad_weight_left_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_weight_left)
-            grad_weight_right = grad_weight_right_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_weight_left)
-            grad_weight_up = grad_weight_up_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_weight_left)
-            grad_weight_down = grad_weight_down_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_weight_left)
-            grad_bias_up = grad_bias_up_map.sum(2).sum(2).sum(0).resize_as_(
-                grad_bias_up)
-            grad_bias_right = grad_bias_right_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_bias_up)
-            grad_bias_down = grad_bias_down_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_bias_up)
-            grad_bias_left = grad_bias_left_map.sum(2).sum(2).sum(0
-                ).resize_as_(grad_bias_up)
+            cunnex('IRNNBackward')(grid=tuple([int((n + cuda_num_threads - 1) / cuda_num_threads), 1, 1]), block=tuple([cuda_num_threads, 1, 1]), args=[grad_input.data_ptr(), grad_weight_up_map.data_ptr(), grad_weight_right_map.data_ptr(), grad_weight_down_map.data_ptr(), grad_weight_left_map.data_ptr(), grad_bias_up_map.data_ptr(), grad_bias_right_map.data_ptr(), grad_bias_down_map.data_ptr(), grad_bias_left_map.data_ptr(), weight_up.data_ptr(), weight_right.data_ptr(), weight_down.data_ptr(), weight_left.data_ptr(), grad_output_up.data_ptr(), grad_output_right.data_ptr(), grad_output_down.data_ptr(), grad_output_left.data_ptr(), output_up.data_ptr(), output_right.data_ptr(), output_down.data_ptr(), output_left.data_ptr(), input_feature.size(1), input_feature.size(2), input_feature.size(3), n], stream=Stream)
+            grad_bias_up = torch.zeros_like(weight_left).reshape(weight_left.size(0))
+            grad_bias_right = torch.zeros_like(weight_left).reshape(weight_left.size(0))
+            grad_bias_down = torch.zeros_like(weight_left).reshape(weight_left.size(0))
+            grad_bias_left = torch.zeros_like(weight_left).reshape(weight_left.size(0))
+            grad_weight_left = grad_weight_left_map.sum(2).sum(2).sum(0).resize_as_(grad_weight_left)
+            grad_weight_right = grad_weight_right_map.sum(2).sum(2).sum(0).resize_as_(grad_weight_left)
+            grad_weight_up = grad_weight_up_map.sum(2).sum(2).sum(0).resize_as_(grad_weight_left)
+            grad_weight_down = grad_weight_down_map.sum(2).sum(2).sum(0).resize_as_(grad_weight_left)
+            grad_bias_up = grad_bias_up_map.sum(2).sum(2).sum(0).resize_as_(grad_bias_up)
+            grad_bias_right = grad_bias_right_map.sum(2).sum(2).sum(0).resize_as_(grad_bias_up)
+            grad_bias_down = grad_bias_down_map.sum(2).sum(2).sum(0).resize_as_(grad_bias_up)
+            grad_bias_left = grad_bias_left_map.sum(2).sum(2).sum(0).resize_as_(grad_bias_up)
         elif input_feature.is_cuda == False:
             raise NotImplementedError()
-        return (grad_input, grad_weight_up, grad_weight_right,
-            grad_weight_down, grad_weight_left, grad_bias_up,
-            grad_bias_right, grad_bias_down, grad_bias_left)
+        return grad_input, grad_weight_up, grad_weight_right, grad_weight_down, grad_weight_left, grad_bias_up, grad_bias_right, grad_bias_down, grad_bias_left
 
 
 class Spacial_IRNN(nn.Module):
 
     def __init__(self, in_channels, alpha=0.2):
         super(Spacial_IRNN, self).__init__()
-        self.left_weight = nn.Conv2d(in_channels, in_channels, kernel_size=
-            1, stride=1, groups=in_channels, padding=0)
-        self.right_weight = nn.Conv2d(in_channels, in_channels, kernel_size
-            =1, stride=1, groups=in_channels, padding=0)
-        self.up_weight = nn.Conv2d(in_channels, in_channels, kernel_size=1,
-            stride=1, groups=in_channels, padding=0)
-        self.down_weight = nn.Conv2d(in_channels, in_channels, kernel_size=
-            1, stride=1, groups=in_channels, padding=0)
-        self.left_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
-            in_channels))
-        self.right_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
-            in_channels))
-        self.up_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
-            in_channels))
-        self.down_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] *
-            in_channels))
+        self.left_weight = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, groups=in_channels, padding=0)
+        self.right_weight = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, groups=in_channels, padding=0)
+        self.up_weight = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, groups=in_channels, padding=0)
+        self.down_weight = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, groups=in_channels, padding=0)
+        self.left_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] * in_channels))
+        self.right_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] * in_channels))
+        self.up_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] * in_channels))
+        self.down_weight.weight = nn.Parameter(torch.tensor([[[[alpha]]]] * in_channels))
 
     def forward(self, input):
-        return irnn()(input, self.up_weight.weight, self.right_weight.
-            weight, self.down_weight.weight, self.left_weight.weight, self.
-            up_weight.bias, self.right_weight.bias, self.down_weight.bias,
-            self.left_weight.bias)
+        return irnn()(input, self.up_weight.weight, self.right_weight.weight, self.down_weight.weight, self.left_weight.weight, self.up_weight.bias, self.right_weight.bias, self.down_weight.bias, self.left_weight.bias)
 
 
 class Attention(nn.Module):
@@ -233,14 +176,11 @@ class Attention(nn.Module):
     def __init__(self, in_channels):
         super(Attention, self).__init__()
         self.out_channels = int(in_channels / 2)
-        self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=
-            3, padding=1, stride=1)
+        self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, padding=1, stride=1)
         self.relu1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(self.out_channels, self.out_channels,
-            kernel_size=3, padding=1, stride=1)
+        self.conv2 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, padding=1, stride=1)
         self.relu2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(self.out_channels, 4, kernel_size=1, padding
-            =0, stride=1)
+        self.conv3 = nn.Conv2d(self.out_channels, 4, kernel_size=1, padding=0, stride=1)
         self.sigmod = nn.Sigmoid()
 
     def forward(self, x):
@@ -254,13 +194,11 @@ class Attention(nn.Module):
 
 
 def conv1x1(in_channels, out_channels, stride=1):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=
-        stride, padding=0, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False)
 
 
 def conv3x3(in_channels, out_channels, stride=1):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=1, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class SAM(nn.Module):
@@ -363,16 +301,12 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2,
-        groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2,
-        groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2,
-        groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
-        C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -380,17 +314,14 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
 
@@ -405,8 +336,7 @@ class SSIM(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -415,23 +345,37 @@ class SSIM(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return _ssim(img1, img2, window, self.window_size, channel, self.
-            size_average)
+        return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SSIM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_stevewongv_SPANet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Attention(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Bottleneck(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -107,8 +108,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -198,13 +198,10 @@ class Detect(Function):
         """
         num = loc_data.size(0)
         num_priors = prior_data.size(0)
-        conf_preds = conf_data.view(num, num_priors, self.num_classes
-            ).transpose(2, 1)
-        batch_priors = prior_data.view(-1, num_priors, 4).expand(num,
-            num_priors, 4)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
+        batch_priors = prior_data.view(-1, num_priors, 4).expand(num, num_priors, 4)
         batch_priors = batch_priors.contiguous().view(-1, 4)
-        decoded_boxes = decode(loc_data.view(-1, 4), batch_priors, self.
-            variance)
+        decoded_boxes = decode(loc_data.view(-1, 4), batch_priors, self.variance)
         decoded_boxes = decoded_boxes.view(num, num_priors, 4)
         output = torch.zeros(num, self.num_classes, self.top_k, 5)
         for i in range(num):
@@ -218,11 +215,9 @@ class Detect(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(boxes)
                 boxes_ = boxes[l_mask].view(-1, 4)
                 try:
-                    ids, count = nms(boxes_, scores, self.nms_thresh, self.
-                        nms_top_k)
+                    ids, count = nms(boxes_, scores, self.nms_thresh, self.nms_top_k)
                     count = count if count < self.top_k else self.top_k
-                    output[(i), (cl), :count] = torch.cat((scores[ids[:
-                        count]].unsqueeze(1), boxes_[ids[:count]]), 1)
+                    output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes_[ids[:count]]), 1)
                 except:
                     print('zero')
         return output
@@ -266,11 +261,7 @@ class PriorBox(object):
 
 
 def upsample(in_channels, out_channels):
-    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=
-        in_channels, kernel_size=(3, 3), stride=1, padding=1, groups=
-        in_channels, bias=False), nn.Conv2d(in_channels=in_channels,
-        out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias
-        =False), nn.BatchNorm2d(out_channels), nn.ReLU())
+    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=(3, 3), stride=1, padding=1, groups=in_channels, bias=False), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
 
 
 class EXTD(nn.Module):
@@ -353,20 +344,15 @@ class EXTD(nn.Module):
             x = self.base[k](x)
         s6 = x
         sources.append(s6)
-        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()
-            [3]), mode='bilinear')) + s5
+        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()[3]), mode='bilinear')) + s5
         sources.append(u1)
-        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()
-            [3]), mode='bilinear')) + s4
+        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()[3]), mode='bilinear')) + s4
         sources.append(u2)
-        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()
-            [3]), mode='bilinear')) + s3
+        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()[3]), mode='bilinear')) + s3
         sources.append(u3)
-        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()
-            [3]), mode='bilinear')) + s2
+        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()[3]), mode='bilinear')) + s2
         sources.append(u4)
-        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()
-            [3]), mode='bilinear')) + s1
+        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()[3]), mode='bilinear')) + s1
         sources.append(u5)
         sources = sources[::-1]
         loc_x = self.loc[0](sources[0])
@@ -394,20 +380,16 @@ class EXTD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(conf.size(0), -1, self.num_classes)), self.
-                priors.type(type(x.data)))
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes)), self.priors.type(type(x.data)))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes), self.priors
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            mdata = torch.load(base_file, map_location=lambda storage, loc:
-                storage)
+            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
             weights = mdata['weight']
             epoch = mdata['epoch']
             self.load_state_dict(weights)
@@ -502,20 +484,15 @@ class EXTD(nn.Module):
             x = self.base[k](x)
         s6 = x
         sources.append(s6)
-        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()
-            [3]), mode='bilinear')) + s5
+        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()[3]), mode='bilinear')) + s5
         sources.append(u1)
-        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()
-            [3]), mode='bilinear')) + s4
+        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()[3]), mode='bilinear')) + s4
         sources.append(u2)
-        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()
-            [3]), mode='bilinear')) + s3
+        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()[3]), mode='bilinear')) + s3
         sources.append(u3)
-        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()
-            [3]), mode='bilinear')) + s2
+        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()[3]), mode='bilinear')) + s2
         sources.append(u4)
-        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()
-            [3]), mode='bilinear')) + s1
+        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()[3]), mode='bilinear')) + s1
         sources.append(u5)
         sources = sources[::-1]
         loc_x = self.loc[0](sources[0])
@@ -538,20 +515,16 @@ class EXTD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(conf.size(0), -1, self.num_classes)), self.
-                priors.type(type(x.data)))
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes)), self.priors.type(type(x.data)))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes), self.priors
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            mdata = torch.load(base_file, map_location=lambda storage, loc:
-                storage)
+            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
             weights = mdata['weight']
             epoch = mdata['epoch']
             self.load_state_dict(weights)
@@ -646,20 +619,15 @@ class EXTD(nn.Module):
             x = self.base[k](x)
         s6 = x
         sources.append(s6)
-        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()
-            [3]), mode='bilinear')) + s5
+        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()[3]), mode='bilinear')) + s5
         sources.append(u1)
-        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()
-            [3]), mode='bilinear')) + s4
+        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()[3]), mode='bilinear')) + s4
         sources.append(u2)
-        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()
-            [3]), mode='bilinear')) + s3
+        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()[3]), mode='bilinear')) + s3
         sources.append(u3)
-        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()
-            [3]), mode='bilinear')) + s2
+        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()[3]), mode='bilinear')) + s2
         sources.append(u4)
-        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()
-            [3]), mode='bilinear')) + s1
+        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()[3]), mode='bilinear')) + s1
         sources.append(u5)
         sources = sources[::-1]
         loc_x = self.loc[0](sources[0])
@@ -682,20 +650,16 @@ class EXTD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(conf.size(0), -1, self.num_classes)), self.
-                priors.type(type(x.data)))
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes)), self.priors.type(type(x.data)))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes), self.priors
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            mdata = torch.load(base_file, map_location=lambda storage, loc:
-                storage)
+            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
             weights = mdata['weight']
             epoch = mdata['epoch']
             self.load_state_dict(weights)
@@ -730,8 +694,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -778,10 +741,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -799,10 +760,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -815,8 +774,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -847,28 +805,24 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     for j in range(best_prior_idx.size(0)):
         best_truth_idx[best_prior_idx[j]] = j
     _th1, _th2, _th3 = threshold
-    N = (torch.sum(best_prior_overlap >= _th2) + torch.sum(
-        best_prior_overlap >= _th3)) // 2
+    N = (torch.sum(best_prior_overlap >= _th2) + torch.sum(best_prior_overlap >= _th3)) // 2
     matches = truths[best_truth_idx]
     conf = labels[best_truth_idx]
     conf[best_truth_overlap < _th2] = 0
     best_truth_overlap_clone = best_truth_overlap.clone()
-    add_idx = best_truth_overlap_clone.gt(_th1).eq(best_truth_overlap_clone
-        .lt(_th2))
+    add_idx = best_truth_overlap_clone.gt(_th1).eq(best_truth_overlap_clone.lt(_th2))
     best_truth_overlap_clone[1 - add_idx] = 0
     stage2_overlap, stage2_idx = best_truth_overlap_clone.sort(descending=True)
     stage2_overlap = stage2_overlap.gt(_th1)
     if N > 0:
-        N = torch.sum(stage2_overlap[:N]) if torch.sum(stage2_overlap[:N]
-            ) < N else N
+        N = torch.sum(stage2_overlap[:N]) if torch.sum(stage2_overlap[:N]) < N else N
         conf[stage2_idx[:N]] += 1
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
 
 
-def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
-    ):
+def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -966,8 +920,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            self.match(self.threshold, truths, defaults, self.variance,
-                labels, loc_t, conf_t, idx)
+            self.match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -980,8 +933,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -991,8 +943,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum() if num_pos.data.sum() > 0 else num
@@ -1007,8 +958,7 @@ class DWC(nn.Module):
         super(DWC, self).__init__()
         self.batch_norm_in = nn.BatchNorm2d(in_channels)
         self.depthwise = nn.AvgPool2d((7, 6), stride=1, padding=0)
-        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, x):
         x = self.depthwise(x)
@@ -1020,10 +970,8 @@ class Max_AvgPool(nn.Module):
 
     def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
         super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
+        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
+        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         x = self.Maxpool(x) + self.Avgpool(x)
@@ -1034,10 +982,8 @@ class Max_AvgPool(nn.Module):
 
     def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
         super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
+        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
+        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         x = self.Maxpool(x) + self.Avgpool(x)
@@ -1076,8 +1022,7 @@ class InvertedResidual_dwc(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv = []
         if expand_ratio == 1:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3),
-                stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
@@ -1087,8 +1032,7 @@ class InvertedResidual_dwc(nn.Module):
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=
-                (3, 3), stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
@@ -1113,16 +1057,14 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv = []
         if expand_ratio == 1:
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
         else:
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
         self.conv = nn.Sequential(*self.conv)
@@ -1135,8 +1077,7 @@ class InvertedResidual(nn.Module):
 
 
 def conv_bn(inp, oup, stride, k_size=3):
-    return nn.Sequential(nn.Conv2d(inp, oup, k_size, stride, 1, bias=False),
-        nn.BatchNorm2d(oup), nn.PReLU())
+    return nn.Sequential(nn.Conv2d(inp, oup, k_size, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.PReLU())
 
 
 class Net(nn.Module):
@@ -1147,12 +1088,9 @@ class Net(nn.Module):
         block_dwc = InvertedResidual_dwc
         input_channel = 64
         last_channel = 256
-        interverted_residual_setting = [[1, 32, 1, 1], [2, 32, 2, 1], [4, 
-            32, 2, 1], [2, 32, 2, 2], [4, 32, 5, 1], [2, 32, 2, 2], [2, 32,
-            6, 2]]
+        interverted_residual_setting = [[1, 32, 1, 1], [2, 32, 2, 1], [4, 32, 2, 1], [2, 32, 2, 2], [4, 32, 5, 1], [2, 32, 2, 2], [2, 32, 6, 2]]
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2)]
         cnt = 0
         for t, c, n, s in interverted_residual_setting:
@@ -1160,19 +1098,15 @@ class Net(nn.Module):
             for i in range(n):
                 if cnt > 1:
                     if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
                     else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
                     input_channel = output_channel
                 else:
                     if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
                     else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
                     input_channel = output_channel
             cnt += 1
         self.features.append(gated_conv1x1(input_channel, self.last_channel))
@@ -1205,8 +1139,7 @@ class DWC(nn.Module):
         super(DWC, self).__init__()
         self.batch_norm_in = nn.BatchNorm2d(in_channels)
         self.depthwise = nn.AvgPool2d((7, 6), stride=1, padding=0)
-        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, x):
         x = self.depthwise(x)
@@ -1218,10 +1151,8 @@ class Max_AvgPool(nn.Module):
 
     def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
         super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
+        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
+        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         x = self.Maxpool(x) + self.Avgpool(x)
@@ -1232,10 +1163,8 @@ class Max_AvgPool(nn.Module):
 
     def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
         super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
+        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
+        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         x = self.Maxpool(x) + self.Avgpool(x)
@@ -1274,8 +1203,7 @@ class InvertedResidual_dwc(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv = []
         if expand_ratio == 1:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3),
-                stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
@@ -1284,8 +1212,7 @@ class InvertedResidual_dwc(nn.Module):
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=
-                (3, 3), stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
@@ -1309,16 +1236,14 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv = []
         if expand_ratio == 1:
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
         else:
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
         self.conv = nn.Sequential(*self.conv)
@@ -1338,12 +1263,9 @@ class Net(nn.Module):
         block_dwc = InvertedResidual_dwc
         input_channel = 64
         last_channel = 256
-        interverted_residual_setting = [[1, 48, 1, 1], [2, 48, 2, 1], [4, 
-            48, 2, 2], [2, 48, 2, 1], [4, 48, 5, 1], [2, 48, 2, 2], [2, 48,
-            6, 2]]
+        interverted_residual_setting = [[1, 48, 1, 1], [2, 48, 2, 1], [4, 48, 2, 2], [2, 48, 2, 1], [4, 48, 5, 1], [2, 48, 2, 2], [2, 48, 6, 2]]
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2)]
         cnt = 0
         for t, c, n, s in interverted_residual_setting:
@@ -1351,19 +1273,15 @@ class Net(nn.Module):
             for i in range(n):
                 if cnt > 1:
                     if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
                     else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
                     input_channel = output_channel
                 else:
                     if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
                     else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
                     input_channel = output_channel
             cnt += 1
         self.features.append(gated_conv1x1(input_channel, self.last_channel))
@@ -1396,8 +1314,7 @@ class DWC(nn.Module):
         super(DWC, self).__init__()
         self.batch_norm_in = nn.BatchNorm2d(in_channels)
         self.depthwise = nn.AvgPool2d((7, 6), stride=1, padding=0)
-        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, x):
         x = self.depthwise(x)
@@ -1409,10 +1326,8 @@ class Max_AvgPool(nn.Module):
 
     def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
         super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
+        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
+        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         x = self.Maxpool(x) + self.Avgpool(x)
@@ -1423,10 +1338,8 @@ class Max_AvgPool(nn.Module):
 
     def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
         super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride,
-            padding=padding)
+        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
+        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         x = self.Maxpool(x) + self.Avgpool(x)
@@ -1465,8 +1378,7 @@ class InvertedResidual_dwc(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv = []
         if expand_ratio == 1:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3),
-                stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
@@ -1475,8 +1387,7 @@ class InvertedResidual_dwc(nn.Module):
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=
-                (3, 3), stride=stride, padding=1, groups=hidden_dim))
+            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
@@ -1500,16 +1411,14 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv = []
         if expand_ratio == 1:
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
         else:
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
             self.conv.append(nn.PReLU())
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride,
-                padding=1))
+            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
         self.conv = nn.Sequential(*self.conv)
@@ -1529,12 +1438,9 @@ class Net(nn.Module):
         block_dwc = InvertedResidual_dwc
         input_channel = 64
         last_channel = 256
-        interverted_residual_setting = [[1, 64, 1, 1], [2, 64, 2, 1], [4, 
-            64, 2, 2], [2, 64, 2, 1], [4, 64, 5, 1], [2, 64, 2, 2], [2, 64,
-            6, 2]]
+        interverted_residual_setting = [[1, 64, 1, 1], [2, 64, 2, 1], [4, 64, 2, 2], [2, 64, 2, 1], [4, 64, 5, 1], [2, 64, 2, 2], [2, 64, 6, 2]]
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2)]
         cnt = 0
         for t, c, n, s in interverted_residual_setting:
@@ -1542,19 +1448,15 @@ class Net(nn.Module):
             for i in range(n):
                 if cnt > 1:
                     if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
                     else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
                     input_channel = output_channel
                 else:
                     if i == n - 1:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, s, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
                     else:
-                        self.features.append(block_dwc(input_channel,
-                            output_channel, 1, expand_ratio=t))
+                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
                     input_channel = output_channel
             cnt += 1
         self.features.append(gated_conv1x1(input_channel, self.last_channel))
@@ -1585,23 +1487,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DWC,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual_dwc,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Max_AvgPool,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_clovaai_EXTD_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DWC(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InvertedResidual_dwc(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Max_AvgPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

@@ -49,8 +49,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -150,8 +151,7 @@ class FocalLoss(nn.Module):
         pos = cls_targets > 0
         num_pos = pos.sum().item()
         mask = pos.unsqueeze(2).expand_as(loc_preds)
-        loc_loss = F.smooth_l1_loss(loc_preds[mask], loc_targets[mask],
-            size_average=False)
+        loc_loss = F.smooth_l1_loss(loc_preds[mask], loc_targets[mask], size_average=False)
         pos_neg = cls_targets > -1
         mask = pos_neg.unsqueeze(2).expand_as(cls_preds)
         masked_cls_preds = cls_preds[mask].view(-1, self.num_classes)
@@ -200,10 +200,8 @@ class SSDLoss(nn.Module):
         batch_size = pos.size(0)
         num_pos = pos.sum().item()
         mask = pos.unsqueeze(2).expand_as(loc_preds)
-        loc_loss = F.smooth_l1_loss(loc_preds[mask], loc_targets[mask],
-            size_average=False)
-        cls_loss = F.cross_entropy(cls_preds.view(-1, self.num_classes),
-            cls_targets.view(-1), reduce=False)
+        loc_loss = F.smooth_l1_loss(loc_preds[mask], loc_targets[mask], size_average=False)
+        cls_loss = F.cross_entropy(cls_preds.view(-1, self.num_classes), cls_targets.view(-1), reduce=False)
         cls_loss = cls_loss.view(batch_size, -1)
         cls_loss[cls_targets < 0] = 0
         neg = self._hard_negative_mining(cls_loss, pos)
@@ -220,17 +218,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -246,8 +240,7 @@ class FPN(nn.Module):
     def __init__(self, block, num_blocks):
         super(FPN, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -257,12 +250,9 @@ class FPN(nn.Module):
         self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
         self.conv8 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
         self.conv9 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
-        self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
+        self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
         self.smooth1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.smooth2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
 
@@ -296,8 +286,7 @@ class FPN(nn.Module):
         So we choose bilinear upsample which supports arbitrary output sizes.
         """
         _, _, H, W = y.size()
-        return F.upsample(x, size=(H, W), mode='bilinear', align_corners=False
-            ) + y
+        return F.upsample(x, size=(H, W), mode='bilinear', align_corners=False) + y
 
     def forward(self, x):
         c1 = F.relu(self.bn1(self.conv1(x)))
@@ -340,8 +329,7 @@ class FPNSSD512(nn.Module):
             loc_pred = self.loc_head(fm)
             cls_pred = self.cls_head(fm)
             loc_pred = loc_pred.permute(0, 2, 3, 1).reshape(x.size(0), -1, 4)
-            cls_pred = cls_pred.permute(0, 2, 3, 1).reshape(x.size(0), -1,
-                self.num_classes)
+            cls_pred = cls_pred.permute(0, 2, 3, 1).reshape(x.size(0), -1, self.num_classes)
             loc_preds.append(loc_pred)
             cls_preds.append(cls_pred)
         return torch.cat(loc_preds, 1), torch.cat(cls_preds, 1)
@@ -349,11 +337,9 @@ class FPNSSD512(nn.Module):
     def _make_head(self, out_planes):
         layers = []
         for _ in range(4):
-            layers.append(nn.Conv2d(256, 256, kernel_size=3, stride=1,
-                padding=1))
+            layers.append(nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
             layers.append(nn.ReLU(True))
-        layers.append(nn.Conv2d(256, out_planes, kernel_size=3, stride=1,
-            padding=1))
+        layers.append(nn.Conv2d(256, out_planes, kernel_size=3, stride=1, padding=1))
         return nn.Sequential(*layers)
 
 
@@ -364,17 +350,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -390,8 +372,7 @@ class FPN(nn.Module):
     def __init__(self, block, num_blocks):
         super(FPN, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -399,12 +380,9 @@ class FPN(nn.Module):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.conv6 = nn.Conv2d(2048, 256, kernel_size=3, stride=2, padding=1)
         self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1)
-        self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0
-            )
-        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1,
-            padding=0)
-        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0
-            )
+        self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
+        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
         self.smooth1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.smooth2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
 
@@ -438,8 +416,7 @@ class FPN(nn.Module):
         So we choose bilinear upsample which supports arbitrary output sizes.
         """
         _, _, H, W = y.size()
-        return F.upsample(x, size=(H, W), mode='bilinear', align_corners=False
-            ) + y
+        return F.upsample(x, size=(H, W), mode='bilinear', align_corners=False) + y
 
     def forward(self, x):
         c1 = F.relu(self.bn1(self.conv1(x)))
@@ -476,8 +453,7 @@ class RetinaNet(nn.Module):
             loc_pred = self.loc_head(fm)
             cls_pred = self.cls_head(fm)
             loc_pred = loc_pred.permute(0, 2, 3, 1).reshape(x.size(0), -1, 4)
-            cls_pred = cls_pred.permute(0, 2, 3, 1).reshape(x.size(0), -1,
-                self.num_classes)
+            cls_pred = cls_pred.permute(0, 2, 3, 1).reshape(x.size(0), -1, self.num_classes)
             loc_preds.append(loc_pred)
             cls_preds.append(cls_pred)
         return torch.cat(loc_preds, 1), torch.cat(cls_preds, 1)
@@ -485,11 +461,9 @@ class RetinaNet(nn.Module):
     def _make_head(self, out_planes):
         layers = []
         for _ in range(4):
-            layers.append(nn.Conv2d(256, 256, kernel_size=3, stride=1,
-                padding=1))
+            layers.append(nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
             layers.append(nn.ReLU(True))
-        layers.append(nn.Conv2d(256, out_planes, kernel_size=3, stride=1,
-            padding=1))
+        layers.append(nn.Conv2d(256, out_planes, kernel_size=3, stride=1, padding=1))
         return nn.Sequential(*layers)
 
 
@@ -510,11 +484,9 @@ class VGG16(nn.Module):
         in_channels = 3
         for x in cfg:
             if x == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=
-                    True)]
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)]
             else:
-                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding
-                    =1), nn.ReLU(True)]
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.ReLU(True)]
                 in_channels = x
         return nn.Sequential(*layers)
 
@@ -542,12 +514,9 @@ class VGG16Extractor300(nn.Module):
         super(VGG16Extractor300, self).__init__()
         self.features = VGG16()
         self.norm4 = L2Norm(512, 20)
-        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1
-            )
-        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1
-            )
-        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1
-            )
+        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1)
+        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1)
+        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1)
         self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
         self.conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
         self.conv8_1 = nn.Conv2d(1024, 256, kernel_size=1)
@@ -601,10 +570,8 @@ class SSD300(nn.Module):
         self.loc_layers = nn.ModuleList()
         self.cls_layers = nn.ModuleList()
         for i in range(len(self.in_channels)):
-            self.loc_layers += [nn.Conv2d(self.in_channels[i], self.
-                num_anchors[i] * 4, kernel_size=3, padding=1)]
-            self.cls_layers += [nn.Conv2d(self.in_channels[i], self.
-                num_anchors[i] * self.num_classes, kernel_size=3, padding=1)]
+            self.loc_layers += [nn.Conv2d(self.in_channels[i], self.num_anchors[i] * 4, kernel_size=3, padding=1)]
+            self.cls_layers += [nn.Conv2d(self.in_channels[i], self.num_anchors[i] * self.num_classes, kernel_size=3, padding=1)]
 
     def forward(self, x):
         loc_preds = []
@@ -616,8 +583,7 @@ class SSD300(nn.Module):
             loc_preds.append(loc_pred.view(loc_pred.size(0), -1, 4))
             cls_pred = self.cls_layers[i](x)
             cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous()
-            cls_preds.append(cls_pred.view(cls_pred.size(0), -1, self.
-                num_classes))
+            cls_preds.append(cls_pred.view(cls_pred.size(0), -1, self.num_classes))
         loc_preds = torch.cat(loc_preds, 1)
         cls_preds = torch.cat(cls_preds, 1)
         return loc_preds, cls_preds
@@ -629,12 +595,9 @@ class VGG16Extractor512(nn.Module):
         super(VGG16Extractor512, self).__init__()
         self.features = VGG16()
         self.norm4 = L2Norm(512, 20)
-        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1
-            )
-        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1
-            )
-        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1
-            )
+        self.conv5_1 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1)
+        self.conv5_2 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1)
+        self.conv5_3 = nn.Conv2d(512, 512, kernel_size=3, padding=1, dilation=1)
         self.conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
         self.conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
         self.conv8_1 = nn.Conv2d(1024, 256, kernel_size=1)
@@ -693,10 +656,8 @@ class SSD512(nn.Module):
         self.loc_layers = nn.ModuleList()
         self.cls_layers = nn.ModuleList()
         for i in range(len(self.in_channels)):
-            self.loc_layers += [nn.Conv2d(self.in_channels[i], self.
-                num_anchors[i] * 4, kernel_size=3, padding=1)]
-            self.cls_layers += [nn.Conv2d(self.in_channels[i], self.
-                num_anchors[i] * self.num_classes, kernel_size=3, padding=1)]
+            self.loc_layers += [nn.Conv2d(self.in_channels[i], self.num_anchors[i] * 4, kernel_size=3, padding=1)]
+            self.cls_layers += [nn.Conv2d(self.in_channels[i], self.num_anchors[i] * self.num_classes, kernel_size=3, padding=1)]
 
     def forward(self, x):
         loc_preds = []
@@ -708,8 +669,7 @@ class SSD512(nn.Module):
             loc_preds.append(loc_pred.view(loc_pred.size(0), -1, 4))
             cls_pred = self.cls_layers[i](x)
             cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous()
-            cls_preds.append(cls_pred.view(cls_pred.size(0), -1, self.
-                num_classes))
+            cls_preds.append(cls_pred.view(cls_pred.size(0), -1, self.num_classes))
         loc_preds = torch.cat(loc_preds, 1)
         cls_preds = torch.cat(cls_preds, 1)
         return loc_preds, cls_preds
@@ -719,24 +679,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FPNSSD512,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (FocalLoss,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (L2Norm,
+     lambda: ([], {'in_features': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RetinaNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SSD300,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (SSD512,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
+    (VGG16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (VGG16Extractor300,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     True),
+    (VGG16Extractor512,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     True),
+]
+
 class Test_kuangliu_torchcv(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FPNSSD512(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(FocalLoss(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L2Norm(*[], **{'in_features': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(RetinaNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(VGG16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

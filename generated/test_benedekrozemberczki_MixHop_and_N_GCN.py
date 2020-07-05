@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,8 +55,7 @@ class SparseNGCNLayer(torch.nn.Module):
         """
         Defining the weight matrices.
         """
-        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.
-            in_channels, self.out_channels))
+        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.in_channels, self.out_channels))
         self.bias = torch.nn.Parameter(torch.Tensor(1, self.out_channels))
 
     def init_parameters(self):
@@ -74,16 +74,12 @@ class SparseNGCNLayer(torch.nn.Module):
         """
         feature_count, _ = torch.max(features['indices'], dim=1)
         feature_count = feature_count + 1
-        base_features = spmm(features['indices'], features['values'],
-            feature_count[0], feature_count[1], self.weight_matrix)
+        base_features = spmm(features['indices'], features['values'], feature_count[0], feature_count[1], self.weight_matrix)
         base_features = base_features + self.bias
-        base_features = torch.nn.functional.dropout(base_features, p=self.
-            dropout_rate, training=self.training)
+        base_features = torch.nn.functional.dropout(base_features, p=self.dropout_rate, training=self.training)
         base_features = torch.nn.functional.relu(base_features)
         for _ in range(self.iterations - 1):
-            base_features = spmm(normalized_adjacency_matrix['indices'],
-                normalized_adjacency_matrix['values'], base_features.shape[
-                0], base_features.shape[0], base_features)
+            base_features = spmm(normalized_adjacency_matrix['indices'], normalized_adjacency_matrix['values'], base_features.shape[0], base_features.shape[0], base_features)
         return base_features
 
 
@@ -109,8 +105,7 @@ class DenseNGCNLayer(torch.nn.Module):
         """
         Defining the weight matrices.
         """
-        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.
-            in_channels, self.out_channels))
+        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.in_channels, self.out_channels))
         self.bias = torch.nn.Parameter(torch.Tensor(1, self.out_channels))
 
     def init_parameters(self):
@@ -128,12 +123,9 @@ class DenseNGCNLayer(torch.nn.Module):
         :return base_features: Convolved features.
         """
         base_features = torch.mm(features, self.weight_matrix)
-        base_features = torch.nn.functional.dropout(base_features, p=self.
-            dropout_rate, training=self.training)
+        base_features = torch.nn.functional.dropout(base_features, p=self.dropout_rate, training=self.training)
         for _ in range(self.iterations - 1):
-            base_features = spmm(normalized_adjacency_matrix['indices'],
-                normalized_adjacency_matrix['values'], base_features.shape[
-                0], base_features.shape[0], base_features)
+            base_features = spmm(normalized_adjacency_matrix['indices'], normalized_adjacency_matrix['values'], base_features.shape[0], base_features.shape[0], base_features)
         base_features = base_features + self.bias
         return base_features
 
@@ -197,12 +189,9 @@ class NGCNNetwork(torch.nn.Module):
         """
         Creating the layer structure (3 convolutional layers) and dense final.
         """
-        self.main_layers = [SparseNGCNLayer(self.feature_number, self.args.
-            layers_1[i - 1], i, self.args.dropout) for i in range(1, self.
-            order + 1)]
+        self.main_layers = [SparseNGCNLayer(self.feature_number, self.args.layers_1[i - 1], i, self.args.dropout) for i in range(1, self.order + 1)]
         self.main_layers = ListModule(*self.main_layers)
-        self.fully_connected = torch.nn.Linear(sum(self.args.layers_1),
-            self.class_number)
+        self.fully_connected = torch.nn.Linear(sum(self.args.layers_1), self.class_number)
 
     def forward(self, normalized_adjacency_matrix, features):
         """
@@ -211,11 +200,9 @@ class NGCNNetwork(torch.nn.Module):
         :param features: Feature matrix.
         :return predictions: Label predictions.
         """
-        abstract_features = [self.main_layers[i](
-            normalized_adjacency_matrix, features) for i in range(self.order)]
+        abstract_features = [self.main_layers[i](normalized_adjacency_matrix, features) for i in range(self.order)]
         abstract_features = torch.cat(abstract_features, dim=1)
-        predictions = torch.nn.functional.log_softmax(self.fully_connected(
-            abstract_features), dim=1)
+        predictions = torch.nn.functional.log_softmax(self.fully_connected(abstract_features), dim=1)
         return predictions
 
 
@@ -245,16 +232,11 @@ class MixHopNetwork(torch.nn.Module):
         """
         Creating the layer structure (3 convolutional upper layers, 3 bottom layers) and dense final.
         """
-        self.upper_layers = [SparseNGCNLayer(self.feature_number, self.args
-            .layers_1[i - 1], i, self.args.dropout) for i in range(1, self.
-            order_1 + 1)]
+        self.upper_layers = [SparseNGCNLayer(self.feature_number, self.args.layers_1[i - 1], i, self.args.dropout) for i in range(1, self.order_1 + 1)]
         self.upper_layers = ListModule(*self.upper_layers)
-        self.bottom_layers = [DenseNGCNLayer(self.abstract_feature_number_1,
-            self.args.layers_2[i - 1], i, self.args.dropout) for i in range
-            (1, self.order_2 + 1)]
+        self.bottom_layers = [DenseNGCNLayer(self.abstract_feature_number_1, self.args.layers_2[i - 1], i, self.args.dropout) for i in range(1, self.order_2 + 1)]
         self.bottom_layers = ListModule(*self.bottom_layers)
-        self.fully_connected = torch.nn.Linear(self.
-            abstract_feature_number_2, self.class_number)
+        self.fully_connected = torch.nn.Linear(self.abstract_feature_number_2, self.class_number)
 
     def calculate_group_loss(self):
         """
@@ -262,13 +244,11 @@ class MixHopNetwork(torch.nn.Module):
         """
         weight_loss = 0
         for i in range(self.order_1):
-            upper_column_loss = torch.norm(self.upper_layers[i].
-                weight_matrix, dim=0)
+            upper_column_loss = torch.norm(self.upper_layers[i].weight_matrix, dim=0)
             loss_upper = torch.sum(upper_column_loss)
             weight_loss = weight_loss + self.args.lambd * loss_upper
         for i in range(self.order_2):
-            bottom_column_loss = torch.norm(self.bottom_layers[i].
-                weight_matrix, dim=0)
+            bottom_column_loss = torch.norm(self.bottom_layers[i].weight_matrix, dim=0)
             loss_bottom = torch.sum(bottom_column_loss)
             weight_loss = weight_loss + self.args.lambd * loss_bottom
         return weight_loss
@@ -293,20 +273,8 @@ class MixHopNetwork(torch.nn.Module):
         :param features: Feature matrix.
         :return predictions: Label predictions.
         """
-        abstract_features_1 = torch.cat([self.upper_layers[i](
-            normalized_adjacency_matrix, features) for i in range(self.
-            order_1)], dim=1)
-        abstract_features_2 = torch.cat([self.bottom_layers[i](
-            normalized_adjacency_matrix, abstract_features_1) for i in
-            range(self.order_2)], dim=1)
-        predictions = torch.nn.functional.log_softmax(self.fully_connected(
-            abstract_features_2), dim=1)
+        abstract_features_1 = torch.cat([self.upper_layers[i](normalized_adjacency_matrix, features) for i in range(self.order_1)], dim=1)
+        abstract_features_2 = torch.cat([self.bottom_layers[i](normalized_adjacency_matrix, abstract_features_1) for i in range(self.order_2)], dim=1)
+        predictions = torch.nn.functional.log_softmax(self.fully_connected(abstract_features_2), dim=1)
         return predictions
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_benedekrozemberczki_MixHop_and_N_GCN(_paritybench_base):
-    pass

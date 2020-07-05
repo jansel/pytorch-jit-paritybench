@@ -70,8 +70,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -247,11 +248,7 @@ class Nodes(torch.nn.Module):
     Abstract base class for groups of neurons.
     """
 
-    def __init__(self, n: Optional[int]=None, shape: Optional[Iterable[int]
-        ]=None, traces: bool=False, traces_additive: bool=False, tc_trace:
-        Union[float, torch.Tensor]=20.0, trace_scale: Union[float, torch.
-        Tensor]=1.0, sum_input: bool=False, learning: bool=True, **kwargs
-        ) ->None:
+    def __init__(self, n: Optional[int]=None, shape: Optional[Iterable[int]]=None, traces: bool=False, traces_additive: bool=False, tc_trace: Union[float, torch.Tensor]=20.0, trace_scale: Union[float, torch.Tensor]=1.0, sum_input: bool=False, learning: bool=True, **kwargs) ->None:
         """
         Abstract base class constructor.
 
@@ -274,8 +271,7 @@ class Nodes(torch.nn.Module):
             self.shape = [self.n]
         else:
             self.shape = shape
-        assert self.n == reduce(mul, self.shape
-            ), 'No. of neurons and shape do not match'
+        assert self.n == reduce(mul, self.shape), 'No. of neurons and shape do not match'
         self.traces = traces
         self.traces_additive = traces_additive
         self.register_buffer('s', torch.ByteTensor())
@@ -285,8 +281,7 @@ class Nodes(torch.nn.Module):
             self.register_buffer('tc_trace', torch.tensor(tc_trace))
             if self.traces_additive:
                 self.register_buffer('trace_scale', torch.tensor(trace_scale))
-            self.register_buffer('trace_decay', torch.empty_like(self.tc_trace)
-                )
+            self.register_buffer('trace_decay', torch.empty_like(self.tc_trace))
         if self.sum_input:
             self.register_buffer('summed', torch.FloatTensor())
         self.dt = None
@@ -339,8 +334,7 @@ class Nodes(torch.nn.Module):
         if self.traces:
             self.x = torch.zeros(batch_size, *self.shape, device=self.x.device)
         if self.sum_input:
-            self.summed = torch.zeros(batch_size, *self.shape, device=self.
-                summed.device)
+            self.summed = torch.zeros(batch_size, *self.shape, device=self.summed.device)
 
     def train(self, mode: bool=True) ->'Nodes':
         """
@@ -358,9 +352,7 @@ class AbstractConnection(ABC, Module):
     Abstract base method for connections between ``Nodes``.
     """
 
-    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[
-        float, Sequence[float]]]=None, reduction: Optional[callable]=None,
-        weight_decay: float=0.0, **kwargs) ->None:
+    def __init__(self, source: Nodes, target: Nodes, nu: Optional[Union[float, Sequence[float]]]=None, reduction: Optional[callable]=None, weight_decay: float=0.0, **kwargs) ->None:
         """
         Constructor for abstract base class for connection objects.
 
@@ -394,8 +386,7 @@ class AbstractConnection(ABC, Module):
         self.decay = kwargs.get('decay', None)
         if self.update_rule is None:
             self.update_rule = NoOp
-        self.update_rule = self.update_rule(connection=self, nu=nu,
-            reduction=reduction, weight_decay=weight_decay, **kwargs)
+        self.update_rule = self.update_rule(connection=self, nu=nu, reduction=reduction, weight_decay=weight_decay, **kwargs)
 
     @abstractmethod
     def compute(self, s: torch.Tensor) ->None:
@@ -477,15 +468,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FeatureExtractor,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FullyConnectedNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([6400, 6400])], {}),
+     True),
+]
+
 class Test_BindsNET_bindsnet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FeatureExtractor(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FullyConnectedNetwork(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Net(*[], **{}), [torch.rand([6400, 6400])], {})
+        self._check(*TESTCASES[2])
 

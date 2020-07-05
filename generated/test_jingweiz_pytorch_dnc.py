@@ -43,8 +43,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -163,17 +164,13 @@ class Circuit(nn.Module):
         self.accessor_params.mem_hei = self.mem_hei
         self.accessor_params.mem_wid = self.mem_wid
         self.accessor_params.clip_value = self.clip_value
-        self.logger.warning(
-            '<-----------------------------======> Circuit:    {Controller, Accessor}'
-            )
+        self.logger.warning('<-----------------------------======> Circuit:    {Controller, Accessor}')
 
     def _init_weights(self):
         raise NotImplementedError('not implemented in base calss')
 
     def print_model(self):
-        self.logger.warning(
-            '<-----------------------------======> Circuit:    {Overall Architecture}'
-            )
+        self.logger.warning('<-----------------------------======> Circuit:    {Overall Architecture}')
         self.logger.warning(self)
 
     def _reset_states(self):
@@ -185,17 +182,14 @@ class Circuit(nn.Module):
         self._init_weights()
         self.type(self.dtype)
         self.print_model()
-        self.read_vec_ts = torch.zeros(self.batch_size, self.read_vec_dim
-            ).fill_(1e-06)
+        self.read_vec_ts = torch.zeros(self.batch_size, self.read_vec_dim).fill_(1e-06)
         self._reset_states()
 
     def forward(self, input_vb):
         hidden_vb = self.controller.forward(input_vb, self.read_vec_vb)
         self.read_vec_vb = self.accessor.forward(hidden_vb)
-        output_vb = self.hid_to_out(torch.cat((hidden_vb.view(-1, self.
-            hidden_dim), self.read_vec_vb.view(-1, self.read_vec_dim)), 1))
-        return F.sigmoid(torch.clamp(output_vb, min=-self.clip_value, max=
-            self.clip_value)).view(1, self.batch_size, self.output_dim)
+        output_vb = self.hid_to_out(torch.cat((hidden_vb.view(-1, self.hidden_dim), self.read_vec_vb.view(-1, self.read_vec_dim)), 1))
+        return F.sigmoid(torch.clamp(output_vb, min=-self.clip_value, max=self.clip_value)).view(1, self.batch_size, self.output_dim)
 
 
 class Controller(nn.Module):
@@ -218,23 +212,19 @@ class Controller(nn.Module):
         raise NotImplementedError('not implemented in base calss')
 
     def print_model(self):
-        self.logger.warning('<--------------------------------===> Controller:'
-            )
+        self.logger.warning('<--------------------------------===> Controller:')
         self.logger.warning(self)
 
     def _reset_states(self):
-        self.lstm_hidden_vb = Variable(self.lstm_hidden_ts[0]).type(self.dtype
-            ), Variable(self.lstm_hidden_ts[1]).type(self.dtype)
+        self.lstm_hidden_vb = Variable(self.lstm_hidden_ts[0]).type(self.dtype), Variable(self.lstm_hidden_ts[1]).type(self.dtype)
 
     def _reset(self):
         self._init_weights()
         self.type(self.dtype)
         self.print_model()
         self.lstm_hidden_ts = []
-        self.lstm_hidden_ts.append(torch.zeros(self.batch_size, self.
-            hidden_dim))
-        self.lstm_hidden_ts.append(torch.zeros(self.batch_size, self.
-            hidden_dim))
+        self.lstm_hidden_ts.append(torch.zeros(self.batch_size, self.hidden_dim))
+        self.lstm_hidden_ts.append(torch.zeros(self.batch_size, self.hidden_dim))
         self._reset_states()
 
     def forward(self, input_vb):
@@ -265,8 +255,7 @@ class Head(nn.Module):
 
     def _reset(self):
         self.type(self.dtype)
-        self.wl_prev_ts = torch.eye(1, self.mem_hei).unsqueeze(0).expand(self
-            .batch_size, self.num_heads, self.mem_hei)
+        self.wl_prev_ts = torch.eye(1, self.mem_hei).unsqueeze(0).expand(self.batch_size, self.num_heads, self.mem_hei)
         self._reset_states()
 
     def _visual(self):
@@ -275,10 +264,3 @@ class Head(nn.Module):
     def _access(self, memory_vb):
         raise NotImplementedError('not implemented in base calss')
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jingweiz_pytorch_dnc(_paritybench_base):
-    pass

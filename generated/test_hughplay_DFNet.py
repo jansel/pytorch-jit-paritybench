@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,8 +77,7 @@ class PerceptualLoss(nn.Module):
 
     def forward(self, vgg_results, vgg_targets):
         loss = 0.0
-        for i, (vgg_res, vgg_target) in enumerate(zip(vgg_results, vgg_targets)
-            ):
+        for i, (vgg_res, vgg_target) in enumerate(zip(vgg_results, vgg_targets)):
             for feat_res, feat_target in zip(vgg_res, vgg_target):
                 loss += self.l1loss(feat_res, feat_target)
         return loss / len(vgg_results)
@@ -97,11 +97,9 @@ class StyleLoss(nn.Module):
 
     def forward(self, vgg_results, vgg_targets):
         loss = 0.0
-        for i, (vgg_res, vgg_target) in enumerate(zip(vgg_results, vgg_targets)
-            ):
+        for i, (vgg_res, vgg_target) in enumerate(zip(vgg_results, vgg_targets)):
             for feat_res, feat_target in zip(vgg_res, vgg_target):
-                loss += self.l1loss(self.gram(feat_res), self.gram(feat_target)
-                    )
+                loss += self.l1loss(self.gram(feat_res), self.gram(feat_target))
         return loss / len(vgg_results)
 
 
@@ -114,14 +112,12 @@ class TotalVariationLoss(nn.Module):
     def __init__(self, c_img=3):
         super().__init__()
         self.c_img = c_img
-        kernel = torch.FloatTensor([[0, 1, 0], [1, -2, 0], [0, 0, 0]]).view(
-            1, 1, 3, 3)
+        kernel = torch.FloatTensor([[0, 1, 0], [1, -2, 0], [0, 0, 0]]).view(1, 1, 3, 3)
         kernel = torch.cat([kernel] * c_img, dim=0)
         self.register_buffer('kernel', kernel)
 
     def gradient(self, x):
-        return nn.functional.conv2d(x, self.kernel, stride=1, padding=1,
-            groups=self.c_img)
+        return nn.functional.conv2d(x, self.kernel, stride=1, padding=1, groups=self.c_img)
 
     def forward(self, results, mask):
         loss = 0.0
@@ -133,8 +129,7 @@ class TotalVariationLoss(nn.Module):
 
 class InpaintLoss(nn.Module):
 
-    def __init__(self, c_img=3, w_l1=6.0, w_percep=0.1, w_style=240.0, w_tv
-        =0.1, structure_layers=[0, 1, 2, 3, 4, 5], texture_layers=[0, 1, 2]):
+    def __init__(self, c_img=3, w_l1=6.0, w_percep=0.1, w_style=240.0, w_tv=0.1, structure_layers=[0, 1, 2, 3, 4, 5], texture_layers=[0, 1, 2]):
         super().__init__()
         self.l_struct = structure_layers
         self.l_text = texture_layers
@@ -156,8 +151,7 @@ class InpaintLoss(nn.Module):
         if len(self.l_struct) > 0:
             struct_r = [results[i] for i in self.l_struct]
             struct_t = [targets[i] for i in self.l_struct]
-            loss_struct = self.reconstruction_loss(struct_r, struct_t
-                ) * self.w_l1
+            loss_struct = self.reconstruction_loss(struct_r, struct_t) * self.w_l1
             loss_list['reconstruction_loss'] = loss_struct.item()
         if len(self.l_text) > 0:
             text_r = [targets[i] for i in self.l_text]
@@ -168,9 +162,7 @@ class InpaintLoss(nn.Module):
             loss_percep = self.perceptual_loss(vgg_r, vgg_t) * self.w_percep
             loss_tv = self.tv_loss(text_r, mask) * self.w_tv
             loss_text = loss_style + loss_percep + loss_tv
-            loss_list.update({'perceptual_loss': loss_percep.item(),
-                'style_loss': loss_style.item(), 'total_variation_loss':
-                loss_tv.item()})
+            loss_list.update({'perceptual_loss': loss_percep.item(), 'style_loss': loss_style.item(), 'total_variation_loss': loss_tv.item()})
         loss_total = loss_struct + loss_text
         return loss_total, loss_list
 
@@ -181,11 +173,9 @@ class Conv2dSame(nn.Module):
         super().__init__()
         padding = self.conv_same_pad(kernel_size, stride)
         if type(padding) is not tuple:
-            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                stride, padding)
+            self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         else:
-            self.conv = nn.Sequential(nn.ConstantPad2d(padding * 2, 0), nn.
-                Conv2d(in_channels, out_channels, kernel_size, stride, 0))
+            self.conv = nn.Sequential(nn.ConstantPad2d(padding * 2, 0), nn.Conv2d(in_channels, out_channels, kernel_size, stride, 0))
 
     def conv_same_pad(self, ksize, stride):
         if (ksize - stride) % 2 == 0:
@@ -204,8 +194,7 @@ class ConvTranspose2dSame(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride):
         super().__init__()
         padding, output_padding = self.deconv_same_pad(kernel_size, stride)
-        self.trans_conv = nn.ConvTranspose2d(in_channels, out_channels,
-            kernel_size, stride, padding, output_padding)
+        self.trans_conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding, output_padding)
 
     def deconv_same_pad(self, ksize, stride):
         pad = (ksize - stride + 1) // 2
@@ -222,8 +211,7 @@ class UpBlock(nn.Module):
         super().__init__()
         self.mode = mode
         if mode == 'deconv':
-            self.up = ConvTranspose2dSame(channel, channel, kernel_size,
-                stride=scale)
+            self.up = ConvTranspose2dSame(channel, channel, kernel_size, stride=scale)
         else:
 
             def upsample(x):
@@ -262,8 +250,7 @@ def get_norm(name, out_channels):
 
 class EncodeBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        normalization=None, activation=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, normalization=None, activation=None):
         super().__init__()
         self.c_in = in_channels
         self.c_out = out_channels
@@ -281,8 +268,7 @@ class EncodeBlock(nn.Module):
 
 class DecodeBlock(nn.Module):
 
-    def __init__(self, c_from_up, c_from_down, c_out, mode='nearest',
-        kernel_size=4, scale=2, normalization='batch', activation='relu'):
+    def __init__(self, c_from_up, c_from_down, c_out, mode='nearest', kernel_size=4, scale=2, normalization='batch', activation='relu'):
         super().__init__()
         self.c_from_up = c_from_up
         self.c_from_down = c_from_down
@@ -307,14 +293,10 @@ class DecodeBlock(nn.Module):
 
 class BlendBlock(nn.Module):
 
-    def __init__(self, c_in, c_out, ksize_mid=3, norm='batch', act='leaky_relu'
-        ):
+    def __init__(self, c_in, c_out, ksize_mid=3, norm='batch', act='leaky_relu'):
         super().__init__()
         c_mid = max(c_in // 2, 32)
-        self.blend = nn.Sequential(Conv2dSame(c_in, c_mid, 1, 1), get_norm(
-            norm, c_mid), get_activation(act), Conv2dSame(c_mid, c_out,
-            ksize_mid, 1), get_norm(norm, c_out), get_activation(act),
-            Conv2dSame(c_out, c_out, 1, 1), nn.Sigmoid())
+        self.blend = nn.Sequential(Conv2dSame(c_in, c_mid, 1, 1), get_norm(norm, c_mid), get_activation(act), Conv2dSame(c_mid, c_out, ksize_mid, 1), get_norm(norm, c_out), get_activation(act), Conv2dSame(c_out, c_out, 1, 1), nn.Sigmoid())
 
     def forward(self, x):
         return self.blend(x)
@@ -325,8 +307,7 @@ class FusionBlock(nn.Module):
     def __init__(self, c_feat, c_alpha=1):
         super().__init__()
         c_img = 3
-        self.map2img = nn.Sequential(Conv2dSame(c_feat, c_img, 1, 1), nn.
-            Sigmoid())
+        self.map2img = nn.Sequential(Conv2dSame(c_feat, c_img, 1, 1), nn.Sigmoid())
         self.blend = BlendBlock(c_img * 2, c_alpha)
 
     def forward(self, img_miss, feat_de):
@@ -339,9 +320,7 @@ class FusionBlock(nn.Module):
 
 class DFNet(nn.Module):
 
-    def __init__(self, c_img=3, c_mask=1, c_alpha=3, mode='nearest', norm=
-        'batch', act_en='relu', act_de='leaky_relu', en_ksize=[7, 5, 5, 3, 
-        3, 3, 3, 3], de_ksize=[3] * 8, blend_layers=[0, 1, 2, 3, 4, 5]):
+    def __init__(self, c_img=3, c_mask=1, c_alpha=3, mode='nearest', norm='batch', act_en='relu', act_de='leaky_relu', en_ksize=[7, 5, 5, 3, 3, 3, 3, 3], de_ksize=[3] * 8, blend_layers=[0, 1, 2, 3, 4, 5]):
         super().__init__()
         c_init = c_img + c_mask
         self.n_en = len(en_ksize)
@@ -355,8 +334,7 @@ class DFNet(nn.Module):
         for k_en in en_ksize[1:]:
             c_in = self.en[-1].c_out
             c_out = min(c_in * 2, 512)
-            self.en.append(EncodeBlock(c_in, c_out, k_en, stride=2,
-                normalization=norm, activation=act_en))
+            self.en.append(EncodeBlock(c_in, c_out, k_en, stride=2, normalization=norm, activation=act_en))
         for i, en in enumerate(self.en):
             self.__setattr__('en_{}'.format(i), en)
         self.de = []
@@ -365,8 +343,7 @@ class DFNet(nn.Module):
             c_from_up = self.en[-1].c_out if i == 0 else self.de[-1].c_out
             c_out = c_from_down = self.en[-i - 1].c_in
             layer_idx = self.n_de - i - 1
-            self.de.append(DecodeBlock(c_from_up, c_from_down, c_out, mode,
-                k_de, scale=2, normalization=norm, activation=act_de))
+            self.de.append(DecodeBlock(c_from_up, c_from_down, c_out, mode, k_de, scale=2, normalization=norm, activation=act_de))
             if layer_idx in blend_layers:
                 self.fuse.append(FusionBlock(c_out, c_alpha))
             else:
@@ -400,33 +377,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BlendBlock,
+     lambda: ([], {'c_in': 4, 'c_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv2dSame,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EncodeBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FusionBlock,
+     lambda: ([], {'c_feat': 4}),
+     lambda: ([torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PerceptualLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReconstructionLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGGFeature,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_hughplay_DFNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BlendBlock(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EncodeBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(FusionBlock(*[], **{'c_feat': 4}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PerceptualLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ReconstructionLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(UpBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(VGGFeature(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 

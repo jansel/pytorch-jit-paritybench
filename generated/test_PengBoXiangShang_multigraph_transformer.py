@@ -52,8 +52,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -119,40 +120,27 @@ class GRUNet(nn.Module):
 
     def __init__(self, network_configs):
         super(GRUNet, self).__init__()
-        self.coord_embed = nn.Linear(network_configs['coord_input_dim'],
-            network_configs['embed_dim'], bias=False)
-        self.feat_embed = nn.Embedding(network_configs['feat_dict_size'],
-            network_configs['embed_dim'])
+        self.coord_embed = nn.Linear(network_configs['coord_input_dim'], network_configs['embed_dim'], bias=False)
+        self.feat_embed = nn.Embedding(network_configs['feat_dict_size'], network_configs['embed_dim'])
         self.hidden_size = network_configs['hidden_size']
-        self.gru = nn.GRU(input_size=network_configs['embed_dim'],
-            hidden_size=network_configs['hidden_size'], num_layers=
-            network_configs['num_layers'], batch_first=True, dropout=
-            network_configs['dropout'], bidirectional=True)
-        self.out_layer = nn.Linear(network_configs['hidden_size'] * 2,
-            network_configs['num_classes'])
+        self.gru = nn.GRU(input_size=network_configs['embed_dim'], hidden_size=network_configs['hidden_size'], num_layers=network_configs['num_layers'], batch_first=True, dropout=network_configs['dropout'], bidirectional=True)
+        self.out_layer = nn.Linear(network_configs['hidden_size'] * 2, network_configs['num_classes'])
 
     def forward(self, coordinate, flag_bits, position_encoding):
-        x = self.coord_embed(coordinate) + self.feat_embed(flag_bits
-            ) + self.feat_embed(position_encoding)
+        x = self.coord_embed(coordinate) + self.feat_embed(flag_bits) + self.feat_embed(position_encoding)
         self.rnn_hidden_feature, h = self.gru(x)
-        featur = torch.cat((self.rnn_hidden_feature[:, (-1), :self.
-            hidden_size], self.rnn_hidden_feature[:, (-1), self.hidden_size
-            :]), 1)
+        featur = torch.cat((self.rnn_hidden_feature[:, (-1), :self.hidden_size], self.rnn_hidden_feature[:, (-1), self.hidden_size:]), 1)
         x = self.out_layer(featur)
         return x, featur
 
 
 class GraphTransformerEncoder(nn.Module):
 
-    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size,
-        n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048,
-        normalization='batch', dropout=0.1):
+    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048, normalization='batch', dropout=0.1):
         super(GraphTransformerEncoder, self).__init__()
         self.coord_embed = nn.Linear(coord_input_dim, embed_dim, bias=False)
         self.feat_embed = nn.Embedding(feat_dict_size, embed_dim)
-        self.transformer_layers = nn.ModuleList([GraphTransformerLayer(
-            n_heads, embed_dim * 3, feedforward_dim, normalization, dropout
-            ) for _ in range(n_layers)])
+        self.transformer_layers = nn.ModuleList([GraphTransformerLayer(n_heads, embed_dim * 3, feedforward_dim, normalization, dropout) for _ in range(n_layers)])
 
     def forward(self, coord, flag, pos, attention_mask=None):
         h = torch.cat((self.coord_embed(coord), self.feat_embed(flag)), dim=2)
@@ -164,23 +152,12 @@ class GraphTransformerEncoder(nn.Module):
 
 class GraphTransformerClassifier(nn.Module):
 
-    def __init__(self, n_classes, coord_input_dim, feat_input_dim,
-        feat_dict_size, n_layers=6, n_heads=8, embed_dim=512,
-        feedforward_dim=2048, normalization='batch', dropout=0.1,
-        mlp_classifier_dropout=0.1):
+    def __init__(self, n_classes, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048, normalization='batch', dropout=0.1, mlp_classifier_dropout=0.1):
         super(GraphTransformerClassifier, self).__init__()
-        self.encoder = GraphTransformerEncoder(coord_input_dim,
-            feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim,
-            feedforward_dim, normalization, dropout)
-        self.mlp_classifier = nn.Sequential(nn.Dropout(
-            mlp_classifier_dropout), nn.Linear(embed_dim * 3,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(
-            mlp_classifier_dropout), nn.Linear(feedforward_dim,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Linear(
-            feedforward_dim, n_classes, bias=True))
+        self.encoder = GraphTransformerEncoder(coord_input_dim, feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim, feedforward_dim, normalization, dropout)
+        self.mlp_classifier = nn.Sequential(nn.Dropout(mlp_classifier_dropout), nn.Linear(embed_dim * 3, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(mlp_classifier_dropout), nn.Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(), nn.Linear(feedforward_dim, n_classes, bias=True))
 
-    def forward(self, coord, flag, pos, attention_mask=None, padding_mask=
-        None, true_seq_length=None):
+    def forward(self, coord, flag, pos, attention_mask=None, padding_mask=None, true_seq_length=None):
         """
         Args:
             coord: Input coordinates (batch_size, seq_length, coord_input_dim)
@@ -209,18 +186,13 @@ class GraphTransformerClassifier(nn.Module):
 
 class GraphTransformerEncoder(nn.Module):
 
-    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size,
-        n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048,
-        normalization='batch', dropout=0.1):
+    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048, normalization='batch', dropout=0.1):
         super(GraphTransformerEncoder, self).__init__()
         self.coord_embed = nn.Linear(coord_input_dim, embed_dim, bias=False)
         self.feat_embed = nn.Embedding(feat_dict_size, embed_dim)
-        self.transformer_layers = nn.ModuleList([MultiGraphTransformerLayer
-            (n_heads, embed_dim * 3, feedforward_dim, normalization,
-            dropout) for _ in range(n_layers)])
+        self.transformer_layers = nn.ModuleList([MultiGraphTransformerLayer(n_heads, embed_dim * 3, feedforward_dim, normalization, dropout) for _ in range(n_layers)])
 
-    def forward(self, coord, flag, pos, attention_mask1=None,
-        attention_mask2=None):
+    def forward(self, coord, flag, pos, attention_mask1=None, attention_mask2=None):
         h = torch.cat((self.coord_embed(coord), self.feat_embed(flag)), dim=2)
         h = torch.cat((h, self.feat_embed(pos)), dim=2)
         for layer in self.transformer_layers:
@@ -230,23 +202,12 @@ class GraphTransformerEncoder(nn.Module):
 
 class GraphTransformerClassifier(nn.Module):
 
-    def __init__(self, n_classes, coord_input_dim, feat_input_dim,
-        feat_dict_size, n_layers=6, n_heads=8, embed_dim=512,
-        feedforward_dim=2048, normalization='batch', dropout=0.1,
-        mlp_classifier_dropout=0.1):
+    def __init__(self, n_classes, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048, normalization='batch', dropout=0.1, mlp_classifier_dropout=0.1):
         super(GraphTransformerClassifier, self).__init__()
-        self.encoder = GraphTransformerEncoder(coord_input_dim,
-            feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim,
-            feedforward_dim, normalization, dropout)
-        self.mlp_classifier = nn.Sequential(nn.Dropout(
-            mlp_classifier_dropout), nn.Linear(embed_dim * 3,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(
-            mlp_classifier_dropout), nn.Linear(feedforward_dim,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Linear(
-            feedforward_dim, n_classes, bias=True))
+        self.encoder = GraphTransformerEncoder(coord_input_dim, feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim, feedforward_dim, normalization, dropout)
+        self.mlp_classifier = nn.Sequential(nn.Dropout(mlp_classifier_dropout), nn.Linear(embed_dim * 3, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(mlp_classifier_dropout), nn.Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(), nn.Linear(feedforward_dim, n_classes, bias=True))
 
-    def forward(self, coord, flag, pos, attention_mask1=None,
-        attention_mask2=None, padding_mask=None, true_seq_length=None):
+    def forward(self, coord, flag, pos, attention_mask1=None, attention_mask2=None, padding_mask=None, true_seq_length=None):
         """
         Args:
             coord: Input coordinates (batch_size, seq_length, coord_input_dim)
@@ -275,46 +236,28 @@ class GraphTransformerClassifier(nn.Module):
 
 class GraphTransformerEncoder(nn.Module):
 
-    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size,
-        n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048,
-        normalization='batch', dropout=0.1):
+    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048, normalization='batch', dropout=0.1):
         super(GraphTransformerEncoder, self).__init__()
         self.coord_embed = nn.Linear(coord_input_dim, embed_dim, bias=False)
         self.feat_embed = nn.Embedding(feat_dict_size, embed_dim)
-        self.transformer_layers = nn.ModuleList([MultiGraphTransformerLayer
-            (n_heads, embed_dim * 3, feedforward_dim, normalization,
-            dropout) for _ in range(n_layers)])
+        self.transformer_layers = nn.ModuleList([MultiGraphTransformerLayer(n_heads, embed_dim * 3, feedforward_dim, normalization, dropout) for _ in range(n_layers)])
 
-    def forward(self, coord, flag, pos, attention_mask1=None,
-        attention_mask2=None, attention_mask3=None):
+    def forward(self, coord, flag, pos, attention_mask1=None, attention_mask2=None, attention_mask3=None):
         h = torch.cat((self.coord_embed(coord), self.feat_embed(flag)), dim=2)
         h = torch.cat((h, self.feat_embed(pos)), dim=2)
         for layer in self.transformer_layers:
-            h = layer(h, mask1=attention_mask1, mask2=attention_mask2,
-                mask3=attention_mask3)
+            h = layer(h, mask1=attention_mask1, mask2=attention_mask2, mask3=attention_mask3)
         return h
 
 
 class GraphTransformerClassifier(nn.Module):
 
-    def __init__(self, n_classes, coord_input_dim, feat_input_dim,
-        feat_dict_size, n_layers=6, n_heads=8, embed_dim=512,
-        feedforward_dim=2048, normalization='batch', dropout=0.1,
-        mlp_classifier_dropout=0.1):
+    def __init__(self, n_classes, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=6, n_heads=8, embed_dim=512, feedforward_dim=2048, normalization='batch', dropout=0.1, mlp_classifier_dropout=0.1):
         super(GraphTransformerClassifier, self).__init__()
-        self.encoder = GraphTransformerEncoder(coord_input_dim,
-            feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim,
-            feedforward_dim, normalization, dropout)
-        self.mlp_classifier = nn.Sequential(nn.Dropout(
-            mlp_classifier_dropout), nn.Linear(embed_dim * 3,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(
-            mlp_classifier_dropout), nn.Linear(feedforward_dim,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Linear(
-            feedforward_dim, n_classes, bias=True))
+        self.encoder = GraphTransformerEncoder(coord_input_dim, feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim, feedforward_dim, normalization, dropout)
+        self.mlp_classifier = nn.Sequential(nn.Dropout(mlp_classifier_dropout), nn.Linear(embed_dim * 3, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(mlp_classifier_dropout), nn.Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(), nn.Linear(feedforward_dim, n_classes, bias=True))
 
-    def forward(self, coord, flag, pos, attention_mask1=None,
-        attention_mask2=None, attention_mask3=None, padding_mask=None,
-        true_seq_length=None):
+    def forward(self, coord, flag, pos, attention_mask1=None, attention_mask2=None, attention_mask3=None, padding_mask=None, true_seq_length=None):
         """
         Args:
             coord: Input coordinates (batch_size, seq_length, coord_input_dim)
@@ -331,8 +274,7 @@ class GraphTransformerClassifier(nn.Module):
         Returns:
             logits: Un-normalized logits for class prediction (batch_size, n_classes)
         """
-        h = self.encoder(coord, flag, pos, attention_mask1, attention_mask2,
-            attention_mask3)
+        h = self.encoder(coord, flag, pos, attention_mask1, attention_mask2, attention_mask3)
         if padding_mask is not None:
             masked_h = h * padding_mask.type_as(h)
             g = masked_h.sum(dim=1)
@@ -344,12 +286,9 @@ class GraphTransformerClassifier(nn.Module):
 
 class GraphAttentionLayer(nn.Module):
 
-    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization=
-        'batch', dropout=0.1):
+    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization='batch', dropout=0.1):
         super(GraphAttentionLayer, self).__init__()
-        self.self_attention = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
+        self.self_attention = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
         self.norm = Normalization(embed_dim, normalization)
 
     def forward(self, input, mask):
@@ -360,19 +299,14 @@ class GraphAttentionLayer(nn.Module):
 
 class GraphAttentionEncoder(nn.Module):
 
-    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size,
-        n_layers=3, n_heads=8, embed_dim=256, feedforward_dim=1024,
-        normalization='batch', dropout=0.1):
+    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=3, n_heads=8, embed_dim=256, feedforward_dim=1024, normalization='batch', dropout=0.1):
         super(GraphAttentionEncoder, self).__init__()
         self.coord_embed = nn.Linear(coord_input_dim, embed_dim, bias=False)
         self.feat_embed = nn.Embedding(feat_dict_size, embed_dim)
-        self.attention_layers = nn.ModuleList([GraphAttentionLayer(n_heads,
-            embed_dim * 3, feedforward_dim, normalization, dropout) for _ in
-            range(n_layers)])
+        self.attention_layers = nn.ModuleList([GraphAttentionLayer(n_heads, embed_dim * 3, feedforward_dim, normalization, dropout) for _ in range(n_layers)])
 
     def forward(self, coord, flag, pos, attention_mask=None):
-        h = torch.cat((self.coord_embed(coord), self.feat_embed(flag), self
-            .feat_embed(pos)), dim=2)
+        h = torch.cat((self.coord_embed(coord), self.feat_embed(flag), self.feat_embed(pos)), dim=2)
         for layer in self.attention_layers:
             h = layer(h, mask=attention_mask)
         return h
@@ -380,21 +314,12 @@ class GraphAttentionEncoder(nn.Module):
 
 class GraphAttentionClassifier(nn.Module):
 
-    def __init__(self, n_classes, coord_input_dim, feat_input_dim,
-        feat_dict_size, n_layers=3, n_heads=8, embed_dim=256,
-        feedforward_dim=1024, normalization='batch', dropout=0.1):
+    def __init__(self, n_classes, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=3, n_heads=8, embed_dim=256, feedforward_dim=1024, normalization='batch', dropout=0.1):
         super(GraphAttentionClassifier, self).__init__()
-        self.encoder = GraphAttentionEncoder(coord_input_dim,
-            feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim,
-            feedforward_dim, normalization, dropout)
-        self.mlp_classifier = nn.Sequential(nn.Linear(embed_dim * 3,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(dropout), nn
-            .Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(),
-            nn.Dropout(dropout), nn.Linear(feedforward_dim, n_classes, bias
-            =True))
+        self.encoder = GraphAttentionEncoder(coord_input_dim, feat_input_dim, feat_dict_size, n_layers, n_heads, embed_dim, feedforward_dim, normalization, dropout)
+        self.mlp_classifier = nn.Sequential(nn.Linear(embed_dim * 3, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(dropout), nn.Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(dropout), nn.Linear(feedforward_dim, n_classes, bias=True))
 
-    def forward(self, coord, flag, pos, attention_mask=None, padding_mask=
-        None, true_seq_length=None):
+    def forward(self, coord, flag, pos, attention_mask=None, padding_mask=None, true_seq_length=None):
         """
         Args:
             coord: Input coordinates (batch_size, seq_length, coord_input_dim)
@@ -425,8 +350,7 @@ class Normalization(nn.Module):
 
     def __init__(self, embed_dim, normalization='batch'):
         super(Normalization, self).__init__()
-        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.
-            InstanceNorm1d}.get(normalization, None)
+        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.InstanceNorm1d}.get(normalization, None)
         self.normalizer = normalizer_class(embed_dim, affine=True)
         self.init_parameters()
 
@@ -437,8 +361,7 @@ class Normalization(nn.Module):
 
     def forward(self, input, mask=None):
         if isinstance(self.normalizer, nn.BatchNorm1d):
-            return self.normalizer(input.view(-1, input.size(-1))).view(*
-                input.size())
+            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
         elif isinstance(self.normalizer, nn.InstanceNorm1d):
             return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
         else:
@@ -450,8 +373,7 @@ class GraphMLPLayer(nn.Module):
 
     def __init__(self, embed_dim, dropout=0.1, normalization='batch'):
         super(GraphMLPLayer, self).__init__()
-        self.sub_layers = nn.Sequential(nn.Linear(embed_dim, embed_dim,
-            bias=True), nn.ReLU(), nn.Dropout(dropout))
+        self.sub_layers = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True), nn.ReLU(), nn.Dropout(dropout))
         self.norm = Normalization(embed_dim, normalization)
         self.init_parameters()
 
@@ -466,13 +388,11 @@ class GraphMLPLayer(nn.Module):
 
 class GraphMLPEncoder(nn.Module):
 
-    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size,
-        n_layers=3, embed_dim=256, dropout=0.1):
+    def __init__(self, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=3, embed_dim=256, dropout=0.1):
         super(GraphMLPEncoder, self).__init__()
         self.coord_embed = nn.Linear(coord_input_dim, embed_dim, bias=False)
         self.feat_embed = nn.Embedding(feat_dict_size, embed_dim)
-        self.mlp_layers = nn.ModuleList([GraphMLPLayer(embed_dim * 3,
-            dropout) for _ in range(n_layers)])
+        self.mlp_layers = nn.ModuleList([GraphMLPLayer(embed_dim * 3, dropout) for _ in range(n_layers)])
         self.init_parameters()
 
     def init_parameters(self):
@@ -481,8 +401,7 @@ class GraphMLPEncoder(nn.Module):
             param.data.uniform_(-stdv, stdv)
 
     def forward(self, coord, flag, pos):
-        h = torch.cat((self.coord_embed(coord), self.feat_embed(flag), self
-            .feat_embed(pos)), dim=2)
+        h = torch.cat((self.coord_embed(coord), self.feat_embed(flag), self.feat_embed(pos)), dim=2)
         for layer in self.mlp_layers:
             h = layer(h)
         return h
@@ -490,20 +409,12 @@ class GraphMLPEncoder(nn.Module):
 
 class GraphMLPClassifier(nn.Module):
 
-    def __init__(self, n_classes, coord_input_dim, feat_input_dim,
-        feat_dict_size, n_layers=3, embed_dim=256, feedforward_dim=1024,
-        dropout=0.1):
+    def __init__(self, n_classes, coord_input_dim, feat_input_dim, feat_dict_size, n_layers=3, embed_dim=256, feedforward_dim=1024, dropout=0.1):
         super(GraphMLPClassifier, self).__init__()
-        self.encoder = GraphMLPEncoder(coord_input_dim, feat_input_dim,
-            feat_dict_size, n_layers, embed_dim, dropout)
-        self.mlp_classifier = nn.Sequential(nn.Linear(embed_dim * 3,
-            feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(dropout), nn
-            .Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(),
-            nn.Dropout(dropout), nn.Linear(feedforward_dim, n_classes, bias
-            =True))
+        self.encoder = GraphMLPEncoder(coord_input_dim, feat_input_dim, feat_dict_size, n_layers, embed_dim, dropout)
+        self.mlp_classifier = nn.Sequential(nn.Linear(embed_dim * 3, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(dropout), nn.Linear(feedforward_dim, feedforward_dim, bias=True), nn.ReLU(), nn.Dropout(dropout), nn.Linear(feedforward_dim, n_classes, bias=True))
 
-    def forward(self, coord, flag, pos, attention_mask=None, padding_mask=
-        None, true_seq_length=None):
+    def forward(self, coord, flag, pos, attention_mask=None, padding_mask=None, true_seq_length=None):
         """
         Args:
             coord: Input coordinates (batch_size, seq_length, coord_input_dim)
@@ -544,8 +455,7 @@ class Normalization(nn.Module):
 
     def __init__(self, embed_dim, normalization='batch'):
         super(Normalization, self).__init__()
-        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.
-            InstanceNorm1d}.get(normalization, None)
+        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.InstanceNorm1d}.get(normalization, None)
         self.normalizer = normalizer_class(embed_dim, affine=True)
         self.init_parameters()
 
@@ -556,8 +466,7 @@ class Normalization(nn.Module):
 
     def forward(self, input, mask=None):
         if isinstance(self.normalizer, nn.BatchNorm1d):
-            return self.normalizer(input.view(-1, input.size(-1))).view(*
-                input.size())
+            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
         elif isinstance(self.normalizer, nn.InstanceNorm1d):
             return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
         else:
@@ -567,8 +476,7 @@ class Normalization(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, n_heads, input_dim, embed_dim=None, val_dim=None,
-        key_dim=None, dropout=0.1):
+    def __init__(self, n_heads, input_dim, embed_dim=None, val_dim=None, key_dim=None, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
         if val_dim is None:
             assert embed_dim is not None, 'Provide either embed_dim or val_dim'
@@ -585,8 +493,7 @@ class MultiHeadAttention(nn.Module):
         self.W_key = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
         self.W_val = nn.Parameter(torch.Tensor(n_heads, input_dim, val_dim))
         if embed_dim is not None:
-            self.W_out = nn.Parameter(torch.Tensor(n_heads, key_dim, embed_dim)
-                )
+            self.W_out = nn.Parameter(torch.Tensor(n_heads, key_dim, embed_dim))
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
         self.dropout_3 = nn.Dropout(dropout)
@@ -629,14 +536,11 @@ class MultiHeadAttention(nn.Module):
         V = torch.matmul(dropt3_hflat, self.W_val).view(shp)
         compatibility = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))
         if mask is not None:
-            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(
-                compatibility)
+            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(compatibility)
             compatibility = compatibility + mask.type_as(compatibility)
         attn = F.softmax(compatibility, dim=-1)
         heads = torch.matmul(attn, V)
-        out = torch.mm(heads.permute(1, 2, 0, 3).contiguous().view(-1, self
-            .n_heads * self.val_dim), self.W_out.view(-1, self.embed_dim)
-            ).view(batch_size, n_query, self.embed_dim)
+        out = torch.mm(heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim), self.W_out.view(-1, self.embed_dim)).view(batch_size, n_query, self.embed_dim)
         return out
 
 
@@ -644,8 +548,7 @@ class PositionWiseFeedforward(nn.Module):
 
     def __init__(self, embed_dim, feedforward_dim=512, dropout=0.1):
         super(PositionWiseFeedforward, self).__init__()
-        self.sub_layers = nn.Sequential(nn.Dropout(dropout), nn.Linear(
-            embed_dim, embed_dim, bias=True), nn.ReLU())
+        self.sub_layers = nn.Sequential(nn.Dropout(dropout), nn.Linear(embed_dim, embed_dim, bias=True), nn.ReLU())
         self.init_parameters()
 
     def init_parameters(self):
@@ -659,16 +562,11 @@ class PositionWiseFeedforward(nn.Module):
 
 class GraphTransformerLayer(nn.Module):
 
-    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization=
-        'batch', dropout=0.1):
+    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization='batch', dropout=0.1):
         super(GraphTransformerLayer, self).__init__()
-        self.self_attention = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
+        self.self_attention = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
         self.norm1 = Normalization(embed_dim, normalization)
-        self.positionwise_ff = SkipConnection(PositionWiseFeedforward(
-            embed_dim=embed_dim, feedforward_dim=feedforward_dim, dropout=
-            dropout))
+        self.positionwise_ff = SkipConnection(PositionWiseFeedforward(embed_dim=embed_dim, feedforward_dim=feedforward_dim, dropout=dropout))
         self.norm2 = Normalization(embed_dim, normalization)
 
     def forward(self, input, mask):
@@ -693,8 +591,7 @@ class Normalization(nn.Module):
 
     def __init__(self, embed_dim, normalization='batch'):
         super(Normalization, self).__init__()
-        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.
-            InstanceNorm1d}.get(normalization, None)
+        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.InstanceNorm1d}.get(normalization, None)
         self.normalizer = normalizer_class(embed_dim, affine=True)
         self.init_parameters()
 
@@ -705,8 +602,7 @@ class Normalization(nn.Module):
 
     def forward(self, input, mask=None):
         if isinstance(self.normalizer, nn.BatchNorm1d):
-            return self.normalizer(input.view(-1, input.size(-1))).view(*
-                input.size())
+            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
         elif isinstance(self.normalizer, nn.InstanceNorm1d):
             return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
         else:
@@ -716,8 +612,7 @@ class Normalization(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, n_heads, input_dim, embed_dim=None, val_dim=None,
-        key_dim=None, dropout=0.1):
+    def __init__(self, n_heads, input_dim, embed_dim=None, val_dim=None, key_dim=None, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
         if val_dim is None:
             assert embed_dim is not None, 'Provide either embed_dim or val_dim'
@@ -734,8 +629,7 @@ class MultiHeadAttention(nn.Module):
         self.W_key = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
         self.W_val = nn.Parameter(torch.Tensor(n_heads, input_dim, val_dim))
         if embed_dim is not None:
-            self.W_out = nn.Parameter(torch.Tensor(n_heads, key_dim, embed_dim)
-                )
+            self.W_out = nn.Parameter(torch.Tensor(n_heads, key_dim, embed_dim))
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
         self.dropout_3 = nn.Dropout(dropout)
@@ -778,14 +672,11 @@ class MultiHeadAttention(nn.Module):
         V = torch.matmul(dropt3_hflat, self.W_val).view(shp)
         compatibility = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))
         if mask is not None:
-            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(
-                compatibility)
+            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(compatibility)
             compatibility = compatibility + mask.type_as(compatibility)
         attn = F.softmax(compatibility, dim=-1)
         heads = torch.matmul(attn, V)
-        out = torch.mm(heads.permute(1, 2, 0, 3).contiguous().view(-1, self
-            .n_heads * self.val_dim), self.W_out.view(-1, self.embed_dim)
-            ).view(batch_size, n_query, self.embed_dim)
+        out = torch.mm(heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim), self.W_out.view(-1, self.embed_dim)).view(batch_size, n_query, self.embed_dim)
         return out
 
 
@@ -793,8 +684,7 @@ class PositionWiseFeedforward(nn.Module):
 
     def __init__(self, embed_dim, feedforward_dim=512, dropout=0.1):
         super(PositionWiseFeedforward, self).__init__()
-        self.sub_layers = nn.Sequential(nn.Dropout(dropout), nn.Linear(
-            embed_dim, embed_dim, bias=True), nn.ReLU())
+        self.sub_layers = nn.Sequential(nn.Dropout(dropout), nn.Linear(embed_dim, embed_dim, bias=True), nn.ReLU())
         self.init_parameters()
 
     def init_parameters(self):
@@ -808,21 +698,13 @@ class PositionWiseFeedforward(nn.Module):
 
 class MultiGraphTransformerLayer(nn.Module):
 
-    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization=
-        'batch', dropout=0.1):
+    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization='batch', dropout=0.1):
         super(MultiGraphTransformerLayer, self).__init__()
-        self.self_attention1 = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
-        self.self_attention2 = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
-        self.tmp_linear_layer = nn.Sequential(nn.Dropout(dropout), nn.
-            Linear(embed_dim * 2, embed_dim, bias=True), nn.ReLU())
+        self.self_attention1 = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
+        self.self_attention2 = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
+        self.tmp_linear_layer = nn.Sequential(nn.Dropout(dropout), nn.Linear(embed_dim * 2, embed_dim, bias=True), nn.ReLU())
         self.norm1 = Normalization(embed_dim, normalization)
-        self.positionwise_ff = SkipConnection(PositionWiseFeedforward(
-            embed_dim=embed_dim, feedforward_dim=feedforward_dim, dropout=
-            dropout))
+        self.positionwise_ff = SkipConnection(PositionWiseFeedforward(embed_dim=embed_dim, feedforward_dim=feedforward_dim, dropout=dropout))
         self.norm2 = Normalization(embed_dim, normalization)
 
     def forward(self, input, mask1, mask2):
@@ -850,8 +732,7 @@ class Normalization(nn.Module):
 
     def __init__(self, embed_dim, normalization='batch'):
         super(Normalization, self).__init__()
-        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.
-            InstanceNorm1d}.get(normalization, None)
+        normalizer_class = {'batch': nn.BatchNorm1d, 'instance': nn.InstanceNorm1d}.get(normalization, None)
         self.normalizer = normalizer_class(embed_dim, affine=True)
         self.init_parameters()
 
@@ -862,8 +743,7 @@ class Normalization(nn.Module):
 
     def forward(self, input, mask=None):
         if isinstance(self.normalizer, nn.BatchNorm1d):
-            return self.normalizer(input.view(-1, input.size(-1))).view(*
-                input.size())
+            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
         elif isinstance(self.normalizer, nn.InstanceNorm1d):
             return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
         else:
@@ -873,8 +753,7 @@ class Normalization(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, n_heads, input_dim, embed_dim=None, val_dim=None,
-        key_dim=None, dropout=0.1):
+    def __init__(self, n_heads, input_dim, embed_dim=None, val_dim=None, key_dim=None, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
         if val_dim is None:
             assert embed_dim is not None, 'Provide either embed_dim or val_dim'
@@ -891,8 +770,7 @@ class MultiHeadAttention(nn.Module):
         self.W_key = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
         self.W_val = nn.Parameter(torch.Tensor(n_heads, input_dim, val_dim))
         if embed_dim is not None:
-            self.W_out = nn.Parameter(torch.Tensor(n_heads, key_dim, embed_dim)
-                )
+            self.W_out = nn.Parameter(torch.Tensor(n_heads, key_dim, embed_dim))
         self.dropout_1 = nn.Dropout(dropout)
         self.dropout_2 = nn.Dropout(dropout)
         self.dropout_3 = nn.Dropout(dropout)
@@ -935,14 +813,11 @@ class MultiHeadAttention(nn.Module):
         V = torch.matmul(dropt3_hflat, self.W_val).view(shp)
         compatibility = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))
         if mask is not None:
-            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(
-                compatibility)
+            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(compatibility)
             compatibility = compatibility + mask.type_as(compatibility)
         attn = F.softmax(compatibility, dim=-1)
         heads = torch.matmul(attn, V)
-        out = torch.mm(heads.permute(1, 2, 0, 3).contiguous().view(-1, self
-            .n_heads * self.val_dim), self.W_out.view(-1, self.embed_dim)
-            ).view(batch_size, n_query, self.embed_dim)
+        out = torch.mm(heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim), self.W_out.view(-1, self.embed_dim)).view(batch_size, n_query, self.embed_dim)
         return out
 
 
@@ -950,8 +825,7 @@ class PositionWiseFeedforward(nn.Module):
 
     def __init__(self, embed_dim, feedforward_dim=512, dropout=0.1):
         super(PositionWiseFeedforward, self).__init__()
-        self.sub_layers = nn.Sequential(nn.Dropout(dropout), nn.Linear(
-            embed_dim, embed_dim, bias=True), nn.ReLU())
+        self.sub_layers = nn.Sequential(nn.Dropout(dropout), nn.Linear(embed_dim, embed_dim, bias=True), nn.ReLU())
         self.init_parameters()
 
     def init_parameters(self):
@@ -965,24 +839,14 @@ class PositionWiseFeedforward(nn.Module):
 
 class MultiGraphTransformerLayer(nn.Module):
 
-    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization=
-        'batch', dropout=0.1):
+    def __init__(self, n_heads, embed_dim, feedforward_dim, normalization='batch', dropout=0.1):
         super(MultiGraphTransformerLayer, self).__init__()
-        self.self_attention1 = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
-        self.self_attention2 = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
-        self.self_attention3 = SkipConnection(MultiHeadAttention(n_heads=
-            n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout)
-            )
-        self.tmp_linear_layer = nn.Sequential(nn.Dropout(dropout), nn.
-            Linear(embed_dim * 3, embed_dim, bias=True), nn.ReLU())
+        self.self_attention1 = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
+        self.self_attention2 = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
+        self.self_attention3 = SkipConnection(MultiHeadAttention(n_heads=n_heads, input_dim=embed_dim, embed_dim=embed_dim, dropout=dropout))
+        self.tmp_linear_layer = nn.Sequential(nn.Dropout(dropout), nn.Linear(embed_dim * 3, embed_dim, bias=True), nn.ReLU())
         self.norm1 = Normalization(embed_dim, normalization)
-        self.positionwise_ff = SkipConnection(PositionWiseFeedforward(
-            embed_dim=embed_dim, feedforward_dim=feedforward_dim, dropout=
-            dropout))
+        self.positionwise_ff = SkipConnection(PositionWiseFeedforward(embed_dim=embed_dim, feedforward_dim=feedforward_dim, dropout=dropout))
         self.norm2 = Normalization(embed_dim, normalization)
 
     def forward(self, input, mask1, mask2, mask3):
@@ -1001,29 +865,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GraphAttentionLayer,
+     lambda: ([], {'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([1, 4, 4, 4])], {}),
+     False),
+    (GraphMLPLayer,
+     lambda: ([], {'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GraphTransformerLayer,
+     lambda: ([], {'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([1, 4, 4, 4])], {}),
+     False),
+    (MultiGraphTransformerLayer,
+     lambda: ([], {'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([1, 4, 4, 4]), torch.rand([1, 4, 4, 4]), torch.rand([1, 4, 4, 4])], {}),
+     False),
+    (Normalization,
+     lambda: ([], {'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionWiseFeedforward,
+     lambda: ([], {'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_PengBoXiangShang_multigraph_transformer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GraphAttentionLayer(*[], **{'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([1, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GraphMLPLayer(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GraphTransformerLayer(*[], **{'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([1, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MultiGraphTransformerLayer(*[], **{'n_heads': 4, 'embed_dim': 4, 'feedforward_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([1, 4, 4, 4]), torch.rand([1, 4, 4, 4]), torch.rand([1, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Normalization(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(PositionWiseFeedforward(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,8 +85,7 @@ import copy
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -100,20 +100,16 @@ class GANLoss(nn.Module):
     def get_target_tensor(self, input, target_is_real):
         target_tensor = None
         if target_is_real:
-            create_label = (self.real_label_var is None or self.
-                real_label_var.numel() != input.numel())
+            create_label = self.real_label_var is None or self.real_label_var.numel() != input.numel()
             if create_label:
                 real_tensor = self.Tensor(input.size()).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False
-                    )
+                self.real_label_var = Variable(real_tensor, requires_grad=False)
             target_tensor = self.real_label_var
         else:
-            create_label = (self.fake_label_var is None or self.
-                fake_label_var.numel() != input.numel())
+            create_label = self.fake_label_var is None or self.fake_label_var.numel() != input.numel()
             if create_label:
                 fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False
-                    )
+                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
             target_tensor = self.fake_label_var
         return target_tensor
 
@@ -134,16 +130,13 @@ class VGGLoss(nn.Module):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
 
 class ResnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[],
-        padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
         assert n_blocks >= 0
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -154,25 +147,17 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1, bias=
-                use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
         model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
@@ -186,11 +171,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -200,10 +183,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -214,10 +195,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -227,8 +206,7 @@ class ResnetBlock(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
@@ -237,32 +215,22 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 3
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=1,
-            padding=padw), nn.Conv2d(ndf, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.ReLU()]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=1, padding=padw), nn.Conv2d(ndf, ndf, kernel_size=kw, stride=2, padding=padw), nn.ReLU()]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.
-                Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride
-                =2, padding=padw, bias=use_bias), nn.ReLU()]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), nn.ReLU()]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.ReLU()]
-        sequence += [nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw,
-            stride=1, padding=padw)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 128, kernel_size=kw, stride=2,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.ReLU()]
+        sequence += [nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 128, kernel_size=kw, stride=2, padding=padw)]
         self.model = nn.Sequential(*sequence)
-        self.conv1 = nn.Conv2d(128, 1, kernel_size=4, stride=1, padding=1,
-            bias=True)
+        self.conv1 = nn.Conv2d(128, 1, kernel_size=4, stride=1, padding=1, bias=True)
         self.conv2 = nn.Linear(128 * 8 ** 2, 20)
-        self.aux_layer = nn.Sequential(nn.Linear(128 * 8 ** 2, 939), nn.
-            Softmax())
+        self.aux_layer = nn.Sequential(nn.Linear(128 * 8 ** 2, 939), nn.Softmax())
 
     def forward(self, input):
         out1 = self.model(input)
@@ -274,19 +242,14 @@ class NLayerDiscriminator(nn.Module):
 
 class PixelDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d,
-        use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(PixelDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1,
-            padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2,
-            kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(
-            ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1,
-            kernel_size=1, stride=1, padding=0, bias=use_bias)]
+        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
         if use_sigmoid:
             self.net.append(nn.Sigmoid())
         self.net = nn.Sequential(*self.net)
@@ -336,11 +299,7 @@ class Estimate(nn.Module):
 
     def __init__(self):
         super(Estimate, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, 3, stride=1, padding
-            =1), nn.Conv2d(64, 64, 3, stride=1, padding=1), nn.BatchNorm2d(
-            64), nn.ReLU(inplace=True), nn.Conv2d(64, 128, 3, stride=1,
-            padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 3, 3, stride=1, padding=1))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, 3, stride=1, padding=1), nn.Conv2d(64, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.Conv2d(64, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 3, 3, stride=1, padding=1))
 
     def forward(self, x):
         x = F.tanh(self.features(x))
@@ -349,8 +308,7 @@ class Estimate(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -365,20 +323,16 @@ class GANLoss(nn.Module):
     def get_target_tensor(self, input, target_is_real):
         target_tensor = None
         if target_is_real:
-            create_label = (self.real_label_var is None or self.
-                real_label_var.numel() != input.numel())
+            create_label = self.real_label_var is None or self.real_label_var.numel() != input.numel()
             if create_label:
                 real_tensor = self.Tensor(input.size()).fill_(self.real_label)
-                self.real_label_var = Variable(real_tensor, requires_grad=False
-                    )
+                self.real_label_var = Variable(real_tensor, requires_grad=False)
             target_tensor = self.real_label_var
         else:
-            create_label = (self.fake_label_var is None or self.
-                fake_label_var.numel() != input.numel())
+            create_label = self.fake_label_var is None or self.fake_label_var.numel() != input.numel()
             if create_label:
                 fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False
-                    )
+                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
             target_tensor = self.fake_label_var
         return target_tensor
 
@@ -399,16 +353,13 @@ class VGGLoss(nn.Module):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
 
 class ResnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[],
-        padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect'):
         assert n_blocks >= 0
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -419,25 +370,17 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1, bias=
-                use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
         model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
@@ -451,11 +394,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -465,10 +406,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -479,10 +418,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -492,8 +429,7 @@ class ResnetBlock(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(NLayerDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
@@ -502,32 +438,22 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 3
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=1,
-            padding=padw), nn.Conv2d(ndf, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.ReLU()]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=1, padding=padw), nn.Conv2d(ndf, ndf, kernel_size=kw, stride=2, padding=padw), nn.ReLU()]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.
-                Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride
-                =2, padding=padw, bias=use_bias), nn.ReLU()]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), nn.ReLU()]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.ReLU()]
-        sequence += [nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw,
-            stride=1, padding=padw)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 128, kernel_size=kw, stride=2,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), nn.ReLU()]
+        sequence += [nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 128, kernel_size=kw, stride=2, padding=padw)]
         self.model = nn.Sequential(*sequence)
-        self.conv1 = nn.Conv2d(128, 1, kernel_size=4, stride=1, padding=1,
-            bias=True)
+        self.conv1 = nn.Conv2d(128, 1, kernel_size=4, stride=1, padding=1, bias=True)
         self.conv2 = nn.Linear(128 * 8 ** 2, 20)
-        self.aux_layer = nn.Sequential(nn.Linear(128 * 8 ** 2, 939), nn.
-            Softmax())
+        self.aux_layer = nn.Sequential(nn.Linear(128 * 8 ** 2, 939), nn.Softmax())
 
     def forward(self, input):
         out1 = self.model(input)
@@ -539,19 +465,14 @@ class NLayerDiscriminator(nn.Module):
 
 class PixelDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d,
-        use_sigmoid=False, gpu_ids=[]):
+    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d, use_sigmoid=False, gpu_ids=[]):
         super(PixelDiscriminator, self).__init__()
         self.gpu_ids = gpu_ids
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1,
-            padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2,
-            kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(
-            ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1,
-            kernel_size=1, stride=1, padding=0, bias=use_bias)]
+        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
         if use_sigmoid:
             self.net.append(nn.Sigmoid())
         self.net = nn.Sequential(*self.net)
@@ -601,11 +522,7 @@ class Estimate(nn.Module):
 
     def __init__(self):
         super(Estimate, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, 3, stride=1, padding
-            =1), nn.Conv2d(64, 64, 3, stride=1, padding=1), nn.BatchNorm2d(
-            64), nn.ReLU(inplace=True), nn.Conv2d(64, 128, 3, stride=1,
-            padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 3, 3, stride=1, padding=1))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, 3, stride=1, padding=1), nn.Conv2d(64, 64, 3, stride=1, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.Conv2d(64, 128, 3, stride=1, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 3, 3, stride=1, padding=1))
 
     def forward(self, x):
         x = F.tanh(self.features(x))
@@ -616,24 +533,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Estimate,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (GANLoss,
+     lambda: ([], {}),
+     lambda: ([], {'input': torch.rand([4, 4]), 'target_is_real': 4}),
+     True),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 128, 128])], {}),
+     True),
+    (PixelDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResnetGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (VGGLoss,
+     lambda: ([], {'gpu_ids': False}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Vgg19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_Blade6570_icface(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Estimate(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

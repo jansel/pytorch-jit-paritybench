@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,16 +91,14 @@ class f_model(nn.Module):
     output: N * num_classes, N * inter_dim, N * C' * 7 * 7
     """
 
-    def __init__(self, freeze_param=False, inter_dim=INTER_DIM, num_classes
-        =CATEGORIES, model_path=None):
+    def __init__(self, freeze_param=False, inter_dim=INTER_DIM, num_classes=CATEGORIES, model_path=None):
         super(f_model, self).__init__()
         self.backbone = torchvision.models.resnet50(pretrained=True)
         state_dict = self.backbone.state_dict()
         num_features = self.backbone.fc.in_features
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-2])
         model_dict = self.backbone.state_dict()
-        model_dict.update({k: v for k, v in state_dict.items() if k in
-            model_dict})
+        model_dict.update({k: v for k, v in state_dict.items() if k in model_dict})
         self.backbone.load_state_dict(model_dict)
         if freeze_param:
             for param in self.backbone.parameters():
@@ -110,8 +109,7 @@ class f_model(nn.Module):
         state = load_model(model_path)
         if state:
             new_state = self.state_dict()
-            new_state.update({k: v for k, v in state.items() if k in new_state}
-                )
+            new_state.update({k: v for k, v in state.items() if k in new_state})
             self.load_state_dict(new_state)
 
     def forward(self, x):
@@ -198,14 +196,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (TripletMarginLossCosine,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (c_model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (f_model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 216, 216])], {}),
+     True),
+    (p_model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ihciah_deep_fashion_retrieval(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(TripletMarginLossCosine(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(c_model(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(p_model(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

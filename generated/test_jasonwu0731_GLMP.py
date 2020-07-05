@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,8 +84,7 @@ def sequence_mask(sequence_length, max_len=None):
     seq_range_expand = Variable(seq_range_expand)
     if sequence_length.is_cuda:
         seq_range_expand = seq_range_expand.cuda()
-    seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand
-        )
+    seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand)
     return seq_range_expand < seq_length_expand
 
 
@@ -131,9 +131,7 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
     if np.size(hypotheses) == 0:
         return np.float32(0.0)
     try:
-        multi_bleu_path, _ = urllib.request.urlretrieve(
-            'https://raw.githubusercontent.com/moses-smt/mosesdecoder/master/scripts/generic/multi-bleu.perl'
-            )
+        multi_bleu_path, _ = urllib.request.urlretrieve('https://raw.githubusercontent.com/moses-smt/mosesdecoder/master/scripts/generic/multi-bleu.perl')
         os.chmod(multi_bleu_path, 493)
     except:
         print('Unable to fetch multi-bleu.perl script, using local.')
@@ -154,8 +152,7 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
             bleu_cmd += ['-lc']
         bleu_cmd += [reference_file.name]
         try:
-            bleu_out = subprocess.check_output(bleu_cmd, stdin=read_pred,
-                stderr=subprocess.STDOUT)
+            bleu_out = subprocess.check_output(bleu_cmd, stdin=read_pred, stderr=subprocess.STDOUT)
             bleu_out = bleu_out.decode('utf-8')
             bleu_score = re.search('BLEU = (.+?),', bleu_out).group(1)
             bleu_score = float(bleu_score)
@@ -169,19 +166,19 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
     return bleu_score
 
 
+_global_config['teacher_forcing_ratio'] = 4
+
+
+_global_config['genSample'] = 4
+
+
 _global_config['addName'] = 4
 
 
 _global_config['batch'] = 4
 
 
-_global_config['genSample'] = 4
-
-
 _global_config['dataset'] = torch.rand([4, 4, 4, 4])
-
-
-_global_config['teacher_forcing_ratio'] = 4
 
 
 _global_config['unk_mask'] = 4
@@ -189,8 +186,7 @@ _global_config['unk_mask'] = 4
 
 class GLMP(nn.Module):
 
-    def __init__(self, hidden_size, lang, max_resp_len, path, task, lr,
-        n_layers, dropout):
+    def __init__(self, hidden_size, lang, max_resp_len, path, task, lr, n_layers, dropout):
         super(GLMP, self).__init__()
         self.name = 'GLMP'
         self.task = task
@@ -212,24 +208,17 @@ class GLMP(nn.Module):
                 self.decoder = torch.load(str(path) + '/dec.th')
             else:
                 None
-                self.encoder = torch.load(str(path) + '/enc.th', lambda
-                    storage, loc: storage)
-                self.extKnow = torch.load(str(path) + '/enc_kb.th', lambda
-                    storage, loc: storage)
-                self.decoder = torch.load(str(path) + '/dec.th', lambda
-                    storage, loc: storage)
+                self.encoder = torch.load(str(path) + '/enc.th', lambda storage, loc: storage)
+                self.extKnow = torch.load(str(path) + '/enc_kb.th', lambda storage, loc: storage)
+                self.decoder = torch.load(str(path) + '/dec.th', lambda storage, loc: storage)
         else:
             self.encoder = ContextRNN(lang.n_words, hidden_size, dropout)
-            self.extKnow = ExternalKnowledge(lang.n_words, hidden_size,
-                n_layers, dropout)
-            self.decoder = LocalMemoryDecoder(self.encoder.embedding, lang,
-                hidden_size, self.decoder_hop, dropout)
+            self.extKnow = ExternalKnowledge(lang.n_words, hidden_size, n_layers, dropout)
+            self.decoder = LocalMemoryDecoder(self.encoder.embedding, lang, hidden_size, self.decoder_hop, dropout)
         self.encoder_optimizer = optim.Adam(self.encoder.parameters(), lr=lr)
         self.extKnow_optimizer = optim.Adam(self.extKnow.parameters(), lr=lr)
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=lr)
-        self.scheduler = lr_scheduler.ReduceLROnPlateau(self.
-            decoder_optimizer, mode='max', factor=0.5, patience=1, min_lr=
-            0.0001, verbose=True)
+        self.scheduler = lr_scheduler.ReduceLROnPlateau(self.decoder_optimizer, mode='max', factor=0.5, patience=1, min_lr=0.0001, verbose=True)
         self.criterion_bce = nn.BCELoss()
         self.reset()
         if USE_CUDA:
@@ -243,16 +232,12 @@ class GLMP(nn.Module):
         print_loss_v = self.loss_v / self.print_every
         print_loss_l = self.loss_l / self.print_every
         self.print_every += 1
-        return 'L:{:.2f},LE:{:.2f},LG:{:.2f},LP:{:.2f}'.format(print_loss_avg,
-            print_loss_g, print_loss_v, print_loss_l)
+        return 'L:{:.2f},LE:{:.2f},LG:{:.2f},LP:{:.2f}'.format(print_loss_avg, print_loss_g, print_loss_v, print_loss_l)
 
     def save_model(self, dec_type):
         name_data = 'KVR/' if self.task == '' else 'BABI/'
         layer_info = str(self.n_layers)
-        directory = 'save/GLMP-' + args['addName'] + name_data + str(self.task
-            ) + 'HDD' + str(self.hidden_size) + 'BSZ' + str(args['batch']
-            ) + 'DR' + str(self.dropout) + 'L' + layer_info + 'lr' + str(self
-            .lr) + str(dec_type)
+        directory = 'save/GLMP-' + args['addName'] + name_data + str(self.task) + 'HDD' + str(self.hidden_size) + 'BSZ' + str(args['batch']) + 'DR' + str(self.dropout) + 'L' + layer_info + 'lr' + str(self.lr) + str(dec_type)
         if not os.path.exists(directory):
             os.makedirs(directory)
         torch.save(self.encoder, directory + '/enc.th')
@@ -260,8 +245,7 @@ class GLMP(nn.Module):
         torch.save(self.decoder, directory + '/dec.th')
 
     def reset(self):
-        (self.loss, self.print_every, self.loss_g, self.loss_v, self.loss_l
-            ) = 0, 1, 0, 0, 0
+        self.loss, self.print_every, self.loss_g, self.loss_v, self.loss_l = 0, 1, 0, 0, 0
 
     def _cuda(self, x):
         if USE_CUDA:
@@ -277,16 +261,10 @@ class GLMP(nn.Module):
         self.decoder_optimizer.zero_grad()
         use_teacher_forcing = random.random() < args['teacher_forcing_ratio']
         max_target_length = max(data['response_lengths'])
-        (all_decoder_outputs_vocab, all_decoder_outputs_ptr, _, _,
-            global_pointer) = (self.encode_and_decode(data,
-            max_target_length, use_teacher_forcing, False))
+        all_decoder_outputs_vocab, all_decoder_outputs_ptr, _, _, global_pointer = self.encode_and_decode(data, max_target_length, use_teacher_forcing, False)
         loss_g = self.criterion_bce(global_pointer, data['selector_index'])
-        loss_v = masked_cross_entropy(all_decoder_outputs_vocab.transpose(0,
-            1).contiguous(), data['sketch_response'].contiguous(), data[
-            'response_lengths'])
-        loss_l = masked_cross_entropy(all_decoder_outputs_ptr.transpose(0, 
-            1).contiguous(), data['ptr_index'].contiguous(), data[
-            'response_lengths'])
+        loss_v = masked_cross_entropy(all_decoder_outputs_vocab.transpose(0, 1).contiguous(), data['sketch_response'].contiguous(), data['response_lengths'])
+        loss_l = masked_cross_entropy(all_decoder_outputs_ptr.transpose(0, 1).contiguous(), data['ptr_index'].contiguous(), data['response_lengths'])
         loss = loss_g + loss_v + loss_l
         loss.backward()
         ec = torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), clip)
@@ -300,43 +278,32 @@ class GLMP(nn.Module):
         self.loss_v += loss_v.item()
         self.loss_l += loss_l.item()
 
-    def encode_and_decode(self, data, max_target_length,
-        use_teacher_forcing, get_decoded_words):
+    def encode_and_decode(self, data, max_target_length, use_teacher_forcing, get_decoded_words):
         if args['unk_mask'] and self.decoder.training:
             story_size = data['context_arr'].size()
             rand_mask = np.ones(story_size)
-            bi_mask = np.random.binomial([np.ones((story_size[0],
-                story_size[1]))], 1 - self.dropout)[0]
+            bi_mask = np.random.binomial([np.ones((story_size[0], story_size[1]))], 1 - self.dropout)[0]
             rand_mask[:, :, (0)] = rand_mask[:, :, (0)] * bi_mask
             conv_rand_mask = np.ones(data['conv_arr'].size())
             for bi in range(story_size[0]):
-                start, end = data['kb_arr_lengths'][bi], data['kb_arr_lengths'
-                    ][bi] + data['conv_arr_lengths'][bi]
-                conv_rand_mask[:end - start, (bi), :] = rand_mask[(bi),
-                    start:end, :]
+                start, end = data['kb_arr_lengths'][bi], data['kb_arr_lengths'][bi] + data['conv_arr_lengths'][bi]
+                conv_rand_mask[:end - start, (bi), :] = rand_mask[(bi), start:end, :]
             rand_mask = self._cuda(rand_mask)
             conv_rand_mask = self._cuda(conv_rand_mask)
             conv_story = data['conv_arr'] * conv_rand_mask.long()
             story = data['context_arr'] * rand_mask.long()
         else:
             story, conv_story = data['context_arr'], data['conv_arr']
-        dh_outputs, dh_hidden = self.encoder(conv_story, data[
-            'conv_arr_lengths'])
-        global_pointer, kb_readout = self.extKnow.load_memory(story, data[
-            'kb_arr_lengths'], data['conv_arr_lengths'], dh_hidden, dh_outputs)
+        dh_outputs, dh_hidden = self.encoder(conv_story, data['conv_arr_lengths'])
+        global_pointer, kb_readout = self.extKnow.load_memory(story, data['kb_arr_lengths'], data['conv_arr_lengths'], dh_hidden, dh_outputs)
         encoded_hidden = torch.cat((dh_hidden.squeeze(0), kb_readout), dim=1)
         batch_size = len(data['context_arr_lengths'])
         self.copy_list = []
         for elm in data['context_arr_plain']:
             elm_temp = [word_arr[0] for word_arr in elm]
             self.copy_list.append(elm_temp)
-        outputs_vocab, outputs_ptr, decoded_fine, decoded_coarse = (self.
-            decoder.forward(self.extKnow, story.size(), data[
-            'context_arr_lengths'], self.copy_list, encoded_hidden, data[
-            'sketch_response'], max_target_length, batch_size,
-            use_teacher_forcing, get_decoded_words, global_pointer))
-        return (outputs_vocab, outputs_ptr, decoded_fine, decoded_coarse,
-            global_pointer)
+        outputs_vocab, outputs_ptr, decoded_fine, decoded_coarse = self.decoder.forward(self.extKnow, story.size(), data['context_arr_lengths'], self.copy_list, encoded_hidden, data['sketch_response'], max_target_length, batch_size, use_teacher_forcing, get_decoded_words, global_pointer)
+        return outputs_vocab, outputs_ptr, decoded_fine, decoded_coarse, global_pointer
 
     def evaluate(self, dev, matric_best, early_stop=None):
         None
@@ -356,16 +323,13 @@ class GLMP(nn.Module):
                 global_entity_list = []
                 for key in global_entity.keys():
                     if key != 'poi':
-                        global_entity_list += [item.lower().replace(' ',
-                            '_') for item in global_entity[key]]
+                        global_entity_list += [item.lower().replace(' ', '_') for item in global_entity[key]]
                     else:
                         for item in global_entity['poi']:
-                            global_entity_list += [item[k].lower().replace(
-                                ' ', '_') for k in item.keys()]
+                            global_entity_list += [item[k].lower().replace(' ', '_') for k in item.keys()]
                 global_entity_list = list(set(global_entity_list))
         for j, data_dev in pbar:
-            _, _, decoded_fine, decoded_coarse, global_pointer = (self.
-                encode_and_decode(data_dev, self.max_resp_len, False, True))
+            _, _, decoded_fine, decoded_coarse, global_pointer = self.encode_and_decode(data_dev, self.max_resp_len, False, True)
             decoded_coarse = np.transpose(decoded_coarse)
             decoded_fine = np.transpose(decoded_fine)
             for bi, row in enumerate(decoded_fine):
@@ -387,24 +351,16 @@ class GLMP(nn.Module):
                 ref.append(gold_sent)
                 hyp.append(pred_sent)
                 if args['dataset'] == 'kvr':
-                    single_f1, count = self.compute_prf(data_dev[
-                        'ent_index'][bi], pred_sent.split(),
-                        global_entity_list, data_dev['kb_arr_plain'][bi])
+                    single_f1, count = self.compute_prf(data_dev['ent_index'][bi], pred_sent.split(), global_entity_list, data_dev['kb_arr_plain'][bi])
                     F1_pred += single_f1
                     F1_count += count
-                    single_f1, count = self.compute_prf(data_dev[
-                        'ent_idx_cal'][bi], pred_sent.split(),
-                        global_entity_list, data_dev['kb_arr_plain'][bi])
+                    single_f1, count = self.compute_prf(data_dev['ent_idx_cal'][bi], pred_sent.split(), global_entity_list, data_dev['kb_arr_plain'][bi])
                     F1_cal_pred += single_f1
                     F1_cal_count += count
-                    single_f1, count = self.compute_prf(data_dev[
-                        'ent_idx_nav'][bi], pred_sent.split(),
-                        global_entity_list, data_dev['kb_arr_plain'][bi])
+                    single_f1, count = self.compute_prf(data_dev['ent_idx_nav'][bi], pred_sent.split(), global_entity_list, data_dev['kb_arr_plain'][bi])
                     F1_nav_pred += single_f1
                     F1_nav_count += count
-                    single_f1, count = self.compute_prf(data_dev[
-                        'ent_idx_wet'][bi], pred_sent.split(),
-                        global_entity_list, data_dev['kb_arr_plain'][bi])
+                    single_f1, count = self.compute_prf(data_dev['ent_idx_wet'][bi], pred_sent.split(), global_entity_list, data_dev['kb_arr_plain'][bi])
                     F1_wet_pred += single_f1
                     F1_wet_count += count
                 else:
@@ -419,13 +375,11 @@ class GLMP(nn.Module):
                 if gold_sent == pred_sent:
                     acc += 1
                 if args['genSample']:
-                    self.print_examples(bi, data_dev, pred_sent,
-                        pred_sent_coarse, gold_sent)
+                    self.print_examples(bi, data_dev, pred_sent, pred_sent_coarse, gold_sent)
         self.encoder.train(True)
         self.extKnow.train(True)
         self.decoder.train(True)
-        bleu_score = moses_multi_bleu(np.array(hyp), np.array(ref),
-            lowercase=True)
+        bleu_score = moses_multi_bleu(np.array(hyp), np.array(ref), lowercase=True)
         acc_score = acc / float(total)
         None
         if args['dataset'] == 'kvr':
@@ -473,26 +427,21 @@ class GLMP(nn.Module):
                         FP += 1
             precision = TP / float(TP + FP) if TP + FP != 0 else 0
             recall = TP / float(TP + FN) if TP + FN != 0 else 0
-            F1 = 2 * precision * recall / float(precision + recall
-                ) if precision + recall != 0 else 0
+            F1 = 2 * precision * recall / float(precision + recall) if precision + recall != 0 else 0
         else:
             precision, recall, F1, count = 0, 0, 0, 0
         return F1, count
 
-    def print_examples(self, batch_idx, data, pred_sent, pred_sent_coarse,
-        gold_sent):
-        kb_len = len(data['context_arr_plain'][batch_idx]) - data[
-            'conv_arr_lengths'][batch_idx] - 1
+    def print_examples(self, batch_idx, data, pred_sent, pred_sent_coarse, gold_sent):
+        kb_len = len(data['context_arr_plain'][batch_idx]) - data['conv_arr_lengths'][batch_idx] - 1
         None
         for i in range(kb_len):
-            kb_temp = [w for w in data['context_arr_plain'][batch_idx][i] if
-                w != 'PAD']
+            kb_temp = [w for w in data['context_arr_plain'][batch_idx][i] if w != 'PAD']
             kb_temp = kb_temp[::-1]
             if 'poi' not in kb_temp:
                 None
         flag_uttr, uttr = '$u', []
-        for word_idx, word_arr in enumerate(data['context_arr_plain'][
-            batch_idx][kb_len:]):
+        for word_idx, word_arr in enumerate(data['context_arr_plain'][batch_idx][kb_len:]):
             if word_arr[1] == flag_uttr:
                 uttr.append(word_arr[0])
             else:
@@ -524,10 +473,8 @@ class ContextRNN(nn.Module):
         self.n_layers = n_layers
         self.dropout = dropout
         self.dropout_layer = nn.Dropout(dropout)
-        self.embedding = nn.Embedding(input_size, hidden_size, padding_idx=
-            PAD_token)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=
-            dropout, bidirectional=True)
+        self.embedding = nn.Embedding(input_size, hidden_size, padding_idx=PAD_token)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=dropout, bidirectional=True)
         self.W = nn.Linear(2 * hidden_size, hidden_size)
 
     def get_state(self, bsz):
@@ -535,19 +482,16 @@ class ContextRNN(nn.Module):
         return _cuda(torch.zeros(2, bsz, self.hidden_size))
 
     def forward(self, input_seqs, input_lengths, hidden=None):
-        embedded = self.embedding(input_seqs.contiguous().view(input_seqs.
-            size(0), -1).long())
+        embedded = self.embedding(input_seqs.contiguous().view(input_seqs.size(0), -1).long())
         embedded = embedded.view(input_seqs.size() + (embedded.size(-1),))
         embedded = torch.sum(embedded, 2).squeeze(2)
         embedded = self.dropout_layer(embedded)
         hidden = self.get_state(input_seqs.size(1))
         if input_lengths:
-            embedded = nn.utils.rnn.pack_padded_sequence(embedded,
-                input_lengths, batch_first=False)
+            embedded = nn.utils.rnn.pack_padded_sequence(embedded, input_lengths, batch_first=False)
         outputs, hidden = self.gru(embedded, hidden)
         if input_lengths:
-            outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs,
-                batch_first=False)
+            outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=False)
         hidden = self.W(torch.cat((hidden[0], hidden[1]), dim=1)).unsqueeze(0)
         outputs = self.W(outputs)
         return outputs.transpose(0, 1), hidden
@@ -568,10 +512,10 @@ class AttrProxy(object):
         return getattr(self.module, self.prefix + str(i))
 
 
-_global_config['ablationH'] = 4
-
-
 _global_config['ablationG'] = 4
+
+
+_global_config['ablationH'] = 4
 
 
 class ExternalKnowledge(nn.Module):
@@ -594,8 +538,7 @@ class ExternalKnowledge(nn.Module):
     def add_lm_embedding(self, full_memory, kb_len, conv_len, hiddens):
         for bi in range(full_memory.size(0)):
             start, end = kb_len[bi], kb_len[bi] + conv_len[bi]
-            full_memory[(bi), start:end, :] = full_memory[(bi), start:end, :
-                ] + hiddens[(bi), :conv_len[bi], :]
+            full_memory[(bi), start:end, :] = full_memory[(bi), start:end, :] + hiddens[(bi), :conv_len[bi], :]
         return full_memory
 
     def load_memory(self, story, kb_len, conv_len, hidden, dh_outputs):
@@ -607,21 +550,18 @@ class ExternalKnowledge(nn.Module):
             embed_A = embed_A.view(story_size + (embed_A.size(-1),))
             embed_A = torch.sum(embed_A, 2).squeeze(2)
             if not args['ablationH']:
-                embed_A = self.add_lm_embedding(embed_A, kb_len, conv_len,
-                    dh_outputs)
+                embed_A = self.add_lm_embedding(embed_A, kb_len, conv_len, dh_outputs)
             embed_A = self.dropout_layer(embed_A)
             if len(list(u[-1].size())) == 1:
                 u[-1] = u[-1].unsqueeze(0)
             u_temp = u[-1].unsqueeze(1).expand_as(embed_A)
             prob_logit = torch.sum(embed_A * u_temp, 2)
             prob_ = self.softmax(prob_logit)
-            embed_C = self.C[hop + 1](story.contiguous().view(story_size[0],
-                -1).long())
+            embed_C = self.C[hop + 1](story.contiguous().view(story_size[0], -1).long())
             embed_C = embed_C.view(story_size + (embed_C.size(-1),))
             embed_C = torch.sum(embed_C, 2).squeeze(2)
             if not args['ablationH']:
-                embed_C = self.add_lm_embedding(embed_C, kb_len, conv_len,
-                    dh_outputs)
+                embed_C = self.add_lm_embedding(embed_C, kb_len, conv_len, dh_outputs)
             prob = prob_.unsqueeze(2).expand_as(embed_C)
             o_k = torch.sum(embed_C * prob, 1)
             u_k = u[-1] + o_k
@@ -675,13 +615,9 @@ class LocalMemoryDecoder(nn.Module):
         self.conv_layer = nn.Conv1d(embedding_dim, embedding_dim, 5, padding=2)
         self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, extKnow, story_size, story_lengths, copy_list,
-        encode_hidden, target_batches, max_target_length, batch_size,
-        use_teacher_forcing, get_decoded_words, global_pointer):
-        all_decoder_outputs_vocab = _cuda(torch.zeros(max_target_length,
-            batch_size, self.num_vocab))
-        all_decoder_outputs_ptr = _cuda(torch.zeros(max_target_length,
-            batch_size, story_size[1]))
+    def forward(self, extKnow, story_size, story_lengths, copy_list, encode_hidden, target_batches, max_target_length, batch_size, use_teacher_forcing, get_decoded_words, global_pointer):
+        all_decoder_outputs_vocab = _cuda(torch.zeros(max_target_length, batch_size, self.num_vocab))
+        all_decoder_outputs_ptr = _cuda(torch.zeros(max_target_length, batch_size, story_size[1]))
         decoder_input = _cuda(torch.LongTensor([SOS_token] * batch_size))
         memory_mask_for_step = _cuda(torch.ones(story_size[0], story_size[1]))
         decoded_fine, decoded_coarse = [], []
@@ -717,23 +653,14 @@ class LocalMemoryDecoder(nn.Module):
                                 break
                         temp_f.append(cw)
                         if args['record']:
-                            memory_mask_for_step[bi, toppi[:, (i)][bi].item()
-                                ] = 0
+                            memory_mask_for_step[bi, toppi[:, (i)][bi].item()] = 0
                     else:
                         temp_f.append(self.lang.index2word[token])
                 decoded_fine.append(temp_f)
                 decoded_coarse.append(temp_c)
-        return (all_decoder_outputs_vocab, all_decoder_outputs_ptr,
-            decoded_fine, decoded_coarse)
+        return all_decoder_outputs_vocab, all_decoder_outputs_ptr, decoded_fine, decoded_coarse
 
     def attend_vocab(self, seq, cond):
         scores_ = cond.matmul(seq.transpose(1, 0))
         return scores_
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jasonwu0731_GLMP(_paritybench_base):
-    pass

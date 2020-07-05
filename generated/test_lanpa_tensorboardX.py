@@ -99,8 +99,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -229,8 +230,7 @@ class SimpleModel(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -325,10 +325,8 @@ class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(RNN, self).__init__()
         self.hidden_size = hidden_size
-        self.i2h = nn.Linear(n_categories + input_size + hidden_size,
-            hidden_size)
-        self.i2o = nn.Linear(n_categories + input_size + hidden_size,
-            output_size)
+        self.i2h = nn.Linear(n_categories + input_size + hidden_size, hidden_size)
+        self.i2o = nn.Linear(n_categories + input_size + hidden_size, output_size)
         self.o2o = nn.Linear(hidden_size + output_size, output_size)
         self.dropout = nn.Dropout(0.1)
         self.softmax = nn.LogSoftmax(dim=1)
@@ -371,23 +369,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearInLinear,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (M,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 16, 16])], {}),
+     True),
+    (MultipleInput,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3]), torch.rand([3, 3])], {}),
+     True),
+    (MultipleOutput,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (MultipleOutput_shared,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (SimpleModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lanpa_tensorboardX(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(MultipleInput(*[], **{}), [torch.rand([3, 3]), torch.rand([3, 3])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

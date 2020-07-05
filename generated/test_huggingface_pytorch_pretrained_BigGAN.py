@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,14 +60,10 @@ class SelfAttn(nn.Module):
     def __init__(self, in_channels, eps=1e-12):
         super(SelfAttn, self).__init__()
         self.in_channels = in_channels
-        self.snconv1x1_theta = snconv2d(in_channels=in_channels,
-            out_channels=in_channels // 8, kernel_size=1, bias=False, eps=eps)
-        self.snconv1x1_phi = snconv2d(in_channels=in_channels, out_channels
-            =in_channels // 8, kernel_size=1, bias=False, eps=eps)
-        self.snconv1x1_g = snconv2d(in_channels=in_channels, out_channels=
-            in_channels // 2, kernel_size=1, bias=False, eps=eps)
-        self.snconv1x1_o_conv = snconv2d(in_channels=in_channels // 2,
-            out_channels=in_channels, kernel_size=1, bias=False, eps=eps)
+        self.snconv1x1_theta = snconv2d(in_channels=in_channels, out_channels=in_channels // 8, kernel_size=1, bias=False, eps=eps)
+        self.snconv1x1_phi = snconv2d(in_channels=in_channels, out_channels=in_channels // 8, kernel_size=1, bias=False, eps=eps)
+        self.snconv1x1_g = snconv2d(in_channels=in_channels, out_channels=in_channels // 2, kernel_size=1, bias=False, eps=eps)
+        self.snconv1x1_o_conv = snconv2d(in_channels=in_channels // 2, out_channels=in_channels, kernel_size=1, bias=False, eps=eps)
         self.maxpool = nn.MaxPool2d(2, stride=2, padding=0)
         self.softmax = nn.Softmax(dim=-1)
         self.gamma = nn.Parameter(torch.zeros(1))
@@ -103,22 +100,18 @@ class BigGANBatchNorm(nn.Module):
         If you want to train this model you should add running means and variance computation logic.
     """
 
-    def __init__(self, num_features, condition_vector_dim=None, n_stats=51,
-        eps=0.0001, conditional=True):
+    def __init__(self, num_features, condition_vector_dim=None, n_stats=51, eps=0.0001, conditional=True):
         super(BigGANBatchNorm, self).__init__()
         self.num_features = num_features
         self.eps = eps
         self.conditional = conditional
-        self.register_buffer('running_means', torch.zeros(n_stats,
-            num_features))
+        self.register_buffer('running_means', torch.zeros(n_stats, num_features))
         self.register_buffer('running_vars', torch.ones(n_stats, num_features))
         self.step_size = 1.0 / (n_stats - 1)
         if conditional:
             assert condition_vector_dim is not None
-            self.scale = snlinear(in_features=condition_vector_dim,
-                out_features=num_features, bias=False, eps=eps)
-            self.offset = snlinear(in_features=condition_vector_dim,
-                out_features=num_features, bias=False, eps=eps)
+            self.scale = snlinear(in_features=condition_vector_dim, out_features=num_features, bias=False, eps=eps)
+            self.offset = snlinear(in_features=condition_vector_dim, out_features=num_features, bias=False, eps=eps)
         else:
             self.weight = torch.nn.Parameter(torch.Tensor(num_features))
             self.bias = torch.nn.Parameter(torch.Tensor(num_features))
@@ -127,52 +120,37 @@ class BigGANBatchNorm(nn.Module):
         coef, start_idx = math.modf(truncation / self.step_size)
         start_idx = int(start_idx)
         if coef != 0.0:
-            running_mean = self.running_means[start_idx
-                ] * coef + self.running_means[start_idx + 1] * (1 - coef)
-            running_var = self.running_vars[start_idx
-                ] * coef + self.running_vars[start_idx + 1] * (1 - coef)
+            running_mean = self.running_means[start_idx] * coef + self.running_means[start_idx + 1] * (1 - coef)
+            running_var = self.running_vars[start_idx] * coef + self.running_vars[start_idx + 1] * (1 - coef)
         else:
             running_mean = self.running_means[start_idx]
             running_var = self.running_vars[start_idx]
         if self.conditional:
-            running_mean = running_mean.unsqueeze(0).unsqueeze(-1).unsqueeze(-1
-                )
+            running_mean = running_mean.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
             running_var = running_var.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-            weight = 1 + self.scale(condition_vector).unsqueeze(-1).unsqueeze(
-                -1)
+            weight = 1 + self.scale(condition_vector).unsqueeze(-1).unsqueeze(-1)
             bias = self.offset(condition_vector).unsqueeze(-1).unsqueeze(-1)
-            out = (x - running_mean) / torch.sqrt(running_var + self.eps
-                ) * weight + bias
+            out = (x - running_mean) / torch.sqrt(running_var + self.eps) * weight + bias
         else:
-            out = F.batch_norm(x, running_mean, running_var, self.weight,
-                self.bias, training=False, momentum=0.0, eps=self.eps)
+            out = F.batch_norm(x, running_mean, running_var, self.weight, self.bias, training=False, momentum=0.0, eps=self.eps)
         return out
 
 
 class GenBlock(nn.Module):
 
-    def __init__(self, in_size, out_size, condition_vector_dim,
-        reduction_factor=4, up_sample=False, n_stats=51, eps=1e-12):
+    def __init__(self, in_size, out_size, condition_vector_dim, reduction_factor=4, up_sample=False, n_stats=51, eps=1e-12):
         super(GenBlock, self).__init__()
         self.up_sample = up_sample
         self.drop_channels = in_size != out_size
         middle_size = in_size // reduction_factor
-        self.bn_0 = BigGANBatchNorm(in_size, condition_vector_dim, n_stats=
-            n_stats, eps=eps, conditional=True)
-        self.conv_0 = snconv2d(in_channels=in_size, out_channels=
-            middle_size, kernel_size=1, eps=eps)
-        self.bn_1 = BigGANBatchNorm(middle_size, condition_vector_dim,
-            n_stats=n_stats, eps=eps, conditional=True)
-        self.conv_1 = snconv2d(in_channels=middle_size, out_channels=
-            middle_size, kernel_size=3, padding=1, eps=eps)
-        self.bn_2 = BigGANBatchNorm(middle_size, condition_vector_dim,
-            n_stats=n_stats, eps=eps, conditional=True)
-        self.conv_2 = snconv2d(in_channels=middle_size, out_channels=
-            middle_size, kernel_size=3, padding=1, eps=eps)
-        self.bn_3 = BigGANBatchNorm(middle_size, condition_vector_dim,
-            n_stats=n_stats, eps=eps, conditional=True)
-        self.conv_3 = snconv2d(in_channels=middle_size, out_channels=
-            out_size, kernel_size=1, eps=eps)
+        self.bn_0 = BigGANBatchNorm(in_size, condition_vector_dim, n_stats=n_stats, eps=eps, conditional=True)
+        self.conv_0 = snconv2d(in_channels=in_size, out_channels=middle_size, kernel_size=1, eps=eps)
+        self.bn_1 = BigGANBatchNorm(middle_size, condition_vector_dim, n_stats=n_stats, eps=eps, conditional=True)
+        self.conv_1 = snconv2d(in_channels=middle_size, out_channels=middle_size, kernel_size=3, padding=1, eps=eps)
+        self.bn_2 = BigGANBatchNorm(middle_size, condition_vector_dim, n_stats=n_stats, eps=eps, conditional=True)
+        self.conv_2 = snconv2d(in_channels=middle_size, out_channels=middle_size, kernel_size=3, padding=1, eps=eps)
+        self.bn_3 = BigGANBatchNorm(middle_size, condition_vector_dim, n_stats=n_stats, eps=eps, conditional=True)
+        self.conv_3 = snconv2d(in_channels=middle_size, out_channels=out_size, kernel_size=1, eps=eps)
         self.relu = nn.ReLU()
 
     def forward(self, x, cond_vector, truncation):
@@ -207,21 +185,16 @@ class Generator(nn.Module):
         self.config = config
         ch = config.channel_width
         condition_vector_dim = config.z_dim * 2
-        self.gen_z = snlinear(in_features=condition_vector_dim,
-            out_features=4 * 4 * 16 * ch, eps=config.eps)
+        self.gen_z = snlinear(in_features=condition_vector_dim, out_features=4 * 4 * 16 * ch, eps=config.eps)
         layers = []
         for i, layer in enumerate(config.layers):
             if i == config.attention_layer_position:
                 layers.append(SelfAttn(ch * layer[1], eps=config.eps))
-            layers.append(GenBlock(ch * layer[1], ch * layer[2],
-                condition_vector_dim, up_sample=layer[0], n_stats=config.
-                n_stats, eps=config.eps))
+            layers.append(GenBlock(ch * layer[1], ch * layer[2], condition_vector_dim, up_sample=layer[0], n_stats=config.n_stats, eps=config.eps))
         self.layers = nn.ModuleList(layers)
-        self.bn = BigGANBatchNorm(ch, n_stats=config.n_stats, eps=config.
-            eps, conditional=False)
+        self.bn = BigGANBatchNorm(ch, n_stats=config.n_stats, eps=config.eps, conditional=False)
         self.relu = nn.ReLU()
-        self.conv_to_rgb = snconv2d(in_channels=ch, out_channels=ch,
-            kernel_size=3, padding=1, eps=config.eps)
+        self.conv_to_rgb = snconv2d(in_channels=ch, out_channels=ch, kernel_size=3, padding=1, eps=config.eps)
         self.tanh = nn.Tanh()
 
     def forward(self, cond_vector, truncation):
@@ -247,11 +220,7 @@ class BigGANConfig(object):
         layers tuple are (up-sample in the layer ?, input channels, output channels)
     """
 
-    def __init__(self, output_dim=128, z_dim=128, class_embed_dim=128,
-        channel_width=128, num_classes=1000, layers=[(False, 16, 16), (True,
-        16, 16), (False, 16, 16), (True, 16, 8), (False, 8, 8), (True, 8, 4
-        ), (False, 4, 4), (True, 4, 2), (False, 2, 2), (True, 2, 1)],
-        attention_layer_position=8, eps=0.0001, n_stats=51):
+    def __init__(self, output_dim=128, z_dim=128, class_embed_dim=128, channel_width=128, num_classes=1000, layers=[(False, 16, 16), (True, 16, 16), (False, 16, 16), (True, 16, 8), (False, 8, 8), (True, 8, 4), (False, 4, 4), (True, 4, 2), (False, 2, 2), (True, 2, 1)], attention_layer_position=8, eps=0.0001, n_stats=51):
         """Constructs BigGANConfig. """
         self.output_dim = output_dim
         self.z_dim = z_dim
@@ -294,22 +263,10 @@ class BigGANConfig(object):
 CONFIG_NAME = 'config.json'
 
 
-PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-config.json'
-    , 'biggan-deep-256':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-config.json'
-    , 'biggan-deep-512':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-config.json'
-    }
+PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-config.json', 'biggan-deep-256': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-config.json', 'biggan-deep-512': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-config.json'}
 
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'biggan-deep-128':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-pytorch_model.bin'
-    , 'biggan-deep-256':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-pytorch_model.bin'
-    , 'biggan-deep-512':
-    'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-pytorch_model.bin'
-    }
+PRETRAINED_MODEL_ARCHIVE_MAP = {'biggan-deep-128': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-pytorch_model.bin', 'biggan-deep-256': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-pytorch_model.bin', 'biggan-deep-512': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-pytorch_model.bin'}
 
 
 WEIGHTS_NAME = 'pytorch_model.bin'
@@ -392,23 +349,20 @@ def get_from_cache(url, cache_dir=None):
     else:
         response = requests.head(url, allow_redirects=True)
         if response.status_code != 200:
-            raise IOError('HEAD request failed for url {} with status code {}'
-                .format(url, response.status_code))
+            raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
         etag = response.headers.get('ETag')
     filename = url_to_filename(url, etag)
     cache_path = os.path.join(cache_dir, filename)
     if not os.path.exists(cache_path):
         with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url,
-                temp_file.name)
+            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
             if url.startswith('s3://'):
                 s3_get(url, temp_file)
             else:
                 http_get(url, temp_file)
             temp_file.flush()
             temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path
-                )
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
             with open(cache_path, 'wb') as cache_file:
                 shutil.copyfileobj(temp_file, cache_file)
             logger.info('creating metadata file for %s', cache_path)
@@ -441,51 +395,38 @@ def cached_path(url_or_filename, cache_dir=None):
     elif parsed.scheme == '':
         raise EnvironmentError('file {} not found'.format(url_or_filename))
     else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.
-            format(url_or_filename))
+        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
 
 
 class BigGAN(nn.Module):
     """BigGAN Generator."""
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None,
-        *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, *inputs, **kwargs):
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            model_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            model_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            model_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            model_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
             resolved_model_file = cached_path(model_file, cache_dir=cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                'Wrong model name, should be a valid path to a folder containing a {} file and a {} file or a model name in {}'
-                .format(WEIGHTS_NAME, CONFIG_NAME,
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
+            logger.error('Wrong model name, should be a valid path to a folder containing a {} file and a {} file or a model name in {}'.format(WEIGHTS_NAME, CONFIG_NAME, PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
             raise
-        logger.info('loading model {} from cache at {}'.format(
-            pretrained_model_name_or_path, resolved_model_file))
+        logger.info('loading model {} from cache at {}'.format(pretrained_model_name_or_path, resolved_model_file))
         config = BigGANConfig.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
-        state_dict = torch.load(resolved_model_file, map_location='cpu' if 
-            not torch.is_available() else None)
+        state_dict = torch.load(resolved_model_file, map_location='cpu' if not torch.is_available() else None)
         model.load_state_dict(state_dict, strict=False)
         return model
 
     def __init__(self, config):
         super(BigGAN, self).__init__()
         self.config = config
-        self.embeddings = nn.Linear(config.num_classes, config.z_dim, bias=
-            False)
+        self.embeddings = nn.Linear(config.num_classes, config.z_dim, bias=False)
         self.generator = Generator(config)
 
     def forward(self, z, class_label, truncation):
@@ -500,8 +441,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SelfAttn,
+     lambda: ([], {'in_channels': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_huggingface_pytorch_pretrained_BigGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(SelfAttn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

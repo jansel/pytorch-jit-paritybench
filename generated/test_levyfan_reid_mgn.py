@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,12 +73,8 @@ class IDE(nn.Module):
     def __init__(self, num_classes):
         super(IDE, self).__init__()
         resnet = resnet50(pretrained=True)
-        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3,
-            resnet.layer4, nn.AdaptiveAvgPool2d((1, 1)))
-        self.classifier = nn.Sequential(nn.Linear(2048, 512), nn.
-            BatchNorm1d(512), nn.LeakyReLU(0.1), nn.Dropout(p=0.5), nn.
-            Linear(512, num_classes))
+        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4, nn.AdaptiveAvgPool2d((1, 1)))
+        self.classifier = nn.Sequential(nn.Linear(2048, 512), nn.BatchNorm1d(512), nn.LeakyReLU(0.1), nn.Dropout(p=0.5), nn.Linear(512, num_classes))
         nn.init.kaiming_normal_(self.classifier[0].weight, mode='fan_out')
         nn.init.constant_(self.classifier[0].bias, 0.0)
         nn.init.normal_(self.classifier[1].weight, mean=1.0, std=0.02)
@@ -119,27 +116,20 @@ class MGN(nn.Module):
     def __init__(self, num_classes):
         super(MGN, self).__init__()
         resnet = resnet50(pretrained=True)
-        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
+        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
         res_conv4 = nn.Sequential(*resnet.layer3[1:])
         res_g_conv5 = resnet.layer4
-        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.
-            Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d
-            (2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
+        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d(2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
         res_p_conv5.load_state_dict(resnet.layer4.state_dict())
-        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_g_conv5))
-        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
-        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
+        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_g_conv5))
+        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
+        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
         self.maxpool_zg_p1 = nn.MaxPool2d(kernel_size=(12, 4))
         self.maxpool_zg_p2 = nn.MaxPool2d(kernel_size=(24, 8))
         self.maxpool_zg_p3 = nn.MaxPool2d(kernel_size=(24, 8))
         self.maxpool_zp2 = nn.MaxPool2d(kernel_size=(12, 8))
         self.maxpool_zp3 = nn.MaxPool2d(kernel_size=(8, 8))
-        reduction = nn.Sequential(nn.Conv2d(2048, 256, 1, bias=False), nn.
-            BatchNorm2d(256), nn.ReLU())
+        reduction = nn.Sequential(nn.Conv2d(2048, 256, 1, bias=False), nn.BatchNorm2d(256), nn.ReLU())
         self._init_reduction(reduction)
         self.reduction_0 = copy.deepcopy(reduction)
         self.reduction_1 = copy.deepcopy(reduction)
@@ -262,23 +252,28 @@ class TripletSemihardLoss(nn.Module):
             input_tensor = input_tensor + 1000000.0 * (1 - mask)
             _min, _idx = torch.min(input_tensor, dim=axis, keepdim=keepdims)
             return _min, _idx
-        dist_squared = torch.sum(input ** 2, dim=1, keepdim=True) + torch.sum(
-            input.t() ** 2, dim=0, keepdim=True) - 2.0 * torch.matmul(input,
-            input.t())
+        dist_squared = torch.sum(input ** 2, dim=1, keepdim=True) + torch.sum(input.t() ** 2, dim=0, keepdim=True) - 2.0 * torch.matmul(input, input.t())
         dist = dist_squared.clamp(min=1e-16).sqrt()
         pos_max, pos_idx = _mask_max(dist, pos_mask, axis=-1)
         neg_min, neg_idx = _mask_min(dist, neg_mask, axis=-1)
         y = torch.ones(same_id.size()[0])
-        return F.margin_ranking_loss(neg_min.float(), pos_max.float(), y,
-            self.margin, self.size_average)
+        return F.margin_ranking_loss(neg_min.float(), pos_max.float(), y, self.margin, self.size_average)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (IDE,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_levyfan_reid_mgn(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(IDE(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

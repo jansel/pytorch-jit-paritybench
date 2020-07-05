@@ -257,8 +257,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -402,8 +403,7 @@ class GRUCell(nn.Module):
 
 class GRU(nn.Module):
 
-    def __init__(self, vocab_size, output_size=1, embedding_dim=50,
-        hidden_dim=10, bias=True, dropout=0.2):
+    def __init__(self, vocab_size, output_size=1, embedding_dim=50, hidden_dim=10, bias=True, dropout=0.2):
         super(GRU, self).__init__()
         self.hidden_dim = hidden_dim
         self.output_size = output_size
@@ -483,8 +483,7 @@ class GRUCell(nn.Module):
 
 class GRU(nn.Module):
 
-    def __init__(self, vocab_size, output_size=1, embedding_dim=50,
-        hidden_dim=10, bias=True, dropout=0.2):
+    def __init__(self, vocab_size, output_size=1, embedding_dim=50, hidden_dim=10, bias=True, dropout=0.2):
         super(GRU, self).__init__()
         self.hidden_dim = hidden_dim
         self.output_size = output_size
@@ -507,8 +506,7 @@ class GRU(nn.Module):
         return sig_out, h
 
 
-def conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
-    ):
+def conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
     """
     Overloads torch.nn.functional.conv2d to be able to use MPC on convolutional networks.
     The idea is to build new tensors from input and weight to compute a
@@ -530,21 +528,17 @@ def conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
     padding = torch.nn.modules.utils._pair(padding)
     dilation = torch.nn.modules.utils._pair(dilation)
     batch_size, nb_channels_in, nb_rows_in, nb_cols_in = input.shape
-    nb_channels_out, nb_channels_kernel, nb_rows_kernel, nb_cols_kernel = (
-        weight.shape)
+    nb_channels_out, nb_channels_kernel, nb_rows_kernel, nb_cols_kernel = weight.shape
     if bias is not None:
         assert len(bias) == nb_channels_out
     assert nb_channels_in == nb_channels_kernel * groups
     assert nb_channels_in % groups == 0
     assert nb_channels_out % groups == 0
-    nb_rows_out = int((nb_rows_in + 2 * padding[0] - dilation[0] * (
-        nb_rows_kernel - 1) - 1) / stride[0] + 1)
-    nb_cols_out = int((nb_cols_in + 2 * padding[1] - dilation[1] * (
-        nb_cols_kernel - 1) - 1) / stride[1] + 1)
+    nb_rows_out = int((nb_rows_in + 2 * padding[0] - dilation[0] * (nb_rows_kernel - 1) - 1) / stride[0] + 1)
+    nb_cols_out = int((nb_cols_in + 2 * padding[1] - dilation[1] * (nb_cols_kernel - 1) - 1) / stride[1] + 1)
     if padding != (0, 0):
         padding_mode = 'constant'
-        input = torch.nn.functional.pad(input, (padding[1], padding[1],
-            padding[0], padding[0]), padding_mode)
+        input = torch.nn.functional.pad(input, (padding[1], padding[1], padding[0], padding[0]), padding_mode)
         nb_rows_in += 2 * padding[0]
         nb_cols_in += 2 * padding[1]
     pattern_ind = []
@@ -557,8 +551,7 @@ def conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
     im_reshaped = []
     for cur_row_out in range(nb_rows_out):
         for cur_col_out in range(nb_cols_out):
-            offset = cur_row_out * stride[0
-                ] * nb_cols_in + cur_col_out * stride[1]
+            offset = cur_row_out * stride[0] * nb_cols_in + cur_col_out * stride[1]
             tmp = [(ind + offset) for ind in pattern_ind]
             im_reshaped.append(im_flat[:, (tmp)])
     im_reshaped = torch.stack(im_reshaped).permute(1, 0, 2)
@@ -580,8 +573,7 @@ def conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1
             res += bias.child
         else:
             res += bias
-    res = res.permute(0, 2, 1).view(batch_size, nb_channels_out,
-        nb_rows_out, nb_cols_out).contiguous()
+    res = res.permute(0, 2, 1).view(batch_size, nb_channels_out, nb_rows_out, nb_cols_out).contiguous()
     return res
 
 
@@ -599,15 +591,11 @@ class Conv2d(nn.Module):
     This module has not yet been tested with GPUs but should work out of the box.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros'):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros'):
         """For information on the constructor arguments, please see PyTorch's
         documentation in torch.nn.Conv2d"""
         super().__init__()
-        temp_init = th.nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias,
-            padding_mode=padding_mode)
+        temp_init = th.nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
         self.weight = th.Tensor(temp_init.weight).fix_prec()
         if bias:
             self.bias = th.Tensor(temp_init.bias).fix_prec()
@@ -622,8 +610,7 @@ class Conv2d(nn.Module):
 
     def forward(self, input):
         assert input.shape[1] == self.in_channels
-        return conv2d(input, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return conv2d(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class AvgPool2d(Module):
@@ -643,8 +630,7 @@ class AvgPool2d(Module):
     This module has not yet been tested with GPUs but should work out of the box.
     """
 
-    def __init__(self, kernel_size, stride=None, padding=0, ceil_mode=False,
-        count_include_pad=True, divisor_override=None):
+    def __init__(self, kernel_size, stride=None, padding=0, ceil_mode=False, count_include_pad=True, divisor_override=None):
         """For information on the constructor arguments, please see PyTorch's
         documentation in torch.nn.AvgPool2d"""
         super().__init__()
@@ -667,11 +653,9 @@ class AvgPool2d(Module):
         kernel_results = []
         for i in range(0, rows - self.kernel_size + 1, self.stride):
             for j in range(0, cols - self.kernel_size + 1, self.stride):
-                kernel_out = data[:, :, i:i + self.kernel_size, j:j + self.
-                    kernel_size].sum((2, 3)) * self._one_over_kernel_size
+                kernel_out = data[:, :, i:i + self.kernel_size, j:j + self.kernel_size].sum((2, 3)) * self._one_over_kernel_size
                 kernel_results.append(kernel_out.unsqueeze(2))
-        pred = th.cat(kernel_results, axis=2).view(batch_size, out_channels,
-            int(rows / self.stride), int(cols / self.stride))
+        pred = th.cat(kernel_results, axis=2).view(batch_size, out_channels, int(rows / self.stride), int(cols / self.stride))
         return pred
 
 
@@ -865,11 +849,9 @@ class Overloaded:
         """
 
         def _hook_method_args(self, *args, **kwargs):
-            new_self, new_args, new_kwargs = hook_args.unwrap_args_from_method(
-                attr.__name__, self, args, kwargs)
+            new_self, new_args, new_kwargs = hook_args.unwrap_args_from_method(attr.__name__, self, args, kwargs)
             response = attr(self, new_self, *new_args, **new_kwargs)
-            response = hook_args.hook_response(attr.__name__, response,
-                wrap_type=type(self), wrap_args=self.get_class_attributes())
+            response = hook_args.hook_response(attr.__name__, response, wrap_type=type(self), wrap_args=self.get_class_attributes())
             return response
         return _hook_method_args
 
@@ -880,14 +862,11 @@ class Overloaded:
         """
 
         def _hook_function_args(*args, **kwargs):
-            tensor = args[0] if not isinstance(args[0], (tuple, list)
-                ) else args[0][0]
+            tensor = args[0] if not isinstance(args[0], (tuple, list)) else args[0][0]
             cls = type(tensor)
-            new_args, new_kwargs, new_type = (hook_args.
-                unwrap_args_from_function(attr.__name__, args, kwargs))
+            new_args, new_kwargs, new_type = hook_args.unwrap_args_from_function(attr.__name__, args, kwargs)
             response = attr(*new_args, **new_kwargs)
-            response = hook_args.hook_response(attr.__name__, response,
-                wrap_type=cls, wrap_args=tensor.get_class_attributes())
+            response = hook_args.hook_response(attr.__name__, response, wrap_type=cls, wrap_args=tensor.get_class_attributes())
             return response
         return _hook_function_args
 
@@ -901,8 +880,7 @@ class Overloaded:
 overloaded = Overloaded()
 
 
-COMMUNICATION_METHODS = ['get', 'mid_get', 'move', 'remote_get',
-    'remote_send', 'send', 'share', 'share_']
+COMMUNICATION_METHODS = ['get', 'mid_get', 'move', 'remote_get', 'remote_send', 'send', 'share', 'share_']
 
 
 class RNNCellBase(nn.Module):
@@ -912,18 +890,15 @@ class RNNCellBase(nn.Module):
     Only Linear and Dropout layers are used to be able to use MPC
     """
 
-    def __init__(self, input_size, hidden_size, bias, num_chunks,
-        nonlinearity=None):
+    def __init__(self, input_size, hidden_size, bias, num_chunks, nonlinearity=None):
         super(RNNCellBase, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bias = bias
         self.num_chunks = num_chunks
         self.nonlinearity = nonlinearity
-        self.fc_xh = nn.Linear(input_size, self.num_chunks * hidden_size,
-            bias=bias)
-        self.fc_hh = nn.Linear(hidden_size, self.num_chunks * hidden_size,
-            bias=bias)
+        self.fc_xh = nn.Linear(input_size, self.num_chunks * hidden_size, bias=bias)
+        self.fc_hh = nn.Linear(hidden_size, self.num_chunks * hidden_size, bias=bias)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -940,12 +915,10 @@ class RNNCellBase(nn.Module):
         This method initializes a hidden state when no hidden state is provided
         in the forward method. It creates a hidden state with zero values.
         """
-        h = torch.zeros(input.shape[0], self.hidden_size, dtype=input.dtype,
-            device=input.device)
+        h = torch.zeros(input.shape[0], self.hidden_size, dtype=input.dtype, device=input.device)
         if input.has_child() and isinstance(input.child, PointerTensor):
             h = h.send(input.child.location)
-        if input.has_child() and isinstance(input.child, precision.
-            FixedPrecisionTensor):
+        if input.has_child() and isinstance(input.child, precision.FixedPrecisionTensor):
             h = h.fix_precision()
             child = input.child
             if isinstance(child.child, AdditiveSharingTensor):
@@ -962,16 +935,13 @@ class LSTMCell(RNNCellBase):
     """
 
     def __init__(self, input_size, hidden_size, bias=True, nonlinearity=None):
-        super(LSTMCell, self).__init__(input_size, hidden_size, bias,
-            num_chunks=4)
+        super(LSTMCell, self).__init__(input_size, hidden_size, bias, num_chunks=4)
 
     def reset_parameters(self):
         super(LSTMCell, self).reset_parameters()
         incr_bias = 1.0 / self.hidden_size
-        init.constant_(self.fc_xh.bias[self.hidden_size:2 * self.
-            hidden_size], incr_bias)
-        init.constant_(self.fc_hh.bias[self.hidden_size:2 * self.
-            hidden_size], incr_bias)
+        init.constant_(self.fc_xh.bias[self.hidden_size:2 * self.hidden_size], incr_bias)
+        init.constant_(self.fc_hh.bias[self.hidden_size:2 * self.hidden_size], incr_bias)
 
     def forward(self, x, hc=None):
         if hc is None:
@@ -997,8 +967,7 @@ class RNNBase(nn.Module):
     Only Linear and Dropout layers are used to be able to use MPC
     """
 
-    def __init__(self, input_size, hidden_size, num_layers, bias,
-        batch_first, dropout, bidirectional, base_cell, nonlinearity=None):
+    def __init__(self, input_size, hidden_size, num_layers, bias, batch_first, dropout, bidirectional, base_cell, nonlinearity=None):
         super(RNNBase, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -1010,20 +979,16 @@ class RNNBase(nn.Module):
         self.num_directions = 2 if bidirectional else 1
         self.is_lstm = base_cell is LSTMCell
         self.nonlinearity = nonlinearity
-        sizes = [input_size, *(hidden_size for _ in range(self.num_layers - 1))
-            ]
-        self.rnn_forward = nn.ModuleList(base_cell(sz, hidden_size, bias,
-            nonlinearity) for sz in sizes)
+        sizes = [input_size, *(hidden_size for _ in range(self.num_layers - 1))]
+        self.rnn_forward = nn.ModuleList(base_cell(sz, hidden_size, bias, nonlinearity) for sz in sizes)
         if self.bidirectional:
-            self.rnn_backward = nn.ModuleList(base_cell(sz, hidden_size,
-                bias, nonlinearity) for sz in sizes)
+            self.rnn_backward = nn.ModuleList(base_cell(sz, hidden_size, bias, nonlinearity) for sz in sizes)
 
     def forward(self, x, hc=None):
         if self.batch_first:
             x = x.transpose(0, 1)
         if hc is None:
-            hc = [self._init_hidden(x) for _ in range(2 if self.is_lstm else 1)
-                ]
+            hc = [self._init_hidden(x) for _ in range(2 if self.is_lstm else 1)]
         else:
             if not self.is_lstm:
                 hc = [hc]
@@ -1032,8 +997,7 @@ class RNNBase(nn.Module):
         batch_size = x.shape[1]
         seq_len = x.shape[0]
         if self.bidirectional:
-            hc = [item.contiguous().view(self.num_layers, 2, batch_size,
-                self.hidden_size) for item in hc]
+            hc = [item.contiguous().view(self.num_layers, 2, batch_size, self.hidden_size) for item in hc]
             hc_fwd = [item[:, (0), :, :] for item in hc]
             hc_back = [item[:, (1), :, :] for item in hc]
         else:
@@ -1045,12 +1009,10 @@ class RNNBase(nn.Module):
         if self.bidirectional:
             output_back = x.new(seq_len, batch_size, self.hidden_size).zero_()
             for t in range(seq_len - 1, -1, -1):
-                hc_back = self._apply_time_step(x, hc_back, t,
-                    reverse_direction=True)
+                hc_back = self._apply_time_step(x, hc_back, t, reverse_direction=True)
                 output_back[(t), :, :] = hc_back[0][(-1), :, :]
             output = torch.cat((output, output_back), dim=-1)
-            hidden = [torch.cat((hid_item, back_item), dim=0) for hid_item,
-                back_item in zip(hc_fwd, hc_back)]
+            hidden = [torch.cat((hid_item, back_item), dim=0) for hid_item, back_item in zip(hc_fwd, hc_back)]
         else:
             hidden = hc_fwd
         if self.batch_first:
@@ -1065,12 +1027,10 @@ class RNNBase(nn.Module):
         in the forward method. It creates a hidden state with zero values for each
         layer of the network.
         """
-        h = torch.zeros(self.num_layers * self.num_directions, input.shape[
-            1], self.hidden_size, dtype=input.dtype, device=input.device)
+        h = torch.zeros(self.num_layers * self.num_directions, input.shape[1], self.hidden_size, dtype=input.dtype, device=input.device)
         if input.has_child() and isinstance(input.child, PointerTensor):
             h = h.send(input.child.location)
-        if input.has_child() and isinstance(input.child, precision.
-            FixedPrecisionTensor):
+        if input.has_child() and isinstance(input.child, precision.FixedPrecisionTensor):
             h = h.fix_precision()
             child = input.child
             if isinstance(child.child, AdditiveSharingTensor):
@@ -1083,19 +1043,15 @@ class RNNBase(nn.Module):
         """
         Apply RNN layers at time t, given input and previous hidden states
         """
-        rnn_layers = (self.rnn_backward if reverse_direction else self.
-            rnn_forward)
+        rnn_layers = self.rnn_backward if reverse_direction else self.rnn_forward
         hc = torch.stack([*hc])
         hc_next = torch.zeros_like(hc)
         for layer in range(self.num_layers):
-            inp = x[(t), :, :] if layer == 0 else hc_next[0][(layer - 1), :, :
-                ].clone()
+            inp = x[(t), :, :] if layer == 0 else hc_next[0][(layer - 1), :, :].clone()
             if self.is_lstm:
-                hc_next[:, (layer), :, :] = torch.stack(rnn_layers[layer](
-                    inp, hc[:, (layer), :, :]))
+                hc_next[:, (layer), :, :] = torch.stack(rnn_layers[layer](inp, hc[:, (layer), :, :]))
             else:
-                hc_next[0][(layer), :, :] = rnn_layers[layer](inp, hc[0][(
-                    layer), :, :])
+                hc_next[0][(layer), :, :] = rnn_layers[layer](inp, hc[0][(layer), :, :])
         return hc_next
 
 
@@ -1115,15 +1071,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AvgPool2d,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GRUCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 4]), torch.rand([4, 4, 1024, 4])], {}),
+     True),
+    (TopLevelTraceModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+]
+
 class Test_OpenMined_PySyft(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AvgPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 64, 4]), torch.rand([4, 4, 1024, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TopLevelTraceModel(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[2])
 

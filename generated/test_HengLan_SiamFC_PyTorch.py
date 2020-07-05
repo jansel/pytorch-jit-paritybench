@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,13 +85,7 @@ class SiamNet(nn.Module):
 
     def __init__(self):
         super(SiamNet, self).__init__()
-        self.feat_extraction = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.
-            BatchNorm2d(96), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.
-            Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256), nn.ReLU(
-            inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1),
-            nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 384,
-            3, 1, groups=2), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn
-            .Conv2d(384, 256, 3, 1, groups=2))
+        self.feat_extraction = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.BatchNorm2d(96), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 384, 3, 1, groups=2), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 256, 3, 1, groups=2))
         self.adjust = nn.Conv2d(1, 1, 1, 1)
         self._initialize_weight()
         self.config = Config()
@@ -115,8 +110,7 @@ class SiamNet(nn.Module):
         x = torch.reshape(x, (1, batch_size_x * channel_x, w_x, h_x))
         out = F.conv2d(x, z, groups=batch_size_x)
         batch_size_out, channel_out, w_out, h_out = out.shape
-        xcorr_out = torch.reshape(out, (channel_out, batch_size_out, w_out,
-            h_out))
+        xcorr_out = torch.reshape(out, (channel_out, batch_size_out, w_out, h_out))
         return xcorr_out
 
     def _initialize_weight(self):
@@ -128,8 +122,7 @@ class SiamNet(nn.Module):
             if isinstance(m, nn.Conv2d):
                 tmp_layer_idx = tmp_layer_idx + 1
                 if tmp_layer_idx < 6:
-                    nn.init.kaiming_normal_(m.weight.data, mode='fan_out',
-                        nonlinearity='relu')
+                    nn.init.kaiming_normal_(m.weight.data, mode='fan_out', nonlinearity='relu')
                 else:
                     m.weight.data.fill_(0.001)
                     m.bias.data.zero_()
@@ -141,21 +134,14 @@ class SiamNet(nn.Module):
         """
         weighted cross entropy loss
         """
-        return F.binary_cross_entropy_with_logits(prediction, label, weight,
-            size_average=False) / self.config.batch_size
+        return F.binary_cross_entropy_with_logits(prediction, label, weight, size_average=False) / self.config.batch_size
 
 
 class SiamNet(nn.Module):
 
     def __init__(self):
         super(SiamNet, self).__init__()
-        self.feat_extraction = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.
-            BatchNorm2d(96), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.
-            Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256), nn.ReLU(
-            inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1),
-            nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 384,
-            3, 1, groups=2), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn
-            .Conv2d(384, 256, 3, 1, groups=2))
+        self.feat_extraction = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.BatchNorm2d(96), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 384, 3, 1, groups=2), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 256, 3, 1, groups=2))
         self.adjust = nn.Conv2d(1, 1, 1, 1)
         self._initialize_weight()
         self.config = Config()
@@ -180,8 +166,7 @@ class SiamNet(nn.Module):
         x = torch.reshape(x, (1, batch_size_x * channel_x, w_x, h_x))
         out = F.conv2d(x, z, groups=batch_size_x)
         batch_size_out, channel_out, w_out, h_out = out.shape
-        xcorr_out = torch.reshape(out, (channel_out, batch_size_out, w_out,
-            h_out))
+        xcorr_out = torch.reshape(out, (channel_out, batch_size_out, w_out, h_out))
         return xcorr_out
 
     def _initialize_weight(self):
@@ -193,8 +178,7 @@ class SiamNet(nn.Module):
             if isinstance(m, nn.Conv2d):
                 tmp_layer_idx = tmp_layer_idx + 1
                 if tmp_layer_idx < 6:
-                    nn.init.kaiming_normal_(m.weight.data, mode='fan_out',
-                        nonlinearity='relu')
+                    nn.init.kaiming_normal_(m.weight.data, mode='fan_out', nonlinearity='relu')
                 else:
                     m.weight.data.fill_(0.001)
                     m.bias.data.zero_()
@@ -206,16 +190,23 @@ class SiamNet(nn.Module):
         """
         weighted cross entropy loss
         """
-        return F.binary_cross_entropy_with_logits(prediction, label, weight,
-            size_average=False) / self.config.batch_size
+        return F.binary_cross_entropy_with_logits(prediction, label, weight, size_average=False) / self.config.batch_size
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SiamNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128]), torch.rand([4, 3, 128, 128])], {}),
+     True),
+]
+
 class Test_HengLan_SiamFC_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(SiamNet(*[], **{}), [torch.rand([4, 3, 128, 128]), torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[0])
 

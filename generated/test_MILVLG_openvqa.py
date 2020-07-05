@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -128,8 +129,7 @@ class BaseAdapter(nn.Module):
         raise NotImplementedError()
 
     def forward(self, frcn_feat, grid_feat, bbox_feat):
-        feat_dict = feat_filter(self.__C.DATASET, frcn_feat, grid_feat,
-            bbox_feat)
+        feat_dict = feat_filter(self.__C.DATASET, frcn_feat, grid_feat, bbox_feat)
         if self.__C.DATASET in ['vqa']:
             return self.vqa_forward(feat_dict)
         elif self.__C.DATASET in ['gqa']:
@@ -179,24 +179,19 @@ class BC(nn.Module):
     def __init__(self, __C, atten=False):
         super(BC, self).__init__()
         self.__C = __C
-        self.v_net = MLP([__C.IMG_FEAT_SIZE, __C.BA_HIDDEN_SIZE], dropout_r
-            =__C.DROPOUT_R)
-        self.q_net = MLP([__C.HIDDEN_SIZE, __C.BA_HIDDEN_SIZE], dropout_r=
-            __C.DROPOUT_R)
+        self.v_net = MLP([__C.IMG_FEAT_SIZE, __C.BA_HIDDEN_SIZE], dropout_r=__C.DROPOUT_R)
+        self.q_net = MLP([__C.HIDDEN_SIZE, __C.BA_HIDDEN_SIZE], dropout_r=__C.DROPOUT_R)
         if not atten:
             self.p_net = nn.AvgPool1d(__C.K_TIMES, stride=__C.K_TIMES)
         else:
             self.dropout = nn.Dropout(__C.CLASSIFER_DROPOUT_R)
-            self.h_mat = nn.Parameter(torch.Tensor(1, __C.GLIMPSE, 1, __C.
-                BA_HIDDEN_SIZE).normal_())
-            self.h_bias = nn.Parameter(torch.Tensor(1, __C.GLIMPSE, 1, 1).
-                normal_())
+            self.h_mat = nn.Parameter(torch.Tensor(1, __C.GLIMPSE, 1, __C.BA_HIDDEN_SIZE).normal_())
+            self.h_bias = nn.Parameter(torch.Tensor(1, __C.GLIMPSE, 1, 1).normal_())
 
     def forward(self, v, q):
         v_ = self.dropout(self.v_net(v))
         q_ = self.q_net(q)
-        logits = torch.einsum('xhyk,bvk,bqk->bhvq', (self.h_mat, v_, q_)
-            ) + self.h_bias
+        logits = torch.einsum('xhyk,bvk,bqk->bhvq', (self.h_mat, v_, q_)) + self.h_bias
         return logits
 
     def forward_with_weights(self, v, q, w):
@@ -220,12 +215,10 @@ class BiAttention(nn.Module):
         q_num = q.size(1)
         logits = self.logits(v, q)
         if v_mask:
-            mask = (0 == v.abs().sum(2)).unsqueeze(1).unsqueeze(3).expand(
-                logits.size())
+            mask = (0 == v.abs().sum(2)).unsqueeze(1).unsqueeze(3).expand(logits.size())
             logits.data.masked_fill_(mask.data, mask_with)
         if not logit:
-            p = nn.functional.softmax(logits.view(-1, self.__C.GLIMPSE, 
-                v_num * q_num), 2)
+            p = nn.functional.softmax(logits.view(-1, self.__C.GLIMPSE, v_num * q_num), 2)
             return p.view(-1, self.__C.GLIMPSE, v_num, q_num), logits
         return logits
 
@@ -241,23 +234,20 @@ class BAN(nn.Module):
         c_prj = []
         for i in range(__C.GLIMPSE):
             b_net.append(BC(__C))
-            q_prj.append(MLP([__C.HIDDEN_SIZE, __C.HIDDEN_SIZE], '', __C.
-                DROPOUT_R))
+            q_prj.append(MLP([__C.HIDDEN_SIZE, __C.HIDDEN_SIZE], '', __C.DROPOUT_R))
         self.b_net = nn.ModuleList(b_net)
         self.q_prj = nn.ModuleList(q_prj)
 
     def forward(self, q, v):
         att, logits = self.BiAtt(v, q)
         for g in range(self.__C.GLIMPSE):
-            bi_emb = self.b_net[g].forward_with_weights(v, q, att[:, (g), :, :]
-                )
+            bi_emb = self.b_net[g].forward_with_weights(v, q, att[:, (g), :, :])
             q = self.q_prj[g](bi_emb.unsqueeze(1)) + q
         return q
 
 
 def make_mask(feature):
-    return (torch.sum(torch.abs(feature), dim=-1) == 0).unsqueeze(1).unsqueeze(
-        2)
+    return (torch.sum(torch.abs(feature), dim=-1) == 0).unsqueeze(1).unsqueeze(2)
 
 
 class Adapter(BaseAdapter):
@@ -267,19 +257,15 @@ class Adapter(BaseAdapter):
         self.__C = __C
 
     def vqa_init(self, __C):
-        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['vqa']['FRCN_FEAT_SIZE']
-            [1], __C.HIDDEN_SIZE)
+        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['vqa']['FRCN_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
 
     def gqa_init(self, __C):
         self.bbox_linear = nn.Linear(5, __C.BBOXFEAT_EMB_SIZE)
-        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['gqa']['FRCN_FEAT_SIZE']
-            [1] + __C.BBOXFEAT_EMB_SIZE, __C.HIDDEN_SIZE)
-        self.grid_linear = nn.Linear(__C.FEAT_SIZE['gqa']['GRID_FEAT_SIZE']
-            [1], __C.HIDDEN_SIZE)
+        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['gqa']['FRCN_FEAT_SIZE'][1] + __C.BBOXFEAT_EMB_SIZE, __C.HIDDEN_SIZE)
+        self.grid_linear = nn.Linear(__C.FEAT_SIZE['gqa']['GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
 
     def clevr_init(self, __C):
-        self.grid_linear = nn.Linear(__C.FEAT_SIZE['clevr'][
-            'GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
+        self.grid_linear = nn.Linear(__C.FEAT_SIZE['clevr']['GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
 
     def vqa_forward(self, feat_dict):
         frcn_feat = feat_dict['FRCN_FEAT']
@@ -292,8 +278,7 @@ class Adapter(BaseAdapter):
         frcn_feat = feat_dict['FRCN_FEAT']
         bbox_feat = feat_dict['BBOX_FEAT']
         grid_feat = feat_dict['GRID_FEAT']
-        img_feat_mask = torch.cat((make_mask(frcn_feat), make_mask(
-            grid_feat)), dim=-1)
+        img_feat_mask = torch.cat((make_mask(frcn_feat), make_mask(grid_feat)), dim=-1)
         bbox_feat = self.bbox_linear(bbox_feat)
         frcn_feat = torch.cat((frcn_feat, bbox_feat), dim=-1)
         frcn_feat = self.frcn_linear(frcn_feat)
@@ -313,18 +298,13 @@ class Net(nn.Module):
     def __init__(self, __C, pretrained_emb, token_size, answer_size):
         super(Net, self).__init__()
         self.__C = __C
-        self.embedding = nn.Embedding(num_embeddings=token_size,
-            embedding_dim=__C.WORD_EMBED_SIZE)
+        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
         if __C.USE_GLOVE:
             self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.rnn = nn.GRU(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.
-            HIDDEN_SIZE, num_layers=1, batch_first=True)
+        self.rnn = nn.GRU(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.HIDDEN_SIZE, num_layers=1, batch_first=True)
         self.adapter = Adapter(__C)
         self.backbone = BAN(__C)
-        layers = [weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.FLAT_OUT_SIZE),
-            dim=None), nn.ReLU(), nn.Dropout(__C.CLASSIFER_DROPOUT_R,
-            inplace=True), weight_norm(nn.Linear(__C.FLAT_OUT_SIZE,
-            answer_size), dim=None)]
+        layers = [weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.FLAT_OUT_SIZE), dim=None), nn.ReLU(), nn.Dropout(__C.CLASSIFER_DROPOUT_R, inplace=True), weight_norm(nn.Linear(__C.FLAT_OUT_SIZE, answer_size), dim=None)]
         self.classifer = nn.Sequential(*layers)
 
     def forward(self, frcn_feat, grid_feat, bbox_feat, ques_ix):
@@ -341,18 +321,13 @@ class Net(nn.Module):
     def __init__(self, __C, pretrained_emb, token_size, answer_size):
         super(Net, self).__init__()
         self.__C = __C
-        self.embedding = nn.Embedding(num_embeddings=token_size,
-            embedding_dim=__C.WORD_EMBED_SIZE)
+        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
         if __C.USE_GLOVE:
             self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.rnn = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.
-            HIDDEN_SIZE, num_layers=1, batch_first=True)
+        self.rnn = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.HIDDEN_SIZE, num_layers=1, batch_first=True)
         self.adapter = Adapter(__C)
         self.backbone = TDA(__C)
-        layers = [weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.FLAT_OUT_SIZE),
-            dim=None), nn.ReLU(), nn.Dropout(__C.CLASSIFER_DROPOUT_R,
-            inplace=True), weight_norm(nn.Linear(__C.FLAT_OUT_SIZE,
-            answer_size), dim=None)]
+        layers = [weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.FLAT_OUT_SIZE), dim=None), nn.ReLU(), nn.Dropout(__C.CLASSIFER_DROPOUT_R, inplace=True), weight_norm(nn.Linear(__C.FLAT_OUT_SIZE, answer_size), dim=None)]
         self.classifer = nn.Sequential(*layers)
 
     def forward(self, frcn_feat, grid_feat, bbox_feat, ques_ix):
@@ -394,12 +369,9 @@ class AttnMap(nn.Module):
     def __init__(self, __C):
         super(AttnMap, self).__init__()
         self.__C = __C
-        self.linear_q = weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.
-            HIDDEN_SIZE), dim=None)
-        self.linear_v = weight_norm(nn.Linear(__C.IMG_FEAT_SIZE, __C.
-            IMG_FEAT_SIZE), dim=None)
-        self.nonlinear = MLP([__C.IMG_FEAT_SIZE + __C.HIDDEN_SIZE, __C.
-            HIDDEN_SIZE], dropout_r=__C.DROPOUT_R)
+        self.linear_q = weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.HIDDEN_SIZE), dim=None)
+        self.linear_v = weight_norm(nn.Linear(__C.IMG_FEAT_SIZE, __C.IMG_FEAT_SIZE), dim=None)
+        self.nonlinear = MLP([__C.IMG_FEAT_SIZE + __C.HIDDEN_SIZE, __C.HIDDEN_SIZE], dropout_r=__C.DROPOUT_R)
         self.linear = weight_norm(nn.Linear(__C.HIDDEN_SIZE, 1), dim=None)
 
     def forward(self, q, v):
@@ -449,15 +421,11 @@ class MHAtt(nn.Module):
 
     def forward(self, v, k, q, mask):
         n_batches = q.size(0)
-        v = self.linear_v(v).view(n_batches, -1, self.__C.MULTI_HEAD, int(
-            self.__C.HIDDEN_SIZE / self.__C.MULTI_HEAD)).transpose(1, 2)
-        k = self.linear_k(k).view(n_batches, -1, self.__C.MULTI_HEAD, int(
-            self.__C.HIDDEN_SIZE / self.__C.MULTI_HEAD)).transpose(1, 2)
-        q = self.linear_q(q).view(n_batches, -1, self.__C.MULTI_HEAD, int(
-            self.__C.HIDDEN_SIZE / self.__C.MULTI_HEAD)).transpose(1, 2)
+        v = self.linear_v(v).view(n_batches, -1, self.__C.MULTI_HEAD, int(self.__C.HIDDEN_SIZE / self.__C.MULTI_HEAD)).transpose(1, 2)
+        k = self.linear_k(k).view(n_batches, -1, self.__C.MULTI_HEAD, int(self.__C.HIDDEN_SIZE / self.__C.MULTI_HEAD)).transpose(1, 2)
+        q = self.linear_q(q).view(n_batches, -1, self.__C.MULTI_HEAD, int(self.__C.HIDDEN_SIZE / self.__C.MULTI_HEAD)).transpose(1, 2)
         atted = self.att(v, k, q, mask)
-        atted = atted.transpose(1, 2).contiguous().view(n_batches, -1, self
-            .__C.HIDDEN_SIZE)
+        atted = atted.transpose(1, 2).contiguous().view(n_batches, -1, self.__C.HIDDEN_SIZE)
         atted = self.linear_merge(atted)
         return atted
 
@@ -475,8 +443,7 @@ class FFN(nn.Module):
 
     def __init__(self, __C):
         super(FFN, self).__init__()
-        self.mlp = MLP(in_size=__C.HIDDEN_SIZE, mid_size=__C.FF_SIZE,
-            out_size=__C.HIDDEN_SIZE, dropout_r=__C.DROPOUT_R, use_relu=True)
+        self.mlp = MLP(in_size=__C.HIDDEN_SIZE, mid_size=__C.FF_SIZE, out_size=__C.HIDDEN_SIZE, dropout_r=__C.DROPOUT_R, use_relu=True)
 
     def forward(self, x):
         return self.mlp(x)
@@ -514,10 +481,8 @@ class SGA(nn.Module):
         self.norm3 = LayerNorm(__C.HIDDEN_SIZE)
 
     def forward(self, x, y, x_mask, y_mask):
-        x = self.norm1(x + self.dropout1(self.mhatt1(v=x, k=x, q=x, mask=
-            x_mask)))
-        x = self.norm2(x + self.dropout2(self.mhatt2(v=y, k=y, q=x, mask=
-            y_mask)))
+        x = self.norm1(x + self.dropout1(self.mhatt1(v=x, k=x, q=x, mask=x_mask)))
+        x = self.norm2(x + self.dropout2(self.mhatt2(v=y, k=y, q=x, mask=y_mask)))
         x = self.norm3(x + self.dropout3(self.ffn(x)))
         return x
 
@@ -542,15 +507,12 @@ class AttFlat(nn.Module):
     def __init__(self, __C):
         super(AttFlat, self).__init__()
         self.__C = __C
-        self.mlp = MLP(in_size=__C.HIDDEN_SIZE, mid_size=__C.FLAT_MLP_SIZE,
-            out_size=__C.FLAT_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
-        self.linear_merge = nn.Linear(__C.HIDDEN_SIZE * __C.FLAT_GLIMPSES,
-            __C.FLAT_OUT_SIZE)
+        self.mlp = MLP(in_size=__C.HIDDEN_SIZE, mid_size=__C.FLAT_MLP_SIZE, out_size=__C.FLAT_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
+        self.linear_merge = nn.Linear(__C.HIDDEN_SIZE * __C.FLAT_GLIMPSES, __C.FLAT_OUT_SIZE)
 
     def forward(self, x, x_mask):
         att = self.mlp(x)
-        att = att.masked_fill(x_mask.squeeze(1).squeeze(1).unsqueeze(2), -
-            1000000000.0)
+        att = att.masked_fill(x_mask.squeeze(1).squeeze(1).unsqueeze(2), -1000000000.0)
         att = F.softmax(att, dim=1)
         att_list = []
         for i in range(self.__C.FLAT_GLIMPSES):
@@ -565,12 +527,10 @@ class Net(nn.Module):
     def __init__(self, __C, pretrained_emb, token_size, answer_size):
         super(Net, self).__init__()
         self.__C = __C
-        self.embedding = nn.Embedding(num_embeddings=token_size,
-            embedding_dim=__C.WORD_EMBED_SIZE)
+        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
         if __C.USE_GLOVE:
             self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C
-            .HIDDEN_SIZE, num_layers=1, batch_first=True)
+        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.HIDDEN_SIZE, num_layers=1, batch_first=True)
         self.adapter = Adapter(__C)
         self.backbone = MCA_ED(__C)
         self.attflat_img = AttFlat(__C)
@@ -583,8 +543,7 @@ class Net(nn.Module):
         lang_feat = self.embedding(ques_ix)
         lang_feat, _ = self.lstm(lang_feat)
         img_feat, img_feat_mask = self.adapter(frcn_feat, grid_feat, bbox_feat)
-        lang_feat, img_feat = self.backbone(lang_feat, img_feat,
-            lang_feat_mask, img_feat_mask)
+        lang_feat, img_feat = self.backbone(lang_feat, img_feat, lang_feat_mask, img_feat_mask)
         lang_feat = self.attflat_lang(lang_feat, lang_feat_mask)
         img_feat = self.attflat_img(img_feat, img_feat_mask)
         proj_feat = lang_feat + img_feat
@@ -615,8 +574,7 @@ class MFB(nn.Module):
         img_feat = self.proj_i(img_feat)
         ques_feat = self.proj_q(ques_feat)
         exp_out = img_feat * ques_feat
-        exp_out = self.dropout(exp_out) if self.is_first else self.dropout(
-            exp_out * exp_in)
+        exp_out = self.dropout(exp_out) if self.is_first else self.dropout(exp_out * exp_in)
         z = self.pool(exp_out) * self.__C.MFB_K
         z = torch.sqrt(F.relu(z)) - torch.sqrt(F.relu(-z))
         z = F.normalize(z.view(batch_size, -1))
@@ -629,8 +587,7 @@ class QAtt(nn.Module):
     def __init__(self, __C):
         super(QAtt, self).__init__()
         self.__C = __C
-        self.mlp = MLP(in_size=__C.LSTM_OUT_SIZE, mid_size=__C.HIDDEN_SIZE,
-            out_size=__C.Q_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
+        self.mlp = MLP(in_size=__C.LSTM_OUT_SIZE, mid_size=__C.HIDDEN_SIZE, out_size=__C.Q_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
 
     def forward(self, ques_feat):
         """
@@ -656,8 +613,7 @@ class IAtt(nn.Module):
         self.__C = __C
         self.dropout = nn.Dropout(__C.DROPOUT_R)
         self.mfb = MFB(__C, img_feat_size, ques_att_feat_size, True)
-        self.mlp = MLP(in_size=__C.MFB_O, mid_size=__C.HIDDEN_SIZE,
-            out_size=__C.I_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
+        self.mlp = MLP(in_size=__C.MFB_O, mid_size=__C.HIDDEN_SIZE, out_size=__C.I_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
 
     def forward(self, img_feat, ques_att_feat):
         """
@@ -705,10 +661,8 @@ class CoAtt(nn.Module):
         ques_feat = self.q_att(ques_feat)
         fuse_feat = self.i_att(img_feat, ques_feat)
         if self.__C.HIGH_ORDER:
-            z1, exp1 = self.mfh1(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1)
-                )
-            z2, _ = self.mfh2(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1
-                ), exp1)
+            z1, exp1 = self.mfh1(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1))
+            z2, _ = self.mfh2(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1), exp1)
             z = torch.cat((z1.squeeze(1), z2.squeeze(1)), 1)
         else:
             z, _ = self.mfb(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1))
@@ -722,12 +676,10 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.__C = __C
         self.adapter = Adapter(__C)
-        self.embedding = nn.Embedding(num_embeddings=token_size,
-            embedding_dim=__C.WORD_EMBED_SIZE)
+        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
         if __C.USE_GLOVE:
             self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C
-            .LSTM_OUT_SIZE, num_layers=1, batch_first=True)
+        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.LSTM_OUT_SIZE, num_layers=1, batch_first=True)
         self.dropout = nn.Dropout(__C.DROPOUT_R)
         self.dropout_lstm = nn.Dropout(__C.DROPOUT_R)
         self.backbone = CoAtt(__C)
@@ -770,8 +722,7 @@ class FC(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, in_size, mid_size, out_size, dropout_r=0.0, use_relu
-        =True):
+    def __init__(self, in_size, mid_size, out_size, dropout_r=0.0, use_relu=True):
         super(MLP, self).__init__()
         self.fc = FC(in_size, mid_size, dropout_r=dropout_r, use_relu=use_relu)
         self.linear = nn.Linear(mid_size, out_size)
@@ -798,16 +749,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FC,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MLP,
+     lambda: ([], {'in_size': 4, 'mid_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_MILVLG_openvqa(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FC(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MLP(*[], **{'in_size': 4, 'mid_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

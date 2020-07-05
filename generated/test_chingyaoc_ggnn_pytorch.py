@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,12 +54,9 @@ class Propogator(nn.Module):
         super(Propogator, self).__init__()
         self.n_node = n_node
         self.n_edge_types = n_edge_types
-        self.reset_gate = nn.Sequential(nn.Linear(state_dim * 3, state_dim),
-            nn.Sigmoid())
-        self.update_gate = nn.Sequential(nn.Linear(state_dim * 3, state_dim
-            ), nn.Sigmoid())
-        self.tansform = nn.Sequential(nn.Linear(state_dim * 3, state_dim),
-            nn.Tanh())
+        self.reset_gate = nn.Sequential(nn.Linear(state_dim * 3, state_dim), nn.Sigmoid())
+        self.update_gate = nn.Sequential(nn.Linear(state_dim * 3, state_dim), nn.Sigmoid())
+        self.tansform = nn.Sequential(nn.Linear(state_dim * 3, state_dim), nn.Tanh())
 
     def forward(self, state_in, state_out, state_cur, A):
         A_in = A[:, :, :self.n_node * self.n_edge_types]
@@ -98,8 +96,7 @@ class GGNN(nn.Module):
 
     def __init__(self, opt):
         super(GGNN, self).__init__()
-        assert (opt.state_dim >= opt.annotation_dim,
-            'state_dim must be no less than annotation_dim')
+        assert (opt.state_dim >= opt.annotation_dim, 'state_dim must be no less than annotation_dim')
         self.state_dim = opt.state_dim
         self.annotation_dim = opt.annotation_dim
         self.n_edge_types = opt.n_edge_types
@@ -112,11 +109,8 @@ class GGNN(nn.Module):
             self.add_module('out_{}'.format(i), out_fc)
         self.in_fcs = AttrProxy(self, 'in_')
         self.out_fcs = AttrProxy(self, 'out_')
-        self.propogator = Propogator(self.state_dim, self.n_node, self.
-            n_edge_types)
-        self.out = nn.Sequential(nn.Linear(self.state_dim + self.
-            annotation_dim, self.state_dim), nn.Tanh(), nn.Linear(self.
-            state_dim, 1))
+        self.propogator = Propogator(self.state_dim, self.n_node, self.n_edge_types)
+        self.out = nn.Sequential(nn.Linear(self.state_dim + self.annotation_dim, self.state_dim), nn.Tanh(), nn.Linear(self.state_dim, 1))
         self._initialization()
 
     def _initialization(self):
@@ -133,11 +127,9 @@ class GGNN(nn.Module):
                 in_states.append(self.in_fcs[i](prop_state))
                 out_states.append(self.out_fcs[i](prop_state))
             in_states = torch.stack(in_states).transpose(0, 1).contiguous()
-            in_states = in_states.view(-1, self.n_node * self.n_edge_types,
-                self.state_dim)
+            in_states = in_states.view(-1, self.n_node * self.n_edge_types, self.state_dim)
             out_states = torch.stack(out_states).transpose(0, 1).contiguous()
-            out_states = out_states.view(-1, self.n_node * self.
-                n_edge_types, self.state_dim)
+            out_states = out_states.view(-1, self.n_node * self.n_edge_types, self.state_dim)
             prop_state = self.propogator(in_states, out_states, prop_state, A)
         join_state = torch.cat((prop_state, annotation), 2)
         output = self.out(join_state)
@@ -149,8 +141,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Propogator,
+     lambda: ([], {'state_dim': 4, 'n_node': 4, 'n_edge_types': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 0, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_chingyaoc_ggnn_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Propogator(*[], **{'state_dim': 4, 'n_node': 4, 'n_edge_types': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 0, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

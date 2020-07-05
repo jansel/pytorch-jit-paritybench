@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -166,16 +167,13 @@ class SelfAttentionNarrow(nn.Module):
 
 class TransformerBlock(nn.Module):
 
-    def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4,
-        dropout=0.0, wide=True):
+    def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4, dropout=0.0, wide=True):
         super().__init__()
-        self.attention = SelfAttentionWide(emb, heads=heads, mask=mask
-            ) if wide else SelfAttentionNarrow(emb, heads=heads, mask=mask)
+        self.attention = SelfAttentionWide(emb, heads=heads, mask=mask) if wide else SelfAttentionNarrow(emb, heads=heads, mask=mask)
         self.mask = mask
         self.norm1 = nn.LayerNorm(emb)
         self.norm2 = nn.LayerNorm(emb)
-        self.ff = nn.Sequential(nn.Linear(emb, ff_hidden_mult * emb), nn.
-            ReLU(), nn.Linear(ff_hidden_mult * emb, emb))
+        self.ff = nn.Sequential(nn.Linear(emb, ff_hidden_mult * emb), nn.ReLU(), nn.Linear(ff_hidden_mult * emb, emb))
         self.do = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -208,14 +206,11 @@ class GTransformer(nn.Module):
     def __init__(self, emb, heads, depth, seq_length, num_tokens, wide=False):
         super().__init__()
         self.num_tokens = num_tokens
-        self.token_embedding = nn.Embedding(embedding_dim=emb,
-            num_embeddings=num_tokens)
-        self.pos_embedding = nn.Embedding(embedding_dim=emb, num_embeddings
-            =seq_length)
+        self.token_embedding = nn.Embedding(embedding_dim=emb, num_embeddings=num_tokens)
+        self.pos_embedding = nn.Embedding(embedding_dim=emb, num_embeddings=seq_length)
         tblocks = []
         for i in range(depth):
-            tblocks.append(TransformerBlock(emb=emb, heads=heads,
-                seq_length=seq_length, mask=True, wide=wide))
+            tblocks.append(TransformerBlock(emb=emb, heads=heads, seq_length=seq_length, mask=True, wide=wide))
         self.tblocks = nn.Sequential(*tblocks)
         self.toprobs = nn.Linear(emb, num_tokens)
 
@@ -226,8 +221,7 @@ class GTransformer(nn.Module):
         """
         tokens = self.token_embedding(x)
         b, t, e = tokens.size()
-        positions = self.pos_embedding(torch.arange(t, device=d()))[(None),
-            :, :].expand(b, t, e)
+        positions = self.pos_embedding(torch.arange(t, device=d()))[(None), :, :].expand(b, t, e)
         x = tokens + positions
         x = self.tblocks(x)
         x = self.toprobs(x.view(b * t, e)).view(b, t, self.num_tokens)
@@ -239,8 +233,7 @@ class CTransformer(nn.Module):
     Transformer for classifying sequences
     """
 
-    def __init__(self, emb, heads, depth, seq_length, num_tokens,
-        num_classes, max_pool=True, dropout=0.0, wide=False):
+    def __init__(self, emb, heads, depth, seq_length, num_tokens, num_classes, max_pool=True, dropout=0.0, wide=False):
         """
         :param emb: Embedding dimension
         :param heads: nr. of attention heads
@@ -253,14 +246,11 @@ class CTransformer(nn.Module):
         """
         super().__init__()
         self.num_tokens, self.max_pool = num_tokens, max_pool
-        self.token_embedding = nn.Embedding(embedding_dim=emb,
-            num_embeddings=num_tokens)
-        self.pos_embedding = nn.Embedding(embedding_dim=emb, num_embeddings
-            =seq_length)
+        self.token_embedding = nn.Embedding(embedding_dim=emb, num_embeddings=num_tokens)
+        self.pos_embedding = nn.Embedding(embedding_dim=emb, num_embeddings=seq_length)
         tblocks = []
         for i in range(depth):
-            tblocks.append(TransformerBlock(emb=emb, heads=heads,
-                seq_length=seq_length, mask=False, dropout=dropout, wide=wide))
+            tblocks.append(TransformerBlock(emb=emb, heads=heads, seq_length=seq_length, mask=False, dropout=dropout, wide=wide))
         self.tblocks = nn.Sequential(*tblocks)
         self.toprobs = nn.Linear(emb, num_classes)
         self.do = nn.Dropout(dropout)
@@ -272,8 +262,7 @@ class CTransformer(nn.Module):
         """
         tokens = self.token_embedding(x)
         b, t, e = tokens.size()
-        positions = self.pos_embedding(torch.arange(t, device=d()))[(None),
-            :, :].expand(b, t, e)
+        positions = self.pos_embedding(torch.arange(t, device=d()))[(None), :, :].expand(b, t, e)
         x = tokens + positions
         x = self.do(x)
         x = self.tblocks(x)
@@ -286,13 +275,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_pbloem_former(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(SelfAttentionWide(*[], **{'emb': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SelfAttentionWide,
+     lambda: ([], {'emb': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (TransformerBlock,
+     lambda: ([], {'emb': 4, 'heads': 4, 'mask': 4, 'seq_length': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_pbloem_former(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(TransformerBlock(*[], **{'emb': 4, 'heads': 4, 'mask': 4, 'seq_length': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

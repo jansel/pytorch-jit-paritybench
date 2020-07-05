@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -154,8 +155,7 @@ class SpGraphAttentionLayer(nn.Module):
         edge = adj._indices()
         h = torch.mm(input, self.W)
         assert not torch.isnan(h).any()
-        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1
-            ).t()
+        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1).t()
         edge_e = torch.exp(-self.leakyrelu(self.a.mm(edge_h).squeeze()))
         assert not torch.isnan(edge_e).any()
         ones = torch.ones(size=(N, 1))
@@ -170,21 +170,17 @@ class SpGraphAttentionLayer(nn.Module):
         return self.act(h_prime)
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GraphAttentionLayer(nn.Module):
 
-    def __init__(self, input_dim, output_dim, dropout, activation, alpha,
-        nheads, concat):
+    def __init__(self, input_dim, output_dim, dropout, activation, alpha, nheads, concat):
         """Sparse version of GAT."""
         super(GraphAttentionLayer, self).__init__()
         self.dropout = dropout
         self.output_dim = output_dim
-        self.attentions = [SpGraphAttentionLayer(input_dim, output_dim,
-            dropout=dropout, alpha=alpha, activation=activation) for _ in
-            range(nheads)]
+        self.attentions = [SpGraphAttentionLayer(input_dim, output_dim, dropout=dropout, alpha=alpha, activation=activation) for _ in range(nheads)]
         self.concat = concat
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
@@ -195,8 +191,7 @@ class GraphAttentionLayer(nn.Module):
         if self.concat:
             h = torch.cat([att(x, adj) for att in self.attentions], dim=1)
         else:
-            h_cat = torch.cat([att(x, adj).view((-1, self.output_dim, 1)) for
-                att in self.attentions], dim=2)
+            h_cat = torch.cat([att(x, adj).view((-1, self.output_dim, 1)) for att in self.attentions], dim=2)
             h = torch.mean(h_cat, dim=2)
         h = F.dropout(h, self.dropout, training=self.training)
         return h, adj
@@ -207,11 +202,9 @@ class HNNLayer(nn.Module):
     Hyperbolic neural networks layer.
     """
 
-    def __init__(self, manifold, in_features, out_features, c, dropout, act,
-        use_bias):
+    def __init__(self, manifold, in_features, out_features, c, dropout, act, use_bias):
         super(HNNLayer, self).__init__()
-        self.linear = HypLinear(manifold, in_features, out_features, c,
-            dropout, use_bias)
+        self.linear = HypLinear(manifold, in_features, out_features, c, dropout, use_bias)
         self.hyp_act = HypAct(manifold, c, c, act)
 
     def forward(self, x):
@@ -225,11 +218,9 @@ class HyperbolicGraphConvolution(nn.Module):
     Hyperbolic graph convolution layer.
     """
 
-    def __init__(self, manifold, in_features, out_features, c_in, c_out,
-        dropout, act, use_bias):
+    def __init__(self, manifold, in_features, out_features, c_in, c_out, dropout, act, use_bias):
         super(HyperbolicGraphConvolution, self).__init__()
-        self.linear = HypLinear(manifold, in_features, out_features, c_in,
-            dropout, use_bias)
+        self.linear = HypLinear(manifold, in_features, out_features, c_in, dropout, use_bias)
         self.agg = HypAgg(manifold, c_in, out_features, dropout)
         self.hyp_act = HypAct(manifold, c_in, c_out, act)
 
@@ -247,8 +238,7 @@ class HypLinear(nn.Module):
     Hyperbolic linear layer.
     """
 
-    def __init__(self, manifold, in_features, out_features, c, dropout,
-        use_bias):
+    def __init__(self, manifold, in_features, out_features, c, dropout, use_bias):
         super(HypLinear, self).__init__()
         self.manifold = manifold
         self.in_features = in_features
@@ -265,8 +255,7 @@ class HypLinear(nn.Module):
         init.constant_(self.bias, 0)
 
     def forward(self, x):
-        drop_weight = F.dropout(self.weight, self.dropout, training=self.
-            training)
+        drop_weight = F.dropout(self.weight, self.dropout, training=self.training)
         mv = self.manifold.mobius_matvec(drop_weight, x, self.c)
         res = self.manifold.proj(mv, self.c)
         if self.use_bias:
@@ -278,8 +267,7 @@ class HypLinear(nn.Module):
         return res
 
     def extra_repr(self):
-        return 'in_features={}, out_features={}, c={}'.format(self.
-            in_features, self.out_features, self.c)
+        return 'in_features={}, out_features={}, c={}'.format(self.in_features, self.out_features, self.c)
 
 
 class HypAgg(Module):
@@ -297,8 +285,7 @@ class HypAgg(Module):
     def forward(self, x, adj):
         x_tangent = self.manifold.logmap0(x, c=self.c)
         support_t = torch.spmm(adj, x_tangent)
-        output = self.manifold.proj(self.manifold.expmap0(support_t, c=self
-            .c), c=self.c)
+        output = self.manifold.proj(self.manifold.expmap0(support_t, c=self.c), c=self.c)
         return output
 
     def extra_repr(self):
@@ -320,8 +307,7 @@ class HypAct(Module):
     def forward(self, x):
         xt = self.act(self.manifold.logmap0(x, c=self.c_in))
         xt = self.manifold.proj_tan0(xt, c=self.c_out)
-        return self.manifold.proj(self.manifold.expmap0(xt, c=self.c_out),
-            c=self.c_out)
+        return self.manifold.proj(self.manifold.expmap0(xt, c=self.c_out), c=self.c_out)
 
     def extra_repr(self):
         return 'c_in={}, c_out={}'.format(self.c_in, self.c_out)
@@ -352,8 +338,7 @@ class GraphConvolution(Module):
         return output
 
     def extra_repr(self):
-        return 'input_dim={}, output_dim={}'.format(self.in_features, self.
-            out_features)
+        return 'input_dim={}, output_dim={}'.format(self.in_features, self.out_features)
 
 
 class Linear(Module):
@@ -464,11 +449,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FermiDiracDecoder,
+     lambda: ([], {'r': 4, 't': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'act': _mock_layer(), 'use_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_HazyResearch_hgcn(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FermiDiracDecoder(*[], **{'r': 4, 't': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'act': _mock_layer(), 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

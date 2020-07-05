@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,11 +67,9 @@ class Actor(nn.Module):
 
     def __init__(self, hidden_size, stochastic=True, layer_norm=False):
         super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(
-            hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
+        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
         if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [
-                nn.LayerNorm(hidden_size)] + layers[3:]
+            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
         self.policy = nn.Sequential(*layers)
         if stochastic:
             self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
@@ -94,8 +93,7 @@ class TanhNormal(Distribution):
 
     def log_prob(self, value):
         inv_value = (torch.log1p(value) - torch.log1p(-value)) / 2
-        return self.normal.log_prob(inv_value) - torch.log1p(-value.pow(2) +
-            1e-06)
+        return self.normal.log_prob(inv_value) - torch.log1p(-value.pow(2) + 1e-06)
 
     @property
     def mean(self):
@@ -107,14 +105,12 @@ class SoftActor(nn.Module):
     def __init__(self, hidden_size):
         super().__init__()
         self.log_std_min, self.log_std_max = -20, 2
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(
-            hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2)]
+        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2)]
         self.policy = nn.Sequential(*layers)
 
     def forward(self, state):
         policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
-        policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min,
-            max=self.log_std_max)
+        policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
         policy = TanhNormal(policy_mean, policy_log_std.exp())
         return policy
 
@@ -124,12 +120,9 @@ class Critic(nn.Module):
     def __init__(self, hidden_size, state_action=False, layer_norm=False):
         super().__init__()
         self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size),
-            nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.
-            Linear(hidden_size, 1)]
+        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
         if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [
-                nn.LayerNorm(hidden_size)] + layers[3:]
+            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
         self.value = nn.Sequential(*layers)
 
     def forward(self, state, action=None):
@@ -157,9 +150,7 @@ class DQN(nn.Module):
 
     def __init__(self, hidden_size, num_actions=5):
         super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(
-            hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size,
-            num_actions)]
+        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, num_actions)]
         self.dqn = nn.Sequential(*layers)
 
     def forward(self, state):
@@ -171,23 +162,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (ActorCritic,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([3, 3])], {}),
+     False),
+    (Critic,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([3, 3])], {}),
+     False),
+    (DQN,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (SoftActor,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([3, 3])], {}),
+     False),
+]
+
 class Test_Kaixhin_spinning_up_basic(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Actor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ActorCritic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Critic(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DQN(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(SoftActor(*[], **{'hidden_size': 4}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[4])
 

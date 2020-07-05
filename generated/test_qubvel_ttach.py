@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,8 +87,7 @@ class Chain:
 
 class Transformer:
 
-    def __init__(self, image_pipeline: Chain, mask_pipeline: Chain,
-        label_pipeline: Chain):
+    def __init__(self, image_pipeline: Chain, mask_pipeline: Chain, label_pipeline: Chain):
         self.image_pipeline = image_pipeline
         self.mask_pipeline = mask_pipeline
         self.label_pipeline = label_pipeline
@@ -106,25 +106,16 @@ class Compose:
 
     def __init__(self, transforms: List[BaseTransform]):
         self.aug_transforms = transforms
-        self.aug_transform_parameters = list(itertools.product(*[t.params for
-            t in self.aug_transforms]))
+        self.aug_transform_parameters = list(itertools.product(*[t.params for t in self.aug_transforms]))
         self.deaug_transforms = transforms[::-1]
-        self.deaug_transform_parameters = [p[::-1] for p in self.
-            aug_transform_parameters]
+        self.deaug_transform_parameters = [p[::-1] for p in self.aug_transform_parameters]
 
     def __iter__(self) ->Transformer:
-        for aug_params, deaug_params in zip(self.aug_transform_parameters,
-            self.deaug_transform_parameters):
-            image_aug_chain = Chain([partial(t.apply_aug_image, **{t.pname:
-                p}) for t, p in zip(self.aug_transforms, aug_params)])
-            mask_deaug_chain = Chain([partial(t.apply_deaug_mask, **{t.
-                pname: p}) for t, p in zip(self.deaug_transforms,
-                deaug_params)])
-            label_deaug_chain = Chain([partial(t.apply_deaug_label, **{t.
-                pname: p}) for t, p in zip(self.deaug_transforms,
-                deaug_params)])
-            yield Transformer(image_pipeline=image_aug_chain, mask_pipeline
-                =mask_deaug_chain, label_pipeline=label_deaug_chain)
+        for aug_params, deaug_params in zip(self.aug_transform_parameters, self.deaug_transform_parameters):
+            image_aug_chain = Chain([partial(t.apply_aug_image, **{t.pname: p}) for t, p in zip(self.aug_transforms, aug_params)])
+            mask_deaug_chain = Chain([partial(t.apply_deaug_mask, **{t.pname: p}) for t, p in zip(self.deaug_transforms, deaug_params)])
+            label_deaug_chain = Chain([partial(t.apply_deaug_label, **{t.pname: p}) for t, p in zip(self.deaug_transforms, deaug_params)])
+            yield Transformer(image_pipeline=image_aug_chain, mask_pipeline=mask_deaug_chain, label_pipeline=label_deaug_chain)
 
     def __len__(self) ->int:
         return len(self.aug_transform_parameters)
@@ -177,16 +168,14 @@ class SegmentationTTAWrapper(nn.Module):
         output_mask_key (str): if model output is `dict`, specify which key belong to `mask`
     """
 
-    def __init__(self, model: nn.Module, transforms: Compose, merge_mode:
-        str='mean', output_mask_key: Optional[str]=None):
+    def __init__(self, model: nn.Module, transforms: Compose, merge_mode: str='mean', output_mask_key: Optional[str]=None):
         super().__init__()
         self.model = model
         self.transforms = transforms
         self.merge_mode = merge_mode
         self.output_key = output_mask_key
 
-    def forward(self, image: torch.Tensor, *args) ->Union[torch.Tensor,
-        Mapping[str, torch.Tensor]]:
+    def forward(self, image: torch.Tensor, *args) ->Union[torch.Tensor, Mapping[str, torch.Tensor]]:
         merger = Merger(type=self.merge_mode, n=len(self.transforms))
         for transformer in self.transforms:
             augmented_image = transformer.augment_image(image)
@@ -212,16 +201,14 @@ class ClassificationTTAWrapper(nn.Module):
         output_mask_key (str): if model output is `dict`, specify which key belong to `label`
     """
 
-    def __init__(self, model: nn.Module, transforms: Compose, merge_mode:
-        str='mean', output_label_key: Optional[str]=None):
+    def __init__(self, model: nn.Module, transforms: Compose, merge_mode: str='mean', output_label_key: Optional[str]=None):
         super().__init__()
         self.model = model
         self.transforms = transforms
         self.merge_mode = merge_mode
         self.output_key = output_label_key
 
-    def forward(self, image: torch.Tensor, *args) ->Union[torch.Tensor,
-        Mapping[str, torch.Tensor]]:
+    def forward(self, image: torch.Tensor, *args) ->Union[torch.Tensor, Mapping[str, torch.Tensor]]:
         merger = Merger(type=self.merge_mode, n=len(self.transforms))
         for transformer in self.transforms:
             augmented_image = transformer.augment_image(image)
@@ -235,10 +222,3 @@ class ClassificationTTAWrapper(nn.Module):
             result = {self.output_key: result}
         return result
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_qubvel_ttach(_paritybench_base):
-    pass

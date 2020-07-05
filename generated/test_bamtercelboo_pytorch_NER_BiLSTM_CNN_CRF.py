@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -108,8 +109,7 @@ def init_linear(input_linear, seed=1337):
     """初始化全连接层权重
     """
     torch.manual_seed(seed)
-    scope = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.
-        weight.size(1)))
+    scope = np.sqrt(6.0 / (input_linear.weight.size(0) + input_linear.weight.size(1)))
     nn.init.uniform_(input_linear.weight, -scope, scope)
     if input_linear.bias is not None:
         input_linear.bias.data.zero_()
@@ -118,8 +118,7 @@ def init_linear(input_linear, seed=1337):
 cpu_device = 'cpu'
 
 
-def prepare_pack_padded_sequence(inputs_words, seq_lengths, device='cpu',
-    descending=True):
+def prepare_pack_padded_sequence(inputs_words, seq_lengths, device='cpu', descending=True):
     """
     :param device:
     :param inputs_words:
@@ -127,14 +126,12 @@ def prepare_pack_padded_sequence(inputs_words, seq_lengths, device='cpu',
     :param descending:
     :return:
     """
-    sorted_seq_lengths, indices = torch.sort(torch.Tensor(seq_lengths).long
-        (), descending=descending)
+    sorted_seq_lengths, indices = torch.sort(torch.Tensor(seq_lengths).long(), descending=descending)
     if device != cpu_device:
         sorted_seq_lengths, indices = sorted_seq_lengths.cuda(), indices.cuda()
     _, desorted_indices = torch.sort(indices, descending=False)
     sorted_inputs_words = inputs_words[indices]
-    return sorted_inputs_words, sorted_seq_lengths.cpu().numpy(
-        ), desorted_indices
+    return sorted_inputs_words, sorted_seq_lengths.cpu().numpy(), desorted_indices
 
 
 class BiLSTM(nn.Module):
@@ -157,11 +154,8 @@ class BiLSTM(nn.Module):
             init_embedding(self.embed.weight)
         self.dropout_embed = nn.Dropout(self.dropout_emb)
         self.dropout = nn.Dropout(self.dropout)
-        self.bilstm = nn.LSTM(input_size=D, hidden_size=self.lstm_hiddens,
-            num_layers=self.lstm_layers, bidirectional=True, batch_first=
-            True, bias=True)
-        self.linear = nn.Linear(in_features=self.lstm_hiddens * 2,
-            out_features=C, bias=True)
+        self.bilstm = nn.LSTM(input_size=D, hidden_size=self.lstm_hiddens, num_layers=self.lstm_layers, bidirectional=True, batch_first=True, bias=True)
+        self.linear = nn.Linear(in_features=self.lstm_hiddens * 2, out_features=C, bias=True)
         init_linear(self.linear)
 
     def forward(self, word, sentence_length):
@@ -171,12 +165,10 @@ class BiLSTM(nn.Module):
         :param desorted_indices:
         :return:
         """
-        word, sentence_length, desorted_indices = prepare_pack_padded_sequence(
-            word, sentence_length, device=self.device)
+        word, sentence_length, desorted_indices = prepare_pack_padded_sequence(word, sentence_length, device=self.device)
         x = self.embed(word)
         x = self.dropout_embed(x)
-        packed_embed = pack_padded_sequence(x, sentence_length, batch_first
-            =True)
+        packed_embed = pack_padded_sequence(x, sentence_length, batch_first=True)
         x, _ = self.bilstm(packed_embed)
         x, _ = pad_packed_sequence(x, batch_first=True)
         x = x[desorted_indices]
@@ -223,25 +215,20 @@ class BiLSTM_CNN(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=paddingId)
         if self.pretrained_embed:
             self.embed.weight.data.copy_(self.pretrained_weight)
-        self.char_embedding = nn.Embedding(self.char_embed_num, self.
-            char_dim, padding_idx=char_paddingId)
+        self.char_embedding = nn.Embedding(self.char_embed_num, self.char_dim, padding_idx=char_paddingId)
         init_embed(self.char_embedding.weight)
         self.dropout_embed = nn.Dropout(self.dropout_emb)
         self.dropout = nn.Dropout(self.dropout)
         self.char_encoders = []
         for i, filter_size in enumerate(self.conv_filter_sizes):
-            f = nn.Conv3d(in_channels=1, out_channels=self.conv_filter_nums
-                [i], kernel_size=(1, filter_size, self.char_dim))
+            f = nn.Conv3d(in_channels=1, out_channels=self.conv_filter_nums[i], kernel_size=(1, filter_size, self.char_dim))
             self.char_encoders.append(f)
         for conv in self.char_encoders:
             if self.device != cpu_device:
                 conv
         lstm_input_dim = D + sum(self.conv_filter_nums)
-        self.bilstm = nn.LSTM(input_size=lstm_input_dim, hidden_size=self.
-            lstm_hiddens, num_layers=self.lstm_layers, bidirectional=True,
-            batch_first=True, bias=True)
-        self.linear = nn.Linear(in_features=self.lstm_hiddens * 2,
-            out_features=C, bias=True)
+        self.bilstm = nn.LSTM(input_size=lstm_input_dim, hidden_size=self.lstm_hiddens, num_layers=self.lstm_layers, bidirectional=True, batch_first=True, bias=True)
+        self.linear = nn.Linear(in_features=self.lstm_hiddens * 2, out_features=C, bias=True)
         init_linear_weight_bias(self.linear)
 
     def _char_forward(self, inputs):
@@ -255,8 +242,7 @@ class BiLSTM_CNN(nn.Module):
         max_len, max_len_char = inputs.size(1), inputs.size(2)
         inputs = inputs.view(-1, max_len * max_len_char)
         input_embed = self.char_embedding(inputs)
-        input_embed = input_embed.view(-1, 1, max_len, max_len_char, self.
-            char_dim)
+        input_embed = input_embed.view(-1, 1, max_len, max_len_char, self.char_dim)
         char_conv_outputs = []
         for char_encoder in self.char_encoders:
             conv_output = char_encoder(input_embed)
@@ -295,10 +281,8 @@ def log_sum_exp(vec, m_size):
         size=(batch_size, hidden_dim)
     """
     _, idx = torch.max(vec, 1)
-    max_score = torch.gather(vec, 1, idx.view(-1, 1, m_size)).view(-1, 1,
-        m_size)
-    return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec -
-        max_score.expand_as(vec)), 1)).view(-1, m_size)
+    max_score = torch.gather(vec, 1, idx.view(-1, 1, m_size)).view(-1, 1, m_size)
+    return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec - max_score.expand_as(vec)), 1)).view(-1, m_size)
 
 
 class CRF(nn.Module):
@@ -317,8 +301,7 @@ class CRF(nn.Module):
             self.__setattr__(k, kwargs[k])
         device = self.device
         self.START_TAG, self.STOP_TAG = -2, -1
-        init_transitions = torch.zeros(self.target_size + 2, self.
-            target_size + 2, device=device)
+        init_transitions = torch.zeros(self.target_size + 2, self.target_size + 2, device=device)
         init_transitions[:, (self.START_TAG)] = -10000.0
         init_transitions[(self.STOP_TAG), :] = -10000.0
         self.transitions = nn.Parameter(init_transitions)
@@ -340,17 +323,14 @@ class CRF(nn.Module):
         mask = mask.transpose(1, 0).contiguous()
         ins_num = seq_len * batch_size
         """ be careful the view shape, it is .view(ins_num, 1, tag_size) but not .view(ins_num, tag_size, 1) """
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
         """ need to consider start """
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         _, inivalues = next(seq_iter)
         """ only need start from start_tag """
-        partition = inivalues[:, (self.START_TAG), :].clone().view(batch_size,
-            tag_size, 1)
+        partition = inivalues[:, (self.START_TAG), :].clone().view(batch_size, tag_size, 1)
         """
         add start score (from start to all tag, duplicate to batch_size)
         partition = partition + self.transitions[START_TAG,:].view(1, tag_size, 1).expand(batch_size, tag_size, 1)
@@ -362,11 +342,9 @@ class CRF(nn.Module):
             partition: previous results log(exp(from_target)), #(batch_size * from_target)
             cur_values: bat_size * from_target * to_target
             """
-            cur_values = cur_values + partition.contiguous().view(batch_size,
-                tag_size, 1).expand(batch_size, tag_size, tag_size)
+            cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             cur_partition = log_sum_exp(cur_values, tag_size)
-            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size,
-                tag_size)
+            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size, tag_size)
             """ effective updated partition part, only keep the partition value of mask value = 1 """
             masked_cur_partition = cur_partition.masked_select(mask_idx)
             """ let mask_idx broadcastable, to disable warning """
@@ -377,9 +355,7 @@ class CRF(nn.Module):
         until the last state, add transition score for all partition (and do log_sum_exp) 
         then select the value in STOP_TAG 
         """
-        cur_values = self.transitions.view(1, tag_size, tag_size).expand(
-            batch_size, tag_size, tag_size) + partition.contiguous().view(
-            batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
+        cur_values = self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
         cur_partition = log_sum_exp(cur_values, tag_size)
         final_partition = cur_partition[:, (self.STOP_TAG)]
         return final_partition.sum(), scores
@@ -402,11 +378,9 @@ class CRF(nn.Module):
         mask = mask.transpose(1, 0).contiguous()
         ins_num = seq_len * batch_size
         """ be careful the view shape, it is .view(ins_num, 1, tag_size) but not .view(ins_num, tag_size, 1) """
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
         """ need to consider start """
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         back_points = list()
@@ -414,8 +388,7 @@ class CRF(nn.Module):
         mask = (1 - mask.long()).byte()
         _, inivalues = next(seq_iter)
         """ only need start from start_tag """
-        partition = inivalues[:, (self.START_TAG), :].clone().view(batch_size,
-            tag_size)
+        partition = inivalues[:, (self.START_TAG), :].clone().view(batch_size, tag_size)
         partition_history.append(partition)
         for idx, cur_values in seq_iter:
             """
@@ -423,8 +396,7 @@ class CRF(nn.Module):
             partition: previous results log(exp(from_target)), #(batch_size * from_target)
             cur_values: batch_size * from_target * to_target
             """
-            cur_values = cur_values + partition.contiguous().view(batch_size,
-                tag_size, 1).expand(batch_size, tag_size, tag_size)
+            cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             """ forscores, cur_bp = torch.max(cur_values[:,:-2,:], 1) # do not consider START_TAG/STOP_TAG """
             partition, cur_bp = torch.max(cur_values, 1)
             partition_history.append(partition)
@@ -432,42 +404,31 @@ class CRF(nn.Module):
             cur_bp: (batch_size, tag_size) max source score position in current tag
             set padded label as 0, which will be filtered in post processing
             """
-            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(
-                batch_size, tag_size), 0)
+            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(batch_size, tag_size), 0)
             back_points.append(cur_bp)
         """ add score to final STOP_TAG """
-        partition_history = torch.cat(partition_history, 0).view(seq_len,
-            batch_size, -1).transpose(1, 0).contiguous()
+        partition_history = torch.cat(partition_history, 0).view(seq_len, batch_size, -1).transpose(1, 0).contiguous()
         """ get the last position for each setences, and select the last partitions using gather() """
-        last_position = length_mask.view(batch_size, 1, 1).expand(batch_size,
-            1, tag_size) - 1
-        last_partition = torch.gather(partition_history, 1, last_position
-            ).view(batch_size, tag_size, 1)
+        last_position = length_mask.view(batch_size, 1, 1).expand(batch_size, 1, tag_size) - 1
+        last_partition = torch.gather(partition_history, 1, last_position).view(batch_size, tag_size, 1)
         """ calculate the score from last partition to end state (and then select the STOP_TAG from it) """
-        last_values = last_partition.expand(batch_size, tag_size, tag_size
-            ) + self.transitions.view(1, tag_size, tag_size).expand(batch_size,
-            tag_size, tag_size)
+        last_values = last_partition.expand(batch_size, tag_size, tag_size) + self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size)
         _, last_bp = torch.max(last_values, 1)
-        pad_zero = torch.zeros(batch_size, tag_size, device=self.device,
-            requires_grad=True).long()
+        pad_zero = torch.zeros(batch_size, tag_size, device=self.device, requires_grad=True).long()
         back_points.append(pad_zero)
-        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size
-            )
+        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size)
         """ elect end ids in STOP_TAG """
         pointer = last_bp[:, (self.STOP_TAG)]
-        insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(
-            batch_size, 1, tag_size)
+        insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(batch_size, 1, tag_size)
         back_points = back_points.transpose(1, 0).contiguous()
         """move the end ids(expand to tag_size) to the corresponding position of back_points to replace the 0 values """
         back_points.scatter_(1, last_position, insert_last)
         back_points = back_points.transpose(1, 0).contiguous()
         """ decode from the end, padded position ids are 0, which will be filtered if following evaluation """
-        decode_idx = torch.empty(seq_len, batch_size, device=self.device,
-            requires_grad=True).long()
+        decode_idx = torch.empty(seq_len, batch_size, device=self.device, requires_grad=True).long()
         decode_idx[-1] = pointer.detach()
         for idx in range(len(back_points) - 2, -1, -1):
-            pointer = torch.gather(back_points[idx], 1, pointer.contiguous(
-                ).view(batch_size, 1))
+            pointer = torch.gather(back_points[idx], 1, pointer.contiguous().view(batch_size, 1))
             decode_idx[idx] = pointer.detach().view(batch_size)
         path_score = None
         decode_idx = decode_idx.transpose(1, 0)
@@ -497,17 +458,14 @@ class CRF(nn.Module):
         tag_size = scores.size(-1)
         tags = tags.view(batch_size, seq_len)
         """ convert tag value into a new format, recorded label bigram information to index """
-        new_tags = torch.empty(batch_size, seq_len, device=self.device,
-            requires_grad=True).long()
+        new_tags = torch.empty(batch_size, seq_len, device=self.device, requires_grad=True).long()
         for idx in range(seq_len):
             if idx == 0:
                 new_tags[:, (0)] = (tag_size - 2) * tag_size + tags[:, (0)]
             else:
-                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:,
-                    (idx)]
+                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:, (idx)]
         """ transition for label to STOP_TAG """
-        end_transition = self.transitions[:, (self.STOP_TAG)].contiguous(
-            ).view(1, tag_size).expand(batch_size, tag_size)
+        end_transition = self.transitions[:, (self.STOP_TAG)].contiguous().view(1, tag_size).expand(batch_size, tag_size)
         """ length for batch,  last word position = length - 1 """
         length_mask = torch.sum(mask, dim=1).view(batch_size, 1).long()
         """ index the label id of last word """
@@ -515,11 +473,9 @@ class CRF(nn.Module):
         """ index the transition score for end_id to STOP_TAG """
         end_energy = torch.gather(end_transition, 1, end_ids)
         """ convert tag as (seq_len, batch_size, 1) """
-        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len,
-            batch_size, 1)
+        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len, batch_size, 1)
         """ need convert tags id to search from 400 positions of scores """
-        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2,
-            new_tags).view(seq_len, batch_size)
+        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2, new_tags).view(seq_len, batch_size)
         tg_energy = tg_energy.masked_select(mask.transpose(1, 0))
         """
         add all score together
@@ -568,29 +524,13 @@ class Sequence_Label(nn.Module):
         assert len(self.conv_filter_sizes) == len(self.conv_filter_nums)
         self.use_crf = config.use_crf
         self.device = config.device
-        self.target_size = (self.label_num if self.use_crf is False else 
-            self.label_num + 2)
+        self.target_size = self.label_num if self.use_crf is False else self.label_num + 2
         if self.use_char is True:
-            self.encoder_model = BiLSTM_CNN(embed_num=self.embed_num,
-                embed_dim=self.embed_dim, label_num=self.target_size,
-                paddingId=self.paddingId, dropout_emb=self.dropout_emb,
-                dropout=self.dropout, lstm_hiddens=self.lstm_hiddens,
-                lstm_layers=self.lstm_layers, pretrained_embed=self.
-                pretrained_embed, pretrained_weight=self.pretrained_weight,
-                char_embed_num=self.char_embed_num, char_dim=self.char_dim,
-                char_paddingId=self.char_paddingId, conv_filter_sizes=self.
-                conv_filter_sizes, conv_filter_nums=self.conv_filter_nums,
-                device=self.device)
+            self.encoder_model = BiLSTM_CNN(embed_num=self.embed_num, embed_dim=self.embed_dim, label_num=self.target_size, paddingId=self.paddingId, dropout_emb=self.dropout_emb, dropout=self.dropout, lstm_hiddens=self.lstm_hiddens, lstm_layers=self.lstm_layers, pretrained_embed=self.pretrained_embed, pretrained_weight=self.pretrained_weight, char_embed_num=self.char_embed_num, char_dim=self.char_dim, char_paddingId=self.char_paddingId, conv_filter_sizes=self.conv_filter_sizes, conv_filter_nums=self.conv_filter_nums, device=self.device)
         else:
-            self.encoder_model = BiLSTM(embed_num=self.embed_num, embed_dim
-                =self.embed_dim, label_num=self.target_size, paddingId=self
-                .paddingId, dropout_emb=self.dropout_emb, dropout=self.
-                dropout, lstm_hiddens=self.lstm_hiddens, lstm_layers=self.
-                lstm_layers, pretrained_embed=self.pretrained_embed,
-                pretrained_weight=self.pretrained_weight, device=self.device)
+            self.encoder_model = BiLSTM(embed_num=self.embed_num, embed_dim=self.embed_dim, label_num=self.target_size, paddingId=self.paddingId, dropout_emb=self.dropout_emb, dropout=self.dropout, lstm_hiddens=self.lstm_hiddens, lstm_layers=self.lstm_layers, pretrained_embed=self.pretrained_embed, pretrained_weight=self.pretrained_weight, device=self.device)
         if self.use_crf is True:
-            args_crf = dict({'target_size': self.label_num, 'device': self.
-                device})
+            args_crf = dict({'target_size': self.label_num, 'device': self.device})
             self.crf_layer = CRF(**args_crf)
 
     @staticmethod
@@ -620,10 +560,3 @@ class Sequence_Label(nn.Module):
             encoder_output = self.encoder_model(word, sentence_length)
             return encoder_output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_bamtercelboo_pytorch_NER_BiLSTM_CNN_CRF(_paritybench_base):
-    pass

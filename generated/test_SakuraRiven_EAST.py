@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -49,8 +50,7 @@ def get_dice_loss(gt_score, pred_score):
 
 def get_geo_loss(gt_geo, pred_geo):
     d1_gt, d2_gt, d3_gt, d4_gt, angle_gt = torch.split(gt_geo, 1, 1)
-    d1_pred, d2_pred, d3_pred, d4_pred, angle_pred = torch.split(pred_geo, 1, 1
-        )
+    d1_pred, d2_pred, d3_pred, d4_pred, angle_pred = torch.split(pred_geo, 1, 1)
     area_gt = (d1_gt + d2_gt) * (d3_gt + d4_gt)
     area_pred = (d1_pred + d2_pred) * (d3_pred + d4_pred)
     w_union = torch.min(d3_gt, d3_pred) + torch.min(d4_gt, d4_pred)
@@ -86,13 +86,10 @@ class VGG(nn.Module):
         super(VGG, self).__init__()
         self.features = features
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, 1000))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 1000))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -132,8 +129,7 @@ class extractor(nn.Module):
         super(extractor, self).__init__()
         vgg16_bn = VGG(make_layers(cfg, batch_norm=True))
         if pretrained:
-            vgg16_bn.load_state_dict(torch.load('./pths/vgg16_bn-6c64b313.pth')
-                )
+            vgg16_bn.load_state_dict(torch.load('./pths/vgg16_bn-6c64b313.pth'))
         self.features = vgg16_bn.features
 
     def forward(self, x):
@@ -172,8 +168,7 @@ class merge(nn.Module):
         self.relu7 = nn.ReLU()
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -181,18 +176,15 @@ class merge(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        y = F.interpolate(x[3], scale_factor=2, mode='bilinear',
-            align_corners=True)
+        y = F.interpolate(x[3], scale_factor=2, mode='bilinear', align_corners=True)
         y = torch.cat((y, x[2]), 1)
         y = self.relu1(self.bn1(self.conv1(y)))
         y = self.relu2(self.bn2(self.conv2(y)))
-        y = F.interpolate(y, scale_factor=2, mode='bilinear', align_corners
-            =True)
+        y = F.interpolate(y, scale_factor=2, mode='bilinear', align_corners=True)
         y = torch.cat((y, x[1]), 1)
         y = self.relu3(self.bn3(self.conv3(y)))
         y = self.relu4(self.bn4(self.conv4(y)))
-        y = F.interpolate(y, scale_factor=2, mode='bilinear', align_corners
-            =True)
+        y = F.interpolate(y, scale_factor=2, mode='bilinear', align_corners=True)
         y = torch.cat((y, x[0]), 1)
         y = self.relu5(self.bn5(self.conv5(y)))
         y = self.relu6(self.bn6(self.conv6(y)))
@@ -213,8 +205,7 @@ class output(nn.Module):
         self.scope = 512
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
@@ -242,11 +233,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (extractor,
+     lambda: ([], {'pretrained': False}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (output,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 32, 64, 64])], {}),
+     True),
+]
+
 class Test_SakuraRiven_EAST(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(extractor(*[], **{'pretrained': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(output(*[], **{}), [torch.rand([4, 32, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -81,8 +81,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -190,28 +191,22 @@ class Visualizer:
             util.mkdirs([self.web_dir, self.img_dir])
         if opt.isTrain:
             if hasattr(opt, 'model_idx') and opt.model_idx != -1:
-                self.log_name = os.path.join(opt.checkpoints_dir, opt.name,
-                    'loss_log_%03d.txt' % opt.model_idx)
+                self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log_%03d.txt' % opt.model_idx)
             else:
-                self.log_name = os.path.join(opt.checkpoints_dir, opt.name,
-                    'loss_log.txt')
+                self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
             with open(self.log_name, 'a') as log_file:
                 now = time.strftime('%c')
-                log_file.write(
-                    '================ Training Loss (%s) ================\n' %
-                    now)
+                log_file.write('================ Training Loss (%s) ================\n' % now)
 
     def display_visdom_results(self, visuals, epoch, step):
         ncols = self.ncols
         if ncols > 0:
             ncols = min(ncols, len(visuals))
             h, w = next(iter(visuals.values())).shape[:2]
-            table_css = (
-                """<style>
+            table_css = """<style>
                     table {border-collapse: separate; border-spacing:4px; white-space:nowrap; text-align:center}
                     table td {width: %dpx; height: %dpx; padding: 4px; outline: 4px solid black}
-                    </style>"""
-                 % (w, h))
+                    </style>""" % (w, h)
             title = self.name
             label_html = ''
             label_html_row = ''
@@ -232,11 +227,9 @@ class Visualizer:
                 idx += 1
             if label_html_row != '':
                 label_html += '<tr>%s</tr>' % label_html_row
-            self.vis.images(images, nrow=ncols, win=self.visdom_id + 1,
-                padding=2, opts=dict(title=title + ' images'))
+            self.vis.images(images, nrow=ncols, win=self.visdom_id + 1, padding=2, opts=dict(title=title + ' images'))
             label_html = '<table>%s</table>' % label_html
-            self.vis.text(table_css + label_html, win=self.visdom_id + 2,
-                opts=dict(title=title + ' labels'))
+            self.vis.text(table_css + label_html, win=self.visdom_id + 2, opts=dict(title=title + ' labels'))
 
     def display_current_results(self, visuals, epoch, step):
         if self.use_visdom:
@@ -251,11 +244,8 @@ class Visualizer:
                 if len(image_numpy.shape) >= 4:
                     image_numpy = image_numpy[0]
                 scipy.misc.toimage(image_numpy).save(s, format='jpeg')
-                img_sum = self.tf.Summary.Image(encoded_image_string=s.
-                    getvalue(), height=image_numpy.shape[0], width=
-                    image_numpy.shape[1])
-                img_summaries.append(self.tf.Summary.Value(tag=label, image
-                    =img_sum))
+                img_sum = self.tf.Summary.Image(encoded_image_string=s.getvalue(), height=image_numpy.shape[0], width=image_numpy.shape[1])
+                img_summaries.append(self.tf.Summary.Value(tag=label, image=img_sum))
             summary = self.tf.Summary(value=img_summaries)
             self.writer.add_summary(summary, step)
         if self.use_html:
@@ -265,18 +255,14 @@ class Visualizer:
                 ext = 'png' if 'label' in label else 'jpg'
                 if isinstance(image_numpy, list):
                     for i in range(len(image_numpy)):
-                        img_path = os.path.join(self.img_dir, 
-                            'epoch%03d_iter%07d_%s_%d.%s' % (epoch, step,
-                            label, i, ext))
+                        img_path = os.path.join(self.img_dir, 'epoch%03d_iter%07d_%s_%d.%s' % (epoch, step, label, i, ext))
                         util.save_image(image_numpy[i], img_path)
                 else:
-                    img_path = os.path.join(self.img_dir, 
-                        'epoch%03d_iter%07d_%s.%s' % (epoch, step, label, ext))
+                    img_path = os.path.join(self.img_dir, 'epoch%03d_iter%07d_%s.%s' % (epoch, step, label, ext))
                     if len(image_numpy.shape) >= 4:
                         image_numpy = image_numpy[0]
                     util.save_image(image_numpy, img_path)
-            webpage = html.HTML(self.web_dir, 'Experiment name = %s' % self
-                .name, refresh=300)
+            webpage = html.HTML(self.web_dir, 'Experiment name = %s' % self.name, refresh=300)
             for n in range(epoch, 0, -1):
                 webpage.add_header('epoch [%d]' % n)
                 ims = []
@@ -289,28 +275,19 @@ class Visualizer:
                     if isinstance(image_numpy, list):
                         for i in range(len(image_numpy)):
                             if n == epoch:
-                                img_path = 'epoch%03d_iter%07d_%s_%d.%s' % (n,
-                                    step, label, i, ext)
+                                img_path = 'epoch%03d_iter%07d_%s_%d.%s' % (n, step, label, i, ext)
                             else:
-                                img_paths = sorted(glob.glob(os.path.join(
-                                    self.img_dir, 
-                                    'epoch%03d_iter*_%s_%d.%s' % (n, label,
-                                    i, ext))))
-                                img_path = os.path.basename(img_paths[-1]
-                                    ) if len(img_paths) else 'img.jpg'
+                                img_paths = sorted(glob.glob(os.path.join(self.img_dir, 'epoch%03d_iter*_%s_%d.%s' % (n, label, i, ext))))
+                                img_path = os.path.basename(img_paths[-1]) if len(img_paths) else 'img.jpg'
                             ims.append(img_path)
                             txts.append(label + str(i))
                             links.append(img_path)
                     else:
                         if n == epoch:
-                            img_path = 'epoch%03d_iter%07d_%s.%s' % (n,
-                                step, label, ext)
+                            img_path = 'epoch%03d_iter%07d_%s.%s' % (n, step, label, ext)
                         else:
-                            img_paths = sorted(glob.glob(os.path.join(self.
-                                img_dir, 'epoch%03d_iter*_%s.%s' % (n,
-                                label, ext))))
-                            img_path = os.path.basename(img_paths[-1]) if len(
-                                img_paths) else 'img.jpg'
+                            img_paths = sorted(glob.glob(os.path.join(self.img_dir, 'epoch%03d_iter*_%s.%s' % (n, label, ext))))
+                            img_path = os.path.basename(img_paths[-1]) if len(img_paths) else 'img.jpg'
                         ims.append(img_path)
                         txts.append(label)
                         links.append(img_path)
@@ -318,17 +295,14 @@ class Visualizer:
                     webpage.add_images(ims, txts, links, width=self.win_size)
                 else:
                     num = int(round(len(ims) / 2.0))
-                    webpage.add_images(ims[:num], txts[:num], links[:num],
-                        width=self.win_size)
-                    webpage.add_images(ims[num:], txts[num:], links[num:],
-                        width=self.win_size)
+                    webpage.add_images(ims[:num], txts[:num], links[:num], width=self.win_size)
+                    webpage.add_images(ims[num:], txts[num:], links[num:], width=self.win_size)
             webpage.save()
 
     def plot_current_errors(self, errors, step):
         if self.tf_log:
             for tag, value in errors.items():
-                summary = self.tf.Summary(value=[self.tf.Summary.Value(tag=
-                    tag, simple_value=value)])
+                summary = self.tf.Summary(value=[self.tf.Summary.Value(tag=tag, simple_value=value)])
                 self.writer.add_summary(summary, step)
 
     def print_current_errors(self, epoch, i, errors, t):
@@ -364,8 +338,7 @@ class Visualizer:
     def vis_print(opt, message):
         print(message)
         if is_master() and opt.isTrain and not opt.debug:
-            log_name = os.path.join(opt.checkpoints_dir, opt.name,
-                'loss_log.txt')
+            log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
             with open(log_name, 'a') as log_file:
                 log_file.write('%s\n' % message)
 
@@ -388,8 +361,7 @@ class BaseModel(torch.nn.Module):
         self.warp_ref = opt.warp_ref
         self.has_fg = self.pose
         self.add_face_D = opt.add_face_D
-        self.concat_ref_for_D = (opt.isTrain or opt.finetune
-            ) and opt.netD_subarch == 'n_layers'
+        self.concat_ref_for_D = (opt.isTrain or opt.finetune) and opt.netD_subarch == 'n_layers'
         self.concat_fg_mask_for_D = self.has_fg
 
     def forward(self):
@@ -424,29 +396,22 @@ class BaseModel(torch.nn.Module):
             try:
                 loaded_weights = torch.load(save_path)
                 network.load_state_dict(loaded_weights)
-                Visualizer.vis_print(self.opt, 'network loaded from %s' %
-                    save_path)
+                Visualizer.vis_print(self.opt, 'network loaded from %s' % save_path)
             except:
                 pretrained_dict = torch.load(save_path)
                 model_dict = network.state_dict()
                 try:
-                    pretrained_dict = {k: v for k, v in pretrained_dict.
-                        items() if k in model_dict}
+                    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
                     network.load_state_dict(pretrained_dict)
-                    Visualizer.vis_print(self.opt, 
-                        'Pretrained network %s has excessive layers; Only loading layers that are used'
-                         % network_label)
+                    Visualizer.vis_print(self.opt, 'Pretrained network %s has excessive layers; Only loading layers that are used' % network_label)
                 except:
-                    Visualizer.vis_print(self.opt, 
-                        'Pretrained network %s has fewer layers; The following are not initialized:'
-                         % network_label)
+                    Visualizer.vis_print(self.opt, 'Pretrained network %s has fewer layers; The following are not initialized:' % network_label)
                     not_initialized = set()
                     for k, v in pretrained_dict.items():
                         if v.size() == model_dict[k].size():
                             model_dict[k] = v
                     for k, v in model_dict.items():
-                        if k not in pretrained_dict or v.size(
-                            ) != pretrained_dict[k].size():
+                        if k not in pretrained_dict or v.size() != pretrained_dict[k].size():
                             not_initialized.add('.'.join(k.split('.')[:2]))
                             if 'flow_network_temp' in k:
                                 network.flow_temp_is_initalized = False
@@ -458,8 +423,7 @@ class BaseModel(torch.nn.Module):
             if remove_size == 0:
                 return tensors
             if isinstance(tensors, list):
-                return [self.remove_dummy_from_tensor(tensor, remove_size) for
-                    tensor in tensors]
+                return [self.remove_dummy_from_tensor(tensor, remove_size) for tensor in tensors]
             if tensors is None:
                 return None
             if isinstance(tensors, torch.Tensor):
@@ -471,22 +435,19 @@ class BaseModel(torch.nn.Module):
             if isinstance(tensors[0], list):
                 tensors_cat = []
                 for i in range(len(tensors[0])):
-                    tensors_cat.append(self.concat([tensors[0][i], tensors[
-                        1][i]], dim=dim))
+                    tensors_cat.append(self.concat([tensors[0][i], tensors[1][i]], dim=dim))
                 return tensors_cat
             return torch.cat([tensors[0], tensors[1].unsqueeze(1)], dim=dim)
         elif tensors[1] is not None:
             if isinstance(tensors[1], list):
-                return [(t.unsqueeze(1) if t is not None else None) for t in
-                    tensors[1]]
+                return [(t.unsqueeze(1) if t is not None else None) for t in tensors[1]]
             return tensors[1].unsqueeze(1)
         return tensors[0]
 
     def reshape(self, tensors, for_temporal=False):
         if isinstance(tensors, list):
             return [self.reshape(tensor, for_temporal) for tensor in tensors]
-        if tensors is None or type(tensors) != torch.Tensor or len(tensors.
-            size()) <= 4:
+        if tensors is None or type(tensors) != torch.Tensor or len(tensors.size()) <= 4:
             return tensors
         bs, t, ch, h, w = tensors.size()
         if not for_temporal:
@@ -500,18 +461,15 @@ class BaseModel(torch.nn.Module):
                     tensors = tensors.contiguous().view(-1, ch * nD, h, w)
                 else:
                     n = t // nD
-                    tensors = tensors[:, -n * nD:].contiguous().view(-1, ch *
-                        nD, h, w)
+                    tensors = tensors[:, -n * nD:].contiguous().view(-1, ch * nD, h, w)
             else:
                 tensors = tensors.contiguous().view(bs, ch * t, h, w)
         return tensors
 
     def divide_pred(self, pred):
         if type(pred) == list:
-            fake = [[tensor[:tensor.size(0) // 2] for tensor in p] for p in
-                pred]
-            real = [[tensor[tensor.size(0) // 2:] for tensor in p] for p in
-                pred]
+            fake = [[tensor[:tensor.size(0) // 2] for tensor in p] for p in pred]
+            real = [[tensor[tensor.size(0) // 2:] for tensor in p] for p in pred]
             return fake, real
         else:
             return torch.chunk(pred, 2, dim=0)
@@ -537,8 +495,7 @@ class BaseModel(torch.nn.Module):
 
     def define_networks(self, start_epoch):
         opt = self.opt
-        input_nc = (opt.label_nc if opt.label_nc != 0 and not self.pose else
-            opt.input_nc)
+        input_nc = opt.label_nc if opt.label_nc != 0 and not self.pose else opt.input_nc
         netG_input_nc = input_nc
         opt.for_face = False
         self.netG = networks.define_G(opt)
@@ -553,38 +510,28 @@ class BaseModel(torch.nn.Module):
             opt_face.for_face = True
             self.netGf = networks.define_G(opt_face)
         if self.isTrain or opt.finetune:
-            netD_input_nc = input_nc + opt.output_nc + (1 if self.
-                concat_fg_mask_for_D else 0)
+            netD_input_nc = input_nc + opt.output_nc + (1 if self.concat_fg_mask_for_D else 0)
             if self.concat_ref_for_D:
                 netD_input_nc *= 2
-            self.netD = networks.define_D(opt, netD_input_nc, opt.ndf, opt.
-                n_layers_D, opt.norm_D, opt.netD_subarch, opt.num_D, not
-                opt.no_ganFeat_loss, gpu_ids=self.gpu_ids)
+            self.netD = networks.define_D(opt, netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm_D, opt.netD_subarch, opt.num_D, not opt.no_ganFeat_loss, gpu_ids=self.gpu_ids)
             if self.add_face_D:
-                self.netDf = networks.define_D(opt, opt.output_nc * 2, opt.
-                    ndf, opt.n_layers_D, opt.norm_D, 'n_layers', 1, not opt
-                    .no_ganFeat_loss, gpu_ids=self.gpu_ids)
+                self.netDf = networks.define_D(opt, opt.output_nc * 2, opt.ndf, opt.n_layers_D, opt.norm_D, 'n_layers', 1, not opt.no_ganFeat_loss, gpu_ids=self.gpu_ids)
             else:
                 self.netDf = None
         self.temporal = False
         self.netDT = None
-        Visualizer.vis_print(self.opt,
-            '---------- Networks initialized -------------')
+        Visualizer.vis_print(self.opt, '---------- Networks initialized -------------')
         if self.isTrain:
             params = list(self.netG.parameters())
             if self.refine_face:
                 params += list(self.netGf.parameters())
-            self.optimizer_G = self.get_optimizer(params, for_discriminator
-                =False)
+            self.optimizer_G = self.get_optimizer(params, for_discriminator=False)
             params = list(self.netD.parameters())
             if self.add_face_D:
                 params += list(self.netDf.parameters())
-            self.optimizer_D = self.get_optimizer(params, for_discriminator
-                =True)
-        Visualizer.vis_print(self.opt,
-            '---------- Optimizers initialized -------------')
-        if (not opt.isTrain or start_epoch > opt.niter_single
-            ) and opt.n_frames_G > 1:
+            self.optimizer_D = self.get_optimizer(params, for_discriminator=True)
+        Visualizer.vis_print(self.opt, '---------- Optimizers initialized -------------')
+        if (not opt.isTrain or start_epoch > opt.niter_single) and opt.n_frames_G > 1:
             self.init_temporal_model()
 
     def save_networks(self, which_epoch):
@@ -600,29 +547,21 @@ class BaseModel(torch.nn.Module):
     def load_networks(self):
         opt = self.opt
         if not self.isTrain or opt.continue_train or opt.load_pretrain:
-            pretrained_path = ('' if not self.isTrain or opt.continue_train
-                 else opt.load_pretrain)
+            pretrained_path = '' if not self.isTrain or opt.continue_train else opt.load_pretrain
             self.load_network(self.netG, 'G', opt.which_epoch, pretrained_path)
-            if (self.temporal and opt.warp_ref and not self.netG.
-                flow_temp_is_initalized):
-                self.netG.load_pretrained_net(self.netG.flow_network_ref,
-                    self.netG.flow_network_temp)
+            if self.temporal and opt.warp_ref and not self.netG.flow_temp_is_initalized:
+                self.netG.load_pretrained_net(self.netG.flow_network_ref, self.netG.flow_network_temp)
             if self.refine_face:
-                self.load_network(self.netGf, 'Gf', opt.which_epoch,
-                    pretrained_path)
+                self.load_network(self.netGf, 'Gf', opt.which_epoch, pretrained_path)
             if self.isTrain and not opt.load_pretrain or opt.finetune:
-                self.load_network(self.netD, 'D', opt.which_epoch,
-                    pretrained_path)
+                self.load_network(self.netD, 'D', opt.which_epoch, pretrained_path)
                 if self.isTrain and self.temporal:
-                    self.load_network(self.netDT, 'DT', opt.which_epoch,
-                        pretrained_path)
+                    self.load_network(self.netDT, 'DT', opt.which_epoch, pretrained_path)
                 if self.add_face_D:
-                    self.load_network(self.netDf, 'Df', opt.which_epoch,
-                        pretrained_path)
+                    self.load_network(self.netDf, 'Df', opt.which_epoch, pretrained_path)
 
     def update_learning_rate(self, epoch):
-        new_lr = self.opt.lr * (1 - (epoch - self.opt.niter) / (self.opt.
-            niter_decay + 1))
+        new_lr = self.opt.lr * (1 - (epoch - self.opt.niter) / (self.opt.niter_decay + 1))
         if self.opt.no_TTUR:
             G_lr, D_lr = new_lr, new_lr
         else:
@@ -631,8 +570,7 @@ class BaseModel(torch.nn.Module):
             param_group['lr'] = D_lr
         for param_group in self.optimizer_G.param_groups:
             param_group['lr'] = G_lr
-        Visualizer.vis_print(self.opt, 'update learning rate: %f -> %f' % (
-            self.old_lr, new_lr))
+        Visualizer.vis_print(self.opt, 'update learning rate: %f -> %f' % (self.old_lr, new_lr))
         self.old_lr = new_lr
 
     def init_temporal_model(self):
@@ -645,19 +583,13 @@ class BaseModel(torch.nn.Module):
             params = list(self.netG.parameters())
             if self.refine_face:
                 params += list(self.netGf.parameters())
-            self.optimizer_G = self.get_optimizer(params, for_discriminator
-                =False)
-            self.netDT = networks.define_D(opt, opt.output_nc * self.
-                lossCollector.tD, opt.ndf, opt.n_layers_D, opt.norm_D,
-                'n_layers', 1, not opt.no_ganFeat_loss, gpu_ids=self.gpu_ids)
-            params = list(self.netD.parameters()) + list(self.netDT.
-                parameters())
+            self.optimizer_G = self.get_optimizer(params, for_discriminator=False)
+            self.netDT = networks.define_D(opt, opt.output_nc * self.lossCollector.tD, opt.ndf, opt.n_layers_D, opt.norm_D, 'n_layers', 1, not opt.no_ganFeat_loss, gpu_ids=self.gpu_ids)
+            params = list(self.netD.parameters()) + list(self.netDT.parameters())
             if self.add_face_D:
                 params += list(self.netDf.parameters())
-            self.optimizer_D = self.get_optimizer(params, for_discriminator
-                =True)
-            Visualizer.vis_print(self.opt,
-                '---------- Now start training multiple frames -------------')
+            self.optimizer_D = self.get_optimizer(params, for_discriminator=True)
+            Visualizer.vis_print(self.opt, '---------- Now start training multiple frames -------------')
 
 
 class CallbackContext(object):
@@ -695,11 +627,9 @@ class MyModel(nn.Module):
         self.module = model
         self.model = DataParallelWithCallback(model, device_ids=opt.gpu_ids)
         if opt.batch_for_first_gpu != -1:
-            self.bs_per_gpu = (opt.batchSize - opt.batch_for_first_gpu) // (len
-                (opt.gpu_ids) - 1)
+            self.bs_per_gpu = (opt.batchSize - opt.batch_for_first_gpu) // (len(opt.gpu_ids) - 1)
         else:
-            self.bs_per_gpu = int(np.ceil(float(opt.batchSize) / len(opt.
-                gpu_ids)))
+            self.bs_per_gpu = int(np.ceil(float(opt.batchSize) / len(opt.gpu_ids)))
         self.pad_bs = self.bs_per_gpu * len(opt.gpu_ids) - opt.batchSize
 
     def forward(self, *inputs, **kwargs):
@@ -713,8 +643,7 @@ class MyModel(nn.Module):
         if add_size == 0 or tensors is None:
             return tensors
         if type(tensors) == list or type(tensors) == tuple:
-            return [self.add_dummy_to_tensor(tensor, add_size) for tensor in
-                tensors]
+            return [self.add_dummy_to_tensor(tensor, add_size) for tensor in tensors]
         if isinstance(tensors, torch.Tensor):
             dummy = torch.zeros_like(tensors)[:add_size]
             tensors = torch.cat([dummy, tensors])
@@ -724,8 +653,7 @@ class MyModel(nn.Module):
         if remove_size == 0 or tensors is None:
             return tensors
         if type(tensors) == list or type(tensors) == tuple:
-            return [self.remove_dummy_from_tensor(tensor, remove_size) for
-                tensor in tensors]
+            return [self.remove_dummy_from_tensor(tensor, remove_size) for tensor in tensors]
         if isinstance(tensors, torch.Tensor):
             tensors = tensors[remove_size:]
         return tensors
@@ -752,8 +680,7 @@ def generalNorm(norm):
 
     class NormalNorm(norm):
 
-        def __init__(self, *args, hidden_nc=0, norm='', ks=1, params_free=
-            False, **kwargs):
+        def __init__(self, *args, hidden_nc=0, norm='', ks=1, params_free=False, **kwargs):
             super(NormalNorm, self).__init__(*args, **kwargs)
 
         def forward(self, input, label=None, weight=None):
@@ -763,11 +690,9 @@ def generalNorm(norm):
 
 class SPADEConv2d(nn.Module):
 
-    def __init__(self, fin, fout, norm='batch', hidden_nc=0, kernel_size=3,
-        padding=1, stride=1):
+    def __init__(self, fin, fout, norm='batch', hidden_nc=0, kernel_size=3, padding=1, stride=1):
         super().__init__()
-        self.conv = sn(nn.Conv2d(fin, fout, kernel_size=kernel_size, stride
-            =stride, padding=padding))
+        self.conv = sn(nn.Conv2d(fin, fout, kernel_size=kernel_size, stride=stride, padding=padding))
         Norm = generalNorm(norm)
         self.bn = Norm(fout, hidden_nc=hidden_nc, norm=norm, ks=3)
 
@@ -798,12 +723,9 @@ def batch_conv(x, weight, bias=None, stride=1, group_size=-1):
     y = None
     for i in range(x.size(0)):
         if stride >= 1:
-            yi = F.conv2d(x[i:i + 1], weight=weight[i], bias=bias[i],
-                padding=padding, stride=stride, groups=groups)
+            yi = F.conv2d(x[i:i + 1], weight=weight[i], bias=bias[i], padding=padding, stride=stride, groups=groups)
         else:
-            yi = F.conv_transpose2d(x[i:i + 1], weight=weight[i], bias=bias
-                [(i), :weight.size(2)], padding=padding, stride=int(1 /
-                stride), output_padding=1, groups=groups)
+            yi = F.conv_transpose2d(x[i:i + 1], weight=weight[i], bias=bias[(i), :weight.size(2)], padding=padding, stride=int(1 / stride), output_padding=1, groups=groups)
         y = concat(y, yi)
     return y
 
@@ -843,27 +765,22 @@ def generalConv(adaptive=False, transpose=False):
 
 class SPADEResnetBlock(nn.Module):
 
-    def __init__(self, fin, fout, norm='batch', hidden_nc=0, conv_ks=3,
-        spade_ks=1, stride=1, conv_params_free=False, norm_params_free=False):
+    def __init__(self, fin, fout, norm='batch', hidden_nc=0, conv_ks=3, spade_ks=1, stride=1, conv_params_free=False, norm_params_free=False):
         super().__init__()
         fhidden = min(fin, fout)
         self.learned_shortcut = fin != fout
         self.stride = stride
         Conv2d = generalConv(adaptive=conv_params_free)
         sn_ = sn if not conv_params_free else lambda x: x
-        self.conv_0 = sn_(Conv2d(fin, fhidden, conv_ks, stride=stride,
-            padding=1))
+        self.conv_0 = sn_(Conv2d(fin, fhidden, conv_ks, stride=stride, padding=1))
         self.conv_1 = sn_(Conv2d(fhidden, fout, conv_ks, padding=1))
         if self.learned_shortcut:
             self.conv_s = sn_(Conv2d(fin, fout, 1, stride=stride, bias=False))
         Norm = generalNorm(norm)
-        self.bn_0 = Norm(fin, hidden_nc=hidden_nc, norm=norm, ks=spade_ks,
-            params_free=norm_params_free)
-        self.bn_1 = Norm(fhidden, hidden_nc=hidden_nc, norm=norm, ks=
-            spade_ks, params_free=norm_params_free)
+        self.bn_0 = Norm(fin, hidden_nc=hidden_nc, norm=norm, ks=spade_ks, params_free=norm_params_free)
+        self.bn_1 = Norm(fhidden, hidden_nc=hidden_nc, norm=norm, ks=spade_ks, params_free=norm_params_free)
         if self.learned_shortcut:
-            self.bn_s = Norm(fin, hidden_nc=hidden_nc, norm=norm, ks=
-                spade_ks, params_free=norm_params_free)
+            self.bn_s = Norm(fin, hidden_nc=hidden_nc, norm=norm, ks=spade_ks, params_free=norm_params_free)
 
     def forward(self, x, label=None, conv_weights=[], norm_weights=[]):
         if not conv_weights:
@@ -871,10 +788,8 @@ class SPADEResnetBlock(nn.Module):
         if not norm_weights:
             norm_weights = [None] * 3
         x_s = self._shortcut(x, label, conv_weights[2], norm_weights[2])
-        dx = self.conv_0(actvn(self.bn_0(x, label, norm_weights[0])),
-            conv_weights[0])
-        dx = self.conv_1(actvn(self.bn_1(dx, label, norm_weights[1])),
-            conv_weights[1])
+        dx = self.conv_0(actvn(self.bn_0(x, label, norm_weights[0])), conv_weights[0])
+        dx = self.conv_1(actvn(self.bn_1(dx, label, norm_weights[1])), conv_weights[1])
         out = x_s + 1.0 * dx
         return out
 
@@ -911,8 +826,7 @@ class BaseNetwork(nn.Module):
                     init.normal_(m.weight.data, 1.0, gain)
                 if hasattr(m, 'bias') and m.bias is not None:
                     init.constant_(m.bias.data, 0.0)
-            elif hasattr(m, 'weight') and (classname.find('Conv') != -1 or 
-                classname.find('Linear') != -1):
+            elif hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
                 if init_type == 'normal':
                     init.normal_(m.weight.data, 0.0, gain)
                 elif init_type == 'xavier':
@@ -926,9 +840,7 @@ class BaseNetwork(nn.Module):
                 elif init_type == 'none':
                     m.reset_parameters()
                 else:
-                    raise NotImplementedError(
-                        'initialization method [%s] is not implemented' %
-                        init_type)
+                    raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
                 if hasattr(m, 'bias') and m.bias is not None:
                     init.constant_(m.bias.data, 0.0)
         self.apply(init_func)
@@ -967,8 +879,7 @@ class BaseNetwork(nn.Module):
             cur_size = 0
             for i in range(len(sizes)):
                 next_size = cur_size + self.sum(sizes[i])
-                weights.append(self.split_weights(weight[:, cur_size:
-                    next_size], sizes[i]))
+                weights.append(self.split_weights(weight[:, cur_size:next_size], sizes[i]))
                 cur_size = next_size
             assert next_size == weight.size()[1]
             return weights
@@ -978,8 +889,7 @@ class BaseNetwork(nn.Module):
         if type(weight_size[0]) == list and type(x) != list:
             x = self.split_weights(x, self.sum_mul(weight_size))
         if type(x) == list:
-            return [self.reshape_weight(xi, wi) for xi, wi in zip(x,
-                weight_size)]
+            return [self.reshape_weight(xi, wi) for xi, wi in zip(x, weight_size)]
         weight_size = [x.size()[0]] + weight_size
         bias_size = weight_size[1]
         try:
@@ -1052,13 +962,11 @@ class L2Loss(nn.Module):
 
 class MultiScale(nn.Module):
 
-    def __init__(self, args, startScale=4, numScales=5, l_weight=0.32, norm
-        ='L1'):
+    def __init__(self, args, startScale=4, numScales=5, l_weight=0.32, norm='L1'):
         super(MultiScale, self).__init__()
         self.startScale = startScale
         self.numScales = numScales
-        self.loss_weights = torch.FloatTensor([(l_weight / 2 ** scale) for
-            scale in range(self.numScales)])
+        self.loss_weights = torch.FloatTensor([(l_weight / 2 ** scale) for scale in range(self.numScales)])
         self.args = args
         self.l_type = norm
         self.div_flow = 0.05
@@ -1067,8 +975,7 @@ class MultiScale(nn.Module):
             self.loss = L1()
         else:
             self.loss = L2()
-        self.multiScales = [nn.AvgPool2d(self.startScale * 2 ** scale, self
-            .startScale * 2 ** scale) for scale in range(self.numScales)]
+        self.multiScales = [nn.AvgPool2d(self.startScale * 2 ** scale, self.startScale * 2 ** scale) for scale in range(self.numScales)]
         self.loss_labels = ['MultiScale-' + self.l_type, 'EPE'],
 
     def forward(self, output, target):
@@ -1129,8 +1036,7 @@ class FlowNet2(nn.Module):
             self.resample4 = nn.Sequential(tofp32(), Resample2d(), tofp16())
         else:
             self.resample4 = Resample2d()
-        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=
-            self.batchNorm)
+        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=self.batchNorm)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m.bias is not None:
@@ -1158,8 +1064,7 @@ class FlowNet2(nn.Module):
         return
 
     def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim
-            =-1).view(inputs.size()[:2] + (1, 1, 1))
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
         x1 = x[:, :, (0), :, :]
         x2 = x[:, :, (1), :, :]
@@ -1169,30 +1074,24 @@ class FlowNet2(nn.Module):
         resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets1_flow2 = self.flownets_1(concat1)[0]
         flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
         resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets2_flow2 = self.flownets_2(concat2)[0]
         flownets2_flow = self.upsample4(flownets2_flow2 * self.div_flow)
         norm_flownets2_flow = self.channelnorm(flownets2_flow)
         diff_flownets2_flow = self.resample4(x[:, 3:, :, :], flownets2_flow)
-        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] -
-            diff_flownets2_flow)
+        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownets2_flow)
         flownetsd_flow2 = self.flownets_d(x)[0]
         flownetsd_flow = self.upsample3(flownetsd_flow2 / self.div_flow)
         norm_flownetsd_flow = self.channelnorm(flownetsd_flow)
         diff_flownetsd_flow = self.resample3(x[:, 3:, :, :], flownetsd_flow)
-        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] -
-            diff_flownetsd_flow)
-        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow,
-            norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1,
-            diff_flownets2_img1), dim=1)
+        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownetsd_flow)
+        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow, norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1, diff_flownets2_img1), dim=1)
         flownetfusion_flow = self.flownetfusion(concat3)
         return flownetfusion_flow
 
@@ -1225,8 +1124,7 @@ class FlowNet2CS(nn.Module):
                 init.xavier_uniform(m.weight)
 
     def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim
-            =-1).view(inputs.size()[:2] + (1, 1, 1))
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
         x1 = x[:, :, (0), :, :]
         x2 = x[:, :, (1), :, :]
@@ -1236,8 +1134,7 @@ class FlowNet2CS(nn.Module):
         resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets1_flow2 = self.flownets_1(concat1)[0]
         flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
         return flownets1_flow
@@ -1277,8 +1174,7 @@ class FlowNet2CSS(nn.Module):
                 init.xavier_uniform(m.weight)
 
     def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim
-            =-1).view(inputs.size()[:2] + (1, 1, 1))
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
         x1 = x[:, :, (0), :, :]
         x2 = x[:, :, (1), :, :]
@@ -1288,15 +1184,13 @@ class FlowNet2CSS(nn.Module):
         resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets1_flow2 = self.flownets_1(concat1)[0]
         flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
         resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets2_flow2 = self.flownets_2(concat2)[0]
         flownets2_flow = self.upsample3(flownets2_flow2 * self.div_flow)
         return flownets2_flow
@@ -1304,25 +1198,17 @@ class FlowNet2CSS(nn.Module):
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1,
-            inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=True), nn.LeakyReLU(0.1, inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
-        inplace=True))
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias=True)
 
 
 class FlowNetC(nn.Module):
@@ -1334,15 +1220,11 @@ class FlowNetC(nn.Module):
         self.conv1 = conv(self.batchNorm, 3, 64, kernel_size=7, stride=2)
         self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2)
         self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2)
-        self.conv_redir = conv(self.batchNorm, 256, 32, kernel_size=1, stride=1
-            )
+        self.conv_redir = conv(self.batchNorm, 256, 32, kernel_size=1, stride=1)
         if args.fp16:
-            self.corr = nn.Sequential(tofp32(), Correlation(pad_size=20,
-                kernel_size=1, max_displacement=20, stride1=1, stride2=2,
-                corr_multiply=1), tofp16())
+            self.corr = nn.Sequential(tofp32(), Correlation(pad_size=20, kernel_size=1, max_displacement=20, stride1=1, stride2=2, corr_multiply=1), tofp16())
         else:
-            self.corr = Correlation(pad_size=20, kernel_size=1,
-                max_displacement=20, stride1=1, stride2=2, corr_multiply=1)
+            self.corr = Correlation(pad_size=20, kernel_size=1, max_displacement=20, stride1=1, stride2=2, corr_multiply=1)
         self.corr_activation = nn.LeakyReLU(0.1, inplace=True)
         self.conv3_1 = conv(self.batchNorm, 473, 256)
         self.conv4 = conv(self.batchNorm, 256, 512, stride=2)
@@ -1360,14 +1242,10 @@ class FlowNetC(nn.Module):
         self.predict_flow4 = predict_flow(770)
         self.predict_flow3 = predict_flow(386)
         self.predict_flow2 = predict_flow(194)
-        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
-        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
-        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
-        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
+        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
+        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
+        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
+        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m.bias is not None:
@@ -1419,16 +1297,11 @@ class FlowNetC(nn.Module):
             return flow2,
 
 
-def i_conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, bias=True
-    ):
+def i_conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, bias=True):
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=bias), nn.BatchNorm2d(out_planes))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=bias), nn.BatchNorm2d(out_planes))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=bias))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=bias))
 
 
 class FlowNetFusion(nn.Module):
@@ -1483,8 +1356,7 @@ class FlowNetS(nn.Module):
     def __init__(self, args, input_channels=12, batchNorm=True):
         super(FlowNetS, self).__init__()
         self.batchNorm = batchNorm
-        self.conv1 = conv(self.batchNorm, input_channels, 64, kernel_size=7,
-            stride=2)
+        self.conv1 = conv(self.batchNorm, input_channels, 64, kernel_size=7, stride=2)
         self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2)
         self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2)
         self.conv3_1 = conv(self.batchNorm, 256, 256)
@@ -1503,14 +1375,10 @@ class FlowNetS(nn.Module):
         self.predict_flow4 = predict_flow(770)
         self.predict_flow3 = predict_flow(386)
         self.predict_flow2 = predict_flow(194)
-        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
+        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m.bias is not None:
@@ -1649,8 +1517,7 @@ class ChannelNormFunction(Function):
     def backward(ctx, grad_output):
         input1, output = ctx.saved_tensors
         grad_input1 = Variable(input1.new(input1.size()).zero_())
-        channelnorm.backward(input1, output, grad_output.data, grad_input1.
-            data, ctx.norm_deg)
+        channelnorm.backward(input1, output, grad_output.data, grad_input1.data, ctx.norm_deg)
         return grad_input1, None
 
 
@@ -1666,8 +1533,7 @@ class ChannelNorm(Module):
 
 class CorrelationFunction(Function):
 
-    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20,
-        stride1=1, stride2=2, corr_multiply=1):
+    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
         super(CorrelationFunction, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -1677,8 +1543,7 @@ class CorrelationFunction(Function):
         self.corr_multiply = corr_multiply
 
     @staticmethod
-    def forward(ctx, input1, input2, pad_size, kernel_size,
-        max_displacement, stride1, stride2, corr_multiply):
+    def forward(ctx, input1, input2, pad_size, kernel_size, max_displacement, stride1, stride2, corr_multiply):
         ctx.save_for_backward(input1, input2)
         ctx.pad_size = pad_size
         ctx.kernel_size = kernel_size
@@ -1690,9 +1555,7 @@ class CorrelationFunction(Function):
             rbot1 = input1.new()
             rbot2 = input2.new()
             output = input1.new()
-            correlation_cuda.forward(input1, input2, rbot1, rbot2, output,
-                ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.
-                stride1, ctx.stride2, ctx.corr_multiply)
+            correlation_cuda.forward(input1, input2, rbot1, rbot2, output, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
         return output
 
     @staticmethod
@@ -1703,17 +1566,13 @@ class CorrelationFunction(Function):
             rbot2 = input2.new()
             grad_input1 = input1.new()
             grad_input2 = input2.new()
-            correlation_cuda.backward(input1, input2, rbot1, rbot2,
-                grad_output, grad_input1, grad_input2, ctx.pad_size, ctx.
-                kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2,
-                ctx.corr_multiply)
+            correlation_cuda.backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
         return grad_input1, grad_input2
 
 
 class Correlation(Module):
 
-    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0,
-        stride1=1, stride2=2, corr_multiply=1):
+    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
         super(Correlation, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -1723,9 +1582,7 @@ class Correlation(Module):
         self.corr_multiply = corr_multiply
 
     def forward(self, input1, input2):
-        result = CorrelationFunction.apply(input1, input2, self.pad_size,
-            self.kernel_size, self.max_displacement, self.stride1, self.
-            stride2, self.corr_multiply)
+        result = CorrelationFunction.apply(input1, input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return result
 
 
@@ -1749,8 +1606,7 @@ class Resample2dFunction(Function):
         input1, input2 = ctx.saved_tensors
         grad_input1 = Variable(input1.new(input1.size()).zero_())
         grad_input2 = Variable(input1.new(input2.size()).zero_())
-        resample2d_cuda.backward(input1, input2, grad_output.data,
-            grad_input1.data, grad_input2.data, ctx.kernel_size)
+        resample2d_cuda.backward(input1, input2, grad_output.data, grad_input1.data, grad_input2.data, ctx.kernel_size)
         return grad_input1, grad_input2, None
 
 
@@ -1785,8 +1641,7 @@ class tofp32(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=
-        0.0, tensor=torch.FloatTensor, opt=None):
+    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor, opt=None):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -1816,19 +1671,16 @@ class GANLoss(nn.Module):
                 self.fake_label_tensor = self.Tensor(1).fill_(self.fake_label)
             return self.fake_label_tensor.expand_as(input)
 
-    def loss(self, input, target_is_real, weight=None, reduce_dim=True,
-        for_discriminator=True):
+    def loss(self, input, target_is_real, weight=None, reduce_dim=True, for_discriminator=True):
         if self.gan_mode == 'original':
             target_tensor = self.get_target_tensor(input, target_is_real)
             batchsize = input.size(0)
-            loss = F.binary_cross_entropy_with_logits(input, target_tensor,
-                weight=weight)
+            loss = F.binary_cross_entropy_with_logits(input, target_tensor, weight=weight)
             if not reduce_dim:
                 loss = loss.view(batchsize, -1).mean(dim=1)
             return loss
         elif self.gan_mode == 'ls':
-            target_tensor = input * 0 + (self.real_label if target_is_real else
-                self.fake_label)
+            target_tensor = input * 0 + (self.real_label if target_is_real else self.fake_label)
             if weight is None and reduce_dim:
                 return F.mse_loss(input, target_tensor)
             error = (input - target_tensor) ** 2
@@ -1859,22 +1711,19 @@ class GANLoss(nn.Module):
             else:
                 return input.mean()
 
-    def __call__(self, input, target_is_real, weight=None, reduce_dim=True,
-        for_discriminator=True):
+    def __call__(self, input, target_is_real, weight=None, reduce_dim=True, for_discriminator=True):
         if isinstance(input, list):
             loss = 0
             for pred_i in input:
                 if isinstance(pred_i, list):
                     pred_i = pred_i[-1]
-                loss_tensor = self.loss(pred_i, target_is_real, weight,
-                    reduce_dim, for_discriminator)
+                loss_tensor = self.loss(pred_i, target_is_real, weight, reduce_dim, for_discriminator)
                 bs = 1 if len(loss_tensor.size()) == 0 else loss_tensor.size(0)
                 new_loss = torch.mean(loss_tensor.view(bs, -1), dim=1)
                 loss += new_loss
             return loss / len(input)
         else:
-            return self.loss(input, target_is_real, weight, reduce_dim,
-                for_discriminator)
+            return self.loss(input, target_is_real, weight, reduce_dim, for_discriminator)
 
 
 class VGGLoss(nn.Module):
@@ -1888,8 +1737,7 @@ class VGGLoss(nn.Module):
     def compute_loss(self, x_vgg, y_vgg):
         loss = 0
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
     def forward(self, x, y):
@@ -1922,8 +1770,7 @@ class KLDLoss(nn.Module):
 
 class SPADE(nn.Module):
 
-    def __init__(self, norm_nc, hidden_nc=0, norm='batch', ks=3,
-        params_free=False):
+    def __init__(self, norm_nc, hidden_nc=0, norm='batch', ks=3, params_free=False):
         super().__init__()
         pw = ks // 2
         if not isinstance(hidden_nc, list):
@@ -1983,8 +1830,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -2033,8 +1879,7 @@ class SyncMaster(object):
 
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -2060,8 +1905,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -2075,8 +1919,7 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
@@ -2095,8 +1938,7 @@ def _unsqueeze_ft(tensor):
 class _SynchronizedBatchNorm(_BatchNorm):
 
     def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
@@ -2104,22 +1946,18 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input):
         if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -2134,8 +1972,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -2145,8 +1982,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _compute_mean_std(self, sum_, ssum, size):
@@ -2157,10 +1993,8 @@ class _SynchronizedBatchNorm(_BatchNorm):
         sumvar = ssum - sum_ * mean
         unbias_var = sumvar / (size - 1)
         bias_var = sumvar / size
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.data
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.data
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
@@ -2176,8 +2010,7 @@ class Vgg19(nn.Module):
 
     def __init__(self, requires_grad=False):
         super(Vgg19, self).__init__()
-        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True
-            ).features
+        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True).features
         self.slice1 = nn.Sequential()
         self.slice2 = nn.Sequential()
         self.slice3 = nn.Sequential()
@@ -2229,66 +2062,135 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BaseModel(*[], **{}), [], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseModel,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     True),
+    (DataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (FlowNetFusion,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 11, 64, 64])], {}),
+     True),
+    (FlowNetS,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 12, 64, 64])], {}),
+     False),
+    (FlowNetSD,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 6, 64, 64])], {}),
+     False),
+    (KLDLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1Loss,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Loss,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaskedL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiScale,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SPADEConv2d,
+     lambda: ([], {'fin': 4, 'fout': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SPADEResnetBlock,
+     lambda: ([], {'fin': 4, 'fout': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGGLoss,
+     lambda: ([], {'opt': _mock_config(), 'gpu_ids': False}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Vgg19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (tofp16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (tofp32,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FlowNetFusion(*[], **{'args': _mock_config()}), [torch.rand([4, 11, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(FlowNetS(*[], **{'args': _mock_config()}), [torch.rand([4, 12, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(FlowNetSD(*[], **{'args': _mock_config()}), [torch.rand([4, 6, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(KLDLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(L1Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(L2Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(MultiScale(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(SPADEConv2d(*[], **{'fin': 4, 'fout': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(SPADEResnetBlock(*[], **{'fin': 4, 'fout': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(VGGLoss(*[], **{'opt': _mock_config(), 'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Vgg19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 

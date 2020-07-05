@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,13 +77,11 @@ import torchvision
 
 class BN_AC_CONV3D(nn.Module):
 
-    def __init__(self, num_in, num_filter, kernel=(1, 1, 1), pad=(0, 0, 0),
-        stride=(1, 1, 1), g=1, bias=False):
+    def __init__(self, num_in, num_filter, kernel=(1, 1, 1), pad=(0, 0, 0), stride=(1, 1, 1), g=1, bias=False):
         super(BN_AC_CONV3D, self).__init__()
         self.bn = nn.BatchNorm3d(num_in)
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv3d(num_in, num_filter, kernel_size=kernel,
-            padding=pad, stride=stride, groups=g, bias=bias)
+        self.conv = nn.Conv3d(num_in, num_filter, kernel_size=kernel, padding=pad, stride=stride, groups=g, bias=bias)
 
     def forward(self, x):
         h = self.relu(self.bn(x))
@@ -92,26 +91,19 @@ class BN_AC_CONV3D(nn.Module):
 
 class MF_UNIT(nn.Module):
 
-    def __init__(self, num_in, num_mid, num_out, g=1, stride=(1, 1, 1),
-        first_block=False, use_3d=True):
+    def __init__(self, num_in, num_mid, num_out, g=1, stride=(1, 1, 1), first_block=False, use_3d=True):
         super(MF_UNIT, self).__init__()
         num_ix = int(num_mid / 4)
         kt, pt = (3, 1) if use_3d else (1, 0)
-        self.conv_i1 = BN_AC_CONV3D(num_in=num_in, num_filter=num_ix,
-            kernel=(1, 1, 1), pad=(0, 0, 0))
-        self.conv_i2 = BN_AC_CONV3D(num_in=num_ix, num_filter=num_in,
-            kernel=(1, 1, 1), pad=(0, 0, 0))
-        self.conv_m1 = BN_AC_CONV3D(num_in=num_in, num_filter=num_mid,
-            kernel=(kt, 3, 3), pad=(pt, 1, 1), stride=stride, g=g)
+        self.conv_i1 = BN_AC_CONV3D(num_in=num_in, num_filter=num_ix, kernel=(1, 1, 1), pad=(0, 0, 0))
+        self.conv_i2 = BN_AC_CONV3D(num_in=num_ix, num_filter=num_in, kernel=(1, 1, 1), pad=(0, 0, 0))
+        self.conv_m1 = BN_AC_CONV3D(num_in=num_in, num_filter=num_mid, kernel=(kt, 3, 3), pad=(pt, 1, 1), stride=stride, g=g)
         if first_block:
-            self.conv_m2 = BN_AC_CONV3D(num_in=num_mid, num_filter=num_out,
-                kernel=(1, 1, 1), pad=(0, 0, 0))
+            self.conv_m2 = BN_AC_CONV3D(num_in=num_mid, num_filter=num_out, kernel=(1, 1, 1), pad=(0, 0, 0))
         else:
-            self.conv_m2 = BN_AC_CONV3D(num_in=num_mid, num_filter=num_out,
-                kernel=(1, 3, 3), pad=(0, 1, 1), g=g)
+            self.conv_m2 = BN_AC_CONV3D(num_in=num_mid, num_filter=num_out, kernel=(1, 3, 3), pad=(0, 1, 1), g=g)
         if first_block:
-            self.conv_w1 = BN_AC_CONV3D(num_in=num_in, num_filter=num_out,
-                kernel=(1, 1, 1), pad=(0, 0, 0), stride=stride)
+            self.conv_w1 = BN_AC_CONV3D(num_in=num_in, num_filter=num_out, kernel=(1, 1, 1), pad=(0, 0, 0), stride=stride)
 
     def forward(self, x):
         h = self.conv_i1(x)
@@ -130,62 +122,34 @@ class MFNET_3D(nn.Module):
         groups = 16
         k_sec = {(2): 3, (3): 4, (4): 6, (5): 3}
         conv1_num_out = 16
-        self.conv1 = nn.Sequential(OrderedDict([('conv', nn.Conv3d(3,
-            conv1_num_out, kernel_size=(3, 5, 5), padding=(1, 2, 2), stride
-            =(1, 2, 2), bias=False)), ('bn', nn.BatchNorm3d(conv1_num_out)),
-            ('relu', nn.ReLU(inplace=True))]))
-        self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2),
-            padding=(0, 1, 1))
+        self.conv1 = nn.Sequential(OrderedDict([('conv', nn.Conv3d(3, conv1_num_out, kernel_size=(3, 5, 5), padding=(1, 2, 2), stride=(1, 2, 2), bias=False)), ('bn', nn.BatchNorm3d(conv1_num_out)), ('relu', nn.ReLU(inplace=True))]))
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
         num_mid = 96
         conv2_num_out = 96
-        self.conv2 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
-            num_in=conv1_num_out if i == 1 else conv2_num_out, num_mid=
-            num_mid, num_out=conv2_num_out, stride=(2, 1, 1) if i == 1 else
-            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
-            k_sec[2] + 1)]))
+        self.conv2 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(num_in=conv1_num_out if i == 1 else conv2_num_out, num_mid=num_mid, num_out=conv2_num_out, stride=(2, 1, 1) if i == 1 else (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, k_sec[2] + 1)]))
         num_mid *= 2
         conv3_num_out = 2 * conv2_num_out
-        self.conv3 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
-            num_in=conv2_num_out if i == 1 else conv3_num_out, num_mid=
-            num_mid, num_out=conv3_num_out, stride=(1, 2, 2) if i == 1 else
-            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
-            k_sec[3] + 1)]))
+        self.conv3 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(num_in=conv2_num_out if i == 1 else conv3_num_out, num_mid=num_mid, num_out=conv3_num_out, stride=(1, 2, 2) if i == 1 else (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, k_sec[3] + 1)]))
         num_mid *= 2
         conv4_num_out = 2 * conv3_num_out
-        self.conv4 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
-            num_in=conv3_num_out if i == 1 else conv4_num_out, num_mid=
-            num_mid, num_out=conv4_num_out, stride=(1, 2, 2) if i == 1 else
-            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
-            k_sec[4] + 1)]))
+        self.conv4 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(num_in=conv3_num_out if i == 1 else conv4_num_out, num_mid=num_mid, num_out=conv4_num_out, stride=(1, 2, 2) if i == 1 else (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, k_sec[4] + 1)]))
         num_mid *= 2
         conv5_num_out = 2 * conv4_num_out
-        self.conv5 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(
-            num_in=conv4_num_out if i == 1 else conv5_num_out, num_mid=
-            num_mid, num_out=conv5_num_out, stride=(1, 2, 2) if i == 1 else
-            (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, 
-            k_sec[5] + 1)]))
-        self.tail = nn.Sequential(OrderedDict([('bn', nn.BatchNorm3d(
-            conv5_num_out)), ('relu', nn.ReLU(inplace=True))]))
-        self.globalpool = nn.Sequential(OrderedDict([('avg', nn.AvgPool3d(
-            kernel_size=(8, 7, 7), stride=(1, 1, 1)))]))
+        self.conv5 = nn.Sequential(OrderedDict([('B%02d' % i, MF_UNIT(num_in=conv4_num_out if i == 1 else conv5_num_out, num_mid=num_mid, num_out=conv5_num_out, stride=(1, 2, 2) if i == 1 else (1, 1, 1), g=groups, first_block=i == 1)) for i in range(1, k_sec[5] + 1)]))
+        self.tail = nn.Sequential(OrderedDict([('bn', nn.BatchNorm3d(conv5_num_out)), ('relu', nn.ReLU(inplace=True))]))
+        self.globalpool = nn.Sequential(OrderedDict([('avg', nn.AvgPool3d(kernel_size=(8, 7, 7), stride=(1, 1, 1)))]))
         self.classifier = nn.Linear(conv5_num_out, num_classes)
         initializer.xavier(net=self)
         if pretrained:
             import torch
             load_method = 'inflation'
-            pretrained_model = os.path.join(os.path.dirname(os.path.
-                realpath(__file__)), 'pretrained/MFNet2D_ImageNet1k-0000.pth')
-            logging.info(
-                "Network:: graph initialized, loading pretrained model: `{}'"
-                .format(pretrained_model))
-            assert os.path.exists(pretrained_model
-                ), "cannot locate: `{}'".format(pretrained_model)
+            pretrained_model = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pretrained/MFNet2D_ImageNet1k-0000.pth')
+            logging.info("Network:: graph initialized, loading pretrained model: `{}'".format(pretrained_model))
+            assert os.path.exists(pretrained_model), "cannot locate: `{}'".format(pretrained_model)
             state_dict_2d = torch.load(pretrained_model)
-            initializer.init_3d_from_2d_dict(net=self, state_dict=
-                state_dict_2d, method=load_method)
+            initializer.init_3d_from_2d_dict(net=self, state_dict=state_dict_2d, method=load_method)
         else:
-            logging.info('Network:: graph initialized, use random inilization!'
-                )
+            logging.info('Network:: graph initialized, use random inilization!')
 
     def forward(self, x):
         assert x.shape[2] == 16
@@ -201,10 +165,3 @@ class MFNET_3D(nn.Module):
         h = self.classifier(h)
         return h
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_cypw_PyTorch_MFNet(_paritybench_base):
-    pass

@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,8 +87,7 @@ class OhemCELoss(nn.Module):
         self.thresh = -torch.log(torch.tensor(thresh, dtype=torch.float))
         self.n_min = n_min
         self.ignore_lb = ignore_lb
-        self.criteria = nn.CrossEntropyLoss(ignore_index=ignore_lb,
-            reduction='none')
+        self.criteria = nn.CrossEntropyLoss(ignore_index=ignore_lb, reduction='none')
 
     def forward(self, logits, labels):
         N, C, H, W = logits.size()
@@ -118,11 +118,9 @@ class SoftmaxFocalLoss(nn.Module):
 
 class ConvBNReLU(nn.Module):
 
-    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args,
-        **kwargs):
+    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
         super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=
-            stride, padding=padding, bias=False)
+        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_chan)
         self.init_weight()
 
@@ -144,8 +142,7 @@ class BiSeNetOutput(nn.Module):
     def __init__(self, in_chan, mid_chan, n_classes, *args, **kwargs):
         super(BiSeNetOutput, self).__init__()
         self.conv = ConvBNReLU(in_chan, mid_chan, ks=3, stride=1, padding=1)
-        self.conv_out = nn.Conv2d(mid_chan, n_classes, kernel_size=1, bias=
-            False)
+        self.conv_out = nn.Conv2d(mid_chan, n_classes, kernel_size=1, bias=False)
         self.init_weight()
 
     def forward(self, x):
@@ -177,8 +174,7 @@ class AttentionRefinementModule(nn.Module):
     def __init__(self, in_chan, out_chan, *args, **kwargs):
         super(AttentionRefinementModule, self).__init__()
         self.conv = ConvBNReLU(in_chan, out_chan, ks=3, stride=1, padding=1)
-        self.conv_atten = nn.Conv2d(out_chan, out_chan, kernel_size=1, bias
-            =False)
+        self.conv_atten = nn.Conv2d(out_chan, out_chan, kernel_size=1, bias=False)
         self.bn_atten = nn.BatchNorm2d(out_chan)
         self.sigmoid_atten = nn.Sigmoid()
         self.init_weight()
@@ -291,10 +287,8 @@ class FeatureFusionModule(nn.Module):
     def __init__(self, in_chan, out_chan, *args, **kwargs):
         super(FeatureFusionModule, self).__init__()
         self.convblk = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
-        self.conv1 = nn.Conv2d(out_chan, out_chan // 4, kernel_size=1,
-            stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(out_chan // 4, out_chan, kernel_size=1,
-            stride=1, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(out_chan, out_chan // 4, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(out_chan // 4, out_chan, kernel_size=1, stride=1, padding=0, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
         self.init_weight()
@@ -349,12 +343,9 @@ class BiSeNet(nn.Module):
         feat_out = self.conv_out(feat_fuse)
         feat_out16 = self.conv_out16(feat_cp8)
         feat_out32 = self.conv_out32(feat_cp16)
-        feat_out = F.interpolate(feat_out, (H, W), mode='bilinear',
-            align_corners=True)
-        feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear',
-            align_corners=True)
-        feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear',
-            align_corners=True)
+        feat_out = F.interpolate(feat_out, (H, W), mode='bilinear', align_corners=True)
+        feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear', align_corners=True)
+        feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear', align_corners=True)
         return feat_out, feat_out16, feat_out32
 
     def init_weight(self):
@@ -365,12 +356,10 @@ class BiSeNet(nn.Module):
                     nn.init.constant_(ly.bias, 0)
 
     def get_params(self):
-        wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params = [], [
-            ], [], []
+        wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params = [], [], [], []
         for name, child in self.named_children():
             child_wd_params, child_nowd_params = child.get_params()
-            if isinstance(child, FeatureFusionModule) or isinstance(child,
-                BiSeNetOutput):
+            if isinstance(child, FeatureFusionModule) or isinstance(child, BiSeNetOutput):
                 lr_mul_wd_params += child_wd_params
                 lr_mul_nowd_params += child_nowd_params
             else:
@@ -394,8 +383,7 @@ class ABN(nn.Module):
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates an Activated Batch Normalization module
 
         Parameters
@@ -438,22 +426,18 @@ class ABN(nn.Module):
             nn.init.constant_(self.bias, 0)
 
     def forward(self, x):
-        x = functional.batch_norm(x, self.running_mean, self.running_var,
-            self.weight, self.bias, self.training, self.momentum, self.eps)
+        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         if self.activation == ACT_RELU:
             return functional.relu(x, inplace=True)
         elif self.activation == ACT_LEAKY_RELU:
-            return functional.leaky_relu(x, negative_slope=self.slope,
-                inplace=True)
+            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
         elif self.activation == ACT_ELU:
             return functional.elu(x, inplace=True)
         else:
             return x
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ', slope={slope})'
         else:
@@ -463,25 +447,15 @@ class ABN(nn.Module):
 
 class DeeplabV3(nn.Module):
 
-    def __init__(self, in_channels, out_channels, hidden_channels=256,
-        dilations=(12, 24, 36), norm_act=ABN, pooling_size=None):
+    def __init__(self, in_channels, out_channels, hidden_channels=256, dilations=(12, 24, 36), norm_act=ABN, pooling_size=None):
         super(DeeplabV3, self).__init__()
         self.pooling_size = pooling_size
-        self.map_convs = nn.ModuleList([nn.Conv2d(in_channels,
-            hidden_channels, 1, bias=False), nn.Conv2d(in_channels,
-            hidden_channels, 3, bias=False, dilation=dilations[0], padding=
-            dilations[0]), nn.Conv2d(in_channels, hidden_channels, 3, bias=
-            False, dilation=dilations[1], padding=dilations[1]), nn.Conv2d(
-            in_channels, hidden_channels, 3, bias=False, dilation=dilations
-            [2], padding=dilations[2])])
+        self.map_convs = nn.ModuleList([nn.Conv2d(in_channels, hidden_channels, 1, bias=False), nn.Conv2d(in_channels, hidden_channels, 3, bias=False, dilation=dilations[0], padding=dilations[0]), nn.Conv2d(in_channels, hidden_channels, 3, bias=False, dilation=dilations[1], padding=dilations[1]), nn.Conv2d(in_channels, hidden_channels, 3, bias=False, dilation=dilations[2], padding=dilations[2])])
         self.map_bn = norm_act(hidden_channels * 4)
-        self.global_pooling_conv = nn.Conv2d(in_channels, hidden_channels, 
-            1, bias=False)
+        self.global_pooling_conv = nn.Conv2d(in_channels, hidden_channels, 1, bias=False)
         self.global_pooling_bn = norm_act(hidden_channels)
-        self.red_conv = nn.Conv2d(hidden_channels * 4, out_channels, 1,
-            bias=False)
-        self.pool_red_conv = nn.Conv2d(hidden_channels, out_channels, 1,
-            bias=False)
+        self.red_conv = nn.Conv2d(hidden_channels * 4, out_channels, 1, bias=False)
+        self.pool_red_conv = nn.Conv2d(hidden_channels, out_channels, 1, bias=False)
         self.red_bn = norm_act(out_channels)
         self.reset_parameters(self.map_bn.activation, self.map_bn.slope)
 
@@ -517,13 +491,8 @@ class DeeplabV3(nn.Module):
             pool = x.view(x.size(0), x.size(1), -1).mean(dim=-1)
             pool = pool.view(x.size(0), x.size(1), 1, 1)
         else:
-            pooling_size = min(try_index(self.pooling_size, 0), x.shape[2]
-                ), min(try_index(self.pooling_size, 1), x.shape[3])
-            padding = (pooling_size[1] - 1) // 2, (pooling_size[1] - 1
-                ) // 2 if pooling_size[1] % 2 == 1 else (pooling_size[1] - 1
-                ) // 2 + 1, (pooling_size[0] - 1) // 2, (pooling_size[0] - 1
-                ) // 2 if pooling_size[0] % 2 == 1 else (pooling_size[0] - 1
-                ) // 2 + 1
+            pooling_size = min(try_index(self.pooling_size, 0), x.shape[2]), min(try_index(self.pooling_size, 1), x.shape[3])
+            padding = (pooling_size[1] - 1) // 2, (pooling_size[1] - 1) // 2 if pooling_size[1] % 2 == 1 else (pooling_size[1] - 1) // 2 + 1, (pooling_size[0] - 1) // 2, (pooling_size[0] - 1) // 2 if pooling_size[0] % 2 == 1 else (pooling_size[0] - 1) // 2 + 1
             pool = functional.avg_pool2d(x, pooling_size, stride=1)
             pool = functional.pad(pool, pad=padding, mode='replicate')
         return pool
@@ -531,8 +500,7 @@ class DeeplabV3(nn.Module):
 
 class DenseModule(nn.Module):
 
-    def __init__(self, in_channels, growth, layers, bottleneck_factor=4,
-        norm_act=ABN, dilation=1):
+    def __init__(self, in_channels, growth, layers, bottleneck_factor=4, norm_act=ABN, dilation=1):
         super(DenseModule, self).__init__()
         self.in_channels = in_channels
         self.growth = growth
@@ -540,13 +508,8 @@ class DenseModule(nn.Module):
         self.convs1 = nn.ModuleList()
         self.convs3 = nn.ModuleList()
         for i in range(self.layers):
-            self.convs1.append(nn.Sequential(OrderedDict([('bn', norm_act(
-                in_channels)), ('conv', nn.Conv2d(in_channels, self.growth *
-                bottleneck_factor, 1, bias=False))])))
-            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(
-                self.growth * bottleneck_factor)), ('conv', nn.Conv2d(self.
-                growth * bottleneck_factor, self.growth, 3, padding=
-                dilation, bias=False, dilation=dilation))])))
+            self.convs1.append(nn.Sequential(OrderedDict([('bn', norm_act(in_channels)), ('conv', nn.Conv2d(in_channels, self.growth * bottleneck_factor, 1, bias=False))])))
+            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(self.growth * bottleneck_factor)), ('conv', nn.Conv2d(self.growth * bottleneck_factor, self.growth, 3, padding=dilation, bias=False, dilation=dilation))])))
             in_channels += self.growth
 
     @property
@@ -586,8 +549,7 @@ class SingleGPU(nn.Module):
 
 class IdentityResidualBlock(nn.Module):
 
-    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=
-        1, norm_act=ABN, dropout=None):
+    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=1, norm_act=ABN, dropout=None):
         """Configurable identity-mapping residual block
 
         Parameters
@@ -612,35 +574,23 @@ class IdentityResidualBlock(nn.Module):
         """
         super(IdentityResidualBlock, self).__init__()
         if len(channels) != 2 and len(channels) != 3:
-            raise ValueError('channels must contain either two or three values'
-                )
+            raise ValueError('channels must contain either two or three values')
         if len(channels) == 2 and groups != 1:
             raise ValueError('groups > 1 are only valid if len(channels) == 3')
         is_bottleneck = len(channels) == 3
         need_proj_conv = stride != 1 or in_channels != channels[-1]
         self.bn1 = norm_act(in_channels)
         if not is_bottleneck:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3,
-                stride=stride, padding=dilation, bias=False, dilation=
-                dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.
-                Conv2d(channels[0], channels[1], 3, stride=1, padding=
-                dilation, bias=False, dilation=dilation))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3, stride=stride, padding=dilation, bias=False, dilation=dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, dilation=dilation))]
             if dropout is not None:
                 layers = layers[0:2] + [('dropout', dropout())] + layers[2:]
         else:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1,
-                stride=stride, padding=0, bias=False)), ('bn2', norm_act(
-                channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1],
-                3, stride=1, padding=dilation, bias=False, groups=groups,
-                dilation=dilation)), ('bn3', norm_act(channels[1])), (
-                'conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1,
-                padding=0, bias=False))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1, stride=stride, padding=0, bias=False)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, groups=groups, dilation=dilation)), ('bn3', norm_act(channels[1])), ('conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1, padding=0, bias=False))]
             if dropout is not None:
                 layers = layers[0:4] + [('dropout', dropout())] + layers[4:]
         self.convs = nn.Sequential(OrderedDict(layers))
         if need_proj_conv:
-            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride
-                =stride, padding=0, bias=False)
+            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride=stride, padding=0, bias=False)
 
     def forward(self, x):
         if hasattr(self, 'proj_conv'):
@@ -656,8 +606,7 @@ class IdentityResidualBlock(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -671,9 +620,7 @@ class BasicBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = None
         if in_chan != out_chan or stride != 1:
-            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                out_chan))
+            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_chan))
 
     def forward(self, x):
         residual = self.conv1(x)
@@ -702,8 +649,7 @@ class Resnet18(nn.Module):
 
     def __init__(self):
         super(Resnet18, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = create_layer_basic(64, 64, bnum=2, stride=1)
@@ -747,54 +693,114 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ABN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AttentionRefinementModule,
+     lambda: ([], {'in_chan': 4, 'out_chan': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'in_chan': 4, 'out_chan': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BiSeNet,
+     lambda: ([], {'n_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (BiSeNetOutput,
+     lambda: ([], {'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ContextPath,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ConvBNReLU,
+     lambda: ([], {'in_chan': 4, 'out_chan': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeeplabV3,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DenseModule,
+     lambda: ([], {'in_channels': 4, 'growth': 4, 'layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FeatureFusionModule,
+     lambda: ([], {'in_chan': 4, 'out_chan': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IdentityResidualBlock,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Resnet18,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SingleGPU,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SpatialPath,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_zllrunning_face_parsing_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AttentionRefinementModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BiSeNet(*[], **{'n_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BiSeNetOutput(*[], **{'in_chan': 4, 'mid_chan': 4, 'n_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ContextPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ConvBNReLU(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(DeeplabV3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(FeatureFusionModule(*[], **{'in_chan': 4, 'out_chan': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(Resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(SingleGPU(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(SpatialPath(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[14])
 

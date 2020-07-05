@@ -55,8 +55,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class ResDownS(nn.Module):
 
     def __init__(self, inplane, outplane):
         super(ResDownS, self).__init__()
-        self.downsample = nn.Sequential(nn.Conv2d(inplane, outplane,
-            kernel_size=1, bias=False), nn.BatchNorm2d(outplane))
+        self.downsample = nn.Sequential(nn.Conv2d(inplane, outplane, kernel_size=1, bias=False), nn.BatchNorm2d(outplane))
 
     def forward(self, x):
         x = self.downsample(x)
@@ -112,36 +112,26 @@ class Refine(nn.Module):
         https://arxiv.org/abs/1812.05050
         """
         super(Refine, self).__init__()
-        self.v0 = nn.Sequential(nn.Conv2d(64, 16, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(16, 4, 3, padding=1), nn.ReLU())
-        self.v1 = nn.Sequential(nn.Conv2d(256, 64, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 16, 3, padding=1), nn.ReLU())
-        self.v2 = nn.Sequential(nn.Conv2d(512, 128, 3, padding=1), nn.ReLU(
-            ), nn.Conv2d(128, 32, 3, padding=1), nn.ReLU())
-        self.h2 = nn.Sequential(nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(32, 32, 3, padding=1), nn.ReLU())
-        self.h1 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(16, 16, 3, padding=1), nn.ReLU())
-        self.h0 = nn.Sequential(nn.Conv2d(4, 4, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(4, 4, 3, padding=1), nn.ReLU())
+        self.v0 = nn.Sequential(nn.Conv2d(64, 16, 3, padding=1), nn.ReLU(), nn.Conv2d(16, 4, 3, padding=1), nn.ReLU())
+        self.v1 = nn.Sequential(nn.Conv2d(256, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 16, 3, padding=1), nn.ReLU())
+        self.v2 = nn.Sequential(nn.Conv2d(512, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 32, 3, padding=1), nn.ReLU())
+        self.h2 = nn.Sequential(nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(), nn.Conv2d(32, 32, 3, padding=1), nn.ReLU())
+        self.h1 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1), nn.ReLU(), nn.Conv2d(16, 16, 3, padding=1), nn.ReLU())
+        self.h0 = nn.Sequential(nn.Conv2d(4, 4, 3, padding=1), nn.ReLU(), nn.Conv2d(4, 4, 3, padding=1), nn.ReLU())
         self.deconv = nn.ConvTranspose2d(256, 32, 15, 15)
         self.post0 = nn.Conv2d(32, 16, 3, padding=1)
         self.post1 = nn.Conv2d(16, 4, 3, padding=1)
         self.post2 = nn.Conv2d(4, 1, 3, padding=1)
 
     def forward(self, f, corr_feature, pos=None):
-        p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4 * pos[
-            0]:4 * pos[0] + 61, 4 * pos[1]:4 * pos[1] + 61]
-        p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 *
-            pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
-        p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0
-            ] + 15, pos[1]:pos[1] + 15]
+        p0 = torch.nn.functional.pad(f[0], [16, 16, 16, 16])[:, :, 4 * pos[0]:4 * pos[0] + 61, 4 * pos[1]:4 * pos[1] + 61]
+        p1 = torch.nn.functional.pad(f[1], [8, 8, 8, 8])[:, :, 2 * pos[0]:2 * pos[0] + 31, 2 * pos[1]:2 * pos[1] + 31]
+        p2 = torch.nn.functional.pad(f[2], [4, 4, 4, 4])[:, :, pos[0]:pos[0] + 15, pos[1]:pos[1] + 15]
         p3 = corr_feature[:, :, (pos[0]), (pos[1])].view(-1, 256, 1, 1)
         out = self.deconv(p3)
         out = self.post0(F.upsample(self.h2(out) + self.v2(p2), size=(31, 31)))
         out = self.post1(F.upsample(self.h1(out) + self.v1(p1), size=(61, 61)))
-        out = self.post2(F.upsample(self.h0(out) + self.v0(p0), size=(127, 
-            127)))
+        out = self.post2(F.upsample(self.h0(out) + self.v0(p0), size=(127, 127)))
         out = out.view(-1, 127 * 127)
         return out
 
@@ -173,8 +163,7 @@ class Mask(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -211,8 +200,7 @@ class Bottleneck_nop(nn.Module):
         super(Bottleneck_nop, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=0, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -244,8 +232,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, layer4=False, layer3=False):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -253,14 +240,12 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.feature_size = 128 * block.expansion
         if layer3:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-                dilation=2)
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
             self.feature_size = (256 + 128) * block.expansion
         else:
             self.layer3 = lambda x: x
         if layer4:
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-                dilation=4)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
             self.feature_size = 512 * block.expansion
         else:
             self.layer4 = lambda x: x
@@ -277,9 +262,7 @@ class ResNet(nn.Module):
         dd = dilation
         if stride != 1 or self.inplanes != planes * block.expansion:
             if stride == 1 and dilation == 1:
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                    block.expansion, kernel_size=1, stride=stride, bias=
-                    False), nn.BatchNorm2d(planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
             else:
                 if dilation > 1:
                     dd = dilation // 2
@@ -287,13 +270,9 @@ class ResNet(nn.Module):
                 else:
                     dd = 1
                     padding = 0
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                    block.expansion, kernel_size=3, stride=stride, bias=
-                    False, padding=padding, dilation=dd), nn.BatchNorm2d(
-                    planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=3, stride=stride, bias=False, padding=padding, dilation=dd), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=dd))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=dd))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, dilation=dilation))
@@ -313,8 +292,7 @@ class ResNet(nn.Module):
 class Bottleneck(Features):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -322,8 +300,7 @@ class Bottleneck(Features):
         assert stride == 1 or dilation == 1, 'stride and dilation must have one equals to zero at least'
         if dilation > 1:
             padding = dilation
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=padding, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -352,29 +329,23 @@ class Bottleneck(Features):
 
 class ResAdjust(nn.Module):
 
-    def __init__(self, block=Bottleneck, out_channels=256, adjust_number=1,
-        fuse_layers=[2, 3, 4]):
+    def __init__(self, block=Bottleneck, out_channels=256, adjust_number=1, fuse_layers=[2, 3, 4]):
         super(ResAdjust, self).__init__()
         self.fuse_layers = set(fuse_layers)
         if 2 in self.fuse_layers:
-            self.layer2 = self._make_layer(block, 128, 1, out_channels,
-                adjust_number)
+            self.layer2 = self._make_layer(block, 128, 1, out_channels, adjust_number)
         if 3 in self.fuse_layers:
-            self.layer3 = self._make_layer(block, 256, 2, out_channels,
-                adjust_number)
+            self.layer3 = self._make_layer(block, 256, 2, out_channels, adjust_number)
         if 4 in self.fuse_layers:
-            self.layer4 = self._make_layer(block, 512, 4, out_channels,
-                adjust_number)
+            self.layer4 = self._make_layer(block, 512, 4, out_channels, adjust_number)
         self.feature_size = out_channels * len(self.fuse_layers)
 
     def _make_layer(self, block, plances, dilation, out, number=1):
         layers = []
         for _ in range(number):
-            layer = block(plances * block.expansion, plances, dilation=dilation
-                )
+            layer = block(plances * block.expansion, plances, dilation=dilation)
             layers.append(layer)
-        downsample = nn.Sequential(nn.Conv2d(plances * block.expansion, out,
-            kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out))
+        downsample = nn.Sequential(nn.Conv2d(plances * block.expansion, out, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out))
         layers.append(downsample)
         return nn.Sequential(*layers)
 
@@ -417,15 +388,9 @@ class DepthCorr(nn.Module):
 
     def __init__(self, in_channels, hidden, out_channels, kernel_size=3):
         super(DepthCorr, self).__init__()
-        self.conv_kernel = nn.Sequential(nn.Conv2d(in_channels, hidden,
-            kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden),
-            nn.ReLU(inplace=True))
-        self.conv_search = nn.Sequential(nn.Conv2d(in_channels, hidden,
-            kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden),
-            nn.ReLU(inplace=True))
-        self.head = nn.Sequential(nn.Conv2d(hidden, hidden, kernel_size=1,
-            bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True), nn.
-            Conv2d(hidden, out_channels, kernel_size=1))
+        self.conv_kernel = nn.Sequential(nn.Conv2d(in_channels, hidden, kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True))
+        self.conv_search = nn.Sequential(nn.Conv2d(in_channels, hidden, kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True))
+        self.head = nn.Sequential(nn.Conv2d(hidden, hidden, kernel_size=1, bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True), nn.Conv2d(hidden, out_channels, kernel_size=1))
 
     def forward_corr(self, kernel, input):
         kernel = self.conv_kernel(kernel)
@@ -502,8 +467,7 @@ class Anchors:
             for s in self.scales:
                 w = ws * s
                 h = hs * s
-                self.anchors[count][:] = [-w * 0.5, -h * 0.5, w * 0.5, h * 0.5
-                    ][:]
+                self.anchors[count][:] = [-w * 0.5, -h * 0.5, w * 0.5, h * 0.5][:]
                 count += 1
 
     def generate_all_anchors(self, im_c, size):
@@ -518,8 +482,7 @@ class Anchors:
         y1 = zero_anchors[:, (1)]
         x2 = zero_anchors[:, (2)]
         y2 = zero_anchors[:, (3)]
-        x1, y1, x2, y2 = map(lambda x: x.reshape(self.anchor_num, 1, 1), [
-            x1, y1, x2, y2])
+        x1, y1, x2, y2 = map(lambda x: x.reshape(self.anchor_num, 1, 1), [x1, y1, x2, y2])
         cx, cy, w, h = corner2center([x1, y1, x2, y2])
         disp_x = np.arange(0, size).reshape(1, 1, -1) * self.stride
         disp_y = np.arange(0, size).reshape(1, -1, 1) * self.stride
@@ -537,8 +500,7 @@ class SiamMask(nn.Module):
     def __init__(self, anchors=None, o_sz=127, g_sz=127):
         super(SiamMask, self).__init__()
         self.anchors = anchors
-        self.anchor_num = len(self.anchors['ratios']) * len(self.anchors[
-            'scales'])
+        self.anchor_num = len(self.anchors['ratios']) * len(self.anchors['scales'])
         self.anchor = Anchors(anchors)
         self.features = None
         self.rpn_model = None
@@ -572,8 +534,7 @@ class SiamMask(nn.Module):
 
     def track(self, x, cls_kernel=None, loc_kernel=None, softmax=False):
         xf = self.feature_extractor(x)
-        rpn_pred_cls, rpn_pred_loc = self.rpn_model.track(xf, cls_kernel,
-            loc_kernel)
+        rpn_pred_cls, rpn_pred_loc = self.rpn_model.track(xf, cls_kernel, loc_kernel)
         if softmax:
             rpn_pred_cls = self.softmax(rpn_pred_cls)
         return rpn_pred_cls, rpn_pred_loc
@@ -583,18 +544,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DepthCorr,
+     lambda: ([], {'in_channels': 4, 'hidden': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResAdjust,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 2048, 64, 64])], {}),
+     False),
+    (ResDownS,
+     lambda: ([], {'inplane': 4, 'outplane': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_alexandre01_UltimateLabeling(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DepthCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResAdjust(*[], **{}), [torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 2048, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResDownS(*[], **{'inplane': 4, 'outplane': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -50,8 +50,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -135,8 +136,7 @@ _global_config['start_letter'] = 4
 
 class LeakGAN_G(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len,
-        padding_idx, goal_size, step_size, gpu=False):
+    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, padding_idx, goal_size, step_size, gpu=False):
         super(LeakGAN_G, self).__init__()
         self.name = 'leakgan'
         self.hidden_dim = hidden_dim
@@ -149,19 +149,16 @@ class LeakGAN_G(nn.Module):
         self.step_size = step_size
         self.gpu = gpu
         self.temperature = 1.5
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim,
-            padding_idx=padding_idx)
+        self.embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
         self.worker = nn.LSTM(embedding_dim, hidden_dim)
         self.manager = nn.LSTM(goal_out_size, hidden_dim)
         self.work2goal = nn.Linear(hidden_dim, vocab_size * goal_size)
         self.mana2goal = nn.Linear(hidden_dim, goal_out_size)
         self.goal2goal = nn.Linear(goal_out_size, goal_size, bias=False)
-        self.goal_init = nn.Parameter(torch.rand((cfg.batch_size,
-            goal_out_size)))
+        self.goal_init = nn.Parameter(torch.rand((cfg.batch_size, goal_out_size)))
         self.init_params()
 
-    def forward(self, idx, inp, work_hidden, mana_hidden, feature,
-        real_goal, no_log=False, train=False):
+    def forward(self, idx, inp, work_hidden, mana_hidden, feature, real_goal, no_log=False, train=False):
         """
         Embeds input and sample on token at a time (seq_len = 1)
 
@@ -185,8 +182,7 @@ class LeakGAN_G(nn.Module):
         _real_goal = self.goal2goal(real_goal)
         _real_goal = F.normalize(_real_goal, p=2, dim=-1).unsqueeze(-1)
         work_out, work_hidden = self.worker(emb, work_hidden)
-        work_out = self.work2goal(work_out).view(-1, self.vocab_size, self.
-            goal_size)
+        work_out = self.work2goal(work_out).view(-1, self.vocab_size, self.goal_size)
         out = torch.matmul(work_out, _real_goal).squeeze(-1)
         if idx > 1:
             if train:
@@ -202,20 +198,16 @@ class LeakGAN_G(nn.Module):
             out = F.log_softmax(out, dim=-1)
         return out, cur_goal, work_hidden, mana_hidden
 
-    def sample(self, num_samples, batch_size, dis, start_letter=cfg.
-        start_letter, train=False):
+    def sample(self, num_samples, batch_size, dis, start_letter=cfg.start_letter, train=False):
         """
         Samples the network and returns num_samples samples of length max_seq_len.
         :return: samples: batch_size * max_seq_len
         """
-        num_batch = (num_samples // batch_size + 1 if num_samples !=
-            batch_size else 1)
+        num_batch = num_samples // batch_size + 1 if num_samples != batch_size else 1
         samples = torch.zeros(num_batch * batch_size, self.max_seq_len).long()
         fake_sentences = torch.zeros((batch_size, self.max_seq_len))
         for b in range(num_batch):
-            leak_sample, _, _, _ = self.forward_leakgan(fake_sentences, dis,
-                if_sample=True, no_log=False, start_letter=start_letter,
-                train=False)
+            leak_sample, _, _, _ = self.forward_leakgan(fake_sentences, dis, if_sample=True, no_log=False, start_letter=start_letter, train=False)
             assert leak_sample.shape == (batch_size, self.max_seq_len)
             samples[b * batch_size:(b + 1) * batch_size, :] = leak_sample
         samples = samples[:num_samples, :]
@@ -230,19 +222,14 @@ class LeakGAN_G(nn.Module):
 
         """
         batch_size, seq_len = target.size()
-        _, feature_array, goal_array, leak_out_array = self.forward_leakgan(
-            target, dis, if_sample=False, no_log=False, start_letter=
-            start_letter)
-        mana_cos_loss = self.manager_cos_loss(batch_size, feature_array,
-            goal_array)
-        manager_loss = -torch.sum(mana_cos_loss) / (batch_size * (seq_len //
-            self.step_size))
+        _, feature_array, goal_array, leak_out_array = self.forward_leakgan(target, dis, if_sample=False, no_log=False, start_letter=start_letter)
+        mana_cos_loss = self.manager_cos_loss(batch_size, feature_array, goal_array)
+        manager_loss = -torch.sum(mana_cos_loss) / (batch_size * (seq_len // self.step_size))
         work_nll_loss = self.worker_nll_loss(target, leak_out_array)
         work_loss = torch.sum(work_nll_loss) / (batch_size * seq_len)
         return manager_loss, work_loss
 
-    def adversarial_loss(self, target, rewards, dis, start_letter=cfg.
-        start_letter):
+    def adversarial_loss(self, target, rewards, dis, start_letter=cfg.start_letter):
         """
         Returns a pseudo-loss that gives corresponding policy gradients (on calling .backward()).
         Inspired by the example in http://karpathy.github.io/2016/05/31/rl/
@@ -252,18 +239,13 @@ class LeakGAN_G(nn.Module):
             - rewards: batch_size * seq_len (discriminator rewards for each token)
         """
         batch_size, seq_len = target.size()
-        _, feature_array, goal_array, leak_out_array = self.forward_leakgan(
-            target, dis, if_sample=False, no_log=False, start_letter=
-            start_letter, train=True)
+        _, feature_array, goal_array, leak_out_array = self.forward_leakgan(target, dis, if_sample=False, no_log=False, start_letter=start_letter, train=True)
         t0 = time.time()
-        mana_cos_loss = self.manager_cos_loss(batch_size, feature_array,
-            goal_array)
-        mana_loss = -torch.sum(rewards * mana_cos_loss) / (batch_size * (
-            seq_len // self.step_size))
+        mana_cos_loss = self.manager_cos_loss(batch_size, feature_array, goal_array)
+        mana_loss = -torch.sum(rewards * mana_cos_loss) / (batch_size * (seq_len // self.step_size))
         work_nll_loss = self.worker_nll_loss(target, leak_out_array)
         work_cos_reward = self.worker_cos_reward(feature_array, goal_array)
-        work_loss = -torch.sum(work_nll_loss * work_cos_reward) / (batch_size *
-            seq_len)
+        work_loss = -torch.sum(work_nll_loss * work_cos_reward) / (batch_size * seq_len)
         return mana_loss, work_loss
 
     def manager_cos_loss(self, batch_size, feature_array, goal_array):
@@ -272,20 +254,16 @@ class LeakGAN_G(nn.Module):
 
         :return cos_loss: batch_size * (seq_len / step_size)
         """
-        sub_feature = torch.zeros(batch_size, self.max_seq_len // self.
-            step_size, self.goal_out_size)
-        real_goal = torch.zeros(batch_size, self.max_seq_len // self.
-            step_size, self.goal_out_size)
+        sub_feature = torch.zeros(batch_size, self.max_seq_len // self.step_size, self.goal_out_size)
+        real_goal = torch.zeros(batch_size, self.max_seq_len // self.step_size, self.goal_out_size)
         for i in range(self.max_seq_len // self.step_size):
             idx = i * self.step_size
-            sub_feature[:, (i), :] = feature_array[:, (idx + self.step_size), :
-                ] - feature_array[:, (idx), :]
+            sub_feature[:, (i), :] = feature_array[:, (idx + self.step_size), :] - feature_array[:, (idx), :]
             if i == 0:
                 real_goal[:, (i), :] = self.goal_init[:batch_size, :]
             else:
                 idx = (i - 1) * self.step_size + 1
-                real_goal[:, (i), :] = torch.sum(goal_array[:, idx:idx + 4,
-                    :], dim=1)
+                real_goal[:, (i), :] = torch.sum(goal_array[:, idx:idx + 4, :], dim=1)
         sub_feature = F.normalize(sub_feature, p=2, dim=-1)
         real_goal = F.normalize(real_goal, p=2, dim=-1)
         cos_loss = F.cosine_similarity(sub_feature, real_goal, dim=-1)
@@ -308,17 +286,13 @@ class LeakGAN_G(nn.Module):
         :return: cos_loss: batch_size * seq_len
         """
         for i in range(int(self.max_seq_len / self.step_size)):
-            real_feature = feature_array[:, (i * self.step_size), :].unsqueeze(
-                1).expand((-1, self.step_size, -1))
-            feature_array[:, i * self.step_size:(i + 1) * self.step_size, :
-                ] = real_feature
+            real_feature = feature_array[:, (i * self.step_size), :].unsqueeze(1).expand((-1, self.step_size, -1))
+            feature_array[:, i * self.step_size:(i + 1) * self.step_size, :] = real_feature
             if i > 0:
-                sum_goal = torch.sum(goal_array[:, (i - 1) * self.step_size
-                    :i * self.step_size, :], dim=1, keepdim=True)
+                sum_goal = torch.sum(goal_array[:, (i - 1) * self.step_size:i * self.step_size, :], dim=1, keepdim=True)
             else:
                 sum_goal = goal_array[:, (0), :].unsqueeze(1)
-            goal_array[:, i * self.step_size:(i + 1) * self.step_size, :
-                ] = sum_goal.expand((-1, self.step_size, -1))
+            goal_array[:, i * self.step_size:(i + 1) * self.step_size, :] = sum_goal.expand((-1, self.step_size, -1))
         offset_feature = feature_array[:, 1:, :]
         goal_array = goal_array[:, :self.max_seq_len, :]
         sub_feature = offset_feature - goal_array
@@ -327,8 +301,7 @@ class LeakGAN_G(nn.Module):
         cos_loss = F.cosine_similarity(sub_feature, all_goal, dim=-1)
         return cos_loss
 
-    def forward_leakgan(self, sentences, dis, if_sample, no_log=False,
-        start_letter=cfg.start_letter, train=False):
+    def forward_leakgan(self, sentences, dis, if_sample, no_log=False, start_letter=cfg.start_letter, train=False):
         """
         Get all feature and goals according to given sentences
         :param sentences: batch_size * max_seq_len, not include start token
@@ -344,11 +317,9 @@ class LeakGAN_G(nn.Module):
             - leak_out_array: batch_size * max_seq_len * vocab_size
         """
         batch_size, seq_len = sentences.size()
-        feature_array = torch.zeros((batch_size, seq_len + 1, self.
-            goal_out_size))
+        feature_array = torch.zeros((batch_size, seq_len + 1, self.goal_out_size))
         goal_array = torch.zeros((batch_size, seq_len + 1, self.goal_out_size))
-        leak_out_array = torch.zeros((batch_size, seq_len + 1, self.vocab_size)
-            )
+        leak_out_array = torch.zeros((batch_size, seq_len + 1, self.vocab_size))
         samples = torch.zeros(batch_size, seq_len + 1).long()
         work_hidden = self.init_hidden(batch_size)
         mana_hidden = self.init_hidden(batch_size)
@@ -372,9 +343,7 @@ class LeakGAN_G(nn.Module):
                 leak_inp = leak_inp
             feature = dis.get_feature(dis_inp).unsqueeze(0)
             feature_array[:, (i), :] = feature.squeeze(0)
-            out, cur_goal, work_hidden, mana_hidden = self.forward(i,
-                leak_inp, work_hidden, mana_hidden, feature, real_goal,
-                no_log=no_log, train=train)
+            out, cur_goal, work_hidden, mana_hidden = self.forward(i, leak_inp, work_hidden, mana_hidden, feature, real_goal, no_log=no_log, train=train)
             leak_out_array[:, (i), :] = out
             goal_array[:, (i), :] = cur_goal.squeeze(1)
             if i > 0 and i % self.step_size == 0:
@@ -391,8 +360,7 @@ class LeakGAN_G(nn.Module):
         return samples, feature_array, goal_array, leak_out_array
 
     def batchNLLLoss(self, target, dis, start_letter=cfg.start_letter):
-        _, _, _, leak_out_array = self.forward_leakgan(target, dis,
-            if_sample=False, no_log=False, start_letter=start_letter)
+        _, _, _, leak_out_array = self.forward_leakgan(target, dis, if_sample=False, no_log=False, start_letter=start_letter)
         nll_loss = torch.mean(self.worker_nll_loss(target, leak_out_array))
         return nll_loss
 
@@ -441,18 +409,15 @@ _global_config['dis_init'] = 4
 
 class CNNDiscriminator(nn.Module):
 
-    def __init__(self, embed_dim, vocab_size, filter_sizes, num_filters,
-        padding_idx, gpu=False, dropout=0.2):
+    def __init__(self, embed_dim, vocab_size, filter_sizes, num_filters, padding_idx, gpu=False, dropout=0.2):
         super(CNNDiscriminator, self).__init__()
         self.embedding_dim = embed_dim
         self.vocab_size = vocab_size
         self.padding_idx = padding_idx
         self.feature_dim = sum(num_filters)
         self.gpu = gpu
-        self.embeddings = nn.Embedding(vocab_size, embed_dim, padding_idx=
-            padding_idx)
-        self.convs = nn.ModuleList([nn.Conv2d(1, n, (f, embed_dim)) for n,
-            f in zip(num_filters, filter_sizes)])
+        self.embeddings = nn.Embedding(vocab_size, embed_dim, padding_idx=padding_idx)
+        self.convs = nn.ModuleList([nn.Conv2d(1, n, (f, embed_dim)) for n, f in zip(num_filters, filter_sizes)])
         self.highway = nn.Linear(self.feature_dim, self.feature_dim)
         self.feature2out = nn.Linear(self.feature_dim, 2)
         self.dropout = nn.Dropout(dropout)
@@ -479,8 +444,7 @@ class CNNDiscriminator(nn.Module):
         pools = [F.max_pool1d(conv, conv.size(2)).squeeze(2) for conv in convs]
         pred = torch.cat(pools, 1)
         highway = self.highway(pred)
-        pred = torch.sigmoid(highway) * F.relu(highway) + (1.0 - torch.
-            sigmoid(highway)) * pred
+        pred = torch.sigmoid(highway) * F.relu(highway) + (1.0 - torch.sigmoid(highway)) * pred
         return pred
 
     def init_params(self):
@@ -497,26 +461,22 @@ class CNNDiscriminator(nn.Module):
 
 class GRUDiscriminator(nn.Module):
 
-    def __init__(self, embedding_dim, vocab_size, hidden_dim, feature_dim,
-        max_seq_len, padding_idx, gpu=False, dropout=0.2):
+    def __init__(self, embedding_dim, vocab_size, hidden_dim, feature_dim, max_seq_len, padding_idx, gpu=False, dropout=0.2):
         super(GRUDiscriminator, self).__init__()
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
         self.max_seq_len = max_seq_len
         self.padding_idx = padding_idx
         self.gpu = gpu
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim,
-            padding_idx=padding_idx)
-        self.gru = nn.GRU(embedding_dim, hidden_dim, num_layers=2,
-            bidirectional=True, dropout=dropout)
+        self.embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
+        self.gru = nn.GRU(embedding_dim, hidden_dim, num_layers=2, bidirectional=True, dropout=dropout)
         self.gru2hidden = nn.Linear(2 * 2 * hidden_dim, feature_dim)
         self.feature2out = nn.Linear(feature_dim, 2)
         self.dropout = nn.Dropout(dropout)
         self.init_params()
 
     def init_hidden(self, batch_size):
-        h = autograd.Variable(torch.zeros(2 * 2 * 1, batch_size, self.
-            hidden_dim))
+        h = autograd.Variable(torch.zeros(2 * 2 * 1, batch_size, self.hidden_dim))
         if self.gpu:
             return h
         else:
@@ -561,8 +521,7 @@ class GRUDiscriminator(nn.Module):
 
 class LSTMGenerator(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len,
-        padding_idx, gpu=False):
+    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, padding_idx, gpu=False):
         super(LSTMGenerator, self).__init__()
         self.name = 'vanilla'
         self.hidden_dim = hidden_dim
@@ -572,8 +531,7 @@ class LSTMGenerator(nn.Module):
         self.padding_idx = padding_idx
         self.gpu = gpu
         self.temperature = 1.0
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim,
-            padding_idx=padding_idx)
+        self.embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
         self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
         self.lstm2out = nn.Linear(hidden_dim, vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
@@ -603,8 +561,7 @@ class LSTMGenerator(nn.Module):
         Samples the network and returns num_samples samples of length max_seq_len.
         :return samples: num_samples * max_seq_length (a sampled sequence in each row)
         """
-        num_batch = (num_samples // batch_size + 1 if num_samples !=
-            batch_size else 1)
+        num_batch = num_samples // batch_size + 1 if num_samples != batch_size else 1
         samples = torch.zeros(num_batch * batch_size, self.max_seq_len).long()
         for b in range(num_batch):
             hidden = self.init_hidden(batch_size)
@@ -614,8 +571,7 @@ class LSTMGenerator(nn.Module):
             for i in range(self.max_seq_len):
                 out, hidden = self.forward(inp, hidden, need_hidden=True)
                 next_token = torch.multinomial(torch.exp(out), 1)
-                samples[b * batch_size:(b + 1) * batch_size, (i)
-                    ] = next_token.view(-1)
+                samples[b * batch_size:(b + 1) * batch_size, (i)] = next_token.view(-1)
                 inp = next_token.view(-1)
         samples = samples[:num_samples]
         return samples
@@ -676,9 +632,7 @@ class RelationalMemory(nn.Module):
       ValueError: attention_mlp_layers is < 1.
     """
 
-    def __init__(self, mem_slots, head_size, input_size, num_heads=1,
-        num_blocks=1, forget_bias=1.0, input_bias=0.0, gate_style='unit',
-        attention_mlp_layers=2, key_size=None, return_all_outputs=False):
+    def __init__(self, mem_slots, head_size, input_size, num_heads=1, num_blocks=1, forget_bias=1.0, input_bias=0.0, gate_style='unit', attention_mlp_layers=2, key_size=None, return_all_outputs=False):
         super(RelationalMemory, self).__init__()
         self.mem_slots = mem_slots
         self.head_size = head_size
@@ -686,40 +640,30 @@ class RelationalMemory(nn.Module):
         self.mem_size = self.head_size * self.num_heads
         self.mem_slots_plus_input = self.mem_slots + 1
         if num_blocks < 1:
-            raise ValueError('num_blocks must be >=1. Got: {}.'.format(
-                num_blocks))
+            raise ValueError('num_blocks must be >=1. Got: {}.'.format(num_blocks))
         self.num_blocks = num_blocks
         if gate_style not in ['unit', 'memory', None]:
-            raise ValueError(
-                "gate_style must be one of ['unit', 'memory', None]. got: {}."
-                .format(gate_style))
+            raise ValueError("gate_style must be one of ['unit', 'memory', None]. got: {}.".format(gate_style))
         self.gate_style = gate_style
         if attention_mlp_layers < 1:
-            raise ValueError('attention_mlp_layers must be >= 1. Got: {}.'.
-                format(attention_mlp_layers))
+            raise ValueError('attention_mlp_layers must be >= 1. Got: {}.'.format(attention_mlp_layers))
         self.attention_mlp_layers = attention_mlp_layers
         self.key_size = key_size if key_size else self.head_size
         self.value_size = self.head_size
         self.qkv_size = 2 * self.key_size + self.value_size
         self.total_qkv_size = self.qkv_size * self.num_heads
         self.qkv_projector = nn.Linear(self.mem_size, self.total_qkv_size)
-        self.qkv_layernorm = nn.LayerNorm([self.mem_slots_plus_input, self.
-            total_qkv_size])
-        self.attention_mlp = nn.ModuleList([nn.Linear(self.mem_size, self.
-            mem_size)] * self.attention_mlp_layers)
-        self.attended_memory_layernorm = nn.LayerNorm([self.
-            mem_slots_plus_input, self.mem_size])
-        self.attended_memory_layernorm2 = nn.LayerNorm([self.
-            mem_slots_plus_input, self.mem_size])
+        self.qkv_layernorm = nn.LayerNorm([self.mem_slots_plus_input, self.total_qkv_size])
+        self.attention_mlp = nn.ModuleList([nn.Linear(self.mem_size, self.mem_size)] * self.attention_mlp_layers)
+        self.attended_memory_layernorm = nn.LayerNorm([self.mem_slots_plus_input, self.mem_size])
+        self.attended_memory_layernorm2 = nn.LayerNorm([self.mem_slots_plus_input, self.mem_size])
         self.input_size = input_size
         self.input_projector = nn.Linear(self.input_size, self.mem_size)
         self.num_gates = 2 * self.calculate_gate_size()
         self.input_gate_projector = nn.Linear(self.mem_size, self.num_gates)
         self.memory_gate_projector = nn.Linear(self.mem_size, self.num_gates)
-        self.forget_bias = nn.Parameter(torch.tensor(forget_bias, dtype=
-            torch.float32))
-        self.input_bias = nn.Parameter(torch.tensor(input_bias, dtype=torch
-            .float32))
+        self.forget_bias = nn.Parameter(torch.tensor(forget_bias, dtype=torch.float32))
+        self.input_bias = nn.Parameter(torch.tensor(input_bias, dtype=torch.float32))
         self.return_all_outputs = return_all_outputs
 
     def repackage_hidden(self, h):
@@ -743,8 +687,7 @@ class RelationalMemory(nn.Module):
           init_state: A truncated or padded matrix of size
             (batch_size, self.mem_slots, self.mem_size).
         """
-        init_state = torch.stack([torch.eye(self.mem_slots) for _ in range(
-            batch_size)])
+        init_state = torch.stack([torch.eye(self.mem_slots) for _ in range(batch_size)])
         if self.mem_size > self.mem_slots:
             difference = self.mem_size - self.mem_slots
             pad = torch.zeros((batch_size, self.mem_slots, difference))
@@ -766,18 +709,15 @@ class RelationalMemory(nn.Module):
         qkv = self.qkv_projector(memory)
         qkv = self.qkv_layernorm(qkv)
         mem_slots = memory.shape[1]
-        qkv_reshape = qkv.view(qkv.shape[0], mem_slots, self.num_heads,
-            self.qkv_size)
+        qkv_reshape = qkv.view(qkv.shape[0], mem_slots, self.num_heads, self.qkv_size)
         qkv_transpose = qkv_reshape.permute(0, 2, 1, 3)
-        q, k, v = torch.split(qkv_transpose, [self.key_size, self.key_size,
-            self.value_size], -1)
+        q, k, v = torch.split(qkv_transpose, [self.key_size, self.key_size, self.value_size], -1)
         q *= self.key_size ** -0.5
         dot_product = torch.matmul(q, k.permute(0, 1, 3, 2))
         weights = F.softmax(dot_product, dim=-1)
         output = torch.matmul(weights, v)
         output_transpose = output.permute(0, 2, 1, 3).contiguous()
-        new_memory = output_transpose.view((output_transpose.shape[0],
-            output_transpose.shape[1], -1))
+        new_memory = output_transpose.view((output_transpose.shape[0], output_transpose.shape[1], -1))
         return new_memory
 
     @property
@@ -814,19 +754,15 @@ class RelationalMemory(nn.Module):
         memory = torch.tanh(memory)
         if len(inputs.shape) == 3:
             if inputs.shape[1] > 1:
-                raise ValueError(
-                    'input seq length is larger than 1. create_gate function is meant to be called for each step, with input seq length of 1'
-                    )
+                raise ValueError('input seq length is larger than 1. create_gate function is meant to be called for each step, with input seq length of 1')
             inputs = inputs.view(inputs.shape[0], -1)
             gate_inputs = self.input_gate_projector(inputs)
             gate_inputs = gate_inputs.unsqueeze(dim=1)
             gate_memory = self.memory_gate_projector(memory)
         else:
-            raise ValueError(
-                'input shape of create_gate function is 2, expects 3')
+            raise ValueError('input shape of create_gate function is 2, expects 3')
         gates = gate_memory + gate_inputs
-        gates = torch.split(gates, split_size_or_sections=int(gates.shape[2
-            ] / 2), dim=2)
+        gates = torch.split(gates, split_size_or_sections=int(gates.shape[2] / 2), dim=2)
         input_gate, forget_gate = gates
         assert input_gate.shape[2] == forget_gate.shape[2]
         input_gate = torch.sigmoid(input_gate + self.input_bias)
@@ -899,9 +835,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (RelationalMemory,
+     lambda: ([], {'mem_slots': 4, 'head_size': 4, 'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_williamSYSU_TextGAN_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(RelationalMemory(*[], **{'mem_slots': 4, 'head_size': 4, 'input_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

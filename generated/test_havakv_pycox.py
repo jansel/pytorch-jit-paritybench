@@ -57,8 +57,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,17 +97,13 @@ class MLPVanillaCoxTime(nn.Module):
     output activation.
     """
 
-    def __init__(self, in_features, num_nodes, batch_norm=True, dropout=
-        None, activation=nn.ReLU, w_init_=lambda w: nn.init.kaiming_normal_
-        (w, nonlinearity='relu')):
+    def __init__(self, in_features, num_nodes, batch_norm=True, dropout=None, activation=nn.ReLU, w_init_=lambda w: nn.init.kaiming_normal_(w, nonlinearity='relu')):
         super().__init__()
         in_features += 1
         out_features = 1
         output_activation = None
         output_bias = False
-        self.net = tt.practical.MLPVanilla(in_features, num_nodes,
-            out_features, batch_norm, dropout, activation,
-            output_activation, output_bias, w_init_)
+        self.net = tt.practical.MLPVanilla(in_features, num_nodes, out_features, batch_norm, dropout, activation, output_activation, output_bias, w_init_)
 
     def forward(self, input, time):
         input = torch.cat([input, time], dim=1)
@@ -119,19 +116,13 @@ class MixedInputMLPCoxTime(nn.Module):
     output activation.
     """
 
-    def __init__(self, in_features, num_embeddings, embedding_dims,
-        num_nodes, batch_norm=True, dropout=None, activation=nn.ReLU,
-        dropout_embedding=0.0, w_init_=lambda w: nn.init.kaiming_normal_(w,
-        nonlinearity='relu')):
+    def __init__(self, in_features, num_embeddings, embedding_dims, num_nodes, batch_norm=True, dropout=None, activation=nn.ReLU, dropout_embedding=0.0, w_init_=lambda w: nn.init.kaiming_normal_(w, nonlinearity='relu')):
         super().__init__()
         in_features += 1
         out_features = 1
         output_activation = None
         output_bias = False
-        self.net = tt.practical.MixedInputMLP(in_features, num_embeddings,
-            embedding_dims, num_nodes, out_features, batch_norm, dropout,
-            activation, dropout_embedding, output_activation, output_bias,
-            w_init_)
+        self.net = tt.practical.MixedInputMLP(in_features, num_embeddings, embedding_dims, num_nodes, out_features, batch_norm, dropout, activation, dropout_embedding, output_activation, output_bias, w_init_)
 
     def forward(self, input_numeric, input_categoric, time):
         input_numeric = torch.cat([input_numeric, time], dim=1)
@@ -153,8 +144,7 @@ class _Loss(torch.nn.Module):
         self.reduction = reduction
 
 
-def cox_cc_loss(g_case: Tensor, g_control: Tensor, shrink: float=0.0, clamp:
-    Tuple[float, float]=(-3e+38, 80.0)) ->Tensor:
+def cox_cc_loss(g_case: Tensor, g_control: Tensor, shrink: float=0.0, clamp: Tuple[float, float]=(-3e+38, 80.0)) ->Tensor:
     """Torch loss function for the Cox case-control models.
     For only one control, see `cox_cc_loss_single_ctrl` instead.
     
@@ -173,22 +163,18 @@ def cox_cc_loss(g_case: Tensor, g_control: Tensor, shrink: float=0.0, clamp:
     control_sum = 0.0
     shrink_control = 0.0
     if g_case.shape != g_control[0].shape:
-        raise ValueError(
-            f'Need `g_case` and `g_control[0]` to have same shape. Got {g_case.shape}'
-             + f' and {g_control[0].shape}')
+        raise ValueError(f'Need `g_case` and `g_control[0]` to have same shape. Got {g_case.shape}' + f' and {g_control[0].shape}')
     for ctr in g_control:
         shrink_control += ctr.abs().mean()
         ctr = ctr - g_case
         ctr = torch.clamp(ctr, *clamp)
         control_sum += torch.exp(ctr)
     loss = torch.log(1.0 + control_sum)
-    shrink_zero = shrink * (g_case.abs().mean() + shrink_control) / len(
-        g_control)
+    shrink_zero = shrink * (g_case.abs().mean() + shrink_control) / len(g_control)
     return torch.mean(loss) + shrink_zero.abs()
 
 
-def cox_cc_loss_single_ctrl(g_case: Tensor, g_control: Tensor, shrink:
-    float=0.0) ->Tensor:
+def cox_cc_loss_single_ctrl(g_case: Tensor, g_control: Tensor, shrink: float=0.0) ->Tensor:
     """CoxCC and CoxTime loss, but with only a single control.
     """
     loss = F.softplus(g_control - g_case).mean()
@@ -197,8 +183,7 @@ def cox_cc_loss_single_ctrl(g_case: Tensor, g_control: Tensor, shrink:
     return loss
 
 
-def cox_ph_loss_sorted(log_h: Tensor, events: Tensor, eps: float=1e-07
-    ) ->Tensor:
+def cox_ph_loss_sorted(log_h: Tensor, events: Tensor, eps: float=1e-07) ->Tensor:
     """Requires the input to be sorted by descending duration time.
     See DatasetDurationSorted.
 
@@ -236,8 +221,7 @@ class CoxPHLossSorted(torch.nn.Module):
         return cox_ph_loss_sorted(log_h, events)
 
 
-def cox_ph_loss(log_h: Tensor, durations: Tensor, events: Tensor, eps:
-    float=1e-07) ->Tensor:
+def cox_ph_loss(log_h: Tensor, durations: Tensor, events: Tensor, eps: float=1e-07) ->Tensor:
     """Loss for CoxPH model. If data is sorted by descending duration, see `cox_ph_loss_sorted`.
 
     We calculate the negative log of $(rac{h_i}{\\sum_{j \\in R_i} h_j})^d$,
@@ -262,8 +246,7 @@ class CoxPHLoss(torch.nn.Module):
     limitation, but simple and fast.
     """
 
-    def forward(self, log_h: Tensor, durations: Tensor, events: Tensor
-        ) ->Tensor:
+    def forward(self, log_h: Tensor, durations: Tensor, events: Tensor) ->Tensor:
         return cox_ph_loss(log_h, durations, events)
 
 
@@ -271,11 +254,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CoxPHLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CoxPHLossSorted,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_havakv_pycox(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CoxPHLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CoxPHLossSorted(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

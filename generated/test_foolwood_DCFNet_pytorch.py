@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,9 +53,7 @@ class DCFNetFeature(nn.Module):
 
     def __init__(self):
         super(DCFNetFeature, self).__init__()
-        self.feature = nn.Sequential(nn.Conv2d(3, 32, 3, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(32, 32, 3, padding=1), nn.
-            LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=1))
+        self.feature = nn.Sequential(nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(32, 32, 3, padding=1), nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=1))
 
     def forward(self, x):
         return self.feature(x)
@@ -84,24 +83,20 @@ class DCFNet(nn.Module):
     def forward(self, x):
         x = self.feature(x) * self.config.cos_window
         xf = torch.rfft(x, signal_ndim=2)
-        kxzf = torch.sum(complex_mulconj(xf, self.model_zf), dim=1, keepdim
-            =True)
-        response = torch.irfft(complex_mul(kxzf, self.model_alphaf),
-            signal_ndim=2)
+        kxzf = torch.sum(complex_mulconj(xf, self.model_zf), dim=1, keepdim=True)
+        response = torch.irfft(complex_mul(kxzf, self.model_alphaf), signal_ndim=2)
         return response
 
     def update(self, z, lr=1.0):
         z = self.feature(z) * self.config.cos_window
         zf = torch.rfft(z, signal_ndim=2)
-        kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1,
-            keepdim=True)
+        kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1, keepdim=True)
         alphaf = self.config.yf / (kzzf + self.config.lambda0)
         if lr > 0.99:
             self.model_alphaf = alphaf
             self.model_zf = zf
         else:
-            self.model_alphaf = (1 - lr
-                ) * self.model_alphaf.data + lr * alphaf.data
+            self.model_alphaf = (1 - lr) * self.model_alphaf.data + lr * alphaf.data
             self.model_zf = (1 - lr) * self.model_zf.data + lr * zf.data
 
     def load_param(self, path='param.pth'):
@@ -125,9 +120,7 @@ class DCFNetFeature(nn.Module):
 
     def __init__(self):
         super(DCFNetFeature, self).__init__()
-        self.feature = nn.Sequential(nn.Conv2d(3, 32, 3), nn.ReLU(inplace=
-            True), nn.Conv2d(32, 32, 3), nn.LocalResponseNorm(size=5, alpha
-            =0.0001, beta=0.75, k=1))
+        self.feature = nn.Sequential(nn.Conv2d(3, 32, 3), nn.ReLU(inplace=True), nn.Conv2d(32, 32, 3), nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=1))
 
     def forward(self, x):
         return self.feature(x)
@@ -146,8 +139,7 @@ class DCFNet(nn.Module):
         x = self.feature(x)
         zf = torch.rfft(z, signal_ndim=2)
         xf = torch.rfft(x, signal_ndim=2)
-        kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1,
-            keepdim=True)
+        kzzf = torch.sum(torch.sum(zf ** 2, dim=4, keepdim=True), dim=1, keepdim=True)
         kxzf = torch.sum(complex_mulconj(xf, zf), dim=1, keepdim=True)
         alphaf = self.yf / (kzzf + self.lambda0)
         response = torch.irfft(complex_mul(kxzf, alphaf), signal_ndim=2)
@@ -158,9 +150,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DCFNetFeature,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_foolwood_DCFNet_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DCFNetFeature(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

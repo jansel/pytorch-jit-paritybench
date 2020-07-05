@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,8 +80,7 @@ import torch.optim as optim
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -115,11 +115,9 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=
-            stride, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -149,12 +147,10 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
@@ -172,9 +168,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -214,8 +208,7 @@ class myResnet(nn.Module):
         x = self.resnet.layer3(x)
         x = self.resnet.layer4(x)
         fc = x.mean(3).mean(2).squeeze()
-        att = F.adaptive_avg_pool2d(x, [att_size, att_size]).squeeze().permute(
-            1, 2, 0)
+        att = F.adaptive_avg_pool2d(x, [att_size, att_size]).squeeze().permute(1, 2, 0)
         return fc, att
 
 
@@ -278,10 +271,8 @@ class Att2inCore(nn.Module):
         in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
         forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
         out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
-        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self
-            .rnn_size) + self.a2c(att_res)
-        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size),
-            in_transform.narrow(1, self.rnn_size, self.rnn_size))
+        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self.rnn_size) + self.a2c(att_res)
+        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size), in_transform.narrow(1, self.rnn_size, self.rnn_size))
         next_c = forget_gate * state[1][-1] + in_gate * in_transform
         next_h = out_gate * F.tanh(next_c)
         output = self.dropout(next_h)
@@ -301,14 +292,10 @@ class AdaAtt_lstm(nn.Module):
         self.att_feat_size = opt.att_feat_size
         self.att_hid_size = opt.att_hid_size
         self.use_maxout = use_maxout
-        self.w2h = nn.Linear(self.input_encoding_size, (4 + (use_maxout == 
-            True)) * self.rnn_size)
-        self.v2h = nn.Linear(self.rnn_size, (4 + (use_maxout == True)) *
-            self.rnn_size)
-        self.i2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout ==
-            True)) * self.rnn_size) for _ in range(self.num_layers - 1)])
-        self.h2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout ==
-            True)) * self.rnn_size) for _ in range(self.num_layers)])
+        self.w2h = nn.Linear(self.input_encoding_size, (4 + (use_maxout == True)) * self.rnn_size)
+        self.v2h = nn.Linear(self.rnn_size, (4 + (use_maxout == True)) * self.rnn_size)
+        self.i2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout == True)) * self.rnn_size) for _ in range(self.num_layers - 1)])
+        self.h2h = nn.ModuleList([nn.Linear(self.rnn_size, (4 + (use_maxout == True)) * self.rnn_size) for _ in range(self.num_layers)])
         if self.num_layers == 1:
             self.r_w2h = nn.Linear(self.input_encoding_size, self.rnn_size)
             self.r_v2h = nn.Linear(self.rnn_size, self.rnn_size)
@@ -334,17 +321,12 @@ class AdaAtt_lstm(nn.Module):
             sigmoid_chunk = F.sigmoid(sigmoid_chunk)
             in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
             forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
-            out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size
-                )
+            out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
             if not self.use_maxout:
-                in_transform = F.tanh(all_input_sums.narrow(1, 3 * self.
-                    rnn_size, self.rnn_size))
+                in_transform = F.tanh(all_input_sums.narrow(1, 3 * self.rnn_size, self.rnn_size))
             else:
-                in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 
-                    2 * self.rnn_size)
-                in_transform = torch.max(in_transform.narrow(1, 0, self.
-                    rnn_size), in_transform.narrow(1, self.rnn_size, self.
-                    rnn_size))
+                in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self.rnn_size)
+                in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size), in_transform.narrow(1, self.rnn_size, self.rnn_size))
             next_c = forget_gate * prev_c + in_gate * in_transform
             tanh_nex_c = F.tanh(next_c)
             next_h = out_gate * tanh_nex_c
@@ -360,8 +342,7 @@ class AdaAtt_lstm(nn.Module):
         top_h = hs[-1]
         top_h = F.dropout(top_h, self.drop_prob_lm, self.training)
         fake_region = F.dropout(fake_region, self.drop_prob_lm, self.training)
-        state = torch.cat([_.unsqueeze(0) for _ in hs], 0), torch.cat([_.
-            unsqueeze(0) for _ in cs], 0)
+        state = torch.cat([_.unsqueeze(0) for _ in hs], 0), torch.cat([_.unsqueeze(0) for _ in cs], 0)
         return top_h, fake_region, state
 
 
@@ -373,11 +354,9 @@ class AdaAtt_attention(nn.Module):
         self.rnn_size = opt.rnn_size
         self.drop_prob_lm = opt.drop_prob_lm
         self.att_hid_size = opt.att_hid_size
-        self.fr_linear = nn.Sequential(nn.Linear(self.rnn_size, self.
-            input_encoding_size), nn.ReLU(), nn.Dropout(self.drop_prob_lm))
+        self.fr_linear = nn.Sequential(nn.Linear(self.rnn_size, self.input_encoding_size), nn.ReLU(), nn.Dropout(self.drop_prob_lm))
         self.fr_embed = nn.Linear(self.input_encoding_size, self.att_hid_size)
-        self.ho_linear = nn.Sequential(nn.Linear(self.rnn_size, self.
-            input_encoding_size), nn.Tanh(), nn.Dropout(self.drop_prob_lm))
+        self.ho_linear = nn.Sequential(nn.Linear(self.rnn_size, self.input_encoding_size), nn.Tanh(), nn.Dropout(self.drop_prob_lm))
         self.ho_embed = nn.Linear(self.input_encoding_size, self.att_hid_size)
         self.alpha_net = nn.Linear(self.att_hid_size, 1)
         self.att2h = nn.Linear(self.rnn_size, self.rnn_size)
@@ -390,12 +369,9 @@ class AdaAtt_attention(nn.Module):
         fake_region_embed = self.fr_embed(fake_region)
         h_out_linear = self.ho_linear(h_out)
         h_out_embed = self.ho_embed(h_out_linear)
-        txt_replicate = h_out_embed.unsqueeze(1).expand(h_out_embed.size(0),
-            att_size + 1, h_out_embed.size(1))
-        img_all = torch.cat([fake_region.view(-1, 1, self.
-            input_encoding_size), conv_feat], 1)
-        img_all_embed = torch.cat([fake_region_embed.view(-1, 1, self.
-            input_encoding_size), conv_feat_embed], 1)
+        txt_replicate = h_out_embed.unsqueeze(1).expand(h_out_embed.size(0), att_size + 1, h_out_embed.size(1))
+        img_all = torch.cat([fake_region.view(-1, 1, self.input_encoding_size), conv_feat], 1)
+        img_all_embed = torch.cat([fake_region_embed.view(-1, 1, self.input_encoding_size), conv_feat_embed], 1)
         hA = F.tanh(img_all_embed + txt_replicate)
         hA = F.dropout(hA, self.drop_prob_lm, self.training)
         hAflat = self.alpha_net(hA.view(-1, self.att_hid_size))
@@ -426,20 +402,17 @@ class TopDownCore(nn.Module):
     def __init__(self, opt, use_maxout=False):
         super(TopDownCore, self).__init__()
         self.drop_prob_lm = opt.drop_prob_lm
-        self.att_lstm = nn.LSTMCell(opt.input_encoding_size + opt.rnn_size *
-            2, opt.rnn_size)
+        self.att_lstm = nn.LSTMCell(opt.input_encoding_size + opt.rnn_size * 2, opt.rnn_size)
         self.lang_lstm = nn.LSTMCell(opt.rnn_size * 2, opt.rnn_size)
         self.attention = Attention(opt)
 
     def forward(self, xt, fc_feats, att_feats, p_att_feats, state):
         prev_h = state[0][-1]
         att_lstm_input = torch.cat([prev_h, fc_feats, xt], 1)
-        h_att, c_att = self.att_lstm(att_lstm_input, (state[0][0], state[1][0])
-            )
+        h_att, c_att = self.att_lstm(att_lstm_input, (state[0][0], state[1][0]))
         att = self.attention(h_att, att_feats, p_att_feats)
         lang_lstm_input = torch.cat([att, h_att], 1)
-        h_lang, c_lang = self.lang_lstm(lang_lstm_input, (state[0][1],
-            state[1][1]))
+        h_lang, c_lang = self.lang_lstm(lang_lstm_input, (state[0][1], state[1][1]))
         output = F.dropout(h_lang, self.drop_prob_lm, self.training)
         state = torch.stack([h_att, h_lang]), torch.stack([c_att, c_lang])
         return output, state
@@ -494,10 +467,8 @@ class Att2in2Core(nn.Module):
         in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
         forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
         out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
-        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self
-            .rnn_size) + self.a2c(att_res)
-        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size),
-            in_transform.narrow(1, self.rnn_size, self.rnn_size))
+        in_transform = all_input_sums.narrow(1, 3 * self.rnn_size, 2 * self.rnn_size) + self.a2c(att_res)
+        in_transform = torch.max(in_transform.narrow(1, 0, self.rnn_size), in_transform.narrow(1, self.rnn_size, self.rnn_size))
         next_c = forget_gate * state[1][-1] + in_gate * in_transform
         next_h = out_gate * F.tanh(next_c)
         output = self.dropout(next_h)
@@ -512,8 +483,7 @@ class CaptionModel(nn.Module):
 
     def beam_search(self, state, logprobs, *args, **kwargs):
 
-        def beam_step(logprobsf, beam_size, t, beam_seq, beam_seq_logprobs,
-            beam_logprobs_sum, state):
+        def beam_step(logprobsf, beam_size, t, beam_seq, beam_seq_logprobs, beam_logprobs_sum, state):
             ys, ix = torch.sort(logprobsf, 1, True)
             candidates = []
             cols = min(beam_size, ys.size(1))
@@ -523,10 +493,8 @@ class CaptionModel(nn.Module):
             for c in range(cols):
                 for q in range(rows):
                     local_logprob = ys[q, c]
-                    candidate_logprob = beam_logprobs_sum[q
-                        ] + local_logprob.cpu()
-                    candidates.append(dict(c=ix[q, c], q=q, p=
-                        candidate_logprob, r=local_logprob))
+                    candidate_logprob = beam_logprobs_sum[q] + local_logprob.cpu()
+                    candidates.append(dict(c=ix[q, c], q=q, p=candidate_logprob, r=local_logprob))
             candidates = sorted(candidates, key=lambda x: -x['p'])
             new_state = [_.clone() for _ in state]
             if t >= 1:
@@ -536,22 +504,18 @@ class CaptionModel(nn.Module):
                 v = candidates[vix]
                 if t >= 1:
                     beam_seq[:t, (vix)] = beam_seq_prev[:, (v['q'])]
-                    beam_seq_logprobs[:t, (vix)] = beam_seq_logprobs_prev[:,
-                        (v['q'])]
+                    beam_seq_logprobs[:t, (vix)] = beam_seq_logprobs_prev[:, (v['q'])]
                 for state_ix in range(len(new_state)):
-                    new_state[state_ix][:, (vix)] = state[state_ix][:, (v['q'])
-                        ]
+                    new_state[state_ix][:, (vix)] = state[state_ix][:, (v['q'])]
                 beam_seq[t, vix] = v['c']
                 beam_seq_logprobs[t, vix] = v['r']
                 beam_logprobs_sum[vix] = v['p']
             state = new_state
-            return (beam_seq, beam_seq_logprobs, beam_logprobs_sum, state,
-                candidates)
+            return beam_seq, beam_seq_logprobs, beam_logprobs_sum, state, candidates
         opt = kwargs['opt']
         beam_size = opt.get('beam_size', 10)
         beam_seq = torch.LongTensor(self.seq_length, beam_size).zero_()
-        beam_seq_logprobs = torch.FloatTensor(self.seq_length, beam_size
-            ).zero_()
+        beam_seq_logprobs = torch.FloatTensor(self.seq_length, beam_size).zero_()
         beam_logprobs_sum = torch.zeros(beam_size)
         done_beams = []
         for t in range(self.seq_length):
@@ -560,21 +524,15 @@ class CaptionModel(nn.Module):
             we need to resort our beams to maintain the loop invariant of keeping
             the top beam_size most likely sequences."""
             logprobsf = logprobs.data.float()
-            logprobsf[:, (logprobsf.size(1) - 1)] = logprobsf[:, (logprobsf
-                .size(1) - 1)] - 1000
-            (beam_seq, beam_seq_logprobs, beam_logprobs_sum, state,
-                candidates_divm) = (beam_step(logprobsf, beam_size, t,
-                beam_seq, beam_seq_logprobs, beam_logprobs_sum, state))
+            logprobsf[:, (logprobsf.size(1) - 1)] = logprobsf[:, (logprobsf.size(1) - 1)] - 1000
+            beam_seq, beam_seq_logprobs, beam_logprobs_sum, state, candidates_divm = beam_step(logprobsf, beam_size, t, beam_seq, beam_seq_logprobs, beam_logprobs_sum, state)
             for vix in range(beam_size):
                 if beam_seq[t, vix] == 0 or t == self.seq_length - 1:
-                    final_beam = {'seq': beam_seq[:, (vix)].clone(),
-                        'logps': beam_seq_logprobs[:, (vix)].clone(), 'p':
-                        beam_logprobs_sum[vix]}
+                    final_beam = {'seq': beam_seq[:, (vix)].clone(), 'logps': beam_seq_logprobs[:, (vix)].clone(), 'p': beam_logprobs_sum[vix]}
                     done_beams.append(final_beam)
                     beam_logprobs_sum[vix] = -1000
             it = beam_seq[t]
-            logprobs, state = self.get_logprobs_state(Variable(it), *(args +
-                (state,)))
+            logprobs, state = self.get_logprobs_state(Variable(it), *(args + (state,)))
         done_beams = sorted(done_beams, key=lambda x: -x['p'])[:beam_size]
         return done_beams
 
@@ -597,9 +555,7 @@ class LSTMCore(nn.Module):
         in_gate = sigmoid_chunk.narrow(1, 0, self.rnn_size)
         forget_gate = sigmoid_chunk.narrow(1, self.rnn_size, self.rnn_size)
         out_gate = sigmoid_chunk.narrow(1, self.rnn_size * 2, self.rnn_size)
-        in_transform = torch.max(all_input_sums.narrow(1, 3 * self.rnn_size,
-            self.rnn_size), all_input_sums.narrow(1, 4 * self.rnn_size,
-            self.rnn_size))
+        in_transform = torch.max(all_input_sums.narrow(1, 3 * self.rnn_size, self.rnn_size), all_input_sums.narrow(1, 4 * self.rnn_size, self.rnn_size))
         next_c = forget_gate * state[1][-1] + in_gate * in_transform
         next_h = out_gate * F.tanh(next_c)
         next_h = self.dropout(next_h)
@@ -620,9 +576,7 @@ class ShowAttendTellCore(nn.Module):
         self.fc_feat_size = opt.fc_feat_size
         self.att_feat_size = opt.att_feat_size
         self.att_hid_size = opt.att_hid_size
-        self.rnn = getattr(nn, self.rnn_type.upper())(self.
-            input_encoding_size + self.att_feat_size, self.rnn_size, self.
-            num_layers, bias=False, dropout=self.drop_prob_lm)
+        self.rnn = getattr(nn, self.rnn_type.upper())(self.input_encoding_size + self.att_feat_size, self.rnn_size, self.num_layers, bias=False, dropout=self.drop_prob_lm)
         if self.att_hid_size > 0:
             self.ctx2att = nn.Linear(self.att_feat_size, self.att_hid_size)
             self.h2att = nn.Linear(self.rnn_size, self.att_hid_size)
@@ -653,8 +607,7 @@ class ShowAttendTellCore(nn.Module):
         weight = F.softmax(dot)
         att_feats_ = att_feats.view(-1, att_size, self.att_feat_size)
         att_res = torch.bmm(weight.unsqueeze(1), att_feats_).squeeze(1)
-        output, state = self.rnn(torch.cat([xt, att_res], 1).unsqueeze(0),
-            state)
+        output, state = self.rnn(torch.cat([xt, att_res], 1).unsqueeze(0), state)
         return output.squeeze(0), state
 
 
@@ -668,13 +621,10 @@ class AllImgCore(nn.Module):
         self.num_layers = opt.num_layers
         self.drop_prob_lm = opt.drop_prob_lm
         self.fc_feat_size = opt.fc_feat_size
-        self.rnn = getattr(nn, self.rnn_type.upper())(self.
-            input_encoding_size + self.fc_feat_size, self.rnn_size, self.
-            num_layers, bias=False, dropout=self.drop_prob_lm)
+        self.rnn = getattr(nn, self.rnn_type.upper())(self.input_encoding_size + self.fc_feat_size, self.rnn_size, self.num_layers, bias=False, dropout=self.drop_prob_lm)
 
     def forward(self, xt, fc_feats, att_feats, state):
-        output, state = self.rnn(torch.cat([xt, fc_feats], 1).unsqueeze(0),
-            state)
+        output, state = self.rnn(torch.cat([xt, fc_feats], 1).unsqueeze(0), state)
         return output.squeeze(0), state
 
 
@@ -682,18 +632,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaAtt_attention,
+     lambda: ([], {'opt': _mock_config(input_encoding_size=4, rnn_size=4, drop_prob_lm=0.5, att_hid_size=4)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (Attention,
+     lambda: ([], {'opt': _mock_config(rnn_size=4, att_hid_size=4)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShowAttendTellCore,
+     lambda: ([], {'opt': _mock_config(input_encoding_size=4, rnn_type='gru', rnn_size=4, num_layers=1, drop_prob_lm=0.5, fc_feat_size=4, att_feat_size=4, att_hid_size=4)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([1, 4, 4])], {}),
+     False),
+]
+
 class Test_ruotianluo_ImageCaptioning_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaAtt_attention(*[], **{'opt': _mock_config(input_encoding_size=4, rnn_size=4, drop_prob_lm=0.5, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Attention(*[], **{'opt': _mock_config(rnn_size=4, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ShowAttendTellCore(*[], **{'opt': _mock_config(input_encoding_size=4, rnn_type='gru', rnn_size=4, num_layers=1, drop_prob_lm=0.5, fc_feat_size=4, att_feat_size=4, att_hid_size=4)}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([1, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

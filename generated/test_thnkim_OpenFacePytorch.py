@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,8 +106,7 @@ class SpatialCrossMapLRN_temp(Module):
             self.paddedRatio = input.new()
         if self.accumRatio is None:
             self.accumRatio = input.new()
-        self.paddedRatio.resize_(channels + self.size - 1, inputHeight,
-            inputWidth)
+        self.paddedRatio.resize_(channels + self.size - 1, inputHeight, inputWidth)
         self.accumRatio.resize_(inputHeight, inputWidth)
         cacheRatioValue = 2 * self.alpha * self.beta / self.size
         inversePrePad = int(self.size - (self.size - 1) / 2)
@@ -117,12 +117,10 @@ class SpatialCrossMapLRN_temp(Module):
         for n in range(batchSize):
             torch.mul(gradOutput[n], self.output[n], out=paddedRatioCenter)
             paddedRatioCenter.div_(self.scale[n])
-            torch.sum(self.paddedRatio.narrow(0, 0, self.size - 1), 0, out=
-                self.accumRatio)
+            torch.sum(self.paddedRatio.narrow(0, 0, self.size - 1), 0, out=self.accumRatio)
             for c in range(channels):
                 self.accumRatio.add_(self.paddedRatio[c + self.size - 1])
-                self.gradInput[n][c].addcmul_(-cacheRatioValue, input[n][c],
-                    self.accumRatio)
+                self.gradInput[n][c].addcmul_(-cacheRatioValue, input[n][c], self.accumRatio)
                 self.accumRatio.add_(-1, self.paddedRatio[c])
         return self.gradInput
 
@@ -150,28 +148,24 @@ def BatchNorm(dim):
 
 
 def Conv2d(in_dim, out_dim, kernel, stride, padding):
-    l = torch.nn.Conv2d(in_dim, out_dim, kernel, stride=stride, padding=padding
-        )
+    l = torch.nn.Conv2d(in_dim, out_dim, kernel, stride=stride, padding=padding)
     return l
 
 
 class Inception(nn.Module):
 
-    def __init__(self, inputSize, kernelSize, kernelStride, outputSize,
-        reduceSize, pool, useBatchNorm, reduceStride=None, padding=True):
+    def __init__(self, inputSize, kernelSize, kernelStride, outputSize, reduceSize, pool, useBatchNorm, reduceStride=None, padding=True):
         super(Inception, self).__init__()
         self.seq_list = []
         self.outputSize = outputSize
         for i in range(len(kernelSize)):
             od = OrderedDict()
-            od['1_conv'] = Conv2d(inputSize, reduceSize[i], (1, 1), 
-                reduceStride[i] if reduceStride is not None else 1, (0, 0))
+            od['1_conv'] = Conv2d(inputSize, reduceSize[i], (1, 1), reduceStride[i] if reduceStride is not None else 1, (0, 0))
             if useBatchNorm:
                 od['2_bn'] = BatchNorm(reduceSize[i])
             od['3_relu'] = nn.ReLU()
             pad = int(numpy.floor(kernelSize[i] / 2)) if padding else 0
-            od['4_conv'] = Conv2d(reduceSize[i], outputSize[i], kernelSize[
-                i], kernelStride[i], pad)
+            od['4_conv'] = Conv2d(reduceSize[i], outputSize[i], kernelSize[i], kernelStride[i], pad)
             if useBatchNorm:
                 od['5_bn'] = BatchNorm(outputSize[i])
             od['6_relu'] = nn.ReLU()
@@ -181,8 +175,7 @@ class Inception(nn.Module):
         od['1_pool'] = pool
         if ii < len(reduceSize) and reduceSize[ii] is not None:
             i = ii
-            od['2_conv'] = Conv2d(inputSize, reduceSize[i], (1, 1), 
-                reduceStride[i] if reduceStride is not None else 1, (0, 0))
+            od['2_conv'] = Conv2d(inputSize, reduceSize[i], (1, 1), reduceStride[i] if reduceStride is not None else 1, (0, 0))
             if useBatchNorm:
                 od['3_bn'] = BatchNorm(reduceSize[i])
             od['4_relu'] = nn.ReLU()
@@ -191,8 +184,7 @@ class Inception(nn.Module):
         if ii < len(reduceSize) and reduceSize[ii] is not None:
             i = ii
             od = OrderedDict()
-            od['1_conv'] = Conv2d(inputSize, reduceSize[i], (1, 1), 
-                reduceStride[i] if reduceStride is not None else 1, (0, 0))
+            od['1_conv'] = Conv2d(inputSize, reduceSize[i], (1, 1), reduceStride[i] if reduceStride is not None else 1, (0, 0))
             if useBatchNorm:
                 od['2_bn'] = BatchNorm(reduceSize[i])
             od['3_relu'] = nn.ReLU()
@@ -233,10 +225,8 @@ class Lambda(LambdaBase):
 
 def CrossMapLRN(size, alpha, beta, k=1.0, gpuDevice=0):
     if SpatialCrossMapLRN_temp is not None:
-        lrn = SpatialCrossMapLRN_temp(size, alpha, beta, k, gpuDevice=gpuDevice
-            )
-        n = Lambda(lambda x, lrn=lrn: Variable(lrn.forward(x.data).cuda(
-            gpuDevice)) if x.data.is_cuda else Variable(lrn.forward(x.data)))
+        lrn = SpatialCrossMapLRN_temp(size, alpha, beta, k, gpuDevice=gpuDevice)
+        n = Lambda(lambda x, lrn=lrn: Variable(lrn.forward(x.data).cuda(gpuDevice)) if x.data.is_cuda else Variable(lrn.forward(x.data)))
     else:
         n = nn.LocalResponseNorm(size, alpha, beta, k).cuda(gpuDevice)
     return n
@@ -265,22 +255,13 @@ class netOpenFace(nn.Module):
         self.layer11 = nn.ReLU()
         self.layer12 = CrossMapLRN(5, 0.0001, 0.75, gpuDevice=gpuDevice)
         self.layer13 = nn.MaxPool2d((3, 3), stride=(2, 2), padding=(1, 1))
-        self.layer14 = Inception(192, (3, 5), (1, 1), (128, 32), (96, 16, 
-            32, 64), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)), True)
-        self.layer15 = Inception(256, (3, 5), (1, 1), (128, 64), (96, 32, 
-            64, 64), nn.LPPool2d(2, (3, 3), stride=(3, 3)), True)
-        self.layer16 = Inception(320, (3, 5), (2, 2), (256, 64), (128, 32,
-            None, None), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)
-            ), True)
-        self.layer17 = Inception(640, (3, 5), (1, 1), (192, 64), (96, 32, 
-            128, 256), nn.LPPool2d(2, (3, 3), stride=(3, 3)), True)
-        self.layer18 = Inception(640, (3, 5), (2, 2), (256, 128), (160, 64,
-            None, None), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)
-            ), True)
-        self.layer19 = Inception(1024, (3,), (1,), (384,), (96, 96, 256),
-            nn.LPPool2d(2, (3, 3), stride=(3, 3)), True)
-        self.layer21 = Inception(736, (3,), (1,), (384,), (96, 96, 256), nn
-            .MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)), True)
+        self.layer14 = Inception(192, (3, 5), (1, 1), (128, 32), (96, 16, 32, 64), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)), True)
+        self.layer15 = Inception(256, (3, 5), (1, 1), (128, 64), (96, 32, 64, 64), nn.LPPool2d(2, (3, 3), stride=(3, 3)), True)
+        self.layer16 = Inception(320, (3, 5), (2, 2), (256, 64), (128, 32, None, None), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)), True)
+        self.layer17 = Inception(640, (3, 5), (1, 1), (192, 64), (96, 32, 128, 256), nn.LPPool2d(2, (3, 3), stride=(3, 3)), True)
+        self.layer18 = Inception(640, (3, 5), (2, 2), (256, 128), (160, 64, None, None), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)), True)
+        self.layer19 = Inception(1024, (3,), (1,), (384,), (96, 96, 256), nn.LPPool2d(2, (3, 3), stride=(3, 3)), True)
+        self.layer21 = Inception(736, (3,), (1,), (384,), (96, 96, 256), nn.MaxPool2d((3, 3), stride=(2, 2), padding=(0, 0)), True)
         self.layer22 = nn.AvgPool2d((3, 3), stride=(1, 1), padding=(0, 0))
         self.layer25 = Linear(736, 128)
         self.resize1 = nn.UpsamplingNearest2d(scale_factor=3)
@@ -294,10 +275,8 @@ class netOpenFace(nn.Module):
             x = x
         if x.size()[-1] == 128:
             x = self.resize2(self.resize1(x))
-        x = self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(
-            self.layer3(self.layer2(self.layer1(x))))))))
-        x = self.layer13(self.layer12(self.layer11(self.layer10(self.layer9
-            (x)))))
+        x = self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x))))))))
+        x = self.layer13(self.layer12(self.layer11(self.layer10(self.layer9(x)))))
         x = self.layer14(x)
         x = self.layer15(x)
         x = self.layer16(x)
@@ -318,8 +297,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LambdaBase,
+     lambda: ([], {'fn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_thnkim_OpenFacePytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

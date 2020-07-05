@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -163,11 +164,9 @@ class BinaryFocalLoss(nn.BCEWithLogitsLoss):
     def forward(self, input, target):
         input = self.flatten_images(input)
         target = self.flatten_images(target)
-        weights = torch.where(target > 0, torch.ones_like(target) * self.
-            words_weights, torch.ones_like(target) * self.background_weights)
+        weights = torch.where(target > 0, torch.ones_like(target) * self.words_weights, torch.ones_like(target) * self.background_weights)
         pt = F.logsigmoid(-input * (target * 2 - 1))
-        loss = F.binary_cross_entropy_with_logits(input, target, weight=
-            weights, size_average=True, reduce=False)
+        loss = F.binary_cross_entropy_with_logits(input, target, weight=weights, size_average=True, reduce=False)
         loss = (pt * self.gamma).exp() * loss
         return loss.mean()
 
@@ -189,10 +188,8 @@ class SoftBootstrapCrossEntropy(nn.BCELoss):
     but  not all words are necessary whited out
     """
 
-    def __init__(self, beta=0.95, background_weight=1, words_weight=2,
-        size_average=True, reduce=True):
-        super(SoftBootstrapCrossEntropy, self).__init__(size_average=
-            size_average, reduce=reduce)
+    def __init__(self, beta=0.95, background_weight=1, words_weight=2, size_average=True, reduce=True):
+        super(SoftBootstrapCrossEntropy, self).__init__(size_average=size_average, reduce=reduce)
         self.beta = beta
         self.background_weight = background_weight
         self.words_weight = words_weight
@@ -202,12 +199,9 @@ class SoftBootstrapCrossEntropy(nn.BCELoss):
     def forward(self, input, target):
         input = self.flatten_images(input)
         target = self.flatten_images(target)
-        weights = torch.where(target > 0, torch.ones_like(target) * self.
-            words_weight, torch.ones_like(target) * self.background_weight)
-        bootstrap_target = self.beta * target + (1 - self.beta) * (F.
-            sigmoid(input) > 0.5).float()
-        return F.binary_cross_entropy_with_logits(input, bootstrap_target,
-            weight=weights, size_average=self.size_average, reduce=self.reduce)
+        weights = torch.where(target > 0, torch.ones_like(target) * self.words_weight, torch.ones_like(target) * self.background_weight)
+        bootstrap_target = self.beta * target + (1 - self.beta) * (F.sigmoid(input) > 0.5).float()
+        return F.binary_cross_entropy_with_logits(input, bootstrap_target, weight=weights, size_average=self.size_average, reduce=self.reduce)
 
     @staticmethod
     def flatten_images(x):
@@ -228,8 +222,7 @@ class BCERegionLoss(nn.Module):
 
     def __init__(self):
         super(BCERegionLoss, self).__init__()
-        self.anchor_box = FloatTensor([(0.4, 0.4), (0.4, -0.4), (-0.4, -0.4
-            ), (-0.4, 0.4)]).unsqueeze(-1)
+        self.anchor_box = FloatTensor([(0.4, 0.4), (0.4, -0.4), (-0.4, -0.4), (-0.4, 0.4)]).unsqueeze(-1)
         self.scale_alpha = FloatTensor([1])
         self.positive_beta = FloatTensor([0.2])
         self.bce = nn.BCEWithLogitsLoss()
@@ -239,14 +232,12 @@ class BCERegionLoss(nn.Module):
         ls = torch.pow(F.relu(torch.abs(sx) - self.scale_alpha), 2)
         sy = scale[:, (1), (1)]
         ly = torch.pow(F.relu(torch.abs(sy) - self.scale_alpha), 2)
-        positive_loss = F.relu(self.positive_beta - sx) + F.relu(self.
-            positive_beta - sy)
+        positive_loss = F.relu(self.positive_beta - sx) + F.relu(self.positive_beta - sy)
         loss = 0.1 * positive_loss + ls + ly
         return loss.sum().view(1)
 
     def anchor_loss(self, attention_region):
-        distance = 0.5 * torch.pow(attention_region - self.anchor_box, 2).sum(1
-            )
+        distance = 0.5 * torch.pow(attention_region - self.anchor_box, 2).sum(1)
         return distance.sum().view(1)
 
     def forward(self, input, target):
@@ -260,8 +251,7 @@ class BCERegionLoss(nn.Module):
         boundary = torch.abs(transform_box).sum(-1)
         boundary = torch.pow(F.relu(boundary - 1), 2)
         boundary_loss = boundary.view(boundary.size(0), -1).sum(-1).mean()
-        return (bce_loss, bce_loss + 0.2 * region_loss + 0.05 * scale_loss +
-            0.1 * boundary_loss)
+        return bce_loss, bce_loss + 0.2 * region_loss + 0.05 * scale_loss + 0.1 * boundary_loss
 
 
 def gram_matrix(feat):
@@ -273,8 +263,7 @@ def gram_matrix(feat):
 
 
 def total_variation_loss(image):
-    loss = torch.mean(torch.abs(image[:, :, :, :-1] - image[:, :, :, 1:])
-        ) + torch.mean(torch.abs(image[:, :, :-1, :] - image[:, :, 1:, :]))
+    loss = torch.mean(torch.abs(image[:, :, :, :-1] - image[:, :, :, 1:])) + torch.mean(torch.abs(image[:, :, :-1, :] - image[:, :, 1:, :]))
     return loss
 
 
@@ -293,18 +282,13 @@ class InpaintingLoss(nn.Module):
         feature_comp = self.feature_encoder(comp_img)
         feature_output = self.feature_encoder(output)
         feature_origin = self.feature_encoder(origin)
-        loss_perceptual_1 = sum(map(lambda x, y: self.l1(x, y),
-            feature_comp, feature_origin))
-        loss_perceptual_2 = sum(map(lambda x, y: self.l1(x, y),
-            feature_output, feature_origin))
+        loss_perceptual_1 = sum(map(lambda x, y: self.l1(x, y), feature_comp, feature_origin))
+        loss_perceptual_2 = sum(map(lambda x, y: self.l1(x, y), feature_output, feature_origin))
         loss_perceptual = loss_perceptual_1 + loss_perceptual_2
-        loss_style_1 = sum(map(lambda x, y: self.l1(gram_matrix(x),
-            gram_matrix(y)), feature_output, feature_origin))
-        loss_style_2 = sum(map(lambda x, y: self.l1(gram_matrix(x),
-            gram_matrix(y)), feature_comp, feature_origin))
+        loss_style_1 = sum(map(lambda x, y: self.l1(gram_matrix(x), gram_matrix(y)), feature_output, feature_origin))
+        loss_style_2 = sum(map(lambda x, y: self.l1(gram_matrix(x), gram_matrix(y)), feature_comp, feature_origin))
         loss_style = loss_style_1 + loss_style_2
-        loss = (1.0 * loss_validate + 6.0 * loss_hole + 0.1 *
-            loss_total_var + 0.05 * loss_perceptual + 120 * loss_style)
+        loss = 1.0 * loss_validate + 6.0 * loss_hole + 0.1 * loss_total_var + 0.05 * loss_perceptual + 120 * loss_style
         return loss
 
 
@@ -312,8 +296,7 @@ class FeatureExtractor(nn.Module):
 
     def __init__(self, encoder, feature_range=3):
         super(FeatureExtractor, self).__init__()
-        self.layers = nn.Sequential(*[encoder.features[i] for i in range(
-            feature_range)])
+        self.layers = nn.Sequential(*[encoder.features[i] for i in range(feature_range)])
         for layer in self.layers:
             for param in layer.parameters():
                 param.requires_grad = False
@@ -358,8 +341,7 @@ class DoubleAvdPool(nn.AvgPool2d):
 
     def forward(self, args):
         type(args)
-        return tuple(map(lambda x: avg_pool2d(x, kernel_size=self.
-            kernel_size), args))
+        return tuple(map(lambda x: avg_pool2d(x, kernel_size=self.kernel_size), args))
 
 
 class DoubleUpSample(nn.Module):
@@ -377,15 +359,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DoubleAvdPool,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (tofp16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (tofp32,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_yu45020_Text_Segmentation_Image_Inpainting(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DoubleAvdPool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,17 +70,13 @@ import numpy as np
 
 class LinearBottleneck(nn.Module):
 
-    def __init__(self, inplanes, outplanes, stride=1, t=6, activation=nn.ReLU6
-        ):
+    def __init__(self, inplanes, outplanes, stride=1, t=6, activation=nn.ReLU6):
         super(LinearBottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, inplanes * t, kernel_size=1, bias=
-            False)
+        self.conv1 = nn.Conv2d(inplanes, inplanes * t, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(inplanes * t)
-        self.conv2 = nn.Conv2d(inplanes * t, inplanes * t, kernel_size=3,
-            stride=stride, padding=1, bias=False, groups=inplanes * t)
+        self.conv2 = nn.Conv2d(inplanes * t, inplanes * t, kernel_size=3, stride=stride, padding=1, bias=False, groups=inplanes * t)
         self.bn2 = nn.BatchNorm2d(inplanes * t)
-        self.conv3 = nn.Conv2d(inplanes * t, outplanes, kernel_size=1, bias
-            =False)
+        self.conv3 = nn.Conv2d(inplanes * t, outplanes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(outplanes)
         self.activation = activation(inplace=True)
         self.stride = stride
@@ -125,8 +122,7 @@ class MobileNet2(nn.Module):
     """MobileNet2 implementation.
     """
 
-    def __init__(self, scale=1.0, input_size=224, t=6, in_channels=3,
-        num_classes=1000, activation=nn.ReLU6):
+    def __init__(self, scale=1.0, input_size=224, t=6, in_channels=3, num_classes=1000, activation=nn.ReLU6):
         """
         MobileNet2 constructor.
         :param in_channels: (int, optional): number of channels in the input tensor.
@@ -145,18 +141,14 @@ class MobileNet2(nn.Module):
         self.activation = activation(inplace=True)
         self.num_classes = num_classes
         self.num_of_channels = [32, 16, 24, 32, 64, 96, 160, 320]
-        self.c = [_make_divisible(ch * self.scale, 8) for ch in self.
-            num_of_channels]
+        self.c = [_make_divisible(ch * self.scale, 8) for ch in self.num_of_channels]
         self.n = [1, 1, 2, 3, 4, 3, 3, 1]
         self.s = [2, 1, 2, 2, 2, 1, 2, 1]
-        self.conv1 = nn.Conv2d(in_channels, self.c[0], kernel_size=3, bias=
-            False, stride=self.s[0], padding=1)
+        self.conv1 = nn.Conv2d(in_channels, self.c[0], kernel_size=3, bias=False, stride=self.s[0], padding=1)
         self.bn1 = nn.BatchNorm2d(self.c[0])
         self.bottlenecks = self._make_bottlenecks()
-        self.last_conv_out_ch = 1280 if self.scale <= 1 else _make_divisible(
-            1280 * self.scale, 8)
-        self.conv_last = nn.Conv2d(self.c[-1], self.last_conv_out_ch,
-            kernel_size=1, bias=False)
+        self.last_conv_out_ch = 1280 if self.scale <= 1 else _make_divisible(1280 * self.scale, 8)
+        self.conv_last = nn.Conv2d(self.c[-1], self.last_conv_out_ch, kernel_size=1, bias=False)
         self.bn_last = nn.BatchNorm2d(self.last_conv_out_ch)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(p=0.2, inplace=True)
@@ -180,27 +172,22 @@ class MobileNet2(nn.Module):
     def _make_stage(self, inplanes, outplanes, n, stride, t, stage):
         modules = OrderedDict()
         stage_name = 'LinearBottleneck{}'.format(stage)
-        first_module = LinearBottleneck(inplanes=inplanes, outplanes=
-            outplanes, stride=stride, t=t, activation=self.activation_type)
+        first_module = LinearBottleneck(inplanes=inplanes, outplanes=outplanes, stride=stride, t=t, activation=self.activation_type)
         modules[stage_name + '_0'] = first_module
         for i in range(n - 1):
             name = stage_name + '_{}'.format(i + 1)
-            module = LinearBottleneck(inplanes=outplanes, outplanes=
-                outplanes, stride=1, t=6, activation=self.activation_type)
+            module = LinearBottleneck(inplanes=outplanes, outplanes=outplanes, stride=1, t=6, activation=self.activation_type)
             modules[name] = module
         return nn.Sequential(modules)
 
     def _make_bottlenecks(self):
         modules = OrderedDict()
         stage_name = 'Bottlenecks'
-        bottleneck1 = self._make_stage(inplanes=self.c[0], outplanes=self.c
-            [1], n=self.n[1], stride=self.s[1], t=1, stage=0)
+        bottleneck1 = self._make_stage(inplanes=self.c[0], outplanes=self.c[1], n=self.n[1], stride=self.s[1], t=1, stage=0)
         modules[stage_name + '_0'] = bottleneck1
         for i in range(1, len(self.c) - 1):
             name = stage_name + '_{}'.format(i)
-            module = self._make_stage(inplanes=self.c[i], outplanes=self.c[
-                i + 1], n=self.n[i + 1], stride=self.s[i + 1], t=self.t,
-                stage=i)
+            module = self._make_stage(inplanes=self.c[i], outplanes=self.c[i + 1], n=self.n[i + 1], stride=self.s[i + 1], t=self.t, stage=i)
             modules[name] = module
         return nn.Sequential(modules)
 
@@ -223,11 +210,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LinearBottleneck,
+     lambda: ([], {'inplanes': 4, 'outplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNet2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_Randl_MobileNetV2_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(LinearBottleneck(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(MobileNet2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

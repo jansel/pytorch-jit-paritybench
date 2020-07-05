@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,11 +55,8 @@ import torchvision.utils as vutils
 from torch.backends import cudnn
 
 
-def snconv2d(in_channels, out_channels, kernel_size, stride=1, padding=0,
-    dilation=1, groups=1, bias=True):
-    return spectral_norm(nn.Conv2d(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=kernel_size, stride=stride, padding=
-        padding, dilation=dilation, groups=groups, bias=bias))
+def snconv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+    return spectral_norm(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias))
 
 
 class Self_Attn(nn.Module):
@@ -67,14 +65,10 @@ class Self_Attn(nn.Module):
     def __init__(self, in_channels):
         super(Self_Attn, self).__init__()
         self.in_channels = in_channels
-        self.snconv1x1_theta = snconv2d(in_channels=in_channels,
-            out_channels=in_channels // 8, kernel_size=1, stride=1, padding=0)
-        self.snconv1x1_phi = snconv2d(in_channels=in_channels, out_channels
-            =in_channels // 8, kernel_size=1, stride=1, padding=0)
-        self.snconv1x1_g = snconv2d(in_channels=in_channels, out_channels=
-            in_channels // 2, kernel_size=1, stride=1, padding=0)
-        self.snconv1x1_attn = snconv2d(in_channels=in_channels // 2,
-            out_channels=in_channels, kernel_size=1, stride=1, padding=0)
+        self.snconv1x1_theta = snconv2d(in_channels=in_channels, out_channels=in_channels // 8, kernel_size=1, stride=1, padding=0)
+        self.snconv1x1_phi = snconv2d(in_channels=in_channels, out_channels=in_channels // 8, kernel_size=1, stride=1, padding=0)
+        self.snconv1x1_g = snconv2d(in_channels=in_channels, out_channels=in_channels // 2, kernel_size=1, stride=1, padding=0)
+        self.snconv1x1_attn = snconv2d(in_channels=in_channels // 2, out_channels=in_channels, kernel_size=1, stride=1, padding=0)
         self.maxpool = nn.MaxPool2d(2, stride=2, padding=0)
         self.softmax = nn.Softmax(dim=-1)
         self.sigma = nn.Parameter(torch.zeros(1))
@@ -118,8 +112,7 @@ class ConditionalBatchNorm2d(nn.Module):
     def forward(self, x, y):
         out = self.bn(x)
         gamma, beta = self.embed(y).chunk(2, 1)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
@@ -129,13 +122,10 @@ class GenBlock(nn.Module):
         super(GenBlock, self).__init__()
         self.cond_bn1 = ConditionalBatchNorm2d(in_channels, num_classes)
         self.relu = nn.ReLU(inplace=True)
-        self.snconv2d1 = snconv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
+        self.snconv2d1 = snconv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
         self.cond_bn2 = ConditionalBatchNorm2d(out_channels, num_classes)
-        self.snconv2d2 = snconv2d(in_channels=out_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
-        self.snconv2d0 = snconv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0)
+        self.snconv2d2 = snconv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
+        self.snconv2d0 = snconv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x, labels):
         x0 = x
@@ -159,8 +149,7 @@ def init_weights(m):
 
 
 def snlinear(in_features, out_features):
-    return spectral_norm(nn.Linear(in_features=in_features, out_features=
-        out_features))
+    return spectral_norm(nn.Linear(in_features=in_features, out_features=out_features))
 
 
 class Generator(nn.Module):
@@ -170,19 +159,16 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.z_dim = z_dim
         self.g_conv_dim = g_conv_dim
-        self.snlinear0 = snlinear(in_features=z_dim, out_features=
-            g_conv_dim * 16 * 4 * 4)
+        self.snlinear0 = snlinear(in_features=z_dim, out_features=g_conv_dim * 16 * 4 * 4)
         self.block1 = GenBlock(g_conv_dim * 16, g_conv_dim * 16, num_classes)
         self.block2 = GenBlock(g_conv_dim * 16, g_conv_dim * 8, num_classes)
         self.block3 = GenBlock(g_conv_dim * 8, g_conv_dim * 4, num_classes)
         self.self_attn = Self_Attn(g_conv_dim * 4)
         self.block4 = GenBlock(g_conv_dim * 4, g_conv_dim * 2, num_classes)
         self.block5 = GenBlock(g_conv_dim * 2, g_conv_dim, num_classes)
-        self.bn = nn.BatchNorm2d(g_conv_dim, eps=1e-05, momentum=0.0001,
-            affine=True)
+        self.bn = nn.BatchNorm2d(g_conv_dim, eps=1e-05, momentum=0.0001, affine=True)
         self.relu = nn.ReLU(inplace=True)
-        self.snconv2d1 = snconv2d(in_channels=g_conv_dim, out_channels=3,
-            kernel_size=3, stride=1, padding=1)
+        self.snconv2d1 = snconv2d(in_channels=g_conv_dim, out_channels=3, kernel_size=3, stride=1, padding=1)
         self.tanh = nn.Tanh()
         self.apply(init_weights)
 
@@ -206,14 +192,11 @@ class DiscOptBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(DiscOptBlock, self).__init__()
-        self.snconv2d1 = snconv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
+        self.snconv2d1 = snconv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
         self.relu = nn.ReLU(inplace=True)
-        self.snconv2d2 = snconv2d(in_channels=out_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
+        self.snconv2d2 = snconv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
         self.downsample = nn.AvgPool2d(2)
-        self.snconv2d0 = snconv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0)
+        self.snconv2d0 = snconv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         x0 = x
@@ -232,16 +215,13 @@ class DiscBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(DiscBlock, self).__init__()
         self.relu = nn.ReLU(inplace=True)
-        self.snconv2d1 = snconv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
-        self.snconv2d2 = snconv2d(in_channels=out_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
+        self.snconv2d1 = snconv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
+        self.snconv2d2 = snconv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
         self.downsample = nn.AvgPool2d(2)
         self.ch_mismatch = False
         if in_channels != out_channels:
             self.ch_mismatch = True
-        self.snconv2d0 = snconv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0)
+        self.snconv2d0 = snconv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x, downsample=True):
         x0 = x
@@ -260,8 +240,7 @@ class DiscBlock(nn.Module):
 
 
 def sn_embedding(num_embeddings, embedding_dim):
-    return spectral_norm(nn.Embedding(num_embeddings=num_embeddings,
-        embedding_dim=embedding_dim))
+    return spectral_norm(nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim))
 
 
 class Discriminator(nn.Module):
@@ -305,26 +284,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_voletiv_self_attention_GAN_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (DiscBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DiscOptBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'d_conv_dim': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (Generator,
+     lambda: ([], {'z_dim': 4, 'g_conv_dim': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([64], dtype=torch.int64)], {}),
+     False),
+    (Self_Attn,
+     lambda: ([], {'in_channels': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
+class Test_voletiv_self_attention_GAN_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DiscBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DiscOptBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Discriminator(*[], **{'d_conv_dim': 4, 'num_classes': 4}), [torch.rand([4, 3, 64, 64]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Generator(*[], **{'z_dim': 4, 'g_conv_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([64], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Self_Attn(*[], **{'in_channels': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

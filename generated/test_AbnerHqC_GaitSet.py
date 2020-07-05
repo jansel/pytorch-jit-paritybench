@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,8 +68,7 @@ class BasicConv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, **kwargs):
         super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, bias=
-            False, **kwargs)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, bias=False, **kwargs)
 
     def forward(self, x):
         x = self.conv(x)
@@ -101,33 +101,21 @@ class SetNet(nn.Module):
         self.batch_frame = None
         _set_in_channels = 1
         _set_channels = [32, 64, 128]
-        self.set_layer1 = SetBlock(BasicConv2d(_set_in_channels,
-            _set_channels[0], 5, padding=2))
-        self.set_layer2 = SetBlock(BasicConv2d(_set_channels[0],
-            _set_channels[0], 3, padding=1), True)
-        self.set_layer3 = SetBlock(BasicConv2d(_set_channels[0],
-            _set_channels[1], 3, padding=1))
-        self.set_layer4 = SetBlock(BasicConv2d(_set_channels[1],
-            _set_channels[1], 3, padding=1), True)
-        self.set_layer5 = SetBlock(BasicConv2d(_set_channels[1],
-            _set_channels[2], 3, padding=1))
-        self.set_layer6 = SetBlock(BasicConv2d(_set_channels[2],
-            _set_channels[2], 3, padding=1))
+        self.set_layer1 = SetBlock(BasicConv2d(_set_in_channels, _set_channels[0], 5, padding=2))
+        self.set_layer2 = SetBlock(BasicConv2d(_set_channels[0], _set_channels[0], 3, padding=1), True)
+        self.set_layer3 = SetBlock(BasicConv2d(_set_channels[0], _set_channels[1], 3, padding=1))
+        self.set_layer4 = SetBlock(BasicConv2d(_set_channels[1], _set_channels[1], 3, padding=1), True)
+        self.set_layer5 = SetBlock(BasicConv2d(_set_channels[1], _set_channels[2], 3, padding=1))
+        self.set_layer6 = SetBlock(BasicConv2d(_set_channels[2], _set_channels[2], 3, padding=1))
         _gl_in_channels = 32
         _gl_channels = [64, 128]
-        self.gl_layer1 = BasicConv2d(_gl_in_channels, _gl_channels[0], 3,
-            padding=1)
-        self.gl_layer2 = BasicConv2d(_gl_channels[0], _gl_channels[0], 3,
-            padding=1)
-        self.gl_layer3 = BasicConv2d(_gl_channels[0], _gl_channels[1], 3,
-            padding=1)
-        self.gl_layer4 = BasicConv2d(_gl_channels[1], _gl_channels[1], 3,
-            padding=1)
+        self.gl_layer1 = BasicConv2d(_gl_in_channels, _gl_channels[0], 3, padding=1)
+        self.gl_layer2 = BasicConv2d(_gl_channels[0], _gl_channels[0], 3, padding=1)
+        self.gl_layer3 = BasicConv2d(_gl_channels[0], _gl_channels[1], 3, padding=1)
+        self.gl_layer4 = BasicConv2d(_gl_channels[1], _gl_channels[1], 3, padding=1)
         self.gl_pooling = nn.MaxPool2d(2)
         self.bin_num = [1, 2, 4, 8, 16]
-        self.fc_bin = nn.ParameterList([nn.Parameter(nn.init.
-            xavier_uniform_(torch.zeros(sum(self.bin_num) * 2, 128,
-            hidden_dim)))])
+        self.fc_bin = nn.ParameterList([nn.Parameter(nn.init.xavier_uniform_(torch.zeros(sum(self.bin_num) * 2, 128, hidden_dim)))])
         for m in self.modules():
             if isinstance(m, (nn.Conv2d, nn.Conv1d)):
                 nn.init.xavier_uniform_(m.weight.data)
@@ -142,8 +130,7 @@ class SetNet(nn.Module):
         if self.batch_frame is None:
             return torch.max(x, 1)
         else:
-            _tmp = [torch.max(x[:, self.batch_frame[i]:self.batch_frame[i +
-                1], :, :, :], 1) for i in range(len(self.batch_frame) - 1)]
+            _tmp = [torch.max(x[:, self.batch_frame[i]:self.batch_frame[i + 1], :, :, :], 1) for i in range(len(self.batch_frame) - 1)]
             max_list = torch.cat([_tmp[i][0] for i in range(len(_tmp))], 0)
             arg_max_list = torch.cat([_tmp[i][1] for i in range(len(_tmp))], 0)
             return max_list, arg_max_list
@@ -152,11 +139,9 @@ class SetNet(nn.Module):
         if self.batch_frame is None:
             return torch.median(x, 1)
         else:
-            _tmp = [torch.median(x[:, self.batch_frame[i]:self.batch_frame[
-                i + 1], :, :, :], 1) for i in range(len(self.batch_frame) - 1)]
+            _tmp = [torch.median(x[:, self.batch_frame[i]:self.batch_frame[i + 1], :, :, :], 1) for i in range(len(self.batch_frame) - 1)]
             median_list = torch.cat([_tmp[i][0] for i in range(len(_tmp))], 0)
-            arg_median_list = torch.cat([_tmp[i][1] for i in range(len(_tmp
-                ))], 0)
+            arg_median_list = torch.cat([_tmp[i][1] for i in range(len(_tmp))], 0)
             return median_list, arg_median_list
 
     def forward(self, silho, batch_frame=None):
@@ -218,28 +203,22 @@ class TripletLoss(nn.Module):
         dist = self.batch_dist(feature)
         mean_dist = dist.mean(1).mean(1)
         dist = dist.view(-1)
-        hard_hp_dist = torch.max(torch.masked_select(dist, hp_mask).view(n,
-            m, -1), 2)[0]
-        hard_hn_dist = torch.min(torch.masked_select(dist, hn_mask).view(n,
-            m, -1), 2)[0]
-        hard_loss_metric = F.relu(self.margin + hard_hp_dist - hard_hn_dist
-            ).view(n, -1)
+        hard_hp_dist = torch.max(torch.masked_select(dist, hp_mask).view(n, m, -1), 2)[0]
+        hard_hn_dist = torch.min(torch.masked_select(dist, hn_mask).view(n, m, -1), 2)[0]
+        hard_loss_metric = F.relu(self.margin + hard_hp_dist - hard_hn_dist).view(n, -1)
         hard_loss_metric_mean = torch.mean(hard_loss_metric, 1)
         full_hp_dist = torch.masked_select(dist, hp_mask).view(n, m, -1, 1)
         full_hn_dist = torch.masked_select(dist, hn_mask).view(n, m, 1, -1)
-        full_loss_metric = F.relu(self.margin + full_hp_dist - full_hn_dist
-            ).view(n, -1)
+        full_loss_metric = F.relu(self.margin + full_hp_dist - full_hn_dist).view(n, -1)
         full_loss_metric_sum = full_loss_metric.sum(1)
         full_loss_num = (full_loss_metric != 0).sum(1).float()
         full_loss_metric_mean = full_loss_metric_sum / full_loss_num
         full_loss_metric_mean[full_loss_num == 0] = 0
-        return (full_loss_metric_mean, hard_loss_metric_mean, mean_dist,
-            full_loss_num)
+        return full_loss_metric_mean, hard_loss_metric_mean, mean_dist, full_loss_num
 
     def batch_dist(self, x):
         x2 = torch.sum(x ** 2, 2)
-        dist = x2.unsqueeze(2) + x2.unsqueeze(2).transpose(1, 2
-            ) - 2 * torch.matmul(x, x.transpose(1, 2))
+        dist = x2.unsqueeze(2) + x2.unsqueeze(2).transpose(1, 2) - 2 * torch.matmul(x, x.transpose(1, 2))
         dist = torch.sqrt(F.relu(dist))
         return dist
 
@@ -248,8 +227,7 @@ class BasicConv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, **kwargs):
         super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, bias=
-            False, **kwargs)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, bias=False, **kwargs)
 
     def forward(self, x):
         x = self.conv(x)
@@ -279,8 +257,7 @@ class HPM(nn.Module):
     def __init__(self, in_dim, out_dim, bin_level_num=5):
         super(HPM, self).__init__()
         self.bin_num = [(2 ** i) for i in range(bin_level_num)]
-        self.fc_bin = nn.ParameterList([nn.Parameter(nn.init.xavier_uniform
-            (torch.zeros(sum(self.bin_num), in_dim, out_dim)))])
+        self.fc_bin = nn.ParameterList([nn.Parameter(nn.init.xavier_uniform(torch.zeros(sum(self.bin_num), in_dim, out_dim)))])
 
     def forward(self, x):
         feature = list()
@@ -302,18 +279,12 @@ class SetNet(nn.Module):
         self.batch_frame = None
         _in_channels = 1
         _channels = [64, 128, 256]
-        self.set_layer1 = SetBlock(BasicConv2d(_in_channels, _channels[0], 
-            5, padding=2))
-        self.set_layer2 = SetBlock(BasicConv2d(_channels[0], _channels[0], 
-            3, padding=1), True)
-        self.set_layer3 = SetBlock(BasicConv2d(_channels[0], _channels[1], 
-            3, padding=1))
-        self.set_layer4 = SetBlock(BasicConv2d(_channels[1], _channels[1], 
-            3, padding=1), True)
-        self.set_layer5 = SetBlock(BasicConv2d(_channels[1], _channels[2], 
-            3, padding=1))
-        self.set_layer6 = SetBlock(BasicConv2d(_channels[2], _channels[2], 
-            3, padding=1))
+        self.set_layer1 = SetBlock(BasicConv2d(_in_channels, _channels[0], 5, padding=2))
+        self.set_layer2 = SetBlock(BasicConv2d(_channels[0], _channels[0], 3, padding=1), True)
+        self.set_layer3 = SetBlock(BasicConv2d(_channels[0], _channels[1], 3, padding=1))
+        self.set_layer4 = SetBlock(BasicConv2d(_channels[1], _channels[1], 3, padding=1), True)
+        self.set_layer5 = SetBlock(BasicConv2d(_channels[1], _channels[2], 3, padding=1))
+        self.set_layer6 = SetBlock(BasicConv2d(_channels[2], _channels[2], 3, padding=1))
         self.gl_layer1 = BasicConv2d(_channels[0], _channels[1], 3, padding=1)
         self.gl_layer2 = BasicConv2d(_channels[1], _channels[1], 3, padding=1)
         self.gl_layer3 = BasicConv2d(_channels[1], _channels[2], 3, padding=1)
@@ -335,8 +306,7 @@ class SetNet(nn.Module):
         if self.batch_frame is None:
             return torch.max(x, 1)
         else:
-            _tmp = [torch.max(x[:, self.batch_frame[i]:self.batch_frame[i +
-                1], :, :, :], 1) for i in range(len(self.batch_frame) - 1)]
+            _tmp = [torch.max(x[:, self.batch_frame[i]:self.batch_frame[i + 1], :, :, :], 1) for i in range(len(self.batch_frame) - 1)]
             max_list = torch.cat([_tmp[i][0] for i in range(len(_tmp))], 0)
             arg_max_list = torch.cat([_tmp[i][1] for i in range(len(_tmp))], 0)
             return max_list, arg_max_list
@@ -381,20 +351,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HPM,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SetBlock,
+     lambda: ([], {'forward_block': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (TripletLoss,
+     lambda: ([], {'batch_size': 4, 'hard_or_full': 4, 'margin': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_AbnerHqC_GaitSet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(HPM(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SetBlock(*[], **{'forward_block': _mock_layer()}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(TripletLoss(*[], **{'batch_size': 4, 'hard_or_full': 4, 'margin': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 

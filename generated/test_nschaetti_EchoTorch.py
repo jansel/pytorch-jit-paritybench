@@ -88,8 +88,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -154,21 +155,17 @@ class NilsNet(nn.Module):
     A NilsNet
     """
 
-    def __init__(self, reservoir_dim, sfa_dim, ica_dim, pretrained=False,
-        feature_selector='resnet18'):
+    def __init__(self, reservoir_dim, sfa_dim, ica_dim, pretrained=False, feature_selector='resnet18'):
         """
         Constructor
         """
         super(NilsNet, self).__init__()
         if feature_selector == 'resnet18':
-            self.feature_selector = torchvision.models.resnet18(pretrained=True
-                )
+            self.feature_selector = torchvision.models.resnet18(pretrained=True)
         elif feature_selector == 'resnet34':
-            self.feature_selector = torchvision.models.resnet34(pretrained=True
-                )
+            self.feature_selector = torchvision.models.resnet34(pretrained=True)
         elif feature_selector == 'resnet50':
-            self.feature_selector = torchvision.models.resnet50(pretrained=True
-                )
+            self.feature_selector = torchvision.models.resnet50(pretrained=True)
         elif feature_selector == 'alexnet':
             self.feature_selector = torchvision.models.alexnet(pretrained=True)
         self.reservoir_input_dim = self.feature_selector.fc.in_features
@@ -187,11 +184,7 @@ class BDESN(nn.Module):
     Bi-directional Echo State Network module
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim, leaky_rate=1.0,
-        spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None,
-        w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0],
-        w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv',
-        ridge_param=0.0, create_cell=True):
+    def __init__(self, input_dim, hidden_dim, output_dim, leaky_rate=1.0, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0, create_cell=True):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -212,14 +205,8 @@ class BDESN(nn.Module):
         super(BDESN, self).__init__()
         self.output_dim = output_dim
         if create_cell:
-            self.esn_cell = BDESNCell(input_dim=input_dim, hidden_dim=
-                hidden_dim, spectral_radius=spectral_radius, bias_scaling=
-                bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in,
-                w_bias=w_bias, sparsity=sparsity, input_set=input_set,
-                w_sparsity=w_sparsity, nonlin_func=nonlin_func, leaky_rate=
-                leaky_rate, create_cell=create_cell)
-        self.output = RRCell(input_dim=hidden_dim * 2, output_dim=
-            output_dim, ridge_param=ridge_param, learning_algo=learning_algo)
+            self.esn_cell = BDESNCell(input_dim=input_dim, hidden_dim=hidden_dim, spectral_radius=spectral_radius, bias_scaling=bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func, leaky_rate=leaky_rate, create_cell=create_cell)
+        self.output = RRCell(input_dim=hidden_dim * 2, output_dim=output_dim, ridge_param=ridge_param, learning_algo=learning_algo)
 
     @property
     def hidden(self):
@@ -304,10 +291,7 @@ class BDESNCell(nn.Module):
     Bi-directional Echo State Network module
     """
 
-    def __init__(self, input_dim, hidden_dim, spectral_radius=0.9,
-        bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None,
-        sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=
-        torch.tanh, leaky_rate=1.0, create_cell=True):
+    def __init__(self, input_dim, hidden_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, leaky_rate=1.0, create_cell=True):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -325,10 +309,7 @@ class BDESNCell(nn.Module):
         """
         super(BDESNCell, self).__init__()
         if create_cell:
-            self.esn_cell = LiESNCell(leaky_rate, False, input_dim,
-                hidden_dim, spectral_radius, bias_scaling, input_scaling, w,
-                w_in, w_bias, None, sparsity, input_set, w_sparsity,
-                nonlin_func)
+            self.esn_cell = LiESNCell(leaky_rate, False, input_dim, hidden_dim, spectral_radius, bias_scaling, input_scaling, w, w_in, w_bias, None, sparsity, input_set, w_sparsity, nonlin_func)
 
     @property
     def w(self):
@@ -377,12 +358,9 @@ class BDESNCell(nn.Module):
         :return: Output or hidden states
         """
         forward_hidden_states = self.esn_cell(u)
-        backward_hidden_states = self.esn_cell(Variable(torch.from_numpy(np
-            .flip(u.data.numpy(), 1).copy())))
-        backward_hidden_states = Variable(torch.from_numpy(np.flip(
-            backward_hidden_states.data.numpy(), 1).copy()))
-        return torch.cat((forward_hidden_states, backward_hidden_states), dim=2
-            )
+        backward_hidden_states = self.esn_cell(Variable(torch.from_numpy(np.flip(u.data.numpy(), 1).copy())))
+        backward_hidden_states = Variable(torch.from_numpy(np.flip(backward_hidden_states.data.numpy(), 1).copy()))
+        return torch.cat((forward_hidden_states, backward_hidden_states), dim=2)
 
     def finalize(self):
         """
@@ -411,12 +389,7 @@ class BDESNPCA(nn.Module):
     Bi-directional Echo State Network module with PCA reduction
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim, pca_dim,
-        linear_dim, leaky_rate=1.0, spectral_radius=0.9, bias_scaling=0,
-        input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None,
-        input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh,
-        learning_algo='inv', ridge_param=0.0, create_cell=True,
-        pca_batch_size=10):
+    def __init__(self, input_dim, hidden_dim, output_dim, pca_dim, linear_dim, leaky_rate=1.0, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0, create_cell=True, pca_batch_size=10):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -438,14 +411,8 @@ class BDESNPCA(nn.Module):
         self.output_dim = output_dim
         self.pca_dim = pca_dim
         if create_cell:
-            self.esn_cell = BDESNCell(input_dim=input_dim, hidden_dim=
-                hidden_dim, spectral_radius=spectral_radius, bias_scaling=
-                bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in,
-                w_bias=w_bias, sparsity=sparsity, input_set=input_set,
-                w_sparsity=w_sparsity, nonlin_func=nonlin_func, leaky_rate=
-                leaky_rate, create_cell=create_cell)
-        self.ipca = IncrementalPCA(n_components=pca_dim, batch_size=
-            pca_batch_size)
+            self.esn_cell = BDESNCell(input_dim=input_dim, hidden_dim=hidden_dim, spectral_radius=spectral_radius, bias_scaling=bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func, leaky_rate=leaky_rate, create_cell=create_cell)
+        self.ipca = IncrementalPCA(n_components=pca_dim, batch_size=pca_batch_size)
         self.linear1 = nn.Linear(pca_dim, linear_dim)
         self.linear2 = nn.Linear(linear_dim, output_dim)
 
@@ -504,8 +471,7 @@ class BDESNPCA(nn.Module):
         """
         hidden_states = self.esn_cell(u)
         pca_states = torch.zeros(1, hidden_states.size(1), self.pca_dim)
-        pca_states[0] = torch.from_numpy(self.ipca.fit_transform(
-            hidden_states.data[0].numpy()).copy())
+        pca_states[0] = torch.from_numpy(self.ipca.fit_transform(hidden_states.data[0].numpy()).copy())
         pca_states = Variable(pca_states)
         return F.relu(self.linear2(F.relu(self.linear1(pca_states))))
 
@@ -555,8 +521,7 @@ class ConceptorPool(object):
     ConceptorPool
     """
 
-    def __init__(self, conceptor_dim, conceptors=list(), esn=None, dtype=
-        torch.float32):
+    def __init__(self, conceptor_dim, conceptors=list(), esn=None, dtype=torch.float32):
         """
         Constructor
         :param conceptors:
@@ -632,8 +597,7 @@ class ConceptorPool(object):
         N = A.logical_not()
         for b in range(batch_size):
             for t in range(time_length):
-                evidences[b, t] = torch.mm(x[b, t].view(1, -1), N.get_C()).mm(x
-                    [b, t].view(-1, 1))
+                evidences[b, t] = torch.mm(x[b, t].view(1, -1), N.get_C()).mm(x[b, t].view(-1, 1))
         return torch.mean(evidences, dim=1)
 
     def E_neg(self, p):
@@ -654,8 +618,7 @@ class ConceptorPool(object):
                 A = ConceptorPool.compute_A(other_c)
                 N = A.logical_not()
                 for t in range(time_length):
-                    evidences[b, t, i] = torch.mm(x[b, t].view(1, -1), N.
-                        get_C()).mm(x[b, t].view(-1, 1))
+                    evidences[b, t, i] = torch.mm(x[b, t].view(1, -1), N.get_C()).mm(x[b, t].view(-1, 1))
         return torch.mean(evidences, dim=1)
 
     def E(self, p):
@@ -672,8 +635,7 @@ class ConceptorPool(object):
         :param name: Conceptor's name
         :return: New conceptor
         """
-        new_conceptor = Conceptor(self.conceptor_dim, aperture=aperture,
-            name=name, dtype=self.dtype)
+        new_conceptor = Conceptor(self.conceptor_dim, aperture=aperture, name=name, dtype=self.dtype)
         self.conceptors.append(new_conceptor)
         self.name_to_conceptor[name] = new_conceptor
         return new_conceptor
@@ -799,8 +761,7 @@ class ConceptorPool(object):
         for b in range(batch_size):
             for t in range(time_length):
                 for i, c in enumerate(conceptors):
-                    evidences[b, t, i] = torch.mm(x[b, t].view(1, -1), c.
-                        get_C()).mm(x[b, t].view(-1, 1))
+                    evidences[b, t, i] = torch.mm(x[b, t].view(1, -1), c.get_C()).mm(x[b, t].view(-1, 1))
         return torch.mean(evidences, dim=1)
 
     @staticmethod
@@ -845,14 +806,7 @@ class ConceptorNet(nn.Module):
     ESN-based ConceptorNet
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim=None,
-        spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None,
-        w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0],
-        w_sparsity=None, leaky_rate=1.0, nonlin_func=torch.tanh,
-        learning_algo='inv', ridge_param=0.0, with_bias=True, seed=None,
-        washout=1, w_distrib='uniform', win_distrib='uniform',
-        wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0),
-        wbias_normal=(0.0, 1.0), w_ridge_param=0.0, dtype=torch.float32):
+    def __init__(self, input_dim, hidden_dim, output_dim=None, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, leaky_rate=1.0, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0, with_bias=True, seed=None, washout=1, w_distrib='uniform', win_distrib='uniform', wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0), w_ridge_param=0.0, dtype=torch.float32):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -874,23 +828,10 @@ class ConceptorNet(nn.Module):
         self.with_bias = with_bias
         self.washout = washout
         self.hidden_dim = hidden_dim
-        self.esn_cell = ConceptorNetCell(leaky_rate, False, input_dim,
-            hidden_dim, spectral_radius=spectral_radius, bias_scaling=
-            bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in,
-            w_bias=w_bias, sparsity=sparsity, input_set=input_set,
-            w_sparsity=w_sparsity, nonlin_func=nonlin_func, feedbacks=False,
-            feedbacks_dim=input_dim, wfdb_sparsity=None,
-            normalize_feedbacks=False, seed=seed, w_distrib=w_distrib,
-            win_distrib=win_distrib, wbias_distrib=wbias_distrib,
-            win_normal=win_normal, w_normal=w_normal, wbias_normal=
-            wbias_normal, dtype=dtype)
-        self.input_recreation = RRCell(hidden_dim, hidden_dim,
-            w_ridge_param, None, with_bias=False, learning_algo=
-            learning_algo, softmax_output=False, averaged=True, dtype=dtype)
+        self.esn_cell = ConceptorNetCell(leaky_rate, False, input_dim, hidden_dim, spectral_radius=spectral_radius, bias_scaling=bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func, feedbacks=False, feedbacks_dim=input_dim, wfdb_sparsity=None, normalize_feedbacks=False, seed=seed, w_distrib=w_distrib, win_distrib=win_distrib, wbias_distrib=wbias_distrib, win_normal=win_normal, w_normal=w_normal, wbias_normal=wbias_normal, dtype=dtype)
+        self.input_recreation = RRCell(hidden_dim, hidden_dim, w_ridge_param, None, with_bias=False, learning_algo=learning_algo, softmax_output=False, averaged=True, dtype=dtype)
         if output_dim is not None:
-            self.output = RRCell(hidden_dim, output_dim, ridge_param, None,
-                with_bias=False, learning_algo=learning_algo,
-                softmax_output=False, averaged=True, dtype=dtype)
+            self.output = RRCell(hidden_dim, output_dim, ridge_param, None, with_bias=False, learning_algo=learning_algo, softmax_output=False, averaged=True, dtype=dtype)
         else:
             self.output = None
 
@@ -967,8 +908,7 @@ class ConceptorNet(nn.Module):
         """
         self.esn_cell.w = w
 
-    def forward(self, u=None, y=None, c=None, reset_state=True, length=None,
-        mu=None, return_states=False, x0=None):
+    def forward(self, u=None, y=None, c=None, reset_state=True, length=None, mu=None, return_states=False, x0=None):
         """
         Forward
         :param u: Input signal.
@@ -981,8 +921,7 @@ class ConceptorNet(nn.Module):
             x = hidden_states[:, self.washout:]
             time_length = x.shape[1]
             x_tilda = hidden_states[:, self.washout - 1:-1]
-            bias = self.esn_cell.w_bias[0].expand(batch_size, time_length,
-                self.hidden_dim)
+            bias = self.esn_cell.w_bias[0].expand(batch_size, time_length, self.hidden_dim)
             self.input_recreation(x_tilda, self.arctanh(x) - bias)
             if self.output is not None and y is not None:
                 self.output(x, y[:, self.washout:])
@@ -994,9 +933,7 @@ class ConceptorNet(nn.Module):
             else:
                 return hidden_states
         else:
-            hidden_states = self.esn_cell(u=u, reset_state=reset_state,
-                input_recreation=self.input_recreation, conceptor=c, length
-                =length, mu=mu, x0=x0)
+            hidden_states = self.esn_cell(u=u, reset_state=reset_state, input_recreation=self.input_recreation, conceptor=c, length=length, mu=mu, x0=x0)
             if self.output is not None:
                 return self.output(hidden_states)
             else:
@@ -1031,15 +968,7 @@ class ESN(nn.Module):
     Echo State Network module
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim, spectral_radius=
-        0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=
-        None, w_fdb=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=
-        None, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0,
-        create_cell=True, feedbacks=False, with_bias=True, wfdb_sparsity=
-        None, normalize_feedbacks=False, softmax_output=False, seed=None,
-        washout=0, w_distrib='uniform', win_distrib='uniform',
-        wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0),
-        wbias_normal=(0.0, 1.0), dtype=torch.float32):
+    def __init__(self, input_dim, hidden_dim, output_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, w_fdb=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0, create_cell=True, feedbacks=False, with_bias=True, wfdb_sparsity=None, normalize_feedbacks=False, softmax_output=False, seed=None, washout=0, w_distrib='uniform', win_distrib='uniform', wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0), dtype=torch.float32):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -1066,14 +995,8 @@ class ESN(nn.Module):
         self.washout = washout
         self.dtype = dtype
         if create_cell:
-            self.esn_cell = ESNCell(input_dim, hidden_dim, spectral_radius,
-                bias_scaling, input_scaling, w, w_in, w_bias, w_fdb,
-                sparsity, input_set, w_sparsity, nonlin_func, feedbacks,
-                output_dim, wfdb_sparsity, normalize_feedbacks, seed,
-                w_distrib, win_distrib, wbias_distrib, win_normal, w_normal,
-                wbias_normal, dtype)
-        self.output = RRCell(hidden_dim, output_dim, ridge_param, feedbacks,
-            with_bias, learning_algo, softmax_output, dtype)
+            self.esn_cell = ESNCell(input_dim, hidden_dim, spectral_radius, bias_scaling, input_scaling, w, w_in, w_bias, w_fdb, sparsity, input_set, w_sparsity, nonlin_func, feedbacks, output_dim, wfdb_sparsity, normalize_feedbacks, seed, w_distrib, win_distrib, wbias_distrib, win_normal, w_normal, wbias_normal, dtype)
+        self.output = RRCell(hidden_dim, output_dim, ridge_param, feedbacks, with_bias, learning_algo, softmax_output, dtype)
 
     @property
     def hidden(self):
@@ -1132,13 +1055,11 @@ class ESN(nn.Module):
         if self.feedbacks and self.training:
             hidden_states = self.esn_cell(u, y, reset_state=reset_state)
         elif self.feedbacks and not self.training:
-            hidden_states = self.esn_cell(u, w_out=self.output.w_out,
-                reset_state=reset_state)
+            hidden_states = self.esn_cell(u, w_out=self.output.w_out, reset_state=reset_state)
         else:
             hidden_states = self.esn_cell(u, reset_state=reset_state)
         if y is not None:
-            return self.output(hidden_states[:, self.washout:], y[:, self.
-                washout:])
+            return self.output(hidden_states[:, self.washout:], y[:, self.washout:])
         else:
             return self.output(hidden_states[:, self.washout:], y)
 
@@ -1169,14 +1090,7 @@ class ESNCell(nn.Module):
     Echo State Network layer
     """
 
-    def __init__(self, input_dim, output_dim, spectral_radius=0.9,
-        bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None,
-        w_fdb=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None,
-        nonlin_func=torch.tanh, feedbacks=False, feedbacks_dim=None,
-        wfdb_sparsity=None, normalize_feedbacks=False, seed=None, w_distrib
-        ='uniform', win_distrib='uniform', wbias_distrib='uniform',
-        win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0),
-        dtype=torch.float32):
+    def __init__(self, input_dim, output_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, w_fdb=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, feedbacks=False, feedbacks_dim=None, wfdb_sparsity=None, normalize_feedbacks=False, seed=None, w_distrib='uniform', win_distrib='uniform', wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0), dtype=torch.float32):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -1218,8 +1132,7 @@ class ESNCell(nn.Module):
         self.register_buffer('w', self._generate_w(w, seed=seed))
         self.register_buffer('w_bias', self._generate_wbias(w_bias, seed=seed))
         if feedbacks:
-            self.register_buffer('w_fdb', self._generate_wfdb(w_fdb, seed=seed)
-                )
+            self.register_buffer('w_fdb', self._generate_wfdb(w_fdb, seed=seed))
 
     def forward(self, u, y=None, w_out=None, reset_state=True):
         """
@@ -1231,8 +1144,7 @@ class ESNCell(nn.Module):
         """
         time_length = int(u.size()[1])
         n_batches = int(u.size()[0])
-        outputs = Variable(torch.zeros(n_batches, time_length, self.
-            output_dim, dtype=self.dtype))
+        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim, dtype=self.dtype))
         outputs = outputs if self.hidden.is_cuda else outputs
         for b in range(n_batches):
             if reset_state:
@@ -1246,8 +1158,7 @@ class ESNCell(nn.Module):
                     y_wfdb = self.w_fdb.mv(yt)
                     x = u_win + x_w + y_wfdb + self.w_bias
                 elif self.feedbacks and not self.training and w_out is not None:
-                    bias_hidden = torch.cat((Variable(torch.ones(1)), self.
-                        hidden), dim=0)
+                    bias_hidden = torch.cat((Variable(torch.ones(1)), self.hidden), dim=0)
                     yt = w_out.t().mv(bias_hidden)
                     if self.normalize_feedbacks:
                         yt -= torch.min(yt)
@@ -1267,8 +1178,7 @@ class ESNCell(nn.Module):
         Init hidden layer
         :return: Initiated hidden layer
         """
-        return Variable(torch.zeros(self.output_dim, dtype=self.dtype),
-            requires_grad=False)
+        return Variable(torch.zeros(self.output_dim, dtype=self.dtype), requires_grad=False)
 
     def reset_hidden(self):
         """
@@ -1298,9 +1208,7 @@ class ESNCell(nn.Module):
         :return:
         """
         if w is None:
-            w = self.generate_w(output_dim=self.output_dim, w_distrib=self.
-                w_distrib, w_sparsity=self.w_sparsity, mean=self.w_normal[0
-                ], std=self.w_normal[1], seed=seed, dtype=self.dtype)
+            w = self.generate_w(output_dim=self.output_dim, w_distrib=self.w_distrib, w_sparsity=self.w_sparsity, mean=self.w_normal[0], std=self.w_normal[1], seed=seed, dtype=self.dtype)
         elif callable(w):
             w = w(self.output_dim)
         w *= self.spectral_radius / echotorch.utils.spectral_radius(w)
@@ -1316,17 +1224,13 @@ class ESNCell(nn.Module):
             torch.random.manual_seed(seed)
         if w_in is None:
             if self.win_distrib == 'uniform':
-                w_in = self.generate_uniform_matrix(size=(self.output_dim,
-                    self.input_dim), sparsity=self.sparsity, input_set=self
-                    .input_set)
+                w_in = self.generate_uniform_matrix(size=(self.output_dim, self.input_dim), sparsity=self.sparsity, input_set=self.input_set)
                 if self.dtype == torch.float32:
                     w_in = torch.from_numpy(w_in.astype(np.float32))
                 else:
                     w_in = torch.from_numpy(w_in.astype(np.float64))
             else:
-                w_in = self.generate_gaussian_matrix(size=(self.output_dim,
-                    self.input_dim), sparsity=self.sparsity, mean=self.
-                    win_normal[0], std=self.win_normal[1], dtype=self.dtype)
+                w_in = self.generate_gaussian_matrix(size=(self.output_dim, self.input_dim), sparsity=self.sparsity, mean=self.win_normal[0], std=self.win_normal[1], dtype=self.dtype)
             w_in *= self.input_scaling
         elif callable(w_in):
             w_in = w_in(self.output_dim, self.input_dim)
@@ -1341,16 +1245,13 @@ class ESNCell(nn.Module):
             torch.manual_seed(seed)
         if w_bias is None:
             if self.w_distrib == 'uniform':
-                w_bias = self.generate_uniform_matrix(size=(1, self.
-                    output_dim), sparsity=1.0, input_set=[-1.0, 1.0])
+                w_bias = self.generate_uniform_matrix(size=(1, self.output_dim), sparsity=1.0, input_set=[-1.0, 1.0])
                 if self.dtype == torch.float32:
                     w_bias = torch.from_numpy(w_bias.astype(np.float32))
                 else:
                     w_bias = torch.from_numpy(w_bias.astype(np.float64))
             else:
-                w_bias = self.generate_gaussian_matrix(size=(1, self.
-                    output_dim), sparsity=1.0, mean=self.wbias_normal[0],
-                    std=self.wbias_normal[1], dtype=self.dtype)
+                w_bias = self.generate_gaussian_matrix(size=(1, self.output_dim), sparsity=1.0, mean=self.wbias_normal[0], std=self.wbias_normal[1], dtype=self.dtype)
             w_bias *= self.bias_scaling
         elif callable(w_bias):
             w_bias = w_bias(self.output_dim)
@@ -1365,15 +1266,10 @@ class ESNCell(nn.Module):
             torch.manual_seed(seed)
         if w_fdb is None:
             if self.wfdb_sparsity is None:
-                w_fdb = self.input_scaling * (np.random.randint(0, 2, (self
-                    .output_dim, self.feedbacks_dim)) * 2.0 - 1.0)
+                w_fdb = self.input_scaling * (np.random.randint(0, 2, (self.output_dim, self.feedbacks_dim)) * 2.0 - 1.0)
                 w_fdb = torch.from_numpy(w_fdb.astype(np.float32))
             else:
-                w_fdb = self.input_scaling * np.random.choice(np.append([0],
-                    self.input_set), (self.output_dim, self.feedbacks_dim),
-                    p=np.append([1.0 - self.wfdb_sparsity], [self.
-                    wfdb_sparsity / len(self.input_set)] * len(self.input_set))
-                    )
+                w_fdb = self.input_scaling * np.random.choice(np.append([0], self.input_set), (self.output_dim, self.feedbacks_dim), p=np.append([1.0 - self.wfdb_sparsity], [self.wfdb_sparsity / len(self.input_set)] * len(self.input_set)))
                 if self.dtype == torch.float32:
                     w_fdb = torch.from_numpy(w_fdb.astype(np.float32))
                 else:
@@ -1393,14 +1289,11 @@ class ESNCell(nn.Module):
         if sparsity is None:
             w = np.random.randint(0, 2, size) * 2.0 - 1.0
         else:
-            w = np.random.choice(np.append([0], input_set), size, p=np.
-                append([1.0 - sparsity], [sparsity / len(input_set)] * len(
-                input_set)))
+            w = np.random.choice(np.append([0], input_set), size, p=np.append([1.0 - sparsity], [sparsity / len(input_set)] * len(input_set)))
         return w
 
     @staticmethod
-    def generate_gaussian_matrix(size, sparsity, mean=0.0, std=1.0, dtype=
-        torch.float32):
+    def generate_gaussian_matrix(size, sparsity, mean=0.0, std=1.0, dtype=torch.float32):
         """
         Generate gaussian Win matrix
         :return:
@@ -1417,8 +1310,7 @@ class ESNCell(nn.Module):
         return w
 
     @staticmethod
-    def generate_w(output_dim, w_distrib='uniform', w_sparsity=None, mean=
-        0.0, std=1.0, seed=None, dtype=torch.float32):
+    def generate_w(output_dim, w_distrib='uniform', w_sparsity=None, mean=0.0, std=1.0, seed=None, dtype=torch.float32):
         """
         Generate W matrix
         :param output_dim:
@@ -1429,13 +1321,10 @@ class ESNCell(nn.Module):
             torch.manual_seed(seed)
             np.random.seed(seed)
         if w_distrib == 'uniform':
-            w = ESNCell.generate_uniform_matrix(size=(output_dim,
-                output_dim), sparsity=w_sparsity, input_set=[-1.0, 1.0])
+            w = ESNCell.generate_uniform_matrix(size=(output_dim, output_dim), sparsity=w_sparsity, input_set=[-1.0, 1.0])
             w = torch.from_numpy(w.astype(np.float32))
         else:
-            w = ESNCell.generate_gaussian_matrix(size=(output_dim,
-                output_dim), sparsity=w_sparsity, mean=mean, std=std, dtype
-                =dtype)
+            w = ESNCell.generate_gaussian_matrix(size=(output_dim, output_dim), sparsity=w_sparsity, mean=mean, std=std, dtype=dtype)
         return w
 
     @staticmethod
@@ -1452,10 +1341,8 @@ class ESNCell(nn.Module):
             for j in range(m.shape[1]):
                 if m[i, j] != 0.0:
                     rows = torch.cat((rows, torch.LongTensor([i])), dim=0)
-                    columns = torch.cat((columns, torch.LongTensor([j])), dim=0
-                        )
-                    values = torch.cat((values, torch.FloatTensor([m[i, j]]
-                        )), dim=0)
+                    columns = torch.cat((columns, torch.LongTensor([j])), dim=0)
+                    values = torch.cat((values, torch.FloatTensor([m[i, j]])), dim=0)
         indices = torch.cat((rows.unsqueeze(0), columns.unsqueeze(0)), dim=0)
         return torch.sparse.FloatTensor(indices, values)
 
@@ -1465,10 +1352,7 @@ class GatedESN(nn.Module):
     Gated Echo State Network
     """
 
-    def __init__(self, input_dim, reservoir_dim, pca_dim, hidden_dim,
-        leaky_rate=1.0, spectral_radius=0.9, bias_scaling=0, input_scaling=
-        1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0,
-        -1.0], w_sparsity=None, nonlin_func=torch.tanh, create_cell=True):
+    def __init__(self, input_dim, reservoir_dim, pca_dim, hidden_dim, leaky_rate=1.0, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, create_cell=True):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -1492,15 +1376,9 @@ class GatedESN(nn.Module):
         self.hidden_dim = hidden_dim
         self.finalized = False
         if create_cell:
-            self.esn_cell = LiESNCell(input_dim=input_dim, output_dim=
-                reservoir_dim, spectral_radius=spectral_radius,
-                bias_scaling=bias_scaling, input_scaling=input_scaling, w=w,
-                w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=
-                input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func,
-                leaky_rate=leaky_rate)
+            self.esn_cell = LiESNCell(input_dim=input_dim, output_dim=reservoir_dim, spectral_radius=spectral_radius, bias_scaling=bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func, leaky_rate=leaky_rate)
         if self.pca_dim > 0:
-            self.pca_cell = PCACell(input_dim=reservoir_dim, output_dim=pca_dim
-                )
+            self.pca_cell = PCACell(input_dim=reservoir_dim, output_dim=pca_dim)
         self.register_parameter('wzp', nn.Parameter(self.init_wzp()))
         self.register_parameter('wzh', nn.Parameter(self.init_wzh()))
         self.register_parameter('bz', nn.Parameter(self.init_bz()))
@@ -1588,15 +1466,11 @@ class GatedESN(nn.Module):
             pca_states.required_grad = False
             if self.finalized:
                 return
-            hidden_states = Variable(torch.zeros(n_batches, time_length,
-                self.hidden_dim))
-            hidden_states = (hidden_states if pca_states.is_cuda else
-                hidden_states)
+            hidden_states = Variable(torch.zeros(n_batches, time_length, self.hidden_dim))
+            hidden_states = hidden_states if pca_states.is_cuda else hidden_states
         else:
-            hidden_states = Variable(torch.zeros(n_batches, time_length,
-                self.hidden_dim))
-            hidden_states = (hidden_states if reservoir_states.is_cuda else
-                hidden_states)
+            hidden_states = Variable(torch.zeros(n_batches, time_length, self.hidden_dim))
+            hidden_states = hidden_states if reservoir_states.is_cuda else hidden_states
         for b in range(n_batches):
             hidden = self.init_hidden()
             if u.is_cuda:
@@ -1679,8 +1553,7 @@ class ICACell(nn.Module):
         :param x:
         :return:
         """
-        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)),
-            requires_grad=False)
+        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)), requires_grad=False)
         return torch.cat((bias, x), dim=2)
 
 
@@ -1707,8 +1580,7 @@ class OnlinePCACell(nn.Module):
     vol. 25, 1034--1040, 2003.
     """
 
-    def __init__(self, input_dim, output_dim, amn_params=(20, 200, 2000, 3),
-        init_eigen_vectors=None, var_rel=1, numx_rng=None):
+    def __init__(self, input_dim, output_dim, amn_params=(20, 200, 2000, 3), init_eigen_vectors=None, var_rel=1, numx_rng=None):
         """
         Constructor
         :param input_dim:
@@ -1751,15 +1623,11 @@ class OnlinePCACell(nn.Module):
         if self._input_dim is None:
             self._input_dim = self._init_v.shape[0]
         else:
-            assert self.input_dim == self._init_v.shape[0], Exception(
-                u'Dimension mismatch. init_eigen_vectors shape[0] must be {}, given {}'
-                .format(self.input_dim, self._init_v.shape[0]))
+            assert self.input_dim == self._init_v.shape[0], Exception(u'Dimension mismatch. init_eigen_vectors shape[0] must be {}, given {}'.format(self.input_dim, self._init_v.shape[0]))
         if self._output_dim is None:
             self._output_dim = self._init_v.shape[1]
         else:
-            assert (self.output_dim == self._init_v.shape[1], Exception(
-                u'Dimension mismatch, init_eigen_vectors shape[1] must be {}, given {}'
-                .format(self.output_dim, self._init_v.shape[1])))
+            assert (self.output_dim == self._init_v.shape[1], Exception(u'Dimension mismatch, init_eigen_vectors shape[1] must be {}, given {}'.format(self.output_dim, self._init_v.shape[1])))
         if self.v is None:
             self._v = self._init_v.copy()
             self.d = torch.norm(self._v, p=2, dim=0)
@@ -1865,11 +1733,9 @@ class OnlinePCACell(nn.Module):
         """
         if self._init_v is None:
             if self.output_dim is not None:
-                self.init_eigen_vectors = 0.1 * torch.randn(self.input_dim,
-                    self.output_dim)
+                self.init_eigen_vectors = 0.1 * torch.randn(self.input_dim, self.output_dim)
             else:
-                self.init_eigen_vectors = 0.1 * torch.randn(self.input_dim,
-                    self.input_dim)
+                self.init_eigen_vectors = 0.1 * torch.randn(self.input_dim, self.input_dim)
 
     def _amnesic(self, n):
         """
@@ -1895,8 +1761,7 @@ class OnlinePCACell(nn.Module):
         :param x:
         :return:
         """
-        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)),
-            requires_grad=False)
+        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)), requires_grad=False)
         return torch.cat((bias, x), dim=2)
 
 
@@ -1905,8 +1770,7 @@ class PCACell(nn.Module):
     Filter the input data through the most significatives principal components
     """
 
-    def __init__(self, input_dim, output_dim, svd=False, reduce=False,
-        var_rel=1e-12, var_abs=1e-15, var_part=None):
+    def __init__(self, input_dim, output_dim, svd=False, reduce=False, var_rel=1e-12, var_abs=1e-15, var_part=None):
         """
         Constructor
         :param input_dim:
@@ -1925,10 +1789,8 @@ class PCACell(nn.Module):
         self.var_rel = var_rel
         self.var_part = var_part
         self.reduce = reduce
-        self.register_buffer('xTx', Variable(torch.zeros(input_dim,
-            input_dim), requires_grad=False))
-        self.register_buffer('xTx_avg', Variable(torch.zeros(input_dim),
-            requires_grad=False))
+        self.register_buffer('xTx', Variable(torch.zeros(input_dim, input_dim), requires_grad=False))
+        self.register_buffer('xTx_avg', Variable(torch.zeros(input_dim), requires_grad=False))
         self.d = None
         self.v = None
         self.total_variance = None
@@ -1953,8 +1815,7 @@ class PCACell(nn.Module):
         """
         n_batches = int(x.size()[0])
         time_length = x.size()[1]
-        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim)
-            )
+        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim))
         outputs = outputs if x.is_cuda else outputs
         for b in range(n_batches):
             s = x[b]
@@ -1971,9 +1832,7 @@ class PCACell(nn.Module):
         xTx, avg, tlen = self._fix(self.xTx, self.xTx_avg, self.tlen)
         self.avg = avg.unsqueeze(0)
         if self.tlen < self.input_dim:
-            raise Exception(
-                u'The number of observations ({}) is larger than  the number of input variables ({})'
-                .format(self.tlen, self.input_dim))
+            raise Exception(u'The number of observations ({}) is larger than  the number of input variables ({})'.format(self.tlen, self.input_dim))
         total_var = torch.diag(xTx).sum()
         d, v = torch.symeig(xTx, eigenvectors=True)
         if float(d.min()) < 0:
@@ -2038,8 +1897,7 @@ class PCACell(nn.Module):
         if n is None:
             n = y.shape[1]
         if n > self.output_dim:
-            raise Exception(u'y has dimension {} but should but at most {}'
-                .format(n, self.output_dim))
+            raise Exception(u'y has dimension {} but should but at most {}'.format(n, self.output_dim))
         v = self.get_rec_matrix()
         if n is not None:
             return y.mm(v[:n, :]) + self.avg
@@ -2109,8 +1967,7 @@ class PCACell(nn.Module):
         :param x:
         :return:
         """
-        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)),
-            requires_grad=False)
+        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)), requires_grad=False)
         return torch.cat((bias, x), dim=2)
 
 
@@ -2119,9 +1976,7 @@ class RRCell(nn.Module):
     Ridge Regression cell
     """
 
-    def __init__(self, input_dim, output_dim, ridge_param=0.0, feedbacks=
-        False, with_bias=True, learning_algo='inv', softmax_output=False,
-        averaged=False, dtype=torch.float32):
+    def __init__(self, input_dim, output_dim, ridge_param=0.0, feedbacks=False, with_bias=True, learning_algo='inv', softmax_output=False, averaged=False, dtype=torch.float32):
         """
         Constructor
         :param input_dim: Inputs dimension.
@@ -2143,12 +1998,9 @@ class RRCell(nn.Module):
             self.x_size = input_dim + 1
         else:
             self.x_size = input_dim
-        self.register_buffer('xTx', Variable(torch.zeros(self.x_size, self.
-            x_size, dtype=dtype), requires_grad=False))
-        self.register_buffer('xTy', Variable(torch.zeros(self.x_size,
-            output_dim, dtype=dtype), requires_grad=False))
-        self.register_buffer('w_out', Variable(torch.zeros(1, input_dim,
-            dtype=dtype), requires_grad=False))
+        self.register_buffer('xTx', Variable(torch.zeros(self.x_size, self.x_size, dtype=dtype), requires_grad=False))
+        self.register_buffer('xTy', Variable(torch.zeros(self.x_size, output_dim, dtype=dtype), requires_grad=False))
+        self.register_buffer('w_out', Variable(torch.zeros(1, input_dim, dtype=dtype), requires_grad=False))
 
     def reset(self):
         """
@@ -2195,8 +2047,7 @@ class RRCell(nn.Module):
             else:
                 return x
         elif not self.training:
-            outputs = Variable(torch.zeros(batch_size, time_length, self.
-                output_dim, dtype=self.dtype), requires_grad=False)
+            outputs = Variable(torch.zeros(batch_size, time_length, self.output_dim, dtype=self.dtype), requires_grad=False)
             outputs = outputs if self.w_out.is_cuda else outputs
             for b in range(batch_size):
                 outputs[b] = torch.mm(x[b], self.w_out)
@@ -2211,20 +2062,17 @@ class RRCell(nn.Module):
         """
         if self.learning_algo == 'inv':
             if not self.averaged:
-                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.
-                    input_dim + self.with_bias, dtype=self.dtype)
+                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.input_dim + self.with_bias, dtype=self.dtype)
                 inv_xTx = ridge_xTx.inverse()
                 self.w_out.data = torch.mm(inv_xTx, self.xTy).data
             else:
                 self.xTx = self.xTx / self.n_samples
                 self.xTy = self.xTy / self.n_samples
-                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.
-                    input_dim + self.with_bias, dtype=self.dtype)
+                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.input_dim + self.with_bias, dtype=self.dtype)
                 inv_xTx = ridge_xTx.inverse()
                 self.w_out.data = torch.mm(inv_xTx, self.xTy).data
         else:
-            self.w_out.data = torch.gesv(self.xTy, self.xTx + torch.eye(
-                self.esn_cell.output_dim).mul(self.ridge_param)).data
+            self.w_out.data = torch.gesv(self.xTy, self.xTx + torch.eye(self.esn_cell.output_dim).mul(self.ridge_param)).data
         self.train(train)
 
     def _add_constant(self, x):
@@ -2234,11 +2082,9 @@ class RRCell(nn.Module):
         :return:
         """
         if x.is_cuda:
-            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype
-                =self.dtype), requires_grad=False)
+            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype=self.dtype), requires_grad=False)
         else:
-            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype
-                =self.dtype), requires_grad=False)
+            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype=self.dtype), requires_grad=False)
         return torch.cat((bias, x), dim=2)
 
 
@@ -2247,11 +2093,9 @@ class SFACell(nn.Module):
     Extract the slowly varying components from input data.
     """
     _type_keys = ['f', 'd', 'F', 'D']
-    _type_conv = {('f', 'd'): 'd', ('f', 'F'): 'F', ('f', 'D'): 'D', ('d',
-        'F'): 'D', ('d', 'D'): 'D', ('F', 'd'): 'D', ('F', 'D'): 'D'}
+    _type_conv = {('f', 'd'): 'd', ('f', 'F'): 'F', ('f', 'D'): 'D', ('d', 'F'): 'D', ('d', 'D'): 'D', ('F', 'd'): 'D', ('F', 'D'): 'D'}
 
-    def __init__(self, input_dim, output_dim, include_last_sample=True,
-        rank_deficit_method='none', use_bias=True):
+    def __init__(self, input_dim, output_dim, include_last_sample=True, rank_deficit_method='none', use_bias=True):
         """
         Constructor
         :param input_dim: Input dimension
@@ -2316,10 +2160,8 @@ class SFACell(nn.Module):
         """
         Finalize training with LU factorization or Pseudo-inverse
         """
-        self.xTx, self.xTx_avg, self.tlen = self._fix(self.xtX, self.
-            xTx_avg, self.tlen, center=True)
-        self.dxTdx, self.dxTdx_avg, self.tlen = self._fix(self.dxTdx, self.
-            dxTdx_avg, self.tlen, center=False)
+        self.xTx, self.xTx_avg, self.tlen = self._fix(self.xtX, self.xTx_avg, self.tlen, center=True)
+        self.dxTdx, self.dxTdx_avg, self.tlen = self._fix(self.dxTdx, self.dxTdx_avg, self.tlen, center=False)
         rng = 1, self.output_dim
         self.d, self.sf = self._symeig(self.dxTdx, self.xTx, rng)
         d = self.d
@@ -2392,8 +2234,7 @@ class SFACell(nn.Module):
         """
         tol = np.finfo(dtype.type).eps * 100
         if abs(w.imag).max() > tol:
-            err = ('Some eigenvalues have significant imaginary part: %s ' %
-                str(w))
+            err = 'Some eigenvalues have significant imaginary part: %s ' % str(w)
             raise Exception(err)
 
     def _greatest_common_dtype(self, alist):
@@ -2442,11 +2283,7 @@ class StackedESN(nn.Module):
     Stacked Echo State Network module
     """
 
-    def __init__(self, input_dim, hidden_dim, output_dim, leaky_rate=1.0,
-        spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None,
-        w_in=None, w_bias=None, sparsity=None, input_set=(1.0, -1.0),
-        w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv',
-        ridge_param=0.0, with_bias=True):
+    def __init__(self, input_dim, hidden_dim, output_dim, leaky_rate=1.0, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=(1.0, -1.0), w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0, with_bias=True):
         """
         Constructor
 
@@ -2474,16 +2311,10 @@ class StackedESN(nn.Module):
         for n in range(self.n_layers):
             layer_input_dim = input_dim if n == 0 else hidden_dim[n - 1]
             self.n_features += hidden_dim[n]
-            layer_leaky_rate = leaky_rate[n] if type(leaky_rate
-                ) is list or type(leaky_rate) is np.ndarray else leaky_rate
-            layer_spectral_radius = spectral_radius[n] if type(spectral_radius
-                ) is list or type(spectral_radius
-                ) is np.ndarray else spectral_radius
-            layer_bias_scaling = bias_scaling[n] if type(bias_scaling
-                ) is list or type(bias_scaling) is np.ndarray else bias_scaling
-            layer_input_scaling = input_scaling[n] if type(input_scaling
-                ) is list or type(input_scaling
-                ) is np.ndarray else input_scaling
+            layer_leaky_rate = leaky_rate[n] if type(leaky_rate) is list or type(leaky_rate) is np.ndarray else leaky_rate
+            layer_spectral_radius = spectral_radius[n] if type(spectral_radius) is list or type(spectral_radius) is np.ndarray else spectral_radius
+            layer_bias_scaling = bias_scaling[n] if type(bias_scaling) is list or type(bias_scaling) is np.ndarray else bias_scaling
+            layer_input_scaling = input_scaling[n] if type(input_scaling) is list or type(input_scaling) is np.ndarray else input_scaling
             if type(w) is torch.Tensor and w.dim() == 3:
                 layer_w = w[n]
             elif type(w) is torch.Tensor:
@@ -2502,21 +2333,12 @@ class StackedESN(nn.Module):
                 layer_w_bias = w_bias
             else:
                 layer_w_bias = None
-            layer_sparsity = sparsity[n] if type(sparsity) is list or type(
-                sparsity) is np.ndarray else sparsity
-            layer_input_set = input_set[n] if type(input_set) is list or type(
-                input_set) is np.ndarray else input_set
-            layer_w_sparsity = w_sparsity[n] if type(w_sparsity
-                ) is list or type(w_sparsity) is np.ndarray else w_sparsity
-            layer_nonlin_func = nonlin_func[n] if type(nonlin_func
-                ) is list or type(nonlin_func) is np.ndarray else nonlin_func
-            self.esn_layers.append(LiESNCell(layer_leaky_rate, False,
-                layer_input_dim, hidden_dim[n], layer_spectral_radius,
-                layer_bias_scaling, layer_input_scaling, layer_w,
-                layer_w_in, layer_w_bias, None, layer_sparsity,
-                layer_input_set, layer_w_sparsity, layer_nonlin_func))
-        self.output = RRCell(self.n_features, output_dim, ridge_param, 
-            False, with_bias, learning_algo)
+            layer_sparsity = sparsity[n] if type(sparsity) is list or type(sparsity) is np.ndarray else sparsity
+            layer_input_set = input_set[n] if type(input_set) is list or type(input_set) is np.ndarray else input_set
+            layer_w_sparsity = w_sparsity[n] if type(w_sparsity) is list or type(w_sparsity) is np.ndarray else w_sparsity
+            layer_nonlin_func = nonlin_func[n] if type(nonlin_func) is list or type(nonlin_func) is np.ndarray else nonlin_func
+            self.esn_layers.append(LiESNCell(layer_leaky_rate, False, layer_input_dim, hidden_dim[n], layer_spectral_radius, layer_bias_scaling, layer_input_scaling, layer_w, layer_w_in, layer_w_bias, None, layer_sparsity, layer_input_set, layer_w_sparsity, layer_nonlin_func))
+        self.output = RRCell(self.n_features, output_dim, ridge_param, False, with_bias, learning_algo)
 
     @property
     def hidden(self):
@@ -2573,8 +2395,7 @@ class StackedESN(nn.Module):
         :param y: Target outputs
         :return: Output or hidden states
         """
-        hidden_states = Variable(torch.zeros(u.size(0), u.size(1), self.
-            n_features))
+        hidden_states = Variable(torch.zeros(u.size(0), u.size(1), self.n_features))
         pos = 0
         for index, esn_cell in enumerate(self.esn_layers):
             layer_dim = esn_cell.output_dim
@@ -2626,8 +2447,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_nschaetti_EchoTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

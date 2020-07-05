@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,17 +81,14 @@ class Protonet(nn.Module):
         assert xq.size(0) == n_class
         n_support = xs.size(1)
         n_query = xq.size(1)
-        target_inds = torch.arange(0, n_class).view(n_class, 1, 1).expand(
-            n_class, n_query, 1).long()
+        target_inds = torch.arange(0, n_class).view(n_class, 1, 1).expand(n_class, n_query, 1).long()
         target_inds = Variable(target_inds, requires_grad=False)
         if xq.is_cuda:
             target_inds = target_inds
-        x = torch.cat([xs.view(n_class * n_support, *xs.size()[2:]), xq.
-            view(n_class * n_query, *xq.size()[2:])], 0)
+        x = torch.cat([xs.view(n_class * n_support, *xs.size()[2:]), xq.view(n_class * n_query, *xq.size()[2:])], 0)
         z = self.encoder.forward(x)
         z_dim = z.size(-1)
-        z_proto = z[:n_class * n_support].view(n_class, n_support, z_dim).mean(
-            1)
+        z_proto = z[:n_class * n_support].view(n_class, n_support, z_dim).mean(1)
         zq = z[n_class * n_support:]
         dists = euclidean_dist(zq, z_proto)
         log_p_y = F.log_softmax(-dists, dim=1).view(n_class, n_query, -1)
@@ -104,8 +102,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jakesnell_prototypical_networks(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

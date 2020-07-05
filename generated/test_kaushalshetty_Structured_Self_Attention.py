@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -45,9 +46,7 @@ class StructuredSelfAttention(torch.nn.Module):
     and without pruning. Slight modifications have been done for speedup
     """
 
-    def __init__(self, batch_size, lstm_hid_dim, d_a, r, max_len, emb_dim=
-        100, vocab_size=None, use_pretrained_embeddings=False, embeddings=
-        None, type=0, n_classes=1):
+    def __init__(self, batch_size, lstm_hid_dim, d_a, r, max_len, emb_dim=100, vocab_size=None, use_pretrained_embeddings=False, embeddings=None, type=0, n_classes=1):
         """
         Initializes parameters suggested in paper
  
@@ -71,8 +70,7 @@ class StructuredSelfAttention(torch.nn.Module):
             Exception
         """
         super(StructuredSelfAttention, self).__init__()
-        self.embeddings, emb_dim = self._load_embeddings(
-            use_pretrained_embeddings, embeddings, vocab_size, emb_dim)
+        self.embeddings, emb_dim = self._load_embeddings(use_pretrained_embeddings, embeddings, vocab_size, emb_dim)
         self.lstm = torch.nn.LSTM(emb_dim, lstm_hid_dim, 1, batch_first=True)
         self.linear_first = torch.nn.Linear(lstm_hid_dim, d_a)
         self.linear_first.bias.data.fill_(0)
@@ -87,19 +85,16 @@ class StructuredSelfAttention(torch.nn.Module):
         self.r = r
         self.type = type
 
-    def _load_embeddings(self, use_pretrained_embeddings, embeddings,
-        vocab_size, emb_dim):
+    def _load_embeddings(self, use_pretrained_embeddings, embeddings, vocab_size, emb_dim):
         """Load the embeddings based on flag"""
         if use_pretrained_embeddings is True and embeddings is None:
             raise Exception('Send a pretrained word embedding as an argument')
         if not use_pretrained_embeddings and vocab_size is None:
             raise Exception('Vocab size cannot be empty')
         if not use_pretrained_embeddings:
-            word_embeddings = torch.nn.Embedding(vocab_size, emb_dim,
-                padding_idx=0)
+            word_embeddings = torch.nn.Embedding(vocab_size, emb_dim, padding_idx=0)
         elif use_pretrained_embeddings:
-            word_embeddings = torch.nn.Embedding(embeddings.size(0),
-                embeddings.size(1))
+            word_embeddings = torch.nn.Embedding(embeddings.size(0), embeddings.size(1))
             word_embeddings.weight = torch.nn.Parameter(embeddings)
             emb_dim = embeddings.size(1)
         return word_embeddings, emb_dim
@@ -126,13 +121,11 @@ class StructuredSelfAttention(torch.nn.Module):
         return soft_max_nd.transpose(axis, len(input_size) - 1)
 
     def init_hidden(self):
-        return Variable(torch.zeros(1, self.batch_size, self.lstm_hid_dim)
-            ), Variable(torch.zeros(1, self.batch_size, self.lstm_hid_dim))
+        return Variable(torch.zeros(1, self.batch_size, self.lstm_hid_dim)), Variable(torch.zeros(1, self.batch_size, self.lstm_hid_dim))
 
     def forward(self, x):
         embeddings = self.embeddings(x)
-        outputs, self.hidden_state = self.lstm(embeddings.view(self.
-            batch_size, self.max_len, -1), self.hidden_state)
+        outputs, self.hidden_state = self.lstm(embeddings.view(self.batch_size, self.max_len, -1), self.hidden_state)
         x = F.tanh(self.linear_first(outputs))
         x = self.linear_second(x)
         x = self.softmax(x, 1)
@@ -143,8 +136,7 @@ class StructuredSelfAttention(torch.nn.Module):
             output = F.sigmoid(self.linear_final(avg_sentence_embeddings))
             return output, attention
         else:
-            return F.log_softmax(self.linear_final(avg_sentence_embeddings)
-                ), attention
+            return F.log_softmax(self.linear_final(avg_sentence_embeddings)), attention
 
     def l2_matrix_norm(self, m):
         """
@@ -158,13 +150,5 @@ class StructuredSelfAttention(torch.nn.Module):
  
        
         """
-        return torch.sum(torch.sum(torch.sum(m ** 2, 1), 1) ** 0.5).type(torch
-            .DoubleTensor)
+        return torch.sum(torch.sum(torch.sum(m ** 2, 1), 1) ** 0.5).type(torch.DoubleTensor)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_kaushalshetty_Structured_Self_Attention(_paritybench_base):
-    pass

@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -118,8 +119,7 @@ class GlobalMaxPool1d(nn.Module):
     """
 
     def forward(self, input):
-        return nn.functional.max_pool1d(input, kernel_size=input.size()[2:]
-            ).view(-1, input.size(1))
+        return nn.functional.max_pool1d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
 
 
 class GlobalAvgPool2d(nn.Module):
@@ -130,8 +130,7 @@ class GlobalAvgPool2d(nn.Module):
     """
 
     def forward(self, input):
-        return nn.functional.avg_pool2d(input, kernel_size=input.size()[2:]
-            ).view(-1, input.size(1))
+        return nn.functional.avg_pool2d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
 
 
 def conv_block(in_channels: int, out_channels: int) ->nn.Module:
@@ -141,13 +140,10 @@ def conv_block(in_channels: int, out_channels: int) ->nn.Module:
         in_channels:
         out_channels:
     """
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1),
-        nn.BatchNorm2d(out_channels), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-        stride=2))
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
 
 
-def functional_conv_block(x: torch.Tensor, weights: torch.Tensor, biases:
-    torch.Tensor, bn_weights, bn_biases) ->torch.Tensor:
+def functional_conv_block(x: torch.Tensor, weights: torch.Tensor, biases: torch.Tensor, bn_weights, bn_biases) ->torch.Tensor:
     """Performs 3x3 convolution, ReLu activation, 2x2 max pooling in a functional fashion.
 
     # Arguments:
@@ -158,8 +154,7 @@ def functional_conv_block(x: torch.Tensor, weights: torch.Tensor, biases:
         bn_biases:
     """
     x = F.conv2d(x, weights, biases, padding=1)
-    x = F.batch_norm(x, running_mean=None, running_var=None, weight=
-        bn_weights, bias=bn_biases, training=True)
+    x = F.batch_norm(x, running_mean=None, running_var=None, weight=bn_weights, bias=bn_biases, training=True)
     x = F.relu(x)
     x = F.max_pool2d(x, kernel_size=2, stride=2)
     return x
@@ -167,8 +162,7 @@ def functional_conv_block(x: torch.Tensor, weights: torch.Tensor, biases:
 
 class FewShotClassifier(nn.Module):
 
-    def __init__(self, num_input_channels: int, k_way: int,
-        final_layer_size: int=64):
+    def __init__(self, num_input_channels: int, k_way: int, final_layer_size: int=64):
         """Creates a few shot classifier as used in MAML.
 
         This network should be identical to the one created by `get_few_shot_encoder` but with a
@@ -198,9 +192,7 @@ class FewShotClassifier(nn.Module):
     def functional_forward(self, x, weights):
         """Applies the same forward pass using PyTorch functional operators using a specified set of weights."""
         for block in [1, 2, 3, 4]:
-            x = functional_conv_block(x, weights[f'conv{block}.0.weight'],
-                weights[f'conv{block}.0.bias'], weights.get(
-                f'conv{block}.1.weight'), weights.get(f'conv{block}.1.bias'))
+            x = functional_conv_block(x, weights[f'conv{block}.0.weight'], weights[f'conv{block}.0.bias'], weights.get(f'conv{block}.1.weight'), weights.get(f'conv{block}.1.bias'))
         x = x.view(x.size(0), -1)
         x = F.linear(x, weights['logits.weight'], weights['logits.bias'])
         return x
@@ -213,15 +205,12 @@ def get_few_shot_encoder(num_input_channels=1) ->nn.Module:
         num_input_channels: Number of color channels the model expects input data to contain. Omniglot = 1,
             miniImageNet = 3
     """
-    return nn.Sequential(conv_block(num_input_channels, 64), conv_block(64,
-        64), conv_block(64, 64), conv_block(64, 64), Flatten())
+    return nn.Sequential(conv_block(num_input_channels, 64), conv_block(64, 64), conv_block(64, 64), conv_block(64, 64), Flatten())
 
 
 class MatchingNetwork(nn.Module):
 
-    def __init__(self, n: int, k: int, q: int, fce: bool,
-        num_input_channels: int, lstm_layers: int, lstm_input_size: int,
-        unrolling_steps: int, device: torch.device):
+    def __init__(self, n: int, k: int, q: int, fce: bool, num_input_channels: int, lstm_layers: int, lstm_input_size: int, unrolling_steps: int, device: torch.device):
         """Creates a Matching Network as described in Vinyals et al.
 
         # Arguments:
@@ -247,8 +236,7 @@ class MatchingNetwork(nn.Module):
         self.encoder = get_few_shot_encoder(self.num_input_channels)
         if self.fce:
             self.g = BidrectionalLSTM(lstm_input_size, lstm_layers)
-            self.f = AttentionLSTM(lstm_input_size, unrolling_steps=
-                unrolling_steps)
+            self.f = AttentionLSTM(lstm_input_size, unrolling_steps=unrolling_steps)
 
     def forward(self, inputs):
         pass
@@ -268,8 +256,7 @@ class BidrectionalLSTM(nn.Module):
         super(BidrectionalLSTM, self).__init__()
         self.num_layers = layers
         self.batch_size = 1
-        self.lstm = nn.LSTM(input_size=size, num_layers=layers, hidden_size
-            =size, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=size, num_layers=layers, hidden_size=size, bidirectional=True)
 
     def forward(self, inputs):
         output, (hn, cn) = self.lstm(inputs, None)
@@ -297,8 +284,7 @@ class AttentionLSTM(nn.Module):
 
     def forward(self, support, queries):
         if support.shape[-1] != queries.shape[-1]:
-            raise ValueError(
-                'Support and query set have different embedding dimension!')
+            raise ValueError('Support and query set have different embedding dimension!')
         batch_size = queries.shape[0]
         embedding_dim = queries.shape[1]
         h_hat = torch.zeros_like(queries).double()
@@ -333,23 +319,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BidrectionalLSTM,
+     lambda: ([], {'size': 4, 'layers': 1}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (DummyModel,
+     lambda: ([], {'k': 4}),
+     lambda: ([torch.rand([2, 2])], {}),
+     True),
+    (FewShotClassifier,
+     lambda: ([], {'num_input_channels': 4, 'k_way': 4}),
+     lambda: ([torch.rand([4, 4, 16, 16])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (MatchingNetwork,
+     lambda: ([], {'n': 4, 'k': 4, 'q': 4, 'fce': 4, 'num_input_channels': 4, 'lstm_layers': 1, 'lstm_input_size': 4, 'unrolling_steps': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_oscarknagg_few_shot(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BidrectionalLSTM(*[], **{'size': 4, 'layers': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DummyModel(*[], **{'k': 4}), [torch.rand([2, 2])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GlobalMaxPool1d(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MatchingNetwork(*[], **{'n': 4, 'k': 4, 'q': 4, 'fce': 4, 'num_input_channels': 4, 'lstm_layers': 1, 'lstm_input_size': 4, 'unrolling_steps': 4, 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

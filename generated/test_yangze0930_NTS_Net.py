@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,12 +89,7 @@ CAT_NUM = 4
 INPUT_SIZE = 448, 448
 
 
-_default_anchors_setting = dict(layer='p3', stride=32, size=48, scale=[2 **
-    (1.0 / 3.0), 2 ** (2.0 / 3.0)], aspect_ratio=[0.667, 1, 1.5]), dict(layer
-    ='p4', stride=64, size=96, scale=[2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)],
-    aspect_ratio=[0.667, 1, 1.5]), dict(layer='p5', stride=128, size=192,
-    scale=[1, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], aspect_ratio=[0.667, 1, 1.5]
-    )
+_default_anchors_setting = dict(layer='p3', stride=32, size=48, scale=[2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], aspect_ratio=[0.667, 1, 1.5]), dict(layer='p4', stride=64, size=96, scale=[2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], aspect_ratio=[0.667, 1, 1.5]), dict(layer='p5', stride=128, size=192, scale=[1, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], aspect_ratio=[0.667, 1, 1.5])
 
 
 def generate_default_anchor_maps(anchors_setting=None, input_shape=INPUT_SIZE):
@@ -131,28 +127,18 @@ def generate_default_anchor_maps(anchors_setting=None, input_shape=INPUT_SIZE):
         for scale in scales:
             for aspect_ratio in aspect_ratios:
                 center_anchor_map = center_anchor_map_template.copy()
-                center_anchor_map[:, :, (2)] = size * scale / float(
-                    aspect_ratio) ** 0.5
-                center_anchor_map[:, :, (3)] = size * scale * float(
-                    aspect_ratio) ** 0.5
-                edge_anchor_map = np.concatenate((center_anchor_map[(...),
-                    :2] - center_anchor_map[(...), 2:4] / 2.0, 
-                    center_anchor_map[(...), :2] + center_anchor_map[(...),
-                    2:4] / 2.0), axis=-1)
-                anchor_area_map = center_anchor_map[..., 2
-                    ] * center_anchor_map[..., 3]
-                center_anchors = np.concatenate((center_anchors,
-                    center_anchor_map.reshape(-1, 4)))
-                edge_anchors = np.concatenate((edge_anchors,
-                    edge_anchor_map.reshape(-1, 4)))
-                anchor_areas = np.concatenate((anchor_areas,
-                    anchor_area_map.reshape(-1)))
+                center_anchor_map[:, :, (2)] = size * scale / float(aspect_ratio) ** 0.5
+                center_anchor_map[:, :, (3)] = size * scale * float(aspect_ratio) ** 0.5
+                edge_anchor_map = np.concatenate((center_anchor_map[(...), :2] - center_anchor_map[(...), 2:4] / 2.0, center_anchor_map[(...), :2] + center_anchor_map[(...), 2:4] / 2.0), axis=-1)
+                anchor_area_map = center_anchor_map[..., 2] * center_anchor_map[..., 3]
+                center_anchors = np.concatenate((center_anchors, center_anchor_map.reshape(-1, 4)))
+                edge_anchors = np.concatenate((edge_anchors, edge_anchor_map.reshape(-1, 4)))
+                anchor_areas = np.concatenate((anchor_areas, anchor_area_map.reshape(-1)))
     return center_anchors, edge_anchors, anchor_areas
 
 
 def hard_nms(cdds, topn=10, iou_thresh=0.25):
-    if not (type(cdds).__module__ == 'numpy' and len(cdds.shape) == 2 and 
-        cdds.shape[1] >= 5):
+    if not (type(cdds).__module__ == 'numpy' and len(cdds.shape) == 2 and cdds.shape[1] >= 5):
         raise TypeError('edge_box_map should be N * 5+ ndarray')
     cdds = cdds.copy()
     indices = np.argsort(cdds[:, (0)])
@@ -169,11 +155,8 @@ def hard_nms(cdds, topn=10, iou_thresh=0.25):
         end_min = np.minimum(res[:, 3:5], cdd[3:5])
         lengths = end_min - start_max
         intersec_map = lengths[:, (0)] * lengths[:, (1)]
-        intersec_map[np.logical_or(lengths[:, (0)] < 0, lengths[:, (1)] < 0)
-            ] = 0
-        iou_map_cur = intersec_map / ((res[:, (3)] - res[:, (1)]) * (res[:,
-            (4)] - res[:, (2)]) + (cdd[3] - cdd[1]) * (cdd[4] - cdd[2]) -
-            intersec_map)
+        intersec_map[np.logical_or(lengths[:, (0)] < 0, lengths[:, (1)] < 0)] = 0
+        iou_map_cur = intersec_map / ((res[:, (3)] - res[:, (1)]) * (res[:, (4)] - res[:, (2)]) + (cdd[3] - cdd[1]) * (cdd[4] - cdd[2]) - intersec_map)
         res = res[iou_map_cur < iou_thresh]
     return np.array(cdd_results)
 
@@ -195,15 +178,11 @@ class attention_net(nn.Module):
 
     def forward(self, x):
         resnet_out, rpn_feature, feature = self.pretrained_model(x)
-        x_pad = F.pad(x, (self.pad_side, self.pad_side, self.pad_side, self
-            .pad_side), mode='constant', value=0)
+        x_pad = F.pad(x, (self.pad_side, self.pad_side, self.pad_side, self.pad_side), mode='constant', value=0)
         batch = x.size(0)
         rpn_score = self.proposal_net(rpn_feature.detach())
-        all_cdds = [np.concatenate((x.reshape(-1, 1), self.edge_anchors.
-            copy(), np.arange(0, len(x)).reshape(-1, 1)), axis=1) for x in
-            rpn_score.data.cpu().numpy()]
-        top_n_cdds = [hard_nms(x, topn=self.topN, iou_thresh=0.25) for x in
-            all_cdds]
+        all_cdds = [np.concatenate((x.reshape(-1, 1), self.edge_anchors.copy(), np.arange(0, len(x)).reshape(-1, 1)), axis=1) for x in rpn_score.data.cpu().numpy()]
+        top_n_cdds = [hard_nms(x, topn=self.topN, iou_thresh=0.25) for x in all_cdds]
         top_n_cdds = np.array(top_n_cdds)
         top_n_index = top_n_cdds[:, :, (-1)].astype(np.int)
         top_n_index = torch.from_numpy(top_n_index)
@@ -212,9 +191,7 @@ class attention_net(nn.Module):
         for i in range(batch):
             for j in range(self.topN):
                 [y0, x0, y1, x1] = top_n_cdds[i][(j), 1:5].astype(np.int)
-                part_imgs[i:i + 1, (j)] = F.interpolate(x_pad[i:i + 1, :,
-                    y0:y1, x0:x1], size=(224, 224), mode='bilinear',
-                    align_corners=True)
+                part_imgs[i:i + 1, (j)] = F.interpolate(x_pad[i:i + 1, :, y0:y1, x0:x1], size=(224, 224), mode='bilinear', align_corners=True)
         part_imgs = part_imgs.view(batch * self.topN, 3, 224, 224)
         _, _, part_features = self.pretrained_model(part_imgs.detach())
         part_feature = part_features.view(batch, self.topN, -1)
@@ -223,16 +200,13 @@ class attention_net(nn.Module):
         concat_out = torch.cat([part_feature, feature], dim=1)
         concat_logits = self.concat_net(concat_out)
         raw_logits = resnet_out
-        part_logits = self.partcls_net(part_features).view(batch, self.topN, -1
-            )
-        return [raw_logits, concat_logits, part_logits, top_n_index, top_n_prob
-            ]
+        part_logits = self.partcls_net(part_features).view(batch, self.topN, -1)
+        return [raw_logits, concat_logits, part_logits, top_n_index, top_n_prob]
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -269,8 +243,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -300,8 +273,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -322,9 +294,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -354,11 +324,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ProposalNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 64, 64])], {}),
+     True),
+]
+
 class Test_yangze0930_NTS_Net(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ProposalNet(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

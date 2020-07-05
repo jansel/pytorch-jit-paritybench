@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ class CRF(nn.Module):
     def __repr__(self) ->str:
         return f'{self.__class__.__name__}(num_tags={self.num_tags})'
 
-    def forward(self, emissions: torch.Tensor, tags: torch.LongTensor, mask:
-        Optional[torch.ByteTensor]=None, reduction: str='sum') ->torch.Tensor:
+    def forward(self, emissions: torch.Tensor, tags: torch.LongTensor, mask: Optional[torch.ByteTensor]=None, reduction: str='sum') ->torch.Tensor:
         """Compute the conditional log likelihood of a sequence of tags given emission scores.
 
         Args:
@@ -139,8 +139,7 @@ class CRF(nn.Module):
         assert reduction == 'token_mean'
         return llh.sum() / mask.type_as(emissions).sum()
 
-    def decode(self, emissions: torch.Tensor, mask: Optional[torch.
-        ByteTensor]=None) ->List[List[int]]:
+    def decode(self, emissions: torch.Tensor, mask: Optional[torch.ByteTensor]=None) ->List[List[int]]:
         """Find the most likely tag sequence using Viterbi algorithm.
 
         Args:
@@ -161,32 +160,23 @@ class CRF(nn.Module):
             mask = mask.transpose(0, 1)
         return self._viterbi_decode(emissions, mask)
 
-    def _validate(self, emissions: torch.Tensor, tags: Optional[torch.
-        LongTensor]=None, mask: Optional[torch.ByteTensor]=None) ->None:
+    def _validate(self, emissions: torch.Tensor, tags: Optional[torch.LongTensor]=None, mask: Optional[torch.ByteTensor]=None) ->None:
         if emissions.dim() != 3:
-            raise ValueError(
-                f'emissions must have dimension of 3, got {emissions.dim()}')
+            raise ValueError(f'emissions must have dimension of 3, got {emissions.dim()}')
         if emissions.size(2) != self.num_tags:
-            raise ValueError(
-                f'expected last dimension of emissions is {self.num_tags}, got {emissions.size(2)}'
-                )
+            raise ValueError(f'expected last dimension of emissions is {self.num_tags}, got {emissions.size(2)}')
         if tags is not None:
             if emissions.shape[:2] != tags.shape:
-                raise ValueError(
-                    f'the first two dimensions of emissions and tags must match, got {tuple(emissions.shape[:2])} and {tuple(tags.shape)}'
-                    )
+                raise ValueError(f'the first two dimensions of emissions and tags must match, got {tuple(emissions.shape[:2])} and {tuple(tags.shape)}')
         if mask is not None:
             if emissions.shape[:2] != mask.shape:
-                raise ValueError(
-                    f'the first two dimensions of emissions and mask must match, got {tuple(emissions.shape[:2])} and {tuple(mask.shape)}'
-                    )
+                raise ValueError(f'the first two dimensions of emissions and mask must match, got {tuple(emissions.shape[:2])} and {tuple(mask.shape)}')
             no_empty_seq = not self.batch_first and mask[0].all()
             no_empty_seq_bf = self.batch_first and mask[:, (0)].all()
             if not no_empty_seq and not no_empty_seq_bf:
                 raise ValueError('mask of the first timestep must all be on')
 
-    def _compute_score(self, emissions: torch.Tensor, tags: torch.
-        LongTensor, mask: torch.ByteTensor) ->torch.Tensor:
+    def _compute_score(self, emissions: torch.Tensor, tags: torch.LongTensor, mask: torch.ByteTensor) ->torch.Tensor:
         assert emissions.dim() == 3 and tags.dim() == 2
         assert emissions.shape[:2] == tags.shape
         assert emissions.size(2) == self.num_tags
@@ -204,8 +194,7 @@ class CRF(nn.Module):
         score += self.end_transitions[last_tags]
         return score
 
-    def _compute_normalizer(self, emissions: torch.Tensor, mask: torch.
-        ByteTensor) ->torch.Tensor:
+    def _compute_normalizer(self, emissions: torch.Tensor, mask: torch.ByteTensor) ->torch.Tensor:
         assert emissions.dim() == 3 and mask.dim() == 2
         assert emissions.shape[:2] == mask.shape
         assert emissions.size(2) == self.num_tags
@@ -215,15 +204,13 @@ class CRF(nn.Module):
         for i in range(1, seq_length):
             broadcast_score = score.unsqueeze(2)
             broadcast_emissions = emissions[i].unsqueeze(1)
-            next_score = (broadcast_score + self.transitions +
-                broadcast_emissions)
+            next_score = broadcast_score + self.transitions + broadcast_emissions
             next_score = torch.logsumexp(next_score, dim=1)
             score = torch.where(mask[i].unsqueeze(1), next_score, score)
         score += self.end_transitions
         return torch.logsumexp(score, dim=1)
 
-    def _viterbi_decode(self, emissions: torch.FloatTensor, mask: torch.
-        ByteTensor) ->List[List[int]]:
+    def _viterbi_decode(self, emissions: torch.FloatTensor, mask: torch.ByteTensor) ->List[List[int]]:
         assert emissions.dim() == 3 and mask.dim() == 2
         assert emissions.shape[:2] == mask.shape
         assert emissions.size(2) == self.num_tags
@@ -234,8 +221,7 @@ class CRF(nn.Module):
         for i in range(1, seq_length):
             broadcast_score = score.unsqueeze(2)
             broadcast_emission = emissions[i].unsqueeze(1)
-            next_score = (broadcast_score + self.transitions +
-                broadcast_emission)
+            next_score = broadcast_score + self.transitions + broadcast_emission
             next_score, indices = next_score.max(dim=1)
             score = torch.where(mask[i].unsqueeze(1), next_score, score)
             history.append(indices)
@@ -252,10 +238,3 @@ class CRF(nn.Module):
             best_tags_list.append(best_tags)
         return best_tags_list
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_kmkurn_pytorch_crf(_paritybench_base):
-    pass

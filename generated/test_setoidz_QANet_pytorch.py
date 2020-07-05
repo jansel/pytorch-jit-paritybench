@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,14 +72,10 @@ class PosEncoder(nn.Module):
 
     def __init__(self, length):
         super().__init__()
-        freqs = torch.Tensor([(10000 ** (-i / d_model) if i % 2 == 0 else -
-            10000 ** ((1 - i) / d_model)) for i in range(d_model)]).unsqueeze(
-            dim=1)
-        phases = torch.Tensor([(0 if i % 2 == 0 else math.pi / 2) for i in
-            range(d_model)]).unsqueeze(dim=1)
+        freqs = torch.Tensor([(10000 ** (-i / d_model) if i % 2 == 0 else -10000 ** ((1 - i) / d_model)) for i in range(d_model)]).unsqueeze(dim=1)
+        phases = torch.Tensor([(0 if i % 2 == 0 else math.pi / 2) for i in range(d_model)]).unsqueeze(dim=1)
         pos = torch.arange(length).repeat(d_model, 1)
-        self.pos_encoding = nn.Parameter(torch.sin(torch.add(torch.mul(pos,
-            freqs), phases)), requires_grad=False)
+        self.pos_encoding = nn.Parameter(torch.sin(torch.add(torch.mul(pos, freqs), phases)), requires_grad=False)
 
     def forward(self, x):
         x = x + self.pos_encoding
@@ -90,18 +87,13 @@ class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_ch, out_ch, k, dim=1, bias=True):
         super().__init__()
         if dim == 1:
-            self.depthwise_conv = nn.Conv1d(in_channels=in_ch, out_channels
-                =in_ch, kernel_size=k, groups=in_ch, padding=k // 2, bias=bias)
-            self.pointwise_conv = nn.Conv1d(in_channels=in_ch, out_channels
-                =out_ch, kernel_size=1, padding=0, bias=bias)
+            self.depthwise_conv = nn.Conv1d(in_channels=in_ch, out_channels=in_ch, kernel_size=k, groups=in_ch, padding=k // 2, bias=bias)
+            self.pointwise_conv = nn.Conv1d(in_channels=in_ch, out_channels=out_ch, kernel_size=1, padding=0, bias=bias)
         elif dim == 2:
-            self.depthwise_conv = nn.Conv2d(in_channels=in_ch, out_channels
-                =in_ch, kernel_size=k, groups=in_ch, padding=k // 2, bias=bias)
-            self.pointwise_conv = nn.Conv2d(in_channels=in_ch, out_channels
-                =out_ch, kernel_size=1, padding=0, bias=bias)
+            self.depthwise_conv = nn.Conv2d(in_channels=in_ch, out_channels=in_ch, kernel_size=k, groups=in_ch, padding=k // 2, bias=bias)
+            self.pointwise_conv = nn.Conv2d(in_channels=in_ch, out_channels=out_ch, kernel_size=1, padding=0, bias=bias)
         else:
-            raise Exception(
-                'Wrong dimension for Depthwise Separable Convolution!')
+            raise Exception('Wrong dimension for Depthwise Separable Convolution!')
         nn.init.kaiming_normal_(self.depthwise_conv.weight)
         nn.init.constant_(self.depthwise_conv.bias, 0.0)
         nn.init.kaiming_normal_(self.depthwise_conv.weight)
@@ -116,10 +108,8 @@ class Highway(nn.Module):
     def __init__(self, layer_num: int, size: int):
         super().__init__()
         self.n = layer_num
-        self.linear = nn.ModuleList([nn.Linear(size, size) for _ in range(
-            self.n)])
-        self.gate = nn.ModuleList([nn.Linear(size, size) for _ in range(
-            self.n)])
+        self.linear = nn.ModuleList([nn.Linear(size, size) for _ in range(self.n)])
+        self.gate = nn.ModuleList([nn.Linear(size, size) for _ in range(self.n)])
 
     def forward(self, x):
         x = x.transpose(1, 2)
@@ -217,8 +207,7 @@ class MultiHeadAttention(nn.Module):
         attn = F.softmax(attn, dim=2)
         attn = self.dropout(attn)
         out = torch.bmm(attn, v)
-        out = out.view(n_head, bs, l_x, d_k).permute(1, 2, 0, 3).contiguous(
-            ).view(bs, l_x, d_model)
+        out = out.view(n_head, bs, l_x, d_k).permute(1, 2, 0, 3).contiguous().view(bs, l_x, d_model)
         out = self.fc(out)
         out = self.dropout(out)
         return out.transpose(1, 2)
@@ -267,14 +256,12 @@ class EncoderBlock(nn.Module):
 
     def __init__(self, conv_num: int, ch_num: int, k: int, length: int):
         super().__init__()
-        self.convs = nn.ModuleList([DepthwiseSeparableConv(ch_num, ch_num,
-            k) for _ in range(conv_num)])
+        self.convs = nn.ModuleList([DepthwiseSeparableConv(ch_num, ch_num, k) for _ in range(conv_num)])
         self.self_att = MultiHeadAttention()
         self.fc = nn.Linear(ch_num, ch_num, bias=True)
         self.pos = PosEncoder(length)
         self.normb = nn.LayerNorm([d_model, length])
-        self.norms = nn.ModuleList([nn.LayerNorm([d_model, length]) for _ in
-            range(conv_num)])
+        self.norms = nn.ModuleList([nn.LayerNorm([d_model, length]) for _ in range(conv_num)])
         self.norme = nn.LayerNorm([d_model, length])
         self.L = conv_num
 
@@ -376,17 +363,13 @@ class QANet(nn.Module):
 
     def __init__(self, word_mat, char_mat):
         super().__init__()
-        self.char_emb = nn.Embedding.from_pretrained(torch.Tensor(char_mat),
-            freeze=config.pretrained_char)
+        self.char_emb = nn.Embedding.from_pretrained(torch.Tensor(char_mat), freeze=config.pretrained_char)
         self.word_emb = nn.Embedding.from_pretrained(torch.Tensor(word_mat))
         self.emb = Embedding()
         self.context_conv = DepthwiseSeparableConv(d_word + d_char, d_model, 5)
-        self.question_conv = DepthwiseSeparableConv(d_word + d_char, d_model, 5
-            )
-        self.c_emb_enc = EncoderBlock(conv_num=4, ch_num=d_model, k=7,
-            length=len_c)
-        self.q_emb_enc = EncoderBlock(conv_num=4, ch_num=d_model, k=7,
-            length=len_q)
+        self.question_conv = DepthwiseSeparableConv(d_word + d_char, d_model, 5)
+        self.c_emb_enc = EncoderBlock(conv_num=4, ch_num=d_model, k=7, length=len_c)
+        self.q_emb_enc = EncoderBlock(conv_num=4, ch_num=d_model, k=7, length=len_q)
         self.cq_att = CQAttention()
         self.cq_resizer = DepthwiseSeparableConv(d_model * 4, d_model, 5)
         enc_blk = EncoderBlock(conv_num=2, ch_num=d_model, k=5, length=len_c)
@@ -421,30 +404,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CQAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (DepthwiseSeparableConv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'k': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (Highway,
+     lambda: ([], {'layer_num': 1, 'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiHeadAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Pointer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (PosEncoder,
+     lambda: ([], {'length': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_setoidz_QANet_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CQAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DepthwiseSeparableConv(*[], **{'in_ch': 4, 'out_ch': 4, 'k': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Highway(*[], **{'layer_num': 1, 'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MultiHeadAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Pointer(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PosEncoder(*[], **{'length': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SelfAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 

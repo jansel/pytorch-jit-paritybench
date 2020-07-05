@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,20 +69,17 @@ from torch.backends import cudnn
 class FixedBatchNorm(nn.BatchNorm2d):
 
     def forward(self, input):
-        return F.batch_norm(input, self.running_mean, self.running_var,
-            self.weight, self.bias, training=False, eps=self.eps)
+        return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, training=False, eps=self.eps)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = FixedBatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
         self.bn2 = FixedBatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = FixedBatchNorm(planes * 4)
@@ -109,31 +107,23 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, strides=(2, 2, 2, 2), dilations=(1, 1,
-        1, 1)):
+    def __init__(self, block, layers, strides=(2, 2, 2, 2), dilations=(1, 1, 1, 1)):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=strides[0],
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=strides[0], padding=3, bias=False)
         self.bn1 = FixedBatchNorm(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=1,
-            dilation=dilations[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=
-            strides[1], dilation=dilations[1])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=
-            strides[2], dilation=dilations[2])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=
-            strides[3], dilation=dilations[3])
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=1, dilation=dilations[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=strides[1], dilation=dilations[1])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=strides[2], dilation=dilations[2])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=strides[3], dilation=dilations[3])
         self.inplanes = 1024
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                FixedBatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), FixedBatchNorm(planes * block.expansion))
         layers = [block(self.inplanes, planes, stride, downsample, dilation=1)]
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
@@ -155,8 +145,7 @@ class ResNet(nn.Module):
         return x
 
 
-model_urls = {'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth'}
+model_urls = {'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth'}
 
 
 def resnet50(pretrained=True, **kwargs):
@@ -173,16 +162,13 @@ class Net(nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.resnet50 = resnet50.resnet50(pretrained=True, strides=(2, 2, 2, 1)
-            )
-        self.stage1 = nn.Sequential(self.resnet50.conv1, self.resnet50.bn1,
-            self.resnet50.relu, self.resnet50.maxpool, self.resnet50.layer1)
+        self.resnet50 = resnet50.resnet50(pretrained=True, strides=(2, 2, 2, 1))
+        self.stage1 = nn.Sequential(self.resnet50.conv1, self.resnet50.bn1, self.resnet50.relu, self.resnet50.maxpool, self.resnet50.layer1)
         self.stage2 = nn.Sequential(self.resnet50.layer2)
         self.stage3 = nn.Sequential(self.resnet50.layer3)
         self.stage4 = nn.Sequential(self.resnet50.layer4)
         self.classifier = nn.Conv2d(2048, 20, 1, bias=False)
-        self.backbone = nn.ModuleList([self.stage1, self.stage2, self.
-            stage3, self.stage4])
+        self.backbone = nn.ModuleList([self.stage1, self.stage2, self.stage3, self.stage4])
         self.newly_added = nn.ModuleList([self.classifier])
 
     def forward(self, x):
@@ -202,61 +188,36 @@ class Net(nn.Module):
             p.requires_grad = False
 
     def trainable_parameters(self):
-        return list(self.backbone.parameters()), list(self.newly_added.
-            parameters())
+        return list(self.backbone.parameters()), list(self.newly_added.parameters())
 
 
 class Net(nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.resnet50 = resnet50.resnet50(pretrained=True, strides=[2, 2, 2, 1]
-            )
-        self.stage1 = nn.Sequential(self.resnet50.conv1, self.resnet50.bn1,
-            self.resnet50.relu, self.resnet50.maxpool)
+        self.resnet50 = resnet50.resnet50(pretrained=True, strides=[2, 2, 2, 1])
+        self.stage1 = nn.Sequential(self.resnet50.conv1, self.resnet50.bn1, self.resnet50.relu, self.resnet50.maxpool)
         self.stage2 = nn.Sequential(self.resnet50.layer1)
         self.stage3 = nn.Sequential(self.resnet50.layer2)
         self.stage4 = nn.Sequential(self.resnet50.layer3)
         self.stage5 = nn.Sequential(self.resnet50.layer4)
         self.mean_shift = Net.MeanShift(2)
-        self.fc_edge1 = nn.Sequential(nn.Conv2d(64, 32, 1, bias=False), nn.
-            GroupNorm(4, 32), nn.ReLU(inplace=True))
-        self.fc_edge2 = nn.Sequential(nn.Conv2d(256, 32, 1, bias=False), nn
-            .GroupNorm(4, 32), nn.ReLU(inplace=True))
-        self.fc_edge3 = nn.Sequential(nn.Conv2d(512, 32, 1, bias=False), nn
-            .GroupNorm(4, 32), nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False), nn.ReLU(inplace=True))
-        self.fc_edge4 = nn.Sequential(nn.Conv2d(1024, 32, 1, bias=False),
-            nn.GroupNorm(4, 32), nn.Upsample(scale_factor=4, mode=
-            'bilinear', align_corners=False), nn.ReLU(inplace=True))
-        self.fc_edge5 = nn.Sequential(nn.Conv2d(2048, 32, 1, bias=False),
-            nn.GroupNorm(4, 32), nn.Upsample(scale_factor=4, mode=
-            'bilinear', align_corners=False), nn.ReLU(inplace=True))
+        self.fc_edge1 = nn.Sequential(nn.Conv2d(64, 32, 1, bias=False), nn.GroupNorm(4, 32), nn.ReLU(inplace=True))
+        self.fc_edge2 = nn.Sequential(nn.Conv2d(256, 32, 1, bias=False), nn.GroupNorm(4, 32), nn.ReLU(inplace=True))
+        self.fc_edge3 = nn.Sequential(nn.Conv2d(512, 32, 1, bias=False), nn.GroupNorm(4, 32), nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), nn.ReLU(inplace=True))
+        self.fc_edge4 = nn.Sequential(nn.Conv2d(1024, 32, 1, bias=False), nn.GroupNorm(4, 32), nn.Upsample(scale_factor=4, mode='bilinear', align_corners=False), nn.ReLU(inplace=True))
+        self.fc_edge5 = nn.Sequential(nn.Conv2d(2048, 32, 1, bias=False), nn.GroupNorm(4, 32), nn.Upsample(scale_factor=4, mode='bilinear', align_corners=False), nn.ReLU(inplace=True))
         self.fc_edge6 = nn.Conv2d(160, 1, 1, bias=True)
-        self.fc_dp1 = nn.Sequential(nn.Conv2d(64, 64, 1, bias=False), nn.
-            GroupNorm(8, 64), nn.ReLU(inplace=True))
-        self.fc_dp2 = nn.Sequential(nn.Conv2d(256, 128, 1, bias=False), nn.
-            GroupNorm(16, 128), nn.ReLU(inplace=True))
-        self.fc_dp3 = nn.Sequential(nn.Conv2d(512, 256, 1, bias=False), nn.
-            GroupNorm(16, 256), nn.ReLU(inplace=True))
-        self.fc_dp4 = nn.Sequential(nn.Conv2d(1024, 256, 1, bias=False), nn
-            .GroupNorm(16, 256), nn.Upsample(scale_factor=2, mode=
-            'bilinear', align_corners=False), nn.ReLU(inplace=True))
-        self.fc_dp5 = nn.Sequential(nn.Conv2d(2048, 256, 1, bias=False), nn
-            .GroupNorm(16, 256), nn.Upsample(scale_factor=2, mode=
-            'bilinear', align_corners=False), nn.ReLU(inplace=True))
-        self.fc_dp6 = nn.Sequential(nn.Conv2d(768, 256, 1, bias=False), nn.
-            GroupNorm(16, 256), nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False), nn.ReLU(inplace=True))
-        self.fc_dp7 = nn.Sequential(nn.Conv2d(448, 256, 1, bias=False), nn.
-            GroupNorm(16, 256), nn.ReLU(inplace=True), nn.Conv2d(256, 2, 1,
-            bias=False), self.mean_shift)
-        self.backbone = nn.ModuleList([self.stage1, self.stage2, self.
-            stage3, self.stage4, self.stage5])
-        self.edge_layers = nn.ModuleList([self.fc_edge1, self.fc_edge2,
-            self.fc_edge3, self.fc_edge4, self.fc_edge5, self.fc_edge6])
-        self.dp_layers = nn.ModuleList([self.fc_dp1, self.fc_dp2, self.
-            fc_dp3, self.fc_dp4, self.fc_dp5, self.fc_dp6, self.fc_dp7])
+        self.fc_dp1 = nn.Sequential(nn.Conv2d(64, 64, 1, bias=False), nn.GroupNorm(8, 64), nn.ReLU(inplace=True))
+        self.fc_dp2 = nn.Sequential(nn.Conv2d(256, 128, 1, bias=False), nn.GroupNorm(16, 128), nn.ReLU(inplace=True))
+        self.fc_dp3 = nn.Sequential(nn.Conv2d(512, 256, 1, bias=False), nn.GroupNorm(16, 256), nn.ReLU(inplace=True))
+        self.fc_dp4 = nn.Sequential(nn.Conv2d(1024, 256, 1, bias=False), nn.GroupNorm(16, 256), nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), nn.ReLU(inplace=True))
+        self.fc_dp5 = nn.Sequential(nn.Conv2d(2048, 256, 1, bias=False), nn.GroupNorm(16, 256), nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), nn.ReLU(inplace=True))
+        self.fc_dp6 = nn.Sequential(nn.Conv2d(768, 256, 1, bias=False), nn.GroupNorm(16, 256), nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), nn.ReLU(inplace=True))
+        self.fc_dp7 = nn.Sequential(nn.Conv2d(448, 256, 1, bias=False), nn.GroupNorm(16, 256), nn.ReLU(inplace=True), nn.Conv2d(256, 2, 1, bias=False), self.mean_shift)
+        self.backbone = nn.ModuleList([self.stage1, self.stage2, self.stage3, self.stage4, self.stage5])
+        self.edge_layers = nn.ModuleList([self.fc_edge1, self.fc_edge2, self.fc_edge3, self.fc_edge4, self.fc_edge5, self.fc_edge6])
+        self.dp_layers = nn.ModuleList([self.fc_dp1, self.fc_dp2, self.fc_dp3, self.fc_dp4, self.fc_dp5, self.fc_dp6, self.fc_dp7])
 
 
     class MeanShift(nn.Module):
@@ -281,21 +242,18 @@ class Net(nn.Module):
         edge3 = self.fc_edge3(x3)[(...), :edge2.size(2), :edge2.size(3)]
         edge4 = self.fc_edge4(x4)[(...), :edge2.size(2), :edge2.size(3)]
         edge5 = self.fc_edge5(x5)[(...), :edge2.size(2), :edge2.size(3)]
-        edge_out = self.fc_edge6(torch.cat([edge1, edge2, edge3, edge4,
-            edge5], dim=1))
+        edge_out = self.fc_edge6(torch.cat([edge1, edge2, edge3, edge4, edge5], dim=1))
         dp1 = self.fc_dp1(x1)
         dp2 = self.fc_dp2(x2)
         dp3 = self.fc_dp3(x3)
         dp4 = self.fc_dp4(x4)[(...), :dp3.size(2), :dp3.size(3)]
         dp5 = self.fc_dp5(x5)[(...), :dp3.size(2), :dp3.size(3)]
-        dp_up3 = self.fc_dp6(torch.cat([dp3, dp4, dp5], dim=1))[(...), :dp2
-            .size(2), :dp2.size(3)]
+        dp_up3 = self.fc_dp6(torch.cat([dp3, dp4, dp5], dim=1))[(...), :dp2.size(2), :dp2.size(3)]
         dp_out = self.fc_dp7(torch.cat([dp1, dp2, dp_up3], dim=1))
         return edge_out, dp_out
 
     def trainable_parameters(self):
-        return tuple(self.edge_layers.parameters()), tuple(self.dp_layers.
-            parameters())
+        return tuple(self.edge_layers.parameters()), tuple(self.dp_layers.parameters())
 
     def train(self, mode=True):
         super().train(mode)
@@ -306,8 +264,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FixedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jiwoon_ahn_irn(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FixedBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

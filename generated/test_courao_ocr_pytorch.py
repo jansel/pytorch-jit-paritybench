@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -107,8 +108,7 @@ class RPN_REGR_Loss(nn.Module):
             regr_pred = input[0][regr_keep]
             diff = torch.abs(regr_true - regr_pred)
             less_one = (diff < 1.0 / self.sigma).float()
-            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 -
-                less_one) * (diff - 0.5 / self.sigma)
+            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 - less_one) * (diff - 0.5 / self.sigma)
             loss = torch.sum(loss, 1)
             loss = torch.mean(loss) if loss.numel() > 0 else torch.tensor(0.0)
         except Exception as e:
@@ -129,22 +129,17 @@ class RPN_CLS_Loss(nn.Module):
         cls_true = y_true[cls_keep].long()
         cls_pred = input[0][cls_keep]
         loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
-        loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
-            ) > 0 else torch.tensor(0.0)
+        loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel() > 0 else torch.tensor(0.0)
         return loss
 
 
 class basic_conv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
         super(basic_conv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -232,16 +227,13 @@ class CRNN(nn.Module):
         self.conv5 = nn.Conv2d(512, 512, 2, 1, 0)
         self.bn5 = nn.BatchNorm2d(512)
         self.relu5 = nn.ReLU(True)
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
         x = self.pool1(self.relu1(self.conv1(input)))
         x = self.pool2(self.relu2(self.conv2(x)))
-        x = self.pool3(self.relu3_2(self.conv3_2(self.relu3_1(self.bn3(self
-            .conv3_1(x))))))
-        x = self.pool4(self.relu4_2(self.conv4_2(self.relu4_1(self.bn4(self
-            .conv4_1(x))))))
+        x = self.pool3(self.relu3_2(self.conv3_2(self.relu3_1(self.bn3(self.conv3_1(x))))))
+        x = self.pool4(self.relu4_2(self.conv4_2(self.relu4_1(self.bn4(self.conv4_1(x))))))
         conv = self.relu5(self.bn5(self.conv5(x)))
         b, c, h, w = conv.size()
         assert h == 1, 'the height of conv must be 1'
@@ -285,18 +277,13 @@ class CRNN_v2(nn.Module):
         self.relu4_2 = nn.ReLU(True)
         self.pool4 = nn.MaxPool2d((2, 2), (2, 1), (0, 1))
         self.bn5 = nn.BatchNorm2d(256)
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
-        x = self.pool1(self.relu1_2(self.bn1_2(self.conv1_2(self.relu1_1(
-            self.bn1_1(self.conv1_1(input)))))))
-        x = self.pool2(self.relu2_2(self.bn2_2(self.conv2_2(self.relu2_1(
-            self.bn2_1(self.conv2_1(x)))))))
-        x = self.pool3(self.relu3_2(self.bn3_2(self.conv3_2(self.relu3_1(
-            self.bn3_1(self.conv3_1(x)))))))
-        x = self.pool4(self.relu4_2(self.bn4_2(self.conv4_2(self.relu4_1(
-            self.bn4_1(self.conv4_1(x)))))))
+        x = self.pool1(self.relu1_2(self.bn1_2(self.conv1_2(self.relu1_1(self.bn1_1(self.conv1_1(input)))))))
+        x = self.pool2(self.relu2_2(self.bn2_2(self.conv2_2(self.relu2_1(self.bn2_1(self.conv2_1(x)))))))
+        x = self.pool3(self.relu3_2(self.bn3_2(self.conv3_2(self.relu3_1(self.bn3_1(self.conv3_1(x)))))))
+        x = self.pool4(self.relu4_2(self.bn4_2(self.conv4_2(self.relu4_1(self.bn4_1(self.conv4_1(x)))))))
         conv = self.bn5(x)
         b, c, h, w = conv.size()
         assert h == 2, 'the height of conv must be 2'
@@ -307,8 +294,7 @@ class CRNN_v2(nn.Module):
 
 
 def conv3x3(nIn, nOut, stride=1):
-    return nn.Conv2d(nIn, nOut, kernel_size=3, stride=stride, padding=1,
-        bias=False)
+    return nn.Conv2d(nIn, nOut, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class basic_res_block(nn.Module):
@@ -343,17 +329,14 @@ class CRNN_res(nn.Module):
         self.conv1 = nn.Conv2d(nc, 64, 3, 1, 1)
         self.relu1 = nn.ReLU(True)
         self.res1 = basic_res_block(64, 64)
-        down1 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=1, stride=2,
-            bias=False), nn.BatchNorm2d(128))
+        down1 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=1, stride=2, bias=False), nn.BatchNorm2d(128))
         self.res2_1 = basic_res_block(64, 128, 2, down1)
         self.res2_2 = basic_res_block(128, 128)
-        down2 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=1, stride=2,
-            bias=False), nn.BatchNorm2d(256))
+        down2 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=1, stride=2, bias=False), nn.BatchNorm2d(256))
         self.res3_1 = basic_res_block(128, 256, 2, down2)
         self.res3_2 = basic_res_block(256, 256)
         self.res3_3 = basic_res_block(256, 256)
-        down3 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=1, stride=(2,
-            1), bias=False), nn.BatchNorm2d(512))
+        down3 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=1, stride=(2, 1), bias=False), nn.BatchNorm2d(512))
         self.res4_1 = basic_res_block(256, 512, (2, 1), down3)
         self.res4_2 = basic_res_block(512, 512)
         self.res4_3 = basic_res_block(512, 512)
@@ -361,8 +344,7 @@ class CRNN_res(nn.Module):
         self.conv5 = nn.Conv2d(512, 512, 2, 1, 0)
         self.bn5 = nn.BatchNorm2d(512)
         self.relu5 = nn.ReLU(True)
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
         x = self.res1(self.relu1(self.conv1(input)))
@@ -421,16 +403,13 @@ class CRNN(nn.Module):
         self.conv5 = nn.Conv2d(512, 512, 2, 1, 0)
         self.bn5 = nn.BatchNorm2d(512)
         self.relu5 = nn.ReLU(True)
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
         x = self.pool1(self.relu1(self.conv1(input)))
         x = self.pool2(self.relu2(self.conv2(x)))
-        x = self.pool3(self.relu3_2(self.conv3_2(self.relu3_1(self.bn3(self
-            .conv3_1(x))))))
-        x = self.pool4(self.relu4_2(self.conv4_2(self.relu4_1(self.bn4(self
-            .conv4_1(x))))))
+        x = self.pool3(self.relu3_2(self.conv3_2(self.relu3_1(self.bn3(self.conv3_1(x))))))
+        x = self.pool4(self.relu4_2(self.conv4_2(self.relu4_1(self.bn4(self.conv4_1(x))))))
         conv = self.relu5(self.bn5(self.conv5(x)))
         b, c, h, w = conv.size()
         assert h == 1, 'the height of conv must be 1'
@@ -474,18 +453,13 @@ class CRNN_v2(nn.Module):
         self.relu4_2 = nn.ReLU(True)
         self.pool4 = nn.MaxPool2d((2, 2), (2, 1), (0, 1))
         self.bn5 = nn.BatchNorm2d(256)
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
-        x = self.pool1(self.relu1_2(self.bn1_2(self.conv1_2(self.relu1_1(
-            self.bn1_1(self.conv1_1(input)))))))
-        x = self.pool2(self.relu2_2(self.bn2_2(self.conv2_2(self.relu2_1(
-            self.bn2_1(self.conv2_1(x)))))))
-        x = self.pool3(self.relu3_2(self.bn3_2(self.conv3_2(self.relu3_1(
-            self.bn3_1(self.conv3_1(x)))))))
-        x = self.pool4(self.relu4_2(self.bn4_2(self.conv4_2(self.relu4_1(
-            self.bn4_1(self.conv4_1(x)))))))
+        x = self.pool1(self.relu1_2(self.bn1_2(self.conv1_2(self.relu1_1(self.bn1_1(self.conv1_1(input)))))))
+        x = self.pool2(self.relu2_2(self.bn2_2(self.conv2_2(self.relu2_1(self.bn2_1(self.conv2_1(x)))))))
+        x = self.pool3(self.relu3_2(self.bn3_2(self.conv3_2(self.relu3_1(self.bn3_1(self.conv3_1(x)))))))
+        x = self.pool4(self.relu4_2(self.bn4_2(self.conv4_2(self.relu4_1(self.bn4_1(self.conv4_1(x)))))))
         conv = self.bn5(x)
         b, c, h, w = conv.size()
         assert h == 2, 'the height of conv must be 2'
@@ -527,17 +501,14 @@ class CRNN_res(nn.Module):
         self.conv1 = nn.Conv2d(nc, 64, 3, 1, 1)
         self.relu1 = nn.ReLU(True)
         self.res1 = basic_res_block(64, 64)
-        down1 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=1, stride=2,
-            bias=False), nn.BatchNorm2d(128))
+        down1 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=1, stride=2, bias=False), nn.BatchNorm2d(128))
         self.res2_1 = basic_res_block(64, 128, 2, down1)
         self.res2_2 = basic_res_block(128, 128)
-        down2 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=1, stride=2,
-            bias=False), nn.BatchNorm2d(256))
+        down2 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=1, stride=2, bias=False), nn.BatchNorm2d(256))
         self.res3_1 = basic_res_block(128, 256, 2, down2)
         self.res3_2 = basic_res_block(256, 256)
         self.res3_3 = basic_res_block(256, 256)
-        down3 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=1, stride=(2,
-            1), bias=False), nn.BatchNorm2d(512))
+        down3 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=1, stride=(2, 1), bias=False), nn.BatchNorm2d(512))
         self.res4_1 = basic_res_block(256, 512, (2, 1), down3)
         self.res4_2 = basic_res_block(512, 512)
         self.res4_3 = basic_res_block(512, 512)
@@ -545,8 +516,7 @@ class CRNN_res(nn.Module):
         self.conv5 = nn.Conv2d(512, 512, 2, 1, 0)
         self.bn5 = nn.BatchNorm2d(512)
         self.relu5 = nn.ReLU(True)
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
         x = self.res1(self.relu1(self.conv1(input)))
@@ -585,8 +555,7 @@ class RPN_REGR_Loss(nn.Module):
             regr_pred = input[0][regr_keep]
             diff = torch.abs(regr_true - regr_pred)
             less_one = (diff < 1.0 / self.sigma).float()
-            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 -
-                less_one) * (diff - 0.5 / self.sigma)
+            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 - less_one) * (diff - 0.5 / self.sigma)
             loss = torch.sum(loss, 1)
             loss = torch.mean(loss) if loss.numel() > 0 else torch.tensor(0.0)
         except Exception as e:
@@ -595,10 +564,10 @@ class RPN_REGR_Loss(nn.Module):
         return loss
 
 
-_global_config['OHEM'] = 4
-
-
 _global_config['RPN_TOTAL_NUM'] = 4
+
+
+_global_config['OHEM'] = 4
 
 
 class RPN_CLS_Loss(nn.Module):
@@ -618,16 +587,14 @@ class RPN_CLS_Loss(nn.Module):
                 cls_pos = (cls_gt == 1).nonzero()[:, (0)]
                 gt_pos = cls_gt[cls_pos].long()
                 cls_pred_pos = input[0][cls_pos]
-                loss_pos = self.L_cls(cls_pred_pos.view(-1, 2), gt_pos.view(-1)
-                    )
+                loss_pos = self.L_cls(cls_pred_pos.view(-1, 2), gt_pos.view(-1))
                 loss_pos_sum = loss_pos.sum()
                 num_pos = len(loss_pos)
             cls_neg = (cls_gt == 0).nonzero()[:, (0)]
             gt_neg = cls_gt[cls_neg].long()
             cls_pred_neg = input[0][cls_neg]
             loss_neg = self.L_cls(cls_pred_neg.view(-1, 2), gt_neg.view(-1))
-            loss_neg_topK, _ = torch.topk(loss_neg, min(len(loss_neg), 
-                config.RPN_TOTAL_NUM - num_pos))
+            loss_neg_topK, _ = torch.topk(loss_neg, min(len(loss_neg), config.RPN_TOTAL_NUM - num_pos))
             loss_cls = loss_pos_sum + loss_neg_topK.sum()
             loss_cls = loss_cls / config.RPN_TOTAL_NUM
             return loss_cls
@@ -637,22 +604,17 @@ class RPN_CLS_Loss(nn.Module):
             cls_true = y_true[cls_keep].long()
             cls_pred = input[0][cls_keep]
             loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
-            loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
-                ) > 0 else torch.tensor(0.0)
+            loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel() > 0 else torch.tensor(0.0)
             return loss
 
 
 class basic_conv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
         super(basic_conv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -720,8 +682,7 @@ class RPN_REGR_Loss(nn.Module):
             regr_pred = input[0][regr_keep]
             diff = torch.abs(regr_true - regr_pred)
             less_one = (diff < 1.0 / self.sigma).float()
-            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 -
-                less_one) * (diff - 0.5 / self.sigma)
+            loss = less_one * 0.5 * diff ** 2 * self.sigma + torch.abs(1 - less_one) * (diff - 0.5 / self.sigma)
             loss = torch.sum(loss, 1)
             loss = torch.mean(loss) if loss.numel() > 0 else torch.tensor(0.0)
         except Exception as e:
@@ -742,8 +703,7 @@ class RPN_CLS_Loss(nn.Module):
         cls_true = y_true[cls_keep].long()
         cls_pred = input[0][cls_keep]
         loss = F.nll_loss(F.log_softmax(cls_pred, dim=-1), cls_true)
-        loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel(
-            ) > 0 else torch.tensor(0.0)
+        loss = torch.clamp(torch.mean(loss), 0, 10) if loss.numel() > 0 else torch.tensor(0.0)
         return loss
 
 
@@ -767,23 +727,18 @@ class RPN_Loss(nn.Module):
         cls_pred_neg = input[0][cls_neg]
         loss_pos = self.L_cls(cls_pred_pos.view(-1, 2), gt_pos.view(-1))
         loss_neg = self.L_cls(cls_pred_neg.view(-1, 2), gt_neg.view(-1))
-        loss_neg_topK, _ = torch.topk(loss_neg, min(len(loss_neg), len(
-            loss_pos) * self.pos_neg_ratio))
+        loss_neg_topK, _ = torch.topk(loss_neg, min(len(loss_neg), len(loss_pos) * self.pos_neg_ratio))
         loss_cls = loss_pos.mean() + loss_neg_topK.mean()
         return loss_cls
 
 
 class basic_conv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
         super(basic_conv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -837,24 +792,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BidirectionalLSTM,
+     lambda: ([], {'nIn': 4, 'nHidden': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (CTPN_Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (RPN_CLS_Loss,
+     lambda: ([], {'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RPN_REGR_Loss,
+     lambda: ([], {'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (basic_conv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (basic_res_block,
+     lambda: ([], {'nIn': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_courao_ocr_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CTPN_Model(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(RPN_CLS_Loss(*[], **{'device': 0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(RPN_REGR_Loss(*[], **{'device': 0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(basic_conv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(basic_res_block(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

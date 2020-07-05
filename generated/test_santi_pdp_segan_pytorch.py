@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -126,12 +127,10 @@ import re
 
 class Saver(object):
 
-    def __init__(self, model, save_path, max_ckpts=5, optimizer=None, prefix=''
-        ):
+    def __init__(self, model, save_path, max_ckpts=5, optimizer=None, prefix=''):
         self.model = model
         self.save_path = save_path
-        self.ckpt_path = os.path.join(save_path, '{}checkpoints'.format(prefix)
-            )
+        self.ckpt_path = os.path.join(save_path, '{}checkpoints'.format(prefix))
         self.max_ckpts = max_ckpts
         self.optimizer = optimizer
         self.prefix = prefix
@@ -156,8 +155,7 @@ class Saver(object):
             if self.max_ckpts is not None:
                 if len(latest) > self.max_ckpts:
                     try:
-                        print('Removing old ckpt {}'.format(os.path.join(
-                            save_path, 'weights_' + todel)))
+                        print('Removing old ckpt {}'.format(os.path.join(save_path, 'weights_' + todel)))
                         os.remove(os.path.join(save_path, 'weights_' + todel))
                         latest = latest[1:]
                     except FileNotFoundError:
@@ -192,8 +190,7 @@ class Saver(object):
                 print('[!] No weights to be loaded')
                 return False
         else:
-            st_dict = torch.load(os.path.join(save_path, 'weights_' +
-                curr_ckpt))
+            st_dict = torch.load(os.path.join(save_path, 'weights_' + curr_ckpt))
             if 'state_dict' in st_dict:
                 model_state = st_dict['state_dict']
                 self.model.load_state_dict(model_state)
@@ -206,8 +203,7 @@ class Saver(object):
 
     def load_pretrained_ckpt(self, ckpt_file, load_last=False, load_opt=True):
         model_dict = self.model.state_dict()
-        st_dict = torch.load(ckpt_file, map_location=lambda storage, loc:
-            storage)
+        st_dict = torch.load(ckpt_file, map_location=lambda storage, loc: storage)
         if 'state_dict' in st_dict:
             pt_dict = st_dict['state_dict']
         else:
@@ -217,8 +213,7 @@ class Saver(object):
             allowed_keys = all_pt_keys[:-2]
         else:
             allowed_keys = all_pt_keys[:]
-        pt_dict = {k: v for k, v in pt_dict.items() if k in model_dict and 
-            k in allowed_keys and v.size() == model_dict[k].size()}
+        pt_dict = {k: v for k, v in pt_dict.items() if k in model_dict and k in allowed_keys and v.size() == model_dict[k].size()}
         print('Current Model keys: ', len(list(model_dict.keys())))
         print('Loading Pt Model keys: ', len(list(pt_dict.keys())))
         print('Loading matching keys: ', list(pt_dict.keys()))
@@ -243,8 +238,7 @@ class Model(nn.Module):
     def save(self, save_path, step, best_val=False, saver=None):
         model_name = self.name
         if not hasattr(self, 'saver') and saver is None:
-            self.saver = Saver(self, save_path, optimizer=self.optim,
-                prefix=model_name + '-')
+            self.saver = Saver(self, save_path, optimizer=self.optim, prefix=model_name + '-')
         if saver is None:
             self.saver.save(model_name, step, best_val=best_val)
         else:
@@ -253,8 +247,7 @@ class Model(nn.Module):
     def load(self, save_path):
         if os.path.isdir(save_path):
             if not hasattr(self, 'saver'):
-                self.saver = Saver(self, save_path, optimizer=self.optim,
-                    prefix=model_name + '-')
+                self.saver = Saver(self, save_path, optimizer=self.optim, prefix=model_name + '-')
             self.saver.load_weights()
         else:
             None
@@ -301,8 +294,7 @@ class LayerNorm(nn.Module):
 
 class Conv1DResBlock(nn.Module):
 
-    def __init__(self, ninputs, fmaps, kwidth=3, dilations=[1, 2, 4, 8],
-        stride=4, bias=True, transpose=False, act='prelu'):
+    def __init__(self, ninputs, fmaps, kwidth=3, dilations=[1, 2, 4, 8], stride=4, bias=True, transpose=False, act='prelu'):
         super().__init__()
         self.ninputs = ninputs
         self.fmaps = fmaps
@@ -332,12 +324,9 @@ class Conv1DResBlock(nn.Module):
                 if p_ < 0:
                     op_ = p_ * -1
                     p_ = 0
-                self.convs.append(nn.ConvTranspose1d(prev_in, curr_fmaps,
-                    kwidth, stride=curr_stride, dilation=d, padding=p_,
-                    output_padding=op_, bias=bias))
+                self.convs.append(nn.ConvTranspose1d(prev_in, curr_fmaps, kwidth, stride=curr_stride, dilation=d, padding=p_, output_padding=op_, bias=bias))
             else:
-                self.convs.append(nn.Conv1d(prev_in, curr_fmaps, kwidth,
-                    stride=curr_stride, dilation=d, padding=0, bias=bias))
+                self.convs.append(nn.Conv1d(prev_in, curr_fmaps, kwidth, stride=curr_stride, dilation=d, padding=0, bias=bias))
             self.acts.append(nn.PReLU(curr_fmaps))
             prev_in = curr_fmaps
 
@@ -361,8 +350,7 @@ class Conv1DResBlock(nn.Module):
 
 class GSkip(nn.Module):
 
-    def __init__(self, skip_type, size, skip_init, skip_dropout=0,
-        merge_mode='sum', kwidth=11, bias=True):
+    def __init__(self, skip_type, size, skip_init, skip_dropout=0, merge_mode='sum', kwidth=11, bias=True):
         super().__init__()
         self.merge_mode = merge_mode
         if skip_type == 'alpha' or skip_type == 'constant':
@@ -384,8 +372,7 @@ class GSkip(nn.Module):
                 pad = kwidth // 2
             else:
                 pad = 0
-            self.skip_k = nn.Conv1d(size, size, kwidth, stride=1, padding=
-                pad, bias=bias)
+            self.skip_k = nn.Conv1d(size, size, kwidth, stride=1, padding=pad, bias=bias)
         else:
             raise TypeError('Unrecognized GSkip scheme: ', skip_type)
         self.skip_type = skip_type
@@ -430,21 +417,16 @@ def build_norm_layer(norm_type, param=None, num_feats=None):
 
 class ResBlock1D(nn.Module):
 
-    def __init__(self, num_inputs, hidden_size, kwidth, dilation=1, bias=
-        True, norm_type=None, hid_act=nn.ReLU(inplace=True), out_act=None,
-        skip_init=0):
+    def __init__(self, num_inputs, hidden_size, kwidth, dilation=1, bias=True, norm_type=None, hid_act=nn.ReLU(inplace=True), out_act=None, skip_init=0):
         super().__init__()
         self.entry_conv = nn.Conv1d(num_inputs, hidden_size, 1, bias=bias)
-        self.entry_norm = build_norm_layer(norm_type, self.entry_conv,
-            hidden_size)
+        self.entry_norm = build_norm_layer(norm_type, self.entry_conv, hidden_size)
         self.entry_act = hid_act
-        self.mid_conv = nn.Conv1d(hidden_size, hidden_size, kwidth,
-            dilation=dilation, bias=bias)
+        self.mid_conv = nn.Conv1d(hidden_size, hidden_size, kwidth, dilation=dilation, bias=bias)
         self.mid_norm = build_norm_layer(norm_type, self.mid_conv, hidden_size)
         self.mid_act = hid_act
         self.exit_conv = nn.Conv1d(hidden_size, num_inputs, 1, bias=bias)
-        self.exit_norm = build_norm_layer(norm_type, self.exit_conv, num_inputs
-            )
+        self.exit_norm = build_norm_layer(norm_type, self.exit_conv, num_inputs)
         if out_act is None:
             out_act = hid_act
         self.exit_act = out_act
@@ -476,8 +458,7 @@ class ResBlock1D(nn.Module):
 
 class GConv1DBlock(nn.Module):
 
-    def __init__(self, ninp, fmaps, kwidth, stride=1, bias=True, norm_type=None
-        ):
+    def __init__(self, ninp, fmaps, kwidth, stride=1, bias=True, norm_type=None):
         super().__init__()
         self.conv = nn.Conv1d(ninp, fmaps, kwidth, stride=stride, bias=bias)
         self.norm = build_norm_layer(norm_type, self.conv, fmaps)
@@ -508,12 +489,10 @@ class GConv1DBlock(nn.Module):
 
 class GDeconv1DBlock(nn.Module):
 
-    def __init__(self, ninp, fmaps, kwidth, stride=4, bias=True, norm_type=
-        None, act=None):
+    def __init__(self, ninp, fmaps, kwidth, stride=4, bias=True, norm_type=None, act=None):
         super().__init__()
         pad = max(0, (stride - kwidth) // -2)
-        self.deconv = nn.ConvTranspose1d(ninp, fmaps, kwidth, stride=stride,
-            padding=pad)
+        self.deconv = nn.ConvTranspose1d(ninp, fmaps, kwidth, stride=stride, padding=pad)
         self.norm = build_norm_layer(norm_type, self.deconv, fmaps)
         if act is not None:
             self.act = getattr(nn, act)()
@@ -539,11 +518,9 @@ class GDeconv1DBlock(nn.Module):
 
 class ResARModule(nn.Module):
 
-    def __init__(self, ninp, fmaps, res_fmaps, kwidth, dilation, bias=True,
-        norm_type=None, act=None):
+    def __init__(self, ninp, fmaps, res_fmaps, kwidth, dilation, bias=True, norm_type=None, act=None):
         super().__init__()
-        self.dil_conv = nn.Conv1d(ninp, fmaps, kwidth, dilation=dilation,
-            bias=bias)
+        self.dil_conv = nn.Conv1d(ninp, fmaps, kwidth, dilation=dilation, bias=bias)
         if act is not None:
             self.act = getattr(nn, act)()
         else:
@@ -552,11 +529,9 @@ class ResARModule(nn.Module):
         self.kwidth = kwidth
         self.dilation = dilation
         self.conv_1x1_skip = nn.Conv1d(fmaps, ninp, 1, bias=bias)
-        self.conv_1x1_skip_norm = build_norm_layer(norm_type, self.
-            conv_1x1_skip, ninp)
+        self.conv_1x1_skip_norm = build_norm_layer(norm_type, self.conv_1x1_skip, ninp)
         self.conv_1x1_res = nn.Conv1d(fmaps, res_fmaps, 1, bias=bias)
-        self.conv_1x1_res_norm = build_norm_layer(norm_type, self.
-            conv_1x1_res, res_fmaps)
+        self.conv_1x1_res_norm = build_norm_layer(norm_type, self.conv_1x1_res, res_fmaps)
 
     def forward_norm(self, x, norm_layer):
         if norm_layer is not None:
@@ -585,14 +560,12 @@ def flip(x, dim):
     dim = x.dim() + dim if dim < 0 else dim
     x = x.contiguous()
     x = x.view(-1, *xsize[dim:])
-    x = x.view(x.size(0), x.size(1), -1)[:, (getattr(torch.arange(x.size(1) -
-        1, -1, -1), ('cpu', 'cuda')[x.is_cuda])().long()), :]
+    x = x.view(x.size(0), x.size(1), -1)[:, (getattr(torch.arange(x.size(1) - 1, -1, -1), ('cpu', 'cuda')[x.is_cuda])().long()), :]
     return x.view(xsize)
 
 
 def sinc(band, t_right, cuda=False):
-    y_right = torch.sin(2 * math.pi * band * t_right) / (2 * math.pi * band *
-        t_right)
+    y_right = torch.sin(2 * math.pi * band * t_right) / (2 * math.pi * band * t_right)
     y_left = flip(y_right, 0)
     ones = torch.ones(1)
     if cuda:
@@ -615,8 +588,7 @@ class SincConv(nn.Module):
         b2[-1] = fs / 2 - 100
         self.freq_scale = fs * 1.0
         self.filt_b1 = nn.Parameter(torch.from_numpy(b1 / self.freq_scale))
-        self.filt_band = nn.Parameter(torch.from_numpy((b2 - b1) / self.
-            freq_scale))
+        self.filt_band = nn.Parameter(torch.from_numpy((b2 - b1) / self.freq_scale))
         self.N_filt = N_filt
         self.Filt_dim = Filt_dim
         self.fs = fs
@@ -626,33 +598,28 @@ class SincConv(nn.Module):
         cuda = x.is_cuda
         filters = torch.zeros((self.N_filt, self.Filt_dim))
         N = self.Filt_dim
-        t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)
-            ) / self.fs
+        t_right = torch.linspace(1, (N - 1) / 2, steps=int((N - 1) / 2)) / self.fs
         if cuda:
             filters = filters
             t_right = t_right
         min_freq = 50.0
         min_band = 50.0
         filt_beg_freq = torch.abs(self.filt_b1) + min_freq / self.freq_scale
-        filt_end_freq = filt_beg_freq + (torch.abs(self.filt_band) + 
-            min_band / self.freq_scale)
+        filt_end_freq = filt_beg_freq + (torch.abs(self.filt_band) + min_band / self.freq_scale)
         n = torch.linspace(0, N, steps=N)
         window = (0.54 - 0.46 * torch.cos(2 * math.pi * n / N)).float()
         if cuda:
             window = window
         for i in range(self.N_filt):
-            low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i
-                ].float() * self.freq_scale, t_right, cuda)
-            low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i
-                ].float() * self.freq_scale, t_right, cuda)
+            low_pass1 = 2 * filt_beg_freq[i].float() * sinc(filt_beg_freq[i].float() * self.freq_scale, t_right, cuda)
+            low_pass2 = 2 * filt_end_freq[i].float() * sinc(filt_end_freq[i].float() * self.freq_scale, t_right, cuda)
             band_pass = low_pass2 - low_pass1
             band_pass = band_pass / torch.max(band_pass)
             if cuda:
                 band_pass = band_pass
             filters[(i), :] = band_pass * window
         if self.padding == 'SAME':
-            x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2), mode=
-                'reflect')
+            x_p = F.pad(x, (self.Filt_dim // 2, self.Filt_dim // 2), mode='reflect')
         else:
             x_p = x
         out = F.conv1d(x_p, filters.view(self.N_filt, 1, self.Filt_dim))
@@ -716,8 +683,7 @@ class SpectralNorm(nn.Module):
         w = getattr(self.module, self.name + '_bar')
         height = w.data.shape[0]
         for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data),
-                u.data))
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
             u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
         sigma = u.dot(w.view(height, -1).mv(v))
         setattr(self.module, self.name, w / sigma.expand_as(w))
@@ -754,30 +720,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CombFilter,
+     lambda: ([], {'ninputs': 4, 'fmaps': 4, 'L': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (Conv1DResBlock,
+     lambda: ([], {'ninputs': 4, 'fmaps': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (GConv1DBlock,
+     lambda: ([], {'ninp': 4, 'fmaps': 4, 'kwidth': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (GDeconv1DBlock,
+     lambda: ([], {'ninp': 4, 'fmaps': 4, 'kwidth': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PostProcessingCombNet,
+     lambda: ([], {'ninputs': 4, 'fmaps': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ResARModule,
+     lambda: ([], {'ninp': 4, 'fmaps': 4, 'res_fmaps': 4, 'kwidth': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+]
+
 class Test_santi_pdp_segan_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CombFilter(*[], **{'ninputs': 4, 'fmaps': 4, 'L': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Conv1DResBlock(*[], **{'ninputs': 4, 'fmaps': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GConv1DBlock(*[], **{'ninp': 4, 'fmaps': 4, 'kwidth': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GDeconv1DBlock(*[], **{'ninp': 4, 'fmaps': 4, 'kwidth': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LayerNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PostProcessingCombNet(*[], **{'ninputs': 4, 'fmaps': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ResARModule(*[], **{'ninp': 4, 'fmaps': 4, 'res_fmaps': 4, 'kwidth': 4, 'dilation': 1}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[6])
 

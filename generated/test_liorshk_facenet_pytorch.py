@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -121,13 +122,11 @@ class FaceModelCenter(nn.Module):
         self.model.fc1 = nn.Linear(512 * 3 * 3, 512)
         self.model.fc2 = nn.Linear(512, embedding_size)
         self.model.classifier = nn.Linear(embedding_size, num_classes)
-        self.centers = torch.zeros(num_classes, embedding_size).type(torch.
-            FloatTensor)
+        self.centers = torch.zeros(num_classes, embedding_size).type(torch.FloatTensor)
         self.num_classes = num_classes
         self.apply(self.weights_init)
         if checkpoint is not None:
-            if list(checkpoint['state_dict'].values())[-1].size(0
-                ) == num_classes:
+            if list(checkpoint['state_dict'].values())[-1].size(0) == num_classes:
                 self.load_state_dict(checkpoint['state_dict'])
                 self.centers = checkpoint['centers']
             else:
@@ -157,24 +156,19 @@ class FaceModelCenter(nn.Module):
     def get_center_loss(self, target, alpha):
         batch_size = target.size(0)
         features_dim = self.features.size(1)
-        target_expand = target.view(batch_size, 1).expand(batch_size,
-            features_dim)
+        target_expand = target.view(batch_size, 1).expand(batch_size, features_dim)
         centers_var = Variable(self.centers)
         centers_batch = centers_var.gather(0, target_expand)
         criterion = nn.MSELoss()
         center_loss = criterion(self.features, centers_batch)
         diff = centers_batch - self.features
-        unique_label, unique_reverse, unique_count = np.unique(target.cpu()
-            .data.numpy(), return_inverse=True, return_counts=True)
-        appear_times = torch.from_numpy(unique_count).gather(0, torch.
-            from_numpy(unique_reverse))
-        appear_times_expand = appear_times.view(-1, 1).expand(batch_size,
-            features_dim).type(torch.FloatTensor)
+        unique_label, unique_reverse, unique_count = np.unique(target.cpu().data.numpy(), return_inverse=True, return_counts=True)
+        appear_times = torch.from_numpy(unique_count).gather(0, torch.from_numpy(unique_reverse))
+        appear_times_expand = appear_times.view(-1, 1).expand(batch_size, features_dim).type(torch.FloatTensor)
         diff_cpu = diff.cpu().data / appear_times_expand.add(1e-06)
         diff_cpu = alpha * diff_cpu
         for i in range(batch_size):
-            self.centers[target.data[i]] -= diff_cpu[i].type(self.centers.
-                type())
+            self.centers[target.data[i]] -= diff_cpu[i].type(self.centers.type())
         return center_loss, self.centers
 
     def l2_norm(self, input):
@@ -212,5 +206,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FaceModel,
+     lambda: ([], {'embedding_size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 96, 96])], {}),
+     True),
+    (FaceModelCenter,
+     lambda: ([], {'embedding_size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 96, 96])], {}),
+     False),
+]
+
 class Test_liorshk_facenet_pytorch(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+

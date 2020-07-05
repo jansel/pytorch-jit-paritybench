@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,12 +66,9 @@ class VIN(nn.Module):
 
     def __init__(self, args):
         super(VIN, self).__init__()
-        self.conv_h = nn.Conv2d(in_channels=args.ch_i, out_channels=args.
-            ch_h, kernel_size=3, stride=1, padding=(3 - 1) // 2, bias=True)
-        self.conv_r = nn.Conv2d(in_channels=args.ch_h, out_channels=1,
-            kernel_size=3, stride=1, padding=(3 - 1) // 2, bias=False)
-        self.conv_q = nn.Conv2d(in_channels=2, out_channels=args.ch_q,
-            kernel_size=3, stride=1, padding=(3 - 1) // 2, bias=False)
+        self.conv_h = nn.Conv2d(in_channels=args.ch_i, out_channels=args.ch_h, kernel_size=3, stride=1, padding=(3 - 1) // 2, bias=True)
+        self.conv_r = nn.Conv2d(in_channels=args.ch_h, out_channels=1, kernel_size=3, stride=1, padding=(3 - 1) // 2, bias=False)
+        self.conv_q = nn.Conv2d(in_channels=2, out_channels=args.ch_q, kernel_size=3, stride=1, padding=(3 - 1) // 2, bias=False)
         self.fc1 = nn.Linear(in_features=args.ch_q, out_features=8, bias=False)
         self.grid_image = None
         self.reward_image = None
@@ -97,10 +95,3 @@ class VIN(nn.Module):
         logits = self.fc1(q_out)
         return logits
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_zuoxingdong_VIN_PyTorch_Visdom(_paritybench_base):
-    pass

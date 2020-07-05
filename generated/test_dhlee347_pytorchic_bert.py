@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -156,8 +157,7 @@ class MultiHeadedSelfAttention(nn.Module):
         * split D(dim) into (H(n_heads), W(width of head)) ; D = H * W
         """
         q, k, v = self.proj_q(x), self.proj_k(x), self.proj_v(x)
-        q, k, v = (split_last(x, (self.n_heads, -1)).transpose(1, 2) for x in
-            [q, k, v])
+        q, k, v = (split_last(x, (self.n_heads, -1)).transpose(1, 2) for x in [q, k, v])
         scores = q @ k.transpose(-2, -1) / np.sqrt(k.size(-1))
         if mask is not None:
             mask = mask[:, (None), (None), :].float()
@@ -253,22 +253,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4), 'n_labels': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     False),
+    (Embeddings,
+     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'cfg': _mock_config(dim=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionWiseFeedForward,
+     lambda: ([], {'cfg': _mock_config(dim=4, dim_ff=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Transformer,
+     lambda: ([], {'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_dhlee347_pytorchic_bert(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Classifier(*[], **{'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4), 'n_labels': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Embeddings(*[], **{'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LayerNorm(*[], **{'cfg': _mock_config(dim=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PositionWiseFeedForward(*[], **{'cfg': _mock_config(dim=4, dim_ff=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Transformer(*[], **{'cfg': _mock_config(vocab_size=4, dim=4, max_len=4, n_segments=4, p_drop_hidden=0.5, n_layers=1, p_drop_attn=0.5, n_heads=4, dim_ff=4)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 

@@ -79,8 +79,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -184,8 +185,7 @@ class PolicyNetwork(nn.Module):
 
 class DistributionalDQN(nn.Module):
 
-    def __init__(self, input_dim, output_dim, use_conv=True, n_atoms=51,
-        Vmin=-10.0, Vmax=10.0):
+    def __init__(self, input_dim, output_dim, use_conv=True, n_atoms=51, Vmin=-10.0, Vmax=10.0):
         super(DistributionalDQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -194,13 +194,9 @@ class DistributionalDQN(nn.Module):
         self.Vmin = Vmin
         self.Vmax = Vmax
         self.delta_z = (Vmax - Vmin) / (self.n_atoms - 1)
-        self.support = torch.arange(self.Vmin, self.Vmax + self.delta_z,
-            self.delta_z)
-        self.features = self.conv_layer(self.input_dim
-            ) if self.use_conv else None
-        self.fc = nn.Sequential(nn.Linear(self.feature_size() if self.
-            use_conv else self.input_dim[0], 128), nn.ReLU(), nn.Linear(128,
-            256), nn.ReLU(), nn.Linear(256, self.output_dim * self.n_atoms))
+        self.support = torch.arange(self.Vmin, self.Vmax + self.delta_z, self.delta_z)
+        self.features = self.conv_layer(self.input_dim) if self.use_conv else None
+        self.fc = nn.Sequential(nn.Linear(self.feature_size() if self.use_conv else self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim * self.n_atoms))
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, state):
@@ -223,10 +219,7 @@ class DistributionalDQN(nn.Module):
         return feats.view(feats.size(0), -1)
 
     def conv_layer(self, input_dim):
-        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
+        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
 
 
 class VanillaDQN(nn.Module):
@@ -240,8 +233,7 @@ class VanillaDQN(nn.Module):
         if self.use_conv:
             self.conv_net = self.get_conv_net(self.input_dim)
             self.fc_input_dim = self.feature_size()
-        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         if self.use_conv:
@@ -253,15 +245,11 @@ class VanillaDQN(nn.Module):
         return qvals
 
     def get_conv_net(self, input_dim):
-        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
+        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         return conv
 
     def feature_size(self):
-        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class DuelingDQN(nn.Module):
@@ -271,17 +259,12 @@ class DuelingDQN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.use_conv = use_conv
-        self.features = self.conv_layer(self.input_dim
-            ) if self.use_conv else nn.Sequential(nn.Linear(self.input_dim[
-            0], 128), nn.ReLU())
-        self.value_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1))
-        self.advantage_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(
-            ), nn.Linear(128, self.output_dim))
+        self.features = self.conv_layer(self.input_dim) if self.use_conv else nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU())
+        self.value_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, 1))
+        self.advantage_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, self.output_dim))
 
     def forward(self, state):
-        feats = self.conv_features(state) if self.use_conv else self.features(
-            state)
+        feats = self.conv_features(state) if self.use_conv else self.features(state)
         values = self.value_stream(feats)
         advantages = self.advantage_stream(feats)
         qvals = values + (advantages - advantages.mean())
@@ -292,21 +275,16 @@ class DuelingDQN(nn.Module):
         return feats.view(feats.size(0), -1)
 
     def conv_layer(self, input_dim):
-        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
+        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         return conv
 
     def feature_size(self, input_dim):
-        return self.features(autograd.Variable(torch.zeros(1, *input_dim))
-            ).view(1, -1).size(1)
+        return self.features(autograd.Variable(torch.zeros(1, *input_dim))).view(1, -1).size(1)
 
 
 class DistributionalDQN(nn.Module):
 
-    def __init__(self, input_dim, output_dim, use_conv=True, n_atoms=51,
-        Vmin=-10.0, Vmax=10.0):
+    def __init__(self, input_dim, output_dim, use_conv=True, n_atoms=51, Vmin=-10.0, Vmax=10.0):
         super(DistributionalDQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -315,13 +293,9 @@ class DistributionalDQN(nn.Module):
         self.Vmin = Vmin
         self.Vmax = Vmax
         self.delta_z = (Vmax - Vmin) / (self.n_atoms - 1)
-        self.support = torch.arange(self.Vmin, self.Vmax + self.delta_z,
-            self.delta_z)
-        self.features = self.conv_layer(self.input_dim
-            ) if self.use_conv else None
-        self.fc = nn.Sequential(nn.Linear(self.feature_size() if self.
-            use_conv else self.input_dim[0], 128), nn.ReLU(), nn.Linear(128,
-            256), nn.ReLU(), nn.Linear(256, self.output_dim * self.n_atoms))
+        self.support = torch.arange(self.Vmin, self.Vmax + self.delta_z, self.delta_z)
+        self.features = self.conv_layer(self.input_dim) if self.use_conv else None
+        self.fc = nn.Sequential(nn.Linear(self.feature_size() if self.use_conv else self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim * self.n_atoms))
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, state):
@@ -344,10 +318,7 @@ class DistributionalDQN(nn.Module):
         return feats.view(feats.size(0), -1)
 
     def conv_layer(self, input_dim):
-        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
+        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
 
 
 class RecurrentDQN(nn.Module):
@@ -359,14 +330,12 @@ class RecurrentDQN(nn.Module):
         self.output_dim = output_dim
         self.use_conv = use_conv
         self.features = self.conv_layer() if self.use_conv else None
-        self.linear1 = nn.Linear(self.feature_size() if self.use_conv else
-            self.input_dim[0], self.gru_size)
+        self.linear1 = nn.Linear(self.feature_size() if self.use_conv else self.input_dim[0], self.gru_size)
         self.gru = nn.GRUCell(self.gru_size, self.gru_size)
         self.linear2 = nn.Linear(self.gru_size, self.output_dim)
 
     def forward(self, state_input, hidden_state):
-        feats = self.conv_features(state_input
-            ) if self.use_conv else state_input
+        feats = self.conv_features(state_input) if self.use_conv else state_input
         x = F.relu(self.linear1(feats))
         h_in = hidden_state.reshape(-1, self.gru_size)
         h = self.gru(x, h_in)
@@ -381,15 +350,11 @@ class RecurrentDQN(nn.Module):
         return feats.view(feats.size(0), -1)
 
     def conv_layer(self, input_dim):
-        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
+        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         return conv
 
     def feature_size(self, input_dim):
-        return self.features(autograd.Variable(torch.zeros(1, *input_dim))
-            ).view(1, -1).size(1)
+        return self.features(autograd.Variable(torch.zeros(1, *input_dim))).view(1, -1).size(1)
 
 
 class NoisyDQN(nn.Module):
@@ -405,12 +370,9 @@ class NoisyDQN(nn.Module):
             self.conv_net = self.get_conv_net(self.input_dim)
             self.fc_input_dim = self.feature_size()
         if self.noisy:
-            self.noisy_fc = nn.Sequential(NoisyLinear(self.fc_input_dim, 
-                512), nn.ReLU(), NoisyLinear(512, self.output_dim))
+            self.noisy_fc = nn.Sequential(NoisyLinear(self.fc_input_dim, 512), nn.ReLU(), NoisyLinear(512, self.output_dim))
         if not self.noisy:
-            self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.
-                ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self
-                .output_dim))
+            self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         feats = self.conv_net(state)
@@ -419,15 +381,11 @@ class NoisyDQN(nn.Module):
         return qvals
 
     def get_conv_net(self, input_dim):
-        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
+        conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         return conv
 
     def feature_size(self):
-        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class NoisyLinear(nn.Module):
@@ -441,8 +399,7 @@ class NoisyLinear(nn.Module):
         self.mu_bias = nn.Parameter(torch.FloatTensor(num_out))
         self.sigma_weight = nn.Parameter(torch.FloatTensor(num_out, num_in))
         self.sigma_bias = nn.Parameter(torch.FloatTensor(num_out))
-        self.register_buffer('epsilon_weight', torch.FloatTensor(num_out,
-            num_in))
+        self.register_buffer('epsilon_weight', torch.FloatTensor(num_out, num_in))
         self.register_buffer('epsilon_bias', torch.FloatTensor(num_out))
         self.reset_parameters()
         self.reset_noise()
@@ -450,10 +407,8 @@ class NoisyLinear(nn.Module):
     def forward(self, x):
         self.reset_noise()
         if self.is_training:
-            weight = self.mu_weight + self.sigma_weight.mul(autograd.
-                Variable(self.epsilon_weight))
-            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(
-                self.epsilon_bias))
+            weight = self.mu_weight + self.sigma_weight.mul(autograd.Variable(self.epsilon_weight))
+            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(self.epsilon_bias))
         else:
             weight = self.mu_weight
             buas = self.mu_bias
@@ -493,10 +448,8 @@ class FactorizedNoisyLinear(nn.Module):
         if self.is_training:
             epsilon_weight = self.epsilon_j.ger(self.epsilon_i)
             epsilon_bias = self.epsilon_j
-            weight = self.mu_weight + self.sigma_weight.mul(autograd.
-                Variable(epsilon_weight))
-            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(
-                epsilon_bias))
+            weight = self.mu_weight + self.sigma_weight.mul(autograd.Variable(epsilon_weight))
+            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(epsilon_bias))
         else:
             weight = self.mu_weight
             bias = self.mu_bias
@@ -524,12 +477,8 @@ class ConvDQN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fc_input_dim = self.feature_size()
-        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         features = self.conv_net(state)
@@ -538,8 +487,7 @@ class ConvDQN(nn.Module):
         return qvals
 
     def feature_size(self):
-        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class DQN(nn.Module):
@@ -548,8 +496,7 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         qvals = self.fc(state)
@@ -563,12 +510,8 @@ class ConvDQN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fc_input_dim = self.feature_size()
-        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         features = self.conv_net(state)
@@ -577,8 +520,7 @@ class ConvDQN(nn.Module):
         return qvals
 
     def feature_size(self):
-        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class DQN(nn.Module):
@@ -587,8 +529,7 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         qvals = self.fc(state)
@@ -602,14 +543,9 @@ class ConvDuelingDQN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fc_input_dim = self.feature_size()
-        self.conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8,
-            stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2
-            ), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU()
-            )
-        self.value_stream = nn.Sequential(nn.Linear(self.fc_input_dim, 128),
-            nn.ReLU(), nn.Linear(128, 1))
-        self.advantage_stream = nn.Sequential(nn.Linear(self.fc_input_dim, 
-            128), nn.ReLU(), nn.Linear(128, self.output_dim))
+        self.conv = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.value_stream = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 1))
+        self.advantage_stream = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, self.output_dim))
 
     def forward(self, state):
         features = self.conv(state)
@@ -620,8 +556,7 @@ class ConvDuelingDQN(nn.Module):
         return qvals
 
     def feature_size(self):
-        return self.conv(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class DuelingDQN(nn.Module):
@@ -630,12 +565,9 @@ class DuelingDQN(nn.Module):
         super(DuelingDQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.feauture_layer = nn.Sequential(nn.Linear(self.input_dim[0], 
-            128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU())
-        self.value_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1))
-        self.advantage_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(
-            ), nn.Linear(128, self.output_dim))
+        self.feauture_layer = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU())
+        self.value_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, 1))
+        self.advantage_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, self.output_dim))
 
     def forward(self, state):
         features = self.feauture_layer(state)
@@ -651,13 +583,8 @@ class ConvNoisyDQN(nn.Module):
         super(ConvNoisyDQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.noisy_fc = nn.Sequential(FactorizedNoisyLinear(self.
-            feature_size(), 512), nn.ReLU(), FactorizedNoisyLinear(512,
-            self.output_dim))
+        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.noisy_fc = nn.Sequential(FactorizedNoisyLinear(self.feature_size(), 512), nn.ReLU(), FactorizedNoisyLinear(512, self.output_dim))
 
     def forward(self, state):
         features = self.conv(state)
@@ -666,8 +593,7 @@ class ConvNoisyDQN(nn.Module):
         return qvals
 
     def feature_size(self):
-        return self.conv(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class NoisyDQN(nn.Module):
@@ -676,9 +602,7 @@ class NoisyDQN(nn.Module):
         super(NoisyDQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.noisy_fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn
-            .ReLU(), FactorizedNoisyLinear(128, 128), nn.ReLU(),
-            FactorizedNoisyLinear(128, self.output_dim))
+        self.noisy_fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(), FactorizedNoisyLinear(128, 128), nn.ReLU(), FactorizedNoisyLinear(128, self.output_dim))
 
     def forward(self, state):
         qvals = self.noisy_fc(state)
@@ -692,12 +616,8 @@ class ConvDQN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fc_input_dim = self.feature_size()
-        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         features = self.conv_net(state)
@@ -706,8 +626,7 @@ class ConvDQN(nn.Module):
         return qvals
 
     def feature_size(self):
-        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class DQN(nn.Module):
@@ -716,8 +635,7 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         qvals = self.fc(state)
@@ -731,12 +649,8 @@ class ConvDQN(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.fc_input_dim = self.feature_size()
-        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.conv = nn.Sequential(nn.Conv2d(self.input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc = nn.Sequential(nn.Linear(self.fc_input_dim, 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         features = self.conv_net(state)
@@ -745,8 +659,7 @@ class ConvDQN(nn.Module):
         return qvals
 
     def feature_size(self):
-        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.conv_net(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
 
 class DQN(nn.Module):
@@ -755,8 +668,7 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(
-            ), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
+        self.fc = nn.Sequential(nn.Linear(self.input_dim[0], 128), nn.ReLU(), nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, self.output_dim))
 
     def forward(self, state):
         qvals = self.fc(state)
@@ -860,8 +772,7 @@ class NoisyLinear(nn.Module):
         self.mu_bias = nn.Parameter(torch.FloatTensor(num_out))
         self.sigma_weight = nn.Parameter(torch.FloatTensor(num_out, num_in))
         self.sigma_bias = nn.Parameter(torch.FloatTensor(num_out))
-        self.register_buffer('epsilon_weight', torch.FloatTensor(num_out,
-            num_in))
+        self.register_buffer('epsilon_weight', torch.FloatTensor(num_out, num_in))
         self.register_buffer('epsilon_bias', torch.FloatTensor(num_out))
         self.reset_parameters()
         self.reset_noise()
@@ -869,10 +780,8 @@ class NoisyLinear(nn.Module):
     def forward(self, x):
         self.reset_noise()
         if self.is_training:
-            weight = self.mu_weight + self.sigma_weight.mul(autograd.
-                Variable(self.epsilon_weight))
-            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(
-                self.epsilon_bias))
+            weight = self.mu_weight + self.sigma_weight.mul(autograd.Variable(self.epsilon_weight))
+            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(self.epsilon_bias))
         else:
             weight = self.mu_weight
             buas = self.mu_bias
@@ -912,10 +821,8 @@ class FactorizedNoisyLinear(nn.Module):
         if self.is_training:
             epsilon_weight = self.epsilon_j.ger(self.epsilon_i)
             epsilon_bias = self.epsilon_j
-            weight = self.mu_weight + self.sigma_weight.mul(autograd.
-                Variable(epsilon_weight))
-            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(
-                epsilon_bias))
+            weight = self.mu_weight + self.sigma_weight.mul(autograd.Variable(epsilon_weight))
+            bias = self.mu_bias + self.sigma_bias.mul(autograd.Variable(epsilon_bias))
         else:
             weight = self.mu_weight
             bias = self.mu_bias
@@ -1010,8 +917,7 @@ class SoftQNetwork(nn.Module):
 
 class PolicyNetwork(nn.Module):
 
-    def __init__(self, num_inputs, num_actions, hidden_size=256, init_w=
-        0.003, log_std_min=-20, log_std_max=2):
+    def __init__(self, num_inputs, num_actions, hidden_size=256, init_w=0.003, log_std_min=-20, log_std_max=2):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
@@ -1117,8 +1023,7 @@ class SoftQNetwork(nn.Module):
 
 class GaussianPolicy(nn.Module):
 
-    def __init__(self, num_inputs, num_actions, hidden_size=256, init_w=
-        0.003, log_std_min=-20, log_std_max=2):
+    def __init__(self, num_inputs, num_actions, hidden_size=256, init_w=0.003, log_std_min=-20, log_std_max=2):
         super(GaussianPolicy, self).__init__()
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
@@ -1144,8 +1049,7 @@ class GaussianPolicy(nn.Module):
         std = log_std.exp()
         normal = Normal(mean, std)
         z = normal.rsample()
-        log_pi = (normal.log_prob(z) - torch.log(1 - torch.tanh(z).pow(2) +
-            epsilon)).sum(1, keepdim=True)
+        log_pi = (normal.log_prob(z) - torch.log(1 - torch.tanh(z).pow(2) + epsilon)).sum(1, keepdim=True)
         return mean, std, z, log_pi
 
 
@@ -1188,8 +1092,7 @@ class Actor(nn.Module):
 
 class ActorCritic(nn.Module):
 
-    def __init__(self, num_inputs, num_actions, hidden_size=256,
-        learning_rate=0.0003):
+    def __init__(self, num_inputs, num_actions, hidden_size=256, learning_rate=0.0003):
         super(ActorCritic, self).__init__()
         self.num_actions = num_actions
         self.critic_linear1 = nn.Linear(num_inputs, hidden_size)
@@ -1226,8 +1129,7 @@ class Critic(nn.Module):
 
 class Actor(nn.Module):
 
-    def __init__(self, input_size, hidden_size, output_size, learning_rate=
-        0.0003):
+    def __init__(self, input_size, hidden_size, output_size, learning_rate=0.0003):
         super(Actor, self).__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
         self.linear2 = nn.Linear(hidden_size, hidden_size)
@@ -1266,16 +1168,11 @@ class CnnDQN(nn.Module):
         super(CnnDQN, self).__init__()
         self.input_dim = input_dim
         self.action_space_dim = output_dim
-        self.features = nn.Sequential(nn.Conv2d(input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc = nn.Sequential(nn.Linear(self.feature_size(), 512), nn.
-            ReLU(), nn.Linear(512, self.action_space_dim))
+        self.features = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc = nn.Sequential(nn.Linear(self.feature_size(), 512), nn.ReLU(), nn.Linear(512, self.action_space_dim))
 
     def feature_size(self):
-        return self.features(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.features(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
     def forward(self, state):
         qvals = self.features(state)
@@ -1307,16 +1204,11 @@ class CnnDQN(nn.Module):
         super(CnnDQN, self).__init__()
         self.input_dim = input_dim
         self.action_space_dim = output_dim
-        self.features = nn.Sequential(nn.Conv2d(input_dim[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc = nn.Sequential(nn.Linear(self.feature_size(), 512), nn.
-            ReLU(), nn.Linear(512, self.action_space_dim))
+        self.features = nn.Sequential(nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc = nn.Sequential(nn.Linear(self.feature_size(), 512), nn.ReLU(), nn.Linear(512, self.action_space_dim))
 
     def feature_size(self):
-        return self.features(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.features(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
     def forward(self, state):
         qvals = self.features(state)
@@ -1332,10 +1224,8 @@ class DDQN(nn.Module):
         self.num_in = num_in
         self.num_out = num_out
         self.features = nn.Sequential(nn.Linear(self.num_in, 128), nn.ReLU())
-        self.value_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1))
-        self.advantage_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(
-            ), nn.Linear(128, self.num_out))
+        self.value_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, 1))
+        self.advantage_stream = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, self.num_out))
 
     def forward(self, state_tensor):
         x = self.features(state_tensor)
@@ -1351,18 +1241,12 @@ class CnnDDQN(nn.Module):
         super(CnnDDQN, self).__init__()
         self.num_in = input_dim
         self.num_out = output_dim
-        self.features = nn.Sequential(nn.Conv2d(self.num_in[0], 32,
-            kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64,
-            kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64,
-            kernel_size=3, stride=1), nn.ReLU())
-        self.fc_value = nn.Sequential(nn.Linear(self.feature_size(), 512),
-            nn.ReLU(), nn.Linear(512, self.num_out))
-        self.fc_advantage = nn.Sequential(nn.Linear(self.feature_size(), 
-            512), nn.ReLU(), nn.Linear(512, self.num_out))
+        self.features = nn.Sequential(nn.Conv2d(self.num_in[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        self.fc_value = nn.Sequential(nn.Linear(self.feature_size(), 512), nn.ReLU(), nn.Linear(512, self.num_out))
+        self.fc_advantage = nn.Sequential(nn.Linear(self.feature_size(), 512), nn.ReLU(), nn.Linear(512, self.num_out))
 
     def feature_size(self):
-        return self.features(autograd.Variable(torch.zeros(1, *self.input_dim))
-            ).view(1, -1).size(1)
+        return self.features(autograd.Variable(torch.zeros(1, *self.input_dim))).view(1, -1).size(1)
 
     def forward(self, state_tensor):
         x = self.features(state_tensor)
@@ -1391,50 +1275,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ActorCritic,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DDQN,
+     lambda: ([], {'num_in': 4, 'num_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DQN,
+     lambda: ([], {'num_in': 4, 'num_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DuelingDQN,
+     lambda: ([], {'input_dim': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorizedNoisyLinear,
+     lambda: ([], {'num_in': 4, 'num_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GaussianPolicy,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyDQN,
+     lambda: ([], {'input_dim': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoisyLinear,
+     lambda: ([], {'num_in': 4, 'num_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PolicyNetwork,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SoftQNetwork,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+    (TwoHeadNetwork,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ValueNetwork,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_cyoon1729_Reinforcement_learning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Actor(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ActorCritic(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Critic(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DDQN(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DQN(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(DuelingDQN(*[], **{'input_dim': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(FactorizedNoisyLinear(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(GaussianPolicy(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(NoisyDQN(*[], **{'input_dim': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(NoisyLinear(*[], **{'num_in': 4, 'num_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(PolicyNetwork(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SoftQNetwork(*[], **{'num_inputs': 4, 'num_actions': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(TwoHeadNetwork(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(ValueNetwork(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 

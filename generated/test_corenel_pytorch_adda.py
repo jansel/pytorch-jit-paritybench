@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,9 +54,7 @@ class Discriminator(nn.Module):
         """Init discriminator."""
         super(Discriminator, self).__init__()
         self.restored = False
-        self.layer = nn.Sequential(nn.Linear(input_dims, hidden_dims), nn.
-            ReLU(), nn.Linear(hidden_dims, hidden_dims), nn.ReLU(), nn.
-            Linear(hidden_dims, output_dims), nn.LogSoftmax())
+        self.layer = nn.Sequential(nn.Linear(input_dims, hidden_dims), nn.ReLU(), nn.Linear(hidden_dims, hidden_dims), nn.ReLU(), nn.Linear(hidden_dims, output_dims), nn.LogSoftmax())
 
     def forward(self, input):
         """Forward the discriminator."""
@@ -70,10 +69,7 @@ class LeNetEncoder(nn.Module):
         """Init LeNet encoder."""
         super(LeNetEncoder, self).__init__()
         self.restored = False
-        self.encoder = nn.Sequential(nn.Conv2d(1, 20, kernel_size=5), nn.
-            MaxPool2d(kernel_size=2), nn.ReLU(), nn.Conv2d(20, 50,
-            kernel_size=5), nn.Dropout2d(), nn.MaxPool2d(kernel_size=2), nn
-            .ReLU())
+        self.encoder = nn.Sequential(nn.Conv2d(1, 20, kernel_size=5), nn.MaxPool2d(kernel_size=2), nn.ReLU(), nn.Conv2d(20, 50, kernel_size=5), nn.Dropout2d(), nn.MaxPool2d(kernel_size=2), nn.ReLU())
         self.fc1 = nn.Linear(50 * 4 * 4, 500)
 
     def forward(self, input):
@@ -102,11 +98,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {'input_dims': 4, 'hidden_dims': 4, 'output_dims': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LeNetClassifier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([500, 500])], {}),
+     True),
+]
+
 class Test_corenel_pytorch_adda(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Discriminator(*[], **{'input_dims': 4, 'hidden_dims': 4, 'output_dims': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LeNetClassifier(*[], **{}), [torch.rand([500, 500])], {})
+        self._check(*TESTCASES[1])
 

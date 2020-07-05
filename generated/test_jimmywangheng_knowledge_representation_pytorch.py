@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,16 +91,12 @@ class TransEModel(nn.Module):
         rel_weight = floatTensor(self.relation_total, self.embedding_size)
         nn.init.xavier_uniform(ent_weight)
         nn.init.xavier_uniform(rel_weight)
-        self.ent_embeddings = nn.Embedding(self.entity_total, self.
-            embedding_size)
-        self.rel_embeddings = nn.Embedding(self.relation_total, self.
-            embedding_size)
+        self.ent_embeddings = nn.Embedding(self.entity_total, self.embedding_size)
+        self.rel_embeddings = nn.Embedding(self.relation_total, self.embedding_size)
         self.ent_embeddings.weight = nn.Parameter(ent_weight)
         self.rel_embeddings.weight = nn.Parameter(rel_weight)
-        normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data,
-            p=2, dim=1)
-        normalize_relation_emb = F.normalize(self.rel_embeddings.weight.
-            data, p=2, dim=1)
+        normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data, p=2, dim=1)
+        normalize_relation_emb = F.normalize(self.rel_embeddings.weight.data, p=2, dim=1)
         self.ent_embeddings.weight.data = normalize_entity_emb
         self.rel_embeddings.weight.data = normalize_relation_emb
 
@@ -141,21 +138,15 @@ class TransHModel(nn.Module):
         nn.init.xavier_uniform(ent_weight)
         nn.init.xavier_uniform(rel_weight)
         nn.init.xavier_uniform(norm_weight)
-        self.ent_embeddings = nn.Embedding(self.entity_total, self.
-            embedding_size)
-        self.rel_embeddings = nn.Embedding(self.relation_total, self.
-            embedding_size)
-        self.norm_embeddings = nn.Embedding(self.relation_total, self.
-            embedding_size)
+        self.ent_embeddings = nn.Embedding(self.entity_total, self.embedding_size)
+        self.rel_embeddings = nn.Embedding(self.relation_total, self.embedding_size)
+        self.norm_embeddings = nn.Embedding(self.relation_total, self.embedding_size)
         self.ent_embeddings.weight = nn.Parameter(ent_weight)
         self.rel_embeddings.weight = nn.Parameter(rel_weight)
         self.norm_embeddings.weight = nn.Parameter(norm_weight)
-        normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data,
-            p=2, dim=1)
-        normalize_relation_emb = F.normalize(self.rel_embeddings.weight.
-            data, p=2, dim=1)
-        normalize_norm_emb = F.normalize(self.norm_embeddings.weight.data,
-            p=2, dim=1)
+        normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data, p=2, dim=1)
+        normalize_relation_emb = F.normalize(self.rel_embeddings.weight.data, p=2, dim=1)
+        normalize_norm_emb = F.normalize(self.norm_embeddings.weight.data, p=2, dim=1)
         self.ent_embeddings.weight.data = normalize_entity_emb
         self.rel_embeddings.weight.data = normalize_relation_emb
         self.norm_embeddings.weight.data = normalize_norm_emb
@@ -205,24 +196,18 @@ class TransRModel(nn.Module):
         self.batch_size = config.batch_size
         ent_weight = floatTensor(self.entity_total, self.ent_embedding_size)
         rel_weight = floatTensor(self.relation_total, self.rel_embedding_size)
-        proj_weight = floatTensor(self.relation_total, self.
-            rel_embedding_size * self.ent_embedding_size)
+        proj_weight = floatTensor(self.relation_total, self.rel_embedding_size * self.ent_embedding_size)
         nn.init.xavier_uniform(ent_weight)
         nn.init.xavier_uniform(rel_weight)
         nn.init.xavier_uniform(proj_weight)
-        self.ent_embeddings = nn.Embedding(self.entity_total, self.
-            ent_embedding_size)
-        self.rel_embeddings = nn.Embedding(self.relation_total, self.
-            rel_embedding_size)
-        self.proj_embeddings = nn.Embedding(self.relation_total, self.
-            rel_embedding_size * self.ent_embedding_size)
+        self.ent_embeddings = nn.Embedding(self.entity_total, self.ent_embedding_size)
+        self.rel_embeddings = nn.Embedding(self.relation_total, self.rel_embedding_size)
+        self.proj_embeddings = nn.Embedding(self.relation_total, self.rel_embedding_size * self.ent_embedding_size)
         self.ent_embeddings.weight = nn.Parameter(ent_weight)
         self.rel_embeddings.weight = nn.Parameter(rel_weight)
         self.proj_embeddings.weight = nn.Parameter(proj_weight)
-        normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data,
-            p=2, dim=1)
-        normalize_relation_emb = F.normalize(self.rel_embeddings.weight.
-            data, p=2, dim=1)
+        normalize_entity_emb = F.normalize(self.ent_embeddings.weight.data, p=2, dim=1)
+        normalize_relation_emb = F.normalize(self.rel_embeddings.weight.data, p=2, dim=1)
         self.ent_embeddings.weight.data = normalize_entity_emb
         self.rel_embeddings.weight.data = normalize_relation_emb
 
@@ -262,22 +247,17 @@ class TransRPretrainModel(nn.Module):
         self.entity_total = config.entity_total
         self.relation_total = config.relation_total
         self.batch_size = config.batch_size
-        with open('./transE_%s_%s_best.pkl' % (config.dataset, str(config.
-            ent_embedding_size)), 'rb') as fr:
+        with open('./transE_%s_%s_best.pkl' % (config.dataset, str(config.ent_embedding_size)), 'rb') as fr:
             ent_embeddings_list = pickle.load(fr)
             rel_embeddings_list = pickle.load(fr)
         ent_weight = floatTensor(ent_embeddings_list)
         rel_weight = floatTensor(rel_embeddings_list)
-        proj_weight = floatTensor(self.rel_embedding_size, self.
-            ent_embedding_size)
+        proj_weight = floatTensor(self.rel_embedding_size, self.ent_embedding_size)
         nn.init.eye(proj_weight)
         proj_weight = proj_weight.view(-1).expand(self.relation_total, -1)
-        self.ent_embeddings = nn.Embedding(self.entity_total, self.
-            ent_embedding_size)
-        self.rel_embeddings = nn.Embedding(self.relation_total, self.
-            rel_embedding_size)
-        self.proj_embeddings = nn.Embedding(self.relation_total, self.
-            rel_embedding_size * self.ent_embedding_size)
+        self.ent_embeddings = nn.Embedding(self.entity_total, self.ent_embedding_size)
+        self.rel_embeddings = nn.Embedding(self.relation_total, self.rel_embedding_size)
+        self.proj_embeddings = nn.Embedding(self.relation_total, self.rel_embedding_size * self.ent_embedding_size)
         self.ent_embeddings.weight = nn.Parameter(ent_weight)
         self.rel_embeddings.weight = nn.Parameter(rel_weight)
         self.proj_embeddings.weight = nn.Parameter(proj_weight)
@@ -304,10 +284,8 @@ class TransRPretrainModel(nn.Module):
         return pos, neg, pos_h_e, pos_t_e, neg_h_e, neg_t_e
 
 
-def projection_transD_pytorch_samesize(entity_embedding, entity_projection,
-    relation_projection):
-    return entity_embedding + torch.sum(entity_embedding *
-        entity_projection, dim=1, keepdim=True) * relation_projection
+def projection_transD_pytorch_samesize(entity_embedding, entity_projection, relation_projection):
+    return entity_embedding + torch.sum(entity_embedding * entity_projection, dim=1, keepdim=True) * relation_projection
 
 
 class TransDPretrainModelSameSize(nn.Module):
@@ -323,8 +301,7 @@ class TransDPretrainModelSameSize(nn.Module):
         self.entity_total = config.entity_total
         self.relation_total = config.relation_total
         self.batch_size = config.batch_size
-        with open('./transE_%s_%s_best.pkl' % (config.dataset, str(config.
-            embedding_size)), 'rb') as fr:
+        with open('./transE_%s_%s_best.pkl' % (config.dataset, str(config.embedding_size)), 'rb') as fr:
             ent_embeddings_list = pickle.load(fr)
             rel_embeddings_list = pickle.load(fr)
         ent_weight = floatTensor(ent_embeddings_list)
@@ -333,14 +310,10 @@ class TransDPretrainModelSameSize(nn.Module):
         rel_proj_weight = floatTensor(self.relation_total, self.embedding_size)
         ent_proj_weight.zero_()
         rel_proj_weight.zero_()
-        self.ent_embeddings = nn.Embedding(self.entity_total, self.
-            embedding_size)
-        self.rel_embeddings = nn.Embedding(self.relation_total, self.
-            embedding_size)
-        self.ent_proj_embeddings = nn.Embedding(self.entity_total, self.
-            embedding_size)
-        self.rel_proj_embeddings = nn.Embedding(self.relation_total, self.
-            embedding_size)
+        self.ent_embeddings = nn.Embedding(self.entity_total, self.embedding_size)
+        self.rel_embeddings = nn.Embedding(self.relation_total, self.embedding_size)
+        self.ent_proj_embeddings = nn.Embedding(self.entity_total, self.embedding_size)
+        self.rel_proj_embeddings = nn.Embedding(self.relation_total, self.embedding_size)
         self.ent_embeddings.weight = nn.Parameter(ent_weight)
         self.rel_embeddings.weight = nn.Parameter(rel_weight)
         self.ent_proj_embeddings.weight = nn.Parameter(ent_proj_weight)
@@ -359,14 +332,10 @@ class TransDPretrainModelSameSize(nn.Module):
         neg_h_proj = self.ent_proj_embeddings(neg_h)
         neg_t_proj = self.ent_proj_embeddings(neg_t)
         neg_r_proj = self.rel_proj_embeddings(neg_r)
-        pos_h_e = projection_transD_pytorch_samesize(pos_h_e, pos_h_proj,
-            pos_r_proj)
-        pos_t_e = projection_transD_pytorch_samesize(pos_t_e, pos_t_proj,
-            pos_r_proj)
-        neg_h_e = projection_transD_pytorch_samesize(neg_h_e, neg_h_proj,
-            neg_r_proj)
-        neg_t_e = projection_transD_pytorch_samesize(neg_t_e, neg_t_proj,
-            neg_r_proj)
+        pos_h_e = projection_transD_pytorch_samesize(pos_h_e, pos_h_proj, pos_r_proj)
+        pos_t_e = projection_transD_pytorch_samesize(pos_t_e, pos_t_proj, pos_r_proj)
+        neg_h_e = projection_transD_pytorch_samesize(neg_h_e, neg_h_proj, neg_r_proj)
+        neg_t_e = projection_transD_pytorch_samesize(neg_t_e, neg_t_proj, neg_r_proj)
         if self.L1_flag:
             pos = torch.sum(torch.abs(pos_h_e + pos_r_e - pos_t_e), 1)
             neg = torch.sum(torch.abs(neg_h_e + neg_r_e - neg_t_e), 1)
@@ -375,10 +344,3 @@ class TransDPretrainModelSameSize(nn.Module):
             neg = torch.sum((neg_h_e + neg_r_e - neg_t_e) ** 2, 1)
         return pos, neg, pos_h_e, pos_t_e, neg_h_e, neg_t_e
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jimmywangheng_knowledge_representation_pytorch(_paritybench_base):
-    pass

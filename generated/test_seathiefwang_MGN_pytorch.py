@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -77,8 +78,7 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.CrossEntropyLoss()
             elif loss_type == 'Triplet':
                 loss_function = TripletLoss(args.margin)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -91,22 +91,19 @@ class Loss(nn.modules.loss._Loss):
         if args.load != '':
             self.load(ckpt.dir, cpu=args.cpu)
         if not args.cpu and args.nGPU > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .nGPU))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.nGPU))
 
     def forward(self, outputs, labels):
         losses = []
         for i, l in enumerate(self.loss):
             if self.args.model == 'MGN' and l['type'] == 'Triplet':
-                loss = [l['function'](output, labels) for output in outputs
-                    [1:4]]
+                loss = [l['function'](output, labels) for output in outputs[1:4]]
                 loss = sum(loss) / len(loss)
                 effective_loss = l['weight'] * loss
                 losses.append(effective_loss)
                 self.log[-1, i] += effective_loss.item()
             elif self.args.model == 'MGN' and l['function'] is not None:
-                loss = [l['function'](output, labels) for output in outputs[4:]
-                    ]
+                loss = [l['function'](output, labels) for output in outputs[4:]]
                 loss = sum(loss) / len(loss)
                 effective_loss = l['weight'] * loss
                 losses.append(effective_loss)
@@ -165,8 +162,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -203,15 +199,12 @@ class TripletSemihardLoss(nn.Module):
             input_tensor = input_tensor + 1000000.0 * (1 - mask)
             _min, _idx = torch.min(input_tensor, dim=axis, keepdim=keepdims)
             return _min, _idx
-        dist_squared = torch.sum(input ** 2, dim=1, keepdim=True) + torch.sum(
-            input.t() ** 2, dim=0, keepdim=True) - 2.0 * torch.matmul(input,
-            input.t())
+        dist_squared = torch.sum(input ** 2, dim=1, keepdim=True) + torch.sum(input.t() ** 2, dim=0, keepdim=True) - 2.0 * torch.matmul(input, input.t())
         dist = dist_squared.clamp(min=1e-16).sqrt()
         pos_max, pos_idx = _mask_max(dist, pos_mask, axis=-1)
         neg_min, neg_idx = _mask_min(dist, neg_mask, axis=-1)
         y = torch.ones(same_id.size()[0])
-        return F.margin_ranking_loss(neg_min.float(), pos_max.float(), y,
-            self.margin, self.size_average)
+        return F.margin_ranking_loss(neg_min.float(), pos_max.float(), y, self.margin, self.size_average)
 
 
 class TripletLoss(nn.Module):
@@ -269,8 +262,7 @@ class Model(nn.Module):
         self.model = module.make_model(args)
         if not args.cpu and args.nGPU > 1:
             self.model = nn.DataParallel(self.model, range(args.nGPU))
-        self.load(ckpt.dir, pre_train=args.pre_train, resume=args.resume,
-            cpu=args.cpu)
+        self.load(ckpt.dir, pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
 
     def forward(self, x):
         return self.model(x)
@@ -283,14 +275,11 @@ class Model(nn.Module):
 
     def save(self, apath, epoch, is_best=False):
         target = self.get_model()
-        torch.save(target.state_dict(), os.path.join(apath, 'model',
-            'model_latest.pt'))
+        torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_latest.pt'))
         if is_best:
-            torch.save(target.state_dict(), os.path.join(apath, 'model',
-                'model_best.pt'))
+            torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_best.pt'))
         if self.save_models:
-            torch.save(target.state_dict(), os.path.join(apath, 'model',
-                'model_{}.pt'.format(epoch)))
+            torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_{}.pt'.format(epoch)))
 
     def load(self, apath, pre_train='', resume=-1, cpu=False):
         if cpu:
@@ -298,17 +287,13 @@ class Model(nn.Module):
         else:
             kwargs = {}
         if resume == -1:
-            self.get_model().load_state_dict(torch.load(os.path.join(apath,
-                'model', 'model_latest.pt'), **kwargs), strict=False)
+            self.get_model().load_state_dict(torch.load(os.path.join(apath, 'model', 'model_latest.pt'), **kwargs), strict=False)
         elif resume == 0:
             if pre_train != '':
                 None
-                self.get_model().load_state_dict(torch.load(pre_train, **
-                    kwargs), strict=False)
+                self.get_model().load_state_dict(torch.load(pre_train, **kwargs), strict=False)
         else:
-            self.get_model().load_state_dict(torch.load(os.path.join(apath,
-                'model', 'model_{}.pt'.format(resume)), **kwargs), strict=False
-                )
+            self.get_model().load_state_dict(torch.load(os.path.join(apath, 'model', 'model_{}.pt'.format(resume)), **kwargs), strict=False)
 
 
 class MGN(nn.Module):
@@ -317,20 +302,14 @@ class MGN(nn.Module):
         super(MGN, self).__init__()
         num_classes = args.num_classes
         resnet = resnet50(pretrained=True)
-        self.backone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
+        self.backone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
         res_conv4 = nn.Sequential(*resnet.layer3[1:])
         res_g_conv5 = resnet.layer4
-        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.
-            Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d
-            (2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
+        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d(2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
         res_p_conv5.load_state_dict(resnet.layer4.state_dict())
-        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_g_conv5))
-        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
-        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
+        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_g_conv5))
+        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
+        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
         if args.pool == 'max':
             pool2d = nn.MaxPool2d
         elif args.pool == 'avg':
@@ -342,8 +321,7 @@ class MGN(nn.Module):
         self.maxpool_zg_p3 = pool2d(kernel_size=(24, 8))
         self.maxpool_zp2 = pool2d(kernel_size=(12, 8))
         self.maxpool_zp3 = pool2d(kernel_size=(8, 8))
-        reduction = nn.Sequential(nn.Conv2d(2048, args.feats, 1, bias=False
-            ), nn.BatchNorm2d(args.feats), nn.ReLU())
+        reduction = nn.Sequential(nn.Conv2d(2048, args.feats, 1, bias=False), nn.BatchNorm2d(args.feats), nn.ReLU())
         self._init_reduction(reduction)
         self.reduction_0 = copy.deepcopy(reduction)
         self.reduction_1 = copy.deepcopy(reduction)
@@ -417,19 +395,24 @@ class MGN(nn.Module):
         l0_p3 = self.fc_id_256_2_0(f0_p3)
         l1_p3 = self.fc_id_256_2_1(f1_p3)
         l2_p3 = self.fc_id_256_2_2(f2_p3)
-        predict = torch.cat([fg_p1, fg_p2, fg_p3, f0_p2, f1_p2, f0_p3,
-            f1_p3, f2_p3], dim=1)
-        return (predict, fg_p1, fg_p2, fg_p3, l_p1, l_p2, l_p3, l0_p2,
-            l1_p2, l0_p3, l1_p3, l2_p3)
+        predict = torch.cat([fg_p1, fg_p2, fg_p3, f0_p2, f1_p2, f0_p3, f1_p3, f2_p3], dim=1)
+        return predict, fg_p1, fg_p2, fg_p3, l_p1, l_p2, l_p3, l0_p2, l1_p2, l0_p3, l1_p3, l2_p3
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (TripletLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_seathiefwang_MGN_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

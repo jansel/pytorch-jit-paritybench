@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,8 +101,7 @@ class ActorCriticNetwork(nn.Module):
     have distinct output layers
     """
 
-    def __init__(self, state_dim, action_dim, hidden_size, actor_output_act,
-        critic_output_size=1):
+    def __init__(self, state_dim, action_dim, hidden_size, actor_output_act, critic_output_size=1):
         super(ActorCriticNetwork, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -116,10 +116,3 @@ class ActorCriticNetwork(nn.Module):
         val = self.critic_linear(out)
         return act, val
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ChenglongChen_pytorch_MADRL(_paritybench_base):
-    pass

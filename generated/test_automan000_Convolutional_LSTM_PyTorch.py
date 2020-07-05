@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -38,22 +39,14 @@ class ConvLSTMCell(nn.Module):
         self.kernel_size = kernel_size
         self.num_features = 4
         self.padding = int((kernel_size - 1) / 2)
-        self.Wxi = nn.Conv2d(self.input_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=True)
-        self.Whi = nn.Conv2d(self.hidden_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=False)
-        self.Wxf = nn.Conv2d(self.input_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=True)
-        self.Whf = nn.Conv2d(self.hidden_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=False)
-        self.Wxc = nn.Conv2d(self.input_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=True)
-        self.Whc = nn.Conv2d(self.hidden_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=False)
-        self.Wxo = nn.Conv2d(self.input_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=True)
-        self.Who = nn.Conv2d(self.hidden_channels, self.hidden_channels,
-            self.kernel_size, 1, self.padding, bias=False)
+        self.Wxi = nn.Conv2d(self.input_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=True)
+        self.Whi = nn.Conv2d(self.hidden_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=False)
+        self.Wxf = nn.Conv2d(self.input_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=True)
+        self.Whf = nn.Conv2d(self.hidden_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=False)
+        self.Wxc = nn.Conv2d(self.input_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=True)
+        self.Whc = nn.Conv2d(self.hidden_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=False)
+        self.Wxo = nn.Conv2d(self.input_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=True)
+        self.Who = nn.Conv2d(self.hidden_channels, self.hidden_channels, self.kernel_size, 1, self.padding, bias=False)
         self.Wci = None
         self.Wcf = None
         self.Wco = None
@@ -74,14 +67,12 @@ class ConvLSTMCell(nn.Module):
         else:
             assert shape[0] == self.Wci.size()[2], 'Input Height Mismatched!'
             assert shape[1] == self.Wci.size()[3], 'Input Width Mismatched!'
-        return Variable(torch.zeros(batch_size, hidden, shape[0], shape[1])
-            ), Variable(torch.zeros(batch_size, hidden, shape[0], shape[1]))
+        return Variable(torch.zeros(batch_size, hidden, shape[0], shape[1])), Variable(torch.zeros(batch_size, hidden, shape[0], shape[1]))
 
 
 class ConvLSTM(nn.Module):
 
-    def __init__(self, input_channels, hidden_channels, kernel_size, step=1,
-        effective_step=[1]):
+    def __init__(self, input_channels, hidden_channels, kernel_size, step=1, effective_step=[1]):
         super(ConvLSTM, self).__init__()
         self.input_channels = [input_channels] + hidden_channels
         self.hidden_channels = hidden_channels
@@ -92,8 +83,7 @@ class ConvLSTM(nn.Module):
         self._all_layers = []
         for i in range(self.num_layers):
             name = 'cell{}'.format(i)
-            cell = ConvLSTMCell(self.input_channels[i], self.
-                hidden_channels[i], self.kernel_size)
+            cell = ConvLSTMCell(self.input_channels[i], self.hidden_channels[i], self.kernel_size)
             setattr(self, name, cell)
             self._all_layers.append(cell)
 
@@ -106,8 +96,7 @@ class ConvLSTM(nn.Module):
                 name = 'cell{}'.format(i)
                 if step == 0:
                     bsize, _, height, width = x.size()
-                    h, c = getattr(self, name).init_hidden(batch_size=bsize,
-                        hidden=self.hidden_channels[i], shape=(height, width))
+                    h, c = getattr(self, name).init_hidden(batch_size=bsize, hidden=self.hidden_channels[i], shape=(height, width))
                     internal_state.append((h, c))
                 h, c = internal_state[i]
                 x, new_c = getattr(self, name)(x, h, c)
@@ -116,10 +105,3 @@ class ConvLSTM(nn.Module):
                 outputs.append(x)
         return outputs, (x, new_c)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_automan000_Convolutional_LSTM_PyTorch(_paritybench_base):
-    pass

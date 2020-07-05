@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -120,32 +121,26 @@ class NLLEntropy(_Loss):
             weight = np.ones(len(rev_vocab))
             for key in key_vocab:
                 weight[rev_vocab[key]] = 10.0
-            self.weight = cast_type(torch.from_numpy(weight), FLOAT, config
-                .use_gpu)
+            self.weight = cast_type(torch.from_numpy(weight), FLOAT, config.use_gpu)
 
     def forward(self, net_output, labels):
         batch_size = net_output.size(0)
         input = net_output.view(-1, net_output.size(-1))
         target = labels.view(-1)
         if self.avg_type is None:
-            loss = F.nll_loss(input, target, size_average=False,
-                ignore_index=self.padding_idx, weight=self.weight)
+            loss = F.nll_loss(input, target, size_average=False, ignore_index=self.padding_idx, weight=self.weight)
         elif self.avg_type == 'seq':
-            loss = F.nll_loss(input, target, size_average=False,
-                ignore_index=self.padding_idx, weight=self.weight)
+            loss = F.nll_loss(input, target, size_average=False, ignore_index=self.padding_idx, weight=self.weight)
             loss = loss / batch_size
         elif self.avg_type == 'real_word':
-            loss = F.nll_loss(input, target, size_average=True,
-                ignore_index=self.padding_idx, weight=self.weight, reduce=False
-                )
+            loss = F.nll_loss(input, target, size_average=True, ignore_index=self.padding_idx, weight=self.weight, reduce=False)
             loss = loss.view(-1, net_output.size(1))
             loss = torch.sum(loss, dim=1)
             word_cnt = torch.sum(torch.sign(labels), dim=1).float()
             loss = loss / word_cnt
             loss = torch.mean(loss)
         elif self.avg_type == 'word':
-            loss = F.nll_loss(input, target, size_average=True,
-                ignore_index=self.padding_idx, weight=self.weight)
+            loss = F.nll_loss(input, target, size_average=True, ignore_index=self.padding_idx, weight=self.weight)
         else:
             raise ValueError('Unknown avg type')
         return loss
@@ -170,8 +165,7 @@ class BaseRNN(nn.Module):
     KEY_PTR_SOFTMAX = 'ptr_softmax'
     KEY_PTR_CTX = 'ptr_context'
 
-    def __init__(self, vocab_size, input_size, hidden_size, input_dropout_p,
-        dropout_p, n_layers, rnn_cell, bidirectional):
+    def __init__(self, vocab_size, input_size, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, bidirectional):
         super(BaseRNN, self).__init__()
         self.vocab_size = vocab_size
         self.input_size = input_size
@@ -186,8 +180,7 @@ class BaseRNN(nn.Module):
         else:
             raise ValueError('Unsupported RNN Cell: {0}'.format(rnn_cell))
         self.dropout_p = dropout_p
-        self.rnn = self.rnn_cell(input_size, hidden_size, n_layers,
-            batch_first=True, dropout=dropout_p, bidirectional=bidirectional)
+        self.rnn = self.rnn_cell(input_size, hidden_size, n_layers, batch_first=True, dropout=dropout_p, bidirectional=bidirectional)
         if rnn_cell.lower() == 'lstm':
             for names in self.rnn._all_weights:
                 for name in filter(lambda n: 'bias' in n, names):
@@ -293,15 +286,13 @@ class Attention(nn.Module):
             raise ValueError('Unknown attention')
         if self.mask is not None:
             attn.data.masked_fill_(self.mask, -float('inf'))
-        attn = F.softmax(attn.view(-1, input_size), dim=1).view(batch_size,
-            -1, input_size)
+        attn = F.softmax(attn.view(-1, input_size), dim=1).view(batch_size, -1, input_size)
         mix = torch.bmm(attn, context)
         combined = torch.cat((mix, output), dim=2)
         if self.linear_out is None:
             return combined, attn
         else:
-            output = F.tanh(self.linear_out(combined.view(-1, self.dec_size +
-                self.attn_size))).view(batch_size, -1, self.dec_size)
+            output = F.tanh(self.linear_out(combined.view(-1, self.dec_size + self.attn_size))).view(batch_size, -1, self.dec_size)
             return output, attn
 
 
@@ -329,11 +320,8 @@ class EncoderRNN(BaseRNN):
          >>> output, hidden = encoder(input)
     """
 
-    def __init__(self, input_size, hidden_size, input_dropout_p=0,
-        dropout_p=0, n_layers=1, rnn_cell='gru', variable_lengths=False,
-        bidirection=False):
-        super(EncoderRNN, self).__init__(-1, input_size, hidden_size,
-            input_dropout_p, dropout_p, n_layers, rnn_cell, bidirection)
+    def __init__(self, input_size, hidden_size, input_dropout_p=0, dropout_p=0, n_layers=1, rnn_cell='gru', variable_lengths=False, bidirection=False):
+        super(EncoderRNN, self).__init__(-1, input_size, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, bidirection)
         self.variable_lengths = variable_lengths
         self.output_size = hidden_size * 2 if bidirection else hidden_size
 
@@ -350,23 +338,19 @@ class EncoderRNN(BaseRNN):
         """
         embedded = self.input_dropout(input_var)
         if self.variable_lengths:
-            embedded = nn.utils.rnn.pack_padded_sequence(embedded,
-                input_lengths, batch_first=True)
+            embedded = nn.utils.rnn.pack_padded_sequence(embedded, input_lengths, batch_first=True)
         if init_state is not None:
             output, hidden = self.rnn(embedded, init_state)
         else:
             output, hidden = self.rnn(embedded)
         if self.variable_lengths:
-            output, _ = nn.utils.rnn.pad_packed_sequence(output,
-                batch_first=True)
+            output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
         return output, hidden
 
 
 class RnnUttEncoder(nn.Module):
 
-    def __init__(self, utt_cell_size, dropout, rnn_cell='gru', bidirection=
-        True, use_attn=False, embedding=None, vocab_size=None, embed_dim=
-        None, feat_size=0):
+    def __init__(self, utt_cell_size, dropout, rnn_cell='gru', bidirection=True, use_attn=False, embedding=None, vocab_size=None, embed_dim=None, feat_size=0):
         super(RnnUttEncoder, self).__init__()
         self.bidirection = bidirection
         self.utt_cell_size = utt_cell_size
@@ -376,20 +360,16 @@ class RnnUttEncoder(nn.Module):
         else:
             self.embedding = embedding
             self.embed_size = embedding.embedding_dim
-        self.rnn = EncoderRNN(self.embed_size + feat_size, utt_cell_size, 
-            0.0, dropout, rnn_cell=rnn_cell, variable_lengths=False,
-            bidirection=bidirection)
+        self.rnn = EncoderRNN(self.embed_size + feat_size, utt_cell_size, 0.0, dropout, rnn_cell=rnn_cell, variable_lengths=False, bidirection=bidirection)
         self.multipler = 2 if bidirection else 1
         self.output_size = self.utt_cell_size * self.multipler
         self.use_attn = use_attn
         self.feat_size = feat_size
         if use_attn:
-            self.key_w = nn.Linear(self.utt_cell_size * self.multipler,
-                self.utt_cell_size)
+            self.key_w = nn.Linear(self.utt_cell_size * self.multipler, self.utt_cell_size)
             self.query = nn.Linear(self.utt_cell_size, 1)
 
-    def forward(self, utterances, feats=None, init_state=None, return_all=False
-        ):
+    def forward(self, utterances, feats=None, init_state=None, return_all=False):
         batch_size = int(utterances.size()[0])
         max_ctx_lens = int(utterances.size()[1])
         max_utt_len = int(utterances.size()[2])
@@ -412,8 +392,7 @@ class RnnUttEncoder(nn.Module):
             attn = None
             utt_embedded = enc_last.transpose(0, 1).contiguous()
             utt_embedded = utt_embedded.view(-1, self.output_size)
-        utt_embedded = utt_embedded.view(batch_size, max_ctx_lens, self.
-            output_size)
+        utt_embedded = utt_embedded.view(batch_size, max_ctx_lens, self.output_size)
         if return_all:
             return utt_embedded, enc_outs, enc_last, attn
         else:
@@ -428,11 +407,8 @@ TEACH_FORCE = 'teacher_forcing'
 
 class DecoderPointerGen(BaseRNN):
 
-    def __init__(self, vocab_size, max_len, input_size, hidden_size, sos_id,
-        eos_id, n_layers=1, rnn_cell='lstm', input_dropout_p=0, dropout_p=0,
-        attn_mode='cat', attn_size=None, use_gpu=True, embedding=None):
-        super(DecoderPointerGen, self).__init__(vocab_size, input_size,
-            hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, False)
+    def __init__(self, vocab_size, max_len, input_size, hidden_size, sos_id, eos_id, n_layers=1, rnn_cell='lstm', input_dropout_p=0, dropout_p=0, attn_mode='cat', attn_size=None, use_gpu=True, embedding=None):
+        super(DecoderPointerGen, self).__init__(vocab_size, input_size, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, False)
         self.output_size = vocab_size
         self.max_length = max_len
         self.eos_id = eos_id
@@ -443,15 +419,12 @@ class DecoderPointerGen(BaseRNN):
             self.embedding = nn.Embedding(self.output_size, self.input_size)
         else:
             self.embedding = embedding
-        self.attention = Attention(self.hidden_size, attn_size, attn_mode,
-            project=True)
+        self.attention = Attention(self.hidden_size, attn_size, attn_mode, project=True)
         self.project = nn.Linear(self.hidden_size, self.output_size)
-        self.sentinel = nn.Parameter(torch.randn((1, 1, attn_size)),
-            requires_grad=True)
+        self.sentinel = nn.Parameter(torch.randn((1, 1, attn_size)), requires_grad=True)
         self.register_parameter('sentinel', self.sentinel)
 
-    def forward_step(self, input_var, hidden, attn_ctxs, attn_words,
-        ctx_embed=None):
+    def forward_step(self, input_var, hidden, attn_ctxs, attn_words, ctx_embed=None):
         """
         attn_size: number of context to attend
         :param input_var: 
@@ -468,26 +441,21 @@ class DecoderPointerGen(BaseRNN):
         embedded = self.input_dropout(embedded)
         output, hidden = self.rnn(embedded, hidden)
         if attn_ctxs is None:
-            logits = self.project(output.contiguous().view(-1, self.
-                hidden_size))
+            logits = self.project(output.contiguous().view(-1, self.hidden_size))
             predicted_softmax = F.log_softmax(logits, dim=1)
             return predicted_softmax, None, hidden, None, None
         else:
             attn_size = attn_words.size(1)
             combined_output, attn = self.attention(output, attn_ctxs)
-            rnn_softmax = F.softmax(self.project(output.view(-1, self.
-                hidden_size)), dim=1)
+            rnn_softmax = F.softmax(self.project(output.view(-1, self.hidden_size)), dim=1)
             g = attn[:, :, (0)].contiguous()
             ptr_attn = attn[:, :, 1:].contiguous()
-            ptr_softmax = Variable(torch.zeros((batch_size * seq_len *
-                attn_size, self.vocab_size)))
+            ptr_softmax = Variable(torch.zeros((batch_size * seq_len * attn_size, self.vocab_size)))
             ptr_softmax = cast_type(ptr_softmax, FLOAT, self.use_gpu)
-            flat_attn_words = attn_words.unsqueeze(1).repeat(1, seq_len, 1
-                ).view(-1, 1)
+            flat_attn_words = attn_words.unsqueeze(1).repeat(1, seq_len, 1).view(-1, 1)
             flat_attn = ptr_attn.view(-1, 1)
             ptr_softmax = ptr_softmax.scatter_(1, flat_attn_words, flat_attn)
-            ptr_softmax = ptr_softmax.view(batch_size * seq_len, attn_size,
-                self.vocab_size)
+            ptr_softmax = ptr_softmax.view(batch_size * seq_len, attn_size, self.vocab_size)
             ptr_softmax = torch.sum(ptr_softmax, dim=1)
             mixture_softmax = rnn_softmax * g.view(-1, 1) + ptr_softmax
             logits = torch.log(mixture_softmax.clamp(min=1e-08))
@@ -495,8 +463,7 @@ class DecoderPointerGen(BaseRNN):
             ptr_softmax = ptr_softmax.view(batch_size, seq_len, -1)
             return predicted_softmax, ptr_softmax, hidden, ptr_attn, g
 
-    def forward(self, batch_size, attn_context, attn_words, inputs=None,
-        init_state=None, mode=TEACH_FORCE, gen_type='greedy', ctx_embed=None):
+    def forward(self, batch_size, attn_context, attn_words, inputs=None, init_state=None, mode=TEACH_FORCE, gen_type='greedy', ctx_embed=None):
         ret_dict = dict()
         if mode == GEN:
             inputs = None
@@ -507,8 +474,7 @@ class DecoderPointerGen(BaseRNN):
             bos_var = cast_type(bos_var, LONG, self.use_gpu)
             decoder_input = bos_var.expand(batch_size, 1)
         if attn_context is not None:
-            attn_context = torch.cat([self.sentinel.expand(batch_size, 1,
-                self.attn_size), attn_context], dim=1)
+            attn_context = torch.cat([self.sentinel.expand(batch_size, 1, self.attn_size), attn_context], dim=1)
         decoder_hidden = init_state
         decoder_outputs = []
         sequence_symbols = []
@@ -534,18 +500,14 @@ class DecoderPointerGen(BaseRNN):
                 lengths[update_idx] = len(sequence_symbols)
             return symbols
         if mode == TEACH_FORCE:
-            pred_softmax, ptr_softmax, decoder_hidden, attn, step_g = (self
-                .forward_step(decoder_input, decoder_hidden, attn_context,
-                attn_words, ctx_embed))
+            pred_softmax, ptr_softmax, decoder_hidden, attn, step_g = self.forward_step(decoder_input, decoder_hidden, attn_context, attn_words, ctx_embed)
             attentions = attn
             decoder_outputs = pred_softmax
             pointer_gs = step_g
             pointer_outputs = ptr_softmax
         else:
             for di in range(self.max_length):
-                (pred_softmax, ptr_softmax, decoder_hidden, step_attn, step_g
-                    ) = (self.forward_step(decoder_input, decoder_hidden,
-                    attn_context, attn_words, ctx_embed))
+                pred_softmax, ptr_softmax, decoder_hidden, step_attn, step_g = self.forward_step(decoder_input, decoder_hidden, attn_context, attn_words, ctx_embed)
                 symbols = decode(di, pred_softmax)
                 attentions.append(step_attn)
                 pointer_gs.append(step_g)
@@ -575,8 +537,7 @@ class BaseModel(nn.Module):
     def np2var(self, inputs, dtype):
         if inputs is None:
             return None
-        return cast_type(Variable(torch.from_numpy(inputs)), dtype, self.
-            use_gpu)
+        return cast_type(Variable(torch.from_numpy(inputs)), dtype, self.use_gpu)
 
     def forward(self, *input):
         raise NotImplementedError
@@ -603,8 +564,7 @@ class BaseModel(nn.Module):
         """
         time_dimension = 1
         len_vars = self.np2var(np.array(lens), LONG)
-        len_vars = len_vars.view(-1, 1).expand(len(lens), rnn_outs.size(2)
-            ).unsqueeze(1)
+        len_vars = len_vars.view(-1, 1).expand(len(lens), rnn_outs.size(2)).unsqueeze(1)
         slices = rnn_outs.gather(time_dimension, len_vars - 1)
         return slices.squeeze(time_dimension)
 
@@ -639,16 +599,13 @@ class BaseModel(nn.Module):
     def get_optimizer(self, config):
         if config.op == 'adam':
             None
-            return torch.optim.Adam(filter(lambda p: p.requires_grad, self.
-                parameters()), lr=config.init_lr)
+            return torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr=config.init_lr)
         elif config.op == 'sgd':
             None
-            return torch.optim.SGD(self.parameters(), lr=config.init_lr,
-                momentum=config.momentum)
+            return torch.optim.SGD(self.parameters(), lr=config.init_lr, momentum=config.momentum)
         elif config.op == 'rmsprop':
             None
-            return torch.optim.RMSprop(self.parameters(), lr=config.init_lr,
-                momentum=config.momentum)
+            return torch.optim.RMSprop(self.parameters(), lr=config.init_lr, momentum=config.momentum)
 
     def ptr_loss(self, dec_ctx, labels):
         g = dec_ctx[DecoderPointerGen.KEY_G]
@@ -657,8 +614,7 @@ class BaseModel(nn.Module):
         label_mask = labels.view(-1, 1) == self.rev_vocab[PAD]
         label_ptr = flat_ptr.gather(1, labels.view(-1, 1))
         not_in_ctx = label_ptr == 0
-        mix_ptr = torch.cat([label_ptr, g.view(-1, 1)], dim=1).gather(1,
-            not_in_ctx.long())
+        mix_ptr = torch.cat([label_ptr, g.view(-1, 1)], dim=1).gather(1, not_in_ctx.long())
         attention_loss = -1.0 * torch.log(mix_ptr.clamp(min=1e-08))
         attention_loss.masked_fill_(label_mask, 0)
         valid_cnt = label_mask.size(0) - torch.sum(label_mask).float() + 1e-08
@@ -692,12 +648,10 @@ class Bi2UniConnector(nn.Module):
             flat_c = c.transpose(0, 1).contiguous()
             new_h = self.fch(flat_h.view(-1, self.hidden_size * num_layer))
             new_c = self.fch(flat_c.view(-1, self.hidden_size * num_layer))
-            return new_h.view(1, -1, self.output_size), new_c.view(1, -1,
-                self.output_size)
+            return new_h.view(1, -1, self.output_size), new_c.view(1, -1, self.output_size)
         else:
             num_layer = hidden_state.size()[0]
-            new_s = self.fc(hidden_state.view(-1, self.hidden_size * num_layer)
-                )
+            new_s = self.fc(hidden_state.view(-1, self.hidden_size * num_layer))
             new_s = new_s.view(1, -1, self.output_size)
             return new_s
 
@@ -713,8 +667,7 @@ class IdentityConnector(nn.Module):
 
 class AttnConnector(nn.Module):
 
-    def __init__(self, rnn_cell, query_size, key_size, content_size,
-        output_size, attn_size):
+    def __init__(self, rnn_cell, query_size, key_size, content_size, output_size, attn_size):
         super(AttnConnector, self).__init__()
         self.query_embed = nn.Linear(query_size, attn_size)
         self.key_embed = nn.Linear(key_size, attn_size)
@@ -808,28 +761,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttnConnector,
+     lambda: ([], {'rnn_cell': 4, 'query_size': 4, 'key_size': 4, 'content_size': 4, 'output_size': 4, 'attn_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (EncoderRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Hidden2Feat,
+     lambda: ([], {'input_size': 4, 'output_size': 4, 'is_lstm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IdentityConnector,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearConnector,
+     lambda: ([], {'input_size': 4, 'output_size': 4, 'is_lstm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_snakeztc_NeuralDialog_ZSDG(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AttnConnector(*[], **{'rnn_cell': 4, 'query_size': 4, 'key_size': 4, 'content_size': 4, 'output_size': 4, 'attn_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Hidden2Feat(*[], **{'input_size': 4, 'output_size': 4, 'is_lstm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(IdentityConnector(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(L2Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LinearConnector(*[], **{'input_size': 4, 'output_size': 4, 'is_lstm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

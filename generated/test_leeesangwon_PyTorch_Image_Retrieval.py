@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,8 +75,7 @@ class NPairLoss(nn.Module):
         anchors = embeddings[n_pairs[:, (0)]]
         positives = embeddings[n_pairs[:, (1)]]
         negatives = embeddings[n_negatives]
-        losses = self.n_pair_loss(anchors, positives, negatives
-            ) + self.l2_reg * self.l2_loss(anchors, positives)
+        losses = self.n_pair_loss(anchors, positives, negatives) + self.l2_reg * self.l2_loss(anchors, positives)
         return losses
 
     @staticmethod
@@ -93,8 +93,7 @@ class NPairLoss(nn.Module):
             label_indices = np.where(label_mask)[0]
             if len(label_indices) < 2:
                 continue
-            anchor, positive = np.random.choice(label_indices, 2, replace=False
-                )
+            anchor, positive = np.random.choice(label_indices, 2, replace=False)
             n_pairs.append([anchor, positive])
         n_pairs = np.array(n_pairs)
         n_negatives = []
@@ -132,9 +131,7 @@ class NPairLoss(nn.Module):
 
 
 def initialize_pretrained_model(model, num_classes, settings):
-    assert num_classes == settings['num_classes'
-        ], 'num_classes should be {}, but is {}'.format(settings[
-        'num_classes'], num_classes)
+    assert num_classes == settings['num_classes'], 'num_classes should be {}, but is {}'.format(settings['num_classes'], num_classes)
     model.load_state_dict(model_zoo.load_url(settings['url']))
     model.input_space = settings['input_space']
     model.input_size = settings['input_size']
@@ -143,38 +140,11 @@ def initialize_pretrained_model(model, num_classes, settings):
     model.std = settings['std']
 
 
-pretrained_settings = {'senet154': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/senet154-c7b49a05.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnet50': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet50-ce0d4300.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnet101': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet101-7e38fcc6.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnet152': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet152-d17c99b7.pth',
-    'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1
-    ], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnext50_32x4d': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext50_32x4d-a260b3a4.pth'
-    , 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0,
-    1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}, 'se_resnext101_32x4d': {'imagenet': {'url':
-    'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext101_32x4d-3b2fe3d8.pth'
-    , 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0,
-    1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
-    'num_classes': 1000}}}
+pretrained_settings = {'senet154': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/senet154-c7b49a05.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnet50': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet50-ce0d4300.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnet101': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet101-7e38fcc6.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnet152': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnet152-d17c99b7.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnext50_32x4d': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext50_32x4d-a260b3a4.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}, 'se_resnext101_32x4d': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/se_resnext101_32x4d-3b2fe3d8.pth', 'input_space': 'RGB', 'input_size': [3, 224, 224], 'input_range': [0, 1], 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225], 'num_classes': 1000}}}
 
 
 def se_resnext101_32x4d(num_classes=1000, pretrained='imagenet'):
-    model = SENet(SEResNeXtBottleneck, [3, 4, 23, 3], groups=32, reduction=
-        16, dropout_p=None, inplanes=64, input_3x3=False,
-        downsample_kernel_size=1, downsample_padding=0, num_classes=num_classes
-        )
+    model = SENet(SEResNeXtBottleneck, [3, 4, 23, 3], groups=32, reduction=16, dropout_p=None, inplanes=64, input_3x3=False, downsample_kernel_size=1, downsample_padding=0, num_classes=num_classes)
     if pretrained is not None:
         settings = pretrained_settings['se_resnext101_32x4d'][pretrained]
         initialize_pretrained_model(model, num_classes, settings)
@@ -187,8 +157,7 @@ def set_parameter_requires_grad(model, feature_extracting):
             param.requires_grad = False
 
 
-def initialize_model(model_name, embedding_dim, feature_extracting,
-    use_pretrained=True):
+def initialize_model(model_name, embedding_dim, feature_extracting, use_pretrained=True):
     if model_name == 'densenet161':
         model_ft = models.densenet161(pretrained=use_pretrained)
         set_parameter_requires_grad(model_ft, feature_extracting)
@@ -217,15 +186,13 @@ def initialize_model(model_name, embedding_dim, feature_extracting,
 class BaseNetwork(nn.Module):
     """ Load Pretrained Module """
 
-    def __init__(self, model_name, embedding_dim, feature_extracting,
-        use_pretrained):
+    def __init__(self, model_name, embedding_dim, feature_extracting, use_pretrained):
         super(BaseNetwork, self).__init__()
         self.model_name = model_name
         self.embedding_dim = embedding_dim
         self.feature_extracting = feature_extracting
         self.use_pretrained = use_pretrained
-        self.model_ft = initialize_model(self.model_name, self.
-            embedding_dim, self.feature_extracting, self.use_pretrained)
+        self.model_ft = initialize_model(self.model_name, self.embedding_dim, self.feature_extracting, self.use_pretrained)
 
     def forward(self, x):
         out = self.model_ft(x)
@@ -240,12 +207,9 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self.chanel_in = in_dim
         self.activation = activation
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,
-            kernel_size=1)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
@@ -258,8 +222,7 @@ class SelfAttention(nn.Module):
                 attention: B X N X N (N is Width*Height)
         """
         m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height
-            ).permute(0, 2, 1)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -275,11 +238,9 @@ class SEModule(nn.Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -316,9 +277,7 @@ class Bottleneck(nn.Module):
 
 class SENet(nn.Module):
 
-    def __init__(self, block, layers, groups, reduction, dropout_p=0.2,
-        inplanes=128, input_3x3=True, downsample_kernel_size=3,
-        downsample_padding=1, num_classes=1000):
+    def __init__(self, block, layers, groups, reduction, dropout_p=0.2, inplanes=128, input_3x3=True, downsample_kernel_size=3, downsample_padding=1, num_classes=1000):
         """
         Parameters
         ----------
@@ -365,51 +324,25 @@ class SENet(nn.Module):
         super(SENet, self).__init__()
         self.inplanes = inplanes
         if input_3x3:
-            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2,
-                padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), (
-                'relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64,
-                3, stride=1, padding=1, bias=False)), ('bn2', nn.
-                BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), (
-                'conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1,
-                bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3',
-                nn.ReLU(inplace=True))]
+            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), ('relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)), ('bn2', nn.BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1, bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3', nn.ReLU(inplace=True))]
         else:
-            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=
-                7, stride=2, padding=3, bias=False)), ('bn1', nn.
-                BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
-        layer0_modules.append(('pool', nn.MaxPool2d(3, stride=2, ceil_mode=
-            True)))
+            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False)), ('bn1', nn.BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
+        layer0_modules.append(('pool', nn.MaxPool2d(3, stride=2, ceil_mode=True)))
         self.layer0 = nn.Sequential(OrderedDict(layer0_modules))
-        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0],
-            groups=groups, reduction=reduction, downsample_kernel_size=1,
-            downsample_padding=0)
-        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
-        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
-        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3],
-            stride=2, groups=groups, reduction=reduction,
-            downsample_kernel_size=downsample_kernel_size,
-            downsample_padding=downsample_padding)
+        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0], groups=groups, reduction=reduction, downsample_kernel_size=1, downsample_padding=0)
+        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
         self.avg_pool = nn.AvgPool2d(7, stride=1)
         self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
         self.last_linear = nn.Linear(512 * block.expansion, num_classes)
 
-    def _make_layer(self, block, planes, blocks, groups, reduction, stride=
-        1, downsample_kernel_size=1, downsample_padding=0):
+    def _make_layer(self, block, planes, blocks, groups, reduction, stride=1, downsample_kernel_size=1, downsample_padding=0):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=downsample_kernel_size, stride
-                =stride, padding=downsample_padding, bias=False), nn.
-                BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=downsample_kernel_size, stride=stride, padding=downsample_padding, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, groups, reduction,
-            stride, downsample))
+        layers.append(block(self.inplanes, planes, groups, reduction, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups, reduction))
@@ -441,11 +374,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfAttention,
+     lambda: ([], {'in_dim': 64, 'activation': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_leeesangwon_PyTorch_Image_Retrieval(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SelfAttention(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

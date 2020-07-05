@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,21 +51,18 @@ from torch.nn import functional as F
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, embed_size, hidden_size, n_layers=1,
-        dropout=0.5):
+    def __init__(self, input_size, embed_size, hidden_size, n_layers=1, dropout=0.5):
         super(Encoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.embed_size = embed_size
         self.embed = nn.Embedding(input_size, embed_size)
-        self.gru = nn.GRU(embed_size, hidden_size, n_layers, dropout=
-            dropout, bidirectional=True)
+        self.gru = nn.GRU(embed_size, hidden_size, n_layers, dropout=dropout, bidirectional=True)
 
     def forward(self, src, hidden=None):
         embedded = self.embed(src)
         outputs, hidden = self.gru(embedded, hidden)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]
         return outputs, hidden
 
 
@@ -95,8 +93,7 @@ class Attention(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, embed_size, hidden_size, output_size, n_layers=1,
-        dropout=0.2):
+    def __init__(self, embed_size, hidden_size, output_size, n_layers=1, dropout=0.2):
         super(Decoder, self).__init__()
         self.embed_size = embed_size
         self.hidden_size = hidden_size
@@ -105,8 +102,7 @@ class Decoder(nn.Module):
         self.embed = nn.Embedding(output_size, embed_size)
         self.dropout = nn.Dropout(dropout, inplace=True)
         self.attention = Attention(hidden_size)
-        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers,
-            dropout=dropout)
+        self.gru = nn.GRU(hidden_size + embed_size, hidden_size, n_layers, dropout=dropout)
         self.out = nn.Linear(hidden_size * 2, output_size)
 
     def forward(self, input, last_hidden, encoder_outputs):
@@ -140,8 +136,7 @@ class Seq2Seq(nn.Module):
         hidden = hidden[:self.decoder.n_layers]
         output = Variable(trg.data[(0), :])
         for t in range(1, max_len):
-            output, hidden, attn_weights = self.decoder(output, hidden,
-                encoder_output)
+            output, hidden, attn_weights = self.decoder(output, hidden, encoder_output)
             outputs[t] = output
             is_teacher = random.random() < teacher_forcing_ratio
             top1 = output.data.max(1)[1]
@@ -153,11 +148,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (Decoder,
+     lambda: ([], {'embed_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_keon_seq2seq(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Attention(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Decoder(*[], **{'embed_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

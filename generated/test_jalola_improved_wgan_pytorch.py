@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,13 +69,11 @@ from collections import OrderedDict
 
 class MyConvo2d(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, he_init=True,
-        stride=1, bias=True):
+    def __init__(self, input_dim, output_dim, kernel_size, he_init=True, stride=1, bias=True):
         super(MyConvo2d, self).__init__()
         self.he_init = he_init
         self.padding = int((kernel_size - 1) / 2)
-        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1,
-            padding=self.padding, bias=bias)
+        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1, padding=self.padding, bias=bias)
 
     def forward(self, input):
         output = self.conv(input)
@@ -86,13 +85,11 @@ class ConvMeanPool(nn.Module):
     def __init__(self, input_dim, output_dim, kernel_size, he_init=True):
         super(ConvMeanPool, self).__init__()
         self.he_init = he_init
-        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=
-            self.he_init)
+        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=self.he_init)
 
     def forward(self, input):
         output = self.conv(input)
-        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output
-            [:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
+        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output[:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
         return output
 
 
@@ -101,13 +98,11 @@ class MeanPoolConv(nn.Module):
     def __init__(self, input_dim, output_dim, kernel_size, he_init=True):
         super(MeanPoolConv, self).__init__()
         self.he_init = he_init
-        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=
-            self.he_init)
+        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=self.he_init)
 
     def forward(self, input):
         output = input
-        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output
-            [:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
+        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output[:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
         output = self.conv(output)
         return output
 
@@ -125,25 +120,20 @@ class DepthToSpace(nn.Module):
         output_depth = int(input_depth / self.block_size_sq)
         output_width = int(input_width * self.block_size)
         output_height = int(input_height * self.block_size)
-        t_1 = output.reshape(batch_size, input_height, input_width, self.
-            block_size_sq, output_depth)
+        t_1 = output.reshape(batch_size, input_height, input_width, self.block_size_sq, output_depth)
         spl = t_1.split(self.block_size, 3)
-        stacks = [t_t.reshape(batch_size, input_height, output_width,
-            output_depth) for t_t in spl]
-        output = torch.stack(stacks, 0).transpose(0, 1).permute(0, 2, 1, 3, 4
-            ).reshape(batch_size, output_height, output_width, output_depth)
+        stacks = [t_t.reshape(batch_size, input_height, output_width, output_depth) for t_t in spl]
+        output = torch.stack(stacks, 0).transpose(0, 1).permute(0, 2, 1, 3, 4).reshape(batch_size, output_height, output_width, output_depth)
         output = output.permute(0, 3, 1, 2)
         return output
 
 
 class UpSampleConv(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, he_init=True,
-        bias=True):
+    def __init__(self, input_dim, output_dim, kernel_size, he_init=True, bias=True):
         super(UpSampleConv, self).__init__()
         self.he_init = he_init
-        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=
-            self.he_init, bias=bias)
+        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=self.he_init, bias=bias)
         self.depth_to_space = DepthToSpace(2)
 
     def forward(self, input):
@@ -159,8 +149,7 @@ DIM = 64
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, resample=None,
-        hw=DIM):
+    def __init__(self, input_dim, output_dim, kernel_size, resample=None, hw=DIM):
         super(ResidualBlock, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -182,26 +171,17 @@ class ResidualBlock(nn.Module):
         else:
             raise Exception('invalid resample value')
         if resample == 'down':
-            self.conv_shortcut = MeanPoolConv(input_dim, output_dim,
-                kernel_size=1, he_init=False)
-            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=
-                kernel_size, bias=False)
-            self.conv_2 = ConvMeanPool(input_dim, output_dim, kernel_size=
-                kernel_size)
+            self.conv_shortcut = MeanPoolConv(input_dim, output_dim, kernel_size=1, he_init=False)
+            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=kernel_size, bias=False)
+            self.conv_2 = ConvMeanPool(input_dim, output_dim, kernel_size=kernel_size)
         elif resample == 'up':
-            self.conv_shortcut = UpSampleConv(input_dim, output_dim,
-                kernel_size=1, he_init=False)
-            self.conv_1 = UpSampleConv(input_dim, output_dim, kernel_size=
-                kernel_size, bias=False)
-            self.conv_2 = MyConvo2d(output_dim, output_dim, kernel_size=
-                kernel_size)
+            self.conv_shortcut = UpSampleConv(input_dim, output_dim, kernel_size=1, he_init=False)
+            self.conv_1 = UpSampleConv(input_dim, output_dim, kernel_size=kernel_size, bias=False)
+            self.conv_2 = MyConvo2d(output_dim, output_dim, kernel_size=kernel_size)
         elif resample == None:
-            self.conv_shortcut = MyConvo2d(input_dim, output_dim,
-                kernel_size=1, he_init=False)
-            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=
-                kernel_size, bias=False)
-            self.conv_2 = MyConvo2d(input_dim, output_dim, kernel_size=
-                kernel_size)
+            self.conv_shortcut = MyConvo2d(input_dim, output_dim, kernel_size=1, he_init=False)
+            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=kernel_size, bias=False)
+            self.conv_2 = MyConvo2d(input_dim, output_dim, kernel_size=kernel_size)
         else:
             raise Exception('invalid resample value')
 
@@ -296,14 +276,10 @@ class GoodDiscriminator(nn.Module):
         self.dim = dim
         self.num_class = num_class
         self.conv1 = MyConvo2d(3, self.dim, 3, he_init=False)
-        self.rb1 = ResidualBlock(self.dim, 2 * self.dim, 3, resample='down',
-            hw=DIM)
-        self.rb2 = ResidualBlock(2 * self.dim, 4 * self.dim, 3, resample=
-            'down', hw=int(DIM / 2))
-        self.rb3 = ResidualBlock(4 * self.dim, 8 * self.dim, 3, resample=
-            'down', hw=int(DIM / 4))
-        self.rb4 = ResidualBlock(8 * self.dim, 8 * self.dim, 3, resample=
-            'down', hw=int(DIM / 8))
+        self.rb1 = ResidualBlock(self.dim, 2 * self.dim, 3, resample='down', hw=DIM)
+        self.rb2 = ResidualBlock(2 * self.dim, 4 * self.dim, 3, resample='down', hw=int(DIM / 2))
+        self.rb3 = ResidualBlock(4 * self.dim, 8 * self.dim, 3, resample='down', hw=int(DIM / 4))
+        self.rb4 = ResidualBlock(8 * self.dim, 8 * self.dim, 3, resample='down', hw=int(DIM / 8))
         self.ln1 = nn.Linear(4 * 4 * 8 * self.dim, 1)
         self.ln2 = nn.Linear(4 * 4 * 8 * self.dim, self.num_class)
 
@@ -324,13 +300,11 @@ class GoodDiscriminator(nn.Module):
 
 class MyConvo2d(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, he_init=True,
-        stride=1, bias=True):
+    def __init__(self, input_dim, output_dim, kernel_size, he_init=True, stride=1, bias=True):
         super(MyConvo2d, self).__init__()
         self.he_init = he_init
         self.padding = int((kernel_size - 1) / 2)
-        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1,
-            padding=self.padding, bias=bias)
+        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1, padding=self.padding, bias=bias)
 
     def forward(self, input):
         output = self.conv(input)
@@ -342,13 +316,11 @@ class ConvMeanPool(nn.Module):
     def __init__(self, input_dim, output_dim, kernel_size, he_init=True):
         super(ConvMeanPool, self).__init__()
         self.he_init = he_init
-        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=
-            self.he_init)
+        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=self.he_init)
 
     def forward(self, input):
         output = self.conv(input)
-        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output
-            [:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
+        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output[:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
         return output
 
 
@@ -357,13 +329,11 @@ class MeanPoolConv(nn.Module):
     def __init__(self, input_dim, output_dim, kernel_size, he_init=True):
         super(MeanPoolConv, self).__init__()
         self.he_init = he_init
-        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=
-            self.he_init)
+        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=self.he_init)
 
     def forward(self, input):
         output = input
-        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output
-            [:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
+        output = (output[:, :, ::2, ::2] + output[:, :, 1::2, ::2] + output[:, :, ::2, 1::2] + output[:, :, 1::2, 1::2]) / 4
         output = self.conv(output)
         return output
 
@@ -381,25 +351,20 @@ class DepthToSpace(nn.Module):
         output_depth = int(input_depth / self.block_size_sq)
         output_width = int(input_width * self.block_size)
         output_height = int(input_height * self.block_size)
-        t_1 = output.reshape(batch_size, input_height, input_width, self.
-            block_size_sq, output_depth)
+        t_1 = output.reshape(batch_size, input_height, input_width, self.block_size_sq, output_depth)
         spl = t_1.split(self.block_size, 3)
-        stacks = [t_t.reshape(batch_size, input_height, output_width,
-            output_depth) for t_t in spl]
-        output = torch.stack(stacks, 0).transpose(0, 1).permute(0, 2, 1, 3, 4
-            ).reshape(batch_size, output_height, output_width, output_depth)
+        stacks = [t_t.reshape(batch_size, input_height, output_width, output_depth) for t_t in spl]
+        output = torch.stack(stacks, 0).transpose(0, 1).permute(0, 2, 1, 3, 4).reshape(batch_size, output_height, output_width, output_depth)
         output = output.permute(0, 3, 1, 2)
         return output
 
 
 class UpSampleConv(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, he_init=True,
-        bias=True):
+    def __init__(self, input_dim, output_dim, kernel_size, he_init=True, bias=True):
         super(UpSampleConv, self).__init__()
         self.he_init = he_init
-        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=
-            self.he_init, bias=bias)
+        self.conv = MyConvo2d(input_dim, output_dim, kernel_size, he_init=self.he_init, bias=bias)
         self.depth_to_space = DepthToSpace(2)
 
     def forward(self, input):
@@ -412,8 +377,7 @@ class UpSampleConv(nn.Module):
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, input_dim, output_dim, kernel_size, resample=None, hw=64
-        ):
+    def __init__(self, input_dim, output_dim, kernel_size, resample=None, hw=64):
         super(ResidualBlock, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -435,26 +399,17 @@ class ResidualBlock(nn.Module):
         else:
             raise Exception('invalid resample value')
         if resample == 'down':
-            self.conv_shortcut = MeanPoolConv(input_dim, output_dim,
-                kernel_size=1, he_init=False)
-            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=
-                kernel_size, bias=False)
-            self.conv_2 = ConvMeanPool(input_dim, output_dim, kernel_size=
-                kernel_size)
+            self.conv_shortcut = MeanPoolConv(input_dim, output_dim, kernel_size=1, he_init=False)
+            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=kernel_size, bias=False)
+            self.conv_2 = ConvMeanPool(input_dim, output_dim, kernel_size=kernel_size)
         elif resample == 'up':
-            self.conv_shortcut = UpSampleConv(input_dim, output_dim,
-                kernel_size=1, he_init=False)
-            self.conv_1 = UpSampleConv(input_dim, output_dim, kernel_size=
-                kernel_size, bias=False)
-            self.conv_2 = MyConvo2d(output_dim, output_dim, kernel_size=
-                kernel_size)
+            self.conv_shortcut = UpSampleConv(input_dim, output_dim, kernel_size=1, he_init=False)
+            self.conv_1 = UpSampleConv(input_dim, output_dim, kernel_size=kernel_size, bias=False)
+            self.conv_2 = MyConvo2d(output_dim, output_dim, kernel_size=kernel_size)
         elif resample == None:
-            self.conv_shortcut = MyConvo2d(input_dim, output_dim,
-                kernel_size=1, he_init=False)
-            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=
-                kernel_size, bias=False)
-            self.conv_2 = MyConvo2d(input_dim, output_dim, kernel_size=
-                kernel_size)
+            self.conv_shortcut = MyConvo2d(input_dim, output_dim, kernel_size=1, he_init=False)
+            self.conv_1 = MyConvo2d(input_dim, input_dim, kernel_size=kernel_size, bias=False)
+            self.conv_2 = MyConvo2d(input_dim, output_dim, kernel_size=kernel_size)
         else:
             raise Exception('invalid resample value')
 
@@ -511,14 +466,10 @@ class GoodDiscriminator(nn.Module):
         self.dim = dim
         self.ssize = self.dim // 16
         self.conv1 = MyConvo2d(3, self.dim, 3, he_init=False)
-        self.rb1 = ResidualBlock(self.dim, 2 * self.dim, 3, resample='down',
-            hw=self.dim)
-        self.rb2 = ResidualBlock(2 * self.dim, 4 * self.dim, 3, resample=
-            'down', hw=int(self.dim / 2))
-        self.rb3 = ResidualBlock(4 * self.dim, 8 * self.dim, 3, resample=
-            'down', hw=int(self.dim / 4))
-        self.rb4 = ResidualBlock(8 * self.dim, 8 * self.dim, 3, resample=
-            'down', hw=int(self.dim / 8))
+        self.rb1 = ResidualBlock(self.dim, 2 * self.dim, 3, resample='down', hw=self.dim)
+        self.rb2 = ResidualBlock(2 * self.dim, 4 * self.dim, 3, resample='down', hw=int(self.dim / 2))
+        self.rb3 = ResidualBlock(4 * self.dim, 8 * self.dim, 3, resample='down', hw=int(self.dim / 4))
+        self.rb4 = ResidualBlock(8 * self.dim, 8 * self.dim, 3, resample='down', hw=int(self.dim / 8))
         self.ln1 = nn.Linear(self.ssize * self.ssize * 8 * self.dim, 1)
 
     def forward(self, input):
@@ -539,31 +490,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvMeanPool,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FCGenerator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128])], {}),
+     True),
+    (GoodDiscriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (GoodGenerator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128])], {}),
+     False),
+    (MeanPoolConv,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MyConvo2d,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReLULayer,
+     lambda: ([], {'n_in': 4, 'n_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpSampleConv,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jalola_improved_wgan_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvMeanPool(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FCGenerator(*[], **{}), [torch.rand([128, 128])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GoodDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GoodGenerator(*[], **{}), [torch.rand([128, 128])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MeanPoolConv(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MyConvo2d(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ReLULayer(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(UpSampleConv(*[], **{'input_dim': 4, 'output_dim': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

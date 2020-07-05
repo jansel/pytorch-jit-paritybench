@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,21 +75,10 @@ class Model(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.convolution = torch.nn.Sequential(torch.nn.Conv2d(1, 32, 3),
-            torch.nn.ReLU(inplace=True), torch.nn.Conv2d(32, 128, 3, groups
-            =32), torch.nn.ReLU(inplace=True), torch.nn.Conv2d(128, 250, 3))
-        self.classifier = torch.nn.Sequential(torch.nn.Linear(250, 64),
-            torch.nn.ReLU(), torch.nn.Linear(64, 10))
+        self.convolution = torch.nn.Sequential(torch.nn.Conv2d(1, 32, 3), torch.nn.ReLU(inplace=True), torch.nn.Conv2d(32, 128, 3, groups=32), torch.nn.ReLU(inplace=True), torch.nn.Conv2d(128, 250, 3))
+        self.classifier = torch.nn.Sequential(torch.nn.Linear(250, 64), torch.nn.ReLU(), torch.nn.Linear(64, 10))
 
     def forward(self, inputs):
-        convolved = torch.nn.AdaptiveAvgPool2d(1)(self.convolution(inputs)
-            ).flatten()
+        convolved = torch.nn.AdaptiveAvgPool2d(1)(self.convolution(inputs)).flatten()
         return self.classifier(convolved)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_szymonmaszke_torchfunc(_paritybench_base):
-    pass

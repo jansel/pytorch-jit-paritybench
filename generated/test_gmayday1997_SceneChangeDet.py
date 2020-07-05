@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,8 +87,7 @@ class FeatureCorrelation(nn.Module):
         feature_A = feature_A.transpose(2, 3).contiguous().view(b, c, h * w)
         feature_B = feature_B.view(b, c, h * w).transpose(1, 2)
         feature_mul = torch.bmm(feature_B, feature_A)
-        correlation_tensor = self.scale * feature_mul.view(b, h, w, h * w
-            ).transpose(2, 3).transpose(1, 2)
+        correlation_tensor = self.scale * feature_mul.view(b, h, w, h * w).transpose(2, 3).transpose(1, 2)
         return correlation_tensor
 
 
@@ -99,8 +99,7 @@ class l2normalization(nn.Module):
 
     def forward(self, x, dim=1):
         """out = scale * x / sqrt(\\sum x_i^2)"""
-        return self.scale * x * x.pow(2).sum(dim).clamp(min=1e-12).rsqrt(
-            ).expand_as(x)
+        return self.scale * x * x.pow(2).sum(dim).clamp(min=1e-12).rsqrt().expand_as(x)
 
 
 class l1normalization(nn.Module):
@@ -110,8 +109,7 @@ class l1normalization(nn.Module):
         self.scale = scale
 
     def forward(self, x, dim=1):
-        return self.scale * x * x.pow(1).sum(dim).clamp(min=1e-12).rsqrt(
-            ).expand_as(x)
+        return self.scale * x * x.pow(1).sum(dim).clamp(min=1e-12).rsqrt().expand_as(x)
 
 
 class scale_feature(nn.Module):
@@ -150,8 +148,7 @@ class ConstractiveThresholdHingeLoss(nn.Module):
         distance = F.pairwise_distance(out_vec_t0, out_vec_t1, p=2)
         similar_pair = torch.clamp(distance - self.threshold, min=0.0)
         dissimilar_pair = torch.clamp(self.margin - distance, min=0.0)
-        constractive_thresh_loss = torch.sum((1 - label) * torch.pow(
-            similar_pair, 2) + label * torch.pow(dissimilar_pair, 2))
+        constractive_thresh_loss = torch.sum((1 - label) * torch.pow(similar_pair, 2) + label * torch.pow(dissimilar_pair, 2))
         return constractive_thresh_loss
 
 
@@ -174,8 +171,7 @@ class ConstractiveLoss(nn.Module):
 
     def forward(self, out_vec_t0, out_vec_t1, label):
         distance = self.various_distance(out_vec_t0, out_vec_t1)
-        constractive_loss = torch.sum((1 - label) * torch.pow(distance, 2) +
-            label * torch.pow(torch.clamp(self.margin - distance, min=0.0), 2))
+        constractive_loss = torch.sum((1 - label) * torch.pow(distance, 2) + label * torch.pow(torch.clamp(self.margin - distance, min=0.0), 2))
         return constractive_loss
 
 
@@ -184,18 +180,15 @@ class ConstractiveMaskLoss(nn.Module):
     def __init__(self, thresh_flag=False, hinge_thresh=0.0, dist_flag='l2'):
         super(ConstractiveMaskLoss, self).__init__()
         if thresh_flag:
-            self.sample_constractive_loss = ConstractiveThresholdHingeLoss(
-                margin=2.0, hingethresh=hinge_thresh)
+            self.sample_constractive_loss = ConstractiveThresholdHingeLoss(margin=2.0, hingethresh=hinge_thresh)
         else:
-            self.sample_constractive_loss = ConstractiveLoss(margin=2.0,
-                dist_flag=dist_flag)
+            self.sample_constractive_loss = ConstractiveLoss(margin=2.0, dist_flag=dist_flag)
 
     def forward(self, out_t0, out_t1, ground_truth):
         n, c, h, w = out_t0.data.shape
         out_t0_rz = torch.transpose(out_t0.view(c, h * w), 1, 0)
         out_t1_rz = torch.transpose(out_t1.view(c, h * w), 1, 0)
-        gt_tensor = torch.from_numpy(np.array(ground_truth.data.cpu().numpy
-            (), np.float32))
+        gt_tensor = torch.from_numpy(np.array(ground_truth.data.cpu().numpy(), np.float32))
         gt_rz = Variable(torch.transpose(gt_tensor.view(1, h * w), 1, 0))
         loss = self.sample_constractive_loss(out_t0_rz, out_t1_rz, gt_rz)
         return loss
@@ -208,8 +201,7 @@ class LogDetDivergence(nn.Module):
         self.param_name = param_name
         self.param_dict = dict(model.named_parameters())
         self.dim = dim
-        self.identity_matrix = Variable(torch.from_numpy(np.identity(self.
-            dim)).float())
+        self.identity_matrix = Variable(torch.from_numpy(np.identity(self.dim)).float())
 
     def select_param(self):
         for layer_name, layer_param in self.param_dict.items():
@@ -219,8 +211,7 @@ class LogDetDivergence(nn.Module):
 
     def forward(self):
         constrainted_matrix = self.select_param()
-        matrix_ = torch.squeeze(torch.squeeze(constrainted_matrix, dim=2),
-            dim=2)
+        matrix_ = torch.squeeze(torch.squeeze(constrainted_matrix, dim=2), dim=2)
         matrix_t = torch.t(matrix_)
         matrixs = torch.mm(matrix_t, matrix_)
         trace_ = torch.trace(torch.mm(matrixs, torch.inverse(matrixs)))
@@ -236,8 +227,7 @@ class Mahalanobis_Constraint(nn.Module):
         self.param_name = param_name
         self.param_dict = dict(model.named_parameters())
         self.dim = dim
-        self.identity_matrix = Variable(torch.from_numpy(np.identity(self.
-            dim)).float())
+        self.identity_matrix = Variable(torch.from_numpy(np.identity(self.dim)).float())
 
     def select_param(self):
         for layer_name, layer_param in self.param_dict.items():
@@ -247,11 +237,9 @@ class Mahalanobis_Constraint(nn.Module):
 
     def forward(self):
         constrainted_matrix = self.select_param()
-        matrxi_ = torch.squeeze(torch.squeeze(constrainted_matrix, dim=2),
-            dim=2)
+        matrxi_ = torch.squeeze(torch.squeeze(constrainted_matrix, dim=2), dim=2)
         matrxi_t = torch.t(matrxi_)
-        matrxi_contrainted = (torch.mm(matrxi_t, matrxi_) - self.
-            identity_matrix).view(self.dim ** 2)
+        matrxi_contrainted = (torch.mm(matrxi_t, matrxi_) - self.identity_matrix).view(self.dim ** 2)
         regularizer = torch.pow(matrxi_contrainted, 2).sum(dim=0)
         return regularizer
 
@@ -271,10 +259,8 @@ class SampleHistogramLoss(nn.Module):
             indsa = (delta_repeat == self.t - self.step) & inds
             indsb = (delta_repeat == self.t) & inds
             s_repeat_[~(indsb | indsa)] = 0
-            s_repeat_[indsa] = (s_repeat_ - Variable(self.t) + self.step)[indsa
-                ] / self.step
-            s_repeat_[indsb] = (-s_repeat_ + Variable(self.t) + self.step)[
-                indsb] / self.step
+            s_repeat_[indsa] = (s_repeat_ - Variable(self.t) + self.step)[indsa] / self.step
+            s_repeat_[indsb] = (-s_repeat_ + Variable(self.t) + self.step)[indsb] / self.step
             return s_repeat_.sum(1) / size
 
 
@@ -324,20 +310,14 @@ class HistogramMaskLoss(nn.Module):
         out_t0_rz = torch.transpose(feat_t0.view(c, h * w), 1, 0)
         out_t1_rz = torch.transpose(feat_t1.view(c, h * w), 1, 0)
         gt_np = ground_truth.view(h * w).data.cpu().numpy()
-        pos_inds_np, neg_inds_np = np.squeeze(np.where(gt_np == 0), 1
-            ), np.squeeze(np.where(gt_np != 0), 1)
+        pos_inds_np, neg_inds_np = np.squeeze(np.where(gt_np == 0), 1), np.squeeze(np.where(gt_np != 0), 1)
         pos_size, neg_size = pos_inds_np.shape[0], neg_inds_np.shape[0]
-        pos_inds, neg_inds = torch.from_numpy(pos_inds_np), torch.from_numpy(
-            neg_inds_np)
-        distance = torch.squeeze(self.various_distance(out_t0_rz, out_t1_rz
-            ), dim=1)
+        pos_inds, neg_inds = torch.from_numpy(pos_inds_np), torch.from_numpy(neg_inds_np)
+        distance = torch.squeeze(self.various_distance(out_t0_rz, out_t1_rz), dim=1)
         pos_dist_ls, neg_dist_ls = distance[pos_inds], distance[neg_inds]
-        pos_dist_ls_t, neg_dist_ls_t = torch.from_numpy(pos_dist_ls.data.
-            cpu().numpy()), torch.from_numpy(neg_dist_ls.data.cpu().numpy())
-        hist_pos = Variable(torch.histc(pos_dist_ls_t, bins=100, min=0, max
-            =1) / pos_size, requires_grad=True)
-        hist_neg = Variable(torch.histc(neg_dist_ls_t, bins=100, min=0, max
-            =1) / neg_size, requires_grad=True)
+        pos_dist_ls_t, neg_dist_ls_t = torch.from_numpy(pos_dist_ls.data.cpu().numpy()), torch.from_numpy(neg_dist_ls.data.cpu().numpy())
+        hist_pos = Variable(torch.histc(pos_dist_ls_t, bins=100, min=0, max=1) / pos_size, requires_grad=True)
+        hist_neg = Variable(torch.histc(neg_dist_ls_t, bins=100, min=0, max=1) / neg_size, requires_grad=True)
         loss = self.distance(hist_pos, hist_neg)
         return loss
 
@@ -346,44 +326,13 @@ class deeplab(nn.Module):
 
     def __init__(self):
         super(deeplab, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64,
-            kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1, ceil_mode=True))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=
-            128, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3,
-            stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=3, stride=2, padding=1, ceil_mode=True))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=
-            256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3,
-            stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=256, out_channels=256, kernel_size=3, stride=1,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1, ceil_mode=True))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=
-            512, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3,
-            stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=512, out_channels=512, kernel_size=3, stride=1,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=1, padding=1, ceil_mode=True))
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            512, kernel_size=3, dilation=2, stride=1, padding=2), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, dilation=2, stride=1, padding=2), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, dilation=2, stride=1, padding=2), nn.ReLU(
-            inplace=True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1,
-            ceil_mode=True), nn.AvgPool2d(kernel_size=3, stride=1, padding=
-            1, ceil_mode=True))
-        self.fc6 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            1024, kernel_size=3, dilation=12, padding=12), nn.ReLU(inplace=
-            True), nn.Dropout2d())
-        self.fc7 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=
-            1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, stride=1, padding=2), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, stride=1, padding=2), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, stride=1, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True), nn.AvgPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True))
+        self.fc6 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, dilation=12, padding=12), nn.ReLU(inplace=True), nn.Dropout2d())
+        self.fc7 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d())
 
     def forward(self, input):
         x = self.conv1(input)
@@ -409,21 +358,14 @@ class Deeplab_MS_Att_Scale(nn.Module):
     def __init__(self, class_number=21):
         super(Deeplab_MS_Att_Scale, self).__init__()
         self.truck_branch = deeplab()
-        self.scale_attention_branch = nn.Sequential(nn.Conv2d(in_channels=
-            1024 * 3, out_channels=512, kernel_size=3, padding=1), nn.ReLU(
-            inplace=True), nn.Dropout2d(), nn.Conv2d(in_channels=512,
-            out_channels=3, kernel_size=1))
-        self.fc8 = nn.Conv2d(in_channels=1024, out_channels=class_number,
-            kernel_size=1)
+        self.scale_attention_branch = nn.Sequential(nn.Conv2d(in_channels=1024 * 3, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Dropout2d(), nn.Conv2d(in_channels=512, out_channels=3, kernel_size=1))
+        self.fc8 = nn.Conv2d(in_channels=1024, out_channels=class_number, kernel_size=1)
 
     def forward(self, x):
         input_size = x.size()[2]
-        self.interp1 = nn.Upsample(size=(int(input_size * 0.75) + 1, int(
-            input_size * 0.75) + 1), mode='bilinear')
-        self.interp2 = nn.Upsample(size=(int(input_size * 0.5) + 1, int(
-            input_size * 0.5) + 1), mode='bilinear')
-        self.interp3 = nn.Upsample(size=(outS(input_size), outS(input_size)
-            ), mode='bilinear')
+        self.interp1 = nn.Upsample(size=(int(input_size * 0.75) + 1, int(input_size * 0.75) + 1), mode='bilinear')
+        self.interp2 = nn.Upsample(size=(int(input_size * 0.5) + 1, int(input_size * 0.5) + 1), mode='bilinear')
+        self.interp3 = nn.Upsample(size=(outS(input_size), outS(input_size)), mode='bilinear')
         out = []
         x75 = self.interp1(x)
         x50 = self.interp2(x)
@@ -439,55 +381,30 @@ class Deeplab_MS_Att_Scale(nn.Module):
         score_x50 = self.interp3(self.fc8(fc7_x50))
         score_x75 = self.interp3(self.fc8(fc7_x75))
         assert score_x.size() == score_x50.size()
-        score_att_x = torch.mul(score_x, scale_att_mask[:, (0), :, :].
-            expand_as(score_x))
-        score_att_x_075 = torch.mul(score_x75, scale_att_mask[:, (1), :, :]
-            .expand_as(score_x75))
-        score_att_x_050 = torch.mul(score_x50, scale_att_mask[:, (2), :, :]
-            .expand_as(score_x50))
+        score_att_x = torch.mul(score_x, scale_att_mask[:, (0), :, :].expand_as(score_x))
+        score_att_x_075 = torch.mul(score_x75, scale_att_mask[:, (1), :, :].expand_as(score_x75))
+        score_att_x_050 = torch.mul(score_x50, scale_att_mask[:, (2), :, :].expand_as(score_x50))
         score_final = score_att_x + score_att_x_075 + score_att_x_050
         return score_final, scale_att_mask
 
     def init_parameters_from_deeplab(self, pretrain_vgg16_1024):
-        conv_blocks = [self.truck_branch.conv1, self.truck_branch.conv2,
-            self.truck_branch.conv3, self.truck_branch.conv4, self.
-            truck_branch.conv5]
-        pretrain_conv_blocks = [pretrain_vgg16_1024.truck_branch.conv1,
-            pretrain_vgg16_1024.truck_branch.conv2, pretrain_vgg16_1024.
-            truck_branch.conv3, pretrain_vgg16_1024.truck_branch.conv4,
-            pretrain_vgg16_1024.truck_branch.conv5]
-        for idx, (conv_block, pretrain_conv_block) in enumerate(zip(
-            conv_blocks, pretrain_conv_blocks)):
+        conv_blocks = [self.truck_branch.conv1, self.truck_branch.conv2, self.truck_branch.conv3, self.truck_branch.conv4, self.truck_branch.conv5]
+        pretrain_conv_blocks = [pretrain_vgg16_1024.truck_branch.conv1, pretrain_vgg16_1024.truck_branch.conv2, pretrain_vgg16_1024.truck_branch.conv3, pretrain_vgg16_1024.truck_branch.conv4, pretrain_vgg16_1024.truck_branch.conv5]
+        for idx, (conv_block, pretrain_conv_block) in enumerate(zip(conv_blocks, pretrain_conv_blocks)):
             for l1, l2 in zip(pretrain_conv_block, conv_block):
                 if isinstance(l1, nn.Conv2d) and isinstance(l2, nn.Conv2d):
                     assert l1.weight.size() == l2.weight.size()
                     assert l1.bias.size() == l2.bias.size()
                     l2.weight.data = l1.weight.data
                     l2.bias.data = l1.bias.data
-        self.truck_branch.fc6[0
-            ].weight.data = pretrain_vgg16_1024.truck_branch.fc6[0
-            ].weight.data.view(self.truck_branch.fc6[0].weight.size())
-        self.truck_branch.fc6[0
-            ].bias.data = pretrain_vgg16_1024.truck_branch.fc6[0
-            ].bias.data.view(self.truck_branch.fc6[0].bias.size())
-        self.truck_branch.fc7[0
-            ].weight.data = pretrain_vgg16_1024.truck_branch.fc7[0
-            ].weight.data.view(self.truck_branch.fc7[0].weight.size())
-        self.truck_branch.fc7[0
-            ].bias.data = pretrain_vgg16_1024.truck_branch.fc7[0
-            ].bias.data.view(self.truck_branch.fc7[0].bias.size())
-        self.scale_attention_branch[0
-            ].weight.data = pretrain_vgg16_1024.scale_attention_branch[0
-            ].weight.data
-        self.scale_attention_branch[0
-            ].bias.data = pretrain_vgg16_1024.scale_attention_branch[0
-            ].bias.data
-        self.scale_attention_branch[3
-            ].weight.data = pretrain_vgg16_1024.scale_attention_branch[3
-            ].weight.data
-        self.scale_attention_branch[3
-            ].bias.data = pretrain_vgg16_1024.scale_attention_branch[3
-            ].bias.data
+        self.truck_branch.fc6[0].weight.data = pretrain_vgg16_1024.truck_branch.fc6[0].weight.data.view(self.truck_branch.fc6[0].weight.size())
+        self.truck_branch.fc6[0].bias.data = pretrain_vgg16_1024.truck_branch.fc6[0].bias.data.view(self.truck_branch.fc6[0].bias.size())
+        self.truck_branch.fc7[0].weight.data = pretrain_vgg16_1024.truck_branch.fc7[0].weight.data.view(self.truck_branch.fc7[0].weight.size())
+        self.truck_branch.fc7[0].bias.data = pretrain_vgg16_1024.truck_branch.fc7[0].bias.data.view(self.truck_branch.fc7[0].bias.size())
+        self.scale_attention_branch[0].weight.data = pretrain_vgg16_1024.scale_attention_branch[0].weight.data
+        self.scale_attention_branch[0].bias.data = pretrain_vgg16_1024.scale_attention_branch[0].bias.data
+        self.scale_attention_branch[3].weight.data = pretrain_vgg16_1024.scale_attention_branch[3].weight.data
+        self.scale_attention_branch[3].bias.data = pretrain_vgg16_1024.scale_attention_branch[3].bias.data
         self.fc8.weight.data.normal_(0, 0.01)
         self.fc8.bias.data.fill_(0)
 
@@ -496,58 +413,20 @@ class deeplab_V2(nn.Module):
 
     def __init__(self):
         super(deeplab_V2, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=64, out_channels=64, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2,
-            padding=1, ceil_mode=True))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=
-            128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=128, out_channels=128, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1, ceil_mode=True))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=
-            256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=256, out_channels=256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256,
-            out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=
-            512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=512, out_channels=512, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512,
-            out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1,
-            ceil_mode=True))
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=
-            True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size
-            =3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=512, out_channels=512, kernel_size=3, dilation=2,
-            padding=2), nn.ReLU(inplace=True))
-        self.fc6_1 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            1024, kernel_size=3, dilation=6, padding=6), nn.ReLU(inplace=
-            True), nn.Dropout2d(p=0.5))
-        self.fc7_1 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels
-            =1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
-        self.fc6_2 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            1024, kernel_size=3, dilation=12, padding=12), nn.ReLU(inplace=
-            True), nn.Dropout2d(p=0.5))
-        self.fc7_2 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels
-            =1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
-        self.fc6_3 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            1024, kernel_size=3, dilation=18, padding=18), nn.ReLU(inplace=
-            True), nn.Dropout2d(p=0.5))
-        self.fc7_3 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels
-            =1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
-        self.fc6_4 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            1024, kernel_size=3, dilation=24, padding=24), nn.ReLU(inplace=
-            True), nn.Dropout2d(p=0.5))
-        self.fc7_4 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels
-            =1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
-        self.embedding_layer = nn.Conv2d(in_channels=1024, out_channels=512,
-            kernel_size=1)
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=True))
+        self.fc6_1 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, dilation=6, padding=6), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc7_1 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc6_2 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, dilation=12, padding=12), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc7_2 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc6_3 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, dilation=18, padding=18), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc7_3 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc6_4 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, dilation=24, padding=24), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.fc7_4 = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1), nn.ReLU(inplace=True), nn.Dropout2d(p=0.5))
+        self.embedding_layer = nn.Conv2d(in_channels=1024, out_channels=512, kernel_size=1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -569,11 +448,7 @@ class deeplab_V2(nn.Module):
 
 
 def convert_dict_names_for_fucking_faults():
-    deeplab_v2_dict_names_mapping = {'conv1.0': 'conv1_1', 'conv1.2':
-        'conv1_2', 'conv2.0': 'conv2_1', 'conv2.2': 'conv2_2', 'conv3.0':
-        'conv3_1', 'conv3.2': 'conv3_2', 'conv3.4': 'conv3_3', 'conv4.0':
-        'conv4_1', 'conv4.2': 'conv4_2', 'conv4.4': 'conv4_3', 'conv5.0':
-        'conv5_1', 'conv5.2': 'conv5_2', 'conv5.4': 'conv5_3'}
+    deeplab_v2_dict_names_mapping = {'conv1.0': 'conv1_1', 'conv1.2': 'conv1_2', 'conv2.0': 'conv2_1', 'conv2.2': 'conv2_2', 'conv3.0': 'conv3_1', 'conv3.2': 'conv3_2', 'conv3.4': 'conv3_3', 'conv4.0': 'conv4_1', 'conv4.2': 'conv4_2', 'conv4.4': 'conv4_3', 'conv5.0': 'conv5_1', 'conv5.2': 'conv5_2', 'conv5.4': 'conv5_3'}
     return deeplab_v2_dict_names_mapping
 
 
@@ -600,14 +475,10 @@ class SiameseNet(nn.Module):
     def forward(self, t0, t1):
         out_t0_conv5, out_t0_fc7, out_t0_embedding = self.CNN(t0)
         out_t1_conv5, out_t1_fc7, out_t1_embedding = self.CNN(t1)
-        out_t0_conv5_norm, out_t1_conv5_norm = self.norm(out_t0_conv5
-            ), self.norm(out_t1_conv5)
-        out_t0_fc7_norm, out_t1_fc7_norm = self.norm(out_t0_fc7), self.norm(
-            out_t1_fc7)
-        out_t0_embedding_norm, out_t1_embedding_norm = self.norm(
-            out_t0_embedding), self.norm(out_t1_embedding)
-        return [out_t0_conv5_norm, out_t1_conv5_norm], [out_t0_fc7_norm,
-            out_t1_fc7_norm], [out_t0_embedding_norm, out_t1_embedding_norm]
+        out_t0_conv5_norm, out_t1_conv5_norm = self.norm(out_t0_conv5), self.norm(out_t1_conv5)
+        out_t0_fc7_norm, out_t1_fc7_norm = self.norm(out_t0_fc7), self.norm(out_t1_fc7)
+        out_t0_embedding_norm, out_t1_embedding_norm = self.norm(out_t0_embedding), self.norm(out_t1_embedding)
+        return [out_t0_conv5_norm, out_t1_conv5_norm], [out_t0_fc7_norm, out_t1_fc7_norm], [out_t0_embedding_norm, out_t1_embedding_norm]
     """
     def forward(self,t0,t1):
 
@@ -633,110 +504,57 @@ class SiameseNet(nn.Module):
     def init_parameters_from_deeplab(self, pretrain_vgg16_1024):
         pretrain_dict_names = convert_dict_names_for_fucking_faults()
         keys = sorted(pretrain_dict_names.keys())
-        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self
-            .CNN.conv4, self.CNN.conv5]
+        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self.CNN.conv4, self.CNN.conv5]
         ranges = [[0, 2], [0, 2], [0, 2, 4], [0, 2, 4], [0, 2, 4]]
         for key in keys:
             dic_name = pretrain_dict_names[key]
-            base_conv_name, conv_index, sub_index = dic_name[:5], int(dic_name
-                [4]), int(dic_name[-1])
-            conv_blocks[conv_index - 1][ranges[sub_index - 1][sub_index - 1]
-                ].weight.data = pretrain_vgg16_1024[key + '.weight']
-            conv_blocks[conv_index - 1][ranges[sub_index - 1][sub_index - 1]
-                ].bias.data = pretrain_vgg16_1024[key + '.bias']
-        self.CNN.fc6_1[0].weight.data = pretrain_vgg16_1024['fc6_1.0.weight'
-            ].view(self.CNN.fc6_1[0].weight.size())
-        self.CNN.fc6_1[0].bias.data = pretrain_vgg16_1024['fc6_1.0.bias'].view(
-            self.CNN.fc6_1[0].bias.size())
-        self.CNN.fc7_1[0].weight.data = pretrain_vgg16_1024['fc7_1.0.weight'
-            ].view(self.CNN.fc7_1[0].weight.size())
-        self.CNN.fc7_1[0].bias.data = pretrain_vgg16_1024['fc7_1.0.bias'].view(
-            self.CNN.fc7_1[0].bias.size())
-        self.CNN.fc6_2[0].weight.data = pretrain_vgg16_1024['fc6_2.0.weight'
-            ].view(self.CNN.fc6_2[0].weight.size())
-        self.CNN.fc6_2[0].bias.data = pretrain_vgg16_1024['fc6_2.0.bias'].view(
-            self.CNN.fc6_2[0].bias.size())
-        self.CNN.fc7_2[0].weight.data = pretrain_vgg16_1024['fc7_2.0.weight'
-            ].view(self.CNN.fc7_2[0].weight.size())
-        self.CNN.fc7_2[0].bias.data = pretrain_vgg16_1024['fc7_2.0.bias'].view(
-            self.CNN.fc7_2[0].bias.size())
-        self.CNN.fc6_3[0].weight.data = pretrain_vgg16_1024['fc6_3.0.weight'
-            ].view(self.CNN.fc6_3[0].weight.size())
-        self.CNN.fc6_3[0].bias.data = pretrain_vgg16_1024['fc6_3.0.bias'].view(
-            self.CNN.fc6_3[0].bias.size())
-        self.CNN.fc7_3[0].weight.data = pretrain_vgg16_1024['fc7_3.0.weight'
-            ].view(self.CNN.fc7_3[0].weight.size())
-        self.CNN.fc7_3[0].bias.data = pretrain_vgg16_1024['fc7_3.0.bias'].view(
-            self.CNN.fc7_3[0].bias.size())
-        self.CNN.fc6_4[0].weight.data = pretrain_vgg16_1024['fc6_4.0.weight'
-            ].view(self.CNN.fc6_4[0].weight.size())
-        self.CNN.fc6_4[0].bias.data = pretrain_vgg16_1024['fc6_4.0.bias'].view(
-            self.CNN.fc6_4[0].bias.size())
-        self.CNN.fc7_4[0].weight.data = pretrain_vgg16_1024['fc7_4.0.weight'
-            ].view(self.CNN.fc7_4[0].weight.size())
-        self.CNN.fc7_4[0].bias.data = pretrain_vgg16_1024['fc7_4.0.bias'].view(
-            self.CNN.fc7_4[0].bias.size())
+            base_conv_name, conv_index, sub_index = dic_name[:5], int(dic_name[4]), int(dic_name[-1])
+            conv_blocks[conv_index - 1][ranges[sub_index - 1][sub_index - 1]].weight.data = pretrain_vgg16_1024[key + '.weight']
+            conv_blocks[conv_index - 1][ranges[sub_index - 1][sub_index - 1]].bias.data = pretrain_vgg16_1024[key + '.bias']
+        self.CNN.fc6_1[0].weight.data = pretrain_vgg16_1024['fc6_1.0.weight'].view(self.CNN.fc6_1[0].weight.size())
+        self.CNN.fc6_1[0].bias.data = pretrain_vgg16_1024['fc6_1.0.bias'].view(self.CNN.fc6_1[0].bias.size())
+        self.CNN.fc7_1[0].weight.data = pretrain_vgg16_1024['fc7_1.0.weight'].view(self.CNN.fc7_1[0].weight.size())
+        self.CNN.fc7_1[0].bias.data = pretrain_vgg16_1024['fc7_1.0.bias'].view(self.CNN.fc7_1[0].bias.size())
+        self.CNN.fc6_2[0].weight.data = pretrain_vgg16_1024['fc6_2.0.weight'].view(self.CNN.fc6_2[0].weight.size())
+        self.CNN.fc6_2[0].bias.data = pretrain_vgg16_1024['fc6_2.0.bias'].view(self.CNN.fc6_2[0].bias.size())
+        self.CNN.fc7_2[0].weight.data = pretrain_vgg16_1024['fc7_2.0.weight'].view(self.CNN.fc7_2[0].weight.size())
+        self.CNN.fc7_2[0].bias.data = pretrain_vgg16_1024['fc7_2.0.bias'].view(self.CNN.fc7_2[0].bias.size())
+        self.CNN.fc6_3[0].weight.data = pretrain_vgg16_1024['fc6_3.0.weight'].view(self.CNN.fc6_3[0].weight.size())
+        self.CNN.fc6_3[0].bias.data = pretrain_vgg16_1024['fc6_3.0.bias'].view(self.CNN.fc6_3[0].bias.size())
+        self.CNN.fc7_3[0].weight.data = pretrain_vgg16_1024['fc7_3.0.weight'].view(self.CNN.fc7_3[0].weight.size())
+        self.CNN.fc7_3[0].bias.data = pretrain_vgg16_1024['fc7_3.0.bias'].view(self.CNN.fc7_3[0].bias.size())
+        self.CNN.fc6_4[0].weight.data = pretrain_vgg16_1024['fc6_4.0.weight'].view(self.CNN.fc6_4[0].weight.size())
+        self.CNN.fc6_4[0].bias.data = pretrain_vgg16_1024['fc6_4.0.bias'].view(self.CNN.fc6_4[0].bias.size())
+        self.CNN.fc7_4[0].weight.data = pretrain_vgg16_1024['fc7_4.0.weight'].view(self.CNN.fc7_4[0].weight.size())
+        self.CNN.fc7_4[0].bias.data = pretrain_vgg16_1024['fc7_4.0.bias'].view(self.CNN.fc7_4[0].bias.size())
 
     def init_parameters(self, pretrain_vgg16_1024):
-        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self
-            .CNN.conv4, self.CNN.conv5]
+        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self.CNN.conv4, self.CNN.conv5]
         ranges = [[0, 4], [5, 9], [10, 16], [17, 23], [24, 29]]
         features = list(pretrain_vgg16_1024.features.children())
         for idx, conv_block in enumerate(conv_blocks):
-            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]],
-                conv_block):
+            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]], conv_block):
                 if isinstance(l1, nn.Conv2d) and isinstance(l2, nn.Conv2d):
                     assert l1.weight.size() == l2.weight.size()
                     assert l1.bias.size() == l2.bias.size()
                     l2.weight.data = l1.weight.data
                     l2.bias.data = l1.bias.data
-        self.CNN.fc6[0].weight.data = pretrain_vgg16_1024.classifier[0
-            ].weight.data.view(self.CNN.fc6[0].weight.size())
-        self.CNN.fc6[0].bias.data = pretrain_vgg16_1024.classifier[0
-            ].bias.data.view(self.CNN.fc6[0].bias.size())
-        self.CNN.fc7[0].weight.data = pretrain_vgg16_1024.classifier[3
-            ].weight.data.view(self.CNN.fc7[0].weight.size())
-        self.CNN.fc7[0].bias.data = pretrain_vgg16_1024.classifier[3
-            ].bias.data.view(self.CNN.fc7[0].bias.size())
+        self.CNN.fc6[0].weight.data = pretrain_vgg16_1024.classifier[0].weight.data.view(self.CNN.fc6[0].weight.size())
+        self.CNN.fc6[0].bias.data = pretrain_vgg16_1024.classifier[0].bias.data.view(self.CNN.fc6[0].bias.size())
+        self.CNN.fc7[0].weight.data = pretrain_vgg16_1024.classifier[3].weight.data.view(self.CNN.fc7[0].weight.size())
+        self.CNN.fc7[0].bias.data = pretrain_vgg16_1024.classifier[3].bias.data.view(self.CNN.fc7[0].bias.size())
 
 
 class fcn32s(nn.Module):
 
     def __init__(self, distance_flag):
         super(fcn32s, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=64, out_channels=64, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2,
-            padding=1, ceil_mode=True))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=
-            128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=128, out_channels=128, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1, ceil_mode=True))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=
-            256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=256, out_channels=256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256,
-            out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=
-            512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=512, out_channels=512, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512,
-            out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1,
-            ceil_mode=True))
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=
-            512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=
-            True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size
-            =3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=512, out_channels=512, kernel_size=3, dilation=2,
-            padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=1, padding=1, ceil_mode=True))
-        self.embedding_layer = nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, dilation=2, padding=2)
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True))
+        self.embedding_layer = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, dilation=2, padding=2)
         if distance_flag == 'softmax':
             self.fc8 = nn.Softmax2d()
         if distance_flag == 'l2':
@@ -765,20 +583,17 @@ class SiameseNet(nn.Module):
         return [out_t0_conv5, out_t1_conv5]
 
     def init_parameters(self, pretrain_vgg16):
-        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self
-            .CNN.conv4, self.CNN.conv5]
+        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self.CNN.conv4, self.CNN.conv5]
         ranges = [[0, 4], [5, 9], [10, 16], [17, 23], [24, 29]]
         features = list(pretrain_vgg16.features.children())
         for idx, conv_block in enumerate(conv_blocks):
-            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]],
-                conv_block):
+            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]], conv_block):
                 if isinstance(l1, nn.Conv2d) and isinstance(l2, nn.Conv2d):
                     assert l1.weight.size() == l2.weight.size()
                     assert l1.bias.size() == l2.bias.size()
                     l2.weight.data = l1.weight.data
                     l2.bias.data = l1.bias.data
-        init.kaiming_uniform(self.CNN.embedding_layer.weight.data, mode=
-            'fan_in')
+        init.kaiming_uniform(self.CNN.embedding_layer.weight.data, mode='fan_in')
         init.constant(self.CNN.embedding_layer.bias.data, 0)
         """'
         self.fc6[0].weight.data = pretrain_vgg16.classifier[0].weight.data.view(self.fc6[0].weight.size())
@@ -801,9 +616,7 @@ class vgg1024(nn.Module):
     def __init__(self):
         super(vgg1024, self).__init__()
         self.features = self._make_layers(cfg['D'])
-        self.classifier = nn.Sequential(nn.Conv2d(512, 1024, 3), nn.ReLU(
-            inplace=True), nn.Dropout(), nn.Conv2d(1024, 1024, 1), nn.ReLU(
-            inplace=True), nn.Dropout(), nn.Conv2d(1024, 21, 1))
+        self.classifier = nn.Sequential(nn.Conv2d(512, 1024, 3), nn.ReLU(inplace=True), nn.Dropout(), nn.Conv2d(1024, 1024, 1), nn.ReLU(inplace=True), nn.Dropout(), nn.Conv2d(1024, 21, 1))
 
     def forward(self, input):
         x = self.features(input)
@@ -822,83 +635,127 @@ class vgg1024(nn.Module):
             else:
                 conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
         return nn.Sequential(*layers)
 
     def init_parameters(self, pretrain_vgg16_1024):
-        conv_blocks = [self.conv1, self.conv2, self.conv3, self.conv4, self
-            .conv5]
+        conv_blocks = [self.conv1, self.conv2, self.conv3, self.conv4, self.conv5]
         ranges = [[0, 4], [5, 9], [10, 16], [17, 23], [24, 29]]
         features = list(pretrain_vgg16_1024.features.children())
         for idx, conv_block in enumerate(conv_blocks):
-            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]],
-                conv_block):
+            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]], conv_block):
                 if isinstance(l1, nn.Conv2d) and isinstance(l2, nn.Conv2d):
                     assert l1.weight.size() == l2.weight.size()
                     assert l1.bias.size() == l2.bias.size()
                     l2.weight.data = l1.weight.data
                     l2.bias.data = l1.bias.data
-        self.fc6[0].weight.data = pretrain_vgg16.classifier[0
-            ].weight.data.view(self.fc6[0].weight.size())
-        self.fc6[0].bias.data = pretrain_vgg16.classifier[0].bias.data.view(
-            self.fc6[0].bias.size())
-        self.fc7[0].weight.data = pretrain_vgg16.classifier[3
-            ].weight.data.view(self.fc7[0].weight.size())
-        self.fc7[0].bias.data = pretrain_vgg16.classifier[3].bias.data.view(
-            self.fc7[0].bias.size())
+        self.fc6[0].weight.data = pretrain_vgg16.classifier[0].weight.data.view(self.fc6[0].weight.size())
+        self.fc6[0].bias.data = pretrain_vgg16.classifier[0].bias.data.view(self.fc6[0].bias.size())
+        self.fc7[0].weight.data = pretrain_vgg16.classifier[3].weight.data.view(self.fc7[0].weight.size())
+        self.fc7[0].bias.data = pretrain_vgg16.classifier[3].bias.data.view(self.fc7[0].bias.size())
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BhattacharyyaDistance,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConstractiveLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConstractiveThresholdHingeLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FeatureCorrelation,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (KLCoefficient,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mahalanobis_Distance,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SampleHistogramLoss,
+     lambda: ([], {'num_steps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SiameseNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (deeplab,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (deeplab_V2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (l1normalization,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (l2normalization,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (scale_feature,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_gmayday1997_SceneChangeDet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BhattacharyyaDistance(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ConstractiveLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ConstractiveThresholdHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FeatureCorrelation(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(KLCoefficient(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Mahalanobis_Distance(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SampleHistogramLoss(*[], **{'num_steps': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(SiameseNet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(deeplab(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(deeplab_V2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(l1normalization(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(l2normalization(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(scale_feature(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 

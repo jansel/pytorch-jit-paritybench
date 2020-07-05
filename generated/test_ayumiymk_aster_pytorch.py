@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -113,8 +114,7 @@ def to_contiguous(tensor):
 
 class SequenceCrossEntropyLoss(nn.Module):
 
-    def __init__(self, weight=None, size_average=True, ignore_index=-100,
-        sequence_normalize=False, sample_normalize=True):
+    def __init__(self, weight=None, size_average=True, ignore_index=-100, sequence_normalize=False, sample_normalize=True):
         super(SequenceCrossEntropyLoss, self).__init__()
         self.weight = weight
         self.size_average = size_average
@@ -160,8 +160,7 @@ class AttentionRecognitionHead(nn.Module):
         self.sDim = sDim
         self.attDim = attDim
         self.max_len_labels = max_len_labels
-        self.decoder = DecoderUnit(sDim=sDim, xDim=in_planes, yDim=
-            num_classes, attDim=attDim)
+        self.decoder = DecoderUnit(sDim=sDim, xDim=in_planes, yDim=num_classes, attDim=attDim)
 
     def forward(self, x):
         x, targets, lengths = x
@@ -204,16 +203,12 @@ class AttentionRecognitionHead(nn.Module):
             repeat_dims[dim] = times
             return tensor.repeat(*repeat_dims)
         batch_size, l, d = x.size()
-        inflated_encoder_feats = x.unsqueeze(1).permute((1, 0, 2, 3)).repeat((
-            beam_width, 1, 1, 1)).permute((1, 0, 2, 3)).contiguous().view(-
-            1, l, d)
+        inflated_encoder_feats = x.unsqueeze(1).permute((1, 0, 2, 3)).repeat((beam_width, 1, 1, 1)).permute((1, 0, 2, 3)).contiguous().view(-1, l, d)
         state = torch.zeros(1, batch_size * beam_width, self.sDim)
-        pos_index = (torch.Tensor(range(batch_size)) * beam_width).long().view(
-            -1, 1)
+        pos_index = (torch.Tensor(range(batch_size)) * beam_width).long().view(-1, 1)
         sequence_scores = torch.Tensor(batch_size * beam_width, 1)
         sequence_scores.fill_(-float('Inf'))
-        sequence_scores.index_fill_(0, torch.Tensor([(i * beam_width) for i in
-            range(0, batch_size)]).long(), 0.0)
+        sequence_scores.index_fill_(0, torch.Tensor([(i * beam_width) for i in range(0, batch_size)]).long(), 0.0)
         y_prev = torch.zeros(batch_size * beam_width).fill_(self.num_classes)
         stored_scores = list()
         stored_predecessors = list()
@@ -223,13 +218,10 @@ class AttentionRecognitionHead(nn.Module):
             log_softmax_output = F.log_softmax(output, dim=1)
             sequence_scores = _inflate(sequence_scores, self.num_classes, 1)
             sequence_scores += log_softmax_output
-            scores, candidates = sequence_scores.view(batch_size, -1).topk(
-                beam_width, dim=1)
-            y_prev = (candidates % self.num_classes).view(batch_size *
-                beam_width)
+            scores, candidates = sequence_scores.view(batch_size, -1).topk(beam_width, dim=1)
+            y_prev = (candidates % self.num_classes).view(batch_size * beam_width)
             sequence_scores = scores.view(batch_size * beam_width, 1)
-            predecessors = (candidates / self.num_classes + pos_index.
-                expand_as(candidates)).view(batch_size * beam_width, 1)
+            predecessors = (candidates / self.num_classes + pos_index.expand_as(candidates)).view(batch_size * beam_width, 1)
             state = state.index_select(1, predecessors.squeeze())
             stored_scores.append(sequence_scores.clone())
             eos_indices = y_prev.view(-1, 1).eq(eos)
@@ -239,25 +231,20 @@ class AttentionRecognitionHead(nn.Module):
             stored_emitted_symbols.append(y_prev)
         p = list()
         l = [([self.max_len_labels] * beam_width) for _ in range(batch_size)]
-        sorted_score, sorted_idx = stored_scores[-1].view(batch_size,
-            beam_width).topk(beam_width)
+        sorted_score, sorted_idx = stored_scores[-1].view(batch_size, beam_width).topk(beam_width)
         s = sorted_score.clone()
         batch_eos_found = [0] * batch_size
         t = self.max_len_labels - 1
-        t_predecessors = (sorted_idx + pos_index.expand_as(sorted_idx)).view(
-            batch_size * beam_width)
+        t_predecessors = (sorted_idx + pos_index.expand_as(sorted_idx)).view(batch_size * beam_width)
         while t >= 0:
-            current_symbol = stored_emitted_symbols[t].index_select(0,
-                t_predecessors)
-            t_predecessors = stored_predecessors[t].index_select(0,
-                t_predecessors).squeeze()
+            current_symbol = stored_emitted_symbols[t].index_select(0, t_predecessors)
+            t_predecessors = stored_predecessors[t].index_select(0, t_predecessors).squeeze()
             eos_indices = stored_emitted_symbols[t].eq(eos).nonzero()
             if eos_indices.dim() > 0:
                 for i in range(eos_indices.size(0) - 1, -1, -1):
                     idx = eos_indices[i]
                     b_idx = int(idx[0] / beam_width)
-                    res_k_idx = beam_width - batch_eos_found[b_idx
-                        ] % beam_width - 1
+                    res_k_idx = beam_width - batch_eos_found[b_idx] % beam_width - 1
                     batch_eos_found[b_idx] += 1
                     res_idx = b_idx * beam_width + res_k_idx
                     t_predecessors[res_idx] = stored_predecessors[t][idx[0]]
@@ -268,12 +255,9 @@ class AttentionRecognitionHead(nn.Module):
             t -= 1
         s, re_sorted_idx = s.topk(beam_width)
         for b_idx in range(batch_size):
-            l[b_idx] = [l[b_idx][k_idx.item()] for k_idx in re_sorted_idx[(
-                b_idx), :]]
-        re_sorted_idx = (re_sorted_idx + pos_index.expand_as(re_sorted_idx)
-            ).view(batch_size * beam_width)
-        p = [step.index_select(0, re_sorted_idx).view(batch_size,
-            beam_width, -1) for step in reversed(p)]
+            l[b_idx] = [l[b_idx][k_idx.item()] for k_idx in re_sorted_idx[(b_idx), :]]
+        re_sorted_idx = (re_sorted_idx + pos_index.expand_as(re_sorted_idx)).view(batch_size * beam_width)
+        p = [step.index_select(0, re_sorted_idx).view(batch_size, beam_width, -1) for step in reversed(p)]
         p = torch.cat(p, -1)[:, (0), :]
         return p, torch.ones_like(p)
 
@@ -325,8 +309,7 @@ class DecoderUnit(nn.Module):
         self.emdDim = attDim
         self.attention_unit = AttentionUnit(sDim, xDim, attDim)
         self.tgt_embedding = nn.Embedding(yDim + 1, self.emdDim)
-        self.gru = nn.GRU(input_size=xDim + self.emdDim, hidden_size=sDim,
-            batch_first=True)
+        self.gru = nn.GRU(input_size=xDim + self.emdDim, hidden_size=sDim, batch_first=True)
         self.fc = nn.Linear(sDim, yDim)
 
     def init_weights(self):
@@ -339,16 +322,14 @@ class DecoderUnit(nn.Module):
         alpha = self.attention_unit(x, sPrev)
         context = torch.bmm(alpha.unsqueeze(1), x).squeeze(1)
         yProj = self.tgt_embedding(yPrev.long())
-        output, state = self.gru(torch.cat([yProj, context], 1).unsqueeze(1
-            ), sPrev)
+        output, state = self.gru(torch.cat([yProj, context], 1).unsqueeze(1), sPrev)
         output = output.squeeze(1)
         output = self.fc(output)
         return output, state
 
 
 def _normalize_text(text):
-    text = ''.join(filter(lambda x: x in string.digits + string.
-        ascii_letters, text))
+    text = ''.join(filter(lambda x: x in string.digits + string.ascii_letters, text))
     return text.lower()
 
 
@@ -356,8 +337,7 @@ def to_numpy(tensor):
     if torch.is_tensor(tensor):
         return tensor.cpu().numpy()
     elif type(tensor).__module__ != 'numpy':
-        raise ValueError('Cannot convert {} to numpy array'.format(type(
-            tensor)))
+        raise ValueError('Cannot convert {} to numpy array'.format(type(tensor)))
     return tensor
 
 
@@ -408,8 +388,7 @@ def Accuracy(output, target, dataset=None):
 def _lexicon_search(lexicon, word):
     edit_distances = []
     for lex_word in lexicon:
-        edit_distances.append(editdistance.eval(_normalize_text(lex_word),
-            _normalize_text(word)))
+        edit_distances.append(editdistance.eval(_normalize_text(lex_word), _normalize_text(word)))
     edit_distances = np.asarray(edit_distances, dtype=np.int)
     argmin = np.argmin(edit_distances)
     return lexicon[argmin]
@@ -424,28 +403,22 @@ def Accuracy_with_lexicon(output, target, dataset=None, file_names=None):
     if len(file_names) == 0 or len(dataset.lexicons50[file_names[0]]) == 0:
         accuracys.append(0)
     else:
-        refined_pred_list = [_lexicon_search(dataset.lexicons50[file_name],
-            pred) for file_name, pred in zip(file_names, pred_list)]
-        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list,
-            targ_list)]
+        refined_pred_list = [_lexicon_search(dataset.lexicons50[file_name], pred) for file_name, pred in zip(file_names, pred_list)]
+        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list, targ_list)]
         accuracy = 1.0 * sum(acc_list) / len(acc_list)
         accuracys.append(accuracy)
     if len(file_names) == 0 or len(dataset.lexicons1k[file_names[0]]) == 0:
         accuracys.append(0)
     else:
-        refined_pred_list = [_lexicon_search(dataset.lexicons1k[file_name],
-            pred) for file_name, pred in zip(file_names, pred_list)]
-        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list,
-            targ_list)]
+        refined_pred_list = [_lexicon_search(dataset.lexicons1k[file_name], pred) for file_name, pred in zip(file_names, pred_list)]
+        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list, targ_list)]
         accuracy = 1.0 * sum(acc_list) / len(acc_list)
         accuracys.append(accuracy)
     if len(file_names) == 0 or len(dataset.lexiconsfull[file_names[0]]) == 0:
         accuracys.append(0)
     else:
-        refined_pred_list = [_lexicon_search(dataset.lexiconsfull[file_name
-            ], pred) for file_name, pred in zip(file_names, pred_list)]
-        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list,
-            targ_list)]
+        refined_pred_list = [_lexicon_search(dataset.lexiconsfull[file_name], pred) for file_name, pred in zip(file_names, pred_list)]
+        acc_list = [(pred == targ) for pred, targ in zip(refined_pred_list, targ_list)]
         accuracy = 1.0 * sum(acc_list) / len(acc_list)
         accuracys.append(accuracy)
     return accuracys
@@ -453,8 +426,7 @@ def Accuracy_with_lexicon(output, target, dataset=None, file_names=None):
 
 def EditDistance(output, target, dataset=None):
     pred_list, targ_list = get_str_list(output, target, dataset)
-    ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
-        pred_list, targ_list)]
+    ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(pred_list, targ_list)]
     eds = sum(ed_list)
     return eds
 
@@ -462,43 +434,34 @@ def EditDistance(output, target, dataset=None):
 def EditDistance_with_lexicon(output, target, dataset=None, file_names=None):
     pred_list, targ_list = get_str_list(output, target, dataset)
     eds = []
-    ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
-        pred_list, targ_list)]
+    ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(pred_list, targ_list)]
     ed = sum(ed_list)
     eds.append(ed)
     if len(file_names) == 0 or len(dataset.lexicons50[file_names[0]]) == 0:
         eds.append(0)
     else:
-        refined_pred_list = [_lexicon_search(dataset.lexicons50[file_name],
-            pred) for file_name, pred in zip(file_names, pred_list)]
-        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
-            refined_pred_list, targ_list)]
+        refined_pred_list = [_lexicon_search(dataset.lexicons50[file_name], pred) for file_name, pred in zip(file_names, pred_list)]
+        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(refined_pred_list, targ_list)]
         ed = sum(ed_list)
         eds.append(ed)
     if len(file_names) == 0 or len(dataset.lexicons1k[file_names[0]]) == 0:
         eds.append(0)
     else:
-        refined_pred_list = [_lexicon_search(dataset.lexicons1k[file_name],
-            pred) for file_name, pred in zip(file_names, pred_list)]
-        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
-            refined_pred_list, targ_list)]
+        refined_pred_list = [_lexicon_search(dataset.lexicons1k[file_name], pred) for file_name, pred in zip(file_names, pred_list)]
+        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(refined_pred_list, targ_list)]
         ed = sum(ed_list)
         eds.append(ed)
     if len(file_names) == 0 or len(dataset.lexiconsfull[file_names[0]]) == 0:
         eds.append(0)
     else:
-        refined_pred_list = [_lexicon_search(dataset.lexiconsfull[file_name
-            ], pred) for file_name, pred in zip(file_names, pred_list)]
-        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(
-            refined_pred_list, targ_list)]
+        refined_pred_list = [_lexicon_search(dataset.lexiconsfull[file_name], pred) for file_name, pred in zip(file_names, pred_list)]
+        ed_list = [editdistance.eval(pred, targ) for pred, targ in zip(refined_pred_list, targ_list)]
         ed = sum(ed_list)
         eds.append(ed)
     return eds
 
 
-__factory = {'accuracy': Accuracy, 'editdistance': EditDistance,
-    'accuracy_with_lexicon': Accuracy_with_lexicon,
-    'editdistance_with_lexicon': EditDistance_with_lexicon}
+__factory = {'accuracy': Accuracy, 'editdistance': EditDistance, 'accuracy_with_lexicon': Accuracy_with_lexicon, 'editdistance_with_lexicon': EditDistance_with_lexicon}
 
 
 def create(name, *args, **kwargs):
@@ -533,8 +496,7 @@ class ModelBuilder(nn.Module):
   This is the integrated model.
   """
 
-    def __init__(self, arch, rec_num_classes, sDim, attDim, max_len_labels,
-        eos, STN_ON=False):
+    def __init__(self, arch, rec_num_classes, sDim, attDim, max_len_labels, eos, STN_ON=False):
         super(ModelBuilder, self).__init__()
         self.arch = arch
         self.rec_num_classes = rec_num_classes
@@ -544,29 +506,21 @@ class ModelBuilder(nn.Module):
         self.eos = eos
         self.STN_ON = STN_ON
         self.tps_inputsize = global_args.tps_inputsize
-        self.encoder = create(self.arch, with_lstm=global_args.with_lstm,
-            n_group=global_args.n_group)
+        self.encoder = create(self.arch, with_lstm=global_args.with_lstm, n_group=global_args.n_group)
         encoder_out_planes = self.encoder.out_planes
-        self.decoder = AttentionRecognitionHead(num_classes=rec_num_classes,
-            in_planes=encoder_out_planes, sDim=sDim, attDim=attDim,
-            max_len_labels=max_len_labels)
+        self.decoder = AttentionRecognitionHead(num_classes=rec_num_classes, in_planes=encoder_out_planes, sDim=sDim, attDim=attDim, max_len_labels=max_len_labels)
         self.rec_crit = SequenceCrossEntropyLoss()
         if self.STN_ON:
-            self.tps = TPSSpatialTransformer(output_image_size=tuple(
-                global_args.tps_outputsize), num_control_points=global_args
-                .num_control_points, margins=tuple(global_args.tps_margins))
-            self.stn_head = STNHead(in_planes=3, num_ctrlpoints=global_args
-                .num_control_points, activation=global_args.stn_activation)
+            self.tps = TPSSpatialTransformer(output_image_size=tuple(global_args.tps_outputsize), num_control_points=global_args.num_control_points, margins=tuple(global_args.tps_margins))
+            self.stn_head = STNHead(in_planes=3, num_ctrlpoints=global_args.num_control_points, activation=global_args.stn_activation)
 
     def forward(self, input_dict):
         return_dict = {}
         return_dict['losses'] = {}
         return_dict['output'] = {}
-        x, rec_targets, rec_lengths = input_dict['images'], input_dict[
-            'rec_targets'], input_dict['rec_lengths']
+        x, rec_targets, rec_lengths = input_dict['images'], input_dict['rec_targets'], input_dict['rec_lengths']
         if self.STN_ON:
-            stn_input = F.interpolate(x, self.tps_inputsize, mode=
-                'bilinear', align_corners=True)
+            stn_input = F.interpolate(x, self.tps_inputsize, mode='bilinear', align_corners=True)
             stn_img_feat, ctrl_points = self.stn_head(stn_input)
             x, _ = self.tps(x, ctrl_points)
             if not self.training:
@@ -579,8 +533,7 @@ class ModelBuilder(nn.Module):
             loss_rec = self.rec_crit(rec_pred, rec_targets, rec_lengths)
             return_dict['losses']['loss_rec'] = loss_rec
         else:
-            rec_pred, rec_pred_scores = self.decoder.beam_search(encoder_feats,
-                global_args.beam_width, self.eos)
+            rec_pred, rec_pred_scores = self.decoder.beam_search(encoder_feats, global_args.beam_width, self.eos)
             rec_pred_ = self.decoder([encoder_feats, rec_targets, rec_lengths])
             loss_rec = self.rec_crit(rec_pred_, rec_targets, rec_lengths)
             return_dict['losses']['loss_rec'] = loss_rec
@@ -593,14 +546,12 @@ class ModelBuilder(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class AsterBlock(nn.Module):
@@ -637,9 +588,7 @@ class ResNet_ASTER(nn.Module):
         self.with_lstm = with_lstm
         self.n_group = n_group
         in_channels = 3
-        self.layer0 = nn.Sequential(nn.Conv2d(in_channels, 32, kernel_size=
-            (3, 3), stride=1, padding=1, bias=False), nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True))
+        self.layer0 = nn.Sequential(nn.Conv2d(in_channels, 32, kernel_size=(3, 3), stride=1, padding=1, bias=False), nn.BatchNorm2d(32), nn.ReLU(inplace=True))
         self.inplanes = 32
         self.layer1 = self._make_layer(32, 3, [2, 2])
         self.layer2 = self._make_layer(64, 4, [2, 2])
@@ -647,15 +596,13 @@ class ResNet_ASTER(nn.Module):
         self.layer4 = self._make_layer(256, 6, [2, 1])
         self.layer5 = self._make_layer(512, 3, [2, 1])
         if with_lstm:
-            self.rnn = nn.LSTM(512, 256, bidirectional=True, num_layers=2,
-                batch_first=True)
+            self.rnn = nn.LSTM(512, 256, bidirectional=True, num_layers=2, batch_first=True)
             self.out_planes = 2 * 256
         else:
             self.out_planes = 512
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -663,8 +610,7 @@ class ResNet_ASTER(nn.Module):
     def _make_layer(self, planes, blocks, stride):
         downsample = None
         if stride != [1, 1] or self.inplanes != planes:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes,
-                stride), nn.BatchNorm2d(planes))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes, stride), nn.BatchNorm2d(planes))
         layers = []
         layers.append(AsterBlock(self.inplanes, planes, stride, downsample))
         self.inplanes = planes
@@ -690,10 +636,8 @@ class ResNet_ASTER(nn.Module):
 
 def conv3x3_block(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    conv_layer = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1)
-    block = nn.Sequential(conv_layer, nn.BatchNorm2d(out_planes), nn.ReLU(
-        inplace=True))
+    conv_layer = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=1)
+    block = nn.Sequential(conv_layer, nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
     return block
 
 
@@ -704,14 +648,8 @@ class STNHead(nn.Module):
         self.in_planes = in_planes
         self.num_ctrlpoints = num_ctrlpoints
         self.activation = activation
-        self.stn_convnet = nn.Sequential(conv3x3_block(in_planes, 32), nn.
-            MaxPool2d(kernel_size=2, stride=2), conv3x3_block(32, 64), nn.
-            MaxPool2d(kernel_size=2, stride=2), conv3x3_block(64, 128), nn.
-            MaxPool2d(kernel_size=2, stride=2), conv3x3_block(128, 256), nn
-            .MaxPool2d(kernel_size=2, stride=2), conv3x3_block(256, 256),
-            nn.MaxPool2d(kernel_size=2, stride=2), conv3x3_block(256, 256))
-        self.stn_fc1 = nn.Sequential(nn.Linear(2 * 256, 512), nn.
-            BatchNorm1d(512), nn.ReLU(inplace=True))
+        self.stn_convnet = nn.Sequential(conv3x3_block(in_planes, 32), nn.MaxPool2d(kernel_size=2, stride=2), conv3x3_block(32, 64), nn.MaxPool2d(kernel_size=2, stride=2), conv3x3_block(64, 128), nn.MaxPool2d(kernel_size=2, stride=2), conv3x3_block(128, 256), nn.MaxPool2d(kernel_size=2, stride=2), conv3x3_block(256, 256), nn.MaxPool2d(kernel_size=2, stride=2), conv3x3_block(256, 256))
+        self.stn_fc1 = nn.Sequential(nn.Linear(2 * 256, 512), nn.BatchNorm1d(512), nn.ReLU(inplace=True))
         self.stn_fc2 = nn.Linear(512, num_ctrlpoints * 2)
         self.init_weights(self.stn_convnet)
         self.init_weights(self.stn_fc1)
@@ -739,8 +677,7 @@ class STNHead(nn.Module):
         ctrl_pts_y_bottom = np.ones(sampling_num_per_side) * (1 - margin)
         ctrl_pts_top = np.stack([ctrl_pts_x, ctrl_pts_y_top], axis=1)
         ctrl_pts_bottom = np.stack([ctrl_pts_x, ctrl_pts_y_bottom], axis=1)
-        ctrl_points = np.concatenate([ctrl_pts_top, ctrl_pts_bottom], axis=0
-            ).astype(np.float32)
+        ctrl_points = np.concatenate([ctrl_pts_top, ctrl_pts_bottom], axis=0).astype(np.float32)
         if self.activation is 'none':
             pass
         elif self.activation == 'sigmoid':
@@ -768,8 +705,7 @@ def build_output_control_points(num_control_points, margins):
     ctrl_pts_y_bottom = np.ones(num_ctrl_pts_per_side) * (1.0 - margin_y)
     ctrl_pts_top = np.stack([ctrl_pts_x, ctrl_pts_y_top], axis=1)
     ctrl_pts_bottom = np.stack([ctrl_pts_x, ctrl_pts_y_bottom], axis=1)
-    output_ctrl_pts_arr = np.concatenate([ctrl_pts_top, ctrl_pts_bottom],
-        axis=0)
+    output_ctrl_pts_arr = np.concatenate([ctrl_pts_top, ctrl_pts_bottom], axis=0)
     output_ctrl_pts = torch.Tensor(output_ctrl_pts_arr)
     return output_ctrl_pts
 
@@ -779,8 +715,7 @@ def compute_partial_repr(input_points, control_points):
     M = control_points.size(0)
     pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
     pairwise_diff_square = pairwise_diff * pairwise_diff
-    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:,
-        :, (1)]
+    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:, :, (1)]
     repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
     mask = repr_matrix != repr_matrix
     repr_matrix.masked_fill_(mask, 0)
@@ -800,19 +735,16 @@ def grid_sample(input, grid, canvas=None):
 
 class TPSSpatialTransformer(nn.Module):
 
-    def __init__(self, output_image_size=None, num_control_points=None,
-        margins=None):
+    def __init__(self, output_image_size=None, num_control_points=None, margins=None):
         super(TPSSpatialTransformer, self).__init__()
         self.output_image_size = output_image_size
         self.num_control_points = num_control_points
         self.margins = margins
         self.target_height, self.target_width = output_image_size
-        target_control_points = build_output_control_points(num_control_points,
-            margins)
+        target_control_points = build_output_control_points(num_control_points, margins)
         N = num_control_points
         forward_kernel = torch.zeros(N + 3, N + 3)
-        target_control_partial_repr = compute_partial_repr(
-            target_control_points, target_control_points)
+        target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)
         forward_kernel[:N, :N].copy_(target_control_partial_repr)
         forward_kernel[:N, (-3)].fill_(1)
         forward_kernel[(-3), :N].fill_(1)
@@ -820,17 +752,14 @@ class TPSSpatialTransformer(nn.Module):
         forward_kernel[-2:, :N].copy_(target_control_points.transpose(0, 1))
         inverse_kernel = torch.inverse(forward_kernel)
         HW = self.target_height * self.target_width
-        target_coordinate = list(itertools.product(range(self.target_height
-            ), range(self.target_width)))
+        target_coordinate = list(itertools.product(range(self.target_height), range(self.target_width)))
         target_coordinate = torch.Tensor(target_coordinate)
         Y, X = target_coordinate.split(1, dim=1)
         Y = Y / (self.target_height - 1)
         X = X / (self.target_width - 1)
         target_coordinate = torch.cat([X, Y], dim=1)
-        target_coordinate_partial_repr = compute_partial_repr(target_coordinate
-            , target_control_points)
-        target_coordinate_repr = torch.cat([target_coordinate_partial_repr,
-            torch.ones(HW, 1), target_coordinate], dim=1)
+        target_coordinate_partial_repr = compute_partial_repr(target_coordinate, target_control_points)
+        target_coordinate_repr = torch.cat([target_coordinate_partial_repr, torch.ones(HW, 1), target_coordinate], dim=1)
         self.register_buffer('inverse_kernel', inverse_kernel)
         self.register_buffer('padding_matrix', torch.zeros(3, 2))
         self.register_buffer('target_coordinate_repr', target_coordinate_repr)
@@ -841,13 +770,10 @@ class TPSSpatialTransformer(nn.Module):
         assert source_control_points.size(1) == self.num_control_points
         assert source_control_points.size(2) == 2
         batch_size = source_control_points.size(0)
-        Y = torch.cat([source_control_points, self.padding_matrix.expand(
-            batch_size, 3, 2)], 1)
+        Y = torch.cat([source_control_points, self.padding_matrix.expand(batch_size, 3, 2)], 1)
         mapping_matrix = torch.matmul(self.inverse_kernel, Y)
-        source_coordinate = torch.matmul(self.target_coordinate_repr,
-            mapping_matrix)
-        grid = source_coordinate.view(-1, self.target_height, self.
-            target_width, 2)
+        source_coordinate = torch.matmul(self.target_coordinate_repr, mapping_matrix)
+        grid = source_coordinate.view(-1, self.target_height, self.target_width, 2)
         grid = torch.clamp(grid, 0, 1)
         grid = 2.0 * grid - 1.0
         output_maps = grid_sample(input, grid, canvas=None)
@@ -858,15 +784,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AsterBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AttentionUnit,
+     lambda: ([], {'sDim': 4, 'xDim': 4, 'attDim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (ResNet_ASTER,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_ayumiymk_aster_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AsterBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AttentionUnit(*[], **{'sDim': 4, 'xDim': 4, 'attDim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResNet_ASTER(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -44,12 +45,8 @@ class ActorCritic(nn.Module):
 
     def __init__(self, state_dim, action_dim, n_latent_var):
         super(ActorCritic, self).__init__()
-        self.action_layer = nn.Sequential(nn.Linear(state_dim, n_latent_var
-            ), nn.Tanh(), nn.Linear(n_latent_var, n_latent_var), nn.Tanh(),
-            nn.Linear(n_latent_var, action_dim), nn.Softmax(dim=-1))
-        self.value_layer = nn.Sequential(nn.Linear(state_dim, n_latent_var),
-            nn.Tanh(), nn.Linear(n_latent_var, n_latent_var), nn.Tanh(), nn
-            .Linear(n_latent_var, 1))
+        self.action_layer = nn.Sequential(nn.Linear(state_dim, n_latent_var), nn.Tanh(), nn.Linear(n_latent_var, n_latent_var), nn.Tanh(), nn.Linear(n_latent_var, action_dim), nn.Softmax(dim=-1))
+        self.value_layer = nn.Sequential(nn.Linear(state_dim, n_latent_var), nn.Tanh(), nn.Linear(n_latent_var, n_latent_var), nn.Tanh(), nn.Linear(n_latent_var, 1))
 
     def forward(self):
         raise NotImplementedError
@@ -77,10 +74,8 @@ class ActorCritic(nn.Module):
 
     def __init__(self, state_dim, action_dim, action_std):
         super(ActorCritic, self).__init__()
-        self.actor = nn.Sequential(nn.Linear(state_dim, 64), nn.Tanh(), nn.
-            Linear(64, 32), nn.Tanh(), nn.Linear(32, action_dim), nn.Tanh())
-        self.critic = nn.Sequential(nn.Linear(state_dim, 64), nn.Tanh(), nn
-            .Linear(64, 32), nn.Tanh(), nn.Linear(32, 1))
+        self.actor = nn.Sequential(nn.Linear(state_dim, 64), nn.Tanh(), nn.Linear(64, 32), nn.Tanh(), nn.Linear(32, action_dim), nn.Tanh())
+        self.critic = nn.Sequential(nn.Linear(state_dim, 64), nn.Tanh(), nn.Linear(64, 32), nn.Tanh(), nn.Linear(32, 1))
         self.action_var = torch.full((action_dim,), action_std * action_std)
 
     def forward(self):
@@ -107,10 +102,3 @@ class ActorCritic(nn.Module):
         state_value = self.critic(state)
         return action_logprobs, torch.squeeze(state_value), dist_entropy
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_nikhilbarhate99_PPO_PyTorch(_paritybench_base):
-    pass

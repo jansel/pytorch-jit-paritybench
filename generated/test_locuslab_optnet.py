@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,11 +91,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         interChannels = 4 * growthRate
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(interChannels)
-        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -108,8 +107,7 @@ class SingleLayer(nn.Module):
     def __init__(self, nChannels, growthRate):
         super(SingleLayer, self).__init__()
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, growthRate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(nChannels, growthRate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -122,8 +120,7 @@ class Transition(nn.Module):
     def __init__(self, nChannels, nOutChannels):
         super(Transition, self).__init__()
         self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, nOutChannels, kernel_size=1, bias
-            =False)
+        self.conv1 = nn.Conv2d(nChannels, nOutChannels, kernel_size=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -139,22 +136,18 @@ class DenseNet(nn.Module):
         if bottleneck:
             nDenseBlocks //= 2
         nChannels = 2 * growthRate
-        self.conv1 = nn.Conv2d(3, nChannels, kernel_size=3, padding=1, bias
-            =False)
-        self.dense1 = self._make_dense(nChannels, growthRate, nDenseBlocks,
-            bottleneck)
+        self.conv1 = nn.Conv2d(3, nChannels, kernel_size=3, padding=1, bias=False)
+        self.dense1 = self._make_dense(nChannels, growthRate, nDenseBlocks, bottleneck)
         nChannels += nDenseBlocks * growthRate
         nOutChannels = int(math.floor(nChannels * reduction))
         self.trans1 = Transition(nChannels, nOutChannels)
         nChannels = nOutChannels
-        self.dense2 = self._make_dense(nChannels, growthRate, nDenseBlocks,
-            bottleneck)
+        self.dense2 = self._make_dense(nChannels, growthRate, nDenseBlocks, bottleneck)
         nChannels += nDenseBlocks * growthRate
         nOutChannels = int(math.floor(nChannels * reduction))
         self.trans2 = Transition(nChannels, nOutChannels)
         nChannels = nOutChannels
-        self.dense3 = self._make_dense(nChannels, growthRate, nDenseBlocks,
-            bottleneck)
+        self.dense3 = self._make_dense(nChannels, growthRate, nDenseBlocks, bottleneck)
         nChannels += nDenseBlocks * growthRate
         self.bn1 = nn.BatchNorm2d(nChannels)
         self.fc = nn.Linear(nChannels, nClasses)
@@ -293,8 +286,7 @@ class FC(nn.Module):
 
 class OptNet(nn.Module):
 
-    def __init__(self, nFeatures, nHidden, nCls, bn, nineq=200, neq=0, eps=
-        0.0001):
+    def __init__(self, nFeatures, nHidden, nCls, bn, nineq=200, neq=0, eps=0.0001):
         super().__init__()
         self.nFeatures = nFeatures
         self.nHidden = nHidden
@@ -333,16 +325,14 @@ class OptNet(nn.Module):
         h = z0.mm(self.G.t()) + s0
         e = Variable(torch.Tensor())
         inputs = x
-        x = QPFunction(verbose=-1)(Q.double(), inputs.double(), G.double(),
-            h.double(), e, e)
+        x = QPFunction(verbose=-1)(Q.double(), inputs.double(), G.double(), h.double(), e, e)
         x = x.float()
         return F.log_softmax(x)
 
 
 class OptNetEq(nn.Module):
 
-    def __init__(self, nFeatures, nHidden, nCls, neq, Qpenalty=0.1, eps=0.0001
-        ):
+    def __init__(self, nFeatures, nHidden, nCls, neq, Qpenalty=0.1, eps=0.0001):
         super().__init__()
         self.nFeatures = nFeatures
         self.nHidden = nHidden
@@ -404,19 +394,14 @@ class OptNet(nn.Module):
             D = torch.zeros(nFeatures - 1, nFeatures)
             D[:nFeatures - 1, :nFeatures - 1] = torch.eye(nFeatures - 1)
             D[:nFeatures - 1, 1:nFeatures] -= torch.eye(nFeatures - 1)
-            G_ = block(((D, -torch.eye(nFeatures - 1)), (-D, -torch.eye(
-                nFeatures - 1))))
+            G_ = block(((D, -torch.eye(nFeatures - 1)), (-D, -torch.eye(nFeatures - 1))))
             self.G = Parameter(G_)
-            self.s0 = Parameter(torch.ones(2 * nFeatures - 2) + 1e-06 *
-                torch.randn(2 * nFeatures - 2))
-            G_pinv = (G_.t().mm(G_) + 1e-05 * torch.eye(nHidden)).inverse().mm(
-                G_.t())
-            self.z0 = Parameter(-G_pinv.mv(self.s0.data) + 1e-06 * torch.
-                randn(nHidden))
+            self.s0 = Parameter(torch.ones(2 * nFeatures - 2) + 1e-06 * torch.randn(2 * nFeatures - 2))
+            G_pinv = (G_.t().mm(G_) + 1e-05 * torch.eye(nHidden)).inverse().mm(G_.t())
+            self.z0 = Parameter(-G_pinv.mv(self.s0.data) + 1e-06 * torch.randn(nHidden))
             lam = 21.21
             W_fc1, b_fc1 = self.fc1.weight, self.fc1.bias
-            W_fc1.data[:, :] = 0.001 * torch.randn((2 * nFeatures - 1,
-                nFeatures))
+            W_fc1.data[:, :] = 0.001 * torch.randn((2 * nFeatures - 1, nFeatures))
             W_fc1.data[:nFeatures, :nFeatures] += -torch.eye(nFeatures)
             b_fc1.data[:] = 0.0
             b_fc1.data[nFeatures:2 * nFeatures - 1] = lam
@@ -480,15 +465,12 @@ class OptNet_LearnD(nn.Module):
         Q = L.mm(L.t()) + self.args.eps * Variable(torch.eye(self.nHidden))
         Q = Q.unsqueeze(0).expand(nBatch, self.nHidden, self.nHidden)
         nI = Variable(-torch.eye(self.nFeatures - 1).type_as(Q.data))
-        G = torch.cat((torch.cat((self.D, nI), 1), torch.cat((-self.D, nI), 1))
-            )
+        G = torch.cat((torch.cat((self.D, nI), 1), torch.cat((-self.D, nI), 1)))
         G = G.unsqueeze(0).expand(nBatch, self.nineq, self.nHidden)
         h = self.h.unsqueeze(0).expand(nBatch, self.nineq)
         e = Variable(torch.Tensor())
-        p = torch.cat((-x, Parameter(13.0 * torch.ones(nBatch, self.
-            nFeatures - 1))), 1)
-        x = QPFunction()(Q.double(), p.double(), G.double(), h.double(), e, e
-            ).float()
+        p = torch.cat((-x, Parameter(13.0 * torch.ones(nBatch, self.nFeatures - 1))), 1)
+        x = QPFunction()(Q.double(), p.double(), G.double(), h.double(), e, e).float()
         x = x[:, :self.nFeatures]
         return x
 
@@ -552,13 +534,8 @@ class Conv(nn.Module):
 
 
 def get_sudoku_matrix(n):
-    X = np.array([[cp.Variable(n ** 2) for i in range(n ** 2)] for j in
-        range(n ** 2)])
-    cons = [(x >= 0) for row in X for x in row] + [(cp.sum(x) == 1) for row in
-        X for x in row] + [(sum(row) == np.ones(n ** 2)) for row in X] + [(
-        sum([row[i] for row in X]) == np.ones(n ** 2)) for i in range(n ** 2)
-        ] + [(sum([sum(row[i:i + n]) for row in X[j:j + n]]) == np.ones(n **
-        2)) for i in range(0, n ** 2, n) for j in range(0, n ** 2, n)]
+    X = np.array([[cp.Variable(n ** 2) for i in range(n ** 2)] for j in range(n ** 2)])
+    cons = [(x >= 0) for row in X for x in row] + [(cp.sum(x) == 1) for row in X for x in row] + [(sum(row) == np.ones(n ** 2)) for row in X] + [(sum([row[i] for row in X]) == np.ones(n ** 2)) for i in range(n ** 2)] + [(sum([sum(row[i:i + n]) for row in X[j:j + n]]) == np.ones(n ** 2)) for i in range(0, n ** 2, n) for j in range(0, n ** 2, n)]
     f = sum([cp.sum(x) for row in X for x in row])
     prob = cp.Problem(cp.Minimize(f), cons)
     A = np.asarray(prob.get_problem_data(cp.ECOS)[0]['A'].todense())
@@ -596,18 +573,14 @@ class OptNetEq(nn.Module):
         p = -puzzles.view(nBatch, -1)
         b = self.A.mv(self.log_z0.exp())
         if self.qp_solver == 'qpth':
-            y = QPFunction(verbose=-1)(self.Q, p.double(), self.G, self.h,
-                self.A, b).float().view_as(puzzles)
+            y = QPFunction(verbose=-1)(self.Q, p.double(), self.G, self.h, self.A, b).float().view_as(puzzles)
         elif self.qp_solver == 'osqpth':
-            _l = torch.cat((b, torch.full(self.h.shape, float('-inf'),
-                device=self.h.device, dtype=self.h.dtype)), dim=0)
+            _l = torch.cat((b, torch.full(self.h.shape, float('-inf'), device=self.h.device, dtype=self.h.dtype)), dim=0)
             _u = torch.cat((b, self.h), dim=0)
             Q_data = self.Q[self.Q_idx[0], self.Q_idx[1]]
             AG = torch.cat((self.A, self.G), dim=0)
             AG_data = AG[self.AG_idx[0], self.AG_idx[1]]
-            y = OSQP(self.Q_idx, self.Q.shape, self.AG_idx, AG.shape,
-                diff_mode=DiffModes.FULL)(Q_data, p.double(), AG_data, _l, _u
-                ).float().view_as(puzzles)
+            y = OSQP(self.Q_idx, self.Q.shape, self.AG_idx, AG.shape, diff_mode=DiffModes.FULL)(Q_data, p.double(), AG_data, _l, _u).float().view_as(puzzles)
         else:
             assert False
         return y
@@ -635,12 +608,10 @@ class SpOptNetEq(nn.Module):
             I = t != 0
             self.Av = Parameter(dTensor(t[I]))
             Ai_np = np.nonzero(t)
-            self.Ai = torch.stack((torch.LongTensor(Ai_np[0]), torch.
-                LongTensor(Ai_np[1])))
+            self.Ai = torch.stack((torch.LongTensor(Ai_np[0]), torch.LongTensor(Ai_np[1])))
             self.Asz = torch.Size([neq, nx])
         else:
-            self.Ai = torch.stack((iTensor(list(range(neq))).unsqueeze(1).
-                repeat(1, nx).view(-1), iTensor(list(range(nx))).repeat(neq)))
+            self.Ai = torch.stack((iTensor(list(range(neq))).unsqueeze(1).repeat(1, nx).view(-1), iTensor(list(range(nx))).repeat(neq)))
             self.Av = Parameter(dTensor(neq * nx).uniform_())
             self.Asz = torch.Size([neq, nx])
         self.b = Variable(torch.ones(neq).double())
@@ -648,11 +619,7 @@ class SpOptNetEq(nn.Module):
     def forward(self, puzzles):
         nBatch = puzzles.size(0)
         p = -puzzles.view(nBatch, -1).double()
-        return SpQPFunction(self.Qi, self.Qsz, self.Gi, self.Gsz, self.Ai,
-            self.Asz, verbose=-1)(self.Qv.expand(nBatch, self.Qv.size(0)),
-            p, self.Gv.expand(nBatch, self.Gv.size(0)), self.h.expand(
-            nBatch, self.h.size(0)), self.Av.expand(nBatch, self.Av.size(0)
-            ), self.b.expand(nBatch, self.b.size(0))).float().view_as(puzzles)
+        return SpQPFunction(self.Qi, self.Qsz, self.Gi, self.Gsz, self.Ai, self.Asz, verbose=-1)(self.Qv.expand(nBatch, self.Qv.size(0)), p, self.Gv.expand(nBatch, self.Gv.size(0)), self.h.expand(nBatch, self.h.size(0)), self.Av.expand(nBatch, self.Av.size(0)), self.b.expand(nBatch, self.b.size(0))).float().view_as(puzzles)
 
 
 class OptNetIneq(nn.Module):
@@ -675,8 +642,7 @@ class OptNetIneq(nn.Module):
         G = torch.cat((self.G1, self.G2), 0)
         h = torch.cat((self.h1, h2), 0)
         e = Variable(torch.Tensor())
-        return QPFunction(verbose=False)(self.Q, p.double(), G, h, e, e).float(
-            ).view_as(puzzles)
+        return QPFunction(verbose=False)(self.Q, p.double(), G, h, e, e).float().view_as(puzzles)
 
 
 class OptNetLatent(nn.Module):
@@ -707,14 +673,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Bottleneck,
+     lambda: ([], {'nChannels': 4, 'growthRate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SingleLayer,
+     lambda: ([], {'nChannels': 4, 'growthRate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Transition,
+     lambda: ([], {'nChannels': 4, 'nOutChannels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_locuslab_optnet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Bottleneck(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SingleLayer(*[], **{'nChannels': 4, 'growthRate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Transition(*[], **{'nChannels': 4, 'nOutChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

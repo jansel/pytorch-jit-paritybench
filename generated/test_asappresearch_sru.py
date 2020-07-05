@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,9 +80,7 @@ import warnings
 
 class StackedBRNN(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0,
-        dropout_output=False, rnn_type=nn.LSTM, concat_layers=False,
-        padding=False):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0, dropout_output=False, rnn_type=nn.LSTM, concat_layers=False, padding=False):
         super(StackedBRNN, self).__init__()
         self.padding = padding
         self.dropout_output = dropout_output
@@ -91,9 +90,7 @@ class StackedBRNN(nn.Module):
         self.rnns = nn.ModuleList()
         for i in range(num_layers):
             input_size = input_size if i == 0 else 2 * hidden_size
-            self.rnns.append(sru.SRUCell(input_size, hidden_size, dropout=
-                dropout_rate, rnn_dropout=dropout_rate, use_tanh=0,
-                bidirectional=True))
+            self.rnns.append(sru.SRUCell(input_size, hidden_size, dropout=dropout_rate, rnn_dropout=dropout_rate, use_tanh=0, bidirectional=True))
 
     def forward(self, x, x_mask):
         """Can choose to either handle or ignore variable length sequences.
@@ -117,8 +114,7 @@ class StackedBRNN(nn.Module):
             output = outputs[-1]
         output = output.transpose(0, 1)
         if self.dropout_output and self.dropout_rate > 0:
-            output = F.dropout(output, p=self.dropout_rate, training=self.
-                training)
+            output = F.dropout(output, p=self.dropout_rate, training=self.training)
         return output.contiguous()
 
     def _forward_padded(self, x, x_mask):
@@ -137,10 +133,8 @@ class StackedBRNN(nn.Module):
         for i in range(self.num_layers):
             rnn_input = outputs[-1]
             if self.dropout_rate > 0:
-                dropout_input = F.dropout(rnn_input.data, p=self.
-                    dropout_rate, training=self.training)
-                rnn_input = nn.utils.rnn.PackedSequence(dropout_input,
-                    rnn_input.batch_sizes)
+                dropout_input = F.dropout(rnn_input.data, p=self.dropout_rate, training=self.training)
+                rnn_input = nn.utils.rnn.PackedSequence(dropout_input, rnn_input.batch_sizes)
             outputs.append(self.rnns[i](rnn_input)[0])
         for i, o in enumerate(outputs[1:], 1):
             outputs[i] = nn.utils.rnn.pad_packed_sequence(o)[0]
@@ -151,8 +145,7 @@ class StackedBRNN(nn.Module):
         output = output.transpose(0, 1)
         output = output.index_select(0, idx_unsort)
         if self.dropout_output and self.dropout_rate > 0:
-            output = F.dropout(output, p=self.dropout_rate, training=self.
-                training)
+            output = F.dropout(output, p=self.dropout_rate, training=self.training)
         return output
 
 
@@ -258,14 +251,12 @@ class RnnDocReader(nn.Module):
     """Network for the Document Reader module of DrQA."""
     RNN_TYPES = {'lstm': nn.LSTM, 'gru': nn.GRU, 'rnn': nn.RNN}
 
-    def __init__(self, opt, padding_idx=0, embedding=None, normalize_emb=False
-        ):
+    def __init__(self, opt, padding_idx=0, embedding=None, normalize_emb=False):
         super(RnnDocReader, self).__init__()
         self.opt = opt
         if opt['pretrained_words']:
             assert embedding is not None
-            self.embedding = nn.Embedding(embedding.size(0), embedding.size
-                (1), padding_idx=padding_idx)
+            self.embedding = nn.Embedding(embedding.size(0), embedding.size(1), padding_idx=padding_idx)
             if normalize_emb:
                 normalize_emb_(embedding)
             self.embedding.weight.data = embedding
@@ -279,8 +270,7 @@ class RnnDocReader(nn.Module):
                 self.register_buffer('fixed_embedding', fixed_embedding)
                 self.fixed_embedding = fixed_embedding
         else:
-            self.embedding = nn.Embedding(opt['vocab_size'], opt[
-                'embedding_dim'], padding_idx=padding_idx)
+            self.embedding = nn.Embedding(opt['vocab_size'], opt['embedding_dim'], padding_idx=padding_idx)
         if opt['pos']:
             self.pos_embedding = nn.Embedding(opt['pos_size'], opt['pos_dim'])
             if normalize_emb:
@@ -298,32 +288,19 @@ class RnnDocReader(nn.Module):
             doc_input_size += opt['pos_dim']
         if opt['ner']:
             doc_input_size += opt['ner_dim']
-        self.doc_rnn = layers.StackedBRNN(input_size=doc_input_size,
-            hidden_size=opt['hidden_size'], num_layers=opt['doc_layers'],
-            dropout_rate=opt['dropout_rnn'], dropout_output=opt[
-            'dropout_rnn_output'], concat_layers=opt['concat_rnn_layers'],
-            rnn_type=self.RNN_TYPES[opt['rnn_type']], padding=opt[
-            'rnn_padding'])
-        self.question_rnn = layers.StackedBRNN(input_size=opt[
-            'embedding_dim'], hidden_size=opt['hidden_size'], num_layers=
-            opt['question_layers'], dropout_rate=opt['dropout_rnn'],
-            dropout_output=opt['dropout_rnn_output'], concat_layers=opt[
-            'concat_rnn_layers'], rnn_type=self.RNN_TYPES[opt['rnn_type']],
-            padding=opt['rnn_padding'])
+        self.doc_rnn = layers.StackedBRNN(input_size=doc_input_size, hidden_size=opt['hidden_size'], num_layers=opt['doc_layers'], dropout_rate=opt['dropout_rnn'], dropout_output=opt['dropout_rnn_output'], concat_layers=opt['concat_rnn_layers'], rnn_type=self.RNN_TYPES[opt['rnn_type']], padding=opt['rnn_padding'])
+        self.question_rnn = layers.StackedBRNN(input_size=opt['embedding_dim'], hidden_size=opt['hidden_size'], num_layers=opt['question_layers'], dropout_rate=opt['dropout_rnn'], dropout_output=opt['dropout_rnn_output'], concat_layers=opt['concat_rnn_layers'], rnn_type=self.RNN_TYPES[opt['rnn_type']], padding=opt['rnn_padding'])
         doc_hidden_size = 2 * opt['hidden_size']
         question_hidden_size = 2 * opt['hidden_size']
         if opt['concat_rnn_layers']:
             doc_hidden_size *= opt['doc_layers']
             question_hidden_size *= opt['question_layers']
         if opt['question_merge'] not in ['avg', 'self_attn']:
-            raise NotImplementedError('question_merge = %s' % opt[
-                'question_merge'])
+            raise NotImplementedError('question_merge = %s' % opt['question_merge'])
         if opt['question_merge'] == 'self_attn':
             self.self_attn = layers.LinearSeqAttn(question_hidden_size)
-        self.start_attn = layers.BilinearSeqAttn(doc_hidden_size,
-            question_hidden_size)
-        self.end_attn = layers.BilinearSeqAttn(doc_hidden_size,
-            question_hidden_size)
+        self.start_attn = layers.BilinearSeqAttn(doc_hidden_size, question_hidden_size)
+        self.end_attn = layers.BilinearSeqAttn(doc_hidden_size, question_hidden_size)
 
     def forward(self, x1, x1_f, x1_pos, x1_ner, x1_mask, x2, x2_mask):
         """Inputs:
@@ -338,10 +315,8 @@ class RnnDocReader(nn.Module):
         x1_emb = self.embedding(x1)
         x2_emb = self.embedding(x2)
         if self.opt['dropout_emb'] > 0:
-            x1_emb = nn.functional.dropout(x1_emb, p=self.opt['dropout_emb'
-                ], training=self.training)
-            x2_emb = nn.functional.dropout(x2_emb, p=self.opt['dropout_emb'
-                ], training=self.training)
+            x1_emb = nn.functional.dropout(x1_emb, p=self.opt['dropout_emb'], training=self.training)
+            x2_emb = nn.functional.dropout(x2_emb, p=self.opt['dropout_emb'], training=self.training)
         drnn_input_list = [x1_emb, x1_f]
         if self.opt['use_qemb']:
             x2_weighted_emb = self.qemb_match(x1_emb, x2_emb, x2_mask)
@@ -349,14 +324,12 @@ class RnnDocReader(nn.Module):
         if self.opt['pos']:
             x1_pos_emb = self.pos_embedding(x1_pos)
             if self.opt['dropout_emb'] > 0:
-                x1_pos_emb = nn.functional.dropout(x1_pos_emb, p=self.opt[
-                    'dropout_emb'], training=self.training)
+                x1_pos_emb = nn.functional.dropout(x1_pos_emb, p=self.opt['dropout_emb'], training=self.training)
             drnn_input_list.append(x1_pos_emb)
         if self.opt['ner']:
             x1_ner_emb = self.ner_embedding(x1_ner)
             if self.opt['dropout_emb'] > 0:
-                x1_ner_emb = nn.functional.dropout(x1_ner_emb, p=self.opt[
-                    'dropout_emb'], training=self.training)
+                x1_ner_emb = nn.functional.dropout(x1_ner_emb, p=self.opt['dropout_emb'], training=self.training)
             drnn_input_list.append(x1_ner_emb)
         drnn_input = torch.cat(drnn_input_list, 2)
         doc_hiddens = self.doc_rnn(drnn_input, x1_mask)
@@ -365,8 +338,7 @@ class RnnDocReader(nn.Module):
             q_merge_weights = layers.uniform_weights(question_hiddens, x2_mask)
         elif self.opt['question_merge'] == 'self_attn':
             q_merge_weights = self.self_attn(question_hiddens, x2_mask)
-        question_hidden = layers.weighted_avg(question_hiddens, q_merge_weights
-            )
+        question_hidden = layers.weighted_avg(question_hiddens, q_merge_weights)
         start_scores = self.start_attn(doc_hiddens, question_hidden, x1_mask)
         end_scores = self.end_attn(doc_hiddens, question_hidden, x1_mask)
         return start_scores, end_scores
@@ -379,8 +351,7 @@ class CNN_Text(nn.Module):
         Ci = 1
         Co = filters
         h = n_in
-        self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (w, h)) for w in widths]
-            )
+        self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (w, h)) for w in widths])
 
     def forward(self, x):
         x = x.unsqueeze(1)
@@ -401,8 +372,7 @@ def deep_iter(x):
 
 class EmbeddingLayer(nn.Module):
 
-    def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>',
-        pad='<pad>', normalize=True):
+    def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
         super(EmbeddingLayer, self).__init__()
         word2id = {}
         if embs is not None:
@@ -410,13 +380,9 @@ class EmbeddingLayer(nn.Module):
             for word in embwords:
                 assert word not in word2id, 'Duplicate words in pre-trained embeddings'
                 word2id[word] = len(word2id)
-            sys.stdout.write('{} pre-trained word embeddings loaded.\n'.
-                format(len(word2id)))
+            sys.stdout.write('{} pre-trained word embeddings loaded.\n'.format(len(word2id)))
             if n_d != len(embvecs[0]):
-                sys.stdout.write(
-                    """[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.
-"""
-                    .format(n_d, len(embvecs[0]), len(embvecs[0])))
+                sys.stdout.write('[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.\n'.format(n_d, len(embvecs[0]), len(embvecs[0])))
                 n_d = len(embvecs[0])
         for w in deep_iter(words):
             if w not in word2id:
@@ -459,12 +425,10 @@ class Model(nn.Module):
             self.encoder = modules.CNN_Text(emb_layer.n_d, widths=[3, 4, 5])
             d_out = 300
         elif args.lstm:
-            self.encoder = nn.LSTM(emb_layer.n_d, args.d, args.depth,
-                dropout=args.dropout)
+            self.encoder = nn.LSTM(emb_layer.n_d, args.d, args.depth, dropout=args.dropout)
             d_out = args.d
         else:
-            self.encoder = SRU(emb_layer.n_d, args.d, args.depth, dropout=
-                args.dropout)
+            self.encoder = SRU(emb_layer.n_d, args.d, args.depth, dropout=args.dropout)
             d_out = args.d
         self.out = nn.Linear(d_out, nclasses)
 
@@ -497,19 +461,14 @@ class Model(nn.Module):
         self.embedding_layer = nn.Embedding(len(words), self.n_e)
         self.n_V = len(words)
         if args.lstm:
-            self.rnn = nn.LSTM(self.n_e, self.n_d, self.depth, dropout=args
-                .dropout)
+            self.rnn = nn.LSTM(self.n_e, self.n_d, self.depth, dropout=args.dropout)
         else:
-            self.rnn = sru.SRU(self.n_e, self.n_d, self.depth, dropout=args
-                .dropout, n_proj=args.n_proj, highway_bias=args.bias,
-                layer_norm=args.layer_norm)
+            self.rnn = sru.SRU(self.n_e, self.n_d, self.depth, dropout=args.dropout, n_proj=args.n_proj, highway_bias=args.bias, layer_norm=args.layer_norm)
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         self.init_weights()
 
     def init_weights(self, val_range=None):
-        params = list(self.embedding_layer.parameters()) + list(self.
-            output_layer.parameters()) + (list(self.rnn.parameters()) if
-            self.args.lstm else [])
+        params = list(self.embedding_layer.parameters()) + list(self.output_layer.parameters()) + (list(self.rnn.parameters()) if self.args.lstm else [])
         for p in params:
             if p.dim() > 1:
                 val = val_range or (3.0 / p.size(0)) ** 0.5
@@ -564,21 +523,16 @@ class Model(nn.Module):
         self.embedding_layer = EmbeddingLayer(self.n_d, words)
         self.n_V = self.embedding_layer.n_V
         if args.lstm:
-            self.rnn = nn.LSTM(self.n_d, self.n_d, self.depth, dropout=args
-                .rnn_dropout)
+            self.rnn = nn.LSTM(self.n_d, self.n_d, self.depth, dropout=args.rnn_dropout)
         else:
-            self.rnn = sru.SRU(self.n_d, self.n_d, self.depth, dropout=args
-                .rnn_dropout, rnn_dropout=args.rnn_dropout, use_tanh=0,
-                rescale=False, v1=True, highway_bias=args.bias)
+            self.rnn = sru.SRU(self.n_d, self.n_d, self.depth, dropout=args.rnn_dropout, rnn_dropout=args.rnn_dropout, use_tanh=0, rescale=False, v1=True, highway_bias=args.bias)
         self.output_layer = nn.Linear(self.n_d, self.n_V)
         self.output_layer.weight = self.embedding_layer.embedding.weight
         self.init_weights()
 
     def init_weights(self):
         val_range = (3.0 / self.n_d) ** 0.5
-        params = list(self.embedding_layer.parameters()) + list(self.
-            output_layer.parameters()) + (list(self.rnn.parameters()) if
-            self.args.lstm else [])
+        params = list(self.embedding_layer.parameters()) + list(self.output_layer.parameters()) + (list(self.rnn.parameters()) if self.args.lstm else [])
         for p in params:
             if p.dim() > 1:
                 p.data.uniform_(-val_range, val_range)
@@ -623,10 +577,8 @@ def _lazy_load_cpu_kernel():
         return SRU_CPU_kernel
     try:
         from torch.utils.cpp_extension import load
-        cpu_source = os.path.join(os.path.dirname(__file__), 'sru_cpu_impl.cpp'
-            )
-        SRU_CPU_kernel = load(name='sru_cpu_impl', sources=[cpu_source],
-            extra_cflags=['-O3'], verbose=False)
+        cpu_source = os.path.join(os.path.dirname(__file__), 'sru_cpu_impl.cpp')
+        SRU_CPU_kernel = load(name='sru_cpu_impl', sources=[cpu_source], extra_cflags=['-O3'], verbose=False)
     except:
         SRU_CPU_kernel = False
     return SRU_CPU_kernel
@@ -641,8 +593,7 @@ class SRU_Compute_CPU:
     """
 
     @staticmethod
-    def apply(u, x, weight_c, bias, init, activation_type, d, bidirectional,
-        has_skip_term, scale_x, mask_c=None, mask_pad=None):
+    def apply(u, x, weight_c, bias, init, activation_type, d, bidirectional, has_skip_term, scale_x, mask_c=None, mask_pad=None):
         """
         An SRU is a recurrent neural network cell comprised of 5 equations, described
         in "Simple Recurrent Units for Highly Parallelizable Recurrence."
@@ -670,23 +621,14 @@ class SRU_Compute_CPU:
         if sru_cpu_impl is not None and sru_cpu_impl != False:
             if not torch.is_grad_enabled():
                 assert mask_c is None
-                cpu_forward = (sru_cpu_impl.cpu_bi_forward if bidirectional
-                     else sru_cpu_impl.cpu_forward)
-                mask_pad_ = torch.FloatTensor(
-                    ) if mask_pad is None else mask_pad.float()
-                return cpu_forward(u.contiguous(), x.contiguous(), weight_c
-                    .contiguous(), bias, init, mask_pad_, length, batch, d,
-                    k, activation_type, has_skip_term, scale_x.item() if 
-                    scale_x is not None else 1.0, is_custom)
+                cpu_forward = sru_cpu_impl.cpu_bi_forward if bidirectional else sru_cpu_impl.cpu_forward
+                mask_pad_ = torch.FloatTensor() if mask_pad is None else mask_pad.float()
+                return cpu_forward(u.contiguous(), x.contiguous(), weight_c.contiguous(), bias, init, mask_pad_, length, batch, d, k, activation_type, has_skip_term, scale_x.item() if scale_x is not None else 1.0, is_custom)
             else:
-                warnings.warn(
-                    'Running SRU on CPU with grad_enabled=True. Are you sure?')
+                warnings.warn('Running SRU on CPU with grad_enabled=True. Are you sure?')
         else:
-            warnings.warn(
-                'C++ kernel for SRU CPU inference was not loaded. Use Python version instead.'
-                )
-        mask_pad_ = mask_pad.view(length, batch, 1).float(
-            ) if mask_pad is not None else mask_pad
+            warnings.warn('C++ kernel for SRU CPU inference was not loaded. Use Python version instead.')
+        mask_pad_ = mask_pad.view(length, batch, 1).float() if mask_pad is not None else mask_pad
         u = u.contiguous().view(length, batch, bidir, d, k)
         if is_custom:
             weight_c = weight_c.view(length, batch, bidir, d, 2)
@@ -713,8 +655,7 @@ class SRU_Compute_CPU:
                 time_seq = range(length)
             else:
                 time_seq = range(length - 1, -1, -1)
-            mask_c_ = 1 if mask_c is None else mask_c.view(batch, bidir, d)[:,
-                (di), :]
+            mask_c_ = 1 if mask_c is None else mask_c.view(batch, bidir, d)[:, (di), :]
             c_prev = c_init[:, (di), :]
             fb, rb = forget_bias[di], reset_bias[di]
             if is_custom:
@@ -744,8 +685,7 @@ class SRU_Compute_CPU:
                 elif activation_type == 1:
                     g_c_t = c_t.tanh()
                 else:
-                    raise ValueError('Activation type must be 0 or 1, not {}'
-                        .format(activation_type))
+                    raise ValueError('Activation type must be 0 or 1, not {}'.format(activation_type))
                 if x_prime is not None:
                     h_t = xp[t] + (g_c_t - xp[t]) * mask_c_ * reset_t
                 else:
@@ -754,8 +694,7 @@ class SRU_Compute_CPU:
                     h_t = h_t * (1 - mask_pad_[t])
                 h[(t), :, (di), :] = h_t
             c_final.append(c_t.view(batch, d))
-        return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(
-            batch, -1)
+        return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
 
 
 def _lazy_load_cuda_kernel():
@@ -787,10 +726,7 @@ class SRUCell(nn.Module):
         bidirectional (bool) : whether or not to employ a bidirectional cell.
     """
 
-    def __init__(self, input_size, hidden_size, dropout=0, rnn_dropout=0,
-        bidirectional=False, n_proj=0, use_tanh=0, highway_bias=0,
-        has_skip_term=True, layer_norm=False, rescale=True, v1=False,
-        custom_m=None):
+    def __init__(self, input_size, hidden_size, dropout=0, rnn_dropout=0, bidirectional=False, n_proj=0, use_tanh=0, highway_bias=0, has_skip_term=True, layer_norm=False, rescale=True, v1=False, custom_m=None):
         super(SRUCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -809,21 +745,17 @@ class SRUCell(nn.Module):
             self.activation_type = 1
             self.activation = 'tanh'
         self.projection_size = 0
-        if (n_proj > 0 and n_proj < self.input_size and n_proj < self.
-            output_size):
+        if n_proj > 0 and n_proj < self.input_size and n_proj < self.output_size:
             self.projection_size = n_proj
         self.num_matrices = 3
         if has_skip_term and self.input_size != self.output_size:
             self.num_matrices = 4
         if self.custom_m is None:
             if self.projection_size == 0:
-                self.weight = nn.Parameter(torch.Tensor(input_size, self.
-                    output_size * self.num_matrices))
+                self.weight = nn.Parameter(torch.Tensor(input_size, self.output_size * self.num_matrices))
             else:
-                self.weight_proj = nn.Parameter(torch.Tensor(input_size,
-                    self.projection_size))
-                self.weight = nn.Parameter(torch.Tensor(self.
-                    projection_size, self.output_size * self.num_matrices))
+                self.weight_proj = nn.Parameter(torch.Tensor(input_size, self.projection_size))
+                self.weight = nn.Parameter(torch.Tensor(self.projection_size, self.output_size * self.num_matrices))
         self.weight_c = nn.Parameter(torch.Tensor(2 * self.output_size))
         self.bias = nn.Parameter(torch.Tensor(2 * self.output_size))
         self.register_buffer('scale_x', torch.FloatTensor([0]))
@@ -854,8 +786,7 @@ class SRUCell(nn.Module):
             if self.projection_size > 0:
                 val_range = (3.0 / self.weight_proj.size(0)) ** 0.5
                 self.weight_proj.data.uniform_(-val_range, val_range)
-            w = self.weight.data.view(d, -1, self.hidden_size, self.
-                num_matrices)
+            w = self.weight.data.view(d, -1, self.hidden_size, self.num_matrices)
             if self.dropout > 0:
                 w[:, :, :, (0)].mul_((1 - self.dropout) ** 0.5)
             if self.rnn_dropout > 0:
@@ -868,9 +799,7 @@ class SRUCell(nn.Module):
         elif hasattr(self.custom_m, 'reset_parameters'):
             self.custom_m.reset_parameters()
         else:
-            warnings.warn(
-                'Unable to reset parameters for custom module. reset_parameters() method not found for custom module.'
-                )
+            warnings.warn('Unable to reset parameters for custom module. reset_parameters() method not found for custom module.')
         if not self.v1:
             self.weight_c.data.uniform_(-3.0 ** 0.5, 3.0 ** 0.5)
             if self.custom_m is None:
@@ -896,8 +825,7 @@ class SRUCell(nn.Module):
         if self.layer_norm:
             input = self.layer_norm(input)
         if self.training and self.rnn_dropout > 0:
-            mask = self.get_dropout_mask_((batch_size, input.size(-1)),
-                self.rnn_dropout)
+            mask = self.get_dropout_mask_((batch_size, input.size(-1)), self.rnn_dropout)
             input = input * mask.expand_as(input)
         if self.custom_m is None:
             U = self.compute_U(input)
@@ -906,31 +834,21 @@ class SRUCell(nn.Module):
             ret = self.custom_m(input, c0=c0, mask_pad=mask_pad, **kwargs)
             if isinstance(ret, tuple) or isinstance(ret, list):
                 if len(ret) > 2:
-                    raise Exception(
-                        'Custom module must return 1 or 2 tensors but got {}.'
-                        .format(len(ret)))
+                    raise Exception('Custom module must return 1 or 2 tensors but got {}.'.format(len(ret)))
                 U, V = ret[0], ret[1] + self.weight_c
             else:
                 U, V = ret, self.weight_c
             if U.size(-1) != self.output_size * self.num_matrices:
-                raise ValueError(
-                    'U must have a last dimension of {} but got {}.'.format
-                    (self.output_size * self.num_matrices, U.size(-1)))
+                raise ValueError('U must have a last dimension of {} but got {}.'.format(self.output_size * self.num_matrices, U.size(-1)))
             if V.size(-1) != self.output_size * 2:
-                raise ValueError(
-                    'V must have a last dimension of {} but got {}.'.format
-                    (self.output_size * 2, V.size(-1)))
+                raise ValueError('V must have a last dimension of {} but got {}.'.format(self.output_size * 2, V.size(-1)))
         scale_val = self.scale_x if self.rescale else None
         if self.training and self.dropout > 0:
-            mask_c = self.get_dropout_mask_((batch_size, self.output_size),
-                self.dropout)
+            mask_c = self.get_dropout_mask_((batch_size, self.output_size), self.dropout)
         else:
             mask_c = None
-        SRU_Compute = _lazy_load_cuda_kernel(
-            ) if input.is_cuda else SRU_Compute_CPU
-        h, c = SRU_Compute.apply(U, residual, V, self.bias, c0, self.
-            activation_type, hidden_size, self.bidirectional, self.
-            has_skip_term, scale_val, mask_c, mask_pad)
+        SRU_Compute = _lazy_load_cuda_kernel() if input.is_cuda else SRU_Compute_CPU
+        h, c = SRU_Compute.apply(U, residual, V, self.bias, c0, self.activation_type, hidden_size, self.bidirectional, self.has_skip_term, scale_val, mask_c, mask_pad)
         return h, c
 
     def compute_U(self, input):
@@ -939,8 +857,7 @@ class SRUCell(nn.Module):
         the input (length, batch_size, input_size) into a tensor
         U of size (length * batch_size, output_size * num_matrices)
         """
-        x = input if input.dim() == 2 else input.contiguous().view(-1, self
-            .input_size)
+        x = input if input.dim() == 2 else input.contiguous().view(-1, self.input_size)
         if self.projection_size > 0:
             x_projected = x.mm(self.weight_proj)
             U = x_projected.mm(self.weight)
@@ -1017,11 +934,7 @@ class SRU(nn.Module):
             tensor V of shape (seq_len, batch_size, hidden_size * 2).
     """
 
-    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0,
-        rnn_dropout=0, bidirectional=False, projection_size=0, use_tanh=
-        False, layer_norm=False, highway_bias=0, has_skip_term=True,
-        rescale=False, v1=False, nn_rnn_compatible_return=False, custom_m=
-        None, proj_input_to_hidden_first=False):
+    def __init__(self, input_size, hidden_size, num_layers=2, dropout=0, rnn_dropout=0, bidirectional=False, projection_size=0, use_tanh=False, layer_norm=False, highway_bias=0, has_skip_term=True, rescale=False, v1=False, nn_rnn_compatible_return=False, custom_m=None, proj_input_to_hidden_first=False):
         super(SRU, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -1038,23 +951,15 @@ class SRU(nn.Module):
         self.nn_rnn_compatible_return = nn_rnn_compatible_return
         if proj_input_to_hidden_first and input_size != self.output_size:
             first_layer_input_size = self.output_size
-            self.input_to_hidden = nn.Linear(input_size, self.output_size,
-                bias=False)
+            self.input_to_hidden = nn.Linear(input_size, self.output_size, bias=False)
         else:
             first_layer_input_size = input_size
             self.input_to_hidden = None
         for i in range(num_layers):
             custom_m_i = None
             if custom_m is not None:
-                custom_m_i = custom_m[i] if isinstance(custom_m, list
-                    ) else copy.deepcopy(custom_m)
-            l = SRUCell(first_layer_input_size if i == 0 else self.
-                output_size, self.hidden_size, dropout=dropout if i + 1 !=
-                num_layers else 0, rnn_dropout=rnn_dropout, bidirectional=
-                bidirectional, n_proj=projection_size, use_tanh=use_tanh,
-                layer_norm=layer_norm, highway_bias=highway_bias,
-                has_skip_term=has_skip_term, rescale=rescale, v1=v1,
-                custom_m=custom_m_i)
+                custom_m_i = custom_m[i] if isinstance(custom_m, list) else copy.deepcopy(custom_m)
+            l = SRUCell(first_layer_input_size if i == 0 else self.output_size, self.hidden_size, dropout=dropout if i + 1 != num_layers else 0, rnn_dropout=rnn_dropout, bidirectional=bidirectional, n_proj=projection_size, use_tanh=use_tanh, layer_norm=layer_norm, highway_bias=highway_bias, has_skip_term=has_skip_term, rescale=rescale, v1=v1, custom_m=custom_m_i)
             self.rnn_lst.append(l)
 
     def forward(self, input, c0=None, mask_pad=None):
@@ -1080,40 +985,31 @@ class SRU(nn.Module):
         if input_packed:
             input, lengths = nn.utils.rnn.pad_packed_sequence(input)
             max_length = lengths.max().item()
-            mask_pad = torch.ByteTensor([([0] * l + [1] * (max_length - l)) for
-                l in lengths.tolist()])
+            mask_pad = torch.ByteTensor([([0] * l + [1] * (max_length - l)) for l in lengths.tolist()])
             mask_pad = mask_pad.transpose(0, 1).contiguous()
         if input.dim() != 3:
-            raise ValueError(
-                'There must be 3 dimensions for (length, batch_size, input_size)'
-                )
+            raise ValueError('There must be 3 dimensions for (length, batch_size, input_size)')
         if c0 is None:
             zeros = input.data.new(input.size(1), self.output_size).zero_()
             c0 = [zeros for i in range(self.num_layers)]
         else:
             if c0.dim() != 3:
-                raise ValueError(
-                    'There must be 3 dimensions for (num_layers, batch_size, output_size)'
-                    )
+                raise ValueError('There must be 3 dimensions for (num_layers, batch_size, output_size)')
             c0 = [x.squeeze(0) for x in c0.chunk(self.num_layers, 0)]
-        prevx = (input if self.input_to_hidden is None else self.
-            input_to_hidden(input))
+        prevx = input if self.input_to_hidden is None else self.input_to_hidden(input)
         lstc = []
         for i, rnn in enumerate(self.rnn_lst):
             h, c = rnn(prevx, c0[i], mask_pad=mask_pad)
             prevx = h
             lstc.append(c)
         if input_packed:
-            prevx = nn.utils.rnn.pack_padded_sequence(prevx, lengths,
-                enforce_sorted=False)
+            prevx = nn.utils.rnn.pack_padded_sequence(prevx, lengths, enforce_sorted=False)
         lstc_stack = torch.stack(lstc)
         if self.nn_rnn_compatible_return:
             batch_size = input.size(1)
-            lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.
-                num_directions, self.hidden_size)
+            lstc_stack = lstc_stack.view(self.num_layers, batch_size, self.num_directions, self.hidden_size)
             lstc_stack = lstc_stack.transpose(1, 2).contiguous()
-            lstc_stack = lstc_stack.view(self.num_layers * self.
-                num_directions, batch_size, self.hidden_size)
+            lstc_stack = lstc_stack.view(self.num_layers * self.num_directions, batch_size, self.hidden_size)
         return prevx, lstc_stack
 
     def reset_parameters(self):
@@ -1121,12 +1017,10 @@ class SRU(nn.Module):
             rnn.reset_parameters()
 
     def make_backward_compatible(self):
-        self.nn_rnn_compatible_return = getattr(self,
-            'nn_rnn_compatible_return', False)
+        self.nn_rnn_compatible_return = getattr(self, 'nn_rnn_compatible_return', False)
         if hasattr(self, 'n_in'):
             if len(self.ln_lst):
-                raise Exception(
-                    'Layer norm is not backward compatible for sru<=2.1.7')
+                raise Exception('Layer norm is not backward compatible for sru<=2.1.7')
             if self.use_weight_norm:
                 raise Exception('Weight norm removed in sru>=2.1.9')
             self.input_size = self.n_in
@@ -1138,23 +1032,14 @@ class SRU(nn.Module):
             for cell in self.rnn_lst:
                 cell.input_size = cell.n_in
                 cell.hidden_size = cell.n_out
-                cell.output_size = (cell.n_out * 2 if cell.bidirectional else
-                    cell.n_out)
+                cell.output_size = cell.n_out * 2 if cell.bidirectional else cell.n_out
                 cell.num_matrices = cell.k
                 cell.projection_size = cell.n_proj
                 cell.layer_norm = None
                 if cell.activation_type > 1:
-                    raise Exception(
-                        'ReLU or SeLU activation removed in sru>=2.1.9')
+                    raise Exception('ReLU or SeLU activation removed in sru>=2.1.9')
         if not hasattr(self, 'input_to_hidden'):
             self.input_to_hidden = None
             for cell in self.rnn_lst:
                 cell.custom_m = None
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_asappresearch_sru(_paritybench_base):
-    pass

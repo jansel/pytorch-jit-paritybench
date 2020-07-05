@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,13 +89,8 @@ class ModelRegistryMeta(type):
         if 'model_names' in namespace:
             for model_name in namespace['model_names']:
                 if model_name in MODEL_REGISTRY:
-                    current_class = "<class '{module}.{qualname}'>".format(
-                        module=namespace['__module__'], qualname=namespace[
-                        '__qualname__'])
-                    warnings.warn(
-                        "{current_class} redefined model_name '{model_name}'that was already registered by {previous_class}"
-                        .format(current_class=current_class, model_name=
-                        model_name, previous_class=MODEL_REGISTRY[model_name]))
+                    current_class = "<class '{module}.{qualname}'>".format(module=namespace['__module__'], qualname=namespace['__qualname__'])
+                    warnings.warn("{current_class} redefined model_name '{model_name}'that was already registered by {previous_class}".format(current_class=current_class, model_name=model_name, previous_class=MODEL_REGISTRY[model_name]))
                 MODEL_REGISTRY[model_name] = cls
         return cls
 
@@ -121,20 +117,13 @@ class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):
     """
     flatten_features_output = True
 
-    def __init__(self, *, model_name, num_classes, pretrained, dropout_p,
-        pool, classifier_factory, use_original_classifier, input_size,
-        original_model_state_dict, catch_output_size_exception):
+    def __init__(self, *, model_name, num_classes, pretrained, dropout_p, pool, classifier_factory, use_original_classifier, input_size, original_model_state_dict, catch_output_size_exception):
         super().__init__()
         if num_classes < 1:
             raise ValueError('num_classes should be greater or equal to 1')
         if use_original_classifier and classifier_factory:
-            raise ValueError(
-                "You can't use classifier_factory when use_original_classifier is set to True"
-                )
-        self.check_args(model_name=model_name, num_classes=num_classes,
-            dropout_p=dropout_p, pretrained=pretrained, pool=pool,
-            classifier_fn=classifier_factory, use_original_classifier=
-            use_original_classifier, input_size=input_size)
+            raise ValueError("You can't use classifier_factory when use_original_classifier is set to True")
+        self.check_args(model_name=model_name, num_classes=num_classes, dropout_p=dropout_p, pretrained=pretrained, pool=pool, classifier_fn=classifier_factory, use_original_classifier=use_original_classifier, input_size=input_size)
         self.model_name = model_name
         self.num_classes = num_classes
         self.pretrained = pretrained
@@ -147,24 +136,19 @@ class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):
         self.pool = self.get_pool() if pool is default else pool
         self.input_size = input_size
         if pretrained:
-            self.original_model_info = self.get_original_model_info(
-                original_model)
+            self.original_model_info = self.get_original_model_info(original_model)
         else:
             self.original_model_info = None
         if input_size:
-            classifier_in_features = self.calculate_classifier_in_features(
-                original_model)
+            classifier_in_features = self.calculate_classifier_in_features(original_model)
         else:
-            classifier_in_features = self.get_classifier_in_features(
-                original_model)
+            classifier_in_features = self.get_classifier_in_features(original_model)
         if use_original_classifier:
             classifier = self.get_original_classifier(original_model)
         elif classifier_factory:
-            classifier = classifier_factory(classifier_in_features, num_classes
-                )
+            classifier = classifier_factory(classifier_in_features, num_classes)
         else:
-            classifier = self.get_classifier(classifier_in_features,
-                num_classes)
+            classifier = self.get_classifier(classifier_in_features, num_classes)
         self._classifier = classifier
 
     @abstractmethod
@@ -183,20 +167,16 @@ class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):
         return None
 
     def calculate_classifier_in_features(self, original_model):
-        with no_grad_variable(torch.zeros(1, 3, *self.input_size)
-            ) as input_var:
+        with no_grad_variable(torch.zeros(1, 3, *self.input_size)) as input_var:
             self.eval()
             try:
                 output = self.features(input_var)
                 if self.pool is not None:
                     output = self.pool(output)
             except RuntimeError as e:
-                if (self.catch_output_size_exception and 
-                    'Output size is too small' in str(e)):
+                if self.catch_output_size_exception and 'Output size is too small' in str(e):
                     _, _, traceback = sys.exc_info()
-                    message = (
-                        'Input size {input_size} is too small for this model. Try increasing the input size of images and change the value of input_size argument accordingly.'
-                        .format(input_size=self.input_size))
+                    message = 'Input size {input_size} is too small for this model. Try increasing the input size of images and change the value of input_size argument accordingly.'.format(input_size=self.input_size)
                     raise RuntimeError(message).with_traceback(traceback)
                 else:
                     raise e
@@ -232,10 +212,3 @@ class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):
         x = self.classifier(x)
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_creafz_pytorch_cnn_finetune(_paritybench_base):
-    pass

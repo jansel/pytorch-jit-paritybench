@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,8 +103,7 @@ class STN3d(nn.Module):
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
-        iden = Variable(torch.from_numpy(np.array([1, 0, 0, 0, 1, 0, 0, 0, 
-            1]).astype(np.float32))).view(1, 9).repeat(batchsize, 1)
+        iden = Variable(torch.from_numpy(np.array([1, 0, 0, 0, 1, 0, 0, 0, 1]).astype(np.float32))).view(1, 9).repeat(batchsize, 1)
         if x.is_cuda:
             iden = iden
         x = x + iden
@@ -139,8 +139,7 @@ class STNkd(nn.Module):
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
-        iden = Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np
-            .float32))).view(1, self.k * self.k).repeat(batchsize, 1)
+        iden = Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np.float32))).view(1, self.k * self.k).repeat(batchsize, 1)
         if x.is_cuda:
             iden = iden
         x = x + iden
@@ -200,12 +199,9 @@ class get_model(nn.Module):
         super(get_model, self).__init__()
         in_channel = 3 if normal_channel else 0
         self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [16, 32,
-            128], in_channel, [[32, 32, 64], [64, 64, 128], [64, 96, 128]])
-        self.sa2 = PointNetSetAbstractionMsg(128, [0.2, 0.4, 0.8], [32, 64,
-            128], 320, [[64, 64, 128], [128, 128, 256], [128, 128, 256]])
-        self.sa3 = PointNetSetAbstraction(None, None, None, 640 + 3, [256, 
-            512, 1024], True)
+        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [16, 32, 128], in_channel, [[32, 32, 64], [64, 64, 128], [64, 96, 128]])
+        self.sa2 = PointNetSetAbstractionMsg(128, [0.2, 0.4, 0.8], [32, 64, 128], 320, [[64, 64, 128], [128, 128, 256], [128, 128, 256]])
+        self.sa3 = PointNetSetAbstraction(None, None, None, 640 + 3, [256, 512, 1024], True)
         self.fc1 = nn.Linear(1024, 512)
         self.bn1 = nn.BatchNorm1d(512)
         self.drop1 = nn.Dropout(0.4)
@@ -248,12 +244,9 @@ class get_model(nn.Module):
         super(get_model, self).__init__()
         in_channel = 6 if normal_channel else 3
         self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=
-            32, in_channel=in_channel, mlp=[64, 64, 128], group_all=False)
-        self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=
-            64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample
-            =None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
+        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=in_channel, mlp=[64, 64, 128], group_all=False)
+        self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
+        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
         self.fc1 = nn.Linear(1024, 512)
         self.bn1 = nn.BatchNorm1d(512)
         self.drop1 = nn.Dropout(0.4)
@@ -299,17 +292,12 @@ class get_model(nn.Module):
         else:
             additional_channel = 0
         self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [32, 64,
-            128], 3 + additional_channel, [[32, 32, 64], [64, 64, 128], [64,
-            96, 128]])
-        self.sa2 = PointNetSetAbstractionMsg(128, [0.4, 0.8], [64, 128], 
-            128 + 128 + 64, [[128, 128, 256], [128, 196, 256]])
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample
-            =None, in_channel=512 + 3, mlp=[256, 512, 1024], group_all=True)
+        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [32, 64, 128], 3 + additional_channel, [[32, 32, 64], [64, 64, 128], [64, 96, 128]])
+        self.sa2 = PointNetSetAbstractionMsg(128, [0.4, 0.8], [64, 128], 128 + 128 + 64, [[128, 128, 256], [128, 196, 256]])
+        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=512 + 3, mlp=[256, 512, 1024], group_all=True)
         self.fp3 = PointNetFeaturePropagation(in_channel=1536, mlp=[256, 256])
         self.fp2 = PointNetFeaturePropagation(in_channel=576, mlp=[256, 128])
-        self.fp1 = PointNetFeaturePropagation(in_channel=150 +
-            additional_channel, mlp=[128, 128])
+        self.fp1 = PointNetFeaturePropagation(in_channel=150 + additional_channel, mlp=[128, 128])
         self.conv1 = nn.Conv1d(128, 128, 1)
         self.bn1 = nn.BatchNorm1d(128)
         self.drop1 = nn.Dropout(0.5)
@@ -329,8 +317,7 @@ class get_model(nn.Module):
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
         cls_label_one_hot = cls_label.view(B, 16, 1).repeat(1, 1, N)
-        l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot,
-            l0_xyz, l0_points], 1), l1_points)
+        l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot, l0_xyz, l0_points], 1), l1_points)
         feat = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.drop1(feat)
         x = self.conv2(x)
@@ -358,17 +345,12 @@ class get_model(nn.Module):
         else:
             additional_channel = 0
         self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=
-            32, in_channel=6 + additional_channel, mlp=[64, 64, 128],
-            group_all=False)
-        self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=
-            64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample
-            =None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
+        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=6 + additional_channel, mlp=[64, 64, 128], group_all=False)
+        self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
+        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
         self.fp3 = PointNetFeaturePropagation(in_channel=1280, mlp=[256, 256])
         self.fp2 = PointNetFeaturePropagation(in_channel=384, mlp=[256, 128])
-        self.fp1 = PointNetFeaturePropagation(in_channel=128 + 16 + 6 +
-            additional_channel, mlp=[128, 128, 128])
+        self.fp1 = PointNetFeaturePropagation(in_channel=128 + 16 + 6 + additional_channel, mlp=[128, 128, 128])
         self.conv1 = nn.Conv1d(128, 128, 1)
         self.bn1 = nn.BatchNorm1d(128)
         self.drop1 = nn.Dropout(0.5)
@@ -388,8 +370,7 @@ class get_model(nn.Module):
         l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
         l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
         cls_label_one_hot = cls_label.view(B, 16, 1).repeat(1, 1, N)
-        l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot,
-            l0_xyz, l0_points], 1), l1_points)
+        l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot, l0_xyz, l0_points], 1), l1_points)
         feat = F.relu(self.bn1(self.conv1(l0_points)))
         x = self.drop1(feat)
         x = self.conv2(x)
@@ -412,14 +393,10 @@ class get_model(nn.Module):
 
     def __init__(self, num_classes):
         super(get_model, self).__init__()
-        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 9 + 3, [32, 32, 64
-            ], False)
-        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 
-            128], False)
-        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 
-            256], False)
-        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 
-            512], False)
+        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 9 + 3, [32, 32, 64], False)
+        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], False)
+        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], False)
+        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], False)
         self.fp4 = PointNetFeaturePropagation(768, [256, 256])
         self.fp3 = PointNetFeaturePropagation(384, [256, 256])
         self.fp2 = PointNetFeaturePropagation(320, [256, 128])
@@ -461,16 +438,11 @@ class get_model(nn.Module):
 
     def __init__(self, num_classes):
         super(get_model, self).__init__()
-        self.sa1 = PointNetSetAbstractionMsg(1024, [0.05, 0.1], [16, 32], 9,
-            [[16, 16, 32], [32, 32, 64]])
-        self.sa2 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 32 +
-            64, [[64, 64, 128], [64, 96, 128]])
-        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128 +
-            128, [[128, 196, 256], [128, 196, 256]])
-        self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256 +
-            256, [[256, 256, 512], [256, 384, 512]])
-        self.fp4 = PointNetFeaturePropagation(512 + 512 + 256 + 256, [256, 256]
-            )
+        self.sa1 = PointNetSetAbstractionMsg(1024, [0.05, 0.1], [16, 32], 9, [[16, 16, 32], [32, 32, 64]])
+        self.sa2 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 32 + 64, [[64, 64, 128], [64, 96, 128]])
+        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128 + 128, [[128, 196, 256], [128, 196, 256]])
+        self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256 + 256, [[256, 256, 512], [256, 384, 512]])
+        self.fp4 = PointNetFeaturePropagation(512 + 512 + 256 + 256, [256, 256])
         self.fp3 = PointNetFeaturePropagation(128 + 128 + 256, [256, 256])
         self.fp2 = PointNetFeaturePropagation(32 + 64 + 256, [256, 128])
         self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
@@ -515,8 +487,7 @@ class get_model(nn.Module):
             channel = 6
         else:
             channel = 3
-        self.feat = PointNetEncoder(global_feat=True, feature_transform=
-            True, channel=channel)
+        self.feat = PointNetEncoder(global_feat=True, feature_transform=True, channel=channel)
         self.fc1 = nn.Linear(1024, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, k)
@@ -539,8 +510,7 @@ def feature_transform_reguliarzer(trans):
     I = torch.eye(d)[(None), :, :]
     if trans.is_cuda:
         I = I.cuda()
-    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I
-        ), dim=(1, 2)))
+    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I), dim=(1, 2)))
     return loss
 
 
@@ -642,8 +612,7 @@ class get_model(nn.Module):
         else:
             channel = 3
         self.k = num_class
-        self.feat = PointNetEncoder(global_feat=False, feature_transform=
-            True, channel=channel)
+        self.feat = PointNetEncoder(global_feat=False, feature_transform=True, channel=channel)
         self.conv1 = torch.nn.Conv1d(1088, 512, 1)
         self.conv2 = torch.nn.Conv1d(512, 256, 1)
         self.conv3 = torch.nn.Conv1d(256, 128, 1)
@@ -718,8 +687,7 @@ def index_points(points, idx):
     view_shape[1:] = [1] * (len(view_shape) - 1)
     repeat_shape = list(idx.shape)
     repeat_shape[0] = 1
-    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(
-        view_shape).repeat(repeat_shape)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
     new_points = points[(batch_indices), (idx), :]
     return new_points
 
@@ -761,8 +729,7 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N
-        ).repeat([B, S, 1])
+    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
     sqrdists = square_distance(new_xyz, xyz)
     group_idx[sqrdists > radius ** 2] = N
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
@@ -858,8 +825,7 @@ class PointNetSetAbstraction(nn.Module):
         if self.group_all:
             new_xyz, new_points = sample_and_group_all(xyz, points)
         else:
-            new_xyz, new_points = sample_and_group(self.npoint, self.radius,
-                self.nsample, xyz, points)
+            new_xyz, new_points = sample_and_group(self.npoint, self.radius, self.nsample, xyz, points)
         new_points = new_points.permute(0, 3, 2, 1)
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
@@ -871,8 +837,7 @@ class PointNetSetAbstraction(nn.Module):
 
 class PointNetSetAbstractionMsg(nn.Module):
 
-    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list
-        ):
+    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list):
         super(PointNetSetAbstractionMsg, self).__init__()
         self.npoint = npoint
         self.radius_list = radius_list
@@ -913,8 +878,7 @@ class PointNetSetAbstractionMsg(nn.Module):
             grouped_xyz -= new_xyz.view(B, S, 1, C)
             if points is not None:
                 grouped_points = index_points(points, group_idx)
-                grouped_points = torch.cat([grouped_points, grouped_xyz],
-                    dim=-1)
+                grouped_points = torch.cat([grouped_points, grouped_xyz], dim=-1)
             else:
                 grouped_points = grouped_xyz
             grouped_points = grouped_points.permute(0, 3, 2, 1)
@@ -965,8 +929,7 @@ class PointNetFeaturePropagation(nn.Module):
             dist_recip = 1.0 / (dists + 1e-08)
             norm = torch.sum(dist_recip, dim=2, keepdim=True)
             weight = dist_recip / norm
-            interpolated_points = torch.sum(index_points(points2, idx) *
-                weight.view(B, N, 3, 1), dim=2)
+            interpolated_points = torch.sum(index_points(points2, idx) * weight.view(B, N, 3, 1), dim=2)
         if points1 is not None:
             points1 = points1.permute(0, 2, 1)
             new_points = torch.cat([points1, interpolated_points], dim=-1)
@@ -983,29 +946,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (PointNetEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     False),
+    (PointNetFeaturePropagation,
+     lambda: ([], {'in_channel': 4, 'mlp': [4, 4]}),
+     lambda: ([torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {}),
+     False),
+    (PointNetSetAbstraction,
+     lambda: ([], {'npoint': 4, 'radius': 4, 'nsample': 4, 'in_channel': 4, 'mlp': [4, 4], 'group_all': 4}),
+     lambda: ([torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {}),
+     False),
+    (STN3d,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (STNkd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64])], {}),
+     False),
+    (get_model,
+     lambda: ([], {'num_class': 4}),
+     lambda: ([torch.rand([4, 6, 64])], {}),
+     False),
+]
+
 class Test_yanx27_Pointnet_Pointnet2_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PointNetEncoder(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(PointNetFeaturePropagation(*[], **{'in_channel': 4, 'mlp': [4, 4]}), [torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PointNetSetAbstraction(*[], **{'npoint': 4, 'radius': 4, 'nsample': 4, 'in_channel': 4, 'mlp': [4, 4], 'group_all': 4}), [torch.rand([4, 1, 4]), torch.rand([4, 3, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(STN3d(*[], **{'channel': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(get_model(*[], **{'num_class': 4}), [torch.rand([4, 6, 64])], {})
+        self._check(*TESTCASES[5])
 

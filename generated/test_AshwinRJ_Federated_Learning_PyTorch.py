@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,10 +81,8 @@ class CNNFashion_Mnist(nn.Module):
 
     def __init__(self, args):
         super(CNNFashion_Mnist, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, padding
-            =2), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5,
-            padding=2), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, padding=2), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, padding=2), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2))
         self.fc = nn.Linear(7 * 7 * 32, 10)
 
     def forward(self, x):
@@ -152,5 +151,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNNCifar,
+     lambda: ([], {'args': _mock_config(num_classes=4)}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+]
+
 class Test_AshwinRJ_Federated_Learning_PyTorch(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,8 +77,7 @@ class mLSTM(nn.Module):
 
 class StackedLSTM(nn.Module):
 
-    def __init__(self, cell, num_layers, input_size, rnn_size, output_size,
-        dropout):
+    def __init__(self, cell, num_layers, input_size, rnn_size, output_size, dropout):
         super(StackedLSTM, self).__init__()
         self.dropout = nn.Dropout(dropout)
         self.num_layers = num_layers
@@ -109,16 +109,7 @@ class StackedLSTM(nn.Module):
         return (h_1, c_1), output
 
     def state0(self, batch_size):
-        h_0 = Variable(torch.zeros(self.num_layers, batch_size, self.
-            rnn_size), requires_grad=False)
-        c_0 = Variable(torch.zeros(self.num_layers, batch_size, self.
-            rnn_size), requires_grad=False)
+        h_0 = Variable(torch.zeros(self.num_layers, batch_size, self.rnn_size), requires_grad=False)
+        c_0 = Variable(torch.zeros(self.num_layers, batch_size, self.rnn_size), requires_grad=False)
         return h_0, c_0
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_guillitte_pytorch_sentiment_neuron(_paritybench_base):
-    pass

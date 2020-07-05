@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -117,8 +118,7 @@ class MetaModule(nn.Module):
             for name, p in self.named_params(module, memo, submodule_prefix):
                 yield name, p
 
-    def update_params(self, lr_inner, first_order=False, source_params=None,
-        detach=False):
+    def update_params(self, lr_inner, first_order=False, source_params=None, detach=False):
         if source_params is not None:
             for tgt, src in zip(self.named_params(self), source_params):
                 name_t, param_t = tgt
@@ -192,8 +192,7 @@ class MetaModule(nn.Module):
             for name, p in self.named_params(module, memo, submodule_prefix):
                 yield name, p
 
-    def update_params(self, lr_inner, first_order=False, source_params=None,
-        detach=False):
+    def update_params(self, lr_inner, first_order=False, source_params=None, detach=False):
         if source_params is not None:
             for tgt, src in zip(self.named_params(self), source_params):
                 name_t, param_t = tgt
@@ -236,10 +235,3 @@ class MetaModule(nn.Module):
                 param = to_var(param.data.clone(), requires_grad=True)
             self.set_param(name, param)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_xjtushujun_meta_weight_net(_paritybench_base):
-    pass

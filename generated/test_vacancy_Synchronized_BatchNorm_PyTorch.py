@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,8 +81,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -136,8 +136,7 @@ class SyncMaster(object):
 
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -163,8 +162,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -178,8 +176,7 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
@@ -197,17 +194,12 @@ def _unsqueeze_ft(tensor):
 
 class _SynchronizedBatchNorm(_BatchNorm):
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
         assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine, track_running_stats=
-            track_running_stats)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
         if not self.track_running_stats:
             import warnings
-            warnings.warn(
-                'track_running_stats=False is not supported by the SynchronizedBatchNorm.'
-                )
+            warnings.warn('track_running_stats=False is not supported by the SynchronizedBatchNorm.')
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
@@ -215,22 +207,18 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input):
         if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -245,8 +233,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -256,8 +243,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _compute_mean_std(self, sum_, ssum, size):
@@ -270,15 +256,11 @@ class _SynchronizedBatchNorm(_BatchNorm):
         bias_var = sumvar / size
         if hasattr(torch, 'no_grad'):
             with torch.no_grad():
-                self.running_mean = (1 - self.momentum
-                    ) * self.running_mean + self.momentum * mean.data
-                self.running_var = (1 - self.momentum
-                    ) * self.running_var + self.momentum * unbias_var.data
+                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         else:
-            self.running_mean = (1 - self.momentum
-                ) * self.running_mean + self.momentum * mean.data
-            self.running_var = (1 - self.momentum
-                ) * self.running_var + self.momentum * unbias_var.data
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
@@ -320,17 +302,13 @@ class BatchNorm2dReimpl(nn.Module):
         sum_of_square = input_.pow(2).sum(1)
         mean = sum_ / numel
         sumvar = sum_of_square - sum_ * mean
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.detach()
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.detach()
         unbias_var = sumvar / (numel - 1)
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.detach()
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.detach()
         bias_var = sumvar / numel
         inv_std = 1 / (bias_var + self.eps).pow(0.5)
-        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1
-            ) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
-        return output.view(channels, batchsize, height, width).permute(1, 0,
-            2, 3).contiguous()
+        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
+        return output.view(channels, batchsize, height, width).permute(1, 0, 2, 3).contiguous()
 
 
 class CallbackContext(object):
@@ -374,8 +352,7 @@ class DataParallelWithCallback(DataParallel):
     """
 
     def replicate(self, module, device_ids):
-        modules = super(DataParallelWithCallback, self).replicate(module,
-            device_ids)
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
 
@@ -384,12 +361,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_vacancy_Synchronized_BatchNorm_PyTorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm2dReimpl,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
+class Test_vacancy_Synchronized_BatchNorm_PyTorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[1])
 

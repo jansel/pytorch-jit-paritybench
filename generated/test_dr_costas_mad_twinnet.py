@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -144,8 +145,7 @@ class FNNMasker(Module):
         self._input_dim = input_dim
         self._output_dim = output_dim
         self._context_length = context_length
-        self.linear_layer = Linear(in_features=self._input_dim,
-            out_features=self._output_dim, bias=True)
+        self.linear_layer = Linear(in_features=self._input_dim, out_features=self._output_dim, bias=True)
         self.initialize_decoder()
 
     def initialize_decoder(self):
@@ -180,10 +180,8 @@ class FNNDenoiser(Module):
         """
         super(FNNDenoiser, self).__init__()
         self._input_dim = input_dim
-        self.fnn_enc = Linear(in_features=self._input_dim, out_features=int
-            (self._input_dim / 2), bias=True)
-        self.fnn_dec = Linear(in_features=int(self._input_dim / 2),
-            out_features=self._input_dim, bias=True)
+        self.fnn_enc = Linear(in_features=self._input_dim, out_features=int(self._input_dim / 2), bias=True)
+        self.fnn_dec = Linear(in_features=int(self._input_dim / 2), out_features=self._input_dim, bias=True)
         self.initialize_module()
 
     def initialize_module(self):
@@ -210,8 +208,7 @@ class FNNDenoiser(Module):
 
 class Masker(Module):
 
-    def __init__(self, rnn_enc_input_dim, rnn_dec_input_dim, context_length,
-        original_input_dim):
+    def __init__(self, rnn_enc_input_dim, rnn_dec_input_dim, context_length, original_input_dim):
         """The Masker module of the MaD TwinNet.
 
         :param rnn_enc_input_dim: The input dimensionality for                                  the RNN encoder.
@@ -224,13 +221,10 @@ class Masker(Module):
         :type original_input_dim: int
         """
         super(Masker, self).__init__()
-        self.rnn_enc = _rnn_enc.RNNEnc(input_dim=rnn_enc_input_dim,
-            context_length=context_length)
+        self.rnn_enc = _rnn_enc.RNNEnc(input_dim=rnn_enc_input_dim, context_length=context_length)
         self.rnn_dec = _rnn_dec.RNNDec(input_dim=rnn_dec_input_dim)
-        self.fnn = _fnn.FNNMasker(input_dim=rnn_dec_input_dim, output_dim=
-            original_input_dim, context_length=context_length)
-        self.output = namedtuple(typename='masker_output', field_names=[
-            'h_enc', 'h_dec', 'v_j_filt_prime'])
+        self.fnn = _fnn.FNNMasker(input_dim=rnn_dec_input_dim, output_dim=original_input_dim, context_length=context_length)
+        self.output = namedtuple(typename='masker_output', field_names=['h_enc', 'h_dec', 'v_j_filt_prime'])
 
     def forward(self, x):
         """Forward pass of the Masker.
@@ -255,9 +249,7 @@ class RNNDec(Module):
         """
         super(RNNDec, self).__init__()
         self._input_dim = input_dim
-        self.gru_dec = GRU(input_size=self._input_dim, hidden_size=self.
-            _input_dim, num_layers=1, bias=True, batch_first=True,
-            bidirectional=False)
+        self.gru_dec = GRU(input_size=self._input_dim, hidden_size=self._input_dim, num_layers=1, bias=True, batch_first=True, bidirectional=False)
         self.initialize_decoder()
 
     def initialize_decoder(self):
@@ -292,9 +284,7 @@ class RNNEnc(Module):
         super(RNNEnc, self).__init__()
         self._input_dim = input_dim
         self._con_len = context_length
-        self.gru_enc = GRU(input_size=self._input_dim, hidden_size=self.
-            _input_dim, num_layers=1, bias=True, batch_first=True,
-            bidirectional=True)
+        self.gru_enc = GRU(input_size=self._input_dim, hidden_size=self._input_dim, num_layers=1, bias=True, batch_first=True, bidirectional=True)
         self.initialize_encoder()
 
     def initialize_encoder(self):
@@ -320,8 +310,7 @@ class RNNEnc(Module):
         v_tr = v_in[:, :, :self._input_dim]
         rnn_output = self.gru_enc(v_tr)[0]
         rnn_output = rnn_output[:, self._con_len:-self._con_len, :]
-        return rnn_output + torch.cat([v_tr[:, self._con_len:-self._con_len,
-            :], v_tr[:, self._con_len:-self._con_len, :].flip([1, 2])], dim=-1)
+        return rnn_output + torch.cat([v_tr[:, self._con_len:-self._con_len, :], v_tr[:, self._con_len:-self._con_len, :].flip([1, 2])], dim=-1)
 
 
 class TwinNet(Module):
@@ -329,10 +318,8 @@ class TwinNet(Module):
     def __init__(self, rnn_dec_input_dim, original_input_dim, context_length):
         super(TwinNet, self).__init__()
         self.rnn_dec = _twin_rnn_dec.TwinRNNDec(input_dim=rnn_dec_input_dim)
-        self.fnn = _fnn.FNNMasker(input_dim=rnn_dec_input_dim, output_dim=
-            original_input_dim, context_length=context_length)
-        self.output = namedtuple('twin_net_output', ['h_dec_twin',
-            'v_j_filt_prime_twin'])
+        self.fnn = _fnn.FNNMasker(input_dim=rnn_dec_input_dim, output_dim=original_input_dim, context_length=context_length)
+        self.output = namedtuple('twin_net_output', ['h_dec_twin', 'v_j_filt_prime_twin'])
 
     def forward(self, h_enc, x):
         """The forward pass of the TwinNet.
@@ -358,9 +345,7 @@ class TwinRNNDec(Module):
         """
         super(TwinRNNDec, self).__init__()
         self._input_dim = input_dim
-        self.gru_dec = GRU(input_size=self._input_dim, hidden_size=self.
-            _input_dim, num_layers=1, bias=True, batch_first=True,
-            bidirectional=False)
+        self.gru_dec = GRU(input_size=self._input_dim, hidden_size=self._input_dim, num_layers=1, bias=True, batch_first=True, bidirectional=False)
         self.initialize_decoder()
 
     def initialize_decoder(self):
@@ -384,15 +369,11 @@ class TwinRNNDec(Module):
 
 class MaD(Module):
 
-    def __init__(self, rnn_enc_input_dim, rnn_dec_input_dim, context_length,
-        original_input_dim):
+    def __init__(self, rnn_enc_input_dim, rnn_dec_input_dim, context_length, original_input_dim):
         super(MaD, self).__init__()
-        self.masker = Masker(rnn_enc_input_dim=rnn_enc_input_dim,
-            rnn_dec_input_dim=rnn_dec_input_dim, context_length=
-            context_length, original_input_dim=original_input_dim)
+        self.masker = Masker(rnn_enc_input_dim=rnn_enc_input_dim, rnn_dec_input_dim=rnn_dec_input_dim, context_length=context_length, original_input_dim=original_input_dim)
         self.denoiser = FNNDenoiser(input_dim=original_input_dim)
-        self.output = namedtuple('mad_output', ['v_j_filt_prime',
-            'v_j_filt', 'h_enc', 'h_dec'])
+        self.output = namedtuple('mad_output', ['v_j_filt_prime', 'v_j_filt', 'h_enc', 'h_dec'])
 
     def forward(self, x):
         """The forward pass of the MaD.
@@ -408,14 +389,12 @@ class MaD(Module):
         """
         m_out = self.masker(x)
         v_j_filt = self.denoiser(m_out.v_j_filt_prime)
-        return self.output(m_out.v_j_filt_prime, v_j_filt, m_out.h_enc,
-            m_out.h_dec)
+        return self.output(m_out.v_j_filt_prime, v_j_filt, m_out.h_enc, m_out.h_dec)
 
 
 class MaDTwinNet(Module):
 
-    def __init__(self, rnn_enc_input_dim, rnn_dec_input_dim,
-        original_input_dim, context_length):
+    def __init__(self, rnn_enc_input_dim, rnn_dec_input_dim, original_input_dim, context_length):
         """The MaD TwinNet as a module.
 
         This class implements the MaD TwinNet as a module        and it is based on the separate modules of MaD and        TwinNet.
@@ -430,15 +409,10 @@ class MaDTwinNet(Module):
         :type context_length: int
         """
         super(MaDTwinNet, self).__init__()
-        self.mad = MaD(rnn_enc_input_dim=rnn_enc_input_dim,
-            rnn_dec_input_dim=rnn_dec_input_dim, context_length=
-            context_length, original_input_dim=original_input_dim)
-        self.twin_net = TwinNet(rnn_dec_input_dim=rnn_dec_input_dim,
-            original_input_dim=original_input_dim, context_length=
-            context_length)
+        self.mad = MaD(rnn_enc_input_dim=rnn_enc_input_dim, rnn_dec_input_dim=rnn_dec_input_dim, context_length=context_length, original_input_dim=original_input_dim)
+        self.twin_net = TwinNet(rnn_dec_input_dim=rnn_dec_input_dim, original_input_dim=original_input_dim, context_length=context_length)
         self.affine = AffineTransform(input_dim=rnn_dec_input_dim)
-        self.output = namedtuple('mad_twin_net_output', ['v_j_filt_prime',
-            'v_j_filt', 'v_j_filt_prime_twin', 'affine_output', 'h_dec_twin'])
+        self.output = namedtuple('mad_twin_net_output', ['v_j_filt_prime', 'v_j_filt', 'v_j_filt_prime_twin', 'affine_output', 'h_dec_twin'])
 
     def forward(self, x):
         """The forward pass of the MaD TwinNet.
@@ -456,31 +430,58 @@ class MaDTwinNet(Module):
         mad_out = self.mad(x)
         twin_net_out = self.twin_net(mad_out.h_enc, x)
         affine = self.affine(mad_out.h_dec)
-        return self.output(mad_out.v_j_filt_prime, mad_out.v_j_filt,
-            twin_net_out.v_j_filt_prime_twin, affine, twin_net_out.h_dec_twin)
+        return self.output(mad_out.v_j_filt_prime, mad_out.v_j_filt, twin_net_out.v_j_filt_prime_twin, affine, twin_net_out.h_dec_twin)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AffineTransform,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FNNDenoiser,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FNNMasker,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'context_length': 4}),
+     lambda: ([torch.rand([4, 0, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RNNDec,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (RNNEnc,
+     lambda: ([], {'input_dim': 4, 'context_length': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (TwinRNNDec,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_dr_costas_mad_twinnet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AffineTransform(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FNNDenoiser(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FNNMasker(*[], **{'input_dim': 4, 'output_dim': 4, 'context_length': 4}), [torch.rand([4, 0, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RNNDec(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(RNNEnc(*[], **{'input_dim': 4, 'context_length': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(TwinRNNDec(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,15 +87,9 @@ class CharConvolution(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.conv1 = nn.Conv1d(in_channels=config['embedding_dim'],
-            out_channels=config['cnn_features'], kernel_size=config[
-            'cnn_filter'])
-        self.conv2 = nn.Conv1d(in_channels=config['cnn_features'],
-            out_channels=config['cnn_features'], kernel_size=config[
-            'cnn_filter'] * 2 + 1)
-        self.conv3 = nn.Conv1d(in_channels=config['cnn_features'] * 2,
-            out_channels=config['cnn_features'], kernel_size=config[
-            'cnn_filter'] * 2 - 1)
+        self.conv1 = nn.Conv1d(in_channels=config['embedding_dim'], out_channels=config['cnn_features'], kernel_size=config['cnn_filter'])
+        self.conv2 = nn.Conv1d(in_channels=config['cnn_features'], out_channels=config['cnn_features'], kernel_size=config['cnn_filter'] * 2 + 1)
+        self.conv3 = nn.Conv1d(in_channels=config['cnn_features'] * 2, out_channels=config['cnn_features'], kernel_size=config['cnn_filter'] * 2 - 1)
         self.padding_1 = nn.ConstantPad1d(1, 0)
         self.padding_2 = nn.ConstantPad1d(3, 0)
         self.padding_3 = nn.ConstantPad1d(2, 0)
@@ -117,10 +112,7 @@ class CharLSTM(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.lstm = nn.LSTM(input_size=config['cnn_features'] // 2,
-            hidden_size=config['cnn_features'] // 2, num_layers=config[
-            'lstm_layers'], bidirectional=config['lstm_bidirectional'],
-            batch_first=True)
+        self.lstm = nn.LSTM(input_size=config['cnn_features'] // 2, hidden_size=config['cnn_features'] // 2, num_layers=config['lstm_layers'], bidirectional=config['lstm_bidirectional'], batch_first=True)
 
     def forward(self, x, length):
         return self.lstm(x)[0]
@@ -130,8 +122,7 @@ class CharEmbedding(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.embedding = nn.Embedding(num_embeddings=config['vocab_size'],
-            embedding_dim=config['embedding_dim'])
+        self.embedding = nn.Embedding(num_embeddings=config['vocab_size'], embedding_dim=config['embedding_dim'])
 
     def forward(self, input_seq):
         return self.embedding(input_seq)
@@ -156,10 +147,8 @@ class SequentialFNN(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.time_distributed_1 = TimeDistributed(nn.Linear(in_features=
-            config['cnn_features'] * 4, out_features=config['cnn_features']))
-        self.time_distributed_2 = TimeDistributed(nn.Linear(in_features=
-            config['cnn_features'], out_features=config['cnn_features'] // 2))
+        self.time_distributed_1 = TimeDistributed(nn.Linear(in_features=config['cnn_features'] * 4, out_features=config['cnn_features']))
+        self.time_distributed_2 = TimeDistributed(nn.Linear(in_features=config['cnn_features'], out_features=config['cnn_features'] // 2))
 
     def forward(self, conv_embed):
         x = torch.transpose(conv_embed, 2, 1)
@@ -219,17 +208,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CharEmbedding,
+     lambda: ([], {'config': _mock_config(vocab_size=4, embedding_dim=4)}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (Projection,
+     lambda: ([], {'config': _mock_config(cnn_features=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SequentialFNN,
+     lambda: ([], {'config': _mock_config(cnn_features=4)}),
+     lambda: ([torch.rand([16, 16, 4])], {}),
+     True),
+    (TimeDistributed,
+     lambda: ([], {'layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_pingpong_ai_chatspace(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CharEmbedding(*[], **{'config': _mock_config(vocab_size=4, embedding_dim=4)}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Projection(*[], **{'config': _mock_config(cnn_features=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SequentialFNN(*[], **{'config': _mock_config(cnn_features=4)}), [torch.rand([16, 16, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(TimeDistributed(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

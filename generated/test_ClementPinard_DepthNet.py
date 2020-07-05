@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,26 +73,16 @@ def adaptative_cat(out_conv, out_deconv, out_depth_up):
 
 def conv(in_planes, out_planes, stride=1, batch_norm=False):
     if batch_norm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=3,
-            stride=stride, padding=1, bias=False), nn.BatchNorm2d(
-            out_planes, eps=0.001), nn.ReLU(inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False), nn.BatchNorm2d(out_planes, eps=0.001), nn.ReLU(inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=3,
-            stride=stride, padding=1, bias=True), nn.ReLU(inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True), nn.ReLU(inplace=True))
 
 
 def deconv(in_planes, out_planes, batch_norm=False):
     if batch_norm:
-        return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-            kernel_size=4, stride=2, padding=1, bias=True), nn.Conv2d(
-            out_planes, out_planes, kernel_size=3, stride=1, padding=1,
-            bias=False), nn.BatchNorm2d(out_planes, eps=0.001), nn.ReLU(
-            inplace=True))
+        return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=True), nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(out_planes, eps=0.001), nn.ReLU(inplace=True))
     else:
-        return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-            kernel_size=4, stride=2, padding=1, bias=True), nn.Conv2d(
-            out_planes, out_planes, kernel_size=3, stride=1, padding=1,
-            bias=True), nn.ReLU(inplace=True))
+        return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=True), nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=True), nn.ReLU(inplace=True))
 
 
 def init_modules(net):
@@ -114,14 +105,12 @@ def post_process_depth(depth, activation_function=None, clamp=False):
 
 
 def predict_depth(in_planes, with_confidence):
-    return nn.Conv2d(in_planes, 2 if with_confidence else 1, kernel_size=3,
-        stride=1, padding=1, bias=True)
+    return nn.Conv2d(in_planes, 2 if with_confidence else 1, kernel_size=3, stride=1, padding=1, bias=True)
 
 
 class DepthNet(nn.Module):
 
-    def __init__(self, batch_norm=False, with_confidence=False, clamp=False,
-        depth_activation=None):
+    def __init__(self, batch_norm=False, with_confidence=False, clamp=False, depth_activation=None):
         super(DepthNet, self).__init__()
         self.clamp = clamp
         if depth_activation == 'elu':
@@ -147,14 +136,10 @@ class DepthNet(nn.Module):
         self.predict_depth4 = predict_depth(385, with_confidence)
         self.predict_depth3 = predict_depth(193, with_confidence)
         self.predict_depth2 = predict_depth(97, with_confidence)
-        self.upsampled_depth6_to_5 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias
-            =False)
-        self.upsampled_depth5_to_4 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias
-            =False)
-        self.upsampled_depth4_to_3 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias
-            =False)
-        self.upsampled_depth3_to_2 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias
-            =False)
+        self.upsampled_depth6_to_5 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias=False)
+        self.upsampled_depth5_to_4 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias=False)
+        self.upsampled_depth4_to_3 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias=False)
+        self.upsampled_depth3_to_2 = nn.ConvTranspose2d(1, 1, 4, 2, 1, bias=False)
         init_modules(self)
 
     def forward(self, x):
@@ -164,32 +149,27 @@ class DepthNet(nn.Module):
         out_conv5 = self.conv5_1(self.conv5(out_conv4))
         out_conv6 = self.conv6_1(self.conv6(out_conv5))
         out6 = self.predict_depth6(out_conv6)
-        depth6 = post_process_depth(out6, clamp=self.clamp,
-            activation_function=self.depth_activation)
+        depth6 = post_process_depth(out6, clamp=self.clamp, activation_function=self.depth_activation)
         depth6_up = self.upsampled_depth6_to_5(out6)
         out_deconv5 = self.deconv5(out_conv6)
         concat5 = adaptative_cat(out_conv5, out_deconv5, depth6_up)
         out5 = self.predict_depth5(concat5)
-        depth5 = post_process_depth(out5, clamp=self.clamp,
-            activation_function=self.depth_activation)
+        depth5 = post_process_depth(out5, clamp=self.clamp, activation_function=self.depth_activation)
         depth5_up = self.upsampled_depth5_to_4(out5)
         out_deconv4 = self.deconv4(concat5)
         concat4 = adaptative_cat(out_conv4, out_deconv4, depth5_up)
         out4 = self.predict_depth4(concat4)
-        depth4 = post_process_depth(out4, clamp=self.clamp,
-            activation_function=self.depth_activation)
+        depth4 = post_process_depth(out4, clamp=self.clamp, activation_function=self.depth_activation)
         depth4_up = self.upsampled_depth4_to_3(out4)
         out_deconv3 = self.deconv3(concat4)
         concat3 = adaptative_cat(out_conv3, out_deconv3, depth4_up)
         out3 = self.predict_depth3(concat3)
-        depth3 = post_process_depth(out3, clamp=self.clamp,
-            activation_function=self.depth_activation)
+        depth3 = post_process_depth(out3, clamp=self.clamp, activation_function=self.depth_activation)
         depth3_up = self.upsampled_depth3_to_2(out3)
         out_deconv2 = self.deconv2(concat3)
         concat2 = adaptative_cat(out_conv2, out_deconv2, depth3_up)
         out2 = self.predict_depth2(concat2)
-        depth2 = post_process_depth(out2, clamp=self.clamp,
-            activation_function=self.depth_activation)
+        depth2 = post_process_depth(out2, clamp=self.clamp, activation_function=self.depth_activation)
         if self.training:
             return [depth2, depth3, depth4, depth5, depth6]
         else:
@@ -200,9 +180,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DepthNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 6, 64, 64])], {}),
+     False),
+]
+
 class Test_ClementPinard_DepthNet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DepthNet(*[], **{}), [torch.rand([4, 6, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

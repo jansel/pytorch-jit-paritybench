@@ -117,8 +117,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -205,8 +206,7 @@ class Registry(object):
         self._module_dict = dict()
 
     def __repr__(self):
-        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
-            self._name, list(self._module_dict.keys()))
+        format_str = self.__class__.__name__ + '(name={}, items={})'.format(self._name, list(self._module_dict.keys()))
         return format_str
 
     @property
@@ -226,12 +226,10 @@ class Registry(object):
             module (:obj:`nn.Module`): Module to be registered.
         """
         if not inspect.isclass(module_class):
-            raise TypeError('module must be a class, but got {}'.format(
-                type(module_class)))
+            raise TypeError('module must be a class, but got {}'.format(type(module_class)))
         module_name = module_class.__name__
         if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
+            raise KeyError('{} is already registered in {}'.format(module_name, self.name))
         self._module_dict[module_name] = module_class
 
     def register_module(self, cls):
@@ -252,12 +250,10 @@ def _build_module(cfg, registry, default_args):
     obj_type = args.pop('type')
     if mmcv.is_str(obj_type):
         if obj_type not in registry.module_dict:
-            raise KeyError('{} is not in the {} registry'.format(obj_type,
-                registry.name))
+            raise KeyError('{} is not in the {} registry'.format(obj_type, registry.name))
         obj_type = registry.module_dict[obj_type]
     elif not isinstance(obj_type, type):
-        raise TypeError('type must be a str or valid type, but got {}'.
-            format(type(obj_type)))
+        raise TypeError('type must be a str or valid type, but got {}'.format(type(obj_type)))
     if default_args is not None:
         for name, value in default_args.items():
             args.setdefault(name, value)
@@ -279,9 +275,7 @@ def build_loss(cfg):
 @ATTRPREDICTOR.register_module
 class AttrPredictor(nn.Module):
 
-    def __init__(self, inchannels, outchannels, loss_attr=dict(type=
-        'BCEWithLogitsLoss', ratio=1, weight=None, size_average=None,
-        reduce=None, reduction='mean')):
+    def __init__(self, inchannels, outchannels, loss_attr=dict(type='BCEWithLogitsLoss', ratio=1, weight=None, size_average=None, reduce=None, reduction='mean')):
         super(AttrPredictor, self).__init__()
         self.linear_attr = nn.Linear(inchannels, outchannels)
         self.loss_attr = build_loss(loss_attr)
@@ -309,24 +303,20 @@ class AttrPredictor(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
-            raise NotImplementedError(
-                'Dilation > 1 not supported in BasicBlock')
+            raise NotImplementedError('Dilation > 1 not supported in BasicBlock')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -351,15 +341,13 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -419,17 +407,13 @@ def load_state_dict(module, state_dict, strict=False, logger=None):
         try:
             own_state[name].copy_(param)
         except Exception:
-            raise RuntimeError(
-                'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
-                .format(name, own_state[name].size(), param.size()))
+            raise RuntimeError('While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'.format(name, own_state[name].size(), param.size()))
     missing_keys = set(own_state.keys()) - set(state_dict.keys())
     err_msg = []
     if unexpected_keys:
-        err_msg.append('unexpected key in source state_dict: {}\n'.format(
-            ', '.join(unexpected_keys)))
+        err_msg.append('unexpected key in source state_dict: {}\n'.format(', '.join(unexpected_keys)))
     if missing_keys:
-        err_msg.append('missing keys in source state_dict: {}\n'.format(
-            ', '.join(missing_keys)))
+        err_msg.append('missing keys in source state_dict: {}\n'.format(', '.join(missing_keys)))
     err_msg = '\n'.join(err_msg)
     if err_msg:
         if strict:
@@ -447,11 +431,9 @@ def load_checkpoint(filename, model, strict=False, logger=None):
     elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
     else:
-        raise RuntimeError('No state_dict found in checkpoint file {}'.
-            format(filename))
+        raise RuntimeError('No state_dict found in checkpoint file {}'.format(filename))
     if list(state_dict.keys())[0].startswith('module.'):
-        state_dict = {k[7:]: v for k, v in checkpoint['model_state_dict'].
-            items()}
+        state_dict = {k[7:]: v for k, v in checkpoint['model_state_dict'].items()}
     if hasattr(model, 'module'):
         load_state_dict(model.module, state_dict, strict, logger)
     else:
@@ -461,14 +443,10 @@ def load_checkpoint(filename, model, strict=False, logger=None):
 
 @BACKBONES.register_module
 class ResNet(nn.Module):
-    layer_setting = {'resnet50': [3, 4, 6, 3], 'resnet18': [2, 2, 2, 2],
-        'resnet34': [3, 4, 6, 3]}
-    block_setting = {'resnet18': BasicBlock, 'resnet34': BasicBlock,
-        'resnet50': Bottleneck}
+    layer_setting = {'resnet50': [3, 4, 6, 3], 'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3]}
+    block_setting = {'resnet18': BasicBlock, 'resnet34': BasicBlock, 'resnet50': Bottleneck}
 
-    def __init__(self, setting='resnet50', zero_init_residual=False, groups
-        =1, width_per_group=64, replace_stride_with_dilation=None,
-        norm_layer=None):
+    def __init__(self, setting='resnet50', zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, norm_layer=None):
         super(ResNet, self).__init__()
         block = self.block_setting[setting]
         layers = self.layer_setting[setting]
@@ -480,23 +458,17 @@ class ResNet(nn.Module):
         if replace_stride_with_dilation is None:
             replace_stride_with_dilation = [False, False, False]
         if len(replace_stride_with_dilation) != 3:
-            raise ValueError(
-                'replace_stride_with_dilation should be None or a 3-element tuple, got {}'
-                .format(replace_stride_with_dilation))
+            raise ValueError('replace_stride_with_dilation should be None or a 3-element tuple, got {}'.format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            dilate=replace_stride_with_dilation[2])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.zero_init_residual = zero_init_residual
 
     def init_weights(self, pretrained=None):
@@ -506,8 +478,7 @@ class ResNet(nn.Module):
         elif pretrained is None:
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):
-                    nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                        nonlinearity='relu')
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                     nn.init.constant_(m.weight, 1)
                     nn.init.constant_(m.bias, 0)
@@ -526,16 +497,12 @@ class ResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, previous_dilation, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, dilation=self.dilation,
-                norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, dilation=self.dilation, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -552,14 +519,11 @@ class ResNet(nn.Module):
 
 @BACKBONES.register_module
 class Vgg(nn.Module):
-    setting = {'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 
-        512, 512, 512, 'M', 512, 512, 512, 'M']}
+    setting = {'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']}
 
-    def __init__(self, layer_setting='vgg16', batch_norm=False,
-        init_weights=False):
+    def __init__(self, layer_setting='vgg16', batch_norm=False, init_weights=False):
         super(Vgg, self).__init__()
-        self.features = self._make_layers(self.setting[layer_setting],
-            batch_norm)
+        self.features = self._make_layers(self.setting[layer_setting], batch_norm)
         if init_weights:
             self._initialize_weights()
 
@@ -572,8 +536,7 @@ class Vgg(nn.Module):
             else:
                 conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -590,8 +553,7 @@ class Vgg(nn.Module):
         elif pretrained is None:
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):
-                    nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                        nonlinearity='relu')
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                     if m.bias is not None:
                         nn.init.constant_(m.bias, 0)
                 elif isinstance(m, nn.BatchNorm2d):
@@ -632,10 +594,7 @@ EMBEDEXTRACTOR = Registry('embed_extractor')
 @EMBEDEXTRACTOR.register_module
 class EmbedExtractor(nn.Module):
 
-    def __init__(self, inchannels, inter_channels, loss_id=dict(type=
-        'CELoss', ratio=1, weight=None, size_average=None, reduce=None,
-        reduction='mean'), loss_triplet=dict(type='TripletLoss', method=
-        'cosine')):
+    def __init__(self, inchannels, inter_channels, loss_id=dict(type='CELoss', ratio=1, weight=None, size_average=None, reduce=None, reduction='mean'), loss_triplet=dict(type='TripletLoss', method='cosine')):
         super(EmbedExtractor, self).__init__()
         self.embed_linear = nn.Linear(inchannels, inter_channels[0])
         self.bn = nn.BatchNorm1d(inter_channels[0], inter_channels[1])
@@ -646,16 +605,14 @@ class EmbedExtractor(nn.Module):
         else:
             self.loss_triplet = None
 
-    def forward_train(self, x, id, triplet, pos, neg, triplet_pos_label,
-        triplet_neg_label):
+    def forward_train(self, x, id, triplet, pos, neg, triplet_pos_label, triplet_neg_label):
         embed = self.embed_linear(x)
         id_pred = self.id_linear(embed)
         loss_id = self.loss_id(id_pred, id)
         if triplet:
             pos_embed = self.embed_linear(pos)
             neg_embed = self.embed_linear(neg)
-            loss_triplet = self.loss_triplet(embed, pos_embed, neg_embed,
-                triplet_pos_label, triplet_neg_label)
+            loss_triplet = self.loss_triplet(embed, pos_embed, neg_embed, triplet_pos_label, triplet_neg_label)
             return loss_id + loss_triplet
         else:
             return loss_id
@@ -664,11 +621,9 @@ class EmbedExtractor(nn.Module):
         embed = self.embed_linear(x)
         return embed
 
-    def forward(self, x, id, return_loss=False, triplet=False, pos=None,
-        neg=None, triplet_pos_label=None, triplet_neg_label=None):
+    def forward(self, x, id, return_loss=False, triplet=False, pos=None, neg=None, triplet_pos_label=None, triplet_neg_label=None):
         if return_loss:
-            return self.forward_train(x, id, triplet, pos, neg,
-                triplet_pos_label, triplet_neg_label)
+            return self.forward_train(x, id, triplet, pos, neg, triplet_pos_label, triplet_neg_label)
         else:
             return self.forward_test(x)
 
@@ -693,17 +648,12 @@ class BaseFashionRecommender(nn.Module):
         pass
 
     @abstractmethod
-    def forward_train(self, img, text, has_text, pos_img, pos_text,
-        pos_has_text, neg_img, neg_text, neg_has_text, condition):
+    def forward_train(self, img, text, has_text, pos_img, pos_text, pos_has_text, neg_img, neg_text, neg_has_text, condition):
         pass
 
-    def forward(self, img, text=None, has_text=None, pos_img=None, pos_text
-        =None, pos_has_text=None, neg_img=None, neg_text=None, neg_has_text
-        =None, condition=None, return_loss=True):
+    def forward(self, img, text=None, has_text=None, pos_img=None, pos_text=None, pos_has_text=None, neg_img=None, neg_text=None, neg_has_text=None, condition=None, return_loss=True):
         if return_loss:
-            return self.forward_train(img, text, has_text, pos_img,
-                pos_text, pos_has_text, neg_img, neg_text, neg_has_text,
-                condition)
+            return self.forward_train(img, text, has_text, pos_img, pos_text, pos_has_text, neg_img, neg_text, neg_has_text, condition)
         else:
             return self.forward_test(img)
 
@@ -724,9 +674,7 @@ class GlobalPooling(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d(inplanes)
         inter_plane = inter_channels[0] * inplanes[0] * inplanes[1]
         if len(inter_channels) > 1:
-            self.global_layers = nn.Sequential(nn.Linear(inter_plane,
-                inter_channels[1]), nn.ReLU(True), nn.Dropout(), nn.Linear(
-                inter_channels[1], outchannels), nn.ReLU(True), nn.Dropout())
+            self.global_layers = nn.Sequential(nn.Linear(inter_plane, inter_channels[1]), nn.ReLU(True), nn.Dropout(), nn.Linear(inter_channels[1], outchannels), nn.ReLU(True), nn.Dropout())
         else:
             self.global_layers = nn.Linear(inter_plane, outchannels)
 
@@ -771,15 +719,12 @@ class BaseLandmarkDetector(nn.Module):
             return self.aug_test(img)
 
     @abstractmethod
-    def forward_train(self, img, vis, landmark_for_regreesion,
-        landmark_for_roi_pool, attr):
+    def forward_train(self, img, vis, landmark_for_regreesion, landmark_for_roi_pool, attr):
         pass
 
-    def forward(self, img, vis=None, landmark_for_regression=None,
-        landmark_for_roi_pool=None, attr=None, return_loss=True):
+    def forward(self, img, vis=None, landmark_for_regression=None, landmark_for_roi_pool=None, attr=None, return_loss=True):
         if return_loss:
-            return self.forward_train(img, vis, landmark_for_regression,
-                landmark_for_roi_pool, attr)
+            return self.forward_train(img, vis, landmark_for_regression, landmark_for_roi_pool, attr)
         else:
             return self.forward_test(img)
 
@@ -818,8 +763,7 @@ LANDMARKREGRESSION = Registry('landmark_regression')
 @LANDMARKREGRESSION.register_module
 class LandmarkRegression(nn.Module):
 
-    def __init__(self, inchannels, outchannels, landmark_num, loss_regress=
-        dict(type='MSELoss', ratio=0.0001, reduction='mean')):
+    def __init__(self, inchannels, outchannels, landmark_num, loss_regress=dict(type='MSELoss', ratio=0.0001, reduction='mean')):
         super(LandmarkRegression, self).__init__()
         self.linear = nn.Linear(inchannels, outchannels)
         self.landmark_num = landmark_num
@@ -837,8 +781,7 @@ class LandmarkRegression(nn.Module):
         pred_lm = self.linear(x)
         return pred_lm
 
-    def forward(self, x, pred_vis=None, vis=None, landmark=None,
-        return_loss=True):
+    def forward(self, x, pred_vis=None, vis=None, landmark=None, return_loss=True):
         if return_loss:
             return self.forward_train(x, pred_vis, vis, landmark)
         else:
@@ -862,15 +805,13 @@ class BCEWithLogitsLoss(nn.Module):
 
     def forward(self, input, target):
         target = target.float()
-        return self.ratio * F.binary_cross_entropy_with_logits(input,
-            target, self.weight, reduction=self.reduction)
+        return self.ratio * F.binary_cross_entropy_with_logits(input, target, self.weight, reduction=self.reduction)
 
 
 @LOSSES.register_module
 class CELoss(nn.Module):
 
-    def __init__(self, ratio=1, weight=None, size_average=None,
-        ignore_index=-100, reduce=None, reduction='mean'):
+    def __init__(self, ratio=1, weight=None, size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
         super(CELoss, self).__init__()
         self.ratio = ratio
         self.weight = weight
@@ -878,22 +819,19 @@ class CELoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, input, target):
-        return self.ratio * F.cross_entropy(input, target, weight=self.
-            weight, ignore_index=self.ignore_index, reduction=self.reduction)
+        return self.ratio * F.cross_entropy(input, target, weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
 
 
 @LOSSES.register_module
 class CosineEmbeddingLoss(nn.Module):
 
-    def __init__(self, margin=0.0, size_average=None, reduce=None,
-        reduction='mean'):
+    def __init__(self, margin=0.0, size_average=None, reduce=None, reduction='mean'):
         super(CosineEmbeddingLoss, self).__init__()
         self.margin = margin
         self.reduction = reduction
 
     def forward(self, input1, input2, target):
-        return F.cosine_embedding_loss(input1, input2, target, margin=self.
-            margin, reduction=self.reduction)
+        return F.cosine_embedding_loss(input1, input2, target, margin=self.margin, reduction=self.reduction)
 
 
 @LOSSES.register_module
@@ -927,16 +865,14 @@ class L1NormLoss(nn.Module):
 @LOSSES.register_module
 class MarginRankingLoss(nn.Module):
 
-    def __init__(self, margin=0.2, loss_weight=5e-05, size_average=None,
-        reduce=None, reduction='mean'):
+    def __init__(self, margin=0.2, loss_weight=5e-05, size_average=None, reduce=None, reduction='mean'):
         super(MarginRankingLoss, self).__init__()
         self.margin = margin
         self.loss_weight = loss_weight
         self.reduction = reduction
 
     def forward(self, input1, input2, target):
-        return self.loss_weight * F.margin_ranking_loss(input1, input2,
-            target, margin=self.margin, reduction=self.reduction)
+        return self.loss_weight * F.margin_ranking_loss(input1, input2, target, margin=self.margin, reduction=self.reduction)
 
 
 @LOSSES.register_module
@@ -948,18 +884,15 @@ class SelectiveMarginLoss(nn.Module):
         self.loss_weight = loss_weight
 
     def forward(self, pos_samples, neg_samples, has_sample):
-        margin_diff = torch.clamp(pos_samples - neg_samples + self.margin,
-            min=0, max=1000000.0)
+        margin_diff = torch.clamp(pos_samples - neg_samples + self.margin, min=0, max=1000000.0)
         num_sample = max(torch.sum(has_sample), 1)
-        return self.loss_weight * (torch.sum(margin_diff * has_sample) /
-            num_sample)
+        return self.loss_weight * (torch.sum(margin_diff * has_sample) / num_sample)
 
 
 @LOSSES.register_module
 class MSELoss(nn.Module):
 
-    def __init__(self, ratio=1, size_average=None, reduce=None, reduction=
-        'mean'):
+    def __init__(self, ratio=1, size_average=None, reduce=None, reduction='mean'):
         super(MSELoss, self).__init__()
         self.ratio = ratio
         self.size_average = size_average
@@ -973,8 +906,7 @@ class MSELoss(nn.Module):
 @LOSSES.register_module
 class TripletLoss(nn.Module):
 
-    def __init__(self, method='cosine', ratio=1, margin=0.2, use_sigmoid=
-        False, reduction='mean', size_average=True):
+    def __init__(self, method='cosine', ratio=1, margin=0.2, use_sigmoid=False, reduction='mean', size_average=True):
         super(TripletLoss, self).__init__()
         self.method = method
         self.ratio = ratio
@@ -985,15 +917,10 @@ class TripletLoss(nn.Module):
 
     def forward(self, anchor, pos, neg, triplet_pos_label, triplet_neg_label):
         if self.use_sigmoid:
-            anchor, pos, neg = F.sigmoid(anchor), F.sigmoid(pos), F.sigmoid(neg
-                )
+            anchor, pos, neg = F.sigmoid(anchor), F.sigmoid(pos), F.sigmoid(neg)
         if self.method == 'cosine':
-            loss_pos = F.cosine_embedding_loss(anchor, pos,
-                triplet_pos_label, margin=self.margin, reduction=self.reduction
-                )
-            loss_neg = F.cosine_embedding_loss(anchor, neg,
-                triplet_neg_label, margin=self.margin, reduction=self.reduction
-                )
+            loss_pos = F.cosine_embedding_loss(anchor, pos, triplet_pos_label, margin=self.margin, reduction=self.reduction)
+            loss_neg = F.cosine_embedding_loss(anchor, neg, triplet_neg_label, margin=self.margin, reduction=self.reduction)
             losses = loss_pos + loss_neg
         else:
             dist_pos = (anchor - pos).pow(2).sum(1)
@@ -1075,16 +1002,12 @@ class BaseRetriever(nn.Module):
             return self.aug_test(imgs, landmarks)
 
     @abstractmethod
-    def forward_train(self, img, id, attr, pos, neg, anchor_lm, pos_lm,
-        neg_lm, triplet_pos_label, triplet_neg_label):
+    def forward_train(self, img, id, attr, pos, neg, anchor_lm, pos_lm, neg_lm, triplet_pos_label, triplet_neg_label):
         pass
 
-    def forward(self, img, landmark=None, id=None, attr=None, pos=None, neg
-        =None, pos_lm=None, neg_lm=None, triplet_pos_label=None,
-        triplet_neg_label=None, return_loss=True):
+    def forward(self, img, landmark=None, id=None, attr=None, pos=None, neg=None, pos_lm=None, neg_lm=None, triplet_pos_label=None, triplet_neg_label=None, return_loss=True):
         if return_loss:
-            return self.forward_train(img, id, attr, pos, neg, landmark,
-                pos_lm, neg_lm, triplet_pos_label, triplet_neg_label)
+            return self.forward_train(img, id, attr, pos, neg, landmark, pos_lm, neg_lm, triplet_pos_label, triplet_neg_label)
         else:
             return self.forward_test(img, landmark)
 
@@ -1100,18 +1023,15 @@ ROIPOOLING = Registry('roi_pool')
 @ROIPOOLING.register_module
 class RoIPooling(nn.Module):
 
-    def __init__(self, pool_plane, inter_channels, outchannels, crop_size=7,
-        img_size=(224, 224), num_lms=8, roi_size=2):
+    def __init__(self, pool_plane, inter_channels, outchannels, crop_size=7, img_size=(224, 224), num_lms=8, roi_size=2):
         super(RoIPooling, self).__init__()
         self.maxpool = nn.MaxPool2d(pool_plane)
-        self.linear = nn.Sequential(nn.Linear(num_lms * inter_channels,
-            outchannels), nn.ReLU(True), nn.Dropout())
+        self.linear = nn.Sequential(nn.Linear(num_lms * inter_channels, outchannels), nn.ReLU(True), nn.Dropout())
         self.inter_channels = inter_channels
         self.outchannels = outchannels
         self.num_lms = num_lms
         self.crop_size = crop_size
-        assert img_size[0] == img_size[1
-            ], 'img width should equal to img height'
+        assert img_size[0] == img_size[1], 'img width should equal to img height'
         self.img_size = img_size[0]
         self.roi_size = roi_size
         self.a = self.roi_size / float(self.crop_size)
@@ -1131,8 +1051,7 @@ class RoIPooling(nn.Module):
         ab = [np.array([[self.a, 0], [0, self.b]]) for _ in range(batch_size)]
         ab = np.stack(ab, axis=0)
         ab = torch.from_numpy(ab).float()
-        size = torch.Size((batch_size, features.size(1), self.roi_size,
-            self.roi_size))
+        size = torch.Size((batch_size, features.size(1), self.roi_size, self.roi_size))
         pooled = []
         for i in range(self.num_lms):
             tx = -1 + 2 * landmarks[:, (i), (0)] / float(self.crop_size)
@@ -1140,10 +1059,8 @@ class RoIPooling(nn.Module):
             t_xy = torch.stack((tx, ty)).view(batch_size, 2, 1)
             theta = torch.cat((ab, t_xy), 2)
             flowfield = nn.functional.affine_grid(theta, size)
-            one_pooled = nn.functional.grid_sample(features, flowfield,
-                mode='bilinear', padding_mode='border')
-            one_pooled = self.maxpool(one_pooled).view(batch_size, self.
-                inter_channels)
+            one_pooled = nn.functional.grid_sample(features, flowfield, mode='bilinear', padding_mode='border')
+            one_pooled = self.maxpool(one_pooled).view(batch_size, self.inter_channels)
             pooled.append(one_pooled)
         pooled = torch.stack(pooled, dim=1).view(batch_size, -1)
         pooled = self.linear(pooled)
@@ -1152,8 +1069,7 @@ class RoIPooling(nn.Module):
     def init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -1168,9 +1084,7 @@ class EmbedBranch(nn.Module):
 
     def __init__(self, feat_dim, embedding_dim):
         super(EmbedBranch, self).__init__()
-        self.fc1 = nn.Sequential(nn.Linear(feat_dim, embedding_dim), nn.
-            BatchNorm1d(embedding_dim, eps=0.001, momentum=0.01), nn.ReLU(
-            inplace=True))
+        self.fc1 = nn.Sequential(nn.Linear(feat_dim, embedding_dim), nn.BatchNorm1d(embedding_dim, eps=0.001, momentum=0.01), nn.ReLU(inplace=True))
         self.fc2 = nn.Linear(embedding_dim, embedding_dim)
 
     def forward(self, x):
@@ -1188,12 +1102,7 @@ TRIPLETNET = Registry('triplet_net')
 @TRIPLETNET.register_module
 class TripletNet(nn.Module):
 
-    def __init__(self, text_feature_dim, embed_feature_dim, loss_vse=dict(
-        type='L1NormLoss', loss_weight=0.005, average=False), loss_triplet=
-        dict(type='MarginRankingLoss', margin=0.3, loss_weight=1),
-        loss_sim_i=dict(type='MarginRankingLoss', margin=0.3, loss_weight=
-        5e-05), loss_selective_margin=dict(type='SelectiveMarginLoss',
-        margin=0.3, loss_weight=5e-05), learned_metric=True):
+    def __init__(self, text_feature_dim, embed_feature_dim, loss_vse=dict(type='L1NormLoss', loss_weight=0.005, average=False), loss_triplet=dict(type='MarginRankingLoss', margin=0.3, loss_weight=1), loss_sim_i=dict(type='MarginRankingLoss', margin=0.3, loss_weight=5e-05), loss_selective_margin=dict(type='SelectiveMarginLoss', margin=0.3, loss_weight=5e-05), learned_metric=True):
         super(TripletNet, self).__init__()
         self.text_feature_dim = text_feature_dim
         self.embed_feature_dim = embed_feature_dim
@@ -1238,8 +1147,7 @@ class TripletNet(nn.Module):
         loss_type_triplet = self.loss_triplet(dist_neg, dist_pos, target)
         return loss_type_triplet
 
-    def text_forward(self, text_x, text_y, text_z, has_text_x, has_text_y,
-        has_text_z):
+    def text_forward(self, text_x, text_y, text_z, has_text_x, has_text_y, has_text_z):
         desc_x = self.text_branch(text_x)
         desc_y = self.text_branch(text_y)
         desc_z = self.text_branch(text_z)
@@ -1268,32 +1176,23 @@ class TripletNet(nn.Module):
         loss_vse_2 = self.loss_selective_margin(distd1_p, distd1_n2, has_text)
         return (loss_vse_1 + loss_vse_2) / 2.0
 
-    def forward(self, general_x, type_embed_x, text_x, has_text_x,
-        general_y, type_embed_y, text_y, has_text_y, general_z,
-        type_embed_z, text_z, has_text_z):
+    def forward(self, general_x, type_embed_x, text_x, has_text_x, general_y, type_embed_y, text_y, has_text_y, general_z, type_embed_z, text_z, has_text_z):
         """x: Anchor data
            y: Distant(negative) data
            z: Close(positive) data
         """
         loss_sim_i = self.image_forward(general_x, general_y, general_z)
-        loss_type_triplet = self.embed_forward(type_embed_x, type_embed_y,
-            type_embed_z)
-        loss_sim_t, desc_x, desc_y, desc_z = self.text_forward(text_x,
-            text_y, text_z, has_text_x, has_text_y, has_text_z)
-        loss_vse_x = self.calc_vse_loss(desc_x, general_x, general_y,
-            general_z, has_text_x)
-        loss_vse_y = self.calc_vse_loss(desc_y, general_y, general_x,
-            general_z, has_text_y)
-        loss_vse_z = self.calc_vse_loss(desc_z, general_z, general_x,
-            general_y, has_text_z)
-        loss_vse = self.loss_vse(loss_vse_x, loss_vse_y, loss_vse_z, len(
-            general_x))
+        loss_type_triplet = self.embed_forward(type_embed_x, type_embed_y, type_embed_z)
+        loss_sim_t, desc_x, desc_y, desc_z = self.text_forward(text_x, text_y, text_z, has_text_x, has_text_y, has_text_z)
+        loss_vse_x = self.calc_vse_loss(desc_x, general_x, general_y, general_z, has_text_x)
+        loss_vse_y = self.calc_vse_loss(desc_y, general_y, general_x, general_z, has_text_y)
+        loss_vse_z = self.calc_vse_loss(desc_z, general_z, general_x, general_y, has_text_z)
+        loss_vse = self.loss_vse(loss_vse_x, loss_vse_y, loss_vse_z, len(general_x))
         return loss_type_triplet, loss_sim_t, loss_vse, loss_sim_i
 
     def init_weights(self):
         if self.metric_branch is not None:
-            weight = torch.zeros(1, self.embed_feature_dim) / float(self.
-                embed_feature_dim)
+            weight = torch.zeros(1, self.embed_feature_dim) / float(self.embed_feature_dim)
             self.metric_branch.weight = nn.Parameter(weight)
 
 
@@ -1330,8 +1229,7 @@ _global_config['num_rand_embed'] = 4
 @TYPESPECIFICNET.register_module
 class TypeSpecificNet(nn.Module):
 
-    def __init__(self, learned, n_conditions, rand_typespaces=False, use_fc
-        =True, l2_embed=False, dim_embed=256, prein=False):
+    def __init__(self, learned, n_conditions, rand_typespaces=False, use_fc=True, l2_embed=False, dim_embed=256, prein=False):
         """init
 
         Args:
@@ -1349,8 +1247,7 @@ class TypeSpecificNet(nn.Module):
         assert learned == True and use_fc == False or learned == False and use_fc == True, 'learn a metric or use fc layer to transform the general embeddings, only one can be true.'
         self.learnedmask = learned
         if rand_typespaces:
-            n_conditions = int(np.ceil(n_conditions / float(args.
-                num_rand_embed)))
+            n_conditions = int(np.ceil(n_conditions / float(args.num_rand_embed)))
         self.fc_masks = use_fc
         self.l2_norm = l2_embed
         if self.fc_masks:
@@ -1366,8 +1263,7 @@ class TypeSpecificNet(nn.Module):
                 mask_len = int(dim_embed / n_conditions)
                 for i in range(n_conditions):
                     mask_array[(i), i * mask_len:(i + 1) * mask_len] = 1
-                self.masks.weight = nn.Parameter(torch.Tensor(mask_array),
-                    requires_grad=True)
+                self.masks.weight = nn.Parameter(torch.Tensor(mask_array), requires_grad=True)
             else:
                 self.masks = nn.Embedding(n_conditions, dim_embed)
                 self.masks.weight.data.normal_(0.9, 0.7)
@@ -1377,8 +1273,7 @@ class TypeSpecificNet(nn.Module):
             mask_len = int(dim_embed / n_conditions)
             for i in range(n_conditions):
                 mask_array[(i), i * mask_len:(i + 1) * mask_len] = 1
-            self.masks.weight = nn.Parameter(torch.Tensor(mask_array),
-                requires_grad=False)
+            self.masks.weight = nn.Parameter(torch.Tensor(mask_array), requires_grad=False)
 
     def forward_test(self, embed_x):
         if self.fc_masks:
@@ -1395,8 +1290,7 @@ class TypeSpecificNet(nn.Module):
         if self.l2_norm:
             norm = torch.norm(masked_embedding, p=2, dim=2) + 1e-10
             norm.unsqueeze_(2)
-            masked_embedding = masked_embedding / norm.expand_as(
-                masked_embedding)
+            masked_embedding = masked_embedding / norm.expand_as(masked_embedding)
         return torch.cat((masked_embedding, embedded_x), 1)
 
     def forward_train(self, embed_x, c=None):
@@ -1456,8 +1350,7 @@ VISIBILITYCLASSIFIER = Registry('visibility_classifier')
 @VISIBILITYCLASSIFIER.register_module
 class VisibilityClassifier(nn.Module):
 
-    def __init__(self, inchannels, outchannels, landmark_num, loss_vis=dict
-        (type='BCEWithLogitsLoss', ratio=1, reduction='none')):
+    def __init__(self, inchannels, outchannels, landmark_num, loss_vis=dict(type='BCEWithLogitsLoss', ratio=1, reduction='none')):
         super(VisibilityClassifier, self).__init__()
         self.linear = nn.Linear(inchannels, 1)
         self.landmark_num = landmark_num
@@ -1475,10 +1368,8 @@ class VisibilityClassifier(nn.Module):
             losses_vis.append(loss_vis)
         losses_vis_tensor = torch.stack(losses_vis).transpose(1, 0)[:, :, (0)]
         vis_pred_list = torch.stack(vis_pred_list).transpose(1, 0)[:, :, (0)]
-        losses_vis_tensor_mean_per_lm = torch.mean(losses_vis_tensor, dim=1,
-            keepdim=True)
-        losses_vis_tensor_mean_per_batch = torch.mean(
-            losses_vis_tensor_mean_per_lm)
+        losses_vis_tensor_mean_per_lm = torch.mean(losses_vis_tensor, dim=1, keepdim=True)
+        losses_vis_tensor_mean_per_batch = torch.mean(losses_vis_tensor_mean_per_lm)
         return losses_vis_tensor_mean_per_batch, vis_pred_list
 
     def forward_test(self, x):
@@ -1506,66 +1397,135 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseFashionRecommender,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BaseLandmarkDetector,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasePredictor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BaseRetriever,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Concat,
+     lambda: ([], {'inchannels': 4, 'outchannels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CosineEmbeddingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EmbedBranch,
+     lambda: ([], {'feat_dim': 4, 'embedding_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GlobalPooling,
+     lambda: ([], {'inplanes': [4, 4], 'pool_plane': 4, 'inter_channels': [4, 4], 'outchannels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1NormLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2NormLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LandmarkFeatureExtractor,
+     lambda: ([], {'inchannels': 4, 'feature_dim': 4, 'landmarks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MarginRankingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SelectiveMarginLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TripletLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Vgg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_open_mmlab_mmfashion(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BaseFashionRecommender(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BaseLandmarkDetector(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BasePredictor(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(BaseRetriever(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(Concat(*[], **{'inchannels': 4, 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(CosineEmbeddingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(EmbedBranch(*[], **{'feat_dim': 4, 'embedding_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(GlobalPooling(*[], **{'inplanes': [4, 4], 'pool_plane': 4, 'inter_channels': [4, 4], 'outchannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(L1NormLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(L2NormLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(LandmarkFeatureExtractor(*[], **{'inchannels': 4, 'feature_dim': 4, 'landmarks': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(MarginRankingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(SelectiveMarginLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(Vgg(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[17])
 

@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,16 +74,13 @@ class DropoutShared(nn.Module):
     def __init__(self, p=0.5, use_gpu=True):
         super(DropoutShared, self).__init__()
         if p < 0 or p > 1:
-            raise ValueError(
-                'dropout probability has to be between 0 and 1, but got {}'
-                .format(p))
+            raise ValueError('dropout probability has to be between 0 and 1, but got {}'.format(p))
         self.p = p
         self.use_gpu = use_gpu
 
     def forward(self, input):
         if self.training:
-            index = torch.arange(0, input.size()[1])[torch.Tensor(input.
-                size()[1]).uniform_(0, 1).le(self.p)].long()
+            index = torch.arange(0, input.size()[1])[torch.Tensor(input.size()[1]).uniform_(0, 1).le(self.p)].long()
             input_cloned = input.clone()
             if self.use_gpu:
                 input_cloned[:, (index)] = 0
@@ -125,26 +123,20 @@ class HistogramLoss(torch.nn.Module):
 
         def histogram(inds, size):
             s_repeat_ = s_repeat.clone()
-            indsa = (s_repeat_floor - (self.t - self.step) > -self.eps) & (
-                s_repeat_floor - (self.t - self.step) < self.eps) & inds
-            assert indsa.nonzero().size()[0
-                ] == size, 'Another number of bins should be used'
+            indsa = (s_repeat_floor - (self.t - self.step) > -self.eps) & (s_repeat_floor - (self.t - self.step) < self.eps) & inds
+            assert indsa.nonzero().size()[0] == size, 'Another number of bins should be used'
             zeros = torch.zeros((1, indsa.size()[1])).byte()
             if self.cuda:
                 zeros = zeros
             indsb = torch.cat((indsa, zeros))[1:, :]
             s_repeat_[~(indsb | indsa)] = 0
-            s_repeat_[indsa] = (s_repeat_ - self.t + self.step)[indsa
-                ] / self.step
-            s_repeat_[indsb] = (-s_repeat_ + self.t + self.step)[indsb
-                ] / self.step
+            s_repeat_[indsa] = (s_repeat_ - self.t + self.step)[indsa] / self.step
+            s_repeat_[indsb] = (-s_repeat_ + self.t + self.step)[indsb] / self.step
             return s_repeat_.sum(1) / size
         classes_size = classes.size()[0]
-        classes_eq = (classes.repeat(classes_size, 1) == classes.view(-1, 1
-            ).repeat(1, classes_size)).data
+        classes_eq = (classes.repeat(classes_size, 1) == classes.view(-1, 1).repeat(1, classes_size)).data
         dists = torch.mm(features, features.transpose(0, 1))
-        assert (dists > 1 + self.eps).sum().item() + (dists < -1 - self.eps
-            ).sum().item() == 0, 'L2 normalization should be used'
+        assert (dists > 1 + self.eps).sum().item() + (dists < -1 - self.eps).sum().item() == 0, 'L2 normalization should be used'
         s_inds = torch.triu(torch.ones(classes_eq.size()), 1).byte()
         if self.cuda:
             s_inds = s_inds
@@ -154,18 +146,13 @@ class HistogramLoss(torch.nn.Module):
         neg_size = (~classes_eq[s_inds]).sum().item()
         s = dists[s_inds].view(1, -1)
         s_repeat = s.repeat(self.tsize, 1)
-        s_repeat_floor = (torch.floor(s_repeat.data / self.step) * self.step
-            ).float()
+        s_repeat_floor = (torch.floor(s_repeat.data / self.step) * self.step).float()
         histogram_pos = histogram(pos_inds, pos_size)
-        assert_almost_equal(histogram_pos.sum().item(), 1, decimal=1,
-            err_msg='Not good positive histogram', verbose=True)
+        assert_almost_equal(histogram_pos.sum().item(), 1, decimal=1, err_msg='Not good positive histogram', verbose=True)
         histogram_neg = histogram(neg_inds, neg_size)
-        assert_almost_equal(histogram_neg.sum().item(), 1, decimal=1,
-            err_msg='Not good negative histogram', verbose=True)
-        histogram_pos_repeat = histogram_pos.view(-1, 1).repeat(1,
-            histogram_pos.size()[0])
-        histogram_pos_inds = torch.tril(torch.ones(histogram_pos_repeat.
-            size()), -1).byte()
+        assert_almost_equal(histogram_neg.sum().item(), 1, decimal=1, err_msg='Not good negative histogram', verbose=True)
+        histogram_pos_repeat = histogram_pos.view(-1, 1).repeat(1, histogram_pos.size()[0])
+        histogram_pos_inds = torch.tril(torch.ones(histogram_pos_repeat.size()), -1).byte()
         if self.cuda:
             histogram_pos_inds = histogram_pos_inds
         histogram_pos_repeat[histogram_pos_inds] = 0
@@ -178,9 +165,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DropoutShared,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_valerystrizh_pytorch_histogram_loss(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DropoutShared(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

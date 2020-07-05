@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,21 +96,18 @@ import warnings
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, groups=groups, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -135,23 +133,18 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None, First=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None, First=False):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.0)) * groups
         self.first = First
         if self.first:
-            self.ocb1 = FirstOctaveCBR(inplanes, width, kernel_size=(1, 1),
-                norm_layer=norm_layer, padding=0)
+            self.ocb1 = FirstOctaveCBR(inplanes, width, kernel_size=(1, 1), norm_layer=norm_layer, padding=0)
         else:
-            self.ocb1 = OctaveCBR(inplanes, width, kernel_size=(1, 1),
-                norm_layer=norm_layer, padding=0)
-        self.ocb2 = OctaveCBR(width, width, kernel_size=(3, 3), stride=
-            stride, groups=groups, norm_layer=norm_layer)
-        self.ocb3 = OctaveCB(width, planes * self.expansion, kernel_size=(1,
-            1), norm_layer=norm_layer, padding=0)
+            self.ocb1 = OctaveCBR(inplanes, width, kernel_size=(1, 1), norm_layer=norm_layer, padding=0)
+        self.ocb2 = OctaveCBR(width, width, kernel_size=(3, 3), stride=stride, groups=groups, norm_layer=norm_layer)
+        self.ocb3 = OctaveCB(width, planes * self.expansion, kernel_size=(1, 1), norm_layer=norm_layer, padding=0)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -177,17 +170,14 @@ class Bottleneck(nn.Module):
 class BottleneckLast(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(BottleneckLast, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.0)) * groups
         self.ocb1 = OctaveCBR(inplanes, width, kernel_size=(1, 1), padding=0)
-        self.ocb2 = OctaveCBR(width, width, kernel_size=(3, 3), stride=
-            stride, groups=groups, norm_layer=norm_layer)
-        self.ocb3 = LastOCtaveCB(width, planes * self.expansion,
-            kernel_size=(1, 1), norm_layer=norm_layer, padding=0)
+        self.ocb2 = OctaveCBR(width, width, kernel_size=(3, 3), stride=stride, groups=groups, norm_layer=norm_layer)
+        self.ocb3 = LastOCtaveCB(width, planes * self.expansion, kernel_size=(1, 1), norm_layer=norm_layer, padding=0)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -206,15 +196,13 @@ class BottleneckLast(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class BottleneckOrigin(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(BottleneckOrigin, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -248,33 +236,26 @@ class BottleneckOrigin(nn.Module):
 
 class OCtaveResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(OCtaveResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer, First=True)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_last_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer, First=True)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_last_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -285,41 +266,30 @@ class OCtaveResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, norm_layer=None,
-        First=False):
+    def _make_layer(self, block, planes, blocks, stride=1, norm_layer=None, First=False):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(OctaveCB(in_channels=self.inplanes,
-                out_channels=planes * block.expansion, kernel_size=(1, 1),
-                stride=stride, padding=0))
+            downsample = nn.Sequential(OctaveCB(in_channels=self.inplanes, out_channels=planes * block.expansion, kernel_size=(1, 1), stride=stride, padding=0))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer, First))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer, First))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
-    def _make_last_layer(self, block, planes, blocks, stride=1, norm_layer=None
-        ):
+    def _make_last_layer(self, block, planes, blocks, stride=1, norm_layer=None):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(LastOCtaveCB(in_channels=self.
-                inplanes, out_channels=planes * block.expansion,
-                kernel_size=(1, 1), stride=stride, padding=0))
+            downsample = nn.Sequential(LastOCtaveCB(in_channels=self.inplanes, out_channels=planes * block.expansion, kernel_size=(1, 1), stride=stride, padding=0))
         layers = []
-        layers.append(BottleneckLast(self.inplanes, planes, stride,
-            downsample, self.groups, self.base_width, norm_layer))
+        layers.append(BottleneckLast(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(BottleneckOrigin(self.inplanes, planes, groups=
-                self.groups, base_width=self.base_width, norm_layer=norm_layer)
-                )
+            layers.append(BottleneckOrigin(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -339,24 +309,16 @@ class OCtaveResNet(nn.Module):
 
 class OctaveConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5,
-        stride=1, padding=1, dilation=1, groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False):
         super(OctaveConv, self).__init__()
         kernel_size = kernel_size[0]
         self.h2g_pool = nn.AvgPool2d(kernel_size=(2, 2), stride=2)
         self.upsample = torch.nn.Upsample(scale_factor=2, mode='nearest')
         self.stride = stride
-        self.l2l = torch.nn.Conv2d(int(alpha * in_channels), int(alpha *
-            out_channels), kernel_size, 1, padding, dilation, groups, bias)
-        self.l2h = torch.nn.Conv2d(int(alpha * in_channels), out_channels -
-            int(alpha * out_channels), kernel_size, 1, padding, dilation,
-            groups, bias)
-        self.h2l = torch.nn.Conv2d(in_channels - int(alpha * in_channels),
-            int(alpha * out_channels), kernel_size, 1, padding, dilation,
-            groups, bias)
-        self.h2h = torch.nn.Conv2d(in_channels - int(alpha * in_channels), 
-            out_channels - int(alpha * out_channels), kernel_size, 1,
-            padding, dilation, groups, bias)
+        self.l2l = torch.nn.Conv2d(int(alpha * in_channels), int(alpha * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.l2h = torch.nn.Conv2d(int(alpha * in_channels), out_channels - int(alpha * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.h2l = torch.nn.Conv2d(in_channels - int(alpha * in_channels), int(alpha * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.h2h = torch.nn.Conv2d(in_channels - int(alpha * in_channels), out_channels - int(alpha * out_channels), kernel_size, 1, padding, dilation, groups, bias)
 
     def forward(self, x):
         X_h, X_l = x
@@ -375,16 +337,13 @@ class OctaveConv(nn.Module):
 
 class FirstOctaveConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5,
-        stride=1, padding=1, dilation=1, groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False):
         super(FirstOctaveConv, self).__init__()
         self.stride = stride
         kernel_size = kernel_size[0]
         self.h2g_pool = nn.AvgPool2d(kernel_size=(2, 2), stride=2)
-        self.h2l = torch.nn.Conv2d(in_channels, int(alpha * out_channels),
-            kernel_size, 1, padding, dilation, groups, bias)
-        self.h2h = torch.nn.Conv2d(in_channels, out_channels - int(alpha *
-            out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.h2l = torch.nn.Conv2d(in_channels, int(alpha * out_channels), kernel_size, 1, padding, dilation, groups, bias)
+        self.h2h = torch.nn.Conv2d(in_channels, out_channels - int(alpha * out_channels), kernel_size, 1, padding, dilation, groups, bias)
 
     def forward(self, x):
         if self.stride == 2:
@@ -398,16 +357,13 @@ class FirstOctaveConv(nn.Module):
 
 class LastOctaveConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5,
-        stride=1, padding=1, dilation=1, groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False):
         super(LastOctaveConv, self).__init__()
         self.stride = stride
         kernel_size = kernel_size[0]
         self.h2g_pool = nn.AvgPool2d(kernel_size=(2, 2), stride=2)
-        self.l2h = torch.nn.Conv2d(int(alpha * in_channels), out_channels,
-            kernel_size, 1, padding, dilation, groups, bias)
-        self.h2h = torch.nn.Conv2d(in_channels - int(alpha * in_channels),
-            out_channels, kernel_size, 1, padding, dilation, groups, bias)
+        self.l2h = torch.nn.Conv2d(int(alpha * in_channels), out_channels, kernel_size, 1, padding, dilation, groups, bias)
+        self.h2h = torch.nn.Conv2d(in_channels - int(alpha * in_channels), out_channels, kernel_size, 1, padding, dilation, groups, bias)
         self.upsample = torch.nn.Upsample(scale_factor=2, mode='nearest')
 
     def forward(self, x):
@@ -423,12 +379,9 @@ class LastOctaveConv(nn.Module):
 
 class OctaveCBR(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha
-        =0.5, stride=1, padding=1, dilation=1, groups=1, bias=False,
-        norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(OctaveCBR, self).__init__()
-        self.conv = OctaveConv(in_channels, out_channels, kernel_size,
-            alpha, stride, padding, dilation, groups, bias)
+        self.conv = OctaveConv(in_channels, out_channels, kernel_size, alpha, stride, padding, dilation, groups, bias)
         self.bn_h = norm_layer(int(out_channels * (1 - alpha)))
         self.bn_l = norm_layer(int(out_channels * alpha))
         self.relu = nn.ReLU(inplace=True)
@@ -442,12 +395,9 @@ class OctaveCBR(nn.Module):
 
 class OctaveCB(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha
-        =0.5, stride=1, padding=1, dilation=1, groups=1, bias=False,
-        norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(OctaveCB, self).__init__()
-        self.conv = OctaveConv(in_channels, out_channels, kernel_size,
-            alpha, stride, padding, dilation, groups, bias)
+        self.conv = OctaveConv(in_channels, out_channels, kernel_size, alpha, stride, padding, dilation, groups, bias)
         self.bn_h = norm_layer(int(out_channels * (1 - alpha)))
         self.bn_l = norm_layer(int(out_channels * alpha))
 
@@ -460,12 +410,9 @@ class OctaveCB(nn.Module):
 
 class FirstOctaveCBR(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha
-        =0.5, stride=1, padding=1, dilation=1, groups=1, bias=False,
-        norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(FirstOctaveCBR, self).__init__()
-        self.conv = FirstOctaveConv(in_channels, out_channels, kernel_size,
-            alpha, stride, padding, dilation, groups, bias)
+        self.conv = FirstOctaveConv(in_channels, out_channels, kernel_size, alpha, stride, padding, dilation, groups, bias)
         self.bn_h = norm_layer(int(out_channels * (1 - alpha)))
         self.bn_l = norm_layer(int(out_channels * alpha))
         self.relu = nn.ReLU(inplace=True)
@@ -479,12 +426,9 @@ class FirstOctaveCBR(nn.Module):
 
 class LastOCtaveCBR(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha
-        =0.5, stride=1, padding=1, dilation=1, groups=1, bias=False,
-        norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(LastOCtaveCBR, self).__init__()
-        self.conv = LastOctaveConv(in_channels, out_channels, kernel_size,
-            alpha, stride, padding, dilation, groups, bias)
+        self.conv = LastOctaveConv(in_channels, out_channels, kernel_size, alpha, stride, padding, dilation, groups, bias)
         self.bn_h = norm_layer(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -496,12 +440,9 @@ class LastOCtaveCBR(nn.Module):
 
 class FirstOctaveCB(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha
-        =0.5, stride=1, padding=1, dilation=1, groups=1, bias=False,
-        norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(FirstOctaveCB, self).__init__()
-        self.conv = FirstOctaveConv(in_channels, out_channels, kernel_size,
-            alpha, stride, padding, dilation, groups, bias)
+        self.conv = FirstOctaveConv(in_channels, out_channels, kernel_size, alpha, stride, padding, dilation, groups, bias)
         self.bn_h = norm_layer(int(out_channels * (1 - alpha)))
         self.bn_l = norm_layer(int(out_channels * alpha))
         self.relu = nn.ReLU(inplace=True)
@@ -515,12 +456,9 @@ class FirstOctaveCB(nn.Module):
 
 class LastOCtaveCB(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5,
-        stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=
-        nn.BatchNorm2d):
+    def __init__(self, in_channels, out_channels, kernel_size, alpha=0.5, stride=1, padding=1, dilation=1, groups=1, bias=False, norm_layer=nn.BatchNorm2d):
         super(LastOCtaveCB, self).__init__()
-        self.conv = LastOctaveConv(in_channels, out_channels, kernel_size,
-            alpha, stride, padding, dilation, groups, bias)
+        self.conv = LastOctaveConv(in_channels, out_channels, kernel_size, alpha, stride, padding, dilation, groups, bias)
         self.bn_h = norm_layer(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -533,14 +471,12 @@ class LastOCtaveCB(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -566,8 +502,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -601,33 +536,26 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -643,15 +571,12 @@ class ResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -672,8 +597,7 @@ class ResNet(nn.Module):
 class PixelAwareAdaptiveBottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None, input_size=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None, input_size=None):
         super(PixelAwareAdaptiveBottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -725,8 +649,7 @@ class PixelAwareAdaptiveBottleneck(nn.Module):
 class DataSetAwareAdaptiveBottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None, input_size=(224, 224)):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None, input_size=(224, 224)):
         super(DataSetAwareAdaptiveBottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -739,8 +662,7 @@ class DataSetAwareAdaptiveBottleneck(nn.Module):
             self.H, self.W = H // 2, W // 2
         self.conv1 = conv1x1(inplanes, width, stride=stride)
         self.bn1 = norm_layer(width)
-        self.conv2 = AdaptiveConv(width, width, stride=1, groups=groups,
-            size=(self.H, self.W))
+        self.conv2 = AdaptiveConv(width, width, stride=1, groups=groups, size=(self.H, self.W))
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
@@ -769,13 +691,10 @@ class DataSetAwareAdaptiveBottleneck(nn.Module):
 
 class AdaptiveConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, stride=1, padding=1,
-        dilation=1, groups=1, bias=False, size=(256, 256)):
+    def __init__(self, in_channels, out_channels, stride=1, padding=1, dilation=1, groups=1, bias=False, size=(256, 256)):
         super(AdaptiveConv, self).__init__()
-        self.conv3x3 = nn.Conv2d(in_channels, out_channels, 3, stride,
-            padding=1, dilation=dilation, groups=groups, bias=bias)
-        self.conv1x1 = nn.Conv2d(in_channels, out_channels, 1, stride,
-            padding=0, dilation=dilation, groups=groups, bias=bias)
+        self.conv3x3 = nn.Conv2d(in_channels, out_channels, 3, stride, padding=1, dilation=dilation, groups=groups, bias=bias)
+        self.conv1x1 = nn.Conv2d(in_channels, out_channels, 1, stride, padding=0, dilation=dilation, groups=groups, bias=bias)
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc1 = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.fc2 = nn.Conv2d(out_channels, out_channels, kernel_size=1)
@@ -803,37 +722,26 @@ class AdaptiveConv(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None, input_size=(
-        256, 256)):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None, input_size=(256, 256)):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer, input_size=(input_size[0] // 4, input_size[1] // 4))
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer, input_size=(input_size[0] // 4, 
-            input_size[1] // 4))
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer, input_size=(input_size[0] // 8, 
-            input_size[1] // 8))
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer, input_size=(input_size[0] // 16, 
-            input_size[1] // 16))
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer, input_size=(input_size[0] // 4, input_size[1] // 4))
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer, input_size=(input_size[0] // 4, input_size[1] // 4))
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer, input_size=(input_size[0] // 8, input_size[1] // 8))
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer, input_size=(input_size[0] // 16, input_size[1] // 16))
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -842,28 +750,20 @@ class ResNet(nn.Module):
                 if isinstance(m, PixelAwareAdaptiveBottleneck):
                     nn.init.constant_(m.bn3.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, norm_layer=None,
-        input_size=(224, 224)):
+    def _make_layer(self, block, planes, blocks, stride=1, norm_layer=None, input_size=(224, 224)):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer, input_size))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer, input_size))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             if stride != 1:
-                layers.append(block(self.inplanes, planes, groups=self.
-                    groups, base_width=self.base_width, norm_layer=
-                    norm_layer, input_size=(input_size[0] // 2, input_size[
-                    1] // 2)))
+                layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer, input_size=(input_size[0] // 2, input_size[1] // 2)))
             else:
-                layers.append(block(self.inplanes, planes, groups=self.
-                    groups, base_width=self.base_width, norm_layer=
-                    norm_layer, input_size=input_size))
+                layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer, input_size=input_size))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -891,15 +791,13 @@ class eca_layer(nn.Module):
     def __init__(self, channel, k_size=3):
         super(eca_layer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1
-            ) // 2, bias=False)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         b, c, h, w = x.size()
         y = self.avg_pool(x)
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2
-            ).unsqueeze(-1)
+        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
         y = self.sigmoid(y)
         return x * y.expand_as(x)
 
@@ -969,12 +867,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -986,8 +882,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1001,9 +896,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1062,15 +955,9 @@ class GELayerv3(nn.Module):
 
     def __init__(self, inplane):
         super(GELayerv3, self).__init__()
-        self.dconv1 = nn.Sequential(nn.Conv2d(inplane, inplane, kernel_size
-            =3, groups=inplane, stride=2), nn.BatchNorm2d(inplane), nn.ReLU
-            (inplace=False))
-        self.dconv2 = nn.Sequential(nn.Conv2d(inplane, inplane, kernel_size
-            =3, groups=inplane, stride=2), nn.BatchNorm2d(inplane), nn.ReLU
-            (inplace=False))
-        self.dconv3 = nn.Sequential(nn.Conv2d(inplane, inplane, kernel_size
-            =3, groups=inplane, stride=2), nn.BatchNorm2d(inplane), nn.ReLU
-            (inplace=False))
+        self.dconv1 = nn.Sequential(nn.Conv2d(inplane, inplane, kernel_size=3, groups=inplane, stride=2), nn.BatchNorm2d(inplane), nn.ReLU(inplace=False))
+        self.dconv2 = nn.Sequential(nn.Conv2d(inplane, inplane, kernel_size=3, groups=inplane, stride=2), nn.BatchNorm2d(inplane), nn.ReLU(inplace=False))
+        self.dconv3 = nn.Sequential(nn.Conv2d(inplane, inplane, kernel_size=3, groups=inplane, stride=2), nn.BatchNorm2d(inplane), nn.ReLU(inplace=False))
         self.sigmoid_spatial = nn.Sigmoid()
 
     def forward(self, x):
@@ -1151,12 +1038,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1168,8 +1053,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1183,9 +1067,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1213,8 +1095,7 @@ class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, 10), nn.ReLU(inplace=
-            True), nn.Linear(10, channel), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, 10), nn.ReLU(inplace=True), nn.Linear(10, channel), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -1288,12 +1169,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1305,8 +1184,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1320,9 +1198,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1437,12 +1313,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1454,8 +1328,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1469,9 +1342,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1573,12 +1444,10 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1590,8 +1459,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1605,9 +1473,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1665,14 +1531,12 @@ class SRMLayer(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -1700,8 +1564,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -1737,33 +1600,26 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1779,15 +1635,12 @@ class ResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1838,38 +1691,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 256, 256])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FirstOctaveCB,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FirstOctaveCBR,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FirstOctaveConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GELayerv1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (GELayerv2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GELayerv3,
+     lambda: ([], {'inplane': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SRMLayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (eca_layer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lxtGH_OctaveConv_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaptiveConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 256, 256])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FirstOctaveCB(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FirstOctaveCBR(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(FirstOctaveConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(GELayerv1(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(GELayerv2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(GELayerv3(*[], **{'inplane': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(SELayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(SRMLayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(eca_layer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

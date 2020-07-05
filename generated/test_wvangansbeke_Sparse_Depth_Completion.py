@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -91,8 +92,7 @@ class MAE_log_loss(nn.Module):
 
     def forward(self, prediction, gt):
         prediction = torch.clamp(prediction, min=0)
-        abs_err = torch.abs(torch.log(prediction + 1e-06) - torch.log(gt + 
-            1e-06))
+        abs_err = torch.abs(torch.log(prediction + 1e-06) - torch.log(gt + 1e-06))
         mask = (gt > 0).detach()
         mae_log_loss = torch.mean(abs_err[mask])
         return mae_log_loss
@@ -120,8 +120,7 @@ class MSE_loss_uncertainty(nn.Module):
         depth = prediction[:, 0:1, :, :]
         conf = torch.abs(prediction[:, 1:, :, :])
         err = depth - gt
-        conf_loss = torch.mean(0.5 * err[mask] ** 2 * torch.exp(-conf[mask]
-            ) + 0.5 * conf[mask])
+        conf_loss = torch.mean(0.5 * err[mask] ** 2 * torch.exp(-conf[mask]) + 0.5 * conf[mask])
         return conf_loss
 
 
@@ -151,8 +150,7 @@ class Huber_loss(nn.Module):
         err = err[mask]
         squared_err = 0.5 * err ** 2
         linear_err = err - 0.5 * self.delta
-        return torch.mean(torch.where(err < self.delta, squared_err,
-            linear_err))
+        return torch.mean(torch.where(err < self.delta, squared_err, linear_err))
 
 
 class Berhu_loss(nn.Module):
@@ -203,8 +201,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2,
-            padding=1, bias=True)
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
@@ -218,15 +215,11 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1), bias=True)
+        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1 = nn.BatchNorm2d(chann, eps=0.001)
-        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2 = nn.BatchNorm2d(chann, eps=0.001)
         self.dropout = nn.Dropout2d(dropprob)
 
@@ -261,8 +254,7 @@ class Encoder(nn.Module):
             self.layers.append(non_bottleneck_1d(128, 0.3, 4))
             self.layers.append(non_bottleneck_1d(128, 0.3, 8))
             self.layers.append(non_bottleneck_1d(128, 0.3, 16))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -277,8 +269,7 @@ class UpsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2,
-            padding=1, output_padding=1, bias=True)
+        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
     def forward(self, input):
@@ -297,8 +288,7 @@ class Decoder(nn.Module):
         self.layer4 = UpsamplerBlock(64, 32)
         self.layer5 = non_bottleneck_1d(32, 0, 1)
         self.layer6 = non_bottleneck_1d(32, 0, 1)
-        self.output_conv = nn.ConvTranspose2d(32, num_classes, 2, stride=2,
-            padding=0, output_padding=0, bias=True)
+        self.output_conv = nn.ConvTranspose2d(32, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, input):
         output = input
@@ -330,9 +320,7 @@ class Net(nn.Module):
 
 
 def convbn(in_planes, out_planes, kernel_size, stride, pad, dilation):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-        kernel_size, stride=stride, padding=dilation if dilation > 1 else
-        pad, dilation=dilation, bias=False))
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False))
 
 
 class uncertainty_net(nn.Module):
@@ -346,13 +334,10 @@ class uncertainty_net(nn.Module):
         out_channels = 3
         self.depthnet = Net(in_channels=in_channels, out_channels=out_channels)
         local_channels_in = 2 if self.combine == 'concat' else 1
-        self.convbnrelu = nn.Sequential(convbn(local_channels_in, 32, 3, 1,
-            1, 1), nn.ReLU(inplace=True))
+        self.convbnrelu = nn.Sequential(convbn(local_channels_in, 32, 3, 1, 1, 1), nn.ReLU(inplace=True))
         self.hourglass1 = hourglass_1(32)
         self.hourglass2 = hourglass_2(32)
-        self.fuse = nn.Sequential(convbn(32, 32, 3, 1, 1, 1), nn.ReLU(
-            inplace=True), nn.Conv2d(32, out_chan, kernel_size=3, padding=1,
-            stride=1, bias=True))
+        self.fuse = nn.Sequential(convbn(32, 32, 3, 1, 1, 1), nn.ReLU(inplace=True), nn.Conv2d(32, out_chan, kernel_size=3, padding=1, stride=1, bias=True))
         self.activation = nn.ReLU(inplace=True)
         self.thres = thres
         self.softmax = torch.nn.Softmax(dim=1)
@@ -378,16 +363,14 @@ class uncertainty_net(nn.Module):
         else:
             input = lidar_in
         out = self.convbnrelu(input)
-        out1, embedding3, embedding4 = self.hourglass1(out, embedding1,
-            embedding2)
+        out1, embedding3, embedding4 = self.hourglass1(out, embedding1, embedding2)
         out1 = out1 + out
         out2 = self.hourglass2(out1, embedding3, embedding4)
         out2 = out2 + out
         out = self.fuse(out2)
         lidar_out = out
         lidar_to_depth, lidar_to_conf = torch.chunk(out, 2, dim=1)
-        lidar_to_conf, conf = torch.chunk(self.softmax(torch.cat((
-            lidar_to_conf, conf), 1)), 2, dim=1)
+        lidar_to_conf, conf = torch.chunk(self.softmax(torch.cat((lidar_to_conf, conf), 1)), 2, dim=1)
         out = conf * precise_depth + lidar_to_conf * lidar_to_depth
         return out, lidar_out, precise_depth, global_features
 
@@ -396,21 +379,12 @@ class hourglass_1(nn.Module):
 
     def __init__(self, channels_in):
         super(hourglass_1, self).__init__()
-        self.conv1 = nn.Sequential(convbn(channels_in, channels_in,
-            kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
-        self.conv2 = convbn(channels_in, channels_in, kernel_size=3, stride
-            =1, pad=1, dilation=1)
-        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2,
-            kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
-        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 2,
-            kernel_size=3, stride=1, pad=1, dilation=1))
-        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, 
-            channels_in * 2, kernel_size=3, padding=1, output_padding=1,
-            stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU
-            (inplace=True))
-        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2,
-            channels_in, kernel_size=3, padding=1, output_padding=1, stride
-            =2, bias=False), nn.BatchNorm2d(channels_in))
+        self.conv1 = nn.Sequential(convbn(channels_in, channels_in, kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
+        self.conv2 = convbn(channels_in, channels_in, kernel_size=3, stride=1, pad=1, dilation=1)
+        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
+        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=1, pad=1, dilation=1))
+        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, channels_in * 2, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2, channels_in, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in))
 
     def forward(self, x, em1, em2):
         x = self.conv1(x)
@@ -430,23 +404,12 @@ class hourglass_2(nn.Module):
 
     def __init__(self, channels_in):
         super(hourglass_2, self).__init__()
-        self.conv1 = nn.Sequential(convbn(channels_in, channels_in * 2,
-            kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(
-            channels_in * 2), nn.ReLU(inplace=True))
-        self.conv2 = convbn(channels_in * 2, channels_in * 2, kernel_size=3,
-            stride=1, pad=1, dilation=1)
-        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2,
-            kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(
-            channels_in * 2), nn.ReLU(inplace=True))
-        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 4,
-            kernel_size=3, stride=1, pad=1, dilation=1))
-        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, 
-            channels_in * 2, kernel_size=3, padding=1, output_padding=1,
-            stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU
-            (inplace=True))
-        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2,
-            channels_in, kernel_size=3, padding=1, output_padding=1, stride
-            =2, bias=False), nn.BatchNorm2d(channels_in))
+        self.conv1 = nn.Sequential(convbn(channels_in, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv2 = convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=1, pad=1, dilation=1)
+        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 4, kernel_size=3, stride=1, pad=1, dilation=1))
+        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, channels_in * 2, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2, channels_in, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in))
 
     def forward(self, x, em1, em2):
         x = self.conv1(x)
@@ -466,58 +429,114 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_wvangansbeke_Sparse_Depth_Completion(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Berhu_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Berhu_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Decoder,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 128, 4, 4])], {}),
+     False),
+    (Disparity_Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Huber_delta1_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Huber_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MAE_log_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MAE_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MSE_log_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MSE_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UpsamplerBlock,
+     lambda: ([], {'ninput': 4, 'noutput': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (hourglass_2,
+     lambda: ([], {'channels_in': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 8, 32, 32]), torch.rand([4, 16, 16, 16])], {}),
+     True),
+    (non_bottleneck_1d,
+     lambda: ([], {'chann': 4, 'dropprob': 0.5, 'dilated': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (uncertainty_net,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+]
+
+class Test_wvangansbeke_Sparse_Depth_Completion(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Disparity_Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Encoder(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Huber_delta1_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(Huber_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(MAE_log_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MAE_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(MSE_log_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(MSE_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(hourglass_2(*[], **{'channels_in': 4}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 8, 32, 32]), torch.rand([4, 16, 16, 16])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(uncertainty_net(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[14])
 

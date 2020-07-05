@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,8 +82,7 @@ class Encoder(nn.Module):
         resnet = torchvision.models.resnet101(pretrained=True)
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size,
-            encoded_image_size))
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
         self.fine_tune()
 
     def forward(self, images):
@@ -140,8 +140,7 @@ class Attention(nn.Module):
         att2 = self.decoder_att(decoder_hidden)
         att = self.full_att(self.relu(att1 + att2.unsqueeze(1))).squeeze(2)
         alpha = self.softmax(att)
-        attention_weighted_encoding = (encoder_out * alpha.unsqueeze(2)).sum(
-            dim=1)
+        attention_weighted_encoding = (encoder_out * alpha.unsqueeze(2)).sum(dim=1)
         return attention_weighted_encoding, alpha
 
 
@@ -153,8 +152,7 @@ class DecoderWithAttention(nn.Module):
     Decoder.
     """
 
-    def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size,
-        encoder_dim=2048, dropout=0.5):
+    def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size, encoder_dim=2048, dropout=0.5):
         """
         :param attention_dim: size of attention network
         :param embed_dim: embedding size
@@ -173,8 +171,7 @@ class DecoderWithAttention(nn.Module):
         self.attention = Attention(encoder_dim, decoder_dim, attention_dim)
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.dropout = nn.Dropout(p=self.dropout)
-        self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim,
-            bias=True)
+        self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim, bias=True)
         self.init_h = nn.Linear(encoder_dim, decoder_dim)
         self.init_c = nn.Linear(encoder_dim, decoder_dim)
         self.f_beta = nn.Linear(decoder_dim, encoder_dim)
@@ -233,8 +230,7 @@ class DecoderWithAttention(nn.Module):
         vocab_size = self.vocab_size
         encoder_out = encoder_out.view(batch_size, -1, encoder_dim)
         num_pixels = encoder_out.size(1)
-        caption_lengths, sort_ind = caption_lengths.squeeze(1).sort(dim=0,
-            descending=True)
+        caption_lengths, sort_ind = caption_lengths.squeeze(1).sort(dim=0, descending=True)
         encoder_out = encoder_out[sort_ind]
         encoded_captions = encoded_captions[sort_ind]
         embeddings = self.embedding(encoded_captions)
@@ -244,13 +240,10 @@ class DecoderWithAttention(nn.Module):
         alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels)
         for t in range(max(decode_lengths)):
             batch_size_t = sum([(l > t) for l in decode_lengths])
-            attention_weighted_encoding, alpha = self.attention(encoder_out
-                [:batch_size_t], h[:batch_size_t])
+            attention_weighted_encoding, alpha = self.attention(encoder_out[:batch_size_t], h[:batch_size_t])
             gate = self.sigmoid(self.f_beta(h[:batch_size_t]))
             attention_weighted_encoding = gate * attention_weighted_encoding
-            h, c = self.decode_step(torch.cat([embeddings[:batch_size_t, (t
-                ), :], attention_weighted_encoding], dim=1), (h[:
-                batch_size_t], c[:batch_size_t]))
+            h, c = self.decode_step(torch.cat([embeddings[:batch_size_t, (t), :], attention_weighted_encoding], dim=1), (h[:batch_size_t], c[:batch_size_t]))
             preds = self.fc(self.dropout(h))
             predictions[:batch_size_t, (t), :] = preds
             alphas[:batch_size_t, (t), :] = alpha
@@ -261,11 +254,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'encoder_dim': 4, 'decoder_dim': 4, 'attention_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_sgrvinod_a_PyTorch_Tutorial_to_Image_Captioning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Attention(*[], **{'encoder_dim': 4, 'decoder_dim': 4, 'attention_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

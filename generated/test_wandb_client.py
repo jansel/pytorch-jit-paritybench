@@ -459,8 +459,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -584,10 +585,8 @@ class DynamicModule(nn.Module):
 
     def __init__(self):
         super(DynamicModule, self).__init__()
-        self.choices = nn.ModuleDict({'conv': nn.Conv2d(10, 10, 3), 'pool':
-            nn.MaxPool2d(3)})
-        self.activations = nn.ModuleDict([['lrelu', nn.LeakyReLU()], [
-            'prelu', nn.PReLU()]])
+        self.choices = nn.ModuleDict({'conv': nn.Conv2d(10, 10, 3), 'pool': nn.MaxPool2d(3)})
+        self.activations = nn.ModuleDict([['lrelu', nn.LeakyReLU()], ['prelu', nn.PReLU()]])
 
     def forward(self, x, choice, act):
         x = self.choices[choice](x)
@@ -622,8 +621,7 @@ class ParameterModule(nn.Module):
 
     def __init__(self):
         super(ParameterModule, self).__init__()
-        self.params = nn.ParameterList([nn.Parameter(torch.ones(10, 10)) for
-            i in range(10)])
+        self.params = nn.ParameterList([nn.Parameter(torch.ones(10, 10)) for i in range(10)])
         self.otherparam = nn.Parameter(torch.Tensor(5))
 
     def forward(self, x):
@@ -652,21 +650,18 @@ def conv3x3(in_channels, out_channels, **kwargs):
 
 class SubNet(nn.Module):
 
-    def __init__(self, mode, anchors=9, classes=80, depth=4,
-        base_activation=F.relu, output_activation=F.sigmoid):
+    def __init__(self, mode, anchors=9, classes=80, depth=4, base_activation=F.relu, output_activation=F.sigmoid):
         super(SubNet, self).__init__()
         self.anchors = anchors
         self.classes = classes
         self.depth = depth
         self.base_activation = base_activation
         self.output_activation = output_activation
-        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for
-            _ in range(depth)])
+        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for _ in range(depth)])
         if mode == 'boxes':
             self.subnet_output = conv3x3(256, 4 * self.anchors, padding=1)
         elif mode == 'classes':
-            self.subnet_output = conv3x3(256, (1 + self.classes) * self.
-                anchors, padding=1)
+            self.subnet_output = conv3x3(256, (1 + self.classes) * self.anchors, padding=1)
         self._output_layer_init(self.subnet_output.bias.data)
 
     def _output_layer_init(self, tensor, pi=0.01):
@@ -677,8 +672,7 @@ class SubNet(nn.Module):
         for layer in self.subnet_base:
             x = self.base_activation(layer(x))
         x = self.subnet_output(x)
-        x = x.permute(0, 2, 3, 1).contiguous().view(x.size(0), x.size(2) *
-            x.size(3) * self.anchors, -1)
+        x = x.permute(0, 2, 3, 1).contiguous().view(x.size(0), x.size(2) * x.size(3) * self.anchors, -1)
         return x
 
 
@@ -721,16 +715,14 @@ class LSTMModel(torch.nn.Module):
         return x, lstm_h
 
     def init_hidden(self):
-        return Variable(torch.zeros(1, 1, self.hidden_dim)), Variable(torch
-            .zeros(1, 1, self.hidden_dim))
+        return Variable(torch.zeros(1, 1, self.hidden_dim)), Variable(torch.zeros(1, 1, self.hidden_dim))
 
 
 def dummy_torch_tensor(size, requires_grad=True):
     if parse_version(torch.__version__) >= parse_version('0.4'):
         return torch.ones(size, requires_grad=requires_grad)
     else:
-        return torch.autograd.Variable(torch.ones(size), requires_grad=
-            requires_grad)
+        return torch.autograd.Variable(torch.ones(size), requires_grad=requires_grad)
 
 
 class Sequence(nn.Module):
@@ -797,8 +789,7 @@ class VGGConcator(nn.Module):
     def __init__(self):
         super(VGGConcator, self).__init__()
         self.vgg = models.vgg16(pretrained=False)
-        self.vgg.classifier = nn.Sequential(*list(self.vgg.classifier.
-            children())[:-1])
+        self.vgg.classifier = nn.Sequential(*list(self.vgg.classifier.children())[:-1])
 
     def forward(self, panels, num=1):
         if num == 1:
@@ -812,15 +803,13 @@ class VGGConcator(nn.Module):
             feature1 = self.vgg(img1)
             feature2 = self.vgg(img2)
             feature3 = self.vgg(img3)
-            features = torch.cat((feature0[:, (None), :], feature1[:, (None
-                ), :], feature2[:, (None), :], feature3[:, (None), :]), dim=1)
+            features = torch.cat((feature0[:, (None), :], feature1[:, (None), :], feature2[:, (None), :], feature3[:, (None), :]), dim=1)
         return features
 
 
 class Embedding(nn.Module):
 
-    def __init__(self, d_embedding, d_word, d_hidden, word_dim, dropout,
-        sparse=False):
+    def __init__(self, d_embedding, d_word, d_hidden, word_dim, dropout, sparse=False):
         super(Embedding, self).__init__()
         glove = torch.ones((10, 300))
         self.vgg = VGGConcator()
@@ -834,8 +823,7 @@ class Embedding(nn.Module):
         self.num_max_sentences = 3
         self.num_max_words = 20
         self.img_fc0 = FCLayer([self.d_img, d_hidden], dropout=dropout)
-        self.box_lstm = nn.LSTM(300, d_word, 1, batch_first=True,
-            bidirectional=False)
+        self.box_lstm = nn.LSTM(300, d_word, 1, batch_first=True, bidirectional=False)
         self.fc0 = FCLayer([d_word + d_hidden, d_embedding])
 
     def forward(self, images, words):
@@ -845,15 +833,12 @@ class Embedding(nn.Module):
         words = words.view(-1, words.size(-1))
         emb_word = self.emb(words)
         None
-        emb_word = emb_word.view(-1, self.num_panels, self.
-            num_max_sentences, self.num_max_words, self.d_word)
+        emb_word = emb_word.view(-1, self.num_panels, self.num_max_sentences, self.num_max_words, self.d_word)
         emb_sentence = torch.sum(emb_word, dim=3)
-        emb_sentence = emb_sentence.view(-1, self.num_max_sentences, self.
-            d_word)
+        emb_sentence = emb_sentence.view(-1, self.num_max_sentences, self.d_word)
         lstmed_sentence, _ = self.box_lstm(emb_sentence, box_hidden)
         emb_panel_sentence = lstmed_sentence[:, (-1), :]
-        emb_panel_sentence = emb_panel_sentence.view(-1, self.num_panels,
-            self.d_word)
+        emb_panel_sentence = emb_panel_sentence.view(-1, self.num_panels, self.d_word)
         img_feature = self.vgg(images, num=4)
         img_feature = self.img_fc0(img_feature)
         fusion = torch.cat((img_feature, emb_panel_sentence), dim=-1)
@@ -870,21 +855,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discrete,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiscreteModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([1, 1])], {}),
+     True),
+    (FCLayer,
+     lambda: ([], {'dims': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NGramLanguageModeler,
+     lambda: ([], {'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ParameterModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([10, 10])], {}),
+     False),
+]
+
 class Test_wandb_client(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Discrete(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DiscreteModel(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FCLayer(*[], **{'dims': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ParameterModule(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[4])
 

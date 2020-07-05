@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,9 +53,7 @@ import math
 
 def myphi(x, m):
     x = x * m
-    return 1 - x ** 2 / math.factorial(2) + x ** 4 / math.factorial(4
-        ) - x ** 6 / math.factorial(6) + x ** 8 / math.factorial(8
-        ) - x ** 9 / math.factorial(9)
+    return 1 - x ** 2 / math.factorial(2) + x ** 4 / math.factorial(4) - x ** 6 / math.factorial(6) + x ** 8 / math.factorial(8) - x ** 9 / math.factorial(9)
 
 
 class AngleLinear(nn.Module):
@@ -67,9 +66,7 @@ class AngleLinear(nn.Module):
         self.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-05).mul_(100000.0)
         self.phiflag = phiflag
         self.m = m
-        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x **
-            2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 *
-            x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
+        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
 
     def forward(self, input):
         x = input
@@ -201,9 +198,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AngleLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_clcarwin_sphereface_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AngleLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

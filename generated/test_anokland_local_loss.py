@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,10 +88,8 @@ class LinearFA(nn.Module):
         super(LinearFA, self).__init__()
         self.input_features = input_features
         self.output_features = output_features
-        self.weight = nn.Parameter(torch.Tensor(output_features,
-            input_features))
-        self.weight_fa = nn.Parameter(torch.Tensor(output_features,
-            input_features))
+        self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
+        self.weight_fa = nn.Parameter(torch.Tensor(output_features, input_features))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(output_features))
         else:
@@ -110,13 +109,10 @@ class LinearFA(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, input):
-        return LinearFAFunction.apply(input, self.weight, self.weight_fa,
-            self.bias)
+        return LinearFAFunction.apply(input, self.weight, self.weight_fa, self.bias)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.
-            input_features) + ', out_features=' + str(self.output_features
-            ) + ', bias=' + str(self.bias is not None) + ')'
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.input_features) + ', out_features=' + str(self.output_features) + ', bias=' + str(self.bias is not None) + ')'
 
 
 _global_config['no_similarity_std'] = 4
@@ -136,34 +132,13 @@ def similarity_matrix(x):
     return R
 
 
-_global_config['momentum'] = 4
-
-
 _global_config['optim'] = _mock_config()
 
 
+_global_config['alpha'] = 4
+
+
 _global_config['dropout'] = 0.5
-
-
-_global_config['beta'] = 4
-
-
-_global_config['no_print_stats'] = 4
-
-
-_global_config['no_batch_norm'] = 4
-
-
-_global_config['backprop'] = 4
-
-
-_global_config['bio'] = 4
-
-
-_global_config['nonlin'] = 4
-
-
-_global_config['weight_decay'] = 4
 
 
 class LocalLossBlockLinear(nn.Module):
@@ -179,29 +154,24 @@ class LocalLossBlockLinear(nn.Module):
         batchnorm (bool): True if to use batchnorm, if None, read from args.no_batch_norm.
     """
 
-    def __init__(self, num_in, num_out, num_classes, first_layer=False,
-        dropout=None, batchnorm=None):
+    def __init__(self, num_in, num_out, num_classes, first_layer=False, dropout=None, batchnorm=None):
         super(LocalLossBlockLinear, self).__init__()
         self.num_classes = num_classes
         self.first_layer = first_layer
         self.dropout_p = args.dropout if dropout is None else dropout
-        self.batchnorm = (not args.no_batch_norm if batchnorm is None else
-            batchnorm)
+        self.batchnorm = not args.no_batch_norm if batchnorm is None else batchnorm
         self.encoder = nn.Linear(num_in, num_out, bias=True)
         if not args.backprop and args.loss_unsup == 'recon':
             self.decoder_x = nn.Linear(num_out, num_in, bias=True)
-        if not args.backprop and (args.loss_sup == 'pred' or args.loss_sup ==
-            'predsim'):
+        if not args.backprop and (args.loss_sup == 'pred' or args.loss_sup == 'predsim'):
             if args.bio:
                 self.decoder_y = LinearFA(num_out, args.target_proj_size)
             else:
                 self.decoder_y = nn.Linear(num_out, num_classes)
             self.decoder_y.weight.data.zero_()
         if not args.backprop and args.bio:
-            self.proj_y = nn.Linear(num_classes, args.target_proj_size,
-                bias=False)
-        if not args.backprop and not args.bio and (args.loss_unsup == 'sim' or
-            args.loss_sup == 'sim' or args.loss_sup == 'predsim'):
+            self.proj_y = nn.Linear(num_classes, args.target_proj_size, bias=False)
+        if not args.backprop and not args.bio and (args.loss_unsup == 'sim' or args.loss_sup == 'sim' or args.loss_sup == 'predsim'):
             self.linear_loss = nn.Linear(num_out, num_out, bias=False)
         if self.batchnorm:
             self.bn = torch.nn.BatchNorm1d(num_out)
@@ -214,12 +184,9 @@ class LocalLossBlockLinear(nn.Module):
         if self.dropout_p > 0:
             self.dropout = torch.nn.Dropout(p=self.dropout_p, inplace=False)
         if args.optim == 'sgd':
-            self.optimizer = optim.SGD(self.parameters(), lr=0,
-                weight_decay=args.weight_decay, momentum=args.momentum)
+            self.optimizer = optim.SGD(self.parameters(), lr=0, weight_decay=args.weight_decay, momentum=args.momentum)
         elif args.optim == 'adam' or args.optim == 'amsgrad':
-            self.optimizer = optim.Adam(self.parameters(), lr=0,
-                weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad'
-                )
+            self.optimizer = optim.Adam(self.parameters(), lr=0, weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad')
         self.clear_stats()
 
     def clear_stats(self):
@@ -231,11 +198,7 @@ class LocalLossBlockLinear(nn.Module):
 
     def print_stats(self):
         if not args.backprop:
-            stats = (
-                '{}, loss_sim={:.4f}, loss_pred={:.4f}, error={:.3f}%, num_examples={}\n'
-                .format(self.encoder, self.loss_sim / self.examples, self.
-                loss_pred / self.examples, 100.0 * float(self.examples -
-                self.correct) / self.examples, self.examples))
+            stats = '{}, loss_sim={:.4f}, loss_pred={:.4f}, error={:.3f}%, num_examples={}\n'.format(self.encoder, self.loss_sim / self.examples, self.loss_pred / self.examples, 100.0 * float(self.examples - self.correct) / self.examples, self.examples)
             return stats
         else:
             return ''
@@ -260,8 +223,7 @@ class LocalLossBlockLinear(nn.Module):
         if self.dropout_p > 0:
             h_return = self.dropout(h_return)
         if (self.training or not args.no_print_stats) and not args.backprop:
-            if (args.loss_unsup == 'sim' or args.loss_sup == 'sim' or args.
-                loss_sup == 'predsim'):
+            if args.loss_unsup == 'sim' or args.loss_sup == 'sim' or args.loss_sup == 'predsim':
                 if args.bio:
                     h_loss = h
                 else:
@@ -289,12 +251,9 @@ class LocalLossBlockLinear(nn.Module):
             elif args.loss_sup == 'pred':
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
-                    float_type = (torch.FloatTensor if args.cuda else torch
-                        .FloatTensor)
-                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
-                        ).detach()
-                    loss_sup = F.binary_cross_entropy_with_logits(y_hat_local,
-                        y_onehot_pred)
+                    float_type = torch.FloatTensor if args.cuda else torch.FloatTensor
+                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type).detach()
+                    loss_sup = F.binary_cross_entropy_with_logits(y_hat_local, y_onehot_pred)
                 else:
                     loss_sup = F.cross_entropy(y_hat_local, y.detach())
                 if not args.no_print_stats:
@@ -305,17 +264,12 @@ class LocalLossBlockLinear(nn.Module):
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
                     Ry = similarity_matrix(self.proj_y(y_onehot)).detach()
-                    float_type = (torch.FloatTensor if args.cuda else torch
-                        .FloatTensor)
-                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
-                        ).detach()
-                    loss_pred = (1 - args.beta
-                        ) * F.binary_cross_entropy_with_logits(y_hat_local,
-                        y_onehot_pred)
+                    float_type = torch.FloatTensor if args.cuda else torch.FloatTensor
+                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type).detach()
+                    loss_pred = (1 - args.beta) * F.binary_cross_entropy_with_logits(y_hat_local, y_onehot_pred)
                 else:
                     Ry = similarity_matrix(y_onehot).detach()
-                    loss_pred = (1 - args.beta) * F.cross_entropy(y_hat_local,
-                        y.detach())
+                    loss_pred = (1 - args.beta) * F.cross_entropy(y_hat_local, y.detach())
                 loss_sim = args.beta * F.mse_loss(Rh, Ry)
                 loss_sup = loss_pred + loss_sim
                 if not args.no_print_stats:
@@ -356,9 +310,7 @@ class LocalLossBlockConv(nn.Module):
         post_act (bool): True if to apply layer order nn.Conv2d -> nn.BatchNorm2d -> nn.ReLU -> nn.Dropou2d.
     """
 
-    def __init__(self, ch_in, ch_out, kernel_size, stride, padding,
-        num_classes, dim_out, first_layer=False, dropout=None, bias=None,
-        pre_act=False, post_act=True):
+    def __init__(self, ch_in, ch_out, kernel_size, stride, padding, num_classes, dim_out, first_layer=False, dropout=None, bias=None, pre_act=False, post_act=True):
         super(LocalLossBlockConv, self).__init__()
         self.ch_in = ch_in
         self.ch_out = ch_out
@@ -368,13 +320,10 @@ class LocalLossBlockConv(nn.Module):
         self.bias = True if bias is None else bias
         self.pre_act = pre_act
         self.post_act = post_act
-        self.encoder = nn.Conv2d(ch_in, ch_out, kernel_size, stride=stride,
-            padding=padding, bias=self.bias)
+        self.encoder = nn.Conv2d(ch_in, ch_out, kernel_size, stride=stride, padding=padding, bias=self.bias)
         if not args.backprop and args.loss_unsup == 'recon':
-            self.decoder_x = nn.ConvTranspose2d(ch_out, ch_in, kernel_size,
-                stride=stride, padding=padding)
-        if args.bio or not args.backprop and (args.loss_sup == 'pred' or 
-            args.loss_sup == 'predsim'):
+            self.decoder_x = nn.ConvTranspose2d(ch_out, ch_in, kernel_size, stride=stride, padding=padding)
+        if args.bio or not args.backprop and (args.loss_sup == 'pred' or args.loss_sup == 'predsim'):
             ks_h, ks_w = 1, 1
             dim_out_h, dim_out_w = dim_out, dim_out
             dim_in_decoder = ch_out * dim_out_h * dim_out_w
@@ -389,25 +338,19 @@ class LocalLossBlockConv(nn.Module):
             if ks_h > 1 or ks_w > 1:
                 pad_h = ks_h * (dim_out_h - dim_out // ks_h) // 2
                 pad_w = ks_w * (dim_out_w - dim_out // ks_w) // 2
-                self.avg_pool = nn.AvgPool2d((ks_h, ks_w), padding=(pad_h,
-                    pad_w))
+                self.avg_pool = nn.AvgPool2d((ks_h, ks_w), padding=(pad_h, pad_w))
             else:
                 self.avg_pool = None
-        if not args.backprop and (args.loss_sup == 'pred' or args.loss_sup ==
-            'predsim'):
+        if not args.backprop and (args.loss_sup == 'pred' or args.loss_sup == 'predsim'):
             if args.bio:
-                self.decoder_y = LinearFA(dim_in_decoder, args.target_proj_size
-                    )
+                self.decoder_y = LinearFA(dim_in_decoder, args.target_proj_size)
             else:
                 self.decoder_y = nn.Linear(dim_in_decoder, num_classes)
             self.decoder_y.weight.data.zero_()
         if not args.backprop and args.bio:
-            self.proj_y = nn.Linear(num_classes, args.target_proj_size,
-                bias=False)
-        if not args.backprop and (args.loss_unsup == 'sim' or args.loss_sup ==
-            'sim' or args.loss_sup == 'predsim'):
-            self.conv_loss = nn.Conv2d(ch_out, ch_out, 3, stride=1, padding
-                =1, bias=False)
+            self.proj_y = nn.Linear(num_classes, args.target_proj_size, bias=False)
+        if not args.backprop and (args.loss_unsup == 'sim' or args.loss_sup == 'sim' or args.loss_sup == 'predsim'):
+            self.conv_loss = nn.Conv2d(ch_out, ch_out, 3, stride=1, padding=1, bias=False)
         if not args.no_batch_norm:
             if pre_act:
                 self.bn_pre = torch.nn.BatchNorm2d(ch_in)
@@ -422,12 +365,9 @@ class LocalLossBlockConv(nn.Module):
         if self.dropout_p > 0:
             self.dropout = torch.nn.Dropout2d(p=self.dropout_p, inplace=False)
         if args.optim == 'sgd':
-            self.optimizer = optim.SGD(self.parameters(), lr=0,
-                weight_decay=args.weight_decay, momentum=args.momentum)
+            self.optimizer = optim.SGD(self.parameters(), lr=0, weight_decay=args.weight_decay, momentum=args.momentum)
         elif args.optim == 'adam' or args.optim == 'amsgrad':
-            self.optimizer = optim.Adam(self.parameters(), lr=0,
-                weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad'
-                )
+            self.optimizer = optim.Adam(self.parameters(), lr=0, weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad')
         self.clear_stats()
 
     def clear_stats(self):
@@ -439,11 +379,7 @@ class LocalLossBlockConv(nn.Module):
 
     def print_stats(self):
         if not args.backprop:
-            stats = (
-                '{}, loss_sim={:.4f}, loss_pred={:.4f}, error={:.3f}%, num_examples={}\n'
-                .format(self.encoder, self.loss_sim / self.examples, self.
-                loss_pred / self.examples, 100.0 * float(self.examples -
-                self.correct) / self.examples, self.examples))
+            stats = '{}, loss_sim={:.4f}, loss_pred={:.4f}, error={:.3f}%, num_examples={}\n'.format(self.encoder, self.loss_sim / self.examples, self.loss_pred / self.examples, 100.0 * float(self.examples - self.correct) / self.examples, self.examples)
             return stats
         else:
             return ''
@@ -481,8 +417,7 @@ class LocalLossBlockConv(nn.Module):
                 if not args.no_batch_norm:
                     h = self.bn(h)
                 h = self.nonlin(h)
-            if (args.loss_unsup == 'sim' or args.loss_sup == 'sim' or args.
-                loss_sup == 'predsim'):
+            if args.loss_unsup == 'sim' or args.loss_sup == 'sim' or args.loss_sup == 'predsim':
                 if args.bio:
                     h_loss = h
                     if self.avg_pool is not None:
@@ -514,12 +449,9 @@ class LocalLossBlockConv(nn.Module):
                     h = self.avg_pool(h)
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
-                    float_type = (torch.FloatTensor if args.cuda else torch
-                        .FloatTensor)
-                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
-                        ).detach()
-                    loss_sup = F.binary_cross_entropy_with_logits(y_hat_local,
-                        y_onehot_pred)
+                    float_type = torch.FloatTensor if args.cuda else torch.FloatTensor
+                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type).detach()
+                    loss_sup = F.binary_cross_entropy_with_logits(y_hat_local, y_onehot_pred)
                 else:
                     loss_sup = F.cross_entropy(y_hat_local, y.detach())
                 if not args.no_print_stats:
@@ -532,17 +464,12 @@ class LocalLossBlockConv(nn.Module):
                 y_hat_local = self.decoder_y(h.view(h.size(0), -1))
                 if args.bio:
                     Ry = similarity_matrix(self.proj_y(y_onehot)).detach()
-                    float_type = (torch.FloatTensor if args.cuda else torch
-                        .FloatTensor)
-                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type
-                        ).detach()
-                    loss_pred = (1 - args.beta
-                        ) * F.binary_cross_entropy_with_logits(y_hat_local,
-                        y_onehot_pred)
+                    float_type = torch.FloatTensor if args.cuda else torch.FloatTensor
+                    y_onehot_pred = self.proj_y(y_onehot).gt(0).type(float_type).detach()
+                    loss_pred = (1 - args.beta) * F.binary_cross_entropy_with_logits(y_hat_local, y_onehot_pred)
                 else:
                     Ry = similarity_matrix(y_onehot).detach()
-                    loss_pred = (1 - args.beta) * F.cross_entropy(y_hat_local,
-                        y.detach())
+                    loss_pred = (1 - args.beta) * F.cross_entropy(y_hat_local, y.detach())
                 loss_sim = args.beta * F.mse_loss(Rh, Ry)
                 loss_sup = loss_pred + loss_sim
                 if not args.no_print_stats:
@@ -563,10 +490,16 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
+_global_config['momentum'] = 4
+
+
 _global_config['no_detach'] = 4
 
 
 _global_config['pre_act'] = 4
+
+
+_global_config['weight_decay'] = 4
 
 
 class BasicBlock(nn.Module):
@@ -577,24 +510,15 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.input_dim = input_dim
         self.stride = stride
-        self.conv1 = LocalLossBlockConv(in_planes, planes, 3, stride, 1,
-            num_classes, input_dim, bias=False, pre_act=args.pre_act,
-            post_act=not args.pre_act)
-        self.conv2 = LocalLossBlockConv(planes, planes, 3, 1, 1,
-            num_classes, input_dim, bias=False, pre_act=args.pre_act,
-            post_act=not args.pre_act)
+        self.conv1 = LocalLossBlockConv(in_planes, planes, 3, stride, 1, num_classes, input_dim, bias=False, pre_act=args.pre_act, post_act=not args.pre_act)
+        self.conv2 = LocalLossBlockConv(planes, planes, 3, 1, 1, num_classes, input_dim, bias=False, pre_act=args.pre_act, post_act=not args.pre_act)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False, groups=1), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False, groups=1), nn.BatchNorm2d(self.expansion * planes))
             if args.optim == 'sgd':
-                self.optimizer = optim.SGD(self.shortcut.parameters(), lr=0,
-                    weight_decay=args.weight_decay, momentum=args.momentum)
+                self.optimizer = optim.SGD(self.shortcut.parameters(), lr=0, weight_decay=args.weight_decay, momentum=args.momentum)
             elif args.optim == 'adam' or args.optim == 'amsgrad':
-                self.optimizer = optim.Adam(self.shortcut.parameters(), lr=
-                    0, weight_decay=args.weight_decay, amsgrad=args.optim ==
-                    'amsgrad')
+                self.optimizer = optim.Adam(self.shortcut.parameters(), lr=0, weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad')
 
     def set_learning_rate(self, lr):
         self.lr = lr
@@ -635,24 +559,16 @@ class Bottleneck(nn.Module):
 
     def __init__(self, in_planes, planes, stride, num_classes, input_dim):
         super(Bottleneck, self).__init__()
-        self.conv1 = LocalLossBlockConv(in_planes, planes, 1, 1, 0,
-            num_classes, input_dim, bias=False)
-        self.conv2 = LocalLossBlockConv(planes, planes, 3, stride, 1,
-            num_classes, input_dim // stride, bias=False)
-        self.conv3 = LocalLossBlockConv(planes, self.expansion * planes, 1,
-            1, 0, num_classes, input_dim // stride, bias=False)
+        self.conv1 = LocalLossBlockConv(in_planes, planes, 1, 1, 0, num_classes, input_dim, bias=False)
+        self.conv2 = LocalLossBlockConv(planes, planes, 3, stride, 1, num_classes, input_dim // stride, bias=False)
+        self.conv3 = LocalLossBlockConv(planes, self.expansion * planes, 1, 1, 0, num_classes, input_dim // stride, bias=False)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
             if args.optim == 'sgd':
-                self.optimizer = optim.SGD(self.shortcut.parameters(), lr=0,
-                    weight_decay=args.weight_decay, momentum=args.momentum)
+                self.optimizer = optim.SGD(self.shortcut.parameters(), lr=0, weight_decay=args.weight_decay, momentum=args.momentum)
             elif args.optim == 'adam' or args.optim == 'amsgrad':
-                self.optimizer = optim.Adam(self.shortcut.parameters(), lr=
-                    0, weight_decay=args.weight_decay, amsgrad=args.optim ==
-                    'amsgrad')
+                self.optimizer = optim.Adam(self.shortcut.parameters(), lr=0, weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad')
 
     def set_learning_rate(self, lr):
         self.lr = lr
@@ -692,40 +608,33 @@ class Bottleneck(nn.Module):
         return out, y, y_onehot, loss_total
 
 
+_global_config['backprop'] = 4
+
+
 class ResNet(nn.Module):
     """
     Residual network.
     The network can be trained by backprop or by locally generated error signal based on cross-entropy and/or similarity matching loss.
     """
 
-    def __init__(self, block, num_blocks, num_classes, input_ch,
-        feature_multiplyer, input_dim):
+    def __init__(self, block, num_blocks, num_classes, input_ch, feature_multiplyer, input_dim):
         super(ResNet, self).__init__()
         self.in_planes = int(feature_multiplyer * 64)
-        self.conv1 = LocalLossBlockConv(input_ch, int(feature_multiplyer * 
-            64), 3, 1, 1, num_classes, input_dim, bias=False, post_act=not
-            args.pre_act)
-        self.layer1 = self._make_layer(block, int(feature_multiplyer * 64),
-            num_blocks[0], 1, num_classes, input_dim)
-        self.layer2 = self._make_layer(block, int(feature_multiplyer * 128),
-            num_blocks[1], 2, num_classes, input_dim)
-        self.layer3 = self._make_layer(block, int(feature_multiplyer * 256),
-            num_blocks[2], 2, num_classes, input_dim // 2)
-        self.layer4 = self._make_layer(block, int(feature_multiplyer * 512),
-            num_blocks[3], 2, num_classes, input_dim // 4)
-        self.linear = nn.Linear(int(feature_multiplyer * 512 * block.
-            expansion), num_classes)
+        self.conv1 = LocalLossBlockConv(input_ch, int(feature_multiplyer * 64), 3, 1, 1, num_classes, input_dim, bias=False, post_act=not args.pre_act)
+        self.layer1 = self._make_layer(block, int(feature_multiplyer * 64), num_blocks[0], 1, num_classes, input_dim)
+        self.layer2 = self._make_layer(block, int(feature_multiplyer * 128), num_blocks[1], 2, num_classes, input_dim)
+        self.layer3 = self._make_layer(block, int(feature_multiplyer * 256), num_blocks[2], 2, num_classes, input_dim // 2)
+        self.layer4 = self._make_layer(block, int(feature_multiplyer * 512), num_blocks[3], 2, num_classes, input_dim // 4)
+        self.linear = nn.Linear(int(feature_multiplyer * 512 * block.expansion), num_classes)
         if not args.backprop:
             self.linear.weight.data.zero_()
 
-    def _make_layer(self, block, planes, num_blocks, stride, num_classes,
-        input_dim):
+    def _make_layer(self, block, planes, num_blocks, stride, num_classes, input_dim):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         stride_cum = 1
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride, num_classes,
-                input_dim // stride_cum))
+            layers.append(block(self.in_planes, planes, stride, num_classes, input_dim // stride_cum))
             stride_cum *= stride
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
@@ -784,29 +693,20 @@ class ResNet(nn.Module):
 class wide_basic(nn.Module):
     """ Used in WideResNet() """
 
-    def __init__(self, in_planes, planes, dropout_rate, stride, num_classes,
-        input_dim, adapted):
+    def __init__(self, in_planes, planes, dropout_rate, stride, num_classes, input_dim, adapted):
         super(wide_basic, self).__init__()
         self.adapted = adapted
-        self.conv1 = LocalLossBlockConv(in_planes, planes, 3, 1, 1,
-            num_classes, input_dim * stride, dropout=None if self.adapted else
-            0, bias=True, pre_act=True, post_act=False)
+        self.conv1 = LocalLossBlockConv(in_planes, planes, 3, 1, 1, num_classes, input_dim * stride, dropout=None if self.adapted else 0, bias=True, pre_act=True, post_act=False)
         if not self.adapted:
             self.dropout = nn.Dropout(p=dropout_rate)
-        self.conv2 = LocalLossBlockConv(planes, planes, 3, stride, 1,
-            num_classes, input_dim, dropout=None if self.adapted else 0,
-            bias=True, pre_act=True, post_act=False)
+        self.conv2 = LocalLossBlockConv(planes, planes, 3, stride, 1, num_classes, input_dim, dropout=None if self.adapted else 0, bias=True, pre_act=True, post_act=False)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=True))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True))
             if args.optim == 'sgd':
-                self.optimizer = optim.SGD(self.shortcut.parameters(), lr=0,
-                    weight_decay=args.weight_decay, momentum=args.momentum)
+                self.optimizer = optim.SGD(self.shortcut.parameters(), lr=0, weight_decay=args.weight_decay, momentum=args.momentum)
             elif args.optim == 'adam' or args.optim == 'amsgrad':
-                self.optimizer = optim.Adam(self.shortcut.parameters(), lr=
-                    0, weight_decay=args.weight_decay, amsgrad=args.optim ==
-                    'amsgrad')
+                self.optimizer = optim.Adam(self.shortcut.parameters(), lr=0, weight_decay=args.weight_decay, amsgrad=args.optim == 'amsgrad')
 
     def set_learning_rate(self, lr):
         self.lr = lr
@@ -849,8 +749,7 @@ class Wide_ResNet(nn.Module):
     The network can be trained by backprop or by locally generated error signal based on cross-entropy and/or similarity matching loss.
     """
 
-    def __init__(self, depth, widen_factor, dropout_rate, num_classes,
-        input_ch, input_dim, adapted=False):
+    def __init__(self, depth, widen_factor, dropout_rate, num_classes, input_ch, input_dim, adapted=False):
         super(Wide_ResNet, self).__init__()
         self.adapted = adapted
         assert (depth - 4) % 6 == 0, 'Wide-resnet depth should be 6n+4'
@@ -862,29 +761,22 @@ class Wide_ResNet(nn.Module):
         else:
             nStages = [16, 16 * k, 32 * k, 64 * k]
         self.in_planes = nStages[0]
-        self.conv1 = LocalLossBlockConv(input_ch, nStages[0], 3, 1, 1,
-            num_classes, 32, dropout=0, bias=True, post_act=False)
-        self.layer1 = self._wide_layer(wide_basic, nStages[1], n,
-            dropout_rate, 1, num_classes, input_dim, adapted)
-        self.layer2 = self._wide_layer(wide_basic, nStages[2], n,
-            dropout_rate, 2, num_classes, input_dim, adapted)
-        self.layer3 = self._wide_layer(wide_basic, nStages[3], n,
-            dropout_rate, 2, num_classes, input_dim // 2, adapted)
+        self.conv1 = LocalLossBlockConv(input_ch, nStages[0], 3, 1, 1, num_classes, 32, dropout=0, bias=True, post_act=False)
+        self.layer1 = self._wide_layer(wide_basic, nStages[1], n, dropout_rate, 1, num_classes, input_dim, adapted)
+        self.layer2 = self._wide_layer(wide_basic, nStages[2], n, dropout_rate, 2, num_classes, input_dim, adapted)
+        self.layer3 = self._wide_layer(wide_basic, nStages[3], n, dropout_rate, 2, num_classes, input_dim // 2, adapted)
         self.bn1 = nn.BatchNorm2d(nStages[3], momentum=0.9)
-        self.linear = nn.Linear(nStages[3] * (16 if self.adapted else 1),
-            num_classes)
+        self.linear = nn.Linear(nStages[3] * (16 if self.adapted else 1), num_classes)
         if not args.backprop:
             self.linear.weight.data.zero_()
 
-    def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride,
-        num_classes, input_dim, adapted):
+    def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride, num_classes, input_dim, adapted):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         stride_cum = 1
         for stride in strides:
             stride_cum *= stride
-            layers.append(block(self.in_planes, planes, dropout_rate,
-                stride, num_classes, input_dim // stride_cum, adapted))
+            layers.append(block(self.in_planes, planes, dropout_rate, stride, num_classes, input_dim // stride_cum, adapted))
             self.in_planes = planes
         return nn.Sequential(*layers)
 
@@ -949,19 +841,14 @@ class Net(nn.Module):
         num_classes (int): Number of classes (used in local prediction loss).
     """
 
-    def __init__(self, num_layers, num_hidden, input_dim, input_ch, num_classes
-        ):
+    def __init__(self, num_layers, num_hidden, input_dim, input_ch, num_classes):
         super(Net, self).__init__()
         self.num_hidden = num_hidden
         self.num_layers = num_layers
         reduce_factor = 1
-        self.layers = nn.ModuleList([LocalLossBlockLinear(input_dim *
-            input_dim * input_ch, num_hidden, num_classes, first_layer=True)])
-        self.layers.extend([LocalLossBlockLinear(int(num_hidden // 
-            reduce_factor ** (i - 1)), int(num_hidden // reduce_factor ** i
-            ), num_classes) for i in range(1, num_layers)])
-        self.layer_out = nn.Linear(int(num_hidden // reduce_factor ** (
-            num_layers - 1)), num_classes)
+        self.layers = nn.ModuleList([LocalLossBlockLinear(input_dim * input_dim * input_ch, num_hidden, num_classes, first_layer=True)])
+        self.layers.extend([LocalLossBlockLinear(int(num_hidden // reduce_factor ** (i - 1)), int(num_hidden // reduce_factor ** i), num_classes) for i in range(1, num_layers)])
+        self.layer_out = nn.Linear(int(num_hidden // reduce_factor ** (num_layers - 1)), num_classes)
         if not args.backprop:
             self.layer_out.weight.data.zero_()
 
@@ -993,10 +880,10 @@ class Net(nn.Module):
         return x, total_loss
 
 
-_global_config['num_layers'] = 1
-
-
 _global_config['num_hidden'] = 4
+
+
+_global_config['num_layers'] = 1
 
 
 class VGGn(nn.Module):
@@ -1012,24 +899,20 @@ class VGGn(nn.Module):
         feat_mult (float): Multiply number of feature maps with this number.
     """
 
-    def __init__(self, vgg_name, input_dim, input_ch, num_classes, feat_mult=1
-        ):
+    def __init__(self, vgg_name, input_dim, input_ch, num_classes, feat_mult=1):
         super(VGGn, self).__init__()
         self.cfg = cfg[vgg_name]
         self.input_dim = input_dim
         self.input_ch = input_ch
         self.num_classes = num_classes
-        self.features, output_dim = self._make_layers(self.cfg, input_ch,
-            input_dim, feat_mult)
+        self.features, output_dim = self._make_layers(self.cfg, input_ch, input_dim, feat_mult)
         for layer in self.cfg:
             if isinstance(layer, int):
                 output_ch = layer
         if args.num_layers > 0:
-            self.classifier = Net(args.num_layers, args.num_hidden,
-                output_dim, int(output_ch * feat_mult), num_classes)
+            self.classifier = Net(args.num_layers, args.num_hidden, output_dim, int(output_ch * feat_mult), num_classes)
         else:
-            self.classifier = nn.Linear(output_dim * output_dim * int(
-                output_ch * feat_mult), num_classes)
+            self.classifier = nn.Linear(output_dim * output_dim * int(output_ch * feat_mult), num_classes)
 
     def parameters(self):
         if not args.backprop:
@@ -1101,15 +984,9 @@ class VGGn(nn.Module):
                 x = int(x * feat_mult)
                 if first_layer and input_dim > 64:
                     scale_cum = 2
-                    layers += [LocalLossBlockConv(input_ch, x, kernel_size=
-                        7, stride=2, padding=3, num_classes=num_classes,
-                        dim_out=input_dim // scale_cum, first_layer=
-                        first_layer)]
+                    layers += [LocalLossBlockConv(input_ch, x, kernel_size=7, stride=2, padding=3, num_classes=num_classes, dim_out=input_dim // scale_cum, first_layer=first_layer)]
                 else:
-                    layers += [LocalLossBlockConv(input_ch, x, kernel_size=
-                        3, stride=1, padding=1, num_classes=num_classes,
-                        dim_out=input_dim // scale_cum, first_layer=
-                        first_layer)]
+                    layers += [LocalLossBlockConv(input_ch, x, kernel_size=3, stride=1, padding=1, num_classes=num_classes, dim_out=input_dim // scale_cum, first_layer=first_layer)]
                 input_ch = x
                 first_layer = False
         return nn.Sequential(*layers), input_dim // scale_cum
@@ -1119,9 +996,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LinearFA,
+     lambda: ([], {'input_features': 4, 'output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_anokland_local_loss(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LinearFA(*[], **{'input_features': 4, 'output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

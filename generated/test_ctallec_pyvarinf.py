@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,8 +87,7 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
-VariationalParameter = namedtuple('VariationalParameter', ['mean', 'rho',
-    'eps'])
+VariationalParameter = namedtuple('VariationalParameter', ['mean', 'rho', 'eps'])
 
 
 def prior_std(p):
@@ -115,10 +115,8 @@ def evaluate(variational_parameter):
     :args variational_parameter: the variational parameter
     :returns: the value of the variational parameter
     """
-    assert isinstance(variational_parameter, VariationalParameter
-        ), 'Incorrect type.'
-    return variational_parameter.mean + (1 + variational_parameter.rho.exp()
-        ).log() * variational_parameter.eps
+    assert isinstance(variational_parameter, VariationalParameter), 'Incorrect type.'
+    return variational_parameter.mean + (1 + variational_parameter.rho.exp()).log() * variational_parameter.eps
 
 
 def rebuild_parameters(dico, module, epsilon_setting):
@@ -176,9 +174,7 @@ def sub_conjprior(dico, alpha_0, beta_0, mu_0, kappa_0):
             alpha_n = alpha_0 + n / 2
             kappa_n = kappa_0 + n
             beta_n = beta_0 + V / 2 + S * (kappa_0 * n) / (2 * kappa_n)
-            logprior += -beta_n.log() * alpha_n + alpha_0 * np.log(beta_0
-                ) + gammaln(alpha_n) - gammaln(alpha_0) + 0.5 * np.log(
-                kappa_0 / kappa_n) - 0.5 * n * np.log(2 * np.pi)
+            logprior += -beta_n.log() * alpha_n + alpha_0 * np.log(beta_0) + gammaln(alpha_n) - gammaln(alpha_0) + 0.5 * np.log(kappa_0 / kappa_n) - 0.5 * n * np.log(2 * np.pi)
         else:
             logprior += sub_conjprior(p, alpha_0, beta_0, mu_0, kappa_0)
     return logprior
@@ -203,9 +199,7 @@ def sub_conjpriorknownmean(dico, mean, alpha_0, beta_0):
             n = np.prod(theta.size())
             alpha_n = alpha_0 + n / 2
             beta_n = beta_0 + S / 2
-            logprior += -beta_n.log() * alpha_n + gammaln(alpha_n) - gammaln(
-                alpha_0) + alpha_0 * np.log(beta_0) - 0.5 * n * np.log(2 *
-                np.pi)
+            logprior += -beta_n.log() * alpha_n + gammaln(alpha_n) - gammaln(alpha_0) + alpha_0 * np.log(beta_0) - 0.5 * n * np.log(2 * np.pi)
         else:
             logprior += sub_conjpriorknownmean(p, mean, alpha_0, beta_0)
     return logprior
@@ -270,8 +264,7 @@ def sub_prior_loss(dico):
             mean = p.mean
             std = (1 + p.rho.exp()).log()
             std_prior = prior_std(mean)
-            loss += (-(std / std_prior).log() + (std.pow(2) + mean.pow(2)) /
-                (2 * std_prior ** 2) - 1 / 2).sum()
+            loss += (-(std / std_prior).log() + (std.pow(2) + mean.pow(2)) / (2 * std_prior ** 2) - 1 / 2).sum()
         else:
             loss += sub_prior_loss(p)
     return loss
@@ -297,13 +290,10 @@ class Variationalize(nn.Module):
         super().__init__()
         self.model = model
         self.dico = OrderedDict()
-        self._variationalize_module(self.dico, self.model, '', zero_mean,
-            learn_mean, learn_rho)
-        self._prior_loss_function = functools.partial(sub_prior_loss, dico=
-            self.dico)
+        self._variationalize_module(self.dico, self.model, '', zero_mean, learn_mean, learn_rho)
+        self._prior_loss_function = functools.partial(sub_prior_loss, dico=self.dico)
 
-    def _variationalize_module(self, dico, module, prefix, zero_mean,
-        learn_mean, learn_rho):
+    def _variationalize_module(self, dico, module, prefix, zero_mean, learn_mean, learn_rho):
         to_erase = []
         paras = module._parameters.items()
         for name, p in paras:
@@ -315,21 +305,17 @@ class Variationalize(nn.Module):
                 init_mean = p.data.clone()
                 if zero_mean:
                     init_mean.fill_(0)
-                dico[name] = VariationalParameter(Parameter(init_mean),
-                    Parameter(p.data.clone().fill_(init_rho)), None)
+                dico[name] = VariationalParameter(Parameter(init_mean), Parameter(p.data.clone().fill_(init_rho)), None)
                 if learn_mean:
-                    self.register_parameter(prefix + '_' + name + '_mean',
-                        dico[name].mean)
+                    self.register_parameter(prefix + '_' + name + '_mean', dico[name].mean)
                 if learn_rho:
-                    self.register_parameter(prefix + '_' + name + '_rho',
-                        dico[name].rho)
+                    self.register_parameter(prefix + '_' + name + '_rho', dico[name].rho)
             to_erase.append(name)
         for name in to_erase:
             delattr(module, name)
         for mname, sub_module in module.named_children():
             sub_dico = OrderedDict()
-            self._variationalize_module(sub_dico, sub_module, prefix + ('_' if
-                prefix else '') + mname, zero_mean, learn_mean, learn_rho)
+            self._variationalize_module(sub_dico, sub_module, prefix + ('_' if prefix else '') + mname, zero_mean, learn_mean, learn_rho)
             dico[mname] = sub_dico
 
     def set_prior(self, prior_type, **prior_parameters):
@@ -366,26 +352,21 @@ class Variationalize(nn.Module):
         :args prior_parameters: the parameters for the associated prior
         """
         if prior_type == 'gaussian':
-            self._prior_loss_function = functools.partial(sub_prior_loss,
-                dico=self.dico)
+            self._prior_loss_function = functools.partial(sub_prior_loss, dico=self.dico)
         else:
             n_mc_samples = prior_parameters.pop('n_mc_samples')
             if prior_type == 'conjugate':
-                mc_logprior_function = functools.partial(sub_conjprior, **
-                    prior_parameters)
+                mc_logprior_function = functools.partial(sub_conjprior, **prior_parameters)
             if prior_type == 'conjugate_known_mean':
-                mc_logprior_function = functools.partial(sub_conjpriorknownmean
-                    , **prior_parameters)
+                mc_logprior_function = functools.partial(sub_conjpriorknownmean, **prior_parameters)
             if prior_type == 'mixtgauss':
-                mc_logprior_function = functools.partial(sub_mixtgaussprior,
-                    **prior_parameters)
+                mc_logprior_function = functools.partial(sub_mixtgaussprior, **prior_parameters)
 
             def prior_loss_function():
                 """Compute the prior loss"""
                 logprior = 0.0
                 for _ in range(n_mc_samples):
-                    rebuild_parameters(self.dico, self.model, lambda name,
-                        p: p.eps.data.normal_())
+                    rebuild_parameters(self.dico, self.model, lambda name, p: p.eps.data.normal_())
                     logprior += mc_logprior_function(self.dico)
                 logprior = logprior / n_mc_samples
                 H = sub_entropy(self.dico)
@@ -434,10 +415,8 @@ class Sample(nn.Module):
         for name, p in var_dico.items():
             if isinstance(p, VariationalParameter):
                 if p.eps is None:
-                    var_dico[name] = p._replace(eps=Variable(p.mean.data.
-                        clone()))
-                association.append((var_dico[name].eps, var_dico[name].eps.
-                    data.clone().normal_()))
+                    var_dico[name] = p._replace(eps=Variable(p.mean.data.clone()))
+                association.append((var_dico[name].eps, var_dico[name].eps.data.clone().normal_()))
             else:
                 self.draw(association, p)
 
@@ -447,14 +426,6 @@ class Sample(nn.Module):
 
         def _epsilon_setting(name, p):
             return 1
-        rebuild_parameters(self.var_model.dico, self.var_model.model,
-            _epsilon_setting)
+        rebuild_parameters(self.var_model.dico, self.var_model.model, _epsilon_setting)
         return self.var_model.model(*inputs)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ctallec_pyvarinf(_paritybench_base):
-    pass

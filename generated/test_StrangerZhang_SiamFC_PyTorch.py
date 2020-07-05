@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,13 +72,13 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
 
-_global_config['train_batch_size'] = False
-
-
-_global_config['radius'] = 4
+_global_config['total_stride'] = 1
 
 
 _global_config['response_sz'] = 4
+
+
+_global_config['train_batch_size'] = False
 
 
 _global_config['response_scale'] = 1.0
@@ -86,29 +87,21 @@ _global_config['response_scale'] = 1.0
 _global_config['train_response_sz'] = False
 
 
-_global_config['total_stride'] = 1
+_global_config['radius'] = 4
 
 
 class SiameseAlexNet(nn.Module):
 
     def __init__(self, gpu_id, train=True):
         super(SiameseAlexNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.
-            BatchNorm2d(96), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.
-            Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256), nn.ReLU(
-            inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1),
-            nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 384,
-            3, 1, groups=2), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn
-            .Conv2d(384, 256, 3, 1, groups=2))
+        self.features = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.BatchNorm2d(96), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 384, 3, 1, groups=2), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 256, 3, 1, groups=2))
         self.corr_bias = nn.Parameter(torch.zeros(1))
         if train:
-            gt, weight = self._create_gt_mask((config.train_response_sz,
-                config.train_response_sz))
+            gt, weight = self._create_gt_mask((config.train_response_sz, config.train_response_sz))
             with torch.device(gpu_id):
                 self.train_gt = torch.from_numpy(gt)
                 self.train_weight = torch.from_numpy(weight)
-            gt, weight = self._create_gt_mask((config.response_sz, config.
-                response_sz))
+            gt, weight = self._create_gt_mask((config.response_sz, config.response_sz))
             with torch.device(gpu_id):
                 self.valid_gt = torch.from_numpy(gt)
                 self.valid_weight = torch.from_numpy(weight)
@@ -118,8 +111,7 @@ class SiameseAlexNet(nn.Module):
     def init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight.data, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight.data, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
@@ -133,8 +125,7 @@ class SiameseAlexNet(nn.Module):
             score_map = []
             N, C, H, W = instance.shape
             instance = instance.view(1, -1, H, W)
-            score = F.conv2d(instance, exemplar, groups=N
-                ) * config.response_scale + self.corr_bias
+            score = F.conv2d(instance, exemplar, groups=N) * config.response_scale + self.corr_bias
             return score.transpose(0, 1)
         elif exemplar is not None and instance is None:
             self.exemplar = self.features(exemplar)
@@ -151,11 +142,9 @@ class SiameseAlexNet(nn.Module):
 
     def weighted_loss(self, pred):
         if self.training:
-            return F.binary_cross_entropy_with_logits(pred, self.train_gt,
-                self.train_weight, reduction='sum') / config.train_batch_size
+            return F.binary_cross_entropy_with_logits(pred, self.train_gt, self.train_weight, reduction='sum') / config.train_batch_size
         else:
-            return F.binary_cross_entropy_with_logits(pred, self.valid_gt,
-                self.valid_weight, reduction='sum') / config.train_batch_size
+            return F.binary_cross_entropy_with_logits(pred, self.valid_gt, self.valid_weight, reduction='sum') / config.train_batch_size
 
     def _create_gt_mask(self, shape):
         h, w = shape
@@ -169,14 +158,6 @@ class SiameseAlexNet(nn.Module):
         weights = np.ones_like(mask)
         weights[mask == 1] = 0.5 / np.sum(mask == 1)
         weights[mask == 0] = 0.5 / np.sum(mask == 0)
-        mask = np.repeat(mask, config.train_batch_size, axis=0)[:, (np.
-            newaxis), :, :]
+        mask = np.repeat(mask, config.train_batch_size, axis=0)[:, (np.newaxis), :, :]
         return mask.astype(np.float32), weights.astype(np.float32)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_StrangerZhang_SiamFC_PyTorch(_paritybench_base):
-    pass

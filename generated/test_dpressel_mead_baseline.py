@@ -161,8 +161,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -286,8 +287,7 @@ def vec_log_sum_exp(vec: torch.Tensor, dim: int) ->torch.Tensor:
     """
     max_scores, idx = torch.max(vec, dim, keepdim=True)
     max_scores_broadcast = max_scores.expand_as(vec)
-    return max_scores + torch.log(torch.sum(torch.exp(vec -
-        max_scores_broadcast), dim, keepdim=True))
+    return max_scores + torch.log(torch.sum(torch.exp(vec - max_scores_broadcast), dim, keepdim=True))
 
 
 class AllLoss(nn.Module):
@@ -345,10 +345,8 @@ class TwoHeadConcat(nn.Module):
         :return: concatenation of the two 1-head attention
         """
         super().__init__()
-        self.reduction1 = SingleHeadReduction(d_model, dropout, scale=scale,
-            d_k=d_k)
-        self.reduction2 = SingleHeadReduction(d_model, dropout, scale=scale,
-            d_k=d_k)
+        self.reduction1 = SingleHeadReduction(d_model, dropout, scale=scale, d_k=d_k)
+        self.reduction2 = SingleHeadReduction(d_model, dropout, scale=scale, d_k=d_k)
 
     def forward(self, inputs: torch.Tensor):
         x = inputs
@@ -363,8 +361,7 @@ def TRAIN_FLAG():
     global BASELINE_TF_TRAIN_FLAG
     if BASELINE_TF_TRAIN_FLAG is not None:
         return BASELINE_TF_TRAIN_FLAG
-    BASELINE_TF_TRAIN_FLAG = tf.compat.v1.placeholder_with_default(False,
-        shape=(), name='TRAIN_FLAG')
+    BASELINE_TF_TRAIN_FLAG = tf.compat.v1.placeholder_with_default(False, shape=(), name='TRAIN_FLAG')
     return BASELINE_TF_TRAIN_FLAG
 
 
@@ -391,8 +388,7 @@ class ConveRTFFN(nn.Module):
         :param pdrop: dropout of each hidden layer
         """
         super().__init__()
-        self.dense_stack = DenseStack(insz, hszs, activation='gelu',
-            pdrop_value=pdrop, skip_connect=True, layer_norm=True)
+        self.dense_stack = DenseStack(insz, hszs, activation='gelu', pdrop_value=pdrop, skip_connect=True, layer_norm=True)
         self.final = Dense(hszs[-1], outsz)
         self.proj = Dense(insz, outsz) if insz != outsz else nn.Identity()
         self.ln1 = nn.LayerNorm(insz, eps=1e-06)
@@ -406,8 +402,7 @@ class ConveRTFFN(nn.Module):
         return self.ln2(x)
 
 
-TransformerEncoderOutput = namedtuple('TransformerEncoderOutput', ('output',
-    'src_mask'))
+TransformerEncoderOutput = namedtuple('TransformerEncoderOutput', ('output', 'src_mask'))
 
 
 def get_shape_as_list(x):
@@ -454,19 +449,14 @@ def optional_params(func):
 
 class PairedModel(nn.Module):
 
-    def __init__(self, embeddings, d_model, d_ff, dropout, num_heads,
-        num_layers, stacking_layers=None, d_out=512, d_k=None, weight_std=
-        0.02, rpr_k=None, reduction_d_k=64, ff_pdrop=0.1):
+    def __init__(self, embeddings, d_model, d_ff, dropout, num_heads, num_layers, stacking_layers=None, d_out=512, d_k=None, weight_std=0.02, rpr_k=None, reduction_d_k=64, ff_pdrop=0.1):
         super().__init__()
         if stacking_layers is None:
             stacking_layers = [d_model] * 3
         self.weight_std = weight_std
         stacking_layers = listify(stacking_layers)
-        transformer = TransformerEncoderStack(num_heads=num_heads, d_model=
-            d_model, pdrop=dropout, layers=num_layers, activation='gelu',
-            d_ff=d_ff, d_k=d_k, rpr_k=rpr_k)
-        self.attention_layer = TwoHeadConcat(d_model, dropout, scale=False,
-            d_k=reduction_d_k)
+        transformer = TransformerEncoderStack(num_heads=num_heads, d_model=d_model, pdrop=dropout, layers=num_layers, activation='gelu', d_ff=d_ff, d_k=d_k, rpr_k=rpr_k)
+        self.attention_layer = TwoHeadConcat(d_model, dropout, scale=False, d_k=reduction_d_k)
         self.transformer_layers = transformer
         self.embedding_layers = embeddings
         self.ff1 = ConveRTFFN(2 * d_model, stacking_layers, d_out, ff_pdrop)
@@ -476,8 +466,7 @@ class PairedModel(nn.Module):
     def init_layer_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.weight_std)
-        if isinstance(module, (nn.Linear, nn.LayerNorm)
-            ) and module.bias is not None:
+        if isinstance(module, (nn.Linear, nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def encode_query(self, query):
@@ -485,8 +474,7 @@ class PairedModel(nn.Module):
         att_mask = query_mask.unsqueeze(1).unsqueeze(1)
         embedded = self.embedding_layers(query)
         encoded_query = self.transformer_layers((embedded, att_mask))
-        encoded_query = self.attention_layer((encoded_query, encoded_query,
-            encoded_query, att_mask))
+        encoded_query = self.attention_layer((encoded_query, encoded_query, encoded_query, att_mask))
         encoded_query = self.ff1(encoded_query)
         return encoded_query
 
@@ -495,8 +483,7 @@ class PairedModel(nn.Module):
         att_mask = response_mask.unsqueeze(1).unsqueeze(1)
         embedded = self.embedding_layers(response)
         encoded_response = self.transformer_layers((embedded, att_mask))
-        encoded_response = self.attention_layer((encoded_response,
-            encoded_response, encoded_response, att_mask))
+        encoded_response = self.attention_layer((encoded_response, encoded_response, encoded_response, att_mask))
         encoded_response = self.ff2(encoded_response)
         return encoded_response
 
@@ -511,8 +498,7 @@ class PairedModel(nn.Module):
         return TripletLoss(self)
 
 
-def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str
-    =None, bias: bool=True):
+def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str=None, bias: bool=True):
     """Utility function that wraps a linear (AKA dense) layer creation, with options for weight init and bias"""
     l = nn.Linear(in_sz, out_sz, bias=bias)
     if unif > 0:
@@ -530,32 +516,26 @@ def pytorch_linear(in_sz: int, out_sz: int, unif: float=0, initializer: str
 
 class TransformerDiscriminator(nn.Module):
 
-    def __init__(self, embeddings, d_model, d_ff, dropout, num_heads,
-        num_layers, rpr_k, d_k, **kwargs):
+    def __init__(self, embeddings, d_model, d_ff, dropout, num_heads, num_layers, rpr_k, d_k, **kwargs):
         super().__init__()
         self.embeddings = EmbeddingsStack(embeddings, dropout)
         self.weight_std = kwargs.get('weight_std', 0.02)
         assert self.embeddings.dsz == d_model
-        self.transformer = TransformerEncoderStack(num_heads, d_model=
-            d_model, pdrop=dropout, scale=True, layers=num_layers, d_ff=
-            d_ff, rpr_k=rpr_k, d_k=d_k)
+        self.transformer = TransformerEncoderStack(num_heads, d_model=d_model, pdrop=dropout, scale=True, layers=num_layers, d_ff=d_ff, rpr_k=rpr_k, d_k=d_k)
         self.proj_to_output = pytorch_linear(d_model, 1)
         self.apply(self.init_layer_weights)
-        self.lengths_feature = kwargs.get('lengths_feature', self.
-            embeddings.keys()[0])
+        self.lengths_feature = kwargs.get('lengths_feature', self.embeddings.keys()[0])
 
     def init_layer_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Embedding, nn.LayerNorm)):
             module.weight.data.normal_(mean=0.0, std=self.weight_std)
-        if isinstance(module, (nn.Linear, nn.LayerNorm)
-            ) and module.bias is not None:
+        if isinstance(module, (nn.Linear, nn.LayerNorm)) and module.bias is not None:
             module.bias.data.zero_()
 
     def forward(self, features):
         embedded = self.embeddings(features)
         x = features[self.lengths_feature]
-        input_mask = torch.zeros(x.shape, device=x.device, dtype=torch.long
-            ).masked_fill(x != 0, 1).unsqueeze(1).unsqueeze(1)
+        input_mask = torch.zeros(x.shape, device=x.device, dtype=torch.long).masked_fill(x != 0, 1).unsqueeze(1).unsqueeze(1)
         transformer_out = self.transformer((embedded, input_mask))
         binary = self.proj_to_output(transformer_out)
         return torch.sigmoid(binary)
@@ -635,8 +615,7 @@ def update_lengths(lengths, eoses, idx):
 class BeamSearchBase:
 
     def __init__(self, beam=1, length_penalty=None, **kwargs):
-        self.length_penalty = (length_penalty if length_penalty else
-            no_length_penalty)
+        self.length_penalty = length_penalty if length_penalty else no_length_penalty
         self.K = beam
 
     def init(self, encoder_outputs):
@@ -685,37 +664,30 @@ class BeamSearchBase:
         device = encoder_outputs.output.device
         with torch.no_grad():
             extra = self.init(encoder_outputs)
-            paths = torch.full((bsz, self.K, 1), Offsets.GO, dtype=torch.
-                long, device=device)
-            log_probs = torch.zeros((bsz, self.K), dtype=torch.float,
-                device=device)
-            lengths = torch.zeros((bsz, self.K), dtype=torch.long, device=
-                device)
+            paths = torch.full((bsz, self.K, 1), Offsets.GO, dtype=torch.long, device=device)
+            log_probs = torch.zeros((bsz, self.K), dtype=torch.float, device=device)
+            lengths = torch.zeros((bsz, self.K), dtype=torch.long, device=device)
             for i in range(mxlen - 1):
                 probs, extra = self.step(paths, extra)
                 V = probs.shape[-1]
                 probs = probs.view((bsz, self.K, V))
                 if i > 0:
                     done_mask = (lengths != 0).unsqueeze(-1)
-                    eos_mask = torch.zeros((1, 1, V), dtype=done_mask.dtype,
-                        device=device)
+                    eos_mask = torch.zeros((1, 1, V), dtype=done_mask.dtype, device=device)
                     eos_mask[:, :, (Offsets.EOS)] = 1
                     mask = done_mask & eos_mask
                     probs = probs.masked_fill(done_mask, -np.inf)
                     probs = probs.masked_fill(mask, 0)
                     probs = log_probs.unsqueeze(-1) + probs
-                    path_scores = probs / self.length_penalty(lengths.
-                        masked_fill(lengths == 0, i + 1))
+                    path_scores = probs / self.length_penalty(lengths.masked_fill(lengths == 0, i + 1))
                 else:
                     path_scores = probs[:, (0), :]
                 flat_scores = path_scores.view(bsz, -1)
                 best_scores, best_idx = flat_scores.topk(self.K, 1)
-                log_probs = probs.view(bsz, -1).gather(1, best_idx).view(bsz,
-                    self.K)
+                log_probs = probs.view(bsz, -1).gather(1, best_idx).view(bsz, self.K)
                 best_beams = best_idx / V
                 best_idx = best_idx % V
-                offsets = torch.arange(bsz, dtype=torch.long, device=device
-                    ) * self.K
+                offsets = torch.arange(bsz, dtype=torch.long, device=device) * self.K
                 offset_beams = best_beams + offsets.unsqueeze(-1)
                 flat_beams = offset_beams.view(bsz * self.K)
                 flat_paths = paths.view(bsz * self.K, -1)
@@ -735,15 +707,11 @@ class BeamSearchBase:
                 probs = probs[:, :, (Offsets.EOS)]
                 probs = probs.masked_fill(lengths != 0, 0)
                 log_probs = log_probs + probs
-                end_tokens = torch.full((bsz, self.K, 1), Offsets.EOS,
-                    device=device, dtype=paths.dtype)
+                end_tokens = torch.full((bsz, self.K, 1), Offsets.EOS, device=device, dtype=paths.dtype)
                 paths = torch.cat([paths, end_tokens], dim=2)
-                lengths = update_lengths(lengths, torch.ones_like(lengths) ==
-                    1, mxlen)
-                lengths = update_lengths(lengths, torch.ones_like(lengths) ==
-                    1, mxlen)
-                best_scores = log_probs / self.length_penalty(lengths).squeeze(
-                    -1)
+                lengths = update_lengths(lengths, torch.ones_like(lengths) == 1, mxlen)
+                lengths = update_lengths(lengths, torch.ones_like(lengths) == 1, mxlen)
+                best_scores = log_probs / self.length_penalty(lengths).squeeze(-1)
         paths = paths[:, :, 1:]
         return paths, lengths, best_scores
 
@@ -862,8 +830,7 @@ def concat_state_dirs(state):
     return _cat_dir(state)
 
 
-RNNEncoderOutput = namedtuple('RNNEncoderOutput', ('output', 'hidden',
-    'src_mask'))
+RNNEncoderOutput = namedtuple('RNNEncoderOutput', ('output', 'hidden', 'src_mask'))
 
 
 def sequence_mask(lengths: torch.Tensor, max_len: int=-1) ->torch.Tensor:
@@ -980,8 +947,7 @@ class VariationalDropout(nn.Module):
         else:
             dim0 = 1
             dim1 = input.size(1)
-        mask = torch.zeros(dim0, dim1, input.size(2)).bernoulli_(1 - self.pdrop
-            )
+        mask = torch.zeros(dim0, dim1, input.size(2)).bernoulli_(1 - self.pdrop)
         mask = mask / self.pdrop
         return mask * input
 
@@ -1010,8 +976,7 @@ class SequenceLoss(nn.Module):
     def _no_norm(self, loss, inputs):
         return loss
 
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
         """Evaluate some loss over a sequence.
         :param inputs: torch.FloatTensor, [B, .., C] The scores from the model. Batch First
         :param targets: torch.LongTensor, The labels.
@@ -1060,16 +1025,14 @@ class MeanPool1D(nn.Module):
         self.output_dim = outsz
         self.requires_length = True
 
-    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]
-        ) ->torch.Tensor:
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) ->torch.Tensor:
         """Apply mean pooling on the valid inputs
 
         :param inputs: A tuple of `(input, lengths)`
         :return: Pooled output
         """
         tensor, lengths = tensor_and_lengths(inputs)
-        return torch.sum(tensor, self.reduction_dim, keepdim=False
-            ) / torch.unsqueeze(lengths, -1).to(tensor.dtype)
+        return torch.sum(tensor, self.reduction_dim, keepdim=False) / torch.unsqueeze(lengths, -1).to(tensor.dtype)
 
     def extra_repr(self):
         return f'batch_first={self.batch_first}'
@@ -1093,8 +1056,7 @@ class MaxPool1D(nn.Module):
         self.reduction_dim = 1 if self.batch_first else 0
         self.output_dim = outsz
 
-    def forward(self, inputs: Union[torch.Tensor, Tuple[torch.Tensor, torch
-        .Tensor]]) ->torch.Tensor:
+    def forward(self, inputs: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]) ->torch.Tensor:
         """If we are given a tuple as input, we will use the length, otherwise we will do an operation without masking
 
         :param inputs: either a tuple of `(input, lengths)` or a tensor `input`
@@ -1104,8 +1066,7 @@ class MaxPool1D(nn.Module):
         if lengths is not None:
             mask = sequence_mask(lengths)
             mask = mask if self.batch_first else bth2tbh(mask)
-            tensor = tensor.masked_fill(mask.unsqueeze(-1) == MASK_FALSE, -
-                10000.0)
+            tensor = tensor.masked_fill(mask.unsqueeze(-1) == MASK_FALSE, -10000.0)
         dmax, _ = torch.max(tensor, self.reduction_dim, keepdim=False)
         return dmax
 
@@ -1130,8 +1091,7 @@ class Conv1DSame(nn.Module):
 
     """
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_size:
-        int, bias: bool=True):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, bias: bool=True):
         """Create a 1D conv to produce the same output size as input
 
         :param in_channels: The number of input feature maps
@@ -1142,8 +1102,7 @@ class Conv1DSame(nn.Module):
         super().__init__()
         start_pad = kernel_size // 2
         end_pad = start_pad - 1 if kernel_size % 2 == 0 else start_pad
-        self.conv = nn.Sequential(nn.ConstantPad1d((start_pad, end_pad), 
-            0.0), nn.Conv1d(in_channels, out_channels, kernel_size, bias=bias))
+        self.conv = nn.Sequential(nn.ConstantPad1d((start_pad, end_pad), 0.0), nn.Conv1d(in_channels, out_channels, kernel_size, bias=bias))
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
         """Do convolution1d on an input tensor, `[B, C, T]`
@@ -1193,8 +1152,7 @@ class ConvEncoder(nn.Module):
 
     """
 
-    def __init__(self, insz: int, outsz: int, filtsz: int, pdrop: float=0.0,
-        activation: str='relu', hidden_last=True):
+    def __init__(self, insz: int, outsz: int, filtsz: int, pdrop: float=0.0, activation: str='relu', hidden_last=True):
         """Construct the encoder with optional dropout, given activation, and orientation
 
         :param insz: The number of input feature maps
@@ -1229,8 +1187,7 @@ class ConvEncoderStack(nn.Module):
     `[B, T, C]`
     """
 
-    def __init__(self, insz: int, outsz: int, filtsz: int, nlayers: int=1,
-        pdrop: float=0.0, activation: str='relu', hidden_last=True):
+    def __init__(self, insz: int, outsz: int, filtsz: int, nlayers: int=1, pdrop: float=0.0, activation: str='relu', hidden_last=True):
         """Construct the encoder stack
 
         :param insz: The input number of feature maps
@@ -1243,15 +1200,11 @@ class ConvEncoderStack(nn.Module):
         """
         super().__init__()
         if hidden_last:
-            first_layer = nn.Sequential(BTH2BHT(), ConvEncoder(insz, outsz,
-                filtsz, pdrop, activation, hidden_last=False))
+            first_layer = nn.Sequential(BTH2BHT(), ConvEncoder(insz, outsz, filtsz, pdrop, activation, hidden_last=False))
         else:
-            first_layer = ConvEncoder(insz, outsz, filtsz, pdrop,
-                activation, hidden_last=False)
-        subsequent_layer = ResidualBlock(ConvEncoder(outsz, outsz, filtsz,
-            pdrop, activation, hidden_last=False))
-        self.layers = nn.ModuleList([first_layer] + [copy.deepcopy(
-            subsequent_layer) for _ in range(nlayers - 1)])
+            first_layer = ConvEncoder(insz, outsz, filtsz, pdrop, activation, hidden_last=False)
+        subsequent_layer = ResidualBlock(ConvEncoder(outsz, outsz, filtsz, pdrop, activation, hidden_last=False))
+        self.layers = nn.ModuleList([first_layer] + [copy.deepcopy(subsequent_layer) for _ in range(nlayers - 1)])
         if hidden_last:
             self.layers.append(BHT2BTH())
         self.output_dim = outsz
@@ -1349,8 +1302,7 @@ class ParallelConv(nn.Module):
     output to shape `[B, H]`, where `H` is `outsz * len(filtsz)`
     """
 
-    def __init__(self, insz: int, outsz: int, filtsz: List[int], activation:
-        str='relu', input_fmt: str='bth'):
+    def __init__(self, insz: int, outsz: int, filtsz: List[int], activation: str='relu', input_fmt: str='bth'):
         """
         Constructor for a parallel convolution from any orientation tensor input
 
@@ -1372,8 +1324,7 @@ class ParallelConv(nn.Module):
         self.output_dim = sum(outsz_filts)
         for i, fsz in enumerate(filtsz):
             pad = fsz // 2
-            conv = nn.Sequential(nn.Conv1d(insz, outsz_filts[i], fsz,
-                padding=pad), get_activation(activation))
+            conv = nn.Sequential(nn.Conv1d(insz, outsz_filts[i], fsz, padding=pad), get_activation(activation))
             convs.append(conv)
         self.convs = nn.ModuleList(convs)
 
@@ -1434,15 +1385,13 @@ class StackedLSTMCell(nn.Module):
     """A stacked LSTM cells applied at a timestep
     """
 
-    def __init__(self, num_layers: int, input_size: int, rnn_size: int,
-        dropout: float):
+    def __init__(self, num_layers: int, input_size: int, rnn_size: int, dropout: float):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.num_layers = num_layers
         self.layers = nn.ModuleList()
         for i in range(num_layers):
-            self.layers.append(nn.LSTMCell(input_size=input_size,
-                hidden_size=rnn_size, bias=False))
+            self.layers.append(nn.LSTMCell(input_size=input_size, hidden_size=rnn_size, bias=False))
             input_size = rnn_size
 
     def forward(self, input: torch.Tensor, hidden: torch.Tensor):
@@ -1470,19 +1419,16 @@ class StackedGRUCell(nn.Module):
     """A stacked GRU cells applied at a timestep
     """
 
-    def __init__(self, num_layers: int, input_size: int, rnn_size: int,
-        dropout: float):
+    def __init__(self, num_layers: int, input_size: int, rnn_size: int, dropout: float):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.num_layers = num_layers
         self.layers = nn.ModuleList()
         for i in range(num_layers):
-            self.layers.append(nn.GRUCell(input_size=input_size,
-                hidden_size=rnn_size))
+            self.layers.append(nn.GRUCell(input_size=input_size, hidden_size=rnn_size))
             input_size = rnn_size
 
-    def forward(self, input: torch.Tensor, hidden: torch.Tensor) ->Tuple[
-        torch.Tensor, torch.Tensor]:
+    def forward(self, input: torch.Tensor, hidden: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         """Apply a stack of GRUs
 
         :param input: The input to the first LSTM `[B, H]`
@@ -1507,8 +1453,7 @@ class Dense(nn.Module):
     This module is the equivalent of the tf.keras.layer.Dense, module with optional activations applied
     """
 
-    def __init__(self, insz: int, outsz: int, activation: Optional[str]=
-        None, unif: float=0, initializer: Optional[str]=None):
+    def __init__(self, insz: int, outsz: int, activation: Optional[str]=None, unif: float=0, initializer: Optional[str]=None):
         """Constructor for "dense" or "linear" layer, with optional activation applied
 
         :param insz: The number of hidden units in the input
@@ -1540,8 +1485,7 @@ class WeightTieDense(nn.Module):
         self.tie = tie
         self.weight, self.transform = self._get_weight(tie)
         if bias:
-            bias = torch.nn.Parameter(torch.zeros(self.transform(self.
-                weight).shape[0]))
+            bias = torch.nn.Parameter(torch.zeros(self.transform(self.weight).shape[0]))
         else:
             bias = None
         self.register_parameter('bias', bias)
@@ -1603,9 +1547,7 @@ class LSTMEncoderBase(nn.Module):
 
     """
 
-    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0,
-        requires_length: bool=True, batch_first: bool=False, unif: float=0,
-        initializer: str=None, **kwargs):
+    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0, requires_length: bool=True, batch_first: bool=False, unif: float=0, initializer: str=None, **kwargs):
         """Produce a stack of LSTMs with dropout performed on all but the last layer.
 
         :param insz: The size of the input
@@ -1623,8 +1565,7 @@ class LSTMEncoderBase(nn.Module):
         self.nlayers = nlayers
         if nlayers == 1:
             pdrop = 0.0
-        self.rnn = torch.nn.LSTM(insz, hsz, nlayers, dropout=pdrop,
-            bidirectional=False, batch_first=batch_first)
+        self.rnn = torch.nn.LSTM(insz, hsz, nlayers, dropout=pdrop, bidirectional=False, batch_first=batch_first)
         if initializer == 'ortho':
             nn.init.orthogonal(self.rnn.weight_hh_l0)
             nn.init.orthogonal(self.rnn.weight_ih_l0)
@@ -1639,8 +1580,7 @@ class LSTMEncoderBase(nn.Module):
             nn.init.xavier_uniform_(self.rnn.weight_ih_l0)
         self.output_dim = hsz
 
-    def extract_top_state(self, state: Tuple[torch.Tensor, torch.Tensor]
-        ) ->List[torch.Tensor]:
+    def extract_top_state(self, state: Tuple[torch.Tensor, torch.Tensor]) ->List[torch.Tensor]:
         """Get a view of the top state of shape [B, H]`
 
         :param state:
@@ -1658,9 +1598,7 @@ class LSTMEncoderWithState(nn.Module):
     PyTorch note: This type of encoder doesnt inherit the `LSTMEncoderWithState` base
     """
 
-    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0,
-        batch_first: bool=False, unif: float=0, initializer: str=None, **kwargs
-        ):
+    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0, batch_first: bool=False, unif: float=0, initializer: str=None, **kwargs):
         """
         :param insz: The size of the input
         :param hsz: The number of hidden units per LSTM
@@ -1678,8 +1616,7 @@ class LSTMEncoderWithState(nn.Module):
         self.nlayers = nlayers
         if nlayers == 1:
             pdrop = 0.0
-        self.rnn = torch.nn.LSTM(insz, hsz, nlayers, dropout=pdrop,
-            bidirectional=False, batch_first=batch_first)
+        self.rnn = torch.nn.LSTM(insz, hsz, nlayers, dropout=pdrop, bidirectional=False, batch_first=batch_first)
         if initializer == 'ortho':
             nn.init.orthogonal(self.rnn.weight_hh_l0)
             nn.init.orthogonal(self.rnn.weight_ih_l0)
@@ -1694,8 +1631,7 @@ class LSTMEncoderWithState(nn.Module):
             nn.init.xavier_uniform_(self.rnn.weight_ih_l0)
         self.output_dim = hsz
 
-    def forward(self, input_and_prev_h: Tuple[torch.Tensor, torch.Tensor]
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, input_and_prev_h: Tuple[torch.Tensor, torch.Tensor]) ->Tuple[torch.Tensor, torch.Tensor]:
         """
 
         :param input_and_prev_h: The input at this timestep and the previous hidden unit or `None`
@@ -1726,9 +1662,7 @@ class BiLSTMEncoderBase(nn.Module):
 
     """
 
-    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0,
-        requires_length: bool=True, batch_first: bool=False, unif: float=0,
-        initializer: str=None, **kwargs):
+    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0, requires_length: bool=True, batch_first: bool=False, unif: float=0, initializer: str=None, **kwargs):
         """Produce a stack of LSTMs with dropout performed on all but the last layer.
 
         :param insz: The size of the input
@@ -1746,8 +1680,7 @@ class BiLSTMEncoderBase(nn.Module):
         self.nlayers = nlayers
         if nlayers == 1:
             pdrop = 0.0
-        self.rnn = torch.nn.LSTM(insz, hsz // 2, nlayers, dropout=pdrop,
-            bidirectional=True, batch_first=batch_first)
+        self.rnn = torch.nn.LSTM(insz, hsz // 2, nlayers, dropout=pdrop, bidirectional=True, batch_first=batch_first)
         if initializer == 'ortho':
             nn.init.orthogonal(self.rnn.weight_hh_l0)
             nn.init.orthogonal(self.rnn.weight_ih_l0)
@@ -1763,8 +1696,7 @@ class BiLSTMEncoderBase(nn.Module):
         self.output_dim = hsz
 
     def extract_top_state(self, state):
-        return tuple(s.view(self.nlayers, 1, -1, self.output_dim)[-1, 0] for
-            s in state)
+        return tuple(s.view(self.nlayers, 1, -1, self.output_dim)[-1, 0] for s in state)
 
 
 class GRUEncoderBase(nn.Module):
@@ -1785,9 +1717,7 @@ class GRUEncoderBase(nn.Module):
 
     """
 
-    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0,
-        requires_length: bool=True, batch_first: bool=False, unif: float=0,
-        initializer: str=None, **kwargs):
+    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0, requires_length: bool=True, batch_first: bool=False, unif: float=0, initializer: str=None, **kwargs):
         """Produce a stack of GRUs with dropout performed on all but the last layer.
 
         :param insz: The size of the input
@@ -1805,8 +1735,7 @@ class GRUEncoderBase(nn.Module):
         self.nlayers = nlayers
         if nlayers == 1:
             pdrop = 0.0
-        self.rnn = torch.nn.GRU(insz, hsz, nlayers, dropout=pdrop,
-            bidirectional=False, batch_first=batch_first)
+        self.rnn = torch.nn.GRU(insz, hsz, nlayers, dropout=pdrop, bidirectional=False, batch_first=batch_first)
         if initializer == 'ortho':
             nn.init.orthogonal_(self.rnn.weight_ih_l0)
             nn.init.orthogonal_(self.rnn.weight_hh_l0)
@@ -1845,9 +1774,7 @@ class BiGRUEncoderBase(nn.Module):
 
     """
 
-    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0,
-        requires_length: bool=True, batch_first: bool=False, unif: float=0,
-        initializer: str=None, **kwargs):
+    def __init__(self, insz: int, hsz: int, nlayers: int, pdrop: float=0.0, requires_length: bool=True, batch_first: bool=False, unif: float=0, initializer: str=None, **kwargs):
         """Produce a stack of GRUs with dropout performed on all but the last layer.
 
         :param insz: The size of the input
@@ -1865,8 +1792,7 @@ class BiGRUEncoderBase(nn.Module):
         self.nlayers = nlayers
         if nlayers == 1:
             pdrop = 0.0
-        self.rnn = torch.nn.GRU(insz, hsz // 2, nlayers, dropout=pdrop,
-            bidirectional=True, batch_first=batch_first)
+        self.rnn = torch.nn.GRU(insz, hsz // 2, nlayers, dropout=pdrop, bidirectional=True, batch_first=batch_first)
         if initializer == 'ortho':
             nn.init.orthogonal(self.rnn.weight_hh_l0)
             nn.init.orthogonal(self.rnn.weight_ih_l0)
@@ -1896,9 +1822,7 @@ class Reduction(nn.Module):
 
 class EmbeddingsStack(nn.Module):
 
-    def __init__(self, embeddings_dict: Dict[str, nn.Embedding],
-        dropout_rate: float=0.0, requires_length: bool=False, reduction:
-        Optional[Union[str, nn.Module]]='concat', **kwargs):
+    def __init__(self, embeddings_dict: Dict[str, nn.Embedding], dropout_rate: float=0.0, requires_length: bool=False, reduction: Optional[Union[str, nn.Module]]='concat', **kwargs):
         """Takes in a dictionary where the keys are the input tensor names, and the values are the embeddings
         :param embeddings_dict: dictionary of each feature embedding
         :param dropout_rate: The dropout rate (0.0 means no dropout, 1.0 means complete)
@@ -1916,8 +1840,7 @@ class EmbeddingsStack(nn.Module):
             if reduction == 'sum':
                 self.reduction = SumReduction(output_dims)
             elif reduction == 'sum-layer-norm':
-                self.reduction = SumLayerNormReduction(output_dims,
-                    layer_norm_eps=kwargs.get('layer_norm_eps', 1e-12))
+                self.reduction = SumLayerNormReduction(output_dims, layer_norm_eps=kwargs.get('layer_norm_eps', 1e-12))
             else:
                 self.reduction = ConcatReduction(output_dims)
         else:
@@ -1964,9 +1887,7 @@ class DenseStack(nn.Module):
     """A stack of one or more hidden layers
     """
 
-    def __init__(self, insz: int, hsz: Union[int, List[int]], activation:
-        Union[str, List[str]]='relu', pdrop_value: float=0.5, init=None,
-        skip_connect=False, layer_norm=False, **kwargs):
+    def __init__(self, insz: int, hsz: Union[int, List[int]], activation: Union[str, List[str]]='relu', pdrop_value: float=0.5, init=None, skip_connect=False, layer_norm=False, **kwargs):
         """Stack 1 or more hidden layers, optionally (forming an MLP)
 
         :param insz: The number of input units
@@ -1985,9 +1906,7 @@ class DenseStack(nn.Module):
         if len(activations) == 1:
             activations = activations * len(hszs)
         if len(activations) != len(hszs):
-            raise ValueError(
-                'Number of activations must match number of hidden sizes in a stack!'
-                )
+            raise ValueError('Number of activations must match number of hidden sizes in a stack!')
         current = insz
         layer_stack = []
         if layer_norm:
@@ -1998,8 +1917,7 @@ class DenseStack(nn.Module):
             else:
                 layer = Dense(current, hsz, activation)
             if layer_norm:
-                layer = nn.Sequential(layer, nn.LayerNorm(hsz, eps=
-                    layer_norm_eps))
+                layer = nn.Sequential(layer, nn.LayerNorm(hsz, eps=layer_norm_eps))
             layer_stack.append(WithDropout(layer, pdrop_value))
             current = hsz
         self.layer_stack = nn.Sequential(*layer_stack)
@@ -2050,14 +1968,12 @@ class FineTuneModel(nn.Module):
         else:
             self.finetuned = embeddings
         self.stack_model = stack_model
-        output_dim = (self.finetuned.output_dim if stack_model is None else
-            stack_model.output_dim)
+        output_dim = self.finetuned.output_dim if stack_model is None else stack_model.output_dim
         self.output_layer = Dense(output_dim, nc, activation='log_softmax')
 
     def forward(self, inputs):
         base_layers = self.finetuned(inputs)
-        stacked = self.stack_model(base_layers
-            ) if self.stack_model is not None else base_layers
+        stacked = self.stack_model(base_layers) if self.stack_model is not None else base_layers
         return self.output_layer(stacked)
 
 
@@ -2072,8 +1988,7 @@ class CompositePooling(nn.Module):
         super().__init__()
         self.models = nn.ModuleList(models)
         self.output_dim = sum(m.output_dim for m in self.models)
-        self.requires_length = any(getattr(m, 'requires_length', False) for
-            m in self.models)
+        self.requires_length = any(getattr(m, 'requires_length', False) for m in self.models)
 
     def forward(self, inputs):
         inputs, lengths = tensor_and_lengths(inputs)
@@ -2095,17 +2010,13 @@ class EmbedPoolStackModel(nn.Module):
 
     """
 
-    def __init__(self, nc: int, embeddings: nn.Module, pool_model: nn.
-        Module, stack_model: Optional[nn.Module]=None, output_model:
-        Optional[nn.Module]=None):
+    def __init__(self, nc: int, embeddings: nn.Module, pool_model: nn.Module, stack_model: Optional[nn.Module]=None, output_model: Optional[nn.Module]=None):
         super().__init__()
         self.embed_model = embeddings
         self.pool_model = pool_model
         self.stack_model = stack_model if stack_model else nn.Identity()
-        output_dim = (self.pool_model.output_dim if stack_model is None else
-            stack_model.output_dim)
-        self.output_layer = Dense(output_dim, nc, activation='log_softmax'
-            ) if output_model is None else output_model
+        output_dim = self.pool_model.output_dim if stack_model is None else stack_model.output_dim
+        self.output_layer = Dense(output_dim, nc, activation='log_softmax') if output_model is None else output_model
 
     def forward(self, inputs: Dict[str, torch.Tensor]):
         lengths = inputs['lengths']
@@ -2133,11 +2044,9 @@ class WithoutLength(nn.Module):
     def __init__(self, layer: nn.Module):
         super().__init__()
         self.layer = layer
-        self.output_dim = self.layer.output_dim if hasattr(self.layer,
-            'output_dim') else 0
+        self.output_dim = self.layer.output_dim if hasattr(self.layer, 'output_dim') else 0
 
-    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]
-        ) ->torch.Tensor:
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) ->torch.Tensor:
         return self.layer(inputs[0])
 
 
@@ -2152,10 +2061,8 @@ class WithDropout(nn.Module):
         """
         super().__init__()
         self.layer = layer
-        self.dropout = VariationalDropout(pdrop
-            ) if variational else nn.Dropout(pdrop)
-        self.output_dim = self.layer.output_dim if hasattr(self.layer,
-            'output_dim') else 0
+        self.dropout = VariationalDropout(pdrop) if variational else nn.Dropout(pdrop)
+        self.output_dim = self.layer.output_dim if hasattr(self.layer, 'output_dim') else 0
 
     def forward(self, inputs: torch.Tensor) ->torch.Tensor:
         """Apply the layer followed by dropout
@@ -2181,10 +2088,8 @@ class WithDropoutOnFirst(nn.Module):
         """
         super().__init__()
         self.layer = layer
-        self.dropout = VariationalDropout(pdrop
-            ) if variational else nn.Dropout(pdrop)
-        self.output_dim = self.layer.output_dim if hasattr(self.layer,
-            'output_dim') else 0
+        self.dropout = VariationalDropout(pdrop) if variational else nn.Dropout(pdrop)
+        self.output_dim = self.layer.output_dim if hasattr(self.layer, 'output_dim') else 0
 
     def forward(self, inputs: Tuple[torch.Tensor]) ->torch.Tensor:
         """Apply the layer followed by dropout
@@ -2197,18 +2102,15 @@ class WithDropoutOnFirst(nn.Module):
 
 
 @torch.jit.script
-def script_viterbi(unary: torch.Tensor, trans: torch.Tensor, start_idx: int,
-    end_idx: int) ->Tuple[torch.Tensor, torch.Tensor]:
+def script_viterbi(unary: torch.Tensor, trans: torch.Tensor, start_idx: int, end_idx: int) ->Tuple[torch.Tensor, torch.Tensor]:
     seq_len: int = unary.size(0)
     num_tags: int = unary.size(1)
     fill_value: float = -10000.0
-    alphas = torch.full((num_tags,), fill_value, dtype=unary.dtype, device=
-        unary.device)
+    alphas = torch.full((num_tags,), fill_value, dtype=unary.dtype, device=unary.device)
     broadcast_idx = torch.full((num_tags,), start_idx, dtype=torch.long)
     alphas.scatter_(0, broadcast_idx, torch.zeros((num_tags,)))
     alphas.unsqueeze_(0)
-    backpointers: torch.Tensor = torch.zeros(num_tags, dtype=torch.long
-        ).unsqueeze(0)
+    backpointers: torch.Tensor = torch.zeros(num_tags, dtype=torch.long).unsqueeze(0)
     for i in range(seq_len):
         unary_t = unary[(i), :]
         next_tag_var = alphas + trans
@@ -2233,12 +2135,10 @@ class ViterbiBatchSize1(nn.Module):
         self.start_idx = start_idx
         self.end_idx = end_idx
 
-    def forward(self, unary: torch.Tensor, trans: torch.Tensor, _: torch.Tensor
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, unary: torch.Tensor, trans: torch.Tensor, _: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         unary = unary.squeeze(1)
         trans = trans.squeeze(0)
-        path, score = script_viterbi(unary, trans, self.start_idx, self.end_idx
-            )
+        path, score = script_viterbi(unary, trans, self.start_idx, self.end_idx)
         return path.unsqueeze(1), score
 
 
@@ -2249,8 +2149,7 @@ class Viterbi(nn.Module):
         self.start_idx = start_idx
         self.end_idx = end_idx
 
-    def forward(self, unary: torch.Tensor, trans: torch.Tensor, lengths:
-        torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, unary: torch.Tensor, trans: torch.Tensor, lengths: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         """Do Viterbi decode on a batch.
 
         :param unary: torch.FloatTensor: [T, B, N]
@@ -2264,8 +2163,7 @@ class Viterbi(nn.Module):
         seq_len, batch_size, tag_size = unary.size()
         min_length = torch.min(lengths)
         backpointers = []
-        alphas = torch.full((batch_size, 1, tag_size), -10000.0, device=
-            unary.device)
+        alphas = torch.full((batch_size, 1, tag_size), -10000.0, device=unary.device)
         alphas[:, (0), (self.start_idx)] = 0
         for i, unary_t in enumerate(unary):
             next_tag_var = alphas + trans
@@ -2275,8 +2173,7 @@ class Viterbi(nn.Module):
             new_alphas.unsqueeze_(1)
             if i >= min_length:
                 mask = (i < lengths).view(-1, 1, 1)
-                alphas = alphas.masked_fill(mask, 0) + new_alphas.masked_fill(
-                    mask == MASK_FALSE, 0)
+                alphas = alphas.masked_fill(mask, 0) + new_alphas.masked_fill(mask == MASK_FALSE, 0)
             else:
                 alphas = new_alphas
         terminal_var = alphas.squeeze(1) + trans[:, (self.end_idx), :]
@@ -2286,11 +2183,9 @@ class Viterbi(nn.Module):
         for i in range(len(backpointers)):
             t = len(backpointers) - i - 1
             backpointer_t = backpointers[t]
-            new_best_tag_id = backpointer_t.gather(1, best_tag_id.unsqueeze(1)
-                ).squeeze(1)
+            new_best_tag_id = backpointer_t.gather(1, best_tag_id.unsqueeze(1)).squeeze(1)
             mask = i > rev_len
-            best_tag_id = best_tag_id.masked_fill(mask, 0
-                ) + new_best_tag_id.masked_fill(mask == MASK_FALSE, 0)
+            best_tag_id = best_tag_id.masked_fill(mask, 0) + new_best_tag_id.masked_fill(mask == MASK_FALSE, 0)
             best_path.append(best_tag_id)
         _ = best_path.pop()
         best_path.reverse()
@@ -2302,8 +2197,7 @@ class Viterbi(nn.Module):
 
 class ViterbiLogSoftmaxNorm(Viterbi):
 
-    def forward(self, unary: torch.Tensor, trans: torch.Tensor, lengths:
-        torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, unary: torch.Tensor, trans: torch.Tensor, lengths: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         """Do Viterbi decode on a batch.
 
         :param unary: torch.FloatTensor: [T, B, N]
@@ -2317,8 +2211,7 @@ class ViterbiLogSoftmaxNorm(Viterbi):
         seq_len, batch_size, tag_size = unary.size()
         min_length = torch.min(lengths)
         backpointers = []
-        alphas = torch.full((batch_size, 1, tag_size), -10000.0, device=
-            unary.device)
+        alphas = torch.full((batch_size, 1, tag_size), -10000.0, device=unary.device)
         alphas[:, (0), (self.start_idx)] = 0
         alphas = F.log_softmax(alphas, dim=-1)
         for i, unary_t in enumerate(unary):
@@ -2329,8 +2222,7 @@ class ViterbiLogSoftmaxNorm(Viterbi):
             new_alphas.unsqueeze_(1)
             if i >= min_length:
                 mask = (i < lengths).view(-1, 1, 1)
-                alphas = alphas.masked_fill(mask, 0) + new_alphas.masked_fill(
-                    mask == MASK_FALSE, 0)
+                alphas = alphas.masked_fill(mask, 0) + new_alphas.masked_fill(mask == MASK_FALSE, 0)
             else:
                 alphas = new_alphas
         terminal_var = alphas.squeeze(1) + trans[:, (self.end_idx), :]
@@ -2340,11 +2232,9 @@ class ViterbiLogSoftmaxNorm(Viterbi):
         for i in range(len(backpointers)):
             t = len(backpointers) - i - 1
             backpointer_t = backpointers[t]
-            new_best_tag_id = backpointer_t.gather(1, best_tag_id.unsqueeze(1)
-                ).squeeze(1)
+            new_best_tag_id = backpointer_t.gather(1, best_tag_id.unsqueeze(1)).squeeze(1)
             mask = i > rev_len
-            best_tag_id = best_tag_id.masked_fill(mask, 0
-                ) + new_best_tag_id.masked_fill(mask == MASK_FALSE, 0)
+            best_tag_id = best_tag_id.masked_fill(mask, 0) + new_best_tag_id.masked_fill(mask == MASK_FALSE, 0)
             best_path.append(best_tag_id)
         _ = best_path.pop()
         best_path.reverse()
@@ -2360,8 +2250,7 @@ def ident(x):
 
 class TaggerGreedyDecoder(nn.Module):
 
-    def __init__(self, num_tags: int, constraint_mask: Optional[torch.
-        Tensor]=None, batch_first: bool=True, reduction: str='batch'):
+    def __init__(self, num_tags: int, constraint_mask: Optional[torch.Tensor]=None, batch_first: bool=True, reduction: str='batch'):
         """A Greedy decoder and loss module for taggers.
 
         :param num_tags: `int` The number of output classes
@@ -2372,8 +2261,7 @@ class TaggerGreedyDecoder(nn.Module):
         super().__init__()
         self.num_tags = num_tags
         if constraint_mask is not None:
-            constraint_mask = F.log_softmax(torch.zeros(constraint_mask.
-                shape).masked_fill(constraint_mask, -10000.0), dim=1)
+            constraint_mask = F.log_softmax(torch.zeros(constraint_mask.shape).masked_fill(constraint_mask, -10000.0), dim=1)
             self.register_buffer('constraint_mask', constraint_mask)
         else:
             self.constraint_mask = None
@@ -2418,8 +2306,7 @@ class TaggerGreedyDecoder(nn.Module):
 
 class SequenceModel(nn.Module):
 
-    def __init__(self, nc: int, embeddings: nn.Module, transducer: nn.
-        Module, decoder: Optional[nn.Module]=None):
+    def __init__(self, nc: int, embeddings: nn.Module, transducer: nn.Module, decoder: Optional[nn.Module]=None):
         super().__init__()
         self.embed_model = embeddings
         self.transducer_model = transducer
@@ -2436,8 +2323,7 @@ class SequenceModel(nn.Module):
         transduced = self.proj_layer(self.transducer_model(embedded))
         return transduced
 
-    def decode(self, transduced: torch.Tensor, lengths: torch.Tensor
-        ) ->torch.Tensor:
+    def decode(self, transduced: torch.Tensor, lengths: torch.Tensor) ->torch.Tensor:
         return self.decoder_model((transduced, lengths))
 
     def forward(self, inputs: Dict[str, torch.Tensor]) ->torch.Tensor:
@@ -2446,8 +2332,7 @@ class SequenceModel(nn.Module):
 
 class LangSequenceModel(nn.Module):
 
-    def __init__(self, nc: int, embeddings: nn.Module, transducer: nn.
-        Module, decoder: Optional[nn.Module]=None, name: Optional[str]=None):
+    def __init__(self, nc: int, embeddings: nn.Module, transducer: nn.Module, decoder: Optional[nn.Module]=None, name: Optional[str]=None):
         super().__init__()
         self.embed_model = embeddings
         self.transducer_model = transducer
@@ -2460,20 +2345,17 @@ class LangSequenceModel(nn.Module):
         self.output_layer = nn.Linear(self.transducer_model.output_dim, nc)
         self.decoder_model = decoder
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) ->Tuple[torch.Tensor,
-        Optional[torch.Tensor]]:
+    def forward(self, inputs: Dict[str, torch.Tensor]) ->Tuple[torch.Tensor, Optional[torch.Tensor]]:
         return self._call(inputs)
 
-    def _call_with_state(self, inputs: Dict[str, torch.Tensor]) ->Tuple[
-        torch.Tensor, Optional[torch.Tensor]]:
+    def _call_with_state(self, inputs: Dict[str, torch.Tensor]) ->Tuple[torch.Tensor, Optional[torch.Tensor]]:
         h = inputs['h']
         embedded = self.embed_model(inputs)
         transduced, hidden = self.transducer_model((embedded, h))
         transduced = self.output_layer(transduced)
         return transduced, hidden
 
-    def _call_without_state(self, inputs: Dict[str, torch.Tensor]) ->Tuple[
-        torch.Tensor, Optional[torch.Tensor]]:
+    def _call_without_state(self, inputs: Dict[str, torch.Tensor]) ->Tuple[torch.Tensor, Optional[torch.Tensor]]:
         embedded = self.embed_model(inputs)
         transduced = self.transducer_model((embedded, None))
         transduced = self.output_layer(transduced)
@@ -2488,16 +2370,14 @@ class SequenceSequenceAttention(nn.Module):
         self.dropout = nn.Dropout(pdrop)
         self.attn = None
 
-    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor,
-        torch.Tensor]) ->torch.Tensor:
+    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) ->torch.Tensor:
         query, key, value, mask = qkvm
         a = self._attention(query, key, mask)
         self.attn = a
         a = self.dropout(a)
         return self._update(a, value)
 
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask:
-        Optional[torch.Tensor]=None) ->torch.Tensor:
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         pass
 
     def _update(self, a: torch.Tensor, value: torch.Tensor) ->torch.Tensor:
@@ -2524,9 +2404,7 @@ class SequenceSequenceRelativeAttention(nn.Module):
         self.dropout = nn.Dropout(pdrop)
         self.attn = None
 
-    def forward(self, q_k_v_ek_ev_m: Tuple[torch.Tensor, torch.Tensor,
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-        ) ->torch.Tensor:
+    def forward(self, q_k_v_ek_ev_m: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) ->torch.Tensor:
         """Take in a tuple of tensors corresponding to the query, key, value, edges_key, edges_value and mask variables
 
         :param q_k_v_ek_ev_m: A tuple consisting of query, key, value, `edges_key`, `edges_value` and `mask` respectively
@@ -2538,12 +2416,10 @@ class SequenceSequenceRelativeAttention(nn.Module):
         a = self.dropout(a)
         return self._update(a, value, edges_value)
 
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, edges_key:
-        torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, edges_key: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         pass
 
-    def _update(self, a: torch.Tensor, value: torch.Tensor, edges_value:
-        torch.Tensor) ->torch.Tensor:
+    def _update(self, a: torch.Tensor, value: torch.Tensor, edges_value: torch.Tensor) ->torch.Tensor:
         """Attention weights are applied for each value, but in a series of efficient matrix operations.
 
         In the case of self-attention, the key and query (used to create the attention weights)
@@ -2567,8 +2443,7 @@ class SeqDotProductAttention(SequenceSequenceAttention):
     def __init__(self, pdrop: float=0.1, **kwargs):
         super().__init__(pdrop=pdrop, **kwargs)
 
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask:
-        Optional[torch.Tensor]=None) ->torch.Tensor:
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         scores = torch.matmul(query, key.transpose(-2, -1))
         if mask is not None:
             scores = scores.masked_fill(mask == MASK_FALSE, -1000000000.0)
@@ -2580,8 +2455,7 @@ class SeqScaledDotProductAttention(SequenceSequenceAttention):
     def __init__(self, pdrop: float=0.1, **kwargs):
         super().__init__(pdrop=pdrop, **kwargs)
 
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask:
-        Optional[torch.Tensor]=None) ->torch.Tensor:
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Scaled dot product attention, as defined in https://arxiv.org/abs/1706.03762
 
         We apply the query to the keys to receive our weights via softmax in a series of efficient
@@ -2622,8 +2496,7 @@ class MultiHeadedAttention(nn.Module):
     future values
     """
 
-    def __init__(self, num_heads: int, d_model: int, dropout: float=0.1,
-        scale: bool=False, d_k: Optional[int]=None):
+    def __init__(self, num_heads: int, d_model: int, dropout: float=0.1, scale: bool=False, d_k: Optional[int]=None):
         """Constructor for multi-headed attention
 
         :param h: The number of heads
@@ -2636,9 +2509,7 @@ class MultiHeadedAttention(nn.Module):
         if d_k is None:
             self.d_k = d_model // num_heads
             if d_model % num_heads != 0:
-                raise Exception(
-                    f'd_model ({d_model}) must be evenly divisible by num_heads ({num_heads})'
-                    )
+                raise Exception(f'd_model ({d_model}) must be evenly divisible by num_heads ({num_heads})')
         else:
             self.d_k = d_k
         self.h = num_heads
@@ -2652,8 +2523,7 @@ class MultiHeadedAttention(nn.Module):
             self.attn_fn = SeqDotProductAttention(dropout)
         self.attn = None
 
-    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor,
-        torch.Tensor]) ->torch.Tensor:
+    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) ->torch.Tensor:
         """Low-order projections of query, key and value into multiple heads, then attention application and dropout
 
         :param query: a query for alignment. Can come from self in case of self-attn or decoder in case of E/D
@@ -2664,11 +2534,9 @@ class MultiHeadedAttention(nn.Module):
         """
         query, key, value, mask = qkvm
         batchsz = query.size(0)
-        query = self.w_Q(query).view(batchsz, -1, self.h, self.d_k).transpose(
-            1, 2)
+        query = self.w_Q(query).view(batchsz, -1, self.h, self.d_k).transpose(1, 2)
         key = self.w_K(key).view(batchsz, -1, self.h, self.d_k).transpose(1, 2)
-        value = self.w_V(value).view(batchsz, -1, self.h, self.d_k).transpose(
-            1, 2)
+        value = self.w_V(value).view(batchsz, -1, self.h, self.d_k).transpose(1, 2)
         x = self.attn_fn((query, key, value, mask))
         self.attn = self.attn_fn.attn
         x = x.transpose(1, 2).contiguous().view(batchsz, -1, self.h * self.d_k)
@@ -2680,8 +2548,7 @@ class SeqDotProductRelativeAttention(SequenceSequenceRelativeAttention):
     def __init__(self, pdrop: float=0.1, **kwargs):
         super().__init__(pdrop=pdrop, **kwargs)
 
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, edges_key:
-        torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, edges_key: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         B, H, T, d_k = query.shape
         scores_qk = torch.matmul(query, key.transpose(-2, -1))
         tbhd = query.reshape(B * H, T, d_k).transpose(0, 1)
@@ -2698,8 +2565,7 @@ class SeqScaledDotProductRelativeAttention(SequenceSequenceRelativeAttention):
     def __init__(self, pdrop: float=0.1, **kwargs):
         super().__init__(pdrop=pdrop, **kwargs)
 
-    def _attention(self, query: torch.Tensor, key: torch.Tensor, edges_key:
-        torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
+    def _attention(self, query: torch.Tensor, key: torch.Tensor, edges_key: torch.Tensor, mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Scaled dot product attention, as defined in https://arxiv.org/abs/1706.03762
 
         We apply the query to the keys to receive our weights via softmax in a series of efficient
@@ -2734,8 +2600,7 @@ class MultiHeadedRelativeAttention(nn.Module):
 
     """
 
-    def __init__(self, num_heads: int, d_model: int, rpr_k: int, dropout:
-        float=0.1, scale: bool=False, d_k: Optional[int]=None):
+    def __init__(self, num_heads: int, d_model: int, rpr_k: int, dropout: float=0.1, scale: bool=False, d_k: Optional[int]=None):
         """Constructor for multi-headed attention
 
         :param h: The number of heads
@@ -2748,9 +2613,7 @@ class MultiHeadedRelativeAttention(nn.Module):
         if d_k is None:
             self.d_k = d_model // num_heads
             if d_model % num_heads != 0:
-                raise Exception(
-                    f'd_model ({d_model}) must be evenly divisible by num_heads ({num_heads})'
-                    )
+                raise Exception(f'd_model ({d_model}) must be evenly divisible by num_heads ({num_heads})')
         else:
             self.d_k = d_k
         self.rpr_k = rpr_k
@@ -2776,8 +2639,7 @@ class MultiHeadedRelativeAttention(nn.Module):
         edges = torch.clamp(edges, 0, window_len)
         return self.rpr_key(edges), self.rpr_value(edges)
 
-    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor,
-        torch.Tensor]) ->torch.Tensor:
+    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) ->torch.Tensor:
         """Low-order projections of query, key and value into multiple heads, then attention application and dropout
 
         :param query: a query for alignment. Can come from self in case of self-attn or decoder in case of E/D
@@ -2789,11 +2651,9 @@ class MultiHeadedRelativeAttention(nn.Module):
         query, key, value, mask = qkvm
         batchsz = query.size(0)
         seq_len = query.size(1)
-        query = self.w_Q(query).view(batchsz, -1, self.h, self.d_k).transpose(
-            1, 2)
+        query = self.w_Q(query).view(batchsz, -1, self.h, self.d_k).transpose(1, 2)
         key = self.w_K(key).view(batchsz, -1, self.h, self.d_k).transpose(1, 2)
-        value = self.w_V(value).view(batchsz, -1, self.h, self.d_k).transpose(
-            1, 2)
+        value = self.w_V(value).view(batchsz, -1, self.h, self.d_k).transpose(1, 2)
         rpr_key, rpr_value = self.make_rpr(seq_len, query.device)
         x = self.attn_fn((query, key, value, rpr_key, rpr_value, mask))
         self.attn = self.attn_fn.attn
@@ -2803,30 +2663,21 @@ class MultiHeadedRelativeAttention(nn.Module):
 
 class TransformerEncoder(nn.Module):
 
-    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale:
-        bool=True, activation_type: str='relu', d_ff: Optional[int]=None,
-        d_k: Optional[int]=None, rpr_k: Optional[int]=None, ffn_pdrop:
-        Optional[float]=0.0, layer_norms_after: bool=False, layer_norm_eps:
-        float=1e-06):
+    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale: bool=True, activation_type: str='relu', d_ff: Optional[int]=None, d_k: Optional[int]=None, rpr_k: Optional[int]=None, ffn_pdrop: Optional[float]=0.0, layer_norms_after: bool=False, layer_norm_eps: float=1e-06):
         super().__init__()
         self.layer_norms_after = layer_norms_after
         self.d_model = d_model
         self.d_ff = d_ff if d_ff is not None else 4 * d_model
         if rpr_k is not None:
-            self.self_attn = MultiHeadedRelativeAttention(num_heads,
-                d_model, rpr_k, pdrop, scale, d_k=d_k)
+            self.self_attn = MultiHeadedRelativeAttention(num_heads, d_model, rpr_k, pdrop, scale, d_k=d_k)
         else:
-            self.self_attn = MultiHeadedAttention(num_heads, d_model, pdrop,
-                scale=scale, d_k=d_k)
-        self.ffn = nn.Sequential(Dense(self.d_model, self.d_ff),
-            get_activation(activation_type), nn.Dropout(ffn_pdrop), Dense(
-            self.d_ff, self.d_model))
+            self.self_attn = MultiHeadedAttention(num_heads, d_model, pdrop, scale=scale, d_k=d_k)
+        self.ffn = nn.Sequential(Dense(self.d_model, self.d_ff), get_activation(activation_type), nn.Dropout(ffn_pdrop), Dense(self.d_ff, self.d_model))
         self.ln1 = nn.LayerNorm(self.d_model, eps=layer_norm_eps)
         self.ln2 = nn.LayerNorm(self.d_model, eps=layer_norm_eps)
         self.dropout = nn.Dropout(pdrop)
 
-    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]
-        ) ->torch.Tensor:
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) ->torch.Tensor:
         """
         :param inputs: `(x, mask)`
         :return: The output tensor
@@ -2845,35 +2696,24 @@ class TransformerEncoder(nn.Module):
 
 class TransformerDecoder(nn.Module):
 
-    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale:
-        bool=True, activation_type: str='relu', d_ff: Optional[int]=None,
-        d_k: Optional[int]=None, rpr_k: Optional[int]=None, ffn_pdrop:
-        Optional[float]=0.0, layer_norms_after: bool=False, layer_norm_eps:
-        float=1e-06):
+    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale: bool=True, activation_type: str='relu', d_ff: Optional[int]=None, d_k: Optional[int]=None, rpr_k: Optional[int]=None, ffn_pdrop: Optional[float]=0.0, layer_norms_after: bool=False, layer_norm_eps: float=1e-06):
         super().__init__()
         self.d_model = d_model
         self.layer_norms_after = layer_norms_after
         self.d_ff = d_ff if d_ff is not None else 4 * d_model
         if rpr_k is not None:
-            self.self_attn = MultiHeadedRelativeAttention(num_heads,
-                d_model, rpr_k, pdrop, scale, d_k=d_k)
-            self.src_attn = MultiHeadedRelativeAttention(num_heads, d_model,
-                rpr_k, pdrop, scale, d_k=d_k)
+            self.self_attn = MultiHeadedRelativeAttention(num_heads, d_model, rpr_k, pdrop, scale, d_k=d_k)
+            self.src_attn = MultiHeadedRelativeAttention(num_heads, d_model, rpr_k, pdrop, scale, d_k=d_k)
         else:
-            self.self_attn = MultiHeadedAttention(num_heads, d_model, pdrop,
-                scale, d_k=d_k)
-            self.src_attn = MultiHeadedAttention(num_heads, d_model, pdrop,
-                scale, d_k=d_k)
-        self.ffn = nn.Sequential(Dense(self.d_model, self.d_ff), nn.Dropout
-            (ffn_pdrop), get_activation(activation_type), Dense(self.d_ff,
-            self.d_model))
+            self.self_attn = MultiHeadedAttention(num_heads, d_model, pdrop, scale, d_k=d_k)
+            self.src_attn = MultiHeadedAttention(num_heads, d_model, pdrop, scale, d_k=d_k)
+        self.ffn = nn.Sequential(Dense(self.d_model, self.d_ff), nn.Dropout(ffn_pdrop), get_activation(activation_type), Dense(self.d_ff, self.d_model))
         self.ln1 = nn.LayerNorm(self.d_model, eps=layer_norm_eps)
         self.ln2 = nn.LayerNorm(self.d_model, eps=layer_norm_eps)
         self.ln3 = nn.LayerNorm(self.d_model, eps=layer_norm_eps)
         self.dropout = nn.Dropout(pdrop)
 
-    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor, torch.
-        Tensor, torch.Tensor]) ->torch.Tensor:
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) ->torch.Tensor:
         x, memory, src_mask, tgt_mask = inputs
         if not self.layer_norms_after:
             x = self.ln1(x)
@@ -2889,26 +2729,17 @@ class TransformerDecoder(nn.Module):
 
 class TransformerEncoderStack(nn.Module):
 
-    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale:
-        bool=True, layers: int=1, activation: str='relu', d_ff: Optional[
-        int]=None, d_k: Optional[int]=None, rpr_k: Optional[Union[int, List
-        [int]]]=None, ffn_pdrop: Optional[float]=0.0, layer_norms_after:
-        bool=False, layer_norm_eps: float=1e-06, **kwargs):
+    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale: bool=True, layers: int=1, activation: str='relu', d_ff: Optional[int]=None, d_k: Optional[int]=None, rpr_k: Optional[Union[int, List[int]]]=None, ffn_pdrop: Optional[float]=0.0, layer_norms_after: bool=False, layer_norm_eps: float=1e-06, **kwargs):
         super().__init__()
         self.encoders = nn.ModuleList()
-        self.ln = nn.Identity() if layer_norms_after else nn.LayerNorm(d_model,
-            eps=layer_norm_eps)
+        self.ln = nn.Identity() if layer_norms_after else nn.LayerNorm(d_model, eps=layer_norm_eps)
         self.output_dim = d_model
         if not is_sequence(rpr_k):
             rpr_k = [rpr_k] * layers
         for i in range(layers):
-            self.encoders.append(TransformerEncoder(num_heads, d_model,
-                pdrop, scale, activation, d_ff, d_k, rpr_k=rpr_k[i],
-                ffn_pdrop=ffn_pdrop, layer_norms_after=layer_norms_after,
-                layer_norm_eps=layer_norm_eps))
+            self.encoders.append(TransformerEncoder(num_heads, d_model, pdrop, scale, activation, d_ff, d_k, rpr_k=rpr_k[i], ffn_pdrop=ffn_pdrop, layer_norms_after=layer_norms_after, layer_norm_eps=layer_norm_eps))
 
-    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]
-        ) ->torch.Tensor:
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) ->torch.Tensor:
         x, mask = inputs
         for layer in self.encoders:
             x = layer((x, mask))
@@ -2917,22 +2748,14 @@ class TransformerEncoderStack(nn.Module):
 
 class TransformerDecoderStack(nn.Module):
 
-    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale:
-        bool=True, layers: int=1, activation_type: str='relu', d_ff:
-        Optional[int]=None, d_k: Optional[int]=None, rpr_k: Optional[Union[
-        int, List[int]]]=None, ffn_pdrop: Optional[float]=0.0,
-        layer_norms_after: bool=False, layer_norm_eps: float=1e-06):
+    def __init__(self, num_heads: int, d_model: int, pdrop: float, scale: bool=True, layers: int=1, activation_type: str='relu', d_ff: Optional[int]=None, d_k: Optional[int]=None, rpr_k: Optional[Union[int, List[int]]]=None, ffn_pdrop: Optional[float]=0.0, layer_norms_after: bool=False, layer_norm_eps: float=1e-06):
         super().__init__()
         self.decoders = nn.ModuleList()
-        self.ln = nn.Identity() if layer_norms_after else nn.LayerNorm(d_model,
-            eps=layer_norm_eps)
+        self.ln = nn.Identity() if layer_norms_after else nn.LayerNorm(d_model, eps=layer_norm_eps)
         if not is_sequence(rpr_k):
             rpr_k = [rpr_k] * layers
         for i in range(layers):
-            self.decoders.append(TransformerDecoder(num_heads, d_model,
-                pdrop, scale, activation_type, d_ff, d_k=d_k, rpr_k=rpr_k[i
-                ], ffn_pdrop=ffn_pdrop, layer_norms_after=layer_norms_after,
-                layer_norm_eps=layer_norm_eps))
+            self.decoders.append(TransformerDecoder(num_heads, d_model, pdrop, scale, activation_type, d_ff, d_k=d_k, rpr_k=rpr_k[i], ffn_pdrop=ffn_pdrop, layer_norms_after=layer_norms_after, layer_norm_eps=layer_norm_eps))
 
     def forward(self, inputs):
         x, memory, src_mask, tgt_mask = inputs
@@ -2946,8 +2769,7 @@ class SingleHeadReduction(nn.Module):
     Implementation of the "self_attention_head" layer from the conveRT paper (https://arxiv.org/pdf/1911.03688.pdf)
     """
 
-    def __init__(self, d_model: int, dropout: float=0.0, scale: bool=True,
-        d_k: Optional[int]=None):
+    def __init__(self, d_model: int, dropout: float=0.0, scale: bool=True, d_k: Optional[int]=None):
         """
         :param d_model: The model hidden size
         :param dropout (``float``): The amount of dropout to use
@@ -2968,8 +2790,7 @@ class SingleHeadReduction(nn.Module):
             self.attn_fn = SeqDotProductAttention(dropout)
         self.attn = None
 
-    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor,
-        torch.Tensor]) ->torch.Tensor:
+    def forward(self, qkvm: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) ->torch.Tensor:
         """According to conveRT model's graph, they project token encodings to lower-dimensional query and key in single
         head, use them to calculate the attention score matrix that has dim [B, T, T], then sum over the query dim to
         get a tensor with [B, 1, T] (meaning the amount of attentions each token gets from all other tokens), scale it
@@ -3014,103 +2835,212 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ArcPolicy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BHT2BTH,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BTH2BHT,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BTH2TBH,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv1DSame,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ConvEncoder,
+     lambda: ([], {'insz': 4, 'outsz': 4, 'filtsz': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (ConvEncoderStack,
+     lambda: ([], {'insz': 4, 'outsz': 4, 'filtsz': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Dense,
+     lambda: ([], {'insz': 4, 'outsz': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GeLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Highway,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPool1D,
+     lambda: ([], {'outsz': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiHeadedAttention,
+     lambda: ([], {'num_heads': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiHeadedRelativeAttention,
+     lambda: ([], {'num_heads': 4, 'd_model': 4, 'rpr_k': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ParallelConv,
+     lambda: ([], {'insz': 4, 'outsz': [4, 4], 'filtsz': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (PassThru,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reduction,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SeqDotProductAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SeqScaledDotProductAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SingleHeadReduction,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (StackedGRUCell,
+     lambda: ([], {'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (TBH2BHT,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (TBH2BTH,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TiedWeights,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (TransformerDecoder,
+     lambda: ([], {'num_heads': 4, 'd_model': 4, 'pdrop': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TwoHeadConcat,
+     lambda: ([], {'d_model': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VariationalDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WithDropout,
+     lambda: ([], {'layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WithDropoutOnFirst,
+     lambda: ([], {'layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WithoutLength,
+     lambda: ([], {'layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_dpressel_mead_baseline(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ArcPolicy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BHT2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BTH2BHT(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BTH2TBH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Conv1DSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ConvEncoder(*[], **{'insz': 4, 'outsz': 4, 'filtsz': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ConvEncoderStack(*[], **{'insz': 4, 'outsz': 4, 'filtsz': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Dense(*[], **{'insz': 4, 'outsz': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Highway(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(MaxPool1D(*[], **{'outsz': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(MultiHeadedAttention(*[], **{'num_heads': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MultiHeadedRelativeAttention(*[], **{'num_heads': 4, 'd_model': 4, 'rpr_k': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(ParallelConv(*[], **{'insz': 4, 'outsz': [4, 4], 'filtsz': [4, 4]}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(PassThru(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(Reduction(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(SeqDotProductAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(SeqScaledDotProductAttention(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(SingleHeadReduction(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(StackedGRUCell(*[], **{'num_layers': 1, 'input_size': 4, 'rnn_size': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(TBH2BHT(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(TBH2BTH(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
     def test_022(self):
-        self._check(TiedWeights(*[], **{}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[22])
 
-    @_fails_compile()
     def test_023(self):
-        self._check(TransformerDecoder(*[], **{'num_heads': 4, 'd_model': 4, 'pdrop': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
-    @_fails_compile()
     def test_024(self):
-        self._check(TwoHeadConcat(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[24])
 
     def test_025(self):
-        self._check(VariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[25])
 
     def test_026(self):
-        self._check(WithDropout(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[26])
 
-    @_fails_compile()
     def test_027(self):
-        self._check(WithDropoutOnFirst(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[27])
 
     def test_028(self):
-        self._check(WithoutLength(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[28])
 

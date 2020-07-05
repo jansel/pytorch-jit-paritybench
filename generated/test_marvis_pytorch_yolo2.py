@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -293,10 +294,7 @@ def print_cfg(blocks):
             pad = (kernel_size - 1) / 2 if is_pad else 0
             width = (prev_width + 2 * pad - kernel_size) / stride + 1
             height = (prev_height + 2 * pad - kernel_size) / stride + 1
-            print(
-                '%5d %-6s %4d  %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'conv', filters, kernel_size, kernel_size, stride,
-                prev_width, prev_height, prev_filters, width, height, filters))
+            print('%5d %-6s %4d  %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'conv', filters, kernel_size, kernel_size, stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -308,10 +306,7 @@ def print_cfg(blocks):
             stride = int(block['stride'])
             width = prev_width / stride
             height = prev_height / stride
-            print(
-                '%5d %-6s       %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'max', pool_size, pool_size, stride, prev_width,
-                prev_height, prev_filters, width, height, filters))
+            print('%5d %-6s       %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'max', pool_size, pool_size, stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -321,9 +316,7 @@ def print_cfg(blocks):
         elif block['type'] == 'avgpool':
             width = 1
             height = 1
-            print('%5d %-6s                   %3d x %3d x%4d   ->  %3d' % (
-                ind, 'avg', prev_width, prev_height, prev_filters,
-                prev_filters))
+            print('%5d %-6s                   %3d x %3d x%4d   ->  %3d' % (ind, 'avg', prev_width, prev_height, prev_filters, prev_filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -331,14 +324,12 @@ def print_cfg(blocks):
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
         elif block['type'] == 'softmax':
-            print('%5d %-6s                                    ->  %3d' % (
-                ind, 'softmax', prev_filters))
+            print('%5d %-6s                                    ->  %3d' % (ind, 'softmax', prev_filters))
             out_widths.append(prev_width)
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
         elif block['type'] == 'cost':
-            print('%5d %-6s                                     ->  %3d' %
-                (ind, 'cost', prev_filters))
+            print('%5d %-6s                                     ->  %3d' % (ind, 'cost', prev_filters))
             out_widths.append(prev_width)
             out_heights.append(prev_height)
             out_filters.append(prev_filters)
@@ -347,10 +338,7 @@ def print_cfg(blocks):
             filters = stride * stride * prev_filters
             width = prev_width / stride
             height = prev_height / stride
-            print(
-                '%5d %-6s             / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d'
-                 % (ind, 'reorg', stride, prev_width, prev_height,
-                prev_filters, width, height, filters))
+            print('%5d %-6s             / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (ind, 'reorg', stride, prev_width, prev_height, prev_filters, width, height, filters))
             prev_width = width
             prev_height = height
             prev_filters = filters
@@ -392,8 +380,7 @@ def print_cfg(blocks):
             out_filters.append(prev_filters)
         elif block['type'] == 'connected':
             filters = int(block['output'])
-            print('%5d %-6s                            %d  ->  %3d' % (ind,
-                'connected', prev_filters, filters))
+            print('%5d %-6s                            %d  ->  %3d' % (ind, 'connected', prev_filters, filters))
             prev_filters = filters
             out_widths.append(1)
             out_heights.append(1)
@@ -460,16 +447,12 @@ class Darknet(nn.Module):
             ind = ind + 1
             if block['type'] == 'net':
                 continue
-            elif block['type'] == 'convolutional' or block['type'
-                ] == 'maxpool' or block['type'] == 'reorg' or block['type'
-                ] == 'avgpool' or block['type'] == 'softmax' or block['type'
-                ] == 'connected':
+            elif block['type'] == 'convolutional' or block['type'] == 'maxpool' or block['type'] == 'reorg' or block['type'] == 'avgpool' or block['type'] == 'softmax' or block['type'] == 'connected':
                 x = self.models[ind](x)
                 outputs[ind] = x
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
-                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in
-                    layers]
+                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
                     x = outputs[layers[0]]
                     outputs[ind] = x
@@ -526,20 +509,14 @@ class Darknet(nn.Module):
                 activation = block['activation']
                 model = nn.Sequential()
                 if batch_normalize:
-                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(
-                        prev_filters, filters, kernel_size, stride, pad,
-                        bias=False))
-                    model.add_module('bn{0}'.format(conv_id), nn.
-                        BatchNorm2d(filters))
+                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=False))
+                    model.add_module('bn{0}'.format(conv_id), nn.BatchNorm2d(filters))
                 else:
-                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(
-                        prev_filters, filters, kernel_size, stride, pad))
+                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(prev_filters, filters, kernel_size, stride, pad))
                 if activation == 'leaky':
-                    model.add_module('leaky{0}'.format(conv_id), nn.
-                        LeakyReLU(0.1, inplace=True))
+                    model.add_module('leaky{0}'.format(conv_id), nn.LeakyReLU(0.1, inplace=True))
                 elif activation == 'relu':
-                    model.add_module('relu{0}'.format(conv_id), nn.ReLU(
-                        inplace=True))
+                    model.add_module('relu{0}'.format(conv_id), nn.ReLU(inplace=True))
                 prev_filters = filters
                 out_filters.append(prev_filters)
                 models.append(model)
@@ -577,14 +554,12 @@ class Darknet(nn.Module):
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
                 ind = len(models)
-                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in
-                    layers]
+                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
                     prev_filters = out_filters[layers[0]]
                 elif len(layers) == 2:
                     assert layers[0] == ind - 1
-                    prev_filters = out_filters[layers[0]] + out_filters[
-                        layers[1]]
+                    prev_filters = out_filters[layers[0]] + out_filters[layers[1]]
                 out_filters.append(prev_filters)
                 models.append(EmptyModule())
             elif block['type'] == 'shortcut':
@@ -597,11 +572,9 @@ class Darknet(nn.Module):
                 if block['activation'] == 'linear':
                     model = nn.Linear(prev_filters, filters)
                 elif block['activation'] == 'leaky':
-                    model = nn.Sequential(nn.Linear(prev_filters, filters),
-                        nn.LeakyReLU(0.1, inplace=True))
+                    model = nn.Sequential(nn.Linear(prev_filters, filters), nn.LeakyReLU(0.1, inplace=True))
                 elif block['activation'] == 'relu':
-                    model = nn.Sequential(nn.Linear(prev_filters, filters),
-                        nn.ReLU(inplace=True))
+                    model = nn.Sequential(nn.Linear(prev_filters, filters), nn.ReLU(inplace=True))
                 prev_filters = filters
                 out_filters.append(prev_filters)
                 models.append(model)
@@ -737,13 +710,9 @@ class BN2dFunc(Function):
         self.mean = input.new(nB, nC)
         self.var = input.new(nB, nC)
         if input.is_cuda:
-            bn_lib.bn_forward_gpu(input, self.x, self.x_norm, self.mean,
-                self.running_mean, self.var, self.running_var, weight, bias,
-                self.training, output)
+            bn_lib.bn_forward_gpu(input, self.x, self.x_norm, self.mean, self.running_mean, self.var, self.running_var, weight, bias, self.training, output)
         else:
-            bn_lib.bn_forward(input, self.x, self.x_norm, self.mean, self.
-                running_mean, self.var, self.running_var, weight, bias,
-                self.training, output)
+            bn_lib.bn_forward(input, self.x, self.x_norm, self.mean, self.running_mean, self.var, self.running_var, weight, bias, self.training, output)
         return output
 
     def backward(self, grad_output):
@@ -757,13 +726,9 @@ class BN2dFunc(Function):
         grad_weight = grad_output.new(nC)
         grad_bias = grad_output.new(nC)
         if grad_output.is_cuda:
-            bn_lib.bn_backward_gpu(grad_output, self.input, self.x_norm,
-                self.mean, grad_mean, self.var, grad_var, self.weight,
-                grad_weight, self.bias, grad_bias, self.training, grad_input)
+            bn_lib.bn_backward_gpu(grad_output, self.input, self.x_norm, self.mean, grad_mean, self.var, grad_var, self.weight, grad_weight, self.bias, grad_bias, self.training, grad_input)
         else:
-            bn_lib.bn_backward(grad_output, self.input, self.x_norm, self.
-                mean, grad_mean, self.var, grad_var, self.weight,
-                grad_weight, self.bias, grad_bias, self.training, grad_input)
+            bn_lib.bn_backward(grad_output, self.input, self.x_norm, self.mean, grad_mean, self.var, grad_var, self.weight, grad_weight, self.bias, grad_bias, self.training, grad_input)
         return grad_input, grad_weight, grad_bias
 
 
@@ -784,8 +749,7 @@ class BN2d(nn.Module):
         self.bias.data.zero_()
 
     def forward(self, input):
-        return BN2dFunc(self.running_mean, self.running_var, self.training,
-            self.momentum, self.eps)(input, self.weight, self.bias)
+        return BN2dFunc(self.running_mean, self.running_var, self.training, self.momentum, self.eps)(input, self.weight, self.bias)
 
 
 class BN2d_slow(nn.Module):
@@ -815,22 +779,17 @@ class BN2d_slow(nn.Module):
             None
             m = Variable(y.mean(0).data, requires_grad=False)
             v = Variable(y.var(0).data, requires_grad=False)
-            self.running_mean = (1 - self.momentum
-                ) * self.running_mean + self.momentum * m.data.view(-1)
-            self.running_var = (1 - self.momentum
-                ) * self.running_var + self.momentum * v.data.view(-1)
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * m.data.view(-1)
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * v.data.view(-1)
             m = m.repeat(samples, 1)
             v = v.repeat(samples, 1) * (samples - 1.0) / samples
         else:
-            m = Variable(self.running_mean.repeat(samples, 1),
-                requires_grad=False)
-            v = Variable(self.running_var.repeat(samples, 1), requires_grad
-                =False)
+            m = Variable(self.running_mean.repeat(samples, 1), requires_grad=False)
+            v = Variable(self.running_var.repeat(samples, 1), requires_grad=False)
         w = self.weight.repeat(samples, 1)
         b = self.bias.repeat(samples, 1)
         y = (y - m) / (v + self.eps).sqrt() * w + b
-        y = y.view(nB, nH * nW, nC).transpose(1, 2).contiguous().view(nB,
-            nC, nH, nW)
+        y = y.view(nB, nH * nW, nC).transpose(1, 2).contiguous().view(nB, nC, nH, nW)
         return y
 
 
@@ -957,14 +916,11 @@ class CaffeNet(nn.Module):
         self.is_pretrained = True
         if not caffemodel is None:
             self.is_pretrained = True
-        self.anchors = [0.625, 0.75, 0.625, 0.75, 0.625, 0.75, 0.625, 0.75,
-            0.625, 0.75, 1.0, 1.2, 1.0, 1.2, 1.0, 1.2, 1.0, 1.2, 1.6, 1.92,
-            2.56, 3.072, 4.096, 4.915, 6.554, 7.864, 10.486, 12.583]
+        self.anchors = [0.625, 0.75, 0.625, 0.75, 0.625, 0.75, 0.625, 0.75, 0.625, 0.75, 1.0, 1.2, 1.0, 1.2, 1.0, 1.2, 1.0, 1.2, 1.6, 1.92, 2.56, 3.072, 4.096, 4.915, 6.554, 7.864, 10.486, 12.583]
         self.num_anchors = len(self.anchors) / 2
         self.width = 480
         self.height = 320
-        self.loss = RegionLoss(self.num_classes, self.anchors, self.num_anchors
-            )
+        self.loss = RegionLoss(self.num_classes, self.anchors, self.num_anchors)
         self.net_info = parse_prototxt(protofile)
         self.models = self.create_network(self.net_info)
         self.modelList = nn.ModuleList()
@@ -992,8 +948,7 @@ class CaffeNet(nn.Module):
                 top_name_of_bn = self.layer_map_to_top[name][0]
                 scale_name = ''
                 for caffe_layer in self.net_info['layers']:
-                    if caffe_layer['type'] == 'Scale' and caffe_layer['bottom'
-                        ][0] == top_name_of_bn:
+                    if caffe_layer['type'] == 'Scale' and caffe_layer['bottom'][0] == top_name_of_bn:
                         scale_name = caffe_layer['name']
                         break
                 if scale_name != '':
@@ -1039,15 +994,13 @@ class CaffeNet(nn.Module):
                 if 'group' in layer['convolution_param']:
                     group = int(layer['convolution_param']['group'])
                 if 'bias_term' in layer['convolution_param']:
-                    bias = True if layer['convolution_param']['bias_term'
-                        ].lower() == 'false' else False
+                    bias = True if layer['convolution_param']['bias_term'].lower() == 'false' else False
                 if 'dilation' in layer['convolution_param']:
                     dilation = int(layer['convolution_param']['dilation'])
                 num_output = int(layer['convolution_param']['num_output'])
                 top_dim[tops[0]] = num_output
                 num_input = top_dim[bottoms[0]]
-                models[name] = nn.Conv2d(num_input, num_output, kernel_size,
-                    stride, pad, groups=group, bias=bias, dilation=dilation)
+                models[name] = nn.Conv2d(num_input, num_output, kernel_size, stride, pad, groups=group, bias=bias, dilation=dilation)
             elif ltype == 'ReLU':
                 inplace = bottoms == tops
                 top_dim[tops[0]] = top_dim[bottoms[0]]
@@ -1061,8 +1014,7 @@ class CaffeNet(nn.Module):
                 models[name] = nn.MaxPool2d(kernel_size, stride)
             elif ltype == 'BatchNorm':
                 if 'use_global_stats' in layer['batch_norm_param']:
-                    use_global_stats = True if layer['batch_norm_param'][
-                        'use_global_stats'].lower() == 'true' else False
+                    use_global_stats = True if layer['batch_norm_param']['use_global_stats'].lower() == 'true' else False
                 top_dim[tops[0]] = top_dim[bottoms[0]]
                 models[name] = nn.BatchNorm2d(top_dim[bottoms[0]])
             elif ltype == 'Scale':
@@ -1114,8 +1066,7 @@ class CaffeNet(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -1152,8 +1103,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1183,8 +1133,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1205,9 +1154,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1236,14 +1183,12 @@ class Resnet101(nn.Module):
         super(Resnet, self).__init__()
         self.seen = 0
         self.num_classes = 20
-        self.anchors = [1.08, 1.19, 3.42, 4.41, 6.63, 11.38, 9.42, 5.11, 
-            16.62, 10.52]
+        self.anchors = [1.08, 1.19, 3.42, 4.41, 6.63, 11.38, 9.42, 5.11, 16.62, 10.52]
         self.num_anchors = len(self.anchors) / 2
         num_output = (5 + self.num_classes) * self.num_anchors
         self.width = 160
         self.height = 160
-        self.loss = RegionLoss(self.num_classes, self.anchors, self.num_anchors
-            )
+        self.loss = RegionLoss(self.num_classes, self.anchors, self.num_anchors)
         self.model = ResNet(Bottleneck, [3, 4, 6, 3])
 
     def forward(self, x):
@@ -1260,35 +1205,13 @@ class TinyYoloNet(nn.Module):
         super(TinyYoloNet, self).__init__()
         self.seen = 0
         self.num_classes = 20
-        self.anchors = [1.08, 1.19, 3.42, 4.41, 6.63, 11.38, 9.42, 5.11, 
-            16.62, 10.52]
+        self.anchors = [1.08, 1.19, 3.42, 4.41, 6.63, 11.38, 9.42, 5.11, 16.62, 10.52]
         self.num_anchors = len(self.anchors) / 2
         num_output = (5 + self.num_classes) * self.num_anchors
         self.width = 160
         self.height = 160
-        self.loss = RegionLoss(self.num_classes, self.anchors, self.num_anchors
-            )
-        self.cnn = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 16, 3,
-            1, 1, bias=False)), ('bn1', nn.BatchNorm2d(16)), ('leaky1', nn.
-            LeakyReLU(0.1, inplace=True)), ('pool1', nn.MaxPool2d(2, 2)), (
-            'conv2', nn.Conv2d(16, 32, 3, 1, 1, bias=False)), ('bn2', nn.
-            BatchNorm2d(32)), ('leaky2', nn.LeakyReLU(0.1, inplace=True)),
-            ('pool2', nn.MaxPool2d(2, 2)), ('conv3', nn.Conv2d(32, 64, 3, 1,
-            1, bias=False)), ('bn3', nn.BatchNorm2d(64)), ('leaky3', nn.
-            LeakyReLU(0.1, inplace=True)), ('pool3', nn.MaxPool2d(2, 2)), (
-            'conv4', nn.Conv2d(64, 128, 3, 1, 1, bias=False)), ('bn4', nn.
-            BatchNorm2d(128)), ('leaky4', nn.LeakyReLU(0.1, inplace=True)),
-            ('pool4', nn.MaxPool2d(2, 2)), ('conv5', nn.Conv2d(128, 256, 3,
-            1, 1, bias=False)), ('bn5', nn.BatchNorm2d(256)), ('leaky5', nn
-            .LeakyReLU(0.1, inplace=True)), ('pool5', nn.MaxPool2d(2, 2)),
-            ('conv6', nn.Conv2d(256, 512, 3, 1, 1, bias=False)), ('bn6', nn
-            .BatchNorm2d(512)), ('leaky6', nn.LeakyReLU(0.1, inplace=True)),
-            ('pool6', MaxPoolStride1()), ('conv7', nn.Conv2d(512, 1024, 3, 
-            1, 1, bias=False)), ('bn7', nn.BatchNorm2d(1024)), ('leaky7',
-            nn.LeakyReLU(0.1, inplace=True)), ('conv8', nn.Conv2d(1024, 
-            1024, 3, 1, 1, bias=False)), ('bn8', nn.BatchNorm2d(1024)), (
-            'leaky8', nn.LeakyReLU(0.1, inplace=True)), ('output', nn.
-            Conv2d(1024, num_output, 1, 1, 0))]))
+        self.loss = RegionLoss(self.num_classes, self.anchors, self.num_anchors)
+        self.cnn = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 16, 3, 1, 1, bias=False)), ('bn1', nn.BatchNorm2d(16)), ('leaky1', nn.LeakyReLU(0.1, inplace=True)), ('pool1', nn.MaxPool2d(2, 2)), ('conv2', nn.Conv2d(16, 32, 3, 1, 1, bias=False)), ('bn2', nn.BatchNorm2d(32)), ('leaky2', nn.LeakyReLU(0.1, inplace=True)), ('pool2', nn.MaxPool2d(2, 2)), ('conv3', nn.Conv2d(32, 64, 3, 1, 1, bias=False)), ('bn3', nn.BatchNorm2d(64)), ('leaky3', nn.LeakyReLU(0.1, inplace=True)), ('pool3', nn.MaxPool2d(2, 2)), ('conv4', nn.Conv2d(64, 128, 3, 1, 1, bias=False)), ('bn4', nn.BatchNorm2d(128)), ('leaky4', nn.LeakyReLU(0.1, inplace=True)), ('pool4', nn.MaxPool2d(2, 2)), ('conv5', nn.Conv2d(128, 256, 3, 1, 1, bias=False)), ('bn5', nn.BatchNorm2d(256)), ('leaky5', nn.LeakyReLU(0.1, inplace=True)), ('pool5', nn.MaxPool2d(2, 2)), ('conv6', nn.Conv2d(256, 512, 3, 1, 1, bias=False)), ('bn6', nn.BatchNorm2d(512)), ('leaky6', nn.LeakyReLU(0.1, inplace=True)), ('pool6', MaxPoolStride1()), ('conv7', nn.Conv2d(512, 1024, 3, 1, 1, bias=False)), ('bn7', nn.BatchNorm2d(1024)), ('leaky7', nn.LeakyReLU(0.1, inplace=True)), ('conv8', nn.Conv2d(1024, 1024, 3, 1, 1, bias=False)), ('bn8', nn.BatchNorm2d(1024)), ('leaky8', nn.LeakyReLU(0.1, inplace=True)), ('output', nn.Conv2d(1024, num_output, 1, 1, 0))]))
 
     def forward(self, x):
         x = self.cnn(x)
@@ -1355,14 +1278,10 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
         w2 = boxes2[2] - boxes2[0]
         h2 = boxes2[3] - boxes2[1]
     else:
-        mx = torch.min(boxes1[0] - boxes1[2] / 2.0, boxes2[0] - boxes2[2] / 2.0
-            )
-        Mx = torch.max(boxes1[0] + boxes1[2] / 2.0, boxes2[0] + boxes2[2] / 2.0
-            )
-        my = torch.min(boxes1[1] - boxes1[3] / 2.0, boxes2[1] - boxes2[3] / 2.0
-            )
-        My = torch.max(boxes1[1] + boxes1[3] / 2.0, boxes2[1] + boxes2[3] / 2.0
-            )
+        mx = torch.min(boxes1[0] - boxes1[2] / 2.0, boxes2[0] - boxes2[2] / 2.0)
+        Mx = torch.max(boxes1[0] + boxes1[2] / 2.0, boxes2[0] + boxes2[2] / 2.0)
+        my = torch.min(boxes1[1] - boxes1[3] / 2.0, boxes2[1] - boxes2[3] / 2.0)
+        My = torch.max(boxes1[1] + boxes1[3] / 2.0, boxes2[1] + boxes2[3] / 2.0)
         w1 = boxes1[2]
         h1 = boxes1[3]
         w2 = boxes2[2]
@@ -1380,8 +1299,7 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     return carea / uarea
 
 
-def build_targets(pred_boxes, target, anchors, num_anchors, num_classes, nH,
-    nW, noobject_scale, object_scale, sil_thresh, seen):
+def build_targets(pred_boxes, target, anchors, num_anchors, num_classes, nH, nW, noobject_scale, object_scale, sil_thresh, seen):
     nB = target.size(0)
     nA = num_anchors
     nC = num_classes
@@ -1407,19 +1325,13 @@ def build_targets(pred_boxes, target, anchors, num_anchors, num_classes, nH,
             gy = target[b][t * 5 + 2] * nH
             gw = target[b][t * 5 + 3] * nW
             gh = target[b][t * 5 + 4] * nH
-            cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gh]).repeat(nAnchors,
-                1).t()
-            cur_ious = torch.max(cur_ious, bbox_ious(cur_pred_boxes,
-                cur_gt_boxes, x1y1x2y2=False))
+            cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gh]).repeat(nAnchors, 1).t()
+            cur_ious = torch.max(cur_ious, bbox_ious(cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))
         conf_mask[b][cur_ious > sil_thresh] = 0
     if seen < 12800:
         if anchor_step == 4:
-            tx = torch.FloatTensor(anchors).view(nA, anchor_step).index_select(
-                1, torch.LongTensor([2])).view(1, nA, 1, 1).repeat(nB, 1,
-                nH, nW)
-            ty = torch.FloatTensor(anchors).view(num_anchors, anchor_step
-                ).index_select(1, torch.LongTensor([2])).view(1, nA, 1, 1
-                ).repeat(nB, 1, nH, nW)
+            tx = torch.FloatTensor(anchors).view(nA, anchor_step).index_select(1, torch.LongTensor([2])).view(1, nA, 1, 1).repeat(nB, 1, nH, nW)
+            ty = torch.FloatTensor(anchors).view(num_anchors, anchor_step).index_select(1, torch.LongTensor([2])).view(1, nA, 1, 1).repeat(nB, 1, nH, nW)
         else:
             tx.fill_(0.5)
             ty.fill_(0.5)
@@ -1460,24 +1372,20 @@ def build_targets(pred_boxes, target, anchors, num_anchors, num_classes, nH,
                     best_n = n
                     min_dist = dist
             gt_box = [gx, gy, gw, gh]
-            pred_box = pred_boxes[b * nAnchors + best_n * nPixels + gj * nW +
-                gi]
+            pred_box = pred_boxes[b * nAnchors + best_n * nPixels + gj * nW + gi]
             coord_mask[b][best_n][gj][gi] = 1
             cls_mask[b][best_n][gj][gi] = 1
             conf_mask[b][best_n][gj][gi] = object_scale
             tx[b][best_n][gj][gi] = target[b][t * 5 + 1] * nW - gi
             ty[b][best_n][gj][gi] = target[b][t * 5 + 2] * nH - gj
-            tw[b][best_n][gj][gi] = math.log(gw / anchors[anchor_step * best_n]
-                )
-            th[b][best_n][gj][gi] = math.log(gh / anchors[anchor_step *
-                best_n + 1])
+            tw[b][best_n][gj][gi] = math.log(gw / anchors[anchor_step * best_n])
+            th[b][best_n][gj][gi] = math.log(gh / anchors[anchor_step * best_n + 1])
             iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False)
             tconf[b][best_n][gj][gi] = iou
             tcls[b][best_n][gj][gi] = target[b][t * 5]
             if iou > 0.5:
                 nCorrect = nCorrect + 1
-    return (nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, th,
-        tconf, tcls)
+    return nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, th, tconf, tcls
 
 
 class RegionLoss(nn.Module):
@@ -1503,45 +1411,28 @@ class RegionLoss(nn.Module):
         nH = output.data.size(2)
         nW = output.data.size(3)
         output = output.view(nB, nA, 5 + nC, nH, nW)
-        x = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([0])
-            )).view(nB, nA, nH, nW))
-        y = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([1])
-            )).view(nB, nA, nH, nW))
-        w = output.index_select(2, Variable(torch.LongTensor([2]))).view(nB,
-            nA, nH, nW)
-        h = output.index_select(2, Variable(torch.LongTensor([3]))).view(nB,
-            nA, nH, nW)
-        conf = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([
-            4]))).view(nB, nA, nH, nW))
-        cls = output.index_select(2, Variable(torch.linspace(5, 5 + nC - 1,
-            nC).long()))
-        cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(
-            nB * nA * nH * nW, nC)
+        x = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([0]))).view(nB, nA, nH, nW))
+        y = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([1]))).view(nB, nA, nH, nW))
+        w = output.index_select(2, Variable(torch.LongTensor([2]))).view(nB, nA, nH, nW)
+        h = output.index_select(2, Variable(torch.LongTensor([3]))).view(nB, nA, nH, nW)
+        conf = F.sigmoid(output.index_select(2, Variable(torch.LongTensor([4]))).view(nB, nA, nH, nW))
+        cls = output.index_select(2, Variable(torch.linspace(5, 5 + nC - 1, nC).long()))
+        cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(nB * nA * nH * nW, nC)
         t1 = time.time()
         pred_boxes = torch.FloatTensor(4, nB * nA * nH * nW)
-        grid_x = torch.linspace(0, nW - 1, nW).repeat(nH, 1).repeat(nB * nA,
-            1, 1).view(nB * nA * nH * nW)
-        grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB *
-            nA, 1, 1).view(nB * nA * nH * nW)
-        anchor_w = torch.Tensor(self.anchors).view(nA, self.anchor_step
-            ).index_select(1, torch.LongTensor([0]))
-        anchor_h = torch.Tensor(self.anchors).view(nA, self.anchor_step
-            ).index_select(1, torch.LongTensor([1]))
-        anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH * nW).view(nB *
-            nA * nH * nW)
-        anchor_h = anchor_h.repeat(nB, 1).repeat(1, 1, nH * nW).view(nB *
-            nA * nH * nW)
+        grid_x = torch.linspace(0, nW - 1, nW).repeat(nH, 1).repeat(nB * nA, 1, 1).view(nB * nA * nH * nW)
+        grid_y = torch.linspace(0, nH - 1, nH).repeat(nW, 1).t().repeat(nB * nA, 1, 1).view(nB * nA * nH * nW)
+        anchor_w = torch.Tensor(self.anchors).view(nA, self.anchor_step).index_select(1, torch.LongTensor([0]))
+        anchor_h = torch.Tensor(self.anchors).view(nA, self.anchor_step).index_select(1, torch.LongTensor([1]))
+        anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH * nW).view(nB * nA * nH * nW)
+        anchor_h = anchor_h.repeat(nB, 1).repeat(1, 1, nH * nW).view(nB * nA * nH * nW)
         pred_boxes[0] = x.data + grid_x
         pred_boxes[1] = y.data + grid_y
         pred_boxes[2] = torch.exp(w.data) * anchor_w
         pred_boxes[3] = torch.exp(h.data) * anchor_h
-        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().
-            view(-1, 4))
+        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, 4))
         t2 = time.time()
-        (nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, th,
-            tconf, tcls) = (build_targets(pred_boxes, target.data, self.
-            anchors, nA, nC, nH, nW, self.noobject_scale, self.object_scale,
-            self.thresh, self.seen))
+        nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, th, tconf, tcls = build_targets(pred_boxes, target.data, self.anchors, nA, nC, nH, nW, self.noobject_scale, self.object_scale, self.thresh, self.seen)
         cls_mask = cls_mask == 1
         nProposals = int((conf > 0.25).sum().data[0])
         tx = Variable(tx)
@@ -1555,18 +1446,12 @@ class RegionLoss(nn.Module):
         cls_mask = Variable(cls_mask.view(-1, 1).repeat(1, nC))
         cls = cls[cls_mask].view(-1, nC)
         t3 = time.time()
-        loss_x = self.coord_scale * nn.MSELoss(size_average=False)(x *
-            coord_mask, tx * coord_mask) / 2.0
-        loss_y = self.coord_scale * nn.MSELoss(size_average=False)(y *
-            coord_mask, ty * coord_mask) / 2.0
-        loss_w = self.coord_scale * nn.MSELoss(size_average=False)(w *
-            coord_mask, tw * coord_mask) / 2.0
-        loss_h = self.coord_scale * nn.MSELoss(size_average=False)(h *
-            coord_mask, th * coord_mask) / 2.0
-        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf *
-            conf_mask) / 2.0
-        loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(
-            cls, tcls)
+        loss_x = self.coord_scale * nn.MSELoss(size_average=False)(x * coord_mask, tx * coord_mask) / 2.0
+        loss_y = self.coord_scale * nn.MSELoss(size_average=False)(y * coord_mask, ty * coord_mask) / 2.0
+        loss_w = self.coord_scale * nn.MSELoss(size_average=False)(w * coord_mask, tw * coord_mask) / 2.0
+        loss_h = self.coord_scale * nn.MSELoss(size_average=False)(h * coord_mask, th * coord_mask) / 2.0
+        loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf * conf_mask) / 2.0
+        loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(cls, tcls)
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
         t4 = time.time()
         if False:
@@ -1584,24 +1469,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BN2d_slow,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EmptyModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPoolStride1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Scale,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_marvis_pytorch_yolo2(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BN2d_slow(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

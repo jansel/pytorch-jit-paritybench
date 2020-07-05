@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -108,10 +109,8 @@ class minibatch_std_concat_layer(nn.Module):
         if 'group' in self.averaging:
             self.n = int(self.averaging[5:])
         else:
-            assert self.averaging in ['all', 'flat', 'spatial', 'none', 'gpool'
-                ], 'Invalid averaging mode' % self.averaging
-        self.adjusted_std = lambda x, **kwargs: torch.sqrt(torch.mean((x -
-            torch.mean(x, **kwargs)) ** 2, **kwargs) + 1e-08)
+            assert self.averaging in ['all', 'flat', 'spatial', 'none', 'gpool'], 'Invalid averaging mode' % self.averaging
+        self.adjusted_std = lambda x, **kwargs: torch.sqrt(torch.mean((x - torch.mean(x, **kwargs)) ** 2, **kwargs) + 1e-08)
 
     def forward(self, x):
         shape = list(x.size())
@@ -133,8 +132,7 @@ class minibatch_std_concat_layer(nn.Module):
             vals = torch.FloatTensor([self.adjusted_std(x)])
         else:
             target_shape[1] = self.n
-            vals = vals.view(self.n, self.shape[1] / self.n, self.shape[2],
-                self.shape[3])
+            vals = vals.view(self.n, self.shape[1] / self.n, self.shape[2], self.shape[3])
             vals = mean(vals, axis=0, keepdim=True).view(1, self.n, 1, 1)
         vals = vals.expand(*target_shape)
         return torch.cat([x, vals], 1)
@@ -155,8 +153,7 @@ class pixelwise_norm_layer(nn.Module):
 
 class equalized_conv2d(nn.Module):
 
-    def __init__(self, c_in, c_out, k_size, stride, pad, initializer=
-        'kaiming', bias=False):
+    def __init__(self, c_in, c_out, k_size, stride, pad, initializer='kaiming', bias=False):
         super(equalized_conv2d, self).__init__()
         self.conv = nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=False)
         if initializer == 'kaiming':
@@ -175,11 +172,9 @@ class equalized_conv2d(nn.Module):
 
 class equalized_deconv2d(nn.Module):
 
-    def __init__(self, c_in, c_out, k_size, stride, pad, initializer='kaiming'
-        ):
+    def __init__(self, c_in, c_out, k_size, stride, pad, initializer='kaiming'):
         super(equalized_deconv2d, self).__init__()
-        self.deconv = nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad,
-            bias=False)
+        self.deconv = nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias=False)
         if initializer == 'kaiming':
             kaiming_normal(self.deconv.weight, a=calculate_gain('conv2d'))
         elif initializer == 'xavier':
@@ -218,8 +213,7 @@ class generalized_drop_out(nn.Module):
     def __init__(self, mode='mul', strength=0.4, axes=(0, 1), normalize=False):
         super(generalized_drop_out, self).__init__()
         self.mode = mode.lower()
-        assert self.mode in ['mul', 'drop', 'prop'
-            ], 'Invalid GDropLayer mode' % mode
+        assert self.mode in ['mul', 'drop', 'prop'], 'Invalid GDropLayer mode' % mode
         self.strength = strength
         self.axes = [axes] if isinstance(axes, int) else list(axes)
         self.normalize = normalize
@@ -228,8 +222,7 @@ class generalized_drop_out(nn.Module):
     def forward(self, x, deterministic=False):
         if deterministic or not self.strength:
             return x
-        rnd_shape = [(s if axis in self.axes else 1) for axis, s in
-            enumerate(x.size())]
+        rnd_shape = [(s if axis in self.axes else 1) for axis, s in enumerate(x.size())]
         if self.mode == 'drop':
             p = 1 - self.strength
             rnd = np.random.binomial(1, p=p, size=rnd_shape) / p
@@ -246,13 +239,11 @@ class generalized_drop_out(nn.Module):
         return x * rnd
 
     def __repr__(self):
-        param_str = '(mode = %s, strength = %s, axes = %s, normalize = %s)' % (
-            self.mode, self.strength, self.axes, self.normalize)
+        param_str = '(mode = %s, strength = %s, axes = %s, normalize = %s)' % (self.mode, self.strength, self.axes, self.normalize)
         return self.__class__.__name__ + param_str
 
 
-def deconv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=
-    False, wn=False, pixel=False, only=False):
+def deconv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=False, wn=False, pixel=False, only=False):
     if wn:
         layers.append(equalized_conv2d(c_in, c_out, k_size, stride, pad))
     else:
@@ -310,16 +301,13 @@ class Generator(nn.Module):
         ndim = self.ngf
         if self.flag_norm_latent:
             layers.append(pixelwise_norm_layer())
-        layers = deconv(layers, self.nz, ndim, 4, 1, 3, self.flag_leaky,
-            self.flag_bn, self.flag_wn, self.flag_pixelwise)
-        layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.
-            flag_bn, self.flag_wn, self.flag_pixelwise)
+        layers = deconv(layers, self.nz, ndim, 4, 1, 3, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
+        layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
         return nn.Sequential(*layers), ndim
 
     def intermediate_block(self, resl):
         halving = False
-        layer_name = 'intermediate_{}x{}_{}x{}'.format(int(pow(2, resl - 1)
-            ), int(pow(2, resl - 1)), int(pow(2, resl)), int(pow(2, resl)))
+        layer_name = 'intermediate_{}x{}_{}x{}'.format(int(pow(2, resl - 1)), int(pow(2, resl - 1)), int(pow(2, resl)), int(pow(2, resl)))
         ndim = self.ngf
         if resl == 3 or resl == 4 or resl == 5:
             halving = False
@@ -332,21 +320,16 @@ class Generator(nn.Module):
         layers = []
         layers.append(nn.Upsample(scale_factor=2, mode='nearest'))
         if halving:
-            layers = deconv(layers, ndim * 2, ndim, 3, 1, 1, self.
-                flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
-            layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, self.flag_pixelwise)
+            layers = deconv(layers, ndim * 2, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
+            layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
         else:
-            layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, self.flag_pixelwise)
-            layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, self.flag_pixelwise)
+            layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
+            layers = deconv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise)
         return nn.Sequential(*layers), ndim, layer_name
 
     def to_rgb_block(self, c_in):
         layers = []
-        layers = deconv(layers, c_in, self.nc, 1, 1, 0, self.flag_leaky,
-            self.flag_bn, self.flag_wn, self.flag_pixelwise, only=True)
+        layers = deconv(layers, c_in, self.nc, 1, 1, 0, self.flag_leaky, self.flag_bn, self.flag_wn, self.flag_pixelwise, only=True)
         if self.flag_tanh:
             layers.append(nn.Tanh())
         return nn.Sequential(*layers)
@@ -370,15 +353,13 @@ class Generator(nn.Module):
             None
             low_resl_to_rgb = deepcopy_module(self.model, 'to_rgb_block')
             prev_block = nn.Sequential()
-            prev_block.add_module('low_resl_upsample', nn.Upsample(
-                scale_factor=2, mode='nearest'))
+            prev_block.add_module('low_resl_upsample', nn.Upsample(scale_factor=2, mode='nearest'))
             prev_block.add_module('low_resl_to_rgb', low_resl_to_rgb)
             inter_block, ndim, self.layer_name = self.intermediate_block(resl)
             next_block = nn.Sequential()
             next_block.add_module('high_resl_block', inter_block)
             next_block.add_module('high_resl_to_rgb', self.to_rgb_block(ndim))
-            new_model.add_module('concat_block', ConcatTable(prev_block,
-                next_block))
+            new_model.add_module('concat_block', ConcatTable(prev_block, next_block))
             new_model.add_module('fadein_block', fadein_layer(self.config))
             self.model = None
             self.model = new_model
@@ -387,10 +368,8 @@ class Generator(nn.Module):
     def flush_network(self):
         try:
             None
-            high_resl_block = deepcopy_module(self.model.concat_block.
-                layer2, 'high_resl_block')
-            high_resl_to_rgb = deepcopy_module(self.model.concat_block.
-                layer2, 'high_resl_to_rgb')
+            high_resl_block = deepcopy_module(self.model.concat_block.layer2, 'high_resl_block')
+            high_resl_to_rgb = deepcopy_module(self.model.concat_block.layer2, 'high_resl_to_rgb')
             new_model = nn.Sequential()
             for name, module in self.model.named_children():
                 if name != 'concat_block' and name != 'fadein_block':
@@ -413,13 +392,11 @@ class Generator(nn.Module):
         return x
 
 
-def conv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=False,
-    wn=False, pixel=False, gdrop=True, only=False):
+def conv(layers, c_in, c_out, k_size, stride=1, pad=0, leaky=True, bn=False, wn=False, pixel=False, gdrop=True, only=False):
     if gdrop:
         layers.append(generalized_drop_out(mode='prop', strength=0.0))
     if wn:
-        layers.append(equalized_conv2d(c_in, c_out, k_size, stride, pad,
-            initializer='kaiming'))
+        layers.append(equalized_conv2d(c_in, c_out, k_size, stride, pad, initializer='kaiming'))
     else:
         layers.append(nn.Conv2d(c_in, c_out, k_size, stride, pad))
     if not only:
@@ -466,18 +443,14 @@ class Discriminator(nn.Module):
         ndim = self.ndf
         layers = []
         layers.append(minibatch_std_concat_layer())
-        layers = conv(layers, ndim + 1, ndim, 3, 1, 1, self.flag_leaky,
-            self.flag_bn, self.flag_wn, pixel=False)
-        layers = conv(layers, ndim, ndim, 4, 1, 0, self.flag_leaky, self.
-            flag_bn, self.flag_wn, pixel=False)
-        layers = linear(layers, ndim, 1, sig=self.flag_sigmoid, wn=self.flag_wn
-            )
+        layers = conv(layers, ndim + 1, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
+        layers = conv(layers, ndim, ndim, 4, 1, 0, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
+        layers = linear(layers, ndim, 1, sig=self.flag_sigmoid, wn=self.flag_wn)
         return nn.Sequential(*layers), ndim
 
     def intermediate_block(self, resl):
         halving = False
-        layer_name = 'intermediate_{}x{}_{}x{}'.format(int(pow(2, resl)),
-            int(pow(2, resl)), int(pow(2, resl - 1)), int(pow(2, resl - 1)))
+        layer_name = 'intermediate_{}x{}_{}x{}'.format(int(pow(2, resl)), int(pow(2, resl)), int(pow(2, resl - 1)), int(pow(2, resl - 1)))
         ndim = self.ndf
         if resl == 3 or resl == 4 or resl == 5:
             halving = False
@@ -489,22 +462,17 @@ class Discriminator(nn.Module):
         ndim = int(ndim)
         layers = []
         if halving:
-            layers = conv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, pixel=False)
-            layers = conv(layers, ndim, ndim * 2, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, pixel=False)
+            layers = conv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
+            layers = conv(layers, ndim, ndim * 2, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
         else:
-            layers = conv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, pixel=False)
-            layers = conv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky,
-                self.flag_bn, self.flag_wn, pixel=False)
+            layers = conv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
+            layers = conv(layers, ndim, ndim, 3, 1, 1, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
         layers.append(nn.AvgPool2d(kernel_size=2))
         return nn.Sequential(*layers), ndim, layer_name
 
     def from_rgb_block(self, ndim):
         layers = []
-        layers = conv(layers, self.nc, ndim, 1, 1, 0, self.flag_leaky, self
-            .flag_bn, self.flag_wn, pixel=False)
+        layers = conv(layers, self.nc, ndim, 1, 1, 0, self.flag_leaky, self.flag_bn, self.flag_wn, pixel=False)
         return nn.Sequential(*layers)
 
     def get_init_dis(self):
@@ -520,17 +488,14 @@ class Discriminator(nn.Module):
             None
             low_resl_from_rgb = deepcopy_module(self.model, 'from_rgb_block')
             prev_block = nn.Sequential()
-            prev_block.add_module('low_resl_downsample', nn.AvgPool2d(
-                kernel_size=2))
+            prev_block.add_module('low_resl_downsample', nn.AvgPool2d(kernel_size=2))
             prev_block.add_module('low_resl_from_rgb', low_resl_from_rgb)
             inter_block, ndim, self.layer_name = self.intermediate_block(resl)
             next_block = nn.Sequential()
-            next_block.add_module('high_resl_from_rgb', self.from_rgb_block
-                (ndim))
+            next_block.add_module('high_resl_from_rgb', self.from_rgb_block(ndim))
             next_block.add_module('high_resl_block', inter_block)
             new_model = nn.Sequential()
-            new_model.add_module('concat_block', ConcatTable(prev_block,
-                next_block))
+            new_model.add_module('concat_block', ConcatTable(prev_block, next_block))
             new_model.add_module('fadein_block', fadein_layer(self.config))
             names = get_module_names(self.model)
             for name, module in self.model.named_children():
@@ -544,10 +509,8 @@ class Discriminator(nn.Module):
     def flush_network(self):
         try:
             None
-            high_resl_block = deepcopy_module(self.model.concat_block.
-                layer2, 'high_resl_block')
-            high_resl_from_rgb = deepcopy_module(self.model.concat_block.
-                layer2, 'high_resl_from_rgb')
+            high_resl_block = deepcopy_module(self.model.concat_block.layer2, 'high_resl_block')
+            high_resl_from_rgb = deepcopy_module(self.model.concat_block.layer2, 'high_resl_from_rgb')
             new_model = nn.Sequential()
             new_model.add_module('from_rgb_block', high_resl_from_rgb)
             new_model.add_module(self.layer_name, high_resl_block)
@@ -574,34 +537,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConcatTable,
+     lambda: ([], {'layer1': _mock_layer(), 'layer2': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (equalized_conv2d,
+     lambda: ([], {'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (equalized_deconv2d,
+     lambda: ([], {'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (equalized_linear,
+     lambda: ([], {'c_in': 4, 'c_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (fadein_layer,
+     lambda: ([], {'config': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (generalized_drop_out,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (minibatch_std_concat_layer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (pixelwise_norm_layer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_nashory_pggan_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConcatTable(*[], **{'layer1': _mock_layer(), 'layer2': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(equalized_conv2d(*[], **{'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(equalized_deconv2d(*[], **{'c_in': 4, 'c_out': 4, 'k_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(equalized_linear(*[], **{'c_in': 4, 'c_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(fadein_layer(*[], **{'config': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(generalized_drop_out(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(minibatch_std_concat_layer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(pixelwise_norm_layer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

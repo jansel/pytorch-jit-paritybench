@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,12 +57,9 @@ class Splitter(torch.nn.Module):
         """
         Creating weights for embedding.
         """
-        self.base_node_embedding = torch.nn.Embedding(self.base_node_count,
-            self.args.dimensions, padding_idx=0)
-        self.node_embedding = torch.nn.Embedding(self.node_count, self.args
-            .dimensions, padding_idx=0)
-        self.node_noise_embedding = torch.nn.Embedding(self.node_count,
-            self.args.dimensions, padding_idx=0)
+        self.base_node_embedding = torch.nn.Embedding(self.base_node_count, self.args.dimensions, padding_idx=0)
+        self.node_embedding = torch.nn.Embedding(self.node_count, self.args.dimensions, padding_idx=0)
+        self.node_noise_embedding = torch.nn.Embedding(self.node_count, self.args.dimensions, padding_idx=0)
 
     def initialize_weights(self, base_node_embedding, mapping):
         """
@@ -69,14 +67,10 @@ class Splitter(torch.nn.Module):
         :param base_node_embedding: Node embedding of the source graph.
         :param mapping: Mapping of personas to nodes.
         """
-        persona_embedding = np.array([base_node_embedding[n] for _, n in
-            mapping.items()])
-        self.node_embedding.weight.data = torch.nn.Parameter(torch.Tensor(
-            persona_embedding))
-        self.node_noise_embedding.weight.data = torch.nn.Parameter(torch.
-            Tensor(persona_embedding))
-        self.base_node_embedding.weight.data = torch.nn.Parameter(torch.
-            Tensor(base_node_embedding), requires_grad=False)
+        persona_embedding = np.array([base_node_embedding[n] for _, n in mapping.items()])
+        self.node_embedding.weight.data = torch.nn.Parameter(torch.Tensor(persona_embedding))
+        self.node_noise_embedding.weight.data = torch.nn.Parameter(torch.Tensor(persona_embedding))
+        self.base_node_embedding.weight.data = torch.nn.Parameter(torch.Tensor(base_node_embedding), requires_grad=False)
 
     def calculate_main_loss(self, sources, contexts, targets):
         """
@@ -92,8 +86,7 @@ class Splitter(torch.nn.Module):
         feature_f = torch.nn.functional.normalize(feature_f, p=2, dim=1)
         scores = torch.sum(node_f * feature_f, dim=1)
         scores = torch.sigmoid(scores)
-        main_loss = targets * torch.log(scores) + (1 - targets) * torch.log(
-            1 - scores)
+        main_loss = targets * torch.log(scores) + (1 - targets) * torch.log(1 - scores)
         main_loss = -torch.mean(main_loss)
         return main_loss
 
@@ -122,15 +115,7 @@ class Splitter(torch.nn.Module):
         :return loss: Loss value.
         """
         main_loss = self.calculate_main_loss(sources, contexts, targets)
-        regularization_loss = self.calculate_regularization(pure_sources,
-            personas)
+        regularization_loss = self.calculate_regularization(pure_sources, personas)
         loss = main_loss + self.args.lambd * regularization_loss
         return loss
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_benedekrozemberczki_Splitter(_paritybench_base):
-    pass

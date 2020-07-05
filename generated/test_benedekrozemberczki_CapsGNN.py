@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -57,55 +58,42 @@ class CapsGNN(torch.nn.Module):
         """
         Creating GCN layers.
         """
-        self.base_layers = [GCNConv(self.number_of_features, self.args.
-            gcn_filters)]
+        self.base_layers = [GCNConv(self.number_of_features, self.args.gcn_filters)]
         for _ in range(self.args.gcn_layers - 1):
-            self.base_layers.append(GCNConv(self.args.gcn_filters, self.
-                args.gcn_filters))
+            self.base_layers.append(GCNConv(self.args.gcn_filters, self.args.gcn_filters))
         self.base_layers = ListModule(*self.base_layers)
 
     def _setup_primary_capsules(self):
         """
         Creating primary capsules.
         """
-        self.first_capsule = PrimaryCapsuleLayer(in_units=self.args.
-            gcn_filters, in_channels=self.args.gcn_layers, num_units=self.
-            args.gcn_layers, capsule_dimensions=self.args.capsule_dimensions)
+        self.first_capsule = PrimaryCapsuleLayer(in_units=self.args.gcn_filters, in_channels=self.args.gcn_layers, num_units=self.args.gcn_layers, capsule_dimensions=self.args.capsule_dimensions)
 
     def _setup_attention(self):
         """
         Creating attention layer.
         """
-        self.attention = Attention(self.args.gcn_layers * self.args.
-            capsule_dimensions, self.args.inner_attention_dimension)
+        self.attention = Attention(self.args.gcn_layers * self.args.capsule_dimensions, self.args.inner_attention_dimension)
 
     def _setup_graph_capsules(self):
         """
         Creating graph capsules.
         """
-        self.graph_capsule = SecondaryCapsuleLayer(self.args.gcn_layers,
-            self.args.capsule_dimensions, self.args.number_of_capsules,
-            self.args.capsule_dimensions)
+        self.graph_capsule = SecondaryCapsuleLayer(self.args.gcn_layers, self.args.capsule_dimensions, self.args.number_of_capsules, self.args.capsule_dimensions)
 
     def _setup_class_capsule(self):
         """
         Creating class capsules.
         """
-        self.class_capsule = SecondaryCapsuleLayer(self.args.
-            capsule_dimensions, self.args.number_of_capsules, self.
-            number_of_targets, self.args.capsule_dimensions)
+        self.class_capsule = SecondaryCapsuleLayer(self.args.capsule_dimensions, self.args.number_of_capsules, self.number_of_targets, self.args.capsule_dimensions)
 
     def _setup_reconstruction_layers(self):
         """
         Creating histogram reconstruction layers.
         """
-        self.reconstruction_layer_1 = torch.nn.Linear(self.
-            number_of_targets * self.args.capsule_dimensions, int(self.
-            number_of_features * 2 / 3))
-        self.reconstruction_layer_2 = torch.nn.Linear(int(self.
-            number_of_features * 2 / 3), int(self.number_of_features * 3 / 2))
-        self.reconstruction_layer_3 = torch.nn.Linear(int(self.
-            number_of_features * 3 / 2), self.number_of_features)
+        self.reconstruction_layer_1 = torch.nn.Linear(self.number_of_targets * self.args.capsule_dimensions, int(self.number_of_features * 2 / 3))
+        self.reconstruction_layer_2 = torch.nn.Linear(int(self.number_of_features * 2 / 3), int(self.number_of_features * 3 / 2))
+        self.reconstruction_layer_3 = torch.nn.Linear(int(self.number_of_features * 3 / 2), self.number_of_features)
 
     def _setup_layers(self):
         """
@@ -134,22 +122,16 @@ class CapsGNN(torch.nn.Module):
         v_mag = torch.sqrt((capsule_input ** 2).sum(dim=1))
         _, v_max_index = v_mag.max(dim=0)
         v_max_index = v_max_index.data
-        capsule_masked = torch.autograd.Variable(torch.zeros(capsule_input.
-            size()))
+        capsule_masked = torch.autograd.Variable(torch.zeros(capsule_input.size()))
         capsule_masked[(v_max_index), :] = capsule_input[(v_max_index), :]
         capsule_masked = capsule_masked.view(1, -1)
         feature_counts = features.sum(dim=0)
         feature_counts = feature_counts / feature_counts.sum()
-        reconstruction_output = torch.nn.functional.relu(self.
-            reconstruction_layer_1(capsule_masked))
-        reconstruction_output = torch.nn.functional.relu(self.
-            reconstruction_layer_2(reconstruction_output))
-        reconstruction_output = torch.softmax(self.reconstruction_layer_3(
-            reconstruction_output), dim=1)
-        reconstruction_output = reconstruction_output.view(1, self.
-            number_of_features)
-        reconstruction_loss = torch.sum((features - reconstruction_output) ** 2
-            )
+        reconstruction_output = torch.nn.functional.relu(self.reconstruction_layer_1(capsule_masked))
+        reconstruction_output = torch.nn.functional.relu(self.reconstruction_layer_2(reconstruction_output))
+        reconstruction_output = torch.softmax(self.reconstruction_layer_3(reconstruction_output), dim=1)
+        reconstruction_output = reconstruction_output.view(1, self.number_of_features)
+        reconstruction_loss = torch.sum((features - reconstruction_output) ** 2)
         return reconstruction_loss
 
     def forward(self, data):
@@ -165,28 +147,18 @@ class CapsGNN(torch.nn.Module):
             features = torch.nn.functional.relu(layer(features, edges))
             hidden_representations.append(features)
         hidden_representations = torch.cat(tuple(hidden_representations))
-        hidden_representations = hidden_representations.view(1, self.args.
-            gcn_layers, self.args.gcn_filters, -1)
+        hidden_representations = hidden_representations.view(1, self.args.gcn_layers, self.args.gcn_filters, -1)
         first_capsule_output = self.first_capsule(hidden_representations)
-        first_capsule_output = first_capsule_output.view(-1, self.args.
-            gcn_layers * self.args.capsule_dimensions)
+        first_capsule_output = first_capsule_output.view(-1, self.args.gcn_layers * self.args.capsule_dimensions)
         rescaled_capsule_output = self.attention(first_capsule_output)
-        rescaled_first_capsule_output = rescaled_capsule_output.view(-1,
-            self.args.gcn_layers, self.args.capsule_dimensions)
-        graph_capsule_output = self.graph_capsule(rescaled_first_capsule_output
-            )
-        reshaped_graph_capsule_output = graph_capsule_output.view(-1, self.
-            args.capsule_dimensions, self.args.number_of_capsules)
-        class_capsule_output = self.class_capsule(reshaped_graph_capsule_output
-            )
-        class_capsule_output = class_capsule_output.view(-1, self.
-            number_of_targets * self.args.capsule_dimensions)
-        class_capsule_output = torch.mean(class_capsule_output, dim=0).view(
-            1, self.number_of_targets, self.args.capsule_dimensions)
-        recon = class_capsule_output.view(self.number_of_targets, self.args
-            .capsule_dimensions)
-        reconstruction_loss = self.calculate_reconstruction_loss(recon,
-            data['features'])
+        rescaled_first_capsule_output = rescaled_capsule_output.view(-1, self.args.gcn_layers, self.args.capsule_dimensions)
+        graph_capsule_output = self.graph_capsule(rescaled_first_capsule_output)
+        reshaped_graph_capsule_output = graph_capsule_output.view(-1, self.args.capsule_dimensions, self.args.number_of_capsules)
+        class_capsule_output = self.class_capsule(reshaped_graph_capsule_output)
+        class_capsule_output = class_capsule_output.view(-1, self.number_of_targets * self.args.capsule_dimensions)
+        class_capsule_output = torch.mean(class_capsule_output, dim=0).view(1, self.number_of_targets, self.args.capsule_dimensions)
+        recon = class_capsule_output.view(self.number_of_targets, self.args.capsule_dimensions)
+        reconstruction_loss = self.calculate_reconstruction_loss(recon, data['features'])
         return class_capsule_output, reconstruction_loss
 
 
@@ -246,9 +218,7 @@ class PrimaryCapsuleLayer(torch.nn.Module):
         self.num_units = num_units
         self.units = []
         for i in range(self.num_units):
-            unit = torch.nn.Conv1d(in_channels=in_channels, out_channels=
-                capsule_dimensions, kernel_size=(in_units, 1), stride=1,
-                bias=True)
+            unit = torch.nn.Conv1d(in_channels=in_channels, out_channels=capsule_dimensions, kernel_size=(in_units, 1), stride=1, bias=True)
             self.add_module('unit_' + str(i), unit)
             self.units.append(unit)
 
@@ -293,8 +263,7 @@ class SecondaryCapsuleLayer(torch.nn.Module):
         self.in_units = in_units
         self.in_channels = in_channels
         self.num_units = num_units
-        self.W = torch.nn.Parameter(torch.randn(1, in_channels, num_units,
-            unit_size, in_units))
+        self.W = torch.nn.Parameter(torch.randn(1, in_channels, num_units, unit_size, in_units))
 
     @staticmethod
     def squash(s):
@@ -327,8 +296,7 @@ class SecondaryCapsuleLayer(torch.nn.Module):
             s_j = (c_ij * u_hat).sum(dim=1, keepdim=True)
             v_j = SecondaryCapsuleLayer.squash(s_j)
             v_j1 = torch.cat([v_j] * self.in_channels, dim=1)
-            u_vj1 = torch.matmul(u_hat.transpose(3, 4), v_j1).squeeze(4).mean(
-                dim=0, keepdim=True)
+            u_vj1 = torch.matmul(u_hat.transpose(3, 4), v_j1).squeeze(4).mean(dim=0, keepdim=True)
             b_max = torch.max(b_ij, dim=2, keepdim=True)
             b_ij = b_ij / b_max.values
         return v_j.squeeze(1)
@@ -367,16 +335,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'attention_size_1': 4, 'attention_size_2': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PrimaryCapsuleLayer,
+     lambda: ([], {'in_units': 4, 'in_channels': 4, 'num_units': 4, 'capsule_dimensions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SecondaryCapsuleLayer,
+     lambda: ([], {'in_units': 4, 'in_channels': 4, 'num_units': 4, 'unit_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_benedekrozemberczki_CapsGNN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Attention(*[], **{'attention_size_1': 4, 'attention_size_2': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(PrimaryCapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'capsule_dimensions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(SecondaryCapsuleLayer(*[], **{'in_units': 4, 'in_channels': 4, 'num_units': 4, 'unit_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

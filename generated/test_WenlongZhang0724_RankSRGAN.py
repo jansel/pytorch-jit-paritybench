@@ -48,8 +48,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -124,8 +125,7 @@ class ResidualDenseBlock_5C(nn.Module):
         self.conv4 = nn.Conv2d(nf + 3 * gc, gc, 3, 1, 1, bias=bias)
         self.conv5 = nn.Conv2d(nf + 4 * gc, nf, 3, 1, 1, bias=bias)
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        arch_util.initialize_weights([self.conv1, self.conv2, self.conv3,
-            self.conv4, self.conv5], 0.1)
+        arch_util.initialize_weights([self.conv1, self.conv2, self.conv3, self.conv4, self.conv5], 0.1)
 
     def forward(self, x):
         x1 = self.lrelu(self.conv1(x))
@@ -170,10 +170,8 @@ class RRDBNet(nn.Module):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
-        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2,
-            mode='nearest')))
-        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2,
-            mode='nearest')))
+        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
         return out
 
@@ -200,8 +198,7 @@ class SRResNet(nn.Module):
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
         self.relu = nn.ReLU(inplace=True)
-        arch_util.initialize_weights([self.conv_first, self.upconv1, self.
-            HRconv, self.conv_last], 0.1)
+        arch_util.initialize_weights([self.conv_first, self.upconv1, self.HRconv, self.conv_last], 0.1)
         if self.upscale == 4:
             arch_util.initialize_weights(self.upconv2, 0.1)
 
@@ -285,8 +282,7 @@ class Ranker_VGG12_296(nn.Module):
         self.bn4_0 = nn.BatchNorm2d(nf * 8, affine=True)
         self.conv4_1 = nn.Conv2d(nf * 8, nf * 8, 4, 2, 1, bias=True)
         self.bn4_1 = nn.BatchNorm2d(nf * 8, affine=True)
-        self.classifier = nn.Sequential(nn.Linear(512, 100), nn.LeakyReLU(
-            0.2, True), nn.Linear(100, 1))
+        self.classifier = nn.Sequential(nn.Linear(512, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
     def forward(self, x):
@@ -328,8 +324,7 @@ class MSRResNet(nn.Module):
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
-        arch_util.initialize_weights([self.conv_first, self.upconv1, self.
-            HRconv, self.conv_last], 0.1)
+        arch_util.initialize_weights([self.conv_first, self.upconv1, self.HRconv, self.conv_last], 0.1)
         if self.upscale == 4:
             arch_util.initialize_weights(self.upconv2, 0.1)
 
@@ -342,8 +337,7 @@ class MSRResNet(nn.Module):
         elif self.upscale == 3 or self.upscale == 2:
             out = self.lrelu(self.pixel_shuffle(self.upconv1(out)))
         out = self.conv_last(self.lrelu(self.HRconv(out)))
-        base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear',
-            align_corners=False)
+        base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear', align_corners=False)
         out += base
         return out
 
@@ -433,8 +427,7 @@ class Discriminator_VGG_128(nn.Module):
 
 class VGGFeatureExtractor(nn.Module):
 
-    def __init__(self, feature_layer=34, use_bn=False, use_input_norm=True,
-        device=torch.device('cpu')):
+    def __init__(self, feature_layer=34, use_bn=False, use_input_norm=True, device=torch.device('cpu')):
         super(VGGFeatureExtractor, self).__init__()
         self.use_input_norm = use_input_norm
         if use_bn:
@@ -446,8 +439,7 @@ class VGGFeatureExtractor(nn.Module):
             std = torch.Tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
             self.register_buffer('mean', mean)
             self.register_buffer('std', std)
-        self.features = nn.Sequential(*list(model.features.children())[:
-            feature_layer + 1])
+        self.features = nn.Sequential(*list(model.features.children())[:feature_layer + 1])
         for k, v in self.features.named_parameters():
             v.requires_grad = False
 
@@ -488,8 +480,7 @@ class GANLoss(nn.Module):
                 return -1 * input.mean() if target else input.mean()
             self.loss = wgan_loss
         else:
-            raise NotImplementedError('GAN type [{:s}] is not found'.format
-                (self.gan_type))
+            raise NotImplementedError('GAN type [{:s}] is not found'.format(self.gan_type))
 
     def get_target_label(self, input, target_is_real):
         if self.gan_type == 'wgan-gp':
@@ -519,9 +510,7 @@ class GradientPenaltyLoss(nn.Module):
 
     def forward(self, interp, interp_crit):
         grad_outputs = self.get_grad_outputs(interp_crit)
-        grad_interp = torch.autograd.grad(outputs=interp_crit, inputs=
-            interp, grad_outputs=grad_outputs, create_graph=True,
-            retain_graph=True, only_inputs=True)[0]
+        grad_interp = torch.autograd.grad(outputs=interp_crit, inputs=interp, grad_outputs=grad_outputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
         grad_interp = grad_interp.view(grad_interp.size(0), -1)
         grad_interp_norm = grad_interp.norm(2, dim=1)
         loss = ((grad_interp_norm - 1) ** 2).mean()
@@ -590,8 +579,7 @@ def act(act_type, inplace=True, neg_slope=0.2, n_prelu=1):
     elif act_type == 'prelu':
         layer = nn.PReLU(num_parameters=n_prelu, init=neg_slope)
     else:
-        raise NotImplementedError('activation layer [{:s}] is not found'.
-            format(act_type))
+        raise NotImplementedError('activation layer [{:s}] is not found'.format(act_type))
     return layer
 
 
@@ -608,8 +596,7 @@ def norm(norm_type, nc):
     elif norm_type == 'instance':
         layer = nn.InstanceNorm2d(nc, affine=False)
     else:
-        raise NotImplementedError('normalization layer [{:s}] is not found'
-            .format(norm_type))
+        raise NotImplementedError('normalization layer [{:s}] is not found'.format(norm_type))
     return layer
 
 
@@ -622,16 +609,14 @@ def pad(pad_type, padding):
     elif pad_type == 'replicate':
         layer = nn.ReplicationPad2d(padding)
     else:
-        raise NotImplementedError('padding layer [{:s}] is not implemented'
-            .format(pad_type))
+        raise NotImplementedError('padding layer [{:s}] is not implemented'.format(pad_type))
     return layer
 
 
 def sequential(*args):
     if len(args) == 1:
         if isinstance(args[0], OrderedDict):
-            raise NotImplementedError(
-                'sequential does not support OrderedDict input.')
+            raise NotImplementedError('sequential does not support OrderedDict input.')
         return args[0]
     modules = []
     for module in args:
@@ -643,8 +628,7 @@ def sequential(*args):
     return nn.Sequential(*modules)
 
 
-def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
-    bias=True, pad_type='zero', norm_type=None, act_type='relu', mode='CNA'):
+def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1, bias=True, pad_type='zero', norm_type=None, act_type='relu', mode='CNA'):
     """
     Conv layer with padding, normalization, activation
     mode: CNA --> Conv -> Norm -> Act
@@ -654,8 +638,7 @@ def conv_block(in_nc, out_nc, kernel_size, stride=1, dilation=1, groups=1,
     padding = get_valid_padding(kernel_size, dilation)
     p = pad(pad_type, padding) if pad_type and pad_type != 'zero' else None
     padding = padding if pad_type == 'zero' else 0
-    c = nn.Conv2d(in_nc, out_nc, kernel_size=kernel_size, stride=stride,
-        padding=padding, dilation=dilation, bias=bias, groups=groups)
+    c = nn.Conv2d(in_nc, out_nc, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, groups=groups)
     a = act(act_type) if act_type else None
     if 'CNA' in mode:
         n = norm(norm_type, out_nc) if norm_type else None
@@ -674,19 +657,15 @@ class ResNetBlock(nn.Module):
     (Enhanced Deep Residual Networks for Single Image Super-Resolution, CVPRW 17)
     """
 
-    def __init__(self, in_nc, mid_nc, out_nc, kernel_size=3, stride=1,
-        dilation=1, groups=1, bias=True, pad_type='zero', norm_type=None,
-        act_type='relu', mode='CNA', res_scale=1):
+    def __init__(self, in_nc, mid_nc, out_nc, kernel_size=3, stride=1, dilation=1, groups=1, bias=True, pad_type='zero', norm_type=None, act_type='relu', mode='CNA', res_scale=1):
         super(ResNetBlock, self).__init__()
-        conv0 = conv_block(in_nc, mid_nc, kernel_size, stride, dilation,
-            groups, bias, pad_type, norm_type, act_type, mode)
+        conv0 = conv_block(in_nc, mid_nc, kernel_size, stride, dilation, groups, bias, pad_type, norm_type, act_type, mode)
         if mode == 'CNA':
             act_type = None
         if mode == 'CNAC':
             act_type = None
             norm_type = None
-        conv1 = conv_block(mid_nc, out_nc, kernel_size, stride, dilation,
-            groups, bias, pad_type, norm_type, act_type, mode)
+        conv1 = conv_block(mid_nc, out_nc, kernel_size, stride, dilation, groups, bias, pad_type, norm_type, act_type, mode)
         self.res = sequential(conv0, conv1)
         self.res_scale = res_scale
 
@@ -702,28 +681,17 @@ class ResidualDenseBlock_5C(nn.Module):
     The core module of paper: (Residual Dense Network for Image Super-Resolution, CVPR 18)
     """
 
-    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True,
-        pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
+    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True, pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
         super(ResidualDenseBlock_5C, self).__init__()
-        self.conv1 = conv_block(nc, gc, kernel_size, stride, bias=bias,
-            pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode
-            =mode)
-        self.conv2 = conv_block(nc + gc, gc, kernel_size, stride, bias=bias,
-            pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode
-            =mode)
-        self.conv3 = conv_block(nc + 2 * gc, gc, kernel_size, stride, bias=
-            bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type,
-            mode=mode)
-        self.conv4 = conv_block(nc + 3 * gc, gc, kernel_size, stride, bias=
-            bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type,
-            mode=mode)
+        self.conv1 = conv_block(nc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.conv2 = conv_block(nc + gc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.conv3 = conv_block(nc + 2 * gc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.conv4 = conv_block(nc + 3 * gc, gc, kernel_size, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=act_type, mode=mode)
         if mode == 'CNA':
             last_act = None
         else:
             last_act = act_type
-        self.conv5 = conv_block(nc + 4 * gc, nc, 3, stride, bias=bias,
-            pad_type=pad_type, norm_type=norm_type, act_type=last_act, mode
-            =mode)
+        self.conv5 = conv_block(nc + 4 * gc, nc, 3, stride, bias=bias, pad_type=pad_type, norm_type=norm_type, act_type=last_act, mode=mode)
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -740,15 +708,11 @@ class RRDB(nn.Module):
     (ESRGAN: Enhanced Super-Resolution Generative Adversarial Networks)
     """
 
-    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True,
-        pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
+    def __init__(self, nc, kernel_size=3, gc=32, stride=1, bias=True, pad_type='zero', norm_type=None, act_type='leakyrelu', mode='CNA'):
         super(RRDB, self).__init__()
-        self.RDB1 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias,
-            pad_type, norm_type, act_type, mode)
-        self.RDB2 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias,
-            pad_type, norm_type, act_type, mode)
-        self.RDB3 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias,
-            pad_type, norm_type, act_type, mode)
+        self.RDB1 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias, pad_type, norm_type, act_type, mode)
+        self.RDB2 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias, pad_type, norm_type, act_type, mode)
+        self.RDB3 = ResidualDenseBlock_5C(nc, kernel_size, gc, stride, bias, pad_type, norm_type, act_type, mode)
 
     def forward(self, x):
         out = self.RDB1(x)
@@ -759,33 +723,20 @@ class RRDB(nn.Module):
 
 class Discriminator_VGG_128(nn.Module):
 
-    def __init__(self, in_nc=3, base_nf=64, norm_type='batch', act_type=
-        'leakyrelu', mode='CNA'):
+    def __init__(self, in_nc=3, base_nf=64, norm_type='batch', act_type='leakyrelu', mode='CNA'):
         super(Discriminator_VGG_128, self).__init__()
-        conv0 = B.conv_block(in_nc, base_nf, kernel_size=3, norm_type=None,
-            act_type=act_type, mode=mode)
-        conv1 = B.conv_block(base_nf, base_nf, kernel_size=4, stride=2,
-            norm_type=norm_type, act_type=act_type, mode=mode)
-        conv2 = B.conv_block(base_nf, base_nf * 2, kernel_size=3, stride=1,
-            norm_type=norm_type, act_type=act_type, mode=mode)
-        conv3 = B.conv_block(base_nf * 2, base_nf * 2, kernel_size=4,
-            stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv4 = B.conv_block(base_nf * 2, base_nf * 4, kernel_size=3,
-            stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv5 = B.conv_block(base_nf * 4, base_nf * 4, kernel_size=4,
-            stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv6 = B.conv_block(base_nf * 4, base_nf * 8, kernel_size=3,
-            stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv7 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4,
-            stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv8 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=3,
-            stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv9 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4,
-            stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4,
-            conv5, conv6, conv7, conv8, conv9)
-        self.classifier = nn.Sequential(nn.Linear(512 * 9 * 9, 100), nn.
-            LeakyReLU(0.2, True), nn.Linear(100, 1))
+        conv0 = B.conv_block(in_nc, base_nf, kernel_size=3, norm_type=None, act_type=act_type, mode=mode)
+        conv1 = B.conv_block(base_nf, base_nf, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv2 = B.conv_block(base_nf, base_nf * 2, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv3 = B.conv_block(base_nf * 2, base_nf * 2, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv4 = B.conv_block(base_nf * 2, base_nf * 4, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv5 = B.conv_block(base_nf * 4, base_nf * 4, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv6 = B.conv_block(base_nf * 4, base_nf * 8, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv7 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv8 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv9 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9)
+        self.classifier = nn.Sequential(nn.Linear(512 * 9 * 9, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
 
     def forward(self, x):
         x = self.features(x)
@@ -796,38 +747,27 @@ class Discriminator_VGG_128(nn.Module):
 
 class SRResNet(nn.Module):
 
-    def __init__(self, in_nc=3, out_nc=3, nf=64, nb=16, upscale=4,
-        norm_type=None, act_type='relu', mode='CNA', res_scale=1,
-        upsample_mode='pixelshuffle'):
+    def __init__(self, in_nc=3, out_nc=3, nf=64, nb=16, upscale=4, norm_type=None, act_type='relu', mode='CNA', res_scale=1, upsample_mode='pixelshuffle'):
         super(SRResNet, self).__init__()
         n_upscale = int(math.log(upscale, 2))
         if upscale == 3:
             n_upscale = 1
-        fea_conv = B.conv_block(in_nc, nf, kernel_size=3, norm_type=None,
-            act_type=None)
-        resnet_blocks = [B.ResNetBlock(nf, nf, nf, norm_type=norm_type,
-            act_type=act_type, mode=mode, res_scale=res_scale) for _ in
-            range(nb)]
-        LR_conv = B.conv_block(nf, nf, kernel_size=3, norm_type=norm_type,
-            act_type=None, mode=mode)
+        fea_conv = B.conv_block(in_nc, nf, kernel_size=3, norm_type=None, act_type=None)
+        resnet_blocks = [B.ResNetBlock(nf, nf, nf, norm_type=norm_type, act_type=act_type, mode=mode, res_scale=res_scale) for _ in range(nb)]
+        LR_conv = B.conv_block(nf, nf, kernel_size=3, norm_type=norm_type, act_type=None, mode=mode)
         if upsample_mode == 'upconv':
             upsample_block = B.upconv_blcok
         elif upsample_mode == 'pixelshuffle':
             upsample_block = B.pixelshuffle_block
         else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.
-                format(upsample_mode))
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
         if upscale == 3:
             upsampler = upsample_block(nf, nf, 3, act_type=act_type)
         else:
-            upsampler = [upsample_block(nf, nf, act_type=act_type) for _ in
-                range(n_upscale)]
-        HR_conv0 = B.conv_block(nf, nf, kernel_size=3, norm_type=None,
-            act_type=act_type)
-        HR_conv1 = B.conv_block(nf, out_nc, kernel_size=3, norm_type=None,
-            act_type=None)
-        self.model = B.sequential(fea_conv, B.ShortcutBlock(B.sequential(*
-            resnet_blocks, LR_conv)), *upsampler, HR_conv0, HR_conv1)
+            upsampler = [upsample_block(nf, nf, act_type=act_type) for _ in range(n_upscale)]
+        HR_conv0 = B.conv_block(nf, nf, kernel_size=3, norm_type=None, act_type=act_type)
+        HR_conv1 = B.conv_block(nf, out_nc, kernel_size=3, norm_type=None, act_type=None)
+        self.model = B.sequential(fea_conv, B.ShortcutBlock(B.sequential(*resnet_blocks, LR_conv)), *upsampler, HR_conv0, HR_conv1)
 
     def forward(self, x):
         x = self.model(x)
@@ -857,8 +797,7 @@ class mmsrSRResNet(nn.Module):
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
         self.relu = nn.ReLU(inplace=True)
-        arch_util.initialize_weights([self.conv_first, self.upconv1, self.
-            HRconv, self.conv_last], 0.1)
+        arch_util.initialize_weights([self.conv_first, self.upconv1, self.HRconv, self.conv_last], 0.1)
         if self.upscale == 4:
             arch_util.initialize_weights(self.upconv2, 0.1)
 
@@ -879,29 +818,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CharbonnierLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConcatBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RRDB,
+     lambda: ([], {'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetBlock,
+     lambda: ([], {'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualBlock_noBN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResidualDenseBlock_5C,
+     lambda: ([], {'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShortcutBlock,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGGFeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_WenlongZhang0724_RankSRGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CharbonnierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConcatBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(RRDB(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResNetBlock(*[], **{'in_nc': 4, 'mid_nc': 4, 'out_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ResidualBlock_noBN(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResidualDenseBlock_5C(*[], **{'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ShortcutBlock(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(VGGFeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 

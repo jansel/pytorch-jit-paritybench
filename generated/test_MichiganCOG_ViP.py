@@ -47,8 +47,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -135,8 +136,7 @@ class PreprocessEvalC3D(object):
         self.clip_mean = np.load('weights/sport1m_train16_128_mean.npy')[0]
         self.clip_mean = np.transpose(self.clip_mean, (1, 2, 3, 0))
         self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.SubtractMeanClip(clip_mean=self.clip_mean,
-            **kwargs))
+        self.transforms.append(pt.SubtractMeanClip(clip_mean=self.clip_mean, **kwargs))
         self.transforms.append(pt.CenterCropClip(**kwargs))
         self.transforms.append(pt.ToTensorClip(**kwargs))
 
@@ -168,14 +168,12 @@ class PreprocessTrainC3D(object):
         self.clip_mean = np.load('weights/sport1m_train16_128_mean.npy')[0]
         self.clip_mean = np.transpose(self.clip_mean, (1, 2, 3, 0))
         self.transforms.append(pt.ResizeClip(**kwargs))
-        self.transforms.append(pt.SubtractMeanClip(clip_mean=self.clip_mean,
-            **kwargs))
+        self.transforms.append(pt.SubtractMeanClip(clip_mean=self.clip_mean, **kwargs))
         if crop_type == 'Random':
             self.transforms.append(pt.RandomCropClip(**kwargs))
         else:
             self.transforms.append(pt.CenterCropClip(**kwargs))
-        self.transforms.append(pt.RandomFlipClip(direction='h', p=0.5, **
-            kwargs))
+        self.transforms.append(pt.RandomFlipClip(direction='h', p=0.5, **kwargs))
         self.transforms.append(pt.ToTensorClip(**kwargs))
 
     def __call__(self, input_data):
@@ -204,25 +202,17 @@ class C3D(nn.Module):
         self.test_transforms = PreprocessEvalC3D(**kwargs)
         self.conv1 = nn.Conv3d(3, 64, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.pool1 = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
-        self.conv2 = nn.Conv3d(64, 128, kernel_size=(3, 3, 3), padding=(1, 
-            1, 1))
+        self.conv2 = nn.Conv3d(64, 128, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.pool2 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
-        self.conv3a = nn.Conv3d(128, 256, kernel_size=(3, 3, 3), padding=(1,
-            1, 1))
-        self.conv3b = nn.Conv3d(256, 256, kernel_size=(3, 3, 3), padding=(1,
-            1, 1))
+        self.conv3a = nn.Conv3d(128, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.conv3b = nn.Conv3d(256, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.pool3 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
-        self.conv4a = nn.Conv3d(256, 512, kernel_size=(3, 3, 3), padding=(1,
-            1, 1))
-        self.conv4b = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), padding=(1,
-            1, 1))
+        self.conv4a = nn.Conv3d(256, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.conv4b = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.pool4 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))
-        self.conv5a = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), padding=(1,
-            1, 1))
-        self.conv5b = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), padding=(1,
-            1, 1))
-        self.pool5 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2),
-            padding=(0, 1, 1))
+        self.conv5a = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.conv5b = nn.Conv3d(512, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.pool5 = nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2), padding=(0, 1, 1))
         self.fc6 = nn.Linear(8192, 4096)
         self.fc7 = nn.Linear(4096, 4096)
         self.fc8 = nn.Linear(4096, kwargs['labels'])
@@ -258,20 +248,7 @@ class C3D(nn.Module):
 
     def __load_pretrained_weights(self):
         """Initialiaze network."""
-        corresp_name = {'features.0.weight': 'conv1.weight',
-            'features.0.bias': 'conv1.bias', 'features.3.weight':
-            'conv2.weight', 'features.3.bias': 'conv2.bias',
-            'features.6.weight': 'conv3a.weight', 'features.6.bias':
-            'conv3a.bias', 'features.8.weight': 'conv3b.weight',
-            'features.8.bias': 'conv3b.bias', 'features.11.weight':
-            'conv4a.weight', 'features.11.bias': 'conv4a.bias',
-            'features.13.weight': 'conv4b.weight', 'features.13.bias':
-            'conv4b.bias', 'features.16.weight': 'conv5a.weight',
-            'features.16.bias': 'conv5a.bias', 'features.18.weight':
-            'conv5b.weight', 'features.18.bias': 'conv5b.bias',
-            'classifier.0.weight': 'fc6.weight', 'classifier.0.bias':
-            'fc6.bias', 'classifier.3.weight': 'fc7.weight',
-            'classifier.3.bias': 'fc7.bias'}
+        corresp_name = {'features.0.weight': 'conv1.weight', 'features.0.bias': 'conv1.bias', 'features.3.weight': 'conv2.weight', 'features.3.bias': 'conv2.bias', 'features.6.weight': 'conv3a.weight', 'features.6.bias': 'conv3a.bias', 'features.8.weight': 'conv3b.weight', 'features.8.bias': 'conv3b.bias', 'features.11.weight': 'conv4a.weight', 'features.11.bias': 'conv4a.bias', 'features.13.weight': 'conv4b.weight', 'features.13.bias': 'conv4b.bias', 'features.16.weight': 'conv5a.weight', 'features.16.bias': 'conv5a.bias', 'features.18.weight': 'conv5b.weight', 'features.18.bias': 'conv5b.bias', 'classifier.0.weight': 'fc6.weight', 'classifier.0.bias': 'fc6.bias', 'classifier.3.weight': 'fc7.weight', 'classifier.3.bias': 'fc7.bias'}
         p_dict = torch.load('weights/c3d-pretrained.pth')
         s_dict = self.state_dict()
         for name in p_dict:
@@ -311,31 +288,24 @@ class DVSA(nn.Module):
         attn_drop = kwargs['attn_drop']
         num_frm = kwargs['yc2bb_num_frm']
         has_loss_weighting = kwargs['has_loss_weighting']
-        self.feat_enc = nn.Sequential(nn.Linear(input_size, enc_size), nn.
-            Dropout(p=dropout), nn.ReLU())
+        self.feat_enc = nn.Sequential(nn.Linear(input_size, enc_size), nn.Dropout(p=dropout), nn.ReLU())
         self.sigmoid = nn.Sigmoid()
         self.obj_emb = nn.Embedding(num_class + 1, enc_size)
         self.num_class = num_class
-        self.obj_interact = Transformer(enc_size, 0, 0, d_hidden=
-            hidden_size, n_layers=n_layers, n_heads=n_heads, drop_ratio=
-            attn_drop)
-        self.obj_interact_fc = nn.Sequential(nn.Linear(enc_size * 2, int(
-            enc_size / 2)), nn.ReLU(), nn.Linear(int(enc_size / 2), 5), nn.
-            Sigmoid())
+        self.obj_interact = Transformer(enc_size, 0, 0, d_hidden=hidden_size, n_layers=n_layers, n_heads=n_heads, drop_ratio=attn_drop)
+        self.obj_interact_fc = nn.Sequential(nn.Linear(enc_size * 2, int(enc_size / 2)), nn.ReLU(), nn.Linear(int(enc_size / 2), 5), nn.Sigmoid())
         self.num_frm = num_frm
         self.has_loss_weighting = has_loss_weighting
         if isinstance(kwargs['pretrained'], int) and kwargs['pretrained']:
             self._load_pretrained_weights()
 
     def forward(self, x_o, obj, load_type):
-        is_evaluate = 1 if load_type[0] == 'test' or load_type[0
-            ] == 'val' else 0
+        is_evaluate = 1 if load_type[0] == 'test' or load_type[0] == 'val' else 0
         if is_evaluate:
             return self.output_attn(x_o, obj)
         x_o = x_o[0]
         obj = obj[0]
-        x_o = self.feat_enc(x_o.permute(0, 2, 3, 1).contiguous()).permute(0,
-            3, 1, 2).contiguous()
+        x_o = self.feat_enc(x_o.permute(0, 2, 3, 1).contiguous()).permute(0, 3, 1, 2).contiguous()
         x_o = torch.stack([x_o[0], x_o[1], x_o[0]])
         obj = torch.stack([obj[0], obj[0], obj[1]])
         N, C_out, T, num_proposals = x_o.size()
@@ -347,60 +317,45 @@ class DVSA(nn.Module):
         attn_key_frm_feat = attn_key[0:1, :num_pos_obj]
         obj_attn_emb, _ = self.obj_interact(attn_key_frm_feat)
         obj_attn_emb = obj_attn_emb[:, :num_pos_obj, :]
-        obj_attn_emb = torch.cat((obj_attn_emb, attn_key[0:1, :num_pos_obj]
-            ), dim=2)
+        obj_attn_emb = torch.cat((obj_attn_emb, attn_key[0:1, :num_pos_obj]), dim=2)
         obj_attn_emb = self.obj_interact_fc(obj_attn_emb)
         itv = math.ceil(T / 5)
         tmp = []
         for i in range(5):
             l = min(itv * (i + 1), T) - itv * i
             if l > 0:
-                tmp.append(obj_attn_emb[:, :, i:i + 1].expand(1,
-                    num_pos_obj, l))
+                tmp.append(obj_attn_emb[:, :, i:i + 1].expand(1, num_pos_obj, l))
         obj_attn_emb = torch.cat(tmp, 2).squeeze(0)
         assert obj_attn_emb.size(1) == self.num_frm
         loss_weigh = torch.mean(obj_attn_emb, dim=0)
         loss_weigh = torch.cat((loss_weigh, loss_weigh)).unsqueeze(1)
         if self.has_loss_weighting:
             x_o = x_o.view(N, 1, C_out, T, num_proposals)
-            attn_weights = self.sigmoid((x_o * attn_key.view(N, O, C_out, 1,
-                1)).sum(2) / math.sqrt(C_out))
+            attn_weights = self.sigmoid((x_o * attn_key.view(N, O, C_out, 1, 1)).sum(2) / math.sqrt(C_out))
             pos_weights = attn_weights[(0), :num_pos_obj, :, :]
             neg1_weights = attn_weights[(1), :num_pos_obj, :, :]
             neg2_weights = attn_weights[(2), :num_neg_obj, :, :]
-            return torch.cat((torch.stack((torch.mean(torch.max(pos_weights,
-                dim=2)[0], dim=0), torch.mean(torch.max(neg1_weights, dim=2
-                )[0], dim=0)), dim=1), torch.stack((torch.mean(torch.max(
-                pos_weights, dim=2)[0], dim=0), torch.mean(torch.max(
-                neg2_weights, dim=2)[0], dim=0)), dim=1))), loss_weigh
+            return torch.cat((torch.stack((torch.mean(torch.max(pos_weights, dim=2)[0], dim=0), torch.mean(torch.max(neg1_weights, dim=2)[0], dim=0)), dim=1), torch.stack((torch.mean(torch.max(pos_weights, dim=2)[0], dim=0), torch.mean(torch.max(neg2_weights, dim=2)[0], dim=0)), dim=1))), loss_weigh
         else:
             x_o = x_o.view(N, 1, C_out, T * num_proposals)
-            attn_weights = self.sigmoid((x_o * attn_key.view(N, O, C_out, 1
-                )).sum(2) / math.sqrt(C_out))
+            attn_weights = self.sigmoid((x_o * attn_key.view(N, O, C_out, 1)).sum(2) / math.sqrt(C_out))
             pos_weights = attn_weights[(0), :num_pos_obj, :]
             neg1_weights = attn_weights[(1), :num_pos_obj, :]
             neg2_weights = attn_weights[(2), :num_neg_obj, :]
-            return torch.stack((torch.stack((torch.mean(torch.max(
-                pos_weights, dim=1)[0]), torch.mean(torch.max(neg1_weights,
-                dim=1)[0]))), torch.stack((torch.mean(torch.max(pos_weights,
-                dim=1)[0]), torch.mean(torch.max(neg2_weights, dim=1)[0]))))
-                ), loss_weigh
+            return torch.stack((torch.stack((torch.mean(torch.max(pos_weights, dim=1)[0]), torch.mean(torch.max(neg1_weights, dim=1)[0]))), torch.stack((torch.mean(torch.max(pos_weights, dim=1)[0]), torch.mean(torch.max(neg2_weights, dim=1)[0]))))), loss_weigh
 
     def output_attn(self, x_o, obj):
-        x_o = self.feat_enc(x_o.permute(0, 2, 3, 1).contiguous()).permute(0,
-            3, 1, 2).contiguous()
+        x_o = self.feat_enc(x_o.permute(0, 2, 3, 1).contiguous()).permute(0, 3, 1, 2).contiguous()
         N, C_out, T, num_proposals = x_o.size()
         assert N == 1
         O = obj.size(1)
         attn_key = self.obj_emb(obj)
         x_o = x_o.view(N, 1, C_out, T * num_proposals)
-        attn_weights = self.sigmoid((x_o * attn_key.view(N, O, C_out, 1)).
-            sum(2) / math.sqrt(C_out))
+        attn_weights = self.sigmoid((x_o * attn_key.view(N, O, C_out, 1)).sum(2) / math.sqrt(C_out))
         return attn_weights.view(N, O, T, num_proposals)
 
     def _load_pretrained_weights(self):
-        state_dict = torch.load('weights/yc2bb_full-model.pth',
-            map_location=lambda storage, location: storage)
+        state_dict = torch.load('weights/yc2bb_full-model.pth', map_location=lambda storage, location: storage)
         self.load_state_dict(state_dict)
 
 
@@ -408,8 +363,7 @@ class Linear(nn.Linear):
 
     def forward(self, x):
         size = x.size()
-        return super().forward(x.contiguous().view(-1, size[-1])).view(*
-            size[:-1], -1)
+        return super().forward(x.contiguous().view(-1, size[-1])).view(*size[:-1], -1)
 
 
 class LayerNorm(nn.Module):
@@ -464,8 +418,7 @@ class Attention(nn.Module):
             if key.is_cuda:
                 tri = tri
             dot_products.data.sub_(tri.unsqueeze(0))
-        return matmul(self.dropout(F.softmax(dot_products / self.scale, dim
-            =2)), value)
+        return matmul(self.dropout(F.softmax(dot_products / self.scale, dim=2)), value)
 
 
 class MultiHead(nn.Module):
@@ -481,10 +434,8 @@ class MultiHead(nn.Module):
 
     def forward(self, query, key, value):
         query, key, value = self.wq(query), self.wk(key), self.wv(value)
-        query, key, value = (x.chunk(self.n_heads, -1) for x in (query, key,
-            value))
-        return self.wo(torch.cat([self.attention(q, k, v) for q, k, v in
-            zip(query, key, value)], -1))
+        query, key, value = (x.chunk(self.n_heads, -1) for x in (query, key, value))
+        return self.wo(torch.cat([self.attention(q, k, v) for q, k, v in zip(query, key, value)], -1))
 
 
 class FeedForward(nn.Module):
@@ -502,10 +453,8 @@ class EncoderLayer(nn.Module):
 
     def __init__(self, d_model, d_hidden, n_heads, drop_ratio):
         super().__init__()
-        self.selfattn = ResidualBlock(MultiHead(d_model, d_model, n_heads,
-            drop_ratio), d_model, drop_ratio)
-        self.feedforward = ResidualBlock(FeedForward(d_model, d_hidden),
-            d_model, drop_ratio)
+        self.selfattn = ResidualBlock(MultiHead(d_model, d_model, n_heads, drop_ratio), d_model, drop_ratio)
+        self.feedforward = ResidualBlock(FeedForward(d_model, d_hidden), d_model, drop_ratio)
 
     def forward(self, x):
         return self.feedforward(self.selfattn(x, x, x))
@@ -523,21 +472,17 @@ def positional_encodings_like(x, t=None):
         encodings = encodings.cuda(x.get_device())
     for channel in range(x.size(-1)):
         if channel % 2 == 0:
-            encodings[:, (channel)] = torch.sin(positions.float() / 10000 **
-                (channel / x.size(2)))
+            encodings[:, (channel)] = torch.sin(positions.float() / 10000 ** (channel / x.size(2)))
         else:
-            encodings[:, (channel)] = torch.cos(positions.float() / 10000 **
-                ((channel - 1) / x.size(2)))
+            encodings[:, (channel)] = torch.cos(positions.float() / 10000 ** ((channel - 1) / x.size(2)))
     return Variable(encodings)
 
 
 class Encoder(nn.Module):
 
-    def __init__(self, d_model, d_hidden, n_vocab, n_layers, n_heads,
-        drop_ratio):
+    def __init__(self, d_model, d_hidden, n_vocab, n_layers, n_heads, drop_ratio):
         super().__init__()
-        self.layers = nn.ModuleList([EncoderLayer(d_model, d_hidden,
-            n_heads, drop_ratio) for i in range(n_layers)])
+        self.layers = nn.ModuleList([EncoderLayer(d_model, d_hidden, n_heads, drop_ratio) for i in range(n_layers)])
         self.dropout = nn.Dropout(drop_ratio)
 
     def forward(self, x, mask=None):
@@ -556,15 +501,12 @@ class Encoder(nn.Module):
 
 class Transformer(nn.Module):
 
-    def __init__(self, d_model, n_vocab_src, vocab_trg, d_hidden=2048,
-        n_layers=6, n_heads=8, drop_ratio=0.1):
+    def __init__(self, d_model, n_vocab_src, vocab_trg, d_hidden=2048, n_layers=6, n_heads=8, drop_ratio=0.1):
         super().__init__()
-        self.encoder = Encoder(d_model, d_hidden, n_vocab_src, n_layers,
-            n_heads, drop_ratio)
+        self.encoder = Encoder(d_model, d_hidden, n_vocab_src, n_layers, n_heads, drop_ratio)
 
     def denum(self, data):
-        return ' '.join(self.decoder.vocab.itos[i] for i in data).replace(
-            ' <eos>', '#').replace(' <pad>', '')
+        return ' '.join(self.decoder.vocab.itos[i] for i in data).replace(' <eos>', '#').replace(' <pad>', '')
 
     def forward(self, x):
         encoding = self.encoder(x)
@@ -600,9 +542,7 @@ class MaxPool3dSamePadding(nn.MaxPool3d):
 
 class Unit3D(nn.Module):
 
-    def __init__(self, in_channels, output_channels, kernel_shape=(1, 1, 1),
-        stride=(1, 1, 1), padding=0, activation_fn=F.relu, use_batch_norm=
-        True, use_bias=False, name='unit_3d', dilation=1):
+    def __init__(self, in_channels, output_channels, kernel_shape=(1, 1, 1), stride=(1, 1, 1), padding=0, activation_fn=F.relu, use_batch_norm=True, use_bias=False, name='unit_3d', dilation=1):
         """Initializes Unit3D module."""
         super(Unit3D, self).__init__()
         self._output_channels = output_channels
@@ -613,12 +553,9 @@ class Unit3D(nn.Module):
         self._use_bias = use_bias
         self.name = name
         self.padding = padding
-        self.conv3d = nn.Conv3d(in_channels=in_channels, out_channels=self.
-            _output_channels, kernel_size=self._kernel_shape, stride=self.
-            _stride, padding=0, bias=self._use_bias, dilation=dilation)
+        self.conv3d = nn.Conv3d(in_channels=in_channels, out_channels=self._output_channels, kernel_size=self._kernel_shape, stride=self._stride, padding=0, bias=self._use_bias, dilation=dilation)
         if self._use_batch_norm:
-            self.bn = nn.BatchNorm3d(self._output_channels, eps=0.001,
-                momentum=0.01)
+            self.bn = nn.BatchNorm3d(self._output_channels, eps=0.001, momentum=0.01)
 
     def compute_pad(self, dim, s):
         if s % self._stride[dim] == 0:
@@ -654,26 +591,13 @@ class InceptionModule(nn.Module):
 
     def __init__(self, in_channels, out_channels, name):
         super(InceptionModule, self).__init__()
-        self.b0 = Unit3D(in_channels=in_channels, output_channels=
-            out_channels[0], kernel_shape=[1, 1, 1], padding=0, name=name +
-            '/Branch_0/Conv3d_0a_1x1')
-        self.b1a = Unit3D(in_channels=in_channels, output_channels=
-            out_channels[1], kernel_shape=[1, 1, 1], padding=0, name=name +
-            '/Branch_1/Conv3d_0a_1x1')
-        self.b1b = Unit3D(in_channels=out_channels[1], output_channels=
-            out_channels[2], kernel_shape=[3, 3, 3], name=name +
-            '/Branch_1/Conv3d_0b_3x3')
-        self.b2a = Unit3D(in_channels=in_channels, output_channels=
-            out_channels[3], kernel_shape=[1, 1, 1], padding=0, name=name +
-            '/Branch_2/Conv3d_0a_1x1')
-        self.b2b = Unit3D(in_channels=out_channels[3], output_channels=
-            out_channels[4], kernel_shape=[3, 3, 3], name=name +
-            '/Branch_2/Conv3d_0b_3x3')
-        self.b3a = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(1, 1,
-            1), padding=0)
-        self.b3b = Unit3D(in_channels=in_channels, output_channels=
-            out_channels[5], kernel_shape=[1, 1, 1], padding=0, name=name +
-            '/Branch_3/Conv3d_0b_1x1')
+        self.b0 = Unit3D(in_channels=in_channels, output_channels=out_channels[0], kernel_shape=[1, 1, 1], padding=0, name=name + '/Branch_0/Conv3d_0a_1x1')
+        self.b1a = Unit3D(in_channels=in_channels, output_channels=out_channels[1], kernel_shape=[1, 1, 1], padding=0, name=name + '/Branch_1/Conv3d_0a_1x1')
+        self.b1b = Unit3D(in_channels=out_channels[1], output_channels=out_channels[2], kernel_shape=[3, 3, 3], name=name + '/Branch_1/Conv3d_0b_3x3')
+        self.b2a = Unit3D(in_channels=in_channels, output_channels=out_channels[3], kernel_shape=[1, 1, 1], padding=0, name=name + '/Branch_2/Conv3d_0a_1x1')
+        self.b2b = Unit3D(in_channels=out_channels[3], output_channels=out_channels[4], kernel_shape=[3, 3, 3], name=name + '/Branch_2/Conv3d_0b_3x3')
+        self.b3a = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(1, 1, 1), padding=0)
+        self.b3b = Unit3D(in_channels=in_channels, output_channels=out_channels[5], kernel_shape=[1, 1, 1], padding=0, name=name + '/Branch_3/Conv3d_0b_1x1')
         self.name = name
 
     def forward(self, x):
@@ -736,8 +660,7 @@ class PreprocessTrain(object):
         else:
             self.transforms.append(pt.CenterCropClip(**kwargs))
         self.transforms.append(pt.SubtractRGBMean(**kwargs))
-        self.transforms.append(pt.RandomFlipClip(direction='h', p=0.5, **
-            kwargs))
+        self.transforms.append(pt.RandomFlipClip(direction='h', p=0.5, **kwargs))
         self.transforms.append(pt.ToTensorClip(**kwargs))
 
     def __call__(self, input_data):
@@ -758,14 +681,9 @@ class I3D(nn.Module):
         Dragomir Anguelov, Dumitru Erhan, Vincent Vanhoucke, Andrew Rabinovich.
         http://arxiv.org/pdf/1409.4842v1.pdf.
     """
-    VALID_ENDPOINTS = ('Conv3d_1a_7x7', 'MaxPool3d_2a_3x3', 'Conv3d_2b_1x1',
-        'Conv3d_2c_3x3', 'MaxPool3d_3a_3x3', 'Mixed_3b', 'Mixed_3c',
-        'MaxPool3d_4a_3x3', 'Mixed_4b', 'Mixed_4c', 'Mixed_4d', 'Mixed_4e',
-        'Mixed_4f', 'MaxPool3d_5a_2x2', 'Mixed_5b', 'Mixed_5c', 'Logits',
-        'Predictions')
+    VALID_ENDPOINTS = 'Conv3d_1a_7x7', 'MaxPool3d_2a_3x3', 'Conv3d_2b_1x1', 'Conv3d_2c_3x3', 'MaxPool3d_3a_3x3', 'Mixed_3b', 'Mixed_3c', 'MaxPool3d_4a_3x3', 'Mixed_4b', 'Mixed_4c', 'Mixed_4d', 'Mixed_4e', 'Mixed_4f', 'MaxPool3d_5a_2x2', 'Mixed_5b', 'Mixed_5c', 'Logits', 'Predictions'
 
-    def __init__(self, spatial_squeeze=True, final_endpoint='Logits', name=
-        'inception_i3d', in_channels=3, dropout_keep_prob=0.5, **kwargs):
+    def __init__(self, spatial_squeeze=True, final_endpoint='Logits', name='inception_i3d', in_channels=3, dropout_keep_prob=0.5, **kwargs):
         """Initializes I3D model instance.
         Args:
           num_classes: The number of outputs in the logit layer (default 400, which
@@ -792,97 +710,76 @@ class I3D(nn.Module):
         self.train_transforms = PreprocessTrain(**kwargs)
         self.test_transforms = PreprocessEval(**kwargs)
         if self._final_endpoint not in self.VALID_ENDPOINTS:
-            raise ValueError('Unknown final endpoint %s' % self._final_endpoint
-                )
+            raise ValueError('Unknown final endpoint %s' % self._final_endpoint)
         self.end_points = {}
         end_point = 'Conv3d_1a_7x7'
-        self.end_points[end_point] = Unit3D(in_channels=in_channels,
-            output_channels=64, kernel_shape=[7, 7, 7], stride=(2, 2, 2),
-            padding=(3, 3, 3), name=name + end_point)
+        self.end_points[end_point] = Unit3D(in_channels=in_channels, output_channels=64, kernel_shape=[7, 7, 7], stride=(2, 2, 2), padding=(3, 3, 3), name=name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'MaxPool3d_2a_3x3'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3,
-            3], stride=(1, 2, 2), padding=0)
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
         if self._final_endpoint == end_point:
             return
         end_point = 'Conv3d_2b_1x1'
-        self.end_points[end_point] = Unit3D(in_channels=64, output_channels
-            =64, kernel_shape=[1, 1, 1], padding=0, name=name + end_point)
+        self.end_points[end_point] = Unit3D(in_channels=64, output_channels=64, kernel_shape=[1, 1, 1], padding=0, name=name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Conv3d_2c_3x3'
-        self.end_points[end_point] = Unit3D(in_channels=64, output_channels
-            =192, kernel_shape=[3, 3, 3], padding=1, name=name + end_point)
+        self.end_points[end_point] = Unit3D(in_channels=64, output_channels=192, kernel_shape=[3, 3, 3], padding=1, name=name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'MaxPool3d_3a_3x3'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3,
-            3], stride=(1, 2, 2), padding=0)
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[1, 3, 3], stride=(1, 2, 2), padding=0)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_3b'
-        self.end_points[end_point] = InceptionModule(192, [64, 96, 128, 16,
-            32, 32], name + end_point)
+        self.end_points[end_point] = InceptionModule(192, [64, 96, 128, 16, 32, 32], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_3c'
-        self.end_points[end_point] = InceptionModule(256, [128, 128, 192, 
-            32, 96, 64], name + end_point)
+        self.end_points[end_point] = InceptionModule(256, [128, 128, 192, 32, 96, 64], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'MaxPool3d_4a_3x3'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[3, 3,
-            3], stride=(2, 2, 2), padding=0)
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[3, 3, 3], stride=(2, 2, 2), padding=0)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_4b'
-        self.end_points[end_point] = InceptionModule(128 + 192 + 96 + 64, [
-            192, 96, 208, 16, 48, 64], name + end_point)
+        self.end_points[end_point] = InceptionModule(128 + 192 + 96 + 64, [192, 96, 208, 16, 48, 64], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_4c'
-        self.end_points[end_point] = InceptionModule(192 + 208 + 48 + 64, [
-            160, 112, 224, 24, 64, 64], name + end_point)
+        self.end_points[end_point] = InceptionModule(192 + 208 + 48 + 64, [160, 112, 224, 24, 64, 64], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_4d'
-        self.end_points[end_point] = InceptionModule(160 + 224 + 64 + 64, [
-            128, 128, 256, 24, 64, 64], name + end_point)
+        self.end_points[end_point] = InceptionModule(160 + 224 + 64 + 64, [128, 128, 256, 24, 64, 64], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_4e'
-        self.end_points[end_point] = InceptionModule(128 + 256 + 64 + 64, [
-            112, 144, 288, 32, 64, 64], name + end_point)
+        self.end_points[end_point] = InceptionModule(128 + 256 + 64 + 64, [112, 144, 288, 32, 64, 64], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_4f'
-        self.end_points[end_point] = InceptionModule(112 + 288 + 64 + 64, [
-            256, 160, 320, 32, 128, 128], name + end_point)
+        self.end_points[end_point] = InceptionModule(112 + 288 + 64 + 64, [256, 160, 320, 32, 128, 128], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'MaxPool3d_5a_2x2'
-        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[2, 2,
-            2], stride=(2, 2, 2), padding=0)
+        self.end_points[end_point] = MaxPool3dSamePadding(kernel_size=[2, 2, 2], stride=(2, 2, 2), padding=0)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_5b'
-        self.end_points[end_point] = InceptionModule(256 + 320 + 128 + 128,
-            [256, 160, 320, 32, 128, 128], name + end_point)
+        self.end_points[end_point] = InceptionModule(256 + 320 + 128 + 128, [256, 160, 320, 32, 128, 128], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Mixed_5c'
-        self.end_points[end_point] = InceptionModule(256 + 320 + 128 + 128,
-            [384, 192, 384, 48, 128, 128], name + end_point)
+        self.end_points[end_point] = InceptionModule(256 + 320 + 128 + 128, [384, 192, 384, 48, 128, 128], name + end_point)
         if self._final_endpoint == end_point:
             return
         end_point = 'Logits'
         self.avg_pool = nn.AvgPool3d(kernel_size=[2, 7, 7], stride=(1, 1, 1))
         self.dropout = nn.Dropout(dropout_keep_prob)
-        self.logits = Unit3D(in_channels=384 + 384 + 128 + 128,
-            output_channels=self._num_classes, kernel_shape=[1, 1, 1],
-            padding=0, activation_fn=None, use_batch_norm=False, use_bias=
-            True, name='logits')
+        self.logits = Unit3D(in_channels=384 + 384 + 128 + 128, output_channels=self._num_classes, kernel_shape=[1, 1, 1], padding=0, activation_fn=None, use_batch_norm=False, use_bias=True, name='logits')
         self.build()
         if 'pretrained' in kwargs.keys() and kwargs['pretrained']:
             if 'i3d_pretrained' in kwargs.keys():
@@ -910,10 +807,7 @@ class I3D(nn.Module):
 
     def replace_logits(self, num_classes):
         self._num_classes = num_classes
-        self.logits = Unit3D(in_channels=384 + 384 + 128 + 128,
-            output_channels=self._num_classes, kernel_shape=[1, 1, 1],
-            padding=0, activation_fn=None, use_batch_norm=False, use_bias=
-            True, name='logits')
+        self.logits = Unit3D(in_channels=384 + 384 + 128 + 128, output_channels=self._num_classes, kernel_shape=[1, 1, 1], padding=0, activation_fn=None, use_batch_norm=False, use_bias=True, name='logits')
 
     def build(self):
         for k in self.end_points.keys():
@@ -948,8 +842,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -1042,8 +935,7 @@ class Detect(Function):
         num = loc_data.size(0)
         num_priors = prior_data.size(0)
         output = torch.zeros(num, self.num_classes, self.top_k, 5)
-        conf_preds = conf_data.view(num, num_priors, self.num_classes
-            ).transpose(2, 1)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
         for i in range(num):
             decoded_boxes = decode(loc_data[i], prior_data, self.variance)
             conf_scores = conf_preds[i].clone()
@@ -1055,8 +947,7 @@ class Detect(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
-                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
-                    unsqueeze(1), boxes[ids[:count]]), 1)
+                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
         flt = output.contiguous().view(num, -1, 5)
         _, idx = flt[:, :, (0)].sort(1, descending=True)
         _, rank = idx.sort(1)
@@ -1190,8 +1081,7 @@ def add_extras(cfg, i, batch_norm=False):
     for k, v in enumerate(cfg):
         if in_channels != 'S':
             if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(1, 3)[flag], stride=2, padding=1)]
             else:
                 layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
             flag = not flag
@@ -1204,15 +1094,11 @@ def multibox(vgg, extra_layers, cfg, num_classes):
     conf_layers = []
     vgg_source = [21, -2]
     for k, v in enumerate(vgg_source):
-        loc_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * 4,
-            kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * num_classes,
-            kernel_size=3, padding=1)]
+        loc_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * 4, kernel_size=3, padding=1)]
+        conf_layers += [nn.Conv2d(vgg[v].out_channels, cfg[k] * num_classes, kernel_size=3, padding=1)]
     for k, v in enumerate(extra_layers[1::2], 2):
-        loc_layers += [nn.Conv2d(v.out_channels, cfg[k] * 4, kernel_size=3,
-            padding=1)]
-        conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes,
-            kernel_size=3, padding=1)]
+        loc_layers += [nn.Conv2d(v.out_channels, cfg[k] * 4, kernel_size=3, padding=1)]
+        conf_layers += [nn.Conv2d(v.out_channels, cfg[k] * num_classes, kernel_size=3, padding=1)]
     return vgg, extra_layers, (loc_layers, conf_layers)
 
 
@@ -1234,8 +1120,7 @@ def vgg(cfg, i, batch_norm=False):
     pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
     conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
     return layers
 
 
@@ -1263,24 +1148,15 @@ class SSD(nn.Module):
         self.test_transforms = PreprocessEvalSSD(**kwargs)
         self.load_type = kwargs['load_type']
         self.num_classes = kwargs['labels']
-        self.cfg = {'num_classes': 21, 'lr_steps': (80000, 100000, 120000),
-            'max_iter': 120000, 'feature_maps': [38, 19, 10, 5, 3, 1],
-            'min_dim': 300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes':
-            [30, 60, 111, 162, 213, 264], 'max_sizes': [60, 111, 162, 213, 
-            264, 315], 'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2],
-            [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'VOC'}
+        self.cfg = {'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 120000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes': [30, 60, 111, 162, 213, 264], 'max_sizes': [60, 111, 162, 213, 264, 315], 'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'VOC'}
         self.priorbox = PriorBox(self.cfg)
         with torch.no_grad():
             self.priors = self.priorbox.forward()
         self.size = kwargs['resize_shape'][0]
-        base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512,
-            512, 512, 'M', 512, 512, 512], '512': []}
-        extras = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-            '512': []}
+        base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512], '512': []}
+        extras = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256], '512': []}
         mbox = {'300': [4, 6, 6, 6, 4, 4], '512': []}
-        base, extras, head = multibox(vgg(base[str(self.size)], 3),
-            add_extras(extras[str(self.size)], 1024), mbox[str(self.size)],
-            self.num_classes)
+        base, extras, head = multibox(vgg(base[str(self.size)], 3), add_extras(extras[str(self.size)], 1024), mbox[str(self.size)], self.num_classes)
         self.vgg = nn.ModuleList(base)
         self.L2Norm = L2Norm(512, 20)
         self.extras = nn.ModuleList(extras)
@@ -1332,19 +1208,16 @@ class SSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.load_type == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(conf.size(0), -1, self.num_classes)), self.priors)
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes)), self.priors)
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes), self.priors
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -1366,8 +1239,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -1414,10 +1286,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -1435,10 +1305,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -1451,8 +1319,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -1513,9 +1380,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu
-        =True):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu=True):
         super(MultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -1551,8 +1416,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -1565,8 +1429,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -1576,8 +1439,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum()
@@ -1590,43 +1452,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'d_key': 4, 'drop_ratio': 0.5, 'causal': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {'d_model': 4, 'd_hidden': 4, 'n_vocab': 4, 'n_layers': 1, 'n_heads': 4, 'drop_ratio': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (EncoderLayer,
+     lambda: ([], {'d_model': 4, 'd_hidden': 4, 'n_heads': 4, 'drop_ratio': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (FeedForward,
+     lambda: ([], {'d_model': 4, 'd_hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiHead,
+     lambda: ([], {'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Transformer,
+     lambda: ([], {'d_model': 4, 'n_vocab_src': 4, 'vocab_trg': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Unit3D,
+     lambda: ([], {'in_channels': 4, 'output_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_MichiganCOG_ViP(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Attention(*[], **{'d_key': 4, 'drop_ratio': 0.5, 'causal': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Encoder(*[], **{'d_model': 4, 'd_hidden': 4, 'n_vocab': 4, 'n_layers': 1, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EncoderLayer(*[], **{'d_model': 4, 'd_hidden': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MultiHead(*[], **{'d_key': 4, 'd_value': 4, 'n_heads': 4, 'drop_ratio': 0.5}), [torch.rand([4, 1, 4]), torch.rand([4, 1, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Transformer(*[], **{'d_model': 4, 'n_vocab_src': 4, 'vocab_trg': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(Unit3D(*[], **{'in_channels': 4, 'output_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

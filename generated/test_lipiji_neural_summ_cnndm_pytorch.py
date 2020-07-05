@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,8 +74,7 @@ def init_ortho_weight(w):
 
 class GRUAttentionDecoder(nn.Module):
 
-    def __init__(self, input_size, hidden_size, ctx_size, device, copy,
-        coverage, is_predicting):
+    def __init__(self, input_size, hidden_size, ctx_size, device, copy, coverage, is_predicting):
         super(GRUAttentionDecoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -83,28 +83,21 @@ class GRUAttentionDecoder(nn.Module):
         self.device = device
         self.copy = copy
         self.coverage = coverage
-        self.W = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.
-            input_size))
-        self.U = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.
-            hidden_size))
+        self.W = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.input_size))
+        self.U = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.hidden_size))
         self.b = nn.Parameter(torch.Tensor(2 * self.hidden_size))
         self.Wx = nn.Parameter(torch.Tensor(self.hidden_size, self.input_size))
-        self.Ux = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size)
-            )
+        self.Ux = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
         self.bx = nn.Parameter(torch.Tensor(self.hidden_size))
         self.Wc_att = nn.Parameter(torch.Tensor(self.ctx_size, self.ctx_size))
         self.b_att = nn.Parameter(torch.Tensor(self.ctx_size))
-        self.W_comb_att = nn.Parameter(torch.Tensor(self.ctx_size, self.
-            hidden_size))
+        self.W_comb_att = nn.Parameter(torch.Tensor(self.ctx_size, self.hidden_size))
         self.U_att = nn.Parameter(torch.Tensor(1, self.ctx_size))
-        self.U_nl = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.
-            hidden_size))
+        self.U_nl = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.hidden_size))
         self.b_nl = nn.Parameter(torch.Tensor(2 * self.hidden_size))
-        self.Ux_nl = nn.Parameter(torch.Tensor(self.hidden_size, self.
-            hidden_size))
+        self.Ux_nl = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
         self.bx_nl = nn.Parameter(torch.Tensor(self.hidden_size))
-        self.Wc = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.
-            ctx_size))
+        self.Wc = nn.Parameter(torch.Tensor(2 * self.hidden_size, self.ctx_size))
         self.Wcx = nn.Parameter(torch.Tensor(self.hidden_size, self.ctx_size))
         if self.coverage:
             self.W_coverage = nn.Parameter(torch.Tensor(self.ctx_size, 1))
@@ -130,25 +123,21 @@ class GRUAttentionDecoder(nn.Module):
         if self.coverage:
             init_ortho_weight(self.W_coverage)
 
-    def forward(self, y_emb, context, init_state, x_mask, y_mask, xid=None,
-        init_coverage=None):
+    def forward(self, y_emb, context, init_state, x_mask, y_mask, xid=None, init_coverage=None):
 
         def _get_word_atten(pctx, h1, x_mask, acc_att=None):
             if acc_att is not None:
-                h = F.linear(h1, self.W_comb_att) + F.linear(T.transpose(
-                    acc_att, 0, 1).unsqueeze(2), self.W_coverage)
+                h = F.linear(h1, self.W_comb_att) + F.linear(T.transpose(acc_att, 0, 1).unsqueeze(2), self.W_coverage)
             else:
                 h = F.linear(h1, self.W_comb_att)
             unreg_att = T.tanh(pctx + h) * x_mask
             unreg_att = F.linear(unreg_att, self.U_att)
-            word_atten = T.exp(unreg_att - T.max(unreg_att, 0, keepdim=True)[0]
-                ) * x_mask
+            word_atten = T.exp(unreg_att - T.max(unreg_att, 0, keepdim=True)[0]) * x_mask
             sum_word_atten = T.sum(word_atten, 0, keepdim=True)
             word_atten = word_atten / sum_word_atten
             return word_atten
 
-        def recurrence(x, xx, y_mask, pre_h, pctx, context, x_mask, acc_att
-            =None):
+        def recurrence(x, xx, y_mask, pre_h, pctx, context, x_mask, acc_att=None):
             tmp1 = T.sigmoid(F.linear(pre_h, self.U) + x)
             r1, u1 = tmp1.chunk(2, 1)
             h1 = T.tanh(F.linear(pre_h * r1, self.Ux) + xx)
@@ -159,15 +148,12 @@ class GRUAttentionDecoder(nn.Module):
             else:
                 word_atten = _get_word_atten(pctx, h1, x_mask)
             atted_ctx = T.sum(word_atten * context, 0)
-            tmp2 = T.sigmoid(F.linear(atted_ctx, self.Wc) + F.linear(h1,
-                self.U_nl) + self.b_nl)
+            tmp2 = T.sigmoid(F.linear(atted_ctx, self.Wc) + F.linear(h1, self.U_nl) + self.b_nl)
             r2, u2 = tmp2.chunk(2, 1)
-            h2 = T.tanh(F.linear(atted_ctx, self.Wcx) + F.linear(h1 * r2,
-                self.Ux_nl) + self.bx_nl)
+            h2 = T.tanh(F.linear(atted_ctx, self.Wcx) + F.linear(h1 * r2, self.Ux_nl) + self.bx_nl)
             h2 = u2 * h1 + (1.0 - u2) * h2
             h2 = y_mask * h2 + (1.0 - y_mask) * h1
-            word_atten_ = T.transpose(word_atten.view(x_mask.size(0), -1), 0, 1
-                )
+            word_atten_ = T.transpose(word_atten.view(x_mask.size(0), -1), 0, 1)
             if self.coverage:
                 acc_att += word_atten_
                 return h2, h2, atted_ctx, word_atten_, acc_att
@@ -185,11 +171,9 @@ class GRUAttentionDecoder(nn.Module):
         for i in steps:
             if self.coverage:
                 cs += [acc_att]
-                hidden, s, att, att_dist, acc_att = recurrence(x[i], xx[i],
-                    y_mask[i], hidden, pctx, context, x_mask, acc_att)
+                hidden, s, att, att_dist, acc_att = recurrence(x[i], xx[i], y_mask[i], hidden, pctx, context, x_mask, acc_att)
             else:
-                hidden, s, att, att_dist = recurrence(x[i], xx[i], y_mask[i
-                    ], hidden, pctx, context, x_mask)
+                hidden, s, att, att_dist = recurrence(x[i], xx[i], y_mask[i], hidden, pctx, context, x_mask)
             hs += [hidden]
             ss += [s]
             atts += [att]
@@ -226,8 +210,7 @@ def init_lstm_weight(lstm):
 
 class LSTMAttentionDecoder(nn.Module):
 
-    def __init__(self, input_size, hidden_size, ctx_size, device, copy,
-        coverage, is_predicting):
+    def __init__(self, input_size, hidden_size, ctx_size, device, copy, coverage, is_predicting):
         super(LSTMAttentionDecoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -239,8 +222,7 @@ class LSTMAttentionDecoder(nn.Module):
         self.lstm_1 = nn.LSTMCell(self.input_size, self.hidden_size)
         self.Wc_att = nn.Parameter(torch.Tensor(self.ctx_size, self.ctx_size))
         self.b_att = nn.Parameter(torch.Tensor(self.ctx_size))
-        self.W_comb_att = nn.Parameter(torch.Tensor(self.ctx_size, 2 * self
-            .hidden_size))
+        self.W_comb_att = nn.Parameter(torch.Tensor(self.ctx_size, 2 * self.hidden_size))
         self.U_att = nn.Parameter(torch.Tensor(1, self.ctx_size))
         if self.coverage:
             self.W_coverage = nn.Parameter(torch.Tensor(self.ctx_size, 1))
@@ -255,19 +237,16 @@ class LSTMAttentionDecoder(nn.Module):
         if self.coverage:
             init_ortho_weight(self.W_coverage)
 
-    def forward(self, y_emb, context, init_state, x_mask, y_mask, xid=None,
-        init_coverage=None):
+    def forward(self, y_emb, context, init_state, x_mask, y_mask, xid=None, init_coverage=None):
 
         def _get_word_atten(pctx, h1, x_mask, acc_att=None):
             if acc_att is not None:
-                h = F.linear(h1, self.W_comb_att) + F.linear(T.transpose(
-                    acc_att, 0, 1).unsqueeze(2), self.W_coverage)
+                h = F.linear(h1, self.W_comb_att) + F.linear(T.transpose(acc_att, 0, 1).unsqueeze(2), self.W_coverage)
             else:
                 h = F.linear(h1, self.W_comb_att)
             unreg_att = T.tanh(pctx + h) * x_mask
             unreg_att = F.linear(unreg_att, self.U_att)
-            word_atten = T.exp(unreg_att - T.max(unreg_att, 0, keepdim=True)[0]
-                ) * x_mask
+            word_atten = T.exp(unreg_att - T.max(unreg_att, 0, keepdim=True)[0]) * x_mask
             sum_word_atten = T.sum(word_atten, 0, keepdim=True)
             word_atten = word_atten / sum_word_atten
             return word_atten
@@ -277,15 +256,13 @@ class LSTMAttentionDecoder(nn.Module):
             h1, c1 = self.lstm_1(x, hidden)
             h1 = y_mask * h1 + (1.0 - y_mask) * pre_h
             c1 = y_mask * c1 + (1.0 - y_mask) * pre_c
-            s = T.cat((h1.view(-1, self.hidden_size), c1.view(-1, self.
-                hidden_size)), 1)
+            s = T.cat((h1.view(-1, self.hidden_size), c1.view(-1, self.hidden_size)), 1)
             if self.coverage:
                 word_atten = _get_word_atten(pctx, s, x_mask, acc_att)
             else:
                 word_atten = _get_word_atten(pctx, s, x_mask)
             atted_ctx = T.sum(word_atten * context, 0)
-            word_atten_ = T.transpose(word_atten.view(x_mask.size(0), -1), 0, 1
-                )
+            word_atten_ = T.transpose(word_atten.view(x_mask.size(0), -1), 0, 1)
             if self.coverage:
                 acc_att += word_atten_
                 return (h1, c1), h1, atted_ctx, word_atten_, acc_att
@@ -302,11 +279,9 @@ class LSTMAttentionDecoder(nn.Module):
         for i in steps:
             if self.coverage:
                 Cs += [acc_att]
-                hidden, s, att, att_dist, acc_att = recurrence(x[i], y_mask
-                    [i], hidden, pctx, context, x_mask, acc_att)
+                hidden, s, att, att_dist, acc_att = recurrence(x[i], y_mask[i], hidden, pctx, context, x_mask, acc_att)
             else:
-                hidden, s, att, att_dist = recurrence(x[i], y_mask[i],
-                    hidden, pctx, context, x_mask)
+                hidden, s, att, att_dist = recurrence(x[i], y_mask[i], hidden, pctx, context, x_mask)
             hs += [hidden[0]]
             cs += [hidden[1]]
             ss += [s]
@@ -337,8 +312,7 @@ class LSTMAttentionDecoder(nn.Module):
 
 class LSTMAttentionDecoder(nn.Module):
 
-    def __init__(self, input_size, hidden_size, ctx_size, device, copy,
-        coverage, is_predicting):
+    def __init__(self, input_size, hidden_size, ctx_size, device, copy, coverage, is_predicting):
         super(LSTMAttentionDecoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -348,15 +322,12 @@ class LSTMAttentionDecoder(nn.Module):
         self.copy = copy
         self.coverage = coverage
         self.lstm_1 = nn.LSTMCell(self.input_size, self.hidden_size)
-        self.Wx = nn.Parameter(torch.Tensor(4 * self.hidden_size, self.
-            ctx_size))
-        self.Ux = nn.Parameter(torch.Tensor(4 * self.hidden_size, self.
-            hidden_size))
+        self.Wx = nn.Parameter(torch.Tensor(4 * self.hidden_size, self.ctx_size))
+        self.Ux = nn.Parameter(torch.Tensor(4 * self.hidden_size, self.hidden_size))
         self.bx = nn.Parameter(torch.Tensor(4 * self.hidden_size))
         self.Wc_att = nn.Parameter(torch.Tensor(self.ctx_size, self.ctx_size))
         self.b_att = nn.Parameter(torch.Tensor(self.ctx_size))
-        self.W_comb_att = nn.Parameter(torch.Tensor(self.ctx_size, 2 * self
-            .hidden_size))
+        self.W_comb_att = nn.Parameter(torch.Tensor(self.ctx_size, 2 * self.hidden_size))
         self.U_att = nn.Parameter(torch.Tensor(1, self.ctx_size))
         if self.coverage:
             self.W_coverage = nn.Parameter(torch.Tensor(self.ctx_size, 1))
@@ -374,19 +345,16 @@ class LSTMAttentionDecoder(nn.Module):
         if self.coverage:
             init_ortho_weight(self.W_coverage)
 
-    def forward(self, y_emb, context, init_state, x_mask, y_mask, xid=None,
-        init_coverage=None):
+    def forward(self, y_emb, context, init_state, x_mask, y_mask, xid=None, init_coverage=None):
 
         def _get_word_atten(pctx, h1, x_mask, acc_att=None):
             if acc_att is not None:
-                h = F.linear(h1, self.W_comb_att) + F.linear(T.transpose(
-                    acc_att, 0, 1).unsqueeze(2), self.W_coverage)
+                h = F.linear(h1, self.W_comb_att) + F.linear(T.transpose(acc_att, 0, 1).unsqueeze(2), self.W_coverage)
             else:
                 h = F.linear(h1, self.W_comb_att)
             unreg_att = T.tanh(pctx + h) * x_mask
             unreg_att = F.linear(unreg_att, self.U_att)
-            word_atten = T.exp(unreg_att - T.max(unreg_att, 0, keepdim=True)[0]
-                ) * x_mask
+            word_atten = T.exp(unreg_att - T.max(unreg_att, 0, keepdim=True)[0]) * x_mask
             sum_word_atten = T.sum(word_atten, 0, keepdim=True)
             word_atten = word_atten / sum_word_atten
             return word_atten
@@ -396,15 +364,13 @@ class LSTMAttentionDecoder(nn.Module):
             h1, c1 = self.lstm_1(x, hidden)
             h1 = y_mask * h1 + (1.0 - y_mask) * pre_h
             c1 = y_mask * c1 + (1.0 - y_mask) * pre_c
-            s = T.cat((h1.view(-1, self.hidden_size), c1.view(-1, self.
-                hidden_size)), 1)
+            s = T.cat((h1.view(-1, self.hidden_size), c1.view(-1, self.hidden_size)), 1)
             if self.coverage:
                 word_atten = _get_word_atten(pctx, s, x_mask, acc_att)
             else:
                 word_atten = _get_word_atten(pctx, s, x_mask)
             atted_ctx = T.sum(word_atten * context, 0)
-            ifoc_preact = F.linear(h1, self.Ux) + F.linear(atted_ctx, self.
-                Wx, self.bx)
+            ifoc_preact = F.linear(h1, self.Ux) + F.linear(atted_ctx, self.Wx, self.bx)
             x4i, x4f, x4o, x4c = ifoc_preact.chunk(4, 1)
             i = torch.sigmoid(x4i)
             f = torch.sigmoid(x4f)
@@ -413,8 +379,7 @@ class LSTMAttentionDecoder(nn.Module):
             h2 = o * torch.tanh(c2)
             c2 = y_mask * c2 + (1.0 - y_mask) * c1
             h2 = y_mask * h2 + (1.0 - y_mask) * h1
-            word_atten_ = T.transpose(word_atten.view(x_mask.size(0), -1), 0, 1
-                )
+            word_atten_ = T.transpose(word_atten.view(x_mask.size(0), -1), 0, 1)
             if self.coverage:
                 acc_att += word_atten_
                 return (h2, c2), h2, atted_ctx, word_atten_, acc_att
@@ -431,11 +396,9 @@ class LSTMAttentionDecoder(nn.Module):
         for i in steps:
             if self.coverage:
                 Cs += [acc_att]
-                hidden, s, att, att_dist, acc_att = recurrence(x[i], y_mask
-                    [i], hidden, pctx, context, x_mask, acc_att)
+                hidden, s, att, att_dist, acc_att = recurrence(x[i], y_mask[i], hidden, pctx, context, x_mask, acc_att)
             else:
-                hidden, s, att, att_dist = recurrence(x[i], y_mask[i],
-                    hidden, pctx, context, x_mask)
+                hidden, s, att, att_dist = recurrence(x[i], y_mask[i], hidden, pctx, context, x_mask)
             hs += [hidden[0]]
             cs += [hidden[1]]
             ss += [s]
@@ -506,25 +469,16 @@ class Model(nn.Module):
         self.hidden_size = consts['hidden_size']
         self.dict_size = consts['dict_size']
         self.pad_token_idx = consts['pad_token_idx']
-        self.ctx_size = (self.hidden_size * 2 if self.is_bidirectional else
-            self.hidden_size)
-        self.w_rawdata_emb = nn.Embedding(self.dict_size, self.dim_x, self.
-            pad_token_idx)
+        self.ctx_size = self.hidden_size * 2 if self.is_bidirectional else self.hidden_size
+        self.w_rawdata_emb = nn.Embedding(self.dict_size, self.dim_x, self.pad_token_idx)
         if self.cell == 'gru':
-            self.encoder = nn.GRU(self.dim_x, self.hidden_size,
-                bidirectional=self.is_bidirectional)
-            self.decoder = GRUAttentionDecoder(self.dim_y, self.hidden_size,
-                self.ctx_size, self.device, self.copy, self.coverage, self.
-                is_predicting)
+            self.encoder = nn.GRU(self.dim_x, self.hidden_size, bidirectional=self.is_bidirectional)
+            self.decoder = GRUAttentionDecoder(self.dim_y, self.hidden_size, self.ctx_size, self.device, self.copy, self.coverage, self.is_predicting)
         else:
-            self.encoder = nn.LSTM(self.dim_x, self.hidden_size,
-                bidirectional=self.is_bidirectional)
-            self.decoder = LSTMAttentionDecoder(self.dim_y, self.
-                hidden_size, self.ctx_size, self.device, self.copy, self.
-                coverage, self.is_predicting)
+            self.encoder = nn.LSTM(self.dim_x, self.hidden_size, bidirectional=self.is_bidirectional)
+            self.decoder = LSTMAttentionDecoder(self.dim_y, self.hidden_size, self.ctx_size, self.device, self.copy, self.coverage, self.is_predicting)
         self.get_dec_init_state = nn.Linear(self.ctx_size, self.hidden_size)
-        self.word_prob = WordProbLayer(self.hidden_size, self.ctx_size,
-            self.dim_y, self.dict_size, self.device, self.copy, self.coverage)
+        self.word_prob = WordProbLayer(self.hidden_size, self.ctx_size, self.dim_y, self.dict_size, self.device, self.copy, self.coverage)
         self.init_weights()
 
     def init_weights(self):
@@ -556,8 +510,7 @@ class Model(nn.Module):
         dec_init_state = T.tanh(self.get_dec_init_state(dec_init_state))
         return hs, dec_init_state
 
-    def decode_once(self, y, hs, dec_init_state, mask_x, x=None,
-        max_ext_len=None, acc_att=None):
+    def decode_once(self, y, hs, dec_init_state, mask_x, x=None, max_ext_len=None, acc_att=None):
         batch_size = hs.size(1)
         if T.sum(y) < 0:
             y_emb = Variable(T.zeros((1, batch_size, self.dim_y)))
@@ -565,20 +518,15 @@ class Model(nn.Module):
             y_emb = self.w_rawdata_emb(y)
         mask_y = Variable(T.ones((1, batch_size, 1)))
         if self.copy and self.coverage:
-            hcs, dec_status, atted_context, att_dist, xids, C = self.decoder(
-                y_emb, hs, dec_init_state, mask_x, mask_y, x, acc_att)
+            hcs, dec_status, atted_context, att_dist, xids, C = self.decoder(y_emb, hs, dec_init_state, mask_x, mask_y, x, acc_att)
         elif self.copy:
-            hcs, dec_status, atted_context, att_dist, xids = self.decoder(y_emb
-                , hs, dec_init_state, mask_x, mask_y, xid=x)
+            hcs, dec_status, atted_context, att_dist, xids = self.decoder(y_emb, hs, dec_init_state, mask_x, mask_y, xid=x)
         elif self.coverage:
-            hcs, dec_status, atted_context, att_dist, C = self.decoder(y_emb,
-                hs, dec_init_state, mask_x, mask_y, init_coverage=acc_att)
+            hcs, dec_status, atted_context, att_dist, C = self.decoder(y_emb, hs, dec_init_state, mask_x, mask_y, init_coverage=acc_att)
         else:
-            hcs, dec_status, atted_context = self.decoder(y_emb, hs,
-                dec_init_state, mask_x, mask_y)
+            hcs, dec_status, atted_context = self.decoder(y_emb, hs, dec_init_state, mask_x, mask_y)
         if self.copy:
-            y_pred = self.word_prob(dec_status, atted_context, y_emb,
-                att_dist, xids, max_ext_len)
+            y_pred = self.word_prob(dec_status, atted_context, y_emb, att_dist, xids, max_ext_len)
         else:
             y_pred = self.word_prob(dec_status, atted_context, y_emb)
         if self.coverage:
@@ -590,28 +538,22 @@ class Model(nn.Module):
         hs, dec_init_state = self.encode(x, len_x, mask_x)
         y_emb = self.w_rawdata_emb(y)
         y_shifted = y_emb[:-1, :, :]
-        y_shifted = T.cat((Variable(torch.zeros(1, *y_shifted[0].size())),
-            y_shifted), 0)
+        y_shifted = T.cat((Variable(torch.zeros(1, *y_shifted[0].size())), y_shifted), 0)
         h0 = dec_init_state
         if self.cell == 'lstm':
             h0 = dec_init_state, dec_init_state
         if self.coverage:
             acc_att = Variable(torch.zeros(T.transpose(x, 0, 1).size()))
         if self.copy and self.coverage:
-            hcs, dec_status, atted_context, att_dist, xids, C = self.decoder(
-                y_shifted, hs, h0, mask_x, mask_y, x_ext, acc_att)
+            hcs, dec_status, atted_context, att_dist, xids, C = self.decoder(y_shifted, hs, h0, mask_x, mask_y, x_ext, acc_att)
         elif self.copy:
-            hcs, dec_status, atted_context, att_dist, xids = self.decoder(
-                y_shifted, hs, h0, mask_x, mask_y, xid=x_ext)
+            hcs, dec_status, atted_context, att_dist, xids = self.decoder(y_shifted, hs, h0, mask_x, mask_y, xid=x_ext)
         elif self.coverage:
-            hcs, dec_status, atted_context, att_dist, C = self.decoder(
-                y_shifted, hs, h0, mask_x, mask_y, init_coverage=acc_att)
+            hcs, dec_status, atted_context, att_dist, C = self.decoder(y_shifted, hs, h0, mask_x, mask_y, init_coverage=acc_att)
         else:
-            hcs, dec_status, atted_context = self.decoder(y_shifted, hs, h0,
-                mask_x, mask_y)
+            hcs, dec_status, atted_context = self.decoder(y_shifted, hs, h0, mask_x, mask_y)
         if self.copy:
-            y_pred = self.word_prob(dec_status, atted_context, y_shifted,
-                att_dist, xids, max_ext_len)
+            y_pred = self.word_prob(dec_status, atted_context, y_shifted, att_dist, xids, max_ext_len)
             cost = self.nll_loss(y_pred, y_ext, mask_y, self.avg_nll)
         else:
             y_pred = self.word_prob(dec_status, atted_context, y_shifted)
@@ -625,8 +567,7 @@ class Model(nn.Module):
 
 class WordProbLayer(nn.Module):
 
-    def __init__(self, hidden_size, ctx_size, dim_y, dict_size, device,
-        copy, coverage):
+    def __init__(self, hidden_size, ctx_size, dim_y, dict_size, device, copy, coverage):
         super(WordProbLayer, self).__init__()
         self.hidden_size = hidden_size
         self.ctx_size = ctx_size
@@ -635,15 +576,12 @@ class WordProbLayer(nn.Module):
         self.device = device
         self.copy = copy
         self.coverage = coverage
-        self.w_ds = nn.Parameter(torch.Tensor(self.hidden_size, self.
-            hidden_size + self.ctx_size + self.dim_y))
+        self.w_ds = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size + self.ctx_size + self.dim_y))
         self.b_ds = nn.Parameter(torch.Tensor(self.hidden_size))
-        self.w_logit = nn.Parameter(torch.Tensor(self.dict_size, self.
-            hidden_size))
+        self.w_logit = nn.Parameter(torch.Tensor(self.dict_size, self.hidden_size))
         self.b_logit = nn.Parameter(torch.Tensor(self.dict_size))
         if self.copy:
-            self.v = nn.Parameter(torch.Tensor(1, self.hidden_size + self.
-                ctx_size + self.dim_y))
+            self.v = nn.Parameter(torch.Tensor(1, self.hidden_size + self.ctx_size + self.dim_y))
             self.bv = nn.Parameter(torch.Tensor(1))
         self.init_weights()
 
@@ -656,25 +594,16 @@ class WordProbLayer(nn.Module):
             init_xavier_weight(self.v)
             init_bias(self.bv)
 
-    def forward(self, ds, ac, y_emb, att_dist=None, xids=None, max_ext_len=None
-        ):
+    def forward(self, ds, ac, y_emb, att_dist=None, xids=None, max_ext_len=None):
         h = T.cat((ds, ac, y_emb), 2)
         logit = T.tanh(F.linear(h, self.w_ds, self.b_ds))
         logit = F.linear(logit, self.w_logit, self.b_logit)
         y_dec = T.softmax(logit, dim=2)
         if self.copy:
             if max_ext_len > 0:
-                ext_zeros = Variable(torch.zeros(y_dec.size(0), y_dec.size(
-                    1), max_ext_len))
+                ext_zeros = Variable(torch.zeros(y_dec.size(0), y_dec.size(1), max_ext_len))
                 y_dec = T.cat((y_dec, ext_zeros), 2)
             g = T.sigmoid(F.linear(h, self.v, self.bv))
             y_dec = (g * y_dec).scatter_add(2, xids, (1 - g) * att_dist)
         return y_dec
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_lipiji_neural_summ_cnndm_pytorch(_paritybench_base):
-    pass

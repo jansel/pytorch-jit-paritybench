@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,8 +85,7 @@ class VAE(torch.nn.Module):
         mu = self._enc_mu(h_enc)
         log_sigma = self._enc_log_sigma(h_enc)
         sigma = torch.exp(log_sigma)
-        std_z = torch.from_numpy(np.random.normal(0, 1, size=sigma.size())
-            ).float()
+        std_z = torch.from_numpy(np.random.normal(0, 1, size=sigma.size())).float()
         self.z_mean = mu
         self.z_sigma = sigma
         return mu + sigma * Variable(std_z, requires_grad=False)
@@ -100,15 +100,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {'D_in': 4, 'H': 4, 'D_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'D_in': 4, 'H': 4, 'D_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VAE,
+     lambda: ([], {'encoder': _mock_layer(), 'decoder': _mock_layer()}),
+     lambda: ([torch.rand([100, 100])], {}),
+     False),
+]
+
 class Test_ethanluoyc_pytorch_vae(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Decoder(*[], **{'D_in': 4, 'H': 4, 'D_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Encoder(*[], **{'D_in': 4, 'H': 4, 'D_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(VAE(*[], **{'encoder': _mock_layer(), 'decoder': _mock_layer()}), [torch.rand([100, 100])], {})
+        self._check(*TESTCASES[2])
 

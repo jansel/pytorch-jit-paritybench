@@ -99,8 +99,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -192,8 +193,7 @@ class Scalar(nn.Module):
 
 class Accuracy(nn.Module):
 
-    def __init__(self, dim=1, ignore_idx=-1, threshold=0.5,
-        encode_background_as_zeros=True):
+    def __init__(self, dim=1, ignore_idx=-1, threshold=0.5, encode_background_as_zeros=True):
         super().__init__()
         self.register_buffer('total', torch.FloatTensor([0.0]))
         self.register_buffer('count', torch.FloatTensor([0.0]))
@@ -206,8 +206,7 @@ class Accuracy(nn.Module):
         if self._encode_background_as_zeros:
             scores = torch.sigmoid(preds)
             labels_pred = torch.max(preds, dim=self._dim)[1] + 1
-            pred_labels = torch.where((scores > self._threshold).any(self.
-                _dim), labels_pred, torch.tensor(0).type_as(labels_pred))
+            pred_labels = torch.where((scores > self._threshold).any(self._dim), labels_pred, torch.tensor(0).type_as(labels_pred))
         else:
             pred_labels = torch.max(preds, dim=self._dim)[1]
         N, *Ds = labels.shape
@@ -245,11 +244,9 @@ class Precision(nn.Module):
 
     def forward(self, labels, preds, weights=None):
         if preds.shape[self._dim] == 1:
-            pred_labels = (torch.sigmoid(preds) > self._threshold).long(
-                ).squeeze(self._dim)
+            pred_labels = (torch.sigmoid(preds) > self._threshold).long().squeeze(self._dim)
         else:
-            assert preds.shape[self._dim
-                ] == 2, 'precision only support 2 class'
+            assert preds.shape[self._dim] == 2, 'precision only support 2 class'
             pred_labels = torch.max(preds, dim=self._dim)[1]
         N, *Ds = labels.shape
         labels = labels.view(N, int(np.prod(Ds)))
@@ -293,11 +290,9 @@ class Recall(nn.Module):
 
     def forward(self, labels, preds, weights=None):
         if preds.shape[self._dim] == 1:
-            pred_labels = (torch.sigmoid(preds) > self._threshold).long(
-                ).squeeze(self._dim)
+            pred_labels = (torch.sigmoid(preds) > self._threshold).long().squeeze(self._dim)
         else:
-            assert preds.shape[self._dim
-                ] == 2, 'precision only support 2 class'
+            assert preds.shape[self._dim] == 2, 'precision only support 2 class'
             pred_labels = torch.max(preds, dim=self._dim)[1]
         N, *Ds = labels.shape
         labels = labels.view(N, int(np.prod(Ds)))
@@ -329,8 +324,7 @@ class Recall(nn.Module):
         self.count.zero_()
 
 
-def _calc_binary_metrics(labels, scores, weights=None, ignore_idx=-1,
-    threshold=0.5):
+def _calc_binary_metrics(labels, scores, weights=None, ignore_idx=-1, threshold=0.5):
     pred_labels = (scores > threshold).long()
     N, *Ds = labels.shape
     labels = labels.view(N, int(np.prod(Ds)))
@@ -348,19 +342,14 @@ def _calc_binary_metrics(labels, scores, weights=None, ignore_idx=-1,
 
 class PrecisionRecall(nn.Module):
 
-    def __init__(self, dim=1, ignore_idx=-1, thresholds=0.5,
-        use_sigmoid_score=False, encode_background_as_zeros=True):
+    def __init__(self, dim=1, ignore_idx=-1, thresholds=0.5, use_sigmoid_score=False, encode_background_as_zeros=True):
         super().__init__()
         if not isinstance(thresholds, (list, tuple)):
             thresholds = [thresholds]
-        self.register_buffer('prec_total', torch.FloatTensor(len(thresholds
-            )).zero_())
-        self.register_buffer('prec_count', torch.FloatTensor(len(thresholds
-            )).zero_())
-        self.register_buffer('rec_total', torch.FloatTensor(len(thresholds)
-            ).zero_())
-        self.register_buffer('rec_count', torch.FloatTensor(len(thresholds)
-            ).zero_())
+        self.register_buffer('prec_total', torch.FloatTensor(len(thresholds)).zero_())
+        self.register_buffer('prec_count', torch.FloatTensor(len(thresholds)).zero_())
+        self.register_buffer('rec_total', torch.FloatTensor(len(thresholds)).zero_())
+        self.register_buffer('rec_count', torch.FloatTensor(len(thresholds)).zero_())
         self._ignore_idx = ignore_idx
         self._dim = dim
         self._thresholds = thresholds
@@ -394,8 +383,7 @@ class PrecisionRecall(nn.Module):
         else:
             weights = weights.float()
         for i, thresh in enumerate(self._thresholds):
-            tp, tn, fp, fn = _calc_binary_metrics(labels, scores, weights,
-                self._ignore_idx, thresh)
+            tp, tn, fp, fn = _calc_binary_metrics(labels, scores, weights, self._ignore_idx, thresh)
             rec_count = tp + fn
             prec_count = tp + fp
             if rec_count > 0:
@@ -410,8 +398,7 @@ class PrecisionRecall(nn.Module):
     def value(self):
         prec_count = torch.clamp(self.prec_count, min=1.0)
         rec_count = torch.clamp(self.rec_count, min=1.0)
-        return (self.prec_total / prec_count).cpu(), (self.rec_total /
-            rec_count).cpu()
+        return (self.prec_total / prec_count).cpu(), (self.rec_total / rec_count).cpu()
 
     @property
     def thresholds(self):
@@ -513,24 +500,37 @@ class Sequential(torch.nn.Module):
 class GroupNorm(torch.nn.GroupNorm):
 
     def __init__(self, num_channels, num_groups, eps=1e-05, affine=True):
-        super().__init__(num_groups=num_groups, num_channels=num_channels,
-            eps=eps, affine=affine)
+        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Empty,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+    (GroupNorm,
+     lambda: ([], {'num_channels': 4, 'num_groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Sequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_jinfagang_alfred(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Empty(*[], **{}), [], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

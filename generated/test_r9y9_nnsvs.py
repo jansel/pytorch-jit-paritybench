@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,9 +88,7 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, dilation=1):
         super().__init__()
-        self.block = nn.Sequential(nn.LeakyReLU(0.2), nn.ReflectionPad1d(
-            dilation), WNConv1d(dim, dim, kernel_size=3, dilation=dilation),
-            nn.LeakyReLU(0.2), WNConv1d(dim, dim, kernel_size=1))
+        self.block = nn.Sequential(nn.LeakyReLU(0.2), nn.ReflectionPad1d(dilation), WNConv1d(dim, dim, kernel_size=3, dilation=dilation), nn.LeakyReLU(0.2), WNConv1d(dim, dim, kernel_size=1))
         self.shortcut = WNConv1d(dim, dim, kernel_size=1)
 
     def forward(self, x):
@@ -100,12 +99,10 @@ class Conv1dResnet(nn.Module):
 
     def __init__(self, in_dim, hidden_dim, out_dim, num_layers=4, dropout=0.0):
         super().__init__()
-        model = [nn.ReflectionPad1d(3), WNConv1d(in_dim, hidden_dim,
-            kernel_size=7, padding=0)]
+        model = [nn.ReflectionPad1d(3), WNConv1d(in_dim, hidden_dim, kernel_size=7, padding=0)]
         for n in range(num_layers):
             model.append(ResnetBlock(hidden_dim, dilation=2 ** n))
-        model += [nn.LeakyReLU(0.2), nn.ReflectionPad1d(3), WNConv1d(
-            hidden_dim, out_dim, kernel_size=7, padding=0)]
+        model += [nn.LeakyReLU(0.2), nn.ReflectionPad1d(3), WNConv1d(hidden_dim, out_dim, kernel_size=7, padding=0)]
         self.model = nn.Sequential(*model)
 
     def forward(self, x, lengths=None):
@@ -117,8 +114,7 @@ class FeedForwardNet(torch.nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim, num_layers=2, dropout=0.0):
         super(FeedForwardNet, self).__init__()
         self.first_linear = nn.Linear(in_dim, hidden_dim)
-        self.hidden_layers = nn.ModuleList([nn.Linear(hidden_dim,
-            hidden_dim) for _ in range(num_layers)])
+        self.hidden_layers = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(num_layers)])
         self.last_linear = nn.Linear(hidden_dim, out_dim)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
@@ -132,16 +128,13 @@ class FeedForwardNet(torch.nn.Module):
 
 class LSTMRNN(nn.Module):
 
-    def __init__(self, in_dim, hidden_dim, out_dim, num_layers=1,
-        bidirectional=True, dropout=0.0):
+    def __init__(self, in_dim, hidden_dim, out_dim, num_layers=1, bidirectional=True, dropout=0.0):
         super(LSTMRNN, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.num_direction = 2 if bidirectional else 1
-        self.lstm = nn.LSTM(in_dim, hidden_dim, num_layers, bidirectional=
-            bidirectional, batch_first=True, dropout=dropout)
-        self.hidden2out = nn.Linear(self.num_direction * self.hidden_dim,
-            out_dim)
+        self.lstm = nn.LSTM(in_dim, hidden_dim, num_layers, bidirectional=bidirectional, batch_first=True, dropout=dropout)
+        self.hidden2out = nn.Linear(self.num_direction * self.hidden_dim, out_dim)
 
     def forward(self, sequence, lengths):
         sequence = pack_padded_sequence(sequence, lengths, batch_first=True)
@@ -155,15 +148,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FeedForwardNet,
+     lambda: ([], {'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LSTMRNN,
+     lambda: ([], {'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ResnetBlock,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+]
+
 class Test_r9y9_nnsvs(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FeedForwardNet(*[], **{'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LSTMRNN(*[], **{'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[2])
 

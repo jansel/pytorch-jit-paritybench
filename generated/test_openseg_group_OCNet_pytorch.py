@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -165,8 +166,7 @@ class ABN(nn.Module):
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates an Activated Batch Normalization module
 
         Parameters
@@ -209,22 +209,18 @@ class ABN(nn.Module):
             nn.init.constant_(self.bias, 0)
 
     def forward(self, x):
-        x = functional.batch_norm(x, self.running_mean, self.running_var,
-            self.weight, self.bias, self.training, self.momentum, self.eps)
+        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         if self.activation == ACT_RELU:
             return functional.relu(x, inplace=True)
         elif self.activation == ACT_LEAKY_RELU:
-            return functional.leaky_relu(x, negative_slope=self.slope,
-                inplace=True)
+            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
         elif self.activation == ACT_ELU:
             return functional.elu(x, inplace=True)
         else:
             return x
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ', slope={slope})'
         else:
@@ -238,8 +234,7 @@ class ABN(nn.Sequential):
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
 
-    def __init__(self, num_features, activation=nn.ReLU(inplace=True), **kwargs
-        ):
+    def __init__(self, num_features, activation=nn.ReLU(inplace=True), **kwargs):
         """Creates an Activated Batch Normalization module
 
         Parameters
@@ -251,15 +246,13 @@ class ABN(nn.Sequential):
         kwargs
             All other arguments are forwarded to the `BatchNorm2d` constructor.
         """
-        super(ABN, self).__init__(OrderedDict([('bn', nn.BatchNorm2d(
-            num_features, **kwargs)), ('act', activation)]))
+        super(ABN, self).__init__(OrderedDict([('bn', nn.BatchNorm2d(num_features, **kwargs)), ('act', activation)]))
 
 
 class InPlaceABN(ABN):
     """InPlace Activated Batch Normalization"""
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates an InPlace Activated Batch Normalization module
 
         Parameters
@@ -277,13 +270,10 @@ class InPlaceABN(ABN):
         slope : float
             Negative slope for the `leaky_relu` activation.
         """
-        super(InPlaceABN, self).__init__(num_features, eps, momentum,
-            affine, activation, slope)
+        super(InPlaceABN, self).__init__(num_features, eps, momentum, affine, activation, slope)
 
     def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, self.running_mean,
-            self.running_var, self.training, self.momentum, self.eps, self.
-            activation, self.slope)
+        return inplace_abn(x, self.weight, self.bias, self.running_mean, self.running_var, self.training, self.momentum, self.eps, self.activation, self.slope)
 
 
 inplace_abn = InPlaceABN.apply
@@ -292,8 +282,7 @@ inplace_abn = InPlaceABN.apply
 class InPlaceABN(nn.Module):
     """InPlace Activated Batch Normalization"""
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates an InPlace Activated Batch Normalization module
 
         Parameters
@@ -336,14 +325,10 @@ class InPlaceABN(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, autograd.Variable(
-            self.running_mean), autograd.Variable(self.running_var), self.
-            training, self.momentum, self.eps, self.activation, self.slope)
+        return inplace_abn(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), self.training, self.momentum, self.eps, self.activation, self.slope)
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ' slope={slope})'
         else:
@@ -357,8 +342,7 @@ class InPlaceABNSync(ABN):
     This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
     """
 
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1,
-        affine=True, activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates a synchronized, InPlace Activated Batch Normalization module
 
         Parameters
@@ -378,31 +362,21 @@ class InPlaceABNSync(ABN):
         slope : float
             Negative slope for the `leaky_relu` activation.
         """
-        super(InPlaceABNSync, self).__init__(num_features, eps, momentum,
-            affine, activation, slope)
-        self.devices = devices if devices else list(range(torch.cuda.
-            device_count()))
+        super(InPlaceABNSync, self).__init__(num_features, eps, momentum, affine, activation, slope)
+        self.devices = devices if devices else list(range(torch.cuda.device_count()))
         self.worker_ids = self.devices[1:]
         self.master_queue = Queue(len(self.worker_ids))
         self.worker_queues = [Queue(1) for _ in self.worker_ids]
 
     def forward(self, x):
         if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue,
-                'worker_queues': self.worker_queues, 'worker_ids': self.
-                worker_ids}
+            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue,
-                'worker_queue': self.worker_queues[self.worker_ids.index(x.
-                get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, self.
-            running_mean, self.running_var, extra, self.training, self.
-            momentum, self.eps, self.activation, self.slope)
+            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
+        return inplace_abn_sync(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.training, self.momentum, self.eps, self.activation, self.slope)
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ', slope={slope})'
         else:
@@ -419,8 +393,7 @@ class InPlaceABNSync(nn.Module):
     This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
     """
 
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1,
-        affine=True, activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates a synchronized, InPlace Activated Batch Normalization module
 
         Parameters
@@ -442,8 +415,7 @@ class InPlaceABNSync(nn.Module):
         """
         super(InPlaceABNSync, self).__init__()
         self.num_features = num_features
-        self.devices = devices if devices else list(range(torch.device_count())
-            )
+        self.devices = devices if devices else list(range(torch.device_count()))
         self.affine = affine
         self.eps = eps
         self.momentum = momentum
@@ -471,22 +443,13 @@ class InPlaceABNSync(nn.Module):
 
     def forward(self, x):
         if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue,
-                'worker_queues': self.worker_queues, 'worker_ids': self.
-                worker_ids}
+            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue,
-                'worker_queue': self.worker_queues[self.worker_ids.index(x.
-                get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, autograd.
-            Variable(self.running_mean), autograd.Variable(self.running_var
-            ), extra, self.training, self.momentum, self.eps, self.
-            activation, self.slope)
+            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
+        return inplace_abn_sync(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), extra, self.training, self.momentum, self.eps, self.activation, self.slope)
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ' slope={slope})'
         else:
@@ -518,8 +481,7 @@ class InPlaceABNSyncWrapper(nn.Module):
 
 class DenseModule(nn.Module):
 
-    def __init__(self, in_channels, growth, layers, bottleneck_factor=4,
-        norm_act=ABN, dilation=1):
+    def __init__(self, in_channels, growth, layers, bottleneck_factor=4, norm_act=ABN, dilation=1):
         super(DenseModule, self).__init__()
         self.in_channels = in_channels
         self.growth = growth
@@ -527,13 +489,8 @@ class DenseModule(nn.Module):
         self.convs1 = nn.ModuleList()
         self.convs3 = nn.ModuleList()
         for i in range(self.layers):
-            self.convs1.append(nn.Sequential(OrderedDict([('bn', norm_act(
-                in_channels)), ('conv', nn.Conv2d(in_channels, self.growth *
-                bottleneck_factor, 1, bias=False))])))
-            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(
-                self.growth * bottleneck_factor)), ('conv', nn.Conv2d(self.
-                growth * bottleneck_factor, self.growth, 3, padding=
-                dilation, bias=False, dilation=dilation))])))
+            self.convs1.append(nn.Sequential(OrderedDict([('bn', norm_act(in_channels)), ('conv', nn.Conv2d(in_channels, self.growth * bottleneck_factor, 1, bias=False))])))
+            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(self.growth * bottleneck_factor)), ('conv', nn.Conv2d(self.growth * bottleneck_factor, self.growth, 3, padding=dilation, bias=False, dilation=dilation))])))
             in_channels += self.growth
 
     @property
@@ -563,8 +520,7 @@ class GlobalAvgPool2d(nn.Module):
 
 class IdentityResidualBlock(nn.Module):
 
-    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=
-        1, norm_act=ABN, dropout=None):
+    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=1, norm_act=ABN, dropout=None):
         """Configurable identity-mapping residual block
 
         Parameters
@@ -589,35 +545,23 @@ class IdentityResidualBlock(nn.Module):
         """
         super(IdentityResidualBlock, self).__init__()
         if len(channels) != 2 and len(channels) != 3:
-            raise ValueError('channels must contain either two or three values'
-                )
+            raise ValueError('channels must contain either two or three values')
         if len(channels) == 2 and groups != 1:
             raise ValueError('groups > 1 are only valid if len(channels) == 3')
         is_bottleneck = len(channels) == 3
         need_proj_conv = stride != 1 or in_channels != channels[-1]
         self.bn1 = norm_act(in_channels)
         if not is_bottleneck:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3,
-                stride=stride, padding=dilation, bias=False, dilation=
-                dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.
-                Conv2d(channels[0], channels[1], 3, stride=1, padding=
-                dilation, bias=False, dilation=dilation))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3, stride=stride, padding=dilation, bias=False, dilation=dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, dilation=dilation))]
             if dropout is not None:
                 layers = layers[0:2] + [('dropout', dropout())] + layers[2:]
         else:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1,
-                stride=stride, padding=0, bias=False)), ('bn2', norm_act(
-                channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1],
-                3, stride=1, padding=dilation, bias=False, groups=groups,
-                dilation=dilation)), ('bn3', norm_act(channels[1])), (
-                'conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1,
-                padding=0, bias=False))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1, stride=stride, padding=0, bias=False)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, groups=groups, dilation=dilation)), ('bn3', norm_act(channels[1])), ('conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1, padding=0, bias=False))]
             if dropout is not None:
                 layers = layers[0:4] + [('dropout', dropout())] + layers[4:]
         self.convs = nn.Sequential(OrderedDict(layers))
         if need_proj_conv:
-            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride
-                =stride, padding=0, bias=False)
+            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride=stride, padding=0, bias=False)
 
     def forward(self, x):
         if hasattr(self, 'proj_conv'):
@@ -636,8 +580,7 @@ affine_par = True
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResNet(nn.Module):
@@ -656,40 +599,25 @@ class ResNet(nn.Module):
         self.relu3 = nn.ReLU(inplace=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4, multi_grid=(1, 1, 1))
-        self.context = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3,
-            stride=1, padding=1), InPlaceABNSync(512), ASP_OC_Module(512, 256))
-        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1,
-            padding=0, bias=True)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride
-            =1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.
-            Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0,
-            bias=True))
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
+        self.context = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), ASP_OC_Module(512, 256))
+        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
+        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        multi_grid=1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion, affine=affine_par))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)
-            ] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=
-            dilation, downsample=downsample, multi_grid=generate_multi_grid
-            (0, multi_grid)))
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                multi_grid=generate_multi_grid(i, multi_grid)))
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -723,42 +651,25 @@ class ResNet(nn.Module):
         self.relu3 = nn.ReLU(inplace=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4, multi_grid=(1, 1, 1))
-        self.context = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3,
-            stride=1, padding=1), InPlaceABNSync(512), BaseOC_Module(
-            in_channels=512, out_channels=512, key_channels=256,
-            value_channels=256, dropout=0.05, sizes=[1]))
-        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1,
-            padding=0, bias=True)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride
-            =1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.05), nn.
-            Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0,
-            bias=True))
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
+        self.context = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), BaseOC_Module(in_channels=512, out_channels=512, key_channels=256, value_channels=256, dropout=0.05, sizes=[1]))
+        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
+        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.05), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        multi_grid=1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion, affine=affine_par))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)
-            ] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=
-            dilation, downsample=downsample, multi_grid=generate_multi_grid
-            (0, multi_grid)))
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                multi_grid=generate_multi_grid(i, multi_grid)))
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -792,36 +703,24 @@ class ResNet(nn.Module):
         self.relu3 = nn.ReLU(inplace=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4, multi_grid=(1, 1, 1))
-        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3,
-            stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.05))
-        self.layer6 = nn.Conv2d(512, num_classes, kernel_size=1, stride=1,
-            padding=0, bias=True)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
+        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.05))
+        self.layer6 = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        multi_grid=1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion, affine=affine_par))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)
-            ] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=
-            dilation, downsample=downsample, multi_grid=generate_multi_grid
-            (0, multi_grid)))
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                multi_grid=generate_multi_grid(i, multi_grid)))
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -854,41 +753,26 @@ class ResNet(nn.Module):
         self.relu3 = nn.ReLU(inplace=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4, multi_grid=(1, 1, 1))
-        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3,
-            stride=1, padding=1), BatchNorm2d(512))
-        self.context = Pyramid_OC_Module(in_channels=512, out_channels=512,
-            dropout=0.05, sizes=[1, 2, 3, 6])
-        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1,
-            padding=0, bias=True)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride
-            =1, padding=1), BatchNorm2d(512), nn.Dropout2d(0.05), nn.Conv2d
-            (512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
+        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), BatchNorm2d(512))
+        self.context = Pyramid_OC_Module(in_channels=512, out_channels=512, dropout=0.05, sizes=[1, 2, 3, 6])
+        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
+        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), BatchNorm2d(512), nn.Dropout2d(0.05), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        multi_grid=1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion, affine=affine_par))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)
-            ] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=
-            dilation, downsample=downsample, multi_grid=generate_multi_grid
-            (0, multi_grid)))
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                multi_grid=generate_multi_grid(i, multi_grid)))
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -911,34 +795,18 @@ class ASP_OC_Module(nn.Module):
 
     def __init__(self, features, out_features=256, dilations=(12, 24, 36)):
         super(ASP_OC_Module, self).__init__()
-        self.context = nn.Sequential(nn.Conv2d(features, out_features,
-            kernel_size=3, padding=1, dilation=1, bias=True),
-            InPlaceABNSync(out_features), BaseOC_Context_Module(in_channels
-            =out_features, out_channels=out_features, key_channels=
-            out_features // 2, value_channels=out_features, dropout=0,
-            sizes=[2]))
-        self.conv2 = nn.Sequential(nn.Conv2d(features, out_features,
-            kernel_size=1, padding=0, dilation=1, bias=False),
-            InPlaceABNSync(out_features))
-        self.conv3 = nn.Sequential(nn.Conv2d(features, out_features,
-            kernel_size=3, padding=dilations[0], dilation=dilations[0],
-            bias=False), InPlaceABNSync(out_features))
-        self.conv4 = nn.Sequential(nn.Conv2d(features, out_features,
-            kernel_size=3, padding=dilations[1], dilation=dilations[1],
-            bias=False), InPlaceABNSync(out_features))
-        self.conv5 = nn.Sequential(nn.Conv2d(features, out_features,
-            kernel_size=3, padding=dilations[2], dilation=dilations[2],
-            bias=False), InPlaceABNSync(out_features))
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(out_features * 5, 
-            out_features * 2, kernel_size=1, padding=0, dilation=1, bias=
-            False), InPlaceABNSync(out_features * 2), nn.Dropout2d(0.1))
+        self.context = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=1, dilation=1, bias=True), InPlaceABNSync(out_features), BaseOC_Context_Module(in_channels=out_features, out_channels=out_features, key_channels=out_features // 2, value_channels=out_features, dropout=0, sizes=[2]))
+        self.conv2 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features))
+        self.conv3 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), InPlaceABNSync(out_features))
+        self.conv4 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), InPlaceABNSync(out_features))
+        self.conv5 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), InPlaceABNSync(out_features))
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(out_features * 5, out_features * 2, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features * 2), nn.Dropout2d(0.1))
 
     def _cat_each(self, feat1, feat2, feat3, feat4, feat5):
         assert len(feat1) == len(feat2)
         z = []
         for i in range(len(feat1)):
-            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i],
-                feat5[i]), 1))
+            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i], feat5[i]), 1))
         return z
 
     def forward(self, x):
@@ -981,8 +849,7 @@ class _SelfAttentionBlock(nn.Module):
         position-aware context features.(w/o concate or add with the input)
     """
 
-    def __init__(self, in_channels, key_channels, value_channels,
-        out_channels=None, scale=1):
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
         super(_SelfAttentionBlock, self).__init__()
         self.scale = scale
         self.in_channels = in_channels
@@ -992,14 +859,10 @@ class _SelfAttentionBlock(nn.Module):
         if out_channels == None:
             self.out_channels = in_channels
         self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
-        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels,
-            out_channels=self.key_channels, kernel_size=1, stride=1,
-            padding=0), InPlaceABNSync(self.key_channels))
+        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1, stride=1, padding=0), InPlaceABNSync(self.key_channels))
         self.f_query = self.f_key
-        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels
-            =self.value_channels, kernel_size=1, stride=1, padding=0)
-        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=
-            self.out_channels, kernel_size=1, stride=1, padding=0)
+        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1, stride=1, padding=0)
+        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1, stride=1, padding=0)
         nn.init.constant(self.W.weight, 0)
         nn.init.constant(self.W.bias, 0)
 
@@ -1021,20 +884,16 @@ class _SelfAttentionBlock(nn.Module):
         context = self.W(context)
         if self.scale > 1:
             if torch_ver == '0.4':
-                context = F.upsample(input=context, size=(h, w), mode=
-                    'bilinear', align_corners=True)
+                context = F.upsample(input=context, size=(h, w), mode='bilinear', align_corners=True)
             elif torch_ver == '0.3':
-                context = F.upsample(input=context, size=(h, w), mode=
-                    'bilinear')
+                context = F.upsample(input=context, size=(h, w), mode='bilinear')
         return context
 
 
 class SelfAttentionBlock2D(_SelfAttentionBlock):
 
-    def __init__(self, in_channels, key_channels, value_channels,
-        out_channels=None, scale=1):
-        super(SelfAttentionBlock2D, self).__init__(in_channels,
-            key_channels, value_channels, out_channels, scale)
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
+        super(SelfAttentionBlock2D, self).__init__(in_channels, key_channels, value_channels, out_channels, scale)
 
 
 class BaseOC_Module(nn.Module):
@@ -1048,21 +907,14 @@ class BaseOC_Module(nn.Module):
         features fused with Object context information.
     """
 
-    def __init__(self, in_channels, out_channels, key_channels,
-        value_channels, dropout, sizes=[1]):
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=[1]):
         super(BaseOC_Module, self).__init__()
         self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels,
-            out_channels, key_channels, value_channels, size) for size in
-            sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels,
-            out_channels, kernel_size=1, padding=0), InPlaceABNSync(
-            out_channels), nn.Dropout2d(dropout))
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels), nn.Dropout2d(dropout))
 
-    def _make_stage(self, in_channels, output_channels, key_channels,
-        value_channels, size):
-        return SelfAttentionBlock2D(in_channels, key_channels,
-            value_channels, output_channels, size)
+    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
+        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
 
     def forward(self, feats):
         priors = [stage(feats) for stage in self.stages]
@@ -1085,21 +937,14 @@ class BaseOC_Context_Module(nn.Module):
         features after "concat" or "add"
     """
 
-    def __init__(self, in_channels, out_channels, key_channels,
-        value_channels, dropout, sizes=[1]):
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=[1]):
         super(BaseOC_Context_Module, self).__init__()
         self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels,
-            out_channels, key_channels, value_channels, size) for size in
-            sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(in_channels,
-            out_channels, kernel_size=1, padding=0), InPlaceABNSync(
-            out_channels))
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels))
 
-    def _make_stage(self, in_channels, output_channels, key_channels,
-        value_channels, size):
-        return SelfAttentionBlock2D(in_channels, key_channels,
-            value_channels, output_channels, size)
+    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
+        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
 
     def forward(self, feats):
         priors = [stage(feats) for stage in self.stages]
@@ -1125,8 +970,7 @@ class _PyramidSelfAttentionBlock(nn.Module):
         position-aware context features.(w/o concate or add with the input)
     """
 
-    def __init__(self, in_channels, key_channels, value_channels,
-        out_channels=None, scale=1):
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
         super(_PyramidSelfAttentionBlock, self).__init__()
         self.scale = scale
         self.in_channels = in_channels
@@ -1135,14 +979,10 @@ class _PyramidSelfAttentionBlock(nn.Module):
         self.value_channels = value_channels
         if out_channels == None:
             self.out_channels = in_channels
-        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels,
-            out_channels=self.key_channels, kernel_size=1, stride=1,
-            padding=0), InPlaceABNSync(self.key_channels))
+        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1, stride=1, padding=0), InPlaceABNSync(self.key_channels))
         self.f_query = self.f_key
-        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels
-            =self.value_channels, kernel_size=1, stride=1, padding=0)
-        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=
-            self.out_channels, kernel_size=1, stride=1, padding=0)
+        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1, stride=1, padding=0)
+        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1, stride=1, padding=0)
         nn.init.constant(self.W.weight, 0)
         nn.init.constant(self.W.bias, 0)
 
@@ -1154,8 +994,7 @@ class _PyramidSelfAttentionBlock(nn.Module):
         for i in range(0, self.scale):
             for j in range(0, self.scale):
                 start_x, start_y = i * step_h, j * step_w
-                end_x, end_y = min(start_x + step_h, h), min(start_y +
-                    step_w, w)
+                end_x, end_y = min(start_x + step_h, h), min(start_y + step_w, w)
                 if i == self.scale - 1:
                     end_x = h
                 if j == self.scale - 1:
@@ -1168,28 +1007,21 @@ class _PyramidSelfAttentionBlock(nn.Module):
         local_list = []
         local_block_cnt = 2 * self.scale * self.scale
         for i in range(0, local_block_cnt, 2):
-            value_local = value[:, :, local_x[i]:local_x[i + 1], local_y[i]
-                :local_y[i + 1]]
-            query_local = query[:, :, local_x[i]:local_x[i + 1], local_y[i]
-                :local_y[i + 1]]
-            key_local = key[:, :, local_x[i]:local_x[i + 1], local_y[i]:
-                local_y[i + 1]]
+            value_local = value[:, :, local_x[i]:local_x[i + 1], local_y[i]:local_y[i + 1]]
+            query_local = query[:, :, local_x[i]:local_x[i + 1], local_y[i]:local_y[i + 1]]
+            key_local = key[:, :, local_x[i]:local_x[i + 1], local_y[i]:local_y[i + 1]]
             h_local, w_local = value_local.size(2), value_local.size(3)
-            value_local = value_local.contiguous().view(batch_size, self.
-                value_channels, -1)
+            value_local = value_local.contiguous().view(batch_size, self.value_channels, -1)
             value_local = value_local.permute(0, 2, 1)
-            query_local = query_local.contiguous().view(batch_size, self.
-                key_channels, -1)
+            query_local = query_local.contiguous().view(batch_size, self.key_channels, -1)
             query_local = query_local.permute(0, 2, 1)
-            key_local = key_local.contiguous().view(batch_size, self.
-                key_channels, -1)
+            key_local = key_local.contiguous().view(batch_size, self.key_channels, -1)
             sim_map = torch.matmul(query_local, key_local)
             sim_map = self.key_channels ** -0.5 * sim_map
             sim_map = F.softmax(sim_map, dim=-1)
             context_local = torch.matmul(sim_map, value_local)
             context_local = context_local.permute(0, 2, 1).contiguous()
-            context_local = context_local.view(batch_size, self.
-                value_channels, h_local, w_local)
+            context_local = context_local.view(batch_size, self.value_channels, h_local, w_local)
             local_list.append(context_local)
         context_list = []
         for i in range(0, self.scale):
@@ -1204,10 +1036,8 @@ class _PyramidSelfAttentionBlock(nn.Module):
 
 class PyramidSelfAttentionBlock2D(_PyramidSelfAttentionBlock):
 
-    def __init__(self, in_channels, key_channels, value_channels,
-        out_channels=None, scale=1):
-        super(PyramidSelfAttentionBlock2D, self).__init__(in_channels,
-            key_channels, value_channels, out_channels, scale)
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
+        super(PyramidSelfAttentionBlock2D, self).__init__(in_channels, key_channels, value_channels, out_channels, scale)
 
 
 class Pyramid_OC_Module(nn.Module):
@@ -1225,20 +1055,12 @@ class Pyramid_OC_Module(nn.Module):
         super(Pyramid_OC_Module, self).__init__()
         self.group = len(sizes)
         self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels,
-            out_channels, in_channels // 2, in_channels, size) for size in
-            sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels *
-            self.group, out_channels, kernel_size=1, padding=0),
-            InPlaceABNSync(out_channels), nn.Dropout2d(dropout))
-        self.up_dr = nn.Sequential(nn.Conv2d(in_channels, in_channels *
-            self.group, kernel_size=1, padding=0), InPlaceABNSync(
-            in_channels * self.group))
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, in_channels // 2, in_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels * self.group, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels), nn.Dropout2d(dropout))
+        self.up_dr = nn.Sequential(nn.Conv2d(in_channels, in_channels * self.group, kernel_size=1, padding=0), InPlaceABNSync(in_channels * self.group))
 
-    def _make_stage(self, in_channels, output_channels, key_channels,
-        value_channels, size):
-        return PyramidSelfAttentionBlock2D(in_channels, key_channels,
-            value_channels, output_channels, size)
+    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
+        return PyramidSelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
 
     def forward(self, feats):
         priors = [stage(feats) for stage in self.stages]
@@ -1254,17 +1076,13 @@ class CriterionCrossEntropy(nn.Module):
     def __init__(self, ignore_index=255):
         super(CriterionCrossEntropy, self).__init__()
         self.ignore_index = ignore_index
-        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 
-            0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116,
-            0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
-        self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-            ignore_index=ignore_index)
+        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+        self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds, size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds, size=(h, w), mode='bilinear', align_corners=True)
         else:
             scale_pred = F.upsample(input=preds, size=(h, w), mode='bilinear')
         loss = self.criterion(scale_pred, target)
@@ -1280,33 +1098,25 @@ class CriterionDSN(nn.Module):
         super(CriterionDSN, self).__init__()
         self.ignore_index = ignore_index
         self.dsn_weight = dsn_weight
-        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 
-            0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116,
-            0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
         if use_weight:
             None
-            self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-                ignore_index=ignore_index)
+            self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
         else:
             None
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=
-                ignore_index)
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds[0], size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds[0], size=(h, w), mode='bilinear', align_corners=True)
         else:
-            scale_pred = F.upsample(input=preds[0], size=(h, w), mode=
-                'bilinear')
+            scale_pred = F.upsample(input=preds[0], size=(h, w), mode='bilinear')
         loss1 = self.criterion(scale_pred, target)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds[1], size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear', align_corners=True)
         else:
-            scale_pred = F.upsample(input=preds[1], size=(h, w), mode=
-                'bilinear')
+            scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear')
         loss2 = self.criterion(scale_pred, target)
         return self.dsn_weight * loss1 + loss2
 
@@ -1316,29 +1126,23 @@ class CriterionOhemDSN(nn.Module):
     DSN + OHEM : We need to consider two supervision for the model.
     """
 
-    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000,
-        dsn_weight=0.4, use_weight=True):
+    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000, dsn_weight=0.4, use_weight=True):
         super(CriterionOhemDSN, self).__init__()
         self.ignore_index = ignore_index
         self.dsn_weight = dsn_weight
-        self.criterion = OhemCrossEntropy2d(ignore_index, thres, min_kept,
-            use_weight=use_weight)
+        self.criterion = OhemCrossEntropy2d(ignore_index, thres, min_kept, use_weight=use_weight)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds[0], size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds[0], size=(h, w), mode='bilinear', align_corners=True)
         else:
-            scale_pred = F.upsample(input=preds[0], size=(h, w), mode=
-                'bilinear')
+            scale_pred = F.upsample(input=preds[0], size=(h, w), mode='bilinear')
         loss1 = self.criterion(scale_pred, target)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds[1], size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear', align_corners=True)
         else:
-            scale_pred = F.upsample(input=preds[1], size=(h, w), mode=
-                'bilinear')
+            scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear')
         loss2 = self.criterion(scale_pred, target)
         return self.dsn_weight * loss1 + loss2
 
@@ -1350,34 +1154,25 @@ class CriterionOhemDSN_single(nn.Module):
                 and the hard-mining loss for the deeper supervision
     """
 
-    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000,
-        dsn_weight=0.4):
+    def __init__(self, ignore_index=255, thres=0.7, min_kept=100000, dsn_weight=0.4):
         super(CriterionOhemDSN_single, self).__init__()
         self.ignore_index = ignore_index
         self.dsn_weight = dsn_weight
-        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 
-            0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116,
-            0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
-        self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-            ignore_index=ignore_index)
-        self.criterion_ohem = OhemCrossEntropy2d(ignore_index, thres,
-            min_kept, use_weight=True)
+        weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+        self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+        self.criterion_ohem = OhemCrossEntropy2d(ignore_index, thres, min_kept, use_weight=True)
 
     def forward(self, preds, target):
         h, w = target.size(1), target.size(2)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds[0], size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds[0], size=(h, w), mode='bilinear', align_corners=True)
         else:
-            scale_pred = F.upsample(input=preds[0], size=(h, w), mode=
-                'bilinear')
+            scale_pred = F.upsample(input=preds[0], size=(h, w), mode='bilinear')
         loss1 = self.criterion(scale_pred, target)
         if torch_ver == '0.4':
-            scale_pred = F.upsample(input=preds[1], size=(h, w), mode=
-                'bilinear', align_corners=True)
+            scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear', align_corners=True)
         else:
-            scale_pred = F.upsample(input=preds[1], size=(h, w), mode=
-                'bilinear')
+            scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear')
         loss2 = self.criterion_ohem(scale_pred, target)
         return self.dsn_weight * loss1 + loss2
 
@@ -1390,10 +1185,7 @@ class CrossEntropy2d(nn.Module):
         self.ignore_label = ignore_label
         self.use_weight = use_weight
         if self.use_weight:
-            self.weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 
-                1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 
-                0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507]
-                )
+            self.weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
             None
         else:
             self.weight = None
@@ -1419,49 +1211,38 @@ class CrossEntropy2d(nn.Module):
             None
         else:
             self.weight = None
-        criterion = torch.nn.CrossEntropyLoss(weight=self.weight,
-            ignore_index=self.ignore_label)
+        criterion = torch.nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_label)
         assert not target.requires_grad
         assert predict.dim() == 4
         assert target.dim() == 3
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
         n, c, h, w = predict.size()
         target_mask = (target >= 0) * (target != self.ignore_label)
         target = target[target_mask]
         if not target.data.dim():
             return Variable(torch.zeros(1))
         predict = predict.transpose(1, 2).transpose(2, 3).contiguous()
-        predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)
-            ].view(-1, c)
+        predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)].view(-1, c)
         loss = criterion(predict, target)
         return loss
 
 
 class OhemCrossEntropy2d(nn.Module):
 
-    def __init__(self, ignore_label=255, thresh=0.6, min_kept=0, use_weight
-        =True):
+    def __init__(self, ignore_label=255, thresh=0.6, min_kept=0, use_weight=True):
         super(OhemCrossEntropy2d, self).__init__()
         self.ignore_label = ignore_label
         self.thresh = float(thresh)
         self.min_kept = int(min_kept)
         if use_weight:
             None
-            weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 
-                1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 
-                0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507]
-                )
-            self.criterion = torch.nn.CrossEntropyLoss(weight=weight,
-                ignore_index=ignore_label)
+            weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+            self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_label)
         else:
             None
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=
-                ignore_label)
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
 
     def forward(self, predict, target, weight=None):
         """
@@ -1474,12 +1255,9 @@ class OhemCrossEntropy2d(nn.Module):
         assert not target.requires_grad
         assert predict.dim() == 4
         assert target.dim() == 3
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict
-            .size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict
-            .size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict
-            .size(3), target.size(3))
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
         n, c, h, w = predict.size()
         input_label = target.data.cpu().numpy().ravel().astype(np.int32)
         x = np.rollaxis(predict.data.cpu().numpy(), 1).reshape((c, -1))
@@ -1506,22 +1284,17 @@ class OhemCrossEntropy2d(nn.Module):
         input_label.fill(self.ignore_label)
         input_label[valid_inds] = label
         valid_flag_new = input_label != self.ignore_label
-        target = Variable(torch.from_numpy(input_label.reshape(target.size(
-            ))).long())
+        target = Variable(torch.from_numpy(input_label.reshape(target.size())).long())
         return self.criterion(predict, target)
 
 
 class Separable_transpose_convolution(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2,
-        padding=1, output_padding=0, bias=False, dilation=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=0, bias=False, dilation=1):
         super(Separable_transpose_convolution, self).__init__()
-        self.conv1 = nn.ConvTranspose2d(in_channels, in_channels,
-            kernel_size, stride, padding, output_padding, groups=
-            in_channels, bias=bias, dilation=dilation)
+        self.conv1 = nn.ConvTranspose2d(in_channels, in_channels, kernel_size, stride, padding, output_padding, groups=in_channels, bias=bias, dilation=dilation)
         self.bn1 = nn.BatchNorm2d(in_channels, affine=affine_par)
-        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            stride=1, padding=0, dilation=1, groups=1, bias=bias)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=bias)
         self.bn2 = nn.BatchNorm2d(out_channels, affine=affine_par)
         self.relu = nn.ReLU(inplace=True)
 
@@ -1533,14 +1306,11 @@ class Separable_transpose_convolution(nn.Module):
 
 class Separable_convolution(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1, bias=False, dilation=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False, dilation=1):
         super(Separable_convolution, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size,
-            stride, padding, groups=in_channels, bias=bias, dilation=dilation)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=bias, dilation=dilation)
         self.bn1 = nn.BatchNorm2d(in_channels, affine=affine_par)
-        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            stride=1, padding=0, dilation=1, groups=1, bias=bias)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=bias)
         self.bn2 = nn.BatchNorm2d(out_channels, affine=affine_par)
         self.relu = nn.ReLU(inplace=True)
 
@@ -1629,8 +1399,7 @@ class Reduce(Function):
         return Broadcast.apply(ctx.target_gpus, gradOutput)
 
 
-def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
-    devices=None):
+def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=None):
     assert len(modules) == len(inputs)
     assert len(targets) == len(inputs)
     if kwargs_tup:
@@ -1660,10 +1429,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             with lock:
                 results[i] = e
     if len(modules) > 1:
-        threads = [threading.Thread(target=_worker, args=(i, module, input,
-            target, kwargs, device)) for i, (module, input, target, kwargs,
-            device) in enumerate(zip(modules, inputs, targets, kwargs_tup,
-            devices))]
+        threads = [threading.Thread(target=_worker, args=(i, module, input, target, kwargs, device)) for i, (module, input, target, kwargs, device) in enumerate(zip(modules, inputs, targets, kwargs_tup, devices))]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -1715,14 +1481,11 @@ class DataParallelCriterion(DataParallel):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, fist_dilation=1, multi_grid=1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation * multi_grid, dilation=dilation * multi_grid,
-            bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
         self.bn2 = BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm2d(planes * 4)
@@ -1760,29 +1523,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ABN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DataParallelCriterion,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DataParallelModel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (DenseModule,
+     lambda: ([], {'in_channels': 4, 'growth': 4, 'layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IdentityResidualBlock,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Separable_convolution,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_openseg_group_OCNet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DataParallelCriterion(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DenseModule(*[], **{'in_channels': 4, 'growth': 4, 'layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Separable_convolution(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

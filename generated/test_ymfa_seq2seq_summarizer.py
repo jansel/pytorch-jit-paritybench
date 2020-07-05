@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,13 +64,11 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class EncoderRNN(nn.Module):
 
-    def __init__(self, embed_size, hidden_size, bidi=True, *, rnn_drop: float=0
-        ):
+    def __init__(self, embed_size, hidden_size, bidi=True, *, rnn_drop: float=0):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_directions = 2 if bidi else 1
-        self.gru = nn.GRU(embed_size, hidden_size, bidirectional=bidi,
-            dropout=rnn_drop)
+        self.gru = nn.GRU(embed_size, hidden_size, bidirectional=bidi, dropout=rnn_drop)
 
     def forward(self, embedded, hidden, input_lengths=None):
         """
@@ -89,13 +88,11 @@ class EncoderRNN(nn.Module):
             output, _ = pad_packed_sequence(output)
         if self.num_directions > 1:
             batch_size = hidden.size(1)
-            hidden = hidden.transpose(0, 1).contiguous().view(1, batch_size,
-                self.hidden_size * self.num_directions)
+            hidden = hidden.transpose(0, 1).contiguous().view(1, batch_size, self.hidden_size * self.num_directions)
         return output, hidden
 
     def init_hidden(self, batch_size):
-        return torch.zeros(self.num_directions, batch_size, self.
-            hidden_size, device=DEVICE)
+        return torch.zeros(self.num_directions, batch_size, self.hidden_size, device=DEVICE)
 
 
 eps = 1e-31
@@ -103,10 +100,7 @@ eps = 1e-31
 
 class DecoderRNN(nn.Module):
 
-    def __init__(self, vocab_size, embed_size, hidden_size, *, enc_attn=
-        True, dec_attn=True, enc_attn_cover=True, pointer=True,
-        tied_embedding=None, out_embed_size=None, in_drop: float=0,
-        rnn_drop: float=0, out_drop: float=0, enc_hidden_size=None):
+    def __init__(self, vocab_size, embed_size, hidden_size, *, enc_attn=True, dec_attn=True, enc_attn_cover=True, pointer=True, tied_embedding=None, out_embed_size=None, in_drop: float=0, rnn_drop: float=0, out_drop: float=0, enc_hidden_size=None):
         super(DecoderRNN, self).__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
@@ -116,8 +110,7 @@ class DecoderRNN(nn.Module):
         self.enc_attn_cover = enc_attn_cover
         self.pointer = pointer
         self.out_embed_size = out_embed_size
-        if (tied_embedding is not None and self.out_embed_size and 
-            embed_size != self.out_embed_size):
+        if tied_embedding is not None and self.out_embed_size and embed_size != self.out_embed_size:
             None
             self.out_embed_size = embed_size
         self.in_drop = nn.Dropout(in_drop) if in_drop > 0 else None
@@ -125,14 +118,12 @@ class DecoderRNN(nn.Module):
         if enc_attn:
             if not enc_hidden_size:
                 enc_hidden_size = self.hidden_size
-            self.enc_bilinear = nn.Bilinear(self.hidden_size,
-                enc_hidden_size, 1)
+            self.enc_bilinear = nn.Bilinear(self.hidden_size, enc_hidden_size, 1)
             self.combined_size += enc_hidden_size
             if enc_attn_cover:
                 self.cover_weight = nn.Parameter(torch.rand(1))
         if dec_attn:
-            self.dec_bilinear = nn.Bilinear(self.hidden_size, self.
-                hidden_size, 1)
+            self.dec_bilinear = nn.Bilinear(self.hidden_size, self.hidden_size, 1)
             self.combined_size += self.hidden_size
         self.out_drop = nn.Dropout(out_drop) if out_drop > 0 else None
         if pointer:
@@ -148,9 +139,7 @@ class DecoderRNN(nn.Module):
         if tied_embedding is not None:
             self.out.weight = tied_embedding.weight
 
-    def forward(self, embedded, hidden, encoder_states=None, decoder_states
-        =None, coverage_vector=None, *, encoder_word_idx=None,
-        ext_vocab_size: int=None, log_prob: bool=True):
+    def forward(self, embedded, hidden, encoder_states=None, decoder_states=None, coverage_vector=None, *, encoder_word_idx=None, ext_vocab_size: int=None, log_prob: bool=True):
         """
     :param embedded: (batch size, embed size)
     :param hidden: (1, batch size, decoder hidden size)
@@ -179,28 +168,21 @@ class DecoderRNN(nn.Module):
         if self.enc_attn or self.pointer:
             num_enc_steps = encoder_states.size(0)
             enc_total_size = encoder_states.size(2)
-            enc_energy = self.enc_bilinear(hidden.expand(num_enc_steps,
-                batch_size, -1).contiguous(), encoder_states)
+            enc_energy = self.enc_bilinear(hidden.expand(num_enc_steps, batch_size, -1).contiguous(), encoder_states)
             if self.enc_attn_cover and coverage_vector is not None:
-                enc_energy += self.cover_weight * torch.log(coverage_vector
-                    .transpose(0, 1).unsqueeze(2) + eps)
+                enc_energy += self.cover_weight * torch.log(coverage_vector.transpose(0, 1).unsqueeze(2) + eps)
             enc_attn = F.softmax(enc_energy, dim=0).transpose(0, 1)
             if self.enc_attn:
-                enc_context = torch.bmm(encoder_states.permute(1, 2, 0),
-                    enc_attn)
-                combined[:, offset:offset + enc_total_size
-                    ] = enc_context.squeeze(2)
+                enc_context = torch.bmm(encoder_states.permute(1, 2, 0), enc_attn)
+                combined[:, offset:offset + enc_total_size] = enc_context.squeeze(2)
                 offset += enc_total_size
             enc_attn = enc_attn.squeeze(2)
         if self.dec_attn:
             if decoder_states is not None and len(decoder_states) > 0:
-                dec_energy = self.dec_bilinear(hidden.expand_as(
-                    decoder_states).contiguous(), decoder_states)
+                dec_energy = self.dec_bilinear(hidden.expand_as(decoder_states).contiguous(), decoder_states)
                 dec_attn = F.softmax(dec_energy, dim=0).transpose(0, 1)
-                dec_context = torch.bmm(decoder_states.permute(1, 2, 0),
-                    dec_attn)
-                combined[:, offset:offset + self.hidden_size
-                    ] = dec_context.squeeze(2)
+                dec_context = torch.bmm(decoder_states.permute(1, 2, 0), dec_attn)
+                combined[:, offset:offset + self.hidden_size] = dec_context.squeeze(2)
             offset += self.hidden_size
         if self.out_drop:
             combined = self.out_drop(combined)
@@ -216,8 +198,7 @@ class DecoderRNN(nn.Module):
             gen_output = F.softmax(logits, dim=1)
             output[:, :self.vocab_size] = prob_gen * gen_output
             ptr_output = enc_attn
-            output.scatter_add_(1, encoder_word_idx.transpose(0, 1), 
-                prob_ptr * ptr_output)
+            output.scatter_add_(1, encoder_word_idx.transpose(0, 1), prob_ptr * ptr_output)
             if log_prob:
                 output = torch.log(output + eps)
         elif log_prob:
@@ -229,8 +210,7 @@ class DecoderRNN(nn.Module):
 
 class Hypothesis(object):
 
-    def __init__(self, tokens, log_probs, dec_hidden, dec_states,
-        enc_attn_weights, num_non_words):
+    def __init__(self, tokens, log_probs, dec_hidden, dec_states, enc_attn_weights, num_non_words):
         self.tokens = tokens
         self.log_probs = log_probs
         self.dec_hidden = dec_hidden
@@ -248,22 +228,13 @@ class Hypothesis(object):
     def avg_log_prob(self):
         return sum(self.log_probs) / len(self.log_probs)
 
-    def create_next(self, token, log_prob, dec_hidden, add_dec_states,
-        enc_attn, non_word):
-        return Hypothesis(tokens=self.tokens + [token], log_probs=self.
-            log_probs + [log_prob], dec_hidden=dec_hidden, dec_states=self.
-            dec_states + [dec_hidden] if add_dec_states else self.
-            dec_states, enc_attn_weights=self.enc_attn_weights + [enc_attn] if
-            enc_attn is not None else self.enc_attn_weights, num_non_words=
-            self.num_non_words + 1 if non_word else self.num_non_words)
+    def create_next(self, token, log_prob, dec_hidden, add_dec_states, enc_attn, non_word):
+        return Hypothesis(tokens=self.tokens + [token], log_probs=self.log_probs + [log_prob], dec_hidden=dec_hidden, dec_states=self.dec_states + [dec_hidden] if add_dec_states else self.dec_states, enc_attn_weights=self.enc_attn_weights + [enc_attn] if enc_attn is not None else self.enc_attn_weights, num_non_words=self.num_non_words + 1 if non_word else self.num_non_words)
 
 
 class Seq2SeqOutput(object):
 
-    def __init__(self, encoder_outputs: torch.Tensor, encoder_hidden: torch
-        .Tensor, decoded_tokens: torch.Tensor, loss: Union[torch.Tensor,
-        float]=0, loss_value: float=0, enc_attn_weights: torch.Tensor=None,
-        ptr_probs: torch.Tensor=None):
+    def __init__(self, encoder_outputs: torch.Tensor, encoder_hidden: torch.Tensor, decoded_tokens: torch.Tensor, loss: Union[torch.Tensor, float]=0, loss_value: float=0, enc_attn_weights: torch.Tensor=None, ptr_probs: torch.Tensor=None):
         self.encoder_outputs = encoder_outputs
         self.encoder_hidden = encoder_hidden
         self.decoded_tokens = decoded_tokens
@@ -280,9 +251,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EncoderRNN,
+     lambda: ([], {'embed_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([2, 4, 4])], {}),
+     False),
+]
+
 class Test_ymfa_seq2seq_summarizer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(EncoderRNN(*[], **{'embed_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([2, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

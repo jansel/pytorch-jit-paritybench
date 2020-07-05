@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,16 +75,13 @@ class Discriminator(nn.Module):
     def __init__(self, input_dim, hidden_dim, device):
         super(Discriminator, self).__init__()
         self.device = device
-        self.trunk = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.
-            Tanh(), nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear
-            (hidden_dim, 1))
+        self.trunk = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, 1))
         self.trunk.train()
         self.optimizer = torch.optim.Adam(self.trunk.parameters())
         self.returns = None
         self.ret_rms = RunningMeanStd(shape=())
 
-    def compute_grad_pen(self, expert_state, expert_action, policy_state,
-        policy_action, lambda_=10):
+    def compute_grad_pen(self, expert_state, expert_action, policy_state, policy_action, lambda_=10):
         alpha = torch.rand(expert_state.size(0), 1)
         expert_data = torch.cat([expert_state, expert_action], dim=1)
         policy_data = torch.cat([policy_state, policy_action], dim=1)
@@ -92,35 +90,27 @@ class Discriminator(nn.Module):
         mixup_data.requires_grad = True
         disc = self.trunk(mixup_data)
         ones = torch.ones(disc.size())
-        grad = autograd.grad(outputs=disc, inputs=mixup_data, grad_outputs=
-            ones, create_graph=True, retain_graph=True, only_inputs=True)[0]
+        grad = autograd.grad(outputs=disc, inputs=mixup_data, grad_outputs=ones, create_graph=True, retain_graph=True, only_inputs=True)[0]
         grad_pen = lambda_ * (grad.norm(2, dim=1) - 1).pow(2).mean()
         return grad_pen
 
     def update(self, expert_loader, rollouts, obsfilt=None):
         self.train()
-        policy_data_generator = rollouts.feed_forward_generator(None,
-            mini_batch_size=expert_loader.batch_size)
+        policy_data_generator = rollouts.feed_forward_generator(None, mini_batch_size=expert_loader.batch_size)
         loss = 0
         n = 0
-        for expert_batch, policy_batch in zip(expert_loader,
-            policy_data_generator):
+        for expert_batch, policy_batch in zip(expert_loader, policy_data_generator):
             policy_state, policy_action = policy_batch[0], policy_batch[2]
-            policy_d = self.trunk(torch.cat([policy_state, policy_action],
-                dim=1))
+            policy_d = self.trunk(torch.cat([policy_state, policy_action], dim=1))
             expert_state, expert_action = expert_batch
             expert_state = obsfilt(expert_state.numpy(), update=False)
             expert_state = torch.FloatTensor(expert_state)
             expert_action = expert_action
-            expert_d = self.trunk(torch.cat([expert_state, expert_action],
-                dim=1))
-            expert_loss = F.binary_cross_entropy_with_logits(expert_d,
-                torch.ones(expert_d.size()))
-            policy_loss = F.binary_cross_entropy_with_logits(policy_d,
-                torch.zeros(policy_d.size()))
+            expert_d = self.trunk(torch.cat([expert_state, expert_action], dim=1))
+            expert_loss = F.binary_cross_entropy_with_logits(expert_d, torch.ones(expert_d.size()))
+            policy_loss = F.binary_cross_entropy_with_logits(policy_d, torch.zeros(policy_d.size()))
             gail_loss = expert_loss + policy_loss
-            grad_pen = self.compute_grad_pen(expert_state, expert_action,
-                policy_state, policy_action)
+            grad_pen = self.compute_grad_pen(expert_state, expert_action, policy_state, policy_action)
             loss += (gail_loss + grad_pen).item()
             n += 1
             self.optimizer.zero_grad()
@@ -162,8 +152,7 @@ class FixedCategorical(torch.distributions.Categorical):
         return super().sample().unsqueeze(-1)
 
     def log_probs(self, actions):
-        return super().log_prob(actions.squeeze(-1)).view(actions.size(0), -1
-            ).sum(-1).unsqueeze(-1)
+        return super().log_prob(actions.squeeze(-1)).view(actions.size(0), -1).sum(-1).unsqueeze(-1)
 
     def mode(self):
         return self.probs.argmax(dim=-1, keepdim=True)
@@ -179,8 +168,7 @@ class Categorical(nn.Module):
 
     def __init__(self, num_inputs, num_outputs):
         super(Categorical, self).__init__()
-        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
-            constant_(x, 0), gain=0.01)
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0), gain=0.01)
         self.linear = init_(nn.Linear(num_inputs, num_outputs))
 
     def forward(self, x):
@@ -204,8 +192,7 @@ class DiagGaussian(nn.Module):
 
     def __init__(self, num_inputs, num_outputs):
         super(DiagGaussian, self).__init__()
-        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
-            constant_(x, 0))
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
         self.fc_mean = init_(nn.Linear(num_inputs, num_outputs))
         self.logstd = AddBias(torch.zeros(num_outputs))
 
@@ -221,8 +208,7 @@ class DiagGaussian(nn.Module):
 class FixedBernoulli(torch.distributions.Bernoulli):
 
     def log_probs(self, actions):
-        return super.log_prob(actions).view(actions.size(0), -1).sum(-1
-            ).unsqueeze(-1)
+        return super.log_prob(actions).view(actions.size(0), -1).sum(-1).unsqueeze(-1)
 
     def entropy(self):
         return super().entropy().sum(-1)
@@ -235,8 +221,7 @@ class Bernoulli(nn.Module):
 
     def __init__(self, num_inputs, num_outputs):
         super(Bernoulli, self).__init__()
-        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
-            constant_(x, 0))
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
         self.linear = init_(nn.Linear(num_inputs, num_outputs))
 
     def forward(self, x):
@@ -349,8 +334,7 @@ class NNBase(nn.Module):
             T = int(x.size(0) / N)
             x = x.view(T, N, x.size(1))
             masks = masks.view(T, N)
-            has_zeros = (masks[1:] == 0.0).any(dim=-1).nonzero().squeeze().cpu(
-                )
+            has_zeros = (masks[1:] == 0.0).any(dim=-1).nonzero().squeeze().cpu()
             if has_zeros.dim() == 0:
                 has_zeros = [has_zeros.item() + 1]
             else:
@@ -361,8 +345,7 @@ class NNBase(nn.Module):
             for i in range(len(has_zeros) - 1):
                 start_idx = has_zeros[i]
                 end_idx = has_zeros[i + 1]
-                rnn_scores, hxs = self.gru(x[start_idx:end_idx], hxs *
-                    masks[start_idx].view(1, -1, 1))
+                rnn_scores, hxs = self.gru(x[start_idx:end_idx], hxs * masks[start_idx].view(1, -1, 1))
                 outputs.append(rnn_scores)
             x = torch.cat(outputs, dim=0)
             x = x.view(T * N, -1)
@@ -388,20 +371,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Bernoulli,
+     lambda: ([], {'num_inputs': 4, 'num_outputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Categorical,
+     lambda: ([], {'num_inputs': 4, 'num_outputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DiagGaussian,
+     lambda: ([], {'num_inputs': 4, 'num_outputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ikostrikov_pytorch_a2c_ppo_acktr_gail(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Bernoulli(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Categorical(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DiagGaussian(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

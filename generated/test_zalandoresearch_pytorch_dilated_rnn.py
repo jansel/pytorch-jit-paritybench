@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,13 +67,10 @@ from torch.autograd import Variable
 
 class DRNN_Char(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, output_size,
-        dropout=0.2, emb_dropout=0.2):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout=0.2, emb_dropout=0.2):
         super(DRNN_Char, self).__init__()
         self.encoder = nn.Embedding(output_size, input_size)
-        self.drnn = DRNN(cell_type='QRNN', dropout=dropout, n_hidden=
-            hidden_size, n_input=input_size, n_layers=num_layers,
-            batch_first=True)
+        self.drnn = DRNN(cell_type='QRNN', dropout=dropout, n_hidden=hidden_size, n_input=input_size, n_layers=num_layers, batch_first=True)
         self.decoder = nn.Linear(hidden_size, output_size)
         self.drop = nn.Dropout(emb_dropout)
         self.init_weights()
@@ -92,11 +90,9 @@ class DRNN_Char(nn.Module):
 
 class Classifier(nn.Module):
 
-    def __init__(self, n_inputs, n_hidden, n_layers, n_classes, cell_type='GRU'
-        ):
+    def __init__(self, n_inputs, n_hidden, n_layers, n_classes, cell_type='GRU'):
         super(Classifier, self).__init__()
-        self.drnn = drnn.DRNN(n_inputs, n_hidden, n_layers, dropout=0,
-            cell_type=cell_type)
+        self.drnn = drnn.DRNN(n_inputs, n_hidden, n_layers, dropout=0, cell_type=cell_type)
         self.linear = nn.Linear(n_hidden, n_classes)
 
     def forward(self, inputs):
@@ -107,12 +103,9 @@ class Classifier(nn.Module):
 
 class DRNN_Copy(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout,
-        output_size):
+    def __init__(self, input_size, hidden_size, num_layers, dropout, output_size):
         super(DRNN_Copy, self).__init__()
-        self.drnn = DRNN(cell_type='GRU', dropout=dropout, n_hidden=
-            hidden_size, n_input=input_size, n_layers=num_layers,
-            batch_first=True)
+        self.drnn = DRNN(cell_type='GRU', dropout=dropout, n_hidden=hidden_size, n_input=input_size, n_layers=num_layers, batch_first=True)
         self.linear = nn.Linear(hidden_size, output_size)
         self.init_weights()
 
@@ -129,8 +122,7 @@ use_cuda = torch.cuda.is_available()
 
 class DRNN(nn.Module):
 
-    def __init__(self, n_input, n_hidden, n_layers, dropout=0, cell_type=
-        'GRU', batch_first=False):
+    def __init__(self, n_input, n_hidden, n_layers, dropout=0, cell_type='GRU', batch_first=False):
         super(DRNN, self).__init__()
         self.dilations = [(2 ** i) for i in range(n_layers)]
         self.cell_type = cell_type
@@ -160,8 +152,7 @@ class DRNN(nn.Module):
             if hidden is None:
                 inputs, _ = self.drnn_layer(cell, inputs, dilation)
             else:
-                inputs, hidden[i] = self.drnn_layer(cell, inputs, dilation,
-                    hidden[i])
+                inputs, hidden[i] = self.drnn_layer(cell, inputs, dilation, hidden[i])
             outputs.append(inputs[-dilation:])
         if self.batch_first:
             inputs = inputs.transpose(0, 1)
@@ -174,25 +165,21 @@ class DRNN(nn.Module):
         inputs, _ = self._pad_inputs(inputs, n_steps, rate)
         dilated_inputs = self._prepare_inputs(inputs, rate)
         if hidden is None:
-            dilated_outputs, hidden = self._apply_cell(dilated_inputs, cell,
-                batch_size, rate, hidden_size)
+            dilated_outputs, hidden = self._apply_cell(dilated_inputs, cell, batch_size, rate, hidden_size)
         else:
             hidden = self._prepare_inputs(hidden, rate)
-            dilated_outputs, hidden = self._apply_cell(dilated_inputs, cell,
-                batch_size, rate, hidden_size, hidden=hidden)
+            dilated_outputs, hidden = self._apply_cell(dilated_inputs, cell, batch_size, rate, hidden_size, hidden=hidden)
         splitted_outputs = self._split_outputs(dilated_outputs, rate)
         outputs = self._unpad_outputs(splitted_outputs, n_steps)
         return outputs, hidden
 
-    def _apply_cell(self, dilated_inputs, cell, batch_size, rate,
-        hidden_size, hidden=None):
+    def _apply_cell(self, dilated_inputs, cell, batch_size, rate, hidden_size, hidden=None):
         if hidden is None:
             if self.cell_type == 'LSTM':
                 c, m = self.init_hidden(batch_size * rate, hidden_size)
                 hidden = c.unsqueeze(0), m.unsqueeze(0)
             else:
-                hidden = self.init_hidden(batch_size * rate, hidden_size
-                    ).unsqueeze(0)
+                hidden = self.init_hidden(batch_size * rate, hidden_size).unsqueeze(0)
         dilated_outputs, hidden = cell(dilated_inputs, hidden)
         return dilated_outputs, hidden
 
@@ -201,19 +188,16 @@ class DRNN(nn.Module):
 
     def _split_outputs(self, dilated_outputs, rate):
         batchsize = dilated_outputs.size(1) // rate
-        blocks = [dilated_outputs[:, i * batchsize:(i + 1) * batchsize, :] for
-            i in range(rate)]
+        blocks = [dilated_outputs[:, i * batchsize:(i + 1) * batchsize, :] for i in range(rate)]
         interleaved = torch.stack(blocks).transpose(1, 0).contiguous()
-        interleaved = interleaved.view(dilated_outputs.size(0) * rate,
-            batchsize, dilated_outputs.size(2))
+        interleaved = interleaved.view(dilated_outputs.size(0) * rate, batchsize, dilated_outputs.size(2))
         return interleaved
 
     def _pad_inputs(self, inputs, n_steps, rate):
         is_even = n_steps % rate == 0
         if not is_even:
             dilated_steps = n_steps // rate + 1
-            zeros_ = torch.zeros(dilated_steps * rate - inputs.size(0),
-                inputs.size(1), inputs.size(2))
+            zeros_ = torch.zeros(dilated_steps * rate - inputs.size(0), inputs.size(1), inputs.size(2))
             if use_cuda:
                 zeros_ = zeros_
             inputs = torch.cat((inputs, zeros_))
@@ -222,8 +206,7 @@ class DRNN(nn.Module):
         return inputs, dilated_steps
 
     def _prepare_inputs(self, inputs, rate):
-        dilated_inputs = torch.cat([inputs[j::rate, :, :] for j in range(
-            rate)], 1)
+        dilated_inputs = torch.cat([inputs[j::rate, :, :] for j in range(rate)], 1)
         return dilated_inputs
 
     def init_hidden(self, batch_size, hidden_dim):
@@ -241,21 +224,18 @@ class DRNN(nn.Module):
 
 class RNNModel(nn.Module):
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-        tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         elif rnn_type == 'DRNN':
             self.rnn = drnn.DRNN(ninp, nhid, nlayers, 0, 'GRU')
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder.weight = self.encoder.weight
         try:
             self.init_weights()
@@ -275,16 +255,13 @@ class RNNModel(nn.Module):
         emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0) * output.size(1),
-            output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), hidden
+        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -293,17 +270,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'n_inputs': 4, 'n_hidden': 4, 'n_layers': 1, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (DRNN,
+     lambda: ([], {'n_input': 4, 'n_hidden': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (DRNN_Copy,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'dropout': 0.5, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_zalandoresearch_pytorch_dilated_rnn(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Classifier(*[], **{'n_inputs': 4, 'n_hidden': 4, 'n_layers': 1, 'n_classes': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DRNN(*[], **{'n_input': 4, 'n_hidden': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DRNN_Copy(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'dropout': 0.5, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

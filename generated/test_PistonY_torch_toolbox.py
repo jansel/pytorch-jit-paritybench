@@ -45,8 +45,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -196,8 +197,7 @@ class SwishOP(Function):
     def backward(ctx, grad_outputs):
         tensor = ctx.saved_tensors[0]
         beta = ctx.beta
-        grad_swish = (torch.exp(-beta * tensor) * (1 + beta * tensor) + 1) / (
-            1 + torch.exp(-beta * tensor)) ** 2
+        grad_swish = (torch.exp(-beta * tensor) * (1 + beta * tensor) + 1) / (1 + torch.exp(-beta * tensor)) ** 2
         grad_swish = grad_outputs * grad_swish
         return grad_swish, None
 
@@ -254,29 +254,23 @@ class Activation(nn.Module):
     def __init__(self, act_type, auto_optimize=True, **kwargs):
         super(Activation, self).__init__()
         if act_type == 'relu':
-            self.act = nn.ReLU(inplace=True) if auto_optimize else nn.ReLU(**
-                kwargs)
+            self.act = nn.ReLU(inplace=True) if auto_optimize else nn.ReLU(**kwargs)
         elif act_type == 'relu6':
-            self.act = nn.ReLU6(inplace=True) if auto_optimize else nn.ReLU6(**
-                kwargs)
+            self.act = nn.ReLU6(inplace=True) if auto_optimize else nn.ReLU6(**kwargs)
         elif act_type == 'h_swish':
-            self.act = HardSwish(inplace=True) if auto_optimize else HardSwish(
-                **kwargs)
+            self.act = HardSwish(inplace=True) if auto_optimize else HardSwish(**kwargs)
         elif act_type == 'h_sigmoid':
-            self.act = HardSigmoid(inplace=True
-                ) if auto_optimize else HardSigmoid(**kwargs)
+            self.act = HardSigmoid(inplace=True) if auto_optimize else HardSigmoid(**kwargs)
         elif act_type == 'swish':
             self.act = Swish(**kwargs)
         elif act_type == 'sigmoid':
             self.act = nn.Sigmoid()
         elif act_type == 'lrelu':
-            self.act = nn.LeakyReLU(inplace=True, **kwargs
-                ) if auto_optimize else nn.LeakyReLU(**kwargs)
+            self.act = nn.LeakyReLU(inplace=True, **kwargs) if auto_optimize else nn.LeakyReLU(**kwargs)
         elif act_type == 'prelu':
             self.act = nn.PReLU(**kwargs)
         else:
-            raise NotImplementedError('{} activation is not implemented.'.
-                format(act_type))
+            raise NotImplementedError('{} activation is not implemented.'.format(act_type))
 
     def forward(self, x):
         return self.act(x)
@@ -284,8 +278,7 @@ class Activation(nn.Module):
 
 class DeformConv2d(nn.Module):
 
-    def __init__(self, inc, outc, kernel_size=3, padding=1, stride=1, bias=
-        None, modulation=False):
+    def __init__(self, inc, outc, kernel_size=3, padding=1, stride=1, bias=None, modulation=False):
         """
         Args:
             modulation (bool, optional): If True, Modulated Defomable Convolution (Deformable ConvNets v2).
@@ -295,16 +288,13 @@ class DeformConv2d(nn.Module):
         self.padding = padding
         self.stride = stride
         self.zero_padding = nn.ZeroPad2d(padding)
-        self.conv = nn.Conv2d(inc, outc, kernel_size=kernel_size, stride=
-            kernel_size, bias=bias)
-        self.p_conv = nn.Conv2d(inc, 2 * kernel_size * kernel_size,
-            kernel_size=3, padding=1, stride=stride)
+        self.conv = nn.Conv2d(inc, outc, kernel_size=kernel_size, stride=kernel_size, bias=bias)
+        self.p_conv = nn.Conv2d(inc, 2 * kernel_size * kernel_size, kernel_size=3, padding=1, stride=stride)
         nn.init.constant_(self.p_conv.weight, 0)
         self.p_conv.register_backward_hook(self._set_lr)
         self.modulation = modulation
         if modulation:
-            self.m_conv = nn.Conv2d(inc, kernel_size * kernel_size,
-                kernel_size=3, padding=1, stride=stride)
+            self.m_conv = nn.Conv2d(inc, kernel_size * kernel_size, kernel_size=3, padding=1, stride=stride)
             nn.init.constant_(self.m_conv.weight, 0)
             self.m_conv.register_backward_hook(self._set_lr)
 
@@ -326,29 +316,20 @@ class DeformConv2d(nn.Module):
         p = p.contiguous().permute(0, 2, 3, 1)
         q_lt = p.detach().floor()
         q_rb = q_lt + 1
-        q_lt = torch.cat([torch.clamp(q_lt[(...), :N], 0, x.size(2) - 1),
-            torch.clamp(q_lt[(...), N:], 0, x.size(3) - 1)], dim=-1).long()
-        q_rb = torch.cat([torch.clamp(q_rb[(...), :N], 0, x.size(2) - 1),
-            torch.clamp(q_rb[(...), N:], 0, x.size(3) - 1)], dim=-1).long()
+        q_lt = torch.cat([torch.clamp(q_lt[(...), :N], 0, x.size(2) - 1), torch.clamp(q_lt[(...), N:], 0, x.size(3) - 1)], dim=-1).long()
+        q_rb = torch.cat([torch.clamp(q_rb[(...), :N], 0, x.size(2) - 1), torch.clamp(q_rb[(...), N:], 0, x.size(3) - 1)], dim=-1).long()
         q_lb = torch.cat([q_lt[(...), :N], q_rb[(...), N:]], dim=-1)
         q_rt = torch.cat([q_rb[(...), :N], q_lt[(...), N:]], dim=-1)
-        p = torch.cat([torch.clamp(p[(...), :N], 0, x.size(2) - 1), torch.
-            clamp(p[(...), N:], 0, x.size(3) - 1)], dim=-1)
-        g_lt = (1 + (q_lt[(...), :N].type_as(p) - p[(...), :N])) * (1 + (
-            q_lt[(...), N:].type_as(p) - p[(...), N:]))
-        g_rb = (1 - (q_rb[(...), :N].type_as(p) - p[(...), :N])) * (1 - (
-            q_rb[(...), N:].type_as(p) - p[(...), N:]))
-        g_lb = (1 + (q_lb[(...), :N].type_as(p) - p[(...), :N])) * (1 - (
-            q_lb[(...), N:].type_as(p) - p[(...), N:]))
-        g_rt = (1 - (q_rt[(...), :N].type_as(p) - p[(...), :N])) * (1 + (
-            q_rt[(...), N:].type_as(p) - p[(...), N:]))
+        p = torch.cat([torch.clamp(p[(...), :N], 0, x.size(2) - 1), torch.clamp(p[(...), N:], 0, x.size(3) - 1)], dim=-1)
+        g_lt = (1 + (q_lt[(...), :N].type_as(p) - p[(...), :N])) * (1 + (q_lt[(...), N:].type_as(p) - p[(...), N:]))
+        g_rb = (1 - (q_rb[(...), :N].type_as(p) - p[(...), :N])) * (1 - (q_rb[(...), N:].type_as(p) - p[(...), N:]))
+        g_lb = (1 + (q_lb[(...), :N].type_as(p) - p[(...), :N])) * (1 - (q_lb[(...), N:].type_as(p) - p[(...), N:]))
+        g_rt = (1 - (q_rt[(...), :N].type_as(p) - p[(...), :N])) * (1 + (q_rt[(...), N:].type_as(p) - p[(...), N:]))
         x_q_lt = self._get_x_q(x, q_lt, N)
         x_q_rb = self._get_x_q(x, q_rb, N)
         x_q_lb = self._get_x_q(x, q_lb, N)
         x_q_rt = self._get_x_q(x, q_rt, N)
-        x_offset = g_lt.unsqueeze(dim=1) * x_q_lt + g_rb.unsqueeze(dim=1
-            ) * x_q_rb + g_lb.unsqueeze(dim=1) * x_q_lb + g_rt.unsqueeze(dim=1
-            ) * x_q_rt
+        x_offset = g_lt.unsqueeze(dim=1) * x_q_lt + g_rb.unsqueeze(dim=1) * x_q_rb + g_lb.unsqueeze(dim=1) * x_q_lb + g_rt.unsqueeze(dim=1) * x_q_rt
         if self.modulation:
             m = m.contiguous().permute(0, 2, 3, 1)
             m = m.unsqueeze(dim=1)
@@ -359,16 +340,13 @@ class DeformConv2d(nn.Module):
         return out
 
     def _get_p_n(self, N, dtype):
-        p_n_x, p_n_y = torch.meshgrid(torch.arange(-(self.kernel_size - 1) //
-            2, (self.kernel_size - 1) // 2 + 1), torch.arange(-(self.
-            kernel_size - 1) // 2, (self.kernel_size - 1) // 2 + 1))
+        p_n_x, p_n_y = torch.meshgrid(torch.arange(-(self.kernel_size - 1) // 2, (self.kernel_size - 1) // 2 + 1), torch.arange(-(self.kernel_size - 1) // 2, (self.kernel_size - 1) // 2 + 1))
         p_n = torch.cat([torch.flatten(p_n_x), torch.flatten(p_n_y)], 0)
         p_n = p_n.view(1, 2 * N, 1, 1).type(dtype)
         return p_n
 
     def _get_p_0(self, h, w, N, dtype):
-        p_0_x, p_0_y = torch.meshgrid(torch.arange(1, h * self.stride + 1,
-            self.stride), torch.arange(1, w * self.stride + 1, self.stride))
+        p_0_x, p_0_y = torch.meshgrid(torch.arange(1, h * self.stride + 1, self.stride), torch.arange(1, w * self.stride + 1, self.stride))
         p_0_x = torch.flatten(p_0_x).view(1, 1, h, w).repeat(1, N, 1, 1)
         p_0_y = torch.flatten(p_0_y).view(1, 1, h, w).repeat(1, N, 1, 1)
         p_0 = torch.cat([p_0_x, p_0_y], 1).type(dtype)
@@ -387,17 +365,14 @@ class DeformConv2d(nn.Module):
         c = x.size(1)
         x = x.contiguous().view(b, c, -1)
         index = q[(...), :N] * padded_w + q[(...), N:]
-        index = index.contiguous().unsqueeze(dim=1).expand(-1, c, -1, -1, -1
-            ).contiguous().view(b, c, -1)
-        x_offset = x.gather(dim=-1, index=index).contiguous().view(b, c, h,
-            w, N)
+        index = index.contiguous().unsqueeze(dim=1).expand(-1, c, -1, -1, -1).contiguous().view(b, c, -1)
+        x_offset = x.gather(dim=-1, index=index).contiguous().view(b, c, h, w, N)
         return x_offset
 
     @staticmethod
     def _reshape_x_offset(x_offset, ks):
         b, c, h, w, N = x_offset.size()
-        x_offset = torch.cat([x_offset[(...), s:s + ks].contiguous().view(b,
-            c, h, w * ks) for s in range(0, N, ks)], dim=-1)
+        x_offset = torch.cat([x_offset[(...), s:s + ks].contiguous().view(b, c, h, w * ks) for s in range(0, N, ks)], dim=-1)
         x_offset = x_offset.contiguous().view(b, c, h * ks, w * ks)
         return x_offset
 
@@ -405,14 +380,12 @@ class DeformConv2d(nn.Module):
 class SigmoidCrossEntropy(_WeightedLoss):
 
     def __init__(self, classes, weight=None, reduction='mean'):
-        super(SigmoidCrossEntropy, self).__init__(weight=weight, reduction=
-            reduction)
+        super(SigmoidCrossEntropy, self).__init__(weight=weight, reduction=reduction)
         self.classes = classes
 
     def forward(self, pred, target):
         zt = BF.logits_distribution(pred, target, self.classes)
-        return BF.logits_nll_loss(-F.logsigmoid(zt), target, self.weight,
-            self.reduction)
+        return BF.logits_nll_loss(-F.logsigmoid(zt), target, self.weight, self.reduction)
 
 
 class FocalLoss(_WeightedLoss):
@@ -485,13 +458,10 @@ class L2Softmax(_WeightedLoss):
           batch_axis are averaged out.
     """
 
-    def __init__(self, classes, alpha, p=0.9, from_normx=False, weight=None,
-        size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
-        super(L2Softmax, self).__init__(weight, size_average, reduce, reduction
-            )
+    def __init__(self, classes, alpha, p=0.9, from_normx=False, weight=None, size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
+        super(L2Softmax, self).__init__(weight, size_average, reduce, reduction)
         alpha_low = math.log(p * (classes - 2) / (1 - p))
-        assert alpha > alpha_low, 'For given probability of p={}, alpha should higher than {}.'.format(
-            p, alpha_low)
+        assert alpha > alpha_low, 'For given probability of p={}, alpha should higher than {}.'.format(p, alpha_low)
         self.ignore_index = ignore_index
         self.alpha = alpha
         self.from_normx = from_normx
@@ -500,8 +470,7 @@ class L2Softmax(_WeightedLoss):
         if not self.from_normx:
             x = F.normalize(x, 2, dim=-1)
         x = x * self.alpha
-        return F.cross_entropy(x, target, weight=self.weight, ignore_index=
-            self.ignore_index, reduction=self.reduction)
+        return F.cross_entropy(x, target, weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
 
 
 class CosLoss(_WeightedLoss):
@@ -528,8 +497,7 @@ class CosLoss(_WeightedLoss):
           batch_axis are averaged out.
     """
 
-    def __init__(self, classes, m, s, weight=None, size_average=None,
-        ignore_index=-100, reduce=None, reduction='mean'):
+    def __init__(self, classes, m, s, weight=None, size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
         super(CosLoss, self).__init__(weight, size_average, reduce, reduction)
         assert m > 0 and s > 0
         self.ignore_index = ignore_index
@@ -541,8 +509,7 @@ class CosLoss(_WeightedLoss):
         sparse_target = F.one_hot(target, num_classes=self.classes)
         x = x - sparse_target * self.margin
         x = x * self.scale
-        return F.cross_entropy(x, target, weight=self.weight, ignore_index=
-            self.ignore_index, reduction=self.reduction)
+        return F.cross_entropy(x, target, weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
 
 
 class ArcLoss(_WeightedLoss):
@@ -563,8 +530,7 @@ class ArcLoss(_WeightedLoss):
         - **loss**:
     """
 
-    def __init__(self, classes, m=0.5, s=64, easy_margin=True, weight=None,
-        size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
+    def __init__(self, classes, m=0.5, s=64, easy_margin=True, weight=None, size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
         super(ArcLoss, self).__init__(weight, size_average, reduce, reduction)
         self.ignore_index = ignore_index
         assert s > 0.0
@@ -602,8 +568,7 @@ class ArcLoss(_WeightedLoss):
         body = self._get_body(x, target)
         x = x + body
         x = x * self.s
-        return F.cross_entropy(x, target, weight=self.weight, ignore_index=
-            self.ignore_index, reduction=self.reduction)
+        return F.cross_entropy(x, target, weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
 
 
 class CircleLoss(nn.Module):
@@ -634,20 +599,15 @@ class CircleLoss(nn.Module):
         label_matrix = target.unsqueeze(1) == target.unsqueeze(0)
         negative_matrix = label_matrix.logical_not()
         positive_matrix = label_matrix.fill_diagonal_(False)
-        sp = torch.where(positive_matrix, similarity_matrix, torch.
-            zeros_like(similarity_matrix))
-        sn = torch.where(negative_matrix, similarity_matrix, torch.
-            zeros_like(similarity_matrix))
+        sp = torch.where(positive_matrix, similarity_matrix, torch.zeros_like(similarity_matrix))
+        sn = torch.where(negative_matrix, similarity_matrix, torch.zeros_like(similarity_matrix))
         ap = torch.clamp_min(1 + self.m - sp.detach(), min=0.0)
         an = torch.clamp_min(sn.detach() + self.m, min=0.0)
         logit_p = -self.gamma * ap * (sp - self.dp)
         logit_n = self.gamma * an * (sn - self.dn)
-        logit_p = torch.where(positive_matrix, logit_p, torch.zeros_like(
-            logit_p))
-        logit_n = torch.where(negative_matrix, logit_n, torch.zeros_like(
-            logit_n))
-        loss = F.softplus(torch.logsumexp(logit_p, dim=1) + torch.logsumexp
-            (logit_n, dim=1)).mean()
+        logit_p = torch.where(positive_matrix, logit_p, torch.zeros_like(logit_p))
+        logit_n = torch.where(negative_matrix, logit_n, torch.zeros_like(logit_n))
+        loss = F.softplus(torch.logsumexp(logit_p, dim=1) + torch.logsumexp(logit_n, dim=1)).mean()
         return loss
 
 
@@ -674,8 +634,7 @@ class RingLoss(nn.Module):
         if weight_initializer is None:
             self.R = self.parameters(torch.rand(1))
         else:
-            assert torch.is_tensor(weight_initializer
-                ), 'weight_initializer should be a Tensor.'
+            assert torch.is_tensor(weight_initializer), 'weight_initializer should be a Tensor.'
             self.R = self.parameters(weight_initializer)
 
     def forward(self, embedding):
@@ -746,15 +705,12 @@ class _SwitchNorm(nn.Module):
 
     def forward(self, x):
         self._check_input_dim(x)
-        return F.switch_norm(x, self.running_mean, self.running_var, self.
-            weight, self.bias, self.mean_weight, self.var_weight, self.
-            training, self.momentum, self.eps)
+        return F.switch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.mean_weight, self.var_weight, self.training, self.momentum, self.eps)
 
 
 class _EvoNorm(nn.Module):
 
-    def __init__(self, prefix, num_features, eps=1e-05, momentum=0.9,
-        groups=32, affine=True):
+    def __init__(self, prefix, num_features, eps=1e-05, momentum=0.9, groups=32, affine=True):
         super(_EvoNorm, self).__init__()
         assert prefix in ('s0', 'b0')
         self.prefix = prefix
@@ -782,14 +738,11 @@ class _EvoNorm(nn.Module):
 
     def _check_input_dim(self, x):
         if x.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'.format(x.
-                dim()))
+            raise ValueError('expected 4D input (got {}D input)'.format(x.dim()))
 
     def forward(self, x):
         self._check_input_dim(x)
-        return F.evo_norm(x, self.prefix, self.running_var, self.v, self.
-            weight, self.bias, self.training, self.momentum, self.eps, self
-            .groups)
+        return F.evo_norm(x, self.prefix, self.running_var, self.v, self.weight, self.bias, self.training, self.momentum, self.eps, self.groups)
 
 
 class EncodingParallel(Module):
@@ -806,11 +759,9 @@ class EncodingParallel(Module):
             output_device = device_ids[0]
         self.dim = dim
         self.module = module
-        self.device_ids = list(map(lambda x: _get_device_index(x, True),
-            device_ids))
+        self.device_ids = list(map(lambda x: _get_device_index(x, True), device_ids))
         self.output_device = _get_device_index(output_device, True)
-        self.src_device_obj = torch.device('cuda {}'.format(self.device_ids[0])
-            )
+        self.src_device_obj = torch.device('cuda {}'.format(self.device_ids[0]))
         _check_balance(self.device_ids)
         if len(self.device_ids) == 1:
             self.module
@@ -883,39 +834,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveSequential,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+    (CircleLoss,
+     lambda: ([], {'m': 4, 'gamma': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DeformConv2d,
+     lambda: ([], {'inc': 4, 'outc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (HardSigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HardSwish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L0Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (n_to_n,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (n_to_one,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (one_to_n,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_PistonY_torch_toolbox(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AdaptiveSequential(*[], **{}), [], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(CircleLoss(*[], **{'m': 4, 'gamma': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DeformConv2d(*[], **{'inc': 4, 'outc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(HardSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(HardSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(L0Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(n_to_n(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(n_to_one(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(one_to_n(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 

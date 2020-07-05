@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -168,8 +169,7 @@ class Reduce(Function):
 torch_ver = torch.__version__[:3]
 
 
-def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
-    devices=None):
+def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=None):
     assert len(modules) == len(inputs)
     assert len(targets) == len(inputs)
     if kwargs_tup:
@@ -199,10 +199,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             with lock:
                 results[i] = e
     if len(modules) > 1:
-        threads = [threading.Thread(target=_worker, args=(i, module, input,
-            target, kwargs, device)) for i, (module, input, target, kwargs,
-            device) in enumerate(zip(modules, inputs, targets, kwargs_tup,
-            devices))]
+        threads = [threading.Thread(target=_worker, args=(i, module, input, target, kwargs, device)) for i, (module, input, target, kwargs, device) in enumerate(zip(modules, inputs, targets, kwargs_tup, devices))]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -260,23 +257,15 @@ _global_config['depth_dim'] = 1
 
 def soft_argmax(heatmaps, joint_num):
     assert isinstance(heatmaps, torch.Tensor)
-    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim * cfg.
-        output_shape[0] * cfg.output_shape[1]))
+    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim * cfg.output_shape[0] * cfg.output_shape[1]))
     heatmaps = F.softmax(heatmaps, 2)
-    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim, cfg.
-        output_shape[0], cfg.output_shape[1]))
+    heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim, cfg.output_shape[0], cfg.output_shape[1]))
     accu_x = heatmaps.sum(dim=(2, 3))
     accu_y = heatmaps.sum(dim=(2, 4))
     accu_z = heatmaps.sum(dim=(3, 4))
-    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.
-        output_shape[1] + 1).type(torch.cuda.FloatTensor), devices=[accu_x.
-        device.index])[0]
-    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.
-        output_shape[0] + 1).type(torch.cuda.FloatTensor), devices=[accu_y.
-        device.index])[0]
-    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.
-        depth_dim + 1).type(torch.cuda.FloatTensor), devices=[accu_z.device
-        .index])[0]
+    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.cuda.FloatTensor), devices=[accu_x.device.index])[0]
+    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.cuda.FloatTensor), devices=[accu_y.device.index])[0]
+    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.cuda.FloatTensor), devices=[accu_z.device.index])[0]
     accu_x = accu_x.sum(dim=2, keepdim=True) - 1
     accu_y = accu_y.sum(dim=2, keepdim=True) - 1
     accu_z = accu_z.sum(dim=2, keepdim=True) - 1
@@ -296,27 +285,19 @@ class JointLocationLoss(nn.Module):
         _assert_no_grad(gt_vis)
         _assert_no_grad(gt_have_depth)
         loss = torch.abs(coord_out - gt_coord) * gt_vis
-        loss = (loss[:, :, (0)] + loss[:, :, (1)] + loss[:, :, (2)] *
-            gt_have_depth) / 3.0
+        loss = (loss[:, :, (0)] + loss[:, :, (1)] + loss[:, :, (2)] * gt_have_depth) / 3.0
         return loss.mean()
 
 
 class ResNetBackbone(nn.Module):
 
     def __init__(self, resnet_type):
-        resnet_spec = {(18): (BasicBlock, [2, 2, 2, 2], [64, 64, 128, 256, 
-            512], 'resnet18'), (34): (BasicBlock, [3, 4, 6, 3], [64, 64, 
-            128, 256, 512], 'resnet34'), (50): (Bottleneck, [3, 4, 6, 3], [
-            64, 256, 512, 1024, 2048], 'resnet50'), (101): (Bottleneck, [3,
-            4, 23, 3], [64, 256, 512, 1024, 2048], 'resnet101'), (152): (
-            Bottleneck, [3, 8, 36, 3], [64, 256, 512, 1024, 2048], 'resnet152')
-            }
+        resnet_spec = {(18): (BasicBlock, [2, 2, 2, 2], [64, 64, 128, 256, 512], 'resnet18'), (34): (BasicBlock, [3, 4, 6, 3], [64, 64, 128, 256, 512], 'resnet34'), (50): (Bottleneck, [3, 4, 6, 3], [64, 256, 512, 1024, 2048], 'resnet50'), (101): (Bottleneck, [3, 4, 23, 3], [64, 256, 512, 1024, 2048], 'resnet101'), (152): (Bottleneck, [3, 8, 36, 3], [64, 256, 512, 1024, 2048], 'resnet152')}
         block, layers, channels, name = resnet_spec[resnet_type]
         self.name = name
         self.inplanes = 64
         super(ResNetBackbone, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -334,9 +315,7 @@ class ResNetBackbone(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -370,16 +349,12 @@ class HeadNet(nn.Module):
         self.outplanes = 256
         super(HeadNet, self).__init__()
         self.deconv_layers = self._make_deconv_layer(3)
-        self.final_layer = nn.Conv2d(in_channels=self.inplanes,
-            out_channels=joint_num * cfg.depth_dim, kernel_size=1, stride=1,
-            padding=0)
+        self.final_layer = nn.Conv2d(in_channels=self.inplanes, out_channels=joint_num * cfg.depth_dim, kernel_size=1, stride=1, padding=0)
 
     def _make_deconv_layer(self, num_layers):
         layers = []
         for i in range(num_layers):
-            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes,
-                out_channels=self.outplanes, kernel_size=4, stride=2,
-                padding=1, output_padding=0, bias=False))
+            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes, out_channels=self.outplanes, kernel_size=4, stride=2, padding=1, output_padding=0, bias=False))
             layers.append(nn.BatchNorm2d(self.outplanes))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = self.outplanes
@@ -420,15 +395,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DataParallelModel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (HeadNet,
+     lambda: ([], {'joint_num': 4}),
+     lambda: ([torch.rand([4, 2048, 4, 4])], {}),
+     True),
+    (ResPoseNet,
+     lambda: ([], {'backbone': _mock_layer(), 'head': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_mks0601_Integral_Human_Pose_Regression_for_3D_Human_Pose_Estimation(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(HeadNet(*[], **{'joint_num': 4}), [torch.rand([4, 2048, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResPoseNet(*[], **{'backbone': _mock_layer(), 'head': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

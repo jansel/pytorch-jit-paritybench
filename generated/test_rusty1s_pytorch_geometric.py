@@ -431,8 +431,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -588,8 +589,7 @@ def maybe_num_nodes(index, num_nodes=None):
     return index.max().item() + 1 if num_nodes is None else num_nodes
 
 
-def add_remaining_self_loops(edge_index, edge_weight=None, fill_value=1,
-    num_nodes=None):
+def add_remaining_self_loops(edge_index, edge_weight=None, fill_value=1, num_nodes=None):
     """Adds remaining self-loop :math:`(i,i) \\in \\mathcal{E}` to every node
     :math:`i \\in \\mathcal{V}` in the graph given by :attr:`edge_index`.
     In case the graph is weighted and already contains a few self-loops, only
@@ -614,9 +614,7 @@ def add_remaining_self_loops(edge_index, edge_weight=None, fill_value=1,
     if edge_weight is not None:
         assert edge_weight.numel() == edge_index.size(1)
         inv_mask = ~mask
-        loop_weight = torch.full((num_nodes,), fill_value, dtype=None if 
-            edge_weight is None else edge_weight.dtype, device=edge_index.
-            device)
+        loop_weight = torch.full((num_nodes,), fill_value, dtype=None if edge_weight is None else edge_weight.dtype, device=edge_index.device)
         remaining_edge_weight = edge_weight[inv_mask]
         if remaining_edge_weight.numel() > 0:
             loop_weight[row[inv_mask]] = remaining_edge_weight
@@ -638,16 +636,16 @@ def zeros(tensor):
         tensor.data.fill_(0)
 
 
-_global_config['K'] = 4
-
-
 _global_config['hidden'] = 4
+
+
+_global_config['alpha'] = 4
 
 
 _global_config['dropout'] = 0.5
 
 
-_global_config['alpha'] = 4
+_global_config['K'] = 4
 
 
 class Net(torch.nn.Module):
@@ -672,28 +670,24 @@ class Net(torch.nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-_global_config['num_layers'] = 1
-
-
 _global_config['shared_weights'] = 4
+
+
+_global_config['num_stacks'] = 4
 
 
 _global_config['skip_dropout'] = 0.5
 
 
-_global_config['num_stacks'] = 4
+_global_config['num_layers'] = 1
 
 
 class Net(torch.nn.Module):
 
     def __init__(self, dataset):
         super(Net, self).__init__()
-        self.conv1 = ARMAConv(dataset.num_features, args.hidden, args.
-            num_stacks, args.num_layers, args.shared_weights, dropout=args.
-            skip_dropout)
-        self.conv2 = ARMAConv(args.hidden, dataset.num_classes, args.
-            num_stacks, args.num_layers, args.shared_weights, dropout=args.
-            skip_dropout)
+        self.conv1 = ARMAConv(dataset.num_features, args.hidden, args.num_stacks, args.num_layers, args.shared_weights, dropout=args.skip_dropout)
+        self.conv2 = ARMAConv(args.hidden, dataset.num_classes, args.num_stacks, args.num_layers, args.shared_weights, dropout=args.skip_dropout)
 
     def reset_parameters(self):
         self.conv1.reset_parameters()
@@ -726,8 +720,7 @@ def add_self_loops(edge_index, edge_weight=None, fill_value=1, num_nodes=None):
     :rtype: (:class:`LongTensor`, :class:`Tensor`)
     """
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
-    loop_index = torch.arange(0, num_nodes, dtype=torch.long, device=
-        edge_index.device)
+    loop_index = torch.arange(0, num_nodes, dtype=torch.long, device=edge_index.device)
     loop_index = loop_index.unsqueeze(0).repeat(2, 1)
     if edge_weight is not None:
         assert edge_weight.numel() == edge_index.size(1)
@@ -755,8 +748,7 @@ def remove_self_loops(edge_index, edge_attr=None):
     return edge_index, edge_attr
 
 
-def get_laplacian(edge_index, edge_weight=None, normalization=None, dtype=
-    None, num_nodes=None):
+def get_laplacian(edge_index, edge_weight=None, normalization=None, dtype=None, num_nodes=None):
     """ Computes the graph Laplacian of the graph given by :obj:`edge_index`
     and optional :obj:`edge_weight`.
 
@@ -784,8 +776,7 @@ def get_laplacian(edge_index, edge_weight=None, normalization=None, dtype=
     assert normalization in [None, 'sym', 'rw'], 'Invalid normalization'
     edge_index, edge_weight = remove_self_loops(edge_index, edge_weight)
     if edge_weight is None:
-        edge_weight = torch.ones(edge_index.size(1), dtype=dtype, device=
-            edge_index.device)
+        edge_weight = torch.ones(edge_index.size(1), dtype=dtype, device=edge_index.device)
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
     row, col = edge_index
     deg = scatter_add(edge_weight, row, dim=0, dim_size=num_nodes)
@@ -796,14 +787,12 @@ def get_laplacian(edge_index, edge_weight=None, normalization=None, dtype=
         deg_inv_sqrt = deg.pow(-0.5)
         deg_inv_sqrt[deg_inv_sqrt == float('inf')] = 0
         edge_weight = deg_inv_sqrt[row] * edge_weight * deg_inv_sqrt[col]
-        edge_index, edge_weight = add_self_loops(edge_index, -edge_weight,
-            fill_value=1, num_nodes=num_nodes)
+        edge_index, edge_weight = add_self_loops(edge_index, -edge_weight, fill_value=1, num_nodes=num_nodes)
     else:
         deg_inv = 1.0 / deg
         deg_inv[deg_inv == float('inf')] = 0
         edge_weight = deg_inv[row] * edge_weight
-        edge_index, edge_weight = add_self_loops(edge_index, -edge_weight,
-            fill_value=1, num_nodes=num_nodes)
+        edge_index, edge_weight = add_self_loops(edge_index, -edge_weight, fill_value=1, num_nodes=num_nodes)
     return edge_index, edge_weight
 
 
@@ -846,25 +835,22 @@ def softmax(src, index, num_nodes=None):
     num_nodes = maybe_num_nodes(index, num_nodes)
     out = src - scatter_max(src, index, dim=0, dim_size=num_nodes)[0][index]
     out = out.exp()
-    out = out / (scatter_add(out, index, dim=0, dim_size=num_nodes)[index] +
-        1e-16)
+    out = out / (scatter_add(out, index, dim=0, dim_size=num_nodes)[index] + 1e-16)
     return out
 
 
-_global_config['output_heads'] = 4
-
-
 _global_config['heads'] = 4
+
+
+_global_config['output_heads'] = 4
 
 
 class Net(torch.nn.Module):
 
     def __init__(self, dataset):
         super(Net, self).__init__()
-        self.conv1 = GATConv(dataset.num_features, args.hidden, heads=args.
-            heads, dropout=args.dropout)
-        self.conv2 = GATConv(args.hidden * args.heads, dataset.num_classes,
-            heads=args.output_heads, concat=False, dropout=args.dropout)
+        self.conv1 = GATConv(dataset.num_features, args.hidden, heads=args.heads, dropout=args.dropout)
+        self.conv2 = GATConv(args.hidden * args.heads, dataset.num_classes, heads=args.output_heads, concat=False, dropout=args.dropout)
 
     def reset_parameters(self):
         self.conv1.reset_parameters()
@@ -902,8 +888,7 @@ class Net(torch.nn.Module):
 
     def __init__(self, dataset):
         super(Net, self).__init__()
-        self.conv1 = SGConv(dataset.num_features, dataset.num_classes, K=
-            args.K, cached=True)
+        self.conv1 = SGConv(dataset.num_features, dataset.num_classes, K=args.K, cached=True)
 
     def reset_parameters(self):
         self.conv1.reset_parameters()
@@ -949,10 +934,8 @@ class ASAP(torch.nn.Module):
         self.conv1 = GraphConv(dataset.num_features, hidden, aggr='mean')
         self.convs = torch.nn.ModuleList()
         self.pools = torch.nn.ModuleList()
-        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in
-            range(num_layers - 1)])
-        self.pools.extend([ASAPooling(hidden, ratio, dropout=dropout) for i in
-            range(num_layers // 2)])
+        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in range(num_layers - 1)])
+        self.pools.extend([ASAPooling(hidden, ratio, dropout=dropout) for i in range(num_layers // 2)])
         self.jump = JumpingKnowledge(mode='cat')
         self.lin1 = Linear(num_layers * hidden, hidden)
         self.lin2 = Linear(hidden, dataset.num_classes)
@@ -977,8 +960,7 @@ class ASAP(torch.nn.Module):
             xs += [global_mean_pool(x, batch)]
             if i % 2 == 0 and i < len(self.convs) - 1:
                 pool = self.pools[i // 2]
-                x, edge_index, edge_weight, batch, _ = pool(x=x, edge_index
-                    =edge_index, edge_weight=edge_weight, batch=batch)
+                x, edge_index, edge_weight, batch, _ = pool(x=x, edge_index=edge_index, edge_weight=edge_weight, batch=batch)
         x = self.jump(xs)
         x = F.relu(self.lin1(x))
         x = F.dropout(x, p=0.5, training=self.training)
@@ -1097,8 +1079,7 @@ class DiffPool(torch.nn.Module):
     def reset_parameters(self):
         self.embed_block1.reset_parameters()
         self.pool_block1.reset_parameters()
-        for embed_block, pool_block in zip(self.embed_blocks, self.pool_blocks
-            ):
+        for embed_block, pool_block in zip(self.embed_blocks, self.pool_blocks):
             embed_block.reset_parameters()
             pool_block.reset_parameters()
         self.jump.reset_parameters()
@@ -1111,8 +1092,7 @@ class DiffPool(torch.nn.Module):
         x = F.relu(self.embed_block1(x, adj, mask, add_loop=True))
         xs = [x.mean(dim=1)]
         x, adj, _, _ = dense_diff_pool(x, adj, s, mask)
-        for i, (embed_block, pool_block) in enumerate(zip(self.embed_blocks,
-            self.pool_blocks)):
+        for i, (embed_block, pool_block) in enumerate(zip(self.embed_blocks, self.pool_blocks)):
             s = pool_block(x, adj)
             x = F.relu(embed_block(x, adj))
             xs.append(x.mean(dim=1))
@@ -1135,10 +1115,8 @@ class EdgePool(torch.nn.Module):
         self.conv1 = GraphConv(dataset.num_features, hidden, aggr='mean')
         self.convs = torch.nn.ModuleList()
         self.pools = torch.nn.ModuleList()
-        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in
-            range(num_layers - 1)])
-        self.pools.extend([EdgePooling(hidden) for i in range(num_layers // 2)]
-            )
+        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in range(num_layers - 1)])
+        self.pools.extend([EdgePooling(hidden) for i in range(num_layers // 2)])
         self.jump = JumpingKnowledge(mode='cat')
         self.lin1 = Linear(num_layers * hidden, hidden)
         self.lin2 = Linear(hidden, dataset.num_classes)
@@ -1161,8 +1139,7 @@ class EdgePool(torch.nn.Module):
             xs += [global_mean_pool(x, batch)]
             if i % 2 == 0 and i < len(self.convs) - 1:
                 pool = self.pools[i // 2]
-                x, edge_index, _, batch, _, _ = pool(x, edge_index, batch=batch
-                    )
+                x, edge_index, _, batch, _, _ = pool(x, edge_index, batch=batch)
         x = self.jump(xs)
         x = F.relu(self.lin1(x))
         x = F.dropout(x, p=0.5, training=self.training)
@@ -1264,14 +1241,10 @@ class GIN0(torch.nn.Module):
 
     def __init__(self, dataset, num_layers, hidden):
         super(GIN0, self).__init__()
-        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden
-            ), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-            train_eps=False)
+        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=False)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers - 1):
-            self.convs.append(GINConv(Sequential(Linear(hidden, hidden),
-                ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-                train_eps=False))
+            self.convs.append(GINConv(Sequential(Linear(hidden, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=False))
         self.lin1 = Linear(hidden, hidden)
         self.lin2 = Linear(hidden, dataset.num_classes)
 
@@ -1301,14 +1274,10 @@ class GIN0WithJK(torch.nn.Module):
 
     def __init__(self, dataset, num_layers, hidden, mode='cat'):
         super(GIN0WithJK, self).__init__()
-        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden
-            ), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-            train_eps=False)
+        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=False)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers - 1):
-            self.convs.append(GINConv(Sequential(Linear(hidden, hidden),
-                ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-                train_eps=False))
+            self.convs.append(GINConv(Sequential(Linear(hidden, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=False))
         self.jump = JumpingKnowledge(mode)
         if mode == 'cat':
             self.lin1 = Linear(num_layers * hidden, hidden)
@@ -1346,14 +1315,10 @@ class GIN(torch.nn.Module):
 
     def __init__(self, dataset, num_layers, hidden):
         super(GIN, self).__init__()
-        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden
-            ), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-            train_eps=True)
+        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=True)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers - 1):
-            self.convs.append(GINConv(Sequential(Linear(hidden, hidden),
-                ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-                train_eps=True))
+            self.convs.append(GINConv(Sequential(Linear(hidden, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=True))
         self.lin1 = Linear(hidden, hidden)
         self.lin2 = Linear(hidden, dataset.num_classes)
 
@@ -1383,14 +1348,10 @@ class GINWithJK(torch.nn.Module):
 
     def __init__(self, dataset, num_layers, hidden, mode='cat'):
         super(GINWithJK, self).__init__()
-        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden
-            ), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-            train_eps=True)
+        self.conv1 = GINConv(Sequential(Linear(dataset.num_features, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=True)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers - 1):
-            self.convs.append(GINConv(Sequential(Linear(hidden, hidden),
-                ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)),
-                train_eps=True))
+            self.convs.append(GINConv(Sequential(Linear(hidden, hidden), ReLU(), Linear(hidden, hidden), ReLU(), BN(hidden)), train_eps=True))
         self.jump = JumpingKnowledge(mode)
         if mode == 'cat':
             self.lin1 = Linear(num_layers * hidden, hidden)
@@ -1459,9 +1420,7 @@ class GlobalAttentionNet(torch.nn.Module):
         return self.__class__.__name__
 
 
-__num_nodes_warn_msg__ = (
-    'The number of nodes in your data object can only be inferred by its {} indices, and hence may result in unexpected batch-wise behavior, e.g., in case there exists isolated nodes. Please consider explicitly setting the number of nodes for this data object by assigning it to data.num_nodes.'
-    )
+__num_nodes_warn_msg__ = 'The number of nodes in your data object can only be inferred by its {} indices, and hence may result in unexpected batch-wise behavior, e.g., in case there exists isolated nodes. Please consider explicitly setting the number of nodes for this data object by assigning it to data.num_nodes.'
 
 
 def size_repr(key, item, indent=0):
@@ -1508,8 +1467,7 @@ class Data(object):
         data.test_mask = torch.tensor([...], dtype=torch.bool)
     """
 
-    def __init__(self, x=None, edge_index=None, edge_attr=None, y=None, pos
-        =None, norm=None, face=None, **kwargs):
+    def __init__(self, x=None, edge_index=None, edge_attr=None, y=None, pos=None, norm=None, face=None, **kwargs):
         self.x = x
         self.edge_index = edge_index
         self.edge_attr = edge_attr
@@ -1523,13 +1481,9 @@ class Data(object):
             else:
                 self[key] = item
         if edge_index is not None and edge_index.dtype != torch.long:
-            raise ValueError(
-                f'Argument `edge_index` needs to be of type `torch.long` but found type `{edge_index.dtype}`.'
-                )
+            raise ValueError(f'Argument `edge_index` needs to be of type `torch.long` but found type `{edge_index.dtype}`.')
         if face is not None and face.dtype != torch.long:
-            raise ValueError(
-                f'Argument `face` needs to be of type `torch.long` but found type `{face.dtype}`.'
-                )
+            raise ValueError(f'Argument `face` needs to be of type `torch.long` but found type `{face.dtype}`.')
         if torch_geometric.is_debug_enabled():
             self.debug()
 
@@ -1675,15 +1629,12 @@ class Data(object):
     def is_coalesced(self):
         """Returns :obj:`True`, if edge indices are ordered and do not contain
         duplicate entries."""
-        edge_index, _ = coalesce(self.edge_index, None, self.num_nodes,
-            self.num_nodes)
-        return self.edge_index.numel() == edge_index.numel() and (self.
-            edge_index != edge_index).sum().item() == 0
+        edge_index, _ = coalesce(self.edge_index, None, self.num_nodes, self.num_nodes)
+        return self.edge_index.numel() == edge_index.numel() and (self.edge_index != edge_index).sum().item() == 0
 
     def coalesce(self):
         """"Orders and removes duplicated entries from edge indices."""
-        self.edge_index, self.edge_attr = coalesce(self.edge_index, self.
-            edge_attr, self.num_nodes, self.num_nodes)
+        self.edge_index, self.edge_attr = coalesce(self.edge_index, self.edge_attr, self.num_nodes, self.num_nodes)
         return self
 
     def contains_isolated_nodes(self):
@@ -1735,25 +1686,18 @@ class Data(object):
         return self.apply(lambda x: x.to(device, **kwargs), *keys)
 
     def clone(self):
-        return self.__class__.from_dict({k: (v.clone() if torch.is_tensor(v
-            ) else copy.deepcopy(v)) for k, v in self.__dict__.items()})
+        return self.__class__.from_dict({k: (v.clone() if torch.is_tensor(v) else copy.deepcopy(v)) for k, v in self.__dict__.items()})
 
     def debug(self):
         if self.edge_index is not None:
             if self.edge_index.dtype != torch.long:
-                raise RuntimeError(
-                    'Expected edge indices of dtype {}, but found dtype  {}'
-                    .format(torch.long, self.edge_index.dtype))
+                raise RuntimeError('Expected edge indices of dtype {}, but found dtype  {}'.format(torch.long, self.edge_index.dtype))
         if self.face is not None:
             if self.face.dtype != torch.long:
-                raise RuntimeError(
-                    'Expected face indices of dtype {}, but found dtype  {}'
-                    .format(torch.long, self.face.dtype))
+                raise RuntimeError('Expected face indices of dtype {}, but found dtype  {}'.format(torch.long, self.face.dtype))
         if self.edge_index is not None:
             if self.edge_index.dim() != 2 or self.edge_index.size(0) != 2:
-                raise RuntimeError(
-                    'Edge indices should have shape [2, num_edges] but found shape {}'
-                    .format(self.edge_index.size()))
+                raise RuntimeError('Edge indices should have shape [2, num_edges] but found shape {}'.format(self.edge_index.size()))
         if self.edge_index is not None and self.num_nodes is not None:
             if self.edge_index.numel() > 0:
                 min_index = self.edge_index.min()
@@ -1761,14 +1705,10 @@ class Data(object):
             else:
                 min_index = max_index = 0
             if min_index < 0 or max_index > self.num_nodes - 1:
-                raise RuntimeError(
-                    'Edge indices must lay in the interval [0, {}] but found them in the interval [{}, {}]'
-                    .format(self.num_nodes - 1, min_index, max_index))
+                raise RuntimeError('Edge indices must lay in the interval [0, {}] but found them in the interval [{}, {}]'.format(self.num_nodes - 1, min_index, max_index))
         if self.face is not None:
             if self.face.dim() != 2 or self.face.size(0) != 3:
-                raise RuntimeError(
-                    'Face indices should have shape [3, num_faces] but found shape {}'
-                    .format(self.face.size()))
+                raise RuntimeError('Face indices should have shape [3, num_faces] but found shape {}'.format(self.face.size()))
         if self.face is not None and self.num_nodes is not None:
             if self.face.numel() > 0:
                 min_index = self.face.min()
@@ -1776,29 +1716,19 @@ class Data(object):
             else:
                 min_index = max_index = 0
             if min_index < 0 or max_index > self.num_nodes - 1:
-                raise RuntimeError(
-                    'Face indices must lay in the interval [0, {}] but found them in the interval [{}, {}]'
-                    .format(self.num_nodes - 1, min_index, max_index))
+                raise RuntimeError('Face indices must lay in the interval [0, {}] but found them in the interval [{}, {}]'.format(self.num_nodes - 1, min_index, max_index))
         if self.edge_index is not None and self.edge_attr is not None:
             if self.edge_index.size(1) != self.edge_attr.size(0):
-                raise RuntimeError(
-                    'Edge indices and edge attributes hold a differing number of edges, found {} and {}'
-                    .format(self.edge_index.size(), self.edge_attr.size()))
+                raise RuntimeError('Edge indices and edge attributes hold a differing number of edges, found {} and {}'.format(self.edge_index.size(), self.edge_attr.size()))
         if self.x is not None and self.num_nodes is not None:
             if self.x.size(0) != self.num_nodes:
-                raise RuntimeError(
-                    'Node features should hold {} elements in the first dimension but found {}'
-                    .format(self.num_nodes, self.x.size(0)))
+                raise RuntimeError('Node features should hold {} elements in the first dimension but found {}'.format(self.num_nodes, self.x.size(0)))
         if self.pos is not None and self.num_nodes is not None:
             if self.pos.size(0) != self.num_nodes:
-                raise RuntimeError(
-                    'Node positions should hold {} elements in the first dimension but found {}'
-                    .format(self.num_nodes, self.pos.size(0)))
+                raise RuntimeError('Node positions should hold {} elements in the first dimension but found {}'.format(self.num_nodes, self.pos.size(0)))
         if self.norm is not None and self.num_nodes is not None:
             if self.norm.size(0) != self.num_nodes:
-                raise RuntimeError(
-                    'Node normals should hold {} elements in the first dimension but found {}'
-                    .format(self.num_nodes, self.norm.size(0)))
+                raise RuntimeError('Node normals should hold {} elements in the first dimension but found {}'.format(self.num_nodes, self.norm.size(0)))
 
     def __repr__(self):
         cls = str(self.__class__.__name__)
@@ -1868,8 +1798,7 @@ class Batch(Data):
         for key in batch.keys:
             item = batch[key][0]
             if torch.is_tensor(item):
-                batch[key] = torch.cat(batch[key], dim=data_list[0].
-                    __cat_dim__(key, item))
+                batch[key] = torch.cat(batch[key], dim=data_list[0].__cat_dim__(key, item))
             elif isinstance(item, int) or isinstance(item, float):
                 batch[key] = torch.tensor(batch[key])
         if torch_geometric.is_debug_enabled():
@@ -1882,9 +1811,7 @@ class Batch(Data):
         The batch object must have been created via :meth:`from_data_list` in
         order to be able reconstruct the initial objects."""
         if self.__slices__ is None:
-            raise RuntimeError(
-                'Cannot reconstruct data list from batch because the batch object was not created using Batch.from_data_list()'
-                )
+            raise RuntimeError('Cannot reconstruct data list from batch because the batch object was not created using Batch.from_data_list()')
         keys = [key for key in self.keys if key[-5:] != 'batch']
         cumsum = {key: (0) for key in keys}
         data_list = []
@@ -1892,14 +1819,11 @@ class Batch(Data):
             data = self.__data_class__()
             for key in keys:
                 if torch.is_tensor(self[key]):
-                    data[key] = self[key].narrow(data.__cat_dim__(key, self
-                        [key]), self.__slices__[key][i], self.__slices__[
-                        key][i + 1] - self.__slices__[key][i])
+                    data[key] = self[key].narrow(data.__cat_dim__(key, self[key]), self.__slices__[key][i], self.__slices__[key][i + 1] - self.__slices__[key][i])
                     if self[key].dtype != torch.bool:
                         data[key] = data[key] - cumsum[key]
                 else:
-                    data[key] = self[key][self.__slices__[key][i]:self.
-                        __slices__[key][i + 1]]
+                    data[key] = self[key][self.__slices__[key][i]:self.__slices__[key][i + 1]]
                 cumsum[key] = cumsum[key] + data.__inc__(key, data[key])
             data_list.append(data)
         return data_list
@@ -1955,8 +1879,7 @@ def pool_edge(cluster, edge_index, edge_attr=None):
     edge_index = cluster[edge_index.view(-1)].view(2, -1)
     edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
     if edge_index.numel() > 0:
-        edge_index, edge_attr = coalesce(edge_index, edge_attr, num_nodes,
-            num_nodes)
+        edge_index, edge_attr = coalesce(edge_index, edge_attr, num_nodes, num_nodes)
     return edge_index, edge_attr
 
 
@@ -2118,10 +2041,8 @@ class SAGPool(torch.nn.Module):
         self.conv1 = GraphConv(dataset.num_features, hidden, aggr='mean')
         self.convs = torch.nn.ModuleList()
         self.pools = torch.nn.ModuleList()
-        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in
-            range(num_layers - 1)])
-        self.pools.extend([SAGPooling(hidden, ratio) for i in range(
-            num_layers // 2)])
+        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in range(num_layers - 1)])
+        self.pools.extend([SAGPooling(hidden, ratio) for i in range(num_layers // 2)])
         self.jump = JumpingKnowledge(mode='cat')
         self.lin1 = Linear(num_layers * hidden, hidden)
         self.lin2 = Linear(hidden, dataset.num_classes)
@@ -2144,8 +2065,7 @@ class SAGPool(torch.nn.Module):
             xs += [global_mean_pool(x, batch)]
             if i % 2 == 0 and i < len(self.convs) - 1:
                 pool = self.pools[i // 2]
-                x, edge_index, _, batch, _, _ = pool(x, edge_index, batch=batch
-                    )
+                x, edge_index, _, batch, _, _ = pool(x, edge_index, batch=batch)
         x = self.jump(xs)
         x = F.relu(self.lin1(x))
         x = F.dropout(x, p=0.5, training=self.training)
@@ -2216,8 +2136,7 @@ def to_dense_batch(x, batch=None, fill_value=0):
         mask = torch.ones(1, x.size(0), dtype=torch.bool, device=x.device)
         return x.unsqueeze(0), mask
     batch_size = batch[-1].item() + 1
-    num_nodes = scatter_add(batch.new_ones(x.size(0)), batch, dim=0,
-        dim_size=batch_size)
+    num_nodes = scatter_add(batch.new_ones(x.size(0)), batch, dim=0, dim_size=batch_size)
     cum_nodes = torch.cat([batch.new_zeros(1), num_nodes.cumsum(dim=0)])
     max_num_nodes = num_nodes.max().item()
     idx = torch.arange(batch.size(0), dtype=torch.long, device=x.device)
@@ -2226,8 +2145,7 @@ def to_dense_batch(x, batch=None, fill_value=0):
     out = x.new_full(size, fill_value)
     out[idx] = x
     out = out.view([batch_size, max_num_nodes] + list(x.size())[1:])
-    mask = torch.zeros(batch_size * max_num_nodes, dtype=torch.bool, device
-        =x.device)
+    mask = torch.zeros(batch_size * max_num_nodes, dtype=torch.bool, device=x.device)
     mask[idx] = 1
     mask = mask.view(batch_size, max_num_nodes)
     return out, mask
@@ -2314,10 +2232,8 @@ class TopK(torch.nn.Module):
         self.conv1 = GraphConv(dataset.num_features, hidden, aggr='mean')
         self.convs = torch.nn.ModuleList()
         self.pools = torch.nn.ModuleList()
-        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in
-            range(num_layers - 1)])
-        self.pools.extend([TopKPooling(hidden, ratio) for i in range(
-            num_layers // 2)])
+        self.convs.extend([GraphConv(hidden, hidden, aggr='mean') for i in range(num_layers - 1)])
+        self.pools.extend([TopKPooling(hidden, ratio) for i in range(num_layers // 2)])
         self.jump = JumpingKnowledge(mode='cat')
         self.lin1 = Linear(num_layers * hidden, hidden)
         self.lin2 = Linear(hidden, dataset.num_classes)
@@ -2340,8 +2256,7 @@ class TopK(torch.nn.Module):
             xs += [global_mean_pool(x, batch)]
             if i % 2 == 0 and i < len(self.convs) - 1:
                 pool = self.pools[i // 2]
-                x, edge_index, _, batch, _, _ = pool(x, edge_index, batch=batch
-                    )
+                x, edge_index, _, batch, _, _ = pool(x, edge_index, batch=batch)
         x = self.jump(xs)
         x = F.relu(self.lin1(x))
         x = F.dropout(x, p=0.5, training=self.training)
@@ -2352,8 +2267,7 @@ class TopK(torch.nn.Module):
         return self.__class__.__name__
 
 
-def knn_graph(x, k, batch=None, loop=False, flow='source_to_target', cosine
-    =False):
+def knn_graph(x, k, batch=None, loop=False, flow='source_to_target', cosine=False):
     """Computes graph edges to the nearest :obj:`k` points.
 
     Args:
@@ -2416,8 +2330,7 @@ class Net(torch.nn.Module):
         super(Net, self).__init__()
         nn = Seq(Lin(6, 64), ReLU(), Lin(64, 64), ReLU(), Lin(64, 64), ReLU())
         self.conv1 = DynamicEdgeConv(nn, k=20, aggr='max')
-        nn = Seq(Lin(128, 128), ReLU(), Lin(128, 128), ReLU(), Lin(128, 256
-            ), ReLU())
+        nn = Seq(Lin(128, 128), ReLU(), Lin(128, 128), ReLU(), Lin(128, 256), ReLU())
         self.conv2 = DynamicEdgeConv(nn, k=20, aggr='max')
         self.lin0 = Lin(256, 512)
         self.lin1 = Lin(512, 256)
@@ -2468,8 +2381,7 @@ def fps(x, batch=None, ratio=0.5, random_start=True):
     return torch_cluster.fps(x, batch, ratio, random_start)
 
 
-def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow=
-    'source_to_target'):
+def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow='source_to_target'):
     """Computes graph edges to all points within a given distance.
 
     Args:
@@ -2500,8 +2412,7 @@ def radius_graph(x, r, batch=None, loop=False, max_num_neighbors=32, flow=
     """
     if torch_cluster is None:
         raise ImportError('`radius_graph` requires `torch-cluster`.')
-    return torch_cluster.radius_graph(x, r, batch, loop, max_num_neighbors,
-        flow)
+    return torch_cluster.radius_graph(x, r, batch, loop, max_num_neighbors, flow)
 
 
 class Net(torch.nn.Module):
@@ -2549,12 +2460,9 @@ class Net(torch.nn.Module):
     def __init__(self, num_classes):
         super(Net, self).__init__()
         self.conv1 = XConv(0, 48, dim=3, kernel_size=8, hidden_channels=32)
-        self.conv2 = XConv(48, 96, dim=3, kernel_size=12, hidden_channels=
-            64, dilation=2)
-        self.conv3 = XConv(96, 192, dim=3, kernel_size=16, hidden_channels=
-            128, dilation=2)
-        self.conv4 = XConv(192, 384, dim=3, kernel_size=16, hidden_channels
-            =256, dilation=2)
+        self.conv2 = XConv(48, 96, dim=3, kernel_size=12, hidden_channels=64, dilation=2)
+        self.conv3 = XConv(96, 192, dim=3, kernel_size=16, hidden_channels=128, dilation=2)
+        self.conv4 = XConv(192, 384, dim=3, kernel_size=16, hidden_channels=256, dilation=2)
         self.lin1 = Lin(384, 256)
         self.lin2 = Lin(256, 128)
         self.lin3 = Lin(128, num_classes)
@@ -2654,8 +2562,7 @@ class Net(torch.nn.Module):
 
 class GATConv(torch.nn.Module):
 
-    def __init__(self, g, in_channels, out_channels, heads=1,
-        negative_slope=0.2, dropout=0):
+    def __init__(self, g, in_channels, out_channels, heads=1, negative_slope=0.2, dropout=0):
         super(GATConv, self).__init__()
         self.g = g
         self.in_channels = in_channels
@@ -2663,8 +2570,7 @@ class GATConv(torch.nn.Module):
         self.heads = heads
         self.negative_slope = negative_slope
         self.dropout = dropout
-        self.weight = Parameter(torch.Tensor(in_channels, heads * out_channels)
-            )
+        self.weight = Parameter(torch.Tensor(in_channels, heads * out_channels))
         self.att = Parameter(torch.Tensor(1, heads, 2 * out_channels))
         self.bias = Parameter(torch.Tensor(heads * out_channels))
         self.reset_parameters()
@@ -2714,16 +2620,14 @@ class GAT(torch.nn.Module):
 
 class GATSPMVConv(torch.nn.Module):
 
-    def __init__(self, g, in_channels, out_channels, heads=1,
-        negative_slope=0.2, dropout=0):
+    def __init__(self, g, in_channels, out_channels, heads=1, negative_slope=0.2, dropout=0):
         super(GATSPMVConv, self).__init__()
         self.g = g
         self.out_channels = out_channels
         self.heads = heads
         self.negative_slope = negative_slope
         self.dropout = dropout
-        self.weight = Parameter(torch.Tensor(in_channels, heads * out_channels)
-            )
+        self.weight = Parameter(torch.Tensor(in_channels, heads * out_channels))
         self.att_l = Parameter(torch.Tensor(heads, out_channels, 1))
         self.att_r = Parameter(torch.Tensor(heads, out_channels, 1))
         self.bias = Parameter(torch.Tensor(heads * out_channels))
@@ -2834,8 +2738,7 @@ class GCNSPMVConv(torch.nn.Module):
     def forward(self, x):
         x = torch.matmul(x, self.weight)
         self.g.ndata['x'] = x * self.g.ndata['norm']
-        self.g.update_all(fn.copy_src(src='x', out='m'), fn.sum(msg='m',
-            out='x'))
+        self.g.update_all(fn.copy_src(src='x', out='m'), fn.sum(msg='m', out='x'))
         x = self.g.ndata.pop('x') * self.g.ndata['norm']
         x = x + self.bias
         return x
@@ -2882,8 +2785,7 @@ class RGCNConv(torch.nn.Module):
 
     def forward(self, x):
         self.w = torch.matmul(self.att, self.basis.view(self.num_bases, -1))
-        self.w = self.w.view(self.num_relations, self.in_channels, self.
-            out_channels)
+        self.w = self.w.view(self.num_relations, self.in_channels, self.out_channels)
         if x is None:
 
             def msg_func(edge):
@@ -2946,8 +2848,7 @@ class RGCNSPMVConv(torch.nn.Module):
 
     def forward(self, x):
         self.w = torch.matmul(self.att, self.basis.view(self.num_bases, -1))
-        self.w = self.w.view(self.num_relations, self.in_channels, self.
-            out_channels)
+        self.w = self.w.view(self.num_relations, self.in_channels, self.out_channels)
         if x is None:
 
             def msg_func(edge):
@@ -2977,10 +2878,8 @@ class RGCNSPMV(torch.nn.Module):
 
     def __init__(self, g, in_channels, out_channels, num_relations):
         super(RGCNSPMV, self).__init__()
-        self.conv1 = RGCNSPMVConv(g, in_channels, 16, num_relations,
-            num_bases=30)
-        self.conv2 = RGCNSPMVConv(g, 16, out_channels, num_relations,
-            num_bases=30)
+        self.conv1 = RGCNSPMVConv(g, in_channels, 16, num_relations, num_bases=30)
+        self.conv2 = RGCNSPMVConv(g, 16, out_channels, num_relations, num_bases=30)
 
     def forward(self, x):
         x = F.relu(self.conv1(None))
@@ -3103,8 +3002,7 @@ class Dataset(torch.utils.data.Dataset):
         """Gets the data object at index :obj:`idx`."""
         raise NotImplementedError
 
-    def __init__(self, root=None, transform=None, pre_transform=None,
-        pre_filter=None):
+    def __init__(self, root=None, transform=None, pre_transform=None, pre_filter=None):
         super(Dataset, self).__init__()
         if isinstance(root, str):
             root = osp.expanduser(osp.normpath(root))
@@ -3169,14 +3067,10 @@ class Dataset(torch.utils.data.Dataset):
     def _process(self):
         f = osp.join(self.processed_dir, 'pre_transform.pt')
         if osp.exists(f) and torch.load(f) != __repr__(self.pre_transform):
-            warnings.warn(
-                'The `pre_transform` argument differs from the one used in the pre-processed version of this dataset. If you really want to make use of another pre-processing technique, make sure to delete `{}` first.'
-                .format(self.processed_dir))
+            warnings.warn('The `pre_transform` argument differs from the one used in the pre-processed version of this dataset. If you really want to make use of another pre-processing technique, make sure to delete `{}` first.'.format(self.processed_dir))
         f = osp.join(self.processed_dir, 'pre_filter.pt')
         if osp.exists(f) and torch.load(f) != __repr__(self.pre_filter):
-            warnings.warn(
-                'The `pre_filter` argument differs from the one used in the pre-processed version of this dataset. If you really want to make use of another pre-fitering technique, make sure to delete `{}` first.'
-                .format(self.processed_dir))
+            warnings.warn('The `pre_filter` argument differs from the one used in the pre-processed version of this dataset. If you really want to make use of another pre-fitering technique, make sure to delete `{}` first.'.format(self.processed_dir))
         if files_exist(self.processed_paths):
             return
         print('Processing...')
@@ -3221,9 +3115,7 @@ class Dataset(torch.utils.data.Dataset):
         elif isinstance(idx, list) or isinstance(idx, tuple):
             indices = [indices[i] for i in idx]
         else:
-            raise IndexError(
-                'Only integers, slices (`:`), list, tuples, and long or bool tensors are valid indices (got {}).'
-                .format(type(idx).__name__))
+            raise IndexError('Only integers, slices (`:`), list, tuples, and long or bool tensors are valid indices (got {}).'.format(type(idx).__name__))
         dataset = copy.copy(self)
         dataset.__indices__ = indices
         return dataset
@@ -3288,10 +3180,8 @@ class InMemoryDataset(Dataset):
         """Processes the dataset to the :obj:`self.processed_dir` folder."""
         raise NotImplementedError
 
-    def __init__(self, root=None, transform=None, pre_transform=None,
-        pre_filter=None):
-        super(InMemoryDataset, self).__init__(root, transform,
-            pre_transform, pre_filter)
+    def __init__(self, root=None, transform=None, pre_transform=None, pre_filter=None):
+        super(InMemoryDataset, self).__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = None, None
 
     @property
@@ -3333,8 +3223,7 @@ class InMemoryDataset(Dataset):
         for item, key in product(data_list, keys):
             data[key].append(item[key])
             if torch.is_tensor(item[key]):
-                s = slices[key][-1] + item[key].size(item.__cat_dim__(key,
-                    item[key]))
+                s = slices[key][-1] + item[key].size(item.__cat_dim__(key, item[key]))
             else:
                 s = slices[key][-1] + 1
             slices[key].append(s)
@@ -3345,8 +3234,7 @@ class InMemoryDataset(Dataset):
         for key in keys:
             item = data_list[0][key]
             if torch.is_tensor(item):
-                data[key] = torch.cat(data[key], dim=data.__cat_dim__(key,
-                    item))
+                data[key] = torch.cat(data[key], dim=data.__cat_dim__(key, item))
             elif isinstance(item, int) or isinstance(item, float):
                 data[key] = torch.tensor(data[key])
             slices[key] = torch.tensor(slices[key], dtype=torch.long)
@@ -3487,8 +3375,7 @@ def read_tu_data(folder, prefix):
         _, y = y.unique(sorted=True, return_inverse=True)
     num_nodes = edge_index.max().item() + 1 if x is None else x.size(0)
     edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
-    edge_index, edge_attr = coalesce(edge_index, edge_attr, num_nodes,
-        num_nodes)
+    edge_index, edge_attr = coalesce(edge_index, edge_attr, num_nodes, num_nodes)
     data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
     data, slices = split(data, batch)
     return data, slices
@@ -3539,17 +3426,12 @@ class TUDataset(InMemoryDataset):
             contain only non-isomorphic graphs. (default: :obj:`False`)
     """
     url = 'http://ls11-www.cs.tu-dortmund.de/people/morris/graphkerneldatasets'
-    cleaned_url = (
-        'https://raw.githubusercontent.com/nd7141/graph_datasets/master/datasets'
-        )
+    cleaned_url = 'https://raw.githubusercontent.com/nd7141/graph_datasets/master/datasets'
 
-    def __init__(self, root, name, transform=None, pre_transform=None,
-        pre_filter=None, use_node_attr=False, use_edge_attr=False, cleaned=
-        False):
+    def __init__(self, root, name, transform=None, pre_transform=None, pre_filter=None, use_node_attr=False, use_edge_attr=False, cleaned=False):
         self.name = name
         self.cleaned = cleaned
-        super(TUDataset, self).__init__(root, transform, pre_transform,
-            pre_filter)
+        super(TUDataset, self).__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
         if self.data.x is not None and not use_node_attr:
             num_node_attributes = self.num_node_attributes
@@ -3692,10 +3574,8 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = ARMAConv(dataset.num_features, 16, num_stacks=3,
-            num_layers=2, shared_weights=True, dropout=0.25)
-        self.conv2 = ARMAConv(16, dataset.num_classes, num_stacks=3,
-            num_layers=2, shared_weights=True, dropout=0.25, act=None)
+        self.conv1 = ARMAConv(dataset.num_features, 16, num_stacks=3, num_layers=2, shared_weights=True, dropout=0.25)
+        self.conv2 = ARMAConv(16, dataset.num_classes, num_stacks=3, num_layers=2, shared_weights=True, dropout=0.25, act=None)
 
     def forward(self):
         x, edge_index = data.x, data.edge_index
@@ -3718,8 +3598,7 @@ class Encoder(torch.nn.Module):
             self.conv2 = GCNConv(2 * out_channels, out_channels, cached=True)
         elif args.model in ['VGAE']:
             self.conv_mu = GCNConv(2 * out_channels, out_channels, cached=True)
-            self.conv_logvar = GCNConv(2 * out_channels, out_channels,
-                cached=True)
+            self.conv_logvar = GCNConv(2 * out_channels, out_channels, cached=True)
 
     def forward(self, x, edge_index):
         x = F.relu(self.conv1(x, edge_index))
@@ -3778,14 +3657,12 @@ class Net(torch.nn.Module):
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
         out = F.relu(self.conv1(x, edge_index))
-        out, edge_index, _, batch, perm, score = self.pool1(out, edge_index,
-            None, batch, attn=x)
+        out, edge_index, _, batch, perm, score = self.pool1(out, edge_index, None, batch, attn=x)
         ratio = out.size(0) / x.size(0)
         out = F.relu(self.conv2(out, edge_index))
         out = global_add_pool(out, batch)
         out = self.lin(out).view(-1)
-        attn_loss = F.kl_div(torch.log(score + 1e-14), data.attn[perm],
-            reduction='none')
+        attn_loss = F.kl_div(torch.log(score + 1e-14), data.attn[perm], reduction='none')
         attn_loss = scatter_mean(attn_loss, batch)
         return out, attn_loss, ratio
 
@@ -3826,8 +3703,7 @@ class Net(torch.nn.Module):
 
 
 def MLP(channels, batch_norm=True):
-    return Seq(*[Seq(Lin(channels[i - 1], channels[i]), ReLU(), BN(channels
-        [i])) for i in range(1, len(channels))])
+    return Seq(*[Seq(Lin(channels[i - 1], channels[i]), ReLU(), BN(channels[i])) for i in range(1, len(channels))])
 
 
 class Net(torch.nn.Module):
@@ -3837,8 +3713,7 @@ class Net(torch.nn.Module):
         self.conv1 = DynamicEdgeConv(MLP([2 * 3, 64, 64, 64]), k, aggr)
         self.conv2 = DynamicEdgeConv(MLP([2 * 64, 128]), k, aggr)
         self.lin1 = MLP([128 + 64, 1024])
-        self.mlp = Seq(MLP([1024, 512]), Dropout(0.5), MLP([512, 256]),
-            Dropout(0.5), Lin(256, out_channels))
+        self.mlp = Seq(MLP([1024, 512]), Dropout(0.5), MLP([512, 256]), Dropout(0.5), Lin(256, out_channels))
 
     def forward(self, data):
         pos, batch = data.pos, data.batch
@@ -3858,8 +3733,7 @@ class Net(torch.nn.Module):
         self.conv2 = DynamicEdgeConv(MLP([2 * 64, 64, 64]), k, aggr)
         self.conv3 = DynamicEdgeConv(MLP([2 * 64, 64, 64]), k, aggr)
         self.lin1 = MLP([3 * 64, 1024])
-        self.mlp = Seq(MLP([1024, 256]), Dropout(0.5), MLP([256, 128]),
-            Dropout(0.5), Lin(128, out_channels))
+        self.mlp = Seq(MLP([1024, 256]), Dropout(0.5), MLP([256, 128]), Dropout(0.5), Lin(128, out_channels))
 
     def forward(self, data):
         x, pos, batch = data.x, data.pos, data.batch
@@ -3874,15 +3748,13 @@ class Net(torch.nn.Module):
 
 class Net(torch.nn.Module):
 
-    def __init__(self, in_channels, hidden_channels, out_channels,
-        num_layers, heads=1, groups=1):
+    def __init__(self, in_channels, hidden_channels, out_channels, num_layers, heads=1, groups=1):
         super(Net, self).__init__()
         self.hidden_channels = hidden_channels
         self.lin1 = torch.nn.Linear(in_channels, hidden_channels)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers):
-            self.convs.append(DNAConv(hidden_channels, heads, groups,
-                dropout=0.8, cached=True))
+            self.convs.append(DNAConv(hidden_channels, heads, groups, dropout=0.8, cached=True))
         self.lin2 = torch.nn.Linear(hidden_channels, out_channels)
 
     def reset_parameters(self):
@@ -3940,10 +3812,8 @@ class Net(torch.nn.Module):
 
 class EventDataset(InMemoryDataset):
 
-    def __init__(self, root, transform=None, pre_transform=None, pre_filter
-        =None):
-        super(EventDataset, self).__init__(root, transform, pre_transform,
-            pre_filter)
+    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
+        super(EventDataset, self).__init__(root, transform, pre_transform, pre_filter)
 
     @property
     def num_nodes(self):
@@ -3997,11 +3867,9 @@ class ICEWS18(EventDataset):
     url = 'https://github.com/INK-USC/RENet/raw/master/data/ICEWS18'
     splits = [0, 373018, 419013, 468558]
 
-    def __init__(self, root, split='train', transform=None, pre_transform=
-        None, pre_filter=None):
+    def __init__(self, root, split='train', transform=None, pre_transform=None, pre_filter=None):
         assert split in ['train', 'val', 'test']
-        super(ICEWS18, self).__init__(root, transform, pre_transform,
-            pre_filter)
+        super(ICEWS18, self).__init__(root, transform, pre_transform, pre_filter)
         idx = self.processed_file_names.index('{}.pt'.format(split))
         self.data, self.slices = torch.load(self.processed_paths[idx])
 
@@ -4076,8 +3944,7 @@ class Net(torch.nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.conv1 = GATConv(dataset.num_features, 8, heads=8, dropout=0.6)
-        self.conv2 = GATConv(8 * 8, dataset.num_classes, heads=1, concat=
-            True, dropout=0.6)
+        self.conv2 = GATConv(8 * 8, dataset.num_classes, heads=1, concat=True, dropout=0.6)
 
     def forward(self):
         x = F.dropout(data.x, p=0.6, training=self.training)
@@ -4094,10 +3961,8 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = GCNConv(dataset.num_features, 16, cached=True,
-            normalize=not args.use_gdc)
-        self.conv2 = GCNConv(16, dataset.num_classes, cached=True,
-            normalize=not args.use_gdc)
+        self.conv1 = GCNConv(dataset.num_features, 16, cached=True, normalize=not args.use_gdc)
+        self.conv2 = GCNConv(16, dataset.num_classes, cached=True, normalize=not args.use_gdc)
         self.reg_params = self.conv1.parameters()
         self.non_reg_params = self.conv2.parameters()
 
@@ -4160,8 +4025,7 @@ class GeniePath(torch.nn.Module):
     def __init__(self, in_dim, out_dim):
         super(GeniePath, self).__init__()
         self.lin1 = torch.nn.Linear(in_dim, dim)
-        self.gplayers = torch.nn.ModuleList([GeniePathLayer(dim) for i in
-            range(layer_num)])
+        self.gplayers = torch.nn.ModuleList([GeniePathLayer(dim) for i in range(layer_num)])
         self.lin2 = torch.nn.Linear(dim, out_dim)
 
     def forward(self, x, edge_index):
@@ -4179,10 +4043,8 @@ class GeniePathLazy(torch.nn.Module):
     def __init__(self, in_dim, out_dim):
         super(GeniePathLazy, self).__init__()
         self.lin1 = torch.nn.Linear(in_dim, dim)
-        self.breadths = torch.nn.ModuleList([Breadth(dim, dim) for i in
-            range(layer_num)])
-        self.depths = torch.nn.ModuleList([Depth(dim * 2, lstm_hidden) for
-            i in range(layer_num)])
+        self.breadths = torch.nn.ModuleList([Breadth(dim, dim) for i in range(layer_num)])
+        self.depths = torch.nn.ModuleList([Depth(dim * 2, lstm_hidden) for i in range(layer_num)])
         self.lin2 = torch.nn.Linear(dim, out_dim)
 
     def forward(self, x, edge_index):
@@ -4257,8 +4119,7 @@ def filter_adj(edge_index, edge_attr, perm, num_nodes=None):
     return torch.stack([row, col], dim=0), edge_attr
 
 
-def dropout_adj(edge_index, edge_attr=None, p=0.5, force_undirected=False,
-    num_nodes=None, training=True):
+def dropout_adj(edge_index, edge_attr=None, p=0.5, force_undirected=False, num_nodes=None, training=True):
     """Randomly drops edges from the adjacency matrix
     :obj:`(edge_index, edge_attr)` with probability :obj:`p` using samples from
     a Bernoulli distribution.
@@ -4277,9 +4138,7 @@ def dropout_adj(edge_index, edge_attr=None, p=0.5, force_undirected=False,
             no-op. (default: :obj:`True`)
     """
     if p < 0.0 or p > 1.0:
-        raise ValueError(
-            'Dropout probability has to be between 0 and 1, but got {}'.
-            format(p))
+        raise ValueError('Dropout probability has to be between 0 and 1, but got {}'.format(p))
     if not training:
         return edge_index, edge_attr
     N = maybe_num_nodes(edge_index, num_nodes)
@@ -4290,8 +4149,7 @@ def dropout_adj(edge_index, edge_attr=None, p=0.5, force_undirected=False,
     mask = torch.bernoulli(mask).to(torch.bool)
     row, col, edge_attr = filter_adj(row, col, edge_attr, mask)
     if force_undirected:
-        edge_index = torch.stack([torch.cat([row, col], dim=0), torch.cat([
-            col, row], dim=0)], dim=0)
+        edge_index = torch.stack([torch.cat([row, col], dim=0), torch.cat([col, row], dim=0)], dim=0)
         if edge_attr is not None:
             edge_attr = torch.cat([edge_attr, edge_attr], dim=0)
         edge_index, edge_attr = coalesce(edge_index, edge_attr, N, N)
@@ -4305,13 +4163,10 @@ class Net(torch.nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         pool_ratios = [2000 / data.num_nodes, 0.5]
-        self.unet = GraphUNet(dataset.num_features, 32, dataset.num_classes,
-            depth=3, pool_ratios=pool_ratios)
+        self.unet = GraphUNet(dataset.num_features, 32, dataset.num_classes, depth=3, pool_ratios=pool_ratios)
 
     def forward(self):
-        edge_index, _ = dropout_adj(data.edge_index, p=0.2,
-            force_undirected=True, num_nodes=data.num_nodes, training=self.
-            training)
+        edge_index, _ = dropout_adj(data.edge_index, p=0.2, force_undirected=True, num_nodes=data.num_nodes, training=self.training)
         x = F.dropout(data.x, p=0.92, training=self.training)
         x = self.unet(x, edge_index)
         return F.log_softmax(x, dim=1)
@@ -4675,8 +4530,7 @@ class SAModule(torch.nn.Module):
 
     def forward(self, x, pos, batch):
         idx = fps(pos, batch, ratio=self.ratio)
-        row, col = radius(pos, pos[idx], self.r, batch, batch[idx],
-            max_num_neighbors=64)
+        row, col = radius(pos, pos[idx], self.r, batch, batch[idx], max_num_neighbors=64)
         edge_index = torch.stack([col, row], dim=0)
         x = self.conv(x, (pos, pos[idx]), edge_index)
         pos, batch = pos[idx], batch[idx]
@@ -4856,8 +4710,7 @@ class Net(torch.nn.Module):
         self.lin1 = torch.nn.Linear(train_dataset.num_features, 4 * 256)
         self.conv2 = GATConv(4 * 256, 256, heads=4)
         self.lin2 = torch.nn.Linear(4 * 256, 4 * 256)
-        self.conv3 = GATConv(4 * 256, train_dataset.num_classes, heads=6,
-            concat=False)
+        self.conv3 = GATConv(4 * 256, train_dataset.num_classes, heads=6, concat=False)
         self.lin3 = torch.nn.Linear(4 * 256, train_dataset.num_classes)
 
     def forward(self, x, edge_index):
@@ -4869,8 +4722,7 @@ class Net(torch.nn.Module):
 
 class GNN(torch.nn.Module):
 
-    def __init__(self, in_channels, hidden_channels, out_channels,
-        normalize=False, add_loop=False, lin=True):
+    def __init__(self, in_channels, hidden_channels, out_channels, normalize=False, add_loop=False, lin=True):
         super(GNN, self).__init__()
         self.add_loop = add_loop
         self.conv1 = DenseSAGEConv(in_channels, hidden_channels, normalize)
@@ -4880,8 +4732,7 @@ class GNN(torch.nn.Module):
         self.conv3 = DenseSAGEConv(hidden_channels, out_channels, normalize)
         self.bn3 = torch.nn.BatchNorm1d(out_channels)
         if lin is True:
-            self.lin = torch.nn.Linear(2 * hidden_channels + out_channels,
-                out_channels)
+            self.lin = torch.nn.Linear(2 * hidden_channels + out_channels, out_channels)
         else:
             self.lin = None
 
@@ -5005,14 +4856,12 @@ def dense_mincut_pool(x, adj, s, mask=None):
     mincut_num = _rank3_trace(out_adj)
     d_flat = torch.einsum('ijk->ij', adj)
     d = _rank3_diag(d_flat)
-    mincut_den = _rank3_trace(torch.matmul(torch.matmul(s.transpose(1, 2),
-        d), s))
+    mincut_den = _rank3_trace(torch.matmul(torch.matmul(s.transpose(1, 2), d), s))
     mincut_loss = -(mincut_num / mincut_den)
     mincut_loss = torch.mean(mincut_loss)
     ss = torch.matmul(s.transpose(1, 2), s)
     i_s = torch.eye(k).type_as(ss)
-    ortho_loss = torch.norm(ss / torch.norm(ss, dim=(-1, -2), keepdim=True) -
-        i_s / torch.norm(i_s), dim=(-1, -2))
+    ortho_loss = torch.norm(ss / torch.norm(ss, dim=(-1, -2), keepdim=True) - i_s / torch.norm(i_s), dim=(-1, -2))
     ortho_loss = torch.mean(ortho_loss)
     ind = torch.arange(k, device=out_adj.device)
     out_adj[:, (ind), (ind)] = 0
@@ -5189,10 +5038,8 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = RGCNConv(data.num_nodes, 16, dataset.num_relations,
-            num_bases=30)
-        self.conv2 = RGCNConv(16, dataset.num_classes, dataset.
-            num_relations, num_bases=30)
+        self.conv1 = RGCNConv(data.num_nodes, 16, dataset.num_relations, num_bases=30)
+        self.conv2 = RGCNConv(16, dataset.num_classes, dataset.num_relations, num_bases=30)
 
     def forward(self, edge_index, edge_type, edge_norm):
         x = F.relu(self.conv1(None, edge_index, edge_type))
@@ -5204,8 +5051,7 @@ class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = SGConv(dataset.num_features, dataset.num_classes, K=2,
-            cached=True)
+        self.conv1 = SGConv(dataset.num_features, dataset.num_classes, K=2, cached=True)
 
     def forward(self):
         x, edge_index = data.x, data.edge_index
@@ -5278,17 +5124,14 @@ class Net(torch.nn.Module):
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
         x = F.relu(self.conv1(x, edge_index))
-        x, edge_index, _, batch, perm, score = self.pool1(x, edge_index,
-            None, batch)
+        x, edge_index, _, batch, perm, score = self.pool1(x, edge_index, None, batch)
         x = F.relu(self.conv2(x, edge_index))
-        x, edge_index, _, batch, perm, score = self.pool2(x, edge_index,
-            None, batch)
+        x, edge_index, _, batch, perm, score = self.pool2(x, edge_index, None, batch)
         ratio = x.size(0) / data.x.size(0)
         x = F.relu(self.conv3(x, edge_index))
         x = global_max_pool(x, batch)
         x = self.lin(x).view(-1)
-        attn_loss = F.kl_div(torch.log(score + 1e-14), data.attn[perm],
-            reduction='none')
+        attn_loss = F.kl_div(torch.log(score + 1e-14), data.attn[perm], reduction='none')
         attn_loss = scatter_mean(attn_loss, batch)
         return x, attn_loss, ratio
 
@@ -5356,8 +5199,7 @@ class ARMAConv(torch.nn.Module):
             an additive bias. (default: :obj:`True`)
     """
 
-    def __init__(self, in_channels, out_channels, num_stacks=1, num_layers=
-        1, shared_weights=False, act=F.relu, dropout=0, bias=True):
+    def __init__(self, in_channels, out_channels, num_stacks=1, num_layers=1, shared_weights=False, act=F.relu, dropout=0, bias=True):
         super(ARMAConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -5421,9 +5263,7 @@ class ARMAConv(torch.nn.Module):
         return out.mean(dim=0)
 
     def __repr__(self):
-        return '{}({}, {}, num_stacks={}, num_layers={})'.format(self.
-            __class__.__name__, self.in_channels, self.out_channels, self.
-            num_stacks, self.num_layers)
+        return '{}({}, {}, num_stacks={}, num_layers={})'.format(self.__class__.__name__, self.in_channels, self.out_channels, self.num_stacks, self.num_layers)
 
 
 def kaiming_uniform(tensor, fan, a):
@@ -5440,8 +5280,7 @@ class Linear(torch.nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.groups = groups
-        self.weight = Parameter(Tensor(groups, in_channels // groups, 
-            out_channels // groups))
+        self.weight = Parameter(Tensor(groups, in_channels // groups, out_channels // groups))
         if bias:
             self.bias = Parameter(torch.Tensor(out_channels))
         else:
@@ -5467,9 +5306,7 @@ class Linear(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}({}, {}, groups={}, bias={})'.format(self.__class__.
-            __name__, self.in_channels, self.out_channels, self.groups, 
-            self.bias is not None)
+        return '{}({}, {}, groups={}, bias={})'.format(self.__class__.__name__, self.in_channels, self.out_channels, self.groups, self.bias is not None)
 
 
 def restricted_softmax(src, dim=-1, margin=0):
@@ -5545,8 +5382,7 @@ class MessagePassing(torch.nn.Module):
         assert self.flow in ['source_to_target', 'target_to_source']
         self.node_dim = node_dim
         assert self.node_dim >= 0
-        self.__msg_aggr_params__ = inspect.signature(self.message_and_aggregate
-            ).parameters
+        self.__msg_aggr_params__ = inspect.signature(self.message_and_aggregate).parameters
         self.__msg_aggr_params__ = OrderedDict(self.__msg_aggr_params__)
         self.__msg_params__ = inspect.signature(self.message).parameters
         self.__msg_params__ = OrderedDict(self.__msg_params__)
@@ -5556,28 +5392,22 @@ class MessagePassing(torch.nn.Module):
         self.__update_params__ = inspect.signature(self.update).parameters
         self.__update_params__ = OrderedDict(self.__update_params__)
         self.__update_params__.popitem(last=False)
-        msg_aggr_args = set(self.__msg_aggr_params__.keys()
-            ) - msg_aggr_special_args
+        msg_aggr_args = set(self.__msg_aggr_params__.keys()) - msg_aggr_special_args
         msg_args = set(self.__msg_params__.keys()) - msg_special_args
         aggr_args = set(self.__aggr_params__.keys()) - aggr_special_args
         update_args = set(self.__update_params__.keys()) - update_special_args
-        self.__user_args__ = set().union(msg_aggr_args, msg_args, aggr_args,
-            update_args)
+        self.__user_args__ = set().union(msg_aggr_args, msg_args, aggr_args, update_args)
         self.__fuse__ = True
         self.__explain__ = False
         self.__edge_mask__ = None
 
     def __get_mp_type__(self, edge_index):
-        if torch.is_tensor(edge_index
-            ) and edge_index.dtype == torch.long and edge_index.dim(
-            ) == 2 and edge_index.size(0):
+        if torch.is_tensor(edge_index) and edge_index.dtype == torch.long and edge_index.dim() == 2 and edge_index.size(0):
             return 'edge_index'
         elif isinstance(edge_index, SparseTensor):
             return 'adj_t'
         else:
-            return ValueError(
-                '`MessagePassing.propagate` only supports `torch.LongTensor` of shape `[2, num_messages]` or `torch_sparse.SparseTensor` for argument :obj:`edge_index`.'
-                )
+            return ValueError('`MessagePassing.propagate` only supports `torch.LongTensor` of shape `[2, num_messages]` or `torch_sparse.SparseTensor` for argument :obj:`edge_index`.')
 
     def __set_size__(self, size, idx, tensor):
         if not torch.is_tensor(tensor):
@@ -5585,9 +5415,7 @@ class MessagePassing(torch.nn.Module):
         elif size[idx] is None:
             size[idx] = tensor.size(self.node_dim)
         elif size[idx] != tensor.size(self.node_dim):
-            raise ValueError(
-                f'Encountered node tensor with size {tensor.size(self.node_dim)} in dimension {self.node_dim}, but expected size {size[idx]}.'
-                )
+            raise ValueError(f'Encountered node tensor with size {tensor.size(self.node_dim)} in dimension {self.node_dim}, but expected size {size[idx]}.')
 
     def __collect__(self, edge_index, size, mp_type, kwargs):
         i, j = (0, 1) if self.flow == 'target_to_source' else (1, 0)
@@ -5611,8 +5439,7 @@ class MessagePassing(torch.nn.Module):
                     continue
                 self.__set_size__(size, idx, data)
                 if mp_type == 'edge_index':
-                    out[arg] = data.index_select(self.node_dim, edge_index[idx]
-                        )
+                    out[arg] = data.index_select(self.node_dim, edge_index[idx])
                 elif mp_type == 'adj_t' and idx == 1:
                     rowptr = edge_index.storage.rowptr()
                     for _ in range(self.node_dim):
@@ -5683,9 +5510,7 @@ class MessagePassing(torch.nn.Module):
         """
         mp_type = self.__get_mp_type__(edge_index)
         if mp_type == 'adj_t' and self.flow == 'target_to_source':
-            raise ValueError(
-                'Flow direction "target_to_source" is invalid for message propagation based on `torch_sparse.SparseTensor`. If you really want to make use of a reverse message passing flow, pass in the transposed sparse tensor to the message passing module, e.g., `adj.t()`.'
-                )
+            raise ValueError('Flow direction "target_to_source" is invalid for message propagation based on `torch_sparse.SparseTensor`. If you really want to make use of a reverse message passing flow, pass in the transposed sparse tensor to the message passing module, e.g., `adj.t()`.')
         if mp_type == 'edge_index':
             if size is None:
                 size = [None, None]
@@ -5701,8 +5526,7 @@ class MessagePassing(torch.nn.Module):
         assert len(size) == 2
         kwargs = self.__collect__(edge_index, size, mp_type, kwargs)
         if mp_type == 'adj_t' and self.__fuse__ and not self.__explain__:
-            msg_aggr_kwargs = self.__distribute__(self.__msg_aggr_params__,
-                kwargs)
+            msg_aggr_kwargs = self.__distribute__(self.__msg_aggr_params__, kwargs)
             out = self.message_and_aggregate(**msg_aggr_kwargs)
             if out == NotImplemented:
                 self.__fuse__ = False
@@ -5750,8 +5574,7 @@ class MessagePassing(torch.nn.Module):
                 ptr = ptr.unsqueeze(0)
             return segment_csr(inputs, ptr, reduce=self.aggr)
         else:
-            return scatter(inputs, index, dim=self.node_dim, dim_size=
-                dim_size, reduce=self.aggr)
+            return scatter(inputs, index, dim=self.node_dim, dim_size=dim_size, reduce=self.aggr)
 
     def message_and_aggregate(self, adj_t):
         """Fuses computations of :func:`message` and :func:`aggregate` into a
@@ -5813,8 +5636,7 @@ class XConv(torch.nn.Module):
             :class:`torch_cluster.knn_graph`.
     """
 
-    def __init__(self, in_channels, out_channels, dim, kernel_size,
-        hidden_channels=None, dilation=1, bias=True, **kwargs):
+    def __init__(self, in_channels, out_channels, dim, kernel_size, hidden_channels=None, dilation=1, bias=True, **kwargs):
         super(XConv, self).__init__()
         if knn_graph is None:
             raise ImportError('`XConv` requires `torch-cluster`.')
@@ -5830,17 +5652,11 @@ class XConv(torch.nn.Module):
         self.kwargs = kwargs
         C_in, C_delta, C_out = in_channels, hidden_channels, out_channels
         D, K = dim, kernel_size
-        self.mlp1 = S(L(dim, C_delta), ELU(), BN(C_delta), L(C_delta,
-            C_delta), ELU(), BN(C_delta), Reshape(-1, K, C_delta))
-        self.mlp2 = S(L(D * K, K ** 2), ELU(), BN(K ** 2), Reshape(-1, K, K
-            ), Conv1d(K, K ** 2, K, groups=K), ELU(), BN(K ** 2), Reshape(-
-            1, K, K), Conv1d(K, K ** 2, K, groups=K), BN(K ** 2), Reshape(-
-            1, K, K))
+        self.mlp1 = S(L(dim, C_delta), ELU(), BN(C_delta), L(C_delta, C_delta), ELU(), BN(C_delta), Reshape(-1, K, C_delta))
+        self.mlp2 = S(L(D * K, K ** 2), ELU(), BN(K ** 2), Reshape(-1, K, K), Conv1d(K, K ** 2, K, groups=K), ELU(), BN(K ** 2), Reshape(-1, K, K), Conv1d(K, K ** 2, K, groups=K), BN(K ** 2), Reshape(-1, K, K))
         C_in = C_in + C_delta
         depth_multiplier = int(ceil(C_out / C_in))
-        self.conv = S(Conv1d(C_in, C_in * depth_multiplier, K, groups=C_in),
-            Reshape(-1, C_in * depth_multiplier), L(C_in * depth_multiplier,
-            C_out, bias=bias))
+        self.conv = S(Conv1d(C_in, C_in * depth_multiplier, K, groups=C_in), Reshape(-1, C_in * depth_multiplier), L(C_in * depth_multiplier, C_out, bias=bias))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -5852,12 +5668,10 @@ class XConv(torch.nn.Module):
         """"""
         pos = pos.unsqueeze(-1) if pos.dim() == 1 else pos
         (N, D), K = pos.size(), self.kernel_size
-        row, col = knn_graph(pos, K * self.dilation, batch, loop=True, flow
-            ='target_to_source', **self.kwargs)
+        row, col = knn_graph(pos, K * self.dilation, batch, loop=True, flow='target_to_source', **self.kwargs)
         if self.dilation > 1:
             dil = self.dilation
-            index = torch.randint(K * dil, (N, K), dtype=torch.long, device
-                =row.device)
+            index = torch.randint(K * dil, (N, K), dtype=torch.long, device=row.device)
             arange = torch.arange(N, dtype=torch.long, device=row.device)
             arange = arange * (K * dil)
             index = (index + arange.view(-1, 1)).view(-1)
@@ -5878,8 +5692,7 @@ class XConv(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class DataParallel(torch.nn.DataParallel):
@@ -5918,18 +5731,14 @@ class DataParallel(torch.nn.DataParallel):
     def forward(self, data_list):
         """"""
         if len(data_list) == 0:
-            warnings.warn(
-                'DataParallel received an empty data list, which may result in unexpected behaviour.'
-                )
+            warnings.warn('DataParallel received an empty data list, which may result in unexpected behaviour.')
             return None
         if not self.device_ids or len(self.device_ids) == 1:
             data = Batch.from_data_list(data_list)
             return self.module(data)
         for t in chain(self.module.parameters(), self.module.buffers()):
             if t.device != self.src_device:
-                raise RuntimeError(
-                    'Module must have its parameters and buffers on device {} but found one of them on device {}.'
-                    .format(self.src_device, t.device))
+                raise RuntimeError('Module must have its parameters and buffers on device {} but found one of them on device {}.'.format(self.src_device, t.device))
         inputs = self.scatter(data_list, self.device_ids)
         replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
         outputs = self.parallel_apply(replicas, inputs, None)
@@ -5947,8 +5756,7 @@ class DataParallel(torch.nn.DataParallel):
         split = torch.cat([split.new_zeros(1), split], dim=0)
         split = torch.unique(split, sorted=True)
         split = split.tolist()
-        return [Batch.from_data_list(data_list[split[i]:split[i + 1]]) for
-            i in range(len(split) - 1)]
+        return [Batch.from_data_list(data_list[split[i]:split[i + 1]]) for i in range(len(split) - 1)]
 
 
 class DenseGCNConv(torch.nn.Module):
@@ -6007,8 +5815,7 @@ class DenseGCNConv(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class DenseGINConv(torch.nn.Module):
@@ -6112,8 +5919,7 @@ class DenseGraphConv(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class DenseSAGEConv(torch.nn.Module):
@@ -6164,8 +5970,7 @@ class DenseSAGEConv(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class GlobalAttention(torch.nn.Module):
@@ -6215,8 +6020,7 @@ class GlobalAttention(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}(gate_nn={}, nn={})'.format(self.__class__.__name__, self
-            .gate_nn, self.nn)
+        return '{}(gate_nn={}, nn={})'.format(self.__class__.__name__, self.gate_nn, self.nn)
 
 
 class Set2Set(torch.nn.Module):
@@ -6251,8 +6055,7 @@ class Set2Set(torch.nn.Module):
         self.out_channels = 2 * in_channels
         self.processing_steps = processing_steps
         self.num_layers = num_layers
-        self.lstm = torch.nn.LSTM(self.out_channels, self.in_channels,
-            num_layers)
+        self.lstm = torch.nn.LSTM(self.out_channels, self.in_channels, num_layers)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -6261,8 +6064,7 @@ class Set2Set(torch.nn.Module):
     def forward(self, x, batch):
         """"""
         batch_size = batch.max().item() + 1
-        h = x.new_zeros((self.num_layers, batch_size, self.in_channels)
-            ), x.new_zeros((self.num_layers, batch_size, self.in_channels))
+        h = x.new_zeros((self.num_layers, batch_size, self.in_channels)), x.new_zeros((self.num_layers, batch_size, self.in_channels))
         q_star = x.new_zeros(batch_size, self.out_channels)
         for i in range(self.processing_steps):
             q, h = self.lstm(q_star.unsqueeze(0), h)
@@ -6274,8 +6076,7 @@ class Set2Set(torch.nn.Module):
         return q_star
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class MetaLayer(torch.nn.Module):
@@ -6381,8 +6182,7 @@ class MetaLayer(torch.nn.Module):
         """"""
         row, col = edge_index
         if self.edge_model is not None:
-            edge_attr = self.edge_model(x[row], x[col], edge_attr, u, batch if
-                batch is None else batch[row])
+            edge_attr = self.edge_model(x[row], x[col], edge_attr, u, batch if batch is None else batch[row])
         if self.node_model is not None:
             x = self.node_model(x, edge_index, edge_attr, u, batch)
         if self.global_model is not None:
@@ -6390,10 +6190,7 @@ class MetaLayer(torch.nn.Module):
         return x, edge_attr, u
 
     def __repr__(self):
-        return (
-            '{}(\n    edge_model={},\n    node_model={},\n    global_model={}\n)'
-            .format(self.__class__.__name__, self.edge_model, self.
-            node_model, self.global_model))
+        return '{}(\n    edge_model={},\n    node_model={},\n    global_model={}\n)'.format(self.__class__.__name__, self.edge_model, self.node_model, self.global_model)
 
 
 class InnerProductDecoder(torch.nn.Module):
@@ -6458,8 +6255,7 @@ def to_undirected(edge_index, num_nodes=None):
     return edge_index
 
 
-def negative_sampling(edge_index, num_nodes=None, num_neg_samples=None,
-    method='sparse', force_undirected=False):
+def negative_sampling(edge_index, num_nodes=None, num_neg_samples=None, method='sparse', force_undirected=False):
     """Samples random negative edges of a graph given by :attr:`edge_index`.
 
     Args:
@@ -6498,16 +6294,14 @@ def negative_sampling(edge_index, num_nodes=None, num_neg_samples=None,
         mask = edge_index.new_ones(size, dtype=torch.bool)
         mask[idx] = False
         mask = mask.view(-1)
-        perm = sample(size, int(alpha * num_neg_samples), device=edge_index
-            .device)
+        perm = sample(size, int(alpha * num_neg_samples), device=edge_index.device)
         perm = perm[mask[perm]][:num_neg_samples]
     else:
         perm = sample(size, int(alpha * num_neg_samples))
         mask = torch.from_numpy(np.isin(perm, idx.to('cpu'))).to(torch.bool)
         perm = perm[~mask][:num_neg_samples].to(edge_index.device)
     if force_undirected:
-        row = torch.floor((-torch.sqrt((2.0 * num_nodes + 1.0) ** 2 - 8.0 *
-            perm) + 2 * num_nodes + 1) / 2)
+        row = torch.floor((-torch.sqrt((2.0 * num_nodes + 1.0) ** 2 - 8.0 * perm) + 2 * num_nodes + 1) / 2)
         col = perm - row * (2 * num_nodes - row - 1) // 2
         neg_edge_index = torch.stack([row, col], dim=0).long()
         neg_edge_index = to_undirected(neg_edge_index)
@@ -6558,13 +6352,11 @@ class GAE(torch.nn.Module):
             z (Tensor): The latent space :math:`\\mathbf{Z}`.
             pos_edge_index (LongTensor): The positive edges to train against.
         """
-        pos_loss = -torch.log(self.decoder(z, pos_edge_index, sigmoid=True) +
-            EPS).mean()
+        pos_loss = -torch.log(self.decoder(z, pos_edge_index, sigmoid=True) + EPS).mean()
         pos_edge_index, _ = remove_self_loops(pos_edge_index)
         pos_edge_index, _ = add_self_loops(pos_edge_index)
         neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
-        neg_loss = -torch.log(1 - self.decoder(z, neg_edge_index, sigmoid=
-            True) + EPS).mean()
+        neg_loss = -torch.log(1 - self.decoder(z, neg_edge_index, sigmoid=True) + EPS).mean()
         return pos_loss + neg_loss
 
     def test(self, z, pos_edge_index, neg_edge_index):
@@ -6643,21 +6435,15 @@ class DeepGraphInfomax(torch.nn.Module):
 
     def loss(self, pos_z, neg_z, summary):
         """Computes the mutal information maximization objective."""
-        pos_loss = -torch.log(self.discriminate(pos_z, summary, sigmoid=
-            True) + EPS).mean()
-        neg_loss = -torch.log(1 - self.discriminate(neg_z, summary, sigmoid
-            =True) + EPS).mean()
+        pos_loss = -torch.log(self.discriminate(pos_z, summary, sigmoid=True) + EPS).mean()
+        neg_loss = -torch.log(1 - self.discriminate(neg_z, summary, sigmoid=True) + EPS).mean()
         return pos_loss + neg_loss
 
-    def test(self, train_z, train_y, test_z, test_y, solver='lbfgs',
-        multi_class='auto', *args, **kwargs):
+    def test(self, train_z, train_y, test_z, test_y, solver='lbfgs', multi_class='auto', *args, **kwargs):
         """Evaluates latent space quality via a logistic regression downstream
         task."""
-        clf = LogisticRegression(*args, solver=solver, multi_class=
-            multi_class, **kwargs).fit(train_z.detach().cpu().numpy(),
-            train_y.detach().cpu().numpy())
-        return clf.score(test_z.detach().cpu().numpy(), test_y.detach().cpu
-            ().numpy())
+        clf = LogisticRegression(*args, solver=solver, multi_class=multi_class, **kwargs).fit(train_z.detach().cpu().numpy(), train_y.detach().cpu().numpy())
+        return clf.score(test_z.detach().cpu().numpy(), test_y.detach().cpu().numpy())
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.hidden_channels)
@@ -6740,8 +6526,7 @@ def bessel_basis(n, k):
     for order in range(n):
         bess_basis_tmp = []
         for i in range(k):
-            bess_basis_tmp += [sym.simplify(normalizer[order][i] * f[order]
-                .subs(x, zeros[order, i] * x))]
+            bess_basis_tmp += [sym.simplify(normalizer[order][i] * f[order].subs(x, zeros[order, i] * x))]
         bess_basis += [bess_basis_tmp]
     return bess_basis
 
@@ -6753,23 +6538,19 @@ def associated_legendre_polynomials(k, zero_m_only=True):
     if k > 0:
         P_l_m[1][0] = z
         for j in range(2, k):
-            P_l_m[j][0] = sym.simplify(((2 * j - 1) * z * P_l_m[j - 1][0] -
-                (j - 1) * P_l_m[j - 2][0]) / j)
+            P_l_m[j][0] = sym.simplify(((2 * j - 1) * z * P_l_m[j - 1][0] - (j - 1) * P_l_m[j - 2][0]) / j)
         if not zero_m_only:
             for i in range(1, k):
                 P_l_m[i][i] = sym.simplify((1 - 2 * i) * P_l_m[i - 1][i - 1])
                 if i + 1 < k:
-                    P_l_m[i + 1][i] = sym.simplify((2 * i + 1) * z * P_l_m[
-                        i][i])
+                    P_l_m[i + 1][i] = sym.simplify((2 * i + 1) * z * P_l_m[i][i])
                 for j in range(i + 2, k):
-                    P_l_m[j][i] = sym.simplify(((2 * j - 1) * z * P_l_m[j -
-                        1][i] - (i + j - 1) * P_l_m[j - 2][i]) / (j - i))
+                    P_l_m[j][i] = sym.simplify(((2 * j - 1) * z * P_l_m[j - 1][i] - (i + j - 1) * P_l_m[j - 2][i]) / (j - i))
     return P_l_m
 
 
 def sph_harm_prefactor(k, m):
-    return ((2 * k + 1) * np.math.factorial(k - abs(m)) / (4 * np.pi * np.
-        math.factorial(k + abs(m)))) ** 0.5
+    return ((2 * k + 1) * np.math.factorial(k - abs(m)) / (4 * np.pi * np.math.factorial(k + abs(m)))) ** 0.5
 
 
 def real_sph_harm(k, zero_m_only=True, spherical_coordinates=True):
@@ -6792,30 +6573,25 @@ def real_sph_harm(k, zero_m_only=True, spherical_coordinates=True):
         if not zero_m_only:
             phi = sym.symbols('phi')
             for i in range(len(S_m)):
-                S_m[i] = S_m[i].subs(x, sym.sin(theta) * sym.cos(phi)).subs(y,
-                    sym.sin(theta) * sym.sin(phi))
+                S_m[i] = S_m[i].subs(x, sym.sin(theta) * sym.cos(phi)).subs(y, sym.sin(theta) * sym.sin(phi))
             for i in range(len(C_m)):
-                C_m[i] = C_m[i].subs(x, sym.sin(theta) * sym.cos(phi)).subs(y,
-                    sym.sin(theta) * sym.sin(phi))
+                C_m[i] = C_m[i].subs(x, sym.sin(theta) * sym.cos(phi)).subs(y, sym.sin(theta) * sym.sin(phi))
     Y_func_l_m = [(['0'] * (2 * j + 1)) for j in range(k)]
     for i in range(k):
         Y_func_l_m[i][0] = sym.simplify(sph_harm_prefactor(i, 0) * P_l_m[i][0])
     if not zero_m_only:
         for i in range(1, k):
             for j in range(1, i + 1):
-                Y_func_l_m[i][j] = sym.simplify(2 ** 0.5 *
-                    sph_harm_prefactor(i, j) * C_m[j] * P_l_m[i][j])
+                Y_func_l_m[i][j] = sym.simplify(2 ** 0.5 * sph_harm_prefactor(i, j) * C_m[j] * P_l_m[i][j])
         for i in range(1, k):
             for j in range(1, i + 1):
-                Y_func_l_m[i][-j] = sym.simplify(2 ** 0.5 *
-                    sph_harm_prefactor(i, -j) * S_m[j] * P_l_m[i][j])
+                Y_func_l_m[i][-j] = sym.simplify(2 ** 0.5 * sph_harm_prefactor(i, -j) * S_m[j] * P_l_m[i][j])
     return Y_func_l_m
 
 
 class SphericalBasisLayer(torch.nn.Module):
 
-    def __init__(self, num_spherical, num_radial, cutoff=5.0,
-        envelope_exponent=5):
+    def __init__(self, num_spherical, num_radial, cutoff=5.0, envelope_exponent=5):
         super(SphericalBasisLayer, self).__init__()
         assert num_radial <= 64
         self.num_spherical = num_spherical
@@ -6902,22 +6678,17 @@ class ResidualLayer(torch.nn.Module):
 
 class InteractionBlock(torch.nn.Module):
 
-    def __init__(self, hidden_channels, num_bilinear, num_spherical,
-        num_radial, num_before_skip, num_after_skip, act=swish):
+    def __init__(self, hidden_channels, num_bilinear, num_spherical, num_radial, num_before_skip, num_after_skip, act=swish):
         super(InteractionBlock, self).__init__()
         self.act = act
         self.lin_rbf = Linear(num_radial, hidden_channels, bias=False)
-        self.lin_sbf = Linear(num_spherical * num_radial, num_bilinear,
-            bias=False)
+        self.lin_sbf = Linear(num_spherical * num_radial, num_bilinear, bias=False)
         self.lin_kj = Linear(hidden_channels, hidden_channels)
         self.lin_ji = Linear(hidden_channels, hidden_channels)
-        self.W = torch.nn.Parameter(torch.Tensor(hidden_channels,
-            num_bilinear, hidden_channels))
-        self.layers_before_skip = torch.nn.ModuleList([ResidualLayer(
-            hidden_channels, act) for _ in range(num_before_skip)])
+        self.W = torch.nn.Parameter(torch.Tensor(hidden_channels, num_bilinear, hidden_channels))
+        self.layers_before_skip = torch.nn.ModuleList([ResidualLayer(hidden_channels, act) for _ in range(num_before_skip)])
         self.lin = Linear(hidden_channels, hidden_channels)
-        self.layers_after_skip = torch.nn.ModuleList([ResidualLayer(
-            hidden_channels, act) for _ in range(num_after_skip)])
+        self.layers_after_skip = torch.nn.ModuleList([ResidualLayer(hidden_channels, act) for _ in range(num_after_skip)])
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -6954,8 +6725,7 @@ class InteractionBlock(torch.nn.Module):
 
 class OutputBlock(torch.nn.Module):
 
-    def __init__(self, num_radial, hidden_channels, out_channels,
-        num_layers, act=swish):
+    def __init__(self, num_radial, hidden_channels, out_channels, num_layers, act=swish):
         super(OutputBlock, self).__init__()
         self.act = act
         self.lin_rbf = Linear(num_radial, hidden_channels, bias=False)
@@ -7015,25 +6785,16 @@ class DimeNet(torch.nn.Module):
             (default: :obj:`swish`)
     """
 
-    def __init__(self, in_channels, hidden_channels, out_channels,
-        num_blocks, num_bilinear, num_spherical, num_radial, cutoff=5.0,
-        envelope_exponent=5, num_before_skip=1, num_after_skip=2,
-        num_output_layers=3, act=swish):
+    def __init__(self, in_channels, hidden_channels, out_channels, num_blocks, num_bilinear, num_spherical, num_radial, cutoff=5.0, envelope_exponent=5, num_before_skip=1, num_after_skip=2, num_output_layers=3, act=swish):
         super(DimeNet, self).__init__()
         if sym is None:
             raise ImportError('Package `sympy` could not be found.')
         self.num_blocks = num_blocks
         self.rbf = BesselBasisLayer(num_radial, cutoff, envelope_exponent)
-        self.sbf = SphericalBasisLayer(num_spherical, num_radial, cutoff,
-            envelope_exponent)
-        self.emb = EmbeddingBlock(in_channels, num_radial, hidden_channels, act
-            )
-        self.output_blocks = torch.nn.ModuleList([OutputBlock(num_radial,
-            hidden_channels, out_channels, num_output_layers, act) for _ in
-            range(num_blocks + 1)])
-        self.interaction_blocks = torch.nn.ModuleList([InteractionBlock(
-            hidden_channels, num_bilinear, num_spherical, num_radial,
-            num_before_skip, num_after_skip, act) for _ in range(num_blocks)])
+        self.sbf = SphericalBasisLayer(num_spherical, num_radial, cutoff, envelope_exponent)
+        self.emb = EmbeddingBlock(in_channels, num_radial, hidden_channels, act)
+        self.output_blocks = torch.nn.ModuleList([OutputBlock(num_radial, hidden_channels, out_channels, num_output_layers, act) for _ in range(num_blocks + 1)])
+        self.interaction_blocks = torch.nn.ModuleList([InteractionBlock(hidden_channels, num_bilinear, num_spherical, num_radial, num_before_skip, num_after_skip, act) for _ in range(num_blocks)])
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -7047,8 +6808,7 @@ class DimeNet(torch.nn.Module):
     def triplets(self, edge_index, num_nodes):
         row, col = edge_index
         value = torch.arange(row.size(0), device=row.device)
-        adj_t = SparseTensor(row=col, col=row, value=value, sparse_sizes=(
-            num_nodes, num_nodes))
+        adj_t = SparseTensor(row=col, col=row, value=value, sparse_sizes=(num_nodes, num_nodes))
         adj_t_row = adj_t[row]
         num_triplets = adj_t_row.set_value(None).sum(dim=1)
         idx_i = col.repeat_interleave(num_triplets)
@@ -7063,8 +6823,7 @@ class DimeNet(torch.nn.Module):
     def forward(self, x, pos, edge_index, batch=None):
         """"""
         j, i = edge_index
-        idx_i, idx_j, idx_k, idx_kj, idx_ji = self.triplets(edge_index,
-            num_nodes=x.size(0))
+        idx_i, idx_j, idx_k, idx_kj, idx_ji = self.triplets(edge_index, num_nodes=x.size(0))
         dist = (pos[i] - pos[j]).pow(2).sum(dim=-1).sqrt()
         pos_i = pos[idx_i]
         pos_ji, pos_ki = pos[idx_j] - pos_i, pos[idx_k] - pos_i
@@ -7075,15 +6834,13 @@ class DimeNet(torch.nn.Module):
         sbf = self.sbf(dist, angle, idx_kj)
         x = self.emb(x, rbf, i, j)
         P = self.output_blocks[0](x, rbf, i, num_nodes=pos.size(0))
-        for interaction_block, output_block in zip(self.interaction_blocks,
-            self.output_blocks[1:]):
+        for interaction_block, output_block in zip(self.interaction_blocks, self.output_blocks[1:]):
             x = interaction_block(x, rbf, sbf, idx_kj, idx_ji)
             P += output_block(x, rbf, i)
         return P.sum(dim=0) if batch is None else scatter(P, batch, dim=0)
 
 
-def k_hop_subgraph(node_idx, num_hops, edge_index, relabel_nodes=False,
-    num_nodes=None, flow='source_to_target'):
+def k_hop_subgraph(node_idx, num_hops, edge_index, relabel_nodes=False, num_nodes=None, flow='source_to_target'):
     """Computes the :math:`k`-hop subgraph of :obj:`edge_index` around node
     :attr:`node_idx`.
     It returns (1) the nodes involved in the subgraph, (2) the filtered
@@ -7139,8 +6896,7 @@ def k_hop_subgraph(node_idx, num_hops, edge_index, relabel_nodes=False,
     return subset, edge_index, inv, edge_mask
 
 
-def to_networkx(data, node_attrs=None, edge_attrs=None, to_undirected=False,
-    remove_self_loops=False):
+def to_networkx(data, node_attrs=None, edge_attrs=None, to_undirected=False, remove_self_loops=False):
     """Converts a :class:`torch_geometric.data.Data` instance to a
     :obj:`networkx.DiGraph` if :attr:`to_undirected` is set to :obj:`True`, or
     an undirected :obj:`networkx.Graph` otherwise.
@@ -7207,8 +6963,7 @@ class GNNExplainer(torch.nn.Module):
         log (bool, optional): If set to :obj:`False`, will not log any learning
             progress. (default: :obj:`True`)
     """
-    coeffs = {'edge_size': 0.005, 'node_feat_size': 1.0, 'edge_ent': 1.0,
-        'node_feat_ent': 0.1}
+    coeffs = {'edge_size': 0.005, 'node_feat_size': 1.0, 'edge_ent': 1.0, 'node_feat_ent': 0.1}
 
     def __init__(self, model, epochs=100, lr=0.01, log=True):
         super(GNNExplainer, self).__init__()
@@ -7251,9 +7006,7 @@ class GNNExplainer(torch.nn.Module):
 
     def __subgraph__(self, node_idx, x, edge_index, **kwargs):
         num_nodes, num_edges = x.size(0), edge_index.size(1)
-        subset, edge_index, mapping, edge_mask = k_hop_subgraph(node_idx,
-            self.__num_hops__(), edge_index, relabel_nodes=True, num_nodes=
-            num_nodes, flow=self.__flow__())
+        subset, edge_index, mapping, edge_mask = k_hop_subgraph(node_idx, self.__num_hops__(), edge_index, relabel_nodes=True, num_nodes=num_nodes, flow=self.__flow__())
         x = x[subset]
         for key, item in kwargs:
             if torch.is_tensor(item) and item.size(0) == num_nodes:
@@ -7291,15 +7044,13 @@ class GNNExplainer(torch.nn.Module):
         self.model.eval()
         self.__clear_masks__()
         num_edges = edge_index.size(1)
-        x, edge_index, mapping, hard_edge_mask, kwargs = self.__subgraph__(
-            node_idx, x, edge_index, **kwargs)
+        x, edge_index, mapping, hard_edge_mask, kwargs = self.__subgraph__(node_idx, x, edge_index, **kwargs)
         with torch.no_grad():
             log_logits = self.model(x=x, edge_index=edge_index, **kwargs)
             pred_label = log_logits.argmax(dim=-1)
         self.__set_masks__(x, edge_index)
         self
-        optimizer = torch.optim.Adam([self.node_feat_mask, self.edge_mask],
-            lr=self.lr)
+        optimizer = torch.optim.Adam([self.node_feat_mask, self.edge_mask], lr=self.lr)
         if self.log:
             pbar = tqdm(total=self.epochs)
             pbar.set_description(f'Explain node {node_idx}')
@@ -7320,8 +7071,7 @@ class GNNExplainer(torch.nn.Module):
         self.__clear_masks__()
         return node_feat_mask, edge_mask
 
-    def visualize_subgraph(self, node_idx, edge_index, edge_mask, y=None,
-        threshold=None, **kwargs):
+    def visualize_subgraph(self, node_idx, edge_index, edge_mask, y=None, threshold=None, **kwargs):
         """Visualizes the subgraph around :attr:`node_idx` given an edge mask
         :attr:`edge_mask`.
 
@@ -7341,19 +7091,15 @@ class GNNExplainer(torch.nn.Module):
         :rtype: :class:`matplotlib.axes.Axes`, :class:`networkx.DiGraph`
         """
         assert edge_mask.size(0) == edge_index.size(1)
-        subset, edge_index, _, hard_edge_mask = k_hop_subgraph(node_idx,
-            self.__num_hops__(), edge_index, relabel_nodes=True, num_nodes=
-            None, flow=self.__flow__())
+        subset, edge_index, _, hard_edge_mask = k_hop_subgraph(node_idx, self.__num_hops__(), edge_index, relabel_nodes=True, num_nodes=None, flow=self.__flow__())
         edge_mask = edge_mask[hard_edge_mask]
         if threshold is not None:
             edge_mask = edge_mask >= threshold
         if y is None:
-            y = torch.zeros(edge_index.max().item() + 1, device=edge_index.
-                device)
+            y = torch.zeros(edge_index.max().item() + 1, device=edge_index.device)
         else:
             y = y[subset] / y.max().item()
-        data = Data(edge_index=edge_index, att=edge_mask, y=y, num_nodes=y.
-            size(0))
+        data = Data(edge_index=edge_index, att=edge_mask, y=y, num_nodes=y.size(0))
         G = to_networkx(data, node_attrs=['y'], edge_attrs=['att'])
         mapping = {k: i for k, i in enumerate(subset.tolist())}
         G = nx.relabel_nodes(G, mapping)
@@ -7364,11 +7110,7 @@ class GNNExplainer(torch.nn.Module):
         pos = nx.spring_layout(G)
         ax = plt.gca()
         for source, target, data in G.edges(data=True):
-            ax.annotate('', xy=pos[target], xycoords='data', xytext=pos[
-                source], textcoords='data', arrowprops=dict(arrowstyle='->',
-                alpha=max(data['att'], 0.1), shrinkA=sqrt(kwargs[
-                'node_size']) / 2.0, shrinkB=sqrt(kwargs['node_size']) / 
-                2.0, connectionstyle='arc3,rad=0.1'))
+            ax.annotate('', xy=pos[target], xycoords='data', xytext=pos[source], textcoords='data', arrowprops=dict(arrowstyle='->', alpha=max(data['att'], 0.1), shrinkA=sqrt(kwargs['node_size']) / 2.0, shrinkB=sqrt(kwargs['node_size']) / 2.0, connectionstyle='arc3,rad=0.1'))
         nx.draw_networkx_nodes(G, pos, node_color=y.tolist(), **kwargs)
         nx.draw_networkx_labels(G, pos, **kwargs)
         return ax, G
@@ -7392,8 +7134,7 @@ def sort_edge_index(edge_index, edge_attr=None, num_nodes=None):
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
     idx = edge_index[0] * num_nodes + edge_index[1]
     perm = idx.argsort()
-    return edge_index[:, (perm)], None if edge_attr is None else edge_attr[perm
-        ]
+    return edge_index[:, (perm)], None if edge_attr is None else edge_attr[perm]
 
 
 class GraphUNet(torch.nn.Module):
@@ -7415,8 +7156,7 @@ class GraphUNet(torch.nn.Module):
             (default: :obj:`torch.nn.functional.relu`)
     """
 
-    def __init__(self, in_channels, hidden_channels, out_channels, depth,
-        pool_ratios=0.5, sum_res=True, act=F.relu):
+    def __init__(self, in_channels, hidden_channels, out_channels, depth, pool_ratios=0.5, sum_res=True, act=F.relu):
         super(GraphUNet, self).__init__()
         assert depth >= 1
         self.in_channels = in_channels
@@ -7460,10 +7200,8 @@ class GraphUNet(torch.nn.Module):
         edge_weights = [edge_weight]
         perms = []
         for i in range(1, self.depth + 1):
-            edge_index, edge_weight = self.augment_adj(edge_index,
-                edge_weight, x.size(0))
-            x, edge_index, edge_weight, batch, perm, _ = self.pools[i - 1](x,
-                edge_index, edge_weight, batch)
+            edge_index, edge_weight = self.augment_adj(edge_index, edge_weight, x.size(0))
+            x, edge_index, edge_weight, batch, perm, _ = self.pools[i - 1](x, edge_index, edge_weight, batch)
             x = self.down_convs[i](x, edge_index, edge_weight)
             x = self.act(x)
             if i < self.depth:
@@ -7485,19 +7223,14 @@ class GraphUNet(torch.nn.Module):
         return x
 
     def augment_adj(self, edge_index, edge_weight, num_nodes):
-        edge_index, edge_weight = add_self_loops(edge_index, edge_weight,
-            num_nodes=num_nodes)
-        edge_index, edge_weight = sort_edge_index(edge_index, edge_weight,
-            num_nodes)
-        edge_index, edge_weight = spspmm(edge_index, edge_weight,
-            edge_index, edge_weight, num_nodes, num_nodes, num_nodes)
+        edge_index, edge_weight = add_self_loops(edge_index, edge_weight, num_nodes=num_nodes)
+        edge_index, edge_weight = sort_edge_index(edge_index, edge_weight, num_nodes)
+        edge_index, edge_weight = spspmm(edge_index, edge_weight, edge_index, edge_weight, num_nodes, num_nodes, num_nodes)
         edge_index, edge_weight = remove_self_loops(edge_index, edge_weight)
         return edge_index, edge_weight
 
     def __repr__(self):
-        return '{}({}, {}, {}, depth={}, pool_ratios={})'.format(self.
-            __class__.__name__, self.in_channels, self.hidden_channels,
-            self.out_channels, self.depth, self.pool_ratios)
+        return '{}({}, {}, {}, depth={}, pool_ratios={})'.format(self.__class__.__name__, self.in_channels, self.hidden_channels, self.out_channels, self.depth, self.pool_ratios)
 
 
 class JumpingKnowledge(torch.nn.Module):
@@ -7542,8 +7275,7 @@ class JumpingKnowledge(torch.nn.Module):
         if mode == 'lstm':
             assert channels is not None, 'channels cannot be None for lstm'
             assert num_layers is not None, 'num_layers cannot be None for lstm'
-            self.lstm = LSTM(channels, num_layers * channels // 2,
-                bidirectional=True, batch_first=True)
+            self.lstm = LSTM(channels, num_layers * channels // 2, bidirectional=True, batch_first=True)
             self.att = Linear(2 * (num_layers * channels // 2), 1)
         self.reset_parameters()
 
@@ -7610,9 +7342,7 @@ class MetaPath2Vec(torch.nn.Module):
             weight matrix will be sparse. (default: :obj:`False`)
     """
 
-    def __init__(self, edge_index_dict, embedding_dim, metapath,
-        walk_length, context_size, walks_per_node=1, num_negative_samples=1,
-        num_nodes_dict=None, sparse=False):
+    def __init__(self, edge_index_dict, embedding_dim, metapath, walk_length, context_size, walks_per_node=1, num_negative_samples=1, num_nodes_dict=None, sparse=False):
         super(MetaPath2Vec, self).__init__()
         if num_nodes_dict is None:
             num_nodes_dict = {}
@@ -7649,8 +7379,7 @@ class MetaPath2Vec(torch.nn.Module):
             count += num_nodes_dict[key]
             self.end[key] = count
         offset = [self.start[metapath[0][0]]]
-        offset += [self.start[keys[-1]] for keys in metapath] * int(
-            walk_length / len(metapath) + 1)
+        offset += [self.start[keys[-1]] for keys in metapath] * int(walk_length / len(metapath) + 1)
         offset = offset[:walk_length + 1]
         assert len(offset) == walk_length + 1
         self.offset = torch.tensor(offset)
@@ -7667,8 +7396,7 @@ class MetaPath2Vec(torch.nn.Module):
         return emb if batch is None else emb[batch]
 
     def loader(self, **kwargs):
-        return DataLoader(range(self.num_nodes_dict[self.metapath[0][0]]),
-            collate_fn=self.sample, **kwargs)
+        return DataLoader(range(self.num_nodes_dict[self.metapath[0][0]]), collate_fn=self.sample, **kwargs)
 
     def pos_sample(self, batch):
         batch = batch.repeat(self.walks_per_node)
@@ -7691,8 +7419,7 @@ class MetaPath2Vec(torch.nn.Module):
         rws = [batch]
         for i in range(self.walk_length):
             keys = self.metapath[i % len(self.metapath)]
-            batch = torch.randint(0, self.num_nodes_dict[keys[-1]], (batch.
-                size(0),), dtype=torch.long)
+            batch = torch.randint(0, self.num_nodes_dict[keys[-1]], (batch.size(0),), dtype=torch.long)
             rws.append(batch)
         rw = torch.stack(rws, dim=-1)
         rw.add_(self.offset.view(1, -1))
@@ -7710,34 +7437,25 @@ class MetaPath2Vec(torch.nn.Module):
     def loss(self, pos_rw, neg_rw):
         """Computes the loss given positive and negative random walks."""
         start, rest = pos_rw[:, (0)], pos_rw[:, 1:].contiguous()
-        h_start = self.embedding(start).view(pos_rw.size(0), 1, self.
-            embedding_dim)
-        h_rest = self.embedding(rest.view(-1)).view(pos_rw.size(0), -1,
-            self.embedding_dim)
+        h_start = self.embedding(start).view(pos_rw.size(0), 1, self.embedding_dim)
+        h_rest = self.embedding(rest.view(-1)).view(pos_rw.size(0), -1, self.embedding_dim)
         out = (h_start * h_rest).sum(dim=-1).view(-1)
         pos_loss = -torch.log(torch.sigmoid(out) + EPS).mean()
         start, rest = neg_rw[:, (0)], neg_rw[:, 1:].contiguous()
-        h_start = self.embedding(start).view(neg_rw.size(0), 1, self.
-            embedding_dim)
-        h_rest = self.embedding(rest.view(-1)).view(neg_rw.size(0), -1,
-            self.embedding_dim)
+        h_start = self.embedding(start).view(neg_rw.size(0), 1, self.embedding_dim)
+        h_rest = self.embedding(rest.view(-1)).view(neg_rw.size(0), -1, self.embedding_dim)
         out = (h_start * h_rest).sum(dim=-1).view(-1)
         neg_loss = -torch.log(1 - torch.sigmoid(out) + EPS).mean()
         return pos_loss + neg_loss
 
-    def test(self, train_z, train_y, test_z, test_y, solver='lbfgs',
-        multi_class='auto', *args, **kwargs):
+    def test(self, train_z, train_y, test_z, test_y, solver='lbfgs', multi_class='auto', *args, **kwargs):
         """Evaluates latent space quality via a logistic regression downstream
         task."""
-        clf = LogisticRegression(*args, solver=solver, multi_class=
-            multi_class, **kwargs).fit(train_z.detach().cpu().numpy(),
-            train_y.detach().cpu().numpy())
-        return clf.score(test_z.detach().cpu().numpy(), test_y.detach().cpu
-            ().numpy())
+        clf = LogisticRegression(*args, solver=solver, multi_class=multi_class, **kwargs).fit(train_z.detach().cpu().numpy(), train_y.detach().cpu().numpy())
+        return clf.score(test_z.detach().cpu().numpy(), test_y.detach().cpu().numpy())
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.embedding.
-            weight.size(0), self.embedding.weight.size(1))
+        return '{}({}, {})'.format(self.__class__.__name__, self.embedding.weight.size(0), self.embedding.weight.size(1))
 
 
 class Node2Vec(torch.nn.Module):
@@ -7773,9 +7491,7 @@ class Node2Vec(torch.nn.Module):
             weight matrix will be sparse. (default: :obj:`False`)
     """
 
-    def __init__(self, edge_index, embedding_dim, walk_length, context_size,
-        walks_per_node=1, p=1, q=1, num_negative_samples=1, num_nodes=None,
-        sparse=False):
+    def __init__(self, edge_index, embedding_dim, walk_length, context_size, walks_per_node=1, p=1, q=1, num_negative_samples=1, num_nodes=None, sparse=False):
         super(Node2Vec, self).__init__()
         if random_walk is None:
             raise ImportError('`Node2Vec` requires `torch-cluster`.')
@@ -7803,8 +7519,7 @@ class Node2Vec(torch.nn.Module):
         return emb if batch is None else emb[batch]
 
     def loader(self, **kwargs):
-        return DataLoader(range(self.adj.sparse_size(0)), collate_fn=self.
-            sample, **kwargs)
+        return DataLoader(range(self.adj.sparse_size(0)), collate_fn=self.sample, **kwargs)
 
     def pos_sample(self, batch):
         batch = batch.repeat(self.walks_per_node)
@@ -7818,8 +7533,7 @@ class Node2Vec(torch.nn.Module):
 
     def neg_sample(self, batch):
         batch = batch.repeat(self.walks_per_node * self.num_negative_samples)
-        rw = torch.randint(self.adj.sparse_size(0), (batch.size(0), self.
-            walk_length))
+        rw = torch.randint(self.adj.sparse_size(0), (batch.size(0), self.walk_length))
         rw = torch.cat([batch.view(-1, 1), rw], dim=-1)
         walks = []
         num_walks_per_rw = 1 + self.walk_length + 1 - self.context_size
@@ -7835,34 +7549,25 @@ class Node2Vec(torch.nn.Module):
     def loss(self, pos_rw, neg_rw):
         """Computes the loss given positive and negative random walks."""
         start, rest = pos_rw[:, (0)], pos_rw[:, 1:].contiguous()
-        h_start = self.embedding(start).view(pos_rw.size(0), 1, self.
-            embedding_dim)
-        h_rest = self.embedding(rest.view(-1)).view(pos_rw.size(0), -1,
-            self.embedding_dim)
+        h_start = self.embedding(start).view(pos_rw.size(0), 1, self.embedding_dim)
+        h_rest = self.embedding(rest.view(-1)).view(pos_rw.size(0), -1, self.embedding_dim)
         out = (h_start * h_rest).sum(dim=-1).view(-1)
         pos_loss = -torch.log(torch.sigmoid(out) + EPS).mean()
         start, rest = neg_rw[:, (0)], neg_rw[:, 1:].contiguous()
-        h_start = self.embedding(start).view(neg_rw.size(0), 1, self.
-            embedding_dim)
-        h_rest = self.embedding(rest.view(-1)).view(neg_rw.size(0), -1,
-            self.embedding_dim)
+        h_start = self.embedding(start).view(neg_rw.size(0), 1, self.embedding_dim)
+        h_rest = self.embedding(rest.view(-1)).view(neg_rw.size(0), -1, self.embedding_dim)
         out = (h_start * h_rest).sum(dim=-1).view(-1)
         neg_loss = -torch.log(1 - torch.sigmoid(out) + EPS).mean()
         return pos_loss + neg_loss
 
-    def test(self, train_z, train_y, test_z, test_y, solver='lbfgs',
-        multi_class='auto', *args, **kwargs):
+    def test(self, train_z, train_y, test_z, test_y, solver='lbfgs', multi_class='auto', *args, **kwargs):
         """Evaluates latent space quality via a logistic regression downstream
         task."""
-        clf = LogisticRegression(*args, solver=solver, multi_class=
-            multi_class, **kwargs).fit(train_z.detach().cpu().numpy(),
-            train_y.detach().cpu().numpy())
-        return clf.score(test_z.detach().cpu().numpy(), test_y.detach().cpu
-            ().numpy())
+        clf = LogisticRegression(*args, solver=solver, multi_class=multi_class, **kwargs).fit(train_z.detach().cpu().numpy(), train_y.detach().cpu().numpy())
+        return clf.score(test_z.detach().cpu().numpy(), test_y.detach().cpu().numpy())
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.embedding.
-            weight.size(0), self.embedding.weight.size(1))
+        return '{}({}, {})'.format(self.__class__.__name__, self.embedding.weight.size(0), self.embedding.weight.size(1))
 
 
 class RENet(torch.nn.Module):
@@ -7900,8 +7605,7 @@ class RENet(torch.nn.Module):
             learn an additive bias. (default: :obj:`True`)
     """
 
-    def __init__(self, num_nodes, num_rels, hidden_channels, seq_len,
-        num_layers=1, dropout=0.0, bias=True):
+    def __init__(self, num_nodes, num_rels, hidden_channels, seq_len, num_layers=1, dropout=0.0, bias=True):
         super(RENet, self).__init__()
         self.num_nodes = num_nodes
         self.hidden_channels = hidden_channels
@@ -7910,10 +7614,8 @@ class RENet(torch.nn.Module):
         self.dropout = dropout
         self.ent = Parameter(torch.Tensor(num_nodes, hidden_channels))
         self.rel = Parameter(torch.Tensor(num_rels, hidden_channels))
-        self.sub_gru = GRU(3 * hidden_channels, hidden_channels, num_layers,
-            batch_first=True, bias=bias)
-        self.obj_gru = GRU(3 * hidden_channels, hidden_channels, num_layers,
-            batch_first=True, bias=bias)
+        self.sub_gru = GRU(3 * hidden_channels, hidden_channels, num_layers, batch_first=True, bias=bias)
+        self.obj_gru = GRU(3 * hidden_channels, hidden_channels, num_layers, batch_first=True, bias=bias)
         self.sub_lin = Linear(3 * hidden_channels, num_nodes, bias=bias)
         self.obj_lin = Linear(3 * hidden_channels, num_nodes, bias=bias)
         self.reset_parameters()
@@ -7957,8 +7659,7 @@ class RENet(torch.nn.Module):
                     h = hist[node][s]
                     hists += h
                     ts.append(torch.full((len(h),), s, dtype=torch.long))
-                node, r = torch.tensor(hists, dtype=torch.long).view(-1, 2).t(
-                    ).contiguous()
+                node, r = torch.tensor(hists, dtype=torch.long).view(-1, 2).t().contiguous()
                 node = node[r == rel]
                 t = torch.cat(ts, dim=0)[r == rel]
                 return node, t
@@ -7978,17 +7679,14 @@ class RENet(torch.nn.Module):
                     self.sub_hist = self.step(self.sub_hist)
                     self.obj_hist = self.step(self.obj_hist)
                     self.t_last = t
-                data.h_sub, data.h_sub_t = self.get_history(self.sub_hist,
-                    sub, rel)
-                data.h_obj, data.h_obj_t = self.get_history(self.obj_hist,
-                    obj, rel)
+                data.h_sub, data.h_sub_t = self.get_history(self.sub_hist, sub, rel)
+                data.h_obj, data.h_obj_t = self.get_history(self.obj_hist, obj, rel)
                 self.sub_hist[sub][-1].append([obj, rel])
                 self.obj_hist[obj][-1].append([sub, rel])
                 return data
 
             def __repr__(self):
-                return '{}(seq_len={})'.format(self.__class__.__name__,
-                    self.seq_len)
+                return '{}(seq_len={})'.format(self.__class__.__name__, self.seq_len)
         return PreTransform(seq_len)
 
     def forward(self, data):
@@ -8009,20 +7707,16 @@ class RENet(torch.nn.Module):
         batch_size, seq_len = data.sub.size(0), self.seq_len
         h_sub_t = data.h_sub_t + data.h_sub_batch * seq_len
         h_obj_t = data.h_obj_t + data.h_obj_batch * seq_len
-        h_sub = scatter_mean(self.ent[data.h_sub], h_sub_t, dim=0, dim_size
-            =batch_size * seq_len).view(batch_size, seq_len, -1)
-        h_obj = scatter_mean(self.ent[data.h_obj], h_obj_t, dim=0, dim_size
-            =batch_size * seq_len).view(batch_size, seq_len, -1)
+        h_sub = scatter_mean(self.ent[data.h_sub], h_sub_t, dim=0, dim_size=batch_size * seq_len).view(batch_size, seq_len, -1)
+        h_obj = scatter_mean(self.ent[data.h_obj], h_obj_t, dim=0, dim_size=batch_size * seq_len).view(batch_size, seq_len, -1)
         sub = self.ent[data.sub].unsqueeze(1).repeat(1, seq_len, 1)
         rel = self.rel[data.rel].unsqueeze(1).repeat(1, seq_len, 1)
         obj = self.ent[data.obj].unsqueeze(1).repeat(1, seq_len, 1)
         _, h_sub = self.sub_gru(torch.cat([sub, h_sub, rel], dim=-1))
         _, h_obj = self.obj_gru(torch.cat([obj, h_obj, rel], dim=-1))
         h_sub, h_obj = h_sub.squeeze(0), h_obj.squeeze(0)
-        h_sub = torch.cat([self.ent[data.sub], h_sub, self.rel[data.rel]],
-            dim=-1)
-        h_obj = torch.cat([self.ent[data.obj], h_obj, self.rel[data.rel]],
-            dim=-1)
+        h_sub = torch.cat([self.ent[data.sub], h_sub, self.rel[data.rel]], dim=-1)
+        h_obj = torch.cat([self.ent[data.obj], h_obj, self.rel[data.rel]], dim=-1)
         h_sub = F.dropout(h_sub, p=self.dropout, training=self.training)
         h_obj = F.dropout(h_obj, p=self.dropout, training=self.training)
         log_prob_obj = F.log_softmax(self.sub_lin(h_sub), dim=1)
@@ -8041,10 +7735,7 @@ class RENet(torch.nn.Module):
         return torch.tensor([mrr, hits1, hits3, hits10])
 
 
-qm9_target_dict = {(0): 'dipole_moment', (1): 'isotropic_polarizability', (
-    2): 'homo', (3): 'lumo', (4): 'gap', (5): 'electronic_spatial_extent',
-    (6): 'zpve', (7): 'energy_U0', (8): 'energy_U', (9): 'enthalpy_H', (10):
-    'free_energy', (11): 'heat_capacity'}
+qm9_target_dict = {(0): 'dipole_moment', (1): 'isotropic_polarizability', (2): 'homo', (3): 'lumo', (4): 'gap', (5): 'electronic_spatial_extent', (6): 'zpve', (7): 'energy_U0', (8): 'energy_U', (9): 'enthalpy_H', (10): 'free_energy', (11): 'heat_capacity'}
 
 
 class SchNet(torch.nn.Module):
@@ -8094,9 +7785,7 @@ class SchNet(torch.nn.Module):
     """
     url = 'http://www.quantum-machine.org/datasets/trained_schnet_models.zip'
 
-    def __init__(self, hidden_channels=128, num_filters=128,
-        num_interactions=6, num_gaussians=50, cutoff=10.0, readout='add',
-        dipole=False, mean=None, std=None, atomref=None):
+    def __init__(self, hidden_channels=128, num_filters=128, num_interactions=6, num_gaussians=50, cutoff=10.0, readout='add', dipole=False, mean=None, std=None, atomref=None):
         super(SchNet, self).__init__()
         assert readout in ['add', 'sum', 'mean']
         self.hidden_channels = hidden_channels
@@ -8116,8 +7805,7 @@ class SchNet(torch.nn.Module):
         self.distance_expansion = GaussianSmearing(0.0, cutoff, num_gaussians)
         self.interactions = ModuleList()
         for _ in range(num_interactions):
-            block = InteractionBlock(hidden_channels, num_gaussians,
-                num_filters, cutoff)
+            block = InteractionBlock(hidden_channels, num_gaussians, num_filters, cutoff)
             self.interactions.append(block)
         self.lin1 = Linear(hidden_channels, hidden_channels // 2)
         self.act = ShiftedSoftplus()
@@ -8143,8 +7831,7 @@ class SchNet(torch.nn.Module):
     @staticmethod
     def from_qm9_pretrained(root, dataset, target):
         if spk is None:
-            raise ImportError(
-                '`SchNet.from_qm9_pretrained` requires `schnetpack`.')
+            raise ImportError('`SchNet.from_qm9_pretrained` requires `schnetpack`.')
         assert target >= 0 and target <= 12
         units = [1] * 12
         units[0] = ase.units.Debye
@@ -8173,11 +7860,9 @@ class SchNet(torch.nn.Module):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore')
             state = torch.load(path, map_location='cpu')
-        net = SchNet(hidden_channels=128, num_filters=128, num_interactions
-            =6, num_gaussians=50, cutoff=10.0, atomref=dataset.atomref(target))
+        net = SchNet(hidden_channels=128, num_filters=128, num_interactions=6, num_gaussians=50, cutoff=10.0, atomref=dataset.atomref(target))
         net.embedding.weight = state.representation.embedding.weight
-        for int1, int2 in zip(state.representation.interactions, net.
-            interactions):
+        for int1, int2 in zip(state.representation.interactions, net.interactions):
             int2.mlp[0].weight = int1.filter_network[0].weight
             int2.mlp[0].bias = int1.filter_network[0].bias
             int2.mlp[2].weight = int1.filter_network[1].weight
@@ -8233,9 +7918,7 @@ class SchNet(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return (
-            f'{self.__class__.__name__}(hidden_channels={self.hidden_channels}, num_filters={self.num_filters}, num_interactions={self.num_interactions}, num_gaussians={self.num_gaussians}, cutoff={self.cutoff})'
-            )
+        return f'{self.__class__.__name__}(hidden_channels={self.hidden_channels}, num_filters={self.num_filters}, num_interactions={self.num_interactions}, num_gaussians={self.num_gaussians}, cutoff={self.cutoff})'
 
 
 class CFConv(MessagePassing):
@@ -8269,10 +7952,8 @@ class InteractionBlock(torch.nn.Module):
 
     def __init__(self, hidden_channels, num_gaussians, num_filters, cutoff):
         super(InteractionBlock, self).__init__()
-        self.mlp = Sequential(Linear(num_gaussians, num_filters),
-            ShiftedSoftplus(), Linear(num_filters, num_filters))
-        self.conv = CFConv(hidden_channels, hidden_channels, num_filters,
-            self.mlp, cutoff)
+        self.mlp = Sequential(Linear(num_gaussians, num_filters), ShiftedSoftplus(), Linear(num_filters, num_filters))
+        self.conv = CFConv(hidden_channels, hidden_channels, num_filters, self.mlp, cutoff)
         self.act = ShiftedSoftplus()
         self.lin = Linear(hidden_channels, hidden_channels)
         self.reset_parameters()
@@ -8360,8 +8041,7 @@ class SignedConv(MessagePassing):
             :class:`torch_geometric.nn.conv.MessagePassing`.
     """
 
-    def __init__(self, in_channels, out_channels, first_aggr, bias=True, **
-        kwargs):
+    def __init__(self, in_channels, out_channels, first_aggr, bias=True, **kwargs):
         super(SignedConv, self).__init__(aggr='mean', **kwargs)
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -8387,15 +8067,12 @@ class SignedConv(MessagePassing):
         else:
             assert x.size(1) == 2 * self.in_channels
             x_1, x_2 = x[:, :self.in_channels], x[:, self.in_channels:]
-            x_pos = torch.cat([self.propagate(pos_edge_index, x=x_1), self.
-                propagate(neg_edge_index, x=x_2), x_1], dim=1)
-            x_neg = torch.cat([self.propagate(pos_edge_index, x=x_2), self.
-                propagate(neg_edge_index, x=x_1), x_2], dim=1)
+            x_pos = torch.cat([self.propagate(pos_edge_index, x=x_1), self.propagate(neg_edge_index, x=x_2), x_1], dim=1)
+            x_neg = torch.cat([self.propagate(pos_edge_index, x=x_2), self.propagate(neg_edge_index, x=x_1), x_2], dim=1)
         return torch.cat([self.lin_pos(x_pos), self.lin_neg(x_neg)], dim=1)
 
     def __repr__(self):
-        return '{}({}, {}, first_aggr={})'.format(self.__class__.__name__,
-            self.in_channels, self.out_channels, self.first_aggr)
+        return '{}({}, {}, first_aggr={})'.format(self.__class__.__name__, self.in_channels, self.out_channels, self.first_aggr)
 
 
 def false_positive(pred, target, num_classes):
@@ -8545,19 +8222,16 @@ class SignedGCN(torch.nn.Module):
             learn an additive bias. (default: :obj:`True`)
     """
 
-    def __init__(self, in_channels, hidden_channels, num_layers, lamb=5,
-        bias=True):
+    def __init__(self, in_channels, hidden_channels, num_layers, lamb=5, bias=True):
         super(SignedGCN, self).__init__()
         self.in_channels = in_channels
         self.hidden_channels = hidden_channels
         self.num_layers = num_layers
         self.lamb = lamb
-        self.conv1 = SignedConv(in_channels, hidden_channels // 2,
-            first_aggr=True)
+        self.conv1 = SignedConv(in_channels, hidden_channels // 2, first_aggr=True)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers - 1):
-            self.convs.append(SignedConv(hidden_channels // 2, 
-                hidden_channels // 2, first_aggr=False))
+            self.convs.append(SignedConv(hidden_channels // 2, hidden_channels // 2, first_aggr=False))
         self.lin = torch.nn.Linear(2 * hidden_channels, 3)
         self.reset_parameters()
 
@@ -8581,8 +8255,7 @@ class SignedGCN(torch.nn.Module):
         test_edge_index = edge_index[:, (~mask)]
         return train_edge_index, test_edge_index
 
-    def create_spectral_features(self, pos_edge_index, neg_edge_index,
-        num_nodes=None):
+    def create_spectral_features(self, pos_edge_index, neg_edge_index, num_nodes=None):
         """Creates :obj:`in_channels` spectral node features based on
         positive and negative edges.
 
@@ -8652,12 +8325,9 @@ class SignedGCN(torch.nn.Module):
         edge_index = torch.cat([pos_edge_index, neg_edge_index], dim=1)
         none_edge_index = negative_sampling(edge_index, z.size(0))
         nll_loss = 0
-        nll_loss += F.nll_loss(self.discriminate(z, pos_edge_index),
-            pos_edge_index.new_full((pos_edge_index.size(1),), 0))
-        nll_loss += F.nll_loss(self.discriminate(z, neg_edge_index),
-            neg_edge_index.new_full((neg_edge_index.size(1),), 1))
-        nll_loss += F.nll_loss(self.discriminate(z, none_edge_index),
-            none_edge_index.new_full((none_edge_index.size(1),), 2))
+        nll_loss += F.nll_loss(self.discriminate(z, pos_edge_index), pos_edge_index.new_full((pos_edge_index.size(1),), 0))
+        nll_loss += F.nll_loss(self.discriminate(z, neg_edge_index), neg_edge_index.new_full((neg_edge_index.size(1),), 1))
+        nll_loss += F.nll_loss(self.discriminate(z, none_edge_index), none_edge_index.new_full((none_edge_index.size(1),), 2))
         return nll_loss / 3.0
 
     def pos_embedding_loss(self, z, pos_edge_index):
@@ -8710,16 +8380,14 @@ class SignedGCN(torch.nn.Module):
             pos_p = self.discriminate(z, pos_edge_index)[:, :2].max(dim=1)[1]
             neg_p = self.discriminate(z, neg_edge_index)[:, :2].max(dim=1)[1]
         pred = (1 - torch.cat([pos_p, neg_p])).cpu()
-        y = torch.cat([pred.new_ones(pos_p.size(0)), pred.new_zeros(neg_p.
-            size(0))])
+        y = torch.cat([pred.new_ones(pos_p.size(0)), pred.new_zeros(neg_p.size(0))])
         pred, y = pred.numpy(), y.numpy()
         auc = roc_auc_score(y, pred)
         f1 = f1_score(y, pred, average='binary') if pred.sum() > 0 else 0
         return auc, f1
 
     def __repr__(self):
-        return '{}({}, {}, num_layers={})'.format(self.__class__.__name__,
-            self.in_channels, self.hidden_channels, self.num_layers)
+        return '{}({}, {}, num_layers={})'.format(self.__class__.__name__, self.in_channels, self.hidden_channels, self.num_layers)
 
 
 class BatchNorm(BatchNorm1d):
@@ -8749,20 +8417,15 @@ class BatchNorm(BatchNorm1d):
             (default: :obj:`True`)
     """
 
-    def __init__(self, in_channels, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
-        super(BatchNorm, self).__init__(in_channels, eps, momentum, affine,
-            track_running_stats)
+    def __init__(self, in_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super(BatchNorm, self).__init__(in_channels, eps, momentum, affine, track_running_stats)
 
     def forward(self, x):
         """"""
         return super(BatchNorm, self).forward(x)
 
     def __repr__(self):
-        return (
-            '{}({}, eps={}, momentum={}, affine={}, track_running_stats={})'
-            .format(self.__class__.__name__, self.num_features, self.eps,
-            self.momentum, self.affine, self.track_running_stats))
+        return '{}({}, eps={}, momentum={}, affine={}, track_running_stats={})'.format(self.__class__.__name__, self.num_features, self.eps, self.momentum, self.affine, self.track_running_stats)
 
 
 class GraphSizeNorm(nn.Module):
@@ -8813,10 +8476,8 @@ class InstanceNorm(_InstanceNorm):
             (default: :obj:`False`)
     """
 
-    def __init__(self, in_channels, eps=1e-05, momentum=0.1, affine=False,
-        track_running_stats=False):
-        super(InstanceNorm, self).__init__(in_channels, eps, momentum,
-            affine, track_running_stats)
+    def __init__(self, in_channels, eps=1e-05, momentum=0.1, affine=False, track_running_stats=False):
+        super(InstanceNorm, self).__init__(in_channels, eps, momentum, affine, track_running_stats)
 
     def forward(self, x, batch=None):
         """"""
@@ -8833,10 +8494,8 @@ class InstanceNorm(_InstanceNorm):
             unbiased_var = tmp / (count - 1).clamp(min=1)
         if self.training and self.track_running_stats:
             momentum = self.momentum
-            self.running_mean = (1 - momentum
-                ) * self.running_mean + momentum * mean.mean(dim=0)
-            self.running_var = (1 - momentum
-                ) * self.running_var + momentum * unbiased_var.mean(dim=0)
+            self.running_mean = (1 - momentum) * self.running_mean + momentum * mean.mean(dim=0)
+            self.running_var = (1 - momentum) * self.running_var + momentum * unbiased_var.mean(dim=0)
         if not self.training and self.track_running_stats:
             mean = self.running_mean.view(1, -1).expand(batch_size, -1)
             var = self.running_var.view(1, -1).expand(batch_size, -1)
@@ -8894,8 +8553,7 @@ class LEConv(MessagePassing):
         return out if edge_weight is None else out * edge_weight.view(-1, 1)
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 def topk(x, ratio, batch, min_score=None, tol=1e-07):
@@ -8906,20 +8564,17 @@ def topk(x, ratio, batch, min_score=None, tol=1e-07):
     else:
         num_nodes = scatter_add(batch.new_ones(x.size(0)), batch, dim=0)
         batch_size, max_num_nodes = num_nodes.size(0), num_nodes.max().item()
-        cum_num_nodes = torch.cat([num_nodes.new_zeros(1), num_nodes.cumsum
-            (dim=0)[:-1]], dim=0)
+        cum_num_nodes = torch.cat([num_nodes.new_zeros(1), num_nodes.cumsum(dim=0)[:-1]], dim=0)
         index = torch.arange(batch.size(0), dtype=torch.long, device=x.device)
         index = index - cum_num_nodes[batch] + batch * max_num_nodes
-        dense_x = x.new_full((batch_size * max_num_nodes,), torch.finfo(x.
-            dtype).min)
+        dense_x = x.new_full((batch_size * max_num_nodes,), torch.finfo(x.dtype).min)
         dense_x[index] = x
         dense_x = dense_x.view(batch_size, max_num_nodes)
         _, perm = dense_x.sort(dim=-1, descending=True)
         perm = perm + cum_num_nodes.view(-1, 1)
         perm = perm.view(-1)
         k = (ratio * num_nodes.to(torch.float)).ceil().to(torch.long)
-        mask = [(torch.arange(k[i], dtype=torch.long, device=x.device) + i *
-            max_num_nodes) for i in range(batch_size)]
+        mask = [(torch.arange(k[i], dtype=torch.long, device=x.device) + i * max_num_nodes) for i in range(batch_size)]
         mask = torch.cat(mask, dim=0)
         perm = perm[mask]
     return perm
@@ -8953,8 +8608,7 @@ class ASAPooling(torch.nn.Module):
             graph neural network layer.
     """
 
-    def __init__(self, in_channels, ratio=0.5, GNN=None, dropout=0,
-        negative_slope=0.2, add_self_loops=False, **kwargs):
+    def __init__(self, in_channels, ratio=0.5, GNN=None, dropout=0, negative_slope=0.2, add_self_loops=False, **kwargs):
         super(ASAPooling, self).__init__()
         self.in_channels = in_channels
         self.ratio = ratio
@@ -8966,8 +8620,7 @@ class ASAPooling(torch.nn.Module):
         self.att = Linear(2 * in_channels, 1)
         self.gnn_score = LEConv(self.in_channels, 1)
         if self.GNN is not None:
-            self.gnn_intra_cluster = GNN(self.in_channels, self.in_channels,
-                **kwargs)
+            self.gnn_intra_cluster = GNN(self.in_channels, self.in_channels, **kwargs)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -8979,15 +8632,13 @@ class ASAPooling(torch.nn.Module):
 
     def forward(self, x, edge_index, edge_weight=None, batch=None):
         N = x.size(0)
-        edge_index, edge_weight = add_remaining_self_loops(edge_index,
-            edge_weight, fill_value=1, num_nodes=N)
+        edge_index, edge_weight = add_remaining_self_loops(edge_index, edge_weight, fill_value=1, num_nodes=N)
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
         x = x.unsqueeze(-1) if x.dim() == 1 else x
         x_pool = x
         if self.GNN is not None:
-            x_pool = self.gnn_intra_cluster(x=x, edge_index=edge_index,
-                edge_weight=edge_weight)
+            x_pool = self.gnn_intra_cluster(x=x, edge_index=edge_index, edge_weight=edge_weight)
         x_pool_j = x_pool[edge_index[0]]
         x_q = scatter(x_pool_j, edge_index[1], dim=0, reduce='max')
         x_q = self.lin(x_q)[edge_index[1]]
@@ -9002,8 +8653,7 @@ class ASAPooling(torch.nn.Module):
         x = x[perm] * fitness[perm].view(-1, 1)
         batch = batch[perm]
         row, col = edge_index
-        A = SparseTensor(row=row, col=col, value=edge_weight, sparse_sizes=
-            (N, N))
+        A = SparseTensor(row=row, col=col, value=edge_weight, sparse_sizes=(N, N))
         S = SparseTensor(row=row, col=col, value=score, sparse_sizes=(N, N))
         S = S[:, (perm)]
         A = S.t() @ A @ S
@@ -9016,8 +8666,7 @@ class ASAPooling(torch.nn.Module):
         return x, edge_index, edge_weight, batch, perm
 
     def __repr__(self):
-        return '{}({}, ratio={})'.format(self.__class__.__name__, self.
-            in_channels, self.ratio)
+        return '{}({}, ratio={})'.format(self.__class__.__name__, self.in_channels, self.ratio)
 
 
 class EdgePooling(torch.nn.Module):
@@ -9059,11 +8708,9 @@ class EdgePooling(torch.nn.Module):
             computed edge score. Adding this greatly helps with unpool
             stability. (default: :obj:`0.5`)
     """
-    unpool_description = namedtuple('UnpoolDescription', ['edge_index',
-        'cluster', 'batch', 'new_edge_score'])
+    unpool_description = namedtuple('UnpoolDescription', ['edge_index', 'cluster', 'batch', 'new_edge_score'])
 
-    def __init__(self, in_channels, edge_score_method=None, dropout=0,
-        add_to_edge_score=0.5):
+    def __init__(self, in_channels, edge_score_method=None, dropout=0, add_to_edge_score=0.5):
         super(EdgePooling, self).__init__()
         self.in_channels = in_channels
         if edge_score_method is None:
@@ -9112,8 +8759,7 @@ class EdgePooling(torch.nn.Module):
         e = F.dropout(e, p=self.dropout, training=self.training)
         e = self.compute_edge_score(e, edge_index, x.size(0))
         e = e + self.add_to_edge_score
-        x, edge_index, batch, unpool_info = self.__merge_edges__(x,
-            edge_index, batch, e)
+        x, edge_index, batch, unpool_info = self.__merge_edges__(x, edge_index, batch, e)
         return x, edge_index, batch, unpool_info
 
     def __merge_edges__(self, x, edge_index, batch, edge_score):
@@ -9144,16 +8790,14 @@ class EdgePooling(torch.nn.Module):
         new_x = scatter_add(x, cluster, dim=0, dim_size=i)
         new_edge_score = edge_score[new_edge_indices]
         if len(nodes_remaining) > 0:
-            remaining_score = x.new_ones((new_x.size(0) - len(
-                new_edge_indices),))
+            remaining_score = x.new_ones((new_x.size(0) - len(new_edge_indices),))
             new_edge_score = torch.cat([new_edge_score, remaining_score])
         new_x = new_x * new_edge_score.view(-1, 1)
         N = new_x.size(0)
         new_edge_index, _ = coalesce(cluster[edge_index], None, N, N)
         new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
         new_batch = new_batch.scatter_(0, cluster, batch)
-        unpool_info = self.unpool_description(edge_index=edge_index,
-            cluster=cluster, batch=batch, new_edge_score=new_edge_score)
+        unpool_info = self.unpool_description(edge_index=edge_index, cluster=cluster, batch=batch, new_edge_score=new_edge_score)
         return new_x, new_edge_index, new_batch, unpool_info
 
     def unpool(self, x, unpool_info):
@@ -9232,8 +8876,7 @@ class TopKPooling(torch.nn.Module):
             (default: :obj:`torch.tanh`)
     """
 
-    def __init__(self, in_channels, ratio=0.5, min_score=None, multiplier=1,
-        nonlinearity=torch.tanh):
+    def __init__(self, in_channels, ratio=0.5, min_score=None, multiplier=1, nonlinearity=torch.tanh):
         super(TopKPooling, self).__init__()
         self.in_channels = in_channels
         self.ratio = ratio
@@ -9262,15 +8905,11 @@ class TopKPooling(torch.nn.Module):
         x = x[perm] * score[perm].view(-1, 1)
         x = self.multiplier * x if self.multiplier != 1 else x
         batch = batch[perm]
-        edge_index, edge_attr = filter_adj(edge_index, edge_attr, perm,
-            num_nodes=score.size(0))
+        edge_index, edge_attr = filter_adj(edge_index, edge_attr, perm, num_nodes=score.size(0))
         return x, edge_index, edge_attr, batch, perm, score[perm]
 
     def __repr__(self):
-        return '{}({}, {}={}, multiplier={})'.format(self.__class__.
-            __name__, self.in_channels, 'ratio' if self.min_score is None else
-            'min_score', self.ratio if self.min_score is None else self.
-            min_score, self.multiplier)
+        return '{}({}, {}={}, multiplier={})'.format(self.__class__.__name__, self.in_channels, 'ratio' if self.min_score is None else 'min_score', self.ratio if self.min_score is None else self.min_score, self.multiplier)
 
 
 class Reshape(torch.nn.Module):
@@ -9285,67 +8924,121 @@ class Reshape(torch.nn.Module):
         return x
 
     def __repr__(self):
-        return '{}({})'.format(self.__class__.__name__, ', '.join([str(d) for
-            d in self.shape]))
+        return '{}({})'.format(self.__class__.__name__, ', '.join([str(d) for d in self.shape]))
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_rusty1s_pytorch_geometric(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Attention(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (BesselBasisLayer,
+     lambda: ([], {'num_radial': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DenseGCNConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (DenseGINConv,
+     lambda: ([], {'nn': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (DenseGraphConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (DenseSAGEConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Depth,
+     lambda: ([], {'in_dim': 4, 'hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([1, 4, 4]), torch.rand([1, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'in_channels': 4, 'hidden_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Envelope,
+     lambda: ([], {'exponent': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GaussianSmearing,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GraphSizeNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Linear,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualLayer,
+     lambda: ([], {'hidden_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShiftedSoftplus,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_rusty1s_pytorch_geometric(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BatchNorm(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BesselBasisLayer(*[], **{'num_radial': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DenseGCNConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DenseGINConv(*[], **{'nn': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(DenseGraphConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(DenseSAGEConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Depth(*[], **{'in_dim': 4, 'hidden': 4}), [torch.rand([4, 4, 4]), torch.rand([1, 4, 4]), torch.rand([1, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Discriminator(*[], **{'in_channels': 4, 'hidden_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Envelope(*[], **{'exponent': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(GaussianSmearing(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(GraphSizeNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(Linear(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(ResidualLayer(*[], **{'hidden_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(ShiftedSoftplus(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 

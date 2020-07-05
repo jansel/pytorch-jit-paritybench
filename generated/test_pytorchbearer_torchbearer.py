@@ -90,8 +90,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -212,10 +213,7 @@ class SimpleModel(nn.Module):
 
     def __init__(self):
         super(SimpleModel, self).__init__()
-        self.convs = nn.Sequential(nn.Conv2d(3, 16, stride=2, kernel_size=3
-            ), nn.BatchNorm2d(16), nn.ReLU(), nn.Conv2d(16, 32, stride=2,
-            kernel_size=3), nn.BatchNorm2d(32), nn.ReLU(), nn.Conv2d(32, 64,
-            stride=2, kernel_size=3), nn.BatchNorm2d(64), nn.ReLU())
+        self.convs = nn.Sequential(nn.Conv2d(3, 16, stride=2, kernel_size=3), nn.BatchNorm2d(16), nn.ReLU(), nn.Conv2d(16, 32, stride=2, kernel_size=3), nn.BatchNorm2d(32), nn.ReLU(), nn.Conv2d(32, 64, stride=2, kernel_size=3), nn.BatchNorm2d(64), nn.ReLU())
         self.classifier = nn.Linear(576, 10)
 
     def forward(self, x):
@@ -228,10 +226,7 @@ class SimpleModel(nn.Module):
 
     def __init__(self):
         super(SimpleModel, self).__init__()
-        self.convs = nn.Sequential(nn.Conv2d(3, 16, stride=2, kernel_size=3
-            ), nn.BatchNorm2d(16), nn.ReLU(), nn.Conv2d(16, 32, stride=2,
-            kernel_size=3), nn.BatchNorm2d(32), nn.ReLU(), nn.Conv2d(32, 64,
-            stride=2, kernel_size=3), nn.BatchNorm2d(64), nn.ReLU())
+        self.convs = nn.Sequential(nn.Conv2d(3, 16, stride=2, kernel_size=3), nn.BatchNorm2d(16), nn.ReLU(), nn.Conv2d(16, 32, stride=2, kernel_size=3), nn.BatchNorm2d(32), nn.ReLU(), nn.Conv2d(32, 64, stride=2, kernel_size=3), nn.BatchNorm2d(64), nn.ReLU())
         self.classifier = nn.Linear(576, 10)
 
     def forward(self, x):
@@ -318,11 +313,9 @@ class _CAMWrapper(nn.Module):
 
     def forward(self, _, state):
         try:
-            return self.base_model(self.transform(self.input_image.sigmoid(
-                )).unsqueeze(0), state)
+            return self.base_model(self.transform(self.input_image.sigmoid()).unsqueeze(0), state)
         except TypeError:
-            return self.base_model(self.transform(self.input_image.sigmoid(
-                )).unsqueeze(0))
+            return self.base_model(self.transform(self.input_image.sigmoid()).unsqueeze(0))
 
 
 class MockModel(torch.nn.Module):
@@ -335,28 +328,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MockModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {'x': torch.rand([4, 4])}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SimpleModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+    (TestModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([1, 1])], {}),
+     True),
+    (TestModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TestModule2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ToyModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (_CAMWrapper,
+     lambda: ([], {'input_size': 4, 'base_model': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_pytorchbearer_torchbearer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MockModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Net(*[], **{'x': torch.rand([4, 4])}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TestModel(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(TestModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(TestModule2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ToyModel(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(_CAMWrapper(*[], **{'input_size': 4, 'base_model': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

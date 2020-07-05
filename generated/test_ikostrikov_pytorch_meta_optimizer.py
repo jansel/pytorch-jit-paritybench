@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -192,17 +193,14 @@ class FastMetaOptimizer(nn.Module):
     def meta_update(self, model_with_grads, loss):
         grads = []
         for module in model_with_grads.children():
-            grads.append(module._parameters['weight'].grad.data.view(-1).
-                unsqueeze(-1))
-            grads.append(module._parameters['bias'].grad.data.view(-1).
-                unsqueeze(-1))
+            grads.append(module._parameters['weight'].grad.data.view(-1).unsqueeze(-1))
+            grads.append(module._parameters['bias'].grad.data.view(-1).unsqueeze(-1))
         flat_params = self.meta_model.get_flat_params().unsqueeze(-1)
         flat_grads = torch.cat(grads)
         self.i = self.i.expand(flat_params.size(0), 1)
         self.f = self.f.expand(flat_params.size(0), 1)
         loss = loss.expand_as(flat_grads)
-        inputs = Variable(torch.cat((preprocess_gradients(flat_grads),
-            flat_params.data, loss), 1))
+        inputs = Variable(torch.cat((preprocess_gradients(flat_grads), flat_params.data, loss), 1))
         inputs = torch.cat((inputs, self.f, self.i), 1)
         self.f, self.i = self(inputs)
         flat_params = self.f * flat_params - self.i * Variable(flat_grads)
@@ -230,14 +228,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FastMetaOptimizer,
+     lambda: ([], {'model': 4, 'num_layers': 1, 'hidden_size': 4}),
+     lambda: ([torch.rand([6, 6])], {}),
+     True),
+    (LayerNorm1D,
+     lambda: ([], {'num_outputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 784])], {}),
+     True),
+]
+
 class Test_ikostrikov_pytorch_meta_optimizer(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FastMetaOptimizer(*[], **{'model': 4, 'num_layers': 1, 'hidden_size': 4}), [torch.rand([6, 6])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm1D(*[], **{'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 784])], {})
+        self._check(*TESTCASES[2])
 

@@ -76,8 +76,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -189,8 +190,7 @@ def linear_init(module):
 
 class DiagNormalPolicy(nn.Module):
 
-    def __init__(self, input_size, output_size, hiddens=None, activation='relu'
-        ):
+    def __init__(self, input_size, output_size, hiddens=None, activation='relu'):
         super(DiagNormalPolicy, self).__init__()
         if hiddens is None:
             hiddens = [100, 100]
@@ -248,8 +248,7 @@ class CategoricalPolicy(nn.Module):
 class Net(nn.Module):
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, num_classes, input_dim=768, inner_dim=200,
-        pooler_dropout=0.3):
+    def __init__(self, num_classes, input_dim=768, inner_dim=200, pooler_dropout=0.3):
         super().__init__()
         self.dense = nn.Linear(input_dim, inner_dim)
         self.activation_fn = nn.ReLU()
@@ -299,8 +298,7 @@ class Convnet(nn.Module):
 
     def __init__(self, x_dim=3, hid_dim=64, z_dim=64):
         super().__init__()
-        self.encoder = l2l.vision.models.ConvBase(output_size=z_dim, hidden
-            =hid_dim, channels=x_dim)
+        self.encoder = l2l.vision.models.ConvBase(output_size=z_dim, hidden=hid_dim, channels=x_dim)
         self.out_channels = 1600
 
     def forward(self, x):
@@ -344,8 +342,7 @@ class LinearBlock(nn.Module):
     def __init__(self, input_size, output_size):
         super(LinearBlock, self).__init__()
         self.relu = nn.ReLU()
-        self.normalize = nn.BatchNorm1d(output_size, affine=True, momentum=
-            0.999, eps=0.001, track_running_stats=False)
+        self.normalize = nn.BatchNorm1d(output_size, affine=True, momentum=0.999, eps=0.001, track_running_stats=False)
         self.linear = nn.Linear(input_size, output_size)
         fc_init_(self.linear)
 
@@ -364,21 +361,18 @@ def maml_init_(module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, max_pool=
-        True, max_pool_factor=1.0):
+    def __init__(self, in_channels, out_channels, kernel_size, max_pool=True, max_pool_factor=1.0):
         super(ConvBlock, self).__init__()
         stride = int(2 * max_pool_factor), int(2 * max_pool_factor)
         if max_pool:
-            self.max_pool = nn.MaxPool2d(kernel_size=stride, stride=stride,
-                ceil_mode=False)
+            self.max_pool = nn.MaxPool2d(kernel_size=stride, stride=stride, ceil_mode=False)
             stride = 1, 1
         else:
             self.max_pool = lambda x: x
         self.normalize = nn.BatchNorm2d(out_channels, affine=True)
         nn.init.uniform_(self.normalize.weight)
         self.relu = nn.ReLU()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride=stride, padding=1, bias=True)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=1, bias=True)
         maml_init_(self.conv)
 
     def forward(self, x):
@@ -391,13 +385,10 @@ class ConvBlock(nn.Module):
 
 class ConvBase(nn.Sequential):
 
-    def __init__(self, output_size, hidden=64, channels=1, max_pool=False,
-        layers=4, max_pool_factor=1.0):
-        core = [ConvBlock(channels, hidden, (3, 3), max_pool=max_pool,
-            max_pool_factor=max_pool_factor)]
+    def __init__(self, output_size, hidden=64, channels=1, max_pool=False, layers=4, max_pool_factor=1.0):
+        core = [ConvBlock(channels, hidden, (3, 3), max_pool=max_pool, max_pool_factor=max_pool_factor)]
         for l in range(layers - 1):
-            core.append(ConvBlock(hidden, hidden, kernel_size=(3, 3),
-                max_pool=max_pool, max_pool_factor=max_pool_factor))
+            core.append(ConvBlock(hidden, hidden, kernel_size=(3, 3), max_pool=max_pool, max_pool_factor=max_pool_factor))
         super(ConvBase, self).__init__(*core)
 
 
@@ -474,8 +465,7 @@ class OmniglotCNN(nn.Module):
     def __init__(self, output_size=5, hidden_size=64, layers=4):
         super(OmniglotCNN, self).__init__()
         self.hidden_size = hidden_size
-        self.base = ConvBase(output_size=hidden_size, hidden=hidden_size,
-            channels=1, max_pool=False, layers=layers)
+        self.base = ConvBase(output_size=hidden_size, hidden=hidden_size, channels=1, max_pool=False, layers=layers)
         self.linear = nn.Linear(hidden_size, output_size, bias=True)
         self.linear.weight.data.normal_()
         self.linear.bias.data.mul_(0.0)
@@ -516,9 +506,7 @@ class MiniImagenetCNN(nn.Module):
 
     def __init__(self, output_size, hidden_size=32, layers=4):
         super(MiniImagenetCNN, self).__init__()
-        self.base = ConvBase(output_size=hidden_size, hidden=hidden_size,
-            channels=3, max_pool=True, layers=layers, max_pool_factor=4 //
-            layers)
+        self.base = ConvBase(output_size=hidden_size, hidden=hidden_size, channels=3, max_pool=True, layers=layers, max_pool_factor=4 // layers)
         self.linear = nn.Linear(25 * hidden_size, output_size, bias=True)
         maml_init_(self.linear)
         self.hidden_size = hidden_size
@@ -532,17 +520,14 @@ class MiniImagenetCNN(nn.Module):
 def conv_block(in_channels, out_channels):
     bn = nn.BatchNorm2d(out_channels)
     nn.init.uniform_(bn.weight)
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1),
-        bn, nn.ReLU(), nn.MaxPool2d(2))
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), bn, nn.ReLU(), nn.MaxPool2d(2))
 
 
 class Convnet(nn.Module):
 
     def __init__(self, x_dim=3, hid_dim=64, z_dim=64):
         super().__init__()
-        self.encoder = nn.Sequential(conv_block(x_dim, hid_dim), conv_block
-            (hid_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(
-            hid_dim, z_dim))
+        self.encoder = nn.Sequential(conv_block(x_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, z_dim))
         self.out_channels = 1600
 
     def forward(self, x):
@@ -554,8 +539,7 @@ class Model(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.model = torch.nn.Sequential(torch.nn.Linear(4, 64), torch.nn.
-            Tanh(), torch.nn.Linear(64, 2))
+        self.model = torch.nn.Sequential(torch.nn.Linear(4, 64), torch.nn.Tanh(), torch.nn.Linear(64, 2))
 
     def forward(self, x):
         return self.model(x)
@@ -565,36 +549,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvBase,
+     lambda: ([], {'output_size': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (ConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Convnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (DiagNormalPolicy,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Lambda,
+     lambda: ([], {'fn': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearBlock,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (MiniImagenetCNN,
+     lambda: ([], {'output_size': 4}),
+     lambda: ([torch.rand([4, 3, 81, 81])], {}),
+     True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (OmniglotCNN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 28, 28])], {}),
+     False),
+    (OmniglotFC,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_learnables_learn2learn(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ConvBase(*[], **{'output_size': 4}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Convnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DiagNormalPolicy(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Lambda(*[], **{'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LinearBlock(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(OmniglotCNN(*[], **{}), [torch.rand([4, 1, 28, 28])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(OmniglotFC(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,13 +56,11 @@ import torch.nn as nn
 
 
 def conv2d_block(in_c, out_c):
-    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=2, padding=1), nn
-        .BatchNorm2d(out_c), nn.ReLU())
+    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=2, padding=1), nn.BatchNorm2d(out_c), nn.ReLU())
 
 
 def linear_block(in_c, out_c):
-    return nn.Sequential(nn.Linear(in_c, out_c), nn.BatchNorm1d(out_c), nn.
-        ReLU())
+    return nn.Sequential(nn.Linear(in_c, out_c), nn.BatchNorm1d(out_c), nn.ReLU())
 
 
 class Encoder(nn.Module):
@@ -89,16 +88,13 @@ class Encoder(nn.Module):
 
 
 def deconv2d_block(in_c, out_c):
-    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=1, padding=1), nn
-        .BatchNorm2d(out_c), nn.ReLU())
+    return nn.Sequential(nn.Conv2d(in_c, out_c, 3, stride=1, padding=1), nn.BatchNorm2d(out_c), nn.ReLU())
 
 
 def pixel_bias(outViewN, outW, outH, renderDepth):
     X, Y = torch.meshgrid([torch.arange(outH), torch.arange(outW)])
     X, Y = X.float(), Y.float()
-    initTile = torch.cat([X.repeat([outViewN, 1, 1]), Y.repeat([outViewN, 1,
-        1]), torch.ones([outViewN, outH, outW]).float() * renderDepth,
-        torch.zeros([outViewN, outH, outW]).float()], dim=0)
+    initTile = torch.cat([X.repeat([outViewN, 1, 1]), Y.repeat([outViewN, 1, 1]), torch.ones([outViewN, outH, outW]).float() * renderDepth, torch.zeros([outViewN, outH, outW]).float()], dim=0)
     return initTile.unsqueeze_(dim=0)
 
 
@@ -132,16 +128,14 @@ class Decoder(nn.Module):
         x = self.deconv4(F.interpolate(x, scale_factor=2))
         x = self.deconv5(F.interpolate(x, scale_factor=2))
         x = self.pixel_conv(x) + self.pixel_bias
-        XYZ, maskLogit = torch.split(x, [self.outViewN * 3, self.outViewN],
-            dim=1)
+        XYZ, maskLogit = torch.split(x, [self.outViewN * 3, self.outViewN], dim=1)
         return XYZ, maskLogit
 
 
 class Structure_Generator(nn.Module):
     """Structure generator components in PCG"""
 
-    def __init__(self, encoder=None, decoder=None, outViewN=8, outW=128,
-        outH=128, renderDepth=1.0):
+    def __init__(self, encoder=None, decoder=None, outViewN=8, outW=128, outH=128, renderDepth=1.0):
         super(Structure_Generator, self).__init__()
         if encoder:
             self.encoder = encoder
@@ -162,12 +156,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_lkhphuc_pytorch_3d_point_cloud_generation(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Structure_Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_lkhphuc_pytorch_3d_point_cloud_generation(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Structure_Generator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

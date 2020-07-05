@@ -38,8 +38,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -142,11 +143,7 @@ class PNet(nn.Module):
 
     def __init__(self):
         super(PNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 
-            10, 3, 1)), ('prelu1', nn.PReLU(10)), ('pool1', nn.MaxPool2d(2,
-            2, ceil_mode=True)), ('conv2', nn.Conv2d(10, 16, 3, 1)), (
-            'prelu2', nn.PReLU(16)), ('conv3', nn.Conv2d(16, 32, 3, 1)), (
-            'prelu3', nn.PReLU(32))]))
+        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 10, 3, 1)), ('prelu1', nn.PReLU(10)), ('pool1', nn.MaxPool2d(2, 2, ceil_mode=True)), ('conv2', nn.Conv2d(10, 16, 3, 1)), ('prelu2', nn.PReLU(16)), ('conv3', nn.Conv2d(16, 32, 3, 1)), ('prelu3', nn.PReLU(32))]))
         self.conv4_1 = nn.Conv2d(32, 2, 1, 1)
         self.conv4_2 = nn.Conv2d(32, 4, 1, 1)
         weights = np.load('./pnet.npy', allow_pickle=True)[()]
@@ -172,13 +169,7 @@ class RNet(nn.Module):
 
     def __init__(self):
         super(RNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 
-            28, 3, 1)), ('prelu1', nn.PReLU(28)), ('pool1', nn.MaxPool2d(3,
-            2, ceil_mode=True)), ('conv2', nn.Conv2d(28, 48, 3, 1)), (
-            'prelu2', nn.PReLU(48)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode
-            =True)), ('conv3', nn.Conv2d(48, 64, 2, 1)), ('prelu3', nn.
-            PReLU(64)), ('flatten', Flatten()), ('conv4', nn.Linear(576, 
-            128)), ('prelu4', nn.PReLU(128))]))
+        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 28, 3, 1)), ('prelu1', nn.PReLU(28)), ('pool1', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv2', nn.Conv2d(28, 48, 3, 1)), ('prelu2', nn.PReLU(48)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv3', nn.Conv2d(48, 64, 2, 1)), ('prelu3', nn.PReLU(64)), ('flatten', Flatten()), ('conv4', nn.Linear(576, 128)), ('prelu4', nn.PReLU(128))]))
         self.conv5_1 = nn.Linear(128, 2)
         self.conv5_2 = nn.Linear(128, 4)
         weights = np.load('./rnet.npy', allow_pickle=True)[()]
@@ -204,15 +195,7 @@ class ONet(nn.Module):
 
     def __init__(self):
         super(ONet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 
-            32, 3, 1)), ('prelu1', nn.PReLU(32)), ('pool1', nn.MaxPool2d(3,
-            2, ceil_mode=True)), ('conv2', nn.Conv2d(32, 64, 3, 1)), (
-            'prelu2', nn.PReLU(64)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode
-            =True)), ('conv3', nn.Conv2d(64, 64, 3, 1)), ('prelu3', nn.
-            PReLU(64)), ('pool3', nn.MaxPool2d(2, 2, ceil_mode=True)), (
-            'conv4', nn.Conv2d(64, 128, 2, 1)), ('prelu4', nn.PReLU(128)),
-            ('flatten', Flatten()), ('conv5', nn.Linear(1152, 256)), (
-            'drop5', nn.Dropout(0.25)), ('prelu5', nn.PReLU(256))]))
+        self.features = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 32, 3, 1)), ('prelu1', nn.PReLU(32)), ('pool1', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv2', nn.Conv2d(32, 64, 3, 1)), ('prelu2', nn.PReLU(64)), ('pool2', nn.MaxPool2d(3, 2, ceil_mode=True)), ('conv3', nn.Conv2d(64, 64, 3, 1)), ('prelu3', nn.PReLU(64)), ('pool3', nn.MaxPool2d(2, 2, ceil_mode=True)), ('conv4', nn.Conv2d(64, 128, 2, 1)), ('prelu4', nn.PReLU(128)), ('flatten', Flatten()), ('conv5', nn.Linear(1152, 256)), ('drop5', nn.Dropout(0.25)), ('prelu5', nn.PReLU(256))]))
         self.conv6_1 = nn.Linear(256, 2)
         self.conv6_2 = nn.Linear(256, 4)
         self.conv6_3 = nn.Linear(256, 10)
@@ -248,12 +231,10 @@ class SEModule(Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = AdaptiveAvgPool2d(1)
-        self.fc1 = Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0, bias=False)
+        self.fc1 = Conv2d(channels, channels // reduction, kernel_size=1, padding=0, bias=False)
         nn.init.xavier_uniform_(self.fc1.weight.data)
         self.relu = ReLU(inplace=True)
-        self.fc2 = Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0, bias=False)
+        self.fc2 = Conv2d(channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
 
     def forward(self, x):
@@ -273,12 +254,8 @@ class bottleneck_IR(Module):
         if in_channel == depth:
             self.shortcut_layer = MaxPool2d(1, stride)
         else:
-            self.shortcut_layer = Sequential(Conv2d(in_channel, depth, (1, 
-                1), stride, bias=False), BatchNorm2d(depth))
-        self.res_layer = Sequential(BatchNorm2d(in_channel), Conv2d(
-            in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
-            Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            BatchNorm2d(depth))
+            self.shortcut_layer = Sequential(Conv2d(in_channel, depth, (1, 1), stride, bias=False), BatchNorm2d(depth))
+        self.res_layer = Sequential(BatchNorm2d(in_channel), Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth), Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
 
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -293,12 +270,8 @@ class bottleneck_IR_SE(Module):
         if in_channel == depth:
             self.shortcut_layer = MaxPool2d(1, stride)
         else:
-            self.shortcut_layer = Sequential(Conv2d(in_channel, depth, (1, 
-                1), stride, bias=False), BatchNorm2d(depth))
-        self.res_layer = Sequential(BatchNorm2d(in_channel), Conv2d(
-            in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
-            Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            BatchNorm2d(depth), SEModule(depth, 16))
+            self.shortcut_layer = Sequential(Conv2d(in_channel, depth, (1, 1), stride, bias=False), BatchNorm2d(depth))
+        self.res_layer = Sequential(BatchNorm2d(in_channel), Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth), Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth), SEModule(depth, 16))
 
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -311,26 +284,16 @@ class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):
 
 
 def get_block(in_channel, depth, num_units, stride=2):
-    return [Bottleneck(in_channel, depth, stride)] + [Bottleneck(depth,
-        depth, 1) for i in range(num_units - 1)]
+    return [Bottleneck(in_channel, depth, stride)] + [Bottleneck(depth, depth, 1) for i in range(num_units - 1)]
 
 
 def get_blocks(num_layers):
     if num_layers == 50:
-        blocks = [get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=4), get_block(
-            in_channel=128, depth=256, num_units=14), get_block(in_channel=
-            256, depth=512, num_units=3)]
+        blocks = [get_block(in_channel=64, depth=64, num_units=3), get_block(in_channel=64, depth=128, num_units=4), get_block(in_channel=128, depth=256, num_units=14), get_block(in_channel=256, depth=512, num_units=3)]
     elif num_layers == 100:
-        blocks = [get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=13), get_block(
-            in_channel=128, depth=256, num_units=30), get_block(in_channel=
-            256, depth=512, num_units=3)]
+        blocks = [get_block(in_channel=64, depth=64, num_units=3), get_block(in_channel=64, depth=128, num_units=13), get_block(in_channel=128, depth=256, num_units=30), get_block(in_channel=256, depth=512, num_units=3)]
     elif num_layers == 152:
-        blocks = [get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=8), get_block(
-            in_channel=128, depth=256, num_units=36), get_block(in_channel=
-            256, depth=512, num_units=3)]
+        blocks = [get_block(in_channel=64, depth=64, num_units=3), get_block(in_channel=64, depth=128, num_units=8), get_block(in_channel=128, depth=256, num_units=36), get_block(in_channel=256, depth=512, num_units=3)]
     return blocks
 
 
@@ -338,29 +301,23 @@ class Backbone(Module):
 
     def __init__(self, input_size, num_layers, mode='ir'):
         super(Backbone, self).__init__()
-        assert input_size[0] in [112, 224
-            ], 'input_size should be [112, 112] or [224, 224]'
-        assert num_layers in [50, 100, 152
-            ], 'num_layers should be 50, 100 or 152'
+        assert input_size[0] in [112, 224], 'input_size should be [112, 112] or [224, 224]'
+        assert num_layers in [50, 100, 152], 'num_layers should be 50, 100 or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)
         if mode == 'ir':
             unit_module = bottleneck_IR
         elif mode == 'ir_se':
             unit_module = bottleneck_IR_SE
-        self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=
-            False), BatchNorm2d(64), PReLU(64))
+        self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False), BatchNorm2d(64), PReLU(64))
         if input_size[0] == 112:
-            self.output_layer = Sequential(BatchNorm2d(512), Dropout(),
-                Flatten(), Linear(512 * 7 * 7, 512), BatchNorm1d(512))
+            self.output_layer = Sequential(BatchNorm2d(512), Dropout(), Flatten(), Linear(512 * 7 * 7, 512), BatchNorm1d(512))
         else:
-            self.output_layer = Sequential(BatchNorm2d(512), Dropout(),
-                Flatten(), Linear(512 * 14 * 14, 512), BatchNorm1d(512))
+            self.output_layer = Sequential(BatchNorm2d(512), Dropout(), Flatten(), Linear(512 * 14 * 14, 512), BatchNorm1d(512))
         modules = []
         for block in blocks:
             for bottleneck in block:
-                modules.append(unit_module(bottleneck.in_channel,
-                    bottleneck.depth, bottleneck.stride))
+                modules.append(unit_module(bottleneck.in_channel, bottleneck.depth, bottleneck.stride))
         self.body = Sequential(*modules)
         self._initialize_weights()
 
@@ -390,8 +347,7 @@ class Backbone(Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(Module):
@@ -423,8 +379,7 @@ class BasicBlock(Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias
-        =False)
+    return Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(Module):
@@ -463,11 +418,9 @@ class ResNet(Module):
 
     def __init__(self, input_size, block, layers, zero_init_residual=True):
         super(ResNet, self).__init__()
-        assert input_size[0] in [112, 224
-            ], 'input_size should be [112, 112] or [224, 224]'
+        assert input_size[0] in [112, 224], 'input_size should be [112, 112] or [224, 224]'
         self.inplanes = 64
-        self.conv1 = Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias
-            =False)
+        self.conv1 = Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = BatchNorm2d(64)
         self.relu = ReLU(inplace=True)
         self.maxpool = MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -484,8 +437,7 @@ class ResNet(Module):
         self.bn_o2 = BatchNorm1d(512)
         for m in self.modules():
             if isinstance(m, Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -499,8 +451,7 @@ class ResNet(Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = Sequential(conv1x1(self.inplanes, planes * block.
-                expansion, stride), BatchNorm2d(planes * block.expansion))
+            downsample = Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -571,8 +522,7 @@ class ArcFace(nn.Module):
             cos(theta+m)
         """
 
-    def __init__(self, in_features, out_features, s=64.0, m=0.5,
-        easy_margin=False):
+    def __init__(self, in_features, out_features, s=64.0, m=0.5, easy_margin=False):
         super(ArcFace, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -630,9 +580,7 @@ class CosFace(nn.Module):
         return output
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.
-            in_features) + ', out_features = ' + str(self.out_features
-            ) + ', s = ' + str(self.s) + ', m = ' + str(self.m) + ')'
+        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', s = ' + str(self.s) + ', m = ' + str(self.m) + ')'
 
 
 class SphereFace(nn.Module):
@@ -656,14 +604,11 @@ class SphereFace(nn.Module):
         self.iter = 0
         self.weight = Parameter(torch.FloatTensor(out_features, in_features))
         nn.init.xavier_uniform_(self.weight)
-        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x **
-            2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 *
-            x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
+        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
 
     def forward(self, input, label):
         self.iter += 1
-        self.lamb = max(self.LambdaMin, self.base * (1 + self.gamma * self.
-            iter) ** (-1 * self.power))
+        self.lamb = max(self.LambdaMin, self.base * (1 + self.gamma * self.iter) ** (-1 * self.power))
         cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
         cos_theta = cos_theta.clamp(-1, 1)
         cos_m_theta = self.mlambda[self.m](cos_theta)
@@ -674,15 +619,12 @@ class SphereFace(nn.Module):
         one_hot = torch.zeros(cos_theta.size())
         one_hot = one_hot if cos_theta.is_cuda else one_hot
         one_hot.scatter_(1, label.view(-1, 1), 1)
-        output = one_hot * (phi_theta - cos_theta) / (1 + self.lamb
-            ) + cos_theta
+        output = one_hot * (phi_theta - cos_theta) / (1 + self.lamb) + cos_theta
         output *= NormOfFeature.view(-1, 1)
         return output
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.
-            in_features) + ', out_features = ' + str(self.out_features
-            ) + ', m = ' + str(self.m) + ')'
+        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', m = ' + str(self.m) + ')'
 
 
 def l2_norm(input, axis=1):
@@ -704,8 +646,7 @@ class Am_softmax(nn.Module):
         super(Am_softmax, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.kernel = Parameter(torch.Tensor(self.in_features, self.
-            out_features))
+        self.kernel = Parameter(torch.Tensor(self.in_features, self.out_features))
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-05).mul_(100000.0)
         self.m = m
         self.s = s
@@ -791,8 +732,7 @@ class ArcFace(nn.Module):
             cos(theta+m)
         """
 
-    def __init__(self, in_features, out_features, device_id, s=64.0, m=0.5,
-        easy_margin=False):
+    def __init__(self, in_features, out_features, device_id, s=64.0, m=0.5, easy_margin=False):
         super(ArcFace, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -819,8 +759,7 @@ class ArcFace(nn.Module):
             for i in range(1, len(self.device_id)):
                 temp_x = x
                 weight = sub_weights[i]
-                cosine = torch.cat((cosine, F.linear(F.normalize(temp_x), F
-                    .normalize(weight))), dim=1)
+                cosine = torch.cat((cosine, F.linear(F.normalize(temp_x), F.normalize(weight))), dim=1)
         sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
         phi = cosine * self.cos_m - sine * self.sin_m
         if self.easy_margin:
@@ -870,8 +809,7 @@ class CosFace(nn.Module):
             for i in range(1, len(self.device_id)):
                 temp_x = x
                 weight = sub_weights[i]
-                cosine = torch.cat((cosine, F.linear(F.normalize(temp_x), F
-                    .normalize(weight))), dim=1)
+                cosine = torch.cat((cosine, F.linear(F.normalize(temp_x), F.normalize(weight))), dim=1)
         phi = cosine - self.m
         one_hot = torch.zeros(cosine.size())
         if self.device_id != None:
@@ -882,9 +820,7 @@ class CosFace(nn.Module):
         return output
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.
-            in_features) + ', out_features = ' + str(self.out_features
-            ) + ', s = ' + str(self.s) + ', m = ' + str(self.m) + ')'
+        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', s = ' + str(self.s) + ', m = ' + str(self.m) + ')'
 
 
 class SphereFace(nn.Module):
@@ -911,14 +847,11 @@ class SphereFace(nn.Module):
         self.device_id = device_id
         self.weight = Parameter(torch.FloatTensor(out_features, in_features))
         nn.init.xavier_uniform_(self.weight)
-        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x **
-            2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 *
-            x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
+        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
 
     def forward(self, input, label):
         self.iter += 1
-        self.lamb = max(self.LambdaMin, self.base * (1 + self.gamma * self.
-            iter) ** (-1 * self.power))
+        self.lamb = max(self.LambdaMin, self.base * (1 + self.gamma * self.iter) ** (-1 * self.power))
         if self.device_id == None:
             cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
         else:
@@ -930,8 +863,7 @@ class SphereFace(nn.Module):
             for i in range(1, len(self.device_id)):
                 temp_x = x
                 weight = sub_weights[i]
-                cos_theta = torch.cat((cos_theta, F.linear(F.normalize(
-                    temp_x), F.normalize(weight))), dim=1)
+                cos_theta = torch.cat((cos_theta, F.linear(F.normalize(temp_x), F.normalize(weight))), dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         cos_m_theta = self.mlambda[self.m](cos_theta)
         theta = cos_theta.data.acos()
@@ -942,15 +874,12 @@ class SphereFace(nn.Module):
         if self.device_id != None:
             one_hot = one_hot
         one_hot.scatter_(1, label.view(-1, 1), 1)
-        output = one_hot * (phi_theta - cos_theta) / (1 + self.lamb
-            ) + cos_theta
+        output = one_hot * (phi_theta - cos_theta) / (1 + self.lamb) + cos_theta
         output *= NormOfFeature.view(-1, 1)
         return output
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.
-            in_features) + ', out_features = ' + str(self.out_features
-            ) + ', m = ' + str(self.m) + ')'
+        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', m = ' + str(self.m) + ')'
 
 
 class Am_softmax(nn.Module):
@@ -987,8 +916,7 @@ class Am_softmax(nn.Module):
             for i in range(1, len(self.device_id)):
                 temp_x = x
                 kernel_norm = l2_norm(sub_kernels[i], axis=0)
-                cos_theta = torch.cat((cos_theta, torch.mm(temp_x,
-                    kernel_norm)), dim=1)
+                cos_theta = torch.cat((cos_theta, torch.mm(temp_x, kernel_norm)), dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         phi = cos_theta - self.m
         label = label.view(-1, 1)
@@ -1020,20 +948,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (bottleneck_IR,
+     lambda: ([], {'in_channel': 4, 'depth': 1, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ZhaoJ9014_face_evoLVe_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(bottleneck_IR(*[], **{'in_channel': 4, 'depth': 1, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(bottleneck_IR_SE(*[], **{'in_channel': 4, 'depth': 64, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,8 +55,7 @@ class SpeechEmbedder(nn.Module):
 
     def __init__(self):
         super(SpeechEmbedder, self).__init__()
-        self.LSTM_stack = nn.LSTM(hp.data.nmels, hp.model.hidden,
-            num_layers=hp.model.num_layer, batch_first=True)
+        self.LSTM_stack = nn.LSTM(hp.data.nmels, hp.model.hidden, num_layers=hp.model.num_layer, batch_first=True)
         for name, param in self.LSTM_stack.named_parameters():
             if 'bias' in name:
                 nn.init.constant_(param, 0.0)
@@ -95,8 +95,7 @@ def get_utterance_centroids(embeddings):
         (speaker_ct, utterance_per_speaker_ct, embedding_size)
     """
     sum_centroids = embeddings.sum(dim=1)
-    sum_centroids = sum_centroids.reshape(sum_centroids.shape[0], 1,
-        sum_centroids.shape[-1])
+    sum_centroids = sum_centroids.reshape(sum_centroids.shape[0], 1, sum_centroids.shape[-1])
     num_utterances = embeddings.shape[1] - 1
     centroids = (sum_centroids - embeddings) / num_utterances
     return centroids
@@ -105,22 +104,16 @@ def get_utterance_centroids(embeddings):
 def get_cossim(embeddings, centroids):
     num_utterances = embeddings.shape[1]
     utterance_centroids = get_utterance_centroids(embeddings)
-    utterance_centroids_flat = utterance_centroids.view(utterance_centroids
-        .shape[0] * utterance_centroids.shape[1], -1)
+    utterance_centroids_flat = utterance_centroids.view(utterance_centroids.shape[0] * utterance_centroids.shape[1], -1)
     embeddings_flat = embeddings.view(embeddings.shape[0] * num_utterances, -1)
     cos_same = F.cosine_similarity(embeddings_flat, utterance_centroids_flat)
-    centroids_expand = centroids.repeat((num_utterances * embeddings.shape[
-        0], 1))
-    embeddings_expand = embeddings_flat.unsqueeze(1).repeat(1, embeddings.
-        shape[0], 1)
-    embeddings_expand = embeddings_expand.view(embeddings_expand.shape[0] *
-        embeddings_expand.shape[1], embeddings_expand.shape[-1])
+    centroids_expand = centroids.repeat((num_utterances * embeddings.shape[0], 1))
+    embeddings_expand = embeddings_flat.unsqueeze(1).repeat(1, embeddings.shape[0], 1)
+    embeddings_expand = embeddings_expand.view(embeddings_expand.shape[0] * embeddings_expand.shape[1], embeddings_expand.shape[-1])
     cos_diff = F.cosine_similarity(embeddings_expand, centroids_expand)
-    cos_diff = cos_diff.view(embeddings.size(0), num_utterances, centroids.
-        size(0))
+    cos_diff = cos_diff.view(embeddings.size(0), num_utterances, centroids.size(0))
     same_idx = list(range(embeddings.size(0)))
-    cos_diff[(same_idx), :, (same_idx)] = cos_same.view(embeddings.shape[0],
-        num_utterances)
+    cos_diff[(same_idx), :, (same_idx)] = cos_same.view(embeddings.shape[0], num_utterances)
     cos_diff = cos_diff + 1e-06
     return cos_diff
 
@@ -146,9 +139,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GE2ELoss,
+     lambda: ([], {'device': 0}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_HarryVolek_PyTorch_Speaker_Verification(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(GE2ELoss(*[], **{'device': 0}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

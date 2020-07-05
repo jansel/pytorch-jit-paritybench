@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,8 +65,7 @@ class FeaturesLinear(torch.nn.Module):
         super().__init__()
         self.fc = torch.nn.Embedding(sum(field_dims), output_dim)
         self.bias = torch.nn.Parameter(torch.zeros((output_dim,)))
-        self.offsets = np.array((0, *np.cumsum(field_dims)[:-1]), dtype=np.long
-            )
+        self.offsets = np.array((0, *np.cumsum(field_dims)[:-1]), dtype=np.long)
 
     def forward(self, x):
         """
@@ -80,8 +80,7 @@ class FeaturesEmbedding(torch.nn.Module):
     def __init__(self, field_dims, embed_dim):
         super().__init__()
         self.embedding = torch.nn.Embedding(sum(field_dims), embed_dim)
-        self.offsets = np.array((0, *np.cumsum(field_dims)[:-1]), dtype=np.long
-            )
+        self.offsets = np.array((0, *np.cumsum(field_dims)[:-1]), dtype=np.long)
         torch.nn.init.xavier_uniform_(self.embedding.weight.data)
 
     def forward(self, x):
@@ -97,10 +96,8 @@ class FieldAwareFactorizationMachine(torch.nn.Module):
     def __init__(self, field_dims, embed_dim):
         super().__init__()
         self.num_fields = len(field_dims)
-        self.embeddings = torch.nn.ModuleList([torch.nn.Embedding(sum(
-            field_dims), embed_dim) for _ in range(self.num_fields)])
-        self.offsets = np.array((0, *np.cumsum(field_dims)[:-1]), dtype=np.long
-            )
+        self.embeddings = torch.nn.ModuleList([torch.nn.Embedding(sum(field_dims), embed_dim) for _ in range(self.num_fields)])
+        self.offsets = np.array((0, *np.cumsum(field_dims)[:-1]), dtype=np.long)
         for embedding in self.embeddings:
             torch.nn.init.xavier_uniform_(embedding.weight.data)
 
@@ -200,8 +197,7 @@ class OuterProductNetwork(torch.nn.Module):
                 row.append(i), col.append(j)
         p, q = x[:, (row)], x[:, (col)]
         if self.kernel_type == 'mat':
-            kp = torch.sum(p.unsqueeze(1) * self.kernel, dim=-1).permute(0,
-                2, 1)
+            kp = torch.sum(p.unsqueeze(1) * self.kernel, dim=-1).permute(0, 2, 1)
             return torch.sum(kp * q, -1)
         else:
             return torch.sum(p * q * self.kernel.unsqueeze(0), -1)
@@ -212,10 +208,8 @@ class CrossNetwork(torch.nn.Module):
     def __init__(self, input_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
-        self.w = torch.nn.ModuleList([torch.nn.Linear(input_dim, 1, bias=
-            False) for _ in range(num_layers)])
-        self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((
-            input_dim,))) for _ in range(num_layers)])
+        self.w = torch.nn.ModuleList([torch.nn.Linear(input_dim, 1, bias=False) for _ in range(num_layers)])
+        self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
 
     def forward(self, x):
         """
@@ -266,8 +260,7 @@ class CompressedInteractionNetwork(torch.nn.Module):
         prev_dim, fc_input_dim = input_dim, 0
         for i in range(self.num_layers):
             cross_layer_size = cross_layer_sizes[i]
-            self.conv_layers.append(torch.nn.Conv1d(input_dim * prev_dim,
-                cross_layer_size, 1, stride=1, dilation=1, bias=True))
+            self.conv_layers.append(torch.nn.Conv1d(input_dim * prev_dim, cross_layer_size, 1, stride=1, dilation=1, bias=True))
             if self.split_half and i != self.num_layers - 1:
                 cross_layer_size //= 2
             prev_dim = cross_layer_size
@@ -301,8 +294,7 @@ class AutomaticFeatureInteractionModel(torch.nn.Module):
         W Song, et al. AutoInt: Automatic Feature Interaction Learning via Self-Attentive Neural Networks, 2018.
     """
 
-    def __init__(self, field_dims, embed_dim, atten_embed_dim, num_heads,
-        num_layers, mlp_dims, dropouts, has_residual=True):
+    def __init__(self, field_dims, embed_dim, atten_embed_dim, num_heads, num_layers, mlp_dims, dropouts, has_residual=True):
         super().__init__()
         self.num_fields = len(field_dims)
         self.linear = FeaturesLinear(field_dims)
@@ -311,11 +303,8 @@ class AutomaticFeatureInteractionModel(torch.nn.Module):
         self.embed_output_dim = len(field_dims) * embed_dim
         self.atten_output_dim = len(field_dims) * atten_embed_dim
         self.has_residual = has_residual
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropouts[1])
-        self.self_attns = torch.nn.ModuleList([torch.nn.MultiheadAttention(
-            atten_embed_dim, num_heads, dropout=dropouts[0]) for _ in range
-            (num_layers)])
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropouts[1])
+        self.self_attns = torch.nn.ModuleList([torch.nn.MultiheadAttention(atten_embed_dim, num_heads, dropout=dropouts[0]) for _ in range(num_layers)])
         self.attn_fc = torch.nn.Linear(self.atten_output_dim, 1)
         if self.has_residual:
             self.V_res_embedding = torch.nn.Linear(embed_dim, atten_embed_dim)
@@ -333,10 +322,8 @@ class AutomaticFeatureInteractionModel(torch.nn.Module):
         if self.has_residual:
             V_res = self.V_res_embedding(embed_x)
             cross_term += V_res
-        cross_term = F.relu(cross_term).contiguous().view(-1, self.
-            atten_output_dim)
-        x = self.linear(x) + self.attn_fc(cross_term) + self.mlp(embed_x.
-            view(-1, self.embed_output_dim))
+        cross_term = F.relu(cross_term).contiguous().view(-1, self.atten_output_dim)
+        x = self.linear(x) + self.attn_fc(cross_term) + self.mlp(embed_x.view(-1, self.embed_output_dim))
         return torch.sigmoid(x.squeeze(1))
 
 
@@ -353,8 +340,7 @@ class AttentionalFactorizationMachineModel(torch.nn.Module):
         self.num_fields = len(field_dims)
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.linear = FeaturesLinear(field_dims)
-        self.afm = AttentionalFactorizationMachine(embed_dim, attn_size,
-            dropouts)
+        self.afm = AttentionalFactorizationMachine(embed_dim, attn_size, dropouts)
 
     def forward(self, x):
         """
@@ -428,8 +414,7 @@ class AdaptiveFactorizationNetwork(torch.nn.Module):
         self.LNN_dim = LNN_dim
         self.LNN_output_dim = self.LNN_dim * embed_dim
         self.LNN = LNN(self.num_fields, embed_dim, LNN_dim)
-        self.mlp = MultiLayerPerceptron(self.LNN_output_dim, mlp_dims,
-            dropouts[0])
+        self.mlp = MultiLayerPerceptron(self.LNN_output_dim, mlp_dims, dropouts[0])
 
     def forward(self, x):
         """
@@ -454,8 +439,7 @@ class DeepCrossNetworkModel(torch.nn.Module):
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.embed_output_dim = len(field_dims) * embed_dim
         self.cn = CrossNetwork(self.embed_output_dim, num_layers)
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropout, output_layer=False)
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropout, output_layer=False)
         self.linear = torch.nn.Linear(mlp_dims[-1] + self.embed_output_dim, 1)
 
     def forward(self, x):
@@ -484,16 +468,14 @@ class DeepFactorizationMachineModel(torch.nn.Module):
         self.fm = FactorizationMachine(reduce_sum=True)
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.embed_output_dim = len(field_dims) * embed_dim
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropout)
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropout)
 
     def forward(self, x):
         """
         :param x: Long tensor of size ``(batch_size, num_fields)``
         """
         embed_x = self.embedding(x)
-        x = self.linear(x) + self.fm(embed_x) + self.mlp(embed_x.view(-1,
-            self.embed_output_dim))
+        x = self.linear(x) + self.fm(embed_x) + self.mlp(embed_x.view(-1, self.embed_output_dim))
         return torch.sigmoid(x.squeeze(1))
 
 
@@ -514,8 +496,7 @@ class FieldAwareFactorizationMachineModel(torch.nn.Module):
         """
         :param x: Long tensor of size ``(batch_size, num_fields)``
         """
-        ffm_term = torch.sum(torch.sum(self.ffm(x), dim=1), dim=1, keepdim=True
-            )
+        ffm_term = torch.sum(torch.sum(self.ffm(x), dim=1), dim=1, keepdim=True)
         x = self.linear(x) + ffm_term
         return torch.sigmoid(x.squeeze(1))
 
@@ -554,12 +535,10 @@ class FieldAwareNeuralFactorizationMachineModel(torch.nn.Module):
         super().__init__()
         self.linear = FeaturesLinear(field_dims)
         self.ffm = FieldAwareFactorizationMachine(field_dims, embed_dim)
-        self.ffm_output_dim = len(field_dims) * (len(field_dims) - 1
-            ) // 2 * embed_dim
+        self.ffm_output_dim = len(field_dims) * (len(field_dims) - 1) // 2 * embed_dim
         self.bn = torch.nn.BatchNorm1d(self.ffm_output_dim)
         self.dropout = torch.nn.Dropout(dropouts[0])
-        self.mlp = MultiLayerPerceptron(self.ffm_output_dim, mlp_dims,
-            dropouts[1])
+        self.mlp = MultiLayerPerceptron(self.ffm_output_dim, mlp_dims, dropouts[1])
 
     def forward(self, x):
         """
@@ -584,8 +563,7 @@ class FactorizationSupportedNeuralNetworkModel(torch.nn.Module):
         super().__init__()
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.embed_output_dim = len(field_dims) * embed_dim
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropout)
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropout)
 
     def forward(self, x):
         """
@@ -620,15 +598,13 @@ class NeuralCollaborativeFiltering(torch.nn.Module):
         X He, et al. Neural Collaborative Filtering, 2017.
     """
 
-    def __init__(self, field_dims, user_field_idx, item_field_idx,
-        embed_dim, mlp_dims, dropout):
+    def __init__(self, field_dims, user_field_idx, item_field_idx, embed_dim, mlp_dims, dropout):
         super().__init__()
         self.user_field_idx = user_field_idx
         self.item_field_idx = item_field_idx
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.embed_output_dim = len(field_dims) * embed_dim
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropout, output_layer=False)
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropout, output_layer=False)
         self.fc = torch.nn.Linear(mlp_dims[-1] + embed_dim, 1)
 
     def forward(self, x):
@@ -657,8 +633,7 @@ class NeuralFactorizationMachineModel(torch.nn.Module):
         super().__init__()
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.linear = FeaturesLinear(field_dims)
-        self.fm = torch.nn.Sequential(FactorizationMachine(reduce_sum=False
-            ), torch.nn.BatchNorm1d(embed_dim), torch.nn.Dropout(dropouts[0]))
+        self.fm = torch.nn.Sequential(FactorizationMachine(reduce_sum=False), torch.nn.BatchNorm1d(embed_dim), torch.nn.Dropout(dropouts[0]))
         self.mlp = MultiLayerPerceptron(embed_dim, mlp_dims, dropouts[1])
 
     def forward(self, x):
@@ -677,8 +652,7 @@ class ProductNeuralNetworkModel(torch.nn.Module):
         Y Qu, et al. Product-based Neural Networks for User Response Prediction, 2016.
     """
 
-    def __init__(self, field_dims, embed_dim, mlp_dims, dropout, method='inner'
-        ):
+    def __init__(self, field_dims, embed_dim, mlp_dims, dropout, method='inner'):
         super().__init__()
         num_fields = len(field_dims)
         if method == 'inner':
@@ -690,8 +664,7 @@ class ProductNeuralNetworkModel(torch.nn.Module):
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.linear = FeaturesLinear(field_dims, embed_dim)
         self.embed_output_dim = num_fields * embed_dim
-        self.mlp = MultiLayerPerceptron(num_fields * (num_fields - 1) // 2 +
-            self.embed_output_dim, mlp_dims, dropout)
+        self.mlp = MultiLayerPerceptron(num_fields * (num_fields - 1) // 2 + self.embed_output_dim, mlp_dims, dropout)
 
     def forward(self, x):
         """
@@ -699,8 +672,7 @@ class ProductNeuralNetworkModel(torch.nn.Module):
         """
         embed_x = self.embedding(x)
         cross_term = self.pn(embed_x)
-        x = torch.cat([embed_x.view(-1, self.embed_output_dim), cross_term],
-            dim=1)
+        x = torch.cat([embed_x.view(-1, self.embed_output_dim), cross_term], dim=1)
         x = self.mlp(x)
         return torch.sigmoid(x.squeeze(1))
 
@@ -718,8 +690,7 @@ class WideAndDeepModel(torch.nn.Module):
         self.linear = FeaturesLinear(field_dims)
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.embed_output_dim = len(field_dims) * embed_dim
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropout)
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropout)
 
     def forward(self, x):
         """
@@ -738,15 +709,12 @@ class ExtremeDeepFactorizationMachineModel(torch.nn.Module):
         J Lian, et al. xDeepFM: Combining Explicit and Implicit Feature Interactions for Recommender Systems, 2018.
     """
 
-    def __init__(self, field_dims, embed_dim, mlp_dims, dropout,
-        cross_layer_sizes, split_half=True):
+    def __init__(self, field_dims, embed_dim, mlp_dims, dropout, cross_layer_sizes, split_half=True):
         super().__init__()
         self.embedding = FeaturesEmbedding(field_dims, embed_dim)
         self.embed_output_dim = len(field_dims) * embed_dim
-        self.cin = CompressedInteractionNetwork(len(field_dims),
-            cross_layer_sizes, split_half)
-        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims,
-            dropout)
+        self.cin = CompressedInteractionNetwork(len(field_dims), cross_layer_sizes, split_half)
+        self.mlp = MultiLayerPerceptron(self.embed_output_dim, mlp_dims, dropout)
         self.linear = FeaturesLinear(field_dims)
 
     def forward(self, x):
@@ -754,8 +722,7 @@ class ExtremeDeepFactorizationMachineModel(torch.nn.Module):
         :param x: Long tensor of size ``(batch_size, num_fields)``
         """
         embed_x = self.embedding(x)
-        x = self.linear(x) + self.cin(embed_x) + self.mlp(embed_x.view(-1,
-            self.embed_output_dim))
+        x = self.linear(x) + self.cin(embed_x) + self.mlp(embed_x.view(-1, self.embed_output_dim))
         return torch.sigmoid(x.squeeze(1))
 
 
@@ -763,30 +730,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_rixwew_pytorch_fm(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(CompressedInteractionNetwork(*[], **{'input_dim': 4, 'cross_layer_sizes': [4, 4]}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CompressedInteractionNetwork,
+     lambda: ([], {'input_dim': 4, 'cross_layer_sizes': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (CrossNetwork,
+     lambda: ([], {'input_dim': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FactorizationMachine,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InnerProductNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LNN,
+     lambda: ([], {'num_fields': 4, 'embed_dim': 4, 'LNN_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiLayerPerceptron,
+     lambda: ([], {'input_dim': 4, 'embed_dims': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (OuterProductNetwork,
+     lambda: ([], {'num_fields': 4, 'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_rixwew_pytorch_fm(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(CrossNetwork(*[], **{'input_dim': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FactorizationMachine(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(InnerProductNetwork(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LNN(*[], **{'num_fields': 4, 'embed_dim': 4, 'LNN_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MultiLayerPerceptron(*[], **{'input_dim': 4, 'embed_dims': [4, 4], 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(OuterProductNetwork(*[], **{'num_fields': 4, 'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

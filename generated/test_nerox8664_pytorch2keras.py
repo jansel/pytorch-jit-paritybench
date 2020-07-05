@@ -53,8 +53,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -260,11 +261,9 @@ class FTest(nn.Module):
 
 class LayerTest(nn.Module):
 
-    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=
-        False, dilation=1):
+    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False, dilation=1):
         super(LayerTest, self).__init__()
-        self.conv = nn.Conv1d(inp, out, kernel_size=kernel_size, padding=
-            padding, stride=stride, bias=bias, dilation=dilation)
+        self.conv = nn.Conv1d(inp, out, kernel_size=kernel_size, padding=padding, stride=stride, bias=bias, dilation=dilation)
 
     def forward(self, x):
         x = self.conv(x)
@@ -273,12 +272,9 @@ class LayerTest(nn.Module):
 
 class LayerTest(nn.Module):
 
-    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=
-        False, dilation=1, groups=1):
+    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False, dilation=1, groups=1):
         super(LayerTest, self).__init__()
-        self.conv = nn.Conv2d(inp, out, kernel_size=kernel_size, padding=
-            padding, stride=stride, bias=bias, dilation=dilation, groups=groups
-            )
+        self.conv = nn.Conv2d(inp, out, kernel_size=kernel_size, padding=padding, stride=stride, bias=bias, dilation=dilation, groups=groups)
 
     def forward(self, x):
         x = self.conv(x)
@@ -287,11 +283,9 @@ class LayerTest(nn.Module):
 
 class LayerTest(nn.Module):
 
-    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False
-        ):
+    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False):
         super(LayerTest, self).__init__()
-        self.conv = nn.ConvTranspose2d(inp, out, kernel_size=kernel_size,
-            padding=padding, stride=stride, bias=bias)
+        self.conv = nn.ConvTranspose2d(inp, out, kernel_size=kernel_size, padding=padding, stride=stride, bias=bias)
 
     def forward(self, x):
         x = self.conv(x)
@@ -408,8 +402,7 @@ class LayerTest(nn.Module):
 
     def __init__(self, kernel_size=3, padding=1, stride=1):
         super(LayerTest, self).__init__()
-        self.pool = nn.AvgPool2d(kernel_size=kernel_size, padding=padding,
-            stride=stride)
+        self.pool = nn.AvgPool2d(kernel_size=kernel_size, padding=padding, stride=stride)
 
     def forward(self, x):
         x = self.pool(x)
@@ -442,8 +435,7 @@ class LayerTest(nn.Module):
 
     def __init__(self, kernel_size=3, padding=1, stride=1):
         super(LayerTest, self).__init__()
-        self.pool = nn.MaxPool2d(kernel_size=kernel_size, padding=padding,
-            stride=stride)
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, padding=padding, stride=stride)
 
     def forward(self, x):
         x = self.pool(x)
@@ -512,22 +504,18 @@ BatchNorm = nn.BatchNorm2d
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0],
-            dilation=dilation[0])
+        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0], dilation=dilation[0])
         self.bn1 = BatchNorm(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=
-            dilation[1])
+        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=dilation[1])
         self.bn2 = BatchNorm(planes)
         self.downsample = downsample
         self.stride = stride
@@ -551,13 +539,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation[1], bias=False, dilation=dilation[1])
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation[1], bias=False, dilation=dilation[1])
         self.bn2 = BatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
@@ -584,9 +570,7 @@ class Bottleneck(nn.Module):
 
 class DRN(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, channels=(16, 32, 
-        64, 128, 256, 512, 512, 512), out_map=False, out_middle=False,
-        pool_size=28, arch='D'):
+    def __init__(self, block, layers, num_classes=1000, channels=(16, 32, 64, 128, 256, 512, 512, 512), out_map=False, out_middle=False, pool_size=28, arch='D'):
         super(DRN, self).__init__()
         self.inplanes = channels[0]
         self.out_map = out_map
@@ -594,44 +578,28 @@ class DRN(nn.Module):
         self.out_middle = out_middle
         self.arch = arch
         if arch == 'C':
-            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
-                padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False)
             self.bn1 = BatchNorm(channels[0])
             self.relu = nn.ReLU(inplace=True)
-            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[
-                0], stride=1)
-            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[
-                1], stride=2)
+            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[0], stride=1)
+            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[1], stride=2)
         elif arch == 'D':
-            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0],
-                kernel_size=7, stride=1, padding=3, bias=False), BatchNorm(
-                channels[0]), nn.ReLU(inplace=True))
-            self.layer1 = self._make_conv_layers(channels[0], layers[0],
-                stride=1)
-            self.layer2 = self._make_conv_layers(channels[1], layers[1],
-                stride=2)
+            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False), BatchNorm(channels[0]), nn.ReLU(inplace=True))
+            self.layer1 = self._make_conv_layers(channels[0], layers[0], stride=1)
+            self.layer2 = self._make_conv_layers(channels[1], layers[1], stride=2)
         self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2)
         self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2)
-        self.layer5 = self._make_layer(block, channels[4], layers[4],
-            dilation=2, new_level=False)
-        self.layer6 = None if layers[5] == 0 else self._make_layer(block,
-            channels[5], layers[5], dilation=4, new_level=False)
+        self.layer5 = self._make_layer(block, channels[4], layers[4], dilation=2, new_level=False)
+        self.layer6 = None if layers[5] == 0 else self._make_layer(block, channels[5], layers[5], dilation=4, new_level=False)
         if arch == 'C':
-            self.layer7 = None if layers[6] == 0 else self._make_layer(
-                BasicBlock, channels[6], layers[6], dilation=2, new_level=
-                False, residual=False)
-            self.layer8 = None if layers[7] == 0 else self._make_layer(
-                BasicBlock, channels[7], layers[7], dilation=1, new_level=
-                False, residual=False)
+            self.layer7 = None if layers[6] == 0 else self._make_layer(BasicBlock, channels[6], layers[6], dilation=2, new_level=False, residual=False)
+            self.layer8 = None if layers[7] == 0 else self._make_layer(BasicBlock, channels[7], layers[7], dilation=1, new_level=False, residual=False)
         elif arch == 'D':
-            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(
-                channels[6], layers[6], dilation=2)
-            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(
-                channels[7], layers[7], dilation=1)
+            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(channels[6], layers[6], dilation=2)
+            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(channels[7], layers[7], dilation=1)
         if num_classes > 0:
             self.avgpool = nn.AvgPool2d(pool_size)
-            self.fc = nn.Conv2d(self.out_dim, num_classes, kernel_size=1,
-                stride=1, padding=0, bias=True)
+            self.fc = nn.Conv2d(self.out_dim, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -640,31 +608,22 @@ class DRN(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        new_level=True, residual=True):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, new_level=True, residual=True):
         assert dilation == 1 or dilation % 2 == 0
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm(planes * block.expansion))
         layers = list()
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=(1, 1) if dilation == 1 else (dilation // 2 if
-            new_level else dilation, dilation), residual=residual))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=(1, 1) if dilation == 1 else (dilation // 2 if new_level else dilation, dilation), residual=residual))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, residual=residual,
-                dilation=(dilation, dilation)))
+            layers.append(block(self.inplanes, planes, residual=residual, dilation=(dilation, dilation)))
         return nn.Sequential(*layers)
 
     def _make_conv_layers(self, channels, convs, stride=1, dilation=1):
         modules = []
         for i in range(convs):
-            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=
-                3, stride=stride if i == 0 else 1, padding=dilation, bias=
-                False, dilation=dilation), BatchNorm(channels), nn.ReLU(
-                inplace=True)])
+            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=3, stride=stride if i == 0 else 1, padding=dilation, bias=False, dilation=dilation), BatchNorm(channels), nn.ReLU(inplace=True)])
             self.inplanes = channels
         return nn.Sequential(*modules)
 
@@ -713,17 +672,14 @@ class DRN_A(nn.Module):
         self.inplanes = 64
         super(DRN_A, self).__init__()
         self.out_dim = 512 * block.expansion
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
         self.avgpool = nn.AvgPool2d(28, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
@@ -737,15 +693,12 @@ class DRN_A(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=(dilation,
-                dilation)))
+            layers.append(block(self.inplanes, planes, dilation=(dilation, dilation)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -793,8 +746,7 @@ class ShuffleInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ShuffleInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=2, padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -820,51 +772,40 @@ def conv1x1(in_channels, out_channels, stride):
     stride : int or tuple/list of 2 int
         Strides of the convolution.
     """
-    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, bias=False)
+    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, bias=False)
 
 
 def depthwise_conv3x3(channels, stride):
-    return nn.Conv2d(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
+    return nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
 
 
 def group_conv1x1(in_channels, out_channels, groups):
-    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, groups=groups, bias=False)
+    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, groups=groups, bias=False)
 
 
 class MEModule(nn.Module):
 
-    def __init__(self, in_channels, out_channels, side_channels, groups,
-        downsample, ignore_group):
+    def __init__(self, in_channels, out_channels, side_channels, groups, downsample, ignore_group):
         super(MEModule, self).__init__()
         self.downsample = downsample
         mid_channels = out_channels // 4
         if downsample:
             out_channels -= in_channels
-        self.compress_conv1 = group_conv1x1(in_channels=in_channels,
-            out_channels=mid_channels, groups=1 if ignore_group else groups)
+        self.compress_conv1 = group_conv1x1(in_channels=in_channels, out_channels=mid_channels, groups=1 if ignore_group else groups)
         self.compress_bn1 = nn.BatchNorm2d(num_features=mid_channels)
-        self.c_shuffle = ChannelShuffle(channels=mid_channels, groups=1 if
-            ignore_group else groups)
-        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if
-            self.downsample else 1)
+        self.c_shuffle = ChannelShuffle(channels=mid_channels, groups=1 if ignore_group else groups)
+        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if self.downsample else 1)
         self.dw_bn2 = nn.BatchNorm2d(num_features=mid_channels)
-        self.expand_conv3 = group_conv1x1(in_channels=mid_channels,
-            out_channels=out_channels, groups=groups)
+        self.expand_conv3 = group_conv1x1(in_channels=mid_channels, out_channels=out_channels, groups=groups)
         self.expand_bn3 = nn.BatchNorm2d(num_features=out_channels)
         if downsample:
             self.avgpool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
         self.activ = nn.ReLU(inplace=True)
-        self.s_merge_conv = conv1x1(in_channels=mid_channels, out_channels=
-            side_channels)
+        self.s_merge_conv = conv1x1(in_channels=mid_channels, out_channels=side_channels)
         self.s_merge_bn = nn.BatchNorm2d(num_features=side_channels)
-        self.s_conv = conv3x3(in_channels=side_channels, out_channels=
-            side_channels, stride=2 if self.downsample else 1)
+        self.s_conv = conv3x3(in_channels=side_channels, out_channels=side_channels, stride=2 if self.downsample else 1)
         self.s_conv_bn = nn.BatchNorm2d(num_features=side_channels)
-        self.s_evolve_conv = conv1x1(in_channels=side_channels,
-            out_channels=mid_channels)
+        self.s_evolve_conv = conv1x1(in_channels=side_channels, out_channels=mid_channels)
         self.s_evolve_bn = nn.BatchNorm2d(num_features=mid_channels)
 
     def forward(self, x):
@@ -894,28 +835,21 @@ class MEModule(nn.Module):
 
 class MENet(nn.Module):
 
-    def __init__(self, block_channels, side_channels, groups, num_classes=1000
-        ):
+    def __init__(self, block_channels, side_channels, groups, num_classes=1000):
         super(MENet, self).__init__()
         input_channels = 3
         block_layers = [4, 8, 4]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ShuffleInitBlock(in_channels
-            =input_channels, out_channels=block_channels[0]))
+        self.features.add_module('init_block', ShuffleInitBlock(in_channels=input_channels, out_channels=block_channels[0]))
         for i in range(len(block_channels) - 1):
             stage = nn.Sequential()
             in_channels_i = block_channels[i]
             out_channels_i = block_channels[i + 1]
             for j in range(block_layers[i]):
-                stage.add_module('unit_{}'.format(j + 1), MEModule(
-                    in_channels=in_channels_i if j == 0 else out_channels_i,
-                    out_channels=out_channels_i, side_channels=
-                    side_channels, groups=groups, downsample=j == 0,
-                    ignore_group=i == 0 and j == 0))
+                stage.add_module('unit_{}'.format(j + 1), MEModule(in_channels=in_channels_i if j == 0 else out_channels_i, out_channels=out_channels_i, side_channels=side_channels, groups=groups, downsample=j == 0, ignore_group=i == 0 and j == 0))
             self.features.add_module('stage_{}'.format(i + 1), stage)
         self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7))
-        self.output = nn.Linear(in_features=block_channels[-1],
-            out_features=num_classes)
+        self.output = nn.Linear(in_features=block_channels[-1], out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -939,13 +873,7 @@ class InvertedResidual(nn.Module):
         self.stride = stride
         assert stride in [1, 2]
         self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expand_ratio, 1, 1, 
-            0, bias=False), nn.BatchNorm2d(inp * expand_ratio), nn.ReLU6(
-            inplace=True), nn.Conv2d(inp * expand_ratio, inp * expand_ratio,
-            3, stride, 1, groups=inp * expand_ratio, bias=False), nn.
-            BatchNorm2d(inp * expand_ratio), nn.ReLU6(inplace=True), nn.
-            Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False), nn.
-            BatchNorm2d(oup))
+        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expand_ratio, 1, 1, 0, bias=False), nn.BatchNorm2d(inp * expand_ratio), nn.ReLU6(inplace=True), nn.Conv2d(inp * expand_ratio, inp * expand_ratio, 3, stride, 1, groups=inp * expand_ratio, bias=False), nn.BatchNorm2d(inp * expand_ratio), nn.ReLU6(inplace=True), nn.Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -955,42 +883,34 @@ class InvertedResidual(nn.Module):
 
 
 def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
 
     def __init__(self, n_class=1000, input_size=224, width_mult=1.0):
         super(MobileNetV2, self).__init__()
-        self.interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2],
-            [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6,
-            320, 1, 1]]
+        self.interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
         assert input_size % 32 == 0
         input_channel = int(32 * width_mult)
-        self.last_channel = int(1280 * width_mult
-            ) if width_mult > 1.0 else 1280
+        self.last_channel = int(1280 * width_mult) if width_mult > 1.0 else 1280
         self.features = [conv_bn(3, input_channel, 2)]
         for t, c, n, s in self.interverted_residual_setting:
             output_channel = int(c * width_mult)
             for i in range(n):
                 if i == 0:
-                    self.features.append(InvertedResidual(input_channel,
-                        output_channel, s, t))
+                    self.features.append(InvertedResidual(input_channel, output_channel, s, t))
                 else:
-                    self.features.append(InvertedResidual(input_channel,
-                        output_channel, 1, t))
+                    self.features.append(InvertedResidual(input_channel, output_channel, 1, t))
                 input_channel = output_channel
         self.features.append(conv_1x1_bn(input_channel, self.last_channel))
         self.features.append(nn.AvgPool2d(input_size // 32))
         self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(self.
-            last_channel, n_class))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(self.last_channel, n_class))
 
     def forward(self, x):
         x = self.features(x)
@@ -1032,14 +952,11 @@ class PreResConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(PreResConv, self).__init__()
         self.bn = nn.BatchNorm2d(num_features=in_channels)
         self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
 
     def forward(self, x):
         x = self.bn(x)
@@ -1064,8 +981,7 @@ def preres_conv3x3(in_channels, out_channels, stride):
     bn_use_global_stats : bool
         Whether global moving statistics is used instead of local batch-norm for BatchNorm layers.
     """
-    return PreResConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=1)
+    return PreResConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1)
 
 
 class PreResBlock(nn.Module):
@@ -1084,10 +1000,8 @@ class PreResBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride):
         super(PreResBlock, self).__init__()
-        self.conv1 = preres_conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
-        self.conv2 = preres_conv3x3(in_channels=out_channels, out_channels=
-            out_channels, stride=1)
+        self.conv1 = preres_conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.conv2 = preres_conv3x3(in_channels=out_channels, out_channels=out_channels, stride=1)
 
     def forward(self, x):
         x, x_pre_activ = self.conv1(x)
@@ -1108,8 +1022,7 @@ def preres_conv1x1(in_channels, out_channels, stride):
     stride : int or tuple/list of 2 int
         Strides of the convolution.
     """
-    return PreResConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0)
+    return PreResConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0)
 
 
 class PreResBottleneck(nn.Module):
@@ -1131,12 +1044,9 @@ class PreResBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, conv1_stride):
         super(PreResBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = preres_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride if conv1_stride else 1)
-        self.conv2 = preres_conv3x3(in_channels=mid_channels, out_channels=
-            mid_channels, stride=1 if conv1_stride else stride)
-        self.conv3 = preres_conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, stride=1)
+        self.conv1 = preres_conv1x1(in_channels=in_channels, out_channels=mid_channels, stride=stride if conv1_stride else 1)
+        self.conv2 = preres_conv3x3(in_channels=mid_channels, out_channels=mid_channels, stride=1 if conv1_stride else stride)
+        self.conv3 = preres_conv1x1(in_channels=mid_channels, out_channels=out_channels, stride=1)
 
     def forward(self, x):
         x, x_pre_activ = self.conv1(x)
@@ -1163,20 +1073,15 @@ class PreResUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        conv1_stride):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, conv1_stride):
         super(PreResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = PreResBottleneck(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, conv1_stride=
-                conv1_stride)
+            self.body = PreResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride)
         else:
-            self.body = PreResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = PreResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         identity = x
@@ -1201,8 +1106,7 @@ class PreResInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(PreResInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1256,29 +1160,21 @@ class PreResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, num_classes=1000):
         super(PreResNet, self).__init__()
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
-                stage.add_module('unit{}'.format(j + 1), PreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), PreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -1300,9 +1196,7 @@ class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction),
-            nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel),
-            nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -1316,8 +1210,7 @@ class SELayer(nn.Module):
 class SEBasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=16):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=16):
         super(SEBasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -1346,13 +1239,11 @@ class SEBasicBlock(nn.Module):
 class SEBottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=16):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=16):
         super(SEBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1390,9 +1281,7 @@ class CifarSEBasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.se = SELayer(planes, reduction)
         if inplanes != planes:
-            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         else:
             self.downsample = lambda x: x
         self.stride = stride
@@ -1415,16 +1304,12 @@ class CifarSEResNet(nn.Module):
     def __init__(self, block, n_size, num_classes=10, reduction=16):
         super(CifarSEResNet, self).__init__()
         self.inplane = 16
-        self.conv1 = nn.Conv2d(3, self.inplane, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplane, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplane)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 16, blocks=n_size, stride=1,
-            reduction=reduction)
-        self.layer2 = self._make_layer(block, 32, blocks=n_size, stride=2,
-            reduction=reduction)
-        self.layer3 = self._make_layer(block, 64, blocks=n_size, stride=2,
-            reduction=reduction)
+        self.layer1 = self._make_layer(block, 16, blocks=n_size, stride=1, reduction=reduction)
+        self.layer2 = self._make_layer(block, 32, blocks=n_size, stride=2, reduction=reduction)
+        self.layer3 = self._make_layer(block, 64, blocks=n_size, stride=2, reduction=reduction)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(64, num_classes)
         self.initialize()
@@ -1460,23 +1345,19 @@ class CifarSEResNet(nn.Module):
 
 class Fire(nn.Module):
 
-    def __init__(self, inplanes, squeeze_planes, expand1x1_planes,
-        expand3x3_planes):
+    def __init__(self, inplanes, squeeze_planes, expand1x1_planes, expand3x3_planes):
         super(Fire, self).__init__()
         self.inplanes = inplanes
         self.squeeze = nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)
         self.squeeze_activation = nn.ReLU(inplace=True)
-        self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes,
-            kernel_size=1)
+        self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes, kernel_size=1)
         self.expand1x1_activation = nn.ReLU(inplace=True)
-        self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes,
-            kernel_size=3, padding=1)
+        self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes, kernel_size=3, padding=1)
         self.expand3x3_activation = nn.ReLU(inplace=True)
 
     def forward(self, x):
         x = self.squeeze_activation(self.squeeze(x))
-        return torch.cat([self.expand1x1_activation(self.expand1x1(x)),
-            self.expand3x3_activation(self.expand3x3(x))], 1)
+        return torch.cat([self.expand1x1_activation(self.expand1x1(x)), self.expand3x3_activation(self.expand3x3(x))], 1)
 
 
 class SqueezeNet(nn.Module):
@@ -1484,31 +1365,14 @@ class SqueezeNet(nn.Module):
     def __init__(self, version=1.0, num_classes=1000):
         super(SqueezeNet, self).__init__()
         if version not in [1.0, 1.1]:
-            raise ValueError(
-                'Unsupported SqueezeNet version {version}:1.0 or 1.1 expected'
-                .format(version=version))
+            raise ValueError('Unsupported SqueezeNet version {version}:1.0 or 1.1 expected'.format(version=version))
         self.num_classes = num_classes
         if version == 1.0:
-            self.features = nn.Sequential(nn.Conv2d(3, 96, kernel_size=7,
-                stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=
-                3, stride=2, ceil_mode=False), Fire(96, 16, 64, 64), Fire(
-                128, 16, 64, 64), Fire(128, 32, 128, 128), nn.MaxPool2d(
-                kernel_size=3, stride=2, ceil_mode=False), Fire(256, 32, 
-                128, 128), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192),
-                Fire(384, 64, 256, 256), nn.MaxPool2d(kernel_size=3, stride
-                =2, ceil_mode=False), Fire(512, 64, 256, 256))
+            self.features = nn.Sequential(nn.Conv2d(3, 96, kernel_size=7, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=False), Fire(96, 16, 64, 64), Fire(128, 16, 64, 64), Fire(128, 32, 128, 128), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=False), Fire(256, 32, 128, 128), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192), Fire(384, 64, 256, 256), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=False), Fire(512, 64, 256, 256))
         else:
-            self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-                stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=
-                3, stride=2, ceil_mode=False), Fire(64, 16, 64, 64), Fire(
-                128, 16, 64, 64), nn.MaxPool2d(kernel_size=3, stride=2,
-                ceil_mode=False), Fire(128, 32, 128, 128), Fire(256, 32, 
-                128, 128), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=
-                False), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192),
-                Fire(384, 64, 256, 256), Fire(512, 64, 256, 256))
+            self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=False), Fire(64, 16, 64, 64), Fire(128, 16, 64, 64), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=False), Fire(128, 32, 128, 128), Fire(256, 32, 128, 128), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=False), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192), Fire(384, 64, 256, 256), Fire(512, 64, 256, 256))
         final_conv = nn.Conv2d(512, self.num_classes, kernel_size=1)
-        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv, nn.
-            ReLU(inplace=True), nn.AvgPool2d(13, stride=1))
+        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool2d(13, stride=1))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m is final_conv:
@@ -1542,12 +1406,9 @@ class SqnxtConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding=(0, 0)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding=(0, 0)):
         super(SqnxtConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
 
@@ -1583,22 +1444,13 @@ class SqnxtUnit(nn.Module):
         else:
             reduction_den = 2
             self.resize_identity = False
-        self.conv1 = SqnxtConv(in_channels=in_channels, out_channels=
-            in_channels // reduction_den, kernel_size=1, stride=stride)
-        self.conv2 = SqnxtConv(in_channels=in_channels // reduction_den,
-            out_channels=in_channels // (2 * reduction_den), kernel_size=1,
-            stride=1)
-        self.conv3 = SqnxtConv(in_channels=in_channels // (2 *
-            reduction_den), out_channels=in_channels // reduction_den,
-            kernel_size=(1, 3), stride=1, padding=(0, 1))
-        self.conv4 = SqnxtConv(in_channels=in_channels // reduction_den,
-            out_channels=in_channels // reduction_den, kernel_size=(3, 1),
-            stride=1, padding=(1, 0))
-        self.conv5 = SqnxtConv(in_channels=in_channels // reduction_den,
-            out_channels=out_channels, kernel_size=1, stride=1)
+        self.conv1 = SqnxtConv(in_channels=in_channels, out_channels=in_channels // reduction_den, kernel_size=1, stride=stride)
+        self.conv2 = SqnxtConv(in_channels=in_channels // reduction_den, out_channels=in_channels // (2 * reduction_den), kernel_size=1, stride=1)
+        self.conv3 = SqnxtConv(in_channels=in_channels // (2 * reduction_den), out_channels=in_channels // reduction_den, kernel_size=(1, 3), stride=1, padding=(0, 1))
+        self.conv4 = SqnxtConv(in_channels=in_channels // reduction_den, out_channels=in_channels // reduction_den, kernel_size=(3, 1), stride=1, padding=(1, 0))
+        self.conv5 = SqnxtConv(in_channels=in_channels // reduction_den, out_channels=out_channels, kernel_size=1, stride=1)
         if self.resize_identity:
-            self.identity_conv = SqnxtConv(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=1, stride=stride)
+            self.identity_conv = SqnxtConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -1631,8 +1483,7 @@ class SqnxtInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(SqnxtInitBlock, self).__init__()
-        self.conv = SqnxtConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=7, stride=2, padding=1)
+        self.conv = SqnxtConv(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
 
     def forward(self, x):
@@ -1659,30 +1510,22 @@ class SqueezeNext(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        in_channels=3, num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, in_channels=3, num_classes=1000):
         super(SqueezeNext, self).__init__()
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SqnxtInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', SqnxtInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SqnxtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride))
+                stage.add_module('unit{}'.format(j + 1), SqnxtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', SqnxtConv(in_channels=
-            in_channels, out_channels=final_block_channels, kernel_size=1,
-            stride=1))
+        self.features.add_module('final_block', SqnxtConv(in_channels=in_channels, out_channels=final_block_channels, kernel_size=1, stride=1))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -1703,61 +1546,142 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_nerox8664_pytorch2keras(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ChannelShuffle(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ChannelShuffle,
+     lambda: ([], {'channels': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CifarSEBasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 16}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FTest,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Fire,
+     lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerTest,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (PreResActivation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'conv1_stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SELayer,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (ShuffleInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SqnxtConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SqnxtInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (SqnxtUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TestUpsampleNearest2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 10, 64, 64])], {}),
+     False),
+]
+
+class Test_nerox8664_pytorch2keras(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(FTest(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(LayerTest(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(PreResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PreResConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(PreResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(PreResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(ShuffleInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(SqnxtConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(SqnxtInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(SqnxtUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(TestUpsampleNearest2d(*[], **{}), [torch.rand([4, 10, 64, 64])], {})
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

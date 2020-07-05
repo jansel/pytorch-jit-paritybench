@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,33 +72,25 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     Returns the IoU of two bounding boxes
     """
     if not x1y1x2y2:
-        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:,
-            (2)] / 2
-        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:,
-            (3)] / 2
-        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:,
-            (2)] / 2
-        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:,
-            (3)] / 2
+        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:, (2)] / 2
+        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:, (3)] / 2
+        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:, (2)] / 2
+        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:, (3)] / 2
     else:
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)
-            ], box1[:, (3)]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)
-            ], box2[:, (3)]
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)], box1[:, (3)]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)], box2[:, (3)]
     inter_rect_x1 = torch.max(b1_x1, b2_x1)
     inter_rect_y1 = torch.max(b1_y1, b2_y1)
     inter_rect_x2 = torch.min(b1_x2, b2_x2)
     inter_rect_y2 = torch.min(b1_y2, b2_y2)
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0
-        ) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
     b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
     iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
     return iou
 
 
-def build_targets(pred_boxes, pred_conf, pred_cls, target, anchors,
-    num_anchors, num_classes, grid_size, ignore_thres, img_dim):
+def build_targets(pred_boxes, pred_conf, pred_cls, target, anchors, num_anchors, num_classes, grid_size, ignore_thres, img_dim):
     nB = target.size(0)
     nA = num_anchors
     nC = num_classes
@@ -124,8 +117,7 @@ def build_targets(pred_boxes, pred_conf, pred_cls, target, anchors,
             gi = int(gx)
             gj = int(gy)
             gt_box = torch.FloatTensor(np.array([0, 0, gw, gh])).unsqueeze(0)
-            anchor_shapes = torch.FloatTensor(np.concatenate((np.zeros((len
-                (anchors), 2)), np.array(anchors)), 1))
+            anchor_shapes = torch.FloatTensor(np.concatenate((np.zeros((len(anchors), 2)), np.array(anchors)), 1))
             anch_ious = bbox_iou(gt_box, anchor_shapes)
             conf_mask[b, anch_ious > ignore_thres, gj, gi] = 0
             best_n = np.argmax(anch_ious)
@@ -171,20 +163,16 @@ class DetectionLayer(nn.Module):
         FloatTensor = torch.FloatTensor if x.is_cuda else torch.FloatTensor
         LongTensor = torch.LongTensor if x.is_cuda else torch.LongTensor
         ByteTensor = torch.ByteTensor if x.is_cuda else torch.ByteTensor
-        prediction = x.view(nB, nA, self.bbox_attrs, nG, nG).permute(0, 1, 
-            3, 4, 2).contiguous()
+        prediction = x.view(nB, nA, self.bbox_attrs, nG, nG).permute(0, 1, 3, 4, 2).contiguous()
         x = torch.sigmoid(prediction[..., 0])
         y = torch.sigmoid(prediction[..., 1])
         w = prediction[..., 2]
         h = prediction[..., 3]
         pred_conf = torch.sigmoid(prediction[..., 4])
         pred_cls = torch.sigmoid(prediction[(...), 5:])
-        grid_x = torch.arange(nG).repeat(nG, 1).view([1, 1, nG, nG]).type(
-            FloatTensor)
-        grid_y = torch.arange(nG).repeat(nG, 1).t().view([1, 1, nG, nG]).type(
-            FloatTensor)
-        scaled_anchors = FloatTensor([(a_w / stride, a_h / stride) for a_w,
-            a_h in self.anchors])
+        grid_x = torch.arange(nG).repeat(nG, 1).view([1, 1, nG, nG]).type(FloatTensor)
+        grid_y = torch.arange(nG).repeat(nG, 1).t().view([1, 1, nG, nG]).type(FloatTensor)
+        scaled_anchors = FloatTensor([(a_w / stride, a_h / stride) for a_w, a_h in self.anchors])
         anchor_w = scaled_anchors[:, 0:1].view((1, nA, 1, 1))
         anchor_h = scaled_anchors[:, 1:2].view((1, nA, 1, 1))
         pred_boxes = FloatTensor(prediction[(...), :4].shape)
@@ -197,12 +185,7 @@ class DetectionLayer(nn.Module):
                 self.mse_loss = self.mse_loss
                 self.bce_loss = self.bce_loss
                 self.ce_loss = self.ce_loss
-            nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls = (
-                build_targets(pred_boxes=pred_boxes.cpu().data, pred_conf=
-                pred_conf.cpu().data, pred_cls=pred_cls.cpu().data, target=
-                targets.cpu().data, anchors=scaled_anchors.cpu().data,
-                num_anchors=nA, num_classes=self.num_classes, grid_size=nG,
-                ignore_thres=self.ignore_thres, img_dim=self.image_dim))
+            nGT, nCorrect, mask, conf_mask, tx, ty, tw, th, tconf, tcls = build_targets(pred_boxes=pred_boxes.cpu().data, pred_conf=pred_conf.cpu().data, pred_cls=pred_cls.cpu().data, target=targets.cpu().data, anchors=scaled_anchors.cpu().data, num_anchors=nA, num_classes=self.num_classes, grid_size=nG, ignore_thres=self.ignore_thres, img_dim=self.image_dim)
             nProposals = int((pred_conf > 0.5).sum().item())
             recall = float(nCorrect / nGT) if nGT else 1
             precision = float(nCorrect / nProposals)
@@ -220,19 +203,12 @@ class DetectionLayer(nn.Module):
             loss_y = self.mse_loss(y[mask], ty[mask])
             loss_w = self.mse_loss(w[mask], tw[mask])
             loss_h = self.mse_loss(h[mask], th[mask])
-            loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[
-                conf_mask_false]) + self.bce_loss(pred_conf[conf_mask_true],
-                tconf[conf_mask_true])
-            loss_cls = 1 / nB * self.ce_loss(pred_cls[mask], torch.argmax(
-                tcls[mask], 1))
+            loss_conf = self.bce_loss(pred_conf[conf_mask_false], tconf[conf_mask_false]) + self.bce_loss(pred_conf[conf_mask_true], tconf[conf_mask_true])
+            loss_cls = 1 / nB * self.ce_loss(pred_cls[mask], torch.argmax(tcls[mask], 1))
             loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
-            return loss, loss_x.item(), loss_y.item(), loss_w.item(
-                ), loss_h.item(), loss_conf.item(), loss_cls.item(
-                ), recall, precision
+            return loss, loss_x.item(), loss_y.item(), loss_w.item(), loss_h.item(), loss_conf.item(), loss_cls.item(), recall, precision
         else:
-            output = torch.cat((pred_boxes.view(nB, -1, 4) * stride,
-                pred_conf.view(nB, -1, 1), pred_cls.view(nB, -1, self.
-                num_classes)), -1)
+            output = torch.cat((pred_boxes.view(nB, -1, 4) * stride, pred_conf.view(nB, -1, 1), pred_cls.view(nB, -1, self.num_classes)), -1)
             return output
 
 
@@ -260,14 +236,12 @@ def create_modules(blocks):
             else:
                 pad = 0
             if batch_normalize:
-                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride,
-                    pad, bias=bias)
+                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=bias)
                 module.add_module('conv_with_bn_{0}'.format(index), conv)
                 bn = nn.BatchNorm2d(filters)
                 module.add_module('batch_norm_{0}'.format(index), bn)
             else:
-                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride,
-                    pad, bias=bias)
+                conv = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=bias)
                 module.add_module('conv_without_bn_{0}'.format(index), conv)
             if activation == 'leaky':
                 activn = nn.LeakyReLU(0.1, inplace=True)
@@ -290,8 +264,7 @@ def create_modules(blocks):
             route = Route([start, end])
             module.add_module('route_{0}'.format(index), route)
             if end < 0:
-                filters = output_filters[index + start] + output_filters[
-                    index + end]
+                filters = output_filters[index + start] + output_filters[index + end]
             else:
                 filters = output_filters[index + start]
         elif x['type'] == 'shortcut':
@@ -308,8 +281,7 @@ def create_modules(blocks):
                 mask = [int(x) for x in range(int(x['num']))]
                 anchors = x['anchors'].split(',')
                 anchors = [(32 * float(a)) for a in anchors]
-            anchors = [(anchors[i], anchors[i + 1]) for i in range(0, len(
-                anchors), 2)]
+            anchors = [(anchors[i], anchors[i + 1]) for i in range(0, len(anchors), 2)]
             anchors = [anchors[i] for i in mask]
             num_classes = int(x['classes'])
             img_height = int(net_info['height'])
@@ -317,8 +289,7 @@ def create_modules(blocks):
                 ignore_thresh = float(x['ignore_thresh'])
             except:
                 ignore_thresh = float(x['thresh'])
-            detection = DetectionLayer(anchors, num_classes, img_height,
-                ignore_thresh)
+            detection = DetectionLayer(anchors, num_classes, img_height, ignore_thresh)
             module.add_module('Detection_{}'.format(index), detection)
         elif x['type'] == 'maxpool':
             kernel_size = int(x['size'])
@@ -366,8 +337,7 @@ class Darknet(nn.Module):
         self.img_size = self.net_info['height']
         self.seen = 0
         self.header_info = np.array([0, 0, 0, self.seen, 0])
-        self.loss_names = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall',
-            'precision']
+        self.loss_names = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
 
     def forward(self, x, targets=None):
         is_training = targets is not None
@@ -400,14 +370,10 @@ class Darknet(nn.Module):
             elif module_type == 'reorg':
                 stride = int(module['stride'])
                 B, C, H, W = x.size()
-                x = x.view(B, C, int(H / stride), stride, int(W / stride),
-                    stride).transpose(3, 4).contiguous()
-                x = x.view(B, C, int(H / stride * W / stride), int(stride *
-                    stride)).transpose(2, 3).contiguous()
-                x = x.view(B, C, int(stride * stride), int(H / stride), int
-                    (W / stride)).transpose(1, 2).contiguous()
-                x = x.view(B, int(stride * stride * C), int(H / stride),
-                    int(W / stride))
+                x = x.view(B, C, int(H / stride), stride, int(W / stride), stride).transpose(3, 4).contiguous()
+                x = x.view(B, C, int(H / stride * W / stride), int(stride * stride)).transpose(2, 3).contiguous()
+                x = x.view(B, C, int(stride * stride), int(H / stride), int(W / stride)).transpose(1, 2).contiguous()
+                x = x.view(B, int(stride * stride * C), int(H / stride), int(W / stride))
             elif module_type == 'yolo' or module_type == 'region':
                 if is_training:
                     x, *losses = self.module_list[i][0](x, targets)
@@ -419,8 +385,7 @@ class Darknet(nn.Module):
             outputs.append(x)
         self.losses['recall'] /= 3
         self.losses['precision'] /= 3
-        return sum(layer_outputs) if is_training else torch.cat(layer_outputs,
-            1)
+        return sum(layer_outputs) if is_training else torch.cat(layer_outputs, 1)
 
     def load_weights(self, weightfile):
         fp = open(weightfile, 'rb')
@@ -435,25 +400,20 @@ class Darknet(nn.Module):
             if module_type == 'convolutional':
                 model = self.module_list[i]
                 try:
-                    batch_normalize = int(self.blocks[i + 1]['batch_normalize']
-                        )
+                    batch_normalize = int(self.blocks[i + 1]['batch_normalize'])
                 except:
                     batch_normalize = 0
                 conv = model[0]
                 if batch_normalize:
                     bn = model[1]
                     num_bn_biases = bn.bias.numel()
-                    bn_biases = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-                    bn_weights = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_weights = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-                    bn_running_mean = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_running_mean = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-                    bn_running_var = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_running_var = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
                     bn_biases = bn_biases.view_as(bn.bias.data)
                     bn_weights = bn_weights.view_as(bn.weight.data)
@@ -465,8 +425,7 @@ class Darknet(nn.Module):
                     bn.running_var.copy_(bn_running_var)
                 else:
                     num_biases = conv.bias.numel()
-                    conv_biases = torch.from_numpy(weights[ptr:ptr +
-                        num_biases])
+                    conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
                     ptr = ptr + num_biases
                     conv_biases = conv_biases.view_as(conv.bias.data)
                     conv.bias.data.copy_(conv_biases)
@@ -487,8 +446,7 @@ class Darknet(nn.Module):
             if module_type == 'convolutional':
                 model = self.module_list[i]
                 try:
-                    batch_normalize = int(self.blocks[i + 1]['batch_normalize']
-                        )
+                    batch_normalize = int(self.blocks[i + 1]['batch_normalize'])
                 except:
                     batch_normalize = 0
                 conv = model[0]
@@ -510,8 +468,7 @@ class Darknet(nn.Module):
             if module_type == 'convolutional':
                 model = self.module_list[i]
                 try:
-                    batch_normalize = int(self.blocks[i + 1]['batch_normalize']
-                        )
+                    batch_normalize = int(self.blocks[i + 1]['batch_normalize'])
                 except:
                     batch_normalize = 0
                 conv = model[0]
@@ -523,10 +480,3 @@ class Darknet(nn.Module):
                     torch.nn.init.constant_(conv.bias.data, 0.0)
                 torch.nn.init.xavier_uniform_(conv.weight.data, gain=1)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_talebolano_yolov3_network_slimming(_paritybench_base):
-    pass

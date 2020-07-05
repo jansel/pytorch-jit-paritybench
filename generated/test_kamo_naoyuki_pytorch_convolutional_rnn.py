@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -57,8 +58,7 @@ def Recurrent(inner, reverse=False):
 
     def forward(input, hidden, weight, batch_sizes):
         output = []
-        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input
-            .size(0))
+        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input.size(0))
         for i in steps:
             hidden = inner(input[i], hidden, *weight)
             output.append(hidden[0] if isinstance(hidden, tuple) else hidden)
@@ -89,16 +89,12 @@ def StackedRNN(inners, num_layers, lstm=False, dropout=0, train=True):
                 all_output.append(output)
             input = torch.cat(all_output, ch_dim)
             if dropout != 0 and i < num_layers - 1:
-                input = F.dropout(input, p=dropout, training=train, inplace
-                    =False)
+                input = F.dropout(input, p=dropout, training=train, inplace=False)
         if lstm:
             next_h, next_c = zip(*next_hidden)
-            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0
-                ].size()), torch.cat(next_c, 0).view(total_layers, *next_c[
-                0].size())
+            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0].size()), torch.cat(next_c, 0).view(total_layers, *next_c[0].size())
         else:
-            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *
-                next_hidden[0].size())
+            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *next_hidden[0].size())
         return next_hidden, input
     return forward
 
@@ -131,24 +127,18 @@ def ConvNdWithSamePadding(convndim=2, stride=1, dilation=1, groups=1):
         elif convndim == 3:
             ntuple = _triple
         else:
-            raise ValueError('convndim must be 1, 2, or 3, but got {}'.
-                format(convndim))
+            raise ValueError('convndim must be 1, 2, or 3, but got {}'.format(convndim))
         if input.dim() != convndim + 2:
-            raise RuntimeError('Input dim must be {}, bot got {}'.format(
-                convndim + 2, input.dim()))
+            raise RuntimeError('Input dim must be {}, bot got {}'.format(convndim + 2, input.dim()))
         if w.dim() != convndim + 2:
-            raise RuntimeError('w must be {}, bot got {}'.format(convndim +
-                2, w.dim()))
+            raise RuntimeError('w must be {}, bot got {}'.format(convndim + 2, w.dim()))
         insize = input.shape[2:]
         kernel_size = w.shape[2:]
         _stride = ntuple(stride)
         _dilation = ntuple(dilation)
-        ps = [((i + 1 - h + s * (h - 1) + d * (k - 1)) // 2) for h, k, s, d in
-            list(zip(insize, kernel_size, _stride, _dilation))[::-1] for i in
-            range(2)]
+        ps = [((i + 1 - h + s * (h - 1) + d * (k - 1)) // 2) for h, k, s, d in list(zip(insize, kernel_size, _stride, _dilation))[::-1] for i in range(2)]
         input = F.pad(input, ps, 'constant', 0)
-        return getattr(F, 'conv{}d'.format(convndim))(input, w, b, stride=
-            _stride, padding=ntuple(0), dilation=_dilation, groups=groups)
+        return getattr(F, 'conv{}d'.format(convndim))(input, w, b, stride=_stride, padding=ntuple(0), dilation=_dilation, groups=groups)
     return forward
 
 
@@ -160,8 +150,7 @@ def GRUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
         gi = linear_func(input, w_ih)
         gh = linear_func(hidden, w_hh)
         state = fusedBackend.GRUFused.apply
-        return state(gi, gh, hidden) if b_ih is None else state(gi, gh,
-            hidden, b_ih, b_hh)
+        return state(gi, gh, hidden) if b_ih is None else state(gi, gh, hidden, b_ih, b_hh)
     gi = linear_func(input, w_ih, b_ih)
     gh = linear_func(hidden, w_hh, b_hh)
     i_r, i_i, i_n = gi.chunk(3, 1)
@@ -173,8 +162,7 @@ def GRUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
     return hy
 
 
-def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None
-    ):
+def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
     """ Copied from torch.nn._functions.rnn and modified """
     if linear_func is None:
         linear_func = F.linear
@@ -182,8 +170,7 @@ def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None
         igates = linear_func(input, w_ih)
         hgates = linear_func(hidden[0], w_hh)
         state = fusedBackend.LSTMFused.apply
-        return state(igates, hgates, hidden[1]) if b_ih is None else state(
-            igates, hgates, hidden[1], b_ih, b_hh)
+        return state(igates, hgates, hidden[1]) if b_ih is None else state(igates, hgates, hidden[1], b_ih, b_hh)
     hx, cx = hidden
     gates = linear_func(input, w_ih, b_ih) + linear_func(hx, w_hh, b_hh)
     ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
@@ -196,8 +183,7 @@ def LSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None
     return hy, cy
 
 
-def PeepholeLSTMCell(input, hidden, w_ih, w_hh, w_pi, w_pf, w_po, b_ih=None,
-    b_hh=None, linear_func=None):
+def PeepholeLSTMCell(input, hidden, w_ih, w_hh, w_pi, w_pf, w_po, b_ih=None, b_hh=None, linear_func=None):
     if linear_func is None:
         linear_func = F.linear
     hx, cx = hidden
@@ -215,29 +201,24 @@ def PeepholeLSTMCell(input, hidden, w_ih, w_hh, w_pi, w_pf, w_po, b_ih=None,
     return hy, cy
 
 
-def RNNReLUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None,
-    linear_func=None):
+def RNNReLUCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
     """ Copied from torch.nn._functions.rnn and modified """
     if linear_func is None:
         linear_func = F.linear
-    hy = F.relu(linear_func(input, w_ih, b_ih) + linear_func(hidden, w_hh,
-        b_hh))
+    hy = F.relu(linear_func(input, w_ih, b_ih) + linear_func(hidden, w_hh, b_hh))
     return hy
 
 
-def RNNTanhCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None,
-    linear_func=None):
+def RNNTanhCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, linear_func=None):
     """ Copied from torch.nn._functions.rnn and modified """
     if linear_func is None:
         linear_func = F.linear
-    hy = torch.tanh(linear_func(input, w_ih, b_ih) + linear_func(hidden,
-        w_hh, b_hh))
+    hy = torch.tanh(linear_func(input, w_ih, b_ih) + linear_func(hidden, w_hh, b_hh))
     return hy
 
 
 def _conv_cell_helper(mode, convndim=2, stride=1, dilation=1, groups=1):
-    linear_func = ConvNdWithSamePadding(convndim=convndim, stride=stride,
-        dilation=dilation, groups=groups)
+    linear_func = ConvNdWithSamePadding(convndim=convndim, stride=stride, dilation=dilation, groups=groups)
     if mode == 'RNN_RELU':
         cell = partial(RNNReLUCell, linear_func=linear_func)
     elif mode == 'RNN_TANH':
@@ -305,8 +286,7 @@ def VariableRecurrentReverse(inner):
             batch_size = batch_sizes[i]
             inc = batch_size - last_batch_size
             if inc > 0:
-                hidden = tuple(torch.cat((h, ih[last_batch_size:batch_size]
-                    ), 0) for h, ih in zip(hidden, initial_hidden))
+                hidden = tuple(torch.cat((h, ih[last_batch_size:batch_size]), 0) for h, ih in zip(hidden, initial_hidden))
             last_batch_size = batch_size
             step_input = input[input_offset - batch_size:input_offset]
             input_offset -= batch_size
@@ -331,19 +311,15 @@ def variable_recurrent_factory(inner, reverse=False):
         return VariableRecurrent(inner)
 
 
-def AutogradConvRNN(mode, num_layers=1, batch_first=False, dropout=0, train
-    =True, bidirectional=False, variable_length=False, convndim=2, stride=1,
-    dilation=1, groups=1):
+def AutogradConvRNN(mode, num_layers=1, batch_first=False, dropout=0, train=True, bidirectional=False, variable_length=False, convndim=2, stride=1, dilation=1, groups=1):
     """ Copied from torch.nn._functions.rnn and modified """
-    cell = _conv_cell_helper(mode, convndim=convndim, stride=stride,
-        dilation=dilation, groups=groups)
+    cell = _conv_cell_helper(mode, convndim=convndim, stride=stride, dilation=dilation, groups=groups)
     rec_factory = variable_recurrent_factory if variable_length else Recurrent
     if bidirectional:
         layer = rec_factory(cell), rec_factory(cell, reverse=True)
     else:
         layer = rec_factory(cell),
-    func = StackedRNN(layer, num_layers, mode in ('LSTM', 'PeepholeLSTM'),
-        dropout=dropout, train=train)
+    func = StackedRNN(layer, num_layers, mode in ('LSTM', 'PeepholeLSTM'), dropout=dropout, train=train)
 
     def forward(input, weight, hidden, batch_sizes):
         if batch_first and batch_sizes is None:
@@ -357,12 +333,7 @@ def AutogradConvRNN(mode, num_layers=1, batch_first=False, dropout=0, train
 
 class ConvNdRNNBase(torch.nn.Module):
 
-    def __init__(self, mode: str, in_channels: int, out_channels: int,
-        kernel_size: Union[int, Sequence[int]], num_layers: int=1, bias:
-        bool=True, batch_first: bool=False, dropout: float=0.0,
-        bidirectional: bool=False, convndim: int=2, stride: Union[int,
-        Sequence[int]]=1, dilation: Union[int, Sequence[int]]=1, groups: int=1
-        ):
+    def __init__(self, mode: str, in_channels: int, out_channels: int, kernel_size: Union[int, Sequence[int]], num_layers: int=1, bias: bool=True, batch_first: bool=False, dropout: float=0.0, bidirectional: bool=False, convndim: int=2, stride: Union[int, Sequence[int]]=1, dilation: Union[int, Sequence[int]]=1, groups: int=1):
         super().__init__()
         self.mode = mode
         self.in_channels = in_channels
@@ -380,8 +351,7 @@ class ConvNdRNNBase(torch.nn.Module):
         elif convndim == 3:
             ntuple = _triple
         else:
-            raise ValueError('convndim must be 1, 2, or 3, but got {}'.
-                format(convndim))
+            raise ValueError('convndim must be 1, 2, or 3, but got {}'.format(convndim))
         self.kernel_size = ntuple(kernel_size)
         self.stride = ntuple(stride)
         self.dilation = ntuple(dilation)
@@ -396,25 +366,17 @@ class ConvNdRNNBase(torch.nn.Module):
         self._all_weights = []
         for layer in range(num_layers):
             for direction in range(num_directions):
-                layer_input_size = (in_channels if layer == 0 else 
-                    out_channels * num_directions)
-                w_ih = Parameter(torch.Tensor(gate_size, layer_input_size //
-                    groups, *self.kernel_size))
-                w_hh = Parameter(torch.Tensor(gate_size, out_channels //
-                    groups, *self.kernel_size))
+                layer_input_size = in_channels if layer == 0 else out_channels * num_directions
+                w_ih = Parameter(torch.Tensor(gate_size, layer_input_size // groups, *self.kernel_size))
+                w_hh = Parameter(torch.Tensor(gate_size, out_channels // groups, *self.kernel_size))
                 b_ih = Parameter(torch.Tensor(gate_size))
                 b_hh = Parameter(torch.Tensor(gate_size))
                 if mode == 'PeepholeLSTM':
-                    w_pi = Parameter(torch.Tensor(out_channels, 
-                        out_channels // groups, *self.kernel_size))
-                    w_pf = Parameter(torch.Tensor(out_channels, 
-                        out_channels // groups, *self.kernel_size))
-                    w_po = Parameter(torch.Tensor(out_channels, 
-                        out_channels // groups, *self.kernel_size))
+                    w_pi = Parameter(torch.Tensor(out_channels, out_channels // groups, *self.kernel_size))
+                    w_pf = Parameter(torch.Tensor(out_channels, out_channels // groups, *self.kernel_size))
+                    w_po = Parameter(torch.Tensor(out_channels, out_channels // groups, *self.kernel_size))
                     layer_params = w_ih, w_hh, w_pi, w_pf, w_po, b_ih, b_hh
-                    param_names = ['weight_ih_l{}{}', 'weight_hh_l{}{}',
-                        'weight_pi_l{}{}', 'weight_pf_l{}{}', 'weight_po_l{}{}'
-                        ]
+                    param_names = ['weight_ih_l{}{}', 'weight_hh_l{}{}', 'weight_pi_l{}{}', 'weight_pf_l{}{}', 'weight_po_l{}{}']
                 else:
                     layer_params = w_ih, w_hh, b_ih, b_hh
                     param_names = ['weight_ih_l{}{}', 'weight_hh_l{}{}']
@@ -436,31 +398,23 @@ class ConvNdRNNBase(torch.nn.Module):
         is_input_packed = batch_sizes is not None
         expected_input_dim = (2 if is_input_packed else 3) + self.convndim
         if input.dim() != expected_input_dim:
-            raise RuntimeError('input must have {} dimensions, got {}'.
-                format(expected_input_dim, input.dim()))
+            raise RuntimeError('input must have {} dimensions, got {}'.format(expected_input_dim, input.dim()))
         ch_dim = 1 if is_input_packed else 2
         if self.in_channels != input.size(ch_dim):
-            raise RuntimeError(
-                'input.size({}) must be equal to in_channels . Expected {}, got {}'
-                .format(ch_dim, self.in_channels, input.size(ch_dim)))
+            raise RuntimeError('input.size({}) must be equal to in_channels . Expected {}, got {}'.format(ch_dim, self.in_channels, input.size(ch_dim)))
         if is_input_packed:
             mini_batch = int(batch_sizes[0])
         else:
             mini_batch = input.size(0) if self.batch_first else input.size(1)
         num_directions = 2 if self.bidirectional else 1
-        expected_hidden_size = (self.num_layers * num_directions,
-            mini_batch, self.out_channels) + input.shape[ch_dim + 1:]
+        expected_hidden_size = (self.num_layers * num_directions, mini_batch, self.out_channels) + input.shape[ch_dim + 1:]
 
-        def check_hidden_size(hx, expected_hidden_size, msg=
-            'Expected hidden size {}, got {}'):
+        def check_hidden_size(hx, expected_hidden_size, msg='Expected hidden size {}, got {}'):
             if tuple(hx.size()) != expected_hidden_size:
-                raise RuntimeError(msg.format(expected_hidden_size, tuple(
-                    hx.size())))
+                raise RuntimeError(msg.format(expected_hidden_size, tuple(hx.size())))
         if self.mode in ('LSTM', 'PeepholeLSTM'):
-            check_hidden_size(hidden[0], expected_hidden_size,
-                'Expected hidden[0] size {}, got {}')
-            check_hidden_size(hidden[1], expected_hidden_size,
-                'Expected hidden[1] size {}, got {}')
+            check_hidden_size(hidden[0], expected_hidden_size, 'Expected hidden[0] size {}, got {}')
+            check_hidden_size(hidden[1], expected_hidden_size, 'Expected hidden[1] size {}, got {}')
         else:
             check_hidden_size(hidden, expected_hidden_size)
 
@@ -472,31 +426,22 @@ class ConvNdRNNBase(torch.nn.Module):
             insize = input.shape[2:]
         else:
             batch_sizes = None
-            max_batch_size = input.size(0) if self.batch_first else input.size(
-                1)
+            max_batch_size = input.size(0) if self.batch_first else input.size(1)
             insize = input.shape[3:]
         if hx is None:
             num_directions = 2 if self.bidirectional else 1
-            hx = input.new_zeros(self.num_layers * num_directions,
-                max_batch_size, self.out_channels, *insize, requires_grad=False
-                )
+            hx = input.new_zeros(self.num_layers * num_directions, max_batch_size, self.out_channels, *insize, requires_grad=False)
             if self.mode in ('LSTM', 'PeepholeLSTM'):
                 hx = hx, hx
         self.check_forward_args(input, hx, batch_sizes)
-        func = AutogradConvRNN(self.mode, num_layers=self.num_layers,
-            batch_first=self.batch_first, dropout=self.dropout, train=self.
-            training, bidirectional=self.bidirectional, variable_length=
-            batch_sizes is not None, convndim=self.convndim, stride=self.
-            stride, dilation=self.dilation, groups=self.groups)
+        func = AutogradConvRNN(self.mode, num_layers=self.num_layers, batch_first=self.batch_first, dropout=self.dropout, train=self.training, bidirectional=self.bidirectional, variable_length=batch_sizes is not None, convndim=self.convndim, stride=self.stride, dilation=self.dilation, groups=self.groups)
         output, hidden = func(input, self.all_weights, hx, batch_sizes)
         if is_packed:
             output = PackedSequence(output, batch_sizes)
         return output, hidden
 
     def extra_repr(self):
-        s = (
-            '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.dilation != (1,) * len(self.dilation):
             s += ', dilation={dilation}'
         if self.groups != 1:
@@ -526,12 +471,9 @@ class ConvNdRNNBase(torch.nn.Module):
             for direction in range(num_directions):
                 suffix = '_reverse' if direction == 1 else ''
                 if self.mode == 'PeepholeLSTM':
-                    weights = ['weight_ih_l{}{}', 'weight_hh_l{}{}',
-                        'weight_pi_l{}{}', 'weight_pf_l{}{}',
-                        'weight_po_l{}{}', 'bias_ih_l{}{}', 'bias_hh_l{}{}']
+                    weights = ['weight_ih_l{}{}', 'weight_hh_l{}{}', 'weight_pi_l{}{}', 'weight_pf_l{}{}', 'weight_po_l{}{}', 'bias_ih_l{}{}', 'bias_hh_l{}{}']
                 else:
-                    weights = ['weight_ih_l{}{}', 'weight_hh_l{}{}',
-                        'bias_ih_l{}{}', 'bias_hh_l{}{}']
+                    weights = ['weight_ih_l{}{}', 'weight_hh_l{}{}', 'bias_ih_l{}{}', 'bias_hh_l{}{}']
                 weights = [x.format(layer, suffix) for x in weights]
                 if self.bias:
                     self._all_weights += [weights]
@@ -540,16 +482,12 @@ class ConvNdRNNBase(torch.nn.Module):
 
     @property
     def all_weights(self):
-        return [[getattr(self, weight) for weight in weights] for weights in
-            self._all_weights]
+        return [[getattr(self, weight) for weight in weights] for weights in self._all_weights]
 
 
 class ConvRNNCellBase(torch.nn.Module):
 
-    def __init__(self, mode: str, in_channels: int, out_channels: int,
-        kernel_size: Union[int, Sequence[int]], bias: bool=True, convndim:
-        int=2, stride: Union[int, Sequence[int]]=1, dilation: Union[int,
-        Sequence[int]]=1, groups: int=1):
+    def __init__(self, mode: str, in_channels: int, out_channels: int, kernel_size: Union[int, Sequence[int]], bias: bool=True, convndim: int=2, stride: Union[int, Sequence[int]]=1, dilation: Union[int, Sequence[int]]=1, groups: int=1):
         super().__init__()
         self.mode = mode
         self.in_channels = in_channels
@@ -563,8 +501,7 @@ class ConvRNNCellBase(torch.nn.Module):
         elif convndim == 3:
             ntuple = _triple
         else:
-            raise ValueError('convndim must be 1, 2, or 3, but got {}'.
-                format(convndim))
+            raise ValueError('convndim must be 1, 2, or 3, but got {}'.format(convndim))
         self.kernel_size = ntuple(kernel_size)
         self.stride = ntuple(stride)
         self.dilation = ntuple(dilation)
@@ -575,10 +512,8 @@ class ConvRNNCellBase(torch.nn.Module):
             gate_size = 3 * out_channels
         else:
             gate_size = out_channels
-        self.weight_ih = Parameter(torch.Tensor(gate_size, in_channels //
-            groups, *self.kernel_size))
-        self.weight_hh = Parameter(torch.Tensor(gate_size, out_channels //
-            groups, *self.kernel_size))
+        self.weight_ih = Parameter(torch.Tensor(gate_size, in_channels // groups, *self.kernel_size))
+        self.weight_hh = Parameter(torch.Tensor(gate_size, out_channels // groups, *self.kernel_size))
         if bias:
             self.bias_ih = Parameter(torch.Tensor(gate_size))
             self.bias_hh = Parameter(torch.Tensor(gate_size))
@@ -586,18 +521,13 @@ class ConvRNNCellBase(torch.nn.Module):
             self.register_parameter('bias_ih', None)
             self.register_parameter('bias_hh', None)
         if mode == 'PeepholeLSTM':
-            self.weight_pi = Parameter(torch.Tensor(out_channels, 
-                out_channels // groups, *self.kernel_size))
-            self.weight_pf = Parameter(torch.Tensor(out_channels, 
-                out_channels // groups, *self.kernel_size))
-            self.weight_po = Parameter(torch.Tensor(out_channels, 
-                out_channels // groups, *self.kernel_size))
+            self.weight_pi = Parameter(torch.Tensor(out_channels, out_channels // groups, *self.kernel_size))
+            self.weight_pf = Parameter(torch.Tensor(out_channels, out_channels // groups, *self.kernel_size))
+            self.weight_po = Parameter(torch.Tensor(out_channels, out_channels // groups, *self.kernel_size))
         self.reset_parameters()
 
     def extra_repr(self):
-        s = (
-            '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.dilation != (1,) * len(self.dilation):
             s += ', dilation={dilation}'
         if self.groups != 1:
@@ -610,19 +540,13 @@ class ConvRNNCellBase(torch.nn.Module):
 
     def check_forward_input(self, input):
         if input.size(1) != self.in_channels:
-            raise RuntimeError(
-                'input has inconsistent channels: got {}, expected {}'.
-                format(input.size(1), self.in_channels))
+            raise RuntimeError('input has inconsistent channels: got {}, expected {}'.format(input.size(1), self.in_channels))
 
     def check_forward_hidden(self, input, hx, hidden_label=''):
         if input.size(0) != hx.size(0):
-            raise RuntimeError(
-                "Input batch size {} doesn't match hidden{} batch size {}".
-                format(input.size(0), hidden_label, hx.size(0)))
+            raise RuntimeError("Input batch size {} doesn't match hidden{} batch size {}".format(input.size(0), hidden_label, hx.size(0)))
         if hx.size(1) != self.out_channels:
-            raise RuntimeError(
-                'hidden{} has inconsistent hidden_size: got {}, expected {}'
-                .format(hidden_label, hx.size(1), self.out_channels))
+            raise RuntimeError('hidden{} has inconsistent hidden_size: got {}, expected {}'.format(hidden_label, hx.size(1), self.out_channels))
 
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.out_channels)
@@ -634,8 +558,7 @@ class ConvRNNCellBase(torch.nn.Module):
         if hx is None:
             batch_size = input.size(0)
             insize = input.shape[2:]
-            hx = input.new_zeros(batch_size, self.out_channels, *insize,
-                requires_grad=False)
+            hx = input.new_zeros(batch_size, self.out_channels, *insize, requires_grad=False)
             if self.mode in ('LSTM', 'PeepholeLSTM'):
                 hx = hx, hx
         if self.mode in ('LSTM', 'PeepholeLSTM'):
@@ -643,20 +566,9 @@ class ConvRNNCellBase(torch.nn.Module):
             self.check_forward_hidden(input, hx[1])
         else:
             self.check_forward_hidden(input, hx)
-        cell = _conv_cell_helper(self.mode, convndim=self.convndim, stride=
-            self.stride, dilation=self.dilation, groups=self.groups)
+        cell = _conv_cell_helper(self.mode, convndim=self.convndim, stride=self.stride, dilation=self.dilation, groups=self.groups)
         if self.mode == 'PeepholeLSTM':
-            return cell(input, hx, self.weight_ih, self.weight_hh, self.
-                weight_pi, self.weight_pf, self.weight_po, self.bias_ih,
-                self.bias_hh)
+            return cell(input, hx, self.weight_ih, self.weight_hh, self.weight_pi, self.weight_pf, self.weight_po, self.bias_ih, self.bias_hh)
         else:
-            return cell(input, hx, self.weight_ih, self.weight_hh, self.
-                bias_ih, self.bias_hh)
+            return cell(input, hx, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_kamo_naoyuki_pytorch_convolutional_rnn(_paritybench_base):
-    pass

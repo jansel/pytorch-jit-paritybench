@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,8 +74,7 @@ class LLTMFunction(Function):
         candidate_cell = F.elu(gates[2])
         new_cell = old_cell + candidate_cell * input_gate
         new_h = torch.tanh(new_cell) * output_gate
-        ctx.save_for_backward(X, weights, input_gate, output_gate, old_cell,
-            new_cell, candidate_cell, gate_weights)
+        ctx.save_for_backward(X, weights, input_gate, output_gate, old_cell, new_cell, candidate_cell, gate_weights)
         return new_h, new_cell
 
     @staticmethod
@@ -92,8 +92,7 @@ class LLTMFunction(Function):
         d_input_gate *= d_sigmoid(gates[0])
         d_output_gate *= d_sigmoid(gates[1])
         d_candidate_cell *= d_elu(gates[2])
-        d_gates = torch.cat([d_input_gate, d_output_gate, d_candidate_cell],
-            dim=1)
+        d_gates = torch.cat([d_input_gate, d_output_gate, d_candidate_cell], dim=1)
         if ctx.needs_input_grad[1]:
             d_weights = d_gates.t().mm(X)
         if ctx.needs_input_grad[2]:
@@ -111,8 +110,7 @@ class LLTM(nn.Module):
         super(LLTM, self).__init__()
         self.input_features = input_features
         self.state_size = state_size
-        self.weights = nn.Parameter(torch.Tensor(3 * state_size, 
-            input_features + state_size))
+        self.weights = nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
         self.bias = nn.Parameter(torch.Tensor(1, 3 * state_size))
         self.reset_parameters()
 
@@ -131,8 +129,7 @@ class LLTM(nn.Module):
         super(LLTM, self).__init__()
         self.input_features = input_features
         self.state_size = state_size
-        self.weights = nn.Parameter(torch.Tensor(3 * state_size, 
-            input_features + state_size))
+        self.weights = nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
         self.bias = nn.Parameter(torch.Tensor(1, 3 * state_size))
         self.reset_parameters()
 
@@ -151,8 +148,7 @@ class LLTM(torch.nn.Module):
         super(LLTM, self).__init__()
         self.input_features = input_features
         self.state_size = state_size
-        self.weights = torch.nn.Parameter(torch.Tensor(3 * state_size, 
-            input_features + state_size))
+        self.weights = torch.nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
         self.bias = torch.nn.Parameter(torch.Tensor(1, 3 * state_size))
         self.reset_parameters()
 
@@ -180,8 +176,7 @@ class LLTM(nn.Module):
         super(LLTM, self).__init__()
         self.input_features = input_features
         self.state_size = state_size
-        self.weights = nn.Parameter(torch.Tensor(3 * state_size, 
-            input_features + state_size))
+        self.weights = nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
         self.bias = nn.Parameter(torch.Tensor(1, 3 * state_size))
         self.reset_parameters()
 
@@ -193,10 +188,3 @@ class LLTM(nn.Module):
     def forward(self, input, state):
         return LLTMFunction.apply(input, self.weights, self.bias, *state)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_pytorch_extension_cpp(_paritybench_base):
-    pass

@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,32 +69,25 @@ from torchvision.transforms import transforms
 class DeepLabHead(nn.Sequential):
 
     def __init__(self, in_channels, num_classes):
-        super(DeepLabHead, self).__init__(ASPP(in_channels, [12, 24, 36]),
-            nn.Conv2d(256, 256, 3, padding=1, bias=False), nn.BatchNorm2d(
-            256), nn.ReLU(), nn.Conv2d(256, num_classes, 1))
+        super(DeepLabHead, self).__init__(ASPP(in_channels, [12, 24, 36]), nn.Conv2d(256, 256, 3, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, num_classes, 1))
 
 
 class ASPPConv(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, dilation):
-        modules = [nn.Conv2d(in_channels, out_channels, 3, padding=dilation,
-            dilation=dilation, bias=False), nn.BatchNorm2d(out_channels),
-            nn.ReLU()]
+        modules = [nn.Conv2d(in_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU()]
         super(ASPPConv, self).__init__(*modules)
 
 
 class ASPPPooling(nn.Sequential):
 
     def __init__(self, in_channels, out_channels):
-        super(ASPPPooling, self).__init__(nn.AdaptiveAvgPool2d(1), nn.
-            Conv2d(in_channels, out_channels, 1, bias=False), nn.
-            BatchNorm2d(out_channels), nn.ReLU())
+        super(ASPPPooling, self).__init__(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
 
     def forward(self, x):
         size = x.shape[-2:]
         x = super(ASPPPooling, self).forward(x)
-        return F.interpolate(x, size=size, mode='bilinear', align_corners=False
-            )
+        return F.interpolate(x, size=size, mode='bilinear', align_corners=False)
 
 
 class ASPP(nn.Module):
@@ -102,17 +96,14 @@ class ASPP(nn.Module):
         super(ASPP, self).__init__()
         out_channels = 256
         modules = []
-        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), nn.BatchNorm2d(out_channels), nn.ReLU()))
+        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU()))
         rate1, rate2, rate3 = tuple(atrous_rates)
         modules.append(ASPPConv(in_channels, out_channels, rate1))
         modules.append(ASPPConv(in_channels, out_channels, rate2))
         modules.append(ASPPConv(in_channels, out_channels, rate3))
         modules.append(ASPPPooling(in_channels, out_channels))
         self.convs = nn.ModuleList(modules)
-        self.project = nn.Sequential(nn.Conv2d(5 * out_channels,
-            out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.
-            ReLU(), nn.Dropout(0.5))
+        self.project = nn.Sequential(nn.Conv2d(5 * out_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(), nn.Dropout(0.5))
 
     def forward(self, x):
         res = []
@@ -123,25 +114,21 @@ class ASPP(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=True)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
     __constants__ = ['downsample']
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
-            raise NotImplementedError(
-                'Dilation > 1 not supported in BasicBlock')
+            raise NotImplementedError('Dilation > 1 not supported in BasicBlock')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -166,16 +153,14 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
     __constants__ = ['downsample']
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -209,9 +194,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, groups=1, width_per_group=64, replace_stride_with_dilation=
-        None, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -221,29 +204,22 @@ class ResNet(nn.Module):
         if replace_stride_with_dilation is None:
             replace_stride_with_dilation = [False, False, False]
         if len(replace_stride_with_dilation) != 3:
-            raise ValueError(
-                'replace_stride_with_dilation should be None or a 3-element tuple, got {}'
-                .format(replace_stride_with_dilation))
+            raise ValueError('replace_stride_with_dilation should be None or a 3-element tuple, got {}'.format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            dilate=replace_stride_with_dilation[2])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -262,16 +238,12 @@ class ResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, previous_dilation, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, dilation=self.dilation,
-                norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, dilation=self.dilation, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -335,8 +307,7 @@ class MTANDeepLabv3(nn.Module):
         ch = [256, 512, 1024, 2048]
         self.tasks = ['segmentation', 'depth']
         self.num_out_channels = {'segmentation': 13, 'depth': 1}
-        self.shared_conv = nn.Sequential(backbone.conv1, backbone.bn1,
-            backbone.relu1, backbone.maxpool)
+        self.shared_conv = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu1, backbone.maxpool)
         self.shared_layer1_b = backbone.layer1[:-1]
         self.shared_layer1_t = backbone.layer1[-1]
         self.shared_layer2_b = backbone.layer2[:-1]
@@ -345,20 +316,15 @@ class MTANDeepLabv3(nn.Module):
         self.shared_layer3_t = backbone.layer3[-1]
         self.shared_layer4_b = backbone.layer4[:-1]
         self.shared_layer4_t = backbone.layer4[-1]
-        self.encoder_att_1 = nn.ModuleList([self.att_layer(ch[0], ch[0] // 
-            4, ch[0]) for _ in self.tasks])
-        self.encoder_att_2 = nn.ModuleList([self.att_layer(2 * ch[1], ch[1] //
-            4, ch[1]) for _ in self.tasks])
-        self.encoder_att_3 = nn.ModuleList([self.att_layer(2 * ch[2], ch[2] //
-            4, ch[2]) for _ in self.tasks])
-        self.encoder_att_4 = nn.ModuleList([self.att_layer(2 * ch[3], ch[3] //
-            4, ch[3]) for _ in self.tasks])
+        self.encoder_att_1 = nn.ModuleList([self.att_layer(ch[0], ch[0] // 4, ch[0]) for _ in self.tasks])
+        self.encoder_att_2 = nn.ModuleList([self.att_layer(2 * ch[1], ch[1] // 4, ch[1]) for _ in self.tasks])
+        self.encoder_att_3 = nn.ModuleList([self.att_layer(2 * ch[2], ch[2] // 4, ch[2]) for _ in self.tasks])
+        self.encoder_att_4 = nn.ModuleList([self.att_layer(2 * ch[3], ch[3] // 4, ch[3]) for _ in self.tasks])
         self.encoder_block_att_1 = self.conv_layer(ch[0], ch[1] // 4)
         self.encoder_block_att_2 = self.conv_layer(ch[1], ch[2] // 4)
         self.encoder_block_att_3 = self.conv_layer(ch[2], ch[3] // 4)
         self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.decoders = nn.ModuleList([DeepLabHead(2048, self.
-            num_out_channels[t]) for t in self.tasks])
+        self.decoders = nn.ModuleList([DeepLabHead(2048, self.num_out_channels[t]) for t in self.tasks])
 
     def forward(self, x, out_size):
         x = self.shared_conv(x)
@@ -372,48 +338,35 @@ class MTANDeepLabv3(nn.Module):
         u_4_t = self.shared_layer4_t(u_4_b)
         a_1_mask = [att_i(u_1_b) for att_i in self.encoder_att_1]
         a_1 = [(a_1_mask_i * u_1_t) for a_1_mask_i in a_1_mask]
-        a_1 = [self.down_sampling(self.encoder_block_att_1(a_1_i)) for
-            a_1_i in a_1]
-        a_2_mask = [att_i(torch.cat((u_2_b, a_1_i), dim=1)) for a_1_i,
-            att_i in zip(a_1, self.encoder_att_2)]
+        a_1 = [self.down_sampling(self.encoder_block_att_1(a_1_i)) for a_1_i in a_1]
+        a_2_mask = [att_i(torch.cat((u_2_b, a_1_i), dim=1)) for a_1_i, att_i in zip(a_1, self.encoder_att_2)]
         a_2 = [(a_2_mask_i * u_2_t) for a_2_mask_i in a_2_mask]
         a_2 = [self.encoder_block_att_2(a_2_i) for a_2_i in a_2]
-        a_3_mask = [att_i(torch.cat((u_3_b, a_2_i), dim=1)) for a_2_i,
-            att_i in zip(a_2, self.encoder_att_3)]
+        a_3_mask = [att_i(torch.cat((u_3_b, a_2_i), dim=1)) for a_2_i, att_i in zip(a_2, self.encoder_att_3)]
         a_3 = [(a_3_mask_i * u_3_t) for a_3_mask_i in a_3_mask]
         a_3 = [self.encoder_block_att_3(a_3_i) for a_3_i in a_3]
-        a_4_mask = [att_i(torch.cat((u_4_b, a_3_i), dim=1)) for a_3_i,
-            att_i in zip(a_3, self.encoder_att_4)]
+        a_4_mask = [att_i(torch.cat((u_4_b, a_3_i), dim=1)) for a_3_i, att_i in zip(a_3, self.encoder_att_4)]
         a_4 = [(a_4_mask_i * u_4_t) for a_4_mask_i in a_4_mask]
         out = {}
         for i, t in enumerate(self.tasks):
-            out[t] = nn.functional.interpolate(self.decoders[i](a_4[i]),
-                size=out_size, mode='bilinear').squeeze()
+            out[t] = nn.functional.interpolate(self.decoders[i](a_4[i]), size=out_size, mode='bilinear').squeeze()
         return out
 
     def att_layer(self, in_channel, intermediate_channel, out_channel):
-        return nn.Sequential(nn.Conv2d(in_channels=in_channel, out_channels
-            =intermediate_channel, kernel_size=1, padding=0), nn.
-            BatchNorm2d(intermediate_channel), nn.ReLU(inplace=True), nn.
-            Conv2d(in_channels=intermediate_channel, out_channels=
-            out_channel, kernel_size=1, padding=0), nn.BatchNorm2d(
-            out_channel), nn.Sigmoid())
+        return nn.Sequential(nn.Conv2d(in_channels=in_channel, out_channels=intermediate_channel, kernel_size=1, padding=0), nn.BatchNorm2d(intermediate_channel), nn.ReLU(inplace=True), nn.Conv2d(in_channels=intermediate_channel, out_channels=out_channel, kernel_size=1, padding=0), nn.BatchNorm2d(out_channel), nn.Sigmoid())
 
     def conv_layer(self, in_channel, out_channel):
-        downsample = nn.Sequential(conv1x1(in_channel, 4 * out_channel,
-            stride=1), nn.BatchNorm2d(4 * out_channel))
+        downsample = nn.Sequential(conv1x1(in_channel, 4 * out_channel, stride=1), nn.BatchNorm2d(4 * out_channel))
         return Bottleneck(in_channel, out_channel, downsample=downsample)
 
 
-parser = argparse.ArgumentParser(description=
-    'Multi-task: Attention Network on WRN')
+parser = argparse.ArgumentParser(description='Multi-task: Attention Network on WRN')
 
 
 opt = parser.parse_args()
 
 
-device = torch.device('cuda:{}'.format(opt.gpu) if torch.cuda.is_available(
-    ) else 'cpu')
+device = torch.device('cuda:{}'.format(opt.gpu) if torch.cuda.is_available() else 'cpu')
 
 
 class SegNet(nn.Module):
@@ -422,37 +375,25 @@ class SegNet(nn.Module):
         super(SegNet, self).__init__()
         filter = [64, 128, 256, 512, 512]
         self.class_nb = 13
-        self.encoder_block_t = nn.ModuleList([nn.ModuleList([self.
-            conv_layer([3, filter[0], filter[0]], bottle_neck=True)])])
-        self.decoder_block_t = nn.ModuleList([nn.ModuleList([self.
-            conv_layer([filter[0], filter[0], filter[0]], bottle_neck=True)])])
+        self.encoder_block_t = nn.ModuleList([nn.ModuleList([self.conv_layer([3, filter[0], filter[0]], bottle_neck=True)])])
+        self.decoder_block_t = nn.ModuleList([nn.ModuleList([self.conv_layer([filter[0], filter[0], filter[0]], bottle_neck=True)])])
         for j in range(3):
             if j < 2:
-                self.encoder_block_t.append(nn.ModuleList([self.conv_layer(
-                    [3, filter[0], filter[0]], bottle_neck=True)]))
-                self.decoder_block_t.append(nn.ModuleList([self.conv_layer(
-                    [filter[0], filter[0], filter[0]], bottle_neck=True)]))
+                self.encoder_block_t.append(nn.ModuleList([self.conv_layer([3, filter[0], filter[0]], bottle_neck=True)]))
+                self.decoder_block_t.append(nn.ModuleList([self.conv_layer([filter[0], filter[0], filter[0]], bottle_neck=True)]))
             for i in range(4):
                 if i == 0:
-                    self.encoder_block_t[j].append(self.conv_layer([filter[
-                        i], filter[i + 1], filter[i + 1]], bottle_neck=True))
-                    self.decoder_block_t[j].append(self.conv_layer([filter[
-                        i + 1], filter[i], filter[i]], bottle_neck=True))
+                    self.encoder_block_t[j].append(self.conv_layer([filter[i], filter[i + 1], filter[i + 1]], bottle_neck=True))
+                    self.decoder_block_t[j].append(self.conv_layer([filter[i + 1], filter[i], filter[i]], bottle_neck=True))
                 else:
-                    self.encoder_block_t[j].append(self.conv_layer([filter[
-                        i], filter[i + 1], filter[i + 1]], bottle_neck=False))
-                    self.decoder_block_t[j].append(self.conv_layer([filter[
-                        i + 1], filter[i], filter[i]], bottle_neck=False))
+                    self.encoder_block_t[j].append(self.conv_layer([filter[i], filter[i + 1], filter[i + 1]], bottle_neck=False))
+                    self.decoder_block_t[j].append(self.conv_layer([filter[i + 1], filter[i], filter[i]], bottle_neck=False))
         self.cs_unit_encoder = nn.Parameter(data=torch.ones(4, 3))
         self.cs_unit_decoder = nn.Parameter(data=torch.ones(5, 3))
-        self.pred_task1 = self.conv_layer([filter[0], self.class_nb],
-            bottle_neck=True, pred_layer=True)
-        self.pred_task2 = self.conv_layer([filter[0], 1], bottle_neck=True,
-            pred_layer=True)
-        self.pred_task3 = self.conv_layer([filter[0], 3], bottle_neck=True,
-            pred_layer=True)
-        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.pred_task1 = self.conv_layer([filter[0], self.class_nb], bottle_neck=True, pred_layer=True)
+        self.pred_task2 = self.conv_layer([filter[0], 1], bottle_neck=True, pred_layer=True)
+        self.pred_task3 = self.conv_layer([filter[0], 3], bottle_neck=True, pred_layer=True)
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
         self.logsigma = nn.Parameter(torch.FloatTensor([-0.5, -0.5, -0.5]))
         for m in self.modules():
@@ -471,86 +412,47 @@ class SegNet(nn.Module):
     def conv_layer(self, channel, bottle_neck, pred_layer=False):
         if bottle_neck:
             if not pred_layer:
-                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                    out_channels=channel[1], kernel_size=3, padding=1), nn.
-                    BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.
-                    Conv2d(in_channels=channel[1], out_channels=channel[2],
-                    kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]),
-                    nn.ReLU(inplace=True))
+                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
             else:
-                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                    out_channels=channel[0], kernel_size=3, padding=1), nn.
-                    Conv2d(in_channels=channel[0], out_channels=channel[1],
-                    kernel_size=1, padding=0))
+                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0))
         else:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
-                in_channels=channel[1], out_channels=channel[1],
-                kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.
-                ReLU(inplace=True), nn.Conv2d(in_channels=channel[1],
-                out_channels=channel[2], kernel_size=3, padding=1), nn.
-                BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
         return conv_block
 
     def forward(self, x):
-        (encoder_conv_t, decoder_conv_t, encoder_samp_t, decoder_samp_t,
-            indices_t) = ([0] * 3 for _ in range(5))
+        encoder_conv_t, decoder_conv_t, encoder_samp_t, decoder_samp_t, indices_t = ([0] * 3 for _ in range(5))
         for i in range(3):
-            encoder_conv_t[i], decoder_conv_t[i], encoder_samp_t[i
-                ], decoder_samp_t[i], indices_t[i] = ([0] * 5 for _ in range(5)
-                )
+            encoder_conv_t[i], decoder_conv_t[i], encoder_samp_t[i], decoder_samp_t[i], indices_t[i] = ([0] * 5 for _ in range(5))
         for i in range(5):
             for j in range(3):
                 if i == 0:
                     encoder_conv_t[j][i] = self.encoder_block_t[j][i](x)
-                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(
-                        encoder_conv_t[j][i])
+                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(encoder_conv_t[j][i])
                 else:
-                    encoder_cross_stitch = self.cs_unit_encoder[i - 1][0
-                        ] * encoder_samp_t[0][i - 1] + self.cs_unit_encoder[
-                        i - 1][1] * encoder_samp_t[1][i - 1
-                        ] + self.cs_unit_encoder[i - 1][2] * encoder_samp_t[2][
-                        i - 1]
-                    encoder_conv_t[j][i] = self.encoder_block_t[j][i](
-                        encoder_cross_stitch)
-                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(
-                        encoder_conv_t[j][i])
+                    encoder_cross_stitch = self.cs_unit_encoder[i - 1][0] * encoder_samp_t[0][i - 1] + self.cs_unit_encoder[i - 1][1] * encoder_samp_t[1][i - 1] + self.cs_unit_encoder[i - 1][2] * encoder_samp_t[2][i - 1]
+                    encoder_conv_t[j][i] = self.encoder_block_t[j][i](encoder_cross_stitch)
+                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(encoder_conv_t[j][i])
         for i in range(5):
             for j in range(3):
                 if i == 0:
-                    decoder_cross_stitch = self.cs_unit_decoder[i][0
-                        ] * encoder_samp_t[0][-1] + self.cs_unit_decoder[i][1
-                        ] * encoder_samp_t[1][-1] + self.cs_unit_decoder[i][2
-                        ] * encoder_samp_t[2][-1]
-                    decoder_samp_t[j][i] = self.up_sampling(
-                        decoder_cross_stitch, indices_t[j][-i - 1])
-                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](
-                        decoder_samp_t[j][i])
+                    decoder_cross_stitch = self.cs_unit_decoder[i][0] * encoder_samp_t[0][-1] + self.cs_unit_decoder[i][1] * encoder_samp_t[1][-1] + self.cs_unit_decoder[i][2] * encoder_samp_t[2][-1]
+                    decoder_samp_t[j][i] = self.up_sampling(decoder_cross_stitch, indices_t[j][-i - 1])
+                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](decoder_samp_t[j][i])
                 else:
-                    decoder_cross_stitch = self.cs_unit_decoder[i][0
-                        ] * decoder_conv_t[0][i - 1] + self.cs_unit_decoder[i][
-                        1] * decoder_conv_t[1][i - 1] + self.cs_unit_decoder[i
-                        ][2] * decoder_conv_t[2][i - 1]
-                    decoder_samp_t[j][i] = self.up_sampling(
-                        decoder_cross_stitch, indices_t[j][-i - 1])
-                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](
-                        decoder_samp_t[j][i])
+                    decoder_cross_stitch = self.cs_unit_decoder[i][0] * decoder_conv_t[0][i - 1] + self.cs_unit_decoder[i][1] * decoder_conv_t[1][i - 1] + self.cs_unit_decoder[i][2] * decoder_conv_t[2][i - 1]
+                    decoder_samp_t[j][i] = self.up_sampling(decoder_cross_stitch, indices_t[j][-i - 1])
+                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](decoder_samp_t[j][i])
         t1_pred = F.log_softmax(self.pred_task1(decoder_conv_t[0][-1]), dim=1)
         t2_pred = self.pred_task2(decoder_conv_t[1][-1])
         t3_pred = self.pred_task3(decoder_conv_t[2][-1])
         t3_pred = t3_pred / torch.norm(t3_pred, p=2, dim=1, keepdim=True)
         return [t1_pred, t2_pred, t3_pred], self.logsigma
 
-    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
-        x_output3):
-        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1)
+    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3, x_output3):
+        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
-        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
-        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
+        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask) / torch.nonzero(binary_mask).size(0)
+        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask) / torch.nonzero(binary_mask).size(0)
         return [loss1, loss2, loss3]
 
     def compute_miou(self, x_pred, x_output):
@@ -561,12 +463,9 @@ class SegNet(nn.Module):
             true_class = 0
             first_switch = True
             for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
-                    torch.FloatTensor)
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
                 intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
                 if union == 0:
@@ -589,14 +488,9 @@ class SegNet(nn.Module):
         batch_size = x_pred.size(0)
         for i in range(batch_size):
             if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
-                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
-                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
             else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
-                    x_pred_label[i], x_output_label[i]).type(torch.
-                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
-                    torch.FloatTensor)))
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
@@ -605,16 +499,13 @@ class SegNet(nn.Module):
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
         rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
-            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
 
     def normal_error(self, x_pred, x_output):
         binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
-            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
         error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25
-            ), np.mean(error < 22.5), np.mean(error < 30)
+        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class SegNet(nn.Module):
@@ -623,57 +514,33 @@ class SegNet(nn.Module):
         super(SegNet, self).__init__()
         filter = [64, 128, 256, 512, 512]
         self.class_nb = 13
-        self.encoder_block = nn.ModuleList([self.conv_layer([3, filter[0],
-            filter[0]], bottle_neck=True)])
-        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0], self.class_nb], bottle_neck=True)])
-        self.encoder_block_t = nn.ModuleList([nn.ModuleList([self.
-            conv_layer([3, filter[0], filter[0]], bottle_neck=True)])])
-        self.decoder_block_t = nn.ModuleList([nn.ModuleList([self.
-            conv_layer([2 * filter[0], 2 * filter[0], filter[0]],
-            bottle_neck=True)])])
+        self.encoder_block = nn.ModuleList([self.conv_layer([3, filter[0], filter[0]], bottle_neck=True)])
+        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0], filter[0], self.class_nb], bottle_neck=True)])
+        self.encoder_block_t = nn.ModuleList([nn.ModuleList([self.conv_layer([3, filter[0], filter[0]], bottle_neck=True)])])
+        self.decoder_block_t = nn.ModuleList([nn.ModuleList([self.conv_layer([2 * filter[0], 2 * filter[0], filter[0]], bottle_neck=True)])])
         for i in range(4):
             if i == 0:
-                self.encoder_block.append(self.conv_layer([filter[i],
-                    filter[i + 1], filter[i + 1]], bottle_neck=True))
-                self.decoder_block.append(self.conv_layer([filter[i + 1],
-                    filter[i], filter[i]], bottle_neck=True))
+                self.encoder_block.append(self.conv_layer([filter[i], filter[i + 1], filter[i + 1]], bottle_neck=True))
+                self.decoder_block.append(self.conv_layer([filter[i + 1], filter[i], filter[i]], bottle_neck=True))
             else:
-                self.encoder_block.append(self.conv_layer([filter[i],
-                    filter[i + 1], filter[i + 1]], bottle_neck=False))
-                self.decoder_block.append(self.conv_layer([filter[i + 1],
-                    filter[i], filter[i]], bottle_neck=False))
+                self.encoder_block.append(self.conv_layer([filter[i], filter[i + 1], filter[i + 1]], bottle_neck=False))
+                self.decoder_block.append(self.conv_layer([filter[i + 1], filter[i], filter[i]], bottle_neck=False))
         for j in range(3):
             if j < 2:
-                self.encoder_block_t.append(nn.ModuleList([self.conv_layer(
-                    [3, filter[0], filter[0]], bottle_neck=True)]))
-                self.decoder_block_t.append(nn.ModuleList([self.conv_layer(
-                    [2 * filter[0], 2 * filter[0], filter[0]], bottle_neck=
-                    True)]))
+                self.encoder_block_t.append(nn.ModuleList([self.conv_layer([3, filter[0], filter[0]], bottle_neck=True)]))
+                self.decoder_block_t.append(nn.ModuleList([self.conv_layer([2 * filter[0], 2 * filter[0], filter[0]], bottle_neck=True)]))
             for i in range(4):
                 if i == 0:
-                    self.encoder_block_t[j].append(self.conv_layer([2 *
-                        filter[i], filter[i + 1], filter[i + 1]],
-                        bottle_neck=True))
-                    self.decoder_block_t[j].append(self.conv_layer([2 *
-                        filter[i + 1], filter[i], filter[i]], bottle_neck=True)
-                        )
+                    self.encoder_block_t[j].append(self.conv_layer([2 * filter[i], filter[i + 1], filter[i + 1]], bottle_neck=True))
+                    self.decoder_block_t[j].append(self.conv_layer([2 * filter[i + 1], filter[i], filter[i]], bottle_neck=True))
                 else:
-                    self.encoder_block_t[j].append(self.conv_layer([2 *
-                        filter[i], filter[i + 1], filter[i + 1]],
-                        bottle_neck=False))
-                    self.decoder_block_t[j].append(self.conv_layer([2 *
-                        filter[i + 1], filter[i], filter[i]], bottle_neck=
-                        False))
-        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+                    self.encoder_block_t[j].append(self.conv_layer([2 * filter[i], filter[i + 1], filter[i + 1]], bottle_neck=False))
+                    self.decoder_block_t[j].append(self.conv_layer([2 * filter[i + 1], filter[i], filter[i]], bottle_neck=False))
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        self.pred_task1 = self.conv_layer([filter[0], self.class_nb],
-            bottle_neck=True, pred_layer=True)
-        self.pred_task2 = self.conv_layer([filter[0], 1], bottle_neck=True,
-            pred_layer=True)
-        self.pred_task3 = self.conv_layer([filter[0], 3], bottle_neck=True,
-            pred_layer=True)
+        self.pred_task1 = self.conv_layer([filter[0], self.class_nb], bottle_neck=True, pred_layer=True)
+        self.pred_task2 = self.conv_layer([filter[0], 1], bottle_neck=True, pred_layer=True)
+        self.pred_task3 = self.conv_layer([filter[0], 3], bottle_neck=True, pred_layer=True)
         self.logsigma = nn.Parameter(torch.FloatTensor([-0.5, -0.5, -0.5]))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -689,95 +556,58 @@ class SegNet(nn.Module):
     def conv_layer(self, channel, bottle_neck, pred_layer=False):
         if bottle_neck:
             if not pred_layer:
-                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                    out_channels=channel[1], kernel_size=3, padding=1), nn.
-                    BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.
-                    Conv2d(in_channels=channel[1], out_channels=channel[2],
-                    kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]),
-                    nn.ReLU(inplace=True))
+                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
             else:
-                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                    out_channels=channel[0], kernel_size=3, padding=1), nn.
-                    Conv2d(in_channels=channel[0], out_channels=channel[1],
-                    kernel_size=1, padding=0))
+                conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0))
         else:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
-                in_channels=channel[1], out_channels=channel[1],
-                kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.
-                ReLU(inplace=True), nn.Conv2d(in_channels=channel[1],
-                out_channels=channel[2], kernel_size=3, padding=1), nn.
-                BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=3, padding=1), nn.BatchNorm2d(channel[2]), nn.ReLU(inplace=True))
         return conv_block
 
     def forward(self, x):
-        encoder_conv, decoder_conv, encoder_samp, decoder_samp, indices = (
-            [0] * 5 for _ in range(5))
-        (encoder_conv_t, decoder_conv_t, encoder_samp_t, decoder_samp_t,
-            indices_t) = ([0] * 3 for _ in range(5))
+        encoder_conv, decoder_conv, encoder_samp, decoder_samp, indices = ([0] * 5 for _ in range(5))
+        encoder_conv_t, decoder_conv_t, encoder_samp_t, decoder_samp_t, indices_t = ([0] * 3 for _ in range(5))
         for i in range(3):
-            encoder_conv_t[i], decoder_conv_t[i], encoder_samp_t[i
-                ], decoder_samp_t[i], indices_t[i] = ([0] * 5 for _ in range(5)
-                )
+            encoder_conv_t[i], decoder_conv_t[i], encoder_samp_t[i], decoder_samp_t[i], indices_t[i] = ([0] * 5 for _ in range(5))
         for i in range(5):
             if i == 0:
                 encoder_conv[i] = self.encoder_block[i](x)
-                encoder_samp[i], indices[i] = self.down_sampling(encoder_conv
-                    [i])
+                encoder_samp[i], indices[i] = self.down_sampling(encoder_conv[i])
             else:
                 encoder_conv[i] = self.encoder_block[i](encoder_samp[i - 1])
-                encoder_samp[i], indices[i] = self.down_sampling(encoder_conv
-                    [i])
+                encoder_samp[i], indices[i] = self.down_sampling(encoder_conv[i])
         for i in range(5):
             if i == 0:
-                decoder_samp[i] = self.up_sampling(encoder_samp[-1],
-                    indices[-1])
+                decoder_samp[i] = self.up_sampling(encoder_samp[-1], indices[-1])
                 decoder_conv[i] = self.decoder_block[-i - 1](decoder_samp[i])
             else:
-                decoder_samp[i] = self.up_sampling(decoder_conv[i - 1],
-                    indices[-i - 1])
+                decoder_samp[i] = self.up_sampling(decoder_conv[i - 1], indices[-i - 1])
                 decoder_conv[i] = self.decoder_block[-i - 1](decoder_samp[i])
         for j in range(3):
             for i in range(5):
                 if i == 0:
                     encoder_conv_t[j][i] = self.encoder_block_t[j][i](x)
-                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(
-                        encoder_conv_t[j][i])
+                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(encoder_conv_t[j][i])
                 else:
-                    encoder_conv_t[j][i] = self.encoder_block_t[j][i](torch
-                        .cat((encoder_samp_t[j][i - 1], encoder_samp[i - 1]
-                        ), dim=1))
-                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(
-                        encoder_conv_t[j][i])
+                    encoder_conv_t[j][i] = self.encoder_block_t[j][i](torch.cat((encoder_samp_t[j][i - 1], encoder_samp[i - 1]), dim=1))
+                    encoder_samp_t[j][i], indices_t[j][i] = self.down_sampling(encoder_conv_t[j][i])
             for i in range(5):
                 if i == 0:
-                    decoder_samp_t[j][i] = self.up_sampling(encoder_samp_t[
-                        j][-1], indices_t[j][-1])
-                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](
-                        torch.cat((decoder_samp_t[j][i], decoder_samp[i]),
-                        dim=1))
+                    decoder_samp_t[j][i] = self.up_sampling(encoder_samp_t[j][-1], indices_t[j][-1])
+                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](torch.cat((decoder_samp_t[j][i], decoder_samp[i]), dim=1))
                 else:
-                    decoder_samp_t[j][i] = self.up_sampling(decoder_conv_t[
-                        j][i - 1], indices_t[j][-i - 1])
-                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](
-                        torch.cat((decoder_samp_t[j][i], decoder_samp[i]),
-                        dim=1))
+                    decoder_samp_t[j][i] = self.up_sampling(decoder_conv_t[j][i - 1], indices_t[j][-i - 1])
+                    decoder_conv_t[j][i] = self.decoder_block_t[j][-i - 1](torch.cat((decoder_samp_t[j][i], decoder_samp[i]), dim=1))
         t1_pred = F.log_softmax(self.pred_task1(decoder_conv_t[0][-1]), dim=1)
         t2_pred = self.pred_task2(decoder_conv_t[1][-1])
         t3_pred = self.pred_task3(decoder_conv_t[2][-1])
         t3_pred = t3_pred / torch.norm(t3_pred, p=2, dim=1, keepdim=True)
         return [t1_pred, t2_pred, t3_pred], self.logsigma
 
-    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
-        x_output3):
-        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1)
+    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3, x_output3):
+        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
-        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
-        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
+        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask) / torch.nonzero(binary_mask).size(0)
+        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask) / torch.nonzero(binary_mask).size(0)
         return [loss1, loss2, loss3]
 
     def compute_miou(self, x_pred, x_output):
@@ -788,12 +618,9 @@ class SegNet(nn.Module):
             true_class = 0
             first_switch = True
             for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
-                    torch.FloatTensor)
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
                 intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
                 if union == 0:
@@ -816,14 +643,9 @@ class SegNet(nn.Module):
         batch_size = x_pred.size(0)
         for i in range(batch_size):
             if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
-                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
-                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
             else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
-                    x_pred_label[i], x_output_label[i]).type(torch.
-                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
-                    torch.FloatTensor)))
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
@@ -832,16 +654,13 @@ class SegNet(nn.Module):
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
         rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
-            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
 
     def normal_error(self, x_pred, x_output):
         binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
-            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
         error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25
-            ), np.mean(error < 22.5), np.mean(error < 30)
+        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class SegNet(nn.Module):
@@ -851,66 +670,41 @@ class SegNet(nn.Module):
         filter = [64, 128, 256, 512, 512]
         self.class_nb = 13
         self.encoder_block = nn.ModuleList([self.conv_layer([3, filter[0]])])
-        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
-            self.encoder_block.append(self.conv_layer([filter[i], filter[i +
-                1]]))
-            self.decoder_block.append(self.conv_layer([filter[i + 1],
-                filter[i]]))
-        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
-        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+            self.encoder_block.append(self.conv_layer([filter[i], filter[i + 1]]))
+            self.decoder_block.append(self.conv_layer([filter[i + 1], filter[i]]))
+        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
+        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
             if i == 0:
-                self.conv_block_enc.append(self.conv_layer([filter[i + 1],
-                    filter[i + 1]]))
-                self.conv_block_dec.append(self.conv_layer([filter[i],
-                    filter[i]]))
+                self.conv_block_enc.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+                self.conv_block_dec.append(self.conv_layer([filter[i], filter[i]]))
             else:
-                self.conv_block_enc.append(nn.Sequential(self.conv_layer([
-                    filter[i + 1], filter[i + 1]]), self.conv_layer([filter
-                    [i + 1], filter[i + 1]])))
-                self.conv_block_dec.append(nn.Sequential(self.conv_layer([
-                    filter[i], filter[i]]), self.conv_layer([filter[i],
-                    filter[i]])))
-        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([
-            filter[0], filter[0], filter[0]])])])
-        self.decoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([2 *
-            filter[0], filter[0], filter[0]])])])
-        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0],
-            filter[1]])])
-        self.decoder_block_att = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+                self.conv_block_enc.append(nn.Sequential(self.conv_layer([filter[i + 1], filter[i + 1]]), self.conv_layer([filter[i + 1], filter[i + 1]])))
+                self.conv_block_dec.append(nn.Sequential(self.conv_layer([filter[i], filter[i]]), self.conv_layer([filter[i], filter[i]])))
+        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])])])
+        self.decoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([2 * filter[0], filter[0], filter[0]])])])
+        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0], filter[1]])])
+        self.decoder_block_att = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for j in range(3):
             if j < 2:
-                self.encoder_att.append(nn.ModuleList([self.att_layer([
-                    filter[0], filter[0], filter[0]])]))
-                self.decoder_att.append(nn.ModuleList([self.att_layer([2 *
-                    filter[0], filter[0], filter[0]])]))
+                self.encoder_att.append(nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])]))
+                self.decoder_att.append(nn.ModuleList([self.att_layer([2 * filter[0], filter[0], filter[0]])]))
             for i in range(4):
-                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1
-                    ], filter[i + 1], filter[i + 1]]))
-                self.decoder_att[j].append(self.att_layer([filter[i + 1] +
-                    filter[i], filter[i], filter[i]]))
+                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1], filter[i + 1], filter[i + 1]]))
+                self.decoder_att[j].append(self.att_layer([filter[i + 1] + filter[i], filter[i], filter[i]]))
         for i in range(4):
             if i < 3:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 2]]))
-                self.decoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 2]]))
+                self.decoder_block_att.append(self.conv_layer([filter[i + 1], filter[i]]))
             else:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 1]]))
-                self.decoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 1]]))
-        self.pred_task1 = self.conv_layer([filter[0], self.class_nb], pred=True
-            )
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+                self.decoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+        self.pred_task1 = self.conv_layer([filter[0], self.class_nb], pred=True)
         self.pred_task2 = self.conv_layer([filter[0], 1], pred=True)
         self.pred_task3 = self.conv_layer([filter[0], 3], pred=True)
-        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
         self.logsigma = nn.Parameter(torch.FloatTensor([-0.5, -0.5, -0.5]))
         for m in self.modules():
@@ -926,27 +720,17 @@ class SegNet(nn.Module):
 
     def conv_layer(self, channel, pred=False):
         if not pred:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         else:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[0], kernel_size=3, padding=1), nn.
-                Conv2d(in_channels=channel[0], out_channels=channel[1],
-                kernel_size=1, padding=0))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0))
         return conv_block
 
     def att_layer(self, channel):
-        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-            out_channels=channel[1], kernel_size=1, padding=0), nn.
-            BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=channel[1], out_channels=channel[2], kernel_size=1,
-            padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
+        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=1, padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
         return att_block
 
     def forward(self, x):
-        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for
-            _ in range(5))
+        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for _ in range(5))
         for i in range(5):
             g_encoder[i], g_decoder[-i - 1] = ([0] * 2 for _ in range(2))
         atten_encoder, atten_decoder = ([0] * 3 for _ in range(2))
@@ -954,8 +738,7 @@ class SegNet(nn.Module):
             atten_encoder[i], atten_decoder[i] = ([0] * 5 for _ in range(2))
         for i in range(3):
             for j in range(5):
-                atten_encoder[i][j], atten_decoder[i][j] = ([0] * 3 for _ in
-                    range(2))
+                atten_encoder[i][j], atten_decoder[i][j] = ([0] * 3 for _ in range(2))
         for i in range(5):
             if i == 0:
                 g_encoder[i][0] = self.encoder_block[i](x)
@@ -971,68 +754,43 @@ class SegNet(nn.Module):
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
             else:
-                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1],
-                    indices[-i - 1])
+                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1], indices[-i - 1])
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
         for i in range(3):
             for j in range(5):
                 if j == 0:
-                    atten_encoder[i][j][0] = self.encoder_att[i][j](g_encoder
-                        [j][0])
-                    atten_encoder[i][j][1] = atten_encoder[i][j][0
-                        ] * g_encoder[j][1]
-                    atten_encoder[i][j][2] = self.encoder_block_att[j](
-                        atten_encoder[i][j][1])
-                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][
-                        j][2], kernel_size=2, stride=2)
+                    atten_encoder[i][j][0] = self.encoder_att[i][j](g_encoder[j][0])
+                    atten_encoder[i][j][1] = atten_encoder[i][j][0] * g_encoder[j][1]
+                    atten_encoder[i][j][2] = self.encoder_block_att[j](atten_encoder[i][j][1])
+                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][j][2], kernel_size=2, stride=2)
                 else:
-                    atten_encoder[i][j][0] = self.encoder_att[i][j](torch.
-                        cat((g_encoder[j][0], atten_encoder[i][j - 1][2]),
-                        dim=1))
-                    atten_encoder[i][j][1] = atten_encoder[i][j][0
-                        ] * g_encoder[j][1]
-                    atten_encoder[i][j][2] = self.encoder_block_att[j](
-                        atten_encoder[i][j][1])
-                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][
-                        j][2], kernel_size=2, stride=2)
+                    atten_encoder[i][j][0] = self.encoder_att[i][j](torch.cat((g_encoder[j][0], atten_encoder[i][j - 1][2]), dim=1))
+                    atten_encoder[i][j][1] = atten_encoder[i][j][0] * g_encoder[j][1]
+                    atten_encoder[i][j][2] = self.encoder_block_att[j](atten_encoder[i][j][1])
+                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][j][2], kernel_size=2, stride=2)
             for j in range(5):
                 if j == 0:
-                    atten_decoder[i][j][0] = F.interpolate(atten_encoder[i]
-                        [-1][-1], scale_factor=2, mode='bilinear',
-                        align_corners=True)
-                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](
-                        atten_decoder[i][j][0])
-                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch
-                        .cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
-                    atten_decoder[i][j][2] = atten_decoder[i][j][1
-                        ] * g_decoder[j][-1]
+                    atten_decoder[i][j][0] = F.interpolate(atten_encoder[i][-1][-1], scale_factor=2, mode='bilinear', align_corners=True)
+                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](atten_decoder[i][j][0])
+                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch.cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
+                    atten_decoder[i][j][2] = atten_decoder[i][j][1] * g_decoder[j][-1]
                 else:
-                    atten_decoder[i][j][0] = F.interpolate(atten_decoder[i]
-                        [j - 1][2], scale_factor=2, mode='bilinear',
-                        align_corners=True)
-                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](
-                        atten_decoder[i][j][0])
-                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch
-                        .cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
-                    atten_decoder[i][j][2] = atten_decoder[i][j][1
-                        ] * g_decoder[j][-1]
-        t1_pred = F.log_softmax(self.pred_task1(atten_decoder[0][-1][-1]),
-            dim=1)
+                    atten_decoder[i][j][0] = F.interpolate(atten_decoder[i][j - 1][2], scale_factor=2, mode='bilinear', align_corners=True)
+                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](atten_decoder[i][j][0])
+                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch.cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
+                    atten_decoder[i][j][2] = atten_decoder[i][j][1] * g_decoder[j][-1]
+        t1_pred = F.log_softmax(self.pred_task1(atten_decoder[0][-1][-1]), dim=1)
         t2_pred = self.pred_task2(atten_decoder[1][-1][-1])
         t3_pred = self.pred_task3(atten_decoder[2][-1][-1])
         t3_pred = t3_pred / torch.norm(t3_pred, p=2, dim=1, keepdim=True)
         return [t1_pred, t2_pred, t3_pred], self.logsigma
 
-    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
-        x_output3):
-        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1)
+    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3, x_output3):
+        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
-        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
-        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
+        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask) / torch.nonzero(binary_mask).size(0)
+        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask) / torch.nonzero(binary_mask).size(0)
         return [loss1, loss2, loss3]
 
     def compute_miou(self, x_pred, x_output):
@@ -1043,12 +801,9 @@ class SegNet(nn.Module):
             true_class = 0
             first_switch = True
             for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
-                    torch.FloatTensor)
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
                 intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
                 if union == 0:
@@ -1071,14 +826,9 @@ class SegNet(nn.Module):
         batch_size = x_pred.size(0)
         for i in range(batch_size):
             if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
-                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
-                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
             else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
-                    x_pred_label[i], x_output_label[i]).type(torch.
-                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
-                    torch.FloatTensor)))
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
@@ -1087,16 +837,13 @@ class SegNet(nn.Module):
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
         rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
-            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
 
     def normal_error(self, x_pred, x_output):
         binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
-            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
         error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25
-            ), np.mean(error < 22.5), np.mean(error < 30)
+        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class SegNet(nn.Module):
@@ -1106,39 +853,26 @@ class SegNet(nn.Module):
         filter = [64, 128, 256, 512, 512]
         self.class_nb = 13
         self.encoder_block = nn.ModuleList([self.conv_layer([3, filter[0]])])
-        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
-            self.encoder_block.append(self.conv_layer([filter[i], filter[i +
-                1]]))
-            self.decoder_block.append(self.conv_layer([filter[i + 1],
-                filter[i]]))
-        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
-        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+            self.encoder_block.append(self.conv_layer([filter[i], filter[i + 1]]))
+            self.decoder_block.append(self.conv_layer([filter[i + 1], filter[i]]))
+        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
+        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
             if i == 0:
-                self.conv_block_enc.append(self.conv_layer([filter[i + 1],
-                    filter[i + 1]]))
-                self.conv_block_dec.append(self.conv_layer([filter[i],
-                    filter[i]]))
+                self.conv_block_enc.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+                self.conv_block_dec.append(self.conv_layer([filter[i], filter[i]]))
             else:
-                self.conv_block_enc.append(nn.Sequential(self.conv_layer([
-                    filter[i + 1], filter[i + 1]]), self.conv_layer([filter
-                    [i + 1], filter[i + 1]])))
-                self.conv_block_dec.append(nn.Sequential(self.conv_layer([
-                    filter[i], filter[i]]), self.conv_layer([filter[i],
-                    filter[i]])))
+                self.conv_block_enc.append(nn.Sequential(self.conv_layer([filter[i + 1], filter[i + 1]]), self.conv_layer([filter[i + 1], filter[i + 1]])))
+                self.conv_block_dec.append(nn.Sequential(self.conv_layer([filter[i], filter[i]]), self.conv_layer([filter[i], filter[i]])))
         if opt.task == 'semantic':
-            self.pred_task = self.conv_layer([filter[0], self.class_nb],
-                pred=True)
+            self.pred_task = self.conv_layer([filter[0], self.class_nb], pred=True)
         if opt.task == 'depth':
             self.pred_task = self.conv_layer([filter[0], 1], pred=True)
         if opt.task == 'normal':
             self.pred_task = self.conv_layer([filter[0], 3], pred=True)
-        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -1153,19 +887,13 @@ class SegNet(nn.Module):
 
     def conv_layer(self, channel, pred=False):
         if not pred:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         else:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[0], kernel_size=3, padding=1), nn.
-                Conv2d(in_channels=channel[0], out_channels=channel[1],
-                kernel_size=1, padding=0))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0))
         return conv_block
 
     def forward(self, x):
-        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for
-            _ in range(5))
+        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for _ in range(5))
         for i in range(5):
             g_encoder[i], g_decoder[-i - 1] = ([0] * 2 for _ in range(2))
         for i in range(5):
@@ -1183,8 +911,7 @@ class SegNet(nn.Module):
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
             else:
-                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1],
-                    indices[-i - 1])
+                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1], indices[-i - 1])
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
         if opt.task == 'semantic':
@@ -1200,15 +927,11 @@ class SegNet(nn.Module):
         if opt.task == 'semantic':
             loss = F.nll_loss(x_pred, x_output, ignore_index=-1)
         if opt.task == 'depth':
-            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1)
-            loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask
-                ) / torch.nonzero(binary_mask).size(0)
+            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
+            loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask) / torch.nonzero(binary_mask).size(0)
         if opt.task == 'normal':
-            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1)
-            loss = 1 - torch.sum(x_pred * x_output * binary_mask
-                ) / torch.nonzero(binary_mask).size(0)
+            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
+            loss = 1 - torch.sum(x_pred * x_output * binary_mask) / torch.nonzero(binary_mask).size(0)
         return loss
 
     def compute_miou(self, x_pred, x_output):
@@ -1219,12 +942,9 @@ class SegNet(nn.Module):
             true_class = 0
             first_switch = True
             for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
-                    torch.FloatTensor)
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
                 intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
                 if union == 0:
@@ -1247,14 +967,9 @@ class SegNet(nn.Module):
         batch_size = x_pred.size(0)
         for i in range(batch_size):
             if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
-                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
-                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
             else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
-                    x_pred_label[i], x_output_label[i]).type(torch.
-                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
-                    torch.FloatTensor)))
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
@@ -1263,16 +978,13 @@ class SegNet(nn.Module):
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
         rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
-            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
 
     def normal_error(self, x_pred, x_output):
         binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
-            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
         error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25
-            ), np.mean(error < 22.5), np.mean(error < 30)
+        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class SegNet(nn.Module):
@@ -1285,42 +997,23 @@ class SegNet(nn.Module):
             filter = [64, 128, 256, 512, 512]
         self.class_nb = 13
         self.encoder_block = nn.ModuleList([self.conv_layer([3, filter[0]])])
-        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
-            self.encoder_block.append(self.conv_layer([filter[i], filter[i +
-                1]]))
-            self.decoder_block.append(self.conv_layer([filter[i + 1],
-                filter[i]]))
-        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
-        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+            self.encoder_block.append(self.conv_layer([filter[i], filter[i + 1]]))
+            self.decoder_block.append(self.conv_layer([filter[i + 1], filter[i]]))
+        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
+        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
             if i == 0:
-                self.conv_block_enc.append(self.conv_layer([filter[i + 1],
-                    filter[i + 1]]))
-                self.conv_block_dec.append(self.conv_layer([filter[i],
-                    filter[i]]))
+                self.conv_block_enc.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+                self.conv_block_dec.append(self.conv_layer([filter[i], filter[i]]))
             else:
-                self.conv_block_enc.append(nn.Sequential(self.conv_layer([
-                    filter[i + 1], filter[i + 1]]), self.conv_layer([filter
-                    [i + 1], filter[i + 1]])))
-                self.conv_block_dec.append(nn.Sequential(self.conv_layer([
-                    filter[i], filter[i]]), self.conv_layer([filter[i],
-                    filter[i]])))
-        self.pred_task1 = nn.Sequential(nn.Conv2d(in_channels=filter[0],
-            out_channels=filter[0], kernel_size=3, padding=1), nn.Conv2d(
-            in_channels=filter[0], out_channels=self.class_nb, kernel_size=
-            1, padding=0))
-        self.pred_task2 = nn.Sequential(nn.Conv2d(in_channels=filter[0],
-            out_channels=filter[0], kernel_size=3, padding=1), nn.Conv2d(
-            in_channels=filter[0], out_channels=1, kernel_size=1, padding=0))
-        self.pred_task3 = nn.Sequential(nn.Conv2d(in_channels=filter[0],
-            out_channels=filter[0], kernel_size=3, padding=1), nn.Conv2d(
-            in_channels=filter[0], out_channels=3, kernel_size=1, padding=0))
-        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+                self.conv_block_enc.append(nn.Sequential(self.conv_layer([filter[i + 1], filter[i + 1]]), self.conv_layer([filter[i + 1], filter[i + 1]])))
+                self.conv_block_dec.append(nn.Sequential(self.conv_layer([filter[i], filter[i]]), self.conv_layer([filter[i], filter[i]])))
+        self.pred_task1 = nn.Sequential(nn.Conv2d(in_channels=filter[0], out_channels=filter[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=filter[0], out_channels=self.class_nb, kernel_size=1, padding=0))
+        self.pred_task2 = nn.Sequential(nn.Conv2d(in_channels=filter[0], out_channels=filter[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=filter[0], out_channels=1, kernel_size=1, padding=0))
+        self.pred_task3 = nn.Sequential(nn.Conv2d(in_channels=filter[0], out_channels=filter[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=filter[0], out_channels=3, kernel_size=1, padding=0))
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
         self.logsigma = nn.Parameter(torch.FloatTensor([-0.5, -0.5, -0.5]))
         for m in self.modules():
@@ -1336,21 +1029,13 @@ class SegNet(nn.Module):
 
     def conv_layer(self, channel):
         if opt.type == 'deep':
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True),
-                nn.Conv2d(in_channels=channel[1], out_channels=channel[1],
-                kernel_size=3, padding=1), nn.BatchNorm2d(num_features=
-                channel[1]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         else:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         return conv_block
 
     def forward(self, x):
-        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for
-            _ in range(5))
+        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for _ in range(5))
         for i in range(5):
             g_encoder[i], g_decoder[-i - 1] = ([0] * 2 for _ in range(2))
         for i in range(5):
@@ -1368,8 +1053,7 @@ class SegNet(nn.Module):
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
             else:
-                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1],
-                    indices[-i - 1])
+                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1], indices[-i - 1])
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
         t1_pred = F.log_softmax(self.pred_task1(g_decoder[i][1]), dim=1)
@@ -1378,15 +1062,11 @@ class SegNet(nn.Module):
         t3_pred = t3_pred / torch.norm(t3_pred, p=2, dim=1, keepdim=True)
         return [t1_pred, t2_pred, t3_pred], self.logsigma
 
-    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3,
-        x_output3):
-        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor
-            ).unsqueeze(1)
+    def model_fit(self, x_pred1, x_output1, x_pred2, x_output2, x_pred3, x_output3):
+        binary_mask = (torch.sum(x_output2, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
         loss1 = F.nll_loss(x_pred1, x_output1, ignore_index=-1)
-        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
-        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask
-            ) / torch.nonzero(binary_mask).size(0)
+        loss2 = torch.sum(torch.abs(x_pred2 - x_output2) * binary_mask) / torch.nonzero(binary_mask).size(0)
+        loss3 = 1 - torch.sum(x_pred3 * x_output3 * binary_mask) / torch.nonzero(binary_mask).size(0)
         return [loss1, loss2, loss3]
 
     def compute_miou(self, x_pred, x_output):
@@ -1397,12 +1077,9 @@ class SegNet(nn.Module):
             true_class = 0
             first_switch = True
             for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
-                    torch.FloatTensor)
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
                 intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
                 if union == 0:
@@ -1425,14 +1102,9 @@ class SegNet(nn.Module):
         batch_size = x_pred.size(0)
         for i in range(batch_size):
             if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
-                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
-                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
             else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
-                    x_pred_label[i], x_output_label[i]).type(torch.
-                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
-                    torch.FloatTensor)))
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
@@ -1441,16 +1113,13 @@ class SegNet(nn.Module):
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
         rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
-            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
 
     def normal_error(self, x_pred, x_output):
         binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
-            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
         error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25
-            ), np.mean(error < 22.5), np.mean(error < 30)
+        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class SegNet(nn.Module):
@@ -1460,64 +1129,41 @@ class SegNet(nn.Module):
         filter = [64, 128, 256, 512, 512]
         self.class_nb = 13
         self.encoder_block = nn.ModuleList([self.conv_layer([3, filter[0]])])
-        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+        self.decoder_block = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
-            self.encoder_block.append(self.conv_layer([filter[i], filter[i +
-                1]]))
-            self.decoder_block.append(self.conv_layer([filter[i + 1],
-                filter[i]]))
-        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
-        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+            self.encoder_block.append(self.conv_layer([filter[i], filter[i + 1]]))
+            self.decoder_block.append(self.conv_layer([filter[i + 1], filter[i]]))
+        self.conv_block_enc = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
+        self.conv_block_dec = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for i in range(4):
             if i == 0:
-                self.conv_block_enc.append(self.conv_layer([filter[i + 1],
-                    filter[i + 1]]))
-                self.conv_block_dec.append(self.conv_layer([filter[i],
-                    filter[i]]))
+                self.conv_block_enc.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+                self.conv_block_dec.append(self.conv_layer([filter[i], filter[i]]))
             else:
-                self.conv_block_enc.append(nn.Sequential(self.conv_layer([
-                    filter[i + 1], filter[i + 1]]), self.conv_layer([filter
-                    [i + 1], filter[i + 1]])))
-                self.conv_block_dec.append(nn.Sequential(self.conv_layer([
-                    filter[i], filter[i]]), self.conv_layer([filter[i],
-                    filter[i]])))
-        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([
-            filter[0], filter[0], filter[0]])])])
-        self.decoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([2 *
-            filter[0], filter[0], filter[0]])])])
-        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0],
-            filter[1]])])
-        self.decoder_block_att = nn.ModuleList([self.conv_layer([filter[0],
-            filter[0]])])
+                self.conv_block_enc.append(nn.Sequential(self.conv_layer([filter[i + 1], filter[i + 1]]), self.conv_layer([filter[i + 1], filter[i + 1]])))
+                self.conv_block_dec.append(nn.Sequential(self.conv_layer([filter[i], filter[i]]), self.conv_layer([filter[i], filter[i]])))
+        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])])])
+        self.decoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([2 * filter[0], filter[0], filter[0]])])])
+        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0], filter[1]])])
+        self.decoder_block_att = nn.ModuleList([self.conv_layer([filter[0], filter[0]])])
         for j in range(1):
             for i in range(4):
-                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1
-                    ], filter[i + 1], filter[i + 1]]))
-                self.decoder_att[j].append(self.att_layer([filter[i + 1] +
-                    filter[i], filter[i], filter[i]]))
+                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1], filter[i + 1], filter[i + 1]]))
+                self.decoder_att[j].append(self.att_layer([filter[i + 1] + filter[i], filter[i], filter[i]]))
         for i in range(4):
             if i < 3:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 2]]))
-                self.decoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 2]]))
+                self.decoder_block_att.append(self.conv_layer([filter[i + 1], filter[i]]))
             else:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 1]]))
-                self.decoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 1]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
+                self.decoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
         if opt.task == 'semantic':
-            self.pred_task = self.conv_layer([filter[0], self.class_nb],
-                pred=True)
+            self.pred_task = self.conv_layer([filter[0], self.class_nb], pred=True)
         if opt.task == 'depth':
             self.pred_task = self.conv_layer([filter[0], 1], pred=True)
         if opt.task == 'normal':
             self.pred_task = self.conv_layer([filter[0], 3], pred=True)
-        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.down_sampling = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.up_sampling = nn.MaxUnpool2d(kernel_size=2, stride=2)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -1532,27 +1178,17 @@ class SegNet(nn.Module):
 
     def conv_layer(self, channel, pred=False):
         if not pred:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[1], kernel_size=3, padding=1), nn.
-                BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         else:
-            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-                out_channels=channel[0], kernel_size=3, padding=1), nn.
-                Conv2d(in_channels=channel[0], out_channels=channel[1],
-                kernel_size=1, padding=0))
+            conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[0], kernel_size=3, padding=1), nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0))
         return conv_block
 
     def att_layer(self, channel):
-        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-            out_channels=channel[1], kernel_size=1, padding=0), nn.
-            BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=channel[1], out_channels=channel[2], kernel_size=1,
-            padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
+        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=1, padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
         return att_block
 
     def forward(self, x):
-        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for
-            _ in range(5))
+        g_encoder, g_decoder, g_maxpool, g_upsampl, indices = ([0] * 5 for _ in range(5))
         for i in range(5):
             g_encoder[i], g_decoder[-i - 1] = ([0] * 2 for _ in range(2))
         atten_encoder, atten_decoder = ([0] * 3 for _ in range(2))
@@ -1560,8 +1196,7 @@ class SegNet(nn.Module):
             atten_encoder[i], atten_decoder[i] = ([0] * 5 for _ in range(2))
         for i in range(3):
             for j in range(5):
-                atten_encoder[i][j], atten_decoder[i][j] = ([0] * 3 for _ in
-                    range(2))
+                atten_encoder[i][j], atten_decoder[i][j] = ([0] * 3 for _ in range(2))
         for i in range(5):
             if i == 0:
                 g_encoder[i][0] = self.encoder_block[i](x)
@@ -1577,55 +1212,34 @@ class SegNet(nn.Module):
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
             else:
-                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1],
-                    indices[-i - 1])
+                g_upsampl[i] = self.up_sampling(g_decoder[i - 1][-1], indices[-i - 1])
                 g_decoder[i][0] = self.decoder_block[-i - 1](g_upsampl[i])
                 g_decoder[i][1] = self.conv_block_dec[-i - 1](g_decoder[i][0])
         for i in range(1):
             for j in range(5):
                 if j == 0:
-                    atten_encoder[i][j][0] = self.encoder_att[i][j](g_encoder
-                        [j][0])
-                    atten_encoder[i][j][1] = atten_encoder[i][j][0
-                        ] * g_encoder[j][1]
-                    atten_encoder[i][j][2] = self.encoder_block_att[j](
-                        atten_encoder[i][j][1])
-                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][
-                        j][2], kernel_size=2, stride=2)
+                    atten_encoder[i][j][0] = self.encoder_att[i][j](g_encoder[j][0])
+                    atten_encoder[i][j][1] = atten_encoder[i][j][0] * g_encoder[j][1]
+                    atten_encoder[i][j][2] = self.encoder_block_att[j](atten_encoder[i][j][1])
+                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][j][2], kernel_size=2, stride=2)
                 else:
-                    atten_encoder[i][j][0] = self.encoder_att[i][j](torch.
-                        cat((g_encoder[j][0], atten_encoder[i][j - 1][2]),
-                        dim=1))
-                    atten_encoder[i][j][1] = atten_encoder[i][j][0
-                        ] * g_encoder[j][1]
-                    atten_encoder[i][j][2] = self.encoder_block_att[j](
-                        atten_encoder[i][j][1])
-                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][
-                        j][2], kernel_size=2, stride=2)
+                    atten_encoder[i][j][0] = self.encoder_att[i][j](torch.cat((g_encoder[j][0], atten_encoder[i][j - 1][2]), dim=1))
+                    atten_encoder[i][j][1] = atten_encoder[i][j][0] * g_encoder[j][1]
+                    atten_encoder[i][j][2] = self.encoder_block_att[j](atten_encoder[i][j][1])
+                    atten_encoder[i][j][2] = F.max_pool2d(atten_encoder[i][j][2], kernel_size=2, stride=2)
             for j in range(5):
                 if j == 0:
-                    atten_decoder[i][j][0] = F.interpolate(atten_encoder[i]
-                        [-1][-1], scale_factor=2, mode='bilinear',
-                        align_corners=True)
-                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](
-                        atten_decoder[i][j][0])
-                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch
-                        .cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
-                    atten_decoder[i][j][2] = atten_decoder[i][j][1
-                        ] * g_decoder[j][-1]
+                    atten_decoder[i][j][0] = F.interpolate(atten_encoder[i][-1][-1], scale_factor=2, mode='bilinear', align_corners=True)
+                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](atten_decoder[i][j][0])
+                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch.cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
+                    atten_decoder[i][j][2] = atten_decoder[i][j][1] * g_decoder[j][-1]
                 else:
-                    atten_decoder[i][j][0] = F.interpolate(atten_decoder[i]
-                        [j - 1][2], scale_factor=2, mode='bilinear',
-                        align_corners=True)
-                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](
-                        atten_decoder[i][j][0])
-                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch
-                        .cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
-                    atten_decoder[i][j][2] = atten_decoder[i][j][1
-                        ] * g_decoder[j][-1]
+                    atten_decoder[i][j][0] = F.interpolate(atten_decoder[i][j - 1][2], scale_factor=2, mode='bilinear', align_corners=True)
+                    atten_decoder[i][j][0] = self.decoder_block_att[-j - 1](atten_decoder[i][j][0])
+                    atten_decoder[i][j][1] = self.decoder_att[i][-j - 1](torch.cat((g_upsampl[j], atten_decoder[i][j][0]), dim=1))
+                    atten_decoder[i][j][2] = atten_decoder[i][j][1] * g_decoder[j][-1]
         if opt.task == 'semantic':
-            pred = F.log_softmax(self.pred_task(atten_decoder[0][-1][-1]),
-                dim=1)
+            pred = F.log_softmax(self.pred_task(atten_decoder[0][-1][-1]), dim=1)
         if opt.task == 'depth':
             pred = self.pred_task(atten_decoder[0][-1][-1])
         if opt.task == 'normal':
@@ -1637,15 +1251,11 @@ class SegNet(nn.Module):
         if opt.task == 'semantic':
             loss = F.nll_loss(x_pred, x_output, ignore_index=-1)
         if opt.task == 'depth':
-            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1)
-            loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask
-                ) / torch.nonzero(binary_mask).size(0)
+            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
+            loss = torch.sum(torch.abs(x_pred - x_output) * binary_mask) / torch.nonzero(binary_mask).size(0)
         if opt.task == 'normal':
-            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.
-                FloatTensor).unsqueeze(1)
-            loss = 1 - torch.sum(x_pred * x_output * binary_mask
-                ) / torch.nonzero(binary_mask).size(0)
+            binary_mask = (torch.sum(x_output, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1)
+            loss = 1 - torch.sum(x_pred * x_output * binary_mask) / torch.nonzero(binary_mask).size(0)
         return loss
 
     def compute_miou(self, x_pred, x_output):
@@ -1656,12 +1266,9 @@ class SegNet(nn.Module):
             true_class = 0
             first_switch = True
             for j in range(self.class_nb):
-                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(
-                    x_pred_label[i].shape).type(torch.LongTensor))
-                true_mask = torch.eq(x_output_label[i], j * torch.ones(
-                    x_output_label[i].shape).type(torch.LongTensor))
-                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(
-                    torch.FloatTensor)
+                pred_mask = torch.eq(x_pred_label[i], j * torch.ones(x_pred_label[i].shape).type(torch.LongTensor))
+                true_mask = torch.eq(x_output_label[i], j * torch.ones(x_output_label[i].shape).type(torch.LongTensor))
+                mask_comb = pred_mask.type(torch.FloatTensor) + true_mask.type(torch.FloatTensor)
                 union = torch.sum((mask_comb > 0).type(torch.FloatTensor))
                 intsec = torch.sum((mask_comb > 1).type(torch.FloatTensor))
                 if union == 0:
@@ -1684,14 +1291,9 @@ class SegNet(nn.Module):
         batch_size = x_pred.size(0)
         for i in range(batch_size):
             if i == 0:
-                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i],
-                    x_output_label[i]).type(torch.FloatTensor)), torch.sum(
-                    (x_output_label[i] >= 0).type(torch.FloatTensor)))
+                pixel_acc = torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
             else:
-                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(
-                    x_pred_label[i], x_output_label[i]).type(torch.
-                    FloatTensor)), torch.sum((x_output_label[i] >= 0).type(
-                    torch.FloatTensor)))
+                pixel_acc = pixel_acc + torch.div(torch.sum(torch.eq(x_pred_label[i], x_output_label[i]).type(torch.FloatTensor)), torch.sum((x_output_label[i] >= 0).type(torch.FloatTensor)))
         return pixel_acc / batch_size
 
     def depth_error(self, x_pred, x_output):
@@ -1700,16 +1302,13 @@ class SegNet(nn.Module):
         x_output_true = x_output.masked_select(binary_mask)
         abs_err = torch.abs(x_pred_true - x_output_true)
         rel_err = torch.abs(x_pred_true - x_output_true) / x_output_true
-        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0
-            ), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
+        return torch.sum(abs_err) / torch.nonzero(binary_mask).size(0), torch.sum(rel_err) / torch.nonzero(binary_mask).size(0)
 
     def normal_error(self, x_pred, x_output):
         binary_mask = torch.sum(x_output, dim=1) != 0
-        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).
-            masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
+        error = torch.acos(torch.clamp(torch.sum(x_pred * x_output, 1).masked_select(binary_mask), -1, 1)).detach().cpu().numpy()
         error = np.degrees(error)
-        return np.mean(error), np.median(error), np.mean(error < 11.25
-            ), np.mean(error < 22.5), np.mean(error < 30)
+        return np.mean(error), np.median(error), np.mean(error < 11.25), np.mean(error < 22.5), np.mean(error < 30)
 
 
 class wide_basic(nn.Module):
@@ -1717,15 +1316,12 @@ class wide_basic(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(wide_basic, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1,
-            bias=True)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=True))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True))
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -1747,41 +1343,27 @@ class WideResNet(nn.Module):
         self.layer2 = self._wide_layer(wide_basic, filter[2], n, stride=2)
         self.layer3 = self._wide_layer(wide_basic, filter[3], n, stride=2)
         self.bn1 = nn.BatchNorm2d(filter[3], momentum=0.9)
-        self.linear = nn.ModuleList([nn.Sequential(nn.Linear(filter[3],
-            num_classes[0]), nn.Softmax(dim=1))])
-        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([
-            filter[0], filter[0], filter[0]])])])
-        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0],
-            filter[1]])])
+        self.linear = nn.ModuleList([nn.Sequential(nn.Linear(filter[3], num_classes[0]), nn.Softmax(dim=1))])
+        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])])])
+        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0], filter[1]])])
         for j in range(10):
             if j < 9:
-                self.encoder_att.append(nn.ModuleList([self.att_layer([
-                    filter[0], filter[0], filter[0]])]))
-                self.linear.append(nn.Sequential(nn.Linear(filter[3],
-                    num_classes[j + 1]), nn.Softmax(dim=1)))
+                self.encoder_att.append(nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])]))
+                self.linear.append(nn.Sequential(nn.Linear(filter[3], num_classes[j + 1]), nn.Softmax(dim=1)))
             for i in range(3):
-                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1
-                    ], filter[i + 1], filter[i + 1]]))
+                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1], filter[i + 1], filter[i + 1]]))
         for i in range(3):
             if i < 2:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 2]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 2]]))
             else:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 1]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
 
     def conv_layer(self, channel):
-        conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-            out_channels=channel[1], kernel_size=3, padding=1), nn.
-            BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
+        conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         return conv_block
 
     def att_layer(self, channel):
-        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-            out_channels=channel[1], kernel_size=1, padding=0), nn.
-            BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=channel[1], out_channels=channel[2], kernel_size=1,
-            padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
+        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=1, padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
         return att_block
 
     def _wide_layer(self, block, planes, num_blocks, stride):
@@ -1808,19 +1390,14 @@ class WideResNet(nn.Module):
             if j == 0:
                 atten_encoder[k][j][0] = self.encoder_att[k][j](g_encoder[0])
                 atten_encoder[k][j][1] = atten_encoder[k][j][0] * g_encoder[0]
-                atten_encoder[k][j][2] = self.encoder_block_att[j](
-                    atten_encoder[k][j][1])
-                atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][j][2
-                    ], kernel_size=2, stride=2)
+                atten_encoder[k][j][2] = self.encoder_block_att[j](atten_encoder[k][j][1])
+                atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][j][2], kernel_size=2, stride=2)
             else:
-                atten_encoder[k][j][0] = self.encoder_att[k][j](torch.cat((
-                    g_encoder[j], atten_encoder[k][j - 1][2]), dim=1))
+                atten_encoder[k][j][0] = self.encoder_att[k][j](torch.cat((g_encoder[j], atten_encoder[k][j - 1][2]), dim=1))
                 atten_encoder[k][j][1] = atten_encoder[k][j][0] * g_encoder[j]
-                atten_encoder[k][j][2] = self.encoder_block_att[j](
-                    atten_encoder[k][j][1])
+                atten_encoder[k][j][2] = self.encoder_block_att[j](atten_encoder[k][j][1])
                 if j < 3:
-                    atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][
-                        j][2], kernel_size=2, stride=2)
+                    atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][j][2], kernel_size=2, stride=2)
         pred = F.avg_pool2d(atten_encoder[k][-1][-1], 8)
         pred = pred.view(pred.size(0), -1)
         out = self.linear[k](pred)
@@ -1838,15 +1415,12 @@ class wide_basic(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(wide_basic, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1,
-            bias=True)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=True))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True))
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -1868,41 +1442,27 @@ class WideResNet(nn.Module):
         self.layer2 = self._wide_layer(wide_basic, filter[2], n, stride=2)
         self.layer3 = self._wide_layer(wide_basic, filter[3], n, stride=2)
         self.bn1 = nn.BatchNorm2d(filter[3], momentum=0.9)
-        self.linear = nn.ModuleList([nn.Sequential(nn.Linear(filter[3],
-            num_classes[0]), nn.Softmax(dim=1))])
-        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([
-            filter[0], filter[0], filter[0]])])])
-        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0],
-            filter[1]])])
+        self.linear = nn.ModuleList([nn.Sequential(nn.Linear(filter[3], num_classes[0]), nn.Softmax(dim=1))])
+        self.encoder_att = nn.ModuleList([nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])])])
+        self.encoder_block_att = nn.ModuleList([self.conv_layer([filter[0], filter[1]])])
         for j in range(10):
             if j < 9:
-                self.encoder_att.append(nn.ModuleList([self.att_layer([
-                    filter[0], filter[0], filter[0]])]))
-                self.linear.append(nn.Sequential(nn.Linear(filter[3],
-                    num_classes[j + 1]), nn.Softmax(dim=1)))
+                self.encoder_att.append(nn.ModuleList([self.att_layer([filter[0], filter[0], filter[0]])]))
+                self.linear.append(nn.Sequential(nn.Linear(filter[3], num_classes[j + 1]), nn.Softmax(dim=1)))
             for i in range(3):
-                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1
-                    ], filter[i + 1], filter[i + 1]]))
+                self.encoder_att[j].append(self.att_layer([2 * filter[i + 1], filter[i + 1], filter[i + 1]]))
         for i in range(3):
             if i < 2:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 2]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 2]]))
             else:
-                self.encoder_block_att.append(self.conv_layer([filter[i + 1
-                    ], filter[i + 1]]))
+                self.encoder_block_att.append(self.conv_layer([filter[i + 1], filter[i + 1]]))
 
     def conv_layer(self, channel):
-        conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-            out_channels=channel[1], kernel_size=3, padding=1), nn.
-            BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
+        conv_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=3, padding=1), nn.BatchNorm2d(num_features=channel[1]), nn.ReLU(inplace=True))
         return conv_block
 
     def att_layer(self, channel):
-        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0],
-            out_channels=channel[1], kernel_size=1, padding=0), nn.
-            BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(
-            in_channels=channel[1], out_channels=channel[2], kernel_size=1,
-            padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
+        att_block = nn.Sequential(nn.Conv2d(in_channels=channel[0], out_channels=channel[1], kernel_size=1, padding=0), nn.BatchNorm2d(channel[1]), nn.ReLU(inplace=True), nn.Conv2d(in_channels=channel[1], out_channels=channel[2], kernel_size=1, padding=0), nn.BatchNorm2d(channel[2]), nn.Sigmoid())
         return att_block
 
     def _wide_layer(self, block, planes, num_blocks, stride):
@@ -1929,19 +1489,14 @@ class WideResNet(nn.Module):
             if j == 0:
                 atten_encoder[k][j][0] = self.encoder_att[k][j](g_encoder[0])
                 atten_encoder[k][j][1] = atten_encoder[k][j][0] * g_encoder[0]
-                atten_encoder[k][j][2] = self.encoder_block_att[j](
-                    atten_encoder[k][j][1])
-                atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][j][2
-                    ], kernel_size=2, stride=2)
+                atten_encoder[k][j][2] = self.encoder_block_att[j](atten_encoder[k][j][1])
+                atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][j][2], kernel_size=2, stride=2)
             else:
-                atten_encoder[k][j][0] = self.encoder_att[k][j](torch.cat((
-                    g_encoder[j], atten_encoder[k][j - 1][2]), dim=1))
+                atten_encoder[k][j][0] = self.encoder_att[k][j](torch.cat((g_encoder[j], atten_encoder[k][j - 1][2]), dim=1))
                 atten_encoder[k][j][1] = atten_encoder[k][j][0] * g_encoder[j]
-                atten_encoder[k][j][2] = self.encoder_block_att[j](
-                    atten_encoder[k][j][1])
+                atten_encoder[k][j][2] = self.encoder_block_att[j](atten_encoder[k][j][1])
                 if j < 3:
-                    atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][
-                        j][2], kernel_size=2, stride=2)
+                    atten_encoder[k][j][2] = F.max_pool2d(atten_encoder[k][j][2], kernel_size=2, stride=2)
         pred = F.avg_pool2d(atten_encoder[k][-1][-1], 8)
         pred = pred.view(pred.size(0), -1)
         out = self.linear[k](pred)
@@ -1958,30 +1513,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ASPP,
+     lambda: ([], {'in_channels': 4, 'atrous_rates': [4, 4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ASPPConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ASPPPooling,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeepLabHead,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WideResNet,
+     lambda: ([], {'depth': 1, 'widen_factor': 4, 'num_classes': [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64]), 0], {}),
+     False),
+    (wide_basic,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lorenmt_mtan(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ASPP(*[], **{'in_channels': 4, 'atrous_rates': [4, 4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ASPPConv(*[], **{'in_channels': 4, 'out_channels': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ASPPPooling(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DeepLabHead(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(WideResNet(*[], **{'depth': 1, 'widen_factor': 4, 'num_classes': [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64]), 0], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(wide_basic(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

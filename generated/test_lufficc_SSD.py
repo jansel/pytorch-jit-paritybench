@@ -60,8 +60,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -130,22 +131,16 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
-        padding=0, onnx_compatible=False):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, onnx_compatible=False):
         super().__init__()
         ReLU = nn.ReLU if onnx_compatible else nn.ReLU6
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels,
-            out_channels=in_channels, kernel_size=kernel_size, groups=
-            in_channels, stride=stride, padding=padding), nn.BatchNorm2d(
-            in_channels), ReLU(), nn.Conv2d(in_channels=in_channels,
-            out_channels=out_channels, kernel_size=1))
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, groups=in_channels, stride=stride, padding=padding), nn.BatchNorm2d(in_channels), ReLU(), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1))
 
     def forward(self, x):
         return self.conv(x)
@@ -158,8 +153,7 @@ def drop_connect(inputs, p, training):
     batch_size = inputs.shape[0]
     keep_prob = 1 - p
     random_tensor = keep_prob
-    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype,
-        device=inputs.device)
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype, device=inputs.device)
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
@@ -187,34 +181,24 @@ class MBConvBlock(nn.Module):
         self._block_args = block_args
         self._bn_mom = 1 - global_params.batch_norm_momentum
         self._bn_eps = global_params.batch_norm_epsilon
-        self.has_se = (self._block_args.se_ratio is not None and 0 < self.
-            _block_args.se_ratio <= 1)
+        self.has_se = self._block_args.se_ratio is not None and 0 < self._block_args.se_ratio <= 1
         self.id_skip = block_args.id_skip
         inp = self._block_args.input_filters
         oup = self._block_args.input_filters * self._block_args.expand_ratio
         if self._block_args.expand_ratio != 1:
-            self._expand_conv = Conv2dSamePadding(in_channels=inp,
-                out_channels=oup, kernel_size=1, bias=False)
-            self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self.
-                _bn_mom, eps=self._bn_eps)
+            self._expand_conv = Conv2dSamePadding(in_channels=inp, out_channels=oup, kernel_size=1, bias=False)
+            self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
         k = self._block_args.kernel_size
         s = self._block_args.stride
-        self._depthwise_conv = Conv2dSamePadding(in_channels=oup,
-            out_channels=oup, groups=oup, kernel_size=k, stride=s, bias=False)
-        self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom,
-            eps=self._bn_eps)
+        self._depthwise_conv = Conv2dSamePadding(in_channels=oup, out_channels=oup, groups=oup, kernel_size=k, stride=s, bias=False)
+        self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
         if self.has_se:
-            num_squeezed_channels = max(1, int(self._block_args.
-                input_filters * self._block_args.se_ratio))
-            self._se_reduce = Conv2dSamePadding(in_channels=oup,
-                out_channels=num_squeezed_channels, kernel_size=1)
-            self._se_expand = Conv2dSamePadding(in_channels=
-                num_squeezed_channels, out_channels=oup, kernel_size=1)
+            num_squeezed_channels = max(1, int(self._block_args.input_filters * self._block_args.se_ratio))
+            self._se_reduce = Conv2dSamePadding(in_channels=oup, out_channels=num_squeezed_channels, kernel_size=1)
+            self._se_expand = Conv2dSamePadding(in_channels=num_squeezed_channels, out_channels=oup, kernel_size=1)
         final_oup = self._block_args.output_filters
-        self._project_conv = Conv2dSamePadding(in_channels=oup,
-            out_channels=final_oup, kernel_size=1, bias=False)
-        self._bn2 = nn.BatchNorm2d(num_features=final_oup, momentum=self.
-            _bn_mom, eps=self._bn_eps)
+        self._project_conv = Conv2dSamePadding(in_channels=oup, out_channels=final_oup, kernel_size=1, bias=False)
+        self._bn2 = nn.BatchNorm2d(num_features=final_oup, momentum=self._bn_mom, eps=self._bn_eps)
 
     def forward(self, inputs, drop_connect_rate=None):
         """
@@ -231,20 +215,15 @@ class MBConvBlock(nn.Module):
             x_squeezed = self._se_expand(relu_fn(self._se_reduce(x_squeezed)))
             x = torch.sigmoid(x_squeezed) * x
         x = self._bn2(self._project_conv(x))
-        input_filters, output_filters = (self._block_args.input_filters,
-            self._block_args.output_filters)
-        if (self.id_skip and self._block_args.stride == 1 and input_filters ==
-            output_filters):
+        input_filters, output_filters = self._block_args.input_filters, self._block_args.output_filters
+        if self.id_skip and self._block_args.stride == 1 and input_filters == output_filters:
             if drop_connect_rate:
-                x = drop_connect(x, p=drop_connect_rate, training=self.training
-                    )
+                x = drop_connect(x, p=drop_connect_rate, training=self.training)
             x = x + inputs
         return x
 
 
-EXTRAS = {'efficientnet-b3': [[(384, 128, 1, 1, 0), (128, 256, 3, 2, 1)], [
-    (256, 128, 1, 1, 0), (128, 256, 3, 1, 0)], [(256, 128, 1, 1, 0), (128, 
-    256, 3, 1, 0)]]}
+EXTRAS = {'efficientnet-b3': [[(384, 128, 1, 1, 0), (128, 256, 3, 2, 1)], [(256, 128, 1, 1, 0), (128, 256, 3, 1, 0)], [(256, 128, 1, 1, 0), (128, 256, 3, 1, 0)]]}
 
 
 INDICES = {'efficientnet-b3': [7, 17, 25]}
@@ -257,8 +236,7 @@ def add_extras(cfg, i, size=300):
     for k, v in enumerate(cfg):
         if in_channels != 'S':
             if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(1, 3)[flag], stride=2, padding=1)]
             else:
                 layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
             flag = not flag
@@ -271,18 +249,11 @@ def add_extras(cfg, i, size=300):
 
 def efficientnet_params(model_name):
     """ Map EfficientNet model name to parameter coefficients. """
-    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2),
-        'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 
-        1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3),
-        'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 
-        2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5),
-        'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2), 'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3), 'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5), 'efficientnet-b7': (2.0, 3.1, 600, 0.5)}
     return params_dict[model_name]
 
 
-BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size',
-    'num_repeat', 'input_filters', 'output_filters', 'expand_ratio',
-    'id_skip', 'stride', 'se_ratio'])
+BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size', 'num_repeat', 'input_filters', 'output_filters', 'expand_ratio', 'id_skip', 'stride', 'se_ratio'])
 
 
 class BlockDecoder(object):
@@ -299,21 +270,13 @@ class BlockDecoder(object):
             if len(splits) >= 2:
                 key, value = splits[:2]
                 options[key] = value
-        assert 's' in options and len(options['s']) == 1 or len(options['s']
-            ) == 2 and options['s'][0] == options['s'][1]
-        return BlockArgs(kernel_size=int(options['k']), num_repeat=int(
-            options['r']), input_filters=int(options['i']), output_filters=
-            int(options['o']), expand_ratio=int(options['e']), id_skip=
-            'noskip' not in block_string, se_ratio=float(options['se']) if 
-            'se' in options else None, stride=[int(options['s'][0])])
+        assert 's' in options and len(options['s']) == 1 or len(options['s']) == 2 and options['s'][0] == options['s'][1]
+        return BlockArgs(kernel_size=int(options['k']), num_repeat=int(options['r']), input_filters=int(options['i']), output_filters=int(options['o']), expand_ratio=int(options['e']), id_skip='noskip' not in block_string, se_ratio=float(options['se']) if 'se' in options else None, stride=[int(options['s'][0])])
 
     @staticmethod
     def _encode_block_string(block):
         """Encodes a block to a string."""
-        args = ['r%d' % block.num_repeat, 'k%d' % block.kernel_size, 
-            's%d%d' % (block.strides[0], block.strides[1]), 'e%s' % block.
-            expand_ratio, 'i%d' % block.input_filters, 'o%d' % block.
-            output_filters]
+        args = ['r%d' % block.num_repeat, 'k%d' % block.kernel_size, 's%d%d' % (block.strides[0], block.strides[1]), 'e%s' % block.expand_ratio, 'i%d' % block.input_filters, 'o%d' % block.output_filters]
         if 0 < block.se_ratio <= 1:
             args.append('se%s' % block.se_ratio)
         if block.id_skip is False:
@@ -348,25 +311,14 @@ class BlockDecoder(object):
         return block_strings
 
 
-GlobalParams = collections.namedtuple('GlobalParams', [
-    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
-    'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate'])
+GlobalParams = collections.namedtuple('GlobalParams', ['batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate', 'num_classes', 'width_coefficient', 'depth_coefficient', 'depth_divisor', 'min_depth', 'drop_connect_rate'])
 
 
-def efficientnet(width_coefficient=None, depth_coefficient=None,
-    dropout_rate=0.2, drop_connect_rate=0.2):
+def efficientnet(width_coefficient=None, depth_coefficient=None, dropout_rate=0.2, drop_connect_rate=0.2):
     """ Creates a efficientnet model. """
-    blocks_args = ['r1_k3_s11_e1_i32_o16_se0.25',
-        'r2_k3_s22_e6_i16_o24_se0.25', 'r2_k5_s22_e6_i24_o40_se0.25',
-        'r3_k3_s22_e6_i40_o80_se0.25', 'r3_k5_s11_e6_i80_o112_se0.25',
-        'r4_k5_s22_e6_i112_o192_se0.25', 'r1_k3_s11_e6_i192_o320_se0.25']
+    blocks_args = ['r1_k3_s11_e1_i32_o16_se0.25', 'r2_k3_s22_e6_i16_o24_se0.25', 'r2_k5_s22_e6_i24_o40_se0.25', 'r3_k3_s22_e6_i40_o80_se0.25', 'r3_k5_s11_e6_i80_o112_se0.25', 'r4_k5_s22_e6_i112_o192_se0.25', 'r1_k3_s11_e6_i192_o320_se0.25']
     blocks_args = BlockDecoder.decode(blocks_args)
-    global_params = GlobalParams(batch_norm_momentum=0.99,
-        batch_norm_epsilon=0.001, dropout_rate=dropout_rate,
-        drop_connect_rate=drop_connect_rate, num_classes=1000,
-        width_coefficient=width_coefficient, depth_coefficient=
-        depth_coefficient, depth_divisor=8, min_depth=None)
+    global_params = GlobalParams(batch_norm_momentum=0.99, batch_norm_epsilon=0.001, dropout_rate=dropout_rate, drop_connect_rate=drop_connect_rate, num_classes=1000, width_coefficient=width_coefficient, depth_coefficient=depth_coefficient, depth_divisor=8, min_depth=None)
     return blocks_args, global_params
 
 
@@ -374,11 +326,9 @@ def get_model_params(model_name, override_params):
     """ Get the block args and global params for a given model """
     if model_name.startswith('efficientnet'):
         w, d, _, p = efficientnet_params(model_name)
-        blocks_args, global_params = efficientnet(width_coefficient=w,
-            depth_coefficient=d, dropout_rate=p)
+        blocks_args, global_params = efficientnet(width_coefficient=w, depth_coefficient=d, dropout_rate=p)
     else:
-        raise NotImplementedError('model name is not pre-defined: %s' %
-            model_name)
+        raise NotImplementedError('model name is not pre-defined: %s' % model_name)
     if override_params:
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
@@ -430,8 +380,7 @@ def cache_url(url, model_dir=None, progress=True):
     """
     if model_dir is None:
         torch_home = os.path.expanduser(os.getenv('TORCH_HOME', '~/.torch'))
-        model_dir = os.getenv('TORCH_MODEL_ZOO', os.path.join(torch_home,
-            'models'))
+        model_dir = os.getenv('TORCH_MODEL_ZOO', os.path.join(torch_home, 'models'))
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     parts = urlparse(url)
@@ -456,18 +405,7 @@ def load_state_dict_from_url(url, map_location='cpu'):
     return torch.load(cached_file, map_location=map_location)
 
 
-url_map = {'efficientnet-b0':
-    'http://storage.googleapis.com/public-models/efficientnet-b0-08094119.pth',
-    'efficientnet-b1':
-    'http://storage.googleapis.com/public-models/efficientnet-b1-dbc7070a.pth',
-    'efficientnet-b2':
-    'http://storage.googleapis.com/public-models/efficientnet-b2-27687264.pth',
-    'efficientnet-b3':
-    'http://storage.googleapis.com/public-models/efficientnet-b3-c8376fa2.pth',
-    'efficientnet-b4':
-    'http://storage.googleapis.com/public-models/efficientnet-b4-e116e8b3.pth',
-    'efficientnet-b5':
-    'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth'}
+url_map = {'efficientnet-b0': 'http://storage.googleapis.com/public-models/efficientnet-b0-08094119.pth', 'efficientnet-b1': 'http://storage.googleapis.com/public-models/efficientnet-b1-dbc7070a.pth', 'efficientnet-b2': 'http://storage.googleapis.com/public-models/efficientnet-b2-27687264.pth', 'efficientnet-b3': 'http://storage.googleapis.com/public-models/efficientnet-b3-c8376fa2.pth', 'efficientnet-b4': 'http://storage.googleapis.com/public-models/efficientnet-b4-e116e8b3.pth', 'efficientnet-b5': 'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth'}
 
 
 def load_pretrained_weights(model, model_name):
@@ -486,8 +424,7 @@ def round_filters(filters, global_params):
     min_depth = global_params.min_depth
     filters *= multiplier
     min_depth = min_depth or divisor
-    new_filters = max(min_depth, int(filters + divisor / 2) // divisor *
-        divisor)
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor * divisor)
     if new_filters < 0.9 * filters:
         new_filters += divisor
     return int(new_filters)
@@ -526,24 +463,16 @@ class EfficientNet(nn.Module):
         bn_eps = self._global_params.batch_norm_epsilon
         in_channels = 3
         out_channels = round_filters(32, self._global_params)
-        self._conv_stem = Conv2dSamePadding(in_channels, out_channels,
-            kernel_size=3, stride=2, bias=False)
-        self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=
-            bn_mom, eps=bn_eps)
+        self._conv_stem = Conv2dSamePadding(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
+        self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
         self._blocks = nn.ModuleList([])
         for block_args in self._blocks_args:
-            block_args = block_args._replace(input_filters=round_filters(
-                block_args.input_filters, self._global_params),
-                output_filters=round_filters(block_args.output_filters,
-                self._global_params), num_repeat=round_repeats(block_args.
-                num_repeat, self._global_params))
+            block_args = block_args._replace(input_filters=round_filters(block_args.input_filters, self._global_params), output_filters=round_filters(block_args.output_filters, self._global_params), num_repeat=round_repeats(block_args.num_repeat, self._global_params))
             self._blocks.append(MBConvBlock(block_args, self._global_params))
             if block_args.num_repeat > 1:
-                block_args = block_args._replace(input_filters=block_args.
-                    output_filters, stride=1)
+                block_args = block_args._replace(input_filters=block_args.output_filters, stride=1)
             for _ in range(block_args.num_repeat - 1):
-                self._blocks.append(MBConvBlock(block_args, self.
-                    _global_params))
+                self._blocks.append(MBConvBlock(block_args, self._global_params))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -576,8 +505,7 @@ class EfficientNet(nn.Module):
     @classmethod
     def from_name(cls, model_name, override_params=None):
         cls._check_model_name_is_valid(model_name)
-        blocks_args, global_params = get_model_params(model_name,
-            override_params)
+        blocks_args, global_params = get_model_params(model_name, override_params)
         return EfficientNet(model_name, blocks_args, global_params)
 
     @classmethod
@@ -593,51 +521,39 @@ class EfficientNet(nn.Module):
         return res
 
     @classmethod
-    def _check_model_name_is_valid(cls, model_name,
-        also_need_pretrained_weights=False):
+    def _check_model_name_is_valid(cls, model_name, also_need_pretrained_weights=False):
         """ Validates model name. None that pretrained weights are only available for
         the first four models (efficientnet-b{i} for i in 0,1,2,3) at the moment. """
         num_models = 4 if also_need_pretrained_weights else 8
         valid_models = [('efficientnet_b' + str(i)) for i in range(num_models)]
         if model_name.replace('-', '_') not in valid_models:
-            raise ValueError('model_name should be one of: ' + ', '.join(
-                valid_models))
+            raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
 
 
 class Conv2dSamePadding(nn.Conv2d):
     """ 2D Convolutions like TensorFlow """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0,
-            dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]
-            ] * 2
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
 
     def forward(self, x):
         ih, iw = x.size()[-2:]
         kh, kw = self.weight.size()[-2:]
         sh, sw = self.stride
         oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] +
-            1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] +
-            1 - iw, 0)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h -
-                pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class ConvBNReLU(nn.Sequential):
 
-    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1
-        ):
+    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1):
         padding = (kernel_size - 1) // 2
-        super(ConvBNReLU, self).__init__(nn.Conv2d(in_planes, out_planes,
-            kernel_size, stride, padding, groups=groups, bias=False), nn.
-            BatchNorm2d(out_planes), nn.ReLU6(inplace=True))
+        super(ConvBNReLU, self).__init__(nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU6(inplace=True))
 
 
 class InvertedResidual(nn.Module):
@@ -651,9 +567,7 @@ class InvertedResidual(nn.Module):
         layers = []
         if expand_ratio != 1:
             layers.append(ConvBNReLU(inp, hidden_dim, kernel_size=1))
-        layers.extend([ConvBNReLU(hidden_dim, hidden_dim, stride=stride,
-            groups=hidden_dim), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=
-            False), nn.BatchNorm2d(oup)])
+        layers.extend([ConvBNReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup)])
         self.conv = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -671,14 +585,9 @@ class MobileNetV2(nn.Module):
         input_channel = 32
         last_channel = 1280
         if inverted_residual_setting is None:
-            inverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 
-                32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6,
-                320, 1, 1]]
-        if len(inverted_residual_setting) == 0 or len(inverted_residual_setting
-            [0]) != 4:
-            raise ValueError(
-                'inverted_residual_setting should be non-empty or a 4-element list, got {}'
-                .format(inverted_residual_setting))
+            inverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
+        if len(inverted_residual_setting) == 0 or len(inverted_residual_setting[0]) != 4:
+            raise ValueError('inverted_residual_setting should be non-empty or a 4-element list, got {}'.format(inverted_residual_setting))
         input_channel = int(input_channel * width_mult)
         self.last_channel = int(last_channel * max(1.0, width_mult))
         features = [ConvBNReLU(3, input_channel, stride=2)]
@@ -686,15 +595,11 @@ class MobileNetV2(nn.Module):
             output_channel = int(c * width_mult)
             for i in range(n):
                 stride = s if i == 0 else 1
-                features.append(block(input_channel, output_channel, stride,
-                    expand_ratio=t))
+                features.append(block(input_channel, output_channel, stride, expand_ratio=t))
                 input_channel = output_channel
-        features.append(ConvBNReLU(input_channel, self.last_channel,
-            kernel_size=1))
+        features.append(ConvBNReLU(input_channel, self.last_channel, kernel_size=1))
         self.features = nn.Sequential(*features)
-        self.extras = nn.ModuleList([InvertedResidual(1280, 512, 2, 0.2),
-            InvertedResidual(512, 256, 2, 0.25), InvertedResidual(256, 256,
-            2, 0.5), InvertedResidual(256, 64, 2, 0.25)])
+        self.extras = nn.ModuleList([InvertedResidual(1280, 512, 2, 0.2), InvertedResidual(512, 256, 2, 0.25), InvertedResidual(256, 256, 2, 0.5), InvertedResidual(256, 64, 2, 0.25)])
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -742,18 +647,14 @@ def add_vgg(cfg, batch_norm=False):
     pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
     conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
     return layers
 
 
-extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
+extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256], '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
 
 
-vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
-    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
-    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
+vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class VGG(nn.Module):
@@ -764,8 +665,7 @@ class VGG(nn.Module):
         vgg_config = vgg_base[str(size)]
         extras_config = extras_base[str(size)]
         self.vgg = nn.ModuleList(add_vgg(vgg_config))
-        self.extras = nn.ModuleList(add_extras(extras_config, i=1024, size=
-            size))
+        self.extras = nn.ModuleList(add_extras(extras_config, i=1024, size=size))
         self.l2_norm = L2Norm(512, scale=20)
         self.reset_parameters()
 
@@ -917,8 +817,7 @@ class PostProcessor:
             scores, boxes = batches_scores[batch_id], batches_boxes[batch_id]
             num_boxes = scores.shape[0]
             num_classes = scores.shape[1]
-            boxes = boxes.view(num_boxes, 1, 4).expand(num_boxes,
-                num_classes, 4)
+            boxes = boxes.view(num_boxes, 1, 4).expand(num_boxes, num_classes, 4)
             labels = torch.arange(num_classes, device=device)
             labels = labels.view(1, num_classes).expand_as(scores)
             boxes = boxes[:, 1:]
@@ -927,14 +826,11 @@ class PostProcessor:
             boxes = boxes.reshape(-1, 4)
             scores = scores.reshape(-1)
             labels = labels.reshape(-1)
-            indices = torch.nonzero(scores > self.cfg.TEST.CONFIDENCE_THRESHOLD
-                ).squeeze(1)
-            boxes, scores, labels = boxes[indices], scores[indices], labels[
-                indices]
+            indices = torch.nonzero(scores > self.cfg.TEST.CONFIDENCE_THRESHOLD).squeeze(1)
+            boxes, scores, labels = boxes[indices], scores[indices], labels[indices]
             boxes[:, 0::2] *= self.width
             boxes[:, 1::2] *= self.height
-            keep = batched_nms(boxes, scores, labels, self.cfg.TEST.
-                NMS_THRESHOLD)
+            keep = batched_nms(boxes, scores, labels, self.cfg.TEST.NMS_THRESHOLD)
             keep = keep[:self.cfg.TEST.MAX_PER_IMAGE]
             boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
             container = Container(boxes=boxes, labels=labels, scores=scores)
@@ -998,12 +894,9 @@ class BoxPredictor(nn.Module):
         self.cfg = cfg
         self.cls_headers = nn.ModuleList()
         self.reg_headers = nn.ModuleList()
-        for level, (boxes_per_location, out_channels) in enumerate(zip(cfg.
-            MODEL.PRIORS.BOXES_PER_LOCATION, cfg.MODEL.BACKBONE.OUT_CHANNELS)):
-            self.cls_headers.append(self.cls_block(level, out_channels,
-                boxes_per_location))
-            self.reg_headers.append(self.reg_block(level, out_channels,
-                boxes_per_location))
+        for level, (boxes_per_location, out_channels) in enumerate(zip(cfg.MODEL.PRIORS.BOXES_PER_LOCATION, cfg.MODEL.BACKBONE.OUT_CHANNELS)):
+            self.cls_headers.append(self.cls_block(level, out_channels, boxes_per_location))
+            self.reg_headers.append(self.reg_block(level, out_channels, boxes_per_location))
         self.reset_parameters()
 
     def cls_block(self, level, out_channels, boxes_per_location):
@@ -1021,17 +914,12 @@ class BoxPredictor(nn.Module):
     def forward(self, features):
         cls_logits = []
         bbox_pred = []
-        for feature, cls_header, reg_header in zip(features, self.
-            cls_headers, self.reg_headers):
-            cls_logits.append(cls_header(feature).permute(0, 2, 3, 1).
-                contiguous())
-            bbox_pred.append(reg_header(feature).permute(0, 2, 3, 1).
-                contiguous())
+        for feature, cls_header, reg_header in zip(features, self.cls_headers, self.reg_headers):
+            cls_logits.append(cls_header(feature).permute(0, 2, 3, 1).contiguous())
+            bbox_pred.append(reg_header(feature).permute(0, 2, 3, 1).contiguous())
         batch_size = features[0].shape[0]
-        cls_logits = torch.cat([c.view(c.shape[0], -1) for c in cls_logits],
-            dim=1).view(batch_size, -1, self.cfg.MODEL.NUM_CLASSES)
-        bbox_pred = torch.cat([l.view(l.shape[0], -1) for l in bbox_pred],
-            dim=1).view(batch_size, -1, 4)
+        cls_logits = torch.cat([c.view(c.shape[0], -1) for c in cls_logits], dim=1).view(batch_size, -1, self.cfg.MODEL.NUM_CLASSES)
+        bbox_pred = torch.cat([l.view(l.shape[0], -1) for l in bbox_pred], dim=1).view(batch_size, -1, 4)
         return cls_logits, bbox_pred
 
 
@@ -1058,23 +946,19 @@ class MultiBoxLoss(nn.Module):
         num_classes = confidence.size(2)
         with torch.no_grad():
             loss = -F.log_softmax(confidence, dim=2)[:, :, (0)]
-            mask = box_utils.hard_negative_mining(loss, labels, self.
-                neg_pos_ratio)
+            mask = box_utils.hard_negative_mining(loss, labels, self.neg_pos_ratio)
         confidence = confidence[(mask), :]
-        classification_loss = F.cross_entropy(confidence.view(-1,
-            num_classes), labels[mask], reduction='sum')
+        classification_loss = F.cross_entropy(confidence.view(-1, num_classes), labels[mask], reduction='sum')
         pos_mask = labels > 0
         predicted_locations = predicted_locations[(pos_mask), :].view(-1, 4)
         gt_locations = gt_locations[(pos_mask), :].view(-1, 4)
-        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations,
-            reduction='sum')
+        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
         num_pos = gt_locations.size(0)
         return smooth_l1_loss / num_pos, classification_loss / num_pos
 
 
 def build_backbone(cfg):
-    return registry.BACKBONES[cfg.MODEL.BACKBONE.NAME](cfg, cfg.MODEL.
-        BACKBONE.PRETRAINED)
+    return registry.BACKBONES[cfg.MODEL.BACKBONE.NAME](cfg, cfg.MODEL.BACKBONE.PRETRAINED)
 
 
 def build_box_head(cfg):
@@ -1101,24 +985,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dSamePadding,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBNReLU,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lufficc_SSD(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2dSamePadding(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

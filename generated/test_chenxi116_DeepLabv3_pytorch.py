@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,27 +62,21 @@ import torchvision.transforms as transforms
 
 class Conv2d(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
     def forward(self, x):
         weight = self.weight
-        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True
-            ).mean(dim=3, keepdim=True)
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
         weight = weight - weight_mean
-        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1
-            ) + 1e-05
+        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-05
         weight = weight / std.expand_as(weight)
-        return F.conv2d(x, weight, self.bias, self.stride, self.padding,
-            self.dilation, self.groups)
+        return F.conv2d(x, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class ASPP(nn.Module):
 
-    def __init__(self, C, depth, num_classes, conv=nn.Conv2d, norm=nn.
-        BatchNorm2d, momentum=0.0003, mult=1):
+    def __init__(self, C, depth, num_classes, conv=nn.Conv2d, norm=nn.BatchNorm2d, momentum=0.0003, mult=1):
         super(ASPP, self).__init__()
         self._C = C
         self._depth = depth
@@ -89,20 +84,16 @@ class ASPP(nn.Module):
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.relu = nn.ReLU(inplace=True)
         self.aspp1 = conv(C, depth, kernel_size=1, stride=1, bias=False)
-        self.aspp2 = conv(C, depth, kernel_size=3, stride=1, dilation=int(6 *
-            mult), padding=int(6 * mult), bias=False)
-        self.aspp3 = conv(C, depth, kernel_size=3, stride=1, dilation=int(
-            12 * mult), padding=int(12 * mult), bias=False)
-        self.aspp4 = conv(C, depth, kernel_size=3, stride=1, dilation=int(
-            18 * mult), padding=int(18 * mult), bias=False)
+        self.aspp2 = conv(C, depth, kernel_size=3, stride=1, dilation=int(6 * mult), padding=int(6 * mult), bias=False)
+        self.aspp3 = conv(C, depth, kernel_size=3, stride=1, dilation=int(12 * mult), padding=int(12 * mult), bias=False)
+        self.aspp4 = conv(C, depth, kernel_size=3, stride=1, dilation=int(18 * mult), padding=int(18 * mult), bias=False)
         self.aspp5 = conv(C, depth, kernel_size=1, stride=1, bias=False)
         self.aspp1_bn = norm(depth, momentum)
         self.aspp2_bn = norm(depth, momentum)
         self.aspp3_bn = norm(depth, momentum)
         self.aspp4_bn = norm(depth, momentum)
         self.aspp5_bn = norm(depth, momentum)
-        self.conv2 = conv(depth * 5, depth, kernel_size=1, stride=1, bias=False
-            )
+        self.conv2 = conv(depth * 5, depth, kernel_size=1, stride=1, bias=False)
         self.bn2 = norm(depth, momentum)
         self.conv3 = nn.Conv2d(depth, num_classes, kernel_size=1, stride=1)
 
@@ -123,8 +114,7 @@ class ASPP(nn.Module):
         x5 = self.aspp5(x5)
         x5 = self.aspp5_bn(x5)
         x5 = self.relu(x5)
-        x5 = nn.Upsample((x.shape[2], x.shape[3]), mode='bilinear',
-            align_corners=True)(x5)
+        x5 = nn.Upsample((x.shape[2], x.shape[3]), mode='bilinear', align_corners=True)(x5)
         x = torch.cat((x1, x2, x3, x4, x5), 1)
         x = self.conv2(x)
         x = self.bn2(x)
@@ -136,16 +126,13 @@ class ASPP(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=1, conv=None, norm=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, conv=None, norm=None):
         super(Bottleneck, self).__init__()
         self.conv1 = conv(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = norm(planes)
-        self.conv2 = conv(planes, planes, kernel_size=3, stride=stride,
-            dilation=dilation, padding=dilation, bias=False)
+        self.conv2 = conv(planes, planes, kernel_size=3, stride=stride, dilation=dilation, padding=dilation, bias=False)
         self.bn2 = norm(planes)
-        self.conv3 = conv(planes, planes * self.expansion, kernel_size=1,
-            bias=False)
+        self.conv3 = conv(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = norm(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -170,32 +157,23 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes, num_groups=None,
-        weight_std=False, beta=False):
+    def __init__(self, block, layers, num_classes, num_groups=None, weight_std=False, beta=False):
         self.inplanes = 64
-        self.norm = lambda planes, momentum=0.05: nn.BatchNorm2d(planes,
-            momentum=momentum) if num_groups is None else nn.GroupNorm(
-            num_groups, planes)
+        self.norm = lambda planes, momentum=0.05: nn.BatchNorm2d(planes, momentum=momentum) if num_groups is None else nn.GroupNorm(num_groups, planes)
         self.conv = Conv2d if weight_std else nn.Conv2d
         super(ResNet, self).__init__()
         if not beta:
-            self.conv1 = self.conv(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = self.conv(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         else:
-            self.conv1 = nn.Sequential(self.conv(3, 64, 3, stride=2,
-                padding=1, bias=False), self.conv(64, 64, 3, stride=1,
-                padding=1, bias=False), self.conv(64, 64, 3, stride=1,
-                padding=1, bias=False))
+            self.conv1 = nn.Sequential(self.conv(3, 64, 3, stride=2, padding=1, bias=False), self.conv(64, 64, 3, stride=1, padding=1, bias=False), self.conv(64, 64, 3, stride=1, padding=1, bias=False))
         self.bn1 = self.norm(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=2)
-        self.aspp = ASPP(512 * block.expansion, 256, num_classes, conv=self
-            .conv, norm=self.norm)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=2)
+        self.aspp = ASPP(512 * block.expansion, 256, num_classes, conv=self.conv, norm=self.norm)
         for m in self.modules():
             if isinstance(m, self.conv):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -206,19 +184,13 @@ class ResNet(nn.Module):
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
-        if (stride != 1 or dilation != 1 or self.inplanes != planes * block
-            .expansion):
-            downsample = nn.Sequential(self.conv(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, dilation=max
-                (1, dilation / 2), bias=False), self.norm(planes * block.
-                expansion))
+        if stride != 1 or dilation != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(self.conv(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, dilation=max(1, dilation / 2), bias=False), self.norm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=max(1, dilation / 2), conv=self.conv, norm=self.norm))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=max(1, dilation / 2), conv=self.conv, norm=self.norm))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                conv=self.conv, norm=self.norm))
+            layers.append(block(self.inplanes, planes, dilation=dilation, conv=self.conv, norm=self.norm))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -240,12 +212,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ASPP,
+     lambda: ([], {'C': 4, 'depth': 1, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_chenxi116_DeepLabv3_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ASPP(*[], **{'C': 4, 'depth': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

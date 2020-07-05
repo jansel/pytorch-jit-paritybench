@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -46,8 +47,7 @@ class ResNeXtBottleneck(nn.Module):
     RexNeXt bottleneck type C (https://github.com/facebookresearch/ResNeXt/blob/master/models/resnext.lua)
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        base_width, widen_factor):
+    def __init__(self, in_channels, out_channels, stride, cardinality, base_width, widen_factor):
         """ Constructor
 
         Args:
@@ -61,22 +61,16 @@ class ResNeXtBottleneck(nn.Module):
         super(ResNeXtBottleneck, self).__init__()
         width_ratio = out_channels / (widen_factor * 64.0)
         D = cardinality * int(base_width * width_ratio)
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=
-            1, padding=0, bias=False)
+        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride,
-            padding=1, groups=cardinality, bias=False)
+        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride
-            =1, padding=0, bias=False)
+        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_expand = nn.BatchNorm2d(out_channels)
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, padding=0, bias
-                =False))
-            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(
-                out_channels))
+            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
+            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
         bottleneck = self.conv_reduce.forward(x)
@@ -95,8 +89,7 @@ class CifarResNeXt(nn.Module):
     https://arxiv.org/pdf/1611.05431.pdf
     """
 
-    def __init__(self, cardinality, depth, nlabels, base_width, widen_factor=4
-        ):
+    def __init__(self, cardinality, depth, nlabels, base_width, widen_factor=4):
         """ Constructor
 
         Args:
@@ -114,8 +107,7 @@ class CifarResNeXt(nn.Module):
         self.widen_factor = widen_factor
         self.nlabels = nlabels
         self.output_size = 64
-        self.stages = [64, 64 * self.widen_factor, 128 * self.widen_factor,
-            256 * self.widen_factor]
+        self.stages = [64, 64 * self.widen_factor, 128 * self.widen_factor, 256 * self.widen_factor]
         self.conv_1_3x3 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
         self.bn_1 = nn.BatchNorm2d(64)
         self.stage_1 = self.block('stage_1', self.stages[0], self.stages[1], 1)
@@ -148,13 +140,9 @@ class CifarResNeXt(nn.Module):
         for bottleneck in range(self.block_depth):
             name_ = '%s_bottleneck_%d' % (name, bottleneck)
             if bottleneck == 0:
-                block.add_module(name_, ResNeXtBottleneck(in_channels,
-                    out_channels, pool_stride, self.cardinality, self.
-                    base_width, self.widen_factor))
+                block.add_module(name_, ResNeXtBottleneck(in_channels, out_channels, pool_stride, self.cardinality, self.base_width, self.widen_factor))
             else:
-                block.add_module(name_, ResNeXtBottleneck(out_channels,
-                    out_channels, 1, self.cardinality, self.base_width,
-                    self.widen_factor))
+                block.add_module(name_, ResNeXtBottleneck(out_channels, out_channels, 1, self.cardinality, self.base_width, self.widen_factor))
         return block
 
     def forward(self, x):
@@ -172,8 +160,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CifarResNeXt,
+     lambda: ([], {'cardinality': 4, 'depth': 1, 'nlabels': 4, 'base_width': 4}),
+     lambda: ([torch.rand([4, 3, 9, 9])], {}),
+     True),
+    (ResNeXtBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_prlz77_ResNeXt_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 4, 'base_width': 4, 'widen_factor': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

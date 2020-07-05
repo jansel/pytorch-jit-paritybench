@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,8 +103,7 @@ class Abcnn3(nn.Module):
     fc : last linear layer(in paper use logistic regression)
     """
 
-    def __init__(self, emb_dim, sentence_length, filter_width,
-        filter_channel=100, layer_size=2, match='cosine', inception=True):
+    def __init__(self, emb_dim, sentence_length, filter_width, filter_channel=100, layer_size=2, match='cosine', inception=True):
         super(Abcnn3, self).__init__()
         self.layer_size = layer_size
         if match == 'cosine':
@@ -116,12 +116,9 @@ class Abcnn3(nn.Module):
         self.ap = nn.ModuleList([ApLayer(emb_dim)])
         self.fc = nn.Linear(layer_size + 1, 1)
         for i in range(layer_size):
-            self.abcnn1.append(Abcnn1Portion(sentence_length, emb_dim if i ==
-                0 else filter_channel))
+            self.abcnn1.append(Abcnn1Portion(sentence_length, emb_dim if i == 0 else filter_channel))
             self.abcnn2.append(Abcnn2Portion(sentence_length, filter_width))
-            self.conv.append(ConvLayer(False, sentence_length, filter_width,
-                emb_dim if i == 0 else filter_channel, filter_channel,
-                inception))
+            self.conv.append(ConvLayer(False, sentence_length, filter_width, emb_dim if i == 0 else filter_channel, filter_channel, inception))
             self.ap.append(ApLayer(filter_channel))
 
     def forward(self, x1, x2):
@@ -178,8 +175,7 @@ class Abcnn1(nn.Module):
     fc : last linear layer(in paper use logistic regression)
     """
 
-    def __init__(self, emb_dim, sentence_length, filter_width,
-        filter_channel=100, layer_size=2, match='cosine', inception=True):
+    def __init__(self, emb_dim, sentence_length, filter_width, filter_channel=100, layer_size=2, match='cosine', inception=True):
         super(Abcnn1, self).__init__()
         self.layer_size = layer_size
         if match == 'cosine':
@@ -192,11 +188,8 @@ class Abcnn1(nn.Module):
         self.wp = nn.ModuleList()
         self.fc = nn.Linear(layer_size + 1, 1)
         for i in range(layer_size):
-            self.abcnn.append(Abcnn1Portion(sentence_length, emb_dim if i ==
-                0 else filter_channel))
-            self.conv.append(ConvLayer(False, sentence_length, filter_width,
-                emb_dim if i == 0 else filter_channel, filter_channel,
-                inception))
+            self.abcnn.append(Abcnn1Portion(sentence_length, emb_dim if i == 0 else filter_channel))
+            self.conv.append(ConvLayer(False, sentence_length, filter_width, emb_dim if i == 0 else filter_channel, filter_channel, inception))
             self.ap.append(ApLayer(filter_channel))
             self.wp.append(WpLayer(sentence_length, filter_width, False))
 
@@ -253,8 +246,7 @@ class Abcnn2(nn.Module):
     fc : last linear layer(in paper use logistic regression)
     """
 
-    def __init__(self, emb_dim, sentence_length, filter_width,
-        filter_channel=100, layer_size=2, match='cosine', inception=True):
+    def __init__(self, emb_dim, sentence_length, filter_width, filter_channel=100, layer_size=2, match='cosine', inception=True):
         super(Abcnn2, self).__init__()
         self.layer_size = layer_size
         if match == 'cosine':
@@ -267,11 +259,8 @@ class Abcnn2(nn.Module):
         self.fc = nn.Linear(layer_size + 1, 1)
         for i in range(layer_size):
             self.abcnn.append(Abcnn2Portion(sentence_length, filter_width))
-            self.conv.append(ConvLayer(True, sentence_length, filter_width,
-                emb_dim if i == 0 else filter_channel, filter_channel,
-                inception))
-            self.ap.append(ApLayer(sentence_length + filter_width - 1,
-                filter_channel))
+            self.conv.append(ConvLayer(True, sentence_length, filter_width, emb_dim if i == 0 else filter_channel, filter_channel, inception))
+            self.ap.append(ApLayer(sentence_length + filter_width - 1, filter_channel))
 
     def forward(self, x1, x2):
         """
@@ -323,8 +312,7 @@ def attention_matrix(x1, x2, eps=1e-06):
     """
     eps = torch.tensor(eps)
     one = torch.tensor(1.0)
-    euclidean = (torch.pow(x1 - x2.permute(0, 2, 1, 3), 2).sum(dim=3) + eps
-        ).sqrt()
+    euclidean = (torch.pow(x1 - x2.permute(0, 2, 1, 3), 2).sum(dim=3) + eps).sqrt()
     return (euclidean + one).reciprocal()
 
 
@@ -356,8 +344,7 @@ class Abcnn1Portion(nn.Module):
             size (batch_size, 2, sentence_length, emb_dim)
         """
         attention_m = attention_matrix(x1, x2)
-        x1_attention = self.attention_feature_layer(attention_m.permute(0, 
-            2, 1))
+        x1_attention = self.attention_feature_layer(attention_m.permute(0, 2, 1))
         x1_attention = x1_attention.unsqueeze(1)
         x1 = torch.cat([x1, x1_attention], 1)
         x2_attention = self.attention_feature_layer(attention_m)
@@ -400,13 +387,10 @@ class Abcnn2Portion(nn.Module):
         return x1, x2
 
 
-def convolution(in_channel, filter_width, filter_height, filter_channel,
-    padding):
+def convolution(in_channel, filter_width, filter_height, filter_channel, padding):
     """convolution layer
     """
-    model = nn.Sequential(nn.Conv2d(in_channel, filter_channel, (
-        filter_width, filter_height), stride=1, padding=(padding, 0)), nn.
-        BatchNorm2d(filter_channel), nn.Tanh())
+    model = nn.Sequential(nn.Conv2d(in_channel, filter_channel, (filter_width, filter_height), stride=1, padding=(padding, 0)), nn.BatchNorm2d(filter_channel), nn.Tanh())
     return model
 
 
@@ -419,17 +403,11 @@ class InceptionModule(nn.Module):
     this helps model to be learned(when the number of layers > 8)
     """
 
-    def __init__(self, in_channel, sentence_length, filter_width,
-        filter_height, filter_channel):
+    def __init__(self, in_channel, sentence_length, filter_width, filter_height, filter_channel):
         super(InceptionModule, self).__init__()
-        self.conv_1 = convolution(in_channel, filter_width, filter_height, 
-            int(filter_channel / 3) + filter_channel - 3 * int(
-            filter_channel / 3), filter_width - 1)
-        self.conv_2 = convolution(in_channel, filter_width + 4,
-            filter_height, int(filter_channel / 3), filter_width + 1)
-        self.conv_3 = convolution(in_channel, sentence_length,
-            filter_height, int(filter_channel / 3), int((sentence_length +
-            filter_width - 2) / 2))
+        self.conv_1 = convolution(in_channel, filter_width, filter_height, int(filter_channel / 3) + filter_channel - 3 * int(filter_channel / 3), filter_width - 1)
+        self.conv_2 = convolution(in_channel, filter_width + 4, filter_height, int(filter_channel / 3), filter_width + 1)
+        self.conv_3 = convolution(in_channel, sentence_length, filter_height, int(filter_channel / 3), int((sentence_length + filter_width - 2) / 2))
 
     def forward(self, x):
         out_1 = self.conv_1(x)
@@ -448,15 +426,12 @@ class ConvLayer(nn.Module):
         whether use inception module
     """
 
-    def __init__(self, isAbcnn2, sentence_length, filter_width,
-        filter_height, filter_channel, inception):
+    def __init__(self, isAbcnn2, sentence_length, filter_width, filter_height, filter_channel, inception):
         super(ConvLayer, self).__init__()
         if inception:
-            self.model = InceptionModule(1 if isAbcnn2 else 2,
-                sentence_length, filter_width, filter_height, filter_channel)
+            self.model = InceptionModule(1 if isAbcnn2 else 2, sentence_length, filter_width, filter_height, filter_channel)
         else:
-            self.model = convolution(1 if isAbcnn2 else 2, filter_width,
-                filter_height, filter_channel, filter_width - 1)
+            self.model = convolution(1 if isAbcnn2 else 2, filter_width, filter_height, filter_channel, filter_width - 1)
 
     def forward(self, x):
         """
@@ -545,9 +520,7 @@ class WpLayer(nn.Module):
             pools = []
             attention_matrix = attention_matrix.unsqueeze(1).unsqueeze(3)
             for i in range(self.sentence_length):
-                pools.append((x[:, :, i:i + self.filter_width, :] *
-                    attention_matrix[:, :, i:i + self.filter_width, :]).sum
-                    (dim=2, keepdim=True))
+                pools.append((x[:, :, i:i + self.filter_width, :] * attention_matrix[:, :, i:i + self.filter_width, :]).sum(dim=2, keepdim=True))
             return torch.cat(pools, dim=2)
         else:
             return self.wp(x)
@@ -589,28 +562,20 @@ class ABCNN3(nn.Module):
         self.embeds = nn.Embedding(num_word, self.embeds_dim)
         self.linear_size = args.linear_size
         self.num_layer = args.num_layer
-        self.conv = nn.ModuleList([Wide_Conv(args.max_length, self.
-            embeds_dim) for _ in range(self.num_layer)])
-        self.fc = nn.Sequential(nn.Linear(self.embeds_dim * (1 + self.
-            num_layer) * 2, self.linear_size), nn.LayerNorm(self.
-            linear_size), nn.ReLU(inplace=True), nn.Linear(self.linear_size,
-            2), nn.Softmax())
+        self.conv = nn.ModuleList([Wide_Conv(args.max_length, self.embeds_dim) for _ in range(self.num_layer)])
+        self.fc = nn.Sequential(nn.Linear(self.embeds_dim * (1 + self.num_layer) * 2, self.linear_size), nn.LayerNorm(self.linear_size), nn.ReLU(inplace=True), nn.Linear(self.linear_size, 2), nn.Softmax())
 
     def forward(self, *input):
         s1, s2 = input[0], input[1]
         mask1, mask2 = s1.eq(0), s2.eq(0)
         res = [[], []]
         s1, s2 = self.embeds(s1), self.embeds(s2)
-        res[0].append(F.avg_pool1d(s1.transpose(1, 2), kernel_size=s1.size(
-            1)).squeeze(-1))
-        res[1].append(F.avg_pool1d(s2.transpose(1, 2), kernel_size=s2.size(
-            1)).squeeze(-1))
+        res[0].append(F.avg_pool1d(s1.transpose(1, 2), kernel_size=s1.size(1)).squeeze(-1))
+        res[1].append(F.avg_pool1d(s2.transpose(1, 2), kernel_size=s2.size(1)).squeeze(-1))
         for i, conv in enumerate(self.conv):
             o1, o2 = conv(s1, s2, mask1, mask2)
-            res[0].append(F.avg_pool1d(o1.transpose(1, 2), kernel_size=o1.
-                size(1)).squeeze(-1))
-            res[1].append(F.avg_pool1d(o2.transpose(1, 2), kernel_size=o2.
-                size(1)).squeeze(-1))
+            res[0].append(F.avg_pool1d(o1.transpose(1, 2), kernel_size=o1.size(1)).squeeze(-1))
+            res[1].append(F.avg_pool1d(o2.transpose(1, 2), kernel_size=o2.size(1)).squeeze(-1))
             o1, o2 = attention_avg_pooling(o1, o2, mask1, mask2)
             s1, s2 = o1 + s1, o2 + s2
         x = torch.cat([torch.cat(res[0], 1), torch.cat(res[1], 1)], 1)
@@ -626,8 +591,7 @@ class Wide_Conv(nn.Module):
         self.embeds_size = embeds_size
         self.W = nn.Parameter(torch.randn([seq_len, embeds_size]))
         nn.init.xavier_normal_(self.W)
-        self.conv = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=3,
-            padding=[1, 1], stride=1)
+        self.conv = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=3, padding=[1, 1], stride=1)
         self.tanh = nn.Tanh()
 
     def forward(self, sent1, sent2, mask1, mask2):
@@ -649,30 +613,19 @@ class BiMPM(nn.Module):
     def __init__(self, args, data):
         super(BiMPM, self).__init__()
         self.args = args
-        self.d = self.args.word_dim + int(self.args.use_char_emb
-            ) * self.args.char_hidden_size
+        self.d = self.args.word_dim + int(self.args.use_char_emb) * self.args.char_hidden_size
         self.l = self.args.num_perspective
-        self.char_emb = nn.Embedding(args.char_vocab_size, args.char_dim,
-            padding_idx=0)
+        self.char_emb = nn.Embedding(args.char_vocab_size, args.char_dim, padding_idx=0)
         self.word_emb = nn.Embedding(args.word_vocab_size, args.word_dim)
         self.word_emb.weight.data.copy_(data.TEXT.vocab.vectors)
         self.word_emb.weight.requires_grad = False
-        self.char_LSTM = nn.LSTM(input_size=self.args.char_dim, hidden_size
-            =self.args.char_hidden_size, num_layers=1, bidirectional=False,
-            batch_first=True)
-        self.context_LSTM = nn.LSTM(input_size=self.d, hidden_size=self.
-            args.hidden_size, num_layers=1, bidirectional=True, batch_first
-            =True)
+        self.char_LSTM = nn.LSTM(input_size=self.args.char_dim, hidden_size=self.args.char_hidden_size, num_layers=1, bidirectional=False, batch_first=True)
+        self.context_LSTM = nn.LSTM(input_size=self.d, hidden_size=self.args.hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         for i in range(1, 9):
-            setattr(self, f'mp_w{i}', nn.Parameter(torch.rand(self.l, self.
-                args.hidden_size)))
-        self.aggregation_LSTM = nn.LSTM(input_size=self.l * 8, hidden_size=
-            self.args.hidden_size, num_layers=1, bidirectional=True,
-            batch_first=True)
-        self.pred_fc1 = nn.Linear(self.args.hidden_size * 4, self.args.
-            hidden_size * 2)
-        self.pred_fc2 = nn.Linear(self.args.hidden_size * 2, self.args.
-            class_size)
+            setattr(self, f'mp_w{i}', nn.Parameter(torch.rand(self.l, self.args.hidden_size)))
+        self.aggregation_LSTM = nn.LSTM(input_size=self.l * 8, hidden_size=self.args.hidden_size, num_layers=1, bidirectional=True, batch_first=True)
+        self.pred_fc1 = nn.Linear(self.args.hidden_size * 4, self.args.hidden_size * 2)
+        self.pred_fc2 = nn.Linear(self.args.hidden_size * 2, self.args.class_size)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -738,8 +691,7 @@ class BiMPM(nn.Module):
             if len(v2.size()) == 3:
                 v2 = w * torch.stack([v2] * self.l, dim=3)
             else:
-                v2 = w * torch.stack([torch.stack([v2] * seq_len, dim=1)] *
-                    self.l, dim=3)
+                v2 = w * torch.stack([torch.stack([v2] * seq_len, dim=1)] * self.l, dim=3)
             m = F.cosine_similarity(v1, v2, dim=2)
             return m
 
@@ -768,8 +720,7 @@ class BiMPM(nn.Module):
             m = torch.stack(m, dim=3)
             """
             w = w.unsqueeze(0).unsqueeze(2)
-            v1, v2 = w * torch.stack([v1] * self.l, dim=1), w * torch.stack(
-                [v2] * self.l, dim=1)
+            v1, v2 = w * torch.stack([v1] * self.l, dim=1), w * torch.stack([v2] * self.l, dim=1)
             v1_norm = v1.norm(p=2, dim=3, keepdim=True)
             v2_norm = v2.norm(p=2, dim=3, keepdim=True)
             n = torch.matmul(v1, v2.transpose(2, 3))
@@ -813,14 +764,10 @@ class BiMPM(nn.Module):
         con_h = self.dropout(con_h)
         con_p_fw, con_p_bw = torch.split(con_p, self.args.hidden_size, dim=-1)
         con_h_fw, con_h_bw = torch.split(con_h, self.args.hidden_size, dim=-1)
-        mv_p_full_fw = mp_matching_func(con_p_fw, con_h_fw[:, (-1), :],
-            self.mp_w1)
-        mv_p_full_bw = mp_matching_func(con_p_bw, con_h_bw[:, (0), :], self
-            .mp_w2)
-        mv_h_full_fw = mp_matching_func(con_h_fw, con_p_fw[:, (-1), :],
-            self.mp_w1)
-        mv_h_full_bw = mp_matching_func(con_h_bw, con_p_bw[:, (0), :], self
-            .mp_w2)
+        mv_p_full_fw = mp_matching_func(con_p_fw, con_h_fw[:, (-1), :], self.mp_w1)
+        mv_p_full_bw = mp_matching_func(con_p_bw, con_h_bw[:, (0), :], self.mp_w2)
+        mv_h_full_fw = mp_matching_func(con_h_fw, con_p_fw[:, (-1), :], self.mp_w1)
+        mv_h_full_bw = mp_matching_func(con_h_bw, con_p_bw[:, (0), :], self.mp_w2)
         mv_max_fw = mp_matching_func_pairwise(con_p_fw, con_h_fw, self.mp_w3)
         mv_max_bw = mp_matching_func_pairwise(con_p_bw, con_h_bw, self.mp_w4)
         mv_p_max_fw, _ = mv_max_fw.max(dim=2)
@@ -833,22 +780,14 @@ class BiMPM(nn.Module):
         att_h_bw = con_h_bw.unsqueeze(1) * att_bw.unsqueeze(3)
         att_p_fw = con_p_fw.unsqueeze(2) * att_fw.unsqueeze(3)
         att_p_bw = con_p_bw.unsqueeze(2) * att_bw.unsqueeze(3)
-        att_mean_h_fw = div_with_small_value(att_h_fw.sum(dim=2), att_fw.
-            sum(dim=2, keepdim=True))
-        att_mean_h_bw = div_with_small_value(att_h_bw.sum(dim=2), att_bw.
-            sum(dim=2, keepdim=True))
-        att_mean_p_fw = div_with_small_value(att_p_fw.sum(dim=1), att_fw.
-            sum(dim=1, keepdim=True).permute(0, 2, 1))
-        att_mean_p_bw = div_with_small_value(att_p_bw.sum(dim=1), att_bw.
-            sum(dim=1, keepdim=True).permute(0, 2, 1))
-        mv_p_att_mean_fw = mp_matching_func(con_p_fw, att_mean_h_fw, self.mp_w5
-            )
-        mv_p_att_mean_bw = mp_matching_func(con_p_bw, att_mean_h_bw, self.mp_w6
-            )
-        mv_h_att_mean_fw = mp_matching_func(con_h_fw, att_mean_p_fw, self.mp_w5
-            )
-        mv_h_att_mean_bw = mp_matching_func(con_h_bw, att_mean_p_bw, self.mp_w6
-            )
+        att_mean_h_fw = div_with_small_value(att_h_fw.sum(dim=2), att_fw.sum(dim=2, keepdim=True))
+        att_mean_h_bw = div_with_small_value(att_h_bw.sum(dim=2), att_bw.sum(dim=2, keepdim=True))
+        att_mean_p_fw = div_with_small_value(att_p_fw.sum(dim=1), att_fw.sum(dim=1, keepdim=True).permute(0, 2, 1))
+        att_mean_p_bw = div_with_small_value(att_p_bw.sum(dim=1), att_bw.sum(dim=1, keepdim=True).permute(0, 2, 1))
+        mv_p_att_mean_fw = mp_matching_func(con_p_fw, att_mean_h_fw, self.mp_w5)
+        mv_p_att_mean_bw = mp_matching_func(con_p_bw, att_mean_h_bw, self.mp_w6)
+        mv_h_att_mean_fw = mp_matching_func(con_h_fw, att_mean_p_fw, self.mp_w5)
+        mv_h_att_mean_bw = mp_matching_func(con_h_bw, att_mean_p_bw, self.mp_w6)
         att_max_h_fw, _ = att_h_fw.max(dim=2)
         att_max_h_bw, _ = att_h_bw.max(dim=2)
         att_max_p_fw, _ = att_p_fw.max(dim=1)
@@ -857,19 +796,13 @@ class BiMPM(nn.Module):
         mv_p_att_max_bw = mp_matching_func(con_p_bw, att_max_h_bw, self.mp_w8)
         mv_h_att_max_fw = mp_matching_func(con_h_fw, att_max_p_fw, self.mp_w7)
         mv_h_att_max_bw = mp_matching_func(con_h_bw, att_max_p_bw, self.mp_w8)
-        mv_p = torch.cat([mv_p_full_fw, mv_p_max_fw, mv_p_att_mean_fw,
-            mv_p_att_max_fw, mv_p_full_bw, mv_p_max_bw, mv_p_att_mean_bw,
-            mv_p_att_max_bw], dim=2)
-        mv_h = torch.cat([mv_h_full_fw, mv_h_max_fw, mv_h_att_mean_fw,
-            mv_h_att_max_fw, mv_h_full_bw, mv_h_max_bw, mv_h_att_mean_bw,
-            mv_h_att_max_bw], dim=2)
+        mv_p = torch.cat([mv_p_full_fw, mv_p_max_fw, mv_p_att_mean_fw, mv_p_att_max_fw, mv_p_full_bw, mv_p_max_bw, mv_p_att_mean_bw, mv_p_att_max_bw], dim=2)
+        mv_h = torch.cat([mv_h_full_fw, mv_h_max_fw, mv_h_att_mean_fw, mv_h_att_max_fw, mv_h_full_bw, mv_h_max_bw, mv_h_att_mean_bw, mv_h_att_max_bw], dim=2)
         mv_p = self.dropout(mv_p)
         mv_h = self.dropout(mv_h)
         _, (agg_p_last, _) = self.aggregation_LSTM(mv_p)
         _, (agg_h_last, _) = self.aggregation_LSTM(mv_h)
-        x = torch.cat([agg_p_last.permute(1, 0, 2).contiguous().view(-1, 
-            self.args.hidden_size * 2), agg_h_last.permute(1, 0, 2).
-            contiguous().view(-1, self.args.hidden_size * 2)], dim=1)
+        x = torch.cat([agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.args.hidden_size * 2), agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.args.hidden_size * 2)], dim=1)
         x = self.dropout(x)
         x = F.tanh(self.pred_fc1(x))
         x = self.dropout(x)
@@ -888,16 +821,9 @@ class ESIM(nn.Module):
         num_word = 20000
         self.embeds = nn.Embedding(num_word, self.embeds_dim)
         self.bn_embeds = nn.BatchNorm1d(self.embeds_dim)
-        self.lstm1 = nn.LSTM(self.embeds_dim, self.hidden_size, batch_first
-            =True, bidirectional=True)
-        self.lstm2 = nn.LSTM(self.hidden_size * 8, self.hidden_size,
-            batch_first=True, bidirectional=True)
-        self.fc = nn.Sequential(nn.BatchNorm1d(self.hidden_size * 8), nn.
-            Linear(self.hidden_size * 8, args.linear_size), nn.ELU(inplace=
-            True), nn.BatchNorm1d(args.linear_size), nn.Dropout(self.
-            dropout), nn.Linear(args.linear_size, args.linear_size), nn.ELU
-            (inplace=True), nn.BatchNorm1d(args.linear_size), nn.Dropout(
-            self.dropout), nn.Linear(args.linear_size, 2), nn.Softmax(dim=-1))
+        self.lstm1 = nn.LSTM(self.embeds_dim, self.hidden_size, batch_first=True, bidirectional=True)
+        self.lstm2 = nn.LSTM(self.hidden_size * 8, self.hidden_size, batch_first=True, bidirectional=True)
+        self.fc = nn.Sequential(nn.BatchNorm1d(self.hidden_size * 8), nn.Linear(self.hidden_size * 8, args.linear_size), nn.ELU(inplace=True), nn.BatchNorm1d(args.linear_size), nn.Dropout(self.dropout), nn.Linear(args.linear_size, args.linear_size), nn.ELU(inplace=True), nn.BatchNorm1d(args.linear_size), nn.Dropout(self.dropout), nn.Linear(args.linear_size, 2), nn.Softmax(dim=-1))
 
     def soft_attention_align(self, x1, x2, mask1, mask2):
         """
@@ -909,8 +835,7 @@ class ESIM(nn.Module):
         mask2 = mask2.float().masked_fill_(mask2, float('-inf'))
         weight1 = F.softmax(attention + mask2.unsqueeze(1), dim=-1)
         x1_align = torch.matmul(weight1, x2)
-        weight2 = F.softmax(attention.transpose(1, 2) + mask1.unsqueeze(1),
-            dim=-1)
+        weight2 = F.softmax(attention.transpose(1, 2) + mask1.unsqueeze(1), dim=-1)
         x2_align = torch.matmul(weight2, x1)
         return x1_align, x2_align
 
@@ -927,10 +852,8 @@ class ESIM(nn.Module):
     def forward(self, *input):
         sent1, sent2 = input[0], input[1]
         mask1, mask2 = sent1.eq(0), sent2.eq(0)
-        x1 = self.bn_embeds(self.embeds(sent1).transpose(1, 2).contiguous()
-            ).transpose(1, 2)
-        x2 = self.bn_embeds(self.embeds(sent2).transpose(1, 2).contiguous()
-            ).transpose(1, 2)
+        x1 = self.bn_embeds(self.embeds(sent1).transpose(1, 2).contiguous()).transpose(1, 2)
+        x2 = self.bn_embeds(self.embeds(sent2).transpose(1, 2).contiguous()).transpose(1, 2)
         o1, _ = self.lstm1(x1)
         o2, _ = self.lstm1(x2)
         q1_align, q2_align = self.soft_attention_align(o1, o2, mask1, mask2)
@@ -956,8 +879,7 @@ class SiaGRU(nn.Module):
         self.ln_embeds = nn.LayerNorm(self.embeds_dim)
         self.hidden_size = args.hidden_size
         self.num_layer = args.num_layer
-        self.gru = nn.LSTM(self.embeds_dim, self.hidden_size, batch_first=
-            True, bidirectional=True, num_layers=2)
+        self.gru = nn.LSTM(self.embeds_dim, self.hidden_size, batch_first=True, bidirectional=True, num_layers=2)
         self.h0 = self.init_hidden((2 * self.num_layer, 1, self.hidden_size))
 
     def init_hidden(self, size):
@@ -972,14 +894,11 @@ class SiaGRU(nn.Module):
     def forward(self, *input):
         sent1 = input[0]
         sent2 = input[1]
-        x1 = self.ln_embeds(self.embeds(sent1).transpose(1, 2).contiguous()
-            ).transpose(1, 2)
-        x2 = self.ln_embeds(self.embeds(sent2).transpose(1, 2).contiguous()
-            ).transpose(1, 2)
+        x1 = self.ln_embeds(self.embeds(sent1).transpose(1, 2).contiguous()).transpose(1, 2)
+        x2 = self.ln_embeds(self.embeds(sent2).transpose(1, 2).contiguous()).transpose(1, 2)
         encoding1 = self.forward_once(x1)
         encoding2 = self.forward_once(x2)
-        sim = torch.exp(-torch.norm(encoding1 - encoding2, p=2, dim=-1,
-            keepdim=True))
+        sim = torch.exp(-torch.norm(encoding1 - encoding2, p=2, dim=-1, keepdim=True))
         return self.fc(sim)
 
 
@@ -995,8 +914,7 @@ class Attention(nn.Module):
             self.attn = nn.Linear(self.hidden_size * 2, hidden_size)
             self.v = nn.Parameter(torch.FloatTensor(1, hidden_size))
 
-    def forward(self, hidden, encoder_outputs, encoder_lengths=None,
-        return_weight=False):
+    def forward(self, hidden, encoder_outputs, encoder_lengths=None, return_weight=False):
         """
         hidden : query (previous hidden) B,1,D <FloatTensor>
         encoder_outputs : context (encoder outputs) B,T,D <FloatTensor>
@@ -1012,8 +930,7 @@ class Attention(nn.Module):
         s = self.score(q, c)
         if encoder_lengths is not None:
             mask = s.data.new(batch_size, n_q, n_c)
-            mask = self.fill_context_mask(mask, sizes=encoder_lengths,
-                v_mask=float('-inf'), v_unmask=0)
+            mask = self.fill_context_mask(mask, sizes=encoder_lengths, v_mask=float('-inf'), v_unmask=0)
             s = Variable(mask) + s
         s_flat = s.view(batch_size * n_q, n_c)
         w_flat = F.softmax(s_flat, 1)
@@ -1092,39 +1009,33 @@ class Beam:
             s, i = score.topk(self.num_beam)
             scores = s.data.tolist()[0]
             indices = i.data.tolist()[0]
-            candits.extend([(parents[0] + scores[i], parents[1] + [indices[
-                i]], sibling[1]) for i in range(len(scores))])
+            candits.extend([(parents[0] + scores[i], parents[1] + [indices[i]], sibling[1]) for i in range(len(scores))])
         candits = sorted(candits, key=lambda x: x[0], reverse=True)
         self.beams = candits[:self.num_beam]
-        return [[Variable(torch.LongTensor([b[1][-1]])).view(1, -1), b[2]] for
-            b in self.beams]
+        return [[Variable(torch.LongTensor([b[1][-1]])).view(1, -1), b[2]] for b in self.beams]
 
     def get_best_seq(self):
         return self.beams[0][1]
 
     def get_next_nodes(self):
-        return [[Variable(torch.LongTensor([b[1][-1]])).view(1, -1), b[2]] for
-            b in self.beams]
+        return [[Variable(torch.LongTensor([b[1][-1]])).view(1, -1), b[2]] for b in self.beams]
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, input_size, embedding_size, hidden_size, n_layers=1,
-        dropout_p=0.3, use_cuda=False):
+    def __init__(self, input_size, embedding_size, hidden_size, n_layers=1, dropout_p=0.3, use_cuda=False):
         super(Decoder, self).__init__()
         self.hidden_size = hidden_size
         self.n_layers = n_layers
         self.embedding = nn.Embedding(input_size, embedding_size)
         self.dropout = nn.Dropout(dropout_p)
-        self.gru = nn.GRU(embedding_size + hidden_size, hidden_size,
-            n_layers, batch_first=True)
+        self.gru = nn.GRU(embedding_size + hidden_size, hidden_size, n_layers, batch_first=True)
         self.linear = nn.Linear(hidden_size * 2, input_size)
         self.attention = Attention(hidden_size)
         self.use_cuda = use_cuda
 
     def init_hidden(self, inputs):
-        hidden = Variable(torch.zeros(self.n_layers, inputs.size(0), self.
-            hidden_size))
+        hidden = Variable(torch.zeros(self.n_layers, inputs.size(0), self.hidden_size))
         return hidden if self.use_cuda else hidden
 
     def init_weight(self):
@@ -1175,8 +1086,7 @@ class Decoder(nn.Module):
             nodes = beam.select_k(siblings)
         return beam.get_best_seq()
 
-    def forward(self, inputs, context, max_length, encoder_outputs,
-        encoder_lengths=None):
+    def forward(self, inputs, context, max_length, encoder_outputs, encoder_lengths=None):
         """
         inputs : B,1 (LongTensor, START SYMBOL)
         context : B,1,D (FloatTensor, Last encoder hidden state)
@@ -1197,16 +1107,14 @@ class Decoder(nn.Module):
             decoded = softmaxed.max(1)[1]
             embedded = self.embedding(decoded).unsqueeze(1)
             embedded = self.dropout(embedded)
-            context = self.attention(hidden.transpose(0, 1),
-                encoder_outputs, encoder_lengths)
+            context = self.attention(hidden.transpose(0, 1), encoder_outputs, encoder_lengths)
         scores = torch.cat(decode, 1)
         return scores.view(inputs.size(0) * max_length, -1)
 
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_size, embedding_size, hidden_size, n_layers=1,
-        bidirec=False, dropout_p=0.5, use_cuda=False):
+    def __init__(self, input_size, embedding_size, hidden_size, n_layers=1, bidirec=False, dropout_p=0.5, use_cuda=False):
         super(Encoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -1216,16 +1124,13 @@ class Encoder(nn.Module):
         self.use_cuda = use_cuda
         if bidirec:
             self.n_direction = 2
-            self.gru = nn.GRU(embedding_size, hidden_size, n_layers,
-                batch_first=True, bidirectional=True)
+            self.gru = nn.GRU(embedding_size, hidden_size, n_layers, batch_first=True, bidirectional=True)
         else:
             self.n_direction = 1
-            self.gru = nn.GRU(embedding_size, hidden_size, n_layers,
-                batch_first=True)
+            self.gru = nn.GRU(embedding_size, hidden_size, n_layers, batch_first=True)
 
     def init_hidden(self, inputs):
-        hidden = Variable(torch.zeros(self.n_layers * self.n_direction,
-            inputs.size(0), self.hidden_size))
+        hidden = Variable(torch.zeros(self.n_layers * self.n_direction, inputs.size(0), self.hidden_size))
         return hidden if self.use_cuda else hidden
 
     def init_weight(self):
@@ -1241,11 +1146,9 @@ class Encoder(nn.Module):
         hidden = self.init_hidden(inputs)
         embedded = self.embedding(inputs)
         embedded = self.dropout(embedded)
-        packed = pack_padded_sequence(embedded, input_lengths, batch_first=True
-            )
+        packed = pack_padded_sequence(embedded, input_lengths, batch_first=True)
         outputs, hidden = self.gru(packed, hidden)
-        outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(
-            outputs, batch_first=True)
+        outputs, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
         if self.n_layers > 1:
             if self.n_direction == 2:
                 hidden = hidden[-2:]
@@ -1258,29 +1161,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Abcnn2Portion,
+     lambda: ([], {'sentence_length': 4, 'filter_width': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ApLayer,
+     lambda: ([], {'width': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Attention,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (ConvLayer,
+     lambda: ([], {'isAbcnn2': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4, 'inception': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'input_size': 4, 'embedding_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (InceptionModule,
+     lambda: ([], {'in_channel': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Wide_Conv,
+     lambda: ([], {'seq_len': 4, 'embeds_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_pengshuang_Text_Similarity(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Abcnn2Portion(*[], **{'sentence_length': 4, 'filter_width': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ApLayer(*[], **{'width': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Attention(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ConvLayer(*[], **{'isAbcnn2': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4, 'inception': 4}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Encoder(*[], **{'input_size': 4, 'embedding_size': 4, 'hidden_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(InceptionModule(*[], **{'in_channel': 4, 'sentence_length': 4, 'filter_width': 4, 'filter_height': 4, 'filter_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Wide_Conv(*[], **{'seq_len': 4, 'embeds_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 

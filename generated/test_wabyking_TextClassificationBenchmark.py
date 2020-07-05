@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -144,12 +145,9 @@ class BaseModel(nn.Module):
         self.opt = opt
         self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
         if opt.__dict__.get('embeddings', None) is not None:
-            self.encoder.weight = nn.Parameter(opt.embeddings,
-                requires_grad=opt.embedding_training)
+            self.encoder.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
         self.fc = nn.Linear(opt.embedding_dim, opt.label_size)
-        self.properties = {'model_name': self.__class__.__name__,
-            'batch_size': self.opt.batch_size, 'learning_rate': self.opt.
-            learning_rate, 'keep_dropout': self.opt.keep_dropout}
+        self.properties = {'model_name': self.__class__.__name__, 'batch_size': self.opt.batch_size, 'learning_rate': self.opt.learning_rate, 'keep_dropout': self.opt.keep_dropout}
 
     def forward(self, content):
         content_ = t.mean(self.encoder(content), dim=1)
@@ -159,12 +157,9 @@ class BaseModel(nn.Module):
     def save(self, save_dir='saved_model', metric=None):
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        self.model_info = '__'.join([(k + '_' + str(v) if type(v) != list else
-            k + '_' + str(v)[1:-1].replace(',', '_').replace(',', '')) for 
-            k, v in self.properties.items()])
+        self.model_info = '__'.join([(k + '_' + str(v) if type(v) != list else k + '_' + str(v)[1:-1].replace(',', '_').replace(',', '')) for k, v in self.properties.items()])
         if metric:
-            path = os.path.join(save_dir, str(metric)[2:] + '_' + self.
-                model_info)
+            path = os.path.join(save_dir, str(metric)[2:] + '_' + self.model_info)
         else:
             path = os.path.join(save_dir, self.model_info)
         t.save(self, path)
@@ -182,26 +177,17 @@ class Inception(nn.Module):
             self.activa.add_module('norm', nn.BatchNorm1d(co))
         if relu:
             self.activa.add_module('relu', nn.ReLU(True))
-        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[0], 1, stride=1))]))
-        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.
-            ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3,
-            stride=1, padding=1))]))
-        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), (
-            'relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2],
-            cos[2], 5, stride=1, padding=2))]))
-        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin,
-            cos[3], 3, stride=1, padding=1))]))
+        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[0], 1, stride=1))]))
+        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3, stride=1, padding=1))]))
+        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2], cos[2], 5, stride=1, padding=2))]))
+        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin, cos[3], 3, stride=1, padding=1))]))
 
     def forward(self, x):
         branch1 = self.branch1(x)
         branch2 = self.branch2(x)
         branch3 = self.branch3(x)
         branch4 = self.branch4(x)
-        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1)
-            )
+        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1))
         return result
 
 
@@ -220,22 +206,18 @@ class KIMCNN2D(nn.Module):
         self.kernel_nums = opt.kernel_nums
         self.keep_dropout = opt.keep_dropout
         self.embedding = nn.Embedding(self.vocab_size + 2, self.embedding_dim)
-        if (self.embedding_type == 'static' or self.embedding_type ==
-            'non-static' or self.embedding_type == 'multichannel'):
+        if self.embedding_type == 'static' or self.embedding_type == 'non-static' or self.embedding_type == 'multichannel':
             self.embedding.weight = nn.Parameter(opt.embeddings)
             if self.embedding_type == 'static':
                 self.embedding.weight.requires_grad = False
             elif self.embedding_type == 'multichannel':
-                self.embedding2 = nn.Embedding(self.vocab_size + 2, self.
-                    embedding_dim, padding_idx=self.vocab_size + 1)
+                self.embedding2 = nn.Embedding(self.vocab_size + 2, self.embedding_dim, padding_idx=self.vocab_size + 1)
                 self.embedding2.weight = nn.Parameter(opt.embeddings)
                 self.embedding2.weight.requires_grad = False
                 self.in_channel = 2
             else:
                 pass
-        self.convs1 = nn.ModuleList([nn.Conv2d(1, num, (size, opt.
-            embedding_dim)) for size, num in zip(opt.kernel_sizes, opt.
-            kernel_nums)])
+        self.convs1 = nn.ModuleList([nn.Conv2d(1, num, (size, opt.embedding_dim)) for size, num in zip(opt.kernel_sizes, opt.kernel_nums)])
         """
         self.conv13 = nn.Conv2d(Ci, Co, (3, D))
         self.conv14 = nn.Conv2d(Ci, Co, (4, D))
@@ -277,26 +259,17 @@ class Inception(nn.Module):
             self.activa.add_module('norm', nn.BatchNorm1d(co))
         if relu:
             self.activa.add_module('relu', nn.ReLU(True))
-        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[0], 1, stride=1))]))
-        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.
-            ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3,
-            stride=1, padding=1))]))
-        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), (
-            'relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2],
-            cos[2], 5, stride=1, padding=2))]))
-        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin,
-            cos[3], 3, stride=1, padding=1))]))
+        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[0], 1, stride=1))]))
+        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3, stride=1, padding=1))]))
+        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2], cos[2], 5, stride=1, padding=2))]))
+        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin, cos[3], 3, stride=1, padding=1))]))
 
     def forward(self, x):
         branch1 = self.branch1(x)
         branch2 = self.branch2(x)
         branch3 = self.branch3(x)
         branch4 = self.branch4(x)
-        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1)
-            )
+        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1))
         return result
 
 
@@ -305,30 +278,23 @@ NUM_ROUTING_ITERATIONS = 3
 
 def softmax(input, dim=1):
     transposed_input = input.transpose(dim, len(input.size()) - 1)
-    softmaxed_output = F.softmax(transposed_input.contiguous().view(-1,
-        transposed_input.size(-1)))
-    return softmaxed_output.view(*transposed_input.size()).transpose(dim, 
-        len(input.size()) - 1)
+    softmaxed_output = F.softmax(transposed_input.contiguous().view(-1, transposed_input.size(-1)))
+    return softmaxed_output.view(*transposed_input.size()).transpose(dim, len(input.size()) - 1)
 
 
 class CapsuleLayer(nn.Module):
 
-    def __init__(self, num_capsules, num_route_nodes, in_channels,
-        out_channels, kernel_size=None, stride=None, num_iterations=
-        NUM_ROUTING_ITERATIONS, padding=0):
+    def __init__(self, num_capsules, num_route_nodes, in_channels, out_channels, kernel_size=None, stride=None, num_iterations=NUM_ROUTING_ITERATIONS, padding=0):
         super(CapsuleLayer, self).__init__()
         self.num_route_nodes = num_route_nodes
         self.num_iterations = num_iterations
         self.num_capsules = num_capsules
         if num_route_nodes != -1:
-            self.route_weights = nn.Parameter(torch.randn(num_capsules,
-                num_route_nodes, in_channels, out_channels))
+            self.route_weights = nn.Parameter(torch.randn(num_capsules, num_route_nodes, in_channels, out_channels))
         else:
             prime = [3, 5, 7, 9, 11, 13, 17, 19, 23]
             sizes = prime[:self.num_capsules]
-            self.capsules = nn.ModuleList([nn.Conv1d(in_channels,
-                out_channels, kernel_size=i, stride=2, padding=int((i - 1) /
-                2)) for i in sizes])
+            self.capsules = nn.ModuleList([nn.Conv1d(in_channels, out_channels, kernel_size=i, stride=2, padding=int((i - 1) / 2)) for i in sizes])
 
     def squash(self, tensor, dim=-1):
         squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
@@ -337,23 +303,19 @@ class CapsuleLayer(nn.Module):
 
     def forward(self, x):
         if self.num_route_nodes != -1:
-            priors = torch.matmul(x[(None), :, :, (None), :], self.
-                route_weights[:, (None), :, :, :])
+            priors = torch.matmul(x[(None), :, :, (None), :], self.route_weights[:, (None), :, :, :])
             if torch.is_available():
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
             else:
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
             for i in range(self.num_iterations):
                 probs = softmax(logits, dim=2)
-                outputs = self.squash(torch.mul(probs, priors).sum(dim=2,
-                    keepdim=True))
+                outputs = self.squash(torch.mul(probs, priors).sum(dim=2, keepdim=True))
                 if i != self.num_iterations - 1:
-                    delta_logits = torch.mul(priors, outputs).sum(dim=-1,
-                        keepdim=True)
+                    delta_logits = torch.mul(priors, outputs).sum(dim=-1, keepdim=True)
                     logits = logits + delta_logits
         else:
-            outputs = [capsule(x).view(x.size(0), -1, 1) for capsule in
-                self.capsules]
+            outputs = [capsule(x).view(x.size(0), -1, 1) for capsule in self.capsules]
             outputs = torch.cat(outputs, dim=-1)
             outputs = self.squash(outputs)
         return outputs
@@ -367,13 +329,10 @@ class LSTMAttention(torch.nn.Module):
         self.batch_size = opt.batch_size
         self.use_gpu = torch.is_available()
         self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
-        self.word_embeddings.weight = nn.Parameter(opt.embeddings,
-            requires_grad=opt.embedding_training)
+        self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
         self.num_layers = opt.lstm_layers
         self.dropout = opt.keep_dropout
-        self.bilstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim // 2,
-            batch_first=True, num_layers=self.num_layers, dropout=self.
-            dropout, bidirectional=True)
+        self.bilstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim // 2, batch_first=True, num_layers=self.num_layers, dropout=self.dropout, bidirectional=True)
         self.hidden2label = nn.Linear(opt.hidden_dim, opt.label_size)
         self.hidden = self.init_hidden()
         self.mean = opt.__dict__.get('lstm_mean', True)
@@ -383,15 +342,11 @@ class LSTMAttention(torch.nn.Module):
         if batch_size is None:
             batch_size = self.batch_size
         if self.use_gpu:
-            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
-            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
+            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
         else:
-            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
-            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
+            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
         return h0, c0
 
     def attention(self, rnn_out, state):
@@ -432,8 +387,7 @@ def position_encoding(sentence_size, embedding_dim):
     le = embedding_dim + 1
     for i in range(1, le):
         for j in range(1, ls):
-            encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (
-                sentence_size + 1) / 2)
+            encoding[i - 1, j - 1] = (i - (embedding_dim + 1) / 2) * (j - (sentence_size + 1) / 2)
     encoding = 1 + 4 * encoding / embedding_dim / sentence_size
     encoding[:, (-1)] = 1.0
     return np.transpose(encoding)
@@ -454,8 +408,7 @@ class MemN2N(nn.Module):
             self.add_module('C_{}'.format(hop), C)
         self.C = AttrProxy(self, 'C_')
         self.softmax = nn.Softmax()
-        self.encoding = Variable(torch.FloatTensor(position_encoding(
-            sentence_size, embedding_dim)), requires_grad=False)
+        self.encoding = Variable(torch.FloatTensor(position_encoding(sentence_size, embedding_dim)), requires_grad=False)
         if use_cuda:
             self.encoding = self.encoding
 
@@ -468,8 +421,7 @@ class MemN2N(nn.Module):
         for hop in range(self.max_hops):
             embed_A = self.C[hop](story.view(story.size(0), -1))
             embed_A = embed_A.view(story_size + (embed_A.size(-1),))
-            encoding = self.encoding.unsqueeze(0).unsqueeze(1).expand_as(
-                embed_A)
+            encoding = self.encoding.unsqueeze(0).unsqueeze(1).expand_as(embed_A)
             m_A = torch.sum(embed_A * encoding, 2)
             u_temp = u[-1].unsqueeze(1).expand_as(m_A)
             prob = self.softmax(torch.sum(m_A * u_temp, 2))
@@ -499,8 +451,7 @@ class MemN2N(nn.Module):
             self.add_module('C_{}'.format(hop), C)
         self.C = AttrProxy(self, 'C_')
         self.softmax = nn.Softmax()
-        self.encoding = Variable(torch.FloatTensor(position_encoding(
-            sentence_size, embedding_dim)), requires_grad=False)
+        self.encoding = Variable(torch.FloatTensor(position_encoding(sentence_size, embedding_dim)), requires_grad=False)
         if use_cuda:
             self.encoding = self.encoding
 
@@ -514,8 +465,7 @@ class MemN2N(nn.Module):
         for hop in range(self.max_hops):
             embed_A = self.C[hop](story.view(story.size(0), -1))
             embed_A = embed_A.view(story_size + (embed_A.size(-1),))
-            encoding = self.encoding.unsqueeze(0).unsqueeze(1).expand_as(
-                embed_A)
+            encoding = self.encoding.unsqueeze(0).unsqueeze(1).expand_as(embed_A)
             m_A = torch.sum(embed_A * encoding, 2)
             u_temp = u[-1].unsqueeze(1).expand_as(m_A)
             prob = self.softmax(torch.sum(m_A * u_temp, 2))
@@ -539,31 +489,23 @@ class SelfAttention(nn.Module):
         self.batch_size = opt.batch_size
         self.use_gpu = torch.is_available()
         self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
-        self.word_embeddings.weight = nn.Parameter(opt.embeddings,
-            requires_grad=opt.embedding_training)
+        self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
         self.num_layers = 1
         self.dropout = opt.keep_dropout
-        self.bilstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim // 2,
-            num_layers=self.num_layers, dropout=self.dropout, bidirectional
-            =True)
+        self.bilstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim // 2, num_layers=self.num_layers, dropout=self.dropout, bidirectional=True)
         self.hidden2label = nn.Linear(opt.hidden_dim, opt.label_size)
         self.hidden = self.init_hidden()
-        self.self_attention = nn.Sequential(nn.Linear(opt.hidden_dim, 24),
-            nn.ReLU(True), nn.Linear(24, 1))
+        self.self_attention = nn.Sequential(nn.Linear(opt.hidden_dim, 24), nn.ReLU(True), nn.Linear(24, 1))
 
     def init_hidden(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
         if self.use_gpu:
-            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
-            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
+            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
         else:
-            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
-            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self
-                .hidden_dim // 2))
+            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
         return h0, c0
 
     def forward(self, sentence):
@@ -622,8 +564,7 @@ class LayerNormalization(nn.Module):
         mu = torch.mean(z, keepdim=True, dim=-1)
         sigma = torch.std(z, keepdim=True, dim=-1)
         ln_out = (z - mu.expand_as(z)) / (sigma.expand_as(z) + self.eps)
-        ln_out = ln_out * self.a_2.expand_as(ln_out) + self.b_2.expand_as(
-            ln_out)
+        ln_out = ln_out * self.a_2.expand_as(ln_out) + self.b_2.expand_as(ln_out)
         return ln_out
 
 
@@ -634,8 +575,7 @@ class BatchBottle(nn.Module):
         if len(input.size()) <= 2:
             return super(BatchBottle, self).forward(input)
         size = input.size()[1:]
-        out = super(BatchBottle, self).forward(input.view(-1, size[0] *
-            size[1]))
+        out = super(BatchBottle, self).forward(input.view(-1, size[0] * size[1]))
         return out.view(-1, size[0], size[1])
 
 
@@ -651,9 +591,7 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, q, k, v, attn_mask=None):
         attn = torch.bmm(q, k.transpose(1, 2)) / self.temper
         if attn_mask is not None:
-            assert attn_mask.size() == attn.size(
-                ), 'Attention mask shape {} mismatch with Attention logit tensor shape {}.'.format(
-                attn_mask.size(), attn.size())
+            assert attn_mask.size() == attn.size(), 'Attention mask shape {} mismatch with Attention logit tensor shape {}.'.format(attn_mask.size(), attn.size())
             attn.data.masked_fill_(attn_mask, -float('inf'))
         attn = self.softmax(attn)
         attn = self.dropout(attn)
@@ -693,8 +631,7 @@ class MultiHeadAttention(nn.Module):
         q_s = torch.bmm(q_s, self.w_qs).view(-1, len_q, d_k)
         k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
         v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
-        outputs, attns = self.attention(q_s, k_s, v_s, attn_mask=attn_mask.
-            repeat(n_head, 1, 1))
+        outputs, attns = self.attention(q_s, k_s, v_s, attn_mask=attn_mask.repeat(n_head, 1, 1))
         outputs = torch.cat(torch.split(outputs, mb_size, dim=0), dim=-1)
         outputs = self.proj(outputs)
         outputs = self.dropout(outputs)
@@ -725,14 +662,11 @@ class EncoderLayer(nn.Module):
 
     def __init__(self, d_model, d_inner_hid, n_head, d_k, d_v, dropout=0.1):
         super(EncoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner_hid,
-            dropout=dropout)
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner_hid, dropout=dropout)
 
     def forward(self, enc_input, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input,
-            enc_input, attn_mask=slf_attn_mask)
+        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, attn_mask=slf_attn_mask)
         enc_output = self.pos_ffn(enc_output)
         return enc_output, enc_slf_attn
 
@@ -742,19 +676,13 @@ class DecoderLayer(nn.Module):
 
     def __init__(self, d_model, d_inner_hid, n_head, d_k, d_v, dropout=0.1):
         super(DecoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner_hid,
-            dropout=dropout)
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner_hid, dropout=dropout)
 
-    def forward(self, dec_input, enc_output, slf_attn_mask=None,
-        dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input,
-            dec_input, attn_mask=slf_attn_mask)
-        dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output,
-            enc_output, attn_mask=dec_enc_attn_mask)
+    def forward(self, dec_input, enc_output, slf_attn_mask=None, dec_enc_attn_mask=None):
+        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, attn_mask=slf_attn_mask)
+        dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output, enc_output, attn_mask=dec_enc_attn_mask)
         dec_output = self.pos_ffn(dec_output)
         return dec_output, dec_slf_attn, dec_enc_attn
 
@@ -787,9 +715,7 @@ def get_attn_padding_mask(seq_q, seq_k):
 
 def position_encoding_init(n_position, d_pos_vec):
     """ Init the sinusoid position encoding table """
-    position_enc = np.array([([(pos / np.power(10000, 2 * (j // 2) /
-        d_pos_vec)) for j in range(d_pos_vec)] if pos != 0 else np.zeros(
-        d_pos_vec)) for pos in range(n_position)])
+    position_enc = np.array([([(pos / np.power(10000, 2 * (j // 2) / d_pos_vec)) for j in range(d_pos_vec)] if pos != 0 else np.zeros(d_pos_vec)) for pos in range(n_position)])
     position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2])
     position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2])
     return torch.from_numpy(position_enc).type(torch.FloatTensor)
@@ -798,20 +724,15 @@ def position_encoding_init(n_position, d_pos_vec):
 class Encoder(nn.Module):
     """ A encoder model with self attention mechanism. """
 
-    def __init__(self, n_src_vocab, n_max_seq, n_layers=6, n_head=8, d_k=64,
-        d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024, dropout=0.1):
+    def __init__(self, n_src_vocab, n_max_seq, n_layers=6, n_head=8, d_k=64, d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024, dropout=0.1):
         super(Encoder, self).__init__()
         n_position = n_max_seq + 1
         self.n_max_seq = n_max_seq
         self.d_model = d_model
-        self.position_enc = nn.Embedding(n_position, d_word_vec,
-            padding_idx=Constants.PAD)
-        self.position_enc.weight.data = position_encoding_init(n_position,
-            d_word_vec)
-        self.src_word_emb = nn.Embedding(n_src_vocab, d_word_vec,
-            padding_idx=Constants.PAD)
-        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner_hid,
-            n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
+        self.position_enc = nn.Embedding(n_position, d_word_vec, padding_idx=Constants.PAD)
+        self.position_enc.weight.data = position_encoding_init(n_position, d_word_vec)
+        self.src_word_emb = nn.Embedding(n_src_vocab, d_word_vec, padding_idx=Constants.PAD)
+        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
 
     def forward(self, src_seq, src_pos, return_attns=False):
         enc_input = self.src_word_emb(src_seq)
@@ -821,8 +742,7 @@ class Encoder(nn.Module):
         enc_output = enc_input
         enc_slf_attn_mask = get_attn_padding_mask(src_seq, src_seq)
         for enc_layer in self.layer_stack:
-            enc_output, enc_slf_attn = enc_layer(enc_output, slf_attn_mask=
-                enc_slf_attn_mask)
+            enc_output, enc_slf_attn = enc_layer(enc_output, slf_attn_mask=enc_slf_attn_mask)
             if return_attns:
                 enc_slf_attns += [enc_slf_attn]
         if return_attns:
@@ -845,38 +765,29 @@ def get_attn_subsequent_mask(seq):
 class Decoder(nn.Module):
     """ A decoder model with self attention mechanism. """
 
-    def __init__(self, n_tgt_vocab, n_max_seq, n_layers=6, n_head=8, d_k=64,
-        d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024, dropout=0.1):
+    def __init__(self, n_tgt_vocab, n_max_seq, n_layers=6, n_head=8, d_k=64, d_v=64, d_word_vec=512, d_model=512, d_inner_hid=1024, dropout=0.1):
         super(Decoder, self).__init__()
         n_position = n_max_seq + 1
         self.n_max_seq = n_max_seq
         self.d_model = d_model
-        self.position_enc = nn.Embedding(n_position, d_word_vec,
-            padding_idx=Constants.PAD)
-        self.position_enc.weight.data = position_encoding_init(n_position,
-            d_word_vec)
-        self.tgt_word_emb = nn.Embedding(n_tgt_vocab, d_word_vec,
-            padding_idx=Constants.PAD)
+        self.position_enc = nn.Embedding(n_position, d_word_vec, padding_idx=Constants.PAD)
+        self.position_enc.weight.data = position_encoding_init(n_position, d_word_vec)
+        self.tgt_word_emb = nn.Embedding(n_tgt_vocab, d_word_vec, padding_idx=Constants.PAD)
         self.dropout = nn.Dropout(dropout)
-        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner_hid,
-            n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
+        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
 
-    def forward(self, tgt_seq, tgt_pos, src_seq, enc_output, return_attns=False
-        ):
+    def forward(self, tgt_seq, tgt_pos, src_seq, enc_output, return_attns=False):
         dec_input = self.tgt_word_emb(tgt_seq)
         dec_input += self.position_enc(tgt_pos)
         dec_slf_attn_pad_mask = get_attn_padding_mask(tgt_seq, tgt_seq)
         dec_slf_attn_sub_mask = get_attn_subsequent_mask(tgt_seq)
-        dec_slf_attn_mask = torch.gt(dec_slf_attn_pad_mask +
-            dec_slf_attn_sub_mask, 0)
+        dec_slf_attn_mask = torch.gt(dec_slf_attn_pad_mask + dec_slf_attn_sub_mask, 0)
         dec_enc_attn_pad_mask = get_attn_padding_mask(tgt_seq, src_seq)
         if return_attns:
             dec_slf_attns, dec_enc_attns = [], []
         dec_output = dec_input
         for dec_layer in self.layer_stack:
-            dec_output, dec_slf_attn, dec_enc_attn = dec_layer(dec_output,
-                enc_output, slf_attn_mask=dec_slf_attn_mask,
-                dec_enc_attn_mask=dec_enc_attn_pad_mask)
+            dec_output, dec_slf_attn, dec_enc_attn = dec_layer(dec_output, enc_output, slf_attn_mask=dec_slf_attn_mask, dec_enc_attn_mask=dec_enc_attn_pad_mask)
             if return_attns:
                 dec_slf_attns += [dec_slf_attn]
                 dec_enc_attns += [dec_enc_attn]
@@ -889,16 +800,10 @@ class Decoder(nn.Module):
 class Transformer(nn.Module):
     """ A sequence to sequence model with attention mechanism. """
 
-    def __init__(self, n_src_vocab, n_tgt_vocab, n_max_seq, n_layers=6,
-        n_head=8, d_word_vec=512, d_model=512, d_inner_hid=1024, d_k=64,
-        d_v=64, dropout=0.1, proj_share_weight=True, embs_share_weight=True):
+    def __init__(self, n_src_vocab, n_tgt_vocab, n_max_seq, n_layers=6, n_head=8, d_word_vec=512, d_model=512, d_inner_hid=1024, d_k=64, d_v=64, dropout=0.1, proj_share_weight=True, embs_share_weight=True):
         super(Transformer, self).__init__()
-        self.encoder = Encoder(n_src_vocab, n_max_seq, n_layers=n_layers,
-            n_head=n_head, d_word_vec=d_word_vec, d_model=d_model,
-            d_inner_hid=d_inner_hid, dropout=dropout)
-        self.decoder = Decoder(n_tgt_vocab, n_max_seq, n_layers=n_layers,
-            n_head=n_head, d_word_vec=d_word_vec, d_model=d_model,
-            d_inner_hid=d_inner_hid, dropout=dropout)
+        self.encoder = Encoder(n_src_vocab, n_max_seq, n_layers=n_layers, n_head=n_head, d_word_vec=d_word_vec, d_model=d_model, d_inner_hid=d_inner_hid, dropout=dropout)
+        self.decoder = Decoder(n_tgt_vocab, n_max_seq, n_layers=n_layers, n_head=n_head, d_word_vec=d_word_vec, d_model=d_model, d_inner_hid=d_inner_hid, dropout=dropout)
         self.tgt_word_proj = Linear(d_model, n_tgt_vocab, bias=False)
         self.dropout = nn.Dropout(dropout)
         assert d_model == d_word_vec, 'To facilitate the residual connections,          the dimensions of all module output shall be the same.'
@@ -911,10 +816,8 @@ class Transformer(nn.Module):
 
     def get_trainable_parameters(self):
         """ Avoid updating the position encoding """
-        enc_freezed_param_ids = set(map(id, self.encoder.position_enc.
-            parameters()))
-        dec_freezed_param_ids = set(map(id, self.decoder.position_enc.
-            parameters()))
+        enc_freezed_param_ids = set(map(id, self.encoder.position_enc.parameters()))
+        dec_freezed_param_ids = set(map(id, self.decoder.position_enc.parameters()))
         freezed_param_ids = enc_freezed_param_ids | dec_freezed_param_ids
         return (p for p in self.parameters() if id(p) not in freezed_param_ids)
 
@@ -931,15 +834,10 @@ class Transformer(nn.Module):
 
 class AttentionIsAllYouNeed(nn.Module):
 
-    def __init__(self, opt, n_layers=6, n_head=8, d_word_vec=128, d_model=
-        128, d_inner_hid=256, d_k=32, d_v=32, dropout=0.1,
-        proj_share_weight=True, embs_share_weight=True):
+    def __init__(self, opt, n_layers=6, n_head=8, d_word_vec=128, d_model=128, d_inner_hid=256, d_k=32, d_v=32, dropout=0.1, proj_share_weight=True, embs_share_weight=True):
         super(AttentionIsAllYouNeed, self).__init__()
-        self.encoder = Encoder(opt.vocab_size, opt.max_seq_len, n_layers=
-            n_layers, n_head=n_head, d_word_vec=d_word_vec, d_model=d_model,
-            d_inner_hid=d_inner_hid, dropout=dropout)
-        self.hidden2label = nn.Linear(opt.max_seq_len * d_model, opt.label_size
-            )
+        self.encoder = Encoder(opt.vocab_size, opt.max_seq_len, n_layers=n_layers, n_head=n_head, d_word_vec=d_word_vec, d_model=d_model, d_inner_hid=d_inner_hid, dropout=dropout)
+        self.hidden2label = nn.Linear(opt.max_seq_len * d_model, opt.label_size)
         self.batch_size = opt.batch_size
 
     def forward(self, inp):
@@ -952,26 +850,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BottleSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BottleSoftmax,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {'n_src_vocab': 4, 'n_max_seq': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LayerNormalization,
+     lambda: ([], {'d_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear,
+     lambda: ([], {'d_in': 4, 'd_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_hid': 4, 'd_inner_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (ScaledDotProductAttention,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Encoder(*[], **{'n_src_vocab': 4, 'n_max_seq': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LayerNormalization(*[], **{'d_hid': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Linear(*[], **{'d_in': 4, 'd_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_hid': 4, 'd_inner_hid': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ScaledDotProductAttention(*[], **{'d_model': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

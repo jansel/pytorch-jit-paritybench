@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -120,12 +121,9 @@ from torchvision.transforms import Pad
 
 class Conv2dBnRelu(nn.Module):
 
-    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0,
-        dilation=1, bias=True):
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0, dilation=1, bias=True):
         super(Conv2dBnRelu, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size,
-            stride, padding, dilation=dilation, bias=bias), nn.BatchNorm2d(
-            out_ch, eps=0.001), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias), nn.BatchNorm2d(out_ch, eps=0.001), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.conv(x)
@@ -135,8 +133,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super(DownsamplerBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3),
-            stride=2, padding=1, bias=True)
+        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
@@ -146,8 +143,7 @@ class DownsamplerBlock(nn.Module):
         x2 = self.conv(input)
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY -
-            diffY // 2])
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
         output = torch.cat([x2, x1], 1)
         output = self.bn(output)
         output = self.relu(output)
@@ -176,25 +172,17 @@ class SS_nbt_module(nn.Module):
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
         oup_inc = chann // 2
-        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_r = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_r = nn.BatchNorm2d(oup_inc, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout2d(dropprob)
@@ -304,12 +292,9 @@ class LEDNet(nn.Module):
 
 class Conv2dBnRelu(nn.Module):
 
-    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0,
-        dilation=1, bias=True):
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0, dilation=1, bias=True):
         super(Conv2dBnRelu, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size,
-            stride, padding, dilation=dilation, bias=bias), nn.ReLU(inplace
-            =True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.conv(x)
@@ -319,8 +304,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super(DownsamplerBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3),
-            stride=2, padding=1, bias=True)
+        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
@@ -330,8 +314,7 @@ class DownsamplerBlock(nn.Module):
         x2 = self.conv(input)
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY -
-            diffY // 2])
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
         output = torch.cat([x2, x1], 1)
         output = self.bn(output)
         output = self.relu(output)
@@ -343,25 +326,17 @@ class SS_nbt_module(nn.Module):
     def __init__(self, chann, dropprob, dilated):
         super(SS_nbt_module, self).__init__()
         oup_inc = chann // 2
-        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_r = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_r = nn.BatchNorm2d(oup_inc, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout2d(dropprob)
@@ -414,8 +389,7 @@ class Encoder(nn.Module):
             self.layers.append(SS_nbt_module(128, 0.3, 5))
             self.layers.append(SS_nbt_module(128, 0.3, 9))
             self.layers.append(SS_nbt_module(128, 0.3, 17))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -443,15 +417,11 @@ class APN_Module(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(APN_Module, self).__init__()
-        self.branch1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), Conv2dBnRelu(
-            in_ch, out_ch, kernel_size=1, stride=1, padding=0))
-        self.mid = nn.Sequential(Conv2dBnRelu(in_ch, out_ch, kernel_size=1,
-            stride=1, padding=0))
+        self.branch1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0))
+        self.mid = nn.Sequential(Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0))
         self.down1 = Conv2dBnRelu(in_ch, 1, kernel_size=7, stride=2, padding=3)
         self.down2 = Conv2dBnRelu(1, 1, kernel_size=5, stride=2, padding=2)
-        self.down3 = nn.Sequential(Conv2dBnRelu(1, 1, kernel_size=3, stride
-            =2, padding=1), Conv2dBnRelu(1, 1, kernel_size=3, stride=1,
-            padding=1))
+        self.down3 = nn.Sequential(Conv2dBnRelu(1, 1, kernel_size=3, stride=2, padding=1), Conv2dBnRelu(1, 1, kernel_size=3, stride=1, padding=1))
         self.conv2 = Conv2dBnRelu(1, 1, kernel_size=5, stride=1, padding=2)
         self.conv1 = Conv2dBnRelu(1, 1, kernel_size=7, stride=1, padding=3)
 
@@ -464,12 +434,10 @@ class APN_Module(nn.Module):
         x1 = self.down1(x)
         x2 = self.down2(x1)
         x3 = self.down3(x2)
-        x3 = interpolate(x3, size=(h // 4, w // 4), mode='bilinear',
-            align_corners=True)
+        x3 = interpolate(x3, size=(h // 4, w // 4), mode='bilinear', align_corners=True)
         x2 = self.conv2(x2)
         x = x2 + x3
-        x = interpolate(x, size=(h // 2, w // 2), mode='bilinear',
-            align_corners=True)
+        x = interpolate(x, size=(h // 2, w // 2), mode='bilinear', align_corners=True)
         x1 = self.conv1(x1)
         x = x + x1
         x = interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
@@ -486,8 +454,7 @@ class Decoder(nn.Module):
 
     def forward(self, input):
         output = self.apn(input)
-        out = interpolate(output, size=(512, 1024), mode='bilinear',
-            align_corners=True)
+        out = interpolate(output, size=(512, 1024), mode='bilinear', align_corners=True)
         return out
 
 
@@ -511,12 +478,9 @@ class Net(nn.Module):
 
 class Conv2dBnRelu(nn.Module):
 
-    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0,
-        dilation=1, bias=True):
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0, dilation=1, bias=True):
         super(Conv2dBnRelu, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size,
-            stride, padding, dilation=dilation, bias=bias), nn.BatchNorm2d(
-            out_ch, eps=0.001), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias), nn.BatchNorm2d(out_ch, eps=0.001), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.conv(x)
@@ -526,8 +490,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super(DownsamplerBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3),
-            stride=2, padding=1, bias=True)
+        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
@@ -537,8 +500,7 @@ class DownsamplerBlock(nn.Module):
         x2 = self.conv(input)
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY -
-            diffY // 2])
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
         output = torch.cat([x2, x1], 1)
         output = self.bn(output)
         output = self.relu(output)
@@ -550,25 +512,17 @@ class SS_nbt_module(nn.Module):
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
         oup_inc = chann // 2
-        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_r = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_r = nn.BatchNorm2d(oup_inc, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout2d(dropprob)
@@ -628,8 +582,7 @@ class Encoder(nn.Module):
             self.layers.append(SS_nbt_module(128, 0.3, 5))
             self.layers.append(SS_nbt_module(128, 0.3, 9))
             self.layers.append(SS_nbt_module(128, 0.3, 17))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -657,15 +610,11 @@ class APN_Module(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(APN_Module, self).__init__()
-        self.branch1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), Conv2dBnRelu(
-            in_ch, out_ch, kernel_size=1, stride=1, padding=0))
-        self.mid = nn.Sequential(Conv2dBnRelu(in_ch, out_ch, kernel_size=1,
-            stride=1, padding=0))
+        self.branch1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0))
+        self.mid = nn.Sequential(Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0))
         self.down1 = Conv2dBnRelu(in_ch, 1, kernel_size=7, stride=2, padding=3)
         self.down2 = Conv2dBnRelu(1, 1, kernel_size=5, stride=2, padding=2)
-        self.down3 = nn.Sequential(Conv2dBnRelu(1, 1, kernel_size=3, stride
-            =2, padding=1), Conv2dBnRelu(1, 1, kernel_size=3, stride=1,
-            padding=1))
+        self.down3 = nn.Sequential(Conv2dBnRelu(1, 1, kernel_size=3, stride=2, padding=1), Conv2dBnRelu(1, 1, kernel_size=3, stride=1, padding=1))
         self.conv2 = Conv2dBnRelu(1, 1, kernel_size=5, stride=1, padding=2)
         self.conv1 = Conv2dBnRelu(1, 1, kernel_size=7, stride=1, padding=3)
 
@@ -678,12 +627,10 @@ class APN_Module(nn.Module):
         x1 = self.down1(x)
         x2 = self.down2(x1)
         x3 = self.down3(x2)
-        x3 = interpolate(x3, size=(h // 4, w // 4), mode='bilinear',
-            align_corners=True)
+        x3 = interpolate(x3, size=(h // 4, w // 4), mode='bilinear', align_corners=True)
         x2 = self.conv2(x2)
         x = x2 + x3
-        x = interpolate(x, size=(h // 2, w // 2), mode='bilinear',
-            align_corners=True)
+        x = interpolate(x, size=(h // 2, w // 2), mode='bilinear', align_corners=True)
         x1 = self.conv1(x1)
         x = x + x1
         x = interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
@@ -700,8 +647,7 @@ class Decoder(nn.Module):
 
     def forward(self, input):
         output = self.apn(input)
-        out = interpolate(output, size=(512, 1024), mode='bilinear',
-            align_corners=True)
+        out = interpolate(output, size=(512, 1024), mode='bilinear', align_corners=True)
         return out
 
 
@@ -725,12 +671,9 @@ class Net(nn.Module):
 
 class Conv2dBnRelu(nn.Module):
 
-    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0,
-        dilation=1, bias=True):
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=0, dilation=1, bias=True):
         super(Conv2dBnRelu, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size,
-            stride, padding, dilation=dilation, bias=bias), nn.BatchNorm2d(
-            out_ch, eps=0.001), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, dilation=dilation, bias=bias), nn.BatchNorm2d(out_ch, eps=0.001), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.conv(x)
@@ -740,8 +683,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super(DownsamplerBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3),
-            stride=2, padding=1, bias=True)
+        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
@@ -751,8 +693,7 @@ class DownsamplerBlock(nn.Module):
         x2 = self.conv(input)
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY -
-            diffY // 2])
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
         output = torch.cat([x2, x1], 1)
         output = self.bn(output)
         output = self.relu(output)
@@ -764,25 +705,17 @@ class SS_nbt_module(nn.Module):
     def __init__(self, chann, dropprob, dilated):
         super(SS_nbt_module, self).__init__()
         oup_inc = chann // 2
-        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_l = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_l = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_l = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
+        self.conv3x1_1_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1_r = nn.BatchNorm2d(oup_inc, eps=0.001)
-        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2_r = nn.Conv2d(oup_inc, oup_inc, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2_r = nn.Conv2d(oup_inc, oup_inc, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2_r = nn.BatchNorm2d(oup_inc, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout2d(dropprob)
@@ -842,8 +775,7 @@ class Encoder(nn.Module):
             self.layers.append(SS_nbt_module(128, 0.3, 5))
             self.layers.append(SS_nbt_module(128, 0.3, 9))
             self.layers.append(SS_nbt_module(128, 0.3, 17))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -871,16 +803,11 @@ class APN_Module(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(APN_Module, self).__init__()
-        self.branch1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), Conv2dBnRelu(
-            in_ch, out_ch, kernel_size=1, stride=1, padding=0))
-        self.mid = nn.Sequential(Conv2dBnRelu(in_ch, out_ch, kernel_size=1,
-            stride=1, padding=0))
-        self.down1 = Conv2dBnRelu(in_ch, 128, kernel_size=7, stride=2,
-            padding=3)
+        self.branch1 = nn.Sequential(nn.AdaptiveAvgPool2d(1), Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0))
+        self.mid = nn.Sequential(Conv2dBnRelu(in_ch, out_ch, kernel_size=1, stride=1, padding=0))
+        self.down1 = Conv2dBnRelu(in_ch, 128, kernel_size=7, stride=2, padding=3)
         self.down2 = Conv2dBnRelu(128, 128, kernel_size=5, stride=2, padding=2)
-        self.down3 = nn.Sequential(Conv2dBnRelu(128, 128, kernel_size=3,
-            stride=2, padding=1), Conv2dBnRelu(128, 20, kernel_size=1,
-            stride=1, padding=0))
+        self.down3 = nn.Sequential(Conv2dBnRelu(128, 128, kernel_size=3, stride=2, padding=1), Conv2dBnRelu(128, 20, kernel_size=1, stride=1, padding=0))
         self.conv2 = Conv2dBnRelu(128, 20, kernel_size=1, stride=1, padding=0)
         self.conv1 = Conv2dBnRelu(128, 20, kernel_size=1, stride=1, padding=0)
 
@@ -893,12 +820,10 @@ class APN_Module(nn.Module):
         x1 = self.down1(x)
         x2 = self.down2(x1)
         x3 = self.down3(x2)
-        x3 = interpolate(x3, size=(h // 4, w // 4), mode='bilinear',
-            align_corners=True)
+        x3 = interpolate(x3, size=(h // 4, w // 4), mode='bilinear', align_corners=True)
         x2 = self.conv2(x2)
         x = x2 + x3
-        x = interpolate(x, size=(h // 2, w // 2), mode='bilinear',
-            align_corners=True)
+        x = interpolate(x, size=(h // 2, w // 2), mode='bilinear', align_corners=True)
         x1 = self.conv1(x1)
         x = x + x1
         x = interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
@@ -915,8 +840,7 @@ class Decoder(nn.Module):
 
     def forward(self, input):
         output = self.apn(input)
-        out = interpolate(output, size=(512, 1024), mode='bilinear',
-            align_corners=True)
+        out = interpolate(output, size=(512, 1024), mode='bilinear', align_corners=True)
         return out
 
 
@@ -952,26 +876,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 128])], {}),
+     True),
+    (Conv2dBnRelu,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Decoder,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 128, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Net,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (SS_nbt_module,
+     lambda: ([], {'chann': 4, 'dropprob': 0.5, 'dilated': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_xiaoyufenfei_LEDNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([4, 128])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv2dBnRelu(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Encoder(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Net(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SS_nbt_module(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

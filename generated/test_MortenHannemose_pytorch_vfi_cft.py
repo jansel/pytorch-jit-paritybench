@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,10 +71,8 @@ class Cyclic(nn.Module):
         for flow in flow_pyramid:
             input0_scaled = self.net.down(input0_scaled)
             input2_scaled = self.net.down(input2_scaled)
-            interp0_pyramid.append(self.net.interpolation(flow,
-                input0_scaled, 0)[0])
-            interp2_pyramid.append(self.net.interpolation(flow,
-                input2_scaled, 1)[0])
+            interp0_pyramid.append(self.net.interpolation(flow, input0_scaled, 0)[0])
+            interp2_pyramid.append(self.net.interpolation(flow, input2_scaled, 1)[0])
         out_dict['interp0_pyramid'] = interp0_pyramid
         out_dict['interp2_pyramid'] = interp2_pyramid
 
@@ -93,10 +92,8 @@ class SMLoss(nn.Module):
     def TVLoss(self, input):
         TV = 0
         for u in [input[x] for x in ['u0', 'v0', 'u2', 'v2']]:
-            TV += torch.abs(u.narrow(1, 1, u.shape[1] - 1) - u.narrow(1, 0,
-                u.shape[1] - 1)).mean(2).mean(1)
-            TV += torch.abs(u.narrow(2, 1, u.shape[2] - 1) - u.narrow(2, 0,
-                u.shape[2] - 1)).mean(2).mean(1)
+            TV += torch.abs(u.narrow(1, 1, u.shape[1] - 1) - u.narrow(1, 0, u.shape[1] - 1)).mean(2).mean(1)
+            TV += torch.abs(u.narrow(2, 1, u.shape[2] - 1) - u.narrow(2, 0, u.shape[2] - 1)).mean(2).mean(1)
         return TV
 
     def forward(self, input, target):
@@ -121,10 +118,8 @@ class SMLoss(nn.Module):
                 target_down = target
                 for i in range(len(input['interp0_pyramid'])):
                     target_down = self.down(target_down)
-                    tmploss += self.l1_loss(input['interp0_pyramid'][i],
-                        target_down)
-                    tmploss += self.l1_loss(input['interp2_pyramid'][i],
-                        target_down)
+                    tmploss += self.l1_loss(input['interp0_pyramid'][i], target_down)
+                    tmploss += self.l1_loss(input['interp2_pyramid'][i], target_down)
             elif key == 'MoLin':
                 tmploss = 0
             else:
@@ -163,8 +158,7 @@ class Network(nn.Module):
         self.device = utils.get_device()
 
         def conv_ReLU(n_in, n_out, kernel_size=3, stride=1, pad=1, bias=True):
-            return [nn.Conv2d(n_in, n_out, kernel_size, stride, pad, bias=
-                bias), nn.ReLU(True)]
+            return [nn.Conv2d(n_in, n_out, kernel_size, stride, pad, bias=bias), nn.ReLU(True)]
 
         def basic(in_channels, out_channels, layers=3):
             modules = conv_ReLU(in_channels, out_channels)
@@ -173,9 +167,7 @@ class Network(nn.Module):
             return nn.Sequential(*modules)
 
         def basic_up(in_channels, out_channels, layers=1):
-            return nn.Sequential(nn.Upsample(scale_factor=2, mode=
-                'bilinear', align_corners=False), basic(in_channels,
-                out_channels, layers))
+            return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), basic(in_channels, out_channels, layers))
         self.conv1 = basic(6, 32)
         self.pool1 = nn.AvgPool2d(kernel_size=2)
         self.conv2 = basic(32, 64)
@@ -203,8 +195,7 @@ class Network(nn.Module):
         self.im_size = im_size
 
     def interpolation(self, uvm, image, index):
-        u, v = torch.index_select(uvm, dim=1, index=LongTensor([0 + 3 *
-            index, 1 + 3 * index])).permute(0, 2, 3, 1).split(1, dim=3)
+        u, v = torch.index_select(uvm, dim=1, index=LongTensor([0 + 3 * index, 1 + 3 * index])).permute(0, 2, 3, 1).split(1, dim=3)
         row_num = FloatTensor()
         col_num = FloatTensor()
         im_size = image.shape[2:4]
@@ -216,8 +207,7 @@ class Network(nn.Module):
         y_norm = 2 * (v + row_num) / (im_size[0] - 1) - 1
         xy_norm = torch.clamp(torch.cat((x_norm, y_norm), dim=3), -1, 1)
         interp = nn.functional.grid_sample(image, xy_norm)
-        w = torch.index_select(uvm, dim=1, index=LongTensor([3 * index + 2])
-            ) + 0.5
+        w = torch.index_select(uvm, dim=1, index=LongTensor([3 * index + 2])) + 0.5
         return interp, w, u, v
 
     def forward(self, input0, input2):
@@ -250,15 +240,6 @@ class Network(nn.Module):
         interp0, w0, u0, v0 = self.interpolation(var_uvm, input0, 0)
         interp2, w2, u2, v2 = self.interpolation(var_uvm, input2, 1)
         output = w0 * interp0 + w2 * interp2
-        out_dict = {'output_im': output, 'interp0': interp0, 'interp2':
-            interp2, 'u0': u0, 'v0': v0, 'u2': u2, 'v2': v2, 'w0': w0, 'w2':
-            w2, 'uvm': var_uvm}
+        out_dict = {'output_im': output, 'interp0': interp0, 'interp2': interp2, 'u0': u0, 'v0': v0, 'u2': u2, 'v2': v2, 'w0': w0, 'w2': w2, 'uvm': var_uvm}
         return out_dict
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_MortenHannemose_pytorch_vfi_cft(_paritybench_base):
-    pass

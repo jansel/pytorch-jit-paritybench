@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -49,8 +50,7 @@ import torchvision
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=True)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True)
 
 
 class BasicBlock(nn.Module):
@@ -88,8 +88,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -145,8 +144,7 @@ class PreResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False))
         layers = list()
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -188,9 +186,7 @@ class VGG(nn.Module):
     def __init__(self, num_classes=10, depth=16, batch_norm=False):
         super(VGG, self).__init__()
         self.features = make_layers(cfg[depth], batch_norm)
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(512, 512),
-            nn.ReLU(True), nn.Dropout(), nn.Linear(512, 512), nn.ReLU(True),
-            nn.Linear(512, num_classes))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(512, 512), nn.ReLU(True), nn.Dropout(), nn.Linear(512, 512), nn.ReLU(True), nn.Linear(512, num_classes))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -209,16 +205,13 @@ class WideBasic(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1):
         super(WideBasic, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1,
-            bias=True)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.dropout = nn.Dropout(p=dropout_rate)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=True))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True))
 
     def forward(self, x):
         out = self.dropout(self.conv1(F.relu(self.bn1(x))))
@@ -229,8 +222,7 @@ class WideBasic(nn.Module):
 
 class WideResNet(nn.Module):
 
-    def __init__(self, num_classes=10, depth=28, widen_factor=10,
-        dropout_rate=0.0):
+    def __init__(self, num_classes=10, depth=28, widen_factor=10, dropout_rate=0.0):
         super(WideResNet, self).__init__()
         self.in_planes = 16
         assert (depth - 4) % 6 == 0, 'Wide-resnet depth should be 6n+4'
@@ -238,12 +230,9 @@ class WideResNet(nn.Module):
         k = widen_factor
         nstages = [16, 16 * k, 32 * k, 64 * k]
         self.conv1 = conv3x3(3, nstages[0])
-        self.layer1 = self._wide_layer(WideBasic, nstages[1], n,
-            dropout_rate, stride=1)
-        self.layer2 = self._wide_layer(WideBasic, nstages[2], n,
-            dropout_rate, stride=2)
-        self.layer3 = self._wide_layer(WideBasic, nstages[3], n,
-            dropout_rate, stride=2)
+        self.layer1 = self._wide_layer(WideBasic, nstages[1], n, dropout_rate, stride=1)
+        self.layer2 = self._wide_layer(WideBasic, nstages[2], n, dropout_rate, stride=2)
+        self.layer3 = self._wide_layer(WideBasic, nstages[3], n, dropout_rate, stride=2)
         self.bn1 = nn.BatchNorm2d(nstages[3], momentum=0.9)
         self.linear = nn.Linear(nstages[3], num_classes)
 
@@ -271,11 +260,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+    (WideBasic,
+     lambda: ([], {'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WideResNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+]
+
 class Test_timgaripov_swa(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

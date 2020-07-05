@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,30 +106,25 @@ class _DenseLayer(nn.Sequential):
         super(_DenseLayer, self).__init__()
         self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu.1', nn.ReLU(inplace=True)),
-        self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size *
-            growth_rate, kernel_size=1, stride=1, bias=False)),
+        self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
         self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
         self.add_module('relu.2', nn.ReLU(inplace=True)),
-        self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate,
-            growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
-        drop_rate):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, bn_size, drop_rate)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
@@ -138,8 +134,7 @@ class _Transition(nn.Sequential):
         super(_Transition, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(num_input_features,
-            num_output_features, kernel_size=1, stride=1, bias=False))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
 
 
@@ -157,32 +152,22 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
     """
 
-    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16),
-        num_init_features=64, bn_size=4, drop_rate=0, feature_dim=256,
-        spatial_size=224):
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16), num_init_features=64, bn_size=4, drop_rate=0, feature_dim=256, spatial_size=224):
         spatial_map = {(224): 7, (112): 3}
         super(DenseNet, self).__init__()
         self.feature_dim = feature_dim
-        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3,
-            num_init_features, kernel_size=7, stride=2, padding=3, bias=
-            False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0',
-            nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0', nn.ReLU(inplace=True)), ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, bn_size=bn_size, growth_rate=growth_rate,
-                drop_rate=drop_rate)
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features,
-                    num_output_features=num_features // 2)
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
-        self.face_feature = nn.Linear(num_features * spatial_map[
-            spatial_size] * spatial_map[spatial_size], feature_dim)
+        self.face_feature = nn.Linear(num_features * spatial_map[spatial_size] * spatial_map[spatial_size], feature_dim)
         self.drop1 = nn.Dropout(0.5)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -227,8 +212,7 @@ class Inception3(nn.Module):
         self.Mixed_7a = InceptionD(768)
         self.Mixed_7b = InceptionE(1280)
         self.Mixed_7c = InceptionE(2048)
-        self.layer1x1 = nn.Sequential(nn.Conv2d(2048, 256, 1, 1, 0, bias=
-            False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
+        self.layer1x1 = nn.Sequential(nn.Conv2d(2048, 256, 1, 1, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
         self.drop1 = nn.Dropout(0.5)
         self.feature = nn.Linear(6400, feature_dim)
         self.drop2 = nn.Dropout(0.5)
@@ -284,8 +268,7 @@ class InceptionA(nn.Module):
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1)
         self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -326,19 +309,13 @@ class InceptionC(nn.Module):
         self.branch1x1 = BasicConv2d(in_channels, 192, kernel_size=1)
         c7 = channels_7x7
         self.branch7x7_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=
-            (0, 3))
-        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding
-            =(3, 0))
+        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7dbl_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7),
-            padding=(0, 3))
+        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
@@ -364,10 +341,8 @@ class InceptionD(nn.Module):
         self.branch3x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
         self.branch3x3_2 = BasicConv2d(192, 320, kernel_size=3, stride=2)
         self.branch7x7x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
-        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1),
-            padding=(3, 0))
+        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7x3_4 = BasicConv2d(192, 192, kernel_size=3, stride=2)
 
     def forward(self, x):
@@ -388,28 +363,22 @@ class InceptionE(nn.Module):
         super(InceptionE, self).__init__()
         self.branch1x1 = BasicConv2d(in_channels, 320, kernel_size=1)
         self.branch3x3_1 = BasicConv2d(in_channels, 384, kernel_size=1)
-        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 448, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(448, 384, kernel_size=3, padding=1)
-        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -453,10 +422,8 @@ class BasicConv2d(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1,
-            affine=True)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -471,14 +438,9 @@ class Mixed_5b(nn.Module):
     def __init__(self):
         super(Mixed_5b, self).__init__()
         self.branch0 = BasicConv2d(192, 96, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1,
-            stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
-        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1,
-            stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False), BasicConv2d(192, 64, kernel_size=1,
-            stride=1))
+        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1, stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
+        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1, stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False), BasicConv2d(192, 64, kernel_size=1, stride=1))
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -495,11 +457,8 @@ class Block35(nn.Module):
         super(Block35, self).__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(320, 32, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
-        self.branch2 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 48, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1))
+        self.branch1 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1, stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
+        self.branch2 = nn.Sequential(BasicConv2d(320, 32, kernel_size=1, stride=1), BasicConv2d(32, 48, kernel_size=3, stride=1, padding=1), BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1))
         self.conv2d = nn.Conv2d(128, 320, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -519,9 +478,7 @@ class Mixed_6a(nn.Module):
     def __init__(self):
         super(Mixed_6a, self).__init__()
         self.branch0 = BasicConv2d(320, 384, kernel_size=3, stride=2)
-        self.branch1 = nn.Sequential(BasicConv2d(320, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1,
-            padding=1), BasicConv2d(256, 384, kernel_size=3, stride=2))
+        self.branch1 = nn.Sequential(BasicConv2d(320, 256, kernel_size=1, stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1, padding=1), BasicConv2d(256, 384, kernel_size=3, stride=2))
         self.branch2 = nn.MaxPool2d(3, stride=2)
 
     def forward(self, x):
@@ -538,10 +495,7 @@ class Block17(nn.Module):
         super(Block17, self).__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(1088, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(1088, 128, kernel_size=1,
-            stride=1), BasicConv2d(128, 160, kernel_size=(1, 7), stride=1,
-            padding=(0, 3)), BasicConv2d(160, 192, kernel_size=(7, 1),
-            stride=1, padding=(3, 0)))
+        self.branch1 = nn.Sequential(BasicConv2d(1088, 128, kernel_size=1, stride=1), BasicConv2d(128, 160, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv2d(160, 192, kernel_size=(7, 1), stride=1, padding=(3, 0)))
         self.conv2d = nn.Conv2d(384, 1088, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -559,13 +513,9 @@ class Mixed_7a(nn.Module):
 
     def __init__(self):
         super(Mixed_7a, self).__init__()
-        self.branch0 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 384, kernel_size=3, stride=2))
-        self.branch1 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 288, kernel_size=3, stride=2))
-        self.branch2 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1,
-            padding=1), BasicConv2d(288, 320, kernel_size=3, stride=2))
+        self.branch0 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 384, kernel_size=3, stride=2))
+        self.branch1 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 288, kernel_size=3, stride=2))
+        self.branch2 = nn.Sequential(BasicConv2d(1088, 256, kernel_size=1, stride=1), BasicConv2d(256, 288, kernel_size=3, stride=1, padding=1), BasicConv2d(288, 320, kernel_size=3, stride=2))
         self.branch3 = nn.MaxPool2d(3, stride=2)
 
     def forward(self, x):
@@ -584,10 +534,7 @@ class Block8(nn.Module):
         self.scale = scale
         self.noReLU = noReLU
         self.branch0 = BasicConv2d(2080, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(2080, 192, kernel_size=1,
-            stride=1), BasicConv2d(192, 224, kernel_size=(1, 3), stride=1,
-            padding=(0, 1)), BasicConv2d(224, 256, kernel_size=(3, 1),
-            stride=1, padding=(1, 0)))
+        self.branch1 = nn.Sequential(BasicConv2d(2080, 192, kernel_size=1, stride=1), BasicConv2d(192, 224, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv2d(224, 256, kernel_size=(3, 1), stride=1, padding=(1, 0)))
         self.conv2d = nn.Conv2d(448, 2080, kernel_size=1, stride=1)
         if not self.noReLU:
             self.relu = nn.ReLU(inplace=False)
@@ -612,30 +559,17 @@ class InceptionResNetV2(nn.Module):
         spatial_map = {(224): 5, (112): 2}
         self.conv2d_1a = BasicConv2d(3, 32, kernel_size=3, stride=2)
         self.conv2d_2a = BasicConv2d(32, 32, kernel_size=3, stride=1)
-        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1
-            )
+        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1)
         self.maxpool_3a = nn.MaxPool2d(3, stride=2)
         self.conv2d_3b = BasicConv2d(64, 80, kernel_size=1, stride=1)
         self.conv2d_4a = BasicConv2d(80, 192, kernel_size=3, stride=1)
         self.maxpool_5a = nn.MaxPool2d(3, stride=2)
         self.mixed_5b = Mixed_5b()
-        self.repeat = nn.Sequential(Block35(scale=0.17), Block35(scale=0.17
-            ), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17
-            ), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17
-            ), Block35(scale=0.17), Block35(scale=0.17))
+        self.repeat = nn.Sequential(Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17))
         self.mixed_6a = Mixed_6a()
-        self.repeat_1 = nn.Sequential(Block17(scale=0.1), Block17(scale=0.1
-            ), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1))
+        self.repeat_1 = nn.Sequential(Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1))
         self.mixed_7a = Mixed_7a()
-        self.repeat_2 = nn.Sequential(Block8(scale=0.2), Block8(scale=0.2),
-            Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8
-            (scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale
-            =0.2))
+        self.repeat_2 = nn.Sequential(Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2))
         self.block8 = Block8(noReLU=True)
         self.conv2d_7b = BasicConv2d(2080, 1536, kernel_size=1, stride=1)
         if self.use_avgpool:
@@ -644,8 +578,7 @@ class InceptionResNetV2(nn.Module):
         else:
             self.layer1x1 = BasicConv2d(1536, 256, kernel_size=1, stride=1)
             self.drop1 = nn.Dropout(0.5)
-            self.feature = nn.Linear(256 * spatial_map[spatial_size] *
-                spatial_map[spatial_size], feature_dim)
+            self.feature = nn.Linear(256 * spatial_map[spatial_size] * spatial_map[spatial_size], feature_dim)
         self.drop2 = nn.Dropout(0.5)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -705,8 +638,7 @@ class AvgPoolPad(nn.Module):
     def __init__(self, stride=2, padding=1):
         super(AvgPoolPad, self).__init__()
         self.pad = nn.ZeroPad2d((1, 0, 1, 0))
-        self.pool = nn.AvgPool2d(3, stride=stride, padding=padding,
-            count_include_pad=False)
+        self.pool = nn.AvgPool2d(3, stride=stride, padding=padding, count_include_pad=False)
 
     def forward(self, x):
         x = self.pad(x)
@@ -717,14 +649,10 @@ class AvgPoolPad(nn.Module):
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, dw_kernel, dw_stride,
-        dw_padding, bias=False):
+    def __init__(self, in_channels, out_channels, dw_kernel, dw_stride, dw_padding, bias=False):
         super(SeparableConv2d, self).__init__()
-        self.depthwise_conv2d = nn.Conv2d(in_channels, in_channels,
-            dw_kernel, stride=dw_stride, padding=dw_padding, bias=bias,
-            groups=in_channels)
-        self.pointwise_conv2d = nn.Conv2d(in_channels, out_channels, 1,
-            stride=1, bias=bias)
+        self.depthwise_conv2d = nn.Conv2d(in_channels, in_channels, dw_kernel, stride=dw_stride, padding=dw_padding, bias=bias, groups=in_channels)
+        self.pointwise_conv2d = nn.Conv2d(in_channels, out_channels, 1, stride=1, bias=bias)
 
     def forward(self, x):
         x = self.depthwise_conv2d(x)
@@ -734,19 +662,14 @@ class SeparableConv2d(nn.Module):
 
 class BranchSeparables(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias=False):
         super(BranchSeparables, self).__init__()
         self.relu = nn.ReLU()
-        self.separable_1 = SeparableConv2d(in_channels, in_channels,
-            kernel_size, stride, padding, bias=bias)
-        self.bn_sep_1 = nn.BatchNorm2d(in_channels, eps=0.001, momentum=0.1,
-            affine=True)
+        self.separable_1 = SeparableConv2d(in_channels, in_channels, kernel_size, stride, padding, bias=bias)
+        self.bn_sep_1 = nn.BatchNorm2d(in_channels, eps=0.001, momentum=0.1, affine=True)
         self.relu1 = nn.ReLU()
-        self.separable_2 = SeparableConv2d(in_channels, out_channels,
-            kernel_size, 1, padding, bias=bias)
-        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=
-            0.1, affine=True)
+        self.separable_2 = SeparableConv2d(in_channels, out_channels, kernel_size, 1, padding, bias=bias)
+        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True)
 
     def forward(self, x):
         x = self.relu(x)
@@ -760,19 +683,14 @@ class BranchSeparables(nn.Module):
 
 class BranchSeparablesStem(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias=False):
         super(BranchSeparablesStem, self).__init__()
         self.relu = nn.ReLU()
-        self.separable_1 = SeparableConv2d(in_channels, out_channels,
-            kernel_size, stride, padding, bias=bias)
-        self.bn_sep_1 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=
-            0.1, affine=True)
+        self.separable_1 = SeparableConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
+        self.bn_sep_1 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True)
         self.relu1 = nn.ReLU()
-        self.separable_2 = SeparableConv2d(out_channels, out_channels,
-            kernel_size, 1, padding, bias=bias)
-        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=
-            0.1, affine=True)
+        self.separable_2 = SeparableConv2d(out_channels, out_channels, kernel_size, 1, padding, bias=bias)
+        self.bn_sep_2 = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True)
 
     def forward(self, x):
         x = self.relu(x)
@@ -790,22 +708,15 @@ class CellStem0(nn.Module):
         super(CellStem0, self).__init__()
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(96, 42, 1, stride=1,
-            bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(42, eps=0.001,
-            momentum=0.1, affine=True))
+        self.conv_1x1.add_module('conv', nn.Conv2d(96, 42, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(42, eps=0.001, momentum=0.1, affine=True))
         self.comb_iter_0_left = BranchSeparables(42, 42, 5, 2, 2)
-        self.comb_iter_0_right = BranchSeparablesStem(96, 42, 7, 2, 3, bias
-            =False)
+        self.comb_iter_0_right = BranchSeparablesStem(96, 42, 7, 2, 3, bias=False)
         self.comb_iter_1_left = nn.MaxPool2d(3, stride=2, padding=1)
-        self.comb_iter_1_right = BranchSeparablesStem(96, 42, 7, 2, 3, bias
-            =False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1,
-            count_include_pad=False)
-        self.comb_iter_2_right = BranchSeparablesStem(96, 42, 5, 2, 2, bias
-            =False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
+        self.comb_iter_1_right = BranchSeparablesStem(96, 42, 7, 2, 3, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
+        self.comb_iter_2_right = BranchSeparablesStem(96, 42, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
         self.comb_iter_4_left = BranchSeparables(42, 42, 3, 1, 1, bias=False)
         self.comb_iter_4_right = nn.MaxPool2d(3, stride=2, padding=1)
 
@@ -825,8 +736,7 @@ class CellStem0(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x1)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
@@ -836,33 +746,24 @@ class CellStem1(nn.Module):
         super(CellStem1, self).__init__()
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(168, 84, 1, stride=1,
-            bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(84, eps=0.001,
-            momentum=0.1, affine=True))
+        self.conv_1x1.add_module('conv', nn.Conv2d(168, 84, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(84, eps=0.001, momentum=0.1, affine=True))
         self.relu = nn.ReLU()
         self.path_1 = nn.Sequential()
-        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_1.add_module('conv', nn.Conv2d(96, 42, 1, stride=1, bias=
-            False))
+        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_1.add_module('conv', nn.Conv2d(96, 42, 1, stride=1, bias=False))
         self.path_2 = nn.ModuleList()
         self.path_2.add_module('pad', nn.ZeroPad2d((0, 1, 0, 1)))
-        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_2.add_module('conv', nn.Conv2d(96, 42, 1, stride=1, bias=
-            False))
-        self.final_path_bn = nn.BatchNorm2d(84, eps=0.001, momentum=0.1,
-            affine=True)
+        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_2.add_module('conv', nn.Conv2d(96, 42, 1, stride=1, bias=False))
+        self.final_path_bn = nn.BatchNorm2d(84, eps=0.001, momentum=0.1, affine=True)
         self.comb_iter_0_left = BranchSeparables(84, 84, 5, 2, 2, bias=False)
         self.comb_iter_0_right = BranchSeparables(84, 84, 7, 2, 3, bias=False)
         self.comb_iter_1_left = nn.MaxPool2d(3, stride=2, padding=1)
         self.comb_iter_1_right = BranchSeparables(84, 84, 7, 2, 3, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1,
-            count_include_pad=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
         self.comb_iter_2_right = BranchSeparables(84, 84, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
         self.comb_iter_4_left = BranchSeparables(84, 84, 3, 1, 1, bias=False)
         self.comb_iter_4_right = nn.MaxPool2d(3, stride=2, padding=1)
 
@@ -889,52 +790,35 @@ class CellStem1(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x_left)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class FirstCell(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(FirstCell, self).__init__()
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
         self.relu = nn.ReLU()
         self.path_1 = nn.Sequential()
-        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
+        self.path_1.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
         self.path_2 = nn.ModuleList()
         self.path_2.add_module('pad', nn.ZeroPad2d((0, 1, 0, 1)))
-        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2,
-            count_include_pad=False))
-        self.path_2.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.final_path_bn = nn.BatchNorm2d(out_channels_left * 2, eps=
-            0.001, momentum=0.1, affine=True)
-        self.comb_iter_0_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 1, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
-        self.comb_iter_1_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 1, 2, bias=False)
-        self.comb_iter_1_right = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.path_2.add_module('avgpool', nn.AvgPool2d(1, stride=2, count_include_pad=False))
+        self.path_2.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.final_path_bn = nn.BatchNorm2d(out_channels_left * 2, eps=0.001, momentum=0.1, affine=True)
+        self.comb_iter_0_left = BranchSeparables(out_channels_right, out_channels_right, 5, 1, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_1_left = BranchSeparables(out_channels_right, out_channels_right, 5, 1, 2, bias=False)
+        self.comb_iter_1_right = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
 
     def forward(self, x, x_prev):
         x_relu = self.relu(x_prev)
@@ -958,44 +842,30 @@ class FirstCell(nn.Module):
         x_comb_iter_3 = x_comb_iter_3_left + x_comb_iter_3_right
         x_comb_iter_4_left = self.comb_iter_4_left(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_right
-        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1,
-            x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
+        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class NormalCell(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(NormalCell, self).__init__()
         self.conv_prev_1x1 = nn.Sequential()
         self.conv_prev_1x1.add_module('relu', nn.ReLU())
-        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(
-            out_channels_left, eps=0.001, momentum=0.1, affine=True))
+        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(out_channels_left, eps=0.001, momentum=0.1, affine=True))
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 1, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(out_channels_left,
-            out_channels_left, 3, 1, 1, bias=False)
-        self.comb_iter_1_left = BranchSeparables(out_channels_left,
-            out_channels_left, 5, 1, 2, bias=False)
-        self.comb_iter_1_right = BranchSeparables(out_channels_left,
-            out_channels_left, 3, 1, 1, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparables(out_channels_right, out_channels_right, 5, 1, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(out_channels_left, out_channels_left, 3, 1, 1, bias=False)
+        self.comb_iter_1_left = BranchSeparables(out_channels_left, out_channels_left, 5, 1, 2, bias=False)
+        self.comb_iter_1_right = BranchSeparables(out_channels_left, out_channels_left, 3, 1, 1, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_left = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
 
     def forward(self, x, x_prev):
         x_left = self.conv_prev_1x1(x_prev)
@@ -1013,17 +883,14 @@ class NormalCell(nn.Module):
         x_comb_iter_3 = x_comb_iter_3_left + x_comb_iter_3_right
         x_comb_iter_4_left = self.comb_iter_4_left(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_right
-        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1,
-            x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
+        x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class BranchSeparablesReduction(BranchSeparables):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, z_padding=1, bias=False):
-        BranchSeparables.__init__(self, in_channels, out_channels,
-            kernel_size, stride, padding, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, z_padding=1, bias=False):
+        BranchSeparables.__init__(self, in_channels, out_channels, kernel_size, stride, padding, bias)
         self.padding = nn.ZeroPad2d((z_padding, 0, z_padding, 0))
 
     def forward(self, x):
@@ -1040,35 +907,24 @@ class BranchSeparablesReduction(BranchSeparables):
 
 class ReductionCell0(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(ReductionCell0, self).__init__()
         self.conv_prev_1x1 = nn.Sequential()
         self.conv_prev_1x1.add_module('relu', nn.ReLU())
-        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(
-            out_channels_left, eps=0.001, momentum=0.1, affine=True))
+        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(out_channels_left, eps=0.001, momentum=0.1, affine=True))
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparablesReduction(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparablesReduction(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
         self.comb_iter_1_left = MaxPoolPad()
-        self.comb_iter_1_right = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
+        self.comb_iter_1_right = BranchSeparablesReduction(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
         self.comb_iter_2_left = AvgPoolPad()
-        self.comb_iter_2_right = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparablesReduction(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_2_right = BranchSeparablesReduction(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparablesReduction(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
         self.comb_iter_4_right = MaxPoolPad()
 
     def forward(self, x, x_prev):
@@ -1088,43 +944,30 @@ class ReductionCell0(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
 class ReductionCell1(nn.Module):
 
-    def __init__(self, in_channels_left, out_channels_left,
-        in_channels_right, out_channels_right):
+    def __init__(self, in_channels_left, out_channels_left, in_channels_right, out_channels_right):
         super(ReductionCell1, self).__init__()
         self.conv_prev_1x1 = nn.Sequential()
         self.conv_prev_1x1.add_module('relu', nn.ReLU())
-        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left,
-            out_channels_left, 1, stride=1, bias=False))
-        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(
-            out_channels_left, eps=0.001, momentum=0.1, affine=True))
+        self.conv_prev_1x1.add_module('conv', nn.Conv2d(in_channels_left, out_channels_left, 1, stride=1, bias=False))
+        self.conv_prev_1x1.add_module('bn', nn.BatchNorm2d(out_channels_left, eps=0.001, momentum=0.1, affine=True))
         self.conv_1x1 = nn.Sequential()
         self.conv_1x1.add_module('relu', nn.ReLU())
-        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right,
-            out_channels_right, 1, stride=1, bias=False))
-        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right,
-            eps=0.001, momentum=0.1, affine=True))
-        self.comb_iter_0_left = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_0_right = BranchSeparables(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
+        self.conv_1x1.add_module('conv', nn.Conv2d(in_channels_right, out_channels_right, 1, stride=1, bias=False))
+        self.conv_1x1.add_module('bn', nn.BatchNorm2d(out_channels_right, eps=0.001, momentum=0.1, affine=True))
+        self.comb_iter_0_left = BranchSeparables(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_0_right = BranchSeparables(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
         self.comb_iter_1_left = nn.MaxPool2d(3, stride=2, padding=1)
-        self.comb_iter_1_right = BranchSeparables(out_channels_right,
-            out_channels_right, 7, 2, 3, bias=False)
-        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1,
-            count_include_pad=False)
-        self.comb_iter_2_right = BranchSeparables(out_channels_right,
-            out_channels_right, 5, 2, 2, bias=False)
-        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False)
-        self.comb_iter_4_left = BranchSeparables(out_channels_right,
-            out_channels_right, 3, 1, 1, bias=False)
+        self.comb_iter_1_right = BranchSeparables(out_channels_right, out_channels_right, 7, 2, 3, bias=False)
+        self.comb_iter_2_left = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
+        self.comb_iter_2_right = BranchSeparables(out_channels_right, out_channels_right, 5, 2, 2, bias=False)
+        self.comb_iter_3_right = nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+        self.comb_iter_4_left = BranchSeparables(out_channels_right, out_channels_right, 3, 1, 1, bias=False)
         self.comb_iter_4_right = nn.MaxPool2d(3, stride=2, padding=1)
 
     def forward(self, x, x_prev):
@@ -1144,8 +987,7 @@ class ReductionCell1(nn.Module):
         x_comb_iter_4_left = self.comb_iter_4_left(x_comb_iter_0)
         x_comb_iter_4_right = self.comb_iter_4_right(x_right)
         x_comb_iter_4 = x_comb_iter_4_left + x_comb_iter_4_right
-        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3,
-            x_comb_iter_4], 1)
+        x_out = torch.cat([x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
 
 
@@ -1156,30 +998,20 @@ class NASNetASmall(nn.Module):
         self.feature_dim = feature_dim
         spatial_map = {(224): 7, (112): 3}
         self.conv0 = nn.Sequential()
-        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels
-            =96, kernel_size=3, padding=0, stride=2, bias=False))
-        self.conv0.add_module('bn', nn.BatchNorm2d(96, eps=0.001, momentum=
-            0.1, affine=True))
+        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels=96, kernel_size=3, padding=0, stride=2, bias=False))
+        self.conv0.add_module('bn', nn.BatchNorm2d(96, eps=0.001, momentum=0.1, affine=True))
         self.cell_stem_0 = CellStem0()
         self.cell_stem_1 = CellStem1()
-        self.cell_0 = FirstCell(in_channels_left=168, out_channels_left=84,
-            in_channels_right=336, out_channels_right=168)
-        self.cell_1 = NormalCell(in_channels_left=336, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.reduction_cell_0 = ReductionCell0(in_channels_left=1008,
-            out_channels_left=336, in_channels_right=1008,
-            out_channels_right=336)
-        self.cell_6 = FirstCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1344, out_channels_right=336)
-        self.cell_7 = NormalCell(in_channels_left=1344, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
+        self.cell_0 = FirstCell(in_channels_left=168, out_channels_left=84, in_channels_right=336, out_channels_right=168)
+        self.cell_1 = NormalCell(in_channels_left=336, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.reduction_cell_0 = ReductionCell0(in_channels_left=1008, out_channels_left=336, in_channels_right=1008, out_channels_right=336)
+        self.cell_6 = FirstCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1344, out_channels_right=336)
+        self.cell_7 = NormalCell(in_channels_left=1344, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
         self.relu = nn.ReLU()
         self.pool_last = MaxPoolPad()
-        self.layer1x1 = nn.Sequential(nn.Conv2d(2016, 256, 1, 1, 0, bias=
-            False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
+        self.layer1x1 = nn.Sequential(nn.Conv2d(2016, 256, 1, 1, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
         self.drop1 = nn.Dropout(0.5)
-        self.face_feature = nn.Linear(256 * spatial_map[spatial_size] *
-            spatial_map[spatial_size], self.feature_dim)
+        self.face_feature = nn.Linear(256 * spatial_map[spatial_size] * spatial_map[spatial_size], self.feature_dim)
         self.drop2 = nn.Dropout(0.5)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -1220,27 +1052,18 @@ class NASNetASmall2(nn.Module):
         super(NASNetASmall2, self).__init__()
         self.feature_dim = feature_dim
         self.conv0 = nn.Sequential()
-        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels
-            =96, kernel_size=3, padding=0, stride=2, bias=False))
-        self.conv0.add_module('bn', nn.BatchNorm2d(96, eps=0.001, momentum=
-            0.1, affine=True))
+        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels=96, kernel_size=3, padding=0, stride=2, bias=False))
+        self.conv0.add_module('bn', nn.BatchNorm2d(96, eps=0.001, momentum=0.1, affine=True))
         self.cell_stem_0 = CellStem0()
         self.cell_stem_1 = CellStem1()
-        self.cell_0 = FirstCell(in_channels_left=168, out_channels_left=84,
-            in_channels_right=336, out_channels_right=168)
-        self.cell_1 = NormalCell(in_channels_left=336, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.reduction_cell_0 = ReductionCell0(in_channels_left=1008,
-            out_channels_left=336, in_channels_right=1008,
-            out_channels_right=336)
-        self.cell_6 = FirstCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1344, out_channels_right=336)
-        self.cell_7 = NormalCell(in_channels_left=1344, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
+        self.cell_0 = FirstCell(in_channels_left=168, out_channels_left=84, in_channels_right=336, out_channels_right=168)
+        self.cell_1 = NormalCell(in_channels_left=336, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.reduction_cell_0 = ReductionCell0(in_channels_left=1008, out_channels_left=336, in_channels_right=1008, out_channels_right=336)
+        self.cell_6 = FirstCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1344, out_channels_right=336)
+        self.cell_7 = NormalCell(in_channels_left=1344, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
         self.relu = nn.ReLU()
         self.pool_last = MaxPoolPad()
-        self.layer1x1 = nn.Sequential(nn.Conv2d(2016, 256, 1, 1, 0, bias=
-            False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
+        self.layer1x1 = nn.Sequential(nn.Conv2d(2016, 256, 1, 1, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
         self.drop1 = nn.Dropout(0.5)
         self.face_feature = nn.Linear(12544, self.feature_dim)
         self.drop2 = nn.Dropout(0.5)
@@ -1283,57 +1106,32 @@ class NASNetALarge(nn.Module):
         super(NASNetALarge, self).__init__()
         self.feature_dim = feature_dim
         self.conv0 = nn.Sequential()
-        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels
-            =96, kernel_size=3, padding=0, stride=2, bias=False))
-        self.conv0.add_module('bn', nn.BatchNorm2d(96, eps=0.001, momentum=
-            0.1, affine=True))
+        self.conv0.add_module('conv', nn.Conv2d(in_channels=3, out_channels=96, kernel_size=3, padding=0, stride=2, bias=False))
+        self.conv0.add_module('bn', nn.BatchNorm2d(96, eps=0.001, momentum=0.1, affine=True))
         self.cell_stem_0 = CellStem0()
         self.cell_stem_1 = CellStem1()
-        self.cell_0 = FirstCell(in_channels_left=168, out_channels_left=84,
-            in_channels_right=336, out_channels_right=168)
-        self.cell_1 = NormalCell(in_channels_left=336, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.cell_2 = NormalCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.cell_3 = NormalCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.cell_4 = NormalCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.cell_5 = NormalCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1008, out_channels_right=168)
-        self.reduction_cell_0 = ReductionCell0(in_channels_left=1008,
-            out_channels_left=336, in_channels_right=1008,
-            out_channels_right=336)
-        self.cell_6 = FirstCell(in_channels_left=1008, out_channels_left=
-            168, in_channels_right=1344, out_channels_right=336)
-        self.cell_7 = NormalCell(in_channels_left=1344, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
-        self.cell_8 = NormalCell(in_channels_left=2016, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
-        self.cell_9 = NormalCell(in_channels_left=2016, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
-        self.cell_10 = NormalCell(in_channels_left=2016, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
-        self.cell_11 = NormalCell(in_channels_left=2016, out_channels_left=
-            336, in_channels_right=2016, out_channels_right=336)
-        self.reduction_cell_1 = ReductionCell1(in_channels_left=2016,
-            out_channels_left=672, in_channels_right=2016,
-            out_channels_right=672)
-        self.cell_12 = FirstCell(in_channels_left=2016, out_channels_left=
-            336, in_channels_right=2688, out_channels_right=672)
-        self.cell_13 = NormalCell(in_channels_left=2688, out_channels_left=
-            672, in_channels_right=4032, out_channels_right=672)
-        self.cell_14 = NormalCell(in_channels_left=4032, out_channels_left=
-            672, in_channels_right=4032, out_channels_right=672)
-        self.cell_15 = NormalCell(in_channels_left=4032, out_channels_left=
-            672, in_channels_right=4032, out_channels_right=672)
-        self.cell_16 = NormalCell(in_channels_left=4032, out_channels_left=
-            672, in_channels_right=4032, out_channels_right=672)
-        self.cell_17 = NormalCell(in_channels_left=4032, out_channels_left=
-            672, in_channels_right=4032, out_channels_right=672)
+        self.cell_0 = FirstCell(in_channels_left=168, out_channels_left=84, in_channels_right=336, out_channels_right=168)
+        self.cell_1 = NormalCell(in_channels_left=336, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.cell_2 = NormalCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.cell_3 = NormalCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.cell_4 = NormalCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.cell_5 = NormalCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1008, out_channels_right=168)
+        self.reduction_cell_0 = ReductionCell0(in_channels_left=1008, out_channels_left=336, in_channels_right=1008, out_channels_right=336)
+        self.cell_6 = FirstCell(in_channels_left=1008, out_channels_left=168, in_channels_right=1344, out_channels_right=336)
+        self.cell_7 = NormalCell(in_channels_left=1344, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
+        self.cell_8 = NormalCell(in_channels_left=2016, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
+        self.cell_9 = NormalCell(in_channels_left=2016, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
+        self.cell_10 = NormalCell(in_channels_left=2016, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
+        self.cell_11 = NormalCell(in_channels_left=2016, out_channels_left=336, in_channels_right=2016, out_channels_right=336)
+        self.reduction_cell_1 = ReductionCell1(in_channels_left=2016, out_channels_left=672, in_channels_right=2016, out_channels_right=672)
+        self.cell_12 = FirstCell(in_channels_left=2016, out_channels_left=336, in_channels_right=2688, out_channels_right=672)
+        self.cell_13 = NormalCell(in_channels_left=2688, out_channels_left=672, in_channels_right=4032, out_channels_right=672)
+        self.cell_14 = NormalCell(in_channels_left=4032, out_channels_left=672, in_channels_right=4032, out_channels_right=672)
+        self.cell_15 = NormalCell(in_channels_left=4032, out_channels_left=672, in_channels_right=4032, out_channels_right=672)
+        self.cell_16 = NormalCell(in_channels_left=4032, out_channels_left=672, in_channels_right=4032, out_channels_right=672)
+        self.cell_17 = NormalCell(in_channels_left=4032, out_channels_left=672, in_channels_right=4032, out_channels_right=672)
         self.relu = nn.ReLU()
-        self.layer1x1 = nn.Sequential(nn.Conv2d(4032, 256, 1, 1, 0, bias=
-            False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
+        self.layer1x1 = nn.Sequential(nn.Conv2d(4032, 256, 1, 1, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
         self.drop1 = nn.Dropout(0.5)
         self.face_feature = nn.Linear(12544, self.feature_dim)
         self.drop2 = nn.Dropout(0.5)
@@ -1386,8 +1184,7 @@ class NASNetALarge(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -1424,8 +1221,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1457,8 +1253,7 @@ class ResNet(nn.Module):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.feature_dim = feature_dim
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1466,9 +1261,7 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.layer1x1 = nn.Sequential(nn.Conv2d(512 * block.expansion, 256,
-            kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d
-            (256), nn.ReLU(inplace=False))
+        self.layer1x1 = nn.Sequential(nn.Conv2d(512 * block.expansion, 256, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
         self.drop1 = nn.Dropout(0.5)
         self.feature = nn.Linear(fc_map[spatial_size], feature_dim)
         self.drop2 = nn.Dropout(0.5)
@@ -1488,9 +1281,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1522,10 +1313,7 @@ class VGG(nn.Module):
         self.features = features
         self.feature_dim = feature_dim
         spatial_map = {(224): 7, (112): 3}
-        self.face_features = nn.Sequential(nn.Linear(512 * spatial_map[
-            spatial_size] * spatial_map[spatial_size], 2048), nn.ReLU(
-            inplace=False), nn.Dropout(0.5), nn.Linear(2048, feature_dim),
-            nn.Dropout(0.5))
+        self.face_features = nn.Sequential(nn.Linear(512 * spatial_map[spatial_size] * spatial_map[spatial_size], 2048), nn.ReLU(inplace=False), nn.Dropout(0.5), nn.Linear(2048, feature_dim), nn.Dropout(0.5))
         self._initialize_weights()
 
     def forward(self, x):
@@ -1556,8 +1344,7 @@ def where(cond, x_1, x_2):
 
 class ArcFullyConnected(Module):
 
-    def __init__(self, in_features, out_features, s, m, is_pw=True, is_hard
-        =False):
+    def __init__(self, in_features, out_features, s, m, is_pw=True, is_hard=False):
         super(ArcFullyConnected, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -1575,8 +1362,7 @@ class ArcFullyConnected(Module):
         self.weight.data.uniform_(-stdv, stdv)
 
     def __repr__(self):
-        return 'in_features={}, out_features={}, s={}, m={}'.format(self.
-            in_features, self.out_features, self.s, self.m)
+        return 'in_features={}, out_features={}, s={}, m={}'.format(self.in_features, self.out_features, self.s, self.m)
 
     def forward(self, embed, label):
         n_weight = F.normalize(self.weight, p=2, dim=1)
@@ -1585,16 +1371,14 @@ class ArcFullyConnected(Module):
         score = out.gather(1, label.view(-1, 1))
         cos_y = score / self.s
         sin_y = torch.sqrt(1 - cos_y ** 2)
-        arc_score = self.s * (cos_y * math.cos(self.m) - sin_y * math.sin(
-            self.m))
+        arc_score = self.s * (cos_y * math.cos(self.m) - sin_y * math.sin(self.m))
         if self.is_pw:
             if not self.is_hard:
                 arc_score = where(score > 0, arc_score, score)
             else:
                 mm = math.sin(math.pi - self.m) * self.m
                 th = math.cos(math.pi - self.m)
-                arc_score = where(score - th > 0, arc_score, score - self.s *
-                    mm)
+                arc_score = where(score - th > 0, arc_score, score - self.s * mm)
         one_hot = Variable(torch.FloatTensor(out.shape).fill_(0))
         out += (arc_score - score) * one_hot.scatter_(1, label.view(-1, 1), 1)
         return out
@@ -1602,26 +1386,20 @@ class ArcFullyConnected(Module):
 
 class MultiTaskWithLoss(nn.Module):
 
-    def __init__(self, backbone, num_classes, feature_dim, spatial_size,
-        arc_fc=False, feat_bn=False, s=64, m=0.5, is_pw=True, is_hard=False):
+    def __init__(self, backbone, num_classes, feature_dim, spatial_size, arc_fc=False, feat_bn=False, s=64, m=0.5, is_pw=True, is_hard=False):
         super(MultiTaskWithLoss, self).__init__()
         self.feat_bn = feat_bn
-        self.basemodel = backbones.__dict__[backbone](feature_dim=
-            feature_dim, spatial_size=spatial_size)
+        self.basemodel = backbones.__dict__[backbone](feature_dim=feature_dim, spatial_size=spatial_size)
         if feat_bn:
-            self.bn1d = nn.BatchNorm1d(feature_dim, affine=False, eps=2e-05,
-                momentum=0.9)
+            self.bn1d = nn.BatchNorm1d(feature_dim, affine=False, eps=2e-05, momentum=0.9)
         self.criterion = nn.CrossEntropyLoss()
         if num_classes is not None:
             self.num_tasks = len(num_classes)
             self.arc_fc = arc_fc
             if not arc_fc:
-                self.fcs = nn.ModuleList([nn.Linear(feature_dim,
-                    num_classes[k]) for k in range(self.num_tasks)])
+                self.fcs = nn.ModuleList([nn.Linear(feature_dim, num_classes[k]) for k in range(self.num_tasks)])
             else:
-                self.fcs = nn.ModuleList([ArcFullyConnected(feature_dim,
-                    num_classes[k], s, m, is_pw, is_hard) for k in range(
-                    self.num_tasks)])
+                self.fcs = nn.ModuleList([ArcFullyConnected(feature_dim, num_classes[k], s, m, is_pw, is_hard) for k in range(self.num_tasks)])
 
     def forward(self, input, target=None, slice_idx=None, extract_mode=False):
         feature = self.basemodel(input)
@@ -1632,94 +1410,11 @@ class MultiTaskWithLoss(nn.Module):
         else:
             assert feature.size(0) == target.size(0)
             assert len(slice_idx) == self.num_tasks + 1
-            assert slice_idx[-1] == feature.size(0), '{} vs {}'.format(
-                slice_idx[-1], feature.size(0))
+            assert slice_idx[-1] == feature.size(0), '{} vs {}'.format(slice_idx[-1], feature.size(0))
             if not self.arc_fc:
-                x = [self.fcs[k](feature[slice_idx[k]:slice_idx[k + 1], (
-                    ...)]) for k in range(self.num_tasks)]
+                x = [self.fcs[k](feature[slice_idx[k]:slice_idx[k + 1], (...)]) for k in range(self.num_tasks)]
             else:
-                x = [self.fcs[k](feature[slice_idx[k]:slice_idx[k + 1], (
-                    ...)], target[slice_idx[k]:slice_idx[k + 1]]) for k in
-                    range(self.num_tasks)]
-            target_slice = [target[slice_idx[k]:slice_idx[k + 1]] for k in
-                range(self.num_tasks)]
+                x = [self.fcs[k](feature[slice_idx[k]:slice_idx[k + 1], (...)], target[slice_idx[k]:slice_idx[k + 1]]) for k in range(self.num_tasks)]
+            target_slice = [target[slice_idx[k]:slice_idx[k + 1]] for k in range(self.num_tasks)]
             return [self.criterion(xx, tg) for xx, tg in zip(x, target_slice)]
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_XiaohangZhan_face_recognition_framework(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ArcFullyConnected(*[], **{'in_features': 4, 'out_features': 4, 's': 4, 'm': 0}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
-
-    def test_001(self):
-        self._check(AvgPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_002(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_003(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_004(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
-
-    def test_005(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    def test_006(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 2080, 64, 64])], {})
-
-    def test_007(self):
-        self._check(BranchSeparables(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_008(self):
-        self._check(BranchSeparablesReduction(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_009(self):
-        self._check(BranchSeparablesStem(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_010(self):
-        self._check(CellStem0(*[], **{}), [torch.rand([4, 96, 64, 64])], {})
-
-    def test_011(self):
-        self._check(CellStem1(*[], **{}), [torch.rand([4, 96, 4, 4]), torch.rand([4, 168, 64, 64])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(InceptionResNetV2(*[], **{'avgpool': 4, 'feature_dim': 4}), [torch.rand([4, 3, 256, 256])], {})
-
-    def test_013(self):
-        self._check(MaxPoolPad(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_014(self):
-        self._check(Mixed_5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
-
-    def test_015(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 320, 64, 64])], {})
-
-    def test_016(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 1088, 64, 64])], {})
-
-    def test_017(self):
-        self._check(NormalCell(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_018(self):
-        self._check(ReductionCell0(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_019(self):
-        self._check(ReductionCell1(*[], **{'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
-
-    def test_020(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_021(self):
-        self._check(VGG(*[], **{'features': _mock_layer(), 'feature_dim': 4}), [torch.rand([25088, 25088])], {})
-
-    def test_022(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4}), [torch.rand([4, 4, 4, 4])], {})
 

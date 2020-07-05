@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -159,10 +160,8 @@ class UnrollEnergy(nn.Module):
     def forward(self, x):
         assert x.ndimension() == 4
         nbatch = x.size(0)
-        y = torch.zeros(nbatch, self.n_cls, device=x.device, requires_grad=True
-            )
-        inner_opt = higher.get_diff_optim(torch.optim.SGD([y], lr=0.1), [y],
-            device=x.device)
+        y = torch.zeros(nbatch, self.n_cls, device=x.device, requires_grad=True)
+        inner_opt = higher.get_diff_optim(torch.optim.SGD([y], lr=0.1), [y], device=x.device)
         for _ in range(self.n_inner_iter):
             E = self.Enet(x, y)
             y, = inner_opt.step(E.sum(), params=[y])
@@ -184,12 +183,9 @@ class _MonkeyPatchBase(_abc.ABC, _torch.nn.Module):
         self._track_higher_grads: bool = True
 
     def forward(self):
-        raise NotImplementedError(
-            "The monkey-patching logic has failed to override self.forward on the new module, or you tried calling forward on a patched version of a module which doesn't have forward (e.g. ModuleList)."
-            )
+        raise NotImplementedError("The monkey-patching logic has failed to override self.forward on the new module, or you tried calling forward on a patched version of a module which doesn't have forward (e.g. ModuleList).")
 
-    def _expand_params(self, params: _typing.List[_torch.Tensor]
-        ) ->_typing.List[_torch.Tensor]:
+    def _expand_params(self, params: _typing.List[_torch.Tensor]) ->_typing.List[_torch.Tensor]:
         expanded = []
         for index in self._param_mapping:
             expanded.append(params[index])
@@ -198,9 +194,7 @@ class _MonkeyPatchBase(_abc.ABC, _torch.nn.Module):
     @property
     def init_fast_params(self):
         if not self.track_higher_grads:
-            raise Exception(
-                'Cannot get initial parameters when not tracking higher gradients.'
-                )
+            raise Exception('Cannot get initial parameters when not tracking higher gradients.')
         return self._fast_params[0]
 
     @property
@@ -224,8 +218,7 @@ class _MonkeyPatchBase(_abc.ABC, _torch.nn.Module):
     @track_higher_grads.setter
     def track_higher_grads(self, value):
         if not isinstance(value, bool):
-            raise ValueError('Expected boolean argument. Got: {}.'.format(
-                type(value)))
+            raise ValueError('Expected boolean argument. Got: {}.'.format(type(value)))
         self._track_higher_grads = value
 
 
@@ -236,12 +229,10 @@ class _ReferenceNet(nn.Module):
         self.features = features
         self.add_module('fc', fc)
 
-    def batch_norm(self, inputs, weight=None, bias=None, running_mean=None,
-        running_var=None, training=True, eps=1e-05, momentum=0.1):
+    def batch_norm(self, inputs, weight=None, bias=None, running_mean=None, running_var=None, training=True, eps=1e-05, momentum=0.1):
         running_mean = torch.zeros(np.prod(np.array(inputs.data.size()[1])))
         running_var = torch.ones(np.prod(np.array(inputs.data.size()[1])))
-        return F.batch_norm(inputs, running_mean, running_var, weight, bias,
-            training, momentum, eps)
+        return F.batch_norm(inputs, running_mean, running_var, weight, bias, training, momentum, eps)
 
     def maxpool(self, input, kernel_size, stride=None):
         return F.max_pool2d(input, kernel_size, stride)
@@ -251,22 +242,16 @@ class _ReferenceNet(nn.Module):
             x = self.features(x).view(x.size(0), 64)
             x = self.fc(x)
         else:
-            x = F.conv2d(x, params['features.conv1.weight'], params[
-                'features.conv1.bias'])
-            x = self.batch_norm(x, weight=params['features.bn1.weight'],
-                bias=params['features.bn1.bias'], momentum=1)
+            x = F.conv2d(x, params['features.conv1.weight'], params['features.conv1.bias'])
+            x = self.batch_norm(x, weight=params['features.bn1.weight'], bias=params['features.bn1.bias'], momentum=1)
             x = F.relu(x)
             x = self.maxpool(x, kernel_size=2, stride=2)
-            x = F.conv2d(x, params['features.conv2.weight'], params[
-                'features.conv2.bias'])
-            x = self.batch_norm(x, weight=params['features.bn2.weight'],
-                bias=params['features.bn2.bias'], momentum=1)
+            x = F.conv2d(x, params['features.conv2.weight'], params['features.conv2.bias'])
+            x = self.batch_norm(x, weight=params['features.bn2.weight'], bias=params['features.bn2.bias'], momentum=1)
             x = F.relu(x)
             x = self.maxpool(x, kernel_size=2, stride=2)
-            x = F.conv2d(x, params['features.conv3.weight'], params[
-                'features.conv3.bias'])
-            x = self.batch_norm(x, weight=params['features.bn3.weight'],
-                bias=params['features.bn3.bias'], momentum=1)
+            x = F.conv2d(x, params['features.conv3.weight'], params['features.conv3.bias'])
+            x = self.batch_norm(x, weight=params['features.bn3.weight'], bias=params['features.bn3.bias'], momentum=1)
             x = F.relu(x)
             x = self.maxpool(x, kernel_size=2, stride=2)
             x = x.view(x.size(0), 64)
@@ -274,8 +259,7 @@ class _ReferenceNet(nn.Module):
         return x
 
     def get_fast_weights(self):
-        fast_weights = OrderedDict((name, param) for name, param in self.
-            named_parameters())
+        fast_weights = OrderedDict((name, param) for name, param in self.named_parameters())
         return fast_weights
 
 
@@ -360,24 +344,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_Enc,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_NestedEnc,
+     lambda: ([], {'f': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_PartiallyUsed,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ReferenceNet,
+     lambda: ([], {'features': _mock_layer(), 'fc': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_TargetNet,
+     lambda: ([], {'features': _mock_layer(), 'fc': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_facebookresearch_higher(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(_Enc(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(_NestedEnc(*[], **{'f': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(_PartiallyUsed(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(_ReferenceNet(*[], **{'features': _mock_layer(), 'fc': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(_TargetNet(*[], **{'features': _mock_layer(), 'fc': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

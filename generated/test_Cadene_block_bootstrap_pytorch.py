@@ -58,8 +58,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -111,8 +112,7 @@ class VQACrossEntropyLoss(nn.Module):
 
     def forward(self, net_out, batch):
         out = {}
-        out['loss'] = self.loss(net_out['logits'], batch['class_id'].squeeze(1)
-            )
+        out['loss'] = self.loss(net_out['logits'], batch['class_id'].squeeze(1))
         return out
 
 
@@ -132,8 +132,7 @@ class VRDBCELoss(nn.Module):
 
 class VQAAccuracies(nn.Module):
 
-    def __init__(self, engine=None, mode='eval', open_ended=True, tdiuc=
-        True, dir_exp='', dir_vqa=''):
+    def __init__(self, engine=None, mode='eval', open_ended=True, tdiuc=True, dir_exp='', dir_vqa=''):
         super(VQAAccuracies, self).__init__()
         self.engine = engine
         self.mode = mode
@@ -152,29 +151,20 @@ class VQAAccuracies(nn.Module):
         else:
             self.accuracy = None
         if self.open_ended:
-            engine.register_hook('{}_on_start_epoch'.format(mode), self.
-                reset_oe)
-            engine.register_hook('{}_on_end_epoch'.format(mode), self.
-                compute_oe_accuracy)
+            engine.register_hook('{}_on_start_epoch'.format(mode), self.reset_oe)
+            engine.register_hook('{}_on_end_epoch'.format(mode), self.compute_oe_accuracy)
         if self.tdiuc:
-            engine.register_hook('{}_on_start_epoch'.format(mode), self.
-                reset_tdiuc)
-            engine.register_hook('{}_on_end_epoch'.format(mode), self.
-                compute_tdiuc_metrics)
+            engine.register_hook('{}_on_start_epoch'.format(mode), self.reset_tdiuc)
+            engine.register_hook('{}_on_end_epoch'.format(mode), self.compute_tdiuc_metrics)
 
     def reset_oe(self):
         self.results = []
-        self.dir_rslt = os.path.join(self.dir_exp, 'results', self.dataset.
-            split, 'epoch,{}'.format(self.engine.epoch))
+        self.dir_rslt = os.path.join(self.dir_exp, 'results', self.dataset.split, 'epoch,{}'.format(self.engine.epoch))
         os.system('mkdir -p ' + self.dir_rslt)
-        self.path_rslt = os.path.join(self.dir_rslt,
-            'OpenEnded_mscoco_{}_model_results.json'.format(self.dataset.
-            get_subtype()))
+        self.path_rslt = os.path.join(self.dir_rslt, 'OpenEnded_mscoco_{}_model_results.json'.format(self.dataset.get_subtype()))
         if self.dataset.split == 'test':
             self.results_testdev = []
-            self.path_rslt_testdev = os.path.join(self.dir_rslt,
-                'OpenEnded_mscoco_{}_model_results.json'.format(self.
-                dataset.get_subtype(testdev=True)))
+            self.path_rslt_testdev = os.path.join(self.dir_rslt, 'OpenEnded_mscoco_{}_model_results.json'.format(self.dataset.get_subtype(testdev=True)))
             self.path_logits = os.path.join(self.dir_rslt, 'logits.pth')
             os.system('mkdir -p ' + os.path.dirname(self.path_logits))
             self.logits = {}
@@ -201,24 +191,20 @@ class VQAAccuracies(nn.Module):
         if self.accuracy is not None:
             out = self.accuracy(cri_out, net_out, batch)
         if self.open_ended and self.dataset.split == 'test':
-            logits = torch.nn.functional.softmax(net_out['logits'], dim=1
-                ).data.cpu()
+            logits = torch.nn.functional.softmax(net_out['logits'], dim=1).data.cpu()
         net_out = self.engine.model.network.process_answers(net_out)
         batch_size = len(batch['index'])
         for i in range(batch_size):
             if self.open_ended:
-                pred_item = {'question_id': batch['question_id'][i],
-                    'answer': net_out['answers'][i]}
+                pred_item = {'question_id': batch['question_id'][i], 'answer': net_out['answers'][i]}
                 self.results.append(pred_item)
                 if self.dataset.split == 'test':
                     if 'is_testdev' in batch and batch['is_testdev'][i]:
                         self.results_testdev.append(pred_item)
                     if self.logits['tensor'] is None:
-                        self.logits['tensor'] = torch.FloatTensor(len(self.
-                            dataset), logits.size(1))
+                        self.logits['tensor'] = torch.FloatTensor(len(self.dataset), logits.size(1))
                     self.logits['tensor'][self.idx] = logits[i]
-                    self.logits['qid_to_idx'][batch['question_id'][i]
-                        ] = self.idx
+                    self.logits['qid_to_idx'][batch['question_id'][i]] = self.idx
                     self.idx += 1
             if self.tdiuc:
                 qid = batch['question_id'][i]
@@ -250,69 +236,53 @@ class VQAAccuracies(nn.Module):
             with open(self.path_rslt_testdev, 'w') as f:
                 json.dump(self.results_testdev, f)
         if 'test' not in self.dataset.split:
-            call_to_prog = (
-                'python -m block.models.metrics.compute_oe_accuracy ' +
-                '--dir_vqa {} --dir_exp {} --dir_rslt {} --epoch {} --split {} &'
-                .format(self.dir_vqa, self.dir_exp, self.dir_rslt, self.
-                engine.epoch, self.dataset.split))
+            call_to_prog = 'python -m block.models.metrics.compute_oe_accuracy ' + '--dir_vqa {} --dir_exp {} --dir_rslt {} --epoch {} --split {} &'.format(self.dir_vqa, self.dir_exp, self.dir_rslt, self.engine.epoch, self.dataset.split)
             Logger()('`' + call_to_prog + '`')
             os.system(call_to_prog)
 
     def compute_tdiuc_metrics(self):
-        Logger()('{} of validation answers were not found in ans_to_aid'.
-            format(self.gt_aid_not_found))
-        accuracy = float(100 * np.mean(np.array(self.pred_aids) == np.array
-            (self.gt_aids)))
+        Logger()('{} of validation answers were not found in ans_to_aid'.format(self.gt_aid_not_found))
+        accuracy = float(100 * np.mean(np.array(self.pred_aids) == np.array(self.gt_aids)))
         Logger()('Overall Traditional Accuracy is {:.2f}'.format(accuracy))
-        Logger().log_value('{}_epoch.tdiuc.accuracy'.format(self.mode),
-            accuracy, should_print=False)
+        Logger().log_value('{}_epoch.tdiuc.accuracy'.format(self.mode), accuracy, should_print=False)
         types = list(set(self.gt_types))
         sum_acc = []
         eps = 1e-10
         Logger()('---------------------------------------')
         Logger()('Not using per-answer normalization...')
         for tp in types:
-            acc = 100 * (len(self.res_by_type[tp + '_t']) / len(self.
-                res_by_type[tp + '_t'] + self.res_by_type[tp + '_f']))
+            acc = 100 * (len(self.res_by_type[tp + '_t']) / len(self.res_by_type[tp + '_t'] + self.res_by_type[tp + '_f']))
             sum_acc.append(acc + eps)
             Logger()("Accuracy for class '{}' is {:.2f}".format(tp, acc))
-            Logger().log_value('{}_epoch.tdiuc.perQuestionType.{}'.format(
-                self.mode, tp), acc, should_print=False)
+            Logger().log_value('{}_epoch.tdiuc.perQuestionType.{}'.format(self.mode, tp), acc, should_print=False)
         acc_mpt_a = float(np.mean(np.array(sum_acc)))
         Logger()('Arithmetic MPT Accuracy is {:.2f}'.format(acc_mpt_a))
-        Logger().log_value('{}_epoch.tdiuc.acc_mpt_a'.format(self.mode),
-            acc_mpt_a, should_print=False)
+        Logger().log_value('{}_epoch.tdiuc.acc_mpt_a'.format(self.mode), acc_mpt_a, should_print=False)
         acc_mpt_h = float(stats.hmean(sum_acc))
         Logger()('Harmonic MPT Accuracy is {:.2f}'.format(acc_mpt_h))
-        Logger().log_value('{}_epoch.tdiuc.acc_mpt_h'.format(self.mode),
-            acc_mpt_h, should_print=False)
+        Logger().log_value('{}_epoch.tdiuc.acc_mpt_h'.format(self.mode), acc_mpt_h, should_print=False)
         Logger()('---------------------------------------')
         Logger()('Using per-answer normalization...')
         for tp in types:
             per_ans_stat = defaultdict(int)
-            for g, p in zip(self.res_by_type[tp + '_gt'], self.res_by_type[
-                tp + '_pred']):
+            for g, p in zip(self.res_by_type[tp + '_gt'], self.res_by_type[tp + '_pred']):
                 per_ans_stat[str(g) + '_gt'] += 1
                 if g == p:
                     per_ans_stat[str(g)] += 1
             unq_acc = 0
             for unq_ans in set(self.res_by_type[tp + '_gt']):
-                acc_curr_ans = per_ans_stat[str(unq_ans)] / per_ans_stat[
-                    str(unq_ans) + '_gt']
+                acc_curr_ans = per_ans_stat[str(unq_ans)] / per_ans_stat[str(unq_ans) + '_gt']
                 unq_acc += acc_curr_ans
             acc = 100 * unq_acc / len(set(self.res_by_type[tp + '_gt']))
             sum_acc.append(acc + eps)
             Logger()("Accuracy for class '{}' is {:.2f}".format(tp, acc))
-            Logger().log_value('{}_epoch.tdiuc.perQuestionType_norm.{}'.
-                format(self.mode, tp), acc, should_print=False)
+            Logger().log_value('{}_epoch.tdiuc.perQuestionType_norm.{}'.format(self.mode, tp), acc, should_print=False)
         acc_mpt_a = float(np.mean(np.array(sum_acc)))
         Logger()('Arithmetic MPT Accuracy is {:.2f}'.format(acc_mpt_a))
-        Logger().log_value('{}_epoch.tdiuc.acc_mpt_a_norm'.format(self.mode
-            ), acc_mpt_a, should_print=False)
+        Logger().log_value('{}_epoch.tdiuc.acc_mpt_a_norm'.format(self.mode), acc_mpt_a, should_print=False)
         acc_mpt_h = float(stats.hmean(sum_acc))
         Logger()('Harmonic MPT Accuracy is {:.2f}'.format(acc_mpt_h))
-        Logger().log_value('{}_epoch.tdiuc.acc_mpt_h_norm'.format(self.mode
-            ), acc_mpt_h, should_print=False)
+        Logger().log_value('{}_epoch.tdiuc.acc_mpt_h_norm'.format(self.mode), acc_mpt_h, should_print=False)
 
 
 class VQAAccuracy(nn.Module):
@@ -339,8 +309,7 @@ class VRDPredicate(nn.Module):
         self.k = nb_classes
         self.reset()
         if engine:
-            engine.register_hook('%s_on_end_epoch' % split, self.
-                calculate_metrics)
+            engine.register_hook('%s_on_end_epoch' % split, self.calculate_metrics)
 
     def reset(self):
         self.tps = {(50): [], (100): []}
@@ -355,32 +324,24 @@ class VRDPredicate(nn.Module):
         det_labels, det_boxes = [], []
         gt_labels, gt_boxes = [], []
         rel_scores = torch.sigmoid(net_out['rel_scores'])
-        acc_out = accuracy(rel_scores[batch['target_cls_id'] > 0], batch[
-            'target_cls_id'][batch['target_cls_id'] > 0], topk=[1, 5])
+        acc_out = accuracy(rel_scores[batch['target_cls_id'] > 0], batch['target_cls_id'][batch['target_cls_id'] > 0], topk=[1, 5])
         out['accuracy_top1'] = acc_out[0].item()
         out['accuracy_top5'] = acc_out[1].item()
         for batch_id in range(len(batch['rels'])):
-            _index = (batch['batch_id'] == batch_id) * (batch[
-                'target_cls_id'] > 0)
+            _index = (batch['batch_id'] == batch_id) * (batch['target_cls_id'] > 0)
             n_index = int(_index.int().sum().cpu().data)
-            oid_to_box = {obj['object_id']: [obj['x'], obj['y'], obj['w'],
-                obj['h']] for obj in batch['objects'][batch_id]}
+            oid_to_box = {obj['object_id']: [obj['x'], obj['y'], obj['w'], obj['h']] for obj in batch['objects'][batch_id]}
             rel_pred = rel_scores[_index]
             subj_pred_boxes = batch['subject_boxes_raw'][_index]
             obj_pred_boxes = batch['object_boxes_raw'][_index]
-            subj_gt_boxes = np.array([oid_to_box[rel['subject_id']] for rel in
-                batch['rels'][batch_id]])
-            obj_gt_boxes = np.array([oid_to_box[rel['object_id']] for rel in
-                batch['rels'][batch_id]])
+            subj_gt_boxes = np.array([oid_to_box[rel['subject_id']] for rel in batch['rels'][batch_id]])
+            obj_gt_boxes = np.array([oid_to_box[rel['object_id']] for rel in batch['rels'][batch_id]])
             subj_gt_boxes[:, (2)] += subj_gt_boxes[:, (0)]
             obj_gt_boxes[:, (2)] += obj_gt_boxes[:, (0)]
             subj_gt_boxes[:, (3)] += subj_gt_boxes[:, (1)]
             obj_gt_boxes[:, (3)] += obj_gt_boxes[:, (1)]
-            _gt_boxes = np.concatenate([subj_gt_boxes[:, (None), :],
-                obj_gt_boxes[:, (None), :]], 1)
-            _gt_labels = torch.cat([batch['subject_cls_id'][_index][:, (
-                None)], batch['target_cls_id'][_index][:, (None)], batch[
-                'object_cls_id'][_index][:, (None)]], 1).cpu().data.numpy()
+            _gt_boxes = np.concatenate([subj_gt_boxes[:, (None), :], obj_gt_boxes[:, (None), :]], 1)
+            _gt_labels = torch.cat([batch['subject_cls_id'][_index][:, (None)], batch['target_cls_id'][_index][:, (None)], batch['object_cls_id'][_index][:, (None)]], 1).cpu().data.numpy()
             top_score, top_pred = rel_pred.topk(self.k)
             top_score = top_score.cpu().data.numpy()
             top_pred = top_pred.cpu().data.numpy()
@@ -390,19 +351,14 @@ class VRDPredicate(nn.Module):
                 o = _gt_labels[i, 2]
                 box_s = _gt_boxes[i, 0]
                 box_o = _gt_boxes[i, 1]
-                _det_labels.append(np.concatenate([np.ones((self.k, 1)),
-                    top_score[i][:, (None)], np.ones((self.k, 1)), s * np.
-                    ones((self.k, 1)), top_pred[i][:, (None)], [o] * np.
-                    ones((self.k, 1))], 1))
-                _det_boxes.append(np.tile(_gt_boxes[i][(None), :, :], (self
-                    .k, 1, 1)))
+                _det_labels.append(np.concatenate([np.ones((self.k, 1)), top_score[i][:, (None)], np.ones((self.k, 1)), s * np.ones((self.k, 1)), top_pred[i][:, (None)], [o] * np.ones((self.k, 1))], 1))
+                _det_boxes.append(np.tile(_gt_boxes[i][(None), :, :], (self.k, 1, 1)))
             det_labels.append(np.vstack(_det_labels))
             det_boxes.append(np.vstack(_det_boxes))
             gt_labels.append(_gt_labels)
             gt_boxes.append(_gt_boxes)
         for R in [50, 100]:
-            _tp, _fp, _score, _num_gts = vrd_utils.eval_batch([det_labels,
-                det_boxes], [gt_labels, gt_boxes], num_dets=R)
+            _tp, _fp, _score, _num_gts = vrd_utils.eval_batch([det_labels, det_boxes], [gt_labels, gt_boxes], num_dets=R)
             self.total_num_gts[R] += _num_gts
             self.tps[R] += _tp
             self.fps[R] += _fp
@@ -411,10 +367,8 @@ class VRDPredicate(nn.Module):
 
     def calculate_metrics(self):
         for R in [50, 100]:
-            top_recall = vrd_utils.calculate_recall(R, self.tps, self.fps,
-                self.scores, self.total_num_gts)
-            Logger().log_value(f'{self.split}_epoch.predicate.R_{R}',
-                top_recall, should_print=True)
+            top_recall = vrd_utils.calculate_recall(R, self.tps, self.fps, self.scores, self.total_num_gts)
+            Logger().log_value(f'{self.split}_epoch.predicate.R_{R}', top_recall, should_print=True)
         self.reset()
 
 
@@ -427,8 +381,7 @@ class VRDRelationshipPhrase(nn.Module):
         self.reset()
         self.dataset = engine.dataset['eval']
         if engine:
-            engine.register_hook(f'{split}_on_end_epoch', self.
-                calculate_metrics)
+            engine.register_hook(f'{split}_on_end_epoch', self.calculate_metrics)
 
     def reset(self):
         self.tps = {(50): [], (100): []}
@@ -460,16 +413,12 @@ class VRDRelationshipPhrase(nn.Module):
             else:
                 begin_ = npairs_count
                 end_ = begin_ + npairs
-                rel_score = rel_scores[begin_:end_].view(nboxes, nboxes,
-                    nclasses)
+                rel_score = rel_scores[begin_:end_].view(nboxes, nboxes, nclasses)
                 rel_score = rel_score.data.cpu()
                 rel_prob = rel_score.topk(10)
                 begin_ = nboxes_count
                 end_ = begin_ + nboxes
-                item = {'rel_score': rel_score, 'rel_prob': rel_prob,
-                    'rois': batch['rois_nonorm'][begin_:end_].cpu(), 'cls':
-                    batch['cls'][begin_:end_].cpu(), 'cls_scores': batch[
-                    'cls_scores'][begin_:end_].cpu()}
+                item = {'rel_score': rel_score, 'rel_prob': rel_prob, 'rois': batch['rois_nonorm'][begin_:end_].cpu(), 'cls': batch['cls'][begin_:end_].cpu(), 'cls_scores': batch['cls_scores'][begin_:end_].cpu()}
                 _det_labels, _det_boxes = vrd_utils.item_to_det(item)
             npairs_count += npairs
             nboxes_count += nboxes
@@ -478,14 +427,12 @@ class VRDRelationshipPhrase(nn.Module):
             gt_labels.append(_gt_labels)
             gt_boxes.append(_gt_boxes)
         for R in [50, 100]:
-            _tp, _fp, _score, _num_gts = vrd_utils.eval_batch([det_labels,
-                det_boxes], [gt_labels, gt_boxes], num_dets=R)
+            _tp, _fp, _score, _num_gts = vrd_utils.eval_batch([det_labels, det_boxes], [gt_labels, gt_boxes], num_dets=R)
             self.total_num_gts[R] += _num_gts
             self.tps[R] += _tp
             self.fps[R] += _fp
             self.scores[R] += _score
-            _tp, _fp, _score, _num_gts = vrd_utils.eval_batch_union([
-                det_labels, det_boxes], [gt_labels, gt_boxes], num_dets=R)
+            _tp, _fp, _score, _num_gts = vrd_utils.eval_batch_union([det_labels, det_boxes], [gt_labels, gt_boxes], num_dets=R)
             self.total_num_gts_union[R] += _num_gts
             self.tps_union[R] += _tp
             self.fps_union[R] += _fp
@@ -494,14 +441,10 @@ class VRDRelationshipPhrase(nn.Module):
 
     def calculate_metrics(self):
         for R in [50, 100]:
-            top_recall = vrd_utils.calculate_recall(R, self.tps, self.fps,
-                self.scores, self.total_num_gts)
-            Logger().log_value(f'{self.split}_epoch.rel.R_{R}', top_recall,
-                should_print=True)
-            top_recall = vrd_utils.calculate_recall(R, self.tps_union, self
-                .fps_union, self.scores_union, self.total_num_gts_union)
-            Logger().log_value(f'{self.split}_epoch.phrase.R_{R}',
-                top_recall, should_print=True)
+            top_recall = vrd_utils.calculate_recall(R, self.tps, self.fps, self.scores, self.total_num_gts)
+            Logger().log_value(f'{self.split}_epoch.rel.R_{R}', top_recall, should_print=True)
+            top_recall = vrd_utils.calculate_recall(R, self.tps_union, self.fps_union, self.scores_union, self.total_num_gts_union)
+            Logger().log_value(f'{self.split}_epoch.phrase.R_{R}', top_recall, should_print=True)
         self.reset()
 
 
@@ -536,8 +479,7 @@ class CountSketchFn(Function):
         x_size = tuple(x.size())
         ctx.save_for_backward(h, s)
         ctx.x_size = tuple(x.size())
-        return CountSketchFn_forward(h, s, output_size, x,
-            force_cpu_scatter_add)
+        return CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -603,37 +545,31 @@ def ComplexMultiply_forward(X_re, X_im, Y_re, Y_im):
 class CompactBilinearPoolingFn(Function):
 
     @staticmethod
-    def forward(ctx, h1, s1, h2, s2, output_size, x, y,
-        force_cpu_scatter_add=False):
+    def forward(ctx, h1, s1, h2, s2, output_size, x, y, force_cpu_scatter_add=False):
         ctx.save_for_backward(h1, s1, h2, s2, x, y)
         ctx.x_size = tuple(x.size())
         ctx.y_size = tuple(y.size())
         ctx.force_cpu_scatter_add = force_cpu_scatter_add
         ctx.output_size = output_size
-        px = CountSketchFn_forward(h1, s1, output_size, x,
-            force_cpu_scatter_add)
+        px = CountSketchFn_forward(h1, s1, output_size, x, force_cpu_scatter_add)
         fx = torch.rfft(px, 1)
         re_fx = fx.select(-1, 0)
         im_fx = fx.select(-1, 1)
         del px
-        py = CountSketchFn_forward(h2, s2, output_size, y,
-            force_cpu_scatter_add)
+        py = CountSketchFn_forward(h2, s2, output_size, y, force_cpu_scatter_add)
         fy = torch.rfft(py, 1)
         re_fy = fy.select(-1, 0)
         im_fy = fy.select(-1, 1)
         del py
         re_prod, im_prod = ComplexMultiply_forward(re_fx, im_fx, re_fy, im_fy)
-        re = torch.irfft(torch.stack((re_prod, im_prod), re_prod.dim()), 1,
-            signal_sizes=(output_size,))
+        re = torch.irfft(torch.stack((re_prod, im_prod), re_prod.dim()), 1, signal_sizes=(output_size,))
         return re
 
     @staticmethod
     def backward(ctx, grad_output):
         h1, s1, h2, s2, x, y = ctx.saved_tensors
-        px = CountSketchFn_forward(h1, s1, ctx.output_size, x, ctx.
-            force_cpu_scatter_add)
-        py = CountSketchFn_forward(h2, s2, ctx.output_size, y, ctx.
-            force_cpu_scatter_add)
+        px = CountSketchFn_forward(h1, s1, ctx.output_size, x, ctx.force_cpu_scatter_add)
+        py = CountSketchFn_forward(h2, s2, ctx.output_size, y, ctx.force_cpu_scatter_add)
         grad_output = grad_output.contiguous()
         grad_prod = torch.rfft(grad_output, 1)
         grad_re_prod = grad_prod.select(-1, 0)
@@ -642,24 +578,18 @@ class CompactBilinearPoolingFn(Function):
         re_fy = fy.select(-1, 0)
         im_fy = fy.select(-1, 1)
         del py
-        grad_re_fx = torch.addcmul(grad_re_prod * re_fy, 1, grad_im_prod, im_fy
-            )
-        grad_im_fx = torch.addcmul(grad_im_prod * re_fy, -1, grad_re_prod,
-            im_fy)
-        grad_fx = torch.irfft(torch.stack((grad_re_fx, grad_im_fx),
-            grad_re_fx.dim()), 1, signal_sizes=(ctx.output_size,))
+        grad_re_fx = torch.addcmul(grad_re_prod * re_fy, 1, grad_im_prod, im_fy)
+        grad_im_fx = torch.addcmul(grad_im_prod * re_fy, -1, grad_re_prod, im_fy)
+        grad_fx = torch.irfft(torch.stack((grad_re_fx, grad_im_fx), grad_re_fx.dim()), 1, signal_sizes=(ctx.output_size,))
         grad_x = CountSketchFn_backward(h1, s1, ctx.x_size, grad_fx)
         del re_fy, im_fy, grad_re_fx, grad_im_fx, grad_fx
         fx = torch.rfft(px, 1)
         re_fx = fx.select(-1, 0)
         im_fx = fx.select(-1, 1)
         del px
-        grad_re_fy = torch.addcmul(grad_re_prod * re_fx, 1, grad_im_prod, im_fx
-            )
-        grad_im_fy = torch.addcmul(grad_im_prod * re_fx, -1, grad_re_prod,
-            im_fx)
-        grad_fy = torch.irfft(torch.stack((grad_re_fy, grad_im_fy),
-            grad_re_fy.dim()), 1, signal_sizes=(ctx.output_size,))
+        grad_re_fy = torch.addcmul(grad_re_prod * re_fx, 1, grad_im_prod, im_fx)
+        grad_im_fy = torch.addcmul(grad_im_prod * re_fx, -1, grad_re_prod, im_fx)
+        grad_fy = torch.irfft(torch.stack((grad_re_fy, grad_im_fy), grad_re_fy.dim()), 1, signal_sizes=(ctx.output_size,))
         grad_y = CountSketchFn_backward(h2, s2, ctx.y_size, grad_fy)
         del re_fx, im_fx, grad_re_fy, grad_im_fy, grad_fy
         return None, None, None, None, None, grad_x, grad_y, None
@@ -696,22 +626,17 @@ class CompactBilinearPooling(nn.Module):
         Akira Fukui et al. "Multimodal Compact Bilinear Pooling for Visual Question Answering and Visual Grounding", arXiv:1606.01847 (2016).
     """
 
-    def __init__(self, input1_size, input2_size, output_size, h1=None, s1=
-        None, h2=None, s2=None, force_cpu_scatter_add=False):
+    def __init__(self, input1_size, input2_size, output_size, h1=None, s1=None, h2=None, s2=None, force_cpu_scatter_add=False):
         super(CompactBilinearPooling, self).__init__()
-        self.add_module('sketch1', CountSketch(input1_size, output_size, h1,
-            s1))
-        self.add_module('sketch2', CountSketch(input2_size, output_size, h2,
-            s2))
+        self.add_module('sketch1', CountSketch(input1_size, output_size, h1, s1))
+        self.add_module('sketch2', CountSketch(input2_size, output_size, h2, s2))
         self.output_size = output_size
         self.force_cpu_scatter_add = force_cpu_scatter_add
 
     def forward(self, x, y=None):
         if y is None:
             y = x
-        return CompactBilinearPoolingFn.apply(self.sketch1.h, self.sketch1.
-            s, self.sketch2.h, self.sketch2.s, self.output_size, x, y, self
-            .force_cpu_scatter_add)
+        return CompactBilinearPoolingFn.apply(self.sketch1.h, self.sketch1.s, self.sketch2.h, self.sketch2.s, self.output_size, x, y, self.force_cpu_scatter_add)
 
 
 def get_chunks(x, sizes):
@@ -741,9 +666,7 @@ def get_sizes_list(dim, chunks):
 
 class Block(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1600, chunks=20, rank
-        =15, shared=False, dropout_input=0.0, dropout_pre_lin=0.0,
-        dropout_output=0.0, pos_norm='before_cat'):
+    def __init__(self, input_dims, output_dim, mm_dim=1600, chunks=20, rank=15, shared=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0, pos_norm='before_cat'):
         super(Block, self).__init__()
         self.input_dims = input_dims
         self.output_dim = output_dim
@@ -774,8 +697,7 @@ class Block(nn.Module):
         self.merge_linears0 = nn.ModuleList(merge_linears0)
         self.merge_linears1 = nn.ModuleList(merge_linears1)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -787,8 +709,7 @@ class Block(nn.Module):
         x0_chunks = get_chunks(x0, self.sizes_list)
         x1_chunks = get_chunks(x1, self.sizes_list)
         zs = []
-        for chunk_id, m0, m1 in zip(range(len(self.sizes_list)), self.
-            merge_linears0, self.merge_linears1):
+        for chunk_id, m0, m1 in zip(range(len(self.sizes_list)), self.merge_linears0, self.merge_linears1):
             x0_c = x0_chunks[chunk_id]
             x1_c = x1_chunks[chunk_id]
             m = m0(x0_c) * m1(x1_c)
@@ -812,9 +733,7 @@ class Block(nn.Module):
 
 class BlockTucker(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1600, chunks=20,
-        shared=False, dropout_input=0.0, dropout_pre_lin=0.0,
-        dropout_output=0.0, pos_norm='before_cat'):
+    def __init__(self, input_dims, output_dim, mm_dim=1600, chunks=20, shared=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0, pos_norm='before_cat'):
         super(BlockTucker, self).__init__()
         self.input_dims = input_dims
         self.output_dim = output_dim
@@ -837,8 +756,7 @@ class BlockTucker(nn.Module):
             bilinears.append(nn.Bilinear(size, size, size))
         self.bilinears = nn.ModuleList(bilinears)
         self.linear_out = nn.Linear(self.mm_dim, self.output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -872,9 +790,7 @@ class BlockTucker(nn.Module):
 
 class Mutan(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1600, rank=15, shared
-        =False, normalize=False, dropout_input=0.0, dropout_pre_lin=0.0,
-        dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=1600, rank=15, shared=False, normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
         super(Mutan, self).__init__()
         self.input_dims = input_dims
         self.shared = shared
@@ -894,8 +810,7 @@ class Mutan(nn.Module):
             self.linear1 = nn.Linear(input_dims[1], mm_dim)
             self.merge_linear1 = nn.Linear(mm_dim, mm_dim * rank)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -921,9 +836,7 @@ class Mutan(nn.Module):
 
 class Tucker(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1600, shared=False,
-        normalize=False, dropout_input=0.0, dropout_pre_lin=0.0,
-        dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=1600, shared=False, normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
         super(Tucker, self).__init__()
         self.input_dims = input_dims
         self.shared = shared
@@ -941,8 +854,7 @@ class Tucker(nn.Module):
         self.linear1 = nn.Linear(input_dims[1], mm_dim)
         self.bilinear = nn.Bilinear(mm_dim, mm_dim, mm_dim)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -964,9 +876,7 @@ class Tucker(nn.Module):
 
 class MLB(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input=
-        'relu', activ_output='relu', normalize=False, dropout_input=0.0,
-        dropout_pre_lin=0.0, dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
         super(MLB, self).__init__()
         self.input_dims = input_dims
         self.mm_dim = mm_dim
@@ -980,8 +890,7 @@ class MLB(nn.Module):
         self.linear0 = nn.Linear(input_dims[0], mm_dim)
         self.linear1 = nn.Linear(input_dims[1], mm_dim)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -1008,9 +917,7 @@ class MLB(nn.Module):
 
 class MFB(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1200, factor=2,
-        activ_input='relu', activ_output='relu', normalize=False,
-        dropout_input=0.0, dropout_pre_norm=0.0, dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=1200, factor=2, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_norm=0.0, dropout_output=0.0):
         super(MFB, self).__init__()
         self.input_dims = input_dims
         self.mm_dim = mm_dim
@@ -1025,8 +932,7 @@ class MFB(nn.Module):
         self.linear0 = nn.Linear(input_dims[0], mm_dim * factor)
         self.linear1 = nn.Linear(input_dims[1], mm_dim * factor)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -1055,9 +961,7 @@ class MFB(nn.Module):
 
 class MFH(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1200, factor=2,
-        activ_input='relu', activ_output='relu', normalize=False,
-        dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=1200, factor=2, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
         super(MFH, self).__init__()
         self.input_dims = input_dims
         self.output_dim = output_dim
@@ -1074,8 +978,7 @@ class MFH(nn.Module):
         self.linear0_1 = nn.Linear(input_dims[0], mm_dim * factor)
         self.linear1_1 = nn.Linear(input_dims[1], mm_dim * factor)
         self.linear_out = nn.Linear(mm_dim * 2, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0_0(x[0])
@@ -1088,8 +991,7 @@ class MFH(nn.Module):
             x1 = F.dropout(x1, p=self.dropout_input, training=self.training)
         z_0_skip = x0 * x1
         if self.dropout_pre_lin:
-            z_0_skip = F.dropout(z_0_skip, p=self.dropout_pre_lin, training
-                =self.training)
+            z_0_skip = F.dropout(z_0_skip, p=self.dropout_pre_lin, training=self.training)
         z_0 = z_0_skip.view(z_0_skip.size(0), self.mm_dim, self.factor)
         z_0 = z_0.sum(2)
         if self.normalize:
@@ -1105,8 +1007,7 @@ class MFH(nn.Module):
             x1 = F.dropout(x1, p=self.dropout_input, training=self.training)
         z_1 = x0 * x1 * z_0_skip
         if self.dropout_pre_lin > 0:
-            z_1 = F.dropout(z_1, p=self.dropout_pre_lin, training=self.training
-                )
+            z_1 = F.dropout(z_1, p=self.dropout_pre_lin, training=self.training)
         z_1 = z_1.view(z_1.size(0), self.mm_dim, self.factor)
         z_1 = z_1.sum(2)
         if self.normalize:
@@ -1124,19 +1025,16 @@ class MFH(nn.Module):
 
 class MCB(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=16000, activ_output=
-        'relu', dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=16000, activ_output='relu', dropout_output=0.0):
         super(MCB, self).__init__()
         self.input_dims = input_dims
         self.output_dim = output_dim
         self.mm_dim = mm_dim
         self.activ_output = activ_output
         self.dropout_output = dropout_output
-        self.mcb = cbp.CompactBilinearPooling(input_dims[0], input_dims[1],
-            mm_dim)
+        self.mcb = cbp.CompactBilinearPooling(input_dims[0], input_dims[1], mm_dim)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         z = self.mcb(x[0], x[1])
@@ -1150,9 +1048,7 @@ class MCB(nn.Module):
 
 class LinearSum(nn.Module):
 
-    def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input=
-        'relu', activ_output='relu', normalize=False, dropout_input=0.0,
-        dropout_pre_lin=0.0, dropout_output=0.0):
+    def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
         super(LinearSum, self).__init__()
         self.input_dims = input_dims
         self.output_dim = output_dim
@@ -1166,8 +1062,7 @@ class LinearSum(nn.Module):
         self.linear0 = nn.Linear(input_dims[0], mm_dim)
         self.linear1 = nn.Linear(input_dims[1], mm_dim)
         self.linear_out = nn.Linear(mm_dim, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x0 = self.linear0(x[0])
@@ -1194,8 +1089,7 @@ class LinearSum(nn.Module):
 
 class ConcatMLP(nn.Module):
 
-    def __init__(self, input_dims, output_dim, dimensions=[500, 500],
-        activation='relu', dropout=0.0):
+    def __init__(self, input_dims, output_dim, dimensions=[500, 500], activation='relu', dropout=0.0):
         super(ConcatMLP, self).__init__()
         self.input_dims = input_dims
         self.output_dim = output_dim
@@ -1203,10 +1097,8 @@ class ConcatMLP(nn.Module):
         self.dimensions = dimensions + [output_dim]
         self.activation = activation
         self.dropout = dropout
-        self.mlp = mlp.MLP(self.input_dim, self.dimensions, self.activation,
-            self.dropout)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.
-            requires_grad)
+        self.mlp = mlp.MLP(self.input_dim, self.dimensions, self.activation, self.dropout)
+        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         if x[0].dim() == 3 and x[1].dim() == 2:
@@ -1244,8 +1136,7 @@ def factory_text_enc(vocab_words, opt):
     list_words = [vocab_words[i + 1] for i in range(len(vocab_words))]
     if opt['name'] == 'skipthoughts':
         st_class = getattr(skipthoughts, opt['type'])
-        seq2vec = st_class(opt['dir_st'], list_words, dropout=opt['dropout'
-            ], fixed_emb=opt['fixed_emb'])
+        seq2vec = st_class(opt['dir_st'], list_words, dropout=opt['dropout'], fixed_emb=opt['fixed_emb'])
     else:
         raise NotImplementedError
     return seq2vec
@@ -1254,8 +1145,7 @@ def factory_text_enc(vocab_words, opt):
 def mask_softmax(x, lengths):
     mask = torch.zeros_like(x).to(device=x.device, non_blocking=True)
     t_lengths = lengths[:, :, (None)].expand_as(mask)
-    arange_id = torch.arange(mask.size(1)).to(device=x.device, non_blocking
-        =True)
+    arange_id = torch.arange(mask.size(1)).to(device=x.device, non_blocking=True)
     arange_id = arange_id[(None), :, (None)].expand_as(mask)
     mask[arange_id < t_lengths] = 1
     x = torch.exp(x)
@@ -1266,8 +1156,7 @@ def mask_softmax(x, lengths):
 
 class VQANet(nn.Module):
 
-    def __init__(self, txt_enc={}, self_q_att=False, attention={}, classif=
-        {}, wid_to_word={}, word_to_wid={}, aid_to_ans=[], ans_to_aid={}):
+    def __init__(self, txt_enc={}, self_q_att=False, attention={}, classif={}, wid_to_word={}, word_to_wid={}, aid_to_ans=[], ans_to_aid={}):
         super(VQANet, self).__init__()
         self.self_q_att = self_q_att
         self.wid_to_word = wid_to_word
@@ -1363,8 +1252,7 @@ class Attention(nn.Module):
         batch_size = q.size(0)
         n_regions = v.size(1)
         q = q[:, (None), :].expand(q.size(0), n_regions, q.size(1))
-        alpha = self.fusion([q.contiguous().view(batch_size * n_regions, -1
-            ), v.contiguous().view(batch_size * n_regions, -1)])
+        alpha = self.fusion([q.contiguous().view(batch_size * n_regions, -1), v.contiguous().view(batch_size * n_regions, -1)])
         alpha = alpha.view(batch_size, n_regions, -1)
         return alpha
 
@@ -1374,8 +1262,7 @@ class VRDNet(nn.Module):
     def __init__(self, opt):
         super(VRDNet, self).__init__()
         self.opt = opt
-        self.classeme_embedding = nn.Embedding(self.opt['nb_classeme'],
-            self.opt['classeme_dim'])
+        self.classeme_embedding = nn.Embedding(self.opt['nb_classeme'], self.opt['classeme_dim'])
         self.fusion_c = factory_fusion(self.opt['classeme'])
         self.fusion_s = factory_fusion(self.opt['spatial'])
         self.fusion_f = factory_fusion(self.opt['feature'])
@@ -1383,8 +1270,7 @@ class VRDNet(nn.Module):
 
     def forward(self, batch):
         bsize = batch['subject_boxes'].size(0)
-        x_c = [self.classeme_embedding(batch['subject_cls_id']), self.
-            classeme_embedding(batch['object_cls_id'])]
+        x_c = [self.classeme_embedding(batch['subject_cls_id']), self.classeme_embedding(batch['object_cls_id'])]
         x_s = [batch['subject_boxes'], batch['object_boxes']]
         x_f = [batch['subject_features'], batch['object_features']]
         x_c = self.fusion_c(x_c)
@@ -1392,8 +1278,7 @@ class VRDNet(nn.Module):
         x_f = self.fusion_f(x_f)
         x = torch.cat([x_c, x_s, x_f], -1)
         if 'aggreg_dropout' in self.opt:
-            x = F.dropout(x, self.opt['aggreg_dropout'], training=self.training
-                )
+            x = F.dropout(x, self.opt['aggreg_dropout'], training=self.training)
         y = self.predictor(x)
         out = {'rel_scores': y}
         return out
@@ -1403,41 +1288,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Block,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (BlockTucker,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (CompactBilinearPooling,
+     lambda: ([], {'input1_size': 4, 'input2_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CountSketch,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearSum,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MFB,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MFH,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MLB,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Mutan,
+     lambda: ([], {'input_dims': [4, 4], 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_Cadene_block_bootstrap_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Block(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BlockTucker(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(CompactBilinearPooling(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(CountSketch(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LinearSum(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MFB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MFH(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MLB(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Mutan(*[], **{'input_dims': [4, 4], 'output_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

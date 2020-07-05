@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,35 +75,28 @@ class HypersphericalUniform(torch.distributions.Distribution):
 
     @device.setter
     def device(self, val):
-        self._device = val if isinstance(val, torch.device) else torch.device(
-            val)
+        self._device = val if isinstance(val, torch.device) else torch.device(val)
 
     def __init__(self, dim, validate_args=None, device='cpu'):
-        super(HypersphericalUniform, self).__init__(torch.Size([dim]),
-            validate_args=validate_args)
+        super(HypersphericalUniform, self).__init__(torch.Size([dim]), validate_args=validate_args)
         self._dim = dim
         self.device = device
 
     def sample(self, shape=torch.Size()):
-        output = torch.distributions.Normal(0, 1).sample((shape if
-            isinstance(shape, torch.Size) else torch.Size([shape])) + torch
-            .Size([self._dim + 1])).to(self.device)
+        output = torch.distributions.Normal(0, 1).sample((shape if isinstance(shape, torch.Size) else torch.Size([shape])) + torch.Size([self._dim + 1])).to(self.device)
         return output / output.norm(dim=-1, keepdim=True)
 
     def entropy(self):
         return self.__log_surface_area()
 
     def log_prob(self, x):
-        return -torch.ones(x.shape[:-1], device=self.device
-            ) * self.__log_surface_area()
+        return -torch.ones(x.shape[:-1], device=self.device) * self.__log_surface_area()
 
     def __log_surface_area(self):
         if torch.__version__ >= '1.0.0':
-            lgamma = torch.lgamma(torch.tensor([(self._dim + 1) / 2]).to(
-                self.device))
+            lgamma = torch.lgamma(torch.tensor([(self._dim + 1) / 2]).to(self.device))
         else:
-            lgamma = torch.lgamma(torch.Tensor([(self._dim + 1) / 2],
-                device=self.device))
+            lgamma = torch.lgamma(torch.Tensor([(self._dim + 1) / 2], device=self.device))
         return math.log(2) + (self._dim + 1) / 2 * math.log(math.pi) - lgamma
 
 
@@ -125,24 +119,21 @@ class IveFunction(torch.autograd.Function):
     @staticmethod
     def backward(self, grad_output):
         z = self.saved_tensors[-1]
-        return None, grad_output * (ive(self.v - 1, z) - ive(self.v, z) * (
-            self.v + z) / z)
+        return None, grad_output * (ive(self.v - 1, z) - ive(self.v, z) * (self.v + z) / z)
 
 
 ive = IveFunction.apply
 
 
 class VonMisesFisher(torch.distributions.Distribution):
-    arg_constraints = {'loc': torch.distributions.constraints.real, 'scale':
-        torch.distributions.constraints.positive}
+    arg_constraints = {'loc': torch.distributions.constraints.real, 'scale': torch.distributions.constraints.positive}
     support = torch.distributions.constraints.real
     has_rsample = True
     _mean_carrier_measure = 0
 
     @property
     def mean(self):
-        return self.loc * (ive(self.__m / 2, self.scale) / ive(self.__m / 2 -
-            1, self.scale))
+        return self.loc * (ive(self.__m / 2, self.scale) / ive(self.__m / 2 - 1, self.scale))
 
     @property
     def stddev(self):
@@ -154,8 +145,7 @@ class VonMisesFisher(torch.distributions.Distribution):
         self.scale = scale
         self.device = loc.device
         self.__m = loc.shape[-1]
-        self.__e1 = torch.Tensor([1.0] + [0] * (loc.shape[-1] - 1)).to(self
-            .device)
+        self.__e1 = torch.Tensor([1.0] + [0] * (loc.shape[-1] - 1)).to(self.device)
         self.k = k
         super().__init__(self.loc.size(), validate_args=validate_args)
 
@@ -165,10 +155,8 @@ class VonMisesFisher(torch.distributions.Distribution):
 
     def rsample(self, shape=torch.Size()):
         shape = shape if isinstance(shape, torch.Size) else torch.Size([shape])
-        w = self.__sample_w3(shape=shape
-            ) if self.__m == 3 else self.__sample_w_rej(shape=shape)
-        v = torch.distributions.Normal(0, 1).sample(shape + torch.Size(self
-            .loc.shape)).to(self.device).transpose(0, -1)[1:].transpose(0, -1)
+        w = self.__sample_w3(shape=shape) if self.__m == 3 else self.__sample_w_rej(shape=shape)
+        v = torch.distributions.Normal(0, 1).sample(shape + torch.Size(self.loc.shape)).to(self.device).transpose(0, -1)[1:].transpose(0, -1)
         v = v / v.norm(dim=-1, keepdim=True)
         w_ = torch.sqrt(torch.clamp(1 - w ** 2, 1e-10))
         x = torch.cat((w, w_ * v), -1)
@@ -178,51 +166,40 @@ class VonMisesFisher(torch.distributions.Distribution):
     def __sample_w3(self, shape):
         shape = shape + torch.Size(self.scale.shape)
         u = torch.distributions.Uniform(0, 1).sample(shape).to(self.device)
-        self.__w = 1 + torch.stack([torch.log(u), torch.log(1 - u) - 2 *
-            self.scale], dim=0).logsumexp(0) / self.scale
+        self.__w = 1 + torch.stack([torch.log(u), torch.log(1 - u) - 2 * self.scale], dim=0).logsumexp(0) / self.scale
         return self.__w
 
     def __sample_w_rej(self, shape):
         c = torch.sqrt(4 * self.scale ** 2 + (self.__m - 1) ** 2)
         b_true = (-2 * self.scale + c) / (self.__m - 1)
         b_app = (self.__m - 1) / (4 * self.scale)
-        s = torch.min(torch.max(torch.tensor([0.0], dtype=self.dtype,
-            device=self.device), self.scale - 10), torch.tensor([1.0],
-            dtype=self.dtype, device=self.device))
+        s = torch.min(torch.max(torch.tensor([0.0], dtype=self.dtype, device=self.device), self.scale - 10), torch.tensor([1.0], dtype=self.dtype, device=self.device))
         b = b_app * s + b_true * (1 - s)
         a = (self.__m - 1 + 2 * self.scale + c) / 4
         d = 4 * a * b / (1 + b) - (self.__m - 1) * math.log(self.__m - 1)
-        self.__b, (self.__e, self.__w) = b, self.__while_loop(b, a, d,
-            shape, k=self.k)
+        self.__b, (self.__e, self.__w) = b, self.__while_loop(b, a, d, shape, k=self.k)
         return self.__w
 
     @staticmethod
     def first_nonzero(x, dim, invalid_val=-1):
         mask = x > 0
-        idx = torch.where(mask.any(dim=dim), mask.float().argmax(dim=1).
-            squeeze(), torch.tensor(invalid_val, device=x.device))
+        idx = torch.where(mask.any(dim=dim), mask.float().argmax(dim=1).squeeze(), torch.tensor(invalid_val, device=x.device))
         return idx
 
     def __while_loop(self, b, a, d, shape, k=20, eps=1e-20):
-        b, a, d = [e.repeat(*shape, *([1] * len(self.scale.shape))).reshape
-            (-1, 1) for e in (b, a, d)]
-        w, e, bool_mask = torch.zeros_like(b).to(self.device
-            ), torch.zeros_like(b).to(self.device), (torch.ones_like(b) == 1
-            ).to(self.device)
+        b, a, d = [e.repeat(*shape, *([1] * len(self.scale.shape))).reshape(-1, 1) for e in (b, a, d)]
+        w, e, bool_mask = torch.zeros_like(b).to(self.device), torch.zeros_like(b).to(self.device), (torch.ones_like(b) == 1).to(self.device)
         sample_shape = torch.Size([b.shape[0], k])
         shape = shape + torch.Size(self.scale.shape)
         while bool_mask.sum() != 0:
             con1 = torch.tensor((self.__m - 1) / 2, dtype=torch.float64)
             con2 = torch.tensor((self.__m - 1) / 2, dtype=torch.float64)
-            e_ = torch.distributions.Beta(con1, con2).sample(sample_shape).to(
-                self.device).type(self.dtype)
-            u = torch.distributions.Uniform(0 + eps, 1 - eps).sample(
-                sample_shape).to(self.device).type(self.dtype)
+            e_ = torch.distributions.Beta(con1, con2).sample(sample_shape).to(self.device).type(self.dtype)
+            u = torch.distributions.Uniform(0 + eps, 1 - eps).sample(sample_shape).to(self.device).type(self.dtype)
             w_ = (1 - (1 + b) * e_) / (1 - (1 - b) * e_)
             t = 2 * a * b / (1 - (1 - b) * e_)
             accept = (self.__m - 1.0) * t.log() - t + d > torch.log(u)
-            accept_idx = self.first_nonzero(accept, dim=-1, invalid_val=-1
-                ).unsqueeze(1)
+            accept_idx = self.first_nonzero(accept, dim=-1, invalid_val=-1).unsqueeze(1)
             accept_idx_clamped = accept_idx.clamp(0)
             w_ = w_.gather(1, accept_idx_clamped.view(-1, 1))
             e_ = e_.gather(1, accept_idx_clamped.view(-1, 1))
@@ -240,8 +217,7 @@ class VonMisesFisher(torch.distributions.Distribution):
         return z
 
     def entropy(self):
-        output = -self.scale * ive(self.__m / 2, self.scale) / ive(self.__m /
-            2 - 1, self.scale)
+        output = -self.scale * ive(self.__m / 2, self.scale) / ive(self.__m / 2 - 1, self.scale)
         return output.view(*output.shape[:-1]) + self._log_normalization()
 
     def log_prob(self, x):
@@ -252,9 +228,7 @@ class VonMisesFisher(torch.distributions.Distribution):
         return output.view(*output.shape[:-1])
 
     def _log_normalization(self):
-        output = -((self.__m / 2 - 1) * torch.log(self.scale) - self.__m / 
-            2 * math.log(2 * math.pi) - (self.scale + torch.log(ive(self.
-            __m / 2 - 1, self.scale))))
+        output = -((self.__m / 2 - 1) * torch.log(self.scale) - self.__m / 2 * math.log(2 * math.pi) - (self.scale + torch.log(ive(self.__m / 2 - 1, self.scale))))
         return output.view(*output.shape[:-1])
 
 
@@ -269,8 +243,7 @@ class ModelVAE(torch.nn.Module):
         :param distribution: string either `normal` or `vmf`, indicates which distribution to use
         """
         super(ModelVAE, self).__init__()
-        self.z_dim, self.activation, self.distribution = (z_dim, activation,
-            distribution)
+        self.z_dim, self.activation, self.distribution = z_dim, activation, distribution
         self.fc_e0 = nn.Linear(784, h_dim * 2)
         self.fc_e1 = nn.Linear(h_dim * 2, h_dim)
         if self.distribution == 'normal':
@@ -308,8 +281,7 @@ class ModelVAE(torch.nn.Module):
     def reparameterize(self, z_mean, z_var):
         if self.distribution == 'normal':
             q_z = torch.distributions.normal.Normal(z_mean, z_var)
-            p_z = torch.distributions.normal.Normal(torch.zeros_like(z_mean
-                ), torch.ones_like(z_var))
+            p_z = torch.distributions.normal.Normal(torch.zeros_like(z_mean), torch.ones_like(z_var))
         elif self.distribution == 'vmf':
             q_z = VonMisesFisher(z_mean, z_var)
             p_z = HypersphericalUniform(self.z_dim - 1)
@@ -339,13 +311,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_nicola_decao_s_vae_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Ive(*[], **{'v': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Ive,
+     lambda: ([], {'v': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ModelVAE,
+     lambda: ([], {'h_dim': 4, 'z_dim': 4}),
+     lambda: ([torch.rand([784, 784])], {}),
+     False),
+]
+
+class Test_nicola_decao_s_vae_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ModelVAE(*[], **{'h_dim': 4, 'z_dim': 4}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[1])
 

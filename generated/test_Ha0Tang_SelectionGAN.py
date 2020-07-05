@@ -83,8 +83,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -166,8 +167,7 @@ import re
 
 class L1_plus_perceptualLoss(nn.Module):
 
-    def __init__(self, lambda_L1, lambda_perceptual, perceptual_layers,
-        gpu_ids, percep_is_l1):
+    def __init__(self, lambda_L1, lambda_perceptual, perceptual_layers, gpu_ids, percep_is_l1):
         super(L1_plus_perceptualLoss, self).__init__()
         self.lambda_L1 = lambda_L1
         self.lambda_perceptual = lambda_perceptual
@@ -179,8 +179,7 @@ class L1_plus_perceptualLoss(nn.Module):
             self.vgg_submodel.add_module(str(i), layer)
             if i == perceptual_layers:
                 break
-        self.vgg_submodel = torch.nn.DataParallel(self.vgg_submodel,
-            device_ids=gpu_ids)
+        self.vgg_submodel = torch.nn.DataParallel(self.vgg_submodel, device_ids=gpu_ids)
         None
 
     def forward(self, inputs, targets):
@@ -205,11 +204,9 @@ class L1_plus_perceptualLoss(nn.Module):
         input_p2_norm = self.vgg_submodel(input_p2_norm)
         input_p2_norm_no_grad = input_p2_norm.detach()
         if self.percep_is_l1 == 1:
-            loss_perceptual = F.l1_loss(fake_p2_norm, input_p2_norm_no_grad
-                ) * self.lambda_perceptual
+            loss_perceptual = F.l1_loss(fake_p2_norm, input_p2_norm_no_grad) * self.lambda_perceptual
         else:
-            loss_perceptual = F.mse_loss(fake_p2_norm, input_p2_norm_no_grad
-                ) * self.lambda_perceptual
+            loss_perceptual = F.mse_loss(fake_p2_norm, input_p2_norm_no_grad) * self.lambda_perceptual
         loss = loss_l1 + loss_perceptual
         return loss, loss_l1, loss_perceptual
 
@@ -220,16 +217,12 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2,
-        groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2,
-        groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2,
-        groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
-        C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -237,17 +230,14 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
 
@@ -262,8 +252,7 @@ class SSIM(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -272,8 +261,7 @@ class SSIM(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return _ssim(img1, img2, window, self.window_size, channel, self.
-            size_average)
+        return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
 
 class BaseModel(nn.Module):
@@ -336,17 +324,12 @@ class BaseModel(nn.Module):
 
 class PATBlock(nn.Module):
 
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias,
-        cated_stream2=False):
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias, cated_stream2=False):
         super(PATBlock, self).__init__()
-        self.conv_block_stream1 = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias, cal_att=False)
-        self.conv_block_stream2 = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias, cal_att=True, cated_stream2=
-            cated_stream2)
+        self.conv_block_stream1 = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias, cal_att=False)
+        self.conv_block_stream2 = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias, cal_att=True, cated_stream2=cated_stream2)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias, cated_stream2=False, cal_att=False):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias, cated_stream2=False, cal_att=False):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -356,14 +339,11 @@ class PATBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
         if cated_stream2:
-            conv_block += [nn.Conv2d(dim * 2, dim * 2, kernel_size=3,
-                padding=p, bias=use_bias), norm_layer(dim * 2), nn.ReLU(True)]
+            conv_block += [nn.Conv2d(dim * 2, dim * 2, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim * 2), nn.ReLU(True)]
         else:
-            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p,
-                bias=use_bias), norm_layer(dim), nn.ReLU(True)]
+            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -374,18 +354,14 @@ class PATBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
         if cal_att:
             if cated_stream2:
-                conv_block += [nn.Conv2d(dim * 2, dim, kernel_size=3,
-                    padding=p, bias=use_bias)]
+                conv_block += [nn.Conv2d(dim * 2, dim, kernel_size=3, padding=p, bias=use_bias)]
             else:
-                conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p,
-                    bias=use_bias)]
+                conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias)]
         else:
-            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p,
-                bias=use_bias), norm_layer(dim)]
+            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x1, x2):
@@ -400,9 +376,7 @@ class PATBlock(nn.Module):
 
 class PATNModel(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[],
-        padding_type='reflect', n_downsampling=2):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect', n_downsampling=2):
         assert n_blocks >= 0 and type(input_nc) == list
         super(PATNModel, self).__init__()
         self.input_nc_s1 = input_nc[0]
@@ -414,39 +388,25 @@ class PATNModel(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model_stream1_down = [nn.ReflectionPad2d(3), nn.Conv2d(self.
-            input_nc_s1, ngf, kernel_size=7, padding=0, bias=use_bias),
-            norm_layer(ngf), nn.ReLU(True)]
-        model_stream2_down = [nn.ReflectionPad2d(3), nn.Conv2d(self.
-            input_nc_s2, ngf, kernel_size=7, padding=0, bias=use_bias),
-            norm_layer(ngf), nn.ReLU(True)]
+        model_stream1_down = [nn.ReflectionPad2d(3), nn.Conv2d(self.input_nc_s1, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
+        model_stream2_down = [nn.ReflectionPad2d(3), nn.Conv2d(self.input_nc_s2, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         for i in range(n_downsampling):
             mult = 2 ** i
-            model_stream1_down += [nn.Conv2d(ngf * mult, ngf * mult * 2,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(ngf * mult * 2), nn.ReLU(True)]
-            model_stream2_down += [nn.Conv2d(ngf * mult, ngf * mult * 2,
-                kernel_size=3, stride=2, padding=1, bias=use_bias),
-                norm_layer(ngf * mult * 2), nn.ReLU(True)]
+            model_stream1_down += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
+            model_stream2_down += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         cated_stream2 = [(True) for i in range(n_blocks)]
         cated_stream2[0] = False
         attBlock = nn.ModuleList()
         for i in range(n_blocks):
-            attBlock.append(PATBlock(ngf * mult, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias, cated_stream2=cated_stream2[i]))
+            attBlock.append(PATBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias, cated_stream2=cated_stream2[i]))
         model_stream1_up = []
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model_stream1_up += [nn.ConvTranspose2d(ngf * mult, int(ngf *
-                mult / 2), kernel_size=3, stride=2, padding=1,
-                output_padding=1, bias=use_bias), norm_layer(int(ngf * mult /
-                2)), nn.ReLU(True)]
+            model_stream1_up += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
         model_stream1_up2 = []
         model_stream1_up2 += [nn.ReflectionPad2d(3)]
-        model_stream1_up2 += [nn.Conv2d(ngf, output_nc, kernel_size=7,
-            padding=0)]
+        model_stream1_up2 += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model_stream1_up2 += [nn.Tanh()]
         self.stream1_down = nn.Sequential(*model_stream1_down)
         self.stream2_down = nn.Sequential(*model_stream2_down)
@@ -467,9 +427,7 @@ class PATNModel(nn.Module):
 
 class SelectionGANModel(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[],
-        padding_type='reflect', n_downsampling=2):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect', n_downsampling=2):
         assert n_blocks >= 0 and type(input_nc) == list
         super(SelectionGANModel, self).__init__()
         self.input_nc_s1 = input_nc[0]
@@ -480,27 +438,20 @@ class SelectionGANModel(nn.Module):
         self.pool1 = nn.AvgPool2d(kernel_size=(1, 1))
         self.pool2 = nn.AvgPool2d(kernel_size=(4, 4))
         self.pool3 = nn.AvgPool2d(kernel_size=(9, 9))
-        self.conv106 = nn.Conv2d(106 * 4, 106, kernel_size=3, stride=1,
-            padding=1, bias=nn.InstanceNorm2d)
-        self.model_attention = nn.Conv2d(106, 10, kernel_size=1, stride=1,
-            padding=0)
-        self.model_image = nn.Conv2d(106, 30, kernel_size=3, stride=1,
-            padding=1)
+        self.conv106 = nn.Conv2d(106 * 4, 106, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.model_attention = nn.Conv2d(106, 10, kernel_size=1, stride=1, padding=0)
+        self.model_image = nn.Conv2d(106, 30, kernel_size=3, stride=1, padding=1)
         self.tanh = torch.nn.Tanh()
-        self.convolution_for_attention = torch.nn.Conv2d(10, 1, 1, stride=1,
-            padding=0)
+        self.convolution_for_attention = torch.nn.Conv2d(10, 1, 1, stride=1, padding=0)
 
     def forward(self, input):
         pool_feature1 = self.pool1(input)
         pool_feature2 = self.pool2(input)
         pool_feature3 = self.pool3(input)
         b, c, h, w = input.size()
-        pool_feature1_up = F.upsample(input=pool_feature1, size=(h, w),
-            mode='bilinear', align_corners=True)
-        pool_feature2_up = F.upsample(input=pool_feature2, size=(h, w),
-            mode='bilinear', align_corners=True)
-        pool_feature3_up = F.upsample(input=pool_feature3, size=(h, w),
-            mode='bilinear', align_corners=True)
+        pool_feature1_up = F.upsample(input=pool_feature1, size=(h, w), mode='bilinear', align_corners=True)
+        pool_feature2_up = F.upsample(input=pool_feature2, size=(h, w), mode='bilinear', align_corners=True)
+        pool_feature3_up = F.upsample(input=pool_feature3, size=(h, w), mode='bilinear', align_corners=True)
         f1 = input * pool_feature1_up
         f2 = input * pool_feature2_up
         f3 = input * pool_feature3_up
@@ -552,8 +503,7 @@ class SelectionGANModel(nn.Module):
         output9 = image9 * attention9
         output10 = image10 * attention10
         output10 = image10 * attention10
-        final = (output1 + output2 + output3 + output4 + output5 + output6 +
-            output7 + output8 + output9 + output10)
+        final = output1 + output2 + output3 + output4 + output5 + output6 + output7 + output8 + output9 + output10
         sigmoid_ = torch.nn.Sigmoid()
         uncertainty = self.convolution_for_attention(attention)
         uncertainty = sigmoid_(uncertainty)
@@ -563,16 +513,11 @@ class SelectionGANModel(nn.Module):
 
 class PATNetwork(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[],
-        padding_type='reflect', n_downsampling=2):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect', n_downsampling=2):
         super(PATNetwork, self).__init__()
-        assert type(input_nc) == list and len(input_nc
-            ) == 2, 'The AttModule take input_nc in format of list only!!'
+        assert type(input_nc) == list and len(input_nc) == 2, 'The AttModule take input_nc in format of list only!!'
         self.gpu_ids = gpu_ids
-        self.model = PATNModel(input_nc, output_nc, ngf, norm_layer,
-            use_dropout, n_blocks, gpu_ids, padding_type, n_downsampling=
-            n_downsampling)
+        self.model = PATNModel(input_nc, output_nc, ngf, norm_layer, use_dropout, n_blocks, gpu_ids, padding_type, n_downsampling=n_downsampling)
 
     def forward(self, input):
         if self.gpu_ids and isinstance(input[0].data, torch.FloatTensor):
@@ -583,14 +528,10 @@ class PATNetwork(nn.Module):
 
 class SelectionGANNetwork(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[],
-        padding_type='reflect', n_downsampling=2):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect', n_downsampling=2):
         super(SelectionGANNetwork, self).__init__()
         self.gpu_ids = gpu_ids
-        self.model = SelectionGANModel(input_nc, output_nc, ngf, norm_layer,
-            use_dropout, n_blocks, gpu_ids, padding_type, n_downsampling=
-            n_downsampling)
+        self.model = SelectionGANModel(input_nc, output_nc, ngf, norm_layer, use_dropout, n_blocks, gpu_ids, padding_type, n_downsampling=n_downsampling)
 
     def forward(self, input):
         if self.gpu_ids and isinstance(input[0].data, torch.FloatTensor):
@@ -601,8 +542,7 @@ class SelectionGANNetwork(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0, tensor=torch.FloatTensor):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -617,18 +557,14 @@ class GANLoss(nn.Module):
     def get_target_tensor(self, input, target_is_real):
         target_tensor = None
         if target_is_real:
-            create_label = (self.real_label_var is None or self.
-                real_label_var.numel() != input.numel())
+            create_label = self.real_label_var is None or self.real_label_var.numel() != input.numel()
             if create_label:
-                self.real_label_var = self.Tensor(input.size()).fill_(self.
-                    real_label)
+                self.real_label_var = self.Tensor(input.size()).fill_(self.real_label)
             target_tensor = self.real_label_var
         else:
-            create_label = (self.fake_label_var is None or self.
-                fake_label_var.numel() != input.numel())
+            create_label = self.fake_label_var is None or self.fake_label_var.numel() != input.numel()
             if create_label:
-                self.fake_label_var = self.Tensor(input.size()).fill_(self.
-                    fake_label)
+                self.fake_label_var = self.Tensor(input.size()).fill_(self.fake_label)
             target_tensor = self.fake_label_var
         return target_tensor
 
@@ -641,11 +577,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -655,10 +589,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -669,10 +601,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -682,9 +612,7 @@ class ResnetBlock(nn.Module):
 
 class ResnetDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ngf=64, norm_layer=nn.BatchNorm2d,
-        use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect',
-        use_sigmoid=False, n_downsampling=2):
+    def __init__(self, input_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], padding_type='reflect', use_sigmoid=False, n_downsampling=2):
         assert n_blocks >= 0
         super(ResnetDiscriminator, self).__init__()
         self.input_nc = input_nc
@@ -694,36 +622,24 @@ class ResnetDiscriminator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         if n_downsampling <= 2:
             for i in range(n_downsampling):
                 mult = 2 ** i
-                model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size
-                    =3, stride=2, padding=1, bias=use_bias), norm_layer(ngf *
-                    mult * 2), nn.ReLU(True)]
+                model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         elif n_downsampling == 3:
             mult = 2 ** 0
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
             mult = 2 ** 1
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
             mult = 2 ** 2
-            model += [nn.Conv2d(ngf * mult, ngf * mult, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult),
-                nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult), nn.ReLU(True)]
         if n_downsampling <= 2:
             mult = 2 ** n_downsampling
         else:
             mult = 4
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         if use_sigmoid:
             model += [nn.Sigmoid()]
         self.model = nn.Sequential(*model)
@@ -737,8 +653,7 @@ class ResnetDiscriminator(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
         super(GANLoss, self).__init__()
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
@@ -761,8 +676,7 @@ class GANLoss(nn.Module):
 
 class ResnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
         assert n_blocks >= 0
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -772,25 +686,17 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1, bias=
-                use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
         model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
@@ -804,11 +710,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -818,10 +722,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -832,10 +734,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -845,24 +745,15 @@ class ResnetBlock(nn.Module):
 
 class UnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=
-        nn.BatchNorm2d, use_dropout=False):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
         super(UnetGenerator, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_dropout=use_dropout)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)
         self.model = unet_block
 
     def forward(self, input):
@@ -874,43 +765,32 @@ class UnetGenerator_a(nn.Module):
 
     def __init__(self, input_nc, output_nc):
         super(UnetGenerator_a, self).__init__()
-        self.deconvolution_1 = torch.nn.ConvTranspose2d(136, 104,
-            kernel_size=2, stride=2)
+        self.deconvolution_1 = torch.nn.ConvTranspose2d(136, 104, kernel_size=2, stride=2)
         self.pool1 = nn.AvgPool2d(kernel_size=(1, 1))
         self.pool2 = nn.AvgPool2d(kernel_size=(4, 4))
         self.pool3 = nn.AvgPool2d(kernel_size=(9, 9))
-        self.model_attention = nn.Conv2d(input_nc, output_nc, kernel_size=1,
-            stride=1, padding=0, bias=nn.InstanceNorm2d)
-        self.model_image = nn.Conv2d(input_nc, output_nc * 3, kernel_size=3,
-            stride=1, padding=1, bias=nn.InstanceNorm2d)
-        self.conv330 = nn.Conv2d(330, 110, kernel_size=3, stride=1, padding
-            =1, bias=nn.InstanceNorm2d)
-        self.conv440 = nn.Conv2d(440, 110, kernel_size=3, stride=1, padding
-            =1, bias=nn.InstanceNorm2d)
-        self.convolution_for_attention = torch.nn.Conv2d(10, 1, 1, stride=1,
-            padding=0)
+        self.model_attention = nn.Conv2d(input_nc, output_nc, kernel_size=1, stride=1, padding=0, bias=nn.InstanceNorm2d)
+        self.model_image = nn.Conv2d(input_nc, output_nc * 3, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.conv330 = nn.Conv2d(330, 110, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.conv440 = nn.Conv2d(440, 110, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.convolution_for_attention = torch.nn.Conv2d(10, 1, 1, stride=1, padding=0)
         self.dropout = nn.Dropout(p=0.5)
         self.relu = nn.ReLU()
         self.tanh = torch.nn.Tanh()
 
     def forward(self, feature_combine, image_combine):
-        output_feature = self.relu(self.dropout(self.deconvolution_1(
-            feature_combine)))
+        output_feature = self.relu(self.dropout(self.deconvolution_1(feature_combine)))
         feature_image_combine = torch.cat((output_feature, image_combine), 1)
         pool_feature1 = self.pool1(feature_image_combine)
         pool_feature2 = self.pool2(feature_image_combine)
         pool_feature3 = self.pool3(feature_image_combine)
-        pool_feature1_up = F.upsample(input=pool_feature1, size=(256, 256),
-            mode='bilinear', align_corners=True)
-        pool_feature2_up = F.upsample(input=pool_feature2, size=(256, 256),
-            mode='bilinear', align_corners=True)
-        pool_feature3_up = F.upsample(input=pool_feature3, size=(256, 256),
-            mode='bilinear', align_corners=True)
+        pool_feature1_up = F.upsample(input=pool_feature1, size=(256, 256), mode='bilinear', align_corners=True)
+        pool_feature2_up = F.upsample(input=pool_feature2, size=(256, 256), mode='bilinear', align_corners=True)
+        pool_feature3_up = F.upsample(input=pool_feature3, size=(256, 256), mode='bilinear', align_corners=True)
         f1 = feature_image_combine * pool_feature1_up
         f2 = feature_image_combine * pool_feature2_up
         f3 = feature_image_combine * pool_feature3_up
-        feature_image_combine = torch.cat((f1, f2, f3,
-            feature_image_combine), 1)
+        feature_image_combine = torch.cat((f1, f2, f3, feature_image_combine), 1)
         feature_image_combine = self.conv440(feature_image_combine)
         attention = self.model_attention(feature_image_combine)
         image = self.model_image(feature_image_combine)
@@ -957,25 +837,17 @@ class UnetGenerator_a(nn.Module):
         output8 = image8 * attention8
         output9 = image9 * attention9
         output10 = image10 * attention10
-        output11 = (output1 + output2 + output3 + output4 + output5 +
-            output6 + output7 + output8 + output9 + output10)
+        output11 = output1 + output2 + output3 + output4 + output5 + output6 + output7 + output8 + output9 + output10
         sigmoid_ = torch.nn.Sigmoid()
         uncertainty = self.convolution_for_attention(attention)
         uncertainty = sigmoid_(uncertainty)
         uncertainty_map = uncertainty.repeat(1, 3, 1, 1)
-        return (image1, image2, image3, image4, image5, image6, image7,
-            image8, image9, image10, attention1_, attention2_, attention3_,
-            attention4_, attention5_, attention6_, attention7_, attention8_,
-            attention9_, attention10_, output1, output2, output3, output4,
-            output5, output6, output7, output8, output9, output10,
-            uncertainty_map, output11)
+        return image1, image2, image3, image4, image5, image6, image7, image8, image9, image10, attention1_, attention2_, attention3_, attention4_, attention5_, attention6_, attention7_, attention8_, attention9_, attention10_, output1, output2, output3, output4, output5, output6, output7, output8, output9, output10, uncertainty_map, output11
 
 
 class UnetSkipConnectionBlock(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None,
-        outermost=False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_dropout=False):
+    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False):
         super(UnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
         if type(norm_layer) == functools.partial:
@@ -984,15 +856,13 @@ class UnetSkipConnectionBlock(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         if input_nc is None:
             input_nc = outer_nc
-        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=1, bias=use_bias)
+        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         if outermost:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1)
             down = [downconv]
             self.down = nn.Sequential(*down)
             up = [upconv, nn.Tanh()]
@@ -1002,14 +872,12 @@ class UnetSkipConnectionBlock(nn.Module):
             self.use_dropout = use_dropout
             model = [submodule]
         elif innermost:
-            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4,
-                stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
             if use_dropout:
@@ -1034,9 +902,7 @@ class UnetSkipConnectionBlock(nn.Module):
 
 class UnetSkipConnectionBlock_a(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None,
-        outermost=False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_dropout=False):
+    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False):
         super(UnetSkipConnectionBlock_a, self).__init__()
         self.outermost = outermost
         if type(norm_layer) == functools.partial:
@@ -1045,27 +911,23 @@ class UnetSkipConnectionBlock_a(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         if input_nc is None:
             input_nc = outer_nc
-        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=1, bias=use_bias)
+        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         if outermost:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1)
             down = [downconv]
             up = [uprelu, upconv]
             model = down + [submodule] + up
         elif innermost:
-            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4,
-                stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
             if use_dropout:
@@ -1083,8 +945,7 @@ class UnetSkipConnectionBlock_a(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(NLayerDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -1092,23 +953,17 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -1119,18 +974,13 @@ class NLayerDiscriminator(nn.Module):
 
 class PixelDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d,
-        use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(PixelDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1,
-            padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2,
-            kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(
-            ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1,
-            kernel_size=1, stride=1, padding=0, bias=use_bias)]
+        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
         if use_sigmoid:
             self.net.append(nn.Sigmoid())
         self.net = nn.Sequential(*self.net)
@@ -1141,8 +991,7 @@ class PixelDiscriminator(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
         super(GANLoss, self).__init__()
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
@@ -1165,8 +1014,7 @@ class GANLoss(nn.Module):
 
 class ResnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
         assert n_blocks >= 0
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -1176,25 +1024,17 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                kernel_size=3, stride=2, padding=1, output_padding=1, bias=
-                use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
         model += [nn.ReflectionPad2d(3)]
         model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         model += [nn.Tanh()]
@@ -1208,11 +1048,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -1222,10 +1060,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -1236,10 +1072,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -1249,24 +1083,15 @@ class ResnetBlock(nn.Module):
 
 class UnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=
-        nn.BatchNorm2d, use_dropout=False):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
         super(UnetGenerator, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_dropout=use_dropout)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)
         self.model = unet_block
 
     def forward(self, input):
@@ -1278,44 +1103,33 @@ class UnetGenerator_a(nn.Module):
 
     def __init__(self, input_nc, output_nc):
         super(UnetGenerator_a, self).__init__()
-        self.deconvolution_1 = torch.nn.ConvTranspose2d(136, 104,
-            kernel_size=2, stride=2)
+        self.deconvolution_1 = torch.nn.ConvTranspose2d(136, 104, kernel_size=2, stride=2)
         self.pool1 = nn.AvgPool2d(kernel_size=(1, 1))
         self.pool2 = nn.AvgPool2d(kernel_size=(4, 4))
         self.pool3 = nn.AvgPool2d(kernel_size=(9, 9))
-        self.model_attention = nn.Conv2d(input_nc, output_nc, kernel_size=1,
-            stride=1, padding=0, bias=nn.InstanceNorm2d)
-        self.model_image = nn.Conv2d(input_nc, output_nc * 3, kernel_size=3,
-            stride=1, padding=1, bias=nn.InstanceNorm2d)
-        self.conv330 = nn.Conv2d(330, 110, kernel_size=3, stride=1, padding
-            =1, bias=nn.InstanceNorm2d)
-        self.conv440 = nn.Conv2d(440, 110, kernel_size=3, stride=1, padding
-            =1, bias=nn.InstanceNorm2d)
-        self.convolution_for_attention = torch.nn.Conv2d(10, 1, 1, stride=1,
-            padding=0)
+        self.model_attention = nn.Conv2d(input_nc, output_nc, kernel_size=1, stride=1, padding=0, bias=nn.InstanceNorm2d)
+        self.model_image = nn.Conv2d(input_nc, output_nc * 3, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.conv330 = nn.Conv2d(330, 110, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.conv440 = nn.Conv2d(440, 110, kernel_size=3, stride=1, padding=1, bias=nn.InstanceNorm2d)
+        self.convolution_for_attention = torch.nn.Conv2d(10, 1, 1, stride=1, padding=0)
         self.sc = CAM_Module(440)
         self.dropout = nn.Dropout(p=0.5)
         self.relu = nn.ReLU()
         self.tanh = torch.nn.Tanh()
 
     def forward(self, feature_combine, image_combine):
-        output_feature = self.relu(self.dropout(self.deconvolution_1(
-            feature_combine)))
+        output_feature = self.relu(self.dropout(self.deconvolution_1(feature_combine)))
         feature_image_combine = torch.cat((output_feature, image_combine), 1)
         pool_feature1 = self.pool1(feature_image_combine)
         pool_feature2 = self.pool2(feature_image_combine)
         pool_feature3 = self.pool3(feature_image_combine)
-        pool_feature1_up = F.upsample(input=pool_feature1, size=(256, 256),
-            mode='bilinear', align_corners=True)
-        pool_feature2_up = F.upsample(input=pool_feature2, size=(256, 256),
-            mode='bilinear', align_corners=True)
-        pool_feature3_up = F.upsample(input=pool_feature3, size=(256, 256),
-            mode='bilinear', align_corners=True)
+        pool_feature1_up = F.upsample(input=pool_feature1, size=(256, 256), mode='bilinear', align_corners=True)
+        pool_feature2_up = F.upsample(input=pool_feature2, size=(256, 256), mode='bilinear', align_corners=True)
+        pool_feature3_up = F.upsample(input=pool_feature3, size=(256, 256), mode='bilinear', align_corners=True)
         f1 = feature_image_combine * pool_feature1_up
         f2 = feature_image_combine * pool_feature2_up
         f3 = feature_image_combine * pool_feature3_up
-        feature_image_combine = torch.cat((f1, f2, f3,
-            feature_image_combine), 1)
+        feature_image_combine = torch.cat((f1, f2, f3, feature_image_combine), 1)
         feature_image_combine = self.sc(feature_image_combine)
         feature_image_combine = self.conv440(feature_image_combine)
         attention = self.model_attention(feature_image_combine)
@@ -1363,25 +1177,17 @@ class UnetGenerator_a(nn.Module):
         output8 = image8 * attention8
         output9 = image9 * attention9
         output10 = image10 * attention10
-        output11 = (output1 + output2 + output3 + output4 + output5 +
-            output6 + output7 + output8 + output9 + output10)
+        output11 = output1 + output2 + output3 + output4 + output5 + output6 + output7 + output8 + output9 + output10
         sigmoid_ = torch.nn.Sigmoid()
         uncertainty = self.convolution_for_attention(attention)
         uncertainty = sigmoid_(uncertainty)
         uncertainty_map = uncertainty.repeat(1, 3, 1, 1)
-        return (image1, image2, image3, image4, image5, image6, image7,
-            image8, image9, image10, attention1_, attention2_, attention3_,
-            attention4_, attention5_, attention6_, attention7_, attention8_,
-            attention9_, attention10_, output1, output2, output3, output4,
-            output5, output6, output7, output8, output9, output10,
-            uncertainty_map, output11)
+        return image1, image2, image3, image4, image5, image6, image7, image8, image9, image10, attention1_, attention2_, attention3_, attention4_, attention5_, attention6_, attention7_, attention8_, attention9_, attention10_, output1, output2, output3, output4, output5, output6, output7, output8, output9, output10, uncertainty_map, output11
 
 
 class UnetSkipConnectionBlock(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None,
-        outermost=False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_dropout=False):
+    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False):
         super(UnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
         if type(norm_layer) == functools.partial:
@@ -1390,15 +1196,13 @@ class UnetSkipConnectionBlock(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         if input_nc is None:
             input_nc = outer_nc
-        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=1, bias=use_bias)
+        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         if outermost:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1)
             down = [downconv]
             self.down = nn.Sequential(*down)
             up = [upconv, nn.Tanh()]
@@ -1408,14 +1212,12 @@ class UnetSkipConnectionBlock(nn.Module):
             self.use_dropout = use_dropout
             model = [submodule]
         elif innermost:
-            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4,
-                stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
             if use_dropout:
@@ -1440,9 +1242,7 @@ class UnetSkipConnectionBlock(nn.Module):
 
 class UnetSkipConnectionBlock_a(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None,
-        outermost=False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_dropout=False):
+    def __init__(self, outer_nc, inner_nc, input_nc=None, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False):
         super(UnetSkipConnectionBlock_a, self).__init__()
         self.outermost = outermost
         if type(norm_layer) == functools.partial:
@@ -1451,27 +1251,23 @@ class UnetSkipConnectionBlock_a(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         if input_nc is None:
             input_nc = outer_nc
-        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-            padding=1, bias=use_bias)
+        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         if outermost:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1)
             down = [downconv]
             up = [uprelu, upconv]
             model = down + [submodule] + up
         elif innermost:
-            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4,
-                stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size
-                =4, stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
             if use_dropout:
@@ -1489,8 +1285,7 @@ class UnetSkipConnectionBlock_a(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(NLayerDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -1498,23 +1293,17 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -1525,18 +1314,13 @@ class NLayerDiscriminator(nn.Module):
 
 class PixelDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d,
-        use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(PixelDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1,
-            padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2,
-            kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(
-            ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1,
-            kernel_size=1, stride=1, padding=0, bias=use_bias)]
+        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
         if use_sigmoid:
             self.net.append(nn.Sigmoid())
         self.net = nn.Sequential(*self.net)
@@ -1559,8 +1343,7 @@ class CAM_Module(Module):
         query = x.view(m_batchsize, C, -1)
         key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
         energy = torch.bmm(query, key)
-        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy
-            ) - energy
+        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
         attention = self.softmax(energy_new)
         value = x.view(m_batchsize, C, -1)
         out = torch.bmm(attention, value)
@@ -1610,14 +1393,10 @@ class SPADEResnetBlock(nn.Module):
 
 class ResnetBlock(nn.Module):
 
-    def __init__(self, dim, norm_layer, activation=nn.ReLU(False),
-        kernel_size=3):
+    def __init__(self, dim, norm_layer, activation=nn.ReLU(False), kernel_size=3):
         super().__init__()
         pw = (kernel_size - 1) // 2
-        self.conv_block = nn.Sequential(nn.ReflectionPad2d(pw), norm_layer(
-            nn.Conv2d(dim, dim, kernel_size=kernel_size)), activation, nn.
-            ReflectionPad2d(pw), norm_layer(nn.Conv2d(dim, dim, kernel_size
-            =kernel_size)))
+        self.conv_block = nn.Sequential(nn.ReflectionPad2d(pw), norm_layer(nn.Conv2d(dim, dim, kernel_size=kernel_size)), activation, nn.ReflectionPad2d(pw), norm_layer(nn.Conv2d(dim, dim, kernel_size=kernel_size)))
 
     def forward(self, x):
         y = self.conv_block(x)
@@ -1629,8 +1408,7 @@ class VGG19(torch.nn.Module):
 
     def __init__(self, requires_grad=False):
         super().__init__()
-        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True
-            ).features
+        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -1686,8 +1464,7 @@ class BaseNetwork(nn.Module):
                     init.normal_(m.weight.data, 1.0, gain)
                 if hasattr(m, 'bias') and m.bias is not None:
                     init.constant_(m.bias.data, 0.0)
-            elif hasattr(m, 'weight') and (classname.find('Conv') != -1 or 
-                classname.find('Linear') != -1):
+            elif hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
                 if init_type == 'normal':
                     init.normal_(m.weight.data, 0.0, gain)
                 elif init_type == 'xavier':
@@ -1701,9 +1478,7 @@ class BaseNetwork(nn.Module):
                 elif init_type == 'none':
                     m.reset_parameters()
                 else:
-                    raise NotImplementedError(
-                        'initialization method [%s] is not implemented' %
-                        init_type)
+                    raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
                 if hasattr(m, 'bias') and m.bias is not None:
                     init.constant_(m.bias.data, 0.0)
         self.apply(init_func)
@@ -1714,8 +1489,7 @@ class BaseNetwork(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=
-        0.0, tensor=torch.FloatTensor, opt=None):
+    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0, tensor=torch.FloatTensor, opt=None):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -1785,8 +1559,7 @@ class GANLoss(nn.Module):
             for pred_i in input:
                 if isinstance(pred_i, list):
                     pred_i = pred_i[-1]
-                loss_tensor = self.loss(pred_i, target_is_real,
-                    for_discriminator)
+                loss_tensor = self.loss(pred_i, target_is_real, for_discriminator)
                 bs = 1 if len(loss_tensor.size()) == 0 else loss_tensor.size(0)
                 new_loss = torch.mean(loss_tensor.view(bs, -1), dim=1)
                 loss += new_loss
@@ -1807,8 +1580,7 @@ class VGGLoss(nn.Module):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
 
@@ -1829,20 +1601,15 @@ class SPADE(nn.Module):
         if param_free_norm_type == 'instance':
             self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'syncbatch':
-            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=
-                False)
+            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'batch':
             self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
         else:
-            raise ValueError(
-                '%s is not a recognized param-free norm type in SPADE' %
-                param_free_norm_type)
+            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
         nhidden = 128
         pw = ks // 2
-        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden,
-            kernel_size=ks, padding=pw), nn.ReLU())
-        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw
-            )
+        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
+        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
         self.mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
 
     def forward(self, x, segmap):
@@ -1865,14 +1632,11 @@ class Pix2PixModel(torch.nn.Module):
     def __init__(self, opt):
         super().__init__()
         self.opt = opt
-        self.FloatTensor = torch.FloatTensor if self.use_gpu(
-            ) else torch.FloatTensor
-        self.ByteTensor = torch.ByteTensor if self.use_gpu(
-            ) else torch.ByteTensor
+        self.FloatTensor = torch.FloatTensor if self.use_gpu() else torch.FloatTensor
+        self.ByteTensor = torch.ByteTensor if self.use_gpu() else torch.ByteTensor
         self.netG, self.netD, self.netE = self.initialize_networks(opt)
         if opt.isTrain:
-            self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.
-                FloatTensor, opt=self.opt)
+            self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.FloatTensor, opt=self.opt)
             self.criterionFeat = torch.nn.L1Loss()
             self.criterionL1 = torch.nn.L1Loss()
             if not opt.no_vgg_loss:
@@ -1883,12 +1647,10 @@ class Pix2PixModel(torch.nn.Module):
     def forward(self, data, mode):
         input_semantics, real_image = self.preprocess_input(data)
         if mode == 'generator':
-            g_loss, generated = self.compute_generator_loss(input_semantics,
-                real_image)
+            g_loss, generated = self.compute_generator_loss(input_semantics, real_image)
             return g_loss, generated
         elif mode == 'discriminator':
-            d_loss = self.compute_discriminator_loss(input_semantics,
-                real_image)
+            d_loss = self.compute_discriminator_loss(input_semantics, real_image)
             return d_loss
         elif mode == 'encode_only':
             z, mu, logvar = self.encode_z(real_image)
@@ -1941,41 +1703,33 @@ class Pix2PixModel(torch.nn.Module):
             data['image'] = data['image']
         label_map = data['label']
         bs, _, h, w = label_map.size()
-        nc = (self.opt.label_nc + 1 if self.opt.contain_dontcare_label else
-            self.opt.label_nc)
+        nc = self.opt.label_nc + 1 if self.opt.contain_dontcare_label else self.opt.label_nc
         input_label = self.FloatTensor(bs, nc, h, w).zero_()
         input_semantics = input_label.scatter_(1, label_map, 1.0)
         if not self.opt.no_instance:
             inst_map = data['instance']
             instance_edge_map = self.get_edges(inst_map)
-            input_semantics = torch.cat((input_semantics, instance_edge_map
-                ), dim=1)
+            input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
         return input_semantics, data['image']
 
     def compute_generator_loss(self, input_semantics, real_image):
         G_losses = {}
-        fake_image, KLD_loss = self.generate_fake(input_semantics,
-            real_image, compute_kld_loss=self.opt.use_vae)
+        fake_image, KLD_loss = self.generate_fake(input_semantics, real_image, compute_kld_loss=self.opt.use_vae)
         if self.opt.use_vae:
             G_losses['KLD'] = KLD_loss
-        pred_fake, pred_real = self.discriminate(input_semantics,
-            fake_image, real_image)
-        G_losses['GAN'] = self.criterionGAN(pred_fake, True,
-            for_discriminator=False)
+        pred_fake, pred_real = self.discriminate(input_semantics, fake_image, real_image)
+        G_losses['GAN'] = self.criterionGAN(pred_fake, True, for_discriminator=False)
         if not self.opt.no_ganFeat_loss:
             num_D = len(pred_fake)
             GAN_Feat_loss = self.FloatTensor(1).fill_(0)
             for i in range(num_D):
                 num_intermediate_outputs = len(pred_fake[i]) - 1
                 for j in range(num_intermediate_outputs):
-                    unweighted_loss = self.criterionFeat(pred_fake[i][j],
-                        pred_real[i][j].detach())
-                    GAN_Feat_loss += (unweighted_loss * self.opt.
-                        lambda_feat / num_D)
+                    unweighted_loss = self.criterionFeat(pred_fake[i][j], pred_real[i][j].detach())
+                    GAN_Feat_loss += unweighted_loss * self.opt.lambda_feat / num_D
             G_losses['GAN_Feat'] = GAN_Feat_loss
         if not self.opt.no_vgg_loss:
-            G_losses['VGG'] = self.criterionVGG(fake_image, real_image
-                ) * self.opt.lambda_vgg
+            G_losses['VGG'] = self.criterionVGG(fake_image, real_image) * self.opt.lambda_vgg
         if not self.opt.no_l1_loss:
             G_losses['L1'] = self.criterionL1(fake_image, real_image) * 10
         return G_losses, fake_image
@@ -1986,12 +1740,9 @@ class Pix2PixModel(torch.nn.Module):
             fake_image, _ = self.generate_fake(input_semantics, real_image)
             fake_image = fake_image.detach()
             fake_image.requires_grad_()
-        pred_fake, pred_real = self.discriminate(input_semantics,
-            fake_image, real_image)
-        D_losses['D_Fake'] = self.criterionGAN(pred_fake, False,
-            for_discriminator=True)
-        D_losses['D_real'] = self.criterionGAN(pred_real, True,
-            for_discriminator=True)
+        pred_fake, pred_real = self.discriminate(input_semantics, fake_image, real_image)
+        D_losses['D_Fake'] = self.criterionGAN(pred_fake, False, for_discriminator=True)
+        D_losses['D_real'] = self.criterionGAN(pred_real, True, for_discriminator=True)
         return D_losses
 
     def encode_z(self, real_image):
@@ -1999,8 +1750,7 @@ class Pix2PixModel(torch.nn.Module):
         z = self.reparameterize(mu, logvar)
         return z, mu, logvar
 
-    def generate_fake(self, input_semantics, real_image, compute_kld_loss=False
-        ):
+    def generate_fake(self, input_semantics, real_image, compute_kld_loss=False):
         z = None
         KLD_loss = None
         if self.opt.use_vae:
@@ -2033,14 +1783,10 @@ class Pix2PixModel(torch.nn.Module):
 
     def get_edges(self, t):
         edge = self.ByteTensor(t.size()).zero_()
-        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :,
-            :, :-1])
-        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :,
-            :, :-1])
-        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :,
-            :-1, :])
-        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :,
-            :-1, :])
+        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
         return edge.float()
 
     def reparameterize(self, mu, logvar):
@@ -2056,38 +1802,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseModel,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     True),
+    (CAM_Module,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (KLDLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1_plus_perceptualLoss,
+     lambda: ([], {'lambda_L1': 4, 'lambda_perceptual': 4, 'perceptual_layers': 1, 'gpu_ids': False, 'percep_is_l1': 4}),
+     lambda: ([torch.rand([4, 3, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (PixelDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SSIM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UnetGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4, 'num_downs': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (VGG19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (VGGLoss,
+     lambda: ([], {'gpu_ids': False}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_Ha0Tang_SelectionGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BaseModel(*[], **{}), [], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CAM_Module(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(KLDLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(L1_plus_perceptualLoss(*[], **{'lambda_L1': 4, 'lambda_perceptual': 4, 'perceptual_layers': 1, 'gpu_ids': False, 'percep_is_l1': 4}), [torch.rand([4, 3, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(VGGLoss(*[], **{'gpu_ids': False}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 

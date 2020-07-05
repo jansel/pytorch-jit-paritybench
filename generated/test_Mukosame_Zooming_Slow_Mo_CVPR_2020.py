@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -120,17 +121,13 @@ import re
 class _DCNv2(Function):
 
     @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias, stride, padding,
-        dilation, deformable_groups):
+    def forward(ctx, input, offset, mask, weight, bias, stride, padding, dilation, deformable_groups):
         ctx.stride = _pair(stride)
         ctx.padding = _pair(padding)
         ctx.dilation = _pair(dilation)
         ctx.kernel_size = _pair(weight.shape[2:4])
         ctx.deformable_groups = deformable_groups
-        output = _backend.dcn_v2_forward(input, weight, bias, offset, mask,
-            ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.
-            stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx
-            .dilation[1], ctx.deformable_groups)
+        output = _backend.dcn_v2_forward(input, weight, bias, offset, mask, ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx.dilation[1], ctx.deformable_groups)
         ctx.save_for_backward(input, offset, mask, weight, bias)
         return output
 
@@ -138,13 +135,8 @@ class _DCNv2(Function):
     @once_differentiable
     def backward(ctx, grad_output):
         input, offset, mask, weight, bias = ctx.saved_tensors
-        grad_input, grad_offset, grad_mask, grad_weight, grad_bias = (_backend
-            .dcn_v2_backward(input, weight, bias, offset, mask, grad_output,
-            ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.
-            stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx
-            .dilation[1], ctx.deformable_groups))
-        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
-            None, None, None, None)
+        grad_input, grad_offset, grad_mask, grad_weight, grad_bias = _backend.dcn_v2_backward(input, weight, bias, offset, mask, grad_output, ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx.dilation[1], ctx.deformable_groups)
+        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias, None, None, None, None
 
 
 dcn_v2_conv = _DCNv2.apply
@@ -152,8 +144,7 @@ dcn_v2_conv = _DCNv2.apply
 
 class DCNv2(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, deformable_groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
         super(DCNv2, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -162,8 +153,7 @@ class DCNv2(nn.Module):
         self.padding = _pair(padding)
         self.dilation = _pair(dilation)
         self.deformable_groups = deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels,
-            *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
         self.bias = nn.Parameter(torch.Tensor(out_channels))
         self.reset_parameters()
 
@@ -176,20 +166,15 @@ class DCNv2(nn.Module):
         self.bias.data.zero_()
 
     def forward(self, input, offset, mask):
-        assert 2 * self.deformable_groups * self.kernel_size[0
-            ] * self.kernel_size[1] == offset.shape[1]
-        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[
-            1] == mask.shape[1]
-        return dcn_v2_conv(input, offset, mask, self.weight, self.bias,
-            self.stride, self.padding, self.dilation, self.deformable_groups)
+        assert 2 * self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == offset.shape[1]
+        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == mask.shape[1]
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
 
 
 class _DCNv2Pooling(Function):
 
     @staticmethod
-    def forward(ctx, input, rois, offset, spatial_scale, pooled_size,
-        output_dim, no_trans, group_size=1, part_size=None, sample_per_part
-        =4, trans_std=0.0):
+    def forward(ctx, input, rois, offset, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         ctx.spatial_scale = spatial_scale
         ctx.no_trans = int(no_trans)
         ctx.output_dim = output_dim
@@ -198,10 +183,7 @@ class _DCNv2Pooling(Function):
         ctx.part_size = pooled_size if part_size is None else part_size
         ctx.sample_per_part = sample_per_part
         ctx.trans_std = trans_std
-        output, output_count = _backend.dcn_v2_psroi_pooling_forward(input,
-            rois, offset, ctx.no_trans, ctx.spatial_scale, ctx.output_dim,
-            ctx.group_size, ctx.pooled_size, ctx.part_size, ctx.
-            sample_per_part, ctx.trans_std)
+        output, output_count = _backend.dcn_v2_psroi_pooling_forward(input, rois, offset, ctx.no_trans, ctx.spatial_scale, ctx.output_dim, ctx.group_size, ctx.pooled_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
         ctx.save_for_backward(input, rois, offset, output_count)
         return output
 
@@ -209,12 +191,8 @@ class _DCNv2Pooling(Function):
     @once_differentiable
     def backward(ctx, grad_output):
         input, rois, offset, output_count = ctx.saved_tensors
-        grad_input, grad_offset = _backend.dcn_v2_psroi_pooling_backward(
-            grad_output, input, rois, offset, output_count, ctx.no_trans,
-            ctx.spatial_scale, ctx.output_dim, ctx.group_size, ctx.
-            pooled_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
-        return (grad_input, None, grad_offset, None, None, None, None, None,
-            None, None, None)
+        grad_input, grad_offset = _backend.dcn_v2_psroi_pooling_backward(grad_output, input, rois, offset, output_count, ctx.no_trans, ctx.spatial_scale, ctx.output_dim, ctx.group_size, ctx.pooled_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
+        return grad_input, None, grad_offset, None, None, None, None, None, None, None, None
 
 
 dcn_v2_pooling = _DCNv2Pooling.apply
@@ -222,8 +200,7 @@ dcn_v2_pooling = _DCNv2Pooling.apply
 
 class DCNv2Pooling(nn.Module):
 
-    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans,
-        group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
+    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         super(DCNv2Pooling, self).__init__()
         self.spatial_scale = spatial_scale
         self.pooled_size = pooled_size
@@ -238,9 +215,7 @@ class DCNv2Pooling(nn.Module):
         assert input.shape[1] == self.output_dim
         if self.no_trans:
             offset = input.new()
-        return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self
-            .pooled_size, self.output_dim, self.no_trans, self.group_size,
-            self.part_size, self.sample_per_part, self.trans_std)
+        return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
 logger = logging.getLogger('base')
@@ -249,15 +224,10 @@ logger = logging.getLogger('base')
 class DCN_sep(DCNv2):
     """Use other features to generate offsets and masks"""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, deformable_groups=1):
-        super(DCN_sep, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, deformable_groups)
-        channels_ = self.deformable_groups * 3 * self.kernel_size[0
-            ] * self.kernel_size[1]
-        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_,
-            kernel_size=self.kernel_size, stride=self.stride, padding=self.
-            padding, bias=True)
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
+        super(DCN_sep, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, deformable_groups)
+        channels_ = self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1]
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=True)
         self.init_offset()
 
     def init_offset(self):
@@ -272,11 +242,9 @@ class DCN_sep(DCNv2):
         offset = torch.cat((o1, o2), dim=1)
         offset_mean = torch.mean(torch.abs(offset))
         if offset_mean > 100:
-            logger.warning('Offset mean is {}, larger than 100.'.format(
-                offset_mean))
+            logger.warning('Offset mean is {}, larger than 100.'.format(offset_mean))
         mask = torch.sigmoid(mask)
-        return dcn_v2_conv(input, offset, mask, self.weight, self.bias,
-            self.stride, self.padding, self.dilation, self.deformable_groups)
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
 
 
 class PCD_Align(nn.Module):
@@ -288,35 +256,29 @@ class PCD_Align(nn.Module):
         super(PCD_Align, self).__init__()
         self.L3_offset_conv1_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L3_offset_conv2_1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L3_dcnpack_1 = DCN_sep(nf, nf, 3, stride=1, padding=1,
-            dilation=1, deformable_groups=groups)
+        self.L3_dcnpack_1 = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
         self.L2_offset_conv1_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L2_offset_conv2_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L2_offset_conv3_1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L2_dcnpack_1 = DCN_sep(nf, nf, 3, stride=1, padding=1,
-            dilation=1, deformable_groups=groups)
+        self.L2_dcnpack_1 = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
         self.L2_fea_conv_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L1_offset_conv1_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L1_offset_conv2_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L1_offset_conv3_1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L1_dcnpack_1 = DCN_sep(nf, nf, 3, stride=1, padding=1,
-            dilation=1, deformable_groups=groups)
+        self.L1_dcnpack_1 = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
         self.L1_fea_conv_1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L3_offset_conv1_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L3_offset_conv2_2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L3_dcnpack_2 = DCN_sep(nf, nf, 3, stride=1, padding=1,
-            dilation=1, deformable_groups=groups)
+        self.L3_dcnpack_2 = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
         self.L2_offset_conv1_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L2_offset_conv2_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L2_offset_conv3_2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L2_dcnpack_2 = DCN_sep(nf, nf, 3, stride=1, padding=1,
-            dilation=1, deformable_groups=groups)
+        self.L2_dcnpack_2 = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
         self.L2_fea_conv_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L1_offset_conv1_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L1_offset_conv2_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.L1_offset_conv3_2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L1_dcnpack_2 = DCN_sep(nf, nf, 3, stride=1, padding=1,
-            dilation=1, deformable_groups=groups)
+        self.L1_dcnpack_2 = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
         self.L1_fea_conv_2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
@@ -332,26 +294,19 @@ class PCD_Align(nn.Module):
         L3_fea = self.lrelu(self.L3_dcnpack_1(fea1[2], L3_offset))
         L2_offset = torch.cat([fea1[1], fea2[1]], dim=1)
         L2_offset = self.lrelu(self.L2_offset_conv1_1(L2_offset))
-        L3_offset = F.interpolate(L3_offset, scale_factor=2, mode=
-            'bilinear', align_corners=False)
-        L2_offset = self.lrelu(self.L2_offset_conv2_1(torch.cat([L2_offset,
-            L3_offset * 2], dim=1)))
+        L3_offset = F.interpolate(L3_offset, scale_factor=2, mode='bilinear', align_corners=False)
+        L2_offset = self.lrelu(self.L2_offset_conv2_1(torch.cat([L2_offset, L3_offset * 2], dim=1)))
         L2_offset = self.lrelu(self.L2_offset_conv3_1(L2_offset))
         L2_fea = self.L2_dcnpack_1(fea1[1], L2_offset)
-        L3_fea = F.interpolate(L3_fea, scale_factor=2, mode='bilinear',
-            align_corners=False)
-        L2_fea = self.lrelu(self.L2_fea_conv_1(torch.cat([L2_fea, L3_fea],
-            dim=1)))
+        L3_fea = F.interpolate(L3_fea, scale_factor=2, mode='bilinear', align_corners=False)
+        L2_fea = self.lrelu(self.L2_fea_conv_1(torch.cat([L2_fea, L3_fea], dim=1)))
         L1_offset = torch.cat([fea1[0], fea2[0]], dim=1)
         L1_offset = self.lrelu(self.L1_offset_conv1_1(L1_offset))
-        L2_offset = F.interpolate(L2_offset, scale_factor=2, mode=
-            'bilinear', align_corners=False)
-        L1_offset = self.lrelu(self.L1_offset_conv2_1(torch.cat([L1_offset,
-            L2_offset * 2], dim=1)))
+        L2_offset = F.interpolate(L2_offset, scale_factor=2, mode='bilinear', align_corners=False)
+        L1_offset = self.lrelu(self.L1_offset_conv2_1(torch.cat([L1_offset, L2_offset * 2], dim=1)))
         L1_offset = self.lrelu(self.L1_offset_conv3_1(L1_offset))
         L1_fea = self.L1_dcnpack_1(fea1[0], L1_offset)
-        L2_fea = F.interpolate(L2_fea, scale_factor=2, mode='bilinear',
-            align_corners=False)
+        L2_fea = F.interpolate(L2_fea, scale_factor=2, mode='bilinear', align_corners=False)
         L1_fea = self.L1_fea_conv_1(torch.cat([L1_fea, L2_fea], dim=1))
         y.append(L1_fea)
         L3_offset = torch.cat([fea2[2], fea1[2]], dim=1)
@@ -360,26 +315,19 @@ class PCD_Align(nn.Module):
         L3_fea = self.lrelu(self.L3_dcnpack_2(fea2[2], L3_offset))
         L2_offset = torch.cat([fea2[1], fea1[1]], dim=1)
         L2_offset = self.lrelu(self.L2_offset_conv1_2(L2_offset))
-        L3_offset = F.interpolate(L3_offset, scale_factor=2, mode=
-            'bilinear', align_corners=False)
-        L2_offset = self.lrelu(self.L2_offset_conv2_2(torch.cat([L2_offset,
-            L3_offset * 2], dim=1)))
+        L3_offset = F.interpolate(L3_offset, scale_factor=2, mode='bilinear', align_corners=False)
+        L2_offset = self.lrelu(self.L2_offset_conv2_2(torch.cat([L2_offset, L3_offset * 2], dim=1)))
         L2_offset = self.lrelu(self.L2_offset_conv3_2(L2_offset))
         L2_fea = self.L2_dcnpack_2(fea2[1], L2_offset)
-        L3_fea = F.interpolate(L3_fea, scale_factor=2, mode='bilinear',
-            align_corners=False)
-        L2_fea = self.lrelu(self.L2_fea_conv_2(torch.cat([L2_fea, L3_fea],
-            dim=1)))
+        L3_fea = F.interpolate(L3_fea, scale_factor=2, mode='bilinear', align_corners=False)
+        L2_fea = self.lrelu(self.L2_fea_conv_2(torch.cat([L2_fea, L3_fea], dim=1)))
         L1_offset = torch.cat([fea2[0], fea1[0]], dim=1)
         L1_offset = self.lrelu(self.L1_offset_conv1_2(L1_offset))
-        L2_offset = F.interpolate(L2_offset, scale_factor=2, mode=
-            'bilinear', align_corners=False)
-        L1_offset = self.lrelu(self.L1_offset_conv2_2(torch.cat([L1_offset,
-            L2_offset * 2], dim=1)))
+        L2_offset = F.interpolate(L2_offset, scale_factor=2, mode='bilinear', align_corners=False)
+        L1_offset = self.lrelu(self.L1_offset_conv2_2(torch.cat([L1_offset, L2_offset * 2], dim=1)))
         L1_offset = self.lrelu(self.L1_offset_conv3_2(L1_offset))
         L1_fea = self.L1_dcnpack_2(fea2[0], L1_offset)
-        L2_fea = F.interpolate(L2_fea, scale_factor=2, mode='bilinear',
-            align_corners=False)
+        L2_fea = F.interpolate(L2_fea, scale_factor=2, mode='bilinear', align_corners=False)
         L1_fea = self.L1_fea_conv_2(torch.cat([L1_fea, L2_fea], dim=1))
         y.append(L1_fea)
         y = torch.cat(y, dim=1)
@@ -409,10 +357,8 @@ class Easy_PCD(nn.Module):
         L1_fea = L1_fea.view(B, N, -1, H, W)
         L2_fea = L2_fea.view(B, N, -1, H // 2, W // 2)
         L3_fea = L3_fea.view(B, N, -1, H // 4, W // 4)
-        fea1 = [L1_fea[:, (0), :, :, :].clone(), L2_fea[:, (0), :, :, :].
-            clone(), L3_fea[:, (0), :, :, :].clone()]
-        fea2 = [L1_fea[:, (1), :, :, :].clone(), L2_fea[:, (1), :, :, :].
-            clone(), L3_fea[:, (1), :, :, :].clone()]
+        fea1 = [L1_fea[:, (0), :, :, :].clone(), L2_fea[:, (0), :, :, :].clone(), L3_fea[:, (0), :, :, :].clone()]
+        fea2 = [L1_fea[:, (1), :, :, :].clone(), L2_fea[:, (1), :, :, :].clone(), L3_fea[:, (1), :, :, :].clone()]
         aligned_fea = self.pcd_align(fea1, fea2)
         fusion_fea = self.fusion(aligned_fea)
         return fusion_fea
@@ -420,15 +366,9 @@ class Easy_PCD(nn.Module):
 
 class BiDeformableConvLSTM(nn.Module):
 
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size,
-        num_layers, front_RBs, groups, batch_first=False, bias=True,
-        return_all_layers=False):
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, front_RBs, groups, batch_first=False, bias=True, return_all_layers=False):
         super(BiDeformableConvLSTM, self).__init__()
-        self.forward_net = DeformableConvLSTM(input_size=input_size,
-            input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=
-            kernel_size, num_layers=num_layers, front_RBs=front_RBs, groups
-            =groups, batch_first=batch_first, bias=bias, return_all_layers=
-            return_all_layers)
+        self.forward_net = DeformableConvLSTM(input_size=input_size, input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, front_RBs=front_RBs, groups=groups, batch_first=batch_first, bias=bias, return_all_layers=return_all_layers)
         self.conv_1x1 = nn.Conv2d(2 * input_dim, input_dim, 1, 1, bias=True)
 
     def forward(self, x):
@@ -457,20 +397,16 @@ class LunaTokis(nn.Module):
         hidden_dim = []
         for i in range(n_layers):
             hidden_dim.append(nf)
-        ResidualBlock_noBN_f = functools.partial(mutil.ResidualBlock_noBN,
-            nf=nf)
+        ResidualBlock_noBN_f = functools.partial(mutil.ResidualBlock_noBN, nf=nf)
         self.conv_first = nn.Conv2d(3, nf, 3, 1, 1, bias=True)
-        self.feature_extraction = mutil.make_layer(ResidualBlock_noBN_f,
-            front_RBs)
+        self.feature_extraction = mutil.make_layer(ResidualBlock_noBN_f, front_RBs)
         self.fea_L2_conv1 = nn.Conv2d(nf, nf, 3, 2, 1, bias=True)
         self.fea_L2_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.fea_L3_conv1 = nn.Conv2d(nf, nf, 3, 2, 1, bias=True)
         self.fea_L3_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.pcd_align = PCD_Align(nf=nf, groups=groups)
         self.fusion = nn.Conv2d(2 * nf, nf, 1, 1, bias=True)
-        self.ConvBLSTM = BiDeformableConvLSTM(input_size=patch_size,
-            input_dim=nf, hidden_dim=hidden_dim, kernel_size=(3, 3),
-            num_layers=1, batch_first=True, front_RBs=front_RBs, groups=groups)
+        self.ConvBLSTM = BiDeformableConvLSTM(input_size=patch_size, input_dim=nf, hidden_dim=hidden_dim, kernel_size=(3, 3), num_layers=1, batch_first=True, front_RBs=front_RBs, groups=groups)
         self.recon_trunk = mutil.make_layer(ResidualBlock_noBN_f, back_RBs)
         self.upconv1 = nn.Conv2d(nf, nf * 4, 3, 1, 1, bias=True)
         self.upconv2 = nn.Conv2d(nf, 64 * 4, 3, 1, 1, bias=True)
@@ -497,10 +433,8 @@ class LunaTokis(nn.Module):
         2: + ...    ...        ...    ...       ...   fusion_fea, fea2
         """
         for idx in range(N - 1):
-            fea1 = [L1_fea[:, (idx), :, :, :].clone(), L2_fea[:, (idx), :,
-                :, :].clone(), L3_fea[:, (idx), :, :, :].clone()]
-            fea2 = [L1_fea[:, (idx + 1), :, :, :].clone(), L2_fea[:, (idx +
-                1), :, :, :].clone(), L3_fea[:, (idx + 1), :, :, :].clone()]
+            fea1 = [L1_fea[:, (idx), :, :, :].clone(), L2_fea[:, (idx), :, :, :].clone(), L3_fea[:, (idx), :, :, :].clone()]
+            fea2 = [L1_fea[:, (idx + 1), :, :, :].clone(), L2_fea[:, (idx + 1), :, :, :].clone(), L3_fea[:, (idx + 1), :, :, :].clone()]
             aligned_fea = self.pcd_align(fea1, fea2)
             fusion_fea = self.fusion(aligned_fea)
             if idx == 0:
@@ -547,16 +481,13 @@ class ConvLSTMCell(nn.Module):
         self.kernel_size = kernel_size
         self.padding = kernel_size[0] // 2, kernel_size[1] // 2
         self.bias = bias
-        self.conv = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim,
-            out_channels=4 * self.hidden_dim, kernel_size=self.kernel_size,
-            padding=self.padding, bias=self.bias)
+        self.conv = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim, out_channels=4 * self.hidden_dim, kernel_size=self.kernel_size, padding=self.padding, bias=self.bias)
 
     def forward(self, input_tensor, cur_state):
         h_cur, c_cur = cur_state
         combined = torch.cat([input_tensor, h_cur], dim=1)
         combined_conv = self.conv(combined)
-        cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim,
-            dim=1)
+        cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
         i = torch.sigmoid(cc_i)
         f = torch.sigmoid(cc_f)
         o = torch.sigmoid(cc_o)
@@ -567,15 +498,12 @@ class ConvLSTMCell(nn.Module):
 
     def init_hidden(self, batch_size, tensor_size):
         height, width = tensor_size
-        return Variable(torch.zeros(batch_size, self.hidden_dim, height, width)
-            ), Variable(torch.zeros(batch_size, self.hidden_dim, height, width)
-            )
+        return Variable(torch.zeros(batch_size, self.hidden_dim, height, width)), Variable(torch.zeros(batch_size, self.hidden_dim, height, width))
 
 
 class ConvLSTM(nn.Module):
 
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size,
-        num_layers, batch_first=False, bias=True, return_all_layers=False):
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=False, bias=True, return_all_layers=False):
         super(ConvLSTM, self).__init__()
         self._check_kernel_size_consistency(kernel_size)
         kernel_size = self._extend_for_multilayer(kernel_size, num_layers)
@@ -592,11 +520,8 @@ class ConvLSTM(nn.Module):
         self.return_all_layers = return_all_layers
         cell_list = []
         for i in range(0, self.num_layers):
-            cur_input_dim = self.input_dim if i == 0 else self.hidden_dim[i - 1
-                ]
-            cell_list.append(ConvLSTMCell(input_size=(self.height, self.
-                width), input_dim=cur_input_dim, hidden_dim=self.hidden_dim
-                [i], kernel_size=self.kernel_size[i], bias=self.bias))
+            cur_input_dim = self.input_dim if i == 0 else self.hidden_dim[i - 1]
+            cell_list.append(ConvLSTMCell(input_size=(self.height, self.width), input_dim=cur_input_dim, hidden_dim=self.hidden_dim[i], kernel_size=self.kernel_size[i], bias=self.bias))
         self.cell_list = nn.ModuleList(cell_list)
 
     def forward(self, input_tensor, hidden_state=None):
@@ -619,8 +544,7 @@ class ConvLSTM(nn.Module):
             raise NotImplementedError()
         else:
             tensor_size = input_tensor.size(3), input_tensor.size(4)
-            hidden_state = self._init_hidden(batch_size=input_tensor.size(0
-                ), tensor_size=tensor_size)
+            hidden_state = self._init_hidden(batch_size=input_tensor.size(0), tensor_size=tensor_size)
         layer_output_list = []
         last_state_list = []
         seq_len = input_tensor.size(1)
@@ -629,8 +553,7 @@ class ConvLSTM(nn.Module):
             h, c = hidden_state[layer_idx]
             output_inner = []
             for t in range(seq_len):
-                h, c = self.cell_list[layer_idx](input_tensor=
-                    cur_layer_input[:, (t), :, :, :], cur_state=[h, c])
+                h, c = self.cell_list[layer_idx](input_tensor=cur_layer_input[:, (t), :, :, :], cur_state=[h, c])
                 output_inner.append(h)
             layer_output = torch.stack(output_inner, dim=1)
             cur_layer_input = layer_output
@@ -644,14 +567,12 @@ class ConvLSTM(nn.Module):
     def _init_hidden(self, batch_size, tensor_size):
         init_states = []
         for i in range(self.num_layers):
-            init_states.append(self.cell_list[i].init_hidden(batch_size,
-                tensor_size))
+            init_states.append(self.cell_list[i].init_hidden(batch_size, tensor_size))
         return init_states
 
     @staticmethod
     def _check_kernel_size_consistency(kernel_size):
-        if not (isinstance(kernel_size, tuple) or isinstance(kernel_size,
-            list) and all([isinstance(elem, tuple) for elem in kernel_size])):
+        if not (isinstance(kernel_size, tuple) or isinstance(kernel_size, list) and all([isinstance(elem, tuple) for elem in kernel_size])):
             raise ValueError('`kernel_size` must be tuple or list of tuples')
 
     @staticmethod
@@ -663,15 +584,10 @@ class ConvLSTM(nn.Module):
 
 class ConvBLSTM(nn.Module):
 
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size,
-        num_layers, batch_first=False, bias=True, return_all_layers=False):
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=False, bias=True, return_all_layers=False):
         super(ConvBLSTM, self).__init__()
-        self.forward_net = ConvLSTM(input_size, input_dim, hidden_dims // 2,
-            kernel_size, num_layers, batch_first=batch_first, bias=bias,
-            return_all_layers=return_all_layers)
-        self.reverse_net = ConvLSTM(input_size, input_dim, hidden_dims // 2,
-            kernel_size, num_layers, batch_first=batch_first, bias=bias,
-            return_all_layers=return_all_layers)
+        self.forward_net = ConvLSTM(input_size, input_dim, hidden_dims // 2, kernel_size, num_layers, batch_first=batch_first, bias=bias, return_all_layers=return_all_layers)
+        self.reverse_net = ConvLSTM(input_size, input_dim, hidden_dims // 2, kernel_size, num_layers, batch_first=batch_first, bias=bias, return_all_layers=return_all_layers)
 
     def forward(self, xforward, xreverse):
         """
@@ -748,14 +664,10 @@ class LapLoss(nn.Module):
             B, N, C, H, W = input.size()
             input = input.view(-1, C, H, W)
             target = target.view(-1, C, H, W)
-        if self._gauss_kernel is None or self._gauss_kernel.shape[1
-            ] != input.shape[1]:
-            self._gauss_kernel = build_gauss_kernel(size=self.k_size, sigma
-                =self.sigma, n_channels=input.shape[1], cuda=input.is_cuda)
-        pyr_input = laplacian_pyramid(input, self._gauss_kernel, self.
-            max_levels)
-        pyr_target = laplacian_pyramid(target, self._gauss_kernel, self.
-            max_levels)
+        if self._gauss_kernel is None or self._gauss_kernel.shape[1] != input.shape[1]:
+            self._gauss_kernel = build_gauss_kernel(size=self.k_size, sigma=self.sigma, n_channels=input.shape[1], cuda=input.is_cuda)
+        pyr_input = laplacian_pyramid(input, self._gauss_kernel, self.max_levels)
+        pyr_target = laplacian_pyramid(target, self._gauss_kernel, self.max_levels)
         return sum(fnn.l1_loss(a, b) for a, b in zip(pyr_input, pyr_target))
 
 
@@ -802,15 +714,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Mukosame_Zooming_Slow_Mo_CVPR_2020(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(CharbonnierLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CharbonnierLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LapLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 512, 512]), torch.rand([4, 4, 512, 512])], {}),
+     False),
+    (ResidualBlock_noBN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
+class Test_Mukosame_Zooming_Slow_Mo_CVPR_2020(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(LapLoss(*[], **{}), [torch.rand([4, 4, 256, 256]), torch.rand([4, 4, 256, 256])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResidualBlock_noBN(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

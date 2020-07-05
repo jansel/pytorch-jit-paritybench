@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,15 +97,13 @@ def conv3x3(in_channels, out_channels, **kwargs):
 
 class SubNet(nn.Module):
 
-    def __init__(self, mode, classes=80, depth=4, base_activation=F.relu,
-        output_activation=F.sigmoid):
+    def __init__(self, mode, classes=80, depth=4, base_activation=F.relu, output_activation=F.sigmoid):
         super(SubNet, self).__init__()
         self.classes = classes
         self.depth = depth
         self.base_activation = base_activation
         self.output_activation = output_activation
-        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for
-            _ in range(depth)])
+        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for _ in range(depth)])
         if mode == 'corners':
             self.subnet_output = conv3x3(256, 4, padding=1)
         if mode == 'tl_corners':
@@ -126,22 +125,7 @@ def _sigmoid(x):
     return x
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152':
-    'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-    'resnext50_32x4d':
-    'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
-    'resnext101_32x8d':
-    'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
-    'wide_resnet50_2':
-    'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
-    'wide_resnet101_2':
-    'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth'}
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth', 'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth', 'resnext101_32x8d': 'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth', 'wide_resnet50_2': 'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth', 'wide_resnet101_2': 'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth'}
 
 
 def resnet101_features(pretrained=False, **kwargs):
@@ -188,8 +172,7 @@ def resnext101_32x8d(pretrained=False, **kwargs):
     kwargs['width_per_group'] = 8
     model = ResNetFeatures(BottleneckFeatures, [3, 4, 23, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls[
-            'resnext101_32x8d']))
+        model.load_state_dict(model_zoo.load_url(model_urls['resnext101_32x8d']))
     return model
 
 
@@ -218,14 +201,10 @@ class MatrixNetAnchors(nn.Module):
 
     def forward(self, x):
         features = self.matrix_net(x)
-        anchors_tl_corners_regr = [self.subnet_tl_corners_regr(feature) for
-            feature in features]
-        anchors_br_corners_regr = [self.subnet_br_corners_regr(feature) for
-            feature in features]
-        anchors_heatmaps = [_sigmoid(self.subnet_anchors_heats(feature)) for
-            feature in features]
-        return (anchors_heatmaps, anchors_tl_corners_regr,
-            anchors_br_corners_regr)
+        anchors_tl_corners_regr = [self.subnet_tl_corners_regr(feature) for feature in features]
+        anchors_br_corners_regr = [self.subnet_br_corners_regr(feature) for feature in features]
+        anchors_heatmaps = [_sigmoid(self.subnet_anchors_heats(feature)) for feature in features]
+        return anchors_heatmaps, anchors_tl_corners_regr, anchors_br_corners_regr
 
 
 def _gather_feat(feat, ind, mask=None):
@@ -241,8 +220,7 @@ def _gather_feat(feat, ind, mask=None):
 
 def _nms(heat, kernel=1):
     pad = (kernel - 1) // 2
-    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1,
-        padding=pad)
+    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=pad)
     keep = (hmax == heat).float()
     return heat * keep
 
@@ -264,10 +242,7 @@ def _tranpose_and_gather_feat(feat, ind):
     return feat
 
 
-def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs,
-    br_centers_regrs, K=100, kernel=1, dist_threshold=0.2, num_dets=1000,
-    layers_range=None, output_kernel_size=None, output_sizes=None,
-    input_size=None, base_layer_range=None):
+def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs, br_centers_regrs, K=100, kernel=1, dist_threshold=0.2, num_dets=1000, layers_range=None, output_kernel_size=None, output_sizes=None, input_size=None, base_layer_range=None):
     top_k = K
     batch, cat, height_0, width_0 = tl_heats[0].size()
     for i in range(len(tl_heats)):
@@ -288,17 +263,14 @@ def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs,
         tl_xs = tl_xs.view(batch, K, 1).expand(batch, K, K)
         br_ys = br_ys.view(batch, 1, K).expand(batch, K, K)
         br_xs = br_xs.view(batch, 1, K).expand(batch, K, K)
-        if (tl_regr is not None and br_regr is not None and tl_centers_regr
-             is not None and br_centers_regr is not None):
+        if tl_regr is not None and br_regr is not None and tl_centers_regr is not None and br_centers_regr is not None:
             tl_regr = _tranpose_and_gather_feat(tl_regr, tl_inds)
             tl_regr = tl_regr.view(batch, K, 1, 2)
             br_regr = _tranpose_and_gather_feat(br_regr, br_inds)
             br_regr = br_regr.view(batch, 1, K, 2)
-            tl_centers_regr = _tranpose_and_gather_feat(tl_centers_regr,
-                tl_inds)
+            tl_centers_regr = _tranpose_and_gather_feat(tl_centers_regr, tl_inds)
             tl_centers_regr = tl_centers_regr.view(batch, K, 1, 2)
-            br_centers_regr = _tranpose_and_gather_feat(br_centers_regr,
-                br_inds)
+            br_centers_regr = _tranpose_and_gather_feat(br_centers_regr, br_inds)
             br_centers_regr = br_centers_regr.view(batch, 1, K, 2)
             tl_xs = tl_xs + tl_regr[..., 0]
             tl_ys = tl_ys + tl_regr[..., 1]
@@ -307,10 +279,8 @@ def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs,
         bboxes = torch.stack((tl_xs, tl_ys, br_xs, br_ys), dim=3)
         boxes_widths = br_xs - tl_xs
         boxes_heights = br_ys - tl_ys
-        distsx = torch.abs(1 - output_sizes[-1][1] * (tl_centers_regr[..., 
-            0] + br_centers_regr[..., 0]) / boxes_widths)
-        distsy = torch.abs(1 - output_sizes[-1][0] * (tl_centers_regr[..., 
-            1] + br_centers_regr[..., 1]) / boxes_heights)
+        distsx = torch.abs(1 - output_sizes[-1][1] * (tl_centers_regr[..., 0] + br_centers_regr[..., 0]) / boxes_widths)
+        distsy = torch.abs(1 - output_sizes[-1][0] * (tl_centers_regr[..., 1] + br_centers_regr[..., 1]) / boxes_heights)
         dists = torch.abs(br_centers_regr - tl_centers_regr)
         dists = dists[..., 1] + dists[..., 0]
         tl_scores = tl_scores.view(batch, K, 1).expand(batch, K, K)
@@ -323,14 +293,11 @@ def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs,
             layer_range = layers_range[i]
             diff_x = br_xs - tl_xs
             diff_y = br_ys - tl_ys
-            wrange_ind = (diff_x < 0.8 * layer_range[2]) | (diff_x > 1.3 *
-                layer_range[3])
-            hrange_ind = (diff_y < 0.8 * layer_range[0]) | (diff_y > 1.3 *
-                layer_range[1])
+            wrange_ind = (diff_x < 0.8 * layer_range[2]) | (diff_x > 1.3 * layer_range[3])
+            hrange_ind = (diff_y < 0.8 * layer_range[0]) | (diff_y > 1.3 * layer_range[1])
             scores[wrange_ind] = -1
             scores[hrange_ind] = -1
-        dist_inds = (distsx > dist_threshold) | (distsy > dist_threshold) | (
-            dists > 0.25)
+        dist_inds = (distsx > dist_threshold) | (distsy > dist_threshold) | (dists > 0.25)
         width_inds = br_xs < tl_xs
         height_inds = br_ys < tl_ys
         scores[cls_inds] = -1
@@ -353,11 +320,9 @@ def _decode(tl_heats, br_heats, tl_regrs, br_regrs, tl_centers_regrs,
         bboxes[:, :, (2)] *= width_scale
         bboxes[:, :, (3)] *= height_scale
         if i == 0:
-            detections = torch.cat([bboxes, scores, tl_scores, br_scores,
-                clses], dim=2)
+            detections = torch.cat([bboxes, scores, tl_scores, br_scores, clses], dim=2)
         else:
-            detections = torch.cat([detections, torch.cat([bboxes, scores,
-                tl_scores, br_scores, clses], dim=2)], dim=1)
+            detections = torch.cat([detections, torch.cat([bboxes, scores, tl_scores, br_scores, clses], dim=2)], dim=1)
     top_scores, top_inds = torch.topk(detections[:, :, (4)], 5 * num_dets)
     detections = _gather_feat(detections, top_inds)
     return detections
@@ -378,10 +343,8 @@ class model(nn.Module):
         anchors_inds = xs[1]
         outs = self.net.forward(image)
         for ind in range(len(anchors_inds)):
-            outs[1][ind] = _tranpose_and_gather_feat(outs[1][ind],
-                anchors_inds[ind])
-            outs[2][ind] = _tranpose_and_gather_feat(outs[2][ind],
-                anchors_inds[ind])
+            outs[1][ind] = _tranpose_and_gather_feat(outs[1][ind], anchors_inds[ind])
+            outs[2][ind] = _tranpose_and_gather_feat(outs[2][ind], anchors_inds[ind])
         return outs
 
     def _test(self, *xs, **kwargs):
@@ -404,8 +367,7 @@ def _neg_loss(preds, gt):
         pos_pred = pred[pos_inds]
         neg_pred = pred[neg_inds]
         pos_loss = torch.log(pos_pred) * torch.pow(1 - pos_pred, 2)
-        neg_loss = torch.log(1 - neg_pred) * torch.pow(neg_pred, 2
-            ) * neg_weights
+        neg_loss = torch.log(1 - neg_pred) * torch.pow(neg_pred, 2) * neg_weights
         num_pos = pos_inds.float().sum()
         num_neg = neg_inds.float().sum()
         pos_loss = pos_loss.sum()
@@ -429,8 +391,7 @@ def _regr_loss(regr, gt_regr, mask):
 
 class MatrixNetAnchorsLoss(nn.Module):
 
-    def __init__(self, corner_regr_weight=1, center_regr_weight=0.1,
-        focal_loss=_neg_loss):
+    def __init__(self, corner_regr_weight=1, center_regr_weight=0.1, focal_loss=_neg_loss):
         super(MatrixNetAnchorsLoss, self).__init__()
         self.corner_regr_weight = corner_regr_weight
         self.center_regr_weight = center_regr_weight
@@ -450,16 +411,13 @@ class MatrixNetAnchorsLoss(nn.Module):
         numf = 0
         numr = 0
         for i in range(len(anchors_heats)):
-            floss, num = self.focal_loss([anchors_heats[i]], gt_anchors_heat[i]
-                )
+            floss, num = self.focal_loss([anchors_heats[i]], gt_anchors_heat[i])
             focal_loss += floss
             numf += num
-            rloss, num = self.regr_loss(anchors_br_corners_regrs[i],
-                gt_br_corners_regr[i], gt_mask[i])
+            rloss, num = self.regr_loss(anchors_br_corners_regrs[i], gt_br_corners_regr[i], gt_mask[i])
             numr += num
             corner_regr_loss += rloss
-            rloss, num = self.regr_loss(anchors_tl_corners_regrs[i],
-                gt_tl_corners_regr[i], gt_mask[i])
+            rloss, num = self.regr_loss(anchors_tl_corners_regrs[i], gt_tl_corners_regr[i], gt_mask[i])
             numr += num
             corner_regr_loss += rloss
         if numr > 0:
@@ -472,15 +430,13 @@ class MatrixNetAnchorsLoss(nn.Module):
 
 class SubNet(nn.Module):
 
-    def __init__(self, mode, classes=80, depth=4, base_activation=F.relu,
-        output_activation=F.sigmoid):
+    def __init__(self, mode, classes=80, depth=4, base_activation=F.relu, output_activation=F.sigmoid):
         super(SubNet, self).__init__()
         self.classes = classes
         self.depth = depth
         self.base_activation = base_activation
         self.output_activation = output_activation
-        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for
-            _ in range(depth)])
+        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for _ in range(depth)])
         if mode == 'corners':
             self.subnet_output = conv3x3(256, 2, padding=1)
         if mode == 'centers':
@@ -523,20 +479,13 @@ class MatrixNetCorners(nn.Module):
 
     def forward(self, x):
         features = self.feature_pyramid(x)
-        tl_corners_regr = [self.subnet_tl_corners_regr(feature) for feature in
-            features]
-        tl_centers_regr = [F.relu(self.subnet_tl_centers_regr(feature)) for
-            feature in features]
-        br_corners_regr = [self.subnet_br_corners_regr(feature) for feature in
-            features]
-        br_centers_regr = [F.relu(self.subnet_br_centers_regr(feature)) for
-            feature in features]
-        tl_heatmaps = [_sigmoid(self.subnet_tl_heats(feature)) for feature in
-            features]
-        br_heatmaps = [_sigmoid(self.subnet_br_heats(feature)) for feature in
-            features]
-        return (tl_heatmaps, br_heatmaps, tl_corners_regr, br_corners_regr,
-            tl_centers_regr, br_centers_regr)
+        tl_corners_regr = [self.subnet_tl_corners_regr(feature) for feature in features]
+        tl_centers_regr = [F.relu(self.subnet_tl_centers_regr(feature)) for feature in features]
+        br_corners_regr = [self.subnet_br_corners_regr(feature) for feature in features]
+        br_centers_regr = [F.relu(self.subnet_br_centers_regr(feature)) for feature in features]
+        tl_heatmaps = [_sigmoid(self.subnet_tl_heats(feature)) for feature in features]
+        br_heatmaps = [_sigmoid(self.subnet_br_heats(feature)) for feature in features]
+        return tl_heatmaps, br_heatmaps, tl_corners_regr, br_corners_regr, tl_centers_regr, br_centers_regr
 
 
 class model(nn.Module):
@@ -555,14 +504,10 @@ class model(nn.Module):
         br_inds = xs[2]
         outs = self.net.forward(image)
         for ind in range(len(tl_inds)):
-            outs[2][ind] = _tranpose_and_gather_feat(outs[2][ind], tl_inds[ind]
-                )
-            outs[3][ind] = _tranpose_and_gather_feat(outs[3][ind], br_inds[ind]
-                )
-            outs[4][ind] = _tranpose_and_gather_feat(outs[4][ind], tl_inds[ind]
-                )
-            outs[5][ind] = _tranpose_and_gather_feat(outs[5][ind], br_inds[ind]
-                )
+            outs[2][ind] = _tranpose_and_gather_feat(outs[2][ind], tl_inds[ind])
+            outs[3][ind] = _tranpose_and_gather_feat(outs[3][ind], br_inds[ind])
+            outs[4][ind] = _tranpose_and_gather_feat(outs[4][ind], tl_inds[ind])
+            outs[5][ind] = _tranpose_and_gather_feat(outs[5][ind], br_inds[ind])
         return outs
 
     def _test(self, *xs, **kwargs):
@@ -578,8 +523,7 @@ class model(nn.Module):
 
 class MatrixNetCornerLoss(nn.Module):
 
-    def __init__(self, corner_regr_weight=1, center_regr_weight=0.1,
-        focal_loss=_neg_loss):
+    def __init__(self, corner_regr_weight=1, center_regr_weight=0.1, focal_loss=_neg_loss):
         super(MatrixNetCornerLoss, self).__init__()
         self.corner_regr_weight = corner_regr_weight
         self.center_regr_weight = center_regr_weight
@@ -616,11 +560,9 @@ class MatrixNetCornerLoss(nn.Module):
             corner_regr_loss += rloss
             rloss, num = self.regr_loss(br_regrs[i], gt_br_regr[i], gt_mask[i])
             corner_regr_loss += rloss
-            rloss, num = self.regr_loss(center_tl_regrs[i],
-                gt_center_tl_regr[i], gt_mask[i])
+            rloss, num = self.regr_loss(center_tl_regrs[i], gt_center_tl_regr[i], gt_mask[i])
             center_regr_loss += rloss
-            rloss, num = self.regr_loss(center_br_regrs[i],
-                gt_center_br_regr[i], gt_mask[i])
+            rloss, num = self.regr_loss(center_br_regrs[i], gt_center_br_regr[i], gt_mask[i])
             center_regr_loss += rloss
         corner_regr_loss = self.corner_regr_weight * corner_regr_loss
         center_regr_loss = self.center_regr_weight * center_regr_loss
@@ -645,10 +587,7 @@ class MatrixNet(nn.Module):
     def __init__(self, resnet, layers):
         super(MatrixNet, self).__init__()
         self.resnet = resnet
-        self.incidence = {(33): [34, 43, 44, 22], (34): [35], (43): [53], (
-            44): [45, 55, 54], (22): [11, 32, 23], (11): [12, 21], (32): [
-            42], (23): [24], (12): [13], (21): [31], (42): [52], (24): [25],
-            (13): [14], (31): [41], (14): [15], (41): [51]}
+        self.incidence = {(33): [34, 43, 44, 22], (34): [35], (43): [53], (44): [45, 55, 54], (22): [11, 32, 23], (11): [12, 21], (32): [42], (23): [24], (12): [13], (21): [31], (42): [52], (24): [25], (13): [14], (31): [41], (14): [15], (41): [51]}
         self.visited = set()
         self.layers = layers
         self.keeps = set()
@@ -682,19 +621,15 @@ class MatrixNet(nn.Module):
         self.pyramid_transformation_7 = conv3x3(256, 256, padding=1, stride=2)
         self.upsample_transform_1 = conv3x3(256, 256, padding=1)
         self.upsample_transform_2 = conv3x3(256, 256, padding=1)
-        self.downsample_transformation_12 = conv3x3(256, 256, padding=1,
-            stride=(1, 2))
-        self.downsample_transformation_21 = conv3x3(256, 256, padding=1,
-            stride=(2, 1))
+        self.downsample_transformation_12 = conv3x3(256, 256, padding=1, stride=(1, 2))
+        self.downsample_transformation_21 = conv3x3(256, 256, padding=1, stride=(2, 1))
 
     def _upsample(self, original_feature, scaled_feature, scale_factor=2):
         height, width = scaled_feature.size()[2:]
-        return F.interpolate(original_feature, scale_factor=scale_factor)[:,
-            :, :height, :width]
+        return F.interpolate(original_feature, scale_factor=scale_factor)[:, :, :height, :width]
 
     def forward(self, x):
-        _, resnet_feature_3, resnet_feature_4, resnet_feature_5 = self.resnet(x
-            )
+        _, resnet_feature_3, resnet_feature_4, resnet_feature_5 = self.resnet(x)
         _dict = {}
         if 44 in self.visited:
             _dict[44] = self.pyramid_transformation_6(resnet_feature_5)
@@ -707,15 +642,13 @@ class MatrixNet(nn.Module):
         if 33 in self.visited and 22 in self.visited:
             upsampled_feature_5 = self._upsample(_dict[33], _dict[22])
         if 22 in self.visited:
-            _dict[22] = self.upsample_transform_1(torch.add(
-                upsampled_feature_5, _dict[22]))
+            _dict[22] = self.upsample_transform_1(torch.add(upsampled_feature_5, _dict[22]))
         if 11 in self.visited:
             _dict[11] = self.pyramid_transformation_3(resnet_feature_3)
         if 11 in self.visited and 22 in self.visited:
             upsampled_feature_4 = self._upsample(_dict[22], _dict[11])
         if 11 in self.visited:
-            _dict[11] = self.upsample_transform_2(torch.add(
-                upsampled_feature_4, _dict[11]))
+            _dict[11] = self.upsample_transform_2(torch.add(upsampled_feature_4, _dict[11]))
         if 12 in self.visited:
             _dict[12] = self.downsample_transformation_12(_dict[11])
         if 13 in self.visited:
@@ -762,15 +695,13 @@ class MatrixNet(nn.Module):
 
 class SubNet(nn.Module):
 
-    def __init__(self, mode, classes=80, depth=4, base_activation=F.relu,
-        output_activation=F.sigmoid):
+    def __init__(self, mode, classes=80, depth=4, base_activation=F.relu, output_activation=F.sigmoid):
         super(SubNet, self).__init__()
         self.classes = classes
         self.depth = depth
         self.base_activation = base_activation
         self.output_activation = output_activation
-        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for
-            _ in range(depth)])
+        self.subnet_base = nn.ModuleList([conv3x3(256, 256, padding=1) for _ in range(depth)])
         if mode == 'corners':
             self.subnet_output = conv3x3(256, 2, padding=1)
         if mode == 'centers':
@@ -852,8 +783,7 @@ class DataParallel(Module):
         >>> output = net(input_var)
     """
 
-    def __init__(self, module, device_ids=None, output_device=None, dim=0,
-        chunk_sizes=None):
+    def __init__(self, module, device_ids=None, output_device=None, dim=0, chunk_sizes=None):
         super(DataParallel, self).__init__()
         if not torch.is_available():
             self.module = module
@@ -874,8 +804,7 @@ class DataParallel(Module):
     def forward(self, *inputs, **kwargs):
         if not self.device_ids:
             return self.module(*inputs, **kwargs)
-        inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids, self
-            .chunk_sizes)
+        inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids, self.chunk_sizes)
         if len(self.device_ids) == 1:
             return self.module(*inputs[0], **kwargs[0])
         replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
@@ -886,12 +815,10 @@ class DataParallel(Module):
         return replicate(module, device_ids)
 
     def scatter(self, inputs, kwargs, device_ids, chunk_sizes):
-        return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim,
-            chunk_sizes=self.chunk_sizes)
+        return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim, chunk_sizes=self.chunk_sizes)
 
     def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:
-            len(replicas)])
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
     def gather(self, outputs, output_device):
         return gather(outputs, output_device, dim=self.dim)
@@ -924,9 +851,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DummyModule,
+     lambda: ([], {'model': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_arashwan_matrixnet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DummyModule(*[], **{'model': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 

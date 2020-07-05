@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,8 +80,7 @@ class CRF_L(nn.Module):
     def __init__(self, hidden_dim, tagset_size, if_bias=True):
         super(CRF_L, self).__init__()
         self.tagset_size = tagset_size
-        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size * self.
-            tagset_size, bias=if_bias)
+        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size * self.tagset_size, bias=if_bias)
 
     def rand_init(self):
         """random initialization
@@ -94,8 +94,7 @@ class CRF_L(nn.Module):
         return:
             output from crf layer (batch_size, seq_len, tag_size, tag_size)
         """
-        return self.hidden2tag(feats).view(-1, self.tagset_size, self.
-            tagset_size)
+        return self.hidden2tag(feats).view(-1, self.tagset_size, self.tagset_size)
 
 
 class CRF_S(nn.Module):
@@ -112,8 +111,7 @@ class CRF_S(nn.Module):
         super(CRF_S, self).__init__()
         self.tagset_size = tagset_size
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size, bias=if_bias)
-        self.transitions = nn.Parameter(torch.Tensor(self.tagset_size, self
-            .tagset_size))
+        self.transitions = nn.Parameter(torch.Tensor(self.tagset_size, self.tagset_size))
 
     def rand_init(self):
         """random initialization
@@ -130,9 +128,7 @@ class CRF_S(nn.Module):
         """
         scores = self.hidden2tag(feats).view(-1, self.tagset_size, 1)
         ins_num = scores.size(0)
-        crf_scores = scores.expand(ins_num, self.tagset_size, self.tagset_size
-            ) + self.transitions.view(1, self.tagset_size, self.tagset_size
-            ).expand(ins_num, self.tagset_size, self.tagset_size)
+        crf_scores = scores.expand(ins_num, self.tagset_size, self.tagset_size) + self.transitions.view(1, self.tagset_size, self.tagset_size).expand(ins_num, self.tagset_size, self.tagset_size)
         return crf_scores
 
 
@@ -209,21 +205,16 @@ class CRFLoss_vb(nn.Module):
         """
         seq_len = scores.size(0)
         bat_size = scores.size(1)
-        tg_energy = torch.gather(scores.view(seq_len, bat_size, -1), 2, target
-            ).view(seq_len, bat_size)
+        tg_energy = torch.gather(scores.view(seq_len, bat_size, -1), 2, target).view(seq_len, bat_size)
         tg_energy = tg_energy.masked_select(mask).sum()
         seq_iter = enumerate(scores)
         _, inivalues = seq_iter.__next__()
         partition = inivalues[:, (self.start_tag), :].clone()
         for idx, cur_values in seq_iter:
-            cur_values = cur_values + partition.contiguous().view(bat_size,
-                self.tagset_size, 1).expand(bat_size, self.tagset_size,
-                self.tagset_size)
+            cur_values = cur_values + partition.contiguous().view(bat_size, self.tagset_size, 1).expand(bat_size, self.tagset_size, self.tagset_size)
             cur_partition = utils.log_sum_exp(cur_values, self.tagset_size)
-            mask_idx = mask[(idx), :].view(bat_size, 1).expand(bat_size,
-                self.tagset_size)
-            partition.masked_scatter_(mask_idx, cur_partition.masked_select
-                (mask_idx))
+            mask_idx = mask[(idx), :].view(bat_size, 1).expand(bat_size, self.tagset_size)
+            partition.masked_scatter_(mask_idx, cur_partition.masked_select(mask_idx))
         partition = partition[:, (self.end_tag)].sum()
         if self.average_batch:
             loss = (partition - tg_energy) / bat_size
@@ -301,10 +292,7 @@ class LM_LSTM_CRF(nn.Module):
         highway_layers: number of highway layers
     """
 
-    def __init__(self, tagset_size, char_size, char_dim, char_hidden_dim,
-        char_rnn_layers, embedding_dim, word_hidden_dim, word_rnn_layers,
-        vocab_size, dropout_ratio, large_CRF=True, if_highway=False,
-        in_doc_words=2, highway_layers=1):
+    def __init__(self, tagset_size, char_size, char_dim, char_hidden_dim, char_rnn_layers, embedding_dim, word_hidden_dim, word_rnn_layers, vocab_size, dropout_ratio, large_CRF=True, if_highway=False, in_doc_words=2, highway_layers=1):
         super(LM_LSTM_CRF, self).__init__()
         self.char_dim = char_dim
         self.char_hidden_dim = char_hidden_dim
@@ -314,15 +302,11 @@ class LM_LSTM_CRF(nn.Module):
         self.word_size = vocab_size
         self.if_highway = if_highway
         self.char_embeds = nn.Embedding(char_size, char_dim)
-        self.forw_char_lstm = nn.LSTM(char_dim, char_hidden_dim, num_layers
-            =char_rnn_layers, bidirectional=False, dropout=dropout_ratio)
-        self.back_char_lstm = nn.LSTM(char_dim, char_hidden_dim, num_layers
-            =char_rnn_layers, bidirectional=False, dropout=dropout_ratio)
+        self.forw_char_lstm = nn.LSTM(char_dim, char_hidden_dim, num_layers=char_rnn_layers, bidirectional=False, dropout=dropout_ratio)
+        self.back_char_lstm = nn.LSTM(char_dim, char_hidden_dim, num_layers=char_rnn_layers, bidirectional=False, dropout=dropout_ratio)
         self.char_rnn_layers = char_rnn_layers
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
-        self.word_lstm = nn.LSTM(embedding_dim + char_hidden_dim * 2, 
-            word_hidden_dim // 2, num_layers=word_rnn_layers, bidirectional
-            =True, dropout=dropout_ratio)
+        self.word_lstm = nn.LSTM(embedding_dim + char_hidden_dim * 2, word_hidden_dim // 2, num_layers=word_rnn_layers, bidirectional=True, dropout=dropout_ratio)
         self.word_rnn_layers = word_rnn_layers
         self.dropout = nn.Dropout(p=dropout_ratio)
         self.tagset_size = tagset_size
@@ -331,16 +315,11 @@ class LM_LSTM_CRF(nn.Module):
         else:
             self.crf = crf.CRF_S(word_hidden_dim, tagset_size)
         if if_highway:
-            self.forw2char = highway.hw(char_hidden_dim, num_layers=
-                highway_layers, dropout_ratio=dropout_ratio)
-            self.back2char = highway.hw(char_hidden_dim, num_layers=
-                highway_layers, dropout_ratio=dropout_ratio)
-            self.forw2word = highway.hw(char_hidden_dim, num_layers=
-                highway_layers, dropout_ratio=dropout_ratio)
-            self.back2word = highway.hw(char_hidden_dim, num_layers=
-                highway_layers, dropout_ratio=dropout_ratio)
-            self.fb2char = highway.hw(2 * char_hidden_dim, num_layers=
-                highway_layers, dropout_ratio=dropout_ratio)
+            self.forw2char = highway.hw(char_hidden_dim, num_layers=highway_layers, dropout_ratio=dropout_ratio)
+            self.back2char = highway.hw(char_hidden_dim, num_layers=highway_layers, dropout_ratio=dropout_ratio)
+            self.forw2word = highway.hw(char_hidden_dim, num_layers=highway_layers, dropout_ratio=dropout_ratio)
+            self.back2word = highway.hw(char_hidden_dim, num_layers=highway_layers, dropout_ratio=dropout_ratio)
+            self.fb2char = highway.hw(2 * char_hidden_dim, num_layers=highway_layers, dropout_ratio=dropout_ratio)
         self.char_pre_train_out = nn.Linear(char_hidden_dim, char_size)
         self.word_pre_train_out = nn.Linear(char_hidden_dim, in_doc_words)
         self.batch_size = 1
@@ -417,11 +396,9 @@ class LM_LSTM_CRF(nn.Module):
         d_embeds = self.dropout(embeds)
         lstm_out, hidden = self.forw_char_lstm(d_embeds)
         tmpsize = position.size()
-        position = position.unsqueeze(2).expand(tmpsize[0], tmpsize[1],
-            self.char_hidden_dim)
+        position = position.unsqueeze(2).expand(tmpsize[0], tmpsize[1], self.char_hidden_dim)
         select_lstm_out = torch.gather(lstm_out, 0, position)
-        d_lstm_out = self.dropout(select_lstm_out).view(-1, self.
-            char_hidden_dim)
+        d_lstm_out = self.dropout(select_lstm_out).view(-1, self.char_hidden_dim)
         if self.if_highway:
             char_out = self.forw2word(d_lstm_out)
             d_char_out = self.dropout(char_out)
@@ -446,11 +423,9 @@ class LM_LSTM_CRF(nn.Module):
         d_embeds = self.dropout(embeds)
         lstm_out, hidden = self.back_char_lstm(d_embeds)
         tmpsize = position.size()
-        position = position.unsqueeze(2).expand(tmpsize[0], tmpsize[1],
-            self.char_hidden_dim)
+        position = position.unsqueeze(2).expand(tmpsize[0], tmpsize[1], self.char_hidden_dim)
         select_lstm_out = torch.gather(lstm_out, 0, position)
-        d_lstm_out = self.dropout(select_lstm_out).view(-1, self.
-            char_hidden_dim)
+        d_lstm_out = self.dropout(select_lstm_out).view(-1, self.char_hidden_dim)
         if self.if_highway:
             char_out = self.back2word(d_lstm_out)
             d_char_out = self.dropout(char_out)
@@ -459,8 +434,7 @@ class LM_LSTM_CRF(nn.Module):
         pre_score = self.word_pre_train_out(d_char_out)
         return pre_score, hidden
 
-    def forward(self, forw_sentence, forw_position, back_sentence,
-        back_position, word_seq, hidden=None):
+    def forward(self, forw_sentence, forw_position, back_sentence, back_position, word_seq, hidden=None):
         """
         args:
             forw_sentence (char_seq_len, batch_size) : char-level representation of sentence
@@ -480,14 +454,11 @@ class LM_LSTM_CRF(nn.Module):
         d_b_emb = self.dropout(back_emb)
         forw_lstm_out, _ = self.forw_char_lstm(d_f_emb)
         back_lstm_out, _ = self.back_char_lstm(d_b_emb)
-        forw_position = forw_position.unsqueeze(2).expand(self.
-            word_seq_length, self.batch_size, self.char_hidden_dim)
+        forw_position = forw_position.unsqueeze(2).expand(self.word_seq_length, self.batch_size, self.char_hidden_dim)
         select_forw_lstm_out = torch.gather(forw_lstm_out, 0, forw_position)
-        back_position = back_position.unsqueeze(2).expand(self.
-            word_seq_length, self.batch_size, self.char_hidden_dim)
+        back_position = back_position.unsqueeze(2).expand(self.word_seq_length, self.batch_size, self.char_hidden_dim)
         select_back_lstm_out = torch.gather(back_lstm_out, 0, back_position)
-        fb_lstm_out = self.dropout(torch.cat((select_forw_lstm_out,
-            select_back_lstm_out), dim=2))
+        fb_lstm_out = self.dropout(torch.cat((select_forw_lstm_out, select_back_lstm_out), dim=2))
         if self.if_highway:
             char_out = self.fb2char(fb_lstm_out)
             d_char_out = self.dropout(char_out)
@@ -499,8 +470,7 @@ class LM_LSTM_CRF(nn.Module):
         lstm_out, _ = self.word_lstm(word_input)
         d_lstm_out = self.dropout(lstm_out)
         crf_out = self.crf(d_lstm_out)
-        crf_out = crf_out.view(self.word_seq_length, self.batch_size, self.
-            tagset_size, self.tagset_size)
+        crf_out = crf_out.view(self.word_seq_length, self.batch_size, self.tagset_size, self.tagset_size)
         return crf_out
 
 
@@ -517,15 +487,13 @@ class LSTM_CRF(nn.Module):
         large_CRF: use CRF_L or not, refer model.crf.CRF_L and model.crf.CRF_S for more details
     """
 
-    def __init__(self, vocab_size, tagset_size, embedding_dim, hidden_dim,
-        rnn_layers, dropout_ratio, large_CRF=True):
+    def __init__(self, vocab_size, tagset_size, embedding_dim, hidden_dim, rnn_layers, dropout_ratio, large_CRF=True):
         super(LSTM_CRF, self).__init__()
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.vocab_size = vocab_size
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=
-            rnn_layers, bidirectional=True, dropout=dropout_ratio)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=rnn_layers, bidirectional=True, dropout=dropout_ratio)
         self.rnn_layers = rnn_layers
         self.dropout1 = nn.Dropout(p=dropout_ratio)
         self.dropout2 = nn.Dropout(p=dropout_ratio)
@@ -541,9 +509,7 @@ class LSTM_CRF(nn.Module):
         """
         random initialize hidden variable
         """
-        return autograd.Variable(torch.randn(2 * self.rnn_layers, self.
-            batch_size, self.hidden_dim // 2)), autograd.Variable(torch.
-            randn(2 * self.rnn_layers, self.batch_size, self.hidden_dim // 2))
+        return autograd.Variable(torch.randn(2 * self.rnn_layers, self.batch_size, self.hidden_dim // 2)), autograd.Variable(torch.randn(2 * self.rnn_layers, self.batch_size, self.hidden_dim // 2))
 
     def set_batch_size(self, bsize):
         """
@@ -600,8 +566,7 @@ class LSTM_CRF(nn.Module):
         lstm_out = lstm_out.view(-1, self.hidden_dim)
         d_lstm_out = self.dropout2(lstm_out)
         crf_out = self.crf(d_lstm_out)
-        crf_out = crf_out.view(self.seq_length, self.batch_size, self.
-            tagset_size, self.tagset_size)
+        crf_out = crf_out.view(self.seq_length, self.batch_size, self.tagset_size, self.tagset_size)
         return crf_out, hidden
 
 
@@ -609,15 +574,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CRF_L,
+     lambda: ([], {'hidden_dim': 4, 'tagset_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CRF_S,
+     lambda: ([], {'hidden_dim': 4, 'tagset_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (hw,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_LiyuanLucasLiu_LM_LSTM_CRF(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CRF_L(*[], **{'hidden_dim': 4, 'tagset_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CRF_S(*[], **{'hidden_dim': 4, 'tagset_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(hw(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

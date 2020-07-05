@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,8 +53,7 @@ class ConvColumn5(nn.Module):
         self.conv_layer2 = self._make_conv_layer(32, 64)
         self.conv_layer3 = self._make_conv_layer(64, 124)
         self.conv_layer4 = self._make_conv_layer(124, 256)
-        self.conv_layer5 = nn.Conv3d(256, 256, kernel_size=(1, 3, 3), padding=0
-            )
+        self.conv_layer5 = nn.Conv3d(256, 256, kernel_size=(1, 3, 3), padding=0)
         self.fc5 = nn.Linear(256, 256)
         self.relu = nn.LeakyReLU()
         self.batch0 = nn.BatchNorm1d(256)
@@ -65,10 +65,7 @@ class ConvColumn5(nn.Module):
         self.fc7 = nn.Linear(124, num_classes)
 
     def _make_conv_layer(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 3,
-            3), padding=0), nn.LeakyReLU(), nn.Conv3d(out_c, out_c,
-            kernel_size=(2, 3, 3), padding=1), nn.LeakyReLU(), nn.MaxPool3d
-            ((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 3, 3), padding=0), nn.LeakyReLU(), nn.Conv3d(out_c, out_c, kernel_size=(2, 3, 3), padding=1), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def forward(self, x):
@@ -99,8 +96,7 @@ class ConvColumn6(nn.Module):
         self.conv_layer2 = self._make_conv_layer(32, 64)
         self.conv_layer3 = self._make_conv_layer(64, 124)
         self.conv_layer4 = self._make_conv_layer(124, 256)
-        self.conv_layer5 = nn.Conv3d(256, 512, kernel_size=(1, 3, 3), padding=0
-            )
+        self.conv_layer5 = nn.Conv3d(256, 512, kernel_size=(1, 3, 3), padding=0)
         self.fc5 = nn.Linear(512, 512)
         self.relu = nn.LeakyReLU()
         self.batch0 = nn.BatchNorm1d(512)
@@ -112,10 +108,7 @@ class ConvColumn6(nn.Module):
         self.fc7 = nn.Linear(256, num_classes)
 
     def _make_conv_layer(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 3,
-            3), padding=0), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.
-            Conv3d(out_c, out_c, kernel_size=(2, 3, 3), padding=1), nn.
-            BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 3, 3), padding=0), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.Conv3d(out_c, out_c, kernel_size=(2, 3, 3), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def forward(self, x):
@@ -159,16 +152,11 @@ class ConvColumn7(nn.Module):
         self.fc7 = nn.Linear(4096, num_classes)
 
     def _make_conv_layer(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2,
-            2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.
-            Conv3d(out_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.
-            BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.Conv3d(out_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def _make_conv_layer2(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=3,
-            stride=1, padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn
-            .MaxPool3d((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def forward(self, x):
@@ -213,16 +201,11 @@ class ConvColumn8(nn.Module):
         self.fc7 = nn.Linear(4096, num_classes)
 
     def _make_conv_layer(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2,
-            2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.
-            Conv3d(out_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.
-            BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.Conv3d(out_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def _make_conv_layer2(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=3,
-            stride=1, padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn
-            .MaxPool3d((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=3, stride=1, padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def forward(self, x):
@@ -271,17 +254,11 @@ class ConvColumn9(nn.Module):
         self.fc7 = nn.Linear(1024, num_classes)
 
     def _make_conv_layer(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2,
-            2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.
-            Conv3d(out_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.
-            BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.Conv3d(out_c, out_c, kernel_size=(2, 2, 2), padding=1), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.MaxPool3d((2, 2, 2)))
         return conv_layer
 
     def _make_conv_layer2(self, in_c, out_c):
-        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2,
-            2), padding=0), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.
-            Conv3d(out_c, out_c, kernel_size=(1, 3, 3), padding=0), nn.
-            BatchNorm3d(out_c), nn.LeakyReLU())
+        conv_layer = nn.Sequential(nn.Conv3d(in_c, out_c, kernel_size=(2, 2, 2), padding=0), nn.BatchNorm3d(out_c), nn.LeakyReLU(), nn.Conv3d(out_c, out_c, kernel_size=(1, 3, 3), padding=0), nn.BatchNorm3d(out_c), nn.LeakyReLU())
         return conv_layer
 
     def forward(self, x):
@@ -335,8 +312,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([20, 20])], {}),
+     True),
+]
+
 class Test_OValery16_Tutorial_about_3D_convolutional_network(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([20, 20])], {})
+        self._check(*TESTCASES[0])
 

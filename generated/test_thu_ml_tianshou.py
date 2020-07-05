@@ -71,8 +71,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -124,12 +125,10 @@ from typing import Tuple
 
 class Actor(nn.Module):
 
-    def __init__(self, layer_num, state_shape, action_shape, max_action,
-        device='cpu'):
+    def __init__(self, layer_num, state_shape, action_shape, max_action, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace
-            =True)]
+        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         self.model += [nn.Linear(128, np.prod(action_shape))]
@@ -147,12 +146,10 @@ class Actor(nn.Module):
 
 class ActorProb(nn.Module):
 
-    def __init__(self, layer_num, state_shape, action_shape, max_action,
-        device='cpu'):
+    def __init__(self, layer_num, state_shape, action_shape, max_action, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace
-            =True)]
+        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         self.model = nn.Sequential(*self.model)
@@ -176,8 +173,7 @@ class Critic(nn.Module):
     def __init__(self, layer_num, state_shape, action_shape=0, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape) + np.prod(action_shape
-            ), 128), nn.ReLU(inplace=True)]
+        self.model = [nn.Linear(np.prod(state_shape) + np.prod(action_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         self.model += [nn.Linear(128, 1)]
@@ -203,8 +199,7 @@ class Net(nn.Module):
     def __init__(self, layer_num, state_shape, action_shape=0, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace
-            =True)]
+        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         if action_shape:
@@ -279,12 +274,10 @@ class DQN(nn.Module):
 
 class Actor(nn.Module):
 
-    def __init__(self, layer_num, state_shape, action_shape, max_action,
-        device='cpu'):
+    def __init__(self, layer_num, state_shape, action_shape, max_action, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace
-            =True)]
+        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         self.model += [nn.Linear(128, np.prod(action_shape))]
@@ -303,12 +296,10 @@ class Actor(nn.Module):
 
 class ActorProb(nn.Module):
 
-    def __init__(self, layer_num, state_shape, action_shape, max_action,
-        device='cpu'):
+    def __init__(self, layer_num, state_shape, action_shape, max_action, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace
-            =True)]
+        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         self.model = nn.Sequential(*self.model)
@@ -334,8 +325,7 @@ class Critic(nn.Module):
     def __init__(self, layer_num, state_shape, action_shape=0, device='cpu'):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape) + np.prod(action_shape
-            ), 128), nn.ReLU(inplace=True)]
+        self.model = [nn.Linear(np.prod(state_shape) + np.prod(action_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         self.model += [nn.Linear(128, 1)]
@@ -357,12 +347,10 @@ class Critic(nn.Module):
 
 class RecurrentActorProb(nn.Module):
 
-    def __init__(self, layer_num, state_shape, action_shape, max_action,
-        device='cpu'):
+    def __init__(self, layer_num, state_shape, action_shape, max_action, device='cpu'):
         super().__init__()
         self.device = device
-        self.nn = nn.LSTM(input_size=np.prod(state_shape), hidden_size=128,
-            num_layers=layer_num, batch_first=True)
+        self.nn = nn.LSTM(input_size=np.prod(state_shape), hidden_size=128, num_layers=layer_num, batch_first=True)
         self.mu = nn.Linear(128, np.prod(action_shape))
         self.sigma = nn.Parameter(torch.zeros(np.prod(action_shape), 1))
 
@@ -391,8 +379,7 @@ class RecurrentCritic(nn.Module):
         self.state_shape = state_shape
         self.action_shape = action_shape
         self.device = device
-        self.nn = nn.LSTM(input_size=np.prod(state_shape), hidden_size=128,
-            num_layers=layer_num, batch_first=True)
+        self.nn = nn.LSTM(input_size=np.prod(state_shape), hidden_size=128, num_layers=layer_num, batch_first=True)
         self.fc2 = nn.Linear(128 + np.prod(action_shape), 1)
 
     def forward(self, s, a=None):
@@ -412,12 +399,10 @@ class RecurrentCritic(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, layer_num, state_shape, action_shape=0, device='cpu',
-        softmax=False):
+    def __init__(self, layer_num, state_shape, action_shape=0, device='cpu', softmax=False):
         super().__init__()
         self.device = device
-        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace
-            =True)]
+        self.model = [nn.Linear(np.prod(state_shape), 128), nn.ReLU(inplace=True)]
         for i in range(layer_num):
             self.model += [nn.Linear(128, 128), nn.ReLU(inplace=True)]
         if action_shape:
@@ -469,8 +454,7 @@ class Recurrent(nn.Module):
         self.action_shape = action_shape
         self.device = device
         self.fc1 = nn.Linear(np.prod(state_shape), 128)
-        self.nn = nn.LSTM(input_size=128, hidden_size=128, num_layers=
-            layer_num, batch_first=True)
+        self.nn = nn.LSTM(input_size=128, hidden_size=128, num_layers=layer_num, batch_first=True)
         self.fc2 = nn.Linear(128, np.prod(action_shape))
 
     def forward(self, s, state=None, info={}):
@@ -487,36 +471,53 @@ class Recurrent(nn.Module):
         if state is None:
             s, (h, c) = self.nn(s)
         else:
-            s, (h, c) = self.nn(s, (state['h'].transpose(0, 1).contiguous(),
-                state['c'].transpose(0, 1).contiguous()))
+            s, (h, c) = self.nn(s, (state['h'].transpose(0, 1).contiguous(), state['c'].transpose(0, 1).contiguous()))
         s = self.fc2(s[:, (-1)])
-        return s, {'h': h.transpose(0, 1).detach(), 'c': c.transpose(0, 1).
-            detach()}
+        return s, {'h': h.transpose(0, 1).detach(), 'c': c.transpose(0, 1).detach()}
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActorProb,
+     lambda: ([], {'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {'layer_num': 1, 'state_shape': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Recurrent,
+     lambda: ([], {'layer_num': 1, 'state_shape': 4, 'action_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (RecurrentActorProb,
+     lambda: ([], {'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (RecurrentCritic,
+     lambda: ([], {'layer_num': 1, 'state_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_thu_ml_tianshou(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ActorProb(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Net(*[], **{'layer_num': 1, 'state_shape': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Recurrent(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(RecurrentActorProb(*[], **{'layer_num': 1, 'state_shape': 4, 'action_shape': 4, 'max_action': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(RecurrentCritic(*[], **{'layer_num': 1, 'state_shape': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -43,12 +44,10 @@ from torch.nn import DataParallel
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False,
-        relu=True):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False, relu=True):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
-        self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-            padding=(kernel_size - 1) // 2, bias=True)
+        self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True)
         self.relu = None
         self.bn = None
         if relu:
@@ -57,8 +56,7 @@ class Conv(nn.Module):
             self.bn = nn.BatchNorm2d(out_dim)
 
     def forward(self, x):
-        assert x.size()[1] == self.inp_dim, '{} {}'.format(x.size()[1],
-            self.inp_dim)
+        assert x.size()[1] == self.inp_dim, '{} {}'.format(x.size()[1], self.inp_dim)
         x = self.conv(x)
         if self.bn is not None:
             x = self.bn(x)
@@ -149,24 +147,15 @@ class Merge(nn.Module):
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=0, **kwargs
-        ):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=0, **kwargs):
         super(PoseNet, self).__init__()
         self.nstack = nstack
-        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=True, relu=True),
-            Residual(64, 128), Pool(2, 2), Residual(128, 128), Residual(128,
-            inp_dim))
-        self.hgs = nn.ModuleList([nn.Sequential(Hourglass(4, inp_dim, bn,
-            increase)) for i in range(nstack)])
-        self.features = nn.ModuleList([nn.Sequential(Residual(inp_dim,
-            inp_dim), Conv(inp_dim, inp_dim, 1, bn=True, relu=True)) for i in
-            range(nstack)])
-        self.outs = nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn
-            =False) for i in range(nstack)])
-        self.merge_features = nn.ModuleList([Merge(inp_dim, inp_dim) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([Merge(oup_dim, inp_dim) for i in
-            range(nstack - 1)])
+        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=True, relu=True), Residual(64, 128), Pool(2, 2), Residual(128, 128), Residual(128, inp_dim))
+        self.hgs = nn.ModuleList([nn.Sequential(Hourglass(4, inp_dim, bn, increase)) for i in range(nstack)])
+        self.features = nn.ModuleList([nn.Sequential(Residual(inp_dim, inp_dim), Conv(inp_dim, inp_dim, 1, bn=True, relu=True)) for i in range(nstack)])
+        self.outs = nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn=False) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([Merge(inp_dim, inp_dim) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([Merge(oup_dim, inp_dim) for i in range(nstack - 1)])
         self.nstack = nstack
         self.heatmapLoss = HeatmapLoss()
 
@@ -180,15 +169,13 @@ class PoseNet(nn.Module):
             preds = self.outs[i](feature)
             combined_hm_preds.append(preds)
             if i < self.nstack - 1:
-                x = x + self.merge_preds[i](preds) + self.merge_features[i](
-                    feature)
+                x = x + self.merge_preds[i](preds) + self.merge_features[i](feature)
         return torch.stack(combined_hm_preds, 1)
 
     def calc_loss(self, combined_hm_preds, heatmaps):
         combined_loss = []
         for i in range(self.nstack):
-            combined_loss.append(self.heatmapLoss(combined_hm_preds[0][:, (
-                i)], heatmaps))
+            combined_loss.append(self.heatmapLoss(combined_hm_preds[0][:, (i)], heatmaps))
         combined_loss = torch.stack(combined_loss, dim=1)
         return combined_loss
 
@@ -231,11 +218,9 @@ class Trainer(nn.Module):
             return self.model(imgs, **inps)
         else:
             combined_hm_preds = self.model(imgs, **inps)
-            if type(combined_hm_preds) != list and type(combined_hm_preds
-                ) != tuple:
+            if type(combined_hm_preds) != list and type(combined_hm_preds) != tuple:
                 combined_hm_preds = [combined_hm_preds]
-            loss = self.calc_loss(**labels, combined_hm_preds=combined_hm_preds
-                )
+            loss = self.calc_loss(**labels, combined_hm_preds=combined_hm_preds)
             return list(combined_hm_preds) + list([loss])
 
 
@@ -243,27 +228,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HeatmapLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Hourglass,
+     lambda: ([], {'n': 4, 'f': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Merge,
+     lambda: ([], {'x_dim': 4, 'y_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Residual,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Trainer,
+     lambda: ([], {'model': _mock_layer(), 'inference_keys': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UnFlatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 4, 4])], {}),
+     True),
+]
+
 class Test_princeton_vl_pytorch_stacked_hourglass(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(HeatmapLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Hourglass(*[], **{'n': 4, 'f': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Residual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(Trainer(*[], **{'model': _mock_layer(), 'inference_keys': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(UnFlatten(*[], **{}), [torch.rand([4, 256, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

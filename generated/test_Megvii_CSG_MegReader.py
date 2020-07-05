@@ -159,8 +159,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -225,12 +226,9 @@ from collections import OrderedDict
 class DeformConvFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1,
-        groups=1, deformable_groups=1, im2col_step=64):
+    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, im2col_step=64):
         if input is not None and input.dim() != 4:
-            raise ValueError(
-                'Expected 4D tensor as input, got {}D tensor instead.'.
-                format(input.dim()))
+            raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
         ctx.stride = _pair(stride)
         ctx.padding = _pair(padding)
         ctx.dilation = _pair(dilation)
@@ -238,20 +236,14 @@ class DeformConvFunction(Function):
         ctx.deformable_groups = deformable_groups
         ctx.im2col_step = im2col_step
         ctx.save_for_backward(input, offset, weight)
-        output = input.new_empty(DeformConvFunction._output_size(input,
-            weight, ctx.padding, ctx.dilation, ctx.stride))
+        output = input.new_empty(DeformConvFunction._output_size(input, weight, ctx.padding, ctx.dilation, ctx.stride))
         ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
         if not input.is_cuda:
             raise NotImplementedError
         else:
             cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0
-                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset,
-                output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.
-                size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.
-                padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups,
-                ctx.deformable_groups, cur_im2col_step)
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset, output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
         return output
 
     @staticmethod
@@ -262,27 +254,15 @@ class DeformConvFunction(Function):
             raise NotImplementedError
         else:
             cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0
-                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
             if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
                 grad_input = torch.zeros_like(input)
                 grad_offset = torch.zeros_like(offset)
-                deform_conv_cuda.deform_conv_backward_input_cuda(input,
-                    offset, grad_output, grad_input, grad_offset, weight,
-                    ctx.bufs_[0], weight.size(3), weight.size(2), ctx.
-                    stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0
-                    ], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.
-                    deformable_groups, cur_im2col_step)
+                deform_conv_cuda.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, ctx.bufs_[0], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
             if ctx.needs_input_grad[2]:
                 grad_weight = torch.zeros_like(weight)
-                deform_conv_cuda.deform_conv_backward_parameters_cuda(input,
-                    offset, grad_output, grad_weight, ctx.bufs_[0], ctx.
-                    bufs_[1], weight.size(3), weight.size(2), ctx.stride[1],
-                    ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.
-                    dilation[1], ctx.dilation[0], ctx.groups, ctx.
-                    deformable_groups, 1, cur_im2col_step)
-        return (grad_input, grad_offset, grad_weight, None, None, None,
-            None, None)
+                deform_conv_cuda.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, 1, cur_im2col_step)
+        return grad_input, grad_offset, grad_weight, None, None, None, None, None
 
     @staticmethod
     def _output_size(input, weight, padding, dilation, stride):
@@ -295,9 +275,7 @@ class DeformConvFunction(Function):
             stride_ = stride[d]
             output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
         if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError(
-                'convolution input is too small (output would be {})'.
-                format('x'.join(map(str, output_size))))
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
         return output_size
 
 
@@ -306,14 +284,11 @@ deform_conv = DeformConvFunction.apply
 
 class DeformConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
         super(DeformConv, self).__init__()
         assert not bias
-        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(
-            in_channels, groups)
-        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(
-            out_channels, groups)
+        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(in_channels, groups)
+        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(out_channels, groups)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = _pair(kernel_size)
@@ -322,8 +297,7 @@ class DeformConv(nn.Module):
         self.dilation = _pair(dilation)
         self.groups = groups
         self.deformable_groups = deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels //
-            self.groups, *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // self.groups, *self.kernel_size))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -334,15 +308,13 @@ class DeformConv(nn.Module):
         self.weight.data.uniform_(-stdv, stdv)
 
     def forward(self, x, offset):
-        return deform_conv(x, offset, self.weight, self.stride, self.
-            padding, self.dilation, self.groups, self.deformable_groups)
+        return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
 class ModulatedDeformConvFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias=None, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1):
+    def forward(ctx, input, offset, mask, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1):
         ctx.stride = stride
         ctx.padding = padding
         ctx.dilation = dilation
@@ -353,17 +325,11 @@ class ModulatedDeformConvFunction(Function):
             bias = input.new_empty(1)
         if not input.is_cuda:
             raise NotImplementedError
-        if (weight.requires_grad or mask.requires_grad or offset.
-            requires_grad or input.requires_grad):
+        if weight.requires_grad or mask.requires_grad or offset.requires_grad or input.requires_grad:
             ctx.save_for_backward(input, offset, mask, weight, bias)
-        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(
-            ctx, input, weight))
+        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(ctx, input, weight))
         ctx._bufs = [input.new_empty(0), input.new_empty(0)]
-        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight,
-            bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.
-            shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding,
-            ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.
-            deformable_groups, ctx.with_bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight, bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
         return output
 
     @staticmethod
@@ -376,16 +342,10 @@ class ModulatedDeformConvFunction(Function):
         grad_mask = torch.zeros_like(mask)
         grad_weight = torch.zeros_like(weight)
         grad_bias = torch.zeros_like(bias)
-        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight,
-            bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input,
-            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
-            weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.
-            padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups,
-            ctx.deformable_groups, ctx.with_bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight, bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input, grad_weight, grad_bias, grad_offset, grad_mask, grad_output, weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
         if not ctx.with_bias:
             grad_bias = None
-        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
-            None, None, None, None, None)
+        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias, None, None, None, None, None
 
     @staticmethod
     def _infer_shape(ctx, input, weight):
@@ -393,10 +353,8 @@ class ModulatedDeformConvFunction(Function):
         channels_out = weight.size(0)
         height, width = input.shape[2:4]
         kernel_h, kernel_w = weight.shape[2:4]
-        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h -
-            1) + 1)) // ctx.stride + 1
-        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 
-            1) + 1)) // ctx.stride + 1
+        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h - 1) + 1)) // ctx.stride + 1
+        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 1) + 1)) // ctx.stride + 1
         return n, channels_out, height_out, width_out
 
 
@@ -405,8 +363,7 @@ modulated_deform_conv = ModulatedDeformConvFunction.apply
 
 class ModulatedDeformConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
         super(ModulatedDeformConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -417,8 +374,7 @@ class ModulatedDeformConv(nn.Module):
         self.groups = groups
         self.deformable_groups = deformable_groups
         self.with_bias = bias
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels //
-            groups, *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *self.kernel_size))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
@@ -435,17 +391,13 @@ class ModulatedDeformConv(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, x, offset, mask):
-        return modulated_deform_conv(x, offset, mask, self.weight, self.
-            bias, self.stride, self.padding, self.dilation, self.groups,
-            self.deformable_groups)
+        return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
-    def forward(ctx, data, rois, offset, spatial_scale, out_size,
-        out_channels, no_trans, group_size=1, part_size=None,
-        sample_per_part=4, trans_std=0.0):
+    def forward(ctx, data, rois, offset, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         ctx.spatial_scale = spatial_scale
         ctx.out_size = out_size
         ctx.out_channels = out_channels
@@ -460,10 +412,7 @@ class DeformRoIPoolingFunction(Function):
         n = rois.shape[0]
         output = data.new_empty(n, out_channels, out_size, out_size)
         output_count = data.new_empty(n, out_channels, out_size, out_size)
-        deform_pool_cuda.deform_psroi_pooling_cuda_forward(data, rois,
-            offset, output, output_count, ctx.no_trans, ctx.spatial_scale,
-            ctx.out_channels, ctx.group_size, ctx.out_size, ctx.part_size,
-            ctx.sample_per_part, ctx.trans_std)
+        deform_pool_cuda.deform_psroi_pooling_cuda_forward(data, rois, offset, output, output_count, ctx.no_trans, ctx.spatial_scale, ctx.out_channels, ctx.group_size, ctx.out_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
         if data.requires_grad or rois.requires_grad or offset.requires_grad:
             ctx.save_for_backward(data, rois, offset)
         ctx.output_count = output_count
@@ -478,12 +427,8 @@ class DeformRoIPoolingFunction(Function):
         grad_input = torch.zeros_like(data)
         grad_rois = None
         grad_offset = torch.zeros_like(offset)
-        deform_pool_cuda.deform_psroi_pooling_cuda_backward(grad_output,
-            data, rois, offset, output_count, grad_input, grad_offset, ctx.
-            no_trans, ctx.spatial_scale, ctx.out_channels, ctx.group_size,
-            ctx.out_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
-        return (grad_input, grad_rois, grad_offset, None, None, None, None,
-            None, None, None, None)
+        deform_pool_cuda.deform_psroi_pooling_cuda_backward(grad_output, data, rois, offset, output_count, grad_input, grad_offset, ctx.no_trans, ctx.spatial_scale, ctx.out_channels, ctx.group_size, ctx.out_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
+        return grad_input, grad_rois, grad_offset, None, None, None, None, None, None, None, None
 
 
 deform_roi_pooling = DeformRoIPoolingFunction.apply
@@ -491,8 +436,7 @@ deform_roi_pooling = DeformRoIPoolingFunction.apply
 
 class DeformRoIPooling(nn.Module):
 
-    def __init__(self, spatial_scale, out_size, out_channels, no_trans,
-        group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         super(DeformRoIPooling, self).__init__()
         self.spatial_scale = spatial_scale
         self.out_size = out_size
@@ -506,9 +450,7 @@ class DeformRoIPooling(nn.Module):
     def forward(self, data, rois, offset):
         if self.no_trans:
             offset = data.new_empty(0)
-        return deform_roi_pooling(data, rois, offset, self.spatial_scale,
-            self.out_size, self.out_channels, self.no_trans, self.
-            group_size, self.part_size, self.sample_per_part, self.trans_std)
+        return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
 class CRNN(nn.Module):
@@ -523,21 +465,17 @@ class CRNN(nn.Module):
         conv0 = nn.Sequential(self._make_layer(0), nn.MaxPool2d((2, 2)))
         conv1 = nn.Sequential(self._make_layer(1), nn.MaxPool2d((2, 2)))
         conv2 = self._make_layer(2, True)
-        conv3 = nn.Sequential(self._make_layer(3), nn.MaxPool2d((2, 2), (2,
-            1), (0, 1)))
+        conv3 = nn.Sequential(self._make_layer(3), nn.MaxPool2d((2, 2), (2, 1), (0, 1)))
         conv4 = self._make_layer(4, True)
-        conv5 = nn.Sequential(self._make_layer(5), nn.MaxPool2d((2, 2), (2,
-            1), (0, 1)))
+        conv5 = nn.Sequential(self._make_layer(5), nn.MaxPool2d((2, 2), (2, 1), (0, 1)))
         conv6 = self._make_layer(6, True)
-        self.cnn = nn.Sequential(conv0, conv1, conv2, conv3, conv4, conv5,
-            conv6)
+        self.cnn = nn.Sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6)
 
     def _make_layer(self, i, batch_normalization=False):
         in_channel = self.channels[i - 1]
         out_channel = self.channels[i]
         layer = list()
-        layer.append(nn.Conv2d(in_channel, out_channel, self.kernels[i],
-            self.strides[i], self.paddings[i]))
+        layer.append(nn.Conv2d(in_channel, out_channel, self.kernels[i], self.strides[i], self.paddings[i]))
         if batch_normalization:
             layer.append(nn.BatchNorm2d(out_channel))
         else:
@@ -567,11 +505,9 @@ class FPNTopDown(nn.Module):
         nn.Module.__init__(self)
         self.reduction_layers = nn.ModuleList()
         for pyramid_channel in pyramid_channels:
-            reduction_layer = nn.Conv2d(pyramid_channel, feature_channel,
-                kernel_size=1, stride=1, padding=0, bias=False)
+            reduction_layer = nn.Conv2d(pyramid_channel, feature_channel, kernel_size=1, stride=1, padding=0, bias=False)
             self.reduction_layers.append(reduction_layer)
-        self.merge_layer = nn.Conv2d(feature_channel, feature_channel,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.merge_layer = nn.Conv2d(feature_channel, feature_channel, kernel_size=3, stride=1, padding=1, bias=False)
 
     def upsample_add(self, x, y):
         _, _, H, W = y.size()
@@ -579,8 +515,7 @@ class FPNTopDown(nn.Module):
 
     def forward(self, pyramid_features):
         feature = None
-        for pyramid_feature, reduction_layer in zip(pyramid_features, self.
-            reduction_layers):
+        for pyramid_feature, reduction_layer in zip(pyramid_features, self.reduction_layers):
             pyramid_feature = reduction_layer(pyramid_feature)
             if feature is None:
                 feature = pyramid_feature
@@ -592,40 +527,30 @@ class FPNTopDown(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 def conv3x3_bn_relu(in_planes, out_planes, stride=1):
-    return nn.Sequential(conv3x3(in_planes, out_planes, stride), nn.
-        BatchNorm2d(out_planes), nn.ReLU(inplace=True))
+    return nn.Sequential(conv3x3(in_planes, out_planes, stride), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
 
 
 class PPMDeepsup(nn.Module):
 
-    def __init__(self, inner_channels=256, fc_dim=2048, pool_scales=(1, 2, 
-        3, 6)):
+    def __init__(self, inner_channels=256, fc_dim=2048, pool_scales=(1, 2, 3, 6)):
         super(PPMDeepsup, self).__init__()
         self.ppm = []
         for scale in pool_scales:
-            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.
-                Conv2d(fc_dim, 512, kernel_size=1, bias=False), nn.
-                BatchNorm2d(512), nn.ReLU(inplace=True)))
+            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm = nn.ModuleList(self.ppm)
         self.cbr_deepsup = conv3x3_bn_relu(fc_dim // 2, fc_dim // 4, 1)
-        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) *
-            512, 512, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d
-            (512), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(512,
-            inner_channels, kernel_size=1))
+        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) * 512, 512, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(512, inner_channels, kernel_size=1))
 
     def forward(self, conv_out, segSize=None):
         conv5 = conv_out[-1]
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale in self.ppm:
-            ppm_out.append(nn.functional.interpolate(pool_scale(conv5), (
-                input_size[2], input_size[3]), mode='bilinear',
-                align_corners=False))
+            ppm_out.append(nn.functional.interpolate(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear', align_corners=False))
         ppm_out = torch.cat(ppm_out, 1)
         x = self.conv_last(ppm_out)
         return x
@@ -655,8 +580,7 @@ class BasicBlock(nn.Module):
             fallback_on_stride = dcn.get('fallback_on_stride', False)
             self.with_modulated_dcn = dcn.get('modulated', False)
         if not self.with_dcn or fallback_on_stride:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1,
-                bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False)
         else:
             deformable_groups = dcn.get('deformable_groups', 1)
             if not self.with_modulated_dcn:
@@ -665,10 +589,8 @@ class BasicBlock(nn.Module):
             else:
                 conv_op = ModulatedDeformConv
                 offset_channels = 27
-            self.conv2_offset = nn.Conv2d(planes, deformable_groups *
-                offset_channels, kernel_size=3, padding=1)
-            self.conv2 = conv_op(planes, planes, kernel_size=3, padding=1,
-                deformable_groups=deformable_groups, bias=False)
+            self.conv2_offset = nn.Conv2d(planes, deformable_groups * offset_channels, kernel_size=3, padding=1)
+            self.conv2 = conv_op(planes, planes, kernel_size=3, padding=1, deformable_groups=deformable_groups, bias=False)
         self.bn2 = bn(planes)
         self.downsample = downsample
         self.stride = stride
@@ -710,8 +632,7 @@ class Bottleneck(nn.Module):
             fallback_on_stride = dcn.get('fallback_on_stride', False)
             self.with_modulated_dcn = dcn.get('modulated', False)
         if not self.with_dcn or fallback_on_stride:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         else:
             deformable_groups = dcn.get('deformable_groups', 1)
             if not self.with_modulated_dcn:
@@ -720,10 +641,8 @@ class Bottleneck(nn.Module):
             else:
                 conv_op = ModulatedDeformConv
                 offset_channels = 27
-            self.conv2_offset = nn.Conv2d(planes, deformable_groups *
-                offset_channels, kernel_size=3, padding=1)
-            self.conv2 = conv_op(planes, planes, kernel_size=3, padding=1,
-                stride=stride, deformable_groups=deformable_groups, bias=False)
+            self.conv2_offset = nn.Conv2d(planes, deformable_groups * offset_channels, kernel_size=3, padding=1)
+            self.conv2 = conv_op(planes, planes, kernel_size=3, padding=1, stride=stride, deformable_groups=deformable_groups, bias=False)
         self.bn2 = bn(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = bn(planes * 4)
@@ -767,14 +686,12 @@ def constant_init(module, constant, bias=0):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, dcn=None,
-        stage_with_dcn=(False, False, False, False), dilations=[1, 1, 1, 1]):
+    def __init__(self, block, layers, num_classes=1000, dcn=None, stage_with_dcn=(False, False, False, False), dilations=[1, 1, 1, 1]):
         self.dcn = dcn
         self.stage_with_dcn = stage_with_dcn
         self.inplanes = 128
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = bn(64)
         self.relu1 = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(64, 64)
@@ -784,14 +701,10 @@ class ResNet(nn.Module):
         self.bn3 = bn(128)
         self.relu3 = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], dilation=
-            dilations[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dcn
-            =dcn, dilation=dilations[1])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dcn
-            =dcn, dilation=dilations[2])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dcn
-            =dcn, dilation=dilations[3])
+        self.layer1 = self._make_layer(block, 64, layers[0], dilation=dilations[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dcn=dcn, dilation=dilations[1])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dcn=dcn, dilation=dilations[2])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dcn=dcn, dilation=dilations[3])
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.smooth = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=1)
@@ -799,8 +712,7 @@ class ResNet(nn.Module):
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.
-                SyncBatchNorm):
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.SyncBatchNorm):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
         if self.dcn is not None:
@@ -809,16 +721,12 @@ class ResNet(nn.Module):
                     if hasattr(m, 'conv2_offset'):
                         constant_init(m.conv2_offset, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dcn=None, dilation=1
-        ):
+    def _make_layer(self, block, planes, blocks, stride=1, dcn=None, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False,
-                dilation=dilation), bn(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False, dilation=dilation), bn(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, dcn=dcn)
-            )
+        layers.append(block(self.inplanes, planes, stride, downsample, dcn=dcn))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.inplanes, planes, dcn=dcn))
@@ -948,8 +856,7 @@ class Configurable(metaclass=StateMeta):
     def load(self, state_name, **kwargs):
         cmd = kwargs.pop('cmd', dict())
         if state_name in kwargs:
-            setattr(self, state_name, self.create_member_from_config((
-                kwargs[state_name], cmd)))
+            setattr(self, state_name, self.create_member_from_config((kwargs[state_name], cmd)))
         else:
             setattr(self, state_name, self.states[state_name].default)
 
@@ -958,21 +865,18 @@ class Configurable(metaclass=StateMeta):
         if args is None or isinstance(args, (int, float, str)):
             return args
         elif isinstance(args, (list, tuple)):
-            return [self.create_member_from_config((subargs, cmd)) for
-                subargs in args]
+            return [self.create_member_from_config((subargs, cmd)) for subargs in args]
         elif isinstance(args, dict):
             if 'class' in args:
                 cls = self.extract_class_from_args(args)
                 return cls(**args, cmd=cmd)
-            return {key: self.create_member_from_config((subargs, cmd)) for
-                key, subargs in args.items()}
+            return {key: self.create_member_from_config((subargs, cmd)) for key, subargs in args.items()}
         else:
             return args
 
     def dump(self):
         state = {}
-        state['class'
-            ] = self.__class__.__module__ + '.' + self.__class__.__name__
+        state['class'] = self.__class__.__module__ + '.' + self.__class__.__name__
         for name, value in self.states.items():
             obj = getattr(self, name)
             state[name] = self.dump_obj(obj)
@@ -1011,8 +915,7 @@ class Charset(Configurable):
         self._charset = list(self._corpus)
         self._charset.insert(self.blank, self.blank_char)
         self._charset.insert(self.unknown, self.unknown_char)
-        self._charset_lut = {char: index for index, char in enumerate(self.
-            _charset)}
+        self._charset_lut = {char: index for index, char in enumerate(self._charset)}
 
     def _filter_corpus(self, corups):
         return corups
@@ -1095,8 +998,7 @@ class Attn(nn.Module):
 
 class AttentionRNNCell(nn.Module):
 
-    def __init__(self, hidden_dims, embedded_dims, nr_classes, n_layers=1,
-        dropout_p=0, bidirectional=False):
+    def __init__(self, hidden_dims, embedded_dims, nr_classes, n_layers=1, dropout_p=0, bidirectional=False):
         super(AttentionRNNCell, self).__init__()
         self.hidden_dims = hidden_dims
         self.embedded_dims = embedded_dims
@@ -1125,8 +1027,7 @@ class AttentionRNNCell(nn.Module):
             to process the whole sequence
         """
         batch_size = word_input.size(0)
-        word_embedded_onehot = self.embedding(word_input.to(last_hidden.
-            device).type(torch.long)).view(1, batch_size, -1)
+        word_embedded_onehot = self.embedding(word_input.to(last_hidden.device).type(torch.long)).view(1, batch_size, -1)
         word_embedded = self.word_linear(word_embedded_onehot)
         attn_weights = self.attn(last_hidden, encoder_outputs)
         context = attn_weights.bmm(encoder_outputs.transpose(0, 1))
@@ -1166,8 +1067,7 @@ class BalanceCrossEntropyLoss(nn.Module):
         self.negative_ratio = negative_ratio
         self.eps = eps
 
-    def forward(self, pred: torch.Tensor, gt: torch.Tensor, mask: torch.
-        Tensor, return_origin=False):
+    def forward(self, pred: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor, return_origin=False):
         """
         Args:
             pred: shape :math:`(N, 1, H, W)`, the prediction of network
@@ -1177,15 +1077,12 @@ class BalanceCrossEntropyLoss(nn.Module):
         positive = (gt * mask).byte()
         negative = ((1 - gt) * mask).byte()
         positive_count = int(positive.float().sum())
-        negative_count = min(int(negative.float().sum()), int(
-            positive_count * self.negative_ratio))
-        loss = nn.functional.binary_cross_entropy(pred, gt, reduction='none')[:
-            , (0), :, :]
+        negative_count = min(int(negative.float().sum()), int(positive_count * self.negative_ratio))
+        loss = nn.functional.binary_cross_entropy(pred, gt, reduction='none')[:, (0), :, :]
         positive_loss = loss * positive.float()
         negative_loss = loss * negative.float()
         negative_loss, _ = torch.topk(negative_loss.view(-1), negative_count)
-        balance_loss = (positive_loss.sum() + negative_loss.sum()) / (
-            positive_count + negative_count + self.eps)
+        balance_loss = (positive_loss.sum() + negative_loss.sum()) / (positive_count + negative_count + self.eps)
         if return_origin:
             return balance_loss, loss
         return balance_loss
@@ -1271,10 +1168,8 @@ class CTCLoss(nn.Module):
 
     def expand_with_blank(self, targets):
         N, S = targets.shape
-        blank = torch.tensor([self.blank], dtype=torch.long).repeat(targets
-            .shape)
-        expanded_targets = torch.cat([blank.unsqueeze(-1), targets.
-            unsqueeze(-1)], -1)
+        blank = torch.tensor([self.blank], dtype=torch.long).repeat(targets.shape)
+        expanded_targets = torch.cat([blank.unsqueeze(-1), targets.unsqueeze(-1)], -1)
         expanded_targets = expanded_targets.view(N, -1)
         expanded_targets = torch.cat([expanded_targets, blank[:, 0:1]], dim=-1)
         return expanded_targets
@@ -1304,31 +1199,24 @@ class CTCLoss(nn.Module):
         tiny = torch.finfo().tiny
         probability = torch.log(torch.zeros(S, N) + tiny)
         probability[0] = log_probs[(0), :, (self.blank)]
-        batch_indices = torch.linspace(0, N - 1, N).type(torch.long
-            ) * log_probs.shape[-1]
+        batch_indices = torch.linspace(0, N - 1, N).type(torch.long) * log_probs.shape[-1]
         indices = batch_indices + expanded_targets[:, (1)]
         probability[1] = log_probs[0].take(indices)
-        mask_skipping = torch.ne(expanded_targets[:, 2:], expanded_targets[
-            :, :-2]).transpose(0, 1)
+        mask_skipping = torch.ne(expanded_targets[:, 2:], expanded_targets[:, :-2]).transpose(0, 1)
         mask_skipping = mask_skipping.type(torch.float)
         mask_not_skipping = 1 - mask_skipping
         for timestep in range(1, T):
             new_probability1 = self.log_add(probability[1:], probability[:-1])
-            new_probability2 = self.log_add(new_probability1[1:],
-                probability[:-2]) * mask_skipping + new_probability1[1:
-                ] * mask_not_skipping
-            new_probability = torch.cat([probability[:1], new_probability1[
-                :1], new_probability2], dim=0)
-            probability = new_probability + log_probs[timestep].gather(1,
-                expanded_targets).transpose(0, 1)
+            new_probability2 = self.log_add(new_probability1[1:], probability[:-2]) * mask_skipping + new_probability1[1:] * mask_not_skipping
+            new_probability = torch.cat([probability[:1], new_probability1[:1], new_probability2], dim=0)
+            probability = new_probability + log_probs[timestep].gather(1, expanded_targets).transpose(0, 1)
             """
             probability[2:] = torch.log(torch.exp(probability[2:]) +                    torch.exp(probability[1:-1]) +                    torch.exp(probability[:-2]) * mask_skipping)
             probability[1] = torch.log(torch.exp(probability[0]) + torch.exp(probability[1]) + tiny)
             probability = probability + log_probs[timestep].gather(1, expanded_targets).transpose(0, 1)
             """
         lengths = (target_lengths * 2 + 1).unsqueeze(0)
-        loss = self.log_add(probability.gather(0, lengths - 1), probability
-            .gather(0, lengths - 2))
+        loss = self.log_add(probability.gather(0, lengths - 1), probability.gather(0, lengths - 2))
         loss = loss.squeeze(0)
         if self.reduction == 'mean':
             return -(loss / target_lengths.type(torch.float))
@@ -1379,23 +1267,18 @@ class CTCLoss2D(nn.Module):
             2D-CTC for Scene Text Recognition, https://arxiv.org/abs/1907.09705.
         """
         super(CTCLoss2D, self).__init__()
-        warnings.warn(
-            'NOTICE: This class is only for the useage of understanding the principle of 2D-CTC.Please use `ops.ctc_loss_2d` for practice.'
-            )
+        warnings.warn('NOTICE: This class is only for the useage of understanding the principle of 2D-CTC.Please use `ops.ctc_loss_2d` for practice.')
         self.blank = blank
         self.reduction = reduction
-        self.register_buffer('tiny', torch.tensor(torch.finfo().tiny,
-            requires_grad=False))
-        self.register_buffer('blank_buffer', torch.tensor([self.blank],
-            dtype=torch.long))
+        self.register_buffer('tiny', torch.tensor(torch.finfo().tiny, requires_grad=False))
+        self.register_buffer('blank_buffer', torch.tensor([self.blank], dtype=torch.long))
         self.register_buffer('zeros', torch.log(self.tiny))
         self.registered = False
 
     def expand_with_blank(self, targets):
         N, S = targets.shape
         blank = self.blank_buffer.repeat(targets.shape)
-        expanded_targets = torch.cat([blank.unsqueeze(-1), targets.
-            unsqueeze(-1)], -1)
+        expanded_targets = torch.cat([blank.unsqueeze(-1), targets.unsqueeze(-1)], -1)
         expanded_targets = expanded_targets.view(N, -1)
         expanded_targets = torch.cat([expanded_targets, blank[:, 0:1]], dim=-1)
         return expanded_targets
@@ -1406,8 +1289,7 @@ class CTCLoss2D(nn.Module):
 
     def log_sum(self, x, dim, keepdim=False):
         tiny = self.tiny
-        return torch.log(torch.max(torch.sum(torch.exp(x), dim=dim, keepdim
-            =keepdim), tiny))
+        return torch.log(torch.max(torch.sum(torch.exp(x), dim=dim, keepdim=keepdim), tiny))
 
     def safe_log_sum(self, x, keepdim=False):
         result = x[:, (0)]
@@ -1442,38 +1324,25 @@ class CTCLoss2D(nn.Module):
         tiny = self.tiny
         probability = torch.log((torch.zeros(S, H, N) + tiny) / H)
         probability[0] = classify[(0), :, :, (self.blank)]
-        probability[1] = classify[0].gather(2, targets_indices[:, :, 1:2]
-            ).permute(2, 0, 1)
-        mask_skipping = torch.ne(expanded_targets[:, 2:], expanded_targets[
-            :, :-2]).transpose(0, 1)
+        probability[1] = classify[0].gather(2, targets_indices[:, :, 1:2]).permute(2, 0, 1)
+        mask_skipping = torch.ne(expanded_targets[:, 2:], expanded_targets[:, :-2]).transpose(0, 1)
         mask_skipping = mask_skipping.unsqueeze(1).type(torch.float)
         mask_not_skipping = 1 - mask_skipping
-        length_indices = torch.linspace(0, S - 1, S).repeat(N, 1, 1).transpose(
-            0, 2)
+        length_indices = torch.linspace(0, S - 1, S).repeat(N, 1, 1).transpose(0, 2)
         zeros = self.zeros.repeat(S, 1, N).view(S, 1, N)
-        count_computable = torch.cat([mask_skipping[0:1] + 1, mask_skipping
-            [0:1] + 1, mask_skipping + 1], dim=0)
+        count_computable = torch.cat([mask_skipping[0:1] + 1, mask_skipping[0:1] + 1, mask_skipping + 1], dim=0)
         count_computable = torch.cumsum(count_computable, dim=0)
         for timestep in range(1, T):
-            mask_uncomputed = (length_indices > count_computable[timestep]
-                ).type(torch.float)
-            height_summed = self.log_sum(probability + mask[timestep - 1].
-                unsqueeze(0), dim=1, keepdim=True)
-            height_summed = height_summed * (1 - mask_uncomputed
-                ) + zeros * mask_uncomputed
-            new_probability1 = self.log_add(height_summed[1:],
-                height_summed[:-1])
-            new_probability2 = self.log_add(new_probability1[1:],
-                height_summed[:-2]) * mask_skipping + new_probability1[1:
-                ] * mask_not_skipping
-            new_probability = torch.cat([height_summed[:1],
-                new_probability1[:1], new_probability2], dim=0)
-            probability = new_probability + classify[timestep].gather(2,
-                targets_indices).permute(2, 0, 1)
+            mask_uncomputed = (length_indices > count_computable[timestep]).type(torch.float)
+            height_summed = self.log_sum(probability + mask[timestep - 1].unsqueeze(0), dim=1, keepdim=True)
+            height_summed = height_summed * (1 - mask_uncomputed) + zeros * mask_uncomputed
+            new_probability1 = self.log_add(height_summed[1:], height_summed[:-1])
+            new_probability2 = self.log_add(new_probability1[1:], height_summed[:-2]) * mask_skipping + new_probability1[1:] * mask_not_skipping
+            new_probability = torch.cat([height_summed[:1], new_probability1[:1], new_probability2], dim=0)
+            probability = new_probability + classify[timestep].gather(2, targets_indices).permute(2, 0, 1)
         probability = self.safe_log_sum(probability + mask[T - 1].unsqueeze(0))
         lengths = (target_lengths * 2 + 1).unsqueeze(0)
-        loss = self.log_add(probability.gather(0, lengths - 1), probability
-            .gather(0, lengths - 2))
+        loss = self.log_add(probability.gather(0, lengths - 1), probability.gather(0, lengths - 2))
         loss = loss.squeeze(0)
         if self.reduction == 'mean':
             return -(loss / target_lengths.type(torch.float))
@@ -1548,22 +1417,14 @@ class LeakyDiceLoss(nn.Module):
 
 class EASTDecoder(nn.Module):
 
-    def __init__(self, channels=256, heatmap_ratio=1.0, densebox_ratio=0.01,
-        densebox_rescale_factor=512):
+    def __init__(self, channels=256, heatmap_ratio=1.0, densebox_ratio=0.01, densebox_rescale_factor=512):
         nn.Module.__init__(self)
         self.heatmap_ratio = heatmap_ratio
         self.densebox_ratio = densebox_ratio
         self.densebox_rescale_factor = densebox_rescale_factor
-        self.head_layer = nn.Sequential(nn.Conv2d(channels, channels,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(channels),
-            nn.ReLU(inplace=True), nn.ConvTranspose2d(channels, channels //
-            2, kernel_size=2, stride=2, padding=0), nn.BatchNorm2d(channels //
-            2), nn.ReLU(inplace=True), nn.ConvTranspose2d(channels // 2, 
-            channels // 4, kernel_size=2, stride=2, padding=0))
-        self.heatmap_pred_layer = nn.Sequential(nn.Conv2d(channels // 4, 1,
-            kernel_size=1, stride=1, padding=0))
-        self.densebox_pred_layer = nn.Sequential(nn.Conv2d(channels // 4, 8,
-            kernel_size=1, stride=1, padding=0))
+        self.head_layer = nn.Sequential(nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(channels), nn.ReLU(inplace=True), nn.ConvTranspose2d(channels, channels // 2, kernel_size=2, stride=2, padding=0), nn.BatchNorm2d(channels // 2), nn.ReLU(inplace=True), nn.ConvTranspose2d(channels // 2, channels // 4, kernel_size=2, stride=2, padding=0))
+        self.heatmap_pred_layer = nn.Sequential(nn.Conv2d(channels // 4, 1, kernel_size=1, stride=1, padding=0))
+        self.densebox_pred_layer = nn.Sequential(nn.Conv2d(channels // 4, 8, kernel_size=1, stride=1, padding=0))
 
     def forward(self, input, label, meta, train):
         heatmap = label['heatmap']
@@ -1572,18 +1433,14 @@ class EASTDecoder(nn.Module):
         densebox_weight = label['densebox_weight']
         feature = self.head_layer(input)
         heatmap_pred = self.heatmap_pred_layer(feature)
-        densebox_pred = self.densebox_pred_layer(feature
-            ) * self.densebox_rescale_factor
-        heatmap_loss = F.binary_cross_entropy_with_logits(heatmap_pred,
-            heatmap, reduction='none')
+        densebox_pred = self.densebox_pred_layer(feature) * self.densebox_rescale_factor
+        heatmap_loss = F.binary_cross_entropy_with_logits(heatmap_pred, heatmap, reduction='none')
         heatmap_loss = (heatmap_loss * heatmap_weight).mean(dim=(1, 2, 3))
         densebox_loss = F.mse_loss(densebox_pred, densebox, reduction='none')
         densebox_loss = (densebox_loss * densebox_weight).mean(dim=(1, 2, 3))
-        loss = (heatmap_loss * self.heatmap_ratio + densebox_loss * self.
-            densebox_ratio)
+        loss = heatmap_loss * self.heatmap_ratio + densebox_loss * self.densebox_ratio
         pred = {'heatmap': F.sigmoid(heatmap_pred), 'densebox': densebox_pred}
-        metrics = {'heatmap_loss': heatmap_loss, 'densebox_loss': densebox_loss
-            }
+        metrics = {'heatmap_loss': heatmap_loss, 'densebox_loss': densebox_loss}
         if train:
             return loss, pred, metrics
         else:
@@ -1617,13 +1474,11 @@ class BalanceL1Loss(nn.Module):
         positive = loss * mask
         negative = loss * (1 - mask)
         positive_count = int(mask.sum())
-        negative_count = min(int((1 - mask).sum()), int(positive_count *
-            self.negative_ratio))
+        negative_count = min(int((1 - mask).sum()), int(positive_count * self.negative_ratio))
         negative_loss, _ = torch.topk(negative.view(-1), negative_count)
         negative_loss = negative_loss.sum() / negative_count
         positive_loss = positive.sum() / positive_count
-        return positive_loss + negative_loss, dict(l1_loss=positive_loss,
-            nge_l1_loss=negative_loss)
+        return positive_loss + negative_loss, dict(l1_loss=positive_loss, nge_l1_loss=negative_loss)
 
 
 class PSS_Loss(nn.Module):
@@ -1671,8 +1526,7 @@ class PSS_Loss(nn.Module):
     def focal_loss(self, pred, gt, m, alpha=0.25, gamma=0.6):
         pos_mask = (gt == 1).float()
         neg_mask = (gt == 0).float()
-        mask = alpha * pos_mask * torch.pow(1 - pred.data, gamma) + (1 - alpha
-            ) * neg_mask * torch.pow(pred.data, gamma)
+        mask = alpha * pos_mask * torch.pow(1 - pred.data, gamma) + (1 - alpha) * neg_mask * torch.pow(pred.data, gamma)
         l = F.binary_cross_entropy(pred, gt, weight=mask, reduction='none')
         loss = torch.sum(l * m) / (self.eps + m.sum())
         loss *= 10
@@ -1684,8 +1538,7 @@ class PSS_Loss(nn.Module):
         pos_neg_p = pred[m.byte()]
         pos_neg_t = gt[m.byte()]
         pos_mask = (pos_neg_t == 1).squeeze()
-        w = pos_mask.float() * (1 - pos_mask).sum().item() + (1 - pos_mask
-            ).float() * pos_mask.sum().item()
+        w = pos_mask.float() * (1 - pos_mask).sum().item() + (1 - pos_mask).float() * pos_mask.sum().item()
         w = w / pos_mask.size(0)
         loss = F.binary_cross_entropy(pos_neg_p, pos_neg_t, w, reduction='sum')
         return loss
@@ -1707,8 +1560,7 @@ class PSS_Loss(nn.Module):
         return (self.dice_loss(pred, gt, m) + self.bce_loss(pred, gt, m)) / 2.0
 
     def dice_ohnm_bce_loss(self, pred, gt, m):
-        return (self.dice_ohnm_loss(pred, gt, m) + self.bce_loss(pred, gt, m)
-            ) / 2.0
+        return (self.dice_ohnm_loss(pred, gt, m) + self.bce_loss(pred, gt, m)) / 2.0
 
     def forward(self, pred, gt, mask, gt_type='shrink'):
         if gt_type == 'shrink':
@@ -1725,26 +1577,21 @@ class PSS_Loss(nn.Module):
             g_g = gt[:, (4), :, :]
             g_p, _ = torch.max(pred, 1)
             pss_loss += self.criterion(g_p, g_g, mask)
-            shrink_loss = self.criterion(pred[:, (4), :, :], gt[:, (5), :,
-                :], mask)
+            shrink_loss = self.criterion(pred[:, (4), :, :], gt[:, (5), :, :], mask)
             return pss_loss, shrink_loss
         else:
-            return NotImplementedError('gt_type [%s] is not implemented',
-                gt_type)
+            return NotImplementedError('gt_type [%s] is not implemented', gt_type)
 
     def get_loss(self, pred, gt, mask):
         loss = torch.tensor(0.0)
         for ind in range(pred.size(1)):
-            loss += self.criterion(pred[:, (ind), :, :], gt[:, (ind), :, :],
-                mask)
+            loss += self.criterion(pred[:, (ind), :, :], gt[:, (ind), :, :], mask)
         return loss
 
 
 class SegDetector(nn.Module):
 
-    def __init__(self, in_channels=[64, 128, 256, 512], inner_channels=256,
-        k=10, bias=False, adaptive=False, smooth=False, serial=False, *args,
-        **kwargs):
+    def __init__(self, in_channels=[64, 128, 256, 512], inner_channels=256, k=10, bias=False, adaptive=False, smooth=False, serial=False, *args, **kwargs):
         """
         bias: Whether conv layers have bias or not.
         adaptive: Whether to use adaptive threshold training or not.
@@ -1761,28 +1608,15 @@ class SegDetector(nn.Module):
         self.in4 = nn.Conv2d(in_channels[-2], inner_channels, 1, bias=bias)
         self.in3 = nn.Conv2d(in_channels[-3], inner_channels, 1, bias=bias)
         self.in2 = nn.Conv2d(in_channels[-4], inner_channels, 1, bias=bias)
-        self.out5 = nn.Sequential(nn.Conv2d(inner_channels, inner_channels //
-            4, 3, padding=1, bias=bias), nn.Upsample(scale_factor=8, mode=
-            'nearest'))
-        self.out4 = nn.Sequential(nn.Conv2d(inner_channels, inner_channels //
-            4, 3, padding=1, bias=bias), nn.Upsample(scale_factor=4, mode=
-            'nearest'))
-        self.out3 = nn.Sequential(nn.Conv2d(inner_channels, inner_channels //
-            4, 3, padding=1, bias=bias), nn.Upsample(scale_factor=2, mode=
-            'nearest'))
-        self.out2 = nn.Conv2d(inner_channels, inner_channels // 4, 3,
-            padding=1, bias=bias)
-        self.binarize = nn.Sequential(nn.Conv2d(inner_channels, 
-            inner_channels // 4, 3, padding=1, bias=bias), nn.BatchNorm2d(
-            inner_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d
-            (inner_channels // 4, inner_channels // 4, 2, 2), nn.
-            BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), nn.
-            ConvTranspose2d(inner_channels // 4, 1, 2, 2), nn.Sigmoid())
+        self.out5 = nn.Sequential(nn.Conv2d(inner_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.Upsample(scale_factor=8, mode='nearest'))
+        self.out4 = nn.Sequential(nn.Conv2d(inner_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.Upsample(scale_factor=4, mode='nearest'))
+        self.out3 = nn.Sequential(nn.Conv2d(inner_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.Upsample(scale_factor=2, mode='nearest'))
+        self.out2 = nn.Conv2d(inner_channels, inner_channels // 4, 3, padding=1, bias=bias)
+        self.binarize = nn.Sequential(nn.Conv2d(inner_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(inner_channels // 4, inner_channels // 4, 2, 2), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(inner_channels // 4, 1, 2, 2), nn.Sigmoid())
         self.binarize.apply(self.weights_init)
         self.adaptive = adaptive
         if adaptive:
-            self.thresh = self._init_thresh(inner_channels, serial=serial,
-                smooth=smooth, bias=bias)
+            self.thresh = self._init_thresh(inner_channels, serial=serial, smooth=smooth, bias=bias)
             self.thresh.apply(self.weights_init)
         self.in5.apply(self.weights_init)
         self.in4.apply(self.weights_init)
@@ -1801,31 +1635,21 @@ class SegDetector(nn.Module):
             m.weight.data.fill_(1.0)
             m.bias.data.fill_(0.0001)
 
-    def _init_thresh(self, inner_channels, serial=False, smooth=False, bias
-        =False):
+    def _init_thresh(self, inner_channels, serial=False, smooth=False, bias=False):
         in_channels = inner_channels
         if serial:
             in_channels += 1
-        self.thresh = nn.Sequential(nn.Conv2d(in_channels, inner_channels //
-            4, 3, padding=1, bias=bias), nn.BatchNorm2d(inner_channels // 4
-            ), nn.ReLU(inplace=True), self._init_upsample(inner_channels //
-            4, inner_channels // 4, smooth=smooth, bias=bias), nn.
-            BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self.
-            _init_upsample(inner_channels // 4, 1, smooth=smooth, bias=bias
-            ), nn.Sigmoid())
+        self.thresh = nn.Sequential(nn.Conv2d(in_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self._init_upsample(inner_channels // 4, inner_channels // 4, smooth=smooth, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self._init_upsample(inner_channels // 4, 1, smooth=smooth, bias=bias), nn.Sigmoid())
         return self.thresh
 
-    def _init_upsample(self, in_channels, out_channels, smooth=False, bias=
-        False):
+    def _init_upsample(self, in_channels, out_channels, smooth=False, bias=False):
         if smooth:
             inter_out_channels = out_channels
             if out_channels == 1:
                 inter_out_channels = in_channels
-            module_list = [nn.Upsample(scale_factor=2, mode='nearest'), nn.
-                Conv2d(in_channels, inter_out_channels, 3, 1, 1, bias=bias)]
+            module_list = [nn.Upsample(scale_factor=2, mode='nearest'), nn.Conv2d(in_channels, inter_out_channels, 3, 1, 1, bias=bias)]
             if out_channels == 1:
-                module_list.append(nn.Conv2d(in_channels, out_channels,
-                    kernel_size=1, stride=1, padding=1, bias=True))
+                module_list.append(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=1, bias=True))
             return nn.Sequential(module_list)
         else:
             return nn.ConvTranspose2d(in_channels, out_channels, 2, 2)
@@ -1848,8 +1672,7 @@ class SegDetector(nn.Module):
         result = OrderedDict(binary=binary)
         if self.adaptive:
             if self.serial:
-                fuse = torch.cat((fuse, nn.functional.interpolate(binary,
-                    fuse.shape[2:])), 1)
+                fuse = torch.cat((fuse, nn.functional.interpolate(binary, fuse.shape[2:])), 1)
             thresh = self.thresh(fuse)
             thresh_binary = self.step_function(binary, thresh)
             result.update(thresh=thresh, thresh_binary=thresh_binary)
@@ -1910,30 +1733,18 @@ class AdaptiveInstanceDiceLoss(nn.Module):
         self.main_instance_loss = InstanceDiceLoss()
         self.thresh_loss = DiceLoss()
         self.thresh_instance_loss = InstanceDiceLoss()
-        self.weights = nn.ParameterDict(dict(main=nn.Parameter(torch.ones(1
-            )), thresh=nn.Parameter(torch.ones(1)), main_instance=nn.
-            Parameter(torch.ones(1)), thresh_instance=nn.Parameter(torch.
-            ones(1))))
+        self.weights = nn.ParameterDict(dict(main=nn.Parameter(torch.ones(1)), thresh=nn.Parameter(torch.ones(1)), main_instance=nn.Parameter(torch.ones(1)), thresh_instance=nn.Parameter(torch.ones(1))))
 
     def partial_loss(self, weight, loss):
         return loss / weight + torch.log(torch.sqrt(weight))
 
     def forward(self, pred, batch):
         main_loss = self.main_loss(pred['binary'], batch['gt'], batch['mask'])
-        thresh_loss = self.thresh_loss(pred['thresh_binary'], batch['gt'],
-            batch['mask'])
-        main_instance_loss = self.main_instance_loss(pred['binary'], batch[
-            'gt'], batch['mask'])
-        thresh_instance_loss = self.thresh_instance_loss(pred[
-            'thresh_binary'], batch['gt'], batch['mask'])
-        loss = self.partial_loss(self.weights['main'], main_loss
-            ) + self.partial_loss(self.weights['thresh'], thresh_loss
-            ) + self.partial_loss(self.weights['main_instance'],
-            main_instance_loss) + self.partial_loss(self.weights[
-            'thresh_instance'], thresh_instance_loss)
-        metrics = dict(main_loss=main_loss, thresh_loss=thresh_loss,
-            main_instance_loss=main_instance_loss, thresh_instance_loss=
-            thresh_instance_loss)
+        thresh_loss = self.thresh_loss(pred['thresh_binary'], batch['gt'], batch['mask'])
+        main_instance_loss = self.main_instance_loss(pred['binary'], batch['gt'], batch['mask'])
+        thresh_instance_loss = self.thresh_instance_loss(pred['thresh_binary'], batch['gt'], batch['mask'])
+        loss = self.partial_loss(self.weights['main'], main_loss) + self.partial_loss(self.weights['thresh'], thresh_loss) + self.partial_loss(self.weights['main_instance'], main_instance_loss) + self.partial_loss(self.weights['thresh_instance'], thresh_instance_loss)
+        metrics = dict(main_loss=main_loss, thresh_loss=thresh_loss, main_instance_loss=main_instance_loss, thresh_instance_loss=thresh_instance_loss)
         metrics.update(self.weights)
         return loss, metrics
 
@@ -1951,8 +1762,7 @@ class L1DiceLoss(nn.Module):
 
     def forward(self, pred, batch):
         dice_loss, metrics = self.dice_loss(pred, batch)
-        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
-            'thresh_map'], batch['thresh_mask'])
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch['thresh_map'], batch['thresh_mask'])
         loss = dice_loss + self.l1_scale * l1_loss
         metrics.update(**l1_metric)
         return loss, metrics
@@ -1977,10 +1787,8 @@ class L1BalanceCELoss(nn.Module):
     def forward(self, pred, batch):
         bce_loss = self.bce_loss(pred['binary'], batch['gt'], batch['mask'])
         metrics = dict(bce_loss=bce_loss)
-        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
-            'thresh_map'], batch['thresh_mask'])
-        dice_loss = self.dice_loss(pred['thresh_binary'], batch['gt'],
-            batch['mask'])
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch['thresh_map'], batch['thresh_mask'])
+        dice_loss = self.dice_loss(pred['thresh_binary'], batch['gt'], batch['mask'])
         metrics['thresh_loss'] = dice_loss
         loss = dice_loss + self.l1_scale * l1_loss + bce_loss * self.bce_scale
         metrics.update(**l1_metric)
@@ -2002,13 +1810,10 @@ class L1BCEMiningLoss(nn.Module):
         self.bce_scale = bce_scale
 
     def forward(self, pred, batch):
-        bce_loss, bce_map = self.bce_loss(pred['binary'], batch['gt'],
-            batch['mask'], return_origin=True)
-        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
-            'thresh_map'], batch['thresh_mask'])
+        bce_loss, bce_map = self.bce_loss(pred['binary'], batch['gt'], batch['mask'], return_origin=True)
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch['thresh_map'], batch['thresh_mask'])
         bce_map = (bce_map - bce_map.min()) / (bce_map.max() - bce_map.min())
-        dice_loss = self.dice_loss(pred['thresh_binary'], batch['gt'],
-            batch['mask'], weights=bce_map + 1)
+        dice_loss = self.dice_loss(pred['thresh_binary'], batch['gt'], batch['mask'], weights=bce_map + 1)
         metrics = dict(bce_loss=bce_loss)
         metrics['thresh_loss'] = dice_loss
         loss = dice_loss + self.l1_scale * l1_loss + bce_loss * self.bce_scale
@@ -2031,12 +1836,9 @@ class L1LeakyDiceLoss(nn.Module):
         self.l1_scale = l1_scale
 
     def forward(self, pred, batch):
-        main_loss, metrics = self.main_loss(pred['binary'], batch['gt'],
-            batch['mask'])
-        thresh_loss = self.thresh_loss(pred['thresh_binary'], batch['gt'],
-            batch['mask'])
-        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch[
-            'thresh_map'], batch['thresh_mask'])
+        main_loss, metrics = self.main_loss(pred['binary'], batch['gt'], batch['mask'])
+        thresh_loss = self.thresh_loss(pred['thresh_binary'], batch['gt'], batch['mask'])
+        l1_loss, l1_metric = self.l1_loss(pred['thresh'], batch['thresh_map'], batch['thresh_mask'])
         metrics.update(**l1_metric, thresh_loss=thresh_loss)
         loss = main_loss + thresh_loss + l1_loss * self.l1_scale
         return loss, metrics
@@ -2044,13 +1846,9 @@ class L1LeakyDiceLoss(nn.Module):
 
 def SimpleUpsampleHead(feature_channel, layer_channels):
     modules = []
-    modules.append(nn.Conv2d(feature_channel, layer_channels[0],
-        kernel_size=3, stride=1, padding=1, bias=False))
+    modules.append(nn.Conv2d(feature_channel, layer_channels[0], kernel_size=3, stride=1, padding=1, bias=False))
     for layer_index in range(len(layer_channels) - 1):
-        modules.extend([nn.BatchNorm2d(layer_channels[layer_index]), nn.
-            ReLU(inplace=True), nn.ConvTranspose2d(layer_channels[
-            layer_index], layer_channels[layer_index + 1], kernel_size=2,
-            stride=2, padding=0, bias=False)])
+        modules.extend([nn.BatchNorm2d(layer_channels[layer_index]), nn.ReLU(inplace=True), nn.ConvTranspose2d(layer_channels[layer_index], layer_channels[layer_index + 1], kernel_size=2, stride=2, padding=0, bias=False)])
     return nn.Sequential(*modules)
 
 
@@ -2063,13 +1861,10 @@ class SimpleDetectionDecoder(nn.Module):
         self.pred_layers = nn.ModuleDict(self.create_pred_layers())
 
     def create_head_layer(self):
-        return SimpleUpsampleHead(self.feature_channel, [self.
-            feature_channel, self.feature_channel // 2, self.
-            feature_channel // 4])
+        return SimpleUpsampleHead(self.feature_channel, [self.feature_channel, self.feature_channel // 2, self.feature_channel // 4])
 
     def create_pred_layer(self, channels):
-        return nn.Sequential(nn.Conv2d(self.feature_channel // 4, channels,
-            kernel_size=1, stride=1, padding=0, bias=False))
+        return nn.Sequential(nn.Conv2d(self.feature_channel // 4, channels, kernel_size=1, stride=1, padding=0, bias=False))
 
     def create_pred_layers(self):
         return {}
@@ -2099,24 +1894,16 @@ class TextsnakeDecoder(nn.Module):
 
     def __init__(self, channels=256):
         nn.Module.__init__(self)
-        self.head_layer = nn.Sequential(nn.Conv2d(channels, channels,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(channels),
-            nn.ReLU(inplace=True), nn.ConvTranspose2d(channels, channels //
-            2, kernel_size=2, stride=2, padding=0), nn.BatchNorm2d(channels //
-            2), nn.ReLU(inplace=True), nn.ConvTranspose2d(channels // 2, 
-            channels // 4, kernel_size=2, stride=2, padding=0))
-        self.pred_layer = nn.Sequential(nn.Conv2d(channels // 4, 7,
-            kernel_size=1, stride=1, padding=0))
+        self.head_layer = nn.Sequential(nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(channels), nn.ReLU(inplace=True), nn.ConvTranspose2d(channels, channels // 2, kernel_size=2, stride=2, padding=0), nn.BatchNorm2d(channels // 2), nn.ReLU(inplace=True), nn.ConvTranspose2d(channels // 2, channels // 4, kernel_size=2, stride=2, padding=0))
+        self.pred_layer = nn.Sequential(nn.Conv2d(channels // 4, 7, kernel_size=1, stride=1, padding=0))
 
     @staticmethod
     def ohem(predict, target, train_mask, negative_ratio=3.0):
         pos = (target * train_mask).byte()
         neg = ((1 - target) * train_mask).byte()
         n_pos = pos.float().sum()
-        n_neg = min(int(neg.float().sum().item()), int(negative_ratio *
-            n_pos.float()))
-        loss_pos = F.cross_entropy(predict, target, reduction='none')[pos].sum(
-            )
+        n_neg = min(int(neg.float().sum().item()), int(negative_ratio * n_pos.float()))
+        loss_pos = F.cross_entropy(predict, target, reduction='none')[pos].sum()
         loss_neg = F.cross_entropy(predict, target, reduction='none')[neg]
         loss_neg, _ = torch.topk(loss_neg, n_neg)
         return (loss_pos + loss_neg.sum()) / (n_pos + n_neg).float()
@@ -2162,19 +1949,14 @@ class TextsnakeDecoder(nn.Module):
         sin_map = sin_map.reshape(-1)
         cos_map = cos_map.reshape(-1)
         loss_tr = self.ohem(tr_pred, tr_mask.long(), train_mask.long())
-        loss_tcl = F.cross_entropy(tcl_pred, tcl_mask.long(), reduction='none'
-            )[train_mask * tr_mask].mean()
+        loss_tcl = F.cross_entropy(tcl_pred, tcl_mask.long(), reduction='none')[train_mask * tr_mask].mean()
         ones = radius_map.new(radius_pred[tcl_mask].size()).fill_(1.0).float()
-        loss_radius = F.smooth_l1_loss(radius_pred[tcl_mask] / radius_map[
-            tcl_mask], ones)
+        loss_radius = F.smooth_l1_loss(radius_pred[tcl_mask] / radius_map[tcl_mask], ones)
         loss_sin = F.smooth_l1_loss(sin_pred[tcl_mask], sin_map[tcl_mask])
         loss_cos = F.smooth_l1_loss(cos_pred[tcl_mask], cos_map[tcl_mask])
         loss = loss_tr + loss_tcl + loss_radius + loss_sin + loss_cos
-        pred = {'tr_pred': F.softmax(tr_out, dim=1)[:, (1)], 'tcl_pred': F.
-            softmax(tcl_out, dim=1)[:, (1)], 'sin_pred': sin_out,
-            'cos_pred': cos_out, 'radius_pred': radius_out}
-        metrics = {'loss_tr': loss_tr, 'loss_tcl': loss_tcl, 'loss_radius':
-            loss_radius, 'loss_sin': loss_sin, 'loss_cos': loss_cos}
+        pred = {'tr_pred': F.softmax(tr_out, dim=1)[:, (1)], 'tcl_pred': F.softmax(tcl_out, dim=1)[:, (1)], 'sin_pred': sin_out, 'cos_pred': cos_out, 'radius_pred': radius_out}
+        metrics = {'loss_tr': loss_tr, 'loss_tcl': loss_tcl, 'loss_radius': loss_radius, 'loss_sin': loss_sin, 'loss_cos': loss_cos}
         if train:
             return loss, pred, metrics
         else:
@@ -2200,10 +1982,8 @@ class BasicModel(nn.Module):
 
     def __init__(self, args):
         nn.Module.__init__(self)
-        self.backbone = getattr(backbones, args['backbone'])(**args.get(
-            'backbone_args', {}))
-        self.decoder = getattr(decoders, args['decoder'])(**args.get(
-            'decoder_args', {}))
+        self.backbone = getattr(backbones, args['backbone'])(**args.get('backbone_args', {}))
+        self.decoder = getattr(decoders, args['decoder'])(**args.get('decoder_args', {}))
 
     def forward(self, data, *args, **kwargs):
         return self.decoder(self.backbone(data), *args, **kwargs)
@@ -2218,8 +1998,7 @@ def parallelize(model, distributed, local_rank):
 
 class ClassificationModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
@@ -2242,8 +2021,7 @@ class ClassificationModel(nn.Module):
 
 class DetectionModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
@@ -2269,8 +2047,7 @@ class DetectionModel(nn.Module):
 
 class DetectionEnsembleModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.sizes = args['sizes']
         self.model = parallelize(BasicModel(args), distributed, local_rank)
@@ -2301,21 +2078,18 @@ class DetectionEnsembleModel(nn.Module):
 
 class SegDetectorModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         super(SegDetectorModel, self).__init__()
         self.model = BasicModel(args)
         self.model = parallelize(self.model, distributed, local_rank)
-        self.criterion = SegDetectorLossBuilder(args['loss_class'], *args.
-            get('loss_args', []), **args.get('loss_kwargs', {})).build()
+        self.criterion = SegDetectorLossBuilder(args['loss_class'], *args.get('loss_args', []), **args.get('loss_kwargs', {})).build()
         self.criterion = parallelize(self.criterion, distributed, local_rank)
         self.device = device
         self
 
     @staticmethod
     def model_name(args):
-        return os.path.join('seg_detector', args['backbone'], args[
-            'loss_class'])
+        return os.path.join('seg_detector', args['backbone'], args['loss_class'])
 
     def forward(self, batch, training=True):
         data = batch['image']
@@ -2334,8 +2108,7 @@ class SegDetectorModel(nn.Module):
 
 class SequenceRecognitionModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
@@ -2350,8 +2123,7 @@ class SequenceRecognitionModel(nn.Module):
         if self.training:
             labels = batch['label']
             lengths = batch['length'].type(torch.long)
-            loss, pred = self.model(images, targets=labels, lengths=lengths,
-                train=True)
+            loss, pred = self.model(images, targets=labels, lengths=lengths, train=True)
             return loss, pred
         else:
             return self.model(images, train=False)
@@ -2359,8 +2131,7 @@ class SequenceRecognitionModel(nn.Module):
 
 class SegRecognitionModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
@@ -2382,8 +2153,7 @@ class SegRecognitionModel(nn.Module):
 
 class IntegralRegressionRecognitionModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
@@ -2403,8 +2173,7 @@ class IntegralRegressionRecognitionModel(nn.Module):
 
 class GridSamplingModel(nn.Module):
 
-    def __init__(self, args, device, distributed: bool=False, local_rank: int=0
-        ):
+    def __init__(self, args, device, distributed: bool=False, local_rank: int=0):
         nn.Module.__init__(self)
         self.model = parallelize(BasicModel(args), distributed, local_rank)
         self.device = device
@@ -2426,39 +2195,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Megvii_CSG_MegReader(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BalanceCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BalanceCrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BalanceL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BidirectionalLSTM,
+     lambda: ([], {'nIn': 4, 'nHidden': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (CRNN,
+     lambda: ([], {'imgH': 16, 'nc': 4, 'nclass': 4, 'nh': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (ClassificationDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 4, 256])], {}),
+     False),
+    (FPNTopDown,
+     lambda: ([], {'pyramid_channels': [4, 4], 'feature_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
+    (LeakyDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (MaskL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PPMDeepsup,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 2048, 64, 64])], {}),
+     False),
+]
+
+class Test_Megvii_CSG_MegReader(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BalanceL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CRNN(*[], **{'imgH': 16, 'nc': 4, 'nclass': 4, 'nh': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ClassificationDecoder(*[], **{}), [torch.rand([4, 256, 4, 256])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(FPNTopDown(*[], **{'pyramid_channels': [4, 4], 'feature_channel': 4}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(LeakyDiceLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MaskL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(PPMDeepsup(*[], **{}), [torch.rand([4, 4, 2048, 64, 64])], {})
+        self._check(*TESTCASES[8])
 

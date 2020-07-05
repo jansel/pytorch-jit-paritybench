@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,8 +53,7 @@ class NIMA(nn.Module):
     def __init__(self, base_model, num_classes=10):
         super(NIMA, self).__init__()
         self.features = base_model.features
-        self.classifier = nn.Sequential(nn.Dropout(p=0.75), nn.Linear(
-            in_features=25088, out_features=num_classes), nn.Softmax())
+        self.classifier = nn.Sequential(nn.Dropout(p=0.75), nn.Linear(in_features=25088, out_features=num_classes), nn.Softmax())
 
     def forward(self, x):
         out = self.features(x)
@@ -61,10 +61,3 @@ class NIMA(nn.Module):
         out = self.classifier(out)
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_kentsyx_Neural_IMage_Assessment(_paritybench_base):
-    pass

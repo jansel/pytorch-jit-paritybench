@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,10 +66,8 @@ def bboxes_iou(bboxes_a, bboxes_b, xyxy=True):
         area_a = torch.prod(bboxes_a[:, 2:] - bboxes_a[:, :2], 1)
         area_b = torch.prod(bboxes_b[:, 2:] - bboxes_b[:, :2], 1)
     else:
-        tl = torch.max(bboxes_a[:, (None), :2] - bboxes_a[:, (None), 2:] / 
-            2, bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
-        br = torch.min(bboxes_a[:, (None), :2] + bboxes_a[:, (None), 2:] / 
-            2, bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
+        tl = torch.max(bboxes_a[:, (None), :2] - bboxes_a[:, (None), 2:] / 2, bboxes_b[:, :2] - bboxes_b[:, 2:] / 2)
+        br = torch.min(bboxes_a[:, (None), :2] + bboxes_a[:, (None), 2:] / 2, bboxes_b[:, :2] + bboxes_b[:, 2:] / 2)
         area_a = torch.prod(bboxes_a[:, 2:], 1)
         area_b = torch.prod(bboxes_b[:, 2:], 1)
     en = (tl < br).type(tl.type()).prod(dim=2)
@@ -103,16 +102,12 @@ class YOLOLayer(nn.Module):
         self.l2_loss = nn.MSELoss(size_average=False)
         self.bce_loss = nn.BCELoss(size_average=False)
         self.stride = strides[layer_no]
-        self.all_anchors_grid = [(w / self.stride, h / self.stride) for w,
-            h in self.anchors]
-        self.masked_anchors = [self.all_anchors_grid[i] for i in self.anch_mask
-            ]
+        self.all_anchors_grid = [(w / self.stride, h / self.stride) for w, h in self.anchors]
+        self.masked_anchors = [self.all_anchors_grid[i] for i in self.anch_mask]
         self.ref_anchors = np.zeros((len(self.all_anchors_grid), 4))
         self.ref_anchors[:, 2:] = np.array(self.all_anchors_grid)
         self.ref_anchors = torch.FloatTensor(self.ref_anchors)
-        self.conv = nn.Conv2d(in_channels=in_ch, out_channels=self.
-            n_anchors * (self.n_classes + 5), kernel_size=1, stride=1,
-            padding=0)
+        self.conv = nn.Conv2d(in_channels=in_ch, out_channels=self.n_anchors * (self.n_classes + 5), kernel_size=1, stride=1, padding=0)
 
     def forward(self, xin, labels=None):
         """
@@ -139,17 +134,12 @@ class YOLOLayer(nn.Module):
         dtype = torch.FloatTensor if xin.is_cuda else torch.FloatTensor
         output = output.view(batchsize, self.n_anchors, n_ch, fsize, fsize)
         output = output.permute(0, 1, 3, 4, 2)
-        output[..., np.r_[:2, 4:n_ch]] = torch.sigmoid(output[..., np.r_[:2,
-            4:n_ch]])
-        x_shift = dtype(np.broadcast_to(np.arange(fsize, dtype=np.float32),
-            output.shape[:4]))
-        y_shift = dtype(np.broadcast_to(np.arange(fsize, dtype=np.float32).
-            reshape(fsize, 1), output.shape[:4]))
+        output[..., np.r_[:2, 4:n_ch]] = torch.sigmoid(output[..., np.r_[:2, 4:n_ch]])
+        x_shift = dtype(np.broadcast_to(np.arange(fsize, dtype=np.float32), output.shape[:4]))
+        y_shift = dtype(np.broadcast_to(np.arange(fsize, dtype=np.float32).reshape(fsize, 1), output.shape[:4]))
         masked_anchors = np.array(self.masked_anchors)
-        w_anchors = dtype(np.broadcast_to(np.reshape(masked_anchors[:, (0)],
-            (1, self.n_anchors, 1, 1)), output.shape[:4]))
-        h_anchors = dtype(np.broadcast_to(np.reshape(masked_anchors[:, (1)],
-            (1, self.n_anchors, 1, 1)), output.shape[:4]))
+        w_anchors = dtype(np.broadcast_to(np.reshape(masked_anchors[:, (0)], (1, self.n_anchors, 1, 1)), output.shape[:4]))
+        h_anchors = dtype(np.broadcast_to(np.reshape(masked_anchors[:, (1)], (1, self.n_anchors, 1, 1)), output.shape[:4]))
         pred = output.clone()
         pred[..., 0] += x_shift
         pred[..., 1] += y_shift
@@ -159,14 +149,10 @@ class YOLOLayer(nn.Module):
             pred[(...), :4] *= self.stride
             return pred.view(batchsize, -1, n_ch).data
         pred = pred[(...), :4].data
-        tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 4 +
-            self.n_classes).type(dtype)
-        obj_mask = torch.ones(batchsize, self.n_anchors, fsize, fsize).type(
-            dtype)
-        tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2
-            ).type(dtype)
-        target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch
-            ).type(dtype)
+        tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 4 + self.n_classes).type(dtype)
+        obj_mask = torch.ones(batchsize, self.n_anchors, fsize, fsize).type(dtype)
+        tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2).type(dtype)
+        target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch).type(dtype)
         labels = labels.cpu().data
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)
         truth_x_all = labels[:, :, (1)] * fsize
@@ -187,8 +173,7 @@ class YOLOLayer(nn.Module):
             anchor_ious_all = bboxes_iou(truth_box.cpu(), self.ref_anchors)
             best_n_all = np.argmax(anchor_ious_all, axis=1)
             best_n = best_n_all % 3
-            best_n_mask = (best_n_all == self.anch_mask[0]) | (best_n_all ==
-                self.anch_mask[1]) | (best_n_all == self.anch_mask[2])
+            best_n_mask = (best_n_all == self.anch_mask[0]) | (best_n_all == self.anch_mask[1]) | (best_n_all == self.anch_mask[2])
             truth_box[:n, (0)] = truth_x_all[(b), :n]
             truth_box[:n, (1)] = truth_y_all[(b), :n]
             pred_ious = bboxes_iou(pred[b].view(-1, 4), truth_box, xyxy=False)
@@ -204,21 +189,13 @@ class YOLOLayer(nn.Module):
                     a = best_n[ti]
                     obj_mask[b, a, j, i] = 1
                     tgt_mask[(b), (a), (j), (i), :] = 1
-                    target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[
-                        b, ti].to(torch.int16)
-                    target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[
-                        b, ti].to(torch.int16)
-                    target[b, a, j, i, 2] = torch.log(truth_w_all[b, ti] /
-                        torch.Tensor(self.masked_anchors)[best_n[ti], 0] + 
-                        1e-16)
-                    target[b, a, j, i, 3] = torch.log(truth_h_all[b, ti] /
-                        torch.Tensor(self.masked_anchors)[best_n[ti], 1] + 
-                        1e-16)
+                    target[b, a, j, i, 0] = truth_x_all[b, ti] - truth_x_all[b, ti].to(torch.int16)
+                    target[b, a, j, i, 1] = truth_y_all[b, ti] - truth_y_all[b, ti].to(torch.int16)
+                    target[b, a, j, i, 2] = torch.log(truth_w_all[b, ti] / torch.Tensor(self.masked_anchors)[best_n[ti], 0] + 1e-16)
+                    target[b, a, j, i, 3] = torch.log(truth_h_all[b, ti] / torch.Tensor(self.masked_anchors)[best_n[ti], 1] + 1e-16)
                     target[b, a, j, i, 4] = 1
                     target[b, a, j, i, 5 + labels[b, ti, 0].numpy()] = 1
-                    tgt_scale[(b), (a), (j), (i), :] = torch.sqrt(2 - 
-                        truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize
-                        )
+                    tgt_scale[(b), (a), (j), (i), :] = torch.sqrt(2 - truth_w_all[b, ti] * truth_h_all[b, ti] / fsize / fsize)
         output[..., 4] *= obj_mask
         output[..., np.r_[0:4, 5:n_ch]] *= tgt_mask
         output[(...), 2:4] *= tgt_scale
@@ -248,8 +225,7 @@ def add_conv(in_ch, out_ch, ksize, stride):
     """
     stage = nn.Sequential()
     pad = (ksize - 1) // 2
-    stage.add_module('conv', nn.Conv2d(in_channels=in_ch, out_channels=
-        out_ch, kernel_size=ksize, stride=stride, padding=pad, bias=False))
+    stage.add_module('conv', nn.Conv2d(in_channels=in_ch, out_channels=out_ch, kernel_size=ksize, stride=stride, padding=pad, bias=False))
     stage.add_module('batch_norm', nn.BatchNorm2d(out_ch))
     stage.add_module('leaky', nn.LeakyReLU(0.1))
     return stage
@@ -308,8 +284,7 @@ def create_yolov3_modules(config_model, ignore_thre):
     mlist.append(resblock(ch=1024, nblocks=2, shortcut=False))
     mlist.append(add_conv(in_ch=1024, out_ch=512, ksize=1, stride=1))
     mlist.append(add_conv(in_ch=512, out_ch=1024, ksize=3, stride=1))
-    mlist.append(YOLOLayer(config_model, layer_no=0, in_ch=1024,
-        ignore_thre=ignore_thre))
+    mlist.append(YOLOLayer(config_model, layer_no=0, in_ch=1024, ignore_thre=ignore_thre))
     mlist.append(add_conv(in_ch=512, out_ch=256, ksize=1, stride=1))
     mlist.append(nn.Upsample(scale_factor=2, mode='nearest'))
     mlist.append(add_conv(in_ch=768, out_ch=256, ksize=1, stride=1))
@@ -317,15 +292,13 @@ def create_yolov3_modules(config_model, ignore_thre):
     mlist.append(resblock(ch=512, nblocks=1, shortcut=False))
     mlist.append(add_conv(in_ch=512, out_ch=256, ksize=1, stride=1))
     mlist.append(add_conv(in_ch=256, out_ch=512, ksize=3, stride=1))
-    mlist.append(YOLOLayer(config_model, layer_no=1, in_ch=512, ignore_thre
-        =ignore_thre))
+    mlist.append(YOLOLayer(config_model, layer_no=1, in_ch=512, ignore_thre=ignore_thre))
     mlist.append(add_conv(in_ch=256, out_ch=128, ksize=1, stride=1))
     mlist.append(nn.Upsample(scale_factor=2, mode='nearest'))
     mlist.append(add_conv(in_ch=384, out_ch=128, ksize=1, stride=1))
     mlist.append(add_conv(in_ch=128, out_ch=256, ksize=3, stride=1))
     mlist.append(resblock(ch=256, nblocks=2, shortcut=False))
-    mlist.append(YOLOLayer(config_model, layer_no=2, in_ch=256, ignore_thre
-        =ignore_thre))
+    mlist.append(YOLOLayer(config_model, layer_no=2, in_ch=256, ignore_thre=ignore_thre))
     return mlist
 
 
@@ -345,8 +318,7 @@ class YOLOv3(nn.Module):
         if config_model['TYPE'] == 'YOLOv3':
             self.module_list = create_yolov3_modules(config_model, ignore_thre)
         else:
-            raise Exception('Model name {} is not available'.format(
-                config_model['TYPE']))
+            raise Exception('Model name {} is not available'.format(config_model['TYPE']))
 
     def forward(self, x, targets=None):
         """
@@ -369,8 +341,7 @@ class YOLOv3(nn.Module):
             if i in [14, 22, 28]:
                 if train:
                     x, *loss_dict = module(x, targets)
-                    for name, loss in zip(['xy', 'wh', 'conf', 'cls', 'l2'],
-                        loss_dict):
+                    for name, loss in zip(['xy', 'wh', 'conf', 'cls', 'l2'], loss_dict):
                         self.loss_dict[name] += loss
                 else:
                     x = module(x)
@@ -397,8 +368,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (resblock,
+     lambda: ([], {'ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_DeNA_PyTorch_YOLOv3(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(resblock(*[], **{'ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

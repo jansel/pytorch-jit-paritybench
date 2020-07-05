@@ -80,8 +80,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -154,14 +155,10 @@ class CharCNN(nn.Module):
         target_class = config.target_class
         input_channel = 68
         self.conv1 = nn.Conv1d(input_channel, num_conv_filters, kernel_size=7)
-        self.conv2 = nn.Conv1d(num_conv_filters, num_conv_filters,
-            kernel_size=7)
-        self.conv3 = nn.Conv1d(num_conv_filters, num_conv_filters,
-            kernel_size=3)
-        self.conv4 = nn.Conv1d(num_conv_filters, num_conv_filters,
-            kernel_size=3)
-        self.conv5 = nn.Conv1d(num_conv_filters, num_conv_filters,
-            kernel_size=3)
+        self.conv2 = nn.Conv1d(num_conv_filters, num_conv_filters, kernel_size=7)
+        self.conv3 = nn.Conv1d(num_conv_filters, num_conv_filters, kernel_size=3)
+        self.conv4 = nn.Conv1d(num_conv_filters, num_conv_filters, kernel_size=3)
+        self.conv5 = nn.Conv1d(num_conv_filters, num_conv_filters, kernel_size=3)
         self.conv6 = nn.Conv1d(num_conv_filters, output_channel, kernel_size=3)
         self.dropout = nn.Dropout(config.dropout)
         self.fc1 = nn.Linear(output_channel, num_affine_neurons)
@@ -197,16 +194,12 @@ class FastText(nn.Module):
         words_dim = config.words_dim
         self.mode = config.mode
         if config.mode == 'rand':
-            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-
-                0.25, 0.25)
-            self.embed = nn.Embedding.from_pretrained(rand_embed_init,
-                freeze=False)
+            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-0.25, 0.25)
+            self.embed = nn.Embedding.from_pretrained(rand_embed_init, freeze=False)
         elif config.mode == 'static':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
         elif config.mode == 'non-static':
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
         else:
             None
             exit()
@@ -253,13 +246,10 @@ class SentLevelRNN(nn.Module):
         sentence_num_hidden = config.sentence_num_hidden
         word_num_hidden = config.word_num_hidden
         target_class = config.target_class
-        self.sentence_context_weights = nn.Parameter(torch.rand(2 *
-            sentence_num_hidden, 1))
+        self.sentence_context_weights = nn.Parameter(torch.rand(2 * sentence_num_hidden, 1))
         self.sentence_context_weights.data.uniform_(-0.1, 0.1)
-        self.sentence_gru = nn.GRU(2 * word_num_hidden, sentence_num_hidden,
-            bidirectional=True)
-        self.sentence_linear = nn.Linear(2 * sentence_num_hidden, 2 *
-            sentence_num_hidden, bias=True)
+        self.sentence_gru = nn.GRU(2 * word_num_hidden, sentence_num_hidden, bidirectional=True)
+        self.sentence_linear = nn.Linear(2 * sentence_num_hidden, 2 * sentence_num_hidden, bias=True)
         self.fc = nn.Linear(2 * sentence_num_hidden, target_class)
         self.soft_sent = nn.Softmax()
 
@@ -285,24 +275,18 @@ class WordLevelRNN(nn.Module):
         words_dim = config.words_dim
         self.mode = config.mode
         if self.mode == 'rand':
-            rand_embed_init = torch.Tensor(words_num, words_dim).uniform(-
-                0.25, 0.25)
-            self.embed = nn.Embedding.from_pretrained(rand_embed_init,
-                freeze=False)
+            rand_embed_init = torch.Tensor(words_num, words_dim).uniform(-0.25, 0.25)
+            self.embed = nn.Embedding.from_pretrained(rand_embed_init, freeze=False)
         elif self.mode == 'static':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
         elif self.mode == 'non-static':
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
         else:
             None
             exit()
-        self.word_context_weights = nn.Parameter(torch.rand(2 *
-            word_num_hidden, 1))
+        self.word_context_weights = nn.Parameter(torch.rand(2 * word_num_hidden, 1))
         self.GRU = nn.GRU(words_dim, word_num_hidden, bidirectional=True)
-        self.linear = nn.Linear(2 * word_num_hidden, 2 * word_num_hidden,
-            bias=True)
+        self.linear = nn.Linear(2 * word_num_hidden, 2 * word_num_hidden, bias=True)
         self.word_context_weights.data.uniform_(-0.25, 0.25)
         self.soft_word = nn.Softmax()
 
@@ -333,14 +317,10 @@ class HierarchicalBert(nn.Module):
         self.args = args
         input_channels = 1
         ks = 3
-        self.sentence_encoder = BertSentenceEncoder.from_pretrained(args.
-            pretrained_model_path, num_labels=args.num_labels)
-        self.conv1 = nn.Conv2d(input_channels, args.output_channel, (3,
-            self.sentence_encoder.config.hidden_size), padding=(2, 0))
-        self.conv2 = nn.Conv2d(input_channels, args.output_channel, (4,
-            self.sentence_encoder.config.hidden_size), padding=(3, 0))
-        self.conv3 = nn.Conv2d(input_channels, args.output_channel, (5,
-            self.sentence_encoder.config.hidden_size), padding=(4, 0))
+        self.sentence_encoder = BertSentenceEncoder.from_pretrained(args.pretrained_model_path, num_labels=args.num_labels)
+        self.conv1 = nn.Conv2d(input_channels, args.output_channel, (3, self.sentence_encoder.config.hidden_size), padding=(2, 0))
+        self.conv2 = nn.Conv2d(input_channels, args.output_channel, (4, self.sentence_encoder.config.hidden_size), padding=(3, 0))
+        self.conv3 = nn.Conv2d(input_channels, args.output_channel, (5, self.sentence_encoder.config.hidden_size), padding=(4, 0))
         self.dropout = nn.Dropout(args.dropout)
         self.fc1 = nn.Linear(ks * args.output_channel, args.num_labels)
 
@@ -355,18 +335,15 @@ class HierarchicalBert(nn.Module):
         input_mask = input_mask.permute(1, 0, 2)
         x_encoded = []
         for i0 in range(len(input_ids)):
-            x_encoded.append(self.sentence_encoder(input_ids[i0],
-                input_mask[i0], segment_ids[i0]))
+            x_encoded.append(self.sentence_encoder(input_ids[i0], input_mask[i0], segment_ids[i0]))
         x = torch.stack(x_encoded)
         x = x.permute(1, 0, 2)
         x = x.unsqueeze(1)
-        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).
-            squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
+        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
         if self.args.dynamic_pool:
             x = [self.dynamic_pool(i).squeeze(2) for i in x]
             x = torch.cat(x, 1)
-            x = x.view(-1, self.filter_widths * self.output_channel * self.
-                dynamic_pool_length)
+            x = x.view(-1, self.filter_widths * self.output_channel * self.dynamic_pool_length)
         else:
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
             x = torch.cat(x, 1)
@@ -388,31 +365,22 @@ class KimCNN(nn.Module):
         ks = 3
         input_channel = 1
         if config.mode == 'rand':
-            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-
-                0.25, 0.25)
-            self.embed = nn.Embedding.from_pretrained(rand_embed_init,
-                freeze=False)
+            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-0.25, 0.25)
+            self.embed = nn.Embedding.from_pretrained(rand_embed_init, freeze=False)
         elif config.mode == 'static':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
         elif config.mode == 'non-static':
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
         elif config.mode == 'multichannel':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
             input_channel = 2
         else:
             None
             exit()
-        self.conv1 = nn.Conv2d(input_channel, output_channel, (3, words_dim
-            ), padding=(2, 0))
-        self.conv2 = nn.Conv2d(input_channel, output_channel, (4, words_dim
-            ), padding=(3, 0))
-        self.conv3 = nn.Conv2d(input_channel, output_channel, (5, words_dim
-            ), padding=(4, 0))
+        self.conv1 = nn.Conv2d(input_channel, output_channel, (3, words_dim), padding=(2, 0))
+        self.conv2 = nn.Conv2d(input_channel, output_channel, (4, words_dim), padding=(3, 0))
+        self.conv3 = nn.Conv2d(input_channel, output_channel, (5, words_dim), padding=(4, 0))
         self.dropout = nn.Dropout(config.dropout)
         self.fc1 = nn.Linear(ks * output_channel, target_class)
 
@@ -433,8 +401,7 @@ class KimCNN(nn.Module):
         else:
             None
             exit()
-        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).
-            squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
+        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
         x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         x = torch.cat(x, 1)
         x = self.dropout(x)
@@ -472,20 +439,16 @@ class LockedDropout(nn.Module):
 
 def embedded_dropout(embed, words, dropout=0.1, scale=None):
     if dropout:
-        mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)
-            ).bernoulli_(1 - dropout).expand_as(embed.weight) / (1 - dropout)
+        mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(embed.weight) / (1 - dropout)
         masked_embed_weight = mask * embed.weight
     else:
         masked_embed_weight = embed.weight
     if scale:
-        masked_embed_weight = scale.expand_as(masked_embed_weight
-            ) * masked_embed_weight
+        masked_embed_weight = scale.expand_as(masked_embed_weight) * masked_embed_weight
     padding_idx = embed.padding_idx
     if padding_idx is None:
         padding_idx = -1
-    X = torch.nn.functional.embedding(words, masked_embed_weight,
-        padding_idx, embed.max_norm, embed.norm_type, embed.
-        scale_grad_by_freq, embed.sparse)
+    X = torch.nn.functional.embedding(words, masked_embed_weight, padding_idx, embed.max_norm, embed.norm_type, embed.scale_grad_by_freq, embed.sparse)
     return X
 
 
@@ -504,25 +467,18 @@ class RegLSTM(nn.Module):
         self.wdrop = config.wdrop
         self.embed_droprate = config.embed_droprate
         if config.mode == 'rand':
-            rand_embed_init = torch.Tensor(config.words_num, config.words_dim
-                ).uniform_(-0.25, 0.25)
-            self.embed = nn.Embedding.from_pretrained(rand_embed_init,
-                freeze=False)
+            rand_embed_init = torch.Tensor(config.words_num, config.words_dim).uniform_(-0.25, 0.25)
+            self.embed = nn.Embedding.from_pretrained(rand_embed_init, freeze=False)
         elif config.mode == 'static':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
         elif config.mode == 'non-static':
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
         else:
             None
             exit()
-        self.lstm = nn.LSTM(config.words_dim, config.hidden_dim, dropout=
-            config.dropout, num_layers=config.num_layers, bidirectional=
-            self.is_bidirectional, batch_first=True)
+        self.lstm = nn.LSTM(config.words_dim, config.hidden_dim, dropout=config.dropout, num_layers=config.num_layers, bidirectional=self.is_bidirectional, batch_first=True)
         if self.wdrop:
-            self.lstm = WeightDrop(self.lstm, ['weight_hh_l0'], dropout=
-                self.wdrop)
+            self.lstm = WeightDrop(self.lstm, ['weight_hh_l0'], dropout=self.wdrop)
         self.dropout = nn.Dropout(config.dropout)
         if self.has_bottleneck_layer:
             if self.is_bidirectional:
@@ -543,29 +499,21 @@ class RegLSTM(nn.Module):
 
     def forward(self, x, lengths=None):
         if self.mode == 'rand':
-            x = embedded_dropout(self.embed, x, dropout=self.embed_droprate if
-                self.training else 0) if self.embed_droprate else self.embed(x)
+            x = embedded_dropout(self.embed, x, dropout=self.embed_droprate if self.training else 0) if self.embed_droprate else self.embed(x)
         elif self.mode == 'static':
-            x = embedded_dropout(self.static_embed, x, dropout=self.
-                embed_droprate if self.training else 0
-                ) if self.embed_droprate else self.static_embed(x)
+            x = embedded_dropout(self.static_embed, x, dropout=self.embed_droprate if self.training else 0) if self.embed_droprate else self.static_embed(x)
         elif self.mode == 'non-static':
-            x = embedded_dropout(self.non_static_embed, x, dropout=self.
-                embed_droprate if self.training else 0
-                ) if self.embed_droprate else self.non_static_embed(x)
+            x = embedded_dropout(self.non_static_embed, x, dropout=self.embed_droprate if self.training else 0) if self.embed_droprate else self.non_static_embed(x)
         else:
             None
             exit()
         if lengths is not None:
-            x = torch.nn.utils.rnn.pack_padded_sequence(x, lengths,
-                batch_first=True)
+            x = torch.nn.utils.rnn.pack_padded_sequence(x, lengths, batch_first=True)
         rnn_outs, _ = self.lstm(x)
         rnn_outs_temp = rnn_outs
         if lengths is not None:
-            rnn_outs, _ = torch.nn.utils.rnn.pad_packed_sequence(rnn_outs,
-                batch_first=True)
-            rnn_outs_temp, _ = torch.nn.utils.rnn.pad_packed_sequence(
-                rnn_outs_temp, batch_first=True)
+            rnn_outs, _ = torch.nn.utils.rnn.pad_packed_sequence(rnn_outs, batch_first=True)
+            rnn_outs_temp, _ = torch.nn.utils.rnn.pad_packed_sequence(rnn_outs_temp, batch_first=True)
         x = F.relu(torch.transpose(rnn_outs_temp, 1, 2))
         x = F.max_pool1d(x, x.size(2)).squeeze(2)
         x = self.dropout(x)
@@ -627,12 +575,10 @@ class WeightDrop(torch.nn.Module):
                 mask = torch.autograd.Variable(torch.ones(raw_w.size(0), 1))
                 if raw_w.is_cuda:
                     mask = mask
-                mask = torch.nn.functional.dropout(mask, p=self.dropout,
-                    training=True)
+                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True)
                 w = mask.expand_as(raw_w) * raw_w
             else:
-                w = torch.nn.functional.dropout(raw_w, p=self.dropout,
-                    training=self.training)
+                w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
             setattr(self.module, name_w, w)
 
     def forward(self, *args):
@@ -655,34 +601,24 @@ class XmlCNN(nn.Module):
         self.ks = 3
         input_channel = 1
         if config.mode == 'rand':
-            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-
-                0.25, 0.25)
-            self.embed = nn.Embedding.from_pretrained(rand_embed_init,
-                freeze=False)
+            rand_embed_init = torch.Tensor(words_num, words_dim).uniform_(-0.25, 0.25)
+            self.embed = nn.Embedding.from_pretrained(rand_embed_init, freeze=False)
         elif config.mode == 'static':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
         elif config.mode == 'non-static':
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
         elif config.mode == 'multichannel':
-            self.static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=True)
-            self.non_static_embed = nn.Embedding.from_pretrained(dataset.
-                TEXT_FIELD.vocab.vectors, freeze=False)
+            self.static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=True)
+            self.non_static_embed = nn.Embedding.from_pretrained(dataset.TEXT_FIELD.vocab.vectors, freeze=False)
             input_channel = 2
         else:
             None
             exit()
-        self.conv1 = nn.Conv2d(input_channel, self.output_channel, (2,
-            words_dim), padding=(1, 0))
-        self.conv2 = nn.Conv2d(input_channel, self.output_channel, (4,
-            words_dim), padding=(3, 0))
-        self.conv3 = nn.Conv2d(input_channel, self.output_channel, (8,
-            words_dim), padding=(7, 0))
+        self.conv1 = nn.Conv2d(input_channel, self.output_channel, (2, words_dim), padding=(1, 0))
+        self.conv2 = nn.Conv2d(input_channel, self.output_channel, (4, words_dim), padding=(3, 0))
+        self.conv3 = nn.Conv2d(input_channel, self.output_channel, (8, words_dim), padding=(7, 0))
         self.dropout = nn.Dropout(config.dropout)
-        self.bottleneck = nn.Linear(self.ks * self.output_channel * self.
-            dynamic_pool_length, self.num_bottleneck_hidden)
+        self.bottleneck = nn.Linear(self.ks * self.output_channel * self.dynamic_pool_length, self.num_bottleneck_hidden)
         self.fc1 = nn.Linear(self.num_bottleneck_hidden, target_class)
         self.pool = nn.AdaptiveMaxPool1d(self.dynamic_pool_length)
 
@@ -703,12 +639,10 @@ class XmlCNN(nn.Module):
         else:
             None
             exit()
-        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).
-            squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
+        x = [F.relu(self.conv1(x)).squeeze(3), F.relu(self.conv2(x)).squeeze(3), F.relu(self.conv3(x)).squeeze(3)]
         x = [self.pool(i).squeeze(2) for i in x]
         x = torch.cat(x, 1)
-        x = F.relu(self.bottleneck(x.view(-1, self.ks * self.output_channel *
-            self.dynamic_pool_length)))
+        x = F.relu(self.bottleneck(x.view(-1, self.ks * self.output_channel * self.dynamic_pool_length)))
         x = self.dropout(x)
         logit = self.fc1(x)
         return logit
@@ -718,16 +652,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_castorini_hedwig(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(LockedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LockedDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LogisticRegression,
+     lambda: ([], {'config': _mock_config(dropout=0.5, vocab_size=4, num_labels=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SentLevelRNN,
+     lambda: ([], {'config': _mock_config(sentence_num_hidden=4, word_num_hidden=4, target_class=4)}),
+     lambda: ([torch.rand([4, 4, 8])], {}),
+     True),
+]
+
+class Test_castorini_hedwig(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(LogisticRegression(*[], **{'config': _mock_config(dropout=0.5, vocab_size=4, num_labels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SentLevelRNN(*[], **{'config': _mock_config(sentence_num_hidden=4, word_num_hidden=4, target_class=4)}), [torch.rand([4, 4, 8])], {})
+        self._check(*TESTCASES[2])
 

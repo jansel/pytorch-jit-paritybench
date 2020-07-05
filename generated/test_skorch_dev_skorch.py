@@ -56,8 +56,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -165,11 +166,8 @@ class ClassifierModule(nn.Module):
 
     def __init__(self):
         super(ClassifierModule, self).__init__()
-        self.cnn = nn.Sequential(nn.Conv2d(1, 32, (3, 3)), nn.ReLU(), nn.
-            Conv2d(32, 64, (3, 3)), nn.ReLU(), nn.MaxPool2d((2, 2)), nn.
-            Dropout(0.25))
-        self.out = nn.Sequential(nn.Linear(64 * 12 * 12, 128), nn.ReLU(),
-            nn.Dropout(0.5), nn.Linear(128, 10), nn.Softmax(dim=-1))
+        self.cnn = nn.Sequential(nn.Conv2d(1, 32, (3, 3)), nn.ReLU(), nn.Conv2d(32, 64, (3, 3)), nn.ReLU(), nn.MaxPool2d((2, 2)), nn.Dropout(0.25))
+        self.out = nn.Sequential(nn.Linear(64 * 12 * 12, 128), nn.ReLU(), nn.Dropout(0.5), nn.Linear(128, 10), nn.Softmax(dim=-1))
 
     def forward(self, X, **kwargs):
         X = self.cnn(X)
@@ -208,8 +206,7 @@ class MLPClassifier(nn.Module):
 
     """
 
-    def __init__(self, hidden_units=10, num_hidden=1, nonlin=nn.ReLU(),
-        dropout=0):
+    def __init__(self, hidden_units=10, num_hidden=1, nonlin=nn.ReLU(), dropout=0):
         super().__init__()
         self.hidden_units = hidden_units
         self.num_hidden = num_hidden
@@ -235,10 +232,7 @@ class MLPClassifier(nn.Module):
 
 
 def make_decoder_block(in_channels, middle_channels, out_channels):
-    return nn.Sequential(nn.Conv2d(in_channels, middle_channels, 3, padding
-        =1), nn.ReLU(inplace=True), nn.ConvTranspose2d(middle_channels,
-        out_channels, kernel_size=4, stride=2, padding=1), nn.ReLU(inplace=
-        True))
+    return nn.Sequential(nn.Conv2d(in_channels, middle_channels, 3, padding=1), nn.ReLU(inplace=True), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1), nn.ReLU(inplace=True))
 
 
 class UNet(nn.Module):
@@ -265,14 +259,12 @@ class UNet(nn.Module):
         self.conv3 = encoder[13:23]
         self.conv4 = encoder[23:33]
         self.conv5 = encoder[33:43]
-        self.center = nn.Sequential(encoder[43], make_decoder_block(512, 
-            512, 256))
+        self.center = nn.Sequential(encoder[43], make_decoder_block(512, 512, 256))
         self.dec5 = make_decoder_block(256 + 512, 512, 256)
         self.dec4 = make_decoder_block(256 + 512, 512, 256)
         self.dec3 = make_decoder_block(256 + 256, 256, 64)
         self.dec2 = make_decoder_block(64 + 128, 128, 32)
-        self.dec1 = nn.Sequential(nn.Conv2d(32 + 64, 32, 3, padding=1), nn.
-            ReLU(inplace=True))
+        self.dec1 = nn.Sequential(nn.Conv2d(32 + 64, 32, 3, padding=1), nn.ReLU(inplace=True))
         self.final = nn.Conv2d(32, 1, kernel_size=1)
 
     def forward(self, x):
@@ -292,19 +284,16 @@ class UNet(nn.Module):
 
 class RNNClassifier(nn.Module):
 
-    def __init__(self, embedding_dim=128, rec_layer_type='lstm', num_units=
-        128, num_layers=2, dropout=0, vocab_size=1000):
+    def __init__(self, embedding_dim=128, rec_layer_type='lstm', num_units=128, num_layers=2, dropout=0, vocab_size=1000):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.rec_layer_type = rec_layer_type.lower()
         self.num_units = num_units
         self.num_layers = num_layers
         self.dropout = dropout
-        self.emb = nn.Embedding(vocab_size + 1, embedding_dim=self.
-            embedding_dim)
+        self.emb = nn.Embedding(vocab_size + 1, embedding_dim=self.embedding_dim)
         rec_layer = {'lstm': nn.LSTM, 'gru': nn.GRU}[self.rec_layer_type]
-        self.rec = rec_layer(self.embedding_dim, self.num_units, num_layers
-            =num_layers, batch_first=True)
+        self.rec = rec_layer(self.embedding_dim, self.num_units, num_layers=num_layers, batch_first=True)
         self.output = nn.Linear(self.num_units, 2)
 
     def forward(self, X):
@@ -322,30 +311,23 @@ class RNNClassifier(nn.Module):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-        tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         else:
             try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[
-                    rnn_type]
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
             except KeyError:
-                raise ValueError(
-                    """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']"""
-                    )
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=
-                nonlinearity, dropout=dropout)
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder.weight = self.encoder.weight
         self.init_weights()
         self.rnn_type = rnn_type
@@ -362,16 +344,13 @@ class RNNModel(nn.Module):
         emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0) * output.size(1),
-            output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), hidden
+        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -412,9 +391,7 @@ class MLPModule(nn.Module):
 
     """
 
-    def __init__(self, input_units=20, output_units=2, hidden_units=10,
-        num_hidden=1, nonlin=nn.ReLU(), output_nonlin=None, dropout=0,
-        squeeze_output=False):
+    def __init__(self, input_units=20, output_units=2, hidden_units=10, num_hidden=1, nonlin=nn.ReLU(), output_nonlin=None, dropout=0, squeeze_output=False):
         super().__init__()
         self.input_units = input_units
         self.output_units = output_units
@@ -452,20 +429,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ClassifierModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (MLPClassifier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([20, 20])], {}),
+     False),
+    (MLPModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([20, 20])], {}),
+     False),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_skorch_dev_skorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ClassifierModule(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MLPClassifier(*[], **{}), [torch.rand([20, 20])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MLPModule(*[], **{}), [torch.rand([20, 20])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

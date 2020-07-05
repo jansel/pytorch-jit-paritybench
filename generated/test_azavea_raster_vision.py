@@ -366,8 +366,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -515,15 +516,13 @@ class BoxList:
         return new_extras
 
     def copy(self):
-        return BoxList(self.boxes.copy(), **self._map_extras(lambda x: x.
-            copy()))
+        return BoxList(self.boxes.copy(), **self._map_extras(lambda x: x.copy()))
 
     def cpu(self):
         return BoxList(self.boxes.cpu(), **self._map_extras(lambda x: x.cpu()))
 
     def cuda(self):
-        return BoxList(self.boxes.cuda(), **self._map_extras(lambda x: x.
-            cuda()))
+        return BoxList(self.boxes.cuda(), **self._map_extras(lambda x: x.cuda()))
 
     def to(self, device):
         return self.cpu() if device == 'cpu' else self.cuda()
@@ -555,12 +554,10 @@ class BoxList:
     def equal(self, other):
         if len(other) != len(self):
             return False
-        extras = [(v.float().unsqueeze(1) if v.ndim == 1 else v.float()) for
-            v in self.extras.values()]
+        extras = [(v.float().unsqueeze(1) if v.ndim == 1 else v.float()) for v in self.extras.values()]
         cat_arr = torch.cat([self.boxes] + extras, 1)
         self_tups = set([tuple([x.item() for x in row]) for row in cat_arr])
-        extras = [(v.float().unsqueeze(1) if v.ndim == 1 else v.float()) for
-            v in other.extras.values()]
+        extras = [(v.float().unsqueeze(1) if v.ndim == 1 else v.float()) for v in other.extras.values()]
         cat_arr = torch.cat([other.boxes] + extras, 1)
         other_tups = set([tuple([x.item() for x in row]) for row in cat_arr])
         return self_tups == other_tups
@@ -579,22 +576,17 @@ class BoxList:
             raise ValueError('must have scores as key in extras')
 
     def clamp(self, img_height, img_width):
-        boxes = torch.stack([torch.clamp(self.boxes[:, (0)], 0, img_height),
-            torch.clamp(self.boxes[:, (1)], 0, img_width), torch.clamp(self
-            .boxes[:, (2)], 0, img_height), torch.clamp(self.boxes[:, (3)],
-            0, img_width)], dim=1)
+        boxes = torch.stack([torch.clamp(self.boxes[:, (0)], 0, img_height), torch.clamp(self.boxes[:, (1)], 0, img_width), torch.clamp(self.boxes[:, (2)], 0, img_height), torch.clamp(self.boxes[:, (3)], 0, img_width)], dim=1)
         return BoxList(boxes, **self.extras)
 
     def nms(self, iou_thresh=0.5):
         if len(self) == 0:
             return self
-        good_inds = batched_nms(self.boxes, self.get_field('scores'), self.
-            get_field('class_ids'), iou_thresh)
+        good_inds = batched_nms(self.boxes, self.get_field('scores'), self.get_field('class_ids'), iou_thresh)
         return self.ind_filter(good_inds)
 
     def scale(self, yscale, xscale):
-        boxes = self.boxes * torch.tensor([[yscale, xscale, yscale, xscale]
-            ], device=self.boxes.device)
+        boxes = self.boxes * torch.tensor([[yscale, xscale, yscale, xscale]], device=self.boxes.device)
         return BoxList(boxes, **self.extras)
 
     def pin_memory(self):
@@ -621,17 +613,14 @@ def get_out_channels(model):
 
 
 def resnet_fpn_backbone(backbone_name, pretrained):
-    backbone = resnet.__dict__[backbone_name](pretrained=pretrained,
-        norm_layer=misc_nn_ops.FrozenBatchNorm2d)
+    backbone = resnet.__dict__[backbone_name](pretrained=pretrained, norm_layer=misc_nn_ops.FrozenBatchNorm2d)
     for name, parameter in backbone.named_parameters():
-        if ('layer2' not in name and 'layer3' not in name and 'layer4' not in
-            name):
+        if 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
             parameter.requires_grad_(False)
     return_layers = {'layer1': 0, 'layer2': 1, 'layer3': 2, 'layer4': 3}
     out_channels = 256
     in_channels_list = get_out_channels(backbone)
-    return BackboneWithFPN(backbone, return_layers, in_channels_list,
-        out_channels)
+    return BackboneWithFPN(backbone, return_layers, in_channels_list, out_channels)
 
 
 class MyFasterRCNN(nn.Module):
@@ -645,10 +634,8 @@ class MyFasterRCNN(nn.Module):
     def __init__(self, backbone_arch, num_labels, img_sz, pretrained=True):
         super().__init__()
         backbone = resnet_fpn_backbone(backbone_arch, pretrained)
-        self.model = FasterRCNN(backbone, num_labels, min_size=img_sz,
-            max_size=img_sz)
-        self.subloss_names = ['total_loss', 'loss_box_reg',
-            'loss_classifier', 'loss_objectness', 'loss_rpn_box_reg']
+        self.model = FasterRCNN(backbone, num_labels, min_size=img_sz, max_size=img_sz)
+        self.subloss_names = ['total_loss', 'loss_box_reg', 'loss_classifier', 'loss_objectness', 'loss_rpn_box_reg']
 
     def forward(self, input, targets=None):
         """Forward pass
@@ -670,22 +657,18 @@ class MyFasterRCNN(nn.Module):
             new_targets = []
             for x, y in zip(input, targets):
                 h, w = x.shape[1:]
-                boxes = torch.cat([y.boxes, torch.tensor([[0.0, 0, h, w]],
-                    device=input.device)], dim=0)
-                labels = torch.cat([y.get_field('labels'), torch.tensor([0],
-                    device=input.device)], dim=0)
+                boxes = torch.cat([y.boxes, torch.tensor([[0.0, 0, h, w]], device=input.device)], dim=0)
+                labels = torch.cat([y.get_field('labels'), torch.tensor([0], device=input.device)], dim=0)
                 bl = BoxList(boxes, labels=labels)
                 new_targets.append(bl)
             targets = new_targets
             _targets = [bl.xyxy() for bl in targets]
-            _targets = [{'boxes': bl.boxes, 'labels': bl.get_field('labels'
-                )} for bl in _targets]
+            _targets = [{'boxes': bl.boxes, 'labels': bl.get_field('labels')} for bl in _targets]
             loss_dict = self.model(input, _targets)
             loss_dict['total_loss'] = sum(list(loss_dict.values()))
             return loss_dict
         out = self.model(input)
-        boxlists = [BoxList(_out['boxes'], labels=_out['labels'], scores=
-            _out['scores']).yxyx() for _out in out]
+        boxlists = [BoxList(_out['boxes'], labels=_out['labels'], scores=_out['scores']).yxyx() for _out in out]
         new_boxlists = []
         for bl in boxlists:
             labels = bl.get_field('labels')
@@ -706,10 +689,8 @@ class MyFasterRCNN(nn.Module):
         super().__init__()
         backbone = resnet_fpn_backbone(backbone_arch, pretrained)
         self.null_class_id = num_class_ids
-        self.model = FasterRCNN(backbone, num_class_ids + 2, min_size=
-            img_sz, max_size=img_sz)
-        self.subloss_names = ['total_loss', 'loss_box_reg',
-            'loss_classifier', 'loss_objectness', 'loss_rpn_box_reg']
+        self.model = FasterRCNN(backbone, num_class_ids + 2, min_size=img_sz, max_size=img_sz)
+        self.subloss_names = ['total_loss', 'loss_box_reg', 'loss_classifier', 'loss_objectness', 'loss_rpn_box_reg']
         self.batch_ind = 0
 
     def forward(self, input, targets=None):
@@ -732,23 +713,18 @@ class MyFasterRCNN(nn.Module):
             new_targets = []
             for x, y in zip(input, targets):
                 h, w = x.shape[1:]
-                boxes = torch.cat([y.boxes, torch.tensor([[0.0, 0, h, w]],
-                    device=input.device)], dim=0)
-                class_ids = torch.cat([y.get_field('class_ids') + 1, torch.
-                    tensor([self.null_class_id + 1], device=input.device)],
-                    dim=0)
+                boxes = torch.cat([y.boxes, torch.tensor([[0.0, 0, h, w]], device=input.device)], dim=0)
+                class_ids = torch.cat([y.get_field('class_ids') + 1, torch.tensor([self.null_class_id + 1], device=input.device)], dim=0)
                 bl = BoxList(boxes, class_ids=class_ids)
                 new_targets.append(bl)
             targets = new_targets
             _targets = [bl.xyxy() for bl in targets]
-            _targets = [{'boxes': bl.boxes, 'labels': bl.get_field(
-                'class_ids')} for bl in _targets]
+            _targets = [{'boxes': bl.boxes, 'labels': bl.get_field('class_ids')} for bl in _targets]
             loss_dict = self.model(input, _targets)
             loss_dict['total_loss'] = sum(list(loss_dict.values()))
             return loss_dict
         out = self.model(input)
-        boxlists = [BoxList(_out['boxes'], class_ids=_out['labels'], scores
-            =_out['scores']).yxyx() for _out in out]
+        boxlists = [BoxList(_out['boxes'], class_ids=_out['labels'], scores=_out['scores']).yxyx() for _out in out]
         new_boxlists = []
         for bl in boxlists:
             class_ids = bl.get_field('class_ids') - 1
@@ -761,8 +737,7 @@ class MyFasterRCNN(nn.Module):
 
 class RegressionModel(nn.Module):
 
-    def __init__(self, backbone_arch, out_features, pretrained=True,
-        pos_out_inds=None):
+    def __init__(self, backbone_arch, out_features, pretrained=True, pos_out_inds=None):
         super().__init__()
         self.backbone = getattr(models, backbone_arch)(pretrained=pretrained)
         in_features = self.backbone.fc.in_features
@@ -776,10 +751,3 @@ class RegressionModel(nn.Module):
                 out[:, (ind)] = out[:, (ind)].exp()
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_azavea_raster_vision(_paritybench_base):
-    pass

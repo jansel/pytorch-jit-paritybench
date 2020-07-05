@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,8 +91,7 @@ class MSE_and_SSIM_loss(nn.Module):
         self.alpha = alpha
 
     def forward(self, img1, img2):
-        loss = self.alpha * self.MSE(img1, img2) + (1 - self.alpha) * (1 -
-            self.SSIM(img1, img2))
+        loss = self.alpha * self.MSE(img1, img2) + (1 - self.alpha) * (1 - self.SSIM(img1, img2))
         return loss
 
 
@@ -126,8 +126,7 @@ class TDAN_F(nn.Module):
 
 
 def default_conv(in_channelss, out_channels, kernel_size, bias=True):
-    return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=
-        kernel_size // 2, bias=bias)
+    return nn.Conv2d(in_channelss, out_channels, kernel_size, padding=kernel_size // 2, bias=bias)
 
 
 class TDAN_VSR(nn.Module):
@@ -140,23 +139,18 @@ class TDAN_VSR(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.cr = nn.Conv2d(128, 64, 3, padding=1, bias=True)
         self.off2d_1 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.dconv_1 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.dconv_1 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d_2 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.deconv_2 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.deconv_2 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d_3 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.deconv_3 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.deconv_3 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.dconv = ConvOffset2d(64, 64, (3, 3), padding=(1, 1),
-            num_deformable_groups=8)
+        self.dconv = ConvOffset2d(64, 64, (3, 3), padding=(1, 1), num_deformable_groups=8)
         self.recon_lr = nn.Conv2d(64, 3, 3, padding=1, bias=True)
         fea_ex = [nn.Conv2d(5 * 3, 64, 3, padding=1, bias=True), nn.ReLU()]
         self.fea_ex = nn.Sequential(*fea_ex)
         self.recon_layer = self.make_layer(Res_Block, 10)
-        upscaling = [Upsampler(default_conv, 4, 64, act=False), nn.Conv2d(
-            64, 3, 3, padding=1, bias=False)]
+        upscaling = [Upsampler(default_conv, 4, 64, act=False), nn.Conv2d(64, 3, 3, padding=1, bias=False)]
         self.up = nn.Sequential(*upscaling)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -232,17 +226,13 @@ class align_net_w_feat(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.cr = nn.Conv2d(128, 64, 3, padding=1, bias=True)
         self.off2d_1 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.dconv_1 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.dconv_1 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d_2 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.deconv_2 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.deconv_2 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d_3 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.deconv_3 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.deconv_3 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.dconv = ConvOffset2d(64, 64, (3, 3), padding=(1, 1),
-            num_deformable_groups=8)
+        self.dconv = ConvOffset2d(64, 64, (3, 3), padding=(1, 1), num_deformable_groups=8)
         self.recon_lr = nn.Conv2d(64, 3, 3, padding=1, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -305,17 +295,13 @@ class align_net(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.cr = nn.Conv2d(128, 64, 3, padding=1, bias=True)
         self.off2d_1 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.dconv_1 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.dconv_1 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d_2 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.deconv_2 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.deconv_2 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d_3 = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.deconv_3 = ConvOffset2d(64, 64, 3, padding=1,
-            num_deformable_groups=8)
+        self.deconv_3 = ConvOffset2d(64, 64, 3, padding=1, num_deformable_groups=8)
         self.off2d = nn.Conv2d(64, 18 * 8, 3, padding=1, bias=True)
-        self.dconv = ConvOffset2d(64, 64, (3, 3), padding=(1, 1),
-            num_deformable_groups=8)
+        self.dconv = ConvOffset2d(64, 64, (3, 3), padding=(1, 1), num_deformable_groups=8)
         self.recon_lr = nn.Conv2d(64, 3, 3, padding=1, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -372,8 +358,7 @@ class SR_Rec(nn.Module):
         self.recon_layer = self.make_layer(Res_Block_s(scale), nb_block)
         fea_ex = [nn.Conv2d(5 * 3, 64, 3, padding=1, bias=True), nn.ReLU()]
         self.fea_ex = nn.Sequential(*fea_ex)
-        upscaling = [Upsampler(default_conv, 4, 64, act=False), nn.Conv2d(
-            64, 3, 3, padding=1, bias=False)]
+        upscaling = [Upsampler(default_conv, 4, 64, act=False), nn.Conv2d(64, 3, 3, padding=1, bias=False)]
         self.up = nn.Sequential(*upscaling)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -404,8 +389,7 @@ class VSR_Rec(nn.Module):
         self.fea_ex = nn.Sequential(*fea_ex)
         self.fuse = nn.Conv2d(6 * 64, 64, 3, padding=1, bias=True)
         self.recon_layer = self.make_layer(Res_Block_s(scale), nb_block)
-        upscaling = [Upsampler(default_conv, 4, 64, act=False), nn.Conv2d(
-            64, 3, 3, padding=1, bias=False)]
+        upscaling = [Upsampler(default_conv, 4, 64, act=False), nn.Conv2d(64, 3, 3, padding=1, bias=False)]
         self.up = nn.Sequential(*upscaling)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -423,8 +407,7 @@ class VSR_Rec(nn.Module):
         center = num // 2
         y = y.view(batch_size, -1, w, h)
         feat = self.fea_ex(y)
-        feat = torch.cat((feats, feat.unsqueeze(1)), 1).view(batch_size, -1,
-            w, h)
+        feat = torch.cat((feats, feat.unsqueeze(1)), 1).view(batch_size, -1, w, h)
         feat = self.fuse(feat)
         out = self.recon_layer(feat)
         out = self.up(out)
@@ -459,11 +442,9 @@ class Res_Block(nn.Module):
 
     def __init__(self):
         super(Res_Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =3, stride=1, padding=1, bias=True)
+        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =3, stride=1, padding=1, bias=True)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
 
     def forward(self, x):
         res = self.conv1(x)
@@ -476,11 +457,9 @@ class Res_Block_s(nn.Module):
 
     def __init__(self, scale=1.0):
         super(Res_Block_s, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =3, stride=1, padding=1, bias=True)
+        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size
-            =3, stride=1, padding=1, bias=True)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
         self.scale = scale
 
     def forward(self, x):
@@ -494,8 +473,7 @@ class Conv_ReLU_Block(nn.Module):
 
     def __init__(self):
         super(Conv_ReLU_Block, self).__init__()
-        self.conv = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=
-            3, stride=1, padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -523,11 +501,7 @@ class ConvOffset2dFunction(Function):
                     raise NotImplementedError
             elif not isinstance(input, torch.cuda.FloatTensor):
                 raise NotImplementedError
-            deform_conv.deform_conv_forward_cuda(input, weight, offset,
-                output, self.bufs_[0], self.bufs_[1], weight.size(3),
-                weight.size(2), self.stride[1], self.stride[0], self.
-                padding[1], self.padding[0], self.dilation[1], self.
-                dilation[0], self.deformable_groups)
+            deform_conv.deform_conv_forward_cuda(input, weight, offset, output, self.bufs_[0], self.bufs_[1], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups)
         return output
 
     def backward(self, grad_output):
@@ -544,19 +518,10 @@ class ConvOffset2dFunction(Function):
             if self.needs_input_grad[0] or self.needs_input_grad[1]:
                 grad_input = input.new(*input.size()).zero_()
                 grad_offset = offset.new(*offset.size()).zero_()
-                deform_conv.deform_conv_backward_input_cuda(input, offset,
-                    grad_output, grad_input, grad_offset, weight, self.
-                    bufs_[0], weight.size(3), weight.size(2), self.stride[1
-                    ], self.stride[0], self.padding[1], self.padding[0],
-                    self.dilation[1], self.dilation[0], self.deformable_groups)
+                deform_conv.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, self.bufs_[0], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups)
             if self.needs_input_grad[2]:
                 grad_weight = weight.new(*weight.size()).zero_()
-                deform_conv.deform_conv_backward_parameters_cuda(input,
-                    offset, grad_output, grad_weight, self.bufs_[0], self.
-                    bufs_[1], weight.size(3), weight.size(2), self.stride[1
-                    ], self.stride[0], self.padding[1], self.padding[0],
-                    self.dilation[1], self.dilation[0], self.
-                    deformable_groups, 1)
+                deform_conv.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, self.bufs_[0], self.bufs_[1], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups, 1)
         return grad_input, grad_offset, grad_weight
 
     def _output_size(self, input, weight):
@@ -569,26 +534,20 @@ class ConvOffset2dFunction(Function):
             stride = self.stride[d]
             output_size += (in_size + 2 * pad - kernel) // stride + 1,
         if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError(
-                'convolution input is too small (output would be {})'.
-                format('x'.join(map(str, output_size))))
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
         return output_size
 
 
-def conv_offset2d(input, offset, weight, stride=1, padding=0, dilation=1,
-    deform_groups=1):
+def conv_offset2d(input, offset, weight, stride=1, padding=0, dilation=1, deform_groups=1):
     if input is not None and input.dim() != 4:
-        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'
-            .format(input.dim()))
-    f = ConvOffset2dFunction(_pair(stride), _pair(padding), _pair(dilation),
-        deform_groups)
+        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
+    f = ConvOffset2dFunction(_pair(stride), _pair(padding), _pair(dilation), deform_groups)
     return f(input, offset, weight)
 
 
 class ConvOffset2d(Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, num_deformable_groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, num_deformable_groups=1):
         super(ConvOffset2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -597,8 +556,7 @@ class ConvOffset2d(Module):
         self.padding = _pair(padding)
         self.dilation = _pair(dilation)
         self.num_deformable_groups = num_deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels,
-            *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -609,8 +567,7 @@ class ConvOffset2d(Module):
         self.weight.data.uniform_(-stdv, stdv)
 
     def forward(self, input, offset):
-        return conv_offset2d(input, offset, self.weight, self.stride, self.
-            padding, self.dilation, self.num_deformable_groups)
+        return conv_offset2d(input, offset, self.weight, self.stride, self.padding, self.dilation, self.num_deformable_groups)
 
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
@@ -619,16 +576,12 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2,
-        groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2,
-        groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2,
-        groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
-        C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -636,17 +589,14 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
 
@@ -661,8 +611,7 @@ class SSIM(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -671,8 +620,7 @@ class SSIM(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return _ssim(img1, img2, window, self.window_size, channel, self.
-            size_average)
+        return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
 
 class L1_Charbonnier_loss(nn.Module):
@@ -693,25 +641,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv_ReLU_Block,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (L1_Charbonnier_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MSE_and_SSIM_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Res_Block,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (Res_Block_s,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (SSIM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_YapengTian_TDAN_VSR_CVPR_2020(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv_ReLU_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(L1_Charbonnier_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MSE_and_SSIM_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Res_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Res_Block_s(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

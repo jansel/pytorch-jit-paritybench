@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,10 +84,8 @@ class down(nn.Module):
                 a N x N filter.
         """
         super(down, self).__init__()
-        self.conv1 = nn.Conv2d(inChannels, outChannels, filterSize, stride=
-            1, padding=int((filterSize - 1) / 2))
-        self.conv2 = nn.Conv2d(outChannels, outChannels, filterSize, stride
-            =1, padding=int((filterSize - 1) / 2))
+        self.conv1 = nn.Conv2d(inChannels, outChannels, filterSize, stride=1, padding=int((filterSize - 1) / 2))
+        self.conv2 = nn.Conv2d(outChannels, outChannels, filterSize, stride=1, padding=int((filterSize - 1) / 2))
 
     def forward(self, x):
         """
@@ -139,8 +138,7 @@ class up(nn.Module):
         """
         super(up, self).__init__()
         self.conv1 = nn.Conv2d(inChannels, outChannels, 3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(2 * outChannels, outChannels, 3, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(2 * outChannels, outChannels, 3, stride=1, padding=1)
 
     def forward(self, x, skpCn):
         """
@@ -161,8 +159,7 @@ class up(nn.Module):
         """
         x = F.interpolate(x, scale_factor=2, mode='bilinear')
         x = F.leaky_relu(self.conv1(x), negative_slope=0.1)
-        x = F.leaky_relu(self.conv2(torch.cat((x, skpCn), 1)),
-            negative_slope=0.1)
+        x = F.leaky_relu(self.conv2(torch.cat((x, skpCn), 1)), negative_slope=0.1)
         return x
 
 
@@ -303,16 +300,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (UNet,
+     lambda: ([], {'inChannels': 4, 'outChannels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (down,
+     lambda: ([], {'inChannels': 4, 'outChannels': 4, 'filterSize': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (up,
+     lambda: ([], {'inChannels': 4, 'outChannels': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
+     False),
+]
+
 class Test_avinashpaliwal_Super_SloMo(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(UNet(*[], **{'inChannels': 4, 'outChannels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(down(*[], **{'inChannels': 4, 'outChannels': 4, 'filterSize': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(up(*[], **{'inChannels': 4, 'outChannels': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+        self._check(*TESTCASES[2])
 

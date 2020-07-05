@@ -90,8 +90,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -178,11 +179,9 @@ class ConvRNNModel(nn.Module):
         self.rnn_type = config['rnn_type']
         self.no_cuda = config['no_cuda']
         if self.rnn_type.upper() == 'LSTM':
-            self.bi_rnn = nn.LSTM(embedding_dim, self.hidden_size, 1,
-                batch_first=True, bidirectional=True)
+            self.bi_rnn = nn.LSTM(embedding_dim, self.hidden_size, 1, batch_first=True, bidirectional=True)
         elif self.rnn_type.upper() == 'GRU':
-            self.bi_rnn = nn.GRU(embedding_dim, self.hidden_size, 1,
-                batch_first=True, bidirectional=True)
+            self.bi_rnn = nn.GRU(embedding_dim, self.hidden_size, 1, batch_first=True, bidirectional=True)
         else:
             raise ValueError('RNN type must be one of LSTM or GRU')
         self.conv = nn.Conv2d(1, n_fmaps, (1, self.hidden_size * 2))
@@ -228,8 +227,7 @@ class ConvRNNModel(nn.Module):
 
 class WordEmbeddingModel(nn.Module):
 
-    def __init__(self, id_dict, weights, unknown_vocab=[], static=True,
-        padding_idx=0):
+    def __init__(self, id_dict, weights, unknown_vocab=[], static=True, padding_idx=0):
         super().__init__()
         vocab_size = len(id_dict) + len(unknown_vocab)
         self.lookup_table = id_dict
@@ -238,11 +236,9 @@ class WordEmbeddingModel(nn.Module):
             last_id += 1
             self.lookup_table[word] = last_id
         self.dim = weights.shape[1]
-        self.weights = np.concatenate((weights, np.random.rand(len(
-            unknown_vocab), self.dim) / 2 - 0.25))
+        self.weights = np.concatenate((weights, np.random.rand(len(unknown_vocab), self.dim) / 2 - 0.25))
         self.padding_idx = padding_idx
-        self.embedding = nn.Embedding(vocab_size, self.dim, padding_idx=
-            padding_idx)
+        self.embedding = nn.Embedding(vocab_size, self.dim, padding_idx=padding_idx)
         self.embedding.weight.data.copy_(torch.from_numpy(self.weights))
         if static:
             self.embedding.weight.requires_grad = False
@@ -261,9 +257,7 @@ class WordEmbeddingModel(nn.Module):
 
 class DecAtt(nn.Module):
 
-    def __init__(self, num_units, num_classes, embedding_size, dropout,
-        device=0, training=True, project_input=True, use_intra_attention=
-        False, distance_biases=10, max_sentence_length=30):
+    def __init__(self, num_units, num_classes, embedding_size, dropout, device=0, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
         """
         Create the model based on MLP networks.
 
@@ -288,18 +282,10 @@ class DecAtt(nn.Module):
         self.max_sentence_length = max_sentence_length
         self.device = device
         self.bias_embedding = nn.Embedding(max_sentence_length, 1)
-        self.linear_layer_project = nn.Linear(embedding_size, num_units,
-            bias=False)
-        self.linear_layer_attend = nn.Sequential(nn.Dropout(p=dropout), nn.
-            Linear(num_units, num_units), nn.ReLU(), nn.Dropout(p=dropout),
-            nn.Linear(num_units, num_units), nn.ReLU())
-        self.linear_layer_compare = nn.Sequential(nn.Dropout(p=dropout), nn
-            .Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=
-            dropout), nn.Linear(num_units, num_units), nn.ReLU())
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=dropout),
-            nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=
-            dropout), nn.Linear(num_units, num_units), nn.ReLU(), nn.Linear
-            (num_units, num_classes), nn.LogSoftmax())
+        self.linear_layer_project = nn.Linear(embedding_size, num_units, bias=False)
+        self.linear_layer_attend = nn.Sequential(nn.Dropout(p=dropout), nn.Linear(num_units, num_units), nn.ReLU(), nn.Dropout(p=dropout), nn.Linear(num_units, num_units), nn.ReLU())
+        self.linear_layer_compare = nn.Sequential(nn.Dropout(p=dropout), nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=dropout), nn.Linear(num_units, num_units), nn.ReLU())
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=dropout), nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=dropout), nn.Linear(num_units, num_units), nn.ReLU(), nn.Linear(num_units, num_classes), nn.LogSoftmax())
         self.init_weight()
 
     def init_weight(self):
@@ -320,8 +306,7 @@ class DecAtt(nn.Module):
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
     def _transformation_input(self, embed_sent):
         embed_sent = self.linear_layer_project(embed_sent)
@@ -394,8 +379,7 @@ class DecAtt(nn.Module):
         out = self.linear_layer_aggregate(torch.cat([v1_sum, v2_sum], 1))
         return out
 
-    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None,
-        raw_sent1=None, raw_sent2=None):
+    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None, raw_sent1=None, raw_sent2=None):
         lsize_list = [len(s.split(' ')) for s in raw_sent1]
         rsize_list = [len(s.split(' ')) for s in raw_sent2]
         sent1 = sent1.permute(0, 2, 1)
@@ -485,10 +469,8 @@ class LSTM(nn.Module):
         for step in range(x.size(0)):
             input = x[step]
             step_c, step_h = self.TreeCell(input, h, c)
-            h = x_mask[step][:, (None)] * step_h + (1.0 - x_mask[step])[:,
-                (None)] * h
-            c = x_mask[step][:, (None)] * step_c + (1.0 - x_mask[step])[:,
-                (None)] * c
+            h = x_mask[step][:, (None)] * step_h + (1.0 - x_mask[step])[:, (None)] * h
+            c = x_mask[step][:, (None)] * step_c + (1.0 - x_mask[step])[:, (None)] * c
             all_hidden.append(torch.unsqueeze(h, 0))
         return torch.cat(all_hidden, 0)
 
@@ -502,9 +484,7 @@ class ESIM(nn.Module):
         without any recurrent structure.
     """
 
-    def __init__(self, num_units, num_classes, embedding_size, dropout,
-        device=0, training=True, project_input=True, use_intra_attention=
-        False, distance_biases=10, max_sentence_length=30):
+    def __init__(self, num_units, num_classes, embedding_size, dropout, device=0, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
         """
         Create the model based on MLP networks.
         :param num_units: size of the networks
@@ -528,12 +508,9 @@ class ESIM(nn.Module):
         self.device = device
         self.dropout = nn.Dropout(p=dropout)
         self.lstm_intra = LSTM(device, embedding_size, num_units)
-        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units *
-            2, num_units), nn.ReLU(), nn.Dropout(p=dropout))
+        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=dropout))
         self.lstm_compare = LSTM(device, embedding_size, num_units)
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=dropout),
-            nn.Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(
-            p=dropout), nn.Linear(num_units, num_classes))
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=dropout), nn.Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=dropout), nn.Linear(num_units, num_classes))
         self.init_weight()
 
     def ortho_weight(self):
@@ -551,11 +528,9 @@ class ESIM(nn.Module):
 
     def initialize_lstm(self):
         if torch.is_available():
-            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
+            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
-            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
+            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         return init
 
     def init_weight(self):
@@ -569,8 +544,7 @@ class ESIM(nn.Module):
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
     def _transformation_input(self, embed_sent, x1_mask):
         embed_sent = self.word_embedding(embed_sent)
@@ -590,8 +564,7 @@ class ESIM(nn.Module):
         v2_mean = torch.mean(v2, 0)
         v1_max, _ = torch.max(v1, 0)
         v2_max, _ = torch.max(v2, 0)
-        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max,
-            v2_mean, v2_max), 1))
+        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max, v2_mean, v2_max), 1))
         return out
 
     def cosine_interaction(self, tensor1, tensor2):
@@ -621,8 +594,7 @@ class ESIM(nn.Module):
         masks = np.array(masks)
         return torch.from_numpy(masks).float()
 
-    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None,
-        raw_sent1=None, raw_sent2=None, visualize=False):
+    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None, raw_sent1=None, raw_sent2=None, visualize=False):
         sent1 = sent1.permute(2, 0, 1)
         sent2 = sent2.permute(2, 0, 1)
         x1_mask = self.create_mask(raw_sent1)
@@ -651,14 +623,11 @@ class ESIM(nn.Module):
         ctx2 = torch.cat((proj2, torch.index_select(proj2_r, 0, idx_2)), 2)
         ctx1 = ctx1 * x1_mask[:, :, (None)]
         ctx2 = ctx2 * x2_mask[:, :, (None)]
-        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1,
-            2, 0))
+        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1, 2, 0))
         if visualize:
             return weight_matrix
-        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1,
-            keepdim=True)[0]).permute(1, 2, 0)
-        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2,
-            keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1, keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2, keepdim=True)[0]).permute(1, 2, 0)
         weight_matrix_1 = weight_matrix_1 * x1_mask[:, (None), :]
         weight_matrix_2 = weight_matrix_2 * x2_mask[(None), :, :]
         alpha = weight_matrix_1 / weight_matrix_1.sum(0, keepdim=True)
@@ -701,9 +670,7 @@ class ESIM(nn.Module):
 
 class MPCNN(nn.Module):
 
-    def __init__(self, n_word_dim, n_holistic_filters, n_per_dim_filters,
-        filter_widths, hidden_layer_units, num_classes, dropout, ext_feats,
-        attention, wide_conv):
+    def __init__(self, n_word_dim, n_holistic_filters, n_per_dim_filters, filter_widths, hidden_layer_units, num_classes, dropout, ext_feats, attention, wide_conv):
         super().__init__()
         self.arch = 'mpcnn'
         self.n_word_dim = n_word_dim
@@ -713,13 +680,10 @@ class MPCNN(nn.Module):
         self.ext_feats = ext_feats
         self.attention = attention
         self.wide_conv = wide_conv
-        self.in_channels = (n_word_dim if attention == 'none' else 2 *
-            n_word_dim)
+        self.in_channels = n_word_dim if attention == 'none' else 2 * n_word_dim
         self._add_layers()
         n_feats = self._get_n_feats()
-        self.final_layers = nn.Sequential(nn.Linear(n_feats,
-            hidden_layer_units), nn.Tanh(), nn.Dropout(dropout), nn.Linear(
-            hidden_layer_units, num_classes), nn.LogSoftmax(1))
+        self.final_layers = nn.Sequential(nn.Linear(n_feats, hidden_layer_units), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_layer_units, num_classes), nn.LogSoftmax(1))
 
     def _add_layers(self):
         holistic_conv_layers_max = []
@@ -731,37 +695,21 @@ class MPCNN(nn.Module):
             if np.isinf(ws):
                 continue
             padding = ws - 1 if self.wide_conv else 0
-            holistic_conv_layers_max.append(nn.Sequential(nn.Conv1d(self.
-                in_channels, self.n_holistic_filters, ws, padding=padding),
-                nn.Tanh()))
-            holistic_conv_layers_min.append(nn.Sequential(nn.Conv1d(self.
-                in_channels, self.n_holistic_filters, ws, padding=padding),
-                nn.Tanh()))
-            holistic_conv_layers_mean.append(nn.Sequential(nn.Conv1d(self.
-                in_channels, self.n_holistic_filters, ws, padding=padding),
-                nn.Tanh()))
-            per_dim_conv_layers_max.append(nn.Sequential(nn.Conv1d(self.
-                in_channels, self.in_channels * self.n_per_dim_filters, ws,
-                padding=padding, groups=self.in_channels), nn.Tanh()))
-            per_dim_conv_layers_min.append(nn.Sequential(nn.Conv1d(self.
-                in_channels, self.in_channels * self.n_per_dim_filters, ws,
-                padding=padding, groups=self.in_channels), nn.Tanh()))
+            holistic_conv_layers_max.append(nn.Sequential(nn.Conv1d(self.in_channels, self.n_holistic_filters, ws, padding=padding), nn.Tanh()))
+            holistic_conv_layers_min.append(nn.Sequential(nn.Conv1d(self.in_channels, self.n_holistic_filters, ws, padding=padding), nn.Tanh()))
+            holistic_conv_layers_mean.append(nn.Sequential(nn.Conv1d(self.in_channels, self.n_holistic_filters, ws, padding=padding), nn.Tanh()))
+            per_dim_conv_layers_max.append(nn.Sequential(nn.Conv1d(self.in_channels, self.in_channels * self.n_per_dim_filters, ws, padding=padding, groups=self.in_channels), nn.Tanh()))
+            per_dim_conv_layers_min.append(nn.Sequential(nn.Conv1d(self.in_channels, self.in_channels * self.n_per_dim_filters, ws, padding=padding, groups=self.in_channels), nn.Tanh()))
         self.holistic_conv_layers_max = nn.ModuleList(holistic_conv_layers_max)
         self.holistic_conv_layers_min = nn.ModuleList(holistic_conv_layers_min)
-        self.holistic_conv_layers_mean = nn.ModuleList(
-            holistic_conv_layers_mean)
+        self.holistic_conv_layers_mean = nn.ModuleList(holistic_conv_layers_mean)
         self.per_dim_conv_layers_max = nn.ModuleList(per_dim_conv_layers_max)
         self.per_dim_conv_layers_min = nn.ModuleList(per_dim_conv_layers_min)
 
     def _get_n_feats(self):
-        (COMP_1_COMPONENTS_HOLISTIC, COMP_1_COMPONENTS_PER_DIM,
-            COMP_2_COMPONENTS
-            ) = 2 + self.n_holistic_filters, 2 + self.in_channels, 2
+        COMP_1_COMPONENTS_HOLISTIC, COMP_1_COMPONENTS_PER_DIM, COMP_2_COMPONENTS = 2 + self.n_holistic_filters, 2 + self.in_channels, 2
         n_feats_h = 3 * self.n_holistic_filters * COMP_2_COMPONENTS
-        n_feats_v = 3 * (len(self.filter_widths) - 1
-            ) ** 2 * COMP_1_COMPONENTS_HOLISTIC + 3 * 3 + 2 * (len(self.
-            filter_widths) - 1
-            ) * self.n_per_dim_filters * COMP_1_COMPONENTS_PER_DIM
+        n_feats_v = 3 * (len(self.filter_widths) - 1) ** 2 * COMP_1_COMPONENTS_HOLISTIC + 3 * 3 + 2 * (len(self.filter_widths) - 1) * self.n_per_dim_filters * COMP_1_COMPONENTS_PER_DIM
         n_feats = n_feats_h + n_feats_v + self.ext_feats
         return n_feats
 
@@ -770,34 +718,16 @@ class MPCNN(nn.Module):
         block_b = {}
         for ws in self.filter_widths:
             if np.isinf(ws):
-                sent_flattened, sent_flattened_size = sent.contiguous().view(
-                    sent.size(0), 1, -1), sent.size(1) * sent.size(2)
-                block_a[ws] = {'max': F.max_pool1d(sent_flattened,
-                    sent_flattened_size).view(sent.size(0), -1), 'min': F.
-                    max_pool1d(-1 * sent_flattened, sent_flattened_size).
-                    view(sent.size(0), -1), 'mean': F.avg_pool1d(
-                    sent_flattened, sent_flattened_size).view(sent.size(0), -1)
-                    }
+                sent_flattened, sent_flattened_size = sent.contiguous().view(sent.size(0), 1, -1), sent.size(1) * sent.size(2)
+                block_a[ws] = {'max': F.max_pool1d(sent_flattened, sent_flattened_size).view(sent.size(0), -1), 'min': F.max_pool1d(-1 * sent_flattened, sent_flattened_size).view(sent.size(0), -1), 'mean': F.avg_pool1d(sent_flattened, sent_flattened_size).view(sent.size(0), -1)}
                 continue
             holistic_conv_out_max = self.holistic_conv_layers_max[ws - 1](sent)
             holistic_conv_out_min = self.holistic_conv_layers_min[ws - 1](sent)
-            holistic_conv_out_mean = self.holistic_conv_layers_mean[ws - 1](
-                sent)
-            block_a[ws] = {'max': F.max_pool1d(holistic_conv_out_max,
-                holistic_conv_out_max.size(2)).contiguous().view(-1, self.
-                n_holistic_filters), 'min': F.max_pool1d(-1 *
-                holistic_conv_out_min, holistic_conv_out_min.size(2)).
-                contiguous().view(-1, self.n_holistic_filters), 'mean': F.
-                avg_pool1d(holistic_conv_out_mean, holistic_conv_out_mean.
-                size(2)).contiguous().view(-1, self.n_holistic_filters)}
+            holistic_conv_out_mean = self.holistic_conv_layers_mean[ws - 1](sent)
+            block_a[ws] = {'max': F.max_pool1d(holistic_conv_out_max, holistic_conv_out_max.size(2)).contiguous().view(-1, self.n_holistic_filters), 'min': F.max_pool1d(-1 * holistic_conv_out_min, holistic_conv_out_min.size(2)).contiguous().view(-1, self.n_holistic_filters), 'mean': F.avg_pool1d(holistic_conv_out_mean, holistic_conv_out_mean.size(2)).contiguous().view(-1, self.n_holistic_filters)}
             per_dim_conv_out_max = self.per_dim_conv_layers_max[ws - 1](sent)
             per_dim_conv_out_min = self.per_dim_conv_layers_min[ws - 1](sent)
-            block_b[ws] = {'max': F.max_pool1d(per_dim_conv_out_max,
-                per_dim_conv_out_max.size(2)).contiguous().view(-1, self.
-                in_channels, self.n_per_dim_filters), 'min': F.max_pool1d(-
-                1 * per_dim_conv_out_min, per_dim_conv_out_min.size(2)).
-                contiguous().view(-1, self.in_channels, self.n_per_dim_filters)
-                }
+            block_b[ws] = {'max': F.max_pool1d(per_dim_conv_out_max, per_dim_conv_out_max.size(2)).contiguous().view(-1, self.in_channels, self.n_per_dim_filters), 'min': F.max_pool1d(-1 * per_dim_conv_out_min, per_dim_conv_out_min.size(2)).contiguous().view(-1, self.in_channels, self.n_per_dim_filters)}
         return block_a, block_b
 
     def _algo_1_horiz_comp(self, sent1_block_a, sent2_block_a):
@@ -822,8 +752,7 @@ class MPCNN(nn.Module):
             comparison_feats.append(torch.cat(pairwise_distances))
         return torch.cat(comparison_feats, dim=1)
 
-    def _algo_2_vert_comp(self, sent1_block_a, sent2_block_a, sent1_block_b,
-        sent2_block_b):
+    def _algo_2_vert_comp(self, sent1_block_a, sent2_block_a, sent1_block_b, sent2_block_b):
         comparison_feats = []
         ws_no_inf = [w for w in self.filter_widths if not np.isinf(w)]
         for pool in ('max', 'min', 'mean'):
@@ -831,12 +760,9 @@ class MPCNN(nn.Module):
                 x1 = sent1_block_a[ws1][pool]
                 for ws2 in self.filter_widths:
                     x2 = sent2_block_a[ws2][pool]
-                    if not np.isinf(ws1) and not np.isinf(ws2) or np.isinf(ws1
-                        ) and np.isinf(ws2):
-                        comparison_feats.append(F.cosine_similarity(x1, x2)
-                            .unsqueeze(1))
-                        comparison_feats.append(F.pairwise_distance(x1, x2)
-                            .unsqueeze(1))
+                    if not np.isinf(ws1) and not np.isinf(ws2) or np.isinf(ws1) and np.isinf(ws2):
+                        comparison_feats.append(F.cosine_similarity(x1, x2).unsqueeze(1))
+                        comparison_feats.append(F.pairwise_distance(x1, x2).unsqueeze(1))
                         comparison_feats.append(torch.abs(x1 - x2))
         for pool in ('max', 'min'):
             for ws in ws_no_inf:
@@ -845,15 +771,12 @@ class MPCNN(nn.Module):
                 for i in range(0, self.n_per_dim_filters):
                     x1 = oG_1B[:, :, (i)]
                     x2 = oG_2B[:, :, (i)]
-                    comparison_feats.append(F.cosine_similarity(x1, x2).
-                        unsqueeze(1))
-                    comparison_feats.append(F.pairwise_distance(x1, x2).
-                        unsqueeze(1))
+                    comparison_feats.append(F.cosine_similarity(x1, x2).unsqueeze(1))
+                    comparison_feats.append(F.pairwise_distance(x1, x2).unsqueeze(1))
                     comparison_feats.append(torch.abs(x1 - x2))
         return torch.cat(comparison_feats, dim=1)
 
-    def concat_attention(self, sent1, sent2, word_to_doc_count=None,
-        raw_sent1=None, raw_sent2=None):
+    def concat_attention(self, sent1, sent2, word_to_doc_count=None, raw_sent1=None, raw_sent2=None):
         sent1_transposed = sent1.transpose(1, 2)
         attention_dot = torch.bmm(sent1_transposed, sent2)
         sent1_norms = torch.norm(sent1_transposed, p=2, dim=2, keepdim=True)
@@ -865,8 +788,7 @@ class MPCNN(nn.Module):
             for i, sent in enumerate(raw_sent1):
                 for j, word in enumerate(sent.split(' ')):
                     idf_matrix1[i, j] /= word_to_doc_count.get(word, 1)
-            idf_matrix2 = sent2.data.new_ones(sent2.size(0), sent2.size(2)
-                ).fill_(1)
+            idf_matrix2 = sent2.data.new_ones(sent2.size(0), sent2.size(2)).fill_(1)
             for i, sent in enumerate(raw_sent2):
                 for j, word in enumerate(sent.split(' ')):
                     idf_matrix2[i, j] /= word_to_doc_count.get(word, 1)
@@ -884,26 +806,20 @@ class MPCNN(nn.Module):
                     sum_col[i, j] /= word_to_doc_count.get(word, 1)
         attention_weight_vec1 = F.softmax(sum_row, 1)
         attention_weight_vec2 = F.softmax(sum_col, 1)
-        attention_weighted_sent1 = attention_weight_vec1.unsqueeze(1).expand(
-            -1, self.n_word_dim, -1) * sent1
-        attention_weighted_sent2 = attention_weight_vec2.unsqueeze(1).expand(
-            -1, self.n_word_dim, -1) * sent2
+        attention_weighted_sent1 = attention_weight_vec1.unsqueeze(1).expand(-1, self.n_word_dim, -1) * sent1
+        attention_weighted_sent2 = attention_weight_vec2.unsqueeze(1).expand(-1, self.n_word_dim, -1) * sent2
         attention_emb1 = torch.cat((attention_weighted_sent1, sent1), dim=1)
         attention_emb2 = torch.cat((attention_weighted_sent2, sent2), dim=1)
         return attention_emb1, attention_emb2
 
-    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None,
-        raw_sent1=None, raw_sent2=None):
+    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None, raw_sent1=None, raw_sent2=None):
         if self.attention != 'none':
-            sent1, sent2 = self.concat_attention(sent1, sent2,
-                word_to_doc_count, raw_sent1, raw_sent2)
+            sent1, sent2 = self.concat_attention(sent1, sent2, word_to_doc_count, raw_sent1, raw_sent2)
         sent1_block_a, sent1_block_b = self._get_blocks_for_sentence(sent1)
         sent2_block_a, sent2_block_b = self._get_blocks_for_sentence(sent2)
         feat_h = self._algo_1_horiz_comp(sent1_block_a, sent2_block_a)
-        feat_v = self._algo_2_vert_comp(sent1_block_a, sent2_block_a,
-            sent1_block_b, sent2_block_b)
-        combined_feats = [feat_h, feat_v, ext_feats] if self.ext_feats else [
-            feat_h, feat_v]
+        feat_v = self._algo_2_vert_comp(sent1_block_a, sent2_block_a, sent1_block_b, sent2_block_b)
+        combined_feats = [feat_h, feat_v, ext_feats] if self.ext_feats else [feat_h, feat_v]
         feat_all = torch.cat(combined_feats, dim=1)
         preds = self.final_layers(feat_all)
         return preds
@@ -956,10 +872,8 @@ class SmPlusPlus(nn.Module):
         self.nonstatic_answer_embed = nn.Embedding(answers_num, words_dim)
         self.static_question_embed.weight.requires_grad = False
         self.static_answer_embed.weight.requires_grad = False
-        self.conv_q = nn.Conv2d(input_channel, output_channel, (
-            filter_width, words_dim), padding=(filter_width - 1, 0))
-        self.conv_a = nn.Conv2d(input_channel, output_channel, (
-            filter_width, words_dim), padding=(filter_width - 1, 0))
+        self.conv_q = nn.Conv2d(input_channel, output_channel, (filter_width, words_dim), padding=(filter_width - 1, 0))
+        self.conv_a = nn.Conv2d(input_channel, output_channel, (filter_width, words_dim), padding=(filter_width - 1, 0))
         self.n_hidden = 2 * output_channel + ext_feats_size
         self.combined_feature_vector = nn.Linear(self.n_hidden, self.n_hidden)
         self.hidden = nn.Linear(self.n_hidden, n_classes)
@@ -971,31 +885,26 @@ class SmPlusPlus(nn.Module):
         if self.mode == 'rand':
             question = self.question_embed(x_question).unsqueeze(1)
             answer = self.answer_embed(x_answer).unsqueeze(1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         elif self.mode == 'static':
             question = self.static_question_embed(x_question).unsqueeze(1)
             answer = self.static_answer_embed(x_answer).unsqueeze(1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         elif self.mode == 'non-static':
             question = self.nonstatic_question_embed(x_question).unsqueeze(1)
             answer = self.nonstatic_answer_embed(x_answer).unsqueeze(1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         elif self.mode == 'multichannel':
             question_static = self.static_question_embed(x_question)
             answer_static = self.static_answer_embed(x_answer)
             question_nonstatic = self.nonstatic_question_embed(x_question)
             answer_nonstatic = self.nonstatic_answer_embed(x_answer)
-            question = torch.stack([question_static, question_nonstatic], dim=1
-                )
+            question = torch.stack([question_static, question_nonstatic], dim=1)
             answer = torch.stack([answer_static, answer_nonstatic], dim=1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         else:
             None
@@ -1030,10 +939,8 @@ class SmPlusPlus(nn.Module):
         self.nonstatic_answer_embed = nn.Embedding(answers_num, words_dim)
         self.static_question_embed.weight.requires_grad = False
         self.static_answer_embed.weight.requires_grad = False
-        self.conv_q = nn.Conv2d(input_channel, output_channel, (
-            filter_width, words_dim), padding=(filter_width - 1, 0))
-        self.conv_a = nn.Conv2d(input_channel, output_channel, (
-            filter_width, words_dim), padding=(filter_width - 1, 0))
+        self.conv_q = nn.Conv2d(input_channel, output_channel, (filter_width, words_dim), padding=(filter_width - 1, 0))
+        self.conv_a = nn.Conv2d(input_channel, output_channel, (filter_width, words_dim), padding=(filter_width - 1, 0))
         self.dropout = nn.Dropout(config.dropout)
         n_hidden = 2 * output_channel + ext_feats_size
         self.combined_feature_vector = nn.Linear(n_hidden, n_hidden)
@@ -1047,32 +954,26 @@ class SmPlusPlus(nn.Module):
         if self.mode == 'rand':
             question = self._unsqueeze(self.question_embed(x_question))
             answer = self._unsqueeze(self.answer_embed(x_answer))
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         elif self.mode == 'static':
             question = self._unsqueeze(self.static_question_embed(x_question))
             answer = self._unsqueeze(self.static_answer_embed(x_answer))
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         elif self.mode == 'non-static':
-            question = self._unsqueeze(self.nonstatic_question_embed(
-                x_question))
+            question = self._unsqueeze(self.nonstatic_question_embed(x_question))
             answer = self._unsqueeze(self.nonstatic_answer_embed(x_answer))
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         elif self.mode == 'multichannel':
             question_static = self.static_question_embed(x_question)
             answer_static = self.static_answer_embed(x_answer)
             question_nonstatic = self.nonstatic_question_embed(x_question)
             answer_nonstatic = self.nonstatic_answer_embed(x_answer)
-            question = torch.stack([question_static, question_nonstatic], dim=1
-                )
+            question = torch.stack([question_static, question_nonstatic], dim=1)
             answer = torch.stack([answer_static, answer_nonstatic], dim=1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.
-                conv_a(answer)).squeeze(3)]
+            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         else:
             None
@@ -1087,31 +988,24 @@ class SmPlusPlus(nn.Module):
 
 class StackBiLSTMMaxout(nn.Module):
 
-    def __init__(self, h_size=[512, 1024, 2048], d=300, mlp_d=1600,
-        dropout_r=0.1, max_l=60, num_classes=3):
+    def __init__(self, h_size=[512, 1024, 2048], d=300, mlp_d=1600, dropout_r=0.1, max_l=60, num_classes=3):
         super().__init__()
         self.arch = 'SSE'
-        self.lstm = nn.LSTM(input_size=d, hidden_size=h_size[0], num_layers
-            =1, bidirectional=True)
-        self.lstm_1 = nn.LSTM(input_size=d + h_size[0] * 2, hidden_size=
-            h_size[1], num_layers=1, bidirectional=True)
-        self.lstm_2 = nn.LSTM(input_size=d + (h_size[0] + h_size[1]) * 2,
-            hidden_size=h_size[2], num_layers=1, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=d, hidden_size=h_size[0], num_layers=1, bidirectional=True)
+        self.lstm_1 = nn.LSTM(input_size=d + h_size[0] * 2, hidden_size=h_size[1], num_layers=1, bidirectional=True)
+        self.lstm_2 = nn.LSTM(input_size=d + (h_size[0] + h_size[1]) * 2, hidden_size=h_size[2], num_layers=1, bidirectional=True)
         self.max_l = max_l
         self.h_size = h_size
         self.mlp_1 = nn.Linear(h_size[2] * 2 * 4, mlp_d)
         self.mlp_2 = nn.Linear(mlp_d, mlp_d)
         self.sm = nn.Linear(mlp_d, num_classes)
-        self.classifier = nn.Sequential(*[self.mlp_1, nn.ReLU(), nn.Dropout
-            (dropout_r), self.mlp_2, nn.ReLU(), nn.Dropout(dropout_r), self.sm]
-            )
+        self.classifier = nn.Sequential(*[self.mlp_1, nn.ReLU(), nn.Dropout(dropout_r), self.mlp_2, nn.ReLU(), nn.Dropout(dropout_r), self.sm])
 
     def display(self):
         for param in self.parameters():
             None
 
-    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None,
-        raw_sent1=None, raw_sent2=None):
+    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None, raw_sent1=None, raw_sent2=None):
         sent1 = sent1.permute(2, 0, 1)
         sent2 = sent2.permute(2, 0, 1)
         sent1_lengths = torch.tensor([len(s.split(' ')) for s in raw_sent1])
@@ -1123,35 +1017,23 @@ class StackBiLSTMMaxout(nn.Module):
                 sent1 = sent1[:self.max_l, :]
             if sent2.size(0) > self.max_l:
                 sent2 = sent2[:self.max_l, :]
-        sent1_layer1_out = torch_util.auto_rnn_bilstm(self.lstm, sent1,
-            sent1_lengths)
-        sent2_layer1_out = torch_util.auto_rnn_bilstm(self.lstm, sent2,
-            sent2_lengths)
+        sent1_layer1_out = torch_util.auto_rnn_bilstm(self.lstm, sent1, sent1_lengths)
+        sent2_layer1_out = torch_util.auto_rnn_bilstm(self.lstm, sent2, sent2_lengths)
         len1 = sent1_layer1_out.size(0)
         len2 = sent2_layer1_out.size(0)
         p_sent1 = sent1[:len1, :, :]
         p_sent2 = sent2[:len2, :, :]
         sent1_layer2_in = torch.cat([p_sent1, sent1_layer1_out], dim=2)
         sent2_layer2_in = torch.cat([p_sent2, sent2_layer1_out], dim=2)
-        sent1_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1,
-            sent1_layer2_in, sent1_lengths)
-        sent2_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1,
-            sent2_layer2_in, sent2_lengths)
-        sent1_layer3_in = torch.cat([p_sent1, sent1_layer1_out,
-            sent1_layer2_out], dim=2)
-        sent2_layer3_in = torch.cat([p_sent2, sent2_layer1_out,
-            sent2_layer2_out], dim=2)
-        sent1_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2,
-            sent1_layer3_in, sent1_lengths)
-        sent2_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2,
-            sent2_layer3_in, sent2_lengths)
-        sent1_layer3_maxout = torch_util.max_along_time(sent1_layer3_out,
-            sent1_lengths)
-        sent2_layer3_maxout = torch_util.max_along_time(sent2_layer3_out,
-            sent2_lengths)
-        features = torch.cat([sent1_layer3_maxout, sent2_layer3_maxout,
-            torch.abs(sent1_layer3_maxout - sent2_layer3_maxout), 
-            sent1_layer3_maxout * sent2_layer3_maxout], dim=1)
+        sent1_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1, sent1_layer2_in, sent1_lengths)
+        sent2_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1, sent2_layer2_in, sent2_lengths)
+        sent1_layer3_in = torch.cat([p_sent1, sent1_layer1_out, sent1_layer2_out], dim=2)
+        sent2_layer3_in = torch.cat([p_sent2, sent2_layer1_out, sent2_layer2_out], dim=2)
+        sent1_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2, sent1_layer3_in, sent1_lengths)
+        sent2_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2, sent2_layer3_in, sent2_lengths)
+        sent1_layer3_maxout = torch_util.max_along_time(sent1_layer3_out, sent1_lengths)
+        sent2_layer3_maxout = torch_util.max_along_time(sent2_layer3_out, sent2_lengths)
+        features = torch.cat([sent1_layer3_maxout, sent2_layer3_maxout, torch.abs(sent1_layer3_maxout - sent2_layer3_maxout), sent1_layer3_maxout * sent2_layer3_maxout], dim=1)
         out = self.classifier(features)
         out = F.log_softmax(out, dim=1)
         return out
@@ -1165,8 +1047,7 @@ class ResNet(nn.Module):
         n_maps = config['res_fmaps']
         n_labels = config['n_labels']
         self.conv0 = nn.Conv2d(12, n_maps, (3, 3), padding=1)
-        self.convs = nn.ModuleList([nn.Conv2d(n_maps, n_maps, (3, 3),
-            padding=1) for _ in range(n_layers)])
+        self.convs = nn.ModuleList([nn.Conv2d(n_maps, n_maps, (3, 3), padding=1) for _ in range(n_layers)])
         self.output = nn.Linear(n_maps, n_labels)
         self.input_len = None
 
@@ -1215,8 +1096,7 @@ class VDPWIConvNet(nn.Module):
 
     def forward(self, x):
         x = hard_pad2d(x, self.input_len)
-        pool_final = nn.MaxPool2d(2, ceil_mode=True) if x.size(2
-            ) == 32 else nn.MaxPool2d(3, 1, ceil_mode=True)
+        pool_final = nn.MaxPool2d(2, ceil_mode=True) if x.size(2) == 32 else nn.MaxPool2d(3, 1, ceil_mode=True)
         x = self.maxpool2(F.relu(self.conv1(x)))
         x = self.maxpool2(F.relu(self.conv2(x)))
         x = self.maxpool2(F.relu(self.conv3(x)))
@@ -1292,14 +1172,12 @@ class VDPWIModel(nn.Module):
         def build_mask(index):
             max_mask = sim_cube[:, (index)].clone()
             for _ in range(min(sim_cube.size(2), sim_cube.size(3))):
-                values, indices = torch.max(max_mask.view(sim_cube.size(0),
-                    -1), 1)
+                values, indices = torch.max(max_mask.view(sim_cube.size(0), -1), 1)
                 row_indices = indices / sim_cube.size(3)
                 col_indices = indices % sim_cube.size(3)
                 row_indices = row_indices.unsqueeze(1)
                 col_indices = col_indices.unsqueeze(1).unsqueeze(1)
-                for i, (row_i, col_i, val) in enumerate(zip(row_indices,
-                    col_indices, values)):
+                for i, (row_i, col_i, val) in enumerate(zip(row_indices, col_indices, values)):
                     if val < neg_magic / 2:
                         continue
                     mask[(i), :, (row_i), (col_i)] = 1
@@ -1310,8 +1188,7 @@ class VDPWIModel(nn.Module):
         focus_cube = mask * sim_cube * (1 - pad_cube)
         return focus_cube
 
-    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None,
-        raw_sent1=None, raw_sent2=None):
+    def forward(self, sent1, sent2, ext_feats=None, word_to_doc_count=None, raw_sent1=None, raw_sent2=None):
         pad_cube = self.create_pad_cube(raw_sent1, raw_sent2)
         sent1 = sent1.permute(0, 2, 1).contiguous()
         sent2 = sent2.permute(0, 2, 1).contiguous()
@@ -1323,12 +1200,10 @@ class VDPWIModel(nn.Module):
         seq2 = torch.cat([seq2f, seq2b], 2)
         sim_cube = self.compute_sim_cube(seq1, seq2)
         truncate = self.classifier_net.input_len
-        sim_cube = sim_cube[:, :, :pad_cube.size(2), :pad_cube.size(3)
-            ].contiguous()
+        sim_cube = sim_cube[:, :, :pad_cube.size(2), :pad_cube.size(3)].contiguous()
         if truncate is not None:
             sim_cube = sim_cube[:, :, :truncate, :truncate].contiguous()
-            pad_cube = pad_cube[:, :, :sim_cube.size(2), :sim_cube.size(3)
-                ].contiguous()
+            pad_cube = pad_cube[:, :, :sim_cube.size(2), :sim_cube.size(3)].contiguous()
         focus_cube = self.compute_focus_cube(sim_cube, pad_cube)
         log_prob = self.classifier_net(focus_cube)
         return log_prob
@@ -1338,15 +1213,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LSTM_Cell,
+     lambda: ([], {'device': 0, 'in_dim': 4, 'mem_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNet,
+     lambda: ([], {'config': _mock_config(res_layers=1, res_fmaps=4, n_labels=4)}),
+     lambda: ([torch.rand([4, 12, 64, 64])], {}),
+     True),
+    (VDPWIConvNet,
+     lambda: ([], {'config': _mock_config(n_labels=4)}),
+     lambda: ([torch.rand([4, 12, 4, 4])], {}),
+     False),
+]
+
 class Test_castorini_castor(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(LSTM_Cell(*[], **{'device': 0, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResNet(*[], **{'config': _mock_config(res_layers=1, res_fmaps=4, n_labels=4)}), [torch.rand([4, 12, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(VDPWIConvNet(*[], **{'config': _mock_config(n_labels=4)}), [torch.rand([4, 12, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

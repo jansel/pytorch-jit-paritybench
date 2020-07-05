@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -112,8 +113,7 @@ class ABN(nn.BatchNorm2d):
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True, activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, activation='leaky_relu', slope=0.01):
         """Creates an Activated Batch Normalization module
 
         Parameters
@@ -131,8 +131,7 @@ class ABN(nn.BatchNorm2d):
         slope : float
             Negative slope for the `leaky_relu` activation.
         """
-        super().__init__(num_features=num_features, eps=eps, momentum=
-            momentum, affine=affine, track_running_stats=track_running_stats)
+        super().__init__(num_features=num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
         if activation not in ('leaky_relu', 'elu', 'none'):
             raise NotImplementedError(activation)
         self.activation = activation
@@ -141,8 +140,7 @@ class ABN(nn.BatchNorm2d):
     def forward(self, x):
         x = super().forward(x)
         if self.activation == 'leaky_relu':
-            return functional.leaky_relu(x, negative_slope=self.slope,
-                inplace=True)
+            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
         elif self.activation == 'elu':
             return functional.elu(x, inplace=True)
         else:
@@ -171,8 +169,7 @@ class SelfAttentionBlock2D(nn.Module):
         position-aware context features.(w/o concate or add with the input)
     """
 
-    def __init__(self, in_channels, key_channels, value_channels,
-        out_channels=None, scale=1):
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
         super().__init__()
         self.scale = scale
         self.in_channels = in_channels
@@ -182,14 +179,10 @@ class SelfAttentionBlock2D(nn.Module):
         if out_channels is None:
             self.out_channels = in_channels
         self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
-        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels,
-            out_channels=self.key_channels, kernel_size=1, stride=1,
-            padding=0), ActivatedBatchNorm(self.key_channels))
+        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1, stride=1, padding=0), ActivatedBatchNorm(self.key_channels))
         self.f_query = self.f_key
-        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels
-            =self.value_channels, kernel_size=1, stride=1, padding=0)
-        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=
-            self.out_channels, kernel_size=1, stride=1, padding=0)
+        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1, stride=1, padding=0)
+        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1, stride=1, padding=0)
         nn.init.constant(self.W.weight, 0)
         nn.init.constant(self.W.bias, 0)
 
@@ -210,8 +203,7 @@ class SelfAttentionBlock2D(nn.Module):
         context = context.view(batch_size, self.value_channels, *x.size()[2:])
         context = self.W(context)
         if self.scale > 1:
-            context = F.upsample(input=context, size=(h, w), mode=
-                'bilinear', align_corners=True)
+            context = F.upsample(input=context, size=(h, w), mode='bilinear', align_corners=True)
         return context
 
 
@@ -226,15 +218,10 @@ class BaseOC(nn.Module):
         features fused with Object context information.
     """
 
-    def __init__(self, in_channels, out_channels, key_channels,
-        value_channels, dropout, sizes=(1,)):
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=(1,)):
         super().__init__()
-        self.stages = nn.ModuleList([SelfAttentionBlock2D(in_channels,
-            key_channels, value_channels, out_channels, size) for size in
-            sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels,
-            out_channels, kernel_size=1, padding=0), ActivatedBatchNorm(
-            out_channels), nn.Dropout2d(dropout))
+        self.stages = nn.ModuleList([SelfAttentionBlock2D(in_channels, key_channels, value_channels, out_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels, out_channels, kernel_size=1, padding=0), ActivatedBatchNorm(out_channels), nn.Dropout2d(dropout))
 
     def forward(self, feats):
         priors = [stage(feats) for stage in self.stages]
@@ -249,13 +236,7 @@ class Decoder(nn.Module):
 
     def __init__(self, in_channels, middle_channels, out_channels):
         super().__init__()
-        self.block = nn.Sequential(nn.Conv2d(in_channels, middle_channels,
-            kernel_size=3, padding=1), ActivatedBatchNorm(middle_channels),
-            BaseOC(in_channels=middle_channels, out_channels=
-            middle_channels, key_channels=middle_channels // 2,
-            value_channels=middle_channels // 2, dropout=0.2), nn.
-            ConvTranspose2d(middle_channels, out_channels, kernel_size=4,
-            stride=2, padding=1))
+        self.block = nn.Sequential(nn.Conv2d(in_channels, middle_channels, kernel_size=3, padding=1), ActivatedBatchNorm(middle_channels), BaseOC(in_channels=middle_channels, out_channels=middle_channels, key_channels=middle_channels // 2, value_channels=middle_channels // 2, dropout=0.2), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1))
 
     def forward(self, *args):
         x = torch.cat(args, 1)
@@ -288,8 +269,7 @@ def darknet(pretrained):
     from .darknet import KitModel as DarkNet
     net = DarkNet()
     if pretrained:
-        state_dict = torch.load('/media/data/model_zoo/coco/pytorch_yolov3.pth'
-            )
+        state_dict = torch.load('/media/data/model_zoo/coco/pytorch_yolov3.pth')
         net.load_state_dict(state_dict)
     n_pretrained = 3 if pretrained else 0
     return [net.model0, net.model1, net.model2], True, n_pretrained
@@ -298,11 +278,7 @@ def darknet(pretrained):
 MODEL_ZOO_URL = 'https://drontheimerstr.synology.me/model_zoo/'
 
 
-MODEL_URLS = {'resnet50': {'voc': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c21-1c85a349.pth', 'coco': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c81-a584ead7.pth', 'oid': MODEL_ZOO_URL +
-    'SSDretina_resnet50_c501-06095077.pth'}, 'resnext101_32x4d': {'coco': 
-    MODEL_ZOO_URL + 'SSDretina_resnext101_32x4d_c81-fdb37546.pth'}}
+MODEL_URLS = {'resnet50': {'voc': MODEL_ZOO_URL + 'SSDretina_resnet50_c21-1c85a349.pth', 'coco': MODEL_ZOO_URL + 'SSDretina_resnet50_c81-a584ead7.pth', 'oid': MODEL_ZOO_URL + 'SSDretina_resnet50_c501-06095077.pth'}, 'resnext101_32x4d': {'coco': MODEL_ZOO_URL + 'SSDretina_resnext101_32x4d_c81-fdb37546.pth'}}
 
 
 def load_pretrained_weights(layers, name, dataset_name):
@@ -356,25 +332,19 @@ def resnet(name, pretrained):
         elif isinstance(block, torchvision.models.resnet.Bottleneck):
             return block.conv3.out_channels
         raise RuntimeError('unknown resnet block: {}'.format(block))
-    resnet.layer1.out_channels = resnet.layer1[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer1)
-    resnet.layer2.out_channels = resnet.layer2[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer2)
-    resnet.layer3.out_channels = resnet.layer3[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer3)
-    resnet.layer4.out_channels = resnet.layer4[-1
-        ].out_channels = get_out_channels_from_resnet_block(resnet.layer4)
+    resnet.layer1.out_channels = resnet.layer1[-1].out_channels = get_out_channels_from_resnet_block(resnet.layer1)
+    resnet.layer2.out_channels = resnet.layer2[-1].out_channels = get_out_channels_from_resnet_block(resnet.layer2)
+    resnet.layer3.out_channels = resnet.layer3[-1].out_channels = get_out_channels_from_resnet_block(resnet.layer3)
+    resnet.layer4.out_channels = resnet.layer4[-1].out_channels = get_out_channels_from_resnet_block(resnet.layer4)
     n_pretrained = 5 if imagenet_pretrained else 0
-    return [layer0, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4
-        ], True, n_pretrained
+    return [layer0, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4], True, n_pretrained
 
 
 def resnext(name, pretrained):
     import pretrainedmodels
     if name in ['resnext101_32x4d', 'resnext101_64x4d']:
         imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
-        resnext = pretrainedmodels.__dict__[name](num_classes=1000,
-            pretrained=imagenet_pretrained)
+        resnext = pretrainedmodels.__dict__[name](num_classes=1000, pretrained=imagenet_pretrained)
     else:
         return NotImplemented
     resnext_features = resnext.features
@@ -404,9 +374,7 @@ def replace_bn(bn, act=None):
         activation = 'elu'
     else:
         activation = 'none'
-    abn = ActivatedBatchNorm(num_features=bn.num_features, eps=bn.eps,
-        momentum=bn.momentum, affine=bn.affine, track_running_stats=bn.
-        track_running_stats, activation=activation, slope=slop)
+    abn = ActivatedBatchNorm(num_features=bn.num_features, eps=bn.eps, momentum=bn.momentum, affine=bn.affine, track_running_stats=bn.track_running_stats, activation=activation, slope=slop)
     abn.load_state_dict(bn.state_dict())
     return abn
 
@@ -448,29 +416,22 @@ def replace_bn_in_sequential(layer0, block=None):
 
 def se_net(name, pretrained):
     import pretrainedmodels
-    if name in ['se_resnet50', 'se_resnet101', 'se_resnet152',
-        'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
+    if name in ['se_resnet50', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
         imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
-        senet = pretrainedmodels.__dict__[name](num_classes=1000,
-            pretrained=imagenet_pretrained)
+        senet = pretrainedmodels.__dict__[name](num_classes=1000, pretrained=imagenet_pretrained)
     else:
         return NotImplemented
     layer0 = replace_bn_in_sequential(senet.layer0)
     block = senet.layer1[0].__class__
     layer1 = replace_bn_in_sequential(senet.layer1, block=block)
-    layer1.out_channels = layer1[-1].out_channels = senet.layer1[-1
-        ].conv3.out_channels
-    layer0.out_channels = layer0[-1].out_channels = senet.layer1[0
-        ].conv1.in_channels
+    layer1.out_channels = layer1[-1].out_channels = senet.layer1[-1].conv3.out_channels
+    layer0.out_channels = layer0[-1].out_channels = senet.layer1[0].conv1.in_channels
     layer2 = replace_bn_in_sequential(senet.layer2, block=block)
-    layer2.out_channels = layer2[-1].out_channels = senet.layer2[-1
-        ].conv3.out_channels
+    layer2.out_channels = layer2[-1].out_channels = senet.layer2[-1].conv3.out_channels
     layer3 = replace_bn_in_sequential(senet.layer3, block=block)
-    layer3.out_channels = layer3[-1].out_channels = senet.layer3[-1
-        ].conv3.out_channels
+    layer3.out_channels = layer3[-1].out_channels = senet.layer3[-1].conv3.out_channels
     layer4 = replace_bn_in_sequential(senet.layer4, block=block)
-    layer4.out_channels = layer4[-1].out_channels = senet.layer4[-1
-        ].conv3.out_channels
+    layer4.out_channels = layer4[-1].out_channels = senet.layer4[-1].conv3.out_channels
     n_pretrained = 5 if imagenet_pretrained else 0
     return [layer0, layer1, layer2, layer3, layer4], True, n_pretrained
 
@@ -564,8 +525,7 @@ def create_basenet(name, pretrained):
 
 
 def upsample(size=None, scale_factor=None):
-    return nn.Upsample(size=size, scale_factor=scale_factor, mode=
-        'bilinear', align_corners=False)
+    return nn.Upsample(size=size, scale_factor=scale_factor, mode='bilinear', align_corners=False)
 
 
 class UNet(nn.Module):
@@ -576,73 +536,34 @@ class UNet(nn.Module):
         if basenet.startswith('vgg'):
             self.encoder1 = net[0]
         else:
-            self.encoder1 = nn.Sequential(nn.Upsample(scale_factor=2, mode=
-                'bilinear', align_corners=False), net[0])
+            self.encoder1 = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), net[0])
             self.encoder1.out_channels = net[0].out_channels
         self.encoder2 = net[1]
         self.encoder3 = net[2]
         self.encoder4 = net[3]
         context_channels = num_filters * 8 * 4
-        self.encoder5 = nn.Sequential(net[4], nn.Conv2d(net[4].out_channels,
-            context_channels, kernel_size=3, stride=1, padding=1),
-            ActivatedBatchNorm(context_channels, activation='none'), BaseOC
-            (in_channels=context_channels, out_channels=context_channels,
-            key_channels=context_channels // 2, value_channels=
-            context_channels // 2, dropout=0.05))
+        self.encoder5 = nn.Sequential(net[4], nn.Conv2d(net[4].out_channels, context_channels, kernel_size=3, stride=1, padding=1), ActivatedBatchNorm(context_channels, activation='none'), BaseOC(in_channels=context_channels, out_channels=context_channels, key_channels=context_channels // 2, value_channels=context_channels // 2, dropout=0.05))
         self.encoder5.out_channels = context_channels
-        self.fuse_image = nn.Sequential(nn.Linear(512, 32), nn.ReLU(inplace
-            =True))
+        self.fuse_image = nn.Sequential(nn.Linear(512, 32), nn.ReLU(inplace=True))
         self.logit_image = nn.Sequential(nn.Linear(32, 1))
         self.pool = nn.MaxPool2d(2, 2)
-        self.center = Decoder(self.encoder5.out_channels, num_filters * 8 *
-            2, num_filters * 8)
-        self.decoder5 = Decoder(self.encoder5.out_channels + num_filters * 
-            8, num_filters * 8 * 2, num_filters * 8)
-        self.decoder4 = Decoder(self.encoder4.out_channels + num_filters * 
-            8, num_filters * 8 * 2, num_filters * 4)
-        self.decoder3 = Decoder(self.encoder3.out_channels + num_filters * 
-            4, num_filters * 4 * 2, num_filters * 2)
+        self.center = Decoder(self.encoder5.out_channels, num_filters * 8 * 2, num_filters * 8)
+        self.decoder5 = Decoder(self.encoder5.out_channels + num_filters * 8, num_filters * 8 * 2, num_filters * 8)
+        self.decoder4 = Decoder(self.encoder4.out_channels + num_filters * 8, num_filters * 8 * 2, num_filters * 4)
+        self.decoder3 = Decoder(self.encoder3.out_channels + num_filters * 4, num_filters * 4 * 2, num_filters * 2)
         if basenet.startswith('vgg'):
-            self.decoder2 = Decoder(self.encoder2.out_channels + 
-                num_filters * 2, num_filters * 2 * 2, num_filters)
-            self.decoder1 = nn.Sequential(nn.Conv2d(self.encoder1.
-                out_channels + num_filters, num_filters, kernel_size=3,
-                padding=1), nn.ReLU(inplace=True))
+            self.decoder2 = Decoder(self.encoder2.out_channels + num_filters * 2, num_filters * 2 * 2, num_filters)
+            self.decoder1 = nn.Sequential(nn.Conv2d(self.encoder1.out_channels + num_filters, num_filters, kernel_size=3, padding=1), nn.ReLU(inplace=True))
         else:
-            self.decoder2 = nn.Sequential(nn.Conv2d(self.encoder2.
-                out_channels + num_filters * 2, num_filters * 2 * 2,
-                kernel_size=3, padding=1), ActivatedBatchNorm(num_filters *
-                2 * 2), nn.Conv2d(num_filters * 2 * 2, num_filters,
-                kernel_size=3, padding=1), ActivatedBatchNorm(num_filters))
-            self.decoder1 = Decoder(self.encoder1.out_channels +
-                num_filters, num_filters * 2, num_filters)
-        self.logit = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.
-            Conv2d(96, num_filters, kernel_size=3, padding=1),
-            ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1,
-            kernel_size=1))
-        self.fuse_pixel = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True),
-            nn.Conv2d(num_filters * (8 + 4 + 2 + 1 + 1), 64, kernel_size=1,
-            padding=0))
-        self.logit_pixel5 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True),
-            nn.Conv2d(num_filters * 8, num_filters, kernel_size=3, padding=
-            1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1,
-            kernel_size=1))
-        self.logit_pixel4 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True),
-            nn.Conv2d(num_filters * 4, num_filters, kernel_size=3, padding=
-            1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1,
-            kernel_size=1))
-        self.logit_pixel3 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True),
-            nn.Conv2d(num_filters * 2, num_filters, kernel_size=3, padding=
-            1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1,
-            kernel_size=1))
-        self.logit_pixel2 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True),
-            nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1),
-            ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1,
-            kernel_size=1))
-        self.logit_pixel1 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True),
-            nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1),
-            ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1,
-            kernel_size=1))
+            self.decoder2 = nn.Sequential(nn.Conv2d(self.encoder2.out_channels + num_filters * 2, num_filters * 2 * 2, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters * 2 * 2), nn.Conv2d(num_filters * 2 * 2, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters))
+            self.decoder1 = Decoder(self.encoder1.out_channels + num_filters, num_filters * 2, num_filters)
+        self.logit = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(96, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1, kernel_size=1))
+        self.fuse_pixel = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(num_filters * (8 + 4 + 2 + 1 + 1), 64, kernel_size=1, padding=0))
+        self.logit_pixel5 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(num_filters * 8, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1, kernel_size=1))
+        self.logit_pixel4 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(num_filters * 4, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1, kernel_size=1))
+        self.logit_pixel3 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(num_filters * 2, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1, kernel_size=1))
+        self.logit_pixel2 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1, kernel_size=1))
+        self.logit_pixel1 = nn.Sequential(nn.Dropout2d(p=0.5, inplace=True), nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), ActivatedBatchNorm(num_filters), nn.Conv2d(num_filters, 1, kernel_size=1))
 
     def forward(self, x):
         batch_size, _, _, _ = x.shape
@@ -673,15 +594,12 @@ class UNet(nn.Module):
         u2 = upsampler(d2)
         d = torch.cat((d1, u2, u3, u4, u5), 1)
         fuse_pixel = self.fuse_pixel(d)
-        logit_pixel = self.logit_pixel1(d1), self.logit_pixel2(u2
-            ), self.logit_pixel3(u3), self.logit_pixel4(u4), self.logit_pixel5(
-            u5)
+        logit_pixel = self.logit_pixel1(d1), self.logit_pixel2(u2), self.logit_pixel3(u3), self.logit_pixel4(u4), self.logit_pixel5(u5)
         e = F.adaptive_avg_pool2d(e5, output_size=1).view(batch_size, -1)
         e = F.dropout(e, p=0.5, training=self.training)
         fuse_image = self.fuse_image(e)
         logit_image = self.logit_image(fuse_image).view(-1)
-        logit = self.logit(torch.cat([fuse_pixel, F.upsample(fuse_image.
-            view(batch_size, -1, 1, 1), scale_factor=128, mode='nearest')], 1))
+        logit = self.logit(torch.cat([fuse_pixel, F.upsample(fuse_image.view(batch_size, -1, 1, 1), scale_factor=128, mode='nearest')], 1))
         return logit, logit_pixel, logit_image
 
 
@@ -689,21 +607,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ABN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AdaptiveConcatPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConcatPool2d,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DummyModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StableBCELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_tugstugi_pytorch_saltnet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AdaptiveConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConcatPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DummyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(StableBCELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

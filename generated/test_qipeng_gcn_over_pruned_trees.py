@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -240,20 +241,16 @@ class GCNRelationModel(nn.Module):
         super().__init__()
         self.opt = opt
         self.emb_matrix = emb_matrix
-        self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'],
-            padding_idx=constant.PAD_ID)
-        self.pos_emb = nn.Embedding(len(constant.POS_TO_ID), opt['pos_dim']
-            ) if opt['pos_dim'] > 0 else None
-        self.ner_emb = nn.Embedding(len(constant.NER_TO_ID), opt['ner_dim']
-            ) if opt['ner_dim'] > 0 else None
+        self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'], padding_idx=constant.PAD_ID)
+        self.pos_emb = nn.Embedding(len(constant.POS_TO_ID), opt['pos_dim']) if opt['pos_dim'] > 0 else None
+        self.ner_emb = nn.Embedding(len(constant.NER_TO_ID), opt['ner_dim']) if opt['ner_dim'] > 0 else None
         embeddings = self.emb, self.pos_emb, self.ner_emb
         self.init_embeddings()
         self.gcn = GCN(opt, embeddings, opt['hidden_dim'], opt['num_layers'])
         in_dim = opt['hidden_dim'] * 3
         layers = [nn.Linear(in_dim, opt['hidden_dim']), nn.ReLU()]
         for _ in range(self.opt['mlp_layers'] - 1):
-            layers += [nn.Linear(opt['hidden_dim'], opt['hidden_dim']), nn.
-                ReLU()]
+            layers += [nn.Linear(opt['hidden_dim'], opt['hidden_dim']), nn.ReLU()]
         self.out_mlp = nn.Sequential(*layers)
 
     def init_embeddings(self):
@@ -267,32 +264,25 @@ class GCNRelationModel(nn.Module):
             self.emb.weight.requires_grad = False
         elif self.opt['topn'] < self.opt['vocab_size']:
             None
-            self.emb.weight.register_hook(lambda x: torch_utils.
-                keep_partial_grad(x, self.opt['topn']))
+            self.emb.weight.register_hook(lambda x: torch_utils.keep_partial_grad(x, self.opt['topn']))
         else:
             None
 
     def forward(self, inputs):
-        (words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type,
-            obj_type) = inputs
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type = inputs
         l = (masks.data.cpu().numpy() == 0).astype(np.int64).sum(1)
         maxlen = max(l)
 
         def inputs_to_tree_reps(head, words, l, prune, subj_pos, obj_pos):
-            head, words, subj_pos, obj_pos = head.cpu().numpy(), words.cpu(
-                ).numpy(), subj_pos.cpu().numpy(), obj_pos.cpu().numpy()
-            trees = [head_to_tree(head[i], words[i], l[i], prune, subj_pos[
-                i], obj_pos[i]) for i in range(len(l))]
-            adj = [tree_to_adj(maxlen, tree, directed=False, self_loop=
-                False).reshape(1, maxlen, maxlen) for tree in trees]
+            head, words, subj_pos, obj_pos = head.cpu().numpy(), words.cpu().numpy(), subj_pos.cpu().numpy(), obj_pos.cpu().numpy()
+            trees = [head_to_tree(head[i], words[i], l[i], prune, subj_pos[i], obj_pos[i]) for i in range(len(l))]
+            adj = [tree_to_adj(maxlen, tree, directed=False, self_loop=False).reshape(1, maxlen, maxlen) for tree in trees]
             adj = np.concatenate(adj, axis=0)
             adj = torch.from_numpy(adj)
             return Variable(adj) if self.opt['cuda'] else Variable(adj)
-        adj = inputs_to_tree_reps(head.data, words.data, l, self.opt[
-            'prune_k'], subj_pos.data, obj_pos.data)
+        adj = inputs_to_tree_reps(head.data, words.data, l, self.opt['prune_k'], subj_pos.data, obj_pos.data)
         h, pool_mask = self.gcn(adj, inputs)
-        subj_mask, obj_mask = subj_pos.eq(0).eq(0).unsqueeze(2), obj_pos.eq(0
-            ).eq(0).unsqueeze(2)
+        subj_mask, obj_mask = subj_pos.eq(0).eq(0).unsqueeze(2), obj_pos.eq(0).eq(0).unsqueeze(2)
         pool_type = self.opt['pooling']
         h_out = pool(h, pool_mask, type=pool_type)
         subj_out = pool(h, subj_mask, type=pool_type)
@@ -302,8 +292,7 @@ class GCNRelationModel(nn.Module):
         return outputs, h_out
 
 
-def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True,
-    use_cuda=True):
+def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True, use_cuda=True):
     total_layers = num_layers * 2 if bidirectional else num_layers
     state_shape = total_layers, batch_size, hidden_dim
     h0 = c0 = Variable(torch.zeros(*state_shape), requires_grad=False)
@@ -326,9 +315,7 @@ class GCN(nn.Module):
         self.emb, self.pos_emb, self.ner_emb = embeddings
         if self.opt.get('rnn', False):
             input_size = self.in_dim
-            self.rnn = nn.LSTM(input_size, opt['rnn_hidden'], opt[
-                'rnn_layers'], batch_first=True, dropout=opt['rnn_dropout'],
-                bidirectional=True)
+            self.rnn = nn.LSTM(input_size, opt['rnn_hidden'], opt['rnn_layers'], batch_first=True, dropout=opt['rnn_dropout'], bidirectional=True)
             self.in_dim = opt['rnn_hidden'] * 2
             self.rnn_drop = nn.Dropout(opt['rnn_dropout'])
         self.in_drop = nn.Dropout(opt['input_dropout'])
@@ -346,18 +333,14 @@ class GCN(nn.Module):
 
     def encode_with_rnn(self, rnn_inputs, masks, batch_size):
         seq_lens = list(masks.data.eq(constant.PAD_ID).long().sum(1).squeeze())
-        h0, c0 = rnn_zero_state(batch_size, self.opt['rnn_hidden'], self.
-            opt['rnn_layers'])
-        rnn_inputs = nn.utils.rnn.pack_padded_sequence(rnn_inputs, seq_lens,
-            batch_first=True)
+        h0, c0 = rnn_zero_state(batch_size, self.opt['rnn_hidden'], self.opt['rnn_layers'])
+        rnn_inputs = nn.utils.rnn.pack_padded_sequence(rnn_inputs, seq_lens, batch_first=True)
         rnn_outputs, (ht, ct) = self.rnn(rnn_inputs, (h0, c0))
-        rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs,
-            batch_first=True)
+        rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs, batch_first=True)
         return rnn_outputs
 
     def forward(self, adj, inputs):
-        (words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type,
-            obj_type) = inputs
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type = inputs
         word_embs = self.emb(words)
         embs = [word_embs]
         if self.opt['pos_dim'] > 0:
@@ -367,8 +350,7 @@ class GCN(nn.Module):
         embs = torch.cat(embs, dim=2)
         embs = self.in_drop(embs)
         if self.opt.get('rnn', False):
-            gcn_inputs = self.rnn_drop(self.encode_with_rnn(embs, masks,
-                words.size()[0]))
+            gcn_inputs = self.rnn_drop(self.encode_with_rnn(embs, masks, words.size()[0]))
         else:
             gcn_inputs = embs
         denom = adj.sum(2).unsqueeze(2) + 1
@@ -384,10 +366,3 @@ class GCN(nn.Module):
             gcn_inputs = self.gcn_drop(gAxW) if l < self.layers - 1 else gAxW
         return gcn_inputs, mask
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_qipeng_gcn_over_pruned_trees(_paritybench_base):
-    pass

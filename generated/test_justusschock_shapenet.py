@@ -40,8 +40,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,8 +82,7 @@ class AbstractShapeNetwork(torch.jit.ScriptModule):
 
     @staticmethod
     def norm_type_to_class(norm_type):
-        norm_dict = {'instance': torch.nn.InstanceNorm2d, 'batch': torch.nn
-            .BatchNorm2d}
+        norm_dict = {'instance': torch.nn.InstanceNorm2d, 'batch': torch.nn.BatchNorm2d}
         norm_class = norm_dict.get(norm_type, None)
         return norm_class
 
@@ -110,8 +110,7 @@ class AbstractFeatureExtractor(torch.jit.ScriptModule):
 
         """
         super().__init__()
-        self.model = self._build_model(in_channels, out_params, norm_class,
-            p_dropout)
+        self.model = self._build_model(in_channels, out_params, norm_class, p_dropout)
 
     @torch.jit.script_method
     def forward(self, input_batch):
@@ -221,8 +220,7 @@ class _HomogeneousTransformationLayerPy(torch.jit.ScriptModule):
         self._n_dims = n_dims
 
     @torch.jit.script_method
-    def forward(self, shapes: torch.Tensor, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def forward(self, shapes: torch.Tensor, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix and applies it to the
         shape tensor
@@ -245,20 +243,14 @@ class _HomogeneousTransformationLayerPy(torch.jit.ScriptModule):
             the transformed shapes in cartesian coordinates
 
         """
-        assert shapes.size(-1
-            ) == self._n_dims, 'Layer for other dimensionality specified'
-        trafo_matrix = self._ensemble_trafo(rotation_params,
-            translation_params, scale_params)
-        homogen_shapes = torch.cat([shapes, torch.ones([shapes.size(0),
-            shapes.size(1), 1], dtype=shapes.dtype, device=shapes.device)],
-            dim=-1)
-        transformed_shapes = torch.bmm(homogen_shapes, trafo_matrix.permute
-            (0, 2, 1))
+        assert shapes.size(-1) == self._n_dims, 'Layer for other dimensionality specified'
+        trafo_matrix = self._ensemble_trafo(rotation_params, translation_params, scale_params)
+        homogen_shapes = torch.cat([shapes, torch.ones([shapes.size(0), shapes.size(1), 1], dtype=shapes.dtype, device=shapes.device)], dim=-1)
+        transformed_shapes = torch.bmm(homogen_shapes, trafo_matrix.permute(0, 2, 1))
         return transformed_shapes[:, :, :-1]
 
     @torch.jit.script_method
-    def _ensemble_trafo(self, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def _ensemble_trafo(self, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the transformation matrix in 2D and 3D
 
@@ -279,20 +271,16 @@ class _HomogeneousTransformationLayerPy(torch.jit.ScriptModule):
 
         """
         rotation_params = rotation_params.view(rotation_params.size()[:2])
-        translation_params = translation_params.view(translation_params.
-            size()[:2])
+        translation_params = translation_params.view(translation_params.size()[:2])
         scale_params = scale_params.view(scale_params.size()[:2])
         if self._n_dims == 2:
-            trafo = self._ensemble_2d_matrix(rotation_params,
-                translation_params, scale_params)
+            trafo = self._ensemble_2d_matrix(rotation_params, translation_params, scale_params)
         else:
-            trafo = self._ensemble_3d_matrix(rotation_params,
-                translation_params, scale_params)
+            trafo = self._ensemble_3d_matrix(rotation_params, translation_params, scale_params)
         return trafo
 
     @torch.jit.script_method
-    def _ensemble_2d_matrix(self, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def _ensemble_2d_matrix(self, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix for 2D
 
@@ -312,22 +300,16 @@ class _HomogeneousTransformationLayerPy(torch.jit.ScriptModule):
             2D transformation matrix
 
         """
-        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.
-            size(0), 1, 1).clone()
-        homogen_trafo[:, (0), (0)] = (scale_params * rotation_params.cos())[:,
-            (0)].clone()
-        homogen_trafo[:, (0), (1)] = (scale_params * rotation_params.sin())[:,
-            (0)].clone()
-        homogen_trafo[:, (1), (0)] = (-scale_params * rotation_params.sin())[:,
-            (0)].clone()
-        homogen_trafo[:, (1), (1)] = (scale_params * rotation_params.cos())[:,
-            (0)].clone()
+        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.size(0), 1, 1).clone()
+        homogen_trafo[:, (0), (0)] = (scale_params * rotation_params.cos())[:, (0)].clone()
+        homogen_trafo[:, (0), (1)] = (scale_params * rotation_params.sin())[:, (0)].clone()
+        homogen_trafo[:, (1), (0)] = (-scale_params * rotation_params.sin())[:, (0)].clone()
+        homogen_trafo[:, (1), (1)] = (scale_params * rotation_params.cos())[:, (0)].clone()
         homogen_trafo[:, :-1, (-1)] = translation_params.clone()
         return homogen_trafo
 
     @torch.jit.script_method
-    def _ensemble_3d_matrix(self, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def _ensemble_3d_matrix(self, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix for 3D
 
@@ -347,29 +329,19 @@ class _HomogeneousTransformationLayerPy(torch.jit.ScriptModule):
             3D transformation matrix
 
         """
-        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.
-            size(0), 1, 1).clone()
+        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.size(0), 1, 1).clone()
         roll = rotation_params[:, (2)].unsqueeze(-1)
         pitch = rotation_params[:, (1)].unsqueeze(-1)
         yaw = rotation_params[:, (0)].unsqueeze(-1)
-        homogen_trafo[:, (0), (0)] = (scale_params * (pitch.cos() * roll.cos())
-            )[:, (0)].clone()
-        homogen_trafo[:, (0), (1)] = (scale_params * (pitch.cos() * roll.sin())
-            )[:, (0)].clone()
-        homogen_trafo[:, (0), (2)] = (scale_params * -pitch.sin())[:, (0)
-            ].clone()
-        homogen_trafo[:, (1), (0)] = (scale_params * (yaw.sin() * pitch.sin
-            () * roll.cos() - yaw.cos() * roll.sin()))[:, (0)].clone()
-        homogen_trafo[:, (1), (1)] = (scale_params * (yaw.sin() * pitch.sin
-            () * roll.sin() + yaw.cos() * roll.cos()))[:, (0)].clone()
-        homogen_trafo[:, (1), (2)] = (scale_params * (yaw.sin() * pitch.cos())
-            )[:, (0)].clone()
-        homogen_trafo[:, (2), (0)] = (scale_params * (yaw.cos() * pitch.sin
-            () * roll.cos() + yaw.sin() * roll.sin()))[:, (0)].clone()
-        homogen_trafo[:, (2), (1)] = (scale_params * (yaw.cos() * pitch.sin
-            () * roll.sin() - yaw.sin() * roll.cos()))[:, (0)].clone()
-        homogen_trafo[:, (2), (2)] = (scale_params * (yaw.cos() * pitch.cos())
-            )[:, (0)].clone()
+        homogen_trafo[:, (0), (0)] = (scale_params * (pitch.cos() * roll.cos()))[:, (0)].clone()
+        homogen_trafo[:, (0), (1)] = (scale_params * (pitch.cos() * roll.sin()))[:, (0)].clone()
+        homogen_trafo[:, (0), (2)] = (scale_params * -pitch.sin())[:, (0)].clone()
+        homogen_trafo[:, (1), (0)] = (scale_params * (yaw.sin() * pitch.sin() * roll.cos() - yaw.cos() * roll.sin()))[:, (0)].clone()
+        homogen_trafo[:, (1), (1)] = (scale_params * (yaw.sin() * pitch.sin() * roll.sin() + yaw.cos() * roll.cos()))[:, (0)].clone()
+        homogen_trafo[:, (1), (2)] = (scale_params * (yaw.sin() * pitch.cos()))[:, (0)].clone()
+        homogen_trafo[:, (2), (0)] = (scale_params * (yaw.cos() * pitch.sin() * roll.cos() + yaw.sin() * roll.sin()))[:, (0)].clone()
+        homogen_trafo[:, (2), (1)] = (scale_params * (yaw.cos() * pitch.sin() * roll.sin() - yaw.sin() * roll.cos()))[:, (0)].clone()
+        homogen_trafo[:, (2), (2)] = (scale_params * (yaw.cos() * pitch.cos()))[:, (0)].clone()
         homogen_trafo[:, :-1, (-1)] = translation_params.clone()
         return homogen_trafo
 
@@ -411,8 +383,7 @@ class HomogeneousTransformationLayer(torch.jit.ScriptModule):
         self._layer = _HomogeneousTransformationLayerPy(n_dims)
         total_params = 0
         for key, val in self._n_params.items():
-            self.register_buffer('_indices_%s_params' % key, torch.arange(
-                total_params, total_params + val))
+            self.register_buffer('_indices_%s_params' % key, torch.arange(total_params, total_params + val))
             total_params += val
 
     @torch.jit.script_method
@@ -436,14 +407,10 @@ class HomogeneousTransformationLayer(torch.jit.ScriptModule):
             the transformed shapes in cartesian coordinates
 
         """
-        rotation_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_rotation_params'))
-        scale_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_scale_params'))
-        translation_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_translation_params'))
-        return self._layer(shapes, rotation_params, translation_params,
-            scale_params)
+        rotation_params = params.index_select(dim=1, index=getattr(self, '_indices_rotation_params'))
+        scale_params = params.index_select(dim=1, index=getattr(self, '_indices_scale_params'))
+        translation_params = params.index_select(dim=1, index=getattr(self, '_indices_translation_params'))
+        return self._layer(shapes, rotation_params, translation_params, scale_params)
 
     @property
     def num_params(self):
@@ -469,8 +436,7 @@ class _ShapeLayerPy(torch.jit.ScriptModule):
 
         """
         super().__init__()
-        self.register_buffer('_shape_mean', torch.from_numpy(shapes[0]).
-            float().unsqueeze(0))
+        self.register_buffer('_shape_mean', torch.from_numpy(shapes[0]).float().unsqueeze(0))
         components = []
         for i, _shape in enumerate(shapes[1:]):
             components.append(torch.from_numpy(_shape).float().unsqueeze(0))
@@ -494,13 +460,10 @@ class _ShapeLayerPy(torch.jit.ScriptModule):
 
         """
         shapes = getattr(self, '_shape_mean').clone()
-        shapes = shapes.expand(shape_params.size(0), shapes.size(1), shapes
-            .size(2))
+        shapes = shapes.expand(shape_params.size(0), shapes.size(1), shapes.size(2))
         components = getattr(self, '_shape_components')
-        components = components.expand(shape_params.size(0), components.
-            size(1), components.size(2), components.size(3))
-        weighted_components = components.mul(shape_params.expand_as(components)
-            )
+        components = components.expand(shape_params.size(0), components.size(1), components.size(2), components.size(3))
+        weighted_components = components.mul(shape_params.expand_as(components))
         shapes = shapes.add(weighted_components.sum(dim=1))
         return shapes
 
@@ -564,10 +527,8 @@ class HomogeneousShapeLayer(torch.nn.Module):
         super().__init__()
         self._shape_layer = ShapeLayer(shapes, use_cpp)
         self._homogen_trafo = HomogeneousTransformationLayer(n_dims, use_cpp)
-        self.register_buffer('_indices_shape_params', torch.arange(self.
-            _shape_layer.num_params))
-        self.register_buffer('_indices_homogen_params', torch.arange(self.
-            _shape_layer.num_params, self.num_params))
+        self.register_buffer('_indices_shape_params', torch.arange(self._shape_layer.num_params))
+        self.register_buffer('_indices_homogen_params', torch.arange(self._shape_layer.num_params, self.num_params))
 
     def forward(self, params: torch.Tensor):
         """
@@ -584,10 +545,8 @@ class HomogeneousShapeLayer(torch.nn.Module):
             predicted shape
 
         """
-        shape_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_shape_params'))
-        transformation_params = params.index_select(dim=1, index=getattr(
-            self, '_indices_homogen_params'))
+        shape_params = params.index_select(dim=1, index=getattr(self, '_indices_shape_params'))
+        transformation_params = params.index_select(dim=1, index=getattr(self, '_indices_homogen_params'))
         shapes = self._shape_layer(shape_params)
         transformed_shapes = self._homogen_trafo(shapes, transformation_params)
         return transformed_shapes
@@ -639,8 +598,7 @@ class HomogeneousTransformationLayer(torch.nn.Module):
             self._layer = _HomogeneousTransformationLayerPy(n_dims)
         total_params = 0
         for key, val in self._n_params.items():
-            self.register_buffer('_indices_%s_params' % key, torch.arange(
-                total_params, total_params + val))
+            self.register_buffer('_indices_%s_params' % key, torch.arange(total_params, total_params + val))
             total_params += val
 
     def forward(self, shapes: torch.Tensor, params: torch.Tensor):
@@ -660,14 +618,10 @@ class HomogeneousTransformationLayer(torch.nn.Module):
             Transformed shapes
 
         """
-        rotation_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_rotation_params'))
-        scale_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_scale_params'))
-        translation_params = params.index_select(dim=1, index=getattr(self,
-            '_indices_translation_params'))
-        return self._layer(shapes, rotation_params, translation_params,
-            scale_params)
+        rotation_params = params.index_select(dim=1, index=getattr(self, '_indices_rotation_params'))
+        scale_params = params.index_select(dim=1, index=getattr(self, '_indices_scale_params'))
+        translation_params = params.index_select(dim=1, index=getattr(self, '_indices_translation_params'))
+        return self._layer(shapes, rotation_params, translation_params, scale_params)
 
     @property
     def num_params(self):
@@ -701,12 +655,9 @@ class _HomogeneousTransformationLayerCpp(torch.nn.Module):
         homogen_trafo[:, (-1), (-1)] = 1.0
         self.register_buffer('_trafo_matrix', homogen_trafo)
         self._n_dims = n_dims
-        self._func = load_cpp('homogeneous_transform_function', sources=[os
-            .path.join(os.path.split(__file__)[0],
-            'homogeneous_transform_layer.cpp')], verbose=verbose)
+        self._func = load_cpp('homogeneous_transform_function', sources=[os.path.join(os.path.split(__file__)[0], 'homogeneous_transform_layer.cpp')], verbose=verbose)
 
-    def forward(self, shapes: torch.Tensor, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def forward(self, shapes: torch.Tensor, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix and applies it to the
         shape tensor
@@ -729,9 +680,7 @@ class _HomogeneousTransformationLayerCpp(torch.nn.Module):
             the transformed shapes in cartesian coordinates
 
         """
-        transformed_shapes = self._func.forward(shapes, getattr(self,
-            '_trafo_matrix'), rotation_params, translation_params, scale_params
-            )
+        transformed_shapes = self._func.forward(shapes, getattr(self, '_trafo_matrix'), rotation_params, translation_params, scale_params)
         return transformed_shapes
 
 
@@ -758,8 +707,7 @@ class _HomogeneousTransformationLayerPy(torch.nn.Module):
         self.register_buffer('_trafo_matrix', homogen_trafo)
         self._n_dims = n_dims
 
-    def forward(self, shapes: torch.Tensor, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def forward(self, shapes: torch.Tensor, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix and applies it to the
         shape tensor
@@ -782,19 +730,14 @@ class _HomogeneousTransformationLayerPy(torch.nn.Module):
             the transformed shapes in cartesian coordinates
 
         """
-        assert shapes.size(-1
-            ) == self._n_dims, 'Layer for other dimensionality specified'
-        trafo_matrix = self._ensemble_trafo(rotation_params,
-            translation_params, scale_params)
-        homogen_shapes = torch.cat([shapes, shapes.new_ones(*shapes.size()[
-            :-1], 1)], dim=-1)
-        transformed_shapes = torch.bmm(homogen_shapes, trafo_matrix.permute
-            (0, 2, 1))
+        assert shapes.size(-1) == self._n_dims, 'Layer for other dimensionality specified'
+        trafo_matrix = self._ensemble_trafo(rotation_params, translation_params, scale_params)
+        homogen_shapes = torch.cat([shapes, shapes.new_ones(*shapes.size()[:-1], 1)], dim=-1)
+        transformed_shapes = torch.bmm(homogen_shapes, trafo_matrix.permute(0, 2, 1))
         transformed_shapes = transformed_shapes[(...), :-1]
         return transformed_shapes
 
-    def _ensemble_trafo(self, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def _ensemble_trafo(self, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the transformation matrix in 2D and 3D
 
@@ -815,21 +758,16 @@ class _HomogeneousTransformationLayerPy(torch.nn.Module):
 
         """
         rotation_params = rotation_params.view(rotation_params.size()[:2])
-        translation_params = translation_params.view(translation_params.
-            size()[:2])
+        translation_params = translation_params.view(translation_params.size()[:2])
         scale_params = scale_params.view(scale_params.size()[:2])
         if self._n_dims == 2:
-            return self._ensemble_2d_matrix(rotation_params,
-                translation_params, scale_params)
+            return self._ensemble_2d_matrix(rotation_params, translation_params, scale_params)
         elif self._n_dims == 3:
-            return self._ensemble_3d_matrix(rotation_params,
-                translation_params, scale_params)
+            return self._ensemble_3d_matrix(rotation_params, translation_params, scale_params)
         else:
-            raise NotImplementedError(
-                'Implementation for n_dims = %d not available' % self._n_dims)
+            raise NotImplementedError('Implementation for n_dims = %d not available' % self._n_dims)
 
-    def _ensemble_2d_matrix(self, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def _ensemble_2d_matrix(self, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix for 2D
 
@@ -849,21 +787,15 @@ class _HomogeneousTransformationLayerPy(torch.nn.Module):
             2D transformation matrix
 
         """
-        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.
-            size(0), 1, 1).clone()
-        homogen_trafo[:, (0), (0)] = (scale_params * rotation_params.cos())[:,
-            (0)].clone()
-        homogen_trafo[:, (0), (1)] = (scale_params * rotation_params.sin())[:,
-            (0)].clone()
-        homogen_trafo[:, (1), (0)] = (-scale_params * rotation_params.sin())[:,
-            (0)].clone()
-        homogen_trafo[:, (1), (1)] = (scale_params * rotation_params.cos())[:,
-            (0)].clone()
+        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.size(0), 1, 1).clone()
+        homogen_trafo[:, (0), (0)] = (scale_params * rotation_params.cos())[:, (0)].clone()
+        homogen_trafo[:, (0), (1)] = (scale_params * rotation_params.sin())[:, (0)].clone()
+        homogen_trafo[:, (1), (0)] = (-scale_params * rotation_params.sin())[:, (0)].clone()
+        homogen_trafo[:, (1), (1)] = (scale_params * rotation_params.cos())[:, (0)].clone()
         homogen_trafo[:, :-1, (-1)] = translation_params.clone()
         return homogen_trafo
 
-    def _ensemble_3d_matrix(self, rotation_params: torch.Tensor,
-        translation_params: torch.Tensor, scale_params: torch.Tensor):
+    def _ensemble_3d_matrix(self, rotation_params: torch.Tensor, translation_params: torch.Tensor, scale_params: torch.Tensor):
         """
         ensembles the homogeneous transformation matrix for 3D
 
@@ -883,29 +815,19 @@ class _HomogeneousTransformationLayerPy(torch.nn.Module):
             3D transformation matrix
 
         """
-        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.
-            size(0), 1, 1).clone()
+        homogen_trafo = getattr(self, '_trafo_matrix').repeat(scale_params.size(0), 1, 1).clone()
         roll = rotation_params[:, (2)].unsqueeze(-1)
         pitch = rotation_params[:, (1)].unsqueeze(-1)
         yaw = rotation_params[:, (0)].unsqueeze(-1)
-        homogen_trafo[:, (0), (0)] = (scale_params * (pitch.cos() * roll.cos())
-            )[:, (0)].clone()
-        homogen_trafo[:, (0), (1)] = (scale_params * (pitch.cos() * roll.sin())
-            )[:, (0)].clone()
-        homogen_trafo[:, (0), (2)] = (scale_params * -pitch.sin())[:, (0)
-            ].clone()
-        homogen_trafo[:, (1), (0)] = (scale_params * (yaw.sin() * pitch.sin
-            () * roll.cos() - yaw.cos() * roll.sin()))[:, (0)].clone()
-        homogen_trafo[:, (1), (1)] = (scale_params * (yaw.sin() * pitch.sin
-            () * roll.sin() + yaw.cos() * roll.cos()))[:, (0)].clone()
-        homogen_trafo[:, (1), (2)] = (scale_params * (yaw.sin() * pitch.cos())
-            )[:, (0)].clone()
-        homogen_trafo[:, (2), (0)] = (scale_params * (yaw.cos() * pitch.sin
-            () * roll.cos() + yaw.sin() * roll.sin()))[:, (0)].clone()
-        homogen_trafo[:, (2), (1)] = (scale_params * (yaw.cos() * pitch.sin
-            () * roll.sin() - yaw.sin() * roll.cos()))[:, (0)].clone()
-        homogen_trafo[:, (2), (2)] = (scale_params * (yaw.cos() * pitch.cos())
-            )[:, (0)].clone()
+        homogen_trafo[:, (0), (0)] = (scale_params * (pitch.cos() * roll.cos()))[:, (0)].clone()
+        homogen_trafo[:, (0), (1)] = (scale_params * (pitch.cos() * roll.sin()))[:, (0)].clone()
+        homogen_trafo[:, (0), (2)] = (scale_params * -pitch.sin())[:, (0)].clone()
+        homogen_trafo[:, (1), (0)] = (scale_params * (yaw.sin() * pitch.sin() * roll.cos() - yaw.cos() * roll.sin()))[:, (0)].clone()
+        homogen_trafo[:, (1), (1)] = (scale_params * (yaw.sin() * pitch.sin() * roll.sin() + yaw.cos() * roll.cos()))[:, (0)].clone()
+        homogen_trafo[:, (1), (2)] = (scale_params * (yaw.sin() * pitch.cos()))[:, (0)].clone()
+        homogen_trafo[:, (2), (0)] = (scale_params * (yaw.cos() * pitch.sin() * roll.cos() + yaw.sin() * roll.sin()))[:, (0)].clone()
+        homogen_trafo[:, (2), (1)] = (scale_params * (yaw.cos() * pitch.sin() * roll.sin() - yaw.sin() * roll.cos()))[:, (0)].clone()
+        homogen_trafo[:, (2), (2)] = (scale_params * (yaw.cos() * pitch.cos()))[:, (0)].clone()
         homogen_trafo[:, :-1, (-1)] = translation_params.clone()
         return homogen_trafo
 
@@ -979,8 +901,7 @@ class _ShapeLayerPy(torch.nn.Module):
 
         """
         super().__init__()
-        self.register_buffer('_shape_mean', torch.from_numpy(shapes[0]).
-            float().unsqueeze(0))
+        self.register_buffer('_shape_mean', torch.from_numpy(shapes[0]).float().unsqueeze(0))
         components = []
         for i, _shape in enumerate(shapes[1:]):
             components.append(torch.from_numpy(_shape).float().unsqueeze(0))
@@ -1005,10 +926,8 @@ class _ShapeLayerPy(torch.nn.Module):
         shapes = getattr(self, '_shape_mean').clone()
         shapes = shapes.expand(shape_params.size(0), *shapes.size()[1:])
         components = getattr(self, '_shape_components')
-        components = components.expand(shape_params.size(0), *components.
-            size()[1:])
-        weighted_components = components.mul(shape_params.expand_as(components)
-            )
+        components = components.expand(shape_params.size(0), *components.size()[1:])
+        weighted_components = components.mul(shape_params.expand_as(components))
         shapes = shapes.add(weighted_components.sum(dim=1))
         return shapes
 
@@ -1042,15 +961,13 @@ class _ShapeLayerCpp(torch.nn.Module):
 
         """
         super().__init__()
-        self.register_buffer('_shape_mean', torch.from_numpy(shapes[0]).
-            float().unsqueeze(0))
+        self.register_buffer('_shape_mean', torch.from_numpy(shapes[0]).float().unsqueeze(0))
         components = []
         for i, _shape in enumerate(shapes[1:]):
             components.append(torch.from_numpy(_shape).float().unsqueeze(0))
         component_tensor = torch.cat(components).unsqueeze(0)
         self.register_buffer('_shape_components', component_tensor)
-        self._func = load_cpp('shape_function', sources=[os.path.join(os.
-            path.split(__file__)[0], 'shape_layer.cpp')], verbose=verbose)
+        self._func = load_cpp('shape_function', sources=[os.path.join(os.path.split(__file__)[0], 'shape_layer.cpp')], verbose=verbose)
 
     def forward(self, shape_params: torch.Tensor):
         """
@@ -1066,8 +983,7 @@ class _ShapeLayerCpp(torch.nn.Module):
         :class:`torch.Tensor`
             ensembled shape
         """
-        shapes = self._func.forward(shape_params, getattr(self,
-            '_shape_mean'), getattr(self, '_shape_components'))
+        shapes = self._func.forward(shape_params, getattr(self, '_shape_mean'), getattr(self, '_shape_components'))
         return shapes
 
     @property
@@ -1107,8 +1023,7 @@ class AbstractFeatureExtractor(torch.nn.Module):
 
         """
         super().__init__()
-        self.model = self._build_model(in_channels, out_params, norm_class,
-            p_dropout)
+        self.model = self._build_model(in_channels, out_params, norm_class, p_dropout)
 
     def forward(self, input_batch):
         """
@@ -1229,11 +1144,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dRelu,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CustomGroupNorm,
+     lambda: ([], {'n_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_justusschock_shapenet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2dRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CustomGroupNorm(*[], **{'n_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

@@ -107,8 +107,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -166,8 +167,7 @@ class State:
     def __init__(self, raw, mask=None, info=None):
         self._raw = raw
         if mask is None:
-            self._mask = torch.ones(len(raw), dtype=torch.uint8, device=raw
-                .device)
+            self._mask = torch.ones(len(raw), dtype=torch.uint8, device=raw.device)
         else:
             self._mask = mask
         self._info = info or [None] * len(raw)
@@ -181,8 +181,7 @@ class State:
 
     @classmethod
     def from_gym(cls, numpy_arr, done, info, device='cpu', dtype=np.float32):
-        raw = torch.from_numpy(np.array(numpy_arr, dtype=dtype)).unsqueeze(0
-            ).to(device)
+        raw = torch.from_numpy(np.array(numpy_arr, dtype=dtype)).unsqueeze(0).to(device)
         mask = DONE.to(device) if done else NOT_DONE.to(device)
         return cls(raw, mask=mask, info=[info])
 
@@ -215,8 +214,7 @@ class State:
             return State(self._raw[idx], self._mask[idx], self._info[idx])
         if isinstance(idx, torch.Tensor):
             return State(self._raw[idx], self._mask[idx])
-        return State(self._raw[idx].unsqueeze(0), self._mask[idx].unsqueeze
-            (0), [self._info[idx]])
+        return State(self._raw[idx].unsqueeze(0), self._mask[idx].unsqueeze(0), [self._info[idx]])
 
     def __len__(self):
         return len(self._raw)
@@ -247,11 +245,9 @@ class QDistModule(torch.nn.Module):
         self.count = 0
 
     def forward(self, states, actions=None):
-        values = self.model(states).view((len(states), self.n_actions, self
-            .n_atoms))
+        values = self.model(states).view((len(states), self.n_actions, self.n_atoms))
         values = F.softmax(values, dim=2)
-        values = (values - self.terminal) * states.mask.view((-1, 1, 1)).float(
-            ) + self.terminal
+        values = (values - self.terminal) * states.mask.view((-1, 1, 1)).float() + self.terminal
         if actions is None:
             return values
         if isinstance(actions, list):
@@ -276,8 +272,7 @@ class RLNetwork(nn.Module):
         self.device = next(model.parameters()).device
 
     def forward(self, state):
-        return self.model(state.features.float()) * state.mask.float(
-            ).unsqueeze(-1)
+        return self.model(state.features.float()) * state.mask.float().unsqueeze(-1)
 
 
 class Aggregation(nn.Module):
@@ -329,11 +324,9 @@ class CategoricalDueling(nn.Module):
         batch_size = len(features)
         value_dist = self.value_model(features)
         atoms = value_dist.shape[1]
-        advantage_dist = self.advantage_model(features).view((batch_size, -
-            1, atoms))
+        advantage_dist = self.advantage_model(features).view((batch_size, -1, atoms))
         advantage_mean = advantage_dist.mean(dim=1, keepdim=True)
-        return (value_dist.view((batch_size, 1, atoms)) + advantage_dist -
-            advantage_mean).view((batch_size, -1))
+        return (value_dist.view((batch_size, 1, atoms)) + advantage_dist - advantage_mean).view((batch_size, -1))
 
 
 class Flatten(nn.Module):
@@ -361,13 +354,10 @@ class NoisyLinear(nn.Linear):
 
     def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
         super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features).fill_(sigma_init))
-        self.register_buffer('epsilon_weight', torch.zeros(out_features,
-            in_features))
+        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
+        self.register_buffer('epsilon_weight', torch.zeros(out_features, in_features))
         if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_
-                (sigma_init))
+            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
             self.register_buffer('epsilon_bias', torch.zeros(out_features))
         self.reset_parameters()
 
@@ -384,8 +374,7 @@ class NoisyLinear(nn.Linear):
         if self.bias is not None:
             torch.randn(self.epsilon_bias.size(), out=self.epsilon_bias)
             bias = bias + self.sigma_bias * self.epsilon_bias
-        return F.linear(x, self.weight + self.sigma_weight * self.
-            epsilon_weight, bias)
+        return F.linear(x, self.weight + self.sigma_weight * self.epsilon_weight, bias)
 
 
 class NoisyFactorizedLinear(nn.Linear):
@@ -395,18 +384,15 @@ class NoisyFactorizedLinear(nn.Linear):
     N.B. nn.Linear already initializes weight and bias to
     """
 
-    def __init__(self, in_features, out_features, sigma_init=0.4,
-        init_scale=3, bias=True):
+    def __init__(self, in_features, out_features, sigma_init=0.4, init_scale=3, bias=True):
         self.init_scale = init_scale
         super().__init__(in_features, out_features, bias=bias)
         sigma_init = sigma_init / np.sqrt(in_features)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features).fill_(sigma_init))
+        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
         self.register_buffer('epsilon_input', torch.zeros(1, in_features))
         self.register_buffer('epsilon_output', torch.zeros(out_features, 1))
         if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_
-                (sigma_init))
+            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
 
     def reset_parameters(self):
         std = np.sqrt(self.init_scale / self.in_features)
@@ -450,10 +436,8 @@ class TanhActionBound(nn.Module):
 
     def __init__(self, action_space):
         super().__init__()
-        self.register_buffer('weight', torch.tensor((action_space.high -
-            action_space.low) / 2))
-        self.register_buffer('bias', torch.tensor((action_space.high +
-            action_space.low) / 2))
+        self.register_buffer('weight', torch.tensor((action_space.high - action_space.low) / 2))
+        self.register_buffer('bias', torch.tensor((action_space.high + action_space.low) / 2))
 
     def forward(self, x):
         return torch.tanh(x) * self.weight + self.bias
@@ -463,30 +447,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Aggregation,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CategoricalDueling,
+     lambda: ([], {'value_model': _mock_layer(), 'advantage_model': _mock_layer()}),
+     lambda: ([torch.rand([4, 1, 1])], {}),
+     True),
+    (Dueling,
+     lambda: ([], {'value_model': _mock_layer(), 'advantage_model': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear0,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyFactorizedLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Scale,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_cpnota_autonomous_learning_library(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Aggregation(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CategoricalDueling(*[], **{'value_model': _mock_layer(), 'advantage_model': _mock_layer()}), [torch.rand([4, 1, 1])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Dueling(*[], **{'value_model': _mock_layer(), 'advantage_model': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Scale(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

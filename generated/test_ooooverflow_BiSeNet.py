@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ class DiceLoss(nn.Module):
         self.epsilon = 1e-05
 
     def forward(self, output, target):
-        assert output.size() == target.size(
-            ), "'input' and 'target' must have the same shape"
+        assert output.size() == target.size(), "'input' and 'target' must have the same shape"
         output = F.softmax(output, dim=1)
         output = flatten(output)
         target = flatten(target)
@@ -102,11 +102,9 @@ class DiceLoss(nn.Module):
 
 class ConvBlock(torch.nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2,
-        padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU()
 
@@ -142,9 +140,7 @@ class AttentionRefinementModule(torch.nn.Module):
 
     def forward(self, input):
         x = self.avgpool(input)
-        assert self.in_channels == x.size(1
-            ), 'in_channels and out_channels should all be {}'.format(x.size(1)
-            )
+        assert self.in_channels == x.size(1), 'in_channels and out_channels should all be {}'.format(x.size(1))
         x = self.conv(x)
         x = self.sigmoid(x)
         x = torch.mul(input, x)
@@ -156,8 +152,7 @@ class FeatureFusionModule(torch.nn.Module):
     def __init__(self, num_classes, in_channels):
         super().__init__()
         self.in_channels = in_channels
-        self.convblock = ConvBlock(in_channels=self.in_channels,
-            out_channels=num_classes, stride=1)
+        self.convblock = ConvBlock(in_channels=self.in_channels, out_channels=num_classes, stride=1)
         self.conv1 = nn.Conv2d(num_classes, num_classes, kernel_size=1)
         self.relu = nn.ReLU()
         self.conv2 = nn.Conv2d(num_classes, num_classes, kernel_size=1)
@@ -166,8 +161,7 @@ class FeatureFusionModule(torch.nn.Module):
 
     def forward(self, input_1, input_2):
         x = torch.cat((input_1, input_2), dim=1)
-        assert self.in_channels == x.size(1
-            ), 'in_channels of ConvBlock should be {}'.format(x.size(1))
+        assert self.in_channels == x.size(1), 'in_channels of ConvBlock should be {}'.format(x.size(1))
         feature = self.convblock(x)
         x = self.avgpool(feature)
         x = self.relu(self.conv1(x))
@@ -178,8 +172,7 @@ class FeatureFusionModule(torch.nn.Module):
 
 
 def build_contextpath(name):
-    model = {'resnet18': resnet18(pretrained=True), 'resnet101': resnet101(
-        pretrained=True)}
+    model = {'resnet18': resnet18(pretrained=True), 'resnet101': resnet101(pretrained=True)}
     return model[name]
 
 
@@ -190,29 +183,20 @@ class BiSeNet(torch.nn.Module):
         self.saptial_path = Spatial_path()
         self.context_path = build_contextpath(name=context_path)
         if context_path == 'resnet101':
-            self.attention_refinement_module1 = AttentionRefinementModule(
-                1024, 1024)
-            self.attention_refinement_module2 = AttentionRefinementModule(
-                2048, 2048)
-            self.supervision1 = nn.Conv2d(in_channels=1024, out_channels=
-                num_classes, kernel_size=1)
-            self.supervision2 = nn.Conv2d(in_channels=2048, out_channels=
-                num_classes, kernel_size=1)
+            self.attention_refinement_module1 = AttentionRefinementModule(1024, 1024)
+            self.attention_refinement_module2 = AttentionRefinementModule(2048, 2048)
+            self.supervision1 = nn.Conv2d(in_channels=1024, out_channels=num_classes, kernel_size=1)
+            self.supervision2 = nn.Conv2d(in_channels=2048, out_channels=num_classes, kernel_size=1)
             self.feature_fusion_module = FeatureFusionModule(num_classes, 3328)
         elif context_path == 'resnet18':
-            self.attention_refinement_module1 = AttentionRefinementModule(
-                256, 256)
-            self.attention_refinement_module2 = AttentionRefinementModule(
-                512, 512)
-            self.supervision1 = nn.Conv2d(in_channels=256, out_channels=
-                num_classes, kernel_size=1)
-            self.supervision2 = nn.Conv2d(in_channels=512, out_channels=
-                num_classes, kernel_size=1)
+            self.attention_refinement_module1 = AttentionRefinementModule(256, 256)
+            self.attention_refinement_module2 = AttentionRefinementModule(512, 512)
+            self.supervision1 = nn.Conv2d(in_channels=256, out_channels=num_classes, kernel_size=1)
+            self.supervision2 = nn.Conv2d(in_channels=512, out_channels=num_classes, kernel_size=1)
             self.feature_fusion_module = FeatureFusionModule(num_classes, 1024)
         else:
             None
-        self.conv = nn.Conv2d(in_channels=num_classes, out_channels=
-            num_classes, kernel_size=1)
+        self.conv = nn.Conv2d(in_channels=num_classes, out_channels=num_classes, kernel_size=1)
         self.init_weight()
         self.mul_lr = []
         self.mul_lr.append(self.saptial_path)
@@ -227,8 +211,7 @@ class BiSeNet(torch.nn.Module):
         for name, m in self.named_modules():
             if 'context_path' not in name:
                 if isinstance(m, nn.Conv2d):
-                    nn.init.kaiming_normal_(m.weight, mode='fan_in',
-                        nonlinearity='relu')
+                    nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 elif isinstance(m, nn.BatchNorm2d):
                     m.eps = 1e-05
                     m.momentum = 0.1
@@ -241,21 +224,16 @@ class BiSeNet(torch.nn.Module):
         cx1 = self.attention_refinement_module1(cx1)
         cx2 = self.attention_refinement_module2(cx2)
         cx2 = torch.mul(cx2, tail)
-        cx1 = torch.nn.functional.interpolate(cx1, size=sx.size()[-2:],
-            mode='bilinear')
-        cx2 = torch.nn.functional.interpolate(cx2, size=sx.size()[-2:],
-            mode='bilinear')
+        cx1 = torch.nn.functional.interpolate(cx1, size=sx.size()[-2:], mode='bilinear')
+        cx2 = torch.nn.functional.interpolate(cx2, size=sx.size()[-2:], mode='bilinear')
         cx = torch.cat((cx1, cx2), dim=1)
         if self.training == True:
             cx1_sup = self.supervision1(cx1)
             cx2_sup = self.supervision2(cx2)
-            cx1_sup = torch.nn.functional.interpolate(cx1_sup, size=input.
-                size()[-2:], mode='bilinear')
-            cx2_sup = torch.nn.functional.interpolate(cx2_sup, size=input.
-                size()[-2:], mode='bilinear')
+            cx1_sup = torch.nn.functional.interpolate(cx1_sup, size=input.size()[-2:], mode='bilinear')
+            cx2_sup = torch.nn.functional.interpolate(cx2_sup, size=input.size()[-2:], mode='bilinear')
         result = self.feature_fusion_module(sx, cx)
-        result = torch.nn.functional.interpolate(result, scale_factor=8,
-            mode='bilinear')
+        result = torch.nn.functional.interpolate(result, scale_factor=8, mode='bilinear')
         result = self.conv(result)
         if self.training == True:
             return result, cx1_sup, cx2_sup
@@ -339,24 +317,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionRefinementModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Spatial_path,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (resnet101,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (resnet18,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_ooooverflow_BiSeNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Spatial_path(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(resnet101(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(resnet18(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

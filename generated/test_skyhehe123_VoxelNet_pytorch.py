@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,10 +75,8 @@ class VoxelLoss(nn.Module):
         p_pos = F.sigmoid(psm.permute(0, 2, 3, 1))
         rm = rm.permute(0, 2, 3, 1).contiguous()
         rm = rm.view(rm.size(0), rm.size(1), rm.size(2), -1, 7)
-        targets = targets.view(targets.size(0), targets.size(1), targets.
-            size(2), -1, 7)
-        pos_equal_one_for_reg = pos_equal_one.unsqueeze(pos_equal_one.dim()
-            ).expand(-1, -1, -1, -1, 7)
+        targets = targets.view(targets.size(0), targets.size(1), targets.size(2), -1, 7)
+        pos_equal_one_for_reg = pos_equal_one.unsqueeze(pos_equal_one.dim()).expand(-1, -1, -1, -1, 7)
         rm_pos = rm * pos_equal_one_for_reg
         targets_pos = targets * pos_equal_one_for_reg
         cls_pos_loss = -pos_equal_one * torch.log(p_pos + 1e-06)
@@ -92,11 +91,9 @@ class VoxelLoss(nn.Module):
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, k, s, p, activation=True,
-        batch_norm=True):
+    def __init__(self, in_channels, out_channels, k, s, p, activation=True, batch_norm=True):
         super(Conv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=k,
-            stride=s, padding=p)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=s, padding=p)
         if batch_norm:
             self.bn = nn.BatchNorm2d(out_channels)
         else:
@@ -117,8 +114,7 @@ class Conv3d(nn.Module):
 
     def __init__(self, in_channels, out_channels, k, s, p, batch_norm=True):
         super(Conv3d, self).__init__()
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=k,
-            stride=s, padding=p)
+        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=k, stride=s, padding=p)
         if batch_norm:
             self.bn = nn.BatchNorm3d(out_channels)
         else:
@@ -214,16 +210,11 @@ class RPN(nn.Module):
         self.block_3 = [Conv2d(128, 256, 3, 2, 1)]
         self.block_3 += [nn.Conv2d(256, 256, 3, 1, 1) for _ in range(5)]
         self.block_3 = nn.Sequential(*self.block_3)
-        self.deconv_1 = nn.Sequential(nn.ConvTranspose2d(256, 256, 4, 4, 0),
-            nn.BatchNorm2d(256))
-        self.deconv_2 = nn.Sequential(nn.ConvTranspose2d(128, 256, 2, 2, 0),
-            nn.BatchNorm2d(256))
-        self.deconv_3 = nn.Sequential(nn.ConvTranspose2d(128, 256, 1, 1, 0),
-            nn.BatchNorm2d(256))
-        self.score_head = Conv2d(768, cfg.anchors_per_position, 1, 1, 0,
-            activation=False, batch_norm=False)
-        self.reg_head = Conv2d(768, 7 * cfg.anchors_per_position, 1, 1, 0,
-            activation=False, batch_norm=False)
+        self.deconv_1 = nn.Sequential(nn.ConvTranspose2d(256, 256, 4, 4, 0), nn.BatchNorm2d(256))
+        self.deconv_2 = nn.Sequential(nn.ConvTranspose2d(128, 256, 2, 2, 0), nn.BatchNorm2d(256))
+        self.deconv_3 = nn.Sequential(nn.ConvTranspose2d(128, 256, 1, 1, 0), nn.BatchNorm2d(256))
+        self.score_head = Conv2d(768, cfg.anchors_per_position, 1, 1, 0, activation=False, batch_norm=False)
+        self.reg_head = Conv2d(768, 7 * cfg.anchors_per_position, 1, 1, 0, activation=False, batch_norm=False)
 
     def forward(self, x):
         x = self.block_1(x)
@@ -238,16 +229,16 @@ class RPN(nn.Module):
         return self.score_head(x), self.reg_head(x)
 
 
-_global_config['N'] = 4
-
-
 _global_config['W'] = 4
+
+
+_global_config['H'] = 4
 
 
 _global_config['D'] = 4
 
 
-_global_config['H'] = 4
+_global_config['N'] = 4
 
 
 class VoxelNet(nn.Module):
@@ -261,8 +252,7 @@ class VoxelNet(nn.Module):
     def voxel_indexing(self, sparse_features, coords):
         dim = sparse_features.shape[-1]
         dense_feature = Variable(torch.zeros(dim, cfg.N, cfg.D, cfg.H, cfg.W))
-        dense_feature[:, (coords[:, (0)]), (coords[:, (1)]), (coords[:, (2)
-            ]), (coords[:, (3)])] = sparse_features
+        dense_feature[:, (coords[:, (0)]), (coords[:, (1)]), (coords[:, (2)]), (coords[:, (3)])] = sparse_features
         return dense_feature.transpose(0, 1)
 
     def forward(self, voxel_features, voxel_coords):
@@ -277,21 +267,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'k': 4, 's': 4, 'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv3d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'k': 4, 's': 4, 'p': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (FCN,
+     lambda: ([], {'cin': 4, 'cout': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (RPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (VFE,
+     lambda: ([], {'cin': 4, 'cout': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_skyhehe123_VoxelNet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv3d(*[], **{'in_channels': 4, 'out_channels': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FCN(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RPN(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(VFE(*[], **{'cin': 4, 'cout': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 

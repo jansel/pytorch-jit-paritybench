@@ -317,8 +317,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -523,8 +524,7 @@ class ConfigBaseMeta(type):
             annotations.update(getattr(base, '__annotations__', {}))
             defaults.update(getattr(base, '_field_defaults', {}))
         annotations.update(vars(cls).get('__annotations__', {}))
-        defaults.update({k: getattr(cls, k) for k in annotations if hasattr
-            (cls, k)})
+        defaults.update({k: getattr(cls, k) for k in annotations if hasattr(cls, k)})
         return annotations, defaults
 
     @property
@@ -565,13 +565,10 @@ class ConfigBase(metaclass=ConfigBaseMeta):
         required = type(self).__annotations__.keys()
         unspecified_fields = required - specified
         if unspecified_fields:
-            raise TypeError(
-                f'Failed to specify {unspecified_fields} for {type(self)}')
+            raise TypeError(f'Failed to specify {unspecified_fields} for {type(self)}')
         overspecified_fields = specified - required
         if overspecified_fields:
-            raise TypeError(
-                f'Specified non-existent fields {overspecified_fields} for {type(self)}'
-                )
+            raise TypeError(f'Specified non-existent fields {overspecified_fields} for {type(self)}')
         vars(self).update(kwargs)
 
     def __str__(self):
@@ -625,17 +622,13 @@ class RegistryError(Exception):
 
 
 class Registry:
-    _registered_components: Dict[ComponentType, Dict[Type, Type]
-        ] = collections.defaultdict(dict)
+    _registered_components: Dict[ComponentType, Dict[Type, Type]] = collections.defaultdict(dict)
 
     @classmethod
-    def add(cls, component_type: ComponentType, cls_to_add: Type,
-        config_cls: Type):
+    def add(cls, component_type: ComponentType, cls_to_add: Type, config_cls: Type):
         component = cls._registered_components[component_type]
         if config_cls in component:
-            raise RegistryError(
-                f"Cannot add {cls_to_add} to {component_type} for task_config type {config_cls}; it's already registered for {component[config_cls]}"
-                )
+            raise RegistryError(f"Cannot add {cls_to_add} to {component_type} for task_config type {config_cls}; it's already registered for {component[config_cls]}")
         component[config_cls] = cls_to_add
 
     @classmethod
@@ -643,9 +636,7 @@ class Registry:
         if component_type not in cls._registered_components:
             raise RegistryError(f"type {component_type} doesn't exist")
         if config_cls not in cls._registered_components[component_type]:
-            raise RegistryError(
-                f'unregistered config class {config_cls.__name__} for {component_type}'
-                )
+            raise RegistryError(f'unregistered config class {config_cls.__name__} for {component_type}')
         return cls._registered_components[component_type][config_cls]
 
     @classmethod
@@ -662,17 +653,14 @@ class Registry:
 
     @classmethod
     def subconfigs(cls, config_cls: Type) ->Tuple[Type, ...]:
-        return tuple(sub_cls for sub_cls in cls.configs(config_cls.
-            __COMPONENT_TYPE__) if issubclass(sub_cls.__COMPONENT__,
-            config_cls.__COMPONENT__))
+        return tuple(sub_cls for sub_cls in cls.configs(config_cls.__COMPONENT_TYPE__) if issubclass(sub_cls.__COMPONENT__, config_cls.__COMPONENT__))
 
 
 class ComponentMeta(type):
 
     def __new__(metacls, typename, bases, namespace):
         if 'Config' not in namespace:
-            parent_config = next((base.Config for base in bases if hasattr(
-                base, 'Config')), None)
+            parent_config = next((base.Config for base in bases if hasattr(base, 'Config')), None)
             if parent_config is not None:
 
 
@@ -684,9 +672,7 @@ class ComponentMeta(type):
                 class Config(ConfigBase):
                     pass
             namespace['Config'] = Config
-        component_type = next((base.__COMPONENT_TYPE__ for base in bases if
-            hasattr(base, '__COMPONENT_TYPE__')), namespace.get(
-            '__COMPONENT_TYPE__'))
+        component_type = next((base.__COMPONENT_TYPE__ for base in bases if hasattr(base, '__COMPONENT_TYPE__')), namespace.get('__COMPONENT_TYPE__'))
         new_cls = super().__new__(metacls, typename, bases, namespace)
         new_cls.Config.__COMPONENT_TYPE__ = component_type
         new_cls.Config.__name__ = f'{typename}.Config'
@@ -735,8 +721,7 @@ class ComponentMeta(type):
 
         """
         result = super().__dir__()
-        return [r for r in result if not (isinstance(getattr(cls, r, None),
-            type) and issubclass(getattr(cls, r, None), ConfigBase))]
+        return [r for r in result if not (isinstance(getattr(cls, r, None), type) and issubclass(getattr(cls, r, None), ConfigBase))]
 
 
 class Component(metaclass=ComponentMeta):
@@ -796,17 +781,12 @@ class AUCPRHingeLoss(nn.Module, Loss):
         Loss.__init__(self, config)
         self.num_classes = self.config.num_classes
         self.num_anchors = self.config.num_anchors
-        self.precision_range = (self.config.precision_range_lower, self.
-            config.precision_range_upper)
-        self.precision_values, self.delta = (loss_utils.
-            range_to_anchors_and_delta(self.precision_range, self.num_anchors))
-        self.biases = nn.Parameter(FloatTensor(self.config.num_classes,
-            self.config.num_anchors).zero_())
-        self.lambdas = nn.Parameter(FloatTensor(self.config.num_classes,
-            self.config.num_anchors).data.fill_(1.0))
+        self.precision_range = self.config.precision_range_lower, self.config.precision_range_upper
+        self.precision_values, self.delta = loss_utils.range_to_anchors_and_delta(self.precision_range, self.num_anchors)
+        self.biases = nn.Parameter(FloatTensor(self.config.num_classes, self.config.num_anchors).zero_())
+        self.lambdas = nn.Parameter(FloatTensor(self.config.num_classes, self.config.num_anchors).data.fill_(1.0))
 
-    def forward(self, logits, targets, reduce=True, size_average=True,
-        weights=None):
+    def forward(self, logits, targets, reduce=True, size_average=True, weights=None):
         """
         Args:
             logits: Variable :math:`(N, C)` where `C = number of classes`
@@ -825,18 +805,12 @@ class AUCPRHingeLoss(nn.Module, Loss):
         """
         C = 1 if logits.dim() == 1 else logits.size(1)
         if self.num_classes != C:
-            raise ValueError('num classes is %d while logits width is %d' %
-                (self.num_classes, C))
-        labels, weights = AUCPRHingeLoss._prepare_labels_weights(logits,
-            targets, weights=weights)
+            raise ValueError('num classes is %d while logits width is %d' % (self.num_classes, C))
+        labels, weights = AUCPRHingeLoss._prepare_labels_weights(logits, targets, weights=weights)
         lambdas = loss_utils.lagrange_multiplier(self.lambdas)
-        hinge_loss = loss_utils.weighted_hinge_loss(labels.unsqueeze(-1), 
-            logits.unsqueeze(-1) - self.biases, positive_weights=1.0 + 
-            lambdas * (1.0 - self.precision_values), negative_weights=
-            lambdas * self.precision_values)
+        hinge_loss = loss_utils.weighted_hinge_loss(labels.unsqueeze(-1), logits.unsqueeze(-1) - self.biases, positive_weights=1.0 + lambdas * (1.0 - self.precision_values), negative_weights=lambdas * self.precision_values)
         class_priors = loss_utils.build_class_priors(labels, weights=weights)
-        lambda_term = class_priors.unsqueeze(-1) * (lambdas * (1.0 - self.
-            precision_values))
+        lambda_term = class_priors.unsqueeze(-1) * (lambdas * (1.0 - self.precision_values))
         per_anchor_loss = weights.unsqueeze(-1) * hinge_loss - lambda_term
         loss = per_anchor_loss.sum(2) * self.delta
         loss /= self.precision_range[1] - self.precision_range[0]
@@ -861,8 +835,7 @@ class AUCPRHingeLoss(nn.Module, Loss):
             weights: Tensor of shape broadcastable to labels
         """
         N, C = logits.size()
-        labels = FloatTensor(N, C).zero_().scatter(1, targets.unsqueeze(1).
-            data, 1)
+        labels = FloatTensor(N, C).zero_().scatter(1, targets.unsqueeze(1).data, 1)
         if weights is None:
             weights = FloatTensor(N).data.fill_(1.0)
         if weights.dim() == 1:
@@ -902,14 +875,12 @@ class CRF(nn.Module):
         num_tags: The number of tags
     """
 
-    def __init__(self, num_tags: int, ignore_index: int,
-        default_label_pad_index: int) ->None:
+    def __init__(self, num_tags: int, ignore_index: int, default_label_pad_index: int) ->None:
         if num_tags <= 0:
             raise ValueError(f'Invalid number of tags: {num_tags}')
         super().__init__()
         self.num_tags = num_tags
-        self.transitions = nn.Parameter(torch.Tensor(num_tags + 2, num_tags +
-            2))
+        self.transitions = nn.Parameter(torch.Tensor(num_tags + 2, num_tags + 2))
         self.start_tag = num_tags
         self.end_tag = num_tags + 1
         self.reset_parameters()
@@ -928,8 +899,7 @@ class CRF(nn.Module):
     def set_transitions(self, transitions: torch.Tensor=None):
         self.transitions.data = transitions
 
-    def forward(self, emissions: torch.Tensor, tags: torch.Tensor, reduce:
-        bool=True) ->torch.Tensor:
+    def forward(self, emissions: torch.Tensor, tags: torch.Tensor, reduce: bool=True) ->torch.Tensor:
         """
         Compute log-likelihood of input.
 
@@ -947,8 +917,7 @@ class CRF(nn.Module):
         return llh if not reduce else torch.mean(llh)
 
     @jit.export
-    def decode(self, emissions: torch.Tensor, seq_lens: torch.Tensor
-        ) ->torch.Tensor:
+    def decode(self, emissions: torch.Tensor, seq_lens: torch.Tensor) ->torch.Tensor:
         """
         Given a set of emission probabilities, return the predicted tags.
 
@@ -961,71 +930,53 @@ class CRF(nn.Module):
         result = self._viterbi_decode(emissions, mask)
         return result
 
-    def _compute_joint_llh(self, emissions: torch.Tensor, tags: torch.
-        Tensor, mask: torch.Tensor) ->torch.Tensor:
+    def _compute_joint_llh(self, emissions: torch.Tensor, tags: torch.Tensor, mask: torch.Tensor) ->torch.Tensor:
         seq_len = emissions.shape[1]
         llh = self.transitions[self.start_tag, tags[:, (0)]].unsqueeze(1)
-        llh += emissions[:, (0), :].gather(1, tags[:, (0)].view(-1, 1)) * mask[
-            :, (0)].unsqueeze(1)
+        llh += emissions[:, (0), :].gather(1, tags[:, (0)].view(-1, 1)) * mask[:, (0)].unsqueeze(1)
         for idx in range(1, seq_len):
-            old_state, new_state = tags[:, (idx - 1)].view(-1, 1), tags[:,
-                (idx)].view(-1, 1)
+            old_state, new_state = tags[:, (idx - 1)].view(-1, 1), tags[:, (idx)].view(-1, 1)
             emission_scores = emissions[:, (idx), :].gather(1, new_state)
             transition_scores = self.transitions[old_state, new_state]
-            llh += (emission_scores + transition_scores) * mask[:, (idx)
-                ].unsqueeze(1)
+            llh += (emission_scores + transition_scores) * mask[:, (idx)].unsqueeze(1)
         last_tag_indices = mask.sum(1, dtype=torch.long) - 1
         last_tags = tags.gather(1, last_tag_indices.view(-1, 1))
-        llh += self.transitions[last_tags.squeeze(1), self.end_tag].unsqueeze(1
-            )
+        llh += self.transitions[last_tags.squeeze(1), self.end_tag].unsqueeze(1)
         return llh.squeeze(1)
 
-    def _compute_log_partition_function(self, emissions: torch.Tensor, mask:
-        torch.Tensor) ->torch.Tensor:
+    def _compute_log_partition_function(self, emissions: torch.Tensor, mask: torch.Tensor) ->torch.Tensor:
         seq_len = emissions.shape[1]
         log_prob = emissions[:, (0)].clone()
-        log_prob += self.transitions[(self.start_tag), :self.start_tag
-            ].unsqueeze(0)
+        log_prob += self.transitions[(self.start_tag), :self.start_tag].unsqueeze(0)
         for idx in range(1, seq_len):
             broadcast_emissions = emissions[:, (idx)].unsqueeze(1)
-            broadcast_transitions = self.transitions[:self.start_tag, :self
-                .start_tag].unsqueeze(0)
+            broadcast_transitions = self.transitions[:self.start_tag, :self.start_tag].unsqueeze(0)
             broadcast_logprob = log_prob.unsqueeze(2)
-            score = (broadcast_logprob + broadcast_emissions +
-                broadcast_transitions)
+            score = broadcast_logprob + broadcast_emissions + broadcast_transitions
             score = torch.logsumexp(score, 1)
-            log_prob = score * mask[:, (idx)].unsqueeze(1) + log_prob.squeeze(1
-                ) * (1 - mask[:, (idx)].unsqueeze(1))
-        log_prob += self.transitions[:self.start_tag, (self.end_tag)
-            ].unsqueeze(0)
+            log_prob = score * mask[:, (idx)].unsqueeze(1) + log_prob.squeeze(1) * (1 - mask[:, (idx)].unsqueeze(1))
+        log_prob += self.transitions[:self.start_tag, (self.end_tag)].unsqueeze(0)
         return torch.logsumexp(log_prob.squeeze(1), 1)
 
-    def _viterbi_decode(self, emissions: torch.Tensor, mask: torch.Tensor
-        ) ->torch.Tensor:
+    def _viterbi_decode(self, emissions: torch.Tensor, mask: torch.Tensor) ->torch.Tensor:
         tensor_device = emissions.device
         seq_len = emissions.shape[1]
         mask = mask
         log_prob = emissions[:, (0)].clone()
-        log_prob += self.transitions[(self.start_tag), :self.start_tag
-            ].unsqueeze(0)
-        end_scores = log_prob + self.transitions[:self.start_tag, (self.
-            end_tag)].unsqueeze(0)
+        log_prob += self.transitions[(self.start_tag), :self.start_tag].unsqueeze(0)
+        end_scores = log_prob + self.transitions[:self.start_tag, (self.end_tag)].unsqueeze(0)
         best_scores_list: List[torch.Tensor] = []
         empty_data: List[int] = []
-        best_paths_list = [torch.tensor(empty_data, device=tensor_device).
-            long()]
+        best_paths_list = [torch.tensor(empty_data, device=tensor_device).long()]
         best_scores_list.append(end_scores.unsqueeze(1))
         for idx in range(1, seq_len):
             broadcast_emissions = emissions[:, (idx)].unsqueeze(1)
-            broadcast_transmissions = self.transitions[:self.start_tag, :
-                self.start_tag].unsqueeze(0)
+            broadcast_transmissions = self.transitions[:self.start_tag, :self.start_tag].unsqueeze(0)
             broadcast_log_prob = log_prob.unsqueeze(2)
-            score = (broadcast_emissions + broadcast_transmissions +
-                broadcast_log_prob)
+            score = broadcast_emissions + broadcast_transmissions + broadcast_log_prob
             max_scores, max_score_indices = torch.max(score, 1)
             best_paths_list.append(max_score_indices.unsqueeze(1))
-            end_scores = max_scores + self.transitions[:self.start_tag, (
-                self.end_tag)].unsqueeze(0)
+            end_scores = max_scores + self.transitions[:self.start_tag, (self.end_tag)].unsqueeze(0)
             best_scores_list.append(end_scores.unsqueeze(1))
             log_prob = max_scores
         best_scores = torch.cat(best_scores_list, 1).float()
@@ -1035,27 +986,19 @@ class CRF(nn.Module):
         if self.ignore_index == self.default_label_pad_index:
             padding_tensor = valid_index_tensor
         else:
-            padding_tensor = torch.tensor(self.ignore_index, device=
-                tensor_device).long()
+            padding_tensor = torch.tensor(self.ignore_index, device=tensor_device).long()
         labels = max_indices_from_scores[:, (seq_len - 1)]
-        labels = self._mask_tensor(labels, 1 - mask[:, (seq_len - 1)],
-            padding_tensor)
+        labels = self._mask_tensor(labels, 1 - mask[:, (seq_len - 1)], padding_tensor)
         all_labels = labels.unsqueeze(1).long()
         for idx in range(seq_len - 2, -1, -1):
             indices_for_lookup = all_labels[:, (-1)].clone()
-            indices_for_lookup = self._mask_tensor(indices_for_lookup, 
-                indices_for_lookup == self.ignore_index, valid_index_tensor)
-            indices_from_prev_pos = best_paths[:, (idx), :].gather(1,
-                indices_for_lookup.view(-1, 1).long()).squeeze(1)
-            indices_from_prev_pos = self._mask_tensor(indices_from_prev_pos,
-                1 - mask[:, (idx + 1)], padding_tensor)
+            indices_for_lookup = self._mask_tensor(indices_for_lookup, indices_for_lookup == self.ignore_index, valid_index_tensor)
+            indices_from_prev_pos = best_paths[:, (idx), :].gather(1, indices_for_lookup.view(-1, 1).long()).squeeze(1)
+            indices_from_prev_pos = self._mask_tensor(indices_from_prev_pos, 1 - mask[:, (idx + 1)], padding_tensor)
             indices_from_max_scores = max_indices_from_scores[:, (idx)]
-            indices_from_max_scores = self._mask_tensor(indices_from_max_scores
-                , mask[:, (idx + 1)], padding_tensor)
-            labels = torch.where(indices_from_max_scores == self.
-                ignore_index, indices_from_prev_pos, indices_from_max_scores)
-            labels = self._mask_tensor(labels, 1 - mask[:, (idx)],
-                padding_tensor)
+            indices_from_max_scores = self._mask_tensor(indices_from_max_scores, mask[:, (idx + 1)], padding_tensor)
+            labels = torch.where(indices_from_max_scores == self.ignore_index, indices_from_prev_pos, indices_from_max_scores)
+            labels = self._mask_tensor(labels, 1 - mask[:, (idx)], padding_tensor)
             all_labels = torch.cat((all_labels, labels.view(-1, 1).long()), 1)
         return torch.flip(all_labels, [1])
 
@@ -1066,10 +1009,8 @@ class CRF(nn.Module):
     def _make_mask_from_seq_lens(self, seq_lens):
         seq_lens = seq_lens.view(-1, 1)
         max_len = torch.max(seq_lens)
-        range_tensor = torch.arange(max_len, device=seq_lens.device).unsqueeze(
-            0)
-        range_tensor = range_tensor.expand(seq_lens.size(0), range_tensor.
-            size(1))
+        range_tensor = torch.arange(max_len, device=seq_lens.device).unsqueeze(0)
+        range_tensor = range_tensor.expand(seq_lens.size(0), range_tensor.size(1))
         mask = (range_tensor < seq_lens).float()
         return mask
 
@@ -1077,8 +1018,7 @@ class CRF(nn.Module):
         masked_tensor = torch.where(mask_condition, mask_value, score_tensor)
         return masked_tensor
 
-    def export_to_caffe2(self, workspace, init_net, predict_net,
-        logits_output_name):
+    def export_to_caffe2(self, workspace, init_net, predict_net, logits_output_name):
         """
         Exports the crf layer to caffe2 by manually adding the necessary operators
         to the init_net and predict net.
@@ -1094,11 +1034,9 @@ class CRF(nn.Module):
             string: The updated predictions blob name
         """
         crf_transitions = init_net.AddExternalInput(init_net.NextName())
-        workspace.FeedBlob(str(crf_transitions), self.get_transitions().numpy()
-            )
+        workspace.FeedBlob(str(crf_transitions), self.get_transitions().numpy())
         logits_squeezed = predict_net.Squeeze(logits_output_name, dims=[0])
-        new_logits = apply_crf(init_net, predict_net, crf_transitions,
-            logits_squeezed, self.num_tags)
+        new_logits = apply_crf(init_net, predict_net, crf_transitions, logits_squeezed, self.num_tags)
         new_logits = predict_net.ExpandDims(new_logits, dims=[0])
         predict_net.Copy(new_logits, logits_output_name)
         return logits_output_name
@@ -1179,8 +1117,7 @@ class Highway(nn.Module):
     def __init__(self, input_dim: int, num_layers: int=1):
         super().__init__()
         self.input_dim = input_dim
-        self.layers = nn.ModuleList([nn.Linear(input_dim, input_dim * 2) for
-            _ in range(num_layers)])
+        self.layers = nn.ModuleList([nn.Linear(input_dim, input_dim * 2) for _ in range(num_layers)])
         self.activation = nn.ReLU()
         self.reset_parameters()
 
@@ -1257,8 +1194,7 @@ class EmbeddingList(EmbeddingBase, ModuleList):
             int depending on concat setting
     """
 
-    def __init__(self, embeddings: Iterable[EmbeddingBase], concat: bool
-        ) ->None:
+    def __init__(self, embeddings: Iterable[EmbeddingBase], concat: bool) ->None:
         EmbeddingBase.__init__(self, 0)
         embeddings = list(filter(None, embeddings))
         self.num_emb_modules = sum(emb.num_emb_modules for emb in embeddings)
@@ -1294,9 +1230,7 @@ class EmbeddingList(EmbeddingBase, ModuleList):
 
         """
         if self.num_emb_modules != len(emb_input):
-            raise Exception(
-                f'expecting {self.num_emb_modules} embeddings, ' +
-                f'but got {len(emb_input)} input')
+            raise Exception(f'expecting {self.num_emb_modules} embeddings, ' + f'but got {len(emb_input)} input')
         tensors = []
         for emb, start in zip(self, self.input_start_indices):
             end = start + emb.num_emb_modules
@@ -1440,8 +1374,7 @@ class Tensorizer(Component):
     def stringify(self, token_indices):
         res = ''
         if hasattr(self, 'vocab'):
-            res = ' '.join([self.vocab._vocab[index] for index in
-                token_indices])
+            res = ' '.join([self.vocab._vocab[index] for index in token_indices])
             if hasattr(self, 'tokenizer'):
                 if hasattr(self.tokenizer, 'decode'):
                     res = self.tokenizer.decode(res)
@@ -1453,8 +1386,7 @@ class Tensorizer(Component):
 
 def _assert_tensorizer_type(t):
     if t is not type(None) and not issubclass(t, Tensorizer.Config):
-        raise TypeError(
-            f'ModelInput configuration should only include tensorizers: {t}')
+        raise TypeError(f'ModelInput configuration should only include tensorizers: {t}')
 
 
 class ModelInputMeta(ConfigBaseMeta):
@@ -1527,28 +1459,23 @@ class ClassificationScores(jit.ScriptModule):
             example_scores = example_scores.squeeze(dim=0)
             example_response = jit.annotate(Dict[str, float], {})
             for i in range(len(self.classes)):
-                example_response[self.classes[i]] = float(example_scores[i]
-                    .item())
+                example_response[self.classes[i]] = float(example_scores[i].item())
             results.append(example_response)
         return results
 
 
 class IntentSlotScores(nn.Module):
 
-    def __init__(self, doc_scores: jit.ScriptModule, word_scores: jit.
-        ScriptModule):
+    def __init__(self, doc_scores: jit.ScriptModule, word_scores: jit.ScriptModule):
         super().__init__()
         self.doc_scores = doc_scores
         self.word_scores = word_scores
         log_class_usage(__class__)
 
-    def forward(self, logits: Tuple[torch.Tensor, torch.Tensor], context:
-        Dict[str, torch.Tensor]) ->Tuple[List[Dict[str, float]], List[List[
-        Dict[str, float]]]]:
+    def forward(self, logits: Tuple[torch.Tensor, torch.Tensor], context: Dict[str, torch.Tensor]) ->Tuple[List[Dict[str, float]], List[List[Dict[str, float]]]]:
         d_logits, w_logits = logits
         if 'token_indices' in context:
-            w_logits = torch.gather(w_logits, 1, context['token_indices'].
-                unsqueeze(2).expand(-1, -1, w_logits.size(-1)))
+            w_logits = torch.gather(w_logits, 1, context['token_indices'].unsqueeze(2).expand(-1, -1, w_logits.size(-1)))
         d_results = self.doc_scores(d_logits)
         w_results = self.word_scores(w_logits, context)
         return d_results, w_results
@@ -1561,8 +1488,7 @@ class MultiLabelClassificationScores(nn.Module):
         self.scores = nn.ModuleList(scores)
         log_class_usage(__class__)
 
-    def forward(self, logits: List[torch.Tensor]) ->List[List[Dict[str, float]]
-        ]:
+    def forward(self, logits: List[torch.Tensor]) ->List[List[Dict[str, float]]]:
         results: List[List[Dict[str, float]]] = []
         for idx, sc in enumerate(self.scores):
             logit = logits[idx]
@@ -1572,8 +1498,7 @@ class MultiLabelClassificationScores(nn.Module):
 
 
 @jit.script
-def _get_prediction_from_scores(scores: torch.Tensor, classes: List[str]
-    ) ->List[List[Dict[str, float]]]:
+def _get_prediction_from_scores(scores: torch.Tensor, classes: List[str]) ->List[List[Dict[str, float]]]:
     """
     Given scores for a batch, get the prediction for each word in the form of a
     List[List[Dict[str, float]]] for callers of the torchscript model to consume.
@@ -1621,8 +1546,7 @@ class WordTaggingScores(nn.Module):
         self.classes = classes
         log_class_usage(__class__)
 
-    def forward(self, logits: torch.Tensor, context: Optional[Dict[str,
-        torch.Tensor]]=None) ->List[List[Dict[str, float]]]:
+    def forward(self, logits: torch.Tensor, context: Optional[Dict[str, torch.Tensor]]=None) ->List[List[Dict[str, float]]]:
         scores: torch.Tensor = F.log_softmax(logits, 2)
         return _get_prediction_from_scores(scores, self.classes)
 
@@ -1695,8 +1619,7 @@ class SequenceAlignedAttention(Module):
         attn_scores = p_transform.bmm(q_transform.transpose(2, 1))
         q_mask = q_mask.unsqueeze(1).expand(attn_scores.size())
         attn_scores.data.masked_fill_(q_mask.data, -float('inf'))
-        attn_scores_flattened = F.softmax(attn_scores.view(-1, q.size(1)),
-            dim=-1)
+        attn_scores_flattened = F.softmax(attn_scores.view(-1, q.size(1)), dim=-1)
         return attn_scores_flattened.view(-1, p.size(1), q.size(1))
 
 
@@ -1723,8 +1646,7 @@ class MultiplicativeAttention(Module):
         self.linear = nn.Linear(p_hidden_dim, q_hidden_dim)
         log_class_usage(__class__)
 
-    def forward(self, p_seq: torch.Tensor, q: torch.Tensor, p_mask: torch.
-        Tensor):
+    def forward(self, p_seq: torch.Tensor, q: torch.Tensor, p_mask: torch.Tensor):
         """
         Input:
             p_seq: batch_size * p_seq_len * p_hidden_dim
@@ -1759,8 +1681,7 @@ class AugmentedLSTMCell(nn.Module):
             computes a linear function over the states.
     """
 
-    def __init__(self, embed_dim: int, lstm_dim: int, use_highway: bool,
-        use_bias: bool=True):
+    def __init__(self, embed_dim: int, lstm_dim: int, use_highway: bool, use_bias: bool=True):
         super().__init__()
         self.embed_dim = embed_dim
         self.lstm_dim = lstm_dim
@@ -1769,15 +1690,11 @@ class AugmentedLSTMCell(nn.Module):
         if use_highway:
             self._highway_inp_proj_start = 5 * self.lstm_dim
             self._highway_inp_proj_end = 6 * self.lstm_dim
-            self.input_linearity = nn.Linear(self.embed_dim, self.
-                _highway_inp_proj_end, bias=self.use_bias)
-            self.state_linearity = nn.Linear(self.lstm_dim, self.
-                _highway_inp_proj_start, bias=True)
+            self.input_linearity = nn.Linear(self.embed_dim, self._highway_inp_proj_end, bias=self.use_bias)
+            self.state_linearity = nn.Linear(self.lstm_dim, self._highway_inp_proj_start, bias=True)
         else:
-            self.input_linearity = nn.Linear(self.embed_dim, 4 * self.
-                lstm_dim, bias=self.use_bias)
-            self.state_linearity = nn.Linear(self.lstm_dim, 4 * self.
-                lstm_dim, bias=True)
+            self.input_linearity = nn.Linear(self.embed_dim, 4 * self.lstm_dim, bias=self.use_bias)
+            self.state_linearity = nn.Linear(self.lstm_dim, 4 * self.lstm_dim, bias=True)
         self.reset_parameters()
         log_class_usage(__class__)
 
@@ -1786,9 +1703,7 @@ class AugmentedLSTMCell(nn.Module):
         for weight in self.parameters():
             nn.init.uniform_(weight, -stdv, stdv)
 
-    def forward(self, x: torch.Tensor, states=Tuple[torch.Tensor, torch.
-        Tensor], variational_dropout_mask: Optional[torch.Tensor]=None
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, states=Tuple[torch.Tensor, torch.Tensor], variational_dropout_mask: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
         """
         Warning: DO NOT USE THIS LAYER DIRECTLY, INSTEAD USE the AugmentedLSTM class
 
@@ -1808,18 +1723,15 @@ class AugmentedLSTMCell(nn.Module):
         hidden_state, memory_state = states
         projected_input = self.input_linearity(x)
         projected_state = self.state_linearity(hidden_state)
-        (input_gate) = (forget_gate) = (memory_init) = (output_gate) = (
-            highway_gate) = None
+        input_gate = forget_gate = memory_init = output_gate = highway_gate = None
         if self.use_highway:
             fused_op = projected_input[:, :5 * self.lstm_dim] + projected_state
             fused_chunked = torch.chunk(fused_op, 5, 1)
-            (input_gate, forget_gate, memory_init, output_gate, highway_gate
-                ) = fused_chunked
+            input_gate, forget_gate, memory_init, output_gate, highway_gate = fused_chunked
             highway_gate = torch.sigmoid(highway_gate)
         else:
             fused_op = projected_input + projected_state
-            input_gate, forget_gate, memory_init, output_gate = torch.chunk(
-                fused_op, 4, 1)
+            input_gate, forget_gate, memory_init, output_gate = torch.chunk(fused_op, 4, 1)
         input_gate = torch.sigmoid(input_gate)
         forget_gate = torch.sigmoid(forget_gate)
         memory_init = torch.tanh(memory_init)
@@ -1827,10 +1739,8 @@ class AugmentedLSTMCell(nn.Module):
         memory = input_gate * memory_init + forget_gate * memory_state
         timestep_output: torch.Tensor = output_gate * torch.tanh(memory)
         if self.use_highway:
-            highway_input_projection = projected_input[:, self.
-                _highway_inp_proj_start:self._highway_inp_proj_end]
-            timestep_output = highway_gate * timestep_output + (1 -
-                highway_gate) * highway_input_projection
+            highway_input_projection = projected_input[:, self._highway_inp_proj_start:self._highway_inp_proj_end]
+            timestep_output = highway_gate * timestep_output + (1 - highway_gate) * highway_input_projection
         if variational_dropout_mask is not None and self.training:
             timestep_output = timestep_output * variational_dropout_mask
         return timestep_output, memory
@@ -1860,29 +1770,22 @@ class AugmentedLSTMUnidirectional(nn.Module):
         cell (AugmentedLSTMCell): AugmentedLSTMCell that is applied at every timestep.
     """
 
-    def __init__(self, embed_dim: int, lstm_dim: int, go_forward: bool=True,
-        recurrent_dropout_probability: float=0.0, use_highway: bool=True,
-        use_input_projection_bias: bool=True):
+    def __init__(self, embed_dim: int, lstm_dim: int, go_forward: bool=True, recurrent_dropout_probability: float=0.0, use_highway: bool=True, use_input_projection_bias: bool=True):
         super().__init__()
         self.embed_dim = embed_dim
         self.lstm_dim = lstm_dim
         self.go_forward = go_forward
         self.use_highway = use_highway
         self.recurrent_dropout_probability = recurrent_dropout_probability
-        self.cell = AugmentedLSTMCell(self.embed_dim, self.lstm_dim, self.
-            use_highway, use_input_projection_bias)
+        self.cell = AugmentedLSTMCell(self.embed_dim, self.lstm_dim, self.use_highway, use_input_projection_bias)
         log_class_usage(__class__)
 
-    def get_dropout_mask(self, dropout_probability: float,
-        tensor_for_masking: torch.Tensor) ->torch.Tensor:
-        binary_mask = torch.rand(tensor_for_masking.size()
-            ) > dropout_probability
+    def get_dropout_mask(self, dropout_probability: float, tensor_for_masking: torch.Tensor) ->torch.Tensor:
+        binary_mask = torch.rand(tensor_for_masking.size()) > dropout_probability
         dropout_mask = binary_mask.float().div(1.0 - dropout_probability)
         return dropout_mask
 
-    def forward(self, inputs: PackedSequence, states: Optional[Tuple[torch.
-        Tensor, torch.Tensor]]=None) ->Tuple[PackedSequence, Tuple[torch.
-        Tensor, torch.Tensor]]:
+    def forward(self, inputs: PackedSequence, states: Optional[Tuple[torch.Tensor, torch.Tensor]]=None) ->Tuple[PackedSequence, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Warning: DO NOT USE THIS LAYER DIRECTLY, INSTEAD USE the AugmentedLSTM class
 
@@ -1906,69 +1809,49 @@ class AugmentedLSTMUnidirectional(nn.Module):
                 Shape of each state is (1 x bsize x nhid).
 
         """
-        sequence_tensor, batch_lengths = pad_packed_sequence(inputs,
-            batch_first=True)
+        sequence_tensor, batch_lengths = pad_packed_sequence(inputs, batch_first=True)
         batch_size = sequence_tensor.size()[0]
         total_timesteps = sequence_tensor.size()[1]
-        output_accumulator = sequence_tensor.new_zeros(batch_size,
-            total_timesteps, self.lstm_dim)
+        output_accumulator = sequence_tensor.new_zeros(batch_size, total_timesteps, self.lstm_dim)
         if states is None:
-            full_batch_previous_memory = sequence_tensor.new_zeros(batch_size,
-                self.lstm_dim)
-            full_batch_previous_state = sequence_tensor.data.new_zeros(
-                batch_size, self.lstm_dim)
+            full_batch_previous_memory = sequence_tensor.new_zeros(batch_size, self.lstm_dim)
+            full_batch_previous_state = sequence_tensor.data.new_zeros(batch_size, self.lstm_dim)
         else:
             full_batch_previous_state = states[0].squeeze(0)
             full_batch_previous_memory = states[1].squeeze(0)
         current_length_index = batch_size - 1 if self.go_forward else 0
         if self.recurrent_dropout_probability > 0.0:
-            dropout_mask = self.get_dropout_mask(self.
-                recurrent_dropout_probability, full_batch_previous_memory)
+            dropout_mask = self.get_dropout_mask(self.recurrent_dropout_probability, full_batch_previous_memory)
         else:
             dropout_mask = None
         for timestep in range(total_timesteps):
-            index = (timestep if self.go_forward else total_timesteps -
-                timestep - 1)
+            index = timestep if self.go_forward else total_timesteps - timestep - 1
             if self.go_forward:
                 while batch_lengths[current_length_index] <= index:
                     current_length_index -= 1
             else:
-                while current_length_index < len(batch_lengths
-                    ) - 1 and batch_lengths[current_length_index + 1] > index:
+                while current_length_index < len(batch_lengths) - 1 and batch_lengths[current_length_index + 1] > index:
                     current_length_index += 1
-            previous_memory = full_batch_previous_memory[0:
-                current_length_index + 1].clone()
-            previous_state = full_batch_previous_state[0:
-                current_length_index + 1].clone()
-            timestep_input = sequence_tensor[0:current_length_index + 1, (
-                index)]
-            timestep_output, memory = self.cell(timestep_input, (
-                previous_state, previous_memory), dropout_mask[0:
-                current_length_index + 1] if dropout_mask is not None else None
-                )
-            full_batch_previous_memory = full_batch_previous_memory.data.clone(
-                )
+            previous_memory = full_batch_previous_memory[0:current_length_index + 1].clone()
+            previous_state = full_batch_previous_state[0:current_length_index + 1].clone()
+            timestep_input = sequence_tensor[0:current_length_index + 1, (index)]
+            timestep_output, memory = self.cell(timestep_input, (previous_state, previous_memory), dropout_mask[0:current_length_index + 1] if dropout_mask is not None else None)
+            full_batch_previous_memory = full_batch_previous_memory.data.clone()
             full_batch_previous_state = full_batch_previous_state.data.clone()
             full_batch_previous_memory[0:current_length_index + 1] = memory
-            full_batch_previous_state[0:current_length_index + 1
-                ] = timestep_output
-            output_accumulator[0:current_length_index + 1, (index), :
-                ] = timestep_output
-        output_accumulator = pack_padded_sequence(output_accumulator,
-            batch_lengths, batch_first=True)
-        final_state = full_batch_previous_state.unsqueeze(0
-            ), full_batch_previous_memory.unsqueeze(0)
+            full_batch_previous_state[0:current_length_index + 1] = timestep_output
+            output_accumulator[0:current_length_index + 1, (index), :] = timestep_output
+        output_accumulator = pack_padded_sequence(output_accumulator, batch_lengths, batch_first=True)
+        final_state = full_batch_previous_state.unsqueeze(0), full_batch_previous_memory.unsqueeze(0)
         return output_accumulator, final_state
 
 
 class ContextualWordConvolution(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_sizes:
-        List[int]):
+    def __init__(self, in_channels: int, out_channels: int, kernel_sizes: List[int]):
         super().__init__()
         self.max_pool = nn.AdaptiveMaxPool1d(1)
-        self.convs = nn.ModuleList([nn.Conv1d(in_channels, out_channels, k,
-            padding=k - 1) for k in kernel_sizes])
+        self.convs = nn.ModuleList([nn.Conv1d(in_channels, out_channels, k, padding=k - 1) for k in kernel_sizes])
         token_rep_size = len(kernel_sizes) * out_channels
         self.fc = nn.Linear(token_rep_size, token_rep_size)
         log_class_usage
@@ -2017,15 +1900,11 @@ class SeparableConv1d(nn.Module):
 
     """
 
-    def __init__(self, input_channels: int, output_channels: int,
-        kernel_size: int, padding: int, dilation: int, bottleneck: int):
+    def __init__(self, input_channels: int, output_channels: int, kernel_size: int, padding: int, dilation: int, bottleneck: int):
         super(SeparableConv1d, self).__init__()
-        conv_layers = [nn.Conv1d(input_channels, input_channels,
-            kernel_size, padding=padding, dilation=dilation, groups=
-            input_channels)]
+        conv_layers = [nn.Conv1d(input_channels, input_channels, kernel_size, padding=padding, dilation=dilation, groups=input_channels)]
         if bottleneck > 0:
-            conv_layers.extend([nn.Conv1d(input_channels, bottleneck, 1),
-                nn.Conv1d(bottleneck, output_channels, 1)])
+            conv_layers.extend([nn.Conv1d(input_channels, bottleneck, 1), nn.Conv1d(bottleneck, output_channels, 1)])
         else:
             conv_layers.append(nn.Conv1d(input_channels, output_channels, 1))
         self.conv = nn.Sequential(*conv_layers)
@@ -2036,8 +1915,7 @@ class SeparableConv1d(nn.Module):
 
 class OrderedNeuronLSTMLayer(Module):
 
-    def __init__(self, embed_dim: int, lstm_dim: int, padding_value: float,
-        dropout: float) ->None:
+    def __init__(self, embed_dim: int, lstm_dim: int, padding_value: float, dropout: float) ->None:
         super().__init__()
         self.lstm_dim = lstm_dim
         self.padding_value = padding_value
@@ -2051,9 +1929,7 @@ class OrderedNeuronLSTMLayer(Module):
         self.master_input_no_cumax_gate = nn.Linear(total_size, lstm_dim)
         log_class_usage(__class__)
 
-    def forward(self, embedded_tokens: torch.Tensor, states: Tuple[torch.
-        Tensor, torch.Tensor], seq_lengths: List[int]) ->Tuple[torch.Tensor,
-        Tuple[torch.Tensor, torch.Tensor]]:
+    def forward(self, embedded_tokens: torch.Tensor, states: Tuple[torch.Tensor, torch.Tensor], seq_lengths: List[int]) ->Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         hidden, context = states
         batch_size = hidden.size(0)
         all_context = []
@@ -2067,11 +1943,9 @@ class OrderedNeuronLSTMLayer(Module):
             ot = self.o_gate(combined).sigmoid()
             c_hat = self.c_hat_gate(combined).tanh()
             master_forget_no_cumax = self.master_forget_no_cumax_gate(combined)
-            master_forget = torch.cumsum(F.softmax(master_forget_no_cumax,
-                dim=1), dim=1)
+            master_forget = torch.cumsum(F.softmax(master_forget_no_cumax, dim=1), dim=1)
             master_input_no_cumax = self.master_input_no_cumax_gate(combined)
-            master_input = torch.cumsum(F.softmax(master_input_no_cumax,
-                dim=1), dim=1)
+            master_input = torch.cumsum(F.softmax(master_input_no_cumax, dim=1), dim=1)
             wt = master_forget * master_input
             f_hat_t = ft * wt + (master_forget - wt)
             i_hat_t = it * wt + (master_input - wt)
@@ -2085,8 +1959,7 @@ class OrderedNeuronLSTMLayer(Module):
             seq_length = seq_lengths[i]
             state_hidden.append(all_hidden[seq_length - 1][i])
             state_context.append(all_context[seq_length - 1][i])
-        return torch.stack(all_hidden), (torch.stack(state_hidden), torch.
-            stack(state_context))
+        return torch.stack(all_hidden), (torch.stack(state_hidden), torch.stack(state_context))
 
 
 class SelfAttention(Module):
@@ -2112,16 +1985,13 @@ class SelfAttention(Module):
         self.ws1.weight.data.uniform_(-init_range, init_range)
         self.ws2.weight.data.uniform_(-init_range, init_range)
 
-    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None) ->torch.Tensor:
         size = torch.onnx.operators.shape_as_tensor(inputs)
         flat_2d_shape = torch.cat((torch.LongTensor([-1]), size[2].view(1)))
-        compressed_emb = torch.onnx.operators.reshape_from_tensor_shape(inputs,
-            flat_2d_shape)
+        compressed_emb = torch.onnx.operators.reshape_from_tensor_shape(inputs, flat_2d_shape)
         hbar = self.tanh(self.ws1(self.dropout(compressed_emb)))
         alphas = self.ws2(hbar)
-        alphas = torch.onnx.operators.reshape_from_tensor_shape(alphas,
-            size[:2])
+        alphas = torch.onnx.operators.reshape_from_tensor_shape(alphas, size[:2])
         alphas = self.softmax(alphas)
         return torch.bmm(alphas.unsqueeze(1), inputs).squeeze(1)
 
@@ -2132,8 +2002,7 @@ class MaxPool(Module):
         super().__init__(config)
         log_class_usage(__class__)
 
-    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None) ->torch.Tensor:
         return torch.max(inputs, 1)[0]
 
 
@@ -2143,8 +2012,7 @@ class MeanPool(Module):
         super().__init__(config)
         log_class_usage(__class__)
 
-    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor) ->torch.Tensor:
         return torch.sum(inputs, 1) / seq_lengths.unsqueeze(1).float()
 
 
@@ -2154,8 +2022,7 @@ class NoPool(Module):
         super().__init__(config)
         log_class_usage(__class__)
 
-    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None) ->torch.Tensor:
         return inputs
 
 
@@ -2170,8 +2037,7 @@ class BoundaryPool(Module):
         self.boundary_type = config.boundary_type
         log_class_usage(__class__)
 
-    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor=None) ->torch.Tensor:
         max_len = inputs.size()[1]
         if self.boundary_type == 'first':
             return inputs[:, (0), :]
@@ -2180,11 +2046,9 @@ class BoundaryPool(Module):
             return inputs[:, (max_len - 1), :]
         elif self.boundary_type == 'firstlast':
             assert max_len > 1
-            return torch.cat((inputs[:, (0), :], inputs[:, (max_len - 1), :
-                ]), dim=1)
+            return torch.cat((inputs[:, (0), :], inputs[:, (max_len - 1), :]), dim=1)
         else:
-            raise Exception('Unknown configuration type {}'.format(self.
-                boundary_type))
+            raise Exception('Unknown configuration type {}'.format(self.boundary_type))
 
 
 class LastTimestepPool(Module):
@@ -2193,8 +2057,7 @@ class LastTimestepPool(Module):
         super().__init__(config)
         log_class_usage(__class__)
 
-    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, seq_lengths: torch.Tensor) ->torch.Tensor:
         if torch._C._get_tracing_state():
             assert inputs.shape[0] == 1
             return inputs[:, (-1), :]
@@ -2217,42 +2080,31 @@ class SlotAttention(Module):
         attn_dimension: int = 64
         attention_type: SlotAttentionType = SlotAttentionType.NO_ATTENTION
 
-    def __init__(self, config: Config, n_input: int, batch_first: bool=True
-        ) ->None:
+    def __init__(self, config: Config, n_input: int, batch_first: bool=True) ->None:
         super().__init__()
         self.batch_first = batch_first
         self.attention_type = config.attention_type
         if self.attention_type == SlotAttentionType.CONCAT:
-            self.attention_add = nn.Sequential(nn.Linear(2 * n_input,
-                config.attn_dimension, bias=False), nn.Tanh(), nn.Linear(
-                config.attn_dimension, 1, bias=False))
+            self.attention_add = nn.Sequential(nn.Linear(2 * n_input, config.attn_dimension, bias=False), nn.Tanh(), nn.Linear(config.attn_dimension, 1, bias=False))
         elif self.attention_type == SlotAttentionType.MULTIPLY:
             self.attention_mult = nn.Linear(n_input, n_input, bias=False)
         log_class_usage(__class__)
 
     def forward(self, inputs: torch.Tensor) ->torch.Tensor:
         if isinstance(inputs, PackedSequence):
-            inputs, lengths = pad_packed_sequence(inputs, batch_first=self.
-                batch_first)
+            inputs, lengths = pad_packed_sequence(inputs, batch_first=self.batch_first)
         size = inputs.size()
-        exp_inputs_2 = inputs.unsqueeze(1).expand(size[0], size[1], size[1],
-            size[2])
+        exp_inputs_2 = inputs.unsqueeze(1).expand(size[0], size[1], size[1], size[2])
         if self.attention_type == SlotAttentionType.CONCAT:
-            exp_inputs_1 = inputs.unsqueeze(2).expand(size[0], size[1],
-                size[1], size[2])
+            exp_inputs_1 = inputs.unsqueeze(2).expand(size[0], size[1], size[1], size[2])
             catted = torch.cat((exp_inputs_1, exp_inputs_2), 3)
-            attn_weights_add = F.softmax(self.attention_add(catted).squeeze
-                (3), dim=2).unsqueeze(2)
-            context_add = torch.matmul(attn_weights_add, exp_inputs_2).squeeze(
-                2)
+            attn_weights_add = F.softmax(self.attention_add(catted).squeeze(3), dim=2).unsqueeze(2)
+            context_add = torch.matmul(attn_weights_add, exp_inputs_2).squeeze(2)
             output = torch.cat((inputs, context_add), 2)
         elif self.attention_type == SlotAttentionType.MULTIPLY or self.attention_type == SlotAttentionType.DOT:
-            attended = (inputs if self.attention_type == SlotAttentionType.
-                DOT else self.attention_mult(inputs))
-            attn_weights_mult = F.softmax(torch.matmul(inputs, torch.
-                transpose(attended, 1, 2)), dim=2).unsqueeze(2)
-            context_mult = torch.matmul(attn_weights_mult, exp_inputs_2
-                ).squeeze(2)
+            attended = inputs if self.attention_type == SlotAttentionType.DOT else self.attention_mult(inputs)
+            attn_weights_mult = F.softmax(torch.matmul(inputs, torch.transpose(attended, 1, 2)), dim=2).unsqueeze(2)
+            context_mult = torch.matmul(attn_weights_mult, exp_inputs_2).squeeze(2)
             output = torch.cat((inputs, context_mult), 2)
         else:
             output = inputs
@@ -2265,8 +2117,7 @@ class RnnType(Enum):
     GRU = 'gru'
 
 
-RNN_TYPE_DICT = {RnnType.RNN: nn.RNN, RnnType.LSTM: nn.LSTM, RnnType.GRU:
-    nn.GRU}
+RNN_TYPE_DICT = {RnnType.RNN: nn.RNN, RnnType.LSTM: nn.LSTM, RnnType.GRU: nn.GRU}
 
 
 class StackedBidirectionalRNN(Module):
@@ -2313,8 +2164,7 @@ class StackedBidirectionalRNN(Module):
         rnn_type: RnnType = RnnType.LSTM
         concat_layers: bool = True
 
-    def __init__(self, config: Config, input_size: int, padding_value:
-        float=0.0):
+    def __init__(self, config: Config, input_size: int, padding_value: float=0.0):
         super().__init__()
         self.num_layers = config.num_layers
         self.dropout = nn.Dropout(config.dropout)
@@ -2325,11 +2175,8 @@ class StackedBidirectionalRNN(Module):
         assert rnn_module is not None, 'rnn_cell cannot be None'
         for i in range(config.num_layers):
             input_size = input_size if i == 0 else 2 * config.hidden_size
-            self.rnns.append(rnn_module(input_size, config.hidden_size,
-                num_layers=1, bidirectional=config.bidirectional))
-        self.representation_dim = (config.num_layers if config.
-            concat_layers else 1) * config.hidden_size * (2 if config.
-            bidirectional else 1)
+            self.rnns.append(rnn_module(input_size, config.hidden_size, num_layers=1, bidirectional=config.bidirectional))
+        self.representation_dim = (config.num_layers if config.concat_layers else 1) * config.hidden_size * (2 if config.bidirectional else 1)
         log_class_usage(__class__)
 
     def forward(self, tokens, tokens_mask):
@@ -2342,29 +2189,24 @@ class StackedBidirectionalRNN(Module):
                 concat_layers = True else batch, max_seq_len, hidden_size
         """
         seq_lengths = tokens_mask.eq(0).long().sum(1)
-        seq_lengths_sorted, idx_of_sorted = torch.sort(seq_lengths, dim=0,
-            descending=True)
+        seq_lengths_sorted, idx_of_sorted = torch.sort(seq_lengths, dim=0, descending=True)
         tokens_sorted = tokens.index_select(0, idx_of_sorted)
-        packed_tokens = nn.utils.rnn.pack_padded_sequence(tokens_sorted,
-            seq_lengths_sorted, batch_first=True)
+        packed_tokens = nn.utils.rnn.pack_padded_sequence(tokens_sorted, seq_lengths_sorted, batch_first=True)
         outputs = [packed_tokens]
         for i in range(self.num_layers):
             rnn_input = outputs[-1]
-            rnn_input = nn.utils.rnn.PackedSequence(self.dropout(rnn_input.
-                data), rnn_input.batch_sizes)
+            rnn_input = nn.utils.rnn.PackedSequence(self.dropout(rnn_input.data), rnn_input.batch_sizes)
             outputs.append(self.rnns[i](rnn_input)[0])
         outputs = outputs[1:]
         for i in range(len(outputs)):
-            outputs[i] = nn.utils.rnn.pad_packed_sequence(outputs[i],
-                padding_value=self.padding_value, batch_first=True)[0]
+            outputs[i] = nn.utils.rnn.pad_packed_sequence(outputs[i], padding_value=self.padding_value, batch_first=True)[0]
         output = torch.cat(outputs, 2) if self.concat_layers else outputs[-1]
         _, idx_of_original = torch.sort(idx_of_sorted, dim=0)
         output = output.index_select(0, idx_of_original)
         max_seq_len = tokens_mask.size(1)
         batch_size, output_seq_len, output_dim = output.size()
         if output_seq_len != max_seq_len:
-            padding = torch.zeros(batch_size, max_seq_len - output_seq_len,
-                output_dim).type(output.data.type())
+            padding = torch.zeros(batch_size, max_seq_len - output_seq_len, output_dim).type(output.data.type())
             output = torch.cat([output, padding], 1)
         return output
 
@@ -2382,8 +2224,7 @@ class MultiheadSelfAttention(nn.Module):
     change them.
     """
 
-    def __init__(self, embed_dim: int, num_heads: int, scaling: float=0.125,
-        dropout: float=0.1):
+    def __init__(self, embed_dim: int, num_heads: int, scaling: float=0.125, dropout: float=0.1):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -2414,21 +2255,15 @@ class MultiheadSelfAttention(nn.Module):
         v = v.contiguous().view(-1, batch_heads, self.head_dim).transpose(0, 1)
         assert k.size(1) == source_length
         attn_weights = torch.bmm(q, k.transpose(1, 2))
-        assert list(attn_weights.shape) == [batch_heads, target_length,
-            source_length]
-        attn_weights = attn_weights.view(batch_size, self.num_heads,
-            target_length, source_length)
-        attn_weights = attn_weights.masked_fill(key_padding_mask.unsqueeze(
-            1).unsqueeze(2), float('-inf'))
-        attn_weights = attn_weights.view(batch_heads, target_length,
-            source_length)
-        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32
-            ).type_as(attn_weights)
+        assert list(attn_weights.shape) == [batch_heads, target_length, source_length]
+        attn_weights = attn_weights.view(batch_size, self.num_heads, target_length, source_length)
+        attn_weights = attn_weights.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float('-inf'))
+        attn_weights = attn_weights.view(batch_heads, target_length, source_length)
+        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).type_as(attn_weights)
         attn_weights = self.dropout(attn_weights)
         attn = torch.bmm(attn_weights, v)
         assert list(attn.shape) == [batch_heads, target_length, self.head_dim]
-        attn = attn.transpose(0, 1).contiguous().view(target_length,
-            batch_size, embed_dim)
+        attn = attn.transpose(0, 1).contiguous().view(target_length, batch_size, embed_dim)
         attn = self.output_projection(attn)
         return attn
 
@@ -2455,8 +2290,7 @@ class PositionalEmbedding(nn.Module):
     to be compiled by TorchScript for production use cases.
     """
 
-    def __init__(self, num_embeddings: int, embedding_dim: int, pad_index:
-        Optional[int]=None):
+    def __init__(self, num_embeddings: int, embedding_dim: int, pad_index: Optional[int]=None):
         super().__init__()
         self.embedding = nn.Embedding(num_embeddings, embedding_dim, pad_index)
         self.pad_index = pad_index
@@ -2493,13 +2327,11 @@ class ResidualMLP(nn.Module):
     in between hidden layers.
     """
 
-    def __init__(self, input_dim: int, hidden_dims: List[int], dropout:
-        float=0.1, activation=GeLU):
+    def __init__(self, input_dim: int, hidden_dims: List[int], dropout: float=0.1, activation=GeLU):
         super().__init__()
         modules = []
         for last_dim, dim in zip([input_dim] + hidden_dims, hidden_dims):
-            modules.extend([nn.Linear(last_dim, dim), activation(), nn.
-                Dropout(dropout)])
+            modules.extend([nn.Linear(last_dim, dim), activation(), nn.Dropout(dropout)])
         last_dim = hidden_dims[-1] if hidden_dims else input_dim
         modules.extend([nn.Linear(last_dim, input_dim), nn.Dropout(dropout)])
         self.mlp = nn.Sequential(*modules)
@@ -2524,9 +2356,7 @@ def merge_input_projection(state):
         new_key = k[:-len(suffix)] + new_suffix
         dim = state[k].shape[0]
         if new_key not in items_to_add:
-            items_to_add[new_key] = torch.zeros_like(state[k]).repeat(3, 1
-                ) if len(state[k].shape) > 1 else torch.zeros_like(state[k]
-                ).repeat(3)
+            items_to_add[new_key] = torch.zeros_like(state[k]).repeat(3, 1) if len(state[k].shape) > 1 else torch.zeros_like(state[k]).repeat(3)
         items_to_add[new_key][idx * dim:(idx + 1) * dim] = state[k]
         keys_to_remove.append(k)
     for k in state.keys():
@@ -2552,29 +2382,23 @@ def remove_state_keys(state, keys_regex):
 def rename_state_keys(state, keys_regex, replacement):
     """Rename keys from state that match a regex; replacement can use capture groups"""
     regex = re.compile(keys_regex)
-    return {(k if not regex.findall(k) else regex.sub(replacement, k)): v for
-        k, v in state.items()}
+    return {(k if not regex.findall(k) else regex.sub(replacement, k)): v for k, v in state.items()}
 
 
 def rename_component_from_root(state, old_name, new_name):
     """Rename keys from state using full python paths"""
-    return rename_state_keys(state, '^' + old_name.replace('.', '\\.') +
-        '.?(.*)$', new_name + '.\\1')
+    return rename_state_keys(state, '^' + old_name.replace('.', '\\.') + '.?(.*)$', new_name + '.\\1')
 
 
 def translate_roberta_state_dict(state_dict):
     """Translate the public RoBERTa weights to ones which match SentenceEncoder."""
-    new_state = rename_component_from_root(state_dict,
-        'decoder.sentence_encoder', 'transformer')
+    new_state = rename_component_from_root(state_dict, 'decoder.sentence_encoder', 'transformer')
     new_state = rename_state_keys(new_state, 'embed_tokens', 'token_embedding')
-    new_state = rename_state_keys(new_state, 'embed_positions',
-        'positional_embedding.embedding')
-    new_state = rename_state_keys(new_state, 'emb_layer_norm',
-        'embedding_layer_norm')
+    new_state = rename_state_keys(new_state, 'embed_positions', 'positional_embedding.embedding')
+    new_state = rename_state_keys(new_state, 'emb_layer_norm', 'embedding_layer_norm')
     new_state = rename_state_keys(new_state, 'self_attn', 'attention')
     new_state = merge_input_projection(new_state)
-    new_state = rename_state_keys(new_state, '_proj.(.*)', 'put_projection.\\1'
-        )
+    new_state = rename_state_keys(new_state, '_proj.(.*)', 'put_projection.\\1')
     new_state = rename_state_keys(new_state, 'fc1', 'residual_mlp.mlp.0')
     new_state = rename_state_keys(new_state, 'fc2', 'residual_mlp.mlp.3')
     new_state = remove_state_keys(new_state, '^sentence_')
@@ -2592,15 +2416,11 @@ DEFAULT_NUM_ATTENTION_HEADS = 12
 
 class TransformerLayer(nn.Module):
 
-    def __init__(self, embedding_dim: int=DEFAULT_EMBEDDING_DIM, attention:
-        Optional[MultiheadSelfAttention]=None, residual_mlp: Optional[
-        ResidualMLP]=None, dropout: float=0.1):
+    def __init__(self, embedding_dim: int=DEFAULT_EMBEDDING_DIM, attention: Optional[MultiheadSelfAttention]=None, residual_mlp: Optional[ResidualMLP]=None, dropout: float=0.1):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.attention = attention or MultiheadSelfAttention(embedding_dim,
-            num_heads=DEFAULT_NUM_ATTENTION_HEADS)
-        self.residual_mlp = residual_mlp or ResidualMLP(embedding_dim,
-            hidden_dims=[embedding_dim * 4])
+        self.attention = attention or MultiheadSelfAttention(embedding_dim, num_heads=DEFAULT_NUM_ATTENTION_HEADS)
+        self.residual_mlp = residual_mlp or ResidualMLP(embedding_dim, hidden_dims=[embedding_dim * 4])
         self.attention_layer_norm = nn.LayerNorm(embedding_dim)
         self.final_layer_norm = nn.LayerNorm(embedding_dim)
         log_class_usage(__class__)
@@ -2628,18 +2448,12 @@ DEFAULT_VOCAB_SIZE = 50265
 
 class Transformer(nn.Module):
 
-    def __init__(self, vocab_size: int=DEFAULT_VOCAB_SIZE, embedding_dim:
-        int=DEFAULT_EMBEDDING_DIM, padding_idx: int=DEFAULT_PADDING_IDX,
-        max_seq_len: int=DEFAULT_MAX_SEQUENCE_LENGTH, layers: List[
-        TransformerLayer]=(), dropout: float=0.1):
+    def __init__(self, vocab_size: int=DEFAULT_VOCAB_SIZE, embedding_dim: int=DEFAULT_EMBEDDING_DIM, padding_idx: int=DEFAULT_PADDING_IDX, max_seq_len: int=DEFAULT_MAX_SEQUENCE_LENGTH, layers: List[TransformerLayer]=(), dropout: float=0.1):
         super().__init__()
         self.padding_idx = padding_idx
-        self.token_embedding = nn.Embedding(vocab_size, embedding_dim,
-            padding_idx)
-        self.layers = nn.ModuleList(layers or [TransformerLayer(
-            embedding_dim) for _ in range(DEFAULT_NUM_LAYERS)])
-        self.positional_embedding = PositionalEmbedding(max_seq_len,
-            embedding_dim, padding_idx)
+        self.token_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx)
+        self.layers = nn.ModuleList(layers or [TransformerLayer(embedding_dim) for _ in range(DEFAULT_NUM_LAYERS)])
+        self.positional_embedding = PositionalEmbedding(max_seq_len, embedding_dim, padding_idx)
         self.embedding_layer_norm = nn.LayerNorm(embedding_dim)
         self.dropout = nn.Dropout(dropout)
         log_class_usage(__class__)
@@ -2650,8 +2464,7 @@ class Transformer(nn.Module):
         embedded_positions = self.positional_embedding(tokens)
         normed = self.embedding_layer_norm(embedded + embedded_positions)
         normed = self.dropout(normed)
-        padded_normed = normed * (1 - padding_mask.unsqueeze(-1).type_as(
-            normed))
+        padded_normed = normed * (1 - padding_mask.unsqueeze(-1).type_as(normed))
         encoded = padded_normed.transpose(0, 1)
         states = [encoded]
         for layer in self.layers:
@@ -2687,8 +2500,7 @@ class CompositionalNN(torch.jit.ScriptModule):
         self.lstm_dim = lstm_dim
         self.lstm_fwd = nn.LSTM(lstm_dim, lstm_dim, num_layers=1)
         self.lstm_rev = nn.LSTM(lstm_dim, lstm_dim, num_layers=1)
-        self.linear_seq = nn.Sequential(nn.Linear(2 * lstm_dim, lstm_dim),
-            nn.Tanh())
+        self.linear_seq = nn.Sequential(nn.Linear(2 * lstm_dim, lstm_dim), nn.Tanh())
 
     @torch.jit.script_method
     def forward(self, x: List[torch.Tensor], device: str='cpu') ->torch.Tensor:
@@ -2705,18 +2517,14 @@ class CompositionalNN(torch.jit.ScriptModule):
             x: (1, lstm_dim) each
             return value: (1, lstm_dim)
         """
-        lstm_hidden_fwd = xaviervar([1, 1, self.lstm_dim], device=device
-            ), xaviervar([1, 1, self.lstm_dim], device=device)
-        lstm_hidden_rev = xaviervar([1, 1, self.lstm_dim], device=device
-            ), xaviervar([1, 1, self.lstm_dim], device=device)
+        lstm_hidden_fwd = xaviervar([1, 1, self.lstm_dim], device=device), xaviervar([1, 1, self.lstm_dim], device=device)
+        lstm_hidden_rev = xaviervar([1, 1, self.lstm_dim], device=device), xaviervar([1, 1, self.lstm_dim], device=device)
         nonterminal_element = x[-1]
         reversed_rest = x[:-1]
         fwd_input = [nonterminal_element] + reverse_tensor_list(reversed_rest)
         rev_input = [nonterminal_element] + reversed_rest
-        stacked_fwd = self.lstm_fwd(torch.stack(fwd_input), lstm_hidden_fwd)[0
-            ][0]
-        stacked_rev = self.lstm_rev(torch.stack(rev_input), lstm_hidden_rev)[0
-            ][0]
+        stacked_fwd = self.lstm_fwd(torch.stack(fwd_input), lstm_hidden_fwd)[0][0]
+        stacked_rev = self.lstm_rev(torch.stack(rev_input), lstm_hidden_rev)[0][0]
         combined = torch.cat([stacked_fwd, stacked_rev], dim=1)
         subtree_embedding = self.linear_seq(combined)
         return subtree_embedding
@@ -2731,8 +2539,7 @@ class CompositionalSummationNN(torch.jit.ScriptModule):
     def __init__(self, lstm_dim: int):
         super().__init__()
         self.lstm_dim = lstm_dim
-        self.linear_seq = nn.Sequential(nn.Linear(lstm_dim, lstm_dim), nn.
-            Tanh())
+        self.linear_seq = nn.Sequential(nn.Linear(lstm_dim, lstm_dim), nn.Tanh())
 
     @torch.jit.script_method
     def forward(self, x: List[torch.Tensor], device: str='cpu') ->torch.Tensor:
@@ -2771,15 +2578,13 @@ def masked_softmax(scores, src_lengths, src_length_masking: bool=True):
 
 class DotAttention(nn.Module):
 
-    def __init__(self, decoder_hidden_state_dim, context_dim,
-        force_projection=False, src_length_masking=True):
+    def __init__(self, decoder_hidden_state_dim, context_dim, force_projection=False, src_length_masking=True):
         super().__init__()
         self.decoder_hidden_state_dim = decoder_hidden_state_dim
         self.context_dim = context_dim
         self.input_proj = None
         if force_projection or decoder_hidden_state_dim != context_dim:
-            self.input_proj = nn.Linear(decoder_hidden_state_dim,
-                context_dim, bias=True)
+            self.input_proj = nn.Linear(decoder_hidden_state_dim, context_dim, bias=True)
         self.src_length_masking = src_length_masking
         log_class_usage(__class__)
 
@@ -2787,12 +2592,9 @@ class DotAttention(nn.Module):
         source_hids = source_hids.transpose(0, 1)
         if self.input_proj is not None:
             decoder_state = self.input_proj(decoder_state)
-        attn_scores = torch.bmm(source_hids, decoder_state.unsqueeze(2)
-            ).squeeze(2)
-        normalized_masked_attn_scores = masked_softmax(attn_scores,
-            src_lengths, self.src_length_masking)
-        attn_weighted_context = (source_hids *
-            normalized_masked_attn_scores.unsqueeze(2)).contiguous().sum(1)
+        attn_scores = torch.bmm(source_hids, decoder_state.unsqueeze(2)).squeeze(2)
+        normalized_masked_attn_scores = masked_softmax(attn_scores, src_lengths, self.src_length_masking)
+        attn_weighted_context = (source_hids * normalized_masked_attn_scores.unsqueeze(2)).contiguous().sum(1)
         return attn_weighted_context, normalized_masked_attn_scores.t()
 
 
@@ -2818,14 +2620,11 @@ class PlaceholderIdentity(nn.Module):
 
 class PlaceholderAttentionIdentity(nn.Module):
 
-    def forward(self, query, key, value, need_weights: bool=None,
-        key_padding_mask: Optional[Tensor]=None, incremental_state:
-        Optional[Dict[str, Tensor]]=None) ->Tuple[Tensor, Optional[Tensor]]:
+    def forward(self, query, key, value, need_weights: bool=None, key_padding_mask: Optional[Tensor]=None, incremental_state: Optional[Dict[str, Tensor]]=None) ->Tuple[Tensor, Optional[Tensor]]:
         optional_attention: Optional[Tensor] = None
         return query, optional_attention
 
-    def reorder_incremental_state(self, incremental_state: Dict[str, Tensor
-        ], new_order: Tensor):
+    def reorder_incremental_state(self, incremental_state: Dict[str, Tensor], new_order: Tensor):
         pass
 
 
@@ -2846,8 +2645,7 @@ class BiLSTM(torch.nn.Module):
                 param.data.uniform_(-0.1, 0.1)
         return m
 
-    def __init__(self, num_layers, bidirectional, embed_dim, hidden_dim,
-        dropout):
+    def __init__(self, num_layers, bidirectional, embed_dim, hidden_dim, dropout):
         super().__init__()
         self.num_layers = num_layers
         self.bidirectional = bidirectional
@@ -2859,17 +2657,12 @@ class BiLSTM(torch.nn.Module):
             is_layer_bidirectional = bidirectional and layer == 0
             if is_layer_bidirectional:
                 assert hidden_dim % 2 == 0, 'hidden_dim must be even if bidirectional (to be divided evenly between directions)'
-            self.layers.append(BiLSTM.LSTM(embed_dim if layer == 0 else
-                hidden_dim, hidden_dim // 2 if is_layer_bidirectional else
-                hidden_dim, num_layers=1, dropout=dropout, bidirectional=
-                is_layer_bidirectional))
+            self.layers.append(BiLSTM.LSTM(embed_dim if layer == 0 else hidden_dim, hidden_dim // 2 if is_layer_bidirectional else hidden_dim, num_layers=1, dropout=dropout, bidirectional=is_layer_bidirectional))
         log_class_usage(__class__)
 
-    def forward(self, embeddings: torch.Tensor, lengths: torch.Tensor,
-        enforce_sorted: bool=True):
+    def forward(self, embeddings: torch.Tensor, lengths: torch.Tensor, enforce_sorted: bool=True):
         bsz = embeddings.size()[1]
-        packed_input = pack_padded_sequence(embeddings, lengths,
-            enforce_sorted=enforce_sorted)
+        packed_input = pack_padded_sequence(embeddings, lengths, enforce_sorted=enforce_sorted)
         final_hiddens, final_cells = [], []
         for i, rnn_layer in enumerate(self.layers):
             if self.bidirectional and i == 0:
@@ -2878,13 +2671,10 @@ class BiLSTM(torch.nn.Module):
             else:
                 h0 = embeddings.new_full((1, bsz, self.hidden_dim), 0)
                 c0 = embeddings.new_full((1, bsz, self.hidden_dim), 0)
-            current_output, (h_last, c_last) = rnn_layer(packed_input, (h0, c0)
-                )
+            current_output, (h_last, c_last) = rnn_layer(packed_input, (h0, c0))
             if self.bidirectional and i == 0:
-                h_last = torch.cat((h_last[(0), :, :], h_last[(1), :, :]),
-                    dim=1)
-                c_last = torch.cat((c_last[(0), :, :], c_last[(1), :, :]),
-                    dim=1)
+                h_last = torch.cat((h_last[(0), :, :], h_last[(1), :, :]), dim=1)
+                c_last = torch.cat((c_last[(0), :, :], c_last[(1), :, :]), dim=1)
             else:
                 h_last = h_last.squeeze(dim=0)
                 c_last = c_last.squeeze(dim=0)
@@ -2892,15 +2682,11 @@ class BiLSTM(torch.nn.Module):
             final_cells.append(c_last)
             packed_input = current_output
         final_hidden_size_list: List[int] = final_hiddens[0].size()
-        final_hidden_size: Tuple[int, int] = (final_hidden_size_list[0],
-            final_hidden_size_list[1])
-        final_hiddens = torch.cat(final_hiddens, dim=0).view(self.
-            num_layers, *final_hidden_size)
+        final_hidden_size: Tuple[int, int] = (final_hidden_size_list[0], final_hidden_size_list[1])
+        final_hiddens = torch.cat(final_hiddens, dim=0).view(self.num_layers, *final_hidden_size)
         final_cell_size_list: List[int] = final_cells[0].size()
-        final_cell_size: Tuple[int, int] = (final_cell_size_list[0],
-            final_cell_size_list[1])
-        final_cells = torch.cat(final_cells, dim=0).view(self.num_layers, *
-            final_cell_size)
+        final_cell_size: Tuple[int, int] = (final_cell_size_list[0], final_cell_size_list[1])
+        final_cells = torch.cat(final_cells, dim=0).view(self.num_layers, *final_cell_size)
         unpacked_output, _ = pad_packed_sequence(packed_input)
         return unpacked_output, final_hiddens, final_cells
 
@@ -2918,8 +2704,7 @@ class GeLU(nn.Module):
         if torch.onnx.is_in_onnx_export():
             return torch.ops._caffe2.Gelu(x, True)
         else:
-            return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 
-                0.044715 * (x * x * x))))
+            return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * (x * x * x))))
 
 
 class BeamDecode(torch.nn.Module):
@@ -2927,8 +2712,7 @@ class BeamDecode(torch.nn.Module):
     Decodes the output of Beam Search to get the top hypotheses
     """
 
-    def __init__(self, eos_token_id, length_penalty, nbest, beam_size,
-        stop_at_eos):
+    def __init__(self, eos_token_id, length_penalty, nbest, beam_size, stop_at_eos):
         super().__init__()
         self.eos_token_id: int = eos_token_id
         self.length_penalty: float = length_penalty
@@ -2937,20 +2721,14 @@ class BeamDecode(torch.nn.Module):
         self.stop_at_eos: bool = stop_at_eos
 
     @torch.no_grad()
-    def forward(self, beam_tokens: Tensor, beam_scores: Tensor,
-        token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int
-        ) ->List[Tuple[Tensor, float, List[float], Tensor, Tensor]]:
-        self._check_dimensions(beam_tokens, beam_scores, token_weights,
-            beam_prev_indices, num_steps)
-        end_states = self._get_all_end_states(beam_tokens, beam_scores,
-            beam_prev_indices, num_steps)
-        outputs = torch.jit.annotate(List[Tuple[Tensor, float, List[float],
-            Tensor, Tensor]], [])
+    def forward(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->List[Tuple[Tensor, float, List[float], Tensor, Tensor]]:
+        self._check_dimensions(beam_tokens, beam_scores, token_weights, beam_prev_indices, num_steps)
+        end_states = self._get_all_end_states(beam_tokens, beam_scores, beam_prev_indices, num_steps)
+        outputs = torch.jit.annotate(List[Tuple[Tensor, float, List[float], Tensor, Tensor]], [])
         for state_idx in range(len(end_states)):
             state = end_states[state_idx]
             hypothesis_score = float(state[0])
-            beam_indices = self._get_output_steps_to_beam_indices(state,
-                beam_prev_indices)
+            beam_indices = self._get_output_steps_to_beam_indices(state, beam_prev_indices)
             beam_output = torch.jit.annotate(List[Tensor], [])
             token_level_scores = torch.jit.annotate(List[float], [])
             position = int(state[1])
@@ -2964,23 +2742,16 @@ class BeamDecode(torch.nn.Module):
                 beam_index = beam_indices[pos]
                 beam_output.append(beam_tokens[pos][beam_index])
                 if pos == 1:
-                    token_level_scores.append(float(beam_scores[pos][
-                        beam_index]))
+                    token_level_scores.append(float(beam_scores[pos][beam_index]))
                 else:
-                    token_level_scores.append(float(beam_scores[pos][
-                        beam_index]) - float(beam_scores[pos - 1][
-                        prev_beam_index]))
-                back_alignment_weights.append(token_weights[pos][beam_index
-                    ].detach())
+                    token_level_scores.append(float(beam_scores[pos][beam_index]) - float(beam_scores[pos - 1][prev_beam_index]))
+                back_alignment_weights.append(token_weights[pos][beam_index].detach())
                 prev_beam_index = beam_index
                 pos += 1
-            outputs.append((torch.stack(beam_output), hypothesis_score,
-                token_level_scores, torch.stack(back_alignment_weights, dim
-                =1), best_indices))
+            outputs.append((torch.stack(beam_output), hypothesis_score, token_level_scores, torch.stack(back_alignment_weights, dim=1), best_indices))
         return outputs
 
-    def _get_output_steps_to_beam_indices(self, end_state: Tensor,
-        beam_prev_indices: Tensor) ->List[int]:
+    def _get_output_steps_to_beam_indices(self, end_state: Tensor, beam_prev_indices: Tensor) ->List[int]:
         """
         Returns a mapping from each output position and the beam index that was
         picked from the beam search results.
@@ -2994,8 +2765,7 @@ class BeamDecode(torch.nn.Module):
             present_position = present_position - 1
         return beam_indices
 
-    def _add_to_end_states(self, end_states: List[Tensor], min_score: float,
-        state: Tensor, min_index: int) ->Tuple[List[Tensor], float, int]:
+    def _add_to_end_states(self, end_states: List[Tensor], min_score: float, state: Tensor, min_index: int) ->Tuple[List[Tensor], float, int]:
         """
         Maintains a list of atmost `nbest` highest end states
         """
@@ -3015,8 +2785,7 @@ class BeamDecode(torch.nn.Module):
                     min_score = s[0]
         return end_states, min_score, min_index
 
-    def _get_all_end_states(self, beam_tokens: Tensor, beam_scores: Tensor,
-        beam_prev_indices: Tensor, num_steps: int) ->Tensor:
+    def _get_all_end_states(self, beam_tokens: Tensor, beam_scores: Tensor, beam_prev_indices: Tensor, num_steps: int) ->Tensor:
         """
         Return all end states and hypothesis scores for those end states.
         """
@@ -3031,72 +2800,44 @@ class BeamDecode(torch.nn.Module):
                 prev_pos = beam_prev_indices[position][hyp_index]
                 hypo_is_finished[hyp_index] = prev_hypo_is_finished[prev_pos]
                 if hypo_is_finished[hyp_index] == 0:
-                    if beam_tokens[position][hyp_index
-                        ] == self.eos_token_id or position == num_steps:
+                    if beam_tokens[position][hyp_index] == self.eos_token_id or position == num_steps:
                         if self.stop_at_eos:
                             hypo_is_finished[hyp_index] = 1
                         hypo_score = float(beam_scores[position][hyp_index])
                         if self.length_penalty != 0:
-                            hypo_score = (hypo_score / position ** self.
-                                length_penalty)
-                        end_states, min_score, min_index = (self.
-                            _add_to_end_states(end_states, min_score, torch
-                            .tensor([hypo_score, float(position), float(
-                            hyp_index)]), min_index))
+                            hypo_score = hypo_score / position ** self.length_penalty
+                        end_states, min_score, min_index = self._add_to_end_states(end_states, min_score, torch.tensor([hypo_score, float(position), float(hyp_index)]), min_index)
             prev_hypo_is_finished = hypo_is_finished
             position = position + 1
         end_states = torch.stack(end_states)
-        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0,
-            descending=True)
+        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0, descending=True)
         end_states = end_states[(sorted_end_state_indices), :]
         return end_states
 
-    def _check_dimensions(self, beam_tokens: Tensor, beam_scores: Tensor,
-        token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int
-        ) ->None:
-        assert beam_tokens.size(1
-            ) == self.beam_size, 'Dimension of beam_tokens : {} and beam size : {} are not consistent'.format(
-            beam_tokens.size(), self.beam_size)
-        assert beam_scores.size(1
-            ) == self.beam_size, 'Dimension of beam_scores : {} and beam size : {} are not consistent'.format(
-            beam_scores.size(), self.beam_size)
-        assert token_weights.size(1
-            ) == self.beam_size, 'Dimension of token_weights : {} and beam size : {} are not consistent'.format(
-            token_weights.size(), self.beam_size)
-        assert beam_prev_indices.size(1
-            ) == self.beam_size, 'Dimension of beam_prev_indices : {} and beam size : {} '
-        """are not consistent""".format(beam_prev_indices.size(), self.
-            beam_size)
-        assert beam_tokens.size(0
-            ) <= num_steps + 1, 'Dimension of beam_tokens : {} and num_steps : {} are not consistent'.format(
-            beam_tokens.size(), num_steps)
-        assert beam_scores.size(0
-            ) <= num_steps + 1, 'Dimension of beam_scores : {} and num_steps : {} are not consistent'.format(
-            beam_scores.size(), num_steps)
-        assert token_weights.size(0
-            ) <= num_steps + 1, 'Dimension of token_weights : {} and num_steps : {} are not consistent'.format(
-            token_weights.size(), num_steps)
-        assert beam_prev_indices.size(0
-            ) <= num_steps + 1, 'Dimension of beam_prev_indices : {} and num_steps : {} are not consistent'.format(
-            beam_prev_indices.size(), num_steps)
+    def _check_dimensions(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->None:
+        assert beam_tokens.size(1) == self.beam_size, 'Dimension of beam_tokens : {} and beam size : {} are not consistent'.format(beam_tokens.size(), self.beam_size)
+        assert beam_scores.size(1) == self.beam_size, 'Dimension of beam_scores : {} and beam size : {} are not consistent'.format(beam_scores.size(), self.beam_size)
+        assert token_weights.size(1) == self.beam_size, 'Dimension of token_weights : {} and beam size : {} are not consistent'.format(token_weights.size(), self.beam_size)
+        assert beam_prev_indices.size(1) == self.beam_size, 'Dimension of beam_prev_indices : {} and beam size : {} '
+        """are not consistent""".format(beam_prev_indices.size(), self.beam_size)
+        assert beam_tokens.size(0) <= num_steps + 1, 'Dimension of beam_tokens : {} and num_steps : {} are not consistent'.format(beam_tokens.size(), num_steps)
+        assert beam_scores.size(0) <= num_steps + 1, 'Dimension of beam_scores : {} and num_steps : {} are not consistent'.format(beam_scores.size(), num_steps)
+        assert token_weights.size(0) <= num_steps + 1, 'Dimension of token_weights : {} and num_steps : {} are not consistent'.format(token_weights.size(), num_steps)
+        assert beam_prev_indices.size(0) <= num_steps + 1, 'Dimension of beam_prev_indices : {} and num_steps : {} are not consistent'.format(beam_prev_indices.size(), num_steps)
 
 
 @torch.jit.script
-def get_first_decoder_step_input(beam_size: int=5, eos_token_id: int=0,
-    src_length: int=1) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor,
-    torch.Tensor]:
+def get_first_decoder_step_input(beam_size: int=5, eos_token_id: int=0, src_length: int=1) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     prev_tokens = torch.full([beam_size], eos_token_id, dtype=torch.long)
     prev_scores = torch.full([beam_size], 1, dtype=torch.float)
     prev_hypos = torch.full([beam_size], 0, dtype=torch.long)
-    attention_weights = torch.full([beam_size, src_length], 1, dtype=torch.
-        float)
+    attention_weights = torch.full([beam_size, src_length], 1, dtype=torch.float)
     return prev_tokens, prev_scores, prev_hypos, attention_weights
 
 
 class BeamSearch(nn.Module):
 
-    def __init__(self, model_list, tgt_dict_eos, beam_size: int=2, quantize:
-        bool=False, record_attention: bool=False):
+    def __init__(self, model_list, tgt_dict_eos, beam_size: int=2, quantize: bool=False, record_attention: bool=False):
         super().__init__()
         self.models = model_list
         self.target_dict_eos = tgt_dict_eos
@@ -3104,26 +2845,17 @@ class BeamSearch(nn.Module):
         self.record_attention = record_attention
         encoder_ens = EncoderEnsemble(self.models, self.beam_size)
         if quantize:
-            encoder_ens = torch.quantization.quantize_dynamic(encoder_ens,
-                {torch.nn.Linear}, dtype=torch.qint8, inplace=False)
+            encoder_ens = torch.quantization.quantize_dynamic(encoder_ens, {torch.nn.Linear}, dtype=torch.qint8, inplace=False)
         self.encoder_ens = torch.jit.script(encoder_ens)
-        decoder_ens = DecoderBatchedStepEnsemble(self.models, beam_size,
-            record_attention=record_attention)
+        decoder_ens = DecoderBatchedStepEnsemble(self.models, beam_size, record_attention=record_attention)
         if quantize:
-            decoder_ens = torch.quantization.quantize_dynamic(decoder_ens,
-                {torch.nn.Linear}, dtype=torch.qint8, inplace=False)
+            decoder_ens = torch.quantization.quantize_dynamic(decoder_ens, {torch.nn.Linear}, dtype=torch.qint8, inplace=False)
         self.decoder_ens = torch.jit.script(decoder_ens)
 
-    def forward(self, src_tokens: torch.Tensor, src_lengths: torch.Tensor,
-        num_steps: int, dict_feat: Optional[Tuple[torch.Tensor, torch.
-        Tensor, torch.Tensor]]=None, contextual_token_embedding: Optional[
-        torch.Tensor]=None):
+    def forward(self, src_tokens: torch.Tensor, src_lengths: torch.Tensor, num_steps: int, dict_feat: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]=None, contextual_token_embedding: Optional[torch.Tensor]=None):
         self.decoder_ens.reset_incremental_states()
-        decoder_ip = self.encoder_ens(src_tokens, src_lengths, dict_feat,
-            contextual_token_embedding)
-        prev_token, prev_scores, prev_hypos_indices, attention_weights = (
-            get_first_decoder_step_input(self.beam_size, self.
-            target_dict_eos, src_lengths[0]))
+        decoder_ip = self.encoder_ens(src_tokens, src_lengths, dict_feat, contextual_token_embedding)
+        prev_token, prev_scores, prev_hypos_indices, attention_weights = get_first_decoder_step_input(self.beam_size, self.target_dict_eos, src_lengths[0])
         all_tokens_list = [prev_token]
         all_scores_list = [prev_scores]
         all_prev_indices_list = [prev_hypos_indices]
@@ -3131,9 +2863,7 @@ class BeamSearch(nn.Module):
         if self.record_attention:
             all_attentions_list.append(attention_weights)
         for i in range(num_steps):
-            (prev_token, prev_scores, prev_hypos_indices, attention_weights,
-                decoder_ip) = (self.decoder_ens(prev_token, prev_scores, i +
-                1, decoder_ip))
+            prev_token, prev_scores, prev_hypos_indices, attention_weights, decoder_ip = self.decoder_ens(prev_token, prev_scores, i + 1, decoder_ip)
             all_tokens_list.append(prev_token)
             all_scores_list.append(prev_scores)
             all_prev_indices_list.append(prev_hypos_indices)
@@ -3145,8 +2875,7 @@ class BeamSearch(nn.Module):
         if self.record_attention:
             all_attn_weights = torch.stack(all_attentions_list)
         else:
-            all_attn_weights = torch.zeros(num_steps + 1, self.beam_size,
-                src_tokens.size(1))
+            all_attn_weights = torch.zeros(num_steps + 1, self.beam_size, src_tokens.size(1))
         return all_tokens, all_scores, all_attn_weights, all_prev_indices
 
 
@@ -3169,9 +2898,7 @@ class DecoderBatchedStepEnsemble(nn.Module):
         for idx, _model in enumerate(self.models):
             self.incremental_states[str(idx)] = {}
 
-    def forward(self, prev_tokens: Tensor, prev_scores: Tensor, timestep:
-        int, decoder_ips: List[Dict[str, Tensor]]) ->Tuple[Tensor, Tensor,
-        Tensor, Tensor, List[Dict[str, Tensor]]]:
+    def forward(self, prev_tokens: Tensor, prev_scores: Tensor, timestep: int, decoder_ips: List[Dict[str, Tensor]]) ->Tuple[Tensor, Tensor, Tensor, Tensor, List[Dict[str, Tensor]]]:
         """
         Decoder step inputs correspond one-to-one to encoder outputs.
         HOWEVER: after the first step, encoder outputs (i.e, the first
@@ -3181,13 +2908,11 @@ class DecoderBatchedStepEnsemble(nn.Module):
         prev_tokens = prev_tokens.unsqueeze(1)
         log_probs_per_model = torch.jit.annotate(List[Tensor], [])
         attn_weights_per_model = torch.jit.annotate(List[Tensor], [])
-        futures = torch.jit.annotate(List[Tuple[Tensor, Dict[str, Tensor]]], []
-            )
+        futures = torch.jit.annotate(List[Tuple[Tensor, Dict[str, Tensor]]], [])
         for idx, model in enumerate(self.models):
             decoder_ip = decoder_ips[idx]
             incremental_state = self.incremental_states[str(idx)]
-            fut = model.decoder(prev_tokens, decoder_ip, incremental_state=
-                incremental_state, timestep=timestep)
+            fut = model.decoder(prev_tokens, decoder_ip, incremental_state=incremental_state, timestep=timestep)
             futures.append(fut)
         for idx, _model in enumerate(self.models):
             fut = futures[idx]
@@ -3195,41 +2920,28 @@ class DecoderBatchedStepEnsemble(nn.Module):
             log_probs_per_model.append(log_probs)
             if 'attn_scores' in features:
                 attn_weights_per_model.append(features['attn_scores'])
-        best_scores, best_tokens, prev_hypos, attention_weights = (self.
-            beam_search_aggregate_topk(log_probs_per_model,
-            attn_weights_per_model, prev_scores, self.beam_size, self.
-            record_attention))
+        best_scores, best_tokens, prev_hypos, attention_weights = self.beam_search_aggregate_topk(log_probs_per_model, attn_weights_per_model, prev_scores, self.beam_size, self.record_attention)
         for model_state_ptr, model in enumerate(self.models):
             incremental_state = self.incremental_states[str(model_state_ptr)]
-            model.decoder.reorder_incremental_state(incremental_state,
-                prev_hypos)
-        return (best_tokens, best_scores, prev_hypos, attention_weights,
-            decoder_ips)
+            model.decoder.reorder_incremental_state(incremental_state, prev_hypos)
+        return best_tokens, best_scores, prev_hypos, attention_weights, decoder_ips
 
-    def beam_search_aggregate_topk(self, log_probs_per_model: List[torch.
-        Tensor], attn_weights_per_model: List[torch.Tensor], prev_scores:
-        torch.Tensor, beam_size: int, record_attention: bool):
-        average_log_probs = torch.mean(torch.cat(log_probs_per_model, dim=1
-            ), dim=1, keepdim=True)
-        best_scores_k_by_k, best_tokens_k_by_k = torch.topk(average_log_probs
-            .squeeze(1), k=beam_size)
+    def beam_search_aggregate_topk(self, log_probs_per_model: List[torch.Tensor], attn_weights_per_model: List[torch.Tensor], prev_scores: torch.Tensor, beam_size: int, record_attention: bool):
+        average_log_probs = torch.mean(torch.cat(log_probs_per_model, dim=1), dim=1, keepdim=True)
+        best_scores_k_by_k, best_tokens_k_by_k = torch.topk(average_log_probs.squeeze(1), k=beam_size)
         prev_scores_k_by_k = prev_scores.view(-1, 1).expand(-1, beam_size)
         total_scores_k_by_k = best_scores_k_by_k + prev_scores_k_by_k
         total_scores_flat = total_scores_k_by_k.view(-1)
         best_tokens_flat = best_tokens_k_by_k.view(-1)
         best_scores, best_indices = torch.topk(total_scores_flat, k=beam_size)
-        best_tokens = best_tokens_flat.index_select(dim=0, index=best_indices
-            ).view(-1)
+        best_tokens = best_tokens_flat.index_select(dim=0, index=best_indices).view(-1)
         prev_hypos = best_indices // beam_size
         if record_attention:
-            average_attn_weights = torch.mean(torch.cat(
-                attn_weights_per_model, dim=1), dim=1, keepdim=True)
-            attention_weights = average_attn_weights.index_select(dim=0,
-                index=prev_hypos)
+            average_attn_weights = torch.mean(torch.cat(attn_weights_per_model, dim=1), dim=1, keepdim=True)
+            attention_weights = average_attn_weights.index_select(dim=0, index=prev_hypos)
             attention_weights = attention_weights.squeeze_(1)
         else:
-            attention_weights = torch.zeros(beam_size,
-                attn_weights_per_model[0].size(2))
+            attention_weights = torch.zeros(beam_size, attn_weights_per_model[0].size(2))
         return best_scores, best_tokens, prev_hypos, attention_weights
 
 
@@ -3245,10 +2957,7 @@ class EncoderEnsemble(nn.Module):
         self.models = nn.ModuleList(models)
         self.beam_size = beam_size
 
-    def forward(self, src_tokens: Tensor, src_lengths: Tensor, dict_feat:
-        Optional[Tuple[Tensor, Tensor, Tensor]]=None,
-        contextual_token_embedding: Optional[Tensor]=None) ->List[Dict[str,
-        Tensor]]:
+    def forward(self, src_tokens: Tensor, src_lengths: Tensor, dict_feat: Optional[Tuple[Tensor, Tensor, Tensor]]=None, contextual_token_embedding: Optional[Tensor]=None) ->List[Dict[str, Tensor]]:
         src_tokens_seq_first = src_tokens.t()
         futures = torch.jit.annotate(List[Dict[str, Tensor]], [])
         for model in self.models:
@@ -3258,17 +2967,14 @@ class EncoderEnsemble(nn.Module):
             if contextual_token_embedding is not None:
                 embedding_input.append([contextual_token_embedding])
             embeddings = model.source_embeddings(embedding_input)
-            futures.append(model.encoder(src_tokens_seq_first, embeddings,
-                src_lengths))
+            futures.append(model.encoder(src_tokens_seq_first, embeddings, src_lengths))
         return self.prepare_decoderstep_ip(futures)
 
-    def prepare_decoderstep_ip(self, futures: List[Dict[str, Tensor]]) ->List[
-        Dict[str, Tensor]]:
+    def prepare_decoderstep_ip(self, futures: List[Dict[str, Tensor]]) ->List[Dict[str, Tensor]]:
         outputs = torch.jit.annotate(List[Dict[str, Tensor]], [])
         for idx, model in enumerate(self.models):
             encoder_out = futures[idx]
-            tiled_encoder_out = model.encoder.tile_encoder_out(self.
-                beam_size, encoder_out)
+            tiled_encoder_out = model.encoder.tile_encoder_out(self.beam_size, encoder_out)
             outputs.append(tiled_encoder_out)
         return outputs
 
@@ -3284,8 +2990,7 @@ def list_membership(item: int, list: List[int]):
 
 class ScriptVocabulary(torch.jit.ScriptModule):
 
-    def __init__(self, vocab_list, unk_idx: int=0, pad_idx: int=-1, bos_idx:
-        int=-1, eos_idx: int=-1, mask_idx: int=-1):
+    def __init__(self, vocab_list, unk_idx: int=0, pad_idx: int=-1, bos_idx: int=-1, eos_idx: int=-1, mask_idx: int=-1):
         super().__init__()
         self.vocab = torch.jit.Attribute(vocab_list, List[str])
         self.unk_idx = torch.jit.Attribute(unk_idx, int)
@@ -3293,8 +2998,7 @@ class ScriptVocabulary(torch.jit.ScriptModule):
         self.eos_idx = torch.jit.Attribute(eos_idx, int)
         self.bos_idx = torch.jit.Attribute(bos_idx, int)
         self.mask_idx = torch.jit.Attribute(mask_idx, int)
-        self.idx = torch.jit.Attribute({word: i for i, word in enumerate(
-            vocab_list)}, Dict[str, int])
+        self.idx = torch.jit.Attribute({word: i for i, word in enumerate(vocab_list)}, Dict[str, int])
         pad_token = vocab_list[pad_idx] if pad_idx >= 0 else '__PAD__'
         self.pad_token = torch.jit.Attribute(pad_token, str)
 
@@ -3313,8 +3017,7 @@ class ScriptVocabulary(torch.jit.ScriptModule):
         return result
 
     @torch.jit.script_method
-    def lookup_words_1d(self, values: torch.Tensor, filter_token_list: List
-        [int]=(), possible_unk_token: Optional[str]=None) ->List[str]:
+    def lookup_words_1d(self, values: torch.Tensor, filter_token_list: List[int]=(), possible_unk_token: Optional[str]=None) ->List[str]:
         """If possible_unk_token is not None, then all UNK id's will be replaced
         by possible_unk_token instead of the default UNK string which is <UNK>.
         This is a simple way to resolve UNK's when there's a correspondence
@@ -3328,9 +3031,7 @@ class ScriptVocabulary(torch.jit.ScriptModule):
         return result
 
     @torch.jit.script_method
-    def lookup_words_1d_cycle_heuristic(self, values: torch.Tensor,
-        filter_token_list: List[int], ordered_unks_token: List[str]) ->List[str
-        ]:
+    def lookup_words_1d_cycle_heuristic(self, values: torch.Tensor, filter_token_list: List[int], ordered_unks_token: List[str]) ->List[str]:
         """This function is a extension of the possible_unk_token heuristic
         in lookup_words_1d, which fails in the case when multiple unks are
         available. The way we deal with this is we increment every unk token in
@@ -3360,13 +3061,11 @@ class ScriptVocabulary(torch.jit.ScriptModule):
         if idx < len(self.vocab) and idx != self.unk_idx:
             return self.vocab[idx]
         else:
-            return self.vocab[self.unk_idx
-                ] if possible_unk_token is None else possible_unk_token
+            return self.vocab[self.unk_idx] if possible_unk_token is None else possible_unk_token
 
 
 @torch.jit.script
-def get_single_unk_token(src_tokens: List[str], word_ids: List[int],
-    copy_unk_token: bool, unk_idx: int):
+def get_single_unk_token(src_tokens: List[str], word_ids: List[int], copy_unk_token: bool, unk_idx: int):
     """Returns the string representation of the first UNK
        we get in our source utterance. We can then use this string instead of
        writing "<UNK>" in our decoding.
@@ -3380,18 +3079,12 @@ def get_single_unk_token(src_tokens: List[str], word_ids: List[int],
 
 class Seq2SeqJIT(torch.nn.Module):
 
-    def __init__(self, src_dict, tgt_dict, sequence_generator,
-        filter_eos_bos, copy_unk_token=False, dictfeat_dict=None):
+    def __init__(self, src_dict, tgt_dict, sequence_generator, filter_eos_bos, copy_unk_token=False, dictfeat_dict=None):
         super().__init__()
-        self.source_vocab = ScriptVocabulary(src_dict._vocab, src_dict.
-            get_unk_index(), bos_idx=src_dict.get_bos_index(-1), eos_idx=
-            src_dict.get_eos_index(-1))
-        self.target_vocab = ScriptVocabulary(tgt_dict._vocab, tgt_dict.
-            get_unk_index(), bos_idx=tgt_dict.get_bos_index(), eos_idx=
-            tgt_dict.get_eos_index())
+        self.source_vocab = ScriptVocabulary(src_dict._vocab, src_dict.get_unk_index(), bos_idx=src_dict.get_bos_index(-1), eos_idx=src_dict.get_eos_index(-1))
+        self.target_vocab = ScriptVocabulary(tgt_dict._vocab, tgt_dict.get_unk_index(), bos_idx=tgt_dict.get_bos_index(), eos_idx=tgt_dict.get_eos_index())
         if dictfeat_dict:
-            self.dictfeat_vocab = ScriptVocabulary(dictfeat_dict._vocab,
-                pad_idx=dictfeat_dict.idx[src_dict[src_dict.get_pad_index()]])
+            self.dictfeat_vocab = ScriptVocabulary(dictfeat_dict._vocab, pad_idx=dictfeat_dict.idx[src_dict[src_dict.get_pad_index()]])
         else:
             self.dictfeat_vocab = ScriptVocabulary([])
         self.sequence_generator = sequence_generator
@@ -3399,52 +3092,31 @@ class Seq2SeqJIT(torch.nn.Module):
         self.unk_idx: int = self.source_vocab.unk_idx
         self.filter_eos_bos: bool = filter_eos_bos
 
-    def prepare_generator_inputs(self, word_ids: List[int], dict_feat:
-        Optional[Tuple[List[str], List[float], List[int]]]=None,
-        contextual_token_embedding: Optional[List[float]]=None) ->Tuple[
-        torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor, torch.
-        Tensor]], Optional[torch.Tensor], torch.Tensor]:
+    def prepare_generator_inputs(self, word_ids: List[int], dict_feat: Optional[Tuple[List[str], List[float], List[int]]]=None, contextual_token_embedding: Optional[List[float]]=None) ->Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]], Optional[torch.Tensor], torch.Tensor]:
         src_len = len(word_ids)
-        dict_tensors: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-            ] = None
+        dict_tensors: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = None
         if dict_feat is not None:
             dict_tokens, dict_weights, dict_lengths = dict_feat
             dict_ids = self.dictfeat_vocab.lookup_indices_1d(dict_tokens)
-            dict_tensors = torch.tensor([dict_ids]), torch.tensor([
-                dict_weights], dtype=torch.float), torch.tensor([dict_lengths])
+            dict_tensors = torch.tensor([dict_ids]), torch.tensor([dict_weights], dtype=torch.float), torch.tensor([dict_lengths])
         contextual_embedding_tensor: Optional[torch.Tensor] = None
         if contextual_token_embedding is not None:
-            assert len(contextual_token_embedding) % src_len == 0 and len(
-                contextual_token_embedding
-                ) > 0, f'Incorrect size for contextual embeddings: {len(contextual_token_embedding)}, Expected a non-zero multiple of input token count {src_len} '
-            contextual_embedding_tensor = torch.tensor([
-                contextual_token_embedding], dtype=torch.float)
-        return torch.tensor(word_ids).reshape(-1, 1
-            ), dict_tensors, contextual_embedding_tensor, torch.tensor([
-            src_len])
+            assert len(contextual_token_embedding) % src_len == 0 and len(contextual_token_embedding) > 0, f'Incorrect size for contextual embeddings: {len(contextual_token_embedding)}, Expected a non-zero multiple of input token count {src_len} '
+            contextual_embedding_tensor = torch.tensor([contextual_token_embedding], dtype=torch.float)
+        return torch.tensor(word_ids).reshape(-1, 1), dict_tensors, contextual_embedding_tensor, torch.tensor([src_len])
 
-    def forward(self, src_tokens: List[str], dict_feat: Optional[Tuple[List
-        [str], List[float], List[int]]]=None, contextual_token_embedding:
-        Optional[List[float]]=None) ->List[Tuple[List[str], float, List[float]]
-        ]:
+    def forward(self, src_tokens: List[str], dict_feat: Optional[Tuple[List[str], List[float], List[int]]]=None, contextual_token_embedding: Optional[List[float]]=None) ->List[Tuple[List[str], float, List[float]]]:
         word_ids = self.source_vocab.lookup_indices_1d(src_tokens)
-        single_unk_token: Optional[str] = get_single_unk_token(src_tokens,
-            word_ids, self.copy_unk_token, self.unk_idx)
-        words, dict_tensors, contextual_embedding_tensor, src_lengths = (self
-            .prepare_generator_inputs(word_ids, dict_feat,
-            contextual_token_embedding))
-        hypos_etc = self.sequence_generator(words, dict_tensors,
-            contextual_embedding_tensor, src_lengths)
+        single_unk_token: Optional[str] = get_single_unk_token(src_tokens, word_ids, self.copy_unk_token, self.unk_idx)
+        words, dict_tensors, contextual_embedding_tensor, src_lengths = self.prepare_generator_inputs(word_ids, dict_feat, contextual_token_embedding)
+        hypos_etc = self.sequence_generator(words, dict_tensors, contextual_embedding_tensor, src_lengths)
         hypos_list: List[Tuple[List[str], float, List[float]]] = []
         filter_token_list: List[int] = []
         if self.filter_eos_bos:
-            filter_token_list = [self.target_vocab.bos_idx, self.
-                target_vocab.eos_idx]
+            filter_token_list = [self.target_vocab.bos_idx, self.target_vocab.eos_idx]
         for seq in hypos_etc:
             hyopthesis = seq[0]
-            stringified = self.target_vocab.lookup_words_1d(hyopthesis,
-                filter_token_list=filter_token_list, possible_unk_token=
-                single_unk_token)
+            stringified = self.target_vocab.lookup_words_1d(hyopthesis, filter_token_list=filter_token_list, possible_unk_token=single_unk_token)
             hypos_list.append((stringified, seq[1], seq[2]))
         return hypos_list
 
@@ -3474,10 +3146,7 @@ class VectorNormalizer(torch.nn.Module):
         self.feature_stddevs = [1.0] * dim
 
     def __getstate__(self):
-        return {'num_rows': self.num_rows, 'feature_sums': self.
-            feature_sums, 'feature_squared_sums': self.feature_squared_sums,
-            'do_normalization': self.do_normalization, 'feature_avgs': self
-            .feature_avgs, 'feature_stddevs': self.feature_stddevs}
+        return {'num_rows': self.num_rows, 'feature_sums': self.feature_sums, 'feature_squared_sums': self.feature_squared_sums, 'do_normalization': self.do_normalization, 'feature_avgs': self.feature_avgs, 'feature_stddevs': self.feature_stddevs}
 
     def __setstate__(self, state):
         self.num_rows = state['num_rows']
@@ -3499,19 +3168,15 @@ class VectorNormalizer(torch.nn.Module):
 
     def calculate_feature_stats(self):
         if self.do_normalization:
-            self.feature_avgs = [(x / self.num_rows) for x in self.feature_sums
-                ]
-            self.feature_stddevs = [((self.feature_squared_sums[i] / self.
-                num_rows - self.feature_avgs[i] ** 2) ** 0.5) for i in
-                range(len(self.feature_squared_sums))]
+            self.feature_avgs = [(x / self.num_rows) for x in self.feature_sums]
+            self.feature_stddevs = [((self.feature_squared_sums[i] / self.num_rows - self.feature_avgs[i] ** 2) ** 0.5) for i in range(len(self.feature_squared_sums))]
 
     def normalize(self, vec: List[List[float]]):
         if self.do_normalization:
             for i in range(len(vec)):
                 for j in range(len(vec[i])):
                     vec[i][j] -= self.feature_avgs[j]
-                    vec[i][j] /= self.feature_stddevs[j
-                        ] if self.feature_stddevs[j] != 0 else 1.0
+                    vec[i][j] /= self.feature_stddevs[j] if self.feature_stddevs[j] != 0 else 1.0
         return vec
 
 
@@ -3590,8 +3255,7 @@ class Lazy(nn.Module):
 
     @property
     def _parameters(self):
-        raise UninitializedLazyModuleError(
-            'Must call init_lazy_modules before getting parameters')
+        raise UninitializedLazyModuleError('Must call init_lazy_modules before getting parameters')
 
     @_parameters.setter
     def _parameters(self, value):
@@ -3602,21 +3266,16 @@ class Lazy(nn.Module):
 
     def forward(self, *args, **kwargs):
         if not self._module:
-            constructor_args = [(arg if not isinstance(arg, Infer) else arg
-                .resolve(*args, **kwargs)) for arg in self._args]
-            constructor_kwargs = {key: (arg if not isinstance(arg, Infer) else
-                arg.resolve(*args, **kwargs)) for key, arg in self._kwargs.
-                items()}
-            self._module = self._module_class(*constructor_args, **
-                constructor_kwargs)
+            constructor_args = [(arg if not isinstance(arg, Infer) else arg.resolve(*args, **kwargs)) for arg in self._args]
+            constructor_kwargs = {key: (arg if not isinstance(arg, Infer) else arg.resolve(*args, **kwargs)) for key, arg in self._kwargs.items()}
+            self._module = self._module_class(*constructor_args, **constructor_kwargs)
         return self._module(*args, **kwargs)
 
     def resolve(self):
         """Must make a call to forward before calling this function; returns the
         full nn.Module object constructed using inferred arguments/dimensions."""
         if not self._module:
-            raise UninitializedLazyModuleError(
-                'Must call forward before calling resolve on a lazy module')
+            raise UninitializedLazyModuleError('Must call forward before calling resolve on a lazy module')
         return self._module
 
 
@@ -3624,60 +3283,121 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiLSTM,
+     lambda: ([], {'num_layers': 1, 'bidirectional': 4, 'embed_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (FCModelWithNanAndInfWts,
+     lambda: ([], {}),
+     lambda: ([torch.rand([10, 10])], {}),
+     True),
+    (GeLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Highway,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaxPool,
+     lambda: ([], {'config': _mock_config(), 'n_input': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MeanPool,
+     lambda: ([], {'config': _mock_config(), 'n_input': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiLabelClassificationScores,
+     lambda: ([], {'scores': [_mock_layer()]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoPool,
+     lambda: ([], {'config': _mock_config(), 'n_input': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PlaceholderAttentionIdentity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PlaceholderIdentity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfAttention,
+     lambda: ([], {'config': _mock_config(dropout=0.5, attn_dimension=4), 'n_input': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SeparableConv1d,
+     lambda: ([], {'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (SlotAttention,
+     lambda: ([], {'config': _mock_config(attention_type=4), 'n_input': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Transformer,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
+    (Trim1d,
+     lambda: ([], {'trim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VectorNormalizer,
+     lambda: ([], {'dim': 4}),
+     lambda: ([], {}),
+     True),
+]
+
 class Test_facebookresearch_pytext(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BiLSTM(*[], **{'num_layers': 1, 'bidirectional': 4, 'embed_dim': 4, 'hidden_dim': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FCModelWithNanAndInfWts(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MaxPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MeanPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MultiLabelClassificationScores(*[], **{'scores': [_mock_layer()]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(NoPool(*[], **{'config': _mock_config(), 'n_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(PlaceholderAttentionIdentity(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PlaceholderIdentity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(SelfAttention(*[], **{'config': _mock_config(dropout=0.5, attn_dimension=4), 'n_input': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SeparableConv1d(*[], **{'input_channels': 4, 'output_channels': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'bottleneck': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(SlotAttention(*[], **{'config': _mock_config(attention_type=4), 'n_input': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Transformer(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Trim1d(*[], **{'trim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(VectorNormalizer(*[], **{'dim': 4}), [], {})
+        self._check(*TESTCASES[15])
 

@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,9 +66,7 @@ from collections import namedtuple
 class ConvRNNCellBase(nn.Module):
 
     def __repr__(self):
-        s = (
-            '{name}({input_channels}, {hidden_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{name}({input_channels}, {hidden_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
@@ -88,8 +87,7 @@ class Sign(nn.Module):
 
 class ConvLSTMCell(ConvRNNCellBase):
 
-    def __init__(self, input_channels, hidden_channels, kernel_size=3,
-        stride=1, padding=0, dilation=1, hidden_kernel_size=1, bias=True):
+    def __init__(self, input_channels, hidden_channels, kernel_size=3, stride=1, padding=0, dilation=1, hidden_kernel_size=1, bias=True):
         super(ConvLSTMCell, self).__init__()
         self.input_channels = input_channels
         self.hidden_channels = hidden_channels
@@ -100,13 +98,8 @@ class ConvLSTMCell(ConvRNNCellBase):
         self.hidden_kernel_size = _pair(hidden_kernel_size)
         hidden_padding = _pair(hidden_kernel_size // 2)
         gate_channels = 4 * self.hidden_channels
-        self.conv_ih = nn.Conv2d(in_channels=self.input_channels,
-            out_channels=gate_channels, kernel_size=self.kernel_size,
-            stride=self.stride, padding=self.padding, dilation=self.
-            dilation, bias=bias)
-        self.conv_hh = nn.Conv2d(in_channels=self.hidden_channels,
-            out_channels=gate_channels, kernel_size=hidden_kernel_size,
-            stride=1, padding=hidden_padding, dilation=1, bias=bias)
+        self.conv_ih = nn.Conv2d(in_channels=self.input_channels, out_channels=gate_channels, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=bias)
+        self.conv_hh = nn.Conv2d(in_channels=self.hidden_channels, out_channels=gate_channels, kernel_size=hidden_kernel_size, stride=1, padding=hidden_padding, dilation=1, bias=bias)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -135,20 +128,12 @@ class EncoderCell(nn.Module):
         self.fuse_level = fuse_level
         if fuse_encoder:
             None
-        self.conv = nn.Conv2d(9 if stack else 3, 64, kernel_size=3, stride=
-            2, padding=1, bias=False)
-        self.rnn1 = ConvLSTMCell(128 if fuse_encoder and v_compress else 64,
-            256, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1,
-            bias=False)
-        self.rnn2 = ConvLSTMCell((384 if fuse_encoder and v_compress else 
-            256) if self.fuse_level >= 2 else 256, 512, kernel_size=3,
-            stride=2, padding=1, hidden_kernel_size=1, bias=False)
-        self.rnn3 = ConvLSTMCell((768 if fuse_encoder and v_compress else 
-            512) if self.fuse_level >= 3 else 512, 512, kernel_size=3,
-            stride=2, padding=1, hidden_kernel_size=1, bias=False)
+        self.conv = nn.Conv2d(9 if stack else 3, 64, kernel_size=3, stride=2, padding=1, bias=False)
+        self.rnn1 = ConvLSTMCell(128 if fuse_encoder and v_compress else 64, 256, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn2 = ConvLSTMCell((384 if fuse_encoder and v_compress else 256) if self.fuse_level >= 2 else 256, 512, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn3 = ConvLSTMCell((768 if fuse_encoder and v_compress else 512) if self.fuse_level >= 3 else 512, 512, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1, bias=False)
 
-    def forward(self, input, hidden1, hidden2, hidden3, unet_output1,
-        unet_output2):
+    def forward(self, input, hidden1, hidden2, hidden3, unet_output1, unet_output2):
         x = self.conv(input)
         if self.v_compress and self.fuse_encoder:
             x = torch.cat([x, unet_output1[2], unet_output2[2]], dim=1)
@@ -185,24 +170,14 @@ class DecoderCell(nn.Module):
         self.v_compress = v_compress
         self.fuse_level = fuse_level
         None
-        self.conv1 = nn.Conv2d(bits, 512, kernel_size=1, stride=1, padding=
-            0, bias=False)
-        self.rnn1 = ConvLSTMCell(512, 512, kernel_size=3, stride=1, padding
-            =1, hidden_kernel_size=1, bias=False)
-        self.rnn2 = ConvLSTMCell((128 + 256 // shrink * 2 if v_compress else
-            128) if self.fuse_level >= 3 else 128, 512, kernel_size=3,
-            stride=1, padding=1, hidden_kernel_size=1, bias=False)
-        self.rnn3 = ConvLSTMCell((128 + 128 // shrink * 2 if v_compress else
-            128) if self.fuse_level >= 2 else 128, 256, kernel_size=3,
-            stride=1, padding=1, hidden_kernel_size=3, bias=False)
-        self.rnn4 = ConvLSTMCell(64 + 64 // shrink * 2 if v_compress else 
-            64, 128, kernel_size=3, stride=1, padding=1, hidden_kernel_size
-            =3, bias=False)
-        self.conv2 = nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(bits, 512, kernel_size=1, stride=1, padding=0, bias=False)
+        self.rnn1 = ConvLSTMCell(512, 512, kernel_size=3, stride=1, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn2 = ConvLSTMCell((128 + 256 // shrink * 2 if v_compress else 128) if self.fuse_level >= 3 else 128, 512, kernel_size=3, stride=1, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn3 = ConvLSTMCell((128 + 128 // shrink * 2 if v_compress else 128) if self.fuse_level >= 2 else 128, 256, kernel_size=3, stride=1, padding=1, hidden_kernel_size=3, bias=False)
+        self.rnn4 = ConvLSTMCell(64 + 64 // shrink * 2 if v_compress else 64, 128, kernel_size=3, stride=1, padding=1, hidden_kernel_size=3, bias=False)
+        self.conv2 = nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0, bias=False)
 
-    def forward(self, input, hidden1, hidden2, hidden3, hidden4,
-        unet_output1, unet_output2):
+    def forward(self, input, hidden1, hidden2, hidden3, hidden4, unet_output1, unet_output2):
         x = self.conv1(input)
         hidden1 = self.rnn1(x, hidden1)
         x = hidden1[0]
@@ -257,10 +232,7 @@ class double_conv(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(double_conv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch,
-            out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=
-            True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
 
     def forward(self, x):
         x = self.conv(x)
@@ -282,8 +254,7 @@ class down(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(down, self).__init__()
-        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch)
-            )
+        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch))
 
     def forward(self, x):
         x = self.mpconv(x)
@@ -304,8 +275,7 @@ class up(nn.Module):
         x1 = self.up(x1)
         diffX = x1.size()[2] - x2.size()[2]
         diffY = x1.size()[3] - x2.size()[3]
-        x2 = F.pad(x2, (diffX // 2, int(diffX / 2), diffY // 2, int(diffY / 2))
-            )
+        x2 = F.pad(x2, (diffX // 2, int(diffX / 2), diffY // 2, int(diffY / 2)))
         x = torch.cat([x2, x1], dim=1)
         x = self.conv(x)
         return x
@@ -326,23 +296,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (UNet,
+     lambda: ([], {'n_channels': 4, 'shrink': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (double_conv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (down,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (inconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (outconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (up,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     True),
+]
+
 class Test_chaoyuaw_pytorch_vcii(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(UNet(*[], **{'n_channels': 4, 'shrink': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(inconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

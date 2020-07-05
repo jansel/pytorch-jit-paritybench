@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,10 +71,8 @@ import re
 def conv_pad_same(x, size, kernel=1, stride=1, **kw):
     pad = 0
     if kernel != 1 or stride != 1:
-        in_size, s, k = [torch.as_tensor(v) for v in (x.shape[2:], stride,
-            kernel)]
-        pad = torch.max(((in_size + s - 1) // s - 1) * s + k - in_size,
-            torch.tensor(0))
+        in_size, s, k = [torch.as_tensor(v) for v in (x.shape[2:], stride, kernel)]
+        pad = torch.max(((in_size + s - 1) // s - 1) * s + k - in_size, torch.tensor(0))
         left, right = pad // 2, pad - pad // 2
         if torch.all(left == right):
             pad = tuple(left.tolist())
@@ -97,8 +96,7 @@ def _auto_name(name, parent):
 
         def _hook(model, x):
             model._pywarm_auto_name_dict = {}
-        parent._pywarm_forward_pre_hook = parent.register_forward_pre_hook(
-            _hook)
+        parent._pywarm_forward_pre_hook = parent.register_forward_pre_hook(_hook)
     track = parent._pywarm_auto_name_dict
     if name not in track:
         track[name] = 0
@@ -131,12 +129,9 @@ def swish(x):
 
 
 @namespace
-def conv_bn_act(x, size, kernel=1, stride=1, groups=1, bias=False, eps=
-    0.001, momentum=0.01, act=swish, name='', **kw):
-    x = conv_pad_same(x, size, kernel, stride=stride, groups=groups, bias=
-        bias, name=name + '-conv')
-    return W.batch_norm(x, eps=eps, momentum=momentum, activation=act, name
-        =name + '-bn')
+def conv_bn_act(x, size, kernel=1, stride=1, groups=1, bias=False, eps=0.001, momentum=0.01, act=swish, name='', **kw):
+    x = conv_pad_same(x, size, kernel, stride=stride, groups=groups, bias=bias, name=name + '-conv')
+    return W.batch_norm(x, eps=eps, momentum=momentum, activation=act, name=name + '-bn')
 
 
 def drop_connect(x, rate):
@@ -144,8 +139,7 @@ def drop_connect(x, rate):
     if rate == 0:
         return x
     rate = 1.0 - rate
-    drop_mask = torch.rand([x.shape[0], 1, 1, 1], device=x.device,
-        requires_grad=False) + rate
+    drop_mask = torch.rand([x.shape[0], 1, 1, 1], device=x.device, requires_grad=False) + rate
     return x / rate * drop_mask.floor()
 
 
@@ -160,8 +154,7 @@ def squeeze_excitation(x, size_se, name='', **kw):
 
 
 @namespace
-def mb_block(x, size_out, expand=1, kernel=1, stride=1, se_ratio=0.25,
-    dc_ratio=0.2, **kw):
+def mb_block(x, size_out, expand=1, kernel=1, stride=1, se_ratio=0.25, dc_ratio=0.2, **kw):
     """ MobileNet Bottleneck Block. """
     size_in = x.shape[1]
     size_mid = size_in * expand
@@ -175,9 +168,7 @@ def mb_block(x, size_out, expand=1, kernel=1, stride=1, se_ratio=0.25,
     return y
 
 
-spec_b0 = (16, 1, 3, 1, 1, 0.25, 0.2), (24, 6, 3, 2, 2, 0.25, 0.2), (40, 6,
-    5, 2, 2, 0.25, 0.2), (80, 6, 3, 2, 3, 0.25, 0.2), (112, 6, 5, 1, 3, 
-    0.25, 0.2), (192, 6, 5, 2, 4, 0.25, 0.2), (320, 6, 3, 1, 1, 0.25, 0.2)
+spec_b0 = (16, 1, 3, 1, 1, 0.25, 0.2), (24, 6, 3, 2, 2, 0.25, 0.2), (40, 6, 5, 2, 2, 0.25, 0.2), (80, 6, 3, 2, 3, 0.25, 0.2), (112, 6, 5, 1, 3, 0.25, 0.2), (192, 6, 5, 2, 4, 0.25, 0.2), (320, 6, 3, 1, 1, 0.25, 0.2)
 
 
 class WarmEfficientNet(nn.Module):
@@ -191,8 +182,7 @@ class WarmEfficientNet(nn.Module):
         for size, expand, kernel, stride, repeat, se_ratio, dc_ratio in spec_b0:
             for i in range(repeat):
                 stride = stride if i == 0 else 1
-                x = mb_block(x, size, expand, kernel, stride, se_ratio,
-                    dc_ratio)
+                x = mb_block(x, size, expand, kernel, stride, se_ratio, dc_ratio)
         x = conv_bn_act(x, 1280, name='tail')
         x = F.adaptive_avg_pool2d(x, 1)
         x = W.dropout(x, 0.2)
@@ -272,20 +262,16 @@ class TorchNet(nn.Module):
 
 
 def conv_bn_relu(x, size, stride=1, expand=1, kernel=3, groups=1, name=''):
-    x = W.conv(x, size, kernel, padding=(kernel - 1) // 2, stride=stride,
-        groups=groups, bias=False, name=f'{name}-0')
+    x = W.conv(x, size, kernel, padding=(kernel - 1) // 2, stride=stride, groups=groups, bias=False, name=f'{name}-0')
     return W.batch_norm(x, activation='relu6', name=f'{name}-1')
 
 
 def bottleneck(x, size_out, stride, expand, name=''):
     size_in = x.shape[1]
     size_mid = size_in * expand
-    y = conv_bn_relu(x, size_mid, kernel=1, name=f'{name}-conv-0'
-        ) if expand > 1 else x
-    y = conv_bn_relu(y, size_mid, stride, kernel=3, groups=size_mid, name=
-        f'{name}-conv-{1 if expand > 1 else 0}')
-    y = W.conv(y, size_out, kernel=1, bias=False, name=
-        f'{name}-conv-{2 if expand > 1 else 1}')
+    y = conv_bn_relu(x, size_mid, kernel=1, name=f'{name}-conv-0') if expand > 1 else x
+    y = conv_bn_relu(y, size_mid, stride, kernel=3, groups=size_mid, name=f'{name}-conv-{1 if expand > 1 else 0}')
+    y = W.conv(y, size_out, kernel=1, bias=False, name=f'{name}-conv-{2 if expand > 1 else 1}')
     y = W.batch_norm(y, name=f'{name}-conv-{3 if expand > 1 else 2}')
     if stride == 1 and size_in == size_out:
         y += x
@@ -305,11 +291,7 @@ def pool(x, *arg, **kw):
     return x.mean([2, 3])
 
 
-default_spec = (None, 32, 1, 2, conv_bn_relu), (1, 16, 1, 1, bottleneck), (
-    6, 24, 2, 2, bottleneck), (6, 32, 3, 2, bottleneck), (6, 64, 4, 2,
-    bottleneck), (6, 96, 3, 1, bottleneck), (6, 160, 3, 2, bottleneck), (6,
-    320, 1, 1, bottleneck), (None, 1280, 1, 1, conv1x1), (None, None, 1,
-    None, pool), (None, 1000, 1, None, classify)
+default_spec = (None, 32, 1, 2, conv_bn_relu), (1, 16, 1, 1, bottleneck), (6, 24, 2, 2, bottleneck), (6, 32, 3, 2, bottleneck), (6, 64, 4, 2, bottleneck), (6, 96, 3, 1, bottleneck), (6, 160, 3, 2, bottleneck), (6, 320, 1, 1, bottleneck), (None, 1280, 1, 1, conv1x1), (None, None, 1, None, pool), (None, 1000, 1, None, classify)
 
 
 class WarmMobileNetV2(nn.Module):
@@ -331,15 +313,12 @@ class WarmMobileNetV2(nn.Module):
 def basic(x, size, stride, stack_index, block_index):
     """ The basic block. """
     prefix = f'layer{stack_index + 1}-{block_index}-'
-    y = W.conv(x, size, 3, stride=stride, padding=1, bias=False, name=
-        prefix + 'conv1')
+    y = W.conv(x, size, 3, stride=stride, padding=1, bias=False, name=prefix + 'conv1')
     y = W.batch_norm(y, activation='relu', name=prefix + 'bn1')
-    y = W.conv(y, size, 3, stride=1, padding=1, bias=False, name=prefix +
-        'conv2')
+    y = W.conv(y, size, 3, stride=1, padding=1, bias=False, name=prefix + 'conv2')
     y = W.batch_norm(y, name=prefix + 'bn2')
     if y.shape[1] != x.shape[1]:
-        x = W.conv(x, y.shape[1], 1, stride=stride, bias=False, name=prefix +
-            'downsample-0')
+        x = W.conv(x, y.shape[1], 1, stride=stride, bias=False, name=prefix + 'downsample-0')
         x = W.batch_norm(x, name=prefix + 'downsample-1')
     return F.relu(y + x)
 
@@ -353,8 +332,7 @@ def stack(x, num_block, size, stride, stack_index, block=basic):
 
 class WarmResNet(nn.Module):
 
-    def __init__(self, block=basic, stack_spec=((2, 64, 1), (2, 128, 2), (2,
-        256, 2), (2, 512, 2))):
+    def __init__(self, block=basic, stack_spec=((2, 64, 1), (2, 128, 2), (2, 256, 2), (2, 512, 2))):
         super().__init__()
         self.block = block
         self.stack_spec = stack_spec
@@ -377,8 +355,7 @@ def identity(x, *arg, **kw):
     return x
 
 
-def transformer(x, y=None, num_encoder=6, num_decoder=6, num_head=8, mask=
-    None, causal=False, in_shape='BCD', **kw):
+def transformer(x, y=None, num_encoder=6, num_decoder=6, num_head=8, mask=None, causal=False, in_shape='BCD', **kw):
     """ Transformer layer.
 
     This layer covers functionality of `Transformer`, `TransformerEncoder`, and `TransformerDecoder`.
@@ -401,8 +378,7 @@ def transformer(x, y=None, num_encoder=6, num_decoder=6, num_head=8, mask=
 
     def _causal_mask(n):
         mask = (torch.triu(torch.ones(n, n)) == 1).transpose(0, 1)
-        return mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(
-            mask == 1, float(0.0))
+        return mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
     if y is None:
         y = x
     y = permute(y, in_shape, 'DBC')
@@ -415,12 +391,7 @@ def transformer(x, y=None, num_encoder=6, num_decoder=6, num_head=8, mask=
         mask['tgt_mask'] = mask.pop('tgt_mask', 0.0) + my
     encoder = identity if num_encoder == 0 else None
     decoder = identity if num_decoder == 0 else None
-    inferred_kw = dict(base_name='transformer', base_class=nn.Transformer,
-        base_shape='DBC', base_kw=dict(d_model=x.shape[in_shape.find('C')],
-        custom_encoder=encoder, custom_decoder=decoder, nhead=num_head,
-        num_encoder_layers=num_encoder, num_decoder_layers=num_decoder, **
-        engine.unused_kwargs(kw)), in_shape=in_shape, forward_kw=mask,
-        forward_arg=(y,))
+    inferred_kw = dict(base_name='transformer', base_class=nn.Transformer, base_shape='DBC', base_kw=dict(d_model=x.shape[in_shape.find('C')], custom_encoder=encoder, custom_decoder=decoder, nhead=num_head, num_encoder_layers=num_encoder, num_decoder_layers=num_decoder, **engine.unused_kwargs(kw)), in_shape=in_shape, forward_kw=mask, forward_arg=(y,))
     return engine.forward(x, **{**inferred_kw, **kw})
 
 
@@ -475,16 +446,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_blue_season_pywarm(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Lambda(*[], **{'fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Lambda,
+     lambda: ([], {'fn': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Sequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TorchTagger,
+     lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
+class Test_blue_season_pywarm(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TorchTagger(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'tagset_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,8 +80,7 @@ class _ASPP(nn.Module):
     def __init__(self, in_ch, out_ch, rates):
         super(_ASPP, self).__init__()
         for i, rate in enumerate(rates):
-            self.add_module('c{}'.format(i), nn.Conv2d(in_ch, out_ch, 3, 1,
-                padding=rate, dilation=rate, bias=True))
+            self.add_module('c{}'.format(i), nn.Conv2d(in_ch, out_ch, 3, 1, padding=rate, dilation=rate, bias=True))
         for m in self.children():
             nn.init.normal_(m.weight, mean=0, std=0.01)
             nn.init.constant_(m.bias, 0)
@@ -136,8 +136,7 @@ class _ASPP(nn.Module):
         self.stages = nn.Module()
         self.stages.add_module('c0', _ConvBnReLU(in_ch, out_ch, 1, 1, 0, 1))
         for i, rate in enumerate(rates):
-            self.stages.add_module('c{}'.format(i + 1), _ConvBnReLU(in_ch,
-                out_ch, 3, 1, padding=rate, dilation=rate))
+            self.stages.add_module('c{}'.format(i + 1), _ConvBnReLU(in_ch, out_ch, 3, 1, padding=rate, dilation=rate))
         self.stages.add_module('imagepool', _ImagePool(in_ch, out_ch))
 
     def forward(self, x):
@@ -149,8 +148,7 @@ class DeepLabV3(nn.Sequential):
     DeepLab v3: Dilated ResNet with multi-grid + improved ASPP
     """
 
-    def __init__(self, n_classes, n_blocks, atrous_rates, multi_grids,
-        output_stride):
+    def __init__(self, n_classes, n_blocks, atrous_rates, multi_grids, output_stride):
         super(DeepLabV3, self).__init__()
         if output_stride == 8:
             s = [1, 2, 1, 1]
@@ -160,14 +158,10 @@ class DeepLabV3(nn.Sequential):
             d = [1, 1, 1, 2]
         ch = [(64 * 2 ** p) for p in range(6)]
         self.add_module('layer1', _Stem(ch[0]))
-        self.add_module('layer2', _ResLayer(n_blocks[0], ch[0], ch[2], s[0],
-            d[0]))
-        self.add_module('layer3', _ResLayer(n_blocks[1], ch[2], ch[3], s[1],
-            d[1]))
-        self.add_module('layer4', _ResLayer(n_blocks[2], ch[3], ch[4], s[2],
-            d[2]))
-        self.add_module('layer5', _ResLayer(n_blocks[3], ch[4], ch[5], s[3],
-            d[3], multi_grids))
+        self.add_module('layer2', _ResLayer(n_blocks[0], ch[0], ch[2], s[0], d[0]))
+        self.add_module('layer3', _ResLayer(n_blocks[1], ch[2], ch[3], s[1], d[1]))
+        self.add_module('layer4', _ResLayer(n_blocks[2], ch[3], ch[4], s[2], d[2]))
+        self.add_module('layer5', _ResLayer(n_blocks[3], ch[4], ch[5], s[3], d[3], multi_grids))
         self.add_module('aspp', _ASPP(ch[5], 256, atrous_rates))
         concat_ch = 256 * (len(atrous_rates) + 2)
         self.add_module('fc1', _ConvBnReLU(concat_ch, 256, 1, 1, 0, 1))
@@ -179,8 +173,7 @@ class DeepLabV3Plus(nn.Module):
     DeepLab v3+: Dilated ResNet with multi-grid + improved ASPP + decoder
     """
 
-    def __init__(self, n_classes, n_blocks, atrous_rates, multi_grids,
-        output_stride):
+    def __init__(self, n_classes, n_blocks, atrous_rates, multi_grids, output_stride):
         super(DeepLabV3Plus, self).__init__()
         if output_stride == 8:
             s = [1, 2, 1, 1]
@@ -193,15 +186,12 @@ class DeepLabV3Plus(nn.Module):
         self.layer2 = _ResLayer(n_blocks[0], ch[0], ch[2], s[0], d[0])
         self.layer3 = _ResLayer(n_blocks[1], ch[2], ch[3], s[1], d[1])
         self.layer4 = _ResLayer(n_blocks[2], ch[3], ch[4], s[2], d[2])
-        self.layer5 = _ResLayer(n_blocks[3], ch[4], ch[5], s[3], d[3],
-            multi_grids)
+        self.layer5 = _ResLayer(n_blocks[3], ch[4], ch[5], s[3], d[3], multi_grids)
         self.aspp = _ASPP(ch[5], 256, atrous_rates)
         concat_ch = 256 * (len(atrous_rates) + 2)
         self.add_module('fc1', _ConvBnReLU(concat_ch, 256, 1, 1, 0, 1))
         self.reduce = _ConvBnReLU(256, 48, 1, 1, 0, 1)
-        self.fc2 = nn.Sequential(OrderedDict([('conv1', _ConvBnReLU(304, 
-            256, 3, 1, 1, 1)), ('conv2', _ConvBnReLU(256, 256, 3, 1, 1, 1)),
-            ('conv3', nn.Conv2d(256, n_classes, kernel_size=1))]))
+        self.fc2 = nn.Sequential(OrderedDict([('conv1', _ConvBnReLU(304, 256, 3, 1, 1, 1)), ('conv2', _ConvBnReLU(256, 256, 3, 1, 1, 1)), ('conv3', nn.Conv2d(256, n_classes, kernel_size=1))]))
 
     def forward(self, x):
         h = self.layer1(x)
@@ -212,12 +202,10 @@ class DeepLabV3Plus(nn.Module):
         h = self.layer5(h)
         h = self.aspp(h)
         h = self.fc1(h)
-        h = F.interpolate(h, size=h_.shape[2:], mode='bilinear',
-            align_corners=False)
+        h = F.interpolate(h, size=h_.shape[2:], mode='bilinear', align_corners=False)
         h = torch.cat((h, h_), dim=1)
         h = self.fc2(h)
-        h = F.interpolate(h, size=x.shape[2:], mode='bilinear',
-            align_corners=False)
+        h = F.interpolate(h, size=x.shape[2:], mode='bilinear', align_corners=False)
         return h
 
 
@@ -237,12 +225,10 @@ class MSC(nn.Module):
     def forward(self, x):
         logits = self.base(x)
         _, _, H, W = logits.shape
-        interp = lambda l: F.interpolate(l, size=(H, W), mode='bilinear',
-            align_corners=False)
+        interp = lambda l: F.interpolate(l, size=(H, W), mode='bilinear', align_corners=False)
         logits_pyramid = []
         for p in self.scales:
-            h = F.interpolate(x, scale_factor=p, mode='bilinear',
-                align_corners=False)
+            h = F.interpolate(x, scale_factor=p, mode='bilinear', align_corners=False)
             logits_pyramid.append(self.base(h))
         logits_all = [logits] + [interp(l) for l in logits_pyramid]
         logits_max = torch.max(torch.stack(logits_all), dim=0)[0]
@@ -264,11 +250,9 @@ class _Bottleneck(nn.Module):
         super(_Bottleneck, self).__init__()
         mid_ch = out_ch // _BOTTLENECK_EXPANSION
         self.reduce = _ConvBnReLU(in_ch, mid_ch, 1, stride, 0, 1, True)
-        self.conv3x3 = _ConvBnReLU(mid_ch, mid_ch, 3, 1, dilation, dilation,
-            True)
+        self.conv3x3 = _ConvBnReLU(mid_ch, mid_ch, 3, 1, dilation, dilation, True)
         self.increase = _ConvBnReLU(mid_ch, out_ch, 1, 1, 0, 1, False)
-        self.shortcut = _ConvBnReLU(in_ch, out_ch, 1, stride, 0, 1, False
-            ) if downsample else lambda x: x
+        self.shortcut = _ConvBnReLU(in_ch, out_ch, 1, stride, 0, 1, False) if downsample else lambda x: x
 
     def forward(self, x):
         h = self.reduce(x)
@@ -283,18 +267,14 @@ class _ResLayer(nn.Sequential):
     Residual layer with multi grids
     """
 
-    def __init__(self, n_layers, in_ch, out_ch, stride, dilation,
-        multi_grids=None):
+    def __init__(self, n_layers, in_ch, out_ch, stride, dilation, multi_grids=None):
         super(_ResLayer, self).__init__()
         if multi_grids is None:
             multi_grids = [(1) for _ in range(n_layers)]
         else:
             assert n_layers == len(multi_grids)
         for i in range(n_layers):
-            self.add_module('block{}'.format(i + 1), _Bottleneck(in_ch=
-                in_ch if i == 0 else out_ch, out_ch=out_ch, stride=stride if
-                i == 0 else 1, dilation=dilation * multi_grids[i],
-                downsample=True if i == 0 else False))
+            self.add_module('block{}'.format(i + 1), _Bottleneck(in_ch=in_ch if i == 0 else out_ch, out_ch=out_ch, stride=stride if i == 0 else 1, dilation=dilation * multi_grids[i], downsample=True if i == 0 else False))
 
 
 class _Stem(nn.Sequential):
@@ -334,12 +314,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MSC,
+     lambda: ([], {'base': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kazuto1011_deeplab_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MSC(*[], **{'base': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(_Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

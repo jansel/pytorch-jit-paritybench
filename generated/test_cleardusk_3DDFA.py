@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,11 +83,9 @@ class DepthWiseBlock(nn.Module):
     def __init__(self, inplanes, planes, stride=1, prelu=False):
         super(DepthWiseBlock, self).__init__()
         inplanes, planes = int(inplanes), int(planes)
-        self.conv_dw = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding
-            =1, stride=stride, groups=inplanes, bias=False)
+        self.conv_dw = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1, stride=stride, groups=inplanes, bias=False)
         self.bn_dw = nn.BatchNorm2d(inplanes)
-        self.conv_sep = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv_sep = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_sep = nn.BatchNorm2d(planes)
         if prelu:
             self.relu = nn.PReLU()
@@ -105,8 +104,7 @@ class DepthWiseBlock(nn.Module):
 
 class MobileNet(nn.Module):
 
-    def __init__(self, widen_factor=1.0, num_classes=1000, prelu=False,
-        input_channel=3):
+    def __init__(self, widen_factor=1.0, num_classes=1000, prelu=False, input_channel=3):
         """ Constructor
         Args:
             widen_factor: config of widen_factor
@@ -114,29 +112,24 @@ class MobileNet(nn.Module):
         """
         super(MobileNet, self).__init__()
         block = DepthWiseBlock
-        self.conv1 = nn.Conv2d(input_channel, int(32 * widen_factor),
-            kernel_size=3, stride=2, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(input_channel, int(32 * widen_factor), kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(int(32 * widen_factor))
         if prelu:
             self.relu = nn.PReLU()
         else:
             self.relu = nn.ReLU(inplace=True)
         self.dw2_1 = block(32 * widen_factor, 64 * widen_factor, prelu=prelu)
-        self.dw2_2 = block(64 * widen_factor, 128 * widen_factor, stride=2,
-            prelu=prelu)
+        self.dw2_2 = block(64 * widen_factor, 128 * widen_factor, stride=2, prelu=prelu)
         self.dw3_1 = block(128 * widen_factor, 128 * widen_factor, prelu=prelu)
-        self.dw3_2 = block(128 * widen_factor, 256 * widen_factor, stride=2,
-            prelu=prelu)
+        self.dw3_2 = block(128 * widen_factor, 256 * widen_factor, stride=2, prelu=prelu)
         self.dw4_1 = block(256 * widen_factor, 256 * widen_factor, prelu=prelu)
-        self.dw4_2 = block(256 * widen_factor, 512 * widen_factor, stride=2,
-            prelu=prelu)
+        self.dw4_2 = block(256 * widen_factor, 512 * widen_factor, stride=2, prelu=prelu)
         self.dw5_1 = block(512 * widen_factor, 512 * widen_factor, prelu=prelu)
         self.dw5_2 = block(512 * widen_factor, 512 * widen_factor, prelu=prelu)
         self.dw5_3 = block(512 * widen_factor, 512 * widen_factor, prelu=prelu)
         self.dw5_4 = block(512 * widen_factor, 512 * widen_factor, prelu=prelu)
         self.dw5_5 = block(512 * widen_factor, 512 * widen_factor, prelu=prelu)
-        self.dw5_6 = block(512 * widen_factor, 1024 * widen_factor, stride=
-            2, prelu=prelu)
+        self.dw5_6 = block(512 * widen_factor, 1024 * widen_factor, stride=2, prelu=prelu)
         self.dw6 = block(1024 * widen_factor, 1024 * widen_factor, prelu=prelu)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(int(1024 * widen_factor), num_classes)
@@ -235,38 +228,30 @@ class VDCLoss(nn.Module):
         param_gt = target * self.param_std + self.param_mean
         p, offset, alpha_shp, alpha_exp = _parse_param_batch(param)
         pg, offsetg, alpha_shpg, alpha_expg = _parse_param_batch(param_gt)
-        return (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg,
-            alpha_expg)
+        return (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg)
 
     def forward_all(self, input, target):
-        (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg
-            ) = self.reconstruct_and_parse(input, target)
+        (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg) = self.reconstruct_and_parse(input, target)
         N = input.shape[0]
         offset[:, (-1)] = offsetg[:, (-1)]
-        gt_vertex = pg @ (self.u + self.w_shp @ alpha_shpg + self.w_exp @
-            alpha_expg).view(N, -1, 3).permute(0, 2, 1) + offsetg
-        vertex = p @ (self.u + self.w_shp @ alpha_shp + self.w_exp @ alpha_exp
-            ).view(N, -1, 3).permute(0, 2, 1) + offset
+        gt_vertex = pg @ (self.u + self.w_shp @ alpha_shpg + self.w_exp @ alpha_expg).view(N, -1, 3).permute(0, 2, 1) + offsetg
+        vertex = p @ (self.u + self.w_shp @ alpha_shp + self.w_exp @ alpha_exp).view(N, -1, 3).permute(0, 2, 1) + offset
         diff = (gt_vertex - vertex) ** 2
         loss = torch.mean(diff)
         return loss
 
     def forward_resample(self, input, target, resample_num=132):
-        (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg
-            ) = self.reconstruct_and_parse(input, target)
+        (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg) = self.reconstruct_and_parse(input, target)
         index = torch.randperm(self.w_shp_length)[:resample_num].reshape(-1, 1)
-        keypoints_resample = torch.cat((3 * index, 3 * index + 1, 3 * index +
-            2), dim=1).view(-1)
+        keypoints_resample = torch.cat((3 * index, 3 * index + 1, 3 * index + 2), dim=1).view(-1)
         keypoints_mix = torch.cat((self.keypoints, keypoints_resample))
         w_shp_base = self.w_shp[keypoints_mix]
         u_base = self.u[keypoints_mix]
         w_exp_base = self.w_exp[keypoints_mix]
         offset[:, (-1)] = offsetg[:, (-1)]
         N = input.shape[0]
-        gt_vertex = pg @ (u_base + w_shp_base @ alpha_shpg + w_exp_base @
-            alpha_expg).view(N, -1, 3).permute(0, 2, 1) + offsetg
-        vertex = p @ (u_base + w_shp_base @ alpha_shp + w_exp_base @ alpha_exp
-            ).view(N, -1, 3).permute(0, 2, 1) + offset
+        gt_vertex = pg @ (u_base + w_shp_base @ alpha_shpg + w_exp_base @ alpha_expg).view(N, -1, 3).permute(0, 2, 1) + offsetg
+        vertex = p @ (u_base + w_shp_base @ alpha_shp + w_exp_base @ alpha_exp).view(N, -1, 3).permute(0, 2, 1) + offset
         diff = (gt_vertex - vertex) ** 2
         loss = torch.mean(diff)
         return loss
@@ -301,45 +286,37 @@ class WPDCLoss(nn.Module):
         param_gt = target * self.param_std + self.param_mean
         p, offset, alpha_shp, alpha_exp = _parse_param_batch(param)
         pg, offsetg, alpha_shpg, alpha_expg = _parse_param_batch(param_gt)
-        return (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg,
-            alpha_expg)
+        return (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg)
 
     def _calc_weights_resample(self, input_, target_):
         if self.resample_num <= 0:
             keypoints_mix = self.keypoints
         else:
-            index = torch.randperm(self.w_shp_length)[:self.resample_num
-                ].reshape(-1, 1)
-            keypoints_resample = torch.cat((3 * index, 3 * index + 1, 3 *
-                index + 2), dim=1).view(-1)
+            index = torch.randperm(self.w_shp_length)[:self.resample_num].reshape(-1, 1)
+            keypoints_resample = torch.cat((3 * index, 3 * index + 1, 3 * index + 2), dim=1).view(-1)
             keypoints_mix = torch.cat((self.keypoints, keypoints_resample))
         w_shp_base = self.w_shp[keypoints_mix]
         u_base = self.u[keypoints_mix]
         w_exp_base = self.w_exp[keypoints_mix]
         input = torch.tensor(input_.data.clone(), requires_grad=False)
         target = torch.tensor(target_.data.clone(), requires_grad=False)
-        (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg
-            ) = self.reconstruct_and_parse(input, target)
+        (p, offset, alpha_shp, alpha_exp), (pg, offsetg, alpha_shpg, alpha_expg) = self.reconstruct_and_parse(input, target)
         input = self.param_std * input + self.param_mean
         target = self.param_std * target + self.param_mean
         N = input.shape[0]
         offset[:, (-1)] = offsetg[:, (-1)]
         weights = torch.zeros_like(input, dtype=torch.float)
-        tmpv = (u_base + w_shp_base @ alpha_shp + w_exp_base @ alpha_exp).view(
-            N, -1, 3).permute(0, 2, 1)
+        tmpv = (u_base + w_shp_base @ alpha_shp + w_exp_base @ alpha_exp).view(N, -1, 3).permute(0, 2, 1)
         tmpv_norm = torch.norm(tmpv, dim=2)
         offset_norm = sqrt(w_shp_base.shape[0] // 3)
         param_diff_pose = torch.abs(input[:, :11] - target[:, :11])
         for ind in range(11):
             if ind in [0, 4, 8]:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:,
-                    (0)]
+                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:, (0)]
             elif ind in [1, 5, 9]:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:,
-                    (1)]
+                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:, (1)]
             elif ind in [2, 6, 10]:
-                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:,
-                    (2)]
+                weights[:, (ind)] = param_diff_pose[:, (ind)] * tmpv_norm[:, (2)]
             else:
                 weights[:, (ind)] = param_diff_pose[:, (ind)] * offset_norm
         magic_number = 0.00057339936
@@ -369,11 +346,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DepthWiseBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_cleardusk_3DDFA(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DepthWiseBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -118,8 +119,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2,
-            padding=1, bias=True)
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
@@ -133,15 +133,11 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1), bias=True)
+        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1 = nn.BatchNorm2d(chann, eps=0.001)
-        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2 = nn.BatchNorm2d(chann, eps=0.001)
         self.dropout = nn.Dropout2d(dropprob)
 
@@ -175,8 +171,7 @@ class Encoder(nn.Module):
             self.layers.append(non_bottleneck_1d(128, 0.1, 4))
             self.layers.append(non_bottleneck_1d(128, 0.1, 8))
             self.layers.append(non_bottleneck_1d(128, 0.1, 16))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -191,8 +186,7 @@ class UpsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2,
-            padding=1, output_padding=1, bias=True)
+        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
     def forward(self, input):
@@ -212,8 +206,7 @@ class Decoder(nn.Module):
         self.layers.append(UpsamplerBlock(64, 16))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
-        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2,
-            padding=0, output_padding=0, bias=True)
+        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, input):
         output = input
@@ -245,8 +238,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2,
-            padding=1, bias=True)
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
@@ -259,15 +251,11 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1), bias=True)
+        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1 = nn.BatchNorm2d(chann, eps=0.001)
-        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2 = nn.BatchNorm2d(chann, eps=0.001)
         self.dropout = nn.Dropout2d(dropprob)
 
@@ -297,8 +285,7 @@ class Encoder(nn.Module):
             self.layers.append(non_bottleneck_1d(128, 0.3, 4))
             self.layers.append(non_bottleneck_1d(128, 0.3, 8))
             self.layers.append(non_bottleneck_1d(128, 0.3, 16))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -313,8 +300,7 @@ class UpsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2,
-            padding=1, output_padding=1, bias=True)
+        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
     def forward(self, input):
@@ -333,8 +319,7 @@ class Decoder(nn.Module):
         self.layers.append(UpsamplerBlock(64, 16))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
-        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2,
-            padding=0, output_padding=0, bias=True)
+        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, input):
         output = input
@@ -366,8 +351,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2,
-            padding=1, bias=True)
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
@@ -381,14 +365,10 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1), bias=True)
-        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1), bias=True)
+        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn1 = nn.BatchNorm2d(chann, eps=0.001)
         self.bn2 = nn.BatchNorm2d(chann, eps=0.001)
         self.dropout = nn.Dropout2d(dropprob)
@@ -475,8 +455,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2,
-            padding=1, bias=True)
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
@@ -490,15 +469,11 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1), bias=True)
+        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1), bias=True)
         self.bn1 = nn.BatchNorm2d(chann, eps=0.001)
-        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn2 = nn.BatchNorm2d(chann, eps=0.001)
         self.dropout = nn.Dropout2d(dropprob)
 
@@ -532,8 +507,7 @@ class Encoder(nn.Module):
             self.layers.append(non_bottleneck_1d(128, 0.3, 4))
             self.layers.append(non_bottleneck_1d(128, 0.3, 8))
             self.layers.append(non_bottleneck_1d(128, 0.3, 16))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding
-            =0, bias=True)
+        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input, predict=False):
         output = self.initial_block(input)
@@ -548,8 +522,7 @@ class UpsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2,
-            padding=1, output_padding=1, bias=True)
+        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
     def forward(self, input):
@@ -569,8 +542,7 @@ class Decoder(nn.Module):
         self.layers.append(UpsamplerBlock(64, 16))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
         self.layers.append(non_bottleneck_1d(16, 0, 1))
-        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2,
-            padding=0, output_padding=0, bias=True)
+        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, input):
         output = input
@@ -602,8 +574,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
         super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2,
-            padding=1, bias=True)
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(noutput, eps=0.001)
 
@@ -617,14 +588,10 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1), bias=True)
-        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=
-            (1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=
-            (0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_1 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1), bias=True)
+        self.conv3x1_2 = nn.Conv2d(chann, chann, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(chann, chann, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn1 = nn.BatchNorm2d(chann, eps=0.001)
         self.bn2 = nn.BatchNorm2d(chann, eps=0.001)
         self.dropout = nn.Dropout2d(dropprob)
@@ -714,32 +681,58 @@ class CrossEntropyLoss2d(torch.nn.Module):
         self.loss = torch.nn.NLLLoss2d(weight)
 
     def forward(self, outputs, targets):
-        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1),
-            targets)
+        return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Eromera_erfnet_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([4, 128])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 128])], {}),
+     True),
+    (Decoder,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 128, 4, 4])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Features,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (UpsamplerBlock,
+     lambda: ([], {'ninput': 4, 'noutput': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (non_bottleneck_1d,
+     lambda: ([], {'chann': 4, 'dropprob': 0.5, 'dilated': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_Eromera_erfnet_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Decoder(*[], **{'num_classes': 4}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Features(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(UpsamplerBlock(*[], **{'ninput': 4, 'noutput': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(non_bottleneck_1d(*[], **{'chann': 4, 'dropprob': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

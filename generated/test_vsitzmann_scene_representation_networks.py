@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -62,8 +63,7 @@ class DepthSampler(nn.Module):
     def forward(self, xy, depth, cam2world, intersection_net, intrinsics):
         self.logs = list()
         batch_size, _, _ = cam2world.shape
-        intersections = geometry.world_from_xy_depth(xy=xy, depth=depth,
-            cam2world=cam2world, intrinsics=intrinsics)
+        intersections = geometry.world_from_xy_depth(xy=xy, depth=depth, cam2world=cam2world, intrinsics=intrinsics)
         depth = geometry.depth_from_world(intersections, cam2world)
         if self.training:
             None
@@ -98,8 +98,7 @@ class Raymarcher(nn.Module):
         self.n_feature_channels = num_feature_channels
         self.steps = raymarch_steps
         hidden_size = 16
-        self.lstm = nn.LSTMCell(input_size=self.n_feature_channels,
-            hidden_size=hidden_size)
+        self.lstm = nn.LSTMCell(input_size=self.n_feature_channels, hidden_size=hidden_size)
         self.lstm.apply(init_recurrent_weights)
         lstm_forget_gate_init(self.lstm)
         self.out_layer = nn.Linear(hidden_size, 1)
@@ -108,12 +107,9 @@ class Raymarcher(nn.Module):
     def forward(self, cam2world, phi, uv, intrinsics):
         batch_size, num_samples, _ = uv.shape
         log = list()
-        ray_dirs = geometry.get_ray_directions(uv, cam2world=cam2world,
-            intrinsics=intrinsics)
-        initial_depth = torch.zeros((batch_size, num_samples, 1)).normal_(mean
-            =0.05, std=0.0005)
-        init_world_coords = geometry.world_from_xy_depth(uv, initial_depth,
-            intrinsics=intrinsics, cam2world=cam2world)
+        ray_dirs = geometry.get_ray_directions(uv, cam2world=cam2world, intrinsics=intrinsics)
+        initial_depth = torch.zeros((batch_size, num_samples, 1)).normal_(mean=0.05, std=0.0005)
+        init_world_coords = geometry.world_from_xy_depth(uv, initial_depth, intrinsics=intrinsics, cam2world=cam2world)
         world_coords = [init_world_coords]
         depths = [initial_depth]
         states = [None]
@@ -122,8 +118,7 @@ class Raymarcher(nn.Module):
             state = self.lstm(v.view(-1, self.n_feature_channels), states[-1])
             if state[0].requires_grad:
                 state[0].register_hook(lambda x: x.clamp(min=-10, max=10))
-            signed_distance = self.out_layer(state[0]).view(batch_size,
-                num_samples, 1)
+            signed_distance = self.out_layer(state[0]).view(batch_size, num_samples, 1)
             new_world_coords = world_coords[-1] + ray_dirs * signed_distance
             states.append(state)
             world_coords.append(new_world_coords)
@@ -134,12 +129,8 @@ class Raymarcher(nn.Module):
         if not self.counter % 100:
             drawing_depths = torch.stack(depths, dim=0)[:, (0), :, :]
             drawing_depths = util.lin2img(drawing_depths).repeat(1, 3, 1, 1)
-            log.append(('image', 'raycast_progress', torch.clamp(
-                torchvision.utils.make_grid(drawing_depths, scale_each=
-                False, normalize=True), 0.0, 5), 100))
-            fig = util.show_images([util.lin2img(signed_distance)[(i), :, :,
-                :].detach().cpu().numpy().squeeze() for i in range(batch_size)]
-                )
+            log.append(('image', 'raycast_progress', torch.clamp(torchvision.utils.make_grid(drawing_depths, scale_each=False, normalize=True), 0.0, 5), 100))
+            fig = util.show_images([util.lin2img(signed_distance)[(i), :, :, :].detach().cpu().numpy().squeeze() for i in range(batch_size)])
             log.append(('figure', 'stopping_distances', fig, 100))
         self.counter += 1
         return world_coords[-1], depths[-1], log
@@ -154,33 +145,19 @@ class DeepvoxelsRenderer(nn.Module):
         self.input_resolution = input_resolution
         self.img_sidelength = img_sidelength
         self.num_down_unet = util.num_divisible_by_2(input_resolution)
-        self.num_upsampling = util.num_divisible_by_2(img_sidelength
-            ) - self.num_down_unet
+        self.num_upsampling = util.num_divisible_by_2(img_sidelength) - self.num_down_unet
         self.build_net()
 
     def build_net(self):
-        self.net = [pytorch_prototyping.Unet(in_channels=self.in_channels,
-            out_channels=3 if self.num_upsampling <= 0 else 4 * self.nf0,
-            outermost_linear=True if self.num_upsampling <= 0 else False,
-            use_dropout=True, dropout_prob=0.1, nf0=self.nf0 * 2 ** self.
-            num_upsampling, norm=nn.BatchNorm2d, max_channels=8 * self.nf0,
-            num_down=self.num_down_unet)]
+        self.net = [pytorch_prototyping.Unet(in_channels=self.in_channels, out_channels=3 if self.num_upsampling <= 0 else 4 * self.nf0, outermost_linear=True if self.num_upsampling <= 0 else False, use_dropout=True, dropout_prob=0.1, nf0=self.nf0 * 2 ** self.num_upsampling, norm=nn.BatchNorm2d, max_channels=8 * self.nf0, num_down=self.num_down_unet)]
         if self.num_upsampling > 0:
-            self.net += [pytorch_prototyping.UpsamplingNet(per_layer_out_ch
-                =self.num_upsampling * [self.nf0], in_channels=4 * self.nf0,
-                upsampling_mode='transpose', use_dropout=True, dropout_prob
-                =0.1), pytorch_prototyping.Conv2dSame(self.nf0,
-                out_channels=self.nf0 // 2, kernel_size=3, bias=False), nn.
-                BatchNorm2d(self.nf0 // 2), nn.ReLU(True),
-                pytorch_prototyping.Conv2dSame(self.nf0 // 2, 3, kernel_size=3)
-                ]
+            self.net += [pytorch_prototyping.UpsamplingNet(per_layer_out_ch=self.num_upsampling * [self.nf0], in_channels=4 * self.nf0, upsampling_mode='transpose', use_dropout=True, dropout_prob=0.1), pytorch_prototyping.Conv2dSame(self.nf0, out_channels=self.nf0 // 2, kernel_size=3, bias=False), nn.BatchNorm2d(self.nf0 // 2), nn.ReLU(True), pytorch_prototyping.Conv2dSame(self.nf0 // 2, 3, kernel_size=3)]
         self.net += [nn.Tanh()]
         self.net = nn.Sequential(*self.net)
 
     def forward(self, input):
         batch_size, _, ch = input.shape
-        input = input.permute(0, 2, 1).view(batch_size, ch, self.
-            img_sidelength, self.img_sidelength)
+        input = input.permute(0, 2, 1).view(batch_size, ch, self.img_sidelength, self.img_sidelength)
         out = self.net(input)
         return out.view(batch_size, 3, -1).permute(0, 2, 1)
 
@@ -191,8 +168,7 @@ class LookupLayer(nn.Module):
         super().__init__()
         self.out_ch = out_ch
         self.lookup_lin = LookupLinear(in_ch, out_ch, num_objects=num_objects)
-        self.norm_nl = nn.Sequential(nn.LayerNorm([self.out_ch],
-            elementwise_affine=False), nn.ReLU(inplace=True))
+        self.norm_nl = nn.Sequential(nn.LayerNorm([self.out_ch], elementwise_affine=False), nn.ReLU(inplace=True))
 
     def forward(self, obj_idx):
         net = nn.Sequential(self.lookup_lin(obj_idx), self.norm_nl)
@@ -201,21 +177,16 @@ class LookupLayer(nn.Module):
 
 class LookupFC(nn.Module):
 
-    def __init__(self, hidden_ch, num_hidden_layers, num_objects, in_ch,
-        out_ch, outermost_linear=False):
+    def __init__(self, hidden_ch, num_hidden_layers, num_objects, in_ch, out_ch, outermost_linear=False):
         super().__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(LookupLayer(in_ch=in_ch, out_ch=hidden_ch,
-            num_objects=num_objects))
+        self.layers.append(LookupLayer(in_ch=in_ch, out_ch=hidden_ch, num_objects=num_objects))
         for i in range(num_hidden_layers):
-            self.layers.append(LookupLayer(in_ch=hidden_ch, out_ch=
-                hidden_ch, num_objects=num_objects))
+            self.layers.append(LookupLayer(in_ch=hidden_ch, out_ch=hidden_ch, num_objects=num_objects))
         if outermost_linear:
-            self.layers.append(LookupLinear(in_ch=hidden_ch, out_ch=out_ch,
-                num_objects=num_objects))
+            self.layers.append(LookupLinear(in_ch=hidden_ch, out_ch=out_ch, num_objects=num_objects))
         else:
-            self.layers.append(LookupLayer(in_ch=hidden_ch, out_ch=out_ch,
-                num_objects=num_objects))
+            self.layers.append(LookupLayer(in_ch=hidden_ch, out_ch=out_ch, num_objects=num_objects))
 
     def forward(self, obj_idx):
         net = []
@@ -232,17 +203,13 @@ class LookupLinear(nn.Module):
         self.out_ch = out_ch
         self.hypo_params = nn.Embedding(num_objects, in_ch * out_ch + out_ch)
         for i in range(num_objects):
-            nn.init.kaiming_normal_(self.hypo_params.weight.data[(i), :self
-                .in_ch * self.out_ch].view(self.out_ch, self.in_ch), a=0.0,
-                nonlinearity='relu', mode='fan_in')
-            self.hypo_params.weight.data[(i), self.in_ch * self.out_ch:].fill_(
-                0.0)
+            nn.init.kaiming_normal_(self.hypo_params.weight.data[(i), :self.in_ch * self.out_ch].view(self.out_ch, self.in_ch), a=0.0, nonlinearity='relu', mode='fan_in')
+            self.hypo_params.weight.data[(i), self.in_ch * self.out_ch:].fill_(0.0)
 
     def forward(self, obj_idx):
         hypo_params = self.hypo_params(obj_idx)
         weights = hypo_params[(...), :self.in_ch * self.out_ch]
-        biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch *
-            self.out_ch + self.out_ch]
+        biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch * self.out_ch + self.out_ch]
         biases = biases.view(*biases.size()[:-1], 1, self.out_ch)
         weights = weights.view(*weights.size()[:-1], self.out_ch, self.in_ch)
         return BatchLinear(weights=weights, biases=biases)
@@ -251,14 +218,10 @@ class LookupLinear(nn.Module):
 class HyperLayer(nn.Module):
     """A hypernetwork that predicts a single Dense Layer, including LayerNorm and a ReLU."""
 
-    def __init__(self, in_ch, out_ch, hyper_in_ch, hyper_num_hidden_layers,
-        hyper_hidden_ch):
+    def __init__(self, in_ch, out_ch, hyper_in_ch, hyper_num_hidden_layers, hyper_hidden_ch):
         super().__init__()
-        self.hyper_linear = HyperLinear(in_ch=in_ch, out_ch=out_ch,
-            hyper_in_ch=hyper_in_ch, hyper_num_hidden_layers=
-            hyper_num_hidden_layers, hyper_hidden_ch=hyper_hidden_ch)
-        self.norm_nl = nn.Sequential(nn.LayerNorm([out_ch],
-            elementwise_affine=False), nn.ReLU(inplace=True))
+        self.hyper_linear = HyperLinear(in_ch=in_ch, out_ch=out_ch, hyper_in_ch=hyper_in_ch, hyper_num_hidden_layers=hyper_num_hidden_layers, hyper_hidden_ch=hyper_hidden_ch)
+        self.norm_nl = nn.Sequential(nn.LayerNorm([out_ch], elementwise_affine=False), nn.ReLU(inplace=True))
 
     def forward(self, hyper_input):
         """
@@ -280,27 +243,18 @@ class HyperFC(nn.Module):
     """Builds a hypernetwork that predicts a fully connected neural network.
     """
 
-    def __init__(self, hyper_in_ch, hyper_num_hidden_layers,
-        hyper_hidden_ch, hidden_ch, num_hidden_layers, in_ch, out_ch,
-        outermost_linear=False):
+    def __init__(self, hyper_in_ch, hyper_num_hidden_layers, hyper_hidden_ch, hidden_ch, num_hidden_layers, in_ch, out_ch, outermost_linear=False):
         super().__init__()
-        PreconfHyperLinear = partialclass(HyperLinear, hyper_in_ch=
-            hyper_in_ch, hyper_num_hidden_layers=hyper_num_hidden_layers,
-            hyper_hidden_ch=hyper_hidden_ch)
-        PreconfHyperLayer = partialclass(HyperLayer, hyper_in_ch=
-            hyper_in_ch, hyper_num_hidden_layers=hyper_num_hidden_layers,
-            hyper_hidden_ch=hyper_hidden_ch)
+        PreconfHyperLinear = partialclass(HyperLinear, hyper_in_ch=hyper_in_ch, hyper_num_hidden_layers=hyper_num_hidden_layers, hyper_hidden_ch=hyper_hidden_ch)
+        PreconfHyperLayer = partialclass(HyperLayer, hyper_in_ch=hyper_in_ch, hyper_num_hidden_layers=hyper_num_hidden_layers, hyper_hidden_ch=hyper_hidden_ch)
         self.layers = nn.ModuleList()
         self.layers.append(PreconfHyperLayer(in_ch=in_ch, out_ch=hidden_ch))
         for i in range(num_hidden_layers):
-            self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=
-                hidden_ch))
+            self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=hidden_ch))
         if outermost_linear:
-            self.layers.append(PreconfHyperLinear(in_ch=hidden_ch, out_ch=
-                out_ch))
+            self.layers.append(PreconfHyperLinear(in_ch=hidden_ch, out_ch=out_ch))
         else:
-            self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=
-                out_ch))
+            self.layers.append(PreconfHyperLayer(in_ch=hidden_ch, out_ch=out_ch))
 
     def forward(self, hyper_input):
         """
@@ -326,42 +280,34 @@ class BatchLinear(nn.Module):
         self.biases = biases
 
     def __repr__(self):
-        return 'BatchLinear(in_ch=%d, out_ch=%d)' % (self.weights.shape[-1],
-            self.weights.shape[-2])
+        return 'BatchLinear(in_ch=%d, out_ch=%d)' % (self.weights.shape[-1], self.weights.shape[-2])
 
     def forward(self, input):
-        output = input.matmul(self.weights.permute(*[i for i in range(len(
-            self.weights.shape) - 2)], -1, -2))
+        output = input.matmul(self.weights.permute(*[i for i in range(len(self.weights.shape) - 2)], -1, -2))
         output += self.biases
         return output
 
 
 def last_hyper_layer_init(m):
     if type(m) == nn.Linear:
-        nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity='relu', mode=
-            'fan_in')
+        nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity='relu', mode='fan_in')
         m.weight.data *= 0.1
 
 
 class HyperLinear(nn.Module):
     """A hypernetwork that predicts a single linear layer (weights & biases)."""
 
-    def __init__(self, in_ch, out_ch, hyper_in_ch, hyper_num_hidden_layers,
-        hyper_hidden_ch):
+    def __init__(self, in_ch, out_ch, hyper_in_ch, hyper_num_hidden_layers, hyper_hidden_ch):
         super().__init__()
         self.in_ch = in_ch
         self.out_ch = out_ch
-        self.hypo_params = pytorch_prototyping.FCBlock(in_features=
-            hyper_in_ch, hidden_ch=hyper_hidden_ch, num_hidden_layers=
-            hyper_num_hidden_layers, out_features=in_ch * out_ch + out_ch,
-            outermost_linear=True)
+        self.hypo_params = pytorch_prototyping.FCBlock(in_features=hyper_in_ch, hidden_ch=hyper_hidden_ch, num_hidden_layers=hyper_num_hidden_layers, out_features=in_ch * out_ch + out_ch, outermost_linear=True)
         self.hypo_params[-1].apply(last_hyper_layer_init)
 
     def forward(self, hyper_input):
         hypo_params = self.hypo_params(hyper_input)
         weights = hypo_params[(...), :self.in_ch * self.out_ch]
-        biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch *
-            self.out_ch + self.out_ch]
+        biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch * self.out_ch + self.out_ch]
         biases = biases.view(*biases.size()[:-1], 1, self.out_ch)
         weights = weights.view(*weights.size()[:-1], self.out_ch, self.in_ch)
         return BatchLinear(weights=weights, biases=biases)
@@ -369,9 +315,7 @@ class HyperLinear(nn.Module):
 
 class SRNsModel(nn.Module):
 
-    def __init__(self, num_instances, latent_dim, tracing_steps, has_params
-        =False, fit_single_srn=False, use_unet_renderer=False,
-        freeze_networks=False):
+    def __init__(self, num_instances, latent_dim, tracing_steps, has_params=False, fit_single_srn=False, use_unet_renderer=False, freeze_networks=False):
         super().__init__()
         self.latent_dim = latent_dim
         self.has_params = has_params
@@ -382,32 +326,18 @@ class SRNsModel(nn.Module):
         self.freeze_networks = freeze_networks
         self.fit_single_srn = fit_single_srn
         if self.fit_single_srn:
-            self.phi = pytorch_prototyping.FCBlock(hidden_ch=self.
-                num_hidden_units_phi, num_hidden_layers=self.phi_layers - 2,
-                in_features=3, out_features=self.num_hidden_units_phi)
+            self.phi = pytorch_prototyping.FCBlock(hidden_ch=self.num_hidden_units_phi, num_hidden_layers=self.phi_layers - 2, in_features=3, out_features=self.num_hidden_units_phi)
         else:
             self.latent_codes = nn.Embedding(num_instances, latent_dim)
             nn.init.normal_(self.latent_codes.weight, mean=0, std=0.01)
-            self.hyper_phi = hyperlayers.HyperFC(hyper_in_ch=self.
-                latent_dim, hyper_num_hidden_layers=1, hyper_hidden_ch=self
-                .latent_dim, hidden_ch=self.num_hidden_units_phi,
-                num_hidden_layers=self.phi_layers - 2, in_ch=3, out_ch=self
-                .num_hidden_units_phi)
-        self.ray_marcher = custom_layers.Raymarcher(num_feature_channels=
-            self.num_hidden_units_phi, raymarch_steps=self.sphere_trace_steps)
+            self.hyper_phi = hyperlayers.HyperFC(hyper_in_ch=self.latent_dim, hyper_num_hidden_layers=1, hyper_hidden_ch=self.latent_dim, hidden_ch=self.num_hidden_units_phi, num_hidden_layers=self.phi_layers - 2, in_ch=3, out_ch=self.num_hidden_units_phi)
+        self.ray_marcher = custom_layers.Raymarcher(num_feature_channels=self.num_hidden_units_phi, raymarch_steps=self.sphere_trace_steps)
         if use_unet_renderer:
-            self.pixel_generator = custom_layers.DeepvoxelsRenderer(nf0=32,
-                in_channels=self.num_hidden_units_phi, input_resolution=128,
-                img_sidelength=128)
+            self.pixel_generator = custom_layers.DeepvoxelsRenderer(nf0=32, in_channels=self.num_hidden_units_phi, input_resolution=128, img_sidelength=128)
         else:
-            self.pixel_generator = pytorch_prototyping.FCBlock(hidden_ch=
-                self.num_hidden_units_phi, num_hidden_layers=self.
-                rendering_layers - 1, in_features=self.num_hidden_units_phi,
-                out_features=3, outermost_linear=True)
+            self.pixel_generator = pytorch_prototyping.FCBlock(hidden_ch=self.num_hidden_units_phi, num_hidden_layers=self.rendering_layers - 1, in_features=self.num_hidden_units_phi, out_features=3, outermost_linear=True)
         if self.freeze_networks:
-            all_network_params = list(self.pixel_generator.parameters()
-                ) + list(self.ray_marcher.parameters()) + list(self.
-                hyper_phi.parameters())
+            all_network_params = list(self.pixel_generator.parameters()) + list(self.ray_marcher.parameters()) + list(self.hyper_phi.parameters())
             for param in all_network_params:
                 param.requires_grad = False
         self.l2_loss = nn.MSELoss(reduction='mean')
@@ -472,8 +402,7 @@ class SRNsModel(nn.Module):
             p = p / 2.0 + 0.5
             p = np.clip(p, a_min=0.0, a_max=1.0)
             trgt = trgt / 2.0 + 0.5
-            ssim = skimage.measure.compare_ssim(p, trgt, multichannel=True,
-                data_range=1)
+            ssim = skimage.measure.compare_ssim(p, trgt, multichannel=True, data_range=1)
             psnr = skimage.measure.compare_psnr(p, trgt, data_range=1)
             psnrs.append(psnr)
             ssims.append(ssim)
@@ -487,15 +416,13 @@ class SRNsModel(nn.Module):
         x_cam = uv[:, :, (0)].view(batch_size, -1)
         y_cam = uv[:, :, (1)].view(batch_size, -1)
         z_cam = depth_maps.view(batch_size, -1)
-        normals = geometry.compute_normal_map(x_img=x_cam, y_img=y_cam, z=
-            z_cam, intrinsics=intrinsics)
+        normals = geometry.compute_normal_map(x_img=x_cam, y_img=y_cam, z=z_cam, intrinsics=intrinsics)
         normals = F.pad(normals, pad=(1, 1, 1, 1), mode='constant', value=1.0)
         predictions = util.lin2img(predictions)
         if ground_truth is not None:
             trgt_imgs = ground_truth['rgb']
             trgt_imgs = util.lin2img(trgt_imgs)
-            return torch.cat((normals.cpu(), predictions.cpu(), trgt_imgs.
-                cpu()), dim=3).numpy()
+            return torch.cat((normals.cpu(), predictions.cpu(), trgt_imgs.cpu()), dim=3).numpy()
         else:
             return torch.cat((normals.cpu(), predictions.cpu()), dim=3).numpy()
 
@@ -503,8 +430,7 @@ class SRNsModel(nn.Module):
         pred_imgs, _ = prediction
         return util.lin2img(pred_imgs)
 
-    def write_updates(self, writer, predictions, ground_truth, iter, prefix=''
-        ):
+    def write_updates(self, writer, predictions, ground_truth, iter, prefix=''):
         """Writes tensorboard summaries using tensorboardx api.
 
         :param writer: tensorboardx writer object.
@@ -521,43 +447,33 @@ class SRNsModel(nn.Module):
             name = prefix + name
             if not iter % every_n:
                 if type == 'image':
-                    writer.add_image(name, content.detach().cpu().numpy(), iter
-                        )
+                    writer.add_image(name, content.detach().cpu().numpy(), iter)
                     writer.add_scalar(name + '_min', content.min(), iter)
                     writer.add_scalar(name + '_max', content.max(), iter)
                 elif type == 'figure':
                     writer.add_figure(name, content, iter, close=True)
                 elif type == 'histogram':
-                    writer.add_histogram(name, content.detach().cpu().numpy
-                        (), iter)
+                    writer.add_histogram(name, content.detach().cpu().numpy(), iter)
                 elif type == 'scalar':
-                    writer.add_scalar(name, content.detach().cpu().numpy(),
-                        iter)
+                    writer.add_scalar(name, content.detach().cpu().numpy(), iter)
                 elif type == 'embedding':
                     writer.add_embedding(mat=content, global_step=iter)
         if not iter % 100:
             output_vs_gt = torch.cat((predictions, trgt_imgs), dim=0)
             output_vs_gt = util.lin2img(output_vs_gt)
-            writer.add_image(prefix + 'Output_vs_gt', torchvision.utils.
-                make_grid(output_vs_gt, scale_each=False, normalize=True).
-                cpu().detach().numpy(), iter)
-            rgb_loss = ((predictions.float() - trgt_imgs.float()) ** 2).mean(
-                dim=2, keepdim=True)
+            writer.add_image(prefix + 'Output_vs_gt', torchvision.utils.make_grid(output_vs_gt, scale_each=False, normalize=True).cpu().detach().numpy(), iter)
+            rgb_loss = ((predictions.float() - trgt_imgs.float()) ** 2).mean(dim=2, keepdim=True)
             rgb_loss = util.lin2img(rgb_loss)
-            fig = util.show_images([rgb_loss[i].detach().cpu().numpy().
-                squeeze() for i in range(batch_size)])
+            fig = util.show_images([rgb_loss[i].detach().cpu().numpy().squeeze() for i in range(batch_size)])
             writer.add_figure(prefix + 'rgb_error_fig', fig, iter, close=True)
             depth_maps_plot = util.lin2img(depth_maps)
-            writer.add_image(prefix + 'pred_depth', torchvision.utils.
-                make_grid(depth_maps_plot.repeat(1, 3, 1, 1), scale_each=
-                True, normalize=True).cpu().detach().numpy(), iter)
+            writer.add_image(prefix + 'pred_depth', torchvision.utils.make_grid(depth_maps_plot.repeat(1, 3, 1, 1), scale_each=True, normalize=True).cpu().detach().numpy(), iter)
         writer.add_scalar(prefix + 'out_min', predictions.min(), iter)
         writer.add_scalar(prefix + 'out_max', predictions.max(), iter)
         writer.add_scalar(prefix + 'trgt_min', trgt_imgs.min(), iter)
         writer.add_scalar(prefix + 'trgt_max', trgt_imgs.max(), iter)
         if iter:
-            writer.add_scalar(prefix + 'latent_reg_loss', self.
-                latent_reg_loss, iter)
+            writer.add_scalar(prefix + 'latent_reg_loss', self.latent_reg_loss, iter)
 
     def forward(self, input, z=None):
         self.logs = list()
@@ -576,8 +492,7 @@ class SRNsModel(nn.Module):
             else:
                 self.z = self.latent_codes(instance_idcs)
             phi = self.hyper_phi(self.z)
-        points_xyz, depth_maps, log = self.ray_marcher(cam2world=pose,
-            intrinsics=intrinsics, uv=uv, phi=phi)
+        points_xyz, depth_maps, log = self.ray_marcher(cam2world=pose, intrinsics=intrinsics, uv=uv, phi=phi)
         self.logs.extend(log)
         v = phi(points_xyz)
         novel_views = self.pixel_generator(v)
@@ -586,10 +501,8 @@ class SRNsModel(nn.Module):
             x_cam = uv[:, :, (0)].view(batch_size, -1)
             y_cam = uv[:, :, (1)].view(batch_size, -1)
             z_cam = depth_maps.view(batch_size, -1)
-            normals = geometry.compute_normal_map(x_img=x_cam, y_img=y_cam,
-                z=z_cam, intrinsics=intrinsics)
-            self.logs.append(('image', 'normals', torchvision.utils.
-                make_grid(normals, scale_each=True, normalize=True), 100))
+            normals = geometry.compute_normal_map(x_img=x_cam, y_img=y_cam, z=z_cam, intrinsics=intrinsics)
+            self.logs.append(('image', 'normals', torchvision.utils.make_grid(normals, scale_each=True, normalize=True), 100))
         if not self.fit_single_srn:
             self.logs.append(('embedding', '', self.latent_codes.weight, 500))
             self.logs.append(('scalar', 'embed_min', self.z.min(), 1))
@@ -601,17 +514,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LookupFC,
+     lambda: ([], {'hidden_ch': 4, 'num_hidden_layers': 1, 'num_objects': 4, 'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LookupLayer,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'num_objects': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LookupLinear,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'num_objects': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_vsitzmann_scene_representation_networks(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LookupFC(*[], **{'hidden_ch': 4, 'num_hidden_layers': 1, 'num_objects': 4, 'in_ch': 4, 'out_ch': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(LookupLayer(*[], **{'in_ch': 4, 'out_ch': 4, 'num_objects': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LookupLinear(*[], **{'in_ch': 4, 'out_ch': 4, 'num_objects': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

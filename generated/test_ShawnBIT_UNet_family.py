@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -47,14 +48,12 @@ def init_weights(net, init_type='normal'):
     if init_type == 'kaiming':
         net.apply(weights_init_kaiming)
     else:
-        raise NotImplementedError(
-            'initialization method [%s] is not implemented' % init_type)
+        raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
 
 
 class unetConv2(nn.Module):
 
-    def __init__(self, in_size, out_size, is_batchnorm, n=2, ks=3, stride=1,
-        padding=1):
+    def __init__(self, in_size, out_size, is_batchnorm, n=2, ks=3, stride=1, padding=1):
         super(unetConv2, self).__init__()
         self.n = n
         self.ks = ks
@@ -64,14 +63,12 @@ class unetConv2(nn.Module):
         p = padding
         if is_batchnorm:
             for i in range(1, n + 1):
-                conv = nn.Sequential(nn.Conv2d(in_size, out_size, ks, s, p),
-                    nn.BatchNorm2d(out_size), nn.ReLU(inplace=True))
+                conv = nn.Sequential(nn.Conv2d(in_size, out_size, ks, s, p), nn.BatchNorm2d(out_size), nn.ReLU(inplace=True))
                 setattr(self, 'conv%d' % i, conv)
                 in_size = out_size
         else:
             for i in range(1, n + 1):
-                conv = nn.Sequential(nn.Conv2d(in_size, out_size, ks, s, p),
-                    nn.ReLU(inplace=True))
+                conv = nn.Sequential(nn.Conv2d(in_size, out_size, ks, s, p), nn.ReLU(inplace=True))
                 setattr(self, 'conv%d' % i, conv)
                 in_size = out_size
         for m in self.children():
@@ -89,14 +86,11 @@ class unetUp(nn.Module):
 
     def __init__(self, in_size, out_size, is_deconv, n_concat=2):
         super(unetUp, self).__init__()
-        self.conv = unetConv2(in_size + (n_concat - 2) * out_size, out_size,
-            False)
+        self.conv = unetConv2(in_size + (n_concat - 2) * out_size, out_size, False)
         if is_deconv:
-            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2,
-                stride=2, padding=0)
+            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2, padding=0)
         else:
-            self.up = nn.Sequential(nn.UpsamplingBilinear2d(scale_factor=2),
-                nn.Conv2d(in_size, out_size, 1))
+            self.up = nn.Sequential(nn.UpsamplingBilinear2d(scale_factor=2), nn.Conv2d(in_size, out_size, 1))
         for m in self.children():
             if m.__class__.__name__.find('unetConv2') != -1:
                 continue
@@ -111,8 +105,7 @@ class unetUp(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, in_channels=1, n_classes=2, feature_scale=2,
-        is_deconv=True, is_batchnorm=True):
+    def __init__(self, in_channels=1, n_classes=2, feature_scale=2, is_deconv=True, is_batchnorm=True):
         super(UNet, self).__init__()
         self.in_channels = in_channels
         self.feature_scale = feature_scale
@@ -157,8 +150,7 @@ class UNet(nn.Module):
 
 class UNet_Nested(nn.Module):
 
-    def __init__(self, in_channels=1, n_classes=2, feature_scale=2,
-        is_deconv=True, is_batchnorm=True, is_ds=True):
+    def __init__(self, in_channels=1, n_classes=2, feature_scale=2, is_deconv=True, is_batchnorm=True, is_ds=True):
         super(UNet_Nested, self).__init__()
         self.in_channels = in_channels
         self.feature_scale = feature_scale
@@ -168,8 +160,7 @@ class UNet_Nested(nn.Module):
         filters = [64, 128, 256, 512, 1024]
         filters = [int(x / self.feature_scale) for x in filters]
         self.maxpool = nn.MaxPool2d(kernel_size=2)
-        self.conv00 = unetConv2(self.in_channels, filters[0], self.is_batchnorm
-            )
+        self.conv00 = unetConv2(self.in_channels, filters[0], self.is_batchnorm)
         self.conv10 = unetConv2(filters[0], filters[1], self.is_batchnorm)
         self.conv20 = unetConv2(filters[1], filters[2], self.is_batchnorm)
         self.conv30 = unetConv2(filters[2], filters[3], self.is_batchnorm)
@@ -229,21 +220,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UNet_Nested,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (unetConv2,
+     lambda: ([], {'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (unetUp,
+     lambda: ([], {'in_size': 4, 'out_size': 4, 'is_deconv': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_ShawnBIT_UNet_family(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(UNet_Nested(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(unetConv2(*[], **{'in_size': 4, 'out_size': 4, 'is_batchnorm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(unetUp(*[], **{'in_size': 4, 'out_size': 4, 'is_deconv': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -50,8 +50,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -186,17 +187,14 @@ class Inference(nn.Module):
         feature = self.dnn(x)
         rows, cols = feature.size()[-2:]
         cells = rows * cols
-        _feature = feature.permute(0, 2, 3, 1).contiguous().view(feature.
-            size(0), cells, self.anchors.size(0), -1)
+        _feature = feature.permute(0, 2, 3, 1).contiguous().view(feature.size(0), cells, self.anchors.size(0), -1)
         sigmoid = F.sigmoid(_feature[:, :, :, :3])
         iou = sigmoid[:, :, :, (0)]
-        ij = torch.autograd.Variable(utils.ensure_device(meshgrid(rows,
-            cols).view(1, -1, 1, 2), device_id))
+        ij = torch.autograd.Variable(utils.ensure_device(meshgrid(rows, cols).view(1, -1, 1, 2), device_id))
         center_offset = sigmoid[:, :, :, 1:3]
         center = ij + center_offset
         size_norm = _feature[:, :, :, 3:5]
-        anchors = torch.autograd.Variable(utils.ensure_device(self.anchors.
-            view(1, 1, -1, 2), device_id))
+        anchors = torch.autograd.Variable(utils.ensure_device(self.anchors.view(1, 1, -1, 2), device_id))
         size = torch.exp(size_norm) * anchors
         size2 = size / 2
         yx_min = center - size2
@@ -207,19 +205,15 @@ class Inference(nn.Module):
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0,
-        stride=1, bn=True, act=True):
+    def __init__(self, in_channels, out_channels, kernel_size, padding=0, stride=1, bn=True, act=True):
         nn.Module.__init__(self)
         if isinstance(padding, bool):
             if isinstance(kernel_size, collections.abc.Iterable):
-                padding = tuple((kernel_size - 1) // 2 for kernel_size in
-                    kernel_size) if padding else 0
+                padding = tuple((kernel_size - 1) // 2 for kernel_size in kernel_size) if padding else 0
             else:
                 padding = (kernel_size - 1) // 2 if padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding=padding, bias=not bn)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1,
-            affine=True) if bn else lambda x: x
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=not bn)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True) if bn else lambda x: x
         self.act = nn.ReLU(inplace=True) if act else lambda x: x
 
     def forward(self, x):
@@ -235,9 +229,7 @@ class Mixed_3a(nn.Module):
         nn.Module.__init__(self)
         channels = config_channels.channels
         self.maxpool = nn.MaxPool2d(3, stride=2)
-        self.conv = Conv2d(config_channels.channels, config_channels(int(96 *
-            ratio), '%s.conv.conv.weight' % prefix), kernel_size=3, stride=
-            2, bn=bn)
+        self.conv = Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.conv.conv.weight' % prefix), kernel_size=3, stride=2, bn=bn)
         config_channels.channels = channels + self.conv.conv.weight.size(0)
 
     def forward(self, x):
@@ -253,30 +245,17 @@ class Mixed_4a(nn.Module):
         nn.Module.__init__(self)
         channels = config_channels.channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            64 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            96 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=3, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(64 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=1, bn=bn))
         self.branch0 = nn.Sequential(*branch)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            96 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=(3, 3), stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(3, 3), stride=1, bn=bn))
         self.branch1 = nn.Sequential(*branch)
-        config_channels.channels = self.branch0[-1].conv.weight.size(0
-            ) + self.branch1[-1].conv.weight.size(0)
+        config_channels.channels = self.branch0[-1].conv.weight.size(0) + self.branch1[-1].conv.weight.size(0)
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -290,9 +269,7 @@ class Mixed_5a(nn.Module):
     def __init__(self, config_channels, prefix, bn=True, ratio=1):
         nn.Module.__init__(self)
         channels = config_channels.channels
-        self.conv = Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.conv.conv.weight' % prefix), kernel_size=3,
-            stride=2, bn=bn)
+        self.conv = Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.conv.conv.weight' % prefix), kernel_size=3, stride=2, bn=bn)
         self.maxpool = nn.MaxPool2d(3, stride=2)
         config_channels.channels = self.conv.conv.weight.size(0) + channels
 
@@ -308,41 +285,24 @@ class Inception_A(nn.Module):
     def __init__(self, config_channels, prefix, bn=True, ratio=1):
         nn.Module.__init__(self)
         channels = config_channels.channels
-        self.branch0 = Conv2d(config_channels.channels, config_channels(int
-            (96 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=1,
-            stride=1, bn=bn)
+        self.branch0 = Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=1, stride=1, bn=bn)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            96 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=3, stride=1, padding=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(64 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=1, padding=1, bn=bn))
         self.branch1 = nn.Sequential(*branch)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            64 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            96 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=3, stride=1, padding=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            96 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=3, stride=1, padding=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(64 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=1, padding=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=1, padding=1, bn=bn))
         self.branch2 = nn.Sequential(*branch)
         config_channels.channels = channels
         branch = []
-        branch.append(nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            96 * ratio), '%s.branch3.%d.conv.weight' % (prefix, len(branch)
-            )), kernel_size=1, stride=1, bn=bn))
+        branch.append(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(96 * ratio), '%s.branch3.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
         self.branch3 = nn.Sequential(*branch)
-        config_channels.channels = self.branch0.conv.weight.size(0
-            ) + self.branch1[-1].conv.weight.size(0) + self.branch2[-1
-            ].conv.weight.size(0) + self.branch3[-1].conv.weight.size(0)
+        config_channels.channels = self.branch0.conv.weight.size(0) + self.branch1[-1].conv.weight.size(0) + self.branch2[-1].conv.weight.size(0) + self.branch3[-1].conv.weight.size(0)
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -358,24 +318,15 @@ class Reduction_A(nn.Module):
     def __init__(self, config_channels, prefix, bn=True, ratio=1):
         nn.Module.__init__(self)
         channels = config_channels.channels
-        self.branch0 = Conv2d(config_channels.channels, config_channels(int
-            (384 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=
-            3, stride=2, bn=bn)
+        self.branch0 = Conv2d(config_channels.channels, config_channels(int(384 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=3, stride=2, bn=bn)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            224 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=3, stride=1, padding=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=3, stride=2, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(224 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=1, padding=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=2, bn=bn))
         self.branch1 = nn.Sequential(*branch)
         self.branch2 = nn.MaxPool2d(3, stride=2)
-        config_channels.channels = self.branch0.conv.weight.size(0
-            ) + self.branch1[-1].conv.weight.size(0) + channels
+        config_channels.channels = self.branch0.conv.weight.size(0) + self.branch1[-1].conv.weight.size(0) + channels
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -390,50 +341,27 @@ class Inception_B(nn.Module):
     def __init__(self, config_channels, prefix, bn=True, ratio=1):
         nn.Module.__init__(self)
         channels = config_channels.channels
-        self.branch0 = Conv2d(config_channels.channels, config_channels(int
-            (384 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=
-            1, stride=1, bn=bn)
+        self.branch0 = Conv2d(config_channels.channels, config_channels(int(384 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=1, stride=1, bn=bn)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            224 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(224 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
         self.branch1 = nn.Sequential(*branch)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            224 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            224 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            256 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(224 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(224 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(256 * ratio), '%s.branch2.%d.conv.weight' % (prefix, len(branch))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
         self.branch2 = nn.Sequential(*branch)
         config_channels.channels = channels
         branch = []
-        branch.append(nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            128 * ratio), '%s.branch3.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=1, stride=1, bn=bn))
+        branch.append(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(128 * ratio), '%s.branch3.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
         self.branch3 = nn.Sequential(*branch)
-        config_channels.channels = self.branch0.conv.weight.size(0
-            ) + self.branch1[-1].conv.weight.size(0) + self.branch2[-1
-            ].conv.weight.size(0) + self.branch3[-1].conv.weight.size(0)
+        config_channels.channels = self.branch0.conv.weight.size(0) + self.branch1[-1].conv.weight.size(0) + self.branch2[-1].conv.weight.size(0) + self.branch3[-1].conv.weight.size(0)
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -450,31 +378,18 @@ class Reduction_B(nn.Module):
         nn.Module.__init__(self)
         channels = config_channels.channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            192 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=3, stride=2, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(192 * ratio), '%s.branch0.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=2, bn=bn))
         self.branch0 = nn.Sequential(*branch)
         config_channels.channels = channels
         branch = []
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=1, stride=1, bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            320 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
-        branch.append(Conv2d(config_channels.channels, config_channels(int(
-            320 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch
-            ))), kernel_size=3, stride=2, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=1, stride=1, bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(256 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(1, 7), stride=1, padding=(0, 3), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(320 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=(7, 1), stride=1, padding=(3, 0), bn=bn))
+        branch.append(Conv2d(config_channels.channels, config_channels(int(320 * ratio), '%s.branch1.%d.conv.weight' % (prefix, len(branch))), kernel_size=3, stride=2, bn=bn))
         self.branch1 = nn.Sequential(*branch)
         self.branch2 = nn.MaxPool2d(3, stride=2)
-        config_channels.channels = self.branch0[-1].conv.weight.size(0
-            ) + self.branch1[-1].conv.weight.size(0) + channels
+        config_channels.channels = self.branch0[-1].conv.weight.size(0) + self.branch1[-1].conv.weight.size(0) + channels
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -489,50 +404,25 @@ class Inception_C(nn.Module):
     def __init__(self, config_channels, prefix, bn=True, ratio=1):
         nn.Module.__init__(self)
         channels = config_channels.channels
-        self.branch0 = Conv2d(config_channels.channels, config_channels(int
-            (256 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=
-            1, stride=1, bn=bn)
+        self.branch0 = Conv2d(config_channels.channels, config_channels(int(256 * ratio), '%s.branch0.conv.weight' % prefix), kernel_size=1, stride=1, bn=bn)
         config_channels.channels = channels
-        self.branch1_0 = Conv2d(config_channels.channels, config_channels(
-            int(384 * ratio), '%s.branch1_0.conv.weight' % prefix),
-            kernel_size=1, stride=1, bn=bn)
+        self.branch1_0 = Conv2d(config_channels.channels, config_channels(int(384 * ratio), '%s.branch1_0.conv.weight' % prefix), kernel_size=1, stride=1, bn=bn)
         _channels = config_channels.channels
-        self.branch1_1a = Conv2d(_channels, config_channels(int(256 * ratio
-            ), '%s.branch1_1a.conv.weight' % prefix), kernel_size=(1, 3),
-            stride=1, padding=(0, 1), bn=bn)
-        self.branch1_1b = Conv2d(_channels, config_channels(int(256 * ratio
-            ), '%s.branch1_1b.conv.weight' % prefix), kernel_size=(3, 1),
-            stride=1, padding=(1, 0), bn=bn)
+        self.branch1_1a = Conv2d(_channels, config_channels(int(256 * ratio), '%s.branch1_1a.conv.weight' % prefix), kernel_size=(1, 3), stride=1, padding=(0, 1), bn=bn)
+        self.branch1_1b = Conv2d(_channels, config_channels(int(256 * ratio), '%s.branch1_1b.conv.weight' % prefix), kernel_size=(3, 1), stride=1, padding=(1, 0), bn=bn)
         config_channels.channels = channels
-        self.branch2_0 = Conv2d(config_channels.channels, config_channels(
-            int(384 * ratio), '%s.branch2_0.conv.weight' % prefix),
-            kernel_size=1, stride=1, bn=bn)
-        self.branch2_1 = Conv2d(config_channels.channels, config_channels(
-            int(448 * ratio), '%s.branch2_1.conv.weight' % prefix),
-            kernel_size=(3, 1), stride=1, padding=(1, 0), bn=bn)
-        self.branch2_2 = Conv2d(config_channels.channels, config_channels(
-            int(512 * ratio), '%s.branch2_2.conv.weight' % prefix),
-            kernel_size=(1, 3), stride=1, padding=(0, 1), bn=bn)
+        self.branch2_0 = Conv2d(config_channels.channels, config_channels(int(384 * ratio), '%s.branch2_0.conv.weight' % prefix), kernel_size=1, stride=1, bn=bn)
+        self.branch2_1 = Conv2d(config_channels.channels, config_channels(int(448 * ratio), '%s.branch2_1.conv.weight' % prefix), kernel_size=(3, 1), stride=1, padding=(1, 0), bn=bn)
+        self.branch2_2 = Conv2d(config_channels.channels, config_channels(int(512 * ratio), '%s.branch2_2.conv.weight' % prefix), kernel_size=(1, 3), stride=1, padding=(0, 1), bn=bn)
         _channels = config_channels.channels
-        self.branch2_3a = Conv2d(_channels, config_channels(int(256 * ratio
-            ), '%s.branch2_3a.conv.weight' % prefix), kernel_size=(1, 3),
-            stride=1, padding=(0, 1), bn=bn)
-        self.branch2_3b = Conv2d(_channels, config_channels(int(256 * ratio
-            ), '%s.branch2_3b.conv.weight' % prefix), kernel_size=(3, 1),
-            stride=1, padding=(1, 0), bn=bn)
+        self.branch2_3a = Conv2d(_channels, config_channels(int(256 * ratio), '%s.branch2_3a.conv.weight' % prefix), kernel_size=(1, 3), stride=1, padding=(0, 1), bn=bn)
+        self.branch2_3b = Conv2d(_channels, config_channels(int(256 * ratio), '%s.branch2_3b.conv.weight' % prefix), kernel_size=(3, 1), stride=1, padding=(1, 0), bn=bn)
         config_channels.channels = channels
         branch = []
-        branch.append(nn.AvgPool2d(3, stride=1, padding=1,
-            count_include_pad=False))
-        branch.append(Conv2d(config_channels.channels, int(256 * ratio),
-            kernel_size=1, stride=1, bn=bn))
+        branch.append(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False))
+        branch.append(Conv2d(config_channels.channels, int(256 * ratio), kernel_size=1, stride=1, bn=bn))
         self.branch3 = nn.Sequential(*branch)
-        config_channels.channels = self.branch0.conv.weight.size(0
-            ) + self.branch1_1a.conv.weight.size(0
-            ) + self.branch1_1b.conv.weight.size(0
-            ) + self.branch2_3a.conv.weight.size(0
-            ) + self.branch2_3b.conv.weight.size(0) + self.branch3[-1
-            ].conv.weight.size(0)
+        config_channels.channels = self.branch0.conv.weight.size(0) + self.branch1_1a.conv.weight.size(0) + self.branch1_1b.conv.weight.size(0) + self.branch2_3a.conv.weight.size(0) + self.branch2_3b.conv.weight.size(0) + self.branch3[-1].conv.weight.size(0)
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -557,55 +447,29 @@ class Inception4(nn.Module):
         nn.Module.__init__(self)
         features = []
         bn = config_channels.config.getboolean('batch_norm', 'enable')
-        features.append(Conv2d(config_channels.channels, config_channels(32,
-            'features.%d.conv.weight' % len(features)), kernel_size=3,
-            stride=2, bn=bn))
-        features.append(Conv2d(config_channels.channels, config_channels(32,
-            'features.%d.conv.weight' % len(features)), kernel_size=3,
-            stride=1, bn=bn))
-        features.append(Conv2d(config_channels.channels, config_channels(64,
-            'features.%d.conv.weight' % len(features)), kernel_size=3,
-            stride=1, padding=1, bn=bn))
-        features.append(Mixed_3a(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Mixed_4a(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Mixed_5a(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_A(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_A(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_A(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_A(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Reduction_A(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Reduction_B(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_C(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_C(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(Inception_C(config_channels, 'features.%d' % len(
-            features), bn=bn, ratio=ratio))
-        features.append(nn.Conv2d(config_channels.channels, model.
-            output_channels(len(anchors), num_cls), 1))
+        features.append(Conv2d(config_channels.channels, config_channels(32, 'features.%d.conv.weight' % len(features)), kernel_size=3, stride=2, bn=bn))
+        features.append(Conv2d(config_channels.channels, config_channels(32, 'features.%d.conv.weight' % len(features)), kernel_size=3, stride=1, bn=bn))
+        features.append(Conv2d(config_channels.channels, config_channels(64, 'features.%d.conv.weight' % len(features)), kernel_size=3, stride=1, padding=1, bn=bn))
+        features.append(Mixed_3a(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Mixed_4a(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Mixed_5a(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_A(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_A(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_A(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_A(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Reduction_A(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Reduction_B(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_C(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_C(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(Inception_C(config_channels, 'features.%d' % len(features), bn=bn, ratio=ratio))
+        features.append(nn.Conv2d(config_channels.channels, model.output_channels(len(anchors), num_cls), 1))
         self.features = nn.Sequential(*features)
         self.init(config_channels)
 
@@ -628,12 +492,10 @@ class Inception4(nn.Module):
                 m.bias.requires_grad = beta
         try:
             if config_channels.config.getboolean('model', 'pretrained'):
-                settings = pretrained_settings['inceptionv4'][
-                    config_channels.config.get('inception4', 'pretrained')]
+                settings = pretrained_settings['inceptionv4'][config_channels.config.get('inception4', 'pretrained')]
                 logging.info('use pretrained model: ' + str(settings))
                 state_dict = self.state_dict()
-                for key, value in torch.utils.model_zoo.load_url(settings[
-                    'url']).items():
+                for key, value in torch.utils.model_zoo.load_url(settings['url']).items():
                     if key in state_dict:
                         state_dict[key] = value
                 self.load_state_dict(state_dict)
@@ -648,27 +510,19 @@ class Inception4(nn.Module):
 
 
 def conv_bn(in_channels, out_channels, stride):
-    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(
-        in_channels, out_channels, 3, stride, 1, bias=False)), ('bn', nn.
-        BatchNorm2d(out_channels)), ('act', nn.ReLU(inplace=True))]))
+    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, 3, stride, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('act', nn.ReLU(inplace=True))]))
 
 
 def conv_dw(in_channels, stride):
-    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(
-        in_channels, in_channels, 3, stride, 1, groups=in_channels, bias=
-        False)), ('bn', nn.BatchNorm2d(in_channels)), ('act', nn.ReLU(
-        inplace=True))]))
+    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(in_channels, in_channels, 3, stride, 1, groups=in_channels, bias=False)), ('bn', nn.BatchNorm2d(in_channels)), ('act', nn.ReLU(inplace=True))]))
 
 
 def conv_pw(in_channels, out_channels):
-    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(
-        in_channels, out_channels, 1, 1, 0, bias=False)), ('bn', nn.
-        BatchNorm2d(out_channels)), ('act', nn.ReLU(inplace=True))]))
+    return nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('act', nn.ReLU(inplace=True))]))
 
 
 def conv_unit(in_channels, out_channels, stride):
-    return nn.Sequential(collections.OrderedDict([('dw', conv_dw(
-        in_channels, stride)), ('pw', conv_pw(in_channels, out_channels))]))
+    return nn.Sequential(collections.OrderedDict([('dw', conv_dw(in_channels, stride)), ('pw', conv_pw(in_channels, out_channels))]))
 
 
 class MobileNet(nn.Module):
@@ -676,36 +530,21 @@ class MobileNet(nn.Module):
     def __init__(self, config_channels, anchors, num_cls):
         nn.Module.__init__(self)
         layers = []
-        layers.append(conv_bn(config_channels.channels, config_channels(32,
-            'layers.%d.conv.weight' % len(layers)), 2))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            64, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            128, 'layers.%d.pw.conv.weight' % len(layers)), 2))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            128, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            256, 'layers.%d.pw.conv.weight' % len(layers)), 2))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            256, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            512, 'layers.%d.pw.conv.weight' % len(layers)), 2))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            1024, 'layers.%d.pw.conv.weight' % len(layers)), 2))
-        layers.append(conv_unit(config_channels.channels, config_channels(
-            1024, 'layers.%d.pw.conv.weight' % len(layers)), 1))
-        layers.append(nn.Conv2d(config_channels.channels, model.
-            output_channels(len(anchors), num_cls), 1))
+        layers.append(conv_bn(config_channels.channels, config_channels(32, 'layers.%d.conv.weight' % len(layers)), 2))
+        layers.append(conv_unit(config_channels.channels, config_channels(64, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(128, 'layers.%d.pw.conv.weight' % len(layers)), 2))
+        layers.append(conv_unit(config_channels.channels, config_channels(128, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(256, 'layers.%d.pw.conv.weight' % len(layers)), 2))
+        layers.append(conv_unit(config_channels.channels, config_channels(256, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(512, 'layers.%d.pw.conv.weight' % len(layers)), 2))
+        layers.append(conv_unit(config_channels.channels, config_channels(512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(512, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(conv_unit(config_channels.channels, config_channels(1024, 'layers.%d.pw.conv.weight' % len(layers)), 2))
+        layers.append(conv_unit(config_channels.channels, config_channels(1024, 'layers.%d.pw.conv.weight' % len(layers)), 1))
+        layers.append(nn.Conv2d(config_channels.channels, model.output_channels(len(anchors), num_cls), 1))
         self.layers = nn.Sequential(*layers)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -723,17 +562,14 @@ class BasicBlock(nn.Module):
     def __init__(self, config_channels, prefix, channels, stride=1):
         nn.Module.__init__(self)
         channels_in = config_channels.channels
-        self.conv1 = conv3x3(config_channels.channels, config_channels(
-            channels, '%s.conv1.weight' % prefix), stride)
+        self.conv1 = conv3x3(config_channels.channels, config_channels(channels, '%s.conv1.weight' % prefix), stride)
         self.bn1 = nn.BatchNorm2d(config_channels.channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(config_channels.channels, config_channels(
-            channels, '%s.conv2.weight' % prefix))
+        self.conv2 = conv3x3(config_channels.channels, config_channels(channels, '%s.conv2.weight' % prefix))
         self.bn2 = nn.BatchNorm2d(config_channels.channels)
         if stride > 1 or channels_in != config_channels.channels:
             downsample = []
-            downsample.append(nn.Conv2d(channels_in, config_channels.
-                channels, kernel_size=1, stride=stride, bias=False))
+            downsample.append(nn.Conv2d(channels_in, config_channels.channels, kernel_size=1, stride=stride, bias=False))
             downsample.append(nn.BatchNorm2d(config_channels.channels))
             self.downsample = nn.Sequential(*downsample)
         else:
@@ -758,22 +594,16 @@ class Bottleneck(nn.Module):
     def __init__(self, config_channels, prefix, channels, stride=1):
         nn.Module.__init__(self)
         channels_in = config_channels.channels
-        self.conv1 = nn.Conv2d(config_channels.channels, config_channels(
-            channels, '%s.conv1.weight' % prefix), kernel_size=1, bias=False)
+        self.conv1 = nn.Conv2d(config_channels.channels, config_channels(channels, '%s.conv1.weight' % prefix), kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(config_channels.channels)
-        self.conv2 = nn.Conv2d(config_channels.channels, config_channels(
-            channels, '%s.conv2.weight' % prefix), kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(config_channels.channels, config_channels(channels, '%s.conv2.weight' % prefix), kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(config_channels.channels)
-        self.conv3 = nn.Conv2d(config_channels.channels, config_channels(
-            channels * 4, '%s.conv3.weight' % prefix), kernel_size=1, bias=
-            False)
+        self.conv3 = nn.Conv2d(config_channels.channels, config_channels(channels * 4, '%s.conv3.weight' % prefix), kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(config_channels.channels)
         self.relu = nn.ReLU(inplace=True)
         if stride > 1 or channels_in != config_channels.channels:
             downsample = []
-            downsample.append(nn.Conv2d(channels_in, config_channels.
-                channels, kernel_size=1, stride=stride, bias=False))
+            downsample.append(nn.Conv2d(channels_in, config_channels.channels, kernel_size=1, stride=stride, bias=False))
             downsample.append(nn.BatchNorm2d(config_channels.channels))
             self.downsample = nn.Sequential(*downsample)
         else:
@@ -798,19 +628,15 @@ class Bottleneck(nn.Module):
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0,
-        stride=1, bn=True, act=True):
+    def __init__(self, in_channels, out_channels, kernel_size, padding=0, stride=1, bn=True, act=True):
         nn.Module.__init__(self)
         if isinstance(padding, bool):
             if isinstance(kernel_size, collections.abc.Iterable):
-                padding = tuple((kernel_size - 1) // 2 for kernel_size in
-                    kernel_size) if padding else 0
+                padding = tuple((kernel_size - 1) // 2 for kernel_size in kernel_size) if padding else 0
             else:
                 padding = (kernel_size - 1) // 2 if padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding=padding, bias=not bn)
-        self.bn = nn.BatchNorm2d(out_channels, momentum=0.01
-            ) if bn else lambda x: x
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=not bn)
+        self.bn = nn.BatchNorm2d(out_channels, momentum=0.01) if bn else lambda x: x
         self.act = nn.LeakyReLU(0.1, inplace=True) if act else lambda x: x
 
     def forward(self, x):
@@ -824,12 +650,9 @@ def reorg(x, stride_h=2, stride_w=2):
     batch_size, channels, height, width = x.size()
     _height, _width = height // stride_h, width // stride_w
     if 1:
-        x = x.view(batch_size, channels, _height, stride_h, _width, stride_w
-            ).transpose(3, 4).contiguous()
-        x = x.view(batch_size, channels, _height * _width, stride_h * stride_w
-            ).transpose(2, 3).contiguous()
-        x = x.view(batch_size, channels, stride_h * stride_w, _height, _width
-            ).transpose(1, 2).contiguous()
+        x = x.view(batch_size, channels, _height, stride_h, _width, stride_w).transpose(3, 4).contiguous()
+        x = x.view(batch_size, channels, _height * _width, stride_h * stride_w).transpose(2, 3).contiguous()
+        x = x.view(batch_size, channels, stride_h * stride_w, _height, _width).transpose(1, 2).contiguous()
         x = x.view(batch_size, -1, _height, _width)
     else:
         x = x.view(batch_size, channels, _height, stride_h, _width, stride_w)
@@ -848,59 +671,33 @@ class Darknet(nn.Module):
         layers = []
         bn = config_channels.config.getboolean('batch_norm', 'enable')
         for _ in range(2):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
             layers.append(nn.MaxPool2d(kernel_size=2))
             channels *= 2
         for _ in range(2):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels // 2, 'layers1.%d.conv.weight' % len(layers)), 1,
-                bn=bn))
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels // 2, 'layers1.%d.conv.weight' % len(layers)), 1, bn=bn))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
             layers.append(nn.MaxPool2d(kernel_size=2))
             channels *= 2
         for _ in range(2):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels // 2, 'layers1.%d.conv.weight' % len(layers)), 1,
-                bn=bn))
-        layers.append(Conv2d(config_channels.channels, config_channels(
-            channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn,
-            padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels // 2, 'layers1.%d.conv.weight' % len(layers)), 1, bn=bn))
+        layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers1.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
         self.layers1 = nn.Sequential(*layers)
         layers = []
         layers.append(nn.MaxPool2d(kernel_size=2))
         channels *= 2
         for _ in range(2):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers2.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels // 2, 'layers2.%d.conv.weight' % len(layers)), 1,
-                bn=bn))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers2.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels // 2, 'layers2.%d.conv.weight' % len(layers)), 1, bn=bn))
         for _ in range(3):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers2.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers2.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
         self.layers2 = nn.Sequential(*layers)
-        self.passthrough = Conv2d(self.layers1[-1].conv.weight.size(0),
-            config_channels(int(64 * ratio), 'passthrough.conv.weight'), 1,
-            bn=bn)
+        self.passthrough = Conv2d(self.layers1[-1].conv.weight.size(0), config_channels(int(64 * ratio), 'passthrough.conv.weight'), 1, bn=bn)
         layers = []
-        layers.append(Conv2d(self.passthrough.conv.weight.size(0) * self.
-            stride * self.stride + self.layers2[-1].conv.weight.size(0),
-            config_channels(int(1024 * ratio), 'layers3.%d.conv.weight' %
-            len(layers)), 3, bn=bn, padding=True))
-        layers.append(Conv2d(config_channels.channels, model.
-            output_channels(len(anchors), num_cls), 1, bn=False, act=False))
+        layers.append(Conv2d(self.passthrough.conv.weight.size(0) * self.stride * self.stride + self.layers2[-1].conv.weight.size(0), config_channels(int(1024 * ratio), 'layers3.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
+        layers.append(Conv2d(config_channels.channels, model.output_channels(len(anchors), num_cls), 1, bn=False, act=False))
         self.layers3 = nn.Sequential(*layers)
         self.init()
 
@@ -924,8 +721,7 @@ class Darknet(nn.Module):
 
     def get_mapper(self, index):
         if index == 94:
-            return lambda indices, channels: torch.cat([(indices + i *
-                channels) for i in range(self.stride * self.stride)])
+            return lambda indices, channels: torch.cat([(indices + i * channels) for i in range(self.stride * self.stride)])
 
 
 class Tiny(nn.Module):
@@ -935,24 +731,16 @@ class Tiny(nn.Module):
         layers = []
         bn = config_channels.config.getboolean('batch_norm', 'enable')
         for _ in range(5):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
             layers.append(nn.MaxPool2d(kernel_size=2))
             channels *= 2
-        layers.append(Conv2d(config_channels.channels, config_channels(
-            channels, 'layers.%d.conv.weight' % len(layers)), 3, bn=bn,
-            padding=True))
-        layers.append(nn.ConstantPad2d((0, 1, 0, 1), float(np.finfo(np.
-            float32).min)))
+        layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
+        layers.append(nn.ConstantPad2d((0, 1, 0, 1), float(np.finfo(np.float32).min)))
         layers.append(nn.MaxPool2d(kernel_size=2, stride=1))
         channels *= 2
         for _ in range(2):
-            layers.append(Conv2d(config_channels.channels, config_channels(
-                channels, 'layers.%d.conv.weight' % len(layers)), 3, bn=bn,
-                padding=True))
-        layers.append(Conv2d(config_channels.channels, model.
-            output_channels(len(anchors), num_cls), 1, bn=False, act=False))
+            layers.append(Conv2d(config_channels.channels, config_channels(channels, 'layers.%d.conv.weight' % len(layers)), 3, bn=bn, padding=True))
+        layers.append(Conv2d(config_channels.channels, model.output_channels(len(anchors), num_cls), 1, bn=False, act=False))
         self.layers = nn.Sequential(*layers)
         self.init()
 
@@ -975,8 +763,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ruiminshen_yolo2_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

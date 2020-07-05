@@ -88,8 +88,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -146,8 +147,7 @@ class BaseMetricLossFunction(torch.nn.Module):
                             attributes that should be converted to nn.Parameter 
     """
 
-    def __init__(self, normalize_embeddings=True, num_class_per_param=None,
-        learnable_param_names=None):
+    def __init__(self, normalize_embeddings=True, num_class_per_param=None, learnable_param_names=None):
         super().__init__()
         self.normalize_embeddings = normalize_embeddings
         self.num_class_per_param = num_class_per_param
@@ -215,8 +215,7 @@ class BaseMetricLossFunction(torch.nn.Module):
         return param
 
     def add_to_recordable_attributes(self, name=None, list_of_names=None):
-        c_f.add_to_recordable_attributes(self, name=name, list_of_names=
-            list_of_names)
+        c_f.add_to_recordable_attributes(self, name=name, list_of_names=list_of_names)
 
 
 class MultipleLosses(torch.nn.Module):
@@ -224,14 +223,12 @@ class MultipleLosses(torch.nn.Module):
     def __init__(self, losses, weights=None):
         super().__init__()
         self.losses = torch.nn.ModuleList(losses)
-        self.weights = weights if weights is not None else [1] * len(self.
-            losses)
+        self.weights = weights if weights is not None else [1] * len(self.losses)
 
     def forward(self, embeddings, labels, indices_tuple=None):
         total_loss = 0
         for i, loss in enumerate(self.losses):
-            total_loss += loss(embeddings, labels, indices_tuple
-                ) * self.weights[i]
+            total_loss += loss(embeddings, labels, indices_tuple) * self.weights[i]
         return total_loss
 
 
@@ -260,8 +257,7 @@ class CrossBatchMemory(torch.nn.Module):
         else:
             E_mem = self.embedding_memory
             L_mem = self.label_memory
-        indices_tuple = self.create_indices_tuple(batch_size, embeddings,
-            labels, E_mem, L_mem, input_indices_tuple)
+        indices_tuple = self.create_indices_tuple(batch_size, embeddings, labels, E_mem, L_mem, input_indices_tuple)
         combined_embeddings = torch.cat([embeddings, E_mem], dim=0)
         combined_labels = torch.cat([labels, L_mem], dim=0)
         loss = self.loss(combined_embeddings, combined_labels, indices_tuple)
@@ -283,8 +279,7 @@ class CrossBatchMemory(torch.nn.Module):
         if not self.has_been_filled and self.queue_idx <= prev_queue_idx:
             self.has_been_filled = True
 
-    def create_indices_tuple(self, batch_size, embeddings, labels, E_mem,
-        L_mem, input_indices_tuple):
+    def create_indices_tuple(self, batch_size, embeddings, labels, E_mem, L_mem, input_indices_tuple):
         if self.miner:
             indices_tuple = self.miner(embeddings, labels, E_mem, L_mem)
         else:
@@ -292,13 +287,10 @@ class CrossBatchMemory(torch.nn.Module):
         indices_tuple = c_f.shift_indices_tuple(indices_tuple, batch_size)
         if input_indices_tuple is not None:
             if len(input_indices_tuple) == 3 and len(indices_tuple) == 4:
-                input_indices_tuple = lmu.convert_to_pairs(input_indices_tuple,
-                    labels)
+                input_indices_tuple = lmu.convert_to_pairs(input_indices_tuple, labels)
             elif len(input_indices_tuple) == 4 and len(indices_tuple) == 3:
-                input_indices_tuple = lmu.convert_to_triplets(
-                    input_indices_tuple, labels)
-            indices_tuple = tuple([torch.cat([x, y], dim=0) for x, y in zip
-                (indices_tuple, input_indices_tuple)])
+                input_indices_tuple = lmu.convert_to_triplets(input_indices_tuple, labels)
+            indices_tuple = tuple([torch.cat([x, y], dim=0) for x, y in zip(indices_tuple, input_indices_tuple)])
         return indices_tuple
 
 
@@ -332,10 +324,8 @@ class BaseMiner(torch.nn.Module):
             c_f.assert_embeddings_and_labels_are_same_size(embeddings, labels)
             labels = labels
             if self.normalize_embeddings:
-                embeddings = torch.nn.functional.normalize(embeddings, p=2,
-                    dim=1)
-            ref_emb, ref_labels = self.set_ref_emb(embeddings, labels,
-                ref_emb, ref_labels)
+                embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+            ref_emb, ref_labels = self.set_ref_emb(embeddings, labels, ref_emb, ref_labels)
             mining_output = self.mine(embeddings, labels, ref_emb, ref_labels)
         self.output_assertion(mining_output)
         return mining_output
@@ -351,8 +341,7 @@ class BaseMiner(torch.nn.Module):
         return ref_emb, ref_labels
 
     def add_to_recordable_attributes(self, name=None, list_of_names=None):
-        c_f.add_to_recordable_attributes(self, name=name, list_of_names=
-            list_of_names)
+        c_f.add_to_recordable_attributes(self, name=name, list_of_names=list_of_names)
 
 
 class BaseWeightRegularizer(torch.nn.Module):
@@ -379,8 +368,7 @@ class BaseWeightRegularizer(torch.nn.Module):
         return loss
 
     def add_to_recordable_attributes(self, name=None, list_of_names=None):
-        c_f.add_to_recordable_attributes(self, name=name, list_of_names=
-            list_of_names)
+        c_f.add_to_recordable_attributes(self, name=name, list_of_names=list_of_names)
 
 
 class Identity(torch.nn.Module):
@@ -396,8 +384,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_KevinMusgrave_pytorch_metric_learning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

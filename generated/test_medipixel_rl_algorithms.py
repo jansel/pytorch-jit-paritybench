@@ -78,8 +78,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -151,12 +152,9 @@ def identity(x: torch.Tensor) ->torch.Tensor:
 
 class CNNLayer(nn.Module):
 
-    def __init__(self, input_size: int, output_size: int, kernel_size: int,
-        stride: int=1, padding: int=0, pre_activation_fn: Callable=identity,
-        activation_fn: Callable=F.relu, post_activation_fn: Callable=identity):
+    def __init__(self, input_size: int, output_size: int, kernel_size: int, stride: int=1, padding: int=0, pre_activation_fn: Callable=identity, activation_fn: Callable=F.relu, post_activation_fn: Callable=identity):
         super(CNNLayer, self).__init__()
-        self.cnn = nn.Conv2d(input_size, output_size, kernel_size=
-            kernel_size, stride=stride, padding=padding)
+        self.cnn = nn.Conv2d(input_size, output_size, kernel_size=kernel_size, stride=stride, padding=padding)
         self.pre_activation_fn = pre_activation_fn
         self.activation_fn = activation_fn
         self.post_activation_fn = post_activation_fn
@@ -176,8 +174,7 @@ class Registry:
         self._module_dict = dict()
 
     def __repr__(self):
-        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
-            self._name, list(self._module_dict.keys()))
+        format_str = self.__class__.__name__ + '(name={}, items={})'.format(self._name, list(self._module_dict.keys()))
         return format_str
 
     @property
@@ -197,12 +194,10 @@ class Registry:
             module (:obj:`nn.Module`): Module to be registered.
         """
         if not inspect.isclass(module_class):
-            raise TypeError('module must be a class, but got {}'.format(
-                type(module_class)))
+            raise TypeError('module must be a class, but got {}'.format(type(module_class)))
         module_name = module_class.__name__
         if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
+            raise KeyError('{} is already registered in {}'.format(module_name, self.name))
         self._module_dict[module_name] = module_class
 
     def register_module(self, cls):
@@ -216,21 +211,16 @@ BACKBONES = Registry('backbones')
 class BasicBlock(nn.Module):
     """Basic building block for ResNet."""
 
-    def __init__(self, in_planes: int, planes: int, stride: int=1,
-        expansion: int=1):
+    def __init__(self, in_planes: int, planes: int, stride: int=1, expansion: int=1):
         super(BasicBlock, self).__init__()
         self.expansion = expansion
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, self.expansion * planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -243,23 +233,18 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     """Bottleneck building block."""
 
-    def __init__(self, in_planes: int, planes: int, stride: int=1,
-        expansion: int=1):
+    def __init__(self, in_planes: int, planes: int, stride: int=1, expansion: int=1):
         super(Bottleneck, self).__init__()
         self.expansion = expansion
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -310,18 +295,15 @@ class NoisyLinear(nn.Module):
 
     """
 
-    def __init__(self, in_features: int, out_features: int, std_init: float=0.5
-        ):
+    def __init__(self, in_features: int, out_features: int, std_init: float=0.5):
         """Initialize."""
         super(NoisyLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.std_init = std_init
         self.weight_mu = nn.Parameter(torch.Tensor(out_features, in_features))
-        self.weight_sigma = nn.Parameter(torch.Tensor(out_features,
-            in_features))
-        self.register_buffer('weight_epsilon', torch.Tensor(out_features,
-            in_features))
+        self.weight_sigma = nn.Parameter(torch.Tensor(out_features, in_features))
+        self.register_buffer('weight_epsilon', torch.Tensor(out_features, in_features))
         self.bias_mu = nn.Parameter(torch.Tensor(out_features))
         self.bias_sigma = nn.Parameter(torch.Tensor(out_features))
         self.register_buffer('bias_epsilon', torch.Tensor(out_features))
@@ -332,11 +314,9 @@ class NoisyLinear(nn.Module):
         """Reset trainable network parameters (factorized gaussian noise)."""
         mu_range = 1 / math.sqrt(self.in_features)
         self.weight_mu.data.uniform_(-mu_range, mu_range)
-        self.weight_sigma.data.fill_(self.std_init / math.sqrt(self.
-            in_features))
+        self.weight_sigma.data.fill_(self.std_init / math.sqrt(self.in_features))
         self.bias_mu.data.uniform_(-mu_range, mu_range)
-        self.bias_sigma.data.fill_(self.std_init / math.sqrt(self.out_features)
-            )
+        self.bias_sigma.data.fill_(self.std_init / math.sqrt(self.out_features))
 
     @staticmethod
     def scale_noise(size: int) ->torch.Tensor:
@@ -357,25 +337,44 @@ class NoisyLinear(nn.Module):
         We don't use separate statements on train / eval mode.
         It doesn't show remarkable difference of performance.
         """
-        return F.linear(x, self.weight_mu + self.weight_sigma * self.
-            weight_epsilon, self.bias_mu + self.bias_sigma * self.bias_epsilon)
+        return F.linear(x, self.weight_mu + self.weight_sigma * self.weight_epsilon, self.bias_mu + self.bias_sigma * self.bias_epsilon)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CNNLayer,
+     lambda: ([], {'input_size': 4, 'output_size': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_medipixel_rl_algorithms(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CNNLayer(*[], **{'input_size': 4, 'output_size': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

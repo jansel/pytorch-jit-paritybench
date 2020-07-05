@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -134,10 +135,8 @@ class MaskedLinear(nn.Linear):
 
 class MaskedConv2d(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
-        super(MaskedConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(MaskedConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.mask_flag = False
 
     def set_mask(self, mask):
@@ -152,28 +151,39 @@ class MaskedConv2d(nn.Conv2d):
     def forward(self, x):
         if self.mask_flag == True:
             weight = self.weight * self.mask
-            return F.conv2d(x, weight, self.bias, self.stride, self.padding,
-                self.dilation, self.groups)
+            return F.conv2d(x, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         else:
-            return F.conv2d(x, self.weight, self.bias, self.stride, self.
-                padding, self.dilation, self.groups)
+            return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     False),
+    (MaskedConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskedLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_wanglouis49_pytorch_weights_pruning(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MLP(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MaskedConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MaskedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

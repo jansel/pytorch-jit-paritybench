@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -37,8 +38,7 @@ class GaussianMixture(torch.nn.Module):
     The model parametrization (mu, sigma) is stored as (1, k, d), and probabilities are shaped (n, k, 1) if they relate to an individual sample, or (1, k, 1) if they assign membership probabilities to one of the mixture components.
     """
 
-    def __init__(self, n_components, n_features, mu_init=None, var_init=
-        None, eps=1e-06):
+    def __init__(self, n_components, n_features, mu_init=None, var_init=None, eps=1e-06):
         """
         Initializes the model and brings all tensors into their required shape. The class expects data to be fed as a flat tensor in (n, d). The class owns:
             x:              torch.Tensor (n, k, d)
@@ -67,25 +67,16 @@ class GaussianMixture(torch.nn.Module):
 
     def _init_params(self):
         if self.mu_init is not None:
-            assert self.mu_init.size() == (1, self.n_components, self.
-                n_features
-                ), 'Input mu_init does not have required tensor dimensions (1, %i, %i)' % (
-                self.n_components, self.n_features)
+            assert self.mu_init.size() == (1, self.n_components, self.n_features), 'Input mu_init does not have required tensor dimensions (1, %i, %i)' % (self.n_components, self.n_features)
             self.mu = torch.nn.Parameter(self.mu_init, requires_grad=False)
         else:
-            self.mu = torch.nn.Parameter(torch.randn(1, self.n_components,
-                self.n_features), requires_grad=False)
+            self.mu = torch.nn.Parameter(torch.randn(1, self.n_components, self.n_features), requires_grad=False)
         if self.var_init is not None:
-            assert self.var_init.size() == (1, self.n_components, self.
-                n_features
-                ), 'Input var_init does not have required tensor dimensions (1, %i, %i)' % (
-                self.n_components, self.n_features)
+            assert self.var_init.size() == (1, self.n_components, self.n_features), 'Input var_init does not have required tensor dimensions (1, %i, %i)' % (self.n_components, self.n_features)
             self.var = torch.nn.Parameter(self.var_init, requires_grad=False)
         else:
-            self.var = torch.nn.Parameter(torch.ones(1, self.n_components,
-                self.n_features), requires_grad=False)
-        self.pi = torch.nn.Parameter(torch.Tensor(1, self.n_components, 1),
-            requires_grad=False).fill_(1.0 / self.n_components)
+            self.var = torch.nn.Parameter(torch.ones(1, self.n_components, self.n_features), requires_grad=False)
+        self.pi = torch.nn.Parameter(torch.Tensor(1, self.n_components, 1), requires_grad=False).fill_(1.0 / self.n_components)
         self.params_fitted = False
 
     def bic(self, x):
@@ -99,8 +90,7 @@ class GaussianMixture(torch.nn.Module):
         n = x.shape[0]
         if len(x.size()) == 2:
             x = x.unsqueeze(1).expand(n, self.n_components, x.size(1))
-        bic = -2.0 * self.__score(self.pi, self.__p_k(x, self.mu, self.var),
-            sum_data=True) * n + self.n_components * np.log(n)
+        bic = -2.0 * self.__score(self.pi, self.__p_k(x, self.mu, self.var), sum_data=True) * n + self.n_components * np.log(n)
         return bic
 
     def fit(self, x, warm_start=False, delta=1e-08, n_iter=1000):
@@ -121,10 +111,8 @@ class GaussianMixture(torch.nn.Module):
             mu_old = self.mu
             var_old = self.var
             self.__em(x)
-            self.log_likelihood = self.__score(self.pi, self.__p_k(x, self.
-                mu, self.var))
-            if self.log_likelihood.abs() == float('Inf'
-                ) or self.log_likelihood == float('nan'):
+            self.log_likelihood = self.__score(self.pi, self.__p_k(x, self.mu, self.var))
+            if self.log_likelihood.abs() == float('Inf') or self.log_likelihood == float('nan'):
                 self.__init__(self.n_components, self.n_features)
             i += 1
             j = self.log_likelihood - log_likelihood_old
@@ -171,8 +159,7 @@ class GaussianMixture(torch.nn.Module):
         """
         if len(x.size()) == 2:
             x = x.unsqueeze(1).expand(x.size(0), self.n_components, x.size(1))
-        score = self.__score(self.pi, self.__p_k(x, self.mu, self.var),
-            sum_data=False)
+        score = self.__score(self.pi, self.__p_k(x, self.mu, self.var), sum_data=False)
         return score
 
     def __p_k(self, x, mu, var):
@@ -187,10 +174,8 @@ class GaussianMixture(torch.nn.Module):
         """
         mu = mu.expand(x.size(0), self.n_components, self.n_features)
         var = var.expand(x.size(0), self.n_components, self.n_features)
-        exponent = torch.exp(-0.5 * torch.sum((x - mu) * (x - mu) / var, 2,
-            keepdim=True))
-        prefactor = torch.rsqrt((2.0 * pi) ** self.n_features * torch.prod(
-            var, dim=2, keepdim=True) + self.eps)
+        exponent = torch.exp(-0.5 * torch.sum((x - mu) * (x - mu) / var, 2, keepdim=True))
+        prefactor = torch.rsqrt((2.0 * pi) ** self.n_features * torch.prod(var, dim=2, keepdim=True) + self.eps)
         return prefactor * exponent
 
     def __e_step(self, pi, p_k):
@@ -203,8 +188,7 @@ class GaussianMixture(torch.nn.Module):
             weights:    torch.Tensor (n, k, 1)
         """
         weights = pi * p_k
-        return torch.div(weights, torch.sum(weights, 1, keepdim=True) +
-            self.eps)
+        return torch.div(weights, torch.sum(weights, 1, keepdim=True) + self.eps)
 
     def __m_step(self, x, weights):
         """
@@ -219,10 +203,8 @@ class GaussianMixture(torch.nn.Module):
         """
         n_k = torch.sum(weights, 0, keepdim=True)
         pi_new = torch.div(n_k, torch.sum(n_k, 1, keepdim=True) + self.eps)
-        mu_new = torch.div(torch.sum(weights * x, 0, keepdim=True), n_k +
-            self.eps)
-        var_new = torch.div(torch.sum(weights * (x - mu_new) * (x - mu_new),
-            0, keepdim=True), n_k + self.eps)
+        mu_new = torch.div(torch.sum(weights * x, 0, keepdim=True), n_k + self.eps)
+        var_new = torch.div(torch.sum(weights * (x - mu_new) * (x - mu_new), 0, keepdim=True), n_k + self.eps)
         return pi_new, mu_new, var_new
 
     def __em(self, x):
@@ -256,11 +238,7 @@ class GaussianMixture(torch.nn.Module):
         args:
             mu:         torch.FloatTensor
         """
-        assert mu.size() in [(self.n_components, self.n_features), (1, self
-            .n_components, self.n_features)
-            ], 'Input mu does not have required tensor dimensions (%i, %i) or (1, %i, %i)' % (
-            self.n_components, self.n_features, self.n_components, self.
-            n_features)
+        assert mu.size() in [(self.n_components, self.n_features), (1, self.n_components, self.n_features)], 'Input mu does not have required tensor dimensions (%i, %i) or (1, %i, %i)' % (self.n_components, self.n_features, self.n_components, self.n_features)
         if mu.size() == (self.n_components, self.n_features):
             self.mu = mu.unsqueeze(0)
         elif mu.size() == (1, self.n_components, self.n_features):
@@ -272,11 +250,7 @@ class GaussianMixture(torch.nn.Module):
         args:
             var:        torch.FloatTensor
         """
-        assert var.size() in [(self.n_components, self.n_features), (1,
-            self.n_components, self.n_features)
-            ], 'Input var does not have required tensor dimensions (%i, %i) or (1, %i, %i)' % (
-            self.n_components, self.n_features, self.n_components, self.
-            n_features)
+        assert var.size() in [(self.n_components, self.n_features), (1, self.n_components, self.n_features)], 'Input var does not have required tensor dimensions (%i, %i) or (1, %i, %i)' % (self.n_components, self.n_features, self.n_components, self.n_features)
         if var.size() == (self.n_components, self.n_features):
             self.var = var.unsqueeze(0)
         elif var.size() == (1, self.n_components, self.n_features):
@@ -288,15 +262,6 @@ class GaussianMixture(torch.nn.Module):
         args:
             pi:         torch.FloatTensor
         """
-        assert pi.size() in [(1, self.n_components, 1)
-            ], 'Input pi does not have required tensor dimensions (%i, %i, %i)' % (
-            1, self.n_components, 1)
+        assert pi.size() in [(1, self.n_components, 1)], 'Input pi does not have required tensor dimensions (%i, %i, %i)' % (1, self.n_components, 1)
         self.pi.data = pi
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ldeecke_gmm_torch(_paritybench_base):
-    pass

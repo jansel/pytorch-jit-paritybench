@@ -61,8 +61,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -165,8 +166,7 @@ class OperationType(Enum):
 
 def get_postfix(tensor: torch.Tensor):
     postfix = 'GPU' if tensor.is_cuda else 'CPU'
-    if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.
-        cuda.DoubleTensor):
+    if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.cuda.DoubleTensor):
         postfix += 'd'
     else:
         postfix += 'f'
@@ -178,9 +178,7 @@ def get_minkowski_function(name, variable):
     if hasattr(MEB, fn_name):
         return getattr(MEB, fn_name)
     elif variable.is_cuda:
-        raise ValueError(
-            f'Function {fn_name} not available. Please compile MinkowskiEngine where `torch.cuda.is_available()` is `True`.'
-            )
+        raise ValueError(f'Function {fn_name} not available. Please compile MinkowskiEngine where `torch.cuda.is_available()` is `True`.')
     else:
         raise ValueError(f'Function {fn_name} not available.')
 
@@ -196,8 +194,7 @@ def operation_type_to_int(op):
 class MinkowskiBroadcastFunction(Function):
 
     @staticmethod
-    def forward(ctx, input_features, input_features_global, operation_type,
-        in_coords_key, glob_coords_key, coords_manager):
+    def forward(ctx, input_features, input_features_global, operation_type, in_coords_key, glob_coords_key, coords_manager):
         assert input_features.shape[1] == input_features_global.shape[1]
         assert input_features.type() == input_features_global.type()
         assert isinstance(operation_type, OperationType)
@@ -212,9 +209,7 @@ class MinkowskiBroadcastFunction(Function):
         ctx.glob_coords_key = glob_coords_key
         ctx.coords_manager = coords_manager
         fw_fn = get_minkowski_function('BroadcastForward', input_features)
-        out_feat = fw_fn(ctx.in_feat, ctx.in_feat_glob, ctx.op, ctx.
-            in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey,
-            ctx.coords_manager.CPPCoordsManager)
+        out_feat = fw_fn(ctx.in_feat, ctx.in_feat_glob, ctx.op, ctx.in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
         return out_feat
 
     @staticmethod
@@ -224,23 +219,17 @@ class MinkowskiBroadcastFunction(Function):
         grad_in_feat = grad_out_feat.new()
         grad_in_feat_glob = grad_out_feat.new()
         bw_fn = get_minkowski_function('BroadcastBackward', grad_out_feat)
-        bw_fn(ctx.in_feat, grad_in_feat, ctx.in_feat_glob,
-            grad_in_feat_glob, grad_out_feat, ctx.op, ctx.in_coords_key.
-            CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.
-            coords_manager.CPPCoordsManager)
+        bw_fn(ctx.in_feat, grad_in_feat, ctx.in_feat_glob, grad_in_feat_glob, grad_out_feat, ctx.op, ctx.in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
         return grad_in_feat, grad_in_feat_glob, None, None, None, None
 
 
 COORDS_KEY_DIFFERENT_ERROR = 'SparseTensors must have the same coords_key.'
 
 
-COORDS_MAN_DIFFERENT_ERROR = (
-    'SparseTensors must share the same coordinate manager for this operation. Please refer to the SparseTensor creation API (https://stanfordvl.github.io/MinkowskiEngine/sparse_tensor.html) to share the coordinate manager, or set the sparse tensor operation mode with `set_sparse_tensor_operation_mode` to share it by default.'
-    )
+COORDS_MAN_DIFFERENT_ERROR = 'SparseTensors must share the same coordinate manager for this operation. Please refer to the SparseTensor creation API (https://stanfordvl.github.io/MinkowskiEngine/sparse_tensor.html) to share the coordinate manager, or set the sparse tensor operation mode with `set_sparse_tensor_operation_mode` to share it by default.'
 
 
-def convert_to_int_list(arg: Union[int, Sequence, np.ndarray, torch.Tensor],
-    dimension: int):
+def convert_to_int_list(arg: Union[int, Sequence, np.ndarray, torch.Tensor], dimension: int):
     if isinstance(arg, list):
         assert len(arg) == dimension
         return arg
@@ -285,8 +274,7 @@ class CoordsKey:
         return self.getKey() == other.getKey()
 
 
-def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.
-    IntTensor], dimension: int):
+def convert_to_int_tensor(arg: Union[int, Sequence, np.ndarray, torch.IntTensor], dimension: int):
     if isinstance(arg, torch.IntTensor):
         assert arg.numel() == dimension
         return arg
@@ -319,13 +307,8 @@ class RegionType(Enum):
         return self.value
 
 
-def prep_args(tensor_stride: Union[int, Sequence, np.ndarray, torch.
-    IntTensor], stride: Union[int, Sequence, np.ndarray, torch.IntTensor],
-    kernel_size: Union[int, Sequence, np.ndarray, torch.IntTensor],
-    dilation: Union[int, Sequence, np.ndarray, torch.IntTensor],
-    region_type: Union[int, RegionType], D=-1):
-    assert torch.prod(kernel_size > 0
-        ), f'kernel_size must be a positive integer, provided {kernel_size}'
+def prep_args(tensor_stride: Union[int, Sequence, np.ndarray, torch.IntTensor], stride: Union[int, Sequence, np.ndarray, torch.IntTensor], kernel_size: Union[int, Sequence, np.ndarray, torch.IntTensor], dilation: Union[int, Sequence, np.ndarray, torch.IntTensor], region_type: Union[int, RegionType], D=-1):
+    assert torch.prod(kernel_size > 0), f'kernel_size must be a positive integer, provided {kernel_size}'
     assert D > 0, f'dimension must be a positive integer, {D}'
     tensor_stride = convert_to_int_tensor(tensor_stride, D)
     stride = convert_to_int_tensor(stride, D)
@@ -363,11 +346,8 @@ class AbstractMinkowskiBroadcast(Module):
 
     def forward(self, input, input_glob):
         assert isinstance(input, SparseTensor)
-        output = self.broadcast.apply(input.F, input_glob.F, self.
-            operation_type, input.coords_key, input_glob.coords_key, input.
-            coords_man)
-        return SparseTensor(output, coords_key=input.coords_key,
-            coords_manager=input.coords_man)
+        output = self.broadcast.apply(input.F, input_glob.F, self.operation_type, input.coords_key, input_glob.coords_key, input.coords_man)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
 
     def __repr__(self):
         return self.__class__.__name__
@@ -405,8 +385,7 @@ class MinkowskiBroadcast(Module):
         row_inds = input.coords_man.get_row_indices_per_batch(input.coords_key)
         for b, row_ind in enumerate(row_inds):
             broadcast_feat[row_ind] = input_glob.F[b]
-        return SparseTensor(broadcast_feat, coords_key=input.coords_key,
-            coords_manager=input.coords_man)
+        return SparseTensor(broadcast_feat, coords_key=input.coords_key, coords_manager=input.coords_man)
 
 
 class MinkowskiNetwork(nn.Module, ABC):
@@ -451,8 +430,7 @@ class MinkowskiNetwork(nn.Module, ABC):
         assert isinstance(coords, torch.IntTensor), 'Coord must be IntTensor'
         index_map = torch.IntTensor()
         tensor_stride = convert_to_int_tensor(tensor_stride, self.D)
-        success = MEB.get_index_map(coords.contiguous(), index_map,
-            tensor_stride, self.D, self.net_metadata.ffi)
+        success = MEB.get_index_map(coords.contiguous(), index_map, tensor_stride, self.D, self.net_metadata.ffi)
         if success < 0:
             raise ValueError('get_index_map failed')
         return index_map
@@ -492,8 +470,7 @@ class MinkowskiModuleBase(Module):
 
     def forward(self, input):
         output = self.module(input.F)
-        return SparseTensor(output, coords_key=input.coords_key,
-            coords_manager=input.coords_man)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
 
     def __repr__(self):
         return self.__class__.__name__ + '()'
@@ -505,21 +482,16 @@ class MinkowskiBatchNorm(Module):
     See the pytorch :attr:`torch.nn.BatchNorm1d` for more details.
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
         super(MinkowskiBatchNorm, self).__init__()
-        self.bn = torch.nn.BatchNorm1d(num_features, eps=eps, momentum=
-            momentum, affine=affine, track_running_stats=track_running_stats)
+        self.bn = torch.nn.BatchNorm1d(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
 
     def forward(self, input):
         output = self.bn(input.F)
-        return SparseTensor(output, coords_key=input.coords_key,
-            coords_manager=input.coords_man)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
 
     def __repr__(self):
-        s = ('({}, eps={}, momentum={}, affine={}, track_running_stats={})'
-            .format(self.bn.num_features, self.bn.eps, self.bn.momentum,
-            self.bn.affine, self.bn.track_running_stats))
+        s = '({}, eps={}, momentum={}, affine={}, track_running_stats={})'.format(self.bn.num_features, self.bn.eps, self.bn.momentum, self.bn.affine, self.bn.track_running_stats)
         return self.__class__.__name__ + s
 
 
@@ -592,12 +564,10 @@ class GlobalPoolingMode(Enum):
 class MinkowskiGlobalPoolingFunction(Function):
 
     @staticmethod
-    def forward(ctx, input_features, average=True, mode=GlobalPoolingMode.
-        AUTO, in_coords_key=None, out_coords_key=None, coords_manager=None):
+    def forward(ctx, input_features, average=True, mode=GlobalPoolingMode.AUTO, in_coords_key=None, out_coords_key=None, coords_manager=None):
         if out_coords_key is None:
             out_coords_key = CoordsKey(in_coords_key.D)
-        assert isinstance(mode, GlobalPoolingMode
-            ), f'Mode must be an instance of GlobalPoolingMode, {mode}'
+        assert isinstance(mode, GlobalPoolingMode), f'Mode must be an instance of GlobalPoolingMode, {mode}'
         ctx.in_coords_key = in_coords_key
         ctx.out_coords_key = out_coords_key
         ctx.in_feat = input_features
@@ -605,18 +575,14 @@ class MinkowskiGlobalPoolingFunction(Function):
         ctx.coords_manager = coords_manager
         ctx.mode = mode.value
         fw_fn = get_minkowski_function('GlobalPoolingForward', input_features)
-        out_feat, num_nonzero = fw_fn(ctx.in_feat, ctx.in_coords_key.
-            CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.
-            coords_manager.CPPCoordsManager, ctx.average, ctx.mode)
+        out_feat, num_nonzero = fw_fn(ctx.in_feat, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager, ctx.average, ctx.mode)
         ctx.num_nonzero = num_nonzero
         return out_feat
 
     @staticmethod
     def backward(ctx, grad_out_feat):
         bw_fn = get_minkowski_function('GlobalPoolingBackward', grad_out_feat)
-        grad_in_feat = bw_fn(ctx.in_feat, grad_out_feat, ctx.num_nonzero,
-            ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey,
-            ctx.coords_manager.CPPCoordsManager, ctx.average)
+        grad_in_feat = bw_fn(ctx.in_feat, grad_out_feat, ctx.num_nonzero, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager, ctx.average)
         return grad_in_feat, None, None, None, None, None
 
 
@@ -642,8 +608,7 @@ class MinkowskiGlobalPooling(MinkowskiModuleBase):
 
         """
         super(MinkowskiGlobalPooling, self).__init__()
-        assert isinstance(mode, GlobalPoolingMode
-            ), f'Mode must be an instance of GlobalPoolingMode. mode={mode}'
+        assert isinstance(mode, GlobalPoolingMode), f'Mode must be an instance of GlobalPoolingMode. mode={mode}'
         self.mode = mode
         self.average = average
         self.pooling = MinkowskiGlobalPoolingFunction()
@@ -651,10 +616,8 @@ class MinkowskiGlobalPooling(MinkowskiModuleBase):
     def forward(self, input):
         assert isinstance(input, SparseTensor)
         out_coords_key = CoordsKey(input.coords_key.D)
-        output = self.pooling.apply(input.F, self.average, self.mode, input
-            .coords_key, out_coords_key, input.coords_man)
-        return SparseTensor(output, coords_key=out_coords_key,
-            coords_manager=input.coords_man)
+        output = self.pooling.apply(input.F, self.average, self.mode, input.coords_key, out_coords_key, input.coords_man)
+        return SparseTensor(output, coords_key=out_coords_key, coords_manager=input.coords_man)
 
     def __repr__(self):
         return self.__class__.__name__ + '(average=' + str(self.average) + ')'
@@ -684,26 +647,20 @@ class MinkowskiStableInstanceNorm(Module):
         self.bias.data.zero_()
 
     def forward(self, x):
-        neg_mean_in = self.mean_in(SparseTensor(-x.F, coords_key=x.
-            coords_key, coords_manager=x.coords_man))
+        neg_mean_in = self.mean_in(SparseTensor(-x.F, coords_key=x.coords_key, coords_manager=x.coords_man))
         centered_in = self.glob_sum(x, neg_mean_in)
-        temp = SparseTensor(centered_in.F ** 2, coords_key=centered_in.
-            coords_key, coords_manager=centered_in.coords_man)
+        temp = SparseTensor(centered_in.F ** 2, coords_key=centered_in.coords_key, coords_manager=centered_in.coords_man)
         var_in = self.glob_mean(temp)
-        instd_in = SparseTensor(1 / (var_in.F + self.eps).sqrt(),
-            coords_key=var_in.coords_key, coords_manager=var_in.coords_man)
+        instd_in = SparseTensor(1 / (var_in.F + self.eps).sqrt(), coords_key=var_in.coords_key, coords_manager=var_in.coords_man)
         x = self.glob_times(self.glob_sum2(x, neg_mean_in), instd_in)
-        return SparseTensor(x.F * self.weight + self.bias, coords_key=x.
-            coords_key, coords_manager=x.coords_man)
+        return SparseTensor(x.F * self.weight + self.bias, coords_key=x.coords_key, coords_manager=x.coords_man)
 
 
 class MinkowskiInstanceNormFunction(Function):
 
     @staticmethod
-    def forward(ctx, in_feat, mode=GlobalPoolingMode.AUTO, in_coords_key=
-        None, glob_coords_key=None, coords_manager=None):
-        assert isinstance(mode, GlobalPoolingMode
-            ), f'Mode must be an instance of GlobalPoolingMode, {mode}'
+    def forward(ctx, in_feat, mode=GlobalPoolingMode.AUTO, in_coords_key=None, glob_coords_key=None, coords_manager=None):
+        assert isinstance(mode, GlobalPoolingMode), f'Mode must be an instance of GlobalPoolingMode, {mode}'
         if glob_coords_key is None:
             glob_coords_key = CoordsKey(in_coords_key.D)
         gpool_forward = get_minkowski_function('GlobalPoolingForward', in_feat)
@@ -715,16 +672,11 @@ class MinkowskiInstanceNormFunction(Function):
         cpp_in_coords_key = in_coords_key.CPPCoordsKey
         cpp_glob_coords_key = glob_coords_key.CPPCoordsKey
         cpp_coords_manager = coords_manager.CPPCoordsManager
-        mean, num_nonzero = gpool_forward(in_feat, cpp_in_coords_key,
-            cpp_glob_coords_key, cpp_coords_manager, True, mode.value)
-        centered_feat = broadcast_forward(in_feat, -mean, add,
-            cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
-        variance, num_nonzero = gpool_forward(centered_feat ** 2,
-            cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager, 
-            True, mode.value)
+        mean, num_nonzero = gpool_forward(in_feat, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager, True, mode.value)
+        centered_feat = broadcast_forward(in_feat, -mean, add, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
+        variance, num_nonzero = gpool_forward(centered_feat ** 2, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager, True, mode.value)
         inv_std = 1 / (variance + 1e-08).sqrt()
-        norm_feat = broadcast_forward(centered_feat, inv_std, multiply,
-            cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
+        norm_feat = broadcast_forward(centered_feat, inv_std, multiply, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
         ctx.mode = mode
         ctx.in_coords_key, ctx.glob_coords_key = in_coords_key, glob_coords_key
         ctx.coords_manager = coords_manager
@@ -736,28 +688,18 @@ class MinkowskiInstanceNormFunction(Function):
         in_coords_key, glob_coords_key = ctx.in_coords_key, ctx.glob_coords_key
         coords_manager = ctx.coords_manager
         inv_std, norm_feat = ctx.saved_tensors
-        gpool_forward = get_minkowski_function('GlobalPoolingForward', out_grad
-            )
-        broadcast_forward = get_minkowski_function('BroadcastForward', out_grad
-            )
+        gpool_forward = get_minkowski_function('GlobalPoolingForward', out_grad)
+        broadcast_forward = get_minkowski_function('BroadcastForward', out_grad)
         add = operation_type_to_int(OperationType.ADDITION)
         multiply = operation_type_to_int(OperationType.MULTIPLICATION)
         cpp_in_coords_key = in_coords_key.CPPCoordsKey
         cpp_glob_coords_key = glob_coords_key.CPPCoordsKey
         cpp_coords_manager = coords_manager.CPPCoordsManager
-        mean_dout, num_nonzero = gpool_forward(out_grad, cpp_in_coords_key,
-            cpp_glob_coords_key, cpp_coords_manager, True, ctx.mode.value)
-        mean_dout_feat, num_nonzero = gpool_forward(out_grad * norm_feat,
-            cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager, 
-            True, ctx.mode.value)
-        feat_mean_dout_feat = broadcast_forward(norm_feat, mean_dout_feat,
-            multiply, cpp_in_coords_key, cpp_glob_coords_key,
-            cpp_coords_manager)
-        unnorm_din = broadcast_forward(out_grad - feat_mean_dout_feat, -
-            mean_dout, add, cpp_in_coords_key, cpp_glob_coords_key,
-            cpp_coords_manager)
-        norm_din = broadcast_forward(unnorm_din, inv_std, multiply,
-            cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
+        mean_dout, num_nonzero = gpool_forward(out_grad, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager, True, ctx.mode.value)
+        mean_dout_feat, num_nonzero = gpool_forward(out_grad * norm_feat, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager, True, ctx.mode.value)
+        feat_mean_dout_feat = broadcast_forward(norm_feat, mean_dout_feat, multiply, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
+        unnorm_din = broadcast_forward(out_grad - feat_mean_dout_feat, -mean_dout, add, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
+        norm_din = broadcast_forward(unnorm_din, inv_std, multiply, cpp_in_coords_key, cpp_glob_coords_key, cpp_coords_manager)
         return norm_din, None, None, None, None
 
 
@@ -792,11 +734,9 @@ class MinkowskiInstanceNorm(Module):
 
     def forward(self, input):
         assert isinstance(input, SparseTensor)
-        output = self.inst_norm.apply(input.F, self.mode, input.coords_key,
-            None, input.coords_man)
+        output = self.inst_norm.apply(input.F, self.mode, input.coords_key, None, input.coords_man)
         output = output * self.weight + self.bias
-        return SparseTensor(output, coords_key=input.coords_key,
-            coords_manager=input.coords_man)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
 
 
 class MinkowskiLinear(Module):
@@ -807,24 +747,19 @@ class MinkowskiLinear(Module):
 
     def forward(self, input):
         output = self.linear(input.F)
-        return SparseTensor(output, coords_key=input.coords_key,
-            coords_manager=input.coords_man)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
 
     def __repr__(self):
-        s = '(in_features={}, out_features={}, bias={})'.format(self.linear
-            .in_features, self.linear.out_features, self.linear.bias is not
-            None)
+        s = '(in_features={}, out_features={}, bias={})'.format(self.linear.in_features, self.linear.out_features, self.linear.bias is not None)
         return self.__class__.__name__ + s
 
 
 class MinkowskiPruningFunction(Function):
 
     @staticmethod
-    def forward(ctx, in_feat, mask, in_coords_key, out_coords_key,
-        coords_manager):
+    def forward(ctx, in_feat, mask, in_coords_key, out_coords_key, coords_manager):
         assert in_feat.size(0) == mask.size(0)
-        assert isinstance(mask, torch.BoolTensor
-            ), 'Mask must be a cpu bool tensor.'
+        assert isinstance(mask, torch.BoolTensor), 'Mask must be a cpu bool tensor.'
         if not in_feat.is_contiguous():
             in_feat = in_feat.contiguous()
         if not mask.is_contiguous():
@@ -834,8 +769,7 @@ class MinkowskiPruningFunction(Function):
         ctx.coords_manager = coords_manager
         out_feat = in_feat.new()
         fw_fn = get_minkowski_function('PruningForward', in_feat)
-        fw_fn(in_feat, out_feat, mask, ctx.in_coords_key.CPPCoordsKey, ctx.
-            out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
+        fw_fn(in_feat, out_feat, mask, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
         return out_feat
 
     @staticmethod
@@ -844,9 +778,7 @@ class MinkowskiPruningFunction(Function):
             grad_out_feat = grad_out_feat.contiguous()
         grad_in_feat = grad_out_feat.new()
         bw_fn = get_minkowski_function('PruningBackward', grad_out_feat)
-        bw_fn(grad_in_feat, grad_out_feat, ctx.in_coords_key.CPPCoordsKey,
-            ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.
-            CPPCoordsManager)
+        bw_fn(grad_in_feat, grad_out_feat, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
         return grad_in_feat, None, None, None, None, None
 
 
@@ -885,10 +817,8 @@ class MinkowskiPruning(Module):
         """
         assert isinstance(input, SparseTensor)
         out_coords_key = CoordsKey(input.coords_key.D)
-        output = self.pruning.apply(input.F, mask, input.coords_key,
-            out_coords_key, input.coords_man)
-        return SparseTensor(output, coords_key=out_coords_key,
-            coords_manager=input.coords_man)
+        output = self.pruning.apply(input.F, mask, input.coords_key, out_coords_key, input.coords_man)
+        return SparseTensor(output, coords_key=out_coords_key, coords_manager=input.coords_man)
 
     def __repr__(self):
         return self.__class__.__name__ + '()'
@@ -897,28 +827,22 @@ class MinkowskiPruning(Module):
 class MinkowskiUnionFunction(Function):
 
     @staticmethod
-    def forward(ctx, in_coords_keys, out_coords_key, coords_manager, *in_feats
-        ):
-        assert isinstance(in_feats, list) or isinstance(in_feats, tuple
-            ), 'Input must be a list or a set of Tensors'
+    def forward(ctx, in_coords_keys, out_coords_key, coords_manager, *in_feats):
+        assert isinstance(in_feats, list) or isinstance(in_feats, tuple), 'Input must be a list or a set of Tensors'
         assert len(in_feats) > 1, 'input must be a set with at least 2 Tensors'
         in_feats = [in_feat.contiguous() for in_feat in in_feats]
         ctx.in_coords_keys = in_coords_keys
         ctx.out_coords_key = out_coords_key
         ctx.coords_manager = coords_manager
         fw_fn = get_minkowski_function('UnionForward', in_feats[0])
-        return fw_fn(in_feats, [key.CPPCoordsKey for key in ctx.
-            in_coords_keys], ctx.out_coords_key.CPPCoordsKey, ctx.
-            coords_manager.CPPCoordsManager)
+        return fw_fn(in_feats, [key.CPPCoordsKey for key in ctx.in_coords_keys], ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
 
     @staticmethod
     def backward(ctx, grad_out_feat):
         if not grad_out_feat.is_contiguous():
             grad_out_feat = grad_out_feat.contiguous()
         bw_fn = get_minkowski_function('UnionBackward', grad_out_feat)
-        grad_in_feats = bw_fn(grad_out_feat, [key.CPPCoordsKey for key in
-            ctx.in_coords_keys], ctx.out_coords_key.CPPCoordsKey, ctx.
-            coords_manager.CPPCoordsManager)
+        grad_in_feats = bw_fn(grad_out_feat, [key.CPPCoordsKey for key in ctx.in_coords_keys], ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
         return None, None, None, *grad_in_feats
 
 
@@ -964,16 +888,11 @@ class MinkowskiUnion(Module):
 
         """
         for s in inputs:
-            assert isinstance(s, SparseTensor
-                ), 'Inputs must be sparse tensors.'
-        assert len(inputs
-            ) > 1, 'input must be a set with at least 2 SparseTensors'
+            assert isinstance(s, SparseTensor), 'Inputs must be sparse tensors.'
+        assert len(inputs) > 1, 'input must be a set with at least 2 SparseTensors'
         out_coords_key = CoordsKey(inputs[0].coords_key.D)
-        output = self.union.apply([input.coords_key for input in inputs],
-            out_coords_key, inputs[0].coords_man, *[input.F for input in
-            inputs])
-        return SparseTensor(output, coords_key=out_coords_key,
-            coords_manager=inputs[0].coords_man)
+        output = self.union.apply([input.coords_key for input in inputs], out_coords_key, inputs[0].coords_man, *[input.F for input in inputs])
+        return SparseTensor(output, coords_key=out_coords_key, coords_manager=inputs[0].coords_man)
 
     def __repr__(self):
         return self.__class__.__name__ + '()'
@@ -982,15 +901,12 @@ class MinkowskiUnion(Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, bn_momentum=0.1, dimension=-1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, bn_momentum=0.1, dimension=-1):
         super(BasicBlock, self).__init__()
         assert dimension > 0
-        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=
-            3, stride=stride, dilation=dilation, dimension=dimension)
+        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=3, stride=stride, dilation=dilation, dimension=dimension)
         self.norm1 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
-        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3,
-            stride=1, dilation=dilation, dimension=dimension)
+        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3, stride=1, dilation=dilation, dimension=dimension)
         self.norm2 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
         self.relu = ME.MinkowskiReLU(inplace=True)
         self.downsample = downsample
@@ -1012,20 +928,15 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, bn_momentum=0.1, dimension=-1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, bn_momentum=0.1, dimension=-1):
         super(Bottleneck, self).__init__()
         assert dimension > 0
-        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=
-            1, dimension=dimension)
+        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=1, dimension=dimension)
         self.norm1 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
-        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3,
-            stride=stride, dilation=dilation, dimension=dimension)
+        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3, stride=stride, dilation=dilation, dimension=dimension)
         self.norm2 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
-        self.conv3 = ME.MinkowskiConvolution(planes, planes * self.
-            expansion, kernel_size=1, dimension=dimension)
-        self.norm3 = ME.MinkowskiBatchNorm(planes * self.expansion,
-            momentum=bn_momentum)
+        self.conv3 = ME.MinkowskiConvolution(planes, planes * self.expansion, kernel_size=1, dimension=dimension)
+        self.norm3 = ME.MinkowskiBatchNorm(planes * self.expansion, momentum=bn_momentum)
         self.relu = ME.MinkowskiReLU(inplace=True)
         self.downsample = downsample
 
@@ -1050,9 +961,7 @@ class SELayer(nn.Module):
 
     def __init__(self, channel, reduction=16, D=-1):
         super(SELayer, self).__init__()
-        self.fc = nn.Sequential(ME.MinkowskiLinear(channel, channel //
-            reduction), ME.MinkowskiReLU(inplace=True), ME.MinkowskiLinear(
-            channel // reduction, channel), ME.MinkowskiSigmoid())
+        self.fc = nn.Sequential(ME.MinkowskiLinear(channel, channel // reduction), ME.MinkowskiReLU(inplace=True), ME.MinkowskiLinear(channel // reduction, channel), ME.MinkowskiSigmoid())
         self.pooling = ME.MinkowskiGlobalPooling()
         self.broadcast_mul = ME.MinkowskiBroadcastMultiplication()
 
@@ -1071,87 +980,25 @@ class CompletionNet(nn.Module):
         self.resolution = resolution
         enc_ch = self.ENC_CHANNELS
         dec_ch = self.DEC_CHANNELS
-        self.enc_block_s1 = nn.Sequential(ME.MinkowskiConvolution(1, enc_ch
-            [0], kernel_size=3, stride=1, dimension=3), ME.
-            MinkowskiBatchNorm(enc_ch[0]), ME.MinkowskiELU())
-        self.enc_block_s1s2 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[
-            0], enc_ch[1], kernel_size=2, stride=2, dimension=3), ME.
-            MinkowskiBatchNorm(enc_ch[1]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(enc_ch[1], enc_ch[1], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(enc_ch[1]), ME.MinkowskiELU())
-        self.enc_block_s2s4 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[
-            1], enc_ch[2], kernel_size=2, stride=2, dimension=3), ME.
-            MinkowskiBatchNorm(enc_ch[2]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(enc_ch[2], enc_ch[2], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(enc_ch[2]), ME.MinkowskiELU())
-        self.enc_block_s4s8 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[
-            2], enc_ch[3], kernel_size=2, stride=2, dimension=3), ME.
-            MinkowskiBatchNorm(enc_ch[3]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(enc_ch[3], enc_ch[3], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(enc_ch[3]), ME.MinkowskiELU())
-        self.enc_block_s8s16 = nn.Sequential(ME.MinkowskiConvolution(enc_ch
-            [3], enc_ch[4], kernel_size=2, stride=2, dimension=3), ME.
-            MinkowskiBatchNorm(enc_ch[4]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(enc_ch[4], enc_ch[4], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(enc_ch[4]), ME.MinkowskiELU())
-        self.enc_block_s16s32 = nn.Sequential(ME.MinkowskiConvolution(
-            enc_ch[4], enc_ch[5], kernel_size=2, stride=2, dimension=3), ME
-            .MinkowskiBatchNorm(enc_ch[5]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(enc_ch[5], enc_ch[5], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(enc_ch[5]), ME.MinkowskiELU())
-        self.enc_block_s32s64 = nn.Sequential(ME.MinkowskiConvolution(
-            enc_ch[5], enc_ch[6], kernel_size=2, stride=2, dimension=3), ME
-            .MinkowskiBatchNorm(enc_ch[6]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(enc_ch[6], enc_ch[6], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(enc_ch[6]), ME.MinkowskiELU())
-        self.dec_block_s64s32 = nn.Sequential(ME.
-            MinkowskiConvolutionTranspose(enc_ch[6], dec_ch[5], kernel_size
-            =4, stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(dec_ch[5]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(dec_ch[5], dec_ch[5], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(dec_ch[5]), ME.MinkowskiELU())
-        self.dec_s32_cls = ME.MinkowskiConvolution(dec_ch[5], 1,
-            kernel_size=1, has_bias=True, dimension=3)
-        self.dec_block_s32s16 = nn.Sequential(ME.
-            MinkowskiConvolutionTranspose(enc_ch[5], dec_ch[4], kernel_size
-            =2, stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(dec_ch[4]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(dec_ch[4], dec_ch[4], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(dec_ch[4]), ME.MinkowskiELU())
-        self.dec_s16_cls = ME.MinkowskiConvolution(dec_ch[4], 1,
-            kernel_size=1, has_bias=True, dimension=3)
-        self.dec_block_s16s8 = nn.Sequential(ME.
-            MinkowskiConvolutionTranspose(dec_ch[4], dec_ch[3], kernel_size
-            =2, stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(dec_ch[3]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(dec_ch[3], dec_ch[3], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(dec_ch[3]), ME.MinkowskiELU())
-        self.dec_s8_cls = ME.MinkowskiConvolution(dec_ch[3], 1, kernel_size
-            =1, has_bias=True, dimension=3)
-        self.dec_block_s8s4 = nn.Sequential(ME.
-            MinkowskiConvolutionTranspose(dec_ch[3], dec_ch[2], kernel_size
-            =2, stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(dec_ch[2]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(dec_ch[2], dec_ch[2], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(dec_ch[2]), ME.MinkowskiELU())
-        self.dec_s4_cls = ME.MinkowskiConvolution(dec_ch[2], 1, kernel_size
-            =1, has_bias=True, dimension=3)
-        self.dec_block_s4s2 = nn.Sequential(ME.
-            MinkowskiConvolutionTranspose(dec_ch[2], dec_ch[1], kernel_size
-            =2, stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(dec_ch[1]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(dec_ch[1], dec_ch[1], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(dec_ch[1]), ME.MinkowskiELU())
-        self.dec_s2_cls = ME.MinkowskiConvolution(dec_ch[1], 1, kernel_size
-            =1, has_bias=True, dimension=3)
-        self.dec_block_s2s1 = nn.Sequential(ME.
-            MinkowskiConvolutionTranspose(dec_ch[1], dec_ch[0], kernel_size
-            =2, stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(dec_ch[0]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(dec_ch[0], dec_ch[0], kernel_size=3,
-            dimension=3), ME.MinkowskiBatchNorm(dec_ch[0]), ME.MinkowskiELU())
-        self.dec_s1_cls = ME.MinkowskiConvolution(dec_ch[0], 1, kernel_size
-            =1, has_bias=True, dimension=3)
+        self.enc_block_s1 = nn.Sequential(ME.MinkowskiConvolution(1, enc_ch[0], kernel_size=3, stride=1, dimension=3), ME.MinkowskiBatchNorm(enc_ch[0]), ME.MinkowskiELU())
+        self.enc_block_s1s2 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[0], enc_ch[1], kernel_size=2, stride=2, dimension=3), ME.MinkowskiBatchNorm(enc_ch[1]), ME.MinkowskiELU(), ME.MinkowskiConvolution(enc_ch[1], enc_ch[1], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(enc_ch[1]), ME.MinkowskiELU())
+        self.enc_block_s2s4 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[1], enc_ch[2], kernel_size=2, stride=2, dimension=3), ME.MinkowskiBatchNorm(enc_ch[2]), ME.MinkowskiELU(), ME.MinkowskiConvolution(enc_ch[2], enc_ch[2], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(enc_ch[2]), ME.MinkowskiELU())
+        self.enc_block_s4s8 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[2], enc_ch[3], kernel_size=2, stride=2, dimension=3), ME.MinkowskiBatchNorm(enc_ch[3]), ME.MinkowskiELU(), ME.MinkowskiConvolution(enc_ch[3], enc_ch[3], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(enc_ch[3]), ME.MinkowskiELU())
+        self.enc_block_s8s16 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[3], enc_ch[4], kernel_size=2, stride=2, dimension=3), ME.MinkowskiBatchNorm(enc_ch[4]), ME.MinkowskiELU(), ME.MinkowskiConvolution(enc_ch[4], enc_ch[4], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(enc_ch[4]), ME.MinkowskiELU())
+        self.enc_block_s16s32 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[4], enc_ch[5], kernel_size=2, stride=2, dimension=3), ME.MinkowskiBatchNorm(enc_ch[5]), ME.MinkowskiELU(), ME.MinkowskiConvolution(enc_ch[5], enc_ch[5], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(enc_ch[5]), ME.MinkowskiELU())
+        self.enc_block_s32s64 = nn.Sequential(ME.MinkowskiConvolution(enc_ch[5], enc_ch[6], kernel_size=2, stride=2, dimension=3), ME.MinkowskiBatchNorm(enc_ch[6]), ME.MinkowskiELU(), ME.MinkowskiConvolution(enc_ch[6], enc_ch[6], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(enc_ch[6]), ME.MinkowskiELU())
+        self.dec_block_s64s32 = nn.Sequential(ME.MinkowskiConvolutionTranspose(enc_ch[6], dec_ch[5], kernel_size=4, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(dec_ch[5]), ME.MinkowskiELU(), ME.MinkowskiConvolution(dec_ch[5], dec_ch[5], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(dec_ch[5]), ME.MinkowskiELU())
+        self.dec_s32_cls = ME.MinkowskiConvolution(dec_ch[5], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.dec_block_s32s16 = nn.Sequential(ME.MinkowskiConvolutionTranspose(enc_ch[5], dec_ch[4], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(dec_ch[4]), ME.MinkowskiELU(), ME.MinkowskiConvolution(dec_ch[4], dec_ch[4], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(dec_ch[4]), ME.MinkowskiELU())
+        self.dec_s16_cls = ME.MinkowskiConvolution(dec_ch[4], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.dec_block_s16s8 = nn.Sequential(ME.MinkowskiConvolutionTranspose(dec_ch[4], dec_ch[3], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(dec_ch[3]), ME.MinkowskiELU(), ME.MinkowskiConvolution(dec_ch[3], dec_ch[3], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(dec_ch[3]), ME.MinkowskiELU())
+        self.dec_s8_cls = ME.MinkowskiConvolution(dec_ch[3], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.dec_block_s8s4 = nn.Sequential(ME.MinkowskiConvolutionTranspose(dec_ch[3], dec_ch[2], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(dec_ch[2]), ME.MinkowskiELU(), ME.MinkowskiConvolution(dec_ch[2], dec_ch[2], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(dec_ch[2]), ME.MinkowskiELU())
+        self.dec_s4_cls = ME.MinkowskiConvolution(dec_ch[2], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.dec_block_s4s2 = nn.Sequential(ME.MinkowskiConvolutionTranspose(dec_ch[2], dec_ch[1], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(dec_ch[1]), ME.MinkowskiELU(), ME.MinkowskiConvolution(dec_ch[1], dec_ch[1], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(dec_ch[1]), ME.MinkowskiELU())
+        self.dec_s2_cls = ME.MinkowskiConvolution(dec_ch[1], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.dec_block_s2s1 = nn.Sequential(ME.MinkowskiConvolutionTranspose(dec_ch[1], dec_ch[0], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(dec_ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolution(dec_ch[0], dec_ch[0], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(dec_ch[0]), ME.MinkowskiELU())
+        self.dec_s1_cls = ME.MinkowskiConvolution(dec_ch[0], 1, kernel_size=1, has_bias=True, dimension=3)
         self.pruning = ME.MinkowskiPruning()
 
     def get_batch_indices(self, out):
@@ -1161,10 +1008,8 @@ class CompletionNet(nn.Module):
         with torch.no_grad():
             target = torch.zeros(len(out), dtype=torch.bool)
             cm = out.coords_man
-            strided_target_key = cm.stride(target_key, out.tensor_stride[0],
-                force_creation=True)
-            ins, outs = cm.get_kernel_map(out.coords_key,
-                strided_target_key, kernel_size=kernel_size, region_type=1)
+            strided_target_key = cm.stride(target_key, out.tensor_stride[0], force_creation=True)
+            ins, outs = cm.get_kernel_map(out.coords_key, strided_target_key, kernel_size=kernel_size, region_type=1)
             for curr_in in ins:
                 target[curr_in] = 1
         return target
@@ -1260,23 +1105,12 @@ class STN3d(nn.Module):
         k = self.KERNEL_SIZES
         s = self.STRIDES
         c = self.CONV_CHANNELS
-        self.block1 = nn.Sequential(ME.MinkowskiConvolution(3, c[0],
-            kernel_size=k[0], stride=s[0], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[0]), ME.MinkowskiReLU())
-        self.block2 = nn.Sequential(ME.MinkowskiConvolution(c[0], c[1],
-            kernel_size=k[1], stride=s[1], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[1]), ME.MinkowskiReLU())
-        self.block3 = nn.Sequential(ME.MinkowskiConvolution(c[1], c[2],
-            kernel_size=k[2], stride=s[2], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[2]), ME.MinkowskiReLU())
-        self.block4 = nn.Sequential(ME.MinkowskiConvolution(c[2], c[3],
-            kernel_size=1, has_bias=False, dimension=3), ME.
-            MinkowskiInstanceNorm(c[3]), ME.MinkowskiReLU())
-        self.block5 = nn.Sequential(ME.MinkowskiConvolution(c[3], c[4],
-            kernel_size=1, has_bias=False, dimension=3), ME.
-            MinkowskiInstanceNorm(c[4]), ME.MinkowskiReLU())
-        self.fc6 = ME.MinkowskiConvolution(c[4], 9, kernel_size=1, has_bias
-            =True, dimension=3)
+        self.block1 = nn.Sequential(ME.MinkowskiConvolution(3, c[0], kernel_size=k[0], stride=s[0], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[0]), ME.MinkowskiReLU())
+        self.block2 = nn.Sequential(ME.MinkowskiConvolution(c[0], c[1], kernel_size=k[1], stride=s[1], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[1]), ME.MinkowskiReLU())
+        self.block3 = nn.Sequential(ME.MinkowskiConvolution(c[1], c[2], kernel_size=k[2], stride=s[2], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[2]), ME.MinkowskiReLU())
+        self.block4 = nn.Sequential(ME.MinkowskiConvolution(c[2], c[3], kernel_size=1, has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[3]), ME.MinkowskiReLU())
+        self.block5 = nn.Sequential(ME.MinkowskiConvolution(c[3], c[4], kernel_size=1, has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[4]), ME.MinkowskiReLU())
+        self.fc6 = ME.MinkowskiConvolution(c[4], 9, kernel_size=1, has_bias=True, dimension=3)
         self.avgpool = ME.MinkowskiGlobalPooling()
         self.broadcast = ME.MinkowskiBroadcast()
 
@@ -1288,8 +1122,7 @@ class STN3d(nn.Module):
         x = self.block4(x)
         x = self.block5(x)
         x = self.fc6(x)
-        x._F += torch.tensor([[1, 0, 0, 0, 1, 0, 0, 0, 1]], dtype=x.dtype,
-            device=x.device).repeat(len(x), 1)
+        x._F += torch.tensor([[1, 0, 0, 0, 1, 0, 0, 0, 1]], dtype=x.dtype, device=x.device).repeat(len(x), 1)
         return self.broadcast(in_x, x)
 
 
@@ -1312,15 +1145,9 @@ class PointNetFeature(nn.Module):
         s = self.STRIDES
         c = self.CONV_CHANNELS
         self.stn = STN3d(D=3)
-        self.block1 = nn.Sequential(ME.MinkowskiConvolution(6, c[0],
-            kernel_size=k[0], stride=s[0], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[0]), ME.MinkowskiReLU())
-        self.block2 = nn.Sequential(ME.MinkowskiConvolution(c[0], c[1],
-            kernel_size=k[1], stride=s[1], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[1]), ME.MinkowskiReLU())
-        self.block3 = nn.Sequential(ME.MinkowskiConvolution(c[1], c[2],
-            kernel_size=k[2], stride=s[2], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[2]), ME.MinkowskiReLU())
+        self.block1 = nn.Sequential(ME.MinkowskiConvolution(6, c[0], kernel_size=k[0], stride=s[0], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[0]), ME.MinkowskiReLU())
+        self.block2 = nn.Sequential(ME.MinkowskiConvolution(c[0], c[1], kernel_size=k[1], stride=s[1], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[1]), ME.MinkowskiReLU())
+        self.block3 = nn.Sequential(ME.MinkowskiConvolution(c[1], c[2], kernel_size=k[2], stride=s[2], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[2]), ME.MinkowskiReLU())
         self.avgpool = ME.MinkowskiGlobalPooling()
         self.concat = ME.MinkowskiBroadcastConcatenation()
 
@@ -1331,10 +1158,8 @@ class PointNetFeature(nn.Module):
         assert isinstance(x, ME.SparseTensor)
         assert x.F.shape[1] == 3
         T = self.stn(x)
-        coords_feat_stn = torch.squeeze(torch.bmm(x.F.view(-1, 1, 3), T.F.
-            view(-1, 3, 3)))
-        x = ME.SparseTensor(torch.cat((coords_feat_stn, x.F), 1),
-            coords_key=x.coords_key, coords_manager=x.coords_man)
+        coords_feat_stn = torch.squeeze(torch.bmm(x.F.view(-1, 1, 3), T.F.view(-1, 3, 3)))
+        x = ME.SparseTensor(torch.cat((coords_feat_stn, x.F), 1), coords_key=x.coords_key, coords_manager=x.coords_man)
         point_feat = self.block1(x)
         x = self.block2(point_feat)
         x = self.block3(x)
@@ -1361,17 +1186,10 @@ class PointNet(nn.Module):
         s = self.STRIDES
         c = self.CONV_CHANNELS
         self.feat = PointNetFeature()
-        self.block1 = nn.Sequential(ME.MinkowskiConvolution(1280, c[0],
-            kernel_size=k[0], stride=s[0], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[0]), ME.MinkowskiReLU())
-        self.block2 = nn.Sequential(ME.MinkowskiConvolution(c[0], c[1],
-            kernel_size=k[1], stride=s[1], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[1]), ME.MinkowskiReLU())
-        self.block3 = nn.Sequential(ME.MinkowskiConvolution(c[1], c[2],
-            kernel_size=k[2], stride=s[2], has_bias=False, dimension=3), ME
-            .MinkowskiInstanceNorm(c[2]), ME.MinkowskiReLU())
-        self.conv4 = ME.MinkowskiConvolution(c[2], out_channels,
-            kernel_size=1, has_bias=True, dimension=3)
+        self.block1 = nn.Sequential(ME.MinkowskiConvolution(1280, c[0], kernel_size=k[0], stride=s[0], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[0]), ME.MinkowskiReLU())
+        self.block2 = nn.Sequential(ME.MinkowskiConvolution(c[0], c[1], kernel_size=k[1], stride=s[1], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[1]), ME.MinkowskiReLU())
+        self.block3 = nn.Sequential(ME.MinkowskiConvolution(c[1], c[2], kernel_size=k[2], stride=s[2], has_bias=False, dimension=3), ME.MinkowskiInstanceNorm(c[2]), ME.MinkowskiReLU())
+        self.conv4 = ME.MinkowskiConvolution(c[2], out_channels, kernel_size=1, has_bias=True, dimension=3)
 
     def forward(self, x):
         """
@@ -1392,53 +1210,18 @@ class GenerativeNet(nn.Module):
         nn.Module.__init__(self)
         self.resolution = resolution
         ch = self.CHANNELS
-        self.block1 = nn.Sequential(ME.MinkowskiConvolutionTranspose(
-            in_nchannel, ch[0], kernel_size=2, stride=2,
-            generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(
-            ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[0], ch[0],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.
-            MinkowskiELU(), ME.MinkowskiConvolutionTranspose(ch[0], ch[1],
-            kernel_size=2, stride=2, generate_new_coords=True, dimension=3),
-            ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(ch[1], ch[1], kernel_size=3, dimension=3),
-            ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU())
-        self.block1_cls = ME.MinkowskiConvolution(ch[1], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block2 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[1],
-            ch[2], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[2], ch[2], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU())
-        self.block2_cls = ME.MinkowskiConvolution(ch[2], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block3 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[2],
-            ch[3], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[3], ch[3], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU())
-        self.block3_cls = ME.MinkowskiConvolution(ch[3], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block4 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[3],
-            ch[4], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[4], ch[4], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU())
-        self.block4_cls = ME.MinkowskiConvolution(ch[4], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block5 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[4],
-            ch[5], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[5], ch[5], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU())
-        self.block5_cls = ME.MinkowskiConvolution(ch[5], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block6 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[5],
-            ch[6], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[6], ch[6], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU())
-        self.block6_cls = ME.MinkowskiConvolution(ch[6], 1, kernel_size=1,
-            has_bias=True, dimension=3)
+        self.block1 = nn.Sequential(ME.MinkowskiConvolutionTranspose(in_nchannel, ch[0], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[0], ch[0], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolutionTranspose(ch[0], ch[1], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[1], ch[1], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU())
+        self.block1_cls = ME.MinkowskiConvolution(ch[1], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block2 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[1], ch[2], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[2], ch[2], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU())
+        self.block2_cls = ME.MinkowskiConvolution(ch[2], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block3 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[2], ch[3], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[3], ch[3], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU())
+        self.block3_cls = ME.MinkowskiConvolution(ch[3], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block4 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[3], ch[4], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[4], ch[4], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU())
+        self.block4_cls = ME.MinkowskiConvolution(ch[4], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block5 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[4], ch[5], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[5], ch[5], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU())
+        self.block5_cls = ME.MinkowskiConvolution(ch[5], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block6 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[5], ch[6], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[6], ch[6], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU())
+        self.block6_cls = ME.MinkowskiConvolution(ch[6], 1, kernel_size=1, has_bias=True, dimension=3)
         self.pruning = ME.MinkowskiPruning()
 
     def get_batch_indices(self, out):
@@ -1448,10 +1231,8 @@ class GenerativeNet(nn.Module):
         with torch.no_grad():
             target = torch.zeros(len(out), dtype=torch.bool)
             cm = out.coords_man
-            strided_target_key = cm.stride(target_key, out.tensor_stride[0],
-                force_creation=True)
-            ins, outs = cm.get_kernel_map(out.coords_key,
-                strided_target_key, kernel_size=kernel_size, region_type=1)
+            strided_target_key = cm.stride(target_key, out.tensor_stride[0], force_creation=True)
+            ins, outs = cm.get_kernel_map(out.coords_key, strided_target_key, kernel_size=kernel_size, region_type=1)
             for curr_in in ins:
                 target[curr_in] = 1
         return target
@@ -1534,22 +1315,15 @@ class ResNetBase(nn.Module):
 
     def network_initialization(self, in_channels, out_channels, D):
         self.inplanes = self.INIT_DIM
-        self.conv1 = ME.MinkowskiConvolution(in_channels, self.inplanes,
-            kernel_size=5, stride=2, dimension=D)
+        self.conv1 = ME.MinkowskiConvolution(in_channels, self.inplanes, kernel_size=5, stride=2, dimension=D)
         self.bn1 = ME.MinkowskiBatchNorm(self.inplanes)
         self.relu = ME.MinkowskiReLU(inplace=True)
-        self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=D
-            )
-        self.layer1 = self._make_layer(self.BLOCK, self.PLANES[0], self.
-            LAYERS[0], stride=2)
-        self.layer2 = self._make_layer(self.BLOCK, self.PLANES[1], self.
-            LAYERS[1], stride=2)
-        self.layer3 = self._make_layer(self.BLOCK, self.PLANES[2], self.
-            LAYERS[2], stride=2)
-        self.layer4 = self._make_layer(self.BLOCK, self.PLANES[3], self.
-            LAYERS[3], stride=2)
-        self.conv5 = ME.MinkowskiConvolution(self.inplanes, self.inplanes,
-            kernel_size=3, stride=3, dimension=D)
+        self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=D)
+        self.layer1 = self._make_layer(self.BLOCK, self.PLANES[0], self.LAYERS[0], stride=2)
+        self.layer2 = self._make_layer(self.BLOCK, self.PLANES[1], self.LAYERS[1], stride=2)
+        self.layer3 = self._make_layer(self.BLOCK, self.PLANES[2], self.LAYERS[2], stride=2)
+        self.layer4 = self._make_layer(self.BLOCK, self.PLANES[3], self.LAYERS[3], stride=2)
+        self.conv5 = ME.MinkowskiConvolution(self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D)
         self.bn5 = ME.MinkowskiBatchNorm(self.inplanes)
         self.glob_avg = ME.MinkowskiGlobalMaxPooling()
         self.final = ME.MinkowskiLinear(self.inplanes, out_channels, bias=True)
@@ -1557,27 +1331,20 @@ class ResNetBase(nn.Module):
     def weight_initialization(self):
         for m in self.modules():
             if isinstance(m, ME.MinkowskiConvolution):
-                ME.utils.kaiming_normal_(m.kernel, mode='fan_out',
-                    nonlinearity='relu')
+                ME.utils.kaiming_normal_(m.kernel, mode='fan_out', nonlinearity='relu')
             if isinstance(m, ME.MinkowskiBatchNorm):
                 nn.init.constant_(m.bn.weight, 1)
                 nn.init.constant_(m.bn.bias, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        bn_momentum=0.1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, bn_momentum=0.1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(ME.MinkowskiConvolution(self.
-                inplanes, planes * block.expansion, kernel_size=1, stride=
-                stride, dimension=self.D), ME.MinkowskiBatchNorm(planes *
-                block.expansion))
+            downsample = nn.Sequential(ME.MinkowskiConvolution(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, dimension=self.D), ME.MinkowskiBatchNorm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride=stride, dilation=
-            dilation, downsample=downsample, dimension=self.D))
+        layers.append(block(self.inplanes, planes, stride=stride, dilation=dilation, downsample=downsample, dimension=self.D))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, stride=1, dilation=
-                dilation, dimension=self.D))
+            layers.append(block(self.inplanes, planes, stride=1, dilation=dilation, dimension=self.D))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1602,41 +1369,13 @@ class Encoder(nn.Module):
     def __init__(self):
         nn.Module.__init__(self)
         ch = self.CHANNELS
-        self.block1 = nn.Sequential(ME.MinkowskiConvolution(1, ch[0],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [0]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[0], ch[0],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.
-            MinkowskiELU())
-        self.block2 = nn.Sequential(ME.MinkowskiConvolution(ch[0], ch[1],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [1]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[1], ch[1],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.
-            MinkowskiELU())
-        self.block3 = nn.Sequential(ME.MinkowskiConvolution(ch[1], ch[2],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [2]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[2], ch[2],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.
-            MinkowskiELU())
-        self.block4 = nn.Sequential(ME.MinkowskiConvolution(ch[2], ch[3],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [3]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[3], ch[3],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.
-            MinkowskiELU())
-        self.block5 = nn.Sequential(ME.MinkowskiConvolution(ch[3], ch[4],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [4]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[4], ch[4],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.
-            MinkowskiELU())
-        self.block6 = nn.Sequential(ME.MinkowskiConvolution(ch[4], ch[5],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [5]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[5], ch[5],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.
-            MinkowskiELU())
-        self.block7 = nn.Sequential(ME.MinkowskiConvolution(ch[5], ch[6],
-            kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch
-            [6]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[6], ch[6],
-            kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.
-            MinkowskiELU())
+        self.block1 = nn.Sequential(ME.MinkowskiConvolution(1, ch[0], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[0], ch[0], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU())
+        self.block2 = nn.Sequential(ME.MinkowskiConvolution(ch[0], ch[1], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[1], ch[1], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU())
+        self.block3 = nn.Sequential(ME.MinkowskiConvolution(ch[1], ch[2], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[2], ch[2], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU())
+        self.block4 = nn.Sequential(ME.MinkowskiConvolution(ch[2], ch[3], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[3], ch[3], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU())
+        self.block5 = nn.Sequential(ME.MinkowskiConvolution(ch[3], ch[4], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[4], ch[4], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU())
+        self.block6 = nn.Sequential(ME.MinkowskiConvolution(ch[4], ch[5], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[5], ch[5], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU())
+        self.block7 = nn.Sequential(ME.MinkowskiConvolution(ch[5], ch[6], kernel_size=3, stride=2, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[6], ch[6], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU())
         self.global_pool = ME.MinkowskiGlobalPooling()
         self.linear_mean = ME.MinkowskiLinear(ch[6], ch[6], bias=True)
         self.linear_log_var = ME.MinkowskiLinear(ch[6], ch[6], bias=True)
@@ -1645,8 +1384,7 @@ class Encoder(nn.Module):
     def weight_initialization(self):
         for m in self.modules():
             if isinstance(m, ME.MinkowskiConvolution):
-                ME.utils.kaiming_normal_(m.kernel, mode='fan_out',
-                    nonlinearity='relu')
+                ME.utils.kaiming_normal_(m.kernel, mode='fan_out', nonlinearity='relu')
             if isinstance(m, ME.MinkowskiBatchNorm):
                 nn.init.constant_(m.bn.weight, 1)
                 nn.init.constant_(m.bn.bias, 0)
@@ -1672,53 +1410,18 @@ class Decoder(nn.Module):
     def __init__(self):
         nn.Module.__init__(self)
         ch = self.CHANNELS
-        self.block1 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[0],
-            ch[0], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[0], ch[0], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolutionTranspose(ch[0], ch[1], kernel_size=2,
-            stride=2, generate_new_coords=True, dimension=3), ME.
-            MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU(), ME.
-            MinkowskiConvolution(ch[1], ch[1], kernel_size=3, dimension=3),
-            ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU())
-        self.block1_cls = ME.MinkowskiConvolution(ch[1], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block2 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[1],
-            ch[2], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[2], ch[2], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU())
-        self.block2_cls = ME.MinkowskiConvolution(ch[2], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block3 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[2],
-            ch[3], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[3], ch[3], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU())
-        self.block3_cls = ME.MinkowskiConvolution(ch[3], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block4 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[3],
-            ch[4], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[4], ch[4], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU())
-        self.block4_cls = ME.MinkowskiConvolution(ch[4], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block5 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[4],
-            ch[5], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[5], ch[5], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU())
-        self.block5_cls = ME.MinkowskiConvolution(ch[5], 1, kernel_size=1,
-            has_bias=True, dimension=3)
-        self.block6 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[5],
-            ch[6], kernel_size=2, stride=2, generate_new_coords=True,
-            dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU(),
-            ME.MinkowskiConvolution(ch[6], ch[6], kernel_size=3, dimension=
-            3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU())
-        self.block6_cls = ME.MinkowskiConvolution(ch[6], 1, kernel_size=1,
-            has_bias=True, dimension=3)
+        self.block1 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[0], ch[0], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[0], ch[0], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[0]), ME.MinkowskiELU(), ME.MinkowskiConvolutionTranspose(ch[0], ch[1], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[1], ch[1], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[1]), ME.MinkowskiELU())
+        self.block1_cls = ME.MinkowskiConvolution(ch[1], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block2 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[1], ch[2], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[2], ch[2], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[2]), ME.MinkowskiELU())
+        self.block2_cls = ME.MinkowskiConvolution(ch[2], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block3 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[2], ch[3], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[3], ch[3], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[3]), ME.MinkowskiELU())
+        self.block3_cls = ME.MinkowskiConvolution(ch[3], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block4 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[3], ch[4], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[4], ch[4], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[4]), ME.MinkowskiELU())
+        self.block4_cls = ME.MinkowskiConvolution(ch[4], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block5 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[4], ch[5], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[5], ch[5], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[5]), ME.MinkowskiELU())
+        self.block5_cls = ME.MinkowskiConvolution(ch[5], 1, kernel_size=1, has_bias=True, dimension=3)
+        self.block6 = nn.Sequential(ME.MinkowskiConvolutionTranspose(ch[5], ch[6], kernel_size=2, stride=2, generate_new_coords=True, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU(), ME.MinkowskiConvolution(ch[6], ch[6], kernel_size=3, dimension=3), ME.MinkowskiBatchNorm(ch[6]), ME.MinkowskiELU())
+        self.block6_cls = ME.MinkowskiConvolution(ch[6], 1, kernel_size=1, has_bias=True, dimension=3)
         self.pruning = ME.MinkowskiPruning()
 
     def get_batch_indices(self, out):
@@ -1728,10 +1431,8 @@ class Decoder(nn.Module):
         with torch.no_grad():
             target = torch.zeros(len(out), dtype=torch.bool)
             cm = out.coords_man
-            strided_target_key = cm.stride(target_key, out.tensor_stride[0],
-                force_creation=True)
-            ins, outs = cm.get_kernel_map(out.coords_key,
-                strided_target_key, kernel_size=kernel_size, region_type=1)
+            strided_target_key = cm.stride(target_key, out.tensor_stride[0], force_creation=True)
+            ins, outs = cm.get_kernel_map(out.coords_key, strided_target_key, kernel_size=kernel_size, region_type=1)
             for curr_in in ins:
                 target[curr_in] = 1
         return target
@@ -1816,10 +1517,3 @@ class VAE(nn.Module):
         out_cls, targets, sout = self.decoder(zs, gt_target)
         return out_cls, targets, sout, means, log_vars, zs
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_StanfordVL_MinkowskiEngine(_paritybench_base):
-    pass

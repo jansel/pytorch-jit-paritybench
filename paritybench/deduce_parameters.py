@@ -472,6 +472,8 @@ class LiteralGuess(Guess):
                  lambda: self.value * 2 if self.value < 256 else None),
                 (r"ZeroDivisionError: integer division or modulo by zero",
                  lambda: self.value * 2 if self.value < 256 else None),
+                (r"Trying to create tensor with negative dimension",
+                 lambda: self.value * 2 if self.value < 256 else None),
             ])
 
         if pass_number == 1 and isinstance(self.value, int):
@@ -557,13 +559,14 @@ class LiteralGuess(Guess):
 class TensorGuess(Guess):
     default_size = DeduceParameters.default_size
 
-    def __init__(self, shape, dtype=torch.float32, fill_value=None):
+    def __init__(self, shape, dtype=torch.float32, fill_value=None, hint=None):
         super(TensorGuess, self).__init__()
         assert isinstance(shape, list)
         assert all(isinstance(x, int) for x in shape)
         self.shape = shape
         self.dtype = dtype
         self.fill_value = fill_value  # currently one 1 is supported
+        self.hint = hint
         assert self.fill_value in (None, 1)
         # used for embedding lookups often
         if self.fill_value == 1:
@@ -595,6 +598,8 @@ class TensorGuess(Guess):
 
         new_shape = self.apply_fixors(self.shape_fixors(pass_number), error_message)
         if new_shape:
+            if isinstance(new_shape, Guess):
+                return new_shape
             return self.__class__(new_shape, self.dtype, self.fill_value)
 
         def tried_to_call():
@@ -722,6 +727,10 @@ class TensorGuess(Guess):
                  self.fix_dimensions_at),
                 (r"index (?P<index>\d+) is out of bounds for dimension (?P<dim>\d+) with size (?P<size>\d+)",
                  self.fix_out_of_bounds),
+                (r"size mismatch, m1: (?P<a>\[.*\]), m2: (?P<b>\[.*\])",
+                 self.fix_size_mismatch2),
+                (r"shape '(?P<view>\[[\d, -]+\])' is invalid for input of size (?P<size>\d+)",
+                 self.fix_view2),
             ]
         if pass_number == 2:
             return [
@@ -738,15 +747,36 @@ class TensorGuess(Guess):
             if all(x > 0 for x in view[1:]):
                 return [self.shape[0]] + list(view[1:])
 
+    def fix_view2(self, view, size):
+        if len(view) == 2 and view[0] == -1:
+            if size / self.shape[0] > view[1]:
+                return self.fix_too_big()
+            else:
+                return self.fix_too_small()
+
     def fix_too_small(self):
         if len(self.shape) >= 4:
             tmp = list(self.shape)
             v = 64
-            if 64 <= tmp[-1] < 256:
+            if isinstance(self.hint, TooBigHint):
+                # Don't want to thrash back and forth
+                v = self.shape[-1] * 3 // 2
+            elif 64 <= tmp[-1] < 512:
                 v = tmp[-1] * 2
             tmp[-1] = v
             tmp[-2] = v
-            return tmp
+            return TensorGuess(tmp, self.dtype, self.fill_value, hint=TooSmallHint(self.shape[-1]))
+
+    def fix_too_big(self):
+        if len(self.shape) >= 4:
+            tmp = list(self.shape)
+            if tmp[-1] > 4:
+                v = tmp[-1] // 2
+                if isinstance(self.hint, TooSmallHint) and self.hint.value == v:
+                    v = (v + self.shape[-1]) // 2
+                tmp[-1] = v
+                tmp[-2] = v
+                return TensorGuess(tmp, self.dtype, self.fill_value, hint=TooBigHint(self.shape[-1]))
 
     def fix_out_of_bounds(self, index, dim, size):
         if len(self.shape) > dim and self.shape[dim] == size:
@@ -762,6 +792,12 @@ class TensorGuess(Guess):
             tmp = list(self.shape)
             tmp[len(a) - 1] = b[0]
             return tmp
+
+    def fix_size_mismatch2(self, a, b):
+        if a[-1] > b[0]:
+            return self.fix_too_big()
+        else:
+            return self.fix_too_small()
 
     def fix_dimension_out_of_range(self, got, want):
         if 0 <= got < want:
@@ -813,6 +849,19 @@ class TensorGuess(Guess):
         if len(shape) > 2:
             shape.pop()
             return
+
+
+class TooBigTooSmallHint(object):
+    def __init__(self, value):
+        self.value = value
+
+
+class TooBigHint(TooBigTooSmallHint):
+    pass
+
+
+class TooSmallHint(TooBigTooSmallHint):
+    pass
 
 
 class ConfigGuess(Guess):

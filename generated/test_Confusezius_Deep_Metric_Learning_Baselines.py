@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,14 +84,12 @@ import itertools as it
 import torchvision.models as models
 
 
-_GoogLeNetOuputs = namedtuple('GoogLeNetOuputs', ['logits', 'aux_logits2',
-    'aux_logits1'])
+_GoogLeNetOuputs = namedtuple('GoogLeNetOuputs', ['logits', 'aux_logits2', 'aux_logits1'])
 
 
 class GoogLeNet(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=
-        False, init_weights=True):
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False, init_weights=True):
         super(GoogLeNet, self).__init__()
         self.aux_logits = aux_logits
         self.transform_input = transform_input
@@ -124,8 +123,7 @@ class GoogLeNet(nn.Module):
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
                 import scipy.stats as stats
                 X = stats.truncnorm(-2, 2, scale=0.01)
-                values = torch.as_tensor(X.rvs(m.weight.numel()), dtype=m.
-                    weight.dtype)
+                values = torch.as_tensor(X.rvs(m.weight.numel()), dtype=m.weight.dtype)
                 values = values.view(m.weight.size())
                 with torch.no_grad():
                     m.weight.copy_(values)
@@ -135,12 +133,9 @@ class GoogLeNet(nn.Module):
 
     def forward(self, x):
         if self.transform_input:
-            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 -
-                0.5) / 0.5
-            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 -
-                0.5) / 0.5
-            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 -
-                0.5) / 0.5
+            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
             x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
         x = self.conv1(x)
         x = self.maxpool1(x)
@@ -173,19 +168,12 @@ class GoogLeNet(nn.Module):
 
 class Inception(nn.Module):
 
-    def __init__(self, in_channels, ch1x1, ch3x3red, ch3x3, ch5x5red, ch5x5,
-        pool_proj):
+    def __init__(self, in_channels, ch1x1, ch3x3red, ch3x3, ch5x5red, ch5x5, pool_proj):
         super(Inception, self).__init__()
         self.branch1 = BasicConv2d(in_channels, ch1x1, kernel_size=1)
-        self.branch2 = nn.Sequential(BasicConv2d(in_channels, ch3x3red,
-            kernel_size=1), BasicConv2d(ch3x3red, ch3x3, kernel_size=3,
-            padding=1))
-        self.branch3 = nn.Sequential(BasicConv2d(in_channels, ch5x5red,
-            kernel_size=1), BasicConv2d(ch5x5red, ch5x5, kernel_size=3,
-            padding=1))
-        self.branch4 = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1,
-            padding=1, ceil_mode=True), BasicConv2d(in_channels, pool_proj,
-            kernel_size=1))
+        self.branch2 = nn.Sequential(BasicConv2d(in_channels, ch3x3red, kernel_size=1), BasicConv2d(ch3x3red, ch3x3, kernel_size=3, padding=1))
+        self.branch3 = nn.Sequential(BasicConv2d(in_channels, ch5x5red, kernel_size=1), BasicConv2d(ch5x5red, ch5x5, kernel_size=3, padding=1))
+        self.branch4 = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True), BasicConv2d(in_channels, pool_proj, kernel_size=1))
 
     def forward(self, x):
         branch1 = self.branch1(x)
@@ -269,11 +257,9 @@ class TupleSampler:
         unique_classes = np.unique(labels)
         indices = np.arange(len(batch))
         class_dict = {i: indices[labels == i] for i in unique_classes}
-        sampled_triplets = [list(it.product([x], [x], [y for y in
-            unique_classes if x != y])) for x in unique_classes]
+        sampled_triplets = [list(it.product([x], [x], [y for y in unique_classes if x != y])) for x in unique_classes]
         sampled_triplets = [x for y in sampled_triplets for x in y]
-        sampled_triplets = [[x for x in list(it.product(*[class_dict[j] for
-            j in i])) if x[0] != x[1]] for i in sampled_triplets]
+        sampled_triplets = [[x for x in list(it.product(*[class_dict[j] for j in i])) if x[0] != x[1]] for i in sampled_triplets]
         sampled_triplets = [x for y in sampled_triplets for x in y]
         sampled_triplets = random.sample(sampled_triplets, batch.shape[0])
         return sampled_triplets
@@ -299,8 +285,7 @@ class TupleSampler:
                 negatives.append(np.random.choice(np.where(neg_mask)[0]))
             else:
                 negatives.append(np.random.choice(np.where(neg)[0]))
-        sampled_triplets = [[a, p, n] for a, p, n in zip(anchors, positives,
-            negatives)]
+        sampled_triplets = [[a, p, n] for a, p, n in zip(anchors, positives, negatives)]
         return sampled_triplets
 
     def softhardsampling(self, batch, labels):
@@ -336,12 +321,10 @@ class TupleSampler:
                 negatives.append(np.random.choice(np.where(neg_mask)[0]))
             else:
                 negatives.append(np.random.choice(np.where(neg)[0]))
-        sampled_triplets = [[a, p, n] for a, p, n in zip(anchors, positives,
-            negatives)]
+        sampled_triplets = [[a, p, n] for a, p, n in zip(anchors, positives, negatives)]
         return sampled_triplets
 
-    def distanceweightedsampling(self, batch, labels, lower_cutoff=0.5,
-        upper_cutoff=1.4):
+    def distanceweightedsampling(self, batch, labels, lower_cutoff=0.5, upper_cutoff=1.4):
         """
         This methods finds all available triplets in a batch given by the classes provided in labels, and select
         triplets based on distance sampling introduced in 'Sampling Matters in Deep Embedding Learning'.
@@ -364,13 +347,11 @@ class TupleSampler:
         for i in range(bs):
             neg = labels != labels[i]
             pos = labels == labels[i]
-            q_d_inv = self.inverse_sphere_distances(batch, distances[i],
-                labels, labels[i])
+            q_d_inv = self.inverse_sphere_distances(batch, distances[i], labels, labels[i])
             pos[i] = 0
             positives.append(np.random.choice(np.where(pos)[0]))
             negatives.append(np.random.choice(bs, p=q_d_inv))
-        sampled_triplets = [[a, p, n] for a, p, n in zip(list(range(bs)),
-            positives, negatives)]
+        sampled_triplets = [[a, p, n] for a, p, n in zip(list(range(bs)), positives, negatives)]
         return sampled_triplets
 
     def npairsampling(self, batch, labels):
@@ -388,15 +369,12 @@ class TupleSampler:
             labels = labels.detach().cpu().numpy()
         label_set, count = np.unique(labels, return_counts=True)
         label_set = label_set[count >= 2]
-        pos_pairs = np.array([np.random.choice(np.where(labels == x)[0], 2,
-            replace=False) for x in label_set])
+        pos_pairs = np.array([np.random.choice(np.where(labels == x)[0], 2, replace=False) for x in label_set])
         neg_tuples = []
         for idx in range(len(pos_pairs)):
-            neg_tuples.append(pos_pairs[np.delete(np.arange(len(pos_pairs)),
-                idx), 1])
+            neg_tuples.append(pos_pairs[np.delete(np.arange(len(pos_pairs)), idx), 1])
         neg_tuples = np.array(neg_tuples)
-        sampled_npairs = [[a, p, *list(neg)] for (a, p), neg in zip(
-            pos_pairs, neg_tuples)]
+        sampled_npairs = [[a, p, *list(neg)] for (a, p), neg in zip(pos_pairs, neg_tuples)]
         return sampled_npairs
 
     def pdist(self, A):
@@ -428,8 +406,7 @@ class TupleSampler:
             distance_matrix, clamped to ensure no zero values are passed.
         """
         bs, dim = len(dist), batch.shape[-1]
-        log_q_d_inv = (2.0 - float(dim)) * torch.log(dist) - float(dim - 3
-            ) / 2 * torch.log(1.0 - 0.25 * dist.pow(2))
+        log_q_d_inv = (2.0 - float(dim)) * torch.log(dist) - float(dim - 3) / 2 * torch.log(1.0 - 0.25 * dist.pow(2))
         log_q_d_inv[np.where(labels == anchor_label)[0]] = 0
         q_d_inv = torch.exp(log_q_d_inv - torch.max(log_q_d_inv))
         q_d_inv[np.where(labels == anchor_label)[0]] = 0
@@ -460,8 +437,7 @@ class TripletLoss(torch.nn.Module):
         Returns:
             triplet loss (torch.Tensor())
         """
-        return torch.nn.functional.relu((anchor - positive).pow(2).sum() -
-            (anchor - negative).pow(2).sum() + self.margin)
+        return torch.nn.functional.relu((anchor - positive).pow(2).sum() - (anchor - negative).pow(2).sum() + self.margin)
 
     def forward(self, batch, labels):
         """
@@ -472,9 +448,7 @@ class TripletLoss(torch.nn.Module):
             triplet loss (torch.Tensor(), batch-averaged)
         """
         sampled_triplets = self.sampler.give(batch, labels)
-        loss = torch.stack([self.triplet_distance(batch[(triplet[0]), :],
-            batch[(triplet[1]), :], batch[(triplet[2]), :]) for triplet in
-            sampled_triplets])
+        loss = torch.stack([self.triplet_distance(batch[(triplet[0]), :], batch[(triplet[1]), :], batch[(triplet[2]), :]) for triplet in sampled_triplets])
         return torch.mean(loss)
 
 
@@ -502,8 +476,7 @@ class NPairLoss(torch.nn.Module):
         Returns:
             n-pair loss (torch.Tensor())
         """
-        return torch.log(1 + torch.sum(torch.exp(anchor.mm((negatives -
-            positive).transpose(0, 1)))))
+        return torch.log(1 + torch.sum(torch.exp(anchor.mm((negatives - positive).transpose(0, 1)))))
 
     def weightsum(self, anchor, positive):
         """
@@ -526,19 +499,14 @@ class NPairLoss(torch.nn.Module):
             n-pair loss (torch.Tensor(), batch-averaged)
         """
         sampled_npairs = self.sampler.give(batch, labels)
-        loss = torch.stack([self.npair_distance(batch[npair[0]:npair[0] + 1,
-            :], batch[npair[1]:npair[1] + 1, :], batch[(npair[2:]), :]) for
-            npair in sampled_npairs])
-        loss = loss + self.l2 * torch.mean(torch.stack([self.weightsum(
-            batch[(npair[0]), :], batch[(npair[1]), :]) for npair in
-            sampled_npairs]))
+        loss = torch.stack([self.npair_distance(batch[npair[0]:npair[0] + 1, :], batch[npair[1]:npair[1] + 1, :], batch[(npair[2:]), :]) for npair in sampled_npairs])
+        loss = loss + self.l2 * torch.mean(torch.stack([self.weightsum(batch[(npair[0]), :], batch[(npair[1]), :]) for npair in sampled_npairs]))
         return torch.mean(loss)
 
 
 class MarginLoss(torch.nn.Module):
 
-    def __init__(self, margin=0.2, nu=0, beta=1.2, n_classes=100,
-        beta_constant=False, sampling_method='distance'):
+    def __init__(self, margin=0.2, nu=0, beta=1.2, n_classes=100, beta_constant=False, sampling_method='distance'):
         """
         Basic Margin Loss as proposed in 'Sampling Matters in Deep Embedding Learning'.
 
@@ -557,8 +525,7 @@ class MarginLoss(torch.nn.Module):
         self.n_classes = n_classes
         self.beta_constant = beta_constant
         self.beta_val = beta
-        self.beta = beta if beta_constant else torch.nn.Parameter(torch.
-            ones(n_classes) * beta)
+        self.beta = beta if beta_constant else torch.nn.Parameter(torch.ones(n_classes) * beta)
         self.nu = nu
         self.sampling_method = sampling_method
         self.sampler = TupleSampler(method=sampling_method)
@@ -576,27 +543,20 @@ class MarginLoss(torch.nn.Module):
         sampled_triplets = self.sampler.give(batch, labels)
         d_ap, d_an = [], []
         for triplet in sampled_triplets:
-            train_triplet = {'Anchor': batch[(triplet[0]), :], 'Positive':
-                batch[(triplet[1]), :], 'Negative': batch[triplet[2]]}
-            pos_dist = ((train_triplet['Anchor'] - train_triplet['Positive'
-                ]).pow(2).sum() + 1e-08).pow(1 / 2)
-            neg_dist = ((train_triplet['Anchor'] - train_triplet['Negative'
-                ]).pow(2).sum() + 1e-08).pow(1 / 2)
+            train_triplet = {'Anchor': batch[(triplet[0]), :], 'Positive': batch[(triplet[1]), :], 'Negative': batch[triplet[2]]}
+            pos_dist = ((train_triplet['Anchor'] - train_triplet['Positive']).pow(2).sum() + 1e-08).pow(1 / 2)
+            neg_dist = ((train_triplet['Anchor'] - train_triplet['Negative']).pow(2).sum() + 1e-08).pow(1 / 2)
             d_ap.append(pos_dist)
             d_an.append(neg_dist)
         d_ap, d_an = torch.stack(d_ap), torch.stack(d_an)
         if self.beta_constant:
             beta = self.beta
         else:
-            beta = torch.stack([self.beta[labels[triplet[0]]] for triplet in
-                sampled_triplets]).type(torch.FloatTensor)
+            beta = torch.stack([self.beta[labels[triplet[0]]] for triplet in sampled_triplets]).type(torch.FloatTensor)
         pos_loss = torch.nn.functional.relu(d_ap - beta + self.margin)
         neg_loss = torch.nn.functional.relu(beta - d_an + self.margin)
-        pair_count = torch.sum((pos_loss > 0.0) + (neg_loss > 0.0)).type(torch
-            .FloatTensor)
-        loss = torch.sum(pos_loss + neg_loss
-            ) if pair_count == 0.0 else torch.sum(pos_loss + neg_loss
-            ) / pair_count
+        pair_count = torch.sum((pos_loss > 0.0) + (neg_loss > 0.0)).type(torch.FloatTensor)
+        loss = torch.sum(pos_loss + neg_loss) if pair_count == 0.0 else torch.sum(pos_loss + neg_loss) / pair_count
         if self.nu:
             loss = loss + beta_regularisation_loss.type(torch.FloatTensor)
         return loss
@@ -617,8 +577,7 @@ class ProxyNCALoss(torch.nn.Module):
         super(ProxyNCALoss, self).__init__()
         self.num_proxies = num_proxies
         self.embedding_dim = embedding_dim
-        self.PROXIES = torch.nn.Parameter(torch.randn(num_proxies, self.
-            embedding_dim) / 8)
+        self.PROXIES = torch.nn.Parameter(torch.randn(num_proxies, self.embedding_dim) / 8)
         self.all_classes = torch.arange(num_proxies)
 
     def forward(self, batch, labels):
@@ -631,18 +590,12 @@ class ProxyNCALoss(torch.nn.Module):
         """
         batch = 3 * torch.nn.functional.normalize(batch, dim=1)
         PROXIES = 3 * torch.nn.functional.normalize(self.PROXIES, dim=1)
-        pos_proxies = torch.stack([PROXIES[pos_label:pos_label + 1, :] for
-            pos_label in labels])
-        neg_proxies = torch.stack([torch.cat([self.all_classes[:class_label
-            ], self.all_classes[class_label + 1:]]) for class_label in labels])
-        neg_proxies = torch.stack([PROXIES[(neg_labels), :] for neg_labels in
-            neg_proxies])
-        dist_to_neg_proxies = torch.sum((batch[:, (None), :] - neg_proxies)
-            .pow(2), dim=-1)
-        dist_to_pos_proxies = torch.sum((batch[:, (None), :] - pos_proxies)
-            .pow(2), dim=-1)
-        negative_log_proxy_nca_loss = torch.mean(dist_to_pos_proxies[:, (0)
-            ] + torch.logsumexp(-dist_to_neg_proxies, dim=1))
+        pos_proxies = torch.stack([PROXIES[pos_label:pos_label + 1, :] for pos_label in labels])
+        neg_proxies = torch.stack([torch.cat([self.all_classes[:class_label], self.all_classes[class_label + 1:]]) for class_label in labels])
+        neg_proxies = torch.stack([PROXIES[(neg_labels), :] for neg_labels in neg_proxies])
+        dist_to_neg_proxies = torch.sum((batch[:, (None), :] - neg_proxies).pow(2), dim=-1)
+        dist_to_pos_proxies = torch.sum((batch[:, (None), :] - pos_proxies).pow(2), dim=-1)
+        negative_log_proxy_nca_loss = torch.mean(dist_to_pos_proxies[:, (0)] + torch.logsumexp(-dist_to_neg_proxies, dim=1))
         return negative_log_proxy_nca_loss
 
 
@@ -674,8 +627,7 @@ class CEClassLoss(torch.nn.Module):
         return self.ce_loss(self.mapper(batch), labels.type(torch.LongTensor))
 
 
-model_urls = {'googlenet':
-    'https://download.pytorch.org/models/googlenet-1378be20.pth'}
+model_urls = {'googlenet': 'https://download.pytorch.org/models/googlenet-1378be20.pth'}
 
 
 def googlenet(pretrained=False, **kwargs):
@@ -694,9 +646,7 @@ def googlenet(pretrained=False, **kwargs):
         if 'aux_logits' not in kwargs:
             kwargs['aux_logits'] = False
         if kwargs['aux_logits']:
-            warnings.warn(
-                'auxiliary heads in the pretrained googlenet model are NOT pretrained, so make sure to train them'
-                )
+            warnings.warn('auxiliary heads in the pretrained googlenet model are NOT pretrained, so make sure to train them')
         original_aux_logits = kwargs['aux_logits']
         kwargs['aux_logits'] = True
         kwargs['init_weights'] = False
@@ -738,32 +688,23 @@ class GoogLeNet(nn.Module):
         """
         super(GoogLeNet, self).__init__()
         self.pars = opt
-        self.model = googlenet.googlenet(num_classes=1000, pretrained=
-            'imagenet' if not opt.not_pretrained else False)
-        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.
-            model.modules()):
+        self.model = googlenet.googlenet(num_classes=1000, pretrained='imagenet' if not opt.not_pretrained else False)
+        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.model.modules()):
             module.eval()
             module.train = lambda _: None
         rename_attr(self.model, 'fc', 'last_linear')
-        self.layer_blocks = nn.ModuleList([self.model.inception3a, self.
-            model.inception3b, self.model.maxpool3, self.model.inception4a,
-            self.model.inception4b, self.model.inception4c, self.model.
-            inception4d, self.model.inception4e, self.model.maxpool4, self.
-            model.inception5a, self.model.inception5b, self.model.avgpool])
-        self.model.last_linear = torch.nn.Linear(self.model.last_linear.
-            in_features, opt.embed_dim)
+        self.layer_blocks = nn.ModuleList([self.model.inception3a, self.model.inception3b, self.model.maxpool3, self.model.inception4a, self.model.inception4b, self.model.inception4c, self.model.inception4d, self.model.inception4e, self.model.maxpool4, self.model.inception5a, self.model.inception5b, self.model.avgpool])
+        self.model.last_linear = torch.nn.Linear(self.model.last_linear.in_features, opt.embed_dim)
 
     def forward(self, x):
-        x = self.model.conv3(self.model.conv2(self.model.maxpool1(self.
-            model.conv1(x))))
+        x = self.model.conv3(self.model.conv2(self.model.maxpool1(self.model.conv1(x))))
         x = self.model.maxpool2(x)
         for layerblock in self.layer_blocks:
             x = layerblock(x)
         x = x.view(x.size(0), -1)
         x = self.model.dropout(x)
         mod_x = self.model.last_linear(x)
-        return (mod_x if self.pars.loss == 'npair' else torch.nn.functional
-            .normalize(mod_x, dim=-1))
+        return mod_x if self.pars.loss == 'npair' else torch.nn.functional.normalize(mod_x, dim=-1)
 
 
 class ResNet50(nn.Module):
@@ -778,46 +719,55 @@ class ResNet50(nn.Module):
         self.pars = opt
         if not opt.not_pretrained:
             None
-            self.model = ptm.__dict__['resnet50'](num_classes=1000,
-                pretrained='imagenet')
+            self.model = ptm.__dict__['resnet50'](num_classes=1000, pretrained='imagenet')
             None
         else:
             None
-            self.model = ptm.__dict__['resnet50'](num_classes=1000,
-                pretrained=None)
-        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.
-            model.modules()):
+            self.model = ptm.__dict__['resnet50'](num_classes=1000, pretrained=None)
+        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.model.modules()):
             module.eval()
             module.train = lambda _: None
-        self.model.last_linear = torch.nn.Linear(self.model.last_linear.
-            in_features, opt.embed_dim)
-        self.layer_blocks = nn.ModuleList([self.model.layer1, self.model.
-            layer2, self.model.layer3, self.model.layer4])
+        self.model.last_linear = torch.nn.Linear(self.model.last_linear.in_features, opt.embed_dim)
+        self.layer_blocks = nn.ModuleList([self.model.layer1, self.model.layer2, self.model.layer3, self.model.layer4])
 
     def forward(self, x, is_init_cluster_generation=False):
-        x = self.model.maxpool(self.model.relu(self.model.bn1(self.model.
-            conv1(x))))
+        x = self.model.maxpool(self.model.relu(self.model.bn1(self.model.conv1(x))))
         for layerblock in self.layer_blocks:
             x = layerblock(x)
         x = self.model.avgpool(x)
         x = x.view(x.size(0), -1)
         mod_x = self.model.last_linear(x)
-        return (mod_x if self.pars.loss == 'npair' else torch.nn.functional
-            .normalize(mod_x, dim=-1))
+        return mod_x if self.pars.loss == 'npair' else torch.nn.functional.normalize(mod_x, dim=-1)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Inception,
+     lambda: ([], {'in_channels': 4, 'ch1x1': 4, 'ch3x3red': 4, 'ch3x3': 4, 'ch5x5red': 4, 'ch5x5': 4, 'pool_proj': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionAux,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Confusezius_Deep_Metric_Learning_Baselines(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Inception(*[], **{'in_channels': 4, 'ch1x1': 4, 'ch3x3red': 4, 'ch3x3': 4, 'ch5x5red': 4, 'ch5x5': 4, 'pool_proj': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InceptionAux(*[], **{'in_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

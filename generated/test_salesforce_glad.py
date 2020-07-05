@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -78,8 +79,7 @@ class SelfAttention(nn.Module):
     def forward(self, inp, lens):
         batch_size, seq_len, d_feat = inp.size()
         inp = self.dropout(inp)
-        scores = self.scorer(inp.contiguous().view(-1, d_feat)).view(batch_size
-            , seq_len)
+        scores = self.scorer(inp.contiguous().view(-1, d_feat)).view(batch_size, seq_len)
         max_len = max(lens)
         for i, l in enumerate(lens):
             if l < max_len:
@@ -93,11 +93,9 @@ def run_rnn(rnn, inputs, lens):
     order = np.argsort(lens)[::-1].tolist()
     reindexed = inputs.index_select(0, inputs.data.new(order).long())
     reindexed_lens = [lens[i] for i in order]
-    packed = nn.utils.rnn.pack_padded_sequence(reindexed, reindexed_lens,
-        batch_first=True)
+    packed = nn.utils.rnn.pack_padded_sequence(reindexed, reindexed_lens, batch_first=True)
     outputs, _ = rnn(packed)
-    padded, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True,
-        padding_value=0.0)
+    padded, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True, padding_value=0.0)
     reverse_order = np.argsort(order).tolist()
     recovered = padded.index_select(0, inputs.data.new(reverse_order).long())
     return recovered
@@ -111,16 +109,11 @@ class GLADEncoder(nn.Module):
     def __init__(self, din, dhid, slots, dropout=None):
         super().__init__()
         self.dropout = dropout or {}
-        self.global_rnn = nn.LSTM(din, dhid, bidirectional=True,
-            batch_first=True)
-        self.global_selfattn = SelfAttention(2 * dhid, dropout=self.dropout
-            .get('selfattn', 0.0))
+        self.global_rnn = nn.LSTM(din, dhid, bidirectional=True, batch_first=True)
+        self.global_selfattn = SelfAttention(2 * dhid, dropout=self.dropout.get('selfattn', 0.0))
         for s in slots:
-            setattr(self, '{}_rnn'.format(s), nn.LSTM(din, dhid,
-                bidirectional=True, batch_first=True, dropout=self.dropout.
-                get('rnn', 0.0)))
-            setattr(self, '{}_selfattn'.format(s), SelfAttention(2 * dhid,
-                dropout=self.dropout.get('selfattn', 0.0)))
+            setattr(self, '{}_rnn'.format(s), nn.LSTM(din, dhid, bidirectional=True, batch_first=True, dropout=self.dropout.get('rnn', 0.0)))
+            setattr(self, '{}_selfattn'.format(s), SelfAttention(2 * dhid, dropout=self.dropout.get('selfattn', 0.0)))
         self.slots = slots
         self.beta_raw = nn.Parameter(torch.Tensor(len(slots)))
         nn.init.uniform_(self.beta_raw, -0.01, 0.01)
@@ -134,13 +127,8 @@ class GLADEncoder(nn.Module):
         beta = self.beta(slot)
         local_h = run_rnn(local_rnn, x, x_len)
         global_h = run_rnn(self.global_rnn, x, x_len)
-        h = F.dropout(local_h, self.dropout.get('local', default_dropout),
-            self.training) * beta + F.dropout(global_h, self.dropout.get(
-            'global', default_dropout), self.training) * (1 - beta)
-        c = F.dropout(local_selfattn(h, x_len), self.dropout.get('local',
-            default_dropout), self.training) * beta + F.dropout(self.
-            global_selfattn(h, x_len), self.dropout.get('global',
-            default_dropout), self.training) * (1 - beta)
+        h = F.dropout(local_h, self.dropout.get('local', default_dropout), self.training) * beta + F.dropout(global_h, self.dropout.get('global', default_dropout), self.training) * (1 - beta)
+        c = F.dropout(local_selfattn(h, x_len), self.dropout.get('local', default_dropout), self.training) * beta + F.dropout(self.global_selfattn(h, x_len), self.dropout.get('global', default_dropout), self.training) * (1 - beta)
         return h, c
 
 
@@ -161,8 +149,7 @@ def attend(seq, cond, lens):
 def pad(seqs, emb, device, pad=0):
     lens = [len(s) for s in seqs]
     max_len = max(lens)
-    padded = torch.LongTensor([(s + (max_len - l) * [pad]) for s, l in zip(
-        seqs, lens)])
+    padded = torch.LongTensor([(s + (max_len - l) * [pad]) for s, l in zip(seqs, lens)])
     return emb(padded.to(device)), lens
 
 
@@ -177,14 +164,10 @@ class Model(nn.Module):
         self.args = args
         self.vocab = vocab
         self.ontology = ontology
-        self.emb_fixed = FixedEmbedding(len(vocab), args.demb, dropout=args
-            .dropout.get('emb', 0.2))
-        self.utt_encoder = GLADEncoder(args.demb, args.dhid, self.ontology.
-            slots, dropout=args.dropout)
-        self.act_encoder = GLADEncoder(args.demb, args.dhid, self.ontology.
-            slots, dropout=args.dropout)
-        self.ont_encoder = GLADEncoder(args.demb, args.dhid, self.ontology.
-            slots, dropout=args.dropout)
+        self.emb_fixed = FixedEmbedding(len(vocab), args.demb, dropout=args.dropout.get('emb', 0.2))
+        self.utt_encoder = GLADEncoder(args.demb, args.dhid, self.ontology.slots, dropout=args.dropout)
+        self.act_encoder = GLADEncoder(args.demb, args.dhid, self.ontology.slots, dropout=args.dropout)
+        self.ont_encoder = GLADEncoder(args.demb, args.dhid, self.ontology.slots, dropout=args.dropout)
         self.utt_scorer = nn.Linear(2 * args.dhid, 1)
         self.score_weight = nn.Parameter(torch.Tensor([0.5]))
 
@@ -204,36 +187,28 @@ class Model(nn.Module):
 
     def forward(self, batch):
         eos = self.vocab.word2index('<eos>')
-        utterance, utterance_len = pad([e.num['transcript'] for e in batch],
-            self.emb_fixed, self.device, pad=eos)
-        acts = [pad(e.num['system_acts'], self.emb_fixed, self.device, pad=
-            eos) for e in batch]
-        ontology = {s: pad(v, self.emb_fixed, self.device, pad=eos) for s,
-            v in self.ontology.num.items()}
+        utterance, utterance_len = pad([e.num['transcript'] for e in batch], self.emb_fixed, self.device, pad=eos)
+        acts = [pad(e.num['system_acts'], self.emb_fixed, self.device, pad=eos) for e in batch]
+        ontology = {s: pad(v, self.emb_fixed, self.device, pad=eos) for s, v in self.ontology.num.items()}
         ys = {}
         for s in self.ontology.slots:
             H_utt, c_utt = self.utt_encoder(utterance, utterance_len, slot=s)
-            _, C_acts = list(zip(*[self.act_encoder(a, a_len, slot=s) for a,
-                a_len in acts]))
-            _, C_vals = self.ont_encoder(ontology[s][0], ontology[s][1], slot=s
-                )
+            _, C_acts = list(zip(*[self.act_encoder(a, a_len, slot=s) for a, a_len in acts]))
+            _, C_vals = self.ont_encoder(ontology[s][0], ontology[s][1], slot=s)
             y_utts = []
             q_utts = []
             for c_val in C_vals:
-                q_utt, _ = attend(H_utt, c_val.unsqueeze(0).expand(len(
-                    batch), *c_val.size()), lens=utterance_len)
+                q_utt, _ = attend(H_utt, c_val.unsqueeze(0).expand(len(batch), *c_val.size()), lens=utterance_len)
                 q_utts.append(q_utt)
             y_utts = self.utt_scorer(torch.stack(q_utts, dim=1)).squeeze(2)
             q_acts = []
             for i, C_act in enumerate(C_acts):
-                q_act, _ = attend(C_act.unsqueeze(0), c_utt[i].unsqueeze(0),
-                    lens=[C_act.size(0)])
+                q_act, _ = attend(C_act.unsqueeze(0), c_utt[i].unsqueeze(0), lens=[C_act.size(0)])
                 q_acts.append(q_act)
             y_acts = torch.cat(q_acts, dim=0).mm(C_vals.transpose(0, 1))
             ys[s] = F.sigmoid(y_utts + self.score_weight * y_acts)
         if self.training:
-            labels = {s: [(len(self.ontology.values[s]) * [0]) for i in
-                range(len(batch))] for s in self.ontology.slots}
+            labels = {s: [(len(self.ontology.values[s]) * [0]) for i in range(len(batch))] for s in self.ontology.slots}
             for i, e in enumerate(batch):
                 for s, v in e.turn_label:
                     labels[s][i][self.ontology.values[s].index(v)] = 1
@@ -247,11 +222,8 @@ class Model(nn.Module):
 
     def get_train_logger(self):
         logger = logging.getLogger('train-{}'.format(self.__class__.__name__))
-        formatter = logging.Formatter(
-            '%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s'
-            )
-        file_handler = logging.FileHandler(os.path.join(self.args.dout,
-            'train.log'))
+        formatter = logging.Formatter('%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s')
+        file_handler = logging.FileHandler(os.path.join(self.args.dout, 'train.log'))
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
         return logger
@@ -276,23 +248,17 @@ class Model(nn.Module):
             summary = {'iteration': iteration, 'epoch': epoch}
             for k, v in track.items():
                 summary[k] = sum(v) / len(v)
-            summary.update({'eval_train_{}'.format(k): v for k, v in self.
-                run_eval(train, args).items()})
-            summary.update({'eval_dev_{}'.format(k): v for k, v in self.
-                run_eval(dev, args).items()})
+            summary.update({'eval_train_{}'.format(k): v for k, v in self.run_eval(train, args).items()})
+            summary.update({'eval_dev_{}'.format(k): v for k, v in self.run_eval(dev, args).items()})
             stop_key = 'eval_dev_{}'.format(args.stop)
             train_key = 'eval_train_{}'.format(args.stop)
             if best.get(stop_key, 0) <= summary[stop_key]:
                 best_dev = '{:f}'.format(summary[stop_key])
                 best_train = '{:f}'.format(summary[train_key])
                 best.update(summary)
-                self.save(best, identifier=
-                    'epoch={epoch},iter={iteration},train_{key}={train},dev_{key}={dev}'
-                    .format(epoch=epoch, iteration=iteration, train=
-                    best_train, dev=best_dev, key=args.stop))
+                self.save(best, identifier='epoch={epoch},iter={iteration},train_{key}={train},dev_{key}={dev}'.format(epoch=epoch, iteration=iteration, train=best_train, dev=best_dev, key=args.stop))
                 self.prune_saves()
-                dev.record_preds(preds=self.run_pred(dev, self.args),
-                    to_file=os.path.join(self.args.dout, 'dev.pred.json'))
+                dev.record_preds(preds=self.run_pred(dev, self.args), to_file=os.path.join(self.args.dout, 'dev.pred.json'))
             summary.update({'best_{}'.format(k): v for k, v in best.items()})
             logger.info(pformat(summary))
             track.clear()
@@ -302,13 +268,11 @@ class Model(nn.Module):
         predictions = [set() for i in range(batch_size)]
         for s in self.ontology.slots:
             for i, p in enumerate(scores[s]):
-                triggered = [(s, v, p_v) for v, p_v in zip(self.ontology.
-                    values[s], p) if p_v > threshold]
+                triggered = [(s, v, p_v) for v, p_v in zip(self.ontology.values[s], p) if p_v > threshold]
                 if s == 'request':
                     predictions[i] |= set([(s, v) for s, v, p_v in triggered])
                 elif triggered:
-                    sort = sorted(triggered, key=lambda tup: tup[-1],
-                        reverse=True)
+                    sort = sorted(triggered, key=lambda tup: tup[-1], reverse=True)
                     predictions[i].add((sort[0][0], sort[0][1]))
         return predictions
 
@@ -342,8 +306,7 @@ class Model(nn.Module):
     def save(self, summary, identifier):
         fname = '{}/{}.t7'.format(self.args.dout, identifier)
         logging.info('saving model to {}'.format(fname))
-        state = {'args': vars(self.args), 'model': self.state_dict(),
-            'summary': summary, 'optimizer': self.optimizer.state_dict()}
+        state = {'args': vars(self.args), 'model': self.state_dict(), 'summary': summary, 'optimizer': self.optimizer.state_dict()}
         torch.save(state, fname)
 
     def load(self, fname):
@@ -389,9 +352,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FixedEmbedding,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([], {'input': torch.zeros([4], dtype=torch.int64)}),
+     False),
+]
+
 class Test_salesforce_glad(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FixedEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [], {'input': torch.zeros([4], dtype=torch.int64)})
+        self._check(*TESTCASES[0])
 

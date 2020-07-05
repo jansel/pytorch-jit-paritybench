@@ -44,8 +44,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -209,8 +210,7 @@ from torchvision.utils import save_image
 import math
 
 
-parser = argparse.ArgumentParser(description=
-    'PyTorch Wikitext-2 RNN/LSTM/GRU/Transformer Language Model')
+parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM/GRU/Transformer Language Model')
 
 
 opt = parser.parse_args()
@@ -221,19 +221,11 @@ class Generator(nn.Module):
     def __init__(self, ngpu):
         super(Generator, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
-            bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
-            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
-            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
-            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
-            4, 2, 1, bias=False), nn.Tanh())
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input):
         if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output
@@ -244,19 +236,11 @@ class Discriminator(nn.Module):
     def __init__(self, ngpu):
         super(Discriminator, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 
-            1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1,
-            4, 1, 0, bias=False), nn.Sigmoid())
+        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False), nn.Sigmoid())
 
     def forward(self, input):
         if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output.view(-1, 1).squeeze(1)
@@ -309,8 +293,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         None
         self.num_gpus = num_gpus
-        device = torch.device('cuda:0' if torch.is_available() and self.
-            num_gpus > 0 else 'cpu')
+        device = torch.device('cuda:0' if torch.is_available() and self.num_gpus > 0 else 'cpu')
         None
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
@@ -345,8 +328,7 @@ class ParameterServer(nn.Module):
         super().__init__()
         model = Net(num_gpus=num_gpus)
         self.model = model
-        self.input_device = torch.device('cuda:0' if torch.is_available() and
-            num_gpus > 0 else 'cpu')
+        self.input_device = torch.device('cuda:0' if torch.is_available() and num_gpus > 0 else 'cpu')
 
     def forward(self, inp):
         inp = inp
@@ -389,30 +371,25 @@ class TrainerNet(nn.Module):
     def __init__(self, num_gpus=0):
         super().__init__()
         self.num_gpus = num_gpus
-        self.param_server_rref = rpc.remote('parameter_server',
-            get_parameter_server, args=(num_gpus,))
+        self.param_server_rref = rpc.remote('parameter_server', get_parameter_server, args=(num_gpus,))
 
     def get_global_param_rrefs(self):
-        remote_params = remote_method(ParameterServer.get_param_rrefs, self
-            .param_server_rref)
+        remote_params = remote_method(ParameterServer.get_param_rrefs, self.param_server_rref)
         return remote_params
 
     def forward(self, x):
-        model_output = remote_method(ParameterServer.forward, self.
-            param_server_rref, x)
+        model_output = remote_method(ParameterServer.forward, self.param_server_rref, x)
         return model_output
 
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class ResNetBase(nn.Module):
 
-    def __init__(self, block, inplanes, num_classes=1000, groups=1,
-        width_per_group=64, norm_layer=None):
+    def __init__(self, block, inplanes, num_classes=1000, groups=1, width_per_group=64, norm_layer=None):
         super(ResNetBase, self).__init__()
         self._lock = threading.Lock()
         self._block = block
@@ -427,17 +404,12 @@ class ResNetBase(nn.Module):
         downsample = None
         previous_dilation = self.dilation
         if stride != 1 or self.inplanes != planes * self._block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes * self
-                ._block.expansion, stride), norm_layer(planes * self._block
-                .expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * self._block.expansion, stride), norm_layer(planes * self._block.expansion))
         layers = []
-        layers.append(self._block(self.inplanes, planes, stride, downsample,
-            self.groups, self.base_width, previous_dilation, norm_layer))
+        layers.append(self._block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * self._block.expansion
         for _ in range(1, blocks):
-            layers.append(self._block(self.inplanes, planes, groups=self.
-                groups, base_width=self.base_width, dilation=self.dilation,
-                norm_layer=norm_layer))
+            layers.append(self._block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, dilation=self.dilation, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
 
@@ -450,18 +422,12 @@ class ResNetPart1(ResNetBase):
     """
 
     def __init__(self, device, *args, **kwargs):
-        super(ResNetPart1, self).__init__(Bottleneck, 64, *args,
-            num_classes=num_classes, **kwargs)
+        super(ResNetPart1, self).__init__(Bottleneck, 64, *args, num_classes=num_classes, **kwargs)
         self.device = device
-        self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7,
-            stride=2, padding=3, bias=False), self._norm_layer(self.
-            inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=1), self._make_layer(64, 3), self._make_layer
-            (128, 4, stride=2)).to(self.device)
+        self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False), self._norm_layer(self.inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), self._make_layer(64, 3), self._make_layer(128, 4, stride=2)).to(self.device)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
@@ -479,14 +445,10 @@ class ResNetPart2(ResNetBase):
     """
 
     def __init__(self, device, *args, **kwargs):
-        super(ResNetPart2, self).__init__(Bottleneck, 512, *args,
-            num_classes=num_classes, **kwargs)
+        super(ResNetPart2, self).__init__(Bottleneck, 512, *args, num_classes=num_classes, **kwargs)
         self.device = device
-        self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self.
-            _make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1))).to(
-            self.device)
-        self.fc = nn.Linear(512 * self._block.expansion, num_classes).to(self
-            .device)
+        self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self._make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1))).to(self.device)
+        self.fc = nn.Linear(512 * self._block.expansion, num_classes).to(self.device)
 
     def forward(self, x_rref):
         x = x_rref.to_here().to(self.device)
@@ -507,8 +469,7 @@ def _async_on_rref(method, rref, *args, **kwargs):
     a helper function to run method on the owner of rref and fetch back the
     result using RPC
     """
-    return rpc.rpc_async(rref.owner(), _call_method, args=[method, rref] +
-        list(args), kwargs=kwargs)
+    return rpc.rpc_async(rref.owner(), _call_method, args=[method, rref] + list(args), kwargs=kwargs)
 
 
 def _parameter_rrefs(module):
@@ -527,8 +488,7 @@ def _remote_on_rref(method, rref, *args, **kwargs):
     a helper function to run method on the owner of rref and return an RRef
     of the result.
     """
-    return rpc.remote(rref.owner(), _call_method, args=[method, rref] +
-        list(args), kwargs=kwargs)
+    return rpc.remote(rref.owner(), _call_method, args=[method, rref] + list(args), kwargs=kwargs)
 
 
 class DistResNet50(nn.Module):
@@ -539,10 +499,8 @@ class DistResNet50(nn.Module):
     def __init__(self, split_size, workers, *args, **kwargs):
         super(DistResNet50, self).__init__()
         self.split_size = split_size
-        self.p1_rref = rpc.remote(workers[0], ResNetPart1, args=('cuda:0',) +
-            args, kwargs=kwargs)
-        self.p2_rref = rpc.remote(workers[1], ResNetPart2, args=('cuda:1',) +
-            args, kwargs=kwargs)
+        self.p1_rref = rpc.remote(workers[0], ResNetPart1, args=('cuda:0',) + args, kwargs=kwargs)
+        self.p2_rref = rpc.remote(workers[1], ResNetPart2, args=('cuda:1',) + args, kwargs=kwargs)
 
     def forward(self, xs):
         out_futures = []
@@ -557,10 +515,8 @@ class DistResNet50(nn.Module):
 
     def parameter_rrefs(self):
         remote_params = []
-        remote_params.extend(_remote_on_rref(_parameter_rrefs, self.p1_rref
-            ).to_here())
-        remote_params.extend(_remote_on_rref(_parameter_rrefs, self.p2_rref
-            ).to_here())
+        remote_params.extend(_remote_on_rref(_parameter_rrefs, self.p1_rref).to_here())
+        remote_params.extend(_remote_on_rref(_parameter_rrefs, self.p2_rref).to_here())
         return remote_params
 
 
@@ -623,8 +579,7 @@ def _remote_method(method, rref, *args, **kwargs):
     a helper function to run method on the owner of rref and fetch back the
     result using RPC
     """
-    return rpc.rpc_sync(rref.owner(), _call_method, args=[method, rref] +
-        list(args), kwargs=kwargs)
+    return rpc.rpc_sync(rref.owner(), _call_method, args=[method, rref] + list(args), kwargs=kwargs)
 
 
 class RNNModel(nn.Module):
@@ -637,26 +592,21 @@ class RNNModel(nn.Module):
 
     def __init__(self, ps, ntoken, ninp, nhid, nlayers, dropout=0.5):
         super(RNNModel, self).__init__()
-        self.emb_table_rref = rpc.remote(ps, EmbeddingTable, args=(ntoken,
-            ninp, dropout))
+        self.emb_table_rref = rpc.remote(ps, EmbeddingTable, args=(ntoken, ninp, dropout))
         self.rnn = nn.LSTM(ninp, nhid, nlayers, dropout=dropout)
-        self.decoder_rref = rpc.remote(ps, Decoder, args=(ntoken, nhid,
-            dropout))
+        self.decoder_rref = rpc.remote(ps, Decoder, args=(ntoken, nhid, dropout))
 
     def forward(self, input, hidden):
-        emb = _remote_method(EmbeddingTable.forward, self.emb_table_rref, input
-            )
+        emb = _remote_method(EmbeddingTable.forward, self.emb_table_rref, input)
         output, hidden = self.rnn(emb, hidden)
         decoded = _remote_method(Decoder.forward, self.decoder_rref, output)
         return decoded, hidden
 
     def parameter_rrefs(self):
         remote_params = []
-        remote_params.extend(_remote_method(_parameter_rrefs, self.
-            emb_table_rref))
+        remote_params.extend(_remote_method(_parameter_rrefs, self.emb_table_rref))
         remote_params.extend(_parameter_rrefs(self.rnn))
-        remote_params.extend(_remote_method(_parameter_rrefs, self.
-            decoder_rref))
+        remote_params.extend(_remote_method(_parameter_rrefs, self.decoder_rref))
         return remote_params
 
 
@@ -675,11 +625,9 @@ class TransformerNet(torch.nn.Module):
         self.res3 = ResidualBlock(128)
         self.res4 = ResidualBlock(128)
         self.res5 = ResidualBlock(128)
-        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1,
-            upsample=2)
+        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
         self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1,
-            upsample=2)
+        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
         self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
         self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
         self.relu = torch.nn.ReLU()
@@ -705,8 +653,7 @@ class ConvLayer(torch.nn.Module):
         super(ConvLayer, self).__init__()
         reflection_padding = kernel_size // 2
         self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
 
     def forward(self, x):
         out = self.reflection_pad(x)
@@ -743,20 +690,17 @@ class UpsampleConvLayer(torch.nn.Module):
     ref: http://distill.pub/2016/deconv-checkerboard/
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        upsample=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, upsample=None):
         super(UpsampleConvLayer, self).__init__()
         self.upsample = upsample
         reflection_padding = kernel_size // 2
         self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
 
     def forward(self, x):
         x_in = x
         if self.upsample:
-            x_in = torch.nn.functional.interpolate(x_in, mode='nearest',
-                scale_factor=self.upsample)
+            x_in = torch.nn.functional.interpolate(x_in, mode='nearest', scale_factor=self.upsample)
         out = self.reflection_pad(x_in)
         out = self.conv2d(out)
         return out
@@ -792,8 +736,7 @@ class Vgg16(torch.nn.Module):
         h_relu3_3 = h
         h = self.slice4(h)
         h_relu4_3 = h
-        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2',
-            'relu3_3', 'relu4_3'])
+        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
 
@@ -907,17 +850,14 @@ class Encoder(nn.Module):
         self.config = config
         input_size = config.d_proj if config.projection else config.d_embed
         dropout = 0 if config.n_layers == 1 else config.dp_ratio
-        self.rnn = nn.LSTM(input_size=input_size, hidden_size=config.
-            d_hidden, num_layers=config.n_layers, dropout=dropout,
-            bidirectional=config.birnn)
+        self.rnn = nn.LSTM(input_size=input_size, hidden_size=config.d_hidden, num_layers=config.n_layers, dropout=dropout, bidirectional=config.birnn)
 
     def forward(self, inputs):
         batch_size = inputs.size()[1]
         state_shape = self.config.n_cells, batch_size, self.config.d_hidden
         h0 = c0 = inputs.new_zeros(state_shape)
         outputs, (ht, ct) = self.rnn(inputs, (h0, c0))
-        return ht[-1] if not self.config.birnn else ht[-2:].transpose(0, 1
-            ).contiguous().view(batch_size, -1)
+        return ht[-1] if not self.config.birnn else ht[-2:].transpose(0, 1).contiguous().view(batch_size, -1)
 
 
 class SNLIClassifier(nn.Module):
@@ -934,10 +874,7 @@ class SNLIClassifier(nn.Module):
         if self.config.birnn:
             seq_in_size *= 2
         lin_config = [seq_in_size] * 2
-        self.out = nn.Sequential(Linear(*lin_config), self.relu, self.
-            dropout, Linear(*lin_config), self.relu, self.dropout, Linear(*
-            lin_config), self.relu, self.dropout, Linear(seq_in_size,
-            config.d_out))
+        self.out = nn.Sequential(Linear(*lin_config), self.relu, self.dropout, Linear(*lin_config), self.relu, self.dropout, Linear(*lin_config), self.relu, self.dropout, Linear(seq_in_size, config.d_out))
 
     def forward(self, batch):
         prem_embed = self.embed(batch.premise)
@@ -1040,31 +977,24 @@ class VAE(nn.Module):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-        tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.ntoken = ntoken
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         else:
             try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[
-                    rnn_type]
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
             except KeyError:
-                raise ValueError(
-                    """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']"""
-                    )
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=
-                nonlinearity, dropout=dropout)
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder.weight = self.encoder.weight
         self.init_weights()
         self.rnn_type = rnn_type
@@ -1088,8 +1018,7 @@ class RNNModel(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters())
         if self.rnn_type == 'LSTM':
-            return weight.new_zeros(self.nlayers, bsz, self.nhid
-                ), weight.new_zeros(self.nlayers, bsz, self.nhid)
+            return weight.new_zeros(self.nlayers, bsz, self.nhid), weight.new_zeros(self.nlayers, bsz, self.nhid)
         else:
             return weight.new_zeros(self.nlayers, bsz, self.nhid)
 
@@ -1116,8 +1045,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.
-            log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
@@ -1146,9 +1074,7 @@ class TransformerModel(nn.Module):
             from torch.nn import TransformerEncoder
             from torch.nn import TransformerEncoderLayer
         except:
-            raise ImportError(
-                'TransformerEncoder module does not exist in PyTorch 1.1 or lower.'
-                )
+            raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or lower.')
         self.model_type = 'Transformer'
         self.src_mask = None
         self.pos_encoder = PositionalEncoding(ninp, dropout)
@@ -1161,8 +1087,7 @@ class TransformerModel(nn.Module):
 
     def _generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(
-            mask == 1, float(0.0))
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
     def init_weights(self):
@@ -1190,51 +1115,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Decoder,
+     lambda: ([], {'ntoken': 4, 'nhid': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EmbeddingTable,
+     lambda: ([], {'ntoken': 4, 'ninp': 4, 'dropout': 0.5}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {'upscale_factor': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (Policy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ToyModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([10, 10])], {}),
+     True),
+    (ToyMpModel,
+     lambda: ([], {'dev0': 4, 'dev1': 4}),
+     lambda: ([torch.rand([10, 10])], {}),
+     True),
+    (TransformerNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UpsampleConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VAE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 784])], {}),
+     True),
+    (Vgg16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_pytorch_examples(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Decoder(*[], **{'ntoken': 4, 'nhid': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EmbeddingTable(*[], **{'ntoken': 4, 'ninp': 4, 'dropout': 0.5}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Net(*[], **{'upscale_factor': 4}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ToyModel(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ToyMpModel(*[], **{'dev0': 4, 'dev1': 4}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(TransformerNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(VAE(*[], **{}), [torch.rand([4, 784])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[13])
 

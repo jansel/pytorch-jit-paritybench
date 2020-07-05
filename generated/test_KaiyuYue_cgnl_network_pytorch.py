@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,20 +68,15 @@ class SpatialCGNL(nn.Module):
         self.use_scale = use_scale
         self.groups = groups
         super(SpatialCGNL, self).__init__()
-        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1,
-            groups=self.groups, bias=False)
+        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, groups=self.groups, bias=False)
         self.gn = nn.GroupNorm(num_groups=self.groups, num_channels=inplanes)
         if self.use_scale:
             cprint("=> WARN: SpatialCGNL block uses 'SCALE'", 'yellow')
         if self.groups:
-            cprint("=> WARN: SpatialCGNL block uses '{}' groups".format(
-                self.groups), 'yellow')
+            cprint("=> WARN: SpatialCGNL block uses '{}' groups".format(self.groups), 'yellow')
 
     def kernel(self, t, p, g, b, c, h, w):
         """The linear kernel (dot production).
@@ -130,29 +126,21 @@ class SpatialCGNLx(nn.Module):
     """Spatial CGNL block with Gaussian RBF kernel for image classification.
     """
 
-    def __init__(self, inplanes, planes, use_scale=False, groups=None, order=2
-        ):
+    def __init__(self, inplanes, planes, use_scale=False, groups=None, order=2):
         self.use_scale = use_scale
         self.groups = groups
         self.order = order
         super(SpatialCGNLx, self).__init__()
-        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1,
-            groups=self.groups, bias=False)
+        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, groups=self.groups, bias=False)
         self.gn = nn.GroupNorm(num_groups=self.groups, num_channels=inplanes)
         if self.use_scale:
             cprint("=> WARN: SpatialCGNLx block uses 'SCALE'", 'yellow')
         if self.groups:
-            cprint("=> WARN: SpatialCGNLx block uses '{}' groups".format(
-                self.groups), 'yellow')
-        cprint(
-            '=> WARN: The Taylor expansion order in SpatialCGNLx block is {}'
-            .format(self.order), 'yellow')
+            cprint("=> WARN: SpatialCGNLx block uses '{}' groups".format(self.groups), 'yellow')
+        cprint('=> WARN: The Taylor expansion order in SpatialCGNLx block is {}'.format(self.order), 'yellow')
 
     def kernel(self, t, p, g, b, c, h, w):
         """The non-linear kernel (Gaussian RBF).
@@ -173,8 +161,7 @@ class SpatialCGNLx(nn.Module):
         t_taylor = []
         p_taylor = []
         for order in range(self.order + 1):
-            alpha = torch.mul(torch.div(torch.pow(2 * gamma, order), math.
-                factorial(order)), beta)
+            alpha = torch.mul(torch.div(torch.pow(2 * gamma, order), math.factorial(order)), beta)
             alpha = torch.sqrt(alpha)
             _t = t.pow(order).mul(alpha)
             _p = p.pow(order).mul(alpha)
@@ -221,19 +208,14 @@ class SpatialNL(nn.Module):
     def __init__(self, inplanes, planes, use_scale=False):
         self.use_scale = use_scale
         super(SpatialNL, self).__init__()
-        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
+        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
         self.softmax = nn.Softmax(dim=2)
-        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, bias=
-            False)
+        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, bias=False)
         self.bn = nn.BatchNorm2d(inplanes)
         if self.use_scale:
-            cprint("=> WARN: SpatialNL block uses 'SCALE' before softmax",
-                'yellow')
+            cprint("=> WARN: SpatialNL block uses 'SCALE' before softmax", 'yellow')
 
     def forward(self, x):
         residual = x
@@ -257,54 +239,41 @@ class SpatialNL(nn.Module):
         return x
 
 
-StageSpec = namedtuple('StageSpec', ['index', 'block_count', 'return_features']
-    )
+StageSpec = namedtuple('StageSpec', ['index', 'block_count', 'return_features'])
 
 
-ResNet101FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=
-    r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 23, True), (4, 3, True))
-    )
+ResNet101FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 23, True), (4, 3, True)))
 
 
-ResNet50FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=r
-    ) for i, c, r in ((1, 3, True), (2, 4, True), (3, 6, True), (4, 3, True)))
+ResNet50FPNStagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for i, c, r in ((1, 3, True), (2, 4, True), (3, 6, True), (4, 3, True)))
 
 
-ResNet50StagesTo4 = (StageSpec(index=i, block_count=c, return_features=r) for
-    i, c, r in ((1, 3, False), (2, 4, False), (3, 6, True)))
+ResNet50StagesTo4 = (StageSpec(index=i, block_count=c, return_features=r) for i, c, r in ((1, 3, False), (2, 4, False), (3, 6, True)))
 
 
-ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for
-    i, c, r in ((1, 3, False), (2, 4, False), (3, 6, False), (4, 3, True)))
+ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for i, c, r in ((1, 3, False), (2, 4, False), (3, 6, False), (4, 3, True)))
 
 
-_STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5,
-    'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
+_STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5, 'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
 
 
 nl_type = 'cgnlx'
 
 
-def _make_stage(transformation_module, in_channels, bottleneck_channels,
-    out_channels, block_count, num_groups, stride_in_1x1, first_stride):
+def _make_stage(transformation_module, in_channels, bottleneck_channels, out_channels, block_count, num_groups, stride_in_1x1, first_stride):
     blocks = []
     stride = first_stride
     for idx in range(block_count):
         if idx == 5 and block_count == 6:
             if nl_type == 'nl':
-                blocks.append(SpatialNL(in_channels, int(in_channels / 2),
-                    use_scale=True))
+                blocks.append(SpatialNL(in_channels, int(in_channels / 2), use_scale=True))
             elif nl_type == 'cgnl':
-                blocks.append(SpatialCGNL(in_channels, int(in_channels / 2),
-                    use_scale=False, groups=8))
+                blocks.append(SpatialCGNL(in_channels, int(in_channels / 2), use_scale=False, groups=8))
             elif nl_type == 'cgnlx':
-                blocks.append(SpatialCGNLx(in_channels, int(in_channels / 2
-                    ), use_scale=False, groups=8, order=3))
+                blocks.append(SpatialCGNLx(in_channels, int(in_channels / 2), use_scale=False, groups=8, order=3))
             else:
                 pass
-        blocks.append(transformation_module(in_channels,
-            bottleneck_channels, out_channels, num_groups, stride_in_1x1,
-            stride))
+        blocks.append(transformation_module(in_channels, bottleneck_channels, out_channels, num_groups, stride_in_1x1, stride))
         stride = 1
         in_channels = out_channels
     return nn.Sequential(*blocks)
@@ -319,8 +288,7 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         stem_module = _STEM_MODULES[cfg.MODEL.RESNETS.STEM_FUNC]
         stage_specs = _STAGE_SPECS[cfg.MODEL.BACKBONE.CONV_BODY]
-        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.
-            TRANS_FUNC]
+        transformation_module = _TRANSFORMATION_MODULES[cfg.MODEL.RESNETS.TRANS_FUNC]
         self.stem = stem_module(cfg)
         num_groups = cfg.MODEL.RESNETS.NUM_GROUPS
         width_per_group = cfg.MODEL.RESNETS.WIDTH_PER_GROUP
@@ -332,13 +300,9 @@ class ResNet(nn.Module):
         for stage_spec in stage_specs:
             name = 'layer' + str(stage_spec.index)
             stage2_relative_factor = 2 ** (stage_spec.index - 1)
-            bottleneck_channels = (stage2_bottleneck_channels *
-                stage2_relative_factor)
+            bottleneck_channels = stage2_bottleneck_channels * stage2_relative_factor
             out_channels = stage2_out_channels * stage2_relative_factor
-            module = _make_stage(transformation_module, in_channels,
-                bottleneck_channels, out_channels, stage_spec.block_count,
-                num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=
-                int(stage_spec.index > 1) + 1)
+            module = _make_stage(transformation_module, in_channels, bottleneck_channels, out_channels, stage_spec.block_count, num_groups, cfg.MODEL.RESNETS.STRIDE_IN_1X1, first_stride=int(stage_spec.index > 1) + 1)
             in_channels = out_channels
             self.add_module(name, module)
             self.stages.append(name)
@@ -376,15 +340,13 @@ class ResNet(nn.Module):
 
 class ResNetHead(nn.Module):
 
-    def __init__(self, block_module, stages, num_groups=1, width_per_group=
-        64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
+    def __init__(self, block_module, stages, num_groups=1, width_per_group=64, stride_in_1x1=True, stride_init=None, res2_out_channels=256):
         super(ResNetHead, self).__init__()
         stage2_relative_factor = 2 ** (stages[0].index - 1)
         stage2_bottleneck_channels = num_groups * width_per_group
         out_channels = res2_out_channels * stage2_relative_factor
         in_channels = out_channels // 2
-        bottleneck_channels = (stage2_bottleneck_channels *
-            stage2_relative_factor)
+        bottleneck_channels = stage2_bottleneck_channels * stage2_relative_factor
         block_module = _TRANSFORMATION_MODULES[block_module]
         self.stages = []
         stride = stride_init
@@ -392,9 +354,7 @@ class ResNetHead(nn.Module):
             name = 'layer' + str(stage.index)
             if not stride:
                 stride = int(stage.index > 1) + 1
-            module = _make_stage(block_module, in_channels,
-                bottleneck_channels, out_channels, stage.block_count,
-                num_groups, stride_in_1x1, first_stride=stride)
+            module = _make_stage(block_module, in_channels, bottleneck_channels, out_channels, stage.block_count, num_groups, stride_in_1x1, first_stride=stride)
             stride = None
             self.add_module(name, module)
             self.stages.append(name)
@@ -407,24 +367,17 @@ class ResNetHead(nn.Module):
 
 class BottleneckWithFixedBatchNorm(nn.Module):
 
-    def __init__(self, in_channels, bottleneck_channels, out_channels,
-        num_groups=1, stride_in_1x1=True, stride=1):
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1):
         super(BottleneckWithFixedBatchNorm, self).__init__()
         self.downsample = None
         if in_channels != out_channels:
-            self.downsample = nn.Sequential(Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, bias=False),
-                FrozenBatchNorm2d(out_channels))
+            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), FrozenBatchNorm2d(out_channels))
         stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
-        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1,
-            stride=stride_1x1, bias=False)
+        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
         self.bn1 = FrozenBatchNorm2d(bottleneck_channels)
-        self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels,
-            kernel_size=3, stride=stride_3x3, padding=1, bias=False, groups
-            =num_groups)
+        self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=1, bias=False, groups=num_groups)
         self.bn2 = FrozenBatchNorm2d(bottleneck_channels)
-        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=
-            1, bias=False)
+        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
         self.bn3 = FrozenBatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -449,8 +402,7 @@ class StemWithFixedBatchNorm(nn.Module):
     def __init__(self, cfg):
         super(StemWithFixedBatchNorm, self).__init__()
         out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
-        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = FrozenBatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -464,8 +416,7 @@ class StemWithFixedBatchNorm(nn.Module):
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding.
     """
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -502,11 +453,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -537,20 +486,15 @@ class SpatialCGNL(nn.Module):
         self.use_scale = use_scale
         self.groups = groups
         super(SpatialCGNL, self).__init__()
-        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1,
-            groups=self.groups, bias=False)
+        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, groups=self.groups, bias=False)
         self.gn = nn.GroupNorm(num_groups=self.groups, num_channels=inplanes)
         if self.use_scale:
             cprint("=> WARN: SpatialCGNL block uses 'SCALE'", 'yellow')
         if self.groups:
-            cprint("=> WARN: SpatialCGNL block uses '{}' groups".format(
-                self.groups), 'yellow')
+            cprint("=> WARN: SpatialCGNL block uses '{}' groups".format(self.groups), 'yellow')
 
     def kernel(self, t, p, g, b, c, h, w):
         """The linear kernel (dot production).
@@ -601,29 +545,21 @@ class SpatialCGNLx(nn.Module):
     """Spatial CGNL block with Gaussian RBF kernel for image classification.
     """
 
-    def __init__(self, inplanes, planes, use_scale=False, groups=None, order=2
-        ):
+    def __init__(self, inplanes, planes, use_scale=False, groups=None, order=2):
         self.use_scale = use_scale
         self.groups = groups
         self.order = order
         super(SpatialCGNLx, self).__init__()
-        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1,
-            groups=self.groups, bias=False)
+        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, groups=self.groups, bias=False)
         self.gn = nn.GroupNorm(num_groups=self.groups, num_channels=inplanes)
         if self.use_scale:
             cprint("=> WARN: SpatialCGNLx block uses 'SCALE'", 'yellow')
         if self.groups:
-            cprint("=> WARN: SpatialCGNLx block uses '{}' groups".format(
-                self.groups), 'yellow')
-        cprint(
-            '=> WARN: The Taylor expansion order in SpatialCGNLx block is {}'
-            .format(self.order), 'yellow')
+            cprint("=> WARN: SpatialCGNLx block uses '{}' groups".format(self.groups), 'yellow')
+        cprint('=> WARN: The Taylor expansion order in SpatialCGNLx block is {}'.format(self.order), 'yellow')
 
     def kernel(self, t, p, g, b, c, h, w):
         """The non-linear kernel (Gaussian RBF).
@@ -645,8 +581,7 @@ class SpatialCGNLx(nn.Module):
         t_taylor = []
         p_taylor = []
         for order in range(self.order + 1):
-            alpha = torch.mul(torch.div(torch.pow(2 * gamma, order), math.
-                factorial(order)), beta)
+            alpha = torch.mul(torch.div(torch.pow(2 * gamma, order), math.factorial(order)), beta)
             alpha = torch.sqrt(alpha)
             _t = t.pow(order).mul(alpha)
             _p = p.pow(order).mul(alpha)
@@ -693,19 +628,14 @@ class SpatialNL(nn.Module):
     def __init__(self, inplanes, planes, use_scale=False):
         self.use_scale = use_scale
         super(SpatialNL, self).__init__()
-        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
-        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=
-            False)
+        self.t = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.p = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.g = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
         self.softmax = nn.Softmax(dim=2)
-        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, bias=
-            False)
+        self.z = nn.Conv2d(planes, inplanes, kernel_size=1, stride=1, bias=False)
         self.bn = nn.BatchNorm2d(inplanes)
         if self.use_scale:
-            cprint("=> WARN: SpatialNL block uses 'SCALE' before softmax",
-                'yellow')
+            cprint("=> WARN: SpatialNL block uses 'SCALE' before softmax", 'yellow')
 
     def forward(self, x):
         residual = x
@@ -731,12 +661,10 @@ class SpatialNL(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, nl_type=None,
-        nl_nums=None, pool_size=7):
+    def __init__(self, block, layers, num_classes=1000, nl_type=None, nl_nums=None, pool_size=7):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -745,16 +673,14 @@ class ResNet(nn.Module):
         if not nl_nums:
             self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         else:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-                nl_type=nl_type, nl_nums=nl_nums)
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=2, nl_type=nl_type, nl_nums=nl_nums)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(pool_size, stride=1)
         self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for name, m in self.named_modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -769,28 +695,21 @@ class ResNet(nn.Module):
                     nn.init.constant_(m.weight, 0)
                     nn.init.constant_(m.bias, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, nl_type=None,
-        nl_nums=None):
+    def _make_layer(self, block, planes, blocks, stride=1, nl_type=None, nl_nums=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            if (i == 5 and blocks == 6 or i == 22 and blocks == 23 or i == 
-                35 and blocks == 36):
+            if i == 5 and blocks == 6 or i == 22 and blocks == 23 or i == 35 and blocks == 36:
                 if nl_type == 'nl':
-                    layers.append(SpatialNL(self.inplanes, int(self.
-                        inplanes / 2), use_scale=True))
+                    layers.append(SpatialNL(self.inplanes, int(self.inplanes / 2), use_scale=True))
                 elif nl_type == 'cgnl':
-                    layers.append(SpatialCGNL(self.inplanes, int(self.
-                        inplanes / 2), use_scale=False, groups=8))
+                    layers.append(SpatialCGNL(self.inplanes, int(self.inplanes / 2), use_scale=False, groups=8))
                 elif nl_type == 'cgnlx':
-                    layers.append(SpatialCGNLx(self.inplanes, int(self.
-                        inplanes / 2), use_scale=False, groups=8, order=3))
+                    layers.append(SpatialCGNLx(self.inplanes, int(self.inplanes / 2), use_scale=False, groups=8, order=3))
                 else:
                     pass
             layers.append(block(self.inplanes, planes))
@@ -816,11 +735,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SpatialNL,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_KaiyuYue_cgnl_network_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SpatialNL(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

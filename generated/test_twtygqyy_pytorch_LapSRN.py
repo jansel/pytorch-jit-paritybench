@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,29 +66,7 @@ class _Conv_Block(nn.Module):
 
     def __init__(self):
         super(_Conv_Block, self).__init__()
-        self.cov_block = nn.Sequential(nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.ConvTranspose2d(
-            in_channels=64, out_channels=64, kernel_size=4, stride=2,
-            padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
+        self.cov_block = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
 
     def forward(self, x):
         output = self.cov_block(x)
@@ -102,8 +81,7 @@ def get_upsample_filter(size):
     else:
         center = factor - 0.5
     og = np.ogrid[:size, :size]
-    filter = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
+    filter = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
     return torch.from_numpy(filter).float()
 
 
@@ -111,18 +89,13 @@ class Net(nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.conv_input = nn.Conv2d(in_channels=1, out_channels=64,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv_input = nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
-        self.convt_I1 = nn.ConvTranspose2d(in_channels=1, out_channels=1,
-            kernel_size=4, stride=2, padding=1, bias=False)
-        self.convt_R1 = nn.Conv2d(in_channels=64, out_channels=1,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.convt_I1 = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=4, stride=2, padding=1, bias=False)
+        self.convt_R1 = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F1 = self.make_layer(_Conv_Block)
-        self.convt_I2 = nn.ConvTranspose2d(in_channels=1, out_channels=1,
-            kernel_size=4, stride=2, padding=1, bias=False)
-        self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=1,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.convt_I2 = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=4, stride=2, padding=1, bias=False)
+        self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F2 = self.make_layer(_Conv_Block)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -173,29 +146,7 @@ class _Conv_Block(nn.Module):
 
     def __init__(self):
         super(_Conv_Block, self).__init__()
-        self.cov_block = nn.Sequential(nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.ConvTranspose2d(
-            in_channels=64, out_channels=64, kernel_size=4, stride=2,
-            padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
+        self.cov_block = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
 
     def forward(self, x):
         output = self.cov_block(x)
@@ -206,18 +157,13 @@ class _netG(nn.Module):
 
     def __init__(self):
         super(_netG, self).__init__()
-        self.conv_input = nn.Conv2d(in_channels=1, out_channels=64,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv_input = nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
-        self.convt_I1 = nn.ConvTranspose2d(in_channels=1, out_channels=1,
-            kernel_size=4, stride=2, padding=1, bias=False)
-        self.convt_R1 = nn.Conv2d(in_channels=64, out_channels=1,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.convt_I1 = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=4, stride=2, padding=1, bias=False)
+        self.convt_R1 = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F1 = self.make_layer(_Conv_Block)
-        self.convt_I2 = nn.ConvTranspose2d(in_channels=1, out_channels=1,
-            kernel_size=4, stride=2, padding=1, bias=False)
-        self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=1,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.convt_I2 = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=4, stride=2, padding=1, bias=False)
+        self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F2 = self.make_layer(_Conv_Block)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -268,23 +214,7 @@ class _netD(nn.Module):
 
     def __init__(self):
         super(_netD, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(in_channels=1, out_channels
-            =64, kernel_size=3, stride=1, padding=1, bias=False), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=4, stride=2, padding=1, bias=False
-            ), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64,
-            out_channels=128, kernel_size=3, stride=1, padding=1, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=
-            128, out_channels=128, kernel_size=4, stride=2, padding=1, bias
-            =False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels
-            =128, out_channels=256, kernel_size=3, stride=1, padding=1,
-            bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(
-            in_channels=256, out_channels=256, kernel_size=4, stride=2,
-            padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride
-            =1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn
-            .Conv2d(in_channels=512, out_channels=512, kernel_size=4,
-            stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
+        self.features = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=128, out_channels=128, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
         self.LeakyReLU = nn.LeakyReLU(0.2, inplace=True)
         self.fc1 = nn.Linear(512 * 8 * 8, 1024)
         self.fc2 = nn.Linear(1024, 1)
@@ -312,17 +242,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (L1_Charbonnier_loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (_Conv_Block,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (_netD,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 128, 128])], {}),
+     True),
+    (_netG,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+]
+
 class Test_twtygqyy_pytorch_LapSRN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(L1_Charbonnier_loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(_Conv_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(_netG(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

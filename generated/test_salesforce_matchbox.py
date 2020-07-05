@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,8 +144,7 @@ class MultiHead(nn.Module):
 
     def forward(self, query, key, value):
         query, key, value = self.wq(query), self.wk(key), self.wv(value)
-        query, key, value = (x.split_dim(-1, self.n_heads).join_dims(0, -1) for
-            x in (query, key, value))
+        query, key, value = (x.split_dim(-1, self.n_heads).join_dims(0, -1) for x in (query, key, value))
         outputs = self.attention(query, key, value)
         outputs = outputs.split_dim(0, self.n_heads).join_dims(-1, 1)
         return self.wo(outputs)
@@ -154,11 +154,8 @@ class EncoderLayer(nn.Module):
 
     def __init__(self, args):
         super().__init__()
-        self.selfattn = ResidualBlock(MultiHead(Attention(args.d_model,
-            args.drop_ratio), args.d_model, args.d_model, args.n_heads),
-            args.d_model, args.drop_ratio)
-        self.feedforward = ResidualBlock(FeedForward(args.d_model, args.
-            d_hidden, args.drop_ratio), args.d_model, args.drop_ratio)
+        self.selfattn = ResidualBlock(MultiHead(Attention(args.d_model, args.drop_ratio), args.d_model, args.d_model, args.n_heads), args.d_model, args.drop_ratio)
+        self.feedforward = ResidualBlock(FeedForward(args.d_model, args.d_hidden, args.drop_ratio), args.d_model, args.drop_ratio)
 
     def forward(self, x):
         x = self.selfattn(x, x, x)
@@ -169,14 +166,9 @@ class DecoderLayer(nn.Module):
 
     def __init__(self, args):
         super().__init__()
-        self.selfattn = ResidualBlock(MultiHead(Attention(args.d_model,
-            args.drop_ratio, True), args.d_model, args.d_model, args.
-            n_heads), args.d_model, args.drop_ratio)
-        self.attention = ResidualBlock(MultiHead(Attention(args.d_model,
-            args.drop_ratio), args.d_model, args.d_model, args.n_heads),
-            args.d_model, args.drop_ratio)
-        self.feedforward = ResidualBlock(FeedForward(args.d_model, args.
-            d_hidden, args.drop_ratio), args.d_model, args.drop_ratio)
+        self.selfattn = ResidualBlock(MultiHead(Attention(args.d_model, args.drop_ratio, True), args.d_model, args.d_model, args.n_heads), args.d_model, args.drop_ratio)
+        self.attention = ResidualBlock(MultiHead(Attention(args.d_model, args.drop_ratio), args.d_model, args.d_model, args.n_heads), args.d_model, args.drop_ratio)
+        self.feedforward = ResidualBlock(FeedForward(args.d_model, args.d_hidden, args.drop_ratio), args.d_model, args.drop_ratio)
 
     def forward(self, x, encoding):
         x = self.selfattn(x, x, x)
@@ -202,8 +194,7 @@ class Encoder(nn.Module):
     def __init__(self, field, args):
         super().__init__()
         self.out = field.out
-        self.layers = nn.ModuleList([EncoderLayer(args) for i in range(args
-            .n_layers)])
+        self.layers = nn.ModuleList([EncoderLayer(args) for i in range(args.n_layers)])
         self.dropout = nn.Dropout(args.drop_ratio)
         self.field = field
         self.d_model = args.d_model
@@ -224,8 +215,7 @@ class Decoder(nn.Module):
     def __init__(self, field, args):
         super().__init__()
         self.out = field.out
-        self.layers = nn.ModuleList([DecoderLayer(args) for i in range(args
-            .n_layers)])
+        self.layers = nn.ModuleList([DecoderLayer(args) for i in range(args.n_layers)])
         self.dropout = nn.Dropout(args.drop_ratio)
         self.d_model = args.d_model
         self.field = field
@@ -249,8 +239,7 @@ class Transformer(nn.Module):
         self.encoder = Encoder(src, args)
         self.decoder = Decoder(trg, args)
 
-    def forward(self, encoder_inputs, decoder_inputs, decoding=False, beam=
-        1, alpha=0.6, return_probs=False):
+    def forward(self, encoder_inputs, decoder_inputs, decoding=False, beam=1, alpha=0.6, return_probs=False):
         encoding = self.encoder(encoder_inputs)
         if return_probs and decoding or not decoding:
             out = self.decoder(decoder_inputs, encoding)
@@ -276,14 +265,11 @@ class Transformer(nn.Module):
 
 
 def any_active(mask_expr):
-    return gast.Call(gast.Attribute(mask_expr, gast.Name('any', gast.Load(),
-        None), gast.Load()), [], [])
+    return gast.Call(gast.Attribute(mask_expr, gast.Name('any', gast.Load(), None), gast.Load()), [], [])
 
 
 def pushmask(mask_expr):
-    return gast.Expr(gast.Call(gast.Attribute(gast.Name('matchbox', gast.
-        Load(), None), gast.Name('push_execution_mask', gast.Load(), None),
-        gast.Load()), [mask_expr], []))
+    return gast.Expr(gast.Call(gast.Attribute(gast.Name('matchbox', gast.Load(), None), gast.Name('push_execution_mask', gast.Load(), None), gast.Load()), [mask_expr], []))
 
 
 class CodeToAst(object):
@@ -411,11 +397,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FeedForward,
+     lambda: ([], {'d_model': 4, 'd_hidden': 4, 'drop_ratio': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_salesforce_matchbox(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FeedForward(*[], **{'d_model': 4, 'd_hidden': 4, 'drop_ratio': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

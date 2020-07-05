@@ -92,8 +92,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -129,22 +130,18 @@ from torch.utils.data import DataLoader
 
 
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=padding, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0],
-            dilation=dilation[0])
+        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0], dilation=dilation[0])
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=
-            dilation[1])
+        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=dilation[1])
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
@@ -168,13 +165,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation[1], bias=False, dilation=dilation[1])
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation[1], bias=False, dilation=dilation[1])
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -201,9 +196,7 @@ class Bottleneck(nn.Module):
 
 class DRN(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, channels=(16, 32, 
-        64, 128, 256, 512, 512, 512), out_map=-1, out_middle=False,
-        pool_size=28, arch='D'):
+    def __init__(self, block, layers, num_classes=1000, channels=(16, 32, 64, 128, 256, 512, 512, 512), out_map=-1, out_middle=False, pool_size=28, arch='D'):
         super(DRN, self).__init__()
         self.inplanes = channels[0]
         self.out_map = out_map
@@ -211,45 +204,29 @@ class DRN(nn.Module):
         self.out_middle = out_middle
         self.arch = arch
         if arch == 'C':
-            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
-                padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(channels[0])
             self.relu = nn.ReLU(inplace=True)
-            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[
-                0], stride=1)
-            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[
-                1], stride=2)
+            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[0], stride=1)
+            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[1], stride=2)
         elif arch == 'D':
-            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0],
-                kernel_size=7, stride=1, padding=3, bias=False), nn.
-                BatchNorm2d(channels[0]), nn.ReLU(inplace=True))
-            self.layer1 = self._make_conv_layers(channels[0], layers[0],
-                stride=1)
-            self.layer2 = self._make_conv_layers(channels[1], layers[1],
-                stride=2)
+            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False), nn.BatchNorm2d(channels[0]), nn.ReLU(inplace=True))
+            self.layer1 = self._make_conv_layers(channels[0], layers[0], stride=1)
+            self.layer2 = self._make_conv_layers(channels[1], layers[1], stride=2)
         self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2)
         self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2)
-        self.layer5 = self._make_layer(block, channels[4], layers[4],
-            dilation=2, new_level=False)
-        self.layer6 = None if layers[5] == 0 else self._make_layer(block,
-            channels[5], layers[5], dilation=4, new_level=False)
+        self.layer5 = self._make_layer(block, channels[4], layers[4], dilation=2, new_level=False)
+        self.layer6 = None if layers[5] == 0 else self._make_layer(block, channels[5], layers[5], dilation=4, new_level=False)
         if arch == 'C':
-            self.layer7 = None if layers[6] == 0 else self._make_layer(
-                BasicBlock, channels[6], layers[6], dilation=2, new_level=
-                False, residual=False)
-            self.layer8 = None if layers[7] == 0 else self._make_layer(
-                BasicBlock, channels[7], layers[7], dilation=1, new_level=
-                False, residual=False)
+            self.layer7 = None if layers[6] == 0 else self._make_layer(BasicBlock, channels[6], layers[6], dilation=2, new_level=False, residual=False)
+            self.layer8 = None if layers[7] == 0 else self._make_layer(BasicBlock, channels[7], layers[7], dilation=1, new_level=False, residual=False)
         elif arch == 'D':
-            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(
-                channels[6], layers[6], dilation=2)
-            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(
-                channels[7], layers[7], dilation=1)
+            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(channels[6], layers[6], dilation=2)
+            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(channels[7], layers[7], dilation=1)
         self.num_classes = num_classes
         if self.num_classes > 0:
             self.avgpool = nn.AvgPool2d(pool_size)
-            self.pred = nn.Conv2d(self.out_dim, num_classes, kernel_size=1,
-                stride=1, padding=0, bias=True)
+            self.pred = nn.Conv2d(self.out_dim, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -261,31 +238,22 @@ class DRN(nn.Module):
             self.out_pool = nn.MaxPool2d(32 // self.out_map)
             pass
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        new_level=True, residual=True):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, new_level=True, residual=True):
         assert dilation == 1 or dilation % 2 == 0
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = list()
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=(1, 1) if dilation == 1 else (dilation // 2 if
-            new_level else dilation, dilation), residual=residual))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=(1, 1) if dilation == 1 else (dilation // 2 if new_level else dilation, dilation), residual=residual))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, residual=residual,
-                dilation=(dilation, dilation)))
+            layers.append(block(self.inplanes, planes, residual=residual, dilation=(dilation, dilation)))
         return nn.Sequential(*layers)
 
     def _make_conv_layers(self, channels, convs, stride=1, dilation=1):
         modules = []
         for i in range(convs):
-            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=
-                3, stride=stride if i == 0 else 1, padding=dilation, bias=
-                False, dilation=dilation), nn.BatchNorm2d(channels), nn.
-                ReLU(inplace=True)])
+            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=3, stride=stride if i == 0 else 1, padding=dilation, bias=False, dilation=dilation), nn.BatchNorm2d(channels), nn.ReLU(inplace=True)])
             self.inplanes = channels
         return nn.Sequential(*modules)
 
@@ -322,8 +290,7 @@ class DRN(nn.Module):
                     x = self.pred(x)
                 elif self.out_map > x.shape[2]:
                     x = self.pred(x)
-                    x = F.upsample(input=x, size=(self.out_map, self.
-                        out_map), mode='bilinear')
+                    x = F.upsample(input=x, size=(self.out_map, self.out_map), mode='bilinear')
                 else:
                     x = self.out_pool(x)
                     y.append(x)
@@ -331,8 +298,7 @@ class DRN(nn.Module):
                     pass
             else:
                 if self.out_map > x.shape[3]:
-                    x = F.upsample(input=x, size=(self.out_map, self.
-                        out_map), mode='bilinear')
+                    x = F.upsample(input=x, size=(self.out_map, self.out_map), mode='bilinear')
                     pass
                 pass
         else:
@@ -347,26 +313,19 @@ class DRN(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1,
-        padding=None, mode='conv'):
+    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, padding=None, mode='conv'):
         super(ConvBlock, self).__init__()
         if padding == None:
             padding = (kernel_size - 1) // 2
             pass
         if mode == 'conv':
-            self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-                kernel_size, stride=stride, padding=padding, bias=False)
+            self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         elif mode == 'deconv':
-            self.conv = nn.ConvTranspose2d(in_planes, out_planes,
-                kernel_size=kernel_size, stride=stride, padding=padding,
-                bias=False)
+            self.conv = nn.ConvTranspose2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         elif mode == 'conv_3d':
-            self.conv = nn.Conv3d(in_planes, out_planes, kernel_size=
-                kernel_size, stride=stride, padding=padding, bias=False)
+            self.conv = nn.Conv3d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         elif mode == 'deconv_3d':
-            self.conv = nn.ConvTranspose3d(in_planes, out_planes,
-                kernel_size=kernel_size, stride=stride, padding=padding,
-                bias=False)
+            self.conv = nn.ConvTranspose3d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         else:
             None
             exit(1)
@@ -385,23 +344,17 @@ class ConvBlock(nn.Module):
 
 class PyramidModule(nn.Module):
 
-    def __init__(self, options, in_planes, middle_planes, scales=[32, 16, 8, 4]
-        ):
+    def __init__(self, options, in_planes, middle_planes, scales=[32, 16, 8, 4]):
         super(PyramidModule, self).__init__()
-        self.pool_1 = torch.nn.AvgPool2d((scales[0] * options.height /
-            options.width, scales[0]))
-        self.pool_2 = torch.nn.AvgPool2d((scales[1] * options.height /
-            options.width, scales[1]))
-        self.pool_3 = torch.nn.AvgPool2d((scales[2] * options.height /
-            options.width, scales[2]))
-        self.pool_4 = torch.nn.AvgPool2d((scales[3] * options.height /
-            options.width, scales[3]))
+        self.pool_1 = torch.nn.AvgPool2d((scales[0] * options.height / options.width, scales[0]))
+        self.pool_2 = torch.nn.AvgPool2d((scales[1] * options.height / options.width, scales[1]))
+        self.pool_3 = torch.nn.AvgPool2d((scales[2] * options.height / options.width, scales[2]))
+        self.pool_4 = torch.nn.AvgPool2d((scales[3] * options.height / options.width, scales[3]))
         self.conv_1 = ConvBlock(in_planes, middle_planes, kernel_size=1)
         self.conv_2 = ConvBlock(in_planes, middle_planes, kernel_size=1)
         self.conv_3 = ConvBlock(in_planes, middle_planes, kernel_size=1)
         self.conv_4 = ConvBlock(in_planes, middle_planes, kernel_size=1)
-        self.upsample = torch.nn.Upsample(size=(scales[0] * options.height /
-            options.width, scales[0]), mode='bilinear')
+        self.upsample = torch.nn.Upsample(size=(scales[0] * options.height / options.width, scales[0]), mode='bilinear')
         return
 
     def forward(self, inp):
@@ -416,20 +369,14 @@ class PyramidModule(nn.Module):
 webroot = 'https://tigress-web.princeton.edu/~fy/drn/models/'
 
 
-model_urls = {'drn-c-26': webroot + 'drn_c_26-ddedf421.pth', 'drn-c-42': 
-    webroot + 'drn_c_42-9d336e8c.pth', 'drn-c-58': webroot +
-    'drn_c_58-0a53a92c.pth', 'drn-d-22': webroot + 'drn_d_22-4bd2f8ea.pth',
-    'drn-d-38': webroot + 'drn_d_38-eebb45f0.pth', 'drn-d-54': webroot +
-    'drn_d_54-0e0534ff.pth', 'drn-d-105': webroot + 'drn_d_105-12b40979.pth'}
+model_urls = {'drn-c-26': webroot + 'drn_c_26-ddedf421.pth', 'drn-c-42': webroot + 'drn_c_42-9d336e8c.pth', 'drn-c-58': webroot + 'drn_c_58-0a53a92c.pth', 'drn-d-22': webroot + 'drn_d_22-4bd2f8ea.pth', 'drn-d-38': webroot + 'drn_d_38-eebb45f0.pth', 'drn-d-54': webroot + 'drn_d_54-0e0534ff.pth', 'drn-d-105': webroot + 'drn_d_105-12b40979.pth'}
 
 
 def drn_d_54(pretrained=False, out_map=256, num_classes=20, **kwargs):
-    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', out_map=
-        out_map, num_classes=num_classes, **kwargs)
+    model = DRN(Bottleneck, [1, 1, 3, 4, 6, 3, 1, 1], arch='D', out_map=out_map, num_classes=num_classes, **kwargs)
     if pretrained:
         pretrained_dict = model_zoo.load_url(model_urls['drn-d-54'])
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if 'fc'
-             not in k}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if 'fc' not in k}
         state = model.state_dict()
         state.update(pretrained_dict)
         model.load_state_dict(state)
@@ -441,24 +388,19 @@ class PlaneNet(nn.Module):
     def __init__(self, options):
         super(PlaneNet, self).__init__()
         self.options = options
-        self.drn = drn_d_54(pretrained=True, out_map=32, num_classes=-1,
-            out_middle=False)
-        self.pool = torch.nn.AvgPool2d((32 * options.height / options.width,
-            32))
+        self.drn = drn_d_54(pretrained=True, out_map=32, num_classes=-1, out_middle=False)
+        self.pool = torch.nn.AvgPool2d((32 * options.height / options.width, 32))
         self.plane_pred = nn.Linear(512, options.numOutputPlanes * 3)
         self.pyramid = PyramidModule(options, 512, 128)
         self.feature_conv = ConvBlock(1024, 512)
-        self.segmentation_pred = nn.Conv2d(512, options.numOutputPlanes + 1,
-            kernel_size=1)
+        self.segmentation_pred = nn.Conv2d(512, options.numOutputPlanes + 1, kernel_size=1)
         self.depth_pred = nn.Conv2d(512, 1, kernel_size=1)
-        self.upsample = torch.nn.Upsample(size=(options.outputHeight,
-            options.outputWidth), mode='bilinear')
+        self.upsample = torch.nn.Upsample(size=(options.outputHeight, options.outputWidth), mode='bilinear')
         return
 
     def forward(self, inp):
         features = self.drn(inp)
-        planes = self.plane_pred(self.pool(features).view((-1, 512))).view((
-            -1, self.options.numOutputPlanes, 3))
+        planes = self.plane_pred(self.pool(features).view((-1, 512))).view((-1, self.options.numOutputPlanes, 3))
         features = self.pyramid(features)
         features = self.feature_conv(features)
         segmentation = self.upsample(self.segmentation_pred(features))
@@ -470,11 +412,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_art_programmer_PlaneNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

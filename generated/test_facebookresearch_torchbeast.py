@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ class AtariNet(nn.Module):
         super(AtariNet, self).__init__()
         self.observation_shape = observation_shape
         self.num_actions = num_actions
-        self.conv1 = nn.Conv2d(in_channels=self.observation_shape[0],
-            out_channels=32, kernel_size=8, stride=4)
+        self.conv1 = nn.Conv2d(in_channels=self.observation_shape[0], out_channels=32, kernel_size=8, stride=4)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         self.fc = nn.Linear(3136, 512)
@@ -111,8 +111,7 @@ class AtariNet(nn.Module):
     def initial_state(self, batch_size):
         if not self.use_lstm:
             return tuple()
-        return tuple(torch.zeros(self.core.num_layers, batch_size, self.
-            core.hidden_size) for _ in range(2))
+        return tuple(torch.zeros(self.core.num_layers, batch_size, self.core.hidden_size) for _ in range(2))
 
     def forward(self, inputs, core_state=()):
         x = inputs['frame']
@@ -124,11 +123,9 @@ class AtariNet(nn.Module):
         x = F.relu(self.conv3(x))
         x = x.view(T * B, -1)
         x = F.relu(self.fc(x))
-        one_hot_last_action = F.one_hot(inputs['last_action'].view(T * B),
-            self.num_actions).float()
+        one_hot_last_action = F.one_hot(inputs['last_action'].view(T * B), self.num_actions).float()
         clipped_reward = torch.clamp(inputs['reward'], -1, 1).view(T * B, 1)
-        core_input = torch.cat([x, clipped_reward, one_hot_last_action], dim=-1
-            )
+        core_input = torch.cat([x, clipped_reward, one_hot_last_action], dim=-1)
         if self.use_lstm:
             core_input = core_input.view(T, B, -1)
             core_output_list = []
@@ -145,15 +142,13 @@ class AtariNet(nn.Module):
         policy_logits = self.policy(core_output)
         baseline = self.baseline(core_output)
         if self.training:
-            action = torch.multinomial(F.softmax(policy_logits, dim=1),
-                num_samples=1)
+            action = torch.multinomial(F.softmax(policy_logits, dim=1), num_samples=1)
         else:
             action = torch.argmax(policy_logits, dim=1)
         policy_logits = policy_logits.view(T, B, self.num_actions)
         baseline = baseline.view(T, B)
         action = action.view(T, B)
-        return dict(policy_logits=policy_logits, baseline=baseline, action=
-            action), core_state
+        return dict(policy_logits=policy_logits, baseline=baseline, action=action), core_state
 
 
 class Net(nn.Module):
@@ -169,20 +164,16 @@ class Net(nn.Module):
         input_channels = 4
         for num_ch in [16, 32, 32]:
             feats_convs = []
-            feats_convs.append(nn.Conv2d(in_channels=input_channels,
-                out_channels=num_ch, kernel_size=3, stride=1, padding=1))
-            feats_convs.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-                )
+            feats_convs.append(nn.Conv2d(in_channels=input_channels, out_channels=num_ch, kernel_size=3, stride=1, padding=1))
+            feats_convs.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
             self.feat_convs.append(nn.Sequential(*feats_convs))
             input_channels = num_ch
             for i in range(2):
                 resnet_block = []
                 resnet_block.append(nn.ReLU())
-                resnet_block.append(nn.Conv2d(in_channels=input_channels,
-                    out_channels=num_ch, kernel_size=3, stride=1, padding=1))
+                resnet_block.append(nn.Conv2d(in_channels=input_channels, out_channels=num_ch, kernel_size=3, stride=1, padding=1))
                 resnet_block.append(nn.ReLU())
-                resnet_block.append(nn.Conv2d(in_channels=input_channels,
-                    out_channels=num_ch, kernel_size=3, stride=1, padding=1))
+                resnet_block.append(nn.Conv2d(in_channels=input_channels, out_channels=num_ch, kernel_size=3, stride=1, padding=1))
                 if i == 0:
                     self.resnet1.append(nn.Sequential(*resnet_block))
                 else:
@@ -201,8 +192,7 @@ class Net(nn.Module):
     def initial_state(self, batch_size=1):
         if not self.use_lstm:
             return tuple()
-        return tuple(torch.zeros(self.core.num_layers, batch_size, self.
-            core.hidden_size) for _ in range(2))
+        return tuple(torch.zeros(self.core.num_layers, batch_size, self.core.hidden_size) for _ in range(2))
 
     def forward(self, inputs, core_state):
         x = inputs['frame']
@@ -238,8 +228,7 @@ class Net(nn.Module):
         policy_logits = self.policy(core_output)
         baseline = self.baseline(core_output)
         if self.training:
-            action = torch.multinomial(F.softmax(policy_logits, dim=1),
-                num_samples=1)
+            action = torch.multinomial(F.softmax(policy_logits, dim=1), num_samples=1)
         else:
             action = torch.argmax(policy_logits, dim=1)
         policy_logits = policy_logits.view(T, B, self.num_actions)
@@ -247,10 +236,3 @@ class Net(nn.Module):
         action = action.view(T, B)
         return (action, policy_logits, baseline), core_state
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_facebookresearch_torchbeast(_paritybench_base):
-    pass

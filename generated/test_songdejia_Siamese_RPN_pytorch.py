@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,21 +76,14 @@ import torch.backends.cudnn as cudnn
 from torch.nn import init
 
 
-model_urls = {'alexnet':
-    'https://download.pytorch.org/models/alexnet-owt-4df8aa71.pth'}
+model_urls = {'alexnet': 'https://download.pytorch.org/models/alexnet-owt-4df8aa71.pth'}
 
 
 class SiameseRPN(nn.Module):
 
     def __init__(self):
         super(SiameseRPN, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 
-            384, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(384, 256,
-            kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3))
         self.k = 5
         self.s = 4
         self.conv1 = nn.Conv2d(256, 2 * self.k * 256, kernel_size=3)
@@ -106,8 +100,7 @@ class SiameseRPN(nn.Module):
     def reset_params(self):
         pretrained_dict = model_zoo.load_url(model_urls['alexnet'])
         model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            model_dict}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)
         None
@@ -144,15 +137,7 @@ class SiameseRPN_bn(nn.Module):
 
     def __init__(self):
         super(SiameseRPN_bn, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=2), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.
-            MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192,
-            kernel_size=5), nn.BatchNorm2d(192), nn.ReLU(inplace=True), nn.
-            MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384,
-            kernel_size=3), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.
-            Conv2d(384, 256, kernel_size=3), nn.BatchNorm2d(256), nn.ReLU(
-            inplace=True), nn.Conv2d(256, 256, kernel_size=3), nn.
-            BatchNorm2d(256))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=2), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.BatchNorm2d(192), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3), nn.BatchNorm2d(384), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3), nn.BatchNorm2d(256))
         self.k = 5
         self.s = 4
         self.conv1 = nn.Conv2d(256, 2 * self.k * 256, kernel_size=3)
@@ -173,8 +158,7 @@ class SiameseRPN_bn(nn.Module):
     def reset_params(self):
         pretrained_dict = model_zoo.load_url(model_urls['alexnet'])
         model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            model_dict}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)
         None
@@ -245,13 +229,11 @@ class MultiBoxLoss(nn.Module):
         neg_index = list(np.where(class_target == 0)[0])
         class_target = class_target[pos_index + neg_index]
         class_pred = class_pred[pos_index + neg_index]
-        closs = F.cross_entropy(class_pred, class_target, size_average=
-            False, reduce=False)
+        closs = F.cross_entropy(class_pred, class_target, size_average=False, reduce=False)
         closs = torch.div(torch.sum(closs[np.where(class_target != -100)]), 64)
         reg_pred = rout.view(-1, 4)
         reg_target = targets[:, 1:]
-        rloss = F.smooth_l1_loss(reg_pred, reg_target, size_average=False,
-            reduce=False)
+        rloss = F.smooth_l1_loss(reg_pred, reg_target, size_average=False, reduce=False)
         rloss = torch.div(torch.sum(rloss[np.where(class_target == 1)]), 16)
         loss = closs + rloss
         return closs, rloss, loss, reg_pred, reg_target, pos_index, neg_index
@@ -261,13 +243,7 @@ class SiameseRPN(nn.Module):
 
     def __init__(self, test_video=False):
         super(SiameseRPN, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 
-            384, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(384, 256,
-            kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3))
         self.k = 5
         self.s = 4
         self.conv1 = nn.Conv2d(256, 2 * self.k * 256, kernel_size=3)
@@ -284,8 +260,7 @@ class SiameseRPN(nn.Module):
     def reset_params(self):
         pretrained_dict = model_zoo.load_url(model_urls['alexnet'])
         model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            model_dict}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)
         None
@@ -321,28 +296,17 @@ class MultiBoxLoss(nn.Module):
         cout, rout = predictions
         """ class """
         class_pred, class_target = cout, targets[:, (0)].long()
-        pos_index, neg_index = list(np.where(class_target == 1)[0]), list(np
-            .where(class_target == 0)[0])
+        pos_index, neg_index = list(np.where(class_target == 1)[0]), list(np.where(class_target == 0)[0])
         pos_num, neg_num = len(pos_index), len(neg_index)
-        class_pred, class_target = class_pred[pos_index + neg_index
-            ], class_target[pos_index + neg_index]
-        closs = F.cross_entropy(class_pred, class_target, size_average=
-            False, reduce=False)
+        class_pred, class_target = class_pred[pos_index + neg_index], class_target[pos_index + neg_index]
+        closs = F.cross_entropy(class_pred, class_target, size_average=False, reduce=False)
         closs = torch.div(torch.sum(closs), 64)
         """ regression """
         reg_pred = rout
         reg_target = targets[:, 1:]
-        rloss = F.smooth_l1_loss(reg_pred, reg_target, size_average=False,
-            reduce=False)
+        rloss = F.smooth_l1_loss(reg_pred, reg_target, size_average=False, reduce=False)
         rloss = torch.div(torch.sum(rloss, dim=1), 4)
         rloss = torch.div(torch.sum(rloss[pos_index]), 16)
         loss = closs + rloss
         return closs, rloss, loss, reg_pred, reg_target, pos_index, neg_index
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_songdejia_Siamese_RPN_pytorch(_paritybench_base):
-    pass

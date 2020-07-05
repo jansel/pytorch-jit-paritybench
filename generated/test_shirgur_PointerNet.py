@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,8 +68,7 @@ class Encoder(nn.Module):
         self.hidden_dim = hidden_dim // 2 if bidir else hidden_dim
         self.n_layers = n_layers * 2 if bidir else n_layers
         self.bidir = bidir
-        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim, n_layers,
-            dropout=dropout, bidirectional=bidir)
+        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim, n_layers, dropout=dropout, bidirectional=bidir)
         self.h0 = Parameter(torch.zeros(1), requires_grad=False)
         self.c0 = Parameter(torch.zeros(1), requires_grad=False)
 
@@ -92,10 +92,8 @@ class Encoder(nn.Module):
         :return: Initiated hidden units for the LSTMs (h, c)
         """
         batch_size = embedded_inputs.size(0)
-        h0 = self.h0.unsqueeze(0).unsqueeze(0).repeat(self.n_layers,
-            batch_size, self.hidden_dim)
-        c0 = self.h0.unsqueeze(0).unsqueeze(0).repeat(self.n_layers,
-            batch_size, self.hidden_dim)
+        h0 = self.h0.unsqueeze(0).unsqueeze(0).repeat(self.n_layers, batch_size, self.hidden_dim)
+        c0 = self.h0.unsqueeze(0).unsqueeze(0).repeat(self.n_layers, batch_size, self.hidden_dim)
         return h0, c0
 
 
@@ -117,8 +115,7 @@ class Attention(nn.Module):
         self.input_linear = nn.Linear(input_dim, hidden_dim)
         self.context_linear = nn.Conv1d(input_dim, hidden_dim, 1, 1)
         self.V = Parameter(torch.FloatTensor(hidden_dim), requires_grad=True)
-        self._inf = Parameter(torch.FloatTensor([float('-inf')]),
-            requires_grad=False)
+        self._inf = Parameter(torch.FloatTensor([float('-inf')]), requires_grad=False)
         self.tanh = nn.Tanh()
         self.softmax = nn.Softmax()
         nn.init.uniform(self.V, -1, 1)
@@ -132,8 +129,7 @@ class Attention(nn.Module):
         :param ByteTensor mask: Selection mask
         :return: tuple of - (Attentioned hidden state, Alphas)
         """
-        inp = self.input_linear(input).unsqueeze(2).expand(-1, -1, context.
-            size(1))
+        inp = self.input_linear(input).unsqueeze(2).expand(-1, -1, context.size(1))
         context = context.permute(0, 2, 1)
         ctx = self.context_linear(context)
         V = self.V.unsqueeze(0).expand(context.size(0), -1).unsqueeze(1)
@@ -182,8 +178,7 @@ class Decoder(nn.Module):
         """
         batch_size = embedded_inputs.size(0)
         input_length = embedded_inputs.size(1)
-        mask = self.mask.repeat(input_length).unsqueeze(0).repeat(batch_size, 1
-            )
+        mask = self.mask.repeat(input_length).unsqueeze(0).repeat(batch_size, 1)
         self.att.init_inf(mask.size())
         runner = self.runner.repeat(input_length)
         for i in range(input_length):
@@ -217,13 +212,10 @@ class Decoder(nn.Module):
             hidden = h_t, c_t
             masked_outs = outs * mask
             max_probs, indices = masked_outs.max(1)
-            one_hot_pointers = (runner == indices.unsqueeze(1).expand(-1,
-                outs.size()[1])).float()
+            one_hot_pointers = (runner == indices.unsqueeze(1).expand(-1, outs.size()[1])).float()
             mask = mask * (1 - one_hot_pointers)
-            embedding_mask = one_hot_pointers.unsqueeze(2).expand(-1, -1,
-                self.embedding_dim).byte()
-            decoder_input = embedded_inputs[embedding_mask.data].view(
-                batch_size, self.embedding_dim)
+            embedding_mask = one_hot_pointers.unsqueeze(2).expand(-1, -1, self.embedding_dim).byte()
+            decoder_input = embedded_inputs[embedding_mask.data].view(batch_size, self.embedding_dim)
             outputs.append(outs.unsqueeze(0))
             pointers.append(indices.unsqueeze(1))
         outputs = torch.cat(outputs).permute(1, 0, 2)
@@ -236,8 +228,7 @@ class PointerNet(nn.Module):
     Pointer-Net
     """
 
-    def __init__(self, embedding_dim, hidden_dim, lstm_layers, dropout,
-        bidir=False):
+    def __init__(self, embedding_dim, hidden_dim, lstm_layers, dropout, bidir=False):
         """
         Initiate Pointer-Net
 
@@ -251,11 +242,9 @@ class PointerNet(nn.Module):
         self.embedding_dim = embedding_dim
         self.bidir = bidir
         self.embedding = nn.Linear(2, embedding_dim)
-        self.encoder = Encoder(embedding_dim, hidden_dim, lstm_layers,
-            dropout, bidir)
+        self.encoder = Encoder(embedding_dim, hidden_dim, lstm_layers, dropout, bidir)
         self.decoder = Decoder(embedding_dim, hidden_dim)
-        self.decoder_input0 = Parameter(torch.FloatTensor(embedding_dim),
-            requires_grad=False)
+        self.decoder_input0 = Parameter(torch.FloatTensor(embedding_dim), requires_grad=False)
         nn.init.uniform(self.decoder_input0, -1, 1)
 
     def forward(self, inputs):
@@ -267,27 +256,15 @@ class PointerNet(nn.Module):
         """
         batch_size = inputs.size(0)
         input_length = inputs.size(1)
-        decoder_input0 = self.decoder_input0.unsqueeze(0).expand(batch_size, -1
-            )
+        decoder_input0 = self.decoder_input0.unsqueeze(0).expand(batch_size, -1)
         inputs = inputs.view(batch_size * input_length, -1)
-        embedded_inputs = self.embedding(inputs).view(batch_size,
-            input_length, -1)
+        embedded_inputs = self.embedding(inputs).view(batch_size, input_length, -1)
         encoder_hidden0 = self.encoder.init_hidden(embedded_inputs)
-        encoder_outputs, encoder_hidden = self.encoder(embedded_inputs,
-            encoder_hidden0)
+        encoder_outputs, encoder_hidden = self.encoder(embedded_inputs, encoder_hidden0)
         if self.bidir:
-            decoder_hidden0 = torch.cat(encoder_hidden[0][-2:], dim=-1
-                ), torch.cat(encoder_hidden[1][-2:], dim=-1)
+            decoder_hidden0 = torch.cat(encoder_hidden[0][-2:], dim=-1), torch.cat(encoder_hidden[1][-2:], dim=-1)
         else:
             decoder_hidden0 = encoder_hidden[0][-1], encoder_hidden[1][-1]
-        (outputs, pointers), decoder_hidden = self.decoder(embedded_inputs,
-            decoder_input0, decoder_hidden0, encoder_outputs)
+        (outputs, pointers), decoder_hidden = self.decoder(embedded_inputs, decoder_input0, decoder_hidden0, encoder_outputs)
         return outputs, pointers
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_shirgur_PointerNet(_paritybench_base):
-    pass

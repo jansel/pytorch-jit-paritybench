@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -45,8 +46,7 @@ import time
 
 class ConvTasNet(nn.Module):
 
-    def __init__(self, N, L, B, H, P, X, R, C, norm_type='gLN', causal=
-        False, mask_nonlinear='relu'):
+    def __init__(self, N, L, B, H, P, X, R, C, norm_type='gLN', causal=False, mask_nonlinear='relu'):
         """
         Args:
             N: Number of filters in autoencoder
@@ -62,14 +62,12 @@ class ConvTasNet(nn.Module):
             mask_nonlinear: use which non-linear function to generate mask
         """
         super(ConvTasNet, self).__init__()
-        self.N, self.L, self.B, self.H, self.P, self.X, self.R, self.C = (N,
-            L, B, H, P, X, R, C)
+        self.N, self.L, self.B, self.H, self.P, self.X, self.R, self.C = N, L, B, H, P, X, R, C
         self.norm_type = norm_type
         self.causal = causal
         self.mask_nonlinear = mask_nonlinear
         self.encoder = Encoder(L, N)
-        self.separator = TemporalConvNet(N, B, H, P, X, R, C, norm_type,
-            causal, mask_nonlinear)
+        self.separator = TemporalConvNet(N, B, H, P, X, R, C, norm_type, causal, mask_nonlinear)
         self.decoder = Decoder(N, L)
         for p in self.parameters():
             if p.dim() > 1:
@@ -98,20 +96,13 @@ class ConvTasNet(nn.Module):
 
     @classmethod
     def load_model_from_package(cls, package):
-        model = cls(package['N'], package['L'], package['B'], package['H'],
-            package['P'], package['X'], package['R'], package['C'],
-            norm_type=package['norm_type'], causal=package['causal'],
-            mask_nonlinear=package['mask_nonlinear'])
+        model = cls(package['N'], package['L'], package['B'], package['H'], package['P'], package['X'], package['R'], package['C'], norm_type=package['norm_type'], causal=package['causal'], mask_nonlinear=package['mask_nonlinear'])
         model.load_state_dict(package['state_dict'])
         return model
 
     @staticmethod
     def serialize(model, optimizer, epoch, tr_loss=None, cv_loss=None):
-        package = {'N': model.N, 'L': model.L, 'B': model.B, 'H': model.H,
-            'P': model.P, 'X': model.X, 'R': model.R, 'C': model.C,
-            'norm_type': model.norm_type, 'causal': model.causal,
-            'mask_nonlinear': model.mask_nonlinear, 'state_dict': model.
-            state_dict(), 'optim_dict': optimizer.state_dict(), 'epoch': epoch}
+        package = {'N': model.N, 'L': model.L, 'B': model.B, 'H': model.H, 'P': model.P, 'X': model.X, 'R': model.R, 'C': model.C, 'norm_type': model.norm_type, 'causal': model.causal, 'mask_nonlinear': model.mask_nonlinear, 'state_dict': model.state_dict(), 'optim_dict': optimizer.state_dict(), 'epoch': epoch}
         if tr_loss is not None:
             package['tr_loss'] = tr_loss
             package['cv_loss'] = cv_loss
@@ -125,8 +116,7 @@ class Encoder(nn.Module):
     def __init__(self, L, N):
         super(Encoder, self).__init__()
         self.L, self.N = L, N
-        self.conv1d_U = nn.Conv1d(1, N, kernel_size=L, stride=L // 2, bias=
-            False)
+        self.conv1d_U = nn.Conv1d(1, N, kernel_size=L, stride=L // 2, bias=False)
 
     def forward(self, mixture):
         """
@@ -167,12 +157,10 @@ def overlap_and_add(signal, frame_step):
     output_size = frame_step * (frames - 1) + frame_length
     output_subframes = output_size // subframe_length
     subframe_signal = signal.view(*outer_dimensions, -1, subframe_length)
-    frame = torch.arange(0, output_subframes).unfold(0, subframes_per_frame,
-        subframe_step)
+    frame = torch.arange(0, output_subframes).unfold(0, subframes_per_frame, subframe_step)
     frame = signal.new_tensor(frame).long()
     frame = frame.contiguous().view(-1)
-    result = signal.new_zeros(*outer_dimensions, output_subframes,
-        subframe_length)
+    result = signal.new_zeros(*outer_dimensions, output_subframes, subframe_length)
     result.index_add_(-2, frame, subframe_signal)
     result = result.view(*outer_dimensions, -1)
     return result
@@ -202,8 +190,7 @@ class Decoder(nn.Module):
 
 class TemporalConvNet(nn.Module):
 
-    def __init__(self, N, B, H, P, X, R, C, norm_type='gLN', causal=False,
-        mask_nonlinear='relu'):
+    def __init__(self, N, B, H, P, X, R, C, norm_type='gLN', causal=False, mask_nonlinear='relu'):
         """
         Args:
             N: Number of filters in autoencoder
@@ -227,15 +214,12 @@ class TemporalConvNet(nn.Module):
             blocks = []
             for x in range(X):
                 dilation = 2 ** x
-                padding = (P - 1) * dilation if causal else (P - 1
-                    ) * dilation // 2
-                blocks += [TemporalBlock(B, H, P, stride=1, padding=padding,
-                    dilation=dilation, norm_type=norm_type, causal=causal)]
+                padding = (P - 1) * dilation if causal else (P - 1) * dilation // 2
+                blocks += [TemporalBlock(B, H, P, stride=1, padding=padding, dilation=dilation, norm_type=norm_type, causal=causal)]
             repeats += [nn.Sequential(*blocks)]
         temporal_conv_net = nn.Sequential(*repeats)
         mask_conv1x1 = nn.Conv1d(B, C * N, 1, bias=False)
-        self.network = nn.Sequential(layer_norm, bottleneck_conv1x1,
-            temporal_conv_net, mask_conv1x1)
+        self.network = nn.Sequential(layer_norm, bottleneck_conv1x1, temporal_conv_net, mask_conv1x1)
 
     def forward(self, mixture_w):
         """
@@ -271,14 +255,12 @@ def chose_norm(norm_type, channel_size):
 
 class TemporalBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, norm_type='gLN', causal=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, norm_type='gLN', causal=False):
         super(TemporalBlock, self).__init__()
         conv1x1 = nn.Conv1d(in_channels, out_channels, 1, bias=False)
         prelu = nn.PReLU()
         norm = chose_norm(norm_type, out_channels)
-        dsconv = DepthwiseSeparableConv(out_channels, in_channels,
-            kernel_size, stride, padding, dilation, norm_type, causal)
+        dsconv = DepthwiseSeparableConv(out_channels, in_channels, kernel_size, stride, padding, dilation, norm_type, causal)
         self.net = nn.Sequential(conv1x1, prelu, norm, dsconv)
 
     def forward(self, x):
@@ -295,23 +277,18 @@ class TemporalBlock(nn.Module):
 
 class DepthwiseSeparableConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, norm_type='gLN', causal=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, norm_type='gLN', causal=False):
         super(DepthwiseSeparableConv, self).__init__()
-        depthwise_conv = nn.Conv1d(in_channels, in_channels, kernel_size,
-            stride=stride, padding=padding, dilation=dilation, groups=
-            in_channels, bias=False)
+        depthwise_conv = nn.Conv1d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=False)
         if causal:
             chomp = Chomp1d(padding)
         prelu = nn.PReLU()
         norm = chose_norm(norm_type, in_channels)
         pointwise_conv = nn.Conv1d(in_channels, out_channels, 1, bias=False)
         if causal:
-            self.net = nn.Sequential(depthwise_conv, chomp, prelu, norm,
-                pointwise_conv)
+            self.net = nn.Sequential(depthwise_conv, chomp, prelu, norm, pointwise_conv)
         else:
-            self.net = nn.Sequential(depthwise_conv, prelu, norm,
-                pointwise_conv)
+            self.net = nn.Sequential(depthwise_conv, prelu, norm, pointwise_conv)
 
     def forward(self, x):
         """
@@ -391,8 +368,7 @@ class GlobalLayerNorm(nn.Module):
             gLN_y: [M, N, K]
         """
         mean = y.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)
-        var = torch.pow(y - mean, 2).mean(dim=1, keepdim=True).mean(dim=2,
-            keepdim=True)
+        var = torch.pow(y - mean, 2).mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)
         gLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta
         return gLN_y
 
@@ -401,31 +377,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ChannelwiseLayerNorm,
+     lambda: ([], {'channel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Chomp1d,
+     lambda: ([], {'chomp_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Decoder,
+     lambda: ([], {'N': 4, 'L': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DepthwiseSeparableConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {'L': 4, 'N': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (GlobalLayerNorm,
+     lambda: ([], {'channel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TemporalConvNet,
+     lambda: ([], {'N': 4, 'B': 4, 'H': 4, 'P': 4, 'X': 4, 'R': 4, 'C': 4}),
+     lambda: ([torch.rand([4, 4, 2])], {}),
+     False),
+]
+
 class Test_kaituoxu_Conv_TasNet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ChannelwiseLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Chomp1d(*[], **{'chomp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Decoder(*[], **{'N': 4, 'L': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DepthwiseSeparableConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Encoder(*[], **{'L': 4, 'N': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(GlobalLayerNorm(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(TemporalConvNet(*[], **{'N': 4, 'B': 4, 'H': 4, 'P': 4, 'X': 4, 'R': 4, 'C': 4}), [torch.rand([4, 4, 2])], {})
+        self._check(*TESTCASES[6])
 

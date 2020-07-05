@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,17 +89,14 @@ def fixed_padding(inputs, kernel_size, rate):
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=
-        1, bias=False):
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, bias=False):
         super(SeparableConv2d, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0,
-            dilation, groups=inplanes, bias=bias)
+        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0, dilation, groups=inplanes, bias=bias)
         self.bn = nn.BatchNorm2d(inplanes)
         self.pointwise = nn.Conv2d(inplanes, planes, 1, 1, 0, 1, 1, bias=bias)
 
     def forward(self, x):
-        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1
-            .dilation[0])
+        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1.dilation[0])
         x = self.conv1(x)
         x = self.bn(x)
         x = self.pointwise(x)
@@ -107,12 +105,10 @@ class SeparableConv2d(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, inplanes, planes, reps, stride=1, dilation=1,
-        start_with_relu=True, grow_first=True, is_last=False):
+    def __init__(self, inplanes, planes, reps, stride=1, dilation=1, start_with_relu=True, grow_first=True, is_last=False):
         super(Block, self).__init__()
         if planes != inplanes or stride != 1:
-            self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=
-                False)
+            self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=False)
             self.skipbn = nn.BatchNorm2d(planes)
         else:
             self.skip = None
@@ -178,53 +174,30 @@ class ModifiedAlignedXception(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64)
         self.block1 = Block(64, 128, reps=2, stride=2, start_with_relu=False)
-        self.block2 = Block(128, 256, reps=2, stride=2, start_with_relu=
-            False, grow_first=True)
-        self.block3 = Block(256, 728, reps=2, stride=entry_block3_stride,
-            start_with_relu=True, grow_first=True, is_last=True)
-        self.block4 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block5 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block6 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block7 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block8 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block9 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block10 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block11 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block12 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block13 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block14 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block15 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block16 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block17 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block18 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block19 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block20 = Block(728, 1024, reps=2, stride=1, dilation=
-            exit_block_dilations[0], start_with_relu=True, grow_first=False,
-            is_last=True)
-        self.conv3 = SeparableConv2d(1024, 1536, 3, stride=1, dilation=
-            exit_block_dilations[1])
+        self.block2 = Block(128, 256, reps=2, stride=2, start_with_relu=False, grow_first=True)
+        self.block3 = Block(256, 728, reps=2, stride=entry_block3_stride, start_with_relu=True, grow_first=True, is_last=True)
+        self.block4 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block5 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block6 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block7 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block8 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block9 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block10 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block11 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block12 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block13 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block14 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block15 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block16 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block17 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block18 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block19 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block20 = Block(728, 1024, reps=2, stride=1, dilation=exit_block_dilations[0], start_with_relu=True, grow_first=False, is_last=True)
+        self.conv3 = SeparableConv2d(1024, 1536, 3, stride=1, dilation=exit_block_dilations[1])
         self.bn3 = nn.BatchNorm2d(1536)
-        self.conv4 = SeparableConv2d(1536, 1536, 3, stride=1, dilation=
-            exit_block_dilations[1])
+        self.conv4 = SeparableConv2d(1536, 1536, 3, stride=1, dilation=exit_block_dilations[1])
         self.bn4 = nn.BatchNorm2d(1536)
-        self.conv5 = SeparableConv2d(1536, 2048, 3, stride=1, dilation=
-            exit_block_dilations[1])
+        self.conv5 = SeparableConv2d(1536, 2048, 3, stride=1, dilation=exit_block_dilations[1])
         self.bn5 = nn.BatchNorm2d(2048)
         if pretrained:
             self._load_pretrained_model()
@@ -271,9 +244,7 @@ class ModifiedAlignedXception(nn.Module):
         return x, low_level_feat
 
     def _load_pretrained_model(self):
-        pretrain_dict = model_zoo.load_url(
-            'http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth'
-            )
+        pretrain_dict = model_zoo.load_url('http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth')
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
@@ -309,9 +280,7 @@ class _ASPPModule(nn.Module):
 
     def __init__(self, inplanes, planes, kernel_size, padding, dilation):
         super(_ASPPModule, self).__init__()
-        self.atrous_conv = nn.Conv2d(inplanes, planes, kernel_size=
-            kernel_size, stride=1, padding=padding, dilation=dilation, bias
-            =False)
+        self.atrous_conv = nn.Conv2d(inplanes, planes, kernel_size=kernel_size, stride=1, padding=padding, dilation=dilation, bias=False)
         self.bn = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU()
 
@@ -332,17 +301,11 @@ class ASPP(nn.Module):
             dilations = [1, 12, 24, 36]
         else:
             raise NotImplementedError
-        self.aspp1 = _ASPPModule(inplanes, 256, 1, padding=0, dilation=
-            dilations[0])
-        self.aspp2 = _ASPPModule(inplanes, 256, 3, padding=dilations[1],
-            dilation=dilations[1])
-        self.aspp3 = _ASPPModule(inplanes, 256, 3, padding=dilations[2],
-            dilation=dilations[2])
-        self.aspp4 = _ASPPModule(inplanes, 256, 3, padding=dilations[3],
-            dilation=dilations[3])
-        self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Conv2d(inplanes, 256, 1, stride=1, bias=False), nn.
-            BatchNorm2d(256), nn.ReLU())
+        self.aspp1 = _ASPPModule(inplanes, 256, 1, padding=0, dilation=dilations[0])
+        self.aspp2 = _ASPPModule(inplanes, 256, 3, padding=dilations[1], dilation=dilations[1])
+        self.aspp3 = _ASPPModule(inplanes, 256, 3, padding=dilations[2], dilation=dilations[2])
+        self.aspp4 = _ASPPModule(inplanes, 256, 3, padding=dilations[3], dilation=dilations[3])
+        self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(inplanes, 256, 1, stride=1, bias=False), nn.BatchNorm2d(256), nn.ReLU())
         self.conv1 = nn.Conv2d(1280, 256, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(256)
         self.relu = nn.ReLU()
@@ -354,8 +317,7 @@ class ASPP(nn.Module):
         x3 = self.aspp3(x)
         x4 = self.aspp4(x)
         x5 = self.global_avg_pool(x)
-        x5 = F.interpolate(x5, size=x4.size()[2:], mode='bilinear',
-            align_corners=True)
+        x5 = F.interpolate(x5, size=x4.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x1, x2, x3, x4, x5), dim=1)
         x = self.conv1(x)
         x = self.bn1(x)
@@ -370,11 +332,7 @@ class Decoder(nn.Module):
         self.conv1 = nn.Conv2d(low_level_inplanes, 48, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(48)
         self.relu = nn.ReLU()
-        layers = [nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1,
-            bias=False), nn.BatchNorm2d(256), nn.ReLU(), nn.Dropout(0.5),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=
-            False), nn.BatchNorm2d(256), nn.ReLU(), nn.Dropout(0.1), nn.
-            Conv2d(256, 1, kernel_size=1, stride=1)]
+        layers = [nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(), nn.Dropout(0.5), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(), nn.Dropout(0.1), nn.Conv2d(256, 1, kernel_size=1, stride=1)]
         if not return_with_logits:
             layers.append(nn.Sigmoid())
         self.last_conv = nn.Sequential(*layers)
@@ -383,8 +341,7 @@ class Decoder(nn.Module):
         low_level_feat = self.conv1(low_level_feat)
         low_level_feat = self.bn1(low_level_feat)
         low_level_feat = self.relu(low_level_feat)
-        x = F.interpolate(x, size=low_level_feat.size()[2:], mode=
-            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=low_level_feat.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x, low_level_feat), dim=1)
         x = self.last_conv(x)
         return x
@@ -402,24 +359,19 @@ class DeepLab(nn.Module):
         x, low_level_feat = self.backbone(input)
         x = self.aspp(x)
         x = self.decoder(x, low_level_feat)
-        x = F.interpolate(x, size=input.size()[2:], mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
         return x
 
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
-        padding=0, dilation=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, bias=False):
         super(SeparableConv2d, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size,
-            stride, padding, dilation, groups=in_channels, bias=bias)
-        self.pointwise = nn.Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1,
-            bias=bias)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation, groups=in_channels, bias=bias)
+        self.pointwise = nn.Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias)
 
     def forward(self, x):
-        x = fixed_padding(x, self.conv1.kernel_size[0], rate=self.conv1.
-            dilation[0])
+        x = fixed_padding(x, self.conv1.kernel_size[0], rate=self.conv1.dilation[0])
         x = self.conv1(x)
         x = self.pointwise(x)
         return x
@@ -429,10 +381,8 @@ class GreenBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super(GreenBlock, self).__init__()
-        self.dconv = nn.Sequential(SeparableConv2d(in_channel), nn.
-            BatchNorm2d(in_channel), nn.ReLU())
-        self.conv = nn.Sequential(nn.Conv2d(in_channel, out_channel,
-            kernel_size=1), nn.BatchNorm2d(out_channel), nn.ReLU())
+        self.dconv = nn.Sequential(SeparableConv2d(in_channel), nn.BatchNorm2d(in_channel), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=1), nn.BatchNorm2d(out_channel), nn.ReLU())
 
     def forward(self, input):
         x = self.dconv(input)
@@ -451,11 +401,9 @@ class YellowBlock(nn.Module):
 
 class OrangeBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=0, dilation=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, dilation=1, bias=False):
         super(OrangeBlock, self).__init__()
-        self.conv = nn.Sequential(SeparableConv2d(in_channels, out_channels,
-            kernel_size), nn.ReLU())
+        self.conv = nn.Sequential(SeparableConv2d(in_channels, out_channels, kernel_size), nn.ReLU())
 
     def forward(self, input):
         return self.conv(input)
@@ -467,20 +415,11 @@ class MobileMattingFCN(nn.Module):
         super(MobileMattingFCN, self).__init__()
 
         def conv_bn(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=
-                False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
         def conv_dw(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=
-                inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True
-                ), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d
-                (oup), nn.ReLU(inplace=True))
-        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1),
-            conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2),
-            conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1
-            ), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512,
-            1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 
-            1024, 1), conv_dw(1024, 1024, 1))
+            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1), conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2), conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 1024, 1), conv_dw(1024, 1024, 1))
         self.upsample0 = YellowBlock()
         self.o0 = OrangeBlock(1024 + 512, 64)
         self.upsample1 = YellowBlock()
@@ -531,13 +470,11 @@ class HairMattingLoss(nn.modules.loss._Loss):
         device = 'cuda' if torch.is_available() else 'cpu'
         loss2 = None
         if self.ratio_of_gradient > 0:
-            sobel_kernel_x = torch.Tensor([[1.0, 0.0, -1.0], [2.0, 0.0, -
-                2.0], [1.0, 0.0, -1.0]])
+            sobel_kernel_x = torch.Tensor([[1.0, 0.0, -1.0], [2.0, 0.0, -2.0], [1.0, 0.0, -1.0]])
             sobel_kernel_x = sobel_kernel_x.view((1, 1, 3, 3))
             I_x = F.conv2d(image, sobel_kernel_x)
             G_x = F.conv2d(pred, sobel_kernel_x)
-            sobel_kernel_y = torch.Tensor([[1.0, 2.0, 1.0], [0.0, 0.0, 0.0],
-                [-1.0, -2.0, -1.0]])
+            sobel_kernel_y = torch.Tensor([[1.0, 2.0, 1.0], [0.0, 0.0, 0.0], [-1.0, -2.0, -1.0]])
             sobel_kernel_y = sobel_kernel_y.view((1, 1, 3, 3))
             I_y = F.conv2d(image, sobel_kernel_y)
             G_y = F.conv2d(pred, sobel_kernel_y)
@@ -546,8 +483,7 @@ class HairMattingLoss(nn.modules.loss._Loss):
             rang_grad = range_grad if rang_grad > 0 else 0
             loss2 = torch.sum(torch.mul(G, rang_grad)) / torch.sum(G) + 1e-06
         if self.add_gradient:
-            loss = (1 - self.ratio_of_gradient) * self.bce_loss(pred, true
-                ) + loss2 * self.ratio_of_gradient
+            loss = (1 - self.ratio_of_gradient) * self.bce_loss(pred, true) + loss2 * self.ratio_of_gradient
         else:
             loss = self.bce_loss(pred, true)
         return loss
@@ -591,8 +527,7 @@ class PyramidPoolingModule(nn.Module):
         out_channels = in_channels // pyramid_levels
         pooling_layers = nn.ModuleList()
         for size in sizes:
-            layers = [nn.AdaptiveAvgPool2d(size), nn.Conv2d(in_channels,
-                out_channels, kernel_size=1)]
+            layers = [nn.AdaptiveAvgPool2d(size), nn.Conv2d(in_channels, out_channels, kernel_size=1)]
             pyramid_layer = nn.Sequential(*layers)
             pooling_layers.append(pyramid_layer)
         self.pooling_layers = pooling_layers
@@ -612,9 +547,7 @@ class UpsampleLayer(nn.Module):
     def __init__(self, in_channels, out_channels, upsample_size=None):
         super().__init__()
         self.upsample_size = upsample_size
-        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(
-            out_channels), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
 
     def forward(self, x):
         size = 2 * x.size(2), 2 * x.size(3)
@@ -624,8 +557,7 @@ class UpsampleLayer(nn.Module):
 
 class PSPNet(nn.Module):
 
-    def __init__(self, num_class=1, sizes=(1, 2, 3, 6), base_network=
-        'resnet101'):
+    def __init__(self, num_class=1, sizes=(1, 2, 3, 6), base_network='resnet101'):
         super(PSPNet, self).__init__()
         base_network = base_network.lower()
         if base_network == 'resnet101':
@@ -674,42 +606,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {'return_with_logits': 4}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (MobileMattingFCN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (OrangeBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PSPNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (PyramidPoolingModule,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNet101Extractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SqueezeNetExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (UpsampleLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (YellowBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_ASPPModule,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_YBIGTA_pytorch_hair_segmentation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Decoder(*[], **{'return_with_logits': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MobileMattingFCN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(OrangeBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PSPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PyramidPoolingModule(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResNet101Extractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(SqueezeNetExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(UpsampleLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(YellowBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(_ASPPModule(*[], **{'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

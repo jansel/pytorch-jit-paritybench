@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -101,9 +102,7 @@ class PSAMask(nn.Module):
 
 class PSA(nn.Module):
 
-    def __init__(self, in_channels=2048, mid_channels=512, psa_type=2,
-        compact=False, shrink_factor=2, mask_h=59, mask_w=59,
-        normalization_factor=1.0, psa_softmax=True):
+    def __init__(self, in_channels=2048, mid_channels=512, psa_type=2, compact=False, shrink_factor=2, mask_h=59, mask_w=59, normalization_factor=1.0, psa_softmax=True):
         super(PSA, self).__init__()
         assert psa_type in [0, 1, 2]
         self.psa_type = psa_type
@@ -115,24 +114,12 @@ class PSA(nn.Module):
         if normalization_factor is None:
             normalization_factor = mask_h * mask_w
         self.normalization_factor = normalization_factor
-        self.reduce = nn.Sequential(nn.Conv2d(in_channels, mid_channels,
-            kernel_size=1, bias=False), nn.BatchNorm2d(mid_channels), nn.
-            ReLU(inplace=True))
-        self.attention = nn.Sequential(nn.Conv2d(mid_channels, mid_channels,
-            kernel_size=1, bias=False), nn.BatchNorm2d(mid_channels), nn.
-            ReLU(inplace=True), nn.Conv2d(mid_channels, mask_h * mask_w,
-            kernel_size=1, bias=False))
+        self.reduce = nn.Sequential(nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True))
+        self.attention = nn.Sequential(nn.Conv2d(mid_channels, mid_channels, kernel_size=1, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True), nn.Conv2d(mid_channels, mask_h * mask_w, kernel_size=1, bias=False))
         if psa_type == 2:
-            self.reduce_p = nn.Sequential(nn.Conv2d(in_channels,
-                mid_channels, kernel_size=1, bias=False), nn.BatchNorm2d(
-                mid_channels), nn.ReLU(inplace=True))
-            self.attention_p = nn.Sequential(nn.Conv2d(mid_channels,
-                mid_channels, kernel_size=1, bias=False), nn.BatchNorm2d(
-                mid_channels), nn.ReLU(inplace=True), nn.Conv2d(
-                mid_channels, mask_h * mask_w, kernel_size=1, bias=False))
-        self.proj = nn.Sequential(nn.Conv2d(mid_channels * (2 if psa_type ==
-            2 else 1), in_channels, kernel_size=1, bias=False), nn.
-            BatchNorm2d(in_channels), nn.ReLU(inplace=True))
+            self.reduce_p = nn.Sequential(nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True))
+            self.attention_p = nn.Sequential(nn.Conv2d(mid_channels, mid_channels, kernel_size=1, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True), nn.Conv2d(mid_channels, mask_h * mask_w, kernel_size=1, bias=False))
+        self.proj = nn.Sequential(nn.Conv2d(mid_channels * (2 if psa_type == 2 else 1), in_channels, kernel_size=1, bias=False), nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True))
 
     def forward(self, x):
         out = x
@@ -142,19 +129,16 @@ class PSA(nn.Module):
             if self.shrink_factor != 1:
                 h = (h - 1) // self.shrink_factor + 1
                 w = (w - 1) // self.shrink_factor + 1
-                x = F.interpolate(x, size=(h, w), mode='bilinear',
-                    align_corners=True)
+                x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
             y = self.attention(x)
             if self.compact:
                 if self.psa_type == 1:
-                    y = y.view(n, h * w, h * w).transpose(1, 2).view(n, h *
-                        w, h, w)
+                    y = y.view(n, h * w, h * w).transpose(1, 2).view(n, h * w, h, w)
             else:
                 y = PF.psa_mask(y, self.psa_type, self.mask_h, self.mask_w)
             if self.psa_softmax:
                 y = F.softmax(y, dim=1)
-            x = torch.bmm(x.view(n, c, h * w), y.view(n, h * w, h * w)).view(n,
-                c, h, w) * (1.0 / self.normalization_factor)
+            x = torch.bmm(x.view(n, c, h * w), y.view(n, h * w, h * w)).view(n, c, h, w) * (1.0 / self.normalization_factor)
         elif self.psa_type == 2:
             x_col = self.reduce(x)
             x_dis = self.reduce_p(x)
@@ -162,41 +146,32 @@ class PSA(nn.Module):
             if self.shrink_factor != 1:
                 h = (h - 1) // self.shrink_factor + 1
                 w = (w - 1) // self.shrink_factor + 1
-                x_col = F.interpolate(x_col, size=(h, w), mode='bilinear',
-                    align_corners=True)
-                x_dis = F.interpolate(x_dis, size=(h, w), mode='bilinear',
-                    align_corners=True)
+                x_col = F.interpolate(x_col, size=(h, w), mode='bilinear', align_corners=True)
+                x_dis = F.interpolate(x_dis, size=(h, w), mode='bilinear', align_corners=True)
             y_col = self.attention(x_col)
             y_dis = self.attention_p(x_dis)
             if self.compact:
-                y_dis = y_dis.view(n, h * w, h * w).transpose(1, 2).view(n,
-                    h * w, h, w)
+                y_dis = y_dis.view(n, h * w, h * w).transpose(1, 2).view(n, h * w, h, w)
             else:
                 y_col = PF.psa_mask(y_col, 0, self.mask_h, self.mask_w)
                 y_dis = PF.psa_mask(y_dis, 1, self.mask_h, self.mask_w)
             if self.psa_softmax:
                 y_col = F.softmax(y_col, dim=1)
                 y_dis = F.softmax(y_dis, dim=1)
-            x_col = torch.bmm(x_col.view(n, c, h * w), y_col.view(n, h * w,
-                h * w)).view(n, c, h, w) * (1.0 / self.normalization_factor)
-            x_dis = torch.bmm(x_dis.view(n, c, h * w), y_dis.view(n, h * w,
-                h * w)).view(n, c, h, w) * (1.0 / self.normalization_factor)
+            x_col = torch.bmm(x_col.view(n, c, h * w), y_col.view(n, h * w, h * w)).view(n, c, h, w) * (1.0 / self.normalization_factor)
+            x_dis = torch.bmm(x_dis.view(n, c, h * w), y_dis.view(n, h * w, h * w)).view(n, c, h, w) * (1.0 / self.normalization_factor)
             x = torch.cat([x_col, x_dis], 1)
         x = self.proj(x)
         if self.shrink_factor != 1:
             h = (h - 1) * self.shrink_factor + 1
             w = (w - 1) * self.shrink_factor + 1
-            x = F.interpolate(x, size=(h, w), mode='bilinear',
-                align_corners=True)
+            x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
         return torch.cat((out, x), 1)
 
 
 class PSANet(nn.Module):
 
-    def __init__(self, layers=50, dropout=0.1, classes=2, zoom_factor=8,
-        use_psa=True, psa_type=2, compact=False, shrink_factor=2, mask_h=59,
-        mask_w=59, normalization_factor=1.0, psa_softmax=True, criterion=nn
-        .CrossEntropyLoss(ignore_index=255), pretrained=True):
+    def __init__(self, layers=50, dropout=0.1, classes=2, zoom_factor=8, use_psa=True, psa_type=2, compact=False, shrink_factor=2, mask_h=59, mask_w=59, normalization_factor=1.0, psa_softmax=True, criterion=nn.CrossEntropyLoss(ignore_index=255), pretrained=True):
         super(PSANet, self).__init__()
         assert layers in [50, 101, 152]
         assert classes > 1
@@ -211,11 +186,8 @@ class PSANet(nn.Module):
             resnet = models.resnet101(pretrained=pretrained)
         else:
             resnet = models.resnet152(pretrained=pretrained)
-        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.conv2, resnet.bn2, resnet.relu, resnet.conv3, resnet.bn3,
-            resnet.relu, resnet.maxpool)
-        self.layer1, self.layer2, self.layer3, self.layer4 = (resnet.layer1,
-            resnet.layer2, resnet.layer3, resnet.layer4)
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.conv2, resnet.bn2, resnet.relu, resnet.conv3, resnet.bn3, resnet.relu, resnet.maxpool)
+        self.layer1, self.layer2, self.layer3, self.layer4 = resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4
         for n, m in self.layer3.named_modules():
             if 'conv2' in n:
                 m.dilation, m.padding, m.stride = (2, 2), (2, 2), (1, 1)
@@ -228,18 +200,11 @@ class PSANet(nn.Module):
                 m.stride = 1, 1
         fea_dim = 2048
         if use_psa:
-            self.psa = PSA(fea_dim, 512, psa_type, compact, shrink_factor,
-                mask_h, mask_w, normalization_factor, psa_softmax)
+            self.psa = PSA(fea_dim, 512, psa_type, compact, shrink_factor, mask_h, mask_w, normalization_factor, psa_softmax)
             fea_dim *= 2
-        self.cls = nn.Sequential(nn.Conv2d(fea_dim, 512, kernel_size=3,
-            padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=
-            True), nn.Dropout2d(p=dropout), nn.Conv2d(512, classes,
-            kernel_size=1))
+        self.cls = nn.Sequential(nn.Conv2d(fea_dim, 512, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(p=dropout), nn.Conv2d(512, classes, kernel_size=1))
         if self.training:
-            self.aux = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=3,
-                padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(
-                inplace=True), nn.Dropout2d(p=dropout), nn.Conv2d(256,
-                classes, kernel_size=1))
+            self.aux = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Dropout2d(p=dropout), nn.Conv2d(256, classes, kernel_size=1))
 
     def forward(self, x, y=None):
         x_size = x.size()
@@ -255,13 +220,11 @@ class PSANet(nn.Module):
             x = self.psa(x)
         x = self.cls(x)
         if self.zoom_factor != 1:
-            x = F.interpolate(x, size=(h, w), mode='bilinear',
-                align_corners=True)
+            x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
         if self.training:
             aux = self.aux(x_tmp)
             if self.zoom_factor != 1:
-                aux = F.interpolate(aux, size=(h, w), mode='bilinear',
-                    align_corners=True)
+                aux = F.interpolate(aux, size=(h, w), mode='bilinear', align_corners=True)
             main_loss = self.criterion(x, y)
             aux_loss = self.criterion(aux, y)
             return x.max(1)[1], main_loss, aux_loss
@@ -275,25 +238,20 @@ class PPM(nn.Module):
         super(PPM, self).__init__()
         self.features = []
         for bin in bins:
-            self.features.append(nn.Sequential(nn.AdaptiveAvgPool2d(bin),
-                nn.Conv2d(in_dim, reduction_dim, kernel_size=1, bias=False),
-                nn.BatchNorm2d(reduction_dim), nn.ReLU(inplace=True)))
+            self.features.append(nn.Sequential(nn.AdaptiveAvgPool2d(bin), nn.Conv2d(in_dim, reduction_dim, kernel_size=1, bias=False), nn.BatchNorm2d(reduction_dim), nn.ReLU(inplace=True)))
         self.features = nn.ModuleList(self.features)
 
     def forward(self, x):
         x_size = x.size()
         out = [x]
         for f in self.features:
-            out.append(F.interpolate(f(x), x_size[2:], mode='bilinear',
-                align_corners=True))
+            out.append(F.interpolate(f(x), x_size[2:], mode='bilinear', align_corners=True))
         return torch.cat(out, 1)
 
 
 class PSPNet(nn.Module):
 
-    def __init__(self, layers=50, bins=(1, 2, 3, 6), dropout=0.1, classes=2,
-        zoom_factor=8, use_ppm=True, criterion=nn.CrossEntropyLoss(
-        ignore_index=255), pretrained=True):
+    def __init__(self, layers=50, bins=(1, 2, 3, 6), dropout=0.1, classes=2, zoom_factor=8, use_ppm=True, criterion=nn.CrossEntropyLoss(ignore_index=255), pretrained=True):
         super(PSPNet, self).__init__()
         assert layers in [50, 101, 152]
         assert 2048 % len(bins) == 0
@@ -308,11 +266,8 @@ class PSPNet(nn.Module):
             resnet = models.resnet101(pretrained=pretrained)
         else:
             resnet = models.resnet152(pretrained=pretrained)
-        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.conv2, resnet.bn2, resnet.relu, resnet.conv3, resnet.bn3,
-            resnet.relu, resnet.maxpool)
-        self.layer1, self.layer2, self.layer3, self.layer4 = (resnet.layer1,
-            resnet.layer2, resnet.layer3, resnet.layer4)
+        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.conv2, resnet.bn2, resnet.relu, resnet.conv3, resnet.bn3, resnet.relu, resnet.maxpool)
+        self.layer1, self.layer2, self.layer3, self.layer4 = resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4
         for n, m in self.layer3.named_modules():
             if 'conv2' in n:
                 m.dilation, m.padding, m.stride = (2, 2), (2, 2), (1, 1)
@@ -327,15 +282,9 @@ class PSPNet(nn.Module):
         if use_ppm:
             self.ppm = PPM(fea_dim, int(fea_dim / len(bins)), bins)
             fea_dim *= 2
-        self.cls = nn.Sequential(nn.Conv2d(fea_dim, 512, kernel_size=3,
-            padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=
-            True), nn.Dropout2d(p=dropout), nn.Conv2d(512, classes,
-            kernel_size=1))
+        self.cls = nn.Sequential(nn.Conv2d(fea_dim, 512, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(p=dropout), nn.Conv2d(512, classes, kernel_size=1))
         if self.training:
-            self.aux = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=3,
-                padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(
-                inplace=True), nn.Dropout2d(p=dropout), nn.Conv2d(256,
-                classes, kernel_size=1))
+            self.aux = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Dropout2d(p=dropout), nn.Conv2d(256, classes, kernel_size=1))
 
     def forward(self, x, y=None):
         x_size = x.size()
@@ -351,13 +300,11 @@ class PSPNet(nn.Module):
             x = self.ppm(x)
         x = self.cls(x)
         if self.zoom_factor != 1:
-            x = F.interpolate(x, size=(h, w), mode='bilinear',
-                align_corners=True)
+            x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=True)
         if self.training:
             aux = self.aux(x_tmp)
             if self.zoom_factor != 1:
-                aux = F.interpolate(aux, size=(h, w), mode='bilinear',
-                    align_corners=True)
+                aux = F.interpolate(aux, size=(h, w), mode='bilinear', align_corners=True)
             main_loss = self.criterion(x, y)
             aux_loss = self.criterion(aux, y)
             return x.max(1)[1], main_loss, aux_loss
@@ -367,8 +314,7 @@ class PSPNet(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -405,11 +351,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -439,8 +383,7 @@ class ResNet(nn.Module):
         self.deep_base = deep_base
         if not self.deep_base:
             self.inplanes = 64
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
         else:
             self.inplanes = 128
@@ -460,8 +403,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -469,9 +411,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -499,11 +439,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PPM,
+     lambda: ([], {'in_dim': 4, 'reduction_dim': 4, 'bins': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_hszhao_semseg(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(PPM(*[], **{'in_dim': 4, 'reduction_dim': 4, 'bins': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

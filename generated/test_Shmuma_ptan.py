@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -134,12 +135,7 @@ class ConvNet(nn.Module):
 
     def __init__(self, input_shape, output_size):
         super(ConvNet, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =5, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2), nn.
-            Conv2d(32, 32, kernel_size=5, padding=1), nn.ReLU(), nn.
-            MaxPool2d(kernel_size=2), nn.Conv2d(32, 64, kernel_size=4,
-            padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2), nn.Conv2d(
-            64, 64, kernel_size=3, padding=1), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=5, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2), nn.Conv2d(32, 32, kernel_size=5, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2), nn.Conv2d(32, 64, kernel_size=4, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2), nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.ReLU())
         self.fc = nn.Sequential(nn.Linear(64 * 6 * 6, output_size), nn.ReLU())
 
     def forward(self, x):
@@ -203,13 +199,9 @@ class DQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(DQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(),
-            nn.Linear(512, n_actions))
+        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
 
     def _get_conv_out(self, shape):
         o = self.conv(Variable(torch.zeros(1, *shape)))
@@ -302,13 +294,10 @@ class NoisyLinear(nn.Linear):
 
     def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
         super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features).fill_(sigma_init))
-        self.register_buffer('epsilon_weight', torch.zeros(out_features,
-            in_features))
+        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
+        self.register_buffer('epsilon_weight', torch.zeros(out_features, in_features))
         if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_
-                (sigma_init))
+            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
             self.register_buffer('epsilon_bias', torch.zeros(out_features))
         self.reset_parameters()
 
@@ -323,8 +312,7 @@ class NoisyLinear(nn.Linear):
         if bias is not None:
             torch.randn(self.epsilon_bias.size(), out=self.epsilon_bias)
             bias = bias + self.sigma_bias * Variable(self.epsilon_bias)
-        return F.linear(input, self.weight + self.sigma_weight * Variable(
-            self.epsilon_weight), bias)
+        return F.linear(input, self.weight + self.sigma_weight * Variable(self.epsilon_weight), bias)
 
 
 class NoisyFactorizedLinear(nn.Linear):
@@ -335,16 +323,13 @@ class NoisyFactorizedLinear(nn.Linear):
     """
 
     def __init__(self, in_features, out_features, sigma_zero=0.4, bias=True):
-        super(NoisyFactorizedLinear, self).__init__(in_features,
-            out_features, bias=bias)
+        super(NoisyFactorizedLinear, self).__init__(in_features, out_features, bias=bias)
         sigma_init = sigma_zero / math.sqrt(in_features)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features).fill_(sigma_init))
+        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
         self.register_buffer('epsilon_input', torch.zeros(1, in_features))
         self.register_buffer('epsilon_output', torch.zeros(out_features, 1))
         if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_
-                (sigma_init))
+            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
 
     def forward(self, input):
         torch.randn(self.epsilon_input.size(), out=self.epsilon_input)
@@ -363,13 +348,9 @@ class DQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(DQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(),
-            nn.Linear(512, n_actions))
+        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
 
     def _get_conv_out(self, shape):
         o = self.conv(Variable(torch.zeros(1, *shape)))
@@ -388,13 +369,9 @@ class QRDQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(QRDQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(),
-            nn.Linear(512, n_actions * QUANT_N))
+        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions * QUANT_N))
 
     def _get_conv_out(self, shape):
         o = self.conv(Variable(torch.zeros(1, *shape)))
@@ -418,15 +395,10 @@ class NoisyDQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(NoisyDQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.noisy_layers = [dqn_model.NoisyLinear(conv_out_size, 512),
-            dqn_model.NoisyLinear(512, n_actions)]
-        self.fc = nn.Sequential(self.noisy_layers[0], nn.ReLU(), self.
-            noisy_layers[1])
+        self.noisy_layers = [dqn_model.NoisyLinear(conv_out_size, 512), dqn_model.NoisyLinear(512, n_actions)]
+        self.fc = nn.Sequential(self.noisy_layers[0], nn.ReLU(), self.noisy_layers[1])
 
     def _get_conv_out(self, shape):
         o = self.conv(Variable(torch.zeros(1, *shape)))
@@ -438,24 +410,17 @@ class NoisyDQN(nn.Module):
         return self.fc(conv_out)
 
     def noisy_layers_sigma_snr(self):
-        return [((layer.weight ** 2).mean().sqrt() / (layer.sigma_weight **
-            2).mean().sqrt()).data.cpu().numpy()[0] for layer in self.
-            noisy_layers]
+        return [((layer.weight ** 2).mean().sqrt() / (layer.sigma_weight ** 2).mean().sqrt()).data.cpu().numpy()[0] for layer in self.noisy_layers]
 
 
 class DuelingDQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(DuelingDQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc_adv = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(
-            ), nn.Linear(512, n_actions))
-        self.fc_val = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(
-            ), nn.Linear(512, 1))
+        self.fc_adv = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
+        self.fc_val = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, 1))
 
     def _get_conv_out(self, shape):
         o = self.conv(Variable(torch.zeros(1, *shape)))
@@ -485,13 +450,9 @@ class DistributionalDQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(DistributionalDQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(),
-            nn.Linear(512, n_actions * N_ATOMS))
+        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions * N_ATOMS))
         self.register_buffer('supports', torch.arange(Vmin, Vmax, DELTA_Z))
         self.softmax = nn.Softmax()
 
@@ -524,15 +485,10 @@ class RainbowDQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(RainbowDQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc_val = nn.Sequential(dqn_model.NoisyLinear(conv_out_size, 
-            512), nn.ReLU(), dqn_model.NoisyLinear(512, N_ATOMS))
-        self.fc_adv = nn.Sequential(dqn_model.NoisyLinear(conv_out_size, 
-            512), nn.ReLU(), dqn_model.NoisyLinear(512, n_actions * N_ATOMS))
+        self.fc_val = nn.Sequential(dqn_model.NoisyLinear(conv_out_size, 512), nn.ReLU(), dqn_model.NoisyLinear(512, N_ATOMS))
+        self.fc_adv = nn.Sequential(dqn_model.NoisyLinear(conv_out_size, 512), nn.ReLU(), dqn_model.NoisyLinear(512, n_actions * N_ATOMS))
         self.register_buffer('supports', torch.arange(Vmin, Vmax, DELTA_Z))
         self.softmax = nn.Softmax()
 
@@ -567,13 +523,10 @@ class NoisyLinear(nn.Linear):
 
     def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
         super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features).fill_(sigma_init))
-        self.register_buffer('epsilon_weight', torch.zeros(out_features,
-            in_features))
+        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
+        self.register_buffer('epsilon_weight', torch.zeros(out_features, in_features))
         if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_
-                (sigma_init))
+            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
             self.register_buffer('epsilon_bias', torch.zeros(out_features))
         self.reset_parameters()
 
@@ -588,8 +541,7 @@ class NoisyLinear(nn.Linear):
         if bias is not None:
             torch.randn(self.epsilon_bias.size(), out=self.epsilon_bias)
             bias = bias + self.sigma_bias * Variable(self.epsilon_bias)
-        return F.linear(input, self.weight + self.sigma_weight * Variable(
-            self.epsilon_weight), bias)
+        return F.linear(input, self.weight + self.sigma_weight * Variable(self.epsilon_weight), bias)
 
 
 class NoisyFactorizedLinear(nn.Linear):
@@ -600,16 +552,13 @@ class NoisyFactorizedLinear(nn.Linear):
     """
 
     def __init__(self, in_features, out_features, sigma_zero=0.4, bias=True):
-        super(NoisyFactorizedLinear, self).__init__(in_features,
-            out_features, bias=bias)
+        super(NoisyFactorizedLinear, self).__init__(in_features, out_features, bias=bias)
         sigma_init = sigma_zero / math.sqrt(in_features)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features).fill_(sigma_init))
+        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
         self.register_buffer('epsilon_input', torch.zeros(1, in_features))
         self.register_buffer('epsilon_output', torch.zeros(out_features, 1))
         if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_
-                (sigma_init))
+            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
 
     def forward(self, input):
         torch.randn(self.epsilon_input.size(), out=self.epsilon_input)
@@ -628,13 +577,9 @@ class DQN(nn.Module):
 
     def __init__(self, input_shape, n_actions):
         super(DQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size
-            =8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4,
-            stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1
-            ), nn.ReLU())
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
         conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(),
-            nn.Linear(512, n_actions))
+        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
 
     def _get_conv_out(self, shape):
         o = self.conv(Variable(torch.zeros(1, *shape)))
@@ -650,29 +595,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvNet,
+     lambda: ([], {'input_shape': [4, 4], 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Model,
+     lambda: ([], {'n_actions': 4, 'input_len': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyFactorizedLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PolicyNet,
+     lambda: ([], {'input_size': 4, 'actions_n': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ValueNet,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WeightedMSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_Shmuma_ptan(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvNet(*[], **{'input_shape': [4, 4], 'output_size': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Model(*[], **{'n_actions': 4, 'input_len': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(NoisyFactorizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PolicyNet(*[], **{'input_size': 4, 'actions_n': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ValueNet(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

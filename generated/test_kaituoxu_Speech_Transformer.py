@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,14 +68,10 @@ class MultiHeadAttention(nn.Module):
         self.w_qs = nn.Linear(d_model, n_head * d_k)
         self.w_ks = nn.Linear(d_model, n_head * d_k)
         self.w_vs = nn.Linear(d_model, n_head * d_v)
-        nn.init.normal_(self.w_qs.weight, mean=0, std=np.sqrt(2.0 / (
-            d_model + d_k)))
-        nn.init.normal_(self.w_ks.weight, mean=0, std=np.sqrt(2.0 / (
-            d_model + d_k)))
-        nn.init.normal_(self.w_vs.weight, mean=0, std=np.sqrt(2.0 / (
-            d_model + d_v)))
-        self.attention = ScaledDotProductAttention(temperature=np.power(d_k,
-            0.5), attn_dropout=dropout)
+        nn.init.normal_(self.w_qs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_ks.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_vs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_v)))
+        self.attention = ScaledDotProductAttention(temperature=np.power(d_k, 0.5), attn_dropout=dropout)
         self.layer_norm = nn.LayerNorm(d_model)
         self.fc = nn.Linear(n_head * d_v, d_model)
         nn.init.xavier_normal_(self.fc.weight)
@@ -159,8 +156,7 @@ def get_attn_pad_mask(padded_input, input_lengths, expand_length):
 def get_subsequent_mask(seq):
     """ For masking out the subsequent info. """
     sz_b, len_s = seq.size()
-    subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=seq.
-        device, dtype=torch.uint8), diagonal=1)
+    subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=seq.device, dtype=torch.uint8), diagonal=1)
     subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
     return subsequent_mask
 
@@ -177,9 +173,7 @@ def pad_list(xs, pad_value):
 class Decoder(nn.Module):
     """ A decoder model with self attention mechanism. """
 
-    def __init__(self, sos_id, eos_id, n_tgt_vocab, d_word_vec, n_layers,
-        n_head, d_k, d_v, d_model, d_inner, dropout=0.1,
-        tgt_emb_prj_weight_sharing=True, pe_maxlen=5000):
+    def __init__(self, sos_id, eos_id, n_tgt_vocab, d_word_vec, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1, tgt_emb_prj_weight_sharing=True, pe_maxlen=5000):
         super(Decoder, self).__init__()
         self.sos_id = sos_id
         self.eos_id = eos_id
@@ -195,11 +189,9 @@ class Decoder(nn.Module):
         self.tgt_emb_prj_weight_sharing = tgt_emb_prj_weight_sharing
         self.pe_maxlen = pe_maxlen
         self.tgt_word_emb = nn.Embedding(n_tgt_vocab, d_word_vec)
-        self.positional_encoding = PositionalEncoding(d_model, max_len=
-            pe_maxlen)
+        self.positional_encoding = PositionalEncoding(d_model, max_len=pe_maxlen)
         self.dropout = nn.Dropout(dropout)
-        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner,
-            n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
+        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
         self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab, bias=False)
         nn.init.xavier_normal_(self.tgt_word_prj.weight)
         if tgt_emb_prj_weight_sharing:
@@ -222,8 +214,7 @@ class Decoder(nn.Module):
         assert ys_in_pad.size() == ys_out_pad.size()
         return ys_in_pad, ys_out_pad
 
-    def forward(self, padded_input, encoder_padded_outputs,
-        encoder_input_lengths, return_attns=False):
+    def forward(self, padded_input, encoder_padded_outputs, encoder_input_lengths, return_attns=False):
         """
         Args:
             padded_input: N x To
@@ -235,19 +226,13 @@ class Decoder(nn.Module):
         ys_in_pad, ys_out_pad = self.preprocess(padded_input)
         non_pad_mask = get_non_pad_mask(ys_in_pad, pad_idx=self.eos_id)
         slf_attn_mask_subseq = get_subsequent_mask(ys_in_pad)
-        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=ys_in_pad, seq_q
-            =ys_in_pad, pad_idx=self.eos_id)
+        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=ys_in_pad, seq_q=ys_in_pad, pad_idx=self.eos_id)
         slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
         output_length = ys_in_pad.size(1)
-        dec_enc_attn_mask = get_attn_pad_mask(encoder_padded_outputs,
-            encoder_input_lengths, output_length)
-        dec_output = self.dropout(self.tgt_word_emb(ys_in_pad) * self.
-            x_logit_scale + self.positional_encoding(ys_in_pad))
+        dec_enc_attn_mask = get_attn_pad_mask(encoder_padded_outputs, encoder_input_lengths, output_length)
+        dec_output = self.dropout(self.tgt_word_emb(ys_in_pad) * self.x_logit_scale + self.positional_encoding(ys_in_pad))
         for dec_layer in self.layer_stack:
-            dec_output, dec_slf_attn, dec_enc_attn = dec_layer(dec_output,
-                encoder_padded_outputs, non_pad_mask=non_pad_mask,
-                slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=
-                dec_enc_attn_mask)
+            dec_output, dec_slf_attn, dec_enc_attn = dec_layer(dec_output, encoder_padded_outputs, non_pad_mask=non_pad_mask, slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=dec_enc_attn_mask)
             if return_attns:
                 dec_slf_attn_list += [dec_slf_attn]
                 dec_enc_attn_list += [dec_enc_attn]
@@ -274,8 +259,7 @@ class Decoder(nn.Module):
         else:
             maxlen = args.decode_max_len
         encoder_outputs = encoder_outputs.unsqueeze(0)
-        ys = torch.ones(1, 1).fill_(self.sos_id).type_as(encoder_outputs).long(
-            )
+        ys = torch.ones(1, 1).fill_(self.sos_id).type_as(encoder_outputs).long()
         hyp = {'score': 0.0, 'yseq': ys}
         hyps = [hyp]
         ended_hyps = []
@@ -285,33 +269,24 @@ class Decoder(nn.Module):
                 ys = hyp['yseq']
                 non_pad_mask = torch.ones_like(ys).float().unsqueeze(-1)
                 slf_attn_mask = get_subsequent_mask(ys)
-                dec_output = self.dropout(self.tgt_word_emb(ys) * self.
-                    x_logit_scale + self.positional_encoding(ys))
+                dec_output = self.dropout(self.tgt_word_emb(ys) * self.x_logit_scale + self.positional_encoding(ys))
                 for dec_layer in self.layer_stack:
-                    dec_output, _, _ = dec_layer(dec_output,
-                        encoder_outputs, non_pad_mask=non_pad_mask,
-                        slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=None)
+                    dec_output, _, _ = dec_layer(dec_output, encoder_outputs, non_pad_mask=non_pad_mask, slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=None)
                 seq_logit = self.tgt_word_prj(dec_output[:, (-1)])
                 local_scores = F.log_softmax(seq_logit, dim=1)
-                local_best_scores, local_best_ids = torch.topk(local_scores,
-                    beam, dim=1)
+                local_best_scores, local_best_ids = torch.topk(local_scores, beam, dim=1)
                 for j in range(beam):
                     new_hyp = {}
                     new_hyp['score'] = hyp['score'] + local_best_scores[0, j]
-                    new_hyp['yseq'] = torch.ones(1, 1 + ys.size(1)).type_as(
-                        encoder_outputs).long()
+                    new_hyp['yseq'] = torch.ones(1, 1 + ys.size(1)).type_as(encoder_outputs).long()
                     new_hyp['yseq'][:, :ys.size(1)] = hyp['yseq']
-                    new_hyp['yseq'][:, (ys.size(1))] = int(local_best_ids[0, j]
-                        )
+                    new_hyp['yseq'][:, (ys.size(1))] = int(local_best_ids[0, j])
                     hyps_best_kept.append(new_hyp)
-                hyps_best_kept = sorted(hyps_best_kept, key=lambda x: x[
-                    'score'], reverse=True)[:beam]
+                hyps_best_kept = sorted(hyps_best_kept, key=lambda x: x['score'], reverse=True)[:beam]
             hyps = hyps_best_kept
             if i == maxlen - 1:
                 for hyp in hyps:
-                    hyp['yseq'] = torch.cat([hyp['yseq'], torch.ones(1, 1).
-                        fill_(self.eos_id).type_as(encoder_outputs).long()],
-                        dim=1)
+                    hyp['yseq'] = torch.cat([hyp['yseq'], torch.ones(1, 1).fill_(self.eos_id).type_as(encoder_outputs).long()], dim=1)
             remained_hyps = []
             for hyp in hyps:
                 if hyp['yseq'][0, -1] == self.eos_id:
@@ -326,8 +301,7 @@ class Decoder(nn.Module):
                 break
             for hyp in hyps:
                 None
-        nbest_hyps = sorted(ended_hyps, key=lambda x: x['score'], reverse=True
-            )[:min(len(ended_hyps), nbest)]
+        nbest_hyps = sorted(ended_hyps, key=lambda x: x['score'], reverse=True)[:min(len(ended_hyps), nbest)]
         for hyp in nbest_hyps:
             hyp['yseq'] = hyp['yseq'][0].cpu().numpy().tolist()
         return nbest_hyps
@@ -338,20 +312,14 @@ class DecoderLayer(nn.Module):
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
         super(DecoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=
-            dropout)
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
-    def forward(self, dec_input, enc_output, non_pad_mask=None,
-        slf_attn_mask=None, dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input,
-            dec_input, mask=slf_attn_mask)
+    def forward(self, dec_input, enc_output, non_pad_mask=None, slf_attn_mask=None, dec_enc_attn_mask=None):
+        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
         dec_output *= non_pad_mask
-        dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output,
-            enc_output, mask=dec_enc_attn_mask)
+        dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output, enc_output, mask=dec_enc_attn_mask)
         dec_output *= non_pad_mask
         dec_output = self.pos_ffn(dec_output)
         dec_output *= non_pad_mask
@@ -362,8 +330,7 @@ class Encoder(nn.Module):
     """Encoder of Transformer including self-attention and feed forward.
     """
 
-    def __init__(self, d_input, n_layers, n_head, d_k, d_v, d_model,
-        d_inner, dropout=0.1, pe_maxlen=5000):
+    def __init__(self, d_input, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1, pe_maxlen=5000):
         super(Encoder, self).__init__()
         self.d_input = d_input
         self.n_layers = n_layers
@@ -376,11 +343,9 @@ class Encoder(nn.Module):
         self.pe_maxlen = pe_maxlen
         self.linear_in = nn.Linear(d_input, d_model)
         self.layer_norm_in = nn.LayerNorm(d_model)
-        self.positional_encoding = PositionalEncoding(d_model, max_len=
-            pe_maxlen)
+        self.positional_encoding = PositionalEncoding(d_model, max_len=pe_maxlen)
         self.dropout = nn.Dropout(dropout)
-        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner,
-            n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
+        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
 
     def forward(self, padded_input, input_lengths, return_attns=False):
         """
@@ -392,15 +357,12 @@ class Encoder(nn.Module):
             enc_output: N x T x H
         """
         enc_slf_attn_list = []
-        non_pad_mask = get_non_pad_mask(padded_input, input_lengths=
-            input_lengths)
+        non_pad_mask = get_non_pad_mask(padded_input, input_lengths=input_lengths)
         length = padded_input.size(1)
         slf_attn_mask = get_attn_pad_mask(padded_input, input_lengths, length)
-        enc_output = self.dropout(self.layer_norm_in(self.linear_in(
-            padded_input)) + self.positional_encoding(padded_input))
+        enc_output = self.dropout(self.layer_norm_in(self.linear_in(padded_input)) + self.positional_encoding(padded_input))
         for enc_layer in self.layer_stack:
-            enc_output, enc_slf_attn = enc_layer(enc_output, non_pad_mask=
-                non_pad_mask, slf_attn_mask=slf_attn_mask)
+            enc_output, enc_slf_attn = enc_layer(enc_output, non_pad_mask=non_pad_mask, slf_attn_mask=slf_attn_mask)
             if return_attns:
                 enc_slf_attn_list += [enc_slf_attn]
         if return_attns:
@@ -416,14 +378,11 @@ class EncoderLayer(nn.Module):
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
         super(EncoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v,
-            dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=
-            dropout)
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
     def forward(self, enc_input, non_pad_mask=None, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input,
-            enc_input, mask=slf_attn_mask)
+        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
         enc_output *= non_pad_mask
         enc_output = self.pos_ffn(enc_output)
         enc_output *= non_pad_mask
@@ -441,8 +400,7 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
         pe = torch.zeros(max_len, d_model, requires_grad=False)
         position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.
-            log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -518,8 +476,7 @@ class Transformer(nn.Module):
             padded_targets: N x To
         """
         encoder_padded_outputs, *_ = self.encoder(padded_input, input_lengths)
-        pred, gold, *_ = self.decoder(padded_target, encoder_padded_outputs,
-            input_lengths)
+        pred, gold, *_ = self.decoder(padded_target, encoder_padded_outputs, input_lengths)
         return pred, gold
 
     def recognize(self, input, input_length, char_list, args):
@@ -532,8 +489,7 @@ class Transformer(nn.Module):
             nbest_hyps:
         """
         encoder_outputs, *_ = self.encoder(input.unsqueeze(0), input_length)
-        nbest_hyps = self.decoder.recognize_beam(encoder_outputs[0],
-            char_list, args)
+        nbest_hyps = self.decoder.recognize_beam(encoder_outputs[0], char_list, args)
         return nbest_hyps
 
     @classmethod
@@ -544,36 +500,16 @@ class Transformer(nn.Module):
 
     @classmethod
     def load_model_from_package(cls, package):
-        encoder = Encoder(package['d_input'], package['n_layers_enc'],
-            package['n_head'], package['d_k'], package['d_v'], package[
-            'd_model'], package['d_inner'], dropout=package['dropout'],
-            pe_maxlen=package['pe_maxlen'])
-        decoder = Decoder(package['sos_id'], package['eos_id'], package[
-            'vocab_size'], package['d_word_vec'], package['n_layers_dec'],
-            package['n_head'], package['d_k'], package['d_v'], package[
-            'd_model'], package['d_inner'], dropout=package['dropout'],
-            tgt_emb_prj_weight_sharing=package['tgt_emb_prj_weight_sharing'
-            ], pe_maxlen=package['pe_maxlen'])
+        encoder = Encoder(package['d_input'], package['n_layers_enc'], package['n_head'], package['d_k'], package['d_v'], package['d_model'], package['d_inner'], dropout=package['dropout'], pe_maxlen=package['pe_maxlen'])
+        decoder = Decoder(package['sos_id'], package['eos_id'], package['vocab_size'], package['d_word_vec'], package['n_layers_dec'], package['n_head'], package['d_k'], package['d_v'], package['d_model'], package['d_inner'], dropout=package['dropout'], tgt_emb_prj_weight_sharing=package['tgt_emb_prj_weight_sharing'], pe_maxlen=package['pe_maxlen'])
         model = cls(encoder, decoder)
         model.load_state_dict(package['state_dict'])
         LFR_m, LFR_n = package['LFR_m'], package['LFR_n']
         return model, LFR_m, LFR_n
 
     @staticmethod
-    def serialize(model, optimizer, epoch, LFR_m, LFR_n, tr_loss=None,
-        cv_loss=None):
-        package = {'LFR_m': LFR_m, 'LFR_n': LFR_n, 'd_input': model.encoder
-            .d_input, 'n_layers_enc': model.encoder.n_layers, 'n_head':
-            model.encoder.n_head, 'd_k': model.encoder.d_k, 'd_v': model.
-            encoder.d_v, 'd_model': model.encoder.d_model, 'd_inner': model
-            .encoder.d_inner, 'dropout': model.encoder.dropout_rate,
-            'pe_maxlen': model.encoder.pe_maxlen, 'sos_id': model.decoder.
-            sos_id, 'eos_id': model.decoder.eos_id, 'vocab_size': model.
-            decoder.n_tgt_vocab, 'd_word_vec': model.decoder.d_word_vec,
-            'n_layers_dec': model.decoder.n_layers,
-            'tgt_emb_prj_weight_sharing': model.decoder.
-            tgt_emb_prj_weight_sharing, 'state_dict': model.state_dict(),
-            'optim_dict': optimizer.state_dict(), 'epoch': epoch}
+    def serialize(model, optimizer, epoch, LFR_m, LFR_n, tr_loss=None, cv_loss=None):
+        package = {'LFR_m': LFR_m, 'LFR_n': LFR_n, 'd_input': model.encoder.d_input, 'n_layers_enc': model.encoder.n_layers, 'n_head': model.encoder.n_head, 'd_k': model.encoder.d_k, 'd_v': model.encoder.d_v, 'd_model': model.encoder.d_model, 'd_inner': model.encoder.d_inner, 'dropout': model.encoder.dropout_rate, 'pe_maxlen': model.encoder.pe_maxlen, 'sos_id': model.decoder.sos_id, 'eos_id': model.decoder.eos_id, 'vocab_size': model.decoder.n_tgt_vocab, 'd_word_vec': model.decoder.d_word_vec, 'n_layers_dec': model.decoder.n_layers, 'tgt_emb_prj_weight_sharing': model.decoder.tgt_emb_prj_weight_sharing, 'state_dict': model.state_dict(), 'optim_dict': optimizer.state_dict(), 'epoch': epoch}
         if tr_loss is not None:
             package['tr_loss'] = tr_loss
             package['cv_loss'] = cv_loss
@@ -584,26 +520,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_kaituoxu_Speech_Transformer(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Encoder(*[], **{'d_input': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}), [torch.rand([4, 4, 4]), [4, 4, 4, 4]], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Encoder,
+     lambda: ([], {'d_input': 4, 'n_layers': 1, 'n_head': 4, 'd_k': 4, 'd_v': 4, 'd_model': 4, 'd_inner': 4}),
+     lambda: ([torch.rand([4, 4, 4]), [4, 4, 4, 4]], {}),
+     False),
+    (MultiHeadAttention,
+     lambda: ([], {'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForwardUseConv,
+     lambda: ([], {'d_in': 4, 'd_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (ScaledDotProductAttention,
+     lambda: ([], {'temperature': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_kaituoxu_Speech_Transformer(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(MultiHeadAttention(*[], **{'n_head': 4, 'd_model': 4, 'd_k': 4, 'd_v': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PositionwiseFeedForwardUseConv(*[], **{'d_in': 4, 'd_hid': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ScaledDotProductAttention(*[], **{'temperature': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

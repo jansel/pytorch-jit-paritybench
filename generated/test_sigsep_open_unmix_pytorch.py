@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,8 +77,7 @@ class STFT(nn.Module):
 
     def __init__(self, n_fft=4096, n_hop=1024, center=False):
         super(STFT, self).__init__()
-        self.window = nn.Parameter(torch.hann_window(n_fft), requires_grad=
-            False)
+        self.window = nn.Parameter(torch.hann_window(n_fft), requires_grad=False)
         self.n_fft = n_fft
         self.n_hop = n_hop
         self.center = center
@@ -89,11 +89,8 @@ class STFT(nn.Module):
         """
         nb_samples, nb_channels, nb_timesteps = x.size()
         x = x.reshape(nb_samples * nb_channels, -1)
-        stft_f = torch.stft(x, n_fft=self.n_fft, hop_length=self.n_hop,
-            window=self.window, center=self.center, normalized=False,
-            onesided=True, pad_mode='reflect')
-        stft_f = stft_f.contiguous().view(nb_samples, nb_channels, self.
-            n_fft // 2 + 1, -1, 2)
+        stft_f = torch.stft(x, n_fft=self.n_fft, hop_length=self.n_hop, window=self.window, center=self.center, normalized=False, onesided=True, pad_mode='reflect')
+        stft_f = stft_f.contiguous().view(nb_samples, nb_channels, self.n_fft // 2 + 1, -1, 2)
         return stft_f
 
 
@@ -120,10 +117,7 @@ class Spectrogram(nn.Module):
 
 class OpenUnmix(nn.Module):
 
-    def __init__(self, n_fft=4096, n_hop=1024, input_is_spectrogram=False,
-        hidden_size=512, nb_channels=2, sample_rate=44100, nb_layers=3,
-        input_mean=None, input_scale=None, max_bin=None, unidirectional=
-        False, power=1):
+    def __init__(self, n_fft=4096, n_hop=1024, input_is_spectrogram=False, hidden_size=512, nb_channels=2, sample_rate=44100, nb_layers=3, input_mean=None, input_scale=None, max_bin=None, unidirectional=False, power=1):
         """
         Input: (nb_samples, nb_channels, nb_timesteps)
             or (nb_frames, nb_samples, nb_channels, nb_bins)
@@ -150,22 +144,17 @@ class OpenUnmix(nn.Module):
             lstm_hidden_size = hidden_size
         else:
             lstm_hidden_size = hidden_size // 2
-        self.lstm = LSTM(input_size=hidden_size, hidden_size=
-            lstm_hidden_size, num_layers=nb_layers, bidirectional=not
-            unidirectional, batch_first=False, dropout=0.4)
-        self.fc2 = Linear(in_features=hidden_size * 2, out_features=
-            hidden_size, bias=False)
+        self.lstm = LSTM(input_size=hidden_size, hidden_size=lstm_hidden_size, num_layers=nb_layers, bidirectional=not unidirectional, batch_first=False, dropout=0.4)
+        self.fc2 = Linear(in_features=hidden_size * 2, out_features=hidden_size, bias=False)
         self.bn2 = BatchNorm1d(hidden_size)
-        self.fc3 = Linear(in_features=hidden_size, out_features=self.
-            nb_output_bins * nb_channels, bias=False)
+        self.fc3 = Linear(in_features=hidden_size, out_features=self.nb_output_bins * nb_channels, bias=False)
         self.bn3 = BatchNorm1d(self.nb_output_bins * nb_channels)
         if input_mean is not None:
             input_mean = torch.from_numpy(-input_mean[:self.nb_bins]).float()
         else:
             input_mean = torch.zeros(self.nb_bins)
         if input_scale is not None:
-            input_scale = torch.from_numpy(1.0 / input_scale[:self.nb_bins]
-                ).float()
+            input_scale = torch.from_numpy(1.0 / input_scale[:self.nb_bins]).float()
         else:
             input_scale = torch.ones(self.nb_bins)
         self.input_mean = Parameter(input_mean)
@@ -202,8 +191,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NoOp,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_sigsep_open_unmix_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(NoOp(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

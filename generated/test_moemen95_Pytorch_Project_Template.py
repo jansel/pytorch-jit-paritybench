@@ -51,8 +51,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -121,9 +122,7 @@ class CrossEntropyLoss(nn.Module):
             self.loss = nn.CrossEntropyLoss()
         else:
             class_weights = np.load(config.class_weights)
-            self.loss = nn.CrossEntropyLoss(ignore_index=config.
-                ignore_index, weight=torch.from_numpy(class_weights.astype(
-                np.float32)), size_average=True, reduce=True)
+            self.loss = nn.CrossEntropyLoss(ignore_index=config.ignore_index, weight=torch.from_numpy(class_weights.astype(np.float32)), size_average=True, reduce=True)
 
     def forward(self, inputs, targets):
         return self.loss(inputs, targets)
@@ -193,20 +192,12 @@ class CondenseNet(nn.Module):
         self.transition_pool = nn.AvgPool2d(kernel_size=2, stride=2)
         self.pool = nn.AvgPool2d(self.pool_size)
         self.relu = nn.ReLU(inplace=True)
-        self.init_conv = nn.Conv2d(in_channels=self.config.input_channels,
-            out_channels=self.num_filters, kernel_size=3, stride=self.
-            init_stride, padding=1, bias=False)
-        self.denseblock_one = DenseBlock(num_layers=self.stages[0],
-            in_channels=self.num_filters, growth_rate=self.growth_rate[0],
-            config=self.config)
+        self.init_conv = nn.Conv2d(in_channels=self.config.input_channels, out_channels=self.num_filters, kernel_size=3, stride=self.init_stride, padding=1, bias=False)
+        self.denseblock_one = DenseBlock(num_layers=self.stages[0], in_channels=self.num_filters, growth_rate=self.growth_rate[0], config=self.config)
         self.num_filters += self.stages[0] * self.growth_rate[0]
-        self.denseblock_two = DenseBlock(num_layers=self.stages[1],
-            in_channels=self.num_filters, growth_rate=self.growth_rate[1],
-            config=self.config)
+        self.denseblock_two = DenseBlock(num_layers=self.stages[1], in_channels=self.num_filters, growth_rate=self.growth_rate[1], config=self.config)
         self.num_filters += self.stages[1] * self.growth_rate[1]
-        self.denseblock_three = DenseBlock(num_layers=self.stages[2],
-            in_channels=self.num_filters, growth_rate=self.growth_rate[2],
-            config=self.config)
+        self.denseblock_three = DenseBlock(num_layers=self.stages[2], in_channels=self.num_filters, growth_rate=self.growth_rate[2], config=self.config)
         self.num_filters += self.stages[2] * self.growth_rate[2]
         self.batch_norm = nn.BatchNorm2d(self.num_filters)
         self.classifier = nn.Linear(self.num_filters, self.num_classes)
@@ -234,8 +225,7 @@ class DenseBlock(nn.Sequential):
     def __init__(self, num_layers, in_channels, growth_rate, config):
         super().__init__()
         for layer_id in range(num_layers):
-            layer = DenseLayer(in_channels=in_channels + layer_id *
-                growth_rate, growth_rate=growth_rate, config=config)
+            layer = DenseLayer(in_channels=in_channels + layer_id * growth_rate, growth_rate=growth_rate, config=config)
             self.add_module('dense_layer_%d' % (layer_id + 1), layer)
 
 
@@ -249,15 +239,10 @@ class DenseLayer(nn.Module):
         self.group3x3 = self.config.group3x3
         self.condense_factor = self.config.condense_factor
         self.dropout_rate = self.config.dropout_rate
-        self.conv_1 = LearnedGroupConv(in_channels=in_channels,
-            out_channels=self.conv_bottleneck * growth_rate, kernel_size=1,
-            groups=self.group1x1, condense_factor=self.condense_factor,
-            dropout_rate=self.dropout_rate)
+        self.conv_1 = LearnedGroupConv(in_channels=in_channels, out_channels=self.conv_bottleneck * growth_rate, kernel_size=1, groups=self.group1x1, condense_factor=self.condense_factor, dropout_rate=self.dropout_rate)
         self.batch_norm = nn.BatchNorm2d(self.conv_bottleneck * growth_rate)
         self.relu = nn.ReLU(inplace=True)
-        self.conv_2 = nn.Conv2d(in_channels=self.conv_bottleneck *
-            growth_rate, out_channels=growth_rate, kernel_size=3, padding=1,
-            stride=1, groups=self.group3x3, bias=False)
+        self.conv_2 = nn.Conv2d(in_channels=self.conv_bottleneck * growth_rate, out_channels=growth_rate, kernel_size=3, padding=1, stride=1, groups=self.group3x3, bias=False)
 
     def forward(self, x):
         out = self.conv_1(x)
@@ -271,14 +256,10 @@ class non_bottleneck_1d(nn.Module):
 
     def __init__(self, n_channel, drop_rate, dilated):
         super().__init__()
-        self.conv3x1_1 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1,
-            padding=(1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1,
-            padding=(0, 1), bias=True)
-        self.conv3x1_2 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1,
-            padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1,
-            padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.conv3x1_1 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1, padding=(0, 1), bias=True)
+        self.conv3x1_2 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
         self.bn1 = nn.BatchNorm2d(n_channel, eps=0.001)
         self.bn2 = nn.BatchNorm2d(n_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
@@ -303,8 +284,7 @@ class DownsamplerBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super().__init__()
-        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3),
-            stride=2, padding=1, bias=True)
+        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(2, stride=2)
         self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
@@ -319,8 +299,7 @@ class UpsamplerBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
         super().__init__()
-        self.conv = nn.ConvTranspose2d(in_channel, out_channel, 3, stride=2,
-            padding=1, output_padding=1, bias=True)
+        self.conv = nn.ConvTranspose2d(in_channel, out_channel, 3, stride=2, padding=1, output_padding=1, bias=True)
         self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
 
@@ -333,9 +312,7 @@ class UpsamplerBlock(nn.Module):
 class LearnedGroupConv(nn.Module):
     global_progress = 0.0
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, condense_factor=None, dropout_rate=0.0
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, condense_factor=None, dropout_rate=0.0):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -349,9 +326,7 @@ class LearnedGroupConv(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         if self.dropout_rate > 0:
             self.dropout = nn.Dropout(self.dropout_rate, inplace=False)
-        self.conv = nn.Conv2d(in_channels=self.in_channels, out_channels=
-            self.out_channels, kernel_size=kernel_size, stride=stride,
-            padding=padding, dilation=dilation, groups=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=self.in_channels, out_channels=self.out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=1, bias=False)
         self.register_buffer('_count', torch.zeros(1))
         self.register_buffer('_stage', torch.zeros(1))
         self.register_buffer('_mask', torch.ones(self.conv.weight.size()))
@@ -363,9 +338,7 @@ class LearnedGroupConv(nn.Module):
             out = self.dropout(out)
         self.check_if_drop()
         weight = self.conv.weight * self.mask
-        out_conv = F.conv2d(input=out, weight=weight, bias=None, stride=
-            self.conv.stride, padding=self.conv.padding, dilation=self.conv
-            .dilation, groups=1)
+        out_conv = F.conv2d(input=out, weight=weight, bias=None, stride=self.conv.stride, padding=self.conv.padding, dilation=self.conv.dilation, groups=1)
         return out_conv
     """
     Paper: Sec 3.1: Condensation procedure: number of epochs for each condensing stage: M/2(C-1)
@@ -452,23 +425,14 @@ class Discriminator(nn.Module):
         super().__init__()
         self.config = config
         self.relu = nn.LeakyReLU(self.config.relu_slope, inplace=True)
-        self.conv1 = nn.Conv2d(in_channels=self.config.input_channels,
-            out_channels=self.config.num_filt_d, kernel_size=4, stride=2,
-            padding=1, bias=False)
-        self.conv2 = nn.Conv2d(in_channels=self.config.num_filt_d,
-            out_channels=self.config.num_filt_d * 2, kernel_size=4, stride=
-            2, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=self.config.input_channels, out_channels=self.config.num_filt_d, kernel_size=4, stride=2, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(in_channels=self.config.num_filt_d, out_channels=self.config.num_filt_d * 2, kernel_size=4, stride=2, padding=1, bias=False)
         self.batch_norm1 = nn.BatchNorm2d(self.config.num_filt_d * 2)
-        self.conv3 = nn.Conv2d(in_channels=self.config.num_filt_d * 2,
-            out_channels=self.config.num_filt_d * 4, kernel_size=4, stride=
-            2, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(in_channels=self.config.num_filt_d * 2, out_channels=self.config.num_filt_d * 4, kernel_size=4, stride=2, padding=1, bias=False)
         self.batch_norm2 = nn.BatchNorm2d(self.config.num_filt_d * 4)
-        self.conv4 = nn.Conv2d(in_channels=self.config.num_filt_d * 4,
-            out_channels=self.config.num_filt_d * 8, kernel_size=4, stride=
-            2, padding=1, bias=False)
+        self.conv4 = nn.Conv2d(in_channels=self.config.num_filt_d * 4, out_channels=self.config.num_filt_d * 8, kernel_size=4, stride=2, padding=1, bias=False)
         self.batch_norm3 = nn.BatchNorm2d(self.config.num_filt_d * 8)
-        self.conv5 = nn.Conv2d(in_channels=self.config.num_filt_d * 8,
-            out_channels=1, kernel_size=4, stride=1, padding=0, bias=False)
+        self.conv5 = nn.Conv2d(in_channels=self.config.num_filt_d * 8, out_channels=1, kernel_size=4, stride=1, padding=0, bias=False)
         self.out = nn.Sigmoid()
         self.apply(weights_init)
 
@@ -495,25 +459,15 @@ class Generator(nn.Module):
         super().__init__()
         self.config = config
         self.relu = nn.ReLU(inplace=True)
-        self.deconv1 = nn.ConvTranspose2d(in_channels=self.config.
-            g_input_size, out_channels=self.config.num_filt_g * 8,
-            kernel_size=4, stride=1, padding=0, bias=False)
+        self.deconv1 = nn.ConvTranspose2d(in_channels=self.config.g_input_size, out_channels=self.config.num_filt_g * 8, kernel_size=4, stride=1, padding=0, bias=False)
         self.batch_norm1 = nn.BatchNorm2d(self.config.num_filt_g * 8)
-        self.deconv2 = nn.ConvTranspose2d(in_channels=self.config.
-            num_filt_g * 8, out_channels=self.config.num_filt_g * 4,
-            kernel_size=4, stride=2, padding=1, bias=False)
+        self.deconv2 = nn.ConvTranspose2d(in_channels=self.config.num_filt_g * 8, out_channels=self.config.num_filt_g * 4, kernel_size=4, stride=2, padding=1, bias=False)
         self.batch_norm2 = nn.BatchNorm2d(self.config.num_filt_g * 4)
-        self.deconv3 = nn.ConvTranspose2d(in_channels=self.config.
-            num_filt_g * 4, out_channels=self.config.num_filt_g * 2,
-            kernel_size=4, stride=2, padding=1, bias=False)
+        self.deconv3 = nn.ConvTranspose2d(in_channels=self.config.num_filt_g * 4, out_channels=self.config.num_filt_g * 2, kernel_size=4, stride=2, padding=1, bias=False)
         self.batch_norm3 = nn.BatchNorm2d(self.config.num_filt_g * 2)
-        self.deconv4 = nn.ConvTranspose2d(in_channels=self.config.
-            num_filt_g * 2, out_channels=self.config.num_filt_g,
-            kernel_size=4, stride=2, padding=1, bias=False)
+        self.deconv4 = nn.ConvTranspose2d(in_channels=self.config.num_filt_g * 2, out_channels=self.config.num_filt_g, kernel_size=4, stride=2, padding=1, bias=False)
         self.batch_norm4 = nn.BatchNorm2d(self.config.num_filt_g)
-        self.deconv5 = nn.ConvTranspose2d(in_channels=self.config.
-            num_filt_g, out_channels=self.config.input_channels,
-            kernel_size=4, stride=2, padding=1, bias=False)
+        self.deconv5 = nn.ConvTranspose2d(in_channels=self.config.num_filt_g, out_channels=self.config.input_channels, kernel_size=4, stride=2, padding=1, bias=False)
         self.out = nn.Tanh()
         self.apply(weights_init)
 
@@ -541,17 +495,11 @@ class DQN(nn.Module):
         super().__init__()
         self.config = config
         self.relu = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_channels=self.config.input_channels,
-            out_channels=self.config.conv_filters[0], kernel_size=5, stride
-            =2, padding=0, bias=True)
+        self.conv1 = nn.Conv2d(in_channels=self.config.input_channels, out_channels=self.config.conv_filters[0], kernel_size=5, stride=2, padding=0, bias=True)
         self.bn1 = nn.BatchNorm2d(self.config.conv_filters[0])
-        self.conv2 = nn.Conv2d(in_channels=self.config.conv_filters[0],
-            out_channels=self.config.conv_filters[1], kernel_size=5, stride
-            =2, padding=0, bias=True)
+        self.conv2 = nn.Conv2d(in_channels=self.config.conv_filters[0], out_channels=self.config.conv_filters[1], kernel_size=5, stride=2, padding=0, bias=True)
         self.bn2 = nn.BatchNorm2d(self.config.conv_filters[1])
-        self.conv3 = nn.Conv2d(in_channels=self.config.conv_filters[1],
-            out_channels=self.config.conv_filters[2], kernel_size=5, stride
-            =2, padding=0, bias=True)
+        self.conv3 = nn.Conv2d(in_channels=self.config.conv_filters[1], out_channels=self.config.conv_filters[2], kernel_size=5, stride=2, padding=0, bias=True)
         self.bn3 = nn.BatchNorm2d(self.config.conv_filters[2])
         self.linear = nn.Linear(448, self.config.num_classes)
         self.apply(weights_init)
@@ -579,57 +527,33 @@ class ERF(nn.Module):
         if encoder == None:
             self.encoder_flag = True
             self.encoder_layers = nn.ModuleList()
-            self.initial_block = DownsamplerBlock(self.config.
-                input_channels, 16)
-            self.encoder_layers.append(DownsamplerBlock(in_channel=16,
-                out_channel=64))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=64,
-                drop_rate=0.03, dilated=1))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=64,
-                drop_rate=0.03, dilated=1))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=64,
-                drop_rate=0.03, dilated=1))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=64,
-                drop_rate=0.03, dilated=1))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=64,
-                drop_rate=0.03, dilated=1))
-            self.encoder_layers.append(DownsamplerBlock(in_channel=64,
-                out_channel=128))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=2))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=4))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=8))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=16))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=2))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=4))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=8))
-            self.encoder_layers.append(non_bottleneck_1d(n_channel=128,
-                drop_rate=0.3, dilated=16))
+            self.initial_block = DownsamplerBlock(self.config.input_channels, 16)
+            self.encoder_layers.append(DownsamplerBlock(in_channel=16, out_channel=64))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0.03, dilated=1))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0.03, dilated=1))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0.03, dilated=1))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0.03, dilated=1))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0.03, dilated=1))
+            self.encoder_layers.append(DownsamplerBlock(in_channel=64, out_channel=128))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=2))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=4))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=8))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=16))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=2))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=4))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=8))
+            self.encoder_layers.append(non_bottleneck_1d(n_channel=128, drop_rate=0.3, dilated=16))
         else:
             self.encoder_flag = False
             self.encoder = encoder
         self.decoder_layers = nn.ModuleList()
-        self.decoder_layers.append(UpsamplerBlock(in_channel=128,
-            out_channel=64))
-        self.decoder_layers.append(non_bottleneck_1d(n_channel=64,
-            drop_rate=0, dilated=1))
-        self.decoder_layers.append(non_bottleneck_1d(n_channel=64,
-            drop_rate=0, dilated=1))
-        self.decoder_layers.append(UpsamplerBlock(in_channel=64,
-            out_channel=16))
-        self.decoder_layers.append(non_bottleneck_1d(n_channel=16,
-            drop_rate=0, dilated=1))
-        self.decoder_layers.append(non_bottleneck_1d(n_channel=16,
-            drop_rate=0, dilated=1))
-        self.output_conv = nn.ConvTranspose2d(in_channels=16, out_channels=
-            self.num_classes, kernel_size=2, stride=2, padding=0,
-            output_padding=0, bias=True)
+        self.decoder_layers.append(UpsamplerBlock(in_channel=128, out_channel=64))
+        self.decoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0, dilated=1))
+        self.decoder_layers.append(non_bottleneck_1d(n_channel=64, drop_rate=0, dilated=1))
+        self.decoder_layers.append(UpsamplerBlock(in_channel=64, out_channel=16))
+        self.decoder_layers.append(non_bottleneck_1d(n_channel=16, drop_rate=0, dilated=1))
+        self.decoder_layers.append(non_bottleneck_1d(n_channel=16, drop_rate=0, dilated=1))
+        self.output_conv = nn.ConvTranspose2d(in_channels=16, out_channels=self.num_classes, kernel_size=2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, x):
         if self.encoder_flag:
@@ -713,9 +637,7 @@ class Example(nn.Module):
         super().__init__()
         self.config = config
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=self.config.input_channels,
-            out_channels=self.config.num_filters, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=self.config.input_channels, out_channels=self.config.num_filters, kernel_size=3, stride=1, padding=1, bias=False)
         self.apply(weights_init)
 
     def forward(self, x):
@@ -770,48 +692,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BinaryCrossEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Classifier,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 128])], {}),
+     True),
+    (DenseBlock,
+     lambda: ([], {'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DenseLayer,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Discriminator,
+     lambda: ([], {'config': _mock_config(relu_slope=4, input_channels=4, num_filt_d=4)}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (ERF,
+     lambda: ([], {'config': _mock_config(num_classes=4, input_channels=4)}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Example,
+     lambda: ([], {'config': _mock_config(input_channels=4, num_filters=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Features,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (Generator,
+     lambda: ([], {'config': _mock_config(g_input_size=4, num_filt_g=4, input_channels=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HuberLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpsamplerBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (non_bottleneck_1d,
+     lambda: ([], {'n_channel': 4, 'drop_rate': 0.5, 'dilated': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_moemen95_Pytorch_Project_Template(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BinaryCrossEntropy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Classifier(*[], **{'num_classes': 4}), [torch.rand([4, 128])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'config': _mock_config(conv_bottleneck=4, group1x1=4, group3x3=4, condense_factor=4, dropout_rate=0.5)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Discriminator(*[], **{'config': _mock_config(relu_slope=4, input_channels=4, num_filt_d=4)}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ERF(*[], **{'config': _mock_config(num_classes=4, input_channels=4)}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Example(*[], **{'config': _mock_config(input_channels=4, num_filters=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Features(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Generator(*[], **{'config': _mock_config(g_input_size=4, num_filt_g=4, input_channels=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(UpsamplerBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(non_bottleneck_1d(*[], **{'n_channel': 4, 'drop_rate': 0.5, 'dilated': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 

@@ -45,8 +45,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,22 +76,11 @@ from torch.nn.utils.rnn import pad_packed_sequence
 import torch.nn.functional as F
 
 
-LEVEL_COLOR = {'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow',
-    'ERROR': 'red', 'CRITICAL': 'red,bg_white'}
+LEVEL_COLOR = {'DEBUG': 'cyan', 'INFO': 'green', 'WARNING': 'yellow', 'ERROR': 'red', 'CRITICAL': 'red,bg_white'}
 
 
 class ColoredFormatter(logging.Formatter):
-    COLOR_MAP = {'black': '30', 'red': '31', 'green': '32', 'yellow': '33',
-        'blue': '34', 'magenta': '35', 'cyan': '36', 'white': '37',
-        'bg_black': '40', 'bg_red': '41', 'bg_green': '42', 'bg_yellow':
-        '43', 'bg_blue': '44', 'bg_magenta': '45', 'bg_cyan': '46',
-        'bg_white': '47', 'light_black': '1;30', 'light_red': '1;31',
-        'light_green': '1;32', 'light_yellow': '1;33', 'light_blue': '1;34',
-        'light_magenta': '1;35', 'light_cyan': '1;36', 'light_white':
-        '1;37', 'light_bg_black': '100', 'light_bg_red': '101',
-        'light_bg_green': '102', 'light_bg_yellow': '103', 'light_bg_blue':
-        '104', 'light_bg_magenta': '105', 'light_bg_cyan': '106',
-        'light_bg_white': '107'}
+    COLOR_MAP = {'black': '30', 'red': '31', 'green': '32', 'yellow': '33', 'blue': '34', 'magenta': '35', 'cyan': '36', 'white': '37', 'bg_black': '40', 'bg_red': '41', 'bg_green': '42', 'bg_yellow': '43', 'bg_blue': '44', 'bg_magenta': '45', 'bg_cyan': '46', 'bg_white': '47', 'light_black': '1;30', 'light_red': '1;31', 'light_green': '1;32', 'light_yellow': '1;33', 'light_blue': '1;34', 'light_magenta': '1;35', 'light_cyan': '1;36', 'light_white': '1;37', 'light_bg_black': '100', 'light_bg_red': '101', 'light_bg_green': '102', 'light_bg_yellow': '103', 'light_bg_blue': '104', 'light_bg_magenta': '105', 'light_bg_cyan': '106', 'light_bg_white': '107'}
 
     def __init__(self, fmt, datefmt):
         super(ColoredFormatter, self).__init__(fmt, datefmt)
@@ -116,33 +106,25 @@ class ColoredFormatter(logging.Formatter):
 FILE_DATE_FMT = '%Y-%m-%d %H:%M:%S'
 
 
-FILE_LOG_FMT = (
-    '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
-    )
+FILE_LOG_FMT = '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
 
 
 STDOUT_DATE_FMT = '%Y-%m-%d %H:%M:%S'
 
 
-STDOUT_LOG_FMT = (
-    '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
-    )
+STDOUT_LOG_FMT = '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s'
 
 
-def _get_logger(log_to_file=True, log_filename='default.log', log_level='DEBUG'
-    ):
+def _get_logger(log_to_file=True, log_filename='default.log', log_level='DEBUG'):
     _logger = logging.getLogger(__name__)
     stdout_handler = logging.StreamHandler()
-    stdout_handler.setFormatter(ColoredFormatter(fmt=STDOUT_LOG_FMT,
-        datefmt=STDOUT_DATE_FMT))
+    stdout_handler.setFormatter(ColoredFormatter(fmt=STDOUT_LOG_FMT, datefmt=STDOUT_DATE_FMT))
     _logger.addHandler(stdout_handler)
     if log_to_file:
         _tmp_path = os.path.dirname(os.path.abspath(__file__))
         _tmp_path = os.path.join(_tmp_path, '../logs/{}'.format(log_filename))
-        file_handler = logging.handlers.TimedRotatingFileHandler(_tmp_path,
-            when='midnight', backupCount=30)
-        file_formatter = logging.Formatter(fmt=FILE_LOG_FMT, datefmt=
-            FILE_DATE_FMT)
+        file_handler = logging.handlers.TimedRotatingFileHandler(_tmp_path, when='midnight', backupCount=30)
+        file_formatter = logging.Formatter(fmt=FILE_LOG_FMT, datefmt=FILE_DATE_FMT)
         file_handler.setFormatter(file_formatter)
         _logger.addHandler(file_handler)
     _logger.setLevel(log_level)
@@ -194,8 +176,7 @@ class BaseConfig(object):
 
     def save(self, path=None):
         if not hasattr(self, 'save_path'):
-            raise AttributeError(
-                'config object must init save_path attr in init method!')
+            raise AttributeError('config object must init save_path attr in init method!')
         path = path if path else self.save_path
         if not os.path.isdir(path):
             os.mkdir(path)
@@ -236,31 +217,23 @@ class TextCNN(BaseModel):
         self.filter_sizes = args.filter_sizes
         self.vocabulary_size = args.vocabulary_size
         self.embedding_dimension = args.embedding_dim
-        self.embedding = nn.Embedding(self.vocabulary_size, self.
-            embedding_dimension).to(DEVICE)
+        self.embedding = nn.Embedding(self.vocabulary_size, self.embedding_dimension).to(DEVICE)
         if args.static:
-            logger.info('logging word vectors from {}'.format(args.vector_path)
-                )
+            logger.info('logging word vectors from {}'.format(args.vector_path))
             vectors = Vectors(args.vector_path).vectors
-            self.embedding = self.embedding.from_pretrained(vectors, freeze
-                =not args.non_static).to(DEVICE)
+            self.embedding = self.embedding.from_pretrained(vectors, freeze=not args.non_static).to(DEVICE)
         if args.multichannel:
-            self.embedding2 = nn.Embedding(self.vocabulary_size, self.
-                embedding_dimension).from_pretrained(args.vectors).to(DEVICE)
+            self.embedding2 = nn.Embedding(self.vocabulary_size, self.embedding_dimension).from_pretrained(args.vectors).to(DEVICE)
             self.chanel_num += 1
         else:
             self.embedding2 = None
-        self.convs = nn.ModuleList([nn.Conv2d(self.chanel_num, self.
-            filter_num, (size, self.embedding_dimension)) for size in self.
-            filter_sizes]).to(DEVICE)
+        self.convs = nn.ModuleList([nn.Conv2d(self.chanel_num, self.filter_num, (size, self.embedding_dimension)) for size in self.filter_sizes]).to(DEVICE)
         self.dropout = nn.Dropout(args.dropout).to(DEVICE)
-        self.fc = nn.Linear(len(self.filter_sizes) * self.filter_num, self.
-            class_num).to(DEVICE)
+        self.fc = nn.Linear(len(self.filter_sizes) * self.filter_num, self.class_num).to(DEVICE)
 
     def forward(self, x):
         if self.embedding2:
-            x = torch.stack((self.embedding(x), self.embedding2(x)), dim=1).to(
-                DEVICE)
+            x = torch.stack((self.embedding(x), self.embedding2(x)), dim=1).to(DEVICE)
         else:
             x = self.embedding(x).to(DEVICE)
             x = x.unsqueeze(1)
@@ -283,14 +256,11 @@ def adjust_learning_rate(optimizer, new_lr):
         param_group['lr'] = new_lr
 
 
-def handle_line(entity1, entity2, sentence, begin_e1_token='<e1>',
-    end_e1_token='</e1>', begin_e2_token='<e2>', end_e2_token='</e2>'):
+def handle_line(entity1, entity2, sentence, begin_e1_token='<e1>', end_e1_token='</e1>', begin_e2_token='<e2>', end_e2_token='</e2>'):
     assert entity1 in sentence
     assert entity2 in sentence
-    sentence = sentence.replace(entity1, begin_e1_token + entity1 +
-        end_e1_token)
-    sentence = sentence.replace(entity2, begin_e2_token + entity2 +
-        end_e2_token)
+    sentence = sentence.replace(entity1, begin_e1_token + entity1 + end_e1_token)
+    sentence = sentence.replace(entity2, begin_e2_token + entity2 + end_e2_token)
     sentence = ' '.join(jieba.cut(sentence))
     sentence = sentence.replace('< e1 >', begin_e1_token)
     sentence = sentence.replace('< / e1 >', end_e1_token)
@@ -324,10 +294,8 @@ class TransE(BaseModel):
         self.entity_num = args.entity_num
         self.rel_num = args.rel_num
         self.embedding_dimension = args.embedding_dim
-        self.entity_embedding = nn.Embedding(self.entity_num, self.
-            embedding_dimension).to(DEVICE)
-        self.rel_embedding = nn.Embedding(self.rel_num, self.
-            embedding_dimension).to(DEVICE)
+        self.entity_embedding = nn.Embedding(self.entity_num, self.embedding_dimension).to(DEVICE)
+        self.rel_embedding = nn.Embedding(self.rel_num, self.embedding_dimension).to(DEVICE)
         if args.score_func == 'l1':
             self.score_func = l1_score
         else:
@@ -338,11 +306,9 @@ class TransE(BaseModel):
         nn.init.xavier_normal_(self.rel_embedding.weight)
 
     def forward(self, head, rel, tail):
-        vec_head = self.entity_embedding(head).view(-1, self.
-            embedding_dimension)
+        vec_head = self.entity_embedding(head).view(-1, self.embedding_dimension)
         vec_rel = self.rel_embedding(rel).view(-1, self.embedding_dimension)
-        vec_tail = self.entity_embedding(tail).view(-1, self.
-            embedding_dimension)
+        vec_tail = self.entity_embedding(tail).view(-1, self.embedding_dimension)
         vec_head = F.normalize(vec_head)
         vec_rel = F.normalize(vec_rel)
         vec_tail = F.normalize(vec_tail)
@@ -368,8 +334,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (TransE,
+     lambda: ([], {'args': _mock_config(save_path=4, entity_num=4, rel_num=4, embedding_dim=4, score_func=4)}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_smilelight_lightKG(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(TransE(*[], **{'args': _mock_config(save_path=4, entity_num=4, rel_num=4, embedding_dim=4, score_func=4)}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

@@ -69,8 +69,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -131,8 +132,7 @@ import torch.multiprocessing as mp
 
 class MeanAggregator(torch.nn.Module):
 
-    def __init__(self, in_channels, out_channels, improved=False, cached=
-        False, bias=True):
+    def __init__(self, in_channels, out_channels, improved=False, cached=False, bias=True):
         super(MeanAggregator, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -161,8 +161,7 @@ class MeanAggregator(torch.nn.Module):
         return aggr_out
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class SELayer(nn.Module):
@@ -172,9 +171,7 @@ class SELayer(nn.Module):
         super(SELayer, self).__init__()
         self.in_channels = in_channels
         self.se_channels = se_channels
-        self.encoder_decoder = nn.Sequential(nn.Linear(in_channels,
-            se_channels), nn.ELU(), nn.Linear(se_channels, in_channels), nn
-            .Sigmoid())
+        self.encoder_decoder = nn.Sequential(nn.Linear(in_channels, se_channels), nn.ELU(), nn.Linear(se_channels, in_channels), nn.Sigmoid())
         self.reset_parameters()
 
     def forward(self, x):
@@ -194,56 +191,43 @@ class BaseModel(nn.Module):
     @classmethod
     def build_model_from_args(cls, args):
         """Build a new model instance."""
-        raise NotImplementedError(
-            'Models must implement the build_model_from_args method')
+        raise NotImplementedError('Models must implement the build_model_from_args method')
 
 
 class GATNEModel(nn.Module):
 
-    def __init__(self, num_nodes, embedding_size, embedding_u_size,
-        edge_type_count, dim_a):
+    def __init__(self, num_nodes, embedding_size, embedding_u_size, edge_type_count, dim_a):
         super(GATNEModel, self).__init__()
         self.num_nodes = num_nodes
         self.embedding_size = embedding_size
         self.embedding_u_size = embedding_u_size
         self.edge_type_count = edge_type_count
         self.dim_a = dim_a
-        self.node_embeddings = Parameter(torch.FloatTensor(num_nodes,
-            embedding_size))
-        self.node_type_embeddings = Parameter(torch.FloatTensor(num_nodes,
-            edge_type_count, embedding_u_size))
-        self.trans_weights = Parameter(torch.FloatTensor(edge_type_count,
-            embedding_u_size, embedding_size))
-        self.trans_weights_s1 = Parameter(torch.FloatTensor(edge_type_count,
-            embedding_u_size, dim_a))
-        self.trans_weights_s2 = Parameter(torch.FloatTensor(edge_type_count,
-            dim_a, 1))
+        self.node_embeddings = Parameter(torch.FloatTensor(num_nodes, embedding_size))
+        self.node_type_embeddings = Parameter(torch.FloatTensor(num_nodes, edge_type_count, embedding_u_size))
+        self.trans_weights = Parameter(torch.FloatTensor(edge_type_count, embedding_u_size, embedding_size))
+        self.trans_weights_s1 = Parameter(torch.FloatTensor(edge_type_count, embedding_u_size, dim_a))
+        self.trans_weights_s2 = Parameter(torch.FloatTensor(edge_type_count, dim_a, 1))
         self.reset_parameters()
 
     def reset_parameters(self):
         self.node_embeddings.data.uniform_(-1.0, 1.0)
         self.node_type_embeddings.data.uniform_(-1.0, 1.0)
-        self.trans_weights.data.normal_(std=1.0 / math.sqrt(self.
-            embedding_size))
-        self.trans_weights_s1.data.normal_(std=1.0 / math.sqrt(self.
-            embedding_size))
-        self.trans_weights_s2.data.normal_(std=1.0 / math.sqrt(self.
-            embedding_size))
+        self.trans_weights.data.normal_(std=1.0 / math.sqrt(self.embedding_size))
+        self.trans_weights_s1.data.normal_(std=1.0 / math.sqrt(self.embedding_size))
+        self.trans_weights_s2.data.normal_(std=1.0 / math.sqrt(self.embedding_size))
 
     def forward(self, train_inputs, train_types, node_neigh):
         node_embed = self.node_embeddings[train_inputs]
         node_embed_neighbors = self.node_type_embeddings[node_neigh]
-        node_embed_tmp = torch.cat([node_embed_neighbors[:, (i), :, (i), :]
-            .unsqueeze(1) for i in range(self.edge_type_count)], dim=1)
+        node_embed_tmp = torch.cat([node_embed_neighbors[:, (i), :, (i), :].unsqueeze(1) for i in range(self.edge_type_count)], dim=1)
         node_type_embed = torch.sum(node_embed_tmp, dim=2)
         trans_w = self.trans_weights[train_types]
         trans_w_s1 = self.trans_weights_s1[train_types]
         trans_w_s2 = self.trans_weights_s2[train_types]
-        attention = F.softmax(torch.matmul(F.tanh(torch.matmul(
-            node_type_embed, trans_w_s1)), trans_w_s2).squeeze()).unsqueeze(1)
+        attention = F.softmax(torch.matmul(F.tanh(torch.matmul(node_type_embed, trans_w_s1)), trans_w_s2).squeeze()).unsqueeze(1)
         node_type_embed = torch.matmul(attention, node_type_embed)
-        node_embed = node_embed + torch.matmul(node_type_embed, trans_w
-            ).squeeze()
+        node_embed = node_embed + torch.matmul(node_type_embed, trans_w).squeeze()
         last_node_embed = F.normalize(node_embed, dim=1)
         return last_node_embed
 
@@ -256,9 +240,7 @@ class NSLoss(nn.Module):
         self.num_sampled = num_sampled
         self.embedding_size = embedding_size
         self.weights = Parameter(torch.FloatTensor(num_nodes, embedding_size))
-        self.sample_weights = F.normalize(torch.Tensor([((math.log(k + 2) -
-            math.log(k + 1)) / math.log(num_nodes + 1)) for k in range(
-            num_nodes)]), dim=0)
+        self.sample_weights = F.normalize(torch.Tensor([((math.log(k + 2) - math.log(k + 1)) / math.log(num_nodes + 1)) for k in range(num_nodes)]), dim=0)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -266,13 +248,10 @@ class NSLoss(nn.Module):
 
     def forward(self, input, embs, label):
         n = input.shape[0]
-        log_target = torch.log(torch.sigmoid(torch.sum(torch.mul(embs, self
-            .weights[label]), 1)))
-        negs = torch.multinomial(self.sample_weights, self.num_sampled * n,
-            replacement=True).view(n, self.num_sampled)
+        log_target = torch.log(torch.sigmoid(torch.sum(torch.mul(embs, self.weights[label]), 1)))
+        negs = torch.multinomial(self.sample_weights, self.num_sampled * n, replacement=True).view(n, self.num_sampled)
         noise = torch.neg(self.weights[negs])
-        sum_log_sampled = torch.sum(torch.log(torch.sigmoid(torch.bmm(noise,
-            embs.unsqueeze(2)))), 1).squeeze()
+        sum_log_sampled = torch.sum(torch.log(torch.sigmoid(torch.bmm(noise, embs.unsqueeze(2)))), 1).squeeze()
         loss = log_target + sum_log_sampled
         return -loss.sum() / n
 
@@ -298,8 +277,7 @@ class GraphAttentionLayer(nn.Module):
     def forward(self, input, adj):
         h = torch.mm(input, self.W)
         N = h.size()[0]
-        a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)
-            ], dim=1).view(N, -1, 2 * self.out_features)
+        a_input = torch.cat([h.repeat(1, N).view(N * N, -1), h.repeat(N, 1)], dim=1).view(N, -1, 2 * self.out_features)
         e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
         zero_vec = -9000000000000000.0 * torch.ones_like(e)
         attention = torch.where(adj > 0, e, zero_vec)
@@ -312,8 +290,7 @@ class GraphAttentionLayer(nn.Module):
             return h_prime
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class SpecialSpmmFunction(torch.autograd.Function):
@@ -369,12 +346,10 @@ class SpGraphAttentionLayer(nn.Module):
         N = input.size()[0]
         h = torch.mm(input, self.W)
         assert not torch.isnan(h).any()
-        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1
-            ).t()
+        edge_h = torch.cat((h[(edge[(0), :]), :], h[(edge[(1), :]), :]), dim=1).t()
         edge_e = torch.exp(-self.leakyrelu(self.a.mm(edge_h).squeeze()))
         assert not torch.isnan(edge_e).any()
-        e_rowsum = self.special_spmm(edge, edge_e, torch.Size([N, N]),
-            torch.ones(size=(N, 1)))
+        e_rowsum = self.special_spmm(edge, edge_e, torch.Size([N, N]), torch.ones(size=(N, 1)))
         edge_e = self.dropout(edge_e)
         h_prime = self.special_spmm(edge, edge_e, torch.Size([N, N]), h)
         assert not torch.isnan(h_prime).any()
@@ -386,8 +361,7 @@ class SpGraphAttentionLayer(nn.Module):
             return h_prime
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GraphConvolution(nn.Module):
@@ -413,8 +387,7 @@ class GraphConvolution(nn.Module):
             self.bias.data.normal_(-stdv, stdv)
 
     def forward(self, input, edge_index):
-        adj = torch.sparse_coo_tensor(edge_index, torch.ones(edge_index.
-            shape[1]).float(), (input.shape[0], input.shape[0]))
+        adj = torch.sparse_coo_tensor(edge_index, torch.ones(edge_index.shape[1]).float(), (input.shape[0], input.shape[0]))
         support = torch.mm(input, self.weight)
         output = torch.spmm(adj, support)
         if self.bias is not None:
@@ -423,8 +396,7 @@ class GraphConvolution(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GINLayer(nn.Module):
@@ -439,10 +411,8 @@ class GINLayer(nn.Module):
 
     def forward(self, x, edge_index, edge_weight=None):
         edge_index, _ = remove_self_loops(edge_index)
-        edge_weight = torch.ones(edge_index.shape[1]
-            ) if edge_weight is None else edge_weight
-        adj = torch.sparse_coo_tensor(edge_index, edge_weight, (x.shape[0],
-            x.shape[0]))
+        edge_weight = torch.ones(edge_index.shape[1]) if edge_weight is None else edge_weight
+        adj = torch.sparse_coo_tensor(edge_index, edge_weight, (x.shape[0], x.shape[0]))
         adj = adj
         out = (1 + self.eps) * x + torch.spmm(adj, x)
         if self.apply_func is not None:
@@ -452,8 +422,7 @@ class GINLayer(nn.Module):
 
 class GINMLP(nn.Module):
 
-    def __init__(self, in_feats, out_feats, hidden_dim, num_layers, use_bn=
-        True, activation=None):
+    def __init__(self, in_feats, out_feats, hidden_dim, num_layers, use_bn=True, activation=None):
         super(GINMLP, self).__init__()
         self.use_bn = use_bn
         self.nn = nn.ModuleList()
@@ -489,8 +458,7 @@ class SUPEncoder(torch.nn.Module):
     def __init__(self, num_features, dim, num_layers=1):
         super(SUPEncoder, self).__init__()
         self.lin0 = torch.nn.Linear(num_features, dim)
-        nnu = nn.Sequential(nn.Linear(5, 128), nn.ReLU(), nn.Linear(128, 
-            dim * dim))
+        nnu = nn.Sequential(nn.Linear(5, 128), nn.ReLU(), nn.Linear(128, dim * dim))
         self.conv = NNConv(dim, dim, nnu, aggr='mean', root_weight=False)
         self.gru = nn.GRU(dim, dim)
         self.set2set = Set2Set(dim, processing_steps=3)
@@ -510,19 +478,16 @@ class SUPEncoder(torch.nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, in_feats, hidden_dim, num_layers=3, num_mlp_layers=2,
-        pooling='sum'):
+    def __init__(self, in_feats, hidden_dim, num_layers=3, num_mlp_layers=2, pooling='sum'):
         super(Encoder, self).__init__()
         self.num_layers = num_layers
         self.gnn_layers = nn.ModuleList()
         self.bn_layers = nn.ModuleList()
         for i in range(num_layers):
             if i == 0:
-                mlp = GINMLP(in_feats, hidden_dim, hidden_dim,
-                    num_mlp_layers, use_bn=True)
+                mlp = GINMLP(in_feats, hidden_dim, hidden_dim, num_mlp_layers, use_bn=True)
             else:
-                mlp = GINMLP(hidden_dim, hidden_dim, hidden_dim,
-                    num_mlp_layers, use_bn=True)
+                mlp = GINMLP(hidden_dim, hidden_dim, hidden_dim, num_mlp_layers, use_bn=True)
             self.gnn_layers.append(GINLayer(mlp, eps=0, train_eps=True))
             self.bn_layers.append(nn.BatchNorm1d(hidden_dim))
         if pooling == 'sum':
@@ -547,8 +512,7 @@ class FF(nn.Module):
 
     def __init__(self, in_feats, out_feats):
         super(FF, self).__init__()
-        self.block = GINMLP(in_feats, out_feats, out_feats, num_layers=3,
-            use_bn=False)
+        self.block = GINMLP(in_feats, out_feats, out_feats, num_layers=3, use_bn=False)
         self.shortcut = nn.Linear(in_feats, out_feats)
 
     def forward(self, x):
@@ -572,17 +536,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FF,
+     lambda: ([], {'in_feats': 4, 'out_feats': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GINMLP,
+     lambda: ([], {'in_feats': 4, 'out_feats': 4, 'hidden_dim': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GraphAttentionLayer,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_THUDM_cogdl(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FF(*[], **{'in_feats': 4, 'out_feats': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GINMLP(*[], **{'in_feats': 4, 'out_feats': 4, 'hidden_dim': 4, 'num_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GraphAttentionLayer(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,23 +54,15 @@ from numpy.linalg import inv
 
 
 def conv_layer(input_channels, output_channels, kernel_size):
-    return nn.Sequential(nn.Conv2d(input_channels, output_channels,
-        kernel_size, padding=(kernel_size - 1) / 2, bias=False), nn.
-        BatchNorm2d(output_channels), nn.ReLU())
+    return nn.Sequential(nn.Conv2d(input_channels, output_channels, kernel_size, padding=(kernel_size - 1) / 2, bias=False), nn.BatchNorm2d(output_channels), nn.ReLU())
 
 
 def depth_layer(input_channels):
-    return nn.Sequential(nn.Conv2d(input_channels, 1, 3, padding=1), nn.
-        Sigmoid())
+    return nn.Sequential(nn.Conv2d(input_channels, 1, 3, padding=1), nn.Sigmoid())
 
 
 def down_conv_layer(input_channels, output_channels, kernel_size):
-    return nn.Sequential(nn.Conv2d(input_channels, output_channels,
-        kernel_size, padding=(kernel_size - 1) / 2, stride=1, bias=False),
-        nn.BatchNorm2d(output_channels), nn.ReLU(), nn.Conv2d(
-        output_channels, output_channels, kernel_size, padding=(kernel_size -
-        1) / 2, stride=2, bias=False), nn.BatchNorm2d(output_channels), nn.
-        ReLU())
+    return nn.Sequential(nn.Conv2d(input_channels, output_channels, kernel_size, padding=(kernel_size - 1) / 2, stride=1, bias=False), nn.BatchNorm2d(output_channels), nn.ReLU(), nn.Conv2d(output_channels, output_channels, kernel_size, padding=(kernel_size - 1) / 2, stride=2, bias=False), nn.BatchNorm2d(output_channels), nn.ReLU())
 
 
 def get_trainable_number(variable):
@@ -81,10 +74,7 @@ def get_trainable_number(variable):
 
 
 def up_conv_layer(input_channels, output_channels, kernel_size):
-    return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), nn.
-        Conv2d(input_channels, output_channels, kernel_size, padding=(
-        kernel_size - 1) / 2, bias=False), nn.BatchNorm2d(output_channels),
-        nn.ReLU())
+    return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), nn.Conv2d(input_channels, output_channels, kernel_size, padding=(kernel_size - 1) / 2, bias=False), nn.BatchNorm2d(output_channels), nn.ReLU())
 
 
 class depthNet(nn.Module):
@@ -134,13 +124,11 @@ class depthNet(nn.Module):
     def getVolume(self, left_image, right_image, KRKiUV_T, KT_T):
         idepth_base = 1.0 / 50.0
         idepth_step = (1.0 / 0.5 - 1.0 / 50.0) / 63.0
-        costvolume = Variable(torch.FloatTensor(left_image.shape[0], 64,
-            left_image.shape[2], left_image.shape[3]))
+        costvolume = Variable(torch.FloatTensor(left_image.shape[0], 64, left_image.shape[2], left_image.shape[3]))
         image_height = 256
         image_width = 320
         batch_number = left_image.shape[0]
-        normalize_base = torch.FloatTensor([image_width / 2.0, image_height /
-            2.0])
+        normalize_base = torch.FloatTensor([image_width / 2.0, image_height / 2.0])
         normalize_base = normalize_base.unsqueeze(0).unsqueeze(-1)
         for depth_i in range(64):
             this_depth = 1.0 / (idepth_base + depth_i * idepth_step)
@@ -151,13 +139,11 @@ class depthNet(nn.Module):
             warp_uv = warp_uv.view(batch_number, 2, image_width, image_height)
             warp_uv = Variable(warp_uv.permute(0, 3, 2, 1))
             warped = F.grid_sample(right_image, warp_uv)
-            costvolume[:, (depth_i), :, :] = torch.sum(torch.abs(warped -
-                left_image), dim=1)
+            costvolume[:, (depth_i), :, :] = torch.sum(torch.abs(warped - left_image), dim=1)
         return costvolume
 
     def forward(self, left_image, right_image, KRKiUV_T, KT_T):
-        plane_sweep_volume = self.getVolume(left_image, right_image,
-            KRKiUV_T, KT_T)
+        plane_sweep_volume = self.getVolume(left_image, right_image, KRKiUV_T, KT_T)
         x = torch.cat((left_image, plane_sweep_volume), 1)
         conv1 = self.conv1(x)
         conv2 = self.conv2(conv1)
@@ -183,10 +169,3 @@ class depthNet(nn.Module):
         disp1 = 2.0 * self.disp1(iconv1)
         return [disp1, disp2, disp3, disp4]
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_HKUST_Aerial_Robotics_MVDepthNet(_paritybench_base):
-    pass

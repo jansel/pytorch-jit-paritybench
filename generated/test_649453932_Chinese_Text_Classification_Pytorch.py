@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,15 +53,11 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
-        self.conv_region = nn.Conv2d(1, config.num_filters, (3, config.
-            embed), stride=1)
-        self.conv = nn.Conv2d(config.num_filters, config.num_filters, (3, 1
-            ), stride=1)
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        self.conv_region = nn.Conv2d(1, config.num_filters, (3, config.embed), stride=1)
+        self.conv = nn.Conv2d(config.num_filters, config.num_filters, (3, 1), stride=1)
         self.max_pool = nn.MaxPool2d(kernel_size=(3, 1), stride=2)
         self.padding1 = nn.ZeroPad2d((0, 0, 1, 1))
         self.padding2 = nn.ZeroPad2d((0, 0, 0, 1))
@@ -102,11 +99,9 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
         self.embedding_ngram2 = nn.Embedding(config.n_gram_vocab, config.embed)
         self.embedding_ngram3 = nn.Embedding(config.n_gram_vocab, config.embed)
         self.dropout = nn.Dropout(config.dropout)
@@ -131,16 +126,12 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
-        self.convs = nn.ModuleList([nn.Conv2d(1, config.num_filters, (k,
-            config.embed)) for k in config.filter_sizes])
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        self.convs = nn.ModuleList([nn.Conv2d(1, config.num_filters, (k, config.embed)) for k in config.filter_sizes])
         self.dropout = nn.Dropout(config.dropout)
-        self.fc = nn.Linear(config.num_filters * len(config.filter_sizes),
-            config.num_classes)
+        self.fc = nn.Linear(config.num_filters * len(config.filter_sizes), config.num_classes)
 
     def conv_and_pool(self, x, conv):
         x = F.relu(conv(x)).squeeze(3)
@@ -150,8 +141,7 @@ class Model(nn.Module):
     def forward(self, x):
         out = self.embedding(x[0])
         out = out.unsqueeze(1)
-        out = torch.cat([self.conv_and_pool(out, conv) for conv in self.
-            convs], 1)
+        out = torch.cat([self.conv_and_pool(out, conv) for conv in self.convs], 1)
         out = self.dropout(out)
         out = self.fc(out)
         return out
@@ -162,17 +152,12 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
-        self.lstm = nn.LSTM(config.embed, config.hidden_size, config.
-            num_layers, bidirectional=True, batch_first=True, dropout=
-            config.dropout)
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        self.lstm = nn.LSTM(config.embed, config.hidden_size, config.num_layers, bidirectional=True, batch_first=True, dropout=config.dropout)
         self.maxpool = nn.MaxPool1d(config.pad_size)
-        self.fc = nn.Linear(config.hidden_size * 2 + config.embed, config.
-            num_classes)
+        self.fc = nn.Linear(config.hidden_size * 2 + config.embed, config.num_classes)
 
     def forward(self, x):
         x, _ = x
@@ -191,14 +176,10 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
-        self.lstm = nn.LSTM(config.embed, config.hidden_size, config.
-            num_layers, bidirectional=True, batch_first=True, dropout=
-            config.dropout)
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        self.lstm = nn.LSTM(config.embed, config.hidden_size, config.num_layers, bidirectional=True, batch_first=True, dropout=config.dropout)
         self.fc = nn.Linear(config.hidden_size * 2, config.num_classes)
 
     def forward(self, x):
@@ -215,14 +196,10 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
-        self.lstm = nn.LSTM(config.embed, config.hidden_size, config.
-            num_layers, bidirectional=True, batch_first=True, dropout=
-            config.dropout)
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        self.lstm = nn.LSTM(config.embed, config.hidden_size, config.num_layers, bidirectional=True, batch_first=True, dropout=config.dropout)
         self.tanh1 = nn.Tanh()
         self.w = nn.Parameter(torch.zeros(config.hidden_size * 2))
         self.tanh2 = nn.Tanh()
@@ -248,19 +225,13 @@ class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
         if config.embedding_pretrained is not None:
-            self.embedding = nn.Embedding.from_pretrained(config.
-                embedding_pretrained, freeze=False)
+            self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
-            self.embedding = nn.Embedding(config.n_vocab, config.embed,
-                padding_idx=config.n_vocab - 1)
-        self.postion_embedding = Positional_Encoding(config.embed, config.
-            pad_size, config.dropout, config.device)
-        self.encoder = Encoder(config.dim_model, config.num_head, config.
-            hidden, config.dropout)
-        self.encoders = nn.ModuleList([copy.deepcopy(self.encoder) for _ in
-            range(config.num_encoder)])
-        self.fc1 = nn.Linear(config.pad_size * config.dim_model, config.
-            num_classes)
+            self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        self.postion_embedding = Positional_Encoding(config.embed, config.pad_size, config.dropout, config.device)
+        self.encoder = Encoder(config.dim_model, config.num_head, config.hidden, config.dropout)
+        self.encoders = nn.ModuleList([copy.deepcopy(self.encoder) for _ in range(config.num_encoder)])
+        self.fc1 = nn.Linear(config.pad_size * config.dim_model, config.num_classes)
 
     def forward(self, x):
         out = self.embedding(x[0])
@@ -277,8 +248,7 @@ class Encoder(nn.Module):
     def __init__(self, dim_model, num_head, hidden, dropout):
         super(Encoder, self).__init__()
         self.attention = Multi_Head_Attention(dim_model, num_head, dropout)
-        self.feed_forward = Position_wise_Feed_Forward(dim_model, hidden,
-            dropout)
+        self.feed_forward = Position_wise_Feed_Forward(dim_model, hidden, dropout)
 
     def forward(self, x):
         out = self.attention(x)
@@ -291,8 +261,7 @@ class Positional_Encoding(nn.Module):
     def __init__(self, embed, pad_size, dropout, device):
         super(Positional_Encoding, self).__init__()
         self.device = device
-        self.pe = torch.tensor([[(pos / 10000.0 ** (i // 2 * 2.0 / embed)) for
-            i in range(embed)] for pos in range(pad_size)])
+        self.pe = torch.tensor([[(pos / 10000.0 ** (i // 2 * 2.0 / embed)) for i in range(embed)] for pos in range(pad_size)])
         self.pe[:, 0::2] = np.sin(self.pe[:, 0::2])
         self.pe[:, 1::2] = np.cos(self.pe[:, 1::2])
         self.dropout = nn.Dropout(dropout)
@@ -383,24 +352,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Encoder(*[], **{'dim_model': 4, 'num_head': 4, 'hidden': 4, 'dropout': 0.5}), [torch.rand([4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Encoder,
+     lambda: ([], {'dim_model': 4, 'num_head': 4, 'hidden': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Multi_Head_Attention,
+     lambda: ([], {'dim_model': 4, 'num_head': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Position_wise_Feed_Forward,
+     lambda: ([], {'dim_model': 4, 'hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Positional_Encoding,
+     lambda: ([], {'embed': 4, 'pad_size': 4, 'dropout': 0.5, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Scaled_Dot_Product_Attention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_649453932_Chinese_Text_Classification_Pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Multi_Head_Attention(*[], **{'dim_model': 4, 'num_head': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Position_wise_Feed_Forward(*[], **{'dim_model': 4, 'hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Positional_Encoding(*[], **{'embed': 4, 'pad_size': 4, 'dropout': 0.5, 'device': 0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Scaled_Dot_Product_Attention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

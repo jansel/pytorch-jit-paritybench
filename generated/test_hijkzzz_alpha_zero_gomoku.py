@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -48,8 +49,7 @@ import numpy as np
 
 
 def conv3x3(in_channels, out_channels, stride=1):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=1, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResidualBlock(nn.Module):
@@ -64,8 +64,7 @@ class ResidualBlock(nn.Module):
         self.downsample = False
         if in_channels != out_channels or stride != 1:
             self.downsample = True
-            self.downsample_conv = conv3x3(in_channels, out_channels,
-                stride=stride)
+            self.downsample_conv = conv3x3(in_channels, out_channels, stride=stride)
             self.downsample_bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -89,17 +88,14 @@ class NeuralNetWork(nn.Module):
 
     def __init__(self, num_layers, num_channels, n, action_size):
         super(NeuralNetWork, self).__init__()
-        res_list = [ResidualBlock(3, num_channels)] + [ResidualBlock(
-            num_channels, num_channels) for _ in range(num_layers - 1)]
+        res_list = [ResidualBlock(3, num_channels)] + [ResidualBlock(num_channels, num_channels) for _ in range(num_layers - 1)]
         self.res_layers = nn.Sequential(*res_list)
-        self.p_conv = nn.Conv2d(num_channels, 4, kernel_size=1, padding=0,
-            bias=False)
+        self.p_conv = nn.Conv2d(num_channels, 4, kernel_size=1, padding=0, bias=False)
         self.p_bn = nn.BatchNorm2d(num_features=4)
         self.relu = nn.ReLU(inplace=True)
         self.p_fc = nn.Linear(4 * n ** 2, action_size)
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.v_conv = nn.Conv2d(num_channels, 2, kernel_size=1, padding=0,
-            bias=False)
+        self.v_conv = nn.Conv2d(num_channels, 2, kernel_size=1, padding=0, bias=False)
         self.v_bn = nn.BatchNorm2d(num_features=2)
         self.v_fc1 = nn.Linear(2 * n ** 2, 256)
         self.v_fc2 = nn.Linear(256, 1)
@@ -148,12 +144,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_hijkzzz_alpha_zero_gomoku(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(AlphaLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlphaLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NeuralNetWork,
+     lambda: ([], {'num_layers': 1, 'num_channels': 4, 'n': 4, 'action_size': 4}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_hijkzzz_alpha_zero_gomoku(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

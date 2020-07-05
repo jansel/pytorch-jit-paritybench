@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -103,20 +104,16 @@ class CompletionNetwork(nn.Module):
         self.conv6 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.bn6 = nn.BatchNorm2d(256)
         self.act6 = nn.ReLU()
-        self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=
-            2, padding=2)
+        self.conv7 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=2, padding=2)
         self.bn7 = nn.BatchNorm2d(256)
         self.act7 = nn.ReLU()
-        self.conv8 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=
-            4, padding=4)
+        self.conv8 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=4, padding=4)
         self.bn8 = nn.BatchNorm2d(256)
         self.act8 = nn.ReLU()
-        self.conv9 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=
-            8, padding=8)
+        self.conv9 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=8, padding=8)
         self.bn9 = nn.BatchNorm2d(256)
         self.act9 = nn.ReLU()
-        self.conv10 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation
-            =16, padding=16)
+        self.conv10 = nn.Conv2d(256, 256, kernel_size=3, stride=1, dilation=16, padding=16)
         self.bn10 = nn.BatchNorm2d(256)
         self.act10 = nn.ReLU()
         self.conv11 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
@@ -125,15 +122,13 @@ class CompletionNetwork(nn.Module):
         self.conv12 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.bn12 = nn.BatchNorm2d(256)
         self.act12 = nn.ReLU()
-        self.deconv13 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=
-            2, padding=1)
+        self.deconv13 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
         self.bn13 = nn.BatchNorm2d(128)
         self.act13 = nn.ReLU()
         self.conv14 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
         self.bn14 = nn.BatchNorm2d(128)
         self.act14 = nn.ReLU()
-        self.deconv15 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2,
-            padding=1)
+        self.deconv15 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
         self.bn15 = nn.BatchNorm2d(64)
         self.act15 = nn.ReLU()
         self.conv16 = nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1)
@@ -172,8 +167,7 @@ class LocalDiscriminator(nn.Module):
         self.img_c = input_shape[0]
         self.img_h = input_shape[1]
         self.img_w = input_shape[2]
-        self.conv1 = nn.Conv2d(self.img_c, 64, kernel_size=5, stride=2,
-            padding=2)
+        self.conv1 = nn.Conv2d(self.img_c, 64, kernel_size=5, stride=2, padding=2)
         self.bn1 = nn.BatchNorm2d(64)
         self.act1 = nn.ReLU()
         self.conv2 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2)
@@ -213,8 +207,7 @@ class GlobalDiscriminator(nn.Module):
         self.img_c = input_shape[0]
         self.img_h = input_shape[1]
         self.img_w = input_shape[2]
-        self.conv1 = nn.Conv2d(self.img_c, 64, kernel_size=5, stride=2,
-            padding=2)
+        self.conv1 = nn.Conv2d(self.img_c, 64, kernel_size=5, stride=2, padding=2)
         self.bn1 = nn.BatchNorm2d(64)
         self.act1 = nn.ReLU()
         self.conv2 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2)
@@ -235,8 +228,7 @@ class GlobalDiscriminator(nn.Module):
             self.linear6 = nn.Linear(in_features, 1024)
             self.act6 = nn.ReLU()
         elif arc == 'places2':
-            self.conv6 = nn.Conv2d(512, 512, kernel_size=5, stride=2, padding=2
-                )
+            self.conv6 = nn.Conv2d(512, 512, kernel_size=5, stride=2, padding=2)
             self.bn6 = nn.BatchNorm2d(512)
             self.act6 = nn.ReLU()
             in_features = 512 * (self.img_h // 64) * (self.img_w // 64)
@@ -269,8 +261,7 @@ class ContextDiscriminator(nn.Module):
         self.output_shape = 1,
         self.model_ld = LocalDiscriminator(local_input_shape)
         self.model_gd = GlobalDiscriminator(global_input_shape, arc=arc)
-        in_features = self.model_ld.output_shape[-1
-            ] + self.model_gd.output_shape[-1]
+        in_features = self.model_ld.output_shape[-1] + self.model_gd.output_shape[-1]
         self.concat1 = Concatenate(dim=-1)
         self.linear1 = nn.Linear(in_features, 1)
         self.act1 = nn.Sigmoid()
@@ -287,11 +278,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CompletionNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_otenim_GLCIC_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CompletionNetwork(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

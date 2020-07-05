@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -48,19 +49,16 @@ class EinopsError(RuntimeError):
     pass
 
 
-def _optimize_transformation(init_shapes, reduced_axes, axes_reordering,
-    final_shapes):
+def _optimize_transformation(init_shapes, reduced_axes, axes_reordering, final_shapes):
     assert len(axes_reordering) + len(reduced_axes) == len(init_shapes)
     reduced_axes = tuple(sorted(reduced_axes))
     for i in range(len(reduced_axes) - 1)[::-1]:
         if reduced_axes[i] + 1 == reduced_axes[i + 1]:
             removed_axis = reduced_axes[i + 1]
             removed_length = init_shapes[removed_axis]
-            init_shapes = init_shapes[:removed_axis] + init_shapes[
-                removed_axis + 1:]
+            init_shapes = init_shapes[:removed_axis] + init_shapes[removed_axis + 1:]
             init_shapes[removed_axis - 1] *= removed_length
-            reduced_axes = reduced_axes[:i + 1] + tuple(axis - 1 for axis in
-                reduced_axes[i + 2:])
+            reduced_axes = reduced_axes[:i + 1] + tuple(axis - 1 for axis in reduced_axes[i + 2:])
 
     def build_mapping():
         init_to_final = {}
@@ -68,10 +66,8 @@ def _optimize_transformation(init_shapes, reduced_axes, axes_reordering,
             if axis in reduced_axes:
                 init_to_final[axis] = None
             else:
-                after_reduction = sum(x is not None for x in init_to_final.
-                    values())
-                init_to_final[axis] = list(axes_reordering).index(
-                    after_reduction)
+                after_reduction = sum(x is not None for x in init_to_final.values())
+                init_to_final[axis] = list(axes_reordering).index(after_reduction)
         return init_to_final
     init_axis_to_final_axis = build_mapping()
     for init_axis in range(len(init_shapes) - 1)[::-1]:
@@ -79,16 +75,12 @@ def _optimize_transformation(init_shapes, reduced_axes, axes_reordering,
             continue
         if init_axis_to_final_axis[init_axis + 1] is None:
             continue
-        if init_axis_to_final_axis[init_axis] + 1 == init_axis_to_final_axis[
-            init_axis + 1]:
+        if init_axis_to_final_axis[init_axis] + 1 == init_axis_to_final_axis[init_axis + 1]:
             removed_axis = init_axis + 1
             removed_length = init_shapes[removed_axis]
-            removed_axis_after_reduction = sum(x not in reduced_axes for x in
-                range(removed_axis))
-            reduced_axes = tuple(axis if axis < removed_axis else axis - 1 for
-                axis in reduced_axes)
-            init_shapes = init_shapes[:removed_axis] + init_shapes[
-                removed_axis + 1:]
+            removed_axis_after_reduction = sum(x not in reduced_axes for x in range(removed_axis))
+            reduced_axes = tuple(axis if axis < removed_axis else axis - 1 for axis in reduced_axes)
+            init_shapes = init_shapes[:removed_axis] + init_shapes[removed_axis + 1:]
             init_shapes[removed_axis - 1] *= removed_length
             old_reordering = axes_reordering
             axes_reordering = []
@@ -122,20 +114,16 @@ class AbstractBackend:
         raise NotImplementedError()
 
     def from_numpy(self, x):
-        raise NotImplementedError(
-            "framework doesn't support imperative execution")
+        raise NotImplementedError("framework doesn't support imperative execution")
 
     def to_numpy(self, x):
-        raise NotImplementedError(
-            "framework doesn't support imperative execution")
+        raise NotImplementedError("framework doesn't support imperative execution")
 
     def create_symbol(self, shape):
-        raise NotImplementedError(
-            "framework doesn't support symbolic computations")
+        raise NotImplementedError("framework doesn't support symbolic computations")
 
     def eval_symbol(self, symbol, input_dict):
-        raise NotImplementedError(
-            "framework doesn't support symbolic computations")
+        raise NotImplementedError("framework doesn't support symbolic computations")
 
     def arange(self, start, stop):
         raise NotImplementedError("framework doesn't implement arange")
@@ -206,8 +194,7 @@ def get_backend(tensor) ->'AbstractBackend':
         if BackendSubclass.framework_name not in _backends:
             if BackendSubclass.framework_name in sys.modules:
                 if _debug_importing:
-                    print('Imported backend for ', BackendSubclass.
-                        framework_name)
+                    print('Imported backend for ', BackendSubclass.framework_name)
                 backend = BackendSubclass()
                 _backends[backend.framework_name] = backend
                 if backend.is_appropriate_type(tensor):
@@ -231,10 +218,3 @@ def _check_elementary_axis_name(name: str) ->bool:
 
 _ellipsis = '…'
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_arogozhnikov_einops(_paritybench_base):
-    pass

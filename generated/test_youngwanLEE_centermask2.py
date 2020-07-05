@@ -40,8 +40,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -122,9 +123,7 @@ class _NewEmptyTensorOp(torch.autograd.Function):
 class DFConv2d(nn.Module):
     """Deformable convolutional layer"""
 
-    def __init__(self, in_channels, out_channels, with_modulated_dcn=True,
-        kernel_size=3, stride=1, groups=1, dilation=1, deformable_groups=1,
-        bias=False, padding=None):
+    def __init__(self, in_channels, out_channels, with_modulated_dcn=True, kernel_size=3, stride=1, groups=1, dilation=1, deformable_groups=1, bias=False, padding=None):
         super(DFConv2d, self).__init__()
         if isinstance(kernel_size, (list, tuple)):
             assert isinstance(stride, (list, tuple))
@@ -132,8 +131,7 @@ class DFConv2d(nn.Module):
             assert len(kernel_size) == 2
             assert len(stride) == 2
             assert len(dilation) == 2
-            padding = dilation[0] * (kernel_size[0] - 1) // 2, dilation[1] * (
-                kernel_size[1] - 1) // 2
+            padding = dilation[0] * (kernel_size[0] - 1) // 2, dilation[1] * (kernel_size[1] - 1) // 2
             offset_base_channels = kernel_size[0] * kernel_size[1]
         else:
             padding = dilation * (kernel_size - 1) // 2
@@ -144,15 +142,11 @@ class DFConv2d(nn.Module):
         else:
             offset_channels = offset_base_channels * 2
             conv_block = DeformConv
-        self.offset = Conv2d(in_channels, deformable_groups *
-            offset_channels, kernel_size=kernel_size, stride=stride,
-            padding=padding, groups=1, dilation=dilation)
+        self.offset = Conv2d(in_channels, deformable_groups * offset_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=1, dilation=dilation)
         for l in [self.offset]:
             nn.init.kaiming_uniform_(l.weight, a=1)
             torch.nn.init.constant_(l.bias, 0.0)
-        self.conv = conv_block(in_channels, out_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, deformable_groups=deformable_groups, bias=bias)
+        self.conv = conv_block(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, deformable_groups=deformable_groups, bias=bias)
         self.with_modulated_dcn = with_modulated_dcn
         self.kernel_size = kernel_size
         self.stride = stride
@@ -173,9 +167,7 @@ class DFConv2d(nn.Module):
             if return_offset:
                 return x, offset_mask
             return x
-        output_shape = [((i + 2 * p - (di * (k - 1) + 1)) // d + 1) for i,
-            p, di, k, d in zip(x.shape[-2:], self.padding, self.dilation,
-            self.kernel_size, self.stride)]
+        output_shape = [((i + 2 * p - (di * (k - 1) + 1)) // d + 1) for i, p, di, k, d in zip(x.shape[-2:], self.padding, self.dilation, self.kernel_size, self.stride)]
         output_shape = [x.shape[0], self.conv.weight.shape[0]] + output_shape
         return _NewEmptyTensorOp.apply(x, output_shape)
 
@@ -195,17 +187,12 @@ class IOULoss(nn.Module):
         target_top = target[:, (1)]
         target_right = target[:, (2)]
         target_bottom = target[:, (3)]
-        target_aera = (target_left + target_right) * (target_top +
-            target_bottom)
+        target_aera = (target_left + target_right) * (target_top + target_bottom)
         pred_aera = (pred_left + pred_right) * (pred_top + pred_bottom)
-        w_intersect = torch.min(pred_left, target_left) + torch.min(pred_right,
-            target_right)
-        h_intersect = torch.min(pred_bottom, target_bottom) + torch.min(
-            pred_top, target_top)
-        g_w_intersect = torch.max(pred_left, target_left) + torch.max(
-            pred_right, target_right)
-        g_h_intersect = torch.max(pred_bottom, target_bottom) + torch.max(
-            pred_top, target_top)
+        w_intersect = torch.min(pred_left, target_left) + torch.min(pred_right, target_right)
+        h_intersect = torch.min(pred_bottom, target_bottom) + torch.min(pred_top, target_top)
+        g_w_intersect = torch.max(pred_left, target_left) + torch.max(pred_right, target_right)
+        g_h_intersect = torch.max(pred_bottom, target_bottom) + torch.max(pred_top, target_top)
         ac_uion = g_w_intersect * g_h_intersect
         area_intersect = w_intersect * h_intersect
         area_union = target_aera + pred_aera - area_intersect
@@ -236,9 +223,7 @@ class MaxPool2d(torch.nn.MaxPool2d):
 
     def forward(self, x):
         if x.numel() == 0:
-            output_shape = [((i + 2 * p - (di * (k - 1) + 1)) // s + 1) for
-                i, p, di, k, s in zip(x.shape[-2:], self.padding, self.
-                dilation, self.kernel_size, self.stride)]
+            output_shape = [((i + 2 * p - (di * (k - 1) + 1)) // s + 1) for i, p, di, k, s in zip(x.shape[-2:], self.padding, self.dilation, self.kernel_size, self.stride)]
             output_shape = [x.shape[0], x.shape[1]] + output_shape
             empty = _NewEmptyTensorOp.apply(x, output_shape)
             return empty
@@ -326,18 +311,9 @@ class InvertedResidual(nn.Module):
         hidden_dim = int(round(inp * expand_ratio))
         self.use_res_connect = self.stride == 1 and inp == oup
         if expand_ratio == 1:
-            self.conv = nn.Sequential(Conv2d(hidden_dim, hidden_dim, 3,
-                stride, 1, groups=hidden_dim, bias=False),
-                FrozenBatchNorm2d(hidden_dim), nn.ReLU6(inplace=True),
-                Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
-                FrozenBatchNorm2d(oup))
+            self.conv = nn.Sequential(Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), FrozenBatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), FrozenBatchNorm2d(oup))
         else:
-            self.conv = nn.Sequential(Conv2d(inp, hidden_dim, 1, 1, 0, bias
-                =False), FrozenBatchNorm2d(hidden_dim), nn.ReLU6(inplace=
-                True), Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=
-                hidden_dim, bias=False), FrozenBatchNorm2d(hidden_dim), nn.
-                ReLU6(inplace=True), Conv2d(hidden_dim, oup, 1, 1, 0, bias=
-                False), FrozenBatchNorm2d(oup))
+            self.conv = nn.Sequential(Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), FrozenBatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), FrozenBatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), FrozenBatchNorm2d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -351,8 +327,7 @@ _NORM = False
 
 class DFConv3x3(nn.Module):
 
-    def __init__(self, in_channels, out_channels, module_name, postfix,
-        dilation=1, groups=1, with_modulated_dcn=None, deformable_groups=1):
+    def __init__(self, in_channels, out_channels, module_name, postfix, dilation=1, groups=1, with_modulated_dcn=None, deformable_groups=1):
         super(DFConv3x3, self).__init__()
         self.module_names = []
         self.with_modulated_dcn = with_modulated_dcn
@@ -364,19 +339,14 @@ class DFConv3x3(nn.Module):
             offset_channels = 18
         unit_name = f'{module_name}_{postfix}/conv_offset'
         self.module_names.append(unit_name)
-        self.add_module(unit_name, Conv2d(in_channels, offset_channels *
-            deformable_groups, kernel_size=3, stride=1, padding=1 *
-            dilation, dilation=dilation))
+        self.add_module(unit_name, Conv2d(in_channels, offset_channels * deformable_groups, kernel_size=3, stride=1, padding=1 * dilation, dilation=dilation))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.constant_(m.weight, 0)
                 nn.init.constant_(m.bias, 0)
         unit_name = f'{module_name}_{postfix}/conv'
         self.module_names.append(unit_name)
-        self.add_module(f'{module_name}_{postfix}/conv', deform_conv_op(
-            in_channels, out_channels, kernel_size=3, stride=1, padding=1 *
-            dilation, bias=False, groups=groups, dilation=1,
-            deformable_groups=deformable_groups))
+        self.add_module(f'{module_name}_{postfix}/conv', deform_conv_op(in_channels, out_channels, kernel_size=3, stride=1, padding=1 * dilation, bias=False, groups=groups, dilation=1, deformable_groups=deformable_groups))
         unit_name = f'{module_name}_{postfix}/norm'
         self.module_names.append(unit_name)
         self.add_module(unit_name, get_norm(_NORM, out_channels))
@@ -420,43 +390,24 @@ class eSEModule(nn.Module):
         return input * x
 
 
-def conv1x1(in_channels, out_channels, module_name, postfix, stride=1,
-    groups=1, kernel_size=1, padding=0):
+def conv1x1(in_channels, out_channels, module_name, postfix, stride=1, groups=1, kernel_size=1, padding=0):
     """1x1 convolution with padding"""
-    return [(f'{module_name}_{postfix}/conv', nn.Conv2d(in_channels,
-        out_channels, kernel_size=kernel_size, stride=stride, padding=
-        padding, groups=groups, bias=False)), (
-        f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (
-        f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
+    return [(f'{module_name}_{postfix}/conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False)), (f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
 
 
-def conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
-    groups=1, kernel_size=3, padding=1):
+def conv3x3(in_channels, out_channels, module_name, postfix, stride=1, groups=1, kernel_size=3, padding=1):
     """3x3 convolution with padding"""
-    return [(f'{module_name}_{postfix}/conv', nn.Conv2d(in_channels,
-        out_channels, kernel_size=kernel_size, stride=stride, padding=
-        padding, groups=groups, bias=False)), (
-        f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (
-        f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
+    return [(f'{module_name}_{postfix}/conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False)), (f'{module_name}_{postfix}/norm', get_norm(_NORM, out_channels)), (f'{module_name}_{postfix}/relu', nn.ReLU(inplace=True))]
 
 
-def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1,
-    kernel_size=3, padding=1):
+def dw_conv3x3(in_channels, out_channels, module_name, postfix, stride=1, kernel_size=3, padding=1):
     """3x3 convolution with padding"""
-    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=kernel_size, stride=stride,
-        padding=padding, groups=out_channels, bias=False)), (
-        '{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(
-        in_channels, out_channels, kernel_size=1, stride=1, padding=0,
-        groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name,
-        postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(
-        module_name, postfix), nn.ReLU(inplace=True))]
+    return [('{}_{}/dw_conv3x3'.format(module_name, postfix), nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=out_channels, bias=False)), ('{}_{}/pw_conv1x1'.format(module_name, postfix), nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, groups=1, bias=False)), ('{}_{}/pw_norm'.format(module_name, postfix), get_norm(_NORM, out_channels)), ('{}_{}/pw_relu'.format(module_name, postfix), nn.ReLU(inplace=True))]
 
 
 class _OSA_module(nn.Module):
 
-    def __init__(self, in_ch, stage_ch, concat_ch, layer_per_block,
-        module_name, SE=False, identity=False, depthwise=False, dcn_config={}):
+    def __init__(self, in_ch, stage_ch, concat_ch, layer_per_block, module_name, SE=False, identity=False, depthwise=False, dcn_config={}):
         super(_OSA_module, self).__init__()
         self.identity = identity
         self.depthwise = depthwise
@@ -465,28 +416,20 @@ class _OSA_module(nn.Module):
         in_channel = in_ch
         if self.depthwise and in_channel != stage_ch:
             self.isReduced = True
-            self.conv_reduction = nn.Sequential(OrderedDict(conv1x1(
-                in_channel, stage_ch, '{}_reduction'.format(module_name), '0'))
-                )
+            self.conv_reduction = nn.Sequential(OrderedDict(conv1x1(in_channel, stage_ch, '{}_reduction'.format(module_name), '0')))
         with_dcn = dcn_config.get('stage_with_dcn', False)
         for i in range(layer_per_block):
             if self.depthwise:
-                self.layers.append(nn.Sequential(OrderedDict(dw_conv3x3(
-                    stage_ch, stage_ch, module_name, i))))
+                self.layers.append(nn.Sequential(OrderedDict(dw_conv3x3(stage_ch, stage_ch, module_name, i))))
             elif with_dcn:
                 deformable_groups = dcn_config.get('deformable_groups', 1)
-                with_modulated_dcn = dcn_config.get('with_modulated_dcn', False
-                    )
-                self.layers.append(DFConv3x3(in_channel, stage_ch,
-                    module_name, i, with_modulated_dcn=with_modulated_dcn,
-                    deformable_groups=deformable_groups))
+                with_modulated_dcn = dcn_config.get('with_modulated_dcn', False)
+                self.layers.append(DFConv3x3(in_channel, stage_ch, module_name, i, with_modulated_dcn=with_modulated_dcn, deformable_groups=deformable_groups))
             else:
-                self.layers.append(nn.Sequential(OrderedDict(conv3x3(
-                    in_channel, stage_ch, module_name, i))))
+                self.layers.append(nn.Sequential(OrderedDict(conv3x3(in_channel, stage_ch, module_name, i))))
             in_channel = stage_ch
         in_channel = in_ch + layer_per_block * stage_ch
-        self.concat = nn.Sequential(OrderedDict(conv1x1(in_channel,
-            concat_ch, module_name, 'concat')))
+        self.concat = nn.Sequential(OrderedDict(conv1x1(in_channel, concat_ch, module_name, 'concat')))
         self.ese = eSEModule(concat_ch)
 
     def forward(self, x):
@@ -508,25 +451,19 @@ class _OSA_module(nn.Module):
 
 class _OSA_stage(nn.Sequential):
 
-    def __init__(self, in_ch, stage_ch, concat_ch, block_per_stage,
-        layer_per_block, stage_num, SE=False, depthwise=False, dcn_config={}):
+    def __init__(self, in_ch, stage_ch, concat_ch, block_per_stage, layer_per_block, stage_num, SE=False, depthwise=False, dcn_config={}):
         super(_OSA_stage, self).__init__()
         if not stage_num == 2:
-            self.add_module('Pooling', nn.MaxPool2d(kernel_size=3, stride=2,
-                ceil_mode=True))
+            self.add_module('Pooling', nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True))
         if block_per_stage != 1:
             SE = False
         module_name = f'OSA{stage_num}_1'
-        self.add_module(module_name, _OSA_module(in_ch, stage_ch, concat_ch,
-            layer_per_block, module_name, SE, depthwise=depthwise,
-            dcn_config=dcn_config))
+        self.add_module(module_name, _OSA_module(in_ch, stage_ch, concat_ch, layer_per_block, module_name, SE, depthwise=depthwise, dcn_config=dcn_config))
         for i in range(block_per_stage - 1):
             if i != block_per_stage - 2:
                 SE = False
             module_name = f'OSA{stage_num}_{i + 2}'
-            self.add_module(module_name, _OSA_module(concat_ch, stage_ch,
-                concat_ch, layer_per_block, module_name, SE, identity=True,
-                depthwise=depthwise, dcn_config=dcn_config))
+            self.add_module(module_name, _OSA_module(concat_ch, stage_ch, concat_ch, layer_per_block, module_name, SE, identity=True, depthwise=depthwise, dcn_config=dcn_config))
 
 
 def add_ground_truth_to_proposals_single_image(targets_i, proposals):
@@ -572,8 +509,7 @@ def add_ground_truth_to_proposals(targets, proposals):
     assert len(proposals) == len(targets)
     if len(proposals) == 0:
         return proposals
-    return [add_ground_truth_to_proposals_single_image(tagets_i,
-        proposals_i) for tagets_i, proposals_i in zip(targets, proposals)]
+    return [add_ground_truth_to_proposals_single_image(tagets_i, proposals_i) for tagets_i, proposals_i in zip(targets, proposals)]
 
 
 def keypoint_rcnn_inference(pred_keypoint_logits, pred_instances):
@@ -594,13 +530,10 @@ def keypoint_rcnn_inference(pred_keypoint_logits, pred_instances):
             The scores are larger than 0.
     """
     bboxes_flat = cat([b.pred_boxes.tensor for b in pred_instances], dim=0)
-    keypoint_results = heatmaps_to_keypoints(pred_keypoint_logits.detach(),
-        bboxes_flat.detach())
+    keypoint_results = heatmaps_to_keypoints(pred_keypoint_logits.detach(), bboxes_flat.detach())
     num_instances_per_image = [len(i) for i in pred_instances]
-    keypoint_results = keypoint_results[:, :, ([0, 1, 3])].split(
-        num_instances_per_image, dim=0)
-    for keypoint_results_per_image, instances_per_image in zip(keypoint_results
-        , pred_instances):
+    keypoint_results = keypoint_results[:, :, ([0, 1, 3])].split(num_instances_per_image, dim=0)
+    for keypoint_results_per_image, instances_per_image in zip(keypoint_results, pred_instances):
         instances_per_image.pred_keypoints = keypoint_results_per_image
 
 
@@ -627,8 +560,7 @@ def keypoint_rcnn_loss(pred_keypoint_logits, instances, normalizer):
         if len(instances_per_image) == 0:
             continue
         keypoints = instances_per_image.gt_keypoints
-        heatmaps_per_image, valid_per_image = keypoints.to_heatmap(
-            instances_per_image.proposal_boxes.tensor, keypoint_side_len)
+        heatmaps_per_image, valid_per_image = keypoints.to_heatmap(instances_per_image.proposal_boxes.tensor, keypoint_side_len)
         heatmaps.append(heatmaps_per_image.view(-1))
         valid.append(valid_per_image.view(-1))
     if len(heatmaps):
@@ -639,21 +571,18 @@ def keypoint_rcnn_loss(pred_keypoint_logits, instances, normalizer):
         global _TOTAL_SKIPPED
         _TOTAL_SKIPPED += 1
         storage = get_event_storage()
-        storage.put_scalar('kpts_num_skipped_batches', _TOTAL_SKIPPED,
-            smoothing_hint=False)
+        storage.put_scalar('kpts_num_skipped_batches', _TOTAL_SKIPPED, smoothing_hint=False)
         return pred_keypoint_logits.sum() * 0
     N, K, H, W = pred_keypoint_logits.shape
     pred_keypoint_logits = pred_keypoint_logits.view(N * K, H * W)
-    keypoint_loss = F.cross_entropy(pred_keypoint_logits[valid],
-        keypoint_targets[valid], reduction='sum')
+    keypoint_loss = F.cross_entropy(pred_keypoint_logits[valid], keypoint_targets[valid], reduction='sum')
     if normalizer is None:
         normalizer = valid.numel()
     keypoint_loss /= normalizer
     return keypoint_loss
 
 
-def assign_boxes_to_levels(box_lists, min_level, max_level,
-    canonical_box_size, canonical_level):
+def assign_boxes_to_levels(box_lists, min_level, max_level, canonical_box_size, canonical_level):
     """
     Map each box in `box_lists` to a feature map level index and return the assignment
     vector.
@@ -677,25 +606,20 @@ def assign_boxes_to_levels(box_lists, min_level, max_level,
     """
     eps = sys.float_info.epsilon
     box_sizes = torch.sqrt(cat([boxes.area() for boxes in box_lists]))
-    level_assignments = torch.floor(canonical_level + torch.log2(box_sizes /
-        canonical_box_size + eps))
-    level_assignments = torch.clamp(level_assignments, min=min_level, max=
-        max_level)
+    level_assignments = torch.floor(canonical_level + torch.log2(box_sizes / canonical_box_size + eps))
+    level_assignments = torch.clamp(level_assignments, min=min_level, max=max_level)
     return level_assignments.to(torch.int64) - min_level
 
 
 def _img_area(instance):
     device = instance.pred_classes.device
     image_size = instance.image_size
-    area = torch.as_tensor(image_size[0] * image_size[1], dtype=torch.float,
-        device=device)
-    tmp = torch.zeros((len(instance.pred_classes), 1), dtype=torch.float,
-        device=device)
+    area = torch.as_tensor(image_size[0] * image_size[1], dtype=torch.float, device=device)
+    tmp = torch.zeros((len(instance.pred_classes), 1), dtype=torch.float, device=device)
     return (area + tmp).squeeze(1)
 
 
-def assign_boxes_to_levels_by_ratio(instances, min_level, max_level,
-    is_train=False):
+def assign_boxes_to_levels_by_ratio(instances, min_level, max_level, is_train=False):
     """
     Map each box in `instances` to a feature map level index by adaptive ROI mapping function 
     in CenterMask paper and return the assignment
@@ -721,10 +645,8 @@ def assign_boxes_to_levels_by_ratio(instances, min_level, max_level,
         box_lists = [x.pred_boxes for x in instances]
     box_areas = cat([boxes.area() for boxes in box_lists])
     img_areas = cat([_img_area(instance_i) for instance_i in instances])
-    level_assignments = torch.ceil(max_level - torch.log2(img_areas /
-        box_areas + eps))
-    level_assignments = torch.clamp(level_assignments, min=min_level, max=
-        max_level)
+    level_assignments = torch.ceil(max_level - torch.log2(img_areas / box_areas + eps))
+    level_assignments = torch.clamp(level_assignments, min=min_level, max=max_level)
     return level_assignments.to(torch.int64) - min_level
 
 
@@ -753,11 +675,9 @@ def convert_boxes_to_pooler_format(box_lists):
     """
 
     def fmt_box_list(box_tensor, batch_index):
-        repeated_index = torch.full((len(box_tensor), 1), batch_index,
-            dtype=box_tensor.dtype, device=box_tensor.device)
+        repeated_index = torch.full((len(box_tensor), 1), batch_index, dtype=box_tensor.dtype, device=box_tensor.device)
         return cat((repeated_index, box_tensor), dim=1)
-    pooler_fmt_boxes = cat([fmt_box_list(box_list.tensor, i) for i,
-        box_list in enumerate(box_lists)], dim=0)
+    pooler_fmt_boxes = cat([fmt_box_list(box_list.tensor, i) for i, box_list in enumerate(box_lists)], dim=0)
     return pooler_fmt_boxes
 
 
@@ -767,8 +687,7 @@ class ROIPooler(nn.Module):
     feature maps.
     """
 
-    def __init__(self, output_size, scales, sampling_ratio, pooler_type,
-        canonical_box_size=224, canonical_level=4, assign_crit='area'):
+    def __init__(self, output_size, scales, sampling_ratio, pooler_type, canonical_box_size=224, canonical_level=4, assign_crit='area'):
         """
         Args:
             output_size (int, tuple[int] or list[int]): output size of the pooled region,
@@ -799,34 +718,24 @@ class ROIPooler(nn.Module):
         if isinstance(output_size, int):
             output_size = output_size, output_size
         assert len(output_size) == 2
-        assert isinstance(output_size[0], int) and isinstance(output_size[1
-            ], int)
+        assert isinstance(output_size[0], int) and isinstance(output_size[1], int)
         self.output_size = output_size
         if pooler_type == 'ROIAlign':
-            self.level_poolers = nn.ModuleList(ROIAlign(output_size,
-                spatial_scale=scale, sampling_ratio=sampling_ratio, aligned
-                =False) for scale in scales)
+            self.level_poolers = nn.ModuleList(ROIAlign(output_size, spatial_scale=scale, sampling_ratio=sampling_ratio, aligned=False) for scale in scales)
         elif pooler_type == 'ROIAlignV2':
-            self.level_poolers = nn.ModuleList(ROIAlign(output_size,
-                spatial_scale=scale, sampling_ratio=sampling_ratio, aligned
-                =True) for scale in scales)
+            self.level_poolers = nn.ModuleList(ROIAlign(output_size, spatial_scale=scale, sampling_ratio=sampling_ratio, aligned=True) for scale in scales)
         elif pooler_type == 'ROIPool':
-            self.level_poolers = nn.ModuleList(RoIPool(output_size,
-                spatial_scale=scale) for scale in scales)
+            self.level_poolers = nn.ModuleList(RoIPool(output_size, spatial_scale=scale) for scale in scales)
         elif pooler_type == 'ROIAlignRotated':
-            self.level_poolers = nn.ModuleList(ROIAlignRotated(output_size,
-                spatial_scale=scale, sampling_ratio=sampling_ratio) for
-                scale in scales)
+            self.level_poolers = nn.ModuleList(ROIAlignRotated(output_size, spatial_scale=scale, sampling_ratio=sampling_ratio) for scale in scales)
         else:
             raise ValueError('Unknown pooler type: {}'.format(pooler_type))
         min_level = -math.log2(scales[0])
         max_level = -math.log2(scales[-1])
-        assert math.isclose(min_level, int(min_level)) and math.isclose(
-            max_level, int(max_level)), 'Featuremap stride is not power of 2!'
+        assert math.isclose(min_level, int(min_level)) and math.isclose(max_level, int(max_level)), 'Featuremap stride is not power of 2!'
         self.min_level = int(min_level)
         self.max_level = int(max_level)
-        assert len(scales
-            ) == self.max_level - self.min_level + 1, '[ROIPooler] Sizes of input featuremaps do not form a pyramid!'
+        assert len(scales) == self.max_level - self.min_level + 1, '[ROIPooler] Sizes of input featuremaps do not form a pyramid!'
         assert 0 < self.min_level and self.min_level <= self.max_level
         if len(scales) > 1:
             assert self.min_level <= canonical_level and canonical_level <= self.max_level
@@ -855,30 +764,21 @@ class ROIPooler(nn.Module):
         else:
             box_lists = [x.pred_boxes for x in instances]
         num_level_assignments = len(self.level_poolers)
-        assert isinstance(x, list) and isinstance(box_lists, list
-            ), 'Arguments to pooler must be lists'
-        assert len(x
-            ) == num_level_assignments, 'unequal value, num_level_assignments={}, but x is list of {} Tensors'.format(
-            num_level_assignments, len(x))
-        assert len(box_lists) == x[0].size(0
-            ), 'unequal value, x[0] batch dim 0 is {}, but box_list has length {}'.format(
-            x[0].size(0), len(box_lists))
+        assert isinstance(x, list) and isinstance(box_lists, list), 'Arguments to pooler must be lists'
+        assert len(x) == num_level_assignments, 'unequal value, num_level_assignments={}, but x is list of {} Tensors'.format(num_level_assignments, len(x))
+        assert len(box_lists) == x[0].size(0), 'unequal value, x[0] batch dim 0 is {}, but box_list has length {}'.format(x[0].size(0), len(box_lists))
         pooler_fmt_boxes = convert_boxes_to_pooler_format(box_lists)
         if num_level_assignments == 1:
             return self.level_poolers[0](x[0], pooler_fmt_boxes)
         if self.assign_crit == 'ratio':
-            level_assignments = assign_boxes_to_levels_by_ratio(instances,
-                self.min_level, self.max_level, is_train)
+            level_assignments = assign_boxes_to_levels_by_ratio(instances, self.min_level, self.max_level, is_train)
         else:
-            level_assignments = assign_boxes_to_levels(box_lists, self.
-                min_level, self.max_level, self.canonical_box_size, self.
-                canonical_level)
+            level_assignments = assign_boxes_to_levels(box_lists, self.min_level, self.max_level, self.canonical_box_size, self.canonical_level)
         num_boxes = len(pooler_fmt_boxes)
         num_channels = x[0].shape[1]
         output_size = self.output_size[0]
         dtype, device = x[0].dtype, x[0].device
-        output = torch.zeros((num_boxes, num_channels, output_size,
-            output_size), dtype=dtype, device=device)
+        output = torch.zeros((num_boxes, num_channels, output_size, output_size), dtype=dtype, device=device)
         for level, (x_level, pooler) in enumerate(zip(x, self.level_poolers)):
             inds = torch.nonzero(level_assignments == level).squeeze(1)
             pooler_fmt_boxes_level = pooler_fmt_boxes[inds]
@@ -933,8 +833,7 @@ def compute_ctrness_targets(reg_targets):
         return reg_targets.new_zeros(len(reg_targets))
     left_right = reg_targets[:, ([0, 2])]
     top_bottom = reg_targets[:, ([1, 3])]
-    ctrness = left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (
-        top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
+    ctrness = left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
     return torch.sqrt(ctrness)
 
 
@@ -947,8 +846,7 @@ def reduce_sum(tensor):
     return tensor
 
 
-def fcos_losses(labels, reg_targets, logits_pred, reg_pred, ctrness_pred,
-    focal_loss_alpha, focal_loss_gamma, iou_loss):
+def fcos_losses(labels, reg_targets, logits_pred, reg_pred, ctrness_pred, focal_loss_alpha, focal_loss_gamma, iou_loss):
     num_classes = logits_pred.size(1)
     labels = labels.flatten()
     pos_inds = torch.nonzero(labels != num_classes).squeeze(1)
@@ -958,26 +856,20 @@ def fcos_losses(labels, reg_targets, logits_pred, reg_pred, ctrness_pred,
     num_pos_avg = max(total_num_pos / num_gpus, 1.0)
     class_target = torch.zeros_like(logits_pred)
     class_target[pos_inds, labels[pos_inds]] = 1
-    class_loss = sigmoid_focal_loss_jit(logits_pred, class_target, alpha=
-        focal_loss_alpha, gamma=focal_loss_gamma, reduction='sum'
-        ) / num_pos_avg
+    class_loss = sigmoid_focal_loss_jit(logits_pred, class_target, alpha=focal_loss_alpha, gamma=focal_loss_gamma, reduction='sum') / num_pos_avg
     reg_pred = reg_pred[pos_inds]
     reg_targets = reg_targets[pos_inds]
     ctrness_pred = ctrness_pred[pos_inds]
     ctrness_targets = compute_ctrness_targets(reg_targets)
     ctrness_targets_sum = ctrness_targets.sum()
-    ctrness_norm = max(reduce_sum(ctrness_targets_sum).item() / num_gpus, 1e-06
-        )
+    ctrness_norm = max(reduce_sum(ctrness_targets_sum).item() / num_gpus, 1e-06)
     reg_loss = iou_loss(reg_pred, reg_targets, ctrness_targets) / ctrness_norm
-    ctrness_loss = F.binary_cross_entropy_with_logits(ctrness_pred,
-        ctrness_targets, reduction='sum') / num_pos_avg
-    losses = {'loss_fcos_cls': class_loss, 'loss_fcos_loc': reg_loss,
-        'loss_fcos_ctr': ctrness_loss}
+    ctrness_loss = F.binary_cross_entropy_with_logits(ctrness_pred, ctrness_targets, reduction='sum') / num_pos_avg
+    losses = {'loss_fcos_cls': class_loss, 'loss_fcos_loc': reg_loss, 'loss_fcos_ctr': ctrness_loss}
     return losses, {}
 
 
-def ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores',
-    label_field='labels'):
+def ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores', label_field='labels'):
     """
     Performs non-maximum suppression on a boxlist, with scores specified
     in a boxlist field via score_field.
@@ -1002,11 +894,7 @@ def ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores',
 
 class FCOSOutputs(object):
 
-    def __init__(self, images, locations, logits_pred, reg_pred,
-        ctrness_pred, focal_loss_alpha, focal_loss_gamma, iou_loss,
-        center_sample, sizes_of_interest, strides, radius, num_classes,
-        pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n,
-        thresh_with_ctr, gt_instances=None):
+    def __init__(self, images, locations, logits_pred, reg_pred, ctrness_pred, focal_loss_alpha, focal_loss_gamma, iou_loss, center_sample, sizes_of_interest, strides, radius, num_classes, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n, thresh_with_ctr, gt_instances=None):
         self.logits_pred = logits_pred
         self.reg_pred = reg_pred
         self.ctrness_pred = ctrness_pred
@@ -1035,8 +923,7 @@ class FCOSOutputs(object):
         :return: level first training targets
         """
         for im_i in range(len(training_targets)):
-            training_targets[im_i] = torch.split(training_targets[im_i],
-                num_loc_list, dim=0)
+            training_targets[im_i] = torch.split(training_targets[im_i], num_loc_list, dim=0)
         targets_level_first = []
         for targets_per_level in zip(*training_targets):
             targets_level_first.append(torch.cat(targets_per_level, dim=0))
@@ -1047,23 +934,18 @@ class FCOSOutputs(object):
         self.num_loc_list = num_loc_list
         loc_to_size_range = []
         for l, loc_per_level in enumerate(self.locations):
-            loc_to_size_range_per_level = loc_per_level.new_tensor(self.
-                sizes_of_interest[l])
-            loc_to_size_range.append(loc_to_size_range_per_level[None].
-                expand(num_loc_list[l], -1))
+            loc_to_size_range_per_level = loc_per_level.new_tensor(self.sizes_of_interest[l])
+            loc_to_size_range.append(loc_to_size_range_per_level[None].expand(num_loc_list[l], -1))
         loc_to_size_range = torch.cat(loc_to_size_range, dim=0)
         locations = torch.cat(self.locations, dim=0)
-        training_targets = self.compute_targets_for_locations(locations,
-            self.gt_instances, loc_to_size_range)
-        training_targets = {k: self._transpose(v, num_loc_list) for k, v in
-            training_targets.items()}
+        training_targets = self.compute_targets_for_locations(locations, self.gt_instances, loc_to_size_range)
+        training_targets = {k: self._transpose(v, num_loc_list) for k, v in training_targets.items()}
         reg_targets = training_targets['reg_targets']
         for l in range(len(reg_targets)):
             reg_targets[l] = reg_targets[l] / float(self.strides[l])
         return training_targets
 
-    def get_sample_region(self, gt, strides, num_loc_list, loc_xs, loc_ys,
-        radius=1):
+    def get_sample_region(self, gt, strides, num_loc_list, loc_xs, loc_ys, radius=1):
         num_gts = gt.shape[0]
         K = len(loc_xs)
         gt = gt[None].expand(K, num_gts, 4)
@@ -1080,14 +962,10 @@ class FCOSOutputs(object):
             ymin = center_y[beg:end] - stride
             xmax = center_x[beg:end] + stride
             ymax = center_y[beg:end] + stride
-            center_gt[beg:end, :, (0)] = torch.where(xmin > gt[beg:end, :,
-                (0)], xmin, gt[beg:end, :, (0)])
-            center_gt[beg:end, :, (1)] = torch.where(ymin > gt[beg:end, :,
-                (1)], ymin, gt[beg:end, :, (1)])
-            center_gt[beg:end, :, (2)] = torch.where(xmax > gt[beg:end, :,
-                (2)], gt[beg:end, :, (2)], xmax)
-            center_gt[beg:end, :, (3)] = torch.where(ymax > gt[beg:end, :,
-                (3)], gt[beg:end, :, (3)], ymax)
+            center_gt[beg:end, :, (0)] = torch.where(xmin > gt[beg:end, :, (0)], xmin, gt[beg:end, :, (0)])
+            center_gt[beg:end, :, (1)] = torch.where(ymin > gt[beg:end, :, (1)], ymin, gt[beg:end, :, (1)])
+            center_gt[beg:end, :, (2)] = torch.where(xmax > gt[beg:end, :, (2)], gt[beg:end, :, (2)], xmax)
+            center_gt[beg:end, :, (3)] = torch.where(ymax > gt[beg:end, :, (3)], gt[beg:end, :, (3)], ymax)
             beg = end
         left = loc_xs[:, (None)] - center_gt[..., 0]
         right = center_gt[..., 2] - loc_xs[:, (None)]
@@ -1106,8 +984,7 @@ class FCOSOutputs(object):
             bboxes = targets_per_im.gt_boxes.tensor
             labels_per_im = targets_per_im.gt_classes
             if bboxes.numel() == 0:
-                labels.append(labels_per_im.new_zeros(locations.size(0)) +
-                    self.num_classes)
+                labels.append(labels_per_im.new_zeros(locations.size(0)) + self.num_classes)
                 reg_targets.append(locations.new_zeros((locations.size(0), 4)))
                 continue
             area = targets_per_im.gt_boxes.area()
@@ -1117,20 +994,16 @@ class FCOSOutputs(object):
             b = bboxes[:, (3)][None] - ys[:, (None)]
             reg_targets_per_im = torch.stack([l, t, r, b], dim=2)
             if self.center_sample:
-                is_in_boxes = self.get_sample_region(bboxes, self.strides,
-                    self.num_loc_list, xs, ys, radius=self.radius)
+                is_in_boxes = self.get_sample_region(bboxes, self.strides, self.num_loc_list, xs, ys, radius=self.radius)
             else:
                 is_in_boxes = reg_targets_per_im.min(dim=2)[0] > 0
             max_reg_targets_per_im = reg_targets_per_im.max(dim=2)[0]
-            is_cared_in_the_level = (max_reg_targets_per_im >= size_ranges[
-                :, ([0])]) & (max_reg_targets_per_im <= size_ranges[:, ([1])])
+            is_cared_in_the_level = (max_reg_targets_per_im >= size_ranges[:, ([0])]) & (max_reg_targets_per_im <= size_ranges[:, ([1])])
             locations_to_gt_area = area[None].repeat(len(locations), 1)
             locations_to_gt_area[is_in_boxes == 0] = INF
             locations_to_gt_area[is_cared_in_the_level == 0] = INF
-            locations_to_min_area, locations_to_gt_inds = (locations_to_gt_area
-                .min(dim=1))
-            reg_targets_per_im = reg_targets_per_im[range(len(locations)),
-                locations_to_gt_inds]
+            locations_to_min_area, locations_to_gt_inds = locations_to_gt_area.min(dim=1)
+            reg_targets_per_im = reg_targets_per_im[range(len(locations)), locations_to_gt_inds]
             labels_per_im = labels_per_im[locations_to_gt_inds]
             labels_per_im[locations_to_min_area == INF] = self.num_classes
             labels.append(labels_per_im)
@@ -1145,34 +1018,26 @@ class FCOSOutputs(object):
             dict[loss name -> loss value]: A dict mapping from loss name to loss value.
         """
         training_targets = self._get_ground_truth()
-        labels, reg_targets = training_targets['labels'], training_targets[
-            'reg_targets']
-        logits_pred = cat([x.permute(0, 2, 3, 1).reshape(-1, self.
-            num_classes) for x in self.logits_pred], dim=0)
-        reg_pred = cat([x.permute(0, 2, 3, 1).reshape(-1, 4) for x in self.
-            reg_pred], dim=0)
+        labels, reg_targets = training_targets['labels'], training_targets['reg_targets']
+        logits_pred = cat([x.permute(0, 2, 3, 1).reshape(-1, self.num_classes) for x in self.logits_pred], dim=0)
+        reg_pred = cat([x.permute(0, 2, 3, 1).reshape(-1, 4) for x in self.reg_pred], dim=0)
         ctrness_pred = cat([x.reshape(-1) for x in self.ctrness_pred], dim=0)
         labels = cat([x.reshape(-1) for x in labels], dim=0)
         reg_targets = cat([x.reshape(-1, 4) for x in reg_targets], dim=0)
-        return fcos_losses(labels, reg_targets, logits_pred, reg_pred,
-            ctrness_pred, self.focal_loss_alpha, self.focal_loss_gamma,
-            self.iou_loss)
+        return fcos_losses(labels, reg_targets, logits_pred, reg_pred, ctrness_pred, self.focal_loss_alpha, self.focal_loss_gamma, self.iou_loss)
 
     def predict_proposals(self):
         sampled_boxes = []
-        bundle = (self.locations, self.logits_pred, self.reg_pred, self.
-            ctrness_pred, self.strides)
+        bundle = self.locations, self.logits_pred, self.reg_pred, self.ctrness_pred, self.strides
         for i, (l, o, r, c, s) in enumerate(zip(*bundle)):
             r = r * s
-            sampled_boxes.append(self.forward_for_single_feature_map(l, o,
-                r, c, self.image_sizes))
+            sampled_boxes.append(self.forward_for_single_feature_map(l, o, r, c, self.image_sizes))
         boxlists = list(zip(*sampled_boxes))
         boxlists = [Instances.cat(boxlist) for boxlist in boxlists]
         boxlists = self.select_over_all_levels(boxlists)
         return boxlists
 
-    def forward_for_single_feature_map(self, locations, box_cls, reg_pred,
-        ctrness, image_sizes):
+    def forward_for_single_feature_map(self, locations, box_cls, reg_pred, ctrness, image_sizes):
         N, C, H, W = box_cls.shape
         box_cls = box_cls.view(N, C, H, W).permute(0, 2, 3, 1)
         box_cls = box_cls.reshape(N, -1, C).sigmoid()
@@ -1200,16 +1065,11 @@ class FCOSOutputs(object):
             per_locations = locations[per_box_loc]
             per_pre_nms_top_n = pre_nms_top_n[i]
             if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
-                per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n
-                    , sorted=False)
+                per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
                 per_class = per_class[top_k_indices]
                 per_box_regression = per_box_regression[top_k_indices]
                 per_locations = per_locations[top_k_indices]
-            detections = torch.stack([per_locations[:, (0)] -
-                per_box_regression[:, (0)], per_locations[:, (1)] -
-                per_box_regression[:, (1)], per_locations[:, (0)] +
-                per_box_regression[:, (2)], per_locations[:, (1)] +
-                per_box_regression[:, (3)]], dim=1)
+            detections = torch.stack([per_locations[:, (0)] - per_box_regression[:, (0)], per_locations[:, (1)] - per_box_regression[:, (1)], per_locations[:, (0)] + per_box_regression[:, (2)], per_locations[:, (1)] + per_box_regression[:, (3)]], dim=1)
             boxlist = Instances(image_sizes[i])
             boxlist.pred_boxes = Boxes(detections)
             boxlist.scores = torch.sqrt(per_box_cls)
@@ -1226,8 +1086,7 @@ class FCOSOutputs(object):
             number_of_detections = len(result)
             if number_of_detections > self.fpn_post_nms_top_n > 0:
                 cls_scores = result.scores
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), 
-                    number_of_detections - self.fpn_post_nms_top_n + 1)
+                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
                 keep = cls_scores >= image_thresh.item()
                 keep = torch.nonzero(keep).squeeze(1)
                 result = result[keep]
@@ -1239,26 +1098,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Hsigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IOULoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaxPool2d,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Scale,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (eSEModule,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_youngwanLEE_centermask2(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(IOULoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MaxPool2d(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(eSEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

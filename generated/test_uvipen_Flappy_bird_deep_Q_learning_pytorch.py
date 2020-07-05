@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -45,14 +46,10 @@ class DeepQNetwork(nn.Module):
 
     def __init__(self):
         super(DeepQNetwork, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(4, 32, kernel_size=8, stride=4
-            ), nn.ReLU(inplace=True))
-        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=4, stride=
-            2), nn.ReLU(inplace=True))
-        self.conv3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, stride=
-            1), nn.ReLU(inplace=True))
-        self.fc1 = nn.Sequential(nn.Linear(7 * 7 * 64, 512), nn.ReLU(
-            inplace=True))
+        self.conv1 = nn.Sequential(nn.Conv2d(4, 32, kernel_size=8, stride=4), nn.ReLU(inplace=True))
+        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(inplace=True))
+        self.conv3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(inplace=True))
+        self.fc1 = nn.Sequential(nn.Linear(7 * 7 * 64, 512), nn.ReLU(inplace=True))
         self.fc2 = nn.Linear(512, 2)
         self._create_weights()
 
@@ -76,5 +73,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DeepQNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 90, 90])], {}),
+     True),
+]
+
 class Test_uvipen_Flappy_bird_deep_Q_learning_pytorch(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

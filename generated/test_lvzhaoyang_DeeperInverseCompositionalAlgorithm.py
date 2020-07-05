@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class LeastSquareTracking(nn.Module):
     CONV_RGBD = 1
     CONV_RGBD2 = 2
 
-    def __init__(self, encoder_name, max_iter_per_pyr, mEst_type,
-        solver_type, tr_samples=10, no_weight_sharing=False, timers=None):
+    def __init__(self, encoder_name, max_iter_per_pyr, mEst_type, solver_type, tr_samples=10, no_weight_sharing=False, timers=None):
         """
         :param the backbone network used for regression.
         :param the maximum number of iterations at each pyramid levels
@@ -135,41 +135,29 @@ class LeastSquareTracking(nn.Module):
             self.mEst_func1 = DeepRobustEstimator(mEst_type)
             self.mEst_func2 = DeepRobustEstimator(mEst_type)
             self.mEst_func3 = DeepRobustEstimator(mEst_type)
-            mEst_funcs = [self.mEst_func0, self.mEst_func1, self.mEst_func2,
-                self.mEst_func3]
+            mEst_funcs = [self.mEst_func0, self.mEst_func1, self.mEst_func2, self.mEst_func3]
         else:
             self.mEst_func = DeepRobustEstimator(mEst_type)
-            mEst_funcs = [self.mEst_func, self.mEst_func, self.mEst_func,
-                self.mEst_func]
+            mEst_funcs = [self.mEst_func, self.mEst_func, self.mEst_func, self.mEst_func]
         """ =============================================================== """
         """             Initialize the Trust-Region Damping                 """
         """ =============================================================== """
         if no_weight_sharing:
-            self.solver_func0 = DirectSolverNet(solver_type, samples=tr_samples
-                )
-            self.solver_func1 = DirectSolverNet(solver_type, samples=tr_samples
-                )
-            self.solver_func2 = DirectSolverNet(solver_type, samples=tr_samples
-                )
-            self.solver_func3 = DirectSolverNet(solver_type, samples=tr_samples
-                )
-            solver_funcs = [self.solver_func0, self.solver_func1, self.
-                solver_func2, self.solver_func3]
+            self.solver_func0 = DirectSolverNet(solver_type, samples=tr_samples)
+            self.solver_func1 = DirectSolverNet(solver_type, samples=tr_samples)
+            self.solver_func2 = DirectSolverNet(solver_type, samples=tr_samples)
+            self.solver_func3 = DirectSolverNet(solver_type, samples=tr_samples)
+            solver_funcs = [self.solver_func0, self.solver_func1, self.solver_func2, self.solver_func3]
         else:
             self.solver_func = DirectSolverNet(solver_type, samples=tr_samples)
-            solver_funcs = [self.solver_func, self.solver_func, self.
-                solver_func, self.solver_func]
+            solver_funcs = [self.solver_func, self.solver_func, self.solver_func, self.solver_func]
         """ =============================================================== """
         """             Initialize the Trust-Region Method                  """
         """ =============================================================== """
-        self.tr_update0 = TrustRegion(max_iter_per_pyr, mEst_func=
-            mEst_funcs[0], solver_func=solver_funcs[0], timers=timers)
-        self.tr_update1 = TrustRegion(max_iter_per_pyr, mEst_func=
-            mEst_funcs[1], solver_func=solver_funcs[1], timers=timers)
-        self.tr_update2 = TrustRegion(max_iter_per_pyr, mEst_func=
-            mEst_funcs[2], solver_func=solver_funcs[2], timers=timers)
-        self.tr_update3 = TrustRegion(max_iter_per_pyr, mEst_func=
-            mEst_funcs[3], solver_func=solver_funcs[3], timers=timers)
+        self.tr_update0 = TrustRegion(max_iter_per_pyr, mEst_func=mEst_funcs[0], solver_func=solver_funcs[0], timers=timers)
+        self.tr_update1 = TrustRegion(max_iter_per_pyr, mEst_func=mEst_funcs[1], solver_func=solver_funcs[1], timers=timers)
+        self.tr_update2 = TrustRegion(max_iter_per_pyr, mEst_func=mEst_funcs[2], solver_func=solver_funcs[2], timers=timers)
+        self.tr_update3 = TrustRegion(max_iter_per_pyr, mEst_func=mEst_funcs[3], solver_func=solver_funcs[3], timers=timers)
 
     def forward(self, img0, img1, depth0, depth1, K, init_only=False):
         """
@@ -209,25 +197,21 @@ class LeastSquareTracking(nn.Module):
         if self.timers:
             self.timers.tic('trust-region update')
         K3 = K >> 3
-        output3 = self.tr_update3(poseI, x0[3], x1[3], d0[3], d1[3], K3,
-            prior_W)
+        output3 = self.tr_update3(poseI, x0[3], x1[3], d0[3], d1[3], K3, prior_W)
         pose3, mEst_W3 = output3[0], output3[1]
         poses_to_train[0].append(pose3[0])
         poses_to_train[1].append(pose3[1])
         K2 = K >> 2
-        output2 = self.tr_update2(pose3, x0[2], x1[2], d0[2], d1[2], K2,
-            mEst_W3)
+        output2 = self.tr_update2(pose3, x0[2], x1[2], d0[2], d1[2], K2, mEst_W3)
         pose2, mEst_W2 = output2[0], output2[1]
         poses_to_train[0].append(pose2[0])
         poses_to_train[1].append(pose2[1])
         K1 = K >> 1
-        output1 = self.tr_update1(pose2, x0[1], x1[1], d0[1], d1[1], K1,
-            mEst_W2)
+        output1 = self.tr_update1(pose2, x0[1], x1[1], d0[1], d1[1], K1, mEst_W2)
         pose1, mEst_W1 = output1[0], output1[1]
         poses_to_train[0].append(pose1[0])
         poses_to_train[1].append(pose1[1])
-        output0 = self.tr_update0(pose1, x0[0], x1[0], d0[0], d1[0], K, mEst_W1
-            )
+        output0 = self.tr_update0(pose1, x0[0], x1[0], d0[0], d1[0], K, mEst_W1)
         pose0 = output0[0]
         poses_to_train[0].append(pose0[0])
         poses_to_train[1].append(pose0[1])
@@ -268,8 +252,7 @@ class LeastSquareTracking(nn.Module):
         """ Return a gray-scale image
         """
         B, _, H, W = img.shape
-        return (img[:, (0)] * 0.299 + img[:, (1)] * 0.587 + img[:, (2)] * 0.114
-            ).view(B, 1, H, W)
+        return (img[:, (0)] * 0.299 + img[:, (1)] * 0.587 + img[:, (2)] * 0.114).view(B, 1, H, W)
 
 
 def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
@@ -282,8 +265,7 @@ def compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p):
     :return the image jacobian in x, y, direction, Bx2x6 each
     """
     B, C, H, W = Jf_x.shape
-    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C,
-        -1, 1) * Jy_p.view(B, 1, -1, 6)
+    Jf_p = Jf_x.view(B, C, -1, 1) * Jx_p.view(B, 1, -1, 6) + Jf_y.view(B, C, -1, 1) * Jy_p.view(B, 1, -1, 6)
     return Jf_p.view(B, -1, 6)
 
 
@@ -310,8 +292,7 @@ def compute_jacobian_warping(p_invdepth, K, px, py):
     return dx_dp * fx.view(B, 1, 1), dy_dp * fy.view(B, 1, 1)
 
 
-def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
-    =None):
+def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask=None):
     """ Compute the residual error of warped target image w.r.t. the reference feature map.
     refer to equation (12) in the paper
 
@@ -327,8 +308,7 @@ def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask
     -----------
     :return the residual (of reference image), and occlusion information
     """
-    u_warped, v_warped, inv_z_warped = geometry.batch_warp_inverse_depth(px,
-        py, invD0, pose, K)
+    u_warped, v_warped, inv_z_warped = geometry.batch_warp_inverse_depth(px, py, invD0, pose, K)
     x1_1to0 = geometry.warp_features(x1, u_warped, v_warped)
     occ = geometry.check_occ(inv_z_warped, invD1, u_warped, v_warped)
     residuals = x1_1to0 - x0
@@ -346,10 +326,8 @@ def feature_gradient(img, normalize_gradient=True):
     :return the gradient of the image in x, y direction
     """
     B, C, H, W = img.shape
-    wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1,
-        3, 3).type_as(img)
-    wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1,
-        3, 3).type_as(img)
+    wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1, 3, 3).type_as(img)
+    wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1, 3, 3).type_as(img)
     img_reshaped = img.view(-1, 1, H, W)
     img_pad = func.pad(img_reshaped, (1, 1, 1, 1), mode='replicate')
     img_dx = func.conv2d(img_pad, wx, stride=1, padding=0)
@@ -366,8 +344,7 @@ class TrustRegionBase(nn.Module):
     This is the the base function of the trust-region based inverse compositional algorithm. 
     """
 
-    def __init__(self, max_iter=3, mEst_func=None, solver_func=None, timers
-        =None):
+    def __init__(self, max_iter=3, mEst_func=None, solver_func=None, timers=None):
         """
         :param max_iter, maximum number of iterations
         :param mEst_func, the M-estimator function / network 
@@ -400,8 +377,7 @@ class TrustRegionBase(nn.Module):
             self.timers.toc('pre-compute Jacobians')
         if self.timers:
             self.timers.tic('compute warping residuals')
-        residuals, occ = compute_warped_residual(pose, invD0, invD1, x0, x1,
-            px, py, K)
+        residuals, occ = compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K)
         if self.timers:
             self.timers.toc('compute warping residuals')
         if self.timers:
@@ -418,14 +394,12 @@ class TrustRegionBase(nn.Module):
         for idx in range(self.max_iterations):
             if self.timers:
                 self.timers.tic('solve x=A^{-1}b')
-            pose = self.directSolver(JtWJ, torch.transpose(J_F_p, 1, 2),
-                weights, residuals, pose, invD0, invD1, x0, x1, K)
+            pose = self.directSolver(JtWJ, torch.transpose(J_F_p, 1, 2), weights, residuals, pose, invD0, invD1, x0, x1, K)
             if self.timers:
                 self.timers.toc('solve x=A^{-1}b')
             if self.timers:
                 self.timers.tic('compute warping residuals')
-            residuals, occ = compute_warped_residual(pose, invD0, invD1, x0,
-                x1, px, py, K)
+            residuals, occ = compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K)
             if self.timers:
                 self.timers.toc('compute warping residuals')
         return pose, weights
@@ -493,14 +467,10 @@ class FeaturePyramid(nn.Module):
 
     def __init__(self, D):
         super(FeaturePyramid, self).__init__()
-        self.net0 = nn.Sequential(conv(True, D, 16, 3), conv(True, 16, 32, 
-            3, dilation=2), conv(True, 32, 32, 3, dilation=2))
-        self.net1 = nn.Sequential(conv(True, 32, 32, 3), conv(True, 32, 64,
-            3, dilation=2), conv(True, 64, 64, 3, dilation=2))
-        self.net2 = nn.Sequential(conv(True, 64, 64, 3), conv(True, 64, 96,
-            3, dilation=2), conv(True, 96, 96, 3, dilation=2))
-        self.net3 = nn.Sequential(conv(True, 96, 96, 3), conv(True, 96, 128,
-            3, dilation=2), conv(True, 128, 128, 3, dilation=2))
+        self.net0 = nn.Sequential(conv(True, D, 16, 3), conv(True, 16, 32, 3, dilation=2), conv(True, 32, 32, 3, dilation=2))
+        self.net1 = nn.Sequential(conv(True, 32, 32, 3), conv(True, 32, 64, 3, dilation=2), conv(True, 64, 64, 3, dilation=2))
+        self.net2 = nn.Sequential(conv(True, 64, 64, 3), conv(True, 64, 96, 3, dilation=2), conv(True, 96, 96, 3, dilation=2))
+        self.net3 = nn.Sequential(conv(True, 96, 96, 3), conv(True, 96, 128, 3, dilation=2), conv(True, 128, 128, 3, dilation=2))
         initialize_weights(self.net0)
         initialize_weights(self.net1)
         initialize_weights(self.net2)
@@ -534,9 +504,7 @@ class DeepRobustEstimator(nn.Module):
         else:
             raise NotImplementedError()
         if self.D > 0:
-            self.net = nn.Sequential(conv(True, self.D, 16, 3, dilation=1),
-                conv(True, 16, 32, 3, dilation=2), conv(True, 32, 64, 3,
-                dilation=4), conv(True, 64, 1, 3, dilation=1), nn.Sigmoid())
+            self.net = nn.Sequential(conv(True, self.D, 16, 3, dilation=1), conv(True, 16, 32, 3, dilation=2), conv(True, 32, 64, 3, dilation=4), conv(True, 64, 1, 3, dilation=1), nn.Sigmoid())
             initialize_weights(self.net)
         else:
             self.net = None
@@ -553,8 +521,7 @@ class DeepRobustEstimator(nn.Module):
             w = self.net(context)
         elif self.D == 4:
             B, C, H, W = residual.shape
-            wl = func.interpolate(ws, (H, W), mode='bilinear',
-                align_corners=True)
+            wl = func.interpolate(ws, (H, W), mode='bilinear', align_corners=True)
             context = torch.cat((residual.abs(), x0, x1, wl), dim=1)
             w = self.net(context)
         elif self.D < 0:
@@ -582,16 +549,13 @@ class DeepRobustEstimator(nn.Module):
 
 
 def fcLayer(in_planes, out_planes, bias=True):
-    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(
-        inplace=True))
+    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(inplace=True))
 
 
 def deep_damping_regressor(D):
     """ Output a damping vector at each dimension
     """
-    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True),
-        fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(
-        in_planes=256, out_planes=6, bias=True))
+    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True), fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(in_planes=256, out_planes=6, bias=True))
     return net
 
 
@@ -672,16 +636,13 @@ class DirectSolverNet(nn.Module):
             Hessian = JtJ + epsilon
             pose_update = inverse_update_pose(Hessian, JtR, pose0)
         elif self.type == self.SOLVER_RESIDUAL_VOLUME:
-            Hessian = self.__regularize_residual_volume(JtJ, Jt, JtR,
-                weights, pose0, invD0, invD1, x0, x1, K, sample_range=self.
-                samples)
+            Hessian = self.__regularize_residual_volume(JtJ, Jt, JtR, weights, pose0, invD0, invD1, x0, x1, K, sample_range=self.samples)
             pose_update = inverse_update_pose(Hessian, JtR, pose0)
         else:
             raise NotImplementedError()
         return pose_update
 
-    def __regularize_residual_volume(self, JtJ, Jt, JtR, weights, pose,
-        invD0, invD1, x0, x1, K, sample_range):
+    def __regularize_residual_volume(self, JtJ, Jt, JtR, weights, pose, invD0, invD1, x0, x1, K, sample_range):
         """ regularize the approximate with residual volume
 
         :param JtJ, the approximated Hessian JtJ
@@ -712,8 +673,7 @@ class DirectSolverNet(nn.Module):
             D = lambdas[s] * diagJtJ + epsilon
             Hessian = JtJ + D
             pose_s = inverse_update_pose(Hessian, JtR, pose)
-            res_s, _ = compute_warped_residual(pose_s, invD0, invD1, x0, x1,
-                px, py, K)
+            res_s, _ = compute_warped_residual(pose_s, invD0, invD1, x0, x1, px, py, K)
             JtR_s = torch.bmm(Jt, (weights * res_s).view(B, -1, 1))
             JtR_volumes.append(JtR_s)
         JtR_flat = torch.cat(tuple(JtR_volumes), dim=2).view(B, -1)
@@ -749,10 +709,3 @@ class ListModule(nn.Module):
     def __len__(self):
         return len(self._modules)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_lvzhaoyang_DeeperInverseCompositionalAlgorithm(_paritybench_base):
-    pass

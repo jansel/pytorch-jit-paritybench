@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,30 +70,21 @@ class DeepvoLoss(loss._Loss):
         super(DeepvoLoss, self).__init__()
 
     def forward(self, input, target):
-        return F.mse_loss(input[0:3], target[0:3], size_average=self.
-            size_average, reduce=self.reduce) + 100 * F.mse_loss(input[3:6],
-            target[3:6], size_average=self.size_average, reduce=self.reduce)
+        return F.mse_loss(input[0:3], target[0:3], size_average=self.size_average, reduce=self.reduce) + 100 * F.mse_loss(input[3:6], target[3:6], size_average=self.size_average, reduce=self.reduce)
 
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1,
-            inplace=True), nn.Dropout(dropout))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True), nn.Dropout(dropout))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Dropout(dropout))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Dropout(dropout))
 
 
 class Parameters:
 
     def __init__(self):
         self.n_processors = 8
-        self.data_dir = (
-            '/nfs/nas12.ethz.ch/fs1201/infk_ivc_students/cvg-students/chsiao/KITTI/'
-            )
+        self.data_dir = '/nfs/nas12.ethz.ch/fs1201/infk_ivc_students/cvg-students/chsiao/KITTI/'
         self.image_dir = self.data_dir + '/images/'
         self.pose_dir = self.data_dir + '/pose_GT/'
         self.train_video = ['00', '01', '02', '05', '08', '09']
@@ -101,21 +93,13 @@ class Parameters:
         self.resize_mode = 'rescale'
         self.img_w = 608
         self.img_h = 184
-        self.img_means = (0.19007764876619865, 0.15170388157131237, 
-            0.10659445665650864)
-        self.img_stds = (0.2610784009469139, 0.25729316928935814, 
-            0.25163823815039915)
+        self.img_means = 0.19007764876619865, 0.15170388157131237, 0.10659445665650864
+        self.img_stds = 0.2610784009469139, 0.25729316928935814, 0.25163823815039915
         self.minus_point_5 = True
         self.seq_len = 5, 7
         self.sample_times = 3
-        self.train_data_info_path = (
-            'datainfo/train_df_t{}_v{}_p{}_seq{}x{}_sample{}.pickle'.format
-            (''.join(self.train_video), ''.join(self.valid_video), self.
-            partition, self.seq_len[0], self.seq_len[1], self.sample_times))
-        self.valid_data_info_path = (
-            'datainfo/valid_df_t{}_v{}_p{}_seq{}x{}_sample{}.pickle'.format
-            (''.join(self.train_video), ''.join(self.valid_video), self.
-            partition, self.seq_len[0], self.seq_len[1], self.sample_times))
+        self.train_data_info_path = 'datainfo/train_df_t{}_v{}_p{}_seq{}x{}_sample{}.pickle'.format(''.join(self.train_video), ''.join(self.valid_video), self.partition, self.seq_len[0], self.seq_len[1], self.sample_times)
+        self.valid_data_info_path = 'datainfo/valid_df_t{}_v{}_p{}_seq{}x{}_sample{}.pickle'.format(''.join(self.train_video), ''.join(self.valid_video), self.partition, self.seq_len[0], self.seq_len[1], self.sample_times)
         self.rnn_hidden_size = 1000
         self.conv_dropout = 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.5
         self.rnn_dropout_out = 0.5
@@ -129,35 +113,11 @@ class Parameters:
         self.pretrained_flownet = None
         self.resume = True
         self.resume_t_or_v = '.train'
-        self.load_model_path = (
-            'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.model{}'.format(''.
-            join(self.train_video), ''.join(self.valid_video), self.img_h,
-            self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size,
-            self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.
-            optim.items()]), self.resume_t_or_v))
-        self.load_optimizer_path = (
-            'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.optimizer{}'.format
-            (''.join(self.train_video), ''.join(self.valid_video), self.
-            img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.
-            batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k,
-            v in self.optim.items()]), self.resume_t_or_v))
-        self.record_path = ('records/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.txt'
-            .format(''.join(self.train_video), ''.join(self.valid_video),
-            self.img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.
-            batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k,
-            v in self.optim.items()])))
-        self.save_model_path = (
-            'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.model'.format(''.
-            join(self.train_video), ''.join(self.valid_video), self.img_h,
-            self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size,
-            self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.
-            optim.items()])))
-        self.save_optimzer_path = (
-            'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.optimizer'.format(
-            ''.join(self.train_video), ''.join(self.valid_video), self.
-            img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.
-            batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k,
-            v in self.optim.items()])))
+        self.load_model_path = 'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.model{}'.format(''.join(self.train_video), ''.join(self.valid_video), self.img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.optim.items()]), self.resume_t_or_v)
+        self.load_optimizer_path = 'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.optimizer{}'.format(''.join(self.train_video), ''.join(self.valid_video), self.img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.optim.items()]), self.resume_t_or_v)
+        self.record_path = 'records/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.txt'.format(''.join(self.train_video), ''.join(self.valid_video), self.img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.optim.items()]))
+        self.save_model_path = 'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.model'.format(''.join(self.train_video), ''.join(self.valid_video), self.img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.optim.items()]))
+        self.save_optimzer_path = 'models/t{}_v{}_im{}x{}_s{}x{}_b{}_rnn{}_{}.optimizer'.format(''.join(self.train_video), ''.join(self.valid_video), self.img_h, self.img_w, self.seq_len[0], self.seq_len[1], self.batch_size, self.rnn_hidden_size, '_'.join([(k + str(v)) for k, v in self.optim.items()]))
         if not os.path.isdir(os.path.dirname(self.record_path)):
             os.makedirs(os.path.dirname(self.record_path))
         if not os.path.isdir(os.path.dirname(self.save_model_path)):
@@ -174,35 +134,22 @@ class DeepVO(nn.Module):
         super(DeepVO, self).__init__()
         self.batchNorm = batchNorm
         self.clip = par.clip
-        self.conv1 = conv(self.batchNorm, 6, 64, kernel_size=7, stride=2,
-            dropout=par.conv_dropout[0])
-        self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2,
-            dropout=par.conv_dropout[1])
-        self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2,
-            dropout=par.conv_dropout[2])
-        self.conv3_1 = conv(self.batchNorm, 256, 256, kernel_size=3, stride
-            =1, dropout=par.conv_dropout[3])
-        self.conv4 = conv(self.batchNorm, 256, 512, kernel_size=3, stride=2,
-            dropout=par.conv_dropout[4])
-        self.conv4_1 = conv(self.batchNorm, 512, 512, kernel_size=3, stride
-            =1, dropout=par.conv_dropout[5])
-        self.conv5 = conv(self.batchNorm, 512, 512, kernel_size=3, stride=2,
-            dropout=par.conv_dropout[6])
-        self.conv5_1 = conv(self.batchNorm, 512, 512, kernel_size=3, stride
-            =1, dropout=par.conv_dropout[7])
-        self.conv6 = conv(self.batchNorm, 512, 1024, kernel_size=3, stride=
-            2, dropout=par.conv_dropout[8])
+        self.conv1 = conv(self.batchNorm, 6, 64, kernel_size=7, stride=2, dropout=par.conv_dropout[0])
+        self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2, dropout=par.conv_dropout[1])
+        self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2, dropout=par.conv_dropout[2])
+        self.conv3_1 = conv(self.batchNorm, 256, 256, kernel_size=3, stride=1, dropout=par.conv_dropout[3])
+        self.conv4 = conv(self.batchNorm, 256, 512, kernel_size=3, stride=2, dropout=par.conv_dropout[4])
+        self.conv4_1 = conv(self.batchNorm, 512, 512, kernel_size=3, stride=1, dropout=par.conv_dropout[5])
+        self.conv5 = conv(self.batchNorm, 512, 512, kernel_size=3, stride=2, dropout=par.conv_dropout[6])
+        self.conv5_1 = conv(self.batchNorm, 512, 512, kernel_size=3, stride=1, dropout=par.conv_dropout[7])
+        self.conv6 = conv(self.batchNorm, 512, 1024, kernel_size=3, stride=2, dropout=par.conv_dropout[8])
         __tmp = Variable(torch.zeros(1, 6, imsize1, imsize2))
         __tmp = self.encode_image(__tmp)
-        self.rnn = nn.LSTM(input_size=int(np.prod(__tmp.size())),
-            hidden_size=par.rnn_hidden_size, num_layers=2, dropout=par.
-            rnn_dropout_between, batch_first=True)
+        self.rnn = nn.LSTM(input_size=int(np.prod(__tmp.size())), hidden_size=par.rnn_hidden_size, num_layers=2, dropout=par.rnn_dropout_between, batch_first=True)
         self.rnn_drop_out = nn.Dropout(par.rnn_dropout_out)
-        self.linear = nn.Linear(in_features=par.rnn_hidden_size, out_features=6
-            )
+        self.linear = nn.Linear(in_features=par.rnn_hidden_size, out_features=6)
         for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d
-                ) or isinstance(m, nn.Linear):
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Linear):
                 kaiming_normal_(m.weight.data)
                 if m.bias is not None:
                     m.bias.data.zero_()
@@ -246,20 +193,16 @@ class DeepVO(nn.Module):
         return out_conv6
 
     def weight_parameters(self):
-        return [param for name, param in self.named_parameters() if 
-            'weight' in name]
+        return [param for name, param in self.named_parameters() if 'weight' in name]
 
     def bias_parameters(self):
-        return [param for name, param in self.named_parameters() if 'bias' in
-            name]
+        return [param for name, param in self.named_parameters() if 'bias' in name]
 
     def get_loss(self, x, y):
         predicted = self.forward(x)
         y = y[:, 1:, :]
-        angle_loss = torch.nn.functional.mse_loss(predicted[:, :, :3], y[:,
-            :, :3])
-        translation_loss = torch.nn.functional.mse_loss(predicted[:, :, 3:],
-            y[:, :, 3:])
+        angle_loss = torch.nn.functional.mse_loss(predicted[:, :, :3], y[:, :, :3])
+        translation_loss = torch.nn.functional.mse_loss(predicted[:, :, 3:], y[:, :, 3:])
         loss = 100 * angle_loss + translation_loss
         return loss
 
@@ -272,10 +215,3 @@ class DeepVO(nn.Module):
         optimizer.step()
         return loss
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ChiWeiHsiao_DeepVO_pytorch(_paritybench_base):
-    pass

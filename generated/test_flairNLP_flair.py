@@ -59,8 +59,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -224,8 +225,7 @@ class Label:
     @value.setter
     def value(self, value):
         if not value and value != '':
-            raise ValueError(
-                'Incorrect label value provided. Label value needs to be set.')
+            raise ValueError('Incorrect label value provided. Label value needs to be set.')
         else:
             self._value = value
 
@@ -288,8 +288,7 @@ class DataPoint:
     def get_labels(self, label_type: str=None):
         if label_type is None:
             return self.labels
-        return self.annotation_layers[label_type
-            ] if label_type in self.annotation_layers else []
+        return self.annotation_layers[label_type] if label_type in self.annotation_layers else []
 
     @property
     def labels(self) ->List[Label]:
@@ -317,16 +316,14 @@ class Image(DataPoint):
         return f'Image: {image_repr} {image_url}'
 
     def get_embedding(self) ->torch.tensor:
-        embeddings = [self._embeddings[embed] for embed in sorted(self.
-            _embeddings.keys())]
+        embeddings = [self._embeddings[embed] for embed in sorted(self._embeddings.keys())]
         if embeddings:
             return torch.cat(embeddings, dim=0)
         return torch.tensor([], device=flair.device)
 
     def set_embedding(self, name: str, vector: torch.tensor):
         device = flair.device
-        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.
-            keys()) > 0:
+        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.keys()) > 0:
             device = next(iter(self._embeddings.values())).device
         if device != vector.device:
             vector = vector.to(device)
@@ -336,11 +333,9 @@ class Image(DataPoint):
         for name, vector in self._embeddings.items():
             if str(vector.device) != str(device):
                 if pin_memory:
-                    self._embeddings[name] = vector.to(device, non_blocking
-                        =True).pin_memory()
+                    self._embeddings[name] = vector.to(device, non_blocking=True).pin_memory()
                 else:
-                    self._embeddings[name] = vector.to(device, non_blocking
-                        =True)
+                    self._embeddings[name] = vector.to(device, non_blocking=True)
 
     def clear_embeddings(self, embedding_names: List[str]=None):
         if embedding_names is None:
@@ -357,16 +352,14 @@ class Token(DataPoint):
     to its head in a dependency tree.
     """
 
-    def __init__(self, text: str, idx: int=None, head_id: int=None,
-        whitespace_after: bool=True, start_position: int=None):
+    def __init__(self, text: str, idx: int=None, head_id: int=None, whitespace_after: bool=True, start_position: int=None):
         super().__init__()
         self.text: str = text
         self.idx: int = idx
         self.head_id: int = head_id
         self.whitespace_after: bool = whitespace_after
         self.start_pos = start_position
-        self.end_pos = start_position + len(text
-            ) if start_position is not None else None
+        self.end_pos = start_position + len(text) if start_position is not None else None
         self.sentence: Sentence = None
         self._embeddings: Dict = {}
         self.tags_proba_dist: Dict[str, List[Label]] = {}
@@ -395,8 +388,7 @@ class Token(DataPoint):
 
     def set_embedding(self, name: str, vector: torch.tensor):
         device = flair.device
-        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.
-            keys()) > 0:
+        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.keys()) > 0:
             device = next(iter(self._embeddings.values())).device
         if device != vector.device:
             vector = vector.to(device)
@@ -406,11 +398,9 @@ class Token(DataPoint):
         for name, vector in self._embeddings.items():
             if str(vector.device) != str(device):
                 if pin_memory:
-                    self._embeddings[name] = vector.to(device, non_blocking
-                        =True).pin_memory()
+                    self._embeddings[name] = vector.to(device, non_blocking=True).pin_memory()
                 else:
-                    self._embeddings[name] = vector.to(device, non_blocking
-                        =True)
+                    self._embeddings[name] = vector.to(device, non_blocking=True)
 
     def clear_embeddings(self, embedding_names: List[str]=None):
         if embedding_names is None:
@@ -424,8 +414,7 @@ class Token(DataPoint):
         embeddings = []
         for embed in sorted(self._embeddings.keys()):
             embed = self._embeddings[embed].to(flair.device)
-            if (flair.embedding_storage_mode == 'cpu' and embed.device !=
-                flair.device):
+            if flair.embedding_storage_mode == 'cpu' and embed.device != flair.device:
                 embed = embed.to(flair.device)
             embeddings.append(embed)
         return embeddings
@@ -449,12 +438,10 @@ class Token(DataPoint):
         return self.get_embedding()
 
     def __str__(self) ->str:
-        return 'Token: {} {}'.format(self.idx, self.text
-            ) if self.idx is not None else 'Token: {}'.format(self.text)
+        return 'Token: {} {}'.format(self.idx, self.text) if self.idx is not None else 'Token: {}'.format(self.text)
 
     def __repr__(self) ->str:
-        return 'Token: {} {}'.format(self.idx, self.text
-            ) if self.idx is not None else 'Token: {}'.format(self.text)
+        return 'Token: {} {}'.format(self.idx, self.text) if self.idx is not None else 'Token: {}'.format(self.text)
 
 
 class Span(DataPoint):
@@ -489,21 +476,17 @@ class Span(DataPoint):
         return str
 
     def to_dict(self):
-        return {'text': self.to_original_text(), 'start_pos': self.
-            start_pos, 'end_pos': self.end_pos, 'labels': self.labels}
+        return {'text': self.to_original_text(), 'start_pos': self.start_pos, 'end_pos': self.end_pos, 'labels': self.labels}
 
     def __str__(self) ->str:
         ids = ','.join([str(t.idx) for t in self.tokens])
         label_string = ' '.join([str(label) for label in self.labels])
-        labels = (f'   [− Labels: {label_string}]' if self.labels is not
-            None else '')
+        labels = f'   [− Labels: {label_string}]' if self.labels is not None else ''
         return 'Span [{}]: "{}"{}'.format(ids, self.text, labels)
 
     def __repr__(self) ->str:
         ids = ','.join([str(t.idx) for t in self.tokens])
-        return '<{}-span ({}): "{}">'.format(self.tag, ids, self.text
-            ) if self.tag is not None else '<span ({}): "{}">'.format(ids,
-            self.text)
+        return '<{}-span ({}): "{}">'.format(self.tag, ids, self.text) if self.tag is not None else '<span ({}): "{}">'.format(ids, self.text)
 
     @property
     def tag(self):
@@ -583,14 +566,11 @@ def segtok_tokenizer(text: str) ->List[Token]:
             start_position = word_offset
         except:
             word_offset = previous_word_offset + 1
-            start_position = (current_offset + 1 if current_offset > 0 else
-                current_offset)
+            start_position = current_offset + 1 if current_offset > 0 else current_offset
         if word:
-            token = Token(text=word, start_position=start_position,
-                whitespace_after=True)
+            token = Token(text=word, start_position=start_position, whitespace_after=True)
             tokens.append(token)
-        if (previous_token is not None and word_offset - 1 ==
-            previous_word_offset):
+        if previous_token is not None and word_offset - 1 == previous_word_offset:
             previous_token.whitespace_after = False
         current_offset = word_offset + len(word)
         previous_word_offset = current_offset - 1
@@ -609,16 +589,14 @@ def space_tokenizer(text: str) ->List[Token]:
         if char == ' ':
             if len(word) > 0:
                 start_position = index - len(word)
-                tokens.append(Token(text=word, start_position=
-                    start_position, whitespace_after=True))
+                tokens.append(Token(text=word, start_position=start_position, whitespace_after=True))
             word = ''
         else:
             word += char
     index += 1
     if len(word) > 0:
         start_position = index - len(word)
-        tokens.append(Token(text=word, start_position=start_position,
-            whitespace_after=False))
+        tokens.append(Token(text=word, start_position=start_position, whitespace_after=False))
     return tokens
 
 
@@ -627,8 +605,7 @@ class Sentence(DataPoint):
        A Sentence is a list of Tokens and is used to represent a sentence or text fragment.
     """
 
-    def __init__(self, text: str=None, use_tokenizer: Union[bool, Callable[
-        [str], List[Token]]]=False, language_code: str=None):
+    def __init__(self, text: str=None, use_tokenizer: Union[bool, Callable[[str], List[Token]]]=False, language_code: str=None):
         """
         Class to hold all meta related to a text (tokens, predictions, language code, ...)
         :param text: original string
@@ -650,9 +627,7 @@ class Sentence(DataPoint):
             text = self._restore_windows_1252_characters(text)
             [self.add_token(token) for token in tokenizer(text)]
         if text == '':
-            log.warning(
-                'ACHTUNG: An empty Sentence was created! Are there empty strings in your dataset?'
-                )
+            log.warning('ACHTUNG: An empty Sentence was created! Are there empty strings in your dataset?')
         self.tokenized = None
 
     def get_token(self, token_id: int) ->Token:
@@ -698,18 +673,14 @@ class Sentence(DataPoint):
             starts_new_span = False
             if tag_value[0:2] in ['B-', 'S-']:
                 starts_new_span = True
-            if previous_tag_value[0:2] in ['S-'] and previous_tag_value[2:
-                ] != tag_value[2:] and in_span:
+            if previous_tag_value[0:2] in ['S-'] and previous_tag_value[2:] != tag_value[2:] and in_span:
                 starts_new_span = True
             if (starts_new_span or not in_span) and len(current_span) > 0:
-                scores = [t.get_labels(label_type)[0].score for t in
-                    current_span]
+                scores = [t.get_labels(label_type)[0].score for t in current_span]
                 span_score = sum(scores) / len(scores)
                 if span_score > min_score:
                     span = Span(current_span)
-                    span.add_label(label_type=label_type, value=sorted(tags
-                        .items(), key=lambda k_v: k_v[1], reverse=True)[0][
-                        0], score=span_score)
+                    span.add_label(label_type=label_type, value=sorted(tags.items(), key=lambda k_v: k_v[1], reverse=True)[0][0], score=span_score)
                     spans.append(span)
                 current_span = []
                 tags = defaultdict(lambda : 0.0)
@@ -723,9 +694,7 @@ class Sentence(DataPoint):
             span_score = sum(scores) / len(scores)
             if span_score > min_score:
                 span = Span(current_span)
-                span.add_label(label_type=label_type, value=sorted(tags.
-                    items(), key=lambda k_v: k_v[1], reverse=True)[0][0],
-                    score=span_score)
+                span.add_label(label_type=label_type, value=sorted(tags.items(), key=lambda k_v: k_v[1], reverse=True)[0][0], score=span_score)
                 spans.append(span)
         return spans
 
@@ -735,8 +704,7 @@ class Sentence(DataPoint):
 
     def set_embedding(self, name: str, vector: torch.tensor):
         device = flair.device
-        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.
-            keys()) > 0:
+        if flair.embedding_storage_mode == 'cpu' and len(self._embeddings.keys()) > 0:
             device = next(iter(self._embeddings.values())).device
         if device != vector.device:
             vector = vector.to(device)
@@ -755,11 +723,9 @@ class Sentence(DataPoint):
         for name, vector in self._embeddings.items():
             if str(vector.device) != str(device):
                 if pin_memory:
-                    self._embeddings[name] = vector.to(device, non_blocking
-                        =True).pin_memory()
+                    self._embeddings[name] = vector.to(device, non_blocking=True).pin_memory()
                 else:
-                    self._embeddings[name] = vector.to(device, non_blocking
-                        =True)
+                    self._embeddings[name] = vector.to(device, non_blocking=True)
         for token in self:
             token.to(device, pin_memory)
 
@@ -802,8 +768,7 @@ class Sentence(DataPoint):
                 plain += ' '
         return plain.rstrip()
 
-    def convert_tag_scheme(self, tag_type: str='ner', target_scheme: str='iob'
-        ):
+    def convert_tag_scheme(self, tag_type: str='ner', target_scheme: str='iob'):
         tags: List[Label] = []
         for token in self.tokens:
             tags.append(token.get_tag(tag_type))
@@ -860,8 +825,7 @@ class Sentence(DataPoint):
             entities = [span.to_dict() for span in self.get_spans(tag_type)]
         if self.labels:
             labels = [l.to_dict() for l in self.labels]
-        return {'text': self.to_original_text(), 'labels': labels,
-            'entities': entities}
+        return {'text': self.to_original_text(), 'labels': labels, 'entities': entities}
 
     def __getitem__(self, idx: int) ->Token:
         return self.tokens[idx]
@@ -872,34 +836,25 @@ class Sentence(DataPoint):
     def __repr__(self):
         tagged_string = self.to_tagged_string()
         tokenized_string = self.to_tokenized_string()
-        sentence_labels = (f'  − Sentence-Labels: {self.annotation_layers}' if
-            self.annotation_layers != {} else '')
-        token_labels = (f'  − Token-Labels: "{tagged_string}"' if 
-            tokenized_string != tagged_string else '')
-        return (
-            f'Sentence: "{tokenized_string}"   [− Tokens: {len(self)}{token_labels}{sentence_labels}]'
-            )
+        sentence_labels = f'  − Sentence-Labels: {self.annotation_layers}' if self.annotation_layers != {} else ''
+        token_labels = f'  − Token-Labels: "{tagged_string}"' if tokenized_string != tagged_string else ''
+        return f'Sentence: "{tokenized_string}"   [− Tokens: {len(self)}{token_labels}{sentence_labels}]'
 
     def __copy__(self):
         s = Sentence()
         for token in self.tokens:
             nt = Token(token.text)
             for tag_type in token.tags:
-                nt.add_label(tag_type, token.get_tag(tag_type).value, token
-                    .get_tag(tag_type).score)
+                nt.add_label(tag_type, token.get_tag(tag_type).value, token.get_tag(tag_type).score)
             s.add_token(nt)
         return s
 
     def __str__(self) ->str:
         tagged_string = self.to_tagged_string()
         tokenized_string = self.to_tokenized_string()
-        sentence_labels = (f'  − Sentence-Labels: {self.annotation_layers}' if
-            self.annotation_layers != {} else '')
-        token_labels = (f'  − Token-Labels: "{tagged_string}"' if 
-            tokenized_string != tagged_string else '')
-        return (
-            f'Sentence: "{tokenized_string}"   [− Tokens: {len(self)}{token_labels}{sentence_labels}]'
-            )
+        sentence_labels = f'  − Sentence-Labels: {self.annotation_layers}' if self.annotation_layers != {} else ''
+        token_labels = f'  − Token-Labels: "{tagged_string}"' if tokenized_string != tagged_string else ''
+        return f'Sentence: "{tokenized_string}"   [− Tokens: {len(self)}{token_labels}{sentence_labels}]'
 
     def __len__(self) ->int:
         return len(self.tokens)
@@ -946,8 +901,7 @@ class Embeddings(torch.nn.Module):
     def embedding_type(self) ->str:
         pass
 
-    def embed(self, sentences: Union[Sentence, List[Sentence]]) ->List[Sentence
-        ]:
+    def embed(self, sentences: Union[Sentence, List[Sentence]]) ->List[Sentence]:
         """Add embeddings to all words in a list of sentences. If embeddings are already added, updates only if embeddings
         are non-static."""
         if type(sentences) is Sentence or type(sentences) is Image:
@@ -967,8 +921,7 @@ class Embeddings(torch.nn.Module):
         return sentences
 
     @abstractmethod
-    def _add_embeddings_internal(self, sentences: List[Sentence]) ->List[
-        Sentence]:
+    def _add_embeddings_internal(self, sentences: List[Sentence]) ->List[Sentence]:
         """Private method for adding embeddings to all words in a list of sentences."""
         pass
 
@@ -993,11 +946,8 @@ class ScalarMix(torch.nn.Module):
         super(ScalarMix, self).__init__()
         self.mixture_size = mixture_size
         initial_scalar_parameters = [0.0] * mixture_size
-        self.scalar_parameters = ParameterList([Parameter(torch.tensor([
-            initial_scalar_parameters[i]], dtype=torch.float, device=flair.
-            device), requires_grad=trainable) for i in range(mixture_size)])
-        self.gamma = Parameter(torch.tensor([1.0], dtype=torch.float,
-            device=flair.device), requires_grad=trainable)
+        self.scalar_parameters = ParameterList([Parameter(torch.tensor([initial_scalar_parameters[i]], dtype=torch.float, device=flair.device), requires_grad=trainable) for i in range(mixture_size)])
+        self.gamma = Parameter(torch.tensor([1.0], dtype=torch.float, device=flair.device), requires_grad=trainable)
 
     def forward(self, tensors: List[torch.Tensor]) ->torch.Tensor:
         """
@@ -1007,11 +957,8 @@ class ScalarMix(torch.nn.Module):
         :return: computed weighted average of input tensors
         """
         if len(tensors) != self.mixture_size:
-            log.error(
-                '{} tensors were passed, but the module was initialized to mix {} tensors.'
-                .format(len(tensors), self.mixture_size))
-        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for
-            parameter in self.scalar_parameters]), dim=0)
+            log.error('{} tensors were passed, but the module was initialized to mix {} tensors.'.format(len(tensors), self.mixture_size))
+        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter in self.scalar_parameters]), dim=0)
         normed_weights = torch.split(normed_weights, split_size_or_sections=1)
         pieces = []
         for weight, tensor in zip(normed_weights, tensors):
@@ -1062,8 +1009,7 @@ class Dictionary:
         :return: List of ID of strings
         """
         if not hasattr(self, 'item2idx_not_encoded'):
-            d = dict([(key.decode('UTF-8'), value) for key, value in self.
-                item2idx.items()])
+            d = dict([(key.decode('UTF-8'), value) for key, value in self.item2idx.items()])
             self.item2idx_not_encoded = defaultdict(int, d)
         if not items:
             return []
@@ -1106,28 +1052,21 @@ class Dictionary:
     def load(cls, name: str):
         from flair.file_utils import cached_path
         if name == 'chars' or name == 'common-chars':
-            base_path = (
-                'https://s3.eu-central-1.amazonaws.com/alan-nlp/resources/models/common_characters'
-                )
+            base_path = 'https://s3.eu-central-1.amazonaws.com/alan-nlp/resources/models/common_characters'
             char_dict = cached_path(base_path, cache_dir='datasets')
             return Dictionary.load_from_file(char_dict)
         if name == 'chars-large' or name == 'common-chars-large':
-            base_path = (
-                'https://s3.eu-central-1.amazonaws.com/alan-nlp/resources/models/common_characters_large'
-                )
+            base_path = 'https://s3.eu-central-1.amazonaws.com/alan-nlp/resources/models/common_characters_large'
             char_dict = cached_path(base_path, cache_dir='datasets')
             return Dictionary.load_from_file(char_dict)
         if name == 'chars-xl' or name == 'common-chars-xl':
-            base_path = (
-                'https://s3.eu-central-1.amazonaws.com/alan-nlp/resources/models/common_characters_xl'
-                )
+            base_path = 'https://s3.eu-central-1.amazonaws.com/alan-nlp/resources/models/common_characters_xl'
             char_dict = cached_path(base_path, cache_dir='datasets')
             return Dictionary.load_from_file(char_dict)
         return Dictionary.load_from_file(name)
 
     def __str__(self):
-        tags = ', '.join(self.get_item_for_index(i) for i in range(min(len(
-            self), 30)))
+        tags = ', '.join(self.get_item_for_index(i) for i in range(min(len(self), 30)))
         return f'Dictionary with {len(self)} tags: {tags}'
 
 
@@ -1143,8 +1082,7 @@ class SimilarityLoss(nn.Module):
 
 class Result(object):
 
-    def __init__(self, main_score: float, log_header: str, log_line: str,
-        detailed_results: str):
+    def __init__(self, main_score: float, log_header: str, log_line: str, detailed_results: str):
         self.main_score: float = main_score
         self.log_header: str = log_header
         self.log_line: str = log_line
@@ -1166,13 +1104,10 @@ class LockedDropout(torch.nn.Module):
         if not self.training or not self.dropout_rate:
             return x
         if not self.batch_first:
-            m = x.data.new(1, x.size(1), x.size(2)).bernoulli_(1 - self.
-                dropout_rate)
+            m = x.data.new(1, x.size(1), x.size(2)).bernoulli_(1 - self.dropout_rate)
         else:
-            m = x.data.new(x.size(0), 1, x.size(2)).bernoulli_(1 - self.
-                dropout_rate)
-        mask = torch.autograd.Variable(m, requires_grad=False) / (1 - self.
-            dropout_rate)
+            m = x.data.new(x.size(0), 1, x.size(2)).bernoulli_(1 - self.dropout_rate)
+        mask = torch.autograd.Variable(m, requires_grad=False) / (1 - self.dropout_rate)
         mask = mask.expand_as(x)
         return mask * x
 
@@ -1194,8 +1129,7 @@ class WordDropout(torch.nn.Module):
     def forward(self, x):
         if not self.training or not self.dropout_rate:
             return x
-        m = x.data.new(x.size(0), x.size(1), 1).bernoulli_(1 - self.
-            dropout_rate)
+        m = x.data.new(x.size(0), x.size(1), 1).bernoulli_(1 - self.dropout_rate)
         mask = torch.autograd.Variable(m, requires_grad=False)
         return mask * x
 
@@ -1208,16 +1142,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LockedDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SimilarityLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WordDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_flairNLP_flair(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LockedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SimilarityLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(WordDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

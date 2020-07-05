@@ -59,8 +59,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -140,8 +141,7 @@ class MobiusLinear(torch.nn.Linear):
         self.reset_parameters()
 
     def forward(self, input):
-        return mobius_linear(input, weight=self.weight, bias=self.bias,
-            nonlin=self.nonlin, ball=self.ball)
+        return mobius_linear(input, weight=self.weight, bias=self.bias, nonlin=self.nonlin, ball=self.ball)
 
     @torch.no_grad()
     def reset_parameters(self):
@@ -277,8 +277,7 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
         else:
             return None
 
-    def check_point(self, x: torch.Tensor, *, explain=False) ->Union[Tuple[
-        bool, Optional[str]], bool]:
+    def check_point(self, x: torch.Tensor, *, explain=False) ->Union[Tuple[bool, Optional[str]], bool]:
         """
         Check if point is valid to be used with the manifold.
 
@@ -319,9 +318,7 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
         """
         ok, reason = self._check_shape(x.shape, 'x')
         if not ok:
-            raise ValueError(
-                '`x` seems to be not valid tensor for {} manifold.\nerror: {}'
-                .format(self.name, reason))
+            raise ValueError('`x` seems to be not valid tensor for {} manifold.\nerror: {}'.format(self.name, reason))
 
     def check_vector(self, u: torch.Tensor, *, explain=False):
         """
@@ -364,12 +361,9 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
         """
         ok, reason = self._check_shape(u.shape, 'u')
         if not ok:
-            raise ValueError(
-                '`u` seems to be not valid tensor for {} manifold.\nerror: {}'
-                .format(self.name, reason))
+            raise ValueError('`u` seems to be not valid tensor for {} manifold.\nerror: {}'.format(self.name, reason))
 
-    def check_point_on_manifold(self, x: torch.Tensor, *, explain=False,
-        atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+    def check_point_on_manifold(self, x: torch.Tensor, *, explain=False, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
         """
         Check if point :math:`x` is lying on the manifold.
 
@@ -401,8 +395,7 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
         else:
             return ok
 
-    def assert_check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05,
-        rtol=1e-05):
+    def assert_check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05):
         """
         Check if point :math`x` is lying on the manifold and raise an error with informative message on failure.
 
@@ -418,13 +411,9 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
         self.assert_check_point(x)
         ok, reason = self._check_point_on_manifold(x, atol=atol, rtol=rtol)
         if not ok:
-            raise ValueError(
-                '`x` seems to be a tensor not lying on {} manifold.\nerror: {}'
-                .format(self.name, reason))
+            raise ValueError('`x` seems to be a tensor not lying on {} manifold.\nerror: {}'.format(self.name, reason))
 
-    def check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *,
-        ok_point=False, explain=False, atol=1e-05, rtol=1e-05) ->Union[
-        Tuple[bool, Optional[str]], bool]:
+    def check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, ok_point=False, explain=False, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
         """
         Check if :math:`u` is lying on the tangent space to x.
 
@@ -453,21 +442,18 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
             if ok:
                 ok, reason = self._check_shape(u.shape, 'u')
             if ok:
-                ok, reason = self._check_point_on_manifold(x, atol=atol,
-                    rtol=rtol)
+                ok, reason = self._check_point_on_manifold(x, atol=atol, rtol=rtol)
         else:
             ok = True
             reason = None
         if ok:
-            ok, reason = self._check_vector_on_tangent(x, u, atol=atol,
-                rtol=rtol)
+            ok, reason = self._check_vector_on_tangent(x, u, atol=atol, rtol=rtol)
         if explain:
             return ok, reason
         else:
             return ok
 
-    def assert_check_vector_on_tangent(self, x: torch.Tensor, u: torch.
-        Tensor, *, ok_point=False, atol=1e-05, rtol=1e-05):
+    def assert_check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, ok_point=False, atol=1e-05, rtol=1e-05):
         """
         Check if u :math:`u` is lying on the tangent space to x and raise an error on fail.
 
@@ -489,23 +475,17 @@ class Manifold(torch.nn.Module, metaclass=abc.ABCMeta):
             if ok:
                 ok, reason = self._check_shape(u.shape, 'u')
             if ok:
-                ok, reason = self._check_point_on_manifold(x, atol=atol,
-                    rtol=rtol)
+                ok, reason = self._check_point_on_manifold(x, atol=atol, rtol=rtol)
         else:
             ok = True
             reason = None
         if ok:
-            ok, reason = self._check_vector_on_tangent(x, u, atol=atol,
-                rtol=rtol)
+            ok, reason = self._check_vector_on_tangent(x, u, atol=atol, rtol=rtol)
         if not ok:
-            raise ValueError(
-                """`u` seems to be a tensor not lying on tangent space to `x` for {} manifold.
-error: {}"""
-                .format(self.name, reason))
+            raise ValueError('`u` seems to be a tensor not lying on tangent space to `x` for {} manifold.\nerror: {}'.format(self.name, reason))
 
     @__scaling__(ScalingInfo(1))
-    def dist(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False
-        ) ->torch.Tensor:
+    def dist(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False) ->torch.Tensor:
         """
         Compute distance between 2 points on the manifold that is the shortest path along geodesics.
 
@@ -526,8 +506,7 @@ error: {}"""
         raise NotImplementedError
 
     @__scaling__(ScalingInfo(2))
-    def dist2(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False
-        ) ->torch.Tensor:
+    def dist2(self, x: torch.Tensor, y: torch.Tensor, *, keepdim=False) ->torch.Tensor:
         """
         Compute squared distance between 2 points on the manifold that is the shortest path along geodesics.
 
@@ -607,8 +586,7 @@ error: {}"""
         raise NotImplementedError
 
     @__scaling__(ScalingInfo(u=-1))
-    def expmap_transp(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def expmap_transp(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform an exponential map and vector transport from point :math:`x` with given direction :math:`u`.
 
@@ -631,8 +609,7 @@ error: {}"""
         return y, v_transp
 
     @__scaling__(ScalingInfo(u=-1))
-    def retr_transp(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def retr_transp(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a retraction + vector transport at once.
 
@@ -659,8 +636,7 @@ error: {}"""
         return y, v_transp
 
     @__scaling__(ScalingInfo(u=-1))
-    def transp_follow_retr(self, x: torch.Tensor, u: torch.Tensor, v: torch
-        .Tensor) ->torch.Tensor:
+    def transp_follow_retr(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
         """
         Perform vector transport following :math:`u`: :math:`\\mathfrak{T}_{x\\to\\operatorname{retr}(x, u)}(v)`.
 
@@ -684,8 +660,7 @@ error: {}"""
         return self.transp(x, y, v)
 
     @__scaling__(ScalingInfo(u=-1))
-    def transp_follow_expmap(self, x: torch.Tensor, u: torch.Tensor, v:
-        torch.Tensor) ->torch.Tensor:
+    def transp_follow_expmap(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
         """
         Perform vector transport following :math:`u`: :math:`\\mathfrak{T}_{x\\to\\operatorname{Exp}(x, u)}(v)`.
 
@@ -710,8 +685,7 @@ error: {}"""
         y = self.expmap(x, u)
         return self.transp(x, y, v)
 
-    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor
-        ) ->torch.Tensor:
+    def transp(self, x: torch.Tensor, y: torch.Tensor, v: torch.Tensor) ->torch.Tensor:
         """
         Perform vector transport :math:`\\mathfrak{T}_{x\\to y}(v)`.
 
@@ -732,8 +706,7 @@ error: {}"""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def inner(self, x: torch.Tensor, u: torch.Tensor, v=None, *, keepdim=False
-        ) ->torch.Tensor:
+    def inner(self, x: torch.Tensor, u: torch.Tensor, v=None, *, keepdim=False) ->torch.Tensor:
         """
         Inner product for tangent vectors at point :math:`x`.
 
@@ -755,8 +728,7 @@ error: {}"""
         """
         raise NotImplementedError
 
-    def component_inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.
-        Tensor=None) ->torch.Tensor:
+    def component_inner(self, x: torch.Tensor, u: torch.Tensor, v: torch.Tensor=None) ->torch.Tensor:
         """
         Inner product for tangent vectors at point :math:`x` according to components of the manifold.
 
@@ -786,8 +758,7 @@ error: {}"""
         """
         return self.inner(x, u, v, keepdim=True)
 
-    def norm(self, x: torch.Tensor, u: torch.Tensor, *, keepdim=False
-        ) ->torch.Tensor:
+    def norm(self, x: torch.Tensor, u: torch.Tensor, *, keepdim=False) ->torch.Tensor:
         """
         Norm of a tangent vector at point :math:`x`.
 
@@ -862,8 +833,7 @@ error: {}"""
         """
         raise NotImplementedError
 
-    def _check_shape(self, shape: Tuple[int], name: str) ->Union[Tuple[bool,
-        Optional[str]], bool]:
+    def _check_shape(self, shape: Tuple[int], name: str) ->Union[Tuple[bool, Optional[str]], bool]:
         """
         Util to check shape.
 
@@ -886,8 +856,7 @@ error: {}"""
         """
         ok = len(shape) >= self.ndim
         if not ok:
-            reason = "'{}' on the {} requires more than {} dim".format(name,
-                self, self.ndim)
+            reason = "'{}' on the {} requires more than {} dim".format(name, self, self.ndim)
         else:
             reason = None
         return ok, reason
@@ -916,8 +885,7 @@ error: {}"""
             raise ValueError(reason)
 
     @abc.abstractmethod
-    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol
-        =1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+    def _check_point_on_manifold(self, x: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
         """
         Util to check point lies on the manifold.
 
@@ -945,8 +913,7 @@ error: {}"""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *,
-        atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
+    def _check_vector_on_tangent(self, x: torch.Tensor, u: torch.Tensor, *, atol=1e-05, rtol=1e-05) ->Union[Tuple[bool, Optional[str]], bool]:
         """
         Util to check a vector belongs to the tangent space of a point.
 
@@ -1031,8 +998,7 @@ error: {}"""
         """
         raise NotImplementedError
 
-    def origin(self, *size: Union[int, Tuple[int]], dtype=None, device=None,
-        seed: Optional[int]=42) ->torch.Tensor:
+    def origin(self, *size: Union[int, Tuple[int]], dtype=None, device=None, seed: Optional[int]=42) ->torch.Tensor:
         """
         Create some reasonable point on the manifold in a deterministic way.
 
@@ -1066,10 +1032,3 @@ error: {}"""
         else:
             return self.random(*size, dtype=dtype, device=device)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_geoopt_geoopt(_paritybench_base):
-    pass

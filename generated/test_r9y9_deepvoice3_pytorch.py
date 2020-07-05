@@ -50,8 +50,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,23 +106,17 @@ class MultiSpeakerTTSModel(nn.Module):
     """Attention seq2seq model + post processing network
     """
 
-    def __init__(self, seq2seq, postnet, mel_dim=80, linear_dim=513,
-        n_speakers=1, speaker_embed_dim=16, padding_idx=None,
-        trainable_positional_encodings=False,
-        use_decoder_state_for_postnet_input=False,
-        speaker_embedding_weight_std=0.01, freeze_embedding=False):
+    def __init__(self, seq2seq, postnet, mel_dim=80, linear_dim=513, n_speakers=1, speaker_embed_dim=16, padding_idx=None, trainable_positional_encodings=False, use_decoder_state_for_postnet_input=False, speaker_embedding_weight_std=0.01, freeze_embedding=False):
         super(MultiSpeakerTTSModel, self).__init__()
         self.seq2seq = seq2seq
         self.postnet = postnet
         self.mel_dim = mel_dim
         self.linear_dim = linear_dim
         self.trainable_positional_encodings = trainable_positional_encodings
-        self.use_decoder_state_for_postnet_input = (
-            use_decoder_state_for_postnet_input)
+        self.use_decoder_state_for_postnet_input = use_decoder_state_for_postnet_input
         self.freeze_embedding = freeze_embedding
         if n_speakers > 1:
-            self.embed_speakers = Embedding(n_speakers, speaker_embed_dim,
-                padding_idx=None, std=speaker_embedding_weight_std)
+            self.embed_speakers = Embedding(n_speakers, speaker_embed_dim, padding_idx=None, std=speaker_embedding_weight_std)
         self.n_speakers = n_speakers
         self.speaker_embed_dim = speaker_embed_dim
 
@@ -138,27 +133,22 @@ class MultiSpeakerTTSModel(nn.Module):
         freezed_param_ids = set()
         encoder, decoder = self.seq2seq.encoder, self.seq2seq.decoder
         if not self.trainable_positional_encodings:
-            pe_query_param_ids = set(map(id, decoder.embed_query_positions.
-                parameters()))
-            pe_keys_param_ids = set(map(id, decoder.embed_keys_positions.
-                parameters()))
+            pe_query_param_ids = set(map(id, decoder.embed_query_positions.parameters()))
+            pe_keys_param_ids = set(map(id, decoder.embed_keys_positions.parameters()))
             freezed_param_ids |= pe_query_param_ids | pe_keys_param_ids
         if self.freeze_embedding:
             embed_param_ids = set(map(id, encoder.embed_tokens.parameters()))
             freezed_param_ids |= embed_param_ids
         return (p for p in self.parameters() if id(p) not in freezed_param_ids)
 
-    def forward(self, text_sequences, mel_targets=None, speaker_ids=None,
-        text_positions=None, frame_positions=None, input_lengths=None):
+    def forward(self, text_sequences, mel_targets=None, speaker_ids=None, text_positions=None, frame_positions=None, input_lengths=None):
         B = text_sequences.size(0)
         if speaker_ids is not None:
             assert self.n_speakers > 1
             speaker_embed = self.embed_speakers(speaker_ids)
         else:
             speaker_embed = None
-        mel_outputs, alignments, done, decoder_states = self.seq2seq(
-            text_sequences, mel_targets, speaker_embed, text_positions,
-            frame_positions, input_lengths)
+        mel_outputs, alignments, done, decoder_states = self.seq2seq(text_sequences, mel_targets, speaker_embed, text_positions, frame_positions, input_lengths)
         mel_outputs = mel_outputs.view(B, -1, self.mel_dim)
         if self.use_decoder_state_for_postnet_input:
             postnet_inputs = decoder_states.view(B, mel_outputs.size(1), -1)
@@ -178,17 +168,11 @@ class AttentionSeq2Seq(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         if isinstance(self.decoder.attention, nn.ModuleList):
-            self.encoder.num_attention_layers = sum([(layer is not None) for
-                layer in decoder.attention])
+            self.encoder.num_attention_layers = sum([(layer is not None) for layer in decoder.attention])
 
-    def forward(self, text_sequences, mel_targets=None, speaker_embed=None,
-        text_positions=None, frame_positions=None, input_lengths=None):
-        encoder_outputs = self.encoder(text_sequences, lengths=
-            input_lengths, speaker_embed=speaker_embed)
-        mel_outputs, alignments, done, decoder_states = self.decoder(
-            encoder_outputs, mel_targets, text_positions=text_positions,
-            frame_positions=frame_positions, speaker_embed=speaker_embed,
-            lengths=input_lengths)
+    def forward(self, text_sequences, mel_targets=None, speaker_embed=None, text_positions=None, frame_positions=None, input_lengths=None):
+        encoder_outputs = self.encoder(text_sequences, lengths=input_lengths, speaker_embed=speaker_embed)
+        mel_outputs, alignments, done, decoder_states = self.decoder(encoder_outputs, mel_targets, text_positions=text_positions, frame_positions=frame_positions, speaker_embed=speaker_embed, lengths=input_lengths)
         return mel_outputs, alignments, done, decoder_states
 
 
@@ -214,12 +198,10 @@ class Conv1d(nn.Conv1d):
         if kw > 1:
             input = input.data
             if self.input_buffer is None:
-                self.input_buffer = input.new(bsz, kw + (kw - 1) * (
-                    dilation - 1), input.size(2))
+                self.input_buffer = input.new(bsz, kw + (kw - 1) * (dilation - 1), input.size(2))
                 self.input_buffer.zero_()
             else:
-                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :
-                    ].clone()
+                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :].clone()
             self.input_buffer[:, (-1), :] = input[:, (-1), :]
             input = self.input_buffer
             if dilation > 1:
@@ -236,8 +218,7 @@ class Conv1d(nn.Conv1d):
             if self.weight.size() == (self.out_channels, self.in_channels, kw):
                 weight = self.weight.transpose(1, 2).contiguous()
             else:
-                weight = self.weight.transpose(2, 1).transpose(1, 0
-                    ).contiguous()
+                weight = self.weight.transpose(2, 1).transpose(1, 0).contiguous()
             assert weight.size() == (self.out_channels, kw, self.in_channels)
             self._linearized_weight = weight.view(self.out_channels, -1)
         return self._linearized_weight
@@ -272,56 +253,43 @@ def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
     if speaker_embed is None:
         return None
     ss = speaker_embed.size()
-    speaker_embed_btc = speaker_embed.unsqueeze(1).expand(ss[0], inputs_btc
-        .size(tdim), ss[-1])
+    speaker_embed_btc = speaker_embed.unsqueeze(1).expand(ss[0], inputs_btc.size(tdim), ss[-1])
     return speaker_embed_btc
 
 
 class Encoder(nn.Module):
 
-    def __init__(self, n_vocab, embed_dim, n_speakers, speaker_embed_dim,
-        padding_idx=None, embedding_weight_std=0.1, convolutions=((64, 5, 
-        0.1),) * 7, max_positions=512, dropout=0.1, apply_grad_scaling=False):
+    def __init__(self, n_vocab, embed_dim, n_speakers, speaker_embed_dim, padding_idx=None, embedding_weight_std=0.1, convolutions=((64, 5, 0.1),) * 7, max_positions=512, dropout=0.1, apply_grad_scaling=False):
         super(Encoder, self).__init__()
         self.dropout = dropout
         self.num_attention_layers = None
         self.apply_grad_scaling = apply_grad_scaling
-        self.embed_tokens = Embedding(n_vocab, embed_dim, padding_idx,
-            embedding_weight_std)
+        self.embed_tokens = Embedding(n_vocab, embed_dim, padding_idx, embedding_weight_std)
         if n_speakers > 1:
-            self.speaker_fc1 = Linear(speaker_embed_dim, embed_dim, dropout
-                =dropout)
-            self.speaker_fc2 = Linear(speaker_embed_dim, embed_dim, dropout
-                =dropout)
+            self.speaker_fc1 = Linear(speaker_embed_dim, embed_dim, dropout=dropout)
+            self.speaker_fc2 = Linear(speaker_embed_dim, embed_dim, dropout=dropout)
         self.n_speakers = n_speakers
         in_channels = embed_dim
         self.convolutions = nn.ModuleList()
         std_mul = 1.0
         for out_channels, kernel_size, dilation in convolutions:
             if in_channels != out_channels:
-                self.convolutions.append(Conv1d(in_channels, out_channels,
-                    kernel_size=1, padding=0, dilation=1, std_mul=std_mul))
+                self.convolutions.append(Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, std_mul=std_mul))
                 self.convolutions.append(nn.ReLU(inplace=True))
                 in_channels = out_channels
                 std_mul = 2.0
-            self.convolutions.append(Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, out_channels, kernel_size,
-                causal=False, dilation=dilation, dropout=dropout, std_mul=
-                std_mul, residual=True))
+            self.convolutions.append(Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, out_channels, kernel_size, causal=False, dilation=dilation, dropout=dropout, std_mul=std_mul, residual=True))
             in_channels = out_channels
             std_mul = 4.0
-        self.convolutions.append(Conv1d(in_channels, embed_dim, kernel_size
-            =1, padding=0, dilation=1, std_mul=std_mul, dropout=dropout))
+        self.convolutions.append(Conv1d(in_channels, embed_dim, kernel_size=1, padding=0, dilation=1, std_mul=std_mul, dropout=dropout))
 
-    def forward(self, text_sequences, text_positions=None, lengths=None,
-        speaker_embed=None):
+    def forward(self, text_sequences, text_positions=None, lengths=None, speaker_embed=None):
         assert self.n_speakers == 1 or speaker_embed is not None
         x = self.embed_tokens(text_sequences.long())
         x = F.dropout(x, p=self.dropout, training=self.training)
         speaker_embed_btc = expand_speaker_embed(x, speaker_embed)
         if speaker_embed_btc is not None:
-            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout,
-                training=self.training)
+            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
             x = x + F.softsign(self.speaker_fc1(speaker_embed_btc))
         input_embedding = x
         x = x.transpose(1, 2)
@@ -331,23 +299,20 @@ class Encoder(nn.Module):
         if speaker_embed_btc is not None:
             keys = keys + F.softsign(self.speaker_fc2(speaker_embed_btc))
         if self.apply_grad_scaling and self.num_attention_layers is not None:
-            keys = GradMultiply.apply(keys, 1.0 / (2.0 * self.
-                num_attention_layers))
+            keys = GradMultiply.apply(keys, 1.0 / (2.0 * self.num_attention_layers))
         values = (keys + input_embedding) * math.sqrt(0.5)
         return keys, values
 
 
 class AttentionLayer(nn.Module):
 
-    def __init__(self, conv_channels, embed_dim, dropout=0.1, window_ahead=
-        3, window_backward=1, key_projection=True, value_projection=True):
+    def __init__(self, conv_channels, embed_dim, dropout=0.1, window_ahead=3, window_backward=1, key_projection=True, value_projection=True):
         super(AttentionLayer, self).__init__()
         self.query_projection = Linear(conv_channels, embed_dim)
         if key_projection:
             self.key_projection = Linear(embed_dim, embed_dim)
             if conv_channels == embed_dim:
-                self.key_projection.weight.data = (self.query_projection.
-                    weight.data.clone())
+                self.key_projection.weight.data = self.query_projection.weight.data.clone()
         else:
             self.key_projection = None
         if value_projection:
@@ -407,20 +372,14 @@ def get_mask_from_lengths(memory, memory_lengths):
         memory_lengths: array like
     """
     max_len = max(memory_lengths)
-    mask = torch.arange(max_len).expand(memory.size(0), max_len
-        ) < torch.tensor(memory_lengths).unsqueeze(-1)
+    mask = torch.arange(max_len).expand(memory.size(0), max_len) < torch.tensor(memory_lengths).unsqueeze(-1)
     mask = mask.to(memory.device)
     return ~mask
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, embed_dim, n_speakers, speaker_embed_dim, in_dim=80,
-        r=5, max_positions=512, padding_idx=None, preattention=((128, 5, 1)
-        ,) * 4, convolutions=((128, 5, 1),) * 4, attention=True, dropout=
-        0.1, use_memory_mask=False, force_monotonic_attention=False,
-        query_position_rate=1.0, key_position_rate=1.29, window_ahead=3,
-        window_backward=1, key_projection=True, value_projection=True):
+    def __init__(self, embed_dim, n_speakers, speaker_embed_dim, in_dim=80, r=5, max_positions=512, padding_idx=None, preattention=((128, 5, 1),) * 4, convolutions=((128, 5, 1),) * 4, attention=True, dropout=0.1, use_memory_mask=False, force_monotonic_attention=False, query_position_rate=1.0, key_position_rate=1.29, window_ahead=3, window_backward=1, key_projection=True, value_projection=True):
         super(Decoder, self).__init__()
         self.dropout = dropout
         self.in_dim = in_dim
@@ -430,10 +389,8 @@ class Decoder(nn.Module):
         in_channels = in_dim * r
         if isinstance(attention, bool):
             attention = [attention] * len(convolutions)
-        self.embed_query_positions = SinusoidalEncoding(max_positions,
-            convolutions[0][0])
-        self.embed_keys_positions = SinusoidalEncoding(max_positions, embed_dim
-            )
+        self.embed_query_positions = SinusoidalEncoding(max_positions, convolutions[0][0])
+        self.embed_keys_positions = SinusoidalEncoding(max_positions, embed_dim)
         if n_speakers > 1:
             self.speaker_proj1 = Linear(speaker_embed_dim, 1, dropout=dropout)
             self.speaker_proj2 = Linear(speaker_embed_dim, 1, dropout=dropout)
@@ -444,59 +401,43 @@ class Decoder(nn.Module):
         std_mul = 1.0
         for out_channels, kernel_size, dilation in preattention:
             if in_channels != out_channels:
-                self.preattention.append(Conv1d(in_channels, out_channels,
-                    kernel_size=1, padding=0, dilation=1, std_mul=std_mul))
+                self.preattention.append(Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, std_mul=std_mul))
                 self.preattention.append(nn.ReLU(inplace=True))
                 in_channels = out_channels
                 std_mul = 2.0
-            self.preattention.append(Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, out_channels, kernel_size,
-                causal=True, dilation=dilation, dropout=dropout, std_mul=
-                std_mul, residual=True))
+            self.preattention.append(Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, out_channels, kernel_size, causal=True, dilation=dilation, dropout=dropout, std_mul=std_mul, residual=True))
             in_channels = out_channels
             std_mul = 4.0
         self.convolutions = nn.ModuleList()
         self.attention = nn.ModuleList()
-        for i, (out_channels, kernel_size, dilation) in enumerate(convolutions
-            ):
+        for i, (out_channels, kernel_size, dilation) in enumerate(convolutions):
             assert in_channels == out_channels
-            self.convolutions.append(Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, out_channels, kernel_size,
-                causal=True, dilation=dilation, dropout=dropout, std_mul=
-                std_mul, residual=False))
-            self.attention.append(AttentionLayer(out_channels, embed_dim,
-                dropout=dropout, window_ahead=window_ahead, window_backward
-                =window_backward, key_projection=key_projection,
-                value_projection=value_projection) if attention[i] else None)
+            self.convolutions.append(Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, out_channels, kernel_size, causal=True, dilation=dilation, dropout=dropout, std_mul=std_mul, residual=False))
+            self.attention.append(AttentionLayer(out_channels, embed_dim, dropout=dropout, window_ahead=window_ahead, window_backward=window_backward, key_projection=key_projection, value_projection=value_projection) if attention[i] else None)
             in_channels = out_channels
             std_mul = 4.0
-        self.last_conv = Conv1d(in_channels, in_dim * r, kernel_size=1,
-            padding=0, dilation=1, std_mul=std_mul, dropout=dropout)
+        self.last_conv = Conv1d(in_channels, in_dim * r, kernel_size=1, padding=0, dilation=1, std_mul=std_mul, dropout=dropout)
         self.fc = Linear(in_dim * r, 1)
         self.max_decoder_steps = 200
         self.min_decoder_steps = 10
         self.use_memory_mask = use_memory_mask
         if isinstance(force_monotonic_attention, bool):
-            self.force_monotonic_attention = [force_monotonic_attention] * len(
-                convolutions)
+            self.force_monotonic_attention = [force_monotonic_attention] * len(convolutions)
         else:
             self.force_monotonic_attention = force_monotonic_attention
 
-    def forward(self, encoder_out, inputs=None, text_positions=None,
-        frame_positions=None, speaker_embed=None, lengths=None):
+    def forward(self, encoder_out, inputs=None, text_positions=None, frame_positions=None, speaker_embed=None, lengths=None):
         if inputs is None:
             assert text_positions is not None
             self.start_fresh_sequence()
-            outputs = self.incremental_forward(encoder_out, text_positions,
-                speaker_embed)
+            outputs = self.incremental_forward(encoder_out, text_positions, speaker_embed)
             return outputs
         if inputs.size(-1) == self.in_dim:
             inputs = inputs.view(inputs.size(0), inputs.size(1) // self.r, -1)
         assert inputs.size(-1) == self.in_dim * self.r
         speaker_embed_btc = expand_speaker_embed(inputs, speaker_embed)
         if speaker_embed_btc is not None:
-            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout,
-                training=self.training)
+            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
         keys, values = encoder_out
         if self.use_memory_mask and lengths is not None:
             mask = get_mask_from_lengths(keys, lengths)
@@ -505,15 +446,13 @@ class Decoder(nn.Module):
         if text_positions is not None:
             w = self.key_position_rate
             if self.speaker_proj1 is not None:
-                w = w * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(
-                    -1)
+                w = w * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
             text_pos_embed = self.embed_keys_positions(text_positions, w)
             keys = keys + text_pos_embed
         if frame_positions is not None:
             w = self.query_position_rate
             if self.speaker_proj2 is not None:
-                w = w * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(
-                    -1)
+                w = w * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
             frame_pos_embed = self.embed_query_positions(frame_positions, w)
         keys = keys.transpose(1, 2).contiguous()
         x = inputs
@@ -541,8 +480,7 @@ class Decoder(nn.Module):
         done = torch.sigmoid(self.fc(x))
         return outputs, torch.stack(alignments), done, decoder_states
 
-    def incremental_forward(self, encoder_out, text_positions,
-        speaker_embed=None, initial_input=None, test_inputs=None):
+    def incremental_forward(self, encoder_out, text_positions, speaker_embed=None, initial_input=None, test_inputs=None):
         keys, values = encoder_out
         B = keys.size(0)
         w = self.key_position_rate
@@ -558,8 +496,7 @@ class Decoder(nn.Module):
         last_attended = [None] * len(self.attention)
         for idx, v in enumerate(self.force_monotonic_attention):
             last_attended[idx] = 0 if v else None
-        num_attention_layers = sum([(layer is not None) for layer in self.
-            attention])
+        num_attention_layers = sum([(layer is not None) for layer in self.attention])
         t = 0
         if initial_input is None:
             initial_input = keys.data.new(B, 1, self.in_dim * self.r).zero_()
@@ -568,8 +505,7 @@ class Decoder(nn.Module):
             frame_pos = keys.data.new(B, 1).fill_(t + 1).long()
             w = self.query_position_rate
             if self.speaker_proj2 is not None:
-                w = w * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(
-                    -1)
+                w = w * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
             frame_pos_embed = self.embed_query_positions(frame_pos, w)
             if test_inputs is not None:
                 if t >= test_inputs.size(1):
@@ -588,8 +524,7 @@ class Decoder(nn.Module):
                     except AttributeError as e:
                         x = f(x)
             ave_alignment = None
-            for idx, (f, attention) in enumerate(zip(self.convolutions,
-                self.attention)):
+            for idx, (f, attention) in enumerate(zip(self.convolutions, self.attention)):
                 residual = x
                 if isinstance(f, Conv1dGLU):
                     x = f.incremental_forward(x, speaker_embed)
@@ -601,11 +536,9 @@ class Decoder(nn.Module):
                 if attention is not None:
                     assert isinstance(f, Conv1dGLU)
                     x = x + frame_pos_embed
-                    x, alignment = attention(x, (keys, values),
-                        last_attended=last_attended[idx])
+                    x, alignment = attention(x, (keys, values), last_attended=last_attended[idx])
                     if self.force_monotonic_attention[idx]:
-                        last_attended[idx] = alignment.max(-1)[1].view(-1
-                            ).data[0]
+                        last_attended[idx] = alignment.max(-1)[1].view(-1).data[0]
                     if ave_alignment is None:
                         ave_alignment = alignment
                     else:
@@ -631,8 +564,7 @@ class Decoder(nn.Module):
         decoder_states = list(map(lambda x: x.squeeze(1), decoder_states))
         outputs = list(map(lambda x: x.squeeze(1), outputs))
         alignments = torch.stack(alignments).transpose(0, 1)
-        decoder_states = torch.stack(decoder_states).transpose(0, 1
-            ).contiguous()
+        decoder_states = torch.stack(decoder_states).transpose(0, 1).contiguous()
         outputs = torch.stack(outputs).transpose(0, 1).contiguous()
         return outputs, alignments, dones, decoder_states
 
@@ -642,11 +574,9 @@ class Decoder(nn.Module):
         self.last_conv.clear_buffer()
 
 
-def ConvTranspose1d(in_channels, out_channels, kernel_size, dropout=0,
-    std_mul=1.0, **kwargs):
+def ConvTranspose1d(in_channels, out_channels, kernel_size, dropout=0, std_mul=1.0, **kwargs):
     m = nn.ConvTranspose1d(in_channels, out_channels, kernel_size, **kwargs)
-    std = math.sqrt(std_mul * (1.0 - dropout) / (m.kernel_size[0] *
-        in_channels))
+    std = math.sqrt(std_mul * (1.0 - dropout) / (m.kernel_size[0] * in_channels))
     m.weight.data.normal_(mean=0, std=std)
     m.bias.data.zero_()
     return nn.utils.weight_norm(m)
@@ -654,8 +584,7 @@ def ConvTranspose1d(in_channels, out_channels, kernel_size, dropout=0,
 
 class Converter(nn.Module):
 
-    def __init__(self, n_speakers, speaker_embed_dim, in_dim, out_dim,
-        convolutions=((256, 5, 1),) * 4, time_upsampling=1, dropout=0.1):
+    def __init__(self, n_speakers, speaker_embed_dim, in_dim, out_dim, convolutions=((256, 5, 1),) * 4, time_upsampling=1, dropout=0.1):
         super(Converter, self).__init__()
         self.dropout = dropout
         self.in_dim = in_dim
@@ -663,82 +592,43 @@ class Converter(nn.Module):
         self.n_speakers = n_speakers
         in_channels = convolutions[0][0]
         if time_upsampling == 4:
-            self.convolutions = nn.ModuleList([Conv1d(in_dim, in_channels,
-                kernel_size=1, padding=0, dilation=1, std_mul=1.0),
-                ConvTranspose1d(in_channels, in_channels, kernel_size=2,
-                padding=0, stride=2, std_mul=1.0), Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, in_channels, kernel_size=3,
-                causal=False, dilation=1, dropout=dropout, std_mul=1.0,
-                residual=True), Conv1dGLU(n_speakers, speaker_embed_dim,
-                in_channels, in_channels, kernel_size=3, causal=False,
-                dilation=3, dropout=dropout, std_mul=4.0, residual=True),
-                ConvTranspose1d(in_channels, in_channels, kernel_size=2,
-                padding=0, stride=2, std_mul=4.0), Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, in_channels, kernel_size=3,
-                causal=False, dilation=1, dropout=dropout, std_mul=1.0,
-                residual=True), Conv1dGLU(n_speakers, speaker_embed_dim,
-                in_channels, in_channels, kernel_size=3, causal=False,
-                dilation=3, dropout=dropout, std_mul=4.0, residual=True)])
+            self.convolutions = nn.ModuleList([Conv1d(in_dim, in_channels, kernel_size=1, padding=0, dilation=1, std_mul=1.0), ConvTranspose1d(in_channels, in_channels, kernel_size=2, padding=0, stride=2, std_mul=1.0), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=1, dropout=dropout, std_mul=1.0, residual=True), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=3, dropout=dropout, std_mul=4.0, residual=True), ConvTranspose1d(in_channels, in_channels, kernel_size=2, padding=0, stride=2, std_mul=4.0), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=1, dropout=dropout, std_mul=1.0, residual=True), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=3, dropout=dropout, std_mul=4.0, residual=True)])
         elif time_upsampling == 2:
-            self.convolutions = nn.ModuleList([Conv1d(in_dim, in_channels,
-                kernel_size=1, padding=0, dilation=1, std_mul=1.0),
-                ConvTranspose1d(in_channels, in_channels, kernel_size=2,
-                padding=0, stride=2, std_mul=1.0), Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, in_channels, kernel_size=3,
-                causal=False, dilation=1, dropout=dropout, std_mul=1.0,
-                residual=True), Conv1dGLU(n_speakers, speaker_embed_dim,
-                in_channels, in_channels, kernel_size=3, causal=False,
-                dilation=3, dropout=dropout, std_mul=4.0, residual=True)])
+            self.convolutions = nn.ModuleList([Conv1d(in_dim, in_channels, kernel_size=1, padding=0, dilation=1, std_mul=1.0), ConvTranspose1d(in_channels, in_channels, kernel_size=2, padding=0, stride=2, std_mul=1.0), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=1, dropout=dropout, std_mul=1.0, residual=True), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=3, dropout=dropout, std_mul=4.0, residual=True)])
         elif time_upsampling == 1:
-            self.convolutions = nn.ModuleList([Conv1d(in_dim, in_channels,
-                kernel_size=1, padding=0, dilation=1, std_mul=1.0),
-                Conv1dGLU(n_speakers, speaker_embed_dim, in_channels,
-                in_channels, kernel_size=3, causal=False, dilation=3,
-                dropout=dropout, std_mul=4.0, residual=True)])
+            self.convolutions = nn.ModuleList([Conv1d(in_dim, in_channels, kernel_size=1, padding=0, dilation=1, std_mul=1.0), Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, in_channels, kernel_size=3, causal=False, dilation=3, dropout=dropout, std_mul=4.0, residual=True)])
         else:
             raise ValueError('Not supported')
         std_mul = 4.0
         for out_channels, kernel_size, dilation in convolutions:
             if in_channels != out_channels:
-                self.convolutions.append(Conv1d(in_channels, out_channels,
-                    kernel_size=1, padding=0, dilation=1, std_mul=std_mul))
+                self.convolutions.append(Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, std_mul=std_mul))
                 self.convolutions.append(nn.ReLU(inplace=True))
                 in_channels = out_channels
                 std_mul = 2.0
-            self.convolutions.append(Conv1dGLU(n_speakers,
-                speaker_embed_dim, in_channels, out_channels, kernel_size,
-                causal=False, dilation=dilation, dropout=dropout, std_mul=
-                std_mul, residual=True))
+            self.convolutions.append(Conv1dGLU(n_speakers, speaker_embed_dim, in_channels, out_channels, kernel_size, causal=False, dilation=dilation, dropout=dropout, std_mul=std_mul, residual=True))
             in_channels = out_channels
             std_mul = 4.0
-        self.convolutions.append(Conv1d(in_channels, out_dim, kernel_size=1,
-            padding=0, dilation=1, std_mul=std_mul, dropout=dropout))
+        self.convolutions.append(Conv1d(in_channels, out_dim, kernel_size=1, padding=0, dilation=1, std_mul=std_mul, dropout=dropout))
 
     def forward(self, x, speaker_embed=None):
         assert self.n_speakers == 1 or speaker_embed is not None
         speaker_embed_btc = expand_speaker_embed(x, speaker_embed)
         if speaker_embed_btc is not None:
-            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout,
-                training=self.training)
+            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
         x = x.transpose(1, 2)
         for f in self.convolutions:
-            if speaker_embed_btc is not None and speaker_embed_btc.size(1
-                ) != x.size(-1):
-                speaker_embed_btc = expand_speaker_embed(x, speaker_embed,
-                    tdim=-1)
-                speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.
-                    dropout, training=self.training)
+            if speaker_embed_btc is not None and speaker_embed_btc.size(1) != x.size(-1):
+                speaker_embed_btc = expand_speaker_embed(x, speaker_embed, tdim=-1)
+                speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
             x = f(x, speaker_embed_btc) if isinstance(f, Conv1dGLU) else f(x)
         x = x.transpose(1, 2)
         return torch.sigmoid(x)
 
 
-def position_encoding_init(n_position, d_pos_vec, position_rate=1.0,
-    sinusoidal=True):
+def position_encoding_init(n_position, d_pos_vec, position_rate=1.0, sinusoidal=True):
     """ Init the sinusoid position encoding table """
-    position_enc = np.array([([(position_rate * pos / np.power(10000, 2 * (
-        i // 2) / d_pos_vec)) for i in range(d_pos_vec)] if pos != 0 else
-        np.zeros(d_pos_vec)) for pos in range(n_position)])
+    position_enc = np.array([([(position_rate * pos / np.power(10000, 2 * (i // 2) / d_pos_vec)) for i in range(d_pos_vec)] if pos != 0 else np.zeros(d_pos_vec)) for pos in range(n_position)])
     position_enc = torch.from_numpy(position_enc).float()
     if sinusoidal:
         position_enc[1:, 0::2] = torch.sin(position_enc[1:, 0::2])
@@ -756,25 +646,20 @@ def sinusoidal_encode(x, w):
 class SinusoidalEncoding(nn.Embedding):
 
     def __init__(self, num_embeddings, embedding_dim, *args, **kwargs):
-        super(SinusoidalEncoding, self).__init__(num_embeddings,
-            embedding_dim, *args, padding_idx=0, **kwargs)
-        self.weight.data = position_encoding_init(num_embeddings,
-            embedding_dim, position_rate=1.0, sinusoidal=False)
+        super(SinusoidalEncoding, self).__init__(num_embeddings, embedding_dim, *args, padding_idx=0, **kwargs)
+        self.weight.data = position_encoding_init(num_embeddings, embedding_dim, position_rate=1.0, sinusoidal=False)
 
     def forward(self, x, w=1.0):
         isscaler = np.isscalar(w)
         assert self.padding_idx is not None
         if isscaler or w.size(0) == 1:
             weight = sinusoidal_encode(self.weight, w)
-            return F.embedding(x, weight, self.padding_idx, self.max_norm,
-                self.norm_type, self.scale_grad_by_freq, self.sparse)
+            return F.embedding(x, weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
         else:
             pe = []
             for batch_idx, we in enumerate(w):
                 weight = sinusoidal_encode(self.weight, we)
-                pe.append(F.embedding(x[batch_idx], weight, self.
-                    padding_idx, self.max_norm, self.norm_type, self.
-                    scale_grad_by_freq, self.sparse))
+                pe.append(F.embedding(x[batch_idx], weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse))
             pe = torch.stack(pe)
             return pe
 
@@ -783,9 +668,7 @@ class Conv1dGLU(nn.Module):
     """(Dilated) Conv1d + Gated linear unit + (optionally) speaker embedding
     """
 
-    def __init__(self, n_speakers, speaker_embed_dim, in_channels,
-        out_channels, kernel_size, dropout, padding=None, dilation=1,
-        causal=False, residual=False, *args, **kwargs):
+    def __init__(self, n_speakers, speaker_embed_dim, in_channels, out_channels, kernel_size, dropout, padding=None, dilation=1, causal=False, residual=False, *args, **kwargs):
         super(Conv1dGLU, self).__init__()
         self.dropout = dropout
         self.residual = residual
@@ -795,9 +678,7 @@ class Conv1dGLU(nn.Module):
             else:
                 padding = (kernel_size - 1) // 2 * dilation
         self.causal = causal
-        self.conv = Conv1d(in_channels, 2 * out_channels, kernel_size, *
-            args, dropout=dropout, padding=padding, dilation=dilation, **kwargs
-            )
+        self.conv = Conv1d(in_channels, 2 * out_channels, kernel_size, *args, dropout=dropout, padding=padding, dilation=dilation, **kwargs)
         if n_speakers > 1:
             self.speaker_proj = Linear(speaker_embed_dim, out_channels)
         else:
@@ -835,8 +716,7 @@ class HighwayConv1d(nn.Module):
     """Weight normzlized Conv1d + Highway network (support incremental forward)
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size=1, padding=
-        None, dilation=1, causal=False, dropout=0, std_mul=None, glu=False):
+    def __init__(self, in_channels, out_channels, kernel_size=1, padding=None, dilation=1, causal=False, dropout=0, std_mul=None, glu=False):
         super(HighwayConv1d, self).__init__()
         if std_mul is None:
             std_mul = 4.0 if glu else 1.0
@@ -848,9 +728,7 @@ class HighwayConv1d(nn.Module):
         self.causal = causal
         self.dropout = dropout
         self.glu = glu
-        self.conv = Conv1d(in_channels, 2 * out_channels, kernel_size=
-            kernel_size, padding=padding, dilation=dilation, dropout=
-            dropout, std_mul=std_mul)
+        self.conv = Conv1d(in_channels, 2 * out_channels, kernel_size=kernel_size, padding=padding, dilation=dilation, dropout=dropout, std_mul=std_mul)
 
     def forward(self, x):
         return self._forward(x, False)
@@ -889,41 +767,15 @@ class HighwayConv1d(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, n_vocab, embed_dim, channels, kernel_size=3,
-        n_speakers=1, speaker_embed_dim=16, embedding_weight_std=0.01,
-        padding_idx=None, dropout=0.1):
+    def __init__(self, n_vocab, embed_dim, channels, kernel_size=3, n_speakers=1, speaker_embed_dim=16, embedding_weight_std=0.01, padding_idx=None, dropout=0.1):
         super(Encoder, self).__init__()
         self.dropout = dropout
-        self.embed_tokens = Embedding(n_vocab, embed_dim, padding_idx,
-            embedding_weight_std)
+        self.embed_tokens = Embedding(n_vocab, embed_dim, padding_idx, embedding_weight_std)
         E = embed_dim
         D = channels
-        self.convnet = nn.Sequential(Conv1d(E, 2 * D, kernel_size=1,
-            padding=0, dilation=1, std_mul=1.0), nn.ReLU(inplace=True),
-            Conv1d(2 * D, 2 * D, kernel_size=1, padding=0, dilation=1,
-            std_mul=2.0), HighwayConv1d(2 * D, 2 * D, kernel_size=
-            kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=
-            dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size,
-            padding=None, dilation=3, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=
-            None, dilation=9, std_mul=1.0, dropout=dropout), HighwayConv1d(
-            2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=
-            27, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D,
-            kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0,
-            dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=
-            kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=
-            dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size,
-            padding=None, dilation=9, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=
-            None, dilation=27, std_mul=1.0, dropout=dropout), HighwayConv1d
-            (2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=
-            1, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D,
-            kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0,
-            dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=1,
-            padding=0, dilation=1, std_mul=1.0, dropout=dropout))
+        self.convnet = nn.Sequential(Conv1d(E, 2 * D, kernel_size=1, padding=0, dilation=1, std_mul=1.0), nn.ReLU(inplace=True), Conv1d(2 * D, 2 * D, kernel_size=1, padding=0, dilation=1, std_mul=2.0), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=9, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=27, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=9, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=27, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * D, 2 * D, kernel_size=1, padding=0, dilation=1, std_mul=1.0, dropout=dropout))
 
-    def forward(self, text_sequences, text_positions=None, lengths=None,
-        speaker_embed=None):
+    def forward(self, text_sequences, text_positions=None, lengths=None, speaker_embed=None):
         x = self.embed_tokens(text_sequences)
         x = self.convnet(x.transpose(1, 2)).transpose(1, 2)
         keys, values = x.split(x.size(-1) // 2, dim=-1)
@@ -932,82 +784,28 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, embed_dim, in_dim=80, r=5, channels=256, kernel_size
-        =3, n_speakers=1, speaker_embed_dim=16, max_positions=512,
-        padding_idx=None, dropout=0.1, use_memory_mask=False,
-        force_monotonic_attention=False, query_position_rate=1.0,
-        key_position_rate=1.29, window_ahead=3, window_backward=1,
-        key_projection=False, value_projection=False):
+    def __init__(self, embed_dim, in_dim=80, r=5, channels=256, kernel_size=3, n_speakers=1, speaker_embed_dim=16, max_positions=512, padding_idx=None, dropout=0.1, use_memory_mask=False, force_monotonic_attention=False, query_position_rate=1.0, key_position_rate=1.29, window_ahead=3, window_backward=1, key_projection=False, value_projection=False):
         super(Decoder, self).__init__()
         self.dropout = dropout
         self.in_dim = in_dim
         self.r = r
         D = channels
         F = in_dim * r
-        self.audio_encoder_modules = nn.ModuleList([Conv1d(F, D,
-            kernel_size=1, padding=0, dilation=1, std_mul=1.0), nn.ReLU(
-            inplace=True), Conv1d(D, D, kernel_size=1, padding=0, dilation=
-            1, std_mul=2.0), nn.ReLU(inplace=True), Conv1d(D, D,
-            kernel_size=1, padding=0, dilation=1, std_mul=2.0),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=1, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=3, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=9, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=27, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=1, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=3, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=9, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=27, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=3, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=3, causal=True, std_mul=1.0, dropout=dropout)])
-        self.attention = AttentionLayer(D, D, dropout=dropout, window_ahead
-            =window_ahead, window_backward=window_backward, key_projection=
-            key_projection, value_projection=value_projection)
-        self.audio_decoder_modules = nn.ModuleList([Conv1d(2 * D, D,
-            kernel_size=1, padding=0, dilation=1, std_mul=1.0),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=1, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=3, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=9, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=27, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=1, causal=True, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(D, D, kernel_size=kernel_size, padding=None,
-            dilation=1, causal=True, std_mul=1.0, dropout=dropout), Conv1d(
-            D, D, kernel_size=1, padding=0, dilation=1, std_mul=1.0), nn.
-            ReLU(inplace=True), Conv1d(D, D, kernel_size=1, padding=0,
-            dilation=1, std_mul=2.0), nn.ReLU(inplace=True), Conv1d(D, D,
-            kernel_size=1, padding=0, dilation=1, std_mul=2.0), nn.ReLU(
-            inplace=True)])
-        self.last_conv = Conv1d(D, F, kernel_size=1, padding=0, dilation=1,
-            std_mul=2.0)
+        self.audio_encoder_modules = nn.ModuleList([Conv1d(F, D, kernel_size=1, padding=0, dilation=1, std_mul=1.0), nn.ReLU(inplace=True), Conv1d(D, D, kernel_size=1, padding=0, dilation=1, std_mul=2.0), nn.ReLU(inplace=True), Conv1d(D, D, kernel_size=1, padding=0, dilation=1, std_mul=2.0), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=1, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=3, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=9, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=27, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=1, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=3, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=9, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=27, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=3, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=3, causal=True, std_mul=1.0, dropout=dropout)])
+        self.attention = AttentionLayer(D, D, dropout=dropout, window_ahead=window_ahead, window_backward=window_backward, key_projection=key_projection, value_projection=value_projection)
+        self.audio_decoder_modules = nn.ModuleList([Conv1d(2 * D, D, kernel_size=1, padding=0, dilation=1, std_mul=1.0), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=1, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=3, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=9, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=27, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=1, causal=True, std_mul=1.0, dropout=dropout), HighwayConv1d(D, D, kernel_size=kernel_size, padding=None, dilation=1, causal=True, std_mul=1.0, dropout=dropout), Conv1d(D, D, kernel_size=1, padding=0, dilation=1, std_mul=1.0), nn.ReLU(inplace=True), Conv1d(D, D, kernel_size=1, padding=0, dilation=1, std_mul=2.0), nn.ReLU(inplace=True), Conv1d(D, D, kernel_size=1, padding=0, dilation=1, std_mul=2.0), nn.ReLU(inplace=True)])
+        self.last_conv = Conv1d(D, F, kernel_size=1, padding=0, dilation=1, std_mul=2.0)
         self.fc = Linear(F, 1)
         self.embed_query_positions = Embedding(max_positions, D, padding_idx)
-        self.embed_query_positions.weight.data = position_encoding_init(
-            max_positions, D, position_rate=query_position_rate, sinusoidal
-            =True)
+        self.embed_query_positions.weight.data = position_encoding_init(max_positions, D, position_rate=query_position_rate, sinusoidal=True)
         self.embed_keys_positions = Embedding(max_positions, D, padding_idx)
-        self.embed_keys_positions.weight.data = position_encoding_init(
-            max_positions, D, position_rate=key_position_rate, sinusoidal=True)
+        self.embed_keys_positions.weight.data = position_encoding_init(max_positions, D, position_rate=key_position_rate, sinusoidal=True)
         self.max_decoder_steps = 200
         self.min_decoder_steps = 10
         self.use_memory_mask = use_memory_mask
         self.force_monotonic_attention = force_monotonic_attention
 
-    def forward(self, encoder_out, inputs=None, text_positions=None,
-        frame_positions=None, speaker_embed=None, lengths=None):
+    def forward(self, encoder_out, inputs=None, text_positions=None, frame_positions=None, speaker_embed=None, lengths=None):
         if inputs is None:
             assert text_positions is not None
             self.start_fresh_sequence()
@@ -1048,8 +846,7 @@ class Decoder(nn.Module):
         alignments = alignments.unsqueeze(0)
         return outputs, alignments, done, decoder_states
 
-    def incremental_forward(self, encoder_out, text_positions,
-        initial_input=None, test_inputs=None):
+    def incremental_forward(self, encoder_out, text_positions, initial_input=None, test_inputs=None):
         keys, values = encoder_out
         B = keys.size(0)
         if text_positions is not None:
@@ -1081,8 +878,7 @@ class Decoder(nn.Module):
                 except AttributeError as e:
                     x = f(x)
             Q = x
-            R, alignment = self.attention(x + frame_pos_embed, (keys,
-                values), last_attended=last_attended)
+            R, alignment = self.attention(x + frame_pos_embed, (keys, values), last_attended=last_attended)
             if self.force_monotonic_attention:
                 last_attended = alignment.max(-1)[1].view(-1).data[0]
             Rd = torch.cat((R, Q), dim=-1)
@@ -1110,8 +906,7 @@ class Decoder(nn.Module):
         decoder_states = list(map(lambda x: x.squeeze(1), decoder_states))
         outputs = list(map(lambda x: x.squeeze(1), outputs))
         alignments = torch.stack(alignments).transpose(0, 1)
-        decoder_states = torch.stack(decoder_states).transpose(0, 1
-            ).contiguous()
+        decoder_states = torch.stack(decoder_states).transpose(0, 1).contiguous()
         outputs = torch.stack(outputs).transpose(0, 1).contiguous()
         return outputs, alignments, dones, decoder_states
 
@@ -1123,8 +918,7 @@ class Decoder(nn.Module):
 
 class Converter(nn.Module):
 
-    def __init__(self, in_dim, out_dim, channels=512, kernel_size=3,
-        dropout=0.1):
+    def __init__(self, in_dim, out_dim, channels=512, kernel_size=3, dropout=0.1):
         super(Converter, self).__init__()
         self.dropout = dropout
         self.in_dim = in_dim
@@ -1132,31 +926,7 @@ class Converter(nn.Module):
         F = in_dim
         Fd = out_dim
         C = channels
-        self.convnet = nn.Sequential(Conv1d(F, C, kernel_size=1, padding=0,
-            dilation=1, std_mul=1.0), HighwayConv1d(C, C, kernel_size=
-            kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=
-            dropout), HighwayConv1d(C, C, kernel_size=kernel_size, padding=
-            None, dilation=3, std_mul=1.0, dropout=dropout),
-            ConvTranspose1d(C, C, kernel_size=2, padding=0, stride=2,
-            std_mul=1.0), HighwayConv1d(C, C, kernel_size=kernel_size,
-            padding=None, dilation=1, std_mul=1.0, dropout=dropout),
-            HighwayConv1d(C, C, kernel_size=kernel_size, padding=None,
-            dilation=3, std_mul=1.0, dropout=dropout), ConvTranspose1d(C, C,
-            kernel_size=2, padding=0, stride=2, std_mul=1.0), HighwayConv1d
-            (C, C, kernel_size=kernel_size, padding=None, dilation=1,
-            std_mul=1.0, dropout=dropout), HighwayConv1d(C, C, kernel_size=
-            kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=
-            dropout), Conv1d(C, 2 * C, kernel_size=1, padding=0, dilation=1,
-            std_mul=1.0), HighwayConv1d(2 * C, 2 * C, kernel_size=
-            kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=
-            dropout), HighwayConv1d(2 * C, 2 * C, kernel_size=kernel_size,
-            padding=None, dilation=1, std_mul=1.0, dropout=dropout), Conv1d
-            (2 * C, Fd, kernel_size=1, padding=0, dilation=1, std_mul=1.0),
-            Conv1d(Fd, Fd, kernel_size=1, padding=0, dilation=1, std_mul=
-            1.0), nn.ReLU(inplace=True), Conv1d(Fd, Fd, kernel_size=1,
-            padding=0, dilation=1, std_mul=2.0), nn.ReLU(inplace=True),
-            Conv1d(Fd, Fd, kernel_size=1, padding=0, dilation=1, std_mul=
-            2.0), nn.Sigmoid())
+        self.convnet = nn.Sequential(Conv1d(F, C, kernel_size=1, padding=0, dilation=1, std_mul=1.0), HighwayConv1d(C, C, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(C, C, kernel_size=kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=dropout), ConvTranspose1d(C, C, kernel_size=2, padding=0, stride=2, std_mul=1.0), HighwayConv1d(C, C, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(C, C, kernel_size=kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=dropout), ConvTranspose1d(C, C, kernel_size=2, padding=0, stride=2, std_mul=1.0), HighwayConv1d(C, C, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(C, C, kernel_size=kernel_size, padding=None, dilation=3, std_mul=1.0, dropout=dropout), Conv1d(C, 2 * C, kernel_size=1, padding=0, dilation=1, std_mul=1.0), HighwayConv1d(2 * C, 2 * C, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), HighwayConv1d(2 * C, 2 * C, kernel_size=kernel_size, padding=None, dilation=1, std_mul=1.0, dropout=dropout), Conv1d(2 * C, Fd, kernel_size=1, padding=0, dilation=1, std_mul=1.0), Conv1d(Fd, Fd, kernel_size=1, padding=0, dilation=1, std_mul=1.0), nn.ReLU(inplace=True), Conv1d(Fd, Fd, kernel_size=1, padding=0, dilation=1, std_mul=2.0), nn.ReLU(inplace=True), Conv1d(Fd, Fd, kernel_size=1, padding=0, dilation=1, std_mul=2.0), nn.Sigmoid())
 
     def forward(self, x, speaker_embed=None):
         return self.convnet(x.transpose(1, 2)).transpose(1, 2)
@@ -1170,8 +940,7 @@ def sequence_mask(sequence_length, max_len=None):
     seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
     if sequence_length.is_cuda:
         seq_range_expand = seq_range_expand.cuda()
-    seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand
-        )
+    seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand)
     return (seq_range_expand < seq_length_expand).float()
 
 
@@ -1195,12 +964,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_r9y9_deepvoice3_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Conv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (SinusoidalEncoding,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
+class Test_r9y9_deepvoice3_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(SinusoidalEncoding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 

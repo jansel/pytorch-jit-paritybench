@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -101,27 +102,22 @@ from typing import Tuple
 
 class CustomRNN(nn.Module):
 
-    def __init__(self, input_size, output_size, hidden_size, batch_first=
-        True, W_scale=0.1, f_hidden=None):
+    def __init__(self, input_size, output_size, hidden_size, batch_first=True, W_scale=0.1, f_hidden=None):
         super(CustomRNN, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.hidden_size = hidden_size
         self.f_hidden = f_hidden
-        self.W1 = nn.Parameter((torch.rand(hidden_size, input_size) - 0.5) *
-            W_scale)
-        self.W2 = nn.Parameter((torch.rand(hidden_size, hidden_size) - 0.5) *
-            W_scale)
-        self.W3 = nn.Parameter((torch.rand(output_size, hidden_size) - 0.5) *
-            W_scale)
+        self.W1 = nn.Parameter((torch.rand(hidden_size, input_size) - 0.5) * W_scale)
+        self.W2 = nn.Parameter((torch.rand(hidden_size, hidden_size) - 0.5) * W_scale)
+        self.W3 = nn.Parameter((torch.rand(output_size, hidden_size) - 0.5) * W_scale)
         self.b_h = nn.Parameter(torch.zeros(hidden_size))
 
     def forward(self, x):
         h1 = torch.zeros(x.shape[0], self.hidden_size)
         ys = []
         for i, xi in enumerate(x.chunk(x.size(1), dim=1)):
-            h1 = (torch.matmul(self.W2, h1.t()) + torch.matmul(self.W1, xi.t())
-                ).t() + self.b_h
+            h1 = (torch.matmul(self.W2, h1.t()) + torch.matmul(self.W1, xi.t())).t() + self.b_h
             if self.f_hidden is not None:
                 h1 = getattr(F, self.f_hidden)(h1)
             y = torch.matmul(self.W3, h1.t()).t()
@@ -132,19 +128,15 @@ class CustomRNN(nn.Module):
 
 class CustomRes(nn.Module):
 
-    def __init__(self, input_size, output_size, hidden_size, batch_first=
-        True, W_scale=0.1, f_hidden=None):
+    def __init__(self, input_size, output_size, hidden_size, batch_first=True, W_scale=0.1, f_hidden=None):
         super(CustomRes, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.hidden_size = hidden_size
         self.f_hidden = f_hidden
-        self.W1 = torch.nn.Parameter((torch.rand(hidden_size, input_size) -
-            0.5) * W_scale)
-        self.W2 = torch.nn.Parameter((torch.rand(hidden_size, hidden_size) -
-            0.5) * W_scale)
-        self.W3 = torch.nn.Parameter((torch.rand(output_size, hidden_size) -
-            0.5) * W_scale)
+        self.W1 = torch.nn.Parameter((torch.rand(hidden_size, input_size) - 0.5) * W_scale)
+        self.W2 = torch.nn.Parameter((torch.rand(hidden_size, hidden_size) - 0.5) * W_scale)
+        self.W3 = torch.nn.Parameter((torch.rand(output_size, hidden_size) - 0.5) * W_scale)
         self.b_h = torch.nn.Parameter(torch.zeros(hidden_size))
 
     def forward(self, x):
@@ -152,8 +144,7 @@ class CustomRes(nn.Module):
         ys = []
         for i, xi in enumerate(x.chunk(x.size(1), dim=1)):
             hprev = h1
-            h1 = (torch.matmul(self.W2, h1.t()) + torch.matmul(self.W1, xi.t())
-                ).t() + self.b_h
+            h1 = (torch.matmul(self.W2, h1.t()) + torch.matmul(self.W1, xi.t())).t() + self.b_h
             if self.f_hidden is not None:
                 h1 = getattr(F, self.f_hidden)(h1)
             y = torch.matmul(self.W3, h1.t()).t()
@@ -165,15 +156,13 @@ class CustomRes(nn.Module):
 
 class CustomLSTM(nn.Module):
 
-    def __init__(self, input_size, output_size, hidden_size, batch_first=
-        True, W_scale=0.1):
+    def __init__(self, input_size, output_size, hidden_size, batch_first=True, W_scale=0.1):
         super(CustomLSTM, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.hidden_size = hidden_size
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=batch_first)
-        self.W3 = torch.nn.Parameter(torch.rand(output_size, hidden_size) - 0.5
-            )
+        self.W3 = torch.nn.Parameter(torch.rand(output_size, hidden_size) - 0.5)
 
     def forward(self, x):
         out, hidden = self.lstm(x.unsqueeze(2))
@@ -183,16 +172,13 @@ class CustomLSTM(nn.Module):
 
 def _laplacian(y, h):
     """Laplacian operator"""
-    operator = h ** -2 * torch.tensor([[[[0.0, 1.0, 0.0], [1.0, -4.0, 1.0],
-        [0.0, 1.0, 0.0]]]])
+    operator = h ** -2 * torch.tensor([[[[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]]]])
     y = y.unsqueeze(1)
     return conv2d(y, operator, padding=1).squeeze(1)
 
 
 def _time_step(b, c, y1, y2, dt, h):
-    y = torch.mul((dt ** -2 + b * dt ** -1).pow(-1), 2 / dt ** 2 * y1 -
-        torch.mul(dt ** -2 - b * dt ** -1, y2) + torch.mul(c.pow(2),
-        _laplacian(y1, h)))
+    y = torch.mul((dt ** -2 + b * dt ** -1).pow(-1), 2 / dt ** 2 * y1 - torch.mul(dt ** -2 - b * dt ** -1, y2) + torch.mul(c.pow(2), _laplacian(y1, h)))
     return y
 
 
@@ -208,15 +194,12 @@ class TimeStep(torch.autograd.Function):
         b, c, y1, y2, dt, h = ctx.saved_tensors
         grad_b = grad_c = grad_y1 = grad_y2 = grad_dt = grad_h = None
         if ctx.needs_input_grad[0]:
-            grad_b = -(dt * b + 1).pow(-2) * dt * (c.pow(2) * dt ** 2 *
-                _laplacian(y1, h) + 2 * y1 - 2 * y2) * grad_output
+            grad_b = -(dt * b + 1).pow(-2) * dt * (c.pow(2) * dt ** 2 * _laplacian(y1, h) + 2 * y1 - 2 * y2) * grad_output
         if ctx.needs_input_grad[1]:
-            grad_c = (b * dt + 1).pow(-1) * (2 * c * dt ** 2 * _laplacian(
-                y1, h)) * grad_output
+            grad_c = (b * dt + 1).pow(-1) * (2 * c * dt ** 2 * _laplacian(y1, h)) * grad_output
         if ctx.needs_input_grad[2]:
             c2_grad = (b * dt + 1) ** -1 * c.pow(2) * grad_output
-            grad_y1 = dt ** 2 * _laplacian(c2_grad, h) + 2 * grad_output * (
-                b * dt + 1).pow(-1)
+            grad_y1 = dt ** 2 * _laplacian(c2_grad, h) + 2 * grad_output * (b * dt + 1).pow(-1)
         if ctx.needs_input_grad[3]:
             grad_y2 = (b * dt - 1) * (b * dt + 1).pow(-1) * grad_output
         return grad_b, grad_c, grad_y1, grad_y2, grad_dt, grad_h
@@ -237,8 +220,7 @@ def to_tensor(x, dtype=None):
 class WaveCell(torch.nn.Module):
     """The recurrent neural network cell implementing the scalar wave equation"""
 
-    def __init__(self, dt: float, geometry, satdamp_b0: float=0.0,
-        satdamp_uth: float=0.0, c_nl: float=0.0):
+    def __init__(self, dt: float, geometry, satdamp_b0: float=0.0, satdamp_uth: float=0.0, c_nl: float=0.0):
         super().__init__()
         self.register_buffer('dt', to_tensor(dt))
         self.geom = geometry
@@ -248,9 +230,7 @@ class WaveCell(torch.nn.Module):
         cmax = self.geom.cmax
         h = self.geom.h
         if dt > 1 / cmax * h / np.sqrt(2):
-            raise ValueError(
-                'The spatial discretization defined by the geometry `h = %f` and the temporal discretization defined by the model `dt = %f` do not satisfy the CFL stability criteria'
-                 % (h, dt))
+            raise ValueError('The spatial discretization defined by the geometry `h = %f` and the temporal discretization defined by the model `dt = %f` do not satisfy the CFL stability criteria' % (h, dt))
 
     def parameters(self, recursive=True):
         for param in self.geom.parameters():
@@ -271,8 +251,7 @@ class WaveCell(torch.nn.Module):
             Projected density, required for nonlinear response (this gets passed in to avoid generating it on each time step, saving memory for backprop)
         """
         if self.satdamp_b0 > 0:
-            b = self.geom.b + rho * saturable_damping(h1, uth=self.
-                satdamp_uth, b0=self.satdamp_b0)
+            b = self.geom.b + rho * saturable_damping(h1, uth=self.satdamp_uth, b0=self.satdamp_b0)
         else:
             b = self.geom.b
         if self.c_nl != 0:
@@ -285,11 +264,9 @@ class WaveCell(torch.nn.Module):
 
 class WaveGeometry(torch.nn.Module):
 
-    def __init__(self, domain_shape: Tuple, h: float, c0: float, c1: float,
-        abs_N: int=20, abs_sig: float=11, abs_p: float=4.0):
+    def __init__(self, domain_shape: Tuple, h: float, c0: float, c1: float, abs_N: int=20, abs_sig: float=11, abs_p: float=4.0):
         super().__init__()
-        assert len(domain_shape
-            ) == 2, 'len(domain_shape) must be equal to 2: only two-dimensional (2D) domains are supported'
+        assert len(domain_shape) == 2, 'len(domain_shape) must be equal to 2: only two-dimensional (2D) domains are supported'
         self.domain_shape = domain_shape
         self.register_buffer('h', to_tensor(h))
         self.register_buffer('c0', to_tensor(c0))
@@ -300,17 +277,13 @@ class WaveGeometry(torch.nn.Module):
         self._init_b(abs_N, abs_sig, abs_p)
 
     def state_reconstruction_args(self):
-        return {'domain_shape': self.domain_shape, 'h': self.h.item(), 'c0':
-            self.c0.item(), 'c1': self.c1.item(), 'abs_N': self.abs_N.item(
-            ), 'abs_sig': self.abs_sig.item(), 'abs_p': self.abs_p.item()}
+        return {'domain_shape': self.domain_shape, 'h': self.h.item(), 'c0': self.c0.item(), 'c1': self.c1.item(), 'abs_N': self.abs_N.item(), 'abs_sig': self.abs_sig.item(), 'abs_p': self.abs_p.item()}
 
     def __repr__(self):
         return 'WaveGeometry shape={}, h={}'.format(self.domain_shape, self.h)
 
     def forward(self):
-        raise NotImplementedError(
-            'WaveGeometry forward() is not implemented. Although WaveGeometry is a subclass of a torch.nn.Module, its forward() method should never be called. It only exists as a torch.nn.Module to hook into pytorch as a component of a WaveCell.'
-            )
+        raise NotImplementedError('WaveGeometry forward() is not implemented. Although WaveGeometry is a subclass of a torch.nn.Module, its forward() method should never be called. It only exists as a torch.nn.Module to hook into pytorch as a component of a WaveCell.')
 
     @property
     def c(self):
@@ -331,16 +304,13 @@ class WaveGeometry(torch.nn.Module):
     def _init_b(self, abs_N: int, abs_sig: float, abs_p: float):
         """Initialize the distribution of the damping parameter for the PML"""
         Nx, Ny = self.domain_shape
-        assert Nx > 2 * abs_N + 1, "The domain isn't large enough in the x-direction to fit absorbing layer. Nx = {} and N = {}".format(
-            Nx, abs_N)
-        assert Ny > 2 * abs_N + 1, "The domain isn't large enough in the y-direction to fit absorbing layer. Ny = {} and N = {}".format(
-            Ny, abs_N)
+        assert Nx > 2 * abs_N + 1, "The domain isn't large enough in the x-direction to fit absorbing layer. Nx = {} and N = {}".format(Nx, abs_N)
+        assert Ny > 2 * abs_N + 1, "The domain isn't large enough in the y-direction to fit absorbing layer. Ny = {} and N = {}".format(Ny, abs_N)
         b_vals = abs_sig * torch.linspace(0.0, 1.0, abs_N + 1) ** abs_p
         b_x = torch.zeros(Nx, Ny)
         b_y = torch.zeros(Nx, Ny)
         if abs_N > 0:
-            b_x[0:abs_N + 1, :] = torch.flip(b_vals, [0]).repeat(Ny, 1
-                ).transpose(0, 1)
+            b_x[0:abs_N + 1, :] = torch.flip(b_vals, [0]).repeat(Ny, 1).transpose(0, 1)
             b_x[Nx - abs_N - 1:Nx, :] = b_vals.repeat(Ny, 1).transpose(0, 1)
             b_y[:, 0:abs_N + 1] = torch.flip(b_vals, [0]).repeat(Nx, 1)
             b_y[:, Ny - abs_N - 1:Ny] = b_vals.repeat(Nx, 1)
@@ -358,9 +328,7 @@ class WaveProbe(torch.nn.Module):
         return x[:, (self.x), (self.y)]
 
     def plot(self, ax, color='k'):
-        marker, = ax.plot(self.x.numpy(), self.y.numpy(), 'o',
-            markeredgecolor=color, markerfacecolor='none', markeredgewidth=
-            1.0, markersize=4)
+        marker, = ax.plot(self.x.numpy(), self.y.numpy(), 'o', markeredgecolor=color, markerfacecolor='none', markeredgewidth=1.0, markersize=4)
         return marker
 
 
@@ -424,9 +392,7 @@ class WaveSource(torch.nn.Module):
         return Y + dt ** 2 * X_expanded
 
     def plot(self, ax, color='r'):
-        marker, = ax.plot(self.x.numpy(), self.y.numpy(), 'o',
-            markeredgecolor=color, markerfacecolor='none', markeredgewidth=
-            1.0, markersize=4)
+        marker, = ax.plot(self.x.numpy(), self.y.numpy(), 'o', markeredgecolor=color, markerfacecolor='none', markeredgewidth=1.0, markersize=4)
         return marker
 
 
@@ -434,12 +400,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_fancompute_wavetorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(WaveProbe(*[], **{'x': 4, 'y': 4}), [torch.rand([4, 5, 5, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (WaveProbe,
+     lambda: ([], {'x': 4, 'y': 4}),
+     lambda: ([torch.rand([4, 5, 5, 4])], {}),
+     True),
+    (WaveSource,
+     lambda: ([], {'x': 4, 'y': 4}),
+     lambda: ([torch.rand([4, 5, 5]), torch.rand([4])], {}),
+     False),
+]
+
+class Test_fancompute_wavetorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(WaveSource(*[], **{'x': 4, 'y': 4}), [torch.rand([4, 5, 5]), torch.rand([4])], {})
+        self._check(*TESTCASES[1])
 

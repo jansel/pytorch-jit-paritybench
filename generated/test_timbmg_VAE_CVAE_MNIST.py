@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -44,8 +45,7 @@ from collections import defaultdict
 
 class VAE(nn.Module):
 
-    def __init__(self, encoder_layer_sizes, latent_size,
-        decoder_layer_sizes, conditional=False, num_labels=0):
+    def __init__(self, encoder_layer_sizes, latent_size, decoder_layer_sizes, conditional=False, num_labels=0):
         super().__init__()
         if conditional:
             assert num_labels > 0
@@ -53,10 +53,8 @@ class VAE(nn.Module):
         assert type(latent_size) == int
         assert type(decoder_layer_sizes) == list
         self.latent_size = latent_size
-        self.encoder = Encoder(encoder_layer_sizes, latent_size,
-            conditional, num_labels)
-        self.decoder = Decoder(decoder_layer_sizes, latent_size,
-            conditional, num_labels)
+        self.encoder = Encoder(encoder_layer_sizes, latent_size, conditional, num_labels)
+        self.decoder = Decoder(decoder_layer_sizes, latent_size, conditional, num_labels)
 
     def forward(self, x, c=None):
         if x.dim() > 2:
@@ -93,10 +91,8 @@ class Encoder(nn.Module):
         if self.conditional:
             layer_sizes[0] += num_labels
         self.MLP = nn.Sequential()
-        for i, (in_size, out_size) in enumerate(zip(layer_sizes[:-1],
-            layer_sizes[1:])):
-            self.MLP.add_module(name='L{:d}'.format(i), module=nn.Linear(
-                in_size, out_size))
+        for i, (in_size, out_size) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
+            self.MLP.add_module(name='L{:d}'.format(i), module=nn.Linear(in_size, out_size))
             self.MLP.add_module(name='A{:d}'.format(i), module=nn.ReLU())
         self.linear_means = nn.Linear(layer_sizes[-1], latent_size)
         self.linear_log_var = nn.Linear(layer_sizes[-1], latent_size)
@@ -121,10 +117,8 @@ class Decoder(nn.Module):
             input_size = latent_size + num_labels
         else:
             input_size = latent_size
-        for i, (in_size, out_size) in enumerate(zip([input_size] +
-            layer_sizes[:-1], layer_sizes)):
-            self.MLP.add_module(name='L{:d}'.format(i), module=nn.Linear(
-                in_size, out_size))
+        for i, (in_size, out_size) in enumerate(zip([input_size] + layer_sizes[:-1], layer_sizes)):
+            self.MLP.add_module(name='L{:d}'.format(i), module=nn.Linear(in_size, out_size))
             if i + 1 < len(layer_sizes):
                 self.MLP.add_module(name='A{:d}'.format(i), module=nn.ReLU())
             else:
@@ -137,10 +131,3 @@ class Decoder(nn.Module):
         x = self.MLP(z)
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_timbmg_VAE_CVAE_MNIST(_paritybench_base):
-    pass

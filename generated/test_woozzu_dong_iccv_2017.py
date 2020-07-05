@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,8 +62,7 @@ class VisualSemanticEmbedding(nn.Module):
         self.img_encoder = models.vgg16(pretrained=True)
         for param in self.img_encoder.parameters():
             param.requires_grad = False
-        self.feat_extractor = nn.Sequential(*(self.img_encoder.classifier[i
-            ] for i in range(6)))
+        self.feat_extractor = nn.Sequential(*(self.img_encoder.classifier[i] for i in range(6)))
         self.W = nn.Linear(4096, embed_ndim, False)
         self.txt_encoder = nn.GRU(embed_ndim, embed_ndim, 1)
 
@@ -82,9 +82,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self):
         super(ResidualBlock, self).__init__()
-        self.encoder = nn.Sequential(nn.Conv2d(512, 512, 3, padding=1, bias
-            =False), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Conv2d(
-            512, 512, 3, padding=1, bias=False), nn.BatchNorm2d(512))
+        self.encoder = nn.Sequential(nn.Conv2d(512, 512, 3, padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Conv2d(512, 512, 3, padding=1, bias=False), nn.BatchNorm2d(512))
 
     def forward(self, x):
         return F.relu(x + self.encoder(x))
@@ -109,8 +107,7 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         if use_vgg:
             self.encoder = models.vgg16_bn(pretrained=True)
-            self.encoder = nn.Sequential(*(self.encoder.features[i] for i in
-                range(23) + range(24, 33)))
+            self.encoder = nn.Sequential(*(self.encoder.features[i] for i in range(23) + range(24, 33)))
             self.encoder[24].dilation = 2, 2
             self.encoder[24].padding = 2, 2
             self.encoder[27].dilation = 2, 2
@@ -121,24 +118,11 @@ class Generator(nn.Module):
                 param.requires_grad = False
             self.encoder.eval()
         else:
-            self.encoder = nn.Sequential(nn.Conv2d(3, 128, 3, padding=1),
-                nn.ReLU(inplace=True), nn.Conv2d(128, 256, 4, 2, padding=1,
-                bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn
-                .Conv2d(256, 512, 4, 2, padding=1, bias=False), nn.
-                BatchNorm2d(512), nn.ReLU(inplace=True))
-        self.residual_blocks = nn.Sequential(nn.Conv2d(512 + 128, 512, 3,
-            padding=1, bias=False), nn.BatchNorm2d(512), ResidualBlock(),
-            ResidualBlock(), ResidualBlock(), ResidualBlock())
-        self.decoder = nn.Sequential(nn.Upsample(scale_factor=2, mode=
-            'nearest'), nn.Conv2d(512, 256, 3, padding=1, bias=False), nn.
-            BatchNorm2d(256), nn.ReLU(inplace=True), nn.Upsample(
-            scale_factor=2, mode='nearest'), nn.Conv2d(256, 128, 3, padding
-            =1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn
-            .Conv2d(128, 3, 3, padding=1), nn.Tanh())
-        self.mu = nn.Sequential(nn.Linear(300, 128, bias=False), nn.
-            LeakyReLU(0.2, inplace=True))
-        self.log_sigma = nn.Sequential(nn.Linear(300, 128, bias=False), nn.
-            LeakyReLU(0.2, inplace=True))
+            self.encoder = nn.Sequential(nn.Conv2d(3, 128, 3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(128, 256, 4, 2, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Conv2d(256, 512, 4, 2, padding=1, bias=False), nn.BatchNorm2d(512), nn.ReLU(inplace=True))
+        self.residual_blocks = nn.Sequential(nn.Conv2d(512 + 128, 512, 3, padding=1, bias=False), nn.BatchNorm2d(512), ResidualBlock(), ResidualBlock(), ResidualBlock(), ResidualBlock())
+        self.decoder = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'), nn.Conv2d(512, 256, 3, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Upsample(scale_factor=2, mode='nearest'), nn.Conv2d(256, 128, 3, padding=1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 3, 3, padding=1), nn.Tanh())
+        self.mu = nn.Sequential(nn.Linear(300, 128, bias=False), nn.LeakyReLU(0.2, inplace=True))
+        self.log_sigma = nn.Sequential(nn.Linear(300, 128, bias=False), nn.LeakyReLU(0.2, inplace=True))
         self.apply(init_weights)
 
     def forward(self, img, txt_feat, z=None):
@@ -161,22 +145,10 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.encoder = nn.Sequential(nn.Conv2d(3, 64, 4, 2, padding=1), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128, 4, 2, padding=
-            1, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(128, 256, 4, 2, padding=1, bias=False), nn.
-            BatchNorm2d(256), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(
-            256, 512, 4, 2, padding=1, bias=False), nn.BatchNorm2d(512))
-        self.residual_branch = nn.Sequential(nn.Conv2d(512, 128, 1, bias=
-            False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(128, 128, 3, padding=1, bias=False), nn.BatchNorm2d(
-            128), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(128, 512, 3,
-            padding=1, bias=False), nn.BatchNorm2d(512))
-        self.classifier = nn.Sequential(nn.Conv2d(512 + 128, 512, 1, bias=
-            False), nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(512, 1, 4))
-        self.compression = nn.Sequential(nn.Linear(300, 128), nn.LeakyReLU(
-            0.2, inplace=True))
+        self.encoder = nn.Sequential(nn.Conv2d(3, 64, 4, 2, padding=1), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128, 4, 2, padding=1, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(128, 256, 4, 2, padding=1, bias=False), nn.BatchNorm2d(256), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(256, 512, 4, 2, padding=1, bias=False), nn.BatchNorm2d(512))
+        self.residual_branch = nn.Sequential(nn.Conv2d(512, 128, 1, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(128, 128, 3, padding=1, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(128, 512, 3, padding=1, bias=False), nn.BatchNorm2d(512))
+        self.classifier = nn.Sequential(nn.Conv2d(512 + 128, 512, 1, bias=False), nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(512, 1, 4))
+        self.compression = nn.Sequential(nn.Linear(300, 128), nn.LeakyReLU(0.2, inplace=True))
         self.apply(init_weights)
 
     def forward(self, img, txt_feat):
@@ -194,11 +166,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 300])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (VisualSemanticEmbedding,
+     lambda: ([], {'embed_ndim': 4}),
+     lambda: ([torch.rand([4, 3, 243, 243]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_woozzu_dong_iccv_2017(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 300])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResidualBlock(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

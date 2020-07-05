@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -130,8 +131,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=
-        False, normalize_input=False, requires_grad=False):
+    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=False, normalize_input=False, requires_grad=False):
         """Build pretrained InceptionV3
 
         Parameters
@@ -162,21 +162,16 @@ class InceptionV3(nn.Module):
         assert self.last_needed_block <= 3, 'Last possible output block index is 3'
         self.blocks = nn.ModuleList()
         inception = models.inception_v3(pretrained=True)
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.
-                MaxPool2d(kernel_size=3, stride=2)]
+            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.
-                Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception
-                .Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
             self.blocks.append(nn.Sequential(*block3))
 
     def forward(self, inp):
@@ -206,8 +201,7 @@ class InceptionV3(nn.Module):
 
 class Inception3(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False
-        ):
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
         super(Inception3, self).__init__()
         self.aux_logits = aux_logits
         self.transform_input = transform_input
@@ -283,8 +277,7 @@ class InceptionA(nn.Module):
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1)
         self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -325,19 +318,13 @@ class InceptionC(nn.Module):
         self.branch1x1 = BasicConv2d(in_channels, 192, kernel_size=1)
         c7 = channels_7x7
         self.branch7x7_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=
-            (0, 3))
-        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding
-            =(3, 0))
+        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7dbl_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7),
-            padding=(0, 3))
+        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
@@ -363,10 +350,8 @@ class InceptionD(nn.Module):
         self.branch3x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
         self.branch3x3_2 = BasicConv2d(192, 320, kernel_size=3, stride=2)
         self.branch7x7x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
-        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1),
-            padding=(3, 0))
+        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7x3_4 = BasicConv2d(192, 192, kernel_size=3, stride=2)
 
     def forward(self, x):
@@ -387,28 +372,22 @@ class InceptionE(nn.Module):
         super(InceptionE, self).__init__()
         self.branch1x1 = BasicConv2d(in_channels, 320, kernel_size=1)
         self.branch3x3_1 = BasicConv2d(in_channels, 384, kernel_size=1)
-        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 448, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(448, 384, kernel_size=3, padding=1)
-        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -454,16 +433,12 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2,
-        groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2,
-        groups=channel) - mu2_sq
-    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2,
-        groups=channel) - mu1_mu2
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq +
-        C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -471,17 +446,14 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0
-        )
-    window = Variable(_2D_window.expand(channel, 1, window_size,
-        window_size).contiguous())
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
 
@@ -496,8 +468,7 @@ class SSIM(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -506,8 +477,7 @@ class SSIM(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return _ssim(img1, img2, window, self.window_size, channel, self.
-            size_average)
+        return _ssim(img1, img2, window, self.window_size, channel, self.size_average)
 
 
 class MultiLayerVGG(nn.Module):
@@ -515,9 +485,7 @@ class MultiLayerVGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(MultiLayerVGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         self.layers = self.get_pool_layers()
         if init_weights:
             self._initialize_weights()
@@ -538,8 +506,7 @@ class MultiLayerVGG(nn.Module):
 
     def load_pretrain_model(self, pretrained_state_dict):
         model_dict = self.state_dict()
-        pretrained_state_dict = {k: v for k, v in pretrained_state_dict.
-            items() if k in model_dict}
+        pretrained_state_dict = {k: v for k, v in pretrained_state_dict.items() if k in model_dict}
         model_dict.update(pretrained_state_dict)
         self.load_state_dict(model_dict)
 
@@ -553,8 +520,7 @@ class MultiLayerVGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -597,16 +563,13 @@ class CSFlow:
         self.b = b
         self.sigma = sigma
 
-    def __calculate_CS(self, scaled_distances, axis_for_normalization=
-        TensorAxis.C):
+    def __calculate_CS(self, scaled_distances, axis_for_normalization=TensorAxis.C):
         self.scaled_distances = scaled_distances
-        self.cs_weights_before_normalization = torch.exp((self.b -
-            scaled_distances) / self.sigma)
+        self.cs_weights_before_normalization = torch.exp((self.b - scaled_distances) / self.sigma)
         self.cs_NHWC = self.cs_weights_before_normalization
 
     @staticmethod
-    def create_using_L2(I_features, T_features, sigma=float(0.5), b=float(1.0)
-        ):
+    def create_using_L2(I_features, T_features, sigma=float(0.5), b=float(1.0)):
         cs_flow = CSFlow(sigma, b)
         sT = T_features.shape
         sI = I_features.shape
@@ -621,8 +584,7 @@ class CSFlow:
             cs_flow.A = A
             r_T = torch.reshape(r_T, [-1, 1])
             dist = r_T - 2 * A + r_I
-            dist = torch.reshape(torch.transpose(dist, 0, 1), shape=(1, sI[
-                1], sI[2], dist.shape[0]))
+            dist = torch.reshape(torch.transpose(dist, 0, 1), shape=(1, sI[1], sI[2], dist.shape[0]))
             dist = torch.clamp(dist, min=float(0.0))
             raw_distances_list += [dist]
         cs_flow.raw_distances = torch.cat(raw_distances_list)
@@ -631,8 +593,7 @@ class CSFlow:
         return cs_flow
 
     @staticmethod
-    def create_using_L1(I_features, T_features, sigma=float(0.5), b=float(1.0)
-        ):
+    def create_using_L1(I_features, T_features, sigma=float(0.5), b=float(1.0)):
         cs_flow = CSFlow(sigma, b)
         sT = T_features.shape
         sI = I_features.shape
@@ -641,10 +602,8 @@ class CSFlow:
         raw_distances_list = []
         for i in range(sT[0]):
             Ivec, Tvec = Ivecs[i], Tvecs[i]
-            dist = torch.abs(torch.sum(Ivec.unsqueeze(1) - Tvec.unsqueeze(0
-                ), dim=2))
-            dist = torch.reshape(torch.transpose(dist, 0, 1), shape=(1, sI[
-                1], sI[2], dist.shape[0]))
+            dist = torch.abs(torch.sum(Ivec.unsqueeze(1) - Tvec.unsqueeze(0), dim=2))
+            dist = torch.reshape(torch.transpose(dist, 0, 1), shape=(1, sI[1], sI[2], dist.shape[0]))
             dist = torch.clamp(dist, min=float(0.0))
             raw_distances_list += [dist]
         cs_flow.raw_distances = torch.cat(raw_distances_list)
@@ -653,8 +612,7 @@ class CSFlow:
         return cs_flow
 
     @staticmethod
-    def create_using_dotP(I_features, T_features, sigma=float(0.5), b=float
-        (1.0)):
+    def create_using_dotP(I_features, T_features, sigma=float(0.5), b=float(1.0)):
         cs_flow = CSFlow(sigma, b)
         T_features, I_features = cs_flow.center_by_T(T_features, I_features)
         T_features = CSFlow.l2_normalize_channelwise(T_features)
@@ -663,11 +621,9 @@ class CSFlow:
         N = T_features.size()[0]
         for i in range(N):
             T_features_i = T_features[(i), :, :, :].unsqueeze_(0)
-            I_features_i = I_features[(i), :, :, :].unsqueeze_(0).permute((
-                0, 3, 1, 2))
+            I_features_i = I_features[(i), :, :, :].unsqueeze_(0).permute((0, 3, 1, 2))
             patches_PC11_i = cs_flow.patch_decomposition(T_features_i)
-            cosine_dist_i = torch.nn.functional.conv2d(I_features_i,
-                patches_PC11_i)
+            cosine_dist_i = torch.nn.functional.conv2d(I_features_i, patches_PC11_i)
             cosine_dist_1HWC = cosine_dist_i.permute((0, 2, 3, 1))
             cosine_dist_l.append(cosine_dist_i.permute((0, 2, 3, 1)))
         cs_flow.cosine_dist = torch.cat(cosine_dist_l, dim=0)
@@ -690,10 +646,8 @@ class CSFlow:
 
     def center_by_T(self, T_features, I_features):
         axes = [0, 1, 2]
-        self.meanT = T_features.mean(0, keepdim=True).mean(1, keepdim=True
-            ).mean(2, keepdim=True)
-        self.varT = T_features.var(0, keepdim=True).var(1, keepdim=True).var(
-            2, keepdim=True)
+        self.meanT = T_features.mean(0, keepdim=True).mean(1, keepdim=True).mean(2, keepdim=True)
+        self.varT = T_features.var(0, keepdim=True).var(1, keepdim=True).var(2, keepdim=True)
         self.T_features_centered = T_features - self.meanT
         self.I_features_centered = I_features - self.meanT
         return self.T_features_centered, self.I_features_centered
@@ -707,8 +661,7 @@ class CSFlow:
     def patch_decomposition(self, T_features):
         N, H, W, C = T_features.shape
         P = H * W
-        patches_PC11 = T_features.reshape(shape=(1, 1, P, C)).permute(dims=
-            (2, 3, 0, 1))
+        patches_PC11 = T_features.reshape(shape=(1, 1, P, C)).permute(dims=(2, 3, 0, 1))
         return patches_PC11
 
     @staticmethod
@@ -729,14 +682,10 @@ class CSFlow:
         Js, Is = np.meshgrid(rangeRows, rangeCols)
         row_diff_from_first_row = Is
         col_diff_from_first_col = Js
-        row_diff_from_first_row_3d_repeat = np.repeat(row_diff_from_first_row
-            [:, :, (np.newaxis)], pixel_count, axis=2)
-        col_diff_from_first_col_3d_repeat = np.repeat(col_diff_from_first_col
-            [:, :, (np.newaxis)], pixel_count, axis=2)
-        rowDiffs = (-row_diff_from_first_row_3d_repeat +
-            row_diff_from_first_row.flatten(order).reshape(1, 1, -1))
-        colDiffs = (-col_diff_from_first_col_3d_repeat +
-            col_diff_from_first_col.flatten(order).reshape(1, 1, -1))
+        row_diff_from_first_row_3d_repeat = np.repeat(row_diff_from_first_row[:, :, (np.newaxis)], pixel_count, axis=2)
+        col_diff_from_first_col_3d_repeat = np.repeat(col_diff_from_first_col[:, :, (np.newaxis)], pixel_count, axis=2)
+        rowDiffs = -row_diff_from_first_row_3d_repeat + row_diff_from_first_row.flatten(order).reshape(1, 1, -1)
+        colDiffs = -col_diff_from_first_col_3d_repeat + col_diff_from_first_col.flatten(order).reshape(1, 1, -1)
         R = rowDiffs ** 2 + colDiffs ** 2
         R = R.astype(np.float32)
         R = np.exp(-R / (2 * deformation_sigma ** 2))
@@ -774,8 +723,7 @@ def CX_loss(T_features, I_features, deformation=False, dis=False):
 
 
 def symetric_CX_loss(T_features, I_features):
-    score = (CX_loss(T_features, I_features) + CX_loss(I_features, T_features)
-        ) / 2
+    score = (CX_loss(T_features, I_features) + CX_loss(I_features, T_features)) / 2
     return score
 
 
@@ -820,8 +768,7 @@ class MaskDisLoss(torch.nn.Module):
         self.leakyrelu = torch.nn.LeakyReLU()
 
     def forward(self, pos, neg):
-        return self.weight * (torch.mean(self.leakyrelu(1.0 - pos)) + torch
-            .mean(self.leakyrelu(1.0 + neg)))
+        return self.weight * (torch.mean(self.leakyrelu(1.0 - pos)) + torch.mean(self.leakyrelu(1.0 + neg)))
 
 
 class SNDisLoss(torch.nn.Module):
@@ -834,8 +781,7 @@ class SNDisLoss(torch.nn.Module):
         self.weight = weight
 
     def forward(self, pos, neg):
-        return self.weight * (torch.mean(F.relu(1.0 - pos)) + torch.mean(F.
-            relu(1.0 + neg)))
+        return self.weight * (torch.mean(F.relu(1.0 - pos)) + torch.mean(F.relu(1.0 + neg)))
 
 
 class SNGenLoss(torch.nn.Module):
@@ -864,8 +810,7 @@ class L1ReconLoss(torch.nn.Module):
         if masks is None:
             return self.weight * torch.mean(torch.abs(imgs - recon_imgs))
         else:
-            return self.weight * torch.mean(torch.abs(imgs - recon_imgs) /
-                masks.view(masks.size(0), -1).mean(1).view(-1, 1, 1, 1))
+            return self.weight * torch.mean(torch.abs(imgs - recon_imgs) / masks.view(masks.size(0), -1).mean(1).view(-1, 1, 1, 1))
 
 
 class PerceptualLoss(torch.nn.Module):
@@ -912,8 +857,7 @@ class StyleLoss(torch.nn.Module):
         recon_feats = self.feat_extractors(recon_imgs, self.layers)
         loss = 0
         for feat, recon_feat in zip(feats, recon_feats):
-            loss = loss + torch.mean(torch.abs(self.gram(feat) - self.gram(
-                recon_feat))) / (feat.size(2) * feat.size(3))
+            loss = loss + torch.mean(torch.abs(self.gram(feat) - self.gram(recon_feat))) / (feat.size(2) * feat.size(3))
         return self.weight * loss
 
 
@@ -932,15 +876,7 @@ class ReconLoss(torch.nn.Module):
 
     def forward(self, imgs, coarse_imgs, recon_imgs, masks):
         masks_viewed = masks.view(masks.size(0), -1)
-        return self.rhole_alpha * torch.mean(torch.abs(imgs - recon_imgs) *
-            masks / masks_viewed.mean(1).view(-1, 1, 1, 1)
-            ) + self.runhole_alpha * torch.mean(torch.abs(imgs - recon_imgs
-            ) * (1.0 - masks) / (1.0 - masks_viewed.mean(1).view(-1, 1, 1, 1))
-            ) + self.chole_alpha * torch.mean(torch.abs(imgs - coarse_imgs) *
-            masks / masks_viewed.mean(1).view(-1, 1, 1, 1)
-            ) + self.cunhole_alpha * torch.mean(torch.abs(imgs -
-            coarse_imgs) * (1.0 - masks) / (1.0 - masks_viewed.mean(1).view
-            (-1, 1, 1, 1)))
+        return self.rhole_alpha * torch.mean(torch.abs(imgs - recon_imgs) * masks / masks_viewed.mean(1).view(-1, 1, 1, 1)) + self.runhole_alpha * torch.mean(torch.abs(imgs - recon_imgs) * (1.0 - masks) / (1.0 - masks_viewed.mean(1).view(-1, 1, 1, 1))) + self.chole_alpha * torch.mean(torch.abs(imgs - coarse_imgs) * masks / masks_viewed.mean(1).view(-1, 1, 1, 1)) + self.cunhole_alpha * torch.mean(torch.abs(imgs - coarse_imgs) * (1.0 - masks) / (1.0 - masks_viewed.mean(1).view(-1, 1, 1, 1)))
 
 
 class GatedConv2dWithActivation(torch.nn.Module):
@@ -951,16 +887,12 @@ class GatedConv2dWithActivation(torch.nn.Module):
     Output:\\phi(f(I))*\\sigmoid(g(I))
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, batch_norm=True,
-        activation=torch.nn.LeakyReLU(0.2, inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
         super(GatedConv2dWithActivation, self).__init__()
         self.batch_norm = batch_norm
         self.activation = activation
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias)
-        self.mask_conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.mask_conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.batch_norm2d = torch.nn.BatchNorm2d(out_channels)
         self.sigmoid = torch.nn.Sigmoid()
         for m in self.modules():
@@ -992,13 +924,9 @@ class GatedDeConv2dWithActivation(torch.nn.Module):
     Output:\\phi(f(I))*\\sigmoid(g(I))
     """
 
-    def __init__(self, scale_factor, in_channels, out_channels, kernel_size,
-        stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=
-        True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
+    def __init__(self, scale_factor, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
         super(GatedDeConv2dWithActivation, self).__init__()
-        self.conv2d = GatedConv2dWithActivation(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias,
-            batch_norm, activation)
+        self.conv2d = GatedConv2dWithActivation(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, batch_norm, activation)
         self.scale_factor = scale_factor
 
     def forward(self, input):
@@ -1011,14 +939,10 @@ class SNGatedConv2dWithActivation(torch.nn.Module):
     Gated Convolution with spetral normalization
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, batch_norm=True,
-        activation=torch.nn.LeakyReLU(0.2, inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
         super(SNGatedConv2dWithActivation, self).__init__()
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias)
-        self.mask_conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.mask_conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.activation = activation
         self.batch_norm = batch_norm
         self.batch_norm2d = torch.nn.BatchNorm2d(out_channels)
@@ -1054,13 +978,9 @@ class SNGatedDeConv2dWithActivation(torch.nn.Module):
     Output:\\phi(f(I))*\\sigmoid(g(I))
     """
 
-    def __init__(self, scale_factor, in_channels, out_channels, kernel_size,
-        stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=
-        True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
+    def __init__(self, scale_factor, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
         super(SNGatedDeConv2dWithActivation, self).__init__()
-        self.conv2d = SNGatedConv2dWithActivation(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias,
-            batch_norm, activation)
+        self.conv2d = SNGatedConv2dWithActivation(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, batch_norm, activation)
         self.scale_factor = scale_factor
 
     def forward(self, input):
@@ -1073,12 +993,9 @@ class SNConvWithActivation(torch.nn.Module):
     SN convolution for spetral normalization conv
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, activation=torch.nn.
-        LeakyReLU(0.2, inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, activation=torch.nn.LeakyReLU(0.2, inplace=True)):
         super(SNConvWithActivation, self).__init__()
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.conv2d = torch.nn.utils.spectral_norm(self.conv2d)
         self.activation = activation
         for m in self.modules():
@@ -1101,12 +1018,9 @@ class Self_Attn(nn.Module):
         self.chanel_in = in_dim
         self.activation = activation
         self.with_attn = with_attn
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,
-            kernel_size=1)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
@@ -1119,8 +1033,7 @@ class Self_Attn(nn.Module):
                 attention: B X N X N (N is Width*Height)
         """
         m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height
-            ).permute(0, 2, 1)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -1146,25 +1059,21 @@ class SAGenerator(nn.Module):
         last = []
         repeat_num = int(np.log2(self.imsize)) - 3
         mult = 2 ** repeat_num
-        layer1.append(SpectralNorm(nn.ConvTranspose2d(z_dim, conv_dim *
-            mult, 4)))
+        layer1.append(SpectralNorm(nn.ConvTranspose2d(z_dim, conv_dim * mult, 4)))
         layer1.append(nn.BatchNorm2d(conv_dim * mult))
         layer1.append(nn.ReLU())
         curr_dim = conv_dim * mult
-        layer2.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(
-            curr_dim / 2), 4, 2, 1)))
+        layer2.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(curr_dim / 2), 4, 2, 1)))
         layer2.append(nn.BatchNorm2d(int(curr_dim / 2)))
         layer2.append(nn.ReLU())
         curr_dim = int(curr_dim / 2)
-        layer3.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(
-            curr_dim / 2), 4, 2, 1)))
+        layer3.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(curr_dim / 2), 4, 2, 1)))
         layer3.append(nn.BatchNorm2d(int(curr_dim / 2)))
         layer3.append(nn.ReLU())
         if self.imsize == 64:
             layer4 = []
             curr_dim = int(curr_dim / 2)
-            layer4.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(
-                curr_dim / 2), 4, 2, 1)))
+            layer4.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(curr_dim / 2), 4, 2, 1)))
             layer4.append(nn.BatchNorm2d(int(curr_dim / 2)))
             layer4.append(nn.ReLU())
             self.l4 = nn.Sequential(*layer4)
@@ -1203,79 +1112,25 @@ class InpaintSANet(torch.nn.Module):
     def __init__(self, n_in_channel=5):
         super(InpaintSANet, self).__init__()
         cnum = 32
-        self.coarse_net = nn.Sequential(GatedConv2dWithActivation(
-            n_in_channel, cnum, 5, 1, padding=get_pad(256, 5, 1)),
-            GatedConv2dWithActivation(cnum, 2 * cnum, 4, 2, padding=get_pad
-            (256, 4, 2)), GatedConv2dWithActivation(2 * cnum, 2 * cnum, 3, 
-            1, padding=get_pad(128, 3, 1)), GatedConv2dWithActivation(2 *
-            cnum, 4 * cnum, 4, 2, padding=get_pad(128, 4, 2)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=
-            get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 *
-            cnum, 3, 1, padding=get_pad(64, 3, 1)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=2,
-            padding=get_pad(64, 3, 1, 2)), GatedConv2dWithActivation(4 *
-            cnum, 4 * cnum, 3, 1, dilation=4, padding=get_pad(64, 3, 1, 4)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=8,
-            padding=get_pad(64, 3, 1, 8)), GatedConv2dWithActivation(4 *
-            cnum, 4 * cnum, 3, 1, dilation=16, padding=get_pad(64, 3, 1, 16
-            )), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding
-            =get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 *
-            cnum, 3, 1, padding=get_pad(64, 3, 1)),
-            GatedDeConv2dWithActivation(2, 4 * cnum, 2 * cnum, 3, 1,
-            padding=get_pad(128, 3, 1)), GatedConv2dWithActivation(2 * cnum,
-            2 * cnum, 3, 1, padding=get_pad(128, 3, 1)),
-            GatedDeConv2dWithActivation(2, 2 * cnum, cnum, 3, 1, padding=
-            get_pad(256, 3, 1)), GatedConv2dWithActivation(cnum, cnum // 2,
-            3, 1, padding=get_pad(256, 3, 1)), GatedConv2dWithActivation(
-            cnum // 2, 3, 3, 1, padding=get_pad(128, 3, 1), activation=None))
-        self.refine_conv_net = nn.Sequential(GatedConv2dWithActivation(
-            n_in_channel, cnum, 5, 1, padding=get_pad(256, 5, 1)),
-            GatedConv2dWithActivation(cnum, cnum, 4, 2, padding=get_pad(256,
-            4, 2)), GatedConv2dWithActivation(cnum, 2 * cnum, 3, 1, padding
-            =get_pad(128, 3, 1)), GatedConv2dWithActivation(2 * cnum, 2 *
-            cnum, 4, 2, padding=get_pad(128, 4, 2)),
-            GatedConv2dWithActivation(2 * cnum, 4 * cnum, 3, 1, padding=
-            get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 *
-            cnum, 3, 1, padding=get_pad(64, 3, 1)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=
-            get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 *
-            cnum, 3, 1, dilation=2, padding=get_pad(64, 3, 1, 2)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=4,
-            padding=get_pad(64, 3, 1, 4)), GatedConv2dWithActivation(4 *
-            cnum, 4 * cnum, 3, 1, dilation=8, padding=get_pad(64, 3, 1, 8)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=16,
-            padding=get_pad(64, 3, 1, 16)))
+        self.coarse_net = nn.Sequential(GatedConv2dWithActivation(n_in_channel, cnum, 5, 1, padding=get_pad(256, 5, 1)), GatedConv2dWithActivation(cnum, 2 * cnum, 4, 2, padding=get_pad(256, 4, 2)), GatedConv2dWithActivation(2 * cnum, 2 * cnum, 3, 1, padding=get_pad(128, 3, 1)), GatedConv2dWithActivation(2 * cnum, 4 * cnum, 4, 2, padding=get_pad(128, 4, 2)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=2, padding=get_pad(64, 3, 1, 2)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=4, padding=get_pad(64, 3, 1, 4)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=8, padding=get_pad(64, 3, 1, 8)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=16, padding=get_pad(64, 3, 1, 16)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedDeConv2dWithActivation(2, 4 * cnum, 2 * cnum, 3, 1, padding=get_pad(128, 3, 1)), GatedConv2dWithActivation(2 * cnum, 2 * cnum, 3, 1, padding=get_pad(128, 3, 1)), GatedDeConv2dWithActivation(2, 2 * cnum, cnum, 3, 1, padding=get_pad(256, 3, 1)), GatedConv2dWithActivation(cnum, cnum // 2, 3, 1, padding=get_pad(256, 3, 1)), GatedConv2dWithActivation(cnum // 2, 3, 3, 1, padding=get_pad(128, 3, 1), activation=None))
+        self.refine_conv_net = nn.Sequential(GatedConv2dWithActivation(n_in_channel, cnum, 5, 1, padding=get_pad(256, 5, 1)), GatedConv2dWithActivation(cnum, cnum, 4, 2, padding=get_pad(256, 4, 2)), GatedConv2dWithActivation(cnum, 2 * cnum, 3, 1, padding=get_pad(128, 3, 1)), GatedConv2dWithActivation(2 * cnum, 2 * cnum, 4, 2, padding=get_pad(128, 4, 2)), GatedConv2dWithActivation(2 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=2, padding=get_pad(64, 3, 1, 2)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=4, padding=get_pad(64, 3, 1, 4)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=8, padding=get_pad(64, 3, 1, 8)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, dilation=16, padding=get_pad(64, 3, 1, 16)))
         self.refine_attn = Self_Attn(4 * cnum, 'relu', with_attn=False)
-        self.refine_upsample_net = nn.Sequential(GatedConv2dWithActivation(
-            4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)),
-            GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=
-            get_pad(64, 3, 1)), GatedDeConv2dWithActivation(2, 4 * cnum, 2 *
-            cnum, 3, 1, padding=get_pad(128, 3, 1)),
-            GatedConv2dWithActivation(2 * cnum, 2 * cnum, 3, 1, padding=
-            get_pad(128, 3, 1)), GatedDeConv2dWithActivation(2, 2 * cnum,
-            cnum, 3, 1, padding=get_pad(256, 3, 1)),
-            GatedConv2dWithActivation(cnum, cnum // 2, 3, 1, padding=
-            get_pad(256, 3, 1)), GatedConv2dWithActivation(cnum // 2, 3, 3,
-            1, padding=get_pad(256, 3, 1), activation=None))
+        self.refine_upsample_net = nn.Sequential(GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedConv2dWithActivation(4 * cnum, 4 * cnum, 3, 1, padding=get_pad(64, 3, 1)), GatedDeConv2dWithActivation(2, 4 * cnum, 2 * cnum, 3, 1, padding=get_pad(128, 3, 1)), GatedConv2dWithActivation(2 * cnum, 2 * cnum, 3, 1, padding=get_pad(128, 3, 1)), GatedDeConv2dWithActivation(2, 2 * cnum, cnum, 3, 1, padding=get_pad(256, 3, 1)), GatedConv2dWithActivation(cnum, cnum // 2, 3, 1, padding=get_pad(256, 3, 1)), GatedConv2dWithActivation(cnum // 2, 3, 3, 1, padding=get_pad(256, 3, 1), activation=None))
 
     def forward(self, imgs, masks, img_exs=None):
         masked_imgs = imgs * (1 - masks) + masks
         if img_exs == None:
-            input_imgs = torch.cat([masked_imgs, masks, torch.full_like(
-                masks, 1.0)], dim=1)
+            input_imgs = torch.cat([masked_imgs, masks, torch.full_like(masks, 1.0)], dim=1)
         else:
-            input_imgs = torch.cat([masked_imgs, img_exs, masks, torch.
-                full_like(masks, 1.0)], dim=1)
+            input_imgs = torch.cat([masked_imgs, img_exs, masks, torch.full_like(masks, 1.0)], dim=1)
         x = self.coarse_net(input_imgs)
         x = torch.clamp(x, -1.0, 1.0)
         coarse_x = x
         masked_imgs = imgs * (1 - masks) + coarse_x * masks
         if img_exs is None:
-            input_imgs = torch.cat([masked_imgs, masks, torch.full_like(
-                masks, 1.0)], dim=1)
+            input_imgs = torch.cat([masked_imgs, masks, torch.full_like(masks, 1.0)], dim=1)
         else:
-            input_imgs = torch.cat([masked_imgs, img_exs, masks, torch.
-                full_like(masks, 1.0)], dim=1)
+            input_imgs = torch.cat([masked_imgs, img_exs, masks, torch.full_like(masks, 1.0)], dim=1)
         x = self.refine_conv_net(input_imgs)
         x = self.refine_attn(x)
         x = self.refine_upsample_net(x)
@@ -1288,16 +1143,7 @@ class InpaintSADirciminator(nn.Module):
     def __init__(self):
         super(InpaintSADirciminator, self).__init__()
         cnum = 32
-        self.discriminator_net = nn.Sequential(SNConvWithActivation(5, 2 *
-            cnum, 4, 2, padding=get_pad(256, 5, 2)), SNConvWithActivation(2 *
-            cnum, 4 * cnum, 4, 2, padding=get_pad(128, 5, 2)),
-            SNConvWithActivation(4 * cnum, 8 * cnum, 4, 2, padding=get_pad(
-            64, 5, 2)), SNConvWithActivation(8 * cnum, 8 * cnum, 4, 2,
-            padding=get_pad(32, 5, 2)), SNConvWithActivation(8 * cnum, 8 *
-            cnum, 4, 2, padding=get_pad(16, 5, 2)), SNConvWithActivation(8 *
-            cnum, 8 * cnum, 4, 2, padding=get_pad(8, 5, 2)), Self_Attn(8 *
-            cnum, 'relu'), SNConvWithActivation(8 * cnum, 8 * cnum, 4, 2,
-            padding=get_pad(4, 5, 2)))
+        self.discriminator_net = nn.Sequential(SNConvWithActivation(5, 2 * cnum, 4, 2, padding=get_pad(256, 5, 2)), SNConvWithActivation(2 * cnum, 4 * cnum, 4, 2, padding=get_pad(128, 5, 2)), SNConvWithActivation(4 * cnum, 8 * cnum, 4, 2, padding=get_pad(64, 5, 2)), SNConvWithActivation(8 * cnum, 8 * cnum, 4, 2, padding=get_pad(32, 5, 2)), SNConvWithActivation(8 * cnum, 8 * cnum, 4, 2, padding=get_pad(16, 5, 2)), SNConvWithActivation(8 * cnum, 8 * cnum, 4, 2, padding=get_pad(8, 5, 2)), Self_Attn(8 * cnum, 'relu'), SNConvWithActivation(8 * cnum, 8 * cnum, 4, 2, padding=get_pad(4, 5, 2)))
         self.linear = nn.Linear(8 * cnum * 2 * 2, 1)
 
     def forward(self, input):
@@ -1327,8 +1173,7 @@ class SADiscriminator(nn.Module):
         curr_dim = curr_dim * 2
         if self.imsize == 64:
             layer4 = []
-            layer4.append(SpectralNorm(nn.Conv2d(curr_dim, curr_dim * 2, 4,
-                2, 1)))
+            layer4.append(SpectralNorm(nn.Conv2d(curr_dim, curr_dim * 2, 4, 2, 1)))
             layer4.append(nn.LeakyReLU(0.1))
             self.l4 = nn.Sequential(*layer4)
             curr_dim = curr_dim * 2
@@ -1371,8 +1216,7 @@ class SpectralNorm(nn.Module):
         w = getattr(self.module, self.name + '_bar')
         height = w.data.shape[0]
         for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data),
-                u.data))
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
             u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
         sigma = u.dot(w.view(height, -1).mv(v))
         setattr(self.module, self.name, w / sigma.expand_as(w))
@@ -1410,9 +1254,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         if init_weights:
             self._initialize_weights()
 
@@ -1426,8 +1268,7 @@ class VGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -1442,76 +1283,163 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedConv2dWithActivation,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedDeConv2dWithActivation,
+     lambda: ([], {'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionAux,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 18, 18])], {}),
+     True),
+    (InceptionB,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionC,
+     lambda: ([], {'in_channels': 4, 'channels_7x7': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionD,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InpaintSADirciminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 128, 128])], {}),
+     False),
+    (InpaintSANet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (L1ReconLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskDisLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiLayerVGG,
+     lambda: ([], {'features': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ReconLoss,
+     lambda: ([], {'chole_alpha': 4, 'cunhole_alpha': 4, 'rhole_alpha': 4, 'runhole_alpha': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SNConvWithActivation,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SNDisLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SNGatedConv2dWithActivation,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SNGatedDeConv2dWithActivation,
+     lambda: ([], {'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SNGenLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SSIM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Self_Attn,
+     lambda: ([], {'in_dim': 64, 'activation': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+]
+
 class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GatedConv2dWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GatedDeConv2dWithActivation(*[], **{'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(InpaintSADirciminator(*[], **{}), [torch.rand([4, 5, 128, 128])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(InpaintSANet(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(L1ReconLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(MaskDisLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MultiLayerVGG(*[], **{'features': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(ReconLoss(*[], **{'chole_alpha': 4, 'cunhole_alpha': 4, 'rhole_alpha': 4, 'runhole_alpha': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(SNConvWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(SNDisLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(SNGatedConv2dWithActivation(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(SNGatedDeConv2dWithActivation(*[], **{'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(SNGenLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
-    @_fails_compile()
     def test_019(self):
-        self._check(SSIM(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
-    @_fails_compile()
     def test_020(self):
-        self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

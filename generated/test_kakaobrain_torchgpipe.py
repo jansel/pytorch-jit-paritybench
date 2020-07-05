@@ -71,8 +71,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -238,26 +239,20 @@ NORMAL_CONCAT = [0, 3, 4, 6]
 REDUCTION_CONCAT = [4, 5, 6]
 
 
-def relu_conv_bn(in_channels: int, out_channels: int, kernel_size: int=1,
-    stride: int=1, padding: int=0) ->nn.Module:
-    return nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(in_channels,
-        out_channels, kernel_size, stride, padding, bias=False), nn.
-        BatchNorm2d(out_channels))
+def relu_conv_bn(in_channels: int, out_channels: int, kernel_size: int=1, stride: int=1, padding: int=0) ->nn.Module:
+    return nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(out_channels))
 
 
 class Cell(nn.Module):
 
-    def __init__(self, channels_prev_prev: int, channels_prev: int,
-        channels: int, reduction: bool, reduction_prev: bool) ->None:
+    def __init__(self, channels_prev_prev: int, channels_prev: int, channels: int, reduction: bool, reduction_prev: bool) ->None:
         super().__init__()
-        self.reduce1 = relu_conv_bn(in_channels=channels_prev, out_channels
-            =channels)
+        self.reduce1 = relu_conv_bn(in_channels=channels_prev, out_channels=channels)
         self.reduce2: nn.Module = nn.Identity()
         if reduction_prev:
             self.reduce2 = FactorizedReduce(channels_prev_prev, channels)
         elif channels_prev_prev != channels:
-            self.reduce2 = relu_conv_bn(in_channels=channels_prev_prev,
-                out_channels=channels)
+            self.reduce2 = relu_conv_bn(in_channels=channels_prev_prev, out_channels=channels)
         if reduction:
             self.indices, op_classes = zip(*REDUCTION_OPERATIONS)
             self.concat = REDUCTION_CONCAT
@@ -276,8 +271,7 @@ class Cell(nn.Module):
     def extra_repr(self) ->str:
         return f'indices: {self.indices}'
 
-    def forward(self, input_or_states: Union[Tensor, Tuple[Tensor, Tensor]]
-        ) ->Tuple[Tensor, Tensor]:
+    def forward(self, input_or_states: Union[Tensor, Tuple[Tensor, Tensor]]) ->Tuple[Tensor, Tensor]:
         if isinstance(input_or_states, tuple):
             s1, s2 = input_or_states
         else:
@@ -323,17 +317,14 @@ class FactorizedReduce(nn.Module):
         super().__init__()
         self.relu = nn.ReLU(inplace=False)
         self.pad = nn.ZeroPad2d((0, 1, 0, 1))
-        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=
-            1, stride=2, bias=False)
-        self.conv2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=
-            1, stride=2, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, bias=False)
+        self.conv2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, input: Tensor) ->Tensor:
         x = input
         x = self.relu(x)
-        x = torch.cat([self.conv1(x), self.conv2(self.pad(x[:, :, 1:, 1:]))
-            ], dim=1)
+        x = torch.cat([self.conv1(x), self.conv2(self.pad(x[:, :, 1:, 1:]))], dim=1)
         x = self.bn(x)
         return x
 
@@ -426,8 +417,7 @@ class SkipsAsTuple(nn.Module):
     including the input and the skips.
     """
 
-    def __init__(self, num_skips: int, unpack_input: Deque[bool],
-        unpack_output: Deque[bool]) ->None:
+    def __init__(self, num_skips: int, unpack_input: Deque[bool], unpack_output: Deque[bool]) ->None:
         super().__init__()
         self.num_skips = num_skips
         self.unpack_input = unpack_input
@@ -459,8 +449,7 @@ class SkipsAsTuple(nn.Module):
         else:
             return output + skips
 
-    def _forward(self, input: TensorOrTensors, skips: Tensors) ->Tuple[
-        TensorOrTensors, Tensors]:
+    def _forward(self, input: TensorOrTensors, skips: Tensors) ->Tuple[TensorOrTensors, Tensors]:
         raise NotImplementedError
 
 
@@ -480,10 +469,8 @@ class DeferredBatchNorm(_BatchNorm):
     sum: Tensor
     sum_squares: Tensor
 
-    def __init__(self, num_features: int, eps: float=1e-05, momentum:
-        Optional[float]=0.1, affine: bool=True, chunks: int=1) ->None:
-        super().__init__(num_features, eps, momentum, affine,
-            track_running_stats=True)
+    def __init__(self, num_features: int, eps: float=1e-05, momentum: Optional[float]=0.1, affine: bool=True, chunks: int=1) ->None:
+        super().__init__(num_features, eps, momentum, affine, track_running_stats=True)
         self.register_buffer('sum', torch.zeros_like(self.running_mean))
         self.register_buffer('sum_squares', torch.zeros_like(self.running_var))
         self.counter = 0
@@ -492,8 +479,7 @@ class DeferredBatchNorm(_BatchNorm):
 
     def _check_input_dim(self, input: Tensor) ->None:
         if input.dim() <= 2:
-            raise ValueError('expected at least 3D input (got %dD input)' %
-                input.dim())
+            raise ValueError('expected at least 3D input (got %dD input)' % input.dim())
 
     def _track(self, input: Tensor) ->bool:
         """Tracks statistics of a micro-batch."""
@@ -529,20 +515,15 @@ class DeferredBatchNorm(_BatchNorm):
 
     def forward(self, input: Tensor) ->Tensor:
         if not self.training:
-            return F.batch_norm(input, running_mean=self.running_mean,
-                running_var=self.running_var, weight=self.weight, bias=self
-                .bias, training=False, momentum=0.0, eps=self.eps)
+            return F.batch_norm(input, running_mean=self.running_mean, running_var=self.running_var, weight=self.weight, bias=self.bias, training=False, momentum=0.0, eps=self.eps)
         if not is_recomputing():
             tracked_enough = self._track(input)
             if tracked_enough:
                 self._commit()
-        return F.batch_norm(input, running_mean=None, running_var=None,
-            weight=self.weight, bias=self.bias, training=True, momentum=0.0,
-            eps=self.eps)
+        return F.batch_norm(input, running_mean=None, running_var=None, weight=self.weight, bias=self.bias, training=True, momentum=0.0, eps=self.eps)
 
     @classmethod
-    def convert_deferred_batch_norm(cls, module: TModule, chunks: int=1
-        ) ->TModule:
+    def convert_deferred_batch_norm(cls, module: TModule, chunks: int=1) ->TModule:
         """Converts a :class:`nn.BatchNorm` or underlying
         :class:`nn.BatchNorm`s into :class:`DeferredBatchNorm`::
 
@@ -556,18 +537,15 @@ class DeferredBatchNorm(_BatchNorm):
             return cast(TModule, module)
         module_output: nn.Module = module
         if isinstance(module, _BatchNorm) and module.track_running_stats:
-            module_output = DeferredBatchNorm(module.num_features, module.
-                eps, module.momentum, module.affine, chunks)
+            module_output = DeferredBatchNorm(module.num_features, module.eps, module.momentum, module.affine, chunks)
             if module.affine:
                 module_output.register_parameter('weight', module.weight)
                 module_output.register_parameter('bias', module.bias)
             module_output.register_buffer('running_mean', module.running_mean)
             module_output.register_buffer('running_var', module.running_var)
-            module_output.register_buffer('num_batches_tracked', module.
-                num_batches_tracked)
+            module_output.register_buffer('num_batches_tracked', module.num_batches_tracked)
         for name, child in module.named_children():
-            module_output.add_module(name, cls.convert_deferred_batch_norm(
-                child, chunks))
+            module_output.add_module(name, cls.convert_deferred_batch_norm(child, chunks))
         return cast(TModule, module_output)
 
 
@@ -588,9 +566,7 @@ Device = Union[torch.device, int, str]
 Devices = Union[Iterable[Device], List[Device]]
 
 
-MOVING_DENIED = TypeError(
-    'denied to move parameters and buffers, because GPipe should manage device placement'
-    )
+MOVING_DENIED = TypeError('denied to move parameters and buffers, because GPipe should manage device placement')
 
 
 class Batch:
@@ -669,8 +645,7 @@ class Batch:
     def __setitem__(self, index: slice, value: Tensors) ->None:
         ...
 
-    def __setitem__(self, index: Union[int, slice], value: TensorOrTensors
-        ) ->None:
+    def __setitem__(self, index: Union[int, slice], value: TensorOrTensors) ->None:
         if isinstance(index, int):
             value = cast(Tensor, value)
             self._setitem_by_index(index, value)
@@ -694,8 +669,7 @@ class Batch:
             self.value = value
             return
         if len(value) != 1:
-            raise IndexError(
-                'atomic batch cannot be replaced with multiple tensors')
+            raise IndexError('atomic batch cannot be replaced with multiple tensors')
         self.value = value[0]
 
 
@@ -738,9 +712,7 @@ def save_rng_states(device: torch.device, rng_states: Deque[RNGStates]) ->None:
 class Checkpoint(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx: Context, phony: Tensor, recomputed: Deque[Recomputed],
-        rng_states: Deque[RNGStates], function: Function, input_atomic:
-        bool, *input: Tensor) ->TensorOrTensors:
+    def forward(ctx: Context, phony: Tensor, recomputed: Deque[Recomputed], rng_states: Deque[RNGStates], function: Function, input_atomic: bool, *input: Tensor) ->TensorOrTensors:
         ctx.recomputed = recomputed
         ctx.rng_states = rng_states
         save_rng_states(input[0].device, ctx.rng_states)
@@ -752,8 +724,7 @@ class Checkpoint(torch.autograd.Function):
         return output
 
     @staticmethod
-    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[Optional[
-        Tensor], ...]:
+    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[Optional[Tensor], ...]:
         output, input_leaf = ctx.recomputed.pop()
         if isinstance(output, tuple):
             tensors = output
@@ -769,9 +740,7 @@ class Checkpoint(torch.autograd.Function):
 class Recompute(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx: Context, phony: Tensor, recomputed: Deque[Recomputed],
-        rng_states: Deque[RNGStates], function: Function, input_atomic:
-        bool, *input: Tensor) ->Tensor:
+    def forward(ctx: Context, phony: Tensor, recomputed: Deque[Recomputed], rng_states: Deque[RNGStates], function: Function, input_atomic: bool, *input: Tensor) ->Tensor:
         ctx.recomputed = recomputed
         ctx.rng_states = rng_states
         ctx.function = function
@@ -782,12 +751,10 @@ class Recompute(torch.autograd.Function):
     @staticmethod
     def backward(ctx: Context, *grad_output: Tensor) ->Tuple[None, ...]:
         input = ctx.saved_tensors
-        input_leaf = tuple(x.detach().requires_grad_(x.requires_grad) for x in
-            input)
+        input_leaf = tuple(x.detach().requires_grad_(x.requires_grad) for x in input)
         with restore_rng_states(input[0].device, ctx.rng_states):
             with torch.enable_grad(), enable_recomputing():
-                output = ctx.function(input_leaf[0] if ctx.input_atomic else
-                    input_leaf)
+                output = ctx.function(input_leaf[0] if ctx.input_atomic else input_leaf)
         ctx.recomputed.append((output, input_leaf))
         grad_input: List[None] = [None, None, None, None, None]
         grad_input.extend(None for _ in ctx.saved_tensors)
@@ -876,8 +843,7 @@ class Join(torch.autograd.Function):
 
 def join(input: Tensor, phony: Tensor) ->Tensor:
     """Merges two autograd lanes."""
-    if torch.is_grad_enabled() and (input.requires_grad or phony.requires_grad
-        ):
+    if torch.is_grad_enabled() and (input.requires_grad or phony.requires_grad):
         input = Join.apply(input, phony)
     return input
 
@@ -896,8 +862,7 @@ class Checkpointing:
         input_atomic = self.batch.atomic
         input = tuple(self.batch)
         phony = get_phony(self.batch[0].device, requires_grad=True)
-        output = Checkpoint.apply(phony, self.recomputed, self.rng_states,
-            self.function, input_atomic, *input)
+        output = Checkpoint.apply(phony, self.recomputed, self.rng_states, self.function, input_atomic, *input)
         return Batch(output)
 
     def recompute(self, batch: Batch) ->None:
@@ -905,8 +870,7 @@ class Checkpointing:
         input_atomic = self.batch.atomic
         input = tuple(self.batch)
         batch[0], phony = fork(batch[0])
-        phony = Recompute.apply(phony, self.recomputed, self.rng_states,
-            self.function, input_atomic, *input)
+        phony = Recompute.apply(phony, self.recomputed, self.rng_states, self.function, input_atomic, *input)
         batch[0] = join(batch[0], phony)
 
 
@@ -935,8 +899,7 @@ class Copy(torch.autograd.Function):
     """Copies tensors on specific streams."""
 
     @staticmethod
-    def forward(ctx: Context, prev_stream: AbstractStream, next_stream:
-        AbstractStream, *input: Tensor) ->Tensors:
+    def forward(ctx: Context, prev_stream: AbstractStream, next_stream: AbstractStream, *input: Tensor) ->Tensors:
         ctx.prev_stream = prev_stream
         ctx.next_stream = next_stream
         output = []
@@ -950,8 +913,7 @@ class Copy(torch.autograd.Function):
         return tuple(output)
 
     @staticmethod
-    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[Optional[
-        Tensor], ...]:
+    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[Optional[Tensor], ...]:
         prev_stream = ctx.prev_stream
         next_stream = ctx.next_stream
         grad_input: Deque[Tensor] = deque(maxlen=len(grad_output))
@@ -1006,8 +968,7 @@ class Portal:
             return self.use_tensor()
         return PortalOrange.apply(self, phony)
 
-    def copy(self, prev_stream: AbstractStream, next_stream: AbstractStream,
-        phony: Tensor) ->Tensor:
+    def copy(self, prev_stream: AbstractStream, next_stream: AbstractStream, phony: Tensor) ->Tensor:
         """Copies the hidden tensor by a :class:`PortalCopy`.
 
         Give a phony and use the returning phony to keep backpropagation::
@@ -1074,8 +1035,7 @@ class Task:
 
     """
 
-    def __init__(self, stream: AbstractStream, *, compute: Callable[[],
-        Batch], finalize: Optional[Callable[[Batch], None]]) ->None:
+    def __init__(self, stream: AbstractStream, *, compute: Callable[[], Batch], finalize: Optional[Callable[[Batch], None]]) ->None:
         self.stream = stream
         self._compute = compute
         self._finalize = finalize
@@ -1122,16 +1082,14 @@ class Wait(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx: Context, prev_stream: AbstractStream, next_stream:
-        AbstractStream, *input: Tensor) ->Tensors:
+    def forward(ctx: Context, prev_stream: AbstractStream, next_stream: AbstractStream, *input: Tensor) ->Tensors:
         ctx.prev_stream = prev_stream
         ctx.next_stream = next_stream
         wait_stream(next_stream, prev_stream)
         return tuple(x.detach() for x in input)
 
     @staticmethod
-    def backward(ctx: Context, *grad_input: Tensor) ->Tuple[Optional[Tensor
-        ], ...]:
+    def backward(ctx: Context, *grad_input: Tensor) ->Tuple[Optional[Tensor], ...]:
         prev_stream = ctx.prev_stream
         next_stream = ctx.next_stream
         wait_stream(prev_stream, next_stream)
@@ -1139,8 +1097,7 @@ class Wait(torch.autograd.Function):
         return grad_streams + grad_input
 
 
-def wait(batch: Batch, prev_stream: AbstractStream, next_stream: AbstractStream
-    ) ->None:
+def wait(batch: Batch, prev_stream: AbstractStream, next_stream: AbstractStream) ->None:
     batch[:] = Wait.apply(prev_stream, next_stream, *batch)
 
 
@@ -1153,26 +1110,10 @@ def new_stream(device: torch.device) ->AbstractStream:
 
 def recommend_auto_balance(message: str) ->str:
     """Expands a message with recommendation to :mod:`torchgpipe.balance`."""
-    return f"""{message}
-
-If your model is still under development, its optimal balance would change
-frequently. In this case, we highly recommend 'torchgpipe.balance' for naive
-automatic balancing:
-
-  from torchgpipe import GPipe
-  from torchgpipe.balance import balance_by_time
-
-  partitions = torch.cuda.device_count()
-  sample = torch.empty(...)
-  balance = balance_by_time(partitions, model, sample)
-
-  model = GPipe(model, balance, ...)
-"""
+    return f"{message}\n\nIf your model is still under development, its optimal balance would change\nfrequently. In this case, we highly recommend 'torchgpipe.balance' for naive\nautomatic balancing:\n\n  from torchgpipe import GPipe\n  from torchgpipe.balance import balance_by_time\n\n  partitions = torch.cuda.device_count()\n  sample = torch.empty(...)\n  balance = balance_by_time(partitions, model, sample)\n\n  model = GPipe(model, balance, ...)\n"
 
 
-def split_module(module: nn.Sequential, balance: Iterable[int], devices:
-    List[torch.device]) ->Tuple[List[nn.Sequential], List[int], List[torch.
-    device]]:
+def split_module(module: nn.Sequential, balance: Iterable[int], devices: List[torch.device]) ->Tuple[List[nn.Sequential], List[int], List[torch.device]]:
     """Splits a module into multiple partitions.
 
     Returns:
@@ -1191,17 +1132,11 @@ def split_module(module: nn.Sequential, balance: Iterable[int], devices:
     """
     balance = list(balance)
     if len(module) != sum(balance):
-        raise BalanceError(
-            f'module and sum of balance have different length (module: {len(module)}, sum of balance: {sum(balance)})'
-            )
+        raise BalanceError(f'module and sum of balance have different length (module: {len(module)}, sum of balance: {sum(balance)})')
     if any(x <= 0 for x in balance):
-        raise BalanceError(
-            f'all balance numbers must be positive integer (balance: {balance})'
-            )
+        raise BalanceError(f'all balance numbers must be positive integer (balance: {balance})')
     if len(balance) > len(devices):
-        raise IndexError(
-            f'too few devices to hold given partitions (devices: {len(devices)}, partitions: {len(balance)})'
-            )
+        raise IndexError(f'too few devices to hold given partitions (devices: {len(devices)}, partitions: {len(balance)})')
     j = 0
     partitions = []
     layers: NamedModules = OrderedDict()
@@ -1226,12 +1161,9 @@ def verify_module(module: nn.Sequential) ->None:
     if len(named_children) != len(module):
         raise ValueError('module with duplicate children is not supported')
     num_parameters = len(list(module.parameters()))
-    num_child_parameters = sum(len(list(child.parameters())) for child in
-        module.children())
+    num_child_parameters = sum(len(list(child.parameters())) for child in module.children())
     if num_parameters != num_child_parameters:
-        raise ValueError(
-            'module with duplicate parameters in distinct children is not supported'
-            )
+        raise ValueError('module with duplicate parameters in distinct children is not supported')
 
 
 def verify_skippables(module: nn.Sequential) ->None:
@@ -1275,17 +1207,13 @@ def verify_skippables(module: nn.Sequential) ->None:
         if not isinstance(layer, Skippable):
             continue
         for name in (layer.stashable_names & layer.poppable_names):
-            msg = (
-                f"'{layer_name}' declared '{name}' both as stashable and as poppable"
-                )
+            msg = f"'{layer_name}' declared '{name}' both as stashable and as poppable"
             msgs.append(msg)
         for ns, name in layer.stashable():
             if name in layer.poppable_names:
                 continue
             if (ns, name) in stashed:
-                msg = (
-                    f"'{layer_name}' redeclared '{name}' as stashable but not isolated by namespace"
-                    )
+                msg = f"'{layer_name}' redeclared '{name}' as stashable but not isolated by namespace"
                 msgs.append(msg)
                 continue
             stashed.add((ns, name))
@@ -1293,15 +1221,11 @@ def verify_skippables(module: nn.Sequential) ->None:
             if name in layer.stashable_names:
                 continue
             if (ns, name) in popped:
-                msg = (
-                    f"'{layer_name}' redeclared '{name}' as poppable but not isolated by namespace"
-                    )
+                msg = f"'{layer_name}' redeclared '{name}' as poppable but not isolated by namespace"
                 msgs.append(msg)
                 continue
             if (ns, name) not in stashed:
-                msg = (
-                    f"'{layer_name}' declared '{name}' as poppable but it was not stashed"
-                    )
+                msg = f"'{layer_name}' declared '{name}' as poppable but it was not stashed"
                 msgs.append(msg)
                 continue
             popped.add((ns, name))
@@ -1309,9 +1233,7 @@ def verify_skippables(module: nn.Sequential) ->None:
         msg = f"no module declared '{name}' as poppable but stashed"
         msgs.append(msg)
     if msgs:
-        raise TypeError(
-            'one or more pairs of stash and pop do not match:\n\n%s' % '\n'
-            .join('* %s' % x for x in msgs))
+        raise TypeError('one or more pairs of stash and pop do not match:\n\n%s' % '\n'.join('* %s' % x for x in msgs))
 
 
 class GPipe(Module):
@@ -1367,9 +1289,7 @@ class GPipe(Module):
     chunks: int = 1
     checkpoint: str = 'except_last'
 
-    def __init__(self, module: nn.Sequential, balance: Optional[Iterable[
-        int]]=None, *, devices: Optional[Devices]=None, chunks: int=chunks,
-        checkpoint: str=checkpoint, deferred_batch_norm: bool=False) ->None:
+    def __init__(self, module: nn.Sequential, balance: Optional[Iterable[int]]=None, *, devices: Optional[Devices]=None, chunks: int=chunks, checkpoint: str=checkpoint, deferred_batch_norm: bool=False) ->None:
         super().__init__()
         chunks = int(chunks)
         checkpoint = str(checkpoint)
@@ -1378,22 +1298,19 @@ class GPipe(Module):
         if chunks <= 0:
             raise ValueError('number of chunks must be positive integer')
         if checkpoint not in ['always', 'except_last', 'never']:
-            raise ValueError(
-                "checkpoint is not one of 'always', 'except_last', or 'never'")
+            raise ValueError("checkpoint is not one of 'always', 'except_last', or 'never'")
         verify_module(module)
         verify_skippables(module)
         self.chunks = chunks
         self.checkpoint = checkpoint
         if deferred_batch_norm:
-            module = DeferredBatchNorm.convert_deferred_batch_norm(module,
-                chunks)
+            module = DeferredBatchNorm.convert_deferred_batch_norm(module, chunks)
         if devices is None:
             devices = range(torch.device_count())
         devices = [torch.device(d) for d in devices]
         devices = cast(List[torch.device], devices)
         try:
-            self.partitions, self.balance, self.devices = split_module(module,
-                balance, devices)
+            self.partitions, self.balance, self.devices = split_module(module, balance, devices)
         except BalanceError as exc:
             raise ValueError(recommend_auto_balance(str(exc)))
         self._copy_streams: List[List[AbstractStream]] = []
@@ -1451,8 +1368,7 @@ class GPipe(Module):
         """
         if not self._copy_streams:
             for device in self.devices:
-                self._copy_streams.append([new_stream(device) for _ in
-                    range(self.chunks)])
+                self._copy_streams.append([new_stream(device) for _ in range(self.chunks)])
         return self._copy_streams
 
     def forward(self, input: TensorOrTensors) ->TensorOrTensors:
@@ -1478,12 +1394,10 @@ class GPipe(Module):
         batches = microbatch.scatter(input, self.chunks)
         copy_streams = self._ensure_copy_streams()
         if self.training:
-            checkpoint_stop = {'always': self.chunks, 'except_last': self.
-                chunks - 1, 'never': 0}[self.checkpoint]
+            checkpoint_stop = {'always': self.chunks, 'except_last': self.chunks - 1, 'never': 0}[self.checkpoint]
         else:
             checkpoint_stop = 0
-        pipeline = Pipeline(batches, self.partitions, self.devices,
-            copy_streams, self._skip_layout, checkpoint_stop)
+        pipeline = Pipeline(batches, self.partitions, self.devices, copy_streams, self._skip_layout, checkpoint_stop)
         pipeline.run()
         output = microbatch.gather(batches)
         return output
@@ -1496,18 +1410,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DeferredBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FactorizedReduce,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Pass,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Stem,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_kakaobrain_torchgpipe(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DeferredBatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FactorizedReduce(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Pass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Stem(*[], **{'channels': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

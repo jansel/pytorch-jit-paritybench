@@ -43,8 +43,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,8 +76,7 @@ class BCEWithLogitsLoss(nn.Module):
 
     def forward(self, net_out, batch):
         out = {}
-        out['loss'] = self.loss(net_out.squeeze(1), batch['class_id'].float
-            ().squeeze(1))
+        out['loss'] = self.loss(net_out.squeeze(1), batch['class_id'].float().squeeze(1))
         return out
 
 
@@ -134,8 +134,7 @@ class Accuracy(nn.Module):
 
     def __call__(self, cri_out, net_out, batch):
         out = {}
-        acc_out = accuracy(net_out.data.cpu(), batch['class_id'].data.cpu(),
-            topk=self.topk)
+        acc_out = accuracy(net_out.data.cpu(), batch['class_id'].data.cpu(), topk=self.topk)
         for i, k in enumerate(self.topk):
             out['accuracy_top{}'.format(k)] = acc_out[i]
         return out
@@ -178,9 +177,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_Cadene_bootstrap_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 

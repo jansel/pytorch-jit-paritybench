@@ -131,8 +131,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -270,10 +271,8 @@ def gather_scatter_python(input, edges, directed: bool=False):
     num_vertices, input_feature_dim = input.shape
     num_edges = edges.shape[0]
     output = torch.zeros_like(input)
-    idx0 = edges[:, (0)].view(num_edges, 1).expand(num_edges, input_feature_dim
-        )
-    idx1 = edges[:, (1)].view(num_edges, 1).expand(num_edges, input_feature_dim
-        )
+    idx0 = edges[:, (0)].view(num_edges, 1).expand(num_edges, input_feature_dim)
+    idx1 = edges[:, (1)].view(num_edges, 1).expand(num_edges, input_feature_dim)
     output = output.scatter_add(0, idx0, input.gather(0, idx1))
     if not directed:
         output = output.scatter_add(0, idx1, input.gather(0, idx0))
@@ -283,8 +282,7 @@ def gather_scatter_python(input, edges, directed: bool=False):
 class GraphConv(nn.Module):
     """A single graph convolution layer."""
 
-    def __init__(self, input_dim: int, output_dim: int, init: str='normal',
-        directed: bool=False):
+    def __init__(self, input_dim: int, output_dim: int, init: str='normal', directed: bool=False):
         """
         Args:
             input_dim: Number of input features per vertex.
@@ -325,8 +323,7 @@ class GraphConv(nn.Module):
             number of output features per vertex.
         """
         if verts.is_cuda != edges.is_cuda:
-            raise ValueError(
-                'verts and edges tensors must be on the same device.')
+            raise ValueError('verts and edges tensors must be on the same device.')
         if verts.shape[0] == 0:
             return verts.new_zeros((0, self.output_dim)) * verts.sum()
         verts_w0 = self.w0(verts)
@@ -334,8 +331,7 @@ class GraphConv(nn.Module):
         if torch.is_available() and verts.is_cuda and edges.is_cuda:
             neighbor_sums = gather_scatter(verts_w1, edges, self.directed)
         else:
-            neighbor_sums = gather_scatter_python(verts_w1, edges, self.
-                directed)
+            neighbor_sums = gather_scatter_python(verts_w1, edges, self.directed)
         out = verts_w0 + neighbor_sums
         return out
 
@@ -366,8 +362,7 @@ def _extend_tensor(input_tensor: torch.Tensor, N: int) ->torch.Tensor:
     B = input_tensor.shape[0]
     non_batch_dims = tuple(input_tensor.shape[1:])
     constant_dims = (-1,) * input_tensor.ndim
-    return input_tensor.clone()[None, ...].expand(N, *constant_dims).transpose(
-        0, 1).reshape(N * B, *non_batch_dims)
+    return input_tensor.clone()[None, ...].expand(N, *constant_dims).transpose(0, 1).reshape(N * B, *non_batch_dims)
 
 
 def _pad_texture_maps(images: List[torch.Tensor]) ->torch.Tensor:
@@ -394,8 +389,7 @@ def _pad_texture_maps(images: List[torch.Tensor]) ->torch.Tensor:
     for i, image in enumerate(tex_maps):
         if image.shape[:2] != max_shape:
             image_BCHW = image.permute(2, 0, 1)[None]
-            new_image_BCHW = interpolate(image_BCHW, size=max_shape, mode=
-                'bilinear', align_corners=False)
+            new_image_BCHW = interpolate(image_BCHW, size=max_shape, mode='bilinear', align_corners=False)
             tex_maps[i] = new_image_BCHW[0].permute(1, 2, 0)
     tex_maps = torch.stack(tex_maps, dim=0)
     return tex_maps
@@ -423,17 +417,14 @@ def padded_to_list(x: torch.Tensor, split_size: Union[list, tuple, None]=None):
         return x_list
     N = len(split_size)
     if x.shape[0] != N:
-        raise ValueError(
-            'Split size must be of same length as inputs first dimension')
+        raise ValueError('Split size must be of same length as inputs first dimension')
     for i in range(N):
         if isinstance(split_size[i], int):
             x_list[i] = x_list[i][:split_size[i]]
         elif len(split_size[i]) == 2:
             x_list[i] = x_list[i][:split_size[i][0], :split_size[i][1]]
         else:
-            raise ValueError(
-                'Support only for 2-dimensional unbinded tensor.                     Split size for more dimensions provided'
-                )
+            raise ValueError('Support only for 2-dimensional unbinded tensor.                     Split size for more dimensions provided')
     return x_list
 
 
@@ -517,9 +508,7 @@ def padded_to_packed(inputs, first_idxs, num_inputs):
 
 class Textures(object):
 
-    def __init__(self, maps: Union[List, torch.Tensor, None]=None,
-        faces_uvs: Optional[torch.Tensor]=None, verts_uvs: Optional[torch.
-        Tensor]=None, verts_rgb: Optional[torch.Tensor]=None):
+    def __init__(self, maps: Union[List, torch.Tensor, None]=None, faces_uvs: Optional[torch.Tensor]=None, verts_uvs: Optional[torch.Tensor]=None, verts_rgb: Optional[torch.Tensor]=None):
         """
         Args:
             maps: texture map per mesh. This can either be a list of maps
@@ -591,14 +580,12 @@ class Textures(object):
     def faces_uvs_list(self) ->Union[List[torch.Tensor], None]:
         if self._faces_uvs_padded is None:
             return None
-        return padded_to_list(self._faces_uvs_padded, split_size=self.
-            _num_faces_per_mesh)
+        return padded_to_list(self._faces_uvs_padded, split_size=self._num_faces_per_mesh)
 
     def faces_uvs_packed(self) ->Union[torch.Tensor, None]:
         if self._faces_uvs_padded is None:
             return None
-        return padded_to_packed(self._faces_uvs_padded, split_size=self.
-            _num_faces_per_mesh)
+        return padded_to_packed(self._faces_uvs_padded, split_size=self._num_faces_per_mesh)
 
     def verts_uvs_padded(self) ->Union[torch.Tensor, None]:
         return self._verts_uvs_padded
@@ -619,14 +606,12 @@ class Textures(object):
     def verts_rgb_list(self) ->Union[List[torch.Tensor], None]:
         if self._verts_rgb_padded is None:
             return None
-        return padded_to_list(self._verts_rgb_padded, split_size=self.
-            _num_verts_per_mesh)
+        return padded_to_list(self._verts_rgb_padded, split_size=self._num_verts_per_mesh)
 
     def verts_rgb_packed(self) ->Union[torch.Tensor, None]:
         if self._verts_rgb_padded is None:
             return None
-        return padded_to_packed(self._verts_rgb_padded, split_size=self.
-            _num_verts_per_mesh)
+        return padded_to_packed(self._verts_rgb_padded, split_size=self._num_verts_per_mesh)
 
     def maps_padded(self) ->Union[torch.Tensor, None]:
         return self._maps_padded
@@ -645,13 +630,11 @@ class Textures(object):
             raise ValueError('N must be an integer.')
         if N <= 0:
             raise ValueError('N must be > 0.')
-        if all(v is not None for v in [self._faces_uvs_padded, self.
-            _verts_uvs_padded, self._maps_padded]):
+        if all(v is not None for v in [self._faces_uvs_padded, self._verts_uvs_padded, self._maps_padded]):
             new_verts_uvs = _extend_tensor(self._verts_uvs_padded, N)
             new_faces_uvs = _extend_tensor(self._faces_uvs_padded, N)
             new_maps = _extend_tensor(self._maps_padded, N)
-            return self.__class__(verts_uvs=new_verts_uvs, faces_uvs=
-                new_faces_uvs, maps=new_maps)
+            return self.__class__(verts_uvs=new_verts_uvs, faces_uvs=new_faces_uvs, maps=new_maps)
         elif self._verts_rgb_padded is not None:
             new_verts_rgb = _extend_tensor(self._verts_rgb_padded, N)
             return self.__class__(verts_rgb=new_verts_rgb)
@@ -834,16 +817,7 @@ class Meshes(object):
     ----------------------------------------------------------------------------
     # SPHINX IGNORE
     """
-    _INTERNAL_TENSORS = ['_verts_packed', '_verts_packed_to_mesh_idx',
-        '_mesh_to_verts_packed_first_idx', '_verts_padded',
-        '_num_verts_per_mesh', '_faces_packed', '_faces_packed_to_mesh_idx',
-        '_mesh_to_faces_packed_first_idx', '_faces_padded',
-        '_faces_areas_packed', '_verts_normals_packed',
-        '_faces_normals_packed', '_num_faces_per_mesh', '_edges_packed',
-        '_edges_packed_to_mesh_idx', '_mesh_to_edges_packed_first_idx',
-        '_faces_packed_to_edges_packed', '_num_edges_per_mesh',
-        '_verts_padded_to_packed_idx', '_laplacian_packed', 'valid',
-        'equisized']
+    _INTERNAL_TENSORS = ['_verts_packed', '_verts_packed_to_mesh_idx', '_mesh_to_verts_packed_first_idx', '_verts_padded', '_num_verts_per_mesh', '_faces_packed', '_faces_packed_to_mesh_idx', '_mesh_to_faces_packed_first_idx', '_faces_padded', '_faces_areas_packed', '_verts_normals_packed', '_faces_normals_packed', '_num_faces_per_mesh', '_edges_packed', '_edges_packed_to_mesh_idx', '_mesh_to_edges_packed_first_idx', '_faces_packed_to_edges_packed', '_num_edges_per_mesh', '_verts_padded_to_packed_idx', '_laplacian_packed', 'valid', 'equisized']
 
     def __init__(self, verts=None, faces=None, textures=None):
         """
@@ -904,37 +878,28 @@ class Meshes(object):
         self._laplacian_packed = None
         if isinstance(verts, list) and isinstance(faces, list):
             self._verts_list = verts
-            self._faces_list = [(f[f.gt(-1).all(1)].to(torch.int64) if len(
-                f) > 0 else f) for f in faces]
+            self._faces_list = [(f[f.gt(-1).all(1)].to(torch.int64) if len(f) > 0 else f) for f in faces]
             self._N = len(self._verts_list)
             self.device = torch.device('cpu')
-            self.valid = torch.zeros((self._N,), dtype=torch.bool, device=
-                self.device)
+            self.valid = torch.zeros((self._N,), dtype=torch.bool, device=self.device)
             if self._N > 0:
                 self.device = self._verts_list[0].device
-                self._num_verts_per_mesh = torch.tensor([len(v) for v in
-                    self._verts_list], device=self.device)
+                self._num_verts_per_mesh = torch.tensor([len(v) for v in self._verts_list], device=self.device)
                 self._V = int(self._num_verts_per_mesh.max())
-                self._num_faces_per_mesh = torch.tensor([len(f) for f in
-                    self._faces_list], device=self.device)
+                self._num_faces_per_mesh = torch.tensor([len(f) for f in self._faces_list], device=self.device)
                 self._F = int(self._num_faces_per_mesh.max())
-                self.valid = torch.tensor([(len(v) > 0 and len(f) > 0) for 
-                    v, f in zip(self._verts_list, self._faces_list)], dtype
-                    =torch.bool, device=self.device)
-                if len(self._num_verts_per_mesh.unique()) == 1 and len(self
-                    ._num_faces_per_mesh.unique()) == 1:
+                self.valid = torch.tensor([(len(v) > 0 and len(f) > 0) for v, f in zip(self._verts_list, self._faces_list)], dtype=torch.bool, device=self.device)
+                if len(self._num_verts_per_mesh.unique()) == 1 and len(self._num_faces_per_mesh.unique()) == 1:
                     self.equisized = True
         elif torch.is_tensor(verts) and torch.is_tensor(faces):
             if verts.size(2) != 3 and faces.size(2) != 3:
-                raise ValueError(
-                    'Verts and Faces tensors have incorrect dimensions.')
+                raise ValueError('Verts and Faces tensors have incorrect dimensions.')
             self._verts_padded = verts
             self._faces_padded = faces.to(torch.int64)
             self._N = self._verts_padded.shape[0]
             self._V = self._verts_padded.shape[1]
             self.device = self._verts_padded.device
-            self.valid = torch.zeros((self._N,), dtype=torch.bool, device=
-                self.device)
+            self.valid = torch.zeros((self._N,), dtype=torch.bool, device=self.device)
             if self._N > 0:
                 faces_not_padded = self._faces_padded.gt(-1).all(2)
                 self._num_faces_per_mesh = faces_not_padded.sum(1)
@@ -944,22 +909,15 @@ class Meshes(object):
                 self._F = int(self._num_faces_per_mesh.max())
                 if len(self._num_faces_per_mesh.unique()) == 1:
                     self.equisized = True
-                self._num_verts_per_mesh = torch.full(size=(self._N,),
-                    fill_value=self._V, dtype=torch.int64, device=self.device)
+                self._num_verts_per_mesh = torch.full(size=(self._N,), fill_value=self._V, dtype=torch.int64, device=self.device)
         else:
-            raise ValueError(
-                'Verts and Faces must be either a list or a tensor with                     shape (batch_size, N, 3) where N is either the maximum                        number of verts or faces respectively.'
-                )
+            raise ValueError('Verts and Faces must be either a list or a tensor with                     shape (batch_size, N, 3) where N is either the maximum                        number of verts or faces respectively.')
         if self.isempty():
-            self._num_verts_per_mesh = torch.zeros((0,), dtype=torch.int64,
-                device=self.device)
-            self._num_faces_per_mesh = torch.zeros((0,), dtype=torch.int64,
-                device=self.device)
+            self._num_verts_per_mesh = torch.zeros((0,), dtype=torch.int64, device=self.device)
+            self._num_faces_per_mesh = torch.zeros((0,), dtype=torch.int64, device=self.device)
         if self.textures is not None:
-            self.textures._num_faces_per_mesh = (self._num_faces_per_mesh.
-                tolist())
-            self.textures._num_verts_per_mesh = (self._num_verts_per_mesh.
-                tolist())
+            self.textures._num_faces_per_mesh = self._num_faces_per_mesh.tolist()
+            self.textures._num_verts_per_mesh = self._num_verts_per_mesh.tolist()
 
     def __len__(self):
         return self._N
@@ -992,8 +950,7 @@ class Meshes(object):
             raise IndexError(index)
         textures = None if self.textures is None else self.textures[index]
         if torch.is_tensor(verts) and torch.is_tensor(faces):
-            return self.__class__(verts=[verts], faces=[faces], textures=
-                textures)
+            return self.__class__(verts=[verts], faces=[faces], textures=textures)
         elif isinstance(verts, list) and isinstance(faces, list):
             return self.__class__(verts=verts, faces=faces, textures=textures)
         else:
@@ -1017,8 +974,7 @@ class Meshes(object):
         """
         if self._verts_list is None:
             assert self._verts_padded is not None, 'verts_padded is required to compute verts_list.'
-            self._verts_list = struct_utils.padded_to_list(self.
-                _verts_padded, self.num_verts_per_mesh().tolist())
+            self._verts_list = struct_utils.padded_to_list(self._verts_padded, self.num_verts_per_mesh().tolist())
         return self._verts_list
 
     def faces_list(self):
@@ -1030,8 +986,7 @@ class Meshes(object):
         """
         if self._faces_list is None:
             assert self._faces_padded is not None, 'faces_padded is required to compute faces_list.'
-            self._faces_list = struct_utils.padded_to_list(self.
-                _faces_padded, self.num_faces_per_mesh().tolist())
+            self._faces_list = struct_utils.padded_to_list(self._faces_padded, self.num_faces_per_mesh().tolist())
         return self._faces_list
 
     def verts_packed(self):
@@ -1214,9 +1169,7 @@ class Meshes(object):
         """
         if self._verts_padded_to_packed_idx is not None:
             return self._verts_padded_to_packed_idx
-        self._verts_padded_to_packed_idx = torch.cat([(torch.arange(v,
-            dtype=torch.int64, device=self.device) + i * self._V) for i, v in
-            enumerate(self.num_verts_per_mesh())], dim=0)
+        self._verts_padded_to_packed_idx = torch.cat([(torch.arange(v, dtype=torch.int64, device=self.device) + i * self._V) for i, v in enumerate(self.num_verts_per_mesh())], dim=0)
         return self._verts_padded_to_packed_idx
 
     def verts_normals_packed(self):
@@ -1237,8 +1190,7 @@ class Meshes(object):
             list of tensors of normals of shape (V_n, 3).
         """
         if self.isempty():
-            return [torch.empty((0, 3), dtype=torch.float32, device=self.
-                device)] * self._N
+            return [torch.empty((0, 3), dtype=torch.float32, device=self.device)] * self._N
         verts_normals_packed = self.verts_normals_packed()
         split_size = self.num_verts_per_mesh().tolist()
         return struct_utils.packed_to_list(verts_normals_packed, split_size)
@@ -1251,11 +1203,9 @@ class Meshes(object):
             tensor of normals of shape (N, max(V_n), 3).
         """
         if self.isempty():
-            return torch.zeros((self._N, 0, 3), dtype=torch.float32, device
-                =self.device)
+            return torch.zeros((self._N, 0, 3), dtype=torch.float32, device=self.device)
         verts_normals_list = self.verts_normals_list()
-        return struct_utils.list_to_padded(verts_normals_list, (self._V, 3),
-            pad_value=0.0, equisized=self.equisized)
+        return struct_utils.list_to_padded(verts_normals_list, (self._V, 3), pad_value=0.0, equisized=self.equisized)
 
     def faces_normals_packed(self):
         """
@@ -1275,8 +1225,7 @@ class Meshes(object):
             list of tensors of normals of shape (F_n, 3).
         """
         if self.isempty():
-            return [torch.empty((0, 3), dtype=torch.float32, device=self.
-                device)] * self._N
+            return [torch.empty((0, 3), dtype=torch.float32, device=self.device)] * self._N
         faces_normals_packed = self.faces_normals_packed()
         split_size = self.num_faces_per_mesh().tolist()
         return struct_utils.packed_to_list(faces_normals_packed, split_size)
@@ -1289,11 +1238,9 @@ class Meshes(object):
             tensor of normals of shape (N, max(F_n), 3).
         """
         if self.isempty():
-            return torch.zeros((self._N, 0, 3), dtype=torch.float32, device
-                =self.device)
+            return torch.zeros((self._N, 0, 3), dtype=torch.float32, device=self.device)
         faces_normals_list = self.faces_normals_list()
-        return struct_utils.list_to_padded(faces_normals_list, (self._F, 3),
-            pad_value=0.0, equisized=self.equisized)
+        return struct_utils.list_to_padded(faces_normals_list, (self._F, 3), pad_value=0.0, equisized=self.equisized)
 
     def faces_areas_packed(self):
         """
@@ -1320,13 +1267,11 @@ class Meshes(object):
                      Default: False.
         """
         from ..ops.mesh_face_areas_normals import mesh_face_areas_normals
-        if not (refresh or any(v is None for v in [self._faces_areas_packed,
-            self._faces_normals_packed])):
+        if not (refresh or any(v is None for v in [self._faces_areas_packed, self._faces_normals_packed])):
             return
         faces_packed = self.faces_packed()
         verts_packed = self.verts_packed()
-        face_areas, face_normals = mesh_face_areas_normals(verts_packed,
-            faces_packed)
+        face_areas, face_normals = mesh_face_areas_normals(verts_packed, faces_packed)
         self._faces_areas_packed = face_areas
         self._faces_normals_packed = face_normals
 
@@ -1340,49 +1285,35 @@ class Meshes(object):
             refresh: Set to True to force recomputation of vertex normals.
                 Default: False.
         """
-        if not (refresh or any(v is None for v in [self._verts_normals_packed])
-            ):
+        if not (refresh or any(v is None for v in [self._verts_normals_packed])):
             return
         if self.isempty():
-            self._verts_normals_packed = torch.zeros((self._N, 3), dtype=
-                torch.int64, device=self.device)
+            self._verts_normals_packed = torch.zeros((self._N, 3), dtype=torch.int64, device=self.device)
         else:
             faces_packed = self.faces_packed()
             verts_packed = self.verts_packed()
             verts_normals = torch.zeros_like(verts_packed)
             vertices_faces = verts_packed[faces_packed]
-            verts_normals = verts_normals.index_add(0, faces_packed[:, (1)],
-                torch.cross(vertices_faces[:, (2)] - vertices_faces[:, (1)],
-                vertices_faces[:, (0)] - vertices_faces[:, (1)], dim=1))
-            verts_normals = verts_normals.index_add(0, faces_packed[:, (2)],
-                torch.cross(vertices_faces[:, (0)] - vertices_faces[:, (2)],
-                vertices_faces[:, (1)] - vertices_faces[:, (2)], dim=1))
-            verts_normals = verts_normals.index_add(0, faces_packed[:, (0)],
-                torch.cross(vertices_faces[:, (1)] - vertices_faces[:, (0)],
-                vertices_faces[:, (2)] - vertices_faces[:, (0)], dim=1))
-            self._verts_normals_packed = torch.nn.functional.normalize(
-                verts_normals, eps=1e-06, dim=1)
+            verts_normals = verts_normals.index_add(0, faces_packed[:, (1)], torch.cross(vertices_faces[:, (2)] - vertices_faces[:, (1)], vertices_faces[:, (0)] - vertices_faces[:, (1)], dim=1))
+            verts_normals = verts_normals.index_add(0, faces_packed[:, (2)], torch.cross(vertices_faces[:, (0)] - vertices_faces[:, (2)], vertices_faces[:, (1)] - vertices_faces[:, (2)], dim=1))
+            verts_normals = verts_normals.index_add(0, faces_packed[:, (0)], torch.cross(vertices_faces[:, (1)] - vertices_faces[:, (0)], vertices_faces[:, (2)] - vertices_faces[:, (0)], dim=1))
+            self._verts_normals_packed = torch.nn.functional.normalize(verts_normals, eps=1e-06, dim=1)
 
     def _compute_padded(self, refresh: bool=False):
         """
         Computes the padded version of meshes from verts_list and faces_list.
         """
-        if not (refresh or any(v is None for v in [self._verts_padded, self
-            ._faces_padded])):
+        if not (refresh or any(v is None for v in [self._verts_padded, self._faces_padded])):
             return
         verts_list = self.verts_list()
         faces_list = self.faces_list()
         assert faces_list is not None and verts_list is not None, 'faces_list and verts_list arguments are required'
         if self.isempty():
-            self._faces_padded = torch.zeros((self._N, 0, 3), dtype=torch.
-                int64, device=self.device)
-            self._verts_padded = torch.zeros((self._N, 0, 3), dtype=torch.
-                float32, device=self.device)
+            self._faces_padded = torch.zeros((self._N, 0, 3), dtype=torch.int64, device=self.device)
+            self._verts_padded = torch.zeros((self._N, 0, 3), dtype=torch.float32, device=self.device)
         else:
-            self._faces_padded = struct_utils.list_to_padded(faces_list, (
-                self._F, 3), pad_value=-1.0, equisized=self.equisized)
-            self._verts_padded = struct_utils.list_to_padded(verts_list, (
-                self._V, 3), pad_value=0.0, equisized=self.equisized)
+            self._faces_padded = struct_utils.list_to_padded(faces_list, (self._F, 3), pad_value=-1.0, equisized=self.equisized)
+            self._verts_padded = struct_utils.list_to_padded(verts_list, (self._V, 3), pad_value=0.0, equisized=self.equisized)
 
     def _compute_packed(self, refresh: bool=False):
         """
@@ -1393,64 +1324,44 @@ class Meshes(object):
             refresh: Set to True to force recomputation of packed representations.
                 Default: False.
         """
-        if not (refresh or any(v is None for v in [self._verts_packed, self
-            ._verts_packed_to_mesh_idx, self.
-            _mesh_to_verts_packed_first_idx, self._faces_packed, self.
-            _faces_packed_to_mesh_idx, self._mesh_to_faces_packed_first_idx])):
+        if not (refresh or any(v is None for v in [self._verts_packed, self._verts_packed_to_mesh_idx, self._mesh_to_verts_packed_first_idx, self._faces_packed, self._faces_packed_to_mesh_idx, self._mesh_to_faces_packed_first_idx])):
             return
         verts_list = self.verts_list()
         faces_list = self.faces_list()
         if self.isempty():
-            self._verts_packed = torch.zeros((0, 3), dtype=torch.float32,
-                device=self.device)
-            self._verts_packed_to_mesh_idx = torch.zeros((0,), dtype=torch.
-                int64, device=self.device)
-            self._mesh_to_verts_packed_first_idx = torch.zeros((0,), dtype=
-                torch.int64, device=self.device)
-            self._num_verts_per_mesh = torch.zeros((0,), dtype=torch.int64,
-                device=self.device)
-            self._faces_packed = -torch.ones((0, 3), dtype=torch.int64,
-                device=self.device)
-            self._faces_packed_to_mesh_idx = torch.zeros((0,), dtype=torch.
-                int64, device=self.device)
-            self._mesh_to_faces_packed_first_idx = torch.zeros((0,), dtype=
-                torch.int64, device=self.device)
-            self._num_faces_per_mesh = torch.zeros((0,), dtype=torch.int64,
-                device=self.device)
+            self._verts_packed = torch.zeros((0, 3), dtype=torch.float32, device=self.device)
+            self._verts_packed_to_mesh_idx = torch.zeros((0,), dtype=torch.int64, device=self.device)
+            self._mesh_to_verts_packed_first_idx = torch.zeros((0,), dtype=torch.int64, device=self.device)
+            self._num_verts_per_mesh = torch.zeros((0,), dtype=torch.int64, device=self.device)
+            self._faces_packed = -torch.ones((0, 3), dtype=torch.int64, device=self.device)
+            self._faces_packed_to_mesh_idx = torch.zeros((0,), dtype=torch.int64, device=self.device)
+            self._mesh_to_faces_packed_first_idx = torch.zeros((0,), dtype=torch.int64, device=self.device)
+            self._num_faces_per_mesh = torch.zeros((0,), dtype=torch.int64, device=self.device)
             return
         verts_list_to_packed = struct_utils.list_to_packed(verts_list)
         self._verts_packed = verts_list_to_packed[0]
-        if not torch.allclose(self.num_verts_per_mesh(),
-            verts_list_to_packed[1]):
-            raise ValueError(
-                'The number of verts per mesh should be consistent.')
+        if not torch.allclose(self.num_verts_per_mesh(), verts_list_to_packed[1]):
+            raise ValueError('The number of verts per mesh should be consistent.')
         self._mesh_to_verts_packed_first_idx = verts_list_to_packed[2]
         self._verts_packed_to_mesh_idx = verts_list_to_packed[3]
         faces_list_to_packed = struct_utils.list_to_packed(faces_list)
         faces_packed = faces_list_to_packed[0]
-        if not torch.allclose(self.num_faces_per_mesh(),
-            faces_list_to_packed[1]):
-            raise ValueError(
-                'The number of faces per mesh should be consistent.')
+        if not torch.allclose(self.num_faces_per_mesh(), faces_list_to_packed[1]):
+            raise ValueError('The number of faces per mesh should be consistent.')
         self._mesh_to_faces_packed_first_idx = faces_list_to_packed[2]
         self._faces_packed_to_mesh_idx = faces_list_to_packed[3]
-        faces_packed_offset = self._mesh_to_verts_packed_first_idx[self.
-            _faces_packed_to_mesh_idx]
+        faces_packed_offset = self._mesh_to_verts_packed_first_idx[self._faces_packed_to_mesh_idx]
         self._faces_packed = faces_packed + faces_packed_offset.view(-1, 1)
 
     def _compute_edges_packed(self, refresh: bool=False):
         """
         Computes edges in packed form from the packed version of faces and verts.
         """
-        if not (refresh or any(v is None for v in [self._edges_packed, self
-            ._faces_packed_to_mesh_idx, self._edges_packed_to_mesh_idx,
-            self._num_edges_per_mesh, self._mesh_to_edges_packed_first_idx])):
+        if not (refresh or any(v is None for v in [self._edges_packed, self._faces_packed_to_mesh_idx, self._edges_packed_to_mesh_idx, self._num_edges_per_mesh, self._mesh_to_edges_packed_first_idx])):
             return
         if self.isempty():
-            self._edges_packed = torch.full((0, 2), fill_value=-1, dtype=
-                torch.int64, device=self.device)
-            self._edges_packed_to_mesh_idx = torch.zeros((0,), dtype=torch.
-                int64, device=self.device)
+            self._edges_packed = torch.full((0, 2), fill_value=-1, dtype=torch.int64, device=self.device)
+            self._edges_packed_to_mesh_idx = torch.zeros((0,), dtype=torch.int64, device=self.device)
             return
         faces = self.faces_packed()
         F = faces.shape[0]
@@ -1459,15 +1370,13 @@ class Meshes(object):
         e12 = torch.cat([v1, v2], dim=1)
         e20 = torch.cat([v2, v0], dim=1)
         edges = torch.cat([e12, e20, e01], dim=0)
-        edge_to_mesh = torch.cat([self._faces_packed_to_mesh_idx, self.
-            _faces_packed_to_mesh_idx, self._faces_packed_to_mesh_idx], dim=0)
+        edge_to_mesh = torch.cat([self._faces_packed_to_mesh_idx, self._faces_packed_to_mesh_idx, self._faces_packed_to_mesh_idx], dim=0)
         edges, _ = edges.sort(dim=1)
         V = self._verts_packed.shape[0]
         edges_hash = V * edges[:, (0)] + edges[:, (1)]
         u, inverse_idxs = torch.unique(edges_hash, return_inverse=True)
         sorted_hash, sort_idx = torch.sort(edges_hash, dim=0)
-        unique_mask = torch.ones(edges_hash.shape[0], dtype=torch.bool,
-            device=self.device)
+        unique_mask = torch.ones(edges_hash.shape[0], dtype=torch.bool, device=self.device)
         unique_mask[1:] = sorted_hash[1:] != sorted_hash[:-1]
         unique_idx = sort_idx[unique_mask]
         self._edges_packed = torch.stack([u // V, u % V], dim=1)
@@ -1475,15 +1384,11 @@ class Meshes(object):
         face_to_edge = torch.arange(3 * F).view(3, F).t()
         face_to_edge = inverse_idxs[face_to_edge]
         self._faces_packed_to_edges_packed = face_to_edge
-        num_edges_per_mesh = torch.zeros(self._N, dtype=torch.int32, device
-            =self.device)
-        ones = torch.ones(1, dtype=torch.int32, device=self.device).expand(self
-            ._edges_packed_to_mesh_idx.shape)
-        num_edges_per_mesh = num_edges_per_mesh.scatter_add_(0, self.
-            _edges_packed_to_mesh_idx, ones)
+        num_edges_per_mesh = torch.zeros(self._N, dtype=torch.int32, device=self.device)
+        ones = torch.ones(1, dtype=torch.int32, device=self.device).expand(self._edges_packed_to_mesh_idx.shape)
+        num_edges_per_mesh = num_edges_per_mesh.scatter_add_(0, self._edges_packed_to_mesh_idx, ones)
         self._num_edges_per_mesh = num_edges_per_mesh
-        mesh_to_edges_packed_first_idx = torch.zeros(self._N, dtype=torch.
-            int64, device=self.device)
+        mesh_to_edges_packed_first_idx = torch.zeros(self._N, dtype=torch.int64, device=self.device)
         num_edges_cumsum = num_edges_per_mesh.cumsum(dim=0)
         mesh_to_edges_packed_first_idx[1:] = num_edges_cumsum[:-1].clone()
         self._mesh_to_edges_packed_first_idx = mesh_to_edges_packed_first_idx
@@ -1504,8 +1409,7 @@ class Meshes(object):
         if not (refresh or self._laplacian_packed is None):
             return
         if self.isempty():
-            self._laplacian_packed = torch.zeros((0, 0), dtype=torch.
-                float32, device=self.device).to_sparse()
+            self._laplacian_packed = torch.zeros((0, 0), dtype=torch.float32, device=self.device).to_sparse()
             return
         verts_packed = self.verts_packed()
         edges_packed = self.edges_packed()
@@ -1514,8 +1418,7 @@ class Meshes(object):
         idx01 = torch.stack([e0, e1], dim=1)
         idx10 = torch.stack([e1, e0], dim=1)
         idx = torch.cat([idx01, idx10], dim=0).t()
-        ones = torch.ones(idx.shape[1], dtype=torch.float32, device=self.device
-            )
+        ones = torch.ones(idx.shape[1], dtype=torch.float32, device=self.device)
         A = torch.sparse.FloatTensor(idx, ones, (V, V))
         deg = torch.sparse.sum(A, dim=1).to_dense()
         deg0 = deg[e0]
@@ -1526,8 +1429,7 @@ class Meshes(object):
         L = torch.sparse.FloatTensor(idx, val, (V, V))
         idx = torch.arange(V, device=self.device)
         idx = torch.stack([idx, idx], dim=0)
-        ones = torch.ones(idx.shape[1], dtype=torch.float32, device=self.device
-            )
+        ones = torch.ones(idx.shape[1], dtype=torch.float32, device=self.device)
         L -= torch.sparse.FloatTensor(idx, ones, (V, V))
         self._laplacian_packed = L
 
@@ -1602,9 +1504,7 @@ class Meshes(object):
         if not isinstance(index, int):
             raise ValueError('Mesh index must be an integer.')
         if index < 0 or index > self._N:
-            raise ValueError(
-                'Mesh index must be in the range [0, N) where             N is the number of meshes in the batch.'
-                )
+            raise ValueError('Mesh index must be in the range [0, N) where             N is the number of meshes in the batch.')
         verts = self.verts_list()
         faces = self.faces_list()
         return verts[index], faces[index]
@@ -1622,8 +1522,7 @@ class Meshes(object):
             list[Meshes].
         """
         if not all(isinstance(x, int) for x in split_sizes):
-            raise ValueError('Value of split_sizes must be a list of integers.'
-                )
+            raise ValueError('Value of split_sizes must be a list of integers.')
         meshlist = []
         curi = 0
         for i in split_sizes:
@@ -1645,15 +1544,13 @@ class Meshes(object):
         if vert_offsets_packed.shape != verts_packed.shape:
             raise ValueError('Verts offsets must have dimension (all_v, 2).')
         self._verts_packed = verts_packed + vert_offsets_packed
-        new_verts_list = list(self._verts_packed.split(self.
-            num_verts_per_mesh().tolist(), 0))
+        new_verts_list = list(self._verts_packed.split(self.num_verts_per_mesh().tolist(), 0))
         self._verts_list = new_verts_list
         if self._verts_padded is not None:
             for i, verts in enumerate(new_verts_list):
                 if len(verts) > 0:
                     self._verts_padded[(i), :verts.shape[0], :] = verts
-        if any(v is not None for v in [self._faces_areas_packed, self.
-            _faces_normals_packed]):
+        if any(v is not None for v in [self._faces_areas_packed, self._faces_normals_packed]):
             self._compute_face_areas_normals(refresh=True)
         if self._verts_normals_packed is not None:
             self._compute_vertex_normals(refresh=True)
@@ -1696,8 +1593,7 @@ class Meshes(object):
             for i, verts in enumerate(self._verts_list):
                 if len(verts) > 0:
                     self._verts_padded[(i), :verts.shape[0], :] = verts
-        if any(v is not None for v in [self._faces_areas_packed, self.
-            _faces_normals_packed]):
+        if any(v is not None for v in [self._faces_areas_packed, self._faces_normals_packed]):
             self._compute_face_areas_normals(refresh=True)
         if self._verts_normals_packed is not None:
             self._compute_vertex_normals(refresh=True)
@@ -1735,11 +1631,9 @@ class Meshes(object):
 
         def check_shapes(x, size):
             if x.shape[0] != size[0]:
-                raise ValueError(
-                    'new values must have the same batch dimension.')
+                raise ValueError('new values must have the same batch dimension.')
             if x.shape[1] != size[1]:
-                raise ValueError(
-                    'new values must have the same number of points.')
+                raise ValueError('new values must have the same number of points.')
             if x.shape[2] != size[2]:
                 raise ValueError('new values must have the same dimension.')
         check_shapes(new_verts_padded, [self._N, self._V, 3])
@@ -1755,23 +1649,17 @@ class Meshes(object):
                 setattr(new, k, v)
         new._faces_list = self._faces_list
         if self._verts_packed is not None:
-            copy_tensors = ['_faces_packed', '_verts_packed_to_mesh_idx',
-                '_faces_packed_to_mesh_idx',
-                '_mesh_to_verts_packed_first_idx',
-                '_mesh_to_faces_packed_first_idx']
+            copy_tensors = ['_faces_packed', '_verts_packed_to_mesh_idx', '_faces_packed_to_mesh_idx', '_mesh_to_verts_packed_first_idx', '_mesh_to_faces_packed_first_idx']
             for k in copy_tensors:
                 v = getattr(self, k)
                 assert torch.is_tensor(v)
                 setattr(new, k, v)
             pad_to_packed = self.verts_padded_to_packed_idx()
-            new_verts_packed = new_verts_padded.reshape(-1, 3)[(
-                pad_to_packed), :]
+            new_verts_packed = new_verts_padded.reshape(-1, 3)[(pad_to_packed), :]
             new._verts_packed = new_verts_packed
             new._verts_padded_to_packed_idx = pad_to_packed
         if self._edges_packed is not None:
-            copy_tensors = ['_edges_packed', '_edges_packed_to_mesh_idx',
-                '_mesh_to_edges_packed_first_idx',
-                '_faces_packed_to_edges_packed', '_num_edges_per_mesh']
+            copy_tensors = ['_edges_packed', '_edges_packed_to_mesh_idx', '_mesh_to_edges_packed_first_idx', '_faces_packed_to_edges_packed', '_num_edges_per_mesh']
             for k in copy_tensors:
                 v = getattr(self, k)
                 assert torch.is_tensor(v)
@@ -1824,8 +1712,7 @@ class Meshes(object):
         tex = None
         if self.textures is not None:
             tex = self.textures.extend(N)
-        return self.__class__(verts=new_verts_list, faces=new_faces_list,
-            textures=tex)
+        return self.__class__(verts=new_verts_list, faces=new_faces_list, textures=tex)
 
 
 def create_faces_index(faces_per_mesh, device=None):
@@ -1990,18 +1877,11 @@ class SubdivideMeshes(nn.Module):
         verts_packed = meshes.verts_packed()
         with torch.no_grad():
             faces_packed = meshes.faces_packed()
-            faces_packed_to_edges_packed = meshes.faces_packed_to_edges_packed(
-                )
+            faces_packed_to_edges_packed = meshes.faces_packed_to_edges_packed()
             faces_packed_to_edges_packed += verts_packed.shape[0]
-            f0 = torch.stack([faces_packed[:, (0)],
-                faces_packed_to_edges_packed[:, (2)],
-                faces_packed_to_edges_packed[:, (1)]], dim=1)
-            f1 = torch.stack([faces_packed[:, (1)],
-                faces_packed_to_edges_packed[:, (0)],
-                faces_packed_to_edges_packed[:, (2)]], dim=1)
-            f2 = torch.stack([faces_packed[:, (2)],
-                faces_packed_to_edges_packed[:, (1)],
-                faces_packed_to_edges_packed[:, (0)]], dim=1)
+            f0 = torch.stack([faces_packed[:, (0)], faces_packed_to_edges_packed[:, (2)], faces_packed_to_edges_packed[:, (1)]], dim=1)
+            f1 = torch.stack([faces_packed[:, (1)], faces_packed_to_edges_packed[:, (0)], faces_packed_to_edges_packed[:, (2)]], dim=1)
+            f2 = torch.stack([faces_packed[:, (2)], faces_packed_to_edges_packed[:, (1)], faces_packed_to_edges_packed[:, (0)]], dim=1)
             f3 = faces_packed_to_edges_packed
             subdivided_faces_packed = torch.cat([f0, f1, f2, f3], dim=0)
             return subdivided_faces_packed
@@ -2059,8 +1939,7 @@ class SubdivideMeshes(nn.Module):
         """
         verts = meshes.verts_padded()
         edges = meshes[0].edges_packed()
-        new_faces = self._subdivided_faces.view(1, -1, 3).expand(self._N, -
-            1, -1)
+        new_faces = self._subdivided_faces.view(1, -1, 3).expand(self._N, -1, -1)
         new_verts = verts[:, (edges)].mean(dim=2)
         new_verts = torch.cat([verts, new_verts], dim=1)
         new_feats = None
@@ -2068,8 +1947,7 @@ class SubdivideMeshes(nn.Module):
             if feats.dim() == 2:
                 feats = feats.view(verts.size(0), verts.size(1), feats.size(1))
             if feats.dim() != 3:
-                raise ValueError(
-                    'features need to be of shape (N, V, D) or (N*V, D)')
+                raise ValueError('features need to be of shape (N, V, D) or (N*V, D)')
             new_feats = feats[:, (edges)].mean(dim=2)
             new_feats = torch.cat([feats, new_feats], dim=1)
         new_meshes = Meshes(verts=new_verts, faces=new_faces)
@@ -2106,20 +1984,14 @@ class SubdivideMeshes(nn.Module):
             num_faces_per_mesh = meshes.num_faces_per_mesh()
             new_verts_per_mesh = num_verts_per_mesh + num_edges_per_mesh
             new_face_to_mesh_idx = torch.cat([face_to_mesh_idx] * 4, dim=0)
-            verts_sort_idx = create_verts_index(num_verts_per_mesh,
-                num_edges_per_mesh, meshes.device)
-            verts_ordered_idx_init = torch.zeros(new_verts_per_mesh.sum(),
-                dtype=torch.int64, device=meshes.device)
-            verts_ordered_idx = verts_ordered_idx_init.scatter_add(0,
-                verts_sort_idx, torch.arange(new_verts_per_mesh.sum(),
-                device=meshes.device))
+            verts_sort_idx = create_verts_index(num_verts_per_mesh, num_edges_per_mesh, meshes.device)
+            verts_ordered_idx_init = torch.zeros(new_verts_per_mesh.sum(), dtype=torch.int64, device=meshes.device)
+            verts_ordered_idx = verts_ordered_idx_init.scatter_add(0, verts_sort_idx, torch.arange(new_verts_per_mesh.sum(), device=meshes.device))
             new_faces = verts_ordered_idx[new_faces]
-            face_sort_idx = create_faces_index(num_faces_per_mesh, device=
-                meshes.device)
+            face_sort_idx = create_faces_index(num_faces_per_mesh, device=meshes.device)
             new_faces = new_faces[face_sort_idx]
             new_face_to_mesh_idx = new_face_to_mesh_idx[face_sort_idx]
-            new_faces_per_mesh = new_face_to_mesh_idx.bincount(minlength=
-                self._N)
+            new_faces_per_mesh = new_face_to_mesh_idx.bincount(minlength=self._N)
         new_verts = verts[edges].mean(dim=1)
         new_verts = torch.cat([verts, new_verts], dim=0)
         new_verts = new_verts[verts_sort_idx]
@@ -2129,11 +2001,8 @@ class SubdivideMeshes(nn.Module):
             new_feats = new_feats[verts_sort_idx]
         verts_list = list(new_verts.split(new_verts_per_mesh.tolist(), 0))
         faces_list = list(new_faces.split(new_faces_per_mesh.tolist(), 0))
-        new_verts_per_mesh_cumsum = torch.cat([new_verts_per_mesh.new_full(
-            size=(1,), fill_value=0.0), new_verts_per_mesh.cumsum(0)[:-1]],
-            dim=0)
-        faces_list = [(faces_list[n] - new_verts_per_mesh_cumsum[n]) for n in
-            range(self._N)]
+        new_verts_per_mesh_cumsum = torch.cat([new_verts_per_mesh.new_full(size=(1,), fill_value=0.0), new_verts_per_mesh.cumsum(0)[:-1]], dim=0)
+        faces_list = [(faces_list[n] - new_verts_per_mesh_cumsum[n]) for n in range(self._N)]
         if feats is not None:
             feats_list = new_feats.split(new_verts_per_mesh.tolist(), 0)
         new_meshes = Meshes(verts=verts_list, faces=faces_list)
@@ -2152,13 +2021,9 @@ class Fragments(NamedTuple):
 
 
 class RasterizationSettings:
-    __slots__ = ['image_size', 'blur_radius', 'faces_per_pixel', 'bin_size',
-        'max_faces_per_bin', 'perspective_correct', 'cull_backfaces']
+    __slots__ = ['image_size', 'blur_radius', 'faces_per_pixel', 'bin_size', 'max_faces_per_bin', 'perspective_correct', 'cull_backfaces']
 
-    def __init__(self, image_size: int=256, blur_radius: float=0.0,
-        faces_per_pixel: int=1, bin_size: Optional[int]=None,
-        max_faces_per_bin: Optional[int]=None, perspective_correct: bool=
-        False, cull_backfaces: bool=False):
+    def __init__(self, image_size: int=256, blur_radius: float=0.0, faces_per_pixel: int=1, bin_size: Optional[int]=None, max_faces_per_bin: Optional[int]=None, perspective_correct: bool=False, cull_backfaces: bool=False):
         self.image_size = image_size
         self.blur_radius = blur_radius
         self.faces_per_pixel = faces_per_pixel
@@ -2193,22 +2058,15 @@ class _RasterizeFaceVerts(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, face_verts, mesh_to_face_first_idx, num_faces_per_mesh,
-        image_size: int=256, blur_radius: float=0.01, faces_per_pixel: int=
-        0, bin_size: int=0, max_faces_per_bin: int=0, perspective_correct:
-        bool=False, cull_backfaces: bool=False):
-        pix_to_face, zbuf, barycentric_coords, dists = _C.rasterize_meshes(
-            face_verts, mesh_to_face_first_idx, num_faces_per_mesh,
-            image_size, blur_radius, faces_per_pixel, bin_size,
-            max_faces_per_bin, perspective_correct, cull_backfaces)
+    def forward(ctx, face_verts, mesh_to_face_first_idx, num_faces_per_mesh, image_size: int=256, blur_radius: float=0.01, faces_per_pixel: int=0, bin_size: int=0, max_faces_per_bin: int=0, perspective_correct: bool=False, cull_backfaces: bool=False):
+        pix_to_face, zbuf, barycentric_coords, dists = _C.rasterize_meshes(face_verts, mesh_to_face_first_idx, num_faces_per_mesh, image_size, blur_radius, faces_per_pixel, bin_size, max_faces_per_bin, perspective_correct, cull_backfaces)
         ctx.save_for_backward(face_verts, pix_to_face)
         ctx.mark_non_differentiable(pix_to_face)
         ctx.perspective_correct = perspective_correct
         return pix_to_face, zbuf, barycentric_coords, dists
 
     @staticmethod
-    def backward(ctx, grad_pix_to_face, grad_zbuf, grad_barycentric_coords,
-        grad_dists):
+    def backward(ctx, grad_pix_to_face, grad_zbuf, grad_barycentric_coords, grad_dists):
         grad_face_verts = None
         grad_mesh_to_face_first_idx = None
         grad_num_faces_per_mesh = None
@@ -2220,23 +2078,15 @@ class _RasterizeFaceVerts(torch.autograd.Function):
         grad_perspective_correct = None
         grad_cull_backfaces = None
         face_verts, pix_to_face = ctx.saved_tensors
-        grad_face_verts = _C.rasterize_meshes_backward(face_verts,
-            pix_to_face, grad_zbuf, grad_barycentric_coords, grad_dists,
-            ctx.perspective_correct)
-        grads = (grad_face_verts, grad_mesh_to_face_first_idx,
-            grad_num_faces_per_mesh, grad_image_size, grad_radius,
-            grad_faces_per_pixel, grad_bin_size, grad_max_faces_per_bin,
-            grad_perspective_correct, grad_cull_backfaces)
+        grad_face_verts = _C.rasterize_meshes_backward(face_verts, pix_to_face, grad_zbuf, grad_barycentric_coords, grad_dists, ctx.perspective_correct)
+        grads = grad_face_verts, grad_mesh_to_face_first_idx, grad_num_faces_per_mesh, grad_image_size, grad_radius, grad_faces_per_pixel, grad_bin_size, grad_max_faces_per_bin, grad_perspective_correct, grad_cull_backfaces
         return grads
 
 
 kMaxFacesPerBin = 22
 
 
-def rasterize_meshes(meshes, image_size: int=256, blur_radius: float=0.0,
-    faces_per_pixel: int=8, bin_size: Optional[int]=None, max_faces_per_bin:
-    Optional[int]=None, perspective_correct: bool=False, cull_backfaces:
-    bool=False):
+def rasterize_meshes(meshes, image_size: int=256, blur_radius: float=0.0, faces_per_pixel: int=8, bin_size: Optional[int]=None, max_faces_per_bin: Optional[int]=None, perspective_correct: bool=False, cull_backfaces: bool=False):
     """
     Rasterize a batch of meshes given the shape of the desired output image.
     Each mesh is rasterized onto a separate image of shape
@@ -2322,14 +2172,10 @@ def rasterize_meshes(meshes, image_size: int=256, blur_radius: float=0.0,
     if bin_size != 0:
         faces_per_bin = 1 + (image_size - 1) // bin_size
         if faces_per_bin >= kMaxFacesPerBin:
-            raise ValueError(
-                'bin_size too small, number of faces per bin must be less than %d; got %d'
-                 % (kMaxFacesPerBin, faces_per_bin))
+            raise ValueError('bin_size too small, number of faces per bin must be less than %d; got %d' % (kMaxFacesPerBin, faces_per_bin))
     if max_faces_per_bin is None:
         max_faces_per_bin = int(max(10000, verts_packed.shape[0] / 5))
-    return _RasterizeFaceVerts.apply(face_verts, mesh_to_face_first_idx,
-        num_faces_per_mesh, image_size, blur_radius, faces_per_pixel,
-        bin_size, max_faces_per_bin, perspective_correct, cull_backfaces)
+    return _RasterizeFaceVerts.apply(face_verts, mesh_to_face_first_idx, num_faces_per_mesh, image_size, blur_radius, faces_per_pixel, bin_size, max_faces_per_bin, perspective_correct, cull_backfaces)
 
 
 class MeshRasterizer(nn.Module):
@@ -2372,18 +2218,13 @@ class MeshRasterizer(nn.Module):
         """
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of MeshRasterizer'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of MeshRasterizer'
             raise ValueError(msg)
         verts_world = meshes_world.verts_padded()
-        verts_view = cameras.get_world_to_view_transform(**kwargs
-            ).transform_points(verts_world)
-        verts_screen = cameras.get_projection_transform(**kwargs
-            ).transform_points(verts_view)
+        verts_view = cameras.get_world_to_view_transform(**kwargs).transform_points(verts_world)
+        verts_screen = cameras.get_projection_transform(**kwargs).transform_points(verts_view)
         verts_screen[..., 2] = verts_view[..., 2]
-        meshes_screen = meshes_world.update_padded(new_verts_padded=
-            verts_screen)
+        meshes_screen = meshes_world.update_padded(new_verts_padded=verts_screen)
         return meshes_screen
 
     def forward(self, meshes_world, **kwargs) ->Fragments:
@@ -2396,15 +2237,8 @@ class MeshRasterizer(nn.Module):
         """
         meshes_screen = self.transform(meshes_world, **kwargs)
         raster_settings = kwargs.get('raster_settings', self.raster_settings)
-        pix_to_face, zbuf, bary_coords, dists = rasterize_meshes(meshes_screen,
-            image_size=raster_settings.image_size, blur_radius=
-            raster_settings.blur_radius, faces_per_pixel=raster_settings.
-            faces_per_pixel, bin_size=raster_settings.bin_size,
-            max_faces_per_bin=raster_settings.max_faces_per_bin,
-            perspective_correct=raster_settings.perspective_correct,
-            cull_backfaces=raster_settings.cull_backfaces)
-        return Fragments(pix_to_face=pix_to_face, zbuf=zbuf, bary_coords=
-            bary_coords, dists=dists)
+        pix_to_face, zbuf, bary_coords, dists = rasterize_meshes(meshes_screen, image_size=raster_settings.image_size, blur_radius=raster_settings.blur_radius, faces_per_pixel=raster_settings.faces_per_pixel, bin_size=raster_settings.bin_size, max_faces_per_bin=raster_settings.max_faces_per_bin, perspective_correct=raster_settings.perspective_correct, cull_backfaces=raster_settings.cull_backfaces)
+        return Fragments(pix_to_face=pix_to_face, zbuf=zbuf, bary_coords=bary_coords, dists=dists)
 
 
 def _clip_barycentric_coordinates(bary) ->torch.Tensor:
@@ -2428,9 +2262,7 @@ def _clip_barycentric_coordinates(bary) ->torch.Tensor:
     return clipped
 
 
-def interpolate_face_attributes(pix_to_face: torch.Tensor,
-    barycentric_coords: torch.Tensor, face_attributes: torch.Tensor
-    ) ->torch.Tensor:
+def interpolate_face_attributes(pix_to_face: torch.Tensor, barycentric_coords: torch.Tensor, face_attributes: torch.Tensor) ->torch.Tensor:
     """
     Interpolate arbitrary face attributes using the barycentric coordinates
     for each pixel in the rasterized output.
@@ -2468,8 +2300,7 @@ def interpolate_face_attributes(pix_to_face: torch.Tensor,
     return pixel_vals
 
 
-def _interpolate_zbuf(pix_to_face: torch.Tensor, barycentric_coords: torch.
-    Tensor, meshes) ->torch.Tensor:
+def _interpolate_zbuf(pix_to_face: torch.Tensor, barycentric_coords: torch.Tensor, meshes) ->torch.Tensor:
     """
     A helper function to calculate the z buffer for each pixel in the
     rasterized output.
@@ -2490,8 +2321,7 @@ def _interpolate_zbuf(pix_to_face: torch.Tensor, barycentric_coords: torch.
     verts = meshes.verts_packed()
     faces = meshes.faces_packed()
     faces_verts_z = verts[faces][..., 2][..., None]
-    return interpolate_face_attributes(pix_to_face, barycentric_coords,
-        faces_verts_z)[..., 0]
+    return interpolate_face_attributes(pix_to_face, barycentric_coords, faces_verts_z)[..., 0]
 
 
 class MeshRenderer(nn.Module):
@@ -2519,16 +2349,11 @@ class MeshRenderer(nn.Module):
         the range for the corresponding face.
         """
         fragments = self.rasterizer(meshes_world, **kwargs)
-        raster_settings = kwargs.get('raster_settings', self.rasterizer.
-            raster_settings)
+        raster_settings = kwargs.get('raster_settings', self.rasterizer.raster_settings)
         if raster_settings.blur_radius > 0.0:
-            clipped_bary_coords = _clip_barycentric_coordinates(fragments.
-                bary_coords)
-            clipped_zbuf = _interpolate_zbuf(fragments.pix_to_face,
-                clipped_bary_coords, meshes_world)
-            fragments = Fragments(bary_coords=clipped_bary_coords, zbuf=
-                clipped_zbuf, dists=fragments.dists, pix_to_face=fragments.
-                pix_to_face)
+            clipped_bary_coords = _clip_barycentric_coordinates(fragments.bary_coords)
+            clipped_zbuf = _interpolate_zbuf(fragments.pix_to_face, clipped_bary_coords, meshes_world)
+            fragments = Fragments(bary_coords=clipped_bary_coords, zbuf=clipped_zbuf, dists=fragments.dists, pix_to_face=fragments.pix_to_face)
         images = self.shader(fragments, meshes_world, **kwargs)
         return images
 
@@ -2542,8 +2367,7 @@ class BlendParams(NamedTuple):
 BROADCAST_TYPES = float, int, list, tuple, torch.Tensor, np.ndarray
 
 
-def format_tensor(input, dtype=torch.float32, device: str='cpu'
-    ) ->torch.Tensor:
+def format_tensor(input, dtype=torch.float32, device: str='cpu') ->torch.Tensor:
     """
     Helper function for converting a scalar value to a tensor.
 
@@ -2564,8 +2388,7 @@ def format_tensor(input, dtype=torch.float32, device: str='cpu'
     return input
 
 
-def convert_to_tensors_and_broadcast(*args, dtype=torch.float32, device:
-    str='cpu'):
+def convert_to_tensors_and_broadcast(*args, dtype=torch.float32, device: str='cpu'):
     """
     Helper function to handle parsing an arbitrary number of inputs (*args)
     which all need to have the same batch dimension.
@@ -2631,8 +2454,7 @@ class TensorProperties(object):
             names = args_to_broadcast.keys()
             values = tuple(v for v in args_to_broadcast.values())
             if len(values) > 0:
-                broadcasted_values = convert_to_tensors_and_broadcast(*
-                    values, device=device)
+                broadcasted_values = convert_to_tensors_and_broadcast(*values, device=device)
                 for i, n in enumerate(names):
                     setattr(self, n, broadcasted_values[i])
                     if self._N == 0:
@@ -2763,8 +2585,7 @@ class Materials(TensorProperties):
     material per batch element is supported.
     """
 
-    def __init__(self, ambient_color=((1, 1, 1),), diffuse_color=((1, 1, 1)
-        ,), specular_color=((1, 1, 1),), shininess=64, device='cpu'):
+    def __init__(self, ambient_color=((1, 1, 1),), diffuse_color=((1, 1, 1),), specular_color=((1, 1, 1),), shininess=64, device='cpu'):
         """
         Args:
             ambient_color: RGB ambient reflectivity of the material
@@ -2782,9 +2603,7 @@ class Materials(TensorProperties):
         The colors and shininess are broadcast against each other so need to
         have either the same batch dimension or batch dimension = 1.
         """
-        super().__init__(device=device, diffuse_color=diffuse_color,
-            ambient_color=ambient_color, specular_color=specular_color,
-            shininess=shininess)
+        super().__init__(device=device, diffuse_color=diffuse_color, ambient_color=ambient_color, specular_color=specular_color, shininess=shininess)
         for n in ['ambient_color', 'diffuse_color', 'specular_color']:
             t = getattr(self, n)
             if t.shape[-1] != 3:
@@ -2810,9 +2629,7 @@ def _validate_light_properties(obj):
 
 class PointLights(TensorProperties):
 
-    def __init__(self, ambient_color=((0.5, 0.5, 0.5),), diffuse_color=((
-        0.3, 0.3, 0.3),), specular_color=((0.2, 0.2, 0.2),), location=((0, 
-        1, 0),), device: str='cpu'):
+    def __init__(self, ambient_color=((0.5, 0.5, 0.5),), diffuse_color=((0.3, 0.3, 0.3),), specular_color=((0.2, 0.2, 0.2),), location=((0, 1, 0),), device: str='cpu'):
         """
         Args:
             ambient_color: RGB color of the ambient component
@@ -2828,9 +2645,7 @@ class PointLights(TensorProperties):
         The inputs are broadcast against each other so they all have batch
         dimension N.
         """
-        super().__init__(device=device, ambient_color=ambient_color,
-            diffuse_color=diffuse_color, specular_color=specular_color,
-            location=location)
+        super().__init__(device=device, ambient_color=ambient_color, diffuse_color=diffuse_color, specular_color=specular_color, location=location)
         _validate_light_properties(self)
         if self.location.shape[-1] != 3:
             msg = 'Expected location to have shape (N, 3); got %r'
@@ -2842,15 +2657,11 @@ class PointLights(TensorProperties):
 
     def diffuse(self, normals, points) ->torch.Tensor:
         direction = self.location - points
-        return diffuse(normals=normals, color=self.diffuse_color, direction
-            =direction)
+        return diffuse(normals=normals, color=self.diffuse_color, direction=direction)
 
-    def specular(self, normals, points, camera_position, shininess
-        ) ->torch.Tensor:
+    def specular(self, normals, points, camera_position, shininess) ->torch.Tensor:
         direction = self.location - points
-        return specular(points=points, normals=normals, color=self.
-            specular_color, direction=direction, camera_position=
-            camera_position, shininess=shininess)
+        return specular(points=points, normals=normals, color=self.specular_color, direction=direction, camera_position=camera_position, shininess=shininess)
 
 
 def hard_rgb_blend(colors, fragments, blend_params) ->torch.Tensor:
@@ -2876,8 +2687,7 @@ def hard_rgb_blend(colors, fragments, blend_params) ->torch.Tensor:
     is_background = fragments.pix_to_face[..., 0] < 0
     background_color = colors.new_tensor(blend_params.background_color)
     num_background_pixels = is_background.sum()
-    pixel_colors = colors[(...), (0), :].masked_scatter(is_background[...,
-        None], background_color[(None), :].expand(num_background_pixels, -1))
+    pixel_colors = colors[(...), (0), :].masked_scatter(is_background[..., None], background_color[(None), :].expand(num_background_pixels, -1))
     alpha = torch.ones((N, H, W, 1), dtype=colors.dtype, device=device)
     return torch.cat([pixel_colors, alpha], dim=-1)
 
@@ -2908,13 +2718,11 @@ def interpolate_vertex_colors(fragments, meshes) ->torch.Tensor:
     vertex_textures = vertex_textures[(meshes.verts_padded_to_packed_idx()), :]
     faces_packed = meshes.faces_packed()
     faces_textures = vertex_textures[faces_packed]
-    texels = interpolate_face_attributes(fragments.pix_to_face, fragments.
-        bary_coords, faces_textures)
+    texels = interpolate_face_attributes(fragments.pix_to_face, fragments.bary_coords, faces_textures)
     return texels
 
 
-def _apply_lighting(points, normals, lights, cameras, materials) ->Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor]:
+def _apply_lighting(points, normals, lights, cameras, materials) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Args:
         points: torch tensor of shape (N, P, 3) or (P, 3).
@@ -2929,20 +2737,16 @@ def _apply_lighting(points, normals, lights, cameras, materials) ->Tuple[
         specular_color: same shape as the input points
     """
     light_diffuse = lights.diffuse(normals=normals, points=points)
-    light_specular = lights.specular(normals=normals, points=points,
-        camera_position=cameras.get_camera_center(), shininess=materials.
-        shininess)
+    light_specular = lights.specular(normals=normals, points=points, camera_position=cameras.get_camera_center(), shininess=materials.shininess)
     ambient_color = materials.ambient_color * lights.ambient_color
     diffuse_color = materials.diffuse_color * light_diffuse
     specular_color = materials.specular_color * light_specular
     if normals.dim() == 2 and points.dim() == 2:
-        return ambient_color.squeeze(), diffuse_color.squeeze(
-            ), specular_color.squeeze()
+        return ambient_color.squeeze(), diffuse_color.squeeze(), specular_color.squeeze()
     return ambient_color, diffuse_color, specular_color
 
 
-def phong_shading(meshes, fragments, lights, cameras, materials, texels
-    ) ->torch.Tensor:
+def phong_shading(meshes, fragments, lights, cameras, materials, texels) ->torch.Tensor:
     """
     Apply per pixel shading. First interpolate the vertex normals and
     vertex coordinates using the barycentric coordinates to get the position
@@ -2966,12 +2770,9 @@ def phong_shading(meshes, fragments, lights, cameras, materials, texels
     vertex_normals = meshes.verts_normals_packed()
     faces_verts = verts[faces]
     faces_normals = vertex_normals[faces]
-    pixel_coords = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_verts)
-    pixel_normals = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_normals)
-    ambient, diffuse, specular = _apply_lighting(pixel_coords,
-        pixel_normals, lights, cameras, materials)
+    pixel_coords = interpolate_face_attributes(fragments.pix_to_face, fragments.bary_coords, faces_verts)
+    pixel_normals = interpolate_face_attributes(fragments.pix_to_face, fragments.bary_coords, faces_normals)
+    ambient, diffuse, specular = _apply_lighting(pixel_coords, pixel_normals, lights, cameras, materials)
     colors = (ambient + diffuse) * texels + specular
     return colors
 
@@ -2990,36 +2791,28 @@ class HardPhongShader(nn.Module):
         shader = HardPhongShader(device=torch.device("cuda:0"))
     """
 
-    def __init__(self, device='cpu', cameras=None, lights=None, materials=
-        None, blend_params=None):
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=None, blend_params=None):
         super().__init__()
-        self.lights = lights if lights is not None else PointLights(device=
-            device)
-        self.materials = materials if materials is not None else Materials(
-            device=device)
+        self.lights = lights if lights is not None else PointLights(device=device)
+        self.materials = materials if materials is not None else Materials(device=device)
         self.cameras = cameras
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of HardPhongShader'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of HardPhongShader'
             raise ValueError(msg)
         texels = interpolate_vertex_colors(fragments, meshes)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
         blend_params = kwargs.get('blend_params', self.blend_params)
-        colors = phong_shading(meshes=meshes, fragments=fragments, texels=
-            texels, lights=lights, cameras=cameras, materials=materials)
+        colors = phong_shading(meshes=meshes, fragments=fragments, texels=texels, lights=lights, cameras=cameras, materials=materials)
         images = hard_rgb_blend(colors, fragments, blend_params)
         return images
 
 
-def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0,
-    zfar: float=100) ->torch.Tensor:
+def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0, zfar: float=100) ->torch.Tensor:
     """
     RGB and alpha channel blending to return an RGBA image based on the method
     proposed in [1]
@@ -3058,12 +2851,10 @@ def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0,
     """
     N, H, W, K = fragments.pix_to_face.shape
     device = fragments.pix_to_face.device
-    pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=
-        colors.device)
+    pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=colors.device)
     background = blend_params.background_color
     if not torch.is_tensor(background):
-        background = torch.tensor(background, dtype=torch.float32, device=
-            device)
+        background = torch.tensor(background, dtype=torch.float32, device=device)
     delta = np.exp(1e-10 / blend_params.gamma) * 1e-10
     delta = torch.tensor(delta, device=device)
     mask = fragments.pix_to_face >= 0
@@ -3071,8 +2862,7 @@ def softmax_rgb_blend(colors, fragments, blend_params, znear: float=1.0,
     alpha = torch.prod(1.0 - prob_map, dim=-1)
     z_inv = (zfar - fragments.zbuf) / (zfar - znear) * mask
     z_inv_max = torch.max(z_inv, dim=-1).values[..., None]
-    weights_num = prob_map * torch.exp((z_inv - z_inv_max) / blend_params.gamma
-        )
+    weights_num = prob_map * torch.exp((z_inv - z_inv_max) / blend_params.gamma)
     denom = weights_num.sum(dim=-1)[..., None] + delta
     weights = weights_num / denom
     weighted_colors = (weights[..., None] * colors).sum(dim=-2)
@@ -3096,35 +2886,27 @@ class SoftPhongShader(nn.Module):
         shader = SoftPhongShader(device=torch.device("cuda:0"))
     """
 
-    def __init__(self, device='cpu', cameras=None, lights=None, materials=
-        None, blend_params=None):
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=None, blend_params=None):
         super().__init__()
-        self.lights = lights if lights is not None else PointLights(device=
-            device)
-        self.materials = materials if materials is not None else Materials(
-            device=device)
+        self.lights = lights if lights is not None else PointLights(device=device)
+        self.materials = materials if materials is not None else Materials(device=device)
         self.cameras = cameras
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of SoftPhongShader'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of SoftPhongShader'
             raise ValueError(msg)
         texels = interpolate_vertex_colors(fragments, meshes)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
-        colors = phong_shading(meshes=meshes, fragments=fragments, texels=
-            texels, lights=lights, cameras=cameras, materials=materials)
+        colors = phong_shading(meshes=meshes, fragments=fragments, texels=texels, lights=lights, cameras=cameras, materials=materials)
         images = softmax_rgb_blend(colors, fragments, self.blend_params)
         return images
 
 
-def gouraud_shading(meshes, fragments, lights, cameras, materials
-    ) ->torch.Tensor:
+def gouraud_shading(meshes, fragments, lights, cameras, materials) ->torch.Tensor:
     """
     Apply per vertex shading. First compute the vertex illumination by applying
     ambient, diffuse and specular lighting. If vertex color is available,
@@ -3152,12 +2934,10 @@ def gouraud_shading(meshes, fragments, lights, cameras, materials
         lights = lights.clone().gather_props(vert_to_mesh_idx)
         cameras = cameras.clone().gather_props(vert_to_mesh_idx)
         materials = materials.clone().gather_props(vert_to_mesh_idx)
-    ambient, diffuse, specular = _apply_lighting(verts, vertex_normals,
-        lights, cameras, materials)
+    ambient, diffuse, specular = _apply_lighting(verts, vertex_normals, lights, cameras, materials)
     verts_colors_shaded = vertex_colors * (ambient + diffuse) + specular
     face_colors = verts_colors_shaded[faces]
-    colors = interpolate_face_attributes(fragments.pix_to_face, fragments.
-        bary_coords, face_colors)
+    colors = interpolate_face_attributes(fragments.pix_to_face, fragments.bary_coords, face_colors)
     return colors
 
 
@@ -3176,29 +2956,22 @@ class HardGouraudShader(nn.Module):
         shader = HardGouraudShader(device=torch.device("cuda:0"))
     """
 
-    def __init__(self, device='cpu', cameras=None, lights=None, materials=
-        None, blend_params=None):
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=None, blend_params=None):
         super().__init__()
-        self.lights = lights if lights is not None else PointLights(device=
-            device)
-        self.materials = materials if materials is not None else Materials(
-            device=device)
+        self.lights = lights if lights is not None else PointLights(device=device)
+        self.materials = materials if materials is not None else Materials(device=device)
         self.cameras = cameras
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of HardGouraudShader'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of HardGouraudShader'
             raise ValueError(msg)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
         blend_params = kwargs.get('blend_params', self.blend_params)
-        pixel_colors = gouraud_shading(meshes=meshes, fragments=fragments,
-            lights=lights, cameras=cameras, materials=materials)
+        pixel_colors = gouraud_shading(meshes=meshes, fragments=fragments, lights=lights, cameras=cameras, materials=materials)
         images = hard_rgb_blend(pixel_colors, fragments, blend_params)
         return images
 
@@ -3218,28 +2991,21 @@ class SoftGouraudShader(nn.Module):
         shader = SoftGouraudShader(device=torch.device("cuda:0"))
     """
 
-    def __init__(self, device='cpu', cameras=None, lights=None, materials=
-        None, blend_params=None):
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=None, blend_params=None):
         super().__init__()
-        self.lights = lights if lights is not None else PointLights(device=
-            device)
-        self.materials = materials if materials is not None else Materials(
-            device=device)
+        self.lights = lights if lights is not None else PointLights(device=device)
+        self.materials = materials if materials is not None else Materials(device=device)
         self.cameras = cameras
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of SoftGouraudShader'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of SoftGouraudShader'
             raise ValueError(msg)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
-        pixel_colors = gouraud_shading(meshes=meshes, fragments=fragments,
-            lights=lights, cameras=cameras, materials=materials)
+        pixel_colors = gouraud_shading(meshes=meshes, fragments=fragments, lights=lights, cameras=cameras, materials=materials)
         images = softmax_rgb_blend(pixel_colors, fragments, self.blend_params)
         return images
 
@@ -3277,14 +3043,11 @@ def interpolate_texture_map(fragments, meshes) ->torch.Tensor:
     verts_uvs = meshes.textures.verts_uvs_packed()
     faces_verts_uvs = verts_uvs[faces_uvs]
     texture_maps = meshes.textures.maps_padded()
-    pixel_uvs = interpolate_face_attributes(fragments.pix_to_face,
-        fragments.bary_coords, faces_verts_uvs)
+    pixel_uvs = interpolate_face_attributes(fragments.pix_to_face, fragments.bary_coords, faces_verts_uvs)
     N, H_out, W_out, K = fragments.pix_to_face.shape
     N, H_in, W_in, C = texture_maps.shape
-    pixel_uvs = pixel_uvs.permute(0, 3, 1, 2, 4).reshape(N * K, H_out, W_out, 2
-        )
-    texture_maps = texture_maps.permute(0, 3, 1, 2)[None, ...].expand(K, -1,
-        -1, -1, -1).transpose(0, 1).reshape(N * K, C, H_in, W_in)
+    pixel_uvs = pixel_uvs.permute(0, 3, 1, 2, 4).reshape(N * K, H_out, W_out, 2)
+    texture_maps = texture_maps.permute(0, 3, 1, 2)[None, ...].expand(K, -1, -1, -1, -1).transpose(0, 1).reshape(N * K, C, H_in, W_in)
     pixel_uvs = pixel_uvs * 2.0 - 1.0
     texture_maps = torch.flip(texture_maps, [2])
     if texture_maps.device != pixel_uvs.device:
@@ -3311,36 +3074,28 @@ class TexturedSoftPhongShader(nn.Module):
         shader = TexturedPhongShader(device=torch.device("cuda:0"))
     """
 
-    def __init__(self, device='cpu', cameras=None, lights=None, materials=
-        None, blend_params=None):
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=None, blend_params=None):
         super().__init__()
-        self.lights = lights if lights is not None else PointLights(device=
-            device)
-        self.materials = materials if materials is not None else Materials(
-            device=device)
+        self.lights = lights if lights is not None else PointLights(device=device)
+        self.materials = materials if materials is not None else Materials(device=device)
         self.cameras = cameras
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of TexturedSoftPhongShader'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of TexturedSoftPhongShader'
             raise ValueError(msg)
         texels = interpolate_texture_map(fragments, meshes)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
         blend_params = kwargs.get('blend_params', self.blend_params)
-        colors = phong_shading(meshes=meshes, fragments=fragments, texels=
-            texels, lights=lights, cameras=cameras, materials=materials)
+        colors = phong_shading(meshes=meshes, fragments=fragments, texels=texels, lights=lights, cameras=cameras, materials=materials)
         images = softmax_rgb_blend(colors, fragments, blend_params)
         return images
 
 
-def flat_shading(meshes, fragments, lights, cameras, materials, texels
-    ) ->torch.Tensor:
+def flat_shading(meshes, fragments, lights, cameras, materials, texels) ->torch.Tensor:
     """
     Apply per face shading. Use the average face position and the face normals
     to compute the ambient, diffuse and specular lighting. Apply the ambient
@@ -3372,8 +3127,7 @@ def flat_shading(meshes, fragments, lights, cameras, materials, texels
     pixel_coords[mask] = 0.0
     pixel_normals = face_normals.gather(0, idx).view(N, H, W, K, 3)
     pixel_normals[mask] = 0.0
-    ambient, diffuse, specular = _apply_lighting(pixel_coords,
-        pixel_normals, lights, cameras, materials)
+    ambient, diffuse, specular = _apply_lighting(pixel_coords, pixel_normals, lights, cameras, materials)
     colors = (ambient + diffuse) * texels + specular
     return colors
 
@@ -3392,30 +3146,23 @@ class HardFlatShader(nn.Module):
         shader = HardFlatShader(device=torch.device("cuda:0"))
     """
 
-    def __init__(self, device='cpu', cameras=None, lights=None, materials=
-        None, blend_params=None):
+    def __init__(self, device='cpu', cameras=None, lights=None, materials=None, blend_params=None):
         super().__init__()
-        self.lights = lights if lights is not None else PointLights(device=
-            device)
-        self.materials = materials if materials is not None else Materials(
-            device=device)
+        self.lights = lights if lights is not None else PointLights(device=device)
+        self.materials = materials if materials is not None else Materials(device=device)
         self.cameras = cameras
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of HardFlatShader'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of HardFlatShader'
             raise ValueError(msg)
         texels = interpolate_vertex_colors(fragments, meshes)
         lights = kwargs.get('lights', self.lights)
         materials = kwargs.get('materials', self.materials)
         blend_params = kwargs.get('blend_params', self.blend_params)
-        colors = flat_shading(meshes=meshes, fragments=fragments, texels=
-            texels, lights=lights, cameras=cameras, materials=materials)
+        colors = flat_shading(meshes=meshes, fragments=fragments, texels=texels, lights=lights, cameras=cameras, materials=materials)
         images = hard_rgb_blend(colors, fragments, blend_params)
         return images
 
@@ -3443,8 +3190,7 @@ def sigmoid_alpha_blend(colors, fragments, blend_params) ->torch.Tensor:
         3D Reasoning', ICCV 2019
     """
     N, H, W, K = fragments.pix_to_face.shape
-    pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=
-        colors.device)
+    pixel_colors = torch.ones((N, H, W, 4), dtype=colors.dtype, device=colors.device)
     mask = fragments.pix_to_face >= 0
     prob = torch.sigmoid(-fragments.dists / blend_params.sigma) * mask
     alpha = torch.prod(1.0 - prob, dim=-1)
@@ -3472,8 +3218,7 @@ class SoftSilhouetteShader(nn.Module):
 
     def __init__(self, blend_params=None):
         super().__init__()
-        self.blend_params = (blend_params if blend_params is not None else
-            BlendParams())
+        self.blend_params = blend_params if blend_params is not None else BlendParams()
 
     def forward(self, fragments, meshes, **kwargs) ->torch.Tensor:
         """"
@@ -3520,8 +3265,7 @@ class _CompositeAlphaPoints(torch.autograd.Function):
     @staticmethod
     def forward(ctx, features, alphas, points_idx):
         pt_cld = _C.accum_alphacomposite(features, alphas, points_idx)
-        ctx.save_for_backward(features.clone(), alphas.clone(), points_idx.
-            clone())
+        ctx.save_for_backward(features.clone(), alphas.clone(), points_idx.clone())
         return pt_cld
 
     @staticmethod
@@ -3530,13 +3274,11 @@ class _CompositeAlphaPoints(torch.autograd.Function):
         grad_alphas = None
         grad_points_idx = None
         features, alphas, points_idx = ctx.saved_tensors
-        grad_features, grad_alphas = _C.accum_alphacomposite_backward(
-            grad_output, features, alphas, points_idx)
+        grad_features, grad_alphas = _C.accum_alphacomposite_backward(grad_output, features, alphas, points_idx)
         return grad_features, grad_alphas, grad_points_idx, None
 
 
-def alpha_composite(pointsidx, alphas, pt_clds, blend_params=None
-    ) ->torch.Tensor:
+def alpha_composite(pointsidx, alphas, pt_clds, blend_params=None) ->torch.Tensor:
     """
     Composite features within a z-buffer using alpha compositing. Given a z-buffer
     with corresponding features and weights, these values are accumulated according
@@ -3574,12 +3316,10 @@ class AlphaCompositor(nn.Module):
 
     def __init__(self, composite_params=None):
         super().__init__()
-        self.composite_params = (composite_params if composite_params is not
-            None else CompositeParams())
+        self.composite_params = composite_params if composite_params is not None else CompositeParams()
 
     def forward(self, fragments, alphas, ptclds, **kwargs) ->torch.Tensor:
-        images = alpha_composite(fragments, alphas, ptclds, self.
-            composite_params)
+        images = alpha_composite(fragments, alphas, ptclds, self.composite_params)
         return images
 
 
@@ -3613,8 +3353,7 @@ class _CompositeNormWeightedSumPoints(torch.autograd.Function):
     @staticmethod
     def forward(ctx, features, alphas, points_idx):
         pt_cld = _C.accum_weightedsumnorm(features, alphas, points_idx)
-        ctx.save_for_backward(features.clone(), alphas.clone(), points_idx.
-            clone())
+        ctx.save_for_backward(features.clone(), alphas.clone(), points_idx.clone())
         return pt_cld
 
     @staticmethod
@@ -3623,13 +3362,11 @@ class _CompositeNormWeightedSumPoints(torch.autograd.Function):
         grad_alphas = None
         grad_points_idx = None
         features, alphas, points_idx = ctx.saved_tensors
-        grad_features, grad_alphas = _C.accum_weightedsumnorm_backward(
-            grad_output, features, alphas, points_idx)
+        grad_features, grad_alphas = _C.accum_weightedsumnorm_backward(grad_output, features, alphas, points_idx)
         return grad_features, grad_alphas, grad_points_idx, None
 
 
-def norm_weighted_sum(pointsidx, alphas, pt_clds, blend_params=None
-    ) ->torch.Tensor:
+def norm_weighted_sum(pointsidx, alphas, pt_clds, blend_params=None) ->torch.Tensor:
     """
     Composite features within a z-buffer using normalized weighted sum. Given a z-buffer
     with corresponding features and weights, these values are accumulated
@@ -3666,12 +3403,10 @@ class NormWeightedCompositor(nn.Module):
 
     def __init__(self, composite_params=None):
         super().__init__()
-        self.composite_params = (composite_params if composite_params is not
-            None else CompositeParams())
+        self.composite_params = composite_params if composite_params is not None else CompositeParams()
 
     def forward(self, fragments, alphas, ptclds, **kwargs) ->torch.Tensor:
-        images = norm_weighted_sum(fragments, alphas, ptclds, self.
-            composite_params)
+        images = norm_weighted_sum(fragments, alphas, ptclds, self.composite_params)
         return images
 
 
@@ -3682,12 +3417,9 @@ class PointFragments(NamedTuple):
 
 
 class PointsRasterizationSettings:
-    __slots__ = ['image_size', 'radius', 'points_per_pixel', 'bin_size',
-        'max_points_per_bin']
+    __slots__ = ['image_size', 'radius', 'points_per_pixel', 'bin_size', 'max_points_per_bin']
 
-    def __init__(self, image_size: int=256, radius: float=0.01,
-        points_per_pixel: int=8, bin_size: Optional[int]=None,
-        max_points_per_bin: Optional[int]=None):
+    def __init__(self, image_size: int=256, radius: float=0.01, points_per_pixel: int=8, bin_size: Optional[int]=None, max_points_per_bin: Optional[int]=None):
         self.image_size = image_size
         self.radius = radius
         self.points_per_pixel = points_per_pixel
@@ -3754,8 +3486,7 @@ def _handle_angle_input(x, dtype, device: str, name: str):
         return _handle_coord(x, dtype, device)
 
 
-def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool=
-    False):
+def _handle_input(x, y, z, dtype, device, name: str, allow_singleton: bool=False):
     """
     Helper function to handle parsing logic for building transforms. The output
     is always a tensor of shape (N, 3), but there are several types of allowed
@@ -3959,8 +3690,7 @@ class Transform3d:
 
     """
 
-    def __init__(self, dtype: torch.dtype=torch.float32, device='cpu',
-        matrix: Optional[torch.Tensor]=None):
+    def __init__(self, dtype: torch.dtype=torch.float32, device='cpu', matrix: Optional[torch.Tensor]=None):
         """
         Args:
             dtype: The data type of the transformation matrix.
@@ -3973,15 +3703,12 @@ class Transform3d:
                 the specified `device` and `dtype`.
         """
         if matrix is None:
-            self._matrix = torch.eye(4, dtype=dtype, device=device).view(1,
-                4, 4)
+            self._matrix = torch.eye(4, dtype=dtype, device=device).view(1, 4, 4)
         else:
             if matrix.ndim not in (2, 3):
-                raise ValueError(
-                    '"matrix" has to be a 2- or a 3-dimensional tensor.')
+                raise ValueError('"matrix" has to be a 2- or a 3-dimensional tensor.')
             if matrix.shape[-2] != 4 or matrix.shape[-1] != 4:
-                raise ValueError(
-                    '"matrix" has to be a tensor of shape (minibatch, 4, 4)')
+                raise ValueError('"matrix" has to be a tensor of shape (minibatch, 4, 4)')
             device = matrix.device
             self._matrix = matrix.view(-1, 4, 4)
         self._transforms = []
@@ -4066,8 +3793,7 @@ class Transform3d:
         else:
             i_matrix = self._get_matrix_inverse()
             if len(self._transforms) > 0:
-                tinv._transforms = [t.inverse() for t in reversed(self.
-                    _transforms)]
+                tinv._transforms = [t.inverse() for t in reversed(self._transforms)]
                 last = Transform3d(device=self.device)
                 last._matrix = i_matrix
                 tinv._transforms.append(last)
@@ -4149,8 +3875,7 @@ class Transform3d:
         return self.compose(Scale(*args, device=self.device, **kwargs))
 
     def rotate_axis_angle(self, *args, **kwargs):
-        return self.compose(RotateAxisAngle(*args, device=self.device, **
-            kwargs))
+        return self.compose(RotateAxisAngle(*args, device=self.device, **kwargs))
 
     def clone(self):
         """
@@ -4230,8 +3955,7 @@ def _check_valid_rotation_matrix(R, tol: float=1e-07):
 
 class Rotate(Transform3d):
 
-    def __init__(self, R, dtype=torch.float32, device: str='cpu',
-        orthogonal_tol: float=1e-05):
+    def __init__(self, R, dtype=torch.float32, device: str='cpu', orthogonal_tol: float=1e-05):
         """
         Create a new Transform3d representing 3D rotation using a rotation
         matrix as the input.
@@ -4305,11 +4029,8 @@ def get_world_to_view_transform(R=r, T=t) ->Transform3d:
 class _RasterizePoints(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, points, cloud_to_packed_first_idx,
-        num_points_per_cloud, image_size: int=256, radius: float=0.01,
-        points_per_pixel: int=8, bin_size: int=0, max_points_per_bin: int=0):
-        args = (points, cloud_to_packed_first_idx, num_points_per_cloud,
-            image_size, radius, points_per_pixel, bin_size, max_points_per_bin)
+    def forward(ctx, points, cloud_to_packed_first_idx, num_points_per_cloud, image_size: int=256, radius: float=0.01, points_per_pixel: int=8, bin_size: int=0, max_points_per_bin: int=0):
+        args = points, cloud_to_packed_first_idx, num_points_per_cloud, image_size, radius, points_per_pixel, bin_size, max_points_per_bin
         idx, zbuf, dists = _C.rasterize_points(*args)
         ctx.save_for_backward(points, idx)
         ctx.mark_non_differentiable(idx)
@@ -4328,18 +4049,14 @@ class _RasterizePoints(torch.autograd.Function):
         points, idx = ctx.saved_tensors
         args = points, idx, grad_zbuf, grad_dists
         grad_points = _C.rasterize_points_backward(*args)
-        grads = (grad_points, grad_cloud_to_packed_first_idx,
-            grad_num_points_per_cloud, grad_image_size, grad_radius,
-            grad_points_per_pixel, grad_bin_size, grad_max_points_per_bin)
+        grads = grad_points, grad_cloud_to_packed_first_idx, grad_num_points_per_cloud, grad_image_size, grad_radius, grad_points_per_pixel, grad_bin_size, grad_max_points_per_bin
         return grads
 
 
 kMaxPointsPerBin = 22
 
 
-def rasterize_points(pointclouds, image_size: int=256, radius: float=0.01,
-    points_per_pixel: int=8, bin_size: Optional[int]=None,
-    max_points_per_bin: Optional[int]=None):
+def rasterize_points(pointclouds, image_size: int=256, radius: float=0.01, points_per_pixel: int=8, bin_size: Optional[int]=None, max_points_per_bin: Optional[int]=None):
     """
     Pointcloud rasterization
 
@@ -4404,14 +4121,10 @@ def rasterize_points(pointclouds, image_size: int=256, radius: float=0.01,
     if bin_size != 0:
         points_per_bin = 1 + (image_size - 1) // bin_size
         if points_per_bin >= kMaxPointsPerBin:
-            raise ValueError(
-                'bin_size too small, number of points per bin must be less than %d; got %d'
-                 % (kMaxPointsPerBin, points_per_bin))
+            raise ValueError('bin_size too small, number of points per bin must be less than %d; got %d' % (kMaxPointsPerBin, points_per_bin))
     if max_points_per_bin is None:
         max_points_per_bin = int(max(10000, points_packed.shape[0] / 5))
-    return _RasterizePoints.apply(points_packed, cloud_to_packed_first_idx,
-        num_points_per_cloud, image_size, radius, points_per_pixel,
-        bin_size, max_points_per_bin)
+    return _RasterizePoints.apply(points_packed, cloud_to_packed_first_idx, num_points_per_cloud, image_size, radius, points_per_pixel, bin_size, max_points_per_bin)
 
 
 class PointsRasterizer(nn.Module):
@@ -4451,9 +4164,7 @@ class PointsRasterizer(nn.Module):
         """
         cameras = kwargs.get('cameras', self.cameras)
         if cameras is None:
-            msg = (
-                'Cameras must be specified either at initialization                 or in the forward pass of PointsRasterizer'
-                )
+            msg = 'Cameras must be specified either at initialization                 or in the forward pass of PointsRasterizer'
             raise ValueError(msg)
         pts_world = point_clouds.points_padded()
         pts_world_packed = point_clouds.points_packed()
@@ -4476,11 +4187,7 @@ class PointsRasterizer(nn.Module):
         """
         points_screen = self.transform(point_clouds, **kwargs)
         raster_settings = kwargs.get('raster_settings', self.raster_settings)
-        idx, zbuf, dists2 = rasterize_points(points_screen, image_size=
-            raster_settings.image_size, radius=raster_settings.radius,
-            points_per_pixel=raster_settings.points_per_pixel, bin_size=
-            raster_settings.bin_size, max_points_per_bin=raster_settings.
-            max_points_per_bin)
+        idx, zbuf, dists2 = rasterize_points(points_screen, image_size=raster_settings.image_size, radius=raster_settings.radius, points_per_pixel=raster_settings.points_per_pixel, bin_size=raster_settings.bin_size, max_points_per_bin=raster_settings.max_points_per_bin)
         return PointFragments(idx=idx, zbuf=zbuf, dists=dists2)
 
 
@@ -4501,15 +4208,7 @@ class PointsRenderer(nn.Module):
         r = self.rasterizer.raster_settings.radius
         dists2 = fragments.dists.permute(0, 3, 1, 2)
         weights = 1 - dists2 / (r * r)
-        images = self.compositor(fragments.idx.long().permute(0, 3, 1, 2),
-            weights, point_clouds.features_packed().permute(1, 0), **kwargs)
+        images = self.compositor(fragments.idx.long().permute(0, 3, 1, 2), weights, point_clouds.features_packed().permute(1, 0), **kwargs)
         images = images.permute(0, 2, 3, 1)
         return images
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_facebookresearch_pytorch3d(_paritybench_base):
-    pass

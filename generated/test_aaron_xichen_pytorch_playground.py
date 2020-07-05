@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -129,18 +130,8 @@ class AlexNet(nn.Module):
 
     def __init__(self, num_classes=1000):
         super(AlexNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5,
-            padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=
-            1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2))
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6,
-            4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 
-            4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
 
     def forward(self, x):
         x = self.features(x)
@@ -151,8 +142,7 @@ class AlexNet(nn.Module):
 
 class Inception3(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False
-        ):
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
         super(Inception3, self).__init__()
         self.aux_logits = aux_logits
         self.transform_input = transform_input
@@ -174,8 +164,7 @@ class Inception3(nn.Module):
         self.Mixed_7a = InceptionD(768)
         self.Mixed_7b = InceptionE(1280)
         self.Mixed_7c = InceptionE(2048)
-        self.group1 = nn.Sequential(OrderedDict([('fc', nn.Linear(2048,
-            num_classes))]))
+        self.group1 = nn.Sequential(OrderedDict([('fc', nn.Linear(2048, num_classes))]))
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
                 import scipy.stats as stats
@@ -232,8 +221,7 @@ class InceptionA(nn.Module):
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1)
         self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -274,19 +262,13 @@ class InceptionC(nn.Module):
         self.branch1x1 = BasicConv2d(in_channels, 192, kernel_size=1)
         c7 = channels_7x7
         self.branch7x7_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=
-            (0, 3))
-        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding
-            =(3, 0))
+        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7dbl_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7),
-            padding=(0, 3))
+        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
@@ -312,10 +294,8 @@ class InceptionD(nn.Module):
         self.branch3x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
         self.branch3x3_2 = BasicConv2d(192, 320, kernel_size=3, stride=2)
         self.branch7x7x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
-        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1),
-            padding=(3, 0))
+        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7x3_4 = BasicConv2d(192, 192, kernel_size=3, stride=2)
 
     def forward(self, x):
@@ -336,28 +316,22 @@ class InceptionE(nn.Module):
         super(InceptionE, self).__init__()
         self.branch1x1 = BasicConv2d(in_channels, 320, kernel_size=1)
         self.branch3x3_1 = BasicConv2d(in_channels, 384, kernel_size=1)
-        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 448, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(448, 384, kernel_size=3, padding=1)
-        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -389,9 +363,7 @@ class BasicConv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, **kwargs):
         super(BasicConv2d, self).__init__()
-        self.group1 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(
-            in_channels, out_channels, bias=False, **kwargs)), ('bn', nn.
-            BatchNorm2d(out_channels, eps=0.001))]))
+        self.group1 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)), ('bn', nn.BatchNorm2d(out_channels, eps=0.001))]))
 
     def forward(self, x):
         x = self.group1(x)
@@ -399,8 +371,7 @@ class BasicConv2d(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -437,8 +408,7 @@ class Bottleneck(nn.Module):
         m['conv1'] = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         m['bn1'] = nn.BatchNorm2d(planes)
         m['relu1'] = nn.ReLU(inplace=True)
-        m['conv2'] = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        m['conv2'] = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         m['bn2'] = nn.BatchNorm2d(planes)
         m['relu2'] = nn.ReLU(inplace=True)
         m['conv3'] = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
@@ -463,8 +433,7 @@ class ResNet(nn.Module):
         self.inplanes = 64
         super(ResNet, self).__init__()
         m = OrderedDict()
-        m['conv1'] = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        m['conv1'] = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         m['bn1'] = nn.BatchNorm2d(64)
         m['relu1'] = nn.ReLU(inplace=True)
         m['maxpool'] = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -474,8 +443,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.Sequential(nn.AvgPool2d(7))
-        self.group2 = nn.Sequential(OrderedDict([('fc', nn.Linear(512 *
-            block.expansion, num_classes))]))
+        self.group2 = nn.Sequential(OrderedDict([('fc', nn.Linear(512 * block.expansion, num_classes))]))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -487,9 +455,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -511,19 +477,12 @@ class ResNet(nn.Module):
 
 class Fire(nn.Module):
 
-    def __init__(self, inplanes, squeeze_planes, expand1x1_planes,
-        expand3x3_planes):
+    def __init__(self, inplanes, squeeze_planes, expand1x1_planes, expand3x3_planes):
         super(Fire, self).__init__()
         self.inplanes = inplanes
-        self.group1 = nn.Sequential(OrderedDict([('squeeze', nn.Conv2d(
-            inplanes, squeeze_planes, kernel_size=1)), (
-            'squeeze_activation', nn.ReLU(inplace=True))]))
-        self.group2 = nn.Sequential(OrderedDict([('expand1x1', nn.Conv2d(
-            squeeze_planes, expand1x1_planes, kernel_size=1)), (
-            'expand1x1_activation', nn.ReLU(inplace=True))]))
-        self.group3 = nn.Sequential(OrderedDict([('expand3x3', nn.Conv2d(
-            squeeze_planes, expand3x3_planes, kernel_size=3, padding=1)), (
-            'expand3x3_activation', nn.ReLU(inplace=True))]))
+        self.group1 = nn.Sequential(OrderedDict([('squeeze', nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)), ('squeeze_activation', nn.ReLU(inplace=True))]))
+        self.group2 = nn.Sequential(OrderedDict([('expand1x1', nn.Conv2d(squeeze_planes, expand1x1_planes, kernel_size=1)), ('expand1x1_activation', nn.ReLU(inplace=True))]))
+        self.group3 = nn.Sequential(OrderedDict([('expand3x3', nn.Conv2d(squeeze_planes, expand3x3_planes, kernel_size=3, padding=1)), ('expand3x3_activation', nn.ReLU(inplace=True))]))
 
     def forward(self, x):
         x = self.group1(x)
@@ -535,39 +494,21 @@ class SqueezeNet(nn.Module):
     def __init__(self, version=1.0, num_classes=1000):
         super(SqueezeNet, self).__init__()
         if version not in [1.0, 1.1]:
-            raise ValueError(
-                'Unsupported SqueezeNet version {version}:1.0 or 1.1 expected'
-                .format(version=version))
+            raise ValueError('Unsupported SqueezeNet version {version}:1.0 or 1.1 expected'.format(version=version))
         self.num_classes = num_classes
         if version == 1.0:
-            self.features = nn.Sequential(nn.Conv2d(3, 96, kernel_size=7,
-                stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=
-                3, stride=2, ceil_mode=True), Fire(96, 16, 64, 64), Fire(
-                128, 16, 64, 64), Fire(128, 32, 128, 128), nn.MaxPool2d(
-                kernel_size=3, stride=2, ceil_mode=True), Fire(256, 32, 128,
-                128), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192),
-                Fire(384, 64, 256, 256), nn.MaxPool2d(kernel_size=3, stride
-                =2, ceil_mode=True), Fire(512, 64, 256, 256))
+            self.features = nn.Sequential(nn.Conv2d(3, 96, kernel_size=7, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True), Fire(96, 16, 64, 64), Fire(128, 16, 64, 64), Fire(128, 32, 128, 128), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True), Fire(256, 32, 128, 128), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192), Fire(384, 64, 256, 256), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True), Fire(512, 64, 256, 256))
         else:
-            self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-                stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=
-                3, stride=2, ceil_mode=True), Fire(64, 16, 64, 64), Fire(
-                128, 16, 64, 64), nn.MaxPool2d(kernel_size=3, stride=2,
-                ceil_mode=True), Fire(128, 32, 128, 128), Fire(256, 32, 128,
-                128), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
-                Fire(256, 48, 192, 192), Fire(384, 48, 192, 192), Fire(384,
-                64, 256, 256), Fire(512, 64, 256, 256))
+            self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True), Fire(64, 16, 64, 64), Fire(128, 16, 64, 64), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True), Fire(128, 32, 128, 128), Fire(256, 32, 128, 128), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192), Fire(384, 64, 256, 256), Fire(512, 64, 256, 256))
         final_conv = nn.Conv2d(512, num_classes, kernel_size=1)
-        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv, nn.
-            ReLU(inplace=True), nn.AvgPool2d(13))
+        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool2d(13))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 gain = 2.0
                 if m is final_conv:
                     m.weight.data.normal_(0, 0.01)
                 else:
-                    fan_in = m.kernel_size[0] * m.kernel_size[1
-                        ] * m.in_channels
+                    fan_in = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
                     u = math.sqrt(3.0 * gain / fan_in)
                     m.weight.data.uniform_(-u, u)
                 if m.bias is not None:
@@ -584,9 +525,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.
-            ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, num_classes))
         self._initialize_weights()
 
     def forward(self, x):
@@ -713,8 +652,7 @@ class LinearQuant(nn.Module):
     def forward(self, input):
         if self._counter > 0:
             self._counter -= 1
-            sf_new = self.bits - 1 - compute_integral_part(input, self.
-                overflow_rate)
+            sf_new = self.bits - 1 - compute_integral_part(input, self.overflow_rate)
             self.sf = min(self.sf, sf_new) if self.sf is not None else sf_new
             return input
         else:
@@ -722,9 +660,7 @@ class LinearQuant(nn.Module):
             return output
 
     def __repr__(self):
-        return '{}(sf={}, bits={}, overflow_rate={:.3f}, counter={})'.format(
-            self.__class__.__name__, self.sf, self.bits, self.overflow_rate,
-            self.counter)
+        return '{}(sf={}, bits={}, overflow_rate={:.3f}, counter={})'.format(self.__class__.__name__, self.sf, self.bits, self.overflow_rate, self.counter)
 
 
 def log_linear_quantize(input, sf, bits):
@@ -756,8 +692,7 @@ class LogQuant(nn.Module):
         if self._counter > 0:
             self._counter -= 1
             log_abs_input = torch.log(torch.abs(input))
-            sf_new = self.bits - 1 - compute_integral_part(log_abs_input,
-                self.overflow_rate)
+            sf_new = self.bits - 1 - compute_integral_part(log_abs_input, self.overflow_rate)
             self.sf = min(self.sf, sf_new) if self.sf is not None else sf_new
             return input
         else:
@@ -765,9 +700,7 @@ class LogQuant(nn.Module):
             return output
 
     def __repr__(self):
-        return '{}(sf={}, bits={}, overflow_rate={:.3f}, counter={})'.format(
-            self.__class__.__name__, self.sf, self.bits, self.overflow_rate,
-            self.counter)
+        return '{}(sf={}, bits={}, overflow_rate={:.3f}, counter={})'.format(self.__class__.__name__, self.sf, self.bits, self.overflow_rate, self.counter)
 
 
 class NormalQuant(nn.Module):
@@ -794,46 +727,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Fire,
+     lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionAux,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 18, 18])], {}),
+     True),
+    (InceptionB,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionC,
+     lambda: ([], {'in_channels': 4, 'channels_7x7': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionD,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearQuant,
+     lambda: ([], {'name': 4, 'bits': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LogQuant,
+     lambda: ([], {'name': 4, 'bits': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLP,
+     lambda: ([], {'input_dims': 4, 'n_hiddens': 4, 'n_class': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (SqueezeNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+]
+
 class Test_aaron_xichen_pytorch_playground(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(LinearQuant(*[], **{'name': 4, 'bits': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(LogQuant(*[], **{'name': 4, 'bits': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(MLP(*[], **{'input_dims': 4, 'n_hiddens': 4, 'n_class': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SqueezeNet(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

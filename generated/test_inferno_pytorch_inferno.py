@@ -120,8 +120,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -223,24 +224,14 @@ class CheapConv(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         if activated:
-            self.convs = torch.nn.Sequential(ConvActivation(in_channels=
-                in_channels, out_channels=in_channels, depthwise=True,
-                kernel_size=(3, 3), activation='ReLU', dim=2), ConvReLU2D(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=(1, 1)))
+            self.convs = torch.nn.Sequential(ConvActivation(in_channels=in_channels, out_channels=in_channels, depthwise=True, kernel_size=(3, 3), activation='ReLU', dim=2), ConvReLU2D(in_channels=in_channels, out_channels=out_channels, kernel_size=(1, 1)))
         else:
-            self.convs = torch.nn.Sequential(ConvActivation(in_channels=
-                in_channels, out_channels=in_channels, depthwise=True,
-                kernel_size=(3, 3), activation='ReLU', dim=2), Conv2D(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=(1, 1)))
+            self.convs = torch.nn.Sequential(ConvActivation(in_channels=in_channels, out_channels=in_channels, depthwise=True, kernel_size=(3, 3), activation='ReLU', dim=2), Conv2D(in_channels=in_channels, out_channels=out_channels, kernel_size=(1, 1)))
 
     def forward(self, x):
-        assert x.shape[1
-            ] == self.in_channels, 'input has wrong number of channels'
+        assert x.shape[1] == self.in_channels, 'input has wrong number of channels'
         x = self.convs(x)
-        assert x.shape[1
-            ] == self.out_channels, 'output has wrong number of channels'
+        assert x.shape[1] == self.out_channels, 'output has wrong number of channels'
         return x
 
 
@@ -252,14 +243,11 @@ class CheapConvBlock(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         if in_channels != out_channels:
-            self.start = ConvReLU2D(in_channels=in_channels, out_channels=
-                out_channels, kernel_size=(1, 1))
+            self.start = ConvReLU2D(in_channels=in_channels, out_channels=out_channels, kernel_size=(1, 1))
         else:
             self.start = None
-        self.conv_a = CheapConv(in_channels=out_channels, out_channels=
-            out_channels, activated=True)
-        self.conv_b = CheapConv(in_channels=out_channels, out_channels=
-            out_channels, activated=False)
+        self.conv_a = CheapConv(in_channels=out_channels, out_channels=out_channels, activated=True)
+        self.conv_b = CheapConv(in_channels=out_channels, out_channels=out_channels, activated=False)
         self.activation = torch.nn.ReLU()
 
     def forward(self, x):
@@ -294,8 +282,7 @@ def require_dict_kwargs(kwargs, msg=None):
     elif isinstance(kwargs, dict):
         return kwargs
     elif msg is None:
-        raise RuntimeError(
-            'value passed as keyword argument dict is neither None nor a dict')
+        raise RuntimeError('value passed as keyword argument dict is neither None nor a dict')
     else:
         raise RuntimeError('%s' % str(msg))
 
@@ -305,15 +292,12 @@ class MySideLossUNet(nn.Module):
     def __init__(self, in_channels, out_channels, depth=3):
         super(MySideLossUNet, self).__init__()
         self.depth = depth
-        self.unet = ResBlockUNet(in_channels=in_channels, out_channels=
-            in_channels * 2, dim=2, unet_kwargs=dict(depth=depth),
-            side_out_parts=['bottom', 'up'])
+        self.unet = ResBlockUNet(in_channels=in_channels, out_channels=in_channels * 2, dim=2, unet_kwargs=dict(depth=depth), side_out_parts=['bottom', 'up'])
         self.n_channels_per_output = self.unet.n_channels_per_output
         upscale_factor = 2 ** self.depth
         conv_and_scale = []
         for n_channels in self.n_channels_per_output:
-            conv = Conv2D(in_channels=n_channels, out_channels=out_channels,
-                kernel_size=1)
+            conv = Conv2D(in_channels=n_channels, out_channels=out_channels, kernel_size=1)
             if upscale_factor > 1:
                 upsample = nn.Upsample(scale_factor=upscale_factor)
                 conv_and_scale.append(nn.Sequential(conv, upsample))
@@ -321,12 +305,8 @@ class MySideLossUNet(nn.Module):
                 conv_and_scale.append(conv)
             upscale_factor //= 2
         self.conv_and_scale = nn.ModuleList(conv_and_scale)
-        self.n_channels_combined = (self.depth + 1
-            ) * out_channels + in_channels * 2
-        self.final_block = nn.Sequential(ResBlock(dim=2, in_channels=self.
-            n_channels_combined, out_channels=self.n_channels_combined),
-            ResBlock(in_channels=self.n_channels_combined, out_channels=
-            out_channels, dim=2, activated=False))
+        self.n_channels_combined = (self.depth + 1) * out_channels + in_channels * 2
+        self.final_block = nn.Sequential(ResBlock(dim=2, in_channels=self.n_channels_combined, out_channels=self.n_channels_combined), ResBlock(in_channels=self.n_channels_combined, out_channels=out_channels, dim=2, activated=False))
 
     def forward(self, input):
         outs = self.unet(input)
@@ -373,10 +353,8 @@ class RegularizedLinear(nn.Linear):
 
     def forward(self, input):
         output = super(RegularizedLinear, self).forward(input)
-        self._losses['activity_regularization'] = (output * output).sum(
-            ) * self.ar_weight
-        self._losses['l1_weight_regularization'] = torch.abs(self.weight).sum(
-            ) * self.l1_weight
+        self._losses['activity_regularization'] = (output * output).sum() * self.ar_weight
+        self._losses['l1_weight_regularization'] = torch.abs(self.weight).sum() * self.l1_weight
         return output
 
 
@@ -439,12 +417,10 @@ class Graph(nn.Module):
     def graph(self):
         graph = self._thread_to_graph_mapping.get(threading.get_ident())
         if graph is None:
-            creator_thread_graph = self._thread_to_graph_mapping.get(self.
-                _creator_thread)
+            creator_thread_graph = self._thread_to_graph_mapping.get(self._creator_thread)
             assert creator_thread_graph is not None
             graph = creator_thread_graph.copy()
-            self._thread_to_graph_mapping.update({threading.get_ident(): graph}
-                )
+            self._thread_to_graph_mapping.update({threading.get_ident(): graph})
         return graph
 
     @graph.setter
@@ -522,8 +498,7 @@ class Graph(nn.Module):
         list
             A list of names (str) of the output nodes.
         """
-        return [name for name, node_attributes in self.graph.nodes.items() if
-            node_attributes.get('is_output_node', False)]
+        return [name for name, node_attributes in self.graph.nodes.items() if node_attributes.get('is_output_node', False)]
 
     @property
     def input_nodes(self):
@@ -536,36 +511,26 @@ class Graph(nn.Module):
         list
             A list of names (str) of the input nodes.
         """
-        return [name for name, node_attributes in self.graph.nodes.items() if
-            node_attributes.get('is_input_node', False)]
+        return [name for name, node_attributes in self.graph.nodes.items() if node_attributes.get('is_input_node', False)]
 
     @property
     def graph_is_valid(self):
         """Checks if the graph is valid."""
         is_dag = is_directed_acyclic_graph(self.graph)
-        output_nodes_are_sinks = all([self.is_sink_node(name) for name in
-            self.output_nodes])
-        input_nodes_are_sources = all([self.is_source_node(name) for name in
-            self.input_nodes])
-        is_valid = (is_dag and output_nodes_are_sinks and
-            input_nodes_are_sources)
+        output_nodes_are_sinks = all([self.is_sink_node(name) for name in self.output_nodes])
+        input_nodes_are_sources = all([self.is_source_node(name) for name in self.input_nodes])
+        is_valid = is_dag and output_nodes_are_sinks and input_nodes_are_sources
         return is_valid
 
     def assert_graph_is_valid(self):
         """Asserts that the graph is valid."""
         assert is_directed_acyclic_graph(self.graph), 'Graph is not a DAG.'
         for name in self.output_nodes:
-            assert self.is_sink_node(name
-                ), 'Output node {} is not a sink.'.format(name)
-            assert not self.is_source_node(name
-                ), "Output node {} is a source node. Make sure it's connected.".format(
-                name)
+            assert self.is_sink_node(name), 'Output node {} is not a sink.'.format(name)
+            assert not self.is_source_node(name), "Output node {} is a source node. Make sure it's connected.".format(name)
         for name in self.input_nodes:
-            assert self.is_source_node(name
-                ), 'Input node {} is not a source.'.format(name)
-            assert not self.is_sink_node(name
-                ), "Input node {} is a sink node. Make sure it's connected.".format(
-                name)
+            assert self.is_source_node(name), 'Input node {} is not a source.'.format(name)
+            assert not self.is_sink_node(name), "Input node {} is a sink node. Make sure it's connected.".format(name)
 
     def add_node(self, name, module, previous=None):
         """
@@ -685,39 +650,29 @@ class Graph(nn.Module):
         names = pyu.to_iterable(names)
         modules = []
         for name in names:
-            assert self.is_node_in_graph(name
-                ), "Node '{}' is not in graph.".format(name)
+            assert self.is_node_in_graph(name), "Node '{}' is not in graph.".format(name)
             module = getattr(self, name, None)
-            assert module is not None, "Node '{}' is in the graph but could not find a module corresponding to it.".format(
-                name)
+            assert module is not None, "Node '{}' is in the graph but could not find a module corresponding to it.".format(name)
             modules.append(module)
         return pyu.from_iterable(modules)
 
-    def to_device(self, names, target_device, device_ordinal=None,
-        asynchronous=False):
+    def to_device(self, names, target_device, device_ordinal=None, asynchronous=False):
         """Transfer nodes in the network to a specified device."""
         names = pyu.to_iterable(names)
         for name in names:
-            assert self.is_node_in_graph(name
-                ), "Node '{}' is not in graph.".format(name)
+            assert self.is_node_in_graph(name), "Node '{}' is not in graph.".format(name)
             module = getattr(self, name, None)
-            assert module is not None, "Node '{}' is in the graph but could not find a module corresponding to it.".format(
-                name)
-            module_on_device = OnDevice(module, target_device,
-                device_ordinal=device_ordinal, asynchronous=asynchronous)
+            assert module is not None, "Node '{}' is in the graph but could not find a module corresponding to it.".format(name)
+            module_on_device = OnDevice(module, target_device, device_ordinal=device_ordinal, asynchronous=asynchronous)
             setattr(self, name, module_on_device)
         return self
 
     def get_parameters_for_nodes(self, names, named=False):
         """Get parameters of all nodes listed in `names`."""
         if not named:
-            parameters = (parameter for module in pyu.to_iterable(self.
-                get_module_for_nodes(names)) for parameter in module.
-                parameters())
+            parameters = (parameter for module in pyu.to_iterable(self.get_module_for_nodes(names)) for parameter in module.parameters())
         else:
-            parameters = ((name, parameter) for module in pyu.to_iterable(
-                self.get_module_for_nodes(names)) for name, parameter in
-                module.named_parameters())
+            parameters = ((name, parameter) for module in pyu.to_iterable(self.get_module_for_nodes(names)) for name, parameter in module.named_parameters())
         return parameters
 
     def clear_payloads(self, graph=None):
@@ -729,9 +684,7 @@ class Graph(nn.Module):
 
     def forward_through_node(self, name, input=None):
         if input is None:
-            assert not self.is_source_node(name
-                ), "Node '{}' did not get an input but is a source node.".format(
-                name)
+            assert not self.is_source_node(name), "Node '{}' did not get an input but is a source node.".format(name)
             incoming_edges = self.graph.in_edges(name)
             input = []
             for incoming, this in incoming_edges:
@@ -743,19 +696,14 @@ class Graph(nn.Module):
         try:
             outputs = pyu.to_iterable(getattr(self, name)(*input))
         except Exception as e:
-            input_spec_string = '\n'.join(['--[{}]-{}-->[{}]'.format(
-                incoming, tuple(_input.size()), this) for (incoming, this),
-                _input in zip(self.graph.in_edges(name), input)])
-            message = "In node '{}': {}\nInputs to this node were:\n{}".format(
-                name, str(e), input_spec_string)
+            input_spec_string = '\n'.join(['--[{}]-{}-->[{}]'.format(incoming, tuple(_input.size()), this) for (incoming, this), _input in zip(self.graph.in_edges(name), input)])
+            message = "In node '{}': {}\nInputs to this node were:\n{}".format(name, str(e), input_spec_string)
             raise type(e)(message).with_traceback(sys.exc_info()[2])
         if not self.is_sink_node(name):
             outgoing_edges = self.graph.out_edges(name)
             if len(outputs) == 1:
                 outputs *= len(outgoing_edges)
-            assert len(outputs) == len(outgoing_edges
-                ), "Number of outputs from the model ({}) does not match the number of out-edges ({}) in the graph for this node ('{}').".format(
-                len(outputs), len(outgoing_edges), name)
+            assert len(outputs) == len(outgoing_edges), "Number of outputs from the model ({}) does not match the number of out-edges ({}) in the graph for this node ('{}').".format(len(outputs), len(outgoing_edges), name)
             for (this, outgoing), output in zip(outgoing_edges, outputs):
                 self.graph[this][outgoing].update({'payload': output})
         del input
@@ -766,22 +714,17 @@ class Graph(nn.Module):
         self.assert_graph_is_valid()
         input_nodes = self.input_nodes
         output_nodes = self.output_nodes
-        assert len(inputs) == len(input_nodes
-            ), 'Was expecting {} arguments for as many input nodes, got {}.'.format(
-            len(input_nodes), len(inputs))
+        assert len(inputs) == len(input_nodes), 'Was expecting {} arguments for as many input nodes, got {}.'.format(len(input_nodes), len(inputs))
         for input, input_node in zip(inputs, input_nodes):
             self.forward_through_node(input_node, input=input)
         toposorted = topological_sort(self.graph)
-        toposorted = [name for name in toposorted if name not in
-            input_nodes and name not in output_nodes]
-        toposorted = [name for name in toposorted if not self.is_sink_node(
-            name)]
+        toposorted = [name for name in toposorted if name not in input_nodes and name not in output_nodes]
+        toposorted = [name for name in toposorted if not self.is_sink_node(name)]
         for node in toposorted:
             self.forward_through_node(node)
         outputs = []
         for output_node in output_nodes:
-            outputs_from_node = [self.graph[incoming][this]['payload'] for 
-                incoming, this in self.graph.in_edges(output_node)]
+            outputs_from_node = [self.graph[incoming][this]['payload'] for incoming, this in self.graph.in_edges(output_node)]
             outputs.append(pyu.from_iterable(outputs_from_node))
         self.clear_payloads()
         return pyu.from_iterable(outputs)
@@ -803,22 +746,14 @@ class Criteria(nn.Module):
             criteria = list(criteria[0])
         else:
             criteria = list(criteria)
-        assert all([isinstance(criterion, nn.Module) for criterion in criteria]
-            ), 'Criterion must be a torch module.'
+        assert all([isinstance(criterion, nn.Module) for criterion in criteria]), 'Criterion must be a torch module.'
         self.criteria = criteria
 
     def forward(self, prediction, target):
-        assert isinstance(prediction, (list, tuple)
-            ), '`prediction` must be a list or a tuple, got {} instead.'.format(
-            type(prediction).__name__)
-        assert isinstance(target, (list, tuple)
-            ), '`prediction` must be a list or a tuple, got {} instead.'.format(
-            type(target).__name__)
-        assert len(prediction) == len(target
-            ), 'Number of predictions must equal the number of targets. Got {} predictions but {} targets.'.format(
-            len(prediction), len(target))
-        losses = [criterion(prediction, target) for _prediction, _target,
-            criterion in zip(prediction, target, self.criteria)]
+        assert isinstance(prediction, (list, tuple)), '`prediction` must be a list or a tuple, got {} instead.'.format(type(prediction).__name__)
+        assert isinstance(target, (list, tuple)), '`prediction` must be a list or a tuple, got {} instead.'.format(type(target).__name__)
+        assert len(prediction) == len(target), 'Number of predictions must equal the number of targets. Got {} predictions but {} targets.'.format(len(prediction), len(target))
+        losses = [criterion(prediction, target) for _prediction, _target, criterion in zip(prediction, target, self.criteria)]
         loss = reduce(lambda x, y: x + y, losses)
         return loss
 
@@ -839,22 +774,15 @@ class As2DCriterion(nn.Module):
 
     def __init__(self, criterion):
         super(As2DCriterion, self).__init__()
-        assert_(isinstance(criterion, nn.Module),
-            'Criterion must be a module, got a {} instead.'.format(type(
-            criterion).__name__), NotTorchModuleError)
+        assert_(isinstance(criterion, nn.Module), 'Criterion must be a module, got a {} instead.'.format(type(criterion).__name__), NotTorchModuleError)
         self.criterion = criterion
 
     def forward(self, prediction, target):
-        assert_(prediction.dim() == 4,
-            '`prediction` is expected to be a 4D tensor of shape (N, C, H, W), got a {}D tensor instead.'
-            .format(prediction.dim()), ShapeError)
-        assert_(target.dim() == 3,
-            '`target` is expected to be a 3D tensor of shape (N, H, W), got a {}D tensor instead.'
-            .format(target.dim()), ShapeError)
+        assert_(prediction.dim() == 4, '`prediction` is expected to be a 4D tensor of shape (N, C, H, W), got a {}D tensor instead.'.format(prediction.dim()), ShapeError)
+        assert_(target.dim() == 3, '`target` is expected to be a 3D tensor of shape (N, H, W), got a {}D tensor instead.'.format(target.dim()), ShapeError)
         target = target.contiguous().view(-1)
         num_channels = prediction.size(1)
-        prediction = prediction.permute(0, 2, 3, 1).contiguous().view(-1,
-            num_channels)
+        prediction = prediction.permute(0, 2, 3, 1).contiguous().view(-1, num_channels)
         loss = self.criterion(prediction, target)
         return loss
 
@@ -862,21 +790,16 @@ class As2DCriterion(nn.Module):
 class WeightedMSELoss(nn.Module):
     NEGATIVE_CLASS_WEIGHT = 1.0
 
-    def __init__(self, positive_class_weight=1.0, positive_class_value=1.0,
-        size_average=True):
+    def __init__(self, positive_class_weight=1.0, positive_class_value=1.0, size_average=True):
         super(WeightedMSELoss, self).__init__()
-        assert_(positive_class_weight >= 0,
-            "Positive class weight can't be less than zero, got {}.".format
-            (positive_class_weight), ValueError)
+        assert_(positive_class_weight >= 0, "Positive class weight can't be less than zero, got {}.".format(positive_class_weight), ValueError)
         self.mse = nn.MSELoss(size_average=size_average)
         self.positive_class_weight = positive_class_weight
         self.positive_class_value = positive_class_value
 
     def forward(self, input, target):
-        positive_class_mask = target.data.eq(self.positive_class_value
-            ).type_as(target.data)
-        weight_differential = positive_class_mask.mul_(self.
-            positive_class_weight - self.NEGATIVE_CLASS_WEIGHT)
+        positive_class_mask = target.data.eq(self.positive_class_value).type_as(target.data)
+        weight_differential = positive_class_mask.mul_(self.positive_class_weight - self.NEGATIVE_CLASS_WEIGHT)
         weights = weight_differential.add_(self.NEGATIVE_CLASS_WEIGHT)
         sqrt_weights = weights.sqrt_()
         return self.mse(input * sqrt_weights, target * sqrt_weights)
@@ -895,8 +818,7 @@ def build_criterion(criterion, *args, **kwargs):
             criterion_class = getattr(module, criterion, None)
             if criterion_class is not None:
                 break
-        assert criterion_class is not None, 'Criterion {} not found.'.format(
-            criterion)
+        assert criterion_class is not None, 'Criterion {} not found.'.format(criterion)
     elif callable(criterion) and isinstance(criterion, type):
         criterion_class = criterion
     elif isinstance(criterion, torch.nn.Module):
@@ -936,15 +858,11 @@ class RegularizedLoss(nn.Module):
     def forward(self, *args, trainer=None, model=None, **kwargs):
         main_loss = self.criterion(*args, **kwargs)
         if trainer is None:
-            warnings.warn(
-                'No trainer parameter provided. Not logging regularization losses.'
-                )
+            warnings.warn('No trainer parameter provided. Not logging regularization losses.')
         elif model is None:
             model = trainer.model
         if model is None:
-            warnings.warn(
-                'No model or trainer parameter provided. Not calculating regularization losses.'
-                )
+            warnings.warn('No model or trainer parameter provided. Not calculating regularization losses.')
             regularization_losses = {}
             total_regularization_loss = None
             total_loss = main_loss
@@ -959,8 +877,7 @@ class RegularizedLoss(nn.Module):
                 prefix = 'validation'
             updates = {'{}_main_loss'.format(prefix): main_loss}
             if total_regularization_loss is not None:
-                updates['{}_total_regularization_loss'.format(prefix)
-                    ] = total_regularization_loss
+                updates['{}_total_regularization_loss'.format(prefix)] = total_regularization_loss
             for k, v in regularization_losses.items():
                 updates['{}_{}'.format(prefix, k)] = v
             trainer.update_state_from_dictionary(updates)
@@ -976,9 +893,7 @@ def flatten_samples(input_):
         (N, C) --> (C, N)
     The input must be atleast 2d.
     """
-    assert_(input_.dim() >= 2,
-        'Tensor or variable must be atleast 2D. Got one of dim {}.'.format(
-        input_.dim()), ShapeError)
+    assert_(input_.dim() >= 2, 'Tensor or variable must be atleast 2D. Got one of dim {}.'.format(input_.dim()), ShapeError)
     num_channels = input_.size(1)
     permute_axes = list(range(input_.dim()))
     permute_axes[0], permute_axes[1] = permute_axes[1], permute_axes[0]
@@ -1026,8 +941,7 @@ class SorensenDiceLoss(nn.Module):
             target = flatten_samples(target)
             numerator = (input * target).sum(-1)
             denominator = (input * input).sum(-1) + (target * target).sum(-1)
-            channelwise_loss = -2 * (numerator / denominator.clamp(min=self
-                .eps))
+            channelwise_loss = -2 * (numerator / denominator.clamp(min=self.eps))
             if self.weight is not None:
                 if channelwise_loss.dim() == 2:
                     channelwise_loss = channelwise_loss.squeeze(1)
@@ -1065,8 +979,7 @@ class GeneralizedDiceLoss(nn.Module):
             input = flatten_samples(input)
             target = flatten_samples(target)
             sum_targets = target.sum(-1)
-            class_weigths = 1.0 / (sum_targets * sum_targets).clamp(min=
-                self.eps)
+            class_weigths = 1.0 / (sum_targets * sum_targets).clamp(min=self.eps)
             numer = ((input * target).sum(-1) * class_weigths).sum()
             denom = ((input + target).sum(-1) * class_weigths).sum()
             loss = 1.0 - 2.0 * numer / denom.clamp(min=self.eps)
@@ -1078,16 +991,14 @@ class GeneralizedDiceLoss(nn.Module):
                 num_channels = tensor.size(1)
                 num_classes = tensor.size(2)
                 permute_axes = list(range(tensor_dim))
-                permute_axes[0], permute_axes[1], permute_axes[2
-                    ] = permute_axes[1], permute_axes[2], permute_axes[0]
+                permute_axes[0], permute_axes[1], permute_axes[2] = permute_axes[1], permute_axes[2], permute_axes[0]
                 permuted = tensor.permute(*permute_axes).contiguous()
                 flattened = permuted.view(num_channels, num_classes, -1)
                 return flattened
             input = flatten_and_preserve_channels(input)
             target = flatten_and_preserve_channels(target)
             sum_targets = target.sum(-1)
-            class_weigths = 1.0 / (sum_targets * sum_targets).clamp(min=
-                self.eps)
+            class_weigths = 1.0 / (sum_targets * sum_targets).clamp(min=self.eps)
             numer = ((input * target).sum(-1) * class_weigths).sum(-1)
             denom = ((input + target).sum(-1) * class_weigths).sum(-1)
             channelwise_loss = 1.0 - 2.0 * numer / denom.clamp(min=self.eps)
@@ -1123,9 +1034,7 @@ def where(condition, if_true, if_false):
     AssertionError
         if if_true and if_false don't have the same datatype.
     """
-    assert if_true.type() == if_false.type(
-        ), 'Type mismatch: {} and {}'.format(if_true.data.type(), if_false.
-        data.type())
+    assert if_true.type() == if_false.type(), 'Type mismatch: {} and {}'.format(if_true.data.type(), if_false.data.type())
     casted_condition = condition.type_as(if_true)
     output = casted_condition * if_true + (1 - casted_condition) * if_false
     return output
@@ -1147,9 +1056,7 @@ class Initializer(object):
     """
     Base class for all initializers.
     """
-    VALID_LAYERS = {'Conv1d', 'Conv2d', 'Conv3d', 'ConvTranspose1d',
-        'ConvTranspose2d', 'ConvTranspose3d', 'Linear', 'Bilinear', 'Embedding'
-        }
+    VALID_LAYERS = {'Conv1d', 'Conv2d', 'Conv3d', 'ConvTranspose1d', 'ConvTranspose2d', 'ConvTranspose3d', 'Linear', 'Bilinear', 'Embedding'}
 
     def __call__(self, module):
         module_class_name = module.__class__.__name__
@@ -1177,54 +1084,35 @@ class Initializer(object):
 
     @classmethod
     def initializes_weight(cls):
-        return ('call_on_tensor' in cls.__dict__ or 'call_on_weight' in cls
-            .__dict__)
+        return 'call_on_tensor' in cls.__dict__ or 'call_on_weight' in cls.__dict__
 
     @classmethod
     def initializes_bias(cls):
-        return ('call_on_tensor' in cls.__dict__ or 'call_on_bias' in cls.
-            __dict__)
+        return 'call_on_tensor' in cls.__dict__ or 'call_on_bias' in cls.__dict__
 
 
 class ConvActivation(nn.Module):
     """Convolutional layer with 'SAME' padding by default followed by an activation."""
 
-    def __init__(self, in_channels, out_channels, kernel_size, dim,
-        activation, stride=1, dilation=1, groups=None, depthwise=False,
-        bias=True, deconv=False, initialization=None, valid_conv=False):
+    def __init__(self, in_channels, out_channels, kernel_size, dim, activation, stride=1, dilation=1, groups=None, depthwise=False, bias=True, deconv=False, initialization=None, valid_conv=False):
         super(ConvActivation, self).__init__()
-        assert_(dim in [1, 2, 3], '`dim` must be one of [1, 2, 3], got {}.'
-            .format(dim), ShapeError)
+        assert_(dim in [1, 2, 3], '`dim` must be one of [1, 2, 3], got {}.'.format(dim), ShapeError)
         self.dim = dim
         if depthwise:
-            out_channels = in_channels if out_channels in [None, 'auto'
-                ] else out_channel
-            assert_(in_channels == out_channels,
-                'For depthwise convolutions, number of input channels (given: {}) must equal the number of output channels (given {}).'
-                .format(in_channels, out_channels), ValueError)
-            assert_(groups is None or groups == in_channels,
-                'For depthwise convolutions, groups (given: {}) must equal the number of channels (given: {}).'
-                .format(groups, in_channels))
+            out_channels = in_channels if out_channels in [None, 'auto'] else out_channel
+            assert_(in_channels == out_channels, 'For depthwise convolutions, number of input channels (given: {}) must equal the number of output channels (given {}).'.format(in_channels, out_channels), ValueError)
+            assert_(groups is None or groups == in_channels, 'For depthwise convolutions, groups (given: {}) must equal the number of channels (given: {}).'.format(groups, in_channels))
             groups = in_channels
         else:
             groups = 1 if groups is None else groups
         self.depthwise = depthwise
         if valid_conv:
-            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels
-                =in_channels, out_channels=out_channels, kernel_size=
-                kernel_size, stride=stride, dilation=dilation, groups=
-                groups, bias=bias)
+            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, dilation=dilation, groups=groups, bias=bias)
         elif not deconv:
             padding = self.get_padding(kernel_size, dilation)
-            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels
-                =in_channels, out_channels=out_channels, kernel_size=
-                kernel_size, padding=padding, stride=stride, dilation=
-                dilation, groups=groups, bias=bias)
+            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, stride=stride, dilation=dilation, groups=groups, bias=bias)
         else:
-            self.conv = getattr(nn, 'ConvTranspose{}d'.format(self.dim))(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=stride, dilation=dilation,
-                groups=groups, bias=bias)
+            self.conv = getattr(nn, 'ConvTranspose{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, dilation=dilation, groups=groups, bias=bias)
         if initialization is None:
             pass
         elif isinstance(initialization, Initializer):
@@ -1265,8 +1153,7 @@ class ConvActivation(nn.Module):
     def get_padding(self, kernel_size, dilation):
         kernel_size = self._pair_or_triplet(kernel_size)
         dilation = self._pair_or_triplet(dilation)
-        padding = [self._get_padding(_kernel_size, _dilation) for 
-            _kernel_size, _dilation in zip(kernel_size, dilation)]
+        padding = [self._get_padding(_kernel_size, _dilation) for _kernel_size, _dilation in zip(kernel_size, dilation)]
         return tuple(padding)
 
 
@@ -1275,8 +1162,7 @@ class GlobalConv2D(nn.Module):
     Main idea: we can have a bigger kernel size computationally acceptable
     if we separate 2D-conv in 2 1D-convs """
 
-    def __init__(self, in_channels, out_channels, kernel_size,
-        local_conv_type, activation=None, use_BN=False, **kwargs):
+    def __init__(self, in_channels, out_channels, kernel_size, local_conv_type, activation=None, use_BN=False, **kwargs):
         super(GlobalConv2D, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -1285,18 +1171,10 @@ class GlobalConv2D(nn.Module):
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * 2
         self.kwargs = kwargs
-        self.conv1a = local_conv_type(in_channels=self.in_channels,
-            out_channels=self.out_channels, kernel_size=(kernel_size[0], 1),
-            **kwargs)
-        self.conv1b = local_conv_type(in_channels=self.out_channels,
-            out_channels=self.out_channels, kernel_size=(1, kernel_size[1]),
-            **kwargs)
-        self.conv2a = local_conv_type(in_channels=self.in_channels,
-            out_channels=self.out_channels, kernel_size=(1, kernel_size[1]),
-            **kwargs)
-        self.conv2b = local_conv_type(in_channels=self.out_channels,
-            out_channels=self.out_channels, kernel_size=(kernel_size[0], 1),
-            **kwargs)
+        self.conv1a = local_conv_type(in_channels=self.in_channels, out_channels=self.out_channels, kernel_size=(kernel_size[0], 1), **kwargs)
+        self.conv1b = local_conv_type(in_channels=self.out_channels, out_channels=self.out_channels, kernel_size=(1, kernel_size[1]), **kwargs)
+        self.conv2a = local_conv_type(in_channels=self.in_channels, out_channels=self.out_channels, kernel_size=(1, kernel_size[1]), **kwargs)
+        self.conv2b = local_conv_type(in_channels=self.out_channels, out_channels=self.out_channels, kernel_size=(kernel_size[0], 1), **kwargs)
         if use_BN:
             self.batchnorm = nn.BatchNorm2d(self.out_channels)
         else:
@@ -1361,12 +1239,9 @@ class DeviceTransfer(nn.Module):
             Whether to use asynchronous transfers.
         """
         super(DeviceTransfer, self).__init__()
-        assert_(target_device in ['cpu', 'cuda'],
-            "Target device must either be 'cpu' or 'cuda'.", DeviceError)
+        assert_(target_device in ['cpu', 'cuda'], "Target device must either be 'cpu' or 'cuda'.", DeviceError)
         if target_device == 'cpu':
-            assert_(device_ordinal is None,
-                "'device_ordinal' must be None if target_device is 'cpu'.",
-                DeviceError)
+            assert_(device_ordinal is None, "'device_ordinal' must be None if target_device is 'cpu'.", DeviceError)
         self.target_device = target_device
         self.device_ordinal = device_ordinal
 
@@ -1391,8 +1266,7 @@ class OnDevice(nn.Module):
     parallelism.
     """
 
-    def __init__(self, module, target_device, device_ordinal=None,
-        asynchronous=False):
+    def __init__(self, module, target_device, device_ordinal=None, asynchronous=False):
         """
         Parameters
         ----------
@@ -1406,17 +1280,13 @@ class OnDevice(nn.Module):
             Whether to use asynchronous transfers.
         """
         super(OnDevice, self).__init__()
-        assert_(target_device in ['cpu', 'cuda'],
-            "Target device must either be 'cpu' or 'cuda'.", DeviceError)
+        assert_(target_device in ['cpu', 'cuda'], "Target device must either be 'cpu' or 'cuda'.", DeviceError)
         if target_device == 'cpu':
-            assert_(device_ordinal is None,
-                "'device_ordinal' must be None if target_device is 'cpu'.",
-                DeviceError)
+            assert_(device_ordinal is None, "'device_ordinal' must be None if target_device is 'cpu'.", DeviceError)
         self.target_device = target_device
         self.device_ordinal = device_ordinal
         self.asynchronous = asynchronous
-        self.device_transfer = DeviceTransfer(self.target_device,
-            device_ordinal=self.device_ordinal, asynchronous=self.asynchronous)
+        self.device_transfer = DeviceTransfer(self.target_device, device_ordinal=self.device_ordinal, asynchronous=self.asynchronous)
         self.module = self.transfer_module(module)
 
     def transfer_module(self, module):
@@ -1444,13 +1314,10 @@ class Identity(nn.Module):
 
 class BatchNormND(nn.Module):
 
-    def __init__(self, dim, num_features, eps=1e-05, momentum=0.1, affine=
-        True, track_running_stats=True):
+    def __init__(self, dim, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
         super(BatchNormND, self).__init__()
         assert dim in [1, 2, 3]
-        self.bn = getattr(nn, 'BatchNorm{}d'.format(dim))(num_features=
-            num_features, eps=eps, momentum=momentum, affine=affine,
-            track_running_stats=track_running_stats)
+        self.bn = getattr(nn, 'BatchNorm{}d'.format(dim))(num_features=num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
 
     def forward(self, x):
         return self.bn(x)
@@ -1464,18 +1331,15 @@ class View(nn.Module):
 
     def validate_as_shape(self, as_shape):
         assert all([(isinstance(_s, int) or _s == 'x') for _s in as_shape])
-        all_int_indices = [_n for _n, _s in enumerate(as_shape) if
-            isinstance(_s, int)]
+        all_int_indices = [_n for _n, _s in enumerate(as_shape) if isinstance(_s, int)]
         if all_int_indices:
             first_int_at_index = all_int_indices[0]
-            assert all([isinstance(_s, int) for _s in as_shape[
-                first_int_at_index:]])
+            assert all([isinstance(_s, int) for _s in as_shape[first_int_at_index:]])
         return as_shape
 
     def forward(self, input):
         input_shape = list(input.size())
-        reshaped_shape = [(_s if isinstance(_s, int) else input_shape[_n]) for
-            _n, _s in enumerate(self.as_shape)]
+        reshaped_shape = [(_s if isinstance(_s, int) else input_shape[_n]) for _n, _s in enumerate(self.as_shape)]
         output = input.view(*reshaped_shape)
         return output
 
@@ -1492,16 +1356,12 @@ class As3D(nn.Module):
             return input
         elif input.dim() == 4:
             b, c, _0, _1 = list(input.size())
-            assert_(c % self.num_channels_or_num_z_slices == 0,
-                'Number of channels of the 4D image tensor (= {}) must be divisible by the set number of channels or number of z slices of the 5D volume tensor (= {}).'
-                .format(c, self.num_channels_or_num_z_slices), ShapeError)
+            assert_(c % self.num_channels_or_num_z_slices == 0, 'Number of channels of the 4D image tensor (= {}) must be divisible by the set number of channels or number of z slices of the 5D volume tensor (= {}).'.format(c, self.num_channels_or_num_z_slices), ShapeError)
             c //= self.num_channels_or_num_z_slices
             if self.channel_as_z:
-                return input.view(b, self.num_channels_or_num_z_slices, c,
-                    _0, _1)
+                return input.view(b, self.num_channels_or_num_z_slices, c, _0, _1)
             else:
-                return input.view(b, c, self.num_channels_or_num_z_slices,
-                    _0, _1)
+                return input.view(b, c, self.num_channels_or_num_z_slices, _0, _1)
         elif input.dim() == 2:
             b, c = list(input.size())
             return input.view(b, c, 1, 1, 1)
@@ -1545,32 +1405,24 @@ class ResizeAndConcatenate(nn.Module):
     them along the a given dim (channel, i.e. 1 by default). The down-sampling mode can
     be specified ('average' or 'max'), but the up-sampling is always 'nearest'.
     """
-    POOL_MODE_MAPPING = {'avg': 'avg', 'average': 'avg', 'mean': 'avg',
-        'max': 'max'}
+    POOL_MODE_MAPPING = {'avg': 'avg', 'average': 'avg', 'mean': 'avg', 'max': 'max'}
 
     def __init__(self, target_size, pool_mode='average', dim=1):
         super(ResizeAndConcatenate, self).__init__()
         self.target_size = target_size
-        assert_(pool_mode in self.POOL_MODE_MAPPING.keys(),
-            '`pool_mode` must be one of {}, got {} instead.'.format(self.
-            POOL_MODE_MAPPING.keys(), pool_mode), ValueError)
+        assert_(pool_mode in self.POOL_MODE_MAPPING.keys(), '`pool_mode` must be one of {}, got {} instead.'.format(self.POOL_MODE_MAPPING.keys(), pool_mode), ValueError)
         self.pool_mode = self.POOL_MODE_MAPPING.get(pool_mode)
         self.dim = dim
 
     def forward(self, *inputs):
         dim = inputs[0].dim()
-        assert_(dim in [4, 5],
-            'Input tensors must either be 4 or 5 dimensional, but inputs[0] is {}D.'
-            .format(dim), ShapeError)
+        assert_(dim in [4, 5], 'Input tensors must either be 4 or 5 dimensional, but inputs[0] is {}D.'.format(dim), ShapeError)
         spatial_dim = {(4): 2, (5): 3}[dim]
-        resize_function = getattr(F, 'adaptive_{}_pool{}d'.format(self.
-            pool_mode, spatial_dim))
+        resize_function = getattr(F, 'adaptive_{}_pool{}d'.format(self.pool_mode, spatial_dim))
         target_size = pyu.as_tuple_of_len(self.target_size, spatial_dim)
         resized_inputs = []
         for input_num, input in enumerate(inputs):
-            assert_(input.dim() == dim,
-                'Expected inputs[{}] to be a {}D tensor, got a {}D tensor instead.'
-                .format(input_num, dim, input.dim()), ShapeError)
+            assert_(input.dim() == dim, 'Expected inputs[{}] to be a {}D tensor, got a {}D tensor instead.'.format(input_num, dim, input.dim()), ShapeError)
             resized_inputs.append(resize_function(input, target_size))
         if len(resized_inputs) > 1:
             concatenated = torch.cat(tuple(resized_inputs), self.dim)
@@ -1624,9 +1476,7 @@ class RemoveSingletonDimension(nn.Module):
     def forward(self, x):
         size = list(x.size())
         if size[self.dim] != 1:
-            raise RuntimeError(
-                'RemoveSingletonDimension expects a single channel at dim %d, shape=%s'
-                 % (self.dim, str(size)))
+            raise RuntimeError('RemoveSingletonDimension expects a single channel at dim %d, shape=%s' % (self.dim, str(size)))
         slicing = []
         for s in size:
             slicing.append(slice(0, s))
@@ -1636,8 +1486,7 @@ class RemoveSingletonDimension(nn.Module):
 
 class Upsample(nn.Module):
 
-    def __init__(self, size=None, scale_factor=None, mode='nearest',
-        align_corners=None):
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None):
         self.size = size
         self.scale_factor = scale_factor
         self.mode = mode
@@ -1647,13 +1496,11 @@ class Upsample(nn.Module):
             self.have_interpolate = True
         else:
             self.have_interpolate = False
-            self.sampler = nn.Upsample(size=size, scale_factor=scale_factor,
-                mode=mode, align_corners=align_corners)
+            self.sampler = nn.Upsample(size=size, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
 
     def forward(self, input):
         if self.have_interpolate:
-            return nn.functional.interpolate(input, self.size, self.
-                scale_factor, self.mode, self.align_corners)
+            return nn.functional.interpolate(input, self.size, self.scale_factor, self.mode, self.align_corners)
         else:
             return self.sampler(input)
 
@@ -1668,8 +1515,7 @@ class AnisotropicUpsample(nn.Module):
         N, C, D, H, W = input.size()
         folded = input.view(N, C * D, H, W)
         upsampled = self.upsampler(folded)
-        unfolded = upsampled.view(N, C, D, self.upsampler.scale_factor * H,
-            self.upsampler.scale_factor * W)
+        unfolded = upsampled.view(N, C, D, self.upsampler.scale_factor * H, self.upsampler.scale_factor * W)
         return unfolded
 
 
@@ -1677,8 +1523,7 @@ class AnisotropicPool(nn.MaxPool3d):
 
     def __init__(self, downscale_factor):
         ds = downscale_factor
-        super(AnisotropicPool, self).__init__(kernel_size=(1, ds + 1, ds + 
-            1), stride=(1, ds, ds), padding=(0, 1, 1))
+        super(AnisotropicPool, self).__init__(kernel_size=(1, ds + 1, ds + 1), stride=(1, ds, ds), padding=(0, 1, 1))
 
 
 class AnisotropicUpsample2D(nn.Module):
@@ -1699,14 +1544,12 @@ class AnisotropicPool2D(nn.MaxPool2d):
 
     def __init__(self, downscale_factor):
         ds = downscale_factor
-        super(AnisotropicPool2D, self).__init__(kernel_size=(1, ds + 1),
-            stride=(1, ds), padding=(0, 1))
+        super(AnisotropicPool2D, self).__init__(kernel_size=(1, ds + 1), stride=(1, ds), padding=(0, 1))
 
 
 class _ResBlockBase(nn.Module):
 
-    def __init__(self, in_channels, out_channels, dim, size=2,
-        force_skip_op=False, activated=True):
+    def __init__(self, in_channels, out_channels, dim, size=2, force_skip_op=False, activated=True):
         super(_ResBlockBase, self).__init__()
         self.in_channels = int(in_channels)
         self.out_channels = int(out_channels)
@@ -1715,17 +1558,14 @@ class _ResBlockBase(nn.Module):
         self.force_skip_op = bool(force_skip_op)
         self.dim = int(dim)
         if self.in_channels != self.out_channels or self.force_skip_op:
-            self.activated_skip_op = self.activated_skip_op_factory(in_channels
-                =self.in_channels, out_channels=self.out_channels)
+            self.activated_skip_op = self.activated_skip_op_factory(in_channels=self.in_channels, out_channels=self.out_channels)
         conv_ops = []
         activation_ops = []
         for i in range(self.size):
             if i == 0:
-                op = self.nonactivated_conv_op_factory(in_channels=self.
-                    out_channels, out_channels=self.out_channels, index=i)
+                op = self.nonactivated_conv_op_factory(in_channels=self.out_channels, out_channels=self.out_channels, index=i)
             else:
-                op = self.nonactivated_conv_op_factory(in_channels=self.
-                    out_channels, out_channels=self.out_channels, index=i)
+                op = self.nonactivated_conv_op_factory(in_channels=self.out_channels, out_channels=self.out_channels, index=i)
             conv_ops.append(op)
             if i < self.size or self.activated:
                 activation_ops.append(self.activation_op_factory(index=i))
@@ -1733,25 +1573,19 @@ class _ResBlockBase(nn.Module):
         self.activation_ops = nn.ModuleList(activation_ops)
 
     def activated_skip_op_factory(self, in_channels, out_channels):
-        raise NotImplementedError(
-            'activated_skip_op_factory need to be implemented by deriving class'
-            )
+        raise NotImplementedError('activated_skip_op_factory need to be implemented by deriving class')
 
     def nonactivated_conv_op_factory(self, in_channels, out_channels, index):
-        raise NotImplementedError(
-            'conv_op_factory need to be implemented by deriving class')
+        raise NotImplementedError('conv_op_factory need to be implemented by deriving class')
 
     def activation_op_factory(self, index):
         return nn.ReLU()
 
     def forward(self, input):
         if input.size(1) != self.in_channels:
-            raise RuntimeError(
-                'wrong number of channels: expected %d, got %d' % (self.
-                in_channels, input.size(1)))
+            raise RuntimeError('wrong number of channels: expected %d, got %d' % (self.in_channels, input.size(1)))
         if input.dim() != self.dim + 2:
-            raise RuntimeError('wrong number of dim: expected %d, got %d' %
-                (self.dim + 2, input.dim()))
+            raise RuntimeError('wrong number of dim: expected %d, got %d' % (self.dim + 2, input.dim()))
         if self.in_channels != self.out_channels or self.force_skip_op:
             skip_res = self.activated_skip_op(input)
         else:
@@ -1823,15 +1657,13 @@ class UNetBase(nn.Module):
             Otherwise the results are concatenated (default: False).
     """
 
-    def __init__(self, in_channels, dim, out_channels=None, depth=3, gain=2,
-        residual=False, upsample_mode=None, p_dropout=None):
+    def __init__(self, in_channels, dim, out_channels=None, depth=3, gain=2, residual=False, upsample_mode=None, p_dropout=None):
         super(UNetBase, self).__init__()
         if dim not in [2, 3]:
             raise RuntimeError('UNetBase is only implemented for 2D and 3D')
         self.in_channels = int(in_channels)
         self.dim = int(dim)
-        self.out_channels = self.in_channels if out_channels is None else int(
-            out_channels)
+        self.out_channels = self.in_channels if out_channels is None else int(out_channels)
         self.depth = int(depth)
         self.gain = int(gain)
         self.residual = bool(residual)
@@ -1851,28 +1683,21 @@ class UNetBase(nn.Module):
         self._pre_conv_bottom_ops = None
         self._post_conv_bottom_ops = None
         self._conv_bottom_op = None
-        self._upsample_kwargs = self._make_upsample_kwargs(upsample_mode=
-            upsample_mode)
+        self._upsample_kwargs = self._make_upsample_kwargs(upsample_mode=upsample_mode)
         if self.p_dropout is not None:
             self.use_dropout = True
             if self.dim == 2:
-                self._channel_dropout_op = self.torch.nn.Dropout2d(p=float(
-                    self.p_dropout), inplace=False)
+                self._channel_dropout_op = self.torch.nn.Dropout2d(p=float(self.p_dropout), inplace=False)
             else:
-                self._channel_dropout_op = self.torch.nn.Dropout3d(p=float(
-                    self.p_dropout), inplace=False)
+                self._channel_dropout_op = self.torch.nn.Dropout3d(p=float(self.p_dropout), inplace=False)
         else:
             self.use_dropout = False
         self._init__downstream()
-        self._downsample_ops = nn.ModuleList([self.downsample_op_factory(i) for
-            i in range(depth)])
-        self._upsample_ops = nn.ModuleList([self.upsample_op_factory(depth -
-            i - 1) for i in range(depth)])
+        self._downsample_ops = nn.ModuleList([self.downsample_op_factory(i) for i in range(depth)])
+        self._upsample_ops = nn.ModuleList([self.upsample_op_factory(depth - i - 1) for i in range(depth)])
         self._init__bottom()
         self._init__upstream()
-        assert len(self.n_channels_per_output) == self._store_conv_down.count(
-            True) + self._store_conv_up.count(True) + int(self.
-            _store_conv_bottom)
+        assert len(self.n_channels_per_output) == self._store_conv_down.count(True) + self._store_conv_up.count(True) + int(self._store_conv_bottom)
 
     def _get_num_channels(self, depth):
         assert depth > 0
@@ -1884,9 +1709,7 @@ class UNetBase(nn.Module):
         current_in_channels = self.in_channels
         for i in range(self.depth):
             out_channels = self._get_num_channels(i + 1)
-            op, return_op_res = self.conv_op_factory(in_channels=
-                current_in_channels, out_channels=out_channels, part='down',
-                index=i)
+            op, return_op_res = self.conv_op_factory(in_channels=current_in_channels, out_channels=out_channels, part='down', index=i)
             conv_down_ops.append(op)
             if return_op_res:
                 self.n_channels_per_output.append(out_channels)
@@ -1899,8 +1722,7 @@ class UNetBase(nn.Module):
 
     def _init__bottom(self):
         current_in_channels = self._get_num_channels(self.depth)
-        factory_res = self.conv_op_factory(in_channels=current_in_channels,
-            out_channels=current_in_channels, part='bottom', index=0)
+        factory_res = self.conv_op_factory(in_channels=current_in_channels, out_channels=current_in_channels, part='bottom', index=0)
         if isinstance(factory_res, tuple):
             self._conv_bottom_op, self._store_conv_bottom = factory_res
             if self._store_conv_bottom:
@@ -1913,12 +1735,9 @@ class UNetBase(nn.Module):
         conv_up_ops = []
         current_in_channels = self._get_num_channels(self.depth)
         for i in range(self.depth):
-            out_channels = (self.out_channels if i + 1 == self.depth else
-                self._get_num_channels(self.depth - i - 1))
+            out_channels = self.out_channels if i + 1 == self.depth else self._get_num_channels(self.depth - i - 1)
             fac = 1 if self.residual else 2
-            op, return_op_res = self.conv_op_factory(in_channels=fac *
-                current_in_channels, out_channels=out_channels, part='up',
-                index=self.depth - i - 1)
+            op, return_op_res = self.conv_op_factory(in_channels=fac * current_in_channels, out_channels=out_channels, part='up', index=self.depth - i - 1)
             conv_up_ops.append(op)
             if return_op_res:
                 self.n_channels_per_output.append(out_channels)
@@ -1953,20 +1772,16 @@ class UNetBase(nn.Module):
             raise RuntimeError('tuples of tensors are not supported')
         shape = input.shape
         if shape[1] != self.in_channels:
-            raise RuntimeError(
-                'wrong number of channels: expected %d, got %d' % (self.
-                in_channels, input.size(1)))
+            raise RuntimeError('wrong number of channels: expected %d, got %d' % (self.in_channels, input.size(1)))
         if input.dim() != self.dim + 2:
-            raise RuntimeError('wrong number of dim: expected %d, got %d' %
-                (self.dim + 2, input.dim()))
+            raise RuntimeError('wrong number of dim: expected %d, got %d' % (self.dim + 2, input.dim()))
         self._check_scaling(input)
 
     def _check_scaling(self, input):
         shape = input.shape
         mx = max_allowed_ds_steps(shape=shape[2:2 + self.dim], factor=2)
         if mx < self.depth:
-            raise RuntimeError('cannot downsample %d times, with shape %s' %
-                (self.depth, str(input.size())))
+            raise RuntimeError('cannot downsample %d times, with shape %s' % (self.depth, str(input.size())))
 
     def forward(self, input):
         self._forward_sanity_check(input=input)
@@ -2006,8 +1821,7 @@ class UNetBase(nn.Module):
         return InfernoUpsample(**self._upsample_kwargs)
 
     def conv_op_factory(self, in_channels, out_channels, part, index):
-        raise NotImplementedError(
-            'conv_op_factory need to be implemented by deriving class')
+        raise NotImplementedError('conv_op_factory need to be implemented by deriving class')
 
     def _dropout(self, x):
         if self.use_dropout:
@@ -2020,51 +1834,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_inferno_pytorch_inferno(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(As2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (As2D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (As3D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNormND,
+     lambda: ([], {'dim': 1, 'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GeneralizedDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RegularizedLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SELU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Sequential1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SorensenDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Squeeze,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (View,
+     lambda: ([], {'as_shape': [4, 4]}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (WeightedMSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_inferno_pytorch_inferno(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(As3D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BatchNormND(*[], **{'dim': 1, 'num_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GlobalConv2D(*[], **{'in_channels': _mock_layer, 'out_channels': 4, 'kernel_size': 4, 'local_conv_type': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(RegularizedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(SELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Sequential1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(SorensenDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(View(*[], **{'as_shape': [4, 4]}), [torch.rand([4, 4])], {})
-
-    @_fails_compile()
-    def test_012(self):
-        self._check(WeightedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 

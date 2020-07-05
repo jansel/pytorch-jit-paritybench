@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -89,20 +90,17 @@ class ProdLDA(nn.Module):
         posterior_mean = self.mean_bn(self.mean_fc(en2))
         posterior_logvar = self.logvar_bn(self.logvar_fc(en2))
         posterior_var = posterior_logvar.exp()
-        eps = Variable(input.data.new().resize_as_(posterior_mean.data).
-            normal_())
+        eps = Variable(input.data.new().resize_as_(posterior_mean.data).normal_())
         z = posterior_mean + posterior_var.sqrt() * eps
         p = F.softmax(z)
         p = self.p_drop(p)
         recon = F.softmax(self.decoder_bn(self.decoder(p)))
         if compute_loss:
-            return recon, self.loss(input, recon, posterior_mean,
-                posterior_logvar, posterior_var, avg_loss)
+            return recon, self.loss(input, recon, posterior_mean, posterior_logvar, posterior_var, avg_loss)
         else:
             return recon
 
-    def loss(self, input, recon, posterior_mean, posterior_logvar,
-        posterior_var, avg=True):
+    def loss(self, input, recon, posterior_mean, posterior_logvar, posterior_var, avg=True):
         NL = -(input * (recon + 1e-10).log()).sum(1)
         prior_mean = Variable(self.prior_mean).expand_as(posterior_mean)
         prior_var = Variable(self.prior_var).expand_as(posterior_mean)
@@ -111,18 +109,10 @@ class ProdLDA(nn.Module):
         diff = posterior_mean - prior_mean
         diff_term = diff * diff / prior_var
         logvar_division = prior_logvar - posterior_logvar
-        KLD = 0.5 * ((var_division + diff_term + logvar_division).sum(1) -
-            self.net_arch.num_topic)
+        KLD = 0.5 * ((var_division + diff_term + logvar_division).sum(1) - self.net_arch.num_topic)
         loss = NL + KLD
         if avg:
             return loss.mean()
         else:
             return loss
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_hyqneuron_pytorch_avitm(_paritybench_base):
-    pass

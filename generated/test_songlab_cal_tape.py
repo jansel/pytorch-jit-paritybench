@@ -38,8 +38,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -149,29 +150,23 @@ class ProteinBertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
-        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
+        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None, position_ids=None):
         seq_length = input_ids.size(1)
         if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long,
-                device=input_ids.device)
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
             position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -182,23 +177,18 @@ class ProteinBertSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.output_attentions = config.output_attentions
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -209,20 +199,16 @@ class ProteinBertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
-        outputs = (context_layer, attention_probs
-            ) if self.output_attentions else (context_layer,)
+        outputs = (context_layer, attention_probs) if self.output_attentions else (context_layer,)
         return outputs
 
 
@@ -231,8 +217,7 @@ class ProteinBertSelfOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -256,8 +241,7 @@ def prune_linear_layer(layer, index, dim=0):
             b = layer.bias[index].clone().detach()
     new_size = list(layer.weight.size())
     new_size[dim] = len(index)
-    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None
-        ).to(layer.weight.device)
+    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
     new_layer.weight.requires_grad = False
     new_layer.weight.copy_(W.contiguous())
     new_layer.weight.requires_grad = True
@@ -278,8 +262,7 @@ class ProteinBertAttention(nn.Module):
     def prune_heads(self, heads):
         if len(heads) == 0:
             return
-        mask = torch.ones(self.self.num_attention_heads, self.self.
-            attention_head_size)
+        mask = torch.ones(self.self.num_attention_heads, self.self.attention_head_size)
         for head in heads:
             mask[head] = 0
         mask = mask.view(-1).contiguous().eq(1)
@@ -288,10 +271,8 @@ class ProteinBertAttention(nn.Module):
         self.self.key = prune_linear_layer(self.self.key, index)
         self.self.value = prune_linear_layer(self.self.value, index)
         self.output.dense = prune_linear_layer(self.output.dense, index, dim=1)
-        self.self.num_attention_heads = self.self.num_attention_heads - len(
-            heads)
-        self.self.all_head_size = (self.self.attention_head_size * self.
-            self.num_attention_heads)
+        self.self.num_attention_heads = self.self.num_attention_heads - len(heads)
+        self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
 
     def forward(self, input_tensor, attention_mask):
         self_outputs = self.self(input_tensor, attention_mask)
@@ -346,8 +327,7 @@ class ProteinBertOutput(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -380,8 +360,7 @@ class ProteinBertEncoder(nn.Module):
         super().__init__()
         self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
-        self.layer = nn.ModuleList([ProteinBertLayer(config) for _ in range
-            (config.num_hidden_layers)])
+        self.layer = nn.ModuleList([ProteinBertLayer(config) for _ in range(config.num_hidden_layers)])
 
     def run_function(self, start, chunk_size):
 
@@ -413,8 +392,7 @@ class ProteinBertEncoder(nn.Module):
             assert isinstance(chunks, int)
             chunk_size = (len(self.layer) + chunks - 1) // chunks
             for start in range(0, len(self.layer), chunk_size):
-                outputs = checkpoint(self.run_function(start, chunk_size),
-                    hidden_states, attention_mask)
+                outputs = checkpoint(self.run_function(start, chunk_size), hidden_states, attention_mask)
                 if self.output_hidden_states:
                     all_hidden_states = all_hidden_states + outputs[1]
                 if self.output_attentions:
@@ -574,22 +552,19 @@ def get_from_cache(url, cache_dir=None):
     cache_path = os.path.join(cache_dir, filename)
     if not os.path.exists(cache_path) and etag is None:
         matching_files = fnmatch.filter(os.listdir(cache_dir), filename + '.*')
-        matching_files = list(filter(lambda s: not s.endswith('.json'),
-            matching_files))
+        matching_files = list(filter(lambda s: not s.endswith('.json'), matching_files))
         if matching_files:
             cache_path = os.path.join(cache_dir, matching_files[-1])
     if not os.path.exists(cache_path):
         with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url,
-                temp_file.name)
+            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
             if url.startswith('s3://'):
                 s3_get(url, temp_file)
             else:
                 http_get(url, temp_file)
             temp_file.flush()
             temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path
-                )
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
             with open(cache_path, 'wb') as cache_file:
                 shutil.copyfileobj(temp_file, cache_file)
             logger.info('creating metadata file for %s', cache_path)
@@ -625,8 +600,7 @@ def cached_path(url_or_filename, cache_dir=None):
     elif parsed.scheme == '':
         raise EnvironmentError('file {} not found'.format(url_or_filename))
     else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.
-            format(url_or_filename))
+        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
 
 
 class ProteinConfig(object):
@@ -664,8 +638,7 @@ class ProteinConfig(object):
             can be re-loaded using the :func:`~ProteinConfig.from_pretrained`
             class method.
         """
-        assert os.path.isdir(save_directory
-            ), 'Saving path should be a directory where the model and configuration can be saved'
+        assert os.path.isdir(save_directory), 'Saving path should be a directory where the model and configuration can be saved'
         output_config_file = os.path.join(save_directory, CONFIG_NAME)
         self.to_json_file(output_config_file)
 
@@ -728,33 +701,23 @@ class ProteinConfig(object):
         cache_dir = kwargs.pop('cache_dir', None)
         return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
         if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
-            config_file = cls.pretrained_config_archive_map[
-                pretrained_model_name_or_path]
+            config_file = cls.pretrained_config_archive_map[pretrained_model_name_or_path]
         elif os.path.isdir(pretrained_model_name_or_path):
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         else:
             config_file = pretrained_model_name_or_path
         try:
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            if (pretrained_model_name_or_path in cls.
-                pretrained_config_archive_map):
-                logger.error(
-                    "Couldn't reach server at '{}' to download pretrained model configuration file."
-                    .format(config_file))
+            if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
+                logger.error("Couldn't reach server at '{}' to download pretrained model configuration file.".format(config_file))
             else:
-                logger.error(
-                    "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                    .format(pretrained_model_name_or_path, ', '.join(cls.
-                    pretrained_config_archive_map.keys()), config_file))
+                logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(cls.pretrained_config_archive_map.keys()), config_file))
             return None
         if resolved_config_file == config_file:
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = cls.from_json_file(resolved_config_file)
         to_remove = []
         for key, value in kwargs.items():
@@ -827,11 +790,9 @@ class ProteinResNetBlock(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.conv1 = MaskedConv1d(config.hidden_size, config.hidden_size, 3,
-            padding=1, bias=False)
+        self.conv1 = MaskedConv1d(config.hidden_size, config.hidden_size, 3, padding=1, bias=False)
         self.bn1 = ProteinResNetLayerNorm(config)
-        self.conv2 = MaskedConv1d(config.hidden_size, config.hidden_size, 3,
-            padding=1, bias=False)
+        self.conv2 = MaskedConv1d(config.hidden_size, config.hidden_size, 3, padding=1, bias=False)
         self.bn2 = ProteinResNetLayerNorm(config)
         self.activation_fn = get_activation_fn(config.hidden_act)
 
@@ -854,10 +815,8 @@ class ProteinResNetEmbeddings(nn.Module):
     def __init__(self, config):
         super().__init__()
         embed_dim = config.hidden_size
-        self.word_embeddings = nn.Embedding(config.vocab_size, embed_dim,
-            padding_idx=0)
-        inverse_frequency = 1 / 10000 ** (torch.arange(0.0, embed_dim, 2.0) /
-            embed_dim)
+        self.word_embeddings = nn.Embedding(config.vocab_size, embed_dim, padding_idx=0)
+        inverse_frequency = 1 / 10000 ** (torch.arange(0.0, embed_dim, 2.0) / embed_dim)
         self.register_buffer('inverse_frequency', inverse_frequency)
         self.layer_norm = LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -865,11 +824,9 @@ class ProteinResNetEmbeddings(nn.Module):
     def forward(self, input_ids):
         words_embeddings = self.word_embeddings(input_ids)
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length - 1, -1, -1.0, dtype=
-            words_embeddings.dtype, device=words_embeddings.device)
+        position_ids = torch.arange(seq_length - 1, -1, -1.0, dtype=words_embeddings.dtype, device=words_embeddings.device)
         sinusoidal_input = torch.ger(position_ids, self.inverse_frequency)
-        position_embeddings = torch.cat([sinusoidal_input.sin(),
-            sinusoidal_input.cos()], -1)
+        position_embeddings = torch.cat([sinusoidal_input.sin(), sinusoidal_input.cos()], -1)
         position_embeddings = position_embeddings.unsqueeze(0)
         embeddings = words_embeddings + position_embeddings
         embeddings = self.layer_norm(embeddings)
@@ -890,8 +847,7 @@ class ProteinResNetPooler(nn.Module):
         if mask is not None:
             attention_scores += -10000.0 * (1 - mask)
         attention_weights = torch.softmax(attention_scores, -1)
-        weighted_mean_embedding = torch.matmul(hidden_states.transpose(1, 2
-            ), attention_weights).squeeze(2)
+        weighted_mean_embedding = torch.matmul(hidden_states.transpose(1, 2), attention_weights).squeeze(2)
         pooled_output = self.dense(weighted_mean_embedding)
         pooled_output = self.activation(pooled_output)
         return pooled_output
@@ -902,8 +858,7 @@ class ResNetEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.output_hidden_states = config.output_hidden_states
-        self.layer = nn.ModuleList([ProteinResNetBlock(config) for _ in
-            range(config.num_hidden_layers)])
+        self.layer = nn.ModuleList([ProteinResNetBlock(config) for _ in range(config.num_hidden_layers)])
 
     def forward(self, hidden_states, input_mask=None):
         all_hidden_states = ()
@@ -922,20 +877,13 @@ class ResNetEncoder(nn.Module):
 URL_PREFIX = 'https://s3.amazonaws.com/proteindata/pytorch-models/'
 
 
-TRROSETTA_PRETRAINED_CONFIG_ARCHIVE_MAP = {'xaa': URL_PREFIX +
-    'trRosetta-xaa-config.json', 'xab': URL_PREFIX +
-    'trRosetta-xab-config.json', 'xac': URL_PREFIX +
-    'trRosetta-xac-config.json', 'xad': URL_PREFIX +
-    'trRosetta-xad-config.json', 'xae': URL_PREFIX +
-    'trRosetta-xae-config.json'}
+TRROSETTA_PRETRAINED_CONFIG_ARCHIVE_MAP = {'xaa': URL_PREFIX + 'trRosetta-xaa-config.json', 'xab': URL_PREFIX + 'trRosetta-xab-config.json', 'xac': URL_PREFIX + 'trRosetta-xac-config.json', 'xad': URL_PREFIX + 'trRosetta-xad-config.json', 'xae': URL_PREFIX + 'trRosetta-xae-config.json'}
 
 
 class TRRosettaConfig(ProteinConfig):
     pretrained_config_archive_map = TRROSETTA_PRETRAINED_CONFIG_ARCHIVE_MAP
 
-    def __init__(self, num_features: int=64, kernel_size: int=3, num_layers:
-        int=61, dropout: float=0.15, msa_cutoff: float=0.8, penalty_coeff:
-        float=4.5, initializer_range: float=0.02, **kwargs):
+    def __init__(self, num_features: int=64, kernel_size: int=3, num_layers: int=61, dropout: float=0.15, msa_cutoff: float=0.8, penalty_coeff: float=4.5, initializer_range: float=0.02, **kwargs):
         super().__init__(**kwargs)
         self.num_features = num_features
         self.kernel_size = kernel_size
@@ -971,8 +919,7 @@ class MSAFeatureExtractor(nn.Module):
     def reweight(self, msa1hot, eps=1e-09):
         seqlen = msa1hot.size(2)
         id_min = seqlen * self.msa_cutoff
-        id_mtx = torch.stack([torch.tensordot(el, el, [[1, 2], [1, 2]]) for
-            el in msa1hot], 0)
+        id_mtx = torch.stack([torch.tensordot(el, el, [[1, 2], [1, 2]]) for el in msa1hot], 0)
         id_mask = id_mtx > id_min
         weights = 1.0 / (id_mask.type_as(msa1hot).sum(-1) + eps)
         return weights
@@ -995,33 +942,23 @@ class MSAFeatureExtractor(nn.Module):
         seqlen = msa1hot.size(2)
         num_symbols = 21
         if num_alignments == 1:
-            f2d_dca = torch.zeros(batch_size, seqlen, seqlen, 442, dtype=
-                torch.float, device=msa1hot.device)
+            f2d_dca = torch.zeros(batch_size, seqlen, seqlen, 442, dtype=torch.float, device=msa1hot.device)
             return f2d_dca
         x = msa1hot.view(batch_size, num_alignments, seqlen * num_symbols)
         num_points = weights.sum(1) - weights.mean(1).sqrt()
-        mean = (x * weights.unsqueeze(2)).sum(1, keepdims=True) / num_points[:,
-            (None), (None)]
+        mean = (x * weights.unsqueeze(2)).sum(1, keepdims=True) / num_points[:, (None), (None)]
         x = (x - mean) * weights[:, :, (None)].sqrt()
-        cov = torch.matmul(x.transpose(-1, -2), x) / num_points[:, (None),
-            (None)]
-        reg = torch.eye(seqlen * num_symbols, device=weights.device, dtype=
-            weights.dtype)[None]
-        reg = reg * self.penalty_coeff / weights.sum(1, keepdims=True).sqrt(
-            ).unsqueeze(2)
+        cov = torch.matmul(x.transpose(-1, -2), x) / num_points[:, (None), (None)]
+        reg = torch.eye(seqlen * num_symbols, device=weights.device, dtype=weights.dtype)[None]
+        reg = reg * self.penalty_coeff / weights.sum(1, keepdims=True).sqrt().unsqueeze(2)
         cov_reg = cov + reg
-        inv_cov = torch.stack([torch.inverse(cr) for cr in cov_reg.unbind(0
-            )], 0)
+        inv_cov = torch.stack([torch.inverse(cr) for cr in cov_reg.unbind(0)], 0)
         x1 = inv_cov.view(batch_size, seqlen, num_symbols, seqlen, num_symbols)
         x2 = x1.permute(0, 1, 3, 2, 4)
-        features = x2.reshape(batch_size, seqlen, seqlen, num_symbols *
-            num_symbols)
-        x3 = (x1[:, :, :-1, :, :-1] ** 2).sum((2, 4)).sqrt() * (1 - torch.
-            eye(seqlen, device=weights.device, dtype=weights.dtype)[None])
-        apc = x3.sum(1, keepdims=True) * x3.sum(2, keepdims=True) / x3.sum((
-            1, 2), keepdims=True)
-        contacts = (x3 - apc) * (1 - torch.eye(seqlen, device=x3.device,
-            dtype=x3.dtype).unsqueeze(0))
+        features = x2.reshape(batch_size, seqlen, seqlen, num_symbols * num_symbols)
+        x3 = (x1[:, :, :-1, :, :-1] ** 2).sum((2, 4)).sqrt() * (1 - torch.eye(seqlen, device=weights.device, dtype=weights.dtype)[None])
+        apc = x3.sum(1, keepdims=True) * x3.sum(2, keepdims=True) / x3.sum((1, 2), keepdims=True)
+        contacts = (x3 - apc) * (1 - torch.eye(seqlen, device=x3.device, dtype=x3.dtype).unsqueeze(0))
         f2d_dca = torch.cat([features, contacts[:, :, :, (None)]], axis=3)
         return f2d_dca
 
@@ -1032,17 +969,14 @@ class MSAFeatureExtractor(nn.Module):
 
 class DilatedResidualBlock(nn.Module):
 
-    def __init__(self, num_features: int, kernel_size: int, dilation: int,
-        dropout: float):
+    def __init__(self, num_features: int, kernel_size: int, dilation: int, dropout: float):
         super().__init__()
         padding = self._get_padding(kernel_size, dilation)
-        self.conv1 = nn.Conv2d(num_features, num_features, kernel_size,
-            padding=padding, dilation=dilation)
+        self.conv1 = nn.Conv2d(num_features, num_features, kernel_size, padding=padding, dilation=dilation)
         self.norm1 = nn.InstanceNorm2d(num_features, affine=True, eps=1e-06)
         self.actv1 = nn.ELU(inplace=True)
         self.dropout = nn.Dropout(dropout)
-        self.conv2 = nn.Conv2d(num_features, num_features, kernel_size,
-            padding=padding, dilation=dilation)
+        self.conv2 = nn.Conv2d(num_features, num_features, kernel_size, padding=padding, dilation=dilation)
         self.norm2 = nn.InstanceNorm2d(num_features, affine=True, eps=1e-06)
         self.actv2 = nn.ELU(inplace=True)
         self.apply(self._init_weights)
@@ -1054,8 +988,7 @@ class DilatedResidualBlock(nn.Module):
     def _init_weights(self, module):
         """ Initialize the weights """
         if isinstance(module, nn.Conv2d):
-            nn.init.kaiming_normal_(module.weight, mode='fan_out',
-                nonlinearity='relu')
+            nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
             if module.bias is not None:
                 module.bias.data.zero_()
 
@@ -1076,14 +1009,10 @@ class mLSTMCell(nn.Module):
     def __init__(self, config):
         super().__init__()
         project_size = config.hidden_size * 4
-        self.wmx = weight_norm(nn.Linear(config.input_size, config.
-            hidden_size, bias=False))
-        self.wmh = weight_norm(nn.Linear(config.hidden_size, config.
-            hidden_size, bias=False))
-        self.wx = weight_norm(nn.Linear(config.input_size, project_size,
-            bias=False))
-        self.wh = weight_norm(nn.Linear(config.hidden_size, project_size,
-            bias=True))
+        self.wmx = weight_norm(nn.Linear(config.input_size, config.hidden_size, bias=False))
+        self.wmh = weight_norm(nn.Linear(config.hidden_size, config.hidden_size, bias=False))
+        self.wx = weight_norm(nn.Linear(config.input_size, project_size, bias=False))
+        self.wh = weight_norm(nn.Linear(config.hidden_size, project_size, bias=True))
 
     def forward(self, inputs, state):
         h_prev, c_prev = state
@@ -1110,13 +1039,11 @@ class mLSTM(nn.Module):
         batch_size = inputs.size(0)
         seqlen = inputs.size(1)
         if mask is None:
-            mask = torch.ones(batch_size, seqlen, 1, dtype=inputs.dtype,
-                device=inputs.device)
+            mask = torch.ones(batch_size, seqlen, 1, dtype=inputs.dtype, device=inputs.device)
         elif mask.dim() == 2:
             mask = mask.unsqueeze(2)
         if state is None:
-            zeros = torch.zeros(batch_size, self.hidden_size, dtype=inputs.
-                dtype, device=inputs.device)
+            zeros = torch.zeros(batch_size, self.hidden_size, dtype=inputs.dtype, device=inputs.device)
             state = zeros, zeros
         steps = []
         for seq in range(seqlen):
@@ -1159,9 +1086,7 @@ class ProteinModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super().__init__()
         if not isinstance(config, ProteinConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `ProteinConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `ProteinConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def _get_resized_embeddings(self, old_embeddings, new_num_tokens=None):
@@ -1188,8 +1113,7 @@ class ProteinModel(nn.Module):
         new_embeddings
         self.init_weights(new_embeddings)
         num_tokens_to_copy = min(old_num_tokens, new_num_tokens)
-        new_embeddings.weight.data[:num_tokens_to_copy, :
-            ] = old_embeddings.weight.data[:num_tokens_to_copy, :]
+        new_embeddings.weight.data[:num_tokens_to_copy, :] = old_embeddings.weight.data[:num_tokens_to_copy, :]
         return new_embeddings
 
     def _tie_or_clone_weights(self, first_module, second_module):
@@ -1249,16 +1173,14 @@ class ProteinModel(nn.Module):
             can be re-loaded using the `:func:`~ProteinModel.from_pretrained`
             ` class method.
         """
-        assert os.path.isdir(save_directory
-            ), 'Saving path should be a directory where the model and configuration can be saved'
+        assert os.path.isdir(save_directory), 'Saving path should be a directory where the model and configuration can be saved'
         model_to_save = self.module if hasattr(self, 'module') else self
         model_to_save.config.save_pretrained(save_directory)
         output_model_file = os.path.join(save_directory, WEIGHTS_NAME)
         torch.save(model_to_save.state_dict(), output_model_file)
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **
-        kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
         """Instantiate a pretrained pytorch model from a pre-trained model configuration.
 
         The model is set in evaluation mode by default using ``model.eval()``
@@ -1348,39 +1270,27 @@ class ProteinModel(nn.Module):
         cache_dir = kwargs.pop('cache_dir', None)
         output_loading_info = kwargs.pop('output_loading_info', False)
         if config is None:
-            config, model_kwargs = cls.config_class.from_pretrained(
-                pretrained_model_name_or_path, *model_args, cache_dir=
-                cache_dir, return_unused_kwargs=True, **kwargs)
+            config, model_kwargs = cls.config_class.from_pretrained(pretrained_model_name_or_path, *model_args, cache_dir=cache_dir, return_unused_kwargs=True, **kwargs)
         else:
             model_kwargs = kwargs
         if pretrained_model_name_or_path in cls.pretrained_model_archive_map:
-            archive_file = cls.pretrained_model_archive_map[
-                pretrained_model_name_or_path]
+            archive_file = cls.pretrained_model_archive_map[pretrained_model_name_or_path]
         elif os.path.isdir(pretrained_model_name_or_path):
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except EnvironmentError:
-            if (pretrained_model_name_or_path in cls.
-                pretrained_model_archive_map):
-                logger.error(
-                    "Couldn't reach server at '{}' to download pretrained weights."
-                    .format(archive_file))
+            if pretrained_model_name_or_path in cls.pretrained_model_archive_map:
+                logger.error("Couldn't reach server at '{}' to download pretrained weights.".format(archive_file))
             else:
-                logger.error(
-                    "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                    .format(pretrained_model_name_or_path, ', '.join(cls.
-                    pretrained_model_archive_map.keys()), archive_file))
+                logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(cls.pretrained_model_archive_map.keys()), archive_file))
             return None
         if resolved_archive_file == archive_file:
             logger.info('loading weights file {}'.format(archive_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
         model = cls(config, *model_args, **model_kwargs)
         if state_dict is None:
             state_dict = torch.load(resolved_archive_file, map_location='cpu')
@@ -1406,51 +1316,39 @@ class ProteinModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
         model_to_load = model
         if cls.base_model_prefix not in (None, ''):
-            if not hasattr(model, cls.base_model_prefix) and any(s.
-                startswith(cls.base_model_prefix) for s in state_dict.keys()):
+            if not hasattr(model, cls.base_model_prefix) and any(s.startswith(cls.base_model_prefix) for s in state_dict.keys()):
                 start_prefix = cls.base_model_prefix + '.'
-            if hasattr(model, cls.base_model_prefix) and not any(s.
-                startswith(cls.base_model_prefix) for s in state_dict.keys()):
+            if hasattr(model, cls.base_model_prefix) and not any(s.startswith(cls.base_model_prefix) for s in state_dict.keys()):
                 model_to_load = getattr(model, cls.base_model_prefix)
         load(model_to_load, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         if hasattr(model, 'tie_weights'):
             model.tie_weights()
         model.eval()
         if output_loading_info:
-            loading_info = {'missing_keys': missing_keys, 'unexpected_keys':
-                unexpected_keys, 'error_msgs': error_msgs}
+            loading_info = {'missing_keys': missing_keys, 'unexpected_keys': unexpected_keys, 'error_msgs': error_msgs}
             return model, loading_info
         return model
 
 
 class SimpleMLP(nn.Module):
 
-    def __init__(self, in_dim: int, hid_dim: int, out_dim: int, dropout:
-        float=0.0):
+    def __init__(self, in_dim: int, hid_dim: int, out_dim: int, dropout: float=0.0):
         super().__init__()
-        self.main = nn.Sequential(weight_norm(nn.Linear(in_dim, hid_dim),
-            dim=None), nn.ReLU(), nn.Dropout(dropout, inplace=True),
-            weight_norm(nn.Linear(hid_dim, out_dim), dim=None))
+        self.main = nn.Sequential(weight_norm(nn.Linear(in_dim, hid_dim), dim=None), nn.ReLU(), nn.Dropout(dropout, inplace=True), weight_norm(nn.Linear(hid_dim, out_dim), dim=None))
 
     def forward(self, x):
         return self.main(x)
@@ -1458,13 +1356,9 @@ class SimpleMLP(nn.Module):
 
 class SimpleConv(nn.Module):
 
-    def __init__(self, in_dim: int, hid_dim: int, out_dim: int, dropout:
-        float=0.0):
+    def __init__(self, in_dim: int, hid_dim: int, out_dim: int, dropout: float=0.0):
         super().__init__()
-        self.main = nn.Sequential(nn.BatchNorm1d(in_dim), weight_norm(nn.
-            Conv1d(in_dim, hid_dim, 5, padding=2), dim=None), nn.ReLU(), nn
-            .Dropout(dropout, inplace=True), weight_norm(nn.Conv1d(hid_dim,
-            out_dim, 3, padding=1), dim=None))
+        self.main = nn.Sequential(nn.BatchNorm1d(in_dim), weight_norm(nn.Conv1d(in_dim, hid_dim, 5, padding=2), dim=None), nn.ReLU(), nn.Dropout(dropout, inplace=True), weight_norm(nn.Conv1d(hid_dim, out_dim, 3, padding=1), dim=None))
 
     def forward(self, x):
         x = x.transpose(1, 2)
@@ -1493,8 +1387,7 @@ class Accuracy(nn.Module):
 
 class PredictionHeadTransform(nn.Module):
 
-    def __init__(self, hidden_size: int, hidden_act: typing.Union[str,
-        typing.Callable]='gelu', layer_norm_eps: float=1e-12):
+    def __init__(self, hidden_size: int, hidden_act: typing.Union[str, typing.Callable]='gelu', layer_norm_eps: float=1e-12):
         super().__init__()
         self.dense = nn.Linear(hidden_size, hidden_size)
         if isinstance(hidden_act, str):
@@ -1512,12 +1405,9 @@ class PredictionHeadTransform(nn.Module):
 
 class MLMHead(nn.Module):
 
-    def __init__(self, hidden_size: int, vocab_size: int, hidden_act:
-        typing.Union[str, typing.Callable]='gelu', layer_norm_eps: float=
-        1e-12, ignore_index: int=-100):
+    def __init__(self, hidden_size: int, vocab_size: int, hidden_act: typing.Union[str, typing.Callable]='gelu', layer_norm_eps: float=1e-12, ignore_index: int=-100):
         super().__init__()
-        self.transform = PredictionHeadTransform(hidden_size, hidden_act,
-            layer_norm_eps)
+        self.transform = PredictionHeadTransform(hidden_size, hidden_act, layer_norm_eps)
         self.decoder = nn.Linear(hidden_size, vocab_size, bias=False)
         self.bias = nn.Parameter(data=torch.zeros(vocab_size))
         self.vocab_size = vocab_size
@@ -1529,8 +1419,7 @@ class MLMHead(nn.Module):
         outputs = hidden_states,
         if targets is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=self._ignore_index)
-            masked_lm_loss = loss_fct(hidden_states.view(-1, self.
-                vocab_size), targets.view(-1))
+            masked_lm_loss = loss_fct(hidden_states.view(-1, self.vocab_size), targets.view(-1))
             metrics = {'perplexity': torch.exp(masked_lm_loss)}
             loss_and_metrics = masked_lm_loss, metrics
             outputs = (loss_and_metrics,) + outputs
@@ -1573,8 +1462,7 @@ class SequenceClassificationHead(nn.Module):
 
 class SequenceToSequenceClassificationHead(nn.Module):
 
-    def __init__(self, hidden_size: int, num_labels: int, ignore_index: int
-        =-100):
+    def __init__(self, hidden_size: int, num_labels: int, ignore_index: int=-100):
         super().__init__()
         self.classify = SimpleConv(hidden_size, 512, num_labels)
         self.num_labels = num_labels
@@ -1585,11 +1473,9 @@ class SequenceToSequenceClassificationHead(nn.Module):
         outputs = sequence_logits,
         if targets is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=self._ignore_index)
-            classification_loss = loss_fct(sequence_logits.view(-1, self.
-                num_labels), targets.view(-1))
+            classification_loss = loss_fct(sequence_logits.view(-1, self.num_labels), targets.view(-1))
             acc_fct = Accuracy(ignore_index=self._ignore_index)
-            metrics = {'accuracy': acc_fct(sequence_logits.view(-1, self.
-                num_labels), targets.view(-1))}
+            metrics = {'accuracy': acc_fct(sequence_logits.view(-1, self.num_labels), targets.view(-1))}
             loss_and_metrics = classification_loss, metrics
             outputs = (loss_and_metrics,) + outputs
         return outputs
@@ -1599,8 +1485,7 @@ class PairwiseContactPredictionHead(nn.Module):
 
     def __init__(self, hidden_size: int, ignore_index=-100):
         super().__init__()
-        self.predict = nn.Sequential(nn.Dropout(), nn.Linear(2 *
-            hidden_size, 2))
+        self.predict = nn.Sequential(nn.Dropout(), nn.Linear(2 * hidden_size, 2))
         self._ignore_index = ignore_index
 
     def forward(self, inputs, sequence_lengths, targets=None):
@@ -1614,8 +1499,7 @@ class PairwiseContactPredictionHead(nn.Module):
         if targets is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=self._ignore_index)
             contact_loss = loss_fct(prediction.view(-1, 2), targets.view(-1))
-            metrics = {'precision_at_l5': self.compute_precision_at_l5(
-                sequence_lengths, prediction, targets)}
+            metrics = {'precision_at_l5': self.compute_precision_at_l5(sequence_lengths, prediction, targets)}
             loss_and_metrics = contact_loss, metrics
             outputs = (loss_and_metrics,) + outputs
         return outputs
@@ -1623,16 +1507,14 @@ class PairwiseContactPredictionHead(nn.Module):
     def compute_precision_at_l5(self, sequence_lengths, prediction, labels):
         with torch.no_grad():
             valid_mask = labels != self._ignore_index
-            seqpos = torch.arange(valid_mask.size(1), device=
-                sequence_lengths.device)
+            seqpos = torch.arange(valid_mask.size(1), device=sequence_lengths.device)
             x_ind, y_ind = torch.meshgrid(seqpos, seqpos)
             valid_mask &= (y_ind - x_ind >= 6).unsqueeze(0)
             probs = F.softmax(prediction, 3)[:, :, :, (1)]
             valid_mask = valid_mask.type_as(probs)
             correct = 0
             total = 0
-            for length, prob, label, mask in zip(sequence_lengths, probs,
-                labels, valid_mask):
+            for length, prob, label, mask in zip(sequence_lengths, probs, labels, valid_mask):
                 masked_prob = (prob * mask).view(-1)
                 most_likely = masked_prob.topk(length // 5, sorted=False)
                 selected = label.view(-1).gather(0, most_likely.indices)
@@ -1645,57 +1527,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Accuracy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskedConv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (PairwiseContactPredictionHead,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ProteinBertIntermediate,
+     lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ProteinBertPooler,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ProteinBertSelfAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, output_attentions=4, attention_probs_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (ProteinLSTMLayer,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ProteinResNetPooler,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SequenceClassificationHead,
+     lambda: ([], {'hidden_size': 4, 'num_labels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SequenceToSequenceClassificationHead,
+     lambda: ([], {'hidden_size': 4, 'num_labels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SimpleConv,
+     lambda: ([], {'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (SimpleMLP,
+     lambda: ([], {'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ValuePredictionHead,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (mLSTM,
+     lambda: ([], {'config': _mock_config(hidden_size=4, input_size=4)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_songlab_cal_tape(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Accuracy(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MaskedConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PairwiseContactPredictionHead(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ProteinBertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ProteinBertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ProteinBertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, output_attentions=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ProteinLSTMLayer(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(ProteinResNetPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(SequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(SequenceToSequenceClassificationHead(*[], **{'hidden_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(SimpleConv(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SimpleMLP(*[], **{'in_dim': 4, 'hid_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(ValuePredictionHead(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(mLSTM(*[], **{'config': _mock_config(hidden_size=4, input_size=4)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 

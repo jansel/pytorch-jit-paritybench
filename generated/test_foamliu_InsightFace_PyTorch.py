@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,8 +95,7 @@ class FocalLoss(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -132,8 +132,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -163,8 +162,7 @@ class SEBlock(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SEBlock, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction),
-            nn.PReLU(), nn.Linear(channel // reduction, channel), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction), nn.PReLU(), nn.Linear(channel // reduction, channel), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -176,8 +174,7 @@ class SEBlock(nn.Module):
 class IRBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, use_se=True
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, use_se=True):
         super(IRBlock, self).__init__()
         self.bn0 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv3x3(inplanes, inplanes)
@@ -232,8 +229,7 @@ class ResNet(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight)
-            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d
-                ):
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
@@ -243,12 +239,9 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            use_se=self.use_se))
+        layers.append(block(self.inplanes, planes, stride, downsample, use_se=self.use_se))
         self.inplanes = planes
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, use_se=self.use_se))
@@ -308,12 +301,7 @@ class ArcMarginModel(nn.Module):
         return output
 
 
-cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [
-    256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False,
-    'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1,
-    'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640,
-    'pretrain': False, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3':
-    3}, 'in_channel': 32, 'out_channel': 64}
+cfg_mnet = {'name': 'mobilenet0.25', 'min_sizes': [[16, 32], [64, 128], [256, 512]], 'steps': [8, 16, 32], 'variance': [0.1, 0.2], 'clip': False, 'loc_weight': 2.0, 'gpu_train': True, 'batch_size': 32, 'ngpu': 1, 'epoch': 250, 'decay1': 190, 'decay2': 220, 'image_size': 640, 'pretrain': False, 'return_layers': {'stage1': 1, 'stage2': 2, 'stage3': 3}, 'in_channel': 32, 'out_channel': 64}
 
 
 GPU = cfg_mnet['gpu_train']
@@ -362,14 +350,10 @@ def encode_landm(matched, priors, variances):
         encoded landm (tensor), Shape: [num_priors, 10]
     """
     matched = torch.reshape(matched, (matched.size(0), 5, 2))
-    priors_cx = priors[:, (0)].unsqueeze(1).expand(matched.size(0), 5
-        ).unsqueeze(2)
-    priors_cy = priors[:, (1)].unsqueeze(1).expand(matched.size(0), 5
-        ).unsqueeze(2)
-    priors_w = priors[:, (2)].unsqueeze(1).expand(matched.size(0), 5
-        ).unsqueeze(2)
-    priors_h = priors[:, (3)].unsqueeze(1).expand(matched.size(0), 5
-        ).unsqueeze(2)
+    priors_cx = priors[:, (0)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_cy = priors[:, (1)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_w = priors[:, (2)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
+    priors_h = priors[:, (3)].unsqueeze(1).expand(matched.size(0), 5).unsqueeze(2)
     priors = torch.cat([priors_cx, priors_cy, priors_w, priors_h], dim=2)
     g_cxcy = matched[:, :, :2] - priors[:, :, :2]
     g_cxcy /= variances[0] * priors[:, :, 2:]
@@ -390,10 +374,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -411,10 +393,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -427,12 +407,10 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
-def match(threshold, truths, priors, variances, labels, landms, loc_t,
-    conf_t, landm_t, idx):
+def match(threshold, truths, priors, variances, labels, landms, loc_t, conf_t, landm_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -502,8 +480,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
         super(MultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.threshold = overlap_thresh
@@ -539,8 +516,7 @@ class MultiBoxLoss(nn.Module):
             labels = targets[idx][:, (-1)].data
             landms = targets[idx][:, 4:14].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                landms, loc_t, conf_t, landm_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, landms, loc_t, conf_t, landm_t, idx)
         if GPU:
             loc_t = loc_t
             conf_t = conf_t
@@ -560,8 +536,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -571,8 +546,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
         N = max(num_pos.data.sum().float(), 1)
@@ -583,13 +557,11 @@ class MultiBoxLoss(nn.Module):
 
 
 def conv_bn(inp, oup, stride=1, leaky=0):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
 
 
 def conv_bn_no_relu(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup))
 
 
 class SSH(nn.Module):
@@ -601,14 +573,10 @@ class SSH(nn.Module):
         if out_channel <= 64:
             leaky = 0.1
         self.conv3X3 = conv_bn_no_relu(in_channel, out_channel // 2, stride=1)
-        self.conv5X5_1 = conv_bn(in_channel, out_channel // 4, stride=1,
-            leaky=leaky)
-        self.conv5X5_2 = conv_bn_no_relu(out_channel // 4, out_channel // 4,
-            stride=1)
-        self.conv7X7_2 = conv_bn(out_channel // 4, out_channel // 4, stride
-            =1, leaky=leaky)
-        self.conv7x7_3 = conv_bn_no_relu(out_channel // 4, out_channel // 4,
-            stride=1)
+        self.conv5X5_1 = conv_bn(in_channel, out_channel // 4, stride=1, leaky=leaky)
+        self.conv5X5_2 = conv_bn_no_relu(out_channel // 4, out_channel // 4, stride=1)
+        self.conv7X7_2 = conv_bn(out_channel // 4, out_channel // 4, stride=1, leaky=leaky)
+        self.conv7x7_3 = conv_bn_no_relu(out_channel // 4, out_channel // 4, stride=1)
 
     def forward(self, input):
         conv3X3 = self.conv3X3(input)
@@ -622,9 +590,7 @@ class SSH(nn.Module):
 
 
 def conv_bn1X1(inp, oup, stride, leaky=0):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, stride, padding=0, bias=
-        False), nn.BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky,
-        inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, stride, padding=0, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
 
 
 class FPN(nn.Module):
@@ -634,12 +600,9 @@ class FPN(nn.Module):
         leaky = 0
         if out_channels <= 64:
             leaky = 0.1
-        self.output1 = conv_bn1X1(in_channels_list[0], out_channels, stride
-            =1, leaky=leaky)
-        self.output2 = conv_bn1X1(in_channels_list[1], out_channels, stride
-            =1, leaky=leaky)
-        self.output3 = conv_bn1X1(in_channels_list[2], out_channels, stride
-            =1, leaky=leaky)
+        self.output1 = conv_bn1X1(in_channels_list[0], out_channels, stride=1, leaky=leaky)
+        self.output2 = conv_bn1X1(in_channels_list[1], out_channels, stride=1, leaky=leaky)
+        self.output3 = conv_bn1X1(in_channels_list[2], out_channels, stride=1, leaky=leaky)
         self.merge1 = conv_bn(out_channels, out_channels, leaky=leaky)
         self.merge2 = conv_bn(out_channels, out_channels, leaky=leaky)
 
@@ -648,12 +611,10 @@ class FPN(nn.Module):
         output1 = self.output1(input[0])
         output2 = self.output2(input[1])
         output3 = self.output3(input[2])
-        up3 = F.interpolate(output3, size=[output2.size(2), output2.size(3)
-            ], mode='nearest')
+        up3 = F.interpolate(output3, size=[output2.size(2), output2.size(3)], mode='nearest')
         output2 = output2 + up3
         output2 = self.merge2(output2)
-        up2 = F.interpolate(output2, size=[output1.size(2), output1.size(3)
-            ], mode='nearest')
+        up2 = F.interpolate(output2, size=[output1.size(2), output1.size(3)], mode='nearest')
         output1 = output1 + up2
         output1 = self.merge1(output1)
         out = [output1, output2, output3]
@@ -661,22 +622,15 @@ class FPN(nn.Module):
 
 
 def conv_dw(inp, oup, stride, leaky=0.1):
-    return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias
-        =False), nn.BatchNorm2d(inp), nn.LeakyReLU(negative_slope=leaky,
-        inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.LeakyReLU(negative_slope=leaky, inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(negative_slope=leaky, inplace=True))
 
 
 class MobileNetV1(nn.Module):
 
     def __init__(self):
         super(MobileNetV1, self).__init__()
-        self.stage1 = nn.Sequential(conv_bn(3, 8, 2, leaky=0.1), conv_dw(8,
-            16, 1), conv_dw(16, 32, 2), conv_dw(32, 32, 1), conv_dw(32, 64,
-            2), conv_dw(64, 64, 1))
-        self.stage2 = nn.Sequential(conv_dw(64, 128, 2), conv_dw(128, 128, 
-            1), conv_dw(128, 128, 1), conv_dw(128, 128, 1), conv_dw(128, 
-            128, 1), conv_dw(128, 128, 1))
+        self.stage1 = nn.Sequential(conv_bn(3, 8, 2, leaky=0.1), conv_dw(8, 16, 1), conv_dw(16, 32, 2), conv_dw(32, 32, 1), conv_dw(32, 64, 2), conv_dw(64, 64, 1))
+        self.stage2 = nn.Sequential(conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 128, 1), conv_dw(128, 128, 1), conv_dw(128, 128, 1), conv_dw(128, 128, 1))
         self.stage3 = nn.Sequential(conv_dw(128, 256, 2), conv_dw(256, 256, 1))
         self.avg = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(256, 1000)
@@ -696,8 +650,7 @@ class ClassHead(nn.Module):
     def __init__(self, inchannels=512, num_anchors=3):
         super(ClassHead, self).__init__()
         self.num_anchors = num_anchors
-        self.conv1x1 = nn.Conv2d(inchannels, self.num_anchors * 2,
-            kernel_size=(1, 1), stride=1, padding=0)
+        self.conv1x1 = nn.Conv2d(inchannels, self.num_anchors * 2, kernel_size=(1, 1), stride=1, padding=0)
 
     def forward(self, x):
         out = self.conv1x1(x)
@@ -709,8 +662,7 @@ class BboxHead(nn.Module):
 
     def __init__(self, inchannels=512, num_anchors=3):
         super(BboxHead, self).__init__()
-        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 4, kernel_size=(
-            1, 1), stride=1, padding=0)
+        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 4, kernel_size=(1, 1), stride=1, padding=0)
 
     def forward(self, x):
         out = self.conv1x1(x)
@@ -722,8 +674,7 @@ class LandmarkHead(nn.Module):
 
     def __init__(self, inchannels=512, num_anchors=3):
         super(LandmarkHead, self).__init__()
-        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 10, kernel_size=
-            (1, 1), stride=1, padding=0)
+        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 10, kernel_size=(1, 1), stride=1, padding=0)
 
     def forward(self, x):
         out = self.conv1x1(x)
@@ -743,9 +694,7 @@ class RetinaFace(nn.Module):
         if cfg['name'] == 'mobilenet0.25':
             backbone = MobileNetV1()
             if cfg['pretrain']:
-                checkpoint = torch.load(
-                    './weights/mobilenetV1X0.25_pretrain.tar', map_location
-                    =torch.device('cpu'))
+                checkpoint = torch.load('./weights/mobilenetV1X0.25_pretrain.tar', map_location=torch.device('cpu'))
                 from collections import OrderedDict
                 new_state_dict = OrderedDict()
                 for k, v in checkpoint['state_dict'].items():
@@ -755,22 +704,17 @@ class RetinaFace(nn.Module):
         elif cfg['name'] == 'Resnet50':
             import torchvision.models as models
             backbone = models.resnet50(pretrained=cfg['pretrain'])
-        self.body = _utils.IntermediateLayerGetter(backbone, cfg[
-            'return_layers'])
+        self.body = _utils.IntermediateLayerGetter(backbone, cfg['return_layers'])
         in_channels_stage2 = cfg['in_channel']
-        in_channels_list = [in_channels_stage2 * 2, in_channels_stage2 * 4,
-            in_channels_stage2 * 8]
+        in_channels_list = [in_channels_stage2 * 2, in_channels_stage2 * 4, in_channels_stage2 * 8]
         out_channels = cfg['out_channel']
         self.fpn = FPN(in_channels_list, out_channels)
         self.ssh1 = SSH(out_channels, out_channels)
         self.ssh2 = SSH(out_channels, out_channels)
         self.ssh3 = SSH(out_channels, out_channels)
-        self.ClassHead = self._make_class_head(fpn_num=3, inchannels=cfg[
-            'out_channel'])
-        self.BboxHead = self._make_bbox_head(fpn_num=3, inchannels=cfg[
-            'out_channel'])
-        self.LandmarkHead = self._make_landmark_head(fpn_num=3, inchannels=
-            cfg['out_channel'])
+        self.ClassHead = self._make_class_head(fpn_num=3, inchannels=cfg['out_channel'])
+        self.BboxHead = self._make_bbox_head(fpn_num=3, inchannels=cfg['out_channel'])
+        self.LandmarkHead = self._make_landmark_head(fpn_num=3, inchannels=cfg['out_channel'])
 
     def _make_class_head(self, fpn_num=3, inchannels=64, anchor_num=2):
         classhead = nn.ModuleList()
@@ -797,17 +741,13 @@ class RetinaFace(nn.Module):
         feature2 = self.ssh2(fpn[1])
         feature3 = self.ssh3(fpn[2])
         features = [feature1, feature2, feature3]
-        bbox_regressions = torch.cat([self.BboxHead[i](feature) for i,
-            feature in enumerate(features)], dim=1)
-        classifications = torch.cat([self.ClassHead[i](feature) for i,
-            feature in enumerate(features)], dim=1)
-        ldm_regressions = torch.cat([self.LandmarkHead[i](feature) for i,
-            feature in enumerate(features)], dim=1)
+        bbox_regressions = torch.cat([self.BboxHead[i](feature) for i, feature in enumerate(features)], dim=1)
+        classifications = torch.cat([self.ClassHead[i](feature) for i, feature in enumerate(features)], dim=1)
+        ldm_regressions = torch.cat([self.LandmarkHead[i](feature) for i, feature in enumerate(features)], dim=1)
         if self.phase == 'train':
             output = bbox_regressions, classifications, ldm_regressions
         else:
-            output = bbox_regressions, F.softmax(classifications, dim=-1
-                ), ldm_regressions
+            output = bbox_regressions, F.softmax(classifications, dim=-1), ldm_regressions
         return output
 
 
@@ -853,26 +793,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BboxHead,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (ClassHead,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (LandmarkHead,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
+    (MobileNetV1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SEBlock,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SSH,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SiLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_foamliu_InsightFace_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BboxHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ClassHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LandmarkHead(*[], **{}), [torch.rand([4, 512, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MobileNetV1(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SSH(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(SiLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

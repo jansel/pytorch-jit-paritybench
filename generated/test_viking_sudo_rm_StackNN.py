@@ -69,8 +69,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -141,8 +142,7 @@ class ControlInstructions:
     TODO: Perhaps stack.forward should be able to take this object as an argument.
     """
 
-    def __init__(self, push_vectors, push_strengths, pop_strengths,
-        read_strengths, pop_distributions=None, read_distributions=None):
+    def __init__(self, push_vectors, push_strengths, pop_strengths, read_strengths, pop_distributions=None, read_distributions=None):
         self.push_vectors = push_vectors
         self.push_strengths = push_strengths
         self.pop_strengths = pop_strengths
@@ -151,8 +151,7 @@ class ControlInstructions:
         self.read_distributions = read_distributions
 
     def make_tuple(self):
-        return (self.push_vectors, self.pop_strengths, self.push_strengths,
-            self.read_strengths)
+        return self.push_vectors, self.pop_strengths, self.push_strengths, self.read_strengths
 
     def __len__(self):
         return len(self.push_vectors)
@@ -183,9 +182,7 @@ class ControlLayer(torch.nn.Module):
         pop_strength = self._get_expectation(pop_distribution)
         read_distribution = torch.softmax(self._read_map(input_vector), 1)
         read_strength = self._get_expectation(read_distribution)
-        return ControlInstructions(push_vector, push_strength.squeeze(1),
-            pop_strength.squeeze(1), read_strength.squeeze(1),
-            pop_distribution, read_distribution)
+        return ControlInstructions(push_vector, push_strength.squeeze(1), pop_strength.squeeze(1), read_strength.squeeze(1), pop_distribution, read_distribution)
 
     def _get_expectation(self, distribution):
         """Take the expected value of a pop/read distribution."""
@@ -626,14 +623,12 @@ class Queue(nn.Module):
         for i in range(old_t + 1):
             used = torch.sum(self.s[:i, :], 0) if i > 0 else self.zero
             coeffs = torch.min(self.s[(i), :], F.relu(1 - used))
-            r += coeffs.view(self.batch_size, 1).repeat(1, self.embedding_size
-                ) * self.V[(i), :, :]
+            r += coeffs.view(self.batch_size, 1).repeat(1, self.embedding_size) * self.V[(i), :, :]
         return r
 
     def enqueue_all(self, X, pad):
         n_times = X.size(0)
-        self.V = Variable(torch.zeros(pad, self.batch_size, self.
-            embedding_size))
+        self.V = Variable(torch.zeros(pad, self.batch_size, self.embedding_size))
         self.s = Variable(torch.zeros(pad, self.batch_size))
         self.V[:n_times, :, :] = X
         self.s[:n_times, :] = Variable(torch.ones(n_times, self.batch_size))
@@ -689,23 +684,17 @@ class Stack(nn.Module):
         if self.k is None:
             r = Variable(torch.zeros([self.batch_size, self.embedding_size]))
             for i in reversed(range(old_t + 1)):
-                used = torch.sum(self.s[i + 1:old_t + 1, :], 0
-                    ) if i < old_t else self.zero
+                used = torch.sum(self.s[i + 1:old_t + 1, :], 0) if i < old_t else self.zero
                 coeffs = torch.min(self.s[(i), :], F.relu(1 - used))
-                r += coeffs.view(self.batch_size, 1).repeat(1, self.
-                    embedding_size) * self.V[(i), :, :]
+                r += coeffs.view(self.batch_size, 1).repeat(1, self.embedding_size) * self.V[(i), :, :]
             return r
         else:
-            r = Variable(torch.zeros([self.batch_size, self.k, self.
-                embedding_size]))
+            r = Variable(torch.zeros([self.batch_size, self.k, self.embedding_size]))
             for k in range(self.k):
                 for i in reversed(range(old_t + 1)):
-                    used = torch.sum(self.s[i + 1:old_t + 1, :], 0
-                        ) if i < old_t else self.zero
+                    used = torch.sum(self.s[i + 1:old_t + 1, :], 0) if i < old_t else self.zero
                     coeffs = torch.min(self.s[(i), :], F.relu(1 + k - used))
-                    r[:, (k), :] = r[:, (k), :] + coeffs.view(self.
-                        batch_size, 1).repeat(1, self.embedding_size) * self.V[
-                        (i), :, :]
+                    r[:, (k), :] = r[:, (k), :] + coeffs.view(self.batch_size, 1).repeat(1, self.embedding_size) * self.V[(i), :, :]
             for k in reversed(range(1, self.k)):
                 r[:, (k), :] = r[:, (k), :] - r[:, (k - 1), :]
             return r
@@ -729,17 +718,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ControlLayer,
+     lambda: ([], {'input_size': 4, 'stack_size': 4, 'vision': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Queue,
+     lambda: ([], {'batch_size': 4, 'embedding_size': 4}),
+     lambda: ([torch.rand([1, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4])], {}),
+     False),
+    (Stack,
+     lambda: ([], {'batch_size': 4, 'embedding_size': 4}),
+     lambda: ([torch.rand([1, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4])], {}),
+     False),
+]
+
 class Test_viking_sudo_rm_StackNN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ControlLayer(*[], **{'input_size': 4, 'stack_size': 4, 'vision': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Queue(*[], **{'batch_size': 4, 'embedding_size': 4}), [torch.rand([1, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Stack(*[], **{'batch_size': 4, 'embedding_size': 4}), [torch.rand([1, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4])], {})
+        self._check(*TESTCASES[2])
 

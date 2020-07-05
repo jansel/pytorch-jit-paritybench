@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,10 +56,8 @@ class BasicConv2d(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super().__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1,
-            affine=True)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -74,11 +73,8 @@ class Block35(nn.Module):
         super().__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(256, 32, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(256, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
-        self.branch2 = nn.Sequential(BasicConv2d(256, 32, kernel_size=1,
-            stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding
-            =1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
+        self.branch1 = nn.Sequential(BasicConv2d(256, 32, kernel_size=1, stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
+        self.branch2 = nn.Sequential(BasicConv2d(256, 32, kernel_size=1, stride=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1), BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1))
         self.conv2d = nn.Conv2d(96, 256, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -99,10 +95,7 @@ class Block17(nn.Module):
         super().__init__()
         self.scale = scale
         self.branch0 = BasicConv2d(896, 128, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(896, 128, kernel_size=1,
-            stride=1), BasicConv2d(128, 128, kernel_size=(1, 7), stride=1,
-            padding=(0, 3)), BasicConv2d(128, 128, kernel_size=(7, 1),
-            stride=1, padding=(3, 0)))
+        self.branch1 = nn.Sequential(BasicConv2d(896, 128, kernel_size=1, stride=1), BasicConv2d(128, 128, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv2d(128, 128, kernel_size=(7, 1), stride=1, padding=(3, 0)))
         self.conv2d = nn.Conv2d(256, 896, kernel_size=1, stride=1)
         self.relu = nn.ReLU(inplace=False)
 
@@ -123,10 +116,7 @@ class Block8(nn.Module):
         self.scale = scale
         self.noReLU = noReLU
         self.branch0 = BasicConv2d(1792, 192, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(1792, 192, kernel_size=1,
-            stride=1), BasicConv2d(192, 192, kernel_size=(1, 3), stride=1,
-            padding=(0, 1)), BasicConv2d(192, 192, kernel_size=(3, 1),
-            stride=1, padding=(1, 0)))
+        self.branch1 = nn.Sequential(BasicConv2d(1792, 192, kernel_size=1, stride=1), BasicConv2d(192, 192, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv2d(192, 192, kernel_size=(3, 1), stride=1, padding=(1, 0)))
         self.conv2d = nn.Conv2d(384, 1792, kernel_size=1, stride=1)
         if not self.noReLU:
             self.relu = nn.ReLU(inplace=False)
@@ -147,9 +137,7 @@ class Mixed_6a(nn.Module):
     def __init__(self):
         super().__init__()
         self.branch0 = BasicConv2d(256, 384, kernel_size=3, stride=2)
-        self.branch1 = nn.Sequential(BasicConv2d(256, 192, kernel_size=1,
-            stride=1), BasicConv2d(192, 192, kernel_size=3, stride=1,
-            padding=1), BasicConv2d(192, 256, kernel_size=3, stride=2))
+        self.branch1 = nn.Sequential(BasicConv2d(256, 192, kernel_size=1, stride=1), BasicConv2d(192, 192, kernel_size=3, stride=1, padding=1), BasicConv2d(192, 256, kernel_size=3, stride=2))
         self.branch2 = nn.MaxPool2d(3, stride=2)
 
     def forward(self, x):
@@ -164,13 +152,9 @@ class Mixed_7a(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.branch0 = nn.Sequential(BasicConv2d(896, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 384, kernel_size=3, stride=2))
-        self.branch1 = nn.Sequential(BasicConv2d(896, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 256, kernel_size=3, stride=2))
-        self.branch2 = nn.Sequential(BasicConv2d(896, 256, kernel_size=1,
-            stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1,
-            padding=1), BasicConv2d(256, 256, kernel_size=3, stride=2))
+        self.branch0 = nn.Sequential(BasicConv2d(896, 256, kernel_size=1, stride=1), BasicConv2d(256, 384, kernel_size=3, stride=2))
+        self.branch1 = nn.Sequential(BasicConv2d(896, 256, kernel_size=1, stride=1), BasicConv2d(256, 256, kernel_size=3, stride=2))
+        self.branch2 = nn.Sequential(BasicConv2d(896, 256, kernel_size=1, stride=1), BasicConv2d(256, 256, kernel_size=3, stride=1, padding=1), BasicConv2d(256, 256, kernel_size=3, stride=2))
         self.branch3 = nn.MaxPool2d(3, stride=2)
 
     def forward(self, x):
@@ -183,8 +167,7 @@ class Mixed_7a(nn.Module):
 
 
 def get_torch_home():
-    torch_home = os.path.expanduser(os.getenv('TORCH_HOME', os.path.join(os
-        .getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
+    torch_home = os.path.expanduser(os.getenv('TORCH_HOME', os.path.join(os.getenv('XDG_CACHE_HOME', '~/.cache'), 'torch')))
     return torch_home
 
 
@@ -199,28 +182,18 @@ def load_weights(mdl, name):
         ValueError: If 'pretrained' not equal to 'vggface2' or 'casia-webface'.
     """
     if name == 'vggface2':
-        features_path = (
-            'https://drive.google.com/uc?export=download&id=1cWLH_hPns8kSfMz9kKl9PsG5aNV2VSMn'
-            )
-        logits_path = (
-            'https://drive.google.com/uc?export=download&id=1mAie3nzZeno9UIzFXvmVZrDG3kwML46X'
-            )
+        features_path = 'https://drive.google.com/uc?export=download&id=1cWLH_hPns8kSfMz9kKl9PsG5aNV2VSMn'
+        logits_path = 'https://drive.google.com/uc?export=download&id=1mAie3nzZeno9UIzFXvmVZrDG3kwML46X'
     elif name == 'casia-webface':
-        features_path = (
-            'https://drive.google.com/uc?export=download&id=1LSHHee_IQj5W3vjBcRyVaALv4py1XaGy'
-            )
-        logits_path = (
-            'https://drive.google.com/uc?export=download&id=1QrhPgn1bGlDxAil2uc07ctunCQoDnCzT'
-            )
+        features_path = 'https://drive.google.com/uc?export=download&id=1LSHHee_IQj5W3vjBcRyVaALv4py1XaGy'
+        logits_path = 'https://drive.google.com/uc?export=download&id=1QrhPgn1bGlDxAil2uc07ctunCQoDnCzT'
     else:
-        raise ValueError(
-            'Pretrained models only exist for "vggface2" and "casia-webface"')
+        raise ValueError('Pretrained models only exist for "vggface2" and "casia-webface"')
     model_dir = os.path.join(get_torch_home(), 'checkpoints')
     os.makedirs(model_dir, exist_ok=True)
     state_dict = {}
     for i, path in enumerate([features_path, logits_path]):
-        cached_file = os.path.join(model_dir, '{}_{}.pt'.format(name, path[
-            -10:]))
+        cached_file = os.path.join(model_dir, '{}_{}.pt'.format(name, path[-10:]))
         if not os.path.exists(cached_file):
             print('Downloading parameters ({}/2)'.format(i + 1))
             s = requests.Session()
@@ -251,8 +224,7 @@ class InceptionResnetV1(nn.Module):
         dropout_prob {float} -- Dropout probability. (default: {0.6})
     """
 
-    def __init__(self, pretrained=None, classify=False, num_classes=None,
-        dropout_prob=0.6, device=None):
+    def __init__(self, pretrained=None, classify=False, num_classes=None, dropout_prob=0.6, device=None):
         super().__init__()
         self.pretrained = pretrained
         self.classify = classify
@@ -262,36 +234,26 @@ class InceptionResnetV1(nn.Module):
         elif pretrained == 'casia-webface':
             tmp_classes = 10575
         elif pretrained is None and self.num_classes is None:
-            raise Exception(
-                'At least one of "pretrained" or "num_classes" must be specified'
-                )
+            raise Exception('At least one of "pretrained" or "num_classes" must be specified')
         else:
             tmp_classes = self.num_classes
         self.conv2d_1a = BasicConv2d(3, 32, kernel_size=3, stride=2)
         self.conv2d_2a = BasicConv2d(32, 32, kernel_size=3, stride=1)
-        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1
-            )
+        self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1)
         self.maxpool_3a = nn.MaxPool2d(3, stride=2)
         self.conv2d_3b = BasicConv2d(64, 80, kernel_size=1, stride=1)
         self.conv2d_4a = BasicConv2d(80, 192, kernel_size=3, stride=1)
         self.conv2d_4b = BasicConv2d(192, 256, kernel_size=3, stride=2)
-        self.repeat_1 = nn.Sequential(Block35(scale=0.17), Block35(scale=
-            0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=
-            0.17))
+        self.repeat_1 = nn.Sequential(Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17), Block35(scale=0.17))
         self.mixed_6a = Mixed_6a()
-        self.repeat_2 = nn.Sequential(Block17(scale=0.1), Block17(scale=0.1
-            ), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1),
-            Block17(scale=0.1), Block17(scale=0.1))
+        self.repeat_2 = nn.Sequential(Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1), Block17(scale=0.1))
         self.mixed_7a = Mixed_7a()
-        self.repeat_3 = nn.Sequential(Block8(scale=0.2), Block8(scale=0.2),
-            Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2))
+        self.repeat_3 = nn.Sequential(Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2), Block8(scale=0.2))
         self.block8 = Block8(noReLU=True)
         self.avgpool_1a = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(dropout_prob)
         self.last_linear = nn.Linear(1792, 512, bias=False)
-        self.last_bn = nn.BatchNorm1d(512, eps=0.001, momentum=0.1, affine=True
-            )
+        self.last_bn = nn.BatchNorm1d(512, eps=0.001, momentum=0.1, affine=True)
         self.logits = nn.Linear(512, tmp_classes)
         if pretrained is not None:
             load_weights(self, pretrained)
@@ -356,8 +318,7 @@ class PNet(nn.Module):
         self.conv4_2 = nn.Conv2d(32, 4, kernel_size=1)
         self.training = False
         if pretrained:
-            state_dict_path = os.path.join(os.path.dirname(__file__),
-                '../data/pnet.pt')
+            state_dict_path = os.path.join(os.path.dirname(__file__), '../data/pnet.pt')
             state_dict = torch.load(state_dict_path)
             self.load_state_dict(state_dict)
 
@@ -399,8 +360,7 @@ class RNet(nn.Module):
         self.dense5_2 = nn.Linear(128, 4)
         self.training = False
         if pretrained:
-            state_dict_path = os.path.join(os.path.dirname(__file__),
-                '../data/rnet.pt')
+            state_dict_path = os.path.join(os.path.dirname(__file__), '../data/rnet.pt')
             state_dict = torch.load(state_dict_path)
             self.load_state_dict(state_dict)
 
@@ -450,8 +410,7 @@ class ONet(nn.Module):
         self.dense6_3 = nn.Linear(256, 10)
         self.training = False
         if pretrained:
-            state_dict_path = os.path.join(os.path.dirname(__file__),
-                '../data/onet.pt')
+            state_dict_path = os.path.join(os.path.dirname(__file__), '../data/onet.pt')
             state_dict = torch.load(state_dict_path)
             self.load_state_dict(state_dict)
 
@@ -589,9 +548,7 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
         if not isinstance(imgs, (list, tuple)):
             imgs = [imgs]
         if any(img.size != imgs[0].size for img in imgs):
-            raise Exception(
-                'MTCNN batch processing only compatible with equal-dimension images.'
-                )
+            raise Exception('MTCNN batch processing only compatible with equal-dimension images.')
         imgs = np.stack([np.uint8(img) for img in imgs])
     imgs = torch.as_tensor(imgs, device=device)
     model_dtype = next(pnet.parameters()).dtype
@@ -615,8 +572,7 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
         im_data = imresample(imgs, (int(h * scale + 1), int(w * scale + 1)))
         im_data = (im_data - 127.5) * 0.0078125
         reg, probs = pnet(im_data)
-        boxes_scale, image_inds_scale = generateBoundingBox(reg, probs[:, (
-            1)], scale, threshold[0])
+        boxes_scale, image_inds_scale = generateBoundingBox(reg, probs[:, (1)], scale, threshold[0])
         boxes.append(boxes_scale)
         image_inds.append(image_inds_scale)
         all_inds.append(all_i + image_inds_scale)
@@ -641,8 +597,7 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
         im_data = []
         for k in range(len(y)):
             if ey[k] > y[k] - 1 and ex[k] > x[k] - 1:
-                img_k = imgs[(image_inds[k]), :, y[k] - 1:ey[k], x[k] - 1:ex[k]
-                    ].unsqueeze(0)
+                img_k = imgs[(image_inds[k]), :, y[k] - 1:ey[k], x[k] - 1:ex[k]].unsqueeze(0)
                 im_data.append(imresample(img_k, (24, 24)))
         im_data = torch.cat(im_data, dim=0)
         im_data = (im_data - 127.5) * 0.0078125
@@ -651,8 +606,7 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
         out1 = out[1].permute(1, 0)
         score = out1[(1), :]
         ipass = score > threshold[1]
-        boxes = torch.cat((boxes[(ipass), :4], score[ipass].unsqueeze(1)),
-            dim=1)
+        boxes = torch.cat((boxes[(ipass), :4], score[ipass].unsqueeze(1)), dim=1)
         image_inds = image_inds[ipass]
         mv = out0[:, (ipass)].permute(1, 0)
         pick = batched_nms(boxes[:, :4], boxes[:, (4)], image_inds, 0.7)
@@ -665,8 +619,7 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
         im_data = []
         for k in range(len(y)):
             if ey[k] > y[k] - 1 and ex[k] > x[k] - 1:
-                img_k = imgs[(image_inds[k]), :, y[k] - 1:ey[k], x[k] - 1:ex[k]
-                    ].unsqueeze(0)
+                img_k = imgs[(image_inds[k]), :, y[k] - 1:ey[k], x[k] - 1:ex[k]].unsqueeze(0)
                 im_data.append(imresample(img_k, (48, 48)))
         im_data = torch.cat(im_data, dim=0)
         im_data = (im_data - 127.5) * 0.0078125
@@ -678,20 +631,16 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
         points = out1
         ipass = score > threshold[2]
         points = points[:, (ipass)]
-        boxes = torch.cat((boxes[(ipass), :4], score[ipass].unsqueeze(1)),
-            dim=1)
+        boxes = torch.cat((boxes[(ipass), :4], score[ipass].unsqueeze(1)), dim=1)
         image_inds = image_inds[ipass]
         mv = out0[:, (ipass)].permute(1, 0)
         w_i = boxes[:, (2)] - boxes[:, (0)] + 1
         h_i = boxes[:, (3)] - boxes[:, (1)] + 1
-        points_x = w_i.repeat(5, 1) * points[:5, :] + boxes[:, (0)].repeat(5, 1
-            ) - 1
-        points_y = h_i.repeat(5, 1) * points[5:10, :] + boxes[:, (1)].repeat(
-            5, 1) - 1
+        points_x = w_i.repeat(5, 1) * points[:5, :] + boxes[:, (0)].repeat(5, 1) - 1
+        points_y = h_i.repeat(5, 1) * points[5:10, :] + boxes[:, (1)].repeat(5, 1) - 1
         points = torch.stack((points_x, points_y)).permute(2, 1, 0)
         boxes = bbreg(boxes, mv)
-        pick = batched_nms_numpy(boxes[:, :4], boxes[:, (4)], image_inds, 
-            0.7, 'Min')
+        pick = batched_nms_numpy(boxes[:, :4], boxes[:, (4)], image_inds, 0.7, 'Min')
         boxes, image_inds, points = boxes[pick], image_inds[pick], points[pick]
     boxes = boxes.cpu().numpy()
     points = points.cpu().numpy()
@@ -707,11 +656,9 @@ def detect_face(imgs, minsize, pnet, rnet, onet, threshold, factor, device):
 
 def crop_resize(img, box, image_size):
     if isinstance(img, np.ndarray):
-        out = cv2.resize(img[box[1]:box[3], box[0]:box[2]], (image_size,
-            image_size), interpolation=cv2.INTER_AREA).copy()
+        out = cv2.resize(img[box[1]:box[3], box[0]:box[2]], (image_size, image_size), interpolation=cv2.INTER_AREA).copy()
     else:
-        out = img.crop(box).copy().resize((image_size, image_size), Image.
-            BILINEAR)
+        out = img.crop(box).copy().resize((image_size, image_size), Image.BILINEAR)
     return out
 
 
@@ -745,12 +692,9 @@ def extract_face(img, box, image_size=160, margin=0, save_path=None):
     Returns:
         torch.tensor -- tensor representing the extracted face.
     """
-    margin = [margin * (box[2] - box[0]) / (image_size - margin), margin *
-        (box[3] - box[1]) / (image_size - margin)]
+    margin = [margin * (box[2] - box[0]) / (image_size - margin), margin * (box[3] - box[1]) / (image_size - margin)]
     raw_image_size = get_size(img)
-    box = [int(max(box[0] - margin[0] / 2, 0)), int(max(box[1] - margin[1] /
-        2, 0)), int(min(box[2] + margin[0] / 2, raw_image_size[0])), int(
-        min(box[3] + margin[1] / 2, raw_image_size[1]))]
+    box = [int(max(box[0] - margin[0] / 2, 0)), int(max(box[1] - margin[1] / 2, 0)), int(min(box[2] + margin[0] / 2, raw_image_size[0])), int(min(box[3] + margin[1] / 2, raw_image_size[1]))]
     face = crop_resize(img, box, image_size)
     if save_path is not None:
         os.makedirs(os.path.dirname(save_path) + '/', exist_ok=True)
@@ -796,9 +740,7 @@ class MTCNN(nn.Module):
             models are copied to this device before running forward passes. (default: {None})
     """
 
-    def __init__(self, image_size=160, margin=0, min_face_size=20,
-        thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True,
-        select_largest=True, keep_all=False, device=None):
+    def __init__(self, image_size=160, margin=0, min_face_size=20, thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True, select_largest=True, keep_all=False, device=None):
         super().__init__()
         self.image_size = image_size
         self.margin = margin
@@ -849,8 +791,7 @@ class MTCNN(nn.Module):
         with torch.no_grad():
             batch_boxes, batch_probs = self.detect(img)
         batch_mode = True
-        if not isinstance(img, (list, tuple)) and not (isinstance(img, np.
-            ndarray) and len(img.shape) == 4):
+        if not isinstance(img, (list, tuple)) and not (isinstance(img, np.ndarray) and len(img.shape) == 4):
             img = [img]
             batch_boxes = [batch_boxes]
             batch_probs = [batch_probs]
@@ -861,8 +802,7 @@ class MTCNN(nn.Module):
         else:
             save_path = [None for _ in range(len(img))]
         faces, probs = [], []
-        for im, box_im, prob_im, path_im in zip(img, batch_boxes,
-            batch_probs, save_path):
+        for im, box_im, prob_im, path_im in zip(img, batch_boxes, batch_probs, save_path):
             if box_im is None:
                 faces.append(None)
                 probs.append([None] if self.keep_all else None)
@@ -875,8 +815,7 @@ class MTCNN(nn.Module):
                 if path_im is not None and i > 0:
                     save_name, ext = os.path.splitext(path_im)
                     face_path = save_name + '_' + str(i + 1) + ext
-                face = extract_face(im, box, self.image_size, self.margin,
-                    face_path)
+                face = extract_face(im, box, self.image_size, self.margin, face_path)
                 if self.post_process:
                     face = fixed_image_standardization(face)
                 faces_im.append(face)
@@ -935,9 +874,7 @@ class MTCNN(nn.Module):
         >>> img_draw.save('annotated_faces.png')
         """
         with torch.no_grad():
-            batch_boxes, batch_points = detect_face(img, self.min_face_size,
-                self.pnet, self.rnet, self.onet, self.thresholds, self.
-                factor, self.device)
+            batch_boxes, batch_points = detect_face(img, self.min_face_size, self.pnet, self.rnet, self.onet, self.thresholds, self.factor, self.device)
         boxes, probs, points = [], [], []
         for box, point in zip(batch_boxes, batch_points):
             box = np.array(box)
@@ -947,8 +884,7 @@ class MTCNN(nn.Module):
                 probs.append([None])
                 points.append(None)
             elif self.select_largest:
-                box_order = np.argsort((box[:, (2)] - box[:, (0)]) * (box[:,
-                    (3)] - box[:, (1)]))[::-1]
+                box_order = np.argsort((box[:, (2)] - box[:, (0)]) * (box[:, (3)] - box[:, (1)]))[::-1]
                 box = box[box_order]
                 point = point[box_order]
                 boxes.append(box[:, :4])
@@ -961,8 +897,7 @@ class MTCNN(nn.Module):
         boxes = np.array(boxes)
         probs = np.array(probs)
         points = np.array(points)
-        if not isinstance(img, (list, tuple)) and not (isinstance(img, np.
-            ndarray) and len(img.shape) == 4):
+        if not isinstance(img, (list, tuple)) and not (isinstance(img, np.ndarray) and len(img.shape) == 4):
             boxes = boxes[0]
             probs = probs[0]
             points = points[0]
@@ -975,23 +910,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block17,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 896, 64, 64])], {}),
+     True),
+    (Block35,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64])], {}),
+     True),
+    (Block8,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1792, 64, 64])], {}),
+     True),
+    (Mixed_6a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64])], {}),
+     True),
+    (Mixed_7a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 896, 64, 64])], {}),
+     True),
+]
+
 class Test_timesler_facenet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv2d(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Block17(*[], **{}), [torch.rand([4, 896, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Block35(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Block8(*[], **{}), [torch.rand([4, 1792, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Mixed_6a(*[], **{}), [torch.rand([4, 256, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Mixed_7a(*[], **{}), [torch.rand([4, 896, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

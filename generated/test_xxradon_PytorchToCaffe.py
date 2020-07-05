@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -111,17 +112,9 @@ class InvertedResidual(nn.Module):
         hidden_dim = round(inp * expand_ratio)
         self.use_res_connect = self.stride == 1 and inp == oup
         if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3,
-                stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(
-                hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim,
-                oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
         else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=
-                True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1,
-                groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim),
-                nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -131,13 +124,11 @@ class InvertedResidual(nn.Module):
 
 
 def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -147,28 +138,22 @@ class MobileNetV2(nn.Module):
         block = InvertedResidual
         input_channel = 32
         last_channel = 1280
-        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 
-            32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 
-            320, 1, 1]]
+        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
         assert input_size % 32 == 0
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2)]
         for t, c, n, s in interverted_residual_setting:
             output_channel = int(c * width_mult)
             for i in range(n):
                 if i == 0:
-                    self.features.append(block(input_channel,
-                        output_channel, s, expand_ratio=t))
+                    self.features.append(block(input_channel, output_channel, s, expand_ratio=t))
                 else:
-                    self.features.append(block(input_channel,
-                        output_channel, 1, expand_ratio=t))
+                    self.features.append(block(input_channel, output_channel, 1, expand_ratio=t))
                 input_channel = output_channel
         self.features.append(conv_1x1_bn(input_channel, self.last_channel))
         self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.
-            last_channel, n_class))
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.last_channel, n_class))
         self._initialize_weights()
 
     def forward(self, x):
@@ -205,8 +190,7 @@ class Model(nn.Module):
         self.model = module.make_model(args)
         if not args.cpu and args.nGPU > 1:
             self.model = nn.DataParallel(self.model, range(args.nGPU))
-        self.load(ckpt.dir, pre_train=args.pre_train, resume=args.resume,
-            cpu=args.cpu)
+        self.load(ckpt.dir, pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x):
@@ -220,14 +204,11 @@ class Model(nn.Module):
 
     def save(self, apath, epoch, is_best=False):
         target = self.get_model()
-        torch.save(target.state_dict(), os.path.join(apath, 'model',
-            'model_latest.pt'))
+        torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_latest.pt'))
         if is_best:
-            torch.save(target.state_dict(), os.path.join(apath, 'model',
-                'model_best.pt'))
+            torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_best.pt'))
         if self.save_models:
-            torch.save(target.state_dict(), os.path.join(apath, 'model',
-                'model_{}.pt'.format(epoch)))
+            torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_{}.pt'.format(epoch)))
 
     def load(self, apath, pre_train='', resume=-1, cpu=False):
         if cpu:
@@ -235,17 +216,13 @@ class Model(nn.Module):
         else:
             kwargs = {}
         if resume == -1:
-            self.get_model().load_state_dict(torch.load(os.path.join(apath,
-                'model', 'model_latest.pt'), **kwargs), strict=False)
+            self.get_model().load_state_dict(torch.load(os.path.join(apath, 'model', 'model_latest.pt'), **kwargs), strict=False)
         elif resume == 0:
             if pre_train != '':
                 None
-                self.get_model().load_state_dict(torch.load(pre_train, **
-                    kwargs), strict=False)
+                self.get_model().load_state_dict(torch.load(pre_train, **kwargs), strict=False)
         else:
-            self.get_model().load_state_dict(torch.load(
-                '/home/wdd/Work/Pytorch/MGN-pytorch-master/experiment/test815/model/model_100.pt'
-                , **kwargs), strict=False)
+            self.get_model().load_state_dict(torch.load('/home/wdd/Work/Pytorch/MGN-pytorch-master/experiment/test815/model/model_100.pt', **kwargs), strict=False)
 
 
 class MGN(nn.Module):
@@ -254,20 +231,14 @@ class MGN(nn.Module):
         super(MGN, self).__init__()
         num_classes = args.num_classes
         resnet = resnet50(pretrained=True)
-        self.backone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
+        self.backone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
         res_conv4 = nn.Sequential(*resnet.layer3[1:])
         res_g_conv5 = resnet.layer4
-        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.
-            Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d
-            (2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
+        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d(2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
         res_p_conv5.load_state_dict(resnet.layer4.state_dict())
-        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_g_conv5))
-        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
-        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
+        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_g_conv5))
+        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
+        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
         if args.pool == 'max':
             pool2d = nn.MaxPool2d
         elif args.pool == 'avg':
@@ -279,8 +250,7 @@ class MGN(nn.Module):
         self.maxpool_zg_p3 = pool2d(kernel_size=(24, 8))
         self.maxpool_zp2 = pool2d(kernel_size=(12, 8))
         self.maxpool_zp3 = pool2d(kernel_size=(8, 8))
-        reduction = nn.Sequential(nn.Conv2d(2048, args.feats, 1, bias=False
-            ), nn.BatchNorm2d(args.feats), nn.ReLU())
+        reduction = nn.Sequential(nn.Conv2d(2048, args.feats, 1, bias=False), nn.BatchNorm2d(args.feats), nn.ReLU())
         self._init_reduction(reduction)
         self.reduction_0 = copy.deepcopy(reduction)
         self.reduction_1 = copy.deepcopy(reduction)
@@ -338,15 +308,13 @@ class MGN(nn.Module):
         f0_p3 = self.reduction_5(z0_p3)
         f1_p3 = self.reduction_6(z1_p3)
         f2_p3 = self.reduction_7(z2_p3)
-        predict = torch.cat([fg_p1, fg_p2, fg_p3, f0_p2, f1_p2, f0_p3,
-            f1_p3, f2_p3], dim=1)
+        predict = torch.cat([fg_p1, fg_p2, fg_p3, f0_p2, f1_p2, f0_p3, f1_p3, f2_p3], dim=1)
         return predict
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -383,8 +351,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -414,8 +381,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -436,9 +402,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -465,14 +429,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_xxradon_PytorchToCaffe(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

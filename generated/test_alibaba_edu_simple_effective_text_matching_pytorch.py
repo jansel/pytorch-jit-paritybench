@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,8 +82,7 @@ class Module(nn.Module):
         if base_name:
             base_name += '/'
         if self.summary:
-            summary.update({(base_name + name): val for name, val in self.
-                summary.items()})
+            summary.update({(base_name + name): val for name, val in self.summary.items()})
         for name, child in self.named_children():
             if hasattr(child, 'get_summary'):
                 name = base_name + name
@@ -119,8 +119,7 @@ class ModuleDict(nn.ModuleDict):
 class GeLU(nn.Module):
 
     def forward(self, x):
-        return 0.5 * x * (1.0 + torch.tanh(x * 0.7978845608 * (1.0 + 
-            0.044715 * x * x)))
+        return 0.5 * x * (1.0 + torch.tanh(x * 0.7978845608 * (1.0 + 0.044715 * x * x)))
 
 
 class Linear(nn.Module):
@@ -128,8 +127,7 @@ class Linear(nn.Module):
     def __init__(self, in_features, out_features, activations=False):
         super().__init__()
         linear = nn.Linear(in_features, out_features)
-        nn.init.normal_(linear.weight, std=math.sqrt((2.0 if activations else
-            1.0) / in_features))
+        nn.init.normal_(linear.weight, std=math.sqrt((2.0 if activations else 1.0) / in_features))
         nn.init.zeros_(linear.bias)
         modules = [nn.utils.weight_norm(linear)]
         if activations:
@@ -142,20 +140,15 @@ class Linear(nn.Module):
 
 class Conv1d(Module):
 
-    def __init__(self, in_channels, out_channels, kernel_sizes: Collection[int]
-        ):
+    def __init__(self, in_channels, out_channels, kernel_sizes: Collection[int]):
         super().__init__()
-        assert all(k % 2 == 1 for k in kernel_sizes
-            ), 'only support odd kernel sizes'
-        assert out_channels % len(kernel_sizes
-            ) == 0, 'out channels must be dividable by kernels'
+        assert all(k % 2 == 1 for k in kernel_sizes), 'only support odd kernel sizes'
+        assert out_channels % len(kernel_sizes) == 0, 'out channels must be dividable by kernels'
         out_channels = out_channels // len(kernel_sizes)
         convs = []
         for kernel_size in kernel_sizes:
-            conv = nn.Conv1d(in_channels, out_channels, kernel_size,
-                padding=(kernel_size - 1) // 2)
-            nn.init.normal_(conv.weight, std=math.sqrt(2.0 / (in_channels *
-                kernel_size)))
+            conv = nn.Conv1d(in_channels, out_channels, kernel_size, padding=(kernel_size - 1) // 2)
+            nn.init.normal_(conv.weight, std=math.sqrt(2.0 / (in_channels * kernel_size)))
             nn.init.zeros_(conv.bias)
             convs.append(nn.Sequential(nn.utils.weight_norm(conv), GeLU()))
         self.model = nn.ModuleList(convs)
@@ -172,8 +165,7 @@ class Embedding(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.fix_embeddings = args.fix_embeddings
-        self.embedding = nn.Embedding(args.num_vocab, args.embedding_dim,
-            padding_idx=0)
+        self.embedding = nn.Embedding(args.num_vocab, args.embedding_dim, padding_idx=0)
         self.dropout = args.dropout
 
     def set_(self, value):
@@ -191,9 +183,7 @@ class Encoder(nn.Module):
     def __init__(self, args, input_size):
         super().__init__()
         self.dropout = args.dropout
-        self.encoders = nn.ModuleList([Conv1d(in_channels=input_size if i ==
-            0 else args.hidden_size, out_channels=args.hidden_size,
-            kernel_sizes=args.kernel_sizes) for i in range(args.enc_layers)])
+        self.encoders = nn.ModuleList([Conv1d(in_channels=input_size if i == 0 else args.hidden_size, out_channels=args.hidden_size, kernel_sizes=args.kernel_sizes) for i in range(args.enc_layers)])
 
     def forward(self, x, mask):
         x = x.transpose(1, 2)
@@ -217,14 +207,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Embedding,
+     lambda: ([], {'args': _mock_config(fix_embeddings=4, num_vocab=4, embedding_dim=4, dropout=0.5)}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (GeLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_alibaba_edu_simple_effective_text_matching_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Embedding(*[], **{'args': _mock_config(fix_embeddings=4, num_vocab=4, embedding_dim=4, dropout=0.5)}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

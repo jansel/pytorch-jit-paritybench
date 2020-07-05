@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,14 +68,9 @@ class TEM(torch.nn.Module):
         self.c_hidden = opt['tem_hidden_dim']
         self.tem_best_loss = 10000000
         self.output_dim = 3
-        self.conv1 = torch.nn.Conv1d(in_channels=self.feat_dim,
-            out_channels=self.c_hidden, kernel_size=3, stride=1, padding=1,
-            groups=1)
-        self.conv2 = torch.nn.Conv1d(in_channels=self.c_hidden,
-            out_channels=self.c_hidden, kernel_size=3, stride=1, padding=1,
-            groups=1)
-        self.conv3 = torch.nn.Conv1d(in_channels=self.c_hidden,
-            out_channels=self.output_dim, kernel_size=1, stride=1, padding=0)
+        self.conv1 = torch.nn.Conv1d(in_channels=self.feat_dim, out_channels=self.c_hidden, kernel_size=3, stride=1, padding=1, groups=1)
+        self.conv2 = torch.nn.Conv1d(in_channels=self.c_hidden, out_channels=self.c_hidden, kernel_size=3, stride=1, padding=1, groups=1)
+        self.conv3 = torch.nn.Conv1d(in_channels=self.c_hidden, out_channels=self.output_dim, kernel_size=1, stride=1, padding=0)
         self.reset_params()
 
     @staticmethod
@@ -105,10 +101,8 @@ class PEM(torch.nn.Module):
         self.u_ratio_l = opt['pem_u_ratio_l']
         self.output_dim = 1
         self.pem_best_loss = 1000000
-        self.fc1 = torch.nn.Linear(in_features=self.feat_dim, out_features=
-            self.hidden_dim, bias=True)
-        self.fc2 = torch.nn.Linear(in_features=self.hidden_dim,
-            out_features=self.output_dim, bias=True)
+        self.fc1 = torch.nn.Linear(in_features=self.feat_dim, out_features=self.hidden_dim, bias=True)
+        self.fc2 = torch.nn.Linear(in_features=self.hidden_dim, out_features=self.output_dim, bias=True)
         self.reset_params()
 
     @staticmethod
@@ -131,11 +125,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (PEM,
+     lambda: ([], {'opt': _mock_config(pem_feat_dim=4, pem_batch_size=4, pem_hidden_dim=4, pem_u_ratio_m=4, pem_u_ratio_l=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TEM,
+     lambda: ([], {'opt': _mock_config(tem_feat_dim=4, temporal_scale=1.0, tem_batch_size=4, tem_hidden_dim=4)}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+]
+
 class Test_wzmsltw_BSN_boundary_sensitive_network_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(PEM(*[], **{'opt': _mock_config(pem_feat_dim=4, pem_batch_size=4, pem_hidden_dim=4, pem_u_ratio_m=4, pem_u_ratio_l=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(TEM(*[], **{'opt': _mock_config(tem_feat_dim=4, temporal_scale=1.0, tem_batch_size=4, tem_hidden_dim=4)}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,15 +60,13 @@ from torch import nn
 from torch import optim
 
 
-def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps,
-    cuda=False, device=0):
+def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps, cuda=False, device=0):
     """Construct a task iterator from input and output tensor"""
     inner_size = inner_bsz * inner_steps
     outer_size = outer_bsz * outer_steps
     tsz = tensors[0].size(0)
     if tsz != inner_size + outer_size:
-        raise ValueError('tensor size mismatch: expected {}, got {}'.format
-            (inner_size + outer_size, tsz))
+        raise ValueError('tensor size mismatch: expected {}, got {}'.format(inner_size + outer_size, tsz))
 
     def iterator(start, stop, size):
         for i in range(start, stop, size):
@@ -75,8 +74,7 @@ def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps,
             if cuda:
                 out = tuple(t.cuda(device) for t in out)
             yield out
-    return iterator(0, inner_size, inner_bsz), iterator(inner_size, tsz,
-        outer_bsz)
+    return iterator(0, inner_size, inner_bsz), iterator(inner_size, tsz, outer_bsz)
 
 
 def compute_auc(x):
@@ -100,13 +98,11 @@ class AggRes:
 
     def aggregate_train(self):
         """Aggregate train results"""
-        (self.train_meta_loss, self.train_loss, self.train_acc, self.
-            train_losses, self.train_accs) = self.aggregate(self.train_res)
+        self.train_meta_loss, self.train_loss, self.train_acc, self.train_losses, self.train_accs = self.aggregate(self.train_res)
 
     def aggregate_val(self):
         """Aggregate val results"""
-        (self.val_meta_loss, self.val_loss, self.val_acc, self.val_losses,
-            self.val_accs) = self.aggregate(self.val_res)
+        self.val_meta_loss, self.val_loss, self.val_acc, self.val_losses, self.val_accs = self.aggregate(self.val_res)
 
     @staticmethod
     def aggregate(results):
@@ -185,9 +181,7 @@ def _load_from_par_dict(module, par_dict, prefix):
         else:
             input_param = param
         if input_param.shape != param.shape:
-            raise ValueError(
-                'size mismatch for {}: copying a param of {} from checkpoint, where the shape is {} in current model.'
-                .format(key, param.shape, input_param.shape))
+            raise ValueError('size mismatch for {}: copying a param of {} from checkpoint, where the shape is {} in current model.'.format(key, param.shape, input_param.shape))
         _new_parameters[name] = input_param
     module._parameters = _new_parameters
 
@@ -211,16 +205,11 @@ def load_state_dict(module, state_dict):
             persistent buffers.
     """
     par_names = [n for n, _ in module.named_parameters()]
-    par_dict = OrderedDict({k: v for k, v in state_dict.items() if k in
-        par_names})
-    no_par_dict = OrderedDict({k: v for k, v in state_dict.items() if k not in
-        par_names})
-    excess = [k for k in state_dict.keys() if k not in list(no_par_dict.
-        keys()) + list(par_dict.keys())]
+    par_dict = OrderedDict({k: v for k, v in state_dict.items() if k in par_names})
+    no_par_dict = OrderedDict({k: v for k, v in state_dict.items() if k not in par_names})
+    excess = [k for k in state_dict.keys() if k not in list(no_par_dict.keys()) + list(par_dict.keys())]
     if excess:
-        raise ValueError(
-            "State variables %r not in the module's state dict %r" % (
-            excess, par_names))
+        raise ValueError("State variables %r not in the module's state dict %r" % (excess, par_names))
     metadata = getattr(state_dict, '_metadata', None)
     if metadata is not None:
         par_dict._metadata = metadata
@@ -257,8 +246,7 @@ def maml_inner_step(input, output, model, optimizer, criterion, create_graph):
     return loss, prediction, new_parameters
 
 
-def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph
-    ):
+def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph):
     """Adapt model parameters to task and use adapted params to predict new samples
 
     Arguments:
@@ -275,12 +263,10 @@ def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph
     for i, (input, output) in enumerate(data_inner):
         input = input.to(device, non_blocking=True)
         output = output.to(device, non_blocking=True)
-        loss, prediction, new_params = maml_inner_step(input, output, model,
-            optimizer, criterion, create_graph)
+        loss, prediction, new_params = maml_inner_step(input, output, model, optimizer, criterion, create_graph)
         train_res.log(loss.item(), prediction, output)
         if create_graph:
-            load_state_dict(model, build_dict([n for n, _ in model.
-                named_parameters()], new_params))
+            load_state_dict(model, build_dict([n for n, _ in model.named_parameters()], new_params))
         for p in original_parameters.values():
             p.grad = None
     val_res = Res()
@@ -298,9 +284,7 @@ def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph
     return loss, predictions, (train_res, val_res)
 
 
-def maml_outer_step(task_iterator, model, optimizer_cls, criterion,
-    return_predictions=True, return_results=True, create_graph=True, **
-    optimizer_kwargs):
+def maml_outer_step(task_iterator, model, optimizer_cls, criterion, return_predictions=True, return_results=True, create_graph=True, **optimizer_kwargs):
     """MAML objective.
 
     Run MAML on a batch of tasks.
@@ -329,8 +313,7 @@ def maml_outer_step(task_iterator, model, optimizer_cls, criterion,
     for i, task in enumerate(task_iterator):
         inner_iterator, outer_iterator = task
         task_optimizer = optimizer_cls(model.parameters(), **optimizer_kwargs)
-        task_loss, task_predictions, task_res = maml_task(inner_iterator,
-            outer_iterator, model, task_optimizer, criterion, create_graph)
+        task_loss, task_predictions, task_res = maml_task(inner_iterator, outer_iterator, model, task_optimizer, criterion, create_graph)
         loss += task_loss
         predictions.append(task_predictions)
         results.append(task_res)
@@ -366,9 +349,7 @@ class MAML(nn.Module):
         >>> meta_optimizer.zero_grad()
     """
 
-    def __init__(self, model, optimizer_cls, criterion, tensor, inner_bsz=
-        None, outer_bsz=None, inner_steps=None, outer_steps=None, **
-        optimizer_kwargs):
+    def __init__(self, model, optimizer_cls, criterion, tensor, inner_bsz=None, outer_bsz=None, inner_steps=None, outer_steps=None, **optimizer_kwargs):
         super(MAML, self).__init__()
         self.model = model
         self.optimizer_cls = optimizer_cls
@@ -385,16 +366,9 @@ class MAML(nn.Module):
             assert inner_steps is not None, 'set inner_steps with tensor=True'
             assert outer_steps is not None, 'set outer_steps with tensor=True'
 
-    def forward(self, inputs, return_predictions=True, return_results=True,
-        create_graph=True):
-        task_iterator = inputs if not self.tensor else [build_iterator(i,
-            self.inner_bsz, self.outer_bsz, self.inner_steps, self.
-            outer_steps) for i in inputs]
-        return maml_outer_step(task_iterator=task_iterator, model=self.
-            model, optimizer_cls=self.optimizer_cls, criterion=self.
-            criterion, return_predictions=return_predictions,
-            return_results=return_results, create_graph=create_graph, **
-            self.optimizer_kwargs)
+    def forward(self, inputs, return_predictions=True, return_results=True, create_graph=True):
+        task_iterator = inputs if not self.tensor else [build_iterator(i, self.inner_bsz, self.outer_bsz, self.inner_steps, self.outer_steps) for i in inputs]
+        return maml_outer_step(task_iterator=task_iterator, model=self.model, optimizer_cls=self.optimizer_cls, criterion=self.criterion, return_predictions=return_predictions, return_results=return_results, create_graph=create_graph, **self.optimizer_kwargs)
 
 
 class UnSqueeze(nn.Module):
@@ -447,9 +421,7 @@ class OmniConv(nn.Module):
         multi_head (bool): multi-headed training (default=False).
     """
 
-    def __init__(self, nclasses, nlayers=4, kernel_size=3, num_filters=64,
-        imsize=(28, 28), padding=True, max_pool=True, batch_norm=True,
-        multi_head=False):
+    def __init__(self, nclasses, nlayers=4, kernel_size=3, num_filters=64, imsize=(28, 28), padding=True, max_pool=True, batch_norm=True, multi_head=False):
         super(OmniConv, self).__init__()
         self.nlayers = nlayers
         self.kernel_size = kernel_size
@@ -479,8 +451,7 @@ class OmniConv(nn.Module):
             self.model = nn.Sequential(*layers)
         else:
             self.conv = nn.Sequential(*layers)
-            self.heads = nn.ModuleList([nn.Linear(num_filters, nclasses) for
-                _ in range(50)])
+            self.heads = nn.ModuleList([nn.Linear(num_filters, nclasses) for _ in range(50)])
 
     def forward(self, input, idx=None):
         if not self.multi_head:
@@ -493,12 +464,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Squeeze,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UnSqueeze,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_amzn_metalearn_leap(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(UnSqueeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

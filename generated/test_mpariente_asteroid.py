@@ -93,8 +93,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -211,8 +212,7 @@ class Filterbank(nn.Module):
 
     def get_config(self):
         """ Returns dictionary of arguments to re-instantiate the class. """
-        config = {'fb_name': self.__class__.__name__, 'n_filters': self.
-            n_filters, 'kernel_size': self.kernel_size, 'stride': self.stride}
+        config = {'fb_name': self.__class__.__name__, 'n_filters': self.n_filters, 'kernel_size': self.kernel_size, 'stride': self.stride}
         return config
 
 
@@ -370,17 +370,12 @@ class Decoder(_EncDec):
         """
         filters = self.get_filters()
         if spec.ndim == 2:
-            return F.conv_transpose1d(spec.unsqueeze(0), filters, stride=
-                self.stride, padding=self.padding, output_padding=self.
-                output_padding).squeeze()
+            return F.conv_transpose1d(spec.unsqueeze(0), filters, stride=self.stride, padding=self.padding, output_padding=self.output_padding).squeeze()
         if spec.ndim == 3:
-            return F.conv_transpose1d(spec, filters, stride=self.stride,
-                padding=self.padding, output_padding=self.output_padding)
+            return F.conv_transpose1d(spec, filters, stride=self.stride, padding=self.padding, output_padding=self.output_padding)
         elif spec.ndim > 3:
             view_as = (-1,) + spec.shape[-2:]
-            out = F.conv_transpose1d(spec.view(view_as), filters, stride=
-                self.stride, padding=self.padding, output_padding=self.
-                output_padding)
+            out = F.conv_transpose1d(spec.view(view_as), filters, stride=self.stride, padding=self.padding, output_padding=self.output_padding)
             return out.view(spec.shape[:-2] + (-1,))
 
 
@@ -431,27 +426,21 @@ class Encoder(_EncDec):
         """ Convolve 1D torch.Tensor with the filters from a filterbank."""
         filters = self.get_filters()
         if waveform.ndim == 1:
-            return F.conv1d(waveform[None, None], filters, stride=self.
-                stride, padding=self.padding).squeeze()
+            return F.conv1d(waveform[None, None], filters, stride=self.stride, padding=self.padding).squeeze()
         elif waveform.ndim == 2:
-            warnings.warn(
-                'Input tensor was 2D. Applying the corresponding Decoder to the current output will result in a 3D tensor. This behaviours was introduced to match Conv1D and ConvTranspose1D, please use 3D inputs to avoid it. For example, this can be done with input_tensor.unsqueeze(1).'
-                )
-            return F.conv1d(waveform.unsqueeze(1), filters, stride=self.
-                stride, padding=self.padding)
+            warnings.warn('Input tensor was 2D. Applying the corresponding Decoder to the current output will result in a 3D tensor. This behaviours was introduced to match Conv1D and ConvTranspose1D, please use 3D inputs to avoid it. For example, this can be done with input_tensor.unsqueeze(1).')
+            return F.conv1d(waveform.unsqueeze(1), filters, stride=self.stride, padding=self.padding)
         elif waveform.ndim == 3:
             batch, channels, time_len = waveform.shape
             if channels == 1 and self.as_conv1d:
-                return F.conv1d(waveform, filters, stride=self.stride,
-                    padding=self.padding)
+                return F.conv1d(waveform, filters, stride=self.stride, padding=self.padding)
             else:
                 return self.batch_1d_conv(waveform, filters)
         else:
             return self.batch_1d_conv(waveform, filters)
 
     def batch_1d_conv(self, inp, filters):
-        batched_conv = F.conv1d(inp.view(-1, 1, inp.shape[-1]), filters,
-            stride=self.stride, padding=self.padding)
+        batched_conv = F.conv1d(inp.view(-1, 1, inp.shape[-1]), filters, stride=self.stride, padding=self.padding)
         output_shape = inp.shape[:-1] + batched_conv.shape[-2:]
         return batched_conv.view(output_shape)
 
@@ -472,8 +461,7 @@ class STFTFB(Filterbank):
         n_feats_out (int): Number of output filters.
     """
 
-    def __init__(self, n_filters, kernel_size, stride=None, window=None, **
-        kwargs):
+    def __init__(self, n_filters, kernel_size, stride=None, window=None, **kwargs):
         super(STFTFB, self).__init__(n_filters, kernel_size, stride=stride)
         assert n_filters >= kernel_size
         self.cutoff = int(n_filters / 2 + 1)
@@ -483,17 +471,14 @@ class STFTFB(Filterbank):
         else:
             ws = window.size
             if not ws == kernel_size:
-                raise AssertionError(
-                    'Expected window of size {}.Received window of size {} instead.'
-                    .format(kernel_size, ws))
+                raise AssertionError('Expected window of size {}.Received window of size {} instead.'.format(kernel_size, ws))
             self.window = window
         filters = np.fft.fft(np.eye(n_filters))
         filters /= 0.5 * np.sqrt(kernel_size * n_filters / self.stride)
         lpad = int((n_filters - kernel_size) // 2)
         rpad = int(n_filters - kernel_size - lpad)
         indexes = list(range(lpad, n_filters - rpad))
-        filters = np.vstack([np.real(filters[:self.cutoff, (indexes)]), np.
-            imag(filters[:self.cutoff, (indexes)])])
+        filters = np.vstack([np.real(filters[:self.cutoff, (indexes)]), np.imag(filters[:self.cutoff, (indexes)])])
         filters[(0), :] /= np.sqrt(2)
         filters[(n_filters // 2), :] /= np.sqrt(2)
         filters = torch.from_numpy(filters * self.window).unsqueeze(1).float()
@@ -517,9 +502,7 @@ def check_complex(tensor, dim=-2):
 
     """
     if tensor.shape[dim] % 2 != 0:
-        raise AssertionError(
-            'Could not equally chunk the tensor (shape {}) along the given dimension ({}). Dim axis is probably wrong'
-            )
+        raise AssertionError('Could not equally chunk the tensor (shape {}) along the given dimension ({}). Dim axis is probably wrong')
 
 
 def take_mag(x, dim=-2):
@@ -601,8 +584,7 @@ class SingleSrcMultiScaleSpectral(_Loss):
         International Conference on Learning Representations ICLR 2020 $
     """
 
-    def __init__(self, n_filters=None, windows_size=None, hops_size=None,
-        alpha=1.0):
+    def __init__(self, n_filters=None, windows_size=None, hops_size=None, alpha=1.0):
         super().__init__()
         if windows_size is None:
             windows_size = [2048, 1024, 512, 256, 128, 64, 32]
@@ -614,9 +596,7 @@ class SingleSrcMultiScaleSpectral(_Loss):
         self.n_filters = n_filters
         self.hops_size = hops_size
         self.alpha = alpha
-        self.encoders = nn.ModuleList(Encoder(STFTFB(n_filters[i],
-            windows_size[i], hops_size[i])) for i in range(len(self.n_filters))
-            )
+        self.encoders = nn.ModuleList(Encoder(STFTFB(n_filters[i], windows_size[i], hops_size[i])) for i in range(len(self.n_filters)))
 
     def forward(self, est_target, target):
         batch_size = est_target.shape[0]
@@ -632,8 +612,7 @@ class SingleSrcMultiScaleSpectral(_Loss):
         spect_est_target = take_mag(encoder(est_target)).view(batch_size, -1)
         spect_target = take_mag(encoder(target)).view(batch_size, -1)
         linear_loss = self.norm1(spect_est_target - spect_target)
-        log_loss = self.norm1(torch.log(spect_est_target + EPS) - torch.log
-            (spect_target + EPS))
+        log_loss = self.norm1(torch.log(spect_est_target + EPS) - torch.log(spect_target + EPS))
         return linear_loss + self.alpha * log_loss
 
     @staticmethod
@@ -698,26 +677,20 @@ class PITLossWrapper(nn.Module):
         >>>                      reduce_kwargs=reduce_kwargs)
     """
 
-    def __init__(self, loss_func, pit_from='pw_mtx', mode=None, perm_reduce
-        =None):
+    def __init__(self, loss_func, pit_from='pw_mtx', mode=None, perm_reduce=None):
         super().__init__()
         self.loss_func = loss_func
         self.pit_from = pit_from
         self.mode = mode
         self.perm_reduce = perm_reduce
         if self.mode is not None:
-            warnings.warn(
-                '`mode` argument is deprecated since v0.1.0 andwill be remove in v0.2.0. Use argument `pit_from`instead'
-                , VisibleDeprecationWarning)
+            warnings.warn('`mode` argument is deprecated since v0.1.0 andwill be remove in v0.2.0. Use argument `pit_from`instead', VisibleDeprecationWarning)
             mapping = dict(pairwise='pw_mtx', wo_src='pw_pt', w_src='perm_avg')
             self.pit_from = mapping.get(mode, None)
         if self.pit_from not in ['pw_mtx', 'pw_pt', 'perm_avg']:
-            raise ValueError(
-                'Unsupported loss function type for now. Expectedone of [`pw_mtx`, `pw_pt`, `perm_avg`]'
-                )
+            raise ValueError('Unsupported loss function type for now. Expectedone of [`pw_mtx`, `pw_pt`, `perm_avg`]')
 
-    def forward(self, est_targets, targets, return_est=False, reduce_kwargs
-        =None, **kwargs):
+    def forward(self, est_targets, targets, return_est=False, reduce_kwargs=None, **kwargs):
         """ Find the best permutation and return the loss.
 
         Args:
@@ -743,11 +716,9 @@ class PITLossWrapper(nn.Module):
         if self.pit_from == 'pw_mtx':
             pw_losses = self.loss_func(est_targets, targets, **kwargs)
         elif self.pit_from == 'pw_pt':
-            pw_losses = self.get_pw_losses(self.loss_func, est_targets,
-                targets, **kwargs)
+            pw_losses = self.get_pw_losses(self.loss_func, est_targets, targets, **kwargs)
         elif self.pit_from == 'perm_avg':
-            min_loss, min_loss_idx = self.best_perm_from_perm_avg_loss(self
-                .loss_func, est_targets, targets, **kwargs)
+            min_loss, min_loss_idx = self.best_perm_from_perm_avg_loss(self.loss_func, est_targets, targets, **kwargs)
             mean_loss = torch.mean(min_loss)
             if not return_est:
                 return mean_loss
@@ -756,11 +727,9 @@ class PITLossWrapper(nn.Module):
         else:
             return
         assert pw_losses.ndim == 3, 'Something went wrong with the loss function, please read the docs.'
-        assert pw_losses.shape[0] == targets.shape[0
-            ], 'PIT loss needs same batch dim as input'
+        assert pw_losses.shape[0] == targets.shape[0], 'PIT loss needs same batch dim as input'
         reduce_kwargs = reduce_kwargs if reduce_kwargs is not None else dict()
-        min_loss, min_loss_idx = self.find_best_perm(pw_losses, n_src,
-            perm_reduce=self.perm_reduce, **reduce_kwargs)
+        min_loss, min_loss_idx = self.find_best_perm(pw_losses, n_src, perm_reduce=self.perm_reduce, **reduce_kwargs)
         mean_loss = torch.mean(min_loss)
         if not return_est:
             return mean_loss
@@ -794,13 +763,11 @@ class PITLossWrapper(nn.Module):
         pair_wise_losses = targets.new_empty(batch_size, n_src, n_src)
         for est_idx, est_src in enumerate(est_targets.transpose(0, 1)):
             for target_idx, target_src in enumerate(targets.transpose(0, 1)):
-                pair_wise_losses[:, (est_idx), (target_idx)] = loss_func(
-                    est_src, target_src, **kwargs)
+                pair_wise_losses[:, (est_idx), (target_idx)] = loss_func(est_src, target_src, **kwargs)
         return pair_wise_losses
 
     @staticmethod
-    def best_perm_from_perm_avg_loss(loss_func, est_targets, targets, **kwargs
-        ):
+    def best_perm_from_perm_avg_loss(loss_func, est_targets, targets, **kwargs):
         """ Find best permutation from loss function with source axis.
 
         Args:
@@ -822,8 +789,7 @@ class PITLossWrapper(nn.Module):
         """
         n_src = targets.shape[1]
         perms = list(permutations(range(n_src)))
-        loss_set = torch.stack([loss_func(est_targets[:, (perm)], targets,
-            **kwargs) for perm in perms], dim=1)
+        loss_set = torch.stack([loss_func(est_targets[:, (perm)], targets, **kwargs) for perm in perms], dim=1)
         min_loss, min_loss_idx = torch.min(loss_set, dim=1, keepdim=True)
         return min_loss, min_loss_idx[:, (0)]
 
@@ -854,12 +820,10 @@ class PITLossWrapper(nn.Module):
         <https://github.com/kaituoxu/Conv-TasNet/blob/master/LICENSE>`__.
         """
         pwl = pair_wise_losses.transpose(-1, -2)
-        perms = pwl.new_tensor(list(permutations(range(n_src))), dtype=
-            torch.long)
+        perms = pwl.new_tensor(list(permutations(range(n_src))), dtype=torch.long)
         idx = torch.unsqueeze(perms, 2)
         if perm_reduce is None:
-            perms_one_hot = pwl.new_zeros((*perms.size(), n_src)).scatter_(
-                2, idx, 1)
+            perms_one_hot = pwl.new_zeros((*perms.size(), n_src)).scatter_(2, idx, 1)
             loss_set = torch.einsum('bij,pij->bp', [pwl, perms_one_hot])
             loss_set /= n_src
         else:
@@ -890,8 +854,7 @@ class PITLossWrapper(nn.Module):
         <https://github.com/kaituoxu/Conv-TasNet/blob/master>`__ and `License
         <https://github.com/kaituoxu/Conv-TasNet/blob/master/LICENSE>`__.
         """
-        perms = source.new_tensor(list(permutations(range(n_src))), dtype=
-            torch.long)
+        perms = source.new_tensor(list(permutations(range(n_src))), dtype=torch.long)
         min_loss_perm = torch.index_select(perms, dim=0, index=min_loss_idx)
         reordered_sources = torch.zeros_like(source)
         for b in range(source.shape[0]):
@@ -951,8 +914,7 @@ class SingleSrcPMSQE(nn.Module):
         >>> loss_value = loss_func(ref_spec, est_spec)
     """
 
-    def __init__(self, window_name='sqrt_hann', window_weight=1.0, bark_eq=
-        True, gain_eq=True, sample_rate=16000):
+    def __init__(self, window_name='sqrt_hann', window_weight=1.0, bark_eq=True, gain_eq=True, sample_rate=16000):
         super().__init__()
         self.window_name = window_name
         self.window_weight = window_weight
@@ -1012,42 +974,33 @@ class SingleSrcPMSQE(nn.Module):
         try:
             freq_idx = est_targets.shape.index(self.nbins // 2 + 1)
         except ValueError:
-            raise ValueError(
-                'Could not find dimension with {} elements in input tensors, verify your inputs'
-                .format(self.nbins // 2 + 1))
+            raise ValueError('Could not find dimension with {} elements in input tensors, verify your inputs'.format(self.nbins // 2 + 1))
         if freq_idx == 1:
             est_targets = est_targets.transpose(1, 2)
             targets = targets.transpose(1, 2)
         if pad_mask is not None:
             pad_mask = pad_mask.transpose(1, 2) if freq_idx == 1 else pad_mask
         else:
-            pad_mask = torch.ones(est_targets.shape[0], est_targets.shape[1], 1
-                )
+            pad_mask = torch.ones(est_targets.shape[0], est_targets.shape[1], 1)
         ref_spectra = self.magnitude_at_sll(targets, pad_mask)
         deg_spectra = self.magnitude_at_sll(est_targets, pad_mask)
         ref_bark_spectra = self.bark_computation(ref_spectra)
         deg_bark_spectra = self.bark_computation(deg_spectra)
         if self.bark_eq:
-            deg_bark_spectra = self.bark_freq_equalization(ref_bark_spectra,
-                deg_bark_spectra)
+            deg_bark_spectra = self.bark_freq_equalization(ref_bark_spectra, deg_bark_spectra)
         if self.gain_eq:
-            deg_bark_spectra = self.bark_gain_equalization(ref_bark_spectra,
-                deg_bark_spectra)
-        sym_d, asym_d = self.compute_distortion_tensors(ref_bark_spectra,
-            deg_bark_spectra)
+            deg_bark_spectra = self.bark_gain_equalization(ref_bark_spectra, deg_bark_spectra)
+        sym_d, asym_d = self.compute_distortion_tensors(ref_bark_spectra, deg_bark_spectra)
         audible_power_ref = self.compute_audible_power(ref_bark_spectra, 1.0)
-        wd_frame, wda_frame = self.per_frame_distortion(sym_d, asym_d,
-            audible_power_ref)
+        wd_frame, wda_frame = self.per_frame_distortion(sym_d, asym_d, audible_power_ref)
         dims = [-1, -2]
-        pmsqe_frame = (self.alpha * wd_frame + self.beta * wda_frame
-            ) * pad_mask
+        pmsqe_frame = (self.alpha * wd_frame + self.beta * wda_frame) * pad_mask
         pmsqe = torch.sum(pmsqe_frame, dim=dims) / pad_mask.sum(dims)
         return pmsqe
 
     def magnitude_at_sll(self, spectra, pad_mask):
         masked_spectra = spectra * pad_mask * self.mask_sll
-        freq_mean_masked_spectra = torch.mean(masked_spectra, dim=-1,
-            keepdim=True)
+        freq_mean_masked_spectra = torch.mean(masked_spectra, dim=-1, keepdim=True)
         sum_spectra = torch.sum(freq_mean_masked_spectra, dim=-2, keepdim=True)
         seq_len = torch.sum(pad_mask, dim=-2, keepdim=True)
         mean_pow = sum_spectra / seq_len
@@ -1057,8 +1010,7 @@ class SingleSrcPMSQE(nn.Module):
         return self.Sp * torch.matmul(spectra, self.bark_matrix)
 
     def compute_audible_power(self, bark_spectra, factor=1.0):
-        thr_bark = torch.where(bark_spectra > self.abs_thresh_power *
-            factor, bark_spectra, torch.zeros_like(bark_spectra))
+        thr_bark = torch.where(bark_spectra > self.abs_thresh_power * factor, bark_spectra, torch.zeros_like(bark_spectra))
         return torch.sum(thr_bark, dim=-1, keepdim=True)
 
     def bark_gain_equalization(self, ref_bark_spectra, deg_bark_spectra):
@@ -1066,38 +1018,29 @@ class SingleSrcPMSQE(nn.Module):
         audible_power_deg = self.compute_audible_power(deg_bark_spectra, 1.0)
         gain = (audible_power_ref + 5000.0) / (audible_power_deg + 5000.0)
         limited_gain = torch.min(gain, 5.0 * torch.ones_like(gain))
-        limited_gain = torch.max(limited_gain, 0.0003 * torch.ones_like(
-            limited_gain))
+        limited_gain = torch.max(limited_gain, 0.0003 * torch.ones_like(limited_gain))
         return limited_gain * deg_bark_spectra
 
     def bark_freq_equalization(self, ref_bark_spectra, deg_bark_spectra):
         """This version is applied in the degraded directly."""
-        audible_power_x100 = self.compute_audible_power(ref_bark_spectra, 100.0
-            )
+        audible_power_x100 = self.compute_audible_power(ref_bark_spectra, 100.0)
         not_silent = audible_power_x100 >= 10000000.0
         cond_thr = ref_bark_spectra >= self.abs_thresh_power * 100.0
-        ref_thresholded = torch.where(cond_thr, ref_bark_spectra, torch.
-            zeros_like(ref_bark_spectra))
-        deg_thresholded = torch.where(cond_thr, deg_bark_spectra, torch.
-            zeros_like(deg_bark_spectra))
-        avg_ppb_ref = torch.sum(torch.where(not_silent, ref_thresholded,
-            torch.zeros_like(ref_thresholded)), dim=-2, keepdim=True)
-        avg_ppb_deg = torch.sum(torch.where(not_silent, deg_thresholded,
-            torch.zeros_like(deg_thresholded)), dim=-2, keepdim=True)
+        ref_thresholded = torch.where(cond_thr, ref_bark_spectra, torch.zeros_like(ref_bark_spectra))
+        deg_thresholded = torch.where(cond_thr, deg_bark_spectra, torch.zeros_like(deg_bark_spectra))
+        avg_ppb_ref = torch.sum(torch.where(not_silent, ref_thresholded, torch.zeros_like(ref_thresholded)), dim=-2, keepdim=True)
+        avg_ppb_deg = torch.sum(torch.where(not_silent, deg_thresholded, torch.zeros_like(deg_thresholded)), dim=-2, keepdim=True)
         equalizer = (avg_ppb_ref + 1000.0) / (avg_ppb_deg + 1000.0)
         equalizer = torch.min(equalizer, 100.0 * torch.ones_like(equalizer))
         equalizer = torch.max(equalizer, 0.01 * torch.ones_like(equalizer))
         return equalizer * deg_bark_spectra
 
     def loudness_computation(self, bark_spectra):
-        aterm = torch.pow(self.abs_thresh_power / 0.5, self.
-            modified_zwicker_power)
-        bterm = torch.pow(0.5 + 0.5 * bark_spectra / self.abs_thresh_power,
-            self.modified_zwicker_power) - 1.0
+        aterm = torch.pow(self.abs_thresh_power / 0.5, self.modified_zwicker_power)
+        bterm = torch.pow(0.5 + 0.5 * bark_spectra / self.abs_thresh_power, self.modified_zwicker_power) - 1.0
         loudness_dens = self.Sl * aterm * bterm
         cond = bark_spectra < self.abs_thresh_power
-        return torch.where(cond, torch.zeros_like(loudness_dens), loudness_dens
-            )
+        return torch.where(cond, torch.zeros_like(loudness_dens), loudness_dens)
 
     def compute_distortion_tensors(self, ref_bark_spec, deg_bark_spec):
         original_loudness = self.loudness_computation(ref_bark_spec)
@@ -1107,22 +1050,17 @@ class SingleSrcPMSQE(nn.Module):
         sym_d = torch.max(r - m, torch.zeros_like(r))
         asym = torch.pow((deg_bark_spec + 50.0) / (ref_bark_spec + 50.0), 1.2)
         cond = asym < 3.0 * torch.ones_like(asym)
-        asym_factor = torch.where(cond, torch.zeros_like(asym), torch.min(
-            asym, 12.0 * torch.ones_like(asym)))
+        asym_factor = torch.where(cond, torch.zeros_like(asym), torch.min(asym, 12.0 * torch.ones_like(asym)))
         asym_d = asym_factor * sym_d
         return sym_d, asym_d
 
     def per_frame_distortion(self, sym_d, asym_d, total_power_ref):
-        d_frame = torch.sum(torch.pow(sym_d * self.width_of_band_bark, 2.0),
-            dim=-1, keepdim=True)
+        d_frame = torch.sum(torch.pow(sym_d * self.width_of_band_bark, 2.0), dim=-1, keepdim=True)
         d_frame = torch.sqrt(d_frame) * self.sqrt_total_width
-        da_frame = torch.sum(asym_d * self.width_of_band_bark, dim=-1,
-            keepdim=True)
+        da_frame = torch.sum(asym_d * self.width_of_band_bark, dim=-1, keepdim=True)
         weights = torch.pow((total_power_ref + 100000.0) / 10000000.0, 0.04)
-        wd_frame = torch.min(d_frame / weights, 45.0 * torch.ones_like(d_frame)
-            )
-        wda_frame = torch.min(da_frame / weights, 45.0 * torch.ones_like(
-            da_frame))
+        wd_frame = torch.min(d_frame / weights, 45.0 * torch.ones_like(d_frame))
+        wda_frame = torch.min(da_frame / weights, 45.0 * torch.ones_like(da_frame))
         return wd_frame, wda_frame
 
     @staticmethod
@@ -1150,86 +1088,33 @@ class SingleSrcPMSQE(nn.Module):
         mask_sll[11] = 0.5 * 25.0 / 31.25
         mask_sll[12:104] = 1.0
         mask_sll[104] = 0.5
-        correction = self.pow_correc_factor * (self.nbins + 2.0
-            ) / self.nbins ** 2
+        correction = self.pow_correc_factor * (self.nbins + 2.0) / self.nbins ** 2
         mask_sll = mask_sll * correction
         self.mask_sll = nn.Parameter(tensor(mask_sll), requires_grad=False)
 
     def register_16k_constants(self):
-        abs_thresh_power = [51286152.0, 2454709.5, 70794.59375, 4897.788574,
-            1174.897705, 389.045166, 104.71286, 45.70882, 17.782795, 
-            9.772372, 4.897789, 3.090296, 1.905461, 1.258925, 0.977237, 
-            0.724436, 0.562341, 0.457088, 0.389045, 0.331131, 0.295121, 
-            0.269153, 0.25704, 0.251189, 0.251189, 0.251189, 0.251189, 
-            0.263027, 0.288403, 0.30903, 0.338844, 0.371535, 0.398107, 
-            0.436516, 0.467735, 0.489779, 0.501187, 0.501187, 0.512861, 
-            0.524807, 0.524807, 0.524807, 0.512861, 0.47863, 0.42658, 
-            0.371535, 0.363078, 0.416869, 0.537032]
-        self.abs_thresh_power = nn.Parameter(tensor(abs_thresh_power),
-            requires_grad=False)
-        modif_zwicker_power = [0.25520097857560436, 0.25520097857560436, 
-            0.25520097857560436, 0.25520097857560436, 0.25168783742879913, 
-            0.2480666573186961, 0.244767379124259, 0.24173800119368227, 
-            0.23893798876066405, 0.23633516221479894, 0.23390360348392067, 
-            0.23162209128929445, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 
-            0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 
-            0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 
-            0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23]
-        self.modified_zwicker_power = nn.Parameter(tensor(
-            modif_zwicker_power), requires_grad=False)
-        width_of_band_bark = [0.157344, 0.317994, 0.322441, 0.326934, 
-            0.331474, 0.336061, 0.340697, 0.345381, 0.350114, 0.354897, 
-            0.359729, 0.364611, 0.369544, 0.374529, 0.379565, 0.384653, 
-            0.389794, 0.394989, 0.400236, 0.405538, 0.410894, 0.416306, 
-            0.421773, 0.427297, 0.432877, 0.438514, 0.444209, 0.449962, 
-            0.455774, 0.461645, 0.467577, 0.473569, 0.479621, 0.485736, 
-            0.491912, 0.498151, 0.504454, 0.510819, 0.51725, 0.523745, 
-            0.530308, 0.536934, 0.543629, 0.55039, 0.55722, 0.564119, 
-            0.571085, 0.578125, 0.585232]
-        self.width_of_band_bark = nn.Parameter(tensor(width_of_band_bark),
-            requires_grad=False)
+        abs_thresh_power = [51286152.0, 2454709.5, 70794.59375, 4897.788574, 1174.897705, 389.045166, 104.71286, 45.70882, 17.782795, 9.772372, 4.897789, 3.090296, 1.905461, 1.258925, 0.977237, 0.724436, 0.562341, 0.457088, 0.389045, 0.331131, 0.295121, 0.269153, 0.25704, 0.251189, 0.251189, 0.251189, 0.251189, 0.263027, 0.288403, 0.30903, 0.338844, 0.371535, 0.398107, 0.436516, 0.467735, 0.489779, 0.501187, 0.501187, 0.512861, 0.524807, 0.524807, 0.524807, 0.512861, 0.47863, 0.42658, 0.371535, 0.363078, 0.416869, 0.537032]
+        self.abs_thresh_power = nn.Parameter(tensor(abs_thresh_power), requires_grad=False)
+        modif_zwicker_power = [0.25520097857560436, 0.25520097857560436, 0.25520097857560436, 0.25520097857560436, 0.25168783742879913, 0.2480666573186961, 0.244767379124259, 0.24173800119368227, 0.23893798876066405, 0.23633516221479894, 0.23390360348392067, 0.23162209128929445, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23]
+        self.modified_zwicker_power = nn.Parameter(tensor(modif_zwicker_power), requires_grad=False)
+        width_of_band_bark = [0.157344, 0.317994, 0.322441, 0.326934, 0.331474, 0.336061, 0.340697, 0.345381, 0.350114, 0.354897, 0.359729, 0.364611, 0.369544, 0.374529, 0.379565, 0.384653, 0.389794, 0.394989, 0.400236, 0.405538, 0.410894, 0.416306, 0.421773, 0.427297, 0.432877, 0.438514, 0.444209, 0.449962, 0.455774, 0.461645, 0.467577, 0.473569, 0.479621, 0.485736, 0.491912, 0.498151, 0.504454, 0.510819, 0.51725, 0.523745, 0.530308, 0.536934, 0.543629, 0.55039, 0.55722, 0.564119, 0.571085, 0.578125, 0.585232]
+        self.width_of_band_bark = nn.Parameter(tensor(width_of_band_bark), requires_grad=False)
         local_path = pathlib.Path(__file__).parent.absolute()
         bark_path = os.path.join(local_path, 'bark_matrix_16k.mat')
         bark_matrix = loadmat(bark_path)['Bark_matrix_16k'].astype('float32')
-        self.bark_matrix = nn.Parameter(tensor(bark_matrix), requires_grad=
-            False)
+        self.bark_matrix = nn.Parameter(tensor(bark_matrix), requires_grad=False)
 
     def register_8k_constants(self):
-        abs_thresh_power = [51286152, 2454709.5, 70794.59375, 4897.788574, 
-            1174.897705, 389.045166, 104.71286, 45.70882, 17.782795, 
-            9.772372, 4.897789, 3.090296, 1.905461, 1.258925, 0.977237, 
-            0.724436, 0.562341, 0.457088, 0.389045, 0.331131, 0.295121, 
-            0.269153, 0.25704, 0.251189, 0.251189, 0.251189, 0.251189, 
-            0.263027, 0.288403, 0.30903, 0.338844, 0.371535, 0.398107, 
-            0.436516, 0.467735, 0.489779, 0.501187, 0.501187, 0.512861, 
-            0.524807, 0.524807, 0.524807]
-        self.abs_thresh_power = nn.Parameter(tensor(abs_thresh_power),
-            requires_grad=False)
-        modif_zwicker_power = [0.25520097857560436, 0.25520097857560436, 
-            0.25520097857560436, 0.25520097857560436, 0.25168783742879913, 
-            0.2480666573186961, 0.244767379124259, 0.24173800119368227, 
-            0.23893798876066405, 0.23633516221479894, 0.23390360348392067, 
-            0.23162209128929445, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 
-            0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 
-            0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 
-            0.23, 0.23, 0.23]
-        self.modified_zwicker_power = nn.Parameter(tensor(
-            modif_zwicker_power), requires_grad=False)
-        width_of_band_bark = [0.157344, 0.317994, 0.322441, 0.326934, 
-            0.331474, 0.336061, 0.340697, 0.345381, 0.350114, 0.354897, 
-            0.359729, 0.364611, 0.369544, 0.374529, 0.379565, 0.384653, 
-            0.389794, 0.394989, 0.400236, 0.405538, 0.410894, 0.416306, 
-            0.421773, 0.427297, 0.432877, 0.438514, 0.444209, 0.449962, 
-            0.455774, 0.461645, 0.467577, 0.473569, 0.479621, 0.485736, 
-            0.491912, 0.498151, 0.504454, 0.510819, 0.51725, 0.523745, 
-            0.530308, 0.536934]
-        self.width_of_band_bark = nn.Parameter(tensor(width_of_band_bark),
-            requires_grad=False)
+        abs_thresh_power = [51286152, 2454709.5, 70794.59375, 4897.788574, 1174.897705, 389.045166, 104.71286, 45.70882, 17.782795, 9.772372, 4.897789, 3.090296, 1.905461, 1.258925, 0.977237, 0.724436, 0.562341, 0.457088, 0.389045, 0.331131, 0.295121, 0.269153, 0.25704, 0.251189, 0.251189, 0.251189, 0.251189, 0.263027, 0.288403, 0.30903, 0.338844, 0.371535, 0.398107, 0.436516, 0.467735, 0.489779, 0.501187, 0.501187, 0.512861, 0.524807, 0.524807, 0.524807]
+        self.abs_thresh_power = nn.Parameter(tensor(abs_thresh_power), requires_grad=False)
+        modif_zwicker_power = [0.25520097857560436, 0.25520097857560436, 0.25520097857560436, 0.25520097857560436, 0.25168783742879913, 0.2480666573186961, 0.244767379124259, 0.24173800119368227, 0.23893798876066405, 0.23633516221479894, 0.23390360348392067, 0.23162209128929445, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23, 0.23]
+        self.modified_zwicker_power = nn.Parameter(tensor(modif_zwicker_power), requires_grad=False)
+        width_of_band_bark = [0.157344, 0.317994, 0.322441, 0.326934, 0.331474, 0.336061, 0.340697, 0.345381, 0.350114, 0.354897, 0.359729, 0.364611, 0.369544, 0.374529, 0.379565, 0.384653, 0.389794, 0.394989, 0.400236, 0.405538, 0.410894, 0.416306, 0.421773, 0.427297, 0.432877, 0.438514, 0.444209, 0.449962, 0.455774, 0.461645, 0.467577, 0.473569, 0.479621, 0.485736, 0.491912, 0.498151, 0.504454, 0.510819, 0.51725, 0.523745, 0.530308, 0.536934]
+        self.width_of_band_bark = nn.Parameter(tensor(width_of_band_bark), requires_grad=False)
         local_path = pathlib.Path(__file__).parent.absolute()
         bark_path = os.path.join(local_path, 'bark_matrix_8k.mat')
         bark_matrix = loadmat(bark_path)['Bark_matrix_8k'].astype('float32')
-        self.bark_matrix = nn.Parameter(tensor(bark_matrix), requires_grad=
-            False)
+        self.bark_matrix = nn.Parameter(tensor(bark_matrix), requires_grad=False)
 
 
 class PairwiseNegSDR(_Loss):
@@ -1285,10 +1170,8 @@ class PairwiseNegSDR(_Loss):
         s_target = torch.unsqueeze(targets, dim=1)
         s_estimate = torch.unsqueeze(est_targets, dim=2)
         if self.sdr_type in ['sisdr', 'sdsdr']:
-            pair_wise_dot = torch.sum(s_estimate * s_target, dim=3, keepdim
-                =True)
-            s_target_energy = torch.sum(s_target ** 2, dim=3, keepdim=True
-                ) + EPS
+            pair_wise_dot = torch.sum(s_estimate * s_target, dim=3, keepdim=True)
+            s_target_energy = torch.sum(s_target ** 2, dim=3, keepdim=True) + EPS
             pair_wise_proj = pair_wise_dot * s_target / s_target_energy
         else:
             pair_wise_proj = s_target.repeat(1, s_target.shape[2], 1, 1)
@@ -1296,8 +1179,7 @@ class PairwiseNegSDR(_Loss):
             e_noise = s_estimate - s_target
         else:
             e_noise = s_estimate - pair_wise_proj
-        pair_wise_sdr = torch.sum(pair_wise_proj ** 2, dim=3) / (torch.sum(
-            e_noise ** 2, dim=3) + EPS)
+        pair_wise_sdr = torch.sum(pair_wise_proj ** 2, dim=3) / (torch.sum(e_noise ** 2, dim=3) + EPS)
         if self.take_log:
             pair_wise_sdr = 10 * torch.log10(pair_wise_sdr + EPS)
         return -pair_wise_sdr
@@ -1344,8 +1226,7 @@ class SingleSrcNegSDR(_Loss):
             Processing (ICASSP) 2019.
         """
 
-    def __init__(self, sdr_type, zero_mean=True, take_log=True, reduction=
-        'none'):
+    def __init__(self, sdr_type, zero_mean=True, take_log=True, reduction='none'):
         assert reduction != 'sum', NotImplementedError
         super().__init__(reduction=reduction)
         assert sdr_type in ['snr', 'sisdr', 'sdsdr']
@@ -1370,8 +1251,7 @@ class SingleSrcNegSDR(_Loss):
             e_noise = est_target - target
         else:
             e_noise = est_target - scaled_target
-        losses = torch.sum(scaled_target ** 2, dim=1) / (torch.sum(e_noise **
-            2, dim=1) + EPS)
+        losses = torch.sum(scaled_target ** 2, dim=1) / (torch.sum(e_noise ** 2, dim=1) + EPS)
         if self.take_log:
             losses = 10 * torch.log10(losses + EPS)
         losses = losses.mean() if self.reduction == 'mean' else losses
@@ -1431,10 +1311,8 @@ class MultiSrcNegSDR(_Loss):
             targets = targets - mean_source
             est_targets = est_targets - mean_estimate
         if self.sdr_type in ['sisdr', 'sdsdr']:
-            pair_wise_dot = torch.sum(est_targets * targets, dim=2, keepdim
-                =True)
-            s_target_energy = torch.sum(targets ** 2, dim=2, keepdim=True
-                ) + EPS
+            pair_wise_dot = torch.sum(est_targets * targets, dim=2, keepdim=True)
+            s_target_energy = torch.sum(targets ** 2, dim=2, keepdim=True) + EPS
             scaled_targets = pair_wise_dot * targets / s_target_energy
         else:
             scaled_targets = targets
@@ -1442,8 +1320,7 @@ class MultiSrcNegSDR(_Loss):
             e_noise = est_targets - targets
         else:
             e_noise = est_targets - scaled_targets
-        pair_wise_sdr = torch.sum(scaled_targets ** 2, dim=2) / (torch.sum(
-            e_noise ** 2, dim=2) + EPS)
+        pair_wise_sdr = torch.sum(scaled_targets ** 2, dim=2) / (torch.sum(e_noise ** 2, dim=2) + EPS)
         if self.take_log:
             pair_wise_sdr = 10 * torch.log10(pair_wise_sdr + EPS)
         return -torch.mean(pair_wise_sdr, dim=-1)
@@ -1475,16 +1352,13 @@ class Conv1DBlock(nn.Module):
         https://arxiv.org/abs/1809.07454
     """
 
-    def __init__(self, in_chan, hid_chan, skip_out_chan, kernel_size,
-        padding, dilation, norm_type='gLN'):
+    def __init__(self, in_chan, hid_chan, skip_out_chan, kernel_size, padding, dilation, norm_type='gLN'):
         super(Conv1DBlock, self).__init__()
         self.skip_out_chan = skip_out_chan
         conv_norm = norms.get(norm_type)
         in_conv1d = nn.Conv1d(in_chan, hid_chan, 1)
-        depth_conv1d = nn.Conv1d(hid_chan, hid_chan, kernel_size, padding=
-            padding, dilation=dilation, groups=hid_chan)
-        self.shared_block = nn.Sequential(in_conv1d, nn.PReLU(), conv_norm(
-            hid_chan), depth_conv1d, nn.PReLU(), conv_norm(hid_chan))
+        depth_conv1d = nn.Conv1d(hid_chan, hid_chan, kernel_size, padding=padding, dilation=dilation, groups=hid_chan)
+        self.shared_block = nn.Sequential(in_conv1d, nn.PReLU(), conv_norm(hid_chan), depth_conv1d, nn.PReLU(), conv_norm(hid_chan))
         self.res_conv = nn.Conv1d(hid_chan, in_chan, 1)
         if skip_out_chan:
             self.skip_conv = nn.Conv1d(hid_chan, skip_out_chan, 1)
@@ -1514,8 +1388,7 @@ def has_arg(fn, name):
     parameter = signature.parameters.get(name)
     if parameter is None:
         return False
-    return parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        inspect.Parameter.KEYWORD_ONLY)
+    return parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
 
 
 class TDConvNet(nn.Module):
@@ -1547,9 +1420,7 @@ class TDConvNet(nn.Module):
         https://arxiv.org/abs/1809.07454
     """
 
-    def __init__(self, in_chan, n_src, out_chan=None, n_blocks=8, n_repeats
-        =3, bn_chan=128, hid_chan=512, skip_chan=128, conv_kernel_size=3,
-        norm_type='gLN', mask_act='relu', kernel_size=None):
+    def __init__(self, in_chan, n_src, out_chan=None, n_blocks=8, n_repeats=3, bn_chan=128, hid_chan=512, skip_chan=128, conv_kernel_size=3, norm_type='gLN', mask_act='relu', kernel_size=None):
         super(TDConvNet, self).__init__()
         self.in_chan = in_chan
         self.n_src = n_src
@@ -1561,9 +1432,7 @@ class TDConvNet(nn.Module):
         self.hid_chan = hid_chan
         self.skip_chan = skip_chan
         if kernel_size is not None:
-            warnings.warn(
-                '`kernel_size` argument is deprecated since v0.2.1 and will be remove in v0.3.0. Use argument `conv_kernel_size` instead'
-                , VisibleDeprecationWarning)
+            warnings.warn('`kernel_size` argument is deprecated since v0.2.1 and will be remove in v0.3.0. Use argument `conv_kernel_size` instead', VisibleDeprecationWarning)
             conv_kernel_size = kernel_size
         self.conv_kernel_size = conv_kernel_size
         self.norm_type = norm_type
@@ -1575,9 +1444,7 @@ class TDConvNet(nn.Module):
         for r in range(n_repeats):
             for x in range(n_blocks):
                 padding = (conv_kernel_size - 1) * 2 ** x // 2
-                self.TCN.append(Conv1DBlock(bn_chan, hid_chan, skip_chan,
-                    conv_kernel_size, padding=padding, dilation=2 ** x,
-                    norm_type=norm_type))
+                self.TCN.append(Conv1DBlock(bn_chan, hid_chan, skip_chan, conv_kernel_size, padding=padding, dilation=2 ** x, norm_type=norm_type))
         mask_conv_inp = skip_chan if skip_chan else bn_chan
         mask_conv = nn.Conv1d(mask_conv_inp, n_src * out_chan, 1)
         self.mask_net = nn.Sequential(nn.PReLU(), mask_conv)
@@ -1616,11 +1483,7 @@ class TDConvNet(nn.Module):
         return est_mask
 
     def get_config(self):
-        config = {'in_chan': self.in_chan, 'out_chan': self.out_chan,
-            'bn_chan': self.bn_chan, 'hid_chan': self.hid_chan, 'skip_chan':
-            self.skip_chan, 'conv_kernel_size': self.conv_kernel_size,
-            'n_blocks': self.n_blocks, 'n_repeats': self.n_repeats, 'n_src':
-            self.n_src, 'norm_type': self.norm_type, 'mask_act': self.mask_act}
+        config = {'in_chan': self.in_chan, 'out_chan': self.out_chan, 'bn_chan': self.bn_chan, 'hid_chan': self.hid_chan, 'skip_chan': self.skip_chan, 'conv_kernel_size': self.conv_kernel_size, 'n_blocks': self.n_blocks, 'n_repeats': self.n_repeats, 'n_src': self.n_src, 'norm_type': self.norm_type, 'mask_act': self.mask_act}
         return config
 
 
@@ -1635,8 +1498,7 @@ class _LayerNorm(nn.Module):
 
     def apply_gain_and_bias(self, normed_x):
         """ Assumes input of size `[batch, chanel, *]`. """
-        return (self.gamma * normed_x.transpose(1, -1) + self.beta).transpose(
-            1, -1)
+        return (self.gamma * normed_x.transpose(1, -1) + self.beta).transpose(1, -1)
 
 
 class BatchNorm(_BatchNorm):
@@ -1644,8 +1506,7 @@ class BatchNorm(_BatchNorm):
 
     def _check_input_dim(self, input):
         if input.dim() < 2 or input.dim() > 4:
-            raise ValueError('expected 4D or 3D input (got {}D input)'.
-                format(input.dim()))
+            raise ValueError('expected 4D or 3D input (got {}D input)'.format(input.dim()))
 
 
 class SingleRNN(nn.Module):
@@ -1666,17 +1527,14 @@ class SingleRNN(nn.Module):
             bidirectional. Default is ``False``.
     """
 
-    def __init__(self, rnn_type, input_size, hidden_size, n_layers=1,
-        dropout=0, bidirectional=False):
+    def __init__(self, rnn_type, input_size, hidden_size, n_layers=1, dropout=0, bidirectional=False):
         super(SingleRNN, self).__init__()
         assert rnn_type.upper() in ['RNN', 'LSTM', 'GRU']
         rnn_type = rnn_type.upper()
         self.rnn_type = rnn_type
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.rnn = getattr(nn, rnn_type)(input_size, hidden_size,
-            num_layers=n_layers, dropout=dropout, batch_first=True,
-            bidirectional=bool(bidirectional))
+        self.rnn = getattr(nn, rnn_type)(input_size, hidden_size, num_layers=n_layers, dropout=dropout, batch_first=True, bidirectional=bool(bidirectional))
 
     def forward(self, inp):
         """ Input shape [batch, seq, feats] """
@@ -1700,8 +1558,7 @@ class StackedResidualRNN(nn.Module):
             unidirectional. (Default: False)
     """
 
-    def __init__(self, rnn_type, n_units, n_layers=4, dropout=0.0,
-        bidirectional=False):
+    def __init__(self, rnn_type, n_units, n_layers=4, dropout=0.0, bidirectional=False):
         super(StackedResidualRNN, self).__init__()
         self.rnn_type = rnn_type
         self.n_units = n_units
@@ -1711,8 +1568,7 @@ class StackedResidualRNN(nn.Module):
         self.bidirectional = bidirectional
         self.layers = nn.ModuleList()
         for _ in range(n_layers):
-            self.layers.append(SingleRNN(rnn_type, input_size=n_units,
-                hidden_size=n_units, bidirectional=bidirectional))
+            self.layers.append(SingleRNN(rnn_type, input_size=n_units, hidden_size=n_units, bidirectional=bidirectional))
         self.dropout_layer = nn.Dropout(self.dropout)
 
     def forward(self, x):
@@ -1747,15 +1603,12 @@ class DPRNNBlock(nn.Module):
         and Takuya Yoshioka. https://arxiv.org/abs/1910.06379
     """
 
-    def __init__(self, in_chan, hid_size, norm_type='gLN', bidirectional=
-        True, rnn_type='LSTM', num_layers=1, dropout=0):
+    def __init__(self, in_chan, hid_size, norm_type='gLN', bidirectional=True, rnn_type='LSTM', num_layers=1, dropout=0):
         super(DPRNNBlock, self).__init__()
-        self.intra_RNN = SingleRNN(rnn_type, in_chan, hid_size, num_layers,
-            dropout=dropout, bidirectional=True)
+        self.intra_RNN = SingleRNN(rnn_type, in_chan, hid_size, num_layers, dropout=dropout, bidirectional=True)
         self.intra_linear = nn.Linear(hid_size * 2, in_chan)
         self.intra_norm = norms.get(norm_type)(in_chan)
-        self.inter_RNN = SingleRNN(rnn_type, in_chan, hid_size, num_layers,
-            dropout=dropout, bidirectional=bidirectional)
+        self.inter_RNN = SingleRNN(rnn_type, in_chan, hid_size, num_layers, dropout=dropout, bidirectional=bidirectional)
         num_direction = int(bidirectional) + 1
         self.inter_linear = nn.Linear(hid_size * num_direction, in_chan)
         self.inter_norm = norms.get(norm_type)(in_chan)
@@ -1814,10 +1667,7 @@ class DPRNN(nn.Module):
             and Takuya Yoshioka. https://arxiv.org/abs/1910.06379
     """
 
-    def __init__(self, in_chan, n_src, out_chan=None, bn_chan=128, hid_size
-        =128, chunk_size=100, hop_size=None, n_repeats=6, norm_type='gLN',
-        mask_act='relu', bidirectional=True, rnn_type='LSTM', num_layers=1,
-        dropout=0):
+    def __init__(self, in_chan, n_src, out_chan=None, bn_chan=128, hid_size=128, chunk_size=100, hop_size=None, n_repeats=6, norm_type='gLN', mask_act='relu', bidirectional=True, rnn_type='LSTM', num_layers=1, dropout=0):
         super(DPRNN, self).__init__()
         self.in_chan = in_chan
         out_chan = out_chan if out_chan is not None else in_chan
@@ -1840,15 +1690,12 @@ class DPRNN(nn.Module):
         self.bottleneck = nn.Sequential(layer_norm, bottleneck_conv)
         net = []
         for x in range(self.n_repeats):
-            net += [DPRNNBlock(bn_chan, hid_size, norm_type=norm_type,
-                bidirectional=bidirectional, rnn_type=rnn_type, num_layers=
-                num_layers, dropout=dropout)]
+            net += [DPRNNBlock(bn_chan, hid_size, norm_type=norm_type, bidirectional=bidirectional, rnn_type=rnn_type, num_layers=num_layers, dropout=dropout)]
         self.net = nn.Sequential(*net)
         net_out_conv = nn.Conv2d(bn_chan, n_src * bn_chan, 1)
         self.first_out = nn.Sequential(nn.PReLU(), net_out_conv)
         self.net_out = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Tanh())
-        self.net_gate = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.
-            Sigmoid())
+        self.net_gate = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Sigmoid())
         self.mask_net = nn.Conv1d(bn_chan, out_chan, 1, bias=False)
         mask_nl_class = activations.get(mask_act)
         if has_arg(mask_nl_class, 'dim'):
@@ -1867,18 +1714,14 @@ class DPRNN(nn.Module):
         """
         batch, n_filters, n_frames = mixture_w.size()
         output = self.bottleneck(mixture_w)
-        output = unfold(output.unsqueeze(-1), kernel_size=(self.chunk_size,
-            1), padding=(self.chunk_size, 0), stride=(self.hop_size, 1))
+        output = unfold(output.unsqueeze(-1), kernel_size=(self.chunk_size, 1), padding=(self.chunk_size, 0), stride=(self.hop_size, 1))
         n_chunks = output.size(-1)
         output = output.reshape(batch, self.bn_chan, self.chunk_size, n_chunks)
         output = self.net(output)
         output = self.first_out(output)
-        output = output.reshape(batch * self.n_src, self.bn_chan, self.
-            chunk_size, n_chunks)
+        output = output.reshape(batch * self.n_src, self.bn_chan, self.chunk_size, n_chunks)
         to_unfold = self.bn_chan * self.chunk_size
-        output = fold(output.reshape(batch * self.n_src, to_unfold,
-            n_chunks), (n_frames, 1), kernel_size=(self.chunk_size, 1),
-            padding=(self.chunk_size, 0), stride=(self.hop_size, 1))
+        output = fold(output.reshape(batch * self.n_src, to_unfold, n_chunks), (n_frames, 1), kernel_size=(self.chunk_size, 1), padding=(self.chunk_size, 0), stride=(self.hop_size, 1))
         output = output.reshape(batch * self.n_src, self.bn_chan, -1)
         output = self.net_out(output) * self.net_gate(output)
         score = self.mask_net(output)
@@ -1887,13 +1730,7 @@ class DPRNN(nn.Module):
         return est_mask
 
     def get_config(self):
-        config = {'in_chan': self.in_chan, 'out_chan': self.out_chan,
-            'bn_chan': self.bn_chan, 'hid_size': self.hid_size,
-            'chunk_size': self.chunk_size, 'hop_size': self.hop_size,
-            'n_repeats': self.n_repeats, 'n_src': self.n_src, 'norm_type':
-            self.norm_type, 'mask_act': self.mask_act, 'bidirectional':
-            self.bidirectional, 'rnn_type': self.rnn_type, 'num_layers':
-            self.num_layers, 'dropout': self.dropout}
+        config = {'in_chan': self.in_chan, 'out_chan': self.out_chan, 'bn_chan': self.bn_chan, 'hid_size': self.hid_size, 'chunk_size': self.chunk_size, 'hop_size': self.hop_size, 'n_repeats': self.n_repeats, 'n_src': self.n_src, 'norm_type': self.norm_type, 'mask_act': self.mask_act, 'bidirectional': self.bidirectional, 'rnn_type': self.rnn_type, 'num_layers': self.num_layers, 'dropout': self.dropout}
         return config
 
 
@@ -1989,18 +1826,13 @@ class BaseTasNet(nn.Module):
                 `model_args` and `state_dict`.
         """
         if isinstance(pretrained_model_conf_or_path, str):
-            conf = torch.load(pretrained_model_conf_or_path, map_location='cpu'
-                )
+            conf = torch.load(pretrained_model_conf_or_path, map_location='cpu')
         else:
             conf = pretrained_model_conf_or_path
         if 'model_args' not in conf.keys():
-            raise ValueError(
-                'Expected config dictionary to have field model_args`. Found only: {}'
-                .format(conf.keys()))
+            raise ValueError('Expected config dictionary to have field model_args`. Found only: {}'.format(conf.keys()))
         if 'state_dict' not in conf.keys():
-            raise ValueError(
-                'Expected config dictionary to have field state_dict`. Found only: {}'
-                .format(conf.keys()))
+            raise ValueError('Expected config dictionary to have field state_dict`. Found only: {}'.format(conf.keys()))
         model = cls(*args, **conf['model_args'], **kwargs)
         model.load_state_dict(conf['state_dict'])
         return model
@@ -2015,9 +1847,7 @@ class BaseTasNet(nn.Module):
         fb_config = self.encoder.filterbank.get_config()
         masknet_config = self.masker.get_config()
         if not all(k not in fb_config for k in masknet_config):
-            raise AssertionError(
-                'Filterbank and Mask network config sharecommon keys. Merging them is not safe.'
-                )
+            raise AssertionError('Filterbank and Mask network config sharecommon keys. Merging them is not safe.')
         model_conf['model_args'] = {**fb_config, **masknet_config}
         model_conf['state_dict'] = self.state_dict()
         return model_conf
@@ -2140,16 +1970,14 @@ class SimpleModel(nn.Module):
         dropout (float): dropout value between recurrent layers.
     """
 
-    def __init__(self, input_size, hidden_size, output_size=None, rnn_type=
-        'gru', n_layers=3, dropout=0.3):
+    def __init__(self, input_size, hidden_size, output_size=None, rnn_type='gru', n_layers=3, dropout=0.3):
         super(SimpleModel, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         output_size = input_size if output_size is None else output_size
         self.output_size = output_size
         self.in_proj_layer = nn.Linear(input_size, hidden_size)
-        self.residual_rec = blocks.StackedResidualRNN(rnn_type, hidden_size,
-            n_layers=n_layers, dropout=dropout)
+        self.residual_rec = blocks.StackedResidualRNN(rnn_type, hidden_size, n_layers=n_layers, dropout=dropout)
         self.out_proj_layer = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
@@ -2263,8 +2091,7 @@ class Model(nn.Module):
         tf_rep = self.encoder(x)
         masker_input = tf_rep
         est_masks = self.masker(masker_input)
-        masked_tf_reps = self.encoder.apply_mask(tf_rep.unsqueeze(1),
-            est_masks, dim=2)
+        masked_tf_reps = self.encoder.apply_mask(tf_rep.unsqueeze(1), est_masks, dim=2)
         return self.pad_output_to_inp(self.decoder(masked_tf_reps), x)
 
     @staticmethod
@@ -2305,8 +2132,7 @@ class TwoStepTDCN(nn.Module):
             https://arxiv.org/abs/1910.09804
     """
 
-    def __init__(self, pretrained_filterbank, bn_chan=256, hid_chan=512,
-        kernel_size=3, n_blocks=8, n_repeats=4, n_sources=2):
+    def __init__(self, pretrained_filterbank, bn_chan=256, hid_chan=512, kernel_size=3, n_blocks=8, n_repeats=4, n_sources=2):
         super(TwoStepTDCN, self).__init__()
         try:
             self.pretrained_filterbank = pretrained_filterbank
@@ -2320,9 +2146,7 @@ class TwoStepTDCN(nn.Module):
             self.decoder.deconv.bias.requires_grad = False
         except Exception as e:
             None
-            raise ValueError(
-                'Could not load features form the pretrained adaptive filterbank.'
-                )
+            raise ValueError('Could not load features form the pretrained adaptive filterbank.')
         self.n_blocks = n_blocks
         self.n_repeats = n_repeats
         self.bn_chan = bn_chan
@@ -2330,18 +2154,11 @@ class TwoStepTDCN(nn.Module):
         self.kernel_size = kernel_size
         self.n_sources = n_sources
         self.ln_in = nn.BatchNorm1d(self.fbank_basis)
-        self.l1 = nn.Conv1d(in_channels=self.fbank_basis, out_channels=self
-            .bn_chan, kernel_size=1)
-        self.separator = nn.Sequential(*[SeparableDilatedConv1DBlock(
-            in_chan=self.bn_chan, hid_chan=self.hid_chan, kernel_size=self.
-            kernel_size, dilation=2 ** d) for _ in range(self.n_blocks) for
-            d in range(self.n_repeats)])
-        self.mask_layer = nn.Conv2d(in_channels=1, out_channels=self.
-            n_sources, kernel_size=(self.fbank_basis + 1, 1), padding=(self
-            .fbank_basis - self.fbank_basis // 2, 0))
+        self.l1 = nn.Conv1d(in_channels=self.fbank_basis, out_channels=self.bn_chan, kernel_size=1)
+        self.separator = nn.Sequential(*[SeparableDilatedConv1DBlock(in_chan=self.bn_chan, hid_chan=self.hid_chan, kernel_size=self.kernel_size, dilation=2 ** d) for _ in range(self.n_blocks) for d in range(self.n_repeats)])
+        self.mask_layer = nn.Conv2d(in_channels=1, out_channels=self.n_sources, kernel_size=(self.fbank_basis + 1, 1), padding=(self.fbank_basis - self.fbank_basis // 2, 0))
         if self.bn_chan != self.fbank_basis:
-            self.out_reshape = nn.Conv1d(in_channels=self.bn_chan,
-                out_channels=self.fbank_basis, kernel_size=1)
+            self.out_reshape = nn.Conv1d(in_channels=self.bn_chan, out_channels=self.fbank_basis, kernel_size=1)
         self.ln_mask_in = nn.BatchNorm1d(self.fbank_basis)
 
     def forward(self, x):
@@ -2360,8 +2177,7 @@ class TwoStepTDCN(nn.Module):
 
     def infer_source_signals(self, mixture_wav):
         adfe_sources = self.forward(mixture_wav)
-        rec_wavs = self.decoder(adfe_sources.view(adfe_sources.shape[0], -1,
-            adfe_sources.shape[-1]))
+        rec_wavs = self.decoder(adfe_sources.view(adfe_sources.shape[0], -1, adfe_sources.shape[-1]))
         return rec_wavs
 
 
@@ -2390,13 +2206,7 @@ class SeparableDilatedConv1DBlock(nn.Module):
 
     def __init__(self, in_chan=256, hid_chan=512, kernel_size=3, dilation=1):
         super(SeparableDilatedConv1DBlock, self).__init__()
-        self.module = nn.Sequential(nn.Conv1d(in_channels=in_chan,
-            out_channels=hid_chan, kernel_size=1), nn.PReLU(), nn.GroupNorm
-            (1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan,
-            out_channels=hid_chan, kernel_size=kernel_size, padding=
-            dilation * (kernel_size - 1) // 2, dilation=dilation, groups=
-            hid_chan), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn
-            .Conv1d(in_channels=hid_chan, out_channels=in_chan, kernel_size=1))
+        self.module = nn.Sequential(nn.Conv1d(in_channels=in_chan, out_channels=hid_chan, kernel_size=1), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan, out_channels=hid_chan, kernel_size=kernel_size, padding=dilation * (kernel_size - 1) // 2, dilation=dilation, groups=hid_chan), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan, out_channels=in_chan, kernel_size=1))
 
     def forward(self, x):
         """ Input shape [batch, feats, seq]"""
@@ -2418,8 +2228,7 @@ class AdaptiveEncoder1D(nn.Module):
 
     def __init__(self, freq_res, sample_res):
         super().__init__()
-        self.conv = nn.Conv1d(1, freq_res, sample_res, stride=sample_res //
-            2, padding=sample_res // 2)
+        self.conv = nn.Conv1d(1, freq_res, sample_res, stride=sample_res // 2, padding=sample_res // 2)
 
     def forward(self, s):
         return F.relu(self.conv(s))
@@ -2436,9 +2245,7 @@ class AdaptiveDecoder1D(nn.Module):
 
     def __init__(self, freq_res, sample_res, n_sources):
         super().__init__()
-        self.deconv = nn.ConvTranspose1d(n_sources * freq_res, n_sources,
-            sample_res, padding=sample_res // 2, stride=sample_res // 2,
-            groups=n_sources, output_padding=sample_res // 2 - 1)
+        self.deconv = nn.ConvTranspose1d(n_sources * freq_res, n_sources, sample_res, padding=sample_res // 2, stride=sample_res // 2, groups=n_sources, output_padding=sample_res // 2 - 1)
 
     def forward(self, x):
         return self.deconv(x)
@@ -2476,8 +2283,7 @@ class AdaptiveEncoderDecoder(nn.Module):
         :return: Ideal masks for the given sources:
         [batch, n_sources, time_samples//(sample_res // 2)]
         """
-        enc_mask_list = [self.mix_encoder(clean_sources[:, (i), :].
-            unsqueeze(1)) for i in range(self.n_sources)]
+        enc_mask_list = [self.mix_encoder(clean_sources[:, (i), :].unsqueeze(1)) for i in range(self.n_sources)]
         total_mask = torch.stack(enc_mask_list, dim=1)
         return F.softmax(total_mask, dim=1)
 
@@ -2495,8 +2301,7 @@ class AdaptiveEncoderDecoder(nn.Module):
         enc_mixture = self.mix_encoder(mixture.unsqueeze(1))
         enc_masks = self.get_target_masks(clean_sources)
         s_recon_enc = enc_masks * enc_mixture.unsqueeze(1)
-        recon_sources = self.decoder(s_recon_enc.view(s_recon_enc.shape[0],
-            -1, s_recon_enc.shape[-1]))
+        recon_sources = self.decoder(s_recon_enc.view(s_recon_enc.shape[0], -1, s_recon_enc.shape[-1]))
         return recon_sources, enc_masks
 
 
@@ -2505,11 +2310,7 @@ class Model(nn.Module):
     def __init__(self, pretrained_filterbank, conf):
         super().__init__()
         self.pretrained_filterbank = pretrained_filterbank
-        self.separator = TwoStepTDCN(pretrained_filterbank, bn_chan=conf[
-            'masknet']['bn_chan'], hid_chan=conf['masknet']['hid_chan'],
-            kernel_size=conf['masknet']['conv_kernel_size'], n_blocks=conf[
-            'masknet']['n_blocks'], n_repeats=conf['masknet']['n_repeats'],
-            n_sources=conf['masknet']['n_src'])
+        self.separator = TwoStepTDCN(pretrained_filterbank, bn_chan=conf['masknet']['bn_chan'], hid_chan=conf['masknet']['hid_chan'], kernel_size=conf['masknet']['conv_kernel_size'], n_blocks=conf['masknet']['n_blocks'], n_repeats=conf['masknet']['n_repeats'], n_sources=conf['masknet']['n_src'])
 
     def get_ideal_targets(self, mixture, clean_sources):
         """
@@ -2521,15 +2322,13 @@ class Model(nn.Module):
             targets for training:
             [batch, n_sources, timesamples//encoder_stride]
         """
-        return self.pretrained_filterbank.get_encoded_sources(mixture,
-            clean_sources)
+        return self.pretrained_filterbank.get_encoded_sources(mixture, clean_sources)
 
     def estimate_latent_representations(self, mixture):
         return self.separator(mixture.unsqueeze(1))
 
     def get_ideal_latent_targets(self, mixture, clean_sources):
-        return self.pretrained_filterbank.get_encoded_sources(mixture,
-            clean_sources)
+        return self.pretrained_filterbank.get_encoded_sources(mixture, clean_sources)
 
     def forward(self, x):
         return self.separator.infer_source_signals(x.unsqueeze(1))
@@ -2624,11 +2423,7 @@ class TasNet(nn.Module):
         self.encoder_relu = Encoder(FreeFB(**fb_conf))
         self.decoder = Decoder(FreeFB(**fb_conf))
         self.bn_layer = GlobLN(fb_conf['n_filters'])
-        self.masker = nn.Sequential(SingleRNN('lstm', fb_conf['n_filters'],
-            hidden_size=mask_conf['n_units'], n_layers=mask_conf['n_layers'
-            ], bidirectional=True, dropout=mask_conf['dropout']), nn.Linear
-            (2 * mask_conf['n_units'], self.n_src * self.n_filters), nn.
-            Sigmoid())
+        self.masker = nn.Sequential(SingleRNN('lstm', fb_conf['n_filters'], hidden_size=mask_conf['n_units'], n_layers=mask_conf['n_layers'], bidirectional=True, dropout=mask_conf['dropout']), nn.Linear(2 * mask_conf['n_units'], self.n_src * self.n_filters), nn.Sigmoid())
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -2649,16 +2444,13 @@ class TasNet(nn.Module):
 
 class Chimera(nn.Module):
 
-    def __init__(self, in_chan, n_src, rnn_type='lstm', n_layers=2,
-        hidden_size=600, bidirectional=True, dropout=0.3, embedding_dim=20,
-        take_log=False):
+    def __init__(self, in_chan, n_src, rnn_type='lstm', n_layers=2, hidden_size=600, bidirectional=True, dropout=0.3, embedding_dim=20, take_log=False):
         super().__init__()
         self.input_dim = in_chan
         self.n_src = n_src
         self.take_log = take_log
         self.embedding_dim = embedding_dim
-        self.rnn = SingleRNN(rnn_type, in_chan, hidden_size, n_layers=
-            n_layers, dropout=dropout, bidirectional=bidirectional)
+        self.rnn = SingleRNN(rnn_type, in_chan, hidden_size, n_layers=n_layers, dropout=dropout, bidirectional=bidirectional)
         self.dropout = nn.Dropout(dropout)
         rnn_out_dim = hidden_size * 2 if bidirectional else hidden_size
         self.mask_layer = nn.Linear(rnn_out_dim, in_chan * self.n_src)
@@ -2674,13 +2466,11 @@ class Chimera(nn.Module):
         out = self.dropout(out)
         proj = self.embedding_layer(out)
         proj = self.embedding_act(proj)
-        proj = proj.view(batch, n_frames, -1, self.embedding_dim).transpose(
-            1, 2)
+        proj = proj.view(batch, n_frames, -1, self.embedding_dim).transpose(1, 2)
         proj = proj.reshape(batch, -1, self.embedding_dim)
         proj_norm = torch.norm(proj, p=2, dim=-1, keepdim=True)
         projection_final = proj / (proj_norm + EPS)
-        mask_out = self.mask_layer(out).view(batch, n_frames, self.n_src,
-            self.input_dim)
+        mask_out = self.mask_layer(out).view(batch, n_frames, self.n_src, self.input_dim)
         mask_out = mask_out.permute(0, 2, 3, 1)
         mask_out = self.mask_act(mask_out)
         return projection_final, mask_out
@@ -2736,8 +2526,7 @@ class Model(nn.Module):
         proj, mask_out = self.masker(take_mag(tf_rep))
         masked = apply_mag_mask(tf_rep.unsqueeze(1), mask_out)
         wavs = pad_x_to_y(self.decoder(masked), x)
-        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked,
-            proj=proj)
+        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked, proj=proj)
         return wavs, dic_out
 
     def dc_head_separate(self, x):
@@ -2759,8 +2548,7 @@ class Model(nn.Module):
         est_masks = torch.stack(est_mask_list, dim=1)
         masked = apply_mag_mask(tf_rep, est_masks)
         wavs = pad_x_to_y(self.decoder(masked), x)
-        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked,
-            proj=proj)
+        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked, proj=proj)
         return wavs, dic_out
 
 
@@ -2818,8 +2606,7 @@ def deep_clustering_loss(embedding, tgt_index, binary_mask=None):
     if len(binary_mask.shape) == 3:
         binary_mask = binary_mask.view(batch, bins * frames, 1)
     binary_mask = binary_mask.to(tgt_index.device)
-    tgt_embedding = torch.zeros(batch, bins * frames, spk_cnt, device=
-        tgt_index.device)
+    tgt_embedding = torch.zeros(batch, bins * frames, spk_cnt, device=tgt_index.device)
     tgt_embedding.scatter_(2, tgt_index.view(batch, bins * frames, 1), 1)
     tgt_embedding = tgt_embedding * binary_mask
     embedding = embedding * binary_mask
@@ -2849,8 +2636,7 @@ class ChimeraLoss(nn.Module):
         self.src_mse = PITLossWrapper(pairwise_mse, pit_from='pw_mtx')
         self.alpha = alpha
 
-    def forward(self, est_embeddings, target_indices, est_src=None,
-        target_src=None, mix_spec=None):
+    def forward(self, est_embeddings, target_indices, est_src=None, target_src=None, mix_spec=None):
         """
 
         Args:
@@ -2867,14 +2653,11 @@ class ChimeraLoss(nn.Module):
             dict with `dc_loss` and `pit_loss` keys, unweighted losses.
         """
         if self.alpha != 0 and (est_src is None or target_src is None):
-            raise ValueError(
-                'Expected target and estimated spectrograms to compute the PIT loss, found None.'
-                )
+            raise ValueError('Expected target and estimated spectrograms to compute the PIT loss, found None.')
         binary_mask = None
         if mix_spec is not None:
             binary_mask = ebased_vad(mix_spec)
-        dc_loss = deep_clustering_loss(embedding=est_embeddings, tgt_index=
-            target_indices, binary_mask=binary_mask)
+        dc_loss = deep_clustering_loss(embedding=est_embeddings, tgt_index=target_indices, binary_mask=binary_mask)
         src_pit_loss = self.src_mse(est_src, target_src)
         tot = self.alpha * dc_loss.mean() + (1 - self.alpha) * src_pit_loss
         loss_dict = dict(dc_loss=dc_loss.mean(), pit_loss=src_pit_loss)
@@ -2885,61 +2668,114 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveDecoder1D,
+     lambda: ([], {'freq_res': 4, 'sample_res': 4, 'n_sources': 4}),
+     lambda: ([torch.rand([4, 16, 64])], {}),
+     True),
+    (AdaptiveEncoder1D,
+     lambda: ([], {'freq_res': 4, 'sample_res': 4}),
+     lambda: ([torch.rand([4, 1, 64])], {}),
+     True),
+    (BaseTasNet,
+     lambda: ([], {'encoder': _mock_layer(), 'masker': _mock_layer(), 'decoder': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Chimera,
+     lambda: ([], {'in_chan': 4, 'n_src': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (GlobLN,
+     lambda: ([], {'channel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiSrcNegSDR,
+     lambda: ([], {'sdr_type': 'snr'}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PairwiseMSE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PairwiseNegSDR,
+     lambda: ([], {'sdr_type': 'snr'}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (SeparableDilatedConv1DBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64])], {}),
+     True),
+    (SimpleModel,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SingleRNN,
+     lambda: ([], {'rnn_type': 'gru', 'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SingleSrcMSE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SingleSrcNegSDR,
+     lambda: ([], {'sdr_type': 'snr'}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (StackedResidualRNN,
+     lambda: ([], {'rnn_type': 'gru', 'n_units': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_mpariente_asteroid(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaptiveDecoder1D(*[], **{'freq_res': 4, 'sample_res': 4, 'n_sources': 4}), [torch.rand([4, 16, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AdaptiveEncoder1D(*[], **{'freq_res': 4, 'sample_res': 4}), [torch.rand([4, 1, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BaseTasNet(*[], **{'encoder': _mock_layer(), 'masker': _mock_layer(), 'decoder': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Chimera(*[], **{'in_chan': 4, 'n_src': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(GlobLN(*[], **{'channel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MultiSrcNegSDR(*[], **{'sdr_type': 'snr'}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(PairwiseMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(PairwiseNegSDR(*[], **{'sdr_type': 'snr'}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(SeparableDilatedConv1DBlock(*[], **{}), [torch.rand([4, 256, 64])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(SimpleModel(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(SingleRNN(*[], **{'rnn_type': 'gru', 'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(SingleSrcMSE(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(SingleSrcNegSDR(*[], **{'sdr_type': 'snr'}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(StackedResidualRNN(*[], **{'rnn_type': 'gru', 'n_units': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 

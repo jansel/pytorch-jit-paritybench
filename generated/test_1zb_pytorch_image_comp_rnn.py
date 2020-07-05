@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,9 +67,7 @@ from torchvision import transforms
 class ConvRNNCellBase(nn.Module):
 
     def __repr__(self):
-        s = (
-            '{name}({input_channels}, {hidden_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{name}({input_channels}, {hidden_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
@@ -89,8 +88,7 @@ class Sign(nn.Module):
 
 class ConvLSTMCell(ConvRNNCellBase):
 
-    def __init__(self, input_channels, hidden_channels, kernel_size=3,
-        stride=1, padding=0, dilation=1, hidden_kernel_size=1, bias=True):
+    def __init__(self, input_channels, hidden_channels, kernel_size=3, stride=1, padding=0, dilation=1, hidden_kernel_size=1, bias=True):
         super(ConvLSTMCell, self).__init__()
         self.input_channels = input_channels
         self.hidden_channels = hidden_channels
@@ -101,13 +99,8 @@ class ConvLSTMCell(ConvRNNCellBase):
         self.hidden_kernel_size = _pair(hidden_kernel_size)
         hidden_padding = _pair(hidden_kernel_size // 2)
         gate_channels = 4 * self.hidden_channels
-        self.conv_ih = nn.Conv2d(in_channels=self.input_channels,
-            out_channels=gate_channels, kernel_size=self.kernel_size,
-            stride=self.stride, padding=self.padding, dilation=self.
-            dilation, bias=bias)
-        self.conv_hh = nn.Conv2d(in_channels=self.hidden_channels,
-            out_channels=gate_channels, kernel_size=hidden_kernel_size,
-            stride=1, padding=hidden_padding, dilation=1, bias=bias)
+        self.conv_ih = nn.Conv2d(in_channels=self.input_channels, out_channels=gate_channels, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=bias)
+        self.conv_hh = nn.Conv2d(in_channels=self.hidden_channels, out_channels=gate_channels, kernel_size=hidden_kernel_size, stride=1, padding=hidden_padding, dilation=1, bias=bias)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -131,14 +124,10 @@ class EncoderCell(nn.Module):
 
     def __init__(self):
         super(EncoderCell, self).__init__()
-        self.conv = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
-        self.rnn1 = ConvLSTMCell(64, 256, kernel_size=3, stride=2, padding=
-            1, hidden_kernel_size=1, bias=False)
-        self.rnn2 = ConvLSTMCell(256, 512, kernel_size=3, stride=2, padding
-            =1, hidden_kernel_size=1, bias=False)
-        self.rnn3 = ConvLSTMCell(512, 512, kernel_size=3, stride=2, padding
-            =1, hidden_kernel_size=1, bias=False)
+        self.conv = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
+        self.rnn1 = ConvLSTMCell(64, 256, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn2 = ConvLSTMCell(256, 512, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn3 = ConvLSTMCell(512, 512, kernel_size=3, stride=2, padding=1, hidden_kernel_size=1, bias=False)
 
     def forward(self, input, hidden1, hidden2, hidden3):
         x = self.conv(input)
@@ -168,18 +157,12 @@ class DecoderCell(nn.Module):
 
     def __init__(self):
         super(DecoderCell, self).__init__()
-        self.conv1 = nn.Conv2d(32, 512, kernel_size=1, stride=1, padding=0,
-            bias=False)
-        self.rnn1 = ConvLSTMCell(512, 512, kernel_size=3, stride=1, padding
-            =1, hidden_kernel_size=1, bias=False)
-        self.rnn2 = ConvLSTMCell(128, 512, kernel_size=3, stride=1, padding
-            =1, hidden_kernel_size=1, bias=False)
-        self.rnn3 = ConvLSTMCell(128, 256, kernel_size=3, stride=1, padding
-            =1, hidden_kernel_size=3, bias=False)
-        self.rnn4 = ConvLSTMCell(64, 128, kernel_size=3, stride=1, padding=
-            1, hidden_kernel_size=3, bias=False)
-        self.conv2 = nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(32, 512, kernel_size=1, stride=1, padding=0, bias=False)
+        self.rnn1 = ConvLSTMCell(512, 512, kernel_size=3, stride=1, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn2 = ConvLSTMCell(128, 512, kernel_size=3, stride=1, padding=1, hidden_kernel_size=1, bias=False)
+        self.rnn3 = ConvLSTMCell(128, 256, kernel_size=3, stride=1, padding=1, hidden_kernel_size=3, bias=False)
+        self.rnn4 = ConvLSTMCell(64, 128, kernel_size=3, stride=1, padding=1, hidden_kernel_size=3, bias=False)
+        self.conv2 = nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, input, hidden1, hidden2, hidden3, hidden4):
         x = self.conv1(input)
@@ -198,10 +181,3 @@ class DecoderCell(nn.Module):
         x = F.tanh(self.conv2(x)) / 2
         return x, hidden1, hidden2, hidden3, hidden4
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_1zb_pytorch_image_comp_rnn(_paritybench_base):
-    pass

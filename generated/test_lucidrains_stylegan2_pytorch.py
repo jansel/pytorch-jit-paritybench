@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,9 +100,7 @@ class VectorQuantize(nn.Module):
         dtype = input.dtype
         input = input.permute(0, 2, 3, 1)
         flatten = input.reshape(-1, self.dim)
-        dist = flatten.pow(2).sum(1, keepdim=True
-            ) - 2 * flatten @ self.embed + self.embed.pow(2).sum(0, keepdim
-            =True)
+        dist = flatten.pow(2).sum(1, keepdim=True) - 2 * flatten @ self.embed + self.embed.pow(2).sum(0, keepdim=True)
         _, embed_ind = (-dist).max(1)
         embed_onehot = F.one_hot(embed_ind, self.n_embed).type(dtype)
         embed_ind = embed_ind.view(*input.shape[:-1])
@@ -110,8 +109,7 @@ class VectorQuantize(nn.Module):
             ema_inplace(self.cluster_size, embed_onehot.sum(0), self.decay)
             embed_sum = flatten.transpose(0, 1) @ embed_onehot
             ema_inplace(self.embed_avg, embed_sum, self.decay)
-            cluster_size = laplace_smoothing(self.cluster_size, self.
-                n_embed, self.eps) * self.cluster_size.sum()
+            cluster_size = laplace_smoothing(self.cluster_size, self.n_embed, self.eps) * self.cluster_size.sum()
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
             self.embed.data.copy_(embed_normalized)
         loss = F.mse_loss(quantize.detach(), input) * self.commitment
@@ -145,8 +143,7 @@ class RGBBlock(nn.Module):
         self.to_style = nn.Linear(latent_dim, input_channel)
         out_filters = 3 if not rgba else 4
         self.conv = Conv2DMod(input_channel, out_filters, 1, demod=False)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False) if upsample else None
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
 
     def forward(self, x, prev_rgb, istyle):
         b, c, h, w = x.shape
@@ -164,18 +161,15 @@ EPS = 1e-08
 
 class Conv2DMod(nn.Module):
 
-    def __init__(self, in_chan, out_chan, kernel, demod=True, stride=1,
-        dilation=1, **kwargs):
+    def __init__(self, in_chan, out_chan, kernel, demod=True, stride=1, dilation=1, **kwargs):
         super().__init__()
         self.filters = out_chan
         self.demod = demod
         self.kernel = kernel
         self.stride = stride
         self.dilation = dilation
-        self.weight = nn.Parameter(torch.randn((out_chan, in_chan, kernel,
-            kernel)))
-        nn.init.kaiming_normal_(self.weight, a=0, mode='fan_in',
-            nonlinearity='leaky_relu')
+        self.weight = nn.Parameter(torch.randn((out_chan, in_chan, kernel, kernel)))
+        nn.init.kaiming_normal_(self.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
 
     def _get_same_padding(self, size, kernel, dilation, stride):
         return ((size - 1) * (stride - 1) + dilation * (kernel - 1)) // 2
@@ -186,14 +180,12 @@ class Conv2DMod(nn.Module):
         w2 = self.weight[(None), :, :, :, :]
         weights = w2 * (w1 + 1)
         if self.demod:
-            d = torch.rsqrt((weights ** 2).sum(dim=(2, 3, 4), keepdim=True) +
-                EPS)
+            d = torch.rsqrt((weights ** 2).sum(dim=(2, 3, 4), keepdim=True) + EPS)
             weights = weights * d
         x = x.reshape(1, -1, h, w)
         _, _, *ws = weights.shape
         weights = weights.reshape(b * self.filters, *ws)
-        padding = self._get_same_padding(h, self.kernel, self.dilation,
-            self.stride)
+        padding = self._get_same_padding(h, self.kernel, self.dilation, self.stride)
         x = F.conv2d(x, weights, padding=padding, groups=b)
         x = x.reshape(-1, self.filters, h, w)
         return x
@@ -201,11 +193,9 @@ class Conv2DMod(nn.Module):
 
 class GeneratorBlock(nn.Module):
 
-    def __init__(self, latent_dim, input_channels, filters, upsample=True,
-        upsample_rgb=True, rgba=False):
+    def __init__(self, latent_dim, input_channels, filters, upsample=True, upsample_rgb=True, rgba=False):
         super().__init__()
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=False) if upsample else None
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False) if upsample else None
         self.to_style1 = nn.Linear(latent_dim, input_channels)
         self.to_noise1 = nn.Linear(1, filters)
         self.conv1 = Conv2DMod(input_channels, filters, 3)
@@ -236,11 +226,8 @@ class DiscriminatorBlock(nn.Module):
     def __init__(self, input_channels, filters, downsample=True):
         super().__init__()
         self.conv_res = nn.Conv2d(input_channels, filters, 1)
-        self.net = nn.Sequential(nn.Conv2d(input_channels, filters, 3,
-            padding=1), leaky_relu(), nn.Conv2d(filters, filters, 3,
-            padding=1), leaky_relu())
-        self.downsample = nn.Conv2d(filters, filters, 3, padding=1, stride=2
-            ) if downsample else None
+        self.net = nn.Sequential(nn.Conv2d(input_channels, filters, 3, padding=1), leaky_relu(), nn.Conv2d(filters, filters, 3, padding=1), leaky_relu())
+        self.downsample = nn.Conv2d(filters, filters, 3, padding=1, stride=2) if downsample else None
 
     def forward(self, x):
         res = self.conv_res(x)
@@ -253,23 +240,20 @@ class DiscriminatorBlock(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, image_size, latent_dim, network_capacity=16,
-        transparent=False):
+    def __init__(self, image_size, latent_dim, network_capacity=16, transparent=False):
         super().__init__()
         self.image_size = image_size
         self.latent_dim = latent_dim
         self.num_layers = int(log2(image_size) - 1)
         init_channels = 4 * network_capacity
         self.initial_block = nn.Parameter(torch.randn((init_channels, 4, 4)))
-        filters = [init_channels] + [(network_capacity * 2 ** (i + 1)) for
-            i in range(self.num_layers)][::-1]
+        filters = [init_channels] + [(network_capacity * 2 ** (i + 1)) for i in range(self.num_layers)][::-1]
         in_out_pairs = zip(filters[0:-1], filters[1:])
         self.blocks = nn.ModuleList([])
         for ind, (in_chan, out_chan) in enumerate(in_out_pairs):
             not_first = ind != 0
             not_last = ind != self.num_layers - 1
-            block = GeneratorBlock(latent_dim, in_chan, out_chan, upsample=
-                not_first, upsample_rgb=not_last, rgba=transparent)
+            block = GeneratorBlock(latent_dim, in_chan, out_chan, upsample=not_first, upsample_rgb=not_last, rgba=transparent)
             self.blocks.append(block)
 
     def forward(self, styles, input_noise):
@@ -285,24 +269,20 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
 
-    def __init__(self, image_size, network_capacity=16, fq_layers=[],
-        fq_dict_size=256, transparent=False):
+    def __init__(self, image_size, network_capacity=16, fq_layers=[], fq_dict_size=256, transparent=False):
         super().__init__()
         num_layers = int(log2(image_size) - 1)
         num_init_filters = 3 if not transparent else 4
         blocks = []
-        filters = [num_init_filters] + [(network_capacity * 2 ** i) for i in
-            range(num_layers + 1)]
+        filters = [num_init_filters] + [(network_capacity * 2 ** i) for i in range(num_layers + 1)]
         chan_in_out = list(zip(filters[0:-1], filters[1:]))
         blocks = []
         quantize_blocks = []
         for ind, (in_chan, out_chan) in enumerate(chan_in_out):
             is_not_last = ind < len(chan_in_out) - 1
-            block = DiscriminatorBlock(in_chan, out_chan, downsample=
-                is_not_last)
+            block = DiscriminatorBlock(in_chan, out_chan, downsample=is_not_last)
             blocks.append(block)
-            quantize_fn = VectorQuantize(out_chan, fq_dict_size
-                ) if ind + 1 in fq_layers else None
+            quantize_fn = VectorQuantize(out_chan, fq_dict_size) if ind + 1 in fq_layers else None
             quantize_blocks.append(quantize_fn)
         self.quantize_blocks = nn.ModuleList(quantize_blocks)
         self.blocks = nn.ModuleList(blocks)
@@ -324,8 +304,7 @@ class Discriminator(nn.Module):
 
 
 def ema_inplace_module(moving_avg_module, new, decay):
-    for current_params, ma_params in zip(moving_avg_module.parameters(),
-        new.parameters()):
+    for current_params, ma_params in zip(moving_avg_module.parameters(), new.parameters()):
         old_weight, up_weight = ma_params.data, current_params.data
         ema_inplace(old_weight, up_weight, decay)
 
@@ -337,43 +316,32 @@ def set_requires_grad(model, bool):
 
 class StyleGAN2(nn.Module):
 
-    def __init__(self, image_size, latent_dim=512, style_depth=8,
-        network_capacity=16, transparent=False, fp16=False, cl_reg=False,
-        steps=1, lr=0.0001, fq_layers=[], fq_dict_size=256):
+    def __init__(self, image_size, latent_dim=512, style_depth=8, network_capacity=16, transparent=False, fp16=False, cl_reg=False, steps=1, lr=0.0001, fq_layers=[], fq_dict_size=256):
         super().__init__()
         self.lr = lr
         self.steps = steps
         self.ema_decay = 0.995
         self.S = StyleVectorizer(latent_dim, style_depth)
-        self.G = Generator(image_size, latent_dim, network_capacity,
-            transparent=transparent)
-        self.D = Discriminator(image_size, network_capacity, fq_layers=
-            fq_layers, fq_dict_size=fq_dict_size, transparent=transparent)
+        self.G = Generator(image_size, latent_dim, network_capacity, transparent=transparent)
+        self.D = Discriminator(image_size, network_capacity, fq_layers=fq_layers, fq_dict_size=fq_dict_size, transparent=transparent)
         self.SE = StyleVectorizer(latent_dim, style_depth)
-        self.GE = Generator(image_size, latent_dim, network_capacity,
-            transparent=transparent)
-        self.D_cl = ContrastiveLearner(self.D, image_size, hidden_layer=
-            'flatten') if cl_reg else None
+        self.GE = Generator(image_size, latent_dim, network_capacity, transparent=transparent)
+        self.D_cl = ContrastiveLearner(self.D, image_size, hidden_layer='flatten') if cl_reg else None
         set_requires_grad(self.SE, False)
         set_requires_grad(self.GE, False)
-        generator_params = list(self.G.parameters()) + list(self.S.parameters()
-            )
+        generator_params = list(self.G.parameters()) + list(self.S.parameters())
         self.G_opt = DiffGrad(generator_params, lr=self.lr, betas=(0.5, 0.9))
-        self.D_opt = DiffGrad(self.D.parameters(), lr=self.lr, betas=(0.5, 0.9)
-            )
+        self.D_opt = DiffGrad(self.D.parameters(), lr=self.lr, betas=(0.5, 0.9))
         self._init_weights()
         self.reset_parameter_averaging()
         self
         if fp16:
-            (self.S, self.G, self.D, self.SE, self.GE), (self.G_opt, self.D_opt
-                ) = amp.initialize([self.S, self.G, self.D, self.SE, self.
-                GE], [self.G_opt, self.D_opt], opt_level='O2')
+            (self.S, self.G, self.D, self.SE, self.GE), (self.G_opt, self.D_opt) = amp.initialize([self.S, self.G, self.D, self.SE, self.GE], [self.G_opt, self.D_opt], opt_level='O2')
 
     def _init_weights(self):
         for m in self.modules():
             if type(m) in {nn.Conv2d, nn.Linear}:
-                nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in',
-                    nonlinearity='leaky_relu')
+                nn.init.kaiming_normal_(m.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
         for block in self.G.blocks:
             nn.init.zeros_(block.to_noise1.weight)
             nn.init.zeros_(block.to_noise2.weight)
@@ -396,22 +364,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {'image_size': 4}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (DiscriminatorBlock,
+     lambda: ([], {'input_channels': 4, 'filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RGBBlock,
+     lambda: ([], {'latent_dim': 4, 'input_channel': 4, 'upsample': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (StyleVectorizer,
+     lambda: ([], {'emb': 4, 'depth': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VectorQuantize,
+     lambda: ([], {'dim': 4, 'n_embed': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_lucidrains_stylegan2_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DiscriminatorBlock(*[], **{'input_channels': 4, 'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(RGBBlock(*[], **{'latent_dim': 4, 'input_channel': 4, 'upsample': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(StyleVectorizer(*[], **{'emb': 4, 'depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(VectorQuantize(*[], **{'dim': 4, 'n_embed': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

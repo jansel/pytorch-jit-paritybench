@@ -407,8 +407,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -553,8 +554,7 @@ def Convolution2d(in_channels, out_channels, kernel_size, stride):
         stride = stride, stride
     assert kernel_size[0] % 2 == 1 and kernel_size[1] % 2 == 1
     padding = (kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2
-    m = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride,
-        padding=padding)
+    m = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
     return m
 
 
@@ -572,9 +572,7 @@ class ConvBNReLU(nn.Module):
         self.convolutions = nn.ModuleList()
         self.batchnorms = nn.ModuleList()
         for i in range(num_layers):
-            self.convolutions.append(Convolution2d(self.in_channels if i ==
-                0 else self.out_channels[i - 1], self.out_channels[i], self
-                .kernel_sizes[i], self.strides[i]))
+            self.convolutions.append(Convolution2d(self.in_channels if i == 0 else self.out_channels[i - 1], self.out_channels[i], self.kernel_sizes[i], self.strides[i]))
             self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
 
     def output_lengths(self, in_lengths):
@@ -590,8 +588,7 @@ class ConvBNReLU(nn.Module):
         return out_lengths
 
     def forward(self, src, src_lengths):
-        x = src.view(src.size(0), src.size(1), self.in_channels, src.size(2
-            ) // self.in_channels).transpose(1, 2)
+        x = src.view(src.size(0), src.size(1), self.in_channels, src.size(2) // self.in_channels).transpose(1, 2)
         for conv, bn in zip(self.convolutions, self.batchnorms):
             x = F.relu(bn(conv(x)))
         x = x.transpose(1, 2)
@@ -606,20 +603,17 @@ class ConvBNReLU(nn.Module):
 class TdnnBNReLU(nn.Module):
     """A block of Tdnn-BatchNorm-ReLU layers."""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dilation=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1):
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
         self.dilation = dilation
         self.padding = dilation * (kernel_size - 1) // 2
-        self.tdnn = nn.Conv1d(in_channels, out_channels, kernel_size,
-            stride=stride, padding=self.padding, dilation=dilation)
+        self.tdnn = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride, padding=self.padding, dilation=dilation)
         self.bn = nn.BatchNorm1d(out_channels)
 
     def output_lengths(self, in_lengths):
-        out_lengths = (in_lengths + 2 * self.padding - self.dilation * (
-            self.kernel_size - 1) + self.stride - 1) // self.stride
+        out_lengths = (in_lengths + 2 * self.padding - self.dilation * (self.kernel_size - 1) + self.stride - 1) // self.stride
         return out_lengths
 
     def forward(self, src, src_lengths):
@@ -699,8 +693,7 @@ class GenerateLogProbsForDecoding(nn.Module):
         encoder_outs = self.model.forward_encoder(net_input)
         logits = encoder_outs[0].encoder_out.transpose(0, 1).float()
         assert logits.size(0) == bsz
-        padding_mask = encoder_outs[0].encoder_padding_mask.t(
-            ) if encoder_outs[0].encoder_padding_mask is not None else None
+        padding_mask = encoder_outs[0].encoder_padding_mask.t() if encoder_outs[0].encoder_padding_mask is not None else None
         if self.apply_log_softmax:
             return F.log_softmax(logits, dim=-1), padding_mask
         return logits, padding_mask
@@ -708,8 +701,7 @@ class GenerateLogProbsForDecoding(nn.Module):
 
 class SimpleGreedyDecoder(nn.Module):
 
-    def __init__(self, models, dictionary, max_len_a=0, max_len_b=200,
-        retain_dropout=False, temperature=1.0, for_validation=True):
+    def __init__(self, models, dictionary, max_len_a=0, max_len_b=200, retain_dropout=False, temperature=1.0, for_validation=True):
         """Decode given speech audios with the simple greedy search.
 
         Args:
@@ -764,8 +756,7 @@ class SimpleGreedyDecoder(nn.Module):
         return self._decode(sample, **kwargs)
 
     @torch.no_grad()
-    def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token:
-        Optional[int]=None):
+    def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int]=None):
         net_input = sample['net_input']
         src_tokens = net_input['src_tokens']
         input_size = src_tokens.size()
@@ -774,14 +765,10 @@ class SimpleGreedyDecoder(nn.Module):
         target = sample['target']
         assert target is not None or not self.for_validation
         max_encoder_output_length = encoder_outs[0].encoder_out.size(0)
-        max_len = max(max_encoder_output_length, target.size(1)
-            ) if self.for_validation else min(int(self.max_len_a * src_len +
-            self.max_len_b), self.model.max_decoder_positions() - 1)
+        max_len = max(max_encoder_output_length, target.size(1)) if self.for_validation else min(int(self.max_len_a * src_len + self.max_len_b), self.model.max_decoder_positions() - 1)
         tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)
         tokens[:, (0)] = self.eos if bos_token is None else bos_token
-        lprobs = encoder_outs[0].encoder_out.new_full((bsz, target.size(1),
-            self.vocab_size), -np.log(self.vocab_size)
-            ) if self.for_validation else None
+        lprobs = encoder_outs[0].encoder_out.new_full((bsz, target.size(1), self.vocab_size), -np.log(self.vocab_size)) if self.for_validation else None
         attn = None
         for step in range(max_len + 1):
             is_eos = tokens[:, (step)].eq(self.eos)
@@ -790,8 +777,7 @@ class SimpleGreedyDecoder(nn.Module):
                 if attn is not None:
                     attn = attn[:, :, :step + 1]
                 break
-            log_probs, avg_attn_scores = self.model.forward_decoder(tokens[
-                :, :step + 1], encoder_outs, temperature=self.temperature)
+            log_probs, avg_attn_scores = self.model.forward_decoder(tokens[:, :step + 1], encoder_outs, temperature=self.temperature)
             tokens[:, (step + 1)] = log_probs.argmax(-1)
             if step > 0:
                 log_probs[(is_eos), :] = -np.log(log_probs.size(1))
@@ -802,8 +788,7 @@ class SimpleGreedyDecoder(nn.Module):
                 avg_attn_scores = avg_attn_scores[0]
             if avg_attn_scores is not None:
                 if attn is None:
-                    attn = avg_attn_scores.new(bsz,
-                        max_encoder_output_length, max_len + 2)
+                    attn = avg_attn_scores.new(bsz, max_encoder_output_length, max_len + 2)
                 attn[:, :, (step + 1)].copy_(avg_attn_scores)
         return tokens, lprobs, attn
 
@@ -817,9 +802,7 @@ def safe_cumprod(tensor, dim: int, eps: float=1e-10):
     = exp(cumsum(log(x)))
     """
     if (tensor + eps < 0).any().item():
-        raise RuntimeError(
-            'Safe cumprod can only take non-negative tensors as input.Consider use torch.cumprod if you want to calculate negative values.'
-            )
+        raise RuntimeError('Safe cumprod can only take non-negative tensors as input.Consider use torch.cumprod if you want to calculate negative values.')
     log_tensor = torch.log(tensor + eps)
     cumsum_log_tensor = torch.cumsum(log_tensor, dim)
     exp_cumsum_log_tensor = torch.exp(cumsum_log_tensor)
@@ -835,8 +818,7 @@ def exclusive_cumprod(tensor, dim: int, eps: float=1e-10):
     """
     tensor_size = list(tensor.size())
     tensor_size[dim] = 1
-    return_tensor = safe_cumprod(torch.cat([torch.ones(tensor_size).type_as
-        (tensor), tensor], dim=dim), dim=dim, eps=eps)
+    return_tensor = safe_cumprod(torch.cat([torch.ones(tensor_size).type_as(tensor), tensor], dim=dim), dim=dim, eps=eps)
     if dim == 0:
         return return_tensor[:-1]
     elif dim == 1:
@@ -844,8 +826,7 @@ def exclusive_cumprod(tensor, dim: int, eps: float=1e-10):
     elif dim == 2:
         return return_tensor[:, :, :-1]
     else:
-        raise RuntimeError('Cumprod on dimension 3 and more is not implemented'
-            )
+        raise RuntimeError('Cumprod on dimension 3 and more is not implemented')
 
 
 class FairseqIncrementalState(object):
@@ -860,18 +841,14 @@ class FairseqIncrementalState(object):
     def _get_full_incremental_state_key(self, key: str) ->str:
         return '{}.{}'.format(self._incremental_state_id, key)
 
-    def get_incremental_state(self, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]], key: str) ->Optional[Dict[str,
-        Optional[Tensor]]]:
+    def get_incremental_state(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]], key: str) ->Optional[Dict[str, Optional[Tensor]]]:
         """Helper for getting incremental state for an nn.Module."""
         full_key = self._get_full_incremental_state_key(key)
         if incremental_state is None or full_key not in incremental_state:
             return None
         return incremental_state[full_key]
 
-    def set_incremental_state(self, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]], key: str, value: Dict[str, Optional[
-        Tensor]]) ->Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
+    def set_incremental_state(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]], key: str, value: Dict[str, Optional[Tensor]]) ->Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
         """Helper for setting incremental state for an nn.Module."""
         if incremental_state is not None:
             full_key = self._get_full_incremental_state_key(key)
@@ -880,8 +857,7 @@ class FairseqIncrementalState(object):
 
 
 def with_incremental_state(cls):
-    cls.__bases__ = (FairseqIncrementalState,) + tuple(b for b in cls.
-        __bases__ if b != FairseqIncrementalState)
+    cls.__bases__ = (FairseqIncrementalState,) + tuple(b for b in cls.__bases__ if b != FairseqIncrementalState)
     return cls
 
 
@@ -897,28 +873,18 @@ class MonotonicAttention(nn.Module):
         self.noise_mean = args.noise_mean
         self.noise_var = args.noise_var
         self.energy_bias_init = args.energy_bias_init
-        self.energy_bias = nn.Parameter(self.energy_bias_init * torch.ones([1])
-            ) if args.energy_bias is True else 0
+        self.energy_bias = nn.Parameter(self.energy_bias_init * torch.ones([1])) if args.energy_bias is True else 0
 
     @staticmethod
     def add_args(parser):
-        parser.add_argument('--no-mass-preservation', action='store_false',
-            dest='mass_preservation', help=
-            'Do not stay on the last token when decoding')
-        parser.add_argument('--mass-preservation', action='store_true',
-            dest='mass_preservation', help=
-            'Stay on the last token when decoding')
+        parser.add_argument('--no-mass-preservation', action='store_false', dest='mass_preservation', help='Do not stay on the last token when decoding')
+        parser.add_argument('--mass-preservation', action='store_true', dest='mass_preservation', help='Stay on the last token when decoding')
         parser.set_defaults(mass_preservation=True)
-        parser.add_argument('--noise-var', type=float, default=1.0, help=
-            'Variance of discretness noise')
-        parser.add_argument('--noise-mean', type=float, default=0.0, help=
-            'Mean of discretness noise')
-        parser.add_argument('--energy-bias', action='store_true', default=
-            False, help='Bias for energy')
-        parser.add_argument('--energy-bias-init', type=float, default=-2.0,
-            help='Initial value of the bias for energy')
-        parser.add_argument('--attention-eps', type=float, default=1e-06,
-            help='Epsilon when calculating expected attention')
+        parser.add_argument('--noise-var', type=float, default=1.0, help='Variance of discretness noise')
+        parser.add_argument('--noise-mean', type=float, default=0.0, help='Mean of discretness noise')
+        parser.add_argument('--energy-bias', action='store_true', default=False, help='Bias for energy')
+        parser.add_argument('--energy-bias-init', type=float, default=-2.0, help='Initial value of the bias for energy')
+        parser.add_argument('--attention-eps', type=float, default=1e-06, help='Epsilon when calculating expected attention')
 
     def p_choose(self, *args):
         raise NotImplementedError
@@ -940,12 +906,10 @@ class MonotonicAttention(nn.Module):
         bsz, tgt_len, embed_dim = q_proj.size()
         bsz = bsz // self.num_heads
         src_len = k_proj.size(1)
-        attn_energy = torch.bmm(q_proj, k_proj.transpose(1, 2)
-            ) + self.energy_bias
+        attn_energy = torch.bmm(q_proj, k_proj.transpose(1, 2)) + self.energy_bias
         attn_energy = attn_energy.view(bsz, self.num_heads, tgt_len, src_len)
         if key_padding_mask is not None:
-            attn_energy = attn_energy.masked_fill(key_padding_mask.
-                unsqueeze(1).unsqueeze(2).bool(), float('-inf'))
+            attn_energy = attn_energy.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2).bool(), float('-inf'))
         return attn_energy
 
     def expected_alignment_train(self, p_choose, key_padding_mask):
@@ -970,19 +934,15 @@ class MonotonicAttention(nn.Module):
         init_attention[:, :, (0)] = 1.0
         previous_attn = [init_attention]
         for i in range(tgt_len):
-            alpha_i = (p_choose[:, (i)] * cumprod_1mp[:, (i)] * torch.
-                cumsum(previous_attn[i][:, (0)] / cumprod_1mp_clamp[:, (i)],
-                dim=1)).clamp(0, 1.0)
+            alpha_i = (p_choose[:, (i)] * cumprod_1mp[:, (i)] * torch.cumsum(previous_attn[i][:, (0)] / cumprod_1mp_clamp[:, (i)], dim=1)).clamp(0, 1.0)
             previous_attn.append(alpha_i.unsqueeze(1))
         alpha = torch.cat(previous_attn[1:], dim=1)
         if self.mass_preservation:
-            alpha[:, :, (-1)] = 1 - alpha[:, :, :-1].sum(dim=-1).clamp(0.0, 1.0
-                )
+            alpha[:, :, (-1)] = 1 - alpha[:, :, :-1].sum(dim=-1).clamp(0.0, 1.0)
         assert not torch.isnan(alpha).any(), 'NaN detected in alpha.'
         return alpha
 
-    def expected_alignment_infer(self, p_choose, key_padding_mask,
-        incremental_state):
+    def expected_alignment_infer(self, p_choose, key_padding_mask, incremental_state):
         """
         Calculating mo alignment for MMA during inference time
 
@@ -997,15 +957,13 @@ class MonotonicAttention(nn.Module):
         p_choose = p_choose[:, (0), :]
         monotonic_cache = self._get_monotonic_buffer(incremental_state)
         bsz = bsz_num_heads // self.num_heads
-        prev_monotonic_step = monotonic_cache.get('step', p_choose.
-            new_zeros([bsz, self.num_heads]).long())
+        prev_monotonic_step = monotonic_cache.get('step', p_choose.new_zeros([bsz, self.num_heads]).long())
         bsz, num_heads = prev_monotonic_step.size()
         assert num_heads == self.num_heads
         assert bsz * num_heads == bsz_num_heads
         p_choose = p_choose.view(bsz, num_heads, src_len)
         if key_padding_mask is not None:
-            src_lengths = src_len - key_padding_mask.sum(dim=1, keepdim=True
-                ).long()
+            src_lengths = src_len - key_padding_mask.sum(dim=1, keepdim=True).long()
         else:
             src_lengths = prev_monotonic_step.new_ones(bsz, 1) * src_len
         src_lengths = src_lengths.expand_as(prev_monotonic_step)
@@ -1017,20 +975,14 @@ class MonotonicAttention(nn.Module):
         max_steps = src_lengths - 1 if self.mass_preservation else src_lengths
         finish_read = new_monotonic_step.eq(max_steps)
         while finish_read.sum().item() < bsz * self.num_heads:
-            p_choose_i = p_choose.gather(2, (step_offset +
-                new_monotonic_step).unsqueeze(2).clamp(0, src_len - 1)
-                ).squeeze(2)
-            action = (p_choose_i < 0.5).type_as(prev_monotonic_step
-                ).masked_fill(finish_read, 0)
+            p_choose_i = p_choose.gather(2, (step_offset + new_monotonic_step).unsqueeze(2).clamp(0, src_len - 1)).squeeze(2)
+            action = (p_choose_i < 0.5).type_as(prev_monotonic_step).masked_fill(finish_read, 0)
             new_monotonic_step += action
             finish_read = new_monotonic_step.eq(max_steps) | (action == 0)
         monotonic_cache['step'] = new_monotonic_step
-        alpha = p_choose.new_zeros([bsz * self.num_heads, src_len]).scatter(
-            1, (step_offset + new_monotonic_step).view(bsz * self.num_heads,
-            1).clamp(0, src_len - 1), 1)
+        alpha = p_choose.new_zeros([bsz * self.num_heads, src_len]).scatter(1, (step_offset + new_monotonic_step).view(bsz * self.num_heads, 1).clamp(0, src_len - 1), 1)
         if not self.mass_preservation:
-            alpha = alpha.masked_fill((new_monotonic_step == max_steps).
-                view(bsz * self.num_heads, 1), 0)
+            alpha = alpha.masked_fill((new_monotonic_step == max_steps).view(bsz * self.num_heads, 1), 0)
         alpha = alpha.unsqueeze(1)
         self._set_monotonic_buffer(incremental_state, monotonic_cache)
         return alpha
@@ -1038,18 +990,15 @@ class MonotonicAttention(nn.Module):
     def v_proj_output(self, value):
         raise NotImplementedError
 
-    def forward(self, query, key, value, key_padding_mask=None,
-        incremental_state=None, *args, **kwargs):
+    def forward(self, query, key, value, key_padding_mask=None, incremental_state=None, *args, **kwargs):
         tgt_len, bsz, embed_dim = query.size()
         src_len = value.size(0)
         p_choose = self.p_choose(query, key, key_padding_mask)
         if incremental_state is not None:
-            alpha = self.expected_alignment_infer(p_choose,
-                key_padding_mask, incremental_state)
+            alpha = self.expected_alignment_infer(p_choose, key_padding_mask, incremental_state)
         else:
             alpha = self.expected_alignment_train(p_choose, key_padding_mask)
-        beta = self.expected_attention(alpha, query, key, value,
-            key_padding_mask, incremental_state)
+        beta = self.expected_attention(alpha, query, key, value, key_padding_mask, incremental_state)
         attn_weights = beta
         v_proj = self.v_proj_output(value)
         attn = torch.bmm(attn_weights.type_as(v_proj), v_proj)
@@ -1070,16 +1019,13 @@ class MonotonicAttention(nn.Module):
             self._set_monotonic_buffer(incremental_state, input_buffer)
 
     def _get_monotonic_buffer(self, incremental_state):
-        return utils.get_incremental_state(self, incremental_state, 'monotonic'
-            ) or {}
+        return utils.get_incremental_state(self, incremental_state, 'monotonic') or {}
 
     def _set_monotonic_buffer(self, incremental_state, buffer):
-        utils.set_incremental_state(self, incremental_state, 'monotonic',
-            buffer)
+        utils.set_incremental_state(self, incremental_state, 'monotonic', buffer)
 
     def get_pointer(self, incremental_state):
-        return utils.get_incremental_state(self, incremental_state, 'monotonic'
-            ) or {}
+        return utils.get_incremental_state(self, incremental_state, 'monotonic') or {}
 
     def get_fastest_pointer(self, incremental_state):
         return self.get_pointer(incremental_state)['step'].max(0)[0]
@@ -1091,8 +1037,7 @@ class MonotonicAttention(nn.Module):
         else:
             buffer = self.get_pointer(incremental_state)['step']
         buffer += (p_choose < 0.5).type_as(buffer)
-        utils.set_incremental_state(self, incremental_state, 'monotonic', {
-            'step': buffer})
+        utils.set_incremental_state(self, incremental_state, 'monotonic', {'step': buffer})
 
 
 class MeanPoolGatingNetwork(torch.nn.Module):
@@ -1108,14 +1053,11 @@ class MeanPoolGatingNetwork(torch.nn.Module):
         self.embed_dim = embed_dim
         self.num_experts = num_experts
         self.fc1 = torch.nn.Linear(embed_dim, embed_dim)
-        self.dropout = torch.nn.Dropout(dropout
-            ) if dropout is not None else None
+        self.dropout = torch.nn.Dropout(dropout) if dropout is not None else None
         self.fc2 = torch.nn.Linear(embed_dim, num_experts)
 
     def forward(self, encoder_out):
-        if not (hasattr(encoder_out, 'encoder_out') and hasattr(encoder_out,
-            'encoder_padding_mask') and encoder_out.encoder_out.size(2) ==
-            self.embed_dim):
+        if not (hasattr(encoder_out, 'encoder_out') and hasattr(encoder_out, 'encoder_padding_mask') and encoder_out.encoder_out.size(2) == self.embed_dim):
             raise ValueError('Unexpected format for encoder_out')
         encoder_padding_mask = encoder_out.encoder_padding_mask
         encoder_out = encoder_out.encoder_out.transpose(0, 1)
@@ -1172,16 +1114,11 @@ def register_model_architecture(model_name, arch_name):
 
     def register_model_arch_fn(fn):
         if model_name not in MODEL_REGISTRY:
-            raise ValueError(
-                'Cannot register model architecture for unknown model type ({})'
-                .format(model_name))
+            raise ValueError('Cannot register model architecture for unknown model type ({})'.format(model_name))
         if arch_name in ARCH_MODEL_REGISTRY:
-            raise ValueError(
-                'Cannot register duplicate model architecture ({})'.format(
-                arch_name))
+            raise ValueError('Cannot register duplicate model architecture ({})'.format(arch_name))
         if not callable(fn):
-            raise ValueError('Model architecture must be callable ({})'.
-                format(arch_name))
+            raise ValueError('Model architecture must be callable ({})'.format(arch_name))
         ARCH_MODEL_REGISTRY[arch_name] = MODEL_REGISTRY[model_name]
         ARCH_MODEL_INV_REGISTRY.setdefault(model_name, []).append(arch_name)
         ARCH_CONFIG_REGISTRY[arch_name] = fn
@@ -1214,11 +1151,9 @@ def register_model(name):
 
     def register_model_cls(cls):
         if name in MODEL_REGISTRY:
-            raise ValueError('Cannot register duplicate model ({})'.format(
-                name))
+            raise ValueError('Cannot register duplicate model ({})'.format(name))
         if not issubclass(cls, BaseFairseqModel):
-            raise ValueError('Model ({}: {}) must extend BaseFairseqModel'.
-                format(name, cls.__name__))
+            raise ValueError('Model ({}: {}) must extend BaseFairseqModel'.format(name, cls.__name__))
         MODEL_REGISTRY[name] = cls
         return cls
     return register_model_cls
@@ -1263,8 +1198,7 @@ class FairseqCriterion(_Loss):
         """Construct a criterion from command-line args."""
         init_args = {}
         for p in inspect.signature(cls).parameters.values():
-            if (p.kind == p.POSITIONAL_ONLY or p.kind == p.VAR_POSITIONAL or
-                p.kind == p.VAR_KEYWORD):
+            if p.kind == p.POSITIONAL_ONLY or p.kind == p.VAR_POSITIONAL or p.kind == p.VAR_KEYWORD:
                 raise NotImplementedError('{} not supported'.format(p.kind))
             assert p.kind in {p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY}
             if p.name == 'task':
@@ -1274,9 +1208,7 @@ class FairseqCriterion(_Loss):
             elif p.default != p.empty:
                 pass
             else:
-                raise NotImplementedError(
-                    'Unable to infer Criterion arguments, please implement {}.build_criterion'
-                    .format(cls.__name__))
+                raise NotImplementedError('Unable to infer Criterion arguments, please implement {}.build_criterion'.format(cls.__name__))
         return cls(**init_args)
 
     def forward(self, model, sample, reduce=True):
@@ -1290,20 +1222,15 @@ class FairseqCriterion(_Loss):
         raise NotImplementedError
 
     @staticmethod
-    def aggregate_logging_outputs(logging_outputs: List[Dict[str, Any]]
-        ) ->Dict[str, Any]:
+    def aggregate_logging_outputs(logging_outputs: List[Dict[str, Any]]) ->Dict[str, Any]:
         """Aggregate logging outputs from data parallel training."""
-        utils.deprecation_warning(
-            'The aggregate_logging_outputs API is deprecated. Please use the reduce_metrics API instead.'
-            )
+        utils.deprecation_warning('The aggregate_logging_outputs API is deprecated. Please use the reduce_metrics API instead.')
         raise NotImplementedError
 
     @classmethod
     def reduce_metrics(cls, logging_outputs: List[Dict[str, Any]]) ->None:
         """Aggregate logging outputs from data parallel training."""
-        utils.deprecation_warning(
-            'Criterions should implement the reduce_metrics API. Falling back to deprecated aggregate_logging_outputs API.'
-            )
+        utils.deprecation_warning('Criterions should implement the reduce_metrics API. Falling back to deprecated aggregate_logging_outputs API.')
         agg_logging_outputs = cls.aggregate_logging_outputs(logging_outputs)
         for k, v in agg_logging_outputs.items():
             if k in {'nsentences', 'ntokens', 'sample_size'}:
@@ -1334,51 +1261,36 @@ class GeneratorHubInterface(nn.Module):
         self.src_dict = task.source_dictionary
         self.tgt_dict = task.target_dictionary
         for model in self.models:
-            model.make_generation_fast_(beamable_mm_beam_size=None if
-                getattr(args, 'no_beamable_mm', False) else getattr(args,
-                'beam', 5), need_attn=getattr(args, 'print_alignment', False))
-        self.align_dict = utils.load_align_dict(getattr(args, 'replace_unk',
-            None))
+            model.make_generation_fast_(beamable_mm_beam_size=None if getattr(args, 'no_beamable_mm', False) else getattr(args, 'beam', 5), need_attn=getattr(args, 'print_alignment', False))
+        self.align_dict = utils.load_align_dict(getattr(args, 'replace_unk', None))
         self.tokenizer = encoders.build_tokenizer(args)
         self.bpe = encoders.build_bpe(args)
-        self.max_positions = utils.resolve_max_positions(self.task.
-            max_positions(), *[model.max_positions() for model in models])
-        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch
-            .float))
+        self.max_positions = utils.resolve_max_positions(self.task.max_positions(), *[model.max_positions() for model in models])
+        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch.float))
 
     @property
     def device(self):
         return self._float_tensor.device
 
-    def translate(self, sentences: List[str], beam: int=5, verbose: bool=
-        False, **kwargs) ->List[str]:
+    def translate(self, sentences: List[str], beam: int=5, verbose: bool=False, **kwargs) ->List[str]:
         return self.sample(sentences, beam, verbose, **kwargs)
 
-    def sample(self, sentences: List[str], beam: int=1, verbose: bool=False,
-        **kwargs) ->List[str]:
+    def sample(self, sentences: List[str], beam: int=1, verbose: bool=False, **kwargs) ->List[str]:
         if isinstance(sentences, str):
-            return self.sample([sentences], beam=beam, verbose=verbose, **
-                kwargs)[0]
+            return self.sample([sentences], beam=beam, verbose=verbose, **kwargs)[0]
         tokenized_sentences = [self.encode(sentence) for sentence in sentences]
-        batched_hypos = self.generate(tokenized_sentences, beam, verbose,
-            **kwargs)
+        batched_hypos = self.generate(tokenized_sentences, beam, verbose, **kwargs)
         return [self.decode(hypos[0]['tokens']) for hypos in batched_hypos]
 
     def score(self, sentences: List[str], **kwargs):
         if isinstance(sentences, str):
             return self.score([sentences], **kwargs)[0]
         tokenized_sentences = [self.encode(sentence) for sentence in sentences]
-        return [hypos[0] for hypos in self.generate(tokenized_sentences,
-            score_reference=True, **kwargs)]
+        return [hypos[0] for hypos in self.generate(tokenized_sentences, score_reference=True, **kwargs)]
 
-    def generate(self, tokenized_sentences: List[torch.LongTensor], beam:
-        int=5, verbose: bool=False, skip_invalid_size_inputs=False,
-        inference_step_args=None, **kwargs) ->List[List[Dict[str, torch.
-        Tensor]]]:
-        if torch.is_tensor(tokenized_sentences) and tokenized_sentences.dim(
-            ) == 1:
-            return self.generate(tokenized_sentences.unsqueeze(0), beam=
-                beam, verbose=verbose, **kwargs)[0]
+    def generate(self, tokenized_sentences: List[torch.LongTensor], beam: int=5, verbose: bool=False, skip_invalid_size_inputs=False, inference_step_args=None, **kwargs) ->List[List[Dict[str, torch.Tensor]]]:
+        if torch.is_tensor(tokenized_sentences) and tokenized_sentences.dim() == 1:
+            return self.generate(tokenized_sentences.unsqueeze(0), beam=beam, verbose=verbose, **kwargs)[0]
         gen_args = copy.copy(self.args)
         gen_args.beam = beam
         for k, v in kwargs.items():
@@ -1386,34 +1298,25 @@ class GeneratorHubInterface(nn.Module):
         generator = self.task.build_generator(self.models, gen_args)
         inference_step_args = inference_step_args or {}
         results = []
-        for batch in self._build_batches(tokenized_sentences,
-            skip_invalid_size_inputs):
+        for batch in self._build_batches(tokenized_sentences, skip_invalid_size_inputs):
             batch = utils.apply_to_sample(lambda t: t, batch)
-            translations = self.task.inference_step(generator, self.models,
-                batch, **inference_step_args)
+            translations = self.task.inference_step(generator, self.models, batch, **inference_step_args)
             for id, hypos in zip(batch['id'].tolist(), translations):
                 results.append((id, hypos))
         outputs = [hypos for _, hypos in sorted(results, key=lambda x: x[0])]
         if verbose:
 
             def getarg(name, default):
-                return getattr(gen_args, name, getattr(self.args, name,
-                    default))
-            for source_tokens, target_hypotheses in zip(tokenized_sentences,
-                outputs):
+                return getattr(gen_args, name, getattr(self.args, name, default))
+            for source_tokens, target_hypotheses in zip(tokenized_sentences, outputs):
                 src_str_with_unk = self.string(source_tokens)
                 logger.info('S\t{}'.format(src_str_with_unk))
                 for hypo in target_hypotheses:
                     hypo_str = self.decode(hypo['tokens'])
                     logger.info('H\t{}\t{}'.format(hypo['score'], hypo_str))
-                    logger.info('P\t{}'.format(' '.join(map(lambda x:
-                        '{:.4f}'.format(x), hypo['positional_scores'].
-                        tolist()))))
-                    if hypo['alignment'] is not None and getarg(
-                        'print_alignment', False):
-                        logger.info('A\t{}'.format(' '.join(map(lambda x:
-                            str(utils.item(x)), hypo['alignment'].int().cpu
-                            ()))))
+                    logger.info('P\t{}'.format(' '.join(map(lambda x: '{:.4f}'.format(x), hypo['positional_scores'].tolist()))))
+                    if hypo['alignment'] is not None and getarg('print_alignment', False):
+                        logger.info('A\t{}'.format(' '.join(map(lambda x: str(utils.item(x)), hypo['alignment'].int().cpu()))))
         return outputs
 
     def encode(self, sentence: str) ->torch.LongTensor:
@@ -1447,20 +1350,14 @@ class GeneratorHubInterface(nn.Module):
         return sentence
 
     def binarize(self, sentence: str) ->torch.LongTensor:
-        return self.src_dict.encode_line(sentence, add_if_not_exist=False
-            ).long()
+        return self.src_dict.encode_line(sentence, add_if_not_exist=False).long()
 
     def string(self, tokens: torch.LongTensor) ->str:
         return self.tgt_dict.string(tokens)
 
-    def _build_batches(self, tokens: List[List[int]],
-        skip_invalid_size_inputs: bool) ->Iterator[Dict[str, Any]]:
+    def _build_batches(self, tokens: List[List[int]], skip_invalid_size_inputs: bool) ->Iterator[Dict[str, Any]]:
         lengths = torch.LongTensor([t.numel() for t in tokens])
-        batch_iterator = self.task.get_batch_iterator(dataset=self.task.
-            build_dataset_for_inference(tokens, lengths), max_tokens=self.
-            args.max_tokens, max_sentences=self.args.max_sentences,
-            max_positions=self.max_positions, ignore_invalid_inputs=
-            skip_invalid_size_inputs).next_epoch_itr(shuffle=False)
+        batch_iterator = self.task.get_batch_iterator(dataset=self.task.build_dataset_for_inference(tokens, lengths), max_tokens=self.args.max_tokens, max_sentences=self.args.max_sentences, max_positions=self.max_positions, ignore_invalid_inputs=skip_invalid_size_inputs).next_epoch_itr(shuffle=False)
         return batch_iterator
 
 
@@ -1472,17 +1369,10 @@ class ModelParallelMultiheadAttention(nn.Module):
     See "Megatron-LM: https://arxiv.org/pdf/1909.08053.pdf" for more details.
     """
 
-    def __init__(self, embed_dim, num_heads, kdim=None, vdim=None, dropout=
-        0.0, bias=True, self_attention=False, encoder_decoder_attention=False):
+    def __init__(self, embed_dim, num_heads, kdim=None, vdim=None, dropout=0.0, bias=True, self_attention=False, encoder_decoder_attention=False):
         super().__init__()
         if not has_megatron_submodule:
-            raise ImportError(
-                """
-
-Please install the megatron submodule:
-
-  git submodule update --init fairseq/model_parallel/megatron"""
-                )
+            raise ImportError('\n\nPlease install the megatron submodule:\n\n  git submodule update --init fairseq/model_parallel/megatron')
         self.embed_dim = embed_dim
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
@@ -1497,20 +1387,12 @@ Please install the megatron submodule:
         self.self_attention = self_attention
         self.encoder_decoder_attention = encoder_decoder_attention
         assert not self.self_attention or self.qkv_same_dim, 'Self-attention requires query, key and value to be of the same size'
-        self.k_proj = ColumnParallelLinear(self.kdim, embed_dim, bias=bias,
-            gather_output=False)
-        self.v_proj = ColumnParallelLinear(self.vdim, embed_dim, bias=bias,
-            gather_output=False)
-        self.q_proj = ColumnParallelLinear(embed_dim, embed_dim, bias=bias,
-            gather_output=False)
-        self.out_proj = RowParallelLinear(embed_dim, embed_dim, bias=bias,
-            input_is_parallel=True)
+        self.k_proj = ColumnParallelLinear(self.kdim, embed_dim, bias=bias, gather_output=False)
+        self.v_proj = ColumnParallelLinear(self.vdim, embed_dim, bias=bias, gather_output=False)
+        self.q_proj = ColumnParallelLinear(embed_dim, embed_dim, bias=bias, gather_output=False)
+        self.out_proj = RowParallelLinear(embed_dim, embed_dim, bias=bias, input_is_parallel=True)
 
-    def forward(self, query, key: Optional[Tensor], value: Optional[Tensor],
-        key_padding_mask: Optional[Tensor]=None, incremental_state:
-        Optional[Dict[str, Dict[str, Optional[Tensor]]]]=None, static_kv:
-        bool=False, attn_mask: Optional[Tensor]=None, **unused_kwargs) ->Tuple[
-        Tensor, Optional[Tensor]]:
+    def forward(self, query, key: Optional[Tensor], value: Optional[Tensor], key_padding_mask: Optional[Tensor]=None, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]=None, static_kv: bool=False, attn_mask: Optional[Tensor]=None, **unused_kwargs) ->Tuple[Tensor, Optional[Tensor]]:
         """Input shape: Time x Batch x Channel
 
         Args:
@@ -1550,20 +1432,16 @@ Please install the megatron submodule:
             k = self.k_proj(key)
             v = self.v_proj(value)
         q *= self.scaling
-        q = q.contiguous().view(tgt_len, bsz * self.num_heads_partition,
-            self.head_dim).transpose(0, 1)
+        q = q.contiguous().view(tgt_len, bsz * self.num_heads_partition, self.head_dim).transpose(0, 1)
         if k is not None:
-            k = k.contiguous().view(-1, bsz * self.num_heads_partition,
-                self.head_dim).transpose(0, 1)
+            k = k.contiguous().view(-1, bsz * self.num_heads_partition, self.head_dim).transpose(0, 1)
         if v is not None:
-            v = v.contiguous().view(-1, bsz * self.num_heads_partition,
-                self.head_dim).transpose(0, 1)
+            v = v.contiguous().view(-1, bsz * self.num_heads_partition, self.head_dim).transpose(0, 1)
         if saved_state is not None:
             if 'prev_key' in saved_state:
                 _prev_key = saved_state['prev_key']
                 assert _prev_key is not None
-                prev_key = _prev_key.view(bsz * self.num_heads_partition, -
-                    1, self.head_dim)
+                prev_key = _prev_key.view(bsz * self.num_heads_partition, -1, self.head_dim)
                 if static_kv:
                     k = prev_key
                 else:
@@ -1572,8 +1450,7 @@ Please install the megatron submodule:
             if 'prev_value' in saved_state:
                 _prev_value = saved_state['prev_value']
                 assert _prev_value is not None
-                prev_value = _prev_value.view(bsz * self.
-                    num_heads_partition, -1, self.head_dim)
+                prev_value = _prev_value.view(bsz * self.num_heads_partition, -1, self.head_dim)
                 if static_kv:
                     v = prev_value
                 else:
@@ -1583,19 +1460,12 @@ Please install the megatron submodule:
             if 'prev_key_padding_mask' in saved_state:
                 prev_key_padding_mask = saved_state['prev_key_padding_mask']
             assert k is not None and v is not None
-            key_padding_mask = (ModelParallelMultiheadAttention.
-                _append_prev_key_padding_mask(key_padding_mask=
-                key_padding_mask, prev_key_padding_mask=
-                prev_key_padding_mask, batch_size=bsz, src_len=k.size(1),
-                static_kv=static_kv))
-            saved_state['prev_key'] = k.view(bsz, self.num_heads_partition,
-                -1, self.head_dim)
-            saved_state['prev_value'] = v.view(bsz, self.
-                num_heads_partition, -1, self.head_dim)
+            key_padding_mask = ModelParallelMultiheadAttention._append_prev_key_padding_mask(key_padding_mask=key_padding_mask, prev_key_padding_mask=prev_key_padding_mask, batch_size=bsz, src_len=k.size(1), static_kv=static_kv)
+            saved_state['prev_key'] = k.view(bsz, self.num_heads_partition, -1, self.head_dim)
+            saved_state['prev_value'] = v.view(bsz, self.num_heads_partition, -1, self.head_dim)
             saved_state['prev_key_padding_mask'] = key_padding_mask
             assert incremental_state is not None
-            incremental_state = self._set_input_buffer(incremental_state,
-                saved_state)
+            incremental_state = self._set_input_buffer(incremental_state, saved_state)
         assert k is not None
         src_len = k.size(1)
         if key_padding_mask is not None and key_padding_mask.dim() == 0:
@@ -1604,76 +1474,58 @@ Please install the megatron submodule:
             assert key_padding_mask.size(0) == bsz
             assert key_padding_mask.size(1) == src_len
         attn_weights = torch.bmm(q, k.transpose(1, 2))
-        assert list(attn_weights.size()) == [bsz * self.num_heads_partition,
-            tgt_len, src_len]
+        assert list(attn_weights.size()) == [bsz * self.num_heads_partition, tgt_len, src_len]
         if attn_mask is not None:
             attn_mask = attn_mask.unsqueeze(0)
             attn_weights += attn_mask
         if key_padding_mask is not None:
-            attn_weights = attn_weights.view(bsz, self.num_heads_partition,
-                tgt_len, src_len)
-            attn_weights = attn_weights.masked_fill(key_padding_mask.
-                unsqueeze(1).unsqueeze(2), float('-inf'))
-            attn_weights = attn_weights.view(bsz * self.num_heads_partition,
-                tgt_len, src_len)
+            attn_weights = attn_weights.view(bsz, self.num_heads_partition, tgt_len, src_len)
+            attn_weights = attn_weights.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float('-inf'))
+            attn_weights = attn_weights.view(bsz * self.num_heads_partition, tgt_len, src_len)
         attn_weights_float = utils.softmax(attn_weights, dim=-1)
         attn_weights = attn_weights_float.type_as(attn_weights)
         with get_cuda_rng_tracker().fork():
-            attn_probs = F.dropout(attn_weights_float.type_as(attn_weights),
-                p=self.dropout, training=self.training)
+            attn_probs = F.dropout(attn_weights_float.type_as(attn_weights), p=self.dropout, training=self.training)
         assert v is not None
         attn = torch.bmm(attn_probs, v)
-        assert list(attn.size()) == [bsz * self.num_heads_partition,
-            tgt_len, self.head_dim]
+        assert list(attn.size()) == [bsz * self.num_heads_partition, tgt_len, self.head_dim]
         embed_dim_partition = embed_dim // self.model_parallel_size
-        attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz,
-            embed_dim_partition)
+        attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim_partition)
         attn = self.out_proj(attn)
         attn_weights: Optional[Tensor] = None
         return attn, attn_weights
 
     @staticmethod
-    def _append_prev_key_padding_mask(key_padding_mask: Optional[Tensor],
-        prev_key_padding_mask: Optional[Tensor], batch_size: int, src_len:
-        int, static_kv: bool) ->Optional[Tensor]:
+    def _append_prev_key_padding_mask(key_padding_mask: Optional[Tensor], prev_key_padding_mask: Optional[Tensor], batch_size: int, src_len: int, static_kv: bool) ->Optional[Tensor]:
         if prev_key_padding_mask is not None and static_kv:
             new_key_padding_mask = prev_key_padding_mask
         elif prev_key_padding_mask is not None and key_padding_mask is not None:
-            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(),
-                key_padding_mask.float()], dim=1)
+            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(), key_padding_mask.float()], dim=1)
         elif prev_key_padding_mask is not None:
-            filler = torch.zeros(batch_size, src_len -
-                prev_key_padding_mask.size(1))
+            filler = torch.zeros(batch_size, src_len - prev_key_padding_mask.size(1))
             if prev_key_padding_mask.is_cuda:
                 filler = filler
-            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(),
-                filler.float()], dim=1)
+            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(), filler.float()], dim=1)
         elif key_padding_mask is not None:
-            filler = torch.zeros(batch_size, src_len - key_padding_mask.size(1)
-                )
+            filler = torch.zeros(batch_size, src_len - key_padding_mask.size(1))
             if key_padding_mask.is_cuda:
                 filler = filler
-            new_key_padding_mask = torch.cat([filler.float(),
-                key_padding_mask.float()], dim=1)
+            new_key_padding_mask = torch.cat([filler.float(), key_padding_mask.float()], dim=1)
         else:
             new_key_padding_mask = prev_key_padding_mask
         return new_key_padding_mask
 
-    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[
-        str, Optional[Tensor]]], new_order):
+    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[str, Optional[Tensor]]], new_order):
         """Reorder buffered internal state (for incremental generation)."""
         input_buffer = self._get_input_buffer(incremental_state)
         if input_buffer is not None:
             for k in input_buffer.keys():
                 if input_buffer[k] is not None:
-                    input_buffer[k] = input_buffer[k].index_select(0, new_order
-                        )
-            incremental_state = self._set_input_buffer(incremental_state,
-                input_buffer)
+                    input_buffer[k] = input_buffer[k].index_select(0, new_order)
+            incremental_state = self._set_input_buffer(incremental_state, input_buffer)
         return incremental_state
 
-    def _get_input_buffer(self, incremental_state: Optional[Dict[str, Dict[
-        str, Optional[Tensor]]]]) ->Dict[str, Optional[Tensor]]:
+    def _get_input_buffer(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]) ->Dict[str, Optional[Tensor]]:
         result = self.get_incremental_state(incremental_state, 'attn_state')
         if result is not None:
             return result
@@ -1681,10 +1533,8 @@ Please install the megatron submodule:
             empty_result: Dict[str, Optional[Tensor]] = {}
             return empty_result
 
-    def _set_input_buffer(self, incremental_state: Dict[str, Dict[str,
-        Optional[Tensor]]], buffer: Dict[str, Optional[Tensor]]):
-        return self.set_incremental_state(incremental_state, 'attn_state',
-            buffer)
+    def _set_input_buffer(self, incremental_state: Dict[str, Dict[str, Optional[Tensor]]], buffer: Dict[str, Optional[Tensor]]):
+        return self.set_incremental_state(incremental_state, 'attn_state', buffer)
 
 
 class BARTHubInterface(nn.Module):
@@ -1699,17 +1549,14 @@ class BARTHubInterface(nn.Module):
         self.task = task
         self.model = model
         self.bpe = encoders.build_bpe(args)
-        self.max_positions = min(utils.resolve_max_positions(self.task.
-            max_positions(), self.model.max_positions()))
-        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch
-            .float))
+        self.max_positions = min(utils.resolve_max_positions(self.task.max_positions(), self.model.max_positions()))
+        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch.float))
 
     @property
     def device(self):
         return self._float_tensor.device
 
-    def encode(self, sentence: str, *addl_sentences, no_separator=True
-        ) ->torch.LongTensor:
+    def encode(self, sentence: str, *addl_sentences, no_separator=True) ->torch.LongTensor:
         """
         BPE-encode a sentence (or multiple sentences).
 
@@ -1736,8 +1583,7 @@ class BARTHubInterface(nn.Module):
         for s in addl_sentences:
             bpe_sentence += ' </s>' if not no_separator else ''
             bpe_sentence += ' ' + self.bpe.encode(s) + ' </s>'
-        tokens = self.task.source_dictionary.encode_line(bpe_sentence,
-            append_eos=False)
+        tokens = self.task.source_dictionary.encode_line(bpe_sentence, append_eos=False)
         return tokens.long()
 
     def decode(self, tokens: torch.LongTensor):
@@ -1748,37 +1594,30 @@ class BARTHubInterface(nn.Module):
         eos_mask = tokens == self.task.source_dictionary.eos()
         doc_mask = eos_mask[1:] & eos_mask[:-1]
         sentences = np.split(tokens, doc_mask.nonzero()[0] + 1)
-        sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for
-            s in sentences]
+        sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for s in sentences]
         if len(sentences) == 1:
             return sentences[0]
         return sentences
 
     def _build_sample(self, src_tokens: List[torch.LongTensor]):
-        dataset = self.task.build_dataset_for_inference(src_tokens, [x.
-            numel() for x in src_tokens])
+        dataset = self.task.build_dataset_for_inference(src_tokens, [x.numel() for x in src_tokens])
         sample = dataset.collater(dataset)
         sample = utils.apply_to_sample(lambda tensor: tensor, sample)
         return sample
 
-    def sample(self, sentences: List[str], beam: int=1, verbose: bool=False,
-        **kwargs) ->str:
+    def sample(self, sentences: List[str], beam: int=1, verbose: bool=False, **kwargs) ->str:
         input = [self.encode(sentence) for sentence in sentences]
         hypos = self.generate(input, beam, verbose, **kwargs)
         return [self.decode(x['tokens']) for x in hypos]
 
-    def generate(self, tokens: List[torch.LongTensor], beam: int=5, verbose:
-        bool=False, **kwargs) ->torch.LongTensor:
+    def generate(self, tokens: List[torch.LongTensor], beam: int=5, verbose: bool=False, **kwargs) ->torch.LongTensor:
         sample = self._build_sample(tokens)
         gen_args = copy.copy(self.args)
         gen_args.beam = beam
         for k, v in kwargs.items():
             setattr(gen_args, k, v)
         generator = self.task.build_generator([self.model], gen_args)
-        translations = self.task.inference_step(generator, [self.model],
-            sample, prefix_tokens=sample['net_input']['src_tokens'].
-            new_zeros((len(tokens), 1)).fill_(self.task.source_dictionary.
-            bos()))
+        translations = self.task.inference_step(generator, [self.model], sample, prefix_tokens=sample['net_input']['src_tokens'].new_zeros((len(tokens), 1)).fill_(self.task.source_dictionary.bos()))
         if verbose:
             src_str_with_unk = self.string(tokens)
             logger.info('S\t{}'.format(src_str_with_unk))
@@ -1789,41 +1628,30 @@ class BARTHubInterface(nn.Module):
         hypos = [v for _, v in sorted(zip(sample['id'].tolist(), hypos))]
         return hypos
 
-    def extract_features(self, tokens: torch.LongTensor, return_all_hiddens:
-        bool=False) ->torch.Tensor:
+    def extract_features(self, tokens: torch.LongTensor, return_all_hiddens: bool=False) ->torch.Tensor:
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
         if tokens.size(-1) > min(self.model.max_positions()):
-            raise ValueError('tokens exceeds maximum length: {} > {}'.
-                format(tokens.size(-1), self.model.max_positions()))
+            raise ValueError('tokens exceeds maximum length: {} > {}'.format(tokens.size(-1), self.model.max_positions()))
         tokens,
         prev_output_tokens = tokens.clone()
-        prev_output_tokens[:, (0)] = tokens.gather(1, (tokens.ne(self.task.
-            source_dictionary.pad()).sum(dim=1) - 1).unsqueeze(-1)).squeeze()
+        prev_output_tokens[:, (0)] = tokens.gather(1, (tokens.ne(self.task.source_dictionary.pad()).sum(dim=1) - 1).unsqueeze(-1)).squeeze()
         prev_output_tokens[:, 1:] = tokens[:, :-1]
-        features, extra = self.model(src_tokens=tokens, src_lengths=None,
-            prev_output_tokens=prev_output_tokens, features_only=True,
-            return_all_hiddens=return_all_hiddens)
+        features, extra = self.model(src_tokens=tokens, src_lengths=None, prev_output_tokens=prev_output_tokens, features_only=True, return_all_hiddens=return_all_hiddens)
         if return_all_hiddens:
             inner_states = extra['inner_states']
-            return [inner_state.transpose(0, 1) for inner_state in inner_states
-                ]
+            return [inner_state.transpose(0, 1) for inner_state in inner_states]
         else:
             return features
 
-    def register_classification_head(self, name: str, num_classes: int=None,
-        embedding_size: int=None, **kwargs):
-        self.model.register_classification_head(name, num_classes=
-            num_classes, embedding_size=embedding_size, **kwargs)
+    def register_classification_head(self, name: str, num_classes: int=None, embedding_size: int=None, **kwargs):
+        self.model.register_classification_head(name, num_classes=num_classes, embedding_size=embedding_size, **kwargs)
 
-    def predict(self, head: str, tokens: torch.LongTensor, return_logits:
-        bool=False):
+    def predict(self, head: str, tokens: torch.LongTensor, return_logits: bool=False):
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
         features = self.extract_features(tokens)
-        sentence_representation = features[(tokens.eq(self.task.
-            source_dictionary.eos())), :].view(features.size(0), -1,
-            features.size(-1))[:, (-1), :]
+        sentence_representation = features[(tokens.eq(self.task.source_dictionary.eos())), :].view(features.size(0), -1, features.size(-1))[:, (-1), :]
         logits = self.model.classification_heads[head](sentence_representation)
         if return_logits:
             return logits
@@ -1833,8 +1661,7 @@ class BARTHubInterface(nn.Module):
 class BARTClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, input_dim, inner_dim, num_classes, activation_fn,
-        pooler_dropout):
+    def __init__(self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout):
         super().__init__()
         self.dense = nn.Linear(input_dim, inner_dim)
         self.activation_fn = utils.get_activation_fn(activation_fn)
@@ -1872,8 +1699,7 @@ class FairseqDecoder(nn.Module):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - a dictionary with any model-specific outputs
         """
-        x, extra = self.extract_features(prev_output_tokens, encoder_out=
-            encoder_out, **kwargs)
+        x, extra = self.extract_features(prev_output_tokens, encoder_out=encoder_out, **kwargs)
         x = self.output_layer(x)
         return x, extra
 
@@ -1895,24 +1721,19 @@ class FairseqDecoder(nn.Module):
         """
         raise NotImplementedError
 
-    def get_normalized_probs(self, net_output: Tuple[Tensor, Optional[Dict[
-        str, List[Optional[Tensor]]]]], log_probs: bool, sample: Optional[
-        Dict[str, Tensor]]=None):
+    def get_normalized_probs(self, net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]], log_probs: bool, sample: Optional[Dict[str, Tensor]]=None):
         """Get normalized probabilities (or log probs) from a net's output."""
-        if hasattr(self, 'adaptive_softmax'
-            ) and self.adaptive_softmax is not None:
+        if hasattr(self, 'adaptive_softmax') and self.adaptive_softmax is not None:
             if sample is not None:
                 assert 'target' in sample
                 target = sample['target']
             else:
                 target = None
-            out = self.adaptive_softmax.get_log_prob(net_output[0], target=
-                target)
+            out = self.adaptive_softmax.get_log_prob(net_output[0], target=target)
             return out.exp_() if not log_probs else out
         logits = net_output[0]
         if log_probs:
-            return utils.log_softmax(logits, dim=-1, onnx_trace=self.onnx_trace
-                )
+            return utils.log_softmax(logits, dim=-1, onnx_trace=self.onnx_trace)
         else:
             return utils.softmax(logits, dim=-1, onnx_trace=self.onnx_trace)
 
@@ -1952,15 +1773,13 @@ class FairseqEncoder(nn.Module):
         this method for TorchScript compatibility.
         """
         if torch.jit.is_scripting():
-            return self.forward(src_tokens=net_input['src_tokens'],
-                src_lengths=net_input['src_lengths'])
+            return self.forward(src_tokens=net_input['src_tokens'], src_lengths=net_input['src_lengths'])
         else:
             return self.forward_non_torchscript(net_input)
 
     @torch.jit.unused
     def forward_non_torchscript(self, net_input: Dict[str, Tensor]):
-        encoder_input = {k: v for k, v in net_input.items() if k !=
-            'prev_output_tokens'}
+        encoder_input = {k: v for k, v in net_input.items() if k != 'prev_output_tokens'}
         return self.forward(**encoder_input)
 
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -1998,32 +1817,24 @@ def prune_state_dict(state_dict, args):
     """
     if not args or args.arch == 'ptt_transformer':
         return state_dict
-    encoder_layers_to_keep = (args.encoder_layers_to_keep if 
-        'encoder_layers_to_keep' in vars(args) else None)
-    decoder_layers_to_keep = (args.decoder_layers_to_keep if 
-        'decoder_layers_to_keep' in vars(args) else None)
+    encoder_layers_to_keep = args.encoder_layers_to_keep if 'encoder_layers_to_keep' in vars(args) else None
+    decoder_layers_to_keep = args.decoder_layers_to_keep if 'decoder_layers_to_keep' in vars(args) else None
     if not encoder_layers_to_keep and not decoder_layers_to_keep:
         return state_dict
-    logger.info(
-        'Pruning model to specified layer configuration - this works best if the model was trained with LayerDrop'
-        )
+    logger.info('Pruning model to specified layer configuration - this works best if the model was trained with LayerDrop')
 
     def create_pruning_pass(layers_to_keep, layer_name):
-        keep_layers = sorted([int(layer_string) for layer_string in
-            layers_to_keep.split(',')])
+        keep_layers = sorted([int(layer_string) for layer_string in layers_to_keep.split(',')])
         mapping_dict = {}
         for i in range(len(keep_layers)):
             mapping_dict[str(keep_layers[i])] = str(i)
-        regex = re.compile('^{layer}.*\\.layers\\.(\\d+)'.format(layer=
-            layer_name))
+        regex = re.compile('^{layer}.*\\.layers\\.(\\d+)'.format(layer=layer_name))
         return {'substitution_regex': regex, 'mapping_dict': mapping_dict}
     pruning_passes = []
     if encoder_layers_to_keep:
-        pruning_passes.append(create_pruning_pass(encoder_layers_to_keep,
-            'encoder'))
+        pruning_passes.append(create_pruning_pass(encoder_layers_to_keep, 'encoder'))
     if decoder_layers_to_keep:
-        pruning_passes.append(create_pruning_pass(decoder_layers_to_keep,
-            'decoder'))
+        pruning_passes.append(create_pruning_pass(decoder_layers_to_keep, 'decoder'))
     new_state_dict = {}
     for layer_name in state_dict.keys():
         match = re.search('\\.layers\\.(\\d+)\\.', layer_name)
@@ -2032,15 +1843,10 @@ def prune_state_dict(state_dict, args):
             continue
         original_layer_number = match.group(1)
         for pruning_pass in pruning_passes:
-            if original_layer_number in pruning_pass['mapping_dict'
-                ] and pruning_pass['substitution_regex'].search(layer_name):
-                new_layer_number = pruning_pass['mapping_dict'][
-                    original_layer_number]
-                substitution_match = pruning_pass['substitution_regex'].search(
-                    layer_name)
-                new_state_key = layer_name[:substitution_match.start(1)
-                    ] + new_layer_number + layer_name[substitution_match.
-                    end(1):]
+            if original_layer_number in pruning_pass['mapping_dict'] and pruning_pass['substitution_regex'].search(layer_name):
+                new_layer_number = pruning_pass['mapping_dict'][original_layer_number]
+                substitution_match = pruning_pass['substitution_regex'].search(layer_name)
+                new_state_key = layer_name[:substitution_match.start(1)] + new_layer_number + layer_name[substitution_match.end(1):]
                 new_state_dict[new_state_key] = state_dict[layer_name]
     if 'encoder_layers_to_keep' in vars(args):
         args.encoder_layers_to_keep = None
@@ -2064,27 +1870,20 @@ class BaseFairseqModel(nn.Module):
     @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
-        raise NotImplementedError('Model must implement the build_model method'
-            )
+        raise NotImplementedError('Model must implement the build_model method')
 
     def get_targets(self, sample, net_output):
         """Get targets from either the sample or the net's output."""
         return sample['target']
 
-    def get_normalized_probs(self, net_output: Tuple[Tensor, Optional[Dict[
-        str, List[Optional[Tensor]]]]], log_probs: bool, sample: Optional[
-        Dict[str, Tensor]]=None):
+    def get_normalized_probs(self, net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]], log_probs: bool, sample: Optional[Dict[str, Tensor]]=None):
         """Get normalized probabilities (or log probs) from a net's output."""
-        return self.get_normalized_probs_scriptable(net_output, log_probs,
-            sample)
+        return self.get_normalized_probs_scriptable(net_output, log_probs, sample)
 
-    def get_normalized_probs_scriptable(self, net_output: Tuple[Tensor,
-        Optional[Dict[str, List[Optional[Tensor]]]]], log_probs: bool,
-        sample: Optional[Dict[str, Tensor]]=None):
+    def get_normalized_probs_scriptable(self, net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]], log_probs: bool, sample: Optional[Dict[str, Tensor]]=None):
         """Scriptable helper function for get_normalized_probs in ~BaseFairseqModel"""
         if hasattr(self, 'decoder'):
-            return self.decoder.get_normalized_probs(net_output, log_probs,
-                sample)
+            return self.decoder.get_normalized_probs(net_output, log_probs, sample)
         elif torch.is_tensor(net_output):
             logits = net_output.float()
             if log_probs:
@@ -2160,8 +1959,7 @@ class BaseFairseqModel(nn.Module):
         seen = set()
 
         def apply_make_generation_fast_(module):
-            if module != self and hasattr(module, 'make_generation_fast_'
-                ) and module not in seen:
+            if module != self and hasattr(module, 'make_generation_fast_') and module not in seen:
                 seen.add(module)
                 module.make_generation_fast_(**kwargs)
         self.apply(apply_make_generation_fast_)
@@ -2177,8 +1975,7 @@ class BaseFairseqModel(nn.Module):
         seen = set()
 
         def apply_prepare_for_onnx_export_(module):
-            if module != self and hasattr(module, 'prepare_for_onnx_export_'
-                ) and module not in seen:
+            if module != self and hasattr(module, 'prepare_for_onnx_export_') and module not in seen:
                 seen.add(module)
                 module.prepare_for_onnx_export_(**kwargs)
         self.apply(apply_prepare_for_onnx_export_)
@@ -2188,15 +1985,13 @@ class BaseFairseqModel(nn.Module):
         seen = set()
 
         def apply_prepare_for_tpu_(module):
-            if module != self and hasattr(module, 'prepare_for_tpu_'
-                ) and module not in seen:
+            if module != self and hasattr(module, 'prepare_for_tpu_') and module not in seen:
                 seen.add(module)
                 module.prepare_for_tpu_(**kwargs)
         self.apply(apply_prepare_for_tpu_)
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path, checkpoint_file='model.pt',
-        data_name_or_path='.', **kwargs):
+    def from_pretrained(cls, model_name_or_path, checkpoint_file='model.pt', data_name_or_path='.', **kwargs):
         """
         Load a :class:`~fairseq.models.FairseqModel` from a pre-trained model
         file. Downloads and caches the pre-trained model file if needed.
@@ -2218,11 +2013,9 @@ class BaseFairseqModel(nn.Module):
                 at the given path/URL. Can start with '.' or './' to reuse the
                 model archive path.
         """
-        x = hub_utils.from_pretrained(model_name_or_path, checkpoint_file,
-            data_name_or_path, archive_map=cls.hub_models(), **kwargs)
+        x = hub_utils.from_pretrained(model_name_or_path, checkpoint_file, data_name_or_path, archive_map=cls.hub_models(), **kwargs)
         logger.info(x['args'])
-        return hub_utils.GeneratorHubInterface(x['args'], x['task'], x[
-            'models'])
+        return hub_utils.GeneratorHubInterface(x['args'], x['task'], x['models'])
 
     @classmethod
     def hub_models(cls):
@@ -2250,8 +2043,7 @@ class AttentionLayer(nn.Module):
         x = (self.in_projection(x) + target_embedding) * math.sqrt(0.5)
         x = self.bmm(x, encoder_out[0])
         if encoder_padding_mask is not None:
-            x = x.float().masked_fill(encoder_padding_mask.unsqueeze(1),
-                float('-inf')).type_as(x)
+            x = x.float().masked_fill(encoder_padding_mask.unsqueeze(1), float('-inf')).type_as(x)
         sz = x.size()
         x = F.softmax(x.view(sz[0] * sz[1], sz[2]), dim=1)
         x = x.view(sz)
@@ -2274,8 +2066,7 @@ class AttentionLayer(nn.Module):
             self.add_module('bmm', BeamableMM(beamable_mm_beam_size))
 
 
-def LayerNorm(normalized_shape, eps=1e-05, elementwise_affine=True, export=
-    False):
+def LayerNorm(normalized_shape, eps=1e-05, elementwise_affine=True, export=False):
     if not export and torch.cuda.is_available() and has_fused_layernorm:
         return FusedLayerNorm(normalized_shape, eps, elementwise_affine)
     return torch.nn.LayerNorm(normalized_shape, eps, elementwise_affine)
@@ -2283,12 +2074,9 @@ def LayerNorm(normalized_shape, eps=1e-05, elementwise_affine=True, export=
 
 class SelfAttention(nn.Module):
 
-    def __init__(self, out_channels, embed_dim, num_heads, project_input=
-        False, gated=False, downsample=False):
+    def __init__(self, out_channels, embed_dim, num_heads, project_input=False, gated=False, downsample=False):
         super().__init__()
-        self.attention = DownsampledMultiHeadAttention(out_channels,
-            embed_dim, num_heads, dropout=0, bias=True, project_input=
-            project_input, gated=gated, downsample=downsample)
+        self.attention = DownsampledMultiHeadAttention(out_channels, embed_dim, num_heads, dropout=0, bias=True, project_input=project_input, gated=gated, downsample=downsample)
         self.in_proj_q = Linear(out_channels, embed_dim)
         self.in_proj_k = Linear(out_channels, embed_dim)
         self.in_proj_v = Linear(out_channels, embed_dim)
@@ -2299,40 +2087,28 @@ class SelfAttention(nn.Module):
         query = self.in_proj_q(x)
         key = self.in_proj_k(x)
         value = self.in_proj_v(x)
-        x, _ = self.attention(query, key, value, mask_future_timesteps=True,
-            use_scalar_bias=True)
+        x, _ = self.attention(query, key, value, mask_future_timesteps=True, use_scalar_bias=True)
         return self.ln(x + residual)
 
 
-def DynamicConv(input_size, kernel_size=1, padding_l=None, num_heads=1,
-    weight_dropout=0.0, weight_softmax=False, renorm_padding=False, bias=
-    False, conv_bias=False, query_size=None, in_proj=False):
+def DynamicConv(input_size, kernel_size=1, padding_l=None, num_heads=1, weight_dropout=0.0, weight_softmax=False, renorm_padding=False, bias=False, conv_bias=False, query_size=None, in_proj=False):
     if torch.cuda.is_available():
         try:
             from fairseq.modules.dynamicconv_layer import DynamicconvLayer
-            return DynamicconvLayer(input_size, kernel_size=kernel_size,
-                padding_l=padding_l, num_heads=num_heads, weight_dropout=
-                weight_dropout, weight_softmax=weight_softmax, bias=bias)
+            return DynamicconvLayer(input_size, kernel_size=kernel_size, padding_l=padding_l, num_heads=num_heads, weight_dropout=weight_dropout, weight_softmax=weight_softmax, bias=bias)
         except ImportError as e:
             print(e)
-    return DynamicConv1dTBC(input_size, kernel_size=kernel_size, padding_l=
-        padding_l, num_heads=num_heads, weight_dropout=weight_dropout,
-        weight_softmax=weight_softmax, bias=bias)
+    return DynamicConv1dTBC(input_size, kernel_size=kernel_size, padding_l=padding_l, num_heads=num_heads, weight_dropout=weight_dropout, weight_softmax=weight_softmax, bias=bias)
 
 
-def LightweightConv(input_size, kernel_size=1, padding_l=None, num_heads=1,
-    weight_dropout=0.0, weight_softmax=False, bias=False):
+def LightweightConv(input_size, kernel_size=1, padding_l=None, num_heads=1, weight_dropout=0.0, weight_softmax=False, bias=False):
     if torch.cuda.is_available():
         try:
             from fairseq.modules.lightconv_layer import LightconvLayer
-            return LightconvLayer(input_size, kernel_size=kernel_size,
-                padding_l=padding_l, num_heads=num_heads, weight_dropout=
-                weight_dropout, weight_softmax=weight_softmax, bias=bias)
+            return LightconvLayer(input_size, kernel_size=kernel_size, padding_l=padding_l, num_heads=num_heads, weight_dropout=weight_dropout, weight_softmax=weight_softmax, bias=bias)
         except ImportError as e:
             print(e)
-    return LightweightConv1dTBC(input_size, kernel_size=kernel_size,
-        padding_l=padding_l, num_heads=num_heads, weight_dropout=
-        weight_dropout, weight_softmax=weight_softmax, bias=bias)
+    return LightweightConv1dTBC(input_size, kernel_size=kernel_size, padding_l=padding_l, num_heads=num_heads, weight_dropout=weight_dropout, weight_softmax=weight_softmax, bias=bias)
 
 
 class LightConvEncoderLayer(nn.Module):
@@ -2347,8 +2123,7 @@ class LightConvEncoderLayer(nn.Module):
         super().__init__()
         self.embed_dim = args.encoder_embed_dim
         self.conv_dim = args.encoder_conv_dim
-        padding_l = kernel_size // 2 if kernel_size % 2 == 1 else ((
-            kernel_size - 1) // 2, kernel_size // 2)
+        padding_l = kernel_size // 2 if kernel_size % 2 == 1 else ((kernel_size - 1) // 2, kernel_size // 2)
         if args.encoder_glu:
             self.linear1 = Linear(self.embed_dim, 2 * self.conv_dim)
             self.act = nn.GLU()
@@ -2356,15 +2131,9 @@ class LightConvEncoderLayer(nn.Module):
             self.linear1 = Linear(self.embed_dim, self.conv_dim)
             self.act = None
         if args.encoder_conv_type == 'lightweight':
-            self.conv = LightweightConv(self.conv_dim, kernel_size,
-                padding_l=padding_l, weight_softmax=args.weight_softmax,
-                num_heads=args.encoder_attention_heads, weight_dropout=args
-                .weight_dropout)
+            self.conv = LightweightConv(self.conv_dim, kernel_size, padding_l=padding_l, weight_softmax=args.weight_softmax, num_heads=args.encoder_attention_heads, weight_dropout=args.weight_dropout)
         elif args.encoder_conv_type == 'dynamic':
-            self.conv = DynamicConv(self.conv_dim, kernel_size, padding_l=
-                padding_l, weight_softmax=args.weight_softmax, num_heads=
-                args.encoder_attention_heads, weight_dropout=args.
-                weight_dropout)
+            self.conv = DynamicConv(self.conv_dim, kernel_size, padding_l=padding_l, weight_softmax=args.weight_softmax, num_heads=args.encoder_attention_heads, weight_dropout=args.weight_dropout)
         else:
             raise NotImplementedError
         self.linear2 = Linear(self.conv_dim, self.embed_dim)
@@ -2374,8 +2143,7 @@ class LightConvEncoderLayer(nn.Module):
         self.normalize_before = args.encoder_normalize_before
         self.fc1 = Linear(self.embed_dim, args.encoder_ffn_embed_dim)
         self.fc2 = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
-        self.layer_norms = nn.ModuleList([LayerNorm(self.embed_dim) for _ in
-            range(2)])
+        self.layer_norms = nn.ModuleList([LayerNorm(self.embed_dim) for _ in range(2)])
 
     def forward(self, x, encoder_padding_mask):
         """
@@ -2394,8 +2162,7 @@ class LightConvEncoderLayer(nn.Module):
         if self.act is not None:
             x = self.act(x)
         if encoder_padding_mask is not None:
-            x = x.masked_fill(encoder_padding_mask.transpose(0, 1).
-                unsqueeze(2), 0)
+            x = x.masked_fill(encoder_padding_mask.transpose(0, 1).unsqueeze(2), 0)
         x = self.conv(x)
         x = self.linear2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -2419,10 +2186,7 @@ class LightConvEncoderLayer(nn.Module):
             return x
 
     def extra_repr(self):
-        return (
-            'dropout={}, relu_dropout={}, input_dropout={}, normalize_before={}'
-            .format(self.dropout, self.relu_dropout, self.input_dropout,
-            self.normalize_before))
+        return 'dropout={}, relu_dropout={}, input_dropout={}, normalize_before={}'.format(self.dropout, self.relu_dropout, self.input_dropout, self.normalize_before)
 
 
 class LightConvDecoderLayer(nn.Module):
@@ -2446,15 +2210,9 @@ class LightConvDecoderLayer(nn.Module):
             self.linear1 = Linear(self.embed_dim, self.conv_dim)
             self.act = None
         if args.decoder_conv_type == 'lightweight':
-            self.conv = LightweightConv(self.conv_dim, kernel_size,
-                padding_l=kernel_size - 1, weight_softmax=args.
-                weight_softmax, num_heads=args.decoder_attention_heads,
-                weight_dropout=args.weight_dropout)
+            self.conv = LightweightConv(self.conv_dim, kernel_size, padding_l=kernel_size - 1, weight_softmax=args.weight_softmax, num_heads=args.decoder_attention_heads, weight_dropout=args.weight_dropout)
         elif args.decoder_conv_type == 'dynamic':
-            self.conv = DynamicConv(self.conv_dim, kernel_size, padding_l=
-                kernel_size - 1, weight_softmax=args.weight_softmax,
-                num_heads=args.decoder_attention_heads, weight_dropout=args
-                .weight_dropout)
+            self.conv = DynamicConv(self.conv_dim, kernel_size, padding_l=kernel_size - 1, weight_softmax=args.weight_softmax, num_heads=args.decoder_attention_heads, weight_dropout=args.weight_dropout)
         else:
             raise NotImplementedError
         self.linear2 = Linear(self.conv_dim, self.embed_dim)
@@ -2467,18 +2225,14 @@ class LightConvDecoderLayer(nn.Module):
             self.encoder_attn = None
             self.encoder_attn_layer_norm = None
         else:
-            self.encoder_attn = MultiheadAttention(self.embed_dim, args.
-                decoder_attention_heads, dropout=args.attention_dropout,
-                encoder_decoder_attention=True)
+            self.encoder_attn = MultiheadAttention(self.embed_dim, args.decoder_attention_heads, dropout=args.attention_dropout, encoder_decoder_attention=True)
             self.encoder_attn_layer_norm = LayerNorm(self.embed_dim)
         self.fc1 = Linear(self.embed_dim, args.decoder_ffn_embed_dim)
         self.fc2 = Linear(args.decoder_ffn_embed_dim, self.embed_dim)
         self.final_layer_norm = LayerNorm(self.embed_dim)
         self.need_attn = True
 
-    def forward(self, x, encoder_out, encoder_padding_mask,
-        incremental_state, prev_conv_state=None, prev_attn_state=None,
-        conv_mask=None, conv_padding_mask=None):
+    def forward(self, x, encoder_out, encoder_padding_mask, incremental_state, prev_conv_state=None, prev_attn_state=None, conv_mask=None, conv_padding_mask=None):
         """
         Args:
             x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
@@ -2506,23 +2260,17 @@ class LightConvDecoderLayer(nn.Module):
         attn = None
         if self.encoder_attn is not None:
             residual = x
-            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x,
-                before=True)
+            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, before=True)
             if prev_attn_state is not None:
                 if incremental_state is None:
                     incremental_state = {}
                 prev_key, prev_value = prev_attn_state
                 saved_state = {'prev_key': prev_key, 'prev_value': prev_value}
-                self.encoder_attn._set_input_buffer(incremental_state,
-                    saved_state)
-            x, attn = self.encoder_attn(query=x, key=encoder_out, value=
-                encoder_out, key_padding_mask=encoder_padding_mask,
-                incremental_state=incremental_state, static_kv=True,
-                need_weights=not self.training and self.need_attn)
+                self.encoder_attn._set_input_buffer(incremental_state, saved_state)
+            x, attn = self.encoder_attn(query=x, key=encoder_out, value=encoder_out, key_padding_mask=encoder_padding_mask, incremental_state=incremental_state, static_kv=True, need_weights=not self.training and self.need_attn)
             x = F.dropout(x, p=self.dropout, training=self.training)
             x = residual + x
-            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x,
-                after=True)
+            x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)
         residual = x
         x = self.maybe_layer_norm(self.final_layer_norm, x, before=True)
         x = F.relu(self.fc1(x))
@@ -2544,27 +2292,21 @@ class LightConvDecoderLayer(nn.Module):
         self.need_attn = need_attn
 
     def extra_repr(self):
-        return (
-            'dropout={}, relu_dropout={}, input_dropout={}, normalize_before={}'
-            .format(self.dropout, self.relu_dropout, self.input_dropout,
-            self.normalize_before))
+        return 'dropout={}, relu_dropout={}, input_dropout={}, normalize_before={}'.format(self.dropout, self.relu_dropout, self.input_dropout, self.normalize_before)
 
 
 class AttentionLayer(nn.Module):
 
-    def __init__(self, input_embed_dim, source_embed_dim, output_embed_dim,
-        bias=False):
+    def __init__(self, input_embed_dim, source_embed_dim, output_embed_dim, bias=False):
         super().__init__()
         self.input_proj = Linear(input_embed_dim, source_embed_dim, bias=bias)
-        self.output_proj = Linear(input_embed_dim + source_embed_dim,
-            output_embed_dim, bias=bias)
+        self.output_proj = Linear(input_embed_dim + source_embed_dim, output_embed_dim, bias=bias)
 
     def forward(self, input, source_hids, encoder_padding_mask):
         x = self.input_proj(input)
         attn_scores = (source_hids * x.unsqueeze(0)).sum(dim=2)
         if encoder_padding_mask is not None:
-            attn_scores = attn_scores.float().masked_fill_(encoder_padding_mask
-                , float('-inf')).type_as(attn_scores)
+            attn_scores = attn_scores.float().masked_fill_(encoder_padding_mask, float('-inf')).type_as(attn_scores)
         attn_scores = F.softmax(attn_scores, dim=0)
         x = (attn_scores.unsqueeze(2) * source_hids).sum(dim=0)
         x = torch.tanh(self.output_proj(torch.cat((x, input), dim=1)))
@@ -2577,9 +2319,7 @@ class _EnsembleModelEncoder(object):
         self.models = models
 
     def reorder_encoder_out(self, encoder_outs, new_order):
-        encoder_outs = [model.encoder.reorder_encoder_out(encoder_out,
-            new_order) for model, encoder_out in zip(self.models, encoder_outs)
-            ]
+        encoder_outs = [model.encoder.reorder_encoder_out(encoder_out, new_order) for model, encoder_out in zip(self.models, encoder_outs)]
         return encoder_outs
 
 
@@ -2627,15 +2367,13 @@ class RobertaHubInterface(nn.Module):
         self.task = task
         self.model = model
         self.bpe = encoders.build_bpe(args)
-        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch
-            .float))
+        self.register_buffer('_float_tensor', torch.tensor([0], dtype=torch.float))
 
     @property
     def device(self):
         return self._float_tensor.device
 
-    def encode(self, sentence: str, *addl_sentences, no_separator=False
-        ) ->torch.LongTensor:
+    def encode(self, sentence: str, *addl_sentences, no_separator=False) ->torch.LongTensor:
         """
         BPE-encode a sentence (or multiple sentences).
 
@@ -2660,8 +2398,7 @@ class RobertaHubInterface(nn.Module):
         for s in addl_sentences:
             bpe_sentence += ' </s>' if not no_separator else ''
             bpe_sentence += ' ' + self.bpe.encode(s) + ' </s>'
-        tokens = self.task.source_dictionary.encode_line(bpe_sentence,
-            append_eos=False, add_if_not_exist=False)
+        tokens = self.task.source_dictionary.encode_line(bpe_sentence, append_eos=False, add_if_not_exist=False)
         return tokens.long()
 
     def decode(self, tokens: torch.LongTensor):
@@ -2672,97 +2409,73 @@ class RobertaHubInterface(nn.Module):
         eos_mask = tokens == self.task.source_dictionary.eos()
         doc_mask = eos_mask[1:] & eos_mask[:-1]
         sentences = np.split(tokens, doc_mask.nonzero()[0] + 1)
-        sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for
-            s in sentences]
+        sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for s in sentences]
         if len(sentences) == 1:
             return sentences[0]
         return sentences
 
-    def extract_features(self, tokens: torch.LongTensor, return_all_hiddens:
-        bool=False) ->torch.Tensor:
+    def extract_features(self, tokens: torch.LongTensor, return_all_hiddens: bool=False) ->torch.Tensor:
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
         if tokens.size(-1) > self.model.max_positions():
-            raise ValueError('tokens exceeds maximum length: {} > {}'.
-                format(tokens.size(-1), self.model.max_positions()))
-        features, extra = self.model(tokens, features_only=True,
-            return_all_hiddens=return_all_hiddens)
+            raise ValueError('tokens exceeds maximum length: {} > {}'.format(tokens.size(-1), self.model.max_positions()))
+        features, extra = self.model(tokens, features_only=True, return_all_hiddens=return_all_hiddens)
         if return_all_hiddens:
             inner_states = extra['inner_states']
-            return [inner_state.transpose(0, 1) for inner_state in inner_states
-                ]
+            return [inner_state.transpose(0, 1) for inner_state in inner_states]
         else:
             return features
 
-    def register_classification_head(self, name: str, num_classes: int=None,
-        embedding_size: int=None, **kwargs):
-        self.model.register_classification_head(name, num_classes=
-            num_classes, embedding_size=embedding_size, **kwargs)
+    def register_classification_head(self, name: str, num_classes: int=None, embedding_size: int=None, **kwargs):
+        self.model.register_classification_head(name, num_classes=num_classes, embedding_size=embedding_size, **kwargs)
 
-    def predict(self, head: str, tokens: torch.LongTensor, return_logits:
-        bool=False):
+    def predict(self, head: str, tokens: torch.LongTensor, return_logits: bool=False):
         features = self.extract_features(tokens)
         logits = self.model.classification_heads[head](features)
         if return_logits:
             return logits
         return F.log_softmax(logits, dim=-1)
 
-    def extract_features_aligned_to_words(self, sentence: str,
-        return_all_hiddens: bool=False) ->torch.Tensor:
+    def extract_features_aligned_to_words(self, sentence: str, return_all_hiddens: bool=False) ->torch.Tensor:
         """Extract RoBERTa features, aligned to spaCy's word-level tokenizer."""
         nlp = alignment_utils.spacy_nlp()
         tokenizer = alignment_utils.spacy_tokenizer()
         bpe_toks = self.encode(sentence)
         spacy_toks = tokenizer(sentence)
         spacy_toks_ws = [t.text_with_ws for t in tokenizer(sentence)]
-        alignment = alignment_utils.align_bpe_to_words(self, bpe_toks,
-            spacy_toks_ws)
-        features = self.extract_features(bpe_toks, return_all_hiddens=
-            return_all_hiddens)
+        alignment = alignment_utils.align_bpe_to_words(self, bpe_toks, spacy_toks_ws)
+        features = self.extract_features(bpe_toks, return_all_hiddens=return_all_hiddens)
         features = features.squeeze(0)
-        aligned_feats = alignment_utils.align_features_to_words(self,
-            features, alignment)
-        doc = Doc(nlp.vocab, words=['<s>'] + [x.text for x in spacy_toks] +
-            ['</s>'], spaces=[True] + [x.endswith(' ') for x in
-            spacy_toks_ws[:-1]] + [True, False])
+        aligned_feats = alignment_utils.align_features_to_words(self, features, alignment)
+        doc = Doc(nlp.vocab, words=['<s>'] + [x.text for x in spacy_toks] + ['</s>'], spaces=[True] + [x.endswith(' ') for x in spacy_toks_ws[:-1]] + [True, False])
         assert len(doc) == aligned_feats.size(0)
         doc.user_token_hooks['vector'] = lambda token: aligned_feats[token.i]
         return doc
 
     def fill_mask(self, masked_input: str, topk: int=5):
         masked_token = '<mask>'
-        assert masked_token in masked_input and masked_input.count(masked_token
-            ) == 1, "Please add one {0} token for the input, eg: 'He is a {0} guy'".format(
-            masked_token)
+        assert masked_token in masked_input and masked_input.count(masked_token) == 1, "Please add one {0} token for the input, eg: 'He is a {0} guy'".format(masked_token)
         text_spans = masked_input.split(masked_token)
-        text_spans_bpe = ' {0} '.format(masked_token).join([self.bpe.encode
-            (text_span.rstrip()) for text_span in text_spans]).strip()
-        tokens = self.task.source_dictionary.encode_line('<s> ' +
-            text_spans_bpe + ' </s>', append_eos=False, add_if_not_exist=False)
+        text_spans_bpe = ' {0} '.format(masked_token).join([self.bpe.encode(text_span.rstrip()) for text_span in text_spans]).strip()
+        tokens = self.task.source_dictionary.encode_line('<s> ' + text_spans_bpe + ' </s>', append_eos=False, add_if_not_exist=False)
         masked_index = (tokens == self.task.mask_idx).nonzero()
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
         with utils.eval(self.model):
-            features, extra = self.model(tokens.long(), features_only=False,
-                return_all_hiddens=False)
+            features, extra = self.model(tokens.long(), features_only=False, return_all_hiddens=False)
         logits = features[(0), (masked_index), :].squeeze()
         prob = logits.softmax(dim=0)
         values, index = prob.topk(k=topk, dim=0)
         topk_predicted_token_bpe = self.task.source_dictionary.string(index)
         topk_filled_outputs = []
-        for index, predicted_token_bpe in enumerate(topk_predicted_token_bpe
-            .split(' ')):
+        for index, predicted_token_bpe in enumerate(topk_predicted_token_bpe.split(' ')):
             predicted_token = self.bpe.decode(predicted_token_bpe)
             if predicted_token_bpe.startswith('▁'):
                 predicted_token = ' ' + predicted_token
             if ' {0}'.format(masked_token) in masked_input:
-                topk_filled_outputs.append((masked_input.replace(' {0}'.
-                    format(masked_token), predicted_token), values[index].
-                    item(), predicted_token))
+                topk_filled_outputs.append((masked_input.replace(' {0}'.format(masked_token), predicted_token), values[index].item(), predicted_token))
             else:
-                topk_filled_outputs.append((masked_input.replace(
-                    masked_token, predicted_token), values[index].item(),
-                    predicted_token))
+                topk_filled_outputs.append((masked_input.replace(masked_token, predicted_token), values[index].item(), predicted_token))
         return topk_filled_outputs
 
     def disambiguate_pronoun(self, sentence: str) ->bool:
@@ -2775,11 +2488,9 @@ class RobertaHubInterface(nn.Module):
             >>> disambiguate_pronoun('The trophy would not fit in the brown suitcase because [it] was too big.')
             'The trophy'
         """
-        assert hasattr(self.task, 'disambiguate_pronoun'
-            ), 'roberta.disambiguate_pronoun() requires a model trained with the WSC task.'
+        assert hasattr(self.task, 'disambiguate_pronoun'), 'roberta.disambiguate_pronoun() requires a model trained with the WSC task.'
         with utils.eval(self.model):
-            return self.task.disambiguate_pronoun(self.model, sentence,
-                use_cuda=self.device.type == 'cuda')
+            return self.task.disambiguate_pronoun(self.model, sentence, use_cuda=self.device.type == 'cuda')
 
 
 class RobertaLMHead(nn.Module):
@@ -2808,14 +2519,12 @@ class RobertaLMHead(nn.Module):
 class RobertaClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, input_dim, inner_dim, num_classes, activation_fn,
-        pooler_dropout, q_noise=0, qn_block_size=8):
+    def __init__(self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout, q_noise=0, qn_block_size=8):
         super().__init__()
         self.dense = nn.Linear(input_dim, inner_dim)
         self.activation_fn = utils.get_activation_fn(activation_fn)
         self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = apply_quant_noise_(nn.Linear(inner_dim, num_classes
-            ), q_noise, qn_block_size)
+        self.out_proj = apply_quant_noise_(nn.Linear(inner_dim, num_classes), q_noise, qn_block_size)
 
     def forward(self, features, **kwargs):
         x = features[:, (0), :]
@@ -2841,8 +2550,7 @@ class TransposeLast(nn.Module):
 
 def norm_block(is_layer_norm, dim, affine=True):
     if is_layer_norm:
-        mod = nn.Sequential(TransposeLast(), Fp32LayerNorm(dim,
-            elementwise_affine=affine), TransposeLast())
+        mod = nn.Sequential(TransposeLast(), Fp32LayerNorm(dim, elementwise_affine=affine), TransposeLast())
     else:
         mod = Fp32GroupNorm(1, dim, affine=affine)
     return mod
@@ -2850,15 +2558,11 @@ def norm_block(is_layer_norm, dim, affine=True):
 
 class ConvFeatureExtractionModel(nn.Module):
 
-    def __init__(self, conv_layers, dropout, log_compression,
-        skip_connections, residual_scale, non_affine_group_norm, activation):
+    def __init__(self, conv_layers, dropout, log_compression, skip_connections, residual_scale, non_affine_group_norm, activation):
         super().__init__()
 
         def block(n_in, n_out, k, stride):
-            return nn.Sequential(nn.Conv1d(n_in, n_out, k, stride=stride,
-                bias=False), nn.Dropout(p=dropout), norm_block(
-                is_layer_norm=False, dim=n_out, affine=not
-                non_affine_group_norm), activation)
+            return nn.Sequential(nn.Conv1d(n_in, n_out, k, stride=stride, bias=False), nn.Dropout(p=dropout), norm_block(is_layer_norm=False, dim=n_out, affine=not non_affine_group_norm), activation)
         in_d = 1
         self.conv_layers = nn.ModuleList()
         for dim, k, stride in conv_layers:
@@ -2898,19 +2602,14 @@ class ZeroPad1d(nn.Module):
 
 class ConvAggegator(nn.Module):
 
-    def __init__(self, conv_layers, embed, dropout, skip_connections,
-        residual_scale, non_affine_group_norm, conv_bias, zero_pad, activation
-        ):
+    def __init__(self, conv_layers, embed, dropout, skip_connections, residual_scale, non_affine_group_norm, conv_bias, zero_pad, activation):
         super().__init__()
 
         def block(n_in, n_out, k, stride):
             ka = k // 2
             kb = ka - 1 if k % 2 == 0 else ka
-            pad = ZeroPad1d(ka + kb, 0) if zero_pad else nn.ReplicationPad1d((
-                ka + kb, 0))
-            return nn.Sequential(pad, nn.Conv1d(n_in, n_out, k, stride=
-                stride, bias=conv_bias), nn.Dropout(p=dropout), norm_block(
-                False, n_out, affine=not non_affine_group_norm), activation)
+            pad = ZeroPad1d(ka + kb, 0) if zero_pad else nn.ReplicationPad1d((ka + kb, 0))
+            return nn.Sequential(pad, nn.Conv1d(n_in, n_out, k, stride=stride, bias=conv_bias), nn.Dropout(p=dropout), norm_block(False, n_out, affine=not non_affine_group_norm), activation)
         in_d = embed
         self.conv_layers = nn.ModuleList()
         self.residual_proj = nn.ModuleList()
@@ -2947,15 +2646,12 @@ def buffered_arange(max):
 
 class Wav2VecPredictionsModel(nn.Module):
 
-    def __init__(self, in_dim, out_dim, prediction_steps, n_negatives,
-        cross_sample_negatives, sample_distance, dropout, offset,
-        balanced_classes, infonce):
+    def __init__(self, in_dim, out_dim, prediction_steps, n_negatives, cross_sample_negatives, sample_distance, dropout, offset, balanced_classes, infonce):
         super().__init__()
         self.n_negatives = n_negatives
         self.cross_sample_negatives = cross_sample_negatives
         self.sample_distance = sample_distance
-        self.project_to_steps = nn.ConvTranspose2d(in_dim, out_dim, (1,
-            prediction_steps))
+        self.project_to_steps = nn.ConvTranspose2d(in_dim, out_dim, (1, prediction_steps))
         self.dropout = nn.Dropout(p=dropout)
         self.offset = offset
         self.balanced_classes = balanced_classes
@@ -2966,23 +2662,17 @@ class Wav2VecPredictionsModel(nn.Module):
         y = y.transpose(0, 1)
         y = y.contiguous().view(fsz, -1)
         cross_high = tsz * bsz
-        high = tsz if self.sample_distance is None else min(tsz, self.
-            sample_distance)
+        high = tsz if self.sample_distance is None else min(tsz, self.sample_distance)
         assert high > 1
-        neg_idxs = torch.randint(low=0, high=high, size=(bsz, self.
-            n_negatives * tsz))
+        neg_idxs = torch.randint(low=0, high=high, size=(bsz, self.n_negatives * tsz))
         with torch.no_grad():
             if self.n_negatives > 0:
-                tszs = buffered_arange(tsz).unsqueeze(-1).expand(-1, self.
-                    n_negatives).flatten()
-                neg_idxs = torch.randint(low=0, high=high - 1, size=(bsz, 
-                    self.n_negatives * tsz))
+                tszs = buffered_arange(tsz).unsqueeze(-1).expand(-1, self.n_negatives).flatten()
+                neg_idxs = torch.randint(low=0, high=high - 1, size=(bsz, self.n_negatives * tsz))
                 neg_idxs[neg_idxs >= tszs] += 1
             if self.cross_sample_negatives > 0:
-                tszs = buffered_arange(tsz).unsqueeze(-1).expand(-1, self.
-                    cross_sample_negatives).flatten()
-                cross_neg_idxs = torch.randint(low=0, high=cross_high - 1,
-                    size=(bsz, self.cross_sample_negatives * tsz))
+                tszs = buffered_arange(tsz).unsqueeze(-1).expand(-1, self.cross_sample_negatives).flatten()
+                cross_neg_idxs = torch.randint(low=0, high=cross_high - 1, size=(bsz, self.cross_sample_negatives * tsz))
                 cross_neg_idxs[cross_neg_idxs >= tszs] += 1
         if self.n_negatives > 0:
             for i in range(1, bsz):
@@ -2992,8 +2682,7 @@ class Wav2VecPredictionsModel(nn.Module):
         if self.cross_sample_negatives > 0 and self.n_negatives > 0:
             neg_idxs = torch.cat([neg_idxs, cross_neg_idxs], dim=1)
         negs = y[..., neg_idxs.view(-1)]
-        negs = negs.view(fsz, bsz, self.n_negatives + self.
-            cross_sample_negatives, tsz).permute(2, 1, 0, 3)
+        negs = negs.view(fsz, bsz, self.n_negatives + self.cross_sample_negatives, tsz).permute(2, 1, 0, 3)
         return negs
 
     def forward(self, x, y):
@@ -3006,32 +2695,26 @@ class Wav2VecPredictionsModel(nn.Module):
         copies = targets.size(0)
         bsz, dim, tsz, steps = x.shape
         steps = min(steps, tsz - self.offset)
-        predictions = x.new(bsz * copies * (tsz - self.offset + 1) * steps -
-            (steps + 1) * steps // 2 * copies * bsz)
+        predictions = x.new(bsz * copies * (tsz - self.offset + 1) * steps - (steps + 1) * steps // 2 * copies * bsz)
         if self.infonce:
-            labels = predictions.new_full((predictions.shape[0] // copies,),
-                0, dtype=torch.long)
+            labels = predictions.new_full((predictions.shape[0] // copies,), 0, dtype=torch.long)
         else:
             labels = torch.zeros_like(predictions)
-        weights = torch.full_like(labels, 1 / self.n_negatives
-            ) if self.balanced_classes and not self.infonce else None
+        weights = torch.full_like(labels, 1 / self.n_negatives) if self.balanced_classes and not self.infonce else None
         start = end = 0
         for i in range(steps):
             offset = i + self.offset
             end = start + (tsz - offset) * bsz * copies
             if self.infonce:
-                predictions[start:end] = torch.einsum('bct,nbct->tbn', x[(
-                    ...), :-offset, (i)], targets[(...), offset:]).flatten()
+                predictions[start:end] = torch.einsum('bct,nbct->tbn', x[(...), :-offset, (i)], targets[(...), offset:]).flatten()
             else:
                 pos_num = (end - start) // copies
-                predictions[start:end] = torch.einsum('bct,nbct->nbt', x[(
-                    ...), :-offset, (i)], targets[(...), offset:]).flatten()
+                predictions[start:end] = torch.einsum('bct,nbct->nbt', x[(...), :-offset, (i)], targets[(...), offset:]).flatten()
                 labels[start:start + pos_num] = 1.0
                 if weights is not None:
                     weights[start:start + pos_num] = 1.0
             start = end
-        assert end == predictions.numel(), '{} != {}'.format(end,
-            predictions.numel())
+        assert end == predictions.numel(), '{} != {}'.format(end, predictions.numel())
         if self.infonce:
             predictions = predictions.view(-1, copies)
         elif weights is not None:
@@ -3063,8 +2746,7 @@ def quant_noise(module, p, block_size):
     assert isinstance(module, (nn.Linear, nn.Embedding, nn.Conv2d))
     is_conv = module.weight.ndim == 4
     if not is_conv:
-        assert module.weight.size(1
-            ) % block_size == 0, 'Input features must be a multiple of block sizes'
+        assert module.weight.size(1) % block_size == 0, 'Input features must be a multiple of block sizes'
     elif module.kernel_size == (1, 1):
         assert module.in_channels % block_size == 0, 'Input channels must be a multiple of block sizes'
     else:
@@ -3077,27 +2759,21 @@ def quant_noise(module, p, block_size):
                 weight = mod.weight
                 in_features = weight.size(1)
                 out_features = weight.size(0)
-                mask = torch.zeros(in_features // block_size * out_features,
-                    device=weight.device)
+                mask = torch.zeros(in_features // block_size * out_features, device=weight.device)
                 mask.bernoulli_(p)
-                mask = mask.repeat_interleave(block_size, -1).view(-1,
-                    in_features)
+                mask = mask.repeat_interleave(block_size, -1).view(-1, in_features)
             else:
                 weight = mod.weight
                 in_channels = mod.in_channels
                 out_channels = mod.out_channels
                 if mod.kernel_size == (1, 1):
-                    mask = torch.zeros(int(in_channels // block_size *
-                        out_channels), device=weight.device)
+                    mask = torch.zeros(int(in_channels // block_size * out_channels), device=weight.device)
                     mask.bernoulli_(p)
-                    mask = mask.repeat_interleave(block_size, -1).view(-1,
-                        in_channels)
+                    mask = mask.repeat_interleave(block_size, -1).view(-1, in_channels)
                 else:
-                    mask = torch.zeros(weight.size(0), weight.size(1),
-                        device=weight.device)
+                    mask = torch.zeros(weight.size(0), weight.size(1), device=weight.device)
                     mask.bernoulli_(p)
-                    mask = mask.unsqueeze(2).unsqueeze(3).repeat(1, 1, mod.
-                        kernel_size[0], mod.kernel_size[1])
+                    mask = mask.unsqueeze(2).unsqueeze(3).repeat(1, 1, mod.kernel_size[0], mod.kernel_size[1])
             mask = mask.to(torch.bool)
             s = 1 / (1 - p)
             mod.weight.data = s * weight.masked_fill(mask, 0)
@@ -3107,15 +2783,12 @@ def quant_noise(module, p, block_size):
 
 class AdaptiveInput(nn.Module):
 
-    def __init__(self, vocab_size: int, padding_idx: int, initial_dim: int,
-        factor: float, output_dim: int, cutoff: List[int], q_noise: float=0,
-        qn_block_size: int=8):
+    def __init__(self, vocab_size: int, padding_idx: int, initial_dim: int, factor: float, output_dim: int, cutoff: List[int], q_noise: float=0, qn_block_size: int=8):
         super().__init__()
         if vocab_size > cutoff[-1]:
             cutoff = cutoff + [vocab_size]
         else:
-            assert vocab_size == cutoff[-1
-                ], 'cannot specify cutoff larger than vocab size'
+            assert vocab_size == cutoff[-1], 'cannot specify cutoff larger than vocab size'
         self.cutoff = cutoff
         self.embedding_dim = output_dim
         self.padding_idx = padding_idx
@@ -3124,17 +2797,14 @@ class AdaptiveInput(nn.Module):
             prev = self.cutoff[i - 1] if i > 0 else 0
             size = self.cutoff[i] - prev
             dim = int(initial_dim // factor ** i)
-            seq = nn.Sequential(nn.Embedding(size, dim, self.padding_idx),
-                quant_noise(nn.Linear(dim, output_dim, bias=False), q_noise,
-                qn_block_size))
+            seq = nn.Sequential(nn.Embedding(size, dim, self.padding_idx), quant_noise(nn.Linear(dim, output_dim, bias=False), q_noise, qn_block_size))
             self.embeddings.append(seq)
             self.padding_idx = None
         self.padding_idx = padding_idx
 
         def init_weights(m):
             if isinstance(m, nn.Embedding):
-                nn.init.normal_(m.weight, mean=0, std=m.weight.shape[1] ** -0.5
-                    )
+                nn.init.normal_(m.weight, mean=0, std=m.weight.shape[1] ** -0.5)
                 nn.init.constant_(m.weight[padding_idx], 0)
             elif hasattr(m, 'weight'):
                 nn.init.xavier_uniform_(m.weight)
@@ -3166,24 +2836,19 @@ class TiedLinear(nn.Module):
         self.transpose = transpose
 
     def forward(self, input):
-        return F.linear(input, self.weight.t() if self.transpose else self.
-            weight)
+        return F.linear(input, self.weight.t() if self.transpose else self.weight)
 
 
 class TiedHeadModule(nn.Module):
 
-    def __init__(self, weights, input_dim, num_classes, q_noise, qn_block_size
-        ):
+    def __init__(self, weights, input_dim, num_classes, q_noise, qn_block_size):
         super().__init__()
         tied_emb, _ = weights
         self.num_words, emb_dim = tied_emb.size()
-        self.word_proj = quant_noise(TiedLinear(tied_emb, transpose=False),
-            q_noise, qn_block_size)
+        self.word_proj = quant_noise(TiedLinear(tied_emb, transpose=False), q_noise, qn_block_size)
         if input_dim != emb_dim:
-            self.word_proj = nn.Sequential(quant_noise(nn.Linear(input_dim,
-                emb_dim, bias=False), q_noise, qn_block_size), self.word_proj)
-        self.class_proj = quant_noise(nn.Linear(input_dim, num_classes,
-            bias=False), q_noise, qn_block_size)
+            self.word_proj = nn.Sequential(quant_noise(nn.Linear(input_dim, emb_dim, bias=False), q_noise, qn_block_size), self.word_proj)
+        self.class_proj = quant_noise(nn.Linear(input_dim, num_classes, bias=False), q_noise, qn_block_size)
         self.out_dim = self.num_words + num_classes
         self.register_buffer('_float_tensor', torch.FloatTensor(1))
 
@@ -3202,14 +2867,12 @@ class AdaptiveSoftmax(nn.Module):
     approximation for GPUs" (http://arxiv.org/abs/1609.04309).
     """
 
-    def __init__(self, vocab_size, input_dim, cutoff, dropout, factor=4.0,
-        adaptive_inputs=None, tie_proj=False, q_noise=0, qn_block_size=8):
+    def __init__(self, vocab_size, input_dim, cutoff, dropout, factor=4.0, adaptive_inputs=None, tie_proj=False, q_noise=0, qn_block_size=8):
         super().__init__()
         if vocab_size > cutoff[-1]:
             cutoff = cutoff + [vocab_size]
         else:
-            assert vocab_size == cutoff[-1
-                ], 'cannot specify cutoff larger than vocab size'
+            assert vocab_size == cutoff[-1], 'cannot specify cutoff larger than vocab size'
         output_dim = cutoff[0] + len(cutoff) - 1
         self.vocab_size = vocab_size
         self.cutoff = cutoff
@@ -3220,16 +2883,13 @@ class AdaptiveSoftmax(nn.Module):
         self.qn_block_size = qn_block_size
         self.lsm = nn.LogSoftmax(dim=1)
         if adaptive_inputs is not None:
-            self.head = TiedHeadModule(adaptive_inputs.weights_for_band(0),
-                input_dim, len(cutoff) - 1, self.q_noise, self.qn_block_size)
+            self.head = TiedHeadModule(adaptive_inputs.weights_for_band(0), input_dim, len(cutoff) - 1, self.q_noise, self.qn_block_size)
         else:
-            self.head = quant_noise(nn.Linear(input_dim, output_dim, bias=
-                False), self.q_noise, self.qn_block_size)
+            self.head = quant_noise(nn.Linear(input_dim, output_dim, bias=False), self.q_noise, self.qn_block_size)
         self._make_tail(adaptive_inputs, tie_proj)
 
         def init_weights(m):
-            if hasattr(m, 'weight') and not isinstance(m, TiedLinear
-                ) and not isinstance(m, TiedHeadModule):
+            if hasattr(m, 'weight') and not isinstance(m, TiedLinear) and not isinstance(m, TiedHeadModule):
                 nn.init.xavier_uniform_(m.weight)
         self.apply(init_weights)
         self.register_buffer('version', torch.LongTensor([1]))
@@ -3238,26 +2898,19 @@ class AdaptiveSoftmax(nn.Module):
         self.tail = nn.ModuleList()
         for i in range(len(self.cutoff) - 1):
             dim = int(self.input_dim // self.factor ** (i + 1))
-            tied_emb, tied_proj = adaptive_inputs.weights_for_band(i + 1
-                ) if adaptive_inputs is not None else (None, None)
+            tied_emb, tied_proj = adaptive_inputs.weights_for_band(i + 1) if adaptive_inputs is not None else (None, None)
             if tied_proj is not None:
                 if tie_proj:
-                    proj = quant_noise(TiedLinear(tied_proj, transpose=True
-                        ), self.q_noise, self.qn_block_size)
+                    proj = quant_noise(TiedLinear(tied_proj, transpose=True), self.q_noise, self.qn_block_size)
                 else:
-                    proj = quant_noise(nn.Linear(tied_proj.size(0),
-                        tied_proj.size(1), bias=False), self.q_noise, self.
-                        qn_block_size)
+                    proj = quant_noise(nn.Linear(tied_proj.size(0), tied_proj.size(1), bias=False), self.q_noise, self.qn_block_size)
             else:
-                proj = quant_noise(nn.Linear(self.input_dim, dim, bias=
-                    False), self.q_noise, self.qn_block_size)
+                proj = quant_noise(nn.Linear(self.input_dim, dim, bias=False), self.q_noise, self.qn_block_size)
             if tied_emb is None:
-                out_proj = nn.Linear(dim, self.cutoff[i + 1] - self.cutoff[
-                    i], bias=False)
+                out_proj = nn.Linear(dim, self.cutoff[i + 1] - self.cutoff[i], bias=False)
             else:
                 out_proj = TiedLinear(tied_emb, transpose=False)
-            m = nn.Sequential(proj, nn.Dropout(self.dropout), quant_noise(
-                out_proj, self.q_noise, self.qn_block_size))
+            m = nn.Sequential(proj, nn.Dropout(self.dropout), quant_noise(out_proj, self.q_noise, self.qn_block_size))
             self.tail.append(m)
 
     def upgrade_state_dict_named(self, state_dict, name):
@@ -3300,8 +2953,7 @@ class AdaptiveSoftmax(nn.Module):
         output = [self.head(input)]
         for i in range(len(target_idxs)):
             if target_idxs[i] is not None:
-                output.append(self.tail[i](input.index_select(0,
-                    target_idxs[i])))
+                output.append(self.tail[i](input.index_select(0, target_idxs[i])))
             else:
                 output.append(None)
         return output, new_target
@@ -3328,14 +2980,12 @@ class AdaptiveSoftmax(nn.Module):
             if target_idxs is None:
                 tail_out = log_probs[:, start:end]
                 tail_out.copy_(self.tail[i](input))
-                log_probs[:, start:end] = self.lsm(tail_out).add_(tail_priors
-                    [:, (i), (None)])
+                log_probs[:, start:end] = self.lsm(tail_out).add_(tail_priors[:, (i), (None)])
             elif target_idxs[i] is not None:
                 idxs = target_idxs[i]
                 tail_out = log_probs[(idxs), start:end]
                 tail_out.copy_(self.tail[i](input[idxs]))
-                log_probs[(idxs), start:end] = self.lsm(tail_out).add_(
-                    tail_priors[idxs, i, None])
+                log_probs[(idxs), start:end] = self.lsm(tail_out).add_(tail_priors[idxs, i, None])
         log_probs = log_probs.view(bsz, length, -1)
         return log_probs
 
@@ -3354,8 +3004,7 @@ class BeamableMM(nn.Module):
         self.beam_size = beam_size
 
     def forward(self, input1, input2):
-        if not self.training and self.beam_size is not None and input1.dim(
-            ) == 3 and input1.size(1) == 1:
+        if not self.training and self.beam_size is not None and input1.dim() == 3 and input1.size(1) == 1:
             bsz, beam = input1.size(0), self.beam_size
             input1 = input1[:, (0), :].unfold(0, beam, beam).transpose(2, 1)
             input2 = input2.unfold(0, beam, beam)[:, :, :, (0)]
@@ -3385,20 +3034,15 @@ class PathManager:
     """
 
     @staticmethod
-    def open(path: str, mode: str='r', buffering: int=-1, encoding:
-        Optional[str]=None, errors: Optional[str]=None, newline: Optional[
-        str]=None):
+    def open(path: str, mode: str='r', buffering: int=-1, encoding: Optional[str]=None, errors: Optional[str]=None, newline: Optional[str]=None):
         if FVCorePathManager:
-            return FVCorePathManager.open(path=path, mode=mode, buffering=
-                buffering, encoding=encoding, errors=errors, newline=newline)
-        return open(path, mode=mode, buffering=buffering, encoding=encoding,
-            errors=errors, newline=newline)
+            return FVCorePathManager.open(path=path, mode=mode, buffering=buffering, encoding=encoding, errors=errors, newline=newline)
+        return open(path, mode=mode, buffering=buffering, encoding=encoding, errors=errors, newline=newline)
 
     @staticmethod
     def copy(src_path: str, dst_path: str, overwrite: bool=False) ->bool:
         if FVCorePathManager:
-            return FVCorePathManager.copy(src_path=src_path, dst_path=
-                dst_path, overwrite=overwrite)
+            return FVCorePathManager.copy(src_path=src_path, dst_path=dst_path, overwrite=overwrite)
         return shutil.copyfile(src_path, dst_path)
 
     @staticmethod
@@ -3465,8 +3109,7 @@ def tokenize_line(line):
 class Dictionary(object):
     """A mapping from symbols to consecutive integers"""
 
-    def __init__(self, *, pad='<pad>', eos='</s>', unk='<unk>', bos='<s>',
-        extra_special_symbols=None):
+    def __init__(self, *, pad='<pad>', eos='</s>', unk='<unk>', bos='<s>', extra_special_symbols=None):
         self.unk_word, self.pad_word, self.eos_word = unk, pad, eos
         self.symbols = []
         self.count = []
@@ -3502,15 +3145,13 @@ class Dictionary(object):
             return self.indices[sym]
         return self.unk_index
 
-    def string(self, tensor, bpe_symbol=None, escape_unk=False,
-        extra_symbols_to_ignore=None, unk_string=None):
+    def string(self, tensor, bpe_symbol=None, escape_unk=False, extra_symbols_to_ignore=None, unk_string=None):
         """Helper for converting a tensor of token indices to a string.
 
         Can optionally remove BPE symbols or escape <unk> words.
         """
         if torch.is_tensor(tensor) and tensor.dim() == 2:
-            return '\n'.join(self.string(t, bpe_symbol, escape_unk,
-                extra_symbols_to_ignore) for t in tensor)
+            return '\n'.join(self.string(t, bpe_symbol, escape_unk, extra_symbols_to_ignore) for t in tensor)
         extra_symbols_to_ignore = set(extra_symbols_to_ignore or [])
         extra_symbols_to_ignore.add(self.eos())
 
@@ -3524,8 +3165,7 @@ class Dictionary(object):
                 return self[i]
         if hasattr(self, 'bos_index'):
             extra_symbols_to_ignore.add(self.bos())
-        sent = ' '.join(token_string(i) for i in tensor if utils.item(i) not in
-            extra_symbols_to_ignore)
+        sent = ' '.join(token_string(i) for i in tensor if utils.item(i) not in extra_symbols_to_ignore)
         return data_utils.process_bpe_symbol(sent, bpe_symbol)
 
     def unk_string(self, escape=False):
@@ -3574,12 +3214,10 @@ class Dictionary(object):
         """
         if nwords <= 0:
             nwords = len(self)
-        new_indices = dict(zip(self.symbols[:self.nspecial], range(self.
-            nspecial)))
+        new_indices = dict(zip(self.symbols[:self.nspecial], range(self.nspecial)))
         new_symbols = self.symbols[:self.nspecial]
         new_count = self.count[:self.nspecial]
-        c = Counter(dict(sorted(zip(self.symbols[self.nspecial:], self.
-            count[self.nspecial:]))))
+        c = Counter(dict(sorted(zip(self.symbols[self.nspecial:], self.count[self.nspecial:]))))
         for symbol, count in c.most_common(nwords - self.nspecial):
             if count >= threshold:
                 new_indices[symbol] = len(new_symbols)
@@ -3644,9 +3282,7 @@ class Dictionary(object):
             except FileNotFoundError as fnfe:
                 raise fnfe
             except UnicodeError:
-                raise Exception(
-                    'Incorrect encoding detected in {}, please rebuild the dataset'
-                    .format(f))
+                raise Exception('Incorrect encoding detected in {}, please rebuild the dataset'.format(f))
             return
         lines = f.readlines()
         indices_start_line = self._load_meta(lines)
@@ -3661,14 +3297,10 @@ class Dictionary(object):
                 count = int(field)
                 word = line
                 if word in self and not overwrite:
-                    raise RuntimeError(
-                        "Duplicate word found when loading Dictionary: '{}'. Duplicate words can overwrite earlier ones by adding the #fairseq:overwrite flag at the end of the corresponding row in the dictionary file. If using the Camembert model, please download an updated copy of the model file."
-                        .format(word))
+                    raise RuntimeError("Duplicate word found when loading Dictionary: '{}'. Duplicate words can overwrite earlier ones by adding the #fairseq:overwrite flag at the end of the corresponding row in the dictionary file. If using the Camembert model, please download an updated copy of the model file.".format(word))
                 self.add_symbol(word, n=count, overwrite=overwrite)
             except ValueError:
-                raise ValueError(
-                    "Incorrect dictionary format, expected '<token> <cnt> [flags]'"
-                    )
+                raise ValueError("Incorrect dictionary format, expected '<token> <cnt> [flags]'")
 
     def _save(self, f, kv_iterator):
         if isinstance(f, str):
@@ -3687,17 +3319,14 @@ class Dictionary(object):
     def save(self, f):
         """Stores dictionary into a text file"""
         ex_keys, ex_vals = self._get_meta()
-        self._save(f, zip(ex_keys + self.symbols[self.nspecial:], ex_vals +
-            self.count[self.nspecial:]))
+        self._save(f, zip(ex_keys + self.symbols[self.nspecial:], ex_vals + self.count[self.nspecial:]))
 
     def dummy_sentence(self, length):
         t = torch.Tensor(length).uniform_(self.nspecial + 1, len(self)).long()
         t[-1] = self.eos()
         return t
 
-    def encode_line(self, line, line_tokenizer=tokenize_line,
-        add_if_not_exist=True, consumer=None, append_eos=True,
-        reverse_order=False):
+    def encode_line(self, line, line_tokenizer=tokenize_line, add_if_not_exist=True, consumer=None, append_eos=True, reverse_order=False):
         words = line_tokenizer(line)
         if reverse_order:
             words = list(reversed(words))
@@ -3716,11 +3345,9 @@ class Dictionary(object):
         return ids
 
     @staticmethod
-    def _add_file_to_dictionary_single_worker(filename, tokenize, eos_word,
-        worker_id=0, num_workers=1):
+    def _add_file_to_dictionary_single_worker(filename, tokenize, eos_word, worker_id=0, num_workers=1):
         counter = Counter()
-        with open(PathManager.get_local_path(filename), 'r', encoding='utf-8'
-            ) as f:
+        with open(PathManager.get_local_path(filename), 'r', encoding='utf-8') as f:
             size = os.fstat(f.fileno()).st_size
             chunk_size = size // num_workers
             offset = worker_id * chunk_size
@@ -3748,39 +3375,31 @@ class Dictionary(object):
             pool = Pool(processes=num_workers)
             results = []
             for worker_id in range(num_workers):
-                results.append(pool.apply_async(Dictionary.
-                    _add_file_to_dictionary_single_worker, (filename,
-                    tokenize, dict.eos_word, worker_id, num_workers)))
+                results.append(pool.apply_async(Dictionary._add_file_to_dictionary_single_worker, (filename, tokenize, dict.eos_word, worker_id, num_workers)))
             pool.close()
             pool.join()
             for r in results:
                 merge_result(r.get())
         else:
-            merge_result(Dictionary._add_file_to_dictionary_single_worker(
-                filename, tokenize, dict.eos_word))
+            merge_result(Dictionary._add_file_to_dictionary_single_worker(filename, tokenize, dict.eos_word))
 
 
 class CharacterTokenEmbedder(torch.nn.Module):
 
-    def __init__(self, vocab: Dictionary, filters: List[Tuple[int, int]],
-        char_embed_dim: int, word_embed_dim: int, highway_layers: int,
-        max_char_len: int=50, char_inputs: bool=False):
+    def __init__(self, vocab: Dictionary, filters: List[Tuple[int, int]], char_embed_dim: int, word_embed_dim: int, highway_layers: int, max_char_len: int=50, char_inputs: bool=False):
         super(CharacterTokenEmbedder, self).__init__()
         self.onnx_trace = False
         self.embedding_dim = word_embed_dim
         self.max_char_len = max_char_len
         self.char_embeddings = nn.Embedding(257, char_embed_dim, padding_idx=0)
-        self.symbol_embeddings = nn.Parameter(torch.FloatTensor(2,
-            word_embed_dim))
+        self.symbol_embeddings = nn.Parameter(torch.FloatTensor(2, word_embed_dim))
         self.eos_idx, self.unk_idx = 0, 1
         self.char_inputs = char_inputs
         self.convolutions = nn.ModuleList()
         for width, out_c in filters:
-            self.convolutions.append(nn.Conv1d(char_embed_dim, out_c,
-                kernel_size=width))
+            self.convolutions.append(nn.Conv1d(char_embed_dim, out_c, kernel_size=width))
         last_dim = sum(f[1] for f in filters)
-        self.highway = Highway(last_dim, highway_layers
-            ) if highway_layers > 0 else None
+        self.highway = Highway(last_dim, highway_layers) if highway_layers > 0 else None
         self.projection = nn.Linear(last_dim, word_embed_dim)
         assert vocab is not None or char_inputs, 'vocab must be set if not using char inputs'
         self.vocab = None
@@ -3799,15 +3418,13 @@ class CharacterTokenEmbedder(torch.nn.Module):
                 char_idxs = [0] * max_char_len
             else:
                 chars = vocab[i].encode()
-                char_idxs = [(c + 1) for c in chars] + [0] * (max_char_len -
-                    len(chars))
+                char_idxs = [(c + 1) for c in chars] + [0] * (max_char_len - len(chars))
             if len(char_idxs) > max_char_len:
                 truncated += 1
                 char_idxs = char_idxs[:max_char_len]
             word_to_char[i] = torch.LongTensor(char_idxs)
         if truncated > 0:
-            logger.info('truncated {} words longer than {} characters'.
-                format(truncated, max_char_len))
+            logger.info('truncated {} words longer than {} characters'.format(truncated, max_char_len))
         self.vocab = vocab
         self.word_to_char = word_to_char
 
@@ -3819,8 +3436,7 @@ class CharacterTokenEmbedder(torch.nn.Module):
         nn.init.xavier_normal_(self.char_embeddings.weight)
         nn.init.xavier_normal_(self.symbol_embeddings)
         nn.init.xavier_uniform_(self.projection.weight)
-        nn.init.constant_(self.char_embeddings.weight[self.char_embeddings.
-            padding_idx], 0.0)
+        nn.init.constant_(self.char_embeddings.weight[self.char_embeddings.padding_idx], 0.0)
         nn.init.constant_(self.projection.bias, 0.0)
 
     def forward(self, input: torch.Tensor):
@@ -3830,29 +3446,24 @@ class CharacterTokenEmbedder(torch.nn.Module):
             eos = chars[:, (0)].eq(CHAR_EOS_IDX)
             if eos.any():
                 if self.onnx_trace:
-                    chars = torch.where(eos.unsqueeze(1), chars.new_zeros(1
-                        ), chars)
+                    chars = torch.where(eos.unsqueeze(1), chars.new_zeros(1), chars)
                 else:
                     chars[eos] = 0
             unk = None
         else:
             flat_words = input.view(-1)
-            chars = self.word_to_char[flat_words.type_as(self.word_to_char)
-                ].type_as(input)
+            chars = self.word_to_char[flat_words.type_as(self.word_to_char)].type_as(input)
             pads = flat_words.eq(self.vocab.pad())
             eos = flat_words.eq(self.vocab.eos())
             unk = flat_words.eq(self.vocab.unk())
         word_embs = self._convolve(chars)
         if self.onnx_trace:
             if pads.any():
-                word_embs = torch.where(pads.unsqueeze(1), word_embs.
-                    new_zeros(1), word_embs)
+                word_embs = torch.where(pads.unsqueeze(1), word_embs.new_zeros(1), word_embs)
             if eos.any():
-                word_embs = torch.where(eos.unsqueeze(1), self.
-                    symbol_embeddings[self.eos_idx], word_embs)
+                word_embs = torch.where(eos.unsqueeze(1), self.symbol_embeddings[self.eos_idx], word_embs)
             if unk is not None and unk.any():
-                word_embs = torch.where(unk.unsqueeze(1), self.
-                    symbol_embeddings[self.unk_idx], word_embs)
+                word_embs = torch.where(unk.unsqueeze(1), self.symbol_embeddings[self.unk_idx], word_embs)
         else:
             if pads.any():
                 word_embs[pads] = 0
@@ -3887,8 +3498,7 @@ class Highway(torch.nn.Module):
     def __init__(self, input_dim: int, num_layers: int=1):
         super(Highway, self).__init__()
         self.input_dim = input_dim
-        self.layers = nn.ModuleList([nn.Linear(input_dim, input_dim * 2) for
-            _ in range(num_layers)])
+        self.layers = nn.ModuleList([nn.Linear(input_dim, input_dim * 2) for _ in range(num_layers)])
         self.activation = nn.ReLU()
         self.reset_parameters()
 
@@ -3921,18 +3531,14 @@ class ConvTBC(torch.nn.Module):
         self.out_channels = out_channels
         self.kernel_size = _single(kernel_size)
         self.padding = _single(padding)
-        self.weight = torch.nn.Parameter(torch.Tensor(self.kernel_size[0],
-            in_channels, out_channels))
+        self.weight = torch.nn.Parameter(torch.Tensor(self.kernel_size[0], in_channels, out_channels))
         self.bias = torch.nn.Parameter(torch.Tensor(out_channels))
 
     def forward(self, input):
-        return torch.conv_tbc(input.contiguous(), self.weight, self.bias,
-            self.padding[0])
+        return torch.conv_tbc(input.contiguous(), self.weight, self.bias, self.padding[0])
 
     def __repr__(self):
-        s = (
-            '{name}({in_channels}, {out_channels}, kernel_size={kernel_size}, padding={padding}'
-            )
+        s = '{name}({in_channels}, {out_channels}, kernel_size={kernel_size}, padding={padding}'
         if self.bias is None:
             s += ', bias=False'
         s += ')'
@@ -3941,9 +3547,7 @@ class ConvTBC(torch.nn.Module):
 
 def GatedLinear(in_features, out_features, dropout=0.0, bias=True):
     """Weight-normalized Linear layer (input: B x T x C) with interspersed GLU units"""
-    return nn.Sequential(Linear(in_features, out_features * 4, dropout,
-        bias), nn.GLU(), Linear(out_features * 2, out_features * 2, dropout,
-        bias), nn.GLU(), Linear(out_features, out_features, dropout, bias))
+    return nn.Sequential(Linear(in_features, out_features * 4, dropout, bias), nn.GLU(), Linear(out_features * 2, out_features * 2, dropout, bias), nn.GLU(), Linear(out_features, out_features, dropout, bias))
 
 
 class ScalarBias(torch.autograd.Function):
@@ -3975,9 +3579,7 @@ class SingleHeadAttention(nn.Module):
     Single-head attention that supports Gating and Downsampling
     """
 
-    def __init__(self, out_channels, embed_dim, head_dim, head_index,
-        dropout=0.0, bias=True, project_input=True, gated=False, downsample
-        =False, num_heads=1):
+    def __init__(self, out_channels, embed_dim, head_dim, head_index, dropout=0.0, bias=True, project_input=True, gated=False, downsample=False, num_heads=1):
         super().__init__()
         self.embed_dim = embed_dim
         self.dropout = dropout
@@ -3997,12 +3599,9 @@ class SingleHeadAttention(nn.Module):
         else:
             out_proj_size = self.head_dim * self.num_heads
         if self.gated:
-            k_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias
-                =bias))
-            self.in_proj_q = GatedLinear(self.embed_dim, out_proj_size,
-                bias=bias)
-            v_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias
-                =bias))
+            k_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias=bias))
+            self.in_proj_q = GatedLinear(self.embed_dim, out_proj_size, bias=bias)
+            v_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias=bias))
         else:
             k_layers.append(Linear(self.embed_dim, out_proj_size, bias=bias))
             self.in_proj_q = Linear(self.embed_dim, out_proj_size, bias=bias)
@@ -4015,8 +3614,7 @@ class SingleHeadAttention(nn.Module):
             self.out_proj = Linear(out_proj_size, out_channels, bias=bias)
         self.scaling = self.head_dim ** -0.5
 
-    def forward(self, query, key, value, mask_future_timesteps=False,
-        key_padding_mask=None, use_scalar_bias=False):
+    def forward(self, query, key, value, mask_future_timesteps=False, key_padding_mask=None, use_scalar_bias=False):
         """Input shape: Time x Batch x Channel
         Self-attention can be implemented by passing in the same arguments for
         query, key and value. Future timesteps can be masked with the
@@ -4053,14 +3651,9 @@ class SingleHeadAttention(nn.Module):
         v = v.transpose(0, 1)
         attn_weights = torch.bmm(q, k.transpose(1, 2))
         if mask_future_timesteps:
-            assert query.size() == key.size(
-                ), 'mask_future_timesteps only applies to self-attention'
-            attn_weights *= torch.tril(attn_weights.data.new([1]).expand(
-                tgt_len, tgt_len).clone(), diagonal=-1)[:, ::self.
-                head_index + 1 if self.downsample else 1].unsqueeze(0)
-            attn_weights += torch.triu(attn_weights.data.new([-math.inf]).
-                expand(tgt_len, tgt_len).clone(), diagonal=0)[:, ::self.
-                head_index + 1 if self.downsample else 1].unsqueeze(0)
+            assert query.size() == key.size(), 'mask_future_timesteps only applies to self-attention'
+            attn_weights *= torch.tril(attn_weights.data.new([1]).expand(tgt_len, tgt_len).clone(), diagonal=-1)[:, ::self.head_index + 1 if self.downsample else 1].unsqueeze(0)
+            attn_weights += torch.triu(attn_weights.data.new([-math.inf]).expand(tgt_len, tgt_len).clone(), diagonal=0)[:, ::self.head_index + 1 if self.downsample else 1].unsqueeze(0)
         tgt_size = tgt_len
         if use_scalar_bias:
             attn_weights = scalar_bias(attn_weights, 2)
@@ -4071,21 +3664,16 @@ class SingleHeadAttention(nn.Module):
                 if self.downsample:
                     attn_weights = attn_weights.view(bsz, 1, tgt_len, src_len)
                 else:
-                    attn_weights = attn_weights.view(size, self.num_heads,
-                        tgt_len, src_len)
-                attn_weights = attn_weights.masked_fill(key_padding_mask.
-                    unsqueeze(1).unsqueeze(2), -math.inf)
+                    attn_weights = attn_weights.view(size, self.num_heads, tgt_len, src_len)
+                attn_weights = attn_weights.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), -math.inf)
                 attn_weights = attn_weights.view(size, tgt_len, src_len)
         attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_weights = F.dropout(attn_weights, p=self.dropout, training=
-            self.training)
+        attn_weights = F.dropout(attn_weights, p=self.dropout, training=self.training)
         attn = torch.bmm(attn_weights, v)
         if self.downsample:
-            attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz,
-                self.head_dim)
+            attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, self.head_dim)
         else:
-            attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz,
-                self.embed_dim)
+            attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, self.embed_dim)
         attn = self.out_proj(attn)
         return attn, attn_weights
 
@@ -4095,8 +3683,7 @@ class DownsampledMultiHeadAttention(nn.ModuleList):
     Multi-headed attention with Gating and Downsampling
     """
 
-    def __init__(self, out_channels, embed_dim, num_heads, dropout=0.0,
-        bias=True, project_input=True, gated=False, downsample=False):
+    def __init__(self, out_channels, embed_dim, num_heads, dropout=0.0, bias=True, project_input=True, gated=False, downsample=False):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.dropout = dropout
@@ -4108,20 +3695,14 @@ class DownsampledMultiHeadAttention(nn.ModuleList):
         if self.downsample:
             attention_heads = []
             for index in range(self.num_heads):
-                attention_heads.append(SingleHeadAttention(out_channels,
-                    self.embed_dim, self.head_dim, index, self.dropout,
-                    bias, self.project_input, self.gated, self.downsample,
-                    self.num_heads))
+                attention_heads.append(SingleHeadAttention(out_channels, self.embed_dim, self.head_dim, index, self.dropout, bias, self.project_input, self.gated, self.downsample, self.num_heads))
             super().__init__(modules=attention_heads)
             self.out_proj = Linear(embed_dim, out_channels, bias=bias)
         else:
             super().__init__()
-            self.attention_module = SingleHeadAttention(out_channels, self.
-                embed_dim, self.head_dim, 1, self.dropout, bias, self.
-                project_input, self.gated, self.downsample, self.num_heads)
+            self.attention_module = SingleHeadAttention(out_channels, self.embed_dim, self.head_dim, 1, self.dropout, bias, self.project_input, self.gated, self.downsample, self.num_heads)
 
-    def forward(self, query, key, value, mask_future_timesteps=False,
-        key_padding_mask=None, use_scalar_bias=False):
+    def forward(self, query, key, value, mask_future_timesteps=False, key_padding_mask=None, use_scalar_bias=False):
         src_len, bsz, embed_dim = key.size()
         tgt_len = query.size(0)
         assert embed_dim == self.embed_dim
@@ -4134,23 +3715,19 @@ class DownsampledMultiHeadAttention(nn.ModuleList):
         attn_weights = []
         if self.downsample:
             for attention_head_number in range(self.num_heads):
-                _attn, _attn_weight = self[attention_head_number](query,
-                    key, value, mask_future_timesteps, key_padding_mask,
-                    use_scalar_bias)
+                _attn, _attn_weight = self[attention_head_number](query, key, value, mask_future_timesteps, key_padding_mask, use_scalar_bias)
                 attn.append(_attn)
                 attn_weights.append(_attn_weight)
             full_attn = torch.cat(attn, dim=2)
             full_attn = self.out_proj(full_attn)
             return full_attn, attn_weights[0].clone()
         else:
-            _attn, _attn_weight = self.attention_module(query, key, value,
-                mask_future_timesteps, key_padding_mask, use_scalar_bias)
+            _attn, _attn_weight = self.attention_module(query, key, value, mask_future_timesteps, key_padding_mask, use_scalar_bias)
             attn.append(_attn)
             attn_weights.append(_attn_weight)
             full_attn = torch.cat(attn, dim=2)
             full_attn_weights = torch.cat(attn_weights)
-            full_attn_weights = full_attn_weights.view(bsz, self.num_heads,
-                tgt_size, src_len)
+            full_attn_weights = full_attn_weights.view(bsz, self.num_heads, tgt_size, src_len)
             full_attn_weights = full_attn_weights.sum(dim=1) / self.num_heads
             return full_attn, full_attn_weights
 
@@ -4172,8 +3749,7 @@ def unfold1d(x, kernel_size, padding_l, pad_value=0):
     """unfold T x B x C to T x B x C x K"""
     if kernel_size > 1:
         T, B, C = x.size()
-        x = F.pad(x, (0, 0, 0, 0, padding_l, kernel_size - 1 - padding_l),
-            value=pad_value)
+        x = F.pad(x, (0, 0, 0, 0, padding_l, kernel_size - 1 - padding_l), value=pad_value)
         x = x.as_strided((T, B, C, kernel_size), (B * C, C, 1, B * C))
     else:
         x = x.unsqueeze(3)
@@ -4206,9 +3782,7 @@ class DynamicConv1dTBC(nn.Module):
         bias:   the learnable bias of the module of shape `(input_size)`
     """
 
-    def __init__(self, input_size, kernel_size=1, padding_l=None, num_heads
-        =1, weight_dropout=0.0, weight_softmax=False, renorm_padding=False,
-        bias=False, conv_bias=False, query_size=None, in_proj=False):
+    def __init__(self, input_size, kernel_size=1, padding_l=None, num_heads=1, weight_dropout=0.0, weight_softmax=False, renorm_padding=False, bias=False, conv_bias=False, query_size=None, in_proj=False):
         super().__init__()
         self.input_size = input_size
         self.query_size = input_size if query_size is None else query_size
@@ -4219,11 +3793,9 @@ class DynamicConv1dTBC(nn.Module):
         self.weight_softmax = weight_softmax
         self.renorm_padding = renorm_padding
         if in_proj:
-            self.weight_linear = Linear(self.input_size, self.input_size + 
-                num_heads * kernel_size * 1)
+            self.weight_linear = Linear(self.input_size, self.input_size + num_heads * kernel_size * 1)
         else:
-            self.weight_linear = Linear(self.query_size, num_heads *
-                kernel_size * 1, bias=bias)
+            self.weight_linear = Linear(self.query_size, num_heads * kernel_size * 1, bias=bias)
         if conv_bias:
             self.conv_bias = nn.Parameter(torch.Tensor(input_size))
         else:
@@ -4232,8 +3804,7 @@ class DynamicConv1dTBC(nn.Module):
 
     @property
     def in_proj(self):
-        return (self.weight_linear.out_features == self.input_size + self.
-            num_heads * self.kernel_size)
+        return self.weight_linear.out_features == self.input_size + self.num_heads * self.kernel_size
 
     def reset_parameters(self):
         self.weight_linear.reset_parameters()
@@ -4271,8 +3842,7 @@ class DynamicConv1dTBC(nn.Module):
         if self.in_proj:
             proj = self.weight_linear(x)
             x = proj.narrow(2, 0, self.input_size).contiguous()
-            weight = proj.narrow(2, self.input_size, H * K).contiguous().view(
-                T * B * H, -1)
+            weight = proj.narrow(2, self.input_size, H * K).contiguous().view(T * B * H, -1)
         else:
             weight = self.weight_linear(query).view(T * B * H, -1)
         assert not self.renorm_padding or incremental_state is not None
@@ -4282,8 +3852,7 @@ class DynamicConv1dTBC(nn.Module):
                 input_buffer = x.new()
             x_unfold = torch.cat([input_buffer, x.unsqueeze(3)], dim=3)
             if self.kernel_size > 1:
-                self._set_input_buffer(incremental_state, x_unfold[:, :, :,
-                    -self.kernel_size + 1:])
+                self._set_input_buffer(incremental_state, x_unfold[:, :, :, -self.kernel_size + 1:])
             x_unfold = x_unfold.view(T * B * H, R, -1)
         else:
             padding_l = self.padding_l
@@ -4300,8 +3869,7 @@ class DynamicConv1dTBC(nn.Module):
             K = weight.size(1)
         if self.weight_softmax and self.renorm_padding:
             weight = F.softmax(weight, dim=1)
-        weight = F.dropout(weight, self.weight_dropout, training=self.
-            training, inplace=False)
+        weight = F.dropout(weight, self.weight_dropout, training=self.training, inplace=False)
         output = torch.bmm(x_unfold, weight.unsqueeze(2))
         output = output.view(T, B, C)
         return output
@@ -4318,36 +3886,29 @@ class DynamicConv1dTBC(nn.Module):
         if self.in_proj:
             proj = self.weight_linear(x)
             x = proj.narrow(2, 0, self.input_size).contiguous()
-            weight = proj.narrow(2, self.input_size, H * K).contiguous().view(
-                T * B * H, -1)
+            weight = proj.narrow(2, self.input_size, H * K).contiguous().view(T * B * H, -1)
         else:
             weight = self.weight_linear(query).view(T * B * H, -1)
         if not self.renorm_padding:
             if self.weight_softmax:
                 weight = F.softmax(weight, dim=1)
-            weight = F.dropout(weight, self.weight_dropout, training=self.
-                training, inplace=False)
+            weight = F.dropout(weight, self.weight_dropout, training=self.training, inplace=False)
         weight = weight.narrow(1, 0, K).contiguous()
         weight = weight.view(T, B * H, K).transpose(0, 1)
         x = x.view(T, B * H, R).transpose(0, 1)
         if self.weight_softmax and self.renorm_padding:
-            weight_expanded = weight.new(B * H, T, T + K - 1).fill_(float(
-                '-inf'))
-            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T +
-                K, 1)).copy_(weight)
+            weight_expanded = weight.new(B * H, T, T + K - 1).fill_(float('-inf'))
+            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T + K, 1)).copy_(weight)
             weight_expanded = weight_expanded.narrow(2, self.padding_l, T)
             weight_expanded = F.softmax(weight_expanded, dim=2)
-            weight_expanded = F.dropout(weight_expanded, self.
-                weight_dropout, training=self.training, inplace=False)
+            weight_expanded = F.dropout(weight_expanded, self.weight_dropout, training=self.training, inplace=False)
         else:
             P = self.padding_l
             if K > T and P == K - 1:
                 weight = weight.narrow(2, K - T, T)
                 K, P = T, T - 1
-            weight_expanded = weight.new_zeros(B * H, T, T + K - 1,
-                requires_grad=False)
-            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T +
-                K, 1)).copy_(weight)
+            weight_expanded = weight.new_zeros(B * H, T, T + K - 1, requires_grad=False)
+            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T + K, 1)).copy_(weight)
             weight_expanded = weight_expanded.narrow(2, P, T)
         output = torch.bmm(weight_expanded, x)
         output = output.transpose(0, 1).contiguous().view(T, B, C)
@@ -4360,19 +3921,13 @@ class DynamicConv1dTBC(nn.Module):
             self._set_input_buffer(incremental_state, input_buffer)
 
     def _get_input_buffer(self, incremental_state):
-        return utils.get_incremental_state(self, incremental_state,
-            'input_buffer')
+        return utils.get_incremental_state(self, incremental_state, 'input_buffer')
 
     def _set_input_buffer(self, incremental_state, new_buffer):
-        return utils.set_incremental_state(self, incremental_state,
-            'input_buffer', new_buffer)
+        return utils.set_incremental_state(self, incremental_state, 'input_buffer', new_buffer)
 
     def extra_repr(self):
-        s = (
-            '{}, kernel_size={}, padding_l={}, num_heads={}, weight_softmax={}, conv_bias={}, renorm_padding={}, in_proj={}'
-            .format(self.input_size, self.kernel_size, self.padding_l, self
-            .num_heads, self.weight_softmax, self.conv_bias is not None,
-            self.renorm_padding, self.in_proj))
+        s = '{}, kernel_size={}, padding_l={}, num_heads={}, weight_softmax={}, conv_bias={}, renorm_padding={}, in_proj={}'.format(self.input_size, self.kernel_size, self.padding_l, self.num_heads, self.weight_softmax, self.conv_bias is not None, self.renorm_padding, self.in_proj)
         if self.query_size != self.input_size:
             s += ', query_size={}'.format(self.query_size)
         if self.weight_dropout > 0.0:
@@ -4407,8 +3962,7 @@ class DynamicCRF(nn.Module):
         self.beam = beam_size
 
     def extra_repr(self):
-        return 'vocab_size={}, low_rank={}, beam_size={}'.format(self.vocb,
-            self.rank, self.beam)
+        return 'vocab_size={}, low_rank={}, beam_size={}'.format(self.vocb, self.rank, self.beam)
 
     def forward(self, emissions, targets, masks, beam=None):
         """
@@ -4445,38 +3999,30 @@ class DynamicCRF(nn.Module):
     def _compute_score(self, emissions, targets, masks=None):
         batch_size, seq_len = targets.size()
         emission_scores = emissions.gather(2, targets[:, :, (None)])[:, :, (0)]
-        transition_scores = (self.E1(targets[:, :-1]) * self.E2(targets[:, 1:])
-            ).sum(2)
+        transition_scores = (self.E1(targets[:, :-1]) * self.E2(targets[:, 1:])).sum(2)
         scores = emission_scores
         scores[:, 1:] += transition_scores
         if masks is not None:
             scores = scores * masks.type_as(scores)
         return scores.sum(-1)
 
-    def _compute_normalizer(self, emissions, targets=None, masks=None, beam
-        =None):
+    def _compute_normalizer(self, emissions, targets=None, masks=None, beam=None):
         beam = beam if beam is not None else self.beam
         batch_size, seq_len = emissions.size()[:2]
         if targets is not None:
-            _emissions = emissions.scatter(2, targets[:, :, (None)], np.
-                float('inf'))
+            _emissions = emissions.scatter(2, targets[:, :, (None)], np.float('inf'))
             beam_targets = _emissions.topk(beam, 2)[1]
             beam_emission_scores = emissions.gather(2, beam_targets)
         else:
             beam_emission_scores, beam_targets = emissions.topk(beam, 2)
         beam_transition_score1 = self.E1(beam_targets[:, :-1])
         beam_transition_score2 = self.E2(beam_targets[:, 1:])
-        beam_transition_matrix = torch.bmm(beam_transition_score1.view(-1,
-            beam, self.rank), beam_transition_score2.view(-1, beam, self.
-            rank).transpose(1, 2))
-        beam_transition_matrix = beam_transition_matrix.view(batch_size, -1,
-            beam, beam)
+        beam_transition_matrix = torch.bmm(beam_transition_score1.view(-1, beam, self.rank), beam_transition_score2.view(-1, beam, self.rank).transpose(1, 2))
+        beam_transition_matrix = beam_transition_matrix.view(batch_size, -1, beam, beam)
         score = beam_emission_scores[:, (0)]
         for i in range(1, seq_len):
-            next_score = score[:, :, (None)] + beam_transition_matrix[:, (i -
-                1)]
-            next_score = logsumexp(next_score, dim=1) + beam_emission_scores[:,
-                (i)]
+            next_score = score[:, :, (None)] + beam_transition_matrix[:, (i - 1)]
+            next_score = logsumexp(next_score, dim=1) + beam_emission_scores[:, (i)]
             if masks is not None:
                 score = torch.where(masks[:, i:i + 1], next_score, score)
             else:
@@ -4489,16 +4035,12 @@ class DynamicCRF(nn.Module):
         beam_emission_scores, beam_targets = emissions.topk(beam, 2)
         beam_transition_score1 = self.E1(beam_targets[:, :-1])
         beam_transition_score2 = self.E2(beam_targets[:, 1:])
-        beam_transition_matrix = torch.bmm(beam_transition_score1.view(-1,
-            beam, self.rank), beam_transition_score2.view(-1, beam, self.
-            rank).transpose(1, 2))
-        beam_transition_matrix = beam_transition_matrix.view(batch_size, -1,
-            beam, beam)
+        beam_transition_matrix = torch.bmm(beam_transition_score1.view(-1, beam, self.rank), beam_transition_score2.view(-1, beam, self.rank).transpose(1, 2))
+        beam_transition_matrix = beam_transition_matrix.view(batch_size, -1, beam, beam)
         traj_tokens, traj_scores = [], []
         finalized_tokens, finalized_scores = [], []
         score = beam_emission_scores[:, (0)]
-        dummy = torch.arange(beam, device=score.device).expand(*score.size()
-            ).contiguous()
+        dummy = torch.arange(beam, device=score.device).expand(*score.size()).contiguous()
         for i in range(1, seq_len):
             traj_scores.append(score)
             _score = score[:, :, (None)] + beam_transition_matrix[:, (i - 1)]
@@ -4519,12 +4061,10 @@ class DynamicCRF(nn.Module):
             finalized_scores.append(scs.gather(1, previous_index))
         finalized_tokens.reverse()
         finalized_tokens = torch.cat(finalized_tokens, 1)
-        finalized_tokens = beam_targets.gather(2, finalized_tokens[:, :, (
-            None)])[:, :, (0)]
+        finalized_tokens = beam_targets.gather(2, finalized_tokens[:, :, (None)])[:, :, (0)]
         finalized_scores.reverse()
         finalized_scores = torch.cat(finalized_scores, 1)
-        finalized_scores[:, 1:] = finalized_scores[:, 1:] - finalized_scores[:,
-            :-1]
+        finalized_scores[:, 1:] = finalized_scores[:, 1:] - finalized_scores[:, :-1]
         return finalized_scores, finalized_tokens
 
 
@@ -4540,8 +4080,7 @@ class dynamicconvFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        outputs = dynamicconv_cuda.backward(grad_output.contiguous(), ctx.
-            padding_l, *ctx.saved_tensors)
+        outputs = dynamicconv_cuda.backward(grad_output.contiguous(), ctx.padding_l, *ctx.saved_tensors)
         grad_input, grad_weights = outputs
         return grad_input, grad_weights, None
 
@@ -4549,9 +4088,7 @@ class dynamicconvFunction(Function):
 @with_incremental_state
 class DynamicconvLayer(nn.Module):
 
-    def __init__(self, input_size, kernel_size=1, padding_l=None,
-        weight_softmax=False, num_heads=1, weight_dropout=0.0, bias=False,
-        renorm_padding=False, conv_bias=False, query_size=None):
+    def __init__(self, input_size, kernel_size=1, padding_l=None, weight_softmax=False, num_heads=1, weight_dropout=0.0, bias=False, renorm_padding=False, conv_bias=False, query_size=None):
         super(DynamicconvLayer, self).__init__()
         self.input_size = input_size
         self.query_size = input_size if query_size is None else query_size
@@ -4562,8 +4099,7 @@ class DynamicconvLayer(nn.Module):
         self.weight_dropout = weight_dropout
         self.renorm_padding = renorm_padding
         self.bias = bias
-        self.weight_linear = nn.Linear(input_size, num_heads * kernel_size,
-            bias)
+        self.weight_linear = nn.Linear(input_size, num_heads * kernel_size, bias)
         if conv_bias:
             self.conv_bias = nn.Parameter(torch.Tensor(input_size))
         else:
@@ -4597,13 +4133,11 @@ class DynamicconvLayer(nn.Module):
             if self.weight_softmax:
                 weight = F.softmax(weight, dim=-1)
             if self.weight_dropout:
-                weight = F.dropout(weight, self.weight_dropout, training=
-                    self.training)
+                weight = F.dropout(weight, self.weight_dropout, training=self.training)
             weight = weight.permute(1, 2, 3, 0).contiguous()
             self.filters = weight
             x = x.permute(1, 2, 0).contiguous()
-            output = dynamicconvFunction.apply(x, weight, self.padding_l
-                ).permute(2, 0, 1)
+            output = dynamicconvFunction.apply(x, weight, self.padding_l).permute(2, 0, 1)
             if self.conv_bias is not None:
                 output = output + self.conv_bias.view(1, 1, -1)
             return output
@@ -4615,12 +4149,10 @@ class DynamicconvLayer(nn.Module):
             self._set_input_buffer(incremental_state, input_buffer)
 
     def _get_input_buffer(self, incremental_state):
-        return utils.get_incremental_state(self, incremental_state,
-            'input_buffer')
+        return utils.get_incremental_state(self, incremental_state, 'input_buffer')
 
     def _set_input_buffer(self, incremental_state, new_buffer):
-        return utils.set_incremental_state(self, incremental_state,
-            'input_buffer', new_buffer)
+        return utils.set_incremental_state(self, incremental_state, 'input_buffer', new_buffer)
 
     def _forward_unfolded(self, x, incremental_state, query):
         """The conventional implementation of convolutions.
@@ -4637,8 +4169,7 @@ class DynamicconvLayer(nn.Module):
                 input_buffer = x.new()
             x_unfold = torch.cat([input_buffer, x.unsqueeze(3)], dim=3)
             if self.kernel_size > 1:
-                self._set_input_buffer(incremental_state, x_unfold[:, :, :,
-                    -self.kernel_size + 1:])
+                self._set_input_buffer(incremental_state, x_unfold[:, :, :, -self.kernel_size + 1:])
             x_unfold = x_unfold.view(T * B * H, R, -1)
         else:
             padding_l = self.padding_l
@@ -4655,8 +4186,7 @@ class DynamicconvLayer(nn.Module):
             K = weight.size(1)
         if self.weight_softmax and self.renorm_padding:
             weight = F.softmax(weight, dim=1)
-        weight = F.dropout(weight, self.weight_dropout, training=self.
-            training, inplace=False)
+        weight = F.dropout(weight, self.weight_dropout, training=self.training, inplace=False)
         output = torch.bmm(x_unfold, weight.unsqueeze(2))
         output = output.view(T, B, C)
         return output
@@ -4674,29 +4204,23 @@ class DynamicconvLayer(nn.Module):
         if not self.renorm_padding:
             if self.weight_softmax:
                 weight = F.softmax(weight, dim=1)
-            weight = F.dropout(weight, self.weight_dropout, training=self.
-                training, inplace=False)
+            weight = F.dropout(weight, self.weight_dropout, training=self.training, inplace=False)
         weight = weight.narrow(1, 0, K).contiguous()
         weight = weight.view(T, B * H, K).transpose(0, 1)
         x = x.view(T, B * H, R).transpose(0, 1)
         if self.weight_softmax and self.renorm_padding:
-            weight_expanded = weight.new(B * H, T, T + K - 1).fill_(float(
-                '-inf'))
-            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T +
-                K, 1)).copy_(weight)
+            weight_expanded = weight.new(B * H, T, T + K - 1).fill_(float('-inf'))
+            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T + K, 1)).copy_(weight)
             weight_expanded = weight_expanded.narrow(2, self.padding_l, T)
             weight_expanded = F.softmax(weight_expanded, dim=2)
-            weight_expanded = F.dropout(weight_expanded, self.
-                weight_dropout, training=self.training, inplace=False)
+            weight_expanded = F.dropout(weight_expanded, self.weight_dropout, training=self.training, inplace=False)
         else:
             P = self.padding_l
             if K > T and P == K - 1:
                 weight = weight.narrow(2, K - T, T)
                 K, P = T, T - 1
-            weight_expanded = weight.new_zeros(B * H, T, T + K - 1,
-                requires_grad=False)
-            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T +
-                K, 1)).copy_(weight)
+            weight_expanded = weight.new_zeros(B * H, T, T + K - 1, requires_grad=False)
+            weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T + K, 1)).copy_(weight)
             weight_expanded = weight_expanded.narrow(2, P, T)
         output = torch.bmm(weight_expanded, x)
         output = output.transpose(0, 1).contiguous().view(T, B, C)
@@ -4709,17 +4233,13 @@ class Fp32GroupNorm(nn.GroupNorm):
         super().__init__(*args, **kwargs)
 
     def forward(self, input):
-        output = F.group_norm(input.float(), self.num_groups, self.weight.
-            float() if self.weight is not None else None, self.bias.float() if
-            self.bias is not None else None, self.eps)
+        output = F.group_norm(input.float(), self.num_groups, self.weight.float() if self.weight is not None else None, self.bias.float() if self.bias is not None else None, self.eps)
         return output.type_as(input)
 
 
 class GumbelVectorQuantizer(nn.Module):
 
-    def __init__(self, dim, num_vars, temp, groups, combine_groups, vq_dim,
-        time_first, activation=nn.GELU(), weight_proj_depth=1,
-        weight_proj_factor=1):
+    def __init__(self, dim, num_vars, temp, groups, combine_groups, vq_dim, time_first, activation=nn.GELU(), weight_proj_depth=1, weight_proj_factor=1):
         """Vector quantization using gumbel softmax
 
         Args:
@@ -4744,19 +4264,14 @@ class GumbelVectorQuantizer(nn.Module):
         assert vq_dim % groups == 0, f'dim {vq_dim} must be divisible by groups {groups} for concatenation'
         var_dim = vq_dim // groups
         num_groups = groups if not combine_groups else 1
-        self.vars = nn.Parameter(torch.FloatTensor(1, num_groups * num_vars,
-            var_dim))
+        self.vars = nn.Parameter(torch.FloatTensor(1, num_groups * num_vars, var_dim))
         nn.init.xavier_normal_(self.vars)
         if weight_proj_depth > 1:
 
             def block(input_dim, output_dim):
-                return nn.Sequential(nn.Linear(input_dim, output_dim),
-                    activation)
+                return nn.Sequential(nn.Linear(input_dim, output_dim), activation)
             inner_dim = self.input_dim * weight_proj_factor
-            self.weight_proj = nn.Sequential(*[block(self.input_dim if i ==
-                0 else inner_dim, inner_dim) for i in range(
-                weight_proj_depth - 1)], nn.Linear(inner_dim, groups *
-                num_vars))
+            self.weight_proj = nn.Sequential(*[block(self.input_dim if i == 0 else inner_dim, inner_dim) for i in range(weight_proj_depth - 1)], nn.Linear(inner_dim, groups * num_vars))
         else:
             self.weight_proj = nn.Linear(self.input_dim, groups * num_vars)
         assert len(temp) == 3, temp
@@ -4765,24 +4280,20 @@ class GumbelVectorQuantizer(nn.Module):
         self.codebook_indices = None
 
     def set_num_updates(self, num_updates):
-        self.curr_temp = max(self.max_temp * self.temp_decay ** num_updates,
-            self.min_temp)
+        self.curr_temp = max(self.max_temp * self.temp_decay ** num_updates, self.min_temp)
 
     def codebook(self):
         if self.codebook_indices is None:
             from itertools import product
             p = [range(self.num_vars)] * self.groups
             inds = list(product(*p))
-            self.codebook_indices = torch.tensor(inds, dtype=torch.long,
-                device=self.vars.device).flatten()
+            self.codebook_indices = torch.tensor(inds, dtype=torch.long, device=self.vars.device).flatten()
             if not self.combine_groups:
-                self.codebook_indices = self.codebook_indices.view(self.
-                    num_vars ** self.groups, -1)
+                self.codebook_indices = self.codebook_indices.view(self.num_vars ** self.groups, -1)
                 for b in range(1, self.groups):
                     self.codebook_indices[:, (b)] += self.num_vars * b
                 self.codebook_indices = self.codebook_indices.flatten()
-        return self.vars.squeeze(0).index_select(0, self.codebook_indices
-            ).view(self.num_vars ** self.groups, -1)
+        return self.vars.squeeze(0).index_select(0, self.codebook_indices).view(self.num_vars ** self.groups, -1)
 
     def forward_idx(self, x):
         res = self.forward(x, produce_targets=True)
@@ -4797,19 +4308,14 @@ class GumbelVectorQuantizer(nn.Module):
         x = self.weight_proj(x)
         x = x.view(bsz * tsz * self.groups, -1)
         _, k = x.max(-1)
-        hard_x = x.new_zeros(*x.shape).scatter_(-1, k.view(-1, 1), 1.0).view(
-            bsz * tsz, self.groups, -1)
+        hard_x = x.new_zeros(*x.shape).scatter_(-1, k.view(-1, 1), 1.0).view(bsz * tsz, self.groups, -1)
         hard_probs = torch.mean(hard_x.float(), dim=0)
-        result['code_perplexity'] = torch.exp(-torch.sum(hard_probs * torch
-            .log(hard_probs + 1e-07), dim=-1)).sum()
-        avg_probs = torch.softmax(x.view(bsz * tsz, self.groups, -1).float(
-            ), dim=-1).mean(dim=0)
-        result['prob_perplexity'] = torch.exp(-torch.sum(avg_probs * torch.
-            log(avg_probs + 1e-07), dim=-1)).sum()
+        result['code_perplexity'] = torch.exp(-torch.sum(hard_probs * torch.log(hard_probs + 1e-07), dim=-1)).sum()
+        avg_probs = torch.softmax(x.view(bsz * tsz, self.groups, -1).float(), dim=-1).mean(dim=0)
+        result['prob_perplexity'] = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-07), dim=-1)).sum()
         result['temp'] = self.curr_temp
         if self.training:
-            x = F.gumbel_softmax(x.float(), tau=self.curr_temp, hard=True
-                ).type_as(x)
+            x = F.gumbel_softmax(x.float(), tau=self.curr_temp, hard=True).type_as(x)
         else:
             x = hard_x
         x = x.view(bsz * tsz, -1)
@@ -4817,8 +4323,7 @@ class GumbelVectorQuantizer(nn.Module):
         if self.combine_groups:
             vars = vars.repeat(1, self.groups, 1)
         if produce_targets:
-            result['targets'] = x.view(bsz * tsz * self.groups, -1).argmax(dim
-                =-1).view(bsz, tsz, self.groups).detach()
+            result['targets'] = x.view(bsz * tsz * self.groups, -1).argmax(dim=-1).view(bsz, tsz, self.groups).detach()
         x = x.unsqueeze(-1) * vars
         x = x.view(bsz * tsz, self.groups, self.num_vars, -1)
         x = x.sum(-2)
@@ -4831,8 +4336,7 @@ class GumbelVectorQuantizer(nn.Module):
 
 class KmeansVectorQuantizer(nn.Module):
 
-    def __init__(self, dim, num_vars, groups, combine_groups, vq_dim,
-        time_first, gamma=0.25):
+    def __init__(self, dim, num_vars, groups, combine_groups, vq_dim, time_first, gamma=0.25):
         """Vector quantization using straight pass-through estimator (i.e. kmeans)
 
                 Args:
@@ -4854,10 +4358,8 @@ class KmeansVectorQuantizer(nn.Module):
         assert vq_dim % groups == 0, f'dim {vq_dim} must be divisible by groups {groups} for concatenation'
         self.var_dim = vq_dim // groups
         num_groups = groups if not combine_groups else 1
-        self.embedding = nn.Parameter(0.01 * torch.randn(num_vars,
-            num_groups, self.var_dim))
-        self.projection = nn.Sequential(nn.Conv1d(dim, dim, kernel_size=1,
-            groups=groups, bias=False), Fp32GroupNorm(groups, dim))
+        self.embedding = nn.Parameter(0.01 * torch.randn(num_vars, num_groups, self.var_dim))
+        self.projection = nn.Sequential(nn.Conv1d(dim, dim, kernel_size=1, groups=groups, bias=False), Fp32GroupNorm(groups, dim))
         self.gamma = gamma
         self.mse_mean = nn.MSELoss(reduction='mean')
 
@@ -4873,8 +4375,7 @@ class KmeansVectorQuantizer(nn.Module):
     @property
     def expand_embedding(self):
         if self.combine_groups:
-            return self.embedding.expand(self.num_vars, self.groups, self.
-                var_dim)
+            return self.embedding.expand(self.num_vars, self.groups, self.var_dim)
         return self.embedding
 
     def forward_idx(self, x):
@@ -4888,20 +4389,14 @@ class KmeansVectorQuantizer(nn.Module):
         bsz, fsz, tsz = x.shape
         ze = self.projection(x)
         ze_ = ze.view(bsz, self.groups, self.var_dim, tsz).permute(0, 3, 1, 2)
-        d = (ze_.unsqueeze(0) - self.expand_embedding.unsqueeze(1).unsqueeze(1)
-            ).view(self.num_vars, bsz, tsz, self.groups, -1).norm(dim=-1, p=2)
+        d = (ze_.unsqueeze(0) - self.expand_embedding.unsqueeze(1).unsqueeze(1)).view(self.num_vars, bsz, tsz, self.groups, -1).norm(dim=-1, p=2)
         idx = d.argmin(dim=0)
-        zq = torch.stack([self.expand_embedding[idx[..., group], group] for
-            group in range(self.groups)], dim=-2).view(bsz, tsz, self.
-            groups * self.var_dim).permute(0, 2, 1)
+        zq = torch.stack([self.expand_embedding[idx[..., group], group] for group in range(self.groups)], dim=-2).view(bsz, tsz, self.groups * self.var_dim).permute(0, 2, 1)
         assert ze.shape == zq.shape, (ze.shape, zq.shape)
         x = self._pass_grad(ze, zq)
-        hard_x = idx.new_zeros(bsz * tsz * self.groups, self.num_vars
-            ).scatter_(-1, idx.view(-1, 1), 1.0).view(bsz * tsz, self.
-            groups, -1)
+        hard_x = idx.new_zeros(bsz * tsz * self.groups, self.num_vars).scatter_(-1, idx.view(-1, 1), 1.0).view(bsz * tsz, self.groups, -1)
         hard_probs = torch.mean(hard_x.float(), dim=0)
-        result['code_perplexity'] = torch.exp(-torch.sum(hard_probs * torch
-            .log(hard_probs + 1e-07), dim=-1)).sum()
+        result['code_perplexity'] = torch.exp(-torch.sum(hard_probs * torch.log(hard_probs + 1e-07), dim=-1)).sum()
         if produce_targets:
             result['targets'] = idx
         if self.time_first:
@@ -4955,9 +4450,7 @@ class Fp32LayerNorm(nn.LayerNorm):
         super().__init__(*args, **kwargs)
 
     def forward(self, input):
-        output = F.layer_norm(input.float(), self.normalized_shape, self.
-            weight.float() if self.weight is not None else None, self.bias.
-            float() if self.bias is not None else None, self.eps)
+        output = F.layer_norm(input.float(), self.normalized_shape, self.weight.float() if self.weight is not None else None, self.bias.float() if self.bias is not None else None, self.eps)
         return output.type_as(input)
 
 
@@ -4969,8 +4462,7 @@ class LearnedPositionalEmbedding(nn.Embedding):
     position ids are passed to the forward function.
     """
 
-    def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx:
-        int):
+    def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int):
         super().__init__(num_embeddings, embedding_dim, padding_idx)
         self.onnx_trace = False
         if self.padding_idx is not None:
@@ -4978,19 +4470,15 @@ class LearnedPositionalEmbedding(nn.Embedding):
         else:
             self.max_positions = self.num_embeddings
 
-    def forward(self, input: Tensor, incremental_state: Optional[Dict[str,
-        Dict[str, Optional[Tensor]]]]=None, positions: Optional[Tensor]=None):
+    def forward(self, input: Tensor, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]=None, positions: Optional[Tensor]=None):
         """Input is expected to be of size [bsz x seqlen]."""
         assert positions is None or self.padding_idx is None, 'If positions is pre-computed then padding_idx should not be set.'
         if positions is None:
             if incremental_state is not None:
-                positions = torch.zeros((1, 1), device=input.device, dtype=
-                    input.dtype).fill_(int(self.padding_idx + input.size(1)))
+                positions = torch.zeros((1, 1), device=input.device, dtype=input.dtype).fill_(int(self.padding_idx + input.size(1)))
             else:
-                positions = utils.make_positions(input, self.padding_idx,
-                    onnx_trace=self.onnx_trace)
-        return F.embedding(positions, self.weight, self.padding_idx, self.
-            max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
+                positions = utils.make_positions(input, self.padding_idx, onnx_trace=self.onnx_trace)
+        return F.embedding(positions, self.weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
 
 
 class lightconvFunction(Function):
@@ -5005,8 +4493,7 @@ class lightconvFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        outputs = lightconv_cuda.backward(grad_output.contiguous(), ctx.
-            padding_l, *ctx.saved_tensors)
+        outputs = lightconv_cuda.backward(grad_output.contiguous(), ctx.padding_l, *ctx.saved_tensors)
         grad_input, grad_weights = outputs
         return grad_input, grad_weights, None
 
@@ -5014,8 +4501,7 @@ class lightconvFunction(Function):
 @with_incremental_state
 class LightconvLayer(nn.Module):
 
-    def __init__(self, input_size, kernel_size=1, padding_l=None,
-        weight_softmax=False, num_heads=1, weight_dropout=0.0, bias=False):
+    def __init__(self, input_size, kernel_size=1, padding_l=None, weight_softmax=False, num_heads=1, weight_dropout=0.0, bias=False):
         super(LightconvLayer, self).__init__()
         self.input_size = input_size
         self.kernel_size = kernel_size
@@ -5052,18 +4538,15 @@ class LightconvLayer(nn.Module):
                 input_buffer = x.new()
             x_unfold = torch.cat([input_buffer, x.unsqueeze(3)], dim=3)
             if self.kernel_size > 1:
-                self._set_input_buffer(incremental_state, x_unfold[:, :, :,
-                    -self.kernel_size + 1:])
+                self._set_input_buffer(incremental_state, x_unfold[:, :, :, -self.kernel_size + 1:])
             x_unfold = x_unfold.view(T * B * H, R, -1)
             weight = self.weight
             if self.weight_softmax:
                 weight = F.softmax(weight.float(), dim=1).type_as(weight)
             weight = weight[:, -x_unfold.size(2):]
             K = weight.size(1)
-            weight = weight.view(1, H, K).expand(T * B, H, K).contiguous(
-                ).view(T * B * H, K, 1)
-            weight = F.dropout(weight, self.weight_dropout, training=self.
-                training)
+            weight = weight.view(1, H, K).expand(T * B, H, K).contiguous().view(T * B * H, K, 1)
+            weight = F.dropout(weight, self.weight_dropout, training=self.training)
             output = torch.bmm(x_unfold, weight)
             output = output.view(T, B, C)
             return output
@@ -5073,10 +4556,8 @@ class LightconvLayer(nn.Module):
             if self.weight_softmax:
                 weight = F.softmax(self.weight, -1)
             if self.weight_dropout:
-                weight = F.dropout(weight, self.weight_dropout, training=
-                    self.training)
-            return lightconvFunction.apply(x, weight, self.padding_l).permute(
-                2, 0, 1)
+                weight = F.dropout(weight, self.weight_dropout, training=self.training)
+            return lightconvFunction.apply(x, weight, self.padding_l).permute(2, 0, 1)
 
     def reorder_incremental_state(self, incremental_state, new_order):
         input_buffer = self._get_input_buffer(incremental_state)
@@ -5085,12 +4566,10 @@ class LightconvLayer(nn.Module):
             self._set_input_buffer(incremental_state, input_buffer)
 
     def _get_input_buffer(self, incremental_state):
-        return utils.get_incremental_state(self, incremental_state,
-            'input_buffer')
+        return utils.get_incremental_state(self, incremental_state, 'input_buffer')
 
     def _set_input_buffer(self, incremental_state, new_buffer):
-        return utils.set_incremental_state(self, incremental_state,
-            'input_buffer', new_buffer)
+        return utils.set_incremental_state(self, incremental_state, 'input_buffer', new_buffer)
 
     def half(self):
         return self._apply(lambda t: t.half() if t.is_floating_point() else t)
@@ -5119,8 +4598,7 @@ class LightweightConv1d(nn.Module):
         bias: the learnable bias of the module of shape `(input_size)`
     """
 
-    def __init__(self, input_size, kernel_size=1, padding=0, num_heads=1,
-        weight_softmax=False, bias=False, weight_dropout=0.0):
+    def __init__(self, input_size, kernel_size=1, padding=0, num_heads=1, weight_softmax=False, bias=False, weight_dropout=0.0):
         super().__init__()
         self.input_size = input_size
         self.kernel_size = kernel_size
@@ -5152,8 +4630,7 @@ class LightweightConv1d(nn.Module):
             weight = F.softmax(weight, dim=-1)
         weight = F.dropout(weight, self.weight_dropout, training=self.training)
         input = input.view(-1, H, T)
-        output = F.conv1d(input, weight, padding=self.padding, groups=self.
-            num_heads)
+        output = F.conv1d(input, weight, padding=self.padding, groups=self.num_heads)
         output = output.view(B, C, T)
         if self.bias is not None:
             output = output + self.bias.view(1, -1, 1)
@@ -5182,8 +4659,7 @@ class LightweightConv1dTBC(nn.Module):
         bias:   the learnable bias of the module of shape `(input_size)`
     """
 
-    def __init__(self, input_size, kernel_size=1, padding_l=None, num_heads
-        =1, weight_dropout=0.0, weight_softmax=False, bias=False):
+    def __init__(self, input_size, kernel_size=1, padding_l=None, num_heads=1, weight_dropout=0.0, weight_softmax=False, bias=False):
         super().__init__()
         self.input_size = input_size
         self.kernel_size = kernel_size
@@ -5237,20 +4713,17 @@ class LightweightConv1dTBC(nn.Module):
                 input_buffer = x.new()
             x_unfold = torch.cat([input_buffer, x.unsqueeze(3)], dim=3)
             if self.kernel_size > 1:
-                self._set_input_buffer(incremental_state, x_unfold[:, :, :,
-                    -self.kernel_size + 1:])
+                self._set_input_buffer(incremental_state, x_unfold[:, :, :, -self.kernel_size + 1:])
             x_unfold = x_unfold.view(T * B * H, R, -1)
         else:
             x_unfold = unfold1d(x, self.kernel_size, self.padding_l, 0)
             x_unfold = x_unfold.view(T * B * H, R, K)
         if self.weight_softmax:
-            weight = utils.softmax(weight, dim=1, onnx_trace=self.onnx_trace
-                ).type_as(weight)
+            weight = utils.softmax(weight, dim=1, onnx_trace=self.onnx_trace).type_as(weight)
         if incremental_state is not None:
             weight = weight[:, -x_unfold.size(2):]
             K = weight.size(1)
-        weight = weight.view(1, H, K).expand(T * B, H, K).contiguous().view(
-            T * B * H, K, 1)
+        weight = weight.view(1, H, K).expand(T * B, H, K).contiguous().view(T * B * H, K, 1)
         weight = F.dropout(weight, self.weight_dropout, training=self.training)
         output = torch.bmm(x_unfold, weight)
         output = output.view(T, B, C)
@@ -5267,8 +4740,7 @@ class LightweightConv1dTBC(nn.Module):
         assert R * H == C == self.input_size
         weight = self.weight.view(H, K)
         if self.weight_softmax:
-            weight = utils.softmax(weight, dim=1, onnx_trace=self.onnx_trace
-                ).type_as(weight)
+            weight = utils.softmax(weight, dim=1, onnx_trace=self.onnx_trace).type_as(weight)
         weight = weight.view(1, H, K).expand(T * B, H, K).contiguous()
         weight = weight.view(T, B * H, K).transpose(0, 1)
         x = x.view(T, B * H, R).transpose(0, 1)
@@ -5276,13 +4748,10 @@ class LightweightConv1dTBC(nn.Module):
         if K > T and P == K - 1:
             weight = weight.narrow(2, K - T, T)
             K, P = T, T - 1
-        weight_expanded = weight.new_zeros(B * H, T, T + K - 1,
-            requires_grad=False)
-        weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T + K, 1)
-            ).copy_(weight)
+        weight_expanded = weight.new_zeros(B * H, T, T + K - 1, requires_grad=False)
+        weight_expanded.as_strided((B * H, T, K), (T * (T + K - 1), T + K, 1)).copy_(weight)
         weight_expanded = weight_expanded.narrow(2, P, T)
-        weight_expanded = F.dropout(weight_expanded, self.weight_dropout,
-            training=self.training)
+        weight_expanded = F.dropout(weight_expanded, self.weight_dropout, training=self.training)
         output = torch.bmm(weight_expanded, x)
         output = output.transpose(0, 1).contiguous().view(T, B, C)
         return output
@@ -5294,18 +4763,13 @@ class LightweightConv1dTBC(nn.Module):
             self._set_input_buffer(incremental_state, input_buffer)
 
     def _get_input_buffer(self, incremental_state):
-        return utils.get_incremental_state(self, incremental_state,
-            'input_buffer')
+        return utils.get_incremental_state(self, incremental_state, 'input_buffer')
 
     def _set_input_buffer(self, incremental_state, new_buffer):
-        return utils.set_incremental_state(self, incremental_state,
-            'input_buffer', new_buffer)
+        return utils.set_incremental_state(self, incremental_state, 'input_buffer', new_buffer)
 
     def extra_repr(self):
-        s = (
-            '{}, kernel_size={}, padding_l={}, num_heads={}, weight_softmax={}, bias={}'
-            .format(self.input_size, self.kernel_size, self.padding_l, self
-            .num_heads, self.weight_softmax, self.bias is not None))
+        s = '{}, kernel_size={}, padding_l={}, num_heads={}, weight_softmax={}, bias={}'.format(self.input_size, self.kernel_size, self.padding_l, self.num_heads, self.weight_softmax, self.bias is not None)
         if self.weight_dropout > 0.0:
             s += ', weight_dropout={}'.format(self.weight_dropout)
         return s
@@ -5318,10 +4782,7 @@ class MultiheadAttention(nn.Module):
     See "Attention Is All You Need" for more details.
     """
 
-    def __init__(self, embed_dim, num_heads, kdim=None, vdim=None, dropout=
-        0.0, bias=True, add_bias_kv=False, add_zero_attn=False,
-        self_attention=False, encoder_decoder_attention=False, q_noise=0.0,
-        qn_block_size=8):
+    def __init__(self, embed_dim, num_heads, kdim=None, vdim=None, dropout=0.0, bias=True, add_bias_kv=False, add_zero_attn=False, self_attention=False, encoder_decoder_attention=False, q_noise=0.0, qn_block_size=8):
         super().__init__()
         self.embed_dim = embed_dim
         self.kdim = kdim if kdim is not None else embed_dim
@@ -5335,14 +4796,10 @@ class MultiheadAttention(nn.Module):
         self.self_attention = self_attention
         self.encoder_decoder_attention = encoder_decoder_attention
         assert not self.self_attention or self.qkv_same_dim, 'Self-attention requires query, key and value to be of the same size'
-        self.k_proj = quant_noise(nn.Linear(self.kdim, embed_dim, bias=bias
-            ), q_noise, qn_block_size)
-        self.v_proj = quant_noise(nn.Linear(self.vdim, embed_dim, bias=bias
-            ), q_noise, qn_block_size)
-        self.q_proj = quant_noise(nn.Linear(embed_dim, embed_dim, bias=bias
-            ), q_noise, qn_block_size)
-        self.out_proj = quant_noise(nn.Linear(embed_dim, embed_dim, bias=
-            bias), q_noise, qn_block_size)
+        self.k_proj = quant_noise(nn.Linear(self.kdim, embed_dim, bias=bias), q_noise, qn_block_size)
+        self.v_proj = quant_noise(nn.Linear(self.vdim, embed_dim, bias=bias), q_noise, qn_block_size)
+        self.q_proj = quant_noise(nn.Linear(embed_dim, embed_dim, bias=bias), q_noise, qn_block_size)
+        self.out_proj = quant_noise(nn.Linear(embed_dim, embed_dim, bias=bias), q_noise, qn_block_size)
         if add_bias_kv:
             self.bias_k = Parameter(torch.Tensor(1, 1, embed_dim))
             self.bias_v = Parameter(torch.Tensor(1, 1, embed_dim))
@@ -5376,12 +4833,7 @@ class MultiheadAttention(nn.Module):
         if self.bias_v is not None:
             nn.init.xavier_normal_(self.bias_v)
 
-    def forward(self, query, key: Optional[Tensor], value: Optional[Tensor],
-        key_padding_mask: Optional[Tensor]=None, incremental_state:
-        Optional[Dict[str, Dict[str, Optional[Tensor]]]]=None, need_weights:
-        bool=True, static_kv: bool=False, attn_mask: Optional[Tensor]=None,
-        before_softmax: bool=False, need_head_weights: bool=False) ->Tuple[
-        Tensor, Optional[Tensor]]:
+    def forward(self, query, key: Optional[Tensor], value: Optional[Tensor], key_padding_mask: Optional[Tensor]=None, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]=None, need_weights: bool=True, static_kv: bool=False, attn_mask: Optional[Tensor]=None, before_softmax: bool=False, need_head_weights: bool=False) ->Tuple[Tensor, Optional[Tensor]]:
         """Input shape: Time x Batch x Channel
 
         Args:
@@ -5404,18 +4856,9 @@ class MultiheadAttention(nn.Module):
         tgt_len, bsz, embed_dim = query.size()
         assert embed_dim == self.embed_dim
         assert list(query.size()) == [tgt_len, bsz, embed_dim]
-        if (not self.onnx_trace and not self.tpu and incremental_state is
-            None and not static_kv and not torch.jit.is_scripting()):
+        if not self.onnx_trace and not self.tpu and incremental_state is None and not static_kv and not torch.jit.is_scripting():
             assert key is not None and value is not None
-            return F.multi_head_attention_forward(query, key, value, self.
-                embed_dim, self.num_heads, torch.empty([0]), torch.cat((
-                self.q_proj.bias, self.k_proj.bias, self.v_proj.bias)),
-                self.bias_k, self.bias_v, self.add_zero_attn, self.dropout,
-                self.out_proj.weight, self.out_proj.bias, self.training,
-                key_padding_mask, need_weights, attn_mask,
-                use_separate_proj_weight=True, q_proj_weight=self.q_proj.
-                weight, k_proj_weight=self.k_proj.weight, v_proj_weight=
-                self.v_proj.weight)
+            return F.multi_head_attention_forward(query, key, value, self.embed_dim, self.num_heads, torch.empty([0]), torch.cat((self.q_proj.bias, self.k_proj.bias, self.v_proj.bias)), self.bias_k, self.bias_v, self.add_zero_attn, self.dropout, self.out_proj.weight, self.out_proj.bias, self.training, key_padding_mask, need_weights, attn_mask, use_separate_proj_weight=True, q_proj_weight=self.q_proj.weight, k_proj_weight=self.k_proj.weight, v_proj_weight=self.v_proj.weight)
         if incremental_state is not None:
             saved_state = self._get_input_buffer(incremental_state)
             if saved_state is not None and 'prev_key' in saved_state:
@@ -5447,26 +4890,19 @@ class MultiheadAttention(nn.Module):
             k = torch.cat([k, self.bias_k.repeat(1, bsz, 1)])
             v = torch.cat([v, self.bias_v.repeat(1, bsz, 1)])
             if attn_mask is not None:
-                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(
-                    attn_mask.size(0), 1)], dim=1)
+                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(attn_mask.size(0), 1)], dim=1)
             if key_padding_mask is not None:
-                key_padding_mask = torch.cat([key_padding_mask,
-                    key_padding_mask.new_zeros(key_padding_mask.size(0), 1)
-                    ], dim=1)
-        q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim
-            ).transpose(0, 1)
+                key_padding_mask = torch.cat([key_padding_mask, key_padding_mask.new_zeros(key_padding_mask.size(0), 1)], dim=1)
+        q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         if k is not None:
-            k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim
-                ).transpose(0, 1)
+            k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         if v is not None:
-            v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim
-                ).transpose(0, 1)
+            v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
         if saved_state is not None:
             if 'prev_key' in saved_state:
                 _prev_key = saved_state['prev_key']
                 assert _prev_key is not None
-                prev_key = _prev_key.view(bsz * self.num_heads, -1, self.
-                    head_dim)
+                prev_key = _prev_key.view(bsz * self.num_heads, -1, self.head_dim)
                 if static_kv:
                     k = prev_key
                 else:
@@ -5475,8 +4911,7 @@ class MultiheadAttention(nn.Module):
             if 'prev_value' in saved_state:
                 _prev_value = saved_state['prev_value']
                 assert _prev_value is not None
-                prev_value = _prev_value.view(bsz * self.num_heads, -1,
-                    self.head_dim)
+                prev_value = _prev_value.view(bsz * self.num_heads, -1, self.head_dim)
                 if static_kv:
                     v = prev_value
                 else:
@@ -5486,19 +4921,12 @@ class MultiheadAttention(nn.Module):
             if 'prev_key_padding_mask' in saved_state:
                 prev_key_padding_mask = saved_state['prev_key_padding_mask']
             assert k is not None and v is not None
-            key_padding_mask = (MultiheadAttention.
-                _append_prev_key_padding_mask(key_padding_mask=
-                key_padding_mask, prev_key_padding_mask=
-                prev_key_padding_mask, batch_size=bsz, src_len=k.size(1),
-                static_kv=static_kv))
-            saved_state['prev_key'] = k.view(bsz, self.num_heads, -1, self.
-                head_dim)
-            saved_state['prev_value'] = v.view(bsz, self.num_heads, -1,
-                self.head_dim)
+            key_padding_mask = MultiheadAttention._append_prev_key_padding_mask(key_padding_mask=key_padding_mask, prev_key_padding_mask=prev_key_padding_mask, batch_size=bsz, src_len=k.size(1), static_kv=static_kv)
+            saved_state['prev_key'] = k.view(bsz, self.num_heads, -1, self.head_dim)
+            saved_state['prev_value'] = v.view(bsz, self.num_heads, -1, self.head_dim)
             saved_state['prev_key_padding_mask'] = key_padding_mask
             assert incremental_state is not None
-            incremental_state = self._set_input_buffer(incremental_state,
-                saved_state)
+            incremental_state = self._set_input_buffer(incremental_state, saved_state)
         assert k is not None
         src_len = k.size(1)
         if key_padding_mask is not None and key_padding_mask.dim() == 0:
@@ -5509,108 +4937,80 @@ class MultiheadAttention(nn.Module):
         if self.add_zero_attn:
             assert v is not None
             src_len += 1
-            k = torch.cat([k, k.new_zeros((k.size(0), 1) + k.size()[2:])],
-                dim=1)
-            v = torch.cat([v, v.new_zeros((v.size(0), 1) + v.size()[2:])],
-                dim=1)
+            k = torch.cat([k, k.new_zeros((k.size(0), 1) + k.size()[2:])], dim=1)
+            v = torch.cat([v, v.new_zeros((v.size(0), 1) + v.size()[2:])], dim=1)
             if attn_mask is not None:
-                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(
-                    attn_mask.size(0), 1)], dim=1)
+                attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(attn_mask.size(0), 1)], dim=1)
             if key_padding_mask is not None:
-                key_padding_mask = torch.cat([key_padding_mask, torch.zeros
-                    (key_padding_mask.size(0), 1).type_as(key_padding_mask)
-                    ], dim=1)
+                key_padding_mask = torch.cat([key_padding_mask, torch.zeros(key_padding_mask.size(0), 1).type_as(key_padding_mask)], dim=1)
         attn_weights = torch.bmm(q, k.transpose(1, 2))
-        attn_weights = MultiheadAttention.apply_sparse_mask(attn_weights,
-            tgt_len, src_len, bsz)
-        assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len,
-            src_len]
+        attn_weights = MultiheadAttention.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
+        assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
         if attn_mask is not None:
             attn_mask = attn_mask.unsqueeze(0)
             if self.onnx_trace:
                 attn_mask = attn_mask.repeat(attn_weights.size(0), 1, 1)
             attn_weights += attn_mask
         if key_padding_mask is not None:
-            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len,
-                src_len)
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
             if not self.tpu:
-                attn_weights = attn_weights.masked_fill(key_padding_mask.
-                    unsqueeze(1).unsqueeze(2), float('-inf'))
+                attn_weights = attn_weights.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float('-inf'))
             else:
                 attn_weights = attn_weights.transpose(0, 2)
-                attn_weights = attn_weights.masked_fill(key_padding_mask,
-                    float('-inf'))
+                attn_weights = attn_weights.masked_fill(key_padding_mask, float('-inf'))
                 attn_weights = attn_weights.transpose(0, 2)
-            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len,
-                src_len)
+            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
         if before_softmax:
             return attn_weights, v
-        attn_weights_float = utils.softmax(attn_weights, dim=-1, onnx_trace
-            =self.onnx_trace)
+        attn_weights_float = utils.softmax(attn_weights, dim=-1, onnx_trace=self.onnx_trace)
         attn_weights = attn_weights_float.type_as(attn_weights)
-        attn_probs = F.dropout(attn_weights, p=self.dropout, training=self.
-            training)
+        attn_probs = F.dropout(attn_weights, p=self.dropout, training=self.training)
         assert v is not None
         attn = torch.bmm(attn_probs, v)
-        assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.
-            head_dim]
+        assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
         if self.onnx_trace and attn.size(1) == 1:
             attn = attn.contiguous().view(tgt_len, bsz, embed_dim)
         else:
-            attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz,
-                embed_dim)
+            attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
         attn = self.out_proj(attn)
         attn_weights: Optional[Tensor] = None
         if need_weights:
-            attn_weights = attn_weights_float.view(bsz, self.num_heads,
-                tgt_len, src_len).transpose(1, 0)
+            attn_weights = attn_weights_float.view(bsz, self.num_heads, tgt_len, src_len).transpose(1, 0)
             if not need_head_weights:
                 attn_weights = attn_weights.mean(dim=0)
         return attn, attn_weights
 
     @staticmethod
-    def _append_prev_key_padding_mask(key_padding_mask: Optional[Tensor],
-        prev_key_padding_mask: Optional[Tensor], batch_size: int, src_len:
-        int, static_kv: bool) ->Optional[Tensor]:
+    def _append_prev_key_padding_mask(key_padding_mask: Optional[Tensor], prev_key_padding_mask: Optional[Tensor], batch_size: int, src_len: int, static_kv: bool) ->Optional[Tensor]:
         if prev_key_padding_mask is not None and static_kv:
             new_key_padding_mask = prev_key_padding_mask
         elif prev_key_padding_mask is not None and key_padding_mask is not None:
-            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(),
-                key_padding_mask.float()], dim=1)
+            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(), key_padding_mask.float()], dim=1)
         elif prev_key_padding_mask is not None:
-            filler = torch.zeros((batch_size, src_len -
-                prev_key_padding_mask.size(1)), device=
-                prev_key_padding_mask.device)
-            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(),
-                filler.float()], dim=1)
+            filler = torch.zeros((batch_size, src_len - prev_key_padding_mask.size(1)), device=prev_key_padding_mask.device)
+            new_key_padding_mask = torch.cat([prev_key_padding_mask.float(), filler.float()], dim=1)
         elif key_padding_mask is not None:
-            filler = torch.zeros((batch_size, src_len - key_padding_mask.
-                size(1)), device=key_padding_mask.device)
-            new_key_padding_mask = torch.cat([filler.float(),
-                key_padding_mask.float()], dim=1)
+            filler = torch.zeros((batch_size, src_len - key_padding_mask.size(1)), device=key_padding_mask.device)
+            new_key_padding_mask = torch.cat([filler.float(), key_padding_mask.float()], dim=1)
         else:
             new_key_padding_mask = prev_key_padding_mask
         return new_key_padding_mask
 
     @torch.jit.export
-    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[
-        str, Optional[Tensor]]], new_order: Tensor):
+    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[str, Optional[Tensor]]], new_order: Tensor):
         """Reorder buffered internal state (for incremental generation)."""
         input_buffer = self._get_input_buffer(incremental_state)
         if input_buffer is not None:
             for k in input_buffer.keys():
                 input_buffer_k = input_buffer[k]
                 if input_buffer_k is not None:
-                    if self.encoder_decoder_attention and input_buffer_k.size(0
-                        ) == new_order.size(0):
+                    if self.encoder_decoder_attention and input_buffer_k.size(0) == new_order.size(0):
                         break
                     input_buffer[k] = input_buffer_k.index_select(0, new_order)
-            incremental_state = self._set_input_buffer(incremental_state,
-                input_buffer)
+            incremental_state = self._set_input_buffer(incremental_state, input_buffer)
         return incremental_state
 
-    def _get_input_buffer(self, incremental_state: Optional[Dict[str, Dict[
-        str, Optional[Tensor]]]]) ->Dict[str, Optional[Tensor]]:
+    def _get_input_buffer(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]) ->Dict[str, Optional[Tensor]]:
         result = self.get_incremental_state(incremental_state, 'attn_state')
         if result is not None:
             return result
@@ -5618,10 +5018,8 @@ class MultiheadAttention(nn.Module):
             empty_result: Dict[str, Optional[Tensor]] = {}
             return empty_result
 
-    def _set_input_buffer(self, incremental_state: Dict[str, Dict[str,
-        Optional[Tensor]]], buffer: Dict[str, Optional[Tensor]]):
-        return self.set_incremental_state(incremental_state, 'attn_state',
-            buffer)
+    def _set_input_buffer(self, incremental_state: Dict[str, Dict[str, Optional[Tensor]]], buffer: Dict[str, Optional[Tensor]]):
+        return self.set_incremental_state(incremental_state, 'attn_state', buffer)
 
     def apply_sparse_mask(attn_weights, tgt_len: int, src_len: int, bsz: int):
         return attn_weights
@@ -5634,20 +5032,15 @@ class MultiheadAttention(nn.Module):
             if k.endswith(prefix + 'in_proj_weight'):
                 dim = int(state_dict[k].shape[0] / 3)
                 items_to_add[prefix + 'q_proj.weight'] = state_dict[k][:dim]
-                items_to_add[prefix + 'k_proj.weight'] = state_dict[k][dim:
-                    2 * dim]
-                items_to_add[prefix + 'v_proj.weight'] = state_dict[k][2 * dim:
-                    ]
+                items_to_add[prefix + 'k_proj.weight'] = state_dict[k][dim:2 * dim]
+                items_to_add[prefix + 'v_proj.weight'] = state_dict[k][2 * dim:]
                 keys_to_remove.append(k)
                 k_bias = prefix + 'in_proj_bias'
                 if k_bias in state_dict.keys():
                     dim = int(state_dict[k].shape[0] / 3)
-                    items_to_add[prefix + 'q_proj.bias'] = state_dict[k_bias][:
-                        dim]
-                    items_to_add[prefix + 'k_proj.bias'] = state_dict[k_bias][
-                        dim:2 * dim]
-                    items_to_add[prefix + 'v_proj.bias'] = state_dict[k_bias][
-                        2 * dim:]
+                    items_to_add[prefix + 'q_proj.bias'] = state_dict[k_bias][:dim]
+                    items_to_add[prefix + 'k_proj.bias'] = state_dict[k_bias][dim:2 * dim]
+                    items_to_add[prefix + 'v_proj.bias'] = state_dict[k_bias][2 * dim:]
                     keys_to_remove.append(prefix + 'in_proj_bias')
         for k in keys_to_remove:
             del state_dict[k]
@@ -5677,9 +5070,7 @@ class PQConv2d(nn.Module):
           This explains the hook registered to the centroids.
     """
 
-    def __init__(self, centroids, assignments, bias, in_channels,
-        out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=
-        1, padding_mode='zeros'):
+    def __init__(self, centroids, assignments, bias, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, padding_mode='zeros'):
         super(PQConv2d, self).__init__()
         self.block_size = centroids.size(1)
         self.n_centroids = centroids.size(0)
@@ -5691,8 +5082,7 @@ class PQConv2d(nn.Module):
         self.dilation = _pair(dilation)
         self.groups = groups
         self.padding_mode = padding_mode
-        if in_channels // groups * np.prod(self.kernel_size
-            ) % self.block_size != 0:
+        if in_channels // groups * np.prod(self.kernel_size) % self.block_size != 0:
             raise ValueError('Wrong PQ sizes')
         if len(assignments) % out_channels != 0:
             raise ValueError('Wrong PQ sizes')
@@ -5702,8 +5092,7 @@ class PQConv2d(nn.Module):
             raise ValueError('out_channels must be divisible by groups')
         self.centroids = nn.Parameter(centroids, requires_grad=True)
         self.register_buffer('assignments', assignments)
-        self.register_buffer('counts', torch.bincount(assignments).type_as(
-            centroids))
+        self.register_buffer('counts', torch.bincount(assignments).type_as(centroids))
         if bias is not None:
             self.bias = nn.Parameter(bias)
         else:
@@ -5712,18 +5101,13 @@ class PQConv2d(nn.Module):
 
     @property
     def weight(self):
-        return self.centroids[self.assignments].reshape(-1, self.
-            out_channels, self.block_size).permute(1, 0, 2).reshape(self.
-            out_channels, self.in_channels // self.groups, *self.kernel_size)
+        return self.centroids[self.assignments].reshape(-1, self.out_channels, self.block_size).permute(1, 0, 2).reshape(self.out_channels, self.in_channels // self.groups, *self.kernel_size)
 
     def forward(self, x):
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.
-            padding, self.dilation, self.groups)
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
     def extra_repr(self):
-        s = (
-            '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
-            )
+        s = '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
         if self.padding != (0,) * len(self.padding):
             s += ', padding={padding}'
         if self.dilation != (1,) * len(self.dilation):
@@ -5757,9 +5141,7 @@ class PQEmbedding(nn.Module):
           the non-quantized nn.Embedding module for a standard training loop.
     """
 
-    def __init__(self, centroids, assignments, num_embeddings,
-        embedding_dim, padding_idx=None, max_norm=None, norm_type=2.0,
-        scale_grad_by_freq=False, sparse=False, _weight=None):
+    def __init__(self, centroids, assignments, num_embeddings, embedding_dim, padding_idx=None, max_norm=None, norm_type=2.0, scale_grad_by_freq=False, sparse=False, _weight=None):
         super(PQEmbedding, self).__init__()
         self.block_size = centroids.size(1)
         self.n_centroids = centroids.size(0)
@@ -5782,17 +5164,14 @@ class PQEmbedding(nn.Module):
             raise ValueError('Wrong PQ sizes')
         self.centroids = nn.Parameter(centroids, requires_grad=True)
         self.register_buffer('assignments', assignments)
-        self.register_buffer('counts', torch.bincount(assignments).type_as(
-            centroids))
+        self.register_buffer('counts', torch.bincount(assignments).type_as(centroids))
 
     @property
     def weight(self):
-        return self.centroids[self.assignments].reshape(-1, self.
-            num_embeddings, self.block_size).permute(1, 0, 2).flatten(1, 2)
+        return self.centroids[self.assignments].reshape(-1, self.num_embeddings, self.block_size).permute(1, 0, 2).flatten(1, 2)
 
     def forward(self, input):
-        return F.embedding(input, self.weight, self.padding_idx, self.
-            max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
+        return F.embedding(input, self.weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
 
     def extra_repr(self):
         s = '{num_embeddings}, {embedding_dim}'
@@ -5829,8 +5208,7 @@ class PQLinear(nn.Module):
           the non-quantized nn.Linear module for a standard training loop.
     """
 
-    def __init__(self, centroids, assignments, bias, in_features, out_features
-        ):
+    def __init__(self, centroids, assignments, bias, in_features, out_features):
         super(PQLinear, self).__init__()
         self.block_size = centroids.size(1)
         self.n_centroids = centroids.size(0)
@@ -5842,8 +5220,7 @@ class PQLinear(nn.Module):
             raise ValueError('Wrong PQ sizes')
         self.centroids = nn.Parameter(centroids, requires_grad=True)
         self.register_buffer('assignments', assignments)
-        self.register_buffer('counts', torch.bincount(assignments).type_as(
-            centroids))
+        self.register_buffer('counts', torch.bincount(assignments).type_as(centroids))
         if bias is not None:
             self.bias = nn.Parameter(bias)
         else:
@@ -5851,16 +5228,13 @@ class PQLinear(nn.Module):
 
     @property
     def weight(self):
-        return self.centroids[self.assignments].reshape(-1, self.
-            out_features, self.block_size).permute(1, 0, 2).flatten(1, 2)
+        return self.centroids[self.assignments].reshape(-1, self.out_features, self.block_size).permute(1, 0, 2).flatten(1, 2)
 
     def forward(self, x):
         return F.linear(x, self.weight, self.bias)
 
     def extra_repr(self):
-        return (
-            f'in_features={self.in_features},                 out_features={self.out_features},                 n_centroids={self.n_centroids},                 block_size={self.block_size},                 bias={self.bias is not None}'
-            )
+        return f'in_features={self.in_features},                 out_features={self.out_features},                 n_centroids={self.n_centroids},                 block_size={self.block_size},                 bias={self.bias is not None}'
 
 
 def emulate_int(w, bits, method, scale=None, zero_point=None):
@@ -5888,16 +5262,12 @@ class IntConv2d(_ConvNd):
         - At test time, the weights are fully quantized
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', p
-        =0, bits=8, method='histogram', update_step=1000):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', p=0, bits=8, method='histogram', update_step=1000):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        super(IntConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, False, _pair(0), groups,
-            bias, padding_mode)
+        super(IntConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias, padding_mode)
         self.p = p
         self.bits = bits
         self.method = method
@@ -5906,11 +5276,8 @@ class IntConv2d(_ConvNd):
 
     def _conv_forward(self, input, weight):
         if self.padding_mode != 'zeros':
-            return F.conv2d(F.pad(input, self._padding_repeated_twice, mode
-                =self.padding_mode), weight, self.bias, self.stride, _pair(
-                0), self.dilation, self.groups)
-        return F.conv2d(input, weight, self.bias, self.stride, self.padding,
-            self.dilation, self.groups)
+            return F.conv2d(F.pad(input, self._padding_repeated_twice, mode=self.padding_mode), weight, self.bias, self.stride, _pair(0), self.dilation, self.groups)
+        return F.conv2d(input, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
     def forward(self, input):
         p = self.p if self.training else 1
@@ -5918,25 +5285,18 @@ class IntConv2d(_ConvNd):
             self.scale = None
             self.zero_point = None
         self.counter += 1
-        weight_quantized, self.scale, self.zero_point = emulate_int(self.
-            weight.detach(), bits=self.bits, method=self.method, scale=self
-            .scale, zero_point=self.zero_point)
+        weight_quantized, self.scale, self.zero_point = emulate_int(self.weight.detach(), bits=self.bits, method=self.method, scale=self.scale, zero_point=self.zero_point)
         mask = torch.zeros_like(self.weight)
         mask.bernoulli_(1 - p)
         noise = (weight_quantized - self.weight).masked_fill(mask.bool(), 0)
         clamp_low = -self.scale * self.zero_point
         clamp_high = self.scale * (2 ** self.bits - 1 - self.zero_point)
-        weight = torch.clamp(self.weight, clamp_low.item(), clamp_high.item()
-            ) + noise.detach()
+        weight = torch.clamp(self.weight, clamp_low.item(), clamp_high.item()) + noise.detach()
         output = self._conv_forward(input, weight)
         return output
 
     def extra_repr(self):
-        return (
-            'in_channels={}, out_channels={}, kernel_size={}, stride={}, padding={}, dilation={}, groups={}, bias={}, quant_noise={}, bits={}, method={}'
-            .format(self.in_channels, self.out_channels, self.kernel_size,
-            self.stride, self.padding, self.dilation, self.groups, self.
-            bias is not None, self.p, self.bits, self.method))
+        return 'in_channels={}, out_channels={}, kernel_size={}, stride={}, padding={}, dilation={}, groups={}, bias={}, quant_noise={}, bits={}, method={}'.format(self.in_channels, self.out_channels, self.kernel_size, self.stride, self.padding, self.dilation, self.groups, self.bias is not None, self.p, self.bits, self.method)
 
 
 class IntEmbedding(nn.Module):
@@ -5960,10 +5320,7 @@ class IntEmbedding(nn.Module):
         - At test time, the weights are fully quantized
     """
 
-    def __init__(self, num_embeddings, embedding_dim, padding_idx=None,
-        max_norm=None, norm_type=2.0, scale_grad_by_freq=False, sparse=
-        False, _weight=None, p=0, update_step=1000, bits=8, method='histogram'
-        ):
+    def __init__(self, num_embeddings, embedding_dim, padding_idx=None, max_norm=None, norm_type=2.0, scale_grad_by_freq=False, sparse=False, _weight=None, p=0, update_step=1000, bits=8, method='histogram'):
         super(IntEmbedding, self).__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
@@ -5978,12 +5335,10 @@ class IntEmbedding(nn.Module):
         self.norm_type = norm_type
         self.scale_grad_by_freq = scale_grad_by_freq
         if _weight is None:
-            self.weight = nn.Parameter(torch.Tensor(num_embeddings,
-                embedding_dim))
+            self.weight = nn.Parameter(torch.Tensor(num_embeddings, embedding_dim))
             self.reset_parameters()
         else:
-            assert list(_weight.shape) == [num_embeddings, embedding_dim
-                ], 'Shape of weight does not match num_embeddings and embedding_dim'
+            assert list(_weight.shape) == [num_embeddings, embedding_dim], 'Shape of weight does not match num_embeddings and embedding_dim'
             self.weight = nn.Parameter(_weight)
         self.sparse = sparse
         self.p = p
@@ -6004,18 +5359,14 @@ class IntEmbedding(nn.Module):
             self.scale = None
             self.zero_point = None
         self.counter += 1
-        weight_quantized, self.scale, self.zero_point = emulate_int(self.
-            weight.detach(), bits=self.bits, method=self.method, scale=self
-            .scale, zero_point=self.zero_point)
+        weight_quantized, self.scale, self.zero_point = emulate_int(self.weight.detach(), bits=self.bits, method=self.method, scale=self.scale, zero_point=self.zero_point)
         mask = torch.zeros_like(self.weight)
         mask.bernoulli_(1 - p)
         noise = (weight_quantized - self.weight).masked_fill(mask.bool(), 0)
         clamp_low = -self.scale * self.zero_point
         clamp_high = self.scale * (2 ** self.bits - 1 - self.zero_point)
-        weight = torch.clamp(self.weight, clamp_low.item(), clamp_high.item()
-            ) + noise.detach()
-        output = F.embedding(input, weight, self.padding_idx, self.max_norm,
-            self.norm_type, self.scale_grad_by_freq, self.sparse)
+        weight = torch.clamp(self.weight, clamp_low.item(), clamp_high.item()) + noise.detach()
+        output = F.embedding(input, weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
         return output
 
     def extra_repr(self):
@@ -6056,13 +5407,11 @@ class IntLinear(nn.Module):
         - At test time, the weights are fully quantized
     """
 
-    def __init__(self, in_features, out_features, bias=True, p=0,
-        update_step=3000, bits=8, method='histogram'):
+    def __init__(self, in_features, out_features, bias=True, p=0, update_step=3000, bits=8, method='histogram'):
         super(IntLinear, self).__init__()
         self.in_features = int(in_features)
         self.out_features = int(out_features)
-        self.weight = torch.nn.Parameter(torch.Tensor(out_features,
-            in_features))
+        self.weight = torch.nn.Parameter(torch.Tensor(out_features, in_features))
         self.chosen_bias = bias
         if self.chosen_bias:
             self.bias = torch.nn.Parameter(torch.Tensor(out_features))
@@ -6087,24 +5436,18 @@ class IntLinear(nn.Module):
             self.scale = None
             self.zero_point = None
         self.counter += 1
-        weight_quantized, self.scale, self.zero_point = emulate_int(self.
-            weight.detach(), bits=self.bits, method=self.method, scale=self
-            .scale, zero_point=self.zero_point)
+        weight_quantized, self.scale, self.zero_point = emulate_int(self.weight.detach(), bits=self.bits, method=self.method, scale=self.scale, zero_point=self.zero_point)
         mask = torch.zeros_like(self.weight)
         mask.bernoulli_(1 - p)
         noise = (weight_quantized - self.weight).masked_fill(mask.bool(), 0)
         clamp_low = -self.scale * self.zero_point
         clamp_high = self.scale * (2 ** self.bits - 1 - self.zero_point)
-        weight = torch.clamp(self.weight, clamp_low.item(), clamp_high.item()
-            ) + noise.detach()
+        weight = torch.clamp(self.weight, clamp_low.item(), clamp_high.item()) + noise.detach()
         output = F.linear(input, weight, self.bias)
         return output
 
     def extra_repr(self):
-        return (
-            'in_features={}, out_features={}, bias={}, quant_noise={}, bits={}, method={}'
-            .format(self.in_features, self.out_features, self.bias is not
-            None, self.p, self.bits, self.method))
+        return 'in_features={}, out_features={}, bias={}, quant_noise={}, bits={}, method={}'.format(self.in_features, self.out_features, self.bias is not None, self.p, self.bits, self.method)
 
 
 class SinusoidalPositionalEmbedding(nn.Module):
@@ -6117,8 +5460,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
-        self.weights = SinusoidalPositionalEmbedding.get_embedding(init_size,
-            embedding_dim, padding_idx)
+        self.weights = SinusoidalPositionalEmbedding.get_embedding(init_size, embedding_dim, padding_idx)
         self.onnx_trace = False
         self.register_buffer('_float_tensor', torch.FloatTensor(1))
         self.max_positions = int(100000.0)
@@ -6127,8 +5469,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
         self.onnx_trace = True
 
     @staticmethod
-    def get_embedding(num_embeddings: int, embedding_dim: int, padding_idx:
-        Optional[int]=None):
+    def get_embedding(num_embeddings: int, embedding_dim: int, padding_idx: Optional[int]=None):
         """Build sinusoidal embeddings.
 
         This matches the implementation in tensor2tensor, but differs slightly
@@ -6137,44 +5478,34 @@ class SinusoidalPositionalEmbedding(nn.Module):
         half_dim = embedding_dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1
-            ) * emb.unsqueeze(0)
-        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(
-            num_embeddings, -1)
+        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0)
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if padding_idx is not None:
             emb[(padding_idx), :] = 0
         return emb
 
-    def forward(self, input, incremental_state: Optional[Any]=None,
-        timestep: Optional[Tensor]=None, positions: Optional[Any]=None):
+    def forward(self, input, incremental_state: Optional[Any]=None, timestep: Optional[Tensor]=None, positions: Optional[Any]=None):
         """Input is expected to be of size [bsz x seqlen]."""
         bspair = torch.onnx.operators.shape_as_tensor(input)
         bsz, seq_len = bspair[0], bspair[1]
         max_pos = self.padding_idx + 1 + seq_len
         if self.weights is None or max_pos > self.weights.size(0):
-            self.weights = SinusoidalPositionalEmbedding.get_embedding(max_pos,
-                self.embedding_dim, self.padding_idx)
+            self.weights = SinusoidalPositionalEmbedding.get_embedding(max_pos, self.embedding_dim, self.padding_idx)
         self.weights = self.weights
         if incremental_state is not None:
             pos = timestep.view(-1)[0] + 1 if timestep is not None else seq_len
             if self.onnx_trace:
-                return self.weights.index_select(index=self.padding_idx +
-                    pos, dim=0).unsqueeze(1).repeat(bsz, 1, 1)
+                return self.weights.index_select(index=self.padding_idx + pos, dim=0).unsqueeze(1).repeat(bsz, 1, 1)
             return self.weights[(self.padding_idx + pos), :].expand(bsz, 1, -1)
-        positions = utils.make_positions(input, self.padding_idx,
-            onnx_trace=self.onnx_trace)
+        positions = utils.make_positions(input, self.padding_idx, onnx_trace=self.onnx_trace)
         if self.onnx_trace:
-            flat_embeddings = self.weights.detach().index_select(0,
-                positions.view(-1))
-            embedding_shape = torch.cat((bsz.view(1), seq_len.view(1),
-                torch.tensor([-1], dtype=torch.long)))
-            embeddings = torch.onnx.operators.reshape_from_tensor_shape(
-                flat_embeddings, embedding_shape)
+            flat_embeddings = self.weights.detach().index_select(0, positions.view(-1))
+            embedding_shape = torch.cat((bsz.view(1), seq_len.view(1), torch.tensor([-1], dtype=torch.long)))
+            embeddings = torch.onnx.operators.reshape_from_tensor_shape(flat_embeddings, embedding_shape)
             return embeddings
-        return self.weights.index_select(0, positions.view(-1)).view(bsz,
-            seq_len, -1).detach()
+        return self.weights.index_select(0, positions.view(-1)).view(bsz, seq_len, -1).detach()
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -6196,36 +5527,27 @@ class TransformerEncoderLayer(nn.Module):
         super().__init__()
         self.embed_dim = args.encoder_embed_dim
         self.quant_noise = getattr(args, 'quant_noise_pq', 0)
-        self.quant_noise_block_size = getattr(args,
-            'quant_noise_pq_block_size', 8)
+        self.quant_noise_block_size = getattr(args, 'quant_noise_pq_block_size', 8)
         self.self_attn = self.build_self_attention(self.embed_dim, args)
         self.self_attn_layer_norm = LayerNorm(self.embed_dim)
         self.dropout = args.dropout
-        self.activation_fn = utils.get_activation_fn(activation=getattr(
-            args, 'activation_fn', 'relu'))
+        self.activation_fn = utils.get_activation_fn(activation=getattr(args, 'activation_fn', 'relu'))
         self.activation_dropout = getattr(args, 'activation_dropout', 0)
         if self.activation_dropout == 0:
             self.activation_dropout = getattr(args, 'relu_dropout', 0)
         self.normalize_before = args.encoder_normalize_before
-        self.fc1 = self.build_fc1(self.embed_dim, args.
-            encoder_ffn_embed_dim, self.quant_noise, self.
-            quant_noise_block_size)
-        self.fc2 = self.build_fc2(args.encoder_ffn_embed_dim, self.
-            embed_dim, self.quant_noise, self.quant_noise_block_size)
+        self.fc1 = self.build_fc1(self.embed_dim, args.encoder_ffn_embed_dim, self.quant_noise, self.quant_noise_block_size)
+        self.fc2 = self.build_fc2(args.encoder_ffn_embed_dim, self.embed_dim, self.quant_noise, self.quant_noise_block_size)
         self.final_layer_norm = LayerNorm(self.embed_dim)
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), p=q_noise,
-            block_size=qn_block_size)
+        return quant_noise(nn.Linear(input_dim, output_dim), p=q_noise, block_size=qn_block_size)
 
     def build_fc2(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), p=q_noise,
-            block_size=qn_block_size)
+        return quant_noise(nn.Linear(input_dim, output_dim), p=q_noise, block_size=qn_block_size)
 
     def build_self_attention(self, embed_dim, args):
-        return MultiheadAttention(embed_dim, args.encoder_attention_heads,
-            dropout=args.attention_dropout, self_attention=True, q_noise=
-            self.quant_noise, qn_block_size=self.quant_noise_block_size)
+        return MultiheadAttention(embed_dim, args.encoder_attention_heads, dropout=args.attention_dropout, self_attention=True, q_noise=self.quant_noise, qn_block_size=self.quant_noise_block_size)
 
     def upgrade_state_dict_named(self, state_dict, name):
         """
@@ -6241,8 +5563,7 @@ class TransformerEncoderLayer(nn.Module):
                     state_dict['{}.{}.{}'.format(name, new, m)] = state_dict[k]
                     del state_dict[k]
 
-    def forward(self, x, encoder_padding_mask, attn_mask: Optional[Tensor]=None
-        ):
+    def forward(self, x, encoder_padding_mask, attn_mask: Optional[Tensor]=None):
         """
         Args:
             x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
@@ -6263,8 +5584,7 @@ class TransformerEncoderLayer(nn.Module):
             x = self.self_attn_layer_norm(x)
         if attn_mask is not None:
             attn_mask = attn_mask.masked_fill(attn_mask, -100000000.0)
-        x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=
-            encoder_padding_mask, attn_mask=attn_mask)
+        x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=encoder_padding_mask, attn_mask=attn_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = residual + x
         if not self.normalize_before:
@@ -6273,8 +5593,7 @@ class TransformerEncoderLayer(nn.Module):
         if self.normalize_before:
             x = self.final_layer_norm(x)
         x = self.activation_fn(self.fc1(x))
-        x = F.dropout(x, p=float(self.activation_dropout), training=self.
-            training)
+        x = F.dropout(x, p=float(self.activation_dropout), training=self.training)
         x = self.fc2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = residual + x
@@ -6300,20 +5619,15 @@ class TransformerDecoderLayer(nn.Module):
             (default: False).
     """
 
-    def __init__(self, args, no_encoder_attn=False, add_bias_kv=False,
-        add_zero_attn=False):
+    def __init__(self, args, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False):
         super().__init__()
         self.embed_dim = args.decoder_embed_dim
         self.dropout = args.dropout
         self.quant_noise = getattr(args, 'quant_noise_pq', 0)
-        self.quant_noise_block_size = getattr(args,
-            'quant_noise_pq_block_size', 8)
-        self.cross_self_attention = getattr(args, 'cross_self_attention', False
-            )
-        self.self_attn = self.build_self_attention(self.embed_dim, args,
-            add_bias_kv=add_bias_kv, add_zero_attn=add_zero_attn)
-        self.activation_fn = utils.get_activation_fn(activation=getattr(
-            args, 'activation_fn', 'relu'))
+        self.quant_noise_block_size = getattr(args, 'quant_noise_pq_block_size', 8)
+        self.cross_self_attention = getattr(args, 'cross_self_attention', False)
+        self.self_attn = self.build_self_attention(self.embed_dim, args, add_bias_kv=add_bias_kv, add_zero_attn=add_zero_attn)
+        self.activation_fn = utils.get_activation_fn(activation=getattr(args, 'activation_fn', 'relu'))
         self.activation_dropout = getattr(args, 'activation_dropout', 0)
         if self.activation_dropout == 0:
             self.activation_dropout = getattr(args, 'relu_dropout', 0)
@@ -6324,52 +5638,30 @@ class TransformerDecoderLayer(nn.Module):
             self.encoder_attn = None
             self.encoder_attn_layer_norm = None
         else:
-            self.encoder_attn = self.build_encoder_attention(self.embed_dim,
-                args)
-            self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export
-                =export)
-        self.fc1 = self.build_fc1(self.embed_dim, args.
-            decoder_ffn_embed_dim, self.quant_noise, self.
-            quant_noise_block_size)
-        self.fc2 = self.build_fc2(args.decoder_ffn_embed_dim, self.
-            embed_dim, self.quant_noise, self.quant_noise_block_size)
+            self.encoder_attn = self.build_encoder_attention(self.embed_dim, args)
+            self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
+        self.fc1 = self.build_fc1(self.embed_dim, args.decoder_ffn_embed_dim, self.quant_noise, self.quant_noise_block_size)
+        self.fc2 = self.build_fc2(args.decoder_ffn_embed_dim, self.embed_dim, self.quant_noise, self.quant_noise_block_size)
         self.final_layer_norm = LayerNorm(self.embed_dim, export=export)
         self.need_attn = True
         self.onnx_trace = False
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), q_noise,
-            qn_block_size)
+        return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
 
     def build_fc2(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), q_noise,
-            qn_block_size)
+        return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
 
-    def build_self_attention(self, embed_dim, args, add_bias_kv=False,
-        add_zero_attn=False):
-        return MultiheadAttention(embed_dim, args.decoder_attention_heads,
-            dropout=args.attention_dropout, add_bias_kv=add_bias_kv,
-            add_zero_attn=add_zero_attn, self_attention=not getattr(args,
-            'cross_self_attention', False), q_noise=self.quant_noise,
-            qn_block_size=self.quant_noise_block_size)
+    def build_self_attention(self, embed_dim, args, add_bias_kv=False, add_zero_attn=False):
+        return MultiheadAttention(embed_dim, args.decoder_attention_heads, dropout=args.attention_dropout, add_bias_kv=add_bias_kv, add_zero_attn=add_zero_attn, self_attention=not getattr(args, 'cross_self_attention', False), q_noise=self.quant_noise, qn_block_size=self.quant_noise_block_size)
 
     def build_encoder_attention(self, embed_dim, args):
-        return MultiheadAttention(embed_dim, args.decoder_attention_heads,
-            kdim=getattr(args, 'encoder_embed_dim', None), vdim=getattr(
-            args, 'encoder_embed_dim', None), dropout=args.
-            attention_dropout, encoder_decoder_attention=True, q_noise=self
-            .quant_noise, qn_block_size=self.quant_noise_block_size)
+        return MultiheadAttention(embed_dim, args.decoder_attention_heads, kdim=getattr(args, 'encoder_embed_dim', None), vdim=getattr(args, 'encoder_embed_dim', None), dropout=args.attention_dropout, encoder_decoder_attention=True, q_noise=self.quant_noise, qn_block_size=self.quant_noise_block_size)
 
     def prepare_for_onnx_export_(self):
         self.onnx_trace = True
 
-    def forward(self, x, encoder_out: Optional[torch.Tensor]=None,
-        encoder_padding_mask: Optional[torch.Tensor]=None,
-        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]
-        =None, prev_self_attn_state: Optional[List[torch.Tensor]]=None,
-        prev_attn_state: Optional[List[torch.Tensor]]=None, self_attn_mask:
-        Optional[torch.Tensor]=None, self_attn_padding_mask: Optional[torch
-        .Tensor]=None, need_attn: bool=False, need_head_weights: bool=False):
+    def forward(self, x, encoder_out: Optional[torch.Tensor]=None, encoder_padding_mask: Optional[torch.Tensor]=None, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]=None, prev_self_attn_state: Optional[List[torch.Tensor]]=None, prev_attn_state: Optional[List[torch.Tensor]]=None, self_attn_mask: Optional[torch.Tensor]=None, self_attn_padding_mask: Optional[torch.Tensor]=None, need_attn: bool=False, need_head_weights: bool=False):
         """
         Args:
             x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
@@ -6390,35 +5682,26 @@ class TransformerDecoderLayer(nn.Module):
             x = self.self_attn_layer_norm(x)
         if prev_self_attn_state is not None:
             prev_key, prev_value = prev_self_attn_state[:2]
-            saved_state: Dict[str, Optional[Tensor]] = {'prev_key':
-                prev_key, 'prev_value': prev_value}
+            saved_state: Dict[str, Optional[Tensor]] = {'prev_key': prev_key, 'prev_value': prev_value}
             if len(prev_self_attn_state) >= 3:
                 saved_state['prev_key_padding_mask'] = prev_self_attn_state[2]
             assert incremental_state is not None
             self.self_attn._set_input_buffer(incremental_state, saved_state)
-        _self_attn_input_buffer = self.self_attn._get_input_buffer(
-            incremental_state)
-        if self.cross_self_attention and not (incremental_state is not None and
-            _self_attn_input_buffer is not None and 'prev_key' in
-            _self_attn_input_buffer):
+        _self_attn_input_buffer = self.self_attn._get_input_buffer(incremental_state)
+        if self.cross_self_attention and not (incremental_state is not None and _self_attn_input_buffer is not None and 'prev_key' in _self_attn_input_buffer):
             if self_attn_mask is not None:
                 assert encoder_out is not None
-                self_attn_mask = torch.cat((x.new_zeros(x.size(0),
-                    encoder_out.size(0)), self_attn_mask), dim=1)
+                self_attn_mask = torch.cat((x.new_zeros(x.size(0), encoder_out.size(0)), self_attn_mask), dim=1)
             if self_attn_padding_mask is not None:
                 if encoder_padding_mask is None:
                     assert encoder_out is not None
-                    encoder_padding_mask = self_attn_padding_mask.new_zeros(
-                        encoder_out.size(1), encoder_out.size(0))
-                self_attn_padding_mask = torch.cat((encoder_padding_mask,
-                    self_attn_padding_mask), dim=1)
+                    encoder_padding_mask = self_attn_padding_mask.new_zeros(encoder_out.size(1), encoder_out.size(0))
+                self_attn_padding_mask = torch.cat((encoder_padding_mask, self_attn_padding_mask), dim=1)
             assert encoder_out is not None
             y = torch.cat((encoder_out, x), dim=0)
         else:
             y = x
-        x, attn = self.self_attn(query=x, key=y, value=y, key_padding_mask=
-            self_attn_padding_mask, incremental_state=incremental_state,
-            need_weights=False, attn_mask=self_attn_mask)
+        x, attn = self.self_attn(query=x, key=y, value=y, key_padding_mask=self_attn_padding_mask, incremental_state=incremental_state, need_weights=False, attn_mask=self_attn_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = residual + x
         if not self.normalize_before:
@@ -6429,18 +5712,12 @@ class TransformerDecoderLayer(nn.Module):
                 x = self.encoder_attn_layer_norm(x)
             if prev_attn_state is not None:
                 prev_key, prev_value = prev_attn_state[:2]
-                saved_state: Dict[str, Optional[Tensor]] = {'prev_key':
-                    prev_key, 'prev_value': prev_value}
+                saved_state: Dict[str, Optional[Tensor]] = {'prev_key': prev_key, 'prev_value': prev_value}
                 if len(prev_attn_state) >= 3:
                     saved_state['prev_key_padding_mask'] = prev_attn_state[2]
                 assert incremental_state is not None
-                self.encoder_attn._set_input_buffer(incremental_state,
-                    saved_state)
-            x, attn = self.encoder_attn(query=x, key=encoder_out, value=
-                encoder_out, key_padding_mask=encoder_padding_mask,
-                incremental_state=incremental_state, static_kv=True,
-                need_weights=need_attn or not self.training and self.
-                need_attn, need_head_weights=need_head_weights)
+                self.encoder_attn._set_input_buffer(incremental_state, saved_state)
+            x, attn = self.encoder_attn(query=x, key=encoder_out, value=encoder_out, key_padding_mask=encoder_padding_mask, incremental_state=incremental_state, static_kv=True, need_weights=need_attn or not self.training and self.need_attn, need_head_weights=need_head_weights)
             x = F.dropout(x, p=self.dropout, training=self.training)
             x = residual + x
             if not self.normalize_before:
@@ -6449,8 +5726,7 @@ class TransformerDecoderLayer(nn.Module):
         if self.normalize_before:
             x = self.final_layer_norm(x)
         x = self.activation_fn(self.fc1(x))
-        x = F.dropout(x, p=float(self.activation_dropout), training=self.
-            training)
+        x = F.dropout(x, p=float(self.activation_dropout), training=self.training)
         x = self.fc2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = residual + x
@@ -6460,11 +5736,9 @@ class TransformerDecoderLayer(nn.Module):
             saved_state = self.self_attn._get_input_buffer(incremental_state)
             assert saved_state is not None
             if self_attn_padding_mask is not None:
-                self_attn_state = [saved_state['prev_key'], saved_state[
-                    'prev_value'], saved_state['prev_key_padding_mask']]
+                self_attn_state = [saved_state['prev_key'], saved_state['prev_value'], saved_state['prev_key_padding_mask']]
             else:
-                self_attn_state = [saved_state['prev_key'], saved_state[
-                    'prev_value']]
+                self_attn_state = [saved_state['prev_key'], saved_state['prev_value']]
             return x, attn, self_attn_state
         return x, attn, None
 
@@ -6472,28 +5746,23 @@ class TransformerDecoderLayer(nn.Module):
         self.need_attn = need_attn
 
     @torch.jit.export
-    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[
-        str, Optional[Tensor]]], new_order: Tensor):
+    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[str, Optional[Tensor]]], new_order: Tensor):
         """Scriptable reorder incremental state in transformer layers."""
         self.self_attn.reorder_incremental_state(incremental_state, new_order)
         if self.encoder_attn is not None:
-            self.encoder_attn.reorder_incremental_state(incremental_state,
-                new_order)
+            self.encoder_attn.reorder_incremental_state(incremental_state, new_order)
 
 
-def PositionalEmbedding(num_embeddings: int, embedding_dim: int,
-    padding_idx: int, learned: bool=False):
+def PositionalEmbedding(num_embeddings: int, embedding_dim: int, padding_idx: int, learned: bool=False):
     if learned:
         if padding_idx is not None:
             num_embeddings = num_embeddings + padding_idx + 1
-        m = LearnedPositionalEmbedding(num_embeddings, embedding_dim,
-            padding_idx)
+        m = LearnedPositionalEmbedding(num_embeddings, embedding_dim, padding_idx)
         nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
         if padding_idx is not None:
             nn.init.constant_(m.weight[padding_idx], 0)
     else:
-        m = SinusoidalPositionalEmbedding(embedding_dim, padding_idx,
-            init_size=num_embeddings + padding_idx + 1)
+        m = SinusoidalPositionalEmbedding(embedding_dim, padding_idx, init_size=num_embeddings + padding_idx + 1)
     return m
 
 
@@ -6548,17 +5817,7 @@ class TransformerSentenceEncoder(nn.Module):
               in format B x C.
     """
 
-    def __init__(self, padding_idx: int, vocab_size: int,
-        num_encoder_layers: int=6, embedding_dim: int=768,
-        ffn_embedding_dim: int=3072, num_attention_heads: int=8, dropout:
-        float=0.1, attention_dropout: float=0.1, activation_dropout: float=
-        0.1, layerdrop: float=0.0, max_seq_len: int=256, num_segments: int=
-        2, use_position_embeddings: bool=True, offset_positions_by_padding:
-        bool=True, encoder_normalize_before: bool=False, apply_bert_init:
-        bool=False, activation_fn: str='relu', learned_pos_embedding: bool=
-        True, embed_scale: float=None, freeze_embeddings: bool=False,
-        n_trans_layers_to_freeze: int=0, export: bool=False, traceable:
-        bool=False, q_noise: float=0.0, qn_block_size: int=8) ->None:
+    def __init__(self, padding_idx: int, vocab_size: int, num_encoder_layers: int=6, embedding_dim: int=768, ffn_embedding_dim: int=3072, num_attention_heads: int=8, dropout: float=0.1, attention_dropout: float=0.1, activation_dropout: float=0.1, layerdrop: float=0.0, max_seq_len: int=256, num_segments: int=2, use_position_embeddings: bool=True, offset_positions_by_padding: bool=True, encoder_normalize_before: bool=False, apply_bert_init: bool=False, activation_fn: str='relu', learned_pos_embedding: bool=True, embed_scale: float=None, freeze_embeddings: bool=False, n_trans_layers_to_freeze: int=0, export: bool=False, traceable: bool=False, q_noise: float=0.0, qn_block_size: int=8) ->None:
         super().__init__()
         self.padding_idx = padding_idx
         self.vocab_size = vocab_size
@@ -6572,32 +5831,19 @@ class TransformerSentenceEncoder(nn.Module):
         self.learned_pos_embedding = learned_pos_embedding
         self.traceable = traceable
         self.tpu = False
-        self.embed_tokens = nn.Embedding(self.vocab_size, self.
-            embedding_dim, self.padding_idx)
+        self.embed_tokens = nn.Embedding(self.vocab_size, self.embedding_dim, self.padding_idx)
         self.embed_scale = embed_scale
         if q_noise > 0:
-            self.quant_noise = apply_quant_noise_(nn.Linear(self.
-                embedding_dim, self.embedding_dim, bias=False), q_noise,
-                qn_block_size)
+            self.quant_noise = apply_quant_noise_(nn.Linear(self.embedding_dim, self.embedding_dim, bias=False), q_noise, qn_block_size)
         else:
             self.quant_noise = None
-        self.segment_embeddings = nn.Embedding(self.num_segments, self.
-            embedding_dim, padding_idx=None) if self.num_segments > 0 else None
-        self.embed_positions = PositionalEmbedding(self.max_seq_len, self.
-            embedding_dim, padding_idx=self.padding_idx if
-            offset_positions_by_padding else None, learned=self.
-            learned_pos_embedding) if self.use_position_embeddings else None
+        self.segment_embeddings = nn.Embedding(self.num_segments, self.embedding_dim, padding_idx=None) if self.num_segments > 0 else None
+        self.embed_positions = PositionalEmbedding(self.max_seq_len, self.embedding_dim, padding_idx=self.padding_idx if offset_positions_by_padding else None, learned=self.learned_pos_embedding) if self.use_position_embeddings else None
         if self.layerdrop > 0.0:
             self.layers = LayerDropModuleList(p=self.layerdrop)
         else:
             self.layers = nn.ModuleList([])
-        self.layers.extend([TransformerSentenceEncoderLayer(embedding_dim=
-            self.embedding_dim, ffn_embedding_dim=ffn_embedding_dim,
-            num_attention_heads=num_attention_heads, dropout=self.dropout,
-            attention_dropout=attention_dropout, activation_dropout=
-            activation_dropout, activation_fn=activation_fn, export=export,
-            q_noise=q_noise, qn_block_size=qn_block_size) for _ in range(
-            num_encoder_layers)])
+        self.layers.extend([TransformerSentenceEncoderLayer(embedding_dim=self.embedding_dim, ffn_embedding_dim=ffn_embedding_dim, num_attention_heads=num_attention_heads, dropout=self.dropout, attention_dropout=attention_dropout, activation_dropout=activation_dropout, activation_fn=activation_fn, export=export, q_noise=q_noise, qn_block_size=qn_block_size) for _ in range(num_encoder_layers)])
         if encoder_normalize_before:
             self.emb_layer_norm = LayerNorm(self.embedding_dim, export=export)
         else:
@@ -6620,9 +5866,7 @@ class TransformerSentenceEncoder(nn.Module):
     def prepare_for_tpu_(self, **kwargs):
         self.tpu = True
 
-    def forward(self, tokens: torch.Tensor, segment_labels: torch.Tensor=
-        None, last_state_only: bool=False, positions: Optional[torch.Tensor
-        ]=None) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, tokens: torch.Tensor, segment_labels: torch.Tensor=None, last_state_only: bool=False, positions: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
         padding_mask = tokens.eq(self.padding_idx)
         if not self.traceable and not self.tpu and not padding_mask.any():
             padding_mask = None
@@ -6663,36 +5907,25 @@ class TransformerSentenceEncoderLayer(nn.Module):
     models.
     """
 
-    def __init__(self, embedding_dim: int=768, ffn_embedding_dim: int=3072,
-        num_attention_heads: int=8, dropout: float=0.1, attention_dropout:
-        float=0.1, activation_dropout: float=0.1, activation_fn: str='relu',
-        export: bool=False, q_noise: float=0.0, qn_block_size: int=8) ->None:
+    def __init__(self, embedding_dim: int=768, ffn_embedding_dim: int=3072, num_attention_heads: int=8, dropout: float=0.1, attention_dropout: float=0.1, activation_dropout: float=0.1, activation_fn: str='relu', export: bool=False, q_noise: float=0.0, qn_block_size: int=8) ->None:
         super().__init__()
         self.embedding_dim = embedding_dim
         self.dropout = dropout
         self.activation_dropout = activation_dropout
         self.activation_fn = utils.get_activation_fn(activation_fn)
-        self.self_attn = MultiheadAttention(self.embedding_dim,
-            num_attention_heads, dropout=attention_dropout, self_attention=
-            True, q_noise=q_noise, qn_block_size=qn_block_size)
-        self.self_attn_layer_norm = LayerNorm(self.embedding_dim, export=export
-            )
-        self.fc1 = quant_noise(nn.Linear(self.embedding_dim,
-            ffn_embedding_dim), q_noise, qn_block_size)
-        self.fc2 = quant_noise(nn.Linear(ffn_embedding_dim, self.
-            embedding_dim), q_noise, qn_block_size)
+        self.self_attn = MultiheadAttention(self.embedding_dim, num_attention_heads, dropout=attention_dropout, self_attention=True, q_noise=q_noise, qn_block_size=qn_block_size)
+        self.self_attn_layer_norm = LayerNorm(self.embedding_dim, export=export)
+        self.fc1 = quant_noise(nn.Linear(self.embedding_dim, ffn_embedding_dim), q_noise, qn_block_size)
+        self.fc2 = quant_noise(nn.Linear(ffn_embedding_dim, self.embedding_dim), q_noise, qn_block_size)
         self.final_layer_norm = LayerNorm(self.embedding_dim, export=export)
 
-    def forward(self, x: torch.Tensor, self_attn_mask: Optional[torch.
-        Tensor]=None, self_attn_padding_mask: Optional[torch.Tensor]=None):
+    def forward(self, x: torch.Tensor, self_attn_mask: Optional[torch.Tensor]=None, self_attn_padding_mask: Optional[torch.Tensor]=None):
         """
         LayerNorm is applied either before or after the self-attention/ffn
         modules similar to the original Transformer implementation.
         """
         residual = x
-        x, attn = self.self_attn(query=x, key=x, value=x, key_padding_mask=
-            self_attn_padding_mask, need_weights=False, attn_mask=
-            self_attn_mask)
+        x, attn = self.self_attn(query=x, key=x, value=x, key_padding_mask=self_attn_padding_mask, need_weights=False, attn_mask=self_attn_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = residual + x
         x = self.self_attn_layer_norm(x)
@@ -6739,9 +5972,7 @@ class VGGBlock(torch.nn.Module):
         Output: BxCxTxfeat, i.e. (batch_size, input_size, timesteps, features)
     """
 
-    def __init__(self, in_channels, out_channels, conv_kernel_size,
-        pooling_kernel_size, num_conv_layers, input_dim, conv_stride=1,
-        padding=None, layer_norm=False):
+    def __init__(self, in_channels, out_channels, conv_kernel_size, pooling_kernel_size, num_conv_layers, input_dim, conv_stride=1, padding=None, layer_norm=False):
         assert input_dim is not None, 'Need input_dim for LayerNorm and infer_conv_output_dim'
         super(VGGBlock, self).__init__()
         self.in_channels = in_channels
@@ -6749,28 +5980,21 @@ class VGGBlock(torch.nn.Module):
         self.conv_kernel_size = _pair(conv_kernel_size)
         self.pooling_kernel_size = _pair(pooling_kernel_size)
         self.num_conv_layers = num_conv_layers
-        self.padding = tuple(e // 2 for e in self.conv_kernel_size
-            ) if padding is None else _pair(padding)
+        self.padding = tuple(e // 2 for e in self.conv_kernel_size) if padding is None else _pair(padding)
         self.conv_stride = _pair(conv_stride)
         self.layers = nn.ModuleList()
         for layer in range(num_conv_layers):
-            conv_op = nn.Conv2d(in_channels if layer == 0 else out_channels,
-                out_channels, self.conv_kernel_size, stride=self.
-                conv_stride, padding=self.padding)
+            conv_op = nn.Conv2d(in_channels if layer == 0 else out_channels, out_channels, self.conv_kernel_size, stride=self.conv_stride, padding=self.padding)
             self.layers.append(conv_op)
             if layer_norm:
-                conv_output_dim, per_channel_dim = infer_conv_output_dim(
-                    conv_op, input_dim, in_channels if layer == 0 else
-                    out_channels)
+                conv_output_dim, per_channel_dim = infer_conv_output_dim(conv_op, input_dim, in_channels if layer == 0 else out_channels)
                 self.layers.append(nn.LayerNorm(per_channel_dim))
                 input_dim = per_channel_dim
             self.layers.append(nn.ReLU())
         if self.pooling_kernel_size is not None:
-            pool_op = nn.MaxPool2d(kernel_size=self.pooling_kernel_size,
-                ceil_mode=True)
+            pool_op = nn.MaxPool2d(kernel_size=self.pooling_kernel_size, ceil_mode=True)
             self.layers.append(pool_op)
-            self.total_output_dim, self.output_dim = infer_conv_output_dim(
-                pool_op, input_dim, out_channels)
+            self.total_output_dim, self.output_dim = infer_conv_output_dim(pool_op, input_dim, out_channels)
 
     def forward(self, x):
         for i, _ in enumerate(self.layers):
@@ -6815,10 +6039,7 @@ class Search(nn.Module):
         self.src_lengths = src_lengths
 
 
-EncoderOut = NamedTuple('EncoderOut', [('encoder_out', Tensor), (
-    'encoder_padding_mask', Tensor), ('encoder_embedding', Tensor), (
-    'encoder_states', Optional[List[Tensor]]), ('src_tokens', Optional[
-    Tensor]), ('src_lengths', Optional[Tensor])])
+EncoderOut = NamedTuple('EncoderOut', [('encoder_out', Tensor), ('encoder_padding_mask', Tensor), ('encoder_embedding', Tensor), ('encoder_states', Optional[List[Tensor]]), ('src_tokens', Optional[Tensor]), ('src_lengths', Optional[Tensor])])
 
 
 class FairseqLanguageModel(BaseFairseqModel):
@@ -6894,11 +6115,7 @@ class RawOutExternalLanguageModelBase(FairseqLanguageModel):
 
 class SequenceGenerator(nn.Module):
 
-    def __init__(self, models, tgt_dict, beam_size=1, max_len_a=0,
-        max_len_b=200, min_len=1, normalize_scores=True, len_penalty=1.0,
-        unk_penalty=0.0, retain_dropout=False, temperature=1.0,
-        match_source_len=False, no_repeat_ngram_size=0, search_strategy=
-        None, eos=None, lm_weight=0.0, eos_factor=None):
+    def __init__(self, models, tgt_dict, beam_size=1, max_len_a=0, max_len_b=200, min_len=1, normalize_scores=True, len_penalty=1.0, unk_penalty=0.0, retain_dropout=False, temperature=1.0, match_source_len=False, no_repeat_ngram_size=0, search_strategy=None, eos=None, lm_weight=0.0, eos_factor=None):
         """Generates translations of a given source sentence.
 
         Args:
@@ -6927,8 +6144,7 @@ class SequenceGenerator(nn.Module):
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
-            self.model = EnsembleModel(models
-                ) if lm_weight == 0.0 else LMFusionModel(models, lm_weight)
+            self.model = EnsembleModel(models) if lm_weight == 0.0 else LMFusionModel(models, lm_weight)
         self.pad = tgt_dict.pad()
         self.unk = tgt_dict.unk()
         self.eos = tgt_dict.eos() if eos is None else eos
@@ -6948,8 +6164,7 @@ class SequenceGenerator(nn.Module):
         self.eos_factor = eos_factor
         assert temperature > 0, '--temperature must be greater than 0'
         assert eos_factor is None or eos_factor >= 1.0, '--eos-factor must be >= 1.0 if set'
-        self.search = search.BeamSearch(tgt_dict
-            ) if search_strategy is None else search_strategy
+        self.search = search.BeamSearch(tgt_dict) if search_strategy is None else search_strategy
         if not self.retain_dropout:
             self.model.eval()
 
@@ -6958,8 +6173,7 @@ class SequenceGenerator(nn.Module):
         return self
 
     @torch.no_grad()
-    def forward(self, sample: Dict[str, Dict[str, Tensor]], prefix_tokens:
-        Optional[Tensor]=None, bos_token: Optional[int]=None):
+    def forward(self, sample: Dict[str, Dict[str, Tensor]], prefix_tokens: Optional[Tensor]=None, bos_token: Optional[int]=None):
         """Generate a batch of translations.
 
         Args:
@@ -6972,8 +6186,7 @@ class SequenceGenerator(nn.Module):
         self.model.reset_incremental_state()
         return self._generate(sample, prefix_tokens, bos_token)
 
-    def generate_batched_itr(self, data_itr, beam_size=None, cuda=False,
-        timer=None):
+    def generate_batched_itr(self, data_itr, beam_size=None, cuda=False, timer=None):
         """Iterate over a batched dataset and yield individual translations.
         Args:
             cuda (bool, optional): use GPU for generation
@@ -6984,8 +6197,7 @@ class SequenceGenerator(nn.Module):
             if 'net_input' not in s:
                 continue
             input = s['net_input']
-            encoder_input = {k: v for k, v in input.items() if k !=
-                'prev_output_tokens'}
+            encoder_input = {k: v for k, v in input.items() if k != 'prev_output_tokens'}
             if timer is not None:
                 timer.start()
             with torch.no_grad():
@@ -6993,10 +6205,8 @@ class SequenceGenerator(nn.Module):
             if timer is not None:
                 timer.stop(sum(len(h[0]['tokens']) for h in hypos))
             for i, id in enumerate(s['id'].data):
-                src = utils.strip_pad(input['src_tokens'].data[(i), :],
-                    self.pad)
-                ref = utils.strip_pad(s['target'].data[(i), :], self.pad) if s[
-                    'target'] is not None else None
+                src = utils.strip_pad(input['src_tokens'].data[(i), :], self.pad)
+                ref = utils.strip_pad(s['target'].data[(i), :], self.pad) if s['target'] is not None else None
                 yield id, src, ref, hypos[i]
 
     @torch.no_grad()
@@ -7014,15 +6224,13 @@ class SequenceGenerator(nn.Module):
         self.model.reset_incremental_state()
         return self._generate(sample, **kwargs)
 
-    def _generate(self, sample: Dict[str, Dict[str, Tensor]], prefix_tokens:
-        Optional[Tensor]=None, bos_token: Optional[int]=None):
+    def _generate(self, sample: Dict[str, Dict[str, Tensor]], prefix_tokens: Optional[Tensor]=None, bos_token: Optional[int]=None):
         net_input = sample['net_input']
         src_tokens = net_input['src_tokens']
         if src_tokens.dim() > 2:
             src_lengths = net_input['src_lengths']
         else:
-            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)
-                ).long().sum(dim=1)
+            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
         input_size = src_tokens.size()
         bsz, src_len = input_size[0], input_size[1]
         beam_size = self.beam_size
@@ -7030,8 +6238,7 @@ class SequenceGenerator(nn.Module):
         if self.match_source_len:
             max_len = src_lengths.max().item()
         else:
-            max_len = min(int(self.max_len_a * src_len + self.max_len_b), 
-                self.model.max_decoder_positions() - 1)
+            max_len = min(int(self.max_len_a * src_len + self.max_len_b), self.model.max_decoder_positions() - 1)
         assert self.min_len <= max_len, 'min_len cannot be larger than max_len, please adjust these!'
         encoder_outs = self.model.forward_encoder(net_input)
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
@@ -7039,34 +6246,26 @@ class SequenceGenerator(nn.Module):
         encoder_outs = self.model.reorder_encoder_out(encoder_outs, new_order)
         assert encoder_outs is not None
         scores = torch.zeros(bsz * beam_size, max_len + 1).float()
-        tokens = torch.zeros(bsz * beam_size, max_len + 2).long().fill_(self
-            .pad)
+        tokens = torch.zeros(bsz * beam_size, max_len + 2).long().fill_(self.pad)
         tokens[:, (0)] = self.eos if bos_token is None else bos_token
         attn: Optional[Tensor] = None
         blacklist = torch.zeros(bsz, beam_size).eq(-1)
-        finalized = torch.jit.annotate(List[List[Dict[str, Tensor]]], [
-            torch.jit.annotate(List[Dict[str, Tensor]], []) for i in range(
-            bsz)])
+        finalized = torch.jit.annotate(List[List[Dict[str, Tensor]]], [torch.jit.annotate(List[Dict[str, Tensor]], []) for i in range(bsz)])
         finished = [(False) for i in range(bsz)]
         num_remaining_sent = bsz
         cand_size = 2 * beam_size
-        bbsz_offsets = (torch.arange(0, bsz) * beam_size).unsqueeze(1).type_as(
-            tokens)
+        bbsz_offsets = (torch.arange(0, bsz) * beam_size).unsqueeze(1).type_as(tokens)
         cand_offsets = torch.arange(0, cand_size).type_as(tokens)
         reorder_state: Optional[Tensor] = None
         batch_idxs: Optional[Tensor] = None
         for step in range(max_len + 1):
             if reorder_state is not None:
                 if batch_idxs is not None:
-                    corr = batch_idxs - torch.arange(batch_idxs.numel()
-                        ).type_as(batch_idxs)
-                    reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-
-                        1) * beam_size)
+                    corr = batch_idxs - torch.arange(batch_idxs.numel()).type_as(batch_idxs)
+                    reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-1) * beam_size)
                 self.model.reorder_incremental_state(reorder_state)
-                encoder_outs = self.model.reorder_encoder_out(encoder_outs,
-                    reorder_state)
-            lprobs, avg_attn_scores = self.model.forward_decoder(tokens[:,
-                :step + 1], encoder_outs, self.temperature)
+                encoder_outs = self.model.reorder_encoder_out(encoder_outs, reorder_state)
+            lprobs, avg_attn_scores = self.model.forward_decoder(tokens[:, :step + 1], encoder_outs, self.temperature)
             lprobs[lprobs != lprobs] = torch.tensor(-math.inf)
             lprobs[:, (self.pad)] = -math.inf
             lprobs[:, (self.unk)] -= self.unk_penalty
@@ -7074,42 +6273,31 @@ class SequenceGenerator(nn.Module):
                 lprobs[:, :self.eos] = -math.inf
                 lprobs[:, self.eos + 1:] = -math.inf
             elif self.eos_factor is not None:
-                disallow_eos_mask = lprobs[:, (self.eos)
-                    ] < self.eos_factor * lprobs.max(dim=1)[0]
+                disallow_eos_mask = lprobs[:, (self.eos)] < self.eos_factor * lprobs.max(dim=1)[0]
                 lprobs[disallow_eos_mask, self.eos] = -math.inf
-            if prefix_tokens is not None and step < prefix_tokens.size(1
-                ) and step < max_len:
-                lprobs, tokens, scores = self._prefix_tokens(step, lprobs,
-                    scores, tokens, prefix_tokens, beam_size)
+            if prefix_tokens is not None and step < prefix_tokens.size(1) and step < max_len:
+                lprobs, tokens, scores = self._prefix_tokens(step, lprobs, scores, tokens, prefix_tokens, beam_size)
             elif step < self.min_len:
                 lprobs[:, (self.eos)] = -math.inf
             if avg_attn_scores is not None:
                 if attn is None:
-                    attn = torch.empty(bsz * beam_size, avg_attn_scores.
-                        size(1), max_len + 2)
+                    attn = torch.empty(bsz * beam_size, avg_attn_scores.size(1), max_len + 2)
                 attn[:, :, (step + 1)].copy_(avg_attn_scores)
             scores = scores.type_as(lprobs)
             eos_bbsz_idx = torch.empty(0)
             eos_scores = torch.empty(0)
             self.search.set_src_lengths(src_lengths)
             if self.no_repeat_ngram_size > 0:
-                lprobs = self._no_repeat_ngram(tokens, lprobs, bsz,
-                    beam_size, step)
-            cand_scores, cand_indices, cand_beams = self.search.step(step,
-                lprobs.view(bsz, -1, self.vocab_size), scores.view(bsz,
-                beam_size, -1)[:, :, :step])
+                lprobs = self._no_repeat_ngram(tokens, lprobs, bsz, beam_size, step)
+            cand_scores, cand_indices, cand_beams = self.search.step(step, lprobs.view(bsz, -1, self.vocab_size), scores.view(bsz, beam_size, -1)[:, :, :step])
             cand_bbsz_idx = cand_beams.add(bbsz_offsets)
             eos_mask = cand_indices.eq(self.eos) & cand_scores.ne(-math.inf)
             eos_mask[:, :beam_size][blacklist] = torch.tensor(0)
-            eos_bbsz_idx = torch.masked_select(cand_bbsz_idx[:, :beam_size],
-                mask=eos_mask[:, :beam_size])
+            eos_bbsz_idx = torch.masked_select(cand_bbsz_idx[:, :beam_size], mask=eos_mask[:, :beam_size])
             finalized_sents: List[int] = []
             if eos_bbsz_idx.numel() > 0:
-                eos_scores = torch.masked_select(cand_scores[:, :beam_size],
-                    mask=eos_mask[:, :beam_size])
-                finalized_sents = self.finalize_hypos(step, eos_bbsz_idx,
-                    eos_scores, tokens, scores, finalized, finished,
-                    beam_size, attn, src_lengths, max_len)
+                eos_scores = torch.masked_select(cand_scores[:, :beam_size], mask=eos_mask[:, :beam_size])
+                finalized_sents = self.finalize_hypos(step, eos_bbsz_idx, eos_scores, tokens, scores, finalized, finished, beam_size, attn, src_lengths, max_len)
                 num_remaining_sent -= len(finalized_sents)
             assert num_remaining_sent >= 0
             if num_remaining_sent == 0:
@@ -7130,74 +6318,53 @@ class SequenceGenerator(nn.Module):
                     prefix_tokens = prefix_tokens[batch_idxs]
                 src_lengths = src_lengths[batch_idxs]
                 blacklist = blacklist[batch_idxs]
-                scores = scores.view(bsz, -1)[batch_idxs].view(new_bsz *
-                    beam_size, -1)
-                tokens = tokens.view(bsz, -1)[batch_idxs].view(new_bsz *
-                    beam_size, -1)
+                scores = scores.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                tokens = tokens.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
                 if attn is not None:
-                    attn = attn.view(bsz, -1)[batch_idxs].view(new_bsz *
-                        beam_size, attn.size(1), -1)
+                    attn = attn.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, attn.size(1), -1)
                 bsz = new_bsz
             else:
                 batch_idxs = None
             eos_mask[:, :beam_size] = ~(~blacklist & ~eos_mask[:, :beam_size])
-            active_mask = torch.add(eos_mask.type_as(cand_offsets) *
-                cand_size, cand_offsets[:eos_mask.size(1)])
-            new_blacklist, active_hypos = torch.topk(active_mask, k=
-                beam_size, dim=1, largest=False)
+            active_mask = torch.add(eos_mask.type_as(cand_offsets) * cand_size, cand_offsets[:eos_mask.size(1)])
+            new_blacklist, active_hypos = torch.topk(active_mask, k=beam_size, dim=1, largest=False)
             blacklist = new_blacklist.ge(cand_size)[:, :beam_size]
             assert (~blacklist).any(dim=1).all()
-            active_bbsz_idx = torch.gather(cand_bbsz_idx, dim=1, index=
-                active_hypos)
-            active_scores = torch.gather(cand_scores, dim=1, index=active_hypos
-                )
+            active_bbsz_idx = torch.gather(cand_bbsz_idx, dim=1, index=active_hypos)
+            active_scores = torch.gather(cand_scores, dim=1, index=active_hypos)
             active_bbsz_idx = active_bbsz_idx.view(-1)
             active_scores = active_scores.view(-1)
-            tokens[:, :step + 1] = torch.index_select(tokens[:, :step + 1],
-                dim=0, index=active_bbsz_idx)
-            tokens.view(bsz, beam_size, -1)[:, :, (step + 1)] = torch.gather(
-                cand_indices, dim=1, index=active_hypos)
+            tokens[:, :step + 1] = torch.index_select(tokens[:, :step + 1], dim=0, index=active_bbsz_idx)
+            tokens.view(bsz, beam_size, -1)[:, :, (step + 1)] = torch.gather(cand_indices, dim=1, index=active_hypos)
             if step > 0:
-                scores[:, :step] = torch.index_select(scores[:, :step], dim
-                    =0, index=active_bbsz_idx)
-            scores.view(bsz, beam_size, -1)[:, :, (step)] = torch.gather(
-                cand_scores, dim=1, index=active_hypos)
+                scores[:, :step] = torch.index_select(scores[:, :step], dim=0, index=active_bbsz_idx)
+            scores.view(bsz, beam_size, -1)[:, :, (step)] = torch.gather(cand_scores, dim=1, index=active_hypos)
             if attn is not None:
-                attn[:, :, :step + 2] = torch.index_select(attn[:, :, :step +
-                    2], dim=0, index=active_bbsz_idx)
+                attn[:, :, :step + 2] = torch.index_select(attn[:, :, :step + 2], dim=0, index=active_bbsz_idx)
             reorder_state = active_bbsz_idx
         for sent in range(len(finalized)):
-            BCList = [BeamContainer(elem['score'].item(), elem) for elem in
-                finalized[sent]]
+            BCList = [BeamContainer(elem['score'].item(), elem) for elem in finalized[sent]]
             BCList.sort()
             BCList.reverse()
-            finalized[sent] = torch.jit.annotate(List[Dict[str, Tensor]], [
-                x.elem for x in BCList])
+            finalized[sent] = torch.jit.annotate(List[Dict[str, Tensor]], [x.elem for x in BCList])
         return finalized
 
-    def _prefix_tokens(self, step: int, lprobs, scores, tokens,
-        prefix_tokens, beam_size: int):
+    def _prefix_tokens(self, step: int, lprobs, scores, tokens, prefix_tokens, beam_size: int):
         """Handle prefix tokens"""
-        prefix_toks = prefix_tokens[:, (step)].unsqueeze(-1).repeat(1,
-            beam_size).view(-1)
+        prefix_toks = prefix_tokens[:, (step)].unsqueeze(-1).repeat(1, beam_size).view(-1)
         prefix_lprobs = lprobs.gather(-1, prefix_toks.unsqueeze(-1))
         prefix_mask = prefix_toks.ne(self.pad)
         lprobs[prefix_mask] = torch.tensor(-math.inf)
-        lprobs[prefix_mask] = lprobs[prefix_mask].scatter(-1, prefix_toks[
-            prefix_mask].unsqueeze(-1), prefix_lprobs[prefix_mask])
+        lprobs[prefix_mask] = lprobs[prefix_mask].scatter(-1, prefix_toks[prefix_mask].unsqueeze(-1), prefix_lprobs[prefix_mask])
         eos_mask = prefix_toks.eq(self.eos)
         if eos_mask.any():
-            first_beam = tokens[eos_mask].view(-1, beam_size, tokens.size(-1))[
-                :, (0), 1:step + 1]
+            first_beam = tokens[eos_mask].view(-1, beam_size, tokens.size(-1))[:, (0), 1:step + 1]
             eos_mask_batch_dim = eos_mask.view(-1, beam_size)[:, (0)]
             target_prefix = prefix_tokens[eos_mask_batch_dim][:, :step]
             assert (first_beam == target_prefix).all()
-            tokens = self.replicate_first_beam(tokens, eos_mask_batch_dim,
-                beam_size)
-            scores = self.replicate_first_beam(scores, eos_mask_batch_dim,
-                beam_size)
-            lprobs = self.replicate_first_beam(lprobs, eos_mask_batch_dim,
-                beam_size)
+            tokens = self.replicate_first_beam(tokens, eos_mask_batch_dim, beam_size)
+            scores = self.replicate_first_beam(scores, eos_mask_batch_dim, beam_size)
+            lprobs = self.replicate_first_beam(lprobs, eos_mask_batch_dim, beam_size)
         return lprobs, tokens, scores
 
     def replicate_first_beam(self, tensor, mask, beam_size: int):
@@ -7205,10 +6372,7 @@ class SequenceGenerator(nn.Module):
         tensor[mask] = tensor[mask][:, :1, :]
         return tensor.view(-1, tensor.size(-1))
 
-    def finalize_hypos(self, step: int, bbsz_idx, eos_scores, tokens,
-        scores, finalized: List[List[Dict[str, Tensor]]], finished: List[
-        bool], beam_size: int, attn: Optional[Tensor], src_lengths, max_len:
-        int):
+    def finalize_hypos(self, step: int, bbsz_idx, eos_scores, tokens, scores, finalized: List[List[Dict[str, Tensor]]], finished: List[bool], beam_size: int, attn: Optional[Tensor], src_lengths, max_len: int):
         """Finalize hypothesis, store finalized information in `finalized`, and change `finished` accordingly.
         Returns number of sentences being finalized.
         Args:
@@ -7217,8 +6381,7 @@ class SequenceGenerator(nn.Module):
         assert bbsz_idx.numel() == eos_scores.numel()
         tokens_clone = tokens.index_select(0, bbsz_idx)[:, 1:step + 2]
         tokens_clone[:, (step)] = self.eos
-        attn_clone = attn.index_select(0, bbsz_idx)[:, :, 1:step + 2
-            ] if attn is not None else None
+        attn_clone = attn.index_select(0, bbsz_idx)[:, :, 1:step + 2] if attn is not None else None
         pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
         pos_scores[:, (step)] = eos_scores
         pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
@@ -7247,21 +6410,17 @@ class SequenceGenerator(nn.Module):
                     hypo_attn = attn_clone[i]
                 else:
                     hypo_attn = torch.empty(0)
-                finalized[sent].append({'tokens': tokens_clone[i], 'score':
-                    score, 'attention': hypo_attn, 'alignment': torch.empty
-                    (0), 'positional_scores': pos_scores[i]})
+                finalized[sent].append({'tokens': tokens_clone[i], 'score': score, 'attention': hypo_attn, 'alignment': torch.empty(0), 'positional_scores': pos_scores[i]})
         newly_finished: List[int] = []
         for seen in sents_seen.keys():
             sent: int = int(float(seen.split('_')[0]))
             unfin_idx: int = int(float(seen.split('_')[1]))
-            if not finished[sent] and self.is_finished(step, unfin_idx,
-                max_len, len(finalized[sent]), beam_size):
+            if not finished[sent] and self.is_finished(step, unfin_idx, max_len, len(finalized[sent]), beam_size):
                 finished[sent] = True
                 newly_finished.append(unfin_idx)
         return newly_finished
 
-    def is_finished(self, step: int, unfin_idx: int, max_len: int,
-        finalized_sent_len: int, beam_size: int):
+    def is_finished(self, step: int, unfin_idx: int, max_len: int, finalized_sent_len: int, beam_size: int):
         """
         Check whether we've finished generation for a given sentence, by
         comparing the worst score among finalized hypotheses to the best
@@ -7272,41 +6431,30 @@ class SequenceGenerator(nn.Module):
             return True
         return False
 
-    def calculate_banned_tokens(self, tokens, step: int, gen_ngrams: List[
-        Dict[str, List[int]]], no_repeat_ngram_size: int, bbsz_idx: int):
-        tokens_list: List[int] = tokens[(bbsz_idx), step + 2 -
-            no_repeat_ngram_size:step + 1].tolist()
+    def calculate_banned_tokens(self, tokens, step: int, gen_ngrams: List[Dict[str, List[int]]], no_repeat_ngram_size: int, bbsz_idx: int):
+        tokens_list: List[int] = tokens[(bbsz_idx), step + 2 - no_repeat_ngram_size:step + 1].tolist()
         ngram_index = ','.join([str(x) for x in tokens_list])
-        return gen_ngrams[bbsz_idx].get(ngram_index, torch.jit.annotate(
-            List[int], []))
+        return gen_ngrams[bbsz_idx].get(ngram_index, torch.jit.annotate(List[int], []))
 
     def transpose_list(self, l: List[List[int]]):
         min_len = min([len(x) for x in l])
         l2 = [[row[i] for row in l] for i in range(min_len)]
         return l2
 
-    def _no_repeat_ngram(self, tokens, lprobs, bsz: int, beam_size: int,
-        step: int):
-        gen_ngrams: List[Dict[str, List[int]]] = [torch.jit.annotate(Dict[
-            str, List[int]], {}) for bbsz_idx in range(bsz * beam_size)]
+    def _no_repeat_ngram(self, tokens, lprobs, bsz: int, beam_size: int, step: int):
+        gen_ngrams: List[Dict[str, List[int]]] = [torch.jit.annotate(Dict[str, List[int]], {}) for bbsz_idx in range(bsz * beam_size)]
         cpu_tokens = tokens.cpu()
         for bbsz_idx in range(bsz * beam_size):
             gen_tokens: List[int] = cpu_tokens[bbsz_idx].tolist()
-            for ngram in self.transpose_list([gen_tokens[i:] for i in range
-                (self.no_repeat_ngram_size)]):
+            for ngram in self.transpose_list([gen_tokens[i:] for i in range(self.no_repeat_ngram_size)]):
                 key = ','.join([str(x) for x in ngram[:-1]])
-                gen_ngrams[bbsz_idx][key] = gen_ngrams[bbsz_idx].get(key,
-                    torch.jit.annotate(List[int], [])) + [ngram[-1]]
+                gen_ngrams[bbsz_idx][key] = gen_ngrams[bbsz_idx].get(key, torch.jit.annotate(List[int], [])) + [ngram[-1]]
         if step + 2 - self.no_repeat_ngram_size >= 0:
-            banned_tokens = [self.calculate_banned_tokens(tokens, step,
-                gen_ngrams, self.no_repeat_ngram_size, bbsz_idx) for
-                bbsz_idx in range(bsz * beam_size)]
+            banned_tokens = [self.calculate_banned_tokens(tokens, step, gen_ngrams, self.no_repeat_ngram_size, bbsz_idx) for bbsz_idx in range(bsz * beam_size)]
         else:
-            banned_tokens = [torch.jit.annotate(List[int], []) for bbsz_idx in
-                range(bsz * beam_size)]
+            banned_tokens = [torch.jit.annotate(List[int], []) for bbsz_idx in range(bsz * beam_size)]
         for bbsz_idx in range(bsz * beam_size):
-            lprobs[bbsz_idx][torch.tensor(banned_tokens[bbsz_idx]).long()
-                ] = torch.tensor(-math.inf, dtype=torch.float)
+            lprobs[bbsz_idx][torch.tensor(banned_tokens[bbsz_idx]).long()] = torch.tensor(-math.inf, dtype=torch.float)
         return lprobs
 
 
@@ -7336,8 +6484,7 @@ class FairseqIncrementalDecoder(FairseqDecoder):
     def __init__(self, dictionary):
         super().__init__(dictionary)
 
-    def forward(self, prev_output_tokens, encoder_out=None,
-        incremental_state=None, **kwargs):
+    def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs):
         """
         Args:
             prev_output_tokens (LongTensor): shifted output tokens of shape
@@ -7354,8 +6501,7 @@ class FairseqIncrementalDecoder(FairseqDecoder):
         """
         raise NotImplementedError
 
-    def extract_features(self, prev_output_tokens, encoder_out=None,
-        incremental_state=None, **kwargs):
+    def extract_features(self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs):
         """
         Returns:
             tuple:
@@ -7364,8 +6510,7 @@ class FairseqIncrementalDecoder(FairseqDecoder):
         """
         raise NotImplementedError
 
-    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[
-        str, Optional[Tensor]]], new_order: Tensor):
+    def reorder_incremental_state(self, incremental_state: Dict[str, Dict[str, Optional[Tensor]]], new_order: Tensor):
         """Reorder incremental state.
 
         This should be called when the order of the input has changed from the
@@ -7377,8 +6522,7 @@ class FairseqIncrementalDecoder(FairseqDecoder):
             if hasattr(module, 'reorder_incremental_state'):
                 if id(module) not in seen and module is not self:
                     seen[id(module)] = None
-                    result = module.reorder_incremental_state(incremental_state
-                        , new_order)
+                    result = module.reorder_incremental_state(incremental_state, new_order)
                     if result is not None:
                         incremental_state = result
 
@@ -7388,8 +6532,7 @@ class FairseqIncrementalDecoder(FairseqDecoder):
             seen = set()
 
             def apply_set_beam_size(module):
-                if module != self and hasattr(module, 'set_beam_size'
-                    ) and module not in seen:
+                if module != self and hasattr(module, 'set_beam_size') and module not in seen:
                     seen.add(module)
                     module.set_beam_size(beam_size)
             self.apply(apply_set_beam_size)
@@ -7405,12 +6548,9 @@ class EnsembleModel(nn.Module):
         self.models_size = len(models)
         self.single_model = models[0]
         self.models = nn.ModuleList(models)
-        self.incremental_states = torch.jit.annotate(List[Dict[str, Dict[
-            str, Optional[Tensor]]]], [torch.jit.annotate(Dict[str, Dict[
-            str, Optional[Tensor]]], {}) for i in range(self.models_size)])
+        self.incremental_states = torch.jit.annotate(List[Dict[str, Dict[str, Optional[Tensor]]]], [torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {}) for i in range(self.models_size)])
         self.has_incremental: bool = False
-        if all(hasattr(m, 'decoder') and isinstance(m.decoder,
-            FairseqIncrementalDecoder) for m in models):
+        if all(hasattr(m, 'decoder') and isinstance(m.decoder, FairseqIncrementalDecoder) for m in models):
             self.has_incremental = True
 
     def forward(self):
@@ -7418,10 +6558,7 @@ class EnsembleModel(nn.Module):
 
     def reset_incremental_state(self):
         if self.has_incremental_states():
-            self.incremental_states = torch.jit.annotate(List[Dict[str,
-                Dict[str, Optional[Tensor]]]], [torch.jit.annotate(Dict[str,
-                Dict[str, Optional[Tensor]]], {}) for i in range(self.
-                models_size)])
+            self.incremental_states = torch.jit.annotate(List[Dict[str, Dict[str, Optional[Tensor]]]], [torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {}) for i in range(self.models_size)])
         return
 
     def has_encoder(self):
@@ -7437,12 +6574,10 @@ class EnsembleModel(nn.Module):
     def forward_encoder(self, net_input: Dict[str, Tensor]):
         if not self.has_encoder():
             return None
-        return [model.encoder.forward_torchscript(net_input) for model in
-            self.models]
+        return [model.encoder.forward_torchscript(net_input) for model in self.models]
 
     @torch.jit.export
-    def forward_decoder(self, tokens, encoder_outs: List[EncoderOut],
-        temperature: float=1.0):
+    def forward_decoder(self, tokens, encoder_outs: List[EncoderOut], temperature: float=1.0):
         log_probs = []
         avg_attn: Optional[Tensor] = None
         encoder_out: Optional[EncoderOut] = None
@@ -7450,11 +6585,9 @@ class EnsembleModel(nn.Module):
             if self.has_encoder():
                 encoder_out = encoder_outs[i]
             if self.has_incremental_states():
-                decoder_out = model.decoder.forward(tokens, encoder_out=
-                    encoder_out, incremental_state=self.incremental_states[i])
+                decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[i])
             else:
-                decoder_out = model.decoder.forward(tokens, encoder_out=
-                    encoder_out)
+                decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out)
             attn: Optional[Tensor] = None
             decoder_len = len(decoder_out)
             if decoder_len > 1 and decoder_out[1] is not None:
@@ -7468,10 +6601,8 @@ class EnsembleModel(nn.Module):
                         attn = attn_holder[0]
                 if attn is not None:
                     attn = attn[:, (-1), :]
-            decoder_out_tuple = decoder_out[0][:, -1:, :].div_(temperature
-                ), None if decoder_len <= 1 else decoder_out[1]
-            probs = model.get_normalized_probs(decoder_out_tuple, log_probs
-                =True, sample=None)
+            decoder_out_tuple = decoder_out[0][:, -1:, :].div_(temperature), None if decoder_len <= 1 else decoder_out[1]
+            probs = model.get_normalized_probs(decoder_out_tuple, log_probs=True, sample=None)
             probs = probs[:, (-1), :]
             if self.models_size == 1:
                 return probs, attn
@@ -7481,15 +6612,13 @@ class EnsembleModel(nn.Module):
                     avg_attn = attn
                 else:
                     avg_attn.add_(attn)
-        avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0
-            ) - math.log(self.models_size)
+        avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0) - math.log(self.models_size)
         if avg_attn is not None:
             avg_attn.div_(self.models_size)
         return avg_probs, avg_attn
 
     @torch.jit.export
-    def reorder_encoder_out(self, encoder_outs: Optional[List[EncoderOut]],
-        new_order):
+    def reorder_encoder_out(self, encoder_outs: Optional[List[EncoderOut]], new_order):
         """
         Reorder encoder output according to *new_order*.
 
@@ -7505,8 +6634,7 @@ class EnsembleModel(nn.Module):
             return new_outs
         for i, model in enumerate(self.models):
             assert encoder_outs is not None
-            new_outs.append(model.encoder.reorder_encoder_out(encoder_outs[
-                i], new_order))
+            new_outs.append(model.encoder.reorder_encoder_out(encoder_outs[i], new_order))
         return new_outs
 
     @torch.jit.export
@@ -7514,8 +6642,7 @@ class EnsembleModel(nn.Module):
         if not self.has_incremental_states():
             return
         for i, model in enumerate(self.models):
-            model.decoder.reorder_incremental_state(self.incremental_states
-                [i], new_order)
+            model.decoder.reorder_incremental_state(self.incremental_states[i], new_order)
 
 
 class ModelWithSharedParameter(nn.Module):
@@ -7548,69 +6675,135 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_freewym_espresso(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(AdaptiveSoftmax(*[], **{'vocab_size': 4, 'input_dim': 4, 'cutoff': [4, 4], 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveSoftmax,
+     lambda: ([], {'vocab_size': 4, 'input_dim': 4, 'cutoff': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BeamableMM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (ConvTBC,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Downsample,
+     lambda: ([], {'index': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownsampledMultiHeadAttention,
+     lambda: ([], {'out_channels': 4, 'embed_dim': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Fp32GroupNorm,
+     lambda: ([], {'num_groups': 1, 'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Fp32LayerNorm,
+     lambda: ([], {'normalized_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Highway,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (KmeansVectorQuantizer,
+     lambda: ([], {'dim': 4, 'num_vars': 4, 'groups': 1, 'combine_groups': 1, 'vq_dim': 4, 'time_first': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LightweightConv1d,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Model,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiheadAttention,
+     lambda: ([], {'embed_dim': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SelfAttention,
+     lambda: ([], {'out_channels': 4, 'embed_dim': 4, 'num_heads': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SingleHeadAttention,
+     lambda: ([], {'out_channels': 4, 'embed_dim': 4, 'head_dim': 4, 'head_index': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (TransposeLast,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGGBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'conv_kernel_size': 4, 'pooling_kernel_size': 4, 'num_conv_layers': 1, 'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Wav2VecPredictionsModel,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4, 'prediction_steps': 4, 'n_negatives': 4, 'cross_sample_negatives': 4, 'sample_distance': 4, 'dropout': 0.5, 'offset': 4, 'balanced_classes': 4, 'infonce': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (ZeroPad1d,
+     lambda: ([], {'pad_left': 4, 'pad_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_freewym_espresso(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BeamableMM(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConvTBC(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Downsample(*[], **{'index': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DownsampledMultiHeadAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Fp32GroupNorm(*[], **{'num_groups': 1, 'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Fp32LayerNorm(*[], **{'normalized_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Highway(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(KmeansVectorQuantizer(*[], **{'dim': 4, 'num_vars': 4, 'groups': 1, 'combine_groups': 1, 'vq_dim': 4, 'time_first': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(LightweightConv1d(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Model(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(MultiheadAttention(*[], **{'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(SelfAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'num_heads': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(SingleHeadAttention(*[], **{'out_channels': 4, 'embed_dim': 4, 'head_dim': 4, 'head_index': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(TransposeLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(VGGBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'conv_kernel_size': 4, 'pooling_kernel_size': 4, 'num_conv_layers': 1, 'input_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(Wav2VecPredictionsModel(*[], **{'in_dim': 4, 'out_dim': 4, 'prediction_steps': 4, 'n_negatives': 4, 'cross_sample_negatives': 4, 'sample_distance': 4, 'dropout': 0.5, 'offset': 4, 'balanced_classes': 4, 'infonce': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(ZeroPad1d(*[], **{'pad_left': 4, 'pad_right': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 

@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -108,8 +109,7 @@ class Criterion(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -144,11 +144,9 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=
-            stride, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -178,12 +176,10 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
@@ -201,9 +197,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -231,8 +225,7 @@ class resnet_mil(nn.Module):
     def __init__(self, opt):
         super(resnet_mil, self).__init__()
         resnet = resnet.resnet101()
-        resnet.load_state_dict(torch.load(
-            '/media/jxgu/d2tb/model/resnet/resnet101.pth'))
+        resnet.load_state_dict(torch.load('/media/jxgu/d2tb/model/resnet/resnet101.pth'))
         self.conv = torch.nn.Sequential()
         self.conv.add_module('conv1', resnet.conv1)
         self.conv.add_module('bn1', resnet.bn1)
@@ -242,8 +235,7 @@ class resnet_mil(nn.Module):
         self.conv.add_module('layer2', resnet.layer2)
         self.conv.add_module('layer3', resnet.layer3)
         self.conv.add_module('layer4', resnet.layer4)
-        self.l1 = nn.Sequential(nn.Linear(2048, 1000), nn.ReLU(True), nn.
-            Dropout(0.5))
+        self.l1 = nn.Sequential(nn.Linear(2048, 1000), nn.ReLU(True), nn.Dropout(0.5))
         self.att_size = 7
         self.pool_mil = nn.MaxPool2d(kernel_size=self.att_size, stride=0)
 
@@ -275,8 +267,7 @@ class myResnet(nn.Module):
         x = self.resnet.layer3(x)
         x = self.resnet.layer4(x)
         fc = x.mean(3).mean(2)
-        att = F.adaptive_avg_pool2d(x, [att_size, att_size]).squeeze().permute(
-            1, 2, 0)
+        att = F.adaptive_avg_pool2d(x, [att_size, att_size]).squeeze().permute(1, 2, 0)
         return fc, att
 
 
@@ -285,58 +276,42 @@ class vgg_mil(nn.Module):
     def __init__(self, opt):
         super(vgg_mil, self).__init__()
         self.conv = torch.nn.Sequential()
-        self.conv.add_module('conv1_1', nn.Conv2d(3, 64, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv1_1', nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_1_1', torch.nn.ReLU())
-        self.conv.add_module('conv1_2', nn.Conv2d(64, 64, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv1_2', nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_1_2', torch.nn.ReLU())
         self.conv.add_module('maxpool_1', torch.nn.MaxPool2d(kernel_size=2))
-        self.conv.add_module('conv2_1', nn.Conv2d(64, 128, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv2_1', nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_2_1', torch.nn.ReLU())
-        self.conv.add_module('conv2_2', nn.Conv2d(128, 128, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv2_2', nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_2_2', torch.nn.ReLU())
         self.conv.add_module('maxpool_2', torch.nn.MaxPool2d(kernel_size=2))
-        self.conv.add_module('conv3_1', nn.Conv2d(128, 256, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv3_1', nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_3_1', torch.nn.ReLU())
-        self.conv.add_module('conv3_2', nn.Conv2d(256, 256, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv3_2', nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_3_2', torch.nn.ReLU())
-        self.conv.add_module('conv3_3', nn.Conv2d(256, 256, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv3_3', nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_3_3', torch.nn.ReLU())
         self.conv.add_module('maxpool_3', torch.nn.MaxPool2d(kernel_size=2))
-        self.conv.add_module('conv4_1', nn.Conv2d(256, 512, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv4_1', nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_4_1', torch.nn.ReLU())
-        self.conv.add_module('conv4_2', nn.Conv2d(512, 512, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv4_2', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_4_2', torch.nn.ReLU())
-        self.conv.add_module('conv4_3', nn.Conv2d(512, 512, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv4_3', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_4_3', torch.nn.ReLU())
         self.conv.add_module('maxpool_4', torch.nn.MaxPool2d(kernel_size=2))
-        self.conv.add_module('conv5_1', nn.Conv2d(512, 512, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv5_1', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_5_1', torch.nn.ReLU())
-        self.conv.add_module('conv5_2', nn.Conv2d(512, 512, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv5_2', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_5_2', torch.nn.ReLU())
-        self.conv.add_module('conv5_3', nn.Conv2d(512, 512, kernel_size=3,
-            stride=1, padding=1))
+        self.conv.add_module('conv5_3', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1))
         self.conv.add_module('relu_5_3', torch.nn.ReLU())
         self.conv.add_module('maxpool_5', torch.nn.MaxPool2d(kernel_size=2))
-        self.conv.add_module('fc6_conv', nn.Conv2d(512, 4096, kernel_size=7,
-            stride=1, padding=0))
+        self.conv.add_module('fc6_conv', nn.Conv2d(512, 4096, kernel_size=7, stride=1, padding=0))
         self.conv.add_module('relu_6_1', torch.nn.ReLU())
-        self.conv.add_module('fc7_conv', nn.Conv2d(4096, 4096, kernel_size=
-            1, stride=1, padding=0))
+        self.conv.add_module('fc7_conv', nn.Conv2d(4096, 4096, kernel_size=1, stride=1, padding=0))
         self.conv.add_module('relu_7_1', torch.nn.ReLU())
-        self.conv.add_module('fc8_conv', nn.Conv2d(4096, 1000, kernel_size=
-            1, stride=1, padding=0))
+        self.conv.add_module('fc8_conv', nn.Conv2d(4096, 1000, kernel_size=1, stride=1, padding=0))
         self.conv.add_module('sigmoid_8', torch.nn.Sigmoid())
         self.pool_mil = nn.MaxPool2d(kernel_size=11, stride=0)
         self.weight_init()
@@ -372,14 +347,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Criterion,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MIL_Precision_Score_Mapping,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_gujiuxiang_MIL_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Criterion(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(MIL_Precision_Score_Mapping(*[], **{}), [torch.rand([4, 4, 64, 64]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

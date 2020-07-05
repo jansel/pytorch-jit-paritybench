@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,9 +61,7 @@ class Double_conv(nn.Module):
             out_ch(int) : output channel
         """
         super(Double_conv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=0,
-            stride=1), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3,
-            padding=0, stride=1), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3, padding=0, stride=1), nn.ReLU(inplace=True))
 
     def forward(self, x):
         x = self.conv(x)
@@ -95,8 +94,7 @@ def extract_img(size, in_tensor):
         in_tensor(tensor) : tensor to be cut
     """
     dim1, dim2 = in_tensor.size()[2:]
-    in_tensor = in_tensor[:, :, int((dim1 - size) / 2):int((dim1 + size) / 
-        2), int((dim2 - size) / 2):int((dim2 + size) / 2)]
+    in_tensor = in_tensor[:, :, int((dim1 - size) / 2):int((dim1 + size) / 2), int((dim2 - size) / 2):int((dim2 + size) / 2)]
     return in_tensor
 
 
@@ -155,56 +153,24 @@ class CleanU_Net(nn.Module):
 
     def __init__(self):
         super(CleanU_Net, self).__init__()
-        self.conv1_block = nn.Sequential(nn.Conv2d(in_channels=1,
-            out_channels=32, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=32, out_channels=32,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.conv1_block = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
         self.max1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2_block = nn.Sequential(nn.Conv2d(in_channels=32,
-            out_channels=64, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=64, out_channels=64,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.conv2_block = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
         self.max2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv3_block = nn.Sequential(nn.Conv2d(in_channels=64,
-            out_channels=128, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=128, out_channels=128,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.conv3_block = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
         self.max3 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv4_block = nn.Sequential(nn.Conv2d(in_channels=128,
-            out_channels=256, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=256, out_channels=256,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.conv4_block = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
         self.max4 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv5_block = nn.Sequential(nn.Conv2d(in_channels=256,
-            out_channels=512, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
-        self.up_1 = nn.ConvTranspose2d(in_channels=512, out_channels=256,
-            kernel_size=2, stride=2)
-        self.conv_up_1 = nn.Sequential(nn.Conv2d(in_channels=512,
-            out_channels=256, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=256, out_channels=256,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
-        self.up_2 = nn.ConvTranspose2d(in_channels=256, out_channels=128,
-            kernel_size=2, stride=2)
-        self.conv_up_2 = nn.Sequential(nn.Conv2d(in_channels=256,
-            out_channels=128, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=128, out_channels=128,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
-        self.up_3 = nn.ConvTranspose2d(in_channels=128, out_channels=64,
-            kernel_size=2, stride=2)
-        self.conv_up_3 = nn.Sequential(nn.Conv2d(in_channels=128,
-            out_channels=64, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=64, out_channels=64,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
-        self.up_4 = nn.ConvTranspose2d(in_channels=64, out_channels=32,
-            kernel_size=2, stride=2)
-        self.conv_up_4 = nn.Sequential(nn.Conv2d(in_channels=64,
-            out_channels=32, kernel_size=3, padding=0, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels=32, out_channels=32,
-            kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
-        self.conv_final = nn.Conv2d(in_channels=32, out_channels=2,
-            kernel_size=1, padding=0, stride=1)
+        self.conv5_block = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.up_1 = nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=2, stride=2)
+        self.conv_up_1 = nn.Sequential(nn.Conv2d(in_channels=512, out_channels=256, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.up_2 = nn.ConvTranspose2d(in_channels=256, out_channels=128, kernel_size=2, stride=2)
+        self.conv_up_2 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.up_3 = nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=2, stride=2)
+        self.conv_up_3 = nn.Sequential(nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.up_4 = nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=2, stride=2)
+        self.conv_up_4 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True), nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=0, stride=1), nn.ReLU(inplace=True))
+        self.conv_final = nn.Conv2d(in_channels=32, out_channels=2, kernel_size=1, padding=0, stride=1)
 
     def forward(self, x):
         x = self.conv1_block(x)
@@ -256,11 +222,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv_down,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Double_conv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+]
+
 class Test_ugent_korea_pytorch_unet_segmentation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv_down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

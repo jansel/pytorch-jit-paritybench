@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -62,10 +63,8 @@ class SEModule(nn.Module):
     def __init__(self, channel, act, reduction=4):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 
-            1, 1, 0, bias=True), act)
-        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1,
-            1, 0, bias=True), Hsigmoid())
+        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
+        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -87,8 +86,7 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv1 = nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False)
         self.bn1 = nn.BatchNorm2d(hidden_dim)
-        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride,
-            padding, groups=hidden_dim, bias=False)
+        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, padding, groups=hidden_dim, bias=False)
         self.bn2 = nn.BatchNorm2d(hidden_dim)
         if self.se:
             self.mid_se = SEModule(hidden_dim, act)
@@ -118,24 +116,19 @@ def classifier(inp, nclass):
 
 
 def conv_before_pooling(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm2d(oup), Hswish())
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), Hswish())
 
 
 def conv_head(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, bias=False), Hswish(inplace
-        =True), nn.Dropout2d(0.2))
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, bias=False), Hswish(inplace=True), nn.Dropout2d(0.2))
 
 
 def separable_conv(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, inp, 3, 1, 1, groups=inp, bias=
-        False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp,
-        oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+    return nn.Sequential(nn.Conv2d(inp, inp, 3, 1, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
 
 def stem(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), Hswish())
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), Hswish())
 
 
 class MoGaA(nn.Module):
@@ -143,11 +136,7 @@ class MoGaA(nn.Module):
     def __init__(self, n_class=1000, input_size=224):
         super(MoGaA, self).__init__()
         assert input_size % 32 == 0
-        mb_config = [[6, 24, 5, 2, 0, 0], [6, 24, 7, 1, 0, 0], [6, 40, 3, 2,
-            0, 0], [6, 40, 3, 1, 0, 1], [3, 40, 3, 1, 0, 1], [6, 80, 3, 2, 
-            1, 1], [6, 80, 3, 1, 1, 0], [6, 80, 7, 1, 1, 0], [3, 80, 7, 1, 
-            1, 1], [6, 112, 7, 1, 1, 0], [6, 112, 3, 1, 1, 0], [6, 160, 3, 
-            2, 1, 0], [6, 160, 5, 1, 1, 1], [6, 160, 5, 1, 1, 1]]
+        mb_config = [[6, 24, 5, 2, 0, 0], [6, 24, 7, 1, 0, 0], [6, 40, 3, 2, 0, 0], [6, 40, 3, 1, 0, 1], [3, 40, 3, 1, 0, 1], [6, 80, 3, 2, 1, 1], [6, 80, 3, 1, 1, 0], [6, 80, 7, 1, 1, 0], [3, 80, 7, 1, 1, 1], [6, 112, 7, 1, 1, 0], [6, 112, 3, 1, 1, 0], [6, 160, 3, 2, 1, 0], [6, 160, 5, 1, 1, 1], [6, 160, 5, 1, 1, 1]]
         first_filter = 16
         second_filter = 16
         second_last_filter = 960
@@ -160,12 +149,10 @@ class MoGaA(nn.Module):
         for t, c, k, s, a, se in mb_config:
             output_channel = c
             act = nn.ReLU(inplace=True) if a == 0 else Hswish(inplace=True)
-            self.mb_module.append(InvertedResidual(input_channel,
-                output_channel, k, s, expand_ratio=t, act=act, se=se != 0))
+            self.mb_module.append(InvertedResidual(input_channel, output_channel, k, s, expand_ratio=t, act=act, se=se != 0))
             input_channel = output_channel
         self.mb_module = nn.Sequential(*self.mb_module)
-        self.conv_before_pooling = conv_before_pooling(input_channel,
-            second_last_filter)
+        self.conv_before_pooling = conv_before_pooling(input_channel, second_last_filter)
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.conv_head = conv_head(second_last_filter, last_channel)
         self.classifier = classifier(last_channel, n_class)
@@ -224,10 +211,8 @@ class SEModule(nn.Module):
     def __init__(self, channel, act, reduction=4):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 
-            1, 1, 0, bias=True), act)
-        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1,
-            1, 0, bias=True), Hsigmoid())
+        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
+        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -249,8 +234,7 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv1 = nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False)
         self.bn1 = nn.BatchNorm2d(hidden_dim)
-        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride,
-            padding, groups=hidden_dim, bias=False)
+        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, padding, groups=hidden_dim, bias=False)
         self.bn2 = nn.BatchNorm2d(hidden_dim)
         if self.se:
             self.mid_se = SEModule(hidden_dim, act)
@@ -280,11 +264,7 @@ class MoGaB(nn.Module):
     def __init__(self, n_class=1000, input_size=224):
         super(MoGaB, self).__init__()
         assert input_size % 32 == 0
-        mb_config = [[3, 24, 3, 2, 0, 0], [3, 24, 3, 1, 0, 0], [6, 40, 7, 2,
-            0, 0], [3, 40, 3, 1, 0, 0], [6, 40, 5, 1, 0, 0], [6, 80, 3, 2, 
-            1, 1], [6, 80, 5, 1, 1, 1], [3, 80, 3, 1, 1, 0], [6, 80, 7, 1, 
-            1, 1], [6, 112, 7, 1, 1, 0], [3, 112, 5, 1, 1, 0], [6, 160, 7, 
-            2, 1, 1], [6, 160, 7, 1, 1, 1], [6, 160, 3, 1, 1, 1]]
+        mb_config = [[3, 24, 3, 2, 0, 0], [3, 24, 3, 1, 0, 0], [6, 40, 7, 2, 0, 0], [3, 40, 3, 1, 0, 0], [6, 40, 5, 1, 0, 0], [6, 80, 3, 2, 1, 1], [6, 80, 5, 1, 1, 1], [3, 80, 3, 1, 1, 0], [6, 80, 7, 1, 1, 1], [6, 112, 7, 1, 1, 0], [3, 112, 5, 1, 1, 0], [6, 160, 7, 2, 1, 1], [6, 160, 7, 1, 1, 1], [6, 160, 3, 1, 1, 1]]
         first_filter = 16
         second_filter = 16
         second_last_filter = 960
@@ -297,12 +277,10 @@ class MoGaB(nn.Module):
         for t, c, k, s, a, se in mb_config:
             output_channel = c
             act = nn.ReLU(inplace=True) if a == 0 else Hswish(inplace=True)
-            self.mb_module.append(InvertedResidual(input_channel,
-                output_channel, k, s, expand_ratio=t, act=act, se=se != 0))
+            self.mb_module.append(InvertedResidual(input_channel, output_channel, k, s, expand_ratio=t, act=act, se=se != 0))
             input_channel = output_channel
         self.mb_module = nn.Sequential(*self.mb_module)
-        self.conv_before_pooling = conv_before_pooling(input_channel,
-            second_last_filter)
+        self.conv_before_pooling = conv_before_pooling(input_channel, second_last_filter)
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.conv_head = conv_head(second_last_filter, last_channel)
         self.classifier = classifier(last_channel, n_class)
@@ -361,10 +339,8 @@ class SEModule(nn.Module):
     def __init__(self, channel, act, reduction=4):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 
-            1, 1, 0, bias=True), act)
-        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1,
-            1, 0, bias=True), Hsigmoid())
+        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
+        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
 
     def forward(self, x):
         y = self.avg_pool(x)
@@ -386,8 +362,7 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = self.stride == 1 and inp == oup
         self.conv1 = nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False)
         self.bn1 = nn.BatchNorm2d(hidden_dim)
-        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride,
-            padding, groups=hidden_dim, bias=False)
+        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, padding, groups=hidden_dim, bias=False)
         self.bn2 = nn.BatchNorm2d(hidden_dim)
         if self.se:
             self.mid_se = SEModule(hidden_dim, act)
@@ -417,11 +392,7 @@ class MoGaC(nn.Module):
     def __init__(self, n_class=1000, input_size=224):
         super(MoGaC, self).__init__()
         assert input_size % 32 == 0
-        mb_config = [[3, 24, 5, 2, 0, 0], [3, 24, 3, 1, 0, 0], [3, 40, 5, 2,
-            0, 0], [3, 40, 3, 1, 0, 0], [3, 40, 5, 1, 0, 0], [3, 80, 5, 2, 
-            1, 0], [6, 80, 5, 1, 1, 1], [3, 80, 5, 1, 1, 0], [3, 80, 5, 1, 
-            1, 0], [6, 112, 3, 1, 1, 0], [6, 112, 3, 1, 1, 1], [6, 160, 3, 
-            2, 1, 1], [6, 160, 3, 1, 1, 1], [6, 160, 3, 1, 1, 1]]
+        mb_config = [[3, 24, 5, 2, 0, 0], [3, 24, 3, 1, 0, 0], [3, 40, 5, 2, 0, 0], [3, 40, 3, 1, 0, 0], [3, 40, 5, 1, 0, 0], [3, 80, 5, 2, 1, 0], [6, 80, 5, 1, 1, 1], [3, 80, 5, 1, 1, 0], [3, 80, 5, 1, 1, 0], [6, 112, 3, 1, 1, 0], [6, 112, 3, 1, 1, 1], [6, 160, 3, 2, 1, 1], [6, 160, 3, 1, 1, 1], [6, 160, 3, 1, 1, 1]]
         first_filter = 16
         second_filter = 16
         second_last_filter = 960
@@ -434,12 +405,10 @@ class MoGaC(nn.Module):
         for t, c, k, s, a, se in mb_config:
             output_channel = c
             act = nn.ReLU(inplace=True) if a == 0 else Hswish(inplace=True)
-            self.mb_module.append(InvertedResidual(input_channel,
-                output_channel, k, s, expand_ratio=t, act=act, se=se != 0))
+            self.mb_module.append(InvertedResidual(input_channel, output_channel, k, s, expand_ratio=t, act=act, se=se != 0))
             input_channel = output_channel
         self.mb_module = nn.Sequential(*self.mb_module)
-        self.conv_before_pooling = conv_before_pooling(input_channel,
-            second_last_filter)
+        self.conv_before_pooling = conv_before_pooling(input_channel, second_last_filter)
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.conv_head = conv_head(second_last_filter, last_channel)
         self.classifier = classifier(last_channel, n_class)
@@ -477,23 +446,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Hsigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Hswish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MoGaA,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (MoGaB,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (MoGaC,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_xiaomi_automl_MoGA(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MoGaA(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MoGaB(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MoGaC(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 

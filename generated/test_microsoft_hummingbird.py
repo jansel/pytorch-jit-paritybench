@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,8 +65,7 @@ class PyTorchBackendModel(torch.nn.Module):
     Container for a model compiled into PyTorch.
     """
 
-    def __init__(self, input_names, output_names, operator_map, topology,
-        extra_config):
+    def __init__(self, input_names, output_names, operator_map, topology, extra_config):
         """
         Args:
             input_names: The names of the input `onnxconverter_common.topology.Variable`s for this model
@@ -80,8 +80,7 @@ class PyTorchBackendModel(torch.nn.Module):
         self.operator_map = torch.nn.ModuleDict(operator_map)
         self.operators = list(topology.topological_operator_iterator())
         self.extra_config = extra_config
-        self.is_regression = self.operator_map[self.operators[-1].full_name
-            ].regression
+        self.is_regression = self.operator_map[self.operators[-1].full_name].regression
 
     def forward(self, *inputs):
         with torch.no_grad():
@@ -92,27 +91,22 @@ class PyTorchBackendModel(torch.nn.Module):
                 if type(inputs[i]) is np.ndarray:
                     inputs[i] = torch.from_numpy(inputs[i])
                 elif type(inputs[i]) is not torch.Tensor:
-                    raise RuntimeError(
-                        'Inputer tensor {} of not supported type {}'.format
-                        (input_name, type(inputs[i])))
+                    raise RuntimeError('Inputer tensor {} of not supported type {}'.format(input_name, type(inputs[i])))
                 if device is not None:
                     inputs[i] = inputs[i]
                 variable_map[input_name] = inputs[i]
             for operator in self.operators:
                 pytorch_op = self.operator_map[operator.full_name]
-                pytorch_outputs = pytorch_op(*(variable_map[input] for
-                    input in operator.input_full_names))
+                pytorch_outputs = pytorch_op(*(variable_map[input] for input in operator.input_full_names))
                 if len(operator.output_full_names) == 1:
-                    variable_map[operator.output_full_names[0]
-                        ] = pytorch_outputs
+                    variable_map[operator.output_full_names[0]] = pytorch_outputs
                 else:
                     for i, output in enumerate(operator.output_full_names):
                         variable_map[output] = pytorch_outputs[i]
             if len(self.output_names) == 1:
                 return variable_map[self.output_names[0]]
             else:
-                return list(variable_map[output_name] for output_name in
-                    self.output_names)
+                return list(variable_map[output_name] for output_name in self.output_names)
 
     def predict(self, *inputs):
         """
@@ -132,8 +126,7 @@ class PyTorchBackendModel(torch.nn.Module):
         On classification tasks returns the probability estimates.
         """
         if self.is_regression:
-            raise RuntimeError(
-                'Predict_proba not available for regression tasks.')
+            raise RuntimeError('Predict_proba not available for regression tasks.')
         else:
             return self.forward(*inputs)[1].cpu().numpy()
 
@@ -199,14 +192,6 @@ class AbstractPyTorchTreeImpl(AbstracTreeImpl, torch.nn.Module):
         else:
             self.n_classes = len(classes) if n_classes is None else n_classes
             if min(classes) != 0 or max(classes) != len(classes) - 1:
-                self.classes = torch.nn.Parameter(torch.IntTensor(classes),
-                    requires_grad=False)
+                self.classes = torch.nn.Parameter(torch.IntTensor(classes), requires_grad=False)
                 self.perform_class_select = True
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_microsoft_hummingbird(_paritybench_base):
-    pass

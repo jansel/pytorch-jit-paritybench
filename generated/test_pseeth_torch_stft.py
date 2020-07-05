@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -39,8 +40,7 @@ import torch.nn.functional as F
 from scipy.signal import get_window
 
 
-def window_sumsquare(window, n_frames, hop_length=200, win_length=800,
-    n_fft=800, dtype=np.float32, norm=None):
+def window_sumsquare(window, n_frames, hop_length=200, win_length=800, n_fft=800, dtype=np.float32, norm=None):
     """
     # from librosa 0.6
     Compute the sum-square envelope of a window function at a given hop length.
@@ -74,15 +74,13 @@ def window_sumsquare(window, n_frames, hop_length=200, win_length=800,
     win_sq = librosa_util.pad_center(win_sq, n_fft)
     for i in range(n_frames):
         sample = i * hop_length
-        x[sample:min(n, sample + n_fft)] += win_sq[:max(0, min(n_fft, n -
-            sample))]
+        x[sample:min(n, sample + n_fft)] += win_sq[:max(0, min(n_fft, n - sample))]
     return x
 
 
 class STFT(torch.nn.Module):
 
-    def __init__(self, filter_length=1024, hop_length=512, win_length=None,
-        window='hann'):
+    def __init__(self, filter_length=1024, hop_length=512, win_length=None, window='hann'):
         """
         This module implements an STFT using 1D convolution and 1D transpose convolutions.
         This is a bit tricky so there are some cases that probably won't work as working
@@ -108,11 +106,9 @@ class STFT(torch.nn.Module):
         scale = self.filter_length / self.hop_length
         fourier_basis = np.fft.fft(np.eye(self.filter_length))
         cutoff = int(self.filter_length / 2 + 1)
-        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.
-            imag(fourier_basis[:cutoff, :])])
+        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
         forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale *
-            fourier_basis).T[:, (None), :])
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
         assert filter_length >= self.win_length
         fft_window = get_window(window, self.win_length, fftbins=True)
         fft_window = pad_center(fft_window, filter_length)
@@ -138,11 +134,9 @@ class STFT(torch.nn.Module):
         num_samples = input_data.shape[-1]
         self.num_samples = num_samples
         input_data = input_data.view(num_batches, 1, num_samples)
-        input_data = F.pad(input_data.unsqueeze(1), (self.pad_amount, self.
-            pad_amount, 0, 0), mode='reflect')
+        input_data = F.pad(input_data.unsqueeze(1), (self.pad_amount, self.pad_amount, 0, 0), mode='reflect')
         input_data = input_data.squeeze(1)
-        forward_transform = F.conv1d(input_data, self.forward_basis, stride
-            =self.hop_length, padding=0)
+        forward_transform = F.conv1d(input_data, self.forward_basis, stride=self.hop_length, padding=0)
         cutoff = int(self.filter_length / 2 + 1)
         real_part = forward_transform[:, :cutoff, :]
         imag_part = forward_transform[:, cutoff:, :]
@@ -164,19 +158,13 @@ class STFT(torch.nn.Module):
             inverse_transform {tensor} -- Reconstructed audio given magnitude and phase. Of
                 shape (num_batch, num_samples)
         """
-        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase),
-            magnitude * torch.sin(phase)], dim=1)
-        inverse_transform = F.conv_transpose1d(recombine_magnitude_phase,
-            self.inverse_basis, stride=self.hop_length, padding=0)
+        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
+        inverse_transform = F.conv_transpose1d(recombine_magnitude_phase, self.inverse_basis, stride=self.hop_length, padding=0)
         if self.window is not None:
-            window_sum = window_sumsquare(self.window, magnitude.size(-1),
-                hop_length=self.hop_length, win_length=self.win_length,
-                n_fft=self.filter_length, dtype=np.float32)
-            approx_nonzero_indices = torch.from_numpy(np.where(window_sum >
-                tiny(window_sum))[0])
+            window_sum = window_sumsquare(self.window, magnitude.size(-1), hop_length=self.hop_length, win_length=self.win_length, n_fft=self.filter_length, dtype=np.float32)
+            approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
             window_sum = torch.from_numpy(window_sum)
-            inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[
-                approx_nonzero_indices]
+            inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
             inverse_transform *= float(self.filter_length) / self.hop_length
         inverse_transform = inverse_transform[(...), self.pad_amount:]
         inverse_transform = inverse_transform[(...), :self.num_samples]
@@ -197,10 +185,3 @@ class STFT(torch.nn.Module):
         reconstruction = self.inverse(self.magnitude, self.phase)
         return reconstruction
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_pseeth_torch_stft(_paritybench_base):
-    pass

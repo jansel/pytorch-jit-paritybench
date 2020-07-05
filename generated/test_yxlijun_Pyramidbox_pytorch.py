@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -97,8 +98,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -145,10 +145,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -166,10 +164,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -182,12 +178,10 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
-def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx
-    ):
+def match_ssd(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -281,8 +275,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            self.match(self.threshold, truths, defaults, self.variance,
-                labels, loc_t, conf_t, idx)
+            self.match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -295,8 +288,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -306,8 +298,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum() if num_pos.data.sum() > 0 else num
@@ -321,8 +312,7 @@ class conv_bn(nn.Module):
 
     def __init__(self, in_plane, out_plane, kernel_size, stride, padding):
         super(conv_bn, self).__init__()
-        self.conv1 = nn.Conv2d(in_plane, out_plane, kernel_size=kernel_size,
-            stride=stride, padding=padding)
+        self.conv1 = nn.Conv2d(in_plane, out_plane, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn1 = nn.BatchNorm2d(out_plane)
 
     def forward(self, x):
@@ -340,8 +330,7 @@ class CPM(nn.Module):
         self.branch2b = conv_bn(256, 256, 3, 1, 1)
         self.branch2c = conv_bn(256, 1024, 1, 1, 0)
         self.ssh_1 = nn.Conv2d(1024, 256, kernel_size=3, stride=1, padding=1)
-        self.ssh_dimred = nn.Conv2d(1024, 128, kernel_size=3, stride=1,
-            padding=1)
+        self.ssh_dimred = nn.Conv2d(1024, 128, kernel_size=3, stride=1, padding=1)
         self.ssh_2 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
         self.ssh_3a = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
         self.ssh_3b = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
@@ -374,8 +363,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -464,13 +452,10 @@ class Detect(Function):
         """
         num = loc_data.size(0)
         num_priors = prior_data.size(0)
-        conf_preds = conf_data.view(num, num_priors, self.num_classes
-            ).transpose(2, 1)
-        batch_priors = prior_data.view(-1, num_priors, 4).expand(num,
-            num_priors, 4)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
+        batch_priors = prior_data.view(-1, num_priors, 4).expand(num, num_priors, 4)
         batch_priors = batch_priors.contiguous().view(-1, 4)
-        decoded_boxes = decode(loc_data.view(-1, 4), batch_priors, self.
-            variance)
+        decoded_boxes = decode(loc_data.view(-1, 4), batch_priors, self.variance)
         decoded_boxes = decoded_boxes.view(num, num_priors, 4)
         output = torch.zeros(num, self.num_classes, self.top_k, 5)
         for i in range(num):
@@ -484,8 +469,7 @@ class Detect(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(boxes)
                 boxes_ = boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes_, scores, self.nms_thresh, self.top_k)
-                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
-                    unsqueeze(1), boxes_[ids[:count]]), 1)
+                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes_[ids[:count]]), 1)
         return output
 
 
@@ -572,14 +556,11 @@ class PyramidBox(nn.Module):
             x = F.relu(self.extras[k](x), inplace=True)
         conv7_2 = x
         x = F.relu(self.lfpn_topdown[0](convfc_7), inplace=True)
-        lfpn2_on_conv5 = F.relu(self._upsample_prod(x, self.lfpn_later[0](
-            conv5_3)), inplace=True)
+        lfpn2_on_conv5 = F.relu(self._upsample_prod(x, self.lfpn_later[0](conv5_3)), inplace=True)
         x = F.relu(self.lfpn_topdown[1](lfpn2_on_conv5), inplace=True)
-        lfpn1_on_conv4 = F.relu(self._upsample_prod(x, self.lfpn_later[1](
-            conv4_3)), inplace=True)
+        lfpn1_on_conv4 = F.relu(self._upsample_prod(x, self.lfpn_later[1](conv4_3)), inplace=True)
         x = F.relu(self.lfpn_topdown[2](lfpn1_on_conv4), inplace=True)
-        lfpn0_on_conv3 = F.relu(self._upsample_prod(x, self.lfpn_later[2](
-            conv3_3)), inplace=True)
+        lfpn0_on_conv3 = F.relu(self._upsample_prod(x, self.lfpn_later[2](conv3_3)), inplace=True)
         ssh_conv3_norm = self.cpm[0](self.L2Norm3_3(lfpn0_on_conv3))
         ssh_conv4_norm = self.cpm[1](self.L2Norm4_3(lfpn1_on_conv4))
         ssh_conv5_norm = self.cpm[2](self.L2Norm5_3(lfpn2_on_conv5))
@@ -596,24 +577,20 @@ class PyramidBox(nn.Module):
             head_loc = head_loc.permute(0, 2, 3, 1).contiguous().view(N, -1, 4)
         mbox_conf = self.conf_layers[0](ssh_conv3_norm)
         face_conf1 = mbox_conf[:, 3:4, :, :]
-        face_conf3_maxin, _ = torch.max(mbox_conf[:, 0:3, :, :], dim=1,
-            keepdim=True)
+        face_conf3_maxin, _ = torch.max(mbox_conf[:, 0:3, :, :], dim=1, keepdim=True)
         face_conf = torch.cat((face_conf3_maxin, face_conf1), dim=1)
         face_conf = face_conf.permute(0, 2, 3, 1).contiguous().view(N, -1, 2)
         if not self.is_infer:
-            head_conf3_maxin, _ = torch.max(mbox_conf[:, 4:7, :, :], dim=1,
-                keepdim=True)
+            head_conf3_maxin, _ = torch.max(mbox_conf[:, 4:7, :, :], dim=1, keepdim=True)
             head_conf1 = mbox_conf[:, 7:, :, :]
             head_conf = torch.cat((head_conf3_maxin, head_conf1), dim=1)
-            head_conf = head_conf.permute(0, 2, 3, 1).contiguous().view(N, 
-                -1, 2)
+            head_conf = head_conf.permute(0, 2, 3, 1).contiguous().view(N, -1, 2)
         face_locs.append(face_loc)
         face_confs.append(face_conf)
         if not self.is_infer:
             head_locs.append(head_loc)
             head_confs.append(head_conf)
-        inputs = [ssh_conv4_norm, ssh_conv5_norm, ssh_convfc7, ssh_conv6,
-            ssh_conv7]
+        inputs = [ssh_conv4_norm, ssh_conv5_norm, ssh_convfc7, ssh_conv6, ssh_conv7]
         feature_maps = []
         feat_size = ssh_conv3_norm.size()[2:]
         feature_maps.append([feat_size[0], feat_size[1]])
@@ -624,18 +601,14 @@ class PyramidBox(nn.Module):
             face_loc, head_loc = torch.chunk(mbox_loc, 2, dim=1)
             face_loc = face_loc.permute(0, 2, 3, 1).contiguous().view(N, -1, 4)
             if not self.is_infer:
-                head_loc = head_loc.permute(0, 2, 3, 1).contiguous().view(N,
-                    -1, 4)
+                head_loc = head_loc.permute(0, 2, 3, 1).contiguous().view(N, -1, 4)
             mbox_conf = self.conf_layers[i + 1](feat)
             face_conf1 = mbox_conf[:, 0:1, :, :]
-            face_conf3_maxin, _ = torch.max(mbox_conf[:, 1:4, :, :], dim=1,
-                keepdim=True)
+            face_conf3_maxin, _ = torch.max(mbox_conf[:, 1:4, :, :], dim=1, keepdim=True)
             face_conf = torch.cat((face_conf1, face_conf3_maxin), dim=1)
-            face_conf = face_conf.permute(0, 2, 3, 1).contiguous().view(N, 
-                -1, 2)
+            face_conf = face_conf.permute(0, 2, 3, 1).contiguous().view(N, -1, 2)
             if not self.is_infer:
-                head_conf = mbox_conf[:, 4:, :, :].permute(0, 2, 3, 1
-                    ).contiguous().view(N, -1, 2)
+                head_conf = mbox_conf[:, 4:, :, :].permute(0, 2, 3, 1).contiguous().view(N, -1, 2)
             face_locs.append(face_loc)
             face_confs.append(face_conf)
             if not self.is_infer:
@@ -649,19 +622,16 @@ class PyramidBox(nn.Module):
         priors_boxes = PriorBox(size, feature_maps, cfg)
         priors = Variable(priors_boxes.forward(), volatile=True)
         if not self.is_infer:
-            output = (face_mbox_loc, face_mbox_conf, head_mbox_loc,
-                head_mbox_conf, priors)
+            output = face_mbox_loc, face_mbox_conf, head_mbox_loc, head_mbox_conf, priors
         else:
-            output = self.detect(face_mbox_loc, self.softmax(face_mbox_conf
-                ), priors)
+            output = self.detect(face_mbox_loc, self.softmax(face_mbox_conf), priors)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            mdata = torch.load(base_file, map_location=lambda storage, loc:
-                storage)
+            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
             weights = mdata['weight']
             epoch = mdata['epoch']
             self.load_state_dict(weights)
@@ -691,14 +661,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CPM,
+     lambda: ([], {'in_plane': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (conv_bn,
+     lambda: ([], {'in_plane': 4, 'out_plane': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_yxlijun_Pyramidbox_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CPM(*[], **{'in_plane': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(conv_bn(*[], **{'in_plane': 4, 'out_plane': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,25 +62,9 @@ class Vgg16Conv(nn.Module):
             number of class, default is 1k.
         """
         super(Vgg16Conv, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, 3, padding=1), nn.
-            ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(), nn.
-            MaxPool2d(2, stride=2, return_indices=True), nn.Conv2d(64, 128,
-            3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn
-            .ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.
-            Conv2d(128, 256, 3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 
-            3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 3, padding=1), nn
-            .ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.
-            Conv2d(256, 512, 3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 
-            3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 3, padding=1), nn
-            .ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.
-            Conv2d(512, 512, 3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 
-            3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 3, padding=1), nn
-            .ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True))
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(), nn.
-            Dropout(), nn.Linear(4096, num_cls), nn.Softmax(dim=1))
-        self.conv_layer_indices = [0, 2, 5, 7, 10, 12, 14, 17, 19, 21, 24, 
-            26, 28]
+        self.features = nn.Sequential(nn.Conv2d(3, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.Conv2d(128, 256, 3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.Conv2d(256, 512, 3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True), nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(), nn.Conv2d(512, 512, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2, return_indices=True))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(), nn.Dropout(), nn.Linear(4096, num_cls), nn.Softmax(dim=1))
+        self.conv_layer_indices = [0, 2, 5, 7, 10, 12, 14, 17, 19, 21, 24, 26, 28]
         self.feature_maps = OrderedDict()
         self.pool_locs = OrderedDict()
         self.init_weights()
@@ -120,34 +105,16 @@ class Vgg16Deconv(nn.Module):
 
     def __init__(self):
         super(Vgg16Deconv, self).__init__()
-        self.features = nn.Sequential(nn.MaxUnpool2d(2, stride=2), nn.ReLU(
-            ), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.ReLU(), nn.
-            ConvTranspose2d(512, 512, 3, padding=1), nn.ReLU(), nn.
-            ConvTranspose2d(512, 512, 3, padding=1), nn.MaxUnpool2d(2,
-            stride=2), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1
-            ), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.
-            ReLU(), nn.ConvTranspose2d(512, 256, 3, padding=1), nn.
-            MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(256, 
-            256, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(256, 256, 3,
-            padding=1), nn.ReLU(), nn.ConvTranspose2d(256, 128, 3, padding=
-            1), nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(
-            128, 128, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(128, 64,
-            3, padding=1), nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.
-            ConvTranspose2d(64, 64, 3, padding=1), nn.ReLU(), nn.
-            ConvTranspose2d(64, 3, 3, padding=1))
-        self.conv2deconv_indices = {(0): 30, (2): 28, (5): 25, (7): 23, (10
-            ): 20, (12): 18, (14): 16, (17): 13, (19): 11, (21): 9, (24): 6,
-            (26): 4, (28): 2}
-        self.unpool2pool_indices = {(26): 4, (21): 9, (14): 16, (7): 23, (0
-            ): 30}
+        self.features = nn.Sequential(nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(512, 512, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(512, 256, 3, padding=1), nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(256, 256, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(256, 256, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(256, 128, 3, padding=1), nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(128, 128, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(128, 64, 3, padding=1), nn.MaxUnpool2d(2, stride=2), nn.ReLU(), nn.ConvTranspose2d(64, 64, 3, padding=1), nn.ReLU(), nn.ConvTranspose2d(64, 3, 3, padding=1))
+        self.conv2deconv_indices = {(0): 30, (2): 28, (5): 25, (7): 23, (10): 20, (12): 18, (14): 16, (17): 13, (19): 11, (21): 9, (24): 6, (26): 4, (28): 2}
+        self.unpool2pool_indices = {(26): 4, (21): 9, (14): 16, (7): 23, (0): 30}
         self.init_weight()
 
     def init_weight(self):
         vgg16_pretrained = models.vgg16(pretrained=True)
         for idx, layer in enumerate(vgg16_pretrained.features):
             if isinstance(layer, nn.Conv2d):
-                self.features[self.conv2deconv_indices[idx]
-                    ].weight.data = layer.weight.data
+                self.features[self.conv2deconv_indices[idx]].weight.data = layer.weight.data
 
     def forward(self, x, layer, activation_idx, pool_locs):
         if layer in self.conv2deconv_indices:
@@ -156,8 +123,7 @@ class Vgg16Deconv(nn.Module):
             raise ValueError('layer is not a conv feature map')
         for idx in range(start_idx, len(self.features)):
             if isinstance(self.features[idx], nn.MaxUnpool2d):
-                x = self.features[idx](x, pool_locs[self.
-                    unpool2pool_indices[idx]])
+                x = self.features[idx](x, pool_locs[self.unpool2pool_indices[idx]])
             else:
                 x = self.features[idx](x)
         return x
@@ -167,5 +133,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Vgg16Conv,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 243, 243])], {}),
+     False),
+]
+
 class Test_huybery_VisualizingCNN(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

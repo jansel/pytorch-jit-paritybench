@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -42,16 +43,13 @@ from torch.autograd import Variable
 
 def convLayer(in_channels, out_channels, keep_prob=0.0):
     """3*3 convolution with padding,ever time call it the output size become half"""
-    cnn_seq = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1),
-        nn.ReLU(True), nn.BatchNorm2d(out_channels), nn.MaxPool2d(
-        kernel_size=2, stride=2), nn.Dropout(keep_prob))
+    cnn_seq = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1), nn.ReLU(True), nn.BatchNorm2d(out_channels), nn.MaxPool2d(kernel_size=2, stride=2), nn.Dropout(keep_prob))
     return cnn_seq
 
 
 class Classifier(nn.Module):
 
-    def __init__(self, layer_size=64, num_channels=1, keep_prob=1.0,
-        image_size=28):
+    def __init__(self, layer_size=64, num_channels=1, keep_prob=1.0, image_size=28):
         super(Classifier, self).__init__()
         """
         Build a CNN to produce embeddings
@@ -119,8 +117,7 @@ class DistanceNetwork(nn.Module):
         for support_image in support_set:
             sum_support = torch.sum(torch.pow(support_image, 2), 1)
             support_manitude = sum_support.clamp(eps, float('inf')).rsqrt()
-            dot_product = input_image.unsqueeze(1).bmm(support_image.
-                unsqueeze(2)).squeeze()
+            dot_product = input_image.unsqueeze(1).bmm(support_image.unsqueeze(2)).squeeze()
             cosine_similarity = dot_product * support_manitude
             similarities.append(cosine_similarity)
         similarities = torch.stack(similarities)
@@ -142,21 +139,14 @@ class BidirectionalLSTM(nn.Module):
         self.vector_dim = vector_dim
         self.num_layer = len(layer_size)
         self.use_cuda = use_cuda
-        self.lstm = nn.LSTM(input_size=self.vector_dim, num_layers=self.
-            num_layer, hidden_size=self.hidden_size, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=self.vector_dim, num_layers=self.num_layer, hidden_size=self.hidden_size, bidirectional=True)
         self.hidden = self.init_hidden(self.use_cuda)
 
     def init_hidden(self, use_cuda):
         if use_cuda:
-            return Variable(torch.zeros(self.lstm.num_layers * 2, self.
-                batch_size, self.lstm.hidden_size), requires_grad=False
-                ), Variable(torch.zeros(self.lstm.num_layers * 2, self.
-                batch_size, self.lstm.hidden_size), requires_grad=False)
+            return Variable(torch.zeros(self.lstm.num_layers * 2, self.batch_size, self.lstm.hidden_size), requires_grad=False), Variable(torch.zeros(self.lstm.num_layers * 2, self.batch_size, self.lstm.hidden_size), requires_grad=False)
         else:
-            return Variable(torch.zeros(self.lstm.num_layers * 2, self.
-                batch_size, self.lstm.hidden_size), requires_grad=False
-                ), Variable(torch.zeros(self.lstm.num_layers * 2, self.
-                batch_size, self.lstm.hidden_size), requires_grad=False)
+            return Variable(torch.zeros(self.lstm.num_layers * 2, self.batch_size, self.lstm.hidden_size), requires_grad=False), Variable(torch.zeros(self.lstm.num_layers * 2, self.batch_size, self.lstm.hidden_size), requires_grad=False)
 
     def repackage_hidden(self, h):
         """Wraps hidden states in new Variables, to detach them from their history."""
@@ -173,9 +163,7 @@ class BidirectionalLSTM(nn.Module):
 
 class MatchingNetwork(nn.Module):
 
-    def __init__(self, keep_prob, batch_size=32, num_channels=1,
-        learning_rate=0.001, fce=False, num_classes_per_set=20,
-        num_samples_per_class=1, image_size=28, use_cuda=True):
+    def __init__(self, keep_prob, batch_size=32, num_channels=1, learning_rate=0.001, fce=False, num_classes_per_set=20, num_samples_per_class=1, image_size=28, use_cuda=True):
         """
         This is our main network
         :param keep_prob: dropout rate
@@ -196,16 +184,13 @@ class MatchingNetwork(nn.Module):
         self.num_classes_per_set = num_classes_per_set
         self.num_samples_per_class = num_samples_per_class
         self.image_size = image_size
-        self.g = Classifier(layer_size=64, num_channels=num_channels,
-            keep_prob=keep_prob, image_size=image_size)
+        self.g = Classifier(layer_size=64, num_channels=num_channels, keep_prob=keep_prob, image_size=image_size)
         self.dn = DistanceNetwork()
         self.classify = AttentionalClassify()
         if self.fce:
-            self.lstm = BidirectionalLSTM(layer_size=[32], batch_size=self.
-                batch_size, vector_dim=self.g.outSize, use_cuda=use_cuda)
+            self.lstm = BidirectionalLSTM(layer_size=[32], batch_size=self.batch_size, vector_dim=self.g.outSize, use_cuda=use_cuda)
 
-    def forward(self, support_set_images, support_set_y_one_hot,
-        target_image, target_y):
+    def forward(self, support_set_images, support_set_y_one_hot, target_image, target_y):
         """
         Main process of the network
         :param support_set_images: shape[batch_size,sequence_length,num_channels,image_size,image_size]
@@ -235,15 +220,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionalClassify,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Classifier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (DistanceNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_BoyuanJiang_matching_networks_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AttentionalClassify(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Classifier(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DistanceNetwork(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

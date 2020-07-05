@@ -57,8 +57,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -109,42 +110,31 @@ class cross_entropy_with_hnm_for_one_class_detection2(nn.Module):
                 if pos_num > 0:
                     neg_flag = gt_label[:, (1), :, :] > 0.5
                     neg_num = torch.sum(neg_flag)
-                    neg_num_selected = min(int(self.hnm_ratio * pos_num),
-                        int(neg_num))
-                    neg_prob = torch.where(neg_flag, pred_score_softmax[:,
-                        (1), :, :], torch.zeros_like(pred_score_softmax[:,
-                        (1), :, :]))
-                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1),
-                        descending=False)
+                    neg_num_selected = min(int(self.hnm_ratio * pos_num), int(neg_num))
+                    neg_prob = torch.where(neg_flag, pred_score_softmax[:, (1), :, :], torch.zeros_like(pred_score_softmax[:, (1), :, :]))
+                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1), descending=False)
                     prob_threshold = neg_prob_sort[0][neg_num_selected - 1]
                     neg_grad_flag = neg_prob <= prob_threshold
-                    loss_mask = torch.cat([pos_flag.unsqueeze(1),
-                        neg_grad_flag.unsqueeze(1)], dim=1)
+                    loss_mask = torch.cat([pos_flag.unsqueeze(1), neg_grad_flag.unsqueeze(1)], dim=1)
                 else:
                     neg_choice_ratio = 0.1
-                    neg_num_selected = int(pred_score_softmax[:, (1), :, :]
-                        .numel() * neg_choice_ratio)
+                    neg_num_selected = int(pred_score_softmax[:, (1), :, :].numel() * neg_choice_ratio)
                     neg_prob = pred_score_softmax[:, (1), :, :]
-                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1),
-                        descending=False)
+                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1), descending=False)
                     prob_threshold = neg_prob_sort[0][neg_num_selected - 1]
                     neg_grad_flag = neg_prob <= prob_threshold
-                    loss_mask = torch.cat([pos_flag.unsqueeze(1),
-                        neg_grad_flag.unsqueeze(1)], dim=1)
+                    loss_mask = torch.cat([pos_flag.unsqueeze(1), neg_grad_flag.unsqueeze(1)], dim=1)
             pred_score_softmax_masked = pred_score_softmax[loss_mask]
             pred_score_log = torch.log(pred_score_softmax_masked)
-            score_cross_entropy = -gt_label[:, :2, :, :][loss_mask
-                ] * pred_score_log
-            loss_score = torch.sum(score_cross_entropy
-                ) / score_cross_entropy.numel()
+            score_cross_entropy = -gt_label[:, :2, :, :][loss_mask] * pred_score_log
+            loss_score = torch.sum(score_cross_entropy) / score_cross_entropy.numel()
             mask_bbox = gt_mask[:, 2:6, :, :]
             if torch.sum(mask_bbox) == 0:
                 loss_bbox = torch.zeros_like(loss_score)
             else:
                 predict_bbox = pred_bbox * mask_bbox
                 label_bbox = gt_label[:, 2:6, :, :] * mask_bbox
-                loss_bbox = F.mse_loss(predict_bbox, label_bbox, reduction=
-                    'mean')
+                loss_bbox = F.mse_loss(predict_bbox, label_bbox, reduction='mean')
             loss_branch = loss_score + loss_bbox
             loss_branch_list.append(loss_branch)
         return loss_branch_list
@@ -174,42 +164,31 @@ class cross_entropy_with_hnm_for_one_class_detection(nn.Module):
                 if pos_num > 0:
                     neg_flag = gt_label[:, (1), :, :] > 0.5
                     neg_num = torch.sum(neg_flag)
-                    neg_num_selected = min(int(self.hnm_ratio * pos_num),
-                        int(neg_num))
-                    neg_prob = torch.where(neg_flag, pred_score_softmax[:,
-                        (1), :, :], torch.zeros_like(pred_score_softmax[:,
-                        (1), :, :]))
-                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1),
-                        descending=False)
+                    neg_num_selected = min(int(self.hnm_ratio * pos_num), int(neg_num))
+                    neg_prob = torch.where(neg_flag, pred_score_softmax[:, (1), :, :], torch.zeros_like(pred_score_softmax[:, (1), :, :]))
+                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1), descending=False)
                     prob_threshold = neg_prob_sort[0][neg_num_selected - 1]
                     neg_grad_flag = neg_prob <= prob_threshold
-                    loss_mask = torch.cat([pos_flag.unsqueeze(1),
-                        neg_grad_flag.unsqueeze(1)], dim=1)
+                    loss_mask = torch.cat([pos_flag.unsqueeze(1), neg_grad_flag.unsqueeze(1)], dim=1)
                 else:
                     neg_choice_ratio = 0.1
-                    neg_num_selected = int(pred_score_softmax[:, (1), :, :]
-                        .numel() * neg_choice_ratio)
+                    neg_num_selected = int(pred_score_softmax[:, (1), :, :].numel() * neg_choice_ratio)
                     neg_prob = pred_score_softmax[:, (1), :, :]
-                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1),
-                        descending=False)
+                    neg_prob_sort, _ = torch.sort(neg_prob.reshape(1, -1), descending=False)
                     prob_threshold = neg_prob_sort[0][neg_num_selected - 1]
                     neg_grad_flag = neg_prob <= prob_threshold
-                    loss_mask = torch.cat([pos_flag.unsqueeze(1),
-                        neg_grad_flag.unsqueeze(1)], dim=1)
+                    loss_mask = torch.cat([pos_flag.unsqueeze(1), neg_grad_flag.unsqueeze(1)], dim=1)
             pred_score_softmax_masked = pred_score_softmax[loss_mask]
             pred_score_log = torch.log(pred_score_softmax_masked)
-            score_cross_entropy = -gt_label[:, :2, :, :][loss_mask
-                ] * pred_score_log
-            loss_score = torch.sum(score_cross_entropy
-                ) / score_cross_entropy.numel()
+            score_cross_entropy = -gt_label[:, :2, :, :][loss_mask] * pred_score_log
+            loss_score = torch.sum(score_cross_entropy) / score_cross_entropy.numel()
             mask_bbox = gt_mask[:, 2:6, :, :]
             if torch.sum(mask_bbox) == 0:
                 loss_bbox = torch.zeros_like(loss_score)
             else:
                 predict_bbox = pred_bbox * mask_bbox
                 label_bbox = gt_label[:, 2:6, :, :] * mask_bbox
-                loss_bbox = F.mse_loss(predict_bbox, label_bbox, reduction=
-                    'sum') / torch.sum(mask_bbox)
+                loss_bbox = F.mse_loss(predict_bbox, label_bbox, reduction='sum') / torch.sum(mask_bbox)
             loss_cls += loss_score
             loss_reg += loss_bbox
             loss_branch.append(loss_score)
@@ -312,121 +291,62 @@ class NaiveNet(nn.Module):
         self.block = block
         if self.arch == 'naivenet25':
             if self.block == Resv2Block:
-                self.conv1 = conv3x3(3, num_filters_list[1], stride=2,
-                    padding=0)
+                self.conv1 = conv3x3(3, num_filters_list[1], stride=2, padding=0)
                 self.relu1 = nn.ReLU()
-                self.stage1_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[1], layers[0] - 1,
-                    stride=2)
-                self.stage1_2_branch1 = nn.Sequential(self.block(
-                    num_filters_list[1], num_filters_list[1], stride=1,
-                    is_branch=True))
-                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
+                self.stage1_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[0] - 1, stride=2)
+                self.stage1_2_branch1 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
                 self.stage1_3_branch2 = nn.Sequential(nn.ReLU())
-                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1],
-                    num_filters_list[1], stride=2, padding=0), Resv2Block(
-                    num_filters_list[1], num_filters_list[1], stride=1,
-                    is_branch=False))
-                self.stage2_2_branch3 = nn.Sequential(Resv2Block(
-                    num_filters_list[1], num_filters_list[1], stride=1,
-                    is_branch=True))
-                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
+                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[1], stride=2, padding=0), Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=False))
+                self.stage2_2_branch3 = nn.Sequential(Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
                 self.stage2_3_branch4 = nn.Sequential(nn.ReLU())
-                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1],
-                    num_filters_list[2], stride=2, padding=0), Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=False))
+                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
                 self.stage3_2_branch5 = nn.Sequential(nn.ReLU())
-                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2],
-                    num_filters_list[2], stride=2, padding=0), Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=False))
-                self.stage4_2_branch6 = nn.Sequential(Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=True))
-                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_3_branch7 = nn.Sequential(Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=True))
-                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
+                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
+                self.stage4_2_branch6 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_3_branch7 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
                 self.stage4_4_branch8 = nn.Sequential(nn.ReLU())
-                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
+                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
             elif self.block == Resv1Block:
-                self.conv1 = conv3x3(3, num_filters_list[1], stride=2,
-                    padding=0)
+                self.conv1 = conv3x3(3, num_filters_list[1], stride=2, padding=0)
                 self.relu1 = nn.ReLU()
-                self.stage1_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[1], layers[0] - 1,
-                    stride=2)
-                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage1_2 = nn.Sequential(self.block(num_filters_list[1
-                    ], num_filters_list[1], stride=1))
-                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage2_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[1], layers[1] - 1,
-                    stride=2)
-                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage2_2 = nn.Sequential(self.block(num_filters_list[1
-                    ], num_filters_list[1], stride=1))
-                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage3_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[2], layers[2],
-                    stride=2)
-                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[2], num_filters_list[2], layers[3] - 2,
-                    stride=2)
-                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_2 = nn.Sequential(self.block(num_filters_list[2
-                    ], num_filters_list[2], stride=1))
-                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_3 = nn.Sequential(self.block(num_filters_list[2
-                    ], num_filters_list[2], stride=1))
-                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
+                self.stage1_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[0] - 1, stride=2)
+                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage1_2 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1))
+                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage2_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[1] - 1, stride=2)
+                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage2_2 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1))
+                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage3_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[2], layers[2], stride=2)
+                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_1 = self._make_layer(self.arch, self.block, num_filters_list[2], num_filters_list[2], layers[3] - 2, stride=2)
+                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_2 = nn.Sequential(self.block(num_filters_list[2], num_filters_list[2], stride=1))
+                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_3 = nn.Sequential(self.block(num_filters_list[2], num_filters_list[2], stride=1))
+                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
             else:
                 raise TypeError('Unsupported ResNet Block Version.')
         elif self.arch == 'naivenet20':
             self.conv1 = conv3x3(3, num_filters_list[1], stride=2, padding=0)
             self.relu1 = nn.ReLU()
-            self.layer1 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[1], layers[0], stride=2)
-            self.branch1 = nn.Sequential(BranchNet(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer2 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[1], layers[1], stride=2)
-            self.branch2 = nn.Sequential(BranchNet(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer3 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[1], layers[2], stride=2)
-            self.branch3 = nn.Sequential(BranchNet(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer4 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[2], layers[3], stride=2)
-            self.branch4 = nn.Sequential(BranchNet(num_filters_list[2],
-                num_filters_list[2]))
-            self.layer5 = self._make_layer(self.arch, self.block,
-                num_filters_list[2], num_filters_list[2], layers[4], stride=2)
-            self.branch5 = nn.Sequential(BranchNet(num_filters_list[2],
-                num_filters_list[2]))
+            self.layer1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[0], stride=2)
+            self.branch1 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+            self.layer2 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[1], stride=2)
+            self.branch2 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+            self.layer3 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[2], stride=2)
+            self.branch3 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+            self.layer4 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[2], layers[3], stride=2)
+            self.branch4 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+            self.layer5 = self._make_layer(self.arch, self.block, num_filters_list[2], num_filters_list[2], layers[4], stride=2)
+            self.branch5 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
         else:
             raise TypeError('Unsupported NaiveNet Version.')
 
@@ -434,13 +354,11 @@ class NaiveNet(nn.Module):
         layers = []
         if self.arch == 'naivenet25':
             if block == Resv2Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
             elif block == Resv1Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 layers.append(nn.ReLU())
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
@@ -448,14 +366,12 @@ class NaiveNet(nn.Module):
                 raise TypeError('Unsupported ResNet Block Version.')
         elif self.arch == 'naivenet20':
             if block == Resv2Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
                 layers.append(nn.ReLU())
             elif block == Resv1Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 layers.append(nn.ReLU())
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
@@ -509,9 +425,7 @@ class NaiveNet(nn.Module):
                 score7, bbox7 = self.branch7(x)
                 x = self.stage4_3(x)
                 score8, bbox8 = self.branch8(x)
-                outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4,
-                    bbox4, score5, bbox5, score6, bbox6, score7, bbox7,
-                    score8, bbox8]
+                outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5, score6, bbox6, score7, bbox7, score8, bbox8]
             return outs
         if self.arch == 'naivenet20':
             x = self.conv1(x)
@@ -526,8 +440,7 @@ class NaiveNet(nn.Module):
             score4, bbox4 = self.branch4(x)
             x = self.layer5(x)
             score5, bbox5 = self.branch5(x)
-            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4,
-                bbox4, score5, bbox5]
+            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5]
             return outs
 
 
@@ -535,15 +448,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BranchNet,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Resv1Block,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Resv2Block,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_becauseofAI_lffd_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BranchNet(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Resv1Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Resv2Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

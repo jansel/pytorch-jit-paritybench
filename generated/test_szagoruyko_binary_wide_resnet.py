@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,8 +77,7 @@ class ForwardSign(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x):
-        return math.sqrt(2.0 / (x.shape[1] * x.shape[2] * x.shape[3])
-            ) * x.sign()
+        return math.sqrt(2.0 / (x.shape[1] * x.shape[2] * x.shape[3])) * x.sign()
 
     @staticmethod
     def backward(ctx, g):
@@ -102,8 +102,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ModuleBinarizable,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     True),
+]
+
 class Test_szagoruyko_binary_wide_resnet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ModuleBinarizable(*[], **{}), [], {})
+        self._check(*TESTCASES[0])
 

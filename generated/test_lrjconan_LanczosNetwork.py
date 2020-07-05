@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,41 +106,24 @@ class AdaLanczosNet(nn.Module):
         self.num_layer = config.model.num_layer
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
-        self.short_diffusion_dist = check_dist(config.model.
-            short_diffusion_dist)
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
+        self.short_diffusion_dist = check_dist(config.model.short_diffusion_dist)
         self.long_diffusion_dist = check_dist(config.model.long_diffusion_dist)
-        self.max_short_diffusion_dist = max(self.short_diffusion_dist
-            ) if self.short_diffusion_dist else None
-        self.max_long_diffusion_dist = max(self.long_diffusion_dist
-            ) if self.long_diffusion_dist else None
+        self.max_short_diffusion_dist = max(self.short_diffusion_dist) if self.short_diffusion_dist else None
+        self.max_long_diffusion_dist = max(self.long_diffusion_dist) if self.long_diffusion_dist else None
         self.num_scale_short = len(self.short_diffusion_dist)
         self.num_scale_long = len(self.long_diffusion_dist)
         self.num_eig_vec = config.model.num_eig_vec
         self.spectral_filter_kind = config.model.spectral_filter_kind
-        self.use_reorthogonalization = (config.model.
-            use_reorthogonalization if hasattr(config,
-            'use_reorthogonalization') else True)
-        self.use_power_iteration_cap = (config.model.
-            use_power_iteration_cap if hasattr(config,
-            'use_power_iteration_cap') else True)
+        self.use_reorthogonalization = config.model.use_reorthogonalization if hasattr(config, 'use_reorthogonalization') else True
+        self.use_power_iteration_cap = config.model.use_power_iteration_cap if hasattr(config, 'use_power_iteration_cap') else True
         self.input_dim = self.num_atom
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_scale_short + self.num_scale_long + self.num_edgetype + 1),
-            dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear
-            (dim_list[-2], dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_scale_short + self.num_scale_long + self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
         if self.spectral_filter_kind == 'MLP' and self.num_scale_long > 0:
-            self.spectral_filter = nn.ModuleList([nn.Sequential(*[nn.Linear
-                (self.num_eig_vec * self.num_eig_vec * self.num_scale_long,
-                4096), nn.ReLU(), nn.Linear(4096, 4096), nn.ReLU(), nn.
-                Linear(4096, 4096), nn.ReLU(), nn.Linear(4096, self.
-                num_eig_vec * self.num_eig_vec * self.num_scale_long)]) for
-                _ in range(self.num_layer)])
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+            self.spectral_filter = nn.ModuleList([nn.Sequential(*[nn.Linear(self.num_eig_vec * self.num_eig_vec * self.num_scale_long, 4096), nn.ReLU(), nn.Linear(4096, 4096), nn.ReLU(), nn.Linear(4096, 4096), nn.ReLU(), nn.Linear(4096, self.num_eig_vec * self.num_eig_vec * self.num_scale_long)]) for _ in range(self.num_layer)])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -183,8 +167,7 @@ class AdaLanczosNet(nn.Module):
         num_node = node_feat.shape[1]
         dim_feat = node_feat.shape[2]
         idx_row, idx_col = np.meshgrid(range(num_node), range(num_node))
-        idx_row, idx_col = torch.Tensor(idx_row.reshape(-1)).long(
-            ), torch.Tensor(idx_col.reshape(-1)).long()
+        idx_row, idx_col = torch.Tensor(idx_row.reshape(-1)).long(), torch.Tensor(idx_col.reshape(-1)).long()
         diff = node_feat[:, (idx_row), :] - node_feat[:, (idx_col), :]
         dist2 = (diff * diff).sum(dim=2)
         sigma2 = torch.mean(dist2, dim=1, keepdim=True)
@@ -232,9 +215,7 @@ class AdaLanczosNet(nn.Module):
 
                 def _gram_schmidt(xx, tt):
                     for jj in range(1, tt):
-                        xx = xx - torch.sum(xx * Q[jj], dim=1, keepdim=True
-                            ) / (torch.sum(Q[jj] * Q[jj], dim=1, keepdim=
-                            True) + EPS) * Q[jj]
+                        xx = xx - torch.sum(xx * Q[jj], dim=1, keepdim=True) / (torch.sum(Q[jj] * Q[jj], dim=1, keepdim=True) + EPS) * Q[jj]
                     return xx
                 for _ in range(2):
                     z = _gram_schmidt(z, ii)
@@ -250,8 +231,7 @@ class AdaLanczosNet(nn.Module):
         valid_mask = torch.cat(valid_mask, dim=1).squeeze(dim=2)
         idx_mask = torch.sum(valid_mask, dim=1).long()
         if mask is not None:
-            idx_mask = torch.min(idx_mask, torch.sum(mask, dim=1).squeeze()
-                .long())
+            idx_mask = torch.min(idx_mask, torch.sum(mask, dim=1).squeeze().long())
         for ii in range(batch_size):
             if idx_mask[ii] < valid_mask.shape[1]:
                 valid_mask[(ii), idx_mask[ii]:] = 0.0
@@ -259,8 +239,7 @@ class AdaLanczosNet(nn.Module):
         beta = beta * valid_mask[:, :-1]
         T = []
         for ii in range(batch_size):
-            T += [torch.diag(alpha[ii]) + torch.diag(beta[ii], diagonal=1) +
-                torch.diag(beta[ii], diagonal=-1)]
+            T += [torch.diag(alpha[ii]) + torch.diag(beta[ii], diagonal=1) + torch.diag(beta[ii], diagonal=-1)]
         T = torch.stack(T, dim=0)
         Q = torch.cat(Q[1:-1], dim=2)
         Q_mask = valid_mask.unsqueeze(dim=1).repeat(1, Q.shape[1], 1)
@@ -269,8 +248,7 @@ class AdaLanczosNet(nn.Module):
                 Q_mask[(ii), idx_mask[ii]:, :] = 0.0
         Q = Q * Q_mask
         if lanczos_iter < self.num_eig_vec:
-            pad = (0, self.num_eig_vec - lanczos_iter, 0, self.num_eig_vec -
-                lanczos_iter)
+            pad = 0, self.num_eig_vec - lanczos_iter, 0, self.num_eig_vec - lanczos_iter
             T = F.pad(T, pad)
             pad = 0, self.num_eig_vec - lanczos_iter
             Q = F.pad(Q, pad)
@@ -295,10 +273,8 @@ class AdaLanczosNet(nn.Module):
                 T_list += [TT]
             TT = torch.bmm(TT, T)
         if self.spectral_filter_kind == 'MLP':
-            DD = self.spectral_filter[layer_idx](torch.cat(T_list, dim=2).
-                view(T.shape[0], -1))
-            DD = DD.view(T.shape[0], T.shape[1], T.shape[2], self.
-                num_scale_long)
+            DD = self.spectral_filter[layer_idx](torch.cat(T_list, dim=2).view(T.shape[0], -1))
+            DD = DD.view(T.shape[0], T.shape[1], T.shape[2], self.num_scale_long)
             DD = (DD + DD.transpose(1, 2)) * 0.5
             for ii in range(self.num_scale_long):
                 L += [Q.bmm(DD[:, :, :, (ii)]).bmm(Q.transpose(1, 2))]
@@ -384,16 +360,11 @@ class ChebyNet(nn.Module):
         self.polynomial_order = config.model.polynomial_order
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            polynomial_order + self.num_edgetype + 1), dim_list[tt + 1]) for
-            tt in range(self.num_layer)] + [nn.Linear(dim_list[-2],
-            dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.polynomial_order + self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -439,13 +410,11 @@ class ChebyNet(nn.Module):
             state_scale[-1] = state
             state_scale[0] = torch.bmm(L[:, :, :, (0)], state)
             for kk in range(1, self.polynomial_order):
-                state_scale[kk] = 2.0 * torch.bmm(L[:, :, :, (0)],
-                    state_scale[kk - 1]) - state_scale[kk - 2]
+                state_scale[kk] = 2.0 * torch.bmm(L[:, :, :, (0)], state_scale[kk - 1]) - state_scale[kk - 2]
             msg = []
             for ii in range(1, self.num_edgetype + 1):
                 msg += [torch.bmm(L[:, :, :, (ii)], state)]
-            msg = torch.cat(msg + state_scale, dim=2).view(num_node *
-                batch_size, -1)
+            msg = torch.cat(msg + state_scale, dim=2).view(num_node * batch_size, -1)
             state = F.relu(self.filter[tt](msg)).view(batch_size, num_node, -1)
             state = F.dropout(state, self.dropout, training=self.training)
         state = state.view(batch_size * num_node, -1)
@@ -486,15 +455,11 @@ class DCNN(nn.Module):
         self.max_dist = max(config.model.diffusion_dist)
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_scale + self.num_edgetype + 1), dim_list[tt + 1]) for tt in
-            range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_scale + self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -545,8 +510,7 @@ class DCNN(nn.Module):
             msg = []
             for ii in range(self.num_edgetype + 1):
                 msg += [torch.bmm(L[:, :, :, (ii)], state)]
-            msg = torch.cat(msg + state_scale, dim=2).view(num_node *
-                batch_size, -1)
+            msg = torch.cat(msg + state_scale, dim=2).view(num_node * batch_size, -1)
             state = F.relu(self.filter[tt](msg)).view(batch_size, num_node, -1)
             state = F.dropout(state, self.dropout, training=self.training)
         state = state.view(batch_size * num_node, -1)
@@ -582,38 +546,22 @@ class GAT(nn.Module):
         self.output_dim = config.model.output_dim
         self.num_layer = config.model.num_layer
         self.num_heads = config.model.num_heads
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.ModuleList([nn.ModuleList([nn.
-            Linear(dim_list[tt] * (int(tt == 0) + int(tt != 0) * self.
-            num_heads[tt] * (self.num_edgetype + 1)), dim_list[tt + 1],
-            bias=False) for _ in range(self.num_heads[tt])]) for _ in range
-            (self.num_edgetype + 1)]) for tt in range(self.num_layer)])
-        self.att_net_1 = nn.ModuleList([nn.ModuleList([nn.ModuleList([nn.
-            Linear(dim_list[tt + 1], 1) for _ in range(self.num_heads[tt])]
-            ) for _ in range(self.num_edgetype + 1)]) for tt in range(self.
-            num_layer)])
-        self.att_net_2 = nn.ModuleList([nn.ModuleList([nn.ModuleList([nn.
-            Linear(dim_list[tt + 1], 1) for _ in range(self.num_heads[tt])]
-            ) for _ in range(self.num_edgetype + 1)]) for tt in range(self.
-            num_layer)])
-        self.state_bias = [([[None] * self.num_heads[tt]] * (self.
-            num_edgetype + 1)) for tt in range(self.num_layer)]
+        self.filter = nn.ModuleList([nn.ModuleList([nn.ModuleList([nn.Linear(dim_list[tt] * (int(tt == 0) + int(tt != 0) * self.num_heads[tt] * (self.num_edgetype + 1)), dim_list[tt + 1], bias=False) for _ in range(self.num_heads[tt])]) for _ in range(self.num_edgetype + 1)]) for tt in range(self.num_layer)])
+        self.att_net_1 = nn.ModuleList([nn.ModuleList([nn.ModuleList([nn.Linear(dim_list[tt + 1], 1) for _ in range(self.num_heads[tt])]) for _ in range(self.num_edgetype + 1)]) for tt in range(self.num_layer)])
+        self.att_net_2 = nn.ModuleList([nn.ModuleList([nn.ModuleList([nn.Linear(dim_list[tt + 1], 1) for _ in range(self.num_heads[tt])]) for _ in range(self.num_edgetype + 1)]) for tt in range(self.num_layer)])
+        self.state_bias = [([[None] * self.num_heads[tt]] * (self.num_edgetype + 1)) for tt in range(self.num_layer)]
         for tt in range(self.num_layer):
             for jj in range(self.num_edgetype + 1):
                 for ii in range(self.num_heads[tt]):
-                    self.state_bias[tt][jj][ii] = torch.nn.Parameter(torch.
-                        zeros(dim_list[tt + 1]))
-                    self.register_parameter('bias_{}_{}_{}'.format(ii, jj,
-                        tt), self.state_bias[tt][jj][ii])
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
-        self.output_func = nn.Sequential(*[nn.Linear(dim_list[-2], dim_list
-            [-1])])
+                    self.state_bias[tt][jj][ii] = torch.nn.Parameter(torch.zeros(dim_list[tt + 1]))
+                    self.register_parameter('bias_{}_{}_{}'.format(ii, jj, tt), self.state_bias[tt][jj][ii])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
+        self.output_func = nn.Sequential(*[nn.Linear(dim_list[-2], dim_list[-1])])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -679,24 +627,18 @@ class GAT(nn.Module):
             h = []
             for jj in range(self.num_edgetype + 1):
                 for ii in range(self.num_heads[tt]):
-                    state_head = F.dropout(state, self.dropout, training=
-                        self.training)
-                    Wh = self.filter[tt][jj][ii](state_head.view(batch_size *
-                        num_node, -1)).view(batch_size, num_node, -1)
+                    state_head = F.dropout(state, self.dropout, training=self.training)
+                    Wh = self.filter[tt][jj][ii](state_head.view(batch_size * num_node, -1)).view(batch_size, num_node, -1)
                     att_weights_1 = self.att_net_1[tt][jj][ii](Wh)
                     att_weights_2 = self.att_net_2[tt][jj][ii](Wh)
                     att_weights = att_weights_1 + att_weights_2.transpose(1, 2)
-                    att_weights = F.softmax(F.leaky_relu(att_weights,
-                        negative_slope=0.2) + L[:, :, :, (jj)], dim=1)
-                    att_weights = F.dropout(att_weights, self.dropout,
-                        training=self.training)
+                    att_weights = F.softmax(F.leaky_relu(att_weights, negative_slope=0.2) + L[:, :, :, (jj)], dim=1)
+                    att_weights = F.dropout(att_weights, self.dropout, training=self.training)
                     Wh = F.dropout(Wh, self.dropout, training=self.training)
                     if tt == self.num_layer - 1:
-                        h += [torch.bmm(att_weights, Wh) + self.state_bias[
-                            tt][jj][ii].view(1, 1, -1)]
+                        h += [torch.bmm(att_weights, Wh) + self.state_bias[tt][jj][ii].view(1, 1, -1)]
                     else:
-                        h += [F.elu(torch.bmm(att_weights, Wh) + self.
-                            state_bias[tt][jj][ii].view(1, 1, -1))]
+                        h += [F.elu(torch.bmm(att_weights, Wh) + self.state_bias[tt][jj][ii].view(1, 1, -1))]
             if tt == self.num_layer - 1:
                 state = torch.mean(torch.stack(h, dim=0), dim=0)
             else:
@@ -737,15 +679,11 @@ class GCN(nn.Module):
         self.num_layer = config.model.num_layer
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.
-            num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -833,15 +771,11 @@ class GCNFP(nn.Module):
         self.num_layer = config.model.num_layer
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.
-            num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -925,8 +859,7 @@ class GGNN(nn.Module):
         self.output_dim = config.model.output_dim
         self.num_layer = config.model.num_layer
         self.num_prop = config.model.num_prop
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
         self.aggregate_type = config.model.aggregate_type
@@ -934,27 +867,18 @@ class GGNN(nn.Module):
         assert self.aggregate_type in ['avg', 'sum'], 'not implemented'
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
         if config.model.update_func == 'RNN':
-            self.update_func = nn.RNNCell(input_size=self.hidden_dim * (
-                self.num_edgetype + 1), hidden_size=self.hidden_dim,
-                nonlinearity='relu')
+            self.update_func = nn.RNNCell(input_size=self.hidden_dim * (self.num_edgetype + 1), hidden_size=self.hidden_dim, nonlinearity='relu')
         elif config.model.update_func == 'GRU':
-            self.update_func = nn.GRUCell(input_size=self.hidden_dim * (
-                self.num_edgetype + 1), hidden_size=self.hidden_dim)
+            self.update_func = nn.GRUCell(input_size=self.hidden_dim * (self.num_edgetype + 1), hidden_size=self.hidden_dim)
         elif config.model.update_func == 'MLP':
-            self.update_func = nn.Sequential(*[nn.Linear(self.hidden_dim *
-                (self.num_edgetype + 1), self.hidden_dim), nn.Tanh()])
+            self.update_func = nn.Sequential(*[nn.Linear(self.hidden_dim * (self.num_edgetype + 1), self.hidden_dim), nn.Tanh()])
         if config.model.msg_func == 'MLP':
-            self.msg_func = nn.ModuleList([nn.Sequential(*[nn.Linear(self.
-                hidden_dim, 128), nn.ReLU(), nn.Linear(128, self.hidden_dim
-                )]) for _ in range(self.num_edgetype + 1)])
+            self.msg_func = nn.ModuleList([nn.Sequential(*[nn.Linear(self.hidden_dim, 128), nn.ReLU(), nn.Linear(128, self.hidden_dim)]) for _ in range(self.num_edgetype + 1)])
         else:
             self.msg_func = None
-        self.att_func = nn.Sequential(*[nn.Linear(self.hidden_dim, 1), nn.
-            Sigmoid()])
-        self.input_func = nn.Sequential(*[nn.Linear(self.input_dim, self.
-            hidden_dim)])
-        self.output_func = nn.Sequential(*[nn.Linear(self.hidden_dim, self.
-            output_dim)])
+        self.att_func = nn.Sequential(*[nn.Linear(self.hidden_dim, 1), nn.Sigmoid()])
+        self.input_func = nn.Sequential(*[nn.Linear(self.input_dim, self.hidden_dim)])
+        self.output_func = nn.Sequential(*[nn.Linear(self.hidden_dim, self.output_dim)])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -966,8 +890,7 @@ class GGNN(nn.Module):
         self._init_param()
 
     def _init_param(self):
-        mlp_modules = [xx for xx in [self.input_func, self.msg_func, self.
-            att_func, self.output_func] if xx is not None]
+        mlp_modules = [xx for xx in [self.input_func, self.msg_func, self.att_func, self.output_func] if xx is not None]
         for m in mlp_modules:
             if isinstance(m, nn.Sequential):
                 for mm in m:
@@ -1018,21 +941,18 @@ class GGNN(nn.Module):
             msg = []
             for ii in range(self.num_edgetype + 1):
                 if self.msg_func is not None:
-                    tmp_msg = self.msg_func[ii](state_old.view(batch_size *
-                        num_node, -1)).view(batch_size, num_node, -1)
+                    tmp_msg = self.msg_func[ii](state_old.view(batch_size * num_node, -1)).view(batch_size, num_node, -1)
                 if self.aggregate_type == 'sum':
                     tmp_msg = torch.bmm(L[:, :, :, (ii)], tmp_msg)
                 elif self.aggregate_type == 'avg':
-                    denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True
-                        ) + EPS
+                    denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True) + EPS
                     tmp_msg = torch.bmm(L[:, :, :, (ii)] / denom, tmp_msg)
                 else:
                     pass
                 msg += [tmp_msg]
             msg = torch.cat(msg, dim=2).view(batch_size * num_node, -1)
             state_old = state_old.view(batch_size * num_node, -1)
-            state_new = self.update_func(msg, state_old).view(batch_size,
-                num_node, -1)
+            state_new = self.update_func(msg, state_old).view(batch_size, num_node, -1)
             return state_new
         for tt in range(self.num_prop):
             state = _prop(state)
@@ -1076,8 +996,7 @@ class GPNN(nn.Module):
         self.num_partition = config.model.num_partition
         self.num_prop_cluster = config.model.num_prop_cluster
         self.num_prop_cut = config.model.num_prop_cut
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
         self.aggregate_type = config.model.aggregate_type
@@ -1085,35 +1004,22 @@ class GPNN(nn.Module):
         assert self.aggregate_type in ['avg', 'sum'], 'not implemented'
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
         if config.model.update_func == 'RNN':
-            self.update_func = nn.RNNCell(input_size=self.hidden_dim * (
-                self.num_edgetype + 1), hidden_size=self.hidden_dim,
-                nonlinearity='relu')
-            self.update_func_partition = nn.RNNCell(input_size=self.
-                hidden_dim, hidden_size=self.hidden_dim, nonlinearity='relu')
+            self.update_func = nn.RNNCell(input_size=self.hidden_dim * (self.num_edgetype + 1), hidden_size=self.hidden_dim, nonlinearity='relu')
+            self.update_func_partition = nn.RNNCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim, nonlinearity='relu')
         elif config.model.update_func == 'GRU':
-            self.update_func = nn.GRUCell(input_size=self.hidden_dim * (
-                self.num_edgetype + 1), hidden_size=self.hidden_dim)
-            self.update_func_partition = nn.GRUCell(input_size=self.
-                hidden_dim, hidden_size=self.hidden_dim)
+            self.update_func = nn.GRUCell(input_size=self.hidden_dim * (self.num_edgetype + 1), hidden_size=self.hidden_dim)
+            self.update_func_partition = nn.GRUCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim)
         elif config.model.update_func == 'MLP':
-            self.update_func = nn.Sequential(*[nn.Linear(self.hidden_dim *
-                (self.num_edgetype + 1), self.hidden_dim), nn.Tanh()])
-            self.update_func_partition = nn.Sequential(*[nn.Linear(self.
-                hidden_dim, self.hidden_dim), nn.Tanh()])
-        self.state_func = nn.Sequential(*[nn.Linear(3 * self.hidden_dim, 
-            512), nn.ReLU(), nn.Linear(512, self.hidden_dim)])
+            self.update_func = nn.Sequential(*[nn.Linear(self.hidden_dim * (self.num_edgetype + 1), self.hidden_dim), nn.Tanh()])
+            self.update_func_partition = nn.Sequential(*[nn.Linear(self.hidden_dim, self.hidden_dim), nn.Tanh()])
+        self.state_func = nn.Sequential(*[nn.Linear(3 * self.hidden_dim, 512), nn.ReLU(), nn.Linear(512, self.hidden_dim)])
         if config.model.msg_func == 'MLP':
-            self.msg_func = nn.ModuleList([nn.Sequential(*[nn.Linear(self.
-                hidden_dim, 128), nn.ReLU(), nn.Linear(128, self.hidden_dim
-                )]) for _ in range(self.num_edgetype + 1)])
+            self.msg_func = nn.ModuleList([nn.Sequential(*[nn.Linear(self.hidden_dim, 128), nn.ReLU(), nn.Linear(128, self.hidden_dim)]) for _ in range(self.num_edgetype + 1)])
         else:
             self.msg_func = None
-        self.att_func = nn.Sequential(*[nn.Linear(self.hidden_dim, 1), nn.
-            Sigmoid()])
-        self.input_func = nn.Sequential(*[nn.Linear(self.input_dim, self.
-            hidden_dim)])
-        self.output_func = nn.Sequential(*[nn.Linear(self.hidden_dim, self.
-            output_dim)])
+        self.att_func = nn.Sequential(*[nn.Linear(self.hidden_dim, 1), nn.Sigmoid()])
+        self.input_func = nn.Sequential(*[nn.Linear(self.input_dim, self.hidden_dim)])
+        self.output_func = nn.Sequential(*[nn.Linear(self.hidden_dim, self.output_dim)])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -1125,8 +1031,7 @@ class GPNN(nn.Module):
         self._init_param()
 
     def _init_param(self):
-        mlp_modules = [xx for xx in [self.input_func, self.state_func, self
-            .msg_func, self.att_func, self.output_func] if xx is not None]
+        mlp_modules = [xx for xx in [self.input_func, self.state_func, self.msg_func, self.att_func, self.output_func] if xx is not None]
         for m in mlp_modules:
             if isinstance(m, nn.Sequential):
                 for mm in m:
@@ -1179,27 +1084,23 @@ class GPNN(nn.Module):
             msg = []
             for ii in range(self.num_edgetype + 1):
                 if self.msg_func is not None:
-                    tmp_msg = self.msg_func[ii](state_old.view(batch_size *
-                        num_node, -1)).view(batch_size, num_node, -1)
+                    tmp_msg = self.msg_func[ii](state_old.view(batch_size * num_node, -1)).view(batch_size, num_node, -1)
                 if self.aggregate_type == 'sum':
                     tmp_msg = torch.bmm(L[:, :, :, (ii)], tmp_msg)
                 elif self.aggregate_type == 'avg':
-                    denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True
-                        ) + EPS
+                    denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True) + EPS
                     tmp_msg = torch.bmm(L[:, :, :, (ii)] / denom, tmp_msg)
                 else:
                     pass
                 msg += [tmp_msg]
             msg = torch.cat(msg, dim=2).view(batch_size * num_node, -1)
             state_old = state_old.view(batch_size * num_node, -1)
-            state_new = self.update_func(msg, state_old).view(batch_size,
-                num_node, -1)
+            state_new = self.update_func(msg, state_old).view(batch_size, num_node, -1)
             return state_new
 
         def _prop_partition(state_old, L_step):
             if self.msg_func is not None:
-                msg = self.msg_func[0](state_old.view(batch_size * num_node,
-                    -1)).view(batch_size, num_node, -1)
+                msg = self.msg_func[0](state_old.view(batch_size * num_node, -1)).view(batch_size, num_node, -1)
             if self.aggregate_type == 'sum':
                 msg = torch.bmm(L_step, msg)
             elif self.aggregate_type == 'avg':
@@ -1209,8 +1110,7 @@ class GPNN(nn.Module):
                 pass
             msg = msg.view(batch_size * num_node, -1)
             state_old = state_old.view(batch_size * num_node, -1)
-            state_new = self.update_func_partition(msg, state_old).view(
-                batch_size, num_node, -1)
+            state_new = self.update_func_partition(msg, state_old).view(batch_size, num_node, -1)
             return state_new
         for tt in range(self.num_prop):
             state_cluster = state
@@ -1219,8 +1119,7 @@ class GPNN(nn.Module):
             state_cut = state
             for ii in range(self.num_prop_cut):
                 state_cut = _prop_partition(state_cut, L_cut)
-            state = self.state_func(torch.cat([state, state_cluster,
-                state_cut], dim=2))
+            state = self.state_func(torch.cat([state, state_cluster, state_cut], dim=2))
             state = _prop(state)
             state = F.dropout(state, self.dropout, training=self.training)
         state = state.view(batch_size * num_node, -1)
@@ -1256,8 +1155,7 @@ class GraphSAGE(nn.Module):
         self.hidden_dim = config.model.hidden_dim
         self.output_dim = config.model.output_dim
         self.num_layer = config.model.num_layer
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         self.num_sample_neighbors = config.model.num_sample_neighbors
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
@@ -1266,20 +1164,15 @@ class GraphSAGE(nn.Module):
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
         self.agg_func_name = config.model.agg_func
         if self.agg_func_name == 'LSTM':
-            self.agg_func = nn.ModuleList([nn.LSTMCell(input_size=dim_list[
-                tt], hidden_size=dim_list[tt]) for tt in range(self.
-                num_layer - 1)])
+            self.agg_func = nn.ModuleList([nn.LSTMCell(input_size=dim_list[tt], hidden_size=dim_list[tt]) for tt in range(self.num_layer - 1)])
         elif self.agg_func_name == 'Mean':
             self.agg_func = torch.mean
         elif self.agg_func_name == 'Max':
             self.agg_func = torch.max
         else:
             self.agg_func = None
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.
-            num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -1344,24 +1237,19 @@ class GraphSAGE(nn.Module):
                     nn_state += [state[(bb), (nn_idx[(bb), :, :, (jj)]), :]]
                 nn_state = torch.stack(nn_state, dim=0)
                 if self.agg_func_name == 'LSTM':
-                    cx = torch.zeros_like(state).view(batch_size * num_node, -1
-                        )
-                    hx = torch.zeros_like(state).view(batch_size * num_node, -1
-                        )
+                    cx = torch.zeros_like(state).view(batch_size * num_node, -1)
+                    hx = torch.zeros_like(state).view(batch_size * num_node, -1)
                     for tt in range(self.num_sample_neighbors):
                         ix = nn_state[:, :, (tt), :]
-                        hx, cx = self.agg_func[ii](ix.view(batch_size *
-                            num_node, -1), (hx, cx))
+                        hx, cx = self.agg_func[ii](ix.view(batch_size * num_node, -1), (hx, cx))
                     agg_state = hx.view(batch_size, num_node, -1)
                 elif self.agg_func_name == 'Max':
                     agg_state, _ = self.agg_func(nn_state, dim=2)
                 else:
                     agg_state = self.agg_func(nn_state, dim=2)
                 msg += [agg_state * nonempty_mask]
-            state = F.relu(self.filter[ii](torch.cat(msg, dim=2).view(
-                batch_size * num_node, -1)))
-            state = (state / (torch.norm(state, 2, dim=1, keepdim=True) + EPS)
-                ).view(batch_size, num_node, -1)
+            state = F.relu(self.filter[ii](torch.cat(msg, dim=2).view(batch_size * num_node, -1)))
+            state = (state / (torch.norm(state, 2, dim=1, keepdim=True) + EPS)).view(batch_size, num_node, -1)
             state = F.dropout(state, self.dropout, training=self.training)
         state = state.view(batch_size * num_node, -1)
         y = self.filter[-1](state)
@@ -1392,32 +1280,21 @@ class LanczosNet(nn.Module):
         self.num_layer = config.model.num_layer
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
-        self.short_diffusion_dist = check_dist(config.model.
-            short_diffusion_dist)
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
+        self.short_diffusion_dist = check_dist(config.model.short_diffusion_dist)
         self.long_diffusion_dist = check_dist(config.model.long_diffusion_dist)
-        self.max_short_diffusion_dist = max(self.short_diffusion_dist
-            ) if self.short_diffusion_dist else None
-        self.max_long_diffusion_dist = max(self.long_diffusion_dist
-            ) if self.long_diffusion_dist else None
+        self.max_short_diffusion_dist = max(self.short_diffusion_dist) if self.short_diffusion_dist else None
+        self.max_long_diffusion_dist = max(self.long_diffusion_dist) if self.long_diffusion_dist else None
         self.num_scale_short = len(self.short_diffusion_dist)
         self.num_scale_long = len(self.long_diffusion_dist)
         self.num_eig_vec = config.model.num_eig_vec
         self.spectral_filter_kind = config.model.spectral_filter_kind
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_scale_short + self.num_scale_long + self.num_edgetype + 1),
-            dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear
-            (dim_list[-2], dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_scale_short + self.num_scale_long + self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         self.embedding = nn.Embedding(self.num_atom, self.input_dim)
         if self.spectral_filter_kind == 'MLP' and self.num_scale_long > 0:
-            self.spectral_filter = nn.ModuleList([nn.Sequential(*[nn.Linear
-                (self.num_scale_long, 128), nn.ReLU(), nn.Linear(128, 128),
-                nn.ReLU(), nn.Linear(128, 128), nn.ReLU(), nn.Linear(128,
-                self.num_scale_long)]) for _ in range(self.num_layer)])
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+            self.spectral_filter = nn.ModuleList([nn.Sequential(*[nn.Linear(self.num_scale_long, 128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, self.num_scale_long)]) for _ in range(self.num_layer)])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -1460,8 +1337,7 @@ class LanczosNet(nn.Module):
         L = []
         if self.spectral_filter_kind == 'MLP':
             DD = torch.stack(T_list, dim=2).view(Q.shape[0] * Q.shape[2], -1)
-            DD = self.spectral_filter[layer_idx](DD).view(Q.shape[0], Q.
-                shape[2], -1)
+            DD = self.spectral_filter[layer_idx](DD).view(Q.shape[0], Q.shape[2], -1)
             for ii in range(self.num_scale_long):
                 tmp_DD = DD[:, :, (ii)].unsqueeze(1).repeat(1, Q.shape[1], 1)
                 L += [(Q * tmp_DD).bmm(Q.transpose(1, 2))]
@@ -1539,33 +1415,22 @@ class LanczosNetGeneral(nn.Module):
         self.node_emb_dim = config.dataset.node_emb_dim
         self.graph_emb_dim = config.dataset.graph_emb_dim
         self.num_edgetype = config.dataset.num_edge_type
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
-        self.short_diffusion_dist = check_dist(config.model.
-            short_diffusion_dist)
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
+        self.short_diffusion_dist = check_dist(config.model.short_diffusion_dist)
         self.long_diffusion_dist = check_dist(config.model.long_diffusion_dist)
-        self.max_short_diffusion_dist = max(self.short_diffusion_dist
-            ) if self.short_diffusion_dist else None
-        self.max_long_diffusion_dist = max(self.long_diffusion_dist
-            ) if self.long_diffusion_dist else None
+        self.max_short_diffusion_dist = max(self.short_diffusion_dist) if self.short_diffusion_dist else None
+        self.max_long_diffusion_dist = max(self.long_diffusion_dist) if self.long_diffusion_dist else None
         self.num_scale_short = len(self.short_diffusion_dist)
         self.num_scale_long = len(self.long_diffusion_dist)
         self.num_eig_vec = config.model.num_eig_vec
         self.spectral_filter_kind = config.model.spectral_filter_kind
         dim_list = [self.input_dim] + self.hidden_dim + [self.output_dim]
-        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.
-            num_scale_short + self.num_scale_long + self.num_edgetype + 1),
-            dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear
-            (dim_list[-2], dim_list[-1])])
+        self.filter = nn.ModuleList([nn.Linear(dim_list[tt] * (self.num_scale_short + self.num_scale_long + self.num_edgetype + 1), dim_list[tt + 1]) for tt in range(self.num_layer)] + [nn.Linear(dim_list[-2], dim_list[-1])])
         assert self.input_dim == self.node_emb_dim
         assert self.output_dim == self.graph_emb_dim
         if self.spectral_filter_kind == 'MLP' and self.num_scale_long > 0:
-            self.spectral_filter = nn.ModuleList([nn.Sequential(*[nn.Linear
-                (self.num_scale_long, 128), nn.ReLU(), nn.Linear(128, 128),
-                nn.ReLU(), nn.Linear(128, 128), nn.ReLU(), nn.Linear(128,
-                self.num_scale_long)]) for _ in range(self.num_layer)])
-        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.
-            Sigmoid()])
+            self.spectral_filter = nn.ModuleList([nn.Sequential(*[nn.Linear(self.num_scale_long, 128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, 128), nn.ReLU(), nn.Linear(128, self.num_scale_long)]) for _ in range(self.num_layer)])
+        self.att_func = nn.Sequential(*[nn.Linear(dim_list[-2], 1), nn.Sigmoid()])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -1608,8 +1473,7 @@ class LanczosNetGeneral(nn.Module):
         L = []
         if self.spectral_filter_kind == 'MLP':
             DD = torch.stack(T_list, dim=2).view(Q.shape[0] * Q.shape[2], -1)
-            DD = self.spectral_filter[layer_idx](DD).view(Q.shape[0], Q.
-                shape[2], -1)
+            DD = self.spectral_filter[layer_idx](DD).view(Q.shape[0], Q.shape[2], -1)
             for ii in range(self.num_scale_long):
                 tmp_DD = DD[:, :, (ii)].unsqueeze(1).repeat(1, Q.shape[1], 1)
                 L += [(Q * tmp_DD).bmm(Q.transpose(1, 2))]
@@ -1693,30 +1557,23 @@ class MPNN(nn.Module):
         self.num_prop = config.model.num_prop
         self.msg_func_name = config.model.msg_func
         self.num_step_set2vec = config.model.num_step_set2vec
-        self.dropout = config.model.dropout if hasattr(config.model, 'dropout'
-            ) else 0.0
+        self.dropout = config.model.dropout if hasattr(config.model, 'dropout') else 0.0
         self.num_atom = config.dataset.num_atom
         self.num_edgetype = config.dataset.num_bond_type
         self.aggregate_type = config.model.aggregate_type
         assert self.num_layer == 1, 'not implemented'
         assert self.aggregate_type in ['avg', 'sum'], 'not implemented'
         self.node_embedding = nn.Embedding(self.num_atom, self.input_dim)
-        self.input_func = nn.Sequential(*[nn.Linear(self.input_dim, self.
-            hidden_dim)])
-        self.update_func = nn.GRUCell(input_size=self.hidden_dim * (self.
-            num_edgetype + 1), hidden_size=self.hidden_dim)
+        self.input_func = nn.Sequential(*[nn.Linear(self.input_dim, self.hidden_dim)])
+        self.update_func = nn.GRUCell(input_size=self.hidden_dim * (self.num_edgetype + 1), hidden_size=self.hidden_dim)
         if config.model.msg_func == 'embedding':
-            self.edge_embedding = nn.Embedding(self.num_edgetype + 1, self.
-                hidden_dim ** 2)
+            self.edge_embedding = nn.Embedding(self.num_edgetype + 1, self.hidden_dim ** 2)
         elif config.model.msg_func == 'MLP':
-            self.edge_func = nn.ModuleList([nn.Sequential(*[nn.Linear(self.
-                hidden_dim * 2, 64), nn.ReLU(), nn.Linear(64, self.
-                hidden_dim)]) for _ in range(self.num_edgetype + 1)])
+            self.edge_func = nn.ModuleList([nn.Sequential(*[nn.Linear(self.hidden_dim * 2, 64), nn.ReLU(), nn.Linear(64, self.hidden_dim)]) for _ in range(self.num_edgetype + 1)])
         else:
             raise ValueError('Non-supported message function')
         self.att_func = Set2Vec(self.hidden_dim, self.num_step_set2vec)
-        self.output_func = nn.Sequential(*[nn.Linear(2 * self.hidden_dim,
-            self.output_dim)])
+        self.output_func = nn.Sequential(*[nn.Linear(2 * self.hidden_dim, self.output_dim)])
         if config.model.loss == 'CrossEntropy':
             self.loss_func = torch.nn.CrossEntropyLoss()
         elif config.model.loss == 'MSE':
@@ -1728,8 +1585,7 @@ class MPNN(nn.Module):
         self._init_param()
 
     def _init_param(self):
-        mlp_modules = [xx for xx in [self.input_func, self.output_func,
-            self.att_func] if xx is not None]
+        mlp_modules = [xx for xx in [self.input_func, self.output_func, self.att_func] if xx is not None]
         for m in mlp_modules:
             if isinstance(m, nn.Sequential):
                 for mm in m:
@@ -1770,8 +1626,7 @@ class MPNN(nn.Module):
         state = self.input_func(state)
         if self.msg_func_name == 'MLP':
             idx_row, idx_col = np.meshgrid(range(num_node), range(num_node))
-            idx_row, idx_col = idx_row.flatten().astype(np.int64
-                ), idx_col.flatten().astype(np.int64)
+            idx_row, idx_col = idx_row.flatten().astype(np.int64), idx_col.flatten().astype(np.int64)
 
         def _prop(state_old):
             state_dim = state_old.shape[2]
@@ -1779,41 +1634,32 @@ class MPNN(nn.Module):
             for ii in range(self.num_edgetype + 1):
                 if self.msg_func_name == 'embedding':
                     idx_edgetype = torch.Tensor([ii]).long()
-                    edge_em = self.edge_embedding(idx_edgetype).view(state_dim,
-                        state_dim)
+                    edge_em = self.edge_embedding(idx_edgetype).view(state_dim, state_dim)
                     node_state = state_old.view(batch_size * num_node, -1)
-                    tmp_msg = node_state.mm(edge_em).view(batch_size,
-                        num_node, -1)
+                    tmp_msg = node_state.mm(edge_em).view(batch_size, num_node, -1)
                     if self.aggregate_type == 'sum':
                         tmp_msg = torch.bmm(L[:, :, :, (ii)], tmp_msg)
                     elif self.aggregate_type == 'avg':
-                        denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True
-                            ) + EPS
+                        denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True) + EPS
                         tmp_msg = torch.bmm(L[:, :, :, (ii)] / denom, tmp_msg)
                     else:
                         pass
                 elif self.msg_func_name == 'MLP':
                     state_in = state_old[:, (idx_col), :]
                     state_out = state_old[:, (idx_row), :]
-                    tmp_msg = self.edge_func[ii](torch.cat([state_out,
-                        state_in], dim=2).view(batch_size * num_node *
-                        num_node, -1)).view(batch_size, num_node, num_node, -1)
+                    tmp_msg = self.edge_func[ii](torch.cat([state_out, state_in], dim=2).view(batch_size * num_node * num_node, -1)).view(batch_size, num_node, num_node, -1)
                     if self.aggregate_type == 'sum':
-                        tmp_msg = torch.matmul(tmp_msg.permute(0, 1, 3, 2),
-                            L[:, :, :, (ii)].unsqueeze(dim=3)).squeeze()
+                        tmp_msg = torch.matmul(tmp_msg.permute(0, 1, 3, 2), L[:, :, :, (ii)].unsqueeze(dim=3)).squeeze()
                     elif self.aggregate_type == 'avg':
-                        denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True
-                            ) + EPS
-                        tmp_msg = torch.matmul(tmp_msg.permute(0, 1, 3, 2),
-                            L[:, :, :, (ii)].unsqueeze(dim=3)).squeeze()
+                        denom = torch.sum(L[:, :, :, (ii)], dim=2, keepdim=True) + EPS
+                        tmp_msg = torch.matmul(tmp_msg.permute(0, 1, 3, 2), L[:, :, :, (ii)].unsqueeze(dim=3)).squeeze()
                         tmp_msg = tmp_msg / denom
                     else:
                         pass
                 msg += [tmp_msg]
             msg = torch.cat(msg, dim=2).view(batch_size * num_node, -1)
             state_old = state_old.view(batch_size * num_node, -1)
-            state_new = self.update_func(msg, state_old).view(batch_size,
-                num_node, -1)
+            state_new = self.update_func(msg, state_old).view(batch_size, num_node, -1)
             return state_new
         for tt in range(self.num_prop):
             state = _prop(state)
@@ -1838,19 +1684,14 @@ class Set2SetLSTM(nn.Module):
         """ Implementation of customized LSTM for set2set """
         super(Set2SetLSTM, self).__init__()
         self.hidden_dim = hidden_dim
-        self.forget_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim,
-            self.hidden_dim), nn.Sigmoid()])
-        self.input_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim,
-            self.hidden_dim), nn.Sigmoid()])
-        self.output_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim,
-            self.hidden_dim), nn.Sigmoid()])
-        self.memory_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim,
-            self.hidden_dim), nn.Tanh()])
+        self.forget_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim, self.hidden_dim), nn.Sigmoid()])
+        self.input_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim, self.hidden_dim), nn.Sigmoid()])
+        self.output_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim, self.hidden_dim), nn.Sigmoid()])
+        self.memory_gate = nn.Sequential(*[nn.Linear(2 * self.hidden_dim, self.hidden_dim), nn.Tanh()])
         self._init_param()
 
     def _init_param(self):
-        for m in [self.forget_gate, self.input_gate, self.output_gate, self
-            .memory_gate]:
+        for m in [self.forget_gate, self.input_gate, self.output_gate, self.memory_gate]:
             for mm in m:
                 if isinstance(mm, nn.Linear):
                     nn.init.xavier_uniform_(mm.weight.data)
@@ -1909,8 +1750,7 @@ class Set2Vec(nn.Module):
         memory = torch.zeros(1, self.element_dim)
         for tt in range(self.num_step_encoder):
             hidden, memory = self.LSTM(hidden, memory)
-            energy = torch.tanh(torch.mm(hidden, self.W_1) + input_set).mm(self
-                .W_2)
+            energy = torch.tanh(torch.mm(hidden, self.W_1) + input_set).mm(self.W_2)
             att_weight = F.softmax(energy, dim=0)
             read = (input_set * att_weight).sum(dim=0, keepdim=True)
             hidden = torch.cat([hidden, read], dim=1)
@@ -1943,8 +1783,7 @@ class Set2Set(nn.Module):
         self._init_param()
 
     def _init_param(self):
-        for xx in [self.W_1, self.W_2, self.W_3, self.W_4, self.W_5, self.
-            W_6, self.W_7]:
+        for xx in [self.W_1, self.W_2, self.W_3, self.W_4, self.W_5, self.W_6, self.W_7]:
             nn.init.xavier_uniform_(xx.data)
 
     def forward(self, input_set):
@@ -1962,8 +1801,7 @@ class Set2Set(nn.Module):
         memory = torch.zeros(1, self.element_dim)
         for tt in range(self.num_step_encoder):
             hidden, memory = self.LSTM_encoder(hidden, memory)
-            energy = torch.tanh(torch.mm(hidden, self.W_1) + input_set).mm(self
-                .W_2)
+            energy = torch.tanh(torch.mm(hidden, self.W_1) + input_set).mm(self.W_2)
             att_weight = F.softmax(energy, dim=0)
             read = (input_set * att_weight).sum(dim=0, keepdim=True)
             hidden = torch.cat([hidden, read], dim=1)
@@ -1971,13 +1809,11 @@ class Set2Set(nn.Module):
         output_set = []
         for tt in range(num_element):
             hidden, memory = self.LSTM_decoder(hidden, memory)
-            energy = torch.tanh(torch.mm(hidden, self.W_3) + input_set).mm(self
-                .W_4)
+            energy = torch.tanh(torch.mm(hidden, self.W_3) + input_set).mm(self.W_4)
             att_weight = F.softmax(energy, dim=0)
             read = (input_set * att_weight).sum(dim=0, keepdim=True)
             hidden = torch.cat([hidden, read], dim=1)
-            energy = torch.tanh(torch.mm(read, self.W_5) + torch.mm(
-                input_set, self.W_6)).mm(self.W_7)
+            energy = torch.tanh(torch.mm(read, self.W_5) + torch.mm(input_set, self.W_6)).mm(self.W_7)
             output_set += [torch.argmax(energy)]
         return torch.stack(output_set)
 
@@ -1988,15 +1824,11 @@ class UnsortedSegmentSumFunction(Function):
     def forward(ctx, data, segment_index, num_segments):
         ctx.save_for_backward(data, segment_index)
         if not data.is_cuda:
-            output = torch.FloatTensor(data.size(0), num_segments, data.size(2)
-                ).zero_()
-            segment_reduction.unsorted_segment_sum_forward(data,
-                segment_index, data.size(), output)
+            output = torch.FloatTensor(data.size(0), num_segments, data.size(2)).zero_()
+            segment_reduction.unsorted_segment_sum_forward(data, segment_index, data.size(), output)
         else:
-            output = torch.cuda.FloatTensor(data.size(0), num_segments,
-                data.size(2)).zero_()
-            segment_reduction.unsorted_segment_sum_forward_gpu(data,
-                segment_index, data.size(), output)
+            output = torch.cuda.FloatTensor(data.size(0), num_segments, data.size(2)).zero_()
+            segment_reduction.unsorted_segment_sum_forward_gpu(data, segment_index, data.size(), output)
         return output
 
     @staticmethod
@@ -2004,11 +1836,9 @@ class UnsortedSegmentSumFunction(Function):
         data, segment_index = ctx.saved_tensors
         grad_data = data.new().resize_as_(data).zero_()
         if not data.is_cuda:
-            segment_reduction.unsorted_segment_sum_backward(grad_output.
-                data, segment_index, grad_data.size(), grad_data)
+            segment_reduction.unsorted_segment_sum_backward(grad_output.data, segment_index, grad_data.size(), grad_data)
         else:
-            segment_reduction.unsorted_segment_sum_backward_gpu(grad_output
-                .data, segment_index, grad_data.size(), grad_data)
+            segment_reduction.unsorted_segment_sum_backward_gpu(grad_output.data, segment_index, grad_data.size(), grad_data)
         return Variable(grad_data), None, None
 
 
@@ -2019,22 +1849,37 @@ class UnsortedSegmentSum(nn.Module):
         self.num_segments = num_segments
 
     def forward(self, data, segment_index):
-        return UnsortedSegmentSumFunction.apply(data, segment_index, self.
-            num_segments)
+        return UnsortedSegmentSumFunction.apply(data, segment_index, self.num_segments)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Set2Set,
+     lambda: ([], {'element_dim': 4, 'num_step_encoder': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (Set2SetLSTM,
+     lambda: ([], {'hidden_dim': 4}),
+     lambda: ([torch.rand([8, 8]), torch.rand([4, 4, 8, 4])], {}),
+     True),
+    (Set2Vec,
+     lambda: ([], {'element_dim': 4, 'num_step_encoder': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_lrjconan_LanczosNetwork(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Set2Set(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Set2SetLSTM(*[], **{'hidden_dim': 4}), [torch.rand([8, 8]), torch.rand([4, 4, 8, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Set2Vec(*[], **{'element_dim': 4, 'num_step_encoder': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,16 +86,13 @@ class Loss(nn.modules.loss._Loss):
                 loss_function = nn.L1Loss()
             elif loss_type.find('VGG') >= 0:
                 module = import_module('loss.vgg')
-                loss_function = getattr(module, 'VGG')(loss_type[3:],
-                    rgb_range=args.rgb_range)
+                loss_function = getattr(module, 'VGG')(loss_type[3:], rgb_range=args.rgb_range)
             elif loss_type.find('GAN') >= 0:
                 module = import_module('loss.adversarial')
                 loss_function = getattr(module, 'Adversarial')(args, loss_type)
-            self.loss.append({'type': loss_type, 'weight': float(weight),
-                'function': loss_function})
+            self.loss.append({'type': loss_type, 'weight': float(weight), 'function': loss_function})
             if loss_type.find('GAN') >= 0:
-                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None}
-                    )
+                self.loss.append({'type': 'DIS', 'weight': 1, 'function': None})
         if len(self.loss) > 1:
             self.loss.append({'type': 'Total', 'weight': 0, 'function': None})
         for l in self.loss:
@@ -107,8 +105,7 @@ class Loss(nn.modules.loss._Loss):
         if args.precision == 'half':
             self.loss_module.half()
         if not args.cpu and args.n_GPUs > 1:
-            self.loss_module = nn.DataParallel(self.loss_module, range(args
-                .n_GPUs))
+            self.loss_module = nn.DataParallel(self.loss_module, range(args.n_GPUs))
         if args.load != '.':
             self.load(ckp.dir, cpu=args.cpu)
 
@@ -174,8 +171,7 @@ class Loss(nn.modules.loss._Loss):
             kwargs = {'map_location': lambda storage, loc: storage}
         else:
             kwargs = {}
-        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **
-            kwargs))
+        self.load_state_dict(torch.load(os.path.join(apath, 'loss.pt'), **kwargs))
         self.log = torch.load(os.path.join(apath, 'loss_log.pt'))
         for l in self.loss_module:
             if hasattr(l, 'scheduler'):
@@ -193,8 +189,7 @@ class Adversarial(nn.Module):
         if gan_type != 'WGAN_GP':
             self.optimizer = utility.make_optimizer(args, self.discriminator)
         else:
-            self.optimizer = optim.Adam(self.discriminator.parameters(),
-                betas=(0, 0.9), eps=1e-08, lr=1e-05)
+            self.optimizer = optim.Adam(self.discriminator.parameters(), betas=(0, 0.9), eps=1e-08, lr=1e-05)
         self.scheduler = utility.make_scheduler(args, self.optimizer)
 
     def forward(self, fake, real):
@@ -207,8 +202,7 @@ class Adversarial(nn.Module):
             if self.gan_type == 'GAN':
                 label_fake = torch.zeros_like(d_fake)
                 label_real = torch.ones_like(d_real)
-                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake
-                    ) + F.binary_cross_entropy_with_logits(d_real, label_real)
+                loss_d = F.binary_cross_entropy_with_logits(d_fake, label_fake) + F.binary_cross_entropy_with_logits(d_real, label_real)
             elif self.gan_type.find('WGAN') >= 0:
                 loss_d = (d_fake - d_real).mean()
                 if self.gan_type.find('GP') >= 0:
@@ -216,9 +210,7 @@ class Adversarial(nn.Module):
                     hat = fake_detach.mul(1 - epsilon) + real.mul(epsilon)
                     hat.requires_grad = True
                     d_hat = self.discriminator(hat)
-                    gradients = torch.autograd.grad(outputs=d_hat.sum(),
-                        inputs=hat, retain_graph=True, create_graph=True,
-                        only_inputs=True)[0]
+                    gradients = torch.autograd.grad(outputs=d_hat.sum(), inputs=hat, retain_graph=True, create_graph=True, only_inputs=True)[0]
                     gradients = gradients.view(gradients.size(0), -1)
                     gradient_norm = gradients.norm(2, dim=1)
                     gradient_penalty = 10 * gradient_norm.sub(1).pow(2).mean()
@@ -232,8 +224,7 @@ class Adversarial(nn.Module):
         self.loss /= self.gan_k
         d_fake_for_g = self.discriminator(fake)
         if self.gan_type == 'GAN':
-            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g,
-                label_real)
+            loss_g = F.binary_cross_entropy_with_logits(d_fake_for_g, label_real)
         elif self.gan_type.find('WGAN') >= 0:
             loss_g = -d_fake_for_g.mean()
         return loss_g
@@ -253,8 +244,7 @@ class Discriminator(nn.Module):
         depth = 7
         bn = True
         act = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        m_features = [common.BasicBlock(args.n_colors, out_channels, 3, bn=
-            bn, act=act)]
+        m_features = [common.BasicBlock(args.n_colors, out_channels, 3, bn=bn, act=act)]
         for i in range(depth):
             in_channels = out_channels
             if i % 2 == 1:
@@ -262,12 +252,10 @@ class Discriminator(nn.Module):
                 out_channels *= 2
             else:
                 stride = 2
-            m_features.append(common.BasicBlock(in_channels, out_channels, 
-                3, stride=stride, bn=bn, act=act))
+            m_features.append(common.BasicBlock(in_channels, out_channels, 3, stride=stride, bn=bn, act=act))
         self.features = nn.Sequential(*m_features)
         patch_size = args.patch_size // 2 ** ((depth + 1) // 2)
-        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024),
-            act, nn.Linear(1024, 1)]
+        m_classifier = [nn.Linear(out_channels * patch_size ** 2, 1024), act, nn.Linear(1024, 1)]
         self.classifier = nn.Sequential(*m_classifier)
 
     def forward(self, x):
@@ -325,8 +313,7 @@ class Model(nn.Module):
             self.model.half()
         if not args.cpu and args.n_GPUs > 1:
             self.model = nn.DataParallel(self.model, range(args.n_GPUs))
-        self.load(ckp.dir, pre_train=args.pre_train, resume=args.resume,
-            cpu=args.cpu)
+        self.load(ckp.dir, pre_train=args.pre_train, resume=args.resume, cpu=args.cpu)
         None
 
     def forward(self, x, idx_scale):
@@ -357,14 +344,11 @@ class Model(nn.Module):
 
     def save(self, apath, epoch, is_best=False):
         target = self.get_model()
-        torch.save(target.state_dict(), os.path.join(apath, 'model',
-            'model_latest.pt'))
+        torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_latest.pt'))
         if is_best:
-            torch.save(target.state_dict(), os.path.join(apath, 'model',
-                'model_best.pt'))
+            torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_best.pt'))
         if self.save_models:
-            torch.save(target.state_dict(), os.path.join(apath, 'model',
-                'model_{}.pt'.format(epoch)))
+            torch.save(target.state_dict(), os.path.join(apath, 'model', 'model_{}.pt'.format(epoch)))
 
     def load(self, apath, pre_train='.', resume=-1, cpu=False):
         if cpu:
@@ -374,17 +358,13 @@ class Model(nn.Module):
         else:
             kwargs = {}
         if resume == -1:
-            self.get_model().load_state_dict(torch.load(os.path.join(apath,
-                'model', 'model_latest.pt'), **kwargs), strict=False)
+            self.get_model().load_state_dict(torch.load(os.path.join(apath, 'model', 'model_latest.pt'), **kwargs), strict=False)
         elif resume == 0:
             if pre_train != '.':
                 None
-                self.get_model().load_state_dict(torch.load(pre_train, **
-                    kwargs), strict=False)
+                self.get_model().load_state_dict(torch.load(pre_train, **kwargs), strict=False)
         else:
-            self.get_model().load_state_dict(torch.load(os.path.join(apath,
-                'model', 'model_{}.pt'.format(resume)), **kwargs), strict=False
-                )
+            self.get_model().load_state_dict(torch.load(os.path.join(apath, 'model', 'model_{}.pt'.format(resume)), **kwargs), strict=False)
 
     def forward_chop(self, x, shave=10, min_size=160000):
         scale = self.scale[self.idx_scale]
@@ -392,9 +372,7 @@ class Model(nn.Module):
         b, c, h, w = x.size()
         h_half, w_half = h // 2, w // 2
         h_size, w_size = h_half + shave, w_half + shave
-        lr_list = [x[:, :, 0:h_size, 0:w_size], x[:, :, 0:h_size, w -
-            w_size:w], x[:, :, h - h_size:h, 0:w_size], x[:, :, h - h_size:
-            h, w - w_size:w]]
+        lr_list = [x[:, :, 0:h_size, 0:w_size], x[:, :, 0:h_size, w - w_size:w], x[:, :, h - h_size:h, 0:w_size], x[:, :, h - h_size:h, w - w_size:w]]
         if w_size * h_size < min_size:
             sr_list = []
             for i in range(0, 4, n_GPUs):
@@ -402,20 +380,16 @@ class Model(nn.Module):
                 sr_batch = self.model(lr_batch)
                 sr_list.extend(sr_batch.chunk(n_GPUs, dim=0))
         else:
-            sr_list = [self.forward_chop(patch, shave=shave, min_size=
-                min_size) for patch in lr_list]
+            sr_list = [self.forward_chop(patch, shave=shave, min_size=min_size) for patch in lr_list]
         h, w = scale * h, scale * w
         h_half, w_half = scale * h_half, scale * w_half
         h_size, w_size = scale * h_size, scale * w_size
         shave *= scale
         output = x.new(b, c, h, w)
         output[:, :, 0:h_half, 0:w_half] = sr_list[0][:, :, 0:h_half, 0:w_half]
-        output[:, :, 0:h_half, w_half:w] = sr_list[1][:, :, 0:h_half, 
-            w_size - w + w_half:w_size]
-        output[:, :, h_half:h, 0:w_half] = sr_list[2][:, :, h_size - h +
-            h_half:h_size, 0:w_half]
-        output[:, :, h_half:h, w_half:w] = sr_list[3][:, :, h_size - h +
-            h_half:h_size, w_size - w + w_half:w_size]
+        output[:, :, 0:h_half, w_half:w] = sr_list[1][:, :, 0:h_half, w_size - w + w_half:w_size]
+        output[:, :, h_half:h, 0:w_half] = sr_list[2][:, :, h_size - h + h_half:h_size, 0:w_half]
+        output[:, :, h_half:h, w_half:w] = sr_list[3][:, :, h_size - h + h_half:h_size, w_size - w + w_half:w_size]
         return output
 
     def forward_x8(self, x, forward_function):
@@ -462,17 +436,14 @@ class Scale(nn.Module):
 
 class AWRU(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1,
-        act=nn.ReLU(True)):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1, act=nn.ReLU(True)):
         super(AWRU, self).__init__()
         self.res_scale = Scale(1)
         self.x_scale = Scale(1)
         body = []
-        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding=kernel_size // 2)))
         body.append(act)
-        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding=kernel_size // 2)))
         self.body = nn.Sequential(*body)
 
     def forward(self, x):
@@ -485,14 +456,10 @@ class AWMS(nn.Module):
     def __init__(self, args, scale, n_feats, kernel_size, wn):
         super(AWMS, self).__init__()
         out_feats = scale * scale * args.n_colors
-        self.tail_k3 = wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2,
-            dilation=1))
-        self.tail_k5 = wn(nn.Conv2d(n_feats, out_feats, 5, padding=5 // 2,
-            dilation=1))
-        self.tail_k7 = wn(nn.Conv2d(n_feats, out_feats, 7, padding=7 // 2,
-            dilation=1))
-        self.tail_k9 = wn(nn.Conv2d(n_feats, out_feats, 9, padding=9 // 2,
-            dilation=1))
+        self.tail_k3 = wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2, dilation=1))
+        self.tail_k5 = wn(nn.Conv2d(n_feats, out_feats, 5, padding=5 // 2, dilation=1))
+        self.tail_k7 = wn(nn.Conv2d(n_feats, out_feats, 7, padding=7 // 2, dilation=1))
+        self.tail_k9 = wn(nn.Conv2d(n_feats, out_feats, 9, padding=9 // 2, dilation=1))
         self.pixelshuffle = nn.PixelShuffle(scale)
         self.scale_k3 = Scale(0.25)
         self.scale_k5 = Scale(0.25)
@@ -509,8 +476,7 @@ class AWMS(nn.Module):
 
 class LFB(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, act=nn.ReLU(True)
-        ):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, act=nn.ReLU(True)):
         super(LFB, self).__init__()
         self.b0 = AWRU(n_feats, kernel_size, block_feats, wn=wn, act=act)
         self.b1 = AWRU(n_feats, kernel_size, block_feats, wn=wn, act=act)
@@ -540,14 +506,12 @@ class MODEL(nn.Module):
         kernel_size = 3
         act = nn.ReLU(True)
         wn = lambda x: torch.nn.utils.weight_norm(x)
-        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([0.4488, 
-            0.4371, 0.404])).view([1, 3, 1, 1])
+        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([0.4488, 0.4371, 0.404])).view([1, 3, 1, 1])
         head = []
         head.append(wn(nn.Conv2d(args.n_colors, n_feats, 3, padding=3 // 2)))
         body = []
         for i in range(n_resblocks):
-            body.append(LFB(n_feats, kernel_size, args.block_feats, wn=wn,
-                act=act))
+            body.append(LFB(n_feats, kernel_size, args.block_feats, wn=wn, act=act))
         out_feats = scale * scale * args.n_colors
         tail = AWMS(args, scale, n_feats, kernel_size, wn)
         skip = []
@@ -580,19 +544,14 @@ class MODEL(nn.Module):
                     if name.find('tail') >= 0 or name.find('skip') >= 0:
                         None
                     else:
-                        raise RuntimeError(
-                            'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
-                            .format(name, own_state[name].size(), param.size())
-                            )
+                        raise RuntimeError('While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'.format(name, own_state[name].size(), param.size()))
             elif strict:
                 if name.find('tail') == -1:
-                    raise KeyError('unexpected key "{}" in state_dict'.
-                        format(name))
+                    raise KeyError('unexpected key "{}" in state_dict'.format(name))
         if strict:
             missing = set(own_state.keys()) - set(state_dict.keys())
             if len(missing) > 0:
-                raise KeyError('missing keys in state_dict: "{}"'.format(
-                    missing))
+                raise KeyError('missing keys in state_dict: "{}"'.format(missing))
 
 
 class Scale(nn.Module):
@@ -607,17 +566,14 @@ class Scale(nn.Module):
 
 class AWRU(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1,
-        act=nn.ReLU(True)):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1, act=nn.ReLU(True)):
         super(AWRU, self).__init__()
         self.res_scale = Scale(1)
         self.x_scale = Scale(1)
         body = []
-        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding=kernel_size // 2)))
         body.append(act)
-        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding=kernel_size // 2)))
         self.body = nn.Sequential(*body)
 
     def forward(self, x):
@@ -630,14 +586,10 @@ class AWMS(nn.Module):
     def __init__(self, args, scale, n_feats, kernel_size, wn):
         super(AWMS, self).__init__()
         out_feats = scale * scale * args.n_colors
-        self.tail_k3 = wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2,
-            dilation=1))
-        self.tail_k5 = wn(nn.Conv2d(n_feats, out_feats, 5, padding=5 // 2,
-            dilation=1))
-        self.tail_k7 = wn(nn.Conv2d(n_feats, out_feats, 7, padding=7 // 2,
-            dilation=1))
-        self.tail_k9 = wn(nn.Conv2d(n_feats, out_feats, 9, padding=9 // 2,
-            dilation=1))
+        self.tail_k3 = wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2, dilation=1))
+        self.tail_k5 = wn(nn.Conv2d(n_feats, out_feats, 5, padding=5 // 2, dilation=1))
+        self.tail_k7 = wn(nn.Conv2d(n_feats, out_feats, 7, padding=7 // 2, dilation=1))
+        self.tail_k9 = wn(nn.Conv2d(n_feats, out_feats, 9, padding=9 // 2, dilation=1))
         self.pixelshuffle = nn.PixelShuffle(scale)
         self.scale_k3 = Scale(0.25)
         self.scale_k5 = Scale(0.25)
@@ -654,8 +606,7 @@ class AWMS(nn.Module):
 
 class LFB(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, act=nn.ReLU(True)
-        ):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, act=nn.ReLU(True)):
         super(LFB, self).__init__()
         self.b0 = AWRU(n_feats, kernel_size, block_feats, wn=wn, act=act)
         self.b1 = AWRU(n_feats, kernel_size, block_feats, wn=wn, act=act)
@@ -678,8 +629,7 @@ class LFB(nn.Module):
         x5 = self.b5(x4)
         x6 = self.b6(x5)
         x7 = self.b7(x6)
-        res = self.reduction(torch.cat([x0, x1, x2, x3, x4, x5, x6, x7], dim=1)
-            )
+        res = self.reduction(torch.cat([x0, x1, x2, x3, x4, x5, x6, x7], dim=1))
         return self.res_scale(res) + self.x_scale(x)
 
 
@@ -694,14 +644,12 @@ class MODEL(nn.Module):
         kernel_size = 3
         act = nn.ReLU(True)
         wn = lambda x: torch.nn.utils.weight_norm(x)
-        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([0.4488, 
-            0.4371, 0.404])).view([1, 3, 1, 1])
+        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([0.4488, 0.4371, 0.404])).view([1, 3, 1, 1])
         head = []
         head.append(wn(nn.Conv2d(args.n_colors, n_feats, 3, padding=3 // 2)))
         body = []
         for i in range(n_resblocks):
-            body.append(LFB(n_feats, kernel_size, args.block_feats, wn=wn,
-                act=act))
+            body.append(LFB(n_feats, kernel_size, args.block_feats, wn=wn, act=act))
         out_feats = scale * scale * args.n_colors
         tail = AWMS(args, scale, n_feats, kernel_size, wn)
         skip = []
@@ -734,19 +682,14 @@ class MODEL(nn.Module):
                     if name.find('tail') >= 0 or name.find('skip') >= 0:
                         None
                     else:
-                        raise RuntimeError(
-                            'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
-                            .format(name, own_state[name].size(), param.size())
-                            )
+                        raise RuntimeError('While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'.format(name, own_state[name].size(), param.size()))
             elif strict:
                 if name.find('tail') == -1:
-                    raise KeyError('unexpected key "{}" in state_dict'.
-                        format(name))
+                    raise KeyError('unexpected key "{}" in state_dict'.format(name))
         if strict:
             missing = set(own_state.keys()) - set(state_dict.keys())
             if len(missing) > 0:
-                raise KeyError('missing keys in state_dict: "{}"'.format(
-                    missing))
+                raise KeyError('missing keys in state_dict: "{}"'.format(missing))
 
 
 class Scale(nn.Module):
@@ -761,17 +704,14 @@ class Scale(nn.Module):
 
 class AWRU(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1,
-        act=nn.ReLU(True)):
+    def __init__(self, n_feats, kernel_size, block_feats, wn, res_scale=1, act=nn.ReLU(True)):
         super(AWRU, self).__init__()
         self.res_scale = Scale(res_scale)
         self.x_scale = Scale(1)
         body = []
-        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(n_feats, block_feats, kernel_size, padding=kernel_size // 2)))
         body.append(act)
-        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding
-            =kernel_size // 2)))
+        body.append(wn(nn.Conv2d(block_feats, n_feats, kernel_size, padding=kernel_size // 2)))
         self.body = nn.Sequential(*body)
 
     def forward(self, x):
@@ -784,14 +724,10 @@ class AWMS(nn.Module):
     def __init__(self, args, scale, n_feats, kernel_size, wn):
         super(AWMS, self).__init__()
         out_feats = scale * scale * args.n_colors
-        self.tail_k3 = wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2,
-            dilation=1))
-        self.tail_k5 = wn(nn.Conv2d(n_feats, out_feats, 5, padding=5 // 2,
-            dilation=1))
-        self.tail_k7 = wn(nn.Conv2d(n_feats, out_feats, 7, padding=7 // 2,
-            dilation=1))
-        self.tail_k9 = wn(nn.Conv2d(n_feats, out_feats, 9, padding=9 // 2,
-            dilation=1))
+        self.tail_k3 = wn(nn.Conv2d(n_feats, out_feats, 3, padding=3 // 2, dilation=1))
+        self.tail_k5 = wn(nn.Conv2d(n_feats, out_feats, 5, padding=5 // 2, dilation=1))
+        self.tail_k7 = wn(nn.Conv2d(n_feats, out_feats, 7, padding=7 // 2, dilation=1))
+        self.tail_k9 = wn(nn.Conv2d(n_feats, out_feats, 9, padding=9 // 2, dilation=1))
         self.pixelshuffle = nn.PixelShuffle(scale)
         self.scale_k3 = Scale(0.25)
         self.scale_k5 = Scale(0.25)
@@ -808,14 +744,11 @@ class AWMS(nn.Module):
 
 class LFB(nn.Module):
 
-    def __init__(self, n_feats, kernel_size, block_feats, n_awru, wn,
-        res_scale, act=nn.ReLU(True)):
+    def __init__(self, n_feats, kernel_size, block_feats, n_awru, wn, res_scale, act=nn.ReLU(True)):
         super(LFB, self).__init__()
         self.n = n_awru
-        self.lfl = nn.ModuleList([AWRU(n_feats, kernel_size, block_feats,
-            wn=wn, res_scale=res_scale, act=act) for i in range(self.n)])
-        self.reduction = wn(nn.Conv2d(n_feats * self.n, n_feats,
-            kernel_size, padding=kernel_size // 2))
+        self.lfl = nn.ModuleList([AWRU(n_feats, kernel_size, block_feats, wn=wn, res_scale=res_scale, act=act) for i in range(self.n)])
+        self.reduction = wn(nn.Conv2d(n_feats * self.n, n_feats, kernel_size, padding=kernel_size // 2))
         self.res_scale = Scale(res_scale)
         self.x_scale = Scale(1)
 
@@ -842,14 +775,12 @@ class MODEL(nn.Module):
         n_awru = args.n_awru
         act = nn.ReLU(True)
         wn = lambda x: torch.nn.utils.weight_norm(x)
-        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([0.4488, 
-            0.4371, 0.404])).view([1, 3, 1, 1])
+        self.rgb_mean = torch.autograd.Variable(torch.FloatTensor([0.4488, 0.4371, 0.404])).view([1, 3, 1, 1])
         head = []
         head.append(wn(nn.Conv2d(args.n_colors, n_feats, 3, padding=3 // 2)))
         body = []
         for i in range(n_resblocks):
-            body.append(LFB(n_feats, kernel_size, args.block_feats, n_awru,
-                wn=wn, res_scale=res_scale, act=act))
+            body.append(LFB(n_feats, kernel_size, args.block_feats, n_awru, wn=wn, res_scale=res_scale, act=act))
         out_feats = scale * scale * args.n_colors
         tail = AWMS(args, scale, n_feats, kernel_size, wn)
         skip = []
@@ -875,8 +806,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Scale,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ChaofWang_AWSRN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Scale(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -142,34 +143,25 @@ class MagnetLoss(nn.Module):
         self.cluster_classes = self.classes[0:m * d:d]
         self.n_clusters = m
         self.alpha = alpha
-        cluster_examples = dynamic_partition(self.r, self.clusters, self.
-            n_clusters)
-        cluster_means = torch.stack([torch.mean(x, dim=0) for x in
-            cluster_examples])
-        sample_costs = compute_euclidean_distance(cluster_means,
-            expand_dims(r, 1))
+        cluster_examples = dynamic_partition(self.r, self.clusters, self.n_clusters)
+        cluster_means = torch.stack([torch.mean(x, dim=0) for x in cluster_examples])
+        sample_costs = compute_euclidean_distance(cluster_means, expand_dims(r, 1))
         clusters_tensor = self.clusters.type(GPU_FLOAT_DTYPE)
-        n_clusters_tensor = torch.arange(0, self.n_clusters).type(
-            GPU_FLOAT_DTYPE)
-        intra_cluster_mask = Variable(comparison_mask(clusters_tensor,
-            n_clusters_tensor).type(GPU_FLOAT_DTYPE))
-        intra_cluster_costs = torch.sum(intra_cluster_mask * sample_costs,
-            dim=1)
+        n_clusters_tensor = torch.arange(0, self.n_clusters).type(GPU_FLOAT_DTYPE)
+        intra_cluster_mask = Variable(comparison_mask(clusters_tensor, n_clusters_tensor).type(GPU_FLOAT_DTYPE))
+        intra_cluster_costs = torch.sum(intra_cluster_mask * sample_costs, dim=1)
         N = r.size()[0]
         variance = torch.sum(intra_cluster_costs) / float(N - 1)
         var_normalizer = -1 / (2 * variance ** 2)
-        numerator = torch.exp(var_normalizer * intra_cluster_costs - self.alpha
-            )
+        numerator = torch.exp(var_normalizer * intra_cluster_costs - self.alpha)
         classes_tensor = self.classes.type(GPU_FLOAT_DTYPE)
         cluster_classes_tensor = self.cluster_classes.type(GPU_FLOAT_DTYPE)
-        diff_class_mask = Variable(comparison_mask(classes_tensor,
-            cluster_classes_tensor).type(GPU_FLOAT_DTYPE))
+        diff_class_mask = Variable(comparison_mask(classes_tensor, cluster_classes_tensor).type(GPU_FLOAT_DTYPE))
         diff_class_mask = 1 - diff_class_mask
         denom_sample_costs = torch.exp(var_normalizer * sample_costs)
         denominator = torch.sum(diff_class_mask * denom_sample_costs, dim=1)
         epsilon = 1e-08
-        losses = F.relu(-torch.log(numerator / (denominator + epsilon) +
-            epsilon))
+        losses = F.relu(-torch.log(numerator / (denominator + epsilon) + epsilon))
         total_loss = torch.mean(losses)
         return total_loss, losses
 
@@ -223,9 +215,7 @@ class VGG(nn.Module):
         assert depth in cfg, 'Error: model depth invalid or undefined!'
         super(VGG, self).__init__()
         self.feature_extractor = self._make_layers(cfg[depth], channels)
-        self.classifier = nn.Sequential(nn.Linear(512, 512), nn.ReLU(
-            inplace=True), nn.Dropout(), nn.Linear(512, 512), nn.ReLU(
-            inplace=True), nn.Dropout(), nn.Linear(512, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512, 512), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(512, 512), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(512, num_classes))
 
     def forward(self, x):
         x = self.feature_extractor(x)
@@ -241,15 +231,7 @@ class VGG(nn.Module):
             if x_cfg == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                layers += [nn.Conv2d(in_channels, x_cfg, kernel_size=3,
-                    padding=1), nn.BatchNorm2d(x_cfg), nn.ReLU(inplace=True)]
+                layers += [nn.Conv2d(in_channels, x_cfg, kernel_size=3, padding=1), nn.BatchNorm2d(x_cfg), nn.ReLU(inplace=True)]
                 in_channels = x_cfg
         return nn.Sequential(*layers)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_vithursant_MagnetLoss_PyTorch(_paritybench_base):
-    pass

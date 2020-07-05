@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -67,10 +68,7 @@ from torch.nn import Parameter
 class WaveGlow(nn.Module):
     """Implements the WaveGlow model."""
 
-    def __init__(self, squeeze_factor=8, num_layers=12, wn_filter_width=3,
-        wn_dilation_layers=8, wn_residual_channels=512,
-        wn_dilation_channels=256, wn_skip_channels=256,
-        local_condition_channels=None):
+    def __init__(self, squeeze_factor=8, num_layers=12, wn_filter_width=3, wn_dilation_layers=8, wn_residual_channels=512, wn_dilation_channels=256, wn_skip_channels=256, local_condition_channels=None):
         """Initializes the WaveGlow model.
 
         Args:
@@ -84,26 +82,18 @@ class WaveGlow(nn.Module):
         self.squeeze_layer = SqueezeLayer(squeeze_factor)
         self.layers = nn.ModuleList()
         for i in range(num_layers):
-            self.layers.append(FlowStep(squeeze_factor, wn_filter_width=
-                wn_filter_width, wn_dilation_layers=wn_dilation_layers,
-                wn_residual_channels=wn_residual_channels,
-                wn_dilation_channels=wn_dilation_channels, wn_skip_channels
-                =wn_skip_channels, local_condition_channels=
-                local_condition_channels))
+            self.layers.append(FlowStep(squeeze_factor, wn_filter_width=wn_filter_width, wn_dilation_layers=wn_dilation_layers, wn_residual_channels=wn_residual_channels, wn_dilation_channels=wn_dilation_channels, wn_skip_channels=wn_skip_channels, local_condition_channels=local_condition_channels))
             if (i + 1) % self.num_scales == 0:
                 squeeze_factor -= 2
 
     def forward(self, input, logdet, reverse, local_condition):
         if not reverse:
-            output, logdet = self.squeeze_layer(input, logdet=logdet,
-                rerverse=False)
+            output, logdet = self.squeeze_layer(input, logdet=logdet, rerverse=False)
             early_outputs = []
             for i, layer in enumerate(self.layers):
-                output, logdet = layer(output, logdet=logdet, reverse=False,
-                    local_condition=local_condition)
+                output, logdet = layer(output, logdet=logdet, reverse=False, local_condition=local_condition)
                 if (i + 1) % self.num_scales == 0:
-                    early_output, output = output.split([2, output.size(1) -
-                        2], 1)
+                    early_output, output = output.split([2, output.size(1) - 2], 1)
                     early_outputs.append(early_output)
             early_outputs.append(output)
             return torch.cat(early_outputs, 1), logdet
@@ -111,11 +101,9 @@ class WaveGlow(nn.Module):
             output = input
             for i, layer in enumerate(reversed(self.layers)):
                 curr_input = output[:, -2 * (i // self.num_scales + 2):, :]
-                curr_output, logdet = layer(curr_input, logdet=logdet,
-                    reverse=True, local_condition=local_condition)
+                curr_output, logdet = layer(curr_input, logdet=logdet, reverse=True, local_condition=local_condition)
                 output[:, -2 * (i // self.num_scales + 2):, :] = curr_output
-            output, logdet = self.squeeze_layer(output, logdet=logdet,
-                reverse=True)
+            output, logdet = self.squeeze_layer(output, logdet=logdet, reverse=True)
             return output, logdet
 
 
@@ -130,15 +118,13 @@ class SqueezeLayer(nn.Module):
             assert input.size(-1) % self.factor == 0
             output = input.view(input.size(0), input.size(1), -1, self.factor)
             output = output.permute(0, 1, 3, 2).contiguous()
-            output = output.view(input.size(0), -1, input.size(-1) // self.
-                factor)
+            output = output.view(input.size(0), -1, input.size(-1) // self.factor)
             return output, logdet
         else:
             assert input.size(1) % self.factor == 0
             output = input.view(input.size(0), -1, self.factor, input.size(-1))
             output = output.permute(0, 1, 3, 2).contiguous()
-            output = output.view(input.size(0), input.size(1) // self.
-                factor, -1)
+            output = output.view(input.size(0), input.size(1) // self.factor, -1)
             return output, logdet
 
 
@@ -174,29 +160,20 @@ class InvertibleConv1d(nn.Module):
             return output, logdet
 
     def extra_repr(self):
-        return '{}, {}, kernel_size={}, stride={}'.format(self.w_shape[0],
-            self.w_shape[1], (1,), (1,))
+        return '{}, {}, kernel_size={}, stride={}'.format(self.w_shape[0], self.w_shape[1], (1,), (1,))
 
 
 class AffineCouplingLayer(nn.Module):
 
-    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers,
-        wn_residual_channels, wn_dilation_channels, wn_skip_channels,
-        local_condition_channels):
+    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels):
         super(AffineCouplingLayer, self).__init__()
         self.input_channels = input_channels
-        self.wavenet = WaveNet(filter_width=wn_filter_width, dilations=[(2 **
-            i) for i in range(wn_dilation_layers)], residual_channels=
-            wn_residual_channels, dilation_channels=wn_dilation_channels,
-            skip_channels=wn_skip_channels, input_channels=input_channels //
-            2, output_channels=input_channels, local_condition_channels=
-            local_condition_channels)
+        self.wavenet = WaveNet(filter_width=wn_filter_width, dilations=[(2 ** i) for i in range(wn_dilation_layers)], residual_channels=wn_residual_channels, dilation_channels=wn_dilation_channels, skip_channels=wn_skip_channels, input_channels=input_channels // 2, output_channels=input_channels, local_condition_channels=local_condition_channels)
 
     def forward(self, input, logdet=None, reverse=False, local_condition=None):
         if not reverse:
             x_a, x_b = torch.split(input, self.input_channels // 2, 1)
-            log_s, t = torch.split(self.wavenet(x_a, local_condition), self
-                .input_channels // 2, 1)
+            log_s, t = torch.split(self.wavenet(x_a, local_condition), self.input_channels // 2, 1)
             x_b = torch.exp(log_s) * x_b + t
             output = torch.cat([x_a, x_b], 1)
             if logdet is not None:
@@ -204,8 +181,7 @@ class AffineCouplingLayer(nn.Module):
             return output, logdet
         else:
             x_a, x_b = torch.split(input, self.input_channels // 2, 1)
-            log_s, t = torch.split(self.wavenet(x_a, local_condition), self
-                .input_channels // 2, 1)
+            log_s, t = torch.split(self.wavenet(x_a, local_condition), self.input_channels // 2, 1)
             x_b = (x_b - t) * torch.exp(-log_s)
             output = torch.cat([x_a, x_b], 1)
             if logdet is not None:
@@ -215,29 +191,22 @@ class AffineCouplingLayer(nn.Module):
 
 class FlowStep(nn.Module):
 
-    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers,
-        wn_residual_channels, wn_dilation_channels, wn_skip_channels,
-        local_condition_channels):
+    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels):
         super(FlowStep, self).__init__()
         self.input_channels = input_channels
         self.layers = nn.ModuleList()
-        self.layers.extend([InvertibleConv1d(input_channels),
-            AffineCouplingLayer(input_channels, wn_filter_width,
-            wn_dilation_layers, wn_residual_channels, wn_dilation_channels,
-            wn_skip_channels, local_condition_channels)])
+        self.layers.extend([InvertibleConv1d(input_channels), AffineCouplingLayer(input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels)])
 
     def forward(self, input, logdet=None, reverse=False, local_condition=None):
         if not reverse:
             output = input
             for layer in self.layers:
-                output, logdet = layer(output, logdet=logdet, reverse=
-                    reverse, local_condition=local_condition)
+                output, logdet = layer(output, logdet=logdet, reverse=reverse, local_condition=local_condition)
             return output, logdet
         else:
             output = input
             for layer in reversed(self.layers):
-                output, logdet = layer(output, logdet=logdet, reverse=
-                    reverse, local_condition=local_condition)
+                output, logdet = layer(output, logdet=logdet, reverse=reverse, local_condition=local_condition)
             return output, logdet
 
 
@@ -256,8 +225,7 @@ class GatedDilatedConv1d(nn.Module):
     are omitted due to the limits of ASCII art.
     """
 
-    def __init__(self, filter_width, dilation, residual_channels,
-        dilation_channels, skip_channels, local_condition_channels=None):
+    def __init__(self, filter_width, dilation, residual_channels, dilation_channels, skip_channels, local_condition_channels=None):
         """Initializes the GatedDilatedConv1d.
 
         Args:
@@ -276,16 +244,11 @@ class GatedDilatedConv1d(nn.Module):
         self.skip_channels = skip_channels
         self.local_condition_channels = local_condition_channels
         if filter_width % 2 == 0:
-            raise ValueError(
-                'You must specify an odd number to filter_width to make sure the shape is invariant after conv.'
-                )
+            raise ValueError('You must specify an odd number to filter_width to make sure the shape is invariant after conv.')
         padding = (filter_width - 1) // 2 * dilation
-        self.conv_filter_gate = nn.Conv1d(residual_channels, 
-            dilation_channels * 2, filter_width, padding=padding, dilation=
-            dilation)
+        self.conv_filter_gate = nn.Conv1d(residual_channels, dilation_channels * 2, filter_width, padding=padding, dilation=dilation)
         if local_condition_channels is not None:
-            self.conv_lc_filter_gate = nn.Conv1d(local_condition_channels, 
-                dilation_channels * 2, 1, bias=False)
+            self.conv_lc_filter_gate = nn.Conv1d(local_condition_channels, dilation_channels * 2, 1, bias=False)
         self.conv_dense = nn.Conv1d(dilation_channels, residual_channels, 1)
         self.conv_skip = nn.Conv1d(dilation_channels, skip_channels, 1)
 
@@ -299,10 +262,8 @@ class GatedDilatedConv1d(nn.Module):
         if self.local_condition_channels is not None:
             lc_filter_gate = self.conv_lc_filter_gate(local_condition)
             sample_filter_gate += lc_filter_gate
-        sample_filter, sample_gate = torch.split(sample_filter_gate, self.
-            dilation_channels, 1)
-        gated_sample_batch = torch.tanh(sample_filter) * torch.sigmoid(
-            sample_gate)
+        sample_filter, sample_gate = torch.split(sample_filter_gate, self.dilation_channels, 1)
+        gated_sample_batch = torch.tanh(sample_filter) * torch.sigmoid(sample_gate)
         transformed = self.conv_dense(gated_sample_batch)
         residual_output = transformed + sample
         skip_output = self.conv_skip(gated_sample_batch)
@@ -324,9 +285,7 @@ class WaveNet(nn.Module):
         output_batch = net(input_batch)
     """
 
-    def __init__(self, filter_width, dilations, residual_channels,
-        dilation_channels, skip_channels, input_channels, output_channels,
-        local_condition_channels=None):
+    def __init__(self, filter_width, dilations, residual_channels, dilation_channels, skip_channels, input_channels, output_channels, local_condition_channels=None):
         """Initializes the WaveNet model.
 
         Args:
@@ -352,26 +311,18 @@ class WaveNet(nn.Module):
         self.input_channels = input_channels
         self.output_channels = output_channels
         self.local_condition_channels = local_condition_channels
-        self.preprocessing_layer = nn.Conv1d(input_channels,
-            residual_channels, 1)
+        self.preprocessing_layer = nn.Conv1d(input_channels, residual_channels, 1)
         self.dilated_conv_layers = nn.ModuleList()
         for dilation in dilations:
-            conv = GatedDilatedConv1d(filter_width=filter_width, dilation=
-                dilation, residual_channels=residual_channels,
-                dilation_channels=dilation_channels, skip_channels=
-                skip_channels, local_condition_channels=
-                local_condition_channels)
+            conv = GatedDilatedConv1d(filter_width=filter_width, dilation=dilation, residual_channels=residual_channels, dilation_channels=dilation_channels, skip_channels=skip_channels, local_condition_channels=local_condition_channels)
             self.dilated_conv_layers.append(conv)
-        self.postprocessing_layers = nn.ModuleList([nn.ReLU(inplace=True),
-            nn.Conv1d(skip_channels, skip_channels, 1), nn.ReLU(inplace=
-            True), nn.Conv1d(skip_channels, self.output_channels, 1)])
+        self.postprocessing_layers = nn.ModuleList([nn.ReLU(inplace=True), nn.Conv1d(skip_channels, skip_channels, 1), nn.ReLU(inplace=True), nn.Conv1d(skip_channels, self.output_channels, 1)])
 
     def forward(self, sample, local_condition):
         current_layer = self.preprocessing_layer(sample)
         skip_outputs = []
         for dilated_conv_layer in self.dilated_conv_layers:
-            current_layer, skip_output = dilated_conv_layer(current_layer,
-                local_condition)
+            current_layer, skip_output = dilated_conv_layer(current_layer, local_condition)
             skip_outputs.append(skip_output)
         current_layer = sum(skip_outputs)
         for postprocessing_layer in self.postprocessing_layers:
@@ -381,34 +332,26 @@ class WaveNet(nn.Module):
 
 class UpsampleNet(nn.Module):
 
-    def __init__(self, upsample_factor, upsample_method='duplicate',
-        squeeze_factor=8):
+    def __init__(self, upsample_factor, upsample_method='duplicate', squeeze_factor=8):
         super(UpsampleNet, self).__init__()
         self.upsample_factor = upsample_factor
         self.upsample_method = upsample_method
         self.squeeze_factor = squeeze_factor
         if upsample_method == 'duplicate':
             upsample_factor = int(np.prod(upsample_factor))
-            self.upsample = nn.Upsample(scale_factor=upsample_factor, mode=
-                'nearest')
+            self.upsample = nn.Upsample(scale_factor=upsample_factor, mode='nearest')
         elif upsample_method == 'transposed_conv2d':
             if not isinstance(upsample_factor, list):
-                raise ValueError(
-                    'You must specify upsample_factor as a list when used with transposed_conv2d'
-                    )
+                raise ValueError('You must specify upsample_factor as a list when used with transposed_conv2d')
             freq_axis_kernel_size = 3
             self.upsample_conv = nn.ModuleList()
             for s in upsample_factor:
                 freq_axis_padding = (freq_axis_kernel_size - 1) // 2
-                conv = nn.ConvTranspose2d(1, 1, (freq_axis_kernel_size, 2 *
-                    s), padding=(freq_axis_padding, s // 2), dilation=1,
-                    stride=(1, s))
+                conv = nn.ConvTranspose2d(1, 1, (freq_axis_kernel_size, 2 * s), padding=(freq_axis_padding, s // 2), dilation=1, stride=(1, s))
                 self.upsample_conv.append(conv)
-                self.upsample_conv.append(nn.LeakyReLU(negative_slope=0.4,
-                    inplace=True))
+                self.upsample_conv.append(nn.LeakyReLU(negative_slope=0.4, inplace=True))
         else:
-            raise ValueError('{} upsampling is not supported'.format(self.
-                _upsample_method))
+            raise ValueError('{} upsampling is not supported'.format(self._upsample_method))
         self.squeeze_layer = SqueezeLayer(squeeze_factor)
 
     def forward(self, input):
@@ -427,17 +370,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (InvertibleConv1d,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (SqueezeLayer,
+     lambda: ([], {'factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UpsampleNet,
+     lambda: ([], {'upsample_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_npuichigo_waveglow(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(InvertibleConv1d(*[], **{'channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(UpsampleNet(*[], **{'upsample_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

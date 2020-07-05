@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -116,8 +117,7 @@ class EpisodicMemory(nn.Module):
         batch_num, sen_num, embedding_size = facts.size()
         questions = questions.expand_as(facts)
         prevM = prevM.expand_as(facts)
-        z = torch.cat([facts * questions, facts * prevM, torch.abs(facts -
-            questions), torch.abs(facts - prevM)], dim=2)
+        z = torch.cat([facts * questions, facts * prevM, torch.abs(facts - questions), torch.abs(facts - prevM)], dim=2)
         z = z.view(-1, 4 * embedding_size)
         G = F.tanh(self.z1(z))
         G = self.z2(G)
@@ -167,8 +167,7 @@ def position_encoding(embedded_sentence):
     output.size() -> (#batch, #sentence, #embedding)
     """
     _, _, slen, elen = embedded_sentence.size()
-    l = [[(1 - s / (slen - 1) - e / (elen - 1) * (1 - 2 * s / (slen - 1))) for
-        e in range(elen)] for s in range(slen)]
+    l = [[(1 - s / (slen - 1) - e / (elen - 1) * (1 - 2 * s / (slen - 1))) for e in range(elen)] for s in range(slen)]
     l = torch.FloatTensor(l)
     l = l.unsqueeze(0)
     l = l.unsqueeze(1)
@@ -182,8 +181,7 @@ class InputModule(nn.Module):
     def __init__(self, vocab_size, hidden_size):
         super(InputModule, self).__init__()
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(hidden_size, hidden_size, bidirectional=True,
-            batch_first=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, bidirectional=True, batch_first=True)
         for name, param in self.gru.state_dict().items():
             if 'weight' in name:
                 init.xavier_normal(param)
@@ -229,10 +227,8 @@ class DMNPlus(nn.Module):
         super(DMNPlus, self).__init__()
         self.num_hop = num_hop
         self.qa = qa
-        self.word_embedding = nn.Embedding(vocab_size, hidden_size,
-            padding_idx=0, sparse=True)
-        init.uniform(self.word_embedding.state_dict()['weight'], a=-3 ** 
-            0.5, b=3 ** 0.5)
+        self.word_embedding = nn.Embedding(vocab_size, hidden_size, padding_idx=0, sparse=True)
+        init.uniform(self.word_embedding.state_dict()['weight'], a=-3 ** 0.5, b=3 ** 0.5)
         self.criterion = nn.CrossEntropyLoss(size_average=False)
         self.input_module = InputModule(vocab_size, hidden_size)
         self.question_module = QuestionModule(vocab_size, hidden_size)
@@ -256,13 +252,11 @@ class DMNPlus(nn.Module):
         if len(var.size()) == 3:
             for n, sentences in enumerate(var):
                 for i, sentence in enumerate(sentences):
-                    s = ' '.join([self.qa.IVOCAB[elem.data[0]] for elem in
-                        sentence])
+                    s = ' '.join([self.qa.IVOCAB[elem.data[0]] for elem in sentence])
                     None
         elif len(var.size()) == 2:
             for n, sentence in enumerate(var):
-                s = ' '.join([self.qa.IVOCAB[elem.data[0]] for elem in
-                    sentence])
+                s = ' '.join([self.qa.IVOCAB[elem.data[0]] for elem in sentence])
                 None
         elif len(var.size()) == 1:
             for n, token in enumerate(var):
@@ -286,16 +280,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AnswerModule,
+     lambda: ([], {'vocab_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+    (AttentionGRU,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (EpisodicMemory,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_dandelin_Dynamic_memory_networks_plus_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AnswerModule(*[], **{'vocab_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(AttentionGRU(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EpisodicMemory(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

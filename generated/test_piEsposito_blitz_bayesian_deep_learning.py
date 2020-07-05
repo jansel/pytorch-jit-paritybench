@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -113,8 +114,7 @@ def kl_divergence_from_nn(model):
     kl_divergence = 0
     for module in model.modules():
         if isinstance(module, BayesianModule):
-            kl_divergence += (module.log_variational_posterior - module.
-                log_prior)
+            kl_divergence += module.log_variational_posterior - module.log_prior
     return kl_divergence
 
 
@@ -145,8 +145,7 @@ def variational_estimator(nn_class):
         return kl_divergence_from_nn(self)
     setattr(nn_class, 'nn_kl_divergence', nn_kl_divergence)
 
-    def sample_elbo(self, inputs, labels, criterion, sample_nbr,
-        complexity_cost_weight=1):
+    def sample_elbo(self, inputs, labels, criterion, sample_nbr, complexity_cost_weight=1):
         """ Samples the ELBO Loss for a batch of data, consisting of inputs and corresponding-by-index labels
 
                 The ELBO Loss consists of the sum of the KL Divergence of the model 
@@ -212,8 +211,7 @@ def variational_estimator(nn_class):
             if isinstance(module, BayesianModule):
                 for attr in module.modules():
                     if isinstance(attr, GaussianVariational):
-                        attr.rho.data = torch.log(torch.expm1(delta * torch
-                            .abs(attr.mu.data)) + 1e-10)
+                        attr.rho.data = torch.log(torch.expm1(delta * torch.abs(attr.mu.data)) + 1e-10)
         self.unfreeze_()
     setattr(nn_class, 'MOPED_', moped)
 
@@ -282,9 +280,7 @@ class VGG(nn.Module):
     def __init__(self, features, out_nodes=10):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(BayesianLinear(512, 512), nn.ReLU(
-            True), BayesianLinear(512, 512), nn.ReLU(True), BayesianLinear(
-            512, out_nodes))
+        self.classifier = nn.Sequential(BayesianLinear(512, 512), nn.ReLU(True), BayesianLinear(512, 512), nn.ReLU(True), BayesianLinear(512, out_nodes))
         for m in self.modules():
             if isinstance(m, BayesianConv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -342,8 +338,7 @@ class GaussianVariational(nn.Module):
         """
         assert self.w is not None, "You can only have a log posterior for W if you've already sampled it"
         log_sqrt2pi = np.log(np.sqrt(2 * self.pi))
-        log_posteriors = -log_sqrt2pi - torch.log(self.sigma) - (self.w -
-            self.mu) ** 2 / (2 * self.sigma ** 2)
+        log_posteriors = -log_sqrt2pi - torch.log(self.sigma) - (self.w - self.mu) ** 2 / (2 * self.sigma ** 2)
         return log_posteriors.mean()
 
 
@@ -377,10 +372,3 @@ class ScaleMixturePrior(nn.Module):
         prior_pdf = self.pi * prob_n1 + (1 - self.pi) * prob_n2
         return torch.log(prior_pdf).mean()
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_piEsposito_blitz_bayesian_deep_learning(_paritybench_base):
-    pass

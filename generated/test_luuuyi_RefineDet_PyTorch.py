@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,8 +91,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -138,10 +138,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -159,10 +157,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -175,8 +171,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -240,9 +235,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu
-        =True):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu=True):
         super(MultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -279,8 +272,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -294,8 +286,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         None
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
@@ -307,8 +298,7 @@ class MultiBoxLoss(nn.Module):
         None
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         None
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
@@ -326,8 +316,7 @@ def center_size(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]], 1)
+    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] - boxes[:, :2]], 1)
 
 
 def decode(loc, priors, variances):
@@ -342,15 +331,13 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
 
 
-def refine_match(threshold, truths, priors, variances, labels, loc_t,
-    conf_t, idx, arm_loc=None):
+def refine_match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx, arm_loc=None):
     """Match each arm bbox with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -416,9 +403,7 @@ class RefineDetMultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu
-        =True, theta=0.01, use_ARM=False):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu=True, theta=0.01, use_ARM=False):
         super(RefineDetMultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -445,8 +430,7 @@ class RefineDetMultiBoxLoss(nn.Module):
             targets (tensor): Ground truth boxes and labels for a batch,
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
-        (arm_loc_data, arm_conf_data, odm_loc_data, odm_conf_data, priors
-            ) = predictions
+        arm_loc_data, arm_conf_data, odm_loc_data, odm_conf_data, priors = predictions
         if self.use_ARM:
             loc_data, conf_data = odm_loc_data, odm_conf_data
         else:
@@ -464,12 +448,9 @@ class RefineDetMultiBoxLoss(nn.Module):
                 labels = labels >= 0
             defaults = priors.data
             if self.use_ARM:
-                refine_match(self.threshold, truths, defaults, self.
-                    variance, labels, loc_t, conf_t, idx, arm_loc_data[idx]
-                    .data)
+                refine_match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx, arm_loc_data[idx].data)
             else:
-                refine_match(self.threshold, truths, defaults, self.
-                    variance, labels, loc_t, conf_t, idx)
+                refine_match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -488,8 +469,7 @@ class RefineDetMultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -499,8 +479,7 @@ class RefineDetMultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
         N = num_pos.data.sum().float()
@@ -573,8 +552,7 @@ class Detect_RefineDet(Function):
     confidence score and locations.
     """
 
-    def __init__(self, num_classes, size, bkg_label, top_k, conf_thresh,
-        nms_thresh, objectness_thre, keep_top_k):
+    def __init__(self, num_classes, size, bkg_label, top_k, conf_thresh, nms_thresh, objectness_thre, keep_top_k):
         self.num_classes = num_classes
         self.background_label = bkg_label
         self.top_k = top_k
@@ -586,8 +564,7 @@ class Detect_RefineDet(Function):
         self.objectness_thre = objectness_thre
         self.variance = cfg[str(size)]['variance']
 
-    def forward(self, arm_loc_data, arm_conf_data, odm_loc_data,
-        odm_conf_data, prior_data):
+    def forward(self, arm_loc_data, arm_conf_data, odm_loc_data, odm_conf_data, prior_data):
         """
         Args:
             loc_data: (tensor) Loc preds from loc layers
@@ -605,8 +582,7 @@ class Detect_RefineDet(Function):
         num = loc_data.size(0)
         num_priors = prior_data.size(0)
         output = torch.zeros(num, self.num_classes, self.top_k, 5)
-        conf_preds = conf_data.view(num, num_priors, self.num_classes
-            ).transpose(2, 1)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
         for i in range(num):
             default = decode(arm_loc_data[i], prior_data, self.variance)
             default = center_size(default)
@@ -620,8 +596,7 @@ class Detect_RefineDet(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
-                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].
-                    unsqueeze(1), boxes[ids[:count]]), 1)
+                output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
         flt = output.contiguous().view(num, -1, 5)
         _, idx = flt[:, :, (0)].sort(1, descending=True)
         _, rank = idx.sort(1)
@@ -660,8 +635,7 @@ class PriorBox(object):
                 s_k = self.min_sizes[k] / self.image_size
                 mean += [cx, cy, s_k, s_k]
                 if self.max_sizes:
-                    s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.
-                        image_size))
+                    s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
                     mean += [cx, cy, s_k_prime, s_k_prime]
                 for ar in self.aspect_ratios[k]:
                     mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
@@ -672,24 +646,10 @@ class PriorBox(object):
         return output
 
 
-coco_refinedet = {'num_classes': 201, 'lr_steps': (280000, 360000, 400000),
-    'max_iter': 400000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 
-    300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes': [21, 45, 99, 153,
-    207, 261], 'max_sizes': [45, 99, 153, 207, 261, 315], 'aspect_ratios':
-    [[2], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip':
-    True, 'name': 'COCO'}
+coco_refinedet = {'num_classes': 201, 'lr_steps': (280000, 360000, 400000), 'max_iter': 400000, 'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes': [21, 45, 99, 153, 207, 261], 'max_sizes': [45, 99, 153, 207, 261, 315], 'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'COCO'}
 
 
-voc_refinedet = {'320': {'num_classes': 21, 'lr_steps': (80000, 100000, 
-    120000), 'max_iter': 120000, 'feature_maps': [40, 20, 10, 5], 'min_dim':
-    320, 'steps': [8, 16, 32, 64], 'min_sizes': [32, 64, 128, 256],
-    'max_sizes': [], 'aspect_ratios': [[2], [2], [2], [2]], 'variance': [
-    0.1, 0.2], 'clip': True, 'name': 'RefineDet_VOC_320'}, '512': {
-    'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 
-    120000, 'feature_maps': [64, 32, 16, 8], 'min_dim': 512, 'steps': [8, 
-    16, 32, 64], 'min_sizes': [32, 64, 128, 256], 'max_sizes': [],
-    'aspect_ratios': [[2], [2], [2], [2]], 'variance': [0.1, 0.2], 'clip': 
-    True, 'name': 'RefineDet_VOC_320'}}
+voc_refinedet = {'320': {'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 120000, 'feature_maps': [40, 20, 10, 5], 'min_dim': 320, 'steps': [8, 16, 32, 64], 'min_sizes': [32, 64, 128, 256], 'max_sizes': [], 'aspect_ratios': [[2], [2], [2], [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'RefineDet_VOC_320'}, '512': {'num_classes': 21, 'lr_steps': (80000, 100000, 120000), 'max_iter': 120000, 'feature_maps': [64, 32, 16, 8], 'min_dim': 512, 'steps': [8, 16, 32, 64], 'min_sizes': [32, 64, 128, 256], 'max_sizes': [], 'aspect_ratios': [[2], [2], [2], [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'RefineDet_VOC_320'}}
 
 
 class RefineDet(nn.Module):
@@ -732,8 +692,7 @@ class RefineDet(nn.Module):
         self.tcb2 = nn.ModuleList(TCB[2])
         if phase == 'test':
             self.softmax = nn.Softmax(dim=-1)
-            self.detect = Detect_RefineDet(num_classes, self.size, 0, 1000,
-                0.01, 0.45, 0.01, 500)
+            self.detect = Detect_RefineDet(num_classes, self.size, 0, 1000, 0.01, 0.45, 0.01, 500)
 
     def forward(self, x):
         """Applies network layers and ops on input image(s) x.
@@ -800,24 +759,16 @@ class RefineDet(nn.Module):
         odm_loc = torch.cat([o.view(o.size(0), -1) for o in odm_loc], 1)
         odm_conf = torch.cat([o.view(o.size(0), -1) for o in odm_conf], 1)
         if self.phase == 'test':
-            output = self.detect(arm_loc.view(arm_loc.size(0), -1, 4), self
-                .softmax(arm_conf.view(arm_conf.size(0), -1, 2)), odm_loc.
-                view(odm_loc.size(0), -1, 4), self.softmax(odm_conf.view(
-                odm_conf.size(0), -1, self.num_classes)), self.priors.type(
-                type(x.data)))
+            output = self.detect(arm_loc.view(arm_loc.size(0), -1, 4), self.softmax(arm_conf.view(arm_conf.size(0), -1, 2)), odm_loc.view(odm_loc.size(0), -1, 4), self.softmax(odm_conf.view(odm_conf.size(0), -1, self.num_classes)), self.priors.type(type(x.data)))
         else:
-            output = arm_loc.view(arm_loc.size(0), -1, 4), arm_conf.view(
-                arm_conf.size(0), -1, 2), odm_loc.view(odm_loc.size(0), -1, 4
-                ), odm_conf.view(odm_conf.size(0), -1, self.num_classes
-                ), self.priors
+            output = arm_loc.view(arm_loc.size(0), -1, 4), arm_conf.view(arm_conf.size(0), -1, 2), odm_loc.view(odm_loc.size(0), -1, 4), odm_conf.view(odm_conf.size(0), -1, self.num_classes), self.priors
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -827,8 +778,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_luuuyi_RefineDet_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

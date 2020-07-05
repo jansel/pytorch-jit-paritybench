@@ -196,8 +196,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -520,11 +521,9 @@ class TransformerNet(torch.nn.Module):
         self.res3 = ResidualBlock(128)
         self.res4 = ResidualBlock(128)
         self.res5 = ResidualBlock(128)
-        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1,
-            upsample=2)
+        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
         self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1,
-            upsample=2)
+        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
         self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
         self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
         self.relu = torch.nn.ReLU()
@@ -550,8 +549,7 @@ class ConvLayer(torch.nn.Module):
         super(ConvLayer, self).__init__()
         reflection_padding = kernel_size // 2
         self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
 
     def forward(self, x):
         out = self.reflection_pad(x)
@@ -588,20 +586,17 @@ class UpsampleConvLayer(torch.nn.Module):
     ref: http://distill.pub/2016/deconv-checkerboard/
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        upsample=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, upsample=None):
         super(UpsampleConvLayer, self).__init__()
         self.upsample = upsample
         reflection_padding = kernel_size // 2
         self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels,
-            kernel_size, stride)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
 
     def forward(self, x):
         x_in = x
         if self.upsample:
-            x_in = torch.nn.functional.interpolate(x_in, mode='nearest',
-                scale_factor=self.upsample)
+            x_in = torch.nn.functional.interpolate(x_in, mode='nearest', scale_factor=self.upsample)
         out = self.reflection_pad(x_in)
         out = self.conv2d(out)
         return out
@@ -637,8 +632,7 @@ class Vgg16(torch.nn.Module):
         h_relu3_3 = h
         h = self.slice4(h)
         h_relu4_3 = h
-        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2',
-            'relu3_3', 'relu4_3'])
+        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
 
@@ -851,32 +845,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DummyModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([1, 1])], {}),
+     True),
+    (DummyPretrainedModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Policy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TransformerNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UpsampleConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Vgg16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_pytorch_ignite(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DummyModel(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DummyPretrainedModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ResidualBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(TransformerNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(UpsampleConvLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 

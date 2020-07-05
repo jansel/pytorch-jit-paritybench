@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,8 +61,7 @@ class AddCoordsTh(nn.Module):
         yy_channel = yy_channel.repeat(batch_size_tensor, 1, 1, 1)
         ret = torch.cat([input_tensor, xx_channel, yy_channel], dim=1)
         if self.with_r:
-            rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) + torch.pow(
-                yy_channel - 0.5, 2))
+            rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) + torch.pow(yy_channel - 0.5, 2))
             ret = torch.cat([ret, rr], dim=1)
         return ret
 
@@ -100,11 +100,9 @@ class AddCoords(nn.Module):
         yy_channel = yy_channel * 2 - 1
         xx_channel = xx_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
         yy_channel = yy_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
-        ret = torch.cat([input_tensor, xx_channel.type_as(input_tensor),
-            yy_channel.type_as(input_tensor)], dim=1)
+        ret = torch.cat([input_tensor, xx_channel.type_as(input_tensor), yy_channel.type_as(input_tensor)], dim=1)
         if self.with_r:
-            rr = torch.sqrt(torch.pow(xx_channel.type_as(input_tensor) - 
-                0.5, 2) + torch.pow(yy_channel.type_as(input_tensor) - 0.5, 2))
+            rr = torch.sqrt(torch.pow(xx_channel.type_as(input_tensor) - 0.5, 2) + torch.pow(yy_channel.type_as(input_tensor) - 0.5, 2))
             ret = torch.cat([ret, rr], dim=1)
         return ret
 
@@ -129,17 +127,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AddCoords,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AddCoordsTh,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (CoordConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CoordConvTh,
+     lambda: ([], {'x_dim': 4, 'y_dim': 4, 'with_r': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     True),
+]
+
 class Test_mkocabas_CoordConv_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AddCoords(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AddCoordsTh(*[], **{}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CoordConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CoordConvTh(*[], **{'x_dim': 4, 'y_dim': 4, 'with_r': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

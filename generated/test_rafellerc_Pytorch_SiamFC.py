@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -104,15 +105,7 @@ class BaselineEmbeddingNet(nn.Module):
 
     def __init__(self):
         super(BaselineEmbeddingNet, self).__init__()
-        self.fully_conv = nn.Sequential(nn.Conv2d(3, 96, kernel_size=11,
-            stride=2, bias=True), nn.BatchNorm2d(96), nn.ReLU(), nn.
-            MaxPool2d(3, stride=2), nn.Conv2d(96, 256, kernel_size=5,
-            stride=1, groups=2, bias=True), nn.BatchNorm2d(256), nn.ReLU(),
-            nn.MaxPool2d(3, stride=1), nn.Conv2d(256, 384, kernel_size=3,
-            stride=1, groups=1, bias=True), nn.BatchNorm2d(384), nn.ReLU(),
-            nn.Conv2d(384, 384, kernel_size=3, stride=1, groups=2, bias=
-            True), nn.BatchNorm2d(384), nn.ReLU(), nn.Conv2d(384, 32,
-            kernel_size=3, stride=1, groups=2, bias=True))
+        self.fully_conv = nn.Sequential(nn.Conv2d(3, 96, kernel_size=11, stride=2, bias=True), nn.BatchNorm2d(96), nn.ReLU(), nn.MaxPool2d(3, stride=2), nn.Conv2d(96, 256, kernel_size=5, stride=1, groups=2, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.MaxPool2d(3, stride=1), nn.Conv2d(256, 384, kernel_size=3, stride=1, groups=1, bias=True), nn.BatchNorm2d(384), nn.ReLU(), nn.Conv2d(384, 384, kernel_size=3, stride=1, groups=2, bias=True), nn.BatchNorm2d(384), nn.ReLU(), nn.Conv2d(384, 32, kernel_size=3, stride=1, groups=2, bias=True))
 
     def forward(self, x):
         output = self.fully_conv(x)
@@ -135,15 +128,7 @@ class VGG11EmbeddingNet_5c(nn.Module):
 
     def __init__(self):
         super(VGG11EmbeddingNet_5c, self).__init__()
-        self.fully_conv = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            stride=1, bias=True), nn.BatchNorm2d(64), nn.ReLU(), nn.
-            MaxPool2d(2, stride=2), nn.Conv2d(64, 128, kernel_size=3,
-            stride=1, bias=True), nn.BatchNorm2d(128), nn.ReLU(), nn.
-            MaxPool2d(2, stride=2), nn.Conv2d(128, 256, kernel_size=3,
-            stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d
-            (256, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(
-            256), nn.ReLU(), nn.Conv2d(256, 32, kernel_size=3, stride=1,
-            bias=True))
+        self.fully_conv = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(64, 128, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(128, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 32, kernel_size=3, stride=1, bias=True))
 
     def forward(self, x):
         output = self.fully_conv(x)
@@ -166,19 +151,7 @@ class VGG16EmbeddingNet_8c(nn.Module):
 
     def __init__(self):
         super(VGG16EmbeddingNet_8c, self).__init__()
-        self.fully_conv = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            stride=1, bias=True), nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(
-            64, 64, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(64),
-            nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(64, 128,
-            kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(128), nn.
-            ReLU(), nn.Conv2d(128, 128, kernel_size=3, stride=1, bias=True),
-            nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.
-            Conv2d(128, 256, kernel_size=3, stride=1, bias=True), nn.
-            BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 256, kernel_size=3,
-            stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d
-            (256, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(
-            256), nn.ReLU(), nn.Conv2d(256, 32, kernel_size=3, stride=1,
-            bias=True))
+        self.fully_conv = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(64, 128, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(128), nn.ReLU(), nn.Conv2d(128, 128, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(128, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 256, kernel_size=3, stride=1, bias=True), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 32, kernel_size=3, stride=1, bias=True))
 
     def forward(self, x):
         output = self.fully_conv(x)
@@ -195,8 +168,7 @@ class SiameseNet(nn.Module):
     you must always include the batch dimension.
     """
 
-    def __init__(self, embedding_net, upscale=False, corr_map_size=33, stride=4
-        ):
+    def __init__(self, embedding_net, upscale=False, corr_map_size=33, stride=4):
         super(SiameseNet, self).__init__()
         self.embedding_net = embedding_net
         self.match_batchnorm = nn.BatchNorm2d(1)
@@ -242,13 +214,11 @@ class SiameseNet(nn.Module):
             match_map: (torch.Tensor) The correlation between
         """
         b, c, h, w = embed_srch.shape
-        match_map = F.conv2d(embed_srch.view(1, b * c, h, w), embed_ref,
-            groups=b)
+        match_map = F.conv2d(embed_srch.view(1, b * c, h, w), embed_ref, groups=b)
         match_map = match_map.permute(1, 0, 2, 3)
         match_map = self.match_batchnorm(match_map)
         if self.upscale:
-            match_map = F.interpolate(match_map, self.upsc_size, mode=
-                'bilinear', align_corners=False)
+            match_map = F.interpolate(match_map, self.upsc_size, mode='bilinear', align_corners=False)
         return match_map
 
 
@@ -256,17 +226,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaselineEmbeddingNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SiameseNet,
+     lambda: ([], {'embedding_net': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG11EmbeddingNet_5c,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (VGG16EmbeddingNet_8c,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_rafellerc_Pytorch_SiamFC(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BaselineEmbeddingNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SiameseNet(*[], **{'embedding_net': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(VGG11EmbeddingNet_5c(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(VGG16EmbeddingNet_8c(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

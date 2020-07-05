@@ -58,8 +58,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -128,9 +129,7 @@ class DecAtt(nn.Module):
 	    without any recurrent structure.
 	"""
 
-    def __init__(self, num_units, num_classes, vocab_size, embedding_size,
-        pretrained_emb, training=True, project_input=True,
-        use_intra_attention=False, distance_biases=10, max_sentence_length=30):
+    def __init__(self, num_units, num_classes, vocab_size, embedding_size, pretrained_emb, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
         """
 		Create the model based on MLP networks.
 
@@ -157,18 +156,10 @@ class DecAtt(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.bias_embedding = nn.Embedding(max_sentence_length, 1)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.linear_layer_project = nn.Linear(embedding_size, num_units,
-            bias=False)
-        self.linear_layer_attend = nn.Sequential(nn.Dropout(p=0.2), nn.
-            Linear(num_units, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.
-            Linear(num_units, num_units), nn.ReLU())
-        self.linear_layer_compare = nn.Sequential(nn.Dropout(p=0.2), nn.
-            Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2),
-            nn.Linear(num_units, num_units), nn.ReLU())
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.2), nn.
-            Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2),
-            nn.Linear(num_units, num_units), nn.ReLU(), nn.Linear(num_units,
-            num_classes), nn.LogSoftmax())
+        self.linear_layer_project = nn.Linear(embedding_size, num_units, bias=False)
+        self.linear_layer_attend = nn.Sequential(nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU())
+        self.linear_layer_compare = nn.Sequential(nn.Dropout(p=0.2), nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU())
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.2), nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU(), nn.Linear(num_units, num_classes), nn.LogSoftmax())
         self.init_weight()
 
     def init_weight(self):
@@ -189,8 +180,7 @@ class DecAtt(nn.Module):
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
     def _transformation_input(self, embed_sent):
         embed_sent = self.linear_layer_project(embed_sent)
@@ -283,9 +273,7 @@ class DecAtt(nn.Module):
 	    without any recurrent structure.
 	"""
 
-    def __init__(self, num_units, num_classes, vocab_size, embedding_size,
-        pretrained_emb, training=True, project_input=True,
-        use_intra_attention=False, distance_biases=10, max_sentence_length=30):
+    def __init__(self, num_units, num_classes, vocab_size, embedding_size, pretrained_emb, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
         """
 		Create the model based on MLP networks.
 
@@ -312,18 +300,10 @@ class DecAtt(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.bias_embedding = nn.Embedding(max_sentence_length, 1)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.linear_layer_project = nn.Linear(embedding_size, num_units,
-            bias=False)
-        self.linear_layer_attend = nn.Sequential(nn.Dropout(p=0.2), nn.
-            Linear(num_units, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.
-            Linear(num_units, num_units), nn.ReLU())
-        self.linear_layer_compare = nn.Sequential(nn.Dropout(p=0.2), nn.
-            Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2),
-            nn.Linear(num_units, num_units), nn.ReLU())
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.2), nn.
-            Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2),
-            nn.Linear(num_units, num_units), nn.ReLU(), nn.Linear(num_units,
-            num_classes), nn.LogSoftmax())
+        self.linear_layer_project = nn.Linear(embedding_size, num_units, bias=False)
+        self.linear_layer_attend = nn.Sequential(nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU())
+        self.linear_layer_compare = nn.Sequential(nn.Dropout(p=0.2), nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU())
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.2), nn.Linear(num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.2), nn.Linear(num_units, num_units), nn.ReLU(), nn.Linear(num_units, num_classes), nn.LogSoftmax())
         self.init_weight()
 
     def init_weight(self):
@@ -345,8 +325,7 @@ class DecAtt(nn.Module):
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
     def _transformation_input(self, embed_sent):
         embed_sent = self.word_embedding(embed_sent)
@@ -540,8 +519,7 @@ class BinaryTreeLSTM(nn.Module):
 		:return: 1d tensor
 		"""
         params = []
-        for m in [self.ix, self.ih, self.fx, self.fh, self.ox, self.oh,
-            self.ux, self.uh]:
+        for m in [self.ix, self.ih, self.fx, self.fh, self.ox, self.oh, self.ux, self.uh]:
             l = list(m.parameters())
             params.extend(l)
         one_dim = [p.view(p.numel()) for p in params]
@@ -559,8 +537,7 @@ class BinaryTreeLSTM(nn.Module):
                 lh = lh
                 rc = rc
                 rh = rh
-            tree.state = self.composer.forward(embs[tree.idx - 1], lc, lh,
-                rc, rh)
+            tree.state = self.composer.forward(embs[tree.idx - 1], lc, lh, rc, rh)
             self.all_ststes.append(tree.state[1].view(1, self.mem_dim))
         else:
             for idx in xrange(tree.num_children):
@@ -570,11 +547,9 @@ class BinaryTreeLSTM(nn.Module):
                 index = Variable(torch.LongTensor([self.num_words - 1]))
                 if torch.is_available():
                     index = index
-                tree.state = self.composer.forward(self.word_embedding(
-                    index), lc, lh, rc, rh)
+                tree.state = self.composer.forward(self.word_embedding(index), lc, lh, rc, rh)
             else:
-                tree.state = self.composer.forward(embs[tree.idx - 1], lc,
-                    lh, rc, rh)
+                tree.state = self.composer.forward(embs[tree.idx - 1], lc, lh, rc, rh)
             self.all_ststes.append(tree.state[1].view(1, self.mem_dim))
         return tree.state
 
@@ -594,8 +569,7 @@ class ESIM(nn.Module):
 		without any recurrent structure.
 	"""
 
-    def __init__(self, num_units, num_classes, vocab_size, embedding_size,
-        pretrained_emb, num_words):
+    def __init__(self, num_units, num_classes, vocab_size, embedding_size, pretrained_emb, num_words):
         super(ESIM, self).__init__()
         self.vocab_size = vocab_size
         self.num_units = num_units
@@ -604,15 +578,10 @@ class ESIM(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.dropout = nn.Dropout(p=0.5)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.tree_lstm_intra = BinaryTreeLSTM(torch.is_available(),
-            embedding_size, num_units, self.word_embedding, num_words)
-        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units,
-            num_units), nn.ReLU(), nn.Dropout(p=0.5))
-        self.tree_lstm_compare = BinaryTreeLSTM(torch.is_available(),
-            embedding_size, num_units, self.word_embedding, num_words)
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.
-            Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5),
-            nn.Linear(num_units, num_classes))
+        self.tree_lstm_intra = BinaryTreeLSTM(torch.is_available(), embedding_size, num_units, self.word_embedding, num_words)
+        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5))
+        self.tree_lstm_compare = BinaryTreeLSTM(torch.is_available(), embedding_size, num_units, self.word_embedding, num_words)
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5), nn.Linear(num_units, num_classes))
         self.init_weight()
 
     def init_weight(self):
@@ -622,14 +591,12 @@ class ESIM(nn.Module):
         self.linear_layer_aggregate[1].bias.data.fill_(0)
         self.linear_layer_aggregate[4].weight.data.normal_(0, 0.01)
         self.linear_layer_aggregate[4].bias.data.fill_(0)
-        self.word_embedding.weight.data.copy_(torch.from_numpy(self.
-            pretrained_emb))
+        self.word_embedding.weight.data.copy_(torch.from_numpy(self.pretrained_emb))
 
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
     def _transformation_input(self, embed_sent, tree, PAD=True):
         embed_sent = self.word_embedding(embed_sent)
@@ -644,15 +611,13 @@ class ESIM(nn.Module):
         self.raw_attentions = torch.matmul(sent1, repr2)
         att_sent1 = self.attention_softmax3d(self.raw_attentions)
         beta = torch.matmul(att_sent1, sent2)
-        raw_attentions_t = torch.transpose(self.raw_attentions, 1, 2
-            ).contiguous()
+        raw_attentions_t = torch.transpose(self.raw_attentions, 1, 2).contiguous()
         att_sent2 = self.attention_softmax3d(raw_attentions_t)
         alpha = torch.matmul(att_sent2, sent1)
         return alpha, beta
 
     def compare(self, sentence, soft_alignment, tree, PAD=False):
-        sent_alignment = torch.cat([sentence, soft_alignment, sentence -
-            soft_alignment, sentence * soft_alignment], 2)
+        sent_alignment = torch.cat([sentence, soft_alignment, sentence - soft_alignment, sentence * soft_alignment], 2)
         sent_alignment = self.linear_layer_compare(sent_alignment)
         sent_alignment = self.dropout(sent_alignment)
         sent_alignment = sent_alignment[0]
@@ -666,8 +631,7 @@ class ESIM(nn.Module):
         v2_mean = torch.mean(v2, 1)
         v1_max, _ = torch.max(v1, 1)
         v2_max, _ = torch.max(v2, 1)
-        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max,
-            v2_mean, v2_max), 1))
+        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max, v2_mean, v2_max), 1))
         return out
 
     def forward(self, sent1, sent2, tree1, tree2):
@@ -758,24 +722,16 @@ class BinaryTreeLSTM(nn.Module):
             rc = torch.sum(x_right_mask[step][:, :, (None)] * c, 1)
             step_c, step_h = self.TreeCell(input, lc, lh, rc, rh)
             if step == 0:
-                new_h = torch.cat((torch.unsqueeze(step_h, 1), h[:, step + 
-                    1:, :]), 1)
-                new_c = torch.cat((torch.unsqueeze(step_c, 1), c[:, step + 
-                    1:, :]), 1)
+                new_h = torch.cat((torch.unsqueeze(step_h, 1), h[:, step + 1:, :]), 1)
+                new_c = torch.cat((torch.unsqueeze(step_c, 1), c[:, step + 1:, :]), 1)
             elif step == x.size(0) - 1:
-                new_h = torch.cat((h[:, :step, :], torch.unsqueeze(step_h, 
-                    1)), 1)
-                new_c = torch.cat((c[:, :step, :], torch.unsqueeze(step_c, 
-                    1)), 1)
+                new_h = torch.cat((h[:, :step, :], torch.unsqueeze(step_h, 1)), 1)
+                new_c = torch.cat((c[:, :step, :], torch.unsqueeze(step_c, 1)), 1)
             else:
-                new_h = torch.cat((h[:, :step, :], torch.unsqueeze(step_h, 
-                    1), h[:, step + 1:, :]), 1)
-                new_c = torch.cat((c[:, :step, :], torch.unsqueeze(step_c, 
-                    1), c[:, step + 1:, :]), 1)
-            h = x_mask[step][:, (None), (None)] * new_h + (1 - x_mask[step]
-                [:, (None), (None)]) * h
-            c = x_mask[step][:, (None), (None)] * new_c + (1 - x_mask[step]
-                [:, (None), (None)]) * c
+                new_h = torch.cat((h[:, :step, :], torch.unsqueeze(step_h, 1), h[:, step + 1:, :]), 1)
+                new_c = torch.cat((c[:, :step, :], torch.unsqueeze(step_c, 1), c[:, step + 1:, :]), 1)
+            h = x_mask[step][:, (None), (None)] * new_h + (1 - x_mask[step][:, (None), (None)]) * h
+            c = x_mask[step][:, (None), (None)] * new_c + (1 - x_mask[step][:, (None), (None)]) * c
         return h
 
 
@@ -789,9 +745,7 @@ class ESIM(nn.Module):
 		without any recurrent structure.
 	"""
 
-    def __init__(self, num_units, num_classes, vocab_size, embedding_size,
-        pretrained_emb, training=True, project_input=True,
-        use_intra_attention=False, distance_biases=10, max_sentence_length=30):
+    def __init__(self, num_units, num_classes, vocab_size, embedding_size, pretrained_emb, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
         """
 		Create the model based on MLP networks.
 
@@ -817,15 +771,10 @@ class ESIM(nn.Module):
         self.pretrained_emb = pretrained_emb
         self.dropout = nn.Dropout(p=0.5)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.tree_lstm_intra = BinaryTreeLSTM(torch.is_available(),
-            embedding_size, num_units)
-        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units,
-            num_units), nn.ReLU(), nn.Dropout(p=0.5))
-        self.tree_lstm_compare = BinaryTreeLSTM(torch.is_available(),
-            embedding_size, num_units)
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.
-            Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5),
-            nn.Linear(num_units, num_classes))
+        self.tree_lstm_intra = BinaryTreeLSTM(torch.is_available(), embedding_size, num_units)
+        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5))
+        self.tree_lstm_compare = BinaryTreeLSTM(torch.is_available(), embedding_size, num_units)
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(4 * num_units, num_units), nn.ReLU(), nn.Dropout(p=0.5), nn.Linear(num_units, num_classes))
         self.init_weight()
 
     def ortho_weight(self):
@@ -843,11 +792,9 @@ class ESIM(nn.Module):
 
     def initialize_lstm(self):
         if torch.is_available():
-            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
+            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
-            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
+            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         return init
 
     def init_weight(self):
@@ -857,21 +804,17 @@ class ESIM(nn.Module):
         self.linear_layer_aggregate[1].bias.data.fill_(0)
         self.linear_layer_aggregate[4].weight.data.normal_(0, 0.01)
         self.linear_layer_aggregate[4].bias.data.fill_(0)
-        self.word_embedding.weight.data.copy_(torch.from_numpy(self.
-            pretrained_emb))
+        self.word_embedding.weight.data.copy_(torch.from_numpy(self.pretrained_emb))
 
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
-    def _transformation_input(self, embed_sent, x1_mask, x1_left_mask,
-        x1_right_mask):
+    def _transformation_input(self, embed_sent, x1_mask, x1_left_mask, x1_right_mask):
         embed_sent = self.word_embedding(embed_sent)
         embed_sent = self.dropout(embed_sent)
-        hidden = self.tree_lstm_intra(embed_sent, x1_mask, x1_left_mask,
-            x1_right_mask)
+        hidden = self.tree_lstm_intra(embed_sent, x1_mask, x1_left_mask, x1_right_mask)
         return hidden
 
     def aggregate(self, v1, v2):
@@ -887,26 +830,19 @@ class ESIM(nn.Module):
         v2_mean = torch.mean(v2, 1)
         v1_max, _ = torch.max(v1, 1)
         v2_max, _ = torch.max(v2, 1)
-        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max,
-            v2_mean, v2_max), 1))
+        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max, v2_mean, v2_max), 1))
         return out
 
-    def forward(self, x1, x1_mask, x1_left_mask, x1_right_mask, x2, x2_mask,
-        x2_left_mask, x2_right_mask):
-        sent1 = self._transformation_input(x1, x1_mask, x1_left_mask,
-            x1_right_mask)
-        sent2 = self._transformation_input(x2, x2_mask, x2_left_mask,
-            x2_right_mask)
+    def forward(self, x1, x1_mask, x1_left_mask, x1_right_mask, x2, x2_mask, x2_left_mask, x2_right_mask):
+        sent1 = self._transformation_input(x1, x1_mask, x1_left_mask, x1_right_mask)
+        sent2 = self._transformation_input(x2, x2_mask, x2_left_mask, x2_right_mask)
         ctx1 = torch.transpose(sent1, 0, 1)
         ctx2 = torch.transpose(sent2, 0, 1)
         ctx1 = ctx1 * x1_mask[:, :, (None)]
         ctx2 = ctx2 * x2_mask[:, :, (None)]
-        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1,
-            2, 0))
-        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1,
-            keepdim=True)[0]).permute(1, 2, 0)
-        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2,
-            keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1, 2, 0))
+        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1, keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2, keepdim=True)[0]).permute(1, 2, 0)
         weight_matrix_1 = weight_matrix_1 * x1_mask[:, (None), :]
         weight_matrix_2 = weight_matrix_2 * x2_mask[(None), :, :]
         alpha = weight_matrix_1 / weight_matrix_1.sum(0, keepdim=True)
@@ -986,10 +922,8 @@ class LSTM(nn.Module):
         for step in range(x.size(0)):
             input = x[step]
             step_c, step_h = self.TreeCell(input, h, c)
-            h = x_mask[step][:, (None)] * step_h + (1.0 - x_mask[step])[:,
-                (None)] * h
-            c = x_mask[step][:, (None)] * step_c + (1.0 - x_mask[step])[:,
-                (None)] * c
+            h = x_mask[step][:, (None)] * step_h + (1.0 - x_mask[step])[:, (None)] * h
+            c = x_mask[step][:, (None)] * step_c + (1.0 - x_mask[step])[:, (None)] * c
             all_hidden.append(torch.unsqueeze(h, 0))
         return torch.cat(all_hidden, 0)
 
@@ -1004,9 +938,7 @@ class ESIM(nn.Module):
 		without any recurrent structure.
 	"""
 
-    def __init__(self, num_units, num_classes, vocab_size, embedding_size,
-        pretrained_emb, training=True, project_input=True,
-        use_intra_attention=False, distance_biases=10, max_sentence_length=30):
+    def __init__(self, num_units, num_classes, vocab_size, embedding_size, pretrained_emb, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
         """
 		Create the model based on MLP networks.
 
@@ -1033,13 +965,9 @@ class ESIM(nn.Module):
         self.dropout = nn.Dropout(p=0.5)
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
         self.lstm_intra = LSTM(torch.is_available(), embedding_size, num_units)
-        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units *
-            2, num_units), nn.ReLU(), nn.Dropout(p=0.5))
-        self.lstm_compare = LSTM(torch.is_available(), embedding_size,
-            num_units)
-        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.
-            Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=
-            0.5), nn.Linear(num_units, num_classes))
+        self.linear_layer_compare = nn.Sequential(nn.Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.5))
+        self.lstm_compare = LSTM(torch.is_available(), embedding_size, num_units)
+        self.linear_layer_aggregate = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(4 * num_units * 2, num_units), nn.ReLU(), nn.Dropout(p=0.5), nn.Linear(num_units, num_classes))
         self.init_weight()
 
     def ortho_weight(self):
@@ -1057,11 +985,9 @@ class ESIM(nn.Module):
 
     def initialize_lstm(self):
         if torch.is_available():
-            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
+            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
-            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.
-                ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
+            init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         return init
 
     def init_weight(self):
@@ -1071,14 +997,12 @@ class ESIM(nn.Module):
         self.linear_layer_aggregate[1].bias.data.fill_(0)
         self.linear_layer_aggregate[4].weight.data.normal_(0, 0.01)
         self.linear_layer_aggregate[4].bias.data.fill_(0)
-        self.word_embedding.weight.data.copy_(torch.from_numpy(self.
-            pretrained_emb))
+        self.word_embedding.weight.data.copy_(torch.from_numpy(self.pretrained_emb))
 
     def attention_softmax3d(self, raw_attentions):
         reshaped_attentions = raw_attentions.view(-1, raw_attentions.size(2))
         out = nn.functional.softmax(reshaped_attentions, dim=1)
-        return out.view(raw_attentions.size(0), raw_attentions.size(1),
-            raw_attentions.size(2))
+        return out.view(raw_attentions.size(0), raw_attentions.size(1), raw_attentions.size(2))
 
     def _transformation_input(self, embed_sent, x1_mask):
         embed_sent = self.word_embedding(embed_sent)
@@ -1099,8 +1023,7 @@ class ESIM(nn.Module):
         v2_mean = torch.mean(v2, 0)
         v1_max, _ = torch.max(v1, 0)
         v2_max, _ = torch.max(v2, 0)
-        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max,
-            v2_mean, v2_max), 1))
+        out = self.linear_layer_aggregate(torch.cat((v1_mean, v1_max, v2_mean, v2_max), 1))
         return out
 
     def cosine_interaction(self, tensor1, tensor2):
@@ -1146,12 +1069,9 @@ class ESIM(nn.Module):
         ctx2 = torch.cat((proj2, torch.index_select(proj2_r, 0, idx_2)), 2)
         ctx1 = ctx1 * x1_mask[:, :, (None)]
         ctx2 = ctx2 * x2_mask[:, :, (None)]
-        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1,
-            2, 0))
-        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1,
-            keepdim=True)[0]).permute(1, 2, 0)
-        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2,
-            keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1, 2, 0))
+        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1, keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2, keepdim=True)[0]).permute(1, 2, 0)
         weight_matrix_1 = weight_matrix_1 * x1_mask[:, (None), :]
         weight_matrix_2 = weight_matrix_2 * x2_mask[(None), :, :]
         alpha = weight_matrix_1 / weight_matrix_1.sum(0, keepdim=True)
@@ -1200,12 +1120,9 @@ class ESIM(nn.Module):
         ctx2 = torch.cat((proj2, torch.index_select(proj2_r, 0, idx_2)), 2)
         ctx1 = ctx1 * x1_mask[:, :, (None)]
         ctx2 = ctx2 * x2_mask[:, :, (None)]
-        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1,
-            2, 0))
-        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1,
-            keepdim=True)[0]).permute(1, 2, 0)
-        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2,
-            keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix = torch.matmul(ctx1.permute(1, 0, 2), ctx2.permute(1, 2, 0))
+        weight_matrix_1 = torch.exp(weight_matrix - weight_matrix.max(1, keepdim=True)[0]).permute(1, 2, 0)
+        weight_matrix_2 = torch.exp(weight_matrix - weight_matrix.max(2, keepdim=True)[0]).permute(1, 2, 0)
         weight_matrix_1 = weight_matrix_1 * x1_mask[:, (None), :]
         weight_matrix_2 = weight_matrix_2 * x2_mask[(None), :, :]
         alpha = weight_matrix_1 / weight_matrix_1.sum(0, keepdim=True)
@@ -1272,11 +1189,7 @@ def splitclusters(s):
 
 class DeepPairWiseWord(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, num_layers, task,
-        granularity, num_class, dict, fake_dict, dict_char_ngram, oov,
-        tokens, word_freq, feature_maps, kernels, charcnn_embedding_size,
-        charcnn_max_word_length, character_ngrams, c2w_mode,
-        character_ngrams_overlap, word_mode, combine_mode, lm_mode, deep_CNN):
+    def __init__(self, embedding_dim, hidden_dim, num_layers, task, granularity, num_class, dict, fake_dict, dict_char_ngram, oov, tokens, word_freq, feature_maps, kernels, charcnn_embedding_size, charcnn_max_word_length, character_ngrams, c2w_mode, character_ngrams_overlap, word_mode, combine_mode, lm_mode, deep_CNN):
         super(DeepPairWiseWord, self).__init__()
         self.task = task
         if task == 'pit':
@@ -1287,8 +1200,7 @@ class DeepPairWiseWord(nn.Module):
             self.lm_loss = nn.NLLLoss()
             self.lm_softmax = nn.LogSoftmax()
             self.lm_tanh = nn.Tanh()
-            self.lm_lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers,
-                bidirectional=True)
+            self.lm_lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers, bidirectional=True)
             self.lm_Wm_forward = Variable(torch.rand(hidden_dim, hidden_dim))
             self.lm_Wm_backward = Variable(torch.rand(hidden_dim, hidden_dim))
             self.lm_Wq_forward = Variable(torch.rand(hidden_dim, len(tokens)))
@@ -1347,117 +1259,64 @@ class DeepPairWiseWord(nn.Module):
                     self.lm_Wq_backword = self.lm_Wq_backword
                 pass
             self.c2w_embedding = nn.Embedding(len(dict_char_ngram), 50)
-            self.char_cnn_embedding = nn.Embedding(len(dict_char_ngram),
-                charcnn_embedding_size)
+            self.char_cnn_embedding = nn.Embedding(len(dict_char_ngram), charcnn_embedding_size)
             self.lstm_c2w = nn.LSTM(50, embedding_dim, 1, bidirectional=True)
-            self.charCNN_filter1 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                0], (kernels[0], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[0] + 1, 1),
-                stride=1))
-            self.charCNN_filter2 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                1], (kernels[1], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[1] + 1, 1),
-                stride=1))
-            self.charCNN_filter3 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                2], (kernels[2], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[2] + 1, 1),
-                stride=1))
-            self.charCNN_filter4 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                3], (kernels[3], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[3] + 1, 1),
-                stride=1))
-            self.charCNN_filter5 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                4], (kernels[4], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[4] + 1, 1),
-                stride=1))
-            self.charCNN_filter6 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                5], (kernels[5], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[5] + 1, 1),
-                stride=1))
-            self.charCNN_filter7 = nn.Sequential(nn.Conv2d(1, feature_maps[
-                6], (kernels[6], charcnn_embedding_size)), nn.Tanh(), nn.
-                MaxPool2d((charcnn_max_word_length - kernels[6] + 1, 1),
-                stride=1))
-            self.transform_gate = nn.Sequential(nn.Linear(1100, 1100), nn.
-                Sigmoid())
+            self.charCNN_filter1 = nn.Sequential(nn.Conv2d(1, feature_maps[0], (kernels[0], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[0] + 1, 1), stride=1))
+            self.charCNN_filter2 = nn.Sequential(nn.Conv2d(1, feature_maps[1], (kernels[1], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[1] + 1, 1), stride=1))
+            self.charCNN_filter3 = nn.Sequential(nn.Conv2d(1, feature_maps[2], (kernels[2], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[2] + 1, 1), stride=1))
+            self.charCNN_filter4 = nn.Sequential(nn.Conv2d(1, feature_maps[3], (kernels[3], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[3] + 1, 1), stride=1))
+            self.charCNN_filter5 = nn.Sequential(nn.Conv2d(1, feature_maps[4], (kernels[4], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[4] + 1, 1), stride=1))
+            self.charCNN_filter6 = nn.Sequential(nn.Conv2d(1, feature_maps[5], (kernels[5], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[5] + 1, 1), stride=1))
+            self.charCNN_filter7 = nn.Sequential(nn.Conv2d(1, feature_maps[6], (kernels[6], charcnn_embedding_size)), nn.Tanh(), nn.MaxPool2d((charcnn_max_word_length - kernels[6] + 1, 1), stride=1))
+            self.transform_gate = nn.Sequential(nn.Linear(1100, 1100), nn.Sigmoid())
             self.char_cnn_mlp = nn.Sequential(nn.Linear(1100, 1100), nn.Tanh())
             self.down_sampling_200 = nn.Linear(1100, 200)
             self.down_sampling_300 = nn.Linear(1100, 300)
         elif granularity == 'word':
             """"""
             self.word_embedding = nn.Embedding(len(tokens), embedding_dim)
-            self.copied_word_embedding = nn.Embedding(len(tokens),
-                embedding_dim)
-            pretrained_weight = numpy.zeros(shape=(len(self.tokens), self.
-                embedding_dim))
+            self.copied_word_embedding = nn.Embedding(len(tokens), embedding_dim)
+            pretrained_weight = numpy.zeros(shape=(len(self.tokens), self.embedding_dim))
             for word in self.tokens:
-                pretrained_weight[self.tokens.index(word)] = self.dict[word
-                    ].numpy()
-            self.copied_word_embedding.weight.data.copy_(torch.from_numpy(
-                pretrained_weight))
+                pretrained_weight[self.tokens.index(word)] = self.dict[word].numpy()
+            self.copied_word_embedding.weight.data.copy_(torch.from_numpy(pretrained_weight))
             """"""
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers,
-            bidirectional=True)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers, bidirectional=True)
         if not deep_CNN:
-            self.mlp_layer = nn.Sequential(nn.Linear(self.limit * self.
-                limit * 13, 16), nn.Linear(16, num_class), nn.LogSoftmax())
+            self.mlp_layer = nn.Sequential(nn.Linear(self.limit * self.limit * 13, 16), nn.Linear(16, num_class), nn.LogSoftmax())
         else:
-            self.layer1 = nn.Sequential(nn.Conv2d(13, 128, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-                stride=2, ceil_mode=True))
-            self.layer1_ = nn.Sequential(nn.Conv2d(26, 128, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-                stride=2, ceil_mode=True))
-            self.layer2 = nn.Sequential(nn.Conv2d(128, 164, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-                stride=2, ceil_mode=True))
-            self.layer3 = nn.Sequential(nn.Conv2d(164, 192, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-                stride=2, ceil_mode=True))
-            self.layer4 = nn.Sequential(nn.Conv2d(192, 192, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-                stride=2, ceil_mode=True))
-            self.layer5 = nn.Sequential(nn.Conv2d(192, 128, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2,
-                stride=2, ceil_mode=True))
-            self.layer5_0 = nn.Sequential(nn.Conv2d(192, 128, kernel_size=3,
-                stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=3,
-                stride=3, ceil_mode=True))
-            self.fc1 = nn.Sequential(nn.Linear(128, 128), nn.ReLU(inplace=True)
-                )
-            self.fc2 = nn.Sequential(nn.Linear(128, num_class), nn.LogSoftmax()
-                )
+            self.layer1 = nn.Sequential(nn.Conv2d(13, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+            self.layer1_ = nn.Sequential(nn.Conv2d(26, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+            self.layer2 = nn.Sequential(nn.Conv2d(128, 164, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+            self.layer3 = nn.Sequential(nn.Conv2d(164, 192, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+            self.layer4 = nn.Sequential(nn.Conv2d(192, 192, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+            self.layer5 = nn.Sequential(nn.Conv2d(192, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
+            self.layer5_0 = nn.Sequential(nn.Conv2d(192, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(kernel_size=3, stride=3, ceil_mode=True))
+            self.fc1 = nn.Sequential(nn.Linear(128, 128), nn.ReLU(inplace=True))
+            self.fc2 = nn.Sequential(nn.Linear(128, num_class), nn.LogSoftmax())
         self.init_weight()
 
     def init_weight(self):
         if self.deep_CNN:
-            self.layer1[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 
-                128)))
+            self.layer1[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 128)))
             self.layer1[0].bias.data.fill_(0)
-            self.layer2[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 
-                164)))
+            self.layer2[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 164)))
             self.layer2[0].bias.data.fill_(0)
-            self.layer3[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 
-                192)))
+            self.layer3[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 192)))
             self.layer3[0].bias.data.fill_(0)
-            self.layer4[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 
-                192)))
+            self.layer4[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 192)))
             self.layer4[0].bias.data.fill_(0)
-            self.layer5[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 
-                128)))
+            self.layer5[0].weight.data.normal_(0, math.sqrt(2.0 / (3 * 3 * 128)))
             self.layer5[0].bias.data.fill_(0)
             self.fc1[0].weight.data.uniform_(-0.1, 0.1)
             self.fc1[0].bias.data.fill_(0)
             self.fc2[0].weight.data.uniform_(-0.1, 0.1)
             self.fc2[0].bias.data.fill_(0)
         if self.granularity == 'word':
-            pretrained_weight = numpy.zeros(shape=(len(self.tokens), self.
-                embedding_dim))
+            pretrained_weight = numpy.zeros(shape=(len(self.tokens), self.embedding_dim))
             for word in self.tokens:
-                pretrained_weight[self.tokens.index(word)] = self.dict[word
-                    ].numpy()
-            self.copied_word_embedding.weight.data.copy_(torch.from_numpy(
-                pretrained_weight))
+                pretrained_weight[self.tokens.index(word)] = self.dict[word].numpy()
+            self.copied_word_embedding.weight.data.copy_(torch.from_numpy(pretrained_weight))
 
     def unpack(self, bi_hidden, half_dim):
         for i in range(bi_hidden.size(0)):
@@ -1474,10 +1333,8 @@ class DeepPairWiseWord(nn.Module):
 
     def pairwise_word_interaction(self, out0, out1, target_A, target_B):
         extra_loss = 0
-        h_fw_0, h_bw_0 = self.unpack(out0.view(out0.size(0), out0.size(2)),
-            half_dim=self.hidden_dim)
-        h_fw_1, h_bw_1 = self.unpack(out1.view(out1.size(0), out1.size(2)),
-            half_dim=self.hidden_dim)
+        h_fw_0, h_bw_0 = self.unpack(out0.view(out0.size(0), out0.size(2)), half_dim=self.hidden_dim)
+        h_fw_1, h_bw_1 = self.unpack(out1.view(out1.size(0), out1.size(2)), half_dim=self.hidden_dim)
         h_bi_0 = out0.view(out0.size(0), out0.size(2))
         h_bi_1 = out1.view(out1.size(0), out1.size(2))
         h_sum_0 = h_fw_0 + h_bw_0
@@ -1503,18 +1360,12 @@ class DeepPairWiseWord(nn.Module):
                     simCube6_1 = torch.cat((simCube6_1, h_bw_1[j].view(1, -1)))
                     simCube7_0 = torch.cat((simCube7_0, h_bi_0[i].view(1, -1)))
                     simCube7_1 = torch.cat((simCube7_1, h_bi_1[j].view(1, -1)))
-                    simCube8_0 = torch.cat((simCube8_0, h_sum_0[i].view(1, -1))
-                        )
-                    simCube8_1 = torch.cat((simCube8_1, h_sum_1[j].view(1, -1))
-                        )
-        simCube1 = torch.unsqueeze(torch.mm(h_fw_0, torch.transpose(h_fw_1,
-            0, 1)), 0)
-        simCube2 = torch.unsqueeze(torch.mm(h_bw_0, torch.transpose(h_bw_1,
-            0, 1)), 0)
-        simCube3 = torch.unsqueeze(torch.mm(h_bi_0, torch.transpose(h_bi_1,
-            0, 1)), 0)
-        simCube4 = torch.unsqueeze(torch.mm(h_sum_0, torch.transpose(
-            h_sum_1, 0, 1)), 0)
+                    simCube8_0 = torch.cat((simCube8_0, h_sum_0[i].view(1, -1)))
+                    simCube8_1 = torch.cat((simCube8_1, h_sum_1[j].view(1, -1)))
+        simCube1 = torch.unsqueeze(torch.mm(h_fw_0, torch.transpose(h_fw_1, 0, 1)), 0)
+        simCube2 = torch.unsqueeze(torch.mm(h_bw_0, torch.transpose(h_bw_1, 0, 1)), 0)
+        simCube3 = torch.unsqueeze(torch.mm(h_bi_0, torch.transpose(h_bi_1, 0, 1)), 0)
+        simCube4 = torch.unsqueeze(torch.mm(h_sum_0, torch.transpose(h_sum_1, 0, 1)), 0)
         simCube5 = torch.neg(F.pairwise_distance(simCube5_0, simCube5_1))
         simCube5 = torch.unsqueeze(simCube5.view(len0, len1), 0)
         simCube6 = torch.neg(F.pairwise_distance(simCube6_0, simCube6_1))
@@ -1533,23 +1384,17 @@ class DeepPairWiseWord(nn.Module):
         simCube12 = torch.unsqueeze(simCube12.view(len0, len1), 0)
         """"""
         if torch.is_available():
-            simCube13 = torch.unsqueeze(Variable(torch.zeros(len0, len1)) +
-                1, 0)
+            simCube13 = torch.unsqueeze(Variable(torch.zeros(len0, len1)) + 1, 0)
         else:
-            simCube13 = torch.unsqueeze(Variable(torch.zeros(len0, len1)) +
-                1, 0)
-        simCube = torch.cat((simCube9, simCube5, simCube1, simCube10,
-            simCube6, simCube2, simCube12, simCube8, simCube4, simCube11,
-            simCube7, simCube3, simCube13), 0)
+            simCube13 = torch.unsqueeze(Variable(torch.zeros(len0, len1)) + 1, 0)
+        simCube = torch.cat((simCube9, simCube5, simCube1, simCube10, simCube6, simCube2, simCube12, simCube8, simCube4, simCube11, simCube7, simCube3, simCube13), 0)
         return simCube, extra_loss
 
     def similarity_focus(self, simCube):
         if torch.is_available():
-            mask = torch.mul(torch.ones(simCube.size(0), simCube.size(1),
-                simCube.size(2)), 0.1)
+            mask = torch.mul(torch.ones(simCube.size(0), simCube.size(1), simCube.size(2)), 0.1)
         else:
-            mask = torch.mul(torch.ones(simCube.size(0), simCube.size(1),
-                simCube.size(2)), 0.1)
+            mask = torch.mul(torch.ones(simCube.size(0), simCube.size(1), simCube.size(2)), 0.1)
         s1tag = torch.zeros(simCube.size(1))
         s2tag = torch.zeros(simCube.size(2))
         sorted, indices = torch.sort(simCube[6].view(1, -1), descending=True)
@@ -1607,8 +1452,7 @@ class DeepPairWiseWord(nn.Module):
 
     def deep_cnn(self, focusCube):
         simCube = torch.unsqueeze(focusCube, 0)
-        focusCube = F.pad(simCube, (0, self.limit - simCube.size(3), 0, 
-            self.limit - simCube.size(2)))[0]
+        focusCube = F.pad(simCube, (0, self.limit - simCube.size(3), 0, self.limit - simCube.size(2)))[0]
         focusCube = torch.unsqueeze(focusCube, 0)
         out = self.layer1(focusCube)
         out = self.layer2(out)
@@ -1628,17 +1472,14 @@ class DeepPairWiseWord(nn.Module):
 
     def mlp(self, focusCube):
         simCube = torch.unsqueeze(focusCube, 0)
-        focusCube = F.pad(simCube, (0, self.limit - simCube.size(3), 0, 
-            self.limit - simCube.size(2)))[0]
+        focusCube = F.pad(simCube, (0, self.limit - simCube.size(3), 0, self.limit - simCube.size(2)))[0]
         result = self.mlp_layer(focusCube.view(-1))
         return result
 
     def language_model(self, out0, out1, target_A, target_B):
         extra_loss = 0
-        h_fw_0, h_bw_0 = self.unpack(out0.view(out0.size(0), out0.size(2)),
-            half_dim=self.hidden_dim)
-        h_fw_1, h_bw_1 = self.unpack(out1.view(out1.size(0), out1.size(2)),
-            half_dim=self.hidden_dim)
+        h_fw_0, h_bw_0 = self.unpack(out0.view(out0.size(0), out0.size(2)), half_dim=self.hidden_dim)
+        h_fw_1, h_bw_1 = self.unpack(out1.view(out1.size(0), out1.size(2)), half_dim=self.hidden_dim)
         """"""
         m_fw_0 = self.lm_tanh(torch.mm(h_fw_0, self.lm_Wm_forward))
         m_bw_0 = self.lm_tanh(torch.mm(h_bw_0, self.lm_Wm_backward))
@@ -1648,14 +1489,10 @@ class DeepPairWiseWord(nn.Module):
         q_bw_0 = self.lm_softmax(torch.mm(m_bw_0, self.lm_Wq_backword))
         q_fw_1 = self.lm_softmax(torch.mm(m_fw_1, self.lm_Wq_forward))
         q_bw_1 = self.lm_softmax(torch.mm(m_bw_1, self.lm_Wq_backword))
-        target_fw_0 = Variable(torch.LongTensor(target_A[1:] + [self.tokens
-            .index('</s>')]))
-        target_bw_0 = Variable(torch.LongTensor([self.tokens.index('<s>')] +
-            target_A[:-1]))
-        target_fw_1 = Variable(torch.LongTensor(target_B[1:] + [self.tokens
-            .index('</s>')]))
-        target_bw_1 = Variable(torch.LongTensor([self.tokens.index('<s>')] +
-            target_B[:-1]))
+        target_fw_0 = Variable(torch.LongTensor(target_A[1:] + [self.tokens.index('</s>')]))
+        target_bw_0 = Variable(torch.LongTensor([self.tokens.index('<s>')] + target_A[:-1]))
+        target_fw_1 = Variable(torch.LongTensor(target_B[1:] + [self.tokens.index('</s>')]))
+        target_bw_1 = Variable(torch.LongTensor([self.tokens.index('<s>')] + target_B[:-1]))
         if torch.is_available():
             target_fw_0 = target_fw_0
             target_bw_0 = target_bw_0
@@ -1673,14 +1510,11 @@ class DeepPairWiseWord(nn.Module):
         glove_mode = self.word_mode[0]
         update_inv_mode = self.word_mode[1]
         update_oov_mode = self.word_mode[2]
-        if (glove_mode == True and update_inv_mode == False and 
-            update_oov_mode == False):
+        if glove_mode == True and update_inv_mode == False and update_oov_mode == False:
             try:
-                sentA = torch.cat([self.dict[word].view(1, self.
-                    embedding_dim) for word in lsents], 0)
+                sentA = torch.cat([self.dict[word].view(1, self.embedding_dim) for word in lsents], 0)
                 sentA = Variable(sentA)
-                sentB = torch.cat([self.dict[word].view(1, self.
-                    embedding_dim) for word in rsents], 0)
+                sentB = torch.cat([self.dict[word].view(1, self.embedding_dim) for word in rsents], 0)
                 sentB = Variable(sentB)
             except:
                 None
@@ -1694,28 +1528,24 @@ class DeepPairWiseWord(nn.Module):
             for word in lsents:
                 if firstFlag:
                     if word in self.oov:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
-                        output = Variable(self.dict[word].view(1, self.
-                            embedding_dim))
+                        output = Variable(self.dict[word].view(1, self.embedding_dim))
                         if torch.is_available():
                             output = output
                         firstFlag = False
                 elif word in self.oov:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
-                    output_new = Variable(self.dict[word].view(1, self.
-                        embedding_dim))
+                    output_new = Variable(self.dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new), 0)
@@ -1724,28 +1554,24 @@ class DeepPairWiseWord(nn.Module):
             for word in rsents:
                 if firstFlag:
                     if word in self.oov:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
-                        output = Variable(self.dict[word].view(1, self.
-                            embedding_dim))
+                        output = Variable(self.dict[word].view(1, self.embedding_dim))
                         if torch.is_available():
                             output = output
                         firstFlag = False
                 elif word in self.oov:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
-                    output_new = Variable(self.dict[word].view(1, self.
-                        embedding_dim))
+                    output_new = Variable(self.dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new), 0)
@@ -1755,28 +1581,24 @@ class DeepPairWiseWord(nn.Module):
             for word in lsents:
                 if firstFlag:
                     if word in self.oov:
-                        output = Variable(self.fake_dict[word].view(1, self
-                            .embedding_dim))
+                        output = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                         if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.copied_word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
-                    output_new = Variable(self.fake_dict[word].view(1, self
-                        .embedding_dim))
+                    output_new = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.copied_word_embedding(indice)
@@ -1786,28 +1608,24 @@ class DeepPairWiseWord(nn.Module):
             for word in rsents:
                 if firstFlag:
                     if word in self.oov:
-                        output = Variable(torch.Tensor([random.uniform(-
-                            0.05, 0.05) for i in range(self.embedding_dim)]))
+                        output = Variable(torch.Tensor([random.uniform(-0.05, 0.05) for i in range(self.embedding_dim)]))
                         if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.copied_word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
-                    output_new = Variable(torch.Tensor([random.uniform(-
-                        0.05, 0.05) for i in range(self.embedding_dim)]))
+                    output_new = Variable(torch.Tensor([random.uniform(-0.05, 0.05) for i in range(self.embedding_dim)]))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.copied_word_embedding(indice)
@@ -1838,15 +1656,13 @@ class DeepPairWiseWord(nn.Module):
             firstFlag = True
             for word in lsents:
                 if firstFlag:
-                    output = Variable(self.fake_dict[word].view(1, self.
-                        embedding_dim))
+                    output = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output = output
                     output = output.view(1, -1)
                     firstFlag = False
                 else:
-                    output_new = Variable(self.fake_dict[word].view(1, self
-                        .embedding_dim))
+                    output_new = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
@@ -1854,15 +1670,13 @@ class DeepPairWiseWord(nn.Module):
             firstFlag = True
             for word in rsents:
                 if firstFlag:
-                    output = Variable(self.fake_dict[word].view(1, self.
-                        embedding_dim))
+                    output = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output = output
                     output = output.view(1, -1)
                     firstFlag = False
                 else:
-                    output_new = Variable(self.fake_dict[word].view(1, self
-                        .embedding_dim))
+                    output_new = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
@@ -1872,29 +1686,25 @@ class DeepPairWiseWord(nn.Module):
             for word in lsents:
                 if firstFlag:
                     if word in self.oov:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
-                        output = Variable(self.fake_dict[word].view(1, self
-                            .embedding_dim))
+                        output = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                         if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                 elif word in self.oov:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
-                    output_new = Variable(self.fake_dict[word].view(1, self
-                        .embedding_dim))
+                    output_new = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output_new = output_new.view(1, -1)
@@ -1904,29 +1714,25 @@ class DeepPairWiseWord(nn.Module):
             for word in rsents:
                 if firstFlag:
                     if word in self.oov:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                     else:
-                        output = Variable(self.fake_dict[word].view(1, self
-                            .embedding_dim))
+                        output = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                         if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                 elif word in self.oov:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new), 0)
                 else:
-                    output_new = Variable(self.fake_dict[word].view(1, self
-                        .embedding_dim))
+                    output_new = Variable(self.fake_dict[word].view(1, self.embedding_dim))
                     if torch.is_available():
                         output_new = output_new
                     output_new = output_new.view(1, -1)
@@ -1937,28 +1743,24 @@ class DeepPairWiseWord(nn.Module):
             for word in lsents:
                 if firstFlag:
                     if word in self.oov:
-                        output = Variable(self.dict[word].view(1, self.
-                            embedding_dim))
+                        output = Variable(self.dict[word].view(1, self.embedding_dim))
                         if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
-                    output_new = Variable(torch.Tensor(self.dict[word].view
-                        (1, self.embedding_dim)))
+                    output_new = Variable(torch.Tensor(self.dict[word].view(1, self.embedding_dim)))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
@@ -1968,41 +1770,35 @@ class DeepPairWiseWord(nn.Module):
             for word in rsents:
                 if firstFlag:
                     if word in self.oov:
-                        output = Variable(torch.Tensor([random.uniform(-
-                            0.05, 0.05) for i in range(self.embedding_dim)]))
+                        output = Variable(torch.Tensor([random.uniform(-0.05, 0.05) for i in range(self.embedding_dim)]))
                         if torch.is_available():
                             output = output
                         output = output.view(1, -1)
                         firstFlag = False
                     else:
-                        indice = Variable(torch.LongTensor([self.tokens.
-                            index(word)]))
+                        indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                         if torch.is_available():
                             indice = indice
                         output = self.word_embedding(indice)
                         firstFlag = False
                 elif word in self.oov:
-                    output_new = Variable(torch.Tensor([random.uniform(-
-                        0.05, 0.05) for i in range(self.embedding_dim)]))
+                    output_new = Variable(torch.Tensor([random.uniform(-0.05, 0.05) for i in range(self.embedding_dim)]))
                     if torch.is_available():
                         output_new = output_new
                     output = torch.cat((output, output_new.view(1, -1)), 0)
                 else:
-                    indice = Variable(torch.LongTensor([self.tokens.index(
-                        word)]))
+                    indice = Variable(torch.LongTensor([self.tokens.index(word)]))
                     if torch.is_available():
                         indice = indice
                     output_new = self.word_embedding(indice)
                     output = torch.cat((output, output_new.view(1, -1)), 0)
             sentB = output
         elif glove_mode == False and update_inv_mode == True and update_oov_mode == True:
-            indices = Variable(torch.LongTensor([self.tokens.index(word) for
-                word in lsents]))
+            indices = Variable(torch.LongTensor([self.tokens.index(word) for word in lsents]))
             if torch.is_available():
                 indices = indices
             sentA = self.word_embedding(indices)
-            indices = Variable(torch.LongTensor([self.tokens.index(word) for
-                word in rsents]))
+            indices = Variable(torch.LongTensor([self.tokens.index(word) for word in rsents]))
             if torch.is_available():
                 indices = indices
             sentB = self.word_embedding(indices)
@@ -2017,8 +1813,7 @@ class DeepPairWiseWord(nn.Module):
         input = self.c2w_embedding(input)
         input = input.view(-1, 1, 50)
         out, (state, _) = self.lstm_c2w(input, (h, c))
-        output_char = torch.mm(self.df, state[0][0][:].view(-1, 1)) + torch.mm(
-            self.db, state[1][0][:].view(-1, 1)) + self.bias.view(-1, 1)
+        output_char = torch.mm(self.df, state[0][0][:].view(-1, 1)) + torch.mm(self.db, state[1][0][:].view(-1, 1)) + self.bias.view(-1, 1)
         output_char = output_char.view(1, -1)
         return output_char
 
@@ -2035,13 +1830,10 @@ class DeepPairWiseWord(nn.Module):
         out5 = self.charCNN_filter5(input)
         out6 = self.charCNN_filter6(input)
         out7 = self.charCNN_filter7(input)
-        final_output = torch.cat([torch.squeeze(out1), torch.squeeze(out2),
-            torch.squeeze(out3), torch.squeeze(out4), torch.squeeze(out5),
-            torch.squeeze(out6), torch.squeeze(out7)])
+        final_output = torch.cat([torch.squeeze(out1), torch.squeeze(out2), torch.squeeze(out3), torch.squeeze(out4), torch.squeeze(out5), torch.squeeze(out6), torch.squeeze(out7)])
         final_output = final_output.view(1, -1)
         transform_gate = self.transform_gate(final_output)
-        final_output = transform_gate * self.char_cnn_mlp(final_output) + (
-            1 - transform_gate) * final_output
+        final_output = transform_gate * self.char_cnn_mlp(final_output) + (1 - transform_gate) * final_output
         return final_output
 
     def generate_word_indices(self, word):
@@ -2056,17 +1848,14 @@ class DeepPairWiseWord(nn.Module):
                         indices = [self.dict_char_ngram[word]]
                     else:
                         for i in range(len(char_gram) - 1):
-                            indices.append(self.dict_char_ngram[char_gram[i
-                                ] + char_gram[i + 1]])
+                            indices.append(self.dict_char_ngram[char_gram[i] + char_gram[i + 1]])
                 elif len(char_gram) <= 2:
                     indices = [self.dict_char_ngram[word]]
                 else:
                     for i in range(0, len(char_gram) - 1, 2):
-                        indices.append(self.dict_char_ngram[char_gram[i] +
-                            char_gram[i + 1]])
+                        indices.append(self.dict_char_ngram[char_gram[i] + char_gram[i + 1]])
                     if len(char_gram) % 2 == 1:
-                        indices.append(self.dict_char_ngram[char_gram[len(
-                            char_gram) - 1]])
+                        indices.append(self.dict_char_ngram[char_gram[len(char_gram) - 1]])
         else:
             indices = []
             if self.character_ngrams == 1:
@@ -2085,8 +1874,7 @@ class DeepPairWiseWord(nn.Module):
                     else:
                         for i in range(len(word) - 1):
                             try:
-                                indices.append(self.dict_char_ngram[word[i:
-                                    i + 2]])
+                                indices.append(self.dict_char_ngram[word[i:i + 2]])
                             except:
                                 indices.append(self.dict_char_ngram[' '])
                 elif len(word) <= 2:
@@ -2095,8 +1883,7 @@ class DeepPairWiseWord(nn.Module):
                     for i in range(0, len(word) - 1, 2):
                         indices.append(self.dict_char_ngram[word[i:i + 2]])
                     if len(word) % 2 == 1:
-                        indices.append(self.dict_char_ngram[word[len(word) -
-                            1]])
+                        indices.append(self.dict_char_ngram[word[len(word) - 1]])
             elif self.character_ngrams == 3:
                 if self.character_ngrams_overlap:
                     if len(word) <= 3:
@@ -2110,11 +1897,9 @@ class DeepPairWiseWord(nn.Module):
                     for i in range(0, len(word) - 2, 3):
                         indices.append(self.dict_char_ngram[word[i:i + 3]])
                     if len(word) % 3 == 1:
-                        indices.append(self.dict_char_ngram[word[len(word) -
-                            1]])
+                        indices.append(self.dict_char_ngram[word[len(word) - 1]])
                     elif len(word) % 3 == 2:
-                        indices.append(self.dict_char_ngram[word[len(word) -
-                            2:]])
+                        indices.append(self.dict_char_ngram[word[len(word) - 2:]])
         return indices
 
     def c2w_or_cnn_layer(self, lsents, rsents):
@@ -2128,8 +1913,7 @@ class DeepPairWiseWord(nn.Module):
             indices = self.generate_word_indices(word)
             if not self.c2w_mode:
                 if len(indices) < 20:
-                    indices = indices + [(0) for i in range(self.
-                        charcnn_max_word_length - len(indices))]
+                    indices = indices + [(0) for i in range(self.charcnn_max_word_length - len(indices))]
                 else:
                     indices = indices[0:20]
             if firstFlag:
@@ -2150,8 +1934,7 @@ class DeepPairWiseWord(nn.Module):
             indices = self.generate_word_indices(word)
             if not self.c2w_mode:
                 if len(indices) < 20:
-                    indices = indices + [(0) for i in range(self.
-                        charcnn_max_word_length - len(indices))]
+                    indices = indices + [(0) for i in range(self.charcnn_max_word_length - len(indices))]
                 else:
                     indices = indices[0:20]
             if firstFlag:
@@ -2174,8 +1957,7 @@ class DeepPairWiseWord(nn.Module):
     def mix_cell(self, word, output_word, output_char):
         result = None
         extra_loss = 0
-        indices_reduce_dim = Variable(torch.LongTensor([(i * 2) for i in
-            range(self.embedding_dim)]))
+        indices_reduce_dim = Variable(torch.LongTensor([(i * 2) for i in range(self.embedding_dim)]))
         if torch.is_available():
             indices_reduce_dim = indices_reduce_dim
         if self.combine_mode == 'concat':
@@ -2192,8 +1974,7 @@ class DeepPairWiseWord(nn.Module):
             gate = gate.expand(1, self.embedding_dim)
             result = (1 - gate) * output_word + gate * output_char
         elif self.combine_mode == 'attention':
-            gate = self.sigmoid(torch.mm(self.tanh(torch.mm(output_word,
-                self.W1) + torch.mm(output_char, self.W2)), self.W3))
+            gate = self.sigmoid(torch.mm(self.tanh(torch.mm(output_word, self.W1) + torch.mm(output_char, self.W2)), self.W3))
             result = gate * output_word + (1 - gate) * output_char
             if word not in self.oov:
                 extra_loss += 1 - F.cosine_similarity(output_word, output_char)
@@ -2218,8 +1999,7 @@ class DeepPairWiseWord(nn.Module):
                 output_char = self.c2w_cell([indices], h, c)
             else:
                 if len(indices) < 20:
-                    indices = indices + [(0) for i in range(self.
-                        charcnn_max_word_length - len(indices))]
+                    indices = indices + [(0) for i in range(self.charcnn_max_word_length - len(indices))]
                 else:
                     indices = indices[0:20]
                 output_char = self.charCNN_cell([indices])
@@ -2231,13 +2011,11 @@ class DeepPairWiseWord(nn.Module):
             if torch.is_available():
                 output_word = output_word
             if firstFlag:
-                output, extra_loss = self.mix_cell(word, output_word,
-                    output_char)
+                output, extra_loss = self.mix_cell(word, output_word, output_char)
                 output2 = output_char
                 firstFlag = False
             else:
-                output_new, extra_loss = self.mix_cell(word, output_word,
-                    output_char)
+                output_new, extra_loss = self.mix_cell(word, output_word, output_char)
                 output_new2 = output_char
                 output = torch.cat((output, output_new), 0)
                 output2 = torch.cat((output2, output_new2), 0)
@@ -2250,8 +2028,7 @@ class DeepPairWiseWord(nn.Module):
                 output_char = self.c2w_cell([indices], h, c)
             else:
                 if len(indices) < 20:
-                    indices = indices + [(0) for i in range(self.
-                        charcnn_max_word_length - len(indices))]
+                    indices = indices + [(0) for i in range(self.charcnn_max_word_length - len(indices))]
                 else:
                     indices = indices[0:20]
                 output_char = self.charCNN_cell([indices])
@@ -2263,13 +2040,11 @@ class DeepPairWiseWord(nn.Module):
             if torch.is_available():
                 output_word = output_word
             if firstFlag:
-                output, extra_loss = self.mix_cell(word, output_word,
-                    output_char)
+                output, extra_loss = self.mix_cell(word, output_word, output_char)
                 output2 = output_char
                 firstFlag = False
             else:
-                output_new, extra_loss = self.mix_cell(word, output_word,
-                    output_char)
+                output_new, extra_loss = self.mix_cell(word, output_word, output_char)
                 output_new2 = output_char
                 output = torch.cat((output, output_new), 0)
                 output2 = torch.cat((output2, output_new2), 0)
@@ -2311,11 +2086,9 @@ class DeepPairWiseWord(nn.Module):
                         target_B.append(self.tokens.index('oov'))
                 lm_out0, _ = self.lm_lstm(input_A, (h0, c0))
                 lm_out1, _ = self.lm_lstm(input_B, (h0, c0))
-                extra_loss2 = self.language_model(lm_out0, lm_out1,
-                    target_A, target_B)
+                extra_loss2 = self.language_model(lm_out0, lm_out1, target_A, target_B)
         elif self.granularity == 'mix':
-            input_A, input_A2, input_B, input_B2, extra_loss1 = self.mix_layer(
-                input_A, input_B)
+            input_A, input_A2, input_B, input_B2, extra_loss1 = self.mix_layer(input_A, input_B)
             if self.lm_mode:
                 target_A = []
                 for word in raw_input_A:
@@ -2331,12 +2104,10 @@ class DeepPairWiseWord(nn.Module):
                         target_B.append(self.tokens.index('oov'))
                 lm_out0, _ = self.lm_lstm(input_A2, (h0, c0))
                 lm_out1, _ = self.lm_lstm(input_B2, (h0, c0))
-                extra_loss2 = self.language_model(lm_out0, lm_out1,
-                    target_A, target_B)
+                extra_loss2 = self.language_model(lm_out0, lm_out1, target_A, target_B)
         out0, (state0, _) = self.lstm(input_A, (h0, c0))
         out1, (state1, _) = self.lstm(input_B, (h0, c0))
-        simCube, _ = self.pairwise_word_interaction(out0, out1, target_A=
-            None, target_B=None)
+        simCube, _ = self.pairwise_word_interaction(out0, out1, target_A=None, target_B=None)
         focusCube = self.similarity_focus(simCube)
         if self.deep_CNN:
             output = self.deep_cnn(focusCube)
@@ -2348,24 +2119,18 @@ class DeepPairWiseWord(nn.Module):
 
 class StackBiLSTMMaxout(nn.Module):
 
-    def __init__(self, h_size, v_size=10, d=300, mlp_d=1600, dropout_r=0.1,
-        max_l=60, num_class=3):
+    def __init__(self, h_size, v_size=10, d=300, mlp_d=1600, dropout_r=0.1, max_l=60, num_class=3):
         super(StackBiLSTMMaxout, self).__init__()
         self.Embd = nn.Embedding(v_size, d)
-        self.lstm = nn.LSTM(input_size=d, hidden_size=h_size[0], num_layers
-            =1, bidirectional=True)
-        self.lstm_1 = nn.LSTM(input_size=d + h_size[0] * 2, hidden_size=
-            h_size[1], num_layers=1, bidirectional=True)
-        self.lstm_2 = nn.LSTM(input_size=d + (h_size[0] + h_size[1]) * 2,
-            hidden_size=h_size[2], num_layers=1, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=d, hidden_size=h_size[0], num_layers=1, bidirectional=True)
+        self.lstm_1 = nn.LSTM(input_size=d + h_size[0] * 2, hidden_size=h_size[1], num_layers=1, bidirectional=True)
+        self.lstm_2 = nn.LSTM(input_size=d + (h_size[0] + h_size[1]) * 2, hidden_size=h_size[2], num_layers=1, bidirectional=True)
         self.max_l = max_l
         self.h_size = h_size
         self.mlp_1 = nn.Linear(h_size[2] * 2 * 4, mlp_d)
         self.mlp_2 = nn.Linear(mlp_d, mlp_d)
         self.sm = nn.Linear(mlp_d, num_class)
-        self.classifier = nn.Sequential(*[self.mlp_1, nn.ReLU(), nn.Dropout
-            (dropout_r), self.mlp_2, nn.ReLU(), nn.Dropout(dropout_r), self.sm]
-            )
+        self.classifier = nn.Sequential(*[self.mlp_1, nn.ReLU(), nn.Dropout(dropout_r), self.mlp_2, nn.ReLU(), nn.Dropout(dropout_r), self.sm])
 
     def display(self):
         for param in self.parameters():
@@ -2389,21 +2154,15 @@ class StackBiLSTMMaxout(nn.Module):
         p_s2 = p_s2[:len2, :, :]
         s1_layer2_in = torch.cat([p_s1, s1_layer1_out], dim=2)
         s2_layer2_in = torch.cat([p_s2, s2_layer1_out], dim=2)
-        s1_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1,
-            s1_layer2_in, l1)
-        s2_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1,
-            s2_layer2_in, l2)
+        s1_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1, s1_layer2_in, l1)
+        s2_layer2_out = torch_util.auto_rnn_bilstm(self.lstm_1, s2_layer2_in, l2)
         s1_layer3_in = torch.cat([p_s1, s1_layer1_out, s1_layer2_out], dim=2)
         s2_layer3_in = torch.cat([p_s2, s2_layer1_out, s2_layer2_out], dim=2)
-        s1_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2,
-            s1_layer3_in, l1)
-        s2_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2,
-            s2_layer3_in, l2)
+        s1_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2, s1_layer3_in, l1)
+        s2_layer3_out = torch_util.auto_rnn_bilstm(self.lstm_2, s2_layer3_in, l2)
         s1_layer3_maxout = torch_util.max_along_time(s1_layer3_out, l1)
         s2_layer3_maxout = torch_util.max_along_time(s2_layer3_out, l2)
-        features = torch.cat([s1_layer3_maxout, s2_layer3_maxout, torch.abs
-            (s1_layer3_maxout - s2_layer3_maxout), s1_layer3_maxout *
-            s2_layer3_maxout], dim=1)
+        features = torch.cat([s1_layer3_maxout, s2_layer3_maxout, torch.abs(s1_layer3_maxout - s2_layer3_maxout), s1_layer3_maxout * s2_layer3_maxout], dim=1)
         out = self.classifier(features)
         return out
 
@@ -2412,17 +2171,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BinaryTreeCell,
+     lambda: ([], {'cuda': False, 'in_dim': 4, 'mem_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BinaryTreeComposer,
+     lambda: ([], {'cuda': False, 'in_dim': 4, 'mem_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BinaryTreeLeafModule,
+     lambda: ([], {'cuda': False, 'in_dim': 4, 'mem_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LSTM_Cell,
+     lambda: ([], {'cuda': False, 'in_dim': 4, 'mem_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_lanwuwei_SPM_toolkit(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BinaryTreeCell(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BinaryTreeComposer(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BinaryTreeLeafModule(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LSTM_Cell(*[], **{'cuda': False, 'in_dim': 4, 'mem_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

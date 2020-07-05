@@ -96,8 +96,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -181,8 +182,7 @@ class AbstractNetwork(object):
 
     @staticmethod
     @abc.abstractmethod
-    def closure(model, data_dict: dict, optimizers: dict, losses: dict,
-        iter_num: int, fold=0, **kwargs):
+    def closure(model, data_dict: dict, optimizers: dict, losses: dict, iter_num: int, fold=0, **kwargs):
         """
         Function which handles prediction from batch, logging, loss calculation
         and optimizer step
@@ -346,8 +346,7 @@ class AbstractPyTorchNetwork(AbstractNetwork, torch.nn.Module):
             correct device
 
         """
-        return_dict = {'data': torch.from_numpy(batch['data']).to(input_device)
-            }
+        return_dict = {'data': torch.from_numpy(batch['data']).to(input_device)}
         for key, vals in batch.items():
             if key == 'data':
                 continue
@@ -355,8 +354,7 @@ class AbstractPyTorchNetwork(AbstractNetwork, torch.nn.Module):
         return return_dict
 
     @staticmethod
-    def closure(model, data_dict: dict, optimizers: dict, losses: dict,
-        iter_num: int, fold=0, **kwargs):
+    def closure(model, data_dict: dict, optimizers: dict, losses: dict, iter_num: int, fold=0, **kwargs):
         """
         closure method to do a single backpropagation step
 
@@ -403,15 +401,13 @@ class AbstractPyTorchNetwork(AbstractNetwork, torch.nn.Module):
         return loss_vals, {k: v.detach() for k, v in preds.items()}
 
 
-class DataParallelPyTorchNetwork(AbstractPyTorchNetwork, torch.nn.DataParallel
-    ):
+class DataParallelPyTorchNetwork(AbstractPyTorchNetwork, torch.nn.DataParallel):
     """
     A Wrapper around a :class:`AbstractPyTorchNetwork` instance to
     implement parallel training by splitting the batches
     """
 
-    def __init__(self, module: AbstractPyTorchNetwork, device_ids=None,
-        output_device=None, dim=0):
+    def __init__(self, module: AbstractPyTorchNetwork, device_ids=None, output_device=None, dim=0):
         """
 
         Parameters
@@ -433,8 +429,7 @@ class DataParallelPyTorchNetwork(AbstractPyTorchNetwork, torch.nn.DataParallel
 
         """
         AbstractPyTorchNetwork.__init__(self)
-        torch.nn.DataParallel.__init__(self, module, device_ids,
-            output_device, dim)
+        torch.nn.DataParallel.__init__(self, module, device_ids, output_device, dim)
 
     def forward(self, *args, **kwargs):
         """
@@ -465,10 +460,3 @@ class DataParallelPyTorchNetwork(AbstractPyTorchNetwork, torch.nn.DataParallel
     def prepare_batch(self):
         return self.module.prepare_batch
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_delira_dev_delira(_paritybench_base):
-    pass

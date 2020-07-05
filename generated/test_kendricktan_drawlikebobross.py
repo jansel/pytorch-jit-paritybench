@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,16 +66,8 @@ class Encoder(nn.Module):
 
     def __init__(self, z_dim, h_dim=128, filter_num=64, channel_num=3):
         super(Encoder, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(channel_num, filter_num, 4, 2, 
-            1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(
-            filter_num, filter_num * 2, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(filter_num * 2), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(filter_num * 2, filter_num * 2, 8, 4, 1, bias=False),
-            nn.BatchNorm2d(filter_num * 2), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(filter_num * 2, filter_num, 8, 4, 1, bias=False), nn.
-            BatchNorm2d(filter_num), nn.LeakyReLU(0.2, inplace=True))
-        self.fc = nn.Sequential(nn.Linear(filter_num * 3 * 3, h_dim), nn.
-            ReLU(), nn.Linear(h_dim, z_dim))
+        self.conv = nn.Sequential(nn.Conv2d(channel_num, filter_num, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(filter_num, filter_num * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(filter_num * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(filter_num * 2, filter_num * 2, 8, 4, 1, bias=False), nn.BatchNorm2d(filter_num * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(filter_num * 2, filter_num, 8, 4, 1, bias=False), nn.BatchNorm2d(filter_num), nn.LeakyReLU(0.2, inplace=True))
+        self.fc = nn.Sequential(nn.Linear(filter_num * 3 * 3, h_dim), nn.ReLU(), nn.Linear(h_dim, z_dim))
         self.z_dim = z_dim
 
     def forward(self, x):
@@ -88,16 +81,7 @@ class Decoder(nn.Module):
 
     def __init__(self, z_dim, filter_num=64, channel_num=3):
         super(Decoder, self).__init__()
-        self.conv = nn.Sequential(nn.ConvTranspose2d(z_dim, filter_num * 8,
-            8, 1, 0, bias=False), nn.BatchNorm2d(filter_num * 8), nn.ReLU(
-            True), nn.ConvTranspose2d(filter_num * 8, filter_num * 4, 8, 4,
-            2, bias=False), nn.BatchNorm2d(filter_num * 4), nn.ReLU(True),
-            nn.ConvTranspose2d(filter_num * 4, filter_num * 2, 4, 2, 1,
-            bias=False), nn.BatchNorm2d(filter_num * 2), nn.ReLU(True), nn.
-            ConvTranspose2d(filter_num * 2, filter_num, 4, 2, 1, bias=False
-            ), nn.BatchNorm2d(filter_num), nn.ReLU(True), nn.
-            ConvTranspose2d(filter_num, channel_num, 4, 2, 1, bias=False),
-            nn.Sigmoid())
+        self.conv = nn.Sequential(nn.ConvTranspose2d(z_dim, filter_num * 8, 8, 1, 0, bias=False), nn.BatchNorm2d(filter_num * 8), nn.ReLU(True), nn.ConvTranspose2d(filter_num * 8, filter_num * 4, 8, 4, 2, bias=False), nn.BatchNorm2d(filter_num * 4), nn.ReLU(True), nn.ConvTranspose2d(filter_num * 4, filter_num * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(filter_num * 2), nn.ReLU(True), nn.ConvTranspose2d(filter_num * 2, filter_num, 4, 2, 1, bias=False), nn.BatchNorm2d(filter_num), nn.ReLU(True), nn.ConvTranspose2d(filter_num, channel_num, 4, 2, 1, bias=False), nn.Sigmoid())
         self.z_dim = z_dim
 
     def forward(self, x):
@@ -110,8 +94,7 @@ class Discriminator(nn.Module):
 
     def __init__(self, z_dim):
         super(Discriminator, self).__init__()
-        self.fc = nn.Sequential(nn.Linear(z_dim, z_dim), nn.ReLU(), nn.
-            Linear(z_dim, 1), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(z_dim, z_dim), nn.ReLU(), nn.Linear(z_dim, 1), nn.Sigmoid())
 
     def forward(self, x):
         x = self.fc(x)
@@ -141,11 +124,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {'z_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'z_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'z_dim': 4}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (Generator,
+     lambda: ([], {'z_dim': 4}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+]
+
 class Test_kendricktan_drawlikebobross(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Decoder(*[], **{'z_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Discriminator(*[], **{'z_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

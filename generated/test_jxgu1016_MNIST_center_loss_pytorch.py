@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,11 +65,9 @@ class CenterlossFunc(Function):
         ones = centers.new_ones(label.size(0))
         grad_centers = centers.new_zeros(centers.size())
         counts = counts.scatter_add_(0, label.long(), ones)
-        grad_centers.scatter_add_(0, label.unsqueeze(1).expand(feature.size
-            ()).long(), diff)
+        grad_centers.scatter_add_(0, label.unsqueeze(1).expand(feature.size()).long(), diff)
         grad_centers = grad_centers / counts.view(-1, 1)
-        return (-grad_output * diff / batch_size, None, grad_centers /
-            batch_size, None)
+        return -grad_output * diff / batch_size, None, grad_centers / batch_size, None
 
 
 class CenterLoss(nn.Module):
@@ -84,13 +83,9 @@ class CenterLoss(nn.Module):
         batch_size = feat.size(0)
         feat = feat.view(batch_size, -1)
         if feat.size(1) != self.feat_dim:
-            raise ValueError(
-                "Center's dim: {0} should be equal to input feature's                             dim: {1}"
-                .format(self.feat_dim, feat.size(1)))
-        batch_size_tensor = feat.new_empty(1).fill_(batch_size if self.
-            size_average else 1)
-        loss = self.centerlossfunc(feat, label, self.centers, batch_size_tensor
-            )
+            raise ValueError("Center's dim: {0} should be equal to input feature's                             dim: {1}".format(self.feat_dim, feat.size(1)))
+        batch_size_tensor = feat.new_empty(1).fill_(batch_size if self.size_average else 1)
+        loss = self.centerlossfunc(feat, label, self.centers, batch_size_tensor)
         return loss
 
 
@@ -134,5 +129,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 24, 24])], {}),
+     True),
+]
+
 class Test_jxgu1016_MNIST_center_loss_pytorch(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

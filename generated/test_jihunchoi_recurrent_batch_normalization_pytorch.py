@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,8 +60,7 @@ class SeparatedBatchNorm1d(nn.Module):
     and variance separately per timestep.
     """
 
-    def __init__(self, num_features, max_length, eps=1e-05, momentum=0.1,
-        affine=True):
+    def __init__(self, num_features, max_length, eps=1e-05, momentum=0.1, affine=True):
         """
         Most parts are copied from
         torch.nn.modules.batchnorm._BatchNorm.
@@ -78,10 +78,8 @@ class SeparatedBatchNorm1d(nn.Module):
             self.register_parameter('weight', None)
             self.register_parameter('bias', None)
         for i in range(max_length):
-            self.register_buffer('running_mean_{}'.format(i), torch.zeros(
-                num_features))
-            self.register_buffer('running_var_{}'.format(i), torch.ones(
-                num_features))
+            self.register_buffer('running_mean_{}'.format(i), torch.zeros(num_features))
+            self.register_buffer('running_var_{}'.format(i), torch.ones(num_features))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -96,8 +94,7 @@ class SeparatedBatchNorm1d(nn.Module):
 
     def _check_input_dim(self, input_):
         if input_.size(1) != self.running_mean_0.nelement():
-            raise ValueError('got {}-feature tensor, expected {}'.format(
-                input_.size(1), self.num_features))
+            raise ValueError('got {}-feature tensor, expected {}'.format(input_.size(1), self.num_features))
 
     def forward(self, input_, time):
         self._check_input_dim(input_)
@@ -105,15 +102,10 @@ class SeparatedBatchNorm1d(nn.Module):
             time = self.max_length - 1
         running_mean = getattr(self, 'running_mean_{}'.format(time))
         running_var = getattr(self, 'running_var_{}'.format(time))
-        return functional.batch_norm(input=input_, running_mean=
-            running_mean, running_var=running_var, weight=self.weight, bias
-            =self.bias, training=self.training, momentum=self.momentum, eps
-            =self.eps)
+        return functional.batch_norm(input=input_, running_mean=running_mean, running_var=running_var, weight=self.weight, bias=self.bias, training=self.training, momentum=self.momentum, eps=self.eps)
 
     def __repr__(self):
-        return (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, max_length={max_length}, affine={affine})'
-            .format(name=self.__class__.__name__, **self.__dict__))
+        return '{name}({num_features}, eps={eps}, momentum={momentum}, max_length={max_length}, affine={affine})'.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class LSTMCell(nn.Module):
@@ -127,10 +119,8 @@ class LSTMCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.use_bias = use_bias
-        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 *
-            hidden_size))
-        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 *
-            hidden_size))
+        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 * hidden_size))
+        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 * hidden_size))
         if use_bias:
             self.bias = nn.Parameter(torch.FloatTensor(4 * hidden_size))
         else:
@@ -162,8 +152,7 @@ class LSTMCell(nn.Module):
         """
         h_0, c_0 = hx
         batch_size = h_0.size(0)
-        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.
-            size())
+        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.size())
         wh_b = torch.addmm(bias_batch, h_0, self.weight_hh)
         wi = torch.mm(input_, self.weight_ih)
         f, i, o, g = torch.split(wh_b + wi, split_size=self.hidden_size, dim=1)
@@ -185,20 +174,15 @@ class BNLSTMCell(nn.Module):
         self.hidden_size = hidden_size
         self.max_length = max_length
         self.use_bias = use_bias
-        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 *
-            hidden_size))
-        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 *
-            hidden_size))
+        self.weight_ih = nn.Parameter(torch.FloatTensor(input_size, 4 * hidden_size))
+        self.weight_hh = nn.Parameter(torch.FloatTensor(hidden_size, 4 * hidden_size))
         if use_bias:
             self.bias = nn.Parameter(torch.FloatTensor(4 * hidden_size))
         else:
             self.register_parameter('bias', None)
-        self.bn_ih = SeparatedBatchNorm1d(num_features=4 * hidden_size,
-            max_length=max_length)
-        self.bn_hh = SeparatedBatchNorm1d(num_features=4 * hidden_size,
-            max_length=max_length)
-        self.bn_c = SeparatedBatchNorm1d(num_features=hidden_size,
-            max_length=max_length)
+        self.bn_ih = SeparatedBatchNorm1d(num_features=4 * hidden_size, max_length=max_length)
+        self.bn_hh = SeparatedBatchNorm1d(num_features=4 * hidden_size, max_length=max_length)
+        self.bn_c = SeparatedBatchNorm1d(num_features=hidden_size, max_length=max_length)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -235,14 +219,12 @@ class BNLSTMCell(nn.Module):
         """
         h_0, c_0 = hx
         batch_size = h_0.size(0)
-        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.
-            size())
+        bias_batch = self.bias.unsqueeze(0).expand(batch_size, *self.bias.size())
         wh = torch.mm(h_0, self.weight_hh)
         wi = torch.mm(input_, self.weight_ih)
         bn_wh = self.bn_hh(wh, time=time)
         bn_wi = self.bn_ih(wi, time=time)
-        f, i, o, g = torch.split(bn_wh + bn_wi + bias_batch, split_size=
-            self.hidden_size, dim=1)
+        f, i, o, g = torch.split(bn_wh + bn_wi + bias_batch, split_size=self.hidden_size, dim=1)
         c_1 = torch.sigmoid(f) * c_0 + torch.sigmoid(i) * torch.tanh(g)
         h_1 = torch.sigmoid(o) * torch.tanh(self.bn_c(c_1, time=time))
         return h_1, c_1
@@ -251,8 +233,7 @@ class BNLSTMCell(nn.Module):
 class LSTM(nn.Module):
     """A module that runs multiple steps of LSTM."""
 
-    def __init__(self, cell_class, input_size, hidden_size, num_layers=1,
-        use_bias=True, batch_first=False, dropout=0, **kwargs):
+    def __init__(self, cell_class, input_size, hidden_size, num_layers=1, use_bias=True, batch_first=False, dropout=0, **kwargs):
         super(LSTM, self).__init__()
         self.cell_class = cell_class
         self.input_size = input_size
@@ -263,8 +244,7 @@ class LSTM(nn.Module):
         self.dropout = dropout
         for layer in range(num_layers):
             layer_input_size = input_size if layer == 0 else hidden_size
-            cell = cell_class(input_size=layer_input_size, hidden_size=
-                hidden_size, **kwargs)
+            cell = cell_class(input_size=layer_input_size, hidden_size=hidden_size, **kwargs)
             setattr(self, 'cell_{}'.format(layer), cell)
         self.dropout_layer = nn.Dropout(dropout)
         self.reset_parameters()
@@ -305,10 +285,7 @@ class LSTM(nn.Module):
                 device = input_.get_device()
                 length = length
         if hx is None:
-            hx = Variable(nn.init.xavier_uniform(weight.new(self.num_layers,
-                batch_size, self.hidden_size))), Variable(nn.init.
-                xavier_uniform(weight.new(self.num_layers, batch_size, self
-                .hidden_size)))
+            hx = Variable(nn.init.xavier_uniform(weight.new(self.num_layers, batch_size, self.hidden_size))), Variable(nn.init.xavier_uniform(weight.new(self.num_layers, batch_size, self.hidden_size)))
         h_n = []
         c_n = []
         layer_output = None
@@ -316,11 +293,9 @@ class LSTM(nn.Module):
             cell = self.get_cell(layer)
             hx_layer = hx[0][(layer), :, :], hx[1][(layer), :, :]
             if layer == 0:
-                layer_output, (layer_h_n, layer_c_n) = LSTM._forward_rnn(cell
-                    =cell, input_=input_, length=length, hx=hx_layer)
+                layer_output, (layer_h_n, layer_c_n) = LSTM._forward_rnn(cell=cell, input_=input_, length=length, hx=hx_layer)
             else:
-                layer_output, (layer_h_n, layer_c_n) = LSTM._forward_rnn(cell
-                    =cell, input_=layer_output, length=length, hx=hx_layer)
+                layer_output, (layer_h_n, layer_c_n) = LSTM._forward_rnn(cell=cell, input_=layer_output, length=length, hx=hx_layer)
             input_ = self.dropout_layer(layer_output)
             h_n.append(layer_h_n)
             c_n.append(layer_c_n)
@@ -329,10 +304,3 @@ class LSTM(nn.Module):
         c_n = torch.stack(c_n, 0)
         return output, (h_n, c_n)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jihunchoi_recurrent_batch_normalization_pytorch(_paritybench_base):
-    pass

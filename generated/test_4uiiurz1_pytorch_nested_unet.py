@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,21 +80,16 @@ class UNet(nn.Module):
         super().__init__()
         nb_filter = [32, 64, 128, 256, 512]
         self.pool = nn.MaxPool2d(2, 2)
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=True)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv0_0 = VGGBlock(input_channels, nb_filter[0], nb_filter[0])
         self.conv1_0 = VGGBlock(nb_filter[0], nb_filter[1], nb_filter[1])
         self.conv2_0 = VGGBlock(nb_filter[1], nb_filter[2], nb_filter[2])
         self.conv3_0 = VGGBlock(nb_filter[2], nb_filter[3], nb_filter[3])
         self.conv4_0 = VGGBlock(nb_filter[3], nb_filter[4], nb_filter[4])
-        self.conv3_1 = VGGBlock(nb_filter[3] + nb_filter[4], nb_filter[3],
-            nb_filter[3])
-        self.conv2_2 = VGGBlock(nb_filter[2] + nb_filter[3], nb_filter[2],
-            nb_filter[2])
-        self.conv1_3 = VGGBlock(nb_filter[1] + nb_filter[2], nb_filter[1],
-            nb_filter[1])
-        self.conv0_4 = VGGBlock(nb_filter[0] + nb_filter[1], nb_filter[0],
-            nb_filter[0])
+        self.conv3_1 = VGGBlock(nb_filter[3] + nb_filter[4], nb_filter[3], nb_filter[3])
+        self.conv2_2 = VGGBlock(nb_filter[2] + nb_filter[3], nb_filter[2], nb_filter[2])
+        self.conv1_3 = VGGBlock(nb_filter[1] + nb_filter[2], nb_filter[1], nb_filter[1])
+        self.conv0_4 = VGGBlock(nb_filter[0] + nb_filter[1], nb_filter[0], nb_filter[0])
         self.final = nn.Conv2d(nb_filter[0], num_classes, kernel_size=1)
 
     def forward(self, input):
@@ -112,39 +108,27 @@ class UNet(nn.Module):
 
 class NestedUNet(nn.Module):
 
-    def __init__(self, num_classes, input_channels=3, deep_supervision=
-        False, **kwargs):
+    def __init__(self, num_classes, input_channels=3, deep_supervision=False, **kwargs):
         super().__init__()
         nb_filter = [32, 64, 128, 256, 512]
         self.deep_supervision = deep_supervision
         self.pool = nn.MaxPool2d(2, 2)
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=True)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv0_0 = VGGBlock(input_channels, nb_filter[0], nb_filter[0])
         self.conv1_0 = VGGBlock(nb_filter[0], nb_filter[1], nb_filter[1])
         self.conv2_0 = VGGBlock(nb_filter[1], nb_filter[2], nb_filter[2])
         self.conv3_0 = VGGBlock(nb_filter[2], nb_filter[3], nb_filter[3])
         self.conv4_0 = VGGBlock(nb_filter[3], nb_filter[4], nb_filter[4])
-        self.conv0_1 = VGGBlock(nb_filter[0] + nb_filter[1], nb_filter[0],
-            nb_filter[0])
-        self.conv1_1 = VGGBlock(nb_filter[1] + nb_filter[2], nb_filter[1],
-            nb_filter[1])
-        self.conv2_1 = VGGBlock(nb_filter[2] + nb_filter[3], nb_filter[2],
-            nb_filter[2])
-        self.conv3_1 = VGGBlock(nb_filter[3] + nb_filter[4], nb_filter[3],
-            nb_filter[3])
-        self.conv0_2 = VGGBlock(nb_filter[0] * 2 + nb_filter[1], nb_filter[
-            0], nb_filter[0])
-        self.conv1_2 = VGGBlock(nb_filter[1] * 2 + nb_filter[2], nb_filter[
-            1], nb_filter[1])
-        self.conv2_2 = VGGBlock(nb_filter[2] * 2 + nb_filter[3], nb_filter[
-            2], nb_filter[2])
-        self.conv0_3 = VGGBlock(nb_filter[0] * 3 + nb_filter[1], nb_filter[
-            0], nb_filter[0])
-        self.conv1_3 = VGGBlock(nb_filter[1] * 3 + nb_filter[2], nb_filter[
-            1], nb_filter[1])
-        self.conv0_4 = VGGBlock(nb_filter[0] * 4 + nb_filter[1], nb_filter[
-            0], nb_filter[0])
+        self.conv0_1 = VGGBlock(nb_filter[0] + nb_filter[1], nb_filter[0], nb_filter[0])
+        self.conv1_1 = VGGBlock(nb_filter[1] + nb_filter[2], nb_filter[1], nb_filter[1])
+        self.conv2_1 = VGGBlock(nb_filter[2] + nb_filter[3], nb_filter[2], nb_filter[2])
+        self.conv3_1 = VGGBlock(nb_filter[3] + nb_filter[4], nb_filter[3], nb_filter[3])
+        self.conv0_2 = VGGBlock(nb_filter[0] * 2 + nb_filter[1], nb_filter[0], nb_filter[0])
+        self.conv1_2 = VGGBlock(nb_filter[1] * 2 + nb_filter[2], nb_filter[1], nb_filter[1])
+        self.conv2_2 = VGGBlock(nb_filter[2] * 2 + nb_filter[3], nb_filter[2], nb_filter[2])
+        self.conv0_3 = VGGBlock(nb_filter[0] * 3 + nb_filter[1], nb_filter[0], nb_filter[0])
+        self.conv1_3 = VGGBlock(nb_filter[1] * 3 + nb_filter[2], nb_filter[1], nb_filter[1])
+        self.conv0_4 = VGGBlock(nb_filter[0] * 4 + nb_filter[1], nb_filter[0], nb_filter[0])
         if self.deep_supervision:
             self.final1 = nn.Conv2d(nb_filter[0], num_classes, kernel_size=1)
             self.final2 = nn.Conv2d(nb_filter[0], num_classes, kernel_size=1)
@@ -168,8 +152,7 @@ class NestedUNet(nn.Module):
         x3_1 = self.conv3_1(torch.cat([x3_0, self.up(x4_0)], 1))
         x2_2 = self.conv2_2(torch.cat([x2_0, x2_1, self.up(x3_1)], 1))
         x1_3 = self.conv1_3(torch.cat([x1_0, x1_1, x1_2, self.up(x2_2)], 1))
-        x0_4 = self.conv0_4(torch.cat([x0_0, x0_1, x0_2, x0_3, self.up(x1_3
-            )], 1))
+        x0_4 = self.conv0_4(torch.cat([x0_0, x0_1, x0_2, x0_3, self.up(x1_3)], 1))
         if self.deep_supervision:
             output1 = self.final1(x0_1)
             output2 = self.final2(x0_2)
@@ -194,8 +177,7 @@ class BCEDiceLoss(nn.Module):
         input = input.view(num, -1)
         target = target.view(num, -1)
         intersection = input * target
-        dice = (2.0 * intersection.sum(1) + smooth) / (input.sum(1) +
-            target.sum(1) + smooth)
+        dice = (2.0 * intersection.sum(1) + smooth) / (input.sum(1) + target.sum(1) + smooth)
         dice = 1 - dice.sum() / num
         return 0.5 * bce + dice
 
@@ -216,18 +198,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_4uiiurz1_pytorch_nested_unet(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BCEDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BCEDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NestedUNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (VGGBlock,
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_4uiiurz1_pytorch_nested_unet(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(NestedUNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(VGGBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

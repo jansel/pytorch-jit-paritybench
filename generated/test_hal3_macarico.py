@@ -57,8 +57,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -121,21 +122,12 @@ class TypeMemory(nn.Module):
         self.param = Parameter(torch.zeros(1))
 
 
-def check_intentional_override(class_name, fn_name, override_bool_name, obj,
-    *fn_args):
+def check_intentional_override(class_name, fn_name, override_bool_name, obj, *fn_args):
     if not getattr(obj, override_bool_name):
         try:
             getattr(obj, fn_name)(*fn_args)
         except NotImplementedError:
-            print(
-                """*** warning: %s %s
-*** does not seem to have an implemented '%s'
-*** perhaps you overrode %s by accident?
-*** if not, suppress this warning by setting
-*** %s=True
-"""
-                 % (class_name, type(obj), fn_name, fn_name[1:],
-                override_bool_name), file=sys.stderr)
+            print("*** warning: %s %s\n*** does not seem to have an implemented '%s'\n*** perhaps you overrode %s by accident?\n*** if not, suppress this warning by setting\n*** %s=True\n" % (class_name, type(obj), fn_name, fn_name[1:], override_bool_name), file=sys.stderr)
         except:
             pass
 
@@ -159,16 +151,13 @@ class DynamicFeatures(nn.Module):
         self._my_id = '%s #%d' % (type(self), id(self))
         self._recompute_always = True
         self._typememory = TypeMemory()
-        check_intentional_override('DynamicFeatures', '_forward',
-            'OVERRIDE_FORWARD', self, None)
+        check_intentional_override('DynamicFeatures', '_forward', 'OVERRIDE_FORWARD', self, None)
 
     def _forward(self, env):
         raise NotImplementedError('abstract')
 
     def forward(self, env):
-        if self._batched_features is not None and hasattr(env,
-            '_stored_batch_features'
-            ) and self._my_id in env._stored_batch_features:
+        if self._batched_features is not None and hasattr(env, '_stored_batch_features') and self._my_id in env._stored_batch_features:
             i = env._stored_batch_features[self._my_id]
             assert 0 <= i and i < self._batched_features.shape[0]
             assert self._batched_lengths[i] <= self._batched_features.shape[1]
@@ -203,8 +192,7 @@ class DynamicFeatures(nn.Module):
                 assert x.shape[0] == 1
                 assert x.shape[2] == self.dim
             max_len = max(x.shape[1] for x in bf)
-            self._batched_features = Var(self._typememory.param.data.new(
-                len(envs), max_len, self.dim).zero_())
+            self._batched_features = Var(self._typememory.param.data.new(len(envs), max_len, self.dim).zero_())
             self._batched_lengths = []
             for i, x in enumerate(bf):
                 self._batched_features[(i), :x.shape[1], :] = x
@@ -234,8 +222,7 @@ class Actor(nn.Module):
             if att.actor_dependent:
                 att.set_actor(self)
         self._typememory = TypeMemory()
-        check_intentional_override('Actor', '_forward', 'OVERRIDE_FORWARD',
-            self, None)
+        check_intentional_override('Actor', '_forward', 'OVERRIDE_FORWARD', self, None)
 
     def reset(self):
         self._last_t = 0
@@ -346,8 +333,7 @@ class Attention(nn.Module):
         nn.Module.__init__(self)
         self.features = features
         self.dim = (self.arity or 1) * self.features.dim
-        check_intentional_override('Attention', '_forward',
-            'OVERRIDE_FORWARD', self, None)
+        check_intentional_override('Attention', '_forward', 'OVERRIDE_FORWARD', self, None)
 
     def forward(self, state):
         fts = self._forward(state)
@@ -381,9 +367,7 @@ class Torch(nn.Module):
         nn.Module.__init__(self)
         self.features = features
         self.dim = dim
-        self.torch_layers = layers if isinstance(layers, nn.ModuleList
-            ) else nn.ModuleList(layers) if isinstance(layers, list
-            ) else nn.ModuleList([layers])
+        self.torch_layers = layers if isinstance(layers, nn.ModuleList) else nn.ModuleList(layers) if isinstance(layers, list) else nn.ModuleList([layers])
 
     def forward(self, x):
         x = self.features(x)
@@ -490,8 +474,7 @@ def bootstrap_probabilities(n_actions, policy_bag, state, deviate_to):
 
 
 def build_policy_bag(features_bag, n_actions, loss_fn, n_layers, hidden_dim):
-    return [LinearPolicy(features, n_actions, loss_fn=loss_fn, n_layers=
-        n_layers, hidden_dim=hidden_dim) for features in features_bag]
+    return [LinearPolicy(features, n_actions, loss_fn=loss_fn, n_layers=n_layers, hidden_dim=hidden_dim) for features in features_bag]
 
 
 def delegate_with_poisson(params, functions, greedy_update):
@@ -511,8 +494,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Torch,
+     lambda: ([], {'features': _mock_layer(), 'dim': 4, 'layers': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_hal3_macarico(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Torch(*[], **{'features': _mock_layer(), 'dim': 4, 'layers': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

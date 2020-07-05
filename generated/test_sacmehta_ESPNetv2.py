@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -110,13 +111,10 @@ class EESP(nn.Module):
         self.stride = stride
         n = int(nOut / k)
         n1 = nOut - (k - 1) * n
-        assert down_method in ['avg', 'esp'
-            ], 'One of these is suppported (avg or esp)'
-        assert n == n1, 'n(={}) and n1(={}) should be equal for Depth-wise Convolution '.format(
-            n, n1)
+        assert down_method in ['avg', 'esp'], 'One of these is suppported (avg or esp)'
+        assert n == n1, 'n(={}) and n1(={}) should be equal for Depth-wise Convolution '.format(n, n1)
         self.proj_1x1 = CBR(nIn, n, 1, stride=1, groups=k)
-        map_receptive_ksize = {(3): 1, (5): 2, (7): 3, (9): 4, (11): 5, (13
-            ): 6, (15): 7, (17): 8}
+        map_receptive_ksize = {(3): 1, (5): 2, (7): 3, (9): 4, (11): 5, (13): 6, (15): 7, (17): 8}
         self.k_sizes = list()
         for i in range(k):
             ksize = int(3 + 2 * i)
@@ -126,8 +124,7 @@ class EESP(nn.Module):
         self.spp_dw = nn.ModuleList()
         for i in range(k):
             d_rate = map_receptive_ksize[self.k_sizes[i]]
-            self.spp_dw.append(CDilated(n, n, kSize=3, stride=stride,
-                groups=n, d=d_rate))
+            self.spp_dw.append(CDilated(n, n, kSize=3, stride=stride, groups=n, d=d_rate))
         self.conv_1x1_exp = CB(nOut, nOut, 1, 1, groups=k)
         self.br_after_cat = BR(nOut)
         self.module_act = nn.PReLU(nOut)
@@ -171,12 +168,10 @@ class DownSampler(nn.Module):
         """
         super().__init__()
         nout_new = nout - nin
-        self.eesp = EESP(nin, nout_new, stride=2, k=k, r_lim=r_lim,
-            down_method='avg')
+        self.eesp = EESP(nin, nout_new, stride=2, k=k, r_lim=r_lim, down_method='avg')
         self.avg = nn.AvgPool2d(kernel_size=3, padding=1, stride=2)
         if reinf:
-            self.inp_reinf = nn.Sequential(CBR(config_inp_reinf,
-                config_inp_reinf, 3, 1), CB(config_inp_reinf, nout, 1, 1))
+            self.inp_reinf = nn.Sequential(CBR(config_inp_reinf, config_inp_reinf, 3, 1), CB(config_inp_reinf, nout, 1, 1))
         self.act = nn.PReLU(nout)
 
     def forward(self, input, input2=None):
@@ -190,8 +185,7 @@ class DownSampler(nn.Module):
         if input2 is not None:
             w1 = avg_out.size(2)
             while True:
-                input2 = F.avg_pool2d(input2, kernel_size=3, padding=1,
-                    stride=2)
+                input2 = F.avg_pool2d(input2, kernel_size=3, padding=1, stride=2)
                 w2 = input2.size(2)
                 if w2 == w1:
                     break
@@ -234,29 +228,21 @@ class EESPNet(nn.Module):
         global config_inp_reinf
         config_inp_reinf = 3
         self.input_reinforcement = True
-        assert len(K) == len(r_lim
-            ), 'Length of branching factor array and receptive field array should be the same.'
+        assert len(K) == len(r_lim), 'Length of branching factor array and receptive field array should be the same.'
         self.level1 = CBR(channels, config[0], 3, 2)
-        self.level2_0 = DownSampler(config[0], config[1], k=K[0], r_lim=
-            r_lim[0], reinf=self.input_reinforcement)
-        self.level3_0 = DownSampler(config[1], config[2], k=K[1], r_lim=
-            r_lim[1], reinf=self.input_reinforcement)
+        self.level2_0 = DownSampler(config[0], config[1], k=K[0], r_lim=r_lim[0], reinf=self.input_reinforcement)
+        self.level3_0 = DownSampler(config[1], config[2], k=K[1], r_lim=r_lim[1], reinf=self.input_reinforcement)
         self.level3 = nn.ModuleList()
         for i in range(reps[1]):
-            self.level3.append(EESP(config[2], config[2], stride=1, k=K[2],
-                r_lim=r_lim[2]))
-        self.level4_0 = DownSampler(config[2], config[3], k=K[2], r_lim=
-            r_lim[2], reinf=self.input_reinforcement)
+            self.level3.append(EESP(config[2], config[2], stride=1, k=K[2], r_lim=r_lim[2]))
+        self.level4_0 = DownSampler(config[2], config[3], k=K[2], r_lim=r_lim[2], reinf=self.input_reinforcement)
         self.level4 = nn.ModuleList()
         for i in range(reps[2]):
-            self.level4.append(EESP(config[3], config[3], stride=1, k=K[3],
-                r_lim=r_lim[3]))
-        self.level5_0 = DownSampler(config[3], config[4], k=K[3], r_lim=
-            r_lim[3])
+            self.level4.append(EESP(config[3], config[3], stride=1, k=K[3], r_lim=r_lim[3]))
+        self.level5_0 = DownSampler(config[3], config[4], k=K[3], r_lim=r_lim[3])
         self.level5 = nn.ModuleList()
         for i in range(reps[3]):
-            self.level5.append(EESP(config[4], config[4], stride=1, k=K[4],
-                r_lim=r_lim[4]))
+            self.level5.append(EESP(config[4], config[4], stride=1, k=K[4], r_lim=r_lim[4]))
         self.level5.append(CBR(config[4], config[4], 3, 1, groups=config[4]))
         self.level5.append(CBR(config[4], config[5], 1, 1, groups=K[4]))
         self.classifier = nn.Linear(config[5], classes)
@@ -328,8 +314,7 @@ class CBR(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
         self.bn = nn.BatchNorm2d(nOut)
         self.act = nn.PReLU(nOut)
 
@@ -381,8 +366,7 @@ class CB(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
         self.bn = nn.BatchNorm2d(nOut)
 
     def forward(self, input):
@@ -411,8 +395,7 @@ class C(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
 
     def forward(self, input):
         """
@@ -438,8 +421,7 @@ class CDilated(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, dilation=d, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, dilation=d, groups=groups)
 
     def forward(self, input):
         """
@@ -465,8 +447,7 @@ class CDilatedB(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, dilation=d, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, dilation=d, groups=groups)
         self.bn = nn.BatchNorm2d(nOut)
 
     def forward(self, input):
@@ -496,13 +477,10 @@ class EESP(nn.Module):
         self.stride = stride
         n = int(nOut / k)
         n1 = nOut - (k - 1) * n
-        assert down_method in ['avg', 'esp'
-            ], 'One of these is suppported (avg or esp)'
-        assert n == n1, 'n(={}) and n1(={}) should be equal for Depth-wise Convolution '.format(
-            n, n1)
+        assert down_method in ['avg', 'esp'], 'One of these is suppported (avg or esp)'
+        assert n == n1, 'n(={}) and n1(={}) should be equal for Depth-wise Convolution '.format(n, n1)
         self.proj_1x1 = CBR(nIn, n, 1, stride=1, groups=k)
-        map_receptive_ksize = {(3): 1, (5): 2, (7): 3, (9): 4, (11): 5, (13
-            ): 6, (15): 7, (17): 8}
+        map_receptive_ksize = {(3): 1, (5): 2, (7): 3, (9): 4, (11): 5, (13): 6, (15): 7, (17): 8}
         self.k_sizes = list()
         for i in range(k):
             ksize = int(3 + 2 * i)
@@ -512,8 +490,7 @@ class EESP(nn.Module):
         self.spp_dw = nn.ModuleList()
         for i in range(k):
             d_rate = map_receptive_ksize[self.k_sizes[i]]
-            self.spp_dw.append(CDilated(n, n, kSize=3, stride=stride,
-                groups=n, d=d_rate))
+            self.spp_dw.append(CDilated(n, n, kSize=3, stride=stride, groups=n, d=d_rate))
         self.conv_1x1_exp = CB(nOut, nOut, 1, 1, groups=k)
         self.br_after_cat = BR(nOut)
         self.module_act = nn.PReLU(nOut)
@@ -557,12 +534,10 @@ class DownSampler(nn.Module):
         """
         super().__init__()
         nout_new = nout - nin
-        self.eesp = EESP(nin, nout_new, stride=2, k=k, r_lim=r_lim,
-            down_method='avg')
+        self.eesp = EESP(nin, nout_new, stride=2, k=k, r_lim=r_lim, down_method='avg')
         self.avg = nn.AvgPool2d(kernel_size=3, padding=1, stride=2)
         if reinf:
-            self.inp_reinf = nn.Sequential(CBR(config_inp_reinf,
-                config_inp_reinf, 3, 1), CB(config_inp_reinf, nout, 1, 1))
+            self.inp_reinf = nn.Sequential(CBR(config_inp_reinf, config_inp_reinf, 3, 1), CB(config_inp_reinf, nout, 1, 1))
         self.act = nn.PReLU(nout)
 
     def forward(self, input, input2=None):
@@ -576,8 +551,7 @@ class DownSampler(nn.Module):
         if input2 is not None:
             w1 = avg_out.size(2)
             while True:
-                input2 = F.avg_pool2d(input2, kernel_size=3, padding=1,
-                    stride=2)
+                input2 = F.avg_pool2d(input2, kernel_size=3, padding=1, stride=2)
                 w2 = input2.size(2)
                 if w2 == w1:
                     break
@@ -620,29 +594,21 @@ class EESPNet(nn.Module):
         global config_inp_reinf
         config_inp_reinf = 3
         self.input_reinforcement = True
-        assert len(K) == len(r_lim
-            ), 'Length of branching factor array and receptive field array should be the same.'
+        assert len(K) == len(r_lim), 'Length of branching factor array and receptive field array should be the same.'
         self.level1 = CBR(channels, config[0], 3, 2)
-        self.level2_0 = DownSampler(config[0], config[1], k=K[0], r_lim=
-            r_lim[0], reinf=self.input_reinforcement)
-        self.level3_0 = DownSampler(config[1], config[2], k=K[1], r_lim=
-            r_lim[1], reinf=self.input_reinforcement)
+        self.level2_0 = DownSampler(config[0], config[1], k=K[0], r_lim=r_lim[0], reinf=self.input_reinforcement)
+        self.level3_0 = DownSampler(config[1], config[2], k=K[1], r_lim=r_lim[1], reinf=self.input_reinforcement)
         self.level3 = nn.ModuleList()
         for i in range(reps[1]):
-            self.level3.append(EESP(config[2], config[2], stride=1, k=K[2],
-                r_lim=r_lim[2]))
-        self.level4_0 = DownSampler(config[2], config[3], k=K[2], r_lim=
-            r_lim[2], reinf=self.input_reinforcement)
+            self.level3.append(EESP(config[2], config[2], stride=1, k=K[2], r_lim=r_lim[2]))
+        self.level4_0 = DownSampler(config[2], config[3], k=K[2], r_lim=r_lim[2], reinf=self.input_reinforcement)
         self.level4 = nn.ModuleList()
         for i in range(reps[2]):
-            self.level4.append(EESP(config[3], config[3], stride=1, k=K[3],
-                r_lim=r_lim[3]))
-        self.level5_0 = DownSampler(config[3], config[4], k=K[3], r_lim=
-            r_lim[3])
+            self.level4.append(EESP(config[3], config[3], stride=1, k=K[3], r_lim=r_lim[3]))
+        self.level5_0 = DownSampler(config[3], config[4], k=K[3], r_lim=r_lim[3])
         self.level5 = nn.ModuleList()
         for i in range(reps[3]):
-            self.level5.append(EESP(config[4], config[4], stride=1, k=K[4],
-                r_lim=r_lim[4]))
+            self.level5.append(EESP(config[4], config[4], stride=1, k=K[4], r_lim=r_lim[4]))
         self.level5.append(CBR(config[4], config[4], 3, 1, groups=config[4]))
         self.level5.append(CBR(config[4], config[5], 1, 1, groups=K[4]))
         self.classifier = nn.Linear(config[5], classes)
@@ -722,46 +688,34 @@ class EESPNet_Seg(nn.Module):
             p = 0.1
         else:
             p = 0.2
-        self.proj_L4_C = CBR(self.net.level4[-1].module_act.num_parameters,
-            self.net.level3[-1].module_act.num_parameters, 1, 1)
+        self.proj_L4_C = CBR(self.net.level4[-1].module_act.num_parameters, self.net.level3[-1].module_act.num_parameters, 1, 1)
         pspSize = 2 * self.net.level3[-1].module_act.num_parameters
-        self.pspMod = nn.Sequential(EESP(pspSize, pspSize // 2, stride=1, k
-            =4, r_lim=7), PSPModule(pspSize // 2, pspSize // 2))
-        self.project_l3 = nn.Sequential(nn.Dropout2d(p=p), C(pspSize // 2,
-            classes, 1, 1))
+        self.pspMod = nn.Sequential(EESP(pspSize, pspSize // 2, stride=1, k=4, r_lim=7), PSPModule(pspSize // 2, pspSize // 2))
+        self.project_l3 = nn.Sequential(nn.Dropout2d(p=p), C(pspSize // 2, classes, 1, 1))
         self.act_l3 = BR(classes)
-        self.project_l2 = CBR(self.net.level2_0.act.num_parameters +
-            classes, classes, 1, 1)
-        self.project_l1 = nn.Sequential(nn.Dropout2d(p=p), C(self.net.
-            level1.act.num_parameters + classes, classes, 1, 1))
+        self.project_l2 = CBR(self.net.level2_0.act.num_parameters + classes, classes, 1, 1)
+        self.project_l1 = nn.Sequential(nn.Dropout2d(p=p), C(self.net.level1.act.num_parameters + classes, classes, 1, 1))
 
     def hierarchicalUpsample(self, x, factor=3):
         for i in range(factor):
-            x = F.interpolate(x, scale_factor=2, mode='bilinear',
-                align_corners=True)
+            x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
         return x
 
     def forward(self, input):
         out_l1, out_l2, out_l3, out_l4 = self.net(input, seg=True)
         out_l4_proj = self.proj_L4_C(out_l4)
-        up_l4_to_l3 = F.interpolate(out_l4_proj, scale_factor=2, mode=
-            'bilinear', align_corners=True)
+        up_l4_to_l3 = F.interpolate(out_l4_proj, scale_factor=2, mode='bilinear', align_corners=True)
         merged_l3_upl4 = self.pspMod(torch.cat([out_l3, up_l4_to_l3], 1))
         proj_merge_l3_bef_act = self.project_l3(merged_l3_upl4)
         proj_merge_l3 = self.act_l3(proj_merge_l3_bef_act)
-        out_up_l3 = F.interpolate(proj_merge_l3, scale_factor=2, mode=
-            'bilinear', align_corners=True)
+        out_up_l3 = F.interpolate(proj_merge_l3, scale_factor=2, mode='bilinear', align_corners=True)
         merge_l2 = self.project_l2(torch.cat([out_l2, out_up_l3], 1))
-        out_up_l2 = F.interpolate(merge_l2, scale_factor=2, mode='bilinear',
-            align_corners=True)
+        out_up_l2 = F.interpolate(merge_l2, scale_factor=2, mode='bilinear', align_corners=True)
         merge_l1 = self.project_l1(torch.cat([out_l1, out_up_l2], 1))
         if self.training:
-            return F.interpolate(merge_l1, scale_factor=2, mode='bilinear',
-                align_corners=True), self.hierarchicalUpsample(
-                proj_merge_l3_bef_act)
+            return F.interpolate(merge_l1, scale_factor=2, mode='bilinear', align_corners=True), self.hierarchicalUpsample(proj_merge_l3_bef_act)
         else:
-            return F.interpolate(merge_l1, scale_factor=2, mode='bilinear',
-                align_corners=True)
+            return F.interpolate(merge_l1, scale_factor=2, mode='bilinear', align_corners=True)
 
 
 class PSPModule(nn.Module):
@@ -769,8 +723,7 @@ class PSPModule(nn.Module):
     def __init__(self, features, out_features=1024, sizes=(1, 2, 4, 8)):
         super().__init__()
         self.stages = []
-        self.stages = nn.ModuleList([C(features, features, 3, 1, groups=
-            features) for size in sizes])
+        self.stages = nn.ModuleList([C(features, features, 3, 1, groups=features) for size in sizes])
         self.project = CBR(features * (len(sizes) + 1), out_features, 1, 1)
 
     def forward(self, feats):
@@ -778,8 +731,7 @@ class PSPModule(nn.Module):
         out = [feats]
         for stage in self.stages:
             feats = F.avg_pool2d(feats, kernel_size=3, stride=2, padding=1)
-            upsampled = F.interpolate(input=stage(feats), size=(h, w), mode
-                ='bilinear', align_corners=True)
+            upsampled = F.interpolate(input=stage(feats), size=(h, w), mode='bilinear', align_corners=True)
             out.append(upsampled)
         return self.project(torch.cat(out, dim=1))
 
@@ -799,8 +751,7 @@ class CBR(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
         self.bn = nn.BatchNorm2d(nOut)
         self.act = nn.PReLU(nOut)
 
@@ -852,8 +803,7 @@ class CB(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
         self.bn = nn.BatchNorm2d(nOut)
 
     def forward(self, input):
@@ -882,8 +832,7 @@ class C(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
 
     def forward(self, input):
         """
@@ -909,8 +858,7 @@ class CDilated(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, dilation=d, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, dilation=d, groups=groups)
 
     def forward(self, input):
         """
@@ -936,8 +884,7 @@ class CDilatedB(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=
-            padding, bias=False, dilation=d, groups=groups)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, dilation=d, groups=groups)
         self.bn = nn.BatchNorm2d(nOut)
 
     def forward(self, input):
@@ -952,38 +899,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BR,
+     lambda: ([], {'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (C,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CB,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CBR,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CDilated,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CDilatedB,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EESP,
+     lambda: ([], {'nIn': 64, 'nOut': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (EESPNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (EESPNet_Seg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (PSPModule,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_sacmehta_ESPNetv2(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BR(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(C(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(CDilated(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(CDilatedB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(EESP(*[], **{'nIn': 64, 'nOut': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(EESPNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(EESPNet_Seg(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PSPModule(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

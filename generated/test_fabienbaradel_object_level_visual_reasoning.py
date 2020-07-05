@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -106,8 +107,7 @@ class BasicBlock(nn.Module):
     expansion = 1
     only_2D = False
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm3d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -136,8 +136,7 @@ class Bottleneck(nn.Module):
     expansion = 4
     only_2D = False
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm3d(planes)
@@ -170,14 +169,12 @@ class Bottleneck(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, dilation=dilation)
 
 
 class BasicBlock2D(BasicBlock):
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=1, **kwargs):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, **kwargs):
         super().__init__(inplanes, planes, stride, downsample, dilation)
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
@@ -188,22 +185,19 @@ class BasicBlock2D(BasicBlock):
 
 class Bottleneck2D(Bottleneck):
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=1, **kwargs):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, **kwargs):
         super().__init__(inplanes, planes, stride, downsample, dilation)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=
-            False, dilation=dilation)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False, dilation=dilation)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.input_dim = 4
         if isinstance(stride, int):
             stride_1, stride_2 = stride, stride
         else:
             stride_1, stride_2 = stride[0], stride[1]
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=(3, 3), stride=(
-            stride_1, stride_2), padding=(1, 1), bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=(3, 3), stride=(stride_1, stride_2), padding=(1, 1), bias=False)
 
 
 K_1st_CONV = 3
@@ -225,10 +219,7 @@ def transform_input(x, dim, T=8):
 
 class ResNet(nn.Module):
 
-    def __init__(self, blocks, layers, num_classes=1000, str_first_conv=
-        '2D', num_final_fm=4, two_heads=False, size_fm_2nd_head=7,
-        blocks_2nd_head=None, pooling='avg', nb_temporal_conv=1,
-        list_stride=[1, 2, 2, 2], **kwargs):
+    def __init__(self, blocks, layers, num_classes=1000, str_first_conv='2D', num_final_fm=4, two_heads=False, size_fm_2nd_head=7, blocks_2nd_head=None, pooling='avg', nb_temporal_conv=1, list_stride=[1, 2, 2, 2], **kwargs):
         self.nb_temporal_conv = nb_temporal_conv
         self.size_fm_2nd_head = size_fm_2nd_head
         self.two_heads = two_heads
@@ -242,17 +233,13 @@ class ResNet(nn.Module):
         self.list_channels = [64, 128, 256, 512]
         self.list_inplanes = []
         self.list_inplanes.append(self.inplanes)
-        self.layer1 = self._make_layer(blocks[0], self.list_channels[0],
-            layers[0], stride=list_stride[0])
+        self.layer1 = self._make_layer(blocks[0], self.list_channels[0], layers[0], stride=list_stride[0])
         self.list_inplanes.append(self.inplanes)
-        self.layer2 = self._make_layer(blocks[1], self.list_channels[1],
-            layers[1], stride=list_stride[1])
+        self.layer2 = self._make_layer(blocks[1], self.list_channels[1], layers[1], stride=list_stride[1])
         self.list_inplanes.append(self.inplanes)
-        self.layer3 = self._make_layer(blocks[2], self.list_channels[2],
-            layers[2], stride=list_stride[2])
+        self.layer3 = self._make_layer(blocks[2], self.list_channels[2], layers[2], stride=list_stride[2])
         self.list_inplanes.append(self.inplanes)
-        self.layer4 = self._make_layer(blocks[3], self.list_channels[3],
-            layers[3], stride=list_stride[3])
+        self.layer4 = self._make_layer(blocks[3], self.list_channels[3], layers[3], stride=list_stride[3])
         self.avgpool, self.avgpool_space, self.avgpool_time = None, None, None
         self.fc_classifier = nn.Linear(512 * blocks[3].expansion, num_classes)
         self.out_dim = 5
@@ -263,9 +250,7 @@ class ResNet(nn.Module):
             self.list_layers_bis = []
             for i in range(self.nb_block_common_trunk, 4):
                 self.inplanes = self.list_inplanes[i]
-                layer = self._make_layer(blocks_2nd_head[i - self.
-                    nb_block_common_trunk], self.list_channels[i], layers[i
-                    ], list_strides_2nd_head[i])
+                layer = self._make_layer(blocks_2nd_head[i - self.nb_block_common_trunk], self.list_channels[i], layers[i], list_strides_2nd_head[i])
                 if i == 0:
                     self.layer1_bis = layer
                     self.list_layers_bis.append(self.layer1_bis)
@@ -280,20 +265,17 @@ class ResNet(nn.Module):
                     self.list_layers_bis.append(self.layer4_bis)
                 else:
                     raise NameError
-            self.list_layers = [self.layer1, self.layer2, self.layer3, self
-                .layer4]
+            self.list_layers = [self.layer1, self.layer2, self.layer3, self.layer4]
         if self.pooling == 'rnn':
             cnn_features_size = 512 * blocks[3].expansion
             hidden_state_size = 256 if cnn_features_size == 512 else 512
-            self.rnn = nn.GRU(input_size=cnn_features_size, hidden_size=
-                hidden_state_size, num_layers=1, batch_first=True)
+            self.rnn = nn.GRU(input_size=cnn_features_size, hidden_size=hidden_state_size, num_layers=1, batch_first=True)
             self.fc_classifier = nn.Linear(hidden_state_size, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d
-                ):
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
@@ -309,25 +291,18 @@ class ResNet(nn.Module):
         self.conv1_1t = None
         self.bn1_1t = None
         if str == '3D_stabilize':
-            self.conv1 = nn.Conv3d(3, 64, kernel_size=(K_1st_CONV, 7, 7),
-                stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
-            self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2,
-                2), padding=(0, 1, 1))
+            self.conv1 = nn.Conv3d(3, 64, kernel_size=(K_1st_CONV, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+            self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
             self.bn1 = nn.BatchNorm3d(64)
         elif str == '2.5D_stabilize':
-            self.conv1 = nn.Conv3d(3, 64, kernel_size=(1, 7, 7), stride=(1,
-                2, 2), padding=(0, 3, 3), bias=False)
-            self.conv1_1t = nn.Conv3d(64, 64, kernel_size=(K_1st_CONV, 1, 1
-                ), stride=(1, 1, 1), padding=(1, 0, 0), bias=False)
+            self.conv1 = nn.Conv3d(3, 64, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
+            self.conv1_1t = nn.Conv3d(64, 64, kernel_size=(K_1st_CONV, 1, 1), stride=(1, 1, 1), padding=(1, 0, 0), bias=False)
             self.bn1_1t = nn.BatchNorm3d(64)
-            self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2,
-                2), padding=(0, 1, 1))
+            self.maxpool = nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1))
             self.bn1 = nn.BatchNorm3d(64)
         elif str == '2D':
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2),
-                padding=(3, 3), bias=False)
-            self.maxpool = nn.MaxPool2d(kernel_size=(3, 3), stride=(2, 2),
-                padding=(1, 1))
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+            self.maxpool = nn.MaxPool2d(kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
             self.bn1 = nn.BatchNorm2d(64)
             self.input_dim = 4
         else:
@@ -342,16 +317,12 @@ class ResNet(nn.Module):
                 conv, batchnorm = nn.Conv2d, nn.BatchNorm2d
             else:
                 conv, batchnorm = nn.Conv3d, nn.BatchNorm3d
-            downsample = nn.Sequential(conv(self.inplanes, planes * block.
-                expansion, kernel_size=1, stride=stride, bias=False,
-                dilation=dilation), batchnorm(planes * block.expansion))
+            downsample = nn.Sequential(conv(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False, dilation=dilation), batchnorm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation, nb_temporal_conv=self.nb_temporal_conv))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation, nb_temporal_conv=self.nb_temporal_conv))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, nb_temporal_conv=
-                self.nb_temporal_conv))
+            layers.append(block(self.inplanes, planes, nb_temporal_conv=self.nb_temporal_conv))
         return nn.Sequential(*layers)
 
     def get_features_map(self, x, time=None, num=4, out_dim=None):
@@ -384,16 +355,14 @@ class ResNet(nn.Module):
             x = self.layer4(x)
         return transform_input(x, out_dim, T=time)
 
-    def get_two_heads_feature_maps(self, x, T=None, out_dim=None,
-        heads_type='object+context'):
+    def get_two_heads_feature_maps(self, x, T=None, out_dim=None, heads_type='object+context'):
         x = x['clip']
         x = self.get_features_map(x, T, num=self.nb_block_common_trunk)
         if 'object' in heads_type:
             fm_objects = x
             for i in range(len(self.list_layers_bis)):
                 layer = self.list_layers_bis[i]
-                fm_objects = transform_input(fm_objects, layer[0].input_dim,
-                    T=T)
+                fm_objects = transform_input(fm_objects, layer[0].input_dim, T=T)
                 fm_objects = layer(fm_objects)
             fm_objects = transform_input(fm_objects, out_dim, T=T)
         else:
@@ -402,8 +371,7 @@ class ResNet(nn.Module):
             fm_context = x
             for i in range(self.nb_block_common_trunk, 4):
                 layer = self.list_layers[i]
-                fm_context = transform_input(fm_context, layer[0].input_dim,
-                    T=T)
+                fm_context = transform_input(fm_context, layer[0].input_dim, T=T)
                 fm_context = layer(fm_context)
             fm_context = transform_input(fm_context, out_dim, T=T)
         else:
@@ -414,12 +382,10 @@ class ResNet(nn.Module):
         x = x['clip']
         x = self.get_features_map(x, num=self.num_final_fm)
         if self.pooling == 'avg':
-            self.avgpool = nn.AvgPool3d((x.size(2), x.size(-1), x.size(-1))
-                ) if self.avgpool is None else self.avgpool
+            self.avgpool = nn.AvgPool3d((x.size(2), x.size(-1), x.size(-1))) if self.avgpool is None else self.avgpool
             x = self.avgpool(x)
         elif self.pooling == 'rnn':
-            self.avgpool_space = nn.AvgPool3d((1, x.size(-1), x.size(-1))
-                ) if self.avgpool_space is None else self.avgpool_space
+            self.avgpool_space = nn.AvgPool3d((1, x.size(-1), x.size(-1))) if self.avgpool_space is None else self.avgpool_space
             x = self.avgpool_space(x)
             x = x.view(x.size(0), x.size(1), x.size(2))
             x = x.transpose(1, 2)
@@ -457,18 +423,15 @@ class Classifier(nn.Module):
 
 class EncoderMLP(nn.Module):
 
-    def __init__(self, input_size=149, list_hidden_size=[100, 100],
-        relu_activation=True, p_dropout=0.5):
+    def __init__(self, input_size=149, list_hidden_size=[100, 100], relu_activation=True, p_dropout=0.5):
         super(EncoderMLP, self).__init__()
         self.input_size = input_size
         self.list_hidden_size = list_hidden_size
         self.encoder = nn.Sequential()
         current_input_size = self.input_size
         for i, hidden_size in enumerate(self.list_hidden_size):
-            self.encoder.add_module('linear_{}'.format(i), nn.Linear(
-                current_input_size, hidden_size))
-            self.encoder.add_module('dropout_{}'.format(i), nn.Dropout(p=
-                p_dropout))
+            self.encoder.add_module('linear_{}'.format(i), nn.Linear(current_input_size, hidden_size))
+            self.encoder.add_module('dropout_{}'.format(i), nn.Dropout(p=p_dropout))
             current_input_size = hidden_size
             self.encoder.add_module('relu_{}'.format(i), nn.ReLU())
 
@@ -492,15 +455,13 @@ class EncoderMLP(nn.Module):
 
 class ObjectRelationNetwork(nn.Module):
 
-    def __init__(self, size_object, list_hidden_layers_size, relation_type=
-        'pairwise-inter'):
+    def __init__(self, size_object, list_hidden_layers_size, relation_type='pairwise-inter'):
         super(ObjectRelationNetwork, self).__init__()
         self.size_object = size_object
         self.list_hidden_layers_size = list_hidden_layers_size
         self.relation_type = relation_type
         self.nb_obj = 2
-        self.mlp_inter = EncoderMLP(input_size=self.nb_obj * self.
-            size_object, list_hidden_size=self.list_hidden_layers_size)
+        self.mlp_inter = EncoderMLP(input_size=self.nb_obj * self.size_object, list_hidden_size=self.list_hidden_layers_size)
 
     @staticmethod
     def create_inter_object_cat(O_1, O_2):
@@ -522,8 +483,7 @@ class ObjectRelationNetwork(nn.Module):
             list_other_k = [x for x in range(K) if x != k1]
             for k2 in list_other_k:
                 O_1_k_2 = O_2[:, (k2)].unsqueeze(1).repeat(1, K, 1)
-                O_1_k_input_relation = torch.cat([O_1_k_1, O_1_k_2, O_2], dim=2
-                    )
+                O_1_k_input_relation = torch.cat([O_1_k_1, O_1_k_2, O_2], dim=2)
                 list_input_mlp.append(O_1_k_input_relation)
         input_mlp = torch.cat(list_input_mlp, 1)
         return input_mlp
@@ -536,14 +496,12 @@ class ObjectRelationNetwork(nn.Module):
         is_objects = is_first_obj * is_second_obj
         return input_mlp, is_objects
 
-    def compute_O_O_interaction(self, sets_of_objects, t, previous_T, D,
-        sampling=False):
+    def compute_O_O_interaction(self, sets_of_objects, t, previous_T, D, sampling=False):
         O_t = sets_of_objects[:, (t)]
         list_e_inter, list_is_object_inter = [], []
         for t_1 in previous_T:
             O_t_1 = sets_of_objects[:, (t_1)]
-            input_mlp_inter, is_objects_inter = self.create_input_mlp(O_t_1,
-                O_t, D)
+            input_mlp_inter, is_objects_inter = self.create_input_mlp(O_t_1, O_t, D)
             e = self.mlp_inter(input_mlp_inter)
             list_e_inter.append(e)
             list_is_object_inter.append(is_objects_inter)
@@ -556,18 +514,15 @@ class ObjectRelationNetwork(nn.Module):
             B, _, T_prim, D = all_e_inter.size()
             all_e_inter = all_e_inter.view(B, T_prim, D)
             is_objects_inter = torch.stack(list_is_object_inter, 1)
-            is_objects_inter = torch.clamp(torch.sum(is_objects_inter, 1), 0, 1
-                )
+            is_objects_inter = torch.clamp(torch.sum(is_objects_inter, 1), 0, 1)
             return all_e_inter, is_objects_inter
 
     def forward(self, sets_of_objects, D, sampling=False):
         B, T, K, _ = sets_of_objects.size()
         list_e, list_is_obj = [], []
         for t in range(1, T):
-            previous_T = random.sample(range(t), 1) if self.training else list(
-                range(t))
-            e_t, is_obj = self.compute_O_O_interaction(sets_of_objects, t,
-                previous_T, D, sampling)
+            previous_T = random.sample(range(t), 1) if self.training else list(range(t))
+            e_t, is_obj = self.compute_O_O_interaction(sets_of_objects, t, previous_T, D, sampling)
             list_e.append(e_t)
             list_is_obj.append(is_obj)
         all_e = torch.stack(list_e, 1)
@@ -577,9 +532,7 @@ class ObjectRelationNetwork(nn.Module):
 
 class TwoHeads(nn.Module):
 
-    def __init__(self, num_classes=174, cnn=None, features_size=512, time=8,
-        mask_size=28, size_RN=256, nb_head=2, logits_type='object', f_orn=
-        True, size_2nd_head=14, **kwargs):
+    def __init__(self, num_classes=174, cnn=None, features_size=512, time=8, mask_size=28, size_RN=256, nb_head=2, logits_type='object', f_orn=True, size_2nd_head=14, **kwargs):
         super(TwoHeads, self).__init__()
         self.num_classes = num_classes
         self.time = time
@@ -597,52 +550,38 @@ class TwoHeads(nn.Module):
                 if i != 7:
                     for param in child.parameters():
                         param.requires_grad = False
-        self.avgpool_TxMxM = nn.AvgPool3d((self.time, self.size_fm_2nd_head,
-            self.size_fm_2nd_head))
-        self.avgpool_1xMxM = nn.AvgPool3d((1, self.size_fm_2nd_head, self.
-            size_fm_2nd_head))
+        self.avgpool_TxMxM = nn.AvgPool3d((self.time, self.size_fm_2nd_head, self.size_fm_2nd_head))
+        self.avgpool_1xMxM = nn.AvgPool3d((1, self.size_fm_2nd_head, self.size_fm_2nd_head))
         self.avgpool_1_7x7 = nn.AvgPool3d((1, 7, 7))
         self.avgpool_T_7x7 = nn.AvgPool3d((self.time, 7, 7))
-        self.pixel_pooler = nn.AvgPool3d((1, 2, 2)
-            ) if self.size_fm_2nd_head == 14 else nn.AvgPool3d((1, 4, 4))
+        self.pixel_pooler = nn.AvgPool3d((1, 2, 2)) if self.size_fm_2nd_head == 14 else nn.AvgPool3d((1, 4, 4))
         self.pool_orn = nn.MaxPool2d((self.time - 1, 1))
         self.size_COCO_object_features = self.size_cnn_features
-        self.COCO_Object_Class_from_Features = Classifier(size_input=self.
-            size_cnn_features, size_output=81)
+        self.COCO_Object_Class_from_Features = Classifier(size_input=self.size_cnn_features, size_output=81)
         self.size_mask_embedding = 100
-        self.Encoder_Binary_Mask = EncoderMLP(input_size=self.size_mask *
-            self.size_mask, list_hidden_size=[self.size_mask_embedding,
-            self.size_mask_embedding])
+        self.Encoder_Binary_Mask = EncoderMLP(input_size=self.size_mask * self.size_mask, list_hidden_size=[self.size_mask_embedding, self.size_mask_embedding])
         self.size_obj_embedding = 100
         input_size = 81
-        self.Encoder_COCO_Obj_Class = EncoderMLP(input_size=input_size,
-            list_hidden_size=[self.size_obj_embedding, self.size_obj_embedding]
-            )
-        size_object = (self.size_COCO_object_features + self.
-            size_mask_embedding + self.size_obj_embedding)
+        self.Encoder_COCO_Obj_Class = EncoderMLP(input_size=input_size, list_hidden_size=[self.size_obj_embedding, self.size_obj_embedding])
+        size_object = self.size_COCO_object_features + self.size_mask_embedding + self.size_obj_embedding
         list_size_hidden_layers = [self.size_RN, self.size_RN, self.size_RN]
-        self.ORN = ObjectRelationNetwork(size_object=size_object,
-            list_hidden_layers_size=list_size_hidden_layers)
+        self.ORN = ObjectRelationNetwork(size_object=size_object, list_hidden_layers_size=list_size_hidden_layers)
         self.AggregationRelations = AggregationRelations()
         self.f_orn = f_orn
         if self.f_orn == 'rnn':
             input_size = self.size_RN
             self.size_relation_features = int(self.size_RN / 2.0)
-            self.rnn_objects = nn.GRU(input_size=input_size, hidden_size=
-                self.size_relation_features, num_layers=1, batch_first=True)
+            self.rnn_objects = nn.GRU(input_size=input_size, hidden_size=self.size_relation_features, num_layers=1, batch_first=True)
         else:
             self.size_relation_features = self.size_RN
-        self.fc_classifier_object = nn.Linear(self.size_relation_features,
-            self.num_classes)
-        self.fc_classifier_context = nn.Linear(self.size_cnn_features, self
-            .num_classes)
+        self.fc_classifier_object = nn.Linear(self.size_relation_features, self.num_classes)
+        self.fc_classifier_context = nn.Linear(self.size_cnn_features, self.num_classes)
 
     def get_objects_features(self, fm, masks):
         fm = fm.transpose(1, 2)
         B, T, D, W, H = fm.size()
         fm = fm.view(B * T, D, W, H)
-        fm_up = F.upsample(fm, size=(self.size_mask, self.size_mask), mode=
-            'bilinear', align_corners=True)
+        fm_up = F.upsample(fm, size=(self.size_mask, self.size_mask), mode='bilinear', align_corners=True)
         fm_up = fm_up.view(B, T, D, self.size_mask, self.size_mask)
         fm_up = fm_up.transpose(1, 2)
         B, D, T, W, _ = fm_up.size()
@@ -655,8 +594,7 @@ class TwoHeads(nn.Module):
         masks_size = torch.sum(torch.sum(masks_plus, -1), -1)
         list_object_set = []
         for t in range(T):
-            object_set_avg = torch.sum(torch.sum(fm_masked[:, :, :, (t)], -
-                1), -1)
+            object_set_avg = torch.sum(torch.sum(fm_masked[:, :, :, (t)], -1), -1)
             object_set_avg /= masks_size[:, :, :, (t)] + 0.0001
             list_object_set.append(object_set_avg)
         objects_features = torch.stack(list_object_set, 1)
@@ -683,21 +621,17 @@ class TwoHeads(nn.Module):
             for t in range(T_1):
                 for k2 in range(K2):
                     try:
-                        inter = torch.sum(relational_reasoning_vector_COCO[
-                            b, t, k2])
+                        inter = torch.sum(relational_reasoning_vector_COCO[b, t, k2])
                         k_1 = math.floor(float(k2) / float(K))
-                        obj_id_k_1 = self.get_id_object(obj_id[b, t, k_1].
-                            data.cpu().numpy())
+                        obj_id_k_1 = self.get_id_object(obj_id[b, t, k_1].data.cpu().numpy())
                         k = k2 - k_1 * K
-                        obj_id_k = self.get_id_object(obj_id[b, t + 1, k].
-                            data.cpu().numpy())
+                        obj_id_k = self.get_id_object(obj_id[b, t + 1, k].data.cpu().numpy())
                         relations[b, obj_id_k_1, obj_id_k] = inter
                     except:
                         pass
         return relations
 
-    def retrieve_relations_temporal(self, relational_reasoning_vector_COCO,
-        obj_id):
+    def retrieve_relations_temporal(self, relational_reasoning_vector_COCO, obj_id):
         B, T, K, C = obj_id.size()
         B, T_1, K2, D = relational_reasoning_vector_COCO.size()
         relations = np.zeros((B, T_1, 81, 81))
@@ -705,14 +639,11 @@ class TwoHeads(nn.Module):
             for t in range(T_1):
                 for k2 in range(K2):
                     try:
-                        inter = torch.sum(relational_reasoning_vector_COCO[
-                            b, t, k2])
+                        inter = torch.sum(relational_reasoning_vector_COCO[b, t, k2])
                         k_1 = math.floor(float(k2) / float(K))
-                        obj_id_k_1 = self.get_id_object(obj_id[b, t, k_1].
-                            data.cpu().numpy())
+                        obj_id_k_1 = self.get_id_object(obj_id[b, t, k_1].data.cpu().numpy())
                         k = k2 - k_1 * K
-                        obj_id_k = self.get_id_object(obj_id[b, t + 1, k].
-                            data.cpu().numpy())
+                        obj_id_k = self.get_id_object(obj_id[b, t + 1, k].data.cpu().numpy())
                         relations[b, t, obj_id_k_1, obj_id_k] = inter
                     except:
                         pass
@@ -732,12 +663,10 @@ class TwoHeads(nn.Module):
 
     def object_head(self, fm_objects, masks, obj_id, B):
         objects_features = self.get_objects_features(fm_objects, masks)
-        preds_class_detected_objects = self.COCO_Object_Class_from_Features(
-            objects_features)
+        preds_class_detected_objects = self.COCO_Object_Class_from_Features(objects_features)
         embedding_objects_location = self.Encoder_Binary_Mask(masks)
         embedding_obj_id = self.Encoder_COCO_Obj_Class(obj_id)
-        full_objects = torch.cat([objects_features,
-            embedding_objects_location, embedding_obj_id], -1)
+        full_objects = torch.cat([objects_features, embedding_objects_location, embedding_obj_id], -1)
         D = self.size_cnn_features
         all_e, all_is_obj = self.ORN(full_objects, D)
         all_is_obj = all_is_obj.unsqueeze(-1)
@@ -765,34 +694,26 @@ class TwoHeads(nn.Module):
         bbox_squeezed = bbox[:, :, :nb_max_obj_in_B]
         return masks_squeezed, obj_id_squeezed, bbox_squeezed
 
-    def final_classification(self, context_representation,
-        object_representation):
+    def final_classification(self, context_representation, object_representation):
         if context_representation is not None:
-            return self.fc_classifier_object(object_representation
-                ) + self.fc_classifier_context(context_representation)
+            return self.fc_classifier_object(object_representation) + self.fc_classifier_context(context_representation)
         else:
             return self.fc_classifier_object(object_representation)
 
     def forward(self, x):
         """Forward pass from a tensor of size (B,C,T,W,H)"""
-        clip, masks, obj_id, bbox, max_nb_obj = x['clip'], x['mask'], x[
-            'obj_id'], x['obj_bbox'], x['max_nb_obj']
-        masks, obj_id, bbox = self.squeeze_masks(max_nb_obj, masks, obj_id,
-            bbox)
+        clip, masks, obj_id, bbox, max_nb_obj = x['clip'], x['mask'], x['obj_id'], x['obj_bbox'], x['max_nb_obj']
+        masks, obj_id, bbox = self.squeeze_masks(max_nb_obj, masks, obj_id, bbox)
         B = clip.size(0)
         T = clip.size(2)
         K = masks.size(2)
-        fm_context, fm_objects = self.cnn.get_two_heads_feature_maps(x, T=T,
-            out_dim=5, heads_type=self.logits_type)
-        (context_representation, object_representation,
-            preds_class_detected_objects) = None, None, None
+        fm_context, fm_objects = self.cnn.get_two_heads_feature_maps(x, T=T, out_dim=5, heads_type=self.logits_type)
+        context_representation, object_representation, preds_class_detected_objects = None, None, None
         if 'object' in self.logits_type:
-            object_representation, preds_class_detected_objects = (self.
-                object_head(fm_objects, masks, obj_id, B=B))
+            object_representation, preds_class_detected_objects = self.object_head(fm_objects, masks, obj_id, B=B)
         if 'context' in self.logits_type:
             context_representation = self.context_head(fm_context, B=B)
-        logits = self.final_classification(context_representation,
-            object_representation)
+        logits = self.final_classification(context_representation, object_representation)
         return logits, preds_class_detected_objects
 
 
@@ -815,8 +736,7 @@ class CriterionLinearCombination(Module):
         assert len(list_input) == len(list_target)
         loss = 0.0
         for i in range(len(self.list_criterion)):
-            criterion_i, weight_i = self.list_criterion[i], self.list_weights[i
-                ]
+            criterion_i, weight_i = self.list_criterion[i], self.list_weights[i]
             target_i, input_i = list_target[i], list_input[i]
             if input_i is not None:
                 if isinstance(criterion_i, nn.CrossEntropyLoss):
@@ -834,14 +754,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AggregationRelations,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock2D,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Classifier,
+     lambda: ([], {'size_input': 4, 'size_output': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_fabienbaradel_object_level_visual_reasoning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AggregationRelations(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock2D(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Classifier(*[], **{'size_input': 4, 'size_output': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

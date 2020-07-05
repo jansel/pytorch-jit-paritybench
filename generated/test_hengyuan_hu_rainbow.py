@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -117,8 +118,7 @@ class NoisyLinear(nn.Module):
         self.out_features = out_features
         self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
         self.bias = nn.Parameter(torch.Tensor(out_features))
-        self.noisy_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features))
+        self.noisy_weight = nn.Parameter(torch.Tensor(out_features, in_features))
         self.noisy_bias = nn.Parameter(torch.Tensor(out_features))
         self.reset_parameters()
         self.noise_std = sigma0 / math.sqrt(self.in_features)
@@ -130,8 +130,7 @@ class NoisyLinear(nn.Module):
     def sample_noise(self):
         self.in_noise.normal_(0, self.noise_std)
         self.out_noise.normal_(0, self.noise_std)
-        self.noise = torch.mm(self.out_noise.view(-1, 1), self.in_noise.
-            view(1, -1))
+        self.noise = torch.mm(self.out_noise.view(-1, 1), self.in_noise.view(1, -1))
 
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.weight.size(1))
@@ -151,26 +150,44 @@ class NoisyLinear(nn.Module):
         return noisy_y + normal_y
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.
-            in_features) + ', out_features=' + str(self.out_features) + ')'
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ')'
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicNetwork,
+     lambda: ([], {'conv': _mock_layer(), 'fc': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DistributionalBasicNetwork,
+     lambda: ([], {'conv': _mock_layer(), 'fc': _mock_layer(), 'num_actions': 4, 'num_atoms': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (DuelingNetwork,
+     lambda: ([], {'conv': _mock_layer(), 'adv': _mock_layer(), 'val': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'sigma0': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_hengyuan_hu_rainbow(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicNetwork(*[], **{'conv': _mock_layer(), 'fc': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DistributionalBasicNetwork(*[], **{'conv': _mock_layer(), 'fc': _mock_layer(), 'num_actions': 4, 'num_atoms': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DuelingNetwork(*[], **{'conv': _mock_layer(), 'adv': _mock_layer(), 'val': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4, 'sigma0': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

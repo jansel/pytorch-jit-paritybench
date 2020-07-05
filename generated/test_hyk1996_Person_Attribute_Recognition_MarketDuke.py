@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -110,8 +111,7 @@ class DenseNet121_nFC(nn.Module):
         self.num_ftrs = 1024
         num_bottleneck = 512
         for c in range(self.class_num):
-            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs,
-                num_bottleneck))
+            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs, num_bottleneck))
 
     def forward(self, x):
         x = self.features(x)
@@ -120,8 +120,7 @@ class DenseNet121_nFC(nn.Module):
             if c == 0:
                 pred = self.__getattr__('class_%d' % c)(x)
             else:
-                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)
-                    ), dim=1)
+                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)), dim=1)
         return pred
 
 
@@ -158,8 +157,7 @@ class ResNet18_nFC(nn.Module):
         self.num_ftrs = 512
         num_bottleneck = 512
         for c in range(self.class_num):
-            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs,
-                num_bottleneck))
+            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs, num_bottleneck))
 
     def forward(self, x):
         x = self.features(x)
@@ -167,8 +165,7 @@ class ResNet18_nFC(nn.Module):
             if c == 0:
                 pred = self.__getattr__('class_%d' % c)(x)
             else:
-                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)
-                    ), dim=1)
+                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)), dim=1)
         return pred
 
 
@@ -205,8 +202,7 @@ class ResNet34_nFC(nn.Module):
         self.num_ftrs = 512
         num_bottleneck = 512
         for c in range(self.class_num):
-            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs,
-                num_bottleneck))
+            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs, num_bottleneck))
 
     def forward(self, x):
         x = self.features(x)
@@ -214,8 +210,7 @@ class ResNet34_nFC(nn.Module):
             if c == 0:
                 pred = self.__getattr__('class_%d' % c)(x)
             else:
-                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)
-                    ), dim=1)
+                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)), dim=1)
         return pred
 
 
@@ -252,8 +247,7 @@ class ResNet50_nFC(nn.Module):
         self.num_ftrs = 2048
         num_bottleneck = 512
         for c in range(self.class_num):
-            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs,
-                num_bottleneck))
+            self.__setattr__('class_%d' % c, ClassBlock(self.num_ftrs, num_bottleneck))
 
     def forward(self, x):
         x = self.features(x)
@@ -261,8 +255,7 @@ class ResNet50_nFC(nn.Module):
             if c == 0:
                 pred = self.__getattr__('class_%d' % c)(x)
             else:
-                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)
-                    ), dim=1)
+                pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)), dim=1)
         return pred
 
 
@@ -281,48 +274,64 @@ class ResNet50_nFC_softmax(nn.Module):
         num_bottleneck = 512
         for c in range(self.class_num + 1):
             if c == self.class_num:
-                self.__setattr__('class_%d' % c, nn.Sequential(nn.Linear(
-                    self.num_ftrs, num_bottleneck), nn.BatchNorm1d(
-                    num_bottleneck), nn.LeakyReLU(0.1), nn.Dropout(p=0.5),
-                    nn.Linear(num_bottleneck, self.id_num)))
+                self.__setattr__('class_%d' % c, nn.Sequential(nn.Linear(self.num_ftrs, num_bottleneck), nn.BatchNorm1d(num_bottleneck), nn.LeakyReLU(0.1), nn.Dropout(p=0.5), nn.Linear(num_bottleneck, self.id_num)))
             else:
-                self.__setattr__('class_%d' % c, nn.Sequential(nn.Linear(
-                    self.num_ftrs, num_bottleneck), nn.BatchNorm1d(
-                    num_bottleneck), nn.LeakyReLU(0.1), nn.Dropout(p=0.5),
-                    nn.Linear(num_bottleneck, 2)))
+                self.__setattr__('class_%d' % c, nn.Sequential(nn.Linear(self.num_ftrs, num_bottleneck), nn.BatchNorm1d(num_bottleneck), nn.LeakyReLU(0.1), nn.Dropout(p=0.5), nn.Linear(num_bottleneck, 2)))
 
     def forward(self, x):
         x = self.features(x)
-        return (self.__getattr__('class_%d' % c)(x) for c in range(self.
-            class_num + 1)), x
+        return (self.__getattr__('class_%d' % c)(x) for c in range(self.class_num + 1)), x
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ClassBlock,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (DenseNet121_nFC,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResNet18_nFC,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResNet34_nFC,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResNet50_nFC,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResNet50_nFC_softmax,
+     lambda: ([], {'class_num': 4, 'id_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_hyk1996_Person_Attribute_Recognition_MarketDuke(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ClassBlock(*[], **{'input_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DenseNet121_nFC(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResNet18_nFC(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ResNet34_nFC(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ResNet50_nFC(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ResNet50_nFC_softmax(*[], **{'class_num': 4, 'id_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -89,8 +90,7 @@ class FactorizationMachine(torch.nn.Module):
             None
         self.input_features, self.factors = input_features, factors
         self.linear = nn.Linear(self.input_features, 1)
-        self.second_order = SecondOrderInteraction(self.input_features,
-            self.factors)
+        self.second_order = SecondOrderInteraction(self.input_features, self.factors)
 
     def forward(self, x):
         self.linear.cpu()
@@ -123,8 +123,7 @@ class SecondOrderInteraction(torch.nn.Module):
         super(SecondOrderInteraction, self).__init__()
         self.n_feats = n_feats
         self.n_factors = n_factors
-        self.v = nn.Parameter(torch.Tensor(self.n_feats, self.n_factors),
-            requires_grad=True)
+        self.v = nn.Parameter(torch.Tensor(self.n_feats, self.n_factors), requires_grad=True)
         self.v.data.uniform_(-0.01, 0.01)
 
     def forward(self, x):
@@ -144,14 +143,12 @@ class SecondOrderInteraction(torch.nn.Module):
         self.batch_size = x.size()[0]
         self.n_feats = x.size()[-1]
         self.n_factors = self.v.size()[-1]
-        output = Variable(x.data.new(self.batch_size, self.n_feats, self.
-            n_feats).zero_())
+        output = Variable(x.data.new(self.batch_size, self.n_feats, self.n_feats).zero_())
         all_interactions = torch.mm(self.v, self.v.t())
         for b in range(self.batch_size):
             for i in range(self.n_feats):
                 for j in range(i + 1, self.n_feats):
-                    output[b, i, j] = all_interactions[i, j] * x[b, i] * x[b, j
-                        ]
+                    output[b, i, j] = all_interactions[i, j] * x[b, i] * x[b, j]
         res = output.sum(1).sum(1, keepdim=True)
         return res
 
@@ -207,9 +204,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SecondOrderInteraction,
+     lambda: ([], {'n_feats': 4, 'n_factors': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_jmhessel_fmpytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(SecondOrderInteraction(*[], **{'n_feats': 4, 'n_factors': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

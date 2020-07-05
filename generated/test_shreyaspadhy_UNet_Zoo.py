@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,8 +57,7 @@ import torchvision.transforms as tr
 
 class CLSTMCell(nn.Module):
 
-    def __init__(self, input_channels, hidden_channels, kernel_size, bias=True
-        ):
+    def __init__(self, input_channels, hidden_channels, kernel_size, bias=True):
         super(CLSTMCell, self).__init__()
         assert hidden_channels % 2 == 0
         self.input_channels = input_channels
@@ -66,15 +66,12 @@ class CLSTMCell(nn.Module):
         self.kernel_size = kernel_size
         self.num_features = 4
         self.padding = (kernel_size - 1) // 2
-        self.conv = nn.Conv2d(self.input_channels + self.hidden_channels, 
-            self.num_features * self.hidden_channels, self.kernel_size, 1,
-            self.padding)
+        self.conv = nn.Conv2d(self.input_channels + self.hidden_channels, self.num_features * self.hidden_channels, self.kernel_size, 1, self.padding)
 
     def forward(self, x, h, c):
         combined = torch.cat((x, h), dim=1)
         A = self.conv(combined)
-        Ai, Af, Ao, Ag = torch.split(A, A.size()[1] // self.num_features, dim=1
-            )
+        Ai, Af, Ao, Ag = torch.split(A, A.size()[1] // self.num_features, dim=1)
         i = torch.sigmoid(Ai)
         f = torch.sigmoid(Af)
         o = torch.sigmoid(Ao)
@@ -86,19 +83,14 @@ class CLSTMCell(nn.Module):
     @staticmethod
     def init_hidden(batch_size, hidden_c, shape):
         try:
-            return Variable(torch.zeros(batch_size, hidden_c, shape[0],
-                shape[1])), Variable(torch.zeros(batch_size, hidden_c,
-                shape[0], shape[1]))
+            return Variable(torch.zeros(batch_size, hidden_c, shape[0], shape[1])), Variable(torch.zeros(batch_size, hidden_c, shape[0], shape[1]))
         except:
-            return Variable(torch.zeros(batch_size, hidden_c, shape[0],
-                shape[1])), Variable(torch.zeros(batch_size, hidden_c,
-                shape[0], shape[1]))
+            return Variable(torch.zeros(batch_size, hidden_c, shape[0], shape[1])), Variable(torch.zeros(batch_size, hidden_c, shape[0], shape[1]))
 
 
 class CLSTM(nn.Module):
 
-    def __init__(self, input_channels=64, hidden_channels=[64], kernel_size
-        =5, bias=True):
+    def __init__(self, input_channels=64, hidden_channels=[64], kernel_size=5, bias=True):
         super(CLSTM, self).__init__()
         self.input_channels = [input_channels] + hidden_channels
         self.hidden_channels = hidden_channels
@@ -108,8 +100,7 @@ class CLSTM(nn.Module):
         self.all_layers = []
         for layer in range(self.num_layers):
             name = 'cell{}'.format(layer)
-            cell = CLSTMCell(self.input_channels[layer], self.
-                hidden_channels[layer], self.kernel_size, self.bias)
+            cell = CLSTMCell(self.input_channels[layer], self.hidden_channels[layer], self.kernel_size, self.bias)
             setattr(self, name, cell)
             self.all_layers.append(cell)
 
@@ -121,8 +112,7 @@ class CLSTM(nn.Module):
             input = torch.squeeze(x[:, (step), :, :, :], dim=1)
             for layer in range(self.num_layers):
                 if step == 0:
-                    h, c = CLSTMCell.init_hidden(bsize, self.
-                        hidden_channels[layer], (height, width))
+                    h, c = CLSTMCell.init_hidden(bsize, self.hidden_channels[layer], (height, width))
                     internal_state.append((h, c))
                 name = 'cell{}'.format(layer)
                 h, c = internal_state[layer]
@@ -134,15 +124,11 @@ class CLSTM(nn.Module):
 
 class BDCLSTM(nn.Module):
 
-    def __init__(self, input_channels=64, hidden_channels=[64], kernel_size
-        =5, bias=True, num_classes=2):
+    def __init__(self, input_channels=64, hidden_channels=[64], kernel_size=5, bias=True, num_classes=2):
         super(BDCLSTM, self).__init__()
-        self.forward_net = CLSTM(input_channels, hidden_channels,
-            kernel_size, bias)
-        self.reverse_net = CLSTM(input_channels, hidden_channels,
-            kernel_size, bias)
-        self.conv = nn.Conv2d(2 * hidden_channels[-1], num_classes,
-            kernel_size=1)
+        self.forward_net = CLSTM(input_channels, hidden_channels, kernel_size, bias)
+        self.reverse_net = CLSTM(input_channels, hidden_channels, kernel_size, bias)
+        self.conv = nn.Conv2d(2 * hidden_channels[-1], num_classes, kernel_size=1)
         self.soft = nn.Softmax2d()
 
     def forward(self, x1, x2, x3):
@@ -216,14 +202,10 @@ class UNet(nn.Module):
         super(UNet, self).__init__()
         num_feat = [64, 128, 256, 512, 1024]
         self.down1 = nn.Sequential(Conv3x3(num_channels, num_feat[0]))
-        self.down2 = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(
-            num_feat[0], num_feat[1]))
-        self.down3 = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(
-            num_feat[1], num_feat[2]))
-        self.down4 = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(
-            num_feat[2], num_feat[3]))
-        self.bottom = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(
-            num_feat[3], num_feat[4]))
+        self.down2 = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(num_feat[0], num_feat[1]))
+        self.down3 = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(num_feat[1], num_feat[2]))
+        self.down4 = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(num_feat[2], num_feat[3]))
+        self.bottom = nn.Sequential(nn.MaxPool2d(kernel_size=2), Conv3x3(num_feat[3], num_feat[4]))
         self.up1 = UpConcat(num_feat[4], num_feat[3])
         self.upconv1 = Conv3x3(num_feat[4], num_feat[3])
         self.up2 = UpConcat(num_feat[3], num_feat[2])
@@ -232,8 +214,7 @@ class UNet(nn.Module):
         self.upconv3 = Conv3x3(num_feat[2], num_feat[1])
         self.up4 = UpConcat(num_feat[1], num_feat[0])
         self.upconv4 = Conv3x3(num_feat[1], num_feat[0])
-        self.final = nn.Sequential(nn.Conv2d(num_feat[0], num_classes,
-            kernel_size=1), nn.Softmax2d())
+        self.final = nn.Sequential(nn.Conv2d(num_feat[0], num_classes, kernel_size=1), nn.Softmax2d())
 
     def forward(self, inputs, return_features=False):
         down1_feat = self.down1(inputs)
@@ -262,24 +243,16 @@ class UNetSmall(nn.Module):
         super(UNetSmall, self).__init__()
         num_feat = [32, 64, 128, 256]
         self.down1 = nn.Sequential(Conv3x3Small(num_channels, num_feat[0]))
-        self.down2 = nn.Sequential(nn.MaxPool2d(kernel_size=2), nn.
-            BatchNorm2d(num_feat[0]), Conv3x3Small(num_feat[0], num_feat[1]))
-        self.down3 = nn.Sequential(nn.MaxPool2d(kernel_size=2), nn.
-            BatchNorm2d(num_feat[1]), Conv3x3Small(num_feat[1], num_feat[2]))
-        self.bottom = nn.Sequential(nn.MaxPool2d(kernel_size=2), nn.
-            BatchNorm2d(num_feat[2]), Conv3x3Small(num_feat[2], num_feat[3]
-            ), nn.BatchNorm2d(num_feat[3]))
+        self.down2 = nn.Sequential(nn.MaxPool2d(kernel_size=2), nn.BatchNorm2d(num_feat[0]), Conv3x3Small(num_feat[0], num_feat[1]))
+        self.down3 = nn.Sequential(nn.MaxPool2d(kernel_size=2), nn.BatchNorm2d(num_feat[1]), Conv3x3Small(num_feat[1], num_feat[2]))
+        self.bottom = nn.Sequential(nn.MaxPool2d(kernel_size=2), nn.BatchNorm2d(num_feat[2]), Conv3x3Small(num_feat[2], num_feat[3]), nn.BatchNorm2d(num_feat[3]))
         self.up1 = UpSample(num_feat[3], num_feat[2])
-        self.upconv1 = nn.Sequential(Conv3x3Small(num_feat[3] + num_feat[2],
-            num_feat[2]), nn.BatchNorm2d(num_feat[2]))
+        self.upconv1 = nn.Sequential(Conv3x3Small(num_feat[3] + num_feat[2], num_feat[2]), nn.BatchNorm2d(num_feat[2]))
         self.up2 = UpSample(num_feat[2], num_feat[1])
-        self.upconv2 = nn.Sequential(Conv3x3Small(num_feat[2] + num_feat[1],
-            num_feat[1]), nn.BatchNorm2d(num_feat[1]))
+        self.upconv2 = nn.Sequential(Conv3x3Small(num_feat[2] + num_feat[1], num_feat[1]), nn.BatchNorm2d(num_feat[1]))
         self.up3 = UpSample(num_feat[1], num_feat[0])
-        self.upconv3 = nn.Sequential(Conv3x3Small(num_feat[1] + num_feat[0],
-            num_feat[0]), nn.BatchNorm2d(num_feat[0]))
-        self.final = nn.Sequential(nn.Conv2d(num_feat[0], 1, kernel_size=1),
-            nn.Sigmoid())
+        self.upconv3 = nn.Sequential(Conv3x3Small(num_feat[1] + num_feat[0], num_feat[0]), nn.BatchNorm2d(num_feat[0]))
+        self.final = nn.Sequential(nn.Conv2d(num_feat[0], 1, kernel_size=1), nn.Sigmoid())
 
     def forward(self, inputs, return_features=False):
         down1_feat = self.down1(inputs)
@@ -303,11 +276,8 @@ class Conv3x3(nn.Module):
 
     def __init__(self, in_feat, out_feat):
         super(Conv3x3, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size
-            =3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat),
-            nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
 
     def forward(self, inputs):
         outputs = self.conv1(inputs)
@@ -319,11 +289,8 @@ class Conv3x3Drop(nn.Module):
 
     def __init__(self, in_feat, out_feat):
         super(Conv3x3Drop, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size
-            =3, stride=1, padding=1), nn.Dropout(p=0.2), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat,
-            kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat),
-            nn.ReLU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.Dropout(p=0.2), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
 
     def forward(self, inputs):
         outputs = self.conv1(inputs)
@@ -335,10 +302,8 @@ class Conv3x3Small(nn.Module):
 
     def __init__(self, in_feat, out_feat):
         super(Conv3x3Small, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size
-            =3, stride=1, padding=1), nn.ELU(), nn.Dropout(p=0.2))
-        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat,
-            kernel_size=3, stride=1, padding=1), nn.ELU())
+        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.ELU(), nn.Dropout(p=0.2))
+        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.ELU())
 
     def forward(self, inputs):
         outputs = self.conv1(inputs)
@@ -351,8 +316,7 @@ class UpConcat(nn.Module):
     def __init__(self, in_feat, out_feat):
         super(UpConcat, self).__init__()
         self.up = nn.UpsamplingBilinear2d(scale_factor=2)
-        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2,
-            stride=2)
+        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2, stride=2)
 
     def forward(self, inputs, down_outputs):
         outputs = self.deconv(inputs)
@@ -365,8 +329,7 @@ class UpSample(nn.Module):
     def __init__(self, in_feat, out_feat):
         super(UpSample, self).__init__()
         self.up = nn.Upsample(scale_factor=2, mode='nearest')
-        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2,
-            stride=2)
+        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2, stride=2)
 
     def forward(self, inputs, down_outputs):
         outputs = self.up(inputs)
@@ -378,34 +341,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CLSTMCell,
+     lambda: ([], {'input_channels': 4, 'hidden_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 3, 3])], {}),
+     True),
+    (Conv3x3,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv3x3Drop,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv3x3Small,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DICELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UNetSmall,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UpConcat,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {}),
+     True),
+    (UpSample,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {}),
+     True),
+]
+
 class Test_shreyaspadhy_UNet_Zoo(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CLSTMCell(*[], **{'input_channels': 4, 'hidden_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 3, 3])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv3x3(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Conv3x3Drop(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Conv3x3Small(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DICELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(UNetSmall(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(UpConcat(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(UpSample(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {})
+        self._check(*TESTCASES[8])
 

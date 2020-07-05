@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,8 +74,7 @@ from torch.autograd import *
 
 class CharBiGRU(nn.Module):
 
-    def __init__(self, alphabet_size, pretrain_char_embedding,
-        embedding_dim, hidden_dim, dropout, gpu, bidirect_flag=True):
+    def __init__(self, alphabet_size, pretrain_char_embedding, embedding_dim, hidden_dim, dropout, gpu, bidirect_flag=True):
         super(CharBiGRU, self).__init__()
         None
         self.gpu = gpu
@@ -84,13 +84,10 @@ class CharBiGRU(nn.Module):
         self.char_drop = nn.Dropout(dropout)
         self.char_embeddings = nn.Embedding(alphabet_size, embedding_dim)
         if pretrain_char_embedding is not None:
-            self.char_embeddings.weight.data.copy_(torch.from_numpy(
-                pretrain_char_embedding))
+            self.char_embeddings.weight.data.copy_(torch.from_numpy(pretrain_char_embedding))
         else:
-            self.char_embeddings.weight.data.copy_(torch.from_numpy(self.
-                random_embedding(alphabet_size, embedding_dim)))
-        self.char_lstm = nn.GRU(embedding_dim, self.hidden_dim, num_layers=
-            1, batch_first=True, bidirectional=bidirect_flag)
+            self.char_embeddings.weight.data.copy_(torch.from_numpy(self.random_embedding(alphabet_size, embedding_dim)))
+        self.char_lstm = nn.GRU(embedding_dim, self.hidden_dim, num_layers=1, batch_first=True, bidirectional=bidirect_flag)
         if self.gpu:
             self.char_drop = self.char_drop
             self.char_embeddings = self.char_embeddings
@@ -100,8 +97,7 @@ class CharBiGRU(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1,
-                embedding_dim])
+            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def get_last_hiddens(self, input, seq_lengths):
@@ -144,8 +140,7 @@ class CharBiGRU(nn.Module):
 
 class CharBiLSTM(nn.Module):
 
-    def __init__(self, alphabet_size, pretrain_char_embedding,
-        embedding_dim, hidden_dim, dropout, gpu, bidirect_flag=True):
+    def __init__(self, alphabet_size, pretrain_char_embedding, embedding_dim, hidden_dim, dropout, gpu, bidirect_flag=True):
         super(CharBiLSTM, self).__init__()
         None
         self.gpu = gpu
@@ -155,13 +150,10 @@ class CharBiLSTM(nn.Module):
         self.char_drop = nn.Dropout(dropout)
         self.char_embeddings = nn.Embedding(alphabet_size, embedding_dim)
         if pretrain_char_embedding is not None:
-            self.char_embeddings.weight.data.copy_(torch.from_numpy(
-                pretrain_char_embedding))
+            self.char_embeddings.weight.data.copy_(torch.from_numpy(pretrain_char_embedding))
         else:
-            self.char_embeddings.weight.data.copy_(torch.from_numpy(self.
-                random_embedding(alphabet_size, embedding_dim)))
-        self.char_lstm = nn.LSTM(embedding_dim, self.hidden_dim, num_layers
-            =1, batch_first=True, bidirectional=bidirect_flag)
+            self.char_embeddings.weight.data.copy_(torch.from_numpy(self.random_embedding(alphabet_size, embedding_dim)))
+        self.char_lstm = nn.LSTM(embedding_dim, self.hidden_dim, num_layers=1, batch_first=True, bidirectional=bidirect_flag)
         if self.gpu:
             self.char_drop = self.char_drop
             self.char_embeddings = self.char_embeddings
@@ -171,8 +163,7 @@ class CharBiLSTM(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1,
-                embedding_dim])
+            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def get_last_hiddens(self, input, seq_lengths):
@@ -215,8 +206,7 @@ class CharBiLSTM(nn.Module):
 
 class CharCNN(nn.Module):
 
-    def __init__(self, alphabet_size, pretrain_char_embedding,
-        embedding_dim, hidden_dim, dropout, gpu):
+    def __init__(self, alphabet_size, pretrain_char_embedding, embedding_dim, hidden_dim, dropout, gpu):
         super(CharCNN, self).__init__()
         None
         self.gpu = gpu
@@ -224,13 +214,10 @@ class CharCNN(nn.Module):
         self.char_drop = nn.Dropout(dropout)
         self.char_embeddings = nn.Embedding(alphabet_size, embedding_dim)
         if pretrain_char_embedding is not None:
-            self.char_embeddings.weight.data.copy_(torch.from_numpy(
-                pretrain_char_embedding))
+            self.char_embeddings.weight.data.copy_(torch.from_numpy(pretrain_char_embedding))
         else:
-            self.char_embeddings.weight.data.copy_(torch.from_numpy(self.
-                random_embedding(alphabet_size, embedding_dim)))
-        self.char_cnn = nn.Conv1d(embedding_dim, self.hidden_dim,
-            kernel_size=3, padding=1)
+            self.char_embeddings.weight.data.copy_(torch.from_numpy(self.random_embedding(alphabet_size, embedding_dim)))
+        self.char_cnn = nn.Conv1d(embedding_dim, self.hidden_dim, kernel_size=3, padding=1)
         if self.gpu:
             self.char_drop = self.char_drop
             self.char_embeddings = self.char_embeddings
@@ -240,8 +227,7 @@ class CharCNN(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1,
-                embedding_dim])
+            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def get_last_hiddens(self, input, seq_lengths):
@@ -257,8 +243,7 @@ class CharCNN(nn.Module):
         char_embeds = self.char_drop(self.char_embeddings(input))
         char_embeds = char_embeds.transpose(2, 1).contiguous()
         char_cnn_out = self.char_cnn(char_embeds)
-        char_cnn_out = F.max_pool1d(char_cnn_out, char_cnn_out.size(2)).view(
-            batch_size, -1)
+        char_cnn_out = F.max_pool1d(char_cnn_out, char_cnn_out.size(2)).view(batch_size, -1)
         return char_cnn_out
 
     def get_all_hiddens(self, input, seq_lengths):
@@ -296,10 +281,8 @@ def log_sum_exp(vec, m_size):
         batch_size, hidden_dim
     """
     _, idx = torch.max(vec, 1)
-    max_score = torch.gather(vec, 1, idx.view(-1, 1, m_size)).view(-1, 1,
-        m_size)
-    return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec -
-        max_score.expand_as(vec)), 1)).view(-1, m_size)
+    max_score = torch.gather(vec, 1, idx.view(-1, 1, m_size)).view(-1, 1, m_size)
+    return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec - max_score.expand_as(vec)), 1)).view(-1, m_size)
 
 
 class CRF(nn.Module):
@@ -309,8 +292,7 @@ class CRF(nn.Module):
         None
         self.gpu = gpu
         self.tagset_size = tagset_size
-        init_transitions = torch.zeros(self.tagset_size + 2, self.
-            tagset_size + 2)
+        init_transitions = torch.zeros(self.tagset_size + 2, self.tagset_size + 2)
         init_transitions[:, (START_TAG)] = -10000.0
         init_transitions[(STOP_TAG), :] = -10000.0
         init_transitions[:, (0)] = -10000.0
@@ -331,27 +313,20 @@ class CRF(nn.Module):
         assert tag_size == self.tagset_size + 2
         mask = mask.transpose(1, 0).contiguous()
         ins_num = seq_len * batch_size
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (START_TAG), :].clone().view(batch_size,
-            tag_size, 1)
+        partition = inivalues[:, (START_TAG), :].clone().view(batch_size, tag_size, 1)
         for idx, cur_values in seq_iter:
-            cur_values = cur_values + partition.contiguous().view(batch_size,
-                tag_size, 1).expand(batch_size, tag_size, tag_size)
+            cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             cur_partition = log_sum_exp(cur_values, tag_size)
-            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size,
-                tag_size)
+            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size, tag_size)
             masked_cur_partition = cur_partition.masked_select(mask_idx)
             mask_idx = mask_idx.contiguous().view(batch_size, tag_size, 1)
             partition.masked_scatter_(mask_idx, masked_cur_partition)
-        cur_values = self.transitions.view(1, tag_size, tag_size).expand(
-            batch_size, tag_size, tag_size) + partition.contiguous().view(
-            batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
+        cur_values = self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
         cur_partition = log_sum_exp(cur_values, tag_size)
         final_partition = cur_partition[:, (STOP_TAG)]
         return final_partition.sum(), scores
@@ -372,46 +347,34 @@ class CRF(nn.Module):
         length_mask = torch.sum(mask.long(), dim=1).view(batch_size, 1).long()
         mask = mask.transpose(1, 0).contiguous()
         ins_num = seq_len * batch_size
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         back_points = list()
         partition_history = list()
         mask = (1 - mask.long()).byte()
         _, inivalues = next(seq_iter)
-        partition = inivalues[:, (START_TAG), :].clone().view(batch_size,
-            tag_size)
+        partition = inivalues[:, (START_TAG), :].clone().view(batch_size, tag_size)
         partition_history.append(partition)
         for idx, cur_values in seq_iter:
-            cur_values = cur_values + partition.contiguous().view(batch_size,
-                tag_size, 1).expand(batch_size, tag_size, tag_size)
+            cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             partition, cur_bp = torch.max(cur_values, 1)
             partition_history.append(partition)
-            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(
-                batch_size, tag_size), 0)
+            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(batch_size, tag_size), 0)
             back_points.append(cur_bp)
-        partition_history = torch.cat(partition_history, 0).view(seq_len,
-            batch_size, -1).transpose(1, 0).contiguous()
-        last_position = length_mask.view(batch_size, 1, 1).expand(batch_size,
-            1, tag_size) - 1
-        last_partition = torch.gather(partition_history, 1, last_position
-            ).view(batch_size, tag_size, 1)
-        last_values = last_partition.expand(batch_size, tag_size, tag_size
-            ) + self.transitions.view(1, tag_size, tag_size).expand(batch_size,
-            tag_size, tag_size)
+        partition_history = torch.cat(partition_history, 0).view(seq_len, batch_size, -1).transpose(1, 0).contiguous()
+        last_position = length_mask.view(batch_size, 1, 1).expand(batch_size, 1, tag_size) - 1
+        last_partition = torch.gather(partition_history, 1, last_position).view(batch_size, tag_size, 1)
+        last_values = last_partition.expand(batch_size, tag_size, tag_size) + self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size)
         _, last_bp = torch.max(last_values, 1)
         pad_zero = autograd.Variable(torch.zeros(batch_size, tag_size)).long()
         if self.gpu:
             pad_zero = pad_zero
         back_points.append(pad_zero)
-        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size
-            )
+        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size)
         pointer = last_bp[:, (STOP_TAG)]
-        insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(
-            batch_size, 1, tag_size)
+        insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(batch_size, 1, tag_size)
         back_points = back_points.transpose(1, 0).contiguous()
         back_points.scatter_(1, last_position, insert_last)
         back_points = back_points.transpose(1, 0).contiguous()
@@ -420,8 +383,7 @@ class CRF(nn.Module):
             decode_idx = decode_idx
         decode_idx[-1] = pointer.data
         for idx in range(len(back_points) - 2, -1, -1):
-            pointer = torch.gather(back_points[idx], 1, pointer.contiguous(
-                ).view(batch_size, 1))
+            pointer = torch.gather(back_points[idx], 1, pointer.contiguous().view(batch_size, 1))
             decode_idx[idx] = pointer.data
         path_score = None
         decode_idx = decode_idx.transpose(1, 0)
@@ -450,17 +412,13 @@ class CRF(nn.Module):
             if idx == 0:
                 new_tags[:, (0)] = (tag_size - 2) * tag_size + tags[:, (0)]
             else:
-                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:,
-                    (idx)]
-        end_transition = self.transitions[:, (STOP_TAG)].contiguous().view(
-            1, tag_size).expand(batch_size, tag_size)
+                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:, (idx)]
+        end_transition = self.transitions[:, (STOP_TAG)].contiguous().view(1, tag_size).expand(batch_size, tag_size)
         length_mask = torch.sum(mask.long(), dim=1).view(batch_size, 1).long()
         end_ids = torch.gather(tags, 1, length_mask - 1)
         end_energy = torch.gather(end_transition, 1, end_ids)
-        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len,
-            batch_size, 1)
-        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2,
-            new_tags).view(seq_len, batch_size)
+        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len, batch_size, 1)
+        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2, new_tags).view(seq_len, batch_size)
         tg_energy = tg_energy.masked_select(mask.transpose(1, 0))
         gold_score = tg_energy.sum() + end_energy.sum()
         return gold_score
@@ -488,10 +446,8 @@ class CRF(nn.Module):
         length_mask = torch.sum(mask.long(), dim=1).view(batch_size, 1).long()
         mask = mask.transpose(1, 0).contiguous()
         ins_num = seq_len * batch_size
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         back_points = list()
@@ -499,51 +455,35 @@ class CRF(nn.Module):
         mask = (1 - mask.long()).byte()
         _, inivalues = next(seq_iter)
         partition = inivalues[:, (START_TAG), :].clone()
-        partition_history.append(partition.view(batch_size, tag_size, 1).
-            expand(batch_size, tag_size, nbest))
+        partition_history.append(partition.view(batch_size, tag_size, 1).expand(batch_size, tag_size, nbest))
         for idx, cur_values in seq_iter:
             if idx == 1:
-                cur_values = cur_values.view(batch_size, tag_size, tag_size
-                    ) + partition.contiguous().view(batch_size, tag_size, 1
-                    ).expand(batch_size, tag_size, tag_size)
+                cur_values = cur_values.view(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             else:
-                cur_values = cur_values.view(batch_size, tag_size, 1, tag_size
-                    ).expand(batch_size, tag_size, nbest, tag_size
-                    ) + partition.contiguous().view(batch_size, tag_size,
-                    nbest, 1).expand(batch_size, tag_size, nbest, tag_size)
-                cur_values = cur_values.view(batch_size, tag_size * nbest,
-                    tag_size)
+                cur_values = cur_values.view(batch_size, tag_size, 1, tag_size).expand(batch_size, tag_size, nbest, tag_size) + partition.contiguous().view(batch_size, tag_size, nbest, 1).expand(batch_size, tag_size, nbest, tag_size)
+                cur_values = cur_values.view(batch_size, tag_size * nbest, tag_size)
             partition, cur_bp = torch.topk(cur_values, nbest, 1)
             if idx == 1:
                 cur_bp = cur_bp * nbest
             partition = partition.transpose(2, 1)
             cur_bp = cur_bp.transpose(2, 1)
             partition_history.append(partition)
-            cur_bp.masked_fill_(mask[idx].view(batch_size, 1, 1).expand(
-                batch_size, tag_size, nbest), 0)
+            cur_bp.masked_fill_(mask[idx].view(batch_size, 1, 1).expand(batch_size, tag_size, nbest), 0)
             back_points.append(cur_bp)
-        partition_history = torch.cat(partition_history, 0).view(seq_len,
-            batch_size, tag_size, nbest).transpose(1, 0).contiguous()
-        last_position = length_mask.view(batch_size, 1, 1, 1).expand(batch_size
-            , 1, tag_size, nbest) - 1
-        last_partition = torch.gather(partition_history, 1, last_position
-            ).view(batch_size, tag_size, nbest, 1)
-        last_values = last_partition.expand(batch_size, tag_size, nbest,
-            tag_size) + self.transitions.view(1, tag_size, 1, tag_size).expand(
-            batch_size, tag_size, nbest, tag_size)
+        partition_history = torch.cat(partition_history, 0).view(seq_len, batch_size, tag_size, nbest).transpose(1, 0).contiguous()
+        last_position = length_mask.view(batch_size, 1, 1, 1).expand(batch_size, 1, tag_size, nbest) - 1
+        last_partition = torch.gather(partition_history, 1, last_position).view(batch_size, tag_size, nbest, 1)
+        last_values = last_partition.expand(batch_size, tag_size, nbest, tag_size) + self.transitions.view(1, tag_size, 1, tag_size).expand(batch_size, tag_size, nbest, tag_size)
         last_values = last_values.view(batch_size, tag_size * nbest, tag_size)
         end_partition, end_bp = torch.topk(last_values, nbest, 1)
         end_bp = end_bp.transpose(2, 1)
-        pad_zero = autograd.Variable(torch.zeros(batch_size, tag_size, nbest)
-            ).long()
+        pad_zero = autograd.Variable(torch.zeros(batch_size, tag_size, nbest)).long()
         if self.gpu:
             pad_zero = pad_zero
         back_points.append(pad_zero)
-        back_points = torch.cat(back_points).view(seq_len, batch_size,
-            tag_size, nbest)
+        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size, nbest)
         pointer = end_bp[:, (STOP_TAG), :]
-        insert_last = pointer.contiguous().view(batch_size, 1, 1, nbest
-            ).expand(batch_size, 1, tag_size, nbest)
+        insert_last = pointer.contiguous().view(batch_size, 1, 1, nbest).expand(batch_size, 1, tag_size, nbest)
         back_points = back_points.transpose(1, 0).contiguous()
         back_points.scatter_(1, last_position, insert_last)
         """
@@ -553,25 +493,19 @@ class CRF(nn.Module):
         x,x,6,0,0,0,0,0,0,0
         """
         back_points = back_points.transpose(1, 0).contiguous()
-        decode_idx = autograd.Variable(torch.LongTensor(seq_len, batch_size,
-            nbest))
+        decode_idx = autograd.Variable(torch.LongTensor(seq_len, batch_size, nbest))
         if self.gpu:
             decode_idx = decode_idx
         decode_idx[-1] = pointer.data / nbest
         for idx in range(len(back_points) - 2, -1, -1):
-            new_pointer = torch.gather(back_points[idx].view(batch_size, 
-                tag_size * nbest), 1, pointer.contiguous().view(batch_size,
-                nbest))
+            new_pointer = torch.gather(back_points[idx].view(batch_size, tag_size * nbest), 1, pointer.contiguous().view(batch_size, nbest))
             decode_idx[idx] = new_pointer.data / nbest
-            pointer = new_pointer + pointer.contiguous().view(batch_size, nbest
-                ) * mask[idx].view(batch_size, 1).expand(batch_size, nbest
-                ).long()
+            pointer = new_pointer + pointer.contiguous().view(batch_size, nbest) * mask[idx].view(batch_size, 1).expand(batch_size, nbest).long()
         path_score = None
         decode_idx = decode_idx.transpose(1, 0)
         scores = end_partition[:, :, (STOP_TAG)]
         max_scores, _ = torch.max(scores, 1)
-        minus_scores = scores - max_scores.view(batch_size, 1).expand(
-            batch_size, nbest)
+        minus_scores = scores - max_scores.view(batch_size, 1).expand(batch_size, nbest)
         path_score = F.softmax(minus_scores, 1)
         return path_score, decode_idx
 
@@ -581,10 +515,8 @@ class LSTM_attention(nn.Module):
 
     def __init__(self, lstm_hidden, bilstm_flag, data):
         super(LSTM_attention, self).__init__()
-        self.lstm = nn.LSTM(lstm_hidden * 4, lstm_hidden, num_layers=1,
-            batch_first=True, bidirectional=bilstm_flag)
-        self.label_attn = multihead_attention(data.HP_hidden_dim, num_heads
-            =data.num_attention_head, dropout_rate=data.HP_dropout)
+        self.lstm = nn.LSTM(lstm_hidden * 4, lstm_hidden, num_layers=1, batch_first=True, bidirectional=bilstm_flag)
+        self.label_attn = multihead_attention(data.HP_hidden_dim, num_heads=data.num_attention_head, dropout_rate=data.HP_dropout)
         self.droplstm = nn.Dropout(data.HP_dropout)
         self.gpu = data.HP_gpu
         if self.gpu:
@@ -592,21 +524,18 @@ class LSTM_attention(nn.Module):
             self.label_attn = self.label_attn
 
     def forward(self, lstm_out, label_embs, word_seq_lengths, hidden):
-        lstm_out = pack_padded_sequence(input=lstm_out, lengths=
-            word_seq_lengths.cpu().numpy(), batch_first=True)
+        lstm_out = pack_padded_sequence(input=lstm_out, lengths=word_seq_lengths.cpu().numpy(), batch_first=True)
         lstm_out, hidden = self.lstm(lstm_out, hidden)
         lstm_out, _ = pad_packed_sequence(lstm_out)
         lstm_out = self.droplstm(lstm_out.transpose(1, 0))
-        label_attention_output = self.label_attn(lstm_out, label_embs,
-            label_embs)
+        label_attention_output = self.label_attn(lstm_out, label_embs, label_embs)
         lstm_out = torch.cat([lstm_out, label_attention_output], -1)
         return lstm_out
 
 
 class multihead_attention(nn.Module):
 
-    def __init__(self, num_units, num_heads=1, dropout_rate=0, gpu=True,
-        causality=False):
+    def __init__(self, num_units, num_heads=1, dropout_rate=0, gpu=True, causality=False):
         """Applies multihead attention.
         Args:
             num_units: A scalar. Attention size.
@@ -620,12 +549,9 @@ class multihead_attention(nn.Module):
         self.num_heads = num_heads
         self.dropout_rate = dropout_rate
         self.causality = causality
-        self.Q_proj = nn.Sequential(nn.Linear(self.num_units, self.
-            num_units), nn.ReLU())
-        self.K_proj = nn.Sequential(nn.Linear(self.num_units, self.
-            num_units), nn.ReLU())
-        self.V_proj = nn.Sequential(nn.Linear(self.num_units, self.
-            num_units), nn.ReLU())
+        self.Q_proj = nn.Sequential(nn.Linear(self.num_units, self.num_units), nn.ReLU())
+        self.K_proj = nn.Sequential(nn.Linear(self.num_units, self.num_units), nn.ReLU())
+        self.V_proj = nn.Sequential(nn.Linear(self.num_units, self.num_units), nn.ReLU())
         if self.gpu:
             self.Q_proj = self.Q_proj
             self.K_proj = self.K_proj
@@ -645,8 +571,7 @@ class multihead_attention(nn.Module):
             outputs = F.softmax(outputs, dim=-1)
         query_masks = torch.sign(torch.abs(torch.sum(queries, dim=-1)))
         query_masks = query_masks.repeat(self.num_heads, 1)
-        query_masks = torch.unsqueeze(query_masks, 2).repeat(1, 1, keys.
-            size()[1])
+        query_masks = torch.unsqueeze(query_masks, 2).repeat(1, 1, keys.size()[1])
         outputs = outputs * query_masks
         outputs = self.output_dropout(outputs)
         if last_layer == True:
@@ -674,36 +599,26 @@ class SeqModel(nn.Module):
         if self.use_crf:
             self.crf = CRF(label_size, self.gpu)
 
-    def neg_log_likelihood_loss(self, word_inputs, feature_inputs,
-        word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover,
-        batch_label, mask, input_label_seq_tensor):
-        outs = self.word_hidden(word_inputs, feature_inputs,
-            word_seq_lengths, char_inputs, char_seq_lengths,
-            char_seq_recover, input_label_seq_tensor)
+    def neg_log_likelihood_loss(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, batch_label, mask, input_label_seq_tensor):
+        outs = self.word_hidden(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
         batch_size = word_inputs.size(0)
         seq_len = word_inputs.size(1)
         if self.use_crf:
-            total_loss = self.crf.neg_log_likelihood_loss(outs, mask,
-                batch_label)
+            total_loss = self.crf.neg_log_likelihood_loss(outs, mask, batch_label)
             scores, tag_seq = self.crf._viterbi_decode(outs, mask)
         else:
             loss_function = nn.NLLLoss(ignore_index=0, size_average=False)
             outs = outs.view(batch_size * seq_len, -1)
             score = F.log_softmax(outs, 1)
-            total_loss = loss_function(score, batch_label.view(batch_size *
-                seq_len))
+            total_loss = loss_function(score, batch_label.view(batch_size * seq_len))
             _, tag_seq = torch.max(score, 1)
             tag_seq = tag_seq.view(batch_size, seq_len)
         if self.average_batch:
             total_loss = total_loss / batch_size
         return total_loss, tag_seq
 
-    def forward(self, word_inputs, feature_inputs, word_seq_lengths,
-        char_inputs, char_seq_lengths, char_seq_recover, mask,
-        input_label_seq_tensor):
-        outs = self.word_hidden(word_inputs, feature_inputs,
-            word_seq_lengths, char_inputs, char_seq_lengths,
-            char_seq_recover, input_label_seq_tensor)
+    def forward(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, mask, input_label_seq_tensor):
+        outs = self.word_hidden(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
         batch_size = word_inputs.size(0)
         seq_len = word_inputs.size(1)
         outs = outs.view(batch_size * seq_len, -1)
@@ -727,61 +642,38 @@ class WordRep(nn.Module):
             self.char_hidden_dim = data.HP_char_hidden_dim
             self.char_embedding_dim = data.char_emb_dim
             if data.char_feature_extractor == 'CNN':
-                self.char_feature = CharCNN(data.char_alphabet.size(), data
-                    .pretrain_char_embedding, self.char_embedding_dim, self
-                    .char_hidden_dim, data.HP_dropout, self.gpu)
+                self.char_feature = CharCNN(data.char_alphabet.size(), data.pretrain_char_embedding, self.char_embedding_dim, self.char_hidden_dim, data.HP_dropout, self.gpu)
             elif data.char_feature_extractor == 'LSTM':
-                self.char_feature = CharBiLSTM(data.char_alphabet.size(),
-                    data.pretrain_char_embedding, self.char_embedding_dim,
-                    self.char_hidden_dim, data.HP_dropout, self.gpu)
+                self.char_feature = CharBiLSTM(data.char_alphabet.size(), data.pretrain_char_embedding, self.char_embedding_dim, self.char_hidden_dim, data.HP_dropout, self.gpu)
             elif data.char_feature_extractor == 'GRU':
-                self.char_feature = CharBiGRU(data.char_alphabet.size(),
-                    data.pretrain_char_embedding, self.char_embedding_dim,
-                    self.char_hidden_dim, data.HP_dropout, self.gpu)
+                self.char_feature = CharBiGRU(data.char_alphabet.size(), data.pretrain_char_embedding, self.char_embedding_dim, self.char_hidden_dim, data.HP_dropout, self.gpu)
             elif data.char_feature_extractor == 'ALL':
                 self.char_all_feature = True
-                self.char_feature = CharCNN(data.char_alphabet.size(), data
-                    .pretrain_char_embedding, self.char_embedding_dim, self
-                    .char_hidden_dim, data.HP_dropout, self.gpu)
-                self.char_feature_extra = CharBiLSTM(data.char_alphabet.
-                    size(), data.pretrain_char_embedding, self.
-                    char_embedding_dim, self.char_hidden_dim, data.
-                    HP_dropout, self.gpu)
+                self.char_feature = CharCNN(data.char_alphabet.size(), data.pretrain_char_embedding, self.char_embedding_dim, self.char_hidden_dim, data.HP_dropout, self.gpu)
+                self.char_feature_extra = CharBiLSTM(data.char_alphabet.size(), data.pretrain_char_embedding, self.char_embedding_dim, self.char_hidden_dim, data.HP_dropout, self.gpu)
             else:
                 None
                 exit(0)
         self.embedding_dim = data.word_emb_dim
         self.drop = nn.Dropout(data.HP_dropout)
-        self.word_embedding = nn.Embedding(data.word_alphabet.size(), self.
-            embedding_dim)
+        self.word_embedding = nn.Embedding(data.word_alphabet.size(), self.embedding_dim)
         if data.pretrain_word_embedding is not None:
-            self.word_embedding.weight.data.copy_(torch.from_numpy(data.
-                pretrain_word_embedding))
+            self.word_embedding.weight.data.copy_(torch.from_numpy(data.pretrain_word_embedding))
         else:
-            self.word_embedding.weight.data.copy_(torch.from_numpy(self.
-                random_embedding(data.word_alphabet.size(), self.
-                embedding_dim)))
+            self.word_embedding.weight.data.copy_(torch.from_numpy(self.random_embedding(data.word_alphabet.size(), self.embedding_dim)))
         self.label_dim = data.HP_hidden_dim
-        self.label_embedding = nn.Embedding(data.label_alphabet_size, self.
-            label_dim)
-        self.label_embedding.weight.data.copy_(torch.from_numpy(self.
-            random_embedding_label(data.label_alphabet_size, self.label_dim,
-            data.label_embedding_scale)))
+        self.label_embedding = nn.Embedding(data.label_alphabet_size, self.label_dim)
+        self.label_embedding.weight.data.copy_(torch.from_numpy(self.random_embedding_label(data.label_alphabet_size, self.label_dim, data.label_embedding_scale)))
         self.feature_num = data.feature_num
         self.feature_embedding_dims = data.feature_emb_dims
         self.feature_embeddings = nn.ModuleList()
         for idx in range(self.feature_num):
-            self.feature_embeddings.append(nn.Embedding(data.
-                feature_alphabets[idx].size(), self.feature_embedding_dims[
-                idx]))
+            self.feature_embeddings.append(nn.Embedding(data.feature_alphabets[idx].size(), self.feature_embedding_dims[idx]))
         for idx in range(self.feature_num):
             if data.pretrain_feature_embeddings[idx] is not None:
-                self.feature_embeddings[idx].weight.data.copy_(torch.
-                    from_numpy(data.pretrain_feature_embeddings[idx]))
+                self.feature_embeddings[idx].weight.data.copy_(torch.from_numpy(data.pretrain_feature_embeddings[idx]))
             else:
-                self.feature_embeddings[idx].weight.data.copy_(torch.
-                    from_numpy(self.random_embedding(data.feature_alphabets
-                    [idx].size(), self.feature_embedding_dims[idx])))
+                self.feature_embeddings[idx].weight.data.copy_(torch.from_numpy(self.random_embedding(data.feature_alphabets[idx].size(), self.feature_embedding_dims[idx])))
         if self.gpu:
             self.drop = self.drop
             self.word_embedding = self.word_embedding
@@ -793,20 +685,16 @@ class WordRep(nn.Module):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         scale = np.sqrt(3.0 / embedding_dim)
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1,
-                embedding_dim])
+            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
     def random_embedding_label(self, vocab_size, embedding_dim, scale):
         pretrain_emb = np.empty([vocab_size, embedding_dim])
         for index in range(vocab_size):
-            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1,
-                embedding_dim])
+            pretrain_emb[(index), :] = np.random.uniform(-scale, scale, [1, embedding_dim])
         return pretrain_emb
 
-    def forward(self, word_inputs, feature_inputs, word_seq_lengths,
-        char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor
-        ):
+    def forward(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor):
         """
             input:
                 word_inputs: (batch_size, sent_len)
@@ -827,17 +715,14 @@ class WordRep(nn.Module):
             word_list.append(self.feature_embeddings[idx](feature_inputs[idx]))
         label_embs = self.label_embedding(input_label_seq_tensor)
         if self.use_char:
-            char_features = self.char_feature.get_last_hiddens(char_inputs,
-                char_seq_lengths.cpu().numpy())
+            char_features = self.char_feature.get_last_hiddens(char_inputs, char_seq_lengths.cpu().numpy())
             char_features = char_features[char_seq_recover]
             char_features = char_features.view(batch_size, sent_len, -1)
             word_list.append(char_features)
             if self.char_all_feature:
-                char_features_extra = self.char_feature_extra.get_last_hiddens(
-                    char_inputs, char_seq_lengths.cpu().numpy())
+                char_features_extra = self.char_feature_extra.get_last_hiddens(char_inputs, char_seq_lengths.cpu().numpy())
                 char_features_extra = char_features_extra[char_seq_recover]
-                char_features_extra = char_features_extra.view(batch_size,
-                    sent_len, -1)
+                char_features_extra = char_features_extra.view(batch_size, sent_len, -1)
                 word_list.append(char_features_extra)
         word_embs = torch.cat(word_list, 2)
         word_represent = self.drop(word_embs)
@@ -867,18 +752,11 @@ class WordSequence(nn.Module):
         else:
             lstm_hidden = data.HP_hidden_dim
         self.word_feature_extractor = data.word_feature_extractor
-        self.lstm_first = nn.LSTM(self.input_size, lstm_hidden, num_layers=
-            1, batch_first=True, bidirectional=self.bilstm_flag)
-        self.lstm_layer = nn.LSTM(lstm_hidden * 4, lstm_hidden, num_layers=
-            1, batch_first=True, bidirectional=self.bilstm_flag)
-        self.self_attention_first = multihead_attention(data.HP_hidden_dim,
-            num_heads=data.num_attention_head, dropout_rate=data.HP_dropout,
-            gpu=self.gpu)
-        self.self_attention_last = multihead_attention(data.HP_hidden_dim,
-            num_heads=1, dropout_rate=0, gpu=self.gpu)
-        self.lstm_attention_stack = nn.ModuleList([LSTM_attention(
-            lstm_hidden, self.bilstm_flag, data) for _ in range(int(self.
-            num_of_lstm_layer) - 2)])
+        self.lstm_first = nn.LSTM(self.input_size, lstm_hidden, num_layers=1, batch_first=True, bidirectional=self.bilstm_flag)
+        self.lstm_layer = nn.LSTM(lstm_hidden * 4, lstm_hidden, num_layers=1, batch_first=True, bidirectional=self.bilstm_flag)
+        self.self_attention_first = multihead_attention(data.HP_hidden_dim, num_heads=data.num_attention_head, dropout_rate=data.HP_dropout, gpu=self.gpu)
+        self.self_attention_last = multihead_attention(data.HP_hidden_dim, num_heads=1, dropout_rate=0, gpu=self.gpu)
+        self.lstm_attention_stack = nn.ModuleList([LSTM_attention(lstm_hidden, self.bilstm_flag, data) for _ in range(int(self.num_of_lstm_layer) - 2)])
         if self.gpu:
             self.droplstm = self.droplstm
             self.lstm_first = self.lstm_first
@@ -887,9 +765,7 @@ class WordSequence(nn.Module):
             self.self_attention_last = self.self_attention_last
             self.lstm_attention_stack = self.lstm_attention_stack
 
-    def forward(self, word_inputs, feature_inputs, word_seq_lengths,
-        char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor
-        ):
+    def forward(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor):
         """
             input:
                 word_inputs: (batch_size, sent_len)
@@ -901,21 +777,17 @@ class WordSequence(nn.Module):
             output:
                 Variable(batch_size, sent_len, hidden_dim)
         """
-        word_represent, label_embs = self.wordrep(word_inputs,
-            feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths,
-            char_seq_recover, input_label_seq_tensor)
+        word_represent, label_embs = self.wordrep(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
         """
         First LSTM layer (input word only)
         """
         lstm_out = word_represent
-        lstm_out = pack_padded_sequence(input=lstm_out, lengths=
-            word_seq_lengths.cpu().numpy(), batch_first=True)
+        lstm_out = pack_padded_sequence(input=lstm_out, lengths=word_seq_lengths.cpu().numpy(), batch_first=True)
         hidden = None
         lstm_out, hidden = self.lstm_first(lstm_out, hidden)
         lstm_out, _ = pad_packed_sequence(lstm_out)
         lstm_out = self.droplstm(lstm_out.transpose(1, 0))
-        attention_label = self.self_attention_first(lstm_out, label_embs,
-            label_embs)
+        attention_label = self.self_attention_first(lstm_out, label_embs, label_embs)
         lstm_out = torch.cat([lstm_out, attention_label], -1)
         for layer in self.lstm_attention_stack:
             lstm_out = layer(lstm_out, label_embs, word_seq_lengths, hidden)
@@ -923,13 +795,11 @@ class WordSequence(nn.Module):
         Last Layer 
         Attention weight calculate loss
         """
-        lstm_out = pack_padded_sequence(input=lstm_out, lengths=
-            word_seq_lengths.cpu().numpy(), batch_first=True)
+        lstm_out = pack_padded_sequence(input=lstm_out, lengths=word_seq_lengths.cpu().numpy(), batch_first=True)
         lstm_out, hidden = self.lstm_layer(lstm_out, hidden)
         lstm_out, _ = pad_packed_sequence(lstm_out)
         lstm_out = self.droplstm(lstm_out.transpose(1, 0))
-        lstm_out = self.self_attention_last(lstm_out, label_embs,
-            label_embs, True)
+        lstm_out = self.self_attention_last(lstm_out, label_embs, label_embs, True)
         return lstm_out
 
 
@@ -937,9 +807,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (multihead_attention,
+     lambda: ([], {'num_units': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_Nealcly_BiLSTM_LAN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(multihead_attention(*[], **{'num_units': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

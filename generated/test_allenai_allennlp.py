@@ -392,8 +392,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -622,8 +623,7 @@ class ConfigurationError(Exception):
         return self.message
 
 
-DataArray = TypeVar('DataArray', torch.Tensor, Dict[str, torch.Tensor],
-    Dict[str, Dict[str, torch.Tensor]])
+DataArray = TypeVar('DataArray', torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]])
 
 
 DEFAULT_NON_PADDED_NAMESPACES = '*tags', '*labels'
@@ -651,8 +651,7 @@ def _environment_variables() ->Dict[str, str]:
     """
     Wraps `os.environ` to filter out non-encodable values.
     """
-    return {key: value for key, value in os.environ.items() if
-        _is_encodable(value)}
+    return {key: value for key, value in os.environ.items() if _is_encodable(value)}
 
 
 def _is_dict_free(obj: Any) ->bool:
@@ -714,8 +713,7 @@ def _http_etag(url: str) ->Optional[str]:
     with _session_with_backoff() as session:
         response = session.head(url, allow_redirects=True)
     if response.status_code != 200:
-        raise IOError('HEAD request failed for url {} with status code {}'.
-            format(url, response.status_code))
+        raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
     return response.headers.get('ETag')
 
 
@@ -748,8 +746,7 @@ class Tqdm:
 def _get_s3_resource():
     session = boto3.session.Session()
     if session.get_credentials() is None:
-        s3_resource = session.resource('s3', config=botocore.client.Config(
-            signature_version=botocore.UNSIGNED))
+        s3_resource = session.resource('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
     else:
         s3_resource = session.resource('s3')
     return s3_resource
@@ -802,19 +799,13 @@ def get_from_cache(url: str, cache_dir: str=None) ->str:
         else:
             etag = _http_etag(url)
     except (ConnectionError, EndpointConnectionError):
-        logger.warning(
-            'Connection error occured while trying to fetch ETag for %s. Will attempt to use latest cached version of resource'
-            , url)
+        logger.warning('Connection error occured while trying to fetch ETag for %s. Will attempt to use latest cached version of resource', url)
         latest_cached = _find_latest_cached(url, cache_dir)
         if latest_cached:
-            logger.info(
-                'ETag request failed with connection error, using latest cached version of %s: %s'
-                , url, latest_cached)
+            logger.info('ETag request failed with connection error, using latest cached version of %s: %s', url, latest_cached)
             return latest_cached
         else:
-            logger.error(
-                'Connection failed while trying to fetch ETag, and no cached version of %s could be found'
-                , url)
+            logger.error('Connection failed while trying to fetch ETag, and no cached version of %s could be found', url)
             raise
     filename = url_to_filename(url, etag)
     cache_path = os.path.join(cache_dir, filename)
@@ -825,16 +816,14 @@ def get_from_cache(url: str, cache_dir: str=None) ->str:
             logger.info('cache of %s is up-to-date', url)
         else:
             with tempfile.NamedTemporaryFile() as temp_file:
-                logger.info('%s not found in cache, downloading to %s', url,
-                    temp_file.name)
+                logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
                 if url.startswith('s3://'):
                     _s3_get(url, temp_file)
                 else:
                     _http_get(url, temp_file)
                 temp_file.flush()
                 temp_file.seek(0)
-                logger.info('copying %s to cache at %s', temp_file.name,
-                    cache_path)
+                logger.info('copying %s to cache at %s', temp_file.name, cache_path)
                 with open(cache_path, 'wb') as cache_file:
                     shutil.copyfileobj(temp_file, cache_file)
                 logger.info('creating metadata file for %s', cache_path)
@@ -907,38 +896,29 @@ def unflatten(flat_dict: Dict[str, Any]) ->Dict[str, Any]:
 def parse_overrides(serialized_overrides: str) ->Dict[str, Any]:
     if serialized_overrides:
         ext_vars = _environment_variables()
-        return unflatten(json.loads(evaluate_snippet('',
-            serialized_overrides, ext_vars=ext_vars)))
+        return unflatten(json.loads(evaluate_snippet('', serialized_overrides, ext_vars=ext_vars)))
     else:
         return {}
 
 
-def with_fallback(preferred: Dict[str, Any], fallback: Dict[str, Any]) ->Dict[
-    str, Any]:
+def with_fallback(preferred: Dict[str, Any], fallback: Dict[str, Any]) ->Dict[str, Any]:
     """
     Deep merge two dicts, preferring values from `preferred`.
     """
 
     def merge(preferred_value: Any, fallback_value: Any) ->Any:
-        if isinstance(preferred_value, dict) and isinstance(fallback_value,
-            dict):
+        if isinstance(preferred_value, dict) and isinstance(fallback_value, dict):
             return with_fallback(preferred_value, fallback_value)
-        elif isinstance(preferred_value, dict) and isinstance(fallback_value,
-            list):
+        elif isinstance(preferred_value, dict) and isinstance(fallback_value, list):
             merged_list = fallback_value
             for elem_key, preferred_element in preferred_value.items():
                 try:
                     index = int(elem_key)
-                    merged_list[index] = merge(preferred_element,
-                        fallback_value[index])
+                    merged_list[index] = merge(preferred_element, fallback_value[index])
                 except ValueError:
-                    raise ConfigurationError(
-                        f'could not merge dicts - the preferred dict contains invalid keys (key {elem_key} is not a valid list index)'
-                        )
+                    raise ConfigurationError(f'could not merge dicts - the preferred dict contains invalid keys (key {elem_key} is not a valid list index)')
                 except IndexError:
-                    raise ConfigurationError(
-                        f'could not merge dicts - the preferred dict contains invalid keys (key {index} is out of bounds)'
-                        )
+                    raise ConfigurationError(f'could not merge dicts - the preferred dict contains invalid keys (key {index} is out of bounds)')
             return merged_list
         else:
             return copy.deepcopy(preferred_value)
@@ -989,8 +969,7 @@ def takes_kwargs(obj) ->bool:
         signature = inspect.signature(obj)
     else:
         raise ConfigurationError(f'object {obj} is not callable')
-    return any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.
-        parameters.values())
+    return any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values())
 
 
 def create_extras(cls: Type[T], extras: Dict[str, Any]) ->Dict[str, Any]:
@@ -1007,8 +986,7 @@ def create_extras(cls: Type[T], extras: Dict[str, Any]) ->Dict[str, Any]:
     if takes_kwargs(from_params_method):
         subextras = extras
     else:
-        subextras = {k: v for k, v in extras.items() if takes_arg(
-            from_params_method, k)}
+        subextras = {k: v for k, v in extras.items() if takes_arg(from_params_method, k)}
     return subextras
 
 
@@ -1029,8 +1007,7 @@ def infer_params(cls: Type[T], constructor: Callable[..., T]=None):
             super_class = super_class_candidate
             break
     if not super_class:
-        raise RuntimeError(
-            'found a kwargs parameter with no inspectable super class')
+        raise RuntimeError('found a kwargs parameter with no inspectable super class')
     super_parameters = infer_params(super_class)
     return {**super_parameters, **parameters}
 
@@ -1076,8 +1053,7 @@ def is_base_registrable(cls) ->bool:
         return False
     method_resolution_order = inspect.getmro(cls)[1:]
     for base_class in method_resolution_order:
-        if issubclass(base_class, Registrable
-            ) and base_class is not Registrable:
+        if issubclass(base_class, Registrable) and base_class is not Registrable:
             return False
     return True
 
@@ -1131,17 +1107,14 @@ class _NamespaceDependentDefaultDict(defaultdict):
         padded.
     """
 
-    def __init__(self, non_padded_namespaces: Iterable[str],
-        padded_function: Callable[[], Any], non_padded_function: Callable[[
-        ], Any]) ->None:
+    def __init__(self, non_padded_namespaces: Iterable[str], padded_function: Callable[[], Any], non_padded_function: Callable[[], Any]) ->None:
         self._non_padded_namespaces = set(non_padded_namespaces)
         self._padded_function = padded_function
         self._non_padded_function = non_padded_function
         super().__init__()
 
     def __missing__(self, key: str):
-        if any(namespace_match(pattern, key) for pattern in self.
-            _non_padded_namespaces):
+        if any(namespace_match(pattern, key) for pattern in self._non_padded_namespaces):
             value = self._non_padded_function()
         else:
             value = self._padded_function()
@@ -1154,10 +1127,8 @@ class _NamespaceDependentDefaultDict(defaultdict):
 
 class _IndexToTokenDefaultDict(_NamespaceDependentDefaultDict):
 
-    def __init__(self, non_padded_namespaces: Set[str], padding_token: str,
-        oov_token: str) ->None:
-        super().__init__(non_padded_namespaces, lambda : {(0):
-            padding_token, (1): oov_token}, lambda : {})
+    def __init__(self, non_padded_namespaces: Set[str], padding_token: str, oov_token: str) ->None:
+        super().__init__(non_padded_namespaces, lambda : {(0): padding_token, (1): oov_token}, lambda : {})
 
 
 _NEW_LINE_REGEX = re.compile('\\n|\\r\\n')
@@ -1165,10 +1136,8 @@ _NEW_LINE_REGEX = re.compile('\\n|\\r\\n')
 
 class _TokenToIndexDefaultDict(_NamespaceDependentDefaultDict):
 
-    def __init__(self, non_padded_namespaces: Set[str], padding_token: str,
-        oov_token: str) ->None:
-        super().__init__(non_padded_namespaces, lambda : {padding_token: 0,
-            oov_token: 1}, lambda : {})
+    def __init__(self, non_padded_namespaces: Set[str], padding_token: str, oov_token: str) ->None:
+        super().__init__(non_padded_namespaces, lambda : {padding_token: 0, oov_token: 1}, lambda : {})
 
 
 def _read_pretrained_tokens(embeddings_file_uri: str) ->List[str]:
@@ -1176,16 +1145,14 @@ def _read_pretrained_tokens(embeddings_file_uri: str) ->List[str]:
     logger.info('Reading pretrained tokens from: %s', embeddings_file_uri)
     tokens: List[str] = []
     with EmbeddingsTextFile(embeddings_file_uri) as embeddings_file:
-        for line_number, line in enumerate(Tqdm.tqdm(embeddings_file), start=1
-            ):
+        for line_number, line in enumerate(Tqdm.tqdm(embeddings_file), start=1):
             token_end = line.find(' ')
             if token_end >= 0:
                 token = line[:token_end]
                 tokens.append(token)
             else:
                 line_begin = line[:20] + '...' if len(line) > 20 else line
-                logger.warning('Skipping line number %d: %s', line_number,
-                    line_begin)
+                logger.warning('Skipping line number %d: %s', line_number, line_begin)
     return tokens
 
 
@@ -1242,8 +1209,7 @@ def tiny_value_of_dtype(dtype: torch.dtype):
         raise TypeError('Does not support dtype ' + str(dtype))
 
 
-def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-
-    1, memory_efficient: bool=False) ->torch.Tensor:
+def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-1, memory_efficient: bool=False) ->torch.Tensor:
     """
     `torch.nn.functional.softmax(vector)` does not work if some elements of `vector` should be
     masked.  This performs a softmax on just the non-masked portions of `vector`.  Passing
@@ -1271,17 +1237,14 @@ def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-
         if not memory_efficient:
             result = torch.nn.functional.softmax(vector * mask, dim=dim)
             result = result * mask
-            result = result / (result.sum(dim=dim, keepdim=True) +
-                tiny_value_of_dtype(result.dtype))
+            result = result / (result.sum(dim=dim, keepdim=True) + tiny_value_of_dtype(result.dtype))
         else:
-            masked_vector = vector.masked_fill(~mask, min_value_of_dtype(
-                vector.dtype))
+            masked_vector = vector.masked_fill(~mask, min_value_of_dtype(vector.dtype))
             result = torch.nn.functional.softmax(masked_vector, dim=dim)
     return result
 
 
-def block_orthogonal(tensor: torch.Tensor, split_sizes: List[int], gain:
-    float=1.0) ->None:
+def block_orthogonal(tensor: torch.Tensor, split_sizes: List[int], gain: float=1.0) ->None:
     """
     An initializer which allows initializing model parameters in "blocks". This is helpful
     in the case of recurrent models which use multiple gates applied to linear projections,
@@ -1303,17 +1266,12 @@ def block_orthogonal(tensor: torch.Tensor, split_sizes: List[int], gain:
     data = tensor.data
     sizes = list(tensor.size())
     if any(a % b != 0 for a, b in zip(sizes, split_sizes)):
-        raise ConfigurationError(
-            'tensor dimensions must be divisible by their respective split_sizes. Found size: {} and split_sizes: {}'
-            .format(sizes, split_sizes))
-    indexes = [list(range(0, max_size, split)) for max_size, split in zip(
-        sizes, split_sizes)]
+        raise ConfigurationError('tensor dimensions must be divisible by their respective split_sizes. Found size: {} and split_sizes: {}'.format(sizes, split_sizes))
+    indexes = [list(range(0, max_size, split)) for max_size, split in zip(sizes, split_sizes)]
     for block_start_indices in itertools.product(*indexes):
         index_and_step_tuples = zip(block_start_indices, split_sizes)
-        block_slice = tuple(slice(start_index, start_index + step) for 
-            start_index, step in index_and_step_tuples)
-        data[block_slice] = torch.nn.init.orthogonal_(tensor[block_slice].
-            contiguous(), gain=gain)
+        block_slice = tuple(slice(start_index, start_index + step) for start_index, step in index_and_step_tuples)
+        data[block_slice] = torch.nn.init.orthogonal_(tensor[block_slice].contiguous(), gain=gain)
 
 
 class AugmentedLSTMCell(torch.nn.Module):
@@ -1339,8 +1297,7 @@ class AugmentedLSTMCell(torch.nn.Module):
         Fused weight matrix which computes a linear function over the states.
     """
 
-    def __init__(self, embed_dim: int, lstm_dim: int, use_highway: bool=
-        True, use_bias: bool=True):
+    def __init__(self, embed_dim: int, lstm_dim: int, use_highway: bool=True, use_bias: bool=True):
         super().__init__()
         self.embed_dim = embed_dim
         self.lstm_dim = lstm_dim
@@ -1349,29 +1306,20 @@ class AugmentedLSTMCell(torch.nn.Module):
         if use_highway:
             self._highway_inp_proj_start = 5 * self.lstm_dim
             self._highway_inp_proj_end = 6 * self.lstm_dim
-            self.input_linearity = torch.nn.Linear(self.embed_dim, self.
-                _highway_inp_proj_end, bias=self.use_bias)
-            self.state_linearity = torch.nn.Linear(self.lstm_dim, self.
-                _highway_inp_proj_start, bias=True)
+            self.input_linearity = torch.nn.Linear(self.embed_dim, self._highway_inp_proj_end, bias=self.use_bias)
+            self.state_linearity = torch.nn.Linear(self.lstm_dim, self._highway_inp_proj_start, bias=True)
         else:
-            self.input_linearity = torch.nn.Linear(self.embed_dim, 4 * self
-                .lstm_dim, bias=self.use_bias)
-            self.state_linearity = torch.nn.Linear(self.lstm_dim, 4 * self.
-                lstm_dim, bias=True)
+            self.input_linearity = torch.nn.Linear(self.embed_dim, 4 * self.lstm_dim, bias=self.use_bias)
+            self.state_linearity = torch.nn.Linear(self.lstm_dim, 4 * self.lstm_dim, bias=True)
         self.reset_parameters()
 
     def reset_parameters(self):
-        block_orthogonal(self.input_linearity.weight.data, [self.lstm_dim,
-            self.embed_dim])
-        block_orthogonal(self.state_linearity.weight.data, [self.lstm_dim,
-            self.lstm_dim])
+        block_orthogonal(self.input_linearity.weight.data, [self.lstm_dim, self.embed_dim])
+        block_orthogonal(self.state_linearity.weight.data, [self.lstm_dim, self.lstm_dim])
         self.state_linearity.bias.data.fill_(0.0)
-        self.state_linearity.bias.data[self.lstm_dim:2 * self.lstm_dim].fill_(
-            1.0)
+        self.state_linearity.bias.data[self.lstm_dim:2 * self.lstm_dim].fill_(1.0)
 
-    def forward(self, x: torch.Tensor, states=Tuple[torch.Tensor, torch.
-        Tensor], variational_dropout_mask: Optional[torch.BoolTensor]=None
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, states=Tuple[torch.Tensor, torch.Tensor], variational_dropout_mask: Optional[torch.BoolTensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
         """
         !!! Warning
             DO NOT USE THIS LAYER DIRECTLY, instead use the AugmentedLSTM class
@@ -1397,18 +1345,15 @@ class AugmentedLSTMCell(torch.nn.Module):
             hidden_state = hidden_state * variational_dropout_mask
         projected_input = self.input_linearity(x)
         projected_state = self.state_linearity(hidden_state)
-        (input_gate) = (forget_gate) = (memory_init) = (output_gate) = (
-            highway_gate) = None
+        input_gate = forget_gate = memory_init = output_gate = highway_gate = None
         if self.use_highway:
             fused_op = projected_input[:, :5 * self.lstm_dim] + projected_state
             fused_chunked = torch.chunk(fused_op, 5, 1)
-            (input_gate, forget_gate, memory_init, output_gate, highway_gate
-                ) = fused_chunked
+            input_gate, forget_gate, memory_init, output_gate, highway_gate = fused_chunked
             highway_gate = torch.sigmoid(highway_gate)
         else:
             fused_op = projected_input + projected_state
-            input_gate, forget_gate, memory_init, output_gate = torch.chunk(
-                fused_op, 4, 1)
+            input_gate, forget_gate, memory_init, output_gate = torch.chunk(fused_op, 4, 1)
         input_gate = torch.sigmoid(input_gate)
         forget_gate = torch.sigmoid(forget_gate)
         memory_init = torch.tanh(memory_init)
@@ -1416,15 +1361,12 @@ class AugmentedLSTMCell(torch.nn.Module):
         memory = input_gate * memory_init + forget_gate * memory_state
         timestep_output: torch.Tensor = output_gate * torch.tanh(memory)
         if self.use_highway:
-            highway_input_projection = projected_input[:, self.
-                _highway_inp_proj_start:self._highway_inp_proj_end]
-            timestep_output = highway_gate * timestep_output + (1 -
-                highway_gate) * highway_input_projection
+            highway_input_projection = projected_input[:, self._highway_inp_proj_start:self._highway_inp_proj_end]
+            timestep_output = highway_gate * timestep_output + (1 - highway_gate) * highway_input_projection
         return timestep_output, memory
 
 
-def get_dropout_mask(dropout_probability: float, tensor_for_masking: torch.
-    Tensor):
+def get_dropout_mask(dropout_probability: float, tensor_for_masking: torch.Tensor):
     """
     Computes and returns an element-wise dropout mask for a given tensor, where
     each element in the mask is dropped out with probability dropout_probability.
@@ -1445,8 +1387,7 @@ def get_dropout_mask(dropout_probability: float, tensor_for_masking: torch.
         This scaling ensures expected values and variances of the output of applying this mask
         and the original tensor are the same.
     """
-    binary_mask = (torch.rand(tensor_for_masking.size()) > dropout_probability
-        ).to(tensor_for_masking.device)
+    binary_mask = (torch.rand(tensor_for_masking.size()) > dropout_probability).to(tensor_for_masking.device)
     dropout_mask = binary_mask.float().div(1.0 - dropout_probability)
     return dropout_mask
 
@@ -1482,21 +1423,16 @@ class AugmentedLstm(torch.nn.Module):
 
     """
 
-    def __init__(self, input_size: int, hidden_size: int, go_forward: bool=
-        True, recurrent_dropout_probability: float=0.0, use_highway: bool=
-        True, use_input_projection_bias: bool=True):
+    def __init__(self, input_size: int, hidden_size: int, go_forward: bool=True, recurrent_dropout_probability: float=0.0, use_highway: bool=True, use_input_projection_bias: bool=True):
         super().__init__()
         self.embed_dim = input_size
         self.lstm_dim = hidden_size
         self.go_forward = go_forward
         self.use_highway = use_highway
         self.recurrent_dropout_probability = recurrent_dropout_probability
-        self.cell = AugmentedLSTMCell(self.embed_dim, self.lstm_dim, self.
-            use_highway, use_input_projection_bias)
+        self.cell = AugmentedLSTMCell(self.embed_dim, self.lstm_dim, self.use_highway, use_input_projection_bias)
 
-    def forward(self, inputs: PackedSequence, states: Optional[Tuple[torch.
-        Tensor, torch.Tensor]]=None) ->Tuple[PackedSequence, Tuple[torch.
-        Tensor, torch.Tensor]]:
+    def forward(self, inputs: PackedSequence, states: Optional[Tuple[torch.Tensor, torch.Tensor]]=None) ->Tuple[PackedSequence, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Warning: Would be better to use the BiAugmentedLstm class in a regular model
 
@@ -1521,60 +1457,41 @@ class AugmentedLstm(torch.nn.Module):
 
         """
         if not isinstance(inputs, PackedSequence):
-            raise ConfigurationError(
-                'inputs must be PackedSequence but got %s' % type(inputs))
-        sequence_tensor, batch_lengths = pad_packed_sequence(inputs,
-            batch_first=True)
+            raise ConfigurationError('inputs must be PackedSequence but got %s' % type(inputs))
+        sequence_tensor, batch_lengths = pad_packed_sequence(inputs, batch_first=True)
         batch_size = sequence_tensor.size()[0]
         total_timesteps = sequence_tensor.size()[1]
-        output_accumulator = sequence_tensor.new_zeros(batch_size,
-            total_timesteps, self.lstm_dim)
+        output_accumulator = sequence_tensor.new_zeros(batch_size, total_timesteps, self.lstm_dim)
         if states is None:
-            full_batch_previous_memory = sequence_tensor.new_zeros(batch_size,
-                self.lstm_dim)
-            full_batch_previous_state = sequence_tensor.data.new_zeros(
-                batch_size, self.lstm_dim)
+            full_batch_previous_memory = sequence_tensor.new_zeros(batch_size, self.lstm_dim)
+            full_batch_previous_state = sequence_tensor.data.new_zeros(batch_size, self.lstm_dim)
         else:
             full_batch_previous_state = states[0].squeeze(0)
             full_batch_previous_memory = states[1].squeeze(0)
         current_length_index = batch_size - 1 if self.go_forward else 0
         if self.recurrent_dropout_probability > 0.0:
-            dropout_mask = get_dropout_mask(self.
-                recurrent_dropout_probability, full_batch_previous_memory)
+            dropout_mask = get_dropout_mask(self.recurrent_dropout_probability, full_batch_previous_memory)
         else:
             dropout_mask = None
         for timestep in range(total_timesteps):
-            index = (timestep if self.go_forward else total_timesteps -
-                timestep - 1)
+            index = timestep if self.go_forward else total_timesteps - timestep - 1
             if self.go_forward:
                 while batch_lengths[current_length_index] <= index:
                     current_length_index -= 1
             else:
-                while current_length_index < len(batch_lengths
-                    ) - 1 and batch_lengths[current_length_index + 1] > index:
+                while current_length_index < len(batch_lengths) - 1 and batch_lengths[current_length_index + 1] > index:
                     current_length_index += 1
-            previous_memory = full_batch_previous_memory[0:
-                current_length_index + 1].clone()
-            previous_state = full_batch_previous_state[0:
-                current_length_index + 1].clone()
-            timestep_input = sequence_tensor[0:current_length_index + 1, (
-                index)]
-            timestep_output, memory = self.cell(timestep_input, (
-                previous_state, previous_memory), dropout_mask[0:
-                current_length_index + 1] if dropout_mask is not None else None
-                )
-            full_batch_previous_memory = full_batch_previous_memory.data.clone(
-                )
+            previous_memory = full_batch_previous_memory[0:current_length_index + 1].clone()
+            previous_state = full_batch_previous_state[0:current_length_index + 1].clone()
+            timestep_input = sequence_tensor[0:current_length_index + 1, (index)]
+            timestep_output, memory = self.cell(timestep_input, (previous_state, previous_memory), dropout_mask[0:current_length_index + 1] if dropout_mask is not None else None)
+            full_batch_previous_memory = full_batch_previous_memory.data.clone()
             full_batch_previous_state = full_batch_previous_state.data.clone()
             full_batch_previous_memory[0:current_length_index + 1] = memory
-            full_batch_previous_state[0:current_length_index + 1
-                ] = timestep_output
-            output_accumulator[0:current_length_index + 1, (index), :
-                ] = timestep_output
-        output_accumulator = pack_padded_sequence(output_accumulator,
-            batch_lengths, batch_first=True)
-        final_state = full_batch_previous_state.unsqueeze(0
-            ), full_batch_previous_memory.unsqueeze(0)
+            full_batch_previous_state[0:current_length_index + 1] = timestep_output
+            output_accumulator[0:current_length_index + 1, (index), :] = timestep_output
+        output_accumulator = pack_padded_sequence(output_accumulator, batch_lengths, batch_first=True)
+        final_state = full_batch_previous_state.unsqueeze(0), full_batch_previous_memory.unsqueeze(0)
         return output_accumulator, final_state
 
 
@@ -1617,10 +1534,7 @@ class BiAugmentedLstm(torch.nn.Module):
         for a given batch element, all outputs past the sequence length for that batch are zero tensors.
     """
 
-    def __init__(self, input_size: int, hidden_size: int, num_layers: int=1,
-        bias: bool=True, recurrent_dropout_probability: float=0.0,
-        bidirectional: bool=False, padding_value: float=0.0, use_highway:
-        bool=True) ->None:
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int=1, bias: bool=True, recurrent_dropout_probability: float=0.0, bidirectional: bool=False, padding_value: float=0.0, use_highway: bool=True) ->None:
         super().__init__()
         self.input_size = input_size
         self.padding_value = padding_value
@@ -1636,22 +1550,13 @@ class BiAugmentedLstm(torch.nn.Module):
             self.backward_layers = torch.nn.ModuleList()
         lstm_embed_dim = self.input_size
         for _ in range(self.num_layers):
-            self.forward_layers.append(AugmentedLstm(lstm_embed_dim, self.
-                hidden_size, go_forward=True, recurrent_dropout_probability
-                =self.recurrent_dropout_probability, use_highway=self.
-                use_highway, use_input_projection_bias=self.use_bias))
+            self.forward_layers.append(AugmentedLstm(lstm_embed_dim, self.hidden_size, go_forward=True, recurrent_dropout_probability=self.recurrent_dropout_probability, use_highway=self.use_highway, use_input_projection_bias=self.use_bias))
             if self.bidirectional:
-                self.backward_layers.append(AugmentedLstm(lstm_embed_dim,
-                    self.hidden_size, go_forward=False,
-                    recurrent_dropout_probability=self.
-                    recurrent_dropout_probability, use_highway=self.
-                    use_highway, use_input_projection_bias=self.use_bias))
+                self.backward_layers.append(AugmentedLstm(lstm_embed_dim, self.hidden_size, go_forward=False, recurrent_dropout_probability=self.recurrent_dropout_probability, use_highway=self.use_highway, use_input_projection_bias=self.use_bias))
             lstm_embed_dim = self.hidden_size * num_directions
         self.representation_dim = lstm_embed_dim
 
-    def forward(self, inputs: torch.Tensor, states: Optional[Tuple[torch.
-        Tensor, torch.Tensor]]=None) ->Tuple[torch.Tensor, Tuple[torch.
-        Tensor, torch.Tensor]]:
+    def forward(self, inputs: torch.Tensor, states: Optional[Tuple[torch.Tensor, torch.Tensor]]=None) ->Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Given an input batch of sequential data such as word embeddings, produces
         a AugmentedLSTM representation of the sequential input and new state
@@ -1678,26 +1583,21 @@ class BiAugmentedLstm(torch.nn.Module):
 
         """
         if not isinstance(inputs, PackedSequence):
-            raise ConfigurationError(
-                'inputs must be PackedSequence but got %s' % type(inputs))
+            raise ConfigurationError('inputs must be PackedSequence but got %s' % type(inputs))
         if self.bidirectional:
             return self._forward_bidirectional(inputs, states)
         return self._forward_unidirectional(inputs, states)
 
-    def _forward_bidirectional(self, inputs: PackedSequence, states:
-        Optional[Tuple[torch.Tensor, torch.Tensor]]):
+    def _forward_bidirectional(self, inputs: PackedSequence, states: Optional[Tuple[torch.Tensor, torch.Tensor]]):
         output_sequence = inputs
         final_h = []
         final_c = []
         if not states:
             hidden_states = [None] * self.num_layers
         elif states[0].size()[0] != self.num_layers:
-            raise RuntimeError(
-                'Initial states were passed to forward() but the number of initial states does not match the number of layers.'
-                )
+            raise RuntimeError('Initial states were passed to forward() but the number of initial states does not match the number of layers.')
         else:
-            hidden_states = list(zip(states[0].chunk(self.num_layers, 0),
-                states[1].chunk(self.num_layers, 0)))
+            hidden_states = list(zip(states[0].chunk(self.num_layers, 0), states[1].chunk(self.num_layers, 0)))
         for i, state in enumerate(hidden_states):
             if state:
                 forward_state = state[0].chunk(2, -1)
@@ -1706,61 +1606,46 @@ class BiAugmentedLstm(torch.nn.Module):
                 forward_state = backward_state = None
             forward_layer = self.forward_layers[i]
             backward_layer = self.backward_layers[i]
-            forward_output, final_forward_state = forward_layer(output_sequence
-                , forward_state)
-            backward_output, final_backward_state = backward_layer(
-                output_sequence, backward_state)
-            forward_output, lengths = pad_packed_sequence(forward_output,
-                batch_first=True)
-            backward_output, _ = pad_packed_sequence(backward_output,
-                batch_first=True)
+            forward_output, final_forward_state = forward_layer(output_sequence, forward_state)
+            backward_output, final_backward_state = backward_layer(output_sequence, backward_state)
+            forward_output, lengths = pad_packed_sequence(forward_output, batch_first=True)
+            backward_output, _ = pad_packed_sequence(backward_output, batch_first=True)
             output_sequence = torch.cat([forward_output, backward_output], -1)
-            output_sequence = pack_padded_sequence(output_sequence, lengths,
-                batch_first=True)
+            output_sequence = pack_padded_sequence(output_sequence, lengths, batch_first=True)
             final_h.extend([final_forward_state[0], final_backward_state[0]])
             final_c.extend([final_forward_state[1], final_backward_state[1]])
         final_h = torch.cat(final_h, dim=0)
         final_c = torch.cat(final_c, dim=0)
         final_state_tuple = final_h, final_c
-        output_sequence, batch_lengths = pad_packed_sequence(output_sequence,
-            padding_value=self.padding_value, batch_first=True)
-        output_sequence = pack_padded_sequence(output_sequence,
-            batch_lengths, batch_first=True)
+        output_sequence, batch_lengths = pad_packed_sequence(output_sequence, padding_value=self.padding_value, batch_first=True)
+        output_sequence = pack_padded_sequence(output_sequence, batch_lengths, batch_first=True)
         return output_sequence, final_state_tuple
 
-    def _forward_unidirectional(self, inputs: PackedSequence, states:
-        Optional[Tuple[torch.Tensor, torch.Tensor]]):
+    def _forward_unidirectional(self, inputs: PackedSequence, states: Optional[Tuple[torch.Tensor, torch.Tensor]]):
         output_sequence = inputs
         final_h = []
         final_c = []
         if not states:
             hidden_states = [None] * self.num_layers
         elif states[0].size()[0] != self.num_layers:
-            raise RuntimeError(
-                'Initial states were passed to forward() but the number of initial states does not match the number of layers.'
-                )
+            raise RuntimeError('Initial states were passed to forward() but the number of initial states does not match the number of layers.')
         else:
-            hidden_states = list(zip(states[0].chunk(self.num_layers, 0),
-                states[1].chunk(self.num_layers, 0)))
+            hidden_states = list(zip(states[0].chunk(self.num_layers, 0), states[1].chunk(self.num_layers, 0)))
         for i, state in enumerate(hidden_states):
             forward_layer = self.forward_layers[i]
-            forward_output, final_forward_state = forward_layer(output_sequence
-                , state)
+            forward_output, final_forward_state = forward_layer(output_sequence, state)
             output_sequence = forward_output
             final_h.append(final_forward_state[0])
             final_c.append(final_forward_state[1])
         final_h = torch.cat(final_h, dim=0)
         final_c = torch.cat(final_c, dim=0)
         final_state_tuple = final_h, final_c
-        output_sequence, batch_lengths = pad_packed_sequence(output_sequence,
-            padding_value=self.padding_value, batch_first=True)
-        output_sequence = pack_padded_sequence(output_sequence,
-            batch_lengths, batch_first=True)
+        output_sequence, batch_lengths = pad_packed_sequence(output_sequence, padding_value=self.padding_value, batch_first=True)
+        output_sequence = pack_padded_sequence(output_sequence, batch_lengths, batch_first=True)
         return output_sequence, final_state_tuple
 
 
-def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor
-    ) ->torch.LongTensor:
+def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor) ->torch.LongTensor:
     """
     Compute sequence lengths for each batch element in a tensor using a
     binary mask.
@@ -1780,8 +1665,7 @@ def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor
     return mask.sum(-1)
 
 
-def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
-    keepdim: bool=False) ->torch.Tensor:
+def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int, keepdim: bool=False) ->torch.Tensor:
     """
     To calculate max along certain dimensions on masked values
 
@@ -1801,14 +1685,12 @@ def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
     `torch.Tensor`
         A `torch.Tensor` of including the maximum values.
     """
-    replaced_vector = vector.masked_fill(~mask, min_value_of_dtype(vector.
-        dtype))
+    replaced_vector = vector.masked_fill(~mask, min_value_of_dtype(vector.dtype))
     max_value, _ = replaced_vector.max(dim=dim, keepdim=keepdim)
     return max_value
 
 
-def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
-    keepdim: bool=False) ->torch.Tensor:
+def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int, keepdim: bool=False) ->torch.Tensor:
     """
     To calculate mean along certain dimensions on masked values
 
@@ -1831,12 +1713,10 @@ def masked_mean(vector: torch.Tensor, mask: torch.BoolTensor, dim: int,
     replaced_vector = vector.masked_fill(~mask, 0.0)
     value_sum = torch.sum(replaced_vector, dim=dim, keepdim=keepdim)
     value_count = torch.sum(mask, dim=dim, keepdim=keepdim)
-    return value_sum / value_count.float().clamp(min=tiny_value_of_dtype(
-        torch.float))
+    return value_sum / value_count.float().clamp(min=tiny_value_of_dtype(torch.float))
 
 
-def multi_perspective_match(vector1: torch.Tensor, vector2: torch.Tensor,
-    weight: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+def multi_perspective_match(vector1: torch.Tensor, vector2: torch.Tensor, weight: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
     """
     Calculate multi-perspective cosine matching between time-steps of vectors
     of the same length.
@@ -1867,8 +1747,7 @@ def multi_perspective_match(vector1: torch.Tensor, vector2: torch.Tensor,
     return similarity_single, similarity_multi
 
 
-def multi_perspective_match_pairwise(vector1: torch.Tensor, vector2: torch.
-    Tensor, weight: torch.Tensor) ->torch.Tensor:
+def multi_perspective_match_pairwise(vector1: torch.Tensor, vector2: torch.Tensor, weight: torch.Tensor) ->torch.Tensor:
     """
     Calculate multi-perspective cosine matching between each time step of
     one vector and each time step of another vector.
@@ -1890,16 +1769,13 @@ def multi_perspective_match_pairwise(vector1: torch.Tensor, vector2: torch.
     """
     num_perspectives = weight.size(0)
     weight = weight.unsqueeze(0).unsqueeze(2)
-    vector1 = weight * vector1.unsqueeze(1).expand(-1, num_perspectives, -1, -1
-        )
-    vector2 = weight * vector2.unsqueeze(1).expand(-1, num_perspectives, -1, -1
-        )
+    vector1 = weight * vector1.unsqueeze(1).expand(-1, num_perspectives, -1, -1)
+    vector2 = weight * vector2.unsqueeze(1).expand(-1, num_perspectives, -1, -1)
     vector1_norm = vector1.norm(p=2, dim=3, keepdim=True)
     vector2_norm = vector2.norm(p=2, dim=3, keepdim=True)
     mul_result = torch.matmul(vector1, vector2.transpose(2, 3))
     norm_value = vector1_norm * vector2_norm.transpose(2, 3)
-    return (mul_result / norm_value.clamp(min=tiny_value_of_dtype(
-        norm_value.dtype))).permute(0, 2, 3, 1)
+    return (mul_result / norm_value.clamp(min=tiny_value_of_dtype(norm_value.dtype))).permute(0, 2, 3, 1)
 
 
 VITERBI_DECODING = Tuple[List[int], float]
@@ -1925,21 +1801,17 @@ class ConditionalRandomField(torch.nn.Module):
         Whether to include the start and end transition parameters.
     """
 
-    def __init__(self, num_tags: int, constraints: List[Tuple[int, int]]=
-        None, include_start_end_transitions: bool=True) ->None:
+    def __init__(self, num_tags: int, constraints: List[Tuple[int, int]]=None, include_start_end_transitions: bool=True) ->None:
         super().__init__()
         self.num_tags = num_tags
         self.transitions = torch.nn.Parameter(torch.Tensor(num_tags, num_tags))
         if constraints is None:
-            constraint_mask = torch.Tensor(num_tags + 2, num_tags + 2).fill_(
-                1.0)
+            constraint_mask = torch.Tensor(num_tags + 2, num_tags + 2).fill_(1.0)
         else:
-            constraint_mask = torch.Tensor(num_tags + 2, num_tags + 2).fill_(
-                0.0)
+            constraint_mask = torch.Tensor(num_tags + 2, num_tags + 2).fill_(0.0)
             for i, j in constraints:
                 constraint_mask[i, j] = 1.0
-        self._constraint_mask = torch.nn.Parameter(constraint_mask,
-            requires_grad=False)
+        self._constraint_mask = torch.nn.Parameter(constraint_mask, requires_grad=False)
         self.include_start_end_transitions = include_start_end_transitions
         if include_start_end_transitions:
             self.start_transitions = torch.nn.Parameter(torch.Tensor(num_tags))
@@ -1952,8 +1824,7 @@ class ConditionalRandomField(torch.nn.Module):
             torch.nn.init.normal_(self.start_transitions)
             torch.nn.init.normal_(self.end_transitions)
 
-    def _input_likelihood(self, logits: torch.Tensor, mask: torch.BoolTensor
-        ) ->torch.Tensor:
+    def _input_likelihood(self, logits: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
         """
         Computes the (batch_size,) denominator term for the log-likelihood, which is the
         sum of the likelihoods across all possible state sequences.
@@ -1970,16 +1841,14 @@ class ConditionalRandomField(torch.nn.Module):
             transition_scores = self.transitions.view(1, num_tags, num_tags)
             broadcast_alpha = alpha.view(batch_size, num_tags, 1)
             inner = broadcast_alpha + emit_scores + transition_scores
-            alpha = util.logsumexp(inner, 1) * mask[i].view(batch_size, 1
-                ) + alpha * (~mask[i]).view(batch_size, 1)
+            alpha = util.logsumexp(inner, 1) * mask[i].view(batch_size, 1) + alpha * (~mask[i]).view(batch_size, 1)
         if self.include_start_end_transitions:
             stops = alpha + self.end_transitions.view(1, num_tags)
         else:
             stops = alpha
         return util.logsumexp(stops)
 
-    def _joint_likelihood(self, logits: torch.Tensor, tags: torch.Tensor,
-        mask: torch.BoolTensor) ->torch.Tensor:
+    def _joint_likelihood(self, logits: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
         """
         Computes the numerator term for the log-likelihood, which is just score(inputs, tags)
         """
@@ -1993,18 +1862,13 @@ class ConditionalRandomField(torch.nn.Module):
             score = 0.0
         for i in range(sequence_length - 1):
             current_tag, next_tag = tags[i], tags[i + 1]
-            transition_score = self.transitions[current_tag.view(-1),
-                next_tag.view(-1)]
-            emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)
-                ).squeeze(1)
-            score = score + transition_score * mask[i + 1] + emit_score * mask[
-                i]
+            transition_score = self.transitions[current_tag.view(-1), next_tag.view(-1)]
+            emit_score = logits[i].gather(1, current_tag.view(batch_size, 1)).squeeze(1)
+            score = score + transition_score * mask[i + 1] + emit_score * mask[i]
         last_tag_index = mask.sum(0).long() - 1
-        last_tags = tags.gather(0, last_tag_index.view(1, batch_size)).squeeze(
-            0)
+        last_tags = tags.gather(0, last_tag_index.view(1, batch_size)).squeeze(0)
         if self.include_start_end_transitions:
-            last_transition_score = self.end_transitions.index_select(0,
-                last_tags)
+            last_transition_score = self.end_transitions.index_select(0, last_tags)
         else:
             last_transition_score = 0.0
         last_inputs = logits[-1]
@@ -2013,8 +1877,7 @@ class ConditionalRandomField(torch.nn.Module):
         score = score + last_transition_score + last_input_score * mask[-1]
         return score
 
-    def forward(self, inputs: torch.Tensor, tags: torch.Tensor, mask: torch
-        .BoolTensor=None) ->torch.Tensor:
+    def forward(self, inputs: torch.Tensor, tags: torch.Tensor, mask: torch.BoolTensor=None) ->torch.Tensor:
         """
         Computes the log likelihood.
         """
@@ -2024,9 +1887,7 @@ class ConditionalRandomField(torch.nn.Module):
         log_numerator = self._joint_likelihood(inputs, tags, mask)
         return torch.sum(log_numerator - log_denominator)
 
-    def viterbi_tags(self, logits: torch.Tensor, mask: torch.BoolTensor=
-        None, top_k: int=None) ->Union[List[VITERBI_DECODING], List[List[
-        VITERBI_DECODING]]]:
+    def viterbi_tags(self, logits: torch.Tensor, mask: torch.BoolTensor=None, top_k: int=None) ->Union[List[VITERBI_DECODING], List[List[VITERBI_DECODING]]]:
         """
         Uses viterbi algorithm to find most likely tags for the given inputs.
         If constraints are applied, disallows all other transitions.
@@ -2039,8 +1900,7 @@ class ConditionalRandomField(torch.nn.Module):
         tag sequences (the top tag sequence for each batch item).
         """
         if mask is None:
-            mask = torch.ones(*logits.shape[:2], dtype=torch.bool, device=
-                logits.device)
+            mask = torch.ones(*logits.shape[:2], dtype=torch.bool, device=logits.device)
         if top_k is None:
             top_k = 1
             flatten_output = True
@@ -2051,24 +1911,14 @@ class ConditionalRandomField(torch.nn.Module):
         start_tag = num_tags
         end_tag = num_tags + 1
         transitions = torch.Tensor(num_tags + 2, num_tags + 2).fill_(-10000.0)
-        constrained_transitions = self.transitions * self._constraint_mask[:
-            num_tags, :num_tags] + -10000.0 * (1 - self._constraint_mask[:
-            num_tags, :num_tags])
+        constrained_transitions = self.transitions * self._constraint_mask[:num_tags, :num_tags] + -10000.0 * (1 - self._constraint_mask[:num_tags, :num_tags])
         transitions[:num_tags, :num_tags] = constrained_transitions.data
         if self.include_start_end_transitions:
-            transitions[(start_tag), :num_tags
-                ] = self.start_transitions.detach() * self._constraint_mask[(
-                start_tag), :num_tags].data + -10000.0 * (1 - self.
-                _constraint_mask[(start_tag), :num_tags].detach())
-            transitions[:num_tags, (end_tag)] = self.end_transitions.detach(
-                ) * self._constraint_mask[:num_tags, (end_tag)
-                ].data + -10000.0 * (1 - self._constraint_mask[:num_tags, (
-                end_tag)].detach())
+            transitions[(start_tag), :num_tags] = self.start_transitions.detach() * self._constraint_mask[(start_tag), :num_tags].data + -10000.0 * (1 - self._constraint_mask[(start_tag), :num_tags].detach())
+            transitions[:num_tags, (end_tag)] = self.end_transitions.detach() * self._constraint_mask[:num_tags, (end_tag)].data + -10000.0 * (1 - self._constraint_mask[:num_tags, (end_tag)].detach())
         else:
-            transitions[(start_tag), :num_tags] = -10000.0 * (1 - self.
-                _constraint_mask[(start_tag), :num_tags].detach())
-            transitions[:num_tags, (end_tag)] = -10000.0 * (1 - self.
-                _constraint_mask[:num_tags, (end_tag)].detach())
+            transitions[(start_tag), :num_tags] = -10000.0 * (1 - self._constraint_mask[(start_tag), :num_tags].detach())
+            transitions[:num_tags, (end_tag)] = -10000.0 * (1 - self._constraint_mask[:num_tags, (end_tag)].detach())
         best_paths = []
         tag_sequence = torch.Tensor(max_seq_length + 2, num_tags + 2)
         for prediction, prediction_mask in zip(logits, mask):
@@ -2079,12 +1929,9 @@ class ConditionalRandomField(torch.nn.Module):
             tag_sequence[0, start_tag] = 0.0
             tag_sequence[1:sequence_length + 1, :num_tags] = masked_prediction
             tag_sequence[sequence_length + 1, end_tag] = 0.0
-            viterbi_paths, viterbi_scores = util.viterbi_decode(tag_sequence
-                =tag_sequence[:sequence_length + 2], transition_matrix=
-                transitions, top_k=top_k)
+            viterbi_paths, viterbi_scores = util.viterbi_decode(tag_sequence=tag_sequence[:sequence_length + 2], transition_matrix=transitions, top_k=top_k)
             top_k_paths = []
-            for viterbi_path, viterbi_score in zip(viterbi_paths,
-                viterbi_scores):
+            for viterbi_path, viterbi_score in zip(viterbi_paths, viterbi_scores):
                 viterbi_path = viterbi_path[1:-1]
                 top_k_paths.append((viterbi_path, viterbi_score.item()))
             best_paths.append(top_k_paths)
@@ -2093,8 +1940,7 @@ class ConditionalRandomField(torch.nn.Module):
         return best_paths
 
 
-def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor
-    ) ->Tuple[torch.Tensor, torch.Tensor]:
+def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor) ->Tuple[torch.Tensor, torch.Tensor]:
     """
     Remove begin/end of sentence embeddings from the batch of sentences.
     Given a batch of sentences with size `(batch_size, timesteps, dim)`
@@ -2129,15 +1975,12 @@ def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor
     new_mask = tensor.new_zeros((new_shape[0], new_shape[1]), dtype=torch.bool)
     for i, j in enumerate(sequence_lengths):
         if j > 2:
-            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:
-                j - 1, :]
+            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:j - 1, :]
             new_mask[(i), :j - 2] = True
     return tensor_without_boundary_tokens, new_mask
 
 
-def _make_bos_eos(character: int, padding_character: int,
-    beginning_of_word_character: int, end_of_word_character: int,
-    max_word_length: int):
+def _make_bos_eos(character: int, padding_character: int, beginning_of_word_character: int, end_of_word_character: int, max_word_length: int):
     char_ids = [padding_character] * max_word_length
     char_ids[0] = beginning_of_word_character
     char_ids[1] = character
@@ -2160,12 +2003,8 @@ class ELMoCharacterMapper:
     beginning_of_word_character = 258
     end_of_word_character = 259
     padding_character = 260
-    beginning_of_sentence_characters = _make_bos_eos(
-        beginning_of_sentence_character, padding_character,
-        beginning_of_word_character, end_of_word_character, max_word_length)
-    end_of_sentence_characters = _make_bos_eos(end_of_sentence_character,
-        padding_character, beginning_of_word_character,
-        end_of_word_character, max_word_length)
+    beginning_of_sentence_characters = _make_bos_eos(beginning_of_sentence_character, padding_character, beginning_of_word_character, end_of_word_character, max_word_length)
+    end_of_sentence_characters = _make_bos_eos(end_of_sentence_character, padding_character, beginning_of_word_character, end_of_word_character, max_word_length)
     bos_token = '<S>'
     eos_token = '</S>'
 
@@ -2174,8 +2013,7 @@ class ELMoCharacterMapper:
 
     def convert_word_to_char_ids(self, word: str) ->List[int]:
         if word in self.tokens_to_add:
-            char_ids = [ELMoCharacterMapper.padding_character
-                ] * ELMoCharacterMapper.max_word_length
+            char_ids = [ELMoCharacterMapper.padding_character] * ELMoCharacterMapper.max_word_length
             char_ids[0] = ELMoCharacterMapper.beginning_of_word_character
             char_ids[1] = self.tokens_to_add[word]
             char_ids[2] = ELMoCharacterMapper.end_of_word_character
@@ -2184,15 +2022,12 @@ class ELMoCharacterMapper:
         elif word == ELMoCharacterMapper.eos_token:
             char_ids = ELMoCharacterMapper.end_of_sentence_characters
         else:
-            word_encoded = word.encode('utf-8', 'ignore')[:
-                ELMoCharacterMapper.max_word_length - 2]
-            char_ids = [ELMoCharacterMapper.padding_character
-                ] * ELMoCharacterMapper.max_word_length
+            word_encoded = word.encode('utf-8', 'ignore')[:ELMoCharacterMapper.max_word_length - 2]
+            char_ids = [ELMoCharacterMapper.padding_character] * ELMoCharacterMapper.max_word_length
             char_ids[0] = ELMoCharacterMapper.beginning_of_word_character
             for k, chr_id in enumerate(word_encoded, start=1):
                 char_ids[k] = chr_id
-            char_ids[len(word_encoded) + 1
-                ] = ELMoCharacterMapper.end_of_word_character
+            char_ids[len(word_encoded) + 1] = ELMoCharacterMapper.end_of_word_character
         return [(c + 1) for c in char_ids]
 
     def __eq__(self, other) ->bool:
@@ -2201,9 +2036,7 @@ class ELMoCharacterMapper:
         return NotImplemented
 
 
-def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.
-    BoolTensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[
-    torch.Tensor, torch.BoolTensor]:
+def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.BoolTensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[torch.Tensor, torch.BoolTensor]:
     """
     Add begin/end of sentence tokens to the batch of sentences.
     Given a batch of sentences with size `(batch_size, timesteps)` or
@@ -2253,17 +2086,14 @@ def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.
             tensor_with_boundary_tokens[(i), (j + 1), :] = sentence_end_token
         new_mask = (tensor_with_boundary_tokens > 0).sum(dim=-1) > 0
     else:
-        raise ValueError(
-            'add_sentence_boundary_token_ids only accepts 2D and 3D input')
+        raise ValueError('add_sentence_boundary_token_ids only accepts 2D and 3D input')
     return tensor_with_boundary_tokens, new_mask
 
 
 IndexedTokenList = Dict[str, List[Any]]
 
 
-def pad_sequence_to_length(sequence: List, desired_length: int,
-    default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True
-    ) ->List:
+def pad_sequence_to_length(sequence: List, desired_length: int, default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True) ->List:
     """
     Take a list of objects and pads it to the desired length, returning the padded list.  The
     original list is not modified.
@@ -2380,42 +2210,30 @@ class _ElmoBiLm(torch.nn.Module):
         wasn't pre-cached, this will break.
     """
 
-    def __init__(self, options_file: str, weight_file: str, requires_grad:
-        bool=False, vocab_to_cache: List[str]=None) ->None:
+    def __init__(self, options_file: str, weight_file: str, requires_grad: bool=False, vocab_to_cache: List[str]=None) ->None:
         super().__init__()
-        self._token_embedder = _ElmoCharacterEncoder(options_file,
-            weight_file, requires_grad=requires_grad)
+        self._token_embedder = _ElmoCharacterEncoder(options_file, weight_file, requires_grad=requires_grad)
         self._requires_grad = requires_grad
         if requires_grad and vocab_to_cache:
-            logging.warning(
-                'You are fine tuning ELMo and caching char CNN word vectors. This behaviour is not guaranteed to be well defined, particularly. if not all of your inputs will occur in the vocabulary cache.'
-                )
+            logging.warning('You are fine tuning ELMo and caching char CNN word vectors. This behaviour is not guaranteed to be well defined, particularly. if not all of your inputs will occur in the vocabulary cache.')
         self._word_embedding = None
         self._bos_embedding: torch.Tensor = None
         self._eos_embedding: torch.Tensor = None
         if vocab_to_cache:
-            logging.info(
-                'Caching character cnn layers for words in vocabulary.')
+            logging.info('Caching character cnn layers for words in vocabulary.')
             self.create_cached_cnn_embeddings(vocab_to_cache)
         with open(cached_path(options_file), 'r') as fin:
             options = json.load(fin)
         if not options['lstm'].get('use_skip_connections'):
-            raise ConfigurationError(
-                'We only support pretrained biLMs with residual connections')
-        self._elmo_lstm = ElmoLstm(input_size=options['lstm'][
-            'projection_dim'], hidden_size=options['lstm']['projection_dim'
-            ], cell_size=options['lstm']['dim'], num_layers=options['lstm']
-            ['n_layers'], memory_cell_clip_value=options['lstm'][
-            'cell_clip'], state_projection_clip_value=options['lstm'][
-            'proj_clip'], requires_grad=requires_grad)
+            raise ConfigurationError('We only support pretrained biLMs with residual connections')
+        self._elmo_lstm = ElmoLstm(input_size=options['lstm']['projection_dim'], hidden_size=options['lstm']['projection_dim'], cell_size=options['lstm']['dim'], num_layers=options['lstm']['n_layers'], memory_cell_clip_value=options['lstm']['cell_clip'], state_projection_clip_value=options['lstm']['proj_clip'], requires_grad=requires_grad)
         self._elmo_lstm.load_weights(weight_file)
         self.num_layers = options['lstm']['n_layers'] + 1
 
     def get_output_dim(self):
         return 2 * self._token_embedder.get_output_dim()
 
-    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None
-        ) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
+    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
         """
         # Parameters
 
@@ -2442,9 +2260,7 @@ class _ElmoBiLm(torch.nn.Module):
             try:
                 mask_without_bos_eos = word_inputs > 0
                 embedded_inputs = self._word_embedding(word_inputs)
-                type_representation, mask = add_sentence_boundary_token_ids(
-                    embedded_inputs, mask_without_bos_eos, self.
-                    _bos_embedding, self._eos_embedding)
+                type_representation, mask = add_sentence_boundary_token_ids(embedded_inputs, mask_without_bos_eos, self._bos_embedding, self._eos_embedding)
             except (RuntimeError, IndexError):
                 token_embedding = self._token_embedder(inputs)
                 mask = token_embedding['mask']
@@ -2454,10 +2270,8 @@ class _ElmoBiLm(torch.nn.Module):
             mask = token_embedding['mask']
             type_representation = token_embedding['token_embedding']
         lstm_outputs = self._elmo_lstm(type_representation, mask)
-        output_tensors = [torch.cat([type_representation,
-            type_representation], dim=-1) * mask.unsqueeze(-1)]
-        for layer_activations in torch.chunk(lstm_outputs, lstm_outputs.
-            size(0), dim=0):
+        output_tensors = [torch.cat([type_representation, type_representation], dim=-1) * mask.unsqueeze(-1)]
+        for layer_activations in torch.chunk(lstm_outputs, lstm_outputs.size(0), dim=0):
             output_tensors.append(layer_activations.squeeze(0))
         return {'activations': output_tensors, 'mask': mask}
 
@@ -2483,8 +2297,7 @@ class _ElmoBiLm(torch.nn.Module):
         tokens : `List[str]`, required.
             A list of tokens to precompute character convolutions for.
         """
-        tokens = [ELMoCharacterMapper.bos_token, ELMoCharacterMapper.eos_token
-            ] + tokens
+        tokens = [ELMoCharacterMapper.bos_token, ELMoCharacterMapper.eos_token] + tokens
         timesteps = 32
         batch_size = 32
         chunked_tokens = lazy_groups_of(iter(tokens), timesteps)
@@ -2497,19 +2310,15 @@ class _ElmoBiLm(torch.nn.Module):
             output = self._token_embedder(batched_tensor)
             token_embedding = output['token_embedding']
             mask = output['mask']
-            token_embedding, _ = remove_sentence_boundaries(token_embedding,
-                mask)
-            all_embeddings.append(token_embedding.view(-1, token_embedding.
-                size(-1)))
+            token_embedding, _ = remove_sentence_boundaries(token_embedding, mask)
+            all_embeddings.append(token_embedding.view(-1, token_embedding.size(-1)))
         full_embedding = torch.cat(all_embeddings, 0)
         full_embedding = full_embedding[:len(tokens), :]
         embedding = full_embedding[2:len(tokens), :]
         vocab_size, embedding_dim = list(embedding.size())
         self._bos_embedding = full_embedding[(0), :]
         self._eos_embedding = full_embedding[(1), :]
-        self._word_embedding = Embedding(num_embeddings=vocab_size,
-            embedding_dim=embedding_dim, weight=embedding.data, trainable=
-            self._requires_grad, padding_index=0)
+        self._word_embedding = Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim, weight=embedding.data, trainable=self._requires_grad, padding_index=0)
 
 
 RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
@@ -2543,19 +2352,14 @@ def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
         The indices used to sort the tensor. This is useful if you want to sort many
         tensors using the same ordering.
     """
-    if not isinstance(tensor, torch.Tensor) or not isinstance(sequence_lengths,
-        torch.Tensor):
-        raise ConfigurationError(
-            'Both the tensor and sequence lengths must be torch.Tensors.')
-    sorted_sequence_lengths, permutation_index = sequence_lengths.sort(0,
-        descending=True)
+    if not isinstance(tensor, torch.Tensor) or not isinstance(sequence_lengths, torch.Tensor):
+        raise ConfigurationError('Both the tensor and sequence lengths must be torch.Tensors.')
+    sorted_sequence_lengths, permutation_index = sequence_lengths.sort(0, descending=True)
     sorted_tensor = tensor.index_select(0, permutation_index)
-    index_range = torch.arange(0, len(sequence_lengths), device=
-        sequence_lengths.device)
+    index_range = torch.arange(0, len(sequence_lengths), device=sequence_lengths.device)
     _, reverse_mapping = permutation_index.sort(0, descending=False)
     restoration_indices = index_range.index_select(0, reverse_mapping)
-    return (sorted_tensor, sorted_sequence_lengths, restoration_indices,
-        permutation_index)
+    return sorted_tensor, sorted_sequence_lengths, restoration_indices, permutation_index
 
 
 class _EncoderBase(torch.nn.Module):
@@ -2575,10 +2379,7 @@ class _EncoderBase(torch.nn.Module):
         self.stateful = stateful
         self._states: Optional[RnnStateStorage] = None
 
-    def sort_and_run_forward(self, module: Callable[[PackedSequence,
-        Optional[RnnState]], Tuple[Union[PackedSequence, torch.Tensor],
-        RnnState]], inputs: torch.Tensor, mask: torch.BoolTensor,
-        hidden_state: Optional[RnnState]=None):
+    def sort_and_run_forward(self, module: Callable[[PackedSequence, Optional[RnnState]], Tuple[Union[PackedSequence, torch.Tensor], RnnState]], inputs: torch.Tensor, mask: torch.BoolTensor, hidden_state: Optional[RnnState]=None):
         """
         This function exists because Pytorch RNNs require that their inputs be sorted
         before being passed as input. As all of our Seq2xxxEncoders use this functionality,
@@ -2632,29 +2433,21 @@ class _EncoderBase(torch.nn.Module):
         batch_size = mask.size(0)
         num_valid = torch.sum(mask[:, (0)]).int().item()
         sequence_lengths = get_lengths_from_binary_sequence_mask(mask)
-        (sorted_inputs, sorted_sequence_lengths, restoration_indices,
-            sorting_indices) = sort_batch_by_length(inputs, sequence_lengths)
-        packed_sequence_input = pack_padded_sequence(sorted_inputs[:
-            num_valid, :, :], sorted_sequence_lengths[:num_valid].data.
-            tolist(), batch_first=True)
+        sorted_inputs, sorted_sequence_lengths, restoration_indices, sorting_indices = sort_batch_by_length(inputs, sequence_lengths)
+        packed_sequence_input = pack_padded_sequence(sorted_inputs[:num_valid, :, :], sorted_sequence_lengths[:num_valid].data.tolist(), batch_first=True)
         if not self.stateful:
             if hidden_state is None:
                 initial_states: Any = hidden_state
             elif isinstance(hidden_state, tuple):
-                initial_states = [state.index_select(1, sorting_indices)[:,
-                    :num_valid, :].contiguous() for state in hidden_state]
+                initial_states = [state.index_select(1, sorting_indices)[:, :num_valid, :].contiguous() for state in hidden_state]
             else:
-                initial_states = hidden_state.index_select(1, sorting_indices)[
-                    :, :num_valid, :].contiguous()
+                initial_states = hidden_state.index_select(1, sorting_indices)[:, :num_valid, :].contiguous()
         else:
-            initial_states = self._get_initial_states(batch_size, num_valid,
-                sorting_indices)
-        module_output, final_states = module(packed_sequence_input,
-            initial_states)
+            initial_states = self._get_initial_states(batch_size, num_valid, sorting_indices)
+        module_output, final_states = module(packed_sequence_input, initial_states)
         return module_output, final_states, restoration_indices
 
-    def _get_initial_states(self, batch_size: int, num_valid: int,
-        sorting_indices: torch.LongTensor) ->Optional[RnnState]:
+    def _get_initial_states(self, batch_size: int, num_valid: int, sorting_indices: torch.LongTensor) ->Optional[RnnState]:
         """
         Returns an initial state for use in an RNN. Additionally, this method handles
         the batch size changing across calls by mutating the state to append initial states
@@ -2699,29 +2492,23 @@ class _EncoderBase(torch.nn.Module):
             num_states_to_concat = batch_size - self._states[0].size(1)
             resized_states = []
             for state in self._states:
-                zeros = state.new_zeros(state.size(0), num_states_to_concat,
-                    state.size(2))
+                zeros = state.new_zeros(state.size(0), num_states_to_concat, state.size(2))
                 resized_states.append(torch.cat([state, zeros], 1))
             self._states = tuple(resized_states)
             correctly_shaped_states = self._states
         elif batch_size < self._states[0].size(1):
-            correctly_shaped_states = tuple(state[:, :batch_size, :] for
-                state in self._states)
+            correctly_shaped_states = tuple(state[:, :batch_size, :] for state in self._states)
         else:
             correctly_shaped_states = self._states
         if len(self._states) == 1:
             correctly_shaped_state = correctly_shaped_states[0]
-            sorted_state = correctly_shaped_state.index_select(1,
-                sorting_indices)
+            sorted_state = correctly_shaped_state.index_select(1, sorting_indices)
             return sorted_state[:, :num_valid, :].contiguous()
         else:
-            sorted_states = [state.index_select(1, sorting_indices) for
-                state in correctly_shaped_states]
-            return tuple(state[:, :num_valid, :].contiguous() for state in
-                sorted_states)
+            sorted_states = [state.index_select(1, sorting_indices) for state in correctly_shaped_states]
+            return tuple(state[:, :num_valid, :].contiguous() for state in sorted_states)
 
-    def _update_states(self, final_states: RnnStateStorage,
-        restoration_indices: torch.LongTensor) ->None:
+    def _update_states(self, final_states: RnnStateStorage, restoration_indices: torch.LongTensor) ->None:
         """
         After the RNN has run forward, the states need to be updated.
         This method just sets the state to the updated new state, performing
@@ -2740,29 +2527,22 @@ class _EncoderBase(torch.nn.Module):
             to order the states with respect to the lengths of the sequences in
             the batch.
         """
-        new_unsorted_states = [state.index_select(1, restoration_indices) for
-            state in final_states]
+        new_unsorted_states = [state.index_select(1, restoration_indices) for state in final_states]
         if self._states is None:
             self._states = tuple(state.data for state in new_unsorted_states)
         else:
             current_state_batch_size = self._states[0].size(1)
             new_state_batch_size = final_states[0].size(1)
-            used_new_rows_mask = [(state[(0), :, :].sum(-1) != 0.0).float()
-                .view(1, new_state_batch_size, 1) for state in
-                new_unsorted_states]
+            used_new_rows_mask = [(state[(0), :, :].sum(-1) != 0.0).float().view(1, new_state_batch_size, 1) for state in new_unsorted_states]
             new_states = []
             if current_state_batch_size > new_state_batch_size:
-                for old_state, new_state, used_mask in zip(self._states,
-                    new_unsorted_states, used_new_rows_mask):
-                    masked_old_state = old_state[:, :new_state_batch_size, :
-                        ] * (1 - used_mask)
-                    old_state[:, :new_state_batch_size, :
-                        ] = new_state + masked_old_state
+                for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
+                    masked_old_state = old_state[:, :new_state_batch_size, :] * (1 - used_mask)
+                    old_state[:, :new_state_batch_size, :] = new_state + masked_old_state
                     new_states.append(old_state.detach())
             else:
                 new_states = []
-                for old_state, new_state, used_mask in zip(self._states,
-                    new_unsorted_states, used_new_rows_mask):
+                for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
                     masked_old_state = old_state * (1 - used_mask)
                     new_state += masked_old_state
                     new_states.append(new_state.detach())
@@ -2787,9 +2567,7 @@ class _EncoderBase(torch.nn.Module):
             for old_state in self._states:
                 old_state_batch_size = old_state.size(1)
                 if old_state_batch_size != mask_batch_size:
-                    raise ValueError(
-                        f'Trying to reset states using mask with incorrect batch size. Expected batch size: {old_state_batch_size}. Provided batch size: {mask_batch_size}.'
-                        )
+                    raise ValueError(f'Trying to reset states using mask with incorrect batch size. Expected batch size: {old_state_batch_size}. Provided batch size: {mask_batch_size}.')
                 new_state = ~mask * old_state
                 new_states.append(new_state.detach())
             self._states = tuple(new_states)
@@ -2820,10 +2598,8 @@ class InputVariationalDropout(torch.nn.Dropout):
         output : `torch.FloatTensor`
             A tensor of shape `(batch_size, num_timesteps, embedding_dim)` with dropout applied.
         """
-        ones = input_tensor.data.new_ones(input_tensor.shape[0],
-            input_tensor.shape[-1])
-        dropout_mask = torch.nn.functional.dropout(ones, self.p, self.
-            training, inplace=False)
+        ones = input_tensor.data.new_ones(input_tensor.shape[0], input_tensor.shape[-1])
+        dropout_mask = torch.nn.functional.dropout(ones, self.p, self.training, inplace=False)
         if self.inplace:
             input_tensor *= dropout_mask.unsqueeze(1)
             return None
@@ -2859,8 +2635,7 @@ class LayerNorm(torch.nn.Module):
     def forward(self, tensor: torch.Tensor):
         mean = tensor.mean(-1, keepdim=True)
         std = tensor.std(-1, unbiased=False, keepdim=True)
-        return self.gamma * (tensor - mean) / (std + util.
-            tiny_value_of_dtype(std.dtype)) + self.beta
+        return self.gamma * (tensor - mean) / (std + util.tiny_value_of_dtype(std.dtype)) + self.beta
 
 
 class LstmCellWithProjection(torch.nn.Module):
@@ -2908,10 +2683,7 @@ class LstmCellWithProjection(torch.nn.Module):
         API for returning stacked LSTM states.
     """
 
-    def __init__(self, input_size: int, hidden_size: int, cell_size: int,
-        go_forward: bool=True, recurrent_dropout_probability: float=0.0,
-        memory_cell_clip_value: Optional[float]=None,
-        state_projection_clip_value: Optional[float]=None) ->None:
+    def __init__(self, input_size: int, hidden_size: int, cell_size: int, go_forward: bool=True, recurrent_dropout_probability: float=0.0, memory_cell_clip_value: Optional[float]=None, state_projection_clip_value: Optional[float]=None) ->None:
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -2920,25 +2692,18 @@ class LstmCellWithProjection(torch.nn.Module):
         self.state_projection_clip_value = state_projection_clip_value
         self.memory_cell_clip_value = memory_cell_clip_value
         self.recurrent_dropout_probability = recurrent_dropout_probability
-        self.input_linearity = torch.nn.Linear(input_size, 4 * cell_size,
-            bias=False)
-        self.state_linearity = torch.nn.Linear(hidden_size, 4 * cell_size,
-            bias=True)
-        self.state_projection = torch.nn.Linear(cell_size, hidden_size,
-            bias=False)
+        self.input_linearity = torch.nn.Linear(input_size, 4 * cell_size, bias=False)
+        self.state_linearity = torch.nn.Linear(hidden_size, 4 * cell_size, bias=True)
+        self.state_projection = torch.nn.Linear(cell_size, hidden_size, bias=False)
         self.reset_parameters()
 
     def reset_parameters(self):
-        block_orthogonal(self.input_linearity.weight.data, [self.cell_size,
-            self.input_size])
-        block_orthogonal(self.state_linearity.weight.data, [self.cell_size,
-            self.hidden_size])
+        block_orthogonal(self.input_linearity.weight.data, [self.cell_size, self.input_size])
+        block_orthogonal(self.state_linearity.weight.data, [self.cell_size, self.hidden_size])
         self.state_linearity.bias.data.fill_(0.0)
-        self.state_linearity.bias.data[self.cell_size:2 * self.cell_size
-            ].fill_(1.0)
+        self.state_linearity.bias.data[self.cell_size:2 * self.cell_size].fill_(1.0)
 
-    def forward(self, inputs: torch.FloatTensor, batch_lengths: List[int],
-        initial_state: Optional[Tuple[torch.Tensor, torch.Tensor]]=None):
+    def forward(self, inputs: torch.FloatTensor, batch_lengths: List[int], initial_state: Optional[Tuple[torch.Tensor, torch.Tensor]]=None):
         """
         # Parameters
 
@@ -2966,74 +2731,50 @@ class LstmCellWithProjection(torch.nn.Module):
         """
         batch_size = inputs.size()[0]
         total_timesteps = inputs.size()[1]
-        output_accumulator = inputs.new_zeros(batch_size, total_timesteps,
-            self.hidden_size)
+        output_accumulator = inputs.new_zeros(batch_size, total_timesteps, self.hidden_size)
         if initial_state is None:
-            full_batch_previous_memory = inputs.new_zeros(batch_size, self.
-                cell_size)
-            full_batch_previous_state = inputs.new_zeros(batch_size, self.
-                hidden_size)
+            full_batch_previous_memory = inputs.new_zeros(batch_size, self.cell_size)
+            full_batch_previous_state = inputs.new_zeros(batch_size, self.hidden_size)
         else:
             full_batch_previous_state = initial_state[0].squeeze(0)
             full_batch_previous_memory = initial_state[1].squeeze(0)
         current_length_index = batch_size - 1 if self.go_forward else 0
         if self.recurrent_dropout_probability > 0.0 and self.training:
-            dropout_mask = get_dropout_mask(self.
-                recurrent_dropout_probability, full_batch_previous_state)
+            dropout_mask = get_dropout_mask(self.recurrent_dropout_probability, full_batch_previous_state)
         else:
             dropout_mask = None
         for timestep in range(total_timesteps):
-            index = (timestep if self.go_forward else total_timesteps -
-                timestep - 1)
+            index = timestep if self.go_forward else total_timesteps - timestep - 1
             if self.go_forward:
                 while batch_lengths[current_length_index] <= index:
                     current_length_index -= 1
             else:
-                while current_length_index < len(batch_lengths
-                    ) - 1 and batch_lengths[current_length_index + 1] > index:
+                while current_length_index < len(batch_lengths) - 1 and batch_lengths[current_length_index + 1] > index:
                     current_length_index += 1
-            previous_memory = full_batch_previous_memory[0:
-                current_length_index + 1].clone()
-            previous_state = full_batch_previous_state[0:
-                current_length_index + 1].clone()
+            previous_memory = full_batch_previous_memory[0:current_length_index + 1].clone()
+            previous_state = full_batch_previous_state[0:current_length_index + 1].clone()
             timestep_input = inputs[0:current_length_index + 1, (index)]
             projected_input = self.input_linearity(timestep_input)
             projected_state = self.state_linearity(previous_state)
-            input_gate = torch.sigmoid(projected_input[:, 0 * self.
-                cell_size:1 * self.cell_size] + projected_state[:, 0 * self
-                .cell_size:1 * self.cell_size])
-            forget_gate = torch.sigmoid(projected_input[:, 1 * self.
-                cell_size:2 * self.cell_size] + projected_state[:, 1 * self
-                .cell_size:2 * self.cell_size])
-            memory_init = torch.tanh(projected_input[:, 2 * self.cell_size:
-                3 * self.cell_size] + projected_state[:, 2 * self.cell_size
-                :3 * self.cell_size])
-            output_gate = torch.sigmoid(projected_input[:, 3 * self.
-                cell_size:4 * self.cell_size] + projected_state[:, 3 * self
-                .cell_size:4 * self.cell_size])
+            input_gate = torch.sigmoid(projected_input[:, 0 * self.cell_size:1 * self.cell_size] + projected_state[:, 0 * self.cell_size:1 * self.cell_size])
+            forget_gate = torch.sigmoid(projected_input[:, 1 * self.cell_size:2 * self.cell_size] + projected_state[:, 1 * self.cell_size:2 * self.cell_size])
+            memory_init = torch.tanh(projected_input[:, 2 * self.cell_size:3 * self.cell_size] + projected_state[:, 2 * self.cell_size:3 * self.cell_size])
+            output_gate = torch.sigmoid(projected_input[:, 3 * self.cell_size:4 * self.cell_size] + projected_state[:, 3 * self.cell_size:4 * self.cell_size])
             memory = input_gate * memory_init + forget_gate * previous_memory
             if self.memory_cell_clip_value:
-                memory = torch.clamp(memory, -self.memory_cell_clip_value,
-                    self.memory_cell_clip_value)
+                memory = torch.clamp(memory, -self.memory_cell_clip_value, self.memory_cell_clip_value)
             pre_projection_timestep_output = output_gate * torch.tanh(memory)
-            timestep_output = self.state_projection(
-                pre_projection_timestep_output)
+            timestep_output = self.state_projection(pre_projection_timestep_output)
             if self.state_projection_clip_value:
-                timestep_output = torch.clamp(timestep_output, -self.
-                    state_projection_clip_value, self.
-                    state_projection_clip_value)
+                timestep_output = torch.clamp(timestep_output, -self.state_projection_clip_value, self.state_projection_clip_value)
             if dropout_mask is not None:
-                timestep_output = timestep_output * dropout_mask[0:
-                    current_length_index + 1]
+                timestep_output = timestep_output * dropout_mask[0:current_length_index + 1]
             full_batch_previous_memory = full_batch_previous_memory.clone()
             full_batch_previous_state = full_batch_previous_state.clone()
             full_batch_previous_memory[0:current_length_index + 1] = memory
-            full_batch_previous_state[0:current_length_index + 1
-                ] = timestep_output
-            output_accumulator[0:current_length_index + 1, (index)
-                ] = timestep_output
-        final_state = full_batch_previous_state.unsqueeze(0
-            ), full_batch_previous_memory.unsqueeze(0)
+            full_batch_previous_state[0:current_length_index + 1] = timestep_output
+            output_accumulator[0:current_length_index + 1, (index)] = timestep_output
+        final_state = full_batch_previous_state.unsqueeze(0), full_batch_previous_memory.unsqueeze(0)
         return output_accumulator, final_state
 
 
@@ -3050,16 +2791,13 @@ class MaskedLayerNorm(torch.nn.Module):
         self.beta = torch.nn.Parameter(torch.zeros(1, 1, size))
         self.size = size
 
-    def forward(self, tensor: torch.Tensor, mask: torch.BoolTensor
-        ) ->torch.Tensor:
+    def forward(self, tensor: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
         broadcast_mask = mask.unsqueeze(-1)
         num_elements = broadcast_mask.sum() * self.size
         mean = (tensor * broadcast_mask).sum() / num_elements
         masked_centered = (tensor - mean) * broadcast_mask
-        std = torch.sqrt((masked_centered * masked_centered).sum() /
-            num_elements + util.tiny_value_of_dtype(tensor.dtype))
-        return self.gamma * (tensor - mean) / (std + util.
-            tiny_value_of_dtype(tensor.dtype)) + self.beta
+        std = torch.sqrt((masked_centered * masked_centered).sum() / num_elements + util.tiny_value_of_dtype(tensor.dtype))
+        return self.gamma * (tensor - mean) / (std + util.tiny_value_of_dtype(tensor.dtype)) + self.beta
 
 
 class ResidualWithLayerDropout(torch.nn.Module):
@@ -3076,13 +2814,10 @@ class ResidualWithLayerDropout(torch.nn.Module):
     def __init__(self, undecayed_dropout_prob: float=0.5) ->None:
         super().__init__()
         if undecayed_dropout_prob < 0 or undecayed_dropout_prob > 1:
-            raise ValueError(
-                f'undecayed dropout probability has to be between 0 and 1, but got {undecayed_dropout_prob}'
-                )
+            raise ValueError(f'undecayed dropout probability has to be between 0 and 1, but got {undecayed_dropout_prob}')
         self.undecayed_dropout_prob = undecayed_dropout_prob
 
-    def forward(self, layer_input: torch.Tensor, layer_output: torch.Tensor,
-        layer_index: int=None, total_layers: int=None) ->torch.Tensor:
+    def forward(self, layer_input: torch.Tensor, layer_output: torch.Tensor, layer_index: int=None, total_layers: int=None) ->torch.Tensor:
         """
         Apply dropout to this layer, for this whole mini-batch.
         dropout_prob = layer_index / total_layers * undecayed_dropout_prob if layer_idx and
@@ -3106,8 +2841,7 @@ class ResidualWithLayerDropout(torch.nn.Module):
             A tensor with the same shape as `layer_input` and `layer_output`.
         """
         if layer_index is not None and total_layers is not None:
-            dropout_prob = (1.0 * self.undecayed_dropout_prob * layer_index /
-                total_layers)
+            dropout_prob = 1.0 * self.undecayed_dropout_prob * layer_index / total_layers
         else:
             dropout_prob = 1.0 * self.undecayed_dropout_prob
         if self.training:
@@ -3178,9 +2912,7 @@ class SampledSoftmaxLoss(torch.nn.Module):
         Whether to use the fast cython sampler.
     """
 
-    def __init__(self, num_words: int, embedding_dim: int, num_samples: int,
-        sparse: bool=False, unk_id: int=None, use_character_inputs: bool=
-        True, use_fast_sampler: bool=False) ->None:
+    def __init__(self, num_words: int, embedding_dim: int, num_samples: int, sparse: bool=False, unk_id: int=None, use_character_inputs: bool=True, use_fast_sampler: bool=False) ->None:
         super().__init__()
         self.tie_embeddings = False
         assert num_samples < num_words
@@ -3189,16 +2921,12 @@ class SampledSoftmaxLoss(torch.nn.Module):
         else:
             self.choice_func = _choice
         if sparse:
-            self.softmax_w = torch.nn.Embedding(num_embeddings=num_words,
-                embedding_dim=embedding_dim, sparse=True)
-            self.softmax_w.weight.data.normal_(mean=0.0, std=1.0 / np.sqrt(
-                embedding_dim))
-            self.softmax_b = torch.nn.Embedding(num_embeddings=num_words,
-                embedding_dim=1, sparse=True)
+            self.softmax_w = torch.nn.Embedding(num_embeddings=num_words, embedding_dim=embedding_dim, sparse=True)
+            self.softmax_w.weight.data.normal_(mean=0.0, std=1.0 / np.sqrt(embedding_dim))
+            self.softmax_b = torch.nn.Embedding(num_embeddings=num_words, embedding_dim=1, sparse=True)
             self.softmax_b.weight.data.fill_(0.0)
         else:
-            self.softmax_w = torch.nn.Parameter(torch.randn(num_words,
-                embedding_dim) / np.sqrt(embedding_dim))
+            self.softmax_w = torch.nn.Parameter(torch.randn(num_words, embedding_dim) / np.sqrt(embedding_dim))
             self.softmax_b = torch.nn.Parameter(torch.zeros(num_words))
         self.sparse = sparse
         self.use_character_inputs = use_character_inputs
@@ -3216,24 +2944,18 @@ class SampledSoftmaxLoss(torch.nn.Module):
             num_words = self.softmax_w.size(0)
         self._num_words = num_words
         self._log_num_words_p1 = np.log(num_words + 1)
-        self._probs = (np.log(np.arange(num_words) + 2) - np.log(np.arange(
-            num_words) + 1)) / self._log_num_words_p1
+        self._probs = (np.log(np.arange(num_words) + 2) - np.log(np.arange(num_words) + 1)) / self._log_num_words_p1
 
-    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor,
-        target_token_embedding: torch.Tensor=None) ->torch.Tensor:
+    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor, target_token_embedding: torch.Tensor=None) ->torch.Tensor:
         if embeddings.shape[0] == 0:
             return torch.tensor(0.0)
         if not self.training:
             return self._forward_eval(embeddings, targets)
         else:
-            return self._forward_train(embeddings, targets,
-                target_token_embedding)
+            return self._forward_train(embeddings, targets, target_token_embedding)
 
-    def _forward_train(self, embeddings: torch.Tensor, targets: torch.
-        Tensor, target_token_embedding: torch.Tensor) ->torch.Tensor:
-        sampled_ids, target_expected_count, sampled_expected_count = (self.
-            log_uniform_candidate_sampler(targets, choice_func=self.
-            choice_func))
+    def _forward_train(self, embeddings: torch.Tensor, targets: torch.Tensor, target_token_embedding: torch.Tensor) ->torch.Tensor:
+        sampled_ids, target_expected_count, sampled_expected_count = self.log_uniform_candidate_sampler(targets, choice_func=self.choice_func)
         long_targets = targets.long()
         long_targets.requires_grad_(False)
         all_ids = torch.cat([long_targets, sampled_ids], dim=0)
@@ -3243,57 +2965,42 @@ class SampledSoftmaxLoss(torch.nn.Module):
             all_b = self.softmax_b(all_ids_1).squeeze(2).squeeze(1)
         else:
             all_w = torch.nn.functional.embedding(all_ids, self.softmax_w)
-            all_b = torch.nn.functional.embedding(all_ids, self.softmax_b.
-                unsqueeze(1)).squeeze(1)
+            all_b = torch.nn.functional.embedding(all_ids, self.softmax_b.unsqueeze(1)).squeeze(1)
         batch_size = long_targets.size(0)
         true_w = all_w[:batch_size, :]
         sampled_w = all_w[batch_size:, :]
         true_b = all_b[:batch_size]
         sampled_b = all_b[batch_size:]
-        true_logits = (true_w * embeddings).sum(dim=1) + true_b - torch.log(
-            target_expected_count + util.tiny_value_of_dtype(
-            target_expected_count.dtype))
-        sampled_logits = torch.matmul(embeddings, sampled_w.t()
-            ) + sampled_b - torch.log(sampled_expected_count + util.
-            tiny_value_of_dtype(sampled_expected_count.dtype))
+        true_logits = (true_w * embeddings).sum(dim=1) + true_b - torch.log(target_expected_count + util.tiny_value_of_dtype(target_expected_count.dtype))
+        sampled_logits = torch.matmul(embeddings, sampled_w.t()) + sampled_b - torch.log(sampled_expected_count + util.tiny_value_of_dtype(sampled_expected_count.dtype))
         true_in_sample_mask = sampled_ids == long_targets.unsqueeze(1)
-        masked_sampled_logits = sampled_logits.masked_fill(true_in_sample_mask,
-            -10000.0)
-        logits = torch.cat([true_logits.unsqueeze(1), masked_sampled_logits
-            ], dim=1)
+        masked_sampled_logits = sampled_logits.masked_fill(true_in_sample_mask, -10000.0)
+        logits = torch.cat([true_logits.unsqueeze(1), masked_sampled_logits], dim=1)
         log_softmax = torch.nn.functional.log_softmax(logits, dim=1)
         nll_loss = -1.0 * log_softmax[:, (0)].sum()
         return nll_loss
 
-    def _forward_eval(self, embeddings: torch.Tensor, targets: torch.Tensor
-        ) ->torch.Tensor:
+    def _forward_eval(self, embeddings: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
         if self.sparse:
             w = self.softmax_w.weight
             b = self.softmax_b.weight.squeeze(1)
         else:
             w = self.softmax_w
             b = self.softmax_b
-        log_softmax = torch.nn.functional.log_softmax(torch.matmul(
-            embeddings, w.t()) + b, dim=-1)
+        log_softmax = torch.nn.functional.log_softmax(torch.matmul(embeddings, w.t()) + b, dim=-1)
         if self.tie_embeddings and not self.use_character_inputs:
             targets_ = targets + 1
         else:
             targets_ = targets
-        return torch.nn.functional.nll_loss(log_softmax, targets_.long(),
-            reduction='sum')
+        return torch.nn.functional.nll_loss(log_softmax, targets_.long(), reduction='sum')
 
     def log_uniform_candidate_sampler(self, targets, choice_func=_choice):
-        np_sampled_ids, num_tries = choice_func(self._num_words, self.
-            _num_samples)
+        np_sampled_ids, num_tries = choice_func(self._num_words, self._num_samples)
         sampled_ids = torch.from_numpy(np_sampled_ids)
-        target_probs = torch.log((targets.float() + 2.0) / (targets.float() +
-            1.0)) / self._log_num_words_p1
-        target_expected_count = -1.0 * (torch.exp(num_tries * torch.log1p(-
-            target_probs)) - 1.0)
-        sampled_probs = torch.log((sampled_ids.float() + 2.0) / (
-            sampled_ids.float() + 1.0)) / self._log_num_words_p1
-        sampled_expected_count = -1.0 * (torch.exp(num_tries * torch.log1p(
-            -sampled_probs)) - 1.0)
+        target_probs = torch.log((targets.float() + 2.0) / (targets.float() + 1.0)) / self._log_num_words_p1
+        target_expected_count = -1.0 * (torch.exp(num_tries * torch.log1p(-target_probs)) - 1.0)
+        sampled_probs = torch.log((sampled_ids.float() + 2.0) / (sampled_ids.float() + 1.0)) / self._log_num_words_p1
+        sampled_expected_count = -1.0 * (torch.exp(num_tries * torch.log1p(-sampled_probs)) - 1.0)
         sampled_ids.requires_grad_(False)
         target_expected_count.requires_grad_(False)
         sampled_expected_count.requires_grad_(False)
@@ -3309,26 +3016,18 @@ class ScalarMix(torch.nn.Module):
     before weighting.
     """
 
-    def __init__(self, mixture_size: int, do_layer_norm: bool=False,
-        initial_scalar_parameters: List[float]=None, trainable: bool=True
-        ) ->None:
+    def __init__(self, mixture_size: int, do_layer_norm: bool=False, initial_scalar_parameters: List[float]=None, trainable: bool=True) ->None:
         super().__init__()
         self.mixture_size = mixture_size
         self.do_layer_norm = do_layer_norm
         if initial_scalar_parameters is None:
             initial_scalar_parameters = [0.0] * mixture_size
         elif len(initial_scalar_parameters) != mixture_size:
-            raise ConfigurationError(
-                'Length of initial_scalar_parameters {} differs from mixture_size {}'
-                .format(initial_scalar_parameters, mixture_size))
-        self.scalar_parameters = ParameterList([Parameter(torch.FloatTensor
-            ([initial_scalar_parameters[i]]), requires_grad=trainable) for
-            i in range(mixture_size)])
-        self.gamma = Parameter(torch.FloatTensor([1.0]), requires_grad=
-            trainable)
+            raise ConfigurationError('Length of initial_scalar_parameters {} differs from mixture_size {}'.format(initial_scalar_parameters, mixture_size))
+        self.scalar_parameters = ParameterList([Parameter(torch.FloatTensor([initial_scalar_parameters[i]]), requires_grad=trainable) for i in range(mixture_size)])
+        self.gamma = Parameter(torch.FloatTensor([1.0]), requires_grad=trainable)
 
-    def forward(self, tensors: List[torch.Tensor], mask: torch.BoolTensor=None
-        ) ->torch.Tensor:
+    def forward(self, tensors: List[torch.Tensor], mask: torch.BoolTensor=None) ->torch.Tensor:
         """
         Compute a weighted average of the `tensors`.  The input tensors an be any shape
         with at least two dimensions, but must all be the same shape.
@@ -3341,19 +3040,14 @@ class ScalarMix(torch.nn.Module):
         When `do_layer_norm=False` the `mask` is ignored.
         """
         if len(tensors) != self.mixture_size:
-            raise ConfigurationError(
-                '{} tensors were passed, but the module was initialized to mix {} tensors.'
-                .format(len(tensors), self.mixture_size))
+            raise ConfigurationError('{} tensors were passed, but the module was initialized to mix {} tensors.'.format(len(tensors), self.mixture_size))
 
         def _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked):
             tensor_masked = tensor * broadcast_mask
             mean = torch.sum(tensor_masked) / num_elements_not_masked
-            variance = torch.sum(((tensor_masked - mean) * broadcast_mask) ** 2
-                ) / num_elements_not_masked
-            return (tensor - mean) / torch.sqrt(variance + util.
-                tiny_value_of_dtype(variance.dtype))
-        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for
-            parameter in self.scalar_parameters]), dim=0)
+            variance = torch.sum(((tensor_masked - mean) * broadcast_mask) ** 2) / num_elements_not_masked
+            return (tensor - mean) / torch.sqrt(variance + util.tiny_value_of_dtype(variance.dtype))
+        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter in self.scalar_parameters]), dim=0)
         normed_weights = torch.split(normed_weights, split_size_or_sections=1)
         if not self.do_layer_norm:
             pieces = []
@@ -3366,27 +3060,23 @@ class ScalarMix(torch.nn.Module):
             num_elements_not_masked = torch.sum(mask) * input_dim
             pieces = []
             for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * _do_layer_norm(tensor,
-                    broadcast_mask, num_elements_not_masked))
+                pieces.append(weight * _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked))
             return self.gamma * sum(pieces)
 
 
 class ResidualBlock(torch.nn.Module):
 
-    def __init__(self, input_dim: int, layers: Sequence[Sequence[int]],
-        direction: str, do_weight_norm: bool=True, dropout: float=0.0) ->None:
+    def __init__(self, input_dim: int, layers: Sequence[Sequence[int]], direction: str, do_weight_norm: bool=True, dropout: float=0.0) ->None:
         super().__init__()
         self.dropout = dropout
         self._convolutions = torch.nn.ModuleList()
         last_dim = input_dim
         for k, layer in enumerate(layers):
             if len(layer) == 2:
-                conv = torch.nn.Conv1d(last_dim, layer[1] * 2, layer[0],
-                    stride=1, padding=layer[0] - 1, bias=True)
+                conv = torch.nn.Conv1d(last_dim, layer[1] * 2, layer[0], stride=1, padding=layer[0] - 1, bias=True)
             elif len(layer) == 3:
                 assert layer[0] == 2, 'only support kernel = 2 for now'
-                conv = torch.nn.Conv1d(last_dim, layer[1] * 2, layer[0],
-                    stride=1, padding=layer[2], dilation=layer[2], bias=True)
+                conv = torch.nn.Conv1d(last_dim, layer[1] * 2, layer[0], stride=1, padding=layer[2], dilation=layer[2], bias=True)
             else:
                 raise ValueError('each layer must have length 2 or 3')
             if k == 0:
@@ -3410,8 +3100,7 @@ class ResidualBlock(torch.nn.Module):
         timesteps = x.size(2)
         for k, convolution in enumerate(self._convolutions):
             if k == 0 and self.dropout > 0:
-                out = torch.nn.functional.dropout(out, self.dropout, self.
-                    training)
+                out = torch.nn.functional.dropout(out, self.dropout, self.training)
             conv_out = convolution(out)
             dims_to_remove = conv_out.size(2) - timesteps
             if dims_to_remove > 0:
@@ -3433,16 +3122,12 @@ class SoftmaxLoss(torch.nn.Module):
     def __init__(self, num_words: int, embedding_dim: int) ->None:
         super().__init__()
         self.tie_embeddings = False
-        self.softmax_w = torch.nn.Parameter(torch.randn(embedding_dim,
-            num_words) / np.sqrt(embedding_dim))
+        self.softmax_w = torch.nn.Parameter(torch.randn(embedding_dim, num_words) / np.sqrt(embedding_dim))
         self.softmax_b = torch.nn.Parameter(torch.zeros(num_words))
 
-    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor
-        ) ->torch.Tensor:
-        probs = torch.nn.functional.log_softmax(torch.matmul(embeddings,
-            self.softmax_w) + self.softmax_b, dim=-1)
-        return torch.nn.functional.nll_loss(probs, targets.long(),
-            reduction='sum')
+    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
+        probs = torch.nn.functional.log_softmax(torch.matmul(embeddings, self.softmax_w) + self.softmax_b, dim=-1)
+        return torch.nn.functional.nll_loss(probs, targets.long(), reduction='sum')
 
 
 TensorPair = Tuple[torch.Tensor, torch.Tensor]
@@ -3482,9 +3167,7 @@ class StackedAlternatingLstm(torch.nn.Module):
         zero tensors.
     """
 
-    def __init__(self, input_size: int, hidden_size: int, num_layers: int,
-        recurrent_dropout_probability: float=0.0, use_highway: bool=True,
-        use_input_projection_bias: bool=True) ->None:
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int, recurrent_dropout_probability: float=0.0, use_highway: bool=True, use_input_projection_bias: bool=True) ->None:
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -3493,18 +3176,13 @@ class StackedAlternatingLstm(torch.nn.Module):
         lstm_input_size = input_size
         for layer_index in range(num_layers):
             go_forward = layer_index % 2 == 0
-            layer = AugmentedLstm(lstm_input_size, hidden_size, go_forward,
-                recurrent_dropout_probability=recurrent_dropout_probability,
-                use_highway=use_highway, use_input_projection_bias=
-                use_input_projection_bias)
+            layer = AugmentedLstm(lstm_input_size, hidden_size, go_forward, recurrent_dropout_probability=recurrent_dropout_probability, use_highway=use_highway, use_input_projection_bias=use_input_projection_bias)
             lstm_input_size = hidden_size
             self.add_module('layer_{}'.format(layer_index), layer)
             layers.append(layer)
         self.lstm_layers = layers
 
-    def forward(self, inputs: PackedSequence, initial_state: Optional[
-        TensorPair]=None) ->Tuple[Union[torch.Tensor, PackedSequence],
-        TensorPair]:
+    def forward(self, inputs: PackedSequence, initial_state: Optional[TensorPair]=None) ->Tuple[Union[torch.Tensor, PackedSequence], TensorPair]:
         """
         # Parameters
 
@@ -3523,23 +3201,18 @@ class StackedAlternatingLstm(torch.nn.Module):
             (num_layers, batch_size, hidden_size).
         """
         if not initial_state:
-            hidden_states: List[Optional[TensorPair]] = [None] * len(self.
-                lstm_layers)
+            hidden_states: List[Optional[TensorPair]] = [None] * len(self.lstm_layers)
         elif initial_state[0].size()[0] != len(self.lstm_layers):
-            raise ConfigurationError(
-                'Initial states were passed to forward() but the number of initial states does not match the number of layers.'
-                )
+            raise ConfigurationError('Initial states were passed to forward() but the number of initial states does not match the number of layers.')
         else:
-            hidden_states = list(zip(initial_state[0].split(1, 0),
-                initial_state[1].split(1, 0)))
+            hidden_states = list(zip(initial_state[0].split(1, 0), initial_state[1].split(1, 0)))
         output_sequence = inputs
         final_states = []
         for i, state in enumerate(hidden_states):
             layer = getattr(self, 'layer_{}'.format(i))
             output_sequence, final_state = layer(output_sequence, state)
             final_states.append(final_state)
-        final_hidden_state, final_cell_state = tuple(torch.cat(state_list, 
-            0) for state_list in zip(*final_states))
+        final_hidden_state, final_cell_state = tuple(torch.cat(state_list, 0) for state_list in zip(*final_states))
         return output_sequence, (final_hidden_state, final_cell_state)
 
 
@@ -3578,9 +3251,7 @@ class StackedBidirectionalLstm(torch.nn.Module):
             output = gate * h_t  + (1 - gate) * (W_x2 * x_t)
     """
 
-    def __init__(self, input_size: int, hidden_size: int, num_layers: int,
-        recurrent_dropout_probability: float=0.0, layer_dropout_probability:
-        float=0.0, use_highway: bool=True) ->None:
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int, recurrent_dropout_probability: float=0.0, layer_dropout_probability: float=0.0, use_highway: bool=True) ->None:
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -3589,25 +3260,16 @@ class StackedBidirectionalLstm(torch.nn.Module):
         layers = []
         lstm_input_size = input_size
         for layer_index in range(num_layers):
-            forward_layer = AugmentedLstm(lstm_input_size, hidden_size,
-                go_forward=True, recurrent_dropout_probability=
-                recurrent_dropout_probability, use_highway=use_highway,
-                use_input_projection_bias=False)
-            backward_layer = AugmentedLstm(lstm_input_size, hidden_size,
-                go_forward=False, recurrent_dropout_probability=
-                recurrent_dropout_probability, use_highway=use_highway,
-                use_input_projection_bias=False)
+            forward_layer = AugmentedLstm(lstm_input_size, hidden_size, go_forward=True, recurrent_dropout_probability=recurrent_dropout_probability, use_highway=use_highway, use_input_projection_bias=False)
+            backward_layer = AugmentedLstm(lstm_input_size, hidden_size, go_forward=False, recurrent_dropout_probability=recurrent_dropout_probability, use_highway=use_highway, use_input_projection_bias=False)
             lstm_input_size = hidden_size * 2
-            self.add_module('forward_layer_{}'.format(layer_index),
-                forward_layer)
-            self.add_module('backward_layer_{}'.format(layer_index),
-                backward_layer)
+            self.add_module('forward_layer_{}'.format(layer_index), forward_layer)
+            self.add_module('backward_layer_{}'.format(layer_index), backward_layer)
             layers.append([forward_layer, backward_layer])
         self.lstm_layers = layers
         self.layer_dropout = InputVariationalDropout(layer_dropout_probability)
 
-    def forward(self, inputs: PackedSequence, initial_state: Optional[
-        TensorPair]=None) ->Tuple[PackedSequence, TensorPair]:
+    def forward(self, inputs: PackedSequence, initial_state: Optional[TensorPair]=None) ->Tuple[PackedSequence, TensorPair]:
         """
         # Parameters
 
@@ -3626,34 +3288,25 @@ class StackedBidirectionalLstm(torch.nn.Module):
             (num_layers * 2, batch_size, hidden_size * 2).
         """
         if initial_state is None:
-            hidden_states: List[Optional[TensorPair]] = [None] * len(self.
-                lstm_layers)
+            hidden_states: List[Optional[TensorPair]] = [None] * len(self.lstm_layers)
         elif initial_state[0].size()[0] != len(self.lstm_layers):
-            raise ConfigurationError(
-                'Initial states were passed to forward() but the number of initial states does not match the number of layers.'
-                )
+            raise ConfigurationError('Initial states were passed to forward() but the number of initial states does not match the number of layers.')
         else:
-            hidden_states = list(zip(initial_state[0].split(1, 0),
-                initial_state[1].split(1, 0)))
+            hidden_states = list(zip(initial_state[0].split(1, 0), initial_state[1].split(1, 0)))
         output_sequence = inputs
         final_h = []
         final_c = []
         for i, state in enumerate(hidden_states):
             forward_layer = getattr(self, 'forward_layer_{}'.format(i))
             backward_layer = getattr(self, 'backward_layer_{}'.format(i))
-            forward_output, final_forward_state = forward_layer(output_sequence
-                , state)
-            backward_output, final_backward_state = backward_layer(
-                output_sequence, state)
-            forward_output, lengths = pad_packed_sequence(forward_output,
-                batch_first=True)
-            backward_output, _ = pad_packed_sequence(backward_output,
-                batch_first=True)
+            forward_output, final_forward_state = forward_layer(output_sequence, state)
+            backward_output, final_backward_state = backward_layer(output_sequence, state)
+            forward_output, lengths = pad_packed_sequence(forward_output, batch_first=True)
+            backward_output, _ = pad_packed_sequence(backward_output, batch_first=True)
             output_sequence = torch.cat([forward_output, backward_output], -1)
             if i < self.num_layers - 1:
                 output_sequence = self.layer_dropout(output_sequence)
-            output_sequence = pack_padded_sequence(output_sequence, lengths,
-                batch_first=True)
+            output_sequence = pack_padded_sequence(output_sequence, lengths, batch_first=True)
             final_h.extend([final_forward_state[0], final_backward_state[0]])
             final_c.extend([final_forward_state[1], final_backward_state[1]])
         final_h = torch.cat(final_h, dim=0)
@@ -3688,31 +3341,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (InputVariationalDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'dimension': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaskedLayerNorm,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualWithLayerDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ScalarMix,
+     lambda: ([], {'mixture_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Net1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_Net2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_allenai_allennlp(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(InputVariationalDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(LayerNorm(*[], **{'dimension': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MaskedLayerNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ResidualWithLayerDropout(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ScalarMix(*[], **{'mixture_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(_Net1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(_Net2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

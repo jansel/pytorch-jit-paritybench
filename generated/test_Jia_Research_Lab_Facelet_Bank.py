@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -130,55 +131,19 @@ class BaseModel(object):
         print('learning rate = %.7f' % lr)
 
 
-model_urls = {'older':
-    'https://www.dropbox.com/s/8irg2hguatwdm6v/older.pth?dl=1', 'younger':
-    'https://www.dropbox.com/s/drsx7slvmjdpwuq/younger.pth?dl=1',
-    'facehair':
-    'https://www.dropbox.com/s/xjd2xh53vw82ces/facehair.pth?dl=1',
-    'masculinization':
-    'https://www.dropbox.com/s/20q30jnn02qn7n0/masculinization.pth?dl=1',
-    'feminization':
-    'https://www.dropbox.com/s/5timkh7fuclwk9m/feminization.pth?dl=1',
-    'vgg19g':
-    'https://www.dropbox.com/s/4lbt58k10o84l5h/vgg19g-4aff041b.pth?dl=1',
-    'vgg_decoder_res':
-    'https://www.dropbox.com/s/t8vsobxz8avsmj0/decoder_res-9d1e0fe5.pth?dl=1'}
+model_urls = {'older': 'https://www.dropbox.com/s/8irg2hguatwdm6v/older.pth?dl=1', 'younger': 'https://www.dropbox.com/s/drsx7slvmjdpwuq/younger.pth?dl=1', 'facehair': 'https://www.dropbox.com/s/xjd2xh53vw82ces/facehair.pth?dl=1', 'masculinization': 'https://www.dropbox.com/s/20q30jnn02qn7n0/masculinization.pth?dl=1', 'feminization': 'https://www.dropbox.com/s/5timkh7fuclwk9m/feminization.pth?dl=1', 'vgg19g': 'https://www.dropbox.com/s/4lbt58k10o84l5h/vgg19g-4aff041b.pth?dl=1', 'vgg_decoder_res': 'https://www.dropbox.com/s/t8vsobxz8avsmj0/decoder_res-9d1e0fe5.pth?dl=1'}
 
 
 class VGG(nn.Module, BaseModel):
 
     def __init__(self, pretrained=True):
         super(VGG, self).__init__()
-        self.features_1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(
-            3, 64, kernel_size=3, padding=1)), ('relu1_1', nn.ReLU(inplace=
-            True)), ('conv1_2', nn.Conv2d(64, 64, kernel_size=3, padding=1)
-            ), ('relu1_2', nn.ReLU(inplace=True)), ('pool1', nn.MaxPool2d(2,
-            2)), ('conv2_1', nn.Conv2d(64, 128, kernel_size=3, padding=1)),
-            ('relu2_1', nn.ReLU(inplace=True)), ('conv2_2', nn.Conv2d(128, 
-            128, kernel_size=3, padding=1)), ('relu2_2', nn.ReLU(inplace=
-            True)), ('pool2', nn.MaxPool2d(2, 2)), ('conv3_1', nn.Conv2d(
-            128, 256, kernel_size=3, padding=1)), ('relu3_1', nn.ReLU(
-            inplace=True))]))
-        self.features_2 = nn.Sequential(OrderedDict([('conv3_2', nn.Conv2d(
-            256, 256, kernel_size=3, padding=1)), ('relu3_2', nn.ReLU(
-            inplace=True)), ('conv3_3', nn.Conv2d(256, 256, kernel_size=3,
-            padding=1)), ('relu3_3', nn.ReLU(inplace=True)), ('conv3_4', nn
-            .Conv2d(256, 256, kernel_size=3, padding=1)), ('relu3_5', nn.
-            ReLU(inplace=True)), ('pool3', nn.MaxPool2d(2, 2)), ('conv4_1',
-            nn.Conv2d(256, 512, kernel_size=3, padding=1)), ('relu4_1', nn.
-            ReLU(inplace=True))]))
-        self.features_3 = nn.Sequential(OrderedDict([('conv4_2', nn.Conv2d(
-            512, 512, kernel_size=3, padding=1)), ('relu4_2', nn.ReLU(
-            inplace=True)), ('conv4_3', nn.Conv2d(512, 512, kernel_size=3,
-            padding=1)), ('relu4_3', nn.ReLU(inplace=True)), ('conv4_4', nn
-            .Conv2d(512, 512, kernel_size=3, padding=1)), ('relu4_4', nn.
-            ReLU(inplace=True)), ('pool4', nn.MaxPool2d(2, 2)), ('conv5_1',
-            nn.Conv2d(512, 512, kernel_size=3, padding=1)), ('relu5_1', nn.
-            ReLU(inplace=True))]))
+        self.features_1 = nn.Sequential(OrderedDict([('conv1_1', nn.Conv2d(3, 64, kernel_size=3, padding=1)), ('relu1_1', nn.ReLU(inplace=True)), ('conv1_2', nn.Conv2d(64, 64, kernel_size=3, padding=1)), ('relu1_2', nn.ReLU(inplace=True)), ('pool1', nn.MaxPool2d(2, 2)), ('conv2_1', nn.Conv2d(64, 128, kernel_size=3, padding=1)), ('relu2_1', nn.ReLU(inplace=True)), ('conv2_2', nn.Conv2d(128, 128, kernel_size=3, padding=1)), ('relu2_2', nn.ReLU(inplace=True)), ('pool2', nn.MaxPool2d(2, 2)), ('conv3_1', nn.Conv2d(128, 256, kernel_size=3, padding=1)), ('relu3_1', nn.ReLU(inplace=True))]))
+        self.features_2 = nn.Sequential(OrderedDict([('conv3_2', nn.Conv2d(256, 256, kernel_size=3, padding=1)), ('relu3_2', nn.ReLU(inplace=True)), ('conv3_3', nn.Conv2d(256, 256, kernel_size=3, padding=1)), ('relu3_3', nn.ReLU(inplace=True)), ('conv3_4', nn.Conv2d(256, 256, kernel_size=3, padding=1)), ('relu3_5', nn.ReLU(inplace=True)), ('pool3', nn.MaxPool2d(2, 2)), ('conv4_1', nn.Conv2d(256, 512, kernel_size=3, padding=1)), ('relu4_1', nn.ReLU(inplace=True))]))
+        self.features_3 = nn.Sequential(OrderedDict([('conv4_2', nn.Conv2d(512, 512, kernel_size=3, padding=1)), ('relu4_2', nn.ReLU(inplace=True)), ('conv4_3', nn.Conv2d(512, 512, kernel_size=3, padding=1)), ('relu4_3', nn.ReLU(inplace=True)), ('conv4_4', nn.Conv2d(512, 512, kernel_size=3, padding=1)), ('relu4_4', nn.ReLU(inplace=True)), ('pool4', nn.MaxPool2d(2, 2)), ('conv5_1', nn.Conv2d(512, 512, kernel_size=3, padding=1)), ('relu5_1', nn.ReLU(inplace=True))]))
         if pretrained:
             None
-            state_dict = torch.utils.model_zoo.load_url(model_urls['vgg19g'
-                ], 'facelet_bank')
+            state_dict = torch.utils.model_zoo.load_url(model_urls['vgg19g'], 'facelet_bank')
             model_dict = self.state_dict()
             model_dict.update(state_dict)
             self.load_state_dict(model_dict)
@@ -212,20 +177,16 @@ class Vgg_recon(nn.Module):
     def forward(self, fy):
         features_1, features_2, features_3 = fy
         recon5 = self.recon5(features_3)
-        recon5 = nn.functional.upsample(recon5, scale_factor=2, mode='bilinear'
-            )
+        recon5 = nn.functional.upsample(recon5, scale_factor=2, mode='bilinear')
         upool4 = self.upsample4(recon5)
         recon4 = self.recon4(upool4 + features_2)
-        recon4 = nn.functional.upsample(recon4, scale_factor=2, mode='bilinear'
-            )
+        recon4 = nn.functional.upsample(recon4, scale_factor=2, mode='bilinear')
         upool3 = self.upsample3(recon4)
         recon3 = self.recon3(upool3 + features_1)
-        recon3 = nn.functional.upsample(recon3, scale_factor=2, mode='bilinear'
-            )
+        recon3 = nn.functional.upsample(recon3, scale_factor=2, mode='bilinear')
         upool2 = self.upsample2(recon3)
         recon2 = self.recon2(upool2)
-        recon2 = nn.functional.upsample(recon2, scale_factor=2, mode='bilinear'
-            )
+        recon2 = nn.functional.upsample(recon2, scale_factor=2, mode='bilinear')
         upool1 = self.upsample1(recon2)
         recon1 = self.recon1(upool1)
         recon0 = self.recon0(recon1)
@@ -237,11 +198,8 @@ class _PoolingBlock(nn.Sequential):
     def __init__(self, n_convs, n_input_filters, n_output_filters, drop_rate):
         super(_PoolingBlock, self).__init__()
         for i in range(n_convs):
-            self.add_module('conv.%d' % (i + 1), nn.Conv2d(n_input_filters if
-                i == 0 else n_output_filters, n_output_filters, kernel_size
-                =3, padding=1))
-            self.add_module('norm.%d' % (i + 1), nn.BatchNorm2d(
-                n_output_filters))
+            self.add_module('conv.%d' % (i + 1), nn.Conv2d(n_input_filters if i == 0 else n_output_filters, n_output_filters, kernel_size=3, padding=1))
+            self.add_module('norm.%d' % (i + 1), nn.BatchNorm2d(n_output_filters))
             self.add_module('relu.%d' % (i + 1), nn.ReLU(inplace=True))
             if drop_rate > 0:
                 self.add_module('drop.%d' % (i + 1), nn.Dropout(p=drop_rate))
@@ -251,8 +209,7 @@ class _TransitionUp(nn.Sequential):
 
     def __init__(self, n_input_filters, n_output_filters):
         super(_TransitionUp, self).__init__()
-        self.add_module('unpool.conv', nn.ConvTranspose2d(n_input_filters,
-            n_output_filters, kernel_size=4, stride=2, padding=1))
+        self.add_module('unpool.conv', nn.ConvTranspose2d(n_input_filters, n_output_filters, kernel_size=4, stride=2, padding=1))
         self.add_module('unpool.norm', nn.BatchNorm2d(n_output_filters))
 
 
@@ -260,8 +217,7 @@ class _Upsample(nn.Sequential):
 
     def __init__(self, n_input_filters, n_output_filters):
         super(_Upsample, self).__init__()
-        self.add_module('interp.conv', nn.Conv2d(n_input_filters,
-            n_output_filters, kernel_size=3, padding=1))
+        self.add_module('interp.conv', nn.Conv2d(n_input_filters, n_output_filters, kernel_size=3, padding=1))
         self.add_module('interp.norm', nn.BatchNorm2d(n_output_filters))
 
 
@@ -272,8 +228,7 @@ class vgg_decoder(base_network.BaseModel, nn.Module):
         self._define_model()
         if pretrained:
             None
-            state_dict = torch.utils.model_zoo.load_url(model_urls[
-                'vgg_decoder_res'], model_dir='facelet_bank')
+            state_dict = torch.utils.model_zoo.load_url(model_urls['vgg_decoder_res'], model_dir='facelet_bank')
             model_dict = self.model.state_dict()
             model_dict.update(state_dict)
             self.model.load_state_dict(model_dict)
@@ -323,25 +278,18 @@ class simpleCNNGenerator(nn.Module):
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
         if norm_layer is not None:
-            model = [nn.ReflectionPad2d(1), nn.Conv2d(input_nc, ngf,
-                kernel_size=3, padding=0, bias=use_bias), norm_layer(ngf),
-                nn.ReLU(inplace=True)]
+            model = [nn.ReflectionPad2d(1), nn.Conv2d(input_nc, ngf, kernel_size=3, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(inplace=True)]
         else:
-            model = [nn.ReflectionPad2d(1), nn.Conv2d(input_nc, ngf,
-                kernel_size=3, padding=0), nn.ReLU(inplace=True)]
+            model = [nn.ReflectionPad2d(1), nn.Conv2d(input_nc, ngf, kernel_size=3, padding=0), nn.ReLU(inplace=True)]
         for i in range(n_blocks - 2):
             if norm_layer is not None:
-                model += [nn.Conv2d(ngf, ngf, kernel_size=3, padding=1,
-                    bias=use_bias), norm_layer(ngf), nn.ReLU(inplace=True)]
+                model += [nn.Conv2d(ngf, ngf, kernel_size=3, padding=1, bias=use_bias), norm_layer(ngf), nn.ReLU(inplace=True)]
             else:
-                model += [nn.Conv2d(ngf, ngf, kernel_size=3, padding=1), nn
-                    .ReLU(inplace=True)]
+                model += [nn.Conv2d(ngf, ngf, kernel_size=3, padding=1), nn.ReLU(inplace=True)]
         if norm_layer is not None:
-            model += [nn.ReflectionPad2d(1), nn.Conv2d(ngf, output_nc,
-                kernel_size=3, padding=0, bias=use_bias)]
+            model += [nn.ReflectionPad2d(1), nn.Conv2d(ngf, output_nc, kernel_size=3, padding=0, bias=use_bias)]
         else:
-            model += [nn.ReflectionPad2d(1), nn.Conv2d(ngf, output_nc,
-                kernel_size=3, padding=0)]
+            model += [nn.ReflectionPad2d(1), nn.Conv2d(ngf, output_nc, kernel_size=3, padding=0)]
         self.model = nn.Sequential(*model)
 
     def forward(self, input):
@@ -352,11 +300,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (VGG,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (simpleCNNGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Jia_Research_Lab_Facelet_Bank(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(VGG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(simpleCNNGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

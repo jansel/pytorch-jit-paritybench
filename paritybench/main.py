@@ -107,6 +107,8 @@ def main():
     write_helpers()
 
     if args.run:
+        if ':' in args.run and not args.filter:
+            args.run, args.filter = args.run.split(':', 2)
         assert os.path.isfile(args.run)
         errors, stats = test_zipfile(args.run, args.filter)
         errors.print_report()

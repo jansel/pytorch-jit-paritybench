@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,12 +69,9 @@ class Self_Attn(nn.Module):
         super(Self_Attn, self).__init__()
         self.chanel_in = in_dim
         self.activation = activation
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,
-            kernel_size=1)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
@@ -86,8 +84,7 @@ class Self_Attn(nn.Module):
                 attention: B X N X N (N is Width*Height)
         """
         m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height
-            ).permute(0, 2, 1)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -110,25 +107,21 @@ class Generator(nn.Module):
         last = []
         repeat_num = int(np.log2(self.imsize)) - 3
         mult = 2 ** repeat_num
-        layer1.append(SpectralNorm(nn.ConvTranspose2d(z_dim, conv_dim *
-            mult, 4)))
+        layer1.append(SpectralNorm(nn.ConvTranspose2d(z_dim, conv_dim * mult, 4)))
         layer1.append(nn.BatchNorm2d(conv_dim * mult))
         layer1.append(nn.ReLU())
         curr_dim = conv_dim * mult
-        layer2.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(
-            curr_dim / 2), 4, 2, 1)))
+        layer2.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(curr_dim / 2), 4, 2, 1)))
         layer2.append(nn.BatchNorm2d(int(curr_dim / 2)))
         layer2.append(nn.ReLU())
         curr_dim = int(curr_dim / 2)
-        layer3.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(
-            curr_dim / 2), 4, 2, 1)))
+        layer3.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(curr_dim / 2), 4, 2, 1)))
         layer3.append(nn.BatchNorm2d(int(curr_dim / 2)))
         layer3.append(nn.ReLU())
         if self.imsize == 64:
             layer4 = []
             curr_dim = int(curr_dim / 2)
-            layer4.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(
-                curr_dim / 2), 4, 2, 1)))
+            layer4.append(SpectralNorm(nn.ConvTranspose2d(curr_dim, int(curr_dim / 2), 4, 2, 1)))
             layer4.append(nn.BatchNorm2d(int(curr_dim / 2)))
             layer4.append(nn.ReLU())
             self.l4 = nn.Sequential(*layer4)
@@ -175,8 +168,7 @@ class Discriminator(nn.Module):
         curr_dim = curr_dim * 2
         if self.imsize == 64:
             layer4 = []
-            layer4.append(SpectralNorm(nn.Conv2d(curr_dim, curr_dim * 2, 4,
-                2, 1)))
+            layer4.append(SpectralNorm(nn.Conv2d(curr_dim, curr_dim * 2, 4, 2, 1)))
             layer4.append(nn.LeakyReLU(0.1))
             self.l4 = nn.Sequential(*layer4)
             curr_dim = curr_dim * 2
@@ -219,8 +211,7 @@ class SpectralNorm(nn.Module):
         w = getattr(self.module, self.name + '_bar')
         height = w.data.shape[0]
         for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data),
-                u.data))
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
             u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
         sigma = u.dot(w.view(height, -1).mv(v))
         setattr(self.module, self.name, w / sigma.expand_as(w))
@@ -257,16 +248,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_heykeetae_Self_Attention_GAN(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Generator,
+     lambda: ([], {'batch_size': 4}),
+     lambda: ([torch.rand([4, 100, 1, 1])], {}),
+     False),
+    (Self_Attn,
+     lambda: ([], {'in_dim': 64, 'activation': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
+class Test_heykeetae_Self_Attention_GAN(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Generator(*[], **{'batch_size': 4}), [torch.rand([4, 100, 1, 1])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

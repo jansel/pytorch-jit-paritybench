@@ -62,8 +62,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -144,12 +145,10 @@ class Modified_NonparametricShift(object):
         input_windows = self._filter(input_windows, flag, value)
         return self._norm(input_windows)
 
-    def cosine_similarity(self, former, latter, patch_size, stride, flag,
-        with_former=False):
+    def cosine_similarity(self, former, latter, patch_size, stride, flag, with_former=False):
         former_windows = self._unfold(former, patch_size, stride)
         former = self._filter(former_windows, flag, 1)
-        latter_windows, i_2, i_3, i_1 = self._unfold(latter, patch_size,
-            stride, with_indexes=True)
+        latter_windows, i_2, i_3, i_1 = self._unfold(latter, patch_size, stride, with_indexes=True)
         latter = self._filter(latter_windows, flag, 0)
         num = torch.einsum('ik,jk->ij', [former, latter])
         norm_latter = torch.einsum('ij,ij->i', [latter, latter])
@@ -174,12 +173,10 @@ class Modified_NonparametricShift(object):
         input_windows = img.unfold(1, kH, dH).unfold(2, kW, dW)
         i_1, i_2, i_3, i_4, i_5 = input_windows.size()
         if with_indexes:
-            input_windows = input_windows.permute(1, 2, 0, 3, 4).contiguous(
-                ).view(i_2 * i_3, i_1)
+            input_windows = input_windows.permute(1, 2, 0, 3, 4).contiguous().view(i_2 * i_3, i_1)
             return input_windows, i_2, i_3, i_1
         else:
-            input_windows = input_windows.permute(1, 2, 0, 3, 4).contiguous(
-                ).view(i_2 * i_3, i_1, i_4, i_5)
+            input_windows = input_windows.permute(1, 2, 0, 3, 4).contiguous().view(i_2 * i_3, i_1, i_4, i_5)
             return input_windows
 
     def _filter(self, input_windows, flag, value):
@@ -188,8 +185,7 @@ class Modified_NonparametricShift(object):
 
     def _norm(self, input_window):
         for i in range(input_window.size(0)):
-            input_window[i] = input_window[i] * (1 / (input_window[i].norm(
-                2) + 1e-08))
+            input_window[i] = input_window[i] * (1 / (input_window[i].norm(2) + 1e-08))
         return input_window
 
 
@@ -197,8 +193,7 @@ class InnerFaceShiftTripleFunction(torch.autograd.Function):
     ctx = None
 
     @staticmethod
-    def forward(ctx, input, shift_sz, stride, triple_w, flag, flag_flip,
-        show_flow, flip_feat=None):
+    def forward(ctx, input, shift_sz, stride, triple_w, flag, flag_flip, show_flow, flip_feat=None):
         InnerFaceShiftTripleFunction.ctx = ctx
         assert input.dim() == 4, 'Input Dim has to be 4'
         ctx.triple_w = triple_w
@@ -207,16 +202,13 @@ class InnerFaceShiftTripleFunction(torch.autograd.Function):
         ctx.show_flow = show_flow
         ctx.bz, c_real, ctx.h, ctx.w = input.size()
         c = c_real
-        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_(
-            ).to(input)
+        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_().to(input)
         ctx.ind_lst_flip = ctx.ind_lst.clone()
         former_all = input.narrow(1, 0, c // 2)
         latter_all = input.narrow(1, c // 2, c // 2)
-        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all
-            ).zero_()
+        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all).zero_()
         if not flip_feat is None:
-            assert flip_feat.size() == former_all.size(
-                ), 'flip_feat size should be equal to former size'
+            assert flip_feat.size() == former_all.size(), 'flip_feat size should be equal to former size'
             ctx.flag = ctx.flag.to(input).long()
             ctx.flag_flip = ctx.flag_flip.to(input).long()
             Nonparm = Modified_NonparametricShift()
@@ -226,12 +218,8 @@ class InnerFaceShiftTripleFunction(torch.autograd.Function):
                 flag_cur_flip = ctx.flag_flip[idx]
                 latter = latter_all.narrow(0, idx, 1)
                 former = former_all.narrow(0, idx, 1)
-                cosine, latter_windows, i_2, i_3, i_1 = (Nonparm.
-                    cosine_similarity(former.clone().squeeze(), latter.
-                    clone().squeeze(), 1, stride, flag_cur))
-                cosine_flip, latter_windows_flip, _, _, _ = (Nonparm.
-                    cosine_similarity(former.clone().squeeze(), flip_feat.
-                    clone().squeeze(), 1, stride, flag_cur_flip))
+                cosine, latter_windows, i_2, i_3, i_1 = Nonparm.cosine_similarity(former.clone().squeeze(), latter.clone().squeeze(), 1, stride, flag_cur)
+                cosine_flip, latter_windows_flip, _, _, _ = Nonparm.cosine_similarity(former.clone().squeeze(), flip_feat.clone().squeeze(), 1, stride, flag_cur_flip)
                 cosine_con = torch.cat([cosine, cosine_flip], dim=1)
                 _, indexes_con = torch.max(cosine_con, dim=1)
                 ori_larger = (indexes_con < cosine.size(1)).long().view(-1, 1)
@@ -239,42 +227,28 @@ class InnerFaceShiftTripleFunction(torch.autograd.Function):
                 _, indexes_flip = torch.max(cosine_flip, dim=1)
                 mask_indexes = (flag_cur == 1).nonzero()
                 non_mask_indexes = (flag_cur == 0).nonzero()[indexes]
-                mask_indexes_select_index = (mask_indexes.squeeze() *
-                    ori_larger.squeeze()).nonzero()
-                mask_indexes_select = mask_indexes[mask_indexes_select_index
-                    ].squeeze()
+                mask_indexes_select_index = (mask_indexes.squeeze() * ori_larger.squeeze()).nonzero()
+                mask_indexes_select = mask_indexes[mask_indexes_select_index].squeeze()
                 ctx.ind_lst[idx][mask_indexes_select, non_mask_indexes] = 1
-                non_mask_indexes_flip = (flag_cur_flip == 0).nonzero()[
-                    indexes_flip]
-                mask_indexes_flip_select_index = (mask_indexes.squeeze() *
-                    (1 - ori_larger.squeeze())).nonzero()
-                mask_indexes_flip_select = mask_indexes[
-                    mask_indexes_flip_select_index].squeeze()
-                ctx.ind_lst_flip[idx][mask_indexes_flip_select,
-                    non_mask_indexes_flip] = 1
-                ori_tmp = Nonparm._paste(latter_windows, ctx.ind_lst[idx],
-                    i_2, i_3, i_1)
-                ori_tmp_flip = Nonparm._paste(latter_windows_flip, ctx.
-                    ind_lst_flip[idx], i_2, i_3, i_1)
+                non_mask_indexes_flip = (flag_cur_flip == 0).nonzero()[indexes_flip]
+                mask_indexes_flip_select_index = (mask_indexes.squeeze() * (1 - ori_larger.squeeze())).nonzero()
+                mask_indexes_flip_select = mask_indexes[mask_indexes_flip_select_index].squeeze()
+                ctx.ind_lst_flip[idx][mask_indexes_flip_select, non_mask_indexes_flip] = 1
+                ori_tmp = Nonparm._paste(latter_windows, ctx.ind_lst[idx], i_2, i_3, i_1)
+                ori_tmp_flip = Nonparm._paste(latter_windows_flip, ctx.ind_lst_flip[idx], i_2, i_3, i_1)
                 shift_masked_all[idx] = ori_tmp + ori_tmp_flip
                 if ctx.show_flow:
-                    shift_offset = torch.stack([non_mask_indexes.squeeze() //
-                        ctx.w, non_mask_indexes.squeeze() % ctx.w], dim=-1)
+                    shift_offset = torch.stack([non_mask_indexes.squeeze() // ctx.w, non_mask_indexes.squeeze() % ctx.w], dim=-1)
                     ctx.shift_offsets.append(shift_offset)
         if ctx.show_flow:
             ctx.shift_offsets = torch.cat(ctx.shift_offsets, dim=0).float()
             mask_nums = ctx.shift_offsets.size(0) // ctx.bz
             ctx.flow_srcs = torch.zeros(ctx.bz, 3, ctx.h, ctx.w).type_as(input)
             for idx in range(ctx.bz):
-                shift_offset = ctx.shift_offsets.narrow(0, idx * mask_nums,
-                    mask_nums)
-                shift_offsets_map = torch.zeros(1, ctx.h, ctx.w, 2).type_as(
-                    input)
-                shift_offsets_map[:, ((flag_cur == 1).nonzero().squeeze() //
-                    ctx.w), ((flag_cur == 1).nonzero().squeeze() % ctx.w), :
-                    ] = shift_offset.unsqueeze(0)
-                flow_src = util.highlight_flow(shift_offsets_map, flag_cur.
-                    unsqueeze(0))
+                shift_offset = ctx.shift_offsets.narrow(0, idx * mask_nums, mask_nums)
+                shift_offsets_map = torch.zeros(1, ctx.h, ctx.w, 2).type_as(input)
+                shift_offsets_map[:, ((flag_cur == 1).nonzero().squeeze() // ctx.w), ((flag_cur == 1).nonzero().squeeze() % ctx.w), :] = shift_offset.unsqueeze(0)
+                flow_src = util.highlight_flow(shift_offsets_map, flag_cur.unsqueeze(0))
                 ctx.flow_srcs[idx] = flow_src
         return torch.cat((former_all, latter_all, shift_masked_all), 1)
 
@@ -296,22 +270,17 @@ class InnerFaceShiftTripleFunction(torch.autograd.Function):
             grad = grad_shifted_all[idx].view(c // 3, -1).t()
             grad_shifted_weighted = torch.mm(W_mat_t, grad)
             grad_shifted_weighted_flip = torch.mm(W_mat_t_flip, grad)
-            grad_shifted_weighted = grad_shifted_weighted.t().contiguous(
-                ).view(1, c // 3, ctx.h, ctx.w)
-            grad_shifted_weighted_flip = grad_shifted_weighted_flip.t(
-                ).contiguous().view(1, c // 3, ctx.h, ctx.w)
-            grad_shifted_weighted_all = (grad_shifted_weighted +
-                grad_shifted_weighted_flip)
-            grad_latter_all[idx] = torch.add(grad_latter_all[idx],
-                grad_shifted_weighted_all.mul(ctx.triple_w))
+            grad_shifted_weighted = grad_shifted_weighted.t().contiguous().view(1, c // 3, ctx.h, ctx.w)
+            grad_shifted_weighted_flip = grad_shifted_weighted_flip.t().contiguous().view(1, c // 3, ctx.h, ctx.w)
+            grad_shifted_weighted_all = grad_shifted_weighted + grad_shifted_weighted_flip
+            grad_latter_all[idx] = torch.add(grad_latter_all[idx], grad_shifted_weighted_all.mul(ctx.triple_w))
         grad_input = torch.cat([grad_former_all, grad_latter_all], 1)
         return grad_input, None, None, None, None, None, None, None
 
 
 class InnerFaceShiftTriple(nn.Module):
 
-    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1,
-        layer_to_last=3, device='gpu'):
+    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3, device='gpu'):
         super(InnerFaceShiftTriple, self).__init__()
         self.shift_sz = shift_sz
         self.stride = stride
@@ -327,8 +296,7 @@ class InnerFaceShiftTriple(nn.Module):
 
     def _split_mask(self, cur_bsize):
         cur_device = torch.current_device()
-        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 
-            1) * cur_bsize, :, :, :]
+        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
 
     def forward(self, input, flip_feat=None):
         self.bz, self.c, self.h, self.w = input.size()
@@ -338,13 +306,9 @@ class InnerFaceShiftTriple(nn.Module):
             self.cur_mask = self.mask_all
         self.mask = self.cur_mask
         self.mask_flip = torch.flip(self.mask, [3])
-        self.flag = util.cal_flag_given_mask_thred(self.mask, self.shift_sz,
-            self.stride, self.mask_thred)
-        self.flag_flip = util.cal_flag_given_mask_thred(self.mask_flip,
-            self.shift_sz, self.stride, self.mask_thred)
-        final_out = InnerFaceShiftTripleFunction.apply(input, self.shift_sz,
-            self.stride, self.triple_weight, self.flag, self.flag_flip,
-            self.show_flow, flip_feat)
+        self.flag = util.cal_flag_given_mask_thred(self.mask, self.shift_sz, self.stride, self.mask_thred)
+        self.flag_flip = util.cal_flag_given_mask_thred(self.mask_flip, self.shift_sz, self.stride, self.mask_thred)
+        final_out = InnerFaceShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.flag_flip, self.show_flow, flip_feat)
         if self.show_flow:
             self.flow_srcs = InnerFaceShiftTripleFunction.get_flow_src()
         innerFeat = input.clone().narrow(1, self.c // 2, self.c // 2)
@@ -360,8 +324,7 @@ class InnerFaceShiftTriple(nn.Module):
         self.show_flow = False
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self
-            .triple_weight) + ')'
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 def spectral_norm(module, mode=True):
@@ -372,50 +335,39 @@ def spectral_norm(module, mode=True):
 
 class _DenseLayer(nn.Sequential):
 
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate,
-        use_spectral_norm):
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, use_spectral_norm):
         super(_DenseLayer, self).__init__()
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU()),
-        self.add_module('conv1', spectral_norm(nn.Conv2d(num_input_features,
-            bn_size * growth_rate, kernel_size=1, stride=1, bias=False),
-            use_spectral_norm)),
+        self.add_module('conv1', spectral_norm(nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False), use_spectral_norm)),
         self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
         self.add_module('relu2', nn.ReLU()),
-        self.add_module('conv2', spectral_norm(nn.Conv2d(bn_size *
-            growth_rate, growth_rate, kernel_size=3, stride=1, padding=1,
-            bias=False), use_spectral_norm)),
+        self.add_module('conv2', spectral_norm(nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False), use_spectral_norm)),
         self.drop_rate = drop_rate
 
     def forward(self, x):
         new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate,
-                training=self.training)
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)
 
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
-        drop_rate, use_spectral_norm):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, use_spectral_norm):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate,
-                growth_rate, bn_size, drop_rate, use_spectral_norm)
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate, use_spectral_norm)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
 class _Transition(nn.Sequential):
 
-    def __init__(self, num_input_features, num_output_features,
-        use_spectral_norm):
+    def __init__(self, num_input_features, num_output_features, use_spectral_norm):
         super(_Transition, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('relu', nn.ReLU())
-        self.add_module('conv', spectral_norm(nn.Conv2d(num_input_features,
-            num_output_features, kernel_size=1, stride=1, bias=False),
-            use_spectral_norm))
+        self.add_module('conv', spectral_norm(nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False), use_spectral_norm))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
 
 
@@ -433,31 +385,20 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
     """
 
-    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16),
-        use_spectral_norm=True, num_init_features=64, bn_size=4, drop_rate=
-        0, num_classes=1000):
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16), use_spectral_norm=True, num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000):
         super(DenseNet, self).__init__()
-        self.features = nn.Sequential(OrderedDict([('conv0', spectral_norm(
-            nn.Conv2d(3, num_init_features, kernel_size=7, stride=2,
-            padding=3, bias=False), use_spectral_norm)), ('norm0', nn.
-            BatchNorm2d(num_init_features)), ('relu0', nn.ReLU()), ('pool0',
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', spectral_norm(nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False), use_spectral_norm)), ('norm0', nn.BatchNorm2d(num_init_features)), ('relu0', nn.ReLU()), ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=
-                num_features, bn_size=bn_size, growth_rate=growth_rate,
-                drop_rate=drop_rate, use_spectral_norm=use_spectral_norm)
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate, use_spectral_norm=use_spectral_norm)
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = _Transition(num_input_features=num_features,
-                    num_output_features=num_features // 2,
-                    use_spectral_norm=use_spectral_norm)
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2, use_spectral_norm=use_spectral_norm)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = num_features // 2
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
-        self.conv_last = spectral_norm(nn.Conv2d(num_features, 256,
-            kernel_size=3), use_spectral_norm)
+        self.conv_last = spectral_norm(nn.Conv2d(num_features, 256, kernel_size=3), use_spectral_norm)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight.data)
@@ -475,8 +416,7 @@ class DenseNet(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, use_spectral_norm=True):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, use_spectral_norm=True):
         super(NLayerDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -484,26 +424,17 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 4
         padw = 1
-        sequence = [spectral_norm(nn.Conv2d(input_nc, ndf, kernel_size=kw,
-            stride=2, padding=padw), use_spectral_norm), nn.LeakyReLU(0.2, 
-            True)]
+        sequence = [spectral_norm(nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), use_spectral_norm), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [spectral_norm(nn.Conv2d(ndf * nf_mult_prev, ndf *
-                nf_mult, kernel_size=kw, stride=2, padding=padw, bias=
-                use_bias), use_spectral_norm), norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2, True)]
+            sequence += [spectral_norm(nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), use_spectral_norm), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [spectral_norm(nn.Conv2d(ndf * nf_mult_prev, ndf *
-            nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            use_spectral_norm), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2,
-            True)]
-        sequence += [spectral_norm(nn.Conv2d(ndf * nf_mult, 1, kernel_size=
-            kw, stride=1, padding=padw), use_spectral_norm)]
+        sequence += [spectral_norm(nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), use_spectral_norm), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [spectral_norm(nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw), use_spectral_norm)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -512,14 +443,7 @@ class NLayerDiscriminator(nn.Module):
         return self.model(input)
 
 
-model_urls = {'densenet121':
-    'https://download.pytorch.org/models/densenet121-a639ec97.pth',
-    'densenet169':
-    'https://download.pytorch.org/models/densenet169-b2777c0a.pth',
-    'densenet201':
-    'https://download.pytorch.org/models/densenet201-c1103571.pth',
-    'densenet161':
-    'https://download.pytorch.org/models/densenet161-8d451a50.pth'}
+model_urls = {'densenet121': 'https://download.pytorch.org/models/densenet121-a639ec97.pth', 'densenet169': 'https://download.pytorch.org/models/densenet169-b2777c0a.pth', 'densenet201': 'https://download.pytorch.org/models/densenet201-c1103571.pth', 'densenet161': 'https://download.pytorch.org/models/densenet161-8d451a50.pth'}
 
 
 def densenet121(pretrained=False, use_spectral_norm=True, **kwargs):
@@ -529,12 +453,9 @@ def densenet121(pretrained=False, use_spectral_norm=True, **kwargs):
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6,
-        12, 24, 16), use_spectral_norm=use_spectral_norm, **kwargs)
+    model = DenseNet(num_init_features=64, growth_rate=32, block_config=(6, 12, 24, 16), use_spectral_norm=use_spectral_norm, **kwargs)
     if pretrained:
-        pattern = re.compile(
-            '^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$'
-            )
+        pattern = re.compile('^(.*denselayer\\d+\\.(?:norm|relu|conv))\\.((?:[12])\\.(?:weight|bias|running_mean|running_var))$')
         state_dict = model_zoo.load_url(model_urls['densenet121'])
         for key in list(state_dict.keys()):
             res = pattern.match(key)
@@ -548,11 +469,9 @@ def densenet121(pretrained=False, use_spectral_norm=True, **kwargs):
 
 class DenseNetDiscrimator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False, use_spectral_norm=True):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, use_spectral_norm=True):
         super(DenseNetDiscrimator, self).__init__()
-        self.model = densenet121(pretrained=True, use_spectral_norm=
-            use_spectral_norm)
+        self.model = densenet121(pretrained=True, use_spectral_norm=use_spectral_norm)
         self.use_sigmoid = use_sigmoid
         if self.use_sigmoid:
             self.sigmoid = nn.Sigmoid()
@@ -566,8 +485,7 @@ class DenseNetDiscrimator(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, gan_type='wgan_gp', target_real_label=1.0,
-        target_fake_label=0.0):
+    def __init__(self, gan_type='wgan_gp', target_real_label=1.0, target_fake_label=0.0):
         super(GANLoss, self).__init__()
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
@@ -604,8 +522,7 @@ class GANLoss(nn.Module):
         return loss
 
 
-def spatial_discounting_mask(mask_width, mask_height, discounting_gamma,
-    discounting=1):
+def spatial_discounting_mask(mask_width, mask_height, discounting_gamma, discounting=1):
     """Generate spatial discounting mask constant.
     Spatial discounting mask is first introduced in publication:
         Generative Image Inpainting with Contextual Attention, Yu et al.
@@ -619,8 +536,7 @@ def spatial_discounting_mask(mask_width, mask_height, discounting_gamma,
         mask_values = np.ones((mask_width, mask_height), dtype='float32')
         for i in range(mask_width):
             for j in range(mask_height):
-                mask_values[i, j] = max(gamma ** min(i, mask_width - i), 
-                    gamma ** min(j, mask_height - j))
+                mask_values[i, j] = max(gamma ** min(i, mask_width - i), gamma ** min(j, mask_height - j))
         mask_values = np.expand_dims(mask_values, 0)
         mask_values = np.expand_dims(mask_values, 1)
         mask_values = mask_values
@@ -633,9 +549,7 @@ class Discounted_L1(nn.Module):
 
     def __init__(self, opt):
         super(Discounted_L1, self).__init__()
-        self.register_buffer('discounting_mask', torch.tensor(
-            spatial_discounting_mask(opt.fineSize // 2 - opt.overlap * 2, 
-            opt.fineSize // 2 - opt.overlap * 2, 0.9, opt.discounting)))
+        self.register_buffer('discounting_mask', torch.tensor(spatial_discounting_mask(opt.fineSize // 2 - opt.overlap * 2, opt.fineSize // 2 - opt.overlap * 2, 0.9, opt.discounting)))
         self.L1 = nn.L1Loss()
 
     def forward(self, input, target):
@@ -678,12 +592,9 @@ class Self_Attn(nn.Module):
         self.chanel_in = in_dim
         self.activation = activation
         self.with_attention = with_attention
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,
-            kernel_size=1)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
@@ -696,8 +607,7 @@ class Self_Attn(nn.Module):
 				attention: B X N X N (N is Width*Height)
 		"""
         m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height
-            ).permute(0, 2, 1)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -713,8 +623,7 @@ class Self_Attn(nn.Module):
 
 class SwitchNorm2d(nn.Module):
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.9,
-        using_moving_average=True, using_bn=True, last_gamma=False):
+    def __init__(self, num_features, eps=1e-05, momentum=0.9, using_moving_average=True, using_bn=True, last_gamma=False):
         super(SwitchNorm2d, self).__init__()
         self.eps = eps
         self.momentum = momentum
@@ -730,10 +639,8 @@ class SwitchNorm2d(nn.Module):
             self.mean_weight = nn.Parameter(torch.ones(2))
             self.var_weight = nn.Parameter(torch.ones(2))
         if self.using_bn:
-            self.register_buffer('running_mean', torch.zeros(1,
-                num_features, 1))
-            self.register_buffer('running_var', torch.zeros(1, num_features, 1)
-                )
+            self.register_buffer('running_mean', torch.zeros(1, num_features, 1))
+            self.register_buffer('running_var', torch.zeros(1, num_features, 1))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -748,8 +655,7 @@ class SwitchNorm2d(nn.Module):
 
     def _check_input_dim(self, input):
         if input.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'.format(
-                input.dim()))
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
 
     def forward(self, x):
         self._check_input_dim(x)
@@ -779,10 +685,8 @@ class SwitchNorm2d(nn.Module):
         mean_weight = softmax(self.mean_weight)
         var_weight = softmax(self.var_weight)
         if self.using_bn:
-            mean = mean_weight[0] * mean_in + mean_weight[1
-                ] * mean_ln + mean_weight[2] * mean_bn
-            var = var_weight[0] * var_in + var_weight[1] * var_ln + var_weight[
-                2] * var_bn
+            mean = mean_weight[0] * mean_in + mean_weight[1] * mean_ln + mean_weight[2] * mean_bn
+            var = var_weight[0] * var_in + var_weight[1] * var_ln + var_weight[2] * var_bn
         else:
             mean = mean_weight[0] * mean_in + mean_weight[1] * mean_ln
             var = var_weight[0] * var_in + var_weight[1] * var_ln
@@ -793,13 +697,10 @@ class SwitchNorm2d(nn.Module):
 
 class PartialConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
         super(PartialConv).__init__()
-        self.input_conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups, bias)
-        self.mask_conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups, False)
+        self.input_conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        self.mask_conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, False)
         torch.nn.init.constant_(self.mask_conv.weight, 1.0)
         for param in self.mask_conv.parameters():
             param.requires_grad = False
@@ -807,8 +708,7 @@ class PartialConv(nn.Module):
     def forward(self, input, mask):
         output = self.input_conv(input * mask)
         if self.input_conv.bias is not None:
-            output_bias = self.input_conv.bias.view(1, -1, 1, 1).expand_as(
-                output)
+            output_bias = self.input_conv.bias.view(1, -1, 1, 1).expand_as(output)
         else:
             output_bias = torch.zeros_like(output)
         with torch.no_grad():
@@ -826,8 +726,7 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_bias)
 
     def build_conv_block(self, dim, padding_type, norm_layer, use_bias):
         conv_block = []
@@ -839,10 +738,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         p = 0
         if padding_type == 'reflect':
             conv_block += [nn.ReflectionPad2d(1)]
@@ -851,10 +748,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -864,31 +759,16 @@ class ResnetBlock(nn.Module):
 
 class UnetGeneratorShiftTriple(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list,
-        shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(UnetGeneratorShiftTriple, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True,
-            use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         None
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_shift_block = UnetSkipConnectionShiftBlock(ngf * 2, ngf * 4,
-            opt, innerCos_list, shift_list, mask_global, input_nc=None,
-            submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=
-            use_spectral_norm, layer_to_last=3)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_shift_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer, use_spectral_norm=use_spectral_norm)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_shift_block = UnetSkipConnectionShiftBlock(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
@@ -897,46 +777,35 @@ class UnetGeneratorShiftTriple(nn.Module):
 
 class UnetSkipConnectionShiftBlock(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list,
-        mask_global, input_nc, submodule=None, shift_layer=None, outermost=
-        False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False, layer_to_last=3):
+    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list, mask_global, input_nc, submodule=None, shift_layer=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False, layer_to_last=3):
         super(UnetSkipConnectionShiftBlock, self).__init__()
         self.outermost = outermost
         if input_nc is None:
             input_nc = outer_nc
-        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=
-            4, stride=2, padding=1), use_spectral_norm)
+        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         device = 'cpu' if len(opt.gpu_ids) == 0 else 'gpu'
-        shift = InnerShiftTriple(opt.shift_sz, opt.stride, opt.mask_thred,
-            opt.triple_weight, layer_to_last=layer_to_last, device=device)
+        shift = InnerShiftTriple(opt.shift_sz, opt.stride, opt.mask_thred, opt.triple_weight, layer_to_last=layer_to_last, device=device)
         shift.set_mask(mask_global)
         shift_list.append(shift)
-        innerCos = InnerCos(strength=opt.strength, skip=opt.skip,
-            layer_to_last=layer_to_last, device=device)
+        innerCos = InnerCos(strength=opt.strength, skip=opt.skip, layer_to_last=layer_to_last, device=device)
         innerCos.set_mask(mask_global)
         innerCos_list.append(innerCos)
         if outermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc,
-                kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 3,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 3, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, innerCos, shift, upconv, upnorm]
             model = down + [submodule] + up
@@ -955,62 +824,42 @@ class UnetSkipConnectionShiftBlock(nn.Module):
 
 class FaceUnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, innerCos_list, shift_list,
-        mask_global, opt, ngf=64, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, innerCos_list, shift_list, mask_global, opt, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(FaceUnetGenerator, self).__init__()
-        self.e1_c = spectral_norm(nn.Conv2d(input_nc, ngf, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
-        self.e2_c = spectral_norm(nn.Conv2d(ngf, ngf * 2, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e1_c = spectral_norm(nn.Conv2d(input_nc, ngf, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.e2_c = spectral_norm(nn.Conv2d(ngf, ngf * 2, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e2_norm = norm_layer(ngf * 2)
-        self.e3_c = spectral_norm(nn.Conv2d(ngf * 2, ngf * 4, kernel_size=6,
-            stride=2, padding=2), use_spectral_norm)
+        self.e3_c = spectral_norm(nn.Conv2d(ngf * 2, ngf * 4, kernel_size=6, stride=2, padding=2), use_spectral_norm)
         self.e3_norm = norm_layer(ngf * 4)
-        self.e4_c = spectral_norm(nn.Conv2d(ngf * 4, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e4_c = spectral_norm(nn.Conv2d(ngf * 4, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e4_norm = norm_layer(ngf * 8)
-        self.e5_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e5_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e5_norm = norm_layer(ngf * 8)
-        self.e6_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e6_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e6_norm = norm_layer(ngf * 8)
-        self.e7_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e7_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e7_norm = norm_layer(ngf * 8)
-        self.e8_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
-        self.d1_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.e8_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d1_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d1_norm = norm_layer(ngf * 8)
-        self.d2_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d2_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d2_norm = norm_layer(ngf * 8)
-        self.d3_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d3_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d3_norm = norm_layer(ngf * 8)
-        self.d4_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d4_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d4_norm = norm_layer(ngf * 8)
-        self.d5_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 4,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d5_dc = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 4, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d5_norm = norm_layer(ngf * 4)
-        self.d6_dc = spectral_norm(nn.ConvTranspose2d(ngf * 4 * 3, ngf * 2,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d6_dc = spectral_norm(nn.ConvTranspose2d(ngf * 4 * 3, ngf * 2, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d6_norm = norm_layer(ngf * 2)
-        self.d7_dc = spectral_norm(nn.ConvTranspose2d(ngf * 2 * 2, ngf,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d7_dc = spectral_norm(nn.ConvTranspose2d(ngf * 2 * 2, ngf, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d7_norm = norm_layer(ngf)
-        self.d8_dc = spectral_norm(nn.ConvTranspose2d(ngf * 2, output_nc,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d8_dc = spectral_norm(nn.ConvTranspose2d(ngf * 2, output_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         device = 'cpu' if len(opt.gpu_ids) == 0 else 'gpu'
-        self.shift = InnerFaceShiftTriple(opt.shift_sz, opt.stride, opt.
-            mask_thred, opt.triple_weight, layer_to_last=3, device=device)
+        self.shift = InnerFaceShiftTriple(opt.shift_sz, opt.stride, opt.mask_thred, opt.triple_weight, layer_to_last=3, device=device)
         self.shift.set_mask(mask_global)
         shift_list.append(self.shift)
-        self.innerCos = InnerCos(strength=opt.strength, skip=opt.skip,
-            layer_to_last=3, device=device)
+        self.innerCos = InnerCos(strength=opt.strength, skip=opt.skip, layer_to_last=3, device=device)
         self.innerCos.set_mask(mask_global)
         innerCos_list.append(self.innerCos)
 
@@ -1028,8 +877,7 @@ class FaceUnetGenerator(nn.Module):
         d3 = self.d3_norm(self.d3_dc(F.relu_(torch.cat([d2, e6], dim=1))))
         d4 = self.d4_norm(self.d4_dc(F.relu_(torch.cat([d3, e5], dim=1))))
         d5 = self.d5_norm(self.d5_dc(F.relu_(torch.cat([d4, e4], dim=1))))
-        tmp, innerFeat = self.shift(self.innerCos(F.relu_(torch.cat([d5, e3
-            ], dim=1))), flip_feat)
+        tmp, innerFeat = self.shift(self.innerCos(F.relu_(torch.cat([d5, e3], dim=1))), flip_feat)
         d6 = self.d6_norm(self.d6_dc(tmp))
         d7 = self.d7_norm(self.d7_dc(F.relu_(torch.cat([d6, e2], dim=1))))
         d8 = self.d8_dc(F.relu_(torch.cat([d7, e1], 1)))
@@ -1039,31 +887,16 @@ class FaceUnetGenerator(nn.Module):
 
 class ResUnetGeneratorShiftTriple(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list,
-        shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(ResUnetGeneratorShiftTriple, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True,
-            use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         None
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_shift_block = ResUnetSkipConnectionBlock(ngf * 2, ngf * 4, opt,
-            innerCos_list, shift_list, mask_global, input_nc=None,
-            submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=
-            use_spectral_norm, layer_to_last=3)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_shift_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer, use_spectral_norm=use_spectral_norm)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_shift_block = ResUnetSkipConnectionBlock(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
@@ -1072,47 +905,35 @@ class ResUnetGeneratorShiftTriple(nn.Module):
 
 class ResUnetSkipConnectionBlock(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list,
-        mask_global, input_nc, submodule=None, shift_layer=None, outermost=
-        False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False, layer_to_last=3):
+    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list, mask_global, input_nc, submodule=None, shift_layer=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False, layer_to_last=3):
         super(ResUnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
         if input_nc is None:
             input_nc = outer_nc
-        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=
-            4, stride=2, padding=1), use_spectral_norm)
+        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         device = 'cpu' if len(opt.gpu_ids) == 0 else 'gpu'
-        shift = InnerResShiftTriple(inner_nc, opt.shift_sz, opt.stride, opt
-            .mask_thred, opt.triple_weight, layer_to_last=layer_to_last,
-            device=device)
+        shift = InnerResShiftTriple(inner_nc, opt.shift_sz, opt.stride, opt.mask_thred, opt.triple_weight, layer_to_last=layer_to_last, device=device)
         shift.set_mask(mask_global)
         shift_list.append(shift)
-        innerCos = InnerCos(strength=opt.strength, skip=opt.skip,
-            layer_to_last=layer_to_last, device=device)
+        innerCos = InnerCos(strength=opt.strength, skip=opt.skip, layer_to_last=layer_to_last, device=device)
         innerCos.set_mask(mask_global)
         innerCos_list.append(innerCos)
         if outermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc,
-                kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, innerCos, shift, upconv, upnorm]
             model = down + [submodule] + up
@@ -1131,31 +952,16 @@ class ResUnetSkipConnectionBlock(nn.Module):
 
 class PatchSoftUnetGeneratorShiftTriple(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list,
-        shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(PatchSoftUnetGeneratorShiftTriple, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True,
-            use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         None
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_shift_block = PatchSoftUnetSkipConnectionShiftTriple(ngf * 2, 
-            ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm, layer_to_last=3)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_shift_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer, use_spectral_norm=use_spectral_norm)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_shift_block = PatchSoftUnetSkipConnectionShiftTriple(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
@@ -1164,47 +970,35 @@ class PatchSoftUnetGeneratorShiftTriple(nn.Module):
 
 class PatchSoftUnetSkipConnectionShiftTriple(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list,
-        mask_global, input_nc, submodule=None, shift_layer=None, outermost=
-        False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False, layer_to_last=3):
+    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list, mask_global, input_nc, submodule=None, shift_layer=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False, layer_to_last=3):
         super(PatchSoftUnetSkipConnectionShiftTriple, self).__init__()
         self.outermost = outermost
         if input_nc is None:
             input_nc = outer_nc
-        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=
-            4, stride=2, padding=1), use_spectral_norm)
+        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         device = 'cpu' if len(opt.gpu_ids) == 0 else 'gpu'
-        shift = InnerPatchSoftShiftTriple(opt.shift_sz, opt.stride, opt.
-            mask_thred, opt.triple_weight, opt.fuse, layer_to_last=
-            layer_to_last, device=device)
+        shift = InnerPatchSoftShiftTriple(opt.shift_sz, opt.stride, opt.mask_thred, opt.triple_weight, opt.fuse, layer_to_last=layer_to_last, device=device)
         shift.set_mask(mask_global)
         shift_list.append(shift)
-        innerCos = InnerCos(strength=opt.strength, skip=opt.skip,
-            layer_to_last=layer_to_last, device=device)
+        innerCos = InnerCos(strength=opt.strength, skip=opt.skip, layer_to_last=layer_to_last, device=device)
         innerCos.set_mask(mask_global)
         innerCos_list.append(innerCos)
         if outermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc,
-                kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 3,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 3, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, innerCos, shift, upconv, upnorm]
             model = down + [submodule] + up
@@ -1223,31 +1017,16 @@ class PatchSoftUnetSkipConnectionShiftTriple(nn.Module):
 
 class ResPatchSoftUnetGeneratorShiftTriple(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list,
-        shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(ResPatchSoftUnetGeneratorShiftTriple, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True,
-            use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         None
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_shift_block = ResPatchSoftUnetSkipConnectionShiftTriple(ngf * 
-            2, ngf * 4, opt, innerCos_list, shift_list, mask_global,
-            input_nc=None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm, layer_to_last=3)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_shift_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer, use_spectral_norm=use_spectral_norm)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_shift_block = ResPatchSoftUnetSkipConnectionShiftTriple(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
@@ -1256,47 +1035,35 @@ class ResPatchSoftUnetGeneratorShiftTriple(nn.Module):
 
 class ResPatchSoftUnetSkipConnectionShiftTriple(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list,
-        mask_global, input_nc, submodule=None, shift_layer=None, outermost=
-        False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False, layer_to_last=3):
+    def __init__(self, outer_nc, inner_nc, opt, innerCos_list, shift_list, mask_global, input_nc, submodule=None, shift_layer=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False, layer_to_last=3):
         super(ResPatchSoftUnetSkipConnectionShiftTriple, self).__init__()
         self.outermost = outermost
         if input_nc is None:
             input_nc = outer_nc
-        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=
-            4, stride=2, padding=1), use_spectral_norm)
+        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         device = 'cpu' if len(opt.gpu_ids) == 0 else 'gpu'
-        shift = InnerResPatchSoftShiftTriple(inner_nc, opt.shift_sz, opt.
-            stride, opt.mask_thred, opt.triple_weight, opt.fuse,
-            layer_to_last=layer_to_last, device=device)
+        shift = InnerResPatchSoftShiftTriple(inner_nc, opt.shift_sz, opt.stride, opt.mask_thred, opt.triple_weight, opt.fuse, layer_to_last=layer_to_last, device=device)
         shift.set_mask(mask_global)
         shift_list.append(shift)
-        innerCos = InnerCos(strength=opt.strength, skip=opt.skip,
-            layer_to_last=layer_to_last, device=device)
+        innerCos = InnerCos(strength=opt.strength, skip=opt.skip, layer_to_last=layer_to_last, device=device)
         innerCos.set_mask(mask_global)
         innerCos_list.append(innerCos)
         if outermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc,
-                kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, innerCos, shift, upconv, upnorm]
             model = down + [submodule] + up
@@ -1315,28 +1082,15 @@ class ResPatchSoftUnetSkipConnectionShiftTriple(nn.Module):
 
 class UnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=
-        nn.BatchNorm2d, use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(UnetGenerator, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=
-            None, submodule=None, norm_layer=norm_layer, innermost=True,
-            use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc
-                =None, submodule=unet_block, norm_layer=norm_layer,
-                use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=
-            None, submodule=unet_block, norm_layer=norm_layer,
-            use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None,
-            submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=
-            use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=
-            input_nc, submodule=unet_block, outermost=True, norm_layer=
-            norm_layer, use_spectral_norm=use_spectral_norm)
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
@@ -1345,36 +1099,28 @@ class UnetGenerator(nn.Module):
 
 class UnetSkipConnectionBlock(nn.Module):
 
-    def __init__(self, outer_nc, inner_nc, input_nc, submodule=None,
-        outermost=False, innermost=False, norm_layer=nn.BatchNorm2d,
-        use_spectral_norm=False):
+    def __init__(self, outer_nc, inner_nc, input_nc, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(UnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
         if input_nc is None:
             input_nc = outer_nc
-        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=
-            4, stride=2, padding=1), use_spectral_norm)
+        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
         if outermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc,
-                kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2,
-                outer_nc, kernel_size=4, stride=2, padding=1),
-                use_spectral_norm)
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
             model = down + [submodule] + up
@@ -1393,54 +1139,37 @@ class UnetSkipConnectionBlock(nn.Module):
 
 class EasyUnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_spectral_norm=False):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
         super(EasyUnetGenerator, self).__init__()
-        self.e1_c = spectral_norm(nn.Conv2d(input_nc, ngf, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
-        self.e2_c = spectral_norm(nn.Conv2d(ngf, ngf * 2, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e1_c = spectral_norm(nn.Conv2d(input_nc, ngf, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.e2_c = spectral_norm(nn.Conv2d(ngf, ngf * 2, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e2_norm = norm_layer(ngf * 2)
-        self.e3_c = spectral_norm(nn.Conv2d(ngf * 2, ngf * 4, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e3_c = spectral_norm(nn.Conv2d(ngf * 2, ngf * 4, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e3_norm = norm_layer(ngf * 4)
-        self.e4_c = spectral_norm(nn.Conv2d(ngf * 4, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e4_c = spectral_norm(nn.Conv2d(ngf * 4, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e4_norm = norm_layer(ngf * 8)
-        self.e5_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e5_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e5_norm = norm_layer(ngf * 8)
-        self.e6_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e6_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e6_norm = norm_layer(ngf * 8)
-        self.e7_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
+        self.e7_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.e7_norm = norm_layer(ngf * 8)
-        self.e8_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4,
-            stride=2, padding=1), use_spectral_norm)
-        self.d1_c = spectral_norm(nn.ConvTranspose2d(ngf * 8, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.e8_c = spectral_norm(nn.Conv2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d1_c = spectral_norm(nn.ConvTranspose2d(ngf * 8, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d1_norm = norm_layer(ngf * 8)
-        self.d2_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d2_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d2_norm = norm_layer(ngf * 8)
-        self.d3_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d3_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d3_norm = norm_layer(ngf * 8)
-        self.d4_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d4_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 8, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d4_norm = norm_layer(ngf * 8)
-        self.d5_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 4,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d5_c = spectral_norm(nn.ConvTranspose2d(ngf * 8 * 2, ngf * 4, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d5_norm = norm_layer(ngf * 4)
-        self.d6_c = spectral_norm(nn.ConvTranspose2d(ngf * 4 * 2, ngf * 2,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d6_c = spectral_norm(nn.ConvTranspose2d(ngf * 4 * 2, ngf * 2, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d6_norm = norm_layer(ngf * 2)
-        self.d7_c = spectral_norm(nn.ConvTranspose2d(ngf * 2 * 2, ngf,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d7_c = spectral_norm(nn.ConvTranspose2d(ngf * 2 * 2, ngf, kernel_size=4, stride=2, padding=1), use_spectral_norm)
         self.d7_norm = norm_layer(ngf)
-        self.d8_c = spectral_norm(nn.ConvTranspose2d(ngf * 2, output_nc,
-            kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        self.d8_c = spectral_norm(nn.ConvTranspose2d(ngf * 2, output_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
 
     def forward(self, input):
         e1 = self.e1_c(input)
@@ -1465,8 +1194,7 @@ class EasyUnetGenerator(nn.Module):
 
 class InnerPatchSoftShiftTriple(nn.Module):
 
-    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1,
-        fuse=True, layer_to_last=3):
+    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, fuse=True, layer_to_last=3):
         super(InnerPatchSoftShiftTriple, self).__init__()
         self.shift_sz = shift_sz
         self.stride = stride
@@ -1485,9 +1213,7 @@ class InnerPatchSoftShiftTriple(nn.Module):
 
     def forward(self, input):
         _, self.c, self.h, self.w = input.size()
-        final_out = self.softShift(input, self.stride, self.triple_weight,
-            self.mask, self.mask_thred, self.shift_sz, self.show_flow, self
-            .fuse)
+        final_out = self.softShift(input, self.stride, self.triple_weight, self.mask, self.mask_thred, self.shift_sz, self.show_flow, self.fuse)
         if self.show_flow:
             self.flow_srcs = self.softShift.get_flow_src()
         return final_out
@@ -1502,14 +1228,12 @@ class InnerPatchSoftShiftTriple(nn.Module):
         self.show_flow = False
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self
-            .triple_weight) + ')'
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class InnerPatchSoftShiftTripleModule(nn.Module):
 
-    def forward(self, input, stride, triple_w, mask, mask_thred, shift_sz,
-        show_flow, fuse=True):
+    def forward(self, input, stride, triple_w, mask, mask_thred, shift_sz, show_flow, fuse=True):
         assert input.dim() == 4, 'Input Dim has to be 4'
         assert mask.dim() == 4, 'Mask Dim has to be 4'
         self.triple_w = triple_w
@@ -1517,46 +1241,36 @@ class InnerPatchSoftShiftTripleModule(nn.Module):
         self.mask_thred = mask_thred
         self.show_flow = show_flow
         self.bz, self.c, self.h, self.w = input.size()
-        self.Tensor = (torch.FloatTensor if torch.is_available else torch.
-            FloatTensor)
-        self.ind_lst = self.Tensor(self.bz, self.h * self.w, self.h * self.w
-            ).zero_()
+        self.Tensor = torch.FloatTensor if torch.is_available else torch.FloatTensor
+        self.ind_lst = self.Tensor(self.bz, self.h * self.w, self.h * self.w).zero_()
         former_all = input.narrow(1, 0, self.c // 2)
         latter_all = input.narrow(1, self.c // 2, self.c // 2)
         shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all)
         self.mask = self.mask
-        latter_all_pad = F.pad(latter_all, [shift_sz // 2, shift_sz // 2, 
-            shift_sz // 2, shift_sz // 2], 'constant', 0)
-        latter_all_windows = latter_all_pad.unfold(2, shift_sz, stride).unfold(
-            3, shift_sz, stride)
-        latter_all_windows = latter_all_windows.contiguous().view(self.bz, 
-            -1, self.c // 2, shift_sz, shift_sz)
-        m_pad = F.pad(self.mask, (shift_sz // 2, shift_sz // 2, shift_sz //
-            2, shift_sz // 2), 'constant', 0)
+        latter_all_pad = F.pad(latter_all, [shift_sz // 2, shift_sz // 2, shift_sz // 2, shift_sz // 2], 'constant', 0)
+        latter_all_windows = latter_all_pad.unfold(2, shift_sz, stride).unfold(3, shift_sz, stride)
+        latter_all_windows = latter_all_windows.contiguous().view(self.bz, -1, self.c // 2, shift_sz, shift_sz)
+        m_pad = F.pad(self.mask, (shift_sz // 2, shift_sz // 2, shift_sz // 2, shift_sz // 2), 'constant', 0)
         m = m_pad.unfold(2, shift_sz, stride).unfold(3, shift_sz, stride)
         m = m.contiguous().view(self.bz, 1, -1, shift_sz, shift_sz)
         m = torch.mean(torch.mean(m, dim=3, keepdim=True), dim=4, keepdim=True)
         mm = m.le(self.mask_thred / (1.0 * shift_sz ** 2)).float()
-        fuse_weight = torch.eye(shift_sz).view(1, 1, shift_sz, shift_sz
-            ).type_as(input)
+        fuse_weight = torch.eye(shift_sz).view(1, 1, shift_sz, shift_sz).type_as(input)
         self.shift_offsets = []
         for idx in range(self.bz):
             mm_cur = mm[idx]
             latter_win = latter_all_windows.narrow(0, idx, 1)[0]
             former = former_all.narrow(0, idx, 1)
-            latter_den = torch.sqrt(torch.einsum('bcij,bcij->b', [
-                latter_win, latter_win]))
+            latter_den = torch.sqrt(torch.einsum('bcij,bcij->b', [latter_win, latter_win]))
             latter_den = torch.max(latter_den, self.Tensor([0.0001]))
             latter_win_normed = latter_win / latter_den.view(-1, 1, 1, 1)
-            y_i = F.conv2d(former, latter_win_normed, stride=1, padding=
-                shift_sz // 2)
+            y_i = F.conv2d(former, latter_win_normed, stride=1, padding=shift_sz // 2)
             if fuse:
                 y_i = y_i.view(1, 1, self.h * self.w, self.h * self.w)
                 y_i = F.conv2d(y_i, fuse_weight, stride=1, padding=1)
                 y_i = y_i.contiguous().view(1, self.h, self.w, self.h, self.w)
                 y_i = y_i.permute(0, 2, 1, 4, 3)
-                y_i = y_i.contiguous().view(1, 1, self.h * self.w, self.h *
-                    self.w)
+                y_i = y_i.contiguous().view(1, 1, self.h * self.w, self.h * self.w)
                 y_i = F.conv2d(y_i, fuse_weight, stride=1, padding=1)
                 y_i = y_i.contiguous().view(1, self.w, self.h, self.w, self.h)
                 y_i = y_i.permute(0, 2, 1, 4, 3)
@@ -1564,8 +1278,7 @@ class InnerPatchSoftShiftTripleModule(nn.Module):
             y_i = y_i * mm_cur
             cosine = F.softmax(y_i * 10, dim=1)
             cosine = cosine * mm_cur
-            shift_i = F.conv_transpose2d(cosine, latter_win, stride=1,
-                padding=shift_sz // 2) / 9.0
+            shift_i = F.conv_transpose2d(cosine, latter_win, stride=1, padding=shift_sz // 2) / 9.0
             shift_masked_all[idx] = shift_i
         return torch.cat((former_all, latter_all, shift_masked_all), 1)
 
@@ -1575,8 +1288,7 @@ class InnerPatchSoftShiftTripleModule(nn.Module):
 
 class InnerResPatchSoftShiftTriple(nn.Module):
 
-    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1,
-        triple_weight=1, fuse=True, layer_to_last=3):
+    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, fuse=True, layer_to_last=3):
         super(InnerResPatchSoftShiftTriple, self).__init__()
         self.shift_sz = shift_sz
         self.stride = stride
@@ -1588,10 +1300,7 @@ class InnerResPatchSoftShiftTriple(nn.Module):
         self.layer_to_last = layer_to_last
         self.softShift = InnerPatchSoftShiftTripleModule()
         self.inner_nc = inner_nc
-        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc,
-            kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc
-            ), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3,
-            stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
+        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
 
     def set_mask(self, mask_global):
         mask = util.cal_feat_mask(mask_global, self.layer_to_last)
@@ -1600,9 +1309,7 @@ class InnerResPatchSoftShiftTriple(nn.Module):
 
     def forward(self, input):
         _, self.c, self.h, self.w = input.size()
-        shift_out = self.softShift(input, self.stride, self.triple_weight,
-            self.mask, self.mask_thred, self.shift_sz, self.show_flow, self
-            .fuse)
+        shift_out = self.softShift(input, self.stride, self.triple_weight, self.mask, self.mask_thred, self.shift_sz, self.show_flow, self.fuse)
         c_out = shift_out.size(1)
         F_c = shift_out.narrow(1, 0, c_out // 3)
         F_s = shift_out.narrow(1, c_out // 3, c_out // 3)
@@ -1626,8 +1333,7 @@ class InnerResPatchSoftShiftTriple(nn.Module):
         self.show_flow = False
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self
-            .triple_weight) + ')'
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class Batch_NonShift(object):
@@ -1637,18 +1343,15 @@ class Batch_NonShift(object):
         input_windows = self._filter(input_windows, flag, value)
         return self._norm(input_windows)
 
-    def cosine_similarity(self, former, latter, patch_size, stride, flag,
-        with_former=False):
+    def cosine_similarity(self, former, latter, patch_size, stride, flag, with_former=False):
         former_windows = self._unfold(former, patch_size, stride)
         former = self._filter(former_windows, flag, 1)
-        latter_windows, i_2, i_3, i_1 = self._unfold(latter, patch_size,
-            stride, with_indexes=True)
+        latter_windows, i_2, i_3, i_1 = self._unfold(latter, patch_size, stride, with_indexes=True)
         latter = self._filter(latter_windows, flag, 0)
         num = torch.einsum('bik,bjk->bij', [former, latter])
         norm_latter = torch.einsum('bij,bij->bi', [latter, latter])
         norm_former = torch.einsum('bij,bij->bi', [former, former])
-        den = torch.sqrt(torch.einsum('bi,bj->bij', [norm_former, norm_latter])
-            )
+        den = torch.sqrt(torch.einsum('bi,bj->bij', [norm_former, norm_latter]))
         if not with_former:
             return num / den, latter_windows, i_2, i_3, i_1
         else:
@@ -1669,12 +1372,10 @@ class Batch_NonShift(object):
         input_windows = img.unfold(2, kH, dH).unfold(3, kW, dW)
         i_0, i_1, i_2, i_3, i_4, i_5 = input_windows.size()
         if with_indexes:
-            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous(
-                ).view(i_0, i_2 * i_3, i_1)
+            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous().view(i_0, i_2 * i_3, i_1)
             return input_windows, i_2, i_3, i_1
         else:
-            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous(
-                ).view(i_0, i_2 * i_3, i_1, i_4, i_5)
+            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous().view(i_0, i_2 * i_3, i_1, i_4, i_5)
             return input_windows
 
     def _filter(self, input_windows, flag, value):
@@ -1696,41 +1397,30 @@ class InnerShiftTripleFunction(torch.autograd.Function):
         ctx.show_flow = show_flow
         ctx.bz, c_real, ctx.h, ctx.w = input.size()
         c = c_real
-        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_(
-            ).to(input)
+        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_().to(input)
         former_all = input.narrow(1, 0, c // 2)
         latter_all = input.narrow(1, c // 2, c // 2)
-        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all
-            ).zero_()
+        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all).zero_()
         ctx.flag = ctx.flag.to(input).long()
         bNonparm = Batch_NonShift()
         ctx.shift_offsets = []
-        cosine, latter_windows, i_2, i_3, i_1 = bNonparm.cosine_similarity(
-            former_all.clone(), latter_all.clone(), 1, stride, flag)
+        cosine, latter_windows, i_2, i_3, i_1 = bNonparm.cosine_similarity(former_all.clone(), latter_all.clone(), 1, stride, flag)
         _, indexes = torch.max(cosine, dim=2)
         mask_indexes = (flag == 1).nonzero()[:, (1)].view(ctx.bz, -1)
-        non_mask_indexes = (flag == 0).nonzero()[:, (1)].view(ctx.bz, -1
-            ).gather(1, indexes)
-        idx_b = torch.arange(ctx.bz).long().unsqueeze(1).expand(ctx.bz,
-            mask_indexes.size(1))
+        non_mask_indexes = (flag == 0).nonzero()[:, (1)].view(ctx.bz, -1).gather(1, indexes)
+        idx_b = torch.arange(ctx.bz).long().unsqueeze(1).expand(ctx.bz, mask_indexes.size(1))
         ctx.ind_lst[idx_b, mask_indexes, non_mask_indexes] = 1
-        shift_masked_all = bNonparm._paste(latter_windows, ctx.ind_lst, i_2,
-            i_3, i_1)
+        shift_masked_all = bNonparm._paste(latter_windows, ctx.ind_lst, i_2, i_3, i_1)
         if ctx.show_flow:
             assert 1 == 2, 'I do not want maintance the functionality of `show flow`... ^_^'
             ctx.shift_offsets = torch.cat(ctx.shift_offsets, dim=0).float()
             mask_nums = ctx.shift_offsets.size(0) // ctx.bz
             ctx.flow_srcs = torch.zeros(ctx.bz, 3, ctx.h, ctx.w).type_as(input)
             for idx in range(ctx.bz):
-                shift_offset = ctx.shift_offsets.narrow(0, idx * mask_nums,
-                    mask_nums)
-                shift_offsets_map = torch.zeros(1, ctx.h, ctx.w, 2).type_as(
-                    input)
-                shift_offsets_map[:, ((flag_cur == 1).nonzero().squeeze() //
-                    ctx.w), ((flag_cur == 1).nonzero().squeeze() % ctx.w), :
-                    ] = shift_offset.unsqueeze(0)
-                flow_src = util.highlight_flow(shift_offsets_map, flag_cur.
-                    unsqueeze(0))
+                shift_offset = ctx.shift_offsets.narrow(0, idx * mask_nums, mask_nums)
+                shift_offsets_map = torch.zeros(1, ctx.h, ctx.w, 2).type_as(input)
+                shift_offsets_map[:, ((flag_cur == 1).nonzero().squeeze() // ctx.w), ((flag_cur == 1).nonzero().squeeze() % ctx.w), :] = shift_offset.unsqueeze(0)
+                flow_src = util.highlight_flow(shift_offsets_map, flag_cur.unsqueeze(0))
                 ctx.flow_srcs[idx] = flow_src
         return torch.cat((former_all, latter_all, shift_masked_all), 1)
 
@@ -1748,18 +1438,15 @@ class InnerShiftTripleFunction(torch.autograd.Function):
         W_mat_t = ind_lst.permute(0, 2, 1).contiguous()
         grad = grad_shifted_all.view(ctx.bz, c // 3, -1).permute(0, 2, 1)
         grad_shifted_weighted = torch.bmm(W_mat_t, grad)
-        grad_shifted_weighted = grad_shifted_weighted.permute(0, 2, 1
-            ).contiguous().view(ctx.bz, c // 3, ctx.h, ctx.w)
-        grad_latter_all = torch.add(grad_latter_all, grad_shifted_weighted.
-            mul(ctx.triple_w))
+        grad_shifted_weighted = grad_shifted_weighted.permute(0, 2, 1).contiguous().view(ctx.bz, c // 3, ctx.h, ctx.w)
+        grad_latter_all = torch.add(grad_latter_all, grad_shifted_weighted.mul(ctx.triple_w))
         grad_input = torch.cat([grad_former_all, grad_latter_all], 1)
         return grad_input, None, None, None, None, None, None
 
 
 class InnerResShiftTriple(nn.Module):
 
-    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1,
-        triple_weight=1, layer_to_last=3):
+    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3):
         super(InnerResShiftTriple, self).__init__()
         self.shift_sz = shift_sz
         self.stride = stride
@@ -1769,10 +1456,7 @@ class InnerResShiftTriple(nn.Module):
         self.flow_srcs = None
         self.layer_to_last = layer_to_last
         self.inner_nc = inner_nc
-        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc,
-            kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc
-            ), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3,
-            stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
+        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
 
     def set_mask(self, mask_global):
         mask = util.cal_feat_mask(mask_global, self.layer_to_last)
@@ -1781,10 +1465,8 @@ class InnerResShiftTriple(nn.Module):
 
     def forward(self, input):
         _, self.c, self.h, self.w = input.size()
-        self.flag = util.cal_flag_given_mask_thred(self.mask, self.shift_sz,
-            self.stride, self.mask_thred)
-        shift_out = InnerShiftTripleFunction.apply(input, self.shift_sz,
-            self.stride, self.triple_weight, self.flag, self.show_flow)
+        self.flag = util.cal_flag_given_mask_thred(self.mask, self.shift_sz, self.stride, self.mask_thred)
+        shift_out = InnerShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.show_flow)
         c_out = shift_out.size(1)
         F_c = shift_out.narrow(1, 0, c_out // 3)
         F_s = shift_out.narrow(1, c_out // 3, c_out // 3)
@@ -1808,8 +1490,7 @@ class InnerResShiftTriple(nn.Module):
         self.show_flow = False
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self
-            .triple_weight) + ')'
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class InnerCosFunction(torch.autograd.Function):
@@ -1820,8 +1501,7 @@ class InnerCosFunction(torch.autograd.Function):
         ctx.strength = strength
         ctx.criterion = criterion
         if len(target.size()) == 0:
-            target = target.expand_as(input.narrow(1, ctx.c // 2, ctx.c // 2)
-                ).type_as(input)
+            target = target.expand_as(input.narrow(1, ctx.c // 2, ctx.c // 2)).type_as(input)
         ctx.save_for_backward(input, target, mask)
         return input
 
@@ -1832,12 +1512,9 @@ class InnerCosFunction(torch.autograd.Function):
             former = input.narrow(1, 0, ctx.c // 2)
             former_in_mask = torch.mul(former, mask)
             if former_in_mask.size() != target.size():
-                target = target.narrow(0, 0, 1).expand_as(former_in_mask
-                    ).type_as(former_in_mask)
-            former_in_mask_clone = former_in_mask.clone().detach(
-                ).requires_grad_(True)
-            ctx.loss = ctx.criterion(former_in_mask_clone, target
-                ) * ctx.strength
+                target = target.narrow(0, 0, 1).expand_as(former_in_mask).type_as(former_in_mask)
+            former_in_mask_clone = former_in_mask.clone().detach().requires_grad_(True)
+            ctx.loss = ctx.criterion(former_in_mask_clone, target) * ctx.strength
             ctx.loss.backward()
         grad_output[:, 0:ctx.c // 2, :, :] += former_in_mask_clone.grad
         return grad_output, None, None, None, None
@@ -1845,12 +1522,10 @@ class InnerCosFunction(torch.autograd.Function):
 
 class InnerCos(nn.Module):
 
-    def __init__(self, crit='MSE', strength=1, skip=0, layer_to_last=3,
-        device='gpu'):
+    def __init__(self, crit='MSE', strength=1, skip=0, layer_to_last=3, device='gpu'):
         super(InnerCos, self).__init__()
         self.crit = crit
-        self.criterion = torch.nn.MSELoss(
-            ) if self.crit == 'MSE' else torch.nn.L1Loss()
+        self.criterion = torch.nn.MSELoss() if self.crit == 'MSE' else torch.nn.L1Loss()
         self.strength = strength
         self.skip = skip
         self.layer_to_last = layer_to_last
@@ -1863,8 +1538,7 @@ class InnerCos(nn.Module):
 
     def _split_mask(self, cur_bsize):
         cur_device = torch.current_device()
-        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 
-            1) * cur_bsize, :, :, :]
+        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
 
     def forward(self, in_data):
         self.bz, self.c, _, _ = in_data.size()
@@ -1874,8 +1548,7 @@ class InnerCos(nn.Module):
             self.cur_mask = self.mask_all
         self.cur_mask = self.cur_mask
         if not self.skip:
-            self.output = InnerCosFunction.apply(in_data, self.criterion,
-                self.strength, self.target, self.cur_mask)
+            self.output = InnerCosFunction.apply(in_data, self.criterion, self.strength, self.target, self.cur_mask)
             self.target = in_data.narrow(1, self.c // 2, self.c // 2).detach()
         else:
             self.output = in_data
@@ -1883,15 +1556,12 @@ class InnerCos(nn.Module):
 
     def __repr__(self):
         skip_str = 'True' if not self.skip else 'False'
-        return (self.__class__.__name__ + '(' + 'skip: ' + skip_str +
-            'layer ' + str(self.layer_to_last) + ' to last' +
-            ' ,strength: ' + str(self.strength) + ')')
+        return self.__class__.__name__ + '(' + 'skip: ' + skip_str + 'layer ' + str(self.layer_to_last) + ' to last' + ' ,strength: ' + str(self.strength) + ')'
 
 
 class InnerShiftTriple(nn.Module):
 
-    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1,
-        layer_to_last=3, device='gpu'):
+    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3, device='gpu'):
         super(InnerShiftTriple, self).__init__()
         self.shift_sz = shift_sz
         self.stride = stride
@@ -1907,8 +1577,7 @@ class InnerShiftTriple(nn.Module):
 
     def _split_mask(self, cur_bsize):
         cur_device = torch.current_device()
-        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 
-            1) * cur_bsize, :, :, :]
+        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
 
     def forward(self, input):
         self.bz, self.c, self.h, self.w = input.size()
@@ -1916,10 +1585,8 @@ class InnerShiftTriple(nn.Module):
             self._split_mask(self.bz)
         else:
             self.cur_mask = self.mask_all
-        self.flag = util.cal_flag_given_mask_thred(self.cur_mask, self.
-            shift_sz, self.stride, self.mask_thred)
-        final_out = InnerShiftTripleFunction.apply(input, self.shift_sz,
-            self.stride, self.triple_weight, self.flag, self.show_flow)
+        self.flag = util.cal_flag_given_mask_thred(self.cur_mask, self.shift_sz, self.stride, self.mask_thred)
+        final_out = InnerShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.show_flow)
         if self.show_flow:
             self.flow_srcs = InnerShiftTripleFunction.get_flow_src()
         return final_out
@@ -1934,8 +1601,7 @@ class InnerShiftTriple(nn.Module):
         self.show_flow = False
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self
-            .triple_weight) + ')'
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class VGG16FeatureExtractor(nn.Module):
@@ -1962,49 +1628,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Zhaoyi_Yan_Shift_Net_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(DenseNet(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DenseNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+    (DenseNetDiscrimator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+    (EasyUnetGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 256, 256])], {}),
+     True),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Self_Attn,
+     lambda: ([], {'in_dim': 64, 'activation': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SwitchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TVLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UnetGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4, 'num_downs': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (VGG16FeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4, 'use_spectral_norm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_Zhaoyi_Yan_Shift_Net_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DenseNetDiscrimator(*[], **{'input_nc': 4}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EasyUnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 256, 256])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Self_Attn(*[], **{'in_dim': 64, 'activation': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SwitchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(TVLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(UnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4, 'num_downs': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(VGG16FeatureExtractor(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(_DenseLayer(*[], **{'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(_Transition(*[], **{'num_input_features': 4, 'num_output_features': 4, 'use_spectral_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 

@@ -56,8 +56,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -116,8 +117,7 @@ class OIM(autograd.Function):
         if self.needs_input_grad[0]:
             grad_inputs = grad_outputs.mm(self.lut)
         for x, y in zip(inputs, targets):
-            self.lut[y] = self.momentum * self.lut[y] + (1.0 - self.momentum
-                ) * x
+            self.lut[y] = self.momentum * self.lut[y] + (1.0 - self.momentum) * x
             self.lut[y] /= self.lut[y].norm()
         return grad_inputs, None
 
@@ -128,8 +128,7 @@ def oim(inputs, targets, lut, momentum=0.5):
 
 class OIMLoss(nn.Module):
 
-    def __init__(self, num_features, num_classes, scalar=1.0, momentum=0.5,
-        weight=None, size_average=True):
+    def __init__(self, num_features, num_classes, scalar=1.0, momentum=0.5, weight=None, size_average=True):
         super(OIMLoss, self).__init__()
         self.num_features = num_features
         self.num_classes = num_classes
@@ -142,8 +141,7 @@ class OIMLoss(nn.Module):
     def forward(self, inputs, targets):
         inputs = oim(inputs, targets, self.lut, momentum=self.momentum)
         inputs *= self.scalar
-        loss = F.cross_entropy(inputs, targets, weight=self.weight,
-            size_average=self.size_average)
+        loss = F.cross_entropy(inputs, targets, weight=self.weight, size_average=self.size_average)
         return loss, inputs
 
 
@@ -176,10 +174,8 @@ class TripletLoss(nn.Module):
         return loss, prec
 
 
-def _make_conv(in_planes, out_planes, kernel_size=3, stride=1, padding=1,
-    bias=False):
-    conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride
-        =stride, padding=padding, bias=bias)
+def _make_conv(in_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False):
+    conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
     bn = nn.BatchNorm2d(out_planes)
     relu = nn.ReLU(inplace=True)
     return nn.Sequential(conv, bn, relu)
@@ -189,21 +185,13 @@ class Block(nn.Module):
 
     def __init__(self, in_planes, out_planes, pool_method, stride):
         super(Block, self).__init__()
-        self.branches = nn.ModuleList([nn.Sequential(_make_conv(in_planes,
-            out_planes, kernel_size=1, padding=0), _make_conv(out_planes,
-            out_planes, stride=stride)), nn.Sequential(_make_conv(in_planes,
-            out_planes, kernel_size=1, padding=0), _make_conv(out_planes,
-            out_planes), _make_conv(out_planes, out_planes, stride=stride))])
+        self.branches = nn.ModuleList([nn.Sequential(_make_conv(in_planes, out_planes, kernel_size=1, padding=0), _make_conv(out_planes, out_planes, stride=stride)), nn.Sequential(_make_conv(in_planes, out_planes, kernel_size=1, padding=0), _make_conv(out_planes, out_planes), _make_conv(out_planes, out_planes, stride=stride))])
         if pool_method == 'Avg':
             assert stride == 1
-            self.branches.append(_make_conv(in_planes, out_planes,
-                kernel_size=1, padding=0))
-            self.branches.append(nn.Sequential(nn.AvgPool2d(kernel_size=3,
-                stride=1, padding=1), _make_conv(in_planes, out_planes,
-                kernel_size=1, padding=0)))
+            self.branches.append(_make_conv(in_planes, out_planes, kernel_size=1, padding=0))
+            self.branches.append(nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), _make_conv(in_planes, out_planes, kernel_size=1, padding=0)))
         else:
-            self.branches.append(nn.MaxPool2d(kernel_size=3, stride=stride,
-                padding=1))
+            self.branches.append(nn.MaxPool2d(kernel_size=3, stride=stride, padding=1))
 
     def forward(self, x):
         return torch.cat([b(x) for b in self.branches], 1)
@@ -211,8 +199,7 @@ class Block(nn.Module):
 
 class InceptionNet(nn.Module):
 
-    def __init__(self, cut_at_pooling=False, num_features=256, norm=False,
-        dropout=0, num_classes=0):
+    def __init__(self, cut_at_pooling=False, num_features=256, norm=False, dropout=0, num_classes=0):
         super(InceptionNet, self).__init__()
         self.cut_at_pooling = cut_at_pooling
         self.conv1 = _make_conv(3, 32)
@@ -241,8 +228,7 @@ class InceptionNet(nn.Module):
             if self.dropout > 0:
                 self.drop = nn.Dropout(self.dropout)
             if self.num_classes > 0:
-                self.classifier = nn.Linear(self.num_features, self.num_classes
-                    )
+                self.classifier = nn.Linear(self.num_features, self.num_classes)
         self.reset_params()
 
     def forward(self, x):
@@ -275,8 +261,7 @@ class InceptionNet(nn.Module):
 
     def _make_inception(self, out_planes, pool_method, stride):
         block = Block(self.in_planes, out_planes, pool_method, stride)
-        self.in_planes = (out_planes * 4 if pool_method == 'Avg' else 
-            out_planes * 2 + self.in_planes)
+        self.in_planes = out_planes * 4 if pool_method == 'Avg' else out_planes * 2 + self.in_planes
         return block
 
     def reset_params(self):
@@ -295,12 +280,9 @@ class InceptionNet(nn.Module):
 
 
 class ResNet(nn.Module):
-    __factory = {(18): torchvision.models.resnet18, (34): torchvision.
-        models.resnet34, (50): torchvision.models.resnet50, (101):
-        torchvision.models.resnet101, (152): torchvision.models.resnet152}
+    __factory = {(18): torchvision.models.resnet18, (34): torchvision.models.resnet34, (50): torchvision.models.resnet50, (101): torchvision.models.resnet101, (152): torchvision.models.resnet152}
 
-    def __init__(self, depth, pretrained=True, cut_at_pooling=False,
-        num_features=0, norm=False, dropout=0, num_classes=0):
+    def __init__(self, depth, pretrained=True, cut_at_pooling=False, num_features=0, norm=False, dropout=0, num_classes=0):
         super(ResNet, self).__init__()
         self.depth = depth
         self.pretrained = pretrained
@@ -327,8 +309,7 @@ class ResNet(nn.Module):
             if self.dropout > 0:
                 self.drop = nn.Dropout(self.dropout)
             if self.num_classes > 0:
-                self.classifier = nn.Linear(self.num_features, self.num_classes
-                    )
+                self.classifier = nn.Linear(self.num_features, self.num_classes)
                 init.normal(self.classifier.weight, std=0.001)
                 init.constant(self.classifier.bias, 0)
         if not self.pretrained:
@@ -375,12 +356,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Cysu_open_reid(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4, 'pool_method': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Block,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'pool_method': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_Cysu_open_reid(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(InceptionNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,29 +103,25 @@ from torch.nn.parallel import DistributedDataParallel
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 def conv5x5(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """5x5 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=5, stride=stride,
-        padding=2, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=5, stride=stride, padding=2, groups=groups, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, upsample=None,
-        norm_layer=None, large_kernel=False):
+    def __init__(self, inplanes, planes, stride=1, upsample=None, norm_layer=None, large_kernel=False):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.stride = stride
         conv = conv5x5 if large_kernel else conv3x3
         if self.stride > 1:
-            self.conv1 = SpectralNorm(nn.ConvTranspose2d(inplanes, inplanes,
-                kernel_size=4, stride=2, padding=1, bias=False))
+            self.conv1 = SpectralNorm(nn.ConvTranspose2d(inplanes, inplanes, kernel_size=4, stride=2, padding=1, bias=False))
         else:
             self.conv1 = SpectralNorm(conv(inplanes, inplanes))
         self.bn1 = norm_layer(inplanes)
@@ -149,14 +146,12 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class ResNet_D_Dec(nn.Module):
 
-    def __init__(self, block, layers, norm_layer=None, large_kernel=False,
-        late_downsample=False):
+    def __init__(self, block, layers, norm_layer=None, large_kernel=False, late_downsample=False):
         super(ResNet_D_Dec, self).__init__()
         self.logger = logging.getLogger('Logger')
         if norm_layer is None:
@@ -167,19 +162,16 @@ class ResNet_D_Dec(nn.Module):
         self.inplanes = 512 if layers[0] > 0 else 256
         self.late_downsample = late_downsample
         self.midplanes = 64 if late_downsample else 32
-        self.conv1 = SpectralNorm(nn.ConvTranspose2d(self.midplanes, 32,
-            kernel_size=4, stride=2, padding=1, bias=False))
+        self.conv1 = SpectralNorm(nn.ConvTranspose2d(self.midplanes, 32, kernel_size=4, stride=2, padding=1, bias=False))
         self.bn1 = norm_layer(32)
         self.leaky_relu = nn.LeakyReLU(0.2, inplace=True)
-        self.conv2 = nn.Conv2d(32, 1, kernel_size=self.kernel_size, stride=
-            1, padding=self.kernel_size // 2)
+        self.conv2 = nn.Conv2d(32, 1, kernel_size=self.kernel_size, stride=1, padding=self.kernel_size // 2)
         self.upsample = nn.UpsamplingNearest2d(scale_factor=2)
         self.tanh = nn.Tanh()
         self.layer1 = self._make_layer(block, 256, layers[0], stride=2)
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 64, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, self.midplanes, layers[3],
-            stride=2)
+        self.layer4 = self._make_layer(block, self.midplanes, layers[3], stride=2)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if hasattr(m, 'weight_bar'):
@@ -200,19 +192,13 @@ class ResNet_D_Dec(nn.Module):
         norm_layer = self._norm_layer
         upsample = None
         if stride != 1:
-            upsample = nn.Sequential(nn.UpsamplingNearest2d(scale_factor=2),
-                SpectralNorm(conv1x1(self.inplanes, planes * block.
-                expansion)), norm_layer(planes * block.expansion))
+            upsample = nn.Sequential(nn.UpsamplingNearest2d(scale_factor=2), SpectralNorm(conv1x1(self.inplanes, planes * block.expansion)), norm_layer(planes * block.expansion))
         elif self.inplanes != planes * block.expansion:
-            upsample = nn.Sequential(SpectralNorm(conv1x1(self.inplanes, 
-                planes * block.expansion)), norm_layer(planes * block.
-                expansion))
-        layers = [block(self.inplanes, planes, stride, upsample, norm_layer,
-            self.large_kernel)]
+            upsample = nn.Sequential(SpectralNorm(conv1x1(self.inplanes, planes * block.expansion)), norm_layer(planes * block.expansion))
+        layers = [block(self.inplanes, planes, stride, upsample, norm_layer, self.large_kernel)]
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, norm_layer=
-                norm_layer, large_kernel=self.large_kernel))
+            layers.append(block(self.inplanes, planes, norm_layer=norm_layer, large_kernel=self.large_kernel))
         return nn.Sequential(*layers)
 
     def forward(self, x, mid_fea):
@@ -231,8 +217,7 @@ class ResNet_D_Dec(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -275,23 +260,17 @@ class ResNet_D(nn.Module):
         self.late_downsample = late_downsample
         self.midplanes = 64 if late_downsample else 32
         self.start_stride = [1, 2, 1, 2] if late_downsample else [2, 1, 2, 1]
-        self.conv1 = SpectralNorm(nn.Conv2d(3 + CONFIG.model.trimap_channel,
-            32, kernel_size=3, stride=self.start_stride[0], padding=1, bias
-            =False))
-        self.conv2 = SpectralNorm(nn.Conv2d(32, self.midplanes, kernel_size
-            =3, stride=self.start_stride[1], padding=1, bias=False))
-        self.conv3 = SpectralNorm(nn.Conv2d(self.midplanes, self.inplanes,
-            kernel_size=3, stride=self.start_stride[2], padding=1, bias=False))
+        self.conv1 = SpectralNorm(nn.Conv2d(3 + CONFIG.model.trimap_channel, 32, kernel_size=3, stride=self.start_stride[0], padding=1, bias=False))
+        self.conv2 = SpectralNorm(nn.Conv2d(32, self.midplanes, kernel_size=3, stride=self.start_stride[1], padding=1, bias=False))
+        self.conv3 = SpectralNorm(nn.Conv2d(self.midplanes, self.inplanes, kernel_size=3, stride=self.start_stride[2], padding=1, bias=False))
         self.bn1 = norm_layer(32)
         self.bn2 = norm_layer(self.midplanes)
         self.bn3 = norm_layer(self.inplanes)
         self.activation = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=self.
-            start_stride[3])
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=self.start_stride[3])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer_bottleneck = self._make_layer(block, 512, layers[3],
-            stride=2)
+        self.layer_bottleneck = self._make_layer(block, 512, layers[3], stride=2)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_uniform_(m.weight_bar)
@@ -301,8 +280,7 @@ class ResNet_D(nn.Module):
         for m in self.modules():
             if isinstance(m, BasicBlock):
                 nn.init.constant_(m.bn2.weight, 0)
-        self.logger.debug('encoder conv1 weight shape: {}'.format(str(self.
-            conv1.module.weight_bar.data.shape)))
+        self.logger.debug('encoder conv1 weight shape: {}'.format(str(self.conv1.module.weight_bar.data.shape)))
         self.conv1.module.weight_bar.data[:, 3:, :, :] = 0
         self.logger.debug(self)
 
@@ -312,13 +290,9 @@ class ResNet_D(nn.Module):
         norm_layer = self._norm_layer
         downsample = None
         if stride != 1:
-            downsample = nn.Sequential(nn.AvgPool2d(2, stride),
-                SpectralNorm(conv1x1(self.inplanes, planes * block.
-                expansion)), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(nn.AvgPool2d(2, stride), SpectralNorm(conv1x1(self.inplanes, planes * block.expansion)), norm_layer(planes * block.expansion))
         elif self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(SpectralNorm(conv1x1(self.inplanes, 
-                planes * block.expansion, stride)), norm_layer(planes *
-                block.expansion))
+            downsample = nn.Sequential(SpectralNorm(conv1x1(self.inplanes, planes * block.expansion, stride)), norm_layer(planes * block.expansion))
         layers = [block(self.inplanes, planes, stride, downsample, norm_layer)]
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
@@ -384,8 +358,7 @@ class SpectralNorm(nn.Module):
         w = getattr(self.module, self.name + '_bar')
         height = w.data.shape[0]
         for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data),
-                u.data))
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
             u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
         sigma = u.dot(w.view(height, -1).mv(v))
         setattr(self.module, self.name, w / sigma.expand_as(w))
@@ -436,30 +409,23 @@ class GuidedCxtAtten(nn.Module):
         self.rate = rate
         self.padding = nn.ReflectionPad2d(1)
         self.up_sample = nn.Upsample(scale_factor=self.rate, mode='nearest')
-        self.guidance_conv = nn.Conv2d(in_channels=guidance_channels,
-            out_channels=guidance_channels // 2, kernel_size=1, stride=1,
-            padding=0)
-        self.W = nn.Sequential(nn.Conv2d(in_channels=out_channels,
-            out_channels=out_channels, kernel_size=1, stride=1, padding=0,
-            bias=False), nn.BatchNorm2d(out_channels))
+        self.guidance_conv = nn.Conv2d(in_channels=guidance_channels, out_channels=guidance_channels // 2, kernel_size=1, stride=1, padding=0)
+        self.W = nn.Sequential(nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(out_channels))
         nn.init.xavier_uniform_(self.guidance_conv.weight)
         nn.init.constant_(self.guidance_conv.bias, 0)
         nn.init.xavier_uniform_(self.W[0].weight)
         nn.init.constant_(self.W[1].weight, 0.001)
         nn.init.constant_(self.W[1].bias, 0)
 
-    def forward(self, f, alpha, unknown=None, ksize=3, stride=1, fuse_k=3,
-        softmax_scale=1.0, training=True):
+    def forward(self, f, alpha, unknown=None, ksize=3, stride=1, fuse_k=3, softmax_scale=1.0, training=True):
         f = self.guidance_conv(f)
         raw_int_fs = list(f.size())
         raw_int_alpha = list(alpha.size())
         kernel = 2 * self.rate
         alpha_w = self.extract_patches(alpha, kernel=kernel, stride=self.rate)
         alpha_w = alpha_w.permute(0, 2, 3, 4, 5, 1)
-        alpha_w = alpha_w.contiguous().view(raw_int_alpha[0], raw_int_alpha
-            [2] // self.rate, raw_int_alpha[3] // self.rate, -1)
-        alpha_w = alpha_w.contiguous().view(raw_int_alpha[0], -1, kernel,
-            kernel, raw_int_alpha[1])
+        alpha_w = alpha_w.contiguous().view(raw_int_alpha[0], raw_int_alpha[2] // self.rate, raw_int_alpha[3] // self.rate, -1)
+        alpha_w = alpha_w.contiguous().view(raw_int_alpha[0], -1, kernel, kernel, raw_int_alpha[1])
         alpha_w = alpha_w.permute(0, 1, 4, 2, 3)
         f = F.interpolate(f, scale_factor=1 / self.rate, mode='nearest')
         fs = f.size()
@@ -467,38 +433,29 @@ class GuidedCxtAtten(nn.Module):
         int_fs = list(fs)
         w = self.extract_patches(f)
         w = w.permute(0, 2, 3, 4, 5, 1)
-        w = w.contiguous().view(raw_int_fs[0], raw_int_fs[2] // self.rate, 
-            raw_int_fs[3] // self.rate, -1)
+        w = w.contiguous().view(raw_int_fs[0], raw_int_fs[2] // self.rate, raw_int_fs[3] // self.rate, -1)
         w = w.contiguous().view(raw_int_fs[0], -1, ksize, ksize, raw_int_fs[1])
         w = w.permute(0, 1, 4, 2, 3)
         if unknown is not None:
             unknown = unknown.clone()
-            unknown = F.interpolate(unknown, scale_factor=1 / self.rate,
-                mode='nearest')
-            assert unknown.size(2) == f.size(2
-                ), 'mask should have same size as f at dim 2,3'
+            unknown = F.interpolate(unknown, scale_factor=1 / self.rate, mode='nearest')
+            assert unknown.size(2) == f.size(2), 'mask should have same size as f at dim 2,3'
             unknown_mean = unknown.mean(dim=[2, 3])
             known_mean = 1 - unknown_mean
-            unknown_scale = torch.clamp(torch.sqrt(unknown_mean /
-                known_mean), 0.1, 10)
-            known_scale = torch.clamp(torch.sqrt(known_mean / unknown_mean),
-                0.1, 10)
+            unknown_scale = torch.clamp(torch.sqrt(unknown_mean / known_mean), 0.1, 10)
+            known_scale = torch.clamp(torch.sqrt(known_mean / unknown_mean), 0.1, 10)
             softmax_scale = torch.cat([unknown_scale, known_scale], dim=1)
         else:
             unknown = torch.ones([fs[0], 1, fs[2], fs[3]])
-            softmax_scale = torch.FloatTensor([softmax_scale, softmax_scale]
-                ).view(1, 2).repeat(fs[0], 1)
+            softmax_scale = torch.FloatTensor([softmax_scale, softmax_scale]).view(1, 2).repeat(fs[0], 1)
         m = self.extract_patches(unknown)
         m = m.permute(0, 2, 3, 4, 5, 1)
-        m = m.contiguous().view(raw_int_fs[0], raw_int_fs[2] // self.rate, 
-            raw_int_fs[3] // self.rate, -1)
+        m = m.contiguous().view(raw_int_fs[0], raw_int_fs[2] // self.rate, raw_int_fs[3] // self.rate, -1)
         m = m.contiguous().view(raw_int_fs[0], -1, ksize, ksize)
         m = self.reduce_mean(m)
         mm = m.gt(0.0).float()
-        self_mask = F.one_hot(torch.arange(fs[2] * fs[3]).view(fs[2], fs[3]
-            ).contiguous().long(), num_classes=int_fs[2] * int_fs[3])
-        self_mask = self_mask.permute(2, 0, 1).view(1, fs[2] * fs[3], fs[2],
-            fs[3]).float() * -10000.0
+        self_mask = F.one_hot(torch.arange(fs[2] * fs[3]).view(fs[2], fs[3]).contiguous().long(), num_classes=int_fs[2] * int_fs[3])
+        self_mask = self_mask.permute(2, 0, 1).view(1, fs[2] * fs[3], fs[2], fs[3]).float() * -10000.0
         w_groups = torch.split(w, 1, dim=0)
         alpha_w_groups = torch.split(alpha_w, 1, dim=0)
         mm_groups = torch.split(mm, 1, dim=0)
@@ -507,8 +464,7 @@ class GuidedCxtAtten(nn.Module):
         offsets = []
         k = fuse_k
         y_test = []
-        for xi, wi, alpha_wi, mmi, scale in zip(f_groups, w_groups,
-            alpha_w_groups, mm_groups, scale_group):
+        for xi, wi, alpha_wi, mmi, scale in zip(f_groups, w_groups, alpha_w_groups, mm_groups, scale_group):
             wi = wi[0]
             escape_NaN = Variable(torch.FloatTensor([0.0001]))
             wi_normed = wi / torch.max(self.l2_norm(wi), escape_NaN)
@@ -518,8 +474,7 @@ class GuidedCxtAtten(nn.Module):
             yi = yi.permute(0, 2, 3, 1)
             yi = yi.contiguous().view(1, fs[2], fs[3], fs[2] * fs[3])
             yi = yi.permute(0, 3, 1, 2)
-            yi = yi * (scale[0, 0] * mmi.gt(0.0).float() + scale[0, 1] *
-                mmi.le(0.0).float())
+            yi = yi * (scale[0, 0] * mmi.gt(0.0).float() + scale[0, 1] * mmi.le(0.0).float())
             yi = yi + self_mask * mmi
             yi = F.softmax(yi, dim=1)
             _, offset = torch.max(yi, dim=1)
@@ -532,16 +487,14 @@ class GuidedCxtAtten(nn.Module):
                 wi_center = wi_center.permute(1, 0, 2, 3)
                 yi = F.conv2d(yi, wi_center, padding=0) / 4.0
             else:
-                yi = F.conv_transpose2d(yi, wi_center, stride=self.rate,
-                    padding=1) / 4.0
+                yi = F.conv_transpose2d(yi, wi_center, stride=self.rate, padding=1) / 4.0
             y.append(yi)
             offsets.append(offset)
         y = torch.cat(y, dim=0)
         y.contiguous().view(raw_int_alpha)
         offsets = torch.cat(offsets, dim=0)
         offsets = offsets.view([int_fs[0]] + [2] + int_fs[2:])
-        offsets = offsets - torch.Tensor([fs[2] // 2, fs[3] // 2]).view(1, 
-            2, 1, 1).long()
+        offsets = offsets - torch.Tensor([fs[2] // 2, fs[3] // 2]).view(1, 2, 1, 1).long()
         y = self.W(y) + alpha
         return y, (offsets, softmax_scale)
 
@@ -579,13 +532,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Yaoyi_Li_GCA_Matting(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GuidedCxtAtten,
+     lambda: ([], {'out_channels': 4, 'guidance_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_Yaoyi_Li_GCA_Matting(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(GuidedCxtAtten(*[], **{'out_channels': 4, 'guidance_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

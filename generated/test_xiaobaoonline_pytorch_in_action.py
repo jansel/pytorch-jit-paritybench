@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -187,11 +188,8 @@ class Cnn(nn.Module):
 
     def __init__(self, in_dim, n_class):
         super(Cnn, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_dim, 6, 3, stride=1, padding
-            =1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(6, 16, 5,
-            stride=1, padding=0), nn.ReLU(True), nn.MaxPool2d(2, 2))
-        self.fc = nn.Sequential(nn.Linear(400, 120), nn.Linear(120, 84), nn
-            .Linear(84, n_class))
+        self.conv = nn.Sequential(nn.Conv2d(in_dim, 6, 3, stride=1, padding=1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(6, 16, 5, stride=1, padding=0), nn.ReLU(True), nn.MaxPool2d(2, 2))
+        self.fc = nn.Sequential(nn.Linear(400, 120), nn.Linear(120, 84), nn.Linear(84, n_class))
 
     def forward(self, x):
         out = self.conv(x)
@@ -204,11 +202,8 @@ class Cnn(nn.Module):
 
     def __init__(self, in_dim, n_class):
         super(Cnn, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_dim, 6, 3, stride=1, padding
-            =1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(6, 16, 5,
-            stride=1, padding=0), nn.ReLU(True), nn.MaxPool2d(2, 2))
-        self.fc = nn.Sequential(nn.Linear(400, 120), nn.Linear(120, 84), nn
-            .Linear(84, n_class))
+        self.conv = nn.Sequential(nn.Conv2d(in_dim, 6, 3, stride=1, padding=1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(6, 16, 5, stride=1, padding=0), nn.ReLU(True), nn.MaxPool2d(2, 2))
+        self.fc = nn.Sequential(nn.Linear(400, 120), nn.Linear(120, 84), nn.Linear(84, n_class))
 
     def forward(self, x):
         out = self.conv(x)
@@ -221,12 +216,8 @@ class autoencoder(nn.Module):
 
     def __init__(self):
         super(autoencoder, self).__init__()
-        self.encoder = nn.Sequential(nn.Linear(28 * 28, 1000), nn.ReLU(True
-            ), nn.Linear(1000, 500), nn.ReLU(True), nn.Linear(500, 250), nn
-            .ReLU(True), nn.Linear(250, 2))
-        self.decoder = nn.Sequential(nn.Linear(2, 250), nn.ReLU(True), nn.
-            Linear(250, 500), nn.ReLU(True), nn.Linear(500, 1000), nn.ReLU(
-            True), nn.Linear(1000, 28 * 28), nn.Tanh())
+        self.encoder = nn.Sequential(nn.Linear(28 * 28, 1000), nn.ReLU(True), nn.Linear(1000, 500), nn.ReLU(True), nn.Linear(500, 250), nn.ReLU(True), nn.Linear(250, 2))
+        self.decoder = nn.Sequential(nn.Linear(2, 250), nn.ReLU(True), nn.Linear(250, 500), nn.ReLU(True), nn.Linear(500, 1000), nn.ReLU(True), nn.Linear(1000, 28 * 28), nn.Tanh())
 
     def forward(self, x):
         x = self.encoder(x)
@@ -238,15 +229,8 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU
-            (), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 3, padding=1), nn.
-            ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 64, 3, padding=1), nn
-            .ReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.ReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.
-            ReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 3, padding=1),
-            nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2), nn.Conv2d(
-            128, 256, 3, padding=1), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, padding=1), nn.ReLU())
 
 
 batch_size = 4
@@ -256,15 +240,8 @@ class Encoder(nn.Module):
 
     def __init__(self):
         super(Encoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU
-            (), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 3, padding=1), nn.
-            ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 64, 3, padding=1), nn
-            .ReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1),
-            nn.ReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.
-            ReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 3, padding=1),
-            nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2), nn.Conv2d(
-            128, 256, 3, padding=1), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, padding=1), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -277,15 +254,8 @@ class Decoder(nn.Module):
 
     def __init__(self):
         super(Decoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.ConvTranspose2d(256, 128, 3, 2, 1, 1
-            ), nn.ReLU(), nn.BatchNorm2d(128), nn.ConvTranspose2d(128, 128,
-            3, 1, 1), nn.ReLU(), nn.BatchNorm2d(128), nn.ConvTranspose2d(
-            128, 64, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(64), nn.
-            ConvTranspose2d(64, 64, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(64))
-        self.layer2 = nn.Sequential(nn.ConvTranspose2d(64, 32, 3, 1, 1), nn
-            .ReLU(), nn.BatchNorm2d(32), nn.ConvTranspose2d(32, 32, 3, 1, 1
-            ), nn.ReLU(), nn.BatchNorm2d(32), nn.ConvTranspose2d(32, 1, 3, 
-            2, 1, 1), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.ConvTranspose2d(256, 128, 3, 2, 1, 1), nn.ReLU(), nn.BatchNorm2d(128), nn.ConvTranspose2d(128, 128, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(128), nn.ConvTranspose2d(128, 64, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(64), nn.ConvTranspose2d(64, 64, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(64))
+        self.layer2 = nn.Sequential(nn.ConvTranspose2d(64, 32, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(32), nn.ConvTranspose2d(32, 32, 3, 1, 1), nn.ReLU(), nn.BatchNorm2d(32), nn.ConvTranspose2d(32, 1, 3, 2, 1, 1), nn.ReLU())
 
     def forward(self, x):
         out = x.view(batch_size, 256, 7, 7)
@@ -416,8 +386,7 @@ class AttnDecoderRNN(nn.Module):
     带注意力的解码器的定义
     """
 
-    def __init__(self, hidden_size, output_size, n_layers=1, dropout_p=0.1,
-        max_length=MAX_LENGTH):
+    def __init__(self, hidden_size, output_size, n_layers=1, dropout_p=0.1, max_length=MAX_LENGTH):
         """
         带注意力的解码器初始化过程
         :param hidden_size: 隐藏层大小
@@ -451,10 +420,8 @@ class AttnDecoderRNN(nn.Module):
         try:
             embedded = self.embedding(input).view(1, 1, -1)
             embedded = self.dropout(embedded)
-            attn_weights = F.softmax(self.attn(torch.cat((embedded[0],
-                hidden[0]), 1)))
-            attn_applied = torch.bmm(attn_weights.unsqueeze(0),
-                encoder_outputs.unsqueeze(0))
+            attn_weights = F.softmax(self.attn(torch.cat((embedded[0], hidden[0]), 1)))
+            attn_applied = torch.bmm(attn_weights.unsqueeze(0), encoder_outputs.unsqueeze(0))
             output = torch.cat((embedded[0], attn_applied[0]), 1)
             output = self.attn_combine(output).unsqueeze(0)
             for i in range(self.n_layers):
@@ -505,8 +472,7 @@ def _make_layers(cfg):
         if x == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1),
-                nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
+            layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
             in_channels = x
     layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
     return nn.Sequential(*layers)
@@ -540,8 +506,7 @@ class CNN_Text(nn.Module):
         kernel_num = args.kernel_num
         kernel_sizes = args.kernel_sizes
         self.embed = nn.Embedding(embed_num, embed_dim)
-        self.convs_list = nn.ModuleList([nn.Conv2d(Ci, kernel_num, (
-            kernel_size, embed_dim)) for kernel_size in kernel_sizes])
+        self.convs_list = nn.ModuleList([nn.Conv2d(Ci, kernel_num, (kernel_size, embed_dim)) for kernel_size in kernel_sizes])
         self.dropout = nn.Dropout(args.dropout)
         self.fc = nn.Linear(len(kernel_sizes) * kernel_num, class_num)
 
@@ -561,19 +526,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_xiaobaoonline_pytorch_in_action(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(Decoder(*[], **{}), [torch.rand([4, 256, 7, 7])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 7, 7])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (NGramLanguageModeler,
+     lambda: ([], {'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (autoencoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+]
+
+class Test_xiaobaoonline_pytorch_in_action(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NGramLanguageModeler(*[], **{'vocab_size': 4, 'embedding_dim': 4, 'context_size': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(autoencoder(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[3])
 

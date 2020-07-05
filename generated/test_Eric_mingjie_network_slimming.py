@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,8 +66,7 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         planes = expansion * growthRate
         self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = nn.Conv2d(cfg, growthRate, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(cfg, growthRate, kernel_size=3, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.dropRate = dropRate
 
@@ -98,8 +98,7 @@ class Transition(nn.Module):
 
 class densenet(nn.Module):
 
-    def __init__(self, depth=40, dropRate=0, dataset='cifar10', growthRate=
-        12, compressionRate=1, cfg=None):
+    def __init__(self, depth=40, dropRate=0, dataset='cifar10', growthRate=12, compressionRate=1, cfg=None):
         super(densenet, self).__init__()
         assert (depth - 4) % 3 == 0, 'depth should be 3n+4'
         n = (depth - 4) // 3
@@ -113,11 +112,9 @@ class densenet(nn.Module):
                 cfg.append([(start + growthRate * i) for i in range(n + 1)])
                 start += growthRate * n
             cfg = [item for sub_list in cfg for item in sub_list]
-        assert len(cfg
-            ) == 3 * n + 3, 'length of config variable cfg should be 3n+3'
+        assert len(cfg) == 3 * n + 3, 'length of config variable cfg should be 3n+3'
         self.inplanes = growthRate * 2
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, padding=1, bias=False)
         self.dense1 = self._make_denseblock(block, n, cfg[0:n])
         self.trans1 = self._make_transition(compressionRate, cfg[n])
         self.dense2 = self._make_denseblock(block, n, cfg[n + 1:2 * n + 1])
@@ -142,8 +139,7 @@ class densenet(nn.Module):
         layers = []
         assert blocks == len(cfg), 'Length of the cfg parameter is not right.'
         for i in range(blocks):
-            layers.append(block(self.inplanes, cfg=cfg[i], growthRate=self.
-                growthRate, dropRate=self.dropRate))
+            layers.append(block(self.inplanes, cfg=cfg[i], growthRate=self.growthRate, dropRate=self.dropRate))
             self.inplanes += self.growthRate
         return nn.Sequential(*layers)
 
@@ -174,8 +170,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(cfg[0], cfg[1], kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(cfg[1])
-        self.conv2 = nn.Conv2d(cfg[1], cfg[2], kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(cfg[1], cfg[2], kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(cfg[2])
         self.conv3 = nn.Conv2d(cfg[2], planes * 4, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -207,17 +202,13 @@ class resnet(nn.Module):
         n = (depth - 2) // 9
         block = Bottleneck
         if cfg is None:
-            cfg = [[16, 16, 16], [64, 16, 16] * (n - 1), [64, 32, 32], [128,
-                32, 32] * (n - 1), [128, 64, 64], [256, 64, 64] * (n - 1),
-                [256]]
+            cfg = [[16, 16, 16], [64, 16, 16] * (n - 1), [64, 32, 32], [128, 32, 32] * (n - 1), [128, 64, 64], [256, 64, 64] * (n - 1), [256]]
             cfg = [item for sub_list in cfg for item in sub_list]
         self.inplanes = 16
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1, bias=False)
         self.layer1 = self._make_layer(block, 16, n, cfg=cfg[0:3 * n])
-        self.layer2 = self._make_layer(block, 32, n, cfg=cfg[3 * n:6 * n],
-            stride=2)
-        self.layer3 = self._make_layer(block, 64, n, cfg=cfg[6 * n:9 * n],
-            stride=2)
+        self.layer2 = self._make_layer(block, 32, n, cfg=cfg[3 * n:6 * n], stride=2)
+        self.layer3 = self._make_layer(block, 64, n, cfg=cfg[6 * n:9 * n], stride=2)
         self.bn = nn.BatchNorm2d(64 * block.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.avgpool = nn.AvgPool2d(8)
@@ -236,11 +227,9 @@ class resnet(nn.Module):
     def _make_layer(self, block, planes, blocks, cfg, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False))
         layers = []
-        layers.append(block(self.inplanes, planes, cfg[0:3], stride,
-            downsample))
+        layers.append(block(self.inplanes, planes, cfg[0:3], stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, cfg[3 * i:3 * (i + 1)]))
@@ -259,17 +248,12 @@ class resnet(nn.Module):
         return x
 
 
-defaultcfg = {(11): [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 
-    512], (13): [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 
-    512, 512], (16): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 
-    512, 512, 'M', 512, 512, 512], (19): [64, 64, 'M', 128, 128, 'M', 256, 
-    256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]}
+defaultcfg = {(11): [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (13): [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (16): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512], (19): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]}
 
 
 class vgg(nn.Module):
 
-    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None
-        ):
+    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None):
         super(vgg, self).__init__()
         if cfg is None:
             cfg = defaultcfg[depth]
@@ -289,11 +273,9 @@ class vgg(nn.Module):
             if v == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1,
-                    bias=False)
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -341,8 +323,7 @@ class channel_selection(nn.Module):
         ---------
         input_tensor: (N,C,H,W). It should be the output of BatchNorm2d layer.
         """
-        selected_index = np.squeeze(np.argwhere(self.indexes.data.cpu().
-            numpy()))
+        selected_index = np.squeeze(np.argwhere(self.indexes.data.cpu().numpy()))
         if selected_index.size == 1:
             selected_index = np.resize(selected_index, (1,))
         output = input_tensor[:, (selected_index), :, :]
@@ -356,8 +337,7 @@ class BasicBlock(nn.Module):
         planes = expansion * growthRate
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.select = channel_selection(inplanes)
-        self.conv1 = nn.Conv2d(cfg, growthRate, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(cfg, growthRate, kernel_size=3, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.dropRate = dropRate
 
@@ -392,8 +372,7 @@ class Transition(nn.Module):
 
 class densenet(nn.Module):
 
-    def __init__(self, depth=40, dropRate=0, dataset='cifar10', growthRate=
-        12, compressionRate=1, cfg=None):
+    def __init__(self, depth=40, dropRate=0, dataset='cifar10', growthRate=12, compressionRate=1, cfg=None):
         super(densenet, self).__init__()
         assert (depth - 4) % 3 == 0, 'depth should be 3n+4'
         n = (depth - 4) // 3
@@ -407,11 +386,9 @@ class densenet(nn.Module):
                 cfg.append([(start + growthRate * i) for i in range(n + 1)])
                 start += growthRate * n
             cfg = [item for sub_list in cfg for item in sub_list]
-        assert len(cfg
-            ) == 3 * n + 3, 'length of config variable cfg should be 3n+3'
+        assert len(cfg) == 3 * n + 3, 'length of config variable cfg should be 3n+3'
         self.inplanes = growthRate * 2
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, padding=1, bias=False)
         self.dense1 = self._make_denseblock(block, n, cfg[0:n])
         self.trans1 = self._make_transition(compressionRate, cfg[n])
         self.dense2 = self._make_denseblock(block, n, cfg[n + 1:2 * n + 1])
@@ -437,8 +414,7 @@ class densenet(nn.Module):
         layers = []
         assert blocks == len(cfg), 'Length of the cfg parameter is not right.'
         for i in range(blocks):
-            layers.append(block(self.inplanes, cfg=cfg[i], growthRate=self.
-                growthRate, dropRate=self.dropRate))
+            layers.append(block(self.inplanes, cfg=cfg[i], growthRate=self.growthRate, dropRate=self.dropRate))
             self.inplanes += self.growthRate
         return nn.Sequential(*layers)
 
@@ -471,8 +447,7 @@ class Bottleneck(nn.Module):
         self.select = channel_selection(inplanes)
         self.conv1 = nn.Conv2d(cfg[0], cfg[1], kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(cfg[1])
-        self.conv2 = nn.Conv2d(cfg[1], cfg[2], kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(cfg[1], cfg[2], kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(cfg[2])
         self.conv3 = nn.Conv2d(cfg[2], planes * 4, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -505,17 +480,13 @@ class resnet(nn.Module):
         n = (depth - 2) // 9
         block = Bottleneck
         if cfg is None:
-            cfg = [[16, 16, 16], [64, 16, 16] * (n - 1), [64, 32, 32], [128,
-                32, 32] * (n - 1), [128, 64, 64], [256, 64, 64] * (n - 1),
-                [256]]
+            cfg = [[16, 16, 16], [64, 16, 16] * (n - 1), [64, 32, 32], [128, 32, 32] * (n - 1), [128, 64, 64], [256, 64, 64] * (n - 1), [256]]
             cfg = [item for sub_list in cfg for item in sub_list]
         self.inplanes = 16
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1, bias=False)
         self.layer1 = self._make_layer(block, 16, n, cfg=cfg[0:3 * n])
-        self.layer2 = self._make_layer(block, 32, n, cfg=cfg[3 * n:6 * n],
-            stride=2)
-        self.layer3 = self._make_layer(block, 64, n, cfg=cfg[6 * n:9 * n],
-            stride=2)
+        self.layer2 = self._make_layer(block, 32, n, cfg=cfg[3 * n:6 * n], stride=2)
+        self.layer3 = self._make_layer(block, 64, n, cfg=cfg[6 * n:9 * n], stride=2)
         self.bn = nn.BatchNorm2d(64 * block.expansion)
         self.select = channel_selection(64 * block.expansion)
         self.relu = nn.ReLU(inplace=True)
@@ -535,11 +506,9 @@ class resnet(nn.Module):
     def _make_layer(self, block, planes, blocks, cfg, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False))
         layers = []
-        layers.append(block(self.inplanes, planes, cfg[0:3], stride,
-            downsample))
+        layers.append(block(self.inplanes, planes, cfg[0:3], stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, cfg[3 * i:3 * (i + 1)]))
@@ -561,8 +530,7 @@ class resnet(nn.Module):
 
 class vgg(nn.Module):
 
-    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None
-        ):
+    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None):
         super(vgg, self).__init__()
         if cfg is None:
             cfg = defaultcfg[depth]
@@ -582,11 +550,9 @@ class vgg(nn.Module):
             if v == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1,
-                    bias=False)
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -618,9 +584,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (channel_selection,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (densenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (resnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (vgg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+]
+
 class Test_Eric_mingjie_network_slimming(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(channel_selection(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

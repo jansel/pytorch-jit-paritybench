@@ -290,8 +290,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -506,9 +507,7 @@ class ABN(nn.Module):
     @TODO: Docs (add `Example`). Contribution is welcome.
     """
 
-    def __init__(self, num_features: int, activation: str='leaky_relu',
-        batchnorm_params: Dict=None, activation_params: Dict=None,
-        use_batchnorm: bool=True):
+    def __init__(self, num_features: int, activation: str='leaky_relu', batchnorm_params: Dict=None, activation_params: Dict=None, use_batchnorm: bool=True):
         """
         Args:
             num_features (int): number of feature channels
@@ -524,11 +523,9 @@ class ABN(nn.Module):
         activation_params = activation_params or {}
         layers = []
         if use_batchnorm:
-            layers.append(nn.BatchNorm2d(num_features=num_features, **
-                batchnorm_params))
+            layers.append(nn.BatchNorm2d(num_features=num_features, **batchnorm_params))
         if activation is not None and activation.lower() != 'none':
-            layers.append(nn.__dict__[activation](inplace=True, **
-                activation_params))
+            layers.append(nn.__dict__[activation](inplace=True, **activation_params))
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -540,8 +537,7 @@ class ABN(nn.Module):
 class EncoderBlock(ABC, nn.Module):
     """@TODO: Docs (add description, `Example`). Contribution is welcome."""
 
-    def __init__(self, in_channels: int, out_channels: int, in_strides: int
-        =None):
+    def __init__(self, in_channels: int, out_channels: int, in_strides: int=None):
         """
         Args:
             @TODO: Docs. Contribution is welcome.
@@ -571,8 +567,7 @@ class EncoderBlock(ABC, nn.Module):
 class DecoderBlock(ABC, nn.Module):
     """@TODO: Docs (add description, `Example`). Contribution is welcome."""
 
-    def __init__(self, in_channels: int, enc_channels: int, out_channels:
-        int, in_strides: int=None, *args, **kwargs):
+    def __init__(self, in_channels: int, enc_channels: int, out_channels: int, in_strides: int=None, *args, **kwargs):
         """
         Args:
             @TODO: Docs. Contribution is welcome.
@@ -602,9 +597,7 @@ class DecoderBlock(ABC, nn.Module):
 class Conv3x3GNReLU(nn.Module):
     """@TODO: Docs (add description, `Example`). Contribution is welcome."""
 
-    def __init__(self, in_channels, out_channels, upsample=False,
-        upsample_scale: int=2, interpolation_mode: str='bilinear',
-        align_corners: bool=True):
+    def __init__(self, in_channels, out_channels, upsample=False, upsample_scale: int=2, interpolation_mode: str='bilinear', align_corners: bool=True):
         """
         Args:
             @TODO: Docs. Contribution is welcome.
@@ -614,32 +607,26 @@ class Conv3x3GNReLU(nn.Module):
         self.upsample_scale = upsample_scale
         self.interpolation_mode = interpolation_mode
         self.align_corners = align_corners
-        self.block = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            kernel_size=3, stride=1, padding=1, bias=False), nn.GroupNorm(
-            32, out_channels), nn.ReLU(inplace=True))
+        self.block = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False), nn.GroupNorm(32, out_channels), nn.ReLU(inplace=True))
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
         """Forward call."""
         x = self.block(x)
         if self.upsample:
-            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=
-                self.interpolation_mode, align_corners=self.align_corners)
+            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
         return x
 
 
 class SegmentationBlock(nn.Module):
     """@TODO: Docs (add description, `Example`). Contribution is welcome."""
 
-    def __init__(self, in_channels: int, out_channels: int, num_upsamples:
-        int=0):
+    def __init__(self, in_channels: int, out_channels: int, num_upsamples: int=0):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
-        blocks = [Conv3x3GNReLU(in_channels, out_channels, upsample=bool(
-            num_upsamples))]
+        blocks = [Conv3x3GNReLU(in_channels, out_channels, upsample=bool(num_upsamples))]
         if num_upsamples > 1:
             for _ in range(1, num_upsamples):
-                blocks.append(Conv3x3GNReLU(out_channels, out_channels,
-                    upsample=True))
+                blocks.append(Conv3x3GNReLU(out_channels, out_channels, upsample=True))
         self.block = nn.Sequential(*blocks)
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
@@ -647,17 +634,10 @@ class SegmentationBlock(nn.Module):
         return self.block(x)
 
 
-def _get_block(in_channels: int, out_channels: int, abn_block: nn.Module=
-    ABN, activation: str='ReLU', kernel_size: int=3, padding: int=1,
-    first_stride: int=1, second_stride: int=1, complexity: int=1, **kwargs):
-    layers = [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
-        padding=padding, stride=first_stride, bias=False, **kwargs),
-        abn_block(out_channels, activation=activation)]
+def _get_block(in_channels: int, out_channels: int, abn_block: nn.Module=ABN, activation: str='ReLU', kernel_size: int=3, padding: int=1, first_stride: int=1, second_stride: int=1, complexity: int=1, **kwargs):
+    layers = [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=first_stride, bias=False, **kwargs), abn_block(out_channels, activation=activation)]
     if complexity > 0:
-        layers_ = [nn.Conv2d(out_channels, out_channels, kernel_size=
-            kernel_size, padding=padding, stride=second_stride, bias=False,
-            **kwargs), abn_block(out_channels, activation=activation)
-            ] * complexity
+        layers_ = [nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=second_stride, bias=False, **kwargs), abn_block(out_channels, activation=activation)] * complexity
         layers = layers + layers_
     block = nn.Sequential(*layers)
     return block
@@ -666,39 +646,30 @@ def _get_block(in_channels: int, out_channels: int, abn_block: nn.Module=
 class PyramidBlock(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, in_channels: int, out_channels: int, pool_size: int,
-        use_batchnorm: bool=True, interpolation_mode: str='bilinear',
-        align_corners: bool=True, complexity: int=0):
+    def __init__(self, in_channels: int, out_channels: int, pool_size: int, use_batchnorm: bool=True, interpolation_mode: str='bilinear', align_corners: bool=True, complexity: int=0):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         self.interpolation_mode = interpolation_mode
         self.align_corners = align_corners
         if pool_size == 1:
             use_batchnorm = False
-        self._block = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(
-            pool_size, pool_size)), _get_block(in_channels, out_channels,
-            abn_block=partial(ABN, use_batchnorm=use_batchnorm), complexity
-            =complexity))
+        self._block = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(pool_size, pool_size)), _get_block(in_channels, out_channels, abn_block=partial(ABN, use_batchnorm=use_batchnorm), complexity=complexity))
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
         """Forward call."""
         h, w = x.shape[-2:]
         x = self._block(x)
-        x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode,
-            align_corners=self.align_corners)
+        x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode, align_corners=self.align_corners)
         return x
 
 
 class PSPBlock(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, in_channels: int, pool_sizes: Tuple[int]=(1, 2, 3, 6
-        ), use_batchnorm: bool=True):
+    def __init__(self, in_channels: int, pool_sizes: Tuple[int]=(1, 2, 3, 6), use_batchnorm: bool=True):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
-        self.stages = nn.ModuleList([PyramidBlock(in_channels, in_channels //
-            len(pool_sizes), pool_size, use_batchnorm=use_batchnorm) for
-            pool_size in pool_sizes])
+        self.stages = nn.ModuleList([PyramidBlock(in_channels, in_channels // len(pool_sizes), pool_size, use_batchnorm=use_batchnorm) for pool_size in pool_sizes])
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
         """Forward call."""
@@ -798,8 +769,7 @@ class EncoderSpec(ABC, nn.Module):
 class HeadSpec(ABC, nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, in_channels: List[int], out_channles: int,
-        in_strides: List[int]=None):
+    def __init__(self, in_channels: List[int], out_channles: int, in_strides: List[int]=None):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         self.in_channels = in_channels
@@ -875,8 +845,7 @@ class Normalize(object):
 
     def __repr__(self):
         """@TODO: Docs. Contribution is welcome."""
-        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.
-            mean, self.std)
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
 
 
 class Hydra(nn.Module):
@@ -888,8 +857,7 @@ class Hydra(nn.Module):
     _hidden_keyword = '_hidden'
     _normalize_keyword = 'normalize_output'
 
-    def __init__(self, heads: nn.ModuleDict, encoder: nn.Module=None,
-        embedders: nn.ModuleDict=None):
+    def __init__(self, heads: nn.ModuleDict, encoder: nn.Module=None, embedders: nn.ModuleDict=None):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         self.encoder = encoder or nn.Sequential()
@@ -897,8 +865,7 @@ class Hydra(nn.Module):
         self.embedders = embedders or {}
 
     @staticmethod
-    def parse_head_params(head_params: Dict, in_features: int, is_leaf:
-        bool=False) ->Union[nn.Module, nn.ModuleDict]:
+    def parse_head_params(head_params: Dict, in_features: int, is_leaf: bool=False) ->Union[nn.Module, nn.ModuleDict]:
         """@TODO: Docs. Contribution is welcome."""
         if is_leaf:
             if isinstance(head_params, int):
@@ -914,15 +881,10 @@ class Hydra(nn.Module):
             output = {}
             hidden_params = head_params.pop(Hydra._hidden_keyword, None)
             if hidden_params is not None:
-                in_features = hidden_params if isinstance(hidden_params, int
-                    ) else hidden_params['hiddens'][-1]
-                output[Hydra._hidden_keyword] = Hydra.parse_head_params(
-                    head_params=hidden_params, in_features=in_features,
-                    is_leaf=True)
+                in_features = hidden_params if isinstance(hidden_params, int) else hidden_params['hiddens'][-1]
+                output[Hydra._hidden_keyword] = Hydra.parse_head_params(head_params=hidden_params, in_features=in_features, is_leaf=True)
             for head_name_, head_params_ in head_params.items():
-                output[head_name_] = Hydra.parse_head_params(head_params=
-                    head_params_, in_features=in_features, is_leaf=not
-                    head_name_.startswith(Hydra._parent_keyword))
+                output[head_name_] = Hydra.parse_head_params(head_params=head_params_, in_features=in_features, is_leaf=not head_name_.startswith(Hydra._parent_keyword))
             output = nn.ModuleDict(output)
         return output
 
@@ -949,8 +911,7 @@ class Hydra(nn.Module):
         """Forward call."""
         embeddings = self.encoder(features)
         heads_output = self.forward_head(embeddings, self.heads)
-        output = {'features': features, 'embeddings': embeddings, **utils.
-            flatten_dict(heads_output)}
+        output = {'features': features, 'embeddings': embeddings, **utils.flatten_dict(heads_output)}
         for key, value in targets_kwargs.items():
             output[f'{key}_embeddings'] = self.embedders[key](value)
         return output
@@ -959,25 +920,21 @@ class Hydra(nn.Module):
         """@TODO: Docs. Contribution is welcome."""
         output_kv = self.forward(features)
         output = [output_kv['features'], output_kv['embeddings']]
-        output.extend([value for key, value in output_kv.items() if not key
-            .endswith('/') and key not in ['features', 'embeddings']])
+        output.extend([value for key, value in output_kv.items() if not key.endswith('/') and key not in ['features', 'embeddings']])
         output = tuple(output)
         return output
 
     @classmethod
-    def get_from_params(cls, heads_params: Dict, encoder_params: Dict=None,
-        embedders_params: Dict=None, in_features: int=None) ->'Hydra':
+    def get_from_params(cls, heads_params: Dict, encoder_params: Dict=None, embedders_params: Dict=None, in_features: int=None) ->'Hydra':
         """@TODO: Docs. Contribution is welcome."""
         heads_params_ = deepcopy(heads_params)
         encoder_params_ = deepcopy(encoder_params)
         embedders_params_ = deepcopy(embedders_params)
 
         def _get_normalization_keyword(dct: Dict):
-            return dct.pop(Hydra._normalize_keyword, False
-                ) if dct is not None else False
+            return dct.pop(Hydra._normalize_keyword, False) if dct is not None else False
         if encoder_params_ is not None:
-            normalize_embeddings: bool = _get_normalization_keyword(
-                encoder_params_)
+            normalize_embeddings: bool = _get_normalization_keyword(encoder_params_)
             encoder = SequentialNet(**encoder_params_)
             in_features = encoder_params_['hiddens'][-1]
             if normalize_embeddings:
@@ -985,8 +942,7 @@ class Hydra(nn.Module):
         else:
             assert in_features is not None
             encoder = None
-        heads = Hydra.parse_head_params(head_params=heads_params_,
-            in_features=in_features)
+        heads = Hydra.parse_head_params(head_params=heads_params_, in_features=in_features)
         assert isinstance(heads, nn.ModuleDict)
         embedders = {}
         if embedders_params_ is not None:
@@ -994,8 +950,7 @@ class Hydra(nn.Module):
                 if isinstance(head_params, int):
                     head_params = {'num_embeddings': head_params}
                 normalize_ = head_params.pop(Hydra._normalize_keyword, False)
-                block = [('embedding', nn.Embedding(embedding_dim=
-                    in_features, **head_params))]
+                block = [('embedding', nn.Embedding(embedding_dim=in_features, **head_params))]
                 if normalize_:
                     block.append(('normalize', Normalize()))
                 block = OrderedDict(block)
@@ -1012,8 +967,7 @@ class BertClassifier(nn.Module):
     See ``transformers/modeling_distilbert.py`` in the transformers repository.
     """
 
-    def __init__(self, pretrained_model_name: str, num_classes: Optional[
-        int]=None):
+    def __init__(self, pretrained_model_name: str, num_classes: Optional[int]=None):
         """
         Args:
             pretrained_model_name (str): HuggingFace model name.
@@ -1022,17 +976,12 @@ class BertClassifier(nn.Module):
                 in the classification task
         """
         super().__init__()
-        config = AutoConfig.from_pretrained(pretrained_model_name,
-            num_labels=num_classes)
-        self.distilbert = AutoModel.from_pretrained(pretrained_model_name,
-            config=config)
+        config = AutoConfig.from_pretrained(pretrained_model_name, num_labels=num_classes)
+        self.distilbert = AutoModel.from_pretrained(pretrained_model_name, config=config)
         self.pre_classifier = nn.Linear(config.dim, config.dim)
-        self.classifier = nn.Sequential(nn.ReLU(), nn.Dropout(config.
-            seq_classif_dropout), nn.Linear(config.dim, num_classes))
+        self.classifier = nn.Sequential(nn.ReLU(), nn.Dropout(config.seq_classif_dropout), nn.Linear(config.dim, num_classes))
 
-    def forward(self, features: torch.Tensor, attention_mask: Optional[
-        torch.Tensor]=None, head_mask: Optional[torch.Tensor]=None
-        ) ->torch.Tensor:
+    def forward(self, features: torch.Tensor, attention_mask: Optional[torch.Tensor]=None, head_mask: Optional[torch.Tensor]=None) ->torch.Tensor:
         """Compute class probabilities for the input sequence.
 
         Args:
@@ -1049,8 +998,7 @@ class BertClassifier(nn.Module):
             PyTorch Tensor with predicted class probabilities
         """
         assert attention_mask is not None, 'attention mask is none'
-        distilbert_output = self.distilbert(input_ids=features,
-            attention_mask=attention_mask, head_mask=head_mask)
+        distilbert_output = self.distilbert(input_ids=features, attention_mask=attention_mask, head_mask=head_mask)
         hidden_state = distilbert_output[0]
         pooled_output = hidden_state[:, (0)]
         pooled_output = self.pre_classifier(pooled_output)
@@ -1082,10 +1030,7 @@ def _process_additional_params(params, layers):
 class SequentialNet(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, hiddens, layer_fn: Union[str, Dict, List], norm_fn:
-        Union[str, Dict, List]=None, dropout_fn: Union[str, Dict, List]=
-        None, activation_fn: Union[str, Dict, List]=None, residual: Union[
-        bool, str]=False, layer_order: List=None):
+    def __init__(self, hiddens, layer_fn: Union[str, Dict, List], norm_fn: Union[str, Dict, List]=None, dropout_fn: Union[str, Dict, List]=None, activation_fn: Union[str, Dict, List]=None, residual: Union[bool, str]=False, layer_order: List=None):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         assert len(hiddens) > 1, 'No sequence found'
@@ -1105,25 +1050,20 @@ class SequentialNet(nn.Module):
 
         def _normalization_fn(normalization_fn, f_in, f_out, **kwargs):
             normalization_fn = MODULES.get_if_str(normalization_fn)
-            normalization_fn = normalization_fn(f_out, **kwargs
-                ) if normalization_fn is not None else None
+            normalization_fn = normalization_fn(f_out, **kwargs) if normalization_fn is not None else None
             return normalization_fn
 
         def _dropout_fn(dropout_fn, f_in, f_out, **kwargs):
             dropout_fn = MODULES.get_if_str(dropout_fn)
-            dropout_fn = dropout_fn(**kwargs
-                ) if dropout_fn is not None else None
+            dropout_fn = dropout_fn(**kwargs) if dropout_fn is not None else None
             return dropout_fn
 
         def _activation_fn(activation_fn, f_in, f_out, **kwargs):
             activation_fn = MODULES.get_if_str(activation_fn)
-            activation_fn = activation_fn(**kwargs
-                ) if activation_fn is not None else None
+            activation_fn = activation_fn(**kwargs) if activation_fn is not None else None
             return activation_fn
-        name2fn = {'layer': _layer_fn, 'norm': _normalization_fn, 'drop':
-            _dropout_fn, 'act': _activation_fn}
-        name2params = {'layer': layer_fn, 'norm': norm_fn, 'drop':
-            dropout_fn, 'act': activation_fn}
+        name2fn = {'layer': _layer_fn, 'norm': _normalization_fn, 'drop': _dropout_fn, 'act': _activation_fn}
+        name2params = {'layer': layer_fn, 'norm': norm_fn, 'drop': dropout_fn, 'act': activation_fn}
         net = []
         for i, (f_in, f_out) in enumerate(utils.pairwise(hiddens)):
             block = []
@@ -1142,8 +1082,7 @@ class SequentialNet(nn.Module):
             block = torch.nn.Sequential(block_)
             if block_.get('act', None) is not None:
                 activation = block_['act']
-                activation_init = utils.get_optimal_inner_init(nonlinearity
-                    =activation)
+                activation_init = utils.get_optimal_inner_init(nonlinearity=activation)
                 block.apply(activation_init)
             if residual == 'hard' or residual == 'soft' and f_in == f_out:
                 block = ResidualWrapper(net=block)
@@ -1164,8 +1103,7 @@ class NaiveCrossEntropyLoss(nn.Module):
         super().__init__()
         self.size_average = size_average
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, input: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
         """Calculates loss between ``input`` and ``target`` tensors.
 
         Args:
@@ -1203,8 +1141,7 @@ class SymmetricCrossEntropyLoss(nn.Module):
         self.alpha = alpha
         self.beta = beta
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, input: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
         """Calculates loss between ``input`` and ``target`` tensors.
 
         Args:
@@ -1218,10 +1155,8 @@ class SymmetricCrossEntropyLoss(nn.Module):
         assert target_one_hot.shape == input.shape
         input = torch.clamp(input, min=1e-07, max=1.0)
         target_one_hot = torch.clamp(target_one_hot, min=0.0001, max=1.0)
-        cross_entropy = (-torch.sum(target_one_hot * torch.log(input), dim=1)
-            ).mean()
-        reverse_cross_entropy = (-torch.sum(input * torch.log(
-            target_one_hot), dim=1)).mean()
+        cross_entropy = (-torch.sum(target_one_hot * torch.log(input), dim=1)).mean()
+        reverse_cross_entropy = (-torch.sum(input * torch.log(target_one_hot), dim=1)).mean()
         loss = self.alpha * cross_entropy + self.beta * reverse_cross_entropy
         return loss
 
@@ -1229,16 +1164,14 @@ class SymmetricCrossEntropyLoss(nn.Module):
 class MaskCrossEntropyLoss(torch.nn.CrossEntropyLoss):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, *args, target_name: str='targets', mask_name: str=
-        'mask', **kwargs):
+    def __init__(self, *args, target_name: str='targets', mask_name: str='mask', **kwargs):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__(*args, **kwargs)
         self.target_name = target_name
         self.mask_name = mask_name
         self.reduction = 'none'
 
-    def forward(self, input: torch.Tensor, target_mask: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, input: torch.Tensor, target_mask: torch.Tensor) ->torch.Tensor:
         """Calculates loss between ``input`` and ``target_mask`` tensors.
 
         @TODO: Docs. Contribution is welcome.
@@ -1250,8 +1183,7 @@ class MaskCrossEntropyLoss(torch.nn.CrossEntropyLoss):
         return loss
 
 
-def _convert_label_to_similarity(normed_features: Tensor, labels: Tensor
-    ) ->Tuple[Tensor, Tensor]:
+def _convert_label_to_similarity(normed_features: Tensor, labels: Tensor) ->Tuple[Tensor, Tensor]:
     similarity_matrix = normed_features @ normed_features.transpose(1, 0)
     label_matrix = labels.unsqueeze(1) == labels.unsqueeze(0)
     positive_matrix = label_matrix.triu(diagonal=1)
@@ -1259,8 +1191,7 @@ def _convert_label_to_similarity(normed_features: Tensor, labels: Tensor
     similarity_matrix = similarity_matrix.view(-1)
     positive_matrix = positive_matrix.view(-1)
     negative_matrix = negative_matrix.view(-1)
-    sp, sn = similarity_matrix[positive_matrix], similarity_matrix[
-        negative_matrix]
+    sp, sn = similarity_matrix[positive_matrix], similarity_matrix[negative_matrix]
     return sp, sn
 
 
@@ -1314,8 +1245,7 @@ class CircleLoss(nn.Module):
         delta_n = self.margin
         logit_p = -ap * (sp - delta_p) * self.gamma
         logit_n = an * (sn - delta_n) * self.gamma
-        loss = self.soft_plus(torch.logsumexp(logit_n, dim=0) + torch.
-            logsumexp(logit_p, dim=0))
+        loss = self.soft_plus(torch.logsumexp(logit_n, dim=0) + torch.logsumexp(logit_p, dim=0))
         return loss
 
 
@@ -1339,8 +1269,7 @@ class ContrastiveEmbeddingLoss(nn.Module):
         self.margin = margin
         self.reduction = reduction or 'none'
 
-    def forward(self, embeddings_left: torch.Tensor, embeddings_right:
-        torch.Tensor, distance_true) ->torch.Tensor:
+    def forward(self, embeddings_left: torch.Tensor, embeddings_right: torch.Tensor, distance_true) ->torch.Tensor:
         """Forward propagation method for the contrastive loss.
 
         Args:
@@ -1356,8 +1285,7 @@ class ContrastiveEmbeddingLoss(nn.Module):
         bs = len(distance_true)
         margin_distance = self.margin - distance_pred
         margin_distance_ = torch.clamp(margin_distance, min=0.0)
-        loss = (1 - distance_true) * torch.pow(distance_pred, 2
-            ) + distance_true * torch.pow(margin_distance_, 2)
+        loss = (1 - distance_true) * torch.pow(distance_pred, 2) + distance_true * torch.pow(margin_distance_, 2)
         if self.reduction == 'mean':
             loss = torch.sum(loss) / 2.0 / bs
         elif self.reduction == 'sum':
@@ -1394,8 +1322,7 @@ class ContrastiveDistanceLoss(nn.Module):
         bs = len(distance_true)
         margin_distance = self.margin - distance_pred
         margin_distance_ = torch.clamp(margin_distance, min=0.0)
-        loss = (1 - distance_true) * torch.pow(distance_pred, 2
-            ) + distance_true * torch.pow(margin_distance_, 2)
+        loss = (1 - distance_true) * torch.pow(distance_pred, 2) + distance_true * torch.pow(margin_distance_, 2)
         if self.reduction == 'mean':
             loss = torch.sum(loss) / 2.0 / bs
         elif self.reduction == 'sum':
@@ -1434,24 +1361,20 @@ class ContrastivePairwiseEmbeddingLoss(nn.Module):
             torch.Tensor: loss
         """
         device = embeddings_pred.device
-        pairwise_similarity = torch.einsum('se,ae->sa', embeddings_pred,
-            embeddings_true)
+        pairwise_similarity = torch.einsum('se,ae->sa', embeddings_pred, embeddings_true)
         bs = embeddings_pred.shape[0]
         batch_idx = torch.arange(bs, device=device)
-        loss = F.cross_entropy(pairwise_similarity, batch_idx, reduction=
-            self.reduction)
+        loss = F.cross_entropy(pairwise_similarity, batch_idx, reduction=self.reduction)
         return loss
 
 
 class DiceLoss(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation:
-        str='Sigmoid'):
+    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid'):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
-        self.loss_fn = partial(metrics.dice, eps=eps, threshold=threshold,
-            activation=activation)
+        self.loss_fn = partial(metrics.dice, eps=eps, threshold=threshold, activation=activation)
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor):
         """Calculates loss between ``logits`` and ``target`` tensors.
@@ -1465,21 +1388,17 @@ class DiceLoss(nn.Module):
 class BCEDiceLoss(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation:
-        str='Sigmoid', bce_weight: float=0.5, dice_weight: float=0.5):
+    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid', bce_weight: float=0.5, dice_weight: float=0.5):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         if bce_weight == 0 and dice_weight == 0:
-            raise ValueError(
-                'Both bce_wight and dice_weight cannot be equal to 0 at the same time.'
-                )
+            raise ValueError('Both bce_wight and dice_weight cannot be equal to 0 at the same time.')
         self.bce_weight = bce_weight
         self.dice_weight = dice_weight
         if self.bce_weight != 0:
             self.bce_loss = nn.BCEWithLogitsLoss()
         if self.dice_weight != 0:
-            self.dice_loss = DiceLoss(eps=eps, threshold=threshold,
-                activation=activation)
+            self.dice_loss = DiceLoss(eps=eps, threshold=threshold, activation=activation)
 
     def forward(self, outputs, targets):
         """@TODO: Docs. Contribution is welcome."""
@@ -1503,17 +1422,14 @@ class FocalLossBinary(_Loss):
         https://arxiv.org/abs/1708.02002
     """
 
-    def __init__(self, ignore: int=None, reduced: bool=False, gamma: float=
-        2.0, alpha: float=0.25, threshold: float=0.5, reduction: str='mean'):
+    def __init__(self, ignore: int=None, reduced: bool=False, gamma: float=2.0, alpha: float=0.25, threshold: float=0.5, reduction: str='mean'):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         self.ignore = ignore
         if reduced:
-            self.loss_fn = partial(metrics.reduced_focal_loss, gamma=gamma,
-                threshold=threshold, reduction=reduction)
+            self.loss_fn = partial(metrics.reduced_focal_loss, gamma=gamma, threshold=threshold, reduction=reduction)
         else:
-            self.loss_fn = partial(metrics.sigmoid_focal_loss, gamma=gamma,
-                alpha=alpha, reduction=reduction)
+            self.loss_fn = partial(metrics.sigmoid_focal_loss, gamma=gamma, alpha=alpha, reduction=reduction)
 
     def forward(self, logits, targets):
         """
@@ -1566,11 +1482,8 @@ class GradientPenaltyLoss(nn.Module):
         interpolates.requires_grad_(True)
         with torch.set_grad_enabled(True):
             d_interpolates = critic(interpolates, *critic_condition_args)
-        fake = torch.ones((real_data.size(0), 1), device=device,
-            requires_grad=False)
-        gradients = torch.autograd.grad(outputs=d_interpolates, inputs=
-            interpolates, grad_outputs=fake, create_graph=True,
-            retain_graph=True, only_inputs=True)[0]
+        fake = torch.ones((real_data.size(0), 1), device=device, requires_grad=False)
+        gradients = torch.autograd.grad(outputs=d_interpolates, inputs=interpolates, grad_outputs=fake, create_graph=True, retain_graph=True, only_inputs=True)[0]
         gradients = gradients.view(gradients.size(0), -1)
         gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
         return gradient_penalty
@@ -1585,8 +1498,7 @@ class HuberLoss(nn.Module):
         self.clip_delta = clip_delta
         self.reduction = reduction or 'none'
 
-    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, weights=None
-        ) ->torch.Tensor:
+    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor, weights=None) ->torch.Tensor:
         """@TODO: Docs. Contribution is welcome."""
         td_error = y_true - y_pred
         td_error_abs = torch.abs(td_error)
@@ -1610,8 +1522,7 @@ class IoULoss(nn.Module):
     @TODO: Docs. Contribution is welcome.
     """
 
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation:
-        str='Sigmoid'):
+    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid'):
         """
         Args:
             eps (float): epsilon to avoid zero division
@@ -1620,8 +1531,7 @@ class IoULoss(nn.Module):
                 Must be one of ``'none'``, ``'Sigmoid'``, ``'Softmax2d'``
         """
         super().__init__()
-        self.metric_fn = partial(metrics.iou, eps=eps, threshold=threshold,
-            activation=activation)
+        self.metric_fn = partial(metrics.iou, eps=eps, threshold=threshold, activation=activation)
 
     def forward(self, outputs, targets):
         """@TODO: Docs. Contribution is welcome."""
@@ -1635,8 +1545,7 @@ class BCEIoULoss(nn.Module):
     @TODO: Docs. Contribution is welcome.
     """
 
-    def __init__(self, eps: float=1e-07, threshold: float=None, activation:
-        str='Sigmoid', reduction: str='mean'):
+    def __init__(self, eps: float=1e-07, threshold: float=None, activation: str='Sigmoid', reduction: str='mean'):
         """
         Args:
             eps (float): epsilon to avoid zero division
@@ -1744,12 +1653,9 @@ def _lovasz_hinge(logits, targets, per_image=True, ignore=None):
         ignore: void class id
     """
     if per_image:
-        loss = mean(_lovasz_hinge_flat(*_flatten_binary_scores(logit.
-            unsqueeze(0), target.unsqueeze(0), ignore)) for logit, target in
-            zip(logits, targets))
+        loss = mean(_lovasz_hinge_flat(*_flatten_binary_scores(logit.unsqueeze(0), target.unsqueeze(0), ignore)) for logit, target in zip(logits, targets))
     else:
-        loss = _lovasz_hinge_flat(*_flatten_binary_scores(logits, targets,
-            ignore))
+        loss = _lovasz_hinge_flat(*_flatten_binary_scores(logits, targets, ignore))
     return loss
 
 
@@ -1780,8 +1686,7 @@ class LovaszLossBinary(_Loss):
 
         @TODO: Docs. Contribution is welcome.
         """
-        loss = _lovasz_hinge(logits, targets, per_image=self.per_image,
-            ignore=self.ignore)
+        loss = _lovasz_hinge(logits, targets, per_image=self.per_image, ignore=self.ignore)
         return loss
 
 
@@ -1837,8 +1742,7 @@ def _lovasz_softmax_flat(probabilities, targets, classes='present'):
     return mean(losses)
 
 
-def _lovasz_softmax(probabilities, targets, classes='present', per_image=
-    False, ignore=None):
+def _lovasz_softmax(probabilities, targets, classes='present', per_image=False, ignore=None):
     """The multi-class Lovasz-Softmax loss.
 
     Args:
@@ -1854,12 +1758,9 @@ def _lovasz_softmax(probabilities, targets, classes='present', per_image=
         ignore: void class targets
     """
     if per_image:
-        loss = mean(_lovasz_softmax_flat(*_flatten_probabilities(prob.
-            unsqueeze(0), lab.unsqueeze(0), ignore), classes=classes) for 
-            prob, lab in zip(probabilities, targets))
+        loss = mean(_lovasz_softmax_flat(*_flatten_probabilities(prob.unsqueeze(0), lab.unsqueeze(0), ignore), classes=classes) for prob, lab in zip(probabilities, targets))
     else:
-        loss = _lovasz_softmax_flat(*_flatten_probabilities(probabilities,
-            targets, ignore), classes=classes)
+        loss = _lovasz_softmax_flat(*_flatten_probabilities(probabilities, targets, ignore), classes=classes)
     return loss
 
 
@@ -1890,8 +1791,7 @@ class LovaszLossMultiClass(_Loss):
 
         @TODO: Docs. Contribution is welcome.
         """
-        loss = _lovasz_softmax(logits, targets, per_image=self.per_image,
-            ignore=self.ignore)
+        loss = _lovasz_softmax(logits, targets, per_image=self.per_image, ignore=self.ignore)
         return loss
 
 
@@ -1922,9 +1822,7 @@ class LovaszLossMultiLabel(_Loss):
 
         @TODO: Docs. Contribution is welcome.
         """
-        losses = [_lovasz_hinge(logits[:, (i), (...)], targets[:, (i), (...
-            )], per_image=self.per_image, ignore=self.ignore) for i in
-            range(logits.shape[1])]
+        losses = [_lovasz_hinge(logits[:, (i), (...)], targets[:, (i), (...)], per_image=self.per_image, ignore=self.ignore) for i in range(logits.shape[1])]
         loss = torch.mean(torch.stack(losses))
         return loss
 
@@ -1938,10 +1836,8 @@ def _create_margin_mask(labels: torch.Tensor) ->torch.Tensor:
     return marign_mask
 
 
-def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]
-    ) ->torch.Tensor:
-    skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=
-        labels.device).reshape(-1)
+def _skip_labels_mask(labels: torch.Tensor, skip_labels: Union[int, List[int]]) ->torch.Tensor:
+    skip_labels = torch.tensor(skip_labels, dtype=labels.dtype, device=labels.device).reshape(-1)
     skip_condition = (labels.unsqueeze(-1) == skip_labels).any(-1)
     skip_mask = ~(skip_condition.unsqueeze(-1) & skip_condition.unsqueeze(0))
     return skip_mask
@@ -1960,24 +1856,20 @@ def euclidean_distance(x: torch.Tensor, y: torch.Tensor=None) ->torch.Tensor:
     return dist
 
 
-def margin_loss(embeddings: torch.Tensor, labels: torch.Tensor, alpha:
-    float=0.2, beta: float=1.0, skip_labels: Union[int, List[int]]=-1
-    ) ->torch.Tensor:
+def margin_loss(embeddings: torch.Tensor, labels: torch.Tensor, alpha: float=0.2, beta: float=1.0, skip_labels: Union[int, List[int]]=-1) ->torch.Tensor:
     """@TODO: Docs. Contribution is welcome."""
     embeddings = F.normalize(embeddings, p=2.0, dim=1)
     distances = euclidean_distance(embeddings, embeddings)
     margin_mask = _create_margin_mask(labels)
     skip_mask = _skip_labels_mask(labels, skip_labels).float()
-    loss = torch.mul(skip_mask, F.relu(alpha + torch.mul(margin_mask, torch
-        .sub(distances, beta))))
+    loss = torch.mul(skip_mask, F.relu(alpha + torch.mul(margin_mask, torch.sub(distances, beta))))
     return loss.sum() / (skip_mask.sum() + _EPS)
 
 
 class MarginLoss(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
-    def __init__(self, alpha: float=0.2, beta: float=1.0, skip_labels:
-        Union[int, List[int]]=-1):
+    def __init__(self, alpha: float=0.2, beta: float=1.0, skip_labels: Union[int, List[int]]=-1):
         """
         Args:
             alpha (float):
@@ -1991,14 +1883,12 @@ class MarginLoss(nn.Module):
         self.beta = beta
         self.skip_labels = skip_labels
 
-    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
         """Forward propagation method for the margin loss.
 
         @TODO: Docs. Contribution is welcome.
         """
-        return margin_loss(embeddings, targets, alpha=self.alpha, beta=self
-            .beta, skip_labels=self.skip_labels)
+        return margin_loss(embeddings, targets, alpha=self.alpha, beta=self.beta, skip_labels=self.skip_labels)
 
 
 class TripletLoss(nn.Module):
@@ -2067,8 +1957,7 @@ class TripletLoss(nn.Module):
         """
         return ~(labels.unsqueeze(0) == labels.unsqueeze(1))
 
-    def _batch_hard_triplet_loss(self, embeddings, labels, margin, squared=True
-        ):
+    def _batch_hard_triplet_loss(self, embeddings, labels, margin, squared=True):
         """
         Build the triplet loss over a batch of embeddings.
         For each anchor, we get the hardest positive and
@@ -2086,15 +1975,12 @@ class TripletLoss(nn.Module):
             triplet_loss: scalar tensor containing the triplet loss
         """
         pairwise_dist = self._pairwise_distances(embeddings, squared=squared)
-        mask_anchor_positive = self._get_anchor_positive_triplet_mask(labels
-            ).float()
+        mask_anchor_positive = self._get_anchor_positive_triplet_mask(labels).float()
         anchor_positive_dist = mask_anchor_positive * pairwise_dist
         hardest_positive_dist, _ = anchor_positive_dist.max(1, keepdim=True)
-        mask_anchor_negative = self._get_anchor_negative_triplet_mask(labels
-            ).float()
+        mask_anchor_negative = self._get_anchor_negative_triplet_mask(labels).float()
         max_anchor_negative_dist, _ = pairwise_dist.max(1, keepdim=True)
-        anchor_negative_dist = pairwise_dist + max_anchor_negative_dist * (
-            1.0 - mask_anchor_negative)
+        anchor_negative_dist = pairwise_dist + max_anchor_negative_dist * (1.0 - mask_anchor_negative)
         hardest_negative_dist, _ = anchor_negative_dist.min(1, keepdim=True)
         tl = hardest_positive_dist - hardest_negative_dist + margin
         tl[tl < 0] = 0
@@ -2114,8 +2000,7 @@ class TripletLoss(nn.Module):
         return self._batch_hard_triplet_loss(embeddings, targets, self.margin)
 
 
-def create_negative_mask(labels: torch.Tensor, neg_label: int=-1
-    ) ->torch.Tensor:
+def create_negative_mask(labels: torch.Tensor, neg_label: int=-1) ->torch.Tensor:
     """@TODO: Docs. Contribution is welcome."""
     neg_labels = torch.ge(labels, neg_label)
     pos_labels = ~neg_labels
@@ -2130,16 +2015,14 @@ def create_negative_mask(labels: torch.Tensor, neg_label: int=-1
     return mask
 
 
-def batch_all(labels: torch.Tensor, exclude_negatives: bool=True
-    ) ->torch.Tensor:
+def batch_all(labels: torch.Tensor, exclude_negatives: bool=True) ->torch.Tensor:
     """Create a 3D mask of all possible triplets.
 
     Args:
         @TODO: Docs. Contribution is welcome.
     """
     batch_size = labels.size(0)
-    indices_equal = torch.eye(batch_size, device=labels.device).type(torch.bool
-        )
+    indices_equal = torch.eye(batch_size, device=labels.device).type(torch.bool)
     indices_not_equal = ~indices_equal
     i_not_equal_j = indices_not_equal.unsqueeze(2)
     i_not_equal_k = indices_not_equal.unsqueeze(1)
@@ -2156,8 +2039,7 @@ def batch_all(labels: torch.Tensor, exclude_negatives: bool=True
     return mask.float()
 
 
-def cosine_distance(x: torch.Tensor, z: Optional[torch.Tensor]=None
-    ) ->torch.Tensor:
+def cosine_distance(x: torch.Tensor, z: Optional[torch.Tensor]=None) ->torch.Tensor:
     """Calculate cosine distance between x and z.
 
     Args:
@@ -2171,19 +2053,16 @@ def cosine_distance(x: torch.Tensor, z: Optional[torch.Tensor]=None
     return torch.sub(1, torch.mm(x, z.transpose(0, 1)))
 
 
-def triplet_loss(embeddings: torch.Tensor, labels: torch.Tensor, margin:
-    float=0.3) ->torch.Tensor:
+def triplet_loss(embeddings: torch.Tensor, labels: torch.Tensor, margin: float=0.3) ->torch.Tensor:
     """@TODO: Docs. Contribution is welcome."""
     cosine_dists = cosine_distance(embeddings)
     mask = batch_all(labels)
     anchor_positive_dist = cosine_dists.unsqueeze(2)
     anchor_negative_dist = cosine_dists.unsqueeze(1)
-    triplet_loss_value = F.relu(anchor_positive_dist - anchor_negative_dist +
-        margin)
+    triplet_loss_value = F.relu(anchor_positive_dist - anchor_negative_dist + margin)
     triplet_loss_value = torch.mul(triplet_loss_value, mask)
     num_positive_triplets = torch.gt(triplet_loss_value, _EPS).sum().float()
-    triplet_loss_value = triplet_loss_value.sum() / (num_positive_triplets +
-        _EPS)
+    triplet_loss_value = triplet_loss_value.sum() / (num_positive_triplets + _EPS)
     return triplet_loss_value
 
 
@@ -2235,18 +2114,14 @@ class TripletPairwiseEmbeddingLoss(nn.Module):
             torch.Tensor: loss
         """
         device = embeddings_pred.device
-        pairwise_similarity = torch.einsum('se,ae->sa', embeddings_pred,
-            embeddings_true)
+        pairwise_similarity = torch.einsum('se,ae->sa', embeddings_pred, embeddings_true)
         bs = embeddings_pred.shape[0]
         batch_idx = torch.arange(bs, device=device)
-        negative_similarity = pairwise_similarity + torch.diag(torch.full([
-            bs], -10 ** 9, device=device))
+        negative_similarity = pairwise_similarity + torch.diag(torch.full([bs], -10 ** 9, device=device))
         hard_negative_ids = negative_similarity.argmax(dim=-1)
-        negative_similarities = pairwise_similarity[batch_idx,
-            hard_negative_ids]
+        negative_similarities = pairwise_similarity[batch_idx, hard_negative_ids]
         positive_similarities = pairwise_similarity[batch_idx, batch_idx]
-        loss = torch.relu(self.margin - positive_similarities +
-            negative_similarities)
+        loss = torch.relu(self.margin - positive_similarities + negative_similarities)
         if self.reduction == 'mean':
             loss = torch.sum(loss) / bs
         elif self.reduction == 'sum':
@@ -2254,8 +2129,7 @@ class TripletPairwiseEmbeddingLoss(nn.Module):
         return loss
 
 
-def wing_loss(outputs: torch.Tensor, targets: torch.Tensor, width: int=5,
-    curvature: float=0.5, reduction: str='mean') ->torch.Tensor:
+def wing_loss(outputs: torch.Tensor, targets: torch.Tensor, width: int=5, curvature: float=0.5, reduction: str='mean') ->torch.Tensor:
     """The Wing loss.
 
     It has been proposed in `Wing Loss for Robust Facial Landmark Localisation
@@ -2274,8 +2148,7 @@ def wing_loss(outputs: torch.Tensor, targets: torch.Tensor, width: int=5,
     loss = diff_abs.clone()
     idx_smaller = diff_abs < width
     idx_bigger = diff_abs >= width
-    loss[idx_smaller] = width * torch.log(1 + diff_abs[idx_smaller] / curvature
-        )
+    loss[idx_smaller] = width * torch.log(1 + diff_abs[idx_smaller] / curvature)
     c = width - width * math.log(1 + width / curvature)
     loss[idx_bigger] = loss[idx_bigger] - c
     if reduction == 'sum':
@@ -2301,18 +2174,15 @@ class WingLoss(nn.Module):
         Neural Networks: https://arxiv.org/abs/1711.06753
     """
 
-    def __init__(self, width: int=5, curvature: float=0.5, reduction: str=
-        'mean'):
+    def __init__(self, width: int=5, curvature: float=0.5, reduction: str='mean'):
         """
         Args:
             @TODO: Docs. Contribution is welcome.
         """
         super().__init__()
-        self.loss_fn = partial(wing_loss, width=width, curvature=curvature,
-            reduction=reduction)
+        self.loss_fn = partial(wing_loss, width=width, curvature=curvature, reduction=reduction)
 
-    def forward(self, outputs: torch.Tensor, targets: torch.Tensor
-        ) ->torch.Tensor:
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor) ->torch.Tensor:
         """
         Args:
             @TODO: Docs. Contribution is welcome.
@@ -2442,17 +2312,14 @@ def outer_init(layer: nn.Module) ->None:
 
 class TemporalAttentionPooling(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
-    name2activation = {'softmax': nn.Softmax(dim=1), 'tanh': nn.Tanh(),
-        'sigmoid': nn.Sigmoid()}
+    name2activation = {'softmax': nn.Softmax(dim=1), 'tanh': nn.Tanh(), 'sigmoid': nn.Sigmoid()}
 
     def __init__(self, in_features, activation=None, kernel_size=1, **params):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         self.in_features = in_features
         activation = activation or 'softmax'
-        self.attention_pooling = nn.Sequential(nn.Conv1d(in_channels=
-            in_features, out_channels=1, kernel_size=kernel_size, **params),
-            TemporalAttentionPooling.name2activation[activation])
+        self.attention_pooling = nn.Sequential(nn.Conv1d(in_channels=in_features, out_channels=1, kernel_size=kernel_size, **params), TemporalAttentionPooling.name2activation[activation])
         self.attention_pooling.apply(outer_init)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor=None) ->torch.Tensor:
@@ -2517,8 +2384,7 @@ def _get_pooling(key, in_features, **params):
     elif key_ == 'max':
         layer = TemporalMaxPooling()
     elif key_ in ['softmax', 'tanh', 'sigmoid']:
-        layer = TemporalAttentionPooling(in_features=in_features,
-            activation=key_, **params)
+        layer = TemporalAttentionPooling(in_features=in_features, activation=key_, **params)
     else:
         raise NotImplementedError()
     if 'droplast' in key:
@@ -2528,16 +2394,13 @@ def _get_pooling(key, in_features, **params):
 
 class LamaPooling(nn.Module):
     """@TODO: Docs. Contribution is welcome."""
-    available_groups = ['last', 'avg', 'avg_droplast', 'max',
-        'max_droplast', 'sigmoid', 'sigmoid_droplast', 'softmax',
-        'softmax_droplast', 'tanh', 'tanh_droplast']
+    available_groups = ['last', 'avg', 'avg_droplast', 'max', 'max_droplast', 'sigmoid', 'sigmoid_droplast', 'softmax', 'softmax_droplast', 'tanh', 'tanh_droplast']
 
     def __init__(self, in_features, groups=None):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         self.in_features = in_features
-        self.groups = groups or ['last', 'avg_droplast', 'max_droplast',
-            'softmax_droplast']
+        self.groups = groups or ['last', 'avg_droplast', 'max_droplast', 'softmax_droplast']
         self.out_features = in_features * len(self.groups)
         groups = {}
         for key in self.groups:
@@ -2650,8 +2513,7 @@ class GlobalAttnPool2d(nn.Module):
         """@TODO: Docs. Contribution is welcome."""
         super().__init__()
         activation_fn = MODULES.get_if_str(activation_fn)
-        self.attn = nn.Sequential(nn.Conv2d(in_features, 1, kernel_size=1,
-            stride=1, padding=0, bias=False), activation_fn())
+        self.attn = nn.Sequential(nn.Conv2d(in_features, 1, kernel_size=1, stride=1, padding=0, bias=False), activation_fn())
 
     def forward(self, x: torch.Tensor) ->torch.Tensor:
         """Forward call."""
@@ -2746,8 +2608,7 @@ class RMSNorm(nn.Module):
     @TODO: Docs (link to paper). Contribution is welcome.
     """
 
-    def __init__(self, dimension: int, epsilon: float=1e-08, is_bias: bool=
-        False):
+    def __init__(self, dimension: int, epsilon: float=1e-08, is_bias: bool=False):
         """
         Args:
             dimension (int): the dimension of the layer output to normalize
@@ -2934,8 +2795,7 @@ def get_fn_argsnames(fn: Callable[..., Any], exclude: List[str]=None):
     return params
 
 
-def _get_input_argnames(fn: Callable[..., Any], exclude: List[str]=None
-    ) ->List[str]:
+def _get_input_argnames(fn: Callable[..., Any], exclude: List[str]=None) ->List[str]:
     """
     Function to get input argument names of function.
 
@@ -3381,10 +3241,8 @@ class ClassifyAE(nn.Module):
         Docs.
         """
         super().__init__()
-        self.encoder = nn.Sequential(nn.Linear(in_features, hid_features),
-            nn.Tanh())
-        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features),
-            nn.Sigmoid())
+        self.encoder = nn.Sequential(nn.Linear(in_features, hid_features), nn.Tanh())
+        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features), nn.Sigmoid())
         self.clf = nn.Linear(hid_features, out_features)
 
     def forward(self, x):
@@ -3401,10 +3259,8 @@ class ClassifyAE(torch.nn.Module):
 
     def __init__(self, in_features, hid_features, out_features):
         super().__init__()
-        self.encoder = nn.Sequential(nn.Linear(in_features, hid_features),
-            nn.Tanh())
-        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features),
-            nn.Sigmoid())
+        self.encoder = nn.Sequential(nn.Linear(in_features, hid_features), nn.Tanh())
+        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features), nn.Sigmoid())
         self.clf = nn.Linear(hid_features, out_features)
 
     def forward(self, x):
@@ -3418,8 +3274,7 @@ class ClassifyUnet(nn.Module):
 
     def __init__(self, in_channels, in_hw, out_features):
         super().__init__()
-        self.encoder = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3,
-            1, 1), nn.Tanh())
+        self.encoder = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3, 1, 1), nn.Tanh())
         self.decoder = nn.Conv2d(in_channels, in_channels, 3, 1, 1)
         self.clf = nn.Linear(in_channels * in_hw * in_hw, out_features)
 
@@ -3454,8 +3309,7 @@ class ClassifyVAE(torch.nn.Module):
     def __init__(self, in_features, hid_features, out_features):
         super().__init__()
         self.encoder = torch.nn.Linear(in_features, hid_features * 2)
-        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features),
-            nn.Sigmoid())
+        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features), nn.Sigmoid())
         self.clf = torch.nn.Linear(hid_features, out_features)
 
     def forward(self, x, deterministic=False):
@@ -3476,137 +3330,282 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ChannelSqueezeAndSpatialExcitation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ClassifyAE,
+     lambda: ([], {'in_features': 4, 'hid_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ClassifyUnet,
+     lambda: ([], {'in_channels': 4, 'in_hw': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ClassifyVAE,
+     lambda: ([], {'in_features': 4, 'hid_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (ConcurrentSpatialAndChannelSqueezeAndChannelExcitation,
+     lambda: ([], {'in_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (ContrastiveDistanceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ContrastiveEmbeddingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ContrastivePairwiseEmbeddingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GaussianNoise,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalConcatPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalMaxPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HuberLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LamaPooling,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Lambda,
+     lambda: ([], {'lambda_fn': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LovaszLossBinary,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LovaszLossMultiClass,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LovaszLossMultiLabel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MarginLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (MeanOutputLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NaiveCrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Normalize,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PSPBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Projector,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PyramidBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'pool_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RMSNorm,
+     lambda: ([], {'dimension': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualWrapper,
+     lambda: ([], {'net': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SqueezeAndExcitation,
+     lambda: ([], {'in_channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (TemporalAttentionPooling,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (TemporalAvgPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TemporalConcatPooling,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TemporalDropLastWrapper,
+     lambda: ([], {'net': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TemporalLastPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TemporalMaxPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TripletLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (TripletLossV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (TripletPairwiseEmbeddingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (WingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_catalyst_team_catalyst(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ChannelSqueezeAndSpatialExcitation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ClassifyAE(*[], **{'in_features': 4, 'hid_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ClassifyUnet(*[], **{'in_channels': 4, 'in_hw': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ClassifyVAE(*[], **{'in_features': 4, 'hid_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ContrastiveDistanceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ContrastiveEmbeddingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ContrastivePairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(GaussianNoise(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(GlobalConcatPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(GlobalMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(LamaPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(Lambda(*[], **{'lambda_fn': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(LovaszLossBinary(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(LovaszLossMultiClass(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(LovaszLossMultiLabel(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(MarginLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(MeanOutputLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(NaiveCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
-    @_fails_compile()
     def test_021(self):
-        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
     def test_022(self):
-        self._check(PSPBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
 
     def test_023(self):
-        self._check(Projector(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
     def test_024(self):
-        self._check(PyramidBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'pool_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[24])
 
-    @_fails_compile()
     def test_025(self):
-        self._check(RMSNorm(*[], **{'dimension': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[25])
 
     def test_026(self):
-        self._check(ResidualWrapper(*[], **{'net': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[26])
 
-    @_fails_compile()
     def test_027(self):
-        self._check(TemporalAttentionPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[27])
 
-    @_fails_compile()
     def test_028(self):
-        self._check(TemporalAvgPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[28])
 
-    @_fails_compile()
     def test_029(self):
-        self._check(TemporalConcatPooling(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[29])
 
-    @_fails_compile()
     def test_030(self):
-        self._check(TemporalDropLastWrapper(*[], **{'net': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[30])
 
-    @_fails_compile()
     def test_031(self):
-        self._check(TemporalLastPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[31])
 
-    @_fails_compile()
     def test_032(self):
-        self._check(TemporalMaxPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[32])
 
-    @_fails_compile()
     def test_033(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[33])
 
-    @_fails_compile()
     def test_034(self):
-        self._check(TripletLossV2(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[34])
 
     def test_035(self):
-        self._check(TripletPairwiseEmbeddingLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[35])
 
-    @_fails_compile()
     def test_036(self):
-        self._check(WingLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[36])
+
+    def test_037(self):
+        self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
 

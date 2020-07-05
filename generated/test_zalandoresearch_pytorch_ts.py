@@ -99,8 +99,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -282,14 +283,12 @@ def dump_code(o: Any) ->str:
             args = x.get('args', [])
             kwargs = x.get('kwargs', {})
             fqname = x['class']
-            bindings = ', '.join(itertools.chain(map(_dump_code, args), [
-                f'{k}={_dump_code(v)}' for k, v in kwargs.items()]))
+            bindings = ', '.join(itertools.chain(map(_dump_code, args), [f'{k}={_dump_code(v)}' for k, v in kwargs.items()]))
             return f'{fqname}({bindings})'
         if type(x) == dict and x.get('__kind__') == kind_type:
             return x['class']
         if isinstance(x, dict):
-            inner = ', '.join(f'{_dump_code(k)}: {_dump_code(v)}' for k, v in
-                x.items())
+            inner = ', '.join(f'{_dump_code(k)}: {_dump_code(v)}' for k, v in x.items())
             return f'{{{inner}}}'
         if isinstance(x, list):
             inner = ', '.join(list(map(dump_code, x)))
@@ -310,8 +309,7 @@ def dump_code(o: Any) ->str:
             return str(x)
         if x is None:
             return str(x)
-        raise RuntimeError(f'Unexpected element type {fqname_for(x.__class__)}'
-            )
+        raise RuntimeError(f'Unexpected element type {fqname_for(x.__class__)}')
     return _dump_code(encode(o))
 
 
@@ -375,17 +373,11 @@ def validated(base_model=None):
         init_qualname = dict(inspect.getmembers(init))['__qualname__']
         init_clsnme = init_qualname.split('.')[0]
         init_params = inspect.signature(init).parameters
-        init_fields = {param.name: (param.annotation if param.annotation !=
-            inspect.Parameter.empty else Any, param.default if param.
-            default != inspect.Parameter.empty else ...) for param in
-            init_params.values() if param.name != 'self' and param.kind ==
-            inspect.Parameter.POSITIONAL_OR_KEYWORD}
+        init_fields = {param.name: (param.annotation if param.annotation != inspect.Parameter.empty else Any, param.default if param.default != inspect.Parameter.empty else ...) for param in init_params.values() if param.name != 'self' and param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD}
         if base_model is None:
-            PydanticModel = create_model(f'{init_clsnme}Model', __config__=
-                BaseValidatedInitializerModel.Config, **init_fields)
+            PydanticModel = create_model(f'{init_clsnme}Model', __config__=BaseValidatedInitializerModel.Config, **init_fields)
         else:
-            PydanticModel = create_model(f'{init_clsnme}Model', __base__=
-                base_model, **init_fields)
+            PydanticModel = create_model(f'{init_clsnme}Model', __base__=base_model, **init_fields)
 
         def validated_repr(self) ->str:
             return dump_code(self)
@@ -396,14 +388,11 @@ def validated(base_model=None):
         @functools.wraps(init)
         def init_wrapper(*args, **kwargs):
             self, *args = args
-            nmargs = {name: arg for (name, param), arg in zip(list(
-                init_params.items()), [self] + args) if name != 'self'}
+            nmargs = {name: arg for (name, param), arg in zip(list(init_params.items()), [self] + args) if name != 'self'}
             model = PydanticModel(**{**nmargs, **kwargs})
             all_args = {**nmargs, **kwargs, **model.__dict__}
             if not getattr(self, '__init_args__', {}):
-                self.__init_args__ = OrderedDict({name: arg for name, arg in
-                    sorted(all_args.items()) if type(arg) != torch.nn.
-                    ParameterDict})
+                self.__init_args__ = OrderedDict({name: arg for name, arg in sorted(all_args.items()) if type(arg) != torch.nn.ParameterDict})
                 self.__class__.__getnewargs_ex__ = validated_getnewargs_ex
                 self.__class__.__repr__ = validated_repr
             return init(self, **all_args)
@@ -419,8 +408,7 @@ def prod(xs):
     return p
 
 
-def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=
-    None, dim=None):
+def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=None, dim=None):
     if weights is not None:
         weighted_tensor = tensor * weights
         if dim is not None:
@@ -439,12 +427,7 @@ def weighted_average(tensor: torch.Tensor, weights: Optional[torch.Tensor]=
 
 class LSTNetBase(nn.Module):
 
-    def __init__(self, num_series: int, channels: int, kernel_size: int,
-        rnn_cell_type: str, rnn_num_cells: int, skip_rnn_cell_type: str,
-        skip_rnn_num_cells: int, skip_size: int, ar_window: int,
-        context_length: int, horizon: Optional[int], prediction_length:
-        Optional[int], dropout_rate: float, output_activation: Optional[str
-        ], scaling: bool, *args, **kwargs) ->None:
+    def __init__(self, num_series: int, channels: int, kernel_size: int, rnn_cell_type: str, rnn_num_cells: int, skip_rnn_cell_type: str, skip_rnn_num_cells: int, skip_size: int, ar_window: int, context_length: int, horizon: Optional[int], prediction_length: Optional[int], dropout_rate: float, output_activation: Optional[str], scaling: bool, *args, **kwargs) ->None:
         super().__init__(*args, **kwargs)
         self.num_series = num_series
         self.channels = channels
@@ -452,8 +435,7 @@ class LSTNetBase(nn.Module):
         self.skip_size = skip_size
         assert ar_window > 0, 'auto-regressive window must be a positive integer'
         self.ar_window = ar_window
-        assert not (horizon is None) == (prediction_length is None
-            ), 'Exactly one of `horizon` and `prediction_length` must be set at a time'
+        assert not (horizon is None) == (prediction_length is None), 'Exactly one of `horizon` and `prediction_length` must be set at a time'
         assert horizon is None or horizon > 0, '`horizon` must be greater than zero'
         assert prediction_length is None or prediction_length > 0, '`prediction_length` must be greater than zero'
         self.prediction_length = prediction_length
@@ -461,28 +443,21 @@ class LSTNetBase(nn.Module):
         assert context_length > 0, '`context_length` must be greater than zero'
         self.context_length = context_length
         if output_activation is not None:
-            assert output_activation in ['sigmoid', 'tanh'
-                ], "`output_activation` must be either 'sigmiod' or 'tanh' "
+            assert output_activation in ['sigmoid', 'tanh'], "`output_activation` must be either 'sigmiod' or 'tanh' "
         self.output_activation = output_activation
-        assert rnn_cell_type in ['GRU', 'LSTM'
-            ], "`rnn_cell_type` must be either 'GRU' or 'LSTM' "
-        assert skip_rnn_cell_type in ['GRU', 'LSTM'
-            ], "`skip_rnn_cell_type` must be either 'GRU' or 'LSTM' "
+        assert rnn_cell_type in ['GRU', 'LSTM'], "`rnn_cell_type` must be either 'GRU' or 'LSTM' "
+        assert skip_rnn_cell_type in ['GRU', 'LSTM'], "`skip_rnn_cell_type` must be either 'GRU' or 'LSTM' "
         conv_out = context_length - kernel_size
         self.conv_skip = conv_out // skip_size
-        assert self.conv_skip > 0, """conv1d output size must be greater than or equal to `skip_size`
-Choose a smaller `kernel_size` or bigger `context_length`"""
-        self.cnn = nn.Conv2d(in_channels=1, out_channels=channels,
-            kernel_size=(num_series, kernel_size))
+        assert self.conv_skip > 0, 'conv1d output size must be greater than or equal to `skip_size`\nChoose a smaller `kernel_size` or bigger `context_length`'
+        self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=(num_series, kernel_size))
         self.dropout = nn.Dropout(p=dropout_rate)
         rnn = {'LSTM': nn.LSTM, 'GRU': nn.GRU}[rnn_cell_type]
         self.rnn = rnn(input_size=channels, hidden_size=rnn_num_cells)
         skip_rnn = {'LSTM': nn.LSTM, 'GRU': nn.GRU}[skip_rnn_cell_type]
         self.skip_rnn_num_cells = skip_rnn_num_cells
-        self.skip_rnn = skip_rnn(input_size=channels, hidden_size=
-            skip_rnn_num_cells)
-        self.fc = nn.Linear(rnn_num_cells + skip_size * skip_rnn_num_cells,
-            num_series)
+        self.skip_rnn = skip_rnn(input_size=channels, hidden_size=skip_rnn_num_cells)
+        self.fc = nn.Linear(rnn_num_cells + skip_size * skip_rnn_num_cells, num_series)
         if self.horizon:
             self.ar_fc = nn.Linear(ar_window, 1)
         else:
@@ -492,11 +467,8 @@ Choose a smaller `kernel_size` or bigger `context_length`"""
         else:
             self.scaler = NOPScaler(keepdim=True, time_first=False)
 
-    def forward(self, past_target: torch.Tensor, past_observed_values:
-        torch.Tensor) ->torch.Tensor:
-        scaled_past_target, scale = self.scaler(past_target[(...), -self.
-            context_length:], past_observed_values[(...), -self.
-            context_length:])
+    def forward(self, past_target: torch.Tensor, past_observed_values: torch.Tensor) ->torch.Tensor:
+        scaled_past_target, scale = self.scaler(past_target[(...), -self.context_length:], past_observed_values[(...), -self.context_length:])
         c = F.relu(self.cnn(scaled_past_target.unsqueeze(1)))
         c = self.dropout(c)
         c = c.squeeze(2)
@@ -504,8 +476,7 @@ Choose a smaller `kernel_size` or bigger `context_length`"""
         _, r = self.rnn(r)
         r = self.dropout(r.squeeze(0))
         skip_c = c[(...), -self.conv_skip * self.skip_size:]
-        skip_c = skip_c.reshape(-1, self.channels, self.conv_skip, self.
-            skip_size)
+        skip_c = skip_c.reshape(-1, self.channels, self.conv_skip, self.skip_size)
         skip_c = skip_c.permute(2, 0, 3, 1)
         skip_c = skip_c.reshape((self.conv_skip, -1, self.channels))
         _, skip_c = self.skip_rnn(skip_c)
@@ -522,15 +493,12 @@ Choose a smaller `kernel_size` or bigger `context_length`"""
         out = res + ar_x
         if self.output_activation is None:
             return out, scale
-        return torch.sigmoid(out
-            ) if self.output_activation == 'sigmoid' else torch.tanh(out
-            ), scale
+        return torch.sigmoid(out) if self.output_activation == 'sigmoid' else torch.tanh(out), scale
 
 
 class NBEATSBlock(nn.Module):
 
-    def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5, share_thetas=False):
+    def __init__(self, units, thetas_dim, num_block_layers=4, backcast_length=10, forecast_length=5, share_thetas=False):
         super(NBEATSBlock, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
@@ -543,8 +511,7 @@ class NBEATSBlock(nn.Module):
             fc_stack.append(nn.ReLU())
         self.fc = nn.Sequential(*fc_stack)
         if share_thetas:
-            self.theta_f_fc = self.theta_b_fc = nn.Linear(units, thetas_dim,
-                bias=False)
+            self.theta_f_fc = self.theta_b_fc = nn.Linear(units, thetas_dim, bias=False)
         else:
             self.theta_b_fc = nn.Linear(units, thetas_dim, bias=False)
             self.theta_f_fc = nn.Linear(units, thetas_dim, bias=False)
@@ -555,11 +522,8 @@ class NBEATSBlock(nn.Module):
 
 class NBEATSGenericBlock(NBEATSBlock):
 
-    def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5):
-        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=
-            thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length)
+    def __init__(self, units, thetas_dim, num_block_layers=4, backcast_length=10, forecast_length=5):
+        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=thetas_dim, num_block_layers=num_block_layers, backcast_length=backcast_length, forecast_length=forecast_length)
         self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
         self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
 
@@ -570,10 +534,8 @@ class NBEATSGenericBlock(NBEATSBlock):
         return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
 
 
-def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray,
-    np.ndarray]:
-    lin_space = np.linspace(-backcast_length, forecast_length, 
-        backcast_length + forecast_length, dtype=np.float32)
+def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray, np.ndarray]:
+    lin_space = np.linspace(-backcast_length, forecast_length, backcast_length + forecast_length, dtype=np.float32)
     b_ls = lin_space[:backcast_length]
     f_ls = lin_space[backcast_length:]
     return b_ls, f_ls
@@ -581,30 +543,19 @@ def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray,
 
 class NBEATSSeasonalBlock(NBEATSBlock):
 
-    def __init__(self, units, thetas_dim=None, num_block_layers=4,
-        backcast_length=10, forecast_length=5, nb_harmonics=None):
+    def __init__(self, units, thetas_dim=None, num_block_layers=4, backcast_length=10, forecast_length=5, nb_harmonics=None):
         if nb_harmonics:
             thetas_dim = nb_harmonics
         else:
             thetas_dim = forecast_length
-        super(NBEATSSeasonalBlock, self).__init__(units=units, thetas_dim=
-            thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length, share_thetas=True
-            )
-        backcast_linspace, forecast_linspace = linspace(backcast_length,
-            forecast_length)
-        p1, p2 = (thetas_dim // 2, thetas_dim // 2
-            ) if thetas_dim % 2 == 0 else (thetas_dim // 2, thetas_dim // 2 + 1
-            )
-        s1_b = torch.tensor([np.cos(2 * np.pi * i * backcast_linspace) for
-            i in range(p1)]).float()
-        s2_b = torch.tensor([np.sin(2 * np.pi * i * backcast_linspace) for
-            i in range(p2)]).float()
+        super(NBEATSSeasonalBlock, self).__init__(units=units, thetas_dim=thetas_dim, num_block_layers=num_block_layers, backcast_length=backcast_length, forecast_length=forecast_length, share_thetas=True)
+        backcast_linspace, forecast_linspace = linspace(backcast_length, forecast_length)
+        p1, p2 = (thetas_dim // 2, thetas_dim // 2) if thetas_dim % 2 == 0 else (thetas_dim // 2, thetas_dim // 2 + 1)
+        s1_b = torch.tensor([np.cos(2 * np.pi * i * backcast_linspace) for i in range(p1)]).float()
+        s2_b = torch.tensor([np.sin(2 * np.pi * i * backcast_linspace) for i in range(p2)]).float()
         self.register_buffer('S_backcast', torch.cat([s1_b, s2_b]))
-        s1_f = torch.tensor([np.cos(2 * np.pi * i * forecast_linspace) for
-            i in range(p1)]).float()
-        s2_f = torch.tensor([np.sin(2 * np.pi * i * forecast_linspace) for
-            i in range(p2)]).float()
+        s1_f = torch.tensor([np.cos(2 * np.pi * i * forecast_linspace) for i in range(p1)]).float()
+        s2_f = torch.tensor([np.sin(2 * np.pi * i * forecast_linspace) for i in range(p2)]).float()
         self.register_buffer('S_forecast', torch.cat([s1_f, s2_f]))
 
     def forward(self, x) ->Tuple[torch.Tensor, torch.Tensor]:
@@ -616,18 +567,11 @@ class NBEATSSeasonalBlock(NBEATSBlock):
 
 class NBEATSTrendBlock(NBEATSBlock):
 
-    def __init__(self, units, thetas_dim, num_block_layers=4,
-        backcast_length=10, forecast_length=5, nb_harmonics=None):
-        super(NBEATSTrendBlock, self).__init__(units=units, thetas_dim=
-            thetas_dim, num_block_layers=num_block_layers, backcast_length=
-            backcast_length, forecast_length=forecast_length, share_thetas=True
-            )
-        backcast_linspace, forecast_linspace = linspace(backcast_length,
-            forecast_length)
-        self.register_buffer('T_backcast', torch.tensor([(backcast_linspace **
-            i) for i in range(thetas_dim)]).float())
-        self.register_buffer('T_forecast', torch.tensor([(forecast_linspace **
-            i) for i in range(thetas_dim)]).float())
+    def __init__(self, units, thetas_dim, num_block_layers=4, backcast_length=10, forecast_length=5, nb_harmonics=None):
+        super(NBEATSTrendBlock, self).__init__(units=units, thetas_dim=thetas_dim, num_block_layers=num_block_layers, backcast_length=backcast_length, forecast_length=forecast_length, share_thetas=True)
+        backcast_linspace, forecast_linspace = linspace(backcast_length, forecast_length)
+        self.register_buffer('T_backcast', torch.tensor([(backcast_linspace ** i) for i in range(thetas_dim)]).float())
+        self.register_buffer('T_forecast', torch.tensor([(forecast_linspace ** i) for i in range(thetas_dim)]).float())
 
     def forward(self, x) ->Tuple[torch.Tensor, torch.Tensor]:
         x = super().forward(x)
@@ -638,10 +582,7 @@ class NBEATSTrendBlock(NBEATSBlock):
 
 class NBEATSNetwork(nn.Module):
 
-    def __init__(self, prediction_length: int, context_length: int,
-        num_stacks: int, widths: List[int], num_blocks: List[int],
-        num_block_layers: List[int], expansion_coefficient_lengths: List[
-        int], sharing: List[bool], stack_types: List[str], **kwargs) ->None:
+    def __init__(self, prediction_length: int, context_length: int, num_stacks: int, widths: List[int], num_blocks: List[int], num_block_layers: List[int], expansion_coefficient_lengths: List[int], sharing: List[bool], stack_types: List[str], **kwargs) ->None:
         super(NBEATSNetwork, self).__init__()
         self.num_stacks = num_stacks
         self.widths = widths
@@ -656,23 +597,11 @@ class NBEATSNetwork(nn.Module):
         for stack_id in range(num_stacks):
             for block_id in range(num_blocks[stack_id]):
                 if self.stack_types[stack_id] == 'G':
-                    net_block = NBEATSGenericBlock(units=self.widths[
-                        stack_id], thetas_dim=self.
-                        expansion_coefficient_lengths[stack_id],
-                        num_block_layers=self.num_block_layers[stack_id],
-                        backcast_length=context_length, forecast_length=
-                        prediction_length)
+                    net_block = NBEATSGenericBlock(units=self.widths[stack_id], thetas_dim=self.expansion_coefficient_lengths[stack_id], num_block_layers=self.num_block_layers[stack_id], backcast_length=context_length, forecast_length=prediction_length)
                 elif self.stack_types[stack_id] == 'S':
-                    net_block = NBEATSSeasonalBlock(units=self.widths[
-                        stack_id], num_block_layers=self.num_block_layers[
-                        stack_id], backcast_length=context_length,
-                        forecast_length=prediction_length)
+                    net_block = NBEATSSeasonalBlock(units=self.widths[stack_id], num_block_layers=self.num_block_layers[stack_id], backcast_length=context_length, forecast_length=prediction_length)
                 else:
-                    net_block = NBEATSTrendBlock(units=self.widths[stack_id
-                        ], thetas_dim=self.expansion_coefficient_lengths[
-                        stack_id], num_block_layers=self.num_block_layers[
-                        stack_id], backcast_length=context_length,
-                        forecast_length=prediction_length)
+                    net_block = NBEATSTrendBlock(units=self.widths[stack_id], thetas_dim=self.expansion_coefficient_lengths[stack_id], num_block_layers=self.num_block_layers[stack_id], backcast_length=context_length, forecast_length=prediction_length)
                 self.net_blocks.append(net_block)
 
     def forward(self, past_target: torch.Tensor):
@@ -689,45 +618,31 @@ class NBEATSNetwork(nn.Module):
             _, last_forecast = self.net_blocks[-1](backcast)
             return forecast + last_forecast
 
-    def smape_loss(self, forecast: torch.Tensor, future_target: torch.Tensor
-        ) ->torch.Tensor:
+    def smape_loss(self, forecast: torch.Tensor, future_target: torch.Tensor) ->torch.Tensor:
         denominator = (torch.abs(future_target) + torch.abs(forecast)).detach()
         flag = denominator == 0
-        return 200 / self.prediction_length * torch.mean(torch.abs(
-            future_target - forecast) * torch.logical_not(flag) / (
-            denominator + flag), dim=1)
+        return 200 / self.prediction_length * torch.mean(torch.abs(future_target - forecast) * torch.logical_not(flag) / (denominator + flag), dim=1)
 
-    def mape_loss(self, forecast: torch.Tensor, future_target: torch.Tensor
-        ) ->torch.Tensor:
+    def mape_loss(self, forecast: torch.Tensor, future_target: torch.Tensor) ->torch.Tensor:
         denominator = torch.abs(future_target)
         flag = denominator == 0
-        return 100 / self.prediction_length * torch.mean(torch.abs(
-            future_target - forecast) * torch.logical_not(flag) / (
-            denominator + flag), dim=1)
+        return 100 / self.prediction_length * torch.mean(torch.abs(future_target - forecast) * torch.logical_not(flag) / (denominator + flag), dim=1)
 
-    def mase_loss(self, forecast: torch.Tensor, future_target: torch.Tensor,
-        past_target: torch.Tensor, periodicity: int) ->torch.Tensor:
-        factor = 1 / (self.context_length + self.prediction_length -
-            periodicity)
+    def mase_loss(self, forecast: torch.Tensor, future_target: torch.Tensor, past_target: torch.Tensor, periodicity: int) ->torch.Tensor:
+        factor = 1 / (self.context_length + self.prediction_length - periodicity)
         whole_target = torch.cat((past_target, future_target), dim=1)
-        seasonal_error = factor * torch.mean(torch.abs(whole_target[:,
-            periodicity:, (...)] - whole_target[:, :-periodicity, (...)]),
-            dim=1)
+        seasonal_error = factor * torch.mean(torch.abs(whole_target[:, periodicity:, (...)] - whole_target[:, :-periodicity, (...)]), dim=1)
         flag = seasonal_error == 0
-        return torch.mean(torch.abs(future_target - forecast), dim=1
-            ) * torch.logical_not(flag) / (seasonal_error + flag)
+        return torch.mean(torch.abs(future_target - forecast), dim=1) * torch.logical_not(flag) / (seasonal_error + flag)
 
 
 class ArgProj(nn.Module):
 
-    def __init__(self, in_features: int, args_dim: Dict[str, int],
-        domain_map: Callable[..., Tuple[torch.Tensor]], dtype: np.dtype=np.
-        float32, prefix: Optional[str]=None, **kwargs):
+    def __init__(self, in_features: int, args_dim: Dict[str, int], domain_map: Callable[..., Tuple[torch.Tensor]], dtype: np.dtype=np.float32, prefix: Optional[str]=None, **kwargs):
         super().__init__(**kwargs)
         self.args_dim = args_dim
         self.dtype = dtype
-        self.proj = nn.ModuleList([nn.Linear(in_features, dim) for dim in
-            args_dim.values()])
+        self.proj = nn.ModuleList([nn.Linear(in_features, dim) for dim in args_dim.values()])
         self.domain_map = domain_map
 
     def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor]:
@@ -737,44 +652,32 @@ class ArgProj(nn.Module):
 
 class FeatureEmbedder(nn.Module):
 
-    def __init__(self, cardinalities: List[int], embedding_dims: List[int]
-        ) ->None:
+    def __init__(self, cardinalities: List[int], embedding_dims: List[int]) ->None:
         super().__init__()
         self.__num_features = len(cardinalities)
 
         def create_embedding(c: int, d: int) ->nn.Embedding:
             embedding = nn.Embedding(c, d)
             return embedding
-        self.__embedders = nn.ModuleList([create_embedding(c, d) for c, d in
-            zip(cardinalities, embedding_dims)])
+        self.__embedders = nn.ModuleList([create_embedding(c, d) for c, d in zip(cardinalities, embedding_dims)])
 
     def forward(self, features: torch.Tensor) ->torch.Tensor:
         if self.__num_features > 1:
-            cat_feature_slices = torch.chunk(features, self.__num_features,
-                dim=-1)
+            cat_feature_slices = torch.chunk(features, self.__num_features, dim=-1)
         else:
             cat_feature_slices = [features]
-        return torch.cat([embed(cat_feature_slice.squeeze(-1)) for embed,
-            cat_feature_slice in zip(self.__embedders, cat_feature_slices)],
-            dim=-1)
+        return torch.cat([embed(cat_feature_slice.squeeze(-1)) for embed, cat_feature_slice in zip(self.__embedders, cat_feature_slices)], dim=-1)
 
 
 class FeatureAssembler(nn.Module):
 
-    def __init__(self, T: int, embed_static: Optional[FeatureEmbedder]=None,
-        embed_dynamic: Optional[FeatureEmbedder]=None) ->None:
+    def __init__(self, T: int, embed_static: Optional[FeatureEmbedder]=None, embed_dynamic: Optional[FeatureEmbedder]=None) ->None:
         super().__init__()
         self.T = T
-        self.embeddings = nn.ModuleDict({'embed_static': embed_static,
-            'embed_dynamic': embed_dynamic})
+        self.embeddings = nn.ModuleDict({'embed_static': embed_static, 'embed_dynamic': embed_dynamic})
 
-    def forward(self, feat_static_cat: torch.Tensor, feat_static_real:
-        torch.Tensor, feat_dynamic_cat: torch.Tensor, feat_dynamic_real:
-        torch.Tensor) ->torch.Tensor:
-        processed_features = [self.process_static_cat(feat_static_cat),
-            self.process_static_real(feat_static_real), self.
-            process_dynamic_cat(feat_dynamic_cat), self.
-            process_dynamic_real(feat_dynamic_real)]
+    def forward(self, feat_static_cat: torch.Tensor, feat_static_real: torch.Tensor, feat_dynamic_cat: torch.Tensor, feat_dynamic_real: torch.Tensor) ->torch.Tensor:
+        processed_features = [self.process_static_cat(feat_static_cat), self.process_static_real(feat_static_real), self.process_dynamic_cat(feat_dynamic_cat), self.process_dynamic_real(feat_dynamic_real)]
         return torch.cat(processed_features, dim=-1)
 
     def process_static_cat(self, feature: torch.Tensor) ->torch.Tensor:
@@ -829,10 +732,8 @@ class BatchNorm(nn.Module):
         if self.training:
             self.batch_mean = x.view(-1, x.shape[-1]).mean(0)
             self.batch_var = x.view(-1, x.shape[-1]).var(0)
-            self.running_mean.mul_(self.momentum).add_(self.batch_mean.data *
-                (1 - self.momentum))
-            self.running_var.mul_(self.momentum).add_(self.batch_var.data *
-                (1 - self.momentum))
+            self.running_mean.mul_(self.momentum).add_(self.batch_mean.data * (1 - self.momentum))
+            self.running_var.mul_(self.momentum).add_(self.batch_var.data * (1 - self.momentum))
             mean = self.batch_mean
             var = self.batch_var
         else:
@@ -859,12 +760,10 @@ class BatchNorm(nn.Module):
 class LinearMaskedCoupling(nn.Module):
     """ Modified RealNVP Coupling Layers per the MAF paper """
 
-    def __init__(self, input_size, hidden_size, n_hidden, mask,
-        cond_label_size=None):
+    def __init__(self, input_size, hidden_size, n_hidden, mask, cond_label_size=None):
         super().__init__()
         self.register_buffer('mask', mask)
-        s_net = [nn.Linear(input_size + (cond_label_size if cond_label_size
-             is not None else 0), hidden_size)]
+        s_net = [nn.Linear(input_size + (cond_label_size if cond_label_size is not None else 0), hidden_size)]
         for _ in range(n_hidden):
             s_net += [nn.Tanh(), nn.Linear(hidden_size, hidden_size)]
         s_net += [nn.Tanh(), nn.Linear(hidden_size, input_size)]
@@ -877,8 +776,7 @@ class LinearMaskedCoupling(nn.Module):
     def forward(self, x, y=None):
         mx = x * self.mask
         s = self.s_net(mx if y is None else torch.cat([y, mx], dim=-1))
-        t = self.t_net(mx if y is None else torch.cat([y, mx], dim=-1)) * (
-            1 - self.mask)
+        t = self.t_net(mx if y is None else torch.cat([y, mx], dim=-1)) * (1 - self.mask)
         log_s = torch.tanh(s) * (1 - self.mask)
         u = x * torch.exp(log_s) + t
         log_abs_det_jacobian = log_s
@@ -887,8 +785,7 @@ class LinearMaskedCoupling(nn.Module):
     def inverse(self, u, y=None):
         mu = u * self.mask
         s = self.s_net(mu if y is None else torch.cat([y, mu], dim=-1))
-        t = self.t_net(mu if y is None else torch.cat([y, mu], dim=-1)) * (
-            1 - self.mask)
+        t = self.t_net(mu if y is None else torch.cat([y, mu], dim=-1)) * (1 - self.mask)
         log_s = torch.tanh(s) * (1 - self.mask)
         x = (u - t) * torch.exp(-log_s)
         log_abs_det_jacobian = -log_s
@@ -903,8 +800,7 @@ class MaskedLinear(nn.Linear):
         self.register_buffer('mask', mask)
         self.cond_label_size = cond_label_size
         if cond_label_size is not None:
-            self.cond_weight = nn.Parameter(torch.rand(n_outputs,
-                cond_label_size) / math.sqrt(cond_label_size))
+            self.cond_weight = nn.Parameter(torch.rand(n_outputs, cond_label_size) / math.sqrt(cond_label_size))
 
     def forward(self, x, y=None):
         out = F.linear(x, self.weight * self.mask, self.bias)
@@ -913,26 +809,20 @@ class MaskedLinear(nn.Linear):
         return out
 
 
-def create_masks(input_size, hidden_size, n_hidden, input_order=
-    'sequential', input_degrees=None):
+def create_masks(input_size, hidden_size, n_hidden, input_order='sequential', input_degrees=None):
     degrees = []
     if input_order == 'sequential':
-        degrees += [torch.arange(input_size)] if input_degrees is None else [
-            input_degrees]
+        degrees += [torch.arange(input_size)] if input_degrees is None else [input_degrees]
         for _ in range(n_hidden + 1):
             degrees += [torch.arange(hidden_size) % (input_size - 1)]
-        degrees += [torch.arange(input_size) % input_size - 1
-            ] if input_degrees is None else [input_degrees % input_size - 1]
+        degrees += [torch.arange(input_size) % input_size - 1] if input_degrees is None else [input_degrees % input_size - 1]
     elif input_order == 'random':
-        degrees += [torch.randperm(input_size)] if input_degrees is None else [
-            input_degrees]
+        degrees += [torch.randperm(input_size)] if input_degrees is None else [input_degrees]
         for _ in range(n_hidden + 1):
             min_prev_degree = min(degrees[-1].min().item(), input_size - 1)
-            degrees += [torch.randint(min_prev_degree, input_size, (
-                hidden_size,))]
+            degrees += [torch.randint(min_prev_degree, input_size, (hidden_size,))]
         min_prev_degree = min(degrees[-1].min().item(), input_size - 1)
-        degrees += [torch.randint(min_prev_degree, input_size, (input_size,
-            )) - 1] if input_degrees is None else [input_degrees - 1]
+        degrees += [torch.randint(min_prev_degree, input_size, (input_size,)) - 1] if input_degrees is None else [input_degrees - 1]
     masks = []
     for d0, d1 in zip(degrees[:-1], degrees[1:]):
         masks += [(d1.unsqueeze(-1) >= d0.unsqueeze(0)).float()]
@@ -941,8 +831,7 @@ def create_masks(input_size, hidden_size, n_hidden, input_order=
 
 class MADE(nn.Module):
 
-    def __init__(self, input_size, hidden_size, n_hidden, cond_label_size=
-        None, activation='ReLU', input_order='sequential', input_degrees=None):
+    def __init__(self, input_size, hidden_size, n_hidden, cond_label_size=None, activation='ReLU', input_order='sequential', input_degrees=None):
         """
         Args:
             input_size -- scalar; dim of inputs
@@ -956,22 +845,18 @@ class MADE(nn.Module):
         super().__init__()
         self.register_buffer('base_dist_mean', torch.zeros(input_size))
         self.register_buffer('base_dist_var', torch.ones(input_size))
-        masks, self.input_degrees = create_masks(input_size, hidden_size,
-            n_hidden, input_order, input_degrees)
+        masks, self.input_degrees = create_masks(input_size, hidden_size, n_hidden, input_order, input_degrees)
         if activation == 'ReLU':
             activation_fn = nn.ReLU()
         elif activation == 'Tanh':
             activation_fn = nn.Tanh()
         else:
             raise ValueError('Check activation function.')
-        self.net_input = MaskedLinear(input_size, hidden_size, masks[0],
-            cond_label_size)
+        self.net_input = MaskedLinear(input_size, hidden_size, masks[0], cond_label_size)
         self.net = []
         for m in masks[1:-1]:
-            self.net += [activation_fn, MaskedLinear(hidden_size,
-                hidden_size, m)]
-        self.net += [activation_fn, MaskedLinear(hidden_size, 2 *
-            input_size, masks[-1].repeat(2, 1))]
+            self.net += [activation_fn, MaskedLinear(hidden_size, hidden_size, m)]
+        self.net += [activation_fn, MaskedLinear(hidden_size, 2 * input_size, masks[-1].repeat(2, 1))]
         self.net = nn.Sequential(*self.net)
 
     @property
@@ -994,8 +879,7 @@ class MADE(nn.Module):
 
     def log_prob(self, x, y=None):
         u, log_abs_det_jacobian = self.forward(x, y)
-        return torch.sum(self.base_dist.log_prob(u) + log_abs_det_jacobian,
-            dim=-1)
+        return torch.sum(self.base_dist.log_prob(u) + log_abs_det_jacobian, dim=-1)
 
 
 class Flow(nn.Module):
@@ -1034,8 +918,7 @@ class Flow(nn.Module):
 
     def log_prob(self, x, cond):
         u, sum_log_abs_det_jacobians = self.forward(x, cond)
-        return torch.sum(self.base_dist.log_prob(u) +
-            sum_log_abs_det_jacobians, dim=-1)
+        return torch.sum(self.base_dist.log_prob(u) + sum_log_abs_det_jacobians, dim=-1)
 
     def sample(self, sample_shape=torch.Size(), cond=None):
         if cond is not None:
@@ -1065,12 +948,10 @@ class Scaler(ABC, nn.Module):
         self.time_first = time_first
 
     @abstractmethod
-    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.
-        Tensor) ->torch.Tensor:
+    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
         pass
 
-    def forward(self, data: torch.Tensor, observed_indicator: torch.Tensor
-        ) ->Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
         """
         Parameters
         ----------
@@ -1107,43 +988,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_zalandoresearch_pytorch_ts(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BatchNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FeatureEmbedder,
+     lambda: ([], {'cardinalities': [4, 4], 'embedding_dims': [4, 4]}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (FlowSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LambdaLayer,
+     lambda: ([], {'function': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MADE,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NBEATSBlock,
+     lambda: ([], {'units': 4, 'thetas_dim': 4}),
+     lambda: ([torch.rand([10, 10])], {}),
+     True),
+    (NBEATSGenericBlock,
+     lambda: ([], {'units': 4, 'thetas_dim': 4}),
+     lambda: ([torch.rand([10, 10])], {}),
+     False),
+    (NBEATSSeasonalBlock,
+     lambda: ([], {'units': 4}),
+     lambda: ([torch.rand([10, 10])], {}),
+     False),
+    (NBEATSTrendBlock,
+     lambda: ([], {'units': 4, 'thetas_dim': 4}),
+     lambda: ([torch.rand([10, 10])], {}),
+     False),
+]
+
+class Test_zalandoresearch_pytorch_ts(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(FeatureEmbedder(*[], **{'cardinalities': [4, 4], 'embedding_dims': [4, 4]}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LambdaLayer(*[], **{'function': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MADE(*[], **{'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(NBEATSBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(NBEATSGenericBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(NBEATSNetwork(*[], **{'prediction_length': 4, 'context_length': 4, 'num_stacks': 4, 'widths': [4, 4, 4, 4], 'num_blocks': [4, 4, 4, 4], 'num_block_layers': [4, 4, 4, 4], 'expansion_coefficient_lengths': [4, 4, 4, 4], 'sharing': 4, 'stack_types': [4, 4, 4, 4]}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(NBEATSSeasonalBlock(*[], **{'units': 4}), [torch.rand([10, 10])], {})
-
-    @_fails_compile()
-    def test_009(self):
-        self._check(NBEATSTrendBlock(*[], **{'units': 4, 'thetas_dim': 4}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[8])
 

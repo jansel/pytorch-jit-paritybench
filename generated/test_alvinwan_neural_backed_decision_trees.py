@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -150,9 +151,7 @@ def fwd():
 def get_wnids(path_wnids):
     if not os.path.exists(path_wnids):
         parent = Path(fwd()).parent
-        print(
-            f'No such file or directory: {path_wnids}. Looking in {str(parent)}'
-            )
+        print(f'No such file or directory: {path_wnids}. Looking in {str(parent)}')
         path_wnids = parent / path_wnids
     with open(path_wnids) as f:
         wnids = [wnid.strip() for wnid in f.readlines()]
@@ -170,8 +169,7 @@ def read_graph(path):
 
 class Node:
 
-    def __init__(self, wnid, classes, path_graph, path_wnids, other_class=False
-        ):
+    def __init__(self, wnid, classes, path_graph, path_wnids, other_class=False):
         self.path_graph = path_graph
         self.path_wnids = path_wnids
         self.wnid = wnid
@@ -184,11 +182,9 @@ class Node:
         self.has_other = other_class and not (self.is_root() or self.is_leaf())
         self.num_children = len(self.get_children())
         self.num_classes = self.num_children + int(self.has_other)
-        self.old_to_new_classes, self.new_to_old_classes = (self.
-            build_class_mappings())
+        self.old_to_new_classes, self.new_to_old_classes = self.build_class_mappings()
         self.classes = self.build_classes()
-        assert len(self.classes
-            ) == self.num_classes, f'Number of classes {self.num_classes} does not equal number of class names found ({len(self.classes)}): {self.classes}'
+        assert len(self.classes) == self.num_classes, f'Number of classes {self.num_classes} does not equal number of class names found ({len(self.classes)}): {self.classes}'
         self.children = list(self.get_children())
         self.leaves = list(self.get_leaves())
         self.num_leaves = len(self.leaves)
@@ -231,9 +227,7 @@ class Node:
         return old_to_new, new_to_old
 
     def build_classes(self):
-        return [','.join([self.original_classes[old] for old in old_indices
-            ]) for new_index, old_indices in sorted(self.new_to_old_classes
-            .items(), key=lambda t: t[0])]
+        return [','.join([self.original_classes[old] for old in old_indices]) for new_index, old_indices in sorted(self.new_to_old_classes.items(), key=lambda t: t[0])]
 
     @property
     def class_counts(self):
@@ -250,8 +244,7 @@ class Node:
         """
         if self._probabilities is None:
             reference = min(self.class_counts)
-            self._probabilities = torch.Tensor([min(1, reference / len(
-                old_indices)) for old_indices in self.new_to_old_classes])
+            self._probabilities = torch.Tensor([min(1, reference / len(old_indices)) for old_indices in self.new_to_old_classes])
         return self._probabilities
 
     @probabilities.setter
@@ -273,8 +266,7 @@ class Node:
         wnid_to_node = {}
         G = read_graph(path_graph)
         for wnid in get_non_leaves(G):
-            wnid_to_node[wnid] = Node(wnid, classes, path_graph=path_graph,
-                path_wnids=path_wnids)
+            wnid_to_node[wnid] = Node(wnid, classes, path_graph=path_graph, path_wnids=path_wnids)
         return wnid_to_node
 
     @staticmethod
@@ -291,9 +283,7 @@ class Node:
         wnid_to_node = {node.wnid: node for node in nodes}
         leaf_to_path_nodes = {}
         for leaf in leaf_to_path:
-            leaf_to_path_nodes[leaf] = [{'node': wnid_to_node.get(wnid,
-                None), 'name': wnid_to_name(wnid)} for wnid in leaf_to_path
-                [leaf]]
+            leaf_to_path_nodes[leaf] = [{'node': wnid_to_node.get(wnid, None), 'name': wnid_to_name(wnid)} for wnid in leaf_to_path[leaf]]
         return leaf_to_path_nodes
 
     @staticmethod
@@ -326,8 +316,7 @@ def dataset_to_default_path_wnids(dataset):
 DATASETS = 'CIFAR10', 'CIFAR100', 'TinyImagenet200', 'Imagenet1000'
 
 
-DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200':
-    200, 'Imagenet1000': 1000}
+DATASET_TO_NUM_CLASSES = {'CIFAR10': 10, 'CIFAR100': 100, 'TinyImagenet200': 200, 'Imagenet1000': 1000}
 
 
 def dataset_to_dummy_classes(dataset):
@@ -352,8 +341,7 @@ class EmbeddedDecisionRules(nn.Module):
         self.G = self.nodes[0].G
         self.wnid_to_node = {node.wnid: node for node in self.nodes}
         self.wnids = get_wnids(path_wnids)
-        self.wnid_to_class = {wnid: cls for wnid, cls in zip(self.wnids,
-            self.classes)}
+        self.wnid_to_class = {wnid: cls for wnid, cls in zip(self.wnids, self.classes)}
         self.correct = 0
         self.total = 0
         self.I = torch.eye(len(classes))
@@ -364,8 +352,7 @@ class EmbeddedDecisionRules(nn.Module):
 
         This `outputs` above are the output of the neural network.
         """
-        return torch.stack([outputs.T[node.new_to_old_classes[new_label]].
-            mean(dim=0) for new_label in range(node.num_classes)]).T
+        return torch.stack([outputs.T[node.new_to_old_classes[new_label]].mean(dim=0) for new_label in range(node.num_classes)]).T
 
     @classmethod
     def get_all_node_outputs(cls, outputs, nodes):
@@ -376,9 +363,7 @@ class EmbeddedDecisionRules(nn.Module):
         wnid_to_outputs = {}
         for node in nodes:
             node_logits = cls.get_node_logits(outputs, node)
-            wnid_to_outputs[node.wnid] = {'logits': node_logits, 'preds':
-                torch.max(node_logits, dim=1)[1], 'probs': F.softmax(
-                node_logits, dim=1)}
+            wnid_to_outputs[node.wnid] = {'logits': node_logits, 'preds': torch.max(node_logits, dim=1)[1], 'probs': F.softmax(node_logits, dim=1)}
         return wnid_to_outputs
 
     def forward_nodes(self, outputs):
@@ -391,28 +376,20 @@ def coerce_state_dict(state_dict, reference_state_dict):
     has_reference_module = list(reference_state_dict)[0].startswith('module.')
     has_module = list(state_dict)[0].startswith('module.')
     if not has_reference_module and has_module:
-        state_dict = {key.replace('module.', '', 1): value for key, value in
-            state_dict.items()}
+        state_dict = {key.replace('module.', '', 1): value for key, value in state_dict.items()}
     elif has_reference_module and not has_module:
-        state_dict = {('module.' + key): value for key, value in state_dict
-            .items()}
+        state_dict = {('module.' + key): value for key, value in state_dict.items()}
     return state_dict
 
 
-def load_state_dict_from_key(keys, model_urls, pretrained=False, progress=
-    True, root='.cache/torch/checkpoints', device='cpu'):
+def load_state_dict_from_key(keys, model_urls, pretrained=False, progress=True, root='.cache/torch/checkpoints', device='cpu'):
     valid_keys = [key for key in keys if key in model_urls]
     if not valid_keys:
-        raise UserWarning(
-            f'None of the keys {keys} correspond to a pretrained model.')
-    return load_state_dict_from_url(model_urls[valid_keys[-1]], Path.home() /
-        root, progress=progress, check_hash=False, map_location=torch.
-        device(device))
+        raise UserWarning(f'None of the keys {keys} correspond to a pretrained model.')
+    return load_state_dict_from_url(model_urls[valid_keys[-1]], Path.home() / root, progress=progress, check_hash=False, map_location=torch.device(device))
 
 
-model_urls = {('wrn28_10', 'TinyImagenet200'):
-    'https://github.com/alvinwan/neural-backed-decision-trees/releases/download/0.0.1/ckpt-TinyImagenet200-wrn28_10.pth'
-    }
+model_urls = {('wrn28_10', 'TinyImagenet200'): 'https://github.com/alvinwan/neural-backed-decision-trees/releases/download/0.0.1/ckpt-TinyImagenet200-wrn28_10.pth'}
 
 
 class BasicBlock(nn.Module):
@@ -420,17 +397,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -447,17 +420,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -473,8 +442,7 @@ class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -510,11 +478,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_alvinwan_neural_backed_decision_trees(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

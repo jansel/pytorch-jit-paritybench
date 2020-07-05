@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -68,8 +69,7 @@ class ReLU(nn.Hardtanh):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -105,23 +105,19 @@ class myResNet(nn.Module):
         super(myResNet, self).__init__()
         self.relu = ReLU(inplace=True)
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=5, stride=2, padding=2,
-            bias=False)
+        self.conv1 = nn.Conv2d(1, 64, kernel_size=5, stride=2, padding=2, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.inplanes = 128
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2,
-            bias=False)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2, bias=False)
         self.bn2 = nn.BatchNorm2d(128)
         self.layer2 = self._make_layer(block, 128, layers[1])
         self.inplanes = 256
-        self.conv3 = nn.Conv2d(128, 256, kernel_size=5, stride=2, padding=2,
-            bias=False)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=5, stride=2, padding=2, bias=False)
         self.bn3 = nn.BatchNorm2d(256)
         self.layer3 = self._make_layer(block, 256, layers[2])
         self.inplanes = 512
-        self.conv4 = nn.Conv2d(256, 512, kernel_size=5, stride=2, padding=2,
-            bias=False)
+        self.conv4 = nn.Conv2d(256, 512, kernel_size=5, stride=2, padding=2, bias=False)
         self.bn4 = nn.BatchNorm2d(512)
         self.layer4 = self._make_layer(block, 512, layers[3])
         self.avgpool = nn.AdaptiveAvgPool2d((1, None))
@@ -213,17 +209,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DeepSpeakerModel,
+     lambda: ([], {'embedding_size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (ReLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_qqueing_DeepSpeaker_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DeepSpeakerModel(*[], **{'embedding_size': 4, 'num_classes': 4}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,11 +85,8 @@ class DiscriminativeDecoder(nn.Module):
     def __init__(self, config, vocabulary):
         super().__init__()
         self.config = config
-        self.word_embed = nn.Embedding(len(vocabulary), config[
-            'word_embedding_size'], padding_idx=vocabulary.PAD_INDEX)
-        self.option_rnn = nn.LSTM(config['word_embedding_size'], config[
-            'lstm_hidden_size'], config['lstm_num_layers'], batch_first=
-            True, dropout=config['dropout'])
+        self.word_embed = nn.Embedding(len(vocabulary), config['word_embedding_size'], padding_idx=vocabulary.PAD_INDEX)
+        self.option_rnn = nn.LSTM(config['word_embedding_size'], config['lstm_hidden_size'], config['lstm_num_layers'], batch_first=True, dropout=config['dropout'])
         self.option_rnn = DynamicRNN(self.option_rnn)
 
     def forward(self, encoder_output, batch):
@@ -102,27 +100,19 @@ class DiscriminativeDecoder(nn.Module):
             (batch_size, num_rounds, lstm_hidden_size)
         """
         options = batch['opt']
-        batch_size, num_rounds, num_options, max_sequence_length = (options
-            .size())
-        options = options.view(batch_size * num_rounds * num_options,
-            max_sequence_length)
+        batch_size, num_rounds, num_options, max_sequence_length = options.size()
+        options = options.view(batch_size * num_rounds * num_options, max_sequence_length)
         options_length = batch['opt_len']
-        options_length = options_length.view(batch_size * num_rounds *
-            num_options)
+        options_length = options_length.view(batch_size * num_rounds * num_options)
         nonzero_options_length_indices = options_length.nonzero().squeeze()
         nonzero_options_length = options_length[nonzero_options_length_indices]
         nonzero_options = options[nonzero_options_length_indices]
         nonzero_options_embed = self.word_embed(nonzero_options)
-        _, (nonzero_options_embed, _) = self.option_rnn(nonzero_options_embed,
-            nonzero_options_length)
-        options_embed = torch.zeros(batch_size * num_rounds * num_options,
-            nonzero_options_embed.size(-1), device=nonzero_options_embed.device
-            )
+        _, (nonzero_options_embed, _) = self.option_rnn(nonzero_options_embed, nonzero_options_length)
+        options_embed = torch.zeros(batch_size * num_rounds * num_options, nonzero_options_embed.size(-1), device=nonzero_options_embed.device)
         options_embed[nonzero_options_length_indices] = nonzero_options_embed
-        encoder_output = encoder_output.unsqueeze(2).repeat(1, 1,
-            num_options, 1)
-        encoder_output = encoder_output.view(batch_size * num_rounds *
-            num_options, self.config['lstm_hidden_size'])
+        encoder_output = encoder_output.unsqueeze(2).repeat(1, 1, num_options, 1)
+        encoder_output = encoder_output.view(batch_size * num_rounds * num_options, self.config['lstm_hidden_size'])
         scores = torch.sum(options_embed * encoder_output, 1)
         scores = scores.view(batch_size, num_rounds, num_options)
         return scores
@@ -133,13 +123,9 @@ class GenerativeDecoder(nn.Module):
     def __init__(self, config, vocabulary):
         super().__init__()
         self.config = config
-        self.word_embed = nn.Embedding(len(vocabulary), config[
-            'word_embedding_size'], padding_idx=vocabulary.PAD_INDEX)
-        self.answer_rnn = nn.LSTM(config['word_embedding_size'], config[
-            'lstm_hidden_size'], config['lstm_num_layers'], batch_first=
-            True, dropout=config['dropout'])
-        self.lstm_to_words = nn.Linear(self.config['lstm_hidden_size'], len
-            (vocabulary))
+        self.word_embed = nn.Embedding(len(vocabulary), config['word_embedding_size'], padding_idx=vocabulary.PAD_INDEX)
+        self.answer_rnn = nn.LSTM(config['word_embedding_size'], config['lstm_hidden_size'], config['lstm_num_layers'], batch_first=True, dropout=config['dropout'])
+        self.lstm_to_words = nn.Linear(self.config['lstm_hidden_size'], len(vocabulary))
         self.dropout = nn.Dropout(p=config['dropout'])
         self.logsoftmax = nn.LogSoftmax(dim=-1)
 
@@ -161,35 +147,26 @@ class GenerativeDecoder(nn.Module):
             ans_in = ans_in.view(batch_size * num_rounds, max_sequence_length)
             ans_in_embed = self.word_embed(ans_in)
             init_hidden = encoder_output.view(1, batch_size * num_rounds, -1)
-            init_hidden = init_hidden.repeat(self.config['lstm_num_layers'],
-                1, 1)
+            init_hidden = init_hidden.repeat(self.config['lstm_num_layers'], 1, 1)
             init_cell = torch.zeros_like(init_hidden)
-            ans_out, (hidden, cell) = self.answer_rnn(ans_in_embed, (
-                init_hidden, init_cell))
+            ans_out, (hidden, cell) = self.answer_rnn(ans_in_embed, (init_hidden, init_cell))
             ans_out = self.dropout(ans_out)
             ans_word_scores = self.lstm_to_words(ans_out)
             return ans_word_scores
         else:
             ans_in = batch['opt_in']
-            batch_size, num_rounds, num_options, max_sequence_length = (ans_in
-                .size())
-            ans_in = ans_in.view(batch_size * num_rounds * num_options,
-                max_sequence_length)
+            batch_size, num_rounds, num_options, max_sequence_length = ans_in.size()
+            ans_in = ans_in.view(batch_size * num_rounds * num_options, max_sequence_length)
             ans_in_embed = self.word_embed(ans_in)
             init_hidden = encoder_output.view(batch_size, num_rounds, 1, -1)
             init_hidden = init_hidden.repeat(1, 1, num_options, 1)
-            init_hidden = init_hidden.view(1, batch_size * num_rounds *
-                num_options, -1)
-            init_hidden = init_hidden.repeat(self.config['lstm_num_layers'],
-                1, 1)
+            init_hidden = init_hidden.view(1, batch_size * num_rounds * num_options, -1)
+            init_hidden = init_hidden.repeat(self.config['lstm_num_layers'], 1, 1)
             init_cell = torch.zeros_like(init_hidden)
-            ans_out, (hidden, cell) = self.answer_rnn(ans_in_embed, (
-                init_hidden, init_cell))
+            ans_out, (hidden, cell) = self.answer_rnn(ans_in_embed, (init_hidden, init_cell))
             ans_word_scores = self.logsoftmax(self.lstm_to_words(ans_out))
-            target_ans_out = batch['opt_out'].view(batch_size * num_rounds *
-                num_options, -1)
-            ans_word_scores = torch.gather(ans_word_scores, -1,
-                target_ans_out.unsqueeze(-1)).squeeze()
+            target_ans_out = batch['opt_out'].view(batch_size * num_rounds * num_options, -1)
+            ans_word_scores = torch.gather(ans_word_scores, -1, target_ans_out.unsqueeze(-1)).squeeze()
             ans_word_scores = ans_word_scores * (target_ans_out > 0).float()
             ans_scores = torch.sum(ans_word_scores, -1)
             ans_scores = ans_scores.view(batch_size, num_rounds, num_options)
@@ -201,22 +178,15 @@ class LateFusionEncoder(nn.Module):
     def __init__(self, config, vocabulary):
         super().__init__()
         self.config = config
-        self.word_embed = nn.Embedding(len(vocabulary), config[
-            'word_embedding_size'], padding_idx=vocabulary.PAD_INDEX)
-        self.hist_rnn = nn.LSTM(config['word_embedding_size'], config[
-            'lstm_hidden_size'], config['lstm_num_layers'], batch_first=
-            True, dropout=config['dropout'])
-        self.ques_rnn = nn.LSTM(config['word_embedding_size'], config[
-            'lstm_hidden_size'], config['lstm_num_layers'], batch_first=
-            True, dropout=config['dropout'])
+        self.word_embed = nn.Embedding(len(vocabulary), config['word_embedding_size'], padding_idx=vocabulary.PAD_INDEX)
+        self.hist_rnn = nn.LSTM(config['word_embedding_size'], config['lstm_hidden_size'], config['lstm_num_layers'], batch_first=True, dropout=config['dropout'])
+        self.ques_rnn = nn.LSTM(config['word_embedding_size'], config['lstm_hidden_size'], config['lstm_num_layers'], batch_first=True, dropout=config['dropout'])
         self.dropout = nn.Dropout(p=config['dropout'])
         self.hist_rnn = DynamicRNN(self.hist_rnn)
         self.ques_rnn = DynamicRNN(self.ques_rnn)
-        self.image_features_projection = nn.Linear(config[
-            'img_feature_size'], config['lstm_hidden_size'])
+        self.image_features_projection = nn.Linear(config['img_feature_size'], config['lstm_hidden_size'])
         self.attention_proj = nn.Linear(config['lstm_hidden_size'], 1)
-        fusion_size = config['img_feature_size'] + config['lstm_hidden_size'
-            ] * 2
+        fusion_size = config['img_feature_size'] + config['lstm_hidden_size'] * 2
         self.fusion = nn.Linear(fusion_size, config['lstm_hidden_size'])
         nn.init.kaiming_uniform_(self.image_features_projection.weight)
         nn.init.constant_(self.image_features_projection.bias, 0)
@@ -232,23 +202,14 @@ class LateFusionEncoder(nn.Module):
         ques_embed = self.word_embed(ques)
         _, (ques_embed, _) = self.ques_rnn(ques_embed, batch['ques_len'])
         projected_image_features = self.image_features_projection(img)
-        projected_image_features = projected_image_features.view(batch_size,
-            1, -1, self.config['lstm_hidden_size']).repeat(1, num_rounds, 1, 1
-            ).view(batch_size * num_rounds, -1, self.config['lstm_hidden_size']
-            )
-        projected_ques_features = ques_embed.unsqueeze(1).repeat(1, img.
-            shape[1], 1)
-        projected_ques_image = (projected_ques_features *
-            projected_image_features)
+        projected_image_features = projected_image_features.view(batch_size, 1, -1, self.config['lstm_hidden_size']).repeat(1, num_rounds, 1, 1).view(batch_size * num_rounds, -1, self.config['lstm_hidden_size'])
+        projected_ques_features = ques_embed.unsqueeze(1).repeat(1, img.shape[1], 1)
+        projected_ques_image = projected_ques_features * projected_image_features
         projected_ques_image = self.dropout(projected_ques_image)
-        image_attention_weights = self.attention_proj(projected_ques_image
-            ).squeeze()
+        image_attention_weights = self.attention_proj(projected_ques_image).squeeze()
         image_attention_weights = F.softmax(image_attention_weights, dim=-1)
-        img = img.view(batch_size, 1, -1, self.config['img_feature_size']
-            ).repeat(1, num_rounds, 1, 1).view(batch_size * num_rounds, -1,
-            self.config['img_feature_size'])
-        image_attention_weights = image_attention_weights.unsqueeze(-1).repeat(
-            1, 1, self.config['img_feature_size'])
+        img = img.view(batch_size, 1, -1, self.config['img_feature_size']).repeat(1, num_rounds, 1, 1).view(batch_size * num_rounds, -1, self.config['img_feature_size'])
+        image_attention_weights = image_attention_weights.unsqueeze(-1).repeat(1, 1, self.config['img_feature_size'])
         attended_image_features = (image_attention_weights * img).sum(1)
         img = attended_image_features
         hist = hist.view(batch_size * num_rounds, max_sequence_length * 20)
@@ -309,8 +270,7 @@ class DynamicRNN(nn.Module):
         max_sequence_length = seq_input.size(1)
         sorted_len, fwd_order, bwd_order = self._get_sorted_order(seq_lens)
         sorted_seq_input = seq_input.index_select(0, fwd_order)
-        packed_seq_input = pack_padded_sequence(sorted_seq_input, lengths=
-            sorted_len, batch_first=True)
+        packed_seq_input = pack_padded_sequence(sorted_seq_input, lengths=sorted_len, batch_first=True)
         if initial_state is not None:
             hx = initial_state
             assert hx[0].size(0) == self.rnn_model.num_layers
@@ -320,22 +280,13 @@ class DynamicRNN(nn.Module):
         outputs, (h_n, c_n) = self.rnn_model(packed_seq_input, hx)
         h_n = h_n[-1].index_select(dim=0, index=bwd_order)
         c_n = c_n[-1].index_select(dim=0, index=bwd_order)
-        outputs = pad_packed_sequence(outputs, batch_first=True,
-            total_length=max_sequence_length)
+        outputs = pad_packed_sequence(outputs, batch_first=True, total_length=max_sequence_length)
         return outputs, (h_n, c_n)
 
     @staticmethod
     def _get_sorted_order(lens):
-        sorted_len, fwd_order = torch.sort(lens.contiguous().view(-1), 0,
-            descending=True)
+        sorted_len, fwd_order = torch.sort(lens.contiguous().view(-1), 0, descending=True)
         _, bwd_order = torch.sort(fwd_order)
         sorted_len = list(sorted_len)
         return sorted_len, fwd_order, bwd_order
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_batra_mlp_lab_visdial_challenge_starter_pytorch(_paritybench_base):
-    pass

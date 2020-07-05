@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -51,8 +52,7 @@ from torchvision.models import ResNet
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -65,9 +65,7 @@ class BasicBlock(nn.Module):
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
         if inplanes != planes:
-            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         else:
             self.downsample = lambda x: x
         self.stride = stride
@@ -89,8 +87,7 @@ class ResNet(nn.Module):
     def __init__(self, block, n_size, num_classes=10):
         super(ResNet, self).__init__()
         self.inplane = 16
-        self.conv1 = nn.Conv2d(3, self.inplane, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplane, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplane)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, 16, blocks=n_size, stride=1)
@@ -133,8 +130,7 @@ class SEInception3(nn.Module):
 
     def __init__(self, num_classes, aux_logits=True, transform_input=False):
         super(SEInception3, self).__init__()
-        model = Inception3(num_classes=num_classes, aux_logits=aux_logits,
-            transform_input=transform_input)
+        model = Inception3(num_classes=num_classes, aux_logits=aux_logits, transform_input=transform_input)
         model.Mixed_5b.add_module('SELayer', SELayer(192))
         model.Mixed_5c.add_module('SELayer', SELayer(256))
         model.Mixed_5d.add_module('SELayer', SELayer(288))
@@ -162,9 +158,7 @@ class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction,
-            bias=False), nn.ReLU(inplace=True), nn.Linear(channel //
-            reduction, channel, bias=False), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -176,8 +170,7 @@ class SELayer(nn.Module):
 class SEBasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None, *, reduction=16):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None, *, reduction=16):
         super(SEBasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -206,13 +199,11 @@ class SEBasicBlock(nn.Module):
 class SEBottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None, *, reduction=16):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None, *, reduction=16):
         super(SEBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -250,9 +241,7 @@ class CifarSEBasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.se = SELayer(planes, reduction)
         if inplanes != planes:
-            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                planes))
+            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
         else:
             self.downsample = lambda x: x
         self.stride = stride
@@ -275,16 +264,12 @@ class CifarSEResNet(nn.Module):
     def __init__(self, block, n_size, num_classes=10, reduction=16):
         super(CifarSEResNet, self).__init__()
         self.inplane = 16
-        self.conv1 = nn.Conv2d(3, self.inplane, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplane, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplane)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 16, blocks=n_size, stride=1,
-            reduction=reduction)
-        self.layer2 = self._make_layer(block, 32, blocks=n_size, stride=2,
-            reduction=reduction)
-        self.layer3 = self._make_layer(block, 64, blocks=n_size, stride=2,
-            reduction=reduction)
+        self.layer1 = self._make_layer(block, 16, blocks=n_size, stride=1, reduction=reduction)
+        self.layer2 = self._make_layer(block, 32, blocks=n_size, stride=2, reduction=reduction)
+        self.layer3 = self._make_layer(block, 64, blocks=n_size, stride=2, reduction=reduction)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(64, num_classes)
         self.initialize()
@@ -322,9 +307,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CifarSEBasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 16}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+]
+
 class Test_moskomule_senet_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

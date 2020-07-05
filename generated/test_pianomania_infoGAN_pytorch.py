@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,11 +57,7 @@ class FrontEnd(nn.Module):
 
     def __init__(self):
         super(FrontEnd, self).__init__()
-        self.main = nn.Sequential(nn.Conv2d(1, 64, 4, 2, 1), nn.LeakyReLU(
-            0.1, inplace=True), nn.Conv2d(64, 128, 4, 2, 1, bias=False), nn
-            .BatchNorm2d(128), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(
-            128, 1024, 7, bias=False), nn.BatchNorm2d(1024), nn.LeakyReLU(
-            0.1, inplace=True))
+        self.main = nn.Sequential(nn.Conv2d(1, 64, 4, 2, 1), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 128, 4, 2, 1, bias=False), nn.BatchNorm2d(128), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(128, 1024, 7, bias=False), nn.BatchNorm2d(1024), nn.LeakyReLU(0.1, inplace=True))
 
     def forward(self, x):
         output = self.main(x)
@@ -101,12 +98,7 @@ class G(nn.Module):
 
     def __init__(self):
         super(G, self).__init__()
-        self.main = nn.Sequential(nn.ConvTranspose2d(74, 1024, 1, 1, bias=
-            False), nn.BatchNorm2d(1024), nn.ReLU(True), nn.ConvTranspose2d
-            (1024, 128, 7, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(
-            True), nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(64), nn.ReLU(True), nn.ConvTranspose2d(64, 1, 4, 2,
-            1, bias=False), nn.Sigmoid())
+        self.main = nn.Sequential(nn.ConvTranspose2d(74, 1024, 1, 1, bias=False), nn.BatchNorm2d(1024), nn.ReLU(True), nn.ConvTranspose2d(1024, 128, 7, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(True), nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False), nn.BatchNorm2d(64), nn.ReLU(True), nn.ConvTranspose2d(64, 1, 4, 2, 1, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         output = self.main(x)
@@ -117,17 +109,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+    (FrontEnd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (G,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 74, 4, 4])], {}),
+     True),
+    (Q,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+]
+
 class Test_pianomania_infoGAN_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(D(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FrontEnd(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(G(*[], **{}), [torch.rand([4, 74, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Q(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -45,8 +46,7 @@ from torchvision.utils import save_image
 class Generator(nn.Module):
     """Generator. Vector Quantised Variational Auto-Encoder."""
 
-    def __init__(self, image_size=64, z_dim=256, conv_dim=64, code_dim=16,
-        k_dim=256):
+    def __init__(self, image_size=64, z_dim=256, conv_dim=64, code_dim=16, k_dim=256):
         super(Generator, self).__init__()
         self.k_dim = k_dim
         self.z_dim = z_dim
@@ -59,8 +59,7 @@ class Generator(nn.Module):
         repeat_num = int(math.log2(image_size / code_dim))
         curr_dim = conv_dim
         for i in range(repeat_num):
-            layers.append(nn.Conv2d(curr_dim, conv_dim * (i + 2),
-                kernel_size=4, stride=2, padding=1))
+            layers.append(nn.Conv2d(curr_dim, conv_dim * (i + 2), kernel_size=4, stride=2, padding=1))
             layers.append(nn.BatchNorm2d(conv_dim * (i + 2)))
             layers.append(nn.ReLU())
             curr_dim = conv_dim * (i + 2)
@@ -71,8 +70,7 @@ class Generator(nn.Module):
         layers.append(nn.BatchNorm2d(curr_dim))
         layers.append(nn.ReLU())
         for i in reversed(range(repeat_num)):
-            layers.append(nn.ConvTranspose2d(curr_dim, conv_dim * (i + 1),
-                kernel_size=4, stride=2, padding=1))
+            layers.append(nn.ConvTranspose2d(curr_dim, conv_dim * (i + 1), kernel_size=4, stride=2, padding=1))
             layers.append(nn.BatchNorm2d(conv_dim * (i + 1)))
             layers.append(nn.ReLU())
             curr_dim = conv_dim * (i + 1)
@@ -108,8 +106,7 @@ class Generator(nn.Module):
             self.saved_h = org_h
             return grad
         h.register_hook(hook)
-        return self.decoder(h), L2_dist(Z, W_j_sg).sum(1).mean(), L2_dist(Z_sg,
-            W_j).sum(1).mean()
+        return self.decoder(h), L2_dist(Z, W_j_sg).sum(1).mean(), L2_dist(Z_sg, W_j).sum(1).mean()
 
     def bwd(self):
         self.saved_h.backward(self.saved_grad)
@@ -123,9 +120,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_nakosung_VQ_VAE(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

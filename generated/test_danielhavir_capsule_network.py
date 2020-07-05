@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,14 +55,12 @@ def squash(s, dim=-1):
 		Squashed vector
 	"""
     squared_norm = torch.sum(s ** 2, dim=dim, keepdim=True)
-    return squared_norm / (1 + squared_norm) * s / (torch.sqrt(squared_norm
-        ) + 1e-08)
+    return squared_norm / (1 + squared_norm) * s / (torch.sqrt(squared_norm) + 1e-08)
 
 
 class PrimaryCapsules(nn.Module):
 
-    def __init__(self, in_channels, out_channels, dim_caps, kernel_size=9,
-        stride=2, padding=0):
+    def __init__(self, in_channels, out_channels, dim_caps, kernel_size=9, stride=2, padding=0):
         """
 		Initialize the layer.
 
@@ -74,21 +73,18 @@ class PrimaryCapsules(nn.Module):
         super(PrimaryCapsules, self).__init__()
         self.dim_caps = dim_caps
         self._caps_channel = int(out_channels / dim_caps)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
 
     def forward(self, x):
         out = self.conv(x)
-        out = out.view(out.size(0), self._caps_channel, out.size(2), out.
-            size(3), self.dim_caps)
+        out = out.view(out.size(0), self._caps_channel, out.size(2), out.size(3), self.dim_caps)
         out = out.view(out.size(0), -1, self.dim_caps)
         return squash(out)
 
 
 class RoutingCapsules(nn.Module):
 
-    def __init__(self, in_dim, in_caps, num_caps, dim_caps, num_routing,
-        device: torch.device):
+    def __init__(self, in_dim, in_caps, num_caps, dim_caps, num_routing, device: torch.device):
         """
 		Initialize the layer.
 
@@ -106,8 +102,7 @@ class RoutingCapsules(nn.Module):
         self.dim_caps = dim_caps
         self.num_routing = num_routing
         self.device = device
-        self.W = nn.Parameter(0.01 * torch.randn(1, num_caps, in_caps,
-            dim_caps, in_dim))
+        self.W = nn.Parameter(0.01 * torch.randn(1, num_caps, in_caps, dim_caps, in_dim))
 
     def __repr__(self):
         tab = '  '
@@ -161,8 +156,7 @@ class MarginLoss(nn.Module):
         self.loss_lambda = loss_lambda
 
     def forward(self, inputs, labels):
-        L_k = labels * F.relu(self.m_plus - inputs) ** 2 + self.loss_lambda * (
-            1 - labels) * F.relu(inputs - self.m_minus) ** 2
+        L_k = labels * F.relu(self.m_plus - inputs) ** 2 + self.loss_lambda * (1 - labels) * F.relu(inputs - self.m_minus) ** 2
         L_k = L_k.sum(dim=1)
         if self.size_average:
             return L_k.mean()
@@ -172,8 +166,7 @@ class MarginLoss(nn.Module):
 
 class CapsuleLoss(nn.Module):
 
-    def __init__(self, loss_lambda=0.5, recon_loss_scale=0.0005,
-        size_average=False):
+    def __init__(self, loss_lambda=0.5, recon_loss_scale=0.0005, size_average=False):
         """
 		Combined margin loss and reconstruction loss. Margin loss see above.
 		Sum squared error (SSE) was used as a reconstruction loss.
@@ -184,8 +177,7 @@ class CapsuleLoss(nn.Module):
 		"""
         super(CapsuleLoss, self).__init__()
         self.size_average = size_average
-        self.margin_loss = MarginLoss(size_average=size_average,
-            loss_lambda=loss_lambda)
+        self.margin_loss = MarginLoss(size_average=size_average, loss_lambda=loss_lambda)
         self.reconstruction_loss = nn.MSELoss(size_average=size_average)
         self.recon_loss_scale = recon_loss_scale
 
@@ -198,24 +190,17 @@ class CapsuleLoss(nn.Module):
 
 class CapsuleNetwork(nn.Module):
 
-    def __init__(self, img_shape, channels, primary_dim, num_classes,
-        out_dim, num_routing, device: torch.device, kernel_size=9):
+    def __init__(self, img_shape, channels, primary_dim, num_classes, out_dim, num_routing, device: torch.device, kernel_size=9):
         super(CapsuleNetwork, self).__init__()
         self.img_shape = img_shape
         self.num_classes = num_classes
         self.device = device
-        self.conv1 = nn.Conv2d(img_shape[0], channels, kernel_size, stride=
-            1, bias=True)
+        self.conv1 = nn.Conv2d(img_shape[0], channels, kernel_size, stride=1, bias=True)
         self.relu = nn.ReLU(inplace=True)
-        self.primary = caps.PrimaryCapsules(channels, channels, primary_dim,
-            kernel_size)
-        primary_caps = int(channels / primary_dim * (img_shape[1] - 2 * (
-            kernel_size - 1)) * (img_shape[2] - 2 * (kernel_size - 1)) / 4)
-        self.digits = caps.RoutingCapsules(primary_dim, primary_caps,
-            num_classes, out_dim, num_routing, device=self.device)
-        self.decoder = nn.Sequential(nn.Linear(out_dim * num_classes, 512),
-            nn.ReLU(inplace=True), nn.Linear(512, 1024), nn.ReLU(inplace=
-            True), nn.Linear(1024, int(prod(img_shape))), nn.Sigmoid())
+        self.primary = caps.PrimaryCapsules(channels, channels, primary_dim, kernel_size)
+        primary_caps = int(channels / primary_dim * (img_shape[1] - 2 * (kernel_size - 1)) * (img_shape[2] - 2 * (kernel_size - 1)) / 4)
+        self.digits = caps.RoutingCapsules(primary_dim, primary_caps, num_classes, out_dim, num_routing, device=self.device)
+        self.decoder = nn.Sequential(nn.Linear(out_dim * num_classes, 512), nn.ReLU(inplace=True), nn.Linear(512, 1024), nn.ReLU(inplace=True), nn.Linear(1024, int(prod(img_shape))), nn.Sigmoid())
 
     def forward(self, x):
         out = self.conv1(x)
@@ -235,19 +220,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CapsuleLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MarginLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PrimaryCapsules,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dim_caps': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (RoutingCapsules,
+     lambda: ([], {'in_dim': 4, 'in_caps': 4, 'num_caps': 4, 'dim_caps': 4, 'num_routing': 4, 'device': 0}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_danielhavir_capsule_network(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CapsuleLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(MarginLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PrimaryCapsules(*[], **{'in_channels': 4, 'out_channels': 4, 'dim_caps': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(RoutingCapsules(*[], **{'in_dim': 4, 'in_caps': 4, 'num_caps': 4, 'dim_caps': 4, 'num_routing': 4, 'device': 0}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

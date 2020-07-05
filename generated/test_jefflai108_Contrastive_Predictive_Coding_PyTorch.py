@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,47 +81,30 @@ class CDCK6(nn.Module):
         self.batch_size = batch_size
         self.seq_len = seq_len
         self.timestep = timestep
-        self.encoder = nn.Sequential(nn.Conv1d(1, 512, kernel_size=10,
-            stride=5, padding=3, bias=False), nn.BatchNorm1d(512), nn.ReLU(
-            inplace=True), nn.Conv1d(512, 512, kernel_size=8, stride=4,
-            padding=2, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=
-            True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1,
-            bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.
-            Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False
-            ), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 
-            512, kernel_size=4, stride=2, padding=1, bias=False), nn.
-            BatchNorm1d(512), nn.ReLU(inplace=True))
-        self.gru1 = nn.GRU(512, 128, num_layers=1, bidirectional=False,
-            batch_first=True)
-        self.Wk1 = nn.ModuleList([nn.Linear(128, 512) for i in range(timestep)]
-            )
-        self.gru2 = nn.GRU(512, 128, num_layers=1, bidirectional=False,
-            batch_first=True)
-        self.Wk2 = nn.ModuleList([nn.Linear(128, 512) for i in range(timestep)]
-            )
+        self.encoder = nn.Sequential(nn.Conv1d(1, 512, kernel_size=10, stride=5, padding=3, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=8, stride=4, padding=2, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True))
+        self.gru1 = nn.GRU(512, 128, num_layers=1, bidirectional=False, batch_first=True)
+        self.Wk1 = nn.ModuleList([nn.Linear(128, 512) for i in range(timestep)])
+        self.gru2 = nn.GRU(512, 128, num_layers=1, bidirectional=False, batch_first=True)
+        self.Wk2 = nn.ModuleList([nn.Linear(128, 512) for i in range(timestep)])
         self.softmax = nn.Softmax()
         self.lsoftmax = nn.LogSoftmax()
 
         def _weights_init(m):
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
         for layer_p in self.gru1._all_weights:
             for p in layer_p:
                 if 'weight' in p:
-                    nn.init.kaiming_normal_(self.gru1.__getattr__(p), mode=
-                        'fan_out', nonlinearity='relu')
+                    nn.init.kaiming_normal_(self.gru1.__getattr__(p), mode='fan_out', nonlinearity='relu')
         for layer_p in self.gru2._all_weights:
             for p in layer_p:
                 if 'weight' in p:
-                    nn.init.kaiming_normal_(self.gru2.__getattr__(p), mode=
-                        'fan_out', nonlinearity='relu')
+                    nn.init.kaiming_normal_(self.gru2.__getattr__(p), mode='fan_out', nonlinearity='relu')
         self.apply(_weights_init)
 
     def init_hidden1(self, batch_size):
@@ -132,8 +116,7 @@ class CDCK6(nn.Module):
     def forward(self, x, x_reverse, hidden1, hidden2):
         batch = x.size()[0]
         nce = 0
-        t_samples = torch.randint(self.seq_len / 160 - self.timestep, size=(1,)
-            ).long()
+        t_samples = torch.randint(self.seq_len / 160 - self.timestep, size=(1,)).long()
         z = self.encoder(x)
         z = z.transpose(1, 2)
         encode_samples = torch.empty((self.timestep, batch, 512)).float()
@@ -148,8 +131,7 @@ class CDCK6(nn.Module):
             pred[i] = linear(c_t)
         for i in np.arange(0, self.timestep):
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))
-            correct1 = torch.sum(torch.eq(torch.argmax(self.softmax(total),
-                dim=0), torch.arange(0, batch)))
+            correct1 = torch.sum(torch.eq(torch.argmax(self.softmax(total), dim=0), torch.arange(0, batch)))
             nce += torch.sum(torch.diag(self.lsoftmax(total)))
         z = self.encoder(x_reverse)
         z = z.transpose(1, 2)
@@ -165,8 +147,7 @@ class CDCK6(nn.Module):
             pred[i] = linear(c_t)
         for i in np.arange(0, self.timestep):
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))
-            correct2 = torch.sum(torch.eq(torch.argmax(self.softmax(total),
-                dim=0), torch.arange(0, batch)))
+            correct2 = torch.sum(torch.eq(torch.argmax(self.softmax(total), dim=0), torch.arange(0, batch)))
             nce += torch.sum(torch.diag(self.lsoftmax(total)))
         nce /= -1.0 * batch * self.timestep
         nce /= 2.0
@@ -192,37 +173,24 @@ class CDCK5(nn.Module):
         self.batch_size = batch_size
         self.seq_len = seq_len
         self.timestep = timestep
-        self.encoder = nn.Sequential(nn.Conv1d(1, 512, kernel_size=10,
-            stride=5, padding=3, bias=False), nn.BatchNorm1d(512), nn.ReLU(
-            inplace=True), nn.Conv1d(512, 512, kernel_size=8, stride=4,
-            padding=2, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=
-            True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1,
-            bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.
-            Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False
-            ), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 
-            512, kernel_size=4, stride=2, padding=1, bias=False), nn.
-            BatchNorm1d(512), nn.ReLU(inplace=True))
-        self.gru = nn.GRU(512, 40, num_layers=2, bidirectional=False,
-            batch_first=True)
+        self.encoder = nn.Sequential(nn.Conv1d(1, 512, kernel_size=10, stride=5, padding=3, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=8, stride=4, padding=2, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True))
+        self.gru = nn.GRU(512, 40, num_layers=2, bidirectional=False, batch_first=True)
         self.Wk = nn.ModuleList([nn.Linear(40, 512) for i in range(timestep)])
         self.softmax = nn.Softmax()
         self.lsoftmax = nn.LogSoftmax()
 
         def _weights_init(m):
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
         for layer_p in self.gru._all_weights:
             for p in layer_p:
                 if 'weight' in p:
-                    nn.init.kaiming_normal_(self.gru.__getattr__(p), mode=
-                        'fan_out', nonlinearity='relu')
+                    nn.init.kaiming_normal_(self.gru.__getattr__(p), mode='fan_out', nonlinearity='relu')
         self.apply(_weights_init)
 
     def init_hidden(self, batch_size):
@@ -230,8 +198,7 @@ class CDCK5(nn.Module):
 
     def forward(self, x, hidden):
         batch = x.size()[0]
-        t_samples = torch.randint(self.seq_len / 160 - self.timestep, size=(1,)
-            ).long()
+        t_samples = torch.randint(self.seq_len / 160 - self.timestep, size=(1,)).long()
         z = self.encoder(x)
         z = z.transpose(1, 2)
         nce = 0
@@ -247,8 +214,7 @@ class CDCK5(nn.Module):
             pred[i] = decoder(c_t)
         for i in np.arange(0, self.timestep):
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))
-            correct = torch.sum(torch.eq(torch.argmax(self.softmax(total),
-                dim=0), torch.arange(0, batch)))
+            correct = torch.sum(torch.eq(torch.argmax(self.softmax(total), dim=0), torch.arange(0, batch)))
             nce += torch.sum(torch.diag(self.lsoftmax(total)))
         nce /= -1.0 * batch * self.timestep
         accuracy = 1.0 * correct.item() / batch
@@ -269,37 +235,24 @@ class CDCK2(nn.Module):
         self.batch_size = batch_size
         self.seq_len = seq_len
         self.timestep = timestep
-        self.encoder = nn.Sequential(nn.Conv1d(1, 512, kernel_size=10,
-            stride=5, padding=3, bias=False), nn.BatchNorm1d(512), nn.ReLU(
-            inplace=True), nn.Conv1d(512, 512, kernel_size=8, stride=4,
-            padding=2, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=
-            True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1,
-            bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.
-            Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False
-            ), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 
-            512, kernel_size=4, stride=2, padding=1, bias=False), nn.
-            BatchNorm1d(512), nn.ReLU(inplace=True))
-        self.gru = nn.GRU(512, 256, num_layers=1, bidirectional=False,
-            batch_first=True)
+        self.encoder = nn.Sequential(nn.Conv1d(1, 512, kernel_size=10, stride=5, padding=3, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=8, stride=4, padding=2, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Conv1d(512, 512, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm1d(512), nn.ReLU(inplace=True))
+        self.gru = nn.GRU(512, 256, num_layers=1, bidirectional=False, batch_first=True)
         self.Wk = nn.ModuleList([nn.Linear(256, 512) for i in range(timestep)])
         self.softmax = nn.Softmax()
         self.lsoftmax = nn.LogSoftmax()
 
         def _weights_init(m):
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
         for layer_p in self.gru._all_weights:
             for p in layer_p:
                 if 'weight' in p:
-                    nn.init.kaiming_normal_(self.gru.__getattr__(p), mode=
-                        'fan_out', nonlinearity='relu')
+                    nn.init.kaiming_normal_(self.gru.__getattr__(p), mode='fan_out', nonlinearity='relu')
         self.apply(_weights_init)
 
     def init_hidden(self, batch_size, use_gpu=True):
@@ -310,8 +263,7 @@ class CDCK2(nn.Module):
 
     def forward(self, x, hidden):
         batch = x.size()[0]
-        t_samples = torch.randint(self.seq_len / 160 - self.timestep, size=(1,)
-            ).long()
+        t_samples = torch.randint(self.seq_len / 160 - self.timestep, size=(1,)).long()
         z = self.encoder(x)
         z = z.transpose(1, 2)
         nce = 0
@@ -327,8 +279,7 @@ class CDCK2(nn.Module):
             pred[i] = linear(c_t)
         for i in np.arange(0, self.timestep):
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))
-            correct = torch.sum(torch.eq(torch.argmax(self.softmax(total),
-                dim=0), torch.arange(0, batch)))
+            correct = torch.sum(torch.eq(torch.argmax(self.softmax(total), dim=0), torch.arange(0, batch)))
             nce += torch.sum(torch.diag(self.lsoftmax(total)))
         nce /= -1.0 * batch * self.timestep
         accuracy = 1.0 * correct.item() / batch
@@ -347,16 +298,13 @@ class SpkClassifier(nn.Module):
 
     def __init__(self, spk_num):
         super(SpkClassifier, self).__init__()
-        self.classifier = nn.Sequential(nn.Linear(256, 512), nn.BatchNorm1d
-            (512), nn.ReLU(), nn.Linear(512, spk_num))
+        self.classifier = nn.Sequential(nn.Linear(256, 512), nn.BatchNorm1d(512), nn.ReLU(), nn.Linear(512, spk_num))
 
         def _weights_init(m):
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -371,8 +319,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SpkClassifier,
+     lambda: ([], {'spk_num': 4}),
+     lambda: ([torch.rand([256, 256])], {}),
+     True),
+]
+
 class Test_jefflai108_Contrastive_Predictive_Coding_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(SpkClassifier(*[], **{'spk_num': 4}), [torch.rand([256, 256])], {})
+        self._check(*TESTCASES[0])
 

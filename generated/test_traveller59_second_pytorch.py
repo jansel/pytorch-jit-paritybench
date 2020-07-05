@@ -109,8 +109,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -230,9 +231,7 @@ def register_middle(cls, name=None):
 
 class SmallObjectHead(nn.Module):
 
-    def __init__(self, num_filters, num_class, num_anchor_per_loc,
-        box_code_size, num_direction_bins, use_direction_classifier,
-        encode_background_as_zeros):
+    def __init__(self, num_filters, num_class, num_anchor_per_loc, box_code_size, num_direction_bins, use_direction_classifier, encode_background_as_zeros):
         super().__init__()
         self._num_anchor_per_loc = num_anchor_per_loc
         self._num_direction_bins = num_direction_bins
@@ -243,18 +242,12 @@ class SmallObjectHead(nn.Module):
             num_cls = num_anchor_per_loc * num_class
         else:
             num_cls = num_anchor_per_loc * (num_class + 1)
-        self.net = nn.Sequential(nn.Conv2d(num_filters, 64, 3, bias=False,
-            padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(64, 64, 3,
-            bias=False, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.
-            Conv2d(64, 64, 3, bias=False, padding=1), nn.BatchNorm2d(64),
-            nn.ReLU())
+        self.net = nn.Sequential(nn.Conv2d(num_filters, 64, 3, bias=False, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(64, 64, 3, bias=False, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.Conv2d(64, 64, 3, bias=False, padding=1), nn.BatchNorm2d(64), nn.ReLU())
         final_num_filters = 64
         self.conv_cls = nn.Conv2d(final_num_filters, num_cls, 1)
-        self.conv_box = nn.Conv2d(final_num_filters, num_anchor_per_loc *
-            box_code_size, 1)
+        self.conv_box = nn.Conv2d(final_num_filters, num_anchor_per_loc * box_code_size, 1)
         if use_direction_classifier:
-            self.conv_dir_cls = nn.Conv2d(final_num_filters, 
-                num_anchor_per_loc * num_direction_bins, 1)
+            self.conv_dir_cls = nn.Conv2d(final_num_filters, num_anchor_per_loc * num_direction_bins, 1)
 
     def forward(self, x):
         x = self.net(x)
@@ -262,28 +255,19 @@ class SmallObjectHead(nn.Module):
         box_preds = self.conv_box(x)
         cls_preds = self.conv_cls(x)
         C, H, W = box_preds.shape[1:]
-        box_preds = box_preds.view(-1, self._num_anchor_per_loc, self.
-            _box_code_size, H, W).permute(0, 1, 3, 4, 2).contiguous()
-        cls_preds = cls_preds.view(-1, self._num_anchor_per_loc, self.
-            _num_class, H, W).permute(0, 1, 3, 4, 2).contiguous()
-        ret_dict = {'box_preds': box_preds.view(batch_size, -1, self.
-            _box_code_size), 'cls_preds': cls_preds.view(batch_size, -1,
-            self._num_class)}
+        box_preds = box_preds.view(-1, self._num_anchor_per_loc, self._box_code_size, H, W).permute(0, 1, 3, 4, 2).contiguous()
+        cls_preds = cls_preds.view(-1, self._num_anchor_per_loc, self._num_class, H, W).permute(0, 1, 3, 4, 2).contiguous()
+        ret_dict = {'box_preds': box_preds.view(batch_size, -1, self._box_code_size), 'cls_preds': cls_preds.view(batch_size, -1, self._num_class)}
         if self._use_direction_classifier:
             dir_cls_preds = self.conv_dir_cls(x)
-            dir_cls_preds = dir_cls_preds.view(-1, self._num_anchor_per_loc,
-                self._num_direction_bins, H, W).permute(0, 1, 3, 4, 2
-                ).contiguous()
-            ret_dict['dir_cls_preds'] = dir_cls_preds.view(batch_size, -1,
-                self._num_direction_bins)
+            dir_cls_preds = dir_cls_preds.view(-1, self._num_anchor_per_loc, self._num_direction_bins, H, W).permute(0, 1, 3, 4, 2).contiguous()
+            ret_dict['dir_cls_preds'] = dir_cls_preds.view(batch_size, -1, self._num_direction_bins)
         return ret_dict
 
 
 class DefaultHead(nn.Module):
 
-    def __init__(self, num_filters, num_class, num_anchor_per_loc,
-        box_code_size, num_direction_bins, use_direction_classifier,
-        encode_background_as_zeros):
+    def __init__(self, num_filters, num_class, num_anchor_per_loc, box_code_size, num_direction_bins, use_direction_classifier, encode_background_as_zeros):
         super().__init__()
         self._num_anchor_per_loc = num_anchor_per_loc
         self._num_direction_bins = num_direction_bins
@@ -296,38 +280,28 @@ class DefaultHead(nn.Module):
             num_cls = num_anchor_per_loc * (num_class + 1)
         final_num_filters = num_filters
         self.conv_cls = nn.Conv2d(final_num_filters, num_cls, 1)
-        self.conv_box = nn.Conv2d(final_num_filters, num_anchor_per_loc *
-            box_code_size, 1)
+        self.conv_box = nn.Conv2d(final_num_filters, num_anchor_per_loc * box_code_size, 1)
         if use_direction_classifier:
-            self.conv_dir_cls = nn.Conv2d(final_num_filters, 
-                num_anchor_per_loc * num_direction_bins, 1)
+            self.conv_dir_cls = nn.Conv2d(final_num_filters, num_anchor_per_loc * num_direction_bins, 1)
 
     def forward(self, x):
         batch_size = x.shape[0]
         box_preds = self.conv_box(x)
         cls_preds = self.conv_cls(x)
         C, H, W = box_preds.shape[1:]
-        box_preds = box_preds.view(-1, self._num_anchor_per_loc, self.
-            _box_code_size, H, W).permute(0, 1, 3, 4, 2).contiguous()
-        cls_preds = cls_preds.view(-1, self._num_anchor_per_loc, self.
-            _num_class, H, W).permute(0, 1, 3, 4, 2).contiguous()
-        ret_dict = {'box_preds': box_preds.view(batch_size, -1, self.
-            _box_code_size), 'cls_preds': cls_preds.view(batch_size, -1,
-            self._num_class)}
+        box_preds = box_preds.view(-1, self._num_anchor_per_loc, self._box_code_size, H, W).permute(0, 1, 3, 4, 2).contiguous()
+        cls_preds = cls_preds.view(-1, self._num_anchor_per_loc, self._num_class, H, W).permute(0, 1, 3, 4, 2).contiguous()
+        ret_dict = {'box_preds': box_preds.view(batch_size, -1, self._box_code_size), 'cls_preds': cls_preds.view(batch_size, -1, self._num_class)}
         if self._use_direction_classifier:
             dir_cls_preds = self.conv_dir_cls(x)
-            dir_cls_preds = dir_cls_preds.view(-1, self._num_anchor_per_loc,
-                self._num_direction_bins, H, W).permute(0, 1, 3, 4, 2
-                ).contiguous()
-            ret_dict['dir_cls_preds'] = dir_cls_preds.view(batch_size, -1,
-                self._num_direction_bins)
+            dir_cls_preds = dir_cls_preds.view(-1, self._num_anchor_per_loc, self._num_direction_bins, H, W).permute(0, 1, 3, 4, 2).contiguous()
+            ret_dict['dir_cls_preds'] = dir_cls_preds.view(batch_size, -1, self._num_direction_bins)
         return ret_dict
 
 
 class PFNLayer(nn.Module):
 
-    def __init__(self, in_channels, out_channels, use_norm=True, last_layer
-        =False):
+    def __init__(self, in_channels, out_channels, use_norm=True, last_layer=False):
         """
         Pillar Feature Net Layer.
         The Pillar Feature Net could be composed of a series of these layers, but the PointPillars paper results only
@@ -344,8 +318,7 @@ class PFNLayer(nn.Module):
             out_channels = out_channels // 2
         self.units = out_channels
         if use_norm:
-            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.
-                BatchNorm1d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
             Linear = change_default_args(bias=False)(nn.Linear)
         else:
             BatchNorm1d = Empty
@@ -355,8 +328,7 @@ class PFNLayer(nn.Module):
 
     def forward(self, inputs):
         x = self.linear(inputs)
-        x = self.norm(x.permute(0, 2, 1).contiguous()).permute(0, 2, 1
-            ).contiguous()
+        x = self.norm(x.permute(0, 2, 1).contiguous()).permute(0, 2, 1).contiguous()
         x = F.relu(x)
         x_max = torch.max(x, dim=1, keepdim=True)[0]
         if self.last_vfe:
@@ -380,8 +352,7 @@ def get_paddings_indicator(actual_num, max_num, axis=0):
     actual_num = torch.unsqueeze(actual_num, axis + 1)
     max_num_shape = [1] * len(actual_num.shape)
     max_num_shape[axis + 1] = -1
-    max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device
-        ).view(max_num_shape)
+    max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device).view(max_num_shape)
     paddings_indicator = actual_num.int() > max_num
     return paddings_indicator
 
@@ -406,13 +377,7 @@ def register_rpn(cls, name=None):
 
 class RPNNoHeadBase(nn.Module):
 
-    def __init__(self, use_norm=True, num_class=2, layer_nums=(3, 5, 5),
-        layer_strides=(2, 2, 2), num_filters=(128, 128, 256),
-        upsample_strides=(1, 2, 4), num_upsample_filters=(256, 256, 256),
-        num_input_features=128, num_anchor_per_loc=2,
-        encode_background_as_zeros=True, use_direction_classifier=True,
-        use_groupnorm=False, num_groups=32, box_code_size=7,
-        num_direction_bins=2, name='rpn'):
+    def __init__(self, use_norm=True, num_class=2, layer_nums=(3, 5, 5), layer_strides=(2, 2, 2), num_filters=(128, 128, 256), upsample_strides=(1, 2, 4), num_upsample_filters=(256, 256, 256), num_input_features=128, num_anchor_per_loc=2, encode_background_as_zeros=True, use_direction_classifier=True, use_groupnorm=False, num_groups=32, box_code_size=7, num_direction_bins=2, name='rpn'):
         """upsample_strides support float: [0.25, 0.5, 1]
         if upsample_strides < 1, conv2d will be used instead of convtranspose2d.
         """
@@ -432,48 +397,34 @@ class RPNNoHeadBase(nn.Module):
         self._upsample_start_idx = len(layer_nums) - len(upsample_strides)
         must_equal_list = []
         for i in range(len(upsample_strides)):
-            must_equal_list.append(upsample_strides[i] / np.prod(
-                layer_strides[:i + self._upsample_start_idx + 1]))
+            must_equal_list.append(upsample_strides[i] / np.prod(layer_strides[:i + self._upsample_start_idx + 1]))
         for val in must_equal_list:
             assert val == must_equal_list[0]
         if use_norm:
             if use_groupnorm:
-                BatchNorm2d = change_default_args(num_groups=num_groups,
-                    eps=0.001)(GroupNorm)
+                BatchNorm2d = change_default_args(num_groups=num_groups, eps=0.001)(GroupNorm)
             else:
-                BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn
-                    .BatchNorm2d)
+                BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
             Conv2d = change_default_args(bias=False)(nn.Conv2d)
-            ConvTranspose2d = change_default_args(bias=False)(nn.
-                ConvTranspose2d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
         else:
             BatchNorm2d = Empty
             Conv2d = change_default_args(bias=True)(nn.Conv2d)
-            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d
-                )
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
         in_filters = [num_input_features, *num_filters[:-1]]
         blocks = []
         deblocks = []
         for i, layer_num in enumerate(layer_nums):
-            block, num_out_filters = self._make_layer(in_filters[i],
-                num_filters[i], layer_num, stride=layer_strides[i])
+            block, num_out_filters = self._make_layer(in_filters[i], num_filters[i], layer_num, stride=layer_strides[i])
             blocks.append(block)
             if i - self._upsample_start_idx >= 0:
                 stride = upsample_strides[i - self._upsample_start_idx]
                 if stride >= 1:
                     stride = np.round(stride).astype(np.int64)
-                    deblock = nn.Sequential(ConvTranspose2d(num_out_filters,
-                        num_upsample_filters[i - self._upsample_start_idx],
-                        stride, stride=stride), BatchNorm2d(
-                        num_upsample_filters[i - self._upsample_start_idx]),
-                        nn.ReLU())
+                    deblock = nn.Sequential(ConvTranspose2d(num_out_filters, num_upsample_filters[i - self._upsample_start_idx], stride, stride=stride), BatchNorm2d(num_upsample_filters[i - self._upsample_start_idx]), nn.ReLU())
                 else:
                     stride = np.round(1 / stride).astype(np.int64)
-                    deblock = nn.Sequential(Conv2d(num_out_filters,
-                        num_upsample_filters[i - self._upsample_start_idx],
-                        stride, stride=stride), BatchNorm2d(
-                        num_upsample_filters[i - self._upsample_start_idx]),
-                        nn.ReLU())
+                    deblock = nn.Sequential(Conv2d(num_out_filters, num_upsample_filters[i - self._upsample_start_idx], stride, stride=stride), BatchNorm2d(num_upsample_filters[i - self._upsample_start_idx]), nn.ReLU())
                 deblocks.append(deblock)
         self._num_out_filters = num_out_filters
         self.blocks = nn.ModuleList(blocks)
@@ -515,8 +466,7 @@ class VFELayer(nn.Module):
         self.name = name
         self.units = int(out_channels / 2)
         if use_norm:
-            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.
-                BatchNorm1d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
             Linear = change_default_args(bias=False)(nn.Linear)
         else:
             BatchNorm1d = Empty
@@ -527,8 +477,7 @@ class VFELayer(nn.Module):
     def forward(self, inputs):
         voxel_count = inputs.shape[1]
         x = self.linear(inputs)
-        x = self.norm(x.permute(0, 2, 1).contiguous()).permute(0, 2, 1
-            ).contiguous()
+        x = self.norm(x.permute(0, 2, 1).contiguous()).permute(0, 2, 1).contiguous()
         pointwise = F.relu(x)
         aggregated = torch.max(pointwise, dim=1, keepdim=True)[0]
         repeated = aggregated.repeat(1, voxel_count, 1)
@@ -547,8 +496,7 @@ class Loss(object):
     """Abstract base class for loss functions."""
     __metaclass__ = ABCMeta
 
-    def __call__(self, prediction_tensor, target_tensor, ignore_nan_targets
-        =False, scope=None, **params):
+    def __call__(self, prediction_tensor, target_tensor, ignore_nan_targets=False, scope=None, **params):
         """Call the loss function.
 
     Args:
@@ -567,8 +515,7 @@ class Loss(object):
       loss: a tensor representing the value of the loss function.
     """
         if ignore_nan_targets:
-            target_tensor = torch.where(torch.isnan(target_tensor),
-                prediction_tensor, target_tensor)
+            target_tensor = torch.where(torch.isnan(target_tensor), prediction_tensor, target_tensor)
         return self._compute_loss(prediction_tensor, target_tensor, **params)
 
     @abstractmethod
@@ -623,14 +570,11 @@ class WeightedSmoothL1LocalizationLoss(Loss):
     """
         diff = prediction_tensor - target_tensor
         if self._code_weights is not None:
-            code_weights = self._code_weights.type_as(prediction_tensor).to(
-                target_tensor.device)
+            code_weights = self._code_weights.type_as(prediction_tensor).to(target_tensor.device)
             diff = code_weights.view(1, 1, -1) * diff
         abs_diff = torch.abs(diff)
-        abs_diff_lt_1 = torch.le(abs_diff, 1 / self._sigma ** 2).type_as(
-            abs_diff)
-        loss = abs_diff_lt_1 * 0.5 * torch.pow(abs_diff * self._sigma, 2) + (
-            abs_diff - 0.5 / self._sigma ** 2) * (1.0 - abs_diff_lt_1)
+        abs_diff_lt_1 = torch.le(abs_diff, 1 / self._sigma ** 2).type_as(abs_diff)
+        loss = abs_diff_lt_1 * 0.5 * torch.pow(abs_diff * self._sigma, 2) + (abs_diff - 0.5 / self._sigma ** 2) * (1.0 - abs_diff_lt_1)
         if self._codewise:
             anchorwise_smooth_l1norm = loss
             if weights is not None:
@@ -681,19 +625,15 @@ class WeightedSoftmaxClassificationLoss(Loss):
     """
         num_classes = prediction_tensor.shape[-1]
         prediction_tensor = torch.div(prediction_tensor, self._logit_scale)
-        per_row_cross_ent = _softmax_cross_entropy_with_logits(labels=
-            target_tensor.view(-1, num_classes), logits=prediction_tensor.
-            view(-1, num_classes))
+        per_row_cross_ent = _softmax_cross_entropy_with_logits(labels=target_tensor.view(-1, num_classes), logits=prediction_tensor.view(-1, num_classes))
         return per_row_cross_ent.view(weights.shape) * weights
 
 
 def _get_pos_neg_loss(cls_loss, labels):
     batch_size = cls_loss.shape[0]
     if cls_loss.shape[-1] == 1 or len(cls_loss.shape) == 2:
-        cls_pos_loss = (labels > 0).type_as(cls_loss) * cls_loss.view(
-            batch_size, -1)
-        cls_neg_loss = (labels == 0).type_as(cls_loss) * cls_loss.view(
-            batch_size, -1)
+        cls_pos_loss = (labels > 0).type_as(cls_loss) * cls_loss.view(batch_size, -1)
+        cls_neg_loss = (labels == 0).type_as(cls_loss) * cls_loss.view(batch_size, -1)
         cls_pos_loss = cls_pos_loss.sum() / batch_size
         cls_neg_loss = cls_neg_loss.sum() / batch_size
     else:
@@ -708,17 +648,12 @@ def add_sin_difference(boxes1, boxes2, boxes1_rot, boxes2_rot, factor=1.0):
         boxes2_rot = factor * boxes2_rot
     rad_pred_encoding = torch.sin(boxes1_rot) * torch.cos(boxes2_rot)
     rad_tg_encoding = torch.cos(boxes1_rot) * torch.sin(boxes2_rot)
-    boxes1 = torch.cat([boxes1[(...), :6], rad_pred_encoding, boxes1[(...),
-        7:]], dim=-1)
-    boxes2 = torch.cat([boxes2[(...), :6], rad_tg_encoding, boxes2[(...), 7
-        :]], dim=-1)
+    boxes1 = torch.cat([boxes1[(...), :6], rad_pred_encoding, boxes1[(...), 7:]], dim=-1)
+    boxes2 = torch.cat([boxes2[(...), :6], rad_tg_encoding, boxes2[(...), 7:]], dim=-1)
     return boxes1, boxes2
 
 
-def create_loss(loc_loss_ftor, cls_loss_ftor, box_preds, cls_preds,
-    cls_targets, cls_weights, reg_targets, reg_weights, num_class,
-    encode_background_as_zeros=True, encode_rad_error_by_sin=True,
-    sin_error_factor=1.0, box_code_size=7, num_direction_bins=2):
+def create_loss(loc_loss_ftor, cls_loss_ftor, box_preds, cls_preds, cls_targets, cls_weights, reg_targets, reg_weights, num_class, encode_background_as_zeros=True, encode_rad_error_by_sin=True, sin_error_factor=1.0, box_code_size=7, num_direction_bins=2):
     batch_size = int(box_preds.shape[0])
     box_preds = box_preds.view(batch_size, -1, box_code_size)
     if encode_background_as_zeros:
@@ -726,20 +661,17 @@ def create_loss(loc_loss_ftor, cls_loss_ftor, box_preds, cls_preds,
     else:
         cls_preds = cls_preds.view(batch_size, -1, num_class + 1)
     cls_targets = cls_targets.squeeze(-1)
-    one_hot_targets = torchplus.nn.one_hot(cls_targets, depth=num_class + 1,
-        dtype=box_preds.dtype)
+    one_hot_targets = torchplus.nn.one_hot(cls_targets, depth=num_class + 1, dtype=box_preds.dtype)
     if encode_background_as_zeros:
         one_hot_targets = one_hot_targets[(...), 1:]
     if encode_rad_error_by_sin:
-        box_preds, reg_targets = add_sin_difference(box_preds, reg_targets,
-            box_preds[(...), 6:7], reg_targets[(...), 6:7], sin_error_factor)
+        box_preds, reg_targets = add_sin_difference(box_preds, reg_targets, box_preds[(...), 6:7], reg_targets[(...), 6:7], sin_error_factor)
     loc_losses = loc_loss_ftor(box_preds, reg_targets, weights=reg_weights)
     cls_losses = cls_loss_ftor(cls_preds, one_hot_targets, weights=cls_weights)
     return loc_losses, cls_losses
 
 
-def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset=0,
-    num_bins=2):
+def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset=0, num_bins=2):
     batch_size = reg_targets.shape[0]
     anchors = anchors.view(batch_size, -1, anchors.shape[-1])
     rot_gt = reg_targets[..., 6] + anchors[..., 6]
@@ -747,13 +679,11 @@ def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset=0,
     dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / num_bins)).long()
     dir_cls_targets = torch.clamp(dir_cls_targets, min=0, max=num_bins - 1)
     if one_hot:
-        dir_cls_targets = torchplus.nn.one_hot(dir_cls_targets, num_bins,
-            dtype=anchors.dtype)
+        dir_cls_targets = torchplus.nn.one_hot(dir_cls_targets, num_bins, dtype=anchors.dtype)
     return dir_cls_targets
 
 
-def prepare_loss_weights(labels, pos_cls_weight=1.0, neg_cls_weight=1.0,
-    loss_norm_type=LossNormType.NormByNumPositives, dtype=torch.float32):
+def prepare_loss_weights(labels, pos_cls_weight=1.0, neg_cls_weight=1.0, loss_norm_type=LossNormType.NormByNumPositives, dtype=torch.float32):
     """get cls_weights and reg_weights from labels.
     """
     cared = labels >= 0
@@ -784,8 +714,7 @@ def prepare_loss_weights(labels, pos_cls_weight=1.0, neg_cls_weight=1.0,
         pos_normalizer = positives.sum(1, keepdim=True).type(dtype)
         reg_weights /= torch.clamp(pos_normalizer, min=1.0)
     else:
-        raise ValueError(
-            f'unknown loss norm type. available: {list(LossNormType)}')
+        raise ValueError(f'unknown loss norm type. available: {list(LossNormType)}')
     return cls_weights, reg_weights, cared
 
 
@@ -822,8 +751,7 @@ class Scalar(nn.Module):
 
 class Accuracy(nn.Module):
 
-    def __init__(self, dim=1, ignore_idx=-1, threshold=0.5,
-        encode_background_as_zeros=True):
+    def __init__(self, dim=1, ignore_idx=-1, threshold=0.5, encode_background_as_zeros=True):
         super().__init__()
         self.register_buffer('total', torch.FloatTensor([0.0]))
         self.register_buffer('count', torch.FloatTensor([0.0]))
@@ -836,8 +764,7 @@ class Accuracy(nn.Module):
         if self._encode_background_as_zeros:
             scores = torch.sigmoid(preds)
             labels_pred = torch.max(preds, dim=self._dim)[1] + 1
-            pred_labels = torch.where((scores > self._threshold).any(self.
-                _dim), labels_pred, torch.tensor(0).type_as(labels_pred))
+            pred_labels = torch.where((scores > self._threshold).any(self._dim), labels_pred, torch.tensor(0).type_as(labels_pred))
         else:
             pred_labels = torch.max(preds, dim=self._dim)[1]
         N, *Ds = labels.shape
@@ -875,11 +802,9 @@ class Precision(nn.Module):
 
     def forward(self, labels, preds, weights=None):
         if preds.shape[self._dim] == 1:
-            pred_labels = (torch.sigmoid(preds) > self._threshold).long(
-                ).squeeze(self._dim)
+            pred_labels = (torch.sigmoid(preds) > self._threshold).long().squeeze(self._dim)
         else:
-            assert preds.shape[self._dim
-                ] == 2, 'precision only support 2 class'
+            assert preds.shape[self._dim] == 2, 'precision only support 2 class'
             pred_labels = torch.max(preds, dim=self._dim)[1]
         N, *Ds = labels.shape
         labels = labels.view(N, int(np.prod(Ds)))
@@ -923,11 +848,9 @@ class Recall(nn.Module):
 
     def forward(self, labels, preds, weights=None):
         if preds.shape[self._dim] == 1:
-            pred_labels = (torch.sigmoid(preds) > self._threshold).long(
-                ).squeeze(self._dim)
+            pred_labels = (torch.sigmoid(preds) > self._threshold).long().squeeze(self._dim)
         else:
-            assert preds.shape[self._dim
-                ] == 2, 'precision only support 2 class'
+            assert preds.shape[self._dim] == 2, 'precision only support 2 class'
             pred_labels = torch.max(preds, dim=self._dim)[1]
         N, *Ds = labels.shape
         labels = labels.view(N, int(np.prod(Ds)))
@@ -959,8 +882,7 @@ class Recall(nn.Module):
         self.count.zero_()
 
 
-def _calc_binary_metrics(labels, scores, weights=None, ignore_idx=-1,
-    threshold=0.5):
+def _calc_binary_metrics(labels, scores, weights=None, ignore_idx=-1, threshold=0.5):
     pred_labels = (scores > threshold).long()
     N, *Ds = labels.shape
     labels = labels.view(N, int(np.prod(Ds)))
@@ -978,19 +900,14 @@ def _calc_binary_metrics(labels, scores, weights=None, ignore_idx=-1,
 
 class PrecisionRecall(nn.Module):
 
-    def __init__(self, dim=1, ignore_idx=-1, thresholds=0.5,
-        use_sigmoid_score=False, encode_background_as_zeros=True):
+    def __init__(self, dim=1, ignore_idx=-1, thresholds=0.5, use_sigmoid_score=False, encode_background_as_zeros=True):
         super().__init__()
         if not isinstance(thresholds, (list, tuple)):
             thresholds = [thresholds]
-        self.register_buffer('prec_total', torch.FloatTensor(len(thresholds
-            )).zero_())
-        self.register_buffer('prec_count', torch.FloatTensor(len(thresholds
-            )).zero_())
-        self.register_buffer('rec_total', torch.FloatTensor(len(thresholds)
-            ).zero_())
-        self.register_buffer('rec_count', torch.FloatTensor(len(thresholds)
-            ).zero_())
+        self.register_buffer('prec_total', torch.FloatTensor(len(thresholds)).zero_())
+        self.register_buffer('prec_count', torch.FloatTensor(len(thresholds)).zero_())
+        self.register_buffer('rec_total', torch.FloatTensor(len(thresholds)).zero_())
+        self.register_buffer('rec_count', torch.FloatTensor(len(thresholds)).zero_())
         self._ignore_idx = ignore_idx
         self._dim = dim
         self._thresholds = thresholds
@@ -1024,8 +941,7 @@ class PrecisionRecall(nn.Module):
         else:
             weights = weights.float()
         for i, thresh in enumerate(self._thresholds):
-            tp, tn, fp, fn = _calc_binary_metrics(labels, scores, weights,
-                self._ignore_idx, thresh)
+            tp, tn, fp, fn = _calc_binary_metrics(labels, scores, weights, self._ignore_idx, thresh)
             rec_count = tp + fn
             prec_count = tp + fp
             if rec_count > 0:
@@ -1040,8 +956,7 @@ class PrecisionRecall(nn.Module):
     def value(self):
         prec_count = torch.clamp(self.prec_count, min=1.0)
         rec_count = torch.clamp(self.rec_count, min=1.0)
-        return (self.prec_total / prec_count).cpu(), (self.rec_total /
-            rec_count).cpu()
+        return (self.prec_total / prec_count).cpu(), (self.rec_total / rec_count).cpu()
 
     @property
     def thresholds(self):
@@ -1143,36 +1058,65 @@ class Sequential(torch.nn.Module):
 class GroupNorm(torch.nn.GroupNorm):
 
     def __init__(self, num_channels, num_groups, eps=1e-05, affine=True):
-        super().__init__(num_groups=num_groups, num_channels=num_channels,
-            eps=eps, affine=affine)
+        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_traveller59_second_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(DefaultHead(*[], **{'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DefaultHead,
+     lambda: ([], {'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Empty,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+    (GroupNorm,
+     lambda: ([], {'num_channels': 4, 'num_groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PFNLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Sequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SmallObjectHead,
+     lambda: ([], {'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VFELayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+]
+
+class Test_traveller59_second_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Empty(*[], **{}), [], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(GroupNorm(*[], **{'num_channels': 4, 'num_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PFNLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SmallObjectHead(*[], **{'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(VFELayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

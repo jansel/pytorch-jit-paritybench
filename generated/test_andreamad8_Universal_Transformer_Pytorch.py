@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,34 +60,23 @@ class BabiUTransformer(nn.Module):
     Outputs will have the shape [batch_size, ]
     """
 
-    def __init__(self, num_vocab, embedding_size, hidden_size, num_layers,
-        num_heads, total_key_depth, total_value_depth, filter_size,
-        max_length=71, input_dropout=0.0, layer_dropout=0.0,
-        attention_dropout=0.0, relu_dropout=0.0, use_mask=False, act=False):
+    def __init__(self, num_vocab, embedding_size, hidden_size, num_layers, num_heads, total_key_depth, total_value_depth, filter_size, max_length=71, input_dropout=0.0, layer_dropout=0.0, attention_dropout=0.0, relu_dropout=0.0, use_mask=False, act=False):
         super(BabiUTransformer, self).__init__()
         self.embedding_dim = embedding_size
         self.emb = nn.Embedding(num_vocab, embedding_size, padding_idx=0)
-        self.transformer_enc = Encoder(embedding_size, hidden_size,
-            num_layers, num_heads, total_key_depth, total_value_depth,
-            filter_size, max_length=71, input_dropout=input_dropout,
-            layer_dropout=layer_dropout, attention_dropout=
-            attention_dropout, relu_dropout=relu_dropout, use_mask=False,
-            act=act)
+        self.transformer_enc = Encoder(embedding_size, hidden_size, num_layers, num_heads, total_key_depth, total_value_depth, filter_size, max_length=71, input_dropout=input_dropout, layer_dropout=layer_dropout, attention_dropout=attention_dropout, relu_dropout=relu_dropout, use_mask=False, act=act)
         self.W = nn.Linear(self.embedding_dim, num_vocab)
         self.W.weight = self.emb.weight
         self.softmax = nn.Softmax(dim=1)
-        self.mask = nn.Parameter(I.constant_(torch.empty(11, self.
-            embedding_dim), 1))
+        self.mask = nn.Parameter(I.constant_(torch.empty(11, self.embedding_dim), 1))
 
     def forward(self, story, query):
         story_size = story.size()
         embed = self.emb(story.view(story.size(0), -1))
         embed = embed.view(story_size + (embed.size(-1),))
-        embed_story = torch.sum(embed * self.mask[:story.size(2), :].
-            unsqueeze(0), 2)
+        embed_story = torch.sum(embed * self.mask[:story.size(2), :].unsqueeze(0), 2)
         query_embed = self.emb(query)
-        embed_query = torch.sum(query_embed.unsqueeze(1) * self.mask[:query
-            .size(1), :], 2)
+        embed_query = torch.sum(query_embed.unsqueeze(1) * self.mask[:query.size(1), :], 2)
         embed = torch.cat([embed_story, embed_query], dim=1)
         logit, act = self.transformer_enc(embed)
         a_hat = self.W(torch.sum(logit, dim=1) / logit.size(1))
@@ -102,8 +92,7 @@ def _gen_bias_mask(max_length):
     return torch_mask.unsqueeze(0).unsqueeze(1)
 
 
-def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=
-    10000.0):
+def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=10000.0):
     """
     Generates a [1, length, channels] timing signal consisting of sinusoids
     Adapted from:
@@ -111,15 +100,11 @@ def _gen_timing_signal(length, channels, min_timescale=1.0, max_timescale=
     """
     position = np.arange(length)
     num_timescales = channels // 2
-    log_timescale_increment = math.log(float(max_timescale) / float(
-        min_timescale)) / (float(num_timescales) - 1)
-    inv_timescales = min_timescale * np.exp(np.arange(num_timescales).
-        astype(np.float) * -log_timescale_increment)
-    scaled_time = np.expand_dims(position, 1) * np.expand_dims(inv_timescales,
-        0)
+    log_timescale_increment = math.log(float(max_timescale) / float(min_timescale)) / (float(num_timescales) - 1)
+    inv_timescales = min_timescale * np.exp(np.arange(num_timescales).astype(np.float) * -log_timescale_increment)
+    scaled_time = np.expand_dims(position, 1) * np.expand_dims(inv_timescales, 0)
     signal = np.concatenate([np.sin(scaled_time), np.cos(scaled_time)], axis=1)
-    signal = np.pad(signal, [[0, 0], [0, channels % 2]], 'constant',
-        constant_values=[0.0, 0.0])
+    signal = np.pad(signal, [[0, 0], [0, channels % 2]], 'constant', constant_values=[0.0, 0.0])
     signal = signal.reshape([1, length, channels])
     return torch.from_numpy(signal).type(torch.FloatTensor)
 
@@ -132,10 +117,7 @@ class Encoder(nn.Module):
     Refer Fig.1 in https://arxiv.org/pdf/1706.03762.pdf
     """
 
-    def __init__(self, embedding_size, hidden_size, num_layers, num_heads,
-        total_key_depth, total_value_depth, filter_size, max_length=100,
-        input_dropout=0.0, layer_dropout=0.0, attention_dropout=0.0,
-        relu_dropout=0.0, use_mask=False, act=False):
+    def __init__(self, embedding_size, hidden_size, num_layers, num_heads, total_key_depth, total_value_depth, filter_size, max_length=100, input_dropout=0.0, layer_dropout=0.0, attention_dropout=0.0, relu_dropout=0.0, use_mask=False, act=False):
         """
         Parameters:
             embedding_size: Size of embeddings
@@ -158,14 +140,10 @@ class Encoder(nn.Module):
         self.position_signal = _gen_timing_signal(num_layers, hidden_size)
         self.num_layers = num_layers
         self.act = act
-        params = (hidden_size, total_key_depth or hidden_size, 
-            total_value_depth or hidden_size, filter_size, num_heads, 
-            _gen_bias_mask(max_length) if use_mask else None, layer_dropout,
-            attention_dropout, relu_dropout)
+        params = hidden_size, total_key_depth or hidden_size, total_value_depth or hidden_size, filter_size, num_heads, _gen_bias_mask(max_length) if use_mask else None, layer_dropout, attention_dropout, relu_dropout
         self.proj_flag = False
         if embedding_size == hidden_size:
-            self.embedding_proj = nn.Linear(embedding_size, hidden_size,
-                bias=False)
+            self.embedding_proj = nn.Linear(embedding_size, hidden_size, bias=False)
             self.proj_flag = True
         self.enc = EncoderLayer(*params)
         self.layer_norm = LayerNorm(hidden_size)
@@ -178,15 +156,12 @@ class Encoder(nn.Module):
         if self.proj_flag:
             x = self.embedding_proj(x)
         if self.act:
-            x, (remainders, n_updates) = self.act_fn(x, inputs, self.enc,
-                self.timing_signal, self.position_signal, self.num_layers)
+            x, (remainders, n_updates) = self.act_fn(x, inputs, self.enc, self.timing_signal, self.position_signal, self.num_layers)
             return x, (remainders, n_updates)
         else:
             for l in range(self.num_layers):
-                x += self.timing_signal[:, :inputs.shape[1], :].type_as(inputs
-                    .data)
-                x += self.position_signal[:, (l), :].unsqueeze(1).repeat(1,
-                    inputs.shape[1], 1).type_as(inputs.data)
+                x += self.timing_signal[:, :inputs.shape[1], :].type_as(inputs.data)
+                x += self.position_signal[:, (l), :].unsqueeze(1).repeat(1, inputs.shape[1], 1).type_as(inputs.data)
                 x = self.enc(x)
             return x, None
 
@@ -199,10 +174,7 @@ class Decoder(nn.Module):
     Refer Fig.1 in https://arxiv.org/pdf/1706.03762.pdf
     """
 
-    def __init__(self, embedding_size, hidden_size, num_layers, num_heads,
-        total_key_depth, total_value_depth, filter_size, max_length=100,
-        input_dropout=0.0, layer_dropout=0.0, attention_dropout=0.0,
-        relu_dropout=0.0, act=False):
+    def __init__(self, embedding_size, hidden_size, num_layers, num_heads, total_key_depth, total_value_depth, filter_size, max_length=100, input_dropout=0.0, layer_dropout=0.0, attention_dropout=0.0, relu_dropout=0.0, act=False):
         """
         Parameters:
             embedding_size: Size of embeddings
@@ -224,14 +196,10 @@ class Decoder(nn.Module):
         self.position_signal = _gen_timing_signal(num_layers, hidden_size)
         self.num_layers = num_layers
         self.act = act
-        params = (hidden_size, total_key_depth or hidden_size, 
-            total_value_depth or hidden_size, filter_size, num_heads,
-            _gen_bias_mask(max_length), layer_dropout, attention_dropout,
-            relu_dropout)
+        params = hidden_size, total_key_depth or hidden_size, total_value_depth or hidden_size, filter_size, num_heads, _gen_bias_mask(max_length), layer_dropout, attention_dropout, relu_dropout
         self.proj_flag = False
         if embedding_size == hidden_size:
-            self.embedding_proj = nn.Linear(embedding_size, hidden_size,
-                bias=False)
+            self.embedding_proj = nn.Linear(embedding_size, hidden_size, bias=False)
             self.proj_flag = True
         self.dec = DecoderLayer(*params)
         self.layer_norm = LayerNorm(hidden_size)
@@ -244,16 +212,12 @@ class Decoder(nn.Module):
         if self.proj_flag:
             x = self.embedding_proj(x)
         if self.act:
-            x, (remainders, n_updates) = self.act_fn(x, inputs, self.dec,
-                self.timing_signal, self.position_signal, self.num_layers,
-                encoder_output)
+            x, (remainders, n_updates) = self.act_fn(x, inputs, self.dec, self.timing_signal, self.position_signal, self.num_layers, encoder_output)
             return x, (remainders, n_updates)
         else:
             for l in range(self.num_layers):
-                x += self.timing_signal[:, :inputs.shape[1], :].type_as(inputs
-                    .data)
-                x += self.position_signal[:, (l), :].unsqueeze(1).repeat(1,
-                    inputs.shape[1], 1).type_as(inputs.data)
+                x += self.timing_signal[:, :inputs.shape[1], :].type_as(inputs.data)
+                x += self.position_signal[:, (l), :].unsqueeze(1).repeat(1, inputs.shape[1], 1).type_as(inputs.data)
                 x, _ = self.dec((x, encoder_output))
         return x
 
@@ -267,25 +231,19 @@ class ACT_basic(nn.Module):
         self.p.bias.data.fill_(1)
         self.threshold = 1 - 0.1
 
-    def forward(self, state, inputs, fn, time_enc, pos_enc, max_hop,
-        encoder_output=None):
+    def forward(self, state, inputs, fn, time_enc, pos_enc, max_hop, encoder_output=None):
         halting_probability = torch.zeros(inputs.shape[0], inputs.shape[1])
         remainders = torch.zeros(inputs.shape[0], inputs.shape[1])
         n_updates = torch.zeros(inputs.shape[0], inputs.shape[1])
         previous_state = torch.zeros_like(inputs)
         step = 0
-        while ((halting_probability < self.threshold) & (n_updates < max_hop)
-            ).byte().any():
-            state = state + time_enc[:, :inputs.shape[1], :].type_as(inputs
-                .data)
-            state = state + pos_enc[:, (step), :].unsqueeze(1).repeat(1,
-                inputs.shape[1], 1).type_as(inputs.data)
+        while ((halting_probability < self.threshold) & (n_updates < max_hop)).byte().any():
+            state = state + time_enc[:, :inputs.shape[1], :].type_as(inputs.data)
+            state = state + pos_enc[:, (step), :].unsqueeze(1).repeat(1, inputs.shape[1], 1).type_as(inputs.data)
             p = self.sigma(self.p(state)).squeeze(-1)
             still_running = (halting_probability < 1.0).float()
-            new_halted = (halting_probability + p * still_running > self.
-                threshold).float() * still_running
-            still_running = (halting_probability + p * still_running <=
-                self.threshold).float() * still_running
+            new_halted = (halting_probability + p * still_running > self.threshold).float() * still_running
+            still_running = (halting_probability + p * still_running <= self.threshold).float() * still_running
             halting_probability = halting_probability + p * still_running
             remainders = remainders + new_halted * (1 - halting_probability)
             halting_probability = halting_probability + new_halted * remainders
@@ -295,8 +253,7 @@ class ACT_basic(nn.Module):
                 state, _ = fn((state, encoder_output))
             else:
                 state = fn(state)
-            previous_state = state * update_weights.unsqueeze(-1
-                ) + previous_state * (1 - update_weights.unsqueeze(-1))
+            previous_state = state * update_weights.unsqueeze(-1) + previous_state * (1 - update_weights.unsqueeze(-1))
             step += 1
         return previous_state, (remainders, n_updates)
 
@@ -308,9 +265,7 @@ class EncoderLayer(nn.Module):
     NOTE: The layer normalization step has been moved to the input as per latest version of T2T
     """
 
-    def __init__(self, hidden_size, total_key_depth, total_value_depth,
-        filter_size, num_heads, bias_mask=None, layer_dropout=0.0,
-        attention_dropout=0.0, relu_dropout=0.0):
+    def __init__(self, hidden_size, total_key_depth, total_value_depth, filter_size, num_heads, bias_mask=None, layer_dropout=0.0, attention_dropout=0.0, relu_dropout=0.0):
         """
         Parameters:
             hidden_size: Hidden size
@@ -325,12 +280,8 @@ class EncoderLayer(nn.Module):
             relu_dropout: Dropout probability after relu in FFN (Should be non-zero only during training)
         """
         super(EncoderLayer, self).__init__()
-        self.multi_head_attention = MultiHeadAttention(hidden_size,
-            total_key_depth, total_value_depth, hidden_size, num_heads,
-            bias_mask, attention_dropout)
-        self.positionwise_feed_forward = PositionwiseFeedForward(hidden_size,
-            filter_size, hidden_size, layer_config='cc', padding='both',
-            dropout=relu_dropout)
+        self.multi_head_attention = MultiHeadAttention(hidden_size, total_key_depth, total_value_depth, hidden_size, num_heads, bias_mask, attention_dropout)
+        self.positionwise_feed_forward = PositionwiseFeedForward(hidden_size, filter_size, hidden_size, layer_config='cc', padding='both', dropout=relu_dropout)
         self.dropout = nn.Dropout(layer_dropout)
         self.layer_norm_mha = LayerNorm(hidden_size)
         self.layer_norm_ffn = LayerNorm(hidden_size)
@@ -353,9 +304,7 @@ class DecoderLayer(nn.Module):
     NOTE: The layer normalization step has been moved to the input as per latest version of T2T
     """
 
-    def __init__(self, hidden_size, total_key_depth, total_value_depth,
-        filter_size, num_heads, bias_mask, layer_dropout=0.0,
-        attention_dropout=0.0, relu_dropout=0.0):
+    def __init__(self, hidden_size, total_key_depth, total_value_depth, filter_size, num_heads, bias_mask, layer_dropout=0.0, attention_dropout=0.0, relu_dropout=0.0):
         """
         Parameters:
             hidden_size: Hidden size
@@ -370,15 +319,9 @@ class DecoderLayer(nn.Module):
             relu_dropout: Dropout probability after relu in FFN (Should be non-zero only during training)
         """
         super(DecoderLayer, self).__init__()
-        self.multi_head_attention_dec = MultiHeadAttention(hidden_size,
-            total_key_depth, total_value_depth, hidden_size, num_heads,
-            bias_mask, attention_dropout)
-        self.multi_head_attention_enc_dec = MultiHeadAttention(hidden_size,
-            total_key_depth, total_value_depth, hidden_size, num_heads,
-            None, attention_dropout)
-        self.positionwise_feed_forward = PositionwiseFeedForward(hidden_size,
-            filter_size, hidden_size, layer_config='cc', padding='left',
-            dropout=relu_dropout)
+        self.multi_head_attention_dec = MultiHeadAttention(hidden_size, total_key_depth, total_value_depth, hidden_size, num_heads, bias_mask, attention_dropout)
+        self.multi_head_attention_enc_dec = MultiHeadAttention(hidden_size, total_key_depth, total_value_depth, hidden_size, num_heads, None, attention_dropout)
+        self.positionwise_feed_forward = PositionwiseFeedForward(hidden_size, filter_size, hidden_size, layer_config='cc', padding='left', dropout=relu_dropout)
         self.dropout = nn.Dropout(layer_dropout)
         self.layer_norm_mha_dec = LayerNorm(hidden_size)
         self.layer_norm_mha_enc = LayerNorm(hidden_size)
@@ -393,8 +336,7 @@ class DecoderLayer(nn.Module):
         y = self.multi_head_attention_dec(x_norm, x_norm, x_norm)
         x = self.dropout(x + y)
         x_norm = self.layer_norm_mha_enc(x)
-        y = self.multi_head_attention_enc_dec(x_norm, encoder_outputs,
-            encoder_outputs)
+        y = self.multi_head_attention_enc_dec(x_norm, encoder_outputs, encoder_outputs)
         x = self.dropout(x + y)
         x_norm = self.layer_norm_ffn(x)
         y = self.positionwise_feed_forward(x_norm)
@@ -408,8 +350,7 @@ class MultiHeadAttention(nn.Module):
     Refer Figure 2
     """
 
-    def __init__(self, input_depth, total_key_depth, total_value_depth,
-        output_depth, num_heads, bias_mask=None, dropout=0.0):
+    def __init__(self, input_depth, total_key_depth, total_value_depth, output_depth, num_heads, bias_mask=None, dropout=0.0):
         """
         Parameters:
             input_depth: Size of last dimension of input
@@ -422,22 +363,16 @@ class MultiHeadAttention(nn.Module):
         """
         super(MultiHeadAttention, self).__init__()
         if total_key_depth % num_heads != 0:
-            raise ValueError(
-                'Key depth (%d) must be divisible by the number of attention heads (%d).'
-                 % (total_key_depth, num_heads))
+            raise ValueError('Key depth (%d) must be divisible by the number of attention heads (%d).' % (total_key_depth, num_heads))
         if total_value_depth % num_heads != 0:
-            raise ValueError(
-                'Value depth (%d) must be divisible by the number of attention heads (%d).'
-                 % (total_value_depth, num_heads))
+            raise ValueError('Value depth (%d) must be divisible by the number of attention heads (%d).' % (total_value_depth, num_heads))
         self.num_heads = num_heads
         self.query_scale = (total_key_depth // num_heads) ** -0.5
         self.bias_mask = bias_mask
         self.query_linear = nn.Linear(input_depth, total_key_depth, bias=False)
         self.key_linear = nn.Linear(input_depth, total_key_depth, bias=False)
-        self.value_linear = nn.Linear(input_depth, total_value_depth, bias=
-            False)
-        self.output_linear = nn.Linear(total_value_depth, output_depth,
-            bias=False)
+        self.value_linear = nn.Linear(input_depth, total_value_depth, bias=False)
+        self.output_linear = nn.Linear(total_value_depth, output_depth, bias=False)
         self.dropout = nn.Dropout(dropout)
 
     def _split_heads(self, x):
@@ -451,8 +386,7 @@ class MultiHeadAttention(nn.Module):
         if len(x.shape) != 3:
             raise ValueError('x must have rank 3')
         shape = x.shape
-        return x.view(shape[0], shape[1], self.num_heads, shape[2] // self.
-            num_heads).permute(0, 2, 1, 3)
+        return x.view(shape[0], shape[1], self.num_heads, shape[2] // self.num_heads).permute(0, 2, 1, 3)
 
     def _merge_heads(self, x):
         """
@@ -465,8 +399,7 @@ class MultiHeadAttention(nn.Module):
         if len(x.shape) != 4:
             raise ValueError('x must have rank 4')
         shape = x.shape
-        return x.permute(0, 2, 1, 3).contiguous().view(shape[0], shape[2], 
-            shape[3] * self.num_heads)
+        return x.permute(0, 2, 1, 3).contiguous().view(shape[0], shape[2], shape[3] * self.num_heads)
 
     def forward(self, queries, keys, values, src_mask=None):
         queries = self.query_linear(queries)
@@ -480,8 +413,7 @@ class MultiHeadAttention(nn.Module):
         if src_mask is not None:
             logits = logits.masked_fill(src_mask, -np.inf)
         if self.bias_mask is not None:
-            logits += self.bias_mask[:, :, :logits.shape[-2], :logits.shape[-1]
-                ].type_as(logits.data)
+            logits += self.bias_mask[:, :, :logits.shape[-2], :logits.shape[-1]].type_as(logits.data)
         weights = nn.functional.softmax(logits, dim=-1)
         weights = self.dropout(weights)
         contexts = torch.matmul(weights, values)
@@ -506,11 +438,9 @@ class Conv(nn.Module):
                       both -> pad on both sides
         """
         super(Conv, self).__init__()
-        padding = (kernel_size - 1, 0) if pad_type == 'left' else (
-            kernel_size // 2, (kernel_size - 1) // 2)
+        padding = (kernel_size - 1, 0) if pad_type == 'left' else (kernel_size // 2, (kernel_size - 1) // 2)
         self.pad = nn.ConstantPad1d(padding, 0)
-        self.conv = nn.Conv1d(input_size, output_size, kernel_size=
-            kernel_size, padding=0)
+        self.conv = nn.Conv1d(input_size, output_size, kernel_size=kernel_size, padding=0)
 
     def forward(self, inputs):
         inputs = self.pad(inputs.permute(0, 2, 1))
@@ -523,8 +453,7 @@ class PositionwiseFeedForward(nn.Module):
     Does a Linear + RELU + Linear on each of the timesteps
     """
 
-    def __init__(self, input_depth, filter_size, output_depth, layer_config
-        ='ll', padding='left', dropout=0.0):
+    def __init__(self, input_depth, filter_size, output_depth, layer_config='ll', padding='left', dropout=0.0):
         """
         Parameters:
             input_depth: Size of last dimension of input
@@ -538,8 +467,7 @@ class PositionwiseFeedForward(nn.Module):
         """
         super(PositionwiseFeedForward, self).__init__()
         layers = []
-        sizes = [(input_depth, filter_size)] + [(filter_size, filter_size)] * (
-            len(layer_config) - 2) + [(filter_size, output_depth)]
+        sizes = [(input_depth, filter_size)] + [(filter_size, filter_size)] * (len(layer_config) - 2) + [(filter_size, output_depth)]
         for lc, s in zip(list(layer_config), sizes):
             if lc == 'l':
                 layers.append(nn.Linear(*s))
@@ -604,16 +532,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv,
+     lambda: ([], {'input_size': 4, 'output_size': 4, 'kernel_size': 4, 'pad_type': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForward,
+     lambda: ([], {'input_depth': 1, 'filter_size': 4, 'output_depth': 1}),
+     lambda: ([torch.rand([1, 1])], {}),
+     False),
+]
+
 class Test_andreamad8_Universal_Transformer_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Conv(*[], **{'input_size': 4, 'output_size': 4, 'kernel_size': 4, 'pad_type': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PositionwiseFeedForward(*[], **{'input_depth': 1, 'filter_size': 4, 'output_depth': 1}), [torch.rand([1, 1])], {})
+        self._check(*TESTCASES[2])
 

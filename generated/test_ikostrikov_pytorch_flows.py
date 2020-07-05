@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,18 +67,15 @@ import torch.utils.data
 
 class MaskedLinear(nn.Module):
 
-    def __init__(self, in_features, out_features, mask, cond_in_features=
-        None, bias=True):
+    def __init__(self, in_features, out_features, mask, cond_in_features=None, bias=True):
         super(MaskedLinear, self).__init__()
         self.linear = nn.Linear(in_features, out_features)
         if cond_in_features is not None:
-            self.cond_linear = nn.Linear(cond_in_features, out_features,
-                bias=False)
+            self.cond_linear = nn.Linear(cond_in_features, out_features, bias=False)
         self.register_buffer('mask', mask)
 
     def forward(self, inputs, cond_inputs=None):
-        output = F.linear(inputs, self.linear.weight * self.mask, self.
-            linear.bias)
+        output = F.linear(inputs, self.linear.weight * self.mask, self.linear.bias)
         if cond_inputs is not None:
             output += self.cond_linear(cond_inputs)
         return output
@@ -106,28 +104,19 @@ class MADESplit(nn.Module):
     (https://arxiv.org/abs/1502.03509).
     """
 
-    def __init__(self, num_inputs, num_hidden, num_cond_inputs=None, s_act=
-        'tanh', t_act='relu', pre_exp_tanh=False):
+    def __init__(self, num_inputs, num_hidden, num_cond_inputs=None, s_act='tanh', t_act='relu', pre_exp_tanh=False):
         super(MADESplit, self).__init__()
         self.pre_exp_tanh = pre_exp_tanh
         activations = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh}
-        input_mask = get_mask(num_inputs, num_hidden, num_inputs, mask_type
-            ='input')
+        input_mask = get_mask(num_inputs, num_hidden, num_inputs, mask_type='input')
         hidden_mask = get_mask(num_hidden, num_hidden, num_inputs)
-        output_mask = get_mask(num_hidden, num_inputs, num_inputs,
-            mask_type='output')
+        output_mask = get_mask(num_hidden, num_inputs, num_inputs, mask_type='output')
         act_func = activations[s_act]
-        self.s_joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask,
-            num_cond_inputs)
-        self.s_trunk = nn.Sequential(act_func(), nn.MaskedLinear(num_hidden,
-            num_hidden, hidden_mask), act_func(), nn.MaskedLinear(
-            num_hidden, num_inputs, output_mask))
+        self.s_joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask, num_cond_inputs)
+        self.s_trunk = nn.Sequential(act_func(), nn.MaskedLinear(num_hidden, num_hidden, hidden_mask), act_func(), nn.MaskedLinear(num_hidden, num_inputs, output_mask))
         act_func = activations[t_act]
-        self.t_joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask,
-            num_cond_inputs)
-        self.t_trunk = nn.Sequential(act_func(), nn.MaskedLinear(num_hidden,
-            num_hidden, hidden_mask), act_func(), nn.MaskedLinear(
-            num_hidden, num_inputs, output_mask))
+        self.t_joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask, num_cond_inputs)
+        self.t_trunk = nn.Sequential(act_func(), nn.MaskedLinear(num_hidden, num_hidden, hidden_mask), act_func(), nn.MaskedLinear(num_hidden, num_inputs, output_mask))
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
@@ -148,8 +137,7 @@ class MADESplit(nn.Module):
                 a = self.t_trunk(h)
                 if self.pre_exp_tanh:
                     a = torch.tanh(a)
-                x[:, (i_col)] = inputs[:, (i_col)] * torch.exp(a[:, (i_col)]
-                    ) + m[:, (i_col)]
+                x[:, (i_col)] = inputs[:, (i_col)] * torch.exp(a[:, (i_col)]) + m[:, (i_col)]
             return x, -a.sum(-1, keepdim=True)
 
 
@@ -158,21 +146,15 @@ class MADE(nn.Module):
     (https://arxiv.org/abs/1502.03509).
     """
 
-    def __init__(self, num_inputs, num_hidden, num_cond_inputs=None, act=
-        'relu', pre_exp_tanh=False):
+    def __init__(self, num_inputs, num_hidden, num_cond_inputs=None, act='relu', pre_exp_tanh=False):
         super(MADE, self).__init__()
         activations = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh}
         act_func = activations[act]
-        input_mask = get_mask(num_inputs, num_hidden, num_inputs, mask_type
-            ='input')
+        input_mask = get_mask(num_inputs, num_hidden, num_inputs, mask_type='input')
         hidden_mask = get_mask(num_hidden, num_hidden, num_inputs)
-        output_mask = get_mask(num_hidden, num_inputs * 2, num_inputs,
-            mask_type='output')
-        self.joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask,
-            num_cond_inputs)
-        self.trunk = nn.Sequential(act_func(), nn.MaskedLinear(num_hidden,
-            num_hidden, hidden_mask), act_func(), nn.MaskedLinear(
-            num_hidden, num_inputs * 2, output_mask))
+        output_mask = get_mask(num_hidden, num_inputs * 2, num_inputs, mask_type='output')
+        self.joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask, num_cond_inputs)
+        self.trunk = nn.Sequential(act_func(), nn.MaskedLinear(num_hidden, num_hidden, hidden_mask), act_func(), nn.MaskedLinear(num_hidden, num_inputs * 2, output_mask))
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
@@ -185,8 +167,7 @@ class MADE(nn.Module):
             for i_col in range(inputs.shape[1]):
                 h = self.joiner(x, cond_inputs)
                 m, a = self.trunk(h).chunk(2, 1)
-                x[:, (i_col)] = inputs[:, (i_col)] * torch.exp(a[:, (i_col)]
-                    ) + m[:, (i_col)]
+                x[:, (i_col)] = inputs[:, (i_col)] * torch.exp(a[:, (i_col)]) + m[:, (i_col)]
             return x, -a.sum(-1, keepdim=True)
 
 
@@ -198,11 +179,9 @@ class Sigmoid(nn.Module):
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
             s = torch.sigmoid
-            return s(inputs), torch.log(s(inputs) * (1 - s(inputs))).sum(-1,
-                keepdim=True)
+            return s(inputs), torch.log(s(inputs) * (1 - s(inputs))).sum(-1, keepdim=True)
         else:
-            return torch.log(inputs / (1 - inputs)), -torch.log(inputs - 
-                inputs ** 2).sum(-1, keepdim=True)
+            return torch.log(inputs / (1 - inputs)), -torch.log(inputs - inputs ** 2).sum(-1, keepdim=True)
 
 
 class BatchNormFlow(nn.Module):
@@ -224,14 +203,11 @@ class BatchNormFlow(nn.Module):
         if mode == 'direct':
             if self.training:
                 self.batch_mean = inputs.mean(0)
-                self.batch_var = (inputs - self.batch_mean).pow(2).mean(0
-                    ) + self.eps
+                self.batch_var = (inputs - self.batch_mean).pow(2).mean(0) + self.eps
                 self.running_mean.mul_(self.momentum)
                 self.running_var.mul_(self.momentum)
-                self.running_mean.add_(self.batch_mean.data * (1 - self.
-                    momentum))
-                self.running_var.add_(self.batch_var.data * (1 - self.momentum)
-                    )
+                self.running_mean.add_(self.batch_mean.data * (1 - self.momentum))
+                self.running_var.add_(self.batch_var.data * (1 - self.momentum))
                 mean = self.batch_mean
                 var = self.batch_var
             else:
@@ -239,8 +215,7 @@ class BatchNormFlow(nn.Module):
                 var = self.running_var
             x_hat = (inputs - mean) / var.sqrt()
             y = torch.exp(self.log_gamma) * x_hat + self.beta
-            return y, (self.log_gamma - 0.5 * torch.log(var)).sum(-1,
-                keepdim=True)
+            return y, (self.log_gamma - 0.5 * torch.log(var)).sum(-1, keepdim=True)
         else:
             if self.training:
                 mean = self.batch_mean
@@ -250,8 +225,7 @@ class BatchNormFlow(nn.Module):
                 var = self.running_var
             x_hat = (inputs - self.beta) / torch.exp(self.log_gamma)
             y = x_hat * var.sqrt() + mean
-            return y, (-self.log_gamma + 0.5 * torch.log(var)).sum(-1,
-                keepdim=True)
+            return y, (-self.log_gamma + 0.5 * torch.log(var)).sum(-1, keepdim=True)
 
 
 class ActNorm(nn.Module):
@@ -272,13 +246,9 @@ class ActNorm(nn.Module):
             self.bias.data.copy_(inputs.mean(0))
             self.initialized = True
         if mode == 'direct':
-            return (inputs - self.bias) * torch.exp(self.weight
-                ), self.weight.sum(-1, keepdim=True).unsqueeze(0).repeat(inputs
-                .size(0), 1)
+            return (inputs - self.bias) * torch.exp(self.weight), self.weight.sum(-1, keepdim=True).unsqueeze(0).repeat(inputs.size(0), 1)
         else:
-            return inputs * torch.exp(-self.weight
-                ) + self.bias, -self.weight.sum(-1, keepdim=True).unsqueeze(0
-                ).repeat(inputs.size(0), 1)
+            return inputs * torch.exp(-self.weight) + self.bias, -self.weight.sum(-1, keepdim=True).unsqueeze(0).repeat(inputs.size(0), 1)
 
 
 class InvertibleMM(nn.Module):
@@ -294,11 +264,9 @@ class InvertibleMM(nn.Module):
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
-            return inputs @ self.W, torch.slogdet(self.W)[-1].unsqueeze(0
-                ).unsqueeze(0).repeat(inputs.size(0), 1)
+            return inputs @ self.W, torch.slogdet(self.W)[-1].unsqueeze(0).unsqueeze(0).repeat(inputs.size(0), 1)
         else:
-            return inputs @ torch.inverse(self.W), -torch.slogdet(self.W)[-1
-                ].unsqueeze(0).unsqueeze(0).repeat(inputs.size(0), 1)
+            return inputs @ torch.inverse(self.W), -torch.slogdet(self.W)[-1].unsqueeze(0).unsqueeze(0).repeat(inputs.size(0), 1)
 
 
 class LUInvertibleMM(nn.Module):
@@ -332,15 +300,12 @@ class LUInvertibleMM(nn.Module):
             self.P = self.P
             self.sign_S = self.sign_S
         L = self.L * self.L_mask + self.I
-        U = self.U * self.U_mask + torch.diag(self.sign_S * torch.exp(self.
-            log_S))
+        U = self.U * self.U_mask + torch.diag(self.sign_S * torch.exp(self.log_S))
         W = self.P @ L @ U
         if mode == 'direct':
-            return inputs @ W, self.log_S.sum().unsqueeze(0).unsqueeze(0
-                ).repeat(inputs.size(0), 1)
+            return inputs @ W, self.log_S.sum().unsqueeze(0).unsqueeze(0).repeat(inputs.size(0), 1)
         else:
-            return inputs @ torch.inverse(W), -self.log_S.sum().unsqueeze(0
-                ).unsqueeze(0).repeat(inputs.size(0), 1)
+            return inputs @ torch.inverse(W), -self.log_S.sum().unsqueeze(0).unsqueeze(0).repeat(inputs.size(0), 1)
 
 
 class Shuffle(nn.Module):
@@ -356,11 +321,9 @@ class Shuffle(nn.Module):
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
-            return inputs[:, (self.perm)], torch.zeros(inputs.size(0), 1,
-                device=inputs.device)
+            return inputs[:, (self.perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
         else:
-            return inputs[:, (self.inv_perm)], torch.zeros(inputs.size(0), 
-                1, device=inputs.device)
+            return inputs[:, (self.inv_perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
 
 
 class Reverse(nn.Module):
@@ -376,11 +339,9 @@ class Reverse(nn.Module):
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         if mode == 'direct':
-            return inputs[:, (self.perm)], torch.zeros(inputs.size(0), 1,
-                device=inputs.device)
+            return inputs[:, (self.perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
         else:
-            return inputs[:, (self.inv_perm)], torch.zeros(inputs.size(0), 
-                1, device=inputs.device)
+            return inputs[:, (self.inv_perm)], torch.zeros(inputs.size(0), 1, device=inputs.device)
 
 
 class CouplingLayer(nn.Module):
@@ -388,8 +349,7 @@ class CouplingLayer(nn.Module):
     from RealNVP (https://arxiv.org/abs/1605.08803).
     """
 
-    def __init__(self, num_inputs, num_hidden, mask, num_cond_inputs=None,
-        s_act='tanh', t_act='relu'):
+    def __init__(self, num_inputs, num_hidden, mask, num_cond_inputs=None, s_act='tanh', t_act='relu'):
         super(CouplingLayer, self).__init__()
         self.num_inputs = num_inputs
         self.mask = mask
@@ -400,12 +360,8 @@ class CouplingLayer(nn.Module):
             total_inputs = num_inputs + num_cond_inputs
         else:
             total_inputs = num_inputs
-        self.scale_net = nn.Sequential(nn.Linear(total_inputs, num_hidden),
-            s_act_func(), nn.Linear(num_hidden, num_hidden), s_act_func(),
-            nn.Linear(num_hidden, num_inputs))
-        self.translate_net = nn.Sequential(nn.Linear(total_inputs,
-            num_hidden), t_act_func(), nn.Linear(num_hidden, num_hidden),
-            t_act_func(), nn.Linear(num_hidden, num_inputs))
+        self.scale_net = nn.Sequential(nn.Linear(total_inputs, num_hidden), s_act_func(), nn.Linear(num_hidden, num_hidden), s_act_func(), nn.Linear(num_hidden, num_inputs))
+        self.translate_net = nn.Sequential(nn.Linear(total_inputs, num_hidden), t_act_func(), nn.Linear(num_hidden, num_hidden), t_act_func(), nn.Linear(num_hidden, num_inputs))
 
         def init(m):
             if isinstance(m, nn.Linear):
@@ -457,8 +413,7 @@ class FlowSequential(nn.Sequential):
 
     def log_probs(self, inputs, cond_inputs=None):
         u, log_jacob = self(inputs, cond_inputs)
-        log_probs = (-0.5 * u.pow(2) - 0.5 * math.log(2 * math.pi)).sum(-1,
-            keepdim=True)
+        log_probs = (-0.5 * u.pow(2) - 0.5 * math.log(2 * math.pi)).sum(-1, keepdim=True)
         return (log_probs + log_jacob).sum(-1, keepdim=True)
 
     def sample(self, num_samples=None, noise=None, cond_inputs=None):
@@ -476,41 +431,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActNorm,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (BatchNormFlow,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CouplingLayer,
+     lambda: ([], {'num_inputs': 4, 'num_hidden': 4, 'mask': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FlowSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InvertibleMM,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LUInvertibleMM,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Reverse,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Shuffle,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Sigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_ikostrikov_pytorch_flows(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ActNorm(*[], **{'num_inputs': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BatchNormFlow(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(CouplingLayer(*[], **{'num_inputs': 4, 'num_hidden': 4, 'mask': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(InvertibleMM(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LUInvertibleMM(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(Reverse(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Shuffle(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Sigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

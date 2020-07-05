@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,25 +51,18 @@ import numpy as np
 
 class CRNN(nn.Module):
 
-    def __init__(self, abc=string.digits, backend='resnet18',
-        rnn_hidden_size=128, rnn_num_layers=2, rnn_dropout=0, seq_proj=[0, 0]):
+    def __init__(self, abc=string.digits, backend='resnet18', rnn_hidden_size=128, rnn_num_layers=2, rnn_dropout=0, seq_proj=[0, 0]):
         super(CRNN, self).__init__()
         self.abc = abc
         self.num_classes = len(self.abc)
         self.feature_extractor = getattr(models, backend)(pretrained=True)
-        self.cnn = nn.Sequential(self.feature_extractor.conv1, self.
-            feature_extractor.bn1, self.feature_extractor.relu, self.
-            feature_extractor.maxpool, self.feature_extractor.layer1, self.
-            feature_extractor.layer2, self.feature_extractor.layer3, self.
-            feature_extractor.layer4)
+        self.cnn = nn.Sequential(self.feature_extractor.conv1, self.feature_extractor.bn1, self.feature_extractor.relu, self.feature_extractor.maxpool, self.feature_extractor.layer1, self.feature_extractor.layer2, self.feature_extractor.layer3, self.feature_extractor.layer4)
         self.fully_conv = seq_proj[0] == 0
         if not self.fully_conv:
             self.proj = nn.Conv2d(seq_proj[0], seq_proj[1], kernel_size=1)
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers = rnn_num_layers
-        self.rnn = nn.GRU(self.get_block_size(self.cnn), rnn_hidden_size,
-            rnn_num_layers, batch_first=False, dropout=rnn_dropout,
-            bidirectional=True)
+        self.rnn = nn.GRU(self.get_block_size(self.cnn), rnn_hidden_size, rnn_num_layers, batch_first=False, dropout=rnn_dropout, bidirectional=True)
         self.linear = nn.Linear(rnn_hidden_size * 2, self.num_classes + 1)
         self.softmax = nn.Softmax(dim=2)
 
@@ -85,8 +79,7 @@ class CRNN(nn.Module):
         return seq
 
     def init_hidden(self, batch_size, gpu=False):
-        h0 = Variable(torch.zeros(self.rnn_num_layers * 2, batch_size, self
-            .rnn_hidden_size))
+        h0 = Variable(torch.zeros(self.rnn_num_layers * 2, batch_size, self.rnn_hidden_size))
         if gpu:
             h0 = h0
         return h0
@@ -128,10 +121,3 @@ class CRNN(nn.Module):
             seq.append(self.pred_to_string(pred[i]))
         return seq
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_bes_dev_crnn_pytorch(_paritybench_base):
-    pass

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,8 +51,7 @@ class AttentionModule(torch.nn.Module):
         """
         Defining weights.
         """
-        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.args.
-            filters_3, self.args.filters_3))
+        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.args.filters_3, self.args.filters_3))
 
     def init_parameters(self):
         """
@@ -65,11 +65,9 @@ class AttentionModule(torch.nn.Module):
         :param embedding: Result of the GCN.
         :return representation: A graph level representation vector.
         """
-        global_context = torch.mean(torch.matmul(embedding, self.
-            weight_matrix), dim=0)
+        global_context = torch.mean(torch.matmul(embedding, self.weight_matrix), dim=0)
         transformed_global = torch.tanh(global_context)
-        sigmoid_scores = torch.sigmoid(torch.mm(embedding,
-            transformed_global.view(-1, 1)))
+        sigmoid_scores = torch.sigmoid(torch.mm(embedding, transformed_global.view(-1, 1)))
         representation = torch.mm(torch.t(embedding), sigmoid_scores)
         return representation
 
@@ -92,12 +90,9 @@ class TenorNetworkModule(torch.nn.Module):
         """
         Defining weights.
         """
-        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.args.
-            filters_3, self.args.filters_3, self.args.tensor_neurons))
-        self.weight_matrix_block = torch.nn.Parameter(torch.Tensor(self.
-            args.tensor_neurons, 2 * self.args.filters_3))
-        self.bias = torch.nn.Parameter(torch.Tensor(self.args.
-            tensor_neurons, 1))
+        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.args.filters_3, self.args.filters_3, self.args.tensor_neurons))
+        self.weight_matrix_block = torch.nn.Parameter(torch.Tensor(self.args.tensor_neurons, 2 * self.args.filters_3))
+        self.bias = torch.nn.Parameter(torch.Tensor(self.args.tensor_neurons, 1))
 
     def init_parameters(self):
         """
@@ -114,13 +109,11 @@ class TenorNetworkModule(torch.nn.Module):
         :param embedding_2: Result of the 2nd embedding after attention.
         :return scores: A similarity score vector.
         """
-        scoring = torch.mm(torch.t(embedding_1), self.weight_matrix.view(
-            self.args.filters_3, -1))
+        scoring = torch.mm(torch.t(embedding_1), self.weight_matrix.view(self.args.filters_3, -1))
         scoring = scoring.view(self.args.filters_3, self.args.tensor_neurons)
         scoring = torch.mm(torch.t(scoring), embedding_2)
         combined_representation = torch.cat((embedding_1, embedding_2))
-        block_scoring = torch.mm(self.weight_matrix_block,
-            combined_representation)
+        block_scoring = torch.mm(self.weight_matrix_block, combined_representation)
         scores = torch.nn.functional.relu(scoring + block_scoring + self.bias)
         return scores
 
@@ -160,8 +153,7 @@ class SimGNN(torch.nn.Module):
         self.convolution_3 = GCNConv(self.args.filters_2, self.args.filters_3)
         self.attention = AttentionModule(self.args)
         self.tensor_network = TenorNetworkModule(self.args)
-        self.fully_connected_first = torch.nn.Linear(self.feature_count,
-            self.args.bottle_neck_neurons)
+        self.fully_connected_first = torch.nn.Linear(self.feature_count, self.args.bottle_neck_neurons)
         self.scoring_layer = torch.nn.Linear(self.args.bottle_neck_neurons, 1)
 
     def calculate_histogram(self, abstract_features_1, abstract_features_2):
@@ -187,12 +179,10 @@ class SimGNN(torch.nn.Module):
         """
         features = self.convolution_1(features, edge_index)
         features = torch.nn.functional.relu(features)
-        features = torch.nn.functional.dropout(features, p=self.args.
-            dropout, training=self.training)
+        features = torch.nn.functional.dropout(features, p=self.args.dropout, training=self.training)
         features = self.convolution_2(features, edge_index)
         features = torch.nn.functional.relu(features)
-        features = torch.nn.functional.dropout(features, p=self.args.
-            dropout, training=self.training)
+        features = torch.nn.functional.dropout(features, p=self.args.dropout, training=self.training)
         features = self.convolution_3(features, edge_index)
         return features
 
@@ -209,8 +199,7 @@ class SimGNN(torch.nn.Module):
         abstract_features_1 = self.convolutional_pass(edge_index_1, features_1)
         abstract_features_2 = self.convolutional_pass(edge_index_2, features_2)
         if self.args.histogram == True:
-            hist = self.calculate_histogram(abstract_features_1, torch.t(
-                abstract_features_2))
+            hist = self.calculate_histogram(abstract_features_1, torch.t(abstract_features_2))
         pooled_features_1 = self.attention(abstract_features_1)
         pooled_features_2 = self.attention(abstract_features_2)
         scores = self.tensor_network(pooled_features_1, pooled_features_2)
@@ -226,8 +215,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionModule,
+     lambda: ([], {'args': _mock_config(filters_3=4)}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_benedekrozemberczki_SimGNN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AttentionModule(*[], **{'args': _mock_config(filters_3=4)}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

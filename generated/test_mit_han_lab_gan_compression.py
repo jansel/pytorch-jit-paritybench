@@ -88,8 +88,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -179,22 +180,18 @@ BatchNorm = nn.BatchNorm2d
 
 
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=padding, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0],
-            dilation=dilation[0])
+        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0], dilation=dilation[0])
         self.bn1 = BatchNorm(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=
-            dilation[1])
+        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=dilation[1])
         self.bn2 = BatchNorm(planes)
         self.downsample = downsample
         self.stride = stride
@@ -218,13 +215,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation[1], bias=False, dilation=dilation[1])
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation[1], bias=False, dilation=dilation[1])
         self.bn2 = BatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
@@ -251,9 +246,7 @@ class Bottleneck(nn.Module):
 
 class DRN(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, channels=(16, 32, 
-        64, 128, 256, 512, 512, 512), out_map=False, out_middle=False,
-        pool_size=28, arch='D'):
+    def __init__(self, block, layers, num_classes=1000, channels=(16, 32, 64, 128, 256, 512, 512, 512), out_map=False, out_middle=False, pool_size=28, arch='D'):
         super(DRN, self).__init__()
         self.inplanes = channels[0]
         self.out_map = out_map
@@ -261,44 +254,28 @@ class DRN(nn.Module):
         self.out_middle = out_middle
         self.arch = arch
         if arch == 'C':
-            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
-                padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False)
             self.bn1 = BatchNorm(channels[0])
             self.relu = nn.ReLU(inplace=True)
-            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[
-                0], stride=1)
-            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[
-                1], stride=2)
+            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[0], stride=1)
+            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[1], stride=2)
         elif arch == 'D':
-            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0],
-                kernel_size=7, stride=1, padding=3, bias=False), BatchNorm(
-                channels[0]), nn.ReLU(inplace=True))
-            self.layer1 = self._make_conv_layers(channels[0], layers[0],
-                stride=1)
-            self.layer2 = self._make_conv_layers(channels[1], layers[1],
-                stride=2)
+            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False), BatchNorm(channels[0]), nn.ReLU(inplace=True))
+            self.layer1 = self._make_conv_layers(channels[0], layers[0], stride=1)
+            self.layer2 = self._make_conv_layers(channels[1], layers[1], stride=2)
         self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2)
         self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2)
-        self.layer5 = self._make_layer(block, channels[4], layers[4],
-            dilation=2, new_level=False)
-        self.layer6 = None if layers[5] == 0 else self._make_layer(block,
-            channels[5], layers[5], dilation=4, new_level=False)
+        self.layer5 = self._make_layer(block, channels[4], layers[4], dilation=2, new_level=False)
+        self.layer6 = None if layers[5] == 0 else self._make_layer(block, channels[5], layers[5], dilation=4, new_level=False)
         if arch == 'C':
-            self.layer7 = None if layers[6] == 0 else self._make_layer(
-                BasicBlock, channels[6], layers[6], dilation=2, new_level=
-                False, residual=False)
-            self.layer8 = None if layers[7] == 0 else self._make_layer(
-                BasicBlock, channels[7], layers[7], dilation=1, new_level=
-                False, residual=False)
+            self.layer7 = None if layers[6] == 0 else self._make_layer(BasicBlock, channels[6], layers[6], dilation=2, new_level=False, residual=False)
+            self.layer8 = None if layers[7] == 0 else self._make_layer(BasicBlock, channels[7], layers[7], dilation=1, new_level=False, residual=False)
         elif arch == 'D':
-            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(
-                channels[6], layers[6], dilation=2)
-            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(
-                channels[7], layers[7], dilation=1)
+            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(channels[6], layers[6], dilation=2)
+            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(channels[7], layers[7], dilation=1)
         if num_classes > 0:
             self.avgpool = nn.AvgPool2d(pool_size)
-            self.fc = nn.Conv2d(self.out_dim, num_classes, kernel_size=1,
-                stride=1, padding=0, bias=True)
+            self.fc = nn.Conv2d(self.out_dim, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -307,31 +284,22 @@ class DRN(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        new_level=True, residual=True):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, new_level=True, residual=True):
         assert dilation == 1 or dilation % 2 == 0
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm(planes * block.expansion))
         layers = list()
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=(1, 1) if dilation == 1 else (dilation // 2 if
-            new_level else dilation, dilation), residual=residual))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=(1, 1) if dilation == 1 else (dilation // 2 if new_level else dilation, dilation), residual=residual))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, residual=residual,
-                dilation=(dilation, dilation)))
+            layers.append(block(self.inplanes, planes, residual=residual, dilation=(dilation, dilation)))
         return nn.Sequential(*layers)
 
     def _make_conv_layers(self, channels, convs, stride=1, dilation=1):
         modules = []
         for i in range(convs):
-            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=
-                3, stride=stride if i == 0 else 1, padding=dilation, bias=
-                False, dilation=dilation), BatchNorm(channels), nn.ReLU(
-                inplace=True)])
+            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=3, stride=stride if i == 0 else 1, padding=dilation, bias=False, dilation=dilation), BatchNorm(channels), nn.ReLU(inplace=True)])
             self.inplanes = channels
         return nn.Sequential(*modules)
 
@@ -380,17 +348,14 @@ class DRN_A(nn.Module):
         self.inplanes = 64
         super(DRN_A, self).__init__()
         self.out_dim = 512 * block.expansion
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
         self.avgpool = nn.AvgPool2d(28, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
@@ -404,15 +369,12 @@ class DRN_A(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=(dilation,
-                dilation)))
+            layers.append(block(self.inplanes, planes, dilation=(dilation, dilation)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -443,8 +405,7 @@ class FIDInceptionA(models.inception.InceptionA):
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
         branch3x3dbl = self.branch3x3dbl_3(branch3x3dbl)
-        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1, count_include_pad=False)
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch5x5, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
@@ -466,8 +427,7 @@ class FIDInceptionC(models.inception.InceptionC):
         branch7x7dbl = self.branch7x7dbl_3(branch7x7dbl)
         branch7x7dbl = self.branch7x7dbl_4(branch7x7dbl)
         branch7x7dbl = self.branch7x7dbl_5(branch7x7dbl)
-        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1, count_include_pad=False)
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch7x7, branch7x7dbl, branch_pool]
         return torch.cat(outputs, 1)
@@ -482,16 +442,13 @@ class FIDInceptionE_1(models.inception.InceptionE):
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
-        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
+        branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1, count_include_pad=False)
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch3x3, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
@@ -506,13 +463,11 @@ class FIDInceptionE_2(models.inception.InceptionE):
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.max_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -520,9 +475,7 @@ class FIDInceptionE_2(models.inception.InceptionE):
         return torch.cat(outputs, 1)
 
 
-FID_WEIGHTS_URL = (
-    'https://github.com/mseitzer/pytorch-fid/releases/download/fid_weights/pt_inception-2015-12-05-6726825d.pth'
-    )
+FID_WEIGHTS_URL = 'https://github.com/mseitzer/pytorch-fid/releases/download/fid_weights/pt_inception-2015-12-05-6726825d.pth'
 
 
 def fid_inception_v3():
@@ -534,8 +487,7 @@ def fid_inception_v3():
     This method first constructs torchvision's Inception and then patches the
     necessary parts that are different in the FID Inception model.
     """
-    inception = models.inception_v3(num_classes=1008, aux_logits=False,
-        pretrained=False)
+    inception = models.inception_v3(num_classes=1008, aux_logits=False, pretrained=False)
     inception.Mixed_5b = FIDInceptionA(192, pool_features=32)
     inception.Mixed_5c = FIDInceptionA(256, pool_features=64)
     inception.Mixed_5d = FIDInceptionA(288, pool_features=64)
@@ -555,9 +507,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=
-        True, normalize_input=True, requires_grad=False, use_fid_inception=True
-        ):
+    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=True, normalize_input=True, requires_grad=False, use_fid_inception=True):
         """Build pretrained InceptionV3
 
         Parameters
@@ -599,21 +549,16 @@ class InceptionV3(nn.Module):
             inception = fid_inception_v3()
         else:
             inception = models.inception_v3(pretrained=True)
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.
-                MaxPool2d(kernel_size=3, stride=2)]
+            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.
-                Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception
-                .Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
             self.blocks.append(nn.Sequential(*block3))
         for param in self.parameters():
             param.requires_grad = requires_grad
@@ -635,8 +580,7 @@ class InceptionV3(nn.Module):
         outp = []
         x = inp
         if self.resize_input:
-            x = F.interpolate(x, size=(299, 299), mode='bilinear',
-                align_corners=False)
+            x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=False)
         if self.normalize_input:
             x = 2 * x - 1
         for idx, block in enumerate(self.blocks):
@@ -654,19 +598,16 @@ def fill_up_weights(up):
     c = (2 * f - 1 - f % 2) / (2.0 * f)
     for i in range(w.size(2)):
         for j in range(w.size(3)):
-            w[0, 0, i, j] = (1 - math.fabs(i / f - c)) * (1 - math.fabs(j /
-                f - c))
+            w[0, 0, i, j] = (1 - math.fabs(i / f - c)) * (1 - math.fabs(j / f - c))
     for c in range(1, w.size(0)):
         w[(c), (0), :, :] = w[(0), (0), :, :]
 
 
 class DRNSeg(nn.Module):
 
-    def __init__(self, model_name, classes, pretrained_model=None,
-        pretrained=True, use_torch_up=False):
+    def __init__(self, model_name, classes, pretrained_model=None, pretrained=True, use_torch_up=False):
         super(DRNSeg, self).__init__()
-        model = drn.__dict__.get(model_name)(pretrained=pretrained,
-            num_classes=1000)
+        model = drn.__dict__.get(model_name)(pretrained=pretrained, num_classes=1000)
         pmodel = nn.DataParallel(model)
         if pretrained_model is not None:
             pmodel.load_state_dict(pretrained_model)
@@ -680,8 +621,7 @@ class DRNSeg(nn.Module):
         if use_torch_up:
             self.up = nn.UpsamplingBilinear2d(scale_factor=8)
         else:
-            up = nn.ConvTranspose2d(classes, classes, 16, stride=8, padding
-                =4, output_padding=0, groups=classes, bias=False)
+            up = nn.ConvTranspose2d(classes, classes, 16, stride=8, padding=4, output_padding=0, groups=classes, bias=False)
             fill_up_weights(up)
             up.weight.requires_grad = False
             self.up = up
@@ -701,13 +641,10 @@ class MultiscaleDiscriminator(nn.Module):
     @staticmethod
     def modify_commandline_options(parser, is_train):
         assert isinstance(parser, argparse.ArgumentParser)
-        parser.add_argument('--netD_subarch', type=str, default='n_layer',
-            help='architecture of each discriminator')
-        parser.add_argument('--num_D', type=int, default=2, help=
-            'number of discriminators to be used in multiscale')
+        parser.add_argument('--netD_subarch', type=str, default='n_layer', help='architecture of each discriminator')
+        parser.add_argument('--num_D', type=int, default=2, help='number of discriminators to be used in multiscale')
         opt, _ = parser.parse_known_args()
-        subnetD = util.find_class_in_module(opt.netD_subarch +
-            'discriminator', 'models.modules.discriminators')
+        subnetD = util.find_class_in_module(opt.netD_subarch + 'discriminator', 'models.modules.discriminators')
         subnetD.modify_commandline_options(parser, is_train)
         parser.set_defaults(n_layers_D=4)
         return parser
@@ -724,13 +661,11 @@ class MultiscaleDiscriminator(nn.Module):
         if subarch == 'n_layer':
             netD = NLayerDiscriminator(opt)
         else:
-            raise ValueError(
-                'unrecognized discriminator subarchitecture %s' % subarch)
+            raise ValueError('unrecognized discriminator subarchitecture %s' % subarch)
         return netD
 
     def downsample(self, input):
-        return F.avg_pool2d(input, kernel_size=3, stride=2, padding=[1, 1],
-            count_include_pad=False)
+        return F.avg_pool2d(input, kernel_size=3, stride=2, padding=[1, 1], count_include_pad=False)
 
     def forward(self, input):
         result = []
@@ -810,19 +745,16 @@ class GANLoss(nn.Module):
         elif self.gan_mode == 'hinge':
             if for_discriminator:
                 if target_is_real:
-                    minval = torch.min(prediction - 1, self.get_zero_tensor
-                        (prediction))
+                    minval = torch.min(prediction - 1, self.get_zero_tensor(prediction))
                     loss = -torch.mean(minval)
                 else:
-                    minval = torch.min(-prediction - 1, self.
-                        get_zero_tensor(prediction))
+                    minval = torch.min(-prediction - 1, self.get_zero_tensor(prediction))
                     loss = -torch.mean(minval)
             else:
                 assert target_is_real
                 loss = -torch.mean(prediction)
         else:
-            raise NotImplementedError('gan mode %s not implemented' % self.
-                gan_mode)
+            raise NotImplementedError('gan mode %s not implemented' % self.gan_mode)
         return loss
 
 
@@ -830,8 +762,7 @@ class VGG19(torch.nn.Module):
 
     def __init__(self, requires_grad=False):
         super().__init__()
-        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True
-            ).features
+        vgg_pretrained_features = torchvision.models.vgg19(pretrained=True).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -877,23 +808,15 @@ class VGGLoss(nn.Module):
         with torch.no_grad():
             y_vgg = self.vgg(y)
         for i in range(len(x_vgg)):
-            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].
-                detach())
+            loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
 
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, norm_layer=nn.InstanceNorm2d, use_bias=True, scale_factor=1
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, norm_layer=nn.InstanceNorm2d, use_bias=True, scale_factor=1):
         super(SeparableConv2d, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels,
-            out_channels=in_channels * scale_factor, kernel_size=
-            kernel_size, stride=stride, padding=padding, groups=in_channels,
-            bias=use_bias), norm_layer(in_channels * scale_factor), nn.
-            Conv2d(in_channels=in_channels * scale_factor, out_channels=
-            out_channels, kernel_size=1, stride=1, bias=use_bias))
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels * scale_factor, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=use_bias), norm_layer(in_channels * scale_factor), nn.Conv2d(in_channels=in_channels * scale_factor, out_channels=out_channels, kernel_size=1, stride=1, bias=use_bias))
 
     def forward(self, x):
         return self.conv(x)
@@ -903,11 +826,9 @@ class MobileResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
         super(MobileResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, dropout_rate, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, dropout_rate, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -917,11 +838,8 @@ class MobileResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [SeparableConv2d(in_channels=dim, out_channels=dim,
-            kernel_size=3, padding=p, stride=1), norm_layer(dim), nn.ReLU(True)
-            ]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=p, stride=1), norm_layer(dim), nn.ReLU(True)]
         conv_block += [nn.Dropout(dropout_rate)]
         p = 0
         if padding_type == 'reflect':
@@ -931,10 +849,8 @@ class MobileResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [SeparableConv2d(in_channels=dim, out_channels=dim,
-            kernel_size=3, padding=p, stride=1), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=p, stride=1), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -947,11 +863,9 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, dropout_rate, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, dropout_rate, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
         """Construct a convolutional block.
 
         Parameters:
@@ -972,10 +886,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         conv_block += [nn.Dropout(dropout_rate)]
         p = 0
         if padding_type == 'reflect':
@@ -985,10 +897,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -999,14 +909,11 @@ class ResnetBlock(nn.Module):
 
 class MobileResnetBlock(nn.Module):
 
-    def __init__(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias
-        ):
+    def __init__(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias):
         super(MobileResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(ic, oc, padding_type,
-            norm_layer, dropout_rate, use_bias)
+        self.conv_block = self.build_conv_block(ic, oc, padding_type, norm_layer, dropout_rate, use_bias)
 
-    def build_conv_block(self, ic, oc, padding_type, norm_layer,
-        dropout_rate, use_bias):
+    def build_conv_block(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -1016,10 +923,8 @@ class MobileResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [SeparableConv2d(in_channels=ic, out_channels=oc,
-            kernel_size=3, padding=p, stride=1), norm_layer(oc), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [SeparableConv2d(in_channels=ic, out_channels=oc, kernel_size=3, padding=p, stride=1), norm_layer(oc), nn.ReLU(True)]
         conv_block += [nn.Dropout(dropout_rate)]
         p = 0
         if padding_type == 'reflect':
@@ -1029,10 +934,8 @@ class MobileResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [SeparableConv2d(in_channels=oc, out_channels=ic,
-            kernel_size=3, padding=p, stride=1), norm_layer(oc)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [SeparableConv2d(in_channels=oc, out_channels=ic, kernel_size=3, padding=p, stride=1), norm_layer(oc)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -1044,11 +947,9 @@ class SuperMobileResnetBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
         super(SuperMobileResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, dropout_rate, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, dropout_rate, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -1058,11 +959,8 @@ class SuperMobileResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [SuperSeparableConv2d(in_channels=dim, out_channels=
-            dim, kernel_size=3, padding=p, stride=1), norm_layer(dim), nn.
-            ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [SuperSeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=p, stride=1), norm_layer(dim), nn.ReLU(True)]
         conv_block += [nn.Dropout(dropout_rate)]
         p = 0
         if padding_type == 'reflect':
@@ -1072,10 +970,8 @@ class SuperMobileResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [SuperSeparableConv2d(in_channels=dim, out_channels=
-            dim, kernel_size=3, padding=p, stride=1), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [SuperSeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=p, stride=1), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, input, config):
@@ -1104,13 +1000,10 @@ class MobileSPADEResnetBlock(nn.Module):
         if self.learned_shortcut:
             self.conv_s = nn.Conv2d(fin, fout, kernel_size=1, bias=False)
         spade_config_str = opt.norm_G
-        self.norm_0 = MobileSPADE(spade_config_str, fin, opt.semantic_nc,
-            nhidden=opt.ngf * 2)
-        self.norm_1 = MobileSPADE(spade_config_str, fmiddle, opt.
-            semantic_nc, nhidden=opt.ngf * 2)
+        self.norm_0 = MobileSPADE(spade_config_str, fin, opt.semantic_nc, nhidden=opt.ngf * 2)
+        self.norm_1 = MobileSPADE(spade_config_str, fmiddle, opt.semantic_nc, nhidden=opt.ngf * 2)
         if self.learned_shortcut:
-            self.norm_s = MobileSPADE(spade_config_str, fin, opt.
-                semantic_nc, nhidden=opt.ngf * 2)
+            self.norm_s = MobileSPADE(spade_config_str, fin, opt.semantic_nc, nhidden=opt.ngf * 2)
 
     def forward(self, x, seg):
         x_s = self.shortcut(x, seg)
@@ -1141,21 +1034,15 @@ class MobileSPADE(nn.Module):
         if param_free_norm_type == 'instance':
             self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'syncbatch':
-            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=
-                False)
+            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'batch':
             self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
         else:
-            raise ValueError(
-                '%s is not a recognized param-free norm type in SPADE' %
-                param_free_norm_type)
+            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
         pw = ks // 2
-        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden,
-            kernel_size=ks, padding=pw), nn.ReLU())
-        self.mlp_gamma = SeparableConv2d(nhidden, norm_nc, kernel_size=ks,
-            padding=pw)
-        self.mlp_beta = SeparableConv2d(nhidden, norm_nc, kernel_size=ks,
-            padding=pw)
+        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
+        self.mlp_gamma = SeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+        self.mlp_beta = SeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
 
     def forward(self, x, segmap):
         normalized = self.param_free_norm(x)
@@ -1178,19 +1065,14 @@ class SPADE(nn.Module):
         if param_free_norm_type == 'instance':
             self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'syncbatch':
-            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=
-                False)
+            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'batch':
             self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
         else:
-            raise ValueError(
-                '%s is not a recognized param-free norm type in SPADE' %
-                param_free_norm_type)
+            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
         pw = ks // 2
-        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden,
-            kernel_size=ks, padding=pw), nn.ReLU())
-        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw
-            )
+        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
+        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
         self.mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
 
     def forward(self, x, segmap):
@@ -1203,8 +1085,7 @@ class SPADE(nn.Module):
         return out
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 def _sum_ft(tensor):
@@ -1228,21 +1109,15 @@ class SuperMobileSPADE(nn.Module):
         if param_free_norm_type == 'instance':
             self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'syncbatch':
-            self.param_free_norm = SuperSynchronizedBatchNorm2d(norm_nc,
-                affine=False)
+            self.param_free_norm = SuperSynchronizedBatchNorm2d(norm_nc, affine=False)
         elif param_free_norm_type == 'batch':
             self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
         else:
-            raise ValueError(
-                '%s is not a recognized param-free norm type in SPADE' %
-                param_free_norm_type)
+            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
         pw = ks // 2
-        self.mlp_shared = nn.Sequential(SuperConv2d(label_nc, nhidden,
-            kernel_size=ks, padding=pw), nn.ReLU())
-        self.mlp_gamma = SuperSeparableConv2d(nhidden, norm_nc, kernel_size
-            =ks, padding=pw)
-        self.mlp_beta = SuperSeparableConv2d(nhidden, norm_nc, kernel_size=
-            ks, padding=pw)
+        self.mlp_shared = nn.Sequential(SuperConv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
+        self.mlp_gamma = SuperSeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+        self.mlp_beta = SuperSeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
 
     def forward(self, x, segmap, config, verbose=False):
         normalized = self.param_free_norm(x, config)
@@ -1265,19 +1140,13 @@ class SubMobileSPADE(nn.Module):
         param_free_norm_type = str(parsed.group(1))
         ks = int(parsed.group(2))
         if param_free_norm_type == 'syncbatch':
-            self.param_free_norm = SuperSynchronizedBatchNorm2d(norm_nc,
-                affine=False)
+            self.param_free_norm = SuperSynchronizedBatchNorm2d(norm_nc, affine=False)
         else:
-            raise ValueError(
-                '%s is not a recognized param-free norm type in SPADE' %
-                param_free_norm_type)
+            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
         pw = ks // 2
-        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden,
-            kernel_size=ks, padding=pw), nn.ReLU())
-        self.mlp_gamma = SeparableConv2d(nhidden, oc, kernel_size=ks,
-            padding=pw)
-        self.mlp_beta = SeparableConv2d(nhidden, oc, kernel_size=ks, padding=pw
-            )
+        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
+        self.mlp_gamma = SeparableConv2d(nhidden, oc, kernel_size=ks, padding=pw)
+        self.mlp_beta = SeparableConv2d(nhidden, oc, kernel_size=ks, padding=pw)
 
     def forward(self, x, segmap):
         normalized = self.param_free_norm(x)
@@ -1340,13 +1209,10 @@ class SubMobileSPADEResnetBlock(nn.Module):
         if self.learned_shortcut:
             self.conv_s = nn.Conv2d(ic, channel, kernel_size=1, bias=False)
         spade_config_str = opt.norm_G
-        self.norm_0 = SubMobileSPADE(spade_config_str, fin, opt.semantic_nc,
-            nhidden=hidden, oc=ic)
-        self.norm_1 = SubMobileSPADE(spade_config_str, fmiddle, opt.
-            semantic_nc, nhidden=hidden, oc=channel)
+        self.norm_0 = SubMobileSPADE(spade_config_str, fin, opt.semantic_nc, nhidden=hidden, oc=ic)
+        self.norm_1 = SubMobileSPADE(spade_config_str, fmiddle, opt.semantic_nc, nhidden=hidden, oc=channel)
         if self.learned_shortcut:
-            self.norm_s = SubMobileSPADE(spade_config_str, fin, opt.
-                semantic_nc, nhidden=hidden, oc=ic)
+            self.norm_s = SubMobileSPADE(spade_config_str, fin, opt.semantic_nc, nhidden=hidden, oc=ic)
 
     def forward(self, x, seg):
         x_s = self.shortcut(x, seg)
@@ -1377,23 +1243,18 @@ class SuperMobileSPADEResnetBlock(nn.Module):
         if self.learned_shortcut:
             self.conv_s = SuperConv2d(fin, fout, kernel_size=1, bias=False)
         spade_config_str = opt.norm_G
-        self.norm_0 = SuperMobileSPADE(spade_config_str, fin, opt.
-            semantic_nc, nhidden=opt.ngf * 2)
-        self.norm_1 = SuperMobileSPADE(spade_config_str, fmiddle, opt.
-            semantic_nc, nhidden=opt.ngf * 2)
+        self.norm_0 = SuperMobileSPADE(spade_config_str, fin, opt.semantic_nc, nhidden=opt.ngf * 2)
+        self.norm_1 = SuperMobileSPADE(spade_config_str, fmiddle, opt.semantic_nc, nhidden=opt.ngf * 2)
         if self.learned_shortcut:
-            self.norm_s = SuperMobileSPADE(spade_config_str, fin, opt.
-                semantic_nc, nhidden=opt.ngf * 2)
+            self.norm_s = SuperMobileSPADE(spade_config_str, fin, opt.semantic_nc, nhidden=opt.ngf * 2)
 
     def forward(self, x, seg, config, verbose=False):
         x_s = self.shortcut(x, seg, config)
-        dx = self.conv_0(self.actvn(self.norm_0(x, seg, config, verbose=
-            verbose)), config)
+        dx = self.conv_0(self.actvn(self.norm_0(x, seg, config, verbose=verbose)), config)
         if self.learned_shortcut:
             dx = self.conv_1(self.actvn(self.norm_1(dx, seg, config)), config)
         else:
-            dx = self.conv_1(self.actvn(self.norm_1(dx, seg, config)), {
-                'channel': x.shape[1]})
+            dx = self.conv_1(self.actvn(self.norm_1(dx, seg, config)), {'channel': x.shape[1]})
         out = x_s + dx
         return out
 
@@ -1410,10 +1271,8 @@ class SuperMobileSPADEResnetBlock(nn.Module):
 
 class SuperConv2d(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros'):
-        super(SuperConv2d, self).__init__(in_channels, out_channels,
-            kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros'):
+        super(SuperConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
 
     def forward(self, x, config):
         in_nc = x.size(1)
@@ -1423,22 +1282,16 @@ class SuperConv2d(nn.Conv2d):
             bias = self.bias[:out_nc]
         else:
             bias = None
-        return F.conv2d(x, weight, bias, self.stride, self.padding, self.
-            dilation, self.groups)
+        return F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class SuperConvTranspose2d(nn.ConvTranspose2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, output_padding=0, groups=1, bias=True, dilation=1,
-        padding_mode='zeros'):
-        super(SuperConvTranspose2d, self).__init__(in_channels,
-            out_channels, kernel_size, stride, padding, output_padding,
-            groups, bias, dilation, padding_mode)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, padding_mode='zeros'):
+        super(SuperConvTranspose2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, output_padding, groups, bias, dilation, padding_mode)
 
     def forward(self, x, config, output_size=None):
-        output_padding = self._output_padding(x, output_size, self.stride,
-            self.padding, self.kernel_size)
+        output_padding = self._output_padding(x, output_size, self.stride, self.padding, self.kernel_size)
         in_nc = x.size(1)
         out_nc = config['channel']
         weight = self.weight[:in_nc, :out_nc]
@@ -1446,22 +1299,14 @@ class SuperConvTranspose2d(nn.ConvTranspose2d):
             bias = self.bias[:out_nc]
         else:
             bias = None
-        return F.conv_transpose2d(x, weight, bias, self.stride, self.
-            padding, output_padding, self.groups, self.dilation)
+        return F.conv_transpose2d(x, weight, bias, self.stride, self.padding, output_padding, self.groups, self.dilation)
 
 
 class SuperSeparableConv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, norm_layer=nn.InstanceNorm2d, use_bias=True, scale_factor=1
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, norm_layer=nn.InstanceNorm2d, use_bias=True, scale_factor=1):
         super(SuperSeparableConv2d, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels,
-            out_channels=in_channels * scale_factor, kernel_size=
-            kernel_size, stride=stride, padding=padding, groups=in_channels,
-            bias=use_bias), norm_layer(in_channels * scale_factor), nn.
-            Conv2d(in_channels=in_channels * scale_factor, out_channels=
-            out_channels, kernel_size=1, stride=1, bias=use_bias))
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels * scale_factor, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=use_bias), norm_layer(in_channels * scale_factor), nn.Conv2d(in_channels=in_channels * scale_factor, out_channels=out_channels, kernel_size=1, stride=1, bias=use_bias))
 
     def forward(self, x, config):
         in_nc = x.size(1)
@@ -1473,8 +1318,7 @@ class SuperSeparableConv2d(nn.Module):
             bias = conv.bias[:in_nc]
         else:
             bias = None
-        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.
-            dilation, in_nc)
+        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.dilation, in_nc)
         x = self.conv[1](x)
         conv = self.conv[2]
         assert isinstance(conv, nn.Conv2d)
@@ -1483,8 +1327,7 @@ class SuperSeparableConv2d(nn.Module):
             bias = conv.bias[:out_nc]
         else:
             bias = None
-        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.
-            dilation, conv.groups)
+        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.dilation, conv.groups)
         return x
 
 
@@ -1511,8 +1354,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -1567,8 +1409,7 @@ class SyncMaster(object):
 
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -1594,8 +1435,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -1616,8 +1456,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
         assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
@@ -1625,22 +1464,18 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input):
         if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -1655,8 +1490,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -1666,8 +1500,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _compute_mean_std(self, sum_, ssum, size):
@@ -1680,15 +1513,11 @@ class _SynchronizedBatchNorm(_BatchNorm):
         bias_var = sumvar / size
         if hasattr(torch, 'no_grad'):
             with torch.no_grad():
-                self.running_mean = (1 - self.momentum
-                    ) * self.running_mean + self.momentum * mean.data
-                self.running_var = (1 - self.momentum
-                    ) * self.running_var + self.momentum * unbias_var.data
+                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         else:
-            self.running_mean = (1 - self.momentum
-                ) * self.running_mean + self.momentum * mean.data
-            self.running_var = (1 - self.momentum
-                ) * self.running_var + self.momentum * unbias_var.data
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
@@ -1730,17 +1559,13 @@ class BatchNorm2dReimpl(nn.Module):
         sum_of_square = input_.pow(2).sum(1)
         mean = sum_ / numel
         sumvar = sum_of_square - sum_ * mean
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.detach()
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.detach()
         unbias_var = sumvar / (numel - 1)
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.detach()
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.detach()
         bias_var = sumvar / numel
         inv_std = 1 / (bias_var + self.eps).pow(0.5)
-        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1
-            ) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
-        return output.view(channels, batchsize, height, width).permute(1, 0,
-            2, 3).contiguous()
+        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
+        return output.view(channels, batchsize, height, width).permute(1, 0, 2, 3).contiguous()
 
 
 class CallbackContext(object):
@@ -1784,8 +1609,7 @@ class DataParallelWithCallback(DataParallel):
     """
 
     def replicate(self, module, device_ids):
-        modules = super(DataParallelWithCallback, self).replicate(module,
-            device_ids)
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
 
@@ -1810,36 +1634,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BatchNorm2dReimpl,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (FIDInceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FIDInceptionC,
+     lambda: ([], {'in_channels': 4, 'channels_7x7': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FIDInceptionE_1,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FIDInceptionE_2,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_mit_han_lab_gan_compression(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FIDInceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(FIDInceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(FIDInceptionE_1(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(FIDInceptionE_2(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 

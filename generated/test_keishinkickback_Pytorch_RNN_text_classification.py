@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,9 +51,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 
 class RNN(nn.Module):
 
-    def __init__(self, vocab_size, embed_size, num_output, rnn_model='LSTM',
-        use_last=True, embedding_tensor=None, padding_index=0, hidden_size=
-        64, num_layers=1, batch_first=True):
+    def __init__(self, vocab_size, embed_size, num_output, rnn_model='LSTM', use_last=True, embedding_tensor=None, padding_index=0, hidden_size=64, num_layers=1, batch_first=True):
         """
 
         Args:
@@ -71,21 +70,15 @@ class RNN(nn.Module):
         self.use_last = use_last
         self.encoder = None
         if torch.is_tensor(embedding_tensor):
-            self.encoder = nn.Embedding(vocab_size, embed_size, padding_idx
-                =padding_index, _weight=embedding_tensor)
+            self.encoder = nn.Embedding(vocab_size, embed_size, padding_idx=padding_index, _weight=embedding_tensor)
             self.encoder.weight.requires_grad = False
         else:
-            self.encoder = nn.Embedding(vocab_size, embed_size, padding_idx
-                =padding_index)
+            self.encoder = nn.Embedding(vocab_size, embed_size, padding_idx=padding_index)
         self.drop_en = nn.Dropout(p=0.6)
         if rnn_model == 'LSTM':
-            self.rnn = nn.LSTM(input_size=embed_size, hidden_size=
-                hidden_size, num_layers=num_layers, dropout=0.5,
-                batch_first=True, bidirectional=True)
+            self.rnn = nn.LSTM(input_size=embed_size, hidden_size=hidden_size, num_layers=num_layers, dropout=0.5, batch_first=True, bidirectional=True)
         elif rnn_model == 'GRU':
-            self.rnn = nn.GRU(input_size=embed_size, hidden_size=
-                hidden_size, num_layers=num_layers, dropout=0.5,
-                batch_first=True, bidirectional=True)
+            self.rnn = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=num_layers, dropout=0.5, batch_first=True, bidirectional=True)
         else:
             raise LookupError(' only support LSTM and GRU')
         self.bn2 = nn.BatchNorm1d(hidden_size * 2)
@@ -101,8 +94,7 @@ class RNN(nn.Module):
         """
         x_embed = self.encoder(x)
         x_embed = self.drop_en(x_embed)
-        packed_input = pack_padded_sequence(x_embed, seq_lengths.cpu().
-            numpy(), batch_first=True)
+        packed_input = pack_padded_sequence(x_embed, seq_lengths.cpu().numpy(), batch_first=True)
         packed_output, ht = self.rnn(packed_input, None)
         out_rnn, _ = pad_packed_sequence(packed_output, batch_first=True)
         row_indices = torch.arange(0, x.size(0)).long()
@@ -124,9 +116,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (RNN,
+     lambda: ([], {'vocab_size': 4, 'embed_size': 4, 'num_output': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_keishinkickback_Pytorch_RNN_text_classification(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(RNN(*[], **{'vocab_size': 4, 'embed_size': 4, 'num_output': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

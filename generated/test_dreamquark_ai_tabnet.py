@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class SparsemaxFunction(Function):
         ctx.dim = dim
         max_val, _ = input.max(dim=dim, keepdim=True)
         input -= max_val
-        tau, supp_size = SparsemaxFunction._threshold_and_support(input,
-            dim=dim)
+        tau, supp_size = SparsemaxFunction._threshold_and_support(input, dim=dim)
         output = torch.clamp(input - tau, min=0)
         ctx.save_for_backward(supp_size, output)
         return output
@@ -223,9 +223,7 @@ def initialize_non_glu(module, input_dim, output_dim):
 
 class TabNetNoEmbeddings(torch.nn.Module):
 
-    def __init__(self, input_dim, output_dim, n_d=8, n_a=8, n_steps=3,
-        gamma=1.3, n_independent=2, n_shared=2, epsilon=1e-15,
-        virtual_batch_size=128, momentum=0.02):
+    def __init__(self, input_dim, output_dim, n_d=8, n_a=8, n_steps=3, gamma=1.3, n_independent=2, n_shared=2, epsilon=1e-15, virtual_batch_size=128, momentum=0.02):
         """
         Defines main part of the TabNet network without the embedding layers.
 
@@ -268,24 +266,17 @@ class TabNetNoEmbeddings(torch.nn.Module):
             shared_feat_transform = torch.nn.ModuleList()
             for i in range(self.n_shared):
                 if i == 0:
-                    shared_feat_transform.append(Linear(self.input_dim, 2 *
-                        (n_d + n_a), bias=False))
+                    shared_feat_transform.append(Linear(self.input_dim, 2 * (n_d + n_a), bias=False))
                 else:
-                    shared_feat_transform.append(Linear(n_d + n_a, 2 * (n_d +
-                        n_a), bias=False))
+                    shared_feat_transform.append(Linear(n_d + n_a, 2 * (n_d + n_a), bias=False))
         else:
             shared_feat_transform = None
-        self.initial_splitter = FeatTransformer(self.input_dim, n_d + n_a,
-            shared_feat_transform, n_glu_independent=self.n_independent,
-            virtual_batch_size=self.virtual_batch_size, momentum=momentum)
+        self.initial_splitter = FeatTransformer(self.input_dim, n_d + n_a, shared_feat_transform, n_glu_independent=self.n_independent, virtual_batch_size=self.virtual_batch_size, momentum=momentum)
         self.feat_transformers = torch.nn.ModuleList()
         self.att_transformers = torch.nn.ModuleList()
         for step in range(n_steps):
-            transformer = FeatTransformer(self.input_dim, n_d + n_a,
-                shared_feat_transform, n_glu_independent=self.n_independent,
-                virtual_batch_size=self.virtual_batch_size, momentum=momentum)
-            attention = AttentiveTransformer(n_a, self.input_dim,
-                virtual_batch_size=self.virtual_batch_size, momentum=momentum)
+            transformer = FeatTransformer(self.input_dim, n_d + n_a, shared_feat_transform, n_glu_independent=self.n_independent, virtual_batch_size=self.virtual_batch_size, momentum=momentum)
+            attention = AttentiveTransformer(n_a, self.input_dim, virtual_batch_size=self.virtual_batch_size, momentum=momentum)
             self.feat_transformers.append(transformer)
             self.att_transformers.append(attention)
         self.final_mapping = Linear(n_d, output_dim, bias=False)
@@ -301,8 +292,7 @@ class TabNetNoEmbeddings(torch.nn.Module):
         for step in range(self.n_steps):
             M = self.att_transformers[step](prior, att)
             masks[step] = M
-            M_loss += torch.mean(torch.sum(torch.mul(M, torch.log(M + self.
-                epsilon)), dim=1)) / self.n_steps
+            M_loss += torch.mean(torch.sum(torch.mul(M, torch.log(M + self.epsilon)), dim=1)) / self.n_steps
             prior = torch.mul(self.gamma - M, prior)
             masked_x = torch.mul(M, x)
             out = self.feat_transformers[step](masked_x)
@@ -317,10 +307,7 @@ class TabNetNoEmbeddings(torch.nn.Module):
 
 class TabNet(torch.nn.Module):
 
-    def __init__(self, input_dim, output_dim, n_d=8, n_a=8, n_steps=3,
-        gamma=1.3, cat_idxs=[], cat_dims=[], cat_emb_dim=1, n_independent=2,
-        n_shared=2, epsilon=1e-15, virtual_batch_size=128, momentum=0.02,
-        device_name='auto'):
+    def __init__(self, input_dim, output_dim, n_d=8, n_a=8, n_steps=3, gamma=1.3, cat_idxs=[], cat_dims=[], cat_emb_dim=1, n_independent=2, n_shared=2, epsilon=1e-15, virtual_batch_size=128, momentum=0.02, device_name='auto'):
         """
         Defines TabNet network
 
@@ -374,12 +361,9 @@ class TabNet(torch.nn.Module):
         if self.n_independent == 0 and self.n_shared == 0:
             raise ValueError("n_shared and n_independant can't be both zero.")
         self.virtual_batch_size = virtual_batch_size
-        self.embedder = EmbeddingGenerator(input_dim, cat_dims, cat_idxs,
-            cat_emb_dim)
+        self.embedder = EmbeddingGenerator(input_dim, cat_dims, cat_idxs, cat_emb_dim)
         self.post_embed_dim = self.embedder.post_embed_dim
-        self.tabnet = TabNetNoEmbeddings(self.post_embed_dim, output_dim,
-            n_d, n_a, n_steps, gamma, n_independent, n_shared, epsilon,
-            virtual_batch_size, momentum)
+        self.tabnet = TabNetNoEmbeddings(self.post_embed_dim, output_dim, n_d, n_a, n_steps, gamma, n_independent, n_shared, epsilon, virtual_batch_size, momentum)
         self.initial_bn = BatchNorm1d(self.post_embed_dim, momentum=0.01)
         if device_name == 'auto':
             if torch.is_available():
@@ -397,8 +381,7 @@ class TabNet(torch.nn.Module):
 
 class AttentiveTransformer(torch.nn.Module):
 
-    def __init__(self, input_dim, output_dim, virtual_batch_size=128,
-        momentum=0.02):
+    def __init__(self, input_dim, output_dim, virtual_batch_size=128, momentum=0.02):
         """
         Initialize an attention transformer.
 
@@ -414,8 +397,7 @@ class AttentiveTransformer(torch.nn.Module):
         super(AttentiveTransformer, self).__init__()
         self.fc = Linear(input_dim, output_dim, bias=False)
         initialize_non_glu(self.fc, input_dim, output_dim)
-        self.bn = GBN(output_dim, virtual_batch_size=virtual_batch_size,
-            momentum=momentum)
+        self.bn = GBN(output_dim, virtual_batch_size=virtual_batch_size, momentum=momentum)
         self.sp_max = sparsemax.Sparsemax(dim=-1)
 
     def forward(self, priors, processed_feat):
@@ -428,8 +410,7 @@ class AttentiveTransformer(torch.nn.Module):
 
 class FeatTransformer(torch.nn.Module):
 
-    def __init__(self, input_dim, output_dim, shared_layers,
-        n_glu_independent, virtual_batch_size=128, momentum=0.02):
+    def __init__(self, input_dim, output_dim, shared_layers, n_glu_independent, virtual_batch_size=128, momentum=0.02):
         super(FeatTransformer, self).__init__()
         """
         Initialize a feature transformer.
@@ -446,22 +427,18 @@ class FeatTransformer(torch.nn.Module):
         - momentum : float
             Float value between 0 and 1 which will be used for momentum in batch norm
         """
-        params = {'n_glu': n_glu_independent, 'virtual_batch_size':
-            virtual_batch_size, 'momentum': momentum}
+        params = {'n_glu': n_glu_independent, 'virtual_batch_size': virtual_batch_size, 'momentum': momentum}
         if shared_layers is None:
             self.shared = torch.nn.Identity()
             is_first = True
         else:
-            self.shared = GLU_Block(input_dim, output_dim, first=True,
-                shared_layers=shared_layers, n_glu=len(shared_layers),
-                virtual_batch_size=virtual_batch_size, momentum=momentum)
+            self.shared = GLU_Block(input_dim, output_dim, first=True, shared_layers=shared_layers, n_glu=len(shared_layers), virtual_batch_size=virtual_batch_size, momentum=momentum)
             is_first = False
         if n_glu_independent == 0:
             self.specifics = torch.nn.Identity()
         else:
             spec_input_dim = input_dim if is_first else output_dim
-            self.specifics = GLU_Block(spec_input_dim, output_dim, first=
-                is_first, **params)
+            self.specifics = GLU_Block(spec_input_dim, output_dim, first=is_first, **params)
 
     def forward(self, x):
         x = self.shared(x)
@@ -474,22 +451,18 @@ class GLU_Block(torch.nn.Module):
         Independant GLU block, specific to each step
     """
 
-    def __init__(self, input_dim, output_dim, n_glu=2, first=False,
-        shared_layers=None, virtual_batch_size=128, momentum=0.02):
+    def __init__(self, input_dim, output_dim, n_glu=2, first=False, shared_layers=None, virtual_batch_size=128, momentum=0.02):
         super(GLU_Block, self).__init__()
         self.first = first
         self.shared_layers = shared_layers
         self.n_glu = n_glu
         self.glu_layers = torch.nn.ModuleList()
-        params = {'virtual_batch_size': virtual_batch_size, 'momentum':
-            momentum}
+        params = {'virtual_batch_size': virtual_batch_size, 'momentum': momentum}
         fc = shared_layers[0] if shared_layers else None
-        self.glu_layers.append(GLU_Layer(input_dim, output_dim, fc=fc, **
-            params))
+        self.glu_layers.append(GLU_Layer(input_dim, output_dim, fc=fc, **params))
         for glu_id in range(1, self.n_glu):
             fc = shared_layers[glu_id] if shared_layers else None
-            self.glu_layers.append(GLU_Layer(output_dim, output_dim, fc=fc,
-                **params))
+            self.glu_layers.append(GLU_Layer(output_dim, output_dim, fc=fc, **params))
 
     def forward(self, x):
         scale = torch.sqrt(torch.FloatTensor([0.5]))
@@ -512,8 +485,7 @@ def initialize_glu(module, input_dim, output_dim):
 
 class GLU_Layer(torch.nn.Module):
 
-    def __init__(self, input_dim, output_dim, fc=None, virtual_batch_size=
-        128, momentum=0.02):
+    def __init__(self, input_dim, output_dim, fc=None, virtual_batch_size=128, momentum=0.02):
         super(GLU_Layer, self).__init__()
         self.output_dim = output_dim
         if fc:
@@ -521,14 +493,12 @@ class GLU_Layer(torch.nn.Module):
         else:
             self.fc = Linear(input_dim, 2 * output_dim, bias=False)
         initialize_glu(self.fc, input_dim, 2 * output_dim)
-        self.bn = GBN(2 * output_dim, virtual_batch_size=virtual_batch_size,
-            momentum=momentum)
+        self.bn = GBN(2 * output_dim, virtual_batch_size=virtual_batch_size, momentum=momentum)
 
     def forward(self, x):
         x = self.fc(x)
         x = self.bn(x)
-        out = torch.mul(x[:, :self.output_dim], torch.sigmoid(x[:, self.
-            output_dim:]))
+        out = torch.mul(x[:, :self.output_dim], torch.sigmoid(x[:, self.output_dim:]))
         return out
 
 
@@ -567,8 +537,7 @@ class EmbeddingGenerator(torch.nn.Module):
             msg = """ cat_emb_dim and cat_dims must be lists of same length, got {len(self.cat_emb_dims)}
                       and {len(cat_dims)}"""
             raise ValueError(msg)
-        self.post_embed_dim = int(input_dim + np.sum(self.cat_emb_dims) -
-            len(self.cat_emb_dims))
+        self.post_embed_dim = int(input_dim + np.sum(self.cat_emb_dims) - len(self.cat_emb_dims))
         self.embeddings = torch.nn.ModuleList()
         for cat_dim, emb_dim in zip(cat_dims, self.cat_emb_dims):
             self.embeddings.append(torch.nn.Embedding(cat_dim, emb_dim))
@@ -589,8 +558,7 @@ class EmbeddingGenerator(torch.nn.Module):
             if is_continuous:
                 cols.append(x[:, (feat_init_idx)].float().view(-1, 1))
             else:
-                cols.append(self.embeddings[cat_feat_counter](x[:, (
-                    feat_init_idx)].long()))
+                cols.append(self.embeddings[cat_feat_counter](x[:, (feat_init_idx)].long()))
                 cat_feat_counter += 1
         post_embeddings = torch.cat(cols, dim=1)
         return post_embeddings
@@ -600,25 +568,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Entmax15,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GBN,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (GLU_Block,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (GLU_Layer,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (Sparsemax,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_dreamquark_ai_tabnet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Entmax15(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GBN(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GLU_Block(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GLU_Layer(*[], **{'input_dim': 4, 'output_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Sparsemax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

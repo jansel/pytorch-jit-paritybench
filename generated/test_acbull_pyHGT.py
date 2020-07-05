@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,10 +56,8 @@ class RelTemporalEncoding(nn.Module):
         position = torch.arange(0.0, max_len).unsqueeze(1)
         div_term = 1 / (10000 ** torch.arange(0.0, n_hid * 2, 2.0) / n_hid / 2)
         self.emb = nn.Embedding(max_len, n_hid * 2)
-        self.emb.weight.data[:, 0::2] = torch.sin(position * div_term
-            ) / math.sqrt(n_hid)
-        self.emb.weight.data[:, 1::2] = torch.cos(position * div_term
-            ) / math.sqrt(n_hid)
+        self.emb.weight.data[:, 0::2] = torch.sin(position * div_term) / math.sqrt(n_hid)
+        self.emb.weight.data[:, 1::2] = torch.cos(position * div_term) / math.sqrt(n_hid)
         self.emb.requires_grad = False
         self.lin = nn.Linear(n_hid * 2, n_hid)
 
@@ -68,13 +67,11 @@ class RelTemporalEncoding(nn.Module):
 
 class GeneralConv(nn.Module):
 
-    def __init__(self, conv_name, in_hid, out_hid, num_types, num_relations,
-        n_heads, dropout):
+    def __init__(self, conv_name, in_hid, out_hid, num_types, num_relations, n_heads, dropout):
         super(GeneralConv, self).__init__()
         self.conv_name = conv_name
         if self.conv_name == 'hgt':
-            self.base_conv = HGTConv(in_hid, out_hid, num_types,
-                num_relations, n_heads, dropout)
+            self.base_conv = HGTConv(in_hid, out_hid, num_types, num_relations, n_heads, dropout)
         elif self.conv_name == 'gcn':
             self.base_conv = GCNConv(in_hid, out_hid)
         elif self.conv_name == 'gat':
@@ -82,8 +79,7 @@ class GeneralConv(nn.Module):
 
     def forward(self, meta_xs, node_type, edge_index, edge_type, edge_time):
         if self.conv_name == 'hgt':
-            return self.base_conv(meta_xs, node_type, edge_index, edge_type,
-                edge_time)
+            return self.base_conv(meta_xs, node_type, edge_index, edge_type, edge_time)
         elif self.conv_name == 'gcn':
             return self.base_conv(meta_xs, edge_index)
         elif self.conv_name == 'gat':
@@ -103,8 +99,7 @@ class Classifier(nn.Module):
         return torch.log_softmax(tx.squeeze(), dim=-1)
 
     def __repr__(self):
-        return '{}(n_hid={}, n_out={})'.format(self.__class__.__name__,
-            self.n_hid, self.n_out)
+        return '{}(n_hid={}, n_out={})'.format(self.__class__.__name__, self.n_hid, self.n_out)
 
 
 class Matcher(nn.Module):
@@ -147,8 +142,7 @@ class Matcher(nn.Module):
 
 class GNN(nn.Module):
 
-    def __init__(self, in_dim, n_hid, num_types, num_relations, n_heads,
-        n_layers, dropout=0.2, conv_name='hgt'):
+    def __init__(self, in_dim, n_hid, num_types, num_relations, n_heads, n_layers, dropout=0.2, conv_name='hgt'):
         super(GNN, self).__init__()
         self.gcs = nn.ModuleList()
         self.num_types = num_types
@@ -159,11 +153,9 @@ class GNN(nn.Module):
         for t in range(num_types):
             self.adapt_ws.append(nn.Linear(in_dim, n_hid))
         for l in range(n_layers):
-            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid, num_types,
-                num_relations, n_heads, dropout))
+            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid, num_types, num_relations, n_heads, dropout))
 
-    def forward(self, node_feature, node_type, edge_time, edge_index, edge_type
-        ):
+    def forward(self, node_feature, node_type, edge_time, edge_index, edge_type):
         res = torch.zeros(node_feature.size(0), self.n_hid)
         for t_id in range(self.num_types):
             idx = node_type == int(t_id)
@@ -181,19 +173,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Classifier,
+     lambda: ([], {'n_hid': 4, 'n_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GeneralConv,
+     lambda: ([], {'conv_name': 4, 'in_hid': 4, 'out_hid': 4, 'num_types': 4, 'num_relations': 4, 'n_heads': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Matcher,
+     lambda: ([], {'n_hid': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RelTemporalEncoding,
+     lambda: ([], {'n_hid': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_acbull_pyHGT(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Classifier(*[], **{'n_hid': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GeneralConv(*[], **{'conv_name': 4, 'in_hid': 4, 'out_hid': 4, 'num_types': 4, 'num_relations': 4, 'n_heads': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Matcher(*[], **{'n_hid': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RelTemporalEncoding(*[], **{'n_hid': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 

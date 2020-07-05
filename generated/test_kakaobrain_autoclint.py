@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -108,8 +109,7 @@ class MoveToHook(nn.Module):
 
 class CrossEntropyLabelSmooth(torch.nn.Module):
 
-    def __init__(self, num_classes, epsilon=0.1, sparse_target=True,
-        reduction='avg'):
+    def __init__(self, num_classes, epsilon=0.1, sparse_target=True, reduction='avg'):
         super(CrossEntropyLabelSmooth, self).__init__()
         self.num_classes = num_classes
         self.epsilon = epsilon
@@ -120,12 +120,10 @@ class CrossEntropyLabelSmooth(torch.nn.Module):
     def forward(self, input, target):
         log_probs = self.logsoftmax(input)
         if self.sparse_target:
-            targets = torch.zeros_like(log_probs).scatter_(1, target.
-                unsqueeze(1), 1)
+            targets = torch.zeros_like(log_probs).scatter_(1, target.unsqueeze(1), 1)
         else:
             targets = target
-        targets = (1 - self.epsilon
-            ) * targets + self.epsilon / self.num_classes
+        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
         loss = -targets * log_probs
         if self.reduction == 'avg':
             loss = loss.mean(0).sum()
@@ -136,17 +134,14 @@ class CrossEntropyLabelSmooth(torch.nn.Module):
 
 class BinaryCrossEntropyLabelSmooth(torch.nn.BCEWithLogitsLoss):
 
-    def __init__(self, num_classes, epsilon=0.1, weight=None, size_average=
-        None, reduce=None, reduction='mean', pos_weight=None):
-        super(BinaryCrossEntropyLabelSmooth, self).__init__(weight,
-            size_average, reduce, reduction, pos_weight)
+    def __init__(self, num_classes, epsilon=0.1, weight=None, size_average=None, reduce=None, reduction='mean', pos_weight=None):
+        super(BinaryCrossEntropyLabelSmooth, self).__init__(weight, size_average, reduce, reduction, pos_weight)
         self.num_classes = num_classes
         self.epsilon = epsilon
 
     def forward(self, input, target):
         target = (1 - self.epsilon) * target + self.epsilon
-        return super(BinaryCrossEntropyLabelSmooth, self).forward(input, target
-            )
+        return super(BinaryCrossEntropyLabelSmooth, self).forward(input, target)
 
 
 class ToDevice(torch.nn.Module):
@@ -183,10 +178,8 @@ class Normalize(torch.nn.Module):
 
     def __init__(self, mean, std, inplace=False):
         super(Normalize, self).__init__()
-        self.register_buffer('mean', torch.tensor([mean], dtype=torch.
-            float32)[(None), :, (None), (None)])
-        self.register_buffer('std', torch.tensor([std], dtype=torch.float32
-            )[(None), :, (None), (None)])
+        self.register_buffer('mean', torch.tensor([mean], dtype=torch.float32)[(None), :, (None), (None)])
+        self.register_buffer('std', torch.tensor([std], dtype=torch.float32)[(None), :, (None), (None)])
         self.inplace = inplace
 
     def forward(self, x):
@@ -420,52 +413,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BinaryCrossEntropyLabelSmooth,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CopyChannels,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Cutout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DelayedPass,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DropPath,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (KeepByPass,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mul,
+     lambda: ([], {'weight': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Normalize,
+     lambda: ([], {'mean': 4, 'std': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reader,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Split,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SplitTime,
+     lambda: ([], {'times': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ToDevice,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+    (Toggle,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kakaobrain_autoclint(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BinaryCrossEntropyLabelSmooth(*[], **{'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CopyChannels(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Cutout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(DelayedPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DropPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(KeepByPass(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Mul(*[], **{'weight': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Normalize(*[], **{'mean': 4, 'std': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Reader(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(Split(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SplitTime(*[], **{'times': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(ToDevice(*[], **{}), [], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Toggle(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 

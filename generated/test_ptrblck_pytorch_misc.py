@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,15 +87,12 @@ from torchvision.utils import make_grid
 
 class LocallyConnected2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, output_size, kernel_size,
-        stride, bias=False):
+    def __init__(self, in_channels, out_channels, output_size, kernel_size, stride, bias=False):
         super(LocallyConnected2d, self).__init__()
         output_size = _pair(output_size)
-        self.weight = nn.Parameter(torch.randn(1, out_channels, in_channels,
-            output_size[0], output_size[1], kernel_size ** 2))
+        self.weight = nn.Parameter(torch.randn(1, out_channels, in_channels, output_size[0], output_size[1], kernel_size ** 2))
         if bias:
-            self.bias = nn.Parameter(torch.randn(1, out_channels,
-                output_size[0], output_size[1]))
+            self.bias = nn.Parameter(torch.randn(1, out_channels, output_size[0], output_size[1]))
         else:
             self.register_parameter('bias', None)
         self.kernel_size = _pair(kernel_size)
@@ -150,10 +148,8 @@ class MyNet(nn.Module):
 
 class MyBatchNorm2d(nn.BatchNorm2d):
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
-        super(MyBatchNorm2d, self).__init__(num_features, eps, momentum,
-            affine, track_running_stats)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super(MyBatchNorm2d, self).__init__(num_features, eps, momentum, affine, track_running_stats)
 
     def forward(self, input):
         self._check_input_dim(input)
@@ -162,8 +158,7 @@ class MyBatchNorm2d(nn.BatchNorm2d):
             if self.num_batches_tracked is not None:
                 self.num_batches_tracked += 1
                 if self.momentum is None:
-                    exponential_average_factor = 1.0 / float(self.
-                        num_batches_tracked)
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
                 else:
                     exponential_average_factor = self.momentum
         if self.training:
@@ -171,18 +166,14 @@ class MyBatchNorm2d(nn.BatchNorm2d):
             var = input.var([0, 2, 3], unbiased=False)
             n = input.numel() / input.size(1)
             with torch.no_grad():
-                self.running_mean = exponential_average_factor * mean + (1 -
-                    exponential_average_factor) * self.running_mean
-                self.running_var = exponential_average_factor * var * n / (n -
-                    1) + (1 - exponential_average_factor) * self.running_var
+                self.running_mean = exponential_average_factor * mean + (1 - exponential_average_factor) * self.running_mean
+                self.running_var = exponential_average_factor * var * n / (n - 1) + (1 - exponential_average_factor) * self.running_var
         else:
             mean = self.running_mean
             var = self.running_var
-        input = (input - mean[(None), :, (None), (None)]) / torch.sqrt(var[
-            (None), :, (None), (None)] + self.eps)
+        input = (input - mean[(None), :, (None), (None)]) / torch.sqrt(var[(None), :, (None), (None)] + self.eps)
         if self.affine:
-            input = input * self.weight[(None), :, (None), (None)] + self.bias[
-                (None), :, (None), (None)]
+            input = input * self.weight[(None), :, (None), (None)] + self.bias[(None), :, (None), (None)]
         return input
 
 
@@ -190,11 +181,8 @@ class MyModel(nn.Module):
 
     def __init__(self, window=16):
         super(MyModel, self).__init__()
-        self.conv_model = nn.Sequential(nn.Conv3d(in_channels=3,
-            out_channels=6, kernel_size=3, stride=1, padding=1), nn.
-            MaxPool3d((1, 2, 2)), nn.ReLU())
-        self.rnn = nn.RNN(input_size=6 * 16 * 12 * 12, hidden_size=1,
-            num_layers=1, batch_first=True)
+        self.conv_model = nn.Sequential(nn.Conv3d(in_channels=3, out_channels=6, kernel_size=3, stride=1, padding=1), nn.MaxPool3d((1, 2, 2)), nn.ReLU())
+        self.rnn = nn.RNN(input_size=6 * 16 * 12 * 12, hidden_size=1, num_layers=1, batch_first=True)
         self.hidden = torch.zeros(1, 1, 1)
         self.window = window
 
@@ -307,14 +295,11 @@ class MyModel(nn.Module):
 
 class BaseConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
         super(BaseConv, self).__init__()
         self.act = nn.ReLU()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size,
-            padding, stride)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size,
-            padding, stride)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, padding, stride)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, padding, stride)
 
     def forward(self, x):
         x = self.act(self.conv1(x))
@@ -324,12 +309,10 @@ class BaseConv(nn.Module):
 
 class DownConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
         super(DownConv, self).__init__()
         self.pool1 = nn.MaxPool2d(kernel_size=2)
-        self.conv_block = BaseConv(in_channels, out_channels, kernel_size,
-            padding, stride)
+        self.conv_block = BaseConv(in_channels, out_channels, kernel_size, padding, stride)
 
     def forward(self, x):
         x = self.pool1(x)
@@ -339,14 +322,10 @@ class DownConv(nn.Module):
 
 class UpConv(nn.Module):
 
-    def __init__(self, in_channels, in_channels_skip, out_channels,
-        kernel_size, padding, stride):
+    def __init__(self, in_channels, in_channels_skip, out_channels, kernel_size, padding, stride):
         super(UpConv, self).__init__()
-        self.conv_trans1 = nn.ConvTranspose2d(in_channels, in_channels,
-            kernel_size=2, padding=0, stride=2)
-        self.conv_block = BaseConv(in_channels=in_channels +
-            in_channels_skip, out_channels=out_channels, kernel_size=
-            kernel_size, padding=padding, stride=stride)
+        self.conv_trans1 = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, padding=0, stride=2)
+        self.conv_block = BaseConv(in_channels=in_channels + in_channels_skip, out_channels=out_channels, kernel_size=kernel_size, padding=padding, stride=stride)
 
     def forward(self, x, x_skip):
         x = self.conv_trans1(x)
@@ -357,25 +336,16 @@ class UpConv(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, in_channels, out_channels, n_class, kernel_size,
-        padding, stride):
+    def __init__(self, in_channels, out_channels, n_class, kernel_size, padding, stride):
         super(UNet, self).__init__()
-        self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
-            padding, stride)
-        self.down1 = DownConv(out_channels, 2 * out_channels, kernel_size,
-            padding, stride)
-        self.down2 = DownConv(2 * out_channels, 4 * out_channels,
-            kernel_size, padding, stride)
-        self.down3 = DownConv(4 * out_channels, 8 * out_channels,
-            kernel_size, padding, stride)
-        self.up3 = UpConv(8 * out_channels, 4 * out_channels, 4 *
-            out_channels, kernel_size, padding, stride)
-        self.up2 = UpConv(4 * out_channels, 2 * out_channels, 2 *
-            out_channels, kernel_size, padding, stride)
-        self.up1 = UpConv(2 * out_channels, out_channels, out_channels,
-            kernel_size, padding, stride)
-        self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding,
-            stride)
+        self.init_conv = BaseConv(in_channels, out_channels, kernel_size, padding, stride)
+        self.down1 = DownConv(out_channels, 2 * out_channels, kernel_size, padding, stride)
+        self.down2 = DownConv(2 * out_channels, 4 * out_channels, kernel_size, padding, stride)
+        self.down3 = DownConv(4 * out_channels, 8 * out_channels, kernel_size, padding, stride)
+        self.up3 = UpConv(8 * out_channels, 4 * out_channels, 4 * out_channels, kernel_size, padding, stride)
+        self.up2 = UpConv(4 * out_channels, 2 * out_channels, 2 * out_channels, kernel_size, padding, stride)
+        self.up1 = UpConv(2 * out_channels, out_channels, out_channels, kernel_size, padding, stride)
+        self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
 
     def forward(self, x):
         x = self.init_conv(x)
@@ -393,28 +363,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BaseConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (DownConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (LocallyConnected2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'output_size': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MyBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SubModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpConv,
+     lambda: ([], {'in_channels': 4, 'in_channels_skip': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
+     True),
+]
+
 class Test_ptrblck_pytorch_misc(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaptiveBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BaseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DownConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LocallyConnected2d(*[], **{'in_channels': 4, 'out_channels': 4, 'output_size': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MyBatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SubModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(UpConv(*[], **{'in_channels': 4, 'in_channels_skip': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+        self._check(*TESTCASES[6])
 

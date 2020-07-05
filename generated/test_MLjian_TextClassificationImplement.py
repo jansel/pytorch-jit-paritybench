@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,14 +65,10 @@ import numpy as np
 
 class LSTMsum(nn.Module):
 
-    def __init__(self, emb_arr, emb_freeze, input_size, hidden_size,
-        num_layers, bidir, dropout, l1_size, l2_size, num_classes):
+    def __init__(self, emb_arr, emb_freeze, input_size, hidden_size, num_layers, bidir, dropout, l1_size, l2_size, num_classes):
         super(LSTMsum, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(embeddings=emb_arr,
-            freeze=emb_freeze)
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_layers, bidirectional=bidir, batch_first=True,
-            dropout=dropout)
+        self.embedding = nn.Embedding.from_pretrained(embeddings=emb_arr, freeze=emb_freeze)
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, bidirectional=bidir, batch_first=True, dropout=dropout)
         if bidir:
             self.l1 = nn.Linear(hidden_size * 2, l1_size)
         else:
@@ -81,8 +78,7 @@ class LSTMsum(nn.Module):
 
     def forward(self, input, input_lengths):
         emb_out = self.embedding(input)
-        emb_out = rnn.pack_padded_sequence(emb_out, lengths=input_lengths,
-            batch_first=True)
+        emb_out = rnn.pack_padded_sequence(emb_out, lengths=input_lengths, batch_first=True)
         lstm_out, _ = self.lstm(emb_out)
         lstm_out, _ = rnn.pad_packed_sequence(lstm_out, batch_first=True)
         sum_out = torch.sum(lstm_out, dim=1)
@@ -94,14 +90,10 @@ class LSTMsum(nn.Module):
 
 class LSTMsum(nn.Module):
 
-    def __init__(self, emb_weights, emb_freeze, input_size, hidden_size,
-        num_layers, l1_size, l2_size, num_classes, bidir, lstm_dropout):
+    def __init__(self, emb_weights, emb_freeze, input_size, hidden_size, num_layers, l1_size, l2_size, num_classes, bidir, lstm_dropout):
         super(LSTMsum, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(embeddings=
-            emb_weights, freeze=emb_freeze)
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_layers, batch_first=True, bidirectional=bidir,
-            dropout=lstm_dropout)
+        self.embedding = nn.Embedding.from_pretrained(embeddings=emb_weights, freeze=emb_freeze)
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True, bidirectional=bidir, dropout=lstm_dropout)
         if bidir:
             self.l1 = nn.Linear(hidden_size * 2, l1_size)
         else:
@@ -118,10 +110,3 @@ class LSTMsum(nn.Module):
         l3_out = self.l3(l2_out)
         return l3_out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_MLjian_TextClassificationImplement(_paritybench_base):
-    pass

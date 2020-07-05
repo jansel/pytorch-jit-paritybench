@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,8 +96,7 @@ class SequentialFlow(nn.Module):
         super(SequentialFlow, self).__init__()
         self.chain = nn.ModuleList(layer_list)
 
-    def forward(self, x, context, logpx=None, reverse=False, inds=None,
-        integration_times=None):
+    def forward(self, x, context, logpx=None, reverse=False, inds=None, integration_times=None):
         if inds is None:
             if reverse:
                 inds = range(len(self.chain) - 1, -1, -1)
@@ -104,34 +104,28 @@ class SequentialFlow(nn.Module):
                 inds = range(len(self.chain))
         if logpx is None:
             for i in inds:
-                x = self.chain[i](x, context, logpx, integration_times, reverse
-                    )
+                x = self.chain[i](x, context, logpx, integration_times, reverse)
             return x
         else:
             for i in inds:
-                x, logpx = self.chain[i](x, context, logpx,
-                    integration_times, reverse)
+                x, logpx = self.chain[i](x, context, logpx, integration_times, reverse)
             return x, logpx
 
 
 def _flip(x, dim):
     indices = [slice(None)] * x.dim()
-    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long,
-        device=x.device)
+    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long, device=x.device)
     return x[tuple(indices)]
 
 
 class CNF(nn.Module):
 
-    def __init__(self, odefunc, conditional=True, T=1.0, train_T=False,
-        regularization_fns=None, solver='dopri5', atol=1e-05, rtol=1e-05,
-        use_adjoint=True):
+    def __init__(self, odefunc, conditional=True, T=1.0, train_T=False, regularization_fns=None, solver='dopri5', atol=1e-05, rtol=1e-05, use_adjoint=True):
         super(CNF, self).__init__()
         self.train_T = train_T
         self.T = T
         if train_T:
-            self.register_parameter('sqrt_end_time', nn.Parameter(torch.
-                sqrt(torch.tensor(T))))
+            self.register_parameter('sqrt_end_time', nn.Parameter(torch.sqrt(torch.tensor(T))))
         if regularization_fns is not None and len(regularization_fns) > 0:
             raise NotImplementedError('Regularization not supported')
         self.use_adjoint = use_adjoint
@@ -145,8 +139,7 @@ class CNF(nn.Module):
         self.solver_options = {}
         self.conditional = conditional
 
-    def forward(self, x, context=None, logpx=None, integration_times=None,
-        reverse=False):
+    def forward(self, x, context=None, logpx=None, integration_times=None, reverse=False):
         if logpx is None:
             _logpx = torch.zeros(*x.shape[:-1], 1)
         else:
@@ -162,22 +155,17 @@ class CNF(nn.Module):
             rtol = [self.rtol] * 2
         if integration_times is None:
             if self.train_T:
-                integration_times = torch.stack([torch.tensor(0.0).to(x), 
-                    self.sqrt_end_time * self.sqrt_end_time])
+                integration_times = torch.stack([torch.tensor(0.0).to(x), self.sqrt_end_time * self.sqrt_end_time])
             else:
-                integration_times = torch.tensor([0.0, self.T],
-                    requires_grad=False)
+                integration_times = torch.tensor([0.0, self.T], requires_grad=False)
         if reverse:
             integration_times = _flip(integration_times, 0)
         self.odefunc.before_odeint()
         odeint = odeint_adjoint if self.use_adjoint else odeint_normal
         if self.training:
-            state_t = odeint(self.odefunc, states, integration_times, atol=
-                atol, rtol=rtol, method=self.solver, options=self.
-                solver_options)
+            state_t = odeint(self.odefunc, states, integration_times, atol=atol, rtol=rtol, method=self.solver, options=self.solver_options)
         else:
-            state_t = odeint(self.odefunc, states, integration_times, atol=
-                self.test_atol, rtol=self.test_rtol, method=self.test_solver)
+            state_t = odeint(self.odefunc, states, integration_times, atol=self.test_atol, rtol=self.test_rtol, method=self.test_solver)
         if len(integration_times) == 2:
             state_t = tuple(s[1] for s in state_t)
         z_t, logpz_t = state_t[:2]
@@ -346,24 +334,17 @@ class Encoder(nn.Module):
         return m, v
 
 
-def build_model(args, input_dim, hidden_dims, context_dim, num_blocks,
-    conditional):
+def build_model(args, input_dim, hidden_dims, context_dim, num_blocks, conditional):
 
     def build_cnf():
-        diffeq = ODEnet(hidden_dims=hidden_dims, input_shape=(input_dim,),
-            context_dim=context_dim, layer_type=args.layer_type,
-            nonlinearity=args.nonlinearity)
+        diffeq = ODEnet(hidden_dims=hidden_dims, input_shape=(input_dim,), context_dim=context_dim, layer_type=args.layer_type, nonlinearity=args.nonlinearity)
         odefunc = ODEfunc(diffeq=diffeq)
-        cnf = CNF(odefunc=odefunc, T=args.time_length, train_T=args.train_T,
-            conditional=conditional, solver=args.solver, use_adjoint=args.
-            use_adjoint, atol=args.atol, rtol=args.rtol)
+        cnf = CNF(odefunc=odefunc, T=args.time_length, train_T=args.train_T, conditional=conditional, solver=args.solver, use_adjoint=args.use_adjoint, atol=args.atol, rtol=args.rtol)
         return cnf
     chain = [build_cnf() for _ in range(num_blocks)]
     if args.batch_norm:
-        bn_layers = [MovingBatchNorm1d(input_dim, bn_lag=args.bn_lag, sync=
-            args.sync_bn) for _ in range(num_blocks)]
-        bn_chain = [MovingBatchNorm1d(input_dim, bn_lag=args.bn_lag, sync=
-            args.sync_bn)]
+        bn_layers = [MovingBatchNorm1d(input_dim, bn_lag=args.bn_lag, sync=args.sync_bn) for _ in range(num_blocks)]
+        bn_chain = [MovingBatchNorm1d(input_dim, bn_lag=args.bn_lag, sync=args.sync_bn)]
         for a, b in zip(chain, bn_layers):
             bn_chain.append(a)
             bn_chain.append(b)
@@ -378,19 +359,15 @@ def count_parameters(model):
 
 def get_latent_cnf(args):
     dims = tuple(map(int, args.latent_dims.split('-')))
-    model = build_model(args, args.zdim, dims, 0, args.latent_num_blocks, False
-        ).cuda()
-    print('Number of trainable parameters of Latent CNF: {}'.format(
-        count_parameters(model)))
+    model = build_model(args, args.zdim, dims, 0, args.latent_num_blocks, False).cuda()
+    print('Number of trainable parameters of Latent CNF: {}'.format(count_parameters(model)))
     return model
 
 
 def get_point_cnf(args):
     dims = tuple(map(int, args.dims.split('-')))
-    model = build_model(args, args.input_dim, dims, args.zdim, args.
-        num_blocks, True).cuda()
-    print('Number of trainable parameters of Point CNF: {}'.format(
-        count_parameters(model)))
+    model = build_model(args, args.input_dim, dims, args.zdim, args.num_blocks, True).cuda()
+    print('Number of trainable parameters of Point CNF: {}'.format(count_parameters(model)))
     return model
 
 
@@ -432,11 +409,9 @@ class PointFlow(nn.Module):
         self.entropy_weight = args.entropy_weight
         self.distributed = args.distributed
         self.truncate_std = None
-        self.encoder = Encoder(zdim=args.zdim, input_dim=args.input_dim,
-            use_deterministic_encoder=args.use_deterministic_encoder)
+        self.encoder = Encoder(zdim=args.zdim, input_dim=args.input_dim, use_deterministic_encoder=args.use_deterministic_encoder)
         self.point_cnf = get_point_cnf(args)
-        self.latent_cnf = get_latent_cnf(args
-            ) if args.use_latent_flow else nn.Sequential()
+        self.latent_cnf = get_latent_cnf(args) if args.use_latent_flow else nn.Sequential()
 
     @staticmethod
     def sample_gaussian(size, truncate_std=None, gpu=None):
@@ -467,16 +442,13 @@ class PointFlow(nn.Module):
 
         def _get_opt_(params):
             if args.optimizer == 'adam':
-                optimizer = optim.Adam(params, lr=args.lr, betas=(args.
-                    beta1, args.beta2), weight_decay=args.weight_decay)
+                optimizer = optim.Adam(params, lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
             elif args.optimizer == 'sgd':
-                optimizer = torch.optim.SGD(params, lr=args.lr, momentum=
-                    args.momentum)
+                optimizer = torch.optim.SGD(params, lr=args.lr, momentum=args.momentum)
             else:
                 assert 0, "args.optimizer should be either 'adam' or 'sgd'"
             return optimizer
-        opt = _get_opt_(list(self.encoder.parameters()) + list(self.
-            point_cnf.parameters()) + list(list(self.latent_cnf.parameters())))
+        opt = _get_opt_(list(self.encoder.parameters()) + list(self.point_cnf.parameters()) + list(list(self.latent_cnf.parameters())))
         return opt
 
     def forward(self, x, opt, step, writer=None):
@@ -493,20 +465,16 @@ class PointFlow(nn.Module):
         else:
             entropy = self.gaussian_entropy(z_sigma)
         if self.use_latent_flow:
-            w, delta_log_pw = self.latent_cnf(z, None, torch.zeros(
-                batch_size, 1))
-            log_pw = standard_normal_logprob(w).view(batch_size, -1).sum(1,
-                keepdim=True)
+            w, delta_log_pw = self.latent_cnf(z, None, torch.zeros(batch_size, 1))
+            log_pw = standard_normal_logprob(w).view(batch_size, -1).sum(1, keepdim=True)
             delta_log_pw = delta_log_pw.view(batch_size, 1)
             log_pz = log_pw - delta_log_pw
         else:
             log_pz = torch.zeros(batch_size, 1)
         z_new = z.view(*z.size())
         z_new = z_new + (log_pz * 0.0).mean()
-        y, delta_log_py = self.point_cnf(x, z_new, torch.zeros(batch_size,
-            num_points, 1))
-        log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1,
-            keepdim=True)
+        y, delta_log_py = self.point_cnf(x, z_new, torch.zeros(batch_size, num_points, 1))
+        log_py = standard_normal_logprob(y).view(batch_size, -1).sum(1, keepdim=True)
         delta_log_py = delta_log_py.view(batch_size, num_points, 1).sum(1)
         log_px = log_py - delta_log_py
         entropy_loss = -entropy.mean() * self.entropy_weight
@@ -531,9 +499,7 @@ class PointFlow(nn.Module):
             writer.add_scalar('train/prior(nats)', prior_nats, step)
             writer.add_scalar('train/recon', recon, step)
             writer.add_scalar('train/recon(nats)', recon_nats, step)
-        return {'entropy': entropy_log.cpu().detach().item() if not
-            isinstance(entropy_log, float) else entropy_log, 'prior_nats':
-            prior_nats, 'recon_nats': recon_nats}
+        return {'entropy': entropy_log.cpu().detach().item() if not isinstance(entropy_log, float) else entropy_log, 'prior_nats': prior_nats, 'recon_nats': recon_nats}
 
     def encode(self, x):
         z_mu, z_sigma = self.encoder(x)
@@ -543,19 +509,15 @@ class PointFlow(nn.Module):
             return self.reparameterize_gaussian(z_mu, z_sigma)
 
     def decode(self, z, num_points, truncate_std=None):
-        y = self.sample_gaussian((z.size(0), num_points, self.input_dim),
-            truncate_std)
+        y = self.sample_gaussian((z.size(0), num_points, self.input_dim), truncate_std)
         x = self.point_cnf(y, z, reverse=True).view(*y.size())
         return y, x
 
-    def sample(self, batch_size, num_points, truncate_std=None,
-        truncate_std_latent=None, gpu=None):
+    def sample(self, batch_size, num_points, truncate_std=None, truncate_std_latent=None, gpu=None):
         assert self.use_latent_flow, 'Sampling requires `self.use_latent_flow` to be True.'
-        w = self.sample_gaussian((batch_size, self.zdim),
-            truncate_std_latent, gpu=gpu)
+        w = self.sample_gaussian((batch_size, self.zdim), truncate_std_latent, gpu=gpu)
         z = self.latent_cnf(w, None, reverse=True).view(*w.size())
-        y = self.sample_gaussian((batch_size, num_points, self.input_dim),
-            truncate_std, gpu=gpu)
+        y = self.sample_gaussian((batch_size, num_points, self.input_dim), truncate_std, gpu=gpu)
         x = self.point_cnf(y, z, reverse=True).view(*y.size())
         return z, x
 
@@ -568,8 +530,7 @@ class PointFlow(nn.Module):
 
 class MovingBatchNormNd(nn.Module):
 
-    def __init__(self, num_features, eps=0.0001, decay=0.1, bn_lag=0.0,
-        affine=True, sync=False):
+    def __init__(self, num_features, eps=0.0001, decay=0.1, bn_lag=0.0, affine=True, sync=False):
         super(MovingBatchNormNd, self).__init__()
         self.num_features = num_features
         self.sync = sync
@@ -620,16 +581,12 @@ class MovingBatchNormNd(nn.Module):
             else:
                 batch_var = torch.var(x_t, dim=1)
             if self.bn_lag > 0:
-                used_mean = batch_mean - (1 - self.bn_lag) * (batch_mean -
-                    used_mean.detach())
+                used_mean = batch_mean - (1 - self.bn_lag) * (batch_mean - used_mean.detach())
                 used_mean /= 1.0 - self.bn_lag ** (self.step[0] + 1)
-                used_var = batch_var - (1 - self.bn_lag) * (batch_var -
-                    used_var.detach())
+                used_var = batch_var - (1 - self.bn_lag) * (batch_var - used_var.detach())
                 used_var /= 1.0 - self.bn_lag ** (self.step[0] + 1)
-            self.running_mean -= self.decay * (self.running_mean -
-                batch_mean.data)
-            self.running_var -= self.decay * (self.running_var - batch_var.data
-                )
+            self.running_mean -= self.decay * (self.running_mean - batch_mean.data)
+            self.running_var -= self.decay * (self.running_var - batch_var.data)
             self.step += 1
         used_mean = used_mean.view(*self.shape).expand_as(x)
         used_var = used_var.view(*self.shape).expand_as(x)
@@ -641,8 +598,7 @@ class MovingBatchNormNd(nn.Module):
         if logpx is None:
             return y
         else:
-            return y, logpx - self._logdetgrad(x, used_var).sum(-1, keepdim
-                =True)
+            return y, logpx - self._logdetgrad(x, used_var).sum(-1, keepdim=True)
 
     def _reverse(self, y, logpy=None):
         used_mean = self.running_mean
@@ -657,8 +613,7 @@ class MovingBatchNormNd(nn.Module):
         if logpy is None:
             return x
         else:
-            return x, logpy + self._logdetgrad(x, used_var).sum(-1, keepdim
-                =True)
+            return x, logpy + self._logdetgrad(x, used_var).sum(-1, keepdim=True)
 
     def _logdetgrad(self, x, used_var):
         logdetgrad = -0.5 * torch.log(used_var + self.eps)
@@ -668,9 +623,7 @@ class MovingBatchNormNd(nn.Module):
         return logdetgrad
 
     def __repr__(self):
-        return (
-            '{name}({num_features}, eps={eps}, decay={decay}, bn_lag={bn_lag}, affine={affine})'
-            .format(name=self.__class__.__name__, **self.__dict__))
+        return '{name}({num_features}, eps={eps}, decay={decay}, bn_lag={bn_lag}, affine={affine})'.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class Swish(nn.Module):
@@ -693,9 +646,7 @@ class Lambda(nn.Module):
         return self.f(x)
 
 
-NONLINEARITIES = {'tanh': nn.Tanh(), 'relu': nn.ReLU(), 'softplus': nn.
-    Softplus(), 'elu': nn.ELU(), 'swish': Swish(), 'square': Lambda(lambda
-    x: x ** 2), 'identity': Lambda(lambda x: x)}
+NONLINEARITIES = {'tanh': nn.Tanh(), 'relu': nn.ReLU(), 'softplus': nn.Softplus(), 'elu': nn.ELU(), 'swish': Swish(), 'square': Lambda(lambda x: x ** 2), 'identity': Lambda(lambda x: x)}
 
 
 class ODEnet(nn.Module):
@@ -703,22 +654,15 @@ class ODEnet(nn.Module):
     Helper class to make neural nets for use in continuous normalizing flows
     """
 
-    def __init__(self, hidden_dims, input_shape, context_dim, layer_type=
-        'concat', nonlinearity='softplus'):
+    def __init__(self, hidden_dims, input_shape, context_dim, layer_type='concat', nonlinearity='softplus'):
         super(ODEnet, self).__init__()
-        base_layer = {'ignore': diffeq_layers.IgnoreLinear, 'squash':
-            diffeq_layers.SquashLinear, 'scale': diffeq_layers.ScaleLinear,
-            'concat': diffeq_layers.ConcatLinear, 'concat_v2':
-            diffeq_layers.ConcatLinear_v2, 'concatsquash': diffeq_layers.
-            ConcatSquashLinear, 'concatscale': diffeq_layers.ConcatScaleLinear
-            }[layer_type]
+        base_layer = {'ignore': diffeq_layers.IgnoreLinear, 'squash': diffeq_layers.SquashLinear, 'scale': diffeq_layers.ScaleLinear, 'concat': diffeq_layers.ConcatLinear, 'concat_v2': diffeq_layers.ConcatLinear_v2, 'concatsquash': diffeq_layers.ConcatSquashLinear, 'concatscale': diffeq_layers.ConcatScaleLinear}[layer_type]
         layers = []
         activation_fns = []
         hidden_shape = input_shape
         for dim_out in (hidden_dims + (input_shape[0],)):
             layer_kwargs = {}
-            layer = base_layer(hidden_shape[0], dim_out, context_dim, **
-                layer_kwargs)
+            layer = base_layer(hidden_shape[0], dim_out, context_dim, **layer_kwargs)
             layers.append(layer)
             activation_fns.append(NONLINEARITIES[nonlinearity])
             hidden_shape = list(copy.copy(hidden_shape))
@@ -744,9 +688,7 @@ def divergence_approx(f, y, e=None):
         e_dzdx_e = e_dzdx * e
         cnt += 1
     approx_tr_dzdx = e_dzdx_e.sum(dim=-1)
-    assert approx_tr_dzdx.requires_grad, '(failed to add node to graph) f=%s %s, y(rgrad)=%s, e_dzdx:%s, e:%s, e_dzdx_e:%s cnt:%s' % (
-        f.size(), f.requires_grad, y.requires_grad, e_dzdx.requires_grad, e
-        .requires_grad, e_dzdx_e.requires_grad, cnt)
+    assert approx_tr_dzdx.requires_grad, '(failed to add node to graph) f=%s %s, y(rgrad)=%s, e_dzdx:%s, e:%s, e_dzdx_e:%s cnt:%s' % (f.size(), f.requires_grad, y.requires_grad, e_dzdx.requires_grad, e.requires_grad, e_dzdx_e.requires_grad, cnt)
     return approx_tr_dzdx
 
 
@@ -764,8 +706,7 @@ class ODEfunc(nn.Module):
 
     def forward(self, t, states):
         y = states[0]
-        t = torch.ones(y.size(0), 1) * t.clone().detach().requires_grad_(True
-            ).type_as(y)
+        t = torch.ones(y.size(0), 1) * t.clone().detach().requires_grad_(True).type_as(y)
         self._num_evals += 1
         for state in states:
             state.requires_grad_(True)
@@ -777,8 +718,7 @@ class ODEfunc(nn.Module):
                 tc = torch.cat([t, c.view(y.size(0), -1)], dim=1)
                 dy = self.diffeq(tc, y)
                 divergence = self.divergence_fn(dy, y, e=self._e).unsqueeze(-1)
-                return dy, -divergence, torch.zeros_like(c).requires_grad_(True
-                    )
+                return dy, -divergence, torch.zeros_like(c).requires_grad_(True)
             elif len(states) == 2:
                 dy = self.diffeq(t, y)
                 divergence = self.divergence_fn(dy, y, e=self._e).view(-1, 1)
@@ -791,36 +731,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConcatLinear,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConcatLinear_v2,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
+     True),
+    (ConcatScaleLinear,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
+     True),
+    (ConcatSquashLinear,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'zdim': 4}),
+     lambda: ([torch.rand([4, 3, 3])], {}),
+     False),
+    (IgnoreLinear,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Lambda,
+     lambda: ([], {'f': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ScaleLinear,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
+     True),
+    (SquashLinear,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
+     lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
+     True),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_stevenygd_PointFlow(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConcatLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 9]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConcatLinear_v2(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConcatScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ConcatSquashLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Encoder(*[], **{'zdim': 4}), [torch.rand([4, 3, 3])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(IgnoreLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Lambda(*[], **{'f': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ScaleLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(SquashLinear(*[], **{'dim_in': 4, 'dim_out': 4, 'dim_c': 4}), [torch.rand([4, 5]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

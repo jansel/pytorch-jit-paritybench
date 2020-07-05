@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -117,9 +118,7 @@ class SiamRPN(nn.Module):
         out = []
         kernel_size = z.data.size()[-1]
         for i in range(x.size(0)):
-            out.append(F.conv2d(x[(i), :, :, :].unsqueeze(0), z[(i), :, :,
-                :].unsqueeze(0).view(channels, self.model.features.
-                feature_channel, kernel_size, kernel_size)))
+            out.append(F.conv2d(x[(i), :, :, :].unsqueeze(0), z[(i), :, :, :].unsqueeze(0).view(channels, self.model.features.feature_channel, kernel_size, kernel_size)))
         return torch.cat(out, dim=0)
 
     def forward(self, detection):
@@ -127,8 +126,7 @@ class SiamRPN(nn.Module):
         conv_score = self.model.conv_cls2(detection_feature)
         conv_regression = self.model.conv_r2(detection_feature)
         pred_score = self.xcorr(self.cls1_kernel, conv_score, 10)
-        pred_regression = self.model.regress_adjust(self.xcorr(self.
-            r1_kernel, conv_regression, 20))
+        pred_regression = self.model.regress_adjust(self.xcorr(self.r1_kernel, conv_regression, 20))
         return pred_regression, pred_score
 
     def temple(self, z):
@@ -174,15 +172,12 @@ def extract_crops_x(im, npad, pos_x, pos_y, sz_src0, sz_src1, sz_src2, sz_dst):
     tr_y = npad + int(round(pos_y - c))
     width = round(pos_x + c) - round(pos_x - c)
     height = round(pos_y + c) - round(pos_y - c)
-    search_area = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(
-        tr_y + height)))
+    search_area = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y + height)))
     offset_s0 = (sz_src2 - sz_src0) / 2
     offset_s1 = (sz_src2 - sz_src1) / 2
-    crop_s0 = search_area.crop((int(offset_s0), int(offset_s0), int(
-        offset_s0 + round(sz_src0)), int(offset_s0 + round(sz_src0))))
+    crop_s0 = search_area.crop((int(offset_s0), int(offset_s0), int(offset_s0 + round(sz_src0)), int(offset_s0 + round(sz_src0))))
     crop_s0 = crop_s0.resize((sz_dst, sz_dst), Image.BILINEAR)
-    crop_s1 = search_area.crop((int(offset_s1), int(offset_s1), int(
-        offset_s1 + round(sz_src1)), int(offset_s1 + round(sz_src1))))
+    crop_s1 = search_area.crop((int(offset_s1), int(offset_s1), int(offset_s1 + round(sz_src1)), int(offset_s1 + round(sz_src1))))
     crop_s1 = crop_s1.resize((sz_dst, sz_dst), Image.BILINEAR)
     crop_s2 = search_area.resize((sz_dst, sz_dst), Image.BILINEAR)
     crop_s0 = 255.0 * F.to_tensor(crop_s0)
@@ -198,8 +193,7 @@ def extract_crops_z(im, npad, pos_x, pos_y, sz_src, sz_dst):
     tr_y = npad + int(round(pos_y - c))
     width = round(pos_x + c) - round(pos_x - c)
     height = round(pos_y + c) - round(pos_y - c)
-    crop = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y +
-        height)))
+    crop = im.crop((int(tr_x), int(tr_y), int(tr_x + width), int(tr_y + height)))
     crop = crop.resize((sz_dst, sz_dst), Image.BILINEAR)
     crops = 255.0 * F.to_tensor(crop).unsqueeze(0)
     return crops
@@ -209,10 +203,8 @@ def gen_xz(img, inbox, to='x', pdrt=1):
     box = Rectangle(inbox.x, inbox.y, inbox.width * pdrt, inbox.height * pdrt)
     x_sz = 255, 255
     z_sz = 127, 127
-    bg = Image.new('RGB', (int(box.width), int(box.height)), tuple(map(int,
-        ImageStat.Stat(img).mean)))
-    bg.paste(img, (-int(box.x - 0.5 * box.width), -int(box.y - 0.5 * box.
-        height)))
+    bg = Image.new('RGB', (int(box.width), int(box.height)), tuple(map(int, ImageStat.Stat(img).mean)))
+    bg.paste(img, (-int(box.x - 0.5 * box.width), -int(box.y - 0.5 * box.height)))
     if to == 'x':
         temp = bg.resize(x_sz)
     elif to == 'z':
@@ -258,10 +250,8 @@ class SiameseNet(nn.Module):
         if isinstance(image, six.string_types):
             image = Image.open(image).convert('RGB')
         avg_chan = ImageStat.Stat(image).mean
-        frame_padded_z, npad_z = pad_frame(image, image.size, pos_x, pos_y,
-            z_sz, avg_chan)
-        z_crops = extract_crops_z(frame_padded_z, npad_z, pos_x, pos_y,
-            z_sz, design.exemplar_sz)
+        frame_padded_z, npad_z = pad_frame(image, image.size, pos_x, pos_y, z_sz, avg_chan)
+        z_crops = extract_crops_z(frame_padded_z, npad_z, pos_x, pos_y, z_sz, design.exemplar_sz)
         template_z = self.branch(Variable(z_crops))
         return image, template_z
 
@@ -273,26 +263,20 @@ class SiameseNet(nn.Module):
         template_z = self.branch(Variable(tz))
         return image, template_z
 
-    def get_scores(self, pos_x, pos_y, scaled_search_area, template_z,
-        filename, design, final_score_sz):
+    def get_scores(self, pos_x, pos_y, scaled_search_area, template_z, filename, design, final_score_sz):
         image = Image.open(filename).convert('RGB')
         avg_chan = ImageStat.Stat(image).mean
-        frame_padded_x, npad_x = pad_frame(image, image.size, pos_x, pos_y,
-            scaled_search_area[2], avg_chan)
-        x_crops = extract_crops_x(frame_padded_x, npad_x, pos_x, pos_y,
-            scaled_search_area[0], scaled_search_area[1],
-            scaled_search_area[2], design.search_sz)
+        frame_padded_x, npad_x = pad_frame(image, image.size, pos_x, pos_y, scaled_search_area[2], avg_chan)
+        x_crops = extract_crops_x(frame_padded_x, npad_x, pos_x, pos_y, scaled_search_area[0], scaled_search_area[1], scaled_search_area[2], design.search_sz)
         template_x = self.branch(Variable(x_crops))
         template_z = template_z.repeat(template_x.size(0), 1, 1, 1)
         scores = self.model.head(template_z, template_x)
         scores = scores.squeeze().permute(1, 2, 0).data.cpu().numpy()
-        scores_up = cv2.resize(scores, (final_score_sz, final_score_sz),
-            interpolation=cv2.INTER_CUBIC)
+        scores_up = cv2.resize(scores, (final_score_sz, final_score_sz), interpolation=cv2.INTER_CUBIC)
         scores_up = scores_up.transpose((2, 0, 1))
         return image, scores_up
 
-    def get_scores_new(self, pos_x, pos_y, scaled_search_area, template_z,
-        filename, design, final_score_sz):
+    def get_scores_new(self, pos_x, pos_y, scaled_search_area, template_z, filename, design, final_score_sz):
         image = Image.open(filename).convert('RGB')
         txs = []
         for scale in scaled_search_area:
@@ -304,8 +288,7 @@ class SiameseNet(nn.Module):
         template_z = template_z.repeat(template_x.size(0), 1, 1, 1)
         scores = self.model.head(template_z, template_x)
         scores = scores.squeeze().permute(1, 2, 0).data.cpu().numpy()
-        scores_up = cv2.resize(scores, (final_score_sz, final_score_sz),
-            interpolation=cv2.INTER_CUBIC)
+        scores_up = cv2.resize(scores, (final_score_sz, final_score_sz), interpolation=cv2.INTER_CUBIC)
         scores_up = scores_up.transpose((2, 0, 1))
         return image, scores_up
 
@@ -318,15 +301,7 @@ class AlexNet(nn.Module):
     def __init__(self):
         super(AlexNet, self).__init__()
         self.feature_channel = 256
-        self.feature = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.
-            BatchNorm2d(96, eps=1e-06, momentum=0.05), nn.ReLU(inplace=True
-            ), nn.MaxPool2d(3, 2), nn.Conv2d(96, 256, 5, 1, groups=2), nn.
-            BatchNorm2d(256, eps=1e-06, momentum=0.05), nn.ReLU(inplace=
-            True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1), nn.
-            BatchNorm2d(384, eps=1e-06, momentum=0.05), nn.ReLU(inplace=
-            True), nn.Conv2d(384, 384, 3, 1, groups=2), nn.BatchNorm2d(384,
-            eps=1e-06, momentum=0.05), nn.ReLU(inplace=True), nn.Conv2d(384,
-            256, 3, 1, groups=2))
+        self.feature = nn.Sequential(nn.Conv2d(3, 96, 11, 2), nn.BatchNorm2d(96, eps=1e-06, momentum=0.05), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(96, 256, 5, 1, groups=2), nn.BatchNorm2d(256, eps=1e-06, momentum=0.05), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(256, 384, 3, 1), nn.BatchNorm2d(384, eps=1e-06, momentum=0.05), nn.ReLU(inplace=True), nn.Conv2d(384, 384, 3, 1, groups=2), nn.BatchNorm2d(384, eps=1e-06, momentum=0.05), nn.ReLU(inplace=True), nn.Conv2d(384, 256, 3, 1, groups=2))
 
     def forward(self, x):
         x = self.feature(x)
@@ -341,23 +316,7 @@ class Vgg(nn.Module):
     def __init__(self):
         super(Vgg, self).__init__()
         self.feature_channel = 256
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-            stride=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size
-            =3, stride=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=
-            2, stride=2, padding=0, dilation=1, ceil_mode=False), nn.Conv2d
-            (64, 128, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 128, kernel_size=3, stride=1), nn.ReLU(inplace=True
-            ), nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1,
-            ceil_mode=False), nn.Conv2d(128, 256, kernel_size=3, stride=1),
-            nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            stride=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False
-            ), nn.Conv2d(256, 512, kernel_size=3, stride=1), nn.ReLU(
-            inplace=True), nn.Conv2d(512, 512, kernel_size=3, stride=1), nn
-            .ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, stride=
-            1), nn.ReLU(inplace=True), nn.Conv2d(512, 256, kernel_size=1,
-            stride=1))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False), nn.Conv2d(64, 128, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False), nn.Conv2d(128, 256, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False), nn.Conv2d(256, 512, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, stride=1), nn.ReLU(inplace=True), nn.Conv2d(512, 256, kernel_size=1, stride=1))
 
     def forward(self, x):
         x = self.features(x)
@@ -371,8 +330,7 @@ class ResNet22(nn.Module):
 
     def __init__(self):
         super(ResNet22, self).__init__()
-        self.features = ResNet(Bottleneck_CI, [3, 4], [True, False], [False,
-            True])
+        self.features = ResNet(Bottleneck_CI, [3, 4], [True, False], [False, True])
         self.feature_channel = 512
 
     def forward(self, x):
@@ -396,8 +354,7 @@ class ResNeXt22(nn.Module):
 
     def __init__(self):
         super(ResNeXt22, self).__init__()
-        self.features = ResNeXt(num_blocks=[3, 4], cardinality=32,
-            bottleneck_width=4)
+        self.features = ResNeXt(num_blocks=[3, 4], cardinality=32, bottleneck_width=4)
         self.feature_channel = 512
 
     def forward(self, x):
@@ -412,8 +369,7 @@ class ResNet22W(nn.Module):
 
     def __init__(self):
         super(ResNet22W, self).__init__()
-        self.features = ResNet(Bottleneck_BIG_CI, [3, 4], [True, False], [
-            False, True], firstchannels=64, channels=[64, 128])
+        self.features = ResNet(Bottleneck_BIG_CI, [3, 4], [True, False], [False, True], firstchannels=64, channels=[64, 128])
         self.feature_channel = 512
 
     def forward(self, x):
@@ -461,8 +417,7 @@ class SiamVGG(nn.Module):
         self._initialize_weights()
         mod = models.vgg16(pretrained=True)
         for i in xrange(len(self.features.state_dict().items()) - 2):
-            self.features.state_dict().items()[i][1].data[:] = mod.state_dict(
-                ).items()[i][1].data[:]
+            self.features.state_dict().items()[i][1].data[:] = mod.state_dict().items()[i][1].data[:]
 
     def forward(self, z, x):
         zf = self.features(z)
@@ -473,8 +428,7 @@ class SiamVGG(nn.Module):
     def head(self, z, x):
         out = []
         for i in range(x.size(0)):
-            out.append(F.conv2d(x[(i), :, :, :].unsqueeze(0), z[(i), :, :,
-                :].unsqueeze(0)))
+            out.append(F.conv2d(x[(i), :, :, :].unsqueeze(0), z[(i), :, :, :].unsqueeze(0)))
         return self.bn_adjust(torch.cat(out, dim=0))
 
     def _initialize_weights(self):
@@ -501,16 +455,10 @@ class SiamRPN(nn.Module):
         self._initialize_weights()
 
     def mid(self):
-        self.conv_cls1 = nn.Conv2d(self.features.feature_channel, self.
-            features.feature_channel * 2 * 5, kernel_size=3, stride=1,
-            padding=0)
-        self.conv_r1 = nn.Conv2d(self.features.feature_channel, self.
-            features.feature_channel * 4 * 5, kernel_size=3, stride=1,
-            padding=0)
-        self.conv_cls2 = nn.Conv2d(self.features.feature_channel, self.
-            features.feature_channel, kernel_size=3, stride=1, padding=0)
-        self.conv_r2 = nn.Conv2d(self.features.feature_channel, self.
-            features.feature_channel, kernel_size=3, stride=1, padding=0)
+        self.conv_cls1 = nn.Conv2d(self.features.feature_channel, self.features.feature_channel * 2 * 5, kernel_size=3, stride=1, padding=0)
+        self.conv_r1 = nn.Conv2d(self.features.feature_channel, self.features.feature_channel * 4 * 5, kernel_size=3, stride=1, padding=0)
+        self.conv_cls2 = nn.Conv2d(self.features.feature_channel, self.features.feature_channel, kernel_size=3, stride=1, padding=0)
+        self.conv_r2 = nn.Conv2d(self.features.feature_channel, self.features.feature_channel, kernel_size=3, stride=1, padding=0)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -526,9 +474,7 @@ class SiamRPN(nn.Module):
         out = []
         kernel_size = z.data.size()[-1]
         for i in range(x.size(0)):
-            out.append(F.conv2d(x[(i), :, :, :].unsqueeze(0), z[(i), :, :,
-                :].unsqueeze(0).view(channels, self.features.
-                feature_channel, kernel_size, kernel_size)))
+            out.append(F.conv2d(x[(i), :, :, :].unsqueeze(0), z[(i), :, :, :].unsqueeze(0).view(channels, self.features.feature_channel, kernel_size, kernel_size)))
         return torch.cat(out, dim=0)
 
     def forward(self, template, detection):
@@ -539,8 +485,7 @@ class SiamRPN(nn.Module):
         conv_score = self.conv_cls2(detection_feature)
         conv_regression = self.conv_r2(detection_feature)
         pred_score = self.xcorr(kernel_score, conv_score, 10)
-        pred_regression = self.regress_adjust(self.xcorr(kernel_regression,
-            conv_regression, 20))
+        pred_regression = self.regress_adjust(self.xcorr(kernel_regression, conv_regression, 20))
         return pred_score, pred_regression
 
 
@@ -557,10 +502,8 @@ class SiamRPNPP(nn.Module):
     def __init__(self):
         super(SiamRPNPP, self).__init__()
         self.features = resnet50(**{'used_layers': [2, 3, 4]})
-        self.neck = AdjustAllLayer(**{'in_channels': [512, 1024, 2048],
-            'out_channels': [256, 256, 256]})
-        self.head = MultiRPN(**{'anchor_num': 5, 'in_channels': [256, 256, 
-            256], 'weighted': True})
+        self.neck = AdjustAllLayer(**{'in_channels': [512, 1024, 2048], 'out_channels': [256, 256, 256]})
+        self.head = MultiRPN(**{'anchor_num': 5, 'in_channels': [256, 256, 256], 'weighted': True})
 
     def template(self, z):
         zf = self.features(z)
@@ -635,18 +578,11 @@ def xcorr_depthwise(x, kernel):
 
 class DepthwiseXCorr(nn.Module):
 
-    def __init__(self, in_channels, hidden, out_channels, kernel_size=3,
-        hidden_kernel_size=5):
+    def __init__(self, in_channels, hidden, out_channels, kernel_size=3, hidden_kernel_size=5):
         super(DepthwiseXCorr, self).__init__()
-        self.conv_kernel = nn.Sequential(nn.Conv2d(in_channels, hidden,
-            kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden),
-            nn.ReLU(inplace=True))
-        self.conv_search = nn.Sequential(nn.Conv2d(in_channels, hidden,
-            kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden),
-            nn.ReLU(inplace=True))
-        self.head = nn.Sequential(nn.Conv2d(hidden, hidden, kernel_size=1,
-            bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True), nn.
-            Conv2d(hidden, out_channels, kernel_size=1))
+        self.conv_kernel = nn.Sequential(nn.Conv2d(in_channels, hidden, kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True))
+        self.conv_search = nn.Sequential(nn.Conv2d(in_channels, hidden, kernel_size=kernel_size, bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True))
+        self.head = nn.Sequential(nn.Conv2d(hidden, hidden, kernel_size=1, bias=False), nn.BatchNorm2d(hidden), nn.ReLU(inplace=True), nn.Conv2d(hidden, out_channels, kernel_size=1))
 
     def forward(self, kernel, search):
         kernel = self.conv_kernel(kernel)
@@ -674,8 +610,7 @@ class Bottleneck_CI(nn.Module):
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, last_relu, stride=1, downsample=
-        None, dilation=1):
+    def __init__(self, inplanes, planes, last_relu, stride=1, downsample=None, dilation=1):
         super(Bottleneck_CI, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -684,11 +619,9 @@ class Bottleneck_CI(nn.Module):
             padding = 2
         if abs(dilation - 3) < eps:
             padding = 3
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=padding, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -720,8 +653,7 @@ class Bottleneck_BIG_CI(nn.Module):
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, last_relu, stride=1, downsample=
-        None, dilation=1):
+    def __init__(self, inplanes, planes, last_relu, stride=1, downsample=None, dilation=1):
         super(Bottleneck_BIG_CI, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -730,11 +662,9 @@ class Bottleneck_BIG_CI(nn.Module):
             padding = 2
         if abs(dilation - 3) < eps:
             padding = 3
-        self.conv2 = nn.Conv2d(planes, planes * 2, kernel_size=3, stride=
-            stride, padding=padding, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes * 2, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes * 2)
-        self.conv3 = nn.Conv2d(planes * 2, planes * self.expansion,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes * 2, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -774,28 +704,22 @@ class ResNet(nn.Module):
     Usage: ResNet(Bottleneck_CI, [3, 4], [True, False], [False, True], 64, [64, 128])
     """
 
-    def __init__(self, block, layers, last_relus, s2p_flags, firstchannels=
-        64, channels=[64, 128], dilation=1):
+    def __init__(self, block, layers, last_relus, s2p_flags, firstchannels=64, channels=[64, 128], dilation=1):
         self.inplanes = firstchannels
         self.stage_len = len(layers)
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, firstchannels, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, firstchannels, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(firstchannels)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         if s2p_flags[0]:
-            self.layer1 = self._make_layer(block, channels[0], layers[0],
-                stride2pool=True, last_relu=last_relus[0])
+            self.layer1 = self._make_layer(block, channels[0], layers[0], stride2pool=True, last_relu=last_relus[0])
         else:
-            self.layer1 = self._make_layer(block, channels[0], layers[0],
-                last_relu=last_relus[0])
+            self.layer1 = self._make_layer(block, channels[0], layers[0], last_relu=last_relus[0])
         if s2p_flags[1]:
-            self.layer2 = self._make_layer(block, channels[1], layers[1],
-                stride2pool=True, last_relu=last_relus[1], dilation=dilation)
+            self.layer2 = self._make_layer(block, channels[1], layers[1], stride2pool=True, last_relu=last_relus[1], dilation=dilation)
         else:
-            self.layer2 = self._make_layer(block, channels[1], layers[1],
-                last_relu=last_relus[1], dilation=dilation)
+            self.layer2 = self._make_layer(block, channels[1], layers[1], last_relu=last_relus[1], dilation=dilation)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out')
@@ -803,8 +727,7 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_layer(self, block, planes, blocks, last_relu, stride=1,
-        stride2pool=False, dilation=1):
+    def _make_layer(self, block, planes, blocks, last_relu, stride=1, stride2pool=False, dilation=1):
         """
         :param block:
         :param planes:
@@ -815,22 +738,17 @@ class ResNet(nn.Module):
         """
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, last_relu=True, stride=
-            stride, downsample=downsample, dilation=dilation))
+        layers.append(block(self.inplanes, planes, last_relu=True, stride=stride, downsample=downsample, dilation=dilation))
         if stride2pool:
             layers.append(self.maxpool)
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             if i == blocks - 1:
-                layers.append(block(self.inplanes, planes, last_relu=
-                    last_relu, dilation=dilation))
+                layers.append(block(self.inplanes, planes, last_relu=last_relu, dilation=dilation))
             else:
-                layers.append(block(self.inplanes, planes, last_relu=True,
-                    dilation=dilation))
+                layers.append(block(self.inplanes, planes, last_relu=True, dilation=dilation))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -874,11 +792,9 @@ class BasicConv2d_3x3(nn.Module):
         super(BasicConv2d_3x3, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.last_relu = last_relu
@@ -905,8 +821,7 @@ class InceptionM(nn.Module):
     def __init__(self, in_channels, planes, last_relu=True):
         super(InceptionM, self).__init__()
         self.branch3x3 = BasicConv2d_3x3(in_channels, planes, last_relu)
-        self.branch1x1 = BasicConv2d_1x1(in_channels, planes, last_relu,
-            kernel_size=1)
+        self.branch1x1 = BasicConv2d_1x1(in_channels, planes, last_relu, kernel_size=1)
 
     def forward(self, x):
         branch3x3 = self.branch3x3(x)
@@ -924,15 +839,13 @@ class Inception(nn.Module):
     def __init__(self, block, layers):
         self.inplanes = 64
         super(Inception, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.layer1 = self._make_layer(block, 64, 64, layers[0], pool=False)
-        self.layer2 = self._make_layer(block, 320, 128, layers[1], pool=
-            True, last_relu=False)
+        self.layer2 = self._make_layer(block, 320, 128, layers[1], pool=True, last_relu=False)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out')
@@ -940,8 +853,7 @@ class Inception(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_layer(self, block, inchannels, planes, blocks, pool=True,
-        last_relu=True):
+    def _make_layer(self, block, inchannels, planes, blocks, pool=True, last_relu=True):
         layers = []
         for i in range(0, blocks):
             if i == 0:
@@ -972,23 +884,14 @@ class BasicBlock_C(nn.Module):
     gaining accuracy than going deeper or wider
     """
 
-    def __init__(self, in_planes, bottleneck_width=4, cardinality=32,
-        expansion=2, last_relu=True):
+    def __init__(self, in_planes, bottleneck_width=4, cardinality=32, expansion=2, last_relu=True):
         super(BasicBlock_C, self).__init__()
         inner_width = cardinality * bottleneck_width
         self.expansion = expansion
-        self.basic = nn.Sequential(OrderedDict([('conv1_0', nn.Conv2d(
-            in_planes, inner_width, 1, stride=1, bias=False)), ('bn1', nn.
-            BatchNorm2d(inner_width)), ('act0', nn.ReLU()), ('conv3_0', nn.
-            Conv2d(inner_width, inner_width, 3, stride=1, padding=1, groups
-            =cardinality, bias=False)), ('bn2', nn.BatchNorm2d(inner_width)
-            ), ('act1', nn.ReLU()), ('conv1_1', nn.Conv2d(inner_width, 
-            inner_width * self.expansion, 1, stride=1, bias=False)), ('bn3',
-            nn.BatchNorm2d(inner_width * self.expansion))]))
+        self.basic = nn.Sequential(OrderedDict([('conv1_0', nn.Conv2d(in_planes, inner_width, 1, stride=1, bias=False)), ('bn1', nn.BatchNorm2d(inner_width)), ('act0', nn.ReLU()), ('conv3_0', nn.Conv2d(inner_width, inner_width, 3, stride=1, padding=1, groups=cardinality, bias=False)), ('bn2', nn.BatchNorm2d(inner_width)), ('act1', nn.ReLU()), ('conv1_1', nn.Conv2d(inner_width, inner_width * self.expansion, 1, stride=1, bias=False)), ('bn3', nn.BatchNorm2d(inner_width * self.expansion))]))
         self.shortcut = nn.Sequential()
         if in_planes != inner_width * self.expansion:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, inner_width *
-                self.expansion, 1, stride=1, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, inner_width * self.expansion, 1, stride=1, bias=False))
         self.bn0 = nn.BatchNorm2d(self.expansion * inner_width)
         self.last_relu = last_relu
 
@@ -1015,12 +918,10 @@ class ResNeXt(nn.Module):
         self.expansion = expansion
         self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv0 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2,
-            padding=0)
+        self.conv0 = nn.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=0)
         self.bn0 = nn.BatchNorm2d(self.in_planes)
         self.layer1 = self._make_layer(num_blocks[0], last_relu=True)
-        self.layer2 = self._make_layer(num_blocks[1], last_relu=False,
-            stride2pool=True)
+        self.layer2 = self._make_layer(num_blocks[1], last_relu=False, stride2pool=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out')
@@ -1032,14 +933,10 @@ class ResNeXt(nn.Module):
         layers = []
         for i in range(0, num_blocks):
             if i == num_blocks - 1:
-                layers.append(BasicBlock_C(self.in_planes, self.
-                    bottleneck_width, self.cardinality, self.expansion,
-                    last_relu=last_relu))
+                layers.append(BasicBlock_C(self.in_planes, self.bottleneck_width, self.cardinality, self.expansion, last_relu=last_relu))
             else:
-                layers.append(BasicBlock_C(self.in_planes, self.
-                    bottleneck_width, self.cardinality, self.expansion))
-            self.in_planes = (self.expansion * self.bottleneck_width * self
-                .cardinality)
+                layers.append(BasicBlock_C(self.in_planes, self.bottleneck_width, self.cardinality, self.expansion))
+            self.in_planes = self.expansion * self.bottleneck_width * self.cardinality
             if i == 0 and stride2pool:
                 layers.append(self.maxpool)
         self.bottleneck_width *= 2
@@ -1055,15 +952,13 @@ class ResNeXt(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(BasicBlock, self).__init__()
         padding = 2 - stride
         if dilation > 1:
@@ -1073,8 +968,7 @@ class BasicBlock(nn.Module):
         if downsample is not None and dilation > 1:
             dd = dilation // 2
             pad = dd
-        self.conv1 = nn.Conv2d(inplanes, planes, stride=stride, dilation=dd,
-            bias=False, kernel_size=3, padding=pad)
+        self.conv1 = nn.Conv2d(inplanes, planes, stride=stride, dilation=dd, bias=False, kernel_size=3, padding=pad)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes, dilation=dilation)
@@ -1099,8 +993,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -1111,8 +1004,7 @@ class Bottleneck(nn.Module):
         assert stride == 1 or dilation == 1, 'stride and dilation must have one equals to zero at least'
         if dilation > 1:
             padding = dilation
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=padding, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1142,8 +1034,7 @@ class ResNetPP(nn.Module):
     def __init__(self, block, layers, used_layers):
         self.inplanes = 64
         super(ResNetPP, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -1154,14 +1045,12 @@ class ResNetPP(nn.Module):
         layer3 = True if 3 in used_layers else False
         layer4 = True if 4 in used_layers else False
         if layer3:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-                dilation=2)
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
             self.feature_size = (256 + 128) * block.expansion
         else:
             self.layer3 = lambda x: x
         if layer4:
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-                dilation=4)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
             self.feature_size = 512 * block.expansion
         else:
             self.layer4 = lambda x: x
@@ -1178,9 +1067,7 @@ class ResNetPP(nn.Module):
         dd = dilation
         if stride != 1 or self.inplanes != planes * block.expansion:
             if stride == 1 and dilation == 1:
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                    block.expansion, kernel_size=1, stride=stride, bias=
-                    False), nn.BatchNorm2d(planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
             else:
                 if dilation > 1:
                     dd = dilation // 2
@@ -1188,13 +1075,9 @@ class ResNetPP(nn.Module):
                 else:
                     dd = 1
                     padding = 0
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                    block.expansion, kernel_size=3, stride=stride, bias=
-                    False, padding=padding, dilation=dd), nn.BatchNorm2d(
-                    planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=3, stride=stride, bias=False, padding=padding, dilation=dd), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=dilation))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, dilation=dilation))
@@ -1221,8 +1104,7 @@ class AdjustLayer(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(AdjustLayer, self).__init__()
-        self.downsample = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            kernel_size=1, bias=False), nn.BatchNorm2d(out_channels))
+        self.downsample = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
         x = self.downsample(x)
@@ -1242,8 +1124,7 @@ class AdjustAllLayer(nn.Module):
             self.downsample = AdjustLayer(in_channels[0], out_channels[0])
         else:
             for i in range(self.num):
-                self.add_module('downsample' + str(i + 2), AdjustLayer(
-                    in_channels[i], out_channels[i]))
+                self.add_module('downsample' + str(i + 2), AdjustLayer(in_channels[i], out_channels[i]))
 
     def forward(self, features):
         if self.num == 1:
@@ -1260,58 +1141,128 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdjustAllLayer,
+     lambda: ([], {'in_channels': [4, 4], 'out_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
+    (AdjustLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AlexNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock_C,
+     lambda: ([], {'in_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d_1x1,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d_3x3,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Corr_Up,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DepthwiseXCorr,
+     lambda: ([], {'in_channels': 4, 'hidden': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Incep22,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (InceptionM,
+     lambda: ([], {'in_channels': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNeXt,
+     lambda: ([], {'num_blocks': [4, 4], 'cardinality': 4, 'bottleneck_width': 4}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (ResNeXt22,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (ResNet22,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (ResNet22W,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (SiamRPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128]), torch.rand([4, 3, 128, 128])], {}),
+     False),
+    (Vgg,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+]
+
 class Test_zllrunning_SiameseX_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AdjustAllLayer(*[], **{'in_channels': [4, 4], 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AdjustLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(AlexNet(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BasicBlock_C(*[], **{'in_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(BasicConv2d_1x1(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(BasicConv2d_3x3(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Corr_Up(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(DepthwiseXCorr(*[], **{'in_channels': 4, 'hidden': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Incep22(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(InceptionM(*[], **{'in_channels': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(ResNeXt(*[], **{'num_blocks': [4, 4], 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(ResNeXt22(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(ResNet22(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(ResNet22W(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(SiamRPN(*[], **{}), [torch.rand([4, 3, 128, 128]), torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(Vgg(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[16])
 

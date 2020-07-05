@@ -118,8 +118,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -206,8 +207,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
     def __init__(self, nb_embed, nb_qk_chan, nb_v_chan, nb_head, scale=False):
         super(MultiHeadSelfAttention, self).__init__()
         assert nb_qk_chan % nb_head == 0
-        self.register_buffer('b', torch.tril(torch.ones(nb_embed, nb_embed)
-            ).view(1, 1, nb_embed, nb_embed))
+        self.register_buffer('b', torch.tril(torch.ones(nb_embed, nb_embed)).view(1, 1, nb_embed, nb_embed))
         self.nb_head = nb_head
         self.split_size = nb_qk_chan
         self.scale = scale
@@ -228,8 +228,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
         return x.view(*new_x_shape)
 
     def split_heads(self, x, k=False):
-        new_x_shape = x.size()[:-1] + (self.nb_head, x.size(-1) // self.nb_head
-            )
+        new_x_shape = x.size()[:-1] + (self.nb_head, x.size(-1) // self.nb_head)
         x = x.view(*new_x_shape)
         if k:
             return x.permute(0, 2, 3, 1)
@@ -259,8 +258,7 @@ class RMCCell(torch.nn.Module):
     Reference implementation: https://github.com/deepmind/sonnet/blob/master/sonnet/python/modules/relational_memory.py
     """
 
-    def __init__(self, nb_input_embed, nb_memory_embed, nb_channel, nb_head
-        =1, nb_block=1, nb_mlp=2, input_bias=0, forget_bias=1):
+    def __init__(self, nb_input_embed, nb_memory_embed, nb_channel, nb_head=1, nb_block=1, nb_mlp=2, input_bias=0, forget_bias=1):
         super(RMCCell, self).__init__()
         self._mem_slots = nb_memory_embed
         self._head_size = nb_channel
@@ -274,14 +272,10 @@ class RMCCell(torch.nn.Module):
         self.hh = Linear(nb_channel, 2 * self._nb_total_mem_chan)
         self.ih.bias.data.fill_(0)
         self.hh.bias.data.fill_(0)
-        self.attention = MultiHeadSelfAttention(nb_input_embed +
-            nb_memory_embed, nb_channel, nb_channel, 1, scale=True)
-        self.mlp = torch.nn.ModuleList([Linear(self._nb_total_mem_chan,
-            self._nb_total_mem_chan) for _ in range(nb_mlp)])
-        self.ln1 = torch.nn.LayerNorm([nb_input_embed + nb_memory_embed,
-            self._nb_total_mem_chan])
-        self.ln2 = torch.nn.LayerNorm([nb_input_embed + nb_memory_embed,
-            self._nb_total_mem_chan])
+        self.attention = MultiHeadSelfAttention(nb_input_embed + nb_memory_embed, nb_channel, nb_channel, 1, scale=True)
+        self.mlp = torch.nn.ModuleList([Linear(self._nb_total_mem_chan, self._nb_total_mem_chan) for _ in range(nb_mlp)])
+        self.ln1 = torch.nn.LayerNorm([nb_input_embed + nb_memory_embed, self._nb_total_mem_chan])
+        self.ln2 = torch.nn.LayerNorm([nb_input_embed + nb_memory_embed, self._nb_total_mem_chan])
 
     def _attend(self, memory):
         for _ in range(self._nb_block):
@@ -332,8 +326,7 @@ class RelationalMHDPA(nn.Module):
         super(RelationalMHDPA, self).__init__()
         assert nb_channel % nb_head == 0
         seq_len = height * width
-        self.register_buffer('b', torch.tril(torch.ones(seq_len, seq_len)).
-            view(1, 1, seq_len, seq_len))
+        self.register_buffer('b', torch.tril(torch.ones(seq_len, seq_len)).view(1, 1, seq_len, seq_len))
         self.nb_head = nb_head
         self.split_size = nb_channel
         self.scale = scale
@@ -355,8 +348,7 @@ class RelationalMHDPA(nn.Module):
         return x.view(*new_x_shape)
 
     def split_heads(self, x, k=False):
-        new_x_shape = x.size()[:-1] + (self.nb_head, x.size(-1) // self.nb_head
-            )
+        new_x_shape = x.size()[:-1] + (self.nb_head, x.size(-1) // self.nb_head)
         x = x.view(*new_x_shape)
         if k:
             return x.permute(0, 2, 3, 1)
@@ -380,8 +372,7 @@ class RelationalMHDPA(nn.Module):
         return self.mlp(e)
 
     def get_parameter_names(self, layer):
-        return ['Proj{}_W'.format(layer), 'Proj{}_b'.format(layer),
-            'MLP{}_W'.format(layer), 'MLP{}_b'.format(layer)]
+        return ['Proj{}_W'.format(layer), 'Proj{}_b'.format(layer), 'MLP{}_W'.format(layer), 'MLP{}_b'.format(layer)]
 
 
 BATCH_AXIS = 0
@@ -395,20 +386,16 @@ class CircularDND(torch.nn.Module):
     Does not support batches
     """
 
-    def __init__(self, nb_key_chan, nb_v_chan, delta=0.001, query_width=50,
-        max_len=1028):
+    def __init__(self, nb_key_chan, nb_v_chan, delta=0.001, query_width=50, max_len=1028):
         super(CircularDND, self).__init__()
         self.delta = delta
         self.query_width = query_width
-        self.keys = torch.nn.Parameter(torch.zeros(max_len, nb_key_chan,
-            requires_grad=True))
-        self.values = torch.nn.Parameter(torch.zeros(max_len, nb_v_chan,
-            requires_grad=True))
+        self.keys = torch.nn.Parameter(torch.zeros(max_len, nb_key_chan, requires_grad=True))
+        self.values = torch.nn.Parameter(torch.zeros(max_len, nb_v_chan, requires_grad=True))
 
     def forward(self, key):
         inds, weights = self._k_nearest(key, self.query_width)
-        return torch.sum(self.values[(inds), :] * weights, BATCH_AXIS,
-            keepdim=True)
+        return torch.sum(self.values[(inds), :] * weights, BATCH_AXIS, keepdim=True)
 
     def _k_nearest(self, key, k):
         lookup_weights = self._kernel(key, self.keys)
@@ -417,8 +404,7 @@ class CircularDND(torch.nn.Module):
         return top_k_inds, weights
 
     def _kernel(self, query_key, all_keys):
-        return 1.0 / (torch.pow(query_key - all_keys, 2).sum(CHANNEL_AXIS) +
-            self.delta)
+        return 1.0 / (torch.pow(query_key - all_keys, 2).sum(CHANNEL_AXIS) + self.delta)
 
     def sync_from_shared(self, shared_dnd):
         self.load_state_dict(shared_dnd.state_dict())
@@ -444,8 +430,7 @@ class PruningDND(torch.nn.Module):
     Does not support batches.
     """
 
-    def __init__(self, nb_key_chan, nb_v_chan, delta=0.001, query_width=50,
-        max_len=1024):
+    def __init__(self, nb_key_chan, nb_v_chan, delta=0.001, query_width=50, max_len=1024):
         super(PruningDND, self).__init__()
         self.delta = delta
         self.query_width = query_width
@@ -455,8 +440,7 @@ class PruningDND(torch.nn.Module):
 
     def forward(self, key):
         inds, weights = self._k_nearest(key, self.query_width)
-        return torch.sum(self.values[(inds), :] * weights.unsqueeze(
-            CHANNEL_AXIS), BATCH_AXIS, keepdim=True), inds, weights
+        return torch.sum(self.values[(inds), :] * weights.unsqueeze(CHANNEL_AXIS), BATCH_AXIS, keepdim=True), inds, weights
 
     def _k_nearest(self, key, k):
         lookup_weights = self._kernel(key, self.keys)
@@ -465,8 +449,7 @@ class PruningDND(torch.nn.Module):
         return top_k_inds, weights
 
     def _kernel(self, query_key, all_keys):
-        return 1.0 / (torch.pow(query_key - all_keys, 2).sum(CHANNEL_AXIS) +
-            self.delta)
+        return 1.0 / (torch.pow(query_key - all_keys, 2).sum(CHANNEL_AXIS) + self.delta)
 
     def sync_from_shared(self, shared_dnd):
         self.load_state_dict(shared_dnd.state_dict())
@@ -513,8 +496,7 @@ class FreqPruningLTM(torch.nn.Module):
         inds, weights = self._k_nearest(queries, self.query_breadth)
         values = self.values.unsqueeze(0)
         values = values.expand(inds.size(0), values.size(1), values.size(2))
-        inds_tmp = inds.unsqueeze(2).expand(inds.size(0), inds.size(1),
-            values.size(2))
+        inds_tmp = inds.unsqueeze(2).expand(inds.size(0), inds.size(1), values.size(2))
         selected_values = values.gather(1, inds_tmp)
         weighted_selection = (selected_values * weights.unsqueeze(2)).sum(1)
         return weighted_selection, inds, weights
@@ -615,23 +597,19 @@ class NoisyLinear(nn.Linear):
         eps_w, eps_b = zip(*internals)
         eps_w = torch.stack(eps_w)
         eps_b = torch.stack(eps_b)
-        batch_w = self.weight.unsqueeze(0).expand(batch_size, -1, -1
-            ) + self.sigma_weight.unsqueeze(0).expand(batch_size, -1, -1)
+        batch_w = self.weight.unsqueeze(0).expand(batch_size, -1, -1) + self.sigma_weight.unsqueeze(0).expand(batch_size, -1, -1)
         batch_w += eps_w
         batch_w = batch_w.permute(0, 2, 1)
-        batch_b = self.bias.expand(batch_size, -1) + self.sigma_bias.expand(
-            batch_size, -1)
+        batch_b = self.bias.expand(batch_size, -1) + self.sigma_bias.expand(batch_size, -1)
         batch_b += eps_b
         bmm = torch.bmm(x, batch_w).squeeze(1)
         return bmm + batch_b
 
     def reset(self, gpu=False, device=None):
         if not gpu:
-            return torch.randn(self.out_features, self.in_features).detach(
-                ), torch.randn(self.out_features).detach()
+            return torch.randn(self.out_features, self.in_features).detach(), torch.randn(self.out_features).detach()
         else:
-            return torch.randn(self.out_features, self.in_features).detach(
-                ), torch.randn(self.out_features).detach()
+            return torch.randn(self.out_features, self.in_features).detach(), torch.randn(self.out_features).detach()
 
     def get_parameter_names(self):
         return ['W', 'b', 'sigma_W', 'sigma_b']
@@ -693,19 +671,15 @@ class Residual2DPreact(nn.Module):
         self.nb_out_chan = nb_out_chan
         self.stride = stride
         self.bn1 = nn.BatchNorm2d(nb_in_chan)
-        self.conv1 = nn.Conv2d(nb_in_chan, nb_out_chan, 3, stride=stride,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(nb_in_chan, nb_out_chan, 3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(nb_out_chan)
-        self.conv2 = nn.Conv2d(nb_out_chan, nb_out_chan, 3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(nb_out_chan, nb_out_chan, 3, stride=1, padding=1, bias=False)
         relu_gain = nn.init.calculate_gain('relu')
         self.conv1.weight.data.mul_(relu_gain)
         self.conv2.weight.data.mul_(relu_gain)
-        self.do_projection = (self.nb_in_chan != self.nb_out_chan or self.
-            stride > 1)
+        self.do_projection = self.nb_in_chan != self.nb_out_chan or self.stride > 1
         if self.do_projection:
-            self.projection = nn.Conv2d(nb_in_chan, nb_out_chan, 3, stride=
-                stride, padding=1)
+            self.projection = nn.Conv2d(nb_in_chan, nb_out_chan, 3, stride=stride, padding=1)
             self.projection.weight.data.mul_(relu_gain)
 
     def forward(self, x):
@@ -723,8 +697,7 @@ class BaseNetwork(torch.nn.Module):
 
     @classmethod
     @abc.abstractmethod
-    def from_args(cls, args, observation_space, output_space,
-        gpu_preprocessor, net_reg):
+    def from_args(cls, args, observation_space, output_space, gpu_preprocessor, net_reg):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -770,8 +743,7 @@ class RequiresArgsMixin(metaclass=abc.ABCMeta):
     @classmethod
     def check_args_implemented(cls):
         if cls.args is None:
-            raise NotImplementedError(
-                'Subclass must define class attribute "args"')
+            raise NotImplementedError('Subclass must define class attribute "args"')
 
     @classmethod
     def prompt(cls, provided=None):
@@ -799,15 +771,7 @@ class RequiresArgsMixin(metaclass=abc.ABCMeta):
         """
         if not args:
             return args
-        user_input = input(
-            """
-{} Defaults:
-{}
-Press ENTER to use defaults. Otherwise, modify JSON keys then press ENTER.
-"""
-            .format(name, json.dumps(args, indent=2, sort_keys=True)) +
-            """Example: {"x": True, "gamma": 0.001}
-""")
+        user_input = input('\n{} Defaults:\n{}\nPress ENTER to use defaults. Otherwise, modify JSON keys then press ENTER.\n'.format(name, json.dumps(args, indent=2, sort_keys=True)) + 'Example: {"x": True, "gamma": 0.001}\n')
         if user_input == '':
             return args
         updates = json.loads(user_input)
@@ -1029,15 +993,13 @@ class SubModule(torch.nn.Module, RequiresArgsMixin, metaclass=abc.ABCMeta):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, nb_input_channel, nb_output_channel, stride=1,
-        downsample=None):
+    def __init__(self, nb_input_channel, nb_output_channel, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(nb_input_channel, nb_output_channel, stride)
         self.bn1 = nn.BatchNorm2d(nb_output_channel)
@@ -1064,8 +1026,7 @@ class BasicBlock(nn.Module):
 class BasicBlockV2(nn.Module):
     expansion = 1
 
-    def __init__(self, nb_input_channel, nb_output_channel, stride=1,
-        downsample=None):
+    def __init__(self, nb_input_channel, nb_output_channel, stride=1, downsample=None):
         super(BasicBlockV2, self).__init__()
         self.relu = nn.ReLU()
         self.bn1 = nn.BatchNorm2d(nb_input_channel)
@@ -1092,18 +1053,14 @@ class BasicBlockV2(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, nb_in_channel, nb_out_channel, stride=1, downsample=None
-        ):
+    def __init__(self, nb_in_channel, nb_out_channel, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(nb_in_channel, nb_out_channel, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(nb_in_channel, nb_out_channel, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(nb_out_channel)
-        self.conv2 = nn.Conv2d(nb_out_channel, nb_out_channel, kernel_size=
-            3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(nb_out_channel, nb_out_channel, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(nb_out_channel)
-        self.conv3 = nn.Conv2d(nb_out_channel, nb_out_channel * self.
-            expansion, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(nb_out_channel, nb_out_channel * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(nb_out_channel * self.expansion)
         self.downsample = downsample
         self.stride = stride
@@ -1128,19 +1085,15 @@ class Bottleneck(nn.Module):
 class BottleneckV2(nn.Module):
     expansion = 4
 
-    def __init__(self, nb_in_channel, nb_out_channel, stride=1, downsample=None
-        ):
+    def __init__(self, nb_in_channel, nb_out_channel, stride=1, downsample=None):
         super(BottleneckV2, self).__init__()
         self.relu = nn.ReLU()
         self.bn1 = nn.BatchNorm2d(nb_in_channel)
-        self.conv1 = nn.Conv2d(nb_in_channel, nb_out_channel, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(nb_in_channel, nb_out_channel, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(nb_out_channel)
-        self.conv2 = nn.Conv2d(nb_out_channel, nb_out_channel, kernel_size=
-            3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(nb_out_channel, nb_out_channel, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(nb_out_channel)
-        self.conv3 = nn.Conv2d(nb_out_channel, nb_out_channel * self.
-            expansion, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(nb_out_channel, nb_out_channel * self.expansion, kernel_size=1, bias=False)
         self.downsample = downsample
         self.stride = stride
 
@@ -1174,8 +1127,7 @@ class ResNet(nn.Module):
         self.nb_output_channel = 512 * block.expansion
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1183,9 +1135,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.nb_input_channel != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.nb_input_channel, 
-                planes * block.expansion, kernel_size=1, stride=stride,
-                bias=False), nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.nb_input_channel, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = [block(self.nb_input_channel, planes, stride, downsample)]
         self.nb_input_channel = planes * block.expansion
         for i in range(1, blocks):
@@ -1205,44 +1155,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'nb_input_channel': 4, 'nb_output_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlockV2,
+     lambda: ([], {'nb_input_channel': 4, 'nb_output_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CircularDND,
+     lambda: ([], {'nb_key_chan': 4, 'nb_v_chan': 4}),
+     lambda: ([torch.rand([1028, 4])], {}),
+     False),
+    (FreqPruningLTM,
+     lambda: ([], {'nb_key_chan': 4, 'nb_v_chan': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (GaussianLinear,
+     lambda: ([], {'fan_in': 4, 'nodes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadSelfAttention,
+     lambda: ([], {'nb_embed': 4, 'nb_qk_chan': 4, 'nb_v_chan': 4, 'nb_head': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PruningDND,
+     lambda: ([], {'nb_key_chan': 4, 'nb_v_chan': 4}),
+     lambda: ([torch.rand([1024, 4])], {}),
+     False),
+    (RMCCell,
+     lambda: ([], {'nb_input_embed': 4, 'nb_memory_embed': 4, 'nb_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (Residual2DPreact,
+     lambda: ([], {'nb_in_chan': 4, 'nb_out_chan': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_heronsystems_adeptRL(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'nb_input_channel': 4, 'nb_output_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlockV2(*[], **{'nb_input_channel': 4, 'nb_output_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(CircularDND(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([1028, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(FreqPruningLTM(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GaussianLinear(*[], **{'fan_in': 4, 'nodes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MultiHeadSelfAttention(*[], **{'nb_embed': 4, 'nb_qk_chan': 4, 'nb_v_chan': 4, 'nb_head': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(PruningDND(*[], **{'nb_key_chan': 4, 'nb_v_chan': 4}), [torch.rand([1024, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(RMCCell(*[], **{'nb_input_embed': 4, 'nb_memory_embed': 4, 'nb_channel': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(Residual2DPreact(*[], **{'nb_in_chan': 4, 'nb_out_chan': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,27 +89,20 @@ def _get_norm_layer_2d(norm):
 
 class ConvGenerator(nn.Module):
 
-    def __init__(self, input_dim=128, output_channels=3, dim=64,
-        n_upsamplings=4, norm='batch_norm'):
+    def __init__(self, input_dim=128, output_channels=3, dim=64, n_upsamplings=4, norm='batch_norm'):
         super().__init__()
         Norm = _get_norm_layer_2d(norm)
 
-        def dconv_norm_relu(in_dim, out_dim, kernel_size=4, stride=2, padding=1
-            ):
-            return nn.Sequential(nn.ConvTranspose2d(in_dim, out_dim,
-                kernel_size, stride=stride, padding=padding, bias=False or 
-                Norm == torchlib.Identity), Norm(out_dim), nn.ReLU())
+        def dconv_norm_relu(in_dim, out_dim, kernel_size=4, stride=2, padding=1):
+            return nn.Sequential(nn.ConvTranspose2d(in_dim, out_dim, kernel_size, stride=stride, padding=padding, bias=False or Norm == torchlib.Identity), Norm(out_dim), nn.ReLU())
         layers = []
         d = min(dim * 2 ** (n_upsamplings - 1), dim * 8)
-        layers.append(dconv_norm_relu(input_dim, d, kernel_size=4, stride=1,
-            padding=0))
+        layers.append(dconv_norm_relu(input_dim, d, kernel_size=4, stride=1, padding=0))
         for i in range(n_upsamplings - 1):
             d_last = d
             d = min(dim * 2 ** (n_upsamplings - 2 - i), dim * 8)
-            layers.append(dconv_norm_relu(d_last, d, kernel_size=4, stride=
-                2, padding=1))
-        layers.append(nn.ConvTranspose2d(d, output_channels, kernel_size=4,
-            stride=2, padding=1))
+            layers.append(dconv_norm_relu(d_last, d, kernel_size=4, stride=2, padding=1))
+        layers.append(nn.ConvTranspose2d(d, output_channels, kernel_size=4, stride=2, padding=1))
         layers.append(nn.Tanh())
         self.net = nn.Sequential(*layers)
 
@@ -119,26 +113,20 @@ class ConvGenerator(nn.Module):
 
 class ConvDiscriminator(nn.Module):
 
-    def __init__(self, input_channels=3, dim=64, n_downsamplings=4, norm=
-        'batch_norm'):
+    def __init__(self, input_channels=3, dim=64, n_downsamplings=4, norm='batch_norm'):
         super().__init__()
         Norm = _get_norm_layer_2d(norm)
 
-        def conv_norm_lrelu(in_dim, out_dim, kernel_size=4, stride=2, padding=1
-            ):
-            return nn.Sequential(nn.Conv2d(in_dim, out_dim, kernel_size,
-                stride=stride, padding=padding, bias=False or Norm ==
-                torchlib.Identity), Norm(out_dim), nn.LeakyReLU(0.2))
+        def conv_norm_lrelu(in_dim, out_dim, kernel_size=4, stride=2, padding=1):
+            return nn.Sequential(nn.Conv2d(in_dim, out_dim, kernel_size, stride=stride, padding=padding, bias=False or Norm == torchlib.Identity), Norm(out_dim), nn.LeakyReLU(0.2))
         layers = []
         d = dim
-        layers.append(nn.Conv2d(input_channels, d, kernel_size=4, stride=2,
-            padding=1))
+        layers.append(nn.Conv2d(input_channels, d, kernel_size=4, stride=2, padding=1))
         layers.append(nn.LeakyReLU(0.2))
         for i in range(n_downsamplings - 1):
             d_last = d
             d = min(dim * 2 ** (i + 1), dim * 8)
-            layers.append(conv_norm_lrelu(d_last, d, kernel_size=4, stride=
-                2, padding=1))
+            layers.append(conv_norm_lrelu(d_last, d, kernel_size=4, stride=2, padding=1))
         layers.append(nn.Conv2d(d, 1, kernel_size=4, stride=1, padding=0))
         self.net = nn.Sequential(*layers)
 
@@ -163,8 +151,7 @@ class Reshape(torch.nn.Module):
         self._new_shape = new_shape
 
     def forward(self, x):
-        new_shape = (x.size(i) if self._new_shape[i] == 0 else self.
-            _new_shape[i] for i in range(len(self._new_shape)))
+        new_shape = (x.size(i) if self._new_shape[i] == 0 else self._new_shape[i] for i in range(len(self._new_shape)))
         return x.view(*new_shape)
 
 
@@ -208,8 +195,7 @@ class ColorTransform(torch.nn.Module):
         O = torch.ones(N, 1, H * W, dtype=X.dtype, device=X.device)
         X_ = torch.cat((X, O), dim=1)
         X__T = X_.permute(0, 2, 1)
-        I = torch.eye(C + 1, dtype=X.dtype, device=X.device).view(-1, C + 1,
-            C + 1).repeat([N, 1, 1])
+        I = torch.eye(C + 1, dtype=X.dtype, device=X.device).view(-1, C + 1, C + 1).repeat([N, 1, 1])
         A = Y.matmul(X__T).matmul((X_.matmul(X__T) + eps * I).inverse())
         return A.matmul(X_).view(N, C, H, W)
 
@@ -242,15 +228,9 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
 
         def dconv_bn_relu(in_dim, out_dim):
-            return nn.Sequential(nn.ConvTranspose2d(in_dim, out_dim, 5, 2,
-                padding=2, output_padding=1, bias=False), nn.BatchNorm2d(
-                out_dim), nn.ReLU())
-        self.l1 = nn.Sequential(nn.Linear(in_dim, dim * 8 * 4 * 4, bias=
-            False), nn.BatchNorm1d(dim * 8 * 4 * 4), nn.ReLU())
-        self.l2_5 = nn.Sequential(dconv_bn_relu(dim * 8, dim * 4),
-            dconv_bn_relu(dim * 4, dim * 2), dconv_bn_relu(dim * 2, dim),
-            nn.ConvTranspose2d(dim, 3, 5, 2, padding=2, output_padding=1),
-            nn.Tanh())
+            return nn.Sequential(nn.ConvTranspose2d(in_dim, out_dim, 5, 2, padding=2, output_padding=1, bias=False), nn.BatchNorm2d(out_dim), nn.ReLU())
+        self.l1 = nn.Sequential(nn.Linear(in_dim, dim * 8 * 4 * 4, bias=False), nn.BatchNorm1d(dim * 8 * 4 * 4), nn.ReLU())
+        self.l2_5 = nn.Sequential(dconv_bn_relu(dim * 8, dim * 4), dconv_bn_relu(dim * 4, dim * 2), dconv_bn_relu(dim * 2, dim), nn.ConvTranspose2d(dim, 3, 5, 2, padding=2, output_padding=1), nn.Tanh())
 
     def forward(self, x):
         y = self.l1(x)
@@ -265,12 +245,8 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         def conv_bn_lrelu(in_dim, out_dim):
-            return nn.Sequential(nn.Conv2d(in_dim, out_dim, 5, 2, 2), nn.
-                BatchNorm2d(out_dim), nn.LeakyReLU(0.2))
-        self.ls = nn.Sequential(nn.Conv2d(in_dim, dim, 5, 2, 2), nn.
-            LeakyReLU(0.2), conv_bn_lrelu(dim, dim * 2), conv_bn_lrelu(dim *
-            2, dim * 4), conv_bn_lrelu(dim * 4, dim * 8), nn.Conv2d(dim * 8,
-            1, 4))
+            return nn.Sequential(nn.Conv2d(in_dim, out_dim, 5, 2, 2), nn.BatchNorm2d(out_dim), nn.LeakyReLU(0.2))
+        self.ls = nn.Sequential(nn.Conv2d(in_dim, dim, 5, 2, 2), nn.LeakyReLU(0.2), conv_bn_lrelu(dim, dim * 2), conv_bn_lrelu(dim * 2, dim * 4), conv_bn_lrelu(dim * 4, dim * 8), nn.Conv2d(dim * 8, 1, 4))
 
     def forward(self, x):
         y = self.ls(x)
@@ -284,12 +260,8 @@ class DiscriminatorWGANGP(nn.Module):
         super(DiscriminatorWGANGP, self).__init__()
 
         def conv_ln_lrelu(in_dim, out_dim):
-            return nn.Sequential(nn.Conv2d(in_dim, out_dim, 5, 2, 2), nn.
-                InstanceNorm2d(out_dim, affine=True), nn.LeakyReLU(0.2))
-        self.ls = nn.Sequential(nn.Conv2d(in_dim, dim, 5, 2, 2), nn.
-            LeakyReLU(0.2), conv_ln_lrelu(dim, dim * 2), conv_ln_lrelu(dim *
-            2, dim * 4), conv_ln_lrelu(dim * 4, dim * 8), nn.Conv2d(dim * 8,
-            1, 4))
+            return nn.Sequential(nn.Conv2d(in_dim, out_dim, 5, 2, 2), nn.InstanceNorm2d(out_dim, affine=True), nn.LeakyReLU(0.2))
+        self.ls = nn.Sequential(nn.Conv2d(in_dim, dim, 5, 2, 2), nn.LeakyReLU(0.2), conv_ln_lrelu(dim, dim * 2), conv_ln_lrelu(dim * 2, dim * 4), conv_ln_lrelu(dim * 4, dim * 8), nn.Conv2d(dim * 8, 1, 4))
 
     def forward(self, x):
         y = self.ls(x)
@@ -301,35 +273,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ColorTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvDiscriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ConvGenerator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (DiscriminatorWGANGP,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Generator,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SpaceToDepth,
+     lambda: ([], {'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_LynnHo_DCGAN_LSGAN_WGAN_GP_DRAGAN_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ColorTransform(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvDiscriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConvGenerator(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Discriminator(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DiscriminatorWGANGP(*[], **{'in_dim': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Generator(*[], **{'in_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(SpaceToDepth(*[], **{'block_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

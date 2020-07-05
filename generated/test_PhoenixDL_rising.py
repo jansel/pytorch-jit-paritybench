@@ -65,8 +65,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -142,8 +143,7 @@ def reshape_list(flat_list: list, size: Union[torch.Size, tuple]) ->list:
         return [reshape_list(flat_list, size[1:]) for _ in range(size[0])]
 
 
-def reshape(value: Union[list, torch.Tensor], size: Union[Sequence, torch.Size]
-    ) ->Union[torch.Tensor, list]:
+def reshape(value: Union[list, torch.Tensor], size: Union[Sequence, torch.Size]) ->Union[torch.Tensor, list]:
     """
     Reshape sequence (list or tensor) to given size
 
@@ -193,10 +193,7 @@ class AbstractParameter(torch.nn.Module):
         """
         raise NotImplementedError
 
-    def forward(self, size: Optional[Union[Sequence, torch.Size]]=None,
-        device: Union[torch.device, str]=None, dtype: Union[torch.dtype,
-        str]=None, tensor_like: torch.Tensor=None) ->Union[None, list,
-        torch.Tensor]:
+    def forward(self, size: Optional[Union[Sequence, torch.Size]]=None, device: Union[torch.device, str]=None, dtype: Union[torch.dtype, str]=None, tensor_like: torch.Tensor=None) ->Union[None, list, torch.Tensor]:
         """
         Forward function (will also be called if the module is called).
         Calculates the number of samples from the given shape, performs the
@@ -240,8 +237,7 @@ class DiscreteParameter(AbstractParameter):
     replacement
     """
 
-    def __init__(self, population: Sequence, replacement: bool=False,
-        weights: Sequence=None, cum_weights: Sequence=None):
+    def __init__(self, population: Sequence, replacement: bool=False, weights: Sequence=None, cum_weights: Sequence=None):
         """
         Args:
             population : the parameter population to sample from
@@ -251,13 +247,10 @@ class DiscreteParameter(AbstractParameter):
         """
         super().__init__()
         if replacement:
-            sample_fn = partial(sample_with_replacement, weights=weights,
-                cum_weights=cum_weights)
+            sample_fn = partial(sample_with_replacement, weights=weights, cum_weights=cum_weights)
         else:
             if weights is not None or cum_weights is not None:
-                raise ValueError(
-                    'weights and cum_weights should only be specified if replacement is set to True!'
-                    )
+                raise ValueError('weights and cum_weights should only be specified if replacement is set to True!')
             sample_fn = sample_without_replacement
         self.sample_fn = sample_fn
         self.population = population
@@ -290,8 +283,7 @@ class AbstractTransform(torch.nn.Module):
         for key, item in kwargs.items():
             setattr(self, key, item)
 
-    def register_sampler(self, name: str, sampler: Union[Sequence,
-        AbstractParameter], *args, **kwargs):
+    def register_sampler(self, name: str, sampler: Union[Sequence, AbstractParameter], *args, **kwargs):
         """
         Registers a parameter sampler to the transform.
         Internally a property is created to forward calls to the attribute to
@@ -322,8 +314,7 @@ class AbstractTransform(torch.nn.Module):
             """
             Sample random values
             """
-            sample_result = tuple([_sampler(*args, **kwargs) for _sampler in
-                sampler])
+            sample_result = tuple([_sampler(*args, **kwargs) for _sampler in sampler])
             if len(sample_result) == 1:
                 return sample_result[0]
             else:
@@ -413,9 +404,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (_TransformWrapper,
+     lambda: ([], {'trafo': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_PhoenixDL_rising(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(_TransformWrapper(*[], **{'trafo': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 

@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,8 +72,7 @@ class OrdinalRegressionLoss(object):
         else:
             label = self.ord_num * (gt - 1.0) / (self.beta - 1.0)
         label = label.long()
-        mask = torch.linspace(0, self.ord_num - 1, self.ord_num,
-            requires_grad=False).view(1, self.ord_num, 1, 1).to(gt.device)
+        mask = torch.linspace(0, self.ord_num - 1, self.ord_num, requires_grad=False).view(1, self.ord_num, 1, 1).to(gt.device)
         mask = mask.repeat(N, 1, H, W).contiguous().long()
         mask = mask > label
         ord_c0[mask] = 0
@@ -95,9 +95,7 @@ class OrdinalRegressionLoss(object):
 
 class DepthPredModel(nn.Module):
 
-    def __init__(self, ord_num=90, gamma=1.0, beta=80.0, input_size=(385, 
-        513), kernel_size=16, pyramid=[8, 12, 16], batch_norm=False,
-        discretization='SID', pretrained=True):
+    def __init__(self, ord_num=90, gamma=1.0, beta=80.0, input_size=(385, 513), kernel_size=16, pyramid=[8, 12, 16], batch_norm=False, discretization='SID', pretrained=True):
         super().__init__()
         assert len(input_size) == 2
         assert isinstance(kernel_size, int)
@@ -106,9 +104,7 @@ class DepthPredModel(nn.Module):
         self.beta = beta
         self.discretization = discretization
         self.backbone = ResNetBackbone(pretrained=pretrained)
-        self.SceneUnderstandingModule = SceneUnderstandingModule(ord_num,
-            size=input_size, kernel_size=kernel_size, pyramid=pyramid,
-            batch_norm=batch_norm)
+        self.SceneUnderstandingModule = SceneUnderstandingModule(ord_num, size=input_size, kernel_size=kernel_size, pyramid=pyramid, batch_norm=batch_norm)
         self.regression_layer = OrdinalRegressionLayer()
         self.criterion = OrdinalRegressionLoss(ord_num, beta, discretization)
 
@@ -132,8 +128,7 @@ class DepthPredModel(nn.Module):
         prob, label = self.regression_layer(feat)
         if self.discretization == 'SID':
             t0 = torch.exp(np.log(self.beta) * label.float() / self.ord_num)
-            t1 = torch.exp(np.log(self.beta) * (label.float() + 1) / self.
-                ord_num)
+            t1 = torch.exp(np.log(self.beta) * (label.float() + 1) / self.ord_num)
         else:
             t0 = 1.0 + (self.beta - 1.0) * label.float() / self.ord_num
             t1 = 1.0 + (self.beta - 1.0) * (label.float() + 1) / self.ord_num
@@ -144,14 +139,11 @@ class DepthPredModel(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, fist_dilation=1, multi_grid=1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation * multi_grid, dilation=dilation * multi_grid,
-            bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
         self.bn2 = BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm2d(planes * 4)
@@ -183,8 +175,7 @@ affine_par = True
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResNet(nn.Module):
@@ -203,32 +194,22 @@ class ResNet(nn.Module):
         self.relu3 = nn.ReLU(inplace=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4, multi_grid=(1, 1, 1))
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        multi_grid=1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion, affine=affine_par))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
         layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)
-            ] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=
-            dilation, downsample=downsample, multi_grid=generate_multi_grid
-            (0, multi_grid)))
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                multi_grid=generate_multi_grid(i, multi_grid)))
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -254,9 +235,7 @@ class ResNetBackbone(nn.Module):
         super().__init__()
         self.backbone = ResNet(Bottleneck, [3, 4, 23, 3])
         if pretrained:
-            saved_state_dict = torch.load(
-                './dp/modules/backbones/pretrained_models/resnet101-imagenet.pth'
-                , map_location='cpu')
+            saved_state_dict = torch.load('./dp/modules/backbones/pretrained_models/resnet101-imagenet.pth', map_location='cpu')
             new_params = self.backbone.state_dict().copy()
             for i in saved_state_dict:
                 i_parts = i.split('.')
@@ -294,8 +273,7 @@ class FullImageEncoder(nn.Module):
 
     def __init__(self, h, w, kernel_size):
         super(FullImageEncoder, self).__init__()
-        self.global_pooling = nn.AvgPool2d(kernel_size, stride=kernel_size,
-            padding=kernel_size // 2)
+        self.global_pooling = nn.AvgPool2d(kernel_size, stride=kernel_size, padding=kernel_size // 2)
         self.dropout = nn.Dropout2d(p=0.5)
         self.h = h // kernel_size + 1
         self.w = w // kernel_size + 1
@@ -328,59 +306,40 @@ def consistent_padding_with_dilation(padding, dilation, dim=2):
     return padding, dilation
 
 
-def conv_bn_relu(batchNorm, in_planes, out_planes, kernel_size=3, stride=1,
-    padding=1, dilation=1):
-    padding, dilation = consistent_padding_with_dilation(padding, dilation,
-        dim=2)
+def conv_bn_relu(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, padding=1, dilation=1):
+    padding, dilation = consistent_padding_with_dilation(padding, dilation, dim=2)
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            bias=False), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            bias=True), nn.ReLU(inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=True), nn.ReLU(inplace=True))
 
 
 class SceneUnderstandingModule(nn.Module):
 
-    def __init__(self, ord_num, size, kernel_size, pyramid=[6, 12, 18],
-        batch_norm=False):
+    def __init__(self, ord_num, size, kernel_size, pyramid=[6, 12, 18], batch_norm=False):
         super(SceneUnderstandingModule, self).__init__()
         assert len(size) == 2
         assert len(pyramid) == 3
         self.size = size
         h, w = self.size
         self.encoder = FullImageEncoder(h // 8, w // 8, kernel_size)
-        self.aspp1 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512,
-            kernel_size=1, padding=0), conv_bn_relu(batch_norm, 512, 512,
-            kernel_size=1, padding=0))
-        self.aspp2 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512,
-            kernel_size=3, padding=pyramid[0], dilation=pyramid[0]),
-            conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
-        self.aspp3 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512,
-            kernel_size=3, padding=pyramid[1], dilation=pyramid[1]),
-            conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
-        self.aspp4 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512,
-            kernel_size=3, padding=pyramid[2], dilation=pyramid[2]),
-            conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
-        self.concat_process = nn.Sequential(nn.Dropout2d(p=0.5),
-            conv_bn_relu(batch_norm, 512 * 5, 2048, kernel_size=1, padding=
-            0), nn.Dropout2d(p=0.5), nn.Conv2d(2048, ord_num * 2, 1))
+        self.aspp1 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512, kernel_size=1, padding=0), conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
+        self.aspp2 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512, kernel_size=3, padding=pyramid[0], dilation=pyramid[0]), conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
+        self.aspp3 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512, kernel_size=3, padding=pyramid[1], dilation=pyramid[1]), conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
+        self.aspp4 = nn.Sequential(conv_bn_relu(batch_norm, 2048, 512, kernel_size=3, padding=pyramid[2], dilation=pyramid[2]), conv_bn_relu(batch_norm, 512, 512, kernel_size=1, padding=0))
+        self.concat_process = nn.Sequential(nn.Dropout2d(p=0.5), conv_bn_relu(batch_norm, 512 * 5, 2048, kernel_size=1, padding=0), nn.Dropout2d(p=0.5), nn.Conv2d(2048, ord_num * 2, 1))
 
     def forward(self, x):
         N, C, H, W = x.shape
         x1 = self.encoder(x)
-        x1 = F.interpolate(x1, size=(H, W), mode='bilinear', align_corners=True
-            )
+        x1 = F.interpolate(x1, size=(H, W), mode='bilinear', align_corners=True)
         x2 = self.aspp1(x)
         x3 = self.aspp2(x)
         x4 = self.aspp3(x)
         x5 = self.aspp4(x)
         x6 = torch.cat((x1, x2, x3, x4, x5), dim=1)
         out = self.concat_process(x6)
-        out = F.interpolate(out, size=self.size, mode='bilinear',
-            align_corners=True)
+        out = F.interpolate(out, size=self.size, mode='bilinear', align_corners=True)
         return out
 
 
@@ -388,9 +347,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (OrdinalRegressionLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_dontLoveBugs_DORN_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(OrdinalRegressionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

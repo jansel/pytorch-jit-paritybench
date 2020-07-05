@@ -56,8 +56,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -125,8 +126,7 @@ from torch._utils import _unflatten_dense_tensors
 from torch.nn.utils import clip_grad_norm_
 
 
-def create_anchors_3d_range(feature_size, anchor_range, sizes=((1.6, 3.9, 
-    1.56),), rotations=(0, np.pi / 2), dtype=np.float32):
+def create_anchors_3d_range(feature_size, anchor_range, sizes=((1.6, 3.9, 1.56),), rotations=(0, np.pi / 2), dtype=np.float32):
     """
     Args:
         feature_size: list [D, H, W](zyx)
@@ -136,16 +136,12 @@ def create_anchors_3d_range(feature_size, anchor_range, sizes=((1.6, 3.9,
         anchors: [*feature_size, num_sizes, num_rots, 7] tensor.
     """
     anchor_range = np.array(anchor_range, dtype)
-    z_centers = np.linspace(anchor_range[2], anchor_range[5], feature_size[
-        0], dtype=dtype)
-    y_centers = np.linspace(anchor_range[1], anchor_range[4], feature_size[
-        1], dtype=dtype)
-    x_centers = np.linspace(anchor_range[0], anchor_range[3], feature_size[
-        2], dtype=dtype)
+    z_centers = np.linspace(anchor_range[2], anchor_range[5], feature_size[0], dtype=dtype)
+    y_centers = np.linspace(anchor_range[1], anchor_range[4], feature_size[1], dtype=dtype)
+    x_centers = np.linspace(anchor_range[0], anchor_range[3], feature_size[2], dtype=dtype)
     sizes = np.reshape(np.array(sizes, dtype=dtype), [-1, 3])
     rotations = np.array(rotations, dtype=dtype)
-    rets = np.meshgrid(x_centers, y_centers, z_centers, rotations, indexing
-        ='ij')
+    rets = np.meshgrid(x_centers, y_centers, z_centers, rotations, indexing='ij')
     tile_shape = [1] * 5
     tile_shape[-2] = int(sizes.shape[0])
     for i in range(len(rets)):
@@ -162,10 +158,7 @@ def create_anchors_3d_range(feature_size, anchor_range, sizes=((1.6, 3.9,
 
 class AnchorGeneratorRange(object):
 
-    def __init__(self, anchor_ranges, sizes=((1.6, 3.9, 1.56),), rotations=
-        (0, np.pi / 2), class_name=None, match_threshold=-1,
-        unmatch_threshold=-1, custom_values=None, dtype=np.float32,
-        feature_map_size=None):
+    def __init__(self, anchor_ranges, sizes=((1.6, 3.9, 1.56),), rotations=(0, np.pi / 2), class_name=None, match_threshold=-1, unmatch_threshold=-1, custom_values=None, dtype=np.float32, feature_map_size=None):
         self._sizes = sizes
         self._anchor_ranges = anchor_ranges
         self._rotations = rotations
@@ -203,11 +196,9 @@ class AnchorGeneratorRange(object):
         return num_rot * num_size
 
     def generate(self, feature_map_size):
-        anchors = create_anchors_3d_range(feature_map_size, self.
-            _anchor_ranges, self._sizes, self._rotations, self._dtype)
+        anchors = create_anchors_3d_range(feature_map_size, self._anchor_ranges, self._sizes, self._rotations, self._dtype)
         if self._custom_values is not None:
-            custom_values = np.zeros((*anchors.shape[:-1], len(self.
-                _custom_values)), dtype=self._dtype)
+            custom_values = np.zeros((*anchors.shape[:-1], len(self._custom_values)), dtype=self._dtype)
             for k in range(len(self._custom_values)):
                 custom_values[..., k] = self._custom_values[k]
             anchors = np.concatenate((anchors, custom_values), axis=-1)
@@ -229,15 +220,13 @@ def corners_nd(dims, origin=0.5):
             where x0 < x1, y0 < y1, z0 < z1
     """
     ndim = int(dims.shape[1])
-    corners_norm = np.stack(np.unravel_index(np.arange(2 ** ndim), [2] *
-        ndim), axis=1).astype(dims.dtype)
+    corners_norm = np.stack(np.unravel_index(np.arange(2 ** ndim), [2] * ndim), axis=1).astype(dims.dtype)
     if ndim == 2:
         corners_norm = corners_norm[[0, 1, 3, 2]]
     elif ndim == 3:
         corners_norm = corners_norm[[0, 1, 3, 2, 4, 5, 7, 6]]
     corners_norm = corners_norm - np.array(origin, dtype=dims.dtype)
-    corners = dims.reshape([-1, 1, ndim]) * corners_norm.reshape([1, 2 **
-        ndim, ndim])
+    corners = dims.reshape([-1, 1, ndim]) * corners_norm.reshape([1, 2 ** ndim, ndim])
     return corners
 
 
@@ -320,77 +309,58 @@ def unmap(data, count, inds, fill=0):
 
 class TargetAssigner(object):
 
-    def __init__(self, anchor_generators, pos_fraction, sample_size,
-        region_similarity_fn_name, box_coder, logger=None):
+    def __init__(self, anchor_generators, pos_fraction, sample_size, region_similarity_fn_name, box_coder, logger=None):
         super().__init__()
         self.anchor_generators = anchor_generators
         self.pos_fraction = pos_fraction if pos_fraction >= 0 else None
         self.sample_size = sample_size
-        self.region_similarity_calculator = getattr(self,
-            region_similarity_fn_name)
+        self.region_similarity_calculator = getattr(self, region_similarity_fn_name)
         self.box_coder = box_coder
         self.logger = logger
 
     def generate_anchors(self, feature_map_size=None, use_multi_head=False):
         anchors_list = []
-        matched_thresholds = [a.match_threshold for a in self.anchor_generators
-            ]
-        unmatched_thresholds = [a.unmatch_threshold for a in self.
-            anchor_generators]
+        matched_thresholds = [a.match_threshold for a in self.anchor_generators]
+        unmatched_thresholds = [a.unmatch_threshold for a in self.anchor_generators]
         match_list, unmatch_list = [], []
-        for anchor_generator, match_thresh, unmatch_thresh in zip(self.
-            anchor_generators, matched_thresholds, unmatched_thresholds):
+        for anchor_generator, match_thresh, unmatch_thresh in zip(self.anchor_generators, matched_thresholds, unmatched_thresholds):
             if use_multi_head:
-                anchors = anchor_generator.generate(anchor_generator.
-                    feature_map_size)
-                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
-                    shape[-1]])
+                anchors = anchor_generator.generate(anchor_generator.feature_map_size)
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.shape[-1]])
                 ndim = len(anchor_generator.feature_map_size)
                 anchors = anchors.transpose(ndim, *range(0, ndim), ndim + 1)
                 anchors = anchors.reshape(-1, anchors.shape[-1])
             else:
                 anchors = anchor_generator.generate(feature_map_size)
-                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
-                    shape[-1]])
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.shape[-1]])
             anchors_list.append(anchors)
             num_anchors = np.prod(anchors.shape[:-1])
-            match_list.append(np.full([num_anchors], match_thresh, anchors.
-                dtype))
-            unmatch_list.append(np.full([num_anchors], unmatch_thresh,
-                anchors.dtype))
+            match_list.append(np.full([num_anchors], match_thresh, anchors.dtype))
+            unmatch_list.append(np.full([num_anchors], unmatch_thresh, anchors.dtype))
         anchors = np.concatenate(anchors_list, axis=-2)
         matched_thresholds = np.concatenate(match_list, axis=0)
         unmatched_thresholds = np.concatenate(unmatch_list, axis=0)
-        return {'anchors': anchors, 'matched_thresholds':
-            matched_thresholds, 'unmatched_thresholds': unmatched_thresholds}
+        return {'anchors': anchors, 'matched_thresholds': matched_thresholds, 'unmatched_thresholds': unmatched_thresholds}
 
     def generate_anchors_dict(self, feature_map_size, use_multi_head=False):
         anchors_list = []
-        matched_thresholds = [a.match_threshold for a in self.anchor_generators
-            ]
-        unmatched_thresholds = [a.unmatch_threshold for a in self.
-            anchor_generators]
+        matched_thresholds = [a.match_threshold for a in self.anchor_generators]
+        unmatched_thresholds = [a.unmatch_threshold for a in self.anchor_generators]
         match_list, unmatch_list = [], []
         anchors_dict = {a.class_name: {} for a in self.anchor_generators}
-        for anchor_generator, match_thresh, unmatch_thresh in zip(self.
-            anchor_generators, matched_thresholds, unmatched_thresholds):
+        for anchor_generator, match_thresh, unmatch_thresh in zip(self.anchor_generators, matched_thresholds, unmatched_thresholds):
             if use_multi_head:
-                anchors = anchor_generator.generate(anchor_generator.
-                    feature_map_size)
-                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
-                    shape[-1]])
+                anchors = anchor_generator.generate(anchor_generator.feature_map_size)
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.shape[-1]])
                 ndim = len(feature_map_size)
                 anchors = anchors.transpose(ndim, *range(0, ndim), ndim + 1)
             else:
                 anchors = anchor_generator.generate(feature_map_size)
-                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.
-                    shape[-1]])
+                anchors = anchors.reshape([*anchors.shape[:3], -1, anchors.shape[-1]])
             anchors_list.append(anchors)
             num_anchors = np.prod(anchors.shape[:-1])
-            match_list.append(np.full([num_anchors], match_thresh, anchors.
-                dtype))
-            unmatch_list.append(np.full([num_anchors], unmatch_thresh,
-                anchors.dtype))
+            match_list.append(np.full([num_anchors], match_thresh, anchors.dtype))
+            unmatch_list.append(np.full([num_anchors], unmatch_thresh, anchors.dtype))
             class_name = anchor_generator.class_name
             anchors_dict[class_name]['anchors'] = anchors
             anchors_dict[class_name]['matched_thresholds'] = match_list[-1]
@@ -404,10 +374,8 @@ class TargetAssigner(object):
         ret = iou_jit(boxes1_bv, boxes2_bv, eps=0.0)
         return ret
 
-    def assign_v2(self, anchors_dict, gt_boxes, anchors_mask=None,
-        gt_classes=None, gt_names=None):
-        prune_anchor_fn = None if anchors_mask is None else lambda _: np.where(
-            anchors_mask)[0]
+    def assign_v2(self, anchors_dict, gt_boxes, anchors_mask=None, gt_classes=None, gt_names=None):
+        prune_anchor_fn = None if anchors_mask is None else lambda _: np.where(anchors_mask)[0]
 
         def similarity_fn(anchors, gt_boxes):
             anchors_rbv = anchors[:, ([0, 1, 3, 4, 6])]
@@ -418,48 +386,23 @@ class TargetAssigner(object):
             return self.box_coder.encode_np(boxes, anchors)
         targets_list = []
         for class_name, anchor_dict in anchors_dict.items():
-            mask = np.array([(c == class_name) for c in gt_names], dtype=np
-                .bool_)
-            targets = self.create_target_np(anchor_dict['anchors'].reshape(
-                -1, anchor_dict['anchors'].shape[-1]), gt_boxes[mask],
-                similarity_fn, box_encoding_fn, prune_anchor_fn=
-                prune_anchor_fn, gt_classes=gt_classes[mask],
-                matched_threshold=anchor_dict['matched_thresholds'],
-                unmatched_threshold=anchor_dict['unmatched_thresholds'],
-                positive_fraction=self.pos_fraction, rpn_batch_size=self.
-                sample_size, norm_by_num_examples=False, box_code_size=self
-                .box_coder.code_size)
+            mask = np.array([(c == class_name) for c in gt_names], dtype=np.bool_)
+            targets = self.create_target_np(anchor_dict['anchors'].reshape(-1, anchor_dict['anchors'].shape[-1]), gt_boxes[mask], similarity_fn, box_encoding_fn, prune_anchor_fn=prune_anchor_fn, gt_classes=gt_classes[mask], matched_threshold=anchor_dict['matched_thresholds'], unmatched_threshold=anchor_dict['unmatched_thresholds'], positive_fraction=self.pos_fraction, rpn_batch_size=self.sample_size, norm_by_num_examples=False, box_code_size=self.box_coder.code_size)
             targets_list.append(targets)
             feature_map_size = anchor_dict['anchors'].shape[:3]
-        targets_dict = {'labels': [t['labels'] for t in targets_list],
-            'bbox_targets': [t['bbox_targets'] for t in targets_list],
-            'bbox_src_targets': [t['bbox_src_targets'] for t in
-            targets_list], 'bbox_outside_weights': [t[
-            'bbox_outside_weights'] for t in targets_list]}
-        targets_dict['bbox_targets'] = np.concatenate([v.reshape(*
-            feature_map_size, -1, self.box_coder.code_size) for v in
-            targets_dict['bbox_targets']], axis=-2)
-        targets_dict['bbox_src_targets'] = np.concatenate([v.reshape(*
-            feature_map_size, -1, self.box_coder.code_size) for v in
-            targets_dict['bbox_src_targets']], axis=-2)
-        targets_dict['labels'] = np.concatenate([v.reshape(*
-            feature_map_size, -1) for v in targets_dict['labels']], axis=-1)
-        targets_dict['bbox_outside_weights'] = np.concatenate([v.reshape(*
-            feature_map_size, -1) for v in targets_dict[
-            'bbox_outside_weights']], axis=-1)
-        targets_dict['bbox_targets'] = targets_dict['bbox_targets'].reshape(
-            -1, self.box_coder.code_size)
-        targets_dict['bbox_src_targets'] = targets_dict['bbox_src_targets'
-            ].reshape(-1, self.box_coder.code_size)
+        targets_dict = {'labels': [t['labels'] for t in targets_list], 'bbox_targets': [t['bbox_targets'] for t in targets_list], 'bbox_src_targets': [t['bbox_src_targets'] for t in targets_list], 'bbox_outside_weights': [t['bbox_outside_weights'] for t in targets_list]}
+        targets_dict['bbox_targets'] = np.concatenate([v.reshape(*feature_map_size, -1, self.box_coder.code_size) for v in targets_dict['bbox_targets']], axis=-2)
+        targets_dict['bbox_src_targets'] = np.concatenate([v.reshape(*feature_map_size, -1, self.box_coder.code_size) for v in targets_dict['bbox_src_targets']], axis=-2)
+        targets_dict['labels'] = np.concatenate([v.reshape(*feature_map_size, -1) for v in targets_dict['labels']], axis=-1)
+        targets_dict['bbox_outside_weights'] = np.concatenate([v.reshape(*feature_map_size, -1) for v in targets_dict['bbox_outside_weights']], axis=-1)
+        targets_dict['bbox_targets'] = targets_dict['bbox_targets'].reshape(-1, self.box_coder.code_size)
+        targets_dict['bbox_src_targets'] = targets_dict['bbox_src_targets'].reshape(-1, self.box_coder.code_size)
         targets_dict['labels'] = targets_dict['labels'].reshape(-1)
-        targets_dict['bbox_outside_weights'] = targets_dict[
-            'bbox_outside_weights'].reshape(-1)
+        targets_dict['bbox_outside_weights'] = targets_dict['bbox_outside_weights'].reshape(-1)
         return targets_dict
 
-    def assign_multihead(self, anchors_dict, gt_boxes, anchors_mask=None,
-        gt_classes=None, gt_names=None):
-        prune_anchor_fn = None if anchors_mask is None else lambda _: np.where(
-            anchors_mask)[0]
+    def assign_multihead(self, anchors_dict, gt_boxes, anchors_mask=None, gt_classes=None, gt_names=None):
+        prune_anchor_fn = None if anchors_mask is None else lambda _: np.where(anchors_mask)[0]
 
         def similarity_fn(anchors, gt_boxes):
             anchors_rbv = anchors[:, ([0, 1, 3, 4, 6])]
@@ -470,36 +413,16 @@ class TargetAssigner(object):
             return self.box_coder.encode_np(boxes, anchors)
         targets_list = []
         for class_name, anchor_dict in anchors_dict.items():
-            mask = np.array([(c == class_name) for c in gt_names], dtype=np
-                .bool_)
-            targets = self.create_target_np(anchor_dict['anchors'].reshape(
-                -1, anchor_dict['anchors'].shape[-1]), gt_boxes[mask],
-                similarity_fn, box_encoding_fn, prune_anchor_fn=
-                prune_anchor_fn, gt_classes=gt_classes[mask],
-                matched_threshold=anchor_dict['matched_thresholds'],
-                unmatched_threshold=anchor_dict['unmatched_thresholds'],
-                positive_fraction=self.pos_fraction, rpn_batch_size=self.
-                sample_size, norm_by_num_examples=False, box_code_size=self
-                .box_coder.code_size)
+            mask = np.array([(c == class_name) for c in gt_names], dtype=np.bool_)
+            targets = self.create_target_np(anchor_dict['anchors'].reshape(-1, anchor_dict['anchors'].shape[-1]), gt_boxes[mask], similarity_fn, box_encoding_fn, prune_anchor_fn=prune_anchor_fn, gt_classes=gt_classes[mask], matched_threshold=anchor_dict['matched_thresholds'], unmatched_threshold=anchor_dict['unmatched_thresholds'], positive_fraction=self.pos_fraction, rpn_batch_size=self.sample_size, norm_by_num_examples=False, box_code_size=self.box_coder.code_size)
             targets_list.append(targets)
-        targets_dict = {'labels': [t['labels'] for t in targets_list],
-            'bbox_targets': [t['bbox_targets'] for t in targets_list],
-            'bbox_outside_weights': [t['bbox_outside_weights'] for t in
-            targets_list]}
-        targets_dict['bbox_targets'] = np.concatenate([v.reshape(-1, self.
-            box_coder.code_size) for v in targets_dict['bbox_targets']], axis=0
-            )
-        targets_dict['labels'] = np.concatenate([v.reshape(-1) for v in
-            targets_dict['labels']], axis=0)
-        targets_dict['bbox_outside_weights'] = np.concatenate([v.reshape(-1
-            ) for v in targets_dict['bbox_outside_weights']], axis=0)
+        targets_dict = {'labels': [t['labels'] for t in targets_list], 'bbox_targets': [t['bbox_targets'] for t in targets_list], 'bbox_outside_weights': [t['bbox_outside_weights'] for t in targets_list]}
+        targets_dict['bbox_targets'] = np.concatenate([v.reshape(-1, self.box_coder.code_size) for v in targets_dict['bbox_targets']], axis=0)
+        targets_dict['labels'] = np.concatenate([v.reshape(-1) for v in targets_dict['labels']], axis=0)
+        targets_dict['bbox_outside_weights'] = np.concatenate([v.reshape(-1) for v in targets_dict['bbox_outside_weights']], axis=0)
         return targets_dict
 
-    def create_target_np(self, all_anchors, gt_boxes, similarity_fn,
-        box_encoding_fn, prune_anchor_fn=None, gt_classes=None,
-        matched_threshold=0.6, unmatched_threshold=0.45, bbox_inside_weight
-        =None, positive_fraction=None, rpn_batch_size=300,
-        norm_by_num_examples=False, box_code_size=7):
+    def create_target_np(self, all_anchors, gt_boxes, similarity_fn, box_encoding_fn, prune_anchor_fn=None, gt_classes=None, matched_threshold=0.6, unmatched_threshold=0.45, bbox_inside_weight=None, positive_fraction=None, rpn_batch_size=300, norm_by_num_examples=False, box_code_size=7):
         """Modified from FAIR detectron.
         Args:
             all_anchors: [num_of_anchors, box_ndim] float tensor.
@@ -537,8 +460,7 @@ class TargetAssigner(object):
         else:
             anchors = all_anchors
             inds_inside = None
-        num_inside = len(inds_inside
-            ) if inds_inside is not None else total_anchors
+        num_inside = len(inds_inside) if inds_inside is not None else total_anchors
         box_ndim = all_anchors.shape[1]
         if self.logger is not None:
             self.logger.info('total_anchors: {}'.format(total_anchors))
@@ -553,15 +475,12 @@ class TargetAssigner(object):
         if len(gt_boxes) > 0 and anchors.shape[0] > 0:
             anchor_by_gt_overlap = similarity_fn(anchors, gt_boxes)
             anchor_to_gt_argmax = anchor_by_gt_overlap.argmax(axis=1)
-            anchor_to_gt_max = anchor_by_gt_overlap[np.arange(num_inside),
-                anchor_to_gt_argmax]
+            anchor_to_gt_max = anchor_by_gt_overlap[np.arange(num_inside), anchor_to_gt_argmax]
             gt_to_anchor_argmax = anchor_by_gt_overlap.argmax(axis=0)
-            gt_to_anchor_max = anchor_by_gt_overlap[gt_to_anchor_argmax, np
-                .arange(anchor_by_gt_overlap.shape[1])]
+            gt_to_anchor_max = anchor_by_gt_overlap[gt_to_anchor_argmax, np.arange(anchor_by_gt_overlap.shape[1])]
             empty_gt_mask = gt_to_anchor_max == 0
             gt_to_anchor_max[empty_gt_mask] = -1
-            anchors_with_max_overlap = np.where(anchor_by_gt_overlap ==
-                gt_to_anchor_max)[0]
+            anchors_with_max_overlap = np.where(anchor_by_gt_overlap == gt_to_anchor_max)[0]
             gt_inds_force = anchor_to_gt_argmax[anchors_with_max_overlap]
             labels[anchors_with_max_overlap] = gt_classes[gt_inds_force]
             gt_ids[anchors_with_max_overlap] = gt_inds_force
@@ -580,8 +499,7 @@ class TargetAssigner(object):
         if positive_fraction is not None:
             num_fg = int(positive_fraction * rpn_batch_size)
             if len(fg_inds) > num_fg:
-                disable_inds = npr.choice(fg_inds, size=len(fg_inds) -
-                    num_fg, replace=False)
+                disable_inds = npr.choice(fg_inds, size=len(fg_inds) - num_fg, replace=False)
                 labels[disable_inds] = -1
                 fg_inds = np.where(labels > 0)[0]
             num_bg = rpn_batch_size - np.sum(labels > 0)
@@ -594,18 +512,14 @@ class TargetAssigner(object):
         else:
             labels[bg_inds] = 0
             labels[anchors_with_max_overlap] = gt_classes[gt_inds_force]
-        bbox_targets = np.zeros((num_inside, box_code_size), dtype=
-            all_anchors.dtype)
-        bbox_src_targets = np.zeros((num_inside, box_code_size), dtype=
-            all_anchors.dtype)
+        bbox_targets = np.zeros((num_inside, box_code_size), dtype=all_anchors.dtype)
+        bbox_src_targets = np.zeros((num_inside, box_code_size), dtype=all_anchors.dtype)
         if len(gt_boxes) > 0 and anchors.shape[0] > 0:
             fg_gt_boxes = gt_boxes[(anchor_to_gt_argmax[fg_inds]), :]
             fg_anchors = anchors[(fg_inds), :]
-            bbox_targets[(fg_inds), :] = box_encoding_fn(fg_gt_boxes,
-                fg_anchors)
+            bbox_targets[(fg_inds), :] = box_encoding_fn(fg_gt_boxes, fg_anchors)
             temp_src_gt_boxes = fg_gt_boxes.copy()
-            temp_src_gt_boxes[:, 0:3] = fg_gt_boxes[:, 0:3] - fg_anchors[:, 0:3
-                ]
+            temp_src_gt_boxes[:, 0:3] = fg_gt_boxes[:, 0:3] - fg_anchors[:, 0:3]
             bbox_src_targets[(fg_inds), :] = temp_src_gt_boxes
         bbox_outside_weights = np.zeros((num_inside,), dtype=all_anchors.dtype)
         if norm_by_num_examples:
@@ -616,16 +530,10 @@ class TargetAssigner(object):
             bbox_outside_weights[labels > 0] = 1.0
         if inds_inside is not None:
             labels = unmap(labels, total_anchors, inds_inside, fill=-1)
-            bbox_targets = unmap(bbox_targets, total_anchors, inds_inside,
-                fill=0)
-            bbox_src_targets = unmap(bbox_src_targets, total_anchors,
-                inds_inside, fill=0)
-            bbox_outside_weights = unmap(bbox_outside_weights,
-                total_anchors, inds_inside, fill=0)
-        ret = {'labels': labels, 'bbox_targets': bbox_targets,
-            'bbox_outside_weights': bbox_outside_weights,
-            'assigned_anchors_overlap': fg_max_overlap, 'positive_gt_id':
-            gt_pos_ids, 'bbox_src_targets': bbox_src_targets}
+            bbox_targets = unmap(bbox_targets, total_anchors, inds_inside, fill=0)
+            bbox_src_targets = unmap(bbox_src_targets, total_anchors, inds_inside, fill=0)
+            bbox_outside_weights = unmap(bbox_outside_weights, total_anchors, inds_inside, fill=0)
+        ret = {'labels': labels, 'bbox_targets': bbox_targets, 'bbox_outside_weights': bbox_outside_weights, 'assigned_anchors_overlap': fg_max_overlap, 'positive_gt_id': gt_pos_ids, 'bbox_src_targets': bbox_src_targets}
         if inds_inside is not None:
             ret['assigned_anchors_inds'] = inds_inside[fg_inds]
         else:
@@ -671,41 +579,26 @@ class AnchorHead(nn.Module):
                     cur_cfg = a_cfg
                     break
             assert cur_cfg is not None, 'Not found anchor config: %s' % cur_name
-            anchor_generator = AnchorGeneratorRange(anchor_ranges=cur_cfg[
-                'anchor_range'], sizes=cur_cfg['sizes'], rotations=cur_cfg[
-                'rotations'], class_name=cur_cfg['class_name'],
-                match_threshold=cur_cfg['matched_threshold'],
-                unmatch_threshold=cur_cfg['unmatched_threshold'])
+            anchor_generator = AnchorGeneratorRange(anchor_ranges=cur_cfg['anchor_range'], sizes=cur_cfg['sizes'], rotations=cur_cfg['rotations'], class_name=cur_cfg['class_name'], match_threshold=cur_cfg['matched_threshold'], unmatch_threshold=cur_cfg['unmatched_threshold'])
             anchor_generators.append(anchor_generator)
-        self.box_coder = getattr(box_coder_utils, anchor_target_cfg.BOX_CODER)(
-            )
-        self.target_assigner = TargetAssigner(anchor_generators=
-            anchor_generators, pos_fraction=anchor_target_cfg.
-            SAMPLE_POS_FRACTION, sample_size=anchor_target_cfg.SAMPLE_SIZE,
-            region_similarity_fn_name=anchor_target_cfg.
-            REGION_SIMILARITY_FN, box_coder=self.box_coder)
-        self.num_anchors_per_location = (self.target_assigner.
-            num_anchors_per_location)
+        self.box_coder = getattr(box_coder_utils, anchor_target_cfg.BOX_CODER)()
+        self.target_assigner = TargetAssigner(anchor_generators=anchor_generators, pos_fraction=anchor_target_cfg.SAMPLE_POS_FRACTION, sample_size=anchor_target_cfg.SAMPLE_SIZE, region_similarity_fn_name=anchor_target_cfg.REGION_SIMILARITY_FN, box_coder=self.box_coder)
+        self.num_anchors_per_location = self.target_assigner.num_anchors_per_location
         self.box_code_size = self.box_coder.code_size
-        feature_map_size = grid_size[:2
-            ] // anchor_target_cfg.DOWNSAMPLED_FACTOR
+        feature_map_size = grid_size[:2] // anchor_target_cfg.DOWNSAMPLED_FACTOR
         feature_map_size = [*feature_map_size, 1][::-1]
         ret = self.target_assigner.generate_anchors(feature_map_size)
-        anchors_dict = self.target_assigner.generate_anchors_dict(
-            feature_map_size)
+        anchors_dict = self.target_assigner.generate_anchors_dict(feature_map_size)
         anchors = ret['anchors'].reshape([-1, 7])
         self.anchor_cache = {'anchors': anchors, 'anchors_dict': anchors_dict}
         self.forward_ret_dict = None
         self.build_losses(cfg.MODEL.LOSSES)
 
     def build_losses(self, losses_cfg):
-        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha
-            =0.25, gamma=2.0)
+        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha=0.25, gamma=2.0)
         code_weights = losses_cfg.LOSS_WEIGHTS['code_weights']
-        rpn_code_weights = code_weights[3:7
-            ] if losses_cfg.RPN_REG_LOSS == 'bin-based' else code_weights
-        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma
-            =3.0, code_weights=rpn_code_weights)
+        rpn_code_weights = code_weights[3:7] if losses_cfg.RPN_REG_LOSS == 'bin-based' else code_weights
+        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma=3.0, code_weights=rpn_code_weights)
         self.dir_loss_func = loss_utils.WeightedSoftmaxClassificationLoss()
 
     def assign_targets(self, gt_boxes):
@@ -725,11 +618,8 @@ class AnchorHead(nn.Module):
                 cnt -= 1
             cur_gt = cur_gt[:cnt + 1]
             cur_gt_classes = gt_classes[k][:cnt + 1]
-            cur_gt_names = np.array(cfg.CLASS_NAMES)[cur_gt_classes.astype(
-                np.int32) - 1]
-            cur_target_dict = self.target_assigner.assign_v2(anchors_dict=
-                self.anchor_cache['anchors_dict'], gt_boxes=cur_gt,
-                gt_classes=cur_gt_classes, gt_names=cur_gt_names)
+            cur_gt_names = np.array(cfg.CLASS_NAMES)[cur_gt_classes.astype(np.int32) - 1]
+            cur_target_dict = self.target_assigner.assign_v2(anchors_dict=self.anchor_cache['anchors_dict'], gt_boxes=cur_gt, gt_classes=cur_gt_classes, gt_names=cur_gt_names)
             targets_dict_list.append(cur_target_dict)
         targets_dict = {}
         for key in targets_dict_list[0].keys():
@@ -740,39 +630,29 @@ class AnchorHead(nn.Module):
     @staticmethod
     def add_sin_difference(boxes1, boxes2, dim=6):
         assert dim != -1
-        rad_pred_encoding = torch.sin(boxes1[(...), dim:dim + 1]) * torch.cos(
-            boxes2[(...), dim:dim + 1])
-        rad_tg_encoding = torch.cos(boxes1[(...), dim:dim + 1]) * torch.sin(
-            boxes2[(...), dim:dim + 1])
-        boxes1 = torch.cat([boxes1[(...), :dim], rad_pred_encoding, boxes1[
-            (...), dim + 1:]], dim=-1)
-        boxes2 = torch.cat([boxes2[(...), :dim], rad_tg_encoding, boxes2[(
-            ...), dim + 1:]], dim=-1)
+        rad_pred_encoding = torch.sin(boxes1[(...), dim:dim + 1]) * torch.cos(boxes2[(...), dim:dim + 1])
+        rad_tg_encoding = torch.cos(boxes1[(...), dim:dim + 1]) * torch.sin(boxes2[(...), dim:dim + 1])
+        boxes1 = torch.cat([boxes1[(...), :dim], rad_pred_encoding, boxes1[(...), dim + 1:]], dim=-1)
+        boxes2 = torch.cat([boxes2[(...), :dim], rad_tg_encoding, boxes2[(...), dim + 1:]], dim=-1)
         return boxes1, boxes2
 
     @staticmethod
-    def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset
-        =0, num_bins=2):
+    def get_direction_target(anchors, reg_targets, one_hot=True, dir_offset=0, num_bins=2):
         batch_size = reg_targets.shape[0]
         anchors = anchors.view(batch_size, -1, anchors.shape[-1])
         rot_gt = reg_targets[..., 6] + anchors[..., 6]
-        offset_rot = common_utils.limit_period_torch(rot_gt - dir_offset, 0,
-            2 * np.pi)
-        dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / num_bins)
-            ).long()
+        offset_rot = common_utils.limit_period_torch(rot_gt - dir_offset, 0, 2 * np.pi)
+        dir_cls_targets = torch.floor(offset_rot / (2 * np.pi / num_bins)).long()
         dir_cls_targets = torch.clamp(dir_cls_targets, min=0, max=num_bins - 1)
         if one_hot:
-            dir_targets = torch.zeros(*list(dir_cls_targets.shape),
-                num_bins, dtype=anchors.dtype, device=dir_cls_targets.device)
-            dir_targets.scatter_(-1, dir_cls_targets.unsqueeze(dim=-1).long
-                (), 1.0)
+            dir_targets = torch.zeros(*list(dir_cls_targets.shape), num_bins, dtype=anchors.dtype, device=dir_cls_targets.device)
+            dir_targets.scatter_(-1, dir_cls_targets.unsqueeze(dim=-1).long(), 1.0)
             dir_cls_targets = dir_targets
         return dir_cls_targets
 
     def get_loss(self, forward_ret_dict=None):
         loss_cfgs = cfg.MODEL.LOSSES
-        forward_ret_dict = (self.forward_ret_dict if forward_ret_dict is
-            None else forward_ret_dict)
+        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
         anchors = forward_ret_dict['anchors']
         box_preds = forward_ret_dict['box_preds']
         cls_preds = forward_ret_dict['cls_preds']
@@ -780,8 +660,7 @@ class AnchorHead(nn.Module):
         box_cls_labels = forward_ret_dict['box_cls_labels']
         box_reg_targets = forward_ret_dict['box_reg_targets']
         batch_size = int(box_preds.shape[0])
-        anchors = anchors.view(1, -1, anchors.shape[-1]).repeat(batch_size,
-            1, 1)
+        anchors = anchors.view(1, -1, anchors.shape[-1]).repeat(batch_size, 1, 1)
         cared = box_cls_labels >= 0
         positives = box_cls_labels > 0
         negatives = box_cls_labels == 0
@@ -795,8 +674,7 @@ class AnchorHead(nn.Module):
         cls_targets = cls_targets.unsqueeze(dim=-1)
         num_class = self.num_class
         cls_targets = cls_targets.squeeze(dim=-1)
-        one_hot_targets = torch.zeros(*list(cls_targets.shape), num_class +
-            1, dtype=box_preds.dtype, device=cls_targets.device)
+        one_hot_targets = torch.zeros(*list(cls_targets.shape), num_class + 1, dtype=box_preds.dtype, device=cls_targets.device)
         one_hot_targets.scatter_(-1, cls_targets.unsqueeze(dim=-1).long(), 1.0)
         if cfg.MODEL.RPN.RPN_HEAD.ARGS['encode_background_as_zeros']:
             cls_preds = cls_preds.view(batch_size, -1, num_class)
@@ -804,37 +682,25 @@ class AnchorHead(nn.Module):
         else:
             cls_preds = cls_preds.view(batch_size, -1, num_class + 1)
         loss_weights_dict = loss_cfgs.LOSS_WEIGHTS
-        cls_loss = self.cls_loss_func(cls_preds, one_hot_targets, weights=
-            cls_weights)
+        cls_loss = self.cls_loss_func(cls_preds, one_hot_targets, weights=cls_weights)
         cls_loss_reduced = cls_loss.sum() / batch_size
-        cls_loss_reduced = cls_loss_reduced * loss_weights_dict[
-            'rpn_cls_weight']
-        box_preds = box_preds.view(batch_size, -1, box_preds.shape[-1] //
-            self.num_anchors_per_location)
+        cls_loss_reduced = cls_loss_reduced * loss_weights_dict['rpn_cls_weight']
+        box_preds = box_preds.view(batch_size, -1, box_preds.shape[-1] // self.num_anchors_per_location)
         if loss_cfgs.RPN_REG_LOSS == 'smooth-l1':
-            box_preds_sin, reg_targets_sin = self.add_sin_difference(box_preds,
-                box_reg_targets)
-            loc_loss = self.reg_loss_func(box_preds_sin, reg_targets_sin,
-                weights=reg_weights)
+            box_preds_sin, reg_targets_sin = self.add_sin_difference(box_preds, box_reg_targets)
+            loc_loss = self.reg_loss_func(box_preds_sin, reg_targets_sin, weights=reg_weights)
             loc_loss_reduced = loc_loss.sum() / batch_size
         else:
             raise NotImplementedError
-        loc_loss_reduced = loc_loss_reduced * loss_weights_dict[
-            'rpn_loc_weight']
+        loc_loss_reduced = loc_loss_reduced * loss_weights_dict['rpn_loc_weight']
         rpn_loss = loc_loss_reduced + cls_loss_reduced
-        tb_dict = {'rpn_loss_loc': loc_loss_reduced.item(), 'rpn_loss_cls':
-            cls_loss_reduced.item()}
+        tb_dict = {'rpn_loss_loc': loc_loss_reduced.item(), 'rpn_loss_cls': cls_loss_reduced.item()}
         if box_dir_cls_preds is not None:
-            dir_targets = self.get_direction_target(anchors,
-                box_reg_targets, dir_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS[
-                'dir_offset'], num_bins=cfg.MODEL.RPN.RPN_HEAD.ARGS[
-                'num_direction_bins'])
-            dir_logits = box_dir_cls_preds.view(batch_size, -1, cfg.MODEL.
-                RPN.RPN_HEAD.ARGS['num_direction_bins'])
+            dir_targets = self.get_direction_target(anchors, box_reg_targets, dir_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS['dir_offset'], num_bins=cfg.MODEL.RPN.RPN_HEAD.ARGS['num_direction_bins'])
+            dir_logits = box_dir_cls_preds.view(batch_size, -1, cfg.MODEL.RPN.RPN_HEAD.ARGS['num_direction_bins'])
             weights = positives.type_as(dir_logits)
             weights /= torch.clamp(weights.sum(-1, keepdim=True), min=1.0)
-            dir_loss = self.dir_loss_func(dir_logits, dir_targets, weights=
-                weights)
+            dir_loss = self.dir_loss_func(dir_logits, dir_targets, weights=weights)
             dir_loss = dir_loss.sum() / batch_size
             dir_loss = dir_loss * loss_weights_dict['rpn_dir_weight']
             rpn_loss += dir_loss
@@ -845,10 +711,8 @@ class AnchorHead(nn.Module):
 
 class RPNV2(AnchorHead):
 
-    def __init__(self, num_class, args, anchor_target_cfg, grid_size, **kwargs
-        ):
-        super().__init__(grid_size=grid_size, anchor_target_cfg=
-            anchor_target_cfg)
+    def __init__(self, num_class, args, anchor_target_cfg, grid_size, **kwargs):
+        super().__init__(grid_size=grid_size, anchor_target_cfg=anchor_target_cfg)
         self._use_direction_classifier = args['use_direction_classifier']
         self._concat_input = args['concat_input']
         assert len(args['layer_strides']) == len(args['layer_nums'])
@@ -866,27 +730,19 @@ class RPNV2(AnchorHead):
         blocks = []
         deblocks = []
         for i, layer_num in enumerate(args['layer_nums']):
-            block = Sequential(nn.ZeroPad2d(1), Conv2d(in_filters[i], args[
-                'num_filters'][i], 3, stride=args['layer_strides'][i]),
-                BatchNorm2d(args['num_filters'][i]), nn.ReLU())
+            block = Sequential(nn.ZeroPad2d(1), Conv2d(in_filters[i], args['num_filters'][i], 3, stride=args['layer_strides'][i]), BatchNorm2d(args['num_filters'][i]), nn.ReLU())
             for j in range(layer_num):
-                block.add(Conv2d(args['num_filters'][i], args['num_filters'
-                    ][i], 3, padding=1))
+                block.add(Conv2d(args['num_filters'][i], args['num_filters'][i], 3, padding=1))
                 block.add(BatchNorm2d(args['num_filters'][i]))
                 block.add(nn.ReLU())
             blocks.append(block)
-            deblock = Sequential(ConvTranspose2d(args['num_filters'][i],
-                args['num_upsample_filters'][i], args['upsample_strides'][i
-                ], stride=args['upsample_strides'][i]), BatchNorm2d(args[
-                'num_upsample_filters'][i]), nn.ReLU())
+            deblock = Sequential(ConvTranspose2d(args['num_filters'][i], args['num_upsample_filters'][i], args['upsample_strides'][i], stride=args['upsample_strides'][i]), BatchNorm2d(args['num_upsample_filters'][i]), nn.ReLU())
             deblocks.append(deblock)
         c_in = sum(args['num_upsample_filters'])
         if self._concat_input:
             c_in += args['num_input_features']
         if len(args['upsample_strides']) > len(args['num_filters']):
-            deblock = Sequential(ConvTranspose2d(c_in, c_in, args[
-                'upsample_strides'][-1], stride=args['upsample_strides'][-1
-                ]), BatchNorm2d(c_in), nn.ReLU())
+            deblock = Sequential(ConvTranspose2d(c_in, c_in, args['upsample_strides'][-1], stride=args['upsample_strides'][-1]), BatchNorm2d(c_in), nn.ReLU())
             deblocks.append(deblock)
         self.blocks = nn.ModuleList(blocks)
         self.deblocks = nn.ModuleList(deblocks)
@@ -898,8 +754,7 @@ class RPNV2(AnchorHead):
         reg_channels = self.num_anchors_per_location * self.box_code_size
         self.conv_box = nn.Conv2d(c_in, reg_channels, 1)
         if args['use_direction_classifier']:
-            self.conv_dir_cls = nn.Conv2d(c_in, self.
-                num_anchors_per_location * args['num_direction_bins'], 1)
+            self.conv_dir_cls = nn.Conv2d(c_in, self.num_anchors_per_location * args['num_direction_bins'], 1)
         self.init_weights()
 
     def init_weights(self):
@@ -933,16 +788,10 @@ class RPNV2(AnchorHead):
             dir_cls_preds = self.conv_dir_cls(x)
             dir_cls_preds = dir_cls_preds.permute(0, 2, 3, 1).contiguous()
             ret_dict['dir_cls_preds'] = dir_cls_preds
-        ret_dict['anchors'] = torch.from_numpy(self.anchor_cache['anchors']
-            ).cuda()
+        ret_dict['anchors'] = torch.from_numpy(self.anchor_cache['anchors']).cuda()
         if self.training:
             targets_dict = self.assign_targets(gt_boxes=kwargs['gt_boxes'])
-            ret_dict.update({'box_cls_labels': torch.from_numpy(
-                targets_dict['labels']).cuda(), 'box_reg_targets': torch.
-                from_numpy(targets_dict['bbox_targets']).cuda(),
-                'reg_src_targets': torch.from_numpy(targets_dict[
-                'bbox_src_targets']).cuda(), 'reg_weights': torch.
-                from_numpy(targets_dict['bbox_outside_weights']).cuda()})
+            ret_dict.update({'box_cls_labels': torch.from_numpy(targets_dict['labels']).cuda(), 'box_reg_targets': torch.from_numpy(targets_dict['bbox_targets']).cuda(), 'reg_src_targets': torch.from_numpy(targets_dict['bbox_src_targets']).cuda(), 'reg_weights': torch.from_numpy(targets_dict['bbox_outside_weights']).cuda()})
         self.forward_ret_dict = ret_dict
         return ret_dict
 
@@ -955,8 +804,7 @@ _global_config['LOCAL_RANK'] = 4
 
 def conv3x3(in_planes, out_planes, stride=1, indice_key=None):
     """3x3 convolution with padding"""
-    return spconv.SubMConv3d(in_planes, out_planes, kernel_size=3, stride=
-        stride, padding=1, bias=False, indice_key=indice_key)
+    return spconv.SubMConv3d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, indice_key=indice_key)
 
 
 _global_config['DATA_CONFIG'] = 4
@@ -973,8 +821,7 @@ def get_paddings_indicator(actual_num, max_num, axis=0):
     actual_num = torch.unsqueeze(actual_num, axis + 1)
     max_num_shape = [1] * len(actual_num.shape)
     max_num_shape[axis + 1] = -1
-    max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device
-        ).view(max_num_shape)
+    max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device).view(max_num_shape)
     paddings_indicator = actual_num.int() > max_num
     return paddings_indicator
 
@@ -995,22 +842,15 @@ class Detector3D(nn.Module):
 
     def build_networks(self, model_cfg):
         vfe_cfg = model_cfg.VFE
-        self.vfe = vfe_modules[vfe_cfg.NAME](num_input_features=cfg.
-            DATA_CONFIG.NUM_POINT_FEATURES['use'], voxel_size=cfg.
-            DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE, pc_range=cfg.
-            DATA_CONFIG.POINT_CLOUD_RANGE, **vfe_cfg.ARGS)
+        self.vfe = vfe_modules[vfe_cfg.NAME](num_input_features=cfg.DATA_CONFIG.NUM_POINT_FEATURES['use'], voxel_size=cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE, pc_range=cfg.DATA_CONFIG.POINT_CLOUD_RANGE, **vfe_cfg.ARGS)
         voxel_feature_num = self.vfe.get_output_feature_dim()
         rpn_cfg = model_cfg.RPN
-        self.rpn_net = rpn_modules[rpn_cfg.BACKBONE.NAME](input_channels=
-            voxel_feature_num, **rpn_cfg.BACKBONE.ARGS)
+        self.rpn_net = rpn_modules[rpn_cfg.BACKBONE.NAME](input_channels=voxel_feature_num, **rpn_cfg.BACKBONE.ARGS)
         rpn_head_cfg = model_cfg.RPN.RPN_HEAD
-        self.rpn_head = bbox_head_modules[rpn_head_cfg.NAME](num_class=self
-            .num_class, args=rpn_head_cfg.ARGS, grid_size=self.grid_size,
-            anchor_target_cfg=rpn_head_cfg.TARGET_CONFIG)
+        self.rpn_head = bbox_head_modules[rpn_head_cfg.NAME](num_class=self.num_class, args=rpn_head_cfg.ARGS, grid_size=self.grid_size, anchor_target_cfg=rpn_head_cfg.TARGET_CONFIG)
         rcnn_cfg = model_cfg.RCNN
         if rcnn_cfg.ENABLED:
-            self.rcnn_net = rcnn_modules[rcnn_cfg.NAME](num_point_features=
-                cfg.MODEL.RCNN.NUM_POINT_FEATURES, rcnn_cfg=rcnn_cfg)
+            self.rcnn_net = rcnn_modules[rcnn_cfg.NAME](num_point_features=cfg.MODEL.RCNN.NUM_POINT_FEATURES, rcnn_cfg=rcnn_cfg)
 
     def update_global_step(self):
         self.global_step += 1
@@ -1031,22 +871,10 @@ class Detector3D(nn.Module):
     def predict_boxes(self, rpn_ret_dict, rcnn_ret_dict, input_dict):
         batch_size = input_dict['batch_size']
         if rcnn_ret_dict is None:
-            batch_anchors = rpn_ret_dict['anchors'].view(1, -1,
-                rpn_ret_dict['anchors'].shape[-1]).repeat(batch_size, 1, 1)
+            batch_anchors = rpn_ret_dict['anchors'].view(1, -1, rpn_ret_dict['anchors'].shape[-1]).repeat(batch_size, 1, 1)
             num_anchors = batch_anchors.shape[1]
-            batch_cls_preds = rpn_ret_dict['rpn_cls_preds'].view(batch_size,
-                num_anchors, -1).float()
-            batch_box_preds = (self.rpn_head.box_coder.
-                decode_with_head_direction_torch(box_preds=rpn_ret_dict[
-                'rpn_box_preds'].view(batch_size, num_anchors, -1), anchors
-                =batch_anchors, dir_cls_preds=rpn_ret_dict.get(
-                'rpn_dir_cls_preds', None), num_dir_bins=cfg.MODEL.RPN.
-                RPN_HEAD.ARGS.get('num_direction_bins', None), dir_offset=
-                cfg.MODEL.RPN.RPN_HEAD.ARGS.get('dir_offset', None),
-                dir_limit_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS.get(
-                'dir_limit_offset', None), use_binary_dir_classifier=cfg.
-                MODEL.RPN.RPN_HEAD.ARGS.get('use_binary_dir_classifier', 
-                False)))
+            batch_cls_preds = rpn_ret_dict['rpn_cls_preds'].view(batch_size, num_anchors, -1).float()
+            batch_box_preds = self.rpn_head.box_coder.decode_with_head_direction_torch(box_preds=rpn_ret_dict['rpn_box_preds'].view(batch_size, num_anchors, -1), anchors=batch_anchors, dir_cls_preds=rpn_ret_dict.get('rpn_dir_cls_preds', None), num_dir_bins=cfg.MODEL.RPN.RPN_HEAD.ARGS.get('num_direction_bins', None), dir_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS.get('dir_offset', None), dir_limit_offset=cfg.MODEL.RPN.RPN_HEAD.ARGS.get('dir_limit_offset', None), use_binary_dir_classifier=cfg.MODEL.RPN.RPN_HEAD.ARGS.get('use_binary_dir_classifier', False))
         else:
             batch_rois = rcnn_ret_dict['rois']
             code_size = self.rcnn_net.box_coder.code_size
@@ -1056,22 +884,16 @@ class Detector3D(nn.Module):
                 roi_xyz = batch_rois[:, :, 0:3].view(-1, 3)
                 local_rois = batch_rois.clone().detach()
                 local_rois[:, :, 0:3] = 0
-                rcnn_boxes3d = self.rcnn_net.box_coder.decode_torch(
-                    rcnn_ret_dict['rcnn_reg'].view(local_rois.shape[0], -1,
-                    code_size), local_rois).view(-1, code_size)
-                rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(
-                    rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2).squeeze(
-                    dim=1)
+                rcnn_boxes3d = self.rcnn_net.box_coder.decode_torch(rcnn_ret_dict['rcnn_reg'].view(local_rois.shape[0], -1, code_size), local_rois).view(-1, code_size)
+                rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2).squeeze(dim=1)
                 rcnn_boxes3d[:, 0:3] += roi_xyz
                 batch_box_preds = rcnn_boxes3d.view(batch_size, -1, code_size)
             else:
                 raise NotImplementedError
-        pred_dicts, recall_dicts = self.post_processing(batch_cls_preds,
-            batch_box_preds, rcnn_ret_dict, input_dict)
+        pred_dicts, recall_dicts = self.post_processing(batch_cls_preds, batch_box_preds, rcnn_ret_dict, input_dict)
         return pred_dicts, recall_dicts
 
-    def post_processing(self, batch_cls_preds, batch_box_preds,
-        rcnn_ret_dict, input_dict):
+    def post_processing(self, batch_cls_preds, batch_box_preds, rcnn_ret_dict, input_dict):
         recall_dict = {'gt': 0}
         for cur_thresh in cfg.MODEL.TEST.RECALL_THRESH_LIST:
             recall_dict['roi_%s' % str(cur_thresh)] = 0
@@ -1080,26 +902,16 @@ class Detector3D(nn.Module):
         batch_size = batch_cls_preds.shape[0]
         batch_index = np.arange(batch_size)
         batch_gt_boxes = input_dict.get('gt_boxes', None)
-        for index, cls_preds, box_preds in zip(batch_index, batch_cls_preds,
-            batch_box_preds):
-            if not cfg.MODEL.RPN.RPN_HEAD.ARGS['encode_background_as_zeros'
-                ] and rcnn_ret_dict is None:
+        for index, cls_preds, box_preds in zip(batch_index, batch_cls_preds, batch_box_preds):
+            if not cfg.MODEL.RPN.RPN_HEAD.ARGS['encode_background_as_zeros'] and rcnn_ret_dict is None:
                 cls_preds = cls_preds[(...), 1:]
             normalized_scores = torch.sigmoid(cls_preds)
             if rcnn_ret_dict is not None and batch_gt_boxes is not None:
-                self.generate_recall_record(box_preds, rcnn_ret_dict['rois'
-                    ][index], batch_gt_boxes[index], recall_dict,
-                    thresh_list=cfg.MODEL.TEST.RECALL_THRESH_LIST)
+                self.generate_recall_record(box_preds, rcnn_ret_dict['rois'][index], batch_gt_boxes[index], recall_dict, thresh_list=cfg.MODEL.TEST.RECALL_THRESH_LIST)
             if cfg.MODEL.TEST.MULTI_CLASSES_NMS:
-                selected, final_labels = self.multi_classes_nms(rank_scores
-                    =cls_preds, normalized_scores=normalized_scores,
-                    box_preds=box_preds, score_thresh=cfg.MODEL.TEST.
-                    SCORE_THRESH, nms_thresh=cfg.MODEL.TEST.NMS_THRESH,
-                    nms_type=cfg.MODEL.TEST.NMS_TYPE)
+                selected, final_labels = self.multi_classes_nms(rank_scores=cls_preds, normalized_scores=normalized_scores, box_preds=box_preds, score_thresh=cfg.MODEL.TEST.SCORE_THRESH, nms_thresh=cfg.MODEL.TEST.NMS_THRESH, nms_type=cfg.MODEL.TEST.NMS_TYPE)
                 final_boxes = box_preds[selected]
-                final_scores = cls_preds[selected
-                    ] if cfg.MODEL.TEST.USE_RAW_SCORE else normalized_scores[
-                    selected]
+                final_scores = cls_preds[selected] if cfg.MODEL.TEST.USE_RAW_SCORE else normalized_scores[selected]
             else:
                 if len(cls_preds.shape) > 1 and cls_preds.shape[1] > 1:
                     rank_scores, class_labels = torch.max(cls_preds, dim=-1)
@@ -1112,33 +924,23 @@ class Detector3D(nn.Module):
                         class_labels = cls_preds.new_ones(cls_preds.shape[0])
                     rank_scores = cls_preds.view(-1)
                     normalized_scores = normalized_scores.view(-1)
-                selected = self.class_agnostic_nms(rank_scores=rank_scores,
-                    normalized_scores=normalized_scores, box_preds=
-                    box_preds, score_thresh=cfg.MODEL.TEST.SCORE_THRESH,
-                    nms_thresh=cfg.MODEL.TEST.NMS_THRESH, nms_type=cfg.
-                    MODEL.TEST.NMS_TYPE)
+                selected = self.class_agnostic_nms(rank_scores=rank_scores, normalized_scores=normalized_scores, box_preds=box_preds, score_thresh=cfg.MODEL.TEST.SCORE_THRESH, nms_thresh=cfg.MODEL.TEST.NMS_THRESH, nms_type=cfg.MODEL.TEST.NMS_TYPE)
                 final_labels = class_labels[selected]
-                final_scores = rank_scores[selected
-                    ] if cfg.MODEL.TEST.USE_RAW_SCORE else normalized_scores[
-                    selected]
+                final_scores = rank_scores[selected] if cfg.MODEL.TEST.USE_RAW_SCORE else normalized_scores[selected]
                 final_boxes = box_preds[selected]
-            record_dict = {'boxes': final_boxes, 'scores': final_scores,
-                'labels': final_labels}
+            record_dict = {'boxes': final_boxes, 'scores': final_scores, 'labels': final_labels}
             if rcnn_ret_dict is not None:
-                record_dict['roi_raw_scores'] = rcnn_ret_dict['roi_raw_scores'
-                    ][index][selected]
+                record_dict['roi_raw_scores'] = rcnn_ret_dict['roi_raw_scores'][index][selected]
                 record_dict['rois'] = rcnn_ret_dict['rois'][index][selected]
                 mask = record_dict['rois'][:, 3:6].sum(dim=1) > 0
                 if mask.sum() != record_dict['rois'].shape[0]:
                     common_utils.dict_select(record_dict, mask)
-            cur_pred_dict = self.dataset.generate_prediction_dict(input_dict,
-                index, record_dict)
+            cur_pred_dict = self.dataset.generate_prediction_dict(input_dict, index, record_dict)
             pred_dicts.append(cur_pred_dict)
         return pred_dicts, recall_dict
 
     @staticmethod
-    def multi_classes_nms(rank_scores, normalized_scores, box_preds,
-        score_thresh, nms_thresh, nms_type='nms_gpu'):
+    def multi_classes_nms(rank_scores, normalized_scores, box_preds, score_thresh, nms_thresh, nms_type='nms_gpu'):
         """
         :param rank_scores: (N, num_classes)
         :param box_preds: (N, 7) [x, y, z, w, l, h, ry] in LiDAR coords
@@ -1147,57 +949,44 @@ class Detector3D(nn.Module):
         :param nms_type:
         :return:
         """
-        assert rank_scores.shape[1] == len(cfg.CLASS_NAMES
-            ), 'Rank_score shape: %s' % str(rank_scores.shape)
+        assert rank_scores.shape[1] == len(cfg.CLASS_NAMES), 'Rank_score shape: %s' % str(rank_scores.shape)
         selected_list = []
         selected_labels = []
         num_classes = rank_scores.shape[1]
         boxes_for_nms = box_utils.boxes3d_to_bevboxes_lidar_torch(box_preds)
-        score_thresh = score_thresh if isinstance(score_thresh, list) else [
-            score_thresh for x in range(num_classes)]
-        nms_thresh = nms_thresh if isinstance(nms_thresh, list) else [
-            nms_thresh for x in range(num_classes)]
+        score_thresh = score_thresh if isinstance(score_thresh, list) else [score_thresh for x in range(num_classes)]
+        nms_thresh = nms_thresh if isinstance(nms_thresh, list) else [nms_thresh for x in range(num_classes)]
         for k in range(0, num_classes):
             class_scores_keep = normalized_scores[:, (k)] >= score_thresh[k]
             if class_scores_keep.int().sum() > 0:
                 original_idxs = class_scores_keep.nonzero().view(-1)
                 cur_boxes_for_nms = boxes_for_nms[class_scores_keep]
                 cur_rank_scores = rank_scores[class_scores_keep, k]
-                cur_selected = getattr(iou3d_nms_utils, nms_type)(
-                    cur_boxes_for_nms, cur_rank_scores, nms_thresh[k])
+                cur_selected = getattr(iou3d_nms_utils, nms_type)(cur_boxes_for_nms, cur_rank_scores, nms_thresh[k])
                 if cur_selected.shape[0] == 0:
                     continue
                 selected_list.append(original_idxs[cur_selected])
-                selected_labels.append(torch.full([cur_selected.shape[0]], 
-                    k + 1, dtype=torch.int64, device=box_preds.device))
-        selected = torch.cat(selected_list, dim=0) if selected_list.__len__(
-            ) > 0 else []
+                selected_labels.append(torch.full([cur_selected.shape[0]], k + 1, dtype=torch.int64, device=box_preds.device))
+        selected = torch.cat(selected_list, dim=0) if selected_list.__len__() > 0 else []
         return selected, selected_labels
 
     @staticmethod
-    def class_agnostic_nms(rank_scores, normalized_scores, box_preds,
-        score_thresh, nms_thresh, nms_type='nms_gpu'):
+    def class_agnostic_nms(rank_scores, normalized_scores, box_preds, score_thresh, nms_thresh, nms_type='nms_gpu'):
         scores_mask = normalized_scores >= score_thresh
         rank_scores_masked = rank_scores[scores_mask]
         cur_selected = []
         if rank_scores_masked.shape[0] > 0:
             box_preds = box_preds[scores_mask]
-            rank_scores_nms, indices = torch.topk(rank_scores_masked, k=min
-                (cfg.MODEL.TEST.NMS_PRE_MAXSIZE_LAST, rank_scores_masked.
-                shape[0]))
+            rank_scores_nms, indices = torch.topk(rank_scores_masked, k=min(cfg.MODEL.TEST.NMS_PRE_MAXSIZE_LAST, rank_scores_masked.shape[0]))
             box_preds_nms = box_preds[indices]
-            boxes_for_nms = box_utils.boxes3d_to_bevboxes_lidar_torch(
-                box_preds_nms)
-            keep_idx = getattr(iou3d_nms_utils, nms_type)(boxes_for_nms,
-                rank_scores_nms, nms_thresh)
-            cur_selected = indices[keep_idx[:cfg.MODEL.TEST.
-                NMS_POST_MAXSIZE_LAST]]
+            boxes_for_nms = box_utils.boxes3d_to_bevboxes_lidar_torch(box_preds_nms)
+            keep_idx = getattr(iou3d_nms_utils, nms_type)(boxes_for_nms, rank_scores_nms, nms_thresh)
+            cur_selected = indices[keep_idx[:cfg.MODEL.TEST.NMS_POST_MAXSIZE_LAST]]
         original_idxs = scores_mask.nonzero().view(-1)
         selected = original_idxs[cur_selected]
         return selected
 
-    def generate_recall_record(self, box_preds, rois, gt_boxes, recall_dict,
-        thresh_list=(0.5, 0.7)):
+    def generate_recall_record(self, box_preds, rois, gt_boxes, recall_dict, thresh_list=(0.5, 0.7)):
         cur_gt = gt_boxes
         k = cur_gt.__len__() - 1
         while k > 0 and cur_gt[k].sum() == 0:
@@ -1207,10 +996,8 @@ class Detector3D(nn.Module):
             iou3d_roi = iou3d_nms_utils.boxes_iou3d_gpu(rois, cur_gt)
             iou3d_rcnn = iou3d_nms_utils.boxes_iou3d_gpu(box_preds, cur_gt)
             for cur_thresh in thresh_list:
-                roi_recalled = (iou3d_roi.max(dim=0)[0] > cur_thresh).sum(
-                    ).item()
-                rcnn_recalled = (iou3d_rcnn.max(dim=0)[0] > cur_thresh).sum(
-                    ).item()
+                roi_recalled = (iou3d_roi.max(dim=0)[0] > cur_thresh).sum().item()
+                rcnn_recalled = (iou3d_rcnn.max(dim=0)[0] > cur_thresh).sum().item()
                 recall_dict['roi_%s' % str(cur_thresh)] += roi_recalled
                 recall_dict['rcnn_%s' % str(cur_thresh)] += rcnn_recalled
             recall_dict['gt'] += cur_gt.shape[0]
@@ -1223,56 +1010,44 @@ class Detector3D(nn.Module):
     def load_params_from_file(self, filename, logger, to_cpu=False):
         if not os.path.isfile(filename):
             raise FileNotFoundError
-        logger.info('==> Loading parameters from checkpoint %s to %s' % (
-            filename, 'CPU' if to_cpu else 'GPU'))
+        logger.info('==> Loading parameters from checkpoint %s to %s' % (filename, 'CPU' if to_cpu else 'GPU'))
         loc_type = torch.device('cpu') if to_cpu else None
         checkpoint = torch.load(filename, map_location=loc_type)
         model_state_disk = checkpoint['model_state']
         if 'version' in checkpoint:
-            logger.info('==> Checkpoint trained from version: %s' %
-                checkpoint['version'])
+            logger.info('==> Checkpoint trained from version: %s' % checkpoint['version'])
         update_model_state = {}
         for key, val in model_state_disk.items():
-            if key in self.state_dict() and self.state_dict()[key
-                ].shape == model_state_disk[key].shape:
+            if key in self.state_dict() and self.state_dict()[key].shape == model_state_disk[key].shape:
                 update_model_state[key] = val
         state_dict = self.state_dict()
         state_dict.update(update_model_state)
         self.load_state_dict(state_dict)
         for key in state_dict:
             if key not in update_model_state:
-                logger.info('Not updated weight %s: %s' % (key, str(
-                    state_dict[key].shape)))
-        logger.info('==> Done (loaded %d/%d)' % (len(update_model_state),
-            len(self.state_dict())))
+                logger.info('Not updated weight %s: %s' % (key, str(state_dict[key].shape)))
+        logger.info('==> Done (loaded %d/%d)' % (len(update_model_state), len(self.state_dict())))
 
-    def load_params_with_optimizer(self, filename, to_cpu=False, optimizer=
-        None, logger=None):
+    def load_params_with_optimizer(self, filename, to_cpu=False, optimizer=None, logger=None):
         if not os.path.isfile(filename):
             raise FileNotFoundError
-        logger.info('==> Loading parameters from checkpoint %s to %s' % (
-            filename, 'CPU' if to_cpu else 'GPU'))
+        logger.info('==> Loading parameters from checkpoint %s to %s' % (filename, 'CPU' if to_cpu else 'GPU'))
         loc_type = torch.device('cpu') if to_cpu else None
         checkpoint = torch.load(filename, map_location=loc_type)
         epoch = checkpoint.get('epoch', -1)
         it = checkpoint.get('it', 0.0)
         self.load_state_dict(checkpoint['model_state'])
         if optimizer is not None:
-            if 'optimizer_state' in checkpoint and checkpoint['optimizer_state'
-                ] is not None:
-                logger.info(
-                    '==> Loading optimizer parameters from checkpoint %s to %s'
-                     % (filename, 'CPU' if to_cpu else 'GPU'))
+            if 'optimizer_state' in checkpoint and checkpoint['optimizer_state'] is not None:
+                logger.info('==> Loading optimizer parameters from checkpoint %s to %s' % (filename, 'CPU' if to_cpu else 'GPU'))
                 optimizer.load_state_dict(checkpoint['optimizer_state'])
             else:
                 assert filename[-4] == '.', filename
                 src_file, ext = filename[:-4], filename[-3:]
                 optimizer_filename = '%s_optim.%s' % (src_file, ext)
                 if os.path.exists(optimizer_filename):
-                    optimizer_ckpt = torch.load(optimizer_filename,
-                        map_location=loc_type)
-                    optimizer.load_state_dict(optimizer_ckpt['optimizer_state']
-                        )
+                    optimizer_ckpt = torch.load(optimizer_filename, map_location=loc_type)
+                    optimizer.load_state_dict(optimizer_ckpt['optimizer_state'])
         if 'version' in checkpoint:
             None
         logger.info('==> Done')
@@ -1367,26 +1142,18 @@ class Sequential(torch.nn.Module):
 
 class SharedMLP(nn.Sequential):
 
-    def __init__(self, args: List[int], *, bn: bool=False, activation=nn.
-        ReLU(inplace=True), preact: bool=False, first: bool=False, name:
-        str='', instance_norm: bool=False):
+    def __init__(self, args: List[int], *, bn: bool=False, activation=nn.ReLU(inplace=True), preact: bool=False, first: bool=False, name: str='', instance_norm: bool=False):
         super().__init__()
         for i in range(len(args) - 1):
-            self.add_module(name + 'layer{}'.format(i), Conv2d(args[i],
-                args[i + 1], bn=(not first or not preact or i != 0) and bn,
-                activation=activation if not first or not preact or i != 0 else
-                None, preact=preact, instance_norm=instance_norm))
+            self.add_module(name + 'layer{}'.format(i), Conv2d(args[i], args[i + 1], bn=(not first or not preact or i != 0) and bn, activation=activation if not first or not preact or i != 0 else None, preact=preact, instance_norm=instance_norm))
 
 
 class _ConvBase(nn.Sequential):
 
-    def __init__(self, in_size, out_size, kernel_size, stride, padding,
-        activation, bn, init, conv=None, batch_norm=None, bias=True, preact
-        =False, name='', instance_norm=False, instance_norm_func=None):
+    def __init__(self, in_size, out_size, kernel_size, stride, padding, activation, bn, init, conv=None, batch_norm=None, bias=True, preact=False, name='', instance_norm=False, instance_norm_func=None):
         super().__init__()
         bias = bias and not bn
-        conv_unit = conv(in_size, out_size, kernel_size=kernel_size, stride
-            =stride, padding=padding, bias=bias)
+        conv_unit = conv(in_size, out_size, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
         init(conv_unit.weight)
         if bias:
             nn.init.constant_(conv_unit.bias, 0)
@@ -1397,11 +1164,9 @@ class _ConvBase(nn.Sequential):
                 bn_unit = batch_norm(in_size)
         if instance_norm:
             if not preact:
-                in_unit = instance_norm_func(out_size, affine=False,
-                    track_running_stats=False)
+                in_unit = instance_norm_func(out_size, affine=False, track_running_stats=False)
             else:
-                in_unit = instance_norm_func(in_size, affine=False,
-                    track_running_stats=False)
+                in_unit = instance_norm_func(in_size, affine=False, track_running_stats=False)
         if preact:
             if bn:
                 self.add_module(name + 'bn', bn_unit)
@@ -1436,9 +1201,7 @@ class BatchNorm1d(_BNBase):
 
 class FC(nn.Sequential):
 
-    def __init__(self, in_size: int, out_size: int, *, activation=nn.ReLU(
-        inplace=True), bn: bool=False, init=None, preact: bool=False, name:
-        str=''):
+    def __init__(self, in_size: int, out_size: int, *, activation=nn.ReLU(inplace=True), bn: bool=False, init=None, preact: bool=False, name: str=''):
         super().__init__()
         fc = nn.Linear(in_size, out_size, bias=not bn)
         if init is not None:
@@ -1481,36 +1244,29 @@ def get_maxiou3d_with_same_class(rois, roi_labels, gt_boxes, gt_labels):
     return max_overlaps, gt_assignment
 
 
-def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image,
-    roi_sampler_cfg):
+def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg):
     if hard_bg_inds.numel() > 0 and easy_bg_inds.numel() > 0:
-        hard_bg_rois_num = int(bg_rois_per_this_image * roi_sampler_cfg.
-            HARD_BG_RATIO)
+        hard_bg_rois_num = int(bg_rois_per_this_image * roi_sampler_cfg.HARD_BG_RATIO)
         easy_bg_rois_num = bg_rois_per_this_image - hard_bg_rois_num
-        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(
-            hard_bg_rois_num,)).long()
+        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(hard_bg_rois_num,)).long()
         hard_bg_inds = hard_bg_inds[rand_idx]
-        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(
-            easy_bg_rois_num,)).long()
+        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(easy_bg_rois_num,)).long()
         easy_bg_inds = easy_bg_inds[rand_idx]
         bg_inds = torch.cat([hard_bg_inds, easy_bg_inds], dim=0)
     elif hard_bg_inds.numel() > 0 and easy_bg_inds.numel() == 0:
         hard_bg_rois_num = bg_rois_per_this_image
-        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(
-            hard_bg_rois_num,)).long()
+        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(hard_bg_rois_num,)).long()
         bg_inds = hard_bg_inds[rand_idx]
     elif hard_bg_inds.numel() == 0 and easy_bg_inds.numel() > 0:
         easy_bg_rois_num = bg_rois_per_this_image
-        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(
-            easy_bg_rois_num,)).long()
+        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(easy_bg_rois_num,)).long()
         bg_inds = easy_bg_inds[rand_idx]
     else:
         raise NotImplementedError
     return bg_inds
 
 
-def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores,
-    roi_labels, roi_sampler_cfg):
+def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores, roi_labels, roi_sampler_cfg):
     """
     :param roi_boxes3d: (B, M, 7 + ?) [x, y, z, w, l, h, ry] in LiDAR coords
     :param gt_boxes3d: (B, N, 7 + ? + 1) [x, y, z, w, l, h, ry, class]
@@ -1522,22 +1278,15 @@ def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores,
         batch_roi_iou: (B, N)
     """
     batch_size = roi_boxes3d.size(0)
-    fg_rois_per_image = int(np.round(roi_sampler_cfg.FG_RATIO *
-        roi_sampler_cfg.ROI_PER_IMAGE))
+    fg_rois_per_image = int(np.round(roi_sampler_cfg.FG_RATIO * roi_sampler_cfg.ROI_PER_IMAGE))
     code_size = roi_boxes3d.shape[-1]
-    batch_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE,
-        code_size).zero_()
-    batch_gt_of_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.
-        ROI_PER_IMAGE, code_size + 1).zero_()
-    batch_roi_iou = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE
-        ).zero_()
-    batch_roi_raw_scores = gt_boxes3d.new(batch_size, roi_sampler_cfg.
-        ROI_PER_IMAGE).zero_()
-    batch_roi_labels = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE
-        ).zero_().long()
+    batch_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE, code_size).zero_()
+    batch_gt_of_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE, code_size + 1).zero_()
+    batch_roi_iou = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_()
+    batch_roi_raw_scores = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_()
+    batch_roi_labels = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_().long()
     for idx in range(batch_size):
-        cur_roi, cur_gt, cur_roi_raw_scores, cur_roi_labels = roi_boxes3d[idx
-            ], gt_boxes3d[idx], roi_raw_scores[idx], roi_labels[idx]
+        cur_roi, cur_gt, cur_roi_raw_scores, cur_roi_labels = roi_boxes3d[idx], gt_boxes3d[idx], roi_raw_scores[idx], roi_labels[idx]
         k = cur_gt.__len__() - 1
         while k > 0 and cur_gt[k].sum() == 0:
             k -= 1
@@ -1547,46 +1296,34 @@ def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores,
             max_overlaps, gt_assignment = torch.max(iou3d, dim=1)
         else:
             cur_gt_labels = cur_gt[:, (-1)].long()
-            max_overlaps, gt_assignment = get_maxiou3d_with_same_class(cur_roi,
-                cur_roi_labels, cur_gt[:, 0:7], cur_gt_labels)
-        fg_thresh = min(roi_sampler_cfg.REG_FG_THRESH, roi_sampler_cfg.
-            CLS_FG_THRESH)
+            max_overlaps, gt_assignment = get_maxiou3d_with_same_class(cur_roi, cur_roi_labels, cur_gt[:, 0:7], cur_gt_labels)
+        fg_thresh = min(roi_sampler_cfg.REG_FG_THRESH, roi_sampler_cfg.CLS_FG_THRESH)
         fg_inds = torch.nonzero(max_overlaps >= fg_thresh).view(-1)
-        easy_bg_inds = torch.nonzero(max_overlaps < roi_sampler_cfg.
-            CLS_BG_THRESH_LO).view(-1)
-        hard_bg_inds = torch.nonzero((max_overlaps < roi_sampler_cfg.
-            REG_FG_THRESH) & (max_overlaps >= roi_sampler_cfg.CLS_BG_THRESH_LO)
-            ).view(-1)
+        easy_bg_inds = torch.nonzero(max_overlaps < roi_sampler_cfg.CLS_BG_THRESH_LO).view(-1)
+        hard_bg_inds = torch.nonzero((max_overlaps < roi_sampler_cfg.REG_FG_THRESH) & (max_overlaps >= roi_sampler_cfg.CLS_BG_THRESH_LO)).view(-1)
         fg_num_rois = fg_inds.numel()
         bg_num_rois = hard_bg_inds.numel() + easy_bg_inds.numel()
         if fg_num_rois > 0 and bg_num_rois > 0:
             fg_rois_per_this_image = min(fg_rois_per_image, fg_num_rois)
-            rand_num = torch.from_numpy(np.random.permutation(fg_num_rois)
-                ).type_as(gt_boxes3d).long()
+            rand_num = torch.from_numpy(np.random.permutation(fg_num_rois)).type_as(gt_boxes3d).long()
             fg_inds = fg_inds[rand_num[:fg_rois_per_this_image]]
-            bg_rois_per_this_image = (roi_sampler_cfg.ROI_PER_IMAGE -
-                fg_rois_per_this_image)
-            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds,
-                bg_rois_per_this_image, roi_sampler_cfg)
+            bg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE - fg_rois_per_this_image
+            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg)
         elif fg_num_rois > 0 and bg_num_rois == 0:
-            rand_num = np.floor(np.random.rand(roi_sampler_cfg.
-                ROI_PER_IMAGE) * fg_num_rois)
+            rand_num = np.floor(np.random.rand(roi_sampler_cfg.ROI_PER_IMAGE) * fg_num_rois)
             rand_num = torch.from_numpy(rand_num).type_as(gt_boxes3d).long()
             fg_inds = fg_inds[rand_num]
             fg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE
             bg_rois_per_this_image = 0
         elif bg_num_rois > 0 and fg_num_rois == 0:
             bg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE
-            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds,
-                bg_rois_per_this_image, roi_sampler_cfg)
+            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg)
             fg_rois_per_this_image = 0
         else:
-            print('maxoverlaps:(min=%f, max=%f)' % (max_overlaps.min().item
-                (), max_overlaps.max().item()))
+            print('maxoverlaps:(min=%f, max=%f)' % (max_overlaps.min().item(), max_overlaps.max().item()))
             print('ERROR: FG=%d, BG=%d' % (fg_num_rois, bg_num_rois))
             raise NotImplementedError
-        (roi_list, roi_iou_list, roi_gt_list, roi_score_list, roi_labels_list
-            ) = [], [], [], [], []
+        roi_list, roi_iou_list, roi_gt_list, roi_score_list, roi_labels_list = [], [], [], [], []
         if fg_rois_per_this_image > 0:
             fg_rois = cur_roi[fg_inds]
             gt_of_fg_rois = cur_gt[gt_assignment[fg_inds]]
@@ -1615,8 +1352,7 @@ def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores,
         batch_roi_iou[idx] = iou_of_rois
         batch_roi_raw_scores[idx] = cur_roi_raw_scores
         batch_roi_labels[idx] = cur_roi_labels
-    return (batch_rois, batch_gt_of_rois, batch_roi_iou,
-        batch_roi_raw_scores, batch_roi_labels)
+    return batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores, batch_roi_labels
 
 
 def proposal_target_layer(input_dict, roi_sampler_cfg):
@@ -1624,15 +1360,11 @@ def proposal_target_layer(input_dict, roi_sampler_cfg):
     roi_raw_scores = input_dict['roi_raw_scores']
     roi_labels = input_dict['roi_labels']
     gt_boxes = input_dict['gt_boxes']
-    (batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores,
-        batch_roi_labels) = (sample_rois_for_rcnn(rois, gt_boxes,
-        roi_raw_scores, roi_labels, roi_sampler_cfg))
+    batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores, batch_roi_labels = sample_rois_for_rcnn(rois, gt_boxes, roi_raw_scores, roi_labels, roi_sampler_cfg)
     reg_valid_mask = (batch_roi_iou > roi_sampler_cfg.REG_FG_THRESH).long()
     if roi_sampler_cfg.CLS_SCORE_TYPE == 'cls':
-        batch_cls_label = (batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH).long(
-            )
-        invalid_mask = (batch_roi_iou > roi_sampler_cfg.CLS_BG_THRESH) & (
-            batch_roi_iou < roi_sampler_cfg.CLS_FG_THRESH)
+        batch_cls_label = (batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH).long()
+        invalid_mask = (batch_roi_iou > roi_sampler_cfg.CLS_BG_THRESH) & (batch_roi_iou < roi_sampler_cfg.CLS_FG_THRESH)
         batch_cls_label[invalid_mask > 0] = -1
     elif roi_sampler_cfg.CLS_SCORE_TYPE == 'roi_iou':
         fg_mask = batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH
@@ -1642,10 +1374,7 @@ def proposal_target_layer(input_dict, roi_sampler_cfg):
         batch_cls_label[interval_mask] = batch_roi_iou[interval_mask] * 2 - 0.5
     else:
         raise NotImplementedError
-    output_dict = {'rcnn_cls_labels': batch_cls_label.view(-1),
-        'reg_valid_mask': reg_valid_mask.view(-1), 'gt_of_rois':
-        batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois,
-        'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
+    output_dict = {'rcnn_cls_labels': batch_cls_label.view(-1), 'reg_valid_mask': reg_valid_mask.view(-1), 'gt_of_rois': batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois, 'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
     return output_dict
 
 
@@ -1655,17 +1384,14 @@ class RCNNHead(nn.Module):
         super().__init__()
         self.forward_ret_dict = None
         self.rcnn_target_config = rcnn_target_config
-        self.box_coder = getattr(box_coder_utils, rcnn_target_config.BOX_CODER
-            )()
+        self.box_coder = getattr(box_coder_utils, rcnn_target_config.BOX_CODER)()
         losses_cfg = cfg.MODEL.LOSSES
         code_weights = losses_cfg.LOSS_WEIGHTS['code_weights']
-        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma
-            =3.0, code_weights=code_weights)
+        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma=3.0, code_weights=code_weights)
 
     def assign_targets(self, batch_size, rcnn_dict):
         with torch.no_grad():
-            targets_dict = proposal_target_layer(rcnn_dict, roi_sampler_cfg
-                =self.rcnn_target_config)
+            targets_dict = proposal_target_layer(rcnn_dict, roi_sampler_cfg=self.rcnn_target_config)
         rois = targets_dict['rois']
         gt_of_rois = targets_dict['gt_of_rois']
         targets_dict['gt_of_rois_src'] = gt_of_rois.clone().detach()
@@ -1674,12 +1400,10 @@ class RCNNHead(nn.Module):
         gt_of_rois[:, :, 0:3] = gt_of_rois[:, :, 0:3] - roi_center
         gt_of_rois[:, :, (6)] = gt_of_rois[:, :, (6)] - roi_ry
         for k in range(batch_size):
-            gt_of_rois[k] = common_utils.rotate_pc_along_z_torch(gt_of_rois
-                [k].unsqueeze(dim=1), -(roi_ry[k] + np.pi / 2)).squeeze(dim=1)
+            gt_of_rois[k] = common_utils.rotate_pc_along_z_torch(gt_of_rois[k].unsqueeze(dim=1), -(roi_ry[k] + np.pi / 2)).squeeze(dim=1)
         ry_label = gt_of_rois[:, :, (6)] % (2 * np.pi)
         opposite_flag = (ry_label > np.pi * 0.5) & (ry_label < np.pi * 1.5)
-        ry_label[opposite_flag] = (ry_label[opposite_flag] + np.pi) % (2 *
-            np.pi)
+        ry_label[opposite_flag] = (ry_label[opposite_flag] + np.pi) % (2 * np.pi)
         flag = ry_label > np.pi
         ry_label[flag] = ry_label[flag] - np.pi * 2
         ry_label = torch.clamp(ry_label, min=-np.pi / 2, max=np.pi / 2)
@@ -1690,26 +1414,22 @@ class RCNNHead(nn.Module):
     def get_loss(self, forward_ret_dict=None):
         loss_cfgs = cfg.MODEL.LOSSES
         LOSS_WEIGHTS = loss_cfgs.LOSS_WEIGHTS
-        forward_ret_dict = (self.forward_ret_dict if forward_ret_dict is
-            None else forward_ret_dict)
+        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
         code_size = self.box_coder.code_size
         rcnn_cls = forward_ret_dict['rcnn_cls']
         rcnn_cls_labels = forward_ret_dict['rcnn_cls_labels'].float().view(-1)
         reg_valid_mask = forward_ret_dict['reg_valid_mask']
         gt_boxes3d_ct = forward_ret_dict['gt_of_rois'][(...), 0:code_size]
-        gt_of_rois_src = forward_ret_dict['gt_of_rois_src'][(...), 0:code_size
-            ].view(-1, code_size)
+        gt_of_rois_src = forward_ret_dict['gt_of_rois_src'][(...), 0:code_size].view(-1, code_size)
         rcnn_reg = forward_ret_dict['rcnn_reg']
         roi_boxes3d = forward_ret_dict['rois']
         rcnn_batch_size = rcnn_cls_labels.shape[0]
         rcnn_loss = 0
         if loss_cfgs.RCNN_CLS_LOSS == 'BinaryCrossEntropy':
             rcnn_cls_flat = rcnn_cls.view(-1)
-            batch_loss_cls = F.binary_cross_entropy(torch.sigmoid(
-                rcnn_cls_flat), rcnn_cls_labels, reduction='none')
+            batch_loss_cls = F.binary_cross_entropy(torch.sigmoid(rcnn_cls_flat), rcnn_cls_labels, reduction='none')
             cls_valid_mask = (rcnn_cls_labels >= 0).float()
-            rcnn_loss_cls = (batch_loss_cls * cls_valid_mask).sum(
-                ) / torch.clamp(cls_valid_mask.sum(), min=1.0)
+            rcnn_loss_cls = (batch_loss_cls * cls_valid_mask).sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
             rcnn_loss_cls = rcnn_loss_cls * LOSS_WEIGHTS['rcnn_cls_weight']
         else:
             raise NotImplementedError
@@ -1718,8 +1438,7 @@ class RCNNHead(nn.Module):
         fg_mask = reg_valid_mask > 0
         fg_sum = fg_mask.long().sum().item()
         if fg_sum == 0:
-            temp_rcnn_reg = rcnn_reg.view(rcnn_batch_size, -1)[0].unsqueeze(dim
-                =0)
+            temp_rcnn_reg = rcnn_reg.view(rcnn_batch_size, -1)[0].unsqueeze(dim=0)
             faked_reg_target = temp_rcnn_reg.detach()
             rcnn_loss_reg = self.reg_loss_func(temp_rcnn_reg, faked_reg_target)
             rcnn_loss_reg = rcnn_loss_reg.sum() / 1.0
@@ -1731,12 +1450,8 @@ class RCNNHead(nn.Module):
                 rois_anchor = roi_boxes3d.clone().detach().view(-1, code_size)
                 rois_anchor[:, 0:3] = 0
                 rois_anchor[:, (6)] = 0
-                reg_targets = self.box_coder.encode_torch(gt_boxes3d_ct.
-                    view(rcnn_batch_size, code_size)[fg_mask], rois_anchor[
-                    fg_mask])
-                rcnn_loss_reg = self.reg_loss_func(rcnn_reg.view(
-                    rcnn_batch_size, -1)[fg_mask].unsqueeze(dim=0),
-                    reg_targets.unsqueeze(dim=0))
+                reg_targets = self.box_coder.encode_torch(gt_boxes3d_ct.view(rcnn_batch_size, code_size)[fg_mask], rois_anchor[fg_mask])
+                rcnn_loss_reg = self.reg_loss_func(rcnn_reg.view(rcnn_batch_size, -1)[fg_mask].unsqueeze(dim=0), reg_targets.unsqueeze(dim=0))
                 rcnn_loss_reg = rcnn_loss_reg.sum() / max(fg_sum, 0)
                 rcnn_loss_reg = rcnn_loss_reg * LOSS_WEIGHTS['rcnn_reg_weight']
                 tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
@@ -1746,18 +1461,12 @@ class RCNNHead(nn.Module):
                     roi_ry = fg_roi_boxes3d[:, :, (6)].view(-1)
                     roi_xyz = fg_roi_boxes3d[:, :, 0:3].view(-1, 3)
                     batch_anchors[:, :, 0:3] = 0
-                    rcnn_boxes3d = self.box_coder.decode_torch(fg_rcnn_reg.
-                        view(batch_anchors.shape[0], -1, code_size),
-                        batch_anchors).view(-1, code_size)
-                    rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(
-                        rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2
-                        ).squeeze(dim=1)
+                    rcnn_boxes3d = self.box_coder.decode_torch(fg_rcnn_reg.view(batch_anchors.shape[0], -1, code_size), batch_anchors).view(-1, code_size)
+                    rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2).squeeze(dim=1)
                     rcnn_boxes3d[:, 0:3] += roi_xyz
-                    loss_corner = loss_utils.get_corner_loss_lidar(rcnn_boxes3d
-                        [:, 0:7], gt_of_rois_src[fg_mask][:, 0:7])
+                    loss_corner = loss_utils.get_corner_loss_lidar(rcnn_boxes3d[:, 0:7], gt_of_rois_src[fg_mask][:, 0:7])
                     loss_corner = loss_corner.mean()
-                    loss_corner = loss_corner * LOSS_WEIGHTS[
-                        'rcnn_corner_weight']
+                    loss_corner = loss_corner * LOSS_WEIGHTS['rcnn_corner_weight']
                     rcnn_loss_reg += loss_corner
                     tb_dict['rcnn_loss_corner'] = loss_corner
             else:
@@ -1784,20 +1493,17 @@ class PointPillarsScatter(nn.Module):
         nz, ny, nx = output_shape
         batch_canvas = []
         for batch_itt in range(batch_size):
-            canvas = torch.zeros(self.nchannels, nz * nx * ny, dtype=
-                voxel_features.dtype, device=voxel_features.device)
+            canvas = torch.zeros(self.nchannels, nz * nx * ny, dtype=voxel_features.dtype, device=voxel_features.device)
             batch_mask = coords[:, (0)] == batch_itt
             this_coords = coords[(batch_mask), :]
-            indices = this_coords[:, (1)] * nz + this_coords[:, (2)
-                ] * nx + this_coords[:, (3)]
+            indices = this_coords[:, (1)] * nz + this_coords[:, (2)] * nx + this_coords[:, (3)]
             indices = indices.type(torch.long)
             voxels = voxel_features[(batch_mask), :]
             voxels = voxels.t()
             canvas[:, (indices)] = voxels
             batch_canvas.append(canvas)
         batch_canvas = torch.stack(batch_canvas, 0)
-        batch_canvas = batch_canvas.view(batch_size, self.nchannels * nz,
-            ny, nx)
+        batch_canvas = batch_canvas.view(batch_size, self.nchannels * nz, ny, nx)
         return batch_canvas
 
 
@@ -1806,32 +1512,14 @@ class BackBone8x(nn.Module):
     def __init__(self, input_channels):
         super().__init__()
         norm_fn = partial(nn.BatchNorm1d, eps=0.001, momentum=0.01)
-        self.conv_input = spconv.SparseSequential(spconv.SubMConv3d(
-            input_channels, 16, 3, padding=1, bias=False, indice_key=
-            'subm1'), norm_fn(16), nn.ReLU())
+        self.conv_input = spconv.SparseSequential(spconv.SubMConv3d(input_channels, 16, 3, padding=1, bias=False, indice_key='subm1'), norm_fn(16), nn.ReLU())
         block = self.post_act_block
-        self.conv1 = spconv.SparseSequential(block(16, 16, 3, norm_fn=
-            norm_fn, padding=1, indice_key='subm1'))
-        self.conv2 = spconv.SparseSequential(block(16, 32, 3, norm_fn=
-            norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type=
-            'spconv'), block(32, 32, 3, norm_fn=norm_fn, padding=1,
-            indice_key='subm2'), block(32, 32, 3, norm_fn=norm_fn, padding=
-            1, indice_key='subm2'))
-        self.conv3 = spconv.SparseSequential(block(32, 64, 3, norm_fn=
-            norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type=
-            'spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1,
-            indice_key='subm3'), block(64, 64, 3, norm_fn=norm_fn, padding=
-            1, indice_key='subm3'))
-        self.conv4 = spconv.SparseSequential(block(64, 64, 3, norm_fn=
-            norm_fn, stride=2, padding=(0, 1, 1), indice_key='spconv4',
-            conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=
-            1, indice_key='subm4'), block(64, 64, 3, norm_fn=norm_fn,
-            padding=1, indice_key='subm4'))
-        last_pad = 0 if cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE[-1] in [
-            0.1, 0.2] else (1, 0, 0)
-        self.conv_out = spconv.SparseSequential(spconv.SparseConv3d(64, 128,
-            (3, 1, 1), stride=(2, 1, 1), padding=last_pad, bias=False,
-            indice_key='spconv_down2'), norm_fn(128), nn.ReLU())
+        self.conv1 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
+        self.conv2 = spconv.SparseSequential(block(16, 32, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'))
+        self.conv3 = spconv.SparseSequential(block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'))
+        self.conv4 = spconv.SparseSequential(block(64, 64, 3, norm_fn=norm_fn, stride=2, padding=(0, 1, 1), indice_key='spconv4', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'))
+        last_pad = 0 if cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE[-1] in [0.1, 0.2] else (1, 0, 0)
+        self.conv_out = spconv.SparseSequential(spconv.SparseConv3d(64, 128, (3, 1, 1), stride=(2, 1, 1), padding=last_pad, bias=False, indice_key='spconv_down2'), norm_fn(128), nn.ReLU())
 
     def forward(self, input_sp_tensor, **kwargs):
         """
@@ -1852,21 +1540,13 @@ class BackBone8x(nn.Module):
         ret = {'spatial_features': spatial_features}
         return ret
 
-    def post_act_block(self, in_channels, out_channels, kernel_size,
-        indice_key, stride=1, padding=0, conv_type='subm', norm_fn=None):
+    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm', norm_fn=None):
         if conv_type == 'subm':
-            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels,
-                out_channels, kernel_size, bias=False, indice_key=
-                indice_key), norm_fn(out_channels), nn.ReLU())
+            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
         elif conv_type == 'spconv':
-            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels,
-                out_channels, kernel_size, stride=stride, padding=padding,
-                bias=False, indice_key=indice_key), norm_fn(out_channels),
-                nn.ReLU())
+            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
         elif conv_type == 'inverseconv':
-            m = spconv.SparseSequential(spconv.SparseInverseConv3d(
-                in_channels, out_channels, kernel_size, indice_key=
-                indice_key, bias=False), norm_fn(out_channels), nn.ReLU())
+            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), norm_fn(out_channels), nn.ReLU())
         else:
             raise NotImplementedError
         return m
@@ -1880,12 +1560,10 @@ class UNetHead(nn.Module):
         if 'MEAN_SIZE' in unet_target_cfg:
             self.mean_size = unet_target_cfg.MEAN_SIZE
         self.target_generated_on = unet_target_cfg.GENERATED_ON
-        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha
-            =0.25, gamma=2.0)
+        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha=0.25, gamma=2.0)
         self.forward_ret_dict = None
 
-    def assign_targets(self, batch_points, gt_boxes,
-        generate_bbox_reg_labels=False):
+    def assign_targets(self, batch_points, gt_boxes, generate_bbox_reg_labels=False):
         """
         :param points: [(N1, 3), (N2, 3), ...]
         :param gt_boxes: (B, M, 8)
@@ -1894,14 +1572,10 @@ class UNetHead(nn.Module):
         :return:
         """
         batch_size = gt_boxes.shape[0]
-        cls_labels_list, part_reg_labels_list, bbox_reg_labels_list = [], [], [
-            ]
+        cls_labels_list, part_reg_labels_list, bbox_reg_labels_list = [], [], []
         for k in range(batch_size):
             if True or self.target_generated_on == 'head_cpu':
-                (cur_cls_labels, cur_part_reg_labels, cur_bbox_reg_labels) = (
-                    self.generate_part_targets_cpu(points=batch_points[k],
-                    gt_boxes=gt_boxes[k][:, 0:7], gt_classes=gt_boxes[k][:,
-                    (7)], generate_bbox_reg_labels=generate_bbox_reg_labels))
+                cur_cls_labels, cur_part_reg_labels, cur_bbox_reg_labels = self.generate_part_targets_cpu(points=batch_points[k], gt_boxes=gt_boxes[k][:, 0:7], gt_classes=gt_boxes[k][:, (7)], generate_bbox_reg_labels=generate_bbox_reg_labels)
             else:
                 raise NotImplementedError
             cls_labels_list.append(cur_cls_labels)
@@ -1909,14 +1583,11 @@ class UNetHead(nn.Module):
             bbox_reg_labels_list.append(cur_bbox_reg_labels)
         cls_labels = torch.cat(cls_labels_list, dim=0)
         part_reg_labels = torch.cat(part_reg_labels_list, dim=0)
-        bbox_reg_labels = torch.cat(bbox_reg_labels_list, dim=0
-            ) if generate_bbox_reg_labels else None
-        targets_dict = {'seg_labels': cls_labels, 'part_labels':
-            part_reg_labels, 'bbox_reg_labels': bbox_reg_labels}
+        bbox_reg_labels = torch.cat(bbox_reg_labels_list, dim=0) if generate_bbox_reg_labels else None
+        targets_dict = {'seg_labels': cls_labels, 'part_labels': part_reg_labels, 'bbox_reg_labels': bbox_reg_labels}
         return targets_dict
 
-    def generate_part_targets_cpu(self, points, gt_boxes, gt_classes,
-        generate_bbox_reg_labels=False):
+    def generate_part_targets_cpu(self, points, gt_boxes, gt_classes, generate_bbox_reg_labels=False):
         """
         :param voxel_centers: (N, 3) [x, y, z]
         :param gt_boxes: (M, 7) [x, y, z, w, l, h, ry] in LiDAR coords
@@ -1927,16 +1598,12 @@ class UNetHead(nn.Module):
             k -= 1
         gt_boxes = gt_boxes[:k + 1]
         gt_classes = gt_classes[:k + 1]
-        extend_gt_boxes = common_utils.enlarge_box3d(gt_boxes, extra_width=
-            self.gt_extend_width)
+        extend_gt_boxes = common_utils.enlarge_box3d(gt_boxes, extra_width=self.gt_extend_width)
         cls_labels = torch.zeros(points.shape[0]).int()
         part_reg_labels = torch.zeros((points.shape[0], 3)).float()
-        bbox_reg_labels = torch.zeros((points.shape[0], 7)).float(
-            ) if generate_bbox_reg_labels else None
-        point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points,
-            gt_boxes).long()
-        extend_point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points
-            , extend_gt_boxes).long()
+        bbox_reg_labels = torch.zeros((points.shape[0], 7)).float() if generate_bbox_reg_labels else None
+        point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points, gt_boxes).long()
+        extend_point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points, extend_gt_boxes).long()
         for k in range(gt_boxes.shape[0]):
             fg_pt_flag = point_indices[k] > 0
             fg_points = points[fg_pt_flag]
@@ -1945,29 +1612,23 @@ class UNetHead(nn.Module):
             ignore_flag = fg_pt_flag ^ fg_enlarge_flag
             cls_labels[ignore_flag] = -1
             transformed_points = fg_points - gt_boxes[(k), 0:3]
-            transformed_points = common_utils.rotate_pc_along_z_torch(
-                transformed_points.view(1, -1, 3), -gt_boxes[k, 6])
-            part_reg_labels[fg_pt_flag] = transformed_points / gt_boxes[(k),
-                3:6] + torch.tensor([0.5, 0.5, 0]).float()
+            transformed_points = common_utils.rotate_pc_along_z_torch(transformed_points.view(1, -1, 3), -gt_boxes[k, 6])
+            part_reg_labels[fg_pt_flag] = transformed_points / gt_boxes[(k), 3:6] + torch.tensor([0.5, 0.5, 0]).float()
             if generate_bbox_reg_labels:
                 center3d = gt_boxes[(k), 0:3].clone()
                 center3d[2] += gt_boxes[k][5] / 2
                 bbox_reg_labels[(fg_pt_flag), 0:3] = center3d - fg_points
                 bbox_reg_labels[fg_pt_flag, 6] = gt_boxes[k, 6]
-                cur_mean_size = torch.tensor(self.mean_size[cfg.CLASS_NAMES
-                    [gt_classes[k] - 1]])
-                bbox_reg_labels[(fg_pt_flag), 3:6] = (gt_boxes[(k), 3:6] -
-                    cur_mean_size) / cur_mean_size
+                cur_mean_size = torch.tensor(self.mean_size[cfg.CLASS_NAMES[gt_classes[k] - 1]])
+                bbox_reg_labels[(fg_pt_flag), 3:6] = (gt_boxes[(k), 3:6] - cur_mean_size) / cur_mean_size
         return cls_labels, part_reg_labels, bbox_reg_labels
 
     def get_loss(self, forward_ret_dict=None):
-        forward_ret_dict = (self.forward_ret_dict if forward_ret_dict is
-            None else forward_ret_dict)
+        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
         tb_dict = {}
         u_seg_preds = forward_ret_dict['u_seg_preds'].squeeze(dim=-1)
         u_reg_preds = forward_ret_dict['u_reg_preds']
-        u_cls_labels, u_reg_labels = forward_ret_dict['seg_labels'
-            ], forward_ret_dict['part_labels']
+        u_cls_labels, u_reg_labels = forward_ret_dict['seg_labels'], forward_ret_dict['part_labels']
         u_cls_target = (u_cls_labels > 0).float()
         pos_mask = u_cls_labels > 0
         pos = pos_mask.float()
@@ -1975,15 +1636,13 @@ class UNetHead(nn.Module):
         u_cls_weights = pos + neg
         pos_normalizer = pos.sum()
         u_cls_weights = u_cls_weights / torch.clamp(pos_normalizer, min=1.0)
-        u_loss_cls = self.cls_loss_func(u_seg_preds, u_cls_target, weights=
-            u_cls_weights)
+        u_loss_cls = self.cls_loss_func(u_seg_preds, u_cls_target, weights=u_cls_weights)
         u_loss_cls_pos = (u_loss_cls * pos).sum()
         u_loss_cls_neg = (u_loss_cls * neg).sum()
         u_loss_cls = u_loss_cls.sum()
         loss_unet = u_loss_cls
         if pos_normalizer > 0:
-            u_loss_reg = F.binary_cross_entropy(torch.sigmoid(u_reg_preds[
-                pos_mask]), u_reg_labels[pos_mask])
+            u_loss_reg = F.binary_cross_entropy(torch.sigmoid(u_reg_preds[pos_mask]), u_reg_labels[pos_mask])
             loss_unet += u_loss_reg
             tb_dict['rpn_u_loss_reg'] = u_loss_reg.item()
         tb_dict['rpn_loss_u_cls'] = u_loss_cls.item()
@@ -2008,8 +1667,7 @@ class VoxelFeatureExtractor(nn.Module):
 
 class PFNLayer(nn.Module):
 
-    def __init__(self, in_channels, out_channels, use_norm=True, last_layer
-        =False):
+    def __init__(self, in_channels, out_channels, use_norm=True, last_layer=False):
         """
         Pillar Feature Net Layer.
         The Pillar Feature Net could be composed of a series of these layers, but the PointPillars paper results only
@@ -2035,8 +1693,7 @@ class PFNLayer(nn.Module):
     def forward(self, inputs):
         x = self.linear(inputs)
         total_points, voxel_points, channels = x.shape
-        x = self.norm(x.view(-1, channels)).view(total_points, voxel_points,
-            channels)
+        x = self.norm(x.view(-1, channels)).view(total_points, voxel_points, channels)
         x = F.relu(x)
         x_max = torch.max(x, dim=1, keepdim=True)[0]
         if self.last_vfe:
@@ -2050,8 +1707,7 @@ class PFNLayer(nn.Module):
 class RoIAwarePool3dFunction(Function):
 
     @staticmethod
-    def forward(ctx, rois, pts, pts_feature, out_size, max_pts_each_voxel,
-        pool_method):
+    def forward(ctx, rois, pts, pts_feature, out_size, max_pts_each_voxel, pool_method):
         """
         :param rois: (N, 7) [x, y, z, w, l, h, ry] in LiDAR coordinate, (x, y, z) is the bottom center of rois
         :param pts: (npoints, 3)
@@ -2071,18 +1727,13 @@ class RoIAwarePool3dFunction(Function):
         num_rois = rois.shape[0]
         num_channels = pts_feature.shape[-1]
         num_pts = pts.shape[0]
-        pooled_features = pts_feature.new_zeros((num_rois, out_x, out_y,
-            out_z, num_channels))
-        argmax = pts_feature.new_zeros((num_rois, out_x, out_y, out_z,
-            num_channels), dtype=torch.int)
-        pts_idx_of_voxels = pts_feature.new_zeros((num_rois, out_x, out_y,
-            out_z, max_pts_each_voxel), dtype=torch.int)
+        pooled_features = pts_feature.new_zeros((num_rois, out_x, out_y, out_z, num_channels))
+        argmax = pts_feature.new_zeros((num_rois, out_x, out_y, out_z, num_channels), dtype=torch.int)
+        pts_idx_of_voxels = pts_feature.new_zeros((num_rois, out_x, out_y, out_z, max_pts_each_voxel), dtype=torch.int)
         pool_method_map = {'max': 0, 'avg': 1}
         pool_method = pool_method_map[pool_method]
-        roiaware_pool3d_cuda.forward(rois, pts, pts_feature, argmax,
-            pts_idx_of_voxels, pooled_features, pool_method)
-        ctx.roiaware_pool3d_for_backward = (pts_idx_of_voxels, argmax,
-            pool_method, num_pts, num_channels)
+        roiaware_pool3d_cuda.forward(rois, pts, pts_feature, argmax, pts_idx_of_voxels, pooled_features, pool_method)
+        ctx.roiaware_pool3d_for_backward = pts_idx_of_voxels, argmax, pool_method, num_pts, num_channels
         return pooled_features
 
     @staticmethod
@@ -2092,11 +1743,9 @@ class RoIAwarePool3dFunction(Function):
         :return:
             grad_in: (npoints, C)
         """
-        pts_idx_of_voxels, argmax, pool_method, num_pts, num_channels = (ctx
-            .roiaware_pool3d_for_backward)
+        pts_idx_of_voxels, argmax, pool_method, num_pts, num_channels = ctx.roiaware_pool3d_for_backward
         grad_in = grad_out.new_zeros((num_pts, num_channels))
-        roiaware_pool3d_cuda.backward(pts_idx_of_voxels, argmax, grad_out.
-            contiguous(), grad_in, pool_method)
+        roiaware_pool3d_cuda.backward(pts_idx_of_voxels, argmax, grad_out.contiguous(), grad_in, pool_method)
         return None, None, grad_in, None, None, None
 
 
@@ -2109,30 +1758,51 @@ class RoIAwarePool3d(nn.Module):
 
     def forward(self, rois, pts, pts_feature, pool_method='max'):
         assert pool_method in ['max', 'avg']
-        return RoIAwarePool3dFunction.apply(rois, pts, pts_feature, self.
-            out_size, self.max_pts_each_voxel, pool_method)
+        return RoIAwarePool3dFunction.apply(rois, pts, pts_feature, self.out_size, self.max_pts_each_voxel, pool_method)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_sshaoshuai_PCDet(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BatchNorm1d(*[], **{'in_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm1d,
+     lambda: ([], {'in_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Empty,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+    (FC,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PFNLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Sequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_sshaoshuai_PCDet(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Empty(*[], **{}), [], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FC(*[], **{'in_size': 4, 'out_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PFNLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Sequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

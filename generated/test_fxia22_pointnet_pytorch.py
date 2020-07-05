@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,8 +82,7 @@ class STN3d(nn.Module):
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
-        iden = Variable(torch.from_numpy(np.array([1, 0, 0, 0, 1, 0, 0, 0, 
-            1]).astype(np.float32))).view(1, 9).repeat(batchsize, 1)
+        iden = Variable(torch.from_numpy(np.array([1, 0, 0, 0, 1, 0, 0, 0, 1]).astype(np.float32))).view(1, 9).repeat(batchsize, 1)
         if x.is_cuda:
             iden = iden
         x = x + iden
@@ -118,8 +118,7 @@ class STNkd(nn.Module):
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
-        iden = Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np
-            .float32))).view(1, self.k * self.k).repeat(batchsize, 1)
+        iden = Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np.float32))).view(1, self.k * self.k).repeat(batchsize, 1)
         if x.is_cuda:
             iden = iden
         x = x + iden
@@ -174,8 +173,7 @@ class PointNetCls(nn.Module):
     def __init__(self, k=2, feature_transform=False):
         super(PointNetCls, self).__init__()
         self.feature_transform = feature_transform
-        self.feat = PointNetfeat(global_feat=True, feature_transform=
-            feature_transform)
+        self.feat = PointNetfeat(global_feat=True, feature_transform=feature_transform)
         self.fc1 = nn.Linear(1024, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, k)
@@ -198,8 +196,7 @@ class PointNetDenseCls(nn.Module):
         super(PointNetDenseCls, self).__init__()
         self.k = k
         self.feature_transform = feature_transform
-        self.feat = PointNetfeat(global_feat=False, feature_transform=
-            feature_transform)
+        self.feat = PointNetfeat(global_feat=False, feature_transform=feature_transform)
         self.conv1 = torch.nn.Conv1d(1088, 512, 1)
         self.conv2 = torch.nn.Conv1d(512, 256, 1)
         self.conv3 = torch.nn.Conv1d(256, 128, 1)
@@ -226,25 +223,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (PointNetCls,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     False),
+    (PointNetDenseCls,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     False),
+    (PointNetfeat,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     False),
+    (STN3d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64])], {}),
+     False),
+    (STNkd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64])], {}),
+     False),
+]
+
 class Test_fxia22_pointnet_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PointNetCls(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(PointNetDenseCls(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(PointNetfeat(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(STN3d(*[], **{}), [torch.rand([4, 3, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(STNkd(*[], **{}), [torch.rand([4, 64, 64])], {})
+        self._check(*TESTCASES[4])
 

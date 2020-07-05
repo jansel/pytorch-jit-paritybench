@@ -109,8 +109,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -185,22 +186,17 @@ class PairwiseBilinear(nn.Module):
         self.input1_size = input1_size
         self.input2_size = input2_size
         self.output_size = output_size
-        self.weight = nn.Parameter(torch.Tensor(input1_size, input2_size,
-            output_size))
+        self.weight = nn.Parameter(torch.Tensor(input1_size, input2_size, output_size))
         self.bias = nn.Parameter(torch.Tensor(output_size)) if bias else 0
 
     def forward(self, input1, input2):
         input1_size = list(input1.size())
         input2_size = list(input2.size())
-        output_size = [input1_size[0], input1_size[1], input2_size[1], self
-            .output_size]
-        intermediate = torch.mm(input1.view(-1, input1_size[-1]), self.
-            weight.view(-1, self.input2_size * self.output_size))
+        output_size = [input1_size[0], input1_size[1], input2_size[1], self.output_size]
+        intermediate = torch.mm(input1.view(-1, input1_size[-1]), self.weight.view(-1, self.input2_size * self.output_size))
         input2 = input2.transpose(1, 2)
-        output = intermediate.view(input1_size[0], input1_size[1] * self.
-            output_size, input2_size[2]).bmm(input2)
-        output = output.view(input1_size[0], input1_size[1], self.
-            output_size, input2_size[1]).transpose(2, 3)
+        output = intermediate.view(input1_size[0], input1_size[1] * self.output_size, input2_size[2]).bmm(input2)
+        output = output.view(input1_size[0], input1_size[1], self.output_size, input2_size[1]).transpose(2, 3)
         return output
 
 
@@ -208,16 +204,13 @@ class BiaffineScorer(nn.Module):
 
     def __init__(self, input1_size, input2_size, output_size):
         super().__init__()
-        self.W_bilin = nn.Bilinear(input1_size + 1, input2_size + 1,
-            output_size)
+        self.W_bilin = nn.Bilinear(input1_size + 1, input2_size + 1, output_size)
         self.W_bilin.weight.data.zero_()
         self.W_bilin.bias.data.zero_()
 
     def forward(self, input1, input2):
-        input1 = torch.cat([input1, input1.new_ones(*input1.size()[:-1], 1)
-            ], len(input1.size()) - 1)
-        input2 = torch.cat([input2, input2.new_ones(*input2.size()[:-1], 1)
-            ], len(input2.size()) - 1)
+        input1 = torch.cat([input1, input1.new_ones(*input1.size()[:-1], 1)], len(input1.size()) - 1)
+        input2 = torch.cat([input2, input2.new_ones(*input2.size()[:-1], 1)], len(input2.size()) - 1)
         return self.W_bilin(input1, input2)
 
 
@@ -225,91 +218,68 @@ class PairwiseBiaffineScorer(nn.Module):
 
     def __init__(self, input1_size, input2_size, output_size):
         super().__init__()
-        self.W_bilin = PairwiseBilinear(input1_size + 1, input2_size + 1,
-            output_size)
+        self.W_bilin = PairwiseBilinear(input1_size + 1, input2_size + 1, output_size)
         self.W_bilin.weight.data.zero_()
         self.W_bilin.bias.data.zero_()
 
     def forward(self, input1, input2):
-        input1 = torch.cat([input1, input1.new_ones(*input1.size()[:-1], 1)
-            ], len(input1.size()) - 1)
-        input2 = torch.cat([input2, input2.new_ones(*input2.size()[:-1], 1)
-            ], len(input2.size()) - 1)
+        input1 = torch.cat([input1, input1.new_ones(*input1.size()[:-1], 1)], len(input1.size()) - 1)
+        input2 = torch.cat([input2, input2.new_ones(*input2.size()[:-1], 1)], len(input2.size()) - 1)
         return self.W_bilin(input1, input2)
 
 
 class DeepBiaffineScorer(nn.Module):
 
-    def __init__(self, input1_size, input2_size, hidden_size, output_size,
-        hidden_func=F.relu, dropout=0, pairwise=True):
+    def __init__(self, input1_size, input2_size, hidden_size, output_size, hidden_func=F.relu, dropout=0, pairwise=True):
         super().__init__()
         self.W1 = nn.Linear(input1_size, hidden_size)
         self.W2 = nn.Linear(input2_size, hidden_size)
         self.hidden_func = hidden_func
         if pairwise:
-            self.scorer = PairwiseBiaffineScorer(hidden_size, hidden_size,
-                output_size)
+            self.scorer = PairwiseBiaffineScorer(hidden_size, hidden_size, output_size)
         else:
             self.scorer = BiaffineScorer(hidden_size, hidden_size, output_size)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, input1, input2):
-        return self.scorer(self.dropout(self.hidden_func(self.W1(input1))),
-            self.dropout(self.hidden_func(self.W2(input2))))
+        return self.scorer(self.dropout(self.hidden_func(self.W1(input1))), self.dropout(self.hidden_func(self.W2(input2))))
 
 
 def tensor_unsort(sorted_tensor, oidx):
     """
     Unsort a sorted tensor on its 0-th dimension, based on the original idx.
     """
-    assert sorted_tensor.size(0) == len(oidx
-        ), 'Number of list elements must match with original indices.'
+    assert sorted_tensor.size(0) == len(oidx), 'Number of list elements must match with original indices.'
     backidx = [x[0] for x in sorted(enumerate(oidx), key=lambda x: x[1])]
     return sorted_tensor[backidx]
 
 
 class CharacterModel(nn.Module):
 
-    def __init__(self, args, vocab, pad=False, bidirectional=False,
-        attention=True):
+    def __init__(self, args, vocab, pad=False, bidirectional=False, attention=True):
         super().__init__()
         self.args = args
         self.pad = pad
         self.num_dir = 2 if bidirectional else 1
         self.attn = attention
-        self.char_emb = nn.Embedding(len(vocab['char']), self.args[
-            'char_emb_dim'], padding_idx=0)
+        self.char_emb = nn.Embedding(len(vocab['char']), self.args['char_emb_dim'], padding_idx=0)
         if self.attn:
-            self.char_attn = nn.Linear(self.num_dir * self.args[
-                'char_hidden_dim'], 1, bias=False)
+            self.char_attn = nn.Linear(self.num_dir * self.args['char_hidden_dim'], 1, bias=False)
             self.char_attn.weight.data.zero_()
-        self.charlstm = PackedLSTM(self.args['char_emb_dim'], self.args[
-            'char_hidden_dim'], self.args['char_num_layers'], batch_first=
-            True, dropout=0 if self.args['char_num_layers'] == 1 else args[
-            'dropout'], rec_dropout=self.args['char_rec_dropout'],
-            bidirectional=bidirectional)
-        self.charlstm_h_init = nn.Parameter(torch.zeros(self.num_dir * self
-            .args['char_num_layers'], 1, self.args['char_hidden_dim']))
-        self.charlstm_c_init = nn.Parameter(torch.zeros(self.num_dir * self
-            .args['char_num_layers'], 1, self.args['char_hidden_dim']))
+        self.charlstm = PackedLSTM(self.args['char_emb_dim'], self.args['char_hidden_dim'], self.args['char_num_layers'], batch_first=True, dropout=0 if self.args['char_num_layers'] == 1 else args['dropout'], rec_dropout=self.args['char_rec_dropout'], bidirectional=bidirectional)
+        self.charlstm_h_init = nn.Parameter(torch.zeros(self.num_dir * self.args['char_num_layers'], 1, self.args['char_hidden_dim']))
+        self.charlstm_c_init = nn.Parameter(torch.zeros(self.num_dir * self.args['char_num_layers'], 1, self.args['char_hidden_dim']))
         self.dropout = nn.Dropout(args['dropout'])
 
     def forward(self, chars, chars_mask, word_orig_idx, sentlens, wordlens):
         embs = self.dropout(self.char_emb(chars))
         batch_size = embs.size(0)
         embs = pack_padded_sequence(embs, wordlens, batch_first=True)
-        output = self.charlstm(embs, wordlens, hx=(self.charlstm_h_init.
-            expand(self.num_dir * self.args['char_num_layers'], batch_size,
-            self.args['char_hidden_dim']).contiguous(), self.
-            charlstm_c_init.expand(self.num_dir * self.args[
-            'char_num_layers'], batch_size, self.args['char_hidden_dim']).
-            contiguous()))
+        output = self.charlstm(embs, wordlens, hx=(self.charlstm_h_init.expand(self.num_dir * self.args['char_num_layers'], batch_size, self.args['char_hidden_dim']).contiguous(), self.charlstm_c_init.expand(self.num_dir * self.args['char_num_layers'], batch_size, self.args['char_hidden_dim']).contiguous()))
         if self.attn:
             char_reps = output[0]
-            weights = torch.sigmoid(self.char_attn(self.dropout(char_reps.
-                data)))
-            char_reps = PackedSequence(char_reps.data * weights, char_reps.
-                batch_sizes)
+            weights = torch.sigmoid(self.char_attn(self.dropout(char_reps.data)))
+            char_reps = PackedSequence(char_reps.data * weights, char_reps.batch_sizes)
             char_reps, _ = pad_packed_sequence(char_reps, batch_first=True)
             res = char_reps.sum(1)
         else:
@@ -337,8 +307,7 @@ class BaseVocab:
         self.lower = lower
         if data is not None:
             self.build_vocab()
-        self.state_attrs = ['lang', 'idx', 'cutoff', 'lower', '_unit2id',
-            '_id2unit']
+        self.state_attrs = ['lang', 'idx', 'cutoff', 'lower', '_unit2id', '_id2unit']
 
     def build_vocab(self):
         raise NotImplementedError()
@@ -416,15 +385,13 @@ class CharVocab(BaseVocab):
 
     def build_vocab(self):
         if type(self.data[0][0]) is list:
-            counter = Counter([c for sent in self.data for w in sent for c in
-                w[self.idx]])
+            counter = Counter([c for sent in self.data for w in sent for c in w[self.idx]])
             for k in list(counter.keys()):
                 if counter[k] < self.cutoff:
                     del counter[k]
         else:
             counter = Counter([c for sent in self.data for c in sent])
-        self._id2unit = VOCAB_PREFIX + list(sorted(list(counter.keys()),
-            key=lambda k: (counter[k], k), reverse=True))
+        self._id2unit = VOCAB_PREFIX + list(sorted(list(counter.keys()), key=lambda k: (counter[k], k), reverse=True))
         self._unit2id = {w: i for i, w in enumerate(self._id2unit)}
 
 
@@ -435,8 +402,7 @@ def unsort(sorted_list, oidx):
     """
     Unsort a sorted list, based on the original idx.
     """
-    assert len(sorted_list) == len(oidx
-        ), 'Number of list elements must match with original indices.'
+    assert len(sorted_list) == len(oidx), 'Number of list elements must match with original indices.'
     _, unsorted = [list(t) for t in zip(*sorted(zip(oidx, sorted_list)))]
     return unsorted
 
@@ -450,22 +416,13 @@ class CharacterLanguageModel(nn.Module):
         self.is_forward_lm = is_forward_lm
         self.pad = pad
         self.finetune = True
-        self.char_emb = nn.Embedding(len(self.vocab['char']), self.args[
-            'char_emb_dim'], padding_idx=None)
-        self.charlstm = PackedLSTM(self.args['char_emb_dim'], self.args[
-            'char_hidden_dim'], self.args['char_num_layers'], batch_first=
-            True, dropout=0 if self.args['char_num_layers'] == 1 else args[
-            'char_dropout'], rec_dropout=self.args['char_rec_dropout'],
-            bidirectional=False)
-        self.charlstm_h_init = nn.Parameter(torch.zeros(self.args[
-            'char_num_layers'], 1, self.args['char_hidden_dim']))
-        self.charlstm_c_init = nn.Parameter(torch.zeros(self.args[
-            'char_num_layers'], 1, self.args['char_hidden_dim']))
-        self.decoder = nn.Linear(self.args['char_hidden_dim'], len(self.
-            vocab['char']))
+        self.char_emb = nn.Embedding(len(self.vocab['char']), self.args['char_emb_dim'], padding_idx=None)
+        self.charlstm = PackedLSTM(self.args['char_emb_dim'], self.args['char_hidden_dim'], self.args['char_num_layers'], batch_first=True, dropout=0 if self.args['char_num_layers'] == 1 else args['char_dropout'], rec_dropout=self.args['char_rec_dropout'], bidirectional=False)
+        self.charlstm_h_init = nn.Parameter(torch.zeros(self.args['char_num_layers'], 1, self.args['char_hidden_dim']))
+        self.charlstm_c_init = nn.Parameter(torch.zeros(self.args['char_num_layers'], 1, self.args['char_hidden_dim']))
+        self.decoder = nn.Linear(self.args['char_hidden_dim'], len(self.vocab['char']))
         self.dropout = nn.Dropout(args['char_dropout'])
-        self.char_dropout = SequenceUnitDropout(args.get(
-            'char_unit_dropout', 0), UNK_ID)
+        self.char_dropout = SequenceUnitDropout(args.get('char_unit_dropout', 0), UNK_ID)
 
     def forward(self, chars, charlens, hidden=None):
         chars = self.char_dropout(chars)
@@ -473,11 +430,7 @@ class CharacterLanguageModel(nn.Module):
         batch_size = embs.size(0)
         embs = pack_padded_sequence(embs, charlens, batch_first=True)
         if hidden is None:
-            hidden = self.charlstm_h_init.expand(self.args[
-                'char_num_layers'], batch_size, self.args['char_hidden_dim']
-                ).contiguous(), self.charlstm_c_init.expand(self.args[
-                'char_num_layers'], batch_size, self.args['char_hidden_dim']
-                ).contiguous()
+            hidden = self.charlstm_h_init.expand(self.args['char_num_layers'], batch_size, self.args['char_hidden_dim']).contiguous(), self.charlstm_c_init.expand(self.args['char_num_layers'], batch_size, self.args['char_hidden_dim']).contiguous()
         output, hidden = self.charlstm(embs, charlens, hx=hidden)
         output = self.dropout(pad_packed_sequence(output, batch_first=True)[0])
         decoded = self.decoder(output)
@@ -504,9 +457,7 @@ class CharacterLanguageModel(nn.Module):
             super().train(mode)
 
     def save(self, filename):
-        state = {'vocab': self.vocab['char'].state_dict(), 'args': self.
-            args, 'state_dict': self.state_dict(), 'pad': self.pad,
-            'is_forward_lm': self.is_forward_lm}
+        state = {'vocab': self.vocab['char'].state_dict(), 'args': self.args, 'state_dict': self.state_dict(), 'pad': self.pad, 'is_forward_lm': self.is_forward_lm}
         torch.save(state, filename)
 
     @classmethod
@@ -529,8 +480,7 @@ def log_sum_exp(value, dim=None, keepdim=False):
         value0 = value - m
         if keepdim is False:
             m = m.squeeze(dim)
-        return m + torch.log(torch.sum(torch.exp(value0), dim=dim, keepdim=
-            keepdim))
+        return m + torch.log(torch.sum(torch.exp(value0), dim=dim, keepdim=keepdim))
     else:
         m = torch.max(value)
         sum_exp = torch.sum(torch.exp(value - m))
@@ -586,10 +536,8 @@ class CRFLoss(nn.Module):
             unary_scores: batch_size
         """
         flat_inputs = inputs.view(self.bs, -1)
-        flat_tag_indices = tag_indices + set_cuda(torch.arange(self.sl).
-            long().unsqueeze(0) * self.nc, tag_indices.is_cuda)
-        unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices).view(self
-            .bs, -1)
+        flat_tag_indices = tag_indices + set_cuda(torch.arange(self.sl).long().unsqueeze(0) * self.nc, tag_indices.is_cuda)
+        unary_scores = torch.gather(flat_inputs, 1, flat_tag_indices).view(self.bs, -1)
         unary_scores.masked_fill_(masks, 0)
         return unary_scores.sum(dim=1)
 
@@ -604,8 +552,7 @@ class CRFLoss(nn.Module):
         flat_transition_indices = start_indices * self.nc + end_indices
         flat_transition_indices = flat_transition_indices.view(-1)
         flat_transition_matrix = self._transitions.view(-1)
-        binary_scores = torch.gather(flat_transition_matrix, 0,
-            flat_transition_indices).view(self.bs, -1)
+        binary_scores = torch.gather(flat_transition_matrix, 0, flat_transition_indices).view(self.bs, -1)
         score_masks = masks[:, 1:]
         binary_scores.masked_fill_(score_masks, 0)
         return binary_scores.sum(dim=1)
@@ -624,8 +571,7 @@ class CRFLoss(nn.Module):
         trans = self._transitions.unsqueeze(0)
         for i in range(rest_inputs.size(1)):
             transition_scores = alphas.unsqueeze(2) + trans
-            new_alphas = rest_inputs[:, (i), :] + log_sum_exp(transition_scores
-                , dim=1)
+            new_alphas = rest_inputs[:, (i), :] + log_sum_exp(transition_scores, dim=1)
             m = rest_masks[:, (i)].unsqueeze(1).expand_as(new_alphas)
             new_alphas.masked_scatter_(m, alphas.masked_select(m))
             alphas = new_alphas
@@ -673,11 +619,9 @@ class LockedDropout(nn.Module):
         if not self.training or self.dropprob == 0:
             return x
         if not self.batch_first:
-            m = x.new_empty(1, x.size(1), x.size(2), requires_grad=False
-                ).bernoulli_(1 - self.dropprob)
+            m = x.new_empty(1, x.size(1), x.size(2), requires_grad=False).bernoulli_(1 - self.dropprob)
         else:
-            m = x.new_empty(x.size(0), 1, x.size(2), requires_grad=False
-                ).bernoulli_(1 - self.dropprob)
+            m = x.new_empty(x.size(0), 1, x.size(2), requires_grad=False).bernoulli_(1 - self.dropprob)
         mask = m.div(1 - self.dropprob).expand_as(x)
         return mask * x
 
@@ -705,8 +649,7 @@ class SequenceUnitDropout(nn.Module):
         return res
 
     def extra_repr(self):
-        return 'p={}, replacement_id={}'.format(self.dropprob, self.
-            replacement_id)
+        return 'p={}, replacement_id={}'.format(self.dropprob, self.replacement_id)
 
 
 class HLSTMCell(nn.modules.rnn.RNNCellBase):
@@ -723,18 +666,15 @@ class HLSTMCell(nn.modules.rnn.RNNCellBase):
         self.Wf = nn.Linear(input_size + hidden_size, hidden_size, bias=bias)
         self.Wo = nn.Linear(input_size + hidden_size, hidden_size, bias=bias)
         self.Wg = nn.Linear(input_size + hidden_size, hidden_size, bias=bias)
-        self.gate = nn.Linear(input_size + 2 * hidden_size, hidden_size,
-            bias=bias)
+        self.gate = nn.Linear(input_size + 2 * hidden_size, hidden_size, bias=bias)
 
     def forward(self, input, c_l_minus_one=None, hx=None):
         self.check_forward_input(input)
         if hx is None:
-            hx = input.new_zeros(input.size(0), self.hidden_size,
-                requires_grad=False)
+            hx = input.new_zeros(input.size(0), self.hidden_size, requires_grad=False)
             hx = hx, hx
         if c_l_minus_one is None:
-            c_l_minus_one = input.new_zeros(input.size(0), self.hidden_size,
-                requires_grad=False)
+            c_l_minus_one = input.new_zeros(input.size(0), self.hidden_size, requires_grad=False)
         self.check_forward_hidden(input, hx[0], '[0]')
         self.check_forward_hidden(input, hx[1], '[1]')
         self.check_forward_hidden(input, c_l_minus_one, 'c_l_minus_one')
@@ -743,8 +683,7 @@ class HLSTMCell(nn.modules.rnn.RNNCellBase):
         f = F.sigmoid(self.Wf(rec_input))
         o = F.sigmoid(self.Wo(rec_input))
         g = F.tanh(self.Wg(rec_input))
-        gate = F.sigmoid(self.gate(torch.cat([c_l_minus_one, hx[1], input], 1))
-            )
+        gate = F.sigmoid(self.gate(torch.cat([c_l_minus_one, hx[1], input], 1)))
         c = gate * c_l_minus_one + f * hx[1] + i * g
         h = o * F.tanh(c)
         return h, c
@@ -756,9 +695,7 @@ class HighwayLSTM(nn.Module):
     is independent from the HLSTMCell above.
     """
 
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True,
-        batch_first=False, dropout=0, bidirectional=False, rec_dropout=0,
-        highway_func=None, pad=False):
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=0, bidirectional=False, rec_dropout=0, highway_func=None, pad=False):
         super(HighwayLSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -777,38 +714,27 @@ class HighwayLSTM(nn.Module):
         self.drop = nn.Dropout(dropout, inplace=True)
         in_size = input_size
         for l in range(num_layers):
-            self.lstm.append(PackedLSTM(in_size, hidden_size, num_layers=1,
-                bias=bias, batch_first=batch_first, dropout=0,
-                bidirectional=bidirectional, rec_dropout=rec_dropout))
-            self.highway.append(nn.Linear(in_size, hidden_size * self.
-                num_directions))
-            self.gate.append(nn.Linear(in_size, hidden_size * self.
-                num_directions))
+            self.lstm.append(PackedLSTM(in_size, hidden_size, num_layers=1, bias=bias, batch_first=batch_first, dropout=0, bidirectional=bidirectional, rec_dropout=rec_dropout))
+            self.highway.append(nn.Linear(in_size, hidden_size * self.num_directions))
+            self.gate.append(nn.Linear(in_size, hidden_size * self.num_directions))
             self.highway[-1].bias.data.zero_()
             self.gate[-1].bias.data.zero_()
             in_size = hidden_size * self.num_directions
 
     def forward(self, input, seqlens, hx=None):
-        highway_func = (lambda x: x
-            ) if self.highway_func is None else self.highway_func
+        highway_func = (lambda x: x) if self.highway_func is None else self.highway_func
         hs = []
         cs = []
         if not isinstance(input, PackedSequence):
-            input = pack_padded_sequence(input, seqlens, batch_first=self.
-                batch_first)
+            input = pack_padded_sequence(input, seqlens, batch_first=self.batch_first)
         for l in range(self.num_layers):
             if l > 0:
-                input = PackedSequence(self.drop(input.data), input.batch_sizes
-                    )
-            layer_hx = (hx[0][l * self.num_directions:(l + 1) * self.
-                num_directions], hx[1][l * self.num_directions:(l + 1) *
-                self.num_directions]) if hx is not None else None
+                input = PackedSequence(self.drop(input.data), input.batch_sizes)
+            layer_hx = (hx[0][l * self.num_directions:(l + 1) * self.num_directions], hx[1][l * self.num_directions:(l + 1) * self.num_directions]) if hx is not None else None
             h, (ht, ct) = self.lstm[l](input, seqlens, layer_hx)
             hs.append(ht)
             cs.append(ct)
-            input = PackedSequence(h.data + torch.sigmoid(self.gate[l](
-                input.data)) * highway_func(self.highway[l](input.data)),
-                input.batch_sizes)
+            input = PackedSequence(h.data + torch.sigmoid(self.gate[l](input.data)) * highway_func(self.highway[l](input.data)), input.batch_sizes)
         if self.pad:
             input = pad_packed_sequence(input, batch_first=self.batch_first)[0]
         return input, (torch.cat(hs, 0), torch.cat(cs, 0))
@@ -873,38 +799,28 @@ class MaxEntropySequenceLoss(nn.Module):
 
 class PackedLSTM(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, bias=True,
-        batch_first=False, dropout=0, bidirectional=False, pad=False,
-        rec_dropout=0):
+    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=False, dropout=0, bidirectional=False, pad=False, rec_dropout=0):
         super().__init__()
         self.batch_first = batch_first
         self.pad = pad
         if rec_dropout == 0:
-            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, bias=
-                bias, batch_first=batch_first, dropout=dropout,
-                bidirectional=bidirectional)
+            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional)
         else:
-            self.lstm = LSTMwRecDropout(input_size, hidden_size, num_layers,
-                bias=bias, batch_first=batch_first, dropout=dropout,
-                bidirectional=bidirectional, rec_dropout=rec_dropout)
+            self.lstm = LSTMwRecDropout(input_size, hidden_size, num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional, rec_dropout=rec_dropout)
 
     def forward(self, input, lengths, hx=None):
         if not isinstance(input, PackedSequence):
-            input = pack_padded_sequence(input, lengths, batch_first=self.
-                batch_first)
+            input = pack_padded_sequence(input, lengths, batch_first=self.batch_first)
         res = self.lstm(input, hx)
         if self.pad:
-            res = pad_packed_sequence(res[0], batch_first=self.batch_first)[0
-                ], res[1]
+            res = pad_packed_sequence(res[0], batch_first=self.batch_first)[0], res[1]
         return res
 
 
 class LSTMwRecDropout(nn.Module):
     """ An LSTM implementation that supports recurrent dropout """
 
-    def __init__(self, input_size, hidden_size, num_layers, bias=True,
-        batch_first=False, dropout=0, bidirectional=False, pad=False,
-        rec_dropout=0):
+    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=False, dropout=0, bidirectional=False, pad=False, rec_dropout=0):
         super().__init__()
         self.batch_first = batch_first
         self.pad = pad
@@ -916,8 +832,7 @@ class LSTMwRecDropout(nn.Module):
         self.num_directions = 2 if bidirectional else 1
         self.cells = nn.ModuleList()
         for l in range(num_layers):
-            in_size = (input_size if l == 0 else self.num_directions *
-                hidden_size)
+            in_size = input_size if l == 0 else self.num_directions * hidden_size
             for d in range(self.num_directions):
                 self.cells.append(nn.LSTMCell(in_size, hidden_size, bias=bias))
 
@@ -932,8 +847,7 @@ class LSTMwRecDropout(nn.Module):
             if not reverse:
                 st = 0
                 for bs in batch_sizes:
-                    s1 = cell(x[st:st + bs], (torch.cat(states[0][:bs], 0) *
-                        h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
+                    s1 = cell(x[st:st + bs], (torch.cat(states[0][:bs], 0) * h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
                     resh.append(s1[0])
                     for j in range(bs):
                         states[0][j] = s1[0][j].unsqueeze(0)
@@ -943,8 +857,7 @@ class LSTMwRecDropout(nn.Module):
                 en = x.size(0)
                 for i in range(batch_sizes.size(0) - 1, -1, -1):
                     bs = batch_sizes[i]
-                    s1 = cell(x[en - bs:en], (torch.cat(states[0][:bs], 0) *
-                        h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
+                    s1 = cell(x[en - bs:en], (torch.cat(states[0][:bs], 0) * h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
                     resh.append(s1[0])
                     for j in range(bs):
                         states[0][j] = s1[0][j].unsqueeze(0)
@@ -961,11 +874,7 @@ class LSTMwRecDropout(nn.Module):
             for d in range(self.num_directions):
                 idx = l * self.num_directions + d
                 cell = self.cells[idx]
-                out, states = rnn_loop(inputdata, batch_sizes, cell, (hx[i]
-                    [idx] for i in range(2)) if hx is not None else (input.
-                    data.new_zeros(input.batch_sizes[0].item(), self.
-                    hidden_size, requires_grad=False) for _ in range(2)),
-                    reverse=d == 1)
+                out, states = rnn_loop(inputdata, batch_sizes, cell, (hx[i][idx] for i in range(2)) if hx is not None else (input.data.new_zeros(input.batch_sizes[0].item(), self.hidden_size, requires_grad=False) for _ in range(2)), reverse=d == 1)
                 new_input.append(out)
                 all_states[0].append(states[0].unsqueeze(0))
                 all_states[1].append(states[1].unsqueeze(0))
@@ -1099,23 +1008,17 @@ class Seq2SeqModel(nn.Module):
         self.num_edit = args.get('num_edit', 0)
         self.emb_drop = nn.Dropout(self.emb_dropout)
         self.drop = nn.Dropout(self.dropout)
-        self.embedding = nn.Embedding(self.vocab_size, self.emb_dim, self.
-            pad_token)
-        self.encoder = nn.LSTM(self.emb_dim, self.enc_hidden_dim, self.
-            nlayers, bidirectional=True, batch_first=True, dropout=self.
-            dropout if self.nlayers > 1 else 0)
-        self.decoder = LSTMAttention(self.emb_dim, self.dec_hidden_dim,
-            batch_first=True, attn_type=self.args['attn_type'])
+        self.embedding = nn.Embedding(self.vocab_size, self.emb_dim, self.pad_token)
+        self.encoder = nn.LSTM(self.emb_dim, self.enc_hidden_dim, self.nlayers, bidirectional=True, batch_first=True, dropout=self.dropout if self.nlayers > 1 else 0)
+        self.decoder = LSTMAttention(self.emb_dim, self.dec_hidden_dim, batch_first=True, attn_type=self.args['attn_type'])
         self.dec2vocab = nn.Linear(self.dec_hidden_dim, self.vocab_size)
         if self.use_pos and self.pos_dim > 0:
             logger.debug('Using POS in encoder')
-            self.pos_embedding = nn.Embedding(self.pos_vocab_size, self.
-                pos_dim, self.pad_token)
+            self.pos_embedding = nn.Embedding(self.pos_vocab_size, self.pos_dim, self.pad_token)
             self.pos_drop = nn.Dropout(self.pos_dropout)
         if self.edit:
             edit_hidden = self.hidden_dim // 2
-            self.edit_clf = nn.Sequential(nn.Linear(self.hidden_dim,
-                edit_hidden), nn.ReLU(), nn.Linear(edit_hidden, self.num_edit))
+            self.edit_clf = nn.Sequential(nn.Linear(self.hidden_dim, edit_hidden), nn.ReLU(), nn.Linear(edit_hidden, self.num_edit))
         self.SOS_tensor = torch.LongTensor([constant.SOS_ID])
         self.SOS_tensor = self.SOS_tensor if self.use_cuda else self.SOS_tensor
         self.init_weights()
@@ -1125,9 +1028,7 @@ class Seq2SeqModel(nn.Module):
         if self.emb_matrix is not None:
             if isinstance(self.emb_matrix, np.ndarray):
                 self.emb_matrix = torch.from_numpy(self.emb_matrix)
-            assert self.emb_matrix.size() == (self.vocab_size, self.emb_dim
-                ), 'Input embedding matrix must match size: {} x {}'.format(
-                self.vocab_size, self.emb_dim)
+            assert self.emb_matrix.size() == (self.vocab_size, self.emb_dim), 'Input embedding matrix must match size: {} x {}'.format(self.vocab_size, self.emb_dim)
             self.embedding.weight.data.copy_(self.emb_matrix)
         else:
             self.embedding.weight.data.uniform_(-init_range, init_range)
@@ -1136,8 +1037,7 @@ class Seq2SeqModel(nn.Module):
             self.embedding.weight.requires_grad = False
         elif self.top < self.vocab_size:
             logger.debug('Finetune top {} embeddings.'.format(self.top))
-            self.embedding.weight.register_hook(lambda x: utils.
-                keep_partial_grad(x, self.top))
+            self.embedding.weight.register_hook(lambda x: utils.keep_partial_grad(x, self.top))
         else:
             logger.debug('Finetune all embeddings.')
         if self.use_pos:
@@ -1153,10 +1053,8 @@ class Seq2SeqModel(nn.Module):
 
     def zero_state(self, inputs):
         batch_size = inputs.size(0)
-        h0 = torch.zeros(self.encoder.num_layers * 2, batch_size, self.
-            enc_hidden_dim, requires_grad=False)
-        c0 = torch.zeros(self.encoder.num_layers * 2, batch_size, self.
-            enc_hidden_dim, requires_grad=False)
+        h0 = torch.zeros(self.encoder.num_layers * 2, batch_size, self.enc_hidden_dim, requires_grad=False)
+        c0 = torch.zeros(self.encoder.num_layers * 2, batch_size, self.enc_hidden_dim, requires_grad=False)
         if self.use_cuda:
             return h0, c0
         return h0, c0
@@ -1164,11 +1062,9 @@ class Seq2SeqModel(nn.Module):
     def encode(self, enc_inputs, lens):
         """ Encode source sequence. """
         self.h0, self.c0 = self.zero_state(enc_inputs)
-        packed_inputs = nn.utils.rnn.pack_padded_sequence(enc_inputs, lens,
-            batch_first=True)
+        packed_inputs = nn.utils.rnn.pack_padded_sequence(enc_inputs, lens, batch_first=True)
         packed_h_in, (hn, cn) = self.encoder(packed_inputs, (self.h0, self.c0))
-        h_in, _ = nn.utils.rnn.pad_packed_sequence(packed_h_in, batch_first
-            =True)
+        h_in, _ = nn.utils.rnn.pad_packed_sequence(packed_h_in, batch_first=True)
         hn = torch.cat((hn[-1], hn[-2]), 1)
         cn = torch.cat((cn[-1], cn[-2]), 1)
         return h_in, (hn, cn)
@@ -1177,8 +1073,7 @@ class Seq2SeqModel(nn.Module):
         """ Decode a step, based on context encoding and source context states."""
         dec_hidden = hn, cn
         h_out, dec_hidden = self.decoder(dec_inputs, dec_hidden, ctx, ctx_mask)
-        h_out_reshape = h_out.contiguous().view(h_out.size(0) * h_out.size(
-            1), -1)
+        h_out_reshape = h_out.contiguous().view(h_out.size(0) * h_out.size(1), -1)
         decoder_logits = self.dec2vocab(h_out_reshape)
         decoder_logits = decoder_logits.view(h_out.size(0), h_out.size(1), -1)
         log_probs = self.get_log_prob(decoder_logits)
@@ -1191,8 +1086,7 @@ class Seq2SeqModel(nn.Module):
         if self.use_pos:
             assert pos is not None, 'Missing POS input for seq2seq lemmatizer.'
             pos_inputs = self.pos_drop(self.pos_embedding(pos))
-            enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1
-                )
+            enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1)
             pos_src_mask = src_mask.new_zeros([batch_size, 1])
             src_mask = torch.cat([pos_src_mask, src_mask], dim=1)
         src_lens = list(src_mask.data.eq(0).long().sum(1))
@@ -1218,8 +1112,7 @@ class Seq2SeqModel(nn.Module):
         if self.use_pos:
             assert pos is not None, 'Missing POS input for seq2seq lemmatizer.'
             pos_inputs = self.pos_drop(self.pos_embedding(pos))
-            enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1
-                )
+            enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1)
             pos_src_mask = src_mask.new_zeros([batch_size, 1])
             src_mask = torch.cat([pos_src_mask, src_mask], dim=1)
         src_lens = list(src_mask.data.eq(constant.PAD_ID).long().sum(1))
@@ -1229,15 +1122,13 @@ class Seq2SeqModel(nn.Module):
         else:
             edit_logits = None
         dec_inputs = self.embedding(self.SOS_tensor)
-        dec_inputs = dec_inputs.expand(batch_size, dec_inputs.size(0),
-            dec_inputs.size(1))
+        dec_inputs = dec_inputs.expand(batch_size, dec_inputs.size(0), dec_inputs.size(1))
         done = [(False) for _ in range(batch_size)]
         total_done = 0
         max_len = 0
         output_seqs = [[] for _ in range(batch_size)]
         while total_done < batch_size and max_len < self.max_dec_len:
-            log_probs, (hn, cn) = self.decode(dec_inputs, hn, cn, h_in,
-                src_mask)
+            log_probs, (hn, cn) = self.decode(dec_inputs, hn, cn, h_in, src_mask)
             assert log_probs.size(1) == 1, 'Output must have 1-step of output.'
             _, preds = log_probs.squeeze(1).max(1, keepdim=True)
             dec_inputs = self.embedding(preds)
@@ -1261,8 +1152,7 @@ class Seq2SeqModel(nn.Module):
         if self.use_pos:
             assert pos is not None, 'Missing POS input for seq2seq lemmatizer.'
             pos_inputs = self.pos_drop(self.pos_embedding(pos))
-            enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1
-                )
+            enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1)
             pos_src_mask = src_mask.new_zeros([batch_size, 1])
             src_mask = torch.cat([pos_src_mask, src_mask], dim=1)
         src_lens = list(src_mask.data.eq(constant.PAD_ID).long().sum(1))
@@ -1282,24 +1172,19 @@ class Seq2SeqModel(nn.Module):
             """ Select the states according to back pointers. """
             for e in states:
                 br, d = e.size()
-                s = e.contiguous().view(beam_size, br // beam_size, d)[:, (idx)
-                    ]
+                s = e.contiguous().view(beam_size, br // beam_size, d)[:, (idx)]
                 s.data.copy_(s.data.index_select(0, positions))
         for i in range(self.max_dec_len):
-            dec_inputs = torch.stack([b.get_current_state() for b in beam]).t(
-                ).contiguous().view(-1, 1)
+            dec_inputs = torch.stack([b.get_current_state() for b in beam]).t().contiguous().view(-1, 1)
             dec_inputs = self.embedding(dec_inputs)
-            log_probs, (hn, cn) = self.decode(dec_inputs, hn, cn, h_in,
-                src_mask)
-            log_probs = log_probs.view(beam_size, batch_size, -1).transpose(
-                0, 1).contiguous()
+            log_probs, (hn, cn) = self.decode(dec_inputs, hn, cn, h_in, src_mask)
+            log_probs = log_probs.view(beam_size, batch_size, -1).transpose(0, 1).contiguous()
             done = []
             for b in range(batch_size):
                 is_done = beam[b].advance(log_probs.data[b])
                 if is_done:
                     done += [b]
-                update_state((hn, cn), b, beam[b].get_current_origin(),
-                    beam_size)
+                update_state((hn, cn), b, beam[b].get_current_origin(), beam_size)
             if len(done) == batch_size:
                 break
         all_hyp, all_scores = [], []
@@ -1337,8 +1222,7 @@ class BasicAttention(nn.Module):
         source_len = context.size(1)
         dim = context.size(2)
         target = self.linear_in(input)
-        source = self.linear_c(context.contiguous().view(-1, dim)).view(
-            batch_size, source_len, dim)
+        source = self.linear_c(context.contiguous().view(-1, dim)).view(batch_size, source_len, dim)
         attn = target.unsqueeze(1).expand_as(context) + source
         attn = self.tanh(attn)
         attn = self.linear_v(attn.view(-1, dim)).view(batch_size, source_len)
@@ -1378,8 +1262,7 @@ class SoftDotAttention(nn.Module):
         target = self.linear_in(input).unsqueeze(2)
         attn = torch.bmm(context, target).squeeze(2)
         if mask is not None:
-            assert mask.size() == attn.size(
-                ), 'Mask size must match the attention size!'
+            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
             attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
         attn = self.sm(attn)
         if attn_only:
@@ -1417,8 +1300,7 @@ class LinearAttention(nn.Module):
         attn_in = torch.cat((u, v, u.mul(v)), 1)
         attn = self.linear(attn_in).view(batch_size, source_len)
         if mask is not None:
-            assert mask.size() == attn.size(
-                ), 'Mask size must match the attention size!'
+            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
             attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
         attn = self.sm(attn)
         if attn_only:
@@ -1460,8 +1342,7 @@ class DeepAttention(nn.Module):
         v = self.relu(self.linear_in(context.contiguous().view(-1, dim)))
         attn = self.linear_v(u.mul(v)).view(batch_size, source_len)
         if mask is not None:
-            assert mask.size() == attn.size(
-                ), 'Mask size must match the attention size!'
+            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
             attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
         attn = self.sm(attn)
         if attn_only:
@@ -1476,8 +1357,7 @@ class DeepAttention(nn.Module):
 class LSTMAttention(nn.Module):
     """A long short-term memory (LSTM) cell with attention."""
 
-    def __init__(self, input_size, hidden_size, batch_first=True, attn_type
-        ='soft'):
+    def __init__(self, input_size, hidden_size, batch_first=True, attn_type='soft'):
         """Initialize params."""
         super(LSTMAttention, self).__init__()
         self.input_size = input_size
@@ -1493,8 +1373,7 @@ class LSTMAttention(nn.Module):
         elif attn_type == 'deep':
             self.attention_layer = DeepAttention(hidden_size)
         else:
-            raise Exception('Unsupported LSTM attention type: {}'.format(
-                attn_type))
+            raise Exception('Unsupported LSTM attention type: {}'.format(attn_type))
         logger.debug('Using {} attention for LSTM.'.format(attn_type))
 
     def forward(self, input, hidden, ctx, ctx_mask=None):
@@ -1554,11 +1433,9 @@ class CompositeVocab(BaseVocab):
     def unit2id(self, unit):
         parts = self.unit2parts(unit)
         if self.keyed:
-            return [(self._unit2id[k].get(parts[k], UNK_ID) if k in parts else
-                EMPTY_ID) for k in self._unit2id]
+            return [(self._unit2id[k].get(parts[k], UNK_ID) if k in parts else EMPTY_ID) for k in self._unit2id]
         else:
-            return [(self._unit2id[i].get(parts[i], UNK_ID) if i < len(
-                parts) else EMPTY_ID) for i in range(len(self._unit2id))]
+            return [(self._unit2id[i].get(parts[i], UNK_ID) if i < len(parts) else EMPTY_ID) for i in range(len(self._unit2id))]
 
     def id2unit(self, id):
         items = []
@@ -1599,10 +1476,8 @@ class CompositeVocab(BaseVocab):
                         self._id2unit[i].append(p)
             if len(self._id2unit) == 0:
                 self._id2unit[0] = copy(VOCAB_PREFIX)
-        self._id2unit = OrderedDict([(k, self._id2unit[k]) for k in sorted(
-            self._id2unit.keys())])
-        self._unit2id = {k: {w: i for i, w in enumerate(self._id2unit[k])} for
-            k in self._id2unit}
+        self._id2unit = OrderedDict([(k, self._id2unit[k]) for k in sorted(self._id2unit.keys())])
+        self._unit2id = {k: {w: i for i, w in enumerate(self._id2unit[k])} for k in self._id2unit}
 
     def lens(self):
         return [len(self._unit2id[k]) for k in self._unit2id]
@@ -1622,71 +1497,44 @@ class Parser(nn.Module):
             setattr(self, name, module)
         input_size = 0
         if self.args['word_emb_dim'] > 0:
-            self.word_emb = nn.Embedding(len(vocab['word']), self.args[
-                'word_emb_dim'], padding_idx=0)
-            self.lemma_emb = nn.Embedding(len(vocab['lemma']), self.args[
-                'word_emb_dim'], padding_idx=0)
+            self.word_emb = nn.Embedding(len(vocab['word']), self.args['word_emb_dim'], padding_idx=0)
+            self.lemma_emb = nn.Embedding(len(vocab['lemma']), self.args['word_emb_dim'], padding_idx=0)
             input_size += self.args['word_emb_dim'] * 2
         if self.args['tag_emb_dim'] > 0:
-            self.upos_emb = nn.Embedding(len(vocab['upos']), self.args[
-                'tag_emb_dim'], padding_idx=0)
+            self.upos_emb = nn.Embedding(len(vocab['upos']), self.args['tag_emb_dim'], padding_idx=0)
             if not isinstance(vocab['xpos'], CompositeVocab):
-                self.xpos_emb = nn.Embedding(len(vocab['xpos']), self.args[
-                    'tag_emb_dim'], padding_idx=0)
+                self.xpos_emb = nn.Embedding(len(vocab['xpos']), self.args['tag_emb_dim'], padding_idx=0)
             else:
                 self.xpos_emb = nn.ModuleList()
                 for l in vocab['xpos'].lens():
-                    self.xpos_emb.append(nn.Embedding(l, self.args[
-                        'tag_emb_dim'], padding_idx=0))
+                    self.xpos_emb.append(nn.Embedding(l, self.args['tag_emb_dim'], padding_idx=0))
             self.ufeats_emb = nn.ModuleList()
             for l in vocab['feats'].lens():
-                self.ufeats_emb.append(nn.Embedding(l, self.args[
-                    'tag_emb_dim'], padding_idx=0))
+                self.ufeats_emb.append(nn.Embedding(l, self.args['tag_emb_dim'], padding_idx=0))
             input_size += self.args['tag_emb_dim'] * 2
         if self.args['char'] and self.args['char_emb_dim'] > 0:
             self.charmodel = CharacterModel(args, vocab)
-            self.trans_char = nn.Linear(self.args['char_hidden_dim'], self.
-                args['transformed_dim'], bias=False)
+            self.trans_char = nn.Linear(self.args['char_hidden_dim'], self.args['transformed_dim'], bias=False)
             input_size += self.args['transformed_dim']
         if self.args['pretrain']:
-            add_unsaved_module('pretrained_emb', nn.Embedding.
-                from_pretrained(torch.from_numpy(emb_matrix), freeze=True))
-            self.trans_pretrained = nn.Linear(emb_matrix.shape[1], self.
-                args['transformed_dim'], bias=False)
+            add_unsaved_module('pretrained_emb', nn.Embedding.from_pretrained(torch.from_numpy(emb_matrix), freeze=True))
+            self.trans_pretrained = nn.Linear(emb_matrix.shape[1], self.args['transformed_dim'], bias=False)
             input_size += self.args['transformed_dim']
-        self.parserlstm = HighwayLSTM(input_size, self.args['hidden_dim'],
-            self.args['num_layers'], batch_first=True, bidirectional=True,
-            dropout=self.args['dropout'], rec_dropout=self.args[
-            'rec_dropout'], highway_func=torch.tanh)
-        self.drop_replacement = nn.Parameter(torch.randn(input_size) / np.
-            sqrt(input_size))
-        self.parserlstm_h_init = nn.Parameter(torch.zeros(2 * self.args[
-            'num_layers'], 1, self.args['hidden_dim']))
-        self.parserlstm_c_init = nn.Parameter(torch.zeros(2 * self.args[
-            'num_layers'], 1, self.args['hidden_dim']))
-        self.unlabeled = DeepBiaffineScorer(2 * self.args['hidden_dim'], 2 *
-            self.args['hidden_dim'], self.args['deep_biaff_hidden_dim'], 1,
-            pairwise=True, dropout=args['dropout'])
-        self.deprel = DeepBiaffineScorer(2 * self.args['hidden_dim'], 2 *
-            self.args['hidden_dim'], self.args['deep_biaff_hidden_dim'],
-            len(vocab['deprel']), pairwise=True, dropout=args['dropout'])
+        self.parserlstm = HighwayLSTM(input_size, self.args['hidden_dim'], self.args['num_layers'], batch_first=True, bidirectional=True, dropout=self.args['dropout'], rec_dropout=self.args['rec_dropout'], highway_func=torch.tanh)
+        self.drop_replacement = nn.Parameter(torch.randn(input_size) / np.sqrt(input_size))
+        self.parserlstm_h_init = nn.Parameter(torch.zeros(2 * self.args['num_layers'], 1, self.args['hidden_dim']))
+        self.parserlstm_c_init = nn.Parameter(torch.zeros(2 * self.args['num_layers'], 1, self.args['hidden_dim']))
+        self.unlabeled = DeepBiaffineScorer(2 * self.args['hidden_dim'], 2 * self.args['hidden_dim'], self.args['deep_biaff_hidden_dim'], 1, pairwise=True, dropout=args['dropout'])
+        self.deprel = DeepBiaffineScorer(2 * self.args['hidden_dim'], 2 * self.args['hidden_dim'], self.args['deep_biaff_hidden_dim'], len(vocab['deprel']), pairwise=True, dropout=args['dropout'])
         if args['linearization']:
-            self.linearization = DeepBiaffineScorer(2 * self.args[
-                'hidden_dim'], 2 * self.args['hidden_dim'], self.args[
-                'deep_biaff_hidden_dim'], 1, pairwise=True, dropout=args[
-                'dropout'])
+            self.linearization = DeepBiaffineScorer(2 * self.args['hidden_dim'], 2 * self.args['hidden_dim'], self.args['deep_biaff_hidden_dim'], 1, pairwise=True, dropout=args['dropout'])
         if args['distance']:
-            self.distance = DeepBiaffineScorer(2 * self.args['hidden_dim'],
-                2 * self.args['hidden_dim'], self.args[
-                'deep_biaff_hidden_dim'], 1, pairwise=True, dropout=args[
-                'dropout'])
+            self.distance = DeepBiaffineScorer(2 * self.args['hidden_dim'], 2 * self.args['hidden_dim'], self.args['deep_biaff_hidden_dim'], 1, pairwise=True, dropout=args['dropout'])
         self.crit = nn.CrossEntropyLoss(ignore_index=-1, reduction='sum')
         self.drop = nn.Dropout(args['dropout'])
         self.worddrop = WordDropout(args['word_dropout'])
 
-    def forward(self, word, word_mask, wordchars, wordchars_mask, upos,
-        xpos, ufeats, pretrained, lemma, head, deprel, word_orig_idx,
-        sentlens, wordlens):
+    def forward(self, word, word_mask, wordchars, wordchars_mask, upos, xpos, ufeats, pretrained, lemma, head, deprel, word_orig_idx, sentlens, wordlens):
 
         def pack(x):
             return pack_padded_sequence(x, sentlens, batch_first=True)
@@ -1716,68 +1564,44 @@ class Parser(nn.Module):
             feats_emb = pack(feats_emb)
             inputs += [pos_emb, feats_emb]
         if self.args['char'] and self.args['char_emb_dim'] > 0:
-            char_reps = self.charmodel(wordchars, wordchars_mask,
-                word_orig_idx, sentlens, wordlens)
-            char_reps = PackedSequence(self.trans_char(self.drop(char_reps.
-                data)), char_reps.batch_sizes)
+            char_reps = self.charmodel(wordchars, wordchars_mask, word_orig_idx, sentlens, wordlens)
+            char_reps = PackedSequence(self.trans_char(self.drop(char_reps.data)), char_reps.batch_sizes)
             inputs += [char_reps]
         lstm_inputs = torch.cat([x.data for x in inputs], 1)
         lstm_inputs = self.worddrop(lstm_inputs, self.drop_replacement)
         lstm_inputs = self.drop(lstm_inputs)
         lstm_inputs = PackedSequence(lstm_inputs, inputs[0].batch_sizes)
-        lstm_outputs, _ = self.parserlstm(lstm_inputs, sentlens, hx=(self.
-            parserlstm_h_init.expand(2 * self.args['num_layers'], word.size
-            (0), self.args['hidden_dim']).contiguous(), self.
-            parserlstm_c_init.expand(2 * self.args['num_layers'], word.size
-            (0), self.args['hidden_dim']).contiguous()))
+        lstm_outputs, _ = self.parserlstm(lstm_inputs, sentlens, hx=(self.parserlstm_h_init.expand(2 * self.args['num_layers'], word.size(0), self.args['hidden_dim']).contiguous(), self.parserlstm_c_init.expand(2 * self.args['num_layers'], word.size(0), self.args['hidden_dim']).contiguous()))
         lstm_outputs, _ = pad_packed_sequence(lstm_outputs, batch_first=True)
-        unlabeled_scores = self.unlabeled(self.drop(lstm_outputs), self.
-            drop(lstm_outputs)).squeeze(3)
-        deprel_scores = self.deprel(self.drop(lstm_outputs), self.drop(
-            lstm_outputs))
+        unlabeled_scores = self.unlabeled(self.drop(lstm_outputs), self.drop(lstm_outputs)).squeeze(3)
+        deprel_scores = self.deprel(self.drop(lstm_outputs), self.drop(lstm_outputs))
         if self.args['linearization'] or self.args['distance']:
-            head_offset = torch.arange(word.size(1), device=head.device).view(
-                1, 1, -1).expand(word.size(0), -1, -1) - torch.arange(word.
-                size(1), device=head.device).view(1, -1, 1).expand(word.
-                size(0), -1, -1)
+            head_offset = torch.arange(word.size(1), device=head.device).view(1, 1, -1).expand(word.size(0), -1, -1) - torch.arange(word.size(1), device=head.device).view(1, -1, 1).expand(word.size(0), -1, -1)
         if self.args['linearization']:
-            lin_scores = self.linearization(self.drop(lstm_outputs), self.
-                drop(lstm_outputs)).squeeze(3)
-            unlabeled_scores += F.logsigmoid(lin_scores * torch.sign(
-                head_offset).float()).detach()
+            lin_scores = self.linearization(self.drop(lstm_outputs), self.drop(lstm_outputs)).squeeze(3)
+            unlabeled_scores += F.logsigmoid(lin_scores * torch.sign(head_offset).float()).detach()
         if self.args['distance']:
-            dist_scores = self.distance(self.drop(lstm_outputs), self.drop(
-                lstm_outputs)).squeeze(3)
+            dist_scores = self.distance(self.drop(lstm_outputs), self.drop(lstm_outputs)).squeeze(3)
             dist_pred = 1 + F.softplus(dist_scores)
             dist_target = torch.abs(head_offset)
-            dist_kld = -torch.log((dist_target.float() - dist_pred) ** 2 / 
-                2 + 1)
+            dist_kld = -torch.log((dist_target.float() - dist_pred) ** 2 / 2 + 1)
             unlabeled_scores += dist_kld.detach()
-        diag = torch.eye(head.size(-1) + 1, dtype=torch.bool, device=head.
-            device).unsqueeze(0)
+        diag = torch.eye(head.size(-1) + 1, dtype=torch.bool, device=head.device).unsqueeze(0)
         unlabeled_scores.masked_fill_(diag, -float('inf'))
         preds = []
         if self.training:
             unlabeled_scores = unlabeled_scores[:, 1:, :]
-            unlabeled_scores = unlabeled_scores.masked_fill(word_mask.
-                unsqueeze(1), -float('inf'))
+            unlabeled_scores = unlabeled_scores.masked_fill(word_mask.unsqueeze(1), -float('inf'))
             unlabeled_target = head.masked_fill(word_mask[:, 1:], -1)
-            loss = self.crit(unlabeled_scores.contiguous().view(-1,
-                unlabeled_scores.size(2)), unlabeled_target.view(-1))
+            loss = self.crit(unlabeled_scores.contiguous().view(-1, unlabeled_scores.size(2)), unlabeled_target.view(-1))
             deprel_scores = deprel_scores[:, 1:]
-            deprel_scores = torch.gather(deprel_scores, 2, head.unsqueeze(2
-                ).unsqueeze(3).expand(-1, -1, -1, len(self.vocab['deprel']))
-                ).view(-1, len(self.vocab['deprel']))
+            deprel_scores = torch.gather(deprel_scores, 2, head.unsqueeze(2).unsqueeze(3).expand(-1, -1, -1, len(self.vocab['deprel']))).view(-1, len(self.vocab['deprel']))
             deprel_target = deprel.masked_fill(word_mask[:, 1:], -1)
-            loss += self.crit(deprel_scores.contiguous(), deprel_target.
-                view(-1))
+            loss += self.crit(deprel_scores.contiguous(), deprel_target.view(-1))
             if self.args['linearization']:
-                lin_scores = torch.gather(lin_scores[:, 1:], 2, head.
-                    unsqueeze(2)).view(-1)
-                lin_scores = torch.cat([-lin_scores.unsqueeze(1) / 2, 
-                    lin_scores.unsqueeze(1) / 2], 1)
-                lin_target = torch.gather((head_offset[:, 1:] > 0).long(), 
-                    2, head.unsqueeze(2))
+                lin_scores = torch.gather(lin_scores[:, 1:], 2, head.unsqueeze(2)).view(-1)
+                lin_scores = torch.cat([-lin_scores.unsqueeze(1) / 2, lin_scores.unsqueeze(1) / 2], 1)
+                lin_target = torch.gather((head_offset[:, 1:] > 0).long(), 2, head.unsqueeze(2))
                 loss += self.crit(lin_scores.contiguous(), lin_target.view(-1))
             if self.args['distance']:
                 dist_kld = torch.gather(dist_kld[:, 1:], 2, head.unsqueeze(2))
@@ -1785,8 +1609,7 @@ class Parser(nn.Module):
             loss /= wordchars.size(0)
         else:
             loss = 0
-            preds.append(F.log_softmax(unlabeled_scores, 2).detach().cpu().
-                numpy())
+            preds.append(F.log_softmax(unlabeled_scores, 2).detach().cpu().numpy())
             preds.append(deprel_scores.max(3)[1].detach().cpu().numpy())
         return loss, preds
 
@@ -1807,8 +1630,7 @@ class NERTagger(nn.Module):
             setattr(self, name, module)
         input_size = 0
         if self.args['word_emb_dim'] > 0:
-            self.word_emb = nn.Embedding(len(self.vocab['word']), self.args
-                ['word_emb_dim'], PAD_ID)
+            self.word_emb = nn.Embedding(len(self.vocab['word']), self.args['word_emb_dim'], PAD_ID)
             if emb_matrix is not None:
                 self.init_emb(emb_matrix)
             if not self.args.get('emb_finetune', True):
@@ -1816,29 +1638,19 @@ class NERTagger(nn.Module):
             input_size += self.args['word_emb_dim']
         if self.args['char'] and self.args['char_emb_dim'] > 0:
             if self.args['charlm']:
-                add_unsaved_module('charmodel_forward',
-                    CharacterLanguageModel.load(args['charlm_forward_file'],
-                    finetune=False))
-                add_unsaved_module('charmodel_backward',
-                    CharacterLanguageModel.load(args['charlm_backward_file'
-                    ], finetune=False))
+                add_unsaved_module('charmodel_forward', CharacterLanguageModel.load(args['charlm_forward_file'], finetune=False))
+                add_unsaved_module('charmodel_backward', CharacterLanguageModel.load(args['charlm_backward_file'], finetune=False))
             else:
-                self.charmodel = CharacterModel(args, vocab, bidirectional=
-                    True, attention=False)
+                self.charmodel = CharacterModel(args, vocab, bidirectional=True, attention=False)
             input_size += self.args['char_hidden_dim'] * 2
         if self.args.get('input_transform', False):
             self.input_transform = nn.Linear(input_size, input_size)
         else:
             self.input_transform = None
-        self.taggerlstm = PackedLSTM(input_size, self.args['hidden_dim'],
-            self.args['num_layers'], batch_first=True, bidirectional=True,
-            dropout=0 if self.args['num_layers'] == 1 else self.args['dropout']
-            )
+        self.taggerlstm = PackedLSTM(input_size, self.args['hidden_dim'], self.args['num_layers'], batch_first=True, bidirectional=True, dropout=0 if self.args['num_layers'] == 1 else self.args['dropout'])
         self.drop_replacement = None
-        self.taggerlstm_h_init = nn.Parameter(torch.zeros(2 * self.args[
-            'num_layers'], 1, self.args['hidden_dim']), requires_grad=False)
-        self.taggerlstm_c_init = nn.Parameter(torch.zeros(2 * self.args[
-            'num_layers'], 1, self.args['hidden_dim']), requires_grad=False)
+        self.taggerlstm_h_init = nn.Parameter(torch.zeros(2 * self.args['num_layers'], 1, self.args['hidden_dim']), requires_grad=False)
+        self.taggerlstm_c_init = nn.Parameter(torch.zeros(2 * self.args['num_layers'], 1, self.args['hidden_dim']), requires_grad=False)
         num_tag = len(self.vocab['tag'])
         self.tag_clf = nn.Linear(self.args['hidden_dim'] * 2, num_tag)
         self.tag_clf.bias.data.zero_()
@@ -1852,14 +1664,10 @@ class NERTagger(nn.Module):
             emb_matrix = torch.from_numpy(emb_matrix)
         vocab_size = len(self.vocab['word'])
         dim = self.args['word_emb_dim']
-        assert emb_matrix.size() == (vocab_size, dim
-            ), 'Input embedding matrix must match size: {} x {}'.format(
-            vocab_size, dim)
+        assert emb_matrix.size() == (vocab_size, dim), 'Input embedding matrix must match size: {} x {}'.format(vocab_size, dim)
         self.word_emb.weight.data.copy_(emb_matrix)
 
-    def forward(self, word, word_mask, wordchars, wordchars_mask, tags,
-        word_orig_idx, sentlens, wordlens, chars, charoffsets, charlens,
-        char_orig_idx):
+    def forward(self, word, word_mask, wordchars, wordchars_mask, tags, word_orig_idx, sentlens, wordlens, chars, charoffsets, charlens, char_orig_idx):
 
         def pack(x):
             return pack_padded_sequence(x, sentlens, batch_first=True)
@@ -1870,25 +1678,17 @@ class NERTagger(nn.Module):
             inputs += [word_emb]
 
         def pad(x):
-            return pad_packed_sequence(PackedSequence(x, word_emb.
-                batch_sizes), batch_first=True)[0]
+            return pad_packed_sequence(PackedSequence(x, word_emb.batch_sizes), batch_first=True)[0]
         if self.args['char'] and self.args['char_emb_dim'] > 0:
             if self.args.get('charlm', None):
-                char_reps_forward = self.charmodel_forward.get_representation(
-                    chars[0], charoffsets[0], charlens, char_orig_idx)
-                char_reps_forward = PackedSequence(char_reps_forward.data,
-                    char_reps_forward.batch_sizes)
-                char_reps_backward = (self.charmodel_backward.
-                    get_representation(chars[1], charoffsets[1], charlens,
-                    char_orig_idx))
-                char_reps_backward = PackedSequence(char_reps_backward.data,
-                    char_reps_backward.batch_sizes)
+                char_reps_forward = self.charmodel_forward.get_representation(chars[0], charoffsets[0], charlens, char_orig_idx)
+                char_reps_forward = PackedSequence(char_reps_forward.data, char_reps_forward.batch_sizes)
+                char_reps_backward = self.charmodel_backward.get_representation(chars[1], charoffsets[1], charlens, char_orig_idx)
+                char_reps_backward = PackedSequence(char_reps_backward.data, char_reps_backward.batch_sizes)
                 inputs += [char_reps_forward, char_reps_backward]
             else:
-                char_reps = self.charmodel(wordchars, wordchars_mask,
-                    word_orig_idx, sentlens, wordlens)
-                char_reps = PackedSequence(char_reps.data, char_reps.
-                    batch_sizes)
+                char_reps = self.charmodel(wordchars, wordchars_mask, word_orig_idx, sentlens, wordlens)
+                char_reps = PackedSequence(char_reps.data, char_reps.batch_sizes)
                 inputs += [char_reps]
         lstm_inputs = torch.cat([x.data for x in inputs], 1)
         if self.args['word_dropout'] > 0:
@@ -1900,11 +1700,7 @@ class NERTagger(nn.Module):
         if self.input_transform:
             lstm_inputs = self.input_transform(lstm_inputs)
         lstm_inputs = PackedSequence(lstm_inputs, inputs[0].batch_sizes)
-        lstm_outputs, _ = self.taggerlstm(lstm_inputs, sentlens, hx=(self.
-            taggerlstm_h_init.expand(2 * self.args['num_layers'], word.size
-            (0), self.args['hidden_dim']).contiguous(), self.
-            taggerlstm_c_init.expand(2 * self.args['num_layers'], word.size
-            (0), self.args['hidden_dim']).contiguous()))
+        lstm_outputs, _ = self.taggerlstm(lstm_inputs, sentlens, hx=(self.taggerlstm_h_init.expand(2 * self.args['num_layers'], word.size(0), self.args['hidden_dim']).contiguous(), self.taggerlstm_c_init.expand(2 * self.args['num_layers'], word.size(0), self.args['hidden_dim']).contiguous()))
         lstm_outputs = lstm_outputs.data
         lstm_outputs = self.drop(lstm_outputs)
         lstm_outputs = pad(lstm_outputs)
@@ -1929,78 +1725,54 @@ class Tagger(nn.Module):
             setattr(self, name, module)
         input_size = 0
         if self.args['word_emb_dim'] > 0:
-            self.word_emb = nn.Embedding(len(vocab['word']), self.args[
-                'word_emb_dim'], padding_idx=0)
+            self.word_emb = nn.Embedding(len(vocab['word']), self.args['word_emb_dim'], padding_idx=0)
             input_size += self.args['word_emb_dim']
         if not share_hid:
-            self.upos_emb = nn.Embedding(len(vocab['upos']), self.args[
-                'tag_emb_dim'], padding_idx=0)
+            self.upos_emb = nn.Embedding(len(vocab['upos']), self.args['tag_emb_dim'], padding_idx=0)
         if self.args['char'] and self.args['char_emb_dim'] > 0:
             self.charmodel = CharacterModel(args, vocab)
-            self.trans_char = nn.Linear(self.args['char_hidden_dim'], self.
-                args['transformed_dim'], bias=False)
+            self.trans_char = nn.Linear(self.args['char_hidden_dim'], self.args['transformed_dim'], bias=False)
             input_size += self.args['transformed_dim']
         if self.args['pretrain']:
-            add_unsaved_module('pretrained_emb', nn.Embedding.
-                from_pretrained(torch.from_numpy(emb_matrix), freeze=True))
-            self.trans_pretrained = nn.Linear(emb_matrix.shape[1], self.
-                args['transformed_dim'], bias=False)
+            add_unsaved_module('pretrained_emb', nn.Embedding.from_pretrained(torch.from_numpy(emb_matrix), freeze=True))
+            self.trans_pretrained = nn.Linear(emb_matrix.shape[1], self.args['transformed_dim'], bias=False)
             input_size += self.args['transformed_dim']
-        self.taggerlstm = HighwayLSTM(input_size, self.args['hidden_dim'],
-            self.args['num_layers'], batch_first=True, bidirectional=True,
-            dropout=self.args['dropout'], rec_dropout=self.args[
-            'rec_dropout'], highway_func=torch.tanh)
-        self.drop_replacement = nn.Parameter(torch.randn(input_size) / np.
-            sqrt(input_size))
-        self.taggerlstm_h_init = nn.Parameter(torch.zeros(2 * self.args[
-            'num_layers'], 1, self.args['hidden_dim']))
-        self.taggerlstm_c_init = nn.Parameter(torch.zeros(2 * self.args[
-            'num_layers'], 1, self.args['hidden_dim']))
-        self.upos_hid = nn.Linear(self.args['hidden_dim'] * 2, self.args[
-            'deep_biaff_hidden_dim'])
-        self.upos_clf = nn.Linear(self.args['deep_biaff_hidden_dim'], len(
-            vocab['upos']))
+        self.taggerlstm = HighwayLSTM(input_size, self.args['hidden_dim'], self.args['num_layers'], batch_first=True, bidirectional=True, dropout=self.args['dropout'], rec_dropout=self.args['rec_dropout'], highway_func=torch.tanh)
+        self.drop_replacement = nn.Parameter(torch.randn(input_size) / np.sqrt(input_size))
+        self.taggerlstm_h_init = nn.Parameter(torch.zeros(2 * self.args['num_layers'], 1, self.args['hidden_dim']))
+        self.taggerlstm_c_init = nn.Parameter(torch.zeros(2 * self.args['num_layers'], 1, self.args['hidden_dim']))
+        self.upos_hid = nn.Linear(self.args['hidden_dim'] * 2, self.args['deep_biaff_hidden_dim'])
+        self.upos_clf = nn.Linear(self.args['deep_biaff_hidden_dim'], len(vocab['upos']))
         self.upos_clf.weight.data.zero_()
         self.upos_clf.bias.data.zero_()
         if share_hid:
-            clf_constructor = lambda insize, outsize: nn.Linear(insize, outsize
-                )
+            clf_constructor = lambda insize, outsize: nn.Linear(insize, outsize)
         else:
-            self.xpos_hid = nn.Linear(self.args['hidden_dim'] * 2, self.
-                args['deep_biaff_hidden_dim'] if not isinstance(vocab[
-                'xpos'], CompositeVocab) else self.args[
-                'composite_deep_biaff_hidden_dim'])
-            self.ufeats_hid = nn.Linear(self.args['hidden_dim'] * 2, self.
-                args['composite_deep_biaff_hidden_dim'])
-            clf_constructor = lambda insize, outsize: BiaffineScorer(insize,
-                self.args['tag_emb_dim'], outsize)
+            self.xpos_hid = nn.Linear(self.args['hidden_dim'] * 2, self.args['deep_biaff_hidden_dim'] if not isinstance(vocab['xpos'], CompositeVocab) else self.args['composite_deep_biaff_hidden_dim'])
+            self.ufeats_hid = nn.Linear(self.args['hidden_dim'] * 2, self.args['composite_deep_biaff_hidden_dim'])
+            clf_constructor = lambda insize, outsize: BiaffineScorer(insize, self.args['tag_emb_dim'], outsize)
         if isinstance(vocab['xpos'], CompositeVocab):
             self.xpos_clf = nn.ModuleList()
             for l in vocab['xpos'].lens():
-                self.xpos_clf.append(clf_constructor(self.args[
-                    'composite_deep_biaff_hidden_dim'], l))
+                self.xpos_clf.append(clf_constructor(self.args['composite_deep_biaff_hidden_dim'], l))
         else:
-            self.xpos_clf = clf_constructor(self.args[
-                'deep_biaff_hidden_dim'], len(vocab['xpos']))
+            self.xpos_clf = clf_constructor(self.args['deep_biaff_hidden_dim'], len(vocab['xpos']))
             if share_hid:
                 self.xpos_clf.weight.data.zero_()
                 self.xpos_clf.bias.data.zero_()
         self.ufeats_clf = nn.ModuleList()
         for l in vocab['feats'].lens():
             if share_hid:
-                self.ufeats_clf.append(clf_constructor(self.args[
-                    'deep_biaff_hidden_dim'], l))
+                self.ufeats_clf.append(clf_constructor(self.args['deep_biaff_hidden_dim'], l))
                 self.ufeats_clf[-1].weight.data.zero_()
                 self.ufeats_clf[-1].bias.data.zero_()
             else:
-                self.ufeats_clf.append(clf_constructor(self.args[
-                    'composite_deep_biaff_hidden_dim'], l))
+                self.ufeats_clf.append(clf_constructor(self.args['composite_deep_biaff_hidden_dim'], l))
         self.crit = nn.CrossEntropyLoss(ignore_index=0)
         self.drop = nn.Dropout(args['dropout'])
         self.worddrop = WordDropout(args['word_dropout'])
 
-    def forward(self, word, word_mask, wordchars, wordchars_mask, upos,
-        xpos, ufeats, pretrained, word_orig_idx, sentlens, wordlens):
+    def forward(self, word, word_mask, wordchars, wordchars_mask, upos, xpos, ufeats, pretrained, word_orig_idx, sentlens, wordlens):
 
         def pack(x):
             return pack_padded_sequence(x, sentlens, batch_first=True)
@@ -2016,23 +1788,16 @@ class Tagger(nn.Module):
             inputs += [pretrained_emb]
 
         def pad(x):
-            return pad_packed_sequence(PackedSequence(x, word_emb.
-                batch_sizes), batch_first=True)[0]
+            return pad_packed_sequence(PackedSequence(x, word_emb.batch_sizes), batch_first=True)[0]
         if self.args['char'] and self.args['char_emb_dim'] > 0:
-            char_reps = self.charmodel(wordchars, wordchars_mask,
-                word_orig_idx, sentlens, wordlens)
-            char_reps = PackedSequence(self.trans_char(self.drop(char_reps.
-                data)), char_reps.batch_sizes)
+            char_reps = self.charmodel(wordchars, wordchars_mask, word_orig_idx, sentlens, wordlens)
+            char_reps = PackedSequence(self.trans_char(self.drop(char_reps.data)), char_reps.batch_sizes)
             inputs += [char_reps]
         lstm_inputs = torch.cat([x.data for x in inputs], 1)
         lstm_inputs = self.worddrop(lstm_inputs, self.drop_replacement)
         lstm_inputs = self.drop(lstm_inputs)
         lstm_inputs = PackedSequence(lstm_inputs, inputs[0].batch_sizes)
-        lstm_outputs, _ = self.taggerlstm(lstm_inputs, sentlens, hx=(self.
-            taggerlstm_h_init.expand(2 * self.args['num_layers'], word.size
-            (0), self.args['hidden_dim']).contiguous(), self.
-            taggerlstm_c_init.expand(2 * self.args['num_layers'], word.size
-            (0), self.args['hidden_dim']).contiguous()))
+        lstm_outputs, _ = self.taggerlstm(lstm_inputs, sentlens, hx=(self.taggerlstm_h_init.expand(2 * self.args['num_layers'], word.size(0), self.args['hidden_dim']).contiguous(), self.taggerlstm_c_init.expand(2 * self.args['num_layers'], word.size(0), self.args['hidden_dim']).contiguous()))
         lstm_outputs = lstm_outputs.data
         upos_hid = F.relu(self.upos_hid(self.drop(lstm_outputs)))
         upos_pred = self.upos_clf(self.drop(upos_hid))
@@ -2056,21 +1821,18 @@ class Tagger(nn.Module):
             xpos_preds = []
             for i in range(len(self.vocab['xpos'])):
                 xpos_pred = clffunc(self.xpos_clf[i], xpos_hid)
-                loss += self.crit(xpos_pred.view(-1, xpos_pred.size(-1)),
-                    xpos[:, (i)].view(-1))
+                loss += self.crit(xpos_pred.view(-1, xpos_pred.size(-1)), xpos[:, (i)].view(-1))
                 xpos_preds.append(pad(xpos_pred).max(2, keepdim=True)[1])
             preds.append(torch.cat(xpos_preds, 2))
         else:
             xpos_pred = clffunc(self.xpos_clf, xpos_hid)
-            loss += self.crit(xpos_pred.view(-1, xpos_pred.size(-1)), xpos.
-                view(-1))
+            loss += self.crit(xpos_pred.view(-1, xpos_pred.size(-1)), xpos.view(-1))
             preds.append(pad(xpos_pred).max(2)[1])
         ufeats_preds = []
         ufeats = pack(ufeats).data
         for i in range(len(self.vocab['feats'])):
             ufeats_pred = clffunc(self.ufeats_clf[i], ufeats_hid)
-            loss += self.crit(ufeats_pred.view(-1, ufeats_pred.size(-1)),
-                ufeats[:, (i)].view(-1))
+            loss += self.crit(ufeats_pred.view(-1, ufeats_pred.size(-1)), ufeats[:, (i)].view(-1))
             ufeats_preds.append(pad(ufeats_pred).max(2, keepdim=True)[1])
         preds.append(torch.cat(ufeats_preds, 2))
         return loss, preds
@@ -2078,34 +1840,26 @@ class Tagger(nn.Module):
 
 class Tokenizer(nn.Module):
 
-    def __init__(self, args, nchars, emb_dim, hidden_dim, N_CLASSES=5,
-        dropout=0):
+    def __init__(self, args, nchars, emb_dim, hidden_dim, N_CLASSES=5, dropout=0):
         super().__init__()
         self.args = args
         feat_dim = args['feat_dim']
         self.embeddings = nn.Embedding(nchars, emb_dim, padding_idx=0)
-        self.rnn = nn.LSTM(emb_dim + feat_dim, hidden_dim, num_layers=self.
-            args['rnn_layers'], bidirectional=True, batch_first=True,
-            dropout=dropout if self.args['rnn_layers'] > 1 else 0)
+        self.rnn = nn.LSTM(emb_dim + feat_dim, hidden_dim, num_layers=self.args['rnn_layers'], bidirectional=True, batch_first=True, dropout=dropout if self.args['rnn_layers'] > 1 else 0)
         if self.args['conv_res'] is not None:
             self.conv_res = nn.ModuleList()
-            self.conv_sizes = [int(x) for x in self.args['conv_res'].split(',')
-                ]
+            self.conv_sizes = [int(x) for x in self.args['conv_res'].split(',')]
             for si, size in enumerate(self.conv_sizes):
-                l = nn.Conv1d(emb_dim + feat_dim, hidden_dim * 2, size,
-                    padding=size // 2, bias=self.args.get('hier_conv_res', 
-                    False) or si == 0)
+                l = nn.Conv1d(emb_dim + feat_dim, hidden_dim * 2, size, padding=size // 2, bias=self.args.get('hier_conv_res', False) or si == 0)
                 self.conv_res.append(l)
             if self.args.get('hier_conv_res', False):
-                self.conv_res2 = nn.Conv1d(hidden_dim * 2 * len(self.
-                    conv_sizes), hidden_dim * 2, 1)
+                self.conv_res2 = nn.Conv1d(hidden_dim * 2 * len(self.conv_sizes), hidden_dim * 2, 1)
         self.tok_clf = nn.Linear(hidden_dim * 2, 1)
         self.sent_clf = nn.Linear(hidden_dim * 2, 1)
         self.mwt_clf = nn.Linear(hidden_dim * 2, 1)
         if args['hierarchical']:
             in_dim = hidden_dim * 2
-            self.rnn2 = nn.LSTM(in_dim, hidden_dim, num_layers=1,
-                bidirectional=True, batch_first=True)
+            self.rnn2 = nn.LSTM(in_dim, hidden_dim, num_layers=1, bidirectional=True, batch_first=True)
             self.tok_clf2 = nn.Linear(hidden_dim * 2, 1, bias=False)
             self.sent_clf2 = nn.Linear(hidden_dim * 2, 1, bias=False)
             self.mwt_clf2 = nn.Linear(hidden_dim * 2, 1, bias=False)
@@ -2136,8 +1890,7 @@ class Tokenizer(nn.Module):
         mwt0 = self.mwt_clf(inp)
         if self.args['hierarchical']:
             if self.args['hier_invtemp'] > 0:
-                inp2, _ = self.rnn2(inp * (1 - self.toknoise(torch.sigmoid(
-                    -tok0 * self.args['hier_invtemp']))))
+                inp2, _ = self.rnn2(inp * (1 - self.toknoise(torch.sigmoid(-tok0 * self.args['hier_invtemp']))))
             else:
                 inp2, _ = self.rnn2(inp)
             inp2 = self.dropout(inp2)
@@ -2150,8 +1903,7 @@ class Tokenizer(nn.Module):
         sent = F.logsigmoid(sent0)
         nonmwt = F.logsigmoid(-mwt0)
         mwt = F.logsigmoid(mwt0)
-        pred = torch.cat([nontok, tok + nonsent + nonmwt, tok + sent +
-            nonmwt, tok + nonsent + mwt, tok + sent + mwt], 2)
+        pred = torch.cat([nontok, tok + nonsent + nonmwt, tok + sent + nonmwt, tok + nonsent + mwt, tok + sent + mwt], 2)
         return pred
 
 
@@ -2159,40 +1911,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiaffineScorer,
+     lambda: ([], {'input1_size': 4, 'input2_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DeepBiaffineScorer,
+     lambda: ([], {'input1_size': 4, 'input2_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (HighwayLSTM,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (LockedDropout,
+     lambda: ([], {'dropprob': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PackedLSTM,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (PairwiseBiaffineScorer,
+     lambda: ([], {'input1_size': 4, 'input2_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (PairwiseBilinear,
+     lambda: ([], {'input1_size': 4, 'input2_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (SequenceUnitDropout,
+     lambda: ([], {'dropprob': 4, 'replacement_id': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WordDropout,
+     lambda: ([], {'dropprob': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_stanfordnlp_stanza(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DeepBiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(HighwayLSTM(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LockedDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(PackedLSTM(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(PairwiseBiaffineScorer(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(PairwiseBilinear(*[], **{'input1_size': 4, 'input2_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(SequenceUnitDropout(*[], **{'dropprob': 4, 'replacement_id': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(WordDropout(*[], **{'dropprob': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,10 +71,8 @@ def log_sum_exp(vec, m_size):
         size=(batch_size, hidden_dim)
     """
     _, idx = torch.max(vec, 1)
-    max_score = torch.gather(vec, 1, idx.view(-1, 1, m_size)).view(-1, 1,
-        m_size)
-    return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec -
-        max_score.expand_as(vec)), 1)).view(-1, m_size)
+    max_score = torch.gather(vec, 1, idx.view(-1, 1, m_size)).view(-1, 1, m_size)
+    return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec - max_score.expand_as(vec)), 1)).view(-1, m_size)
 
 
 class CRF(nn.Module):
@@ -93,8 +92,7 @@ class CRF(nn.Module):
         if not hasattr(self, 'use_cuda'):
             self.__setattr__('use_cuda', True)
         self.START_TAG_IDX, self.END_TAG_IDX = -2, -1
-        init_transitions = torch.zeros(self.target_size + 2, self.
-            target_size + 2)
+        init_transitions = torch.zeros(self.target_size + 2, self.target_size + 2)
         init_transitions[:, (self.START_TAG_IDX)] = -1000.0
         init_transitions[(self.END_TAG_IDX), :] = -1000.0
         if self.use_cuda:
@@ -117,31 +115,24 @@ class CRF(nn.Module):
         tag_size = feats.size(-1)
         mask = mask.transpose(1, 0).contiguous()
         ins_num = batch_size * seq_len
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         try:
             _, inivalues = seq_iter.__next__()
         except:
             _, inivalues = seq_iter.next()
-        partition = inivalues[:, (self.START_TAG_IDX), :].clone().view(
-            batch_size, tag_size, 1)
+        partition = inivalues[:, (self.START_TAG_IDX), :].clone().view(batch_size, tag_size, 1)
         for idx, cur_values in seq_iter:
-            cur_values = cur_values + partition.contiguous().view(batch_size,
-                tag_size, 1).expand(batch_size, tag_size, tag_size)
+            cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             cur_partition = log_sum_exp(cur_values, tag_size)
-            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size,
-                tag_size)
+            mask_idx = mask[(idx), :].view(batch_size, 1).expand(batch_size, tag_size)
             masked_cur_partition = cur_partition.masked_select(mask_idx)
             if masked_cur_partition.dim() != 0:
                 mask_idx = mask_idx.contiguous().view(batch_size, tag_size, 1)
                 partition.masked_scatter_(mask_idx, masked_cur_partition)
-        cur_values = self.transitions.view(1, tag_size, tag_size).expand(
-            batch_size, tag_size, tag_size) + partition.contiguous().view(
-            batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
+        cur_values = self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size) + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
         cur_partition = log_sum_exp(cur_values, tag_size)
         final_partition = cur_partition[:, (self.END_TAG_IDX)]
         return final_partition.sum(), scores
@@ -162,10 +153,8 @@ class CRF(nn.Module):
         length_mask = torch.sum(mask, dim=1).view(batch_size, 1).long()
         mask = mask.transpose(1, 0).contiguous()
         ins_num = seq_len * batch_size
-        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size
-            ).expand(ins_num, tag_size, tag_size)
-        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(
-            ins_num, tag_size, tag_size)
+        feats = feats.transpose(1, 0).contiguous().view(ins_num, 1, tag_size).expand(ins_num, tag_size, tag_size)
+        scores = feats + self.transitions.view(1, tag_size, tag_size).expand(ins_num, tag_size, tag_size)
         scores = scores.view(seq_len, batch_size, tag_size, tag_size)
         seq_iter = enumerate(scores)
         back_points = list()
@@ -175,36 +164,26 @@ class CRF(nn.Module):
             _, inivalues = seq_iter.__next__()
         except:
             _, inivalues = seq_iter.next()
-        partition = inivalues[:, (self.START_TAG_IDX), :].clone().view(
-            batch_size, tag_size, 1)
+        partition = inivalues[:, (self.START_TAG_IDX), :].clone().view(batch_size, tag_size, 1)
         partition_history.append(partition)
         for idx, cur_values in seq_iter:
-            cur_values = cur_values + partition.contiguous().view(batch_size,
-                tag_size, 1).expand(batch_size, tag_size, tag_size)
+            cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
             partition, cur_bp = torch.max(cur_values, 1)
             partition_history.append(partition.unsqueeze(-1))
-            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(
-                batch_size, tag_size), 0)
+            cur_bp.masked_fill_(mask[idx].view(batch_size, 1).expand(batch_size, tag_size), 0)
             back_points.append(cur_bp)
-        partition_history = torch.cat(partition_history).view(seq_len,
-            batch_size, -1).transpose(1, 0).contiguous()
-        last_position = length_mask.view(batch_size, 1, 1).expand(batch_size,
-            1, tag_size) - 1
-        last_partition = torch.gather(partition_history, 1, last_position
-            ).view(batch_size, tag_size, 1)
-        last_values = last_partition.expand(batch_size, tag_size, tag_size
-            ) + self.transitions.view(1, tag_size, tag_size).expand(batch_size,
-            tag_size, tag_size)
+        partition_history = torch.cat(partition_history).view(seq_len, batch_size, -1).transpose(1, 0).contiguous()
+        last_position = length_mask.view(batch_size, 1, 1).expand(batch_size, 1, tag_size) - 1
+        last_partition = torch.gather(partition_history, 1, last_position).view(batch_size, tag_size, 1)
+        last_values = last_partition.expand(batch_size, tag_size, tag_size) + self.transitions.view(1, tag_size, tag_size).expand(batch_size, tag_size, tag_size)
         _, last_bp = torch.max(last_values, 1)
         pad_zero = Variable(torch.zeros(batch_size, tag_size)).long()
         if self.use_cuda:
             pad_zero = pad_zero
         back_points.append(pad_zero)
-        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size
-            )
+        back_points = torch.cat(back_points).view(seq_len, batch_size, tag_size)
         pointer = last_bp[:, (self.END_TAG_IDX)]
-        insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(
-            batch_size, 1, tag_size)
+        insert_last = pointer.contiguous().view(batch_size, 1, 1).expand(batch_size, 1, tag_size)
         back_points = back_points.transpose(1, 0).contiguous()
         back_points.scatter_(1, last_position, insert_last)
         back_points = back_points.transpose(1, 0).contiguous()
@@ -213,8 +192,7 @@ class CRF(nn.Module):
             decode_idx = decode_idx
         decode_idx[-1] = pointer.data
         for idx in range(len(back_points) - 2, -1, -1):
-            pointer = torch.gather(back_points[idx], 1, pointer.contiguous(
-                ).view(batch_size, 1))
+            pointer = torch.gather(back_points[idx], 1, pointer.contiguous().view(batch_size, 1))
             decode_idx[idx] = pointer.view(-1).data
         path_score = None
         decode_idx = decode_idx.transpose(1, 0)
@@ -244,17 +222,13 @@ class CRF(nn.Module):
             if idx == 0:
                 new_tags[:, (0)] = (tag_size - 2) * tag_size + tags[:, (0)]
             else:
-                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:,
-                    (idx)]
-        end_transition = self.transitions[:, (self.END_TAG_IDX)].contiguous(
-            ).view(1, tag_size).expand(batch_size, tag_size)
+                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:, (idx)]
+        end_transition = self.transitions[:, (self.END_TAG_IDX)].contiguous().view(1, tag_size).expand(batch_size, tag_size)
         length_mask = torch.sum(mask, dim=1).view(batch_size, 1).long()
         end_ids = torch.gather(tags, 1, length_mask - 1)
         end_energy = torch.gather(end_transition, 1, end_ids)
-        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len,
-            batch_size, 1)
-        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2,
-            new_tags).view(seq_len, batch_size)
+        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len, batch_size, 1)
+        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2, new_tags).view(seq_len, batch_size)
         tg_energy = tg_energy.masked_select(mask.transpose(1, 0))
         gold_score = tg_energy.sum() + end_energy.sum()
         return gold_score
@@ -301,8 +275,7 @@ class CharFeature(nn.Module):
         init_embedding(self.char_embedding.weight)
         self.char_encoders = nn.ModuleList()
         for i, filter_size in enumerate(self.filter_sizes):
-            f = nn.Conv3d(in_channels=1, out_channels=self.filter_nums[i],
-                kernel_size=(1, filter_size, self.feature_dim))
+            f = nn.Conv3d(in_channels=1, out_channels=self.filter_nums[i], kernel_size=(1, filter_size, self.feature_dim))
             self.char_encoders.append(f)
 
     def forward(self, inputs):
@@ -316,8 +289,7 @@ class CharFeature(nn.Module):
         max_len, max_len_char = inputs.size(1), inputs.size(2)
         inputs = inputs.view(-1, max_len * max_len_char)
         input_embed = self.char_embedding(inputs)
-        input_embed = input_embed.view(-1, 1, max_len, max_len_char, self.
-            feature_dim)
+        input_embed = input_embed.view(-1, 1, max_len, max_len_char, self.feature_dim)
         char_conv_outputs = []
         for char_encoder in self.char_encoders:
             conv_output = char_encoder(input_embed)
@@ -359,11 +331,9 @@ class WordFeature(nn.Module):
                 self.pretrained_embed_dict[feature_name] = None
         self.feature_embedding_list = nn.ModuleList()
         for feature_name in self.feature_names:
-            embed = nn.Embedding(self.feature_size_dict[feature_name], self
-                .feature_dim_dict[feature_name])
+            embed = nn.Embedding(self.feature_size_dict[feature_name], self.feature_dim_dict[feature_name])
             if self.pretrained_embed_dict[feature_name] is not None:
-                embed.weight.data.copy_(torch.from_numpy(self.
-                    pretrained_embed_dict[feature_name]))
+                embed.weight.data.copy_(torch.from_numpy(self.pretrained_embed_dict[feature_name]))
             else:
                 init_embedding(embed.weight)
             embed.weight.requires_grad = self.require_grad_dict[feature_name]
@@ -379,8 +349,7 @@ class WordFeature(nn.Module):
         """
         embed_outputs = []
         for i, feature_name in enumerate(self.feature_names):
-            embed_outputs.append(self.feature_embedding_list[i](input_dict[
-                feature_name]))
+            embed_outputs.append(self.feature_embedding_list[i](input_dict[feature_name]))
         embed_outputs = torch.cat(embed_outputs, dim=2)
         return embed_outputs
 
@@ -402,14 +371,11 @@ class RNN(nn.Module):
         if not hasattr(self, 'bi_flag'):
             self.__setattr__('bi_flag', True)
         if self.rnn_unit_type == 'rnn':
-            self.rnn = nn.RNN(self.input_dim, self.num_rnn_units, self.
-                num_layers, bidirectional=self.bi_flag)
+            self.rnn = nn.RNN(self.input_dim, self.num_rnn_units, self.num_layers, bidirectional=self.bi_flag)
         elif self.rnn_unit_type == 'lstm':
-            self.rnn = nn.LSTM(self.input_dim, self.num_rnn_units, self.
-                num_layers, bidirectional=self.bi_flag)
+            self.rnn = nn.LSTM(self.input_dim, self.num_rnn_units, self.num_layers, bidirectional=self.bi_flag)
         elif self.rnn_unit_type == 'gru':
-            self.rnn = nn.GRU(self.input_dim, self.num_rnn_units, self.
-                num_layers, bidirectional=self.bi_flag)
+            self.rnn = nn.GRU(self.input_dim, self.num_rnn_units, self.num_layers, bidirectional=self.bi_flag)
 
     def forward(self, feats):
         """
@@ -456,40 +422,26 @@ class SLModel(nn.Module):
         super(SLModel, self).__init__()
         for k in kwargs:
             self.__setattr__(k, kwargs[k])
-        self.word_feature_layer = WordFeature(feature_names=self.
-            feature_names, feature_size_dict=self.feature_size_dict,
-            feature_dim_dict=self.feature_dim_dict, require_grad_dict=self.
-            require_grad_dict, pretrained_embed_dict=self.pretrained_embed_dict
-            )
+        self.word_feature_layer = WordFeature(feature_names=self.feature_names, feature_size_dict=self.feature_size_dict, feature_dim_dict=self.feature_dim_dict, require_grad_dict=self.require_grad_dict, pretrained_embed_dict=self.pretrained_embed_dict)
         rnn_input_dim = 0
         for name in self.feature_names:
             rnn_input_dim += self.feature_dim_dict[name]
         if self.use_char:
-            self.char_feature_layer = CharFeature(feature_size=self.
-                feature_size_dict['char'], feature_dim=self.
-                feature_dim_dict['char'], require_grad=self.
-                require_grad_dict['char'], filter_sizes=self.filter_sizes,
-                filter_nums=self.filter_nums)
+            self.char_feature_layer = CharFeature(feature_size=self.feature_size_dict['char'], feature_dim=self.feature_dim_dict['char'], require_grad=self.require_grad_dict['char'], filter_sizes=self.filter_sizes, filter_nums=self.filter_nums)
             rnn_input_dim += sum(self.filter_nums)
         self.dropout_feature = nn.Dropout(self.dropout_rate)
-        self.rnn_layer = RNN(rnn_unit_type=self.rnn_unit_type, input_dim=
-            rnn_input_dim, num_rnn_units=self.num_rnn_units, num_layers=
-            self.num_layers, bi_flag=self.bi_flag)
+        self.rnn_layer = RNN(rnn_unit_type=self.rnn_unit_type, input_dim=rnn_input_dim, num_rnn_units=self.num_rnn_units, num_layers=self.num_layers, bi_flag=self.bi_flag)
         self.dropout_rnn = nn.Dropout(self.dropout_rate)
         self.target_size = self.feature_size_dict['label']
-        args_crf = dict({'target_size': self.target_size, 'use_cuda': self.
-            use_cuda})
+        args_crf = dict({'target_size': self.target_size, 'use_cuda': self.use_cuda})
         args_crf['average_batch'] = self.average_batch
         if self.use_crf:
             self.crf_layer = CRF(**args_crf)
-        hidden_input_dim = (self.num_rnn_units * 2 if self.bi_flag else
-            self.num_rnn_units)
-        target_size = (self.target_size + 2 if self.use_crf else self.
-            target_size)
+        hidden_input_dim = self.num_rnn_units * 2 if self.bi_flag else self.num_rnn_units
+        target_size = self.target_size + 2 if self.use_crf else self.target_size
         self.hidden2tag = nn.Linear(hidden_input_dim, target_size)
         if not self.use_crf:
-            self.loss_function = nn.CrossEntropyLoss(ignore_index=0,
-                size_average=False)
+            self.loss_function = nn.CrossEntropyLoss(ignore_index=0, size_average=False)
         else:
             self.loss_function = self.crf_layer.neg_log_likelihood_loss
 
@@ -530,8 +482,7 @@ class SLModel(nn.Module):
         word_feature = torch.transpose(word_feature, 1, 0)
         rnn_outputs = self.rnn_layer(word_feature)
         rnn_outputs = rnn_outputs.transpose(1, 0).contiguous()
-        rnn_outputs = self.dropout_rnn(rnn_outputs.view(-1, rnn_outputs.
-            size(-1)))
+        rnn_outputs = self.dropout_rnn(rnn_outputs.view(-1, rnn_outputs.size(-1)))
         rnn_feats = self.hidden2tag(rnn_outputs)
         return rnn_feats.view(batch_size, max_len, -1)
 
@@ -541,19 +492,10 @@ class SLModel(nn.Module):
         if not self.use_crf:
             _, arg_max = torch.max(rnn_outputs, dim=2)
             for i in range(batch_size):
-                tags_list.append(arg_max[i].cpu().data.numpy()[:actual_lens
-                    .data[i]])
+                tags_list.append(arg_max[i].cpu().data.numpy()[:actual_lens.data[i]])
         else:
             path_score, best_paths = self.crf_layer(rnn_outputs, mask)
             for i in range(batch_size):
-                tags_list.append(best_paths[i].cpu().data.numpy()[:
-                    actual_lens.data[i]])
+                tags_list.append(best_paths[i].cpu().data.numpy()[:actual_lens.data[i]])
         return tags_list
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_liu_nlper_SLTK(_paritybench_base):
-    pass

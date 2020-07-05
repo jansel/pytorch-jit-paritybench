@@ -202,8 +202,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -399,11 +400,9 @@ class ConvMockUp(torch.nn.Module):
 
 class Conv2D(Seq):
 
-    def __init__(self, in_channels, out_channels, bias=True, bn=True,
-        activation=nn.LeakyReLU(negative_slope=0.01)):
+    def __init__(self, in_channels, out_channels, bias=True, bn=True, activation=nn.LeakyReLU(negative_slope=0.01)):
         super().__init__()
-        self.append(nn.Conv2d(in_channels, out_channels, kernel_size=(1, 1),
-            stride=(1, 1), bias=bias))
+        self.append(nn.Conv2d(in_channels, out_channels, kernel_size=(1, 1), stride=(1, 1), bias=bias))
         if bn:
             self.append(nn.BatchNorm2d(out_channels))
         if activation:
@@ -412,23 +411,19 @@ class Conv2D(Seq):
 
 class MLP2D(Seq):
 
-    def __init__(self, channels, bias=False, bn=True, activation=nn.
-        LeakyReLU(negative_slope=0.01)):
+    def __init__(self, channels, bias=False, bn=True, activation=nn.LeakyReLU(negative_slope=0.01)):
         super().__init__()
         for i in range(len(channels) - 1):
-            self.append(Conv2D(channels[i], channels[i + 1], bn=bn, bias=
-                bias, activation=activation))
+            self.append(Conv2D(channels[i], channels[i + 1], bn=bn, bias=bias, activation=activation))
 
 
 class GlobalDenseBaseModule(torch.nn.Module):
 
-    def __init__(self, nn, aggr='max', bn=True, activation=torch.nn.
-        LeakyReLU(negative_slope=0.01), **kwargs):
+    def __init__(self, nn, aggr='max', bn=True, activation=torch.nn.LeakyReLU(negative_slope=0.01), **kwargs):
         super(GlobalDenseBaseModule, self).__init__()
         self.nn = MLP2D(nn, bn=bn, activation=activation, bias=False)
         if aggr.lower() not in ['mean', 'max']:
-            raise Exception('The aggregation provided is unrecognized {}'.
-                format(aggr))
+            raise Exception('The aggregation provided is unrecognized {}'.format(aggr))
         self._aggr = aggr.lower()
 
     @property
@@ -451,22 +446,17 @@ class GlobalDenseBaseModule(torch.nn.Module):
         elif self._aggr == 'mean':
             x = x.squeeze(-1).mean(-1)
         else:
-            raise NotImplementedError(
-                'The following aggregation {} is not recognized'.format(
-                self._aggr))
+            raise NotImplementedError('The following aggregation {} is not recognized'.format(self._aggr))
         pos = None
         x = x.unsqueeze(-1)
         return Data(x=x, pos=pos)
 
     def __repr__(self):
-        return '{}: {} (aggr={}, {})'.format(self.__class__.__name__, self.
-            nb_params, self._aggr, self.nn)
+        return '{}: {} (aggr={}, {})'.format(self.__class__.__name__, self.nb_params, self._aggr, self.nn)
 
 
 def MLP(channels, activation=nn.LeakyReLU(0.2), bn_momentum=0.1, bias=True):
-    return nn.Sequential(*[nn.Sequential(nn.Linear(channels[i - 1],
-        channels[i], bias=bias), FastBatchNorm1d(channels[i], momentum=
-        bn_momentum), activation) for i in range(1, len(channels))])
+    return nn.Sequential(*[nn.Sequential(nn.Linear(channels[i - 1], channels[i], bias=bias), FastBatchNorm1d(channels[i], momentum=bn_momentum), activation) for i in range(1, len(channels))])
 
 
 def copy_from_to(data, batch):
@@ -615,9 +605,7 @@ class BaseLinearTransformSTNkD(torch.nn.Module):
         return x_transformed.view(len(trans_x), trans_x.shape[1])
 
     def get_orthogonal_regularization_loss(self):
-        loss = torch.mean(torch.norm(torch.bmm(self.trans, self.trans.
-            transpose(2, 1)) - self.identity.view(-1, self.k, self.k), dim=
-            (1, 2)))
+        loss = torch.mean(torch.norm(torch.bmm(self.trans, self.trans.transpose(2, 1)) - self.identity.view(-1, self.k, self.k), dim=(1, 2)))
         return loss
 
 
@@ -625,11 +613,9 @@ _MAX_NEIGHBOURS = 32
 
 
 def _variance_estimator_dense(r, pos, f):
-    nei_idx = tp.ball_query(r, _MAX_NEIGHBOURS, pos, pos, sort=True)[0
-        ].reshape(pos.shape[0], -1).long()
+    nei_idx = tp.ball_query(r, _MAX_NEIGHBOURS, pos, pos, sort=True)[0].reshape(pos.shape[0], -1).long()
     f_neighboors = f.gather(1, nei_idx).reshape(f.shape[0], f.shape[1], -1)
-    gradient = (f.unsqueeze(-1).repeat(1, 1, f_neighboors.shape[-1]) -
-        f_neighboors) ** 2
+    gradient = (f.unsqueeze(-1).repeat(1, 1, f_neighboors.shape[-1]) - f_neighboors) ** 2
     return gradient.sum(-1)
 
 
@@ -640,8 +626,7 @@ def _dirichlet_dense(r, pos, f, aggr):
 
 def _variance_estimator_sparse(r, pos, f, batch_idx):
     with torch.no_grad():
-        assign_index = radius(pos, pos, r, batch_x=batch_idx, batch_y=batch_idx
-            )
+        assign_index = radius(pos, pos, r, batch_x=batch_idx, batch_y=batch_idx)
         y_idx, x_idx = assign_index
         grad_f = (f[x_idx] - f[y_idx]) ** 2
     y = scatter_add(grad_f, y_idx, dim=0, dim_size=pos.size(0))
@@ -687,8 +672,7 @@ class DirichletLoss(torch.nn.Module):
             f -- [N] (or [B,N] for dense format)  Value of a function at each points
             batch_idx -- [N] Batch id of each point (Only for sparse format)
         """
-        return dirichlet_loss(self._r, pos, f, batch_idx=batch_idx, aggr=
-            self._aggr)
+        return dirichlet_loss(self._r, pos, f, batch_idx=batch_idx, aggr=self._aggr)
 
 
 def huber_loss(error, delta=1.0):
@@ -761,14 +745,12 @@ class LossFactory(torch.nn.modules.loss._Loss):
         for key in self.search_for_args:
             added_arguments[key] = kwargs.get(key, None)
         input, target = filter_valid(input, target)
-        return self._loss_func(input, target, **added_arguments, **self.
-            special_args)
+        return self._loss_func(input, target, **added_arguments, **self.special_args)
 
 
 class FocalLoss(torch.nn.modules.loss._Loss):
 
-    def __init__(self, gamma: float=2, alphas: Any=None, size_average: bool
-        =True, normalized: bool=True):
+    def __init__(self, gamma: float=2, alphas: Any=None, size_average: bool=True, normalized: bool=True):
         super(FocalLoss, self).__init__()
         self._gamma = gamma
         self._alphas = alphas
@@ -797,8 +779,7 @@ class WrapperKLDivLoss(torch.nn.modules.loss._Loss):
         super(WrapperKLDivLoss, self).__init__(size_average, reduce, reduction)
 
     def forward(self, input, target, label_vec=None, segm_size=None):
-        label_vec = Variable(label_vec).float() / segm_size.unsqueeze(-1
-            ).float()
+        label_vec = Variable(label_vec).float() / segm_size.unsqueeze(-1).float()
         input = F.log_softmax(input, dim=-1)
         loss = torch.nn.modules.loss.KLDivLoss()(input, label_vec)
         return loss
@@ -858,29 +839,24 @@ class ContrastiveHardestNegativeLoss(nn.Module):
         number of negative point we mine.
     """
 
-    def __init__(self, pos_thresh, neg_thresh, num_pos=5192, num_hn_samples
-        =2048):
+    def __init__(self, pos_thresh, neg_thresh, num_pos=5192, num_hn_samples=2048):
         nn.Module.__init__(self)
         self.pos_thresh = pos_thresh
         self.neg_thresh = neg_thresh
         self.num_pos = num_pos
         self.num_hn_samples = num_hn_samples
 
-    def contrastive_hardest_negative_loss(self, F0, F1, positive_pairs,
-        thresh=None):
+    def contrastive_hardest_negative_loss(self, F0, F1, positive_pairs, thresh=None):
         """
         Generate negative pairs
         """
         N0, N1 = len(F0), len(F1)
         N_pos_pairs = len(positive_pairs)
         hash_seed = max(N0, N1)
-        sel0 = np.random.choice(N0, min(N0, self.num_hn_samples), replace=False
-            )
-        sel1 = np.random.choice(N1, min(N1, self.num_hn_samples), replace=False
-            )
+        sel0 = np.random.choice(N0, min(N0, self.num_hn_samples), replace=False)
+        sel1 = np.random.choice(N1, min(N1, self.num_hn_samples), replace=False)
         if N_pos_pairs > self.num_pos:
-            pos_sel = np.random.choice(N_pos_pairs, self.num_pos, replace=False
-                )
+            pos_sel = np.random.choice(N_pos_pairs, self.num_pos, replace=False)
             sample_pos_pairs = positive_pairs[pos_sel]
         else:
             sample_pos_pairs = positive_pairs
@@ -899,18 +875,15 @@ class ContrastiveHardestNegativeLoss(nn.Module):
         D10ind = sel0[D10ind.cpu().numpy()]
         neg_keys0 = _hash([pos_ind0.numpy(), D01ind], hash_seed)
         neg_keys1 = _hash([D10ind, pos_ind1.numpy()], hash_seed)
-        mask0 = torch.from_numpy(np.logical_not(np.isin(neg_keys0, pos_keys,
-            assume_unique=False)))
-        mask1 = torch.from_numpy(np.logical_not(np.isin(neg_keys1, pos_keys,
-            assume_unique=False)))
+        mask0 = torch.from_numpy(np.logical_not(np.isin(neg_keys0, pos_keys, assume_unique=False)))
+        mask1 = torch.from_numpy(np.logical_not(np.isin(neg_keys1, pos_keys, assume_unique=False)))
         pos_loss = F.relu((posF0 - posF1).pow(2).sum(1) - self.pos_thresh)
         neg_loss0 = F.relu(self.neg_thresh - D01min[mask0]).pow(2)
         neg_loss1 = F.relu(self.neg_thresh - D10min[mask1]).pow(2)
         return pos_loss.mean(), (neg_loss0.mean() + neg_loss1.mean()) / 2
 
     def forward(self, F0, F1, matches, xyz0=None, xyz1=None):
-        pos_loss, neg_loss = self.contrastive_hardest_negative_loss(F0, F1,
-            matches.detach().cpu())
+        pos_loss, neg_loss = self.contrastive_hardest_negative_loss(F0, F1, matches.detach().cpu())
         return pos_loss + neg_loss
 
 
@@ -938,14 +911,11 @@ class BatchHardContrastiveLoss(nn.Module):
         posF0 = F0[positive_pairs[:, (0)]]
         posF1 = F1[positive_pairs[:, (1)]]
         subxyz0 = xyz0[positive_pairs[:, (0)]]
-        false_negative = pdist(subxyz0, subxyz0, dist_type='L2'
-            ) > self.min_dist
+        false_negative = pdist(subxyz0, subxyz0, dist_type='L2') > self.min_dist
         furthest_pos, _ = (posF0 - posF1).pow(2).max(1)
-        neg_loss = F.relu(self.neg_thresh - (posF0[0] - posF1[
-            false_negative[0]]).pow(2).sum(1).min()).pow(2) / len(posF0)
+        neg_loss = F.relu(self.neg_thresh - (posF0[0] - posF1[false_negative[0]]).pow(2).sum(1).min()).pow(2) / len(posF0)
         for i in range(1, len(posF0)):
-            neg_loss += F.relu(self.neg_thresh - (posF0[i] - posF1[
-                false_negative[i]]).pow(2).sum(1).min()).pow(2) / len(posF0)
+            neg_loss += F.relu(self.neg_thresh - (posF0[i] - posF1[false_negative[i]]).pow(2).sum(1).min()).pow(2) / len(posF0)
         pos_loss = F.relu(furthest_pos - self.pos_thresh).pow(2)
         return pos_loss.mean() + neg_loss.mean()
 
@@ -962,8 +932,7 @@ class UnetSkipConnectionBlock(nn.Module):
         kwargs.pop(name)
         return module
 
-    def __init__(self, args_up=None, args_down=None, args_innermost=None,
-        modules_lib=None, submodule=None, outermost=False, innermost=False):
+    def __init__(self, args_up=None, args_down=None, args_innermost=None, modules_lib=None, submodule=None, outermost=False, innermost=False):
         """Construct a Unet submodule with skip connections.
         Parameters:
             args_up -- arguments for up convs
@@ -1098,19 +1067,13 @@ class ElasticNetRegularizer(_Regularizer):
         self.alpha_reg = alpha_reg
 
     def regularized_param(self, param_weights, reg_loss_function):
-        reg_loss_function += self.lambda_reg * ((1 - self.alpha_reg) *
-            ElasticNetRegularizer.__add_l2(var=param_weights) + self.
-            alpha_reg * ElasticNetRegularizer.__add_l1(var=param_weights))
+        reg_loss_function += self.lambda_reg * ((1 - self.alpha_reg) * ElasticNetRegularizer.__add_l2(var=param_weights) + self.alpha_reg * ElasticNetRegularizer.__add_l1(var=param_weights))
         return reg_loss_function
 
     def regularized_all_param(self, reg_loss_function):
-        for model_param_name, model_param_value in self.model.named_parameters(
-            ):
+        for model_param_name, model_param_value in self.model.named_parameters():
             if model_param_name.endswith('weight'):
-                reg_loss_function += self.lambda_reg * ((1 - self.alpha_reg
-                    ) * ElasticNetRegularizer.__add_l2(var=
-                    model_param_value) + self.alpha_reg *
-                    ElasticNetRegularizer.__add_l1(var=model_param_value))
+                reg_loss_function += self.lambda_reg * ((1 - self.alpha_reg) * ElasticNetRegularizer.__add_l2(var=model_param_value) + self.alpha_reg * ElasticNetRegularizer.__add_l1(var=model_param_value))
         return reg_loss_function
 
     @staticmethod
@@ -1132,17 +1095,13 @@ class L1Regularizer(_Regularizer):
         self.lambda_reg = lambda_reg
 
     def regularized_param(self, param_weights, reg_loss_function):
-        reg_loss_function += self.lambda_reg * L1Regularizer.__add_l1(var=
-            param_weights)
+        reg_loss_function += self.lambda_reg * L1Regularizer.__add_l1(var=param_weights)
         return reg_loss_function
 
     def regularized_all_param(self, reg_loss_function):
-        for model_param_name, model_param_value in self.model.named_parameters(
-            ):
-            if (model_param_name.endswith('weight') and '1.weight' not in
-                model_param_name and 'bn' not in model_param_name):
-                reg_loss_function += self.lambda_reg * L1Regularizer.__add_l1(
-                    var=model_param_value)
+        for model_param_name, model_param_value in self.model.named_parameters():
+            if model_param_name.endswith('weight') and '1.weight' not in model_param_name and 'bn' not in model_param_name:
+                reg_loss_function += self.lambda_reg * L1Regularizer.__add_l1(var=model_param_value)
         return reg_loss_function
 
     @staticmethod
@@ -1160,17 +1119,13 @@ class L2Regularizer(_Regularizer):
         self.lambda_reg = lambda_reg
 
     def regularized_param(self, param_weights, reg_loss_function):
-        reg_loss_function += self.lambda_reg * L2Regularizer.__add_l2(var=
-            param_weights)
+        reg_loss_function += self.lambda_reg * L2Regularizer.__add_l2(var=param_weights)
         return reg_loss_function
 
     def regularized_all_param(self, reg_loss_function):
-        for model_param_name, model_param_value in self.model.named_parameters(
-            ):
-            if (model_param_name.endswith('weight') and '1.weight' not in
-                model_param_name and 'bn' not in model_param_name):
-                reg_loss_function += self.lambda_reg * L2Regularizer.__add_l2(
-                    var=model_param_value)
+        for model_param_name, model_param_value in self.model.named_parameters():
+            if model_param_name.endswith('weight') and '1.weight' not in model_param_name and 'bn' not in model_param_name:
+                reg_loss_function += self.lambda_reg * L2Regularizer.__add_l2(var=model_param_value)
         return reg_loss_function
 
     @staticmethod
@@ -1210,11 +1165,9 @@ def set_bn_momentum_default(bn_momentum):
 
 class BNMomentumScheduler(object):
 
-    def __init__(self, model, bn_lambda, update_scheduler_on, last_epoch=-1,
-        setter=set_bn_momentum_default):
+    def __init__(self, model, bn_lambda, update_scheduler_on, last_epoch=-1, setter=set_bn_momentum_default):
         if not isinstance(model, nn.Module):
-            raise RuntimeError("Class '{}' is not a PyTorch nn Module".
-                format(type(model).__name__))
+            raise RuntimeError("Class '{}' is not a PyTorch nn Module".format(type(model).__name__))
         self.model = model
         self.setter = setter
         self.bn_lambda = bn_lambda
@@ -1244,22 +1197,18 @@ class BNMomentumScheduler(object):
             self._current_momemtum = current_momemtum
         elif self._current_momemtum != current_momemtum:
             self._current_momemtum = current_momemtum
-            log.info('Setting batchnorm momentum at {}'.format(
-                current_momemtum))
+            log.info('Setting batchnorm momentum at {}'.format(current_momemtum))
         self.model.apply(self.setter(current_momemtum))
 
     def state_dict(self):
-        return {'current_momemtum': self.bn_lambda(self.last_epoch),
-            'last_epoch': self.last_epoch}
+        return {'current_momemtum': self.bn_lambda(self.last_epoch), 'last_epoch': self.last_epoch}
 
     def load_state_dict(self, state_dict):
         self.last_epoch = state_dict['last_epoch']
         self.current_momemtum = state_dict['current_momemtum']
 
     def __repr__(self):
-        return '{}(base_momentum: {}, update_scheduler_on={})'.format(self.
-            __class__.__name__, self.bn_lambda(self.last_epoch), self.
-            _update_scheduler_on)
+        return '{}(base_momentum: {}, update_scheduler_on={})'.format(self.__class__.__name__, self.bn_lambda(self.last_epoch), self._update_scheduler_on)
 
 
 def instantiate_bn_scheduler(model, bn_scheduler_opt):
@@ -1274,12 +1223,9 @@ def instantiate_bn_scheduler(model, bn_scheduler_opt):
     update_scheduler_on = bn_scheduler_opt.update_scheduler_on
     bn_scheduler_params = bn_scheduler_opt.params
     if bn_scheduler_opt.bn_policy == 'step_decay':
-        bn_lambda = lambda e: max(bn_scheduler_params.bn_momentum * 
-            bn_scheduler_params.bn_decay ** int(e // bn_scheduler_params.
-            decay_step), bn_scheduler_params.bn_clip)
+        bn_lambda = lambda e: max(bn_scheduler_params.bn_momentum * bn_scheduler_params.bn_decay ** int(e // bn_scheduler_params.decay_step), bn_scheduler_params.bn_clip)
     else:
-        return NotImplementedError('bn_policy [%s] is not implemented',
-            bn_scheduler_opt.bn_policy)
+        return NotImplementedError('bn_policy [%s] is not implemented', bn_scheduler_opt.bn_policy)
     bn_scheduler = BNMomentumScheduler(model, bn_lambda, update_scheduler_on)
     bn_scheduler.scheduler_opt = bn_scheduler_opt
     return bn_scheduler
@@ -1322,8 +1268,7 @@ def instantiate_loss_or_miner(option, mode='loss'):
         if not cls:
             raise ValueError('miner %s is nowhere to be found' % class_)
     else:
-        raise NotImplementedError('Cannot instantiate this mode {}'.format(
-            mode))
+        raise NotImplementedError('Cannot instantiate this mode {}'.format(mode))
     if params and lparams:
         return cls(*lparams, **params)
     if params:
@@ -1349,9 +1294,7 @@ class LRScheduler:
         return self._scheduler._scheduler_opt
 
     def __repr__(self):
-        return '{}({}, update_scheduler_on={})'.format(self._scheduler.
-            __class__.__name__, self._scheduler_params, self.
-            _update_scheduler_on)
+        return '{}({}, update_scheduler_on={})'.format(self._scheduler.__class__.__name__, self._scheduler_params, self._update_scheduler_on)
 
     def step(self, *args, **kwargs):
         self._scheduler.step(*args, **kwargs)
@@ -1378,9 +1321,7 @@ def collect_params(params, update_scheduler_on):
         if params is not None:
             return params
         else:
-            raise Exception(
-                "The lr_scheduler doesn't have policy {}. Options: {}".
-                format(update_scheduler_on, SchedulerUpdateOn))
+            raise Exception("The lr_scheduler doesn't have policy {}. Options: {}".format(update_scheduler_on, SchedulerUpdateOn))
     if on_epoch_params or on_batch_params or on_sample_params:
         if update_scheduler_on == SchedulerUpdateOn.ON_EPOCH.value:
             return check_params(on_epoch_params)
@@ -1389,9 +1330,7 @@ def collect_params(params, update_scheduler_on):
         elif update_scheduler_on == SchedulerUpdateOn.ON_NUM_SAMPLE.value:
             return check_params(on_sample_params)
         else:
-            raise Exception(
-                "The provided update_scheduler_on {} isn't within {}".
-                format(update_scheduler_on, SchedulerUpdateOn))
+            raise Exception("The provided update_scheduler_on {} isn't within {}".format(update_scheduler_on, SchedulerUpdateOn))
     else:
         return params
 
@@ -1407,8 +1346,7 @@ def instantiate_scheduler(optimizer, scheduler_opt):
     """
     update_scheduler_on = scheduler_opt.update_scheduler_on
     scheduler_cls_name = getattr(scheduler_opt, 'class')
-    scheduler_params = collect_params(scheduler_opt.params, update_scheduler_on
-        )
+    scheduler_params = collect_params(scheduler_opt.params, update_scheduler_on)
     try:
         scheduler_cls = getattr(lr_scheduler, scheduler_cls_name)
     except:
@@ -1475,8 +1413,7 @@ def radius_gaussian(sq_r, sig, eps=1e-09):
     return torch.exp(-sq_r / (2 * sig ** 2 + eps))
 
 
-def KPConv_ops(query_points, support_points, neighbors_indices, features,
-    K_points, K_values, KP_extent, KP_influence, aggregation_mode):
+def KPConv_ops(query_points, support_points, neighbors_indices, features, K_points, K_values, KP_extent, KP_influence, aggregation_mode):
     """
     This function creates a graph of operations to define Kernel Point Convolution in tensorflow. See KPConv function
     above for a description of each parameter
@@ -1503,23 +1440,19 @@ def KPConv_ops(query_points, support_points, neighbors_indices, features,
         all_weights = torch.ones_like(sq_distances)
         all_weights = all_weights.transpose(2, 1)
     elif KP_influence == 'linear':
-        all_weights = torch.clamp(1 - torch.sqrt(sq_distances) / KP_extent,
-            min=0.0)
+        all_weights = torch.clamp(1 - torch.sqrt(sq_distances) / KP_extent, min=0.0)
         all_weights = all_weights.transpose(2, 1)
     elif KP_influence == 'gaussian':
         sigma = KP_extent * 0.3
         all_weights = radius_gaussian(sq_distances, sigma)
         all_weights = all_weights.transpose(2, 1)
     else:
-        raise ValueError(
-            'Unknown influence function type (config.KP_influence)')
+        raise ValueError('Unknown influence function type (config.KP_influence)')
     if aggregation_mode == 'closest':
         neighbors_1nn = torch.argmin(sq_distances, dim=-1)
-        all_weights *= torch.transpose(torch.nn.functional.one_hot(
-            neighbors_1nn, K_points.shape[0]), 1, 2)
+        all_weights *= torch.transpose(torch.nn.functional.one_hot(neighbors_1nn, K_points.shape[0]), 1, 2)
     elif aggregation_mode != 'sum':
-        raise ValueError(
-            "Unknown convolution mode. Should be 'closest' or 'sum'")
+        raise ValueError("Unknown convolution mode. Should be 'closest' or 'sum'")
     features = torch.cat([features, torch.zeros_like(features[:1, :])], dim=0)
     neighborhood_features = gather(features, neighbors_indices)
     weighted_features = torch.matmul(all_weights, neighborhood_features)
@@ -1531,8 +1464,7 @@ def KPConv_ops(query_points, support_points, neighbors_indices, features,
 
 def add_ones(query_points, x, add_one):
     if add_one:
-        ones = torch.ones(query_points.shape[0], dtype=torch.float).unsqueeze(
-            -1).to(query_points.device)
+        ones = torch.ones(query_points.shape[0], dtype=torch.float).unsqueeze(-1).to(query_points.device)
         if x is not None:
             x = torch.cat([ones.to(x.dtype), x], dim=-1)
         else:
@@ -1540,8 +1472,7 @@ def add_ones(query_points, x, add_one):
     return x
 
 
-def kernel_point_optimization_debug(radius, num_points, num_kernels=1,
-    dimension=3, fixed='center', ratio=1.0, verbose=0):
+def kernel_point_optimization_debug(radius, num_points, num_kernels=1, dimension=3, fixed='center', ratio=1.0, verbose=0):
     """
     Creation of kernel point via optimization of potentials.
     :param radius: Radius of the kernels
@@ -1559,16 +1490,13 @@ def kernel_point_optimization_debug(radius, num_points, num_kernels=1,
     continuous_moving_decay = 0.9995
     thresh = 1e-05
     clip = 0.05 * radius0
-    kernel_points = np.random.rand(num_kernels * num_points - 1, dimension
-        ) * diameter0 - radius0
+    kernel_points = np.random.rand(num_kernels * num_points - 1, dimension) * diameter0 - radius0
     while kernel_points.shape[0] < num_kernels * num_points:
-        new_points = np.random.rand(num_kernels * num_points - 1, dimension
-            ) * diameter0 - radius0
+        new_points = np.random.rand(num_kernels * num_points - 1, dimension) * diameter0 - radius0
         kernel_points = np.vstack((kernel_points, new_points))
         d2 = np.sum(np.power(kernel_points, 2), axis=1)
         kernel_points = kernel_points[(d2 < 0.5 * radius0 * radius0), :]
-    kernel_points = kernel_points[:num_kernels * num_points, :].reshape((
-        num_kernels, num_points, -1))
+    kernel_points = kernel_points[:num_kernels * num_points, :].reshape((num_kernels, num_points, -1))
     if fixed == 'center':
         kernel_points[:, (0), :] *= 0
     if fixed == 'verticals':
@@ -1583,8 +1511,7 @@ def kernel_point_optimization_debug(radius, num_points, num_kernels=1,
         A = np.expand_dims(kernel_points, axis=2)
         B = np.expand_dims(kernel_points, axis=1)
         interd2 = np.sum(np.power(A - B, 2), axis=-1)
-        inter_grads = (A - B) / (np.power(np.expand_dims(interd2, -1), 3 / 
-            2) + 1e-06)
+        inter_grads = (A - B) / (np.power(np.expand_dims(interd2, -1), 3 / 2) + 1e-06)
         inter_grads = np.sum(inter_grads, axis=1)
         circle_grads = 10 * kernel_points
         gradients = inter_grads + circle_grads
@@ -1592,11 +1519,9 @@ def kernel_point_optimization_debug(radius, num_points, num_kernels=1,
             gradients[:, 1:3, :-1] = 0
         gradients_norms = np.sqrt(np.sum(np.power(gradients, 2), axis=-1))
         saved_gradient_norms[(iter), :] = np.max(gradients_norms, axis=1)
-        if fixed == 'center' and np.max(np.abs(old_gradient_norms[:, 1:] -
-            gradients_norms[:, 1:])) < thresh:
+        if fixed == 'center' and np.max(np.abs(old_gradient_norms[:, 1:] - gradients_norms[:, 1:])) < thresh:
             break
-        elif fixed == 'verticals' and np.max(np.abs(old_gradient_norms[:, 3
-            :] - gradients_norms[:, 3:])) < thresh:
+        elif fixed == 'verticals' and np.max(np.abs(old_gradient_norms[:, 3:] - gradients_norms[:, 3:])) < thresh:
             break
         elif np.max(np.abs(old_gradient_norms - gradients_norms)) < thresh:
             break
@@ -1606,15 +1531,12 @@ def kernel_point_optimization_debug(radius, num_points, num_kernels=1,
             moving_dists[:, (0)] = 0
         if fixed == 'verticals':
             moving_dists[:, (0)] = 0
-        kernel_points -= np.expand_dims(moving_dists, -1
-            ) * gradients / np.expand_dims(gradients_norms + 1e-06, -1)
+        kernel_points -= np.expand_dims(moving_dists, -1) * gradients / np.expand_dims(gradients_norms + 1e-06, -1)
         if verbose:
-            log.info('iter {:5d} / max grad = {:f}'.format(iter, np.max(
-                gradients_norms[:, 3:])))
+            log.info('iter {:5d} / max grad = {:f}'.format(iter, np.max(gradients_norms[:, 3:])))
         if verbose > 1:
             plt.clf()
-            plt.plot(kernel_points[(0), :, (0)], kernel_points[(0), :, (1)],
-                '.')
+            plt.plot(kernel_points[(0), :, (0)], kernel_points[(0), :, (1)], '.')
             circle = plt.Circle((0, 0), radius, color='r', fill=False)
             fig.axes[0].add_artist(circle)
             fig.axes[0].set_xlim((-radius * 1.1, radius * 1.1))
@@ -1641,11 +1563,7 @@ def makedirs(path):
             raise e
 
 
-ply_dtypes = dict([(b'int8', 'i1'), (b'char', 'i1'), (b'uint8', 'u1'), (
-    b'uchar', 'u1'), (b'int16', 'i2'), (b'short', 'i2'), (b'uint16', 'u2'),
-    (b'ushort', 'u2'), (b'int32', 'i4'), (b'int', 'i4'), (b'uint32', 'u4'),
-    (b'uint', 'u4'), (b'float32', 'f4'), (b'float', 'f4'), (b'float64',
-    'f8'), (b'double', 'f8')])
+ply_dtypes = dict([(b'int8', 'i1'), (b'char', 'i1'), (b'uint8', 'u1'), (b'uchar', 'u1'), (b'int16', 'i2'), (b'short', 'i2'), (b'uint16', 'u2'), (b'ushort', 'u2'), (b'int32', 'i4'), (b'int', 'i4'), (b'uint32', 'u4'), (b'uint', 'u4'), (b'float32', 'f4'), (b'float', 'f4'), (b'float64', 'f8'), (b'double', 'f8')])
 
 
 def parse_header(plyfile, ext):
@@ -1682,16 +1600,14 @@ def parse_mesh_header(plyfile, ext):
         elif b'property' in line:
             if current_element == 'vertex':
                 line = line.split()
-                vertex_properties.append((line[2].decode(), ext +
-                    ply_dtypes[line[1]]))
+                vertex_properties.append((line[2].decode(), ext + ply_dtypes[line[1]]))
             elif current_element == 'vertex':
                 if not line.startswith('property list uchar int'):
                     raise ValueError('Unsupported faces property : ' + line)
     return num_points, num_faces, vertex_properties
 
 
-valid_formats = {'ascii': '', 'binary_big_endian': '>',
-    'binary_little_endian': '<'}
+valid_formats = {'ascii': '', 'binary_big_endian': '>', 'binary_little_endian': '<'}
 
 
 def read_ply(filename, triangular_mesh=False):
@@ -1732,14 +1648,10 @@ def read_ply(filename, triangular_mesh=False):
         ext = valid_formats[fmt]
         if triangular_mesh:
             num_points, num_faces, properties = parse_mesh_header(plyfile, ext)
-            vertex_data = np.fromfile(plyfile, dtype=properties, count=
-                num_points)
-            face_properties = [('k', ext + 'u1'), ('v1', ext + 'i4'), ('v2',
-                ext + 'i4'), ('v3', ext + 'i4')]
-            faces_data = np.fromfile(plyfile, dtype=face_properties, count=
-                num_faces)
-            faces = np.vstack((faces_data['v1'], faces_data['v2'],
-                faces_data['v3'])).T
+            vertex_data = np.fromfile(plyfile, dtype=properties, count=num_points)
+            face_properties = [('k', ext + 'u1'), ('v1', ext + 'i4'), ('v2', ext + 'i4'), ('v3', ext + 'i4')]
+            faces_data = np.fromfile(plyfile, dtype=face_properties, count=num_faces)
+            faces = np.vstack((faces_data['v1'], faces_data['v2'], faces_data['v3'])).T
             data = [vertex_data, faces]
         else:
             num_points, properties = parse_header(plyfile, ext)
@@ -1783,8 +1695,7 @@ def write_ply(filename, field_list, field_names, triangular_faces=None):
     >>> field_names = ['x', 'y', 'z', 'red', 'green', 'blue', values']
     >>> write_ply('example3.ply', [points, colors, values], field_names)
     """
-    field_list = list(field_list) if type(field_list) == list or type(
-        field_list) == tuple else list((field_list,))
+    field_list = list(field_list) if type(field_list) == list or type(field_list) == tuple else list((field_list,))
     for i, field in enumerate(field_list):
         if field.ndim < 2:
             field_list[i] = field.reshape(-1, 1)
@@ -1806,8 +1717,7 @@ def write_ply(filename, field_list, field_names, triangular_faces=None):
         header.append('format binary_' + sys.byteorder + '_endian 1.0')
         header.extend(header_properties(field_list, field_names))
         if triangular_faces is not None:
-            header.append('element face {:d}'.format(triangular_faces.shape[0])
-                )
+            header.append('element face {:d}'.format(triangular_faces.shape[0]))
             header.append('property list uchar int vertex_indices')
         header.append('end_header')
         for line in header:
@@ -1828,11 +1738,9 @@ def write_ply(filename, field_list, field_names, triangular_faces=None):
         data.tofile(plyfile)
         if triangular_faces is not None:
             triangular_faces = triangular_faces.astype(np.int32)
-            type_list = [('k', 'uint8')] + [(str(ind), 'int32') for ind in
-                range(3)]
+            type_list = [('k', 'uint8')] + [(str(ind), 'int32') for ind in range(3)]
             data = np.empty(triangular_faces.shape[0], dtype=type_list)
-            data['k'] = np.full((triangular_faces.shape[0],), 3, dtype=np.uint8
-                )
+            data['k'] = np.full((triangular_faces.shape[0],), 3, dtype=np.uint8)
             data['0'] = triangular_faces[:, (0)]
             data['1'] = triangular_faces[:, (1)]
             data['2'] = triangular_faces[:, (2)]
@@ -1846,18 +1754,13 @@ def load_kernels(radius, num_kpoints, num_kernels, dimension, fixed):
     if not exists(kernel_dir):
         makedirs(kernel_dir)
     if dimension == 3:
-        kernel_file = join(kernel_dir, 'k_{:03d}_{:s}.ply'.format(
-            num_kpoints, fixed))
+        kernel_file = join(kernel_dir, 'k_{:03d}_{:s}.ply'.format(num_kpoints, fixed))
     elif dimension == 2:
-        kernel_file = join(kernel_dir, 'k_{:03d}_{:s}_2D.ply'.format(
-            num_kpoints, fixed))
+        kernel_file = join(kernel_dir, 'k_{:03d}_{:s}_2D.ply'.format(num_kpoints, fixed))
     else:
-        raise ValueError('Unsupported dimpension of kernel : ' + str(dimension)
-            )
+        raise ValueError('Unsupported dimpension of kernel : ' + str(dimension))
     if not exists(kernel_file):
-        kernel_points, grad_norms = kernel_point_optimization_debug(1.0,
-            num_kpoints, num_kernels=num_tries, dimension=dimension, fixed=
-            fixed, verbose=0)
+        kernel_points, grad_norms = kernel_point_optimization_debug(1.0, num_kpoints, num_kernels=num_tries, dimension=dimension, fixed=fixed, verbose=0)
         best_k = np.argmin(grad_norms[(-1), :])
         original_kernel = kernel_points[(best_k), :, :]
         write_ply(kernel_file, original_kernel, ['x', 'y', 'z'])
@@ -1883,12 +1786,10 @@ def load_kernels(radius, num_kpoints, num_kernels, dimension, fixed):
         wrongs = np.abs(np.sum(u * v, axis=1)) > 0.99
         while np.any(wrongs):
             new_u = np.random.rand(num_kernels, 3) * 2 - 1
-            new_u = new_u / np.expand_dims(np.linalg.norm(new_u, axis=1) + 
-                1e-09, -1)
+            new_u = new_u / np.expand_dims(np.linalg.norm(new_u, axis=1) + 1e-09, -1)
             u[(wrongs), :] = new_u[(wrongs), :]
             new_v = np.random.rand(num_kernels, 3) * 2 - 1
-            new_v = new_v / np.expand_dims(np.linalg.norm(new_v, axis=1) + 
-                1e-09, -1)
+            new_v = new_v / np.expand_dims(np.linalg.norm(new_v, axis=1) + 1e-09, -1)
             v[(wrongs), :] = new_v[(wrongs), :]
             wrongs = np.abs(np.sum(u * v, axis=1)) > 0.99
         v -= np.expand_dims(np.sum(u * v, axis=1), -1) * u
@@ -1898,8 +1799,7 @@ def load_kernels(radius, num_kpoints, num_kernels, dimension, fixed):
         original_kernel = radius * np.expand_dims(original_kernel, 0)
         kernels = np.matmul(original_kernel, R)
         kernels = kernels
-        kernels = kernels + np.random.normal(scale=radius * 0.01, size=
-            kernels.shape)
+        kernels = kernels + np.random.normal(scale=radius * 0.01, size=kernels.shape)
     return kernels
 
 
@@ -1919,9 +1819,7 @@ class KPConvLayer(torch.nn.Module):
     """
     _INFLUENCE_TO_RADIUS = 1.5
 
-    def __init__(self, num_inputs, num_outputs, point_influence,
-        n_kernel_points=15, fixed='center', KP_influence='linear',
-        aggregation_mode='sum', dimension=3, add_one=False):
+    def __init__(self, num_inputs, num_outputs, point_influence, n_kernel_points=15, fixed='center', KP_influence='linear', aggregation_mode='sum', dimension=3, add_one=False):
         super(KPConvLayer, self).__init__()
         self.kernel_radius = self._INFLUENCE_TO_RADIUS * point_influence
         self.point_influence = point_influence
@@ -1931,12 +1829,9 @@ class KPConvLayer(torch.nn.Module):
         self.KP_influence = KP_influence
         self.n_kernel_points = n_kernel_points
         self.aggregation_mode = aggregation_mode
-        K_points_numpy = load_kernels(self.kernel_radius, n_kernel_points,
-            num_kernels=1, dimension=dimension, fixed=fixed)
-        self.K_points = Parameter(torch.from_numpy(K_points_numpy.reshape((
-            n_kernel_points, dimension))), requires_grad=False)
-        weights = torch.empty([n_kernel_points, self.num_inputs,
-            num_outputs], dtype=torch.float)
+        K_points_numpy = load_kernels(self.kernel_radius, n_kernel_points, num_kernels=1, dimension=dimension, fixed=fixed)
+        self.K_points = Parameter(torch.from_numpy(K_points_numpy.reshape((n_kernel_points, dimension))), requires_grad=False)
+        weights = torch.empty([n_kernel_points, self.num_inputs, num_outputs], dtype=torch.float)
         torch.nn.init.xavier_normal_(weights)
         self.weight = Parameter(weights)
 
@@ -1948,16 +1843,11 @@ class KPConvLayer(torch.nn.Module):
         - features : feature of size N0 x d (d is the number of inputs)
         """
         x = add_ones(support_points, x, self.add_one)
-        new_feat = KPConv_ops(query_points, support_points, neighbors, x,
-            self.K_points, self.weight, self.point_influence, self.
-            KP_influence, self.aggregation_mode)
+        new_feat = KPConv_ops(query_points, support_points, neighbors, x, self.K_points, self.weight, self.point_influence, self.KP_influence, self.aggregation_mode)
         return new_feat
 
     def __repr__(self):
-        return (
-            'KPConvLayer(InF: %i, OutF: %i, kernel_pts: %i, radius: %.2f, KP_influence: %s, Add_one: %s)'
-             % (self.num_inputs, self.num_outputs, self.n_kernel_points,
-            self.kernel_radius, self.KP_influence, self.add_one))
+        return 'KPConvLayer(InF: %i, OutF: %i, kernel_pts: %i, radius: %.2f, KP_influence: %s, Add_one: %s)' % (self.num_inputs, self.num_outputs, self.n_kernel_points, self.kernel_radius, self.KP_influence, self.add_one)
 
 
 class BasicBlock(nn.Module):
@@ -1978,15 +1868,12 @@ class BasicBlock(nn.Module):
     """
     EXPANSION = 1
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, bn_momentum=0.1, dimension=-1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, bn_momentum=0.1, dimension=-1):
         super(BasicBlock, self).__init__()
         assert dimension > 0
-        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=
-            3, stride=stride, dilation=dilation, dimension=dimension)
+        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=3, stride=stride, dilation=dilation, dimension=dimension)
         self.norm1 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
-        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3,
-            stride=1, dilation=dilation, dimension=dimension)
+        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3, stride=1, dilation=dilation, dimension=dimension)
         self.norm2 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
         self.relu = ME.MinkowskiReLU(inplace=True)
         self.downsample = downsample
@@ -2008,20 +1895,15 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     EXPANSION = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, bn_momentum=0.1, dimension=-1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, bn_momentum=0.1, dimension=-1):
         super(Bottleneck, self).__init__()
         assert dimension > 0
-        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=
-            1, dimension=dimension)
+        self.conv1 = ME.MinkowskiConvolution(inplanes, planes, kernel_size=1, dimension=dimension)
         self.norm1 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
-        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3,
-            stride=stride, dilation=dilation, dimension=dimension)
+        self.conv2 = ME.MinkowskiConvolution(planes, planes, kernel_size=3, stride=stride, dilation=dilation, dimension=dimension)
         self.norm2 = ME.MinkowskiBatchNorm(planes, momentum=bn_momentum)
-        self.conv3 = ME.MinkowskiConvolution(planes, planes * self.
-            EXPANSION, kernel_size=1, dimension=dimension)
-        self.norm3 = ME.MinkowskiBatchNorm(planes * self.EXPANSION,
-            momentum=bn_momentum)
+        self.conv3 = ME.MinkowskiConvolution(planes, planes * self.EXPANSION, kernel_size=1, dimension=dimension)
+        self.norm3 = ME.MinkowskiBatchNorm(planes * self.EXPANSION, momentum=bn_momentum)
         self.relu = ME.MinkowskiReLU(inplace=True)
         self.downsample = downsample
 
@@ -2046,9 +1928,7 @@ class SELayer(nn.Module):
 
     def __init__(self, channel, reduction=16, D=-1):
         super(SELayer, self).__init__()
-        self.fc = nn.Sequential(ME.MinkowskiLinear(channel, channel //
-            reduction), ME.MinkowskiReLU(inplace=True), ME.MinkowskiLinear(
-            channel // reduction, channel), ME.MinkowskiSigmoid())
+        self.fc = nn.Sequential(ME.MinkowskiLinear(channel, channel // reduction), ME.MinkowskiReLU(inplace=True), ME.MinkowskiLinear(channel // reduction, channel), ME.MinkowskiSigmoid())
         self.pooling = ME.MinkowskiGlobalPooling(dimension=D)
         self.broadcast_mul = ME.MinkowskiBroadcastMultiplication(dimension=D)
 
@@ -2074,22 +1954,15 @@ class ResNetBase(nn.Module):
 
     def network_initialization(self, in_channels, out_channels, D):
         self.inplanes = self.INIT_DIM
-        self.conv1 = ME.MinkowskiConvolution(in_channels, self.inplanes,
-            kernel_size=5, stride=2, dimension=D)
+        self.conv1 = ME.MinkowskiConvolution(in_channels, self.inplanes, kernel_size=5, stride=2, dimension=D)
         self.bn1 = ME.MinkowskiBatchNorm(self.inplanes)
         self.relu = ME.MinkowskiReLU(inplace=True)
-        self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=D
-            )
-        self.layer1 = self._make_layer(self.BLOCK, self.PLANES[0], self.
-            LAYERS[0], stride=2)
-        self.layer2 = self._make_layer(self.BLOCK, self.PLANES[1], self.
-            LAYERS[1], stride=2)
-        self.layer3 = self._make_layer(self.BLOCK, self.PLANES[2], self.
-            LAYERS[2], stride=2)
-        self.layer4 = self._make_layer(self.BLOCK, self.PLANES[3], self.
-            LAYERS[3], stride=2)
-        self.conv5 = ME.MinkowskiConvolution(self.inplanes, self.inplanes,
-            kernel_size=3, stride=3, dimension=D)
+        self.pool = ME.MinkowskiAvgPooling(kernel_size=2, stride=2, dimension=D)
+        self.layer1 = self._make_layer(self.BLOCK, self.PLANES[0], self.LAYERS[0], stride=2)
+        self.layer2 = self._make_layer(self.BLOCK, self.PLANES[1], self.LAYERS[1], stride=2)
+        self.layer3 = self._make_layer(self.BLOCK, self.PLANES[2], self.LAYERS[2], stride=2)
+        self.layer4 = self._make_layer(self.BLOCK, self.PLANES[3], self.LAYERS[3], stride=2)
+        self.conv5 = ME.MinkowskiConvolution(self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D)
         self.bn5 = ME.MinkowskiBatchNorm(self.inplanes)
         self.glob_avg = ME.MinkowskiGlobalMaxPooling(dimension=D)
         self.final = ME.MinkowskiLinear(self.inplanes, out_channels, bias=True)
@@ -2097,27 +1970,20 @@ class ResNetBase(nn.Module):
     def weight_initialization(self):
         for m in self.modules():
             if isinstance(m, ME.MinkowskiConvolution):
-                ME.utils.kaiming_normal_(m.kernel, mode='fan_out',
-                    nonlinearity='relu')
+                ME.utils.kaiming_normal_(m.kernel, mode='fan_out', nonlinearity='relu')
             if isinstance(m, ME.MinkowskiBatchNorm):
                 nn.init.constant_(m.bn.weight, 1)
                 nn.init.constant_(m.bn.bias, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        bn_momentum=0.1):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, bn_momentum=0.1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.EXPANSION:
-            downsample = nn.Sequential(ME.MinkowskiConvolution(self.
-                inplanes, planes * block.EXPANSION, kernel_size=1, stride=
-                stride, dimension=self.D), ME.MinkowskiBatchNorm(planes *
-                block.EXPANSION))
+            downsample = nn.Sequential(ME.MinkowskiConvolution(self.inplanes, planes * block.EXPANSION, kernel_size=1, stride=stride, dimension=self.D), ME.MinkowskiBatchNorm(planes * block.EXPANSION))
         layers = []
-        layers.append(block(self.inplanes, planes, stride=stride, dilation=
-            dilation, downsample=downsample, dimension=self.D))
+        layers.append(block(self.inplanes, planes, stride=stride, dilation=dilation, downsample=downsample, dimension=self.D))
         self.inplanes = planes * block.EXPANSION
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, stride=1, dilation=
-                dilation, dimension=self.D))
+            layers.append(block(self.inplanes, planes, stride=1, dilation=dilation, dimension=self.D))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -2146,8 +2012,7 @@ class ConvType(Enum):
     HYPERCROSS = 3, 'HYPERCROSS'
     SPATIAL_HYPERCROSS = 4, 'SPATIAL_HYPERCROSS'
     SPATIO_TEMPORAL_HYPERCROSS = 5, 'SPATIO_TEMPORAL_HYPERCROSS'
-    SPATIAL_HYPERCUBE_TEMPORAL_HYPERCROSS = (6,
-        'SPATIAL_HYPERCUBE_TEMPORAL_HYPERCROSS ')
+    SPATIAL_HYPERCUBE_TEMPORAL_HYPERCROSS = 6, 'SPATIAL_HYPERCUBE_TEMPORAL_HYPERCROSS '
 
     def __new__(cls, value, name):
         member = object.__new__(cls)
@@ -2198,17 +2063,11 @@ def convert_conv_type(conv_type, kernel_size, D):
     return region_type, axis_types, kernel_size
 
 
-def conv(in_planes, out_planes, kernel_size, stride=1, dilation=1, bias=
-    False, conv_type=ConvType.HYPERCUBE, D=-1):
+def conv(in_planes, out_planes, kernel_size, stride=1, dilation=1, bias=False, conv_type=ConvType.HYPERCUBE, D=-1):
     assert D > 0, 'Dimension must be a positive integer'
-    region_type, axis_types, kernel_size = convert_conv_type(conv_type,
-        kernel_size, D)
-    kernel_generator = ME.KernelGenerator(kernel_size, stride, dilation,
-        region_type=region_type, axis_types=axis_types, dimension=D)
-    return ME.MinkowskiConvolution(in_channels=in_planes, out_channels=
-        out_planes, kernel_size=kernel_size, stride=stride, dilation=
-        dilation, has_bias=bias, kernel_generator=kernel_generator, dimension=D
-        )
+    region_type, axis_types, kernel_size = convert_conv_type(conv_type, kernel_size, D)
+    kernel_generator = ME.KernelGenerator(kernel_size, stride, dilation, region_type=region_type, axis_types=axis_types, dimension=D)
+    return ME.MinkowskiConvolution(in_channels=in_planes, out_channels=out_planes, kernel_size=kernel_size, stride=stride, dilation=dilation, has_bias=bias, kernel_generator=kernel_generator, dimension=D)
 
 
 def get_norm(norm_type, n_channels, D, bn_momentum=0.1):
@@ -2217,8 +2076,7 @@ def get_norm(norm_type, n_channels, D, bn_momentum=0.1):
     elif norm_type == NormType.INSTANCE_NORM:
         return ME.MinkowskiInstanceNorm(n_channels)
     elif norm_type == NormType.INSTANCE_BATCH_NORM:
-        return nn.Sequential(ME.MinkowskiInstanceNorm(n_channels), ME.
-            MinkowskiBatchNorm(n_channels, momentum=bn_momentum))
+        return nn.Sequential(ME.MinkowskiInstanceNorm(n_channels), ME.MinkowskiBatchNorm(n_channels, momentum=bn_momentum))
     else:
         raise ValueError(f'Norm type: {norm_type} not supported')
 
@@ -2227,17 +2085,12 @@ class BasicBlockBase(nn.Module):
     expansion = 1
     NORM_TYPE = NormType.BATCH_NORM
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, conv_type=ConvType.HYPERCUBE, bn_momentum=0.1, D=3):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, conv_type=ConvType.HYPERCUBE, bn_momentum=0.1, D=3):
         super(BasicBlockBase, self).__init__()
-        self.conv1 = conv(inplanes, planes, kernel_size=3, stride=stride,
-            dilation=dilation, conv_type=conv_type, D=D)
-        self.norm1 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=
-            bn_momentum)
-        self.conv2 = conv(planes, planes, kernel_size=3, stride=1, dilation
-            =dilation, bias=False, conv_type=conv_type, D=D)
-        self.norm2 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=
-            bn_momentum)
+        self.conv1 = conv(inplanes, planes, kernel_size=3, stride=stride, dilation=dilation, conv_type=conv_type, D=D)
+        self.norm1 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=bn_momentum)
+        self.conv2 = conv(planes, planes, kernel_size=3, stride=1, dilation=dilation, bias=False, conv_type=conv_type, D=D)
+        self.norm2 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=bn_momentum)
         self.relu = MinkowskiReLU(inplace=True)
         self.downsample = downsample
 
@@ -2259,19 +2112,14 @@ class BottleneckBase(nn.Module):
     expansion = 4
     NORM_TYPE = NormType.BATCH_NORM
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, conv_type=ConvType.HYPERCUBE, bn_momentum=0.1, D=3):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, conv_type=ConvType.HYPERCUBE, bn_momentum=0.1, D=3):
         super(BottleneckBase, self).__init__()
         self.conv1 = conv(inplanes, planes, kernel_size=1, D=D)
-        self.norm1 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=
-            bn_momentum)
-        self.conv2 = conv(planes, planes, kernel_size=3, stride=stride,
-            dilation=dilation, conv_type=conv_type, D=D)
-        self.norm2 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=
-            bn_momentum)
+        self.norm1 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=bn_momentum)
+        self.conv2 = conv(planes, planes, kernel_size=3, stride=stride, dilation=dilation, conv_type=conv_type, D=D)
+        self.norm2 = get_norm(self.NORM_TYPE, planes, D, bn_momentum=bn_momentum)
         self.conv3 = conv(planes, planes * self.expansion, kernel_size=1, D=D)
-        self.norm3 = get_norm(self.NORM_TYPE, planes * self.expansion, D,
-            bn_momentum=bn_momentum)
+        self.norm3 = get_norm(self.NORM_TYPE, planes * self.expansion, D, bn_momentum=bn_momentum)
         self.relu = MinkowskiReLU(inplace=True)
         self.downsample = downsample
 
@@ -2329,8 +2177,7 @@ class XConv(torch.nn.Module):
             :class:`torch_cluster.knn_graph`.
     """
 
-    def __init__(self, in_channels, out_channels, dim, kernel_size,
-        hidden_channels=None, dilation=1, bias=True, **kwargs):
+    def __init__(self, in_channels, out_channels, dim, kernel_size, hidden_channels=None, dilation=1, bias=True, **kwargs):
         super(XConv, self).__init__()
         self.in_channels = in_channels
         if hidden_channels is None:
@@ -2344,17 +2191,11 @@ class XConv(torch.nn.Module):
         self.kwargs = kwargs
         C_in, C_delta, C_out = in_channels, hidden_channels, out_channels
         D, K = dim, kernel_size
-        self.mlp1 = S(L(dim, C_delta), ELU(), BN(C_delta), L(C_delta,
-            C_delta), ELU(), BN(C_delta), Reshape(-1, K, C_delta))
-        self.mlp2 = S(L(D * K, K ** 2), ELU(), BN(K ** 2), Reshape(-1, K, K
-            ), Conv1d(K, K ** 2, K, groups=K), ELU(), BN(K ** 2), Reshape(-
-            1, K, K), Conv1d(K, K ** 2, K, groups=K), BN(K ** 2), Reshape(-
-            1, K, K))
+        self.mlp1 = S(L(dim, C_delta), ELU(), BN(C_delta), L(C_delta, C_delta), ELU(), BN(C_delta), Reshape(-1, K, C_delta))
+        self.mlp2 = S(L(D * K, K ** 2), ELU(), BN(K ** 2), Reshape(-1, K, K), Conv1d(K, K ** 2, K, groups=K), ELU(), BN(K ** 2), Reshape(-1, K, K), Conv1d(K, K ** 2, K, groups=K), BN(K ** 2), Reshape(-1, K, K))
         C_in = C_in + C_delta
         depth_multiplier = int(ceil(C_out / C_in))
-        self.conv = S(Conv1d(C_in, C_in * depth_multiplier, K, groups=C_in),
-            Reshape(-1, C_in * depth_multiplier), L(C_in * depth_multiplier,
-            C_out, bias=bias))
+        self.conv = S(Conv1d(C_in, C_in * depth_multiplier, K, groups=C_in), Reshape(-1, C_in * depth_multiplier), L(C_in * depth_multiplier, C_out, bias=bias))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -2382,14 +2223,12 @@ class XConv(torch.nn.Module):
         return out
 
     def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.
-            in_channels, self.out_channels)
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class MiniPointNet(torch.nn.Module):
 
-    def __init__(self, local_nn, global_nn, aggr='max', return_local_out=False
-        ):
+    def __init__(self, local_nn, global_nn, aggr='max', return_local_out=False):
         super().__init__()
         self.local_nn = MLP(local_nn)
         self.global_nn = MLP(global_nn) if global_nn else None
@@ -2415,10 +2254,8 @@ class MiniPointNet(torch.nn.Module):
 
 class PointNetSTN3D(BaseLinearTransformSTNkD):
 
-    def __init__(self, local_nn=[3, 64, 128, 1024], global_nn=[1024, 512, 
-        256], batch_size=1):
-        super().__init__(MiniPointNet(local_nn, global_nn), global_nn[-1], 
-            3, batch_size)
+    def __init__(self, local_nn=[3, 64, 128, 1024], global_nn=[1024, 512, 256], batch_size=1):
+        super().__init__(MiniPointNet(local_nn, global_nn), global_nn[-1], 3, batch_size)
 
     def forward(self, x, batch):
         return super().forward(x, x, batch)
@@ -2426,33 +2263,24 @@ class PointNetSTN3D(BaseLinearTransformSTNkD):
 
 class PointNetSTNkD(BaseLinearTransformSTNkD, BaseInternalLossModule):
 
-    def __init__(self, k=64, local_nn=[64, 64, 128, 1024], global_nn=[1024,
-        512, 256], batch_size=1):
-        super().__init__(MiniPointNet(local_nn, global_nn), global_nn[-1],
-            k, batch_size)
+    def __init__(self, k=64, local_nn=[64, 64, 128, 1024], global_nn=[1024, 512, 256], batch_size=1):
+        super().__init__(MiniPointNet(local_nn, global_nn), global_nn[-1], k, batch_size)
 
     def forward(self, x, batch):
         return super().forward(x, x, batch)
 
     def get_internal_losses(self):
-        return {'orthogonal_regularization_loss': self.
-            get_orthogonal_regularization_loss()}
+        return {'orthogonal_regularization_loss': self.get_orthogonal_regularization_loss()}
 
 
 class PointNetSeg(torch.nn.Module):
 
-    def __init__(self, input_stn_local_nn=[3, 64, 128, 1024],
-        input_stn_global_nn=[1024, 512, 256], local_nn_1=[3, 64, 64],
-        feat_stn_k=64, feat_stn_local_nn=[64, 64, 128, 1024],
-        feat_stn_global_nn=[1024, 512, 256], local_nn_2=[64, 64, 128, 1024],
-        seg_nn=[1088, 512, 256, 128, 4], batch_size=1, *args, **kwargs):
+    def __init__(self, input_stn_local_nn=[3, 64, 128, 1024], input_stn_global_nn=[1024, 512, 256], local_nn_1=[3, 64, 64], feat_stn_k=64, feat_stn_local_nn=[64, 64, 128, 1024], feat_stn_global_nn=[1024, 512, 256], local_nn_2=[64, 64, 128, 1024], seg_nn=[1088, 512, 256, 128, 4], batch_size=1, *args, **kwargs):
         super().__init__()
         self.batch_size = batch_size
-        self.input_stn = PointNetSTN3D(input_stn_local_nn,
-            input_stn_global_nn, batch_size)
+        self.input_stn = PointNetSTN3D(input_stn_local_nn, input_stn_global_nn, batch_size)
         self.local_nn_1 = MLP(local_nn_1)
-        self.feat_stn = PointNetSTNkD(feat_stn_k, feat_stn_local_nn,
-            feat_stn_global_nn, batch_size)
+        self.feat_stn = PointNetSTNkD(feat_stn_k, feat_stn_local_nn, feat_stn_global_nn, batch_size)
         self.local_nn_2 = MLP(local_nn_2)
         self.seg_nn = MLP(seg_nn)
         self._use_scatter_pooling = True
@@ -2483,8 +2311,7 @@ class RSConvMapper(nn.Module):
         and the features of RSConv]
     """
 
-    def __init__(self, down_conv_nn, use_xyz, bn=True, activation=nn.
-        LeakyReLU(negative_slope=0.01), *args, **kwargs):
+    def __init__(self, down_conv_nn, use_xyz, bn=True, activation=nn.LeakyReLU(negative_slope=0.01), *args, **kwargs):
         super(RSConvMapper, self).__init__()
         self._down_conv_nn = down_conv_nn
         self._use_xyz = use_xyz
@@ -2492,13 +2319,11 @@ class RSConvMapper(nn.Module):
         if len(self._down_conv_nn) == 2:
             self._first_layer = True
             f_in, f_intermediate, f_out = self._down_conv_nn[0]
-            self.nn['features_nn'] = MLP2D(self._down_conv_nn[1], bn=bn,
-                bias=False)
+            self.nn['features_nn'] = MLP2D(self._down_conv_nn[1], bn=bn, bias=False)
         else:
             self._first_layer = False
             f_in, f_intermediate, f_out = self._down_conv_nn
-        self.nn['mlp_msg'] = MLP2D([f_in, f_intermediate, f_out], bn=bn,
-            bias=False)
+        self.nn['mlp_msg'] = MLP2D([f_in, f_intermediate, f_out], bn=bn, bias=False)
         self.nn['norm'] = Sequential(*[nn.BatchNorm2d(f_out), activation])
         self._f_out = f_out
 
@@ -2557,8 +2382,7 @@ class OriginalRSConv(nn.Module):
     Output shape: (B, C_out, npoint)
     """
 
-    def __init__(self, mapping=None, first_layer=False, radius=None,
-        activation=nn.ReLU(inplace=True)):
+    def __init__(self, mapping=None, first_layer=False, radius=None, activation=nn.ReLU(inplace=True)):
         super(OriginalRSConv, self).__init__()
         self.nn = nn.ModuleList()
         self._radius = radius
@@ -2586,12 +2410,10 @@ class OriginalRSConv(nn.Module):
         coord_xi = abs_coord[:, :, :, 0:1].repeat(1, 1, 1, nsample)
         h_xi_xj = torch.norm(delta_x, p=2, dim=1).unsqueeze(1)
         h_xi_xj = torch.cat((h_xi_xj, coord_xi, abs_coord, delta_x), dim=1)
-        h_xi_xj = self.mapping_func2(self.activation(self.bn_mapping(self.
-            mapping_func1(h_xi_xj))))
+        h_xi_xj = self.mapping_func2(self.activation(self.bn_mapping(self.mapping_func1(h_xi_xj))))
         if self.first_layer:
             x = self.activation(self.bn_xyz_raising(self.xyz_raising(x)))
-        x = F.max_pool2d(self.activation(self.bn_rsconv(torch.mul(h_xi_xj,
-            x))), kernel_size=(1, nsample)).squeeze(3)
+        x = F.max_pool2d(self.activation(self.bn_rsconv(torch.mul(h_xi_xj, x))), kernel_size=(1, nsample)).squeeze(3)
         x = self.activation(self.bn_channel_raising(self.cr_mapping(x)))
         return x
 
@@ -2601,19 +2423,13 @@ class OriginalRSConv(nn.Module):
 
 class DilatedResidualBlock(BaseResnetBlock):
 
-    def __init__(self, indim, outdim, ratio1, ratio2, point_pos_nn1,
-        point_pos_nn2, attention_nn1, attention_nn2, global_nn1, global_nn2,
-        *args, **kwargs):
+    def __init__(self, indim, outdim, ratio1, ratio2, point_pos_nn1, point_pos_nn2, attention_nn1, attention_nn2, global_nn1, global_nn2, *args, **kwargs):
         if kwargs.get('index') == 0 and kwargs.get('nb_feature') is not None:
             indim = kwargs.get('nb_feature')
         super(DilatedResidualBlock, self).__init__(indim, outdim, outdim)
-        self.conv1 = RandlaConv(ratio1, 16, *args, point_pos_nn=
-            point_pos_nn1, attention_nn=attention_nn1, down_conv_nn=
-            global_nn1, **kwargs)
+        self.conv1 = RandlaConv(ratio1, 16, *args, point_pos_nn=point_pos_nn1, attention_nn=attention_nn1, down_conv_nn=global_nn1, **kwargs)
         kwargs['nb_feature'] = None
-        self.conv2 = RandlaConv(ratio2, 16, *args, point_pos_nn=
-            point_pos_nn2, attention_nn=attention_nn2, down_conv_nn=
-            global_nn2, **kwargs)
+        self.conv2 = RandlaConv(ratio2, 16, *args, point_pos_nn=point_pos_nn2, attention_nn=attention_nn2, down_conv_nn=global_nn2, **kwargs)
 
     def convs(self, data):
         data = self.conv1(data)
@@ -2623,12 +2439,9 @@ class DilatedResidualBlock(BaseResnetBlock):
 
 class RandLANetRes(torch.nn.Module):
 
-    def __init__(self, indim, outdim, ratio, point_pos_nn, attention_nn,
-        down_conv_nn, *args, **kwargs):
+    def __init__(self, indim, outdim, ratio, point_pos_nn, attention_nn, down_conv_nn, *args, **kwargs):
         super(RandLANetRes, self).__init__()
-        self._conv = DilatedResidualBlock(indim, outdim, ratio[0], ratio[1],
-            point_pos_nn[0], point_pos_nn[1], attention_nn[0], attention_nn
-            [1], down_conv_nn[0], down_conv_nn[1], *args, **kwargs)
+        self._conv = DilatedResidualBlock(indim, outdim, ratio[0], ratio[1], point_pos_nn[0], point_pos_nn[1], attention_nn[0], attention_nn[1], down_conv_nn[0], down_conv_nn[1], *args, **kwargs)
 
     def forward(self, data):
         return self._conv.forward(data)
@@ -2664,8 +2477,7 @@ class DistributionNeighbour(object):
 
     @property
     def histogram_non_zero(self):
-        idx = len(self._histogram) - np.cumsum(self._histogram[::-1]).nonzero(
-            )[0][0]
+        idx = len(self._histogram) - np.cumsum(self._histogram[::-1]).nonzero()[0][0]
         return self._histogram[:idx]
 
     def add_valid_neighbours(self, points):
@@ -2673,8 +2485,7 @@ class DistributionNeighbour(object):
             self._histogram[num_valid] += 1
 
     def __repr__(self):
-        return '{}(radius={}, bins={})'.format(self.__class__.__name__,
-            self._radius, self._bins)
+        return '{}(radius={}, bins={})'.format(self.__class__.__name__, self._radius, self._bins)
 
 
 def is_list(entity):
@@ -2704,17 +2515,13 @@ class BoxData:
         return self.objectness is not None
 
     def __repr__(self):
-        return '{}: (objectness={})'.format(self.__class__.__name__, self.
-            objectness)
+        return '{}: (objectness={})'.format(self.__class__.__name__, self.objectness)
 
 
 def euler_angles_to_rotation_matrix(theta):
-    R_x = torch.tensor([[1, 0, 0], [0, torch.cos(theta[0]), -torch.sin(
-        theta[0])], [0, torch.sin(theta[0]), torch.cos(theta[0])]])
-    R_y = torch.tensor([[torch.cos(theta[1]), 0, torch.sin(theta[1])], [0, 
-        1, 0], [-torch.sin(theta[1]), 0, torch.cos(theta[1])]])
-    R_z = torch.tensor([[torch.cos(theta[2]), -torch.sin(theta[2]), 0], [
-        torch.sin(theta[2]), torch.cos(theta[2]), 0], [0, 0, 1]])
+    R_x = torch.tensor([[1, 0, 0], [0, torch.cos(theta[0]), -torch.sin(theta[0])], [0, torch.sin(theta[0]), torch.cos(theta[0])]])
+    R_y = torch.tensor([[torch.cos(theta[1]), 0, torch.sin(theta[1])], [0, 1, 0], [-torch.sin(theta[1]), 0, torch.cos(theta[1])]])
+    R_z = torch.tensor([[torch.cos(theta[2]), -torch.sin(theta[2]), 0], [torch.sin(theta[2]), torch.cos(theta[2]), 0], [0, 0, 1]])
     R = torch.mm(R_z, torch.mm(R_y, R_x))
     return R
 
@@ -2724,17 +2531,13 @@ def box_corners_from_param(box_size, heading_angle, center):
     box_size is array(size_x,size_y,size_z), heading_angle is radius clockwise from pos x axis, center is xyz of box center
         output (8,3) array for 3D box corners
     """
-    R = euler_angles_to_rotation_matrix(torch.tensor([0.0, 0.0, float(
-        heading_angle)]))
+    R = euler_angles_to_rotation_matrix(torch.tensor([0.0, 0.0, float(heading_angle)]))
     if torch.is_tensor(box_size):
         box_size = box_size.float()
     l, w, h = box_size
-    x_corners = torch.tensor([-l / 2, l / 2, l / 2, -l / 2, -l / 2, l / 2, 
-        l / 2, -l / 2])
-    y_corners = torch.tensor([-w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2,
-        w / 2, w / 2])
-    z_corners = torch.tensor([-h / 2, -h / 2, -h / 2, -h / 2, h / 2, h / 2,
-        h / 2, h / 2])
+    x_corners = torch.tensor([-l / 2, l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2])
+    y_corners = torch.tensor([-w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2, w / 2])
+    z_corners = torch.tensor([-h / 2, -h / 2, -h / 2, -h / 2, h / 2, h / 2, h / 2, h / 2])
     corners_3d = R @ torch.stack([x_corners, y_corners, z_corners])
     corners_3d[(0), :] = corners_3d[(0), :] + center[0]
     corners_3d[(1), :] = corners_3d[(1), :] + center[1]
@@ -2792,8 +2595,7 @@ def nms_samecls(boxes, classes, scores, overlap_threshold=0.25):
         inter = l * w * h
         o = inter / (area[i] + area[I[:last - 1]] - inter)
         o = o * (cls1 == cls2)
-        I = np.delete(I, np.concatenate(([last - 1], np.where(o >
-            overlap_threshold)[0])))
+        I = np.delete(I, np.concatenate(([last - 1], np.where(o > overlap_threshold)[0])))
     return pick
 
 
@@ -2828,14 +2630,12 @@ def nn_distance(pc1, pc2, l1smooth=False, delta=1.0, l1=False):
 
 class ProposalModule(nn.Module):
 
-    def __init__(self, num_class, vote_aggregation_config, num_heading_bin,
-        mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
+    def __init__(self, num_class, vote_aggregation_config, num_heading_bin, mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
         super().__init__()
         self.num_class = num_class
         self.num_heading_bin = num_heading_bin
         self.num_size_cluster = len(mean_size_arr)
-        self.mean_size_arr = nn.Parameter(torch.Tensor(mean_size_arr),
-            requires_grad=False)
+        self.mean_size_arr = nn.Parameter(torch.Tensor(mean_size_arr), requires_grad=False)
         self.num_proposal = num_proposal
         self.sampling = sampling
         self.seed_feat_dim = seed_feat_dim
@@ -2844,8 +2644,7 @@ class ProposalModule(nn.Module):
         self.vote_aggregation = PointNetMSGDown(**params)
         self.conv1 = torch.nn.Conv1d(128, 128, 1)
         self.conv2 = torch.nn.Conv1d(128, 128, 1)
-        self.conv3 = torch.nn.Conv1d(128, 2 + 3 + num_heading_bin * 2 + 
-            self.num_size_cluster * 4 + self.num_class, 1)
+        self.conv3 = torch.nn.Conv1d(128, 2 + 3 + num_heading_bin * 2 + self.num_size_cluster * 4 + self.num_class, 1)
         self.bn1 = torch.nn.BatchNorm1d(128)
         self.bn2 = torch.nn.BatchNorm1d(128)
 
@@ -2859,21 +2658,16 @@ class ProposalModule(nn.Module):
             VoteNetResults
         """
         if data.pos.dim() != 3:
-            raise ValueError(
-                'This method only supports dense convolutions for now')
+            raise ValueError('This method only supports dense convolutions for now')
         if self.sampling == 'seed_fps':
-            sample_idx = tp.furthest_point_sample(data.seed_pos, self.
-                num_proposal)
+            sample_idx = tp.furthest_point_sample(data.seed_pos, self.num_proposal)
         else:
-            raise ValueError('Unknown sampling strategy: %s. Exiting!' %
-                self.sampling)
+            raise ValueError('Unknown sampling strategy: %s. Exiting!' % self.sampling)
         data_features = self.vote_aggregation(data, sampled_idx=sample_idx)
         x = F.relu(self.bn1(self.conv1(data_features.x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = self.conv3(x)
-        return VoteNetResults.from_logits(data.seed_inds, data.pos, data.
-            seed_pos, data_features.pos, x, self.num_class, self.
-            num_heading_bin, self.mean_size_arr)
+        return VoteNetResults.from_logits(data.seed_inds, data.pos, data.seed_pos, data_features.pos, x, self.num_class, self.num_heading_bin, self.mean_size_arr)
 
 
 class VotingModule(nn.Module):
@@ -2895,8 +2689,7 @@ class VotingModule(nn.Module):
         self.out_dim = self.in_dim
         self.conv1 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
         self.conv2 = torch.nn.Conv1d(self.in_dim, self.in_dim, 1)
-        self.conv3 = torch.nn.Conv1d(self.in_dim, (3 + self.out_dim) * self
-            .vote_factor, 1)
+        self.conv3 = torch.nn.Conv1d(self.in_dim, (3 + self.out_dim) * self.vote_factor, 1)
         self.bn1 = torch.nn.BatchNorm1d(self.in_dim)
         self.bn2 = torch.nn.BatchNorm1d(self.in_dim)
 
@@ -2910,16 +2703,14 @@ class VotingModule(nn.Module):
             - seed_pos: position of the original point
         """
         if data.pos.dim() != 3:
-            raise ValueError(
-                'This method only supports dense convolutions for now')
+            raise ValueError('This method only supports dense convolutions for now')
         batch_size = data.pos.shape[0]
         num_points = data.pos.shape[1]
         num_votes = num_points * self.vote_factor
         x = F.relu(self.bn1(self.conv1(data.x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = self.conv3(x)
-        x = x.transpose(2, 1).view(batch_size, num_points, self.vote_factor,
-            3 + self.out_dim)
+        x = x.transpose(2, 1).view(batch_size, num_points, self.vote_factor, 3 + self.out_dim)
         offset = x[:, :, :, 0:3]
         vote_pos = data.pos.unsqueeze(2) + offset
         vote_pos = vote_pos.contiguous().view(batch_size, num_votes, 3)
@@ -2934,20 +2725,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ContrastiveHardestNegativeLoss,
+     lambda: ([], {'pos_thresh': 4, 'neg_thresh': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (HuberLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LossAnnealer,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Seq,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_nicolas_chaulet_torch_points3d(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ContrastiveHardestNegativeLoss(*[], **{'pos_thresh': 4, 'neg_thresh': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(HuberLoss(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LossAnnealer(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Seq(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

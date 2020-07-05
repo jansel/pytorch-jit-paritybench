@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -113,10 +114,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -134,10 +133,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -150,8 +147,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -219,8 +215,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
         super(MultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.threshold = overlap_thresh
@@ -254,8 +249,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if GPU:
             loc_t = loc_t
             conf_t = conf_t
@@ -265,8 +259,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -276,8 +269,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
         N = max(num_pos.data.sum().float(), 1)
@@ -307,8 +299,7 @@ class Inception(nn.Module):
         self.branch1x1_2 = BasicConv2d(128, 32, kernel_size=1, padding=0)
         self.branch3x3_reduce = BasicConv2d(128, 24, kernel_size=1, padding=0)
         self.branch3x3 = BasicConv2d(24, 32, kernel_size=3, padding=1)
-        self.branch3x3_reduce_2 = BasicConv2d(128, 24, kernel_size=1, padding=0
-            )
+        self.branch3x3_reduce_2 = BasicConv2d(128, 24, kernel_size=1, padding=0)
         self.branch3x3_2 = BasicConv2d(24, 32, kernel_size=3, padding=1)
         self.branch3x3_3 = BasicConv2d(32, 32, kernel_size=3, padding=1)
 
@@ -352,14 +343,10 @@ class FaceBoxes(nn.Module):
         self.inception1 = Inception()
         self.inception2 = Inception()
         self.inception3 = Inception()
-        self.conv3_1 = BasicConv2d(128, 128, kernel_size=1, stride=1, padding=0
-            )
-        self.conv3_2 = BasicConv2d(128, 256, kernel_size=3, stride=2, padding=1
-            )
-        self.conv4_1 = BasicConv2d(256, 128, kernel_size=1, stride=1, padding=0
-            )
-        self.conv4_2 = BasicConv2d(128, 256, kernel_size=3, stride=2, padding=1
-            )
+        self.conv3_1 = BasicConv2d(128, 128, kernel_size=1, stride=1, padding=0)
+        self.conv3_2 = BasicConv2d(128, 256, kernel_size=3, stride=2, padding=1)
+        self.conv4_1 = BasicConv2d(256, 128, kernel_size=1, stride=1, padding=0)
+        self.conv4_2 = BasicConv2d(128, 256, kernel_size=3, stride=2, padding=1)
         self.loc, self.conf = self.multibox(self.num_classes)
         if self.phase == 'test':
             self.softmax = nn.Softmax(dim=-1)
@@ -379,14 +366,11 @@ class FaceBoxes(nn.Module):
         loc_layers = []
         conf_layers = []
         loc_layers += [nn.Conv2d(128, 21 * 4, kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(128, 21 * num_classes, kernel_size=3,
-            padding=1)]
+        conf_layers += [nn.Conv2d(128, 21 * num_classes, kernel_size=3, padding=1)]
         loc_layers += [nn.Conv2d(256, 1 * 4, kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(256, 1 * num_classes, kernel_size=3,
-            padding=1)]
+        conf_layers += [nn.Conv2d(256, 1 * num_classes, kernel_size=3, padding=1)]
         loc_layers += [nn.Conv2d(256, 1 * 4, kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(256, 1 * num_classes, kernel_size=3,
-            padding=1)]
+        conf_layers += [nn.Conv2d(256, 1 * num_classes, kernel_size=3, padding=1)]
         return nn.Sequential(*loc_layers), nn.Sequential(*conf_layers)
 
     def forward(self, x):
@@ -413,11 +397,9 @@ class FaceBoxes(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(
-                conf.size(0), -1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
 
@@ -425,18 +407,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CRelu,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FaceBoxes,
+     lambda: ([], {'phase': 4, 'size': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Inception,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+]
+
 class Test_zisianw_FaceBoxes_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CRelu(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(FaceBoxes(*[], **{'phase': 4, 'size': 4, 'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Inception(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[3])
 

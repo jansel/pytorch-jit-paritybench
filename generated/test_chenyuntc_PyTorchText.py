@@ -50,8 +50,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -122,13 +123,10 @@ class BasicModule(t.nn.Module):
 
     def get_optimizer(self, lr1, lr2=0, weight_decay=0):
         ignored_params = list(map(id, self.encoder.parameters()))
-        base_params = [p for p in self.parameters() if id(p) not in
-            ignored_params]
+        base_params = [p for p in self.parameters() if id(p) not in ignored_params]
         if lr2 is None:
             lr2 = lr1 * 0.5
-        optimizer = t.optim.Adam([dict(params=base_params, weight_decay=
-            weight_decay, lr=lr1), {'params': self.encoder.parameters(),
-            'lr': lr2}])
+        optimizer = t.optim.Adam([dict(params=base_params, weight_decay=weight_decay, lr=lr1), {'params': self.encoder.parameters(), 'lr': lr2}])
         return optimizer
 
 
@@ -143,26 +141,17 @@ class Inception(nn.Module):
             self.activa.add_module('norm', nn.BatchNorm1d(co))
         if relu:
             self.activa.add_module('relu', nn.ReLU(True))
-        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[0], 1, stride=1))]))
-        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.
-            ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3,
-            stride=1, padding=1))]))
-        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin,
-            cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), (
-            'relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2],
-            cos[2], 5, stride=1, padding=2))]))
-        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin,
-            cos[3], 3, stride=1, padding=1))]))
+        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[0], 1, stride=1))]))
+        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3, stride=1, padding=1))]))
+        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2], cos[2], 5, stride=1, padding=2))]))
+        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin, cos[3], 3, stride=1, padding=1))]))
 
     def forward(self, x):
         branch1 = self.branch1(x)
         branch2 = self.branch2(x)
         branch3 = self.branch3(x)
         branch4 = self.branch4(x)
-        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1)
-            )
+        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1))
         return result
 
 
@@ -231,8 +220,7 @@ class NCELoss(nn.Module):
         - decoder: :math:`(E, V)` where `E = embedding size`
     """
 
-    def __init__(self, ntokens, nhidden, noise, noise_ratio=10, norm_term=9,
-        size_average=True, decoder_weight=None):
+    def __init__(self, ntokens, nhidden, noise, noise_ratio=10, norm_term=9, size_average=True, decoder_weight=None):
         super(NCELoss, self).__init__()
         self.noise = noise
         self.alias = AliasMethod(noise)
@@ -258,16 +246,11 @@ class NCELoss(nn.Module):
         length = target.size(0)
         if self.training:
             assert input.size(0) == target.size(0)
-            noise_samples = self.alias.draw(self.noise_ratio).unsqueeze(0
-                ).repeat(length, 1)
-            data_prob, noise_in_data_probs = self._get_prob(input, target.
-                data, noise_samples)
-            noise_probs = Variable(self.noise[noise_samples.view(-1)].
-                view_as(noise_in_data_probs))
-            rnn_loss = torch.log(data_prob / (data_prob + self.noise_ratio *
-                Variable(self.noise[target.data])))
-            noise_loss = torch.sum(torch.log(self.noise_ratio * noise_probs /
-                (noise_in_data_probs + self.noise_ratio * noise_probs)), 1)
+            noise_samples = self.alias.draw(self.noise_ratio).unsqueeze(0).repeat(length, 1)
+            data_prob, noise_in_data_probs = self._get_prob(input, target.data, noise_samples)
+            noise_probs = Variable(self.noise[noise_samples.view(-1)].view_as(noise_in_data_probs))
+            rnn_loss = torch.log(data_prob / (data_prob + self.noise_ratio * Variable(self.noise[target.data])))
+            noise_loss = torch.sum(torch.log(self.noise_ratio * noise_probs / (noise_in_data_probs + self.noise_ratio * noise_probs)), 1)
             loss = -1 * torch.sum(rnn_loss + noise_loss)
         else:
             out = self.decoder(input, indices=target.unsqueeze(1))
@@ -285,8 +268,7 @@ class NCELoss(nn.Module):
             - Noise_idx: :math:`(N, N_r)` where `N_r = noise ratio`
         """
         embedding = embedding
-        indices = Variable(torch.cat([target_idx.unsqueeze(1), noise_idx],
-            dim=1))
+        indices = Variable(torch.cat([target_idx.unsqueeze(1), noise_idx], dim=1))
         probs = self.decoder(embedding, indices)
         probs = probs.sub(self.norm_term).exp()
         return probs[:, (0)], probs[:, 1:]
@@ -312,10 +294,8 @@ class IndexLinear(nn.Linear):
         if indices is None:
             return super(IndexLinear, self).forward(input)
         input = input.unsqueeze(1)
-        target_batch = self.weight.index_select(0, indices.view(-1)).view(
-            indices.size(0), indices.size(1), -1).transpose(1, 2)
-        bias = self.bias.index_select(0, indices.view(-1)).view(indices.
-            size(0), 1, indices.size(1))
+        target_batch = self.weight.index_select(0, indices.view(-1)).view(indices.size(0), indices.size(1), -1).transpose(1, 2)
+        bias = self.bias.index_select(0, indices.view(-1)).view(indices.size(0), 1, indices.size(1))
         out = torch.baddbmm(1, bias, 1, input, target_batch)
         return out.squeeze()
 
@@ -329,9 +309,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (IndexLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_chenyuntc_PyTorchText(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(IndexLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

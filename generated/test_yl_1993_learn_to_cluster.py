@@ -107,8 +107,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -177,8 +178,7 @@ class GraphConv(nn.Module):
         return output
 
     def __repr__(self):
-        return '{} ({} -> {})'.format(self.__class__.__name__, self.
-            in_features, self.out_features)
+        return '{} ({} -> {})'.format(self.__class__.__name__, self.in_features, self.out_features)
 
 
 class BasicBlock(nn.Module):
@@ -206,9 +206,7 @@ class GNN(nn.Module):
         seg output is (bs, N, num_classes)
     """
 
-    def __init__(self, planes, feature_dim, featureless, num_classes=1,
-        dropout=0.0, reduce_method='max', stage='det', use_random_seed=
-        False, **kwargs):
+    def __init__(self, planes, feature_dim, featureless, num_classes=1, dropout=0.0, reduce_method='max', stage='det', use_random_seed=False, **kwargs):
         assert feature_dim > 0
         assert dropout >= 0 and dropout < 1
         super(GNN, self).__init__()
@@ -295,8 +293,7 @@ class lgcn(nn.Module):
         self.conv2 = GraphConv(512, 512, MeanAggregator)
         self.conv3 = GraphConv(512, 256, MeanAggregator)
         self.conv4 = GraphConv(256, 256, MeanAggregator)
-        self.classifier = nn.Sequential(nn.Linear(256, 256), nn.PReLU(256),
-            nn.Linear(256, 2))
+        self.classifier = nn.Sequential(nn.Linear(256, 256), nn.PReLU(256), nn.Linear(256, 2))
         self.loss = nn.CrossEntropyLoss()
 
     def extract(self, x, A, one_hop_idxs):
@@ -337,8 +334,7 @@ class GCN_E(nn.Module):
         self.conv3 = GraphConv(nhid, nhid_half, MeanAggregator, dropout)
         self.conv4 = GraphConv(nhid_half, nhid_half, MeanAggregator, dropout)
         self.nclass = nclass
-        self.classifier = nn.Sequential(nn.Linear(nhid_half, nhid_half), nn
-            .PReLU(nhid_half), nn.Linear(nhid_half, self.nclass))
+        self.classifier = nn.Sequential(nn.Linear(nhid_half, nhid_half), nn.PReLU(nhid_half), nn.Linear(nhid_half, self.nclass))
         if nclass == 1:
             self.loss = nn.MSELoss()
         elif nclass == 2:
@@ -368,8 +364,7 @@ class GCN_V(nn.Module):
         super(GCN_V, self).__init__()
         self.conv1 = GraphConv(feature_dim, nhid, MeanAggregator, dropout)
         self.nclass = nclass
-        self.classifier = nn.Sequential(nn.Linear(nhid, nhid), nn.PReLU(
-            nhid), nn.Linear(nhid, self.nclass))
+        self.classifier = nn.Sequential(nn.Linear(nhid, nhid), nn.PReLU(nhid), nn.Linear(nhid, self.nclass))
         self.loss = torch.nn.MSELoss()
 
     def forward(self, data, output_feat=False, return_loss=False):
@@ -436,13 +431,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_yl_1993_learn_to_cluster(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(GCN_V(*[], **{'feature_dim': 4, 'nhid': 4, 'nclass': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GCN_V,
+     lambda: ([], {'feature_dim': 4, 'nhid': 4, 'nclass': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MeanAggregator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
+class Test_yl_1993_learn_to_cluster(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(MeanAggregator(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 

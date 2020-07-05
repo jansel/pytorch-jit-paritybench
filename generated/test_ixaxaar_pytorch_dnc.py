@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -118,11 +119,7 @@ def cuda(x, grad=False, gpu_id=-1):
 
 class DNC(nn.Module):
 
-    def __init__(self, input_size, hidden_size, rnn_type='lstm', num_layers
-        =1, num_hidden_layers=2, bias=True, batch_first=True, dropout=0,
-        bidirectional=False, nr_cells=5, read_heads=2, cell_size=10,
-        nonlinearity='tanh', gpu_id=-1, independent_linears=False,
-        share_memory=True, debug=False, clip=20):
+    def __init__(self, input_size, hidden_size, rnn_type='lstm', num_layers=1, num_hidden_layers=2, bias=True, batch_first=True, dropout=0, bidirectional=False, nr_cells=5, read_heads=2, cell_size=10, nonlinearity='tanh', gpu_id=-1, independent_linears=False, share_memory=True, debug=False, clip=20):
         super(DNC, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -152,34 +149,17 @@ class DNC(nn.Module):
         self.memories = []
         for layer in range(self.num_layers):
             if self.rnn_type.lower() == 'rnn':
-                self.rnns.append(nn.RNN(self.nn_input_size if layer == 0 else
-                    self.nn_output_size, self.output_size, bias=self.bias,
-                    nonlinearity=self.nonlinearity, batch_first=True,
-                    dropout=self.dropout, num_layers=self.num_hidden_layers))
+                self.rnns.append(nn.RNN(self.nn_input_size if layer == 0 else self.nn_output_size, self.output_size, bias=self.bias, nonlinearity=self.nonlinearity, batch_first=True, dropout=self.dropout, num_layers=self.num_hidden_layers))
             elif self.rnn_type.lower() == 'gru':
-                self.rnns.append(nn.GRU(self.nn_input_size if layer == 0 else
-                    self.nn_output_size, self.output_size, bias=self.bias,
-                    batch_first=True, dropout=self.dropout, num_layers=self
-                    .num_hidden_layers))
+                self.rnns.append(nn.GRU(self.nn_input_size if layer == 0 else self.nn_output_size, self.output_size, bias=self.bias, batch_first=True, dropout=self.dropout, num_layers=self.num_hidden_layers))
             if self.rnn_type.lower() == 'lstm':
-                self.rnns.append(nn.LSTM(self.nn_input_size if layer == 0 else
-                    self.nn_output_size, self.output_size, bias=self.bias,
-                    batch_first=True, dropout=self.dropout, num_layers=self
-                    .num_hidden_layers))
-            setattr(self, self.rnn_type.lower() + '_layer_' + str(layer),
-                self.rnns[layer])
+                self.rnns.append(nn.LSTM(self.nn_input_size if layer == 0 else self.nn_output_size, self.output_size, bias=self.bias, batch_first=True, dropout=self.dropout, num_layers=self.num_hidden_layers))
+            setattr(self, self.rnn_type.lower() + '_layer_' + str(layer), self.rnns[layer])
             if not self.share_memory:
-                self.memories.append(Memory(input_size=self.output_size,
-                    mem_size=self.nr_cells, cell_size=self.w, read_heads=
-                    self.r, gpu_id=self.gpu_id, independent_linears=self.
-                    independent_linears))
-                setattr(self, 'rnn_layer_memory_' + str(layer), self.
-                    memories[layer])
+                self.memories.append(Memory(input_size=self.output_size, mem_size=self.nr_cells, cell_size=self.w, read_heads=self.r, gpu_id=self.gpu_id, independent_linears=self.independent_linears))
+                setattr(self, 'rnn_layer_memory_' + str(layer), self.memories[layer])
         if self.share_memory:
-            self.memories.append(Memory(input_size=self.output_size,
-                mem_size=self.nr_cells, cell_size=self.w, read_heads=self.r,
-                gpu_id=self.gpu_id, independent_linears=self.
-                independent_linears))
+            self.memories.append(Memory(input_size=self.output_size, mem_size=self.nr_cells, cell_size=self.w, read_heads=self.r, gpu_id=self.gpu_id, independent_linears=self.independent_linears))
             setattr(self, 'rnn_layer_memory_shared', self.memories[0])
         self.output = nn.Linear(self.nn_output_size, self.input_size)
         orthogonal_(self.output.weight)
@@ -193,47 +173,34 @@ class DNC(nn.Module):
             hx = None, None, None
         chx, mhx, last_read = hx
         if chx is None:
-            h = cuda(T.zeros(self.num_hidden_layers, batch_size, self.
-                output_size), gpu_id=self.gpu_id)
+            h = cuda(T.zeros(self.num_hidden_layers, batch_size, self.output_size), gpu_id=self.gpu_id)
             xavier_uniform_(h)
-            chx = [((h, h) if self.rnn_type.lower() == 'lstm' else h) for x in
-                range(self.num_layers)]
+            chx = [((h, h) if self.rnn_type.lower() == 'lstm' else h) for x in range(self.num_layers)]
         if last_read is None:
-            last_read = cuda(T.zeros(batch_size, self.w * self.r), gpu_id=
-                self.gpu_id)
+            last_read = cuda(T.zeros(batch_size, self.w * self.r), gpu_id=self.gpu_id)
         if mhx is None:
             if self.share_memory:
-                mhx = self.memories[0].reset(batch_size, erase=reset_experience
-                    )
+                mhx = self.memories[0].reset(batch_size, erase=reset_experience)
             else:
-                mhx = [m.reset(batch_size, erase=reset_experience) for m in
-                    self.memories]
+                mhx = [m.reset(batch_size, erase=reset_experience) for m in self.memories]
         elif self.share_memory:
-            mhx = self.memories[0].reset(batch_size, mhx, erase=
-                reset_experience)
+            mhx = self.memories[0].reset(batch_size, mhx, erase=reset_experience)
         else:
-            mhx = [m.reset(batch_size, h, erase=reset_experience) for m, h in
-                zip(self.memories, mhx)]
+            mhx = [m.reset(batch_size, h, erase=reset_experience) for m, h in zip(self.memories, mhx)]
         return chx, mhx, last_read
 
     def _debug(self, mhx, debug_obj):
         if not debug_obj:
-            debug_obj = {'memory': [], 'link_matrix': [], 'precedence': [],
-                'read_weights': [], 'write_weights': [], 'usage_vector': []}
+            debug_obj = {'memory': [], 'link_matrix': [], 'precedence': [], 'read_weights': [], 'write_weights': [], 'usage_vector': []}
         debug_obj['memory'].append(mhx['memory'][0].data.cpu().numpy())
-        debug_obj['link_matrix'].append(mhx['link_matrix'][0][0].data.cpu()
-            .numpy())
+        debug_obj['link_matrix'].append(mhx['link_matrix'][0][0].data.cpu().numpy())
         debug_obj['precedence'].append(mhx['precedence'][0].data.cpu().numpy())
-        debug_obj['read_weights'].append(mhx['read_weights'][0].data.cpu().
-            numpy())
-        debug_obj['write_weights'].append(mhx['write_weights'][0].data.cpu(
-            ).numpy())
-        debug_obj['usage_vector'].append(mhx['usage_vector'][0].unsqueeze(0
-            ).data.cpu().numpy())
+        debug_obj['read_weights'].append(mhx['read_weights'][0].data.cpu().numpy())
+        debug_obj['write_weights'].append(mhx['write_weights'][0].data.cpu().numpy())
+        debug_obj['usage_vector'].append(mhx['usage_vector'][0].unsqueeze(0).data.cpu().numpy())
         return debug_obj
 
-    def _layer_forward(self, input, layer, hx=(None, None),
-        pass_through_memory=True):
+    def _layer_forward(self, input, layer, hx=(None, None), pass_through_memory=True):
         chx, mhx = hx
         input, chx = self.rnns[layer](input.unsqueeze(1), chx)
         input = input.squeeze(1)
@@ -252,23 +219,19 @@ class DNC(nn.Module):
             read_vectors = None
         return output, (chx, mhx, read_vectors)
 
-    def forward(self, input, hx=(None, None, None), reset_experience=False,
-        pass_through_memory=True):
+    def forward(self, input, hx=(None, None, None), reset_experience=False, pass_through_memory=True):
         is_packed = type(input) is PackedSequence
         if is_packed:
             input, lengths = pad(input)
             max_length = lengths[0]
         else:
             max_length = input.size(1) if self.batch_first else input.size(0)
-            lengths = [input.size(1)] * max_length if self.batch_first else [
-                input.size(0)] * max_length
+            lengths = [input.size(1)] * max_length if self.batch_first else [input.size(0)] * max_length
         batch_size = input.size(0) if self.batch_first else input.size(1)
         if not self.batch_first:
             input = input.transpose(0, 1)
-        controller_hidden, mem_hidden, last_read = self._init_hidden(hx,
-            batch_size, reset_experience)
-        inputs = [T.cat([input[:, (x), :], last_read], 1) for x in range(
-            max_length)]
+        controller_hidden, mem_hidden, last_read = self._init_hidden(hx, batch_size, reset_experience)
+        inputs = [T.cat([input[:, (x), :], last_read], 1) for x in range(max_length)]
         if self.debug:
             viz = None
         outs = [None] * max_length
@@ -277,8 +240,7 @@ class DNC(nn.Module):
             for layer in range(self.num_layers):
                 chx = controller_hidden[layer]
                 m = mem_hidden if self.share_memory else mem_hidden[layer]
-                outs[time], (chx, m, read_vectors) = self._layer_forward(inputs
-                    [time], layer, (chx, m), pass_through_memory)
+                outs[time], (chx, m, read_vectors) = self._layer_forward(inputs[time], layer, (chx, m), pass_through_memory)
                 if self.debug:
                     viz = self._debug(m, viz)
                 if self.share_memory:
@@ -293,8 +255,7 @@ class DNC(nn.Module):
                 inputs[time] = outs[time]
         if self.debug:
             viz = {k: np.array(v) for k, v in viz.items()}
-            viz = {k: v.reshape(v.shape[0], v.shape[1] * v.shape[2]) for k,
-                v in viz.items()}
+            viz = {k: v.reshape(v.shape[0], v.shape[1] * v.shape[2]) for k, v in viz.items()}
         inputs = [self.output(i) for i in inputs]
         outputs = T.stack(inputs, 1 if self.batch_first else 0)
         if is_packed:
@@ -339,8 +300,7 @@ class DNC(nn.Module):
             s += ', debug={debug}'
         if self.clip != 20:
             s += ', clip={clip}'
-        s += ')\n' + super(DNC, self).__repr__(
-            ) + '\n----------------------------------------\n'
+        s += ')\n' + super(DNC, self).__repr__() + '\n----------------------------------------\n'
         return s.format(name=self.__class__.__name__, **self.__dict__)
 
 
@@ -365,8 +325,7 @@ def θ(a, b, dimA=2, dimB=2, normBy=2):
   """
     a_norm = T.norm(a, normBy, dimA, keepdim=True).expand_as(a) + δ
     b_norm = T.norm(b, normBy, dimB, keepdim=True).expand_as(b) + δ
-    x = T.bmm(a, b.transpose(1, 2)).transpose(1, 2) / (T.bmm(a_norm, b_norm
-        .transpose(1, 2)).transpose(1, 2) + δ)
+    x = T.bmm(a, b.transpose(1, 2)).transpose(1, 2) / (T.bmm(a_norm, b_norm.transpose(1, 2)).transpose(1, 2) + δ)
     return x
 
 
@@ -395,8 +354,7 @@ def σ(input, axis=1):
 
 class Memory(nn.Module):
 
-    def __init__(self, input_size, mem_size=512, cell_size=32, read_heads=4,
-        gpu_id=-1, independent_linears=True):
+    def __init__(self, input_size, mem_size=512, cell_size=32, read_heads=4, gpu_id=-1, independent_linears=True):
         super(Memory, self).__init__()
         self.mem_size = mem_size
         self.cell_size = cell_size
@@ -420,8 +378,7 @@ class Memory(nn.Module):
             self.read_modes_transform = nn.Linear(self.input_size, 3 * r)
         else:
             self.interface_size = w * r + 3 * w + 5 * r + 3
-            self.interface_weights = nn.Linear(self.input_size, self.
-                interface_size)
+            self.interface_weights = nn.Linear(self.input_size, self.interface_size)
         self.I = cuda(1 - T.eye(m).unsqueeze(0), gpu_id=self.gpu_id)
 
     def reset(self, batch_size=1, hidden=None, erase=True):
@@ -430,13 +387,7 @@ class Memory(nn.Module):
         r = self.read_heads
         b = batch_size
         if hidden is None:
-            return {'memory': cuda(T.zeros(b, m, w).fill_(0), gpu_id=self.
-                gpu_id), 'link_matrix': cuda(T.zeros(b, 1, m, m), gpu_id=
-                self.gpu_id), 'precedence': cuda(T.zeros(b, 1, m), gpu_id=
-                self.gpu_id), 'read_weights': cuda(T.zeros(b, r, m).fill_(0
-                ), gpu_id=self.gpu_id), 'write_weights': cuda(T.zeros(b, 1,
-                m).fill_(0), gpu_id=self.gpu_id), 'usage_vector': cuda(T.
-                zeros(b, m), gpu_id=self.gpu_id)}
+            return {'memory': cuda(T.zeros(b, m, w).fill_(0), gpu_id=self.gpu_id), 'link_matrix': cuda(T.zeros(b, 1, m, m), gpu_id=self.gpu_id), 'precedence': cuda(T.zeros(b, 1, m), gpu_id=self.gpu_id), 'read_weights': cuda(T.zeros(b, r, m).fill_(0), gpu_id=self.gpu_id), 'write_weights': cuda(T.zeros(b, 1, m).fill_(0), gpu_id=self.gpu_id), 'usage_vector': cuda(T.zeros(b, m), gpu_id=self.gpu_id)}
         else:
             hidden['memory'] = hidden['memory'].clone()
             hidden['link_matrix'] = hidden['link_matrix'].clone()
@@ -465,18 +416,15 @@ class Memory(nn.Module):
         v = var(sorted_usage.data.new(batch_size, 1).fill_(1))
         cat_sorted_usage = T.cat((v, sorted_usage), 1)
         prod_sorted_usage = T.cumprod(cat_sorted_usage, 1)[:, :-1]
-        sorted_allocation_weights = (1 - sorted_usage
-            ) * prod_sorted_usage.squeeze()
+        sorted_allocation_weights = (1 - sorted_usage) * prod_sorted_usage.squeeze()
         _, φ_rev = T.topk(φ, k=self.mem_size, dim=1, largest=False)
         allocation_weights = sorted_allocation_weights.gather(1, φ_rev.long())
         return allocation_weights.unsqueeze(1), usage
 
-    def write_weighting(self, memory, write_content_weights,
-        allocation_weights, write_gate, allocation_gate):
+    def write_weighting(self, memory, write_content_weights, allocation_weights, write_gate, allocation_gate):
         ag = allocation_gate.unsqueeze(-1)
         wg = write_gate.unsqueeze(-1)
-        return wg * (ag * allocation_weights + (1 - ag) * write_content_weights
-            )
+        return wg * (ag * allocation_weights + (1 - ag) * write_content_weights)
 
     def get_link_matrix(self, link_matrix, write_weights, precedence):
         precedence = precedence.unsqueeze(2)
@@ -488,30 +436,19 @@ class Memory(nn.Module):
         return self.I.expand_as(link_matrix) * link_matrix
 
     def update_precedence(self, precedence, write_weights):
-        return (1 - T.sum(write_weights, 2, keepdim=True)
-            ) * precedence + write_weights
+        return (1 - T.sum(write_weights, 2, keepdim=True)) * precedence + write_weights
 
-    def write(self, write_key, write_vector, erase_vector, free_gates,
-        read_strengths, write_strength, write_gate, allocation_gate, hidden):
-        hidden['usage_vector'] = self.get_usage_vector(hidden[
-            'usage_vector'], free_gates, hidden['read_weights'], hidden[
-            'write_weights'])
-        write_content_weights = self.content_weightings(hidden['memory'],
-            write_key, write_strength)
-        alloc, _ = self.allocate(hidden['usage_vector'], allocation_gate *
-            write_gate)
-        hidden['write_weights'] = self.write_weighting(hidden['memory'],
-            write_content_weights, alloc, write_gate, allocation_gate)
-        weighted_resets = hidden['write_weights'].unsqueeze(3
-            ) * erase_vector.unsqueeze(2)
+    def write(self, write_key, write_vector, erase_vector, free_gates, read_strengths, write_strength, write_gate, allocation_gate, hidden):
+        hidden['usage_vector'] = self.get_usage_vector(hidden['usage_vector'], free_gates, hidden['read_weights'], hidden['write_weights'])
+        write_content_weights = self.content_weightings(hidden['memory'], write_key, write_strength)
+        alloc, _ = self.allocate(hidden['usage_vector'], allocation_gate * write_gate)
+        hidden['write_weights'] = self.write_weighting(hidden['memory'], write_content_weights, alloc, write_gate, allocation_gate)
+        weighted_resets = hidden['write_weights'].unsqueeze(3) * erase_vector.unsqueeze(2)
         reset_gate = T.prod(1 - weighted_resets, 1)
         hidden['memory'] = hidden['memory'] * reset_gate
-        hidden['memory'] = hidden['memory'] + T.bmm(hidden['write_weights']
-            .transpose(1, 2), write_vector)
-        hidden['link_matrix'] = self.get_link_matrix(hidden['link_matrix'],
-            hidden['write_weights'], hidden['precedence'])
-        hidden['precedence'] = self.update_precedence(hidden['precedence'],
-            hidden['write_weights'])
+        hidden['memory'] = hidden['memory'] + T.bmm(hidden['write_weights'].transpose(1, 2), write_vector)
+        hidden['link_matrix'] = self.get_link_matrix(hidden['link_matrix'], hidden['write_weights'], hidden['precedence'])
+        hidden['precedence'] = self.update_precedence(hidden['precedence'], hidden['write_weights'])
         return hidden
 
     def content_weightings(self, memory, keys, strengths):
@@ -524,29 +461,20 @@ class Memory(nn.Module):
         b = T.matmul(rw, link_matrix)
         return f.transpose(1, 2), b.transpose(1, 2)
 
-    def read_weightings(self, memory, content_weights, link_matrix,
-        read_modes, read_weights):
-        forward_weight, backward_weight = self.directional_weightings(
-            link_matrix, read_weights)
-        content_mode = read_modes[:, :, (2)].contiguous().unsqueeze(2
-            ) * content_weights
-        backward_mode = T.sum(read_modes[:, :, 0:1].contiguous().unsqueeze(
-            3) * backward_weight, 2)
-        forward_mode = T.sum(read_modes[:, :, 1:2].contiguous().unsqueeze(3
-            ) * forward_weight, 2)
+    def read_weightings(self, memory, content_weights, link_matrix, read_modes, read_weights):
+        forward_weight, backward_weight = self.directional_weightings(link_matrix, read_weights)
+        content_mode = read_modes[:, :, (2)].contiguous().unsqueeze(2) * content_weights
+        backward_mode = T.sum(read_modes[:, :, 0:1].contiguous().unsqueeze(3) * backward_weight, 2)
+        forward_mode = T.sum(read_modes[:, :, 1:2].contiguous().unsqueeze(3) * forward_weight, 2)
         return backward_mode + content_mode + forward_mode
 
     def read_vectors(self, memory, read_weights):
         return T.bmm(read_weights, memory)
 
     def read(self, read_keys, read_strengths, read_modes, hidden):
-        content_weights = self.content_weightings(hidden['memory'],
-            read_keys, read_strengths)
-        hidden['read_weights'] = self.read_weightings(hidden['memory'],
-            content_weights, hidden['link_matrix'], read_modes, hidden[
-            'read_weights'])
-        read_vectors = self.read_vectors(hidden['memory'], hidden[
-            'read_weights'])
+        content_weights = self.content_weightings(hidden['memory'], read_keys, read_strengths)
+        hidden['read_weights'] = self.read_weightings(hidden['memory'], content_weights, hidden['link_matrix'], read_modes, hidden['read_weights'])
+        read_vectors = self.read_vectors(hidden['memory'], hidden['read_weights'])
         return read_vectors, hidden
 
     def forward(self, ξ, hidden):
@@ -556,51 +484,34 @@ class Memory(nn.Module):
         b = ξ.size()[0]
         if self.independent_linears:
             read_keys = T.tanh(self.read_keys_transform(ξ).view(b, r, w))
-            read_strengths = F.softplus(self.read_strengths_transform(ξ).
-                view(b, r))
+            read_strengths = F.softplus(self.read_strengths_transform(ξ).view(b, r))
             write_key = T.tanh(self.write_key_transform(ξ).view(b, 1, w))
-            write_strength = F.softplus(self.write_strength_transform(ξ).
-                view(b, 1))
-            erase_vector = T.sigmoid(self.erase_vector_transform(ξ).view(b,
-                1, w))
+            write_strength = F.softplus(self.write_strength_transform(ξ).view(b, 1))
+            erase_vector = T.sigmoid(self.erase_vector_transform(ξ).view(b, 1, w))
             write_vector = T.tanh(self.write_vector_transform(ξ).view(b, 1, w))
             free_gates = T.sigmoid(self.free_gates_transform(ξ).view(b, r))
-            allocation_gate = T.sigmoid(self.allocation_gate_transform(ξ).
-                view(b, 1))
+            allocation_gate = T.sigmoid(self.allocation_gate_transform(ξ).view(b, 1))
             write_gate = T.sigmoid(self.write_gate_transform(ξ).view(b, 1))
             read_modes = σ(self.read_modes_transform(ξ).view(b, r, 3), -1)
         else:
             ξ = self.interface_weights(ξ)
             read_keys = T.tanh(ξ[:, :r * w].contiguous().view(b, r, w))
-            read_strengths = F.softplus(ξ[:, r * w:r * w + r].contiguous().
-                view(b, r))
-            write_key = T.tanh(ξ[:, r * w + r:r * w + r + w].contiguous().
-                view(b, 1, w))
-            write_strength = F.softplus(ξ[:, (r * w + r + w)].contiguous().
-                view(b, 1))
-            erase_vector = T.sigmoid(ξ[:, r * w + r + w + 1:r * w + r + 2 *
-                w + 1].contiguous().view(b, 1, w))
-            write_vector = T.tanh(ξ[:, r * w + r + 2 * w + 1:r * w + r + 3 *
-                w + 1].contiguous().view(b, 1, w))
-            free_gates = T.sigmoid(ξ[:, r * w + r + 3 * w + 1:r * w + 2 * r +
-                3 * w + 1].contiguous().view(b, r))
-            allocation_gate = T.sigmoid(ξ[:, (r * w + 2 * r + 3 * w + 1)].
-                contiguous().unsqueeze(1).view(b, 1))
-            write_gate = T.sigmoid(ξ[:, (r * w + 2 * r + 3 * w + 2)].
-                contiguous()).unsqueeze(1).view(b, 1)
-            read_modes = σ(ξ[:, r * w + 2 * r + 3 * w + 3:r * w + 5 * r + 3 *
-                w + 3].contiguous().view(b, r, 3), -1)
-        hidden = self.write(write_key, write_vector, erase_vector,
-            free_gates, read_strengths, write_strength, write_gate,
-            allocation_gate, hidden)
+            read_strengths = F.softplus(ξ[:, r * w:r * w + r].contiguous().view(b, r))
+            write_key = T.tanh(ξ[:, r * w + r:r * w + r + w].contiguous().view(b, 1, w))
+            write_strength = F.softplus(ξ[:, (r * w + r + w)].contiguous().view(b, 1))
+            erase_vector = T.sigmoid(ξ[:, r * w + r + w + 1:r * w + r + 2 * w + 1].contiguous().view(b, 1, w))
+            write_vector = T.tanh(ξ[:, r * w + r + 2 * w + 1:r * w + r + 3 * w + 1].contiguous().view(b, 1, w))
+            free_gates = T.sigmoid(ξ[:, r * w + r + 3 * w + 1:r * w + 2 * r + 3 * w + 1].contiguous().view(b, r))
+            allocation_gate = T.sigmoid(ξ[:, (r * w + 2 * r + 3 * w + 1)].contiguous().unsqueeze(1).view(b, 1))
+            write_gate = T.sigmoid(ξ[:, (r * w + 2 * r + 3 * w + 2)].contiguous()).unsqueeze(1).view(b, 1)
+            read_modes = σ(ξ[:, r * w + 2 * r + 3 * w + 3:r * w + 5 * r + 3 * w + 3].contiguous().view(b, r, 3), -1)
+        hidden = self.write(write_key, write_vector, erase_vector, free_gates, read_strengths, write_strength, write_gate, allocation_gate, hidden)
         return self.read(read_keys, read_strengths, read_modes, hidden)
 
 
 class SparseMemory(nn.Module):
 
-    def __init__(self, input_size, mem_size=512, cell_size=32,
-        independent_linears=True, read_heads=4, sparse_reads=4, num_lists=
-        None, index_checks=32, gpu_id=-1, mem_gpu_id=-1):
+    def __init__(self, input_size, mem_size=512, cell_size=32, independent_linears=True, read_heads=4, sparse_reads=4, num_lists=None, index_checks=32, gpu_id=-1, mem_gpu_id=-1):
         super(SparseMemory, self).__init__()
         self.mem_size = mem_size
         self.cell_size = cell_size
@@ -608,11 +519,9 @@ class SparseMemory(nn.Module):
         self.mem_gpu_id = mem_gpu_id
         self.input_size = input_size
         self.independent_linears = independent_linears
-        self.K = (sparse_reads if self.mem_size > sparse_reads else self.
-            mem_size)
+        self.K = sparse_reads if self.mem_size > sparse_reads else self.mem_size
         self.read_heads = read_heads
-        self.num_lists = num_lists if num_lists is not None else int(self.
-            mem_size / 100)
+        self.num_lists = num_lists if num_lists is not None else int(self.mem_size / 100)
         self.index_checks = index_checks
         m = self.mem_size
         w = self.cell_size
@@ -622,14 +531,12 @@ class SparseMemory(nn.Module):
             if self.gpu_id != -1:
                 self.read_query_transform = nn.Linear(self.input_size, w * r)
                 self.write_vector_transform = nn.Linear(self.input_size, w)
-                self.interpolation_gate_transform = nn.Linear(self.
-                    input_size, self.c)
+                self.interpolation_gate_transform = nn.Linear(self.input_size, self.c)
                 self.write_gate_transform = nn.Linear(self.input_size, 1)
             else:
                 self.read_query_transform = nn.Linear(self.input_size, w * r)
                 self.write_vector_transform = nn.Linear(self.input_size, w)
-                self.interpolation_gate_transform = nn.Linear(self.
-                    input_size, self.c)
+                self.interpolation_gate_transform = nn.Linear(self.input_size, self.c)
                 self.write_gate_transform = nn.Linear(self.input_size, 1)
             T.nn.init.orthogonal_(self.read_query_transform.weight)
             T.nn.init.orthogonal_(self.write_vector_transform.weight)
@@ -638,11 +545,9 @@ class SparseMemory(nn.Module):
         else:
             self.interface_size = r * w + w + self.c + 1
             if self.gpu_id != -1:
-                self.interface_weights = nn.Linear(self.input_size, self.
-                    interface_size)
+                self.interface_weights = nn.Linear(self.input_size, self.interface_size)
             else:
-                self.interface_weights = nn.Linear(self.input_size, self.
-                    interface_size)
+                self.interface_weights = nn.Linear(self.input_size, self.interface_size)
             T.nn.init.orthogonal_(self.interface_weights.weight)
         self.I = cuda(1 - T.eye(self.c).unsqueeze(0), gpu_id=self.gpu_id)
         self.δ = 0.005
@@ -657,16 +562,10 @@ class SparseMemory(nn.Module):
             [x.reset() for x in hidden['indexes']]
         else:
             try:
-                hidden['indexes'] = [FAISSIndex(cell_size=self.cell_size,
-                    nr_cells=self.mem_size, K=self.K, num_lists=self.
-                    num_lists, probes=self.index_checks, gpu_id=self.
-                    mem_gpu_id) for x in range(b)]
+                hidden['indexes'] = [FAISSIndex(cell_size=self.cell_size, nr_cells=self.mem_size, K=self.K, num_lists=self.num_lists, probes=self.index_checks, gpu_id=self.mem_gpu_id) for x in range(b)]
             except Exception as e:
                 None
-                hidden['indexes'] = [FLANNIndex(cell_size=self.cell_size,
-                    nr_cells=self.mem_size, K=self.K, num_kdtrees=self.
-                    num_lists, probes=self.index_checks, gpu_id=self.
-                    mem_gpu_id) for x in range(b)]
+                hidden['indexes'] = [FLANNIndex(cell_size=self.cell_size, nr_cells=self.mem_size, K=self.K, num_kdtrees=self.num_lists, probes=self.index_checks, gpu_id=self.mem_gpu_id) for x in range(b)]
         pos = hidden['read_positions'].squeeze().data.cpu().numpy()
         if not erase:
             for n, i in enumerate(hidden['indexes']):
@@ -684,16 +583,7 @@ class SparseMemory(nn.Module):
         r = self.read_heads
         c = self.c
         if hidden is None:
-            hidden = {'memory': cuda(T.zeros(b, m, w).fill_(δ), gpu_id=self
-                .mem_gpu_id), 'visible_memory': cuda(T.zeros(b, c, w).fill_
-                (δ), gpu_id=self.mem_gpu_id), 'read_weights': cuda(T.zeros(
-                b, m).fill_(δ), gpu_id=self.gpu_id), 'write_weights': cuda(
-                T.zeros(b, m).fill_(δ), gpu_id=self.gpu_id), 'read_vectors':
-                cuda(T.zeros(b, r, w).fill_(δ), gpu_id=self.gpu_id),
-                'least_used_mem': cuda(T.zeros(b, 1).fill_(c + 1), gpu_id=
-                self.gpu_id).long(), 'usage': cuda(T.zeros(b, m), gpu_id=
-                self.gpu_id), 'read_positions': cuda(T.arange(0, c).expand(
-                b, c), gpu_id=self.gpu_id).long()}
+            hidden = {'memory': cuda(T.zeros(b, m, w).fill_(δ), gpu_id=self.mem_gpu_id), 'visible_memory': cuda(T.zeros(b, c, w).fill_(δ), gpu_id=self.mem_gpu_id), 'read_weights': cuda(T.zeros(b, m).fill_(δ), gpu_id=self.gpu_id), 'write_weights': cuda(T.zeros(b, m).fill_(δ), gpu_id=self.gpu_id), 'read_vectors': cuda(T.zeros(b, r, w).fill_(δ), gpu_id=self.gpu_id), 'least_used_mem': cuda(T.zeros(b, 1).fill_(c + 1), gpu_id=self.gpu_id).long(), 'usage': cuda(T.zeros(b, m), gpu_id=self.gpu_id), 'read_positions': cuda(T.arange(0, c).expand(b, c), gpu_id=self.gpu_id).long()}
             hidden = self.rebuild_indexes(hidden, erase=True)
         else:
             hidden['memory'] = hidden['memory'].clone()
@@ -713,46 +603,36 @@ class SparseMemory(nn.Module):
                 hidden['read_vectors'].data.fill_(δ)
                 hidden['least_used_mem'].data.fill_(c + 1)
                 hidden['usage'].data.fill_(0)
-                hidden['read_positions'] = cuda(T.arange(0, c).expand(b, c),
-                    gpu_id=self.gpu_id).long()
+                hidden['read_positions'] = cuda(T.arange(0, c).expand(b, c), gpu_id=self.gpu_id).long()
         return hidden
 
     def write_into_sparse_memory(self, hidden):
         visible_memory = hidden['visible_memory']
         positions = hidden['read_positions']
         b, m, w = hidden['memory'].size()
-        hidden['memory'].scatter_(1, positions.unsqueeze(2).expand(b, self.
-            c, w), visible_memory)
+        hidden['memory'].scatter_(1, positions.unsqueeze(2).expand(b, self.c, w), visible_memory)
         pos = positions.data.cpu().numpy()
         for batch in range(b):
             hidden['indexes'][batch].reset()
-            hidden['indexes'][batch].add(hidden['memory'][batch], last=pos[
-                batch][-1] if not self.mem_limit_reached else None)
-        mem_limit_reached = hidden['least_used_mem'][0].data.cpu().numpy()[0
-            ] >= self.mem_size - 1
+            hidden['indexes'][batch].add(hidden['memory'][batch], last=pos[batch][-1] if not self.mem_limit_reached else None)
+        mem_limit_reached = hidden['least_used_mem'][0].data.cpu().numpy()[0] >= self.mem_size - 1
         self.mem_limit_reached = mem_limit_reached or self.mem_limit_reached
         return hidden
 
     def write(self, interpolation_gate, write_vector, write_gate, hidden):
-        read_weights = hidden['read_weights'].gather(1, hidden[
-            'read_positions'])
+        read_weights = hidden['read_weights'].gather(1, hidden['read_positions'])
         if self.timestep == 1:
             read_weights = read_weights + 1
-        write_weights = hidden['write_weights'].gather(1, hidden[
-            'read_positions'])
-        hidden['usage'], I = self.update_usage(hidden['read_positions'],
-            read_weights, write_weights, hidden['usage'])
+        write_weights = hidden['write_weights'].gather(1, hidden['read_positions'])
+        hidden['usage'], I = self.update_usage(hidden['read_positions'], read_weights, write_weights, hidden['usage'])
         x = interpolation_gate * read_weights
         y = (1 - interpolation_gate) * I
         write_weights = write_gate * (x + y)
-        hidden['write_weights'].scatter_(1, hidden['read_positions'],
-            write_weights)
+        hidden['write_weights'].scatter_(1, hidden['read_positions'], write_weights)
         erase_matrix = I.unsqueeze(2).expand(hidden['visible_memory'].size())
-        hidden['visible_memory'] = hidden['visible_memory'] * (1 - erase_matrix
-            ) + T.bmm(write_weights.unsqueeze(2), write_vector)
+        hidden['visible_memory'] = hidden['visible_memory'] * (1 - erase_matrix) + T.bmm(write_weights.unsqueeze(2), write_vector)
         hidden = self.write_into_sparse_memory(hidden)
-        hidden['least_used_mem'] = T.topk(hidden['usage'], 1, dim=-1,
-            largest=False)[1]
+        hidden['least_used_mem'] = T.topk(hidden['usage'], 1, dim=-1, largest=False)[1]
         return hidden
 
     def update_usage(self, read_positions, read_weights, write_weights, usage):
@@ -762,13 +642,11 @@ class SparseMemory(nn.Module):
         minusage = T.min(relevant_usages, -1, keepdim=True)[0]
         minusage = minusage.expand(relevant_usages.size())
         I = (relevant_usages == minusage).float()
-        relevant_usages = (self.timestep - relevant_usages
-            ) * u + relevant_usages * (1 - u)
+        relevant_usages = (self.timestep - relevant_usages) * u + relevant_usages * (1 - u)
         usage.scatter_(1, read_positions, relevant_usages)
         return usage, I
 
-    def read_from_sparse_memory(self, memory, indexes, keys, least_used_mem,
-        usage):
+    def read_from_sparse_memory(self, memory, indexes, keys, least_used_mem, usage):
         b = keys.size(0)
         read_positions = []
         for batch in range(b):
@@ -778,24 +656,19 @@ class SparseMemory(nn.Module):
         b, r, k = read_positions.size()
         read_positions = var(read_positions).squeeze(1).view(b, -1)
         b, m, w = memory.size()
-        max_length = int(least_used_mem[0, 0].data.cpu().numpy()
-            ) if not self.mem_limit_reached else m - 1
+        max_length = int(least_used_mem[0, 0].data.cpu().numpy()) if not self.mem_limit_reached else m - 1
         read_positions = T.cat([read_positions, least_used_mem], 1)
         read_positions = T.clamp(read_positions, 0, max_length)
-        visible_memory = memory.gather(1, read_positions.unsqueeze(2).
-            expand(b, self.c, w))
+        visible_memory = memory.gather(1, read_positions.unsqueeze(2).expand(b, self.c, w))
         read_weights = σ(θ(visible_memory, keys), 2)
         read_vectors = T.bmm(read_weights, visible_memory)
         read_weights = T.prod(read_weights, 1)
         return read_vectors, read_positions, read_weights, visible_memory
 
     def read(self, read_query, hidden):
-        read_vectors, positions, read_weights, visible_memory = (self.
-            read_from_sparse_memory(hidden['memory'], hidden['indexes'],
-            read_query, hidden['least_used_mem'], hidden['usage']))
+        read_vectors, positions, read_weights, visible_memory = self.read_from_sparse_memory(hidden['memory'], hidden['indexes'], read_query, hidden['least_used_mem'], hidden['usage'])
         hidden['read_positions'] = positions
-        hidden['read_weights'] = hidden['read_weights'].scatter_(1,
-            positions, read_weights)
+        hidden['read_weights'] = hidden['read_weights'].scatter_(1, positions, read_weights)
         hidden['read_vectors'] = read_vectors
         hidden['visible_memory'] = visible_memory
         return hidden['read_vectors'], hidden
@@ -810,29 +683,22 @@ class SparseMemory(nn.Module):
         if self.independent_linears:
             read_query = self.read_query_transform(ξ).view(b, r, w)
             write_vector = self.write_vector_transform(ξ).view(b, 1, w)
-            interpolation_gate = T.sigmoid(self.interpolation_gate_transform(ξ)
-                ).view(b, c)
+            interpolation_gate = T.sigmoid(self.interpolation_gate_transform(ξ)).view(b, c)
             write_gate = T.sigmoid(self.write_gate_transform(ξ).view(b, 1))
         else:
             ξ = self.interface_weights(ξ)
             read_query = ξ[:, :r * w].contiguous().view(b, r, w)
             write_vector = ξ[:, r * w:r * w + w].contiguous().view(b, 1, w)
-            interpolation_gate = T.sigmoid(ξ[:, r * w + w:r * w + w + c]
-                ).contiguous().view(b, c)
-            write_gate = T.sigmoid(ξ[:, (-1)].contiguous()).unsqueeze(1).view(b
-                , 1)
+            interpolation_gate = T.sigmoid(ξ[:, r * w + w:r * w + w + c]).contiguous().view(b, c)
+            write_gate = T.sigmoid(ξ[:, (-1)].contiguous()).unsqueeze(1).view(b, 1)
         self.timestep += 1
-        hidden = self.write(interpolation_gate, write_vector, write_gate,
-            hidden)
+        hidden = self.write(interpolation_gate, write_vector, write_gate, hidden)
         return self.read(read_query, hidden)
 
 
 class SparseTemporalMemory(nn.Module):
 
-    def __init__(self, input_size, mem_size=512, cell_size=32,
-        independent_linears=True, read_heads=4, sparse_reads=4,
-        temporal_reads=4, num_lists=None, index_checks=32, gpu_id=-1,
-        mem_gpu_id=-1):
+    def __init__(self, input_size, mem_size=512, cell_size=32, independent_linears=True, read_heads=4, sparse_reads=4, temporal_reads=4, num_lists=None, index_checks=32, gpu_id=-1, mem_gpu_id=-1):
         super(SparseTemporalMemory, self).__init__()
         self.mem_size = mem_size
         self.cell_size = cell_size
@@ -840,13 +706,10 @@ class SparseTemporalMemory(nn.Module):
         self.mem_gpu_id = mem_gpu_id
         self.input_size = input_size
         self.independent_linears = independent_linears
-        self.K = (sparse_reads if self.mem_size > sparse_reads else self.
-            mem_size)
-        self.KL = (temporal_reads if self.mem_size > temporal_reads else
-            self.mem_size)
+        self.K = sparse_reads if self.mem_size > sparse_reads else self.mem_size
+        self.KL = temporal_reads if self.mem_size > temporal_reads else self.mem_size
         self.read_heads = read_heads
-        self.num_lists = num_lists if num_lists is not None else int(self.
-            mem_size / 100)
+        self.num_lists = num_lists if num_lists is not None else int(self.mem_size / 100)
         self.index_checks = index_checks
         m = self.mem_size
         w = self.cell_size
@@ -855,8 +718,7 @@ class SparseTemporalMemory(nn.Module):
         if self.independent_linears:
             self.read_query_transform = nn.Linear(self.input_size, w * r)
             self.write_vector_transform = nn.Linear(self.input_size, w)
-            self.interpolation_gate_transform = nn.Linear(self.input_size,
-                self.c)
+            self.interpolation_gate_transform = nn.Linear(self.input_size, self.c)
             self.write_gate_transform = nn.Linear(self.input_size, 1)
             T.nn.init.orthogonal_(self.read_query_transform.weight)
             T.nn.init.orthogonal_(self.write_vector_transform.weight)
@@ -864,8 +726,7 @@ class SparseTemporalMemory(nn.Module):
             T.nn.init.orthogonal_(self.write_gate_transform.weight)
         else:
             self.interface_size = r * w + w + self.c + 1
-            self.interface_weights = nn.Linear(self.input_size, self.
-                interface_size)
+            self.interface_weights = nn.Linear(self.input_size, self.interface_size)
             T.nn.init.orthogonal_(self.interface_weights.weight)
         self.I = cuda(1 - T.eye(self.c).unsqueeze(0), gpu_id=self.gpu_id)
         self.δ = 0.005
@@ -878,16 +739,10 @@ class SparseTemporalMemory(nn.Module):
             [x.reset() for x in hidden['indexes']]
         else:
             try:
-                hidden['indexes'] = [FAISSIndex(cell_size=self.cell_size,
-                    nr_cells=self.mem_size, K=self.K, num_lists=self.
-                    num_lists, probes=self.index_checks, gpu_id=self.
-                    mem_gpu_id) for x in range(b)]
+                hidden['indexes'] = [FAISSIndex(cell_size=self.cell_size, nr_cells=self.mem_size, K=self.K, num_lists=self.num_lists, probes=self.index_checks, gpu_id=self.mem_gpu_id) for x in range(b)]
             except Exception as e:
                 None
-                hidden['indexes'] = [FLANNIndex(cell_size=self.cell_size,
-                    nr_cells=self.mem_size, K=self.K, num_kdtrees=self.
-                    num_lists, probes=self.index_checks, gpu_id=self.
-                    mem_gpu_id) for x in range(b)]
+                hidden['indexes'] = [FLANNIndex(cell_size=self.cell_size, nr_cells=self.mem_size, K=self.K, num_kdtrees=self.num_lists, probes=self.index_checks, gpu_id=self.mem_gpu_id) for x in range(b)]
         pos = hidden['read_positions'].squeeze().data.cpu().numpy()
         if not erase:
             for n, i in enumerate(hidden['indexes']):
@@ -905,20 +760,7 @@ class SparseTemporalMemory(nn.Module):
         r = self.read_heads
         c = self.c
         if hidden is None:
-            hidden = {'memory': cuda(T.zeros(b, m, w).fill_(δ), gpu_id=self
-                .mem_gpu_id), 'visible_memory': cuda(T.zeros(b, c, w).fill_
-                (δ), gpu_id=self.mem_gpu_id), 'link_matrix': cuda(T.zeros(b,
-                m, self.KL * 2), gpu_id=self.gpu_id), 'rev_link_matrix':
-                cuda(T.zeros(b, m, self.KL * 2), gpu_id=self.gpu_id),
-                'precedence': cuda(T.zeros(b, self.KL * 2).fill_(δ), gpu_id
-                =self.gpu_id), 'read_weights': cuda(T.zeros(b, m).fill_(δ),
-                gpu_id=self.gpu_id), 'write_weights': cuda(T.zeros(b, m).
-                fill_(δ), gpu_id=self.gpu_id), 'read_vectors': cuda(T.zeros
-                (b, r, w).fill_(δ), gpu_id=self.gpu_id), 'least_used_mem':
-                cuda(T.zeros(b, 1).fill_(c + 1), gpu_id=self.gpu_id).long(),
-                'usage': cuda(T.zeros(b, m), gpu_id=self.gpu_id),
-                'read_positions': cuda(T.arange(0, c).expand(b, c), gpu_id=
-                self.gpu_id).long()}
+            hidden = {'memory': cuda(T.zeros(b, m, w).fill_(δ), gpu_id=self.mem_gpu_id), 'visible_memory': cuda(T.zeros(b, c, w).fill_(δ), gpu_id=self.mem_gpu_id), 'link_matrix': cuda(T.zeros(b, m, self.KL * 2), gpu_id=self.gpu_id), 'rev_link_matrix': cuda(T.zeros(b, m, self.KL * 2), gpu_id=self.gpu_id), 'precedence': cuda(T.zeros(b, self.KL * 2).fill_(δ), gpu_id=self.gpu_id), 'read_weights': cuda(T.zeros(b, m).fill_(δ), gpu_id=self.gpu_id), 'write_weights': cuda(T.zeros(b, m).fill_(δ), gpu_id=self.gpu_id), 'read_vectors': cuda(T.zeros(b, r, w).fill_(δ), gpu_id=self.gpu_id), 'least_used_mem': cuda(T.zeros(b, 1).fill_(c + 1), gpu_id=self.gpu_id).long(), 'usage': cuda(T.zeros(b, m), gpu_id=self.gpu_id), 'read_positions': cuda(T.arange(0, c).expand(b, c), gpu_id=self.gpu_id).long()}
             hidden = self.rebuild_indexes(hidden, erase=True)
         else:
             hidden['memory'] = hidden['memory'].clone()
@@ -944,79 +786,57 @@ class SparseTemporalMemory(nn.Module):
                 hidden['read_vectors'].data.fill_(δ)
                 hidden['least_used_mem'].data.fill_(c + 1 + self.timestep)
                 hidden['usage'].data.fill_(0)
-                hidden['read_positions'] = cuda(T.arange(self.timestep, c +
-                    self.timestep).expand(b, c), gpu_id=self.gpu_id).long()
+                hidden['read_positions'] = cuda(T.arange(self.timestep, c + self.timestep).expand(b, c), gpu_id=self.gpu_id).long()
         return hidden
 
     def write_into_sparse_memory(self, hidden):
         visible_memory = hidden['visible_memory']
         positions = hidden['read_positions']
         b, m, w = hidden['memory'].size()
-        hidden['memory'].scatter_(1, positions.unsqueeze(2).expand(b, self.
-            c, w), visible_memory)
+        hidden['memory'].scatter_(1, positions.unsqueeze(2).expand(b, self.c, w), visible_memory)
         pos = positions.data.cpu().numpy()
         for batch in range(b):
             hidden['indexes'][batch].reset()
-            hidden['indexes'][batch].add(hidden['memory'][batch], last=pos[
-                batch][-1] if not self.mem_limit_reached else None)
-        mem_limit_reached = hidden['least_used_mem'][0].data.cpu().numpy()[0
-            ] >= self.mem_size - 1
+            hidden['indexes'][batch].add(hidden['memory'][batch], last=pos[batch][-1] if not self.mem_limit_reached else None)
+        mem_limit_reached = hidden['least_used_mem'][0].data.cpu().numpy()[0] >= self.mem_size - 1
         self.mem_limit_reached = mem_limit_reached or self.mem_limit_reached
         return hidden
 
-    def update_link_matrices(self, link_matrix, rev_link_matrix,
-        write_weights, precedence, temporal_read_positions):
+    def update_link_matrices(self, link_matrix, rev_link_matrix, write_weights, precedence, temporal_read_positions):
         write_weights_i = write_weights.unsqueeze(2)
         precedence_j = precedence.unsqueeze(1)
         b, m, k = link_matrix.size()
-        I = cuda(T.eye(m, k).unsqueeze(0).expand((b, m, k)), gpu_id=self.gpu_id
-            )
+        I = cuda(T.eye(m, k).unsqueeze(0).expand((b, m, k)), gpu_id=self.gpu_id)
         precedence_dense = cuda(T.zeros(b, m), gpu_id=self.gpu_id)
         precedence_dense.scatter_(1, temporal_read_positions, precedence)
         precedence_dense_i = precedence_dense.unsqueeze(2)
-        temporal_write_weights_j = write_weights.gather(1,
-            temporal_read_positions).unsqueeze(1)
-        link_matrix = (1 - write_weights_i
-            ) * link_matrix + write_weights_i * precedence_j
-        rev_link_matrix = (1 - temporal_write_weights_j
-            ) * rev_link_matrix + temporal_write_weights_j * precedence_dense_i
+        temporal_write_weights_j = write_weights.gather(1, temporal_read_positions).unsqueeze(1)
+        link_matrix = (1 - write_weights_i) * link_matrix + write_weights_i * precedence_j
+        rev_link_matrix = (1 - temporal_write_weights_j) * rev_link_matrix + temporal_write_weights_j * precedence_dense_i
         return link_matrix * I, rev_link_matrix * I
 
     def update_precedence(self, precedence, write_weights):
-        return (1 - T.sum(write_weights, dim=-1, keepdim=True)
-            ) * precedence + write_weights
+        return (1 - T.sum(write_weights, dim=-1, keepdim=True)) * precedence + write_weights
 
     def write(self, interpolation_gate, write_vector, write_gate, hidden):
-        read_weights = hidden['read_weights'].gather(1, hidden[
-            'read_positions'])
+        read_weights = hidden['read_weights'].gather(1, hidden['read_positions'])
         if self.timestep == 1:
             read_weights = read_weights + 1
-        write_weights = hidden['write_weights'].gather(1, hidden[
-            'read_positions'])
-        hidden['usage'], I = self.update_usage(hidden['read_positions'],
-            read_weights, write_weights, hidden['usage'])
+        write_weights = hidden['write_weights'].gather(1, hidden['read_positions'])
+        hidden['usage'], I = self.update_usage(hidden['read_positions'], read_weights, write_weights, hidden['usage'])
         x = interpolation_gate * read_weights
         y = (1 - interpolation_gate) * I
         write_weights = write_gate * (x + y)
-        hidden['write_weights'].scatter_(1, hidden['read_positions'],
-            write_weights)
+        hidden['write_weights'].scatter_(1, hidden['read_positions'], write_weights)
         erase_matrix = I.unsqueeze(2).expand(hidden['visible_memory'].size())
-        hidden['visible_memory'] = hidden['visible_memory'] * (1 - erase_matrix
-            ) + T.bmm(write_weights.unsqueeze(2), write_vector)
+        hidden['visible_memory'] = hidden['visible_memory'] * (1 - erase_matrix) + T.bmm(write_weights.unsqueeze(2), write_vector)
         hidden = self.write_into_sparse_memory(hidden)
         b, c = write_weights.size()
-        temporal_read_positions = hidden['read_positions'][:, self.
-            read_heads * self.K + 1:]
-        hidden['link_matrix'], hidden['rev_link_matrix'
-            ] = self.update_link_matrices(hidden['link_matrix'], hidden[
-            'rev_link_matrix'], hidden['write_weights'], hidden[
-            'precedence'], temporal_read_positions)
-        read_weights = hidden['read_weights'].gather(1, temporal_read_positions
-            )
-        hidden['precedence'] = self.update_precedence(hidden['precedence'],
-            read_weights)
-        hidden['least_used_mem'] = T.topk(hidden['usage'], 1, dim=-1,
-            largest=False)[1]
+        temporal_read_positions = hidden['read_positions'][:, self.read_heads * self.K + 1:]
+        hidden['link_matrix'], hidden['rev_link_matrix'] = self.update_link_matrices(hidden['link_matrix'], hidden['rev_link_matrix'], hidden['write_weights'], hidden['precedence'], temporal_read_positions)
+        read_weights = hidden['read_weights'].gather(1, temporal_read_positions)
+        hidden['precedence'] = self.update_precedence(hidden['precedence'], read_weights)
+        hidden['least_used_mem'] = T.topk(hidden['usage'], 1, dim=-1, largest=False)[1]
         return hidden
 
     def update_usage(self, read_positions, read_weights, write_weights, usage):
@@ -1026,20 +846,16 @@ class SparseTemporalMemory(nn.Module):
         minusage = T.min(relevant_usages, -1, keepdim=True)[0]
         minusage = minusage.expand(relevant_usages.size())
         I = (relevant_usages == minusage).float()
-        relevant_usages = (self.timestep - relevant_usages
-            ) * u + relevant_usages * (1 - u)
+        relevant_usages = (self.timestep - relevant_usages) * u + relevant_usages * (1 - u)
         usage.scatter_(1, read_positions, relevant_usages)
         return usage, I
 
-    def directional_weightings(self, link_matrix, rev_link_matrix,
-        temporal_read_weights):
+    def directional_weightings(self, link_matrix, rev_link_matrix, temporal_read_weights):
         f = T.bmm(link_matrix, temporal_read_weights.unsqueeze(2)).squeeze(2)
-        b = T.bmm(rev_link_matrix, temporal_read_weights.unsqueeze(2)).squeeze(
-            2)
+        b = T.bmm(rev_link_matrix, temporal_read_weights.unsqueeze(2)).squeeze(2)
         return f, b
 
-    def read_from_sparse_memory(self, memory, indexes, keys, least_used_mem,
-        usage, forward, backward, prev_read_positions):
+    def read_from_sparse_memory(self, memory, indexes, keys, least_used_mem, usage, forward, backward, prev_read_positions):
         b = keys.size(0)
         read_positions = []
         for batch in range(b):
@@ -1049,34 +865,25 @@ class SparseTemporalMemory(nn.Module):
         b, r, k = read_positions.size()
         read_positions = var(read_positions).squeeze(1).view(b, -1)
         b, m, w = memory.size()
-        max_length = int(least_used_mem[0, 0].data.cpu().numpy()
-            ) if not self.mem_limit_reached else m - 1
+        max_length = int(least_used_mem[0, 0].data.cpu().numpy()) if not self.mem_limit_reached else m - 1
         _, fp = T.topk(forward, self.KL, largest=True)
         _, bp = T.topk(backward, self.KL, largest=True)
         read_positions = T.cat([read_positions, fp, bp], 1)
         read_positions = T.cat([read_positions, least_used_mem], 1)
         read_positions = T.clamp(read_positions, 0, max_length)
-        visible_memory = memory.gather(1, read_positions.unsqueeze(2).
-            expand(b, self.c, w))
+        visible_memory = memory.gather(1, read_positions.unsqueeze(2).expand(b, self.c, w))
         read_weights = σ(θ(visible_memory, keys), 2)
         read_vectors = T.bmm(read_weights, visible_memory)
         read_weights = T.prod(read_weights, 1)
         return read_vectors, read_positions, read_weights, visible_memory
 
     def read(self, read_query, hidden):
-        temporal_read_positions = hidden['read_positions'][:, self.
-            read_heads * self.K + 1:]
-        read_weights = hidden['read_weights'].gather(1, temporal_read_positions
-            )
-        forward, backward = self.directional_weightings(hidden[
-            'link_matrix'], hidden['rev_link_matrix'], read_weights)
-        read_vectors, positions, read_weights, visible_memory = (self.
-            read_from_sparse_memory(hidden['memory'], hidden['indexes'],
-            read_query, hidden['least_used_mem'], hidden['usage'], forward,
-            backward, hidden['read_positions']))
+        temporal_read_positions = hidden['read_positions'][:, self.read_heads * self.K + 1:]
+        read_weights = hidden['read_weights'].gather(1, temporal_read_positions)
+        forward, backward = self.directional_weightings(hidden['link_matrix'], hidden['rev_link_matrix'], read_weights)
+        read_vectors, positions, read_weights, visible_memory = self.read_from_sparse_memory(hidden['memory'], hidden['indexes'], read_query, hidden['least_used_mem'], hidden['usage'], forward, backward, hidden['read_positions'])
         hidden['read_positions'] = positions
-        hidden['read_weights'] = hidden['read_weights'].scatter_(1,
-            positions, read_weights)
+        hidden['read_weights'] = hidden['read_weights'].scatter_(1, positions, read_weights)
         hidden['read_vectors'] = read_vectors
         hidden['visible_memory'] = visible_memory
         return hidden['read_vectors'], hidden
@@ -1091,20 +898,16 @@ class SparseTemporalMemory(nn.Module):
         if self.independent_linears:
             read_query = self.read_query_transform(ξ).view(b, r, w)
             write_vector = self.write_vector_transform(ξ).view(b, 1, w)
-            interpolation_gate = T.sigmoid(self.interpolation_gate_transform(ξ)
-                ).view(b, c)
+            interpolation_gate = T.sigmoid(self.interpolation_gate_transform(ξ)).view(b, c)
             write_gate = T.sigmoid(self.write_gate_transform(ξ).view(b, 1))
         else:
             ξ = self.interface_weights(ξ)
             read_query = ξ[:, :r * w].contiguous().view(b, r, w)
             write_vector = ξ[:, r * w:r * w + w].contiguous().view(b, 1, w)
-            interpolation_gate = T.sigmoid(ξ[:, r * w + w:r * w + w + c]
-                ).contiguous().view(b, c)
-            write_gate = T.sigmoid(ξ[:, (-1)].contiguous()).unsqueeze(1).view(b
-                , 1)
+            interpolation_gate = T.sigmoid(ξ[:, r * w + w:r * w + w + c]).contiguous().view(b, c)
+            write_gate = T.sigmoid(ξ[:, (-1)].contiguous()).unsqueeze(1).view(b, 1)
         self.timestep += 1
-        hidden = self.write(interpolation_gate, write_vector, write_gate,
-            hidden)
+        hidden = self.write(interpolation_gate, write_vector, write_gate, hidden)
         return self.read(read_query, hidden)
 
 
@@ -1112,9 +915,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DNC,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_ixaxaar_pytorch_dnc(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DNC(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -60,9 +61,7 @@ class EncoderRNN(nn.Module):
         self.num_layers = opt.num_layers
         self.hidden_size = opt.hidden_size
         self.embedding = nn.Embedding(voc_length, opt.embedding_dim)
-        self.gru = nn.GRU(opt.embedding_dim, self.hidden_size, self.
-            num_layers, dropout=0 if opt.num_layers == 1 else opt.dropout,
-            bidirectional=opt.bidirectional)
+        self.gru = nn.GRU(opt.embedding_dim, self.hidden_size, self.num_layers, dropout=0 if opt.num_layers == 1 else opt.dropout, bidirectional=opt.bidirectional)
 
     def forward(self, input_seq, input_lengths, hidden=None):
         """
@@ -91,12 +90,10 @@ class EncoderRNN(nn.Module):
             [num_layers*num_directions, batch_size, hidden_size]
         """
         embedded = self.embedding(input_seq)
-        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded,
-            input_lengths)
+        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lengths)
         outputs, hidden = self.gru(packed, hidden)
         outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]
         return outputs, hidden
 
 
@@ -107,8 +104,7 @@ class Attn(torch.nn.Module):
         self.method = attn_method
         self.hidden_size = hidden_size
         if self.method not in ['dot', 'general', 'concat']:
-            raise ValueError(self.method,
-                'is not an appropriate attention method.')
+            raise ValueError(self.method, 'is not an appropriate attention method.')
         if self.method == 'general':
             self.attn = torch.nn.Linear(self.hidden_size, self.hidden_size)
         elif self.method == 'concat':
@@ -147,8 +143,7 @@ class Attn(torch.nn.Module):
         经过attn后得到[max_seq_len, batch_size, hidden_size],再进行tanh,shape不变
         最后与v乘
         """
-        energy = self.attn(torch.cat((hidden.expand(encoder_outputs.size(0),
-            -1, -1), encoder_outputs), 2)).tanh()
+        energy = self.attn(torch.cat((hidden.expand(encoder_outputs.size(0), -1, -1), encoder_outputs), 2)).tanh()
         return torch.sum(self.v * energy, dim=2)
 
     def forward(self, hidden, encoder_outputs):
@@ -173,8 +168,7 @@ class LuongAttnDecoderRNN(nn.Module):
         self.dropout = opt.dropout
         self.embedding = nn.Embedding(voc_length, opt.embedding_dim)
         self.embedding_dropout = nn.Dropout(self.dropout)
-        self.gru = nn.GRU(opt.embedding_dim, self.hidden_size, self.
-            num_layers, dropout=0 if self.num_layers == 1 else self.dropout)
+        self.gru = nn.GRU(opt.embedding_dim, self.hidden_size, self.num_layers, dropout=0 if self.num_layers == 1 else self.dropout)
         self.concat = nn.Linear(self.hidden_size * 2, self.hidden_size)
         self.out = nn.Linear(self.hidden_size, self.output_size)
         self.attn = Attn(self.attn_method, self.hidden_size)
@@ -221,8 +215,7 @@ class GreedySearchDecoder(nn.Module):
         all_tokens = torch.zeros([0], device=device, dtype=torch.long)
         all_scores = torch.zeros([0], device=device)
         for _ in range(max_length):
-            decoder_output, decoder_hidden = self.decoder(decoder_input,
-                decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = self.decoder(decoder_input, decoder_hidden, encoder_outputs)
             decoder_scores, decoder_input = torch.max(decoder_output, dim=1)
             all_tokens = torch.cat((all_tokens, decoder_input), dim=0)
             all_scores = torch.cat((all_scores, decoder_scores), dim=0)
@@ -231,10 +224,3 @@ class GreedySearchDecoder(nn.Module):
             decoder_input = torch.unsqueeze(decoder_input, 0)
         return all_tokens, all_scores
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Doragd_Chinese_Chatbot_PyTorch_Implementation(_paritybench_base):
-    pass

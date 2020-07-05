@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,10 +66,8 @@ class RNNDropout(nn.Dropout):
         Returns:
             A new tensor on which dropout has been applied.
         """
-        ones = sequences_batch.data.new_ones(sequences_batch.shape[0],
-            sequences_batch.shape[-1])
-        dropout_mask = nn.functional.dropout(ones, self.p, self.training,
-            inplace=False)
+        ones = sequences_batch.data.new_ones(sequences_batch.shape[0], sequences_batch.shape[-1])
+        dropout_mask = nn.functional.dropout(ones, self.p, self.training, inplace=False)
         return dropout_mask.unsqueeze(1) * sequences_batch
 
 
@@ -95,11 +94,9 @@ def sort_by_seq_lens(batch, sequences_lengths, descending=True):
             restore the order of the sequences in 'sorted_batch' so that it
             matches the input batch.
     """
-    sorted_seq_lens, sorting_index = sequences_lengths.sort(0, descending=
-        descending)
+    sorted_seq_lens, sorting_index = sequences_lengths.sort(0, descending=descending)
     sorted_batch = batch.index_select(0, sorting_index)
-    idx_range = sequences_lengths.new_tensor(torch.arange(0, len(
-        sequences_lengths)))
+    idx_range = sequences_lengths.new_tensor(torch.arange(0, len(sequences_lengths)))
     _, reverse_mapping = sorting_index.sort(0, descending=False)
     restoration_index = idx_range.index_select(0, reverse_mapping)
     return sorted_batch, sorted_seq_lens, sorting_index, restoration_index
@@ -117,8 +114,7 @@ class Seq2SeqEncoder(nn.Module):
     permuted back to the original order of the input sequences.
     """
 
-    def __init__(self, rnn_type, input_size, hidden_size, num_layers=1,
-        bias=True, dropout=0.0, bidirectional=False):
+    def __init__(self, rnn_type, input_size, hidden_size, num_layers=1, bias=True, dropout=0.0, bidirectional=False):
         """
         Args:
             rnn_type: The type of RNN to use as encoder in the module.
@@ -138,8 +134,7 @@ class Seq2SeqEncoder(nn.Module):
             bidirectional: If True, the encoder of the module is bidirectional.
                 Defaults to False.
         """
-        assert issubclass(rnn_type, nn.RNNBase
-            ), 'rnn_type must be a class inheriting from torch.nn.RNNBase'
+        assert issubclass(rnn_type, nn.RNNBase), 'rnn_type must be a class inheriting from torch.nn.RNNBase'
         super(Seq2SeqEncoder, self).__init__()
         self.rnn_type = rnn_type
         self.input_size = input_size
@@ -148,9 +143,7 @@ class Seq2SeqEncoder(nn.Module):
         self.bias = bias
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self._encoder = rnn_type(input_size, hidden_size, num_layers=
-            num_layers, bias=bias, batch_first=True, dropout=dropout,
-            bidirectional=bidirectional)
+        self._encoder = rnn_type(input_size, hidden_size, num_layers=num_layers, bias=bias, batch_first=True, dropout=dropout, bidirectional=bidirectional)
 
     def forward(self, sequences_batch, sequences_lengths):
         """
@@ -165,13 +158,10 @@ class Seq2SeqEncoder(nn.Module):
             reordered_outputs: The outputs (hidden states) of the encoder for
                 the sequences in the input batch, in the same order.
         """
-        sorted_batch, sorted_lengths, _, restoration_idx = sort_by_seq_lens(
-            sequences_batch, sequences_lengths)
-        packed_batch = nn.utils.rnn.pack_padded_sequence(sorted_batch,
-            sorted_lengths, batch_first=True)
+        sorted_batch, sorted_lengths, _, restoration_idx = sort_by_seq_lens(sequences_batch, sequences_lengths)
+        packed_batch = nn.utils.rnn.pack_padded_sequence(sorted_batch, sorted_lengths, batch_first=True)
         outputs, _ = self._encoder(packed_batch, None)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True
-            )
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
         reordered_outputs = outputs.index_select(0, restoration_idx)
         return reordered_outputs
 
@@ -236,8 +226,7 @@ class SoftmaxAttention(nn.Module):
     conversely for the elements of the premises.
     """
 
-    def forward(self, premise_batch, premise_mask, hypothesis_batch,
-        hypothesis_mask):
+    def forward(self, premise_batch, premise_mask, hypothesis_batch, hypothesis_mask):
         """
         Args:
             premise_batch: A batch of sequences of vectors representing the
@@ -259,15 +248,11 @@ class SoftmaxAttention(nn.Module):
             attended_hypotheses: The sequences of attention vectors for the
                 hypotheses in the input batch.
         """
-        similarity_matrix = premise_batch.bmm(hypothesis_batch.transpose(2,
-            1).contiguous())
+        similarity_matrix = premise_batch.bmm(hypothesis_batch.transpose(2, 1).contiguous())
         prem_hyp_attn = masked_softmax(similarity_matrix, hypothesis_mask)
-        hyp_prem_attn = masked_softmax(similarity_matrix.transpose(1, 2).
-            contiguous(), premise_mask)
-        attended_premises = weighted_sum(hypothesis_batch, prem_hyp_attn,
-            premise_mask)
-        attended_hypotheses = weighted_sum(premise_batch, hyp_prem_attn,
-            hypothesis_mask)
+        hyp_prem_attn = masked_softmax(similarity_matrix.transpose(1, 2).contiguous(), premise_mask)
+        attended_premises = weighted_sum(hypothesis_batch, prem_hyp_attn, premise_mask)
+        attended_hypotheses = weighted_sum(premise_batch, hyp_prem_attn, hypothesis_mask)
         return attended_premises, attended_hypotheses
 
 
@@ -343,8 +328,7 @@ class ESIM(nn.Module):
     Natural Language Inference" by Chen et al.
     """
 
-    def __init__(self, vocab_size, embedding_dim, hidden_size, embeddings=
-        None, padding_idx=0, dropout=0.5, num_classes=3, device='cpu'):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, embeddings=None, padding_idx=0, dropout=0.5, num_classes=3, device='cpu'):
         """
         Args:
             vocab_size: The size of the vocabulary of embeddings in the model.
@@ -370,25 +354,17 @@ class ESIM(nn.Module):
         self.num_classes = num_classes
         self.dropout = dropout
         self.device = device
-        self._word_embedding = nn.Embedding(self.vocab_size, self.
-            embedding_dim, padding_idx=padding_idx, _weight=embeddings)
+        self._word_embedding = nn.Embedding(self.vocab_size, self.embedding_dim, padding_idx=padding_idx, _weight=embeddings)
         if self.dropout:
             self._rnn_dropout = RNNDropout(p=self.dropout)
-        self._encoding = Seq2SeqEncoder(nn.LSTM, self.embedding_dim, self.
-            hidden_size, bidirectional=True)
+        self._encoding = Seq2SeqEncoder(nn.LSTM, self.embedding_dim, self.hidden_size, bidirectional=True)
         self._attention = SoftmaxAttention()
-        self._projection = nn.Sequential(nn.Linear(4 * 2 * self.hidden_size,
-            self.hidden_size), nn.ReLU())
-        self._composition = Seq2SeqEncoder(nn.LSTM, self.hidden_size, self.
-            hidden_size, bidirectional=True)
-        self._classification = nn.Sequential(nn.Dropout(p=self.dropout), nn
-            .Linear(2 * 4 * self.hidden_size, self.hidden_size), nn.Tanh(),
-            nn.Dropout(p=self.dropout), nn.Linear(self.hidden_size, self.
-            num_classes))
+        self._projection = nn.Sequential(nn.Linear(4 * 2 * self.hidden_size, self.hidden_size), nn.ReLU())
+        self._composition = Seq2SeqEncoder(nn.LSTM, self.hidden_size, self.hidden_size, bidirectional=True)
+        self._classification = nn.Sequential(nn.Dropout(p=self.dropout), nn.Linear(2 * 4 * self.hidden_size, self.hidden_size), nn.Tanh(), nn.Dropout(p=self.dropout), nn.Linear(self.hidden_size, self.num_classes))
         self.apply(_init_esim_weights)
 
-    def forward(self, premises, premises_lengths, hypotheses,
-        hypotheses_lengths):
+    def forward(self, premises, premises_lengths, hypotheses, hypotheses_lengths):
         """
         Args:
             premises: A batch of varaible length sequences of word indices
@@ -416,17 +392,10 @@ class ESIM(nn.Module):
             embedded_premises = self._rnn_dropout(embedded_premises)
             embedded_hypotheses = self._rnn_dropout(embedded_hypotheses)
         encoded_premises = self._encoding(embedded_premises, premises_lengths)
-        encoded_hypotheses = self._encoding(embedded_hypotheses,
-            hypotheses_lengths)
-        attended_premises, attended_hypotheses = self._attention(
-            encoded_premises, premises_mask, encoded_hypotheses,
-            hypotheses_mask)
-        enhanced_premises = torch.cat([encoded_premises, attended_premises,
-            encoded_premises - attended_premises, encoded_premises *
-            attended_premises], dim=-1)
-        enhanced_hypotheses = torch.cat([encoded_hypotheses,
-            attended_hypotheses, encoded_hypotheses - attended_hypotheses, 
-            encoded_hypotheses * attended_hypotheses], dim=-1)
+        encoded_hypotheses = self._encoding(embedded_hypotheses, hypotheses_lengths)
+        attended_premises, attended_hypotheses = self._attention(encoded_premises, premises_mask, encoded_hypotheses, hypotheses_mask)
+        enhanced_premises = torch.cat([encoded_premises, attended_premises, encoded_premises - attended_premises, encoded_premises * attended_premises], dim=-1)
+        enhanced_hypotheses = torch.cat([encoded_hypotheses, attended_hypotheses, encoded_hypotheses - attended_hypotheses, encoded_hypotheses * attended_hypotheses], dim=-1)
         projected_premises = self._projection(enhanced_premises)
         projected_hypotheses = self._projection(enhanced_hypotheses)
         if self.dropout:
@@ -434,14 +403,10 @@ class ESIM(nn.Module):
             projected_hypotheses = self._rnn_dropout(projected_hypotheses)
         v_ai = self._composition(projected_premises, premises_lengths)
         v_bj = self._composition(projected_hypotheses, hypotheses_lengths)
-        v_a_avg = torch.sum(v_ai * premises_mask.unsqueeze(1).transpose(2, 
-            1), dim=1) / torch.sum(premises_mask, dim=1, keepdim=True)
-        v_b_avg = torch.sum(v_bj * hypotheses_mask.unsqueeze(1).transpose(2,
-            1), dim=1) / torch.sum(hypotheses_mask, dim=1, keepdim=True)
-        v_a_max, _ = replace_masked(v_ai, premises_mask, -10000000.0).max(dim=1
-            )
-        v_b_max, _ = replace_masked(v_bj, hypotheses_mask, -10000000.0).max(dim
-            =1)
+        v_a_avg = torch.sum(v_ai * premises_mask.unsqueeze(1).transpose(2, 1), dim=1) / torch.sum(premises_mask, dim=1, keepdim=True)
+        v_b_avg = torch.sum(v_bj * hypotheses_mask.unsqueeze(1).transpose(2, 1), dim=1) / torch.sum(hypotheses_mask, dim=1, keepdim=True)
+        v_a_max, _ = replace_masked(v_ai, premises_mask, -10000000.0).max(dim=1)
+        v_b_max, _ = replace_masked(v_bj, hypotheses_mask, -10000000.0).max(dim=1)
         v = torch.cat([v_a_avg, v_a_max, v_b_avg, v_b_max], dim=1)
         logits = self._classification(v)
         probabilities = nn.functional.softmax(logits, dim=-1)
@@ -452,13 +417,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_coetaur0_ESIM(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (RNNDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SoftmaxAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
+class Test_coetaur0_ESIM(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(SoftmaxAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -257,8 +258,7 @@ class CaffeNet(nn.Module):
     def forward(self, data):
         if self.has_mean:
             batch_size = data.data.size(0)
-            data = data - torch.autograd.Variable(self.mean_img.repeat(
-                batch_size, 1, 1, 1))
+            data = data - torch.autograd.Variable(self.mean_img.repeat(batch_size, 1, 1, 1))
         blobs = OrderedDict()
         blobs['data'] = data
         layers = self.net_info['layers']
@@ -271,8 +271,7 @@ class CaffeNet(nn.Module):
             ltype = layer['type']
             tname = layer['top']
             bname = layer['bottom']
-            if (ltype == 'Data' or ltype == 'Accuracy' or ltype ==
-                'SoftmaxWithLoss' or ltype == 'Region'):
+            if ltype == 'Data' or ltype == 'Accuracy' or ltype == 'SoftmaxWithLoss' or ltype == 'Region':
                 i = i + 1
                 continue
             elif ltype == 'BatchNorm':
@@ -310,8 +309,7 @@ class CaffeNet(nn.Module):
                 height = int(self.net_info['props']['input_dim'][2])
                 width = int(self.net_info['props']['input_dim'][3])
             mean_img = mean_img.view(channels, height, width)
-            self.register_buffer('mean_img', torch.zeros(channels, height,
-                width))
+            self.register_buffer('mean_img', torch.zeros(channels, height, width))
             self.mean_img.copy_(mean_img)
         model = parse_caffemodel(caffemodel)
         layers = model.layer
@@ -331,42 +329,29 @@ class CaffeNet(nn.Module):
             if ltype == 'Convolution':
                 convolution_param = layer['convolution_param']
                 bias = True
-                if convolution_param.has_key('bias_term'
-                    ) and convolution_param['bias_term'] == 'false':
+                if convolution_param.has_key('bias_term') and convolution_param['bias_term'] == 'false':
                     bias = False
-                self.models[lname].weight.data.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[0].data)))
+                self.models[lname].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
                 if bias and len(lmap[lname].blobs) > 1:
                     None
-                    self.models[lname].bias.data.copy_(torch.from_numpy(np.
-                        array(lmap[lname].blobs[1].data)))
+                    self.models[lname].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 i = i + 1
             elif ltype == 'BatchNorm':
                 scale_layer = layers[i + 1]
-                self.models[lname].running_mean.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[0].data) / lmap[lname].blobs[2]
-                    .data[0]))
-                self.models[lname].running_var.copy_(torch.from_numpy(np.
-                    array(lmap[lname].blobs[1].data) / lmap[lname].blobs[2]
-                    .data[0]))
-                self.models[lname].weight.data.copy_(torch.from_numpy(np.
-                    array(lmap[scale_layer['name']].blobs[0].data)))
-                self.models[lname].bias.data.copy_(torch.from_numpy(np.
-                    array(lmap[scale_layer['name']].blobs[1].data)))
+                self.models[lname].running_mean.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data) / lmap[lname].blobs[2].data[0]))
+                self.models[lname].running_var.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data) / lmap[lname].blobs[2].data[0]))
+                self.models[lname].weight.data.copy_(torch.from_numpy(np.array(lmap[scale_layer['name']].blobs[0].data)))
+                self.models[lname].bias.data.copy_(torch.from_numpy(np.array(lmap[scale_layer['name']].blobs[1].data)))
                 i = i + 2
             elif ltype == 'InnerProduct':
                 if type(self.models[lname]) == nn.Sequential:
-                    self.models[lname][1].weight.data.copy_(torch.
-                        from_numpy(np.array(lmap[lname].blobs[0].data)))
+                    self.models[lname][1].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
                     if len(lmap[lname].blobs) > 1:
-                        self.models[lname][1].bias.data.copy_(torch.
-                            from_numpy(np.array(lmap[lname].blobs[1].data)))
+                        self.models[lname][1].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 else:
-                    self.models[lname].weight.data.copy_(torch.from_numpy(
-                        np.array(lmap[lname].blobs[0].data)))
+                    self.models[lname].weight.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[0].data)))
                     if len(lmap[lname].blobs) > 1:
-                        self.models[lname].bias.data.copy_(torch.from_numpy
-                            (np.array(lmap[lname].blobs[1].data)))
+                        self.models[lname].bias.data.copy_(torch.from_numpy(np.array(lmap[lname].blobs[1].data)))
                 i = i + 1
             elif ltype == 'Pooling' or ltype == 'Eltwise' or ltype == 'ReLU' or ltype == 'Region':
                 i = i + 1
@@ -405,32 +390,23 @@ class CaffeNet(nn.Module):
                 channels = blob_channels[bname]
                 out_filters = int(convolution_param['num_output'])
                 kernel_size = int(convolution_param['kernel_size'])
-                stride = int(convolution_param['stride']
-                    ) if convolution_param.has_key('stride') else 1
-                pad = int(convolution_param['pad']
-                    ) if convolution_param.has_key('pad') else 0
-                group = int(convolution_param['group']
-                    ) if convolution_param.has_key('group') else 1
+                stride = int(convolution_param['stride']) if convolution_param.has_key('stride') else 1
+                pad = int(convolution_param['pad']) if convolution_param.has_key('pad') else 0
+                group = int(convolution_param['group']) if convolution_param.has_key('group') else 1
                 bias = True
-                if convolution_param.has_key('bias_term'
-                    ) and convolution_param['bias_term'] == 'false':
+                if convolution_param.has_key('bias_term') and convolution_param['bias_term'] == 'false':
                     bias = False
-                models[lname] = nn.Conv2d(channels, out_filters,
-                    kernel_size, stride, pad, group, bias=bias)
+                models[lname] = nn.Conv2d(channels, out_filters, kernel_size, stride, pad, group, bias=bias)
                 blob_channels[tname] = out_filters
-                blob_width[tname] = (blob_width[bname] + 2 * pad - kernel_size
-                    ) / stride + 1
-                blob_height[tname] = (blob_height[bname] + 2 * pad -
-                    kernel_size) / stride + 1
+                blob_width[tname] = (blob_width[bname] + 2 * pad - kernel_size) / stride + 1
+                blob_height[tname] = (blob_height[bname] + 2 * pad - kernel_size) / stride + 1
                 i = i + 1
             elif ltype == 'BatchNorm':
                 assert i + 1 < layer_num
                 assert layers[i + 1]['type'] == 'Scale'
                 momentum = 0.9
-                if layer.has_key('batch_norm_param') and layer[
-                    'batch_norm_param'].has_key('moving_average_fraction'):
-                    momentum = float(layer['batch_norm_param'][
-                        'moving_average_fraction'])
+                if layer.has_key('batch_norm_param') and layer['batch_norm_param'].has_key('moving_average_fraction'):
+                    momentum = float(layer['batch_norm_param']['moving_average_fraction'])
                 channels = blob_channels[bname]
                 models[lname] = nn.BatchNorm2d(channels, momentum=momentum)
                 tname = layers[i + 1]['top']
@@ -440,12 +416,9 @@ class CaffeNet(nn.Module):
                 i = i + 2
             elif ltype == 'ReLU':
                 inplace = bname == tname
-                if layer.has_key('relu_param') and layer['relu_param'].has_key(
-                    'negative_slope'):
-                    negative_slope = float(layer['relu_param'][
-                        'negative_slope'])
-                    models[lname] = nn.LeakyReLU(negative_slope=
-                        negative_slope, inplace=inplace)
+                if layer.has_key('relu_param') and layer['relu_param'].has_key('negative_slope'):
+                    negative_slope = float(layer['relu_param']['negative_slope'])
+                    models[lname] = nn.LeakyReLU(negative_slope=negative_slope, inplace=inplace)
                 else:
                     models[lname] = nn.ReLU(inplace=inplace)
                 blob_channels[tname] = blob_channels[bname]
@@ -465,26 +438,20 @@ class CaffeNet(nn.Module):
                     blob_height[tname] = blob_height[bname]
                 else:
                     if pool_type == 'MAX':
-                        models[lname] = nn.MaxPool2d(kernel_size, stride,
-                            padding=padding)
+                        models[lname] = nn.MaxPool2d(kernel_size, stride, padding=padding)
                     elif pool_type == 'AVE':
-                        models[lname] = nn.AvgPool2d(kernel_size, stride,
-                            padding=padding)
+                        models[lname] = nn.AvgPool2d(kernel_size, stride, padding=padding)
                     if stride > 1:
-                        blob_width[tname] = (blob_width[bname] -
-                            kernel_size + 1) / stride + 1
-                        blob_height[tname] = (blob_height[bname] -
-                            kernel_size + 1) / stride + 1
+                        blob_width[tname] = (blob_width[bname] - kernel_size + 1) / stride + 1
+                        blob_height[tname] = (blob_height[bname] - kernel_size + 1) / stride + 1
                     else:
                         blob_width[tname] = blob_width[bname] - kernel_size + 1
-                        blob_height[tname] = blob_height[bname
-                            ] - kernel_size + 1
+                        blob_height[tname] = blob_height[bname] - kernel_size + 1
                 blob_channels[tname] = blob_channels[bname]
                 i = i + 1
             elif ltype == 'Eltwise':
                 operation = 'SUM'
-                if layer.has_key('eltwise_param') and layer['eltwise_param'
-                    ].has_key('operation'):
+                if layer.has_key('eltwise_param') and layer['eltwise_param'].has_key('operation'):
                     operation = layer['eltwise_param']['operation']
                 bname0 = bname[0]
                 bname1 = bname[1]
@@ -496,10 +463,8 @@ class CaffeNet(nn.Module):
             elif ltype == 'InnerProduct':
                 filters = int(layer['inner_product_param']['num_output'])
                 if blob_width[bname] != -1 or blob_height[bname] != -1:
-                    channels = blob_channels[bname] * blob_width[bname
-                        ] * blob_height[bname]
-                    models[lname] = nn.Sequential(FCView(), nn.Linear(
-                        channels, filters))
+                    channels = blob_channels[bname] * blob_width[bname] * blob_height[bname]
+                    models[lname] = nn.Sequential(FCView(), nn.Linear(channels, filters))
                 else:
                     channels = blob_channels[bname]
                     models[lname] = nn.Linear(channels, filters)
@@ -519,8 +484,7 @@ class CaffeNet(nn.Module):
                 blob_height[tname] = -1
                 i = i + 1
             elif ltype == 'Region':
-                anchors = layer['region_param']['anchors'].strip('"').split(','
-                    )
+                anchors = layer['region_param']['anchors'].strip('"').split(',')
                 self.anchors = [float(j) for j in anchors]
                 self.num_anchors = int(layer['region_param']['num'])
                 self.anchor_step = len(self.anchors) / self.num_anchors
@@ -725,22 +689,16 @@ def save_conv_bn(fp, conv_model, bn_model):
 
 def save_conv_shrink_bn(fp, conv_model, bn_model, eps=1e-05):
     if bn_model.bias.is_cuda:
-        bias = (bn_model.bias.data - bn_model.running_mean * bn_model.
-            weight.data / torch.sqrt(bn_model.running_var + eps))
+        bias = bn_model.bias.data - bn_model.running_mean * bn_model.weight.data / torch.sqrt(bn_model.running_var + eps)
         convert2cpu(bias).numpy().tofile(fp)
         s = conv_model.weight.data.size()
-        weight = conv_model.weight.data * (bn_model.weight.data / torch.
-            sqrt(bn_model.running_var + eps)).view(-1, 1, 1, 1).repeat(1, s
-            [1], s[2], s[3])
+        weight = conv_model.weight.data * (bn_model.weight.data / torch.sqrt(bn_model.running_var + eps)).view(-1, 1, 1, 1).repeat(1, s[1], s[2], s[3])
         convert2cpu(weight).numpy().tofile(fp)
     else:
-        bias = (bn_model.bias.data - bn_model.running_mean * bn_model.
-            weight.data / torch.sqrt(bn_model.running_var + eps))
+        bias = bn_model.bias.data - bn_model.running_mean * bn_model.weight.data / torch.sqrt(bn_model.running_var + eps)
         bias.numpy().tofile(fp)
         s = conv_model.weight.data.size()
-        weight = conv_model.weight.data * (bn_model.weight.data / torch.
-            sqrt(bn_model.running_var + eps)).view(-1, 1, 1, 1).repeat(1, s
-            [1], s[2], s[3])
+        weight = conv_model.weight.data * (bn_model.weight.data / torch.sqrt(bn_model.running_var + eps)).view(-1, 1, 1, 1).repeat(1, s[1], s[2], s[3])
         weight.numpy().tofile(fp)
 
 
@@ -772,8 +730,7 @@ class Darknet(nn.Module):
     def forward(self, x):
         if self.has_mean:
             batch_size = x.data.size(0)
-            x = x - torch.autograd.Variable(self.mean_img.repeat(batch_size,
-                1, 1, 1))
+            x = x - torch.autograd.Variable(self.mean_img.repeat(batch_size, 1, 1, 1))
         ind = -2
         self.loss = None
         outputs = dict()
@@ -781,16 +738,12 @@ class Darknet(nn.Module):
             ind = ind + 1
             if block['type'] == 'net':
                 continue
-            elif block['type'] == 'convolutional' or block['type'
-                ] == 'maxpool' or block['type'] == 'reorg' or block['type'
-                ] == 'avgpool' or block['type'] == 'softmax' or block['type'
-                ] == 'connected' or block['type'] == 'dropout':
+            elif block['type'] == 'convolutional' or block['type'] == 'maxpool' or block['type'] == 'reorg' or block['type'] == 'avgpool' or block['type'] == 'softmax' or block['type'] == 'connected' or block['type'] == 'dropout':
                 x = self.models[ind](x)
                 outputs[ind] = x
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
-                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in
-                    layers]
+                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
                     x = outputs[layers[0]]
                     outputs[ind] = x
@@ -848,24 +801,17 @@ class Darknet(nn.Module):
                 activation = block['activation']
                 model = nn.Sequential()
                 if batch_normalize:
-                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(
-                        prev_filters, filters, kernel_size, stride, pad,
-                        bias=False))
-                    model.add_module('bn{0}'.format(conv_id), nn.
-                        BatchNorm2d(filters))
+                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=False))
+                    model.add_module('bn{0}'.format(conv_id), nn.BatchNorm2d(filters))
                 else:
-                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(
-                        prev_filters, filters, kernel_size, stride, pad))
+                    model.add_module('conv{0}'.format(conv_id), nn.Conv2d(prev_filters, filters, kernel_size, stride, pad))
                 if activation == 'leaky':
-                    model.add_module('leaky{0}'.format(conv_id), nn.
-                        LeakyReLU(0.1, inplace=True))
+                    model.add_module('leaky{0}'.format(conv_id), nn.LeakyReLU(0.1, inplace=True))
                 elif activation == 'relu':
-                    model.add_module('relu{0}'.format(conv_id), nn.ReLU(
-                        inplace=True))
+                    model.add_module('relu{0}'.format(conv_id), nn.ReLU(inplace=True))
                 prev_filters = filters
                 prev_width = (prev_width + 2 * pad - kernel_size) / stride + 1
-                prev_height = (prev_height + 2 * pad - kernel_size
-                    ) / stride + 1
+                prev_height = (prev_height + 2 * pad - kernel_size) / stride + 1
                 out_filters.append(prev_filters)
                 out_width.append(prev_width)
                 out_height.append(prev_height)
@@ -931,16 +877,14 @@ class Darknet(nn.Module):
             elif block['type'] == 'route':
                 layers = block['layers'].split(',')
                 ind = len(models)
-                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in
-                    layers]
+                layers = [(int(i) if int(i) > 0 else int(i) + ind) for i in layers]
                 if len(layers) == 1:
                     prev_filters = out_filters[layers[0]]
                     prev_width = out_width[layers[0]]
                     prev_height = out_height[layers[0]]
                 elif len(layers) == 2:
                     assert layers[0] == ind - 1
-                    prev_filters = out_filters[layers[0]] + out_filters[
-                        layers[1]]
+                    prev_filters = out_filters[layers[0]] + out_filters[layers[1]]
                     prev_width = out_width[layers[0]]
                     prev_height = out_height[layers[0]]
                 out_filters.append(prev_filters)
@@ -972,25 +916,19 @@ class Darknet(nn.Module):
                 is_first = prev_width * prev_height != 1
                 if block['activation'] == 'linear':
                     if is_first:
-                        model = nn.Sequential(FCView(), nn.Linear(
-                            prev_filters, filters))
+                        model = nn.Sequential(FCView(), nn.Linear(prev_filters, filters))
                     else:
                         model = nn.Linear(prev_filters, filters)
                 elif block['activation'] == 'leaky':
                     if is_first:
-                        model = nn.Sequential(FCView(), nn.Linear(
-                            prev_filters, filters), nn.LeakyReLU(0.1,
-                            inplace=True))
+                        model = nn.Sequential(FCView(), nn.Linear(prev_filters, filters), nn.LeakyReLU(0.1, inplace=True))
                     else:
-                        model = nn.Sequential(nn.Linear(prev_filters,
-                            filters), nn.LeakyReLU(0.1, inplace=True))
+                        model = nn.Sequential(nn.Linear(prev_filters, filters), nn.LeakyReLU(0.1, inplace=True))
                 elif block['activation'] == 'relu':
                     if is_first:
-                        model = nn.Sequential(FCView(), nn.Linear(
-                            prev_filters, filters), nn.ReLU(inplace=True))
+                        model = nn.Sequential(FCView(), nn.Linear(prev_filters, filters), nn.ReLU(inplace=True))
                     else:
-                        model = nn.Sequential(nn.Linear(prev_filters,
-                            filters), nn.ReLU(inplace=True))
+                        model = nn.Sequential(nn.Linear(prev_filters, filters), nn.ReLU(inplace=True))
                 prev_filters = filters
                 prev_width = 1
                 prev_height = 1
@@ -1016,8 +954,7 @@ class Darknet(nn.Module):
             height = int(self.blocks[0]['height'])
             width = int(self.blocks[0]['width'])
             mean_img = mean_img.view(channels, height, width)
-            self.register_buffer('mean_img', torch.zeros(channels, height,
-                width))
+            self.register_buffer('mean_img', torch.zeros(channels, height, width))
             self.mean_img.copy_(mean_img)
         fp = open(weightfile, 'rb')
         header = np.fromfile(fp, count=4, dtype=np.int32)
@@ -1195,20 +1132,11 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         def conv_bn(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=
-                False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+            return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
         def conv_dw(inp, oup, stride):
-            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=
-                inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True
-                ), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d
-                (oup), nn.ReLU(inplace=True))
-        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1),
-            conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2),
-            conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1
-            ), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512,
-            1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 
-            1024, 1), nn.AvgPool2d(7))
+            return nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(conv_bn(3, 32, 2), conv_dw(32, 64, 1), conv_dw(64, 128, 2), conv_dw(128, 128, 1), conv_dw(128, 256, 2), conv_dw(256, 256, 1), conv_dw(256, 512, 2), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 512, 1), conv_dw(512, 1024, 2), conv_dw(1024, 1024, 1), nn.AvgPool2d(7))
         self.fc = nn.Linear(1024, 1000)
 
     def forward(self, x):
@@ -1222,24 +1150,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Eltwise,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EmptyModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FCView,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPoolStride1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+]
+
 class Test_marvis_pytorch_caffe_darknet_convert(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Eltwise(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(EmptyModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FCView(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MaxPoolStride1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[5])
 

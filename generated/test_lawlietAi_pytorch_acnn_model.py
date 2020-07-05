@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -51,8 +52,7 @@ class ACNN(nn.Module):
         self.dist_embedding = nn.Embedding(self.opt.NP, self.opt.DP)
         self.rel_weight = nn.Parameter(torch.randn(self.opt.NR, self.opt.DC))
         self.dropout = nn.Dropout(self.opt.KP)
-        self.conv = nn.Conv2d(1, self.opt.DC, (self.opt.K, self.d), (1,
-            self.d), (self.p, 0), bias=True)
+        self.conv = nn.Conv2d(1, self.opt.DC, (self.opt.K, self.d), (1, self.d), (self.p, 0), bias=True)
         self.U = nn.Parameter(torch.randn(self.opt.DC, self.opt.NR))
         self.max_pool = nn.MaxPool1d(self.opt.N, stride=1)
 
@@ -110,8 +110,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DistanceLoss,
+     lambda: ([], {'nr': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_lawlietAi_pytorch_acnn_model(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DistanceLoss(*[], **{'nr': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

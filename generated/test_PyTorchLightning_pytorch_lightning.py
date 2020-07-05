@@ -136,8 +136,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -337,9 +338,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(latent_dim, 128, normalize=False),
-            *block(128, 256), *block(256, 512), *block(512, 1024), nn.
-            Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -351,9 +350,7 @@ class Discriminator(nn.Module):
 
     def __init__(self, img_shape):
         super().__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
 
     def forward(self, img):
         img_flat = img.view(img.size(0), -1)
@@ -373,8 +370,7 @@ class DQN(nn.Module):
 
     def __init__(self, obs_size: int, n_actions: int, hidden_size: int=128):
         super(DQN, self).__init__()
-        self.net = nn.Sequential(nn.Linear(obs_size, hidden_size), nn.ReLU(
-            ), nn.Linear(hidden_size, n_actions))
+        self.net = nn.Sequential(nn.Linear(obs_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, n_actions))
 
     def forward(self, x):
         return self.net(x.float())
@@ -393,8 +389,7 @@ class UNet(nn.Module):
             convolutions for upsampling.
     """
 
-    def __init__(self, num_classes: int=19, num_layers: int=5,
-        features_start: int=64, bilinear: bool=False):
+    def __init__(self, num_classes: int=19, num_layers: int=5, features_start: int=64, bilinear: bool=False):
         super().__init__()
         self.num_layers = num_layers
         layers = [DoubleConv(3, features_start)]
@@ -425,10 +420,7 @@ class DoubleConv(nn.Module):
 
     def __init__(self, in_ch: int, out_ch: int):
         super().__init__()
-        self.net = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size=3,
-            padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.
-            Conv2d(out_ch, out_ch, kernel_size=3, padding=1), nn.
-            BatchNorm2d(out_ch), nn.ReLU(inplace=True))
+        self.net = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.net(x)
@@ -441,8 +433,7 @@ class Down(nn.Module):
 
     def __init__(self, in_ch: int, out_ch: int):
         super().__init__()
-        self.net = nn.Sequential(nn.MaxPool2d(kernel_size=2, stride=2),
-            DoubleConv(in_ch, out_ch))
+        self.net = nn.Sequential(nn.MaxPool2d(kernel_size=2, stride=2), DoubleConv(in_ch, out_ch))
 
     def forward(self, x):
         return self.net(x)
@@ -459,20 +450,16 @@ class Up(nn.Module):
         super().__init__()
         self.upsample = None
         if bilinear:
-            self.upsample = nn.Sequential(nn.Upsample(scale_factor=2, mode=
-                'bilinear', align_corners=True), nn.Conv2d(in_ch, in_ch // 
-                2, kernel_size=1))
+            self.upsample = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), nn.Conv2d(in_ch, in_ch // 2, kernel_size=1))
         else:
-            self.upsample = nn.ConvTranspose2d(in_ch, in_ch // 2,
-                kernel_size=2, stride=2)
+            self.upsample = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
         self.conv = DoubleConv(in_ch, out_ch)
 
     def forward(self, x1, x2):
         x1 = self.upsample(x1)
         diff_h = x2.shape[2] - x1.shape[2]
         diff_w = x2.shape[3] - x1.shape[3]
-        x1 = F.pad(x1, [diff_w // 2, diff_w - diff_w // 2, diff_h // 2, 
-            diff_h - diff_h // 2])
+        x1 = F.pad(x1, [diff_w // 2, diff_w - diff_w // 2, diff_h // 2, diff_h - diff_h // 2])
         x = torch.cat([x2, x1], dim=1)
         return self.conv(x)
 
@@ -507,8 +494,7 @@ class GradInformation(Module):
         return norms
 
 
-def apply_to_collection(data: Any, dtype: Union[type, tuple], function:
-    Callable, *args, **kwargs) ->Any:
+def apply_to_collection(data: Any, dtype: Union[type, tuple], function: Callable, *args, **kwargs) ->Any:
     """
     Recursively applies a function to all elements of a certain dtype.
 
@@ -527,14 +513,11 @@ def apply_to_collection(data: Any, dtype: Union[type, tuple], function:
     if isinstance(data, dtype):
         return function(data, *args, **kwargs)
     elif isinstance(data, Mapping):
-        return elem_type({k: apply_to_collection(v, dtype, function, *args,
-            **kwargs) for k, v in data.items()})
+        return elem_type({k: apply_to_collection(v, dtype, function, *args, **kwargs) for k, v in data.items()})
     elif isinstance(data, tuple) and hasattr(data, '_fields'):
-        return elem_type(*(apply_to_collection(d, dtype, function, *args,
-            **kwargs) for d in data))
+        return elem_type(*(apply_to_collection(d, dtype, function, *args, **kwargs) for d in data))
     elif isinstance(data, Sequence) and not isinstance(data, str):
-        return elem_type([apply_to_collection(d, dtype, function, *args, **
-            kwargs) for d in data])
+        return elem_type([apply_to_collection(d, dtype, function, *args, **kwargs) for d in data])
     return data
 
 
@@ -652,8 +635,7 @@ class ModelHooks(Module):
 
         """
 
-    def backward(self, trainer, loss: Tensor, optimizer: Optimizer,
-        optimizer_idx: int) ->None:
+    def backward(self, trainer, loss: Tensor, optimizer: Optimizer, optimizer_idx: int) ->None:
         """
         Override backward with your own implementation if you need to.
 
@@ -765,8 +747,7 @@ class AttributeDict(dict):
             return ''
         max_key_length = max([len(str(k)) for k in self])
         tmp_name = '{:' + str(max_key_length + 3) + 's} {}'
-        rows = [tmp_name.format(f'"{n}":', self[n]) for n in sorted(self.
-            keys())]
+        rows = [tmp_name.format(f'"{n}":', self[n]) for n in sorted(self.keys())]
         out = '\n'.join(rows)
         return out
 
@@ -846,17 +827,11 @@ class ModelIO(object):
             Deprecated in version 0.7.0. You should use :meth:`load_from_checkpoint` instead.
             Will be removed in v0.9.0.
         """
-        rank_zero_warn(
-            '`load_from_metrics` method has been unified with `load_from_checkpoint` in v0.7.0. The deprecated method will be removed in v0.9.0.'
-            , DeprecationWarning)
-        return cls.load_from_checkpoint(weights_path, tags_csv=tags_csv,
-            map_location=map_location)
+        rank_zero_warn('`load_from_metrics` method has been unified with `load_from_checkpoint` in v0.7.0. The deprecated method will be removed in v0.9.0.', DeprecationWarning)
+        return cls.load_from_checkpoint(weights_path, tags_csv=tags_csv, map_location=map_location)
 
     @classmethod
-    def load_from_checkpoint(cls, checkpoint_path: str, *args, map_location:
-        Optional[Union[Dict[str, str], str, torch.device, int, Callable]]=
-        None, hparams_file: Optional[str]=None, tags_csv: Optional[str]=
-        None, **kwargs):
+    def load_from_checkpoint(cls, checkpoint_path: str, *args, map_location: Optional[Union[Dict[str, str], str, torch.device, int, Callable]]=None, hparams_file: Optional[str]=None, tags_csv: Optional[str]=None, **kwargs):
         """
         Primary way of loading a model from a checkpoint. When Lightning saves a checkpoint
         it stores the arguments passed to `__init__`  in the checkpoint under `module_arguments`
@@ -942,13 +917,10 @@ class ModelIO(object):
         if map_location is not None:
             checkpoint = pl_load(checkpoint_path, map_location=map_location)
         else:
-            checkpoint = pl_load(checkpoint_path, map_location=lambda
-                storage, loc: storage)
+            checkpoint = pl_load(checkpoint_path, map_location=lambda storage, loc: storage)
         if tags_csv is not None:
             hparams_file = tags_csv
-            rank_zero_warn(
-                '`tags_csv` argument is deprecated in v0.7.6. Will be removed v0.9.0'
-                , DeprecationWarning)
+            rank_zero_warn('`tags_csv` argument is deprecated in v0.7.6. Will be removed v0.9.0', DeprecationWarning)
         if hparams_file is not None:
             extension = hparams_file.split('.')[-1]
             if extension.lower() in 'csv':
@@ -956,8 +928,7 @@ class ModelIO(object):
             elif extension.lower() in ('yml', 'yaml'):
                 hparams = load_hparams_from_yaml(hparams_file)
             else:
-                raise ValueError(
-                    '.csv, .yml or .yaml is required for `hparams_file`')
+                raise ValueError('.csv, .yml or .yaml is required for `hparams_file`')
             hparams['on_gpu'] = False
             checkpoint[cls.CHECKPOINT_KEY_HYPER_PARAMS] = hparams
         checkpoint[cls.CHECKPOINT_KEY_HYPER_PARAMS].update(kwargs)
@@ -971,8 +942,7 @@ class ModelIO(object):
             args_name = checkpoint.get(cls.CHECKPOINT_NAME_HYPER_PARAMS)
             init_args_name = inspect.signature(cls).parameters.keys()
             if args_name == 'kwargs':
-                cls_kwargs = {k: v for k, v in model_args.items() if k in
-                    init_args_name}
+                cls_kwargs = {k: v for k, v in model_args.items() if k in init_args_name}
                 kwargs.update(**cls_kwargs)
             elif args_name:
                 if args_name in init_args_name:
@@ -1043,8 +1013,7 @@ def _format_summary_table(*cols) ->str:
         length.append(str_l)
     s = '{:<{}}'
     full_length = sum(length) + 3 * n_cols
-    header = [s.format(' ', counter_len)] + [s.format(c[0], l) for c, l in
-        zip(cols, length)]
+    header = [s.format(' ', counter_len)] + [s.format(c[0], l) for c, l in zip(cols, length)]
     summary = ' | '.join(header) + '\n' + '-' * full_length
     for i in range(n_rows):
         line = s.format(counter[i], counter_len)
@@ -1130,14 +1099,12 @@ class ModelSummary(object):
         if self.model.on_gpu:
             device = next(self.model.parameters()).get_device()
             if isinstance(input_, (list, tuple)):
-                input_ = [(input_i.cuda(device) if torch.is_tensor(input_i)
-                     else input_i) for input_i in input_]
+                input_ = [(input_i.cuda(device) if torch.is_tensor(input_i) else input_i) for input_i in input_]
             else:
                 input_ = input_.cuda(device)
         if self.model.trainer.use_amp:
             if isinstance(input_, (list, tuple)):
-                input_ = [(input_i.half() if torch.is_tensor(input_i) else
-                    input_i) for input_i in input_]
+                input_ = [(input_i.half() if torch.is_tensor(input_i) else input_i) for input_i in input_]
             else:
                 input_ = input_.half()
         with torch.no_grad():
@@ -1204,8 +1171,7 @@ class ModelSummary(object):
 
         Layer Name, Layer Type, Input Size, Output Size, Number of Parameters
         """
-        arrays = [['Name', self.layer_names], ['Type', self.layer_types], [
-            'Params', list(map(get_human_readable_count, self.param_nums))]]
+        arrays = [['Name', self.layer_names], ['Type', self.layer_types], ['Params', list(map(get_human_readable_count, self.param_nums))]]
         if self.model.example_input_array is not None:
             arrays.append(['In sizes', self.in_sizes])
             arrays.append(['Out sizes', self.out_sizes])
@@ -1233,12 +1199,10 @@ def get_init_args(frame) ->dict:
     self_identifier = spec.args[0]
     varargs_identifier = spec.varargs
     kwargs_identifier = spec.varkw
-    exclude_argnames = (varargs_identifier, kwargs_identifier,
-        self_identifier, '__class__', 'frame', 'frame_args')
+    exclude_argnames = varargs_identifier, kwargs_identifier, self_identifier, '__class__', 'frame', 'frame_args'
     local_args = {k: local_vars[k] for k in init_parameters.keys()}
     local_args.update(local_args.get(kwargs_identifier, {}))
-    local_args = {k: v for k, v in local_args.items() if k not in
-        exclude_argnames}
+    local_args = {k: v for k, v in local_args.items() if k not in exclude_argnames}
     return local_args
 
 
@@ -1277,9 +1241,7 @@ class LightningDataParallel(DataParallel):
             return self.module(*inputs, **kwargs)
         for t in chain(self.module.parameters(), self.module.buffers()):
             if t.device != self.src_device_obj:
-                raise RuntimeError(
-                    'module must have its parameters and buffers on device {} (device_ids[0]) but found one of them on device: {}'
-                    .format(self.src_device_obj, t.device))
+                raise RuntimeError('module must have its parameters and buffers on device {} (device_ids[0]) but found one of them on device: {}'.format(self.src_device_obj, t.device))
         inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
         if len(self.device_ids) == 1:
             if self.module.training:
@@ -1292,8 +1254,7 @@ class LightningDataParallel(DataParallel):
         return self.gather(outputs, self.output_device)
 
     def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:
-            len(replicas)])
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
 
 def _find_tensors(obj):
@@ -1315,8 +1276,7 @@ class LightningDistributedDataParallel(DistributedDataParallel):
     """
 
     def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:
-            len(replicas)])
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
     def forward(self, *inputs, **kwargs):
         self._sync_params()
@@ -1328,11 +1288,9 @@ class LightningDistributedDataParallel(DistributedDataParallel):
                 elif self.module.testing:
                     output = self.module.test_step(*inputs[0], **kwargs[0])
                 else:
-                    output = self.module.validation_step(*inputs[0], **
-                        kwargs[0])
+                    output = self.module.validation_step(*inputs[0], **kwargs[0])
             else:
-                outputs = self.parallel_apply(self._module_copies[:len(
-                    inputs)], inputs, kwargs)
+                outputs = self.parallel_apply(self._module_copies[:len(inputs)], inputs, kwargs)
                 output = self.gather(outputs, self.output_device)
         elif self.module.training:
             output = self.module.training_step(*inputs, **kwargs)
@@ -1358,9 +1316,7 @@ class DeviceDtypeModuleMixin(Module):
 
     @dtype.setter
     def dtype(self, new_dtype: Union[str, torch.dtype]):
-        raise RuntimeError(
-            'Cannot set the dtype explicitly. Please use module.to(new_dtype).'
-            )
+        raise RuntimeError('Cannot set the dtype explicitly. Please use module.to(new_dtype).')
 
     @property
     def device(self) ->Union[str, torch.device]:
@@ -1368,9 +1324,7 @@ class DeviceDtypeModuleMixin(Module):
 
     @device.setter
     def device(self, new_device: Union[str, torch.device]):
-        raise RuntimeError(
-            'Cannot set the device explicitly. Please use module.to(new_device).'
-            )
+        raise RuntimeError('Cannot set the device explicitly. Please use module.to(new_device).')
 
     def to(self, *args, **kwargs) ->Module:
         """Moves and/or casts the parameters and buffers.
@@ -1511,9 +1465,7 @@ class Generator(nn.Module):
                 layers.append(nn.BatchNorm1d(out_feat, 0.8))
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return layers
-        self.model = nn.Sequential(*block(latent_dim, 128, normalize=False),
-            *block(128, 256), *block(256, 512), *block(512, 1024), nn.
-            Linear(1024, int(np.prod(img_shape))), nn.Tanh())
+        self.model = nn.Sequential(*block(latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
 
     def forward(self, z):
         img = self.model(z)
@@ -1525,9 +1477,7 @@ class Discriminator(nn.Module):
 
     def __init__(self, img_shape: tuple):
         super().__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512),
-            nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.
-            LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
+        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
 
     def forward(self, img):
         img_flat = img.view(img.size(0), -1)
@@ -1539,25 +1489,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DQN,
+     lambda: ([], {'obs_size': 4, 'n_actions': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'img_shape': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (DoubleConv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Down,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LightningDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (UNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_PyTorchLightning_pytorch_lightning(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DQN(*[], **{'obs_size': 4, 'n_actions': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Discriminator(*[], **{'img_shape': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DoubleConv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LightningDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(UNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

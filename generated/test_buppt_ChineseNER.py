@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,8 +54,7 @@ def argmax(vec):
 def log_sum_exp(vec):
     max_score = vec[0, argmax(vec)]
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
-    return max_score + torch.log(torch.sum(torch.exp(vec -
-        max_score_broadcast)))
+    return max_score + torch.log(torch.sum(torch.exp(vec - max_score_broadcast)))
 
 
 class BiLSTM_CRF(nn.Module):
@@ -67,18 +67,15 @@ class BiLSTM_CRF(nn.Module):
         self.tag_to_ix = tag_to_ix
         self.tagset_size = len(tag_to_ix)
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1,
-            bidirectional=True)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2, num_layers=1, bidirectional=True)
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
-        self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.
-            tagset_size))
+        self.transitions = nn.Parameter(torch.randn(self.tagset_size, self.tagset_size))
         self.transitions.data[(tag_to_ix[START_TAG]), :] = -10000
         self.transitions.data[:, (tag_to_ix[STOP_TAG])] = -10000
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return torch.randn(2, 1, self.hidden_dim // 2), torch.randn(2, 1, 
-            self.hidden_dim // 2)
+        return torch.randn(2, 1, self.hidden_dim // 2), torch.randn(2, 1, self.hidden_dim // 2)
 
     def _forward_alg(self, feats):
         init_alphas = torch.full((1, self.tagset_size), -10000.0)
@@ -87,8 +84,7 @@ class BiLSTM_CRF(nn.Module):
         for feat in feats:
             alphas_t = []
             for next_tag in range(self.tagset_size):
-                emit_score = feat[next_tag].view(1, -1).expand(1, self.
-                    tagset_size)
+                emit_score = feat[next_tag].view(1, -1).expand(1, self.tagset_size)
                 trans_score = self.transitions[next_tag].view(1, -1)
                 next_tag_var = forward_var + trans_score + emit_score
                 alphas_t.append(log_sum_exp(next_tag_var).view(1))
@@ -107,11 +103,9 @@ class BiLSTM_CRF(nn.Module):
 
     def _score_sentence(self, feats, tags):
         score = torch.zeros(1)
-        tags = torch.cat([torch.tensor([self.tag_to_ix[START_TAG]], dtype=
-            torch.long), tags])
+        tags = torch.cat([torch.tensor([self.tag_to_ix[START_TAG]], dtype=torch.long), tags])
         for i, feat in enumerate(feats):
-            score = score + self.transitions[tags[i + 1], tags[i]] + feat[
-                tags[i + 1]]
+            score = score + self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
         score = score + self.transitions[self.tag_to_ix[STOP_TAG], tags[-1]]
         return score
 
@@ -153,10 +147,3 @@ class BiLSTM_CRF(nn.Module):
         score, tag_seq = self._viterbi_decode(lstm_feats)
         return score, tag_seq
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_buppt_ChineseNER(_paritybench_base):
-    pass

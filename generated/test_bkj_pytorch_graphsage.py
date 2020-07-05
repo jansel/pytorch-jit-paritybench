@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,31 +88,24 @@ class LRSchedule(object):
 
 class GSSupervised(nn.Module):
 
-    def __init__(self, input_dim, n_nodes, n_classes, layer_specs,
-        aggregator_class, prep_class, sampler_class, adj, train_adj,
-        lr_init=0.01, weight_decay=0.0, lr_schedule='constant', epochs=10):
+    def __init__(self, input_dim, n_nodes, n_classes, layer_specs, aggregator_class, prep_class, sampler_class, adj, train_adj, lr_init=0.01, weight_decay=0.0, lr_schedule='constant', epochs=10):
         super(GSSupervised, self).__init__()
         self.train_sampler = sampler_class(adj=train_adj)
         self.val_sampler = sampler_class(adj=adj)
-        self.train_sample_fns = [partial(self.train_sampler, n_samples=s[
-            'n_train_samples']) for s in layer_specs]
-        self.val_sample_fns = [partial(self.val_sampler, n_samples=s[
-            'n_val_samples']) for s in layer_specs]
+        self.train_sample_fns = [partial(self.train_sampler, n_samples=s['n_train_samples']) for s in layer_specs]
+        self.val_sample_fns = [partial(self.val_sampler, n_samples=s['n_val_samples']) for s in layer_specs]
         self.prep = prep_class(input_dim=input_dim, n_nodes=n_nodes)
         input_dim = self.prep.output_dim
         agg_layers = []
         for spec in layer_specs:
-            agg = aggregator_class(input_dim=input_dim, output_dim=spec[
-                'output_dim'], activation=spec['activation'])
+            agg = aggregator_class(input_dim=input_dim, output_dim=spec['output_dim'], activation=spec['activation'])
             agg_layers.append(agg)
             input_dim = agg.output_dim
         self.agg_layers = nn.Sequential(*agg_layers)
         self.fc = nn.Linear(input_dim, n_classes, bias=True)
-        self.lr_scheduler = partial(getattr(LRSchedule, lr_schedule),
-            lr_init=lr_init)
+        self.lr_scheduler = partial(getattr(LRSchedule, lr_schedule), lr_init=lr_init)
         self.lr = self.lr_scheduler(0.0)
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr,
-            weight_decay=weight_decay)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=weight_decay)
 
     def forward(self, ids, feats, train=True):
         sample_fns = self.train_sample_fns if train else self.val_sample_fns
@@ -121,11 +115,9 @@ class GSSupervised(nn.Module):
         for layer_idx, sampler_fn in enumerate(sample_fns):
             ids = sampler_fn(ids=ids).contiguous().view(-1)
             tmp_feats = feats[ids] if has_feats else None
-            all_feats.append(self.prep(ids, tmp_feats, layer_idx=layer_idx + 1)
-                )
+            all_feats.append(self.prep(ids, tmp_feats, layer_idx=layer_idx + 1))
         for agg_layer in self.agg_layers.children():
-            all_feats = [agg_layer(all_feats[k], all_feats[k + 1]) for k in
-                range(len(all_feats) - 1)]
+            all_feats = [agg_layer(all_feats[k], all_feats[k + 1]) for k in range(len(all_feats) - 1)]
         assert len(all_feats) == 1, 'len(all_feats) != 1'
         out = F.normalize(all_feats[0], dim=1)
         return self.fc(out)
@@ -167,8 +159,7 @@ class NodeEmbeddingPrep(nn.Module):
         self.n_nodes = n_nodes
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
-        self.embedding = nn.Embedding(num_embeddings=n_nodes + 1,
-            embedding_dim=embedding_dim)
+        self.embedding = nn.Embedding(num_embeddings=n_nodes + 1, embedding_dim=embedding_dim)
         self.fc = nn.Linear(embedding_dim, embedding_dim)
 
     @property
@@ -182,8 +173,7 @@ class NodeEmbeddingPrep(nn.Module):
         if layer_idx > 0:
             embs = self.embedding(ids)
         else:
-            embs = self.embedding(Variable(ids.clone().data.zero_() + self.
-                n_nodes))
+            embs = self.embedding(Variable(ids.clone().data.zero_() + self.n_nodes))
         embs = self.fc(embs)
         if self.input_dim:
             return torch.cat([feats, embs], dim=1)
@@ -213,8 +203,7 @@ class AggregatorMixin(object):
 
 class MeanAggregator(nn.Module, AggregatorMixin):
 
-    def __init__(self, input_dim, output_dim, activation, combine_fn=lambda
-        x: torch.cat(x, dim=1)):
+    def __init__(self, input_dim, output_dim, activation, combine_fn=lambda x: torch.cat(x, dim=1)):
         super(MeanAggregator, self).__init__()
         self.fc_x = nn.Linear(input_dim, output_dim, bias=False)
         self.fc_neib = nn.Linear(input_dim, output_dim, bias=False)
@@ -233,11 +222,9 @@ class MeanAggregator(nn.Module, AggregatorMixin):
 
 class PoolAggregator(nn.Module, AggregatorMixin):
 
-    def __init__(self, input_dim, output_dim, pool_fn, activation,
-        hidden_dim=512, combine_fn=lambda x: torch.cat(x, dim=1)):
+    def __init__(self, input_dim, output_dim, pool_fn, activation, hidden_dim=512, combine_fn=lambda x: torch.cat(x, dim=1)):
         super(PoolAggregator, self).__init__()
-        self.mlp = nn.Sequential(*[nn.Linear(input_dim, hidden_dim, bias=
-            True), nn.ReLU()])
+        self.mlp = nn.Sequential(*[nn.Linear(input_dim, hidden_dim, bias=True), nn.ReLU()])
         self.fc_x = nn.Linear(input_dim, output_dim, bias=False)
         self.fc_neib = nn.Linear(hidden_dim, output_dim, bias=False)
         self.output_dim_ = output_dim
@@ -257,12 +244,10 @@ class PoolAggregator(nn.Module, AggregatorMixin):
 
 class LSTMAggregator(nn.Module, AggregatorMixin):
 
-    def __init__(self, input_dim, output_dim, activation, hidden_dim=512,
-        bidirectional=False, combine_fn=lambda x: torch.cat(x, dim=1)):
+    def __init__(self, input_dim, output_dim, activation, hidden_dim=512, bidirectional=False, combine_fn=lambda x: torch.cat(x, dim=1)):
         super(LSTMAggregator, self).__init__()
         assert not hidden_dim % 2, 'LSTMAggregator: hiddem_dim % 2 != 0'
-        self.lstm = nn.LSTM(input_dim, hidden_dim // (1 + bidirectional),
-            bidirectional=bidirectional, batch_first=True)
+        self.lstm = nn.LSTM(input_dim, hidden_dim // (1 + bidirectional), bidirectional=bidirectional, batch_first=True)
         self.fc_x = nn.Linear(input_dim, output_dim, bias=False)
         self.fc_neib = nn.Linear(hidden_dim, output_dim, bias=False)
         self.output_dim_ = output_dim
@@ -283,11 +268,9 @@ class LSTMAggregator(nn.Module, AggregatorMixin):
 
 class AttentionAggregator(nn.Module, AggregatorMixin):
 
-    def __init__(self, input_dim, output_dim, activation, hidden_dim=32,
-        combine_fn=lambda x: torch.cat(x, dim=1)):
+    def __init__(self, input_dim, output_dim, activation, hidden_dim=32, combine_fn=lambda x: torch.cat(x, dim=1)):
         super(AttentionAggregator, self).__init__()
-        self.att = nn.Sequential(*[nn.Linear(input_dim, hidden_dim, bias=
-            False), nn.Tanh(), nn.Linear(hidden_dim, hidden_dim, bias=False)])
+        self.att = nn.Sequential(*[nn.Linear(input_dim, hidden_dim, bias=False), nn.Tanh(), nn.Linear(hidden_dim, hidden_dim, bias=False)])
         self.fc_x = nn.Linear(input_dim, output_dim, bias=False)
         self.fc_neib = nn.Linear(input_dim, output_dim, bias=False)
         self.output_dim_ = output_dim
@@ -312,33 +295,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionAggregator,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (IdentityPrep,
+     lambda: ([], {'input_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LSTMAggregator,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearPrep,
+     lambda: ([], {'input_dim': 4, 'n_nodes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MeanAggregator,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NodeEmbeddingPrep,
+     lambda: ([], {'input_dim': 4, 'n_nodes': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     False),
+    (PoolAggregator,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'pool_fn': _mock_layer(), 'activation': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_bkj_pytorch_graphsage(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AttentionAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(IdentityPrep(*[], **{'input_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LSTMAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LinearPrep(*[], **{'input_dim': 4, 'n_nodes': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MeanAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'activation': _mock_layer()}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(NodeEmbeddingPrep(*[], **{'input_dim': 4, 'n_nodes': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(PoolAggregator(*[], **{'input_dim': 4, 'output_dim': 4, 'pool_fn': _mock_layer(), 'activation': _mock_layer()}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 

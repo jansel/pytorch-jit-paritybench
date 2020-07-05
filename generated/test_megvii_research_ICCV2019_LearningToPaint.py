@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,8 +76,7 @@ import torch.optim as optim
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return weightNorm(nn.Conv2d(in_planes, out_planes, kernel_size=3,
-        stride=stride, padding=1, bias=True))
+    return weightNorm(nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True))
 
 
 class BasicBlock(nn.Module):
@@ -90,9 +90,7 @@ class BasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -108,17 +106,14 @@ class Bottleneck(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -185,9 +180,7 @@ class BasicBlock(nn.Module):
         self.conv2 = conv3x3(planes, planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, 
-                self.expansion * planes, kernel_size=1, stride=stride, bias
-                =True)))
+            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=True)))
         self.relu_1 = TReLU()
         self.relu_2 = TReLU()
 
@@ -204,20 +197,15 @@ class Bottleneck(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(Bottleneck, self).__init__()
-        self.conv1 = weightNorm(nn.Conv2d(in_planes, planes, kernel_size=1,
-            bias=True))
-        self.conv2 = weightNorm(nn.Conv2d(planes, planes, kernel_size=3,
-            stride=stride, padding=1, bias=True))
-        self.conv3 = weightNorm(nn.Conv2d(planes, self.expansion * planes,
-            kernel_size=1, bias=True))
+        self.conv1 = weightNorm(nn.Conv2d(in_planes, planes, kernel_size=1, bias=True))
+        self.conv2 = weightNorm(nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True))
+        self.conv3 = weightNorm(nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=True))
         self.relu_1 = TReLU()
         self.relu_2 = TReLU()
         self.relu_3 = TReLU()
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, 
-                self.expansion * planes, kernel_size=1, stride=stride, bias
-                =True)))
+            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=True)))
 
     def forward(self, x):
         out = self.relu_1(self.conv1(x))
@@ -346,9 +334,7 @@ class BasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -364,17 +350,14 @@ class Bottleneck(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -441,9 +424,7 @@ class BasicBlock(nn.Module):
         self.conv2 = conv3x3(planes, planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, 
-                self.expansion * planes, kernel_size=1, stride=stride, bias
-                =True)))
+            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=True)))
         self.relu_1 = TReLU()
         self.relu_2 = TReLU()
 
@@ -460,20 +441,15 @@ class Bottleneck(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(Bottleneck, self).__init__()
-        self.conv1 = weightNorm(nn.Conv2d(in_planes, planes, kernel_size=1,
-            bias=True))
-        self.conv2 = weightNorm(nn.Conv2d(planes, planes, kernel_size=3,
-            stride=stride, padding=1, bias=True))
-        self.conv3 = weightNorm(nn.Conv2d(planes, self.expansion * planes,
-            kernel_size=1, bias=True))
+        self.conv1 = weightNorm(nn.Conv2d(in_planes, planes, kernel_size=1, bias=True))
+        self.conv2 = weightNorm(nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True))
+        self.conv3 = weightNorm(nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=True))
         self.relu_1 = TReLU()
         self.relu_2 = TReLU()
         self.relu_3 = TReLU()
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, 
-                self.expansion * planes, kernel_size=1, stride=stride, bias
-                =True)))
+            self.shortcut = nn.Sequential(weightNorm(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=True)))
 
     def forward(self, x):
         out = self.relu_1(self.conv1(x))
@@ -612,20 +588,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 6, 64, 64])], {}),
+     True),
+    (FCN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([10, 10])], {}),
+     True),
+    (TReLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_megvii_research_ICCV2019_LearningToPaint(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 6, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(FCN(*[], **{}), [torch.rand([10, 10])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(TReLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

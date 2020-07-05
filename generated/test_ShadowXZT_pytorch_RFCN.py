@@ -64,8 +64,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -93,14 +94,11 @@ from torch.nn.modules.module import Module
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        relu=True, same_padding=False, bn=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, relu=True, same_padding=False, bn=False):
         super(Conv2d, self).__init__()
         padding = int((kernel_size - 1) / 2) if same_padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding=padding)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -128,8 +126,7 @@ class FC(nn.Module):
 
 class PSRoIPoolingFunction(Function):
 
-    def __init__(self, pooled_height, pooled_width, spatial_scale,
-        group_size, output_dim):
+    def __init__(self, pooled_height, pooled_width, spatial_scale, group_size, output_dim):
         self.pooled_width = int(pooled_width)
         self.pooled_height = int(pooled_height)
         self.spatial_scale = float(spatial_scale)
@@ -143,15 +140,11 @@ class PSRoIPoolingFunction(Function):
     def forward(self, features, rois):
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size()[0]
-        output = torch.zeros(num_rois, self.output_dim, self.pooled_height,
-            self.pooled_width)
-        mappingchannel = torch.IntTensor(num_rois, self.output_dim, self.
-            pooled_height, self.pooled_width).zero_()
+        output = torch.zeros(num_rois, self.output_dim, self.pooled_height, self.pooled_width)
+        mappingchannel = torch.IntTensor(num_rois, self.output_dim, self.pooled_height, self.pooled_width).zero_()
         output = output.cuda()
         mappingchannel = mappingchannel.cuda()
-        psroi_pooling.psroi_pooling_forward_cuda(self.pooled_height, self.
-            pooled_width, self.spatial_scale, self.group_size, self.
-            output_dim, features, rois, output, mappingchannel)
+        psroi_pooling.psroi_pooling_forward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, self.group_size, self.output_dim, features, rois, output, mappingchannel)
         self.output = output
         self.mappingchannel = mappingchannel
         self.rois = rois
@@ -161,18 +154,14 @@ class PSRoIPoolingFunction(Function):
     def backward(self, grad_output):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = torch.zeros(batch_size, num_channels, data_height,
-            data_width).cuda()
-        psroi_pooling.psroi_pooling_backward_cuda(self.pooled_height, self.
-            pooled_width, self.spatial_scale, self.output_dim, grad_output,
-            self.rois, grad_input, self.mappingchannel)
+        grad_input = torch.zeros(batch_size, num_channels, data_height, data_width).cuda()
+        psroi_pooling.psroi_pooling_backward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, self.output_dim, grad_output, self.rois, grad_input, self.mappingchannel)
         return grad_input, None
 
 
 class PSRoIPool(Module):
 
-    def __init__(self, pooled_height, pooled_width, spatial_scale,
-        group_size, output_dim):
+    def __init__(self, pooled_height, pooled_width, spatial_scale, group_size, output_dim):
         super(PSRoIPool, self).__init__()
         self.pooled_width = int(pooled_width)
         self.pooled_height = int(pooled_height)
@@ -181,9 +170,7 @@ class PSRoIPool(Module):
         self.output_dim = int(output_dim)
 
     def forward(self, features, rois):
-        return PSRoIPoolingFunction(self.pooled_height, self.pooled_width,
-            self.spatial_scale, self.group_size, self.output_dim)(features,
-            rois)
+        return PSRoIPoolingFunction(self.pooled_height, self.pooled_width, self.spatial_scale, self.group_size, self.output_dim)(features, rois)
 
 
 class RoIPoolFunction(Function):
@@ -200,20 +187,15 @@ class RoIPoolFunction(Function):
     def forward(self, features, rois):
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size()[0]
-        output = torch.zeros(num_rois, num_channels, self.pooled_height,
-            self.pooled_width)
-        argmax = torch.IntTensor(num_rois, num_channels, self.pooled_height,
-            self.pooled_width).zero_()
+        output = torch.zeros(num_rois, num_channels, self.pooled_height, self.pooled_width)
+        argmax = torch.IntTensor(num_rois, num_channels, self.pooled_height, self.pooled_width).zero_()
         if not features.is_cuda:
             _features = features.permute(0, 2, 3, 1)
-            roi_pooling.roi_pooling_forward(self.pooled_height, self.
-                pooled_width, self.spatial_scale, _features, rois, output)
+            roi_pooling.roi_pooling_forward(self.pooled_height, self.pooled_width, self.spatial_scale, _features, rois, output)
         else:
             output = output.cuda()
             argmax = argmax.cuda()
-            roi_pooling.roi_pooling_forward_cuda(self.pooled_height, self.
-                pooled_width, self.spatial_scale, features, rois, output,
-                argmax)
+            roi_pooling.roi_pooling_forward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, features, rois, output, argmax)
             self.output = output
             self.argmax = argmax
             self.rois = rois
@@ -223,11 +205,8 @@ class RoIPoolFunction(Function):
     def backward(self, grad_output):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = torch.zeros(batch_size, num_channels, data_height,
-            data_width).cuda()
-        roi_pooling.roi_pooling_backward_cuda(self.pooled_height, self.
-            pooled_width, self.spatial_scale, grad_output, self.rois,
-            grad_input, self.argmax)
+        grad_input = torch.zeros(batch_size, num_channels, data_height, data_width).cuda()
+        roi_pooling.roi_pooling_backward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, grad_output, self.rois, grad_input, self.argmax)
         return grad_input, None
 
 
@@ -240,8 +219,7 @@ class RoIPool(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.
-            spatial_scale)(features, rois)
+        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.spatial_scale)(features, rois)
 
 
 class RoIPool(nn.Module):
@@ -255,12 +233,10 @@ class RoIPool(nn.Module):
     def forward(self, features, rois):
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size()[0]
-        outputs = Variable(torch.zeros(num_rois, num_channels, self.
-            pooled_height, self.pooled_width))
+        outputs = Variable(torch.zeros(num_rois, num_channels, self.pooled_height, self.pooled_width))
         for roi_ind, roi in enumerate(rois):
             batch_ind = int(roi[0].data[0])
-            roi_start_w, roi_start_h, roi_end_w, roi_end_h = np.round(roi[1
-                :].data.cpu().numpy() * self.spatial_scale).astype(int)
+            roi_start_w, roi_start_h, roi_end_w, roi_end_h = np.round(roi[1:].data.cpu().numpy() * self.spatial_scale).astype(int)
             roi_width = max(roi_end_w - roi_start_w + 1, 1)
             roi_height = max(roi_end_h - roi_start_h + 1, 1)
             bin_size_w = float(roi_width) / float(self.pooled_width)
@@ -280,9 +256,7 @@ class RoIPool(nn.Module):
                         outputs[(roi_ind), :, (ph), (pw)] = 0
                     else:
                         data = features[batch_ind]
-                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch
-                            .max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0
-                            ].view(-1)
+                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
         return outputs
 
 
@@ -290,22 +264,13 @@ class VGG16(nn.Module):
 
     def __init__(self, bn=False):
         super(VGG16, self).__init__()
-        self.conv1 = nn.Sequential(Conv2d(3, 64, 3, same_padding=True, bn=
-            bn), Conv2d(64, 64, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
-        self.conv2 = nn.Sequential(Conv2d(64, 128, 3, same_padding=True, bn
-            =bn), Conv2d(128, 128, 3, same_padding=True, bn=bn), nn.
-            MaxPool2d(2))
+        self.conv1 = nn.Sequential(Conv2d(3, 64, 3, same_padding=True, bn=bn), Conv2d(64, 64, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
+        self.conv2 = nn.Sequential(Conv2d(64, 128, 3, same_padding=True, bn=bn), Conv2d(128, 128, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
         network.set_trainable(self.conv1, requires_grad=False)
         network.set_trainable(self.conv2, requires_grad=False)
-        self.conv3 = nn.Sequential(Conv2d(128, 256, 3, same_padding=True,
-            bn=bn), Conv2d(256, 256, 3, same_padding=True, bn=bn), Conv2d(
-            256, 256, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
-        self.conv4 = nn.Sequential(Conv2d(256, 512, 3, same_padding=True,
-            bn=bn), Conv2d(512, 512, 3, same_padding=True, bn=bn), Conv2d(
-            512, 512, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
-        self.conv5 = nn.Sequential(Conv2d(512, 512, 3, same_padding=True,
-            bn=bn), Conv2d(512, 512, 3, same_padding=True, bn=bn), Conv2d(
-            512, 512, 3, same_padding=True, bn=bn))
+        self.conv3 = nn.Sequential(Conv2d(128, 256, 3, same_padding=True, bn=bn), Conv2d(256, 256, 3, same_padding=True, bn=bn), Conv2d(256, 256, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
+        self.conv4 = nn.Sequential(Conv2d(256, 512, 3, same_padding=True, bn=bn), Conv2d(512, 512, 3, same_padding=True, bn=bn), Conv2d(512, 512, 3, same_padding=True, bn=bn), nn.MaxPool2d(2))
+        self.conv5 = nn.Sequential(Conv2d(512, 512, 3, same_padding=True, bn=bn), Conv2d(512, 512, 3, same_padding=True, bn=bn), Conv2d(512, 512, 3, same_padding=True, bn=bn))
 
     def forward(self, im_data):
         x = self.conv1(im_data)
@@ -331,11 +296,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FC,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ShadowXZT_pytorch_RFCN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

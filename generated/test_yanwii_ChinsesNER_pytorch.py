@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -46,16 +47,13 @@ STOP_TAG = 'STOP'
 def log_sum_exp(vec):
     max_score = torch.max(vec, 0)[0].unsqueeze(0)
     max_score_broadcast = max_score.expand(vec.size(1), vec.size(1))
-    result = max_score + torch.log(torch.sum(torch.exp(vec -
-        max_score_broadcast), 0)).unsqueeze(0)
+    result = max_score + torch.log(torch.sum(torch.exp(vec - max_score_broadcast), 0)).unsqueeze(0)
     return result.squeeze(1)
 
 
 class BiLSTMCRF(nn.Module):
 
-    def __init__(self, tag_map={'O': 0, 'B-COM': 1, 'I-COM': 2, 'E-COM': 3,
-        'START': 4, 'STOP': 5}, batch_size=20, vocab_size=20, hidden_dim=
-        128, dropout=1.0, embedding_dim=100):
+    def __init__(self, tag_map={'O': 0, 'B-COM': 1, 'I-COM': 2, 'E-COM': 3, 'START': 4, 'STOP': 5}, batch_size=20, vocab_size=20, hidden_dim=128, dropout=1.0, embedding_dim=100):
         super(BiLSTMCRF, self).__init__()
         self.batch_size = batch_size
         self.hidden_dim = hidden_dim
@@ -64,26 +62,21 @@ class BiLSTMCRF(nn.Module):
         self.dropout = dropout
         self.tag_size = len(tag_map)
         self.tag_map = tag_map
-        self.transitions = nn.Parameter(torch.randn(self.tag_size, self.
-            tag_size))
+        self.transitions = nn.Parameter(torch.randn(self.tag_size, self.tag_size))
         self.transitions.data[:, (self.tag_map[START_TAG])] = -1000.0
         self.transitions.data[(self.tag_map[STOP_TAG]), :] = -1000.0
         self.word_embeddings = nn.Embedding(vocab_size, self.embedding_dim)
-        self.lstm = nn.LSTM(self.embedding_dim, self.hidden_dim // 2,
-            num_layers=1, bidirectional=True, batch_first=True, dropout=
-            self.dropout)
+        self.lstm = nn.LSTM(self.embedding_dim, self.hidden_dim // 2, num_layers=1, bidirectional=True, batch_first=True, dropout=self.dropout)
         self.hidden2tag = nn.Linear(self.hidden_dim, self.tag_size)
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return torch.randn(2, self.batch_size, self.hidden_dim // 2
-            ), torch.randn(2, self.batch_size, self.hidden_dim // 2)
+        return torch.randn(2, self.batch_size, self.hidden_dim // 2), torch.randn(2, self.batch_size, self.hidden_dim // 2)
 
     def __get_lstm_features(self, sentence):
         self.hidden = self.init_hidden()
         length = sentence.shape[1]
-        embeddings = self.word_embeddings(sentence).view(self.batch_size,
-            length, self.embedding_dim)
+        embeddings = self.word_embeddings(sentence).view(self.batch_size, length, self.embedding_dim)
         lstm_out, self.hidden = self.lstm(embeddings, self.hidden)
         lstm_out = lstm_out.view(self.batch_size, -1, self.hidden_dim)
         logits = self.hidden2tag(lstm_out)
@@ -91,11 +84,9 @@ class BiLSTMCRF(nn.Module):
 
     def real_path_score_(self, feats, tags):
         score = torch.zeros(1)
-        tags = torch.cat([torch.tensor([self.tag_map[START_TAG]], dtype=
-            torch.long), tags])
+        tags = torch.cat([torch.tensor([self.tag_map[START_TAG]], dtype=torch.long), tags])
         for i, feat in enumerate(feats):
-            score = score + self.transitions[tags[i], tags[i + 1]] + feat[
-                tags[i + 1]]
+            score = score + self.transitions[tags[i], tags[i + 1]] + feat[tags[i + 1]]
         score = score + self.transitions[tags[-1], self.tag_map[STOP_TAG]]
         return score
 
@@ -110,8 +101,7 @@ class BiLSTMCRF(nn.Module):
         Transition_Score = Trans(label[START], label[1]) + Trans(label[1], label[2]) + ... + Trans(label[n-1], label[STOP])  
         """
         score = torch.zeros(1)
-        label = torch.cat([torch.tensor([self.tag_map[START_TAG]], dtype=
-            torch.long), label])
+        label = torch.cat([torch.tensor([self.tag_map[START_TAG]], dtype=torch.long), label])
         for index, logit in enumerate(logits):
             emission_score = logit[label[index + 1]]
             transition_score = self.transitions[label[index], label[index + 1]]
@@ -132,8 +122,7 @@ class BiLSTMCRF(nn.Module):
         previous = torch.full((1, self.tag_size), 0)
         for index in range(len(logits)):
             previous = previous.expand(self.tag_size, self.tag_size).t()
-            obs = logits[index].view(1, -1).expand(self.tag_size, self.tag_size
-                )
+            obs = logits[index].view(1, -1).expand(self.tag_size, self.tag_size)
             scores = previous + obs + self.transitions
             previous = log_sum_exp(scores)
         previous = previous + self.transitions[:, (self.tag_map[STOP_TAG])]
@@ -177,8 +166,7 @@ class BiLSTMCRF(nn.Module):
         backpointers = torch.zeros(logits.size(), dtype=torch.long)
         trellis[0] = logits[0]
         for t in range(1, len(logits)):
-            v = trellis[t - 1].unsqueeze(1).expand_as(self.transitions
-                ) + self.transitions
+            v = trellis[t - 1].unsqueeze(1).expand_as(self.transitions) + self.transitions
             trellis[t] = logits[t] + torch.max(v, 0)[0]
             backpointers[t] = torch.max(v, 0)[1]
         viterbi = [torch.max(trellis[-1], -1)[1].cpu().tolist()]
@@ -214,9 +202,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiLSTMCRF,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_yanwii_ChinsesNER_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BiLSTMCRF(*[], **{}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

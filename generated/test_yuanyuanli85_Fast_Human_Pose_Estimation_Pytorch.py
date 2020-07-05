@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,18 +83,15 @@ from scipy.ndimage import maximum_filter
 class Bottleneck(nn.Module):
     expansion = 2
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, mobile=
-        False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, mobile=False):
         super(Bottleneck, self).__init__()
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=True)
         self.bn2 = nn.BatchNorm2d(planes)
         if mobile:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=True, groups=planes)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True, groups=planes)
         else:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=True)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True)
         self.bn3 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=True)
         self.relu = nn.ReLU(inplace=True)
@@ -130,8 +128,7 @@ class Hourglass(nn.Module):
     def _make_residual(self, block, num_blocks, planes):
         layers = []
         for i in range(0, num_blocks):
-            layers.append(block(planes * block.expansion, planes, mobile=
-                self.mobile))
+            layers.append(block(planes * block.expansion, planes, mobile=self.mobile))
         return nn.Sequential(*layers)
 
     def _make_hour_glass(self, block, num_blocks, planes, depth):
@@ -165,15 +162,13 @@ class Hourglass(nn.Module):
 class HourglassNet(nn.Module):
     """Hourglass model from Newell et al ECCV 2016"""
 
-    def __init__(self, block, num_stacks=2, num_blocks=4, num_classes=16,
-        mobile=False):
+    def __init__(self, block, num_stacks=2, num_blocks=4, num_classes=16, mobile=False):
         super(HourglassNet, self).__init__()
         self.mobile = mobile
         self.inplanes = 64
         self.num_feats = 128
         self.num_stacks = num_stacks
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=True)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=True)
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_residual(block, self.inplanes, 1)
@@ -183,15 +178,13 @@ class HourglassNet(nn.Module):
         ch = self.num_feats * block.expansion
         hg, res, fc, score, fc_, score_ = [], [], [], [], [], []
         for i in range(num_stacks):
-            hg.append(Hourglass(block, num_blocks, self.num_feats, 4, self.
-                mobile))
+            hg.append(Hourglass(block, num_blocks, self.num_feats, 4, self.mobile))
             res.append(self._make_residual(block, self.num_feats, num_blocks))
             fc.append(self._make_fc(ch, ch))
             score.append(nn.Conv2d(ch, num_classes, kernel_size=1, bias=True))
             if i < num_stacks - 1:
                 fc_.append(nn.Conv2d(ch, ch, kernel_size=1, bias=True))
-                score_.append(nn.Conv2d(num_classes, ch, kernel_size=1,
-                    bias=True))
+                score_.append(nn.Conv2d(num_classes, ch, kernel_size=1, bias=True))
         self.hg = nn.ModuleList(hg)
         self.res = nn.ModuleList(res)
         self.fc = nn.ModuleList(fc)
@@ -202,11 +195,9 @@ class HourglassNet(nn.Module):
     def _make_residual(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=True))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=True))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .mobile))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.mobile))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, mobile=self.mobile))
@@ -241,8 +232,7 @@ class HourglassNet(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -280,8 +270,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -316,16 +305,14 @@ class PreResNet(nn.Module):
         self.layer3 = self._make_layer(block, 64, layers[2], stride=2)
         self.bn1 = nn.BatchNorm2d(64 * block.expansion)
         self.relu = nn.ReLU(inplace=True)
-        self.fc1 = nn.Conv2d(64 * block.expansion, 64 * block.expansion,
-            kernel_size=1, bias=False)
+        self.fc1 = nn.Conv2d(64 * block.expansion, 64 * block.expansion, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64 * block.expansion)
         self.fc2 = nn.Conv2d(64 * block.expansion, num_classes, kernel_size=1)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -347,8 +334,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_yuanyuanli85_Fast_Human_Pose_Estimation_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

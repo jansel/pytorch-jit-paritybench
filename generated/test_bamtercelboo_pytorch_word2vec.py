@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,10 +59,8 @@ class CBOWModel(nn.Module):
         self.emb_size = emb_size
         self.emb_dimension = emb_dimension
         self.window_size = window_size
-        self.u_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension,
-            sparse=True)
-        self.v_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension,
-            sparse=True)
+        self.u_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension, sparse=True)
+        self.v_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension, sparse=True)
         self.init_emb()
 
     def init_emb(self):
@@ -86,8 +85,7 @@ class CBOWModel(nn.Module):
         losses.append(sum(score))
         neg_emb_v = []
         for i in range(len(neg_v)):
-            neg_emb_v_v = self.u_embeddings(Variable(torch.LongTensor(neg_v
-                [i])))
+            neg_emb_v_v = self.u_embeddings(Variable(torch.LongTensor(neg_v[i])))
             neg_emb_v_v_numpy = neg_emb_v_v.data.numpy()
             neg_emb_v_v_numpy = np.sum(neg_emb_v_v_numpy, axis=0)
             neg_emb_v_v_list = neg_emb_v_v_numpy.tolist()
@@ -116,10 +114,8 @@ class SkipGramModel(nn.Module):
         super(SkipGramModel, self).__init__()
         self.emb_size = emb_size
         self.emb_dimension = emb_dimension
-        self.u_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension,
-            sparse=True)
-        self.v_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension,
-            sparse=True)
+        self.u_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension, sparse=True)
+        self.v_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension, sparse=True)
         self.init_emb()
 
     def init_emb(self):
@@ -159,10 +155,8 @@ class CBOW(nn.Module):
         super(CBOW, self).__init__()
         self.emb_size = emb_size
         self.emb_dimension = emb_dimension
-        self.u_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension,
-            sparse=True)
-        self.v_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension,
-            sparse=True)
+        self.u_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension, sparse=True)
+        self.v_embeddings = nn.Embedding(2 * emb_size - 1, emb_dimension, sparse=True)
         self.init_emb()
 
     def init_emb(self):
@@ -184,8 +178,7 @@ class CBOW(nn.Module):
         losses.append(sum(score))
         neg_emb_u = []
         for i in range(len(neg_u)):
-            neg_emb_ui = self.u_embeddings(Variable(torch.LongTensor(neg_u[i]))
-                )
+            neg_emb_ui = self.u_embeddings(Variable(torch.LongTensor(neg_u[i])))
             neg_emb_u.append(np.sum(neg_emb_ui.data.numpy(), axis=0).tolist())
         neg_emb_u = Variable(torch.FloatTensor(neg_emb_u))
         neg_emb_v = self.v_embeddings(Variable(torch.LongTensor(neg_v)))
@@ -212,8 +205,7 @@ class CBOW(nn.Module):
         losses.append(sum(score))
         neg_emb_v = []
         for i in range(len(neg_v)):
-            neg_emb_v_v = self.u_embeddings(Variable(torch.LongTensor(neg_v
-                [i])))
+            neg_emb_v_v = self.u_embeddings(Variable(torch.LongTensor(neg_v[i])))
             neg_emb_v_v_numpy = neg_emb_v_v.data.numpy()
             neg_emb_v_v_numpy = np.sum(neg_emb_v_v_numpy, axis=0)
             neg_emb_v_v_list = neg_emb_v_v_numpy.tolist()
@@ -257,10 +249,3 @@ class CBOW(nn.Module):
         output = F.log_softmax(self.linear_2(output))
         return output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_bamtercelboo_pytorch_word2vec(_paritybench_base):
-    pass

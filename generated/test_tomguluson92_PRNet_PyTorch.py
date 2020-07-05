@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,19 +97,14 @@ from math import exp
 class ResBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, kernel_size=3,
-        norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, kernel_size=3, norm_layer=None):
         super(ResBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
-        self.shortcut_conv = nn.Conv2d(inplanes, planes, kernel_size=1,
-            stride=stride)
-        self.conv1 = nn.Conv2d(inplanes, planes // 2, kernel_size=1, stride
-            =1, padding=0)
-        self.conv2 = nn.Conv2d(planes // 2, planes // 2, kernel_size=
-            kernel_size, stride=stride, padding=kernel_size // 2)
-        self.conv3 = nn.Conv2d(planes // 2, planes, kernel_size=1, stride=1,
-            padding=0)
+        self.shortcut_conv = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride)
+        self.conv1 = nn.Conv2d(inplanes, planes // 2, kernel_size=1, stride=1, padding=0)
+        self.conv2 = nn.Conv2d(planes // 2, planes // 2, kernel_size=kernel_size, stride=stride, padding=kernel_size // 2)
+        self.conv3 = nn.Conv2d(planes // 2, planes, kernel_size=1, stride=1, padding=0)
         self.normalizer_fn = norm_layer(planes)
         self.activation_fn = nn.ReLU(inplace=True)
         self.stride = stride
@@ -131,75 +127,45 @@ class ResBlock(nn.Module):
 def conv3x3(in_planes, out_planes, stride=1, dilation=1, padding='same'):
     """3x3 convolution with padding"""
     if padding == 'same':
-        return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=
-            stride, padding=1, bias=False, dilation=dilation)
+        return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, dilation=dilation)
 
 
 class ResFCN256(nn.Module):
 
-    def __init__(self, resolution_input=256, resolution_output=256, channel
-        =3, size=16):
+    def __init__(self, resolution_input=256, resolution_output=256, channel=3, size=16):
         super().__init__()
         self.input_resolution = resolution_input
         self.output_resolution = resolution_output
         self.channel = channel
         self.size = size
-        self.block0 = conv3x3(in_planes=3, out_planes=self.size, padding='same'
-            )
-        self.block1 = ResBlock(inplanes=self.size, planes=self.size * 2,
-            stride=2)
-        self.block2 = ResBlock(inplanes=self.size * 2, planes=self.size * 2,
-            stride=1)
-        self.block3 = ResBlock(inplanes=self.size * 2, planes=self.size * 4,
-            stride=2)
-        self.block4 = ResBlock(inplanes=self.size * 4, planes=self.size * 4,
-            stride=1)
-        self.block5 = ResBlock(inplanes=self.size * 4, planes=self.size * 8,
-            stride=2)
-        self.block6 = ResBlock(inplanes=self.size * 8, planes=self.size * 8,
-            stride=1)
-        self.block7 = ResBlock(inplanes=self.size * 8, planes=self.size * 
-            16, stride=2)
-        self.block8 = ResBlock(inplanes=self.size * 16, planes=self.size * 
-            16, stride=1)
-        self.block9 = ResBlock(inplanes=self.size * 16, planes=self.size * 
-            32, stride=2)
-        self.block10 = ResBlock(inplanes=self.size * 32, planes=self.size *
-            32, stride=1)
-        self.upsample0 = nn.ConvTranspose2d(self.size * 32, self.size * 32,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample1 = nn.ConvTranspose2d(self.size * 32, self.size * 16,
-            kernel_size=4, stride=2, padding=1)
-        self.upsample2 = nn.ConvTranspose2d(self.size * 16, self.size * 16,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample3 = nn.ConvTranspose2d(self.size * 16, self.size * 16,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample4 = nn.ConvTranspose2d(self.size * 16, self.size * 8,
-            kernel_size=4, stride=2, padding=1)
-        self.upsample5 = nn.ConvTranspose2d(self.size * 8, self.size * 8,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample6 = nn.ConvTranspose2d(self.size * 8, self.size * 8,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample7 = nn.ConvTranspose2d(self.size * 8, self.size * 4,
-            kernel_size=4, stride=2, padding=1)
-        self.upsample8 = nn.ConvTranspose2d(self.size * 4, self.size * 4,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample9 = nn.ConvTranspose2d(self.size * 4, self.size * 4,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample10 = nn.ConvTranspose2d(self.size * 4, self.size * 2,
-            kernel_size=4, stride=2, padding=1)
-        self.upsample11 = nn.ConvTranspose2d(self.size * 2, self.size * 2,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample12 = nn.ConvTranspose2d(self.size * 2, self.size,
-            kernel_size=4, stride=2, padding=1)
-        self.upsample13 = nn.ConvTranspose2d(self.size, self.size,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample14 = nn.ConvTranspose2d(self.size, self.channel,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample15 = nn.ConvTranspose2d(self.channel, self.channel,
-            kernel_size=3, stride=1, padding=1)
-        self.upsample16 = nn.ConvTranspose2d(self.channel, self.channel,
-            kernel_size=3, stride=1, padding=1)
+        self.block0 = conv3x3(in_planes=3, out_planes=self.size, padding='same')
+        self.block1 = ResBlock(inplanes=self.size, planes=self.size * 2, stride=2)
+        self.block2 = ResBlock(inplanes=self.size * 2, planes=self.size * 2, stride=1)
+        self.block3 = ResBlock(inplanes=self.size * 2, planes=self.size * 4, stride=2)
+        self.block4 = ResBlock(inplanes=self.size * 4, planes=self.size * 4, stride=1)
+        self.block5 = ResBlock(inplanes=self.size * 4, planes=self.size * 8, stride=2)
+        self.block6 = ResBlock(inplanes=self.size * 8, planes=self.size * 8, stride=1)
+        self.block7 = ResBlock(inplanes=self.size * 8, planes=self.size * 16, stride=2)
+        self.block8 = ResBlock(inplanes=self.size * 16, planes=self.size * 16, stride=1)
+        self.block9 = ResBlock(inplanes=self.size * 16, planes=self.size * 32, stride=2)
+        self.block10 = ResBlock(inplanes=self.size * 32, planes=self.size * 32, stride=1)
+        self.upsample0 = nn.ConvTranspose2d(self.size * 32, self.size * 32, kernel_size=3, stride=1, padding=1)
+        self.upsample1 = nn.ConvTranspose2d(self.size * 32, self.size * 16, kernel_size=4, stride=2, padding=1)
+        self.upsample2 = nn.ConvTranspose2d(self.size * 16, self.size * 16, kernel_size=3, stride=1, padding=1)
+        self.upsample3 = nn.ConvTranspose2d(self.size * 16, self.size * 16, kernel_size=3, stride=1, padding=1)
+        self.upsample4 = nn.ConvTranspose2d(self.size * 16, self.size * 8, kernel_size=4, stride=2, padding=1)
+        self.upsample5 = nn.ConvTranspose2d(self.size * 8, self.size * 8, kernel_size=3, stride=1, padding=1)
+        self.upsample6 = nn.ConvTranspose2d(self.size * 8, self.size * 8, kernel_size=3, stride=1, padding=1)
+        self.upsample7 = nn.ConvTranspose2d(self.size * 8, self.size * 4, kernel_size=4, stride=2, padding=1)
+        self.upsample8 = nn.ConvTranspose2d(self.size * 4, self.size * 4, kernel_size=3, stride=1, padding=1)
+        self.upsample9 = nn.ConvTranspose2d(self.size * 4, self.size * 4, kernel_size=3, stride=1, padding=1)
+        self.upsample10 = nn.ConvTranspose2d(self.size * 4, self.size * 2, kernel_size=4, stride=2, padding=1)
+        self.upsample11 = nn.ConvTranspose2d(self.size * 2, self.size * 2, kernel_size=3, stride=1, padding=1)
+        self.upsample12 = nn.ConvTranspose2d(self.size * 2, self.size, kernel_size=4, stride=2, padding=1)
+        self.upsample13 = nn.ConvTranspose2d(self.size, self.size, kernel_size=3, stride=1, padding=1)
+        self.upsample14 = nn.ConvTranspose2d(self.size, self.channel, kernel_size=3, stride=1, padding=1)
+        self.upsample15 = nn.ConvTranspose2d(self.channel, self.channel, kernel_size=3, stride=1, padding=1)
+        self.upsample16 = nn.ConvTranspose2d(self.channel, self.channel, kernel_size=3, stride=1, padding=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -258,8 +224,7 @@ class WeightMaskLoss(nn.Module):
             self.mask = cv2.imread(mask_path, 0)
             self.mask = torch.from_numpy(preprocess(self.mask)).float()
         else:
-            raise FileNotFoundError(
-                'Mask File Not Found! Please Check your Settings!')
+            raise FileNotFoundError('Mask File Not Found! Please Check your Settings!')
 
     def forward(self, pred, gt):
         result = torch.mean(torch.pow(pred - gt, 2), dim=1)
@@ -283,14 +248,12 @@ def _fspecial_gauss(window_size, sigma=1.5):
 
 def butterworth(window_size, sigma=1.5, n=2):
     nn = 2 * n
-    bw = torch.Tensor([(1 / (1 + ((x - window_size // 2) / sigma) ** nn)) for
-        x in range(window_size)])
+    bw = torch.Tensor([(1 / (1 + ((x - window_size // 2) / sigma) ** nn)) for x in range(window_size)])
     return bw / bw.sum()
 
 
 def gaussian(window_size, sigma):
-    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * 
-        sigma ** 2)) for x in range(window_size)])
+    gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
 
 
@@ -299,25 +262,20 @@ def tile(a, dim, n_tile):
     repeat_idx = [1] * a.dim()
     repeat_idx[dim] = n_tile
     a = a.repeat(*repeat_idx)
-    order_index = torch.LongTensor(np.concatenate([(init_dim * np.arange(
-        n_tile) + i) for i in range(init_dim)]))
+    order_index = torch.LongTensor(np.concatenate([(init_dim * np.arange(n_tile) + i) for i in range(init_dim)]))
     return torch.index_select(a, dim, order_index)
 
 
 def create_window(window_size, channel=3, sigma=1.5, gauss='original', n=2):
     if gauss == 'original':
         _1D_window = gaussian(window_size, sigma).unsqueeze(1)
-        _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0
-            ).unsqueeze(0)
-        window = Variable(_2D_window.expand(channel, 1, window_size,
-            window_size).contiguous())
+        _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+        window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
         return window
     elif gauss == 'butterworth':
         _1D_window = butterworth(window_size, sigma, n).unsqueeze(1)
-        _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0
-            ).unsqueeze(0)
-        window = Variable(_2D_window.expand(channel, 1, window_size,
-            window_size).contiguous())
+        _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+        window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
         return window
     else:
         g = _fspecial_gauss(window_size, sigma)
@@ -326,8 +284,7 @@ def create_window(window_size, channel=3, sigma=1.5, gauss='original', n=2):
         return g
 
 
-def _ssim(img1, img2, window_size=11, window=None, val_range=2,
-    size_average=True):
+def _ssim(img1, img2, window_size=11, window=None, val_range=2, size_average=True):
     padd = 0
     batch, channel, height, width = img1.size()
     if window is None:
@@ -338,16 +295,12 @@ def _ssim(img1, img2, window_size=11, window=None, val_range=2,
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
     mu1_mu2 = mu1 * mu2
-    sigma1_square = F.conv2d(img1 * img1, window, padding=padd, groups=channel
-        ) - mu1_sq
-    sigma2_square = F.conv2d(img2 * img2, window, padding=padd, groups=channel
-        ) - mu2_sq
-    sigma12_square = F.conv2d(img1 * img2, window, padding=padd, groups=channel
-        ) - mu1_mu2
+    sigma1_square = F.conv2d(img1 * img1, window, padding=padd, groups=channel) - mu1_sq
+    sigma2_square = F.conv2d(img2 * img2, window, padding=padd, groups=channel) - mu2_sq
+    sigma12_square = F.conv2d(img1 * img2, window, padding=padd, groups=channel) - mu1_mu2
     C1 = (0.01 * val_range) ** 2
     C2 = (0.03 * val_range) ** 2
-    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12_square + C2) / ((mu1_sq +
-        mu2_sq + C1) * (sigma1_square + sigma2_square + C2))
+    ssim_map = (2 * mu1_mu2 + C1) * (2 * sigma12_square + C2) / ((mu1_sq + mu2_sq + C1) * (sigma1_square + sigma2_square + C2))
     if size_average:
         return ssim_map.mean()
     else:
@@ -366,8 +319,7 @@ class ORIGINAL_SSIM(torch.nn.Module):
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
-        if channel == self.channel and self.window.data.type(
-            ) == img1.data.type():
+        if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:
             window = create_window(self.window_size, channel)
@@ -376,8 +328,7 @@ class ORIGINAL_SSIM(torch.nn.Module):
             window = window.type_as(img1)
             self.window = window
             self.channel = channel
-        return 1 - _ssim(img1, img2, self.window_size, window, self.
-            val_range, self.size_average)
+        return 1 - _ssim(img1, img2, self.window_size, window, self.val_range, self.size_average)
 
 
 def dfl_ssim(img1, img2, mask, window_size=11, val_range=1, gauss='original'):
@@ -396,8 +347,7 @@ def dfl_ssim(img1, img2, mask, window_size=11, val_range=1, gauss='original'):
     den0 = mu1_sq + mu2_sq
     luminance = (num0 + c1) / (den0 + c1)
     num1 = F.conv2d(img1 * img2, window, padding=padd, groups=channel) * 2.0
-    den1 = F.conv2d(img1 * img1 + img2 * img2, window, padding=padd, groups
-        =channel)
+    den1 = F.conv2d(img1 * img1 + img2 * img2, window, padding=padd, groups=channel)
     cs = (num1 - num0 + c2) / (den1 - den0 + c2)
     ssim_val = torch.mean(luminance * cs, dim=(-3, -2))
     return torch.mean((1.0 - ssim_val) / 2.0)
@@ -416,25 +366,35 @@ class SSIM(torch.nn.Module):
             self.mask = cv2.imread(mask_path, 0)
             self.mask = torch.from_numpy(preprocess(self.mask)).float()
         else:
-            raise FileNotFoundError(
-                'Mask File Not Found! Please Check your Settings!')
+            raise FileNotFoundError('Mask File Not Found! Please Check your Settings!')
 
     def forward(self, img1, img2):
         _, channel, _, _ = img1.size()
         self.channel = channel
-        return 10 * dfl_ssim(img1, img2, mask=self.mask, window_size=self.
-            window_size, gauss=self.gauss)
+        return 10 * dfl_ssim(img1, img2, mask=self.mask, window_size=self.window_size, gauss=self.gauss)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResFCN256,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_tomguluson92_PRNet_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ResBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResFCN256(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

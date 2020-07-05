@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ class channel_selection(nn.Module):
         ---------
         input_tensor: (N,C,H,W). It should be the output of BatchNorm2d layer.
 		"""
-        selected_index = np.squeeze(np.argwhere(self.indexes.data.cpu().
-            numpy()))
+        selected_index = np.squeeze(np.argwhere(self.indexes.data.cpu().numpy()))
         if selected_index.size == 1:
             selected_index = np.resize(selected_index, (1,))
         output = input_tensor[:, (selected_index), :, :]
@@ -119,8 +119,7 @@ class Bottleneck(nn.Module):
         self.select = channel_selection(inplanes)
         self.conv1 = nn.Conv2d(cfg[0], cfg[1], kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(cfg[1])
-        self.conv2 = nn.Conv2d(cfg[1], cfg[2], kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(cfg[1], cfg[2], kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(cfg[2])
         self.conv3 = nn.Conv2d(cfg[2], planes, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -162,8 +161,7 @@ class Bottleneck(nn.Module):
                     o_indices.append(i)
                 elif idx in indices[1]:
                     r_indices.append(i)
-            res = try_cuda(torch.zeros(x.size(0), n_c, residual.size(2),
-                residual.size(3)))
+            res = try_cuda(torch.zeros(x.size(0), n_c, residual.size(2), residual.size(3)))
             res[:, (r_indices), :, :] = residual
             res[:, (o_indices), :, :] += out
             out = res
@@ -180,17 +178,13 @@ class presnet(nn.Module):
         n = (depth - 2) // 9
         block = Bottleneck
         if cfg is None:
-            cfg = [[64, 64, 64], [64, 64, 64] * (n - 1), [64, 64, 64], [128,
-                128, 128] * (n - 1), [128, 128, 128], [256, 256, 256] * (n -
-                1), [256]]
+            cfg = [[64, 64, 64], [64, 64, 64] * (n - 1), [64, 64, 64], [128, 128, 128] * (n - 1), [128, 128, 128], [256, 256, 256] * (n - 1), [256]]
             cfg = [item for sub_list in cfg for item in sub_list]
         self.inplanes = 64
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False)
         self.layer1 = self._make_layer(block, 64, n, cfg=cfg[0:3 * n])
-        self.layer2 = self._make_layer(block, 128, n, cfg=cfg[3 * n:6 * n],
-            stride=2)
-        self.layer3 = self._make_layer(block, 256, n, cfg=cfg[6 * n:9 * n],
-            stride=2)
+        self.layer2 = self._make_layer(block, 128, n, cfg=cfg[3 * n:6 * n], stride=2)
+        self.layer3 = self._make_layer(block, 256, n, cfg=cfg[6 * n:9 * n], stride=2)
         self.bn = nn.BatchNorm2d(256 * block.expansion)
         self.select = channel_selection(256 * block.expansion)
         self.relu = nn.ReLU(inplace=True)
@@ -210,11 +204,9 @@ class presnet(nn.Module):
     def _make_layer(self, block, planes, blocks, cfg, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False))
         layers = []
-        layers.append(block(self.inplanes, planes, cfg[0:3], stride,
-            downsample))
+        layers.append(block(self.inplanes, planes, cfg[0:3], stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, cfg[3 * i:3 * (i + 1)]))
@@ -239,19 +231,15 @@ def register_bottleneck_layer(m, Q_g, Q_a, W_star, use_patch, trainable=False):
         scale = nn.Linear(W_star.size(1), W_star.size(0), bias=False).cuda()
         scale.weight.data.copy_(W_star)
         bias = 1.0 if m.bias is not None else 0
-        return nn.Sequential(LinearLayerRotation(Q_a, bias, trainable),
-            scale, LinearLayerRotation(Q_g.t(), trainable=trainable))
+        return nn.Sequential(LinearLayerRotation(Q_a, bias, trainable), scale, LinearLayerRotation(Q_g.t(), trainable=trainable))
     elif isinstance(m, nn.Conv2d):
-        W_star = W_star.view(W_star.size(0), m.kernel_size[0], m.
-            kernel_size[1], -1)
+        W_star = W_star.view(W_star.size(0), m.kernel_size[0], m.kernel_size[1], -1)
         W_star = W_star.transpose(2, 3).transpose(1, 2).contiguous()
-        scale = nn.Conv2d(W_star.size(1), W_star.size(0), m.kernel_size, m.
-            stride, m.padding, m.dilation, m.groups, False).cuda()
+        scale = nn.Conv2d(W_star.size(1), W_star.size(0), m.kernel_size, m.stride, m.padding, m.dilation, m.groups, False).cuda()
         scale.weight.data.copy_(W_star)
         patch_size = m.kernel_size[0] * m.kernel_size[1]
         bias = 1.0 / patch_size if m.bias is not None else 0
-        return nn.Sequential(ConvLayerRotation(Q_a.t(), bias, trainable),
-            scale, ConvLayerRotation(Q_g, trainable=trainable))
+        return nn.Sequential(ConvLayerRotation(Q_a.t(), bias, trainable), scale, ConvLayerRotation(Q_g, trainable=trainable))
     else:
         raise NotImplementedError
 
@@ -279,63 +267,53 @@ class BottleneckPResNet(nn.Module):
         self.fix_rotation = fix_rotation
         self._is_registered = False
 
-    def _update_bottleneck(self, bneck, modules, Q_g, Q_a, W_star,
-        use_patch, fix_rotation):
+    def _update_bottleneck(self, bneck, modules, Q_g, Q_a, W_star, use_patch, fix_rotation):
         m = bneck.conv1
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            bneck.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            bneck.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, bneck.conv1[1])
         m = bneck.conv2
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            bneck.conv2 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            bneck.conv2 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, bneck.conv2[1])
         m = bneck.conv3
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            bneck.conv3 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            bneck.conv3 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, bneck.conv3[1])
         m = bneck.downsample
         if m is not None:
             if len(m) == 1 and m[0] in modules:
                 m = m[0]
-                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a
-                    [m], W_star[m], use_patch, fix_rotation)
+                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
                 update_QQ_dict(Q_g, Q_a, m, bneck.downsample[1])
             elif len(m) == 3 and m[1] in modules:
                 m = m[1]
-                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a
-                    [m], W_star[m], use_patch, fix_rotation)
+                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
                 update_QQ_dict(Q_g, Q_a, m, bneck.downsample[1])
             else:
                 assert len(m) == 1 or len(m) == 3, 'Upexpected layer %s' % m
 
-    def register(self, modules, Q_g, Q_a, W_star, use_patch, fix_rotation,
-        re_init):
+    def register(self, modules, Q_g, Q_a, W_star, use_patch, fix_rotation, re_init):
         for m in self.modules():
             if isinstance(m, Bottleneck):
-                self._update_bottleneck(m, modules, Q_g, Q_a, W_star,
-                    use_patch, fix_rotation)
+                self._update_bottleneck(m, modules, Q_g, Q_a, W_star, use_patch, fix_rotation)
         m = self.conv1
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            self.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            self.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, self.conv1[1])
         m = self.fc
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            self.fc = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m
-                ], use_patch, fix_rotation)
+            self.fc = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, self.fc[1])
         self._is_registered = True
         if re_init:
@@ -373,17 +351,14 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, affine=_AFFINE)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, affine=_AFFINE)
         self.downsample = None
         self.bn3 = None
         if stride != 1 or in_planes != planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
             self.bn3 = nn.BatchNorm2d(self.expansion * planes, affine=_AFFINE)
 
     def forward(self, x):
@@ -415,8 +390,7 @@ class BasicBlock(nn.Module):
                     o_indices.append(i)
                 elif idx in indices[1]:
                     r_indices.append(i)
-            res = try_cuda(torch.zeros(x.size(0), n_c, residual.size(2),
-                residual.size(3)))
+            res = try_cuda(torch.zeros(x.size(0), n_c, residual.size(2), residual.size(3)))
             res[:, (r_indices), :, :] = residual
             res[:, (o_indices), :, :] += out
             out = res
@@ -452,15 +426,11 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         _outputs = [64, 128, 256]
         self.in_planes = _outputs[0]
-        self.conv1 = nn.Conv2d(3, _outputs[0], kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, _outputs[0], kernel_size=3, stride=1, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(_outputs[0], affine=_AFFINE)
-        self.layer1 = self._make_layer(block, _outputs[0], num_blocks[0],
-            stride=1)
-        self.layer2 = self._make_layer(block, _outputs[1], num_blocks[1],
-            stride=2)
-        self.layer3 = self._make_layer(block, _outputs[2], num_blocks[2],
-            stride=2)
+        self.layer1 = self._make_layer(block, _outputs[0], num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, _outputs[1], num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, _outputs[2], num_blocks[2], stride=2)
         self.linear = nn.Linear(_outputs[2], num_classes)
         self.apply(_weights_init)
 
@@ -496,56 +466,47 @@ class BottleneckResNet(nn.Module):
         self.fix_rotation = fix_rotation
         self._is_registered = False
 
-    def _update_bottleneck(self, bneck, modules, Q_g, Q_a, W_star,
-        use_patch, fix_rotation):
+    def _update_bottleneck(self, bneck, modules, Q_g, Q_a, W_star, use_patch, fix_rotation):
         m = bneck.conv1
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            bneck.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            bneck.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, bneck.conv1[1])
         m = bneck.conv2
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            bneck.conv2 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            bneck.conv2 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, bneck.conv2[1])
         m = bneck.downsample
         if m is not None:
             if len(m) == 1 and m[0] in modules:
                 m = m[0]
-                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a
-                    [m], W_star[m], use_patch, fix_rotation)
+                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
                 update_QQ_dict(Q_g, Q_a, m, bneck.downsample[1])
             elif len(m) == 3 and m[1] in modules:
                 m = m[1]
-                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a
-                    [m], W_star[m], use_patch, fix_rotation)
+                bneck.downsample = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
                 update_QQ_dict(Q_g, Q_a, m, bneck.downsample[1])
             else:
                 assert len(m) == 1 or len(m) == 3, 'Upexpected layer %s' % m
 
-    def register(self, modules, Q_g, Q_a, W_star, use_patch, fix_rotation,
-        re_init):
+    def register(self, modules, Q_g, Q_a, W_star, use_patch, fix_rotation, re_init):
         for m in self.modules():
             if isinstance(m, BasicBlock):
-                self._update_bottleneck(m, modules, Q_g, Q_a, W_star,
-                    use_patch, fix_rotation)
+                self._update_bottleneck(m, modules, Q_g, Q_a, W_star, use_patch, fix_rotation)
         m = self.conv1
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            self.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            self.conv1 = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, self.conv1[1])
         m = self.linear
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            self.linear = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            self.linear = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, self.linear[1])
         self._is_registered = True
         if re_init:
@@ -563,17 +524,12 @@ class BottleneckResNet(nn.Module):
         return out
 
 
-defaultcfg = {(11): [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 
-    512], (13): [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 
-    512, 512], (16): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 
-    512, 512, 'M', 512, 512, 512], (19): [64, 64, 'M', 128, 128, 'M', 256, 
-    256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]}
+defaultcfg = {(11): [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (13): [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (16): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512], (19): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]}
 
 
 class VGG(nn.Module):
 
-    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None
-        ):
+    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None):
         super(VGG, self).__init__()
         if cfg is None:
             cfg = defaultcfg[depth]
@@ -596,11 +552,9 @@ class VGG(nn.Module):
             if v == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1,
-                    bias=False)
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v, affine=_AFFINE),
-                        nn.ReLU(inplace=True)]
+                    layers += [conv2d, nn.BatchNorm2d(v, affine=_AFFINE), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -642,23 +596,20 @@ class BottleneckVGG(nn.Module):
         self.fix_rotation = fix_rotation
         self._is_registered = False
 
-    def register(self, modules, Q_g, Q_a, W_star, use_patch, fix_rotation,
-        re_init):
+    def register(self, modules, Q_g, Q_a, W_star, use_patch, fix_rotation, re_init):
         n_seqs = len(self.feature)
         for idx in range(n_seqs):
             m = self.feature[idx]
             if isinstance(m, nn.Sequential):
                 m = m[1]
             if m in modules:
-                self.feature[idx] = register_bottleneck_layer(m, Q_g[m],
-                    Q_a[m], W_star[m], use_patch, fix_rotation)
+                self.feature[idx] = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
                 update_QQ_dict(Q_g, Q_a, m, self.feature[idx][1])
         m = self.classifier
         if isinstance(m, nn.Sequential):
             m = m[1]
         if m in modules:
-            self.classifier = register_bottleneck_layer(m, Q_g[m], Q_a[m],
-                W_star[m], use_patch, fix_rotation)
+            self.classifier = register_bottleneck_layer(m, Q_g[m], Q_a[m], W_star[m], use_patch, fix_rotation)
             update_QQ_dict(Q_g, Q_a, m, self.classifier)
         self._is_registered = True
         if re_init:
@@ -722,9 +673,7 @@ class LinearLayerRotation(nn.Module):
         return [self.rotation_matrix]
 
     def extra_repr(self):
-        return 'in_features=%s, out_features=%s, trainable=%s' % (self.
-            rotation_matrix.size(1), self.rotation_matrix.size(0), self.
-            trainable)
+        return 'in_features=%s, out_features=%s, trainable=%s' % (self.rotation_matrix.size(1), self.rotation_matrix.size(0), self.trainable)
 
 
 class ConvLayerRotation(nn.Module):
@@ -740,34 +689,58 @@ class ConvLayerRotation(nn.Module):
 
     def forward(self, x):
         if self.bias != 0:
-            x = torch.cat([x, x.new(x.size(0), 1, x.size(2), x.size(3)).
-                fill_(self.bias)], 1)
-        return F.conv2d(x, self.rotation_matrix, None, _pair(1), _pair(0),
-            _pair(1), 1)
+            x = torch.cat([x, x.new(x.size(0), 1, x.size(2), x.size(3)).fill_(self.bias)], 1)
+        return F.conv2d(x, self.rotation_matrix, None, _pair(1), _pair(0), _pair(1), 1)
 
     def parameters(self):
         return [self.rotation_matrix]
 
     def extra_repr(self):
-        return 'in_channels=%s, out_channels=%s, trainable=%s' % (self.
-            rotation_matrix.size(1), self.rotation_matrix.size(0), self.
-            trainable)
+        return 'in_channels=%s, out_channels=%s, trainable=%s' % (self.rotation_matrix.size(1), self.rotation_matrix.size(0), self.trainable)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LambdaLayer,
+     lambda: ([], {'lambd': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (channel_selection,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (presnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+]
+
 class Test_alecwangcq_EigenDamage_Pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LambdaLayer(*[], **{'lambd': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(channel_selection(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

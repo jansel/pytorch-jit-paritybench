@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,31 +85,22 @@ class Attention(nn.Module):
         self.attention_size = attention_size
         self.avgpool = nn.AdaptiveAvgPool2d(self.attention_size)
         in_features = self.cnn.last_linear.in_features
-        self.last_linear = nn.Conv2d(in_features, self.num_classes,
-            kernel_size=1, padding=0)
-        self.attention = nn.Conv2d(in_features, self.num_classes,
-            kernel_size=1, padding=0)
+        self.last_linear = nn.Conv2d(in_features, self.num_classes, kernel_size=1, padding=0)
+        self.attention = nn.Conv2d(in_features, self.num_classes, kernel_size=1, padding=0)
 
     def forward(self, x):
         features = self.cnn.features(x)
         if self.attention_size != features.size(-1):
             features = self.avgpool(features)
         logits = self.last_linear(features)
-        assert logits.size(1) == self.num_classes and logits.size(2
-            ) == self.attention_size and logits.size(3) == self.attention_size
+        assert logits.size(1) == self.num_classes and logits.size(2) == self.attention_size and logits.size(3) == self.attention_size
         logits_attention = self.attention(features)
-        assert logits_attention.size(1
-            ) == self.num_classes and logits_attention.size(2
-            ) == self.attention_size and logits_attention.size(3
-            ) == self.attention_size
-        logits_attention = logits_attention.view(-1, self.num_classes, self
-            .attention_size * self.attention_size)
+        assert logits_attention.size(1) == self.num_classes and logits_attention.size(2) == self.attention_size and logits_attention.size(3) == self.attention_size
+        logits_attention = logits_attention.view(-1, self.num_classes, self.attention_size * self.attention_size)
         attention = F.softmax(logits_attention, dim=2)
-        attention = attention.view(-1, self.num_classes, self.
-            attention_size, self.attention_size)
+        attention = attention.view(-1, self.num_classes, self.attention_size, self.attention_size)
         logits = logits * attention
-        return logits.view(-1, self.num_classes, self.attention_size * self
-            .attention_size).sum(2).view(-1, self.num_classes)
+        return logits.view(-1, self.num_classes, self.attention_size * self.attention_size).sum(2).view(-1, self.num_classes)
 
 
 class AttentionInceptionV3(nn.Module):
@@ -120,32 +112,19 @@ class AttentionInceptionV3(nn.Module):
         self.attention_size = attention_size
         self.aux_attention_size = aux_attention_size
         conv = self.cnn.Conv2d_1a_3x3.conv
-        self.cnn.Conv2d_1a_3x3.conv = nn.Conv2d(in_channels=4, out_channels
-            =conv.out_channels, kernel_size=conv.kernel_size, stride=conv.
-            stride, padding=conv.padding, bias=conv.bias)
+        self.cnn.Conv2d_1a_3x3.conv = nn.Conv2d(in_channels=4, out_channels=conv.out_channels, kernel_size=conv.kernel_size, stride=conv.stride, padding=conv.padding, bias=conv.bias)
         self.cnn.Conv2d_1a_3x3.conv.weight.data[:, :3, :, :] = conv.weight.data
-        self.cnn.Conv2d_1a_3x3.conv.weight.data[:, 3:, :, :
-            ] = conv.weight.data[:, :1, :, :]
-        self.features_a = nn.Sequential(self.cnn.Conv2d_1a_3x3, self.cnn.
-            Conv2d_2a_3x3, self.cnn.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size
-            =3, stride=2), self.cnn.Conv2d_3b_1x1, self.cnn.Conv2d_4a_3x3,
-            nn.MaxPool2d(kernel_size=3, stride=2), self.cnn.Mixed_5b, self.
-            cnn.Mixed_5c, self.cnn.Mixed_5d, self.cnn.Mixed_6a, self.cnn.
-            Mixed_6b, self.cnn.Mixed_6c, self.cnn.Mixed_6d, self.cnn.Mixed_6e)
-        self.features_b = nn.Sequential(self.cnn.Mixed_7a, self.cnn.
-            Mixed_7b, self.cnn.Mixed_7c)
+        self.cnn.Conv2d_1a_3x3.conv.weight.data[:, 3:, :, :] = conv.weight.data[:, :1, :, :]
+        self.features_a = nn.Sequential(self.cnn.Conv2d_1a_3x3, self.cnn.Conv2d_2a_3x3, self.cnn.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.cnn.Conv2d_3b_1x1, self.cnn.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.cnn.Mixed_5b, self.cnn.Mixed_5c, self.cnn.Mixed_5d, self.cnn.Mixed_6a, self.cnn.Mixed_6b, self.cnn.Mixed_6c, self.cnn.Mixed_6d, self.cnn.Mixed_6e)
+        self.features_b = nn.Sequential(self.cnn.Mixed_7a, self.cnn.Mixed_7b, self.cnn.Mixed_7c)
         self.aux_avgpool = nn.AdaptiveAvgPool2d(self.aux_attention_size)
         aux_in_features = self.cnn.AuxLogits.fc.in_features
-        self.aux_linear = nn.Conv2d(aux_in_features, self.num_classes,
-            kernel_size=1, padding=0)
-        self.aux_attention = nn.Conv2d(aux_in_features, self.num_classes,
-            kernel_size=1, padding=0)
+        self.aux_linear = nn.Conv2d(aux_in_features, self.num_classes, kernel_size=1, padding=0)
+        self.aux_attention = nn.Conv2d(aux_in_features, self.num_classes, kernel_size=1, padding=0)
         self.avgpool = nn.AdaptiveAvgPool2d(self.attention_size)
         in_features = self.cnn.fc.in_features
-        self.last_linear = nn.Conv2d(in_features, self.num_classes,
-            kernel_size=1, padding=0)
-        self.attention = nn.Conv2d(in_features, self.num_classes,
-            kernel_size=1, padding=0)
+        self.last_linear = nn.Conv2d(in_features, self.num_classes, kernel_size=1, padding=0)
+        self.attention = nn.Conv2d(in_features, self.num_classes, kernel_size=1, padding=0)
 
     def forward(self, x):
         features_a = self.features_a(x)
@@ -155,50 +134,27 @@ class AttentionInceptionV3(nn.Module):
             else:
                 aux_features = features_a
             aux_logits = self.aux_linear(aux_features)
-            assert aux_logits.size(1) == self.num_classes and aux_logits.size(2
-                ) == self.aux_attention_size and aux_logits.size(3
-                ) == self.aux_attention_size
+            assert aux_logits.size(1) == self.num_classes and aux_logits.size(2) == self.aux_attention_size and aux_logits.size(3) == self.aux_attention_size
             aux_logits_attention = self.aux_attention(aux_features)
-            assert aux_logits_attention.size(1
-                ) == self.num_classes and aux_logits_attention.size(2
-                ) == self.aux_attention_size and aux_logits_attention.size(3
-                ) == self.aux_attention_size
-            aux_logits_attention = aux_logits_attention.view(-1, self.
-                num_classes, self.aux_attention_size * self.aux_attention_size)
+            assert aux_logits_attention.size(1) == self.num_classes and aux_logits_attention.size(2) == self.aux_attention_size and aux_logits_attention.size(3) == self.aux_attention_size
+            aux_logits_attention = aux_logits_attention.view(-1, self.num_classes, self.aux_attention_size * self.aux_attention_size)
             aux_attention = F.softmax(aux_logits_attention, dim=2)
-            aux_attention = aux_attention.view(-1, self.num_classes, self.
-                aux_attention_size, self.aux_attention_size)
+            aux_attention = aux_attention.view(-1, self.num_classes, self.aux_attention_size, self.aux_attention_size)
             aux_logits = aux_logits * aux_attention
-            aux_logits = aux_logits.view(-1, self.num_classes, self.
-                aux_attention_size * self.aux_attention_size).sum(2).view(-
-                1, self.num_classes)
+            aux_logits = aux_logits.view(-1, self.num_classes, self.aux_attention_size * self.aux_attention_size).sum(2).view(-1, self.num_classes)
         features_b = self.features_b(features_a)
         if self.aux_attention_size != features_b.size(-1):
             features_b = self.avgpool(features_b)
         logits = self.last_linear(features_b)
-        assert logits.size(1) == self.num_classes and logits.size(2
-            ) == self.attention_size and logits.size(3) == self.attention_size
+        assert logits.size(1) == self.num_classes and logits.size(2) == self.attention_size and logits.size(3) == self.attention_size
         logits_attention = self.attention(features_b)
-        assert logits_attention.size(1
-            ) == self.num_classes and logits_attention.size(2
-            ) == self.attention_size and logits_attention.size(3
-            ) == self.attention_size
-        logits_attention = logits_attention.view(-1, self.num_classes, self
-            .attention_size * self.attention_size)
+        assert logits_attention.size(1) == self.num_classes and logits_attention.size(2) == self.attention_size and logits_attention.size(3) == self.attention_size
+        logits_attention = logits_attention.view(-1, self.num_classes, self.attention_size * self.attention_size)
         attention = F.softmax(logits_attention, dim=2)
-        attention = attention.view(-1, self.num_classes, self.
-            attention_size, self.attention_size)
+        attention = attention.view(-1, self.num_classes, self.attention_size, self.attention_size)
         logits = logits * attention
-        logits = logits.view(-1, self.num_classes, self.attention_size *
-            self.attention_size).sum(2).view(-1, self.num_classes)
+        logits = logits.view(-1, self.num_classes, self.attention_size * self.attention_size).sum(2).view(-1, self.num_classes)
         if self.training:
             return logits, aux_logits
         return logits
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_pudae_kaggle_hpa(_paritybench_base):
-    pass

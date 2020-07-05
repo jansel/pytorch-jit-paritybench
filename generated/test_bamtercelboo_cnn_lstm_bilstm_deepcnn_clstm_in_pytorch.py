@@ -38,8 +38,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,8 +144,7 @@ class BiGRU(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.bigru = nn.GRU(D, self.hidden_dim, dropout=args.dropout,
-            num_layers=self.num_layers, bidirectional=True)
+        self.bigru = nn.GRU(D, self.hidden_dim, dropout=args.dropout, num_layers=self.num_layers, bidirectional=True)
         self.hidden2label = nn.Linear(self.hidden_dim * 2, C)
         self.dropout = nn.Dropout(args.dropout)
 
@@ -175,8 +175,7 @@ class BiLSTM(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.bilstm = nn.LSTM(D, self.hidden_dim // 2, num_layers=1,
-            dropout=args.dropout, bidirectional=True, bias=False)
+        self.bilstm = nn.LSTM(D, self.hidden_dim // 2, num_layers=1, dropout=args.dropout, bidirectional=True, bias=False)
         None
         self.hidden2label1 = nn.Linear(self.hidden_dim, self.hidden_dim // 2)
         self.hidden2label2 = nn.Linear(self.hidden_dim // 2, C)
@@ -209,30 +208,22 @@ class BiLSTM_1(nn.Module):
         self.dropout_embed = nn.Dropout(args.dropout_embed)
         if args.max_norm is not None:
             None
-            self.embed = nn.Embedding(V, D, max_norm=args.max_norm,
-                scale_grad_by_freq=True, padding_idx=args.paddingId)
+            self.embed = nn.Embedding(V, D, max_norm=args.max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId)
             if args.word_Embedding:
                 self.embed.weight.data.copy_(args.pretrained_weight)
         else:
             None
-            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True,
-                padding_idx=args.paddingId)
+            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
             if args.word_Embedding:
                 self.embed.weight.data.copy_(args.pretrained_weight)
-        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.
-            num_layers, bias=True, bidirectional=True, dropout=self.args.
-            dropout)
+        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, bias=True, bidirectional=True, dropout=self.args.dropout)
         None
         if args.init_weight:
             None
-            init.xavier_normal(self.bilstm.all_weights[0][0], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[0][1], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[1][0], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[1][1], gain=np.sqrt(
-                args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[0][0], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[0][1], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[1][0], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[1][1], gain=np.sqrt(args.init_weight_value))
         self.hidden2label = nn.Linear(self.hidden_dim * 2, C)
 
     def forward(self, x):
@@ -261,8 +252,7 @@ class BiLSTM_1(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.
-            num_layers, dropout=args.dropout, bidirectional=True, bias=True)
+        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, dropout=args.dropout, bidirectional=True, bias=True)
         self.hidden2label = nn.Linear(self.hidden_dim * 2 * 2, C, bias=True)
         self.dropout = nn.Dropout(args.dropout)
 
@@ -296,13 +286,11 @@ class CBiLSTM(nn.Module):
         KK = []
         for K in Ks:
             KK.append(K + 1 if K % 2 == 0 else K)
-        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 
-            0)) for K in KK]
+        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 0)) for K in KK]
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
-        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.
-            num_layers, dropout=args.dropout, bidirectional=True)
+        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, dropout=args.dropout, bidirectional=True)
         self.hidden2label1 = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
         self.hidden2label2 = nn.Linear(self.hidden_dim, C)
         self.dropout = nn.Dropout(args.dropout)
@@ -344,13 +332,11 @@ class CGRU(nn.Module):
         KK = []
         for K in Ks:
             KK.append(K + 1 if K % 2 == 0 else K)
-        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 
-            0)) for K in KK]
+        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 0)) for K in KK]
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
-        self.gru = nn.GRU(D, self.hidden_dim, num_layers=self.num_layers,
-            dropout=args.dropout)
+        self.gru = nn.GRU(D, self.hidden_dim, num_layers=self.num_layers, dropout=args.dropout)
         self.hidden2label1 = nn.Linear(self.hidden_dim, self.hidden_dim // 2)
         self.hidden2label2 = nn.Linear(self.hidden_dim // 2, C)
         self.dropout = nn.Dropout(args.dropout)
@@ -392,13 +378,11 @@ class CLSTM(nn.Module):
         KK = []
         for K in Ks:
             KK.append(K + 1 if K % 2 == 0 else K)
-        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 
-            0)) for K in KK]
+        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 0)) for K in KK]
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
-        self.lstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers,
-            dropout=args.dropout)
+        self.lstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, dropout=args.dropout)
         self.hidden2label1 = nn.Linear(self.hidden_dim, self.hidden_dim // 2)
         self.hidden2label2 = nn.Linear(self.hidden_dim // 2, C)
         self.dropout = nn.Dropout(args.dropout)
@@ -434,36 +418,28 @@ class CNN_Text(nn.Module):
         Ks = args.kernel_sizes
         if args.max_norm is not None:
             None
-            self.embed = nn.Embedding(V, D, max_norm=5, scale_grad_by_freq=
-                True, padding_idx=args.paddingId)
+            self.embed = nn.Embedding(V, D, max_norm=5, scale_grad_by_freq=True, padding_idx=args.paddingId)
         else:
             None
-            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True,
-                padding_idx=args.paddingId)
+            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
             self.embed.weight.requires_grad = True
         None
         if args.wide_conv is True:
             None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co,
-                kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0),
-                dilation=1, bias=False) for K in Ks]
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0), dilation=1, bias=False) for K in Ks]
         else:
             None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co,
-                kernel_size=(K, D), bias=True) for K in Ks]
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), bias=True) for K in Ks]
         None
         if args.init_weight:
             None
             for conv in self.convs1:
-                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
-                fan_in, fan_out = CNN_Text.calculate_fan_in_and_fan_out(conv
-                    .weight.data)
+                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.init_weight_value))
+                fan_in, fan_out = CNN_Text.calculate_fan_in_and_fan_out(conv.weight.data)
                 None
-                std = np.sqrt(args.init_weight_value) * np.sqrt(2.0 / (
-                    fan_in + fan_out))
+                std = np.sqrt(args.init_weight_value) * np.sqrt(2.0 / (fan_in + fan_out))
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
@@ -473,19 +449,14 @@ class CNN_Text(nn.Module):
         self.fc = nn.Linear(in_features=in_fea, out_features=C, bias=True)
         if args.batch_normalizations is True:
             None
-            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.
-                bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum
-                =args.bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.
-                bath_norm_momentum, affine=args.batch_norm_affine)
+            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
 
     def calculate_fan_in_and_fan_out(tensor):
         dimensions = tensor.ndimension()
         if dimensions < 2:
-            raise ValueError(
-                'Fan in and fan out can not be computed for tensor with less than 2 dimensions'
-                )
+            raise ValueError('Fan in and fan out can not be computed for tensor with less than 2 dimensions')
         if dimensions == 2:
             fan_in = tensor.size(1)
             fan_out = tensor.size(0)
@@ -504,8 +475,7 @@ class CNN_Text(nn.Module):
         x = self.dropout_embed(x)
         x = x.unsqueeze(1)
         if self.args.batch_normalizations is True:
-            x = [self.convs1_bn(F.tanh(conv(x))).squeeze(3) for conv in
-                self.convs1]
+            x = [self.convs1_bn(F.tanh(conv(x))).squeeze(3) for conv in self.convs1]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         else:
             x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
@@ -537,14 +507,12 @@ class CNN_BiGRU(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.convs1 = [nn.Conv2d(Ci, Co, (K, D), padding=(K // 2, 0),
-            stride=1) for K in Ks]
+        self.convs1 = [nn.Conv2d(Ci, Co, (K, D), padding=(K // 2, 0), stride=1) for K in Ks]
         None
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
-        self.bigru = nn.GRU(D, self.hidden_dim, num_layers=self.num_layers,
-            dropout=args.dropout, bidirectional=True, bias=True)
+        self.bigru = nn.GRU(D, self.hidden_dim, num_layers=self.num_layers, dropout=args.dropout, bidirectional=True, bias=True)
         L = len(Ks) * Co + self.hidden_dim * 2
         self.hidden2label1 = nn.Linear(L, L // 2)
         self.hidden2label2 = nn.Linear(L // 2, C)
@@ -592,14 +560,12 @@ class CNN_BiLSTM(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.convs1 = [nn.Conv2d(Ci, Co, (K, D), padding=(K // 2, 0),
-            stride=1) for K in Ks]
+        self.convs1 = [nn.Conv2d(Ci, Co, (K, D), padding=(K // 2, 0), stride=1) for K in Ks]
         None
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
-        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.
-            num_layers, dropout=args.dropout, bidirectional=True, bias=True)
+        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, dropout=args.dropout, bidirectional=True, bias=True)
         L = len(Ks) * Co + self.hidden_dim * 2
         self.hidden2label1 = nn.Linear(L, L // 2)
         self.hidden2label2 = nn.Linear(L // 2, C)
@@ -652,8 +618,7 @@ class CNN_LSTM(nn.Module):
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
-        self.lstm = nn.LSTM(D, self.hidden_dim, dropout=args.dropout,
-            num_layers=self.num_layers)
+        self.lstm = nn.LSTM(D, self.hidden_dim, dropout=args.dropout, num_layers=self.num_layers)
         L = len(Ks) * Co + self.hidden_dim
         self.hidden2label1 = nn.Linear(L, L // 2)
         self.hidden2label2 = nn.Linear(L // 2, C)
@@ -696,36 +661,27 @@ class CNN_MUI(nn.Module):
         Ks = args.kernel_sizes
         if args.max_norm is not None:
             None
-            self.embed_no_static = nn.Embedding(V, D, max_norm=args.
-                max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId)
-            self.embed_static = nn.Embedding(V_mui, D, max_norm=args.
-                max_norm, scale_grad_by_freq=True, padding_idx=args.
-                paddingId_mui)
+            self.embed_no_static = nn.Embedding(V, D, max_norm=args.max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId)
+            self.embed_static = nn.Embedding(V_mui, D, max_norm=args.max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId_mui)
         else:
             None
-            self.embed_no_static = nn.Embedding(V, D, scale_grad_by_freq=
-                True, padding_idx=args.paddingId)
-            self.embed_static = nn.Embedding(V_mui, D, scale_grad_by_freq=
-                True, padding_idx=args.paddingId_mui)
+            self.embed_no_static = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
+            self.embed_static = nn.Embedding(V_mui, D, scale_grad_by_freq=True, padding_idx=args.paddingId_mui)
         if args.word_Embedding:
             self.embed_no_static.weight.data.copy_(args.pretrained_weight)
             self.embed_static.weight.data.copy_(args.pretrained_weight_static)
             self.embed_no_static.weight.requires_grad = False
         if args.wide_conv is True:
             None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co,
-                kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0),
-                bias=True) for K in Ks]
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0), bias=True) for K in Ks]
         else:
             None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co,
-                kernel_size=(K, D), bias=True) for K in Ks]
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), bias=True) for K in Ks]
         None
         if args.init_weight:
             None
             for conv in self.convs1:
-                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
+                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.init_weight_value))
                 init.uniform(conv.bias, 0, 0)
         """
         self.conv13 = nn.Conv2d(Ci, Co, (3, D))
@@ -737,18 +693,13 @@ class CNN_MUI(nn.Module):
             for conv in self.convs1:
                 conv = conv
         in_fea = len(Ks) * Co
-        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea // 2,
-            bias=True)
-        self.fc2 = nn.Linear(in_features=in_fea // 2, out_features=C, bias=True
-            )
+        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea // 2, bias=True)
+        self.fc2 = nn.Linear(in_features=in_fea // 2, out_features=C, bias=True)
         if args.batch_normalizations is True:
             None
-            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.
-                bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum
-                =args.bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.
-                bath_norm_momentum, affine=args.batch_norm_affine)
+            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
 
     def conv_and_pool(self, x, conv):
         x = F.relu(conv(x)).squeeze(3)
@@ -761,8 +712,7 @@ class CNN_MUI(nn.Module):
         x = torch.stack([x_static, x_no_static], 1)
         x = self.dropout(x)
         if self.args.batch_normalizations is True:
-            x = [F.relu(self.convs1_bn(conv(x))).squeeze(3) for conv in
-                self.convs1]
+            x = [F.relu(self.convs1_bn(conv(x))).squeeze(3) for conv in self.convs1]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         else:
             x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
@@ -791,29 +741,23 @@ class DEEP_CNN(nn.Module):
         Ks = args.kernel_sizes
         if args.max_norm is not None:
             None
-            self.embed = nn.Embedding(V, D, max_norm=5, scale_grad_by_freq=
-                True, padding_idx=args.paddingId)
+            self.embed = nn.Embedding(V, D, max_norm=5, scale_grad_by_freq=True, padding_idx=args.paddingId)
         else:
             None
-            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True,
-                padding_idx=args.paddingId)
+            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
             self.embed.weight.requires_grad = True
-        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 
-            0), bias=True) for K in Ks]
-        self.convs2 = [nn.Conv2d(Ci, Co, (K, D), stride=1, padding=(K // 2,
-            0), bias=True) for K in Ks]
+        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 0), bias=True) for K in Ks]
+        self.convs2 = [nn.Conv2d(Ci, Co, (K, D), stride=1, padding=(K // 2, 0), bias=True) for K in Ks]
         None
         None
         if args.init_weight:
             None
             for conv1, conv2 in zip(self.convs1, self.convs2):
-                init.xavier_normal(conv1.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
+                init.xavier_normal(conv1.weight.data, gain=np.sqrt(args.init_weight_value))
                 init.uniform(conv1.bias, 0, 0)
-                init.xavier_normal(conv2.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
+                init.xavier_normal(conv2.weight.data, gain=np.sqrt(args.init_weight_value))
                 init.uniform(conv2.bias, 0, 0)
         if self.args.cuda is True:
             for conv in self.convs1:
@@ -823,18 +767,14 @@ class DEEP_CNN(nn.Module):
                 conv = conv
         self.dropout = nn.Dropout(args.dropout)
         in_fea = len(Ks) * Co
-        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea // 2,
-            bias=True)
-        self.fc2 = nn.Linear(in_features=in_fea // 2, out_features=C, bias=True
-            )
+        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea // 2, bias=True)
+        self.fc2 = nn.Linear(in_features=in_fea // 2, out_features=C, bias=True)
 
     def forward(self, x):
         one_layer = self.embed(x)
         one_layer = one_layer.unsqueeze(1)
-        one_layer = [torch.transpose(F.relu(conv(one_layer)).squeeze(3), 1,
-            2) for conv in self.convs1]
-        two_layer = [F.relu(conv(one_layer.unsqueeze(1))).squeeze(3) for 
-            conv, one_layer in zip(self.convs2, one_layer)]
+        one_layer = [torch.transpose(F.relu(conv(one_layer)).squeeze(3), 1, 2) for conv in self.convs1]
+        two_layer = [F.relu(conv(one_layer.unsqueeze(1))).squeeze(3) for conv, one_layer in zip(self.convs2, one_layer)]
         output = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in two_layer]
         output = torch.cat(output, 1)
         output = self.dropout(output)
@@ -857,35 +797,26 @@ class DEEP_CNN_MUI(nn.Module):
         Ks = args.kernel_sizes
         if args.max_norm is not None:
             None
-            self.embed_no_static = nn.Embedding(V, D, max_norm=args.
-                max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId)
-            self.embed_static = nn.Embedding(V_mui, D, max_norm=args.
-                max_norm, scale_grad_by_freq=True, padding_idx=args.
-                paddingId_mui)
+            self.embed_no_static = nn.Embedding(V, D, max_norm=args.max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId)
+            self.embed_static = nn.Embedding(V_mui, D, max_norm=args.max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId_mui)
         else:
             None
-            self.embed_no_static = nn.Embedding(V, D, scale_grad_by_freq=
-                True, padding_idx=args.paddingId)
-            self.embed_static = nn.Embedding(V_mui, D, scale_grad_by_freq=
-                True, padding_idx=args.paddingId_mui)
+            self.embed_no_static = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
+            self.embed_static = nn.Embedding(V_mui, D, scale_grad_by_freq=True, padding_idx=args.paddingId_mui)
         if args.word_Embedding:
             self.embed_no_static.weight.data.copy_(args.pretrained_weight)
             self.embed_static.weight.data.copy_(args.pretrained_weight_static)
             self.embed_no_static.weight.requires_grad = False
-        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 
-            0), bias=True) for K in Ks]
-        self.convs2 = [nn.Conv2d(1, Co, (K, D), stride=1, padding=(K // 2, 
-            0), bias=True) for K in Ks]
+        self.convs1 = [nn.Conv2d(Ci, D, (K, D), stride=1, padding=(K // 2, 0), bias=True) for K in Ks]
+        self.convs2 = [nn.Conv2d(1, Co, (K, D), stride=1, padding=(K // 2, 0), bias=True) for K in Ks]
         None
         None
         if args.init_weight:
             None
             for conv1, conv2 in zip(self.convs1, self.convs2):
-                init.xavier_normal(conv1.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
+                init.xavier_normal(conv1.weight.data, gain=np.sqrt(args.init_weight_value))
                 init.uniform(conv1.bias, 0, 0)
-                init.xavier_normal(conv2.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
+                init.xavier_normal(conv2.weight.data, gain=np.sqrt(args.init_weight_value))
                 init.uniform(conv2.bias, 0, 0)
         if self.args.cuda is True:
             for conv in self.convs1:
@@ -895,10 +826,8 @@ class DEEP_CNN_MUI(nn.Module):
                 conv = conv
         self.dropout = nn.Dropout(args.dropout)
         in_fea = len(Ks) * Co
-        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea // 2,
-            bias=True)
-        self.fc2 = nn.Linear(in_features=in_fea // 2, out_features=C, bias=True
-            )
+        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea // 2, bias=True)
+        self.fc2 = nn.Linear(in_features=in_fea // 2, out_features=C, bias=True)
 
     def forward(self, x):
         x_no_static = self.embed_no_static(x)
@@ -906,10 +835,8 @@ class DEEP_CNN_MUI(nn.Module):
         x_static = Variable(x_static.data)
         x = torch.stack([x_static, x_no_static], 1)
         one_layer = x
-        one_layer = [torch.transpose(F.relu(conv(one_layer)).squeeze(3), 1,
-            2).unsqueeze(1) for conv in self.convs1]
-        two_layer = [F.relu(conv(one_layer)).squeeze(3) for conv, one_layer in
-            zip(self.convs2, one_layer)]
+        one_layer = [torch.transpose(F.relu(conv(one_layer)).squeeze(3), 1, 2).unsqueeze(1) for conv in self.convs1]
+        two_layer = [F.relu(conv(one_layer)).squeeze(3) for conv, one_layer in zip(self.convs2, one_layer)]
         output = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in two_layer]
         output = torch.cat(output, 1)
         output = self.dropout(output)
@@ -931,8 +858,7 @@ class GRU(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.gru = nn.GRU(D, self.hidden_dim, dropout=args.dropout,
-            num_layers=self.num_layers)
+        self.gru = nn.GRU(D, self.hidden_dim, dropout=args.dropout, num_layers=self.num_layers)
         self.hidden2label = nn.Linear(self.hidden_dim, C)
         self.dropout = nn.Dropout(args.dropout)
 
@@ -963,20 +889,14 @@ class HighWay_BiLSTM_1(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.
-            num_layers, bias=True, bidirectional=True, dropout=self.args.
-            dropout)
+        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, bias=True, bidirectional=True, dropout=self.args.dropout)
         None
         if args.init_weight:
             None
-            init.xavier_normal(self.bilstm.all_weights[0][0], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[0][1], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[1][0], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[1][1], gain=np.sqrt(
-                args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[0][0], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[0][1], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[1][0], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.bilstm.all_weights[1][1], gain=np.sqrt(args.init_weight_value))
             self.bilstm.all_weights[0][3].data[20:40].fill_(1)
             self.bilstm.all_weights[0][3].data[0:20].fill_(0)
             self.bilstm.all_weights[0][3].data[40:80].fill_(0)
@@ -989,12 +909,9 @@ class HighWay_BiLSTM_1(nn.Module):
             self.bilstm.all_weights[1][2].data[20:40].fill_(1)
             self.bilstm.all_weights[1][2].data[0:20].fill_(0)
             self.bilstm.all_weights[1][2].data[40:80].fill_(0)
-        self.hidden2label1 = nn.Linear(in_features=self.hidden_dim * 2,
-            out_features=self.hidden_dim * 2, bias=True)
-        self.gate_layer = nn.Linear(in_features=self.hidden_dim * 2,
-            out_features=self.hidden_dim * 2, bias=True)
-        self.logit_layer = nn.Linear(in_features=self.hidden_dim * 2,
-            out_features=C, bias=True)
+        self.hidden2label1 = nn.Linear(in_features=self.hidden_dim * 2, out_features=self.hidden_dim * 2, bias=True)
+        self.gate_layer = nn.Linear(in_features=self.hidden_dim * 2, out_features=self.hidden_dim * 2, bias=True)
+        self.logit_layer = nn.Linear(in_features=self.hidden_dim * 2, out_features=C, bias=True)
 
     def forward(self, x):
         x = self.embed(x)
@@ -1030,51 +947,37 @@ class HighWay_CNN(nn.Module):
         None
         if args.wide_conv is True:
             None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co,
-                kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0),
-                dilation=1, bias=True) for K in Ks]
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0), dilation=1, bias=True) for K in Ks]
         else:
             None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co,
-                kernel_size=(K, D), bias=True) for K in Ks]
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), bias=True) for K in Ks]
         None
         if args.init_weight:
             None
             for conv in self.convs1:
-                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.
-                    init_weight_value))
-                fan_in, fan_out = HighWay_CNN.calculate_fan_in_and_fan_out(conv
-                    .weight.data)
+                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.init_weight_value))
+                fan_in, fan_out = HighWay_CNN.calculate_fan_in_and_fan_out(conv.weight.data)
                 None
-                std = np.sqrt(args.init_weight_value) * np.sqrt(2.0 / (
-                    fan_in + fan_out))
+                std = np.sqrt(args.init_weight_value) * np.sqrt(2.0 / (fan_in + fan_out))
                 init.uniform(conv.bias, 0, 0)
         if self.args.cuda is True:
             for conv in self.convs1:
                 conv = conv
         self.dropout = nn.Dropout(args.dropout)
         in_fea = len(Ks) * Co
-        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea, bias=True
-            )
-        self.gate_layer = nn.Linear(in_features=in_fea, out_features=in_fea,
-            bias=True)
-        self.logit_layer = nn.Linear(in_features=in_fea, out_features=C,
-            bias=True)
+        self.fc1 = nn.Linear(in_features=in_fea, out_features=in_fea, bias=True)
+        self.gate_layer = nn.Linear(in_features=in_fea, out_features=in_fea, bias=True)
+        self.logit_layer = nn.Linear(in_features=in_fea, out_features=C, bias=True)
         if args.batch_normalizations is True:
             None
-            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.
-                bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum
-                =args.bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.
-                bath_norm_momentum, affine=args.batch_norm_affine)
+            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
 
     def calculate_fan_in_and_fan_out(tensor):
         dimensions = tensor.ndimension()
         if dimensions < 2:
-            raise ValueError(
-                'Fan in and fan out can not be computed for tensor with less than 2 dimensions'
-                )
+            raise ValueError('Fan in and fan out can not be computed for tensor with less than 2 dimensions')
         if dimensions == 2:
             fan_in = tensor.size(1)
             fan_out = tensor.size(0)
@@ -1093,8 +996,7 @@ class HighWay_CNN(nn.Module):
         x = self.dropout(x)
         x = x.unsqueeze(1)
         if self.args.batch_normalizations is True:
-            x = [self.convs1_bn(F.tanh(conv(x))).squeeze(3) for conv in
-                self.convs1]
+            x = [self.convs1_bn(F.tanh(conv(x))).squeeze(3) for conv in self.convs1]
             x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         else:
             x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
@@ -1126,14 +1028,11 @@ class LSTM(nn.Module):
         self.embed = nn.Embedding(V, D, padding_idx=args.paddingId)
         if args.word_Embedding:
             self.embed.weight.data.copy_(args.pretrained_weight)
-        self.lstm = nn.LSTM(D, self.hidden_dim, dropout=args.dropout,
-            num_layers=self.num_layers)
+        self.lstm = nn.LSTM(D, self.hidden_dim, dropout=args.dropout, num_layers=self.num_layers)
         if args.init_weight:
             None
-            init.xavier_normal(self.lstm.all_weights[0][0], gain=np.sqrt(
-                args.init_weight_value))
-            init.xavier_normal(self.lstm.all_weights[0][1], gain=np.sqrt(
-                args.init_weight_value))
+            init.xavier_normal(self.lstm.all_weights[0][0], gain=np.sqrt(args.init_weight_value))
+            init.xavier_normal(self.lstm.all_weights[0][1], gain=np.sqrt(args.init_weight_value))
         self.hidden2label = nn.Linear(self.hidden_dim, C)
         self.dropout = nn.Dropout(args.dropout)
         self.dropout_embed = nn.Dropout(args.dropout_embed)
@@ -1151,10 +1050,3 @@ class LSTM(nn.Module):
         logit = self.hidden2label(lstm_out)
         return logit
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_bamtercelboo_cnn_lstm_bilstm_deepcnn_clstm_in_pytorch(_paritybench_base):
-    pass

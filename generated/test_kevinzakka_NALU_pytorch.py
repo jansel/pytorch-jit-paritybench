@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,8 +100,7 @@ class MLP(nn.Module):
         activation: the activation function.
     """
 
-    def __init__(self, num_layers, in_dim, hidden_dim, out_dim, activation=
-        'relu'):
+    def __init__(self, num_layers, in_dim, hidden_dim, out_dim, activation='relu'):
         super().__init__()
         self.num_layers = num_layers
         self.in_dim = in_dim
@@ -112,8 +112,7 @@ class MLP(nn.Module):
             nonlin = False
         layers = []
         for i in range(num_layers - 1):
-            layers.extend(self._layer(hidden_dim if i > 0 else in_dim,
-                hidden_dim, nonlin))
+            layers.extend(self._layer(hidden_dim if i > 0 else in_dim, hidden_dim, nonlin))
         layers.extend(self._layer(hidden_dim, out_dim, False))
         self.model = nn.Sequential(*layers)
         for m in self.modules():
@@ -186,8 +185,7 @@ class NAC(nn.Module):
         self.out_dim = out_dim
         layers = []
         for i in range(num_layers):
-            layers.append(NeuralAccumulatorCell(hidden_dim if i > 0 else
-                in_dim, hidden_dim if i < num_layers - 1 else out_dim))
+            layers.append(NeuralAccumulatorCell(hidden_dim if i > 0 else in_dim, hidden_dim if i < num_layers - 1 else out_dim))
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -248,8 +246,7 @@ class NALU(nn.Module):
         self.out_dim = out_dim
         layers = []
         for i in range(num_layers):
-            layers.append(NeuralArithmeticLogicUnitCell(hidden_dim if i > 0
-                 else in_dim, hidden_dim if i < num_layers - 1 else out_dim))
+            layers.append(NeuralArithmeticLogicUnitCell(hidden_dim if i > 0 else in_dim, hidden_dim if i < num_layers - 1 else out_dim))
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -261,20 +258,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {'num_layers': 1, 'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NAC,
+     lambda: ([], {'num_layers': 1, 'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NALU,
+     lambda: ([], {'num_layers': 1, 'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NeuralAccumulatorCell,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NeuralArithmeticLogicUnitCell,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kevinzakka_NALU_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MLP(*[], **{'num_layers': 1, 'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(NAC(*[], **{'num_layers': 1, 'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NALU(*[], **{'num_layers': 1, 'in_dim': 4, 'hidden_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(NeuralAccumulatorCell(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(NeuralArithmeticLogicUnitCell(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,8 +54,7 @@ class GatedActivation(nn.Module):
     def __init__(self, num_channels):
         super(GatedActivation, self).__init__()
         self.kernel_size = 1
-        self.weights = nn.Parameter(torch.FloatTensor(num_channels,
-            num_channels, self.kernel_size * 2))
+        self.weights = nn.Parameter(torch.FloatTensor(num_channels, num_channels, self.kernel_size * 2))
 
     def forward(self, x):
         """
@@ -67,14 +67,11 @@ class GatedActivation(nn.Module):
         :param x: (batch size, # channels, height)
         :return: tanh(conv(Wr, x)) * sigmoid(conv(Wf, x))
         """
-        real_gate_weights, forget_gate_weights = self.weights.split(self.
-            kernel_size, dim=2)
+        real_gate_weights, forget_gate_weights = self.weights.split(self.kernel_size, dim=2)
         real_gate_weights = real_gate_weights.contiguous()
         forget_gate_weights = forget_gate_weights.contiguous()
-        real_gate = F.tanh(F.conv1d(input=x, weight=real_gate_weights,
-            stride=1))
-        forget_gate = F.sigmoid(F.conv1d(input=x, weight=
-            forget_gate_weights, stride=1))
+        real_gate = F.tanh(F.conv1d(input=x, weight=real_gate_weights, stride=1))
+        forget_gate = F.sigmoid(F.conv1d(input=x, weight=forget_gate_weights, stride=1))
         return real_gate * forget_gate
 
 
@@ -105,30 +102,21 @@ class BahdanauAttention(nn.Module):
     def forward(self, *hidden_states):
         if len(hidden_states) == 1:
             hidden_state = hidden_states[0]
-            return F.softmax(F.tanh(self.projection(hidden_state))
-                ) * hidden_state
+            return F.softmax(F.tanh(self.projection(hidden_state))) * hidden_state
         elif len(hidden_states) == 2:
             left_hidden_state, right_hidden_state = hidden_states
             if self.mode == 0 or self.mode == 1:
                 if self.mode == 0:
-                    left_attention_weights = F.softmax(F.tanh(self.
-                        projection(left_hidden_state)))
-                    right_attention_weights = F.softmax(F.tanh(self.
-                        projection(right_hidden_state)))
+                    left_attention_weights = F.softmax(F.tanh(self.projection(left_hidden_state)))
+                    right_attention_weights = F.softmax(F.tanh(self.projection(right_hidden_state)))
                 elif self.mode == 1:
-                    left_attention_weights = F.softmax(F.tanh(self.
-                        left_projection(left_hidden_state)))
-                    right_attention_weights = F.softmax(F.tanh(self.
-                        right_projection(right_hidden_state)))
-                return (left_attention_weights * left_hidden_state, 
-                    right_attention_weights * right_hidden_state)
+                    left_attention_weights = F.softmax(F.tanh(self.left_projection(left_hidden_state)))
+                    right_attention_weights = F.softmax(F.tanh(self.right_projection(right_hidden_state)))
+                return left_attention_weights * left_hidden_state, right_attention_weights * right_hidden_state
             elif self.mode == 2:
-                hidden_state = torch.cat([left_hidden_state,
-                    right_hidden_state], dim=1)
-                attention_weights = F.softmax(F.tanh(self.projection(
-                    hidden_state)))
-                return (attention_weights * left_hidden_state, 
-                    attention_weights * right_hidden_state)
+                hidden_state = torch.cat([left_hidden_state, right_hidden_state], dim=1)
+                attention_weights = F.softmax(F.tanh(self.projection(hidden_state)))
+                return attention_weights * left_hidden_state, attention_weights * right_hidden_state
 
 
 class LuongAttention(nn.Module):
@@ -155,32 +143,25 @@ class LuongAttention(nn.Module):
         super(LuongAttention, self).__init__()
         self.mode = mode
         if mode == 'general':
-            self.projection = nn.Parameter(torch.FloatTensor(hidden_size,
-                hidden_size))
+            self.projection = nn.Parameter(torch.FloatTensor(hidden_size, hidden_size))
         elif mode == 'concat':
-            self.reduction = nn.Parameter(torch.FloatTensor(hidden_size * 2,
-                hidden_size))
+            self.reduction = nn.Parameter(torch.FloatTensor(hidden_size * 2, hidden_size))
             self.projection = nn.Parameter(torch.FloatTensor(hidden_size, 1))
 
     def forward(self, last_state, states, mask=None):
         sequence_length, batch_size, hidden_dim = states.size()
-        last_state = last_state.unsqueeze(0).expand(sequence_length,
-            batch_size, last_state.size(1))
+        last_state = last_state.unsqueeze(0).expand(sequence_length, batch_size, last_state.size(1))
         if self.mode == 'dot':
             energies = last_state * states
             energies = energies.sum(dim=2).squeeze()
         elif self.mode == 'general':
-            expanded_projection = self.projection.expand(sequence_length, *
-                self.projection.size())
+            expanded_projection = self.projection.expand(sequence_length, *self.projection.size())
             energies = last_state * states.bmm(expanded_projection)
             energies = energies.sum(dim=2).squeeze()
         elif self.mode == 'concat':
-            expanded_reduction = self.reduction.expand(sequence_length, *
-                self.reduction.size())
-            expanded_projection = self.projection.expand(sequence_length, *
-                self.projection.size())
-            energies = F.tanh(torch.cat([last_state, states], dim=2).bmm(
-                expanded_reduction))
+            expanded_reduction = self.reduction.expand(sequence_length, *self.reduction.size())
+            expanded_projection = self.projection.expand(sequence_length, *self.projection.size())
+            energies = F.tanh(torch.cat([last_state, states], dim=2).bmm(expanded_reduction))
             energies = energies.bmm(expanded_projection).squeeze()
         if type(mask) == torch.autograd.Variable:
             energies = energies + (mask == 0).float() * -10000
@@ -207,26 +188,22 @@ class BilinearAttention(nn.Module):
     def __init__(self, hidden_size, encoder_dim=None):
         super(BilinearAttention, self).__init__()
         self.encoder_dim = hidden_size if encoder_dim is None else encoder_dim
-        self.projection = nn.Parameter(torch.FloatTensor(hidden_size, self.
-            encoder_dim))
+        self.projection = nn.Parameter(torch.FloatTensor(hidden_size, self.encoder_dim))
 
     def forward(self, last_state, states):
         if len(states.size()) == 2:
             states = states.unsqueeze(0)
         sequence_length, batch_size, state_dim = states.size()
         transformed_last_state = last_state @ self.projection
-        transformed_last_state = transformed_last_state.expand(sequence_length,
-            batch_size, self.encoder_dim)
-        transformed_last_state = transformed_last_state.transpose(0, 1
-            ).contiguous()
+        transformed_last_state = transformed_last_state.expand(sequence_length, batch_size, self.encoder_dim)
+        transformed_last_state = transformed_last_state.transpose(0, 1).contiguous()
         transformed_last_state = transformed_last_state.view(batch_size, -1)
         states = states.transpose(0, 1).contiguous()
         states = states.view(batch_size, -1)
         energies = transformed_last_state * states
         energies = energies.sum(dim=1)
         if self.encoder_dim is not None:
-            attention_weights = torch.cat([torch.exp(energies[0]), F.
-                softmax(energies[1:])], dim=0)
+            attention_weights = torch.cat([torch.exp(energies[0]), F.softmax(energies[1:])], dim=0)
         else:
             attention_weights = F.softmax(energies)
         return attention_weights
@@ -240,12 +217,9 @@ class SeparableConv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride):
         super(SeparableConv2d, self).__init__()
-        self.depthwise = nn.Conv2d(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=3, stride=stride, padding=1, groups=
-            in_channels, bias=False)
+        self.depthwise = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, stride=stride, padding=1, groups=in_channels, bias=False)
         self.batch_norm_in = nn.BatchNorm2d(in_channels)
-        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.batch_norm_out = nn.BatchNorm2d(out_channels)
         self.activation = nn.ReLU(inplace=True)
 
@@ -261,11 +235,8 @@ class SeparableConv2d(nn.Module):
 
 class CausalConv1d(nn.Conv1d):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dilation=1, groups=1, bias=True):
-        super(CausalConv1d, self).__init__(in_channels, out_channels,
-            kernel_size, stride=stride, padding=0, dilation=dilation,
-            groups=groups, bias=bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super(CausalConv1d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=0, dilation=dilation, groups=groups, bias=bias)
         self.left_padding = dilation * (kernel_size - 1)
 
     def forward(self, inputs):
@@ -299,18 +270,15 @@ class EncoderCRF(nn.Module):
     :return: Viterbi path decoding score, and sequence.
     """
 
-    def __init__(self, start_tag_index, stop_tag_index, tag_size,
-        embedding_dim, hidden_dim):
+    def __init__(self, start_tag_index, stop_tag_index, tag_size, embedding_dim, hidden_dim):
         super(EncoderCRF, self).__init__()
         self.hidden_dim = hidden_dim
         self.start_tag_index = start_tag_index
         self.stop_tag_index = stop_tag_index
         self.tag_size = tag_size
-        self.encoder = nn.GRU(embedding_dim, hidden_dim // 2, num_layers=1,
-            bidirectional=True)
+        self.encoder = nn.GRU(embedding_dim, hidden_dim // 2, num_layers=1, bidirectional=True)
         self.tag_projection = nn.Linear(hidden_dim, self.tag_size)
-        self.transitions = nn.Parameter(torch.randn(self.tag_size, self.
-            tag_size))
+        self.transitions = nn.Parameter(torch.randn(self.tag_size, self.tag_size))
         self.hidden = self.init_hidden()
 
     def to_scalar(self, variable):
@@ -334,13 +302,10 @@ class EncoderCRF(nn.Module):
         energies = torch.autograd.Variable(energies)
         for feature in features:
             best_path = []
-            next_state_scores = energies.expand(*self.transitions.size()
-                ) + self.transitions + feature.unsqueeze(0).expand(*self.
-                transitions.size())
+            next_state_scores = energies.expand(*self.transitions.size()) + self.transitions + feature.unsqueeze(0).expand(*self.transitions.size())
             for index in range(self.tag_size):
                 next_possible_states = next_state_scores[index].unsqueeze(0)
-                best_path.append(self.state_log_likelihood(
-                    next_possible_states))
+                best_path.append(self.state_log_likelihood(next_possible_states))
             energies = torch.cat(best_path).view(1, -1)
         terminal_energy = energies + self.transitions[self.stop_tag_index]
         return self.state_log_likelihood(terminal_energy)
@@ -355,8 +320,7 @@ class EncoderCRF(nn.Module):
         score = torch.autograd.Variable(torch.Tensor([0]))
         tags = torch.cat([torch.LongTensor([self.start_tag_index]), tags])
         for index, feature in enumerate(features):
-            score = score + self.transitions[tags[index + 1], tags[index]
-                ] + feature[tags[index + 1]]
+            score = score + self.transitions[tags[index + 1], tags[index]] + feature[tags[index + 1]]
         score = score + self.transitions[self.stop_tag_index, tags[-1]]
         return score
 
@@ -368,8 +332,7 @@ class EncoderCRF(nn.Module):
         for feature in features:
             backtrack = []
             best_path = []
-            next_state_scores = energies.expand(*self.transitions.size()
-                ) + self.transitions
+            next_state_scores = energies.expand(*self.transitions.size()) + self.transitions
             for index in range(self.tag_size):
                 next_possible_states = next_state_scores[index]
                 best_candidate_state = self.argmax(next_possible_states, dim=0)
@@ -445,10 +408,8 @@ class MixtureDensityLoss(nn.Module):
         """
         normalization = 1.0 / (2.0 * math.pi) ** 0.5
         gaussian_sample = (y.expand_as(mean) - mean) * torch.reciprocal(std)
-        gaussian_sample = normalization * torch.reciprocal(std) * torch.exp(
-            -0.5 * gaussian_sample ** 2)
-        return -torch.mean(torch.log(torch.sum(weights * gaussian_sample,
-            dim=1)))
+        gaussian_sample = normalization * torch.reciprocal(std) * torch.exp(-0.5 * gaussian_sample ** 2)
+        return -torch.mean(torch.log(torch.sum(weights * gaussian_sample, dim=1)))
 
 
 class MahalanobisMetricLoss(nn.Module):
@@ -473,15 +434,13 @@ class MahalanobisMetricLoss(nn.Module):
         batch_size = outputs.size(0)
         magnitude = (outputs ** 2).sum(1).expand(batch_size, batch_size)
         squared_matrix = outputs.mm(torch.t(outputs))
-        mahalanobis_distances = F.relu(magnitude + torch.t(magnitude) - 2 *
-            squared_matrix).sqrt()
+        mahalanobis_distances = F.relu(magnitude + torch.t(magnitude) - 2 * squared_matrix).sqrt()
         neg_mask = targets.expand(batch_size, batch_size)
         neg_mask = neg_mask - neg_mask.transpose(0, 1) != 0
         num_pairs = (1 - neg_mask).sum()
         num_pairs = (num_pairs - batch_size) / 2
         num_pairs = num_pairs.data[0]
-        negative_threshold = mahalanobis_distances[neg_mask].sort()[0][
-            num_pairs].data[0]
+        negative_threshold = mahalanobis_distances[neg_mask].sort()[0][num_pairs].data[0]
         num_right, num_wrong = 0, 0
         for row in range(batch_size):
             for column in range(batch_size):
@@ -490,20 +449,15 @@ class MahalanobisMetricLoss(nn.Module):
                 mahalanobis_distance = mahalanobis_distances[row, column]
                 euclidian_distance = torch.dist(outputs[row], outputs[column])
                 if x_label == y_label:
-                    if mahalanobis_distance.data[0
-                        ] > self.margin - self.extra_margin:
-                        loss += mahalanobis_distance - (self.margin - self.
-                            extra_margin)
+                    if mahalanobis_distance.data[0] > self.margin - self.extra_margin:
+                        loss += mahalanobis_distance - (self.margin - self.extra_margin)
                     if euclidian_distance.data[0] < self.margin:
                         num_right += 1
                     else:
                         num_wrong += 1
                 else:
-                    if (mahalanobis_distance.data[0] < self.margin + self.
-                        extra_margin and mahalanobis_distance.data[0] <
-                        negative_threshold):
-                        loss += (self.margin + self.extra_margin -
-                            mahalanobis_distance)
+                    if mahalanobis_distance.data[0] < self.margin + self.extra_margin and mahalanobis_distance.data[0] < negative_threshold:
+                        loss += self.margin + self.extra_margin - mahalanobis_distance
                     if euclidian_distance.data[0] < self.margin:
                         num_wrong += 1
                     else:
@@ -521,14 +475,10 @@ class HierarchialNetwork1D(nn.Module):
     def __init__(self, embed_dim, hidden_dim=64):
         super(HierarchialNetwork1D, self).__init__()
         self.layers = nn.ModuleList()
-        first_block = nn.Sequential(nn.Conv1d(in_channels=embed_dim,
-            out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(
-            inplace=True), nn.BatchNorm1d(hidden_dim))
+        first_block = nn.Sequential(nn.Conv1d(in_channels=embed_dim, out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.BatchNorm1d(hidden_dim))
         self.layers.append(first_block)
         for layer_index in range(4):
-            conv_block = nn.Sequential(nn.Conv1d(in_channels=hidden_dim,
-                out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU
-                (inplace=True), nn.BatchNorm1d(hidden_dim))
+            conv_block = nn.Sequential(nn.Conv1d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.BatchNorm1d(hidden_dim))
             self.layers.append(conv_block)
 
     @staticmethod
@@ -540,20 +490,17 @@ class HierarchialNetwork1D(nn.Module):
         feature_maps = []
         for layer in self.layers:
             x = layer(x)
-            feature_maps.append(F.max_pool1d(x, kernel_size=x.size(2)).
-                squeeze())
+            feature_maps.append(F.max_pool1d(x, kernel_size=x.size(2)).squeeze())
         features = torch.cat(feature_maps, dim=1)
         return features
 
 
 class BidirectionalEncoder(nn.Module):
 
-    def __init__(self, embed_dim=50, hidden_dim=300, num_layers=4, dropout=
-        0.1, rnn=nn.GRU, pooling_mode='max'):
+    def __init__(self, embed_dim=50, hidden_dim=300, num_layers=4, dropout=0.1, rnn=nn.GRU, pooling_mode='max'):
         super(BidirectionalEncoder, self).__init__()
         self.pooling_mode = pooling_mode
-        self.encoder = rnn(input_size=embed_dim, hidden_size=hidden_dim,
-            num_layers=num_layers, bidirectional=True, dropout=dropout)
+        self.encoder = rnn(input_size=embed_dim, hidden_size=hidden_dim, num_layers=num_layers, bidirectional=True, dropout=dropout)
 
     @staticmethod
     def get_output_size(hidden_dim):
@@ -568,23 +515,19 @@ class BidirectionalEncoder(nn.Module):
         :return: Global max/average pooled embedding from bidirectional RNN encoder of [batch_size, hidden_size]
         """
         sentences, sentence_lengths = x
-        sorted_sentence_lengths, sort_indices = torch.sort(sentence_lengths,
-            dim=0, descending=True)
+        sorted_sentence_lengths, sort_indices = torch.sort(sentence_lengths, dim=0, descending=True)
         _, unsort_indices = torch.sort(sort_indices, dim=0)
         sorted_sentence_lengths = sorted_sentence_lengths.data
         sorted_sentences = sentences.index_select(1, sort_indices)
-        packed_sentences = nn.utils.rnn.pack_padded_sequence(sorted_sentences,
-            sorted_sentence_lengths.clone().cpu().numpy())
+        packed_sentences = nn.utils.rnn.pack_padded_sequence(sorted_sentences, sorted_sentence_lengths.clone().cpu().numpy())
         encoder_outputs = self.encoder(packed_sentences)[0]
         encoder_outputs = nn.utils.rnn.pad_packed_sequence(encoder_outputs)[0]
         encoder_outputs = encoder_outputs.index_select(1, unsort_indices)
         encoder_outputs = encoder_outputs.transpose(0, 2).transpose(0, 1)
         if self.pooling_mode == 'max':
-            encoder_outputs = F.max_pool1d(encoder_outputs, kernel_size=
-                encoder_outputs.size(2))
+            encoder_outputs = F.max_pool1d(encoder_outputs, kernel_size=encoder_outputs.size(2))
         elif self.pooling_mode == 'avg':
-            encoder_outputs = F.avg_pool1d(encoder_outputs, kernel_size=
-                encoder_outputs.size(2))
+            encoder_outputs = F.avg_pool1d(encoder_outputs, kernel_size=encoder_outputs.size(2))
         encoder_outputs = encoder_outputs.squeeze()
         return encoder_outputs
 
@@ -594,16 +537,10 @@ class OmniglotEncoder(nn.Module):
     def __init__(self, feature_size=64):
         super(OmniglotEncoder, self).__init__()
         self.layers = nn.ModuleList()
-        first_block = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=
-            feature_size, kernel_size=3, stride=1, padding=1), nn.
-            BatchNorm2d(feature_size), nn.LeakyReLU(inplace=True), nn.
-            MaxPool2d(kernel_size=2))
+        first_block = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=feature_size, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(feature_size), nn.LeakyReLU(inplace=True), nn.MaxPool2d(kernel_size=2))
         self.layers.append(first_block)
         for layer_index in range(3):
-            block = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=
-                feature_size, kernel_size=3, stride=1, padding=1), nn.
-                BatchNorm2d(feature_size), nn.LeakyReLU(inplace=True), nn.
-                MaxPool2d(kernel_size=2))
+            block = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=feature_size, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(feature_size), nn.LeakyReLU(inplace=True), nn.MaxPool2d(kernel_size=2))
             self.layers.append(block)
         self.fc = nn.Linear(feature_size, feature_size)
 
@@ -629,12 +566,9 @@ class TemporalDenseBlock(nn.Module):
 
     def __init__(self, in_channels, hidden_size=128, dilation=1):
         super(TemporalDenseBlock, self).__init__()
-        self.conv1 = CausalConv1d(in_channels=in_channels, out_channels=
-            hidden_size, kernel_size=2, dilation=dilation)
-        self.conv2 = CausalConv1d(in_channels=hidden_size, out_channels=
-            hidden_size, kernel_size=2, dilation=dilation)
-        self.conv3 = CausalConv1d(in_channels=hidden_size, out_channels=
-            hidden_size, kernel_size=2, dilation=dilation)
+        self.conv1 = CausalConv1d(in_channels=in_channels, out_channels=hidden_size, kernel_size=2, dilation=dilation)
+        self.conv2 = CausalConv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=2, dilation=dilation)
+        self.conv3 = CausalConv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=2, dilation=dilation)
         self.gate1 = GatedActivation(hidden_size)
         self.gate2 = GatedActivation(hidden_size)
         self.gate3 = GatedActivation(hidden_size)
@@ -659,13 +593,9 @@ class TCML(nn.Module):
     def __init__(self, feature_dim, num_classes=3):
         super(TCML, self).__init__()
         self.dilations = [1, 2, 4, 8, 16, 1, 2, 4, 8, 16]
-        self.dense_blocks = nn.ModuleList([TemporalDenseBlock(feature_dim +
-            128 * index, hidden_size=128, dilation=dilation) for index,
-            dilation in enumerate(self.dilations)])
-        self.conv1 = nn.Conv1d(in_channels=feature_dim + 128 * len(self.
-            dilations), out_channels=512, kernel_size=1, stride=1)
-        self.conv2 = nn.Conv1d(in_channels=512, out_channels=num_classes,
-            kernel_size=1, stride=1)
+        self.dense_blocks = nn.ModuleList([TemporalDenseBlock(feature_dim + 128 * index, hidden_size=128, dilation=dilation) for index, dilation in enumerate(self.dilations)])
+        self.conv1 = nn.Conv1d(in_channels=feature_dim + 128 * len(self.dilations), out_channels=512, kernel_size=1, stride=1)
+        self.conv2 = nn.Conv1d(in_channels=512, out_channels=num_classes, kernel_size=1, stride=1)
 
     def forward(self, inputs):
         """
@@ -686,40 +616,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_iwasaki_kenta_keita(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BahdanauAttention(*[], **{'hidden_size': 4}), [], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BahdanauAttention,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([], {}),
+     False),
+    (CausalConv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (GatedActivation,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (HierarchialNetwork1D,
+     lambda: ([], {'embed_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (LuongAttention,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (MixtureDensityLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MixtureDensityNetwork,
+     lambda: ([], {}),
+     lambda: ([torch.rand([1, 1])], {}),
+     True),
+    (OmniglotEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 16, 16])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TCML,
+     lambda: ([], {'feature_dim': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (TemporalDenseBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+]
+
+class Test_iwasaki_kenta_keita(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(CausalConv1d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(GatedActivation(*[], **{'num_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(HierarchialNetwork1D(*[], **{'embed_dim': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LuongAttention(*[], **{'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MixtureDensityLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(MixtureDensityNetwork(*[], **{}), [torch.rand([1, 1])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(SeparableConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(TCML(*[], **{'feature_dim': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(TemporalDenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

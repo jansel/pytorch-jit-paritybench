@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -339,10 +340,8 @@ class ActorCritic(nn.Module):
 
     def __init__(self, num_inputs, num_outputs, hidden_size, std=0.0):
         super(ActorCritic, self).__init__()
-        self.critic = nn.Sequential(nn.Linear(num_inputs, hidden_size), nn.
-            ReLU(), nn.Linear(hidden_size, 1))
-        self.actor = nn.Sequential(nn.Linear(num_inputs, hidden_size), nn.
-            ReLU(), nn.Linear(hidden_size, num_outputs), nn.Softmax(dim=1))
+        self.critic = nn.Sequential(nn.Linear(num_inputs, hidden_size), nn.ReLU(), nn.Linear(hidden_size, 1))
+        self.actor = nn.Sequential(nn.Linear(num_inputs, hidden_size), nn.ReLU(), nn.Linear(hidden_size, num_outputs), nn.Softmax(dim=1))
 
     def forward(self, x):
         value = self.critic(x)
@@ -511,8 +510,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc2(x))
         mu = self.mu_head(x)
         log_std_head = F.relu(self.log_std_head(x))
-        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.
-            max_log_std)
+        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.max_log_std)
         return mu, log_std_head
 
 
@@ -599,8 +597,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc2(x))
         mu = self.mu_head(x)
         log_std_head = F.relu(self.log_std_head(x))
-        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.
-            max_log_std)
+        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.max_log_std)
         return mu, log_std_head
 
 
@@ -738,21 +735,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_sweetice_Deep_reinforcement_learning_with_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Actor(*[], **{'state_dim': 4, 'action_dim': 4, 'max_action': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4, 'max_action': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ActorCritic,
+     lambda: ([], {'num_inputs': 4, 'num_outputs': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ActorNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+    (CriticNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+]
+
+class Test_sweetice_Deep_reinforcement_learning_with_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ActorCritic(*[], **{'num_inputs': 4, 'num_outputs': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ActorNet(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Critic(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(CriticNet(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[4])
 

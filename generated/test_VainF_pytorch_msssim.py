@@ -19,8 +19,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -129,8 +130,7 @@ def _ssim(X, Y, data_range, win, size_average=True, K=(0.01, 0.03)):
     return ssim_per_channel, cs
 
 
-def ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma=
-    1.5, win=None, K=(0.01, 0.03), nonnegative_ssim=False):
+def ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma=1.5, win=None, K=(0.01, 0.03), nonnegative_ssim=False):
     """ interface of ssim
     Args:
         X (torch.Tensor): a batch of images, (N,C,H,W)
@@ -159,8 +159,7 @@ def ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma=
     if win is None:
         win = _fspecial_gauss_1d(win_size, win_sigma)
         win = win.repeat(X.shape[1], 1, 1, 1)
-    ssim_per_channel, cs = _ssim(X, Y, data_range=data_range, win=win,
-        size_average=False, K=K)
+    ssim_per_channel, cs = _ssim(X, Y, data_range=data_range, win=win, size_average=False, K=K)
     if nonnegative_ssim:
         ssim_per_channel = torch.relu(ssim_per_channel)
     if size_average:
@@ -171,8 +170,7 @@ def ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma=
 
 class SSIM(torch.nn.Module):
 
-    def __init__(self, data_range=255, size_average=True, win_size=11,
-        win_sigma=1.5, channel=3, K=(0.01, 0.03), nonnegative_ssim=False):
+    def __init__(self, data_range=255, size_average=True, win_size=11, win_sigma=1.5, channel=3, K=(0.01, 0.03), nonnegative_ssim=False):
         """ class for ssim
         Args:
             data_range (float or int, optional): value range of input images. (usually 1.0 or 255)
@@ -185,21 +183,17 @@ class SSIM(torch.nn.Module):
         """
         super(SSIM, self).__init__()
         self.win_size = win_size
-        self.win = _fspecial_gauss_1d(win_size, win_sigma).repeat(channel, 
-            1, 1, 1)
+        self.win = _fspecial_gauss_1d(win_size, win_sigma).repeat(channel, 1, 1, 1)
         self.size_average = size_average
         self.data_range = data_range
         self.K = K
         self.nonnegative_ssim = nonnegative_ssim
 
     def forward(self, X, Y):
-        return ssim(X, Y, data_range=self.data_range, size_average=self.
-            size_average, win=self.win, K=self.K, nonnegative_ssim=self.
-            nonnegative_ssim)
+        return ssim(X, Y, data_range=self.data_range, size_average=self.size_average, win=self.win, K=self.K, nonnegative_ssim=self.nonnegative_ssim)
 
 
-def ms_ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma
-    =1.5, win=None, weights=None, K=(0.01, 0.03)):
+def ms_ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma=1.5, win=None, weights=None, K=(0.01, 0.03)):
     """ interface of ms-ssim
     Args:
         X (torch.Tensor): a batch of images, (N,C,H,W)
@@ -225,9 +219,7 @@ def ms_ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma
     if not win_size % 2 == 1:
         raise ValueError('Window size should be odd.')
     smaller_side = min(X.shape[-2:])
-    assert smaller_side > (win_size - 1
-        ) * 2 ** 4, 'Image size should be larger than %d due to the 4 downsamplings in ms-ssim' % (
-        (win_size - 1) * 2 ** 4)
+    assert smaller_side > (win_size - 1) * 2 ** 4, 'Image size should be larger than %d due to the 4 downsamplings in ms-ssim' % ((win_size - 1) * 2 ** 4)
     if weights is None:
         weights = [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
     weights = torch.FloatTensor(weights).to(X.device, dtype=X.dtype)
@@ -237,8 +229,7 @@ def ms_ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma
     levels = weights.shape[0]
     mcs = []
     for i in range(levels):
-        ssim_per_channel, cs = _ssim(X, Y, win=win, data_range=data_range,
-            size_average=False, K=K)
+        ssim_per_channel, cs = _ssim(X, Y, win=win, data_range=data_range, size_average=False, K=K)
         if i < levels - 1:
             mcs.append(torch.relu(cs))
             padding = X.shape[2] % 2, X.shape[3] % 2
@@ -255,8 +246,7 @@ def ms_ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma
 
 class MS_SSIM(torch.nn.Module):
 
-    def __init__(self, data_range=255, size_average=True, win_size=11,
-        win_sigma=1.5, channel=3, weights=None, K=(0.01, 0.03)):
+    def __init__(self, data_range=255, size_average=True, win_size=11, win_sigma=1.5, channel=3, weights=None, K=(0.01, 0.03)):
         """ class for ms-ssim
         Args:
             data_range (float or int, optional): value range of input images. (usually 1.0 or 255)
@@ -269,16 +259,14 @@ class MS_SSIM(torch.nn.Module):
         """
         super(MS_SSIM, self).__init__()
         self.win_size = win_size
-        self.win = _fspecial_gauss_1d(win_size, win_sigma).repeat(channel, 
-            1, 1, 1)
+        self.win = _fspecial_gauss_1d(win_size, win_sigma).repeat(channel, 1, 1, 1)
         self.size_average = size_average
         self.data_range = data_range
         self.weights = weights
         self.K = K
 
     def forward(self, X, Y):
-        return ms_ssim(X, Y, data_range=self.data_range, size_average=self.
-            size_average, win=self.win, weights=self.weights, K=self.K)
+        return ms_ssim(X, Y, data_range=self.data_range, size_average=self.size_average, win=self.win, weights=self.weights, K=self.K)
 
 
 class AutoEncoder(nn.Module):
@@ -300,13 +288,7 @@ class Encoder(nn.Module):
 
     def __init__(self, C=32, M=128, in_chan=3):
         super(Encoder, self).__init__()
-        self.enc = nn.Sequential(nn.Conv2d(in_channels=in_chan,
-            out_channels=M, kernel_size=5, stride=2, padding=2, bias=False),
-            GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5,
-            stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels
-            =M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=
-            False), GDN(M), nn.Conv2d(in_channels=M, out_channels=C,
-            kernel_size=5, stride=2, padding=2, bias=False))
+        self.enc = nn.Sequential(nn.Conv2d(in_channels=in_chan, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=C, kernel_size=5, stride=2, padding=2, bias=False))
 
     def forward(self, x):
         return self.enc(x)
@@ -318,16 +300,7 @@ class Decoder(nn.Module):
 
     def __init__(self, C=32, M=128, out_chan=3):
         super(Decoder, self).__init__()
-        self.dec = nn.Sequential(nn.ConvTranspose2d(in_channels=C,
-            out_channels=M, kernel_size=5, stride=2, padding=2,
-            output_padding=1, bias=False), GDN(M, inverse=True), nn.
-            ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5,
-            stride=2, padding=2, output_padding=1, bias=False), GDN(M,
-            inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M,
-            kernel_size=5, stride=2, padding=2, output_padding=1, bias=
-            False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M,
-            out_channels=out_chan, kernel_size=5, stride=2, padding=2,
-            output_padding=1, bias=False))
+        self.dec = nn.Sequential(nn.ConvTranspose2d(in_channels=C, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=out_chan, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False))
 
     def forward(self, q):
         return torch.sigmoid(self.dec(q))
@@ -351,18 +324,14 @@ class LowerBound(Function):
 
 class GDN(nn.Module):
 
-    def __init__(self, num_features, inverse=False, gamma_init=0.1,
-        beta_bound=1e-06, gamma_bound=0.0, reparam_offset=2 ** -18):
+    def __init__(self, num_features, inverse=False, gamma_init=0.1, beta_bound=1e-06, gamma_bound=0.0, reparam_offset=2 ** -18):
         super(GDN, self).__init__()
         self._inverse = inverse
         self.num_features = num_features
         self.reparam_offset = reparam_offset
         self.pedestal = self.reparam_offset ** 2
-        beta_init = torch.sqrt(torch.ones(num_features, dtype=torch.float) +
-            self.pedestal)
-        gama_init = torch.sqrt(torch.full((num_features, num_features),
-            fill_value=gamma_init, dtype=torch.float) * torch.eye(
-            num_features, dtype=torch.float) + self.pedestal)
+        beta_init = torch.sqrt(torch.ones(num_features, dtype=torch.float) + self.pedestal)
+        gama_init = torch.sqrt(torch.full((num_features, num_features), fill_value=gamma_init, dtype=torch.float) * torch.eye(num_features, dtype=torch.float) + self.pedestal)
         self.beta = nn.Parameter(beta_init)
         self.gamma = nn.Parameter(gama_init)
         self.beta_bound = (beta_bound + self.pedestal) ** 0.5
@@ -373,8 +342,7 @@ class GDN(nn.Module):
         return var ** 2 - self.pedestal
 
     def forward(self, x):
-        gamma = self._reparam(self.gamma, self.gamma_bound).view(self.
-            num_features, self.num_features, 1, 1)
+        gamma = self._reparam(self.gamma, self.gamma_bound).view(self.num_features, self.num_features, 1, 1)
         beta = self._reparam(self.beta, self.beta_bound)
         norm_pool = F.conv2d(x ** 2, gamma, bias=beta, stride=1, padding=0)
         norm_pool = torch.sqrt(norm_pool)
@@ -389,21 +357,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AutoEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Decoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 32, 4, 4])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (GDN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_VainF_pytorch_msssim(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AutoEncoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Decoder(*[], **{}), [torch.rand([4, 32, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Encoder(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GDN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

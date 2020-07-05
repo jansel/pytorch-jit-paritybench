@@ -187,8 +187,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -312,8 +313,7 @@ class Categorical(NestedSpace):
         cs = CS.ConfigurationSpace()
         if len(self.data) == 0:
             return CS.ConfigurationSpace()
-        hp = CSH.CategoricalHyperparameter(name='choice', choices=range(len
-            (self.data)))
+        hp = CSH.CategoricalHyperparameter(name='choice', choices=range(len(self.data)))
         _add_hp(cs, hp)
         for i, v in enumerate(self.data):
             if isinstance(v, NestedSpace):
@@ -397,8 +397,7 @@ def enas_net(**kwvars):
             @property
             def graph(self):
                 from graphviz import Digraph
-                e = Digraph(node_attr={'color': 'lightblue2', 'style':
-                    'filled', 'shape': 'box'})
+                e = Digraph(node_attr={'color': 'lightblue2', 'style': 'filled', 'shape': 'box'})
                 pre_node = 'input'
                 e.node(pre_node)
                 for k, op in self._modules.items():
@@ -460,10 +459,3 @@ def enas_net(**kwvars):
 
 input_size = 112
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_awslabs_autogluon(_paritybench_base):
-    pass

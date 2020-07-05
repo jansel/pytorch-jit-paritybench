@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -72,8 +73,7 @@ from collections import OrderedDict
 class GlobalGenerator(torch.nn.Module):
     """Global Generator."""
 
-    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3,
-        n_blocks=9, norm_layer=torch.nn.BatchNorm2d, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=torch.nn.BatchNorm2d, padding_type='reflect'):
         """
         Global Generator Constructor.
 
@@ -89,24 +89,17 @@ class GlobalGenerator(torch.nn.Module):
             raise AssertionError()
         super(GlobalGenerator, self).__init__()
         activation = torch.nn.ReLU(True)
-        model = [torch.nn.ReflectionPad2d(3), torch.nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0), norm_layer(ngf), activation]
+        model = [torch.nn.ReflectionPad2d(3), torch.nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), activation]
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [torch.nn.Conv2d(ngf * mult, ngf * mult * 2,
-                kernel_size=3, stride=2, padding=1), norm_layer(ngf * mult *
-                2), activation]
+            model += [torch.nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1), norm_layer(ngf * mult * 2), activation]
         mult = 2 ** n_downsampling
         for _ in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                activation=activation, norm_layer=norm_layer)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, norm_layer=norm_layer)]
         for i in range(n_downsampling):
             mult = 2 ** (n_downsampling - i)
-            model += [torch.nn.ConvTranspose2d(ngf * mult, int(ngf * mult /
-                2), kernel_size=3, stride=2, padding=1, output_padding=1),
-                norm_layer(int(ngf * mult / 2)), activation]
-        model += [torch.nn.ReflectionPad2d(3), torch.nn.Conv2d(ngf,
-            output_nc, kernel_size=7, padding=0), torch.nn.Tanh()]
+            model += [torch.nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1), norm_layer(int(ngf * mult / 2)), activation]
+        model += [torch.nn.ReflectionPad2d(3), torch.nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), torch.nn.Tanh()]
         self.model = torch.nn.Sequential(*model)
 
     def forward(self, i):
@@ -122,8 +115,7 @@ class GlobalGenerator(torch.nn.Module):
 class ResnetBlock(torch.nn.Module):
     """Define a resnet block."""
 
-    def __init__(self, dim, padding_type, norm_layer, activation=None,
-        use_dropout=False):
+    def __init__(self, dim, padding_type, norm_layer, activation=None, use_dropout=False):
         """
         Resnet Block constuctor.
 
@@ -136,25 +128,19 @@ class ResnetBlock(torch.nn.Module):
         super(ResnetBlock, self).__init__()
         if activation is None:
             activation = torch.nn.ReLU(True)
-        self.conv_block = self.__build_conv_block(dim, padding_type,
-            norm_layer, activation, use_dropout)
+        self.conv_block = self.__build_conv_block(dim, padding_type, norm_layer, activation, use_dropout)
 
     @staticmethod
-    def __build_conv_block(dim, padding_type, norm_layer, activation,
-        use_dropout):
+    def __build_conv_block(dim, padding_type, norm_layer, activation, use_dropout):
         conv_block = []
         p = 0
-        conv_block, p = ResnetBlock.__increment_padding_conv_block(conv_block,
-            p, padding_type)
-        conv_block += [torch.nn.Conv2d(dim, dim, kernel_size=3, padding=p),
-            norm_layer(dim), activation]
+        conv_block, p = ResnetBlock.__increment_padding_conv_block(conv_block, p, padding_type)
+        conv_block += [torch.nn.Conv2d(dim, dim, kernel_size=3, padding=p), norm_layer(dim), activation]
         if use_dropout:
             conv_block += [torch.nn.Dropout(0.5)]
         p = 0
-        conv_block, p = ResnetBlock.__increment_padding_conv_block(conv_block,
-            p, padding_type)
-        conv_block += [torch.nn.Conv2d(dim, dim, kernel_size=3, padding=p),
-            norm_layer(dim)]
+        conv_block, p = ResnetBlock.__increment_padding_conv_block(conv_block, p, padding_type)
+        conv_block += [torch.nn.Conv2d(dim, dim, kernel_size=3, padding=p), norm_layer(dim)]
         return torch.nn.Sequential(*conv_block)
 
     @staticmethod
@@ -166,8 +152,7 @@ class ResnetBlock(torch.nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
         return conv_block, p
 
     def forward(self, x):
@@ -199,9 +184,7 @@ class DeepModel(torch.nn.Module):
             self.gpu_ids = []
         else:
             self.gpu_ids = gpu_ids
-        self.net_g = self.__define_g(opt.input_nc, opt.output_nc, opt.ngf,
-            opt.net_g, opt.n_downsample_global, opt.n_blocks_global, opt.
-            n_local_enhancers, opt.n_blocks_local, opt.norm, self.gpu_ids)
+        self.net_g = self.__define_g(opt.input_nc, opt.output_nc, opt.ngf, opt.net_g, opt.n_downsample_global, opt.n_blocks_global, opt.n_local_enhancers, opt.n_blocks_local, opt.norm, self.gpu_ids)
         self.__load_network(self.net_g)
 
     def inference(self, label, inst):
@@ -230,8 +213,7 @@ class DeepModel(torch.nn.Module):
             new_state_dict = state_dict
         network.load_state_dict(new_state_dict)
 
-    def __encode_input(self, label_map, inst_map=None, real_image=None,
-        feat_map=None, infer=False):
+    def __encode_input(self, label_map, inst_map=None, real_image=None, feat_map=None, infer=False):
         if len(self.gpu_ids) > 0:
             input_label = label_map.data
         else:
@@ -247,12 +229,9 @@ class DeepModel(torch.nn.Module):
             m.weight.data.normal_(1.0, 0.02)
             m.bias.data.fill_(0)
 
-    def __define_g(self, input_nc, output_nc, ngf, net_g,
-        n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1,
-        n_blocks_local=3, norm='instance', gpu_ids=None):
+    def __define_g(self, input_nc, output_nc, ngf, net_g, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3, norm='instance', gpu_ids=None):
         norm_layer = self.__get_norm_layer(norm_type=norm)
-        net_g = GlobalGenerator(input_nc, output_nc, ngf,
-            n_downsample_global, n_blocks_global, norm_layer)
+        net_g = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer)
         if len(gpu_ids) > 1:
             net_g = torch.nn.DataParallel(net_g, gpu_ids)
         if len(gpu_ids) > 0:
@@ -270,8 +249,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GlobalGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+]
+
 class Test_dreamnettech_dreampower(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(GlobalGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

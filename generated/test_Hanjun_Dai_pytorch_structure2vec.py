@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,14 +65,11 @@ class Classifier(nn.Module):
         else:
             None
             sys.exit()
-        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
-            cmd_args.out_dim, num_node_feats=cmd_args.feat_dim,
-            num_edge_feats=0, max_lv=cmd_args.max_lv)
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=cmd_args.out_dim, num_node_feats=cmd_args.feat_dim, num_edge_feats=0, max_lv=cmd_args.max_lv)
         out_dim = cmd_args.out_dim
         if out_dim == 0:
             out_dim = cmd_args.latent_dim
-        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.
-            hidden, num_class=cmd_args.num_class)
+        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.hidden, num_class=cmd_args.num_class)
 
     def PrepareFeatureLabel(self, batch_graph):
         labels = torch.LongTensor(len(batch_graph))
@@ -106,11 +104,8 @@ class Regressor(nn.Module):
         else:
             None
             sys.exit()
-        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=
-            cmd_args.out_dim, num_node_feats=MOLLIB.num_node_feats,
-            num_edge_feats=MOLLIB.num_edge_feats, max_lv=cmd_args.max_lv)
-        self.mlp = MLPRegression(input_size=cmd_args.out_dim, hidden_size=
-            cmd_args.hidden)
+        self.s2v = model(latent_dim=cmd_args.latent_dim, output_dim=cmd_args.out_dim, num_node_feats=MOLLIB.num_node_feats, num_edge_feats=MOLLIB.num_edge_feats, max_lv=cmd_args.max_lv)
+        self.mlp = MLPRegression(input_size=cmd_args.out_dim, hidden_size=cmd_args.hidden)
 
     def forward(self, batch_graph):
         node_feat, edge_feat, labels = MOLLIB.PrepareFeatureLabel(batch_graph)
@@ -135,8 +130,7 @@ class MySpMM(torch.autograd.Function):
         grad_matrix1 = grad_matrix2 = None
         assert not ctx.needs_input_grad[0]
         if ctx.needs_input_grad[1]:
-            grad_matrix2 = Variable(torch.mm(sp_mat.data.t(), grad_output.data)
-                )
+            grad_matrix2 = Variable(torch.mm(sp_mat.data.t(), grad_output.data))
         return grad_matrix1, grad_matrix2
 
 
@@ -190,8 +184,7 @@ def weights_init(m):
 
 class EmbedMeanField(nn.Module):
 
-    def __init__(self, latent_dim, output_dim, num_node_feats,
-        num_edge_feats, max_lv=3):
+    def __init__(self, latent_dim, output_dim, num_node_feats, num_edge_feats, max_lv=3):
         super(EmbedMeanField, self).__init__()
         self.latent_dim = latent_dim
         self.output_dim = output_dim
@@ -248,8 +241,7 @@ class EmbedMeanField(nn.Module):
 
 class EmbedLoopyBP(nn.Module):
 
-    def __init__(self, latent_dim, output_dim, num_node_feats,
-        num_edge_feats, max_lv=3):
+    def __init__(self, latent_dim, output_dim, num_node_feats, num_edge_feats, max_lv=3):
         super(EmbedLoopyBP, self).__init__()
         self.latent_dim = latent_dim
         self.output_dim = output_dim
@@ -278,8 +270,7 @@ class EmbedLoopyBP(nn.Module):
         e2e_sp = Variable(e2e_sp)
         e2n_sp = Variable(e2n_sp)
         subg_sp = Variable(subg_sp)
-        h = self.loopy_bp(node_feat, edge_feat, n2e_sp, e2e_sp, e2n_sp, subg_sp
-            )
+        h = self.loopy_bp(node_feat, edge_feat, n2e_sp, e2e_sp, e2n_sp, subg_sp)
         return h
 
     def loopy_bp(self, node_feat, edge_feat, n2e_sp, e2e_sp, e2n_sp, subg_sp):
@@ -365,13 +356,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Hanjun_Dai_pytorch_structure2vec(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(MLPClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'num_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLPClassifier,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_class': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLPRegression,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_Hanjun_Dai_pytorch_structure2vec(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

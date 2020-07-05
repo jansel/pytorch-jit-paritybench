@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -116,8 +117,7 @@ class MarginLoss(torch.nn.Module):
         Loss value.
     """
 
-    def __init__(self, nb_classes, beta=1.2, margin=0.2, nu=0.0,
-        class_specific_beta=False, **kwargs):
+    def __init__(self, nb_classes, beta=1.2, margin=0.2, nu=0.0, class_specific_beta=False, **kwargs):
         super(MarginLoss, self).__init__()
         self.nb_classes = nb_classes
         self.class_specific_beta = class_specific_beta
@@ -154,8 +154,7 @@ class MarginLoss(torch.nn.Module):
         d_an = torch.sqrt(d_an)
         pos_loss = F.relu(d_ap - beta + self.margin)
         neg_loss = F.relu(beta - d_an + self.margin)
-        pair_cnt = torch.sum((pos_loss > 0.0) + (neg_loss > 0.0)).type_as(
-            pos_loss)
+        pair_cnt = torch.sum((pos_loss > 0.0) + (neg_loss > 0.0)).type_as(pos_loss)
         loss = torch.sum(pos_loss + neg_loss)
         if pair_cnt > 0.0:
             loss = (loss + beta_regularization_loss) / pair_cnt
@@ -205,40 +204,22 @@ class Sampler(nn.Module):
         labels: tensor of class labels of shape (batch_size,)
         """
         d = pdist(x)
-        pos = torch.eq(*[labels.unsqueeze(dim).expand_as(d) for dim in [0, 1]]
-            ).type_as(d) - torch.eye(len(d)).type_as(d)
+        pos = torch.eq(*[labels.unsqueeze(dim).expand_as(d) for dim in [0, 1]]).type_as(d) - torch.eye(len(d)).type_as(d)
         num_neg = int(pos.data.sum()) // len(pos)
-        neg = topk_mask(d + self.infinity * ((pos > 0) + (d < self.cutoff))
-            .type_as(d), dim=1, largest=False, K=num_neg)
+        neg = topk_mask(d + self.infinity * ((pos > 0) + (d < self.cutoff)).type_as(d), dim=1, largest=False, K=num_neg)
         a_indices = []
         p_indices = []
         n_indices = []
         for i in range(len(d)):
             a_indices.extend([i] * num_neg)
-            p_indices.extend(np.atleast_1d(pos[i].nonzero().squeeze().cpu()
-                .numpy()))
-            n_indices.extend(np.atleast_1d(neg[i].nonzero().squeeze().cpu()
-                .numpy()))
-            if len(a_indices) != len(p_indices) or len(a_indices) != len(
-                n_indices):
-                logging.warning(
-                    'Probably too many positives, because of lacking classes in'
-                     + ' the current cluster.' +
-                    ' n_anchors={}, n_pos={}, n_neg= {}'.format(*map(len, [
-                    a_indices, p_indices, n_indices])))
+            p_indices.extend(np.atleast_1d(pos[i].nonzero().squeeze().cpu().numpy()))
+            n_indices.extend(np.atleast_1d(neg[i].nonzero().squeeze().cpu().numpy()))
+            if len(a_indices) != len(p_indices) or len(a_indices) != len(n_indices):
+                logging.warning('Probably too many positives, because of lacking classes in' + ' the current cluster.' + ' n_anchors={}, n_pos={}, n_neg= {}'.format(*map(len, [a_indices, p_indices, n_indices])))
                 min_len = min(map(len, [a_indices, p_indices, n_indices]))
                 a_indices = a_indices[:min_len]
                 p_indices = p_indices[:min_len]
                 n_indices = n_indices[:min_len]
-        assert len(a_indices) == len(p_indices) == len(n_indices
-            ), '{}, {}, {}'.format(*map(len, [a_indices, p_indices, n_indices])
-            )
+        assert len(a_indices) == len(p_indices) == len(n_indices), '{}, {}, {}'.format(*map(len, [a_indices, p_indices, n_indices]))
         return a_indices, x[a_indices], x[p_indices], x[n_indices]
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_CompVis_metric_learning_divide_and_conquer(_paritybench_base):
-    pass

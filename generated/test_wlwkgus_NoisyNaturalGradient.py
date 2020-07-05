@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,8 +64,7 @@ class BayesianLinear(nn.Module):
     If you pick FFG option, 
     """
 
-    def __init__(self, in_features, out_features, n, gpu_ids, option='FFG',
-        bias=True, eps=1e-08, lamb=1):
+    def __init__(self, in_features, out_features, n, gpu_ids, option='FFG', bias=True, eps=1e-08, lamb=1):
         super(BayesianLinear, self).__init__()
         if option not in ('FFG', 'MVG'):
             raise RuntimeError('Option should be FFG or MVG.')
@@ -78,22 +78,15 @@ class BayesianLinear(nn.Module):
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))
         if self.option == 'FFG':
-            self.u_weight = torch.FloatTensor(torch.FloatTensor(
-                out_features, in_features))
-            self.f_weight = torch.FloatTensor(torch.FloatTensor(
-                out_features, in_features))
+            self.u_weight = torch.FloatTensor(torch.FloatTensor(out_features, in_features))
+            self.f_weight = torch.FloatTensor(torch.FloatTensor(out_features, in_features))
             if self.bias is not None:
-                self.u_bias = torch.FloatTensor(torch.FloatTensor(out_features)
-                    )
-                self.f_bias = torch.FloatTensor(torch.FloatTensor(out_features)
-                    )
+                self.u_bias = torch.FloatTensor(torch.FloatTensor(out_features))
+                self.f_bias = torch.FloatTensor(torch.FloatTensor(out_features))
         elif self.option == 'MVG':
-            self.u_weight = torch.FloatTensor(torch.FloatTensor(
-                out_features, in_features))
-            self.a_weight = torch.FloatTensor(torch.FloatTensor(in_features,
-                in_features))
-            self.s_weight = torch.FloatTensor(torch.FloatTensor(
-                out_features, out_features))
+            self.u_weight = torch.FloatTensor(torch.FloatTensor(out_features, in_features))
+            self.a_weight = torch.FloatTensor(torch.FloatTensor(in_features, in_features))
+            self.s_weight = torch.FloatTensor(torch.FloatTensor(out_features, out_features))
             if self.bias is not None:
                 raise Exception('MVG option does not support bias option.')
         self.reset_parameters()
@@ -117,8 +110,7 @@ class BayesianLinear(nn.Module):
 
     def forward(self, x):
         if self.gpu_ids and isinstance(x.data, torch.FloatTensor):
-            return nn.parallel.data_parallel(F.linear, (x, self.weight,
-                self.bias), self.gpu_ids)
+            return nn.parallel.data_parallel(F.linear, (x, self.weight, self.bias), self.gpu_ids)
         return F.linear(x, self.weight, self.bias)
 
     def save_parameters(self):
@@ -133,21 +125,15 @@ class BayesianLinear(nn.Module):
 
     def sample_parameters(self):
         if self.option == 'FFG':
-            self.weight.data = self.u_weight + self.lamb / (self.f_weight +
-                self.eps).sqrt() * torch.randn(self.f_weight.size()) / self.n
+            self.weight.data = self.u_weight + self.lamb / (self.f_weight + self.eps).sqrt() * torch.randn(self.f_weight.size()) / self.n
             if self.bias is not None:
-                self.bias.data = self.u_bias + self.lamb / (self.f_bias +
-                    self.eps).sqrt() * torch.randn(self.f_bias.size()) / self.n
+                self.bias.data = self.u_bias + self.lamb / (self.f_bias + self.eps).sqrt() * torch.randn(self.f_bias.size()) / self.n
         else:
             s_eval, s_evec = self.s_weight.symeig(eigenvectors=True)
             a_eval, a_evec = self.a_weight.symeig(eigenvectors=True)
-            sqrt_s_weight = torch.mm(torch.mm(s_evec, torch.diag(s_eval.
-                sign() * s_eval.abs().sqrt())), s_evec.t())
-            sqrt_a_weight = torch.mm(torch.mm(a_evec, torch.diag(a_eval.
-                sign() * a_eval.abs().sqrt())), a_evec.t())
-            self.weight.data = self.u_weight + self.lamb / self.n * torch.mm(
-                torch.mm(sqrt_s_weight, torch.randn(self.u_weight.size())),
-                sqrt_a_weight)
+            sqrt_s_weight = torch.mm(torch.mm(s_evec, torch.diag(s_eval.sign() * s_eval.abs().sqrt())), s_evec.t())
+            sqrt_a_weight = torch.mm(torch.mm(a_evec, torch.diag(a_eval.sign() * a_eval.abs().sqrt())), a_evec.t())
+            self.weight.data = self.u_weight + self.lamb / self.n * torch.mm(torch.mm(sqrt_s_weight, torch.randn(self.u_weight.size())), sqrt_a_weight)
 
     def update_bayesian_parameters(self, u_delta_dict, f_dict):
         """
@@ -173,11 +159,7 @@ class BayesianMultilayer(nn.Module):
         super(BayesianMultilayer, self).__init__()
         self.gpu_ids = gpu_ids
         self.n = n
-        self.model = nn.Sequential(BayesianLinear(in_features=784,
-            out_features=100, option=option, n=self.n, gpu_ids=self.gpu_ids,
-            bias=bias, eps=eps), nn.ReLU(), BayesianLinear(in_features=100,
-            out_features=10, option=option, n=self.n, gpu_ids=self.gpu_ids,
-            bias=bias, eps=eps), nn.ReLU())
+        self.model = nn.Sequential(BayesianLinear(in_features=784, out_features=100, option=option, n=self.n, gpu_ids=self.gpu_ids, bias=bias, eps=eps), nn.ReLU(), BayesianLinear(in_features=100, out_features=10, option=option, n=self.n, gpu_ids=self.gpu_ids, bias=bias, eps=eps), nn.ReLU())
         self.u_delta_dict = None
         self.f_dict = None
 
@@ -220,13 +202,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_wlwkgus_NoisyNaturalGradient(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BayesianLinear(*[], **{'in_features': 4, 'out_features': 4, 'n': 4, 'gpu_ids': False}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BayesianLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'n': 4, 'gpu_ids': False}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BayesianMultilayer,
+     lambda: ([], {'gpu_ids': False, 'n': 4, 'eps': 4}),
+     lambda: ([torch.rand([784, 784])], {}),
+     False),
+]
+
+class Test_wlwkgus_NoisyNaturalGradient(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BayesianMultilayer(*[], **{'gpu_ids': False, 'n': 4, 'eps': 4}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[1])
 

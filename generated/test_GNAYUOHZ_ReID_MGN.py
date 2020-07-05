@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,11 +60,9 @@ class Loss(loss._Loss):
     def forward(self, outputs, labels):
         cross_entropy_loss = CrossEntropyLoss()
         triplet_loss = TripletLoss(margin=1.2)
-        Triplet_Loss = [triplet_loss(output, labels) for output in outputs[1:4]
-            ]
+        Triplet_Loss = [triplet_loss(output, labels) for output in outputs[1:4]]
         Triplet_Loss = sum(Triplet_Loss) / len(Triplet_Loss)
-        CrossEntropy_Loss = [cross_entropy_loss(output, labels) for output in
-            outputs[4:]]
+        CrossEntropy_Loss = [cross_entropy_loss(output, labels) for output in outputs[4:]]
         CrossEntropy_Loss = sum(CrossEntropy_Loss) / len(CrossEntropy_Loss)
         loss_sum = Triplet_Loss + 2 * CrossEntropy_Loss
         None
@@ -79,27 +78,20 @@ class MGN(nn.Module):
         super(MGN, self).__init__()
         feats = 256
         resnet = resnet50(pretrained=True)
-        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu,
-            resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
+        self.backbone = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3[0])
         res_conv4 = nn.Sequential(*resnet.layer3[1:])
         res_g_conv5 = resnet.layer4
-        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.
-            Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d
-            (2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
+        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, downsample=nn.Sequential(nn.Conv2d(1024, 2048, 1, bias=False), nn.BatchNorm2d(2048))), Bottleneck(2048, 512), Bottleneck(2048, 512))
         res_p_conv5.load_state_dict(resnet.layer4.state_dict())
-        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_g_conv5))
-        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
-        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(
-            res_p_conv5))
+        self.p1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_g_conv5))
+        self.p2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
+        self.p3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
         self.maxpool_zg_p1 = nn.MaxPool2d(kernel_size=(12, 4))
         self.maxpool_zg_p2 = nn.MaxPool2d(kernel_size=(24, 8))
         self.maxpool_zg_p3 = nn.MaxPool2d(kernel_size=(24, 8))
         self.maxpool_zp2 = nn.MaxPool2d(kernel_size=(12, 8))
         self.maxpool_zp3 = nn.MaxPool2d(kernel_size=(8, 8))
-        self.reduction = nn.Sequential(nn.Conv2d(2048, feats, 1, bias=False
-            ), nn.BatchNorm2d(feats), nn.ReLU())
+        self.reduction = nn.Sequential(nn.Conv2d(2048, feats, 1, bias=False), nn.BatchNorm2d(feats), nn.ReLU())
         self._init_reduction(self.reduction)
         self.fc_id_2048_0 = nn.Linear(feats, num_classes)
         self.fc_id_2048_1 = nn.Linear(feats, num_classes)
@@ -160,10 +152,8 @@ class MGN(nn.Module):
         l0_p3 = self.fc_id_256_2_0(f0_p3)
         l1_p3 = self.fc_id_256_2_1(f1_p3)
         l2_p3 = self.fc_id_256_2_2(f2_p3)
-        predict = torch.cat([fg_p1, fg_p2, fg_p3, f0_p2, f1_p2, f0_p3,
-            f1_p3, f2_p3], dim=1)
-        return (predict, fg_p1, fg_p2, fg_p3, l_p1, l_p2, l_p3, l0_p2,
-            l1_p2, l0_p3, l1_p3, l2_p3)
+        predict = torch.cat([fg_p1, fg_p2, fg_p3, f0_p2, f1_p2, f0_p3, f1_p3, f2_p3], dim=1)
+        return predict, fg_p1, fg_p2, fg_p3, l_p1, l_p2, l_p3, l0_p2, l1_p2, l0_p3, l1_p3, l2_p3
 
 
 class TripletLoss(nn.Module):
@@ -210,9 +200,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (TripletLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_GNAYUOHZ_ReID_MGN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(TripletLoss(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

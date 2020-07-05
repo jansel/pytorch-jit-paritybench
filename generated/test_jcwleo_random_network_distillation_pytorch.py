@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,8 +60,7 @@ class NoisyLinear(nn.Module):
         self.out_features = out_features
         self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
         self.bias = nn.Parameter(torch.Tensor(out_features))
-        self.noisy_weight = nn.Parameter(torch.Tensor(out_features,
-            in_features))
+        self.noisy_weight = nn.Parameter(torch.Tensor(out_features, in_features))
         self.noisy_bias = nn.Parameter(torch.Tensor(out_features))
         self.noise_std = sigma0 / math.sqrt(self.in_features)
         self.reset_parameters()
@@ -77,8 +77,7 @@ class NoisyLinear(nn.Module):
     def sample_noise(self):
         self.in_noise.normal_(0, self.noise_std)
         self.out_noise.normal_(0, self.noise_std)
-        self.noise = torch.mm(self.out_noise.view(-1, 1), self.in_noise.
-            view(1, -1))
+        self.noise = torch.mm(self.out_noise.view(-1, 1), self.in_noise.view(1, -1))
 
     def reset_parameters(self):
         stdv = 1.0 / math.sqrt(self.weight.size(1))
@@ -101,8 +100,7 @@ class NoisyLinear(nn.Module):
         return noisy_y + normal_y
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.
-            in_features) + ', out_features=' + str(self.out_features) + ')'
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ')'
 
 
 class Flatten(nn.Module):
@@ -120,14 +118,8 @@ class CnnActorCriticNetwork(nn.Module):
             linear = NoisyLinear
         else:
             linear = nn.Linear
-        self.feature = nn.Sequential(nn.Conv2d(in_channels=4, out_channels=
-            32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(in_channels=
-            32, out_channels=64, kernel_size=4, stride=2), nn.ReLU(), nn.
-            Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1
-            ), nn.ReLU(), Flatten(), linear(7 * 7 * 64, 256), nn.ReLU(),
-            linear(256, 448), nn.ReLU())
-        self.actor = nn.Sequential(linear(448, 448), nn.ReLU(), linear(448,
-            output_size))
+        self.feature = nn.Sequential(nn.Conv2d(in_channels=4, out_channels=32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1), nn.ReLU(), Flatten(), linear(7 * 7 * 64, 256), nn.ReLU(), linear(256, 448), nn.ReLU())
+        self.actor = nn.Sequential(linear(448, 448), nn.ReLU(), linear(448, output_size))
         self.extra_layer = nn.Sequential(linear(448, 448), nn.ReLU())
         self.critic_ext = linear(448, 1)
         self.critic_int = linear(448, 1)
@@ -166,19 +158,8 @@ class RNDModel(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         feature_output = 7 * 7 * 64
-        self.predictor = nn.Sequential(nn.Conv2d(in_channels=1,
-            out_channels=32, kernel_size=8, stride=4), nn.LeakyReLU(), nn.
-            Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2
-            ), nn.LeakyReLU(), nn.Conv2d(in_channels=64, out_channels=64,
-            kernel_size=3, stride=1), nn.LeakyReLU(), Flatten(), nn.Linear(
-            feature_output, 512), nn.ReLU(), nn.Linear(512, 512), nn.ReLU(),
-            nn.Linear(512, 512))
-        self.target = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=
-            32, kernel_size=8, stride=4), nn.LeakyReLU(), nn.Conv2d(
-            in_channels=32, out_channels=64, kernel_size=4, stride=2), nn.
-            LeakyReLU(), nn.Conv2d(in_channels=64, out_channels=64,
-            kernel_size=3, stride=1), nn.LeakyReLU(), Flatten(), nn.Linear(
-            feature_output, 512))
+        self.predictor = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=8, stride=4), nn.LeakyReLU(), nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2), nn.LeakyReLU(), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1), nn.LeakyReLU(), Flatten(), nn.Linear(feature_output, 512), nn.ReLU(), nn.Linear(512, 512), nn.ReLU(), nn.Linear(512, 512))
+        self.target = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=32, kernel_size=8, stride=4), nn.LeakyReLU(), nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2), nn.LeakyReLU(), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1), nn.LeakyReLU(), Flatten(), nn.Linear(feature_output, 512))
         for p in self.modules():
             if isinstance(p, nn.Conv2d):
                 init.orthogonal_(p.weight, np.sqrt(2))
@@ -199,12 +180,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_jcwleo_random_network_distillation_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CnnActorCriticNetwork,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 90, 90])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoisyLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RNDModel,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 1, 90, 90])], {}),
+     True),
+]
+
+class Test_jcwleo_random_network_distillation_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(NoisyLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

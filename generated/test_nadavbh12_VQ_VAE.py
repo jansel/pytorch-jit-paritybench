@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -133,8 +134,7 @@ class VAE(nn.Module):
         return sample
 
     def loss_function(self, x, recon_x, mu, logvar):
-        self.bce = F.binary_cross_entropy(recon_x, x.view(-1, 784),
-            size_average=False)
+        self.bce = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
         batch_size = x.size(0)
         self.kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return self.bce + self.kl_coef * self.kl
@@ -146,8 +146,7 @@ class VAE(nn.Module):
 class VQ_VAE(nn.Module):
     """Vector Quantized AutoEncoder for mnist"""
 
-    def __init__(self, hidden=200, k=10, vq_coef=0.2, comit_coef=0.4, **kwargs
-        ):
+    def __init__(self, hidden=200, k=10, vq_coef=0.2, comit_coef=0.4, **kwargs):
         super(VQ_VAE, self).__init__()
         self.emb_size = k
         self.fc1 = nn.Linear(784, 400)
@@ -180,8 +179,7 @@ class VQ_VAE(nn.Module):
         return self.decode(z_q), z_e, emb
 
     def sample(self, size):
-        sample = torch.randn(size, self.emb_size, int(self.hidden / self.
-            emb_size))
+        sample = torch.randn(size, self.emb_size, int(self.hidden / self.emb_size))
         if self:
             sample = sample
         emb, _ = self.emb(sample)
@@ -192,12 +190,10 @@ class VQ_VAE(nn.Module):
         self.ce_loss = F.binary_cross_entropy(recon_x, x.view(-1, 784))
         self.vq_loss = F.mse_loss(emb, z_e.detach())
         self.commit_loss = F.mse_loss(z_e, emb.detach())
-        return (self.ce_loss + self.vq_coef * self.vq_loss + self.
-            comit_coef * self.commit_loss)
+        return self.ce_loss + self.vq_coef * self.vq_loss + self.comit_coef * self.commit_loss
 
     def latest_losses(self):
-        return {'cross_entropy': self.ce_loss, 'vq': self.vq_loss,
-            'commitment': self.commit_loss}
+        return {'cross_entropy': self.ce_loss, 'vq': self.vq_loss, 'commitment': self.commit_loss}
 
 
 class ResBlock(nn.Module):
@@ -206,9 +202,7 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()
         if mid_channels is None:
             mid_channels = out_channels
-        layers = [nn.ReLU(), nn.Conv2d(in_channels, mid_channels,
-            kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(
-            mid_channels, out_channels, kernel_size=1, stride=1, padding=0)]
+        layers = [nn.ReLU(), nn.Conv2d(in_channels, mid_channels, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(mid_channels, out_channels, kernel_size=1, stride=1, padding=0)]
         if bn:
             layers.insert(2, nn.BatchNorm2d(out_channels))
         self.convs = nn.Sequential(*layers)
@@ -219,19 +213,10 @@ class ResBlock(nn.Module):
 
 class VQ_CVAE(nn.Module):
 
-    def __init__(self, d, k=10, bn=True, vq_coef=1, commit_coef=0.5,
-        num_channels=3, **kwargs):
+    def __init__(self, d, k=10, bn=True, vq_coef=1, commit_coef=0.5, num_channels=3, **kwargs):
         super(VQ_CVAE, self).__init__()
-        self.encoder = nn.Sequential(nn.Conv2d(num_channels, d, kernel_size
-            =4, stride=2, padding=1), nn.BatchNorm2d(d), nn.ReLU(inplace=
-            True), nn.Conv2d(d, d, kernel_size=4, stride=2, padding=1), nn.
-            BatchNorm2d(d), nn.ReLU(inplace=True), ResBlock(d, d, bn), nn.
-            BatchNorm2d(d), ResBlock(d, d, bn), nn.BatchNorm2d(d))
-        self.decoder = nn.Sequential(ResBlock(d, d), nn.BatchNorm2d(d),
-            ResBlock(d, d), nn.ConvTranspose2d(d, d, kernel_size=4, stride=
-            2, padding=1), nn.BatchNorm2d(d), nn.ReLU(inplace=True), nn.
-            ConvTranspose2d(d, num_channels, kernel_size=4, stride=2,
-            padding=1))
+        self.encoder = nn.Sequential(nn.Conv2d(num_channels, d, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(d), nn.ReLU(inplace=True), nn.Conv2d(d, d, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(d), nn.ReLU(inplace=True), ResBlock(d, d, bn), nn.BatchNorm2d(d), ResBlock(d, d, bn), nn.BatchNorm2d(d))
+        self.decoder = nn.Sequential(ResBlock(d, d), nn.BatchNorm2d(d), ResBlock(d, d), nn.ConvTranspose2d(d, d, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(d), nn.ReLU(inplace=True), nn.ConvTranspose2d(d, num_channels, kernel_size=4, stride=2, padding=1))
         self.d = d
         self.emb = NearestEmbed(k, d)
         self.vq_coef = vq_coef
@@ -262,8 +247,7 @@ class VQ_CVAE(nn.Module):
         return self.decode(z_q), z_e, emb, argmin
 
     def sample(self, size):
-        sample = torch.randn(size, self.d, self.f, self.f, requires_grad=False
-            ),
+        sample = torch.randn(size, self.d, self.f, self.f, requires_grad=False),
         if self:
             sample = sample
         emb, _ = self.emb(sample)
@@ -272,14 +256,11 @@ class VQ_CVAE(nn.Module):
     def loss_function(self, x, recon_x, z_e, emb, argmin):
         self.mse = F.mse_loss(recon_x, x)
         self.vq_loss = torch.mean(torch.norm((emb - z_e.detach()) ** 2, 2, 1))
-        self.commit_loss = torch.mean(torch.norm((emb.detach() - z_e) ** 2,
-            2, 1))
-        return (self.mse + self.vq_coef * self.vq_loss + self.commit_coef *
-            self.commit_loss)
+        self.commit_loss = torch.mean(torch.norm((emb.detach() - z_e) ** 2, 2, 1))
+        return self.mse + self.vq_coef * self.vq_loss + self.commit_coef * self.commit_loss
 
     def latest_losses(self):
-        return {'mse': self.mse, 'vq': self.vq_loss, 'commitment': self.
-            commit_loss}
+        return {'mse': self.mse, 'vq': self.vq_loss, 'commitment': self.commit_loss}
 
     def print_atom_hist(self, argmin):
         argmin = argmin.detach().cpu().numpy()
@@ -300,9 +281,7 @@ class NearestEmbedFunc(Function):
     @staticmethod
     def forward(ctx, input, emb):
         if input.size(1) != emb.size(0):
-            raise RuntimeError(
-                'invalid argument: input.size(1) ({}) must be equal to emb.size(0) ({})'
-                .format(input.size(1), emb.size(0)))
+            raise RuntimeError('invalid argument: input.size(1) ({}) must be equal to emb.size(0) ({})'.format(input.size(1), emb.size(0)))
         ctx.batch_size = input.size(0)
         ctx.num_latents = int(np.prod(np.array(input.size()[2:])))
         ctx.emb_dim = emb.size(0)
@@ -312,16 +291,13 @@ class NearestEmbedFunc(Function):
         x_expanded = input.unsqueeze(-1)
         num_arbitrary_dims = len(ctx.dims) - 2
         if num_arbitrary_dims:
-            emb_expanded = emb.view(emb.shape[0], *([1] *
-                num_arbitrary_dims), emb.shape[1])
+            emb_expanded = emb.view(emb.shape[0], *([1] * num_arbitrary_dims), emb.shape[1])
         else:
             emb_expanded = emb
         dist = torch.norm(x_expanded - emb_expanded, 2, 1)
         _, argmin = dist.min(-1)
-        shifted_shape = [input.shape[0], *list(input.shape[2:]), input.shape[1]
-            ]
-        result = emb.t().index_select(0, argmin.view(-1)).view(shifted_shape
-            ).permute(0, ctx.dims[-1], *ctx.dims[1:-1])
+        shifted_shape = [input.shape[0], *list(input.shape[2:]), input.shape[1]]
+        result = emb.t().index_select(0, argmin.view(-1)).view(shifted_shape).permute(0, ctx.dims[-1], *ctx.dims[1:-1])
         ctx.save_for_backward(argmin)
         return result.contiguous(), argmin
 
@@ -333,16 +309,13 @@ class NearestEmbedFunc(Function):
         if ctx.needs_input_grad[1]:
             argmin, = ctx.saved_variables
             latent_indices = torch.arange(ctx.num_emb).type_as(argmin)
-            idx_choices = (argmin.view(-1, 1) == latent_indices.view(1, -1)
-                ).type_as(grad_output.data)
+            idx_choices = (argmin.view(-1, 1) == latent_indices.view(1, -1)).type_as(grad_output.data)
             n_idx_choice = idx_choices.sum(0)
             n_idx_choice[n_idx_choice == 0] = 1
             idx_avg_choices = idx_choices / n_idx_choice
             grad_output = grad_output.permute(0, *ctx.dims[2:], 1).contiguous()
-            grad_output = grad_output.view(ctx.batch_size * ctx.num_latents,
-                ctx.emb_dim)
-            grad_emb = torch.sum(grad_output.data.view(-1, ctx.emb_dim, 1) *
-                idx_avg_choices.view(-1, 1, ctx.num_emb), 0)
+            grad_output = grad_output.view(ctx.batch_size * ctx.num_latents, ctx.emb_dim)
+            grad_emb = torch.sum(grad_output.data.view(-1, ctx.emb_dim, 1) * idx_avg_choices.view(-1, 1, ctx.num_emb), 0)
         return grad_input, grad_emb, None, None
 
 
@@ -361,8 +334,7 @@ class NearestEmbed(nn.Module):
         ---------
         x - (batch_size, emb_size, *)
         """
-        return nearest_embed(x, self.weight.detach() if weight_sg else self
-            .weight)
+        return nearest_embed(x, self.weight.detach() if weight_sg else self.weight)
 
 
 class NearestEmbedEMA(nn.Module):
@@ -388,31 +360,24 @@ class NearestEmbedEMA(nn.Module):
         x_expanded = x.unsqueeze(-1)
         num_arbitrary_dims = len(dims) - 2
         if num_arbitrary_dims:
-            emb_expanded = self.weight.view(self.emb_dim, *([1] *
-                num_arbitrary_dims), self.n_emb)
+            emb_expanded = self.weight.view(self.emb_dim, *([1] * num_arbitrary_dims), self.n_emb)
         else:
             emb_expanded = self.weight
         dist = torch.norm(x_expanded - emb_expanded, 2, 1)
         _, argmin = dist.min(-1)
         shifted_shape = [x.shape[0], *list(x.shape[2:]), x.shape[1]]
-        result = self.weight.t().index_select(0, argmin.view(-1)).view(
-            shifted_shape).permute(0, dims[-1], *dims[1:-1])
+        result = self.weight.t().index_select(0, argmin.view(-1)).view(shifted_shape).permute(0, dims[-1], *dims[1:-1])
         if self.training:
             latent_indices = torch.arange(self.n_emb).type_as(argmin)
-            emb_onehot = (argmin.view(-1, 1) == latent_indices.view(1, -1)
-                ).type_as(x.data)
+            emb_onehot = (argmin.view(-1, 1) == latent_indices.view(1, -1)).type_as(x.data)
             n_idx_choice = emb_onehot.sum(0)
             n_idx_choice[n_idx_choice == 0] = 1
-            flatten = x.permute(1, 0, *dims[-2:]).contiguous().view(x.shape
-                [1], -1)
-            self.cluster_size.data.mul_(self.decay).add_(1 - self.decay,
-                n_idx_choice)
+            flatten = x.permute(1, 0, *dims[-2:]).contiguous().view(x.shape[1], -1)
+            self.cluster_size.data.mul_(self.decay).add_(1 - self.decay, n_idx_choice)
             embed_sum = flatten @ emb_onehot
-            self.embed_avg.data.mul_(self.decay).add_(1 - self.decay, embed_sum
-                )
+            self.embed_avg.data.mul_(self.decay).add_(1 - self.decay, embed_sum)
             n = self.cluster_size.sum()
-            cluster_size = (self.cluster_size + self.eps) / (n + self.n_emb *
-                self.eps) * n
+            cluster_size = (self.cluster_size + self.eps) / (n + self.n_emb * self.eps) * n
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
             self.weight.data.copy_(embed_normalized)
         return result, argmin
@@ -422,19 +387,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AbstractAutoEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NearestEmbed,
+     lambda: ([], {'num_embeddings': 4, 'embeddings_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NearestEmbedEMA,
+     lambda: ([], {'n_emb': 4, 'emb_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_nadavbh12_VQ_VAE(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AbstractAutoEncoder(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(NearestEmbed(*[], **{'num_embeddings': 4, 'embeddings_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(NearestEmbedEMA(*[], **{'n_emb': 4, 'emb_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,8 +96,7 @@ class computeDiceOneHot(nn.Module):
         sum = input.sum() + target.sum()
         if (sum == 0).all():
             return (2 * inter + 1e-08) / (sum + 1e-08)
-        return 2 * (input * target).float().sum() / (input.sum() + target.sum()
-            )
+        return 2 * (input * target).float().sum() / (input.sum() + target.sum())
 
     def inter(self, input, target):
         return (input * target).float().sum()
@@ -132,10 +132,7 @@ class _EncoderBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, dropout=False):
         super(_EncoderBlock, self).__init__()
-        layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True)]
+        layers = [nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True)]
         if dropout:
             layers.append(nn.Dropout())
         layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
@@ -152,12 +149,7 @@ class _DecoderBlock(nn.Module):
 
     def __init__(self, in_channels, middle_channels, out_channels):
         super(_DecoderBlock, self).__init__()
-        self.decode = nn.Sequential(nn.Conv2d(in_channels, middle_channels,
-            kernel_size=3, padding=1), nn.BatchNorm2d(middle_channels), nn.
-            ReLU(inplace=True), nn.Conv2d(middle_channels, middle_channels,
-            kernel_size=3, padding=1), nn.BatchNorm2d(middle_channels), nn.
-            ReLU(inplace=True), nn.ConvTranspose2d(middle_channels,
-            out_channels, kernel_size=2, stride=2))
+        self.decode = nn.Sequential(nn.Conv2d(in_channels, middle_channels, kernel_size=3, padding=1), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True), nn.Conv2d(middle_channels, middle_channels, kernel_size=3, padding=1), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=2, stride=2))
 
     def forward(self, x):
         return self.decode(x)
@@ -190,12 +182,9 @@ class PAM_Module(nn.Module):
     def __init__(self, in_dim):
         super(PAM_Module, self).__init__()
         self.chanel_in = in_dim
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim //
-            8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim,
-            kernel_size=1)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
@@ -210,8 +199,7 @@ class PAM_Module(nn.Module):
                 attention: B X (HxW) X (HxW)
         """
         m_batchsize, C, height, width = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height
-            ).permute(0, 2, 1)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
         proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
         energy = torch.bmm(proj_query, proj_key)
         attention = self.softmax(energy)
@@ -245,8 +233,7 @@ class CAM_Module(nn.Module):
         proj_query = x.view(m_batchsize, C, -1)
         proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
         energy = torch.bmm(proj_query, proj_key)
-        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy
-            ) - energy
+        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
         attention = self.softmax(energy_new)
         proj_value = x.view(m_batchsize, C, -1)
         out = torch.bmm(attention, proj_value)
@@ -270,10 +257,7 @@ class PAM_CAM_Layer(nn.Module):
 
     def __init__(self, in_ch, use_pam=True):
         super(PAM_CAM_Layer, self).__init__()
-        self.attn = nn.Sequential(nn.Conv2d(in_ch * 2, in_ch, kernel_size=3,
-            padding=1), nn.BatchNorm2d(in_ch), nn.PReLU(), PAM_Module(in_ch
-            ) if use_pam else CAM_Module(in_ch), nn.Conv2d(in_ch, in_ch,
-            kernel_size=3, padding=1), nn.BatchNorm2d(in_ch), nn.PReLU())
+        self.attn = nn.Sequential(nn.Conv2d(in_ch * 2, in_ch, kernel_size=3, padding=1), nn.BatchNorm2d(in_ch), nn.PReLU(), PAM_Module(in_ch) if use_pam else CAM_Module(in_ch), nn.Conv2d(in_ch, in_ch, kernel_size=3, padding=1), nn.BatchNorm2d(in_ch), nn.PReLU())
 
     def forward(self, x):
         return self.attn(x)
@@ -295,11 +279,7 @@ class MultiConv(nn.Module):
 
     def __init__(self, in_ch, out_ch, attn=True):
         super(MultiConv, self).__init__()
-        self.fuse_attn = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size
-            =3, padding=1), nn.BatchNorm2d(64), nn.PReLU(), nn.Conv2d(
-            out_ch, out_ch, kernel_size=3, padding=1), nn.BatchNorm2d(64),
-            nn.PReLU(), nn.Conv2d(out_ch, out_ch, kernel_size=1), nn.
-            BatchNorm2d(64), nn.Softmax2d() if attn else nn.PReLU())
+        self.fuse_attn = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.PReLU(), nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.PReLU(), nn.Conv2d(out_ch, out_ch, kernel_size=1), nn.BatchNorm2d(64), nn.Softmax2d() if attn else nn.PReLU())
 
     def forward(self, x):
         return self.fuse_attn(x)
@@ -310,32 +290,20 @@ class DAF_stack(nn.Module):
     def __init__(self):
         super(DAF_stack, self).__init__()
         self.resnext = ResNeXt101()
-        self.down4 = nn.Sequential(nn.Conv2d(2048, 64, kernel_size=1), nn.
-            BatchNorm2d(64), nn.PReLU())
-        self.down3 = nn.Sequential(nn.Conv2d(1024, 64, kernel_size=1), nn.
-            BatchNorm2d(64), nn.PReLU())
-        self.down2 = nn.Sequential(nn.Conv2d(512, 64, kernel_size=1), nn.
-            BatchNorm2d(64), nn.PReLU())
-        self.down1 = nn.Sequential(nn.Conv2d(256, 64, kernel_size=1), nn.
-            BatchNorm2d(64), nn.PReLU())
+        self.down4 = nn.Sequential(nn.Conv2d(2048, 64, kernel_size=1), nn.BatchNorm2d(64), nn.PReLU())
+        self.down3 = nn.Sequential(nn.Conv2d(1024, 64, kernel_size=1), nn.BatchNorm2d(64), nn.PReLU())
+        self.down2 = nn.Sequential(nn.Conv2d(512, 64, kernel_size=1), nn.BatchNorm2d(64), nn.PReLU())
+        self.down1 = nn.Sequential(nn.Conv2d(256, 64, kernel_size=1), nn.BatchNorm2d(64), nn.PReLU())
         inter_channels = 64
         out_channels = 64
-        self.conv6_1 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv6_2 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv6_3 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv6_4 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv7_1 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv7_2 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv7_3 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
-        self.conv7_4 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64,
-            out_channels, 1))
+        self.conv6_1 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv6_2 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv6_3 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv6_4 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv7_1 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv7_2 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv7_3 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
+        self.conv7_4 = nn.Sequential(nn.Dropout2d(0.1, False), nn.Conv2d(64, out_channels, 1))
         self.conv8_1 = nn.Conv2d(64, 64, 1)
         self.conv8_2 = nn.Conv2d(64, 64, 1)
         self.conv8_3 = nn.Conv2d(64, 64, 1)
@@ -395,74 +363,47 @@ class DAF_stack(nn.Module):
         layer2 = self.resnext.layer2(layer1)
         layer3 = self.resnext.layer3(layer2)
         layer4 = self.resnext.layer4(layer3)
-        down4 = F.upsample(self.down4(layer4), size=layer1.size()[2:], mode
-            ='bilinear')
-        down3 = F.upsample(self.down3(layer3), size=layer1.size()[2:], mode
-            ='bilinear')
-        down2 = F.upsample(self.down2(layer2), size=layer1.size()[2:], mode
-            ='bilinear')
+        down4 = F.upsample(self.down4(layer4), size=layer1.size()[2:], mode='bilinear')
+        down3 = F.upsample(self.down3(layer3), size=layer1.size()[2:], mode='bilinear')
+        down2 = F.upsample(self.down2(layer2), size=layer1.size()[2:], mode='bilinear')
         down1 = self.down1(layer1)
         predict4 = self.predict4(down4)
         predict3 = self.predict3(down3)
         predict2 = self.predict2(down2)
         predict1 = self.predict1(down1)
         fuse1 = self.fuse1(torch.cat((down4, down3, down2, down1), 1))
-        semVector_1_1, semanticModule_1_1 = self.semanticModule_1_1(torch.
-            cat((down4, fuse1), 1))
+        semVector_1_1, semanticModule_1_1 = self.semanticModule_1_1(torch.cat((down4, fuse1), 1))
         attn_pam4 = self.pam_attention_1_4(torch.cat((down4, fuse1), 1))
         attn_cam4 = self.cam_attention_1_4(torch.cat((down4, fuse1), 1))
-        attention1_4 = self.conv8_1((attn_cam4 + attn_pam4) * self.
-            conv_sem_1_1(semanticModule_1_1))
-        semVector_1_2, semanticModule_1_2 = self.semanticModule_1_1(torch.
-            cat((down3, fuse1), 1))
+        attention1_4 = self.conv8_1((attn_cam4 + attn_pam4) * self.conv_sem_1_1(semanticModule_1_1))
+        semVector_1_2, semanticModule_1_2 = self.semanticModule_1_1(torch.cat((down3, fuse1), 1))
         attn_pam3 = self.pam_attention_1_3(torch.cat((down3, fuse1), 1))
         attn_cam3 = self.cam_attention_1_3(torch.cat((down3, fuse1), 1))
-        attention1_3 = self.conv8_2((attn_cam3 + attn_pam3) * self.
-            conv_sem_1_2(semanticModule_1_2))
-        semVector_1_3, semanticModule_1_3 = self.semanticModule_1_1(torch.
-            cat((down2, fuse1), 1))
+        attention1_3 = self.conv8_2((attn_cam3 + attn_pam3) * self.conv_sem_1_2(semanticModule_1_2))
+        semVector_1_3, semanticModule_1_3 = self.semanticModule_1_1(torch.cat((down2, fuse1), 1))
         attn_pam2 = self.pam_attention_1_2(torch.cat((down2, fuse1), 1))
         attn_cam2 = self.cam_attention_1_2(torch.cat((down2, fuse1), 1))
-        attention1_2 = self.conv8_3((attn_cam2 + attn_pam2) * self.
-            conv_sem_1_3(semanticModule_1_3))
-        semVector_1_4, semanticModule_1_4 = self.semanticModule_1_1(torch.
-            cat((down1, fuse1), 1))
+        attention1_2 = self.conv8_3((attn_cam2 + attn_pam2) * self.conv_sem_1_3(semanticModule_1_3))
+        semVector_1_4, semanticModule_1_4 = self.semanticModule_1_1(torch.cat((down1, fuse1), 1))
         attn_pam1 = self.pam_attention_1_1(torch.cat((down1, fuse1), 1))
         attn_cam1 = self.cam_attention_1_1(torch.cat((down1, fuse1), 1))
-        attention1_1 = self.conv8_4((attn_cam1 + attn_pam1) * self.
-            conv_sem_1_4(semanticModule_1_4))
-        semVector_2_1, semanticModule_2_1 = self.semanticModule_2_1(torch.
-            cat((down4, attention1_4 * fuse1), 1))
-        refine4_1 = self.pam_attention_2_4(torch.cat((down4, attention1_4 *
-            fuse1), 1))
-        refine4_2 = self.cam_attention_2_4(torch.cat((down4, attention1_4 *
-            fuse1), 1))
-        refine4 = self.conv8_11((refine4_1 + refine4_2) * self.conv_sem_2_1
-            (semanticModule_2_1))
-        semVector_2_2, semanticModule_2_2 = self.semanticModule_2_1(torch.
-            cat((down3, attention1_3 * fuse1), 1))
-        refine3_1 = self.pam_attention_2_3(torch.cat((down3, attention1_3 *
-            fuse1), 1))
-        refine3_2 = self.cam_attention_2_3(torch.cat((down3, attention1_3 *
-            fuse1), 1))
-        refine3 = self.conv8_12((refine3_1 + refine3_2) * self.conv_sem_2_2
-            (semanticModule_2_2))
-        semVector_2_3, semanticModule_2_3 = self.semanticModule_2_1(torch.
-            cat((down2, attention1_2 * fuse1), 1))
-        refine2_1 = self.pam_attention_2_2(torch.cat((down2, attention1_2 *
-            fuse1), 1))
-        refine2_2 = self.cam_attention_2_2(torch.cat((down2, attention1_2 *
-            fuse1), 1))
-        refine2 = self.conv8_13((refine2_1 + refine2_2) * self.conv_sem_2_3
-            (semanticModule_2_3))
-        semVector_2_4, semanticModule_2_4 = self.semanticModule_2_1(torch.
-            cat((down1, attention1_1 * fuse1), 1))
-        refine1_1 = self.pam_attention_2_1(torch.cat((down1, attention1_1 *
-            fuse1), 1))
-        refine1_2 = self.cam_attention_2_1(torch.cat((down1, attention1_1 *
-            fuse1), 1))
-        refine1 = self.conv8_14((refine1_1 + refine1_2) * self.conv_sem_2_4
-            (semanticModule_2_4))
+        attention1_1 = self.conv8_4((attn_cam1 + attn_pam1) * self.conv_sem_1_4(semanticModule_1_4))
+        semVector_2_1, semanticModule_2_1 = self.semanticModule_2_1(torch.cat((down4, attention1_4 * fuse1), 1))
+        refine4_1 = self.pam_attention_2_4(torch.cat((down4, attention1_4 * fuse1), 1))
+        refine4_2 = self.cam_attention_2_4(torch.cat((down4, attention1_4 * fuse1), 1))
+        refine4 = self.conv8_11((refine4_1 + refine4_2) * self.conv_sem_2_1(semanticModule_2_1))
+        semVector_2_2, semanticModule_2_2 = self.semanticModule_2_1(torch.cat((down3, attention1_3 * fuse1), 1))
+        refine3_1 = self.pam_attention_2_3(torch.cat((down3, attention1_3 * fuse1), 1))
+        refine3_2 = self.cam_attention_2_3(torch.cat((down3, attention1_3 * fuse1), 1))
+        refine3 = self.conv8_12((refine3_1 + refine3_2) * self.conv_sem_2_2(semanticModule_2_2))
+        semVector_2_3, semanticModule_2_3 = self.semanticModule_2_1(torch.cat((down2, attention1_2 * fuse1), 1))
+        refine2_1 = self.pam_attention_2_2(torch.cat((down2, attention1_2 * fuse1), 1))
+        refine2_2 = self.cam_attention_2_2(torch.cat((down2, attention1_2 * fuse1), 1))
+        refine2 = self.conv8_13((refine2_1 + refine2_2) * self.conv_sem_2_3(semanticModule_2_3))
+        semVector_2_4, semanticModule_2_4 = self.semanticModule_2_1(torch.cat((down1, attention1_1 * fuse1), 1))
+        refine1_1 = self.pam_attention_2_1(torch.cat((down1, attention1_1 * fuse1), 1))
+        refine1_2 = self.cam_attention_2_1(torch.cat((down1, attention1_1 * fuse1), 1))
+        refine1 = self.conv8_14((refine1_1 + refine1_2) * self.conv_sem_2_4(semanticModule_2_4))
         predict4_2 = self.predict4_2(refine4)
         predict3_2 = self.predict3_2(refine3)
         predict2_2 = self.predict2_2(refine2)
@@ -476,18 +417,7 @@ class DAF_stack(nn.Module):
         predict3_2 = F.upsample(predict3_2, size=x.size()[2:], mode='bilinear')
         predict4_2 = F.upsample(predict4_2, size=x.size()[2:], mode='bilinear')
         if self.training:
-            return (semVector_1_1, semVector_2_1, semVector_1_2,
-                semVector_2_2, semVector_1_3, semVector_2_3, semVector_1_4,
-                semVector_2_4, torch.cat((down1, fuse1), 1), torch.cat((
-                down2, fuse1), 1), torch.cat((down3, fuse1), 1), torch.cat(
-                (down4, fuse1), 1), torch.cat((down1, attention1_1 * fuse1),
-                1), torch.cat((down2, attention1_2 * fuse1), 1), torch.cat(
-                (down3, attention1_3 * fuse1), 1), torch.cat((down4, 
-                attention1_4 * fuse1), 1), semanticModule_1_4,
-                semanticModule_1_3, semanticModule_1_2, semanticModule_1_1,
-                semanticModule_2_4, semanticModule_2_3, semanticModule_2_2,
-                semanticModule_2_1, predict1, predict2, predict3, predict4,
-                predict1_2, predict2_2, predict3_2, predict4_2)
+            return semVector_1_1, semVector_2_1, semVector_1_2, semVector_2_2, semVector_1_3, semVector_2_3, semVector_1_4, semVector_2_4, torch.cat((down1, fuse1), 1), torch.cat((down2, fuse1), 1), torch.cat((down3, fuse1), 1), torch.cat((down4, fuse1), 1), torch.cat((down1, attention1_1 * fuse1), 1), torch.cat((down2, attention1_2 * fuse1), 1), torch.cat((down3, attention1_3 * fuse1), 1), torch.cat((down4, attention1_4 * fuse1), 1), semanticModule_1_4, semanticModule_1_3, semanticModule_1_2, semanticModule_1_1, semanticModule_2_4, semanticModule_2_3, semanticModule_2_2, semanticModule_2_1, predict1, predict2, predict3, predict4, predict1_2, predict2_2, predict3_2, predict4_2
         else:
             return (predict1_2 + predict2_2 + predict3_2 + predict4_2) / 4
 
@@ -515,9 +445,7 @@ def resnext101():
     model = resnext101_32x8d()
     model.conv1 = nn.Conv2d(1, 64, (7, 7), (2, 2), (3, 3), 1, 1, bias=False)
     model.avgpool = nn.AvgPool2d((7, 7), (1, 1))
-    model.fc = nn.Sequential(Lambda(lambda x: x.view(x.size(0), -1)),
-        Lambda(lambda x: x.view(1, -1) if 1 == len(x.size()) else x), nn.
-        Linear(2048, 1000))
+    model.fc = nn.Sequential(Lambda(lambda x: x.view(x.size(0), -1)), Lambda(lambda x: x.view(1, -1) if 1 == len(x.size()) else x), nn.Linear(2048, 1000))
     return model
 
 
@@ -546,37 +474,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_sinAshish_Multi_Scale_Attention(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(CAM_Module(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CAM_Module,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DAF_stack,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (LambdaBase,
+     lambda: ([], {'fn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PAM_CAM_Layer,
+     lambda: ([], {'in_ch': 64}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (PAM_Module,
+     lambda: ([], {'in_dim': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (ResNeXt101,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (_DecoderBlock,
+     lambda: ([], {'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_EncoderBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (computeDiceOneHot,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 4, 4]), torch.rand([4, 5, 4, 4])], {}),
+     False),
+    (semanticModule,
+     lambda: ([], {'in_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_sinAshish_Multi_Scale_Attention(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DAF_stack(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PAM_CAM_Layer(*[], **{'in_ch': 64}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PAM_Module(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResNeXt101(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(_DecoderBlock(*[], **{'in_channels': 4, 'middle_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(_EncoderBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(computeDiceOneHot(*[], **{}), [torch.rand([4, 5, 4, 4]), torch.rand([4, 5, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(semanticModule(*[], **{'in_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

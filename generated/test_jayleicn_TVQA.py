@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -87,8 +88,7 @@ class BidafAttn(nn.Module):
             t2 = s2.size(1)
             repeat_s1 = s1.unsqueeze(2).repeat(1, 1, t2, 1)
             repeat_s2 = s2.unsqueeze(1).repeat(1, t1, 1, 1)
-            packed_s1_s2 = torch.cat([repeat_s1, repeat_s2, repeat_s1 *
-                repeat_s2], dim=3)
+            packed_s1_s2 = torch.cat([repeat_s1, repeat_s2, repeat_s1 * repeat_s2], dim=3)
             s = self.mlp(packed_s1_s2).squeeze()
         elif self.method == 'dot':
             s = torch.bmm(s1, s2.transpose(1, 2))
@@ -138,8 +138,7 @@ class MLP(nn.Module):
             if i == n_layers - 1:
                 layers.append(nn.Linear(prev_dim, out_dim))
             else:
-                layers.extend([nn.Linear(prev_dim, hsz), nn.ReLU(True), nn.
-                    Dropout(0.5)])
+                layers.extend([nn.Linear(prev_dim, hsz), nn.ReLU(True), nn.Dropout(0.5)])
                 prev_dim = hsz
         self.main = nn.Sequential(*layers)
 
@@ -152,9 +151,7 @@ class RNNEncoder(nn.Module):
     Supports LSTM, GRU and RNN. Tested with PyTorch 0.3 and 0.4
     """
 
-    def __init__(self, word_embedding_size, hidden_size, bidirectional=True,
-        dropout_p=0, n_layers=1, rnn_type='lstm', return_hidden=True,
-        return_outputs=True):
+    def __init__(self, word_embedding_size, hidden_size, bidirectional=True, dropout_p=0, n_layers=1, rnn_type='lstm', return_hidden=True, return_outputs=True):
         super(RNNEncoder, self).__init__()
         """  
         :param word_embedding_size: rnn input size
@@ -165,9 +162,7 @@ class RNNEncoder(nn.Module):
         self.n_dirs = 2 if bidirectional else 1
         self.return_hidden = return_hidden
         self.return_outputs = return_outputs
-        self.rnn = getattr(nn, rnn_type.upper())(word_embedding_size,
-            hidden_size, n_layers, batch_first=True, bidirectional=
-            bidirectional, dropout=dropout_p)
+        self.rnn = getattr(nn, rnn_type.upper())(word_embedding_size, hidden_size, n_layers, batch_first=True, bidirectional=bidirectional, dropout=dropout_p)
 
     def sort_batch(self, seq, lengths):
         sorted_lengths, perm_idx = lengths.sort(0, descending=True)
@@ -186,10 +181,8 @@ class RNNEncoder(nn.Module):
         - add total_length in pad_packed_sequence for compatiblity with nn.DataParallel, --remove it
         """
         assert len(inputs) == len(lengths)
-        sorted_inputs, sorted_lengths, reverse_indices = self.sort_batch(inputs
-            , lengths)
-        packed_inputs = pack_padded_sequence(sorted_inputs, sorted_lengths,
-            batch_first=True)
+        sorted_inputs, sorted_lengths, reverse_indices = self.sort_batch(inputs, lengths)
+        packed_inputs = pack_padded_sequence(sorted_inputs, sorted_lengths, batch_first=True)
         outputs, hidden = self.rnn(packed_inputs)
         if self.return_outputs:
             outputs, lengths = pad_packed_sequence(outputs, batch_first=True)
@@ -214,8 +207,7 @@ def max_along_time(outputs, lengths):
     :param lengths: (B, )
     :return: (B, D)
     """
-    outputs = [outputs[(i), :int(lengths[i]), :].max(dim=0)[0] for i in
-        range(len(lengths))]
+    outputs = [outputs[(i), :int(lengths[i]), :].max(dim=0)[0] for i in range(len(lengths))]
     return torch.stack(outputs, dim=0)
 
 
@@ -234,35 +226,25 @@ class ABC(nn.Module):
         vocab_size = opt.vocab_size
         self.embedding = nn.Embedding(vocab_size, embedding_size)
         self.bidaf = BidafAttn(hidden_size_1 * 3, method='dot')
-        self.lstm_raw = RNNEncoder(300, hidden_size_1, bidirectional=True,
-            dropout_p=0, n_layers=1, rnn_type='lstm')
+        self.lstm_raw = RNNEncoder(300, hidden_size_1, bidirectional=True, dropout_p=0, n_layers=1, rnn_type='lstm')
         if self.vid_flag:
             None
-            self.video_fc = nn.Sequential(nn.Dropout(0.5), nn.Linear(
-                vid_feat_size, embedding_size), nn.Tanh())
-            self.lstm_mature_vid = RNNEncoder(hidden_size_1 * 2 * 5,
-                hidden_size_2, bidirectional=True, dropout_p=0, n_layers=1,
-                rnn_type='lstm')
+            self.video_fc = nn.Sequential(nn.Dropout(0.5), nn.Linear(vid_feat_size, embedding_size), nn.Tanh())
+            self.lstm_mature_vid = RNNEncoder(hidden_size_1 * 2 * 5, hidden_size_2, bidirectional=True, dropout_p=0, n_layers=1, rnn_type='lstm')
             self.classifier_vid = MLP(hidden_size_2 * 2, 1, 500, n_layers_cls)
         if self.sub_flag:
             None
-            self.lstm_mature_sub = RNNEncoder(hidden_size_1 * 2 * 5,
-                hidden_size_2, bidirectional=True, dropout_p=0, n_layers=1,
-                rnn_type='lstm')
+            self.lstm_mature_sub = RNNEncoder(hidden_size_1 * 2 * 5, hidden_size_2, bidirectional=True, dropout_p=0, n_layers=1, rnn_type='lstm')
             self.classifier_sub = MLP(hidden_size_2 * 2, 1, 500, n_layers_cls)
         if self.vcpt_flag:
             None
-            self.lstm_mature_vcpt = RNNEncoder(hidden_size_1 * 2 * 5,
-                hidden_size_2, bidirectional=True, dropout_p=0, n_layers=1,
-                rnn_type='lstm')
+            self.lstm_mature_vcpt = RNNEncoder(hidden_size_1 * 2 * 5, hidden_size_2, bidirectional=True, dropout_p=0, n_layers=1, rnn_type='lstm')
             self.classifier_vcpt = MLP(hidden_size_2 * 2, 1, 500, n_layers_cls)
 
     def load_embedding(self, pretrained_embedding):
-        self.embedding.weight.data.copy_(torch.from_numpy(pretrained_embedding)
-            )
+        self.embedding.weight.data.copy_(torch.from_numpy(pretrained_embedding))
 
-    def forward(self, q, q_l, a0, a0_l, a1, a1_l, a2, a2_l, a3, a3_l, a4,
-        a4_l, sub, sub_l, vcpt, vcpt_l, vid, vid_l):
+    def forward(self, q, q_l, a0, a0_l, a1, a1_l, a2, a2_l, a3, a3_l, a4, a4_l, sub, sub_l, vcpt, vcpt_l, vid, vid_l):
         e_q = self.embedding(q)
         e_a0 = self.embedding(a0)
         e_a1 = self.embedding(a1)
@@ -278,52 +260,36 @@ class ABC(nn.Module):
         if self.sub_flag:
             e_sub = self.embedding(sub)
             raw_out_sub, _ = self.lstm_raw(e_sub, sub_l)
-            sub_out = self.stream_processor(self.lstm_mature_sub, self.
-                classifier_sub, raw_out_sub, sub_l, raw_out_q, q_l,
-                raw_out_a0, a0_l, raw_out_a1, a1_l, raw_out_a2, a2_l,
-                raw_out_a3, a3_l, raw_out_a4, a4_l)
+            sub_out = self.stream_processor(self.lstm_mature_sub, self.classifier_sub, raw_out_sub, sub_l, raw_out_q, q_l, raw_out_a0, a0_l, raw_out_a1, a1_l, raw_out_a2, a2_l, raw_out_a3, a3_l, raw_out_a4, a4_l)
         else:
             sub_out = 0
         if self.vcpt_flag:
             e_vcpt = self.embedding(vcpt)
             raw_out_vcpt, _ = self.lstm_raw(e_vcpt, vcpt_l)
-            vcpt_out = self.stream_processor(self.lstm_mature_vcpt, self.
-                classifier_vcpt, raw_out_vcpt, vcpt_l, raw_out_q, q_l,
-                raw_out_a0, a0_l, raw_out_a1, a1_l, raw_out_a2, a2_l,
-                raw_out_a3, a3_l, raw_out_a4, a4_l)
+            vcpt_out = self.stream_processor(self.lstm_mature_vcpt, self.classifier_vcpt, raw_out_vcpt, vcpt_l, raw_out_q, q_l, raw_out_a0, a0_l, raw_out_a1, a1_l, raw_out_a2, a2_l, raw_out_a3, a3_l, raw_out_a4, a4_l)
         else:
             vcpt_out = 0
         if self.vid_flag:
             e_vid = self.video_fc(vid)
             raw_out_vid, _ = self.lstm_raw(e_vid, vid_l)
-            vid_out = self.stream_processor(self.lstm_mature_vid, self.
-                classifier_vid, raw_out_vid, vid_l, raw_out_q, q_l,
-                raw_out_a0, a0_l, raw_out_a1, a1_l, raw_out_a2, a2_l,
-                raw_out_a3, a3_l, raw_out_a4, a4_l)
+            vid_out = self.stream_processor(self.lstm_mature_vid, self.classifier_vid, raw_out_vid, vid_l, raw_out_q, q_l, raw_out_a0, a0_l, raw_out_a1, a1_l, raw_out_a2, a2_l, raw_out_a3, a3_l, raw_out_a4, a4_l)
         else:
             vid_out = 0
         out = sub_out + vcpt_out + vid_out
         return out.squeeze()
 
-    def stream_processor(self, lstm_mature, classifier, ctx_embed, ctx_l,
-        q_embed, q_l, a0_embed, a0_l, a1_embed, a1_l, a2_embed, a2_l,
-        a3_embed, a3_l, a4_embed, a4_l):
+    def stream_processor(self, lstm_mature, classifier, ctx_embed, ctx_l, q_embed, q_l, a0_embed, a0_l, a1_embed, a1_l, a2_embed, a2_l, a3_embed, a3_l, a4_embed, a4_l):
         u_q, _ = self.bidaf(ctx_embed, ctx_l, q_embed, q_l)
         u_a0, _ = self.bidaf(ctx_embed, ctx_l, a0_embed, a0_l)
         u_a1, _ = self.bidaf(ctx_embed, ctx_l, a1_embed, a1_l)
         u_a2, _ = self.bidaf(ctx_embed, ctx_l, a2_embed, a2_l)
         u_a3, _ = self.bidaf(ctx_embed, ctx_l, a3_embed, a3_l)
         u_a4, _ = self.bidaf(ctx_embed, ctx_l, a4_embed, a4_l)
-        concat_a0 = torch.cat([ctx_embed, u_a0, u_q, u_a0 * ctx_embed, u_q *
-            ctx_embed], dim=-1)
-        concat_a1 = torch.cat([ctx_embed, u_a1, u_q, u_a1 * ctx_embed, u_q *
-            ctx_embed], dim=-1)
-        concat_a2 = torch.cat([ctx_embed, u_a2, u_q, u_a2 * ctx_embed, u_q *
-            ctx_embed], dim=-1)
-        concat_a3 = torch.cat([ctx_embed, u_a3, u_q, u_a3 * ctx_embed, u_q *
-            ctx_embed], dim=-1)
-        concat_a4 = torch.cat([ctx_embed, u_a4, u_q, u_a4 * ctx_embed, u_q *
-            ctx_embed], dim=-1)
+        concat_a0 = torch.cat([ctx_embed, u_a0, u_q, u_a0 * ctx_embed, u_q * ctx_embed], dim=-1)
+        concat_a1 = torch.cat([ctx_embed, u_a1, u_q, u_a1 * ctx_embed, u_q * ctx_embed], dim=-1)
+        concat_a2 = torch.cat([ctx_embed, u_a2, u_q, u_a2 * ctx_embed, u_q * ctx_embed], dim=-1)
+        concat_a3 = torch.cat([ctx_embed, u_a3, u_q, u_a3 * ctx_embed, u_q * ctx_embed], dim=-1)
+        concat_a4 = torch.cat([ctx_embed, u_a4, u_q, u_a4 * ctx_embed, u_q * ctx_embed], dim=-1)
         mature_maxout_a0, _ = lstm_mature(concat_a0, ctx_l)
         mature_maxout_a1, _ = lstm_mature(concat_a1, ctx_l)
         mature_maxout_a2, _ = lstm_mature(concat_a2, ctx_l)
@@ -334,8 +300,7 @@ class ABC(nn.Module):
         mature_maxout_a2 = max_along_time(mature_maxout_a2, ctx_l).unsqueeze(1)
         mature_maxout_a3 = max_along_time(mature_maxout_a3, ctx_l).unsqueeze(1)
         mature_maxout_a4 = max_along_time(mature_maxout_a4, ctx_l).unsqueeze(1)
-        mature_answers = torch.cat([mature_maxout_a0, mature_maxout_a1,
-            mature_maxout_a2, mature_maxout_a3, mature_maxout_a4], dim=1)
+        mature_answers = torch.cat([mature_maxout_a0, mature_maxout_a1, mature_maxout_a2, mature_maxout_a3, mature_maxout_a4], dim=1)
         out = classifier(mature_answers)
         return out
 
@@ -354,16 +319,23 @@ class ABC(nn.Module):
         vcpt_l = torch.ones(bsz).fill_(300).long()
         vid = torch.ones(bsz, 100, 2048)
         vid_l = torch.ones(bsz).fill_(100).long()
-        return (q, q_l, a0, a0_l, a1, a1_l, a2, a2_l, a3, a3_l, a4, a4_l,
-            sub, sub_l, vcpt, vcpt_l, vid, vid_l)
+        return q, q_l, a0, a0_l, a1, a1_l, a2, a2_l, a3, a3_l, a4, a4_l, sub, sub_l, vcpt, vcpt_l, vid, vid_l
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4, 'hsz': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jayleicn_TVQA(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MLP(*[], **{'in_dim': 4, 'out_dim': 4, 'hsz': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

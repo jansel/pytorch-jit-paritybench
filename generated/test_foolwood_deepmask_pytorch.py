@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,41 +103,33 @@ class SymmetricPad2d(nn.Module):
         output = torch.zeros(input.shape[0], input.shape[1], h, w)
         c_input = input
         if self.pad_t < 0:
-            c_input = c_input.narrow(2, -self.pad_t, c_input.shape[2] +
-                self.pad_t)
+            c_input = c_input.narrow(2, -self.pad_t, c_input.shape[2] + self.pad_t)
         if self.pad_b < 0:
             c_input = c_input.narrow(2, 0, c_input.shape[2] + self.pad_b)
         if self.pad_l < 0:
-            c_input = c_input.narrow(3, -self.pad_l, c_input.shape[3] +
-                self.pad_l)
+            c_input = c_input.narrow(3, -self.pad_l, c_input.shape[3] + self.pad_l)
         if self.pad_r < 0:
             c_input = c_input.narrow(3, 0, c_input.shape[3] + self.pad_r)
         c_output = output
         if self.pad_t > 0:
-            c_output = c_output.narrow(2, self.pad_t, c_output.shape[2] -
-                self.pad_t)
+            c_output = c_output.narrow(2, self.pad_t, c_output.shape[2] - self.pad_t)
         if self.pad_b > 0:
             c_output = c_output.narrow(2, 0, c_output.shape[2] - self.pad_b)
         if self.pad_l > 0:
-            c_output = c_output.narrow(3, self.pad_l, c_output.shape[3] -
-                self.pad_l)
+            c_output = c_output.narrow(3, self.pad_l, c_output.shape[3] - self.pad_l)
         if self.pad_r > 0:
             c_output = c_output.narrow(3, 0, c_output.shape[3] - self.pad_r)
         c_output.copy_(c_input)
         assert w >= 2 * self.pad_l and w >= 2 * self.pad_r and h >= 2 * self.pad_t and h >= 2 * self.pad_b
         """input is too small"""
         for i in range(self.pad_t):
-            output.narrow(2, self.pad_t - i - 1, 1).copy_(output.narrow(2, 
-                self.pad_t + i, 1))
+            output.narrow(2, self.pad_t - i - 1, 1).copy_(output.narrow(2, self.pad_t + i, 1))
         for i in range(self.pad_b):
-            output.narrow(2, output.shape[2] - self.pad_b + i, 1).copy_(output
-                .narrow(2, output.shape[2] - self.pad_b - i - 1, 1))
+            output.narrow(2, output.shape[2] - self.pad_b + i, 1).copy_(output.narrow(2, output.shape[2] - self.pad_b - i - 1, 1))
         for i in range(self.pad_l):
-            output.narrow(3, self.pad_l - i - 1, 1).copy_(output.narrow(3, 
-                self.pad_l + i, 1))
+            output.narrow(3, self.pad_l - i - 1, 1).copy_(output.narrow(3, self.pad_l + i, 1))
         for i in range(self.pad_r):
-            output.narrow(3, output.shape[3] - self.pad_r + i, 1).copy_(output
-                .narrow(3, output.shape[3] - self.pad_r - i - 1, 1))
+            output.narrow(3, output.shape[3] - self.pad_r + i, 1).copy_(output.narrow(3, output.shape[3] - self.pad_r - i - 1, 1))
         return output
 
 
@@ -155,20 +148,14 @@ def updatePadding(net, nn_padding):
             out = updatePadding(subnet, nn_padding)
             if out != -1:
                 p = out
-                in_c, out_c, k, s, _, d, g, b = (subnet.in_channels, subnet
-                    .out_channels, subnet.kernel_size[0], subnet.stride[0],
-                    subnet.padding[0], subnet.dilation[0], subnet.groups,
-                    subnet.bias)
-                conv_temple = nn.Conv2d(in_c, out_c, k, stride=s, padding=0,
-                    dilation=d, groups=g, bias=b)
+                in_c, out_c, k, s, _, d, g, b = subnet.in_channels, subnet.out_channels, subnet.kernel_size[0], subnet.stride[0], subnet.padding[0], subnet.dilation[0], subnet.groups, subnet.bias
+                conv_temple = nn.Conv2d(in_c, out_c, k, stride=s, padding=0, dilation=d, groups=g, bias=b)
                 conv_temple.weight = subnet.weight
                 conv_temple.bias = subnet.bias
                 if p > 1:
-                    net._modules[modules_keys[i]] = nn.Sequential(
-                        SymmetricPad2d(p), conv_temple)
+                    net._modules[modules_keys[i]] = nn.Sequential(SymmetricPad2d(p), conv_temple)
                 else:
-                    net._modules[modules_keys[i]] = nn.Sequential(nn_padding
-                        (p), conv_temple)
+                    net._modules[modules_keys[i]] = nn.Sequential(nn_padding(p), conv_temple)
     elif typename.find('torch.nn.modules.conv.Conv2d') >= 0:
         k_sz, p_sz = net.kernel_size[0], net.padding[0]
         if (k_sz == 3 or k_sz == 7) and p_sz != 0:
@@ -208,22 +195,18 @@ class DeepMask(nn.Module):
     def creatTrunk(self):
         resnet50 = torchvision.models.resnet50(pretrained=True)
         trunk1 = nn.Sequential(*list(resnet50.children())[:-3])
-        trunk2 = nn.Sequential(nn.Conv2d(1024, 128, 1), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 512, self.fSz))
+        trunk2 = nn.Sequential(nn.Conv2d(1024, 128, 1), nn.ReLU(inplace=True), nn.Conv2d(128, 512, self.fSz))
         return nn.Sequential(trunk1, trunk2)
 
     def createMaskBranch(self):
-        maskBranch = nn.Sequential(nn.Conv2d(512, self.config.oSz ** 2, 1),
-            Reshape(self.config.oSz))
+        maskBranch = nn.Sequential(nn.Conv2d(512, self.config.oSz ** 2, 1), Reshape(self.config.oSz))
         if self.config.gSz > self.config.oSz:
-            upSample = nn.UpsamplingBilinear2d(size=[self.config.gSz, self.
-                config.gSz])
+            upSample = nn.UpsamplingBilinear2d(size=[self.config.gSz, self.config.gSz])
             maskBranch = nn.Sequential(maskBranch, upSample)
         return maskBranch
 
     def createScoreBranch(self):
-        scoreBranch = nn.Sequential(nn.Dropout(0.5), nn.Conv2d(512, 1024, 1
-            ), nn.Threshold(0, 1e-06), nn.Dropout(0.5), nn.Conv2d(1024, 1, 1))
+        scoreBranch = nn.Sequential(nn.Dropout(0.5), nn.Conv2d(512, 1024, 1), nn.Threshold(0, 1e-06), nn.Dropout(0.5), nn.Conv2d(1024, 1, 1))
         return scoreBranch
 
 
@@ -253,11 +236,9 @@ def check_keys(model, pretrained_state_dict):
     unused_pretrained_keys = ckpt_keys - model_keys
     missing_keys = model_keys - ckpt_keys
     logger.info('missing keys:{}'.format(len(missing_keys)))
-    logger.info('unused checkpoint keys:{}'.format(len(unused_pretrained_keys))
-        )
+    logger.info('unused checkpoint keys:{}'.format(len(unused_pretrained_keys)))
     logger.info('used keys:{}'.format(len(used_pretrained_keys)))
-    assert len(used_pretrained_keys
-        ) > 0, 'load NONE from pretrained checkpoint'
+    assert len(used_pretrained_keys) > 0, 'load NONE from pretrained checkpoint'
     return True
 
 
@@ -271,11 +252,9 @@ def remove_prefix(state_dict, prefix):
 def load_pretrain(model, pretrained_path):
     logger.info('load pretrained model from {}'.format(pretrained_path))
     device = torch.cuda.current_device()
-    pretrained_dict = torch.load(pretrained_path, map_location=lambda
-        storage, loc: storage.cuda(device))
+    pretrained_dict = torch.load(pretrained_path, map_location=lambda storage, loc: storage.cuda(device))
     if 'state_dict' in pretrained_dict.keys():
-        pretrained_dict = remove_prefix(pretrained_dict['state_dict'],
-            'module.')
+        pretrained_dict = remove_prefix(pretrained_dict['state_dict'], 'module.')
     else:
         pretrained_dict = remove_prefix(pretrained_dict, 'module.')
     check_keys(model, pretrained_dict)
@@ -291,8 +270,7 @@ class SharpMask(nn.Module):
         self.km, self.ks = config.km, config.ks
         self.skpos = [6, 5, 4, 2]
         deepmask = DeepMask(config)
-        deeomask_resume = os.path.join('exps', 'deepmask', 'train',
-            'model_best.pth.tar')
+        deeomask_resume = os.path.join('exps', 'deepmask', 'train', 'model_best.pth.tar')
         assert os.path.exists(deeomask_resume), 'Please train DeepMask first'
         deepmask = load_pretrain(deepmask, deeomask_resume)
         self.trunk = deepmask.trunk
@@ -301,10 +279,8 @@ class SharpMask(nn.Module):
         self.maskBranchDM = deepmask.maskBranch
         self.fSz = deepmask.fSz
         self.refs = self.createTopDownRefinement()
-        nph = sum(p.numel() for h in self.neths for p in h.parameters()
-            ) / 1000000.0
-        npv = sum(p.numel() for h in self.netvs for p in h.parameters()
-            ) / 1000000.0
+        nph = sum(p.numel() for h in self.neths for p in h.parameters()) / 1000000.0
+        npv = sum(p.numel() for h in self.netvs for p in h.parameters()) / 1000000.0
         None
         None
         None
@@ -379,8 +355,7 @@ class SharpMask(nn.Module):
         return netvs
 
     def refinement(self, neth, netv):
-        return RefineModule(neth, netv, nn.Sequential(nn.ReLU(inplace=True),
-            nn.UpsamplingNearest2d(scale_factor=2)))
+        return RefineModule(neth, netv, nn.Sequential(nn.ReLU(inplace=True), nn.UpsamplingNearest2d(scale_factor=2)))
 
     def createTopDownRefinement(self):
         self.neths = self.createHorizontal()
@@ -389,8 +364,7 @@ class SharpMask(nn.Module):
         refs.append(self.netvs[0])
         for i in range(len(self.skpos)):
             refs.append(self.refinement(self.neths[i], self.netvs[i + 1]))
-        refs.append(nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(self.km //
-            2 ** (len(refs) - 1), 1, 3)))
+        refs.append(nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(self.km // 2 ** (len(refs) - 1), 1, 3)))
         return refs
 
 
@@ -398,18 +372,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DeepMask,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
+    (RefineModule,
+     lambda: ([], {'l1': _mock_layer(), 'l2': _mock_layer(), 'l3': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reshape,
+     lambda: ([], {'oSz': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SymmetricPad2d,
+     lambda: ([], {'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_foolwood_deepmask_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DeepMask(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(RefineModule(*[], **{'l1': _mock_layer(), 'l2': _mock_layer(), 'l3': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Reshape(*[], **{'oSz': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SymmetricPad2d(*[], **{'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

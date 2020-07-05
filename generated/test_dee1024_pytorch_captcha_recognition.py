@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -39,20 +40,11 @@ class CNN(nn.Module):
 
     def __init__(self):
         super(CNN, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, padding
-            =1), nn.BatchNorm2d(32), nn.Dropout(0.5), nn.ReLU(), nn.
-            MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64), nn.Dropout(0.5), nn.ReLU(), nn.
-            MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64), nn.Dropout(0.5), nn.ReLU(), nn.
-            MaxPool2d(2))
-        self.fc = nn.Sequential(nn.Linear(captcha_setting.IMAGE_WIDTH // 8 *
-            (captcha_setting.IMAGE_HEIGHT // 8) * 64, 1024), nn.Dropout(0.5
-            ), nn.ReLU())
-        self.rfc = nn.Sequential(nn.Linear(1024, captcha_setting.
-            MAX_CAPTCHA * captcha_setting.ALL_CHAR_SET_LEN))
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, padding=1), nn.BatchNorm2d(32), nn.Dropout(0.5), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.Dropout(0.5), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.Dropout(0.5), nn.ReLU(), nn.MaxPool2d(2))
+        self.fc = nn.Sequential(nn.Linear(captcha_setting.IMAGE_WIDTH // 8 * (captcha_setting.IMAGE_HEIGHT // 8) * 64, 1024), nn.Dropout(0.5), nn.ReLU())
+        self.rfc = nn.Sequential(nn.Linear(1024, captcha_setting.MAX_CAPTCHA * captcha_setting.ALL_CHAR_SET_LEN))
 
     def forward(self, x):
         out = self.layer1(x)
@@ -63,10 +55,3 @@ class CNN(nn.Module):
         out = self.rfc(out)
         return out
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_dee1024_pytorch_captcha_recognition(_paritybench_base):
-    pass

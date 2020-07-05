@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,21 +66,18 @@ class MultiLayerLSTM(nn.Module):
     Note: Dropout is deactivated on the last layer.
     """
 
-    def __init__(self, input_size, layer_type, layer_sizes=(64, 64), *args,
-        **kwargs):
+    def __init__(self, input_size, layer_type, layer_sizes=(64, 64), *args, **kwargs):
         super(MultiLayerLSTM, self).__init__()
         rnn = layer_type
         layers = []
         prev_size = input_size
         for size in layer_sizes[:-1]:
-            layer = rnn(*args, input_size=prev_size, hidden_size=size, **kwargs
-                )
+            layer = rnn(*args, input_size=prev_size, hidden_size=size, **kwargs)
             layers.append(layer)
             prev_size = size
         if 'dropout' in kwargs:
             del kwargs['dropout']
-        layer = rnn(*args, input_size=prev_size, hidden_size=layer_sizes[-1
-            ], dropout=0.0, **kwargs)
+        layer = rnn(*args, input_size=prev_size, hidden_size=layer_sizes[-1], dropout=0.0, **kwargs)
         layers.append(layer)
         self.layers = layers
         self.layer_sizes = layer_sizes
@@ -94,8 +92,7 @@ class MultiLayerLSTM(nn.Module):
         hiddens = []
         for l in self.layers:
             std = math.sqrt(2.0 / (l.input_size + l.hidden_size))
-            hiddens.append([V(T(1, bsz, l.hidden_size).normal_(0, std)), V(
-                T(1, bsz, l.hidden_size).normal_(0, std))])
+            hiddens.append([V(T(1, bsz, l.hidden_size).normal_(0, std)), V(T(1, bsz, l.hidden_size).normal_(0, std))])
         return hiddens
 
     def sample_mask(self):
@@ -169,8 +166,7 @@ class SlowLSTM(nn.Module):
         h_t = h_t.view(h_t.size(0), 1, -1)
         c_t = c_t.view(c_t.size(0), 1, -1)
         if self.dropout > 0.0:
-            F.dropout(h_t, p=self.dropout, training=self.training, inplace=True
-                )
+            F.dropout(h_t, p=self.dropout, training=self.training, inplace=True)
         return h_t, (h_t, c_t)
 
     def sample_mask(self):
@@ -192,8 +188,7 @@ class LSTM(nn.Module):
             * semeniuta: uses SemeniutaLSTM's dropout
     """
 
-    def __init__(self, input_size, hidden_size, bias=True, dropout=0.0,
-        dropout_method='pytorch'):
+    def __init__(self, input_size, hidden_size, bias=True, dropout=0.0, dropout_method='pytorch'):
         super(LSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -202,8 +197,7 @@ class LSTM(nn.Module):
         self.i2h = nn.Linear(input_size, 4 * hidden_size, bias=bias)
         self.h2h = nn.Linear(hidden_size, 4 * hidden_size, bias=bias)
         self.reset_parameters()
-        assert dropout_method.lower() in ['pytorch', 'gal', 'moon', 'semeniuta'
-            ]
+        assert dropout_method.lower() in ['pytorch', 'gal', 'moon', 'semeniuta']
         self.dropout_method = dropout_method
 
     def sample_mask(self):
@@ -236,8 +230,7 @@ class LSTM(nn.Module):
         h_t = th.mul(o_t, c_t.tanh())
         if do_dropout:
             if self.dropout_method == 'pytorch':
-                F.dropout(h_t, p=self.dropout, training=self.training,
-                    inplace=True)
+                F.dropout(h_t, p=self.dropout, training=self.training, inplace=True)
             if self.dropout_method == 'gal':
                 h_t.data.set_(th.mul(h_t, self.mask).data)
                 h_t.data *= 1.0 / (1.0 - self.dropout)
@@ -276,8 +269,7 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         size = x.size()
         x = x.view(x.size(0), -1)
-        x = (x - th.mean(x, 1).expand_as(x)) / th.sqrt(th.var(x, 1).
-            expand_as(x) + self.epsilon)
+        x = (x - th.mean(x, 1).expand_as(x)) / th.sqrt(th.var(x, 1).expand_as(x) + self.epsilon)
         if self.learnable:
             x = self.alpha.expand_as(x) * x + self.beta.expand_as(x)
         return x.view(size)
@@ -341,14 +333,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaLayerNorm,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (BradburyLayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_seba_1511_lstms_pth(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BaLayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BradburyLayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

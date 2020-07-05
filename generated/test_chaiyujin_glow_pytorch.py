@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,33 +55,22 @@ from torch.utils.data import DataLoader
 
 
 def f(in_channels, out_channels, hidden_channels):
-    return nn.Sequential(modules.Conv2d(in_channels, hidden_channels), nn.
-        ReLU(inplace=False), modules.Conv2d(hidden_channels,
-        hidden_channels, kernel_size=[1, 1]), nn.ReLU(inplace=False),
-        modules.Conv2dZeros(hidden_channels, out_channels))
+    return nn.Sequential(modules.Conv2d(in_channels, hidden_channels), nn.ReLU(inplace=False), modules.Conv2d(hidden_channels, hidden_channels, kernel_size=[1, 1]), nn.ReLU(inplace=False), modules.Conv2dZeros(hidden_channels, out_channels))
 
 
 class FlowStep(nn.Module):
     FlowCoupling = ['additive', 'affine']
-    FlowPermutation = {'reverse': lambda obj, z, logdet, rev: (obj.reverse(
-        z, rev), logdet), 'shuffle': lambda obj, z, logdet, rev: (obj.
-        shuffle(z, rev), logdet), 'invconv': lambda obj, z, logdet, rev:
-        obj.invconv(z, logdet, rev)}
+    FlowPermutation = {'reverse': lambda obj, z, logdet, rev: (obj.reverse(z, rev), logdet), 'shuffle': lambda obj, z, logdet, rev: (obj.shuffle(z, rev), logdet), 'invconv': lambda obj, z, logdet, rev: obj.invconv(z, logdet, rev)}
 
-    def __init__(self, in_channels, hidden_channels, actnorm_scale=1.0,
-        flow_permutation='invconv', flow_coupling='additive', LU_decomposed
-        =False):
-        assert flow_coupling in FlowStep.FlowCoupling, 'flow_coupling should be in `{}`'.format(
-            FlowStep.FlowCoupling)
-        assert flow_permutation in FlowStep.FlowPermutation, 'float_permutation should be in `{}`'.format(
-            FlowStep.FlowPermutation.keys())
+    def __init__(self, in_channels, hidden_channels, actnorm_scale=1.0, flow_permutation='invconv', flow_coupling='additive', LU_decomposed=False):
+        assert flow_coupling in FlowStep.FlowCoupling, 'flow_coupling should be in `{}`'.format(FlowStep.FlowCoupling)
+        assert flow_permutation in FlowStep.FlowPermutation, 'float_permutation should be in `{}`'.format(FlowStep.FlowPermutation.keys())
         super().__init__()
         self.flow_permutation = flow_permutation
         self.flow_coupling = flow_coupling
         self.actnorm = modules.ActNorm2d(in_channels, actnorm_scale)
         if flow_permutation == 'invconv':
-            self.invconv = modules.InvertibleConv1x1(in_channels,
-                LU_decomposed=LU_decomposed)
+            self.invconv = modules.InvertibleConv1x1(in_channels, LU_decomposed=LU_decomposed)
         elif flow_permutation == 'shuffle':
             self.shuffle = modules.Permute2d(in_channels, shuffle=True)
         else:
@@ -99,8 +89,7 @@ class FlowStep(nn.Module):
     def normal_flow(self, input, logdet):
         assert input.size(1) % 2 == 0
         z, logdet = self.actnorm(input, logdet=logdet, reverse=False)
-        z, logdet = FlowStep.FlowPermutation[self.flow_permutation](self, z,
-            logdet, False)
+        z, logdet = FlowStep.FlowPermutation[self.flow_permutation](self, z, logdet, False)
         z1, z2 = thops.split_feature(z, 'split')
         if self.flow_coupling == 'additive':
             z2 = z2 + self.f(z1)
@@ -127,17 +116,14 @@ class FlowStep(nn.Module):
             z2 = z2 - shift
             logdet = -thops.sum(torch.log(scale), dim=[1, 2, 3]) + logdet
         z = thops.cat_feature(z1, z2)
-        z, logdet = FlowStep.FlowPermutation[self.flow_permutation](self, z,
-            logdet, True)
+        z, logdet = FlowStep.FlowPermutation[self.flow_permutation](self, z, logdet, True)
         z, logdet = self.actnorm(z, logdet=logdet, reverse=True)
         return z, logdet
 
 
 class FlowNet(nn.Module):
 
-    def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale=
-        1.0, flow_permutation='invconv', flow_coupling='additive',
-        LU_decomposed=False):
+    def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale=1.0, flow_permutation='invconv', flow_coupling='additive', LU_decomposed=False):
         """
                              K                                      K
         --> [Squeeze] -> [FlowStep] -> [Split] -> [Squeeze] -> [FlowStep]
@@ -157,10 +143,7 @@ class FlowNet(nn.Module):
             self.layers.append(modules.SqueezeLayer(factor=2))
             self.output_shapes.append([-1, C, H, W])
             for _ in range(K):
-                self.layers.append(FlowStep(in_channels=C, hidden_channels=
-                    hidden_channels, actnorm_scale=actnorm_scale,
-                    flow_permutation=flow_permutation, flow_coupling=
-                    flow_coupling, LU_decomposed=LU_decomposed))
+                self.layers.append(FlowStep(in_channels=C, hidden_channels=hidden_channels, actnorm_scale=actnorm_scale, flow_permutation=flow_permutation, flow_coupling=flow_coupling, LU_decomposed=LU_decomposed))
                 self.output_shapes.append([-1, C, H, W])
             if i < L - 1:
                 self.layers.append(modules.Split2d(num_channels=C))
@@ -193,12 +176,7 @@ class Glow(nn.Module):
 
     def __init__(self, hparams):
         super().__init__()
-        self.flow = FlowNet(image_shape=hparams.Glow.image_shape,
-            hidden_channels=hparams.Glow.hidden_channels, K=hparams.Glow.K,
-            L=hparams.Glow.L, actnorm_scale=hparams.Glow.actnorm_scale,
-            flow_permutation=hparams.Glow.flow_permutation, flow_coupling=
-            hparams.Glow.flow_coupling, LU_decomposed=hparams.Glow.
-            LU_decomposed)
+        self.flow = FlowNet(image_shape=hparams.Glow.image_shape, hidden_channels=hparams.Glow.hidden_channels, K=hparams.Glow.K, L=hparams.Glow.L, actnorm_scale=hparams.Glow.actnorm_scale, flow_permutation=hparams.Glow.flow_permutation, flow_coupling=hparams.Glow.flow_coupling, LU_decomposed=hparams.Glow.LU_decomposed)
         self.hparams = hparams
         self.y_classes = hparams.Glow.y_classes
         if hparams.Glow.learn_top:
@@ -206,15 +184,11 @@ class Glow(nn.Module):
             self.learn_top = modules.Conv2dZeros(C * 2, C * 2)
         if hparams.Glow.y_condition:
             C = self.flow.output_shapes[-1][1]
-            self.project_ycond = modules.LinearZeros(hparams.Glow.y_classes,
-                2 * C)
+            self.project_ycond = modules.LinearZeros(hparams.Glow.y_classes, 2 * C)
             self.project_class = modules.LinearZeros(C, hparams.Glow.y_classes)
         num_device = len(utils.get_proper_device(hparams.Device.glow, False))
         assert hparams.Train.batch_size % num_device == 0
-        self.register_parameter('prior_h', nn.Parameter(torch.zeros([
-            hparams.Train.batch_size // num_device, self.flow.output_shapes
-            [-1][1] * 2, self.flow.output_shapes[-1][2], self.flow.
-            output_shapes[-1][3]])))
+        self.register_parameter('prior_h', nn.Parameter(torch.zeros([hparams.Train.batch_size // num_device, self.flow.output_shapes[-1][1] * 2, self.flow.output_shapes[-1][2], self.flow.output_shapes[-1][3]])))
 
     def prior(self, y_onehot=None):
         B, C = self.prior_h.size(0), self.prior_h.size(1)
@@ -228,8 +202,7 @@ class Glow(nn.Module):
             h += yp
         return thops.split_feature(h, 'split')
 
-    def forward(self, x=None, y_onehot=None, z=None, eps_std=None, reverse=
-        False):
+    def forward(self, x=None, y_onehot=None, z=None, eps_std=None, reverse=False):
         if not reverse:
             return self.normal_flow(x, y_onehot)
         else:
@@ -237,8 +210,7 @@ class Glow(nn.Module):
 
     def normal_flow(self, x, y_onehot):
         pixels = thops.pixels(x)
-        z = x + torch.normal(mean=torch.zeros_like(x), std=torch.ones_like(
-            x) * (1.0 / 256.0))
+        z = x + torch.normal(mean=torch.zeros_like(x), std=torch.ones_like(x) * (1.0 / 256.0))
         logdet = torch.zeros_like(x[:, (0), (0), (0)])
         logdet += float(-np.log(256.0) * pixels)
         z, objective = self.flow(z, logdet=logdet, reverse=False)
@@ -355,10 +327,8 @@ class _ActNorm(nn.Module):
             return
         assert input.device == self.bias.device
         with torch.no_grad():
-            bias = thops.mean(input.clone(), dim=[0, 2, 3], keepdim=True
-                ) * -1.0
-            vars = thops.mean((input.clone() + bias) ** 2, dim=[0, 2, 3],
-                keepdim=True)
+            bias = thops.mean(input.clone(), dim=[0, 2, 3], keepdim=True) * -1.0
+            vars = thops.mean((input.clone() + bias) ** 2, dim=[0, 2, 3], keepdim=True)
             logs = torch.log(self.scale / (torch.sqrt(vars) + 1e-06))
             self.bias.data.copy_(bias.data)
             self.logs.data.copy_(logs.data)
@@ -405,8 +375,7 @@ class LinearZeros(nn.Linear):
     def __init__(self, in_channels, out_channels, logscale_factor=3):
         super().__init__(in_channels, out_channels)
         self.logscale_factor = logscale_factor
-        self.register_parameter('logs', nn.Parameter(torch.zeros(out_channels))
-            )
+        self.register_parameter('logs', nn.Parameter(torch.zeros(out_channels)))
         self.weight.data.zero_()
         self.bias.data.zero_()
 
@@ -422,15 +391,11 @@ class ActNorm2d(_ActNorm):
 
     def _check_input_dim(self, input):
         assert len(input.size()) == 4
-        assert input.size(1
-            ) == self.num_features, '[ActNorm]: input should be in shape as `BCHW`, channels should be {} rather than {}'.format(
-            self.num_features, input.size())
+        assert input.size(1) == self.num_features, '[ActNorm]: input should be in shape as `BCHW`, channels should be {} rather than {}'.format(self.num_features, input.size())
 
 
 class Conv2d(nn.Conv2d):
-    pad_dict = {'same': lambda kernel, stride: [(((k - 1) * s + 1) // 2) for
-        k, s in zip(kernel, stride)], 'valid': lambda kernel, stride: [(0) for
-        _ in kernel]}
+    pad_dict = {'same': lambda kernel, stride: [(((k - 1) * s + 1) // 2) for k, s in zip(kernel, stride)], 'valid': lambda kernel, stride: [(0) for _ in kernel]}
 
     @staticmethod
     def get_padding(padding, kernel_size, stride):
@@ -446,11 +411,9 @@ class Conv2d(nn.Conv2d):
                 raise ValueError('{} is not supported'.format(padding))
         return padding
 
-    def __init__(self, in_channels, out_channels, kernel_size=[3, 3],
-        stride=[1, 1], padding='same', do_actnorm=True, weight_std=0.05):
+    def __init__(self, in_channels, out_channels, kernel_size=[3, 3], stride=[1, 1], padding='same', do_actnorm=True, weight_std=0.05):
         padding = Conv2d.get_padding(padding, kernel_size, stride)
-        super().__init__(in_channels, out_channels, kernel_size, stride,
-            padding, bias=not do_actnorm)
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, bias=not do_actnorm)
         self.weight.data.normal_(mean=0.0, std=weight_std)
         if not do_actnorm:
             self.bias.data.zero_()
@@ -467,14 +430,11 @@ class Conv2d(nn.Conv2d):
 
 class Conv2dZeros(nn.Conv2d):
 
-    def __init__(self, in_channels, out_channels, kernel_size=[3, 3],
-        stride=[1, 1], padding='same', logscale_factor=3):
+    def __init__(self, in_channels, out_channels, kernel_size=[3, 3], stride=[1, 1], padding='same', logscale_factor=3):
         padding = Conv2d.get_padding(padding, kernel_size, stride)
-        super().__init__(in_channels, out_channels, kernel_size, stride,
-            padding)
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding)
         self.logscale_factor = logscale_factor
-        self.register_parameter('logs', nn.Parameter(torch.zeros(
-            out_channels, 1, 1)))
+        self.register_parameter('logs', nn.Parameter(torch.zeros(out_channels, 1, 1)))
         self.weight.data.zero_()
         self.bias.data.zero_()
 
@@ -515,8 +475,7 @@ class InvertibleConv1x1(nn.Module):
         w_shape = [num_channels, num_channels]
         w_init = np.linalg.qr(np.random.randn(*w_shape))[0].astype(np.float32)
         if not LU_decomposed:
-            self.register_parameter('weight', nn.Parameter(torch.Tensor(
-                w_init)))
+            self.register_parameter('weight', nn.Parameter(torch.Tensor(w_init)))
         else:
             np_p, np_l, np_u = scipy.linalg.lu(w_init)
             np_s = np.diag(np_u)
@@ -526,11 +485,9 @@ class InvertibleConv1x1(nn.Module):
             l_mask = np.tril(np.ones(w_shape, dtype=np.float32), -1)
             eye = np.eye(*w_shape, dtype=np.float32)
             self.register_buffer('p', torch.Tensor(np_p.astype(np.float32)))
-            self.register_buffer('sign_s', torch.Tensor(np_sign_s.astype(np
-                .float32)))
+            self.register_buffer('sign_s', torch.Tensor(np_sign_s.astype(np.float32)))
             self.l = nn.Parameter(torch.Tensor(np_l.astype(np.float32)))
-            self.log_s = nn.Parameter(torch.Tensor(np_log_s.astype(np.float32))
-                )
+            self.log_s = nn.Parameter(torch.Tensor(np_log_s.astype(np.float32)))
             self.u = nn.Parameter(torch.Tensor(np_u.astype(np.float32)))
             self.l_mask = torch.Tensor(l_mask)
             self.eye = torch.Tensor(eye)
@@ -545,8 +502,7 @@ class InvertibleConv1x1(nn.Module):
             if not reverse:
                 weight = self.weight.view(w_shape[0], w_shape[1], 1, 1)
             else:
-                weight = torch.inverse(self.weight.double()).float().view(
-                    w_shape[0], w_shape[1], 1, 1)
+                weight = torch.inverse(self.weight.double()).float().view(w_shape[0], w_shape[1], 1, 1)
             return weight, dlogdet
         else:
             self.p = self.p
@@ -554,8 +510,7 @@ class InvertibleConv1x1(nn.Module):
             self.l_mask = self.l_mask
             self.eye = self.eye
             l = self.l * self.l_mask + self.eye
-            u = self.u * self.l_mask.transpose(0, 1).contiguous() + torch.diag(
-                self.sign_s * torch.exp(self.log_s))
+            u = self.u * self.l_mask.transpose(0, 1).contiguous() + torch.diag(self.sign_s * torch.exp(self.log_s))
             dlogdet = thops.sum(self.log_s) * thops.pixels(input)
             if not reverse:
                 w = torch.matmul(self.p, torch.matmul(l, u))
@@ -592,8 +547,7 @@ class GaussianDiag:
               k = 1 (Independent)
               Var = logs ** 2
         """
-        return -0.5 * (logs * 2.0 + (x - mean) ** 2 / torch.exp(logs * 2.0) +
-            GaussianDiag.Log2PI)
+        return -0.5 * (logs * 2.0 + (x - mean) ** 2 / torch.exp(logs * 2.0) + GaussianDiag.Log2PI)
 
     @staticmethod
     def logp(mean, logs, x):
@@ -603,8 +557,7 @@ class GaussianDiag:
     @staticmethod
     def sample(mean, logs, eps_std=None):
         eps_std = eps_std or 1
-        eps = torch.normal(mean=torch.zeros_like(mean), std=torch.ones_like
-            (logs) * eps_std)
+        eps = torch.normal(mean=torch.zeros_like(mean), std=torch.ones_like(logs) * eps_std)
         return mean + torch.exp(logs) * eps
 
 
@@ -684,33 +637,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2dZeros,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearZeros,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Permute2d,
+     lambda: ([], {'num_channels': 4, 'shuffle': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SqueezeLayer,
+     lambda: ([], {'factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_ActNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_chaiyujin_glow_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ActNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Conv2dZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(_ActNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

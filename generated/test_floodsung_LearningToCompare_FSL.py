@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,16 +65,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -88,12 +83,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(64 * 2, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(64 * 2, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size * 3 * 3, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -111,16 +102,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -135,12 +120,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size * 3 * 3, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -158,16 +139,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -182,12 +157,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(64 * 2, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(64 * 2, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size * 3 * 3, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -205,16 +176,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -229,12 +194,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size * 3 * 3, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -252,16 +213,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -276,12 +231,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -299,16 +250,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -323,12 +268,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -346,16 +287,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -370,12 +305,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -393,16 +324,10 @@ class CNNEncoder(nn.Module):
 
     def __init__(self):
         super(CNNEncoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding
-            =0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn
-            .MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
-        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=0), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
+        self.layer4 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU())
 
     def forward(self, x):
         out = self.layer1(x)
@@ -417,12 +342,8 @@ class RelationNetwork(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(RelationNetwork, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.
-            ReLU(), nn.MaxPool2d(2))
+        self.layer1 = nn.Sequential(nn.Conv2d(128, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
+        self.layer2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64, momentum=1, affine=True), nn.ReLU(), nn.MaxPool2d(2))
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 1)
 
@@ -439,9 +360,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNNEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+]
+
 class Test_floodsung_LearningToCompare_FSL(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CNNEncoder(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

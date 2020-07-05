@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,8 +65,7 @@ class ChildSumTreeLSTM(nn.Module):
         iou = self.ioux(inputs) + self.iouh(child_h_sum)
         i, o, u = torch.split(iou, iou.size(1) // 3, dim=1)
         i, o, u = F.sigmoid(i), F.sigmoid(o), F.tanh(u)
-        f = F.sigmoid(self.fh(child_h) + self.fx(inputs).repeat(len(child_h
-            ), 1))
+        f = F.sigmoid(self.fh(child_h) + self.fx(inputs).repeat(len(child_h), 1))
         fc = torch.mul(f, child_c)
         c = torch.mul(i, u) + torch.sum(fc, dim=0, keepdim=True)
         h = torch.mul(o, F.tanh(c))
@@ -75,14 +75,11 @@ class ChildSumTreeLSTM(nn.Module):
         for idx in range(tree.num_children):
             self.forward(tree.children[idx], inputs)
         if tree.num_children == 0:
-            child_c = inputs[0].detach().new(1, self.mem_dim).fill_(0.0
-                ).requires_grad_()
-            child_h = inputs[0].detach().new(1, self.mem_dim).fill_(0.0
-                ).requires_grad_()
+            child_c = inputs[0].detach().new(1, self.mem_dim).fill_(0.0).requires_grad_()
+            child_h = inputs[0].detach().new(1, self.mem_dim).fill_(0.0).requires_grad_()
         else:
             child_c, child_h = zip(*map(lambda x: x.state, tree.children))
-            child_c, child_h = torch.cat(child_c, dim=0), torch.cat(child_h,
-                dim=0)
+            child_c, child_h = torch.cat(child_c, dim=0), torch.cat(child_h, dim=0)
         tree.state = self.node_forward(inputs[tree.idx], child_c, child_h)
         return tree.state
 
@@ -108,11 +105,9 @@ class Similarity(nn.Module):
 
 class SimilarityTreeLSTM(nn.Module):
 
-    def __init__(self, vocab_size, in_dim, mem_dim, hidden_dim, num_classes,
-        sparsity, freeze):
+    def __init__(self, vocab_size, in_dim, mem_dim, hidden_dim, num_classes, sparsity, freeze):
         super(SimilarityTreeLSTM, self).__init__()
-        self.emb = nn.Embedding(vocab_size, in_dim, padding_idx=Constants.
-            PAD, sparse=sparsity)
+        self.emb = nn.Embedding(vocab_size, in_dim, padding_idx=Constants.PAD, sparse=sparsity)
         if freeze:
             self.emb.weight.requires_grad = False
         self.childsumtreelstm = ChildSumTreeLSTM(in_dim, mem_dim)
@@ -131,8 +126,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Similarity,
+     lambda: ([], {'mem_dim': 4, 'hidden_dim': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+]
+
 class Test_dasguptar_treelstm_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Similarity(*[], **{'mem_dim': 4, 'hidden_dim': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[0])
 

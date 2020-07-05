@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,8 +91,7 @@ def weights_init_kaiming(m):
 
 class ClassBlock(nn.Module):
 
-    def __init__(self, input_dim, class_num, dropout=False, relu=False,
-        num_bottleneck=512):
+    def __init__(self, input_dim, class_num, dropout=False, relu=False, num_bottleneck=512):
         super(ClassBlock, self).__init__()
         add_block = []
         num_bottleneck = input_dim
@@ -124,8 +124,7 @@ class ft_net(nn.Module):
         model_ft = models.resnet50(pretrained=True)
         model_ft.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.model = model_ft
-        self.classifier = ClassBlock(2048, class_num, dropout=False, relu=False
-            )
+        self.classifier = ClassBlock(2048, class_num, dropout=False, relu=False)
 
     def forward(self, x):
         x = self.model.conv1(x)
@@ -252,21 +251,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_layumi_Person_reID_triplet_loss(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ClassBlock,
+     lambda: ([], {'input_dim': 4, 'class_num': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (PCB,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ft_net_dense,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ft_net_middle,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
+class Test_layumi_Person_reID_triplet_loss(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(PCB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ft_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ft_net_dense(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ft_net_middle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 

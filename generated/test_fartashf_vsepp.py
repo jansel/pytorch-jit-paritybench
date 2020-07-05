@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,8 +67,7 @@ def l2norm(X):
 
 class EncoderImageFull(nn.Module):
 
-    def __init__(self, embed_size, finetune=False, cnn_type='vgg19',
-        use_abs=False, no_imgnorm=False):
+    def __init__(self, embed_size, finetune=False, cnn_type='vgg19', use_abs=False, no_imgnorm=False):
         """Load pretrained VGG19 and replace top fc layer."""
         super(EncoderImageFull, self).__init__()
         self.embed_size = embed_size
@@ -77,10 +77,8 @@ class EncoderImageFull(nn.Module):
         for param in self.cnn.parameters():
             param.requires_grad = finetune
         if cnn_type.startswith('vgg'):
-            self.fc = nn.Linear(self.cnn.classifier._modules['6'].
-                in_features, embed_size)
-            self.cnn.classifier = nn.Sequential(*list(self.cnn.classifier.
-                children())[:-1])
+            self.fc = nn.Linear(self.cnn.classifier._modules['6'].in_features, embed_size)
+            self.cnn.classifier = nn.Sequential(*list(self.cnn.classifier.children())[:-1])
         elif cnn_type.startswith('resnet'):
             self.fc = nn.Linear(self.cnn.module.fc.in_features, embed_size)
             self.cnn.module.fc = nn.Sequential()
@@ -107,17 +105,13 @@ class EncoderImageFull(nn.Module):
         Handle the models saved before commit pytorch/vision@989d52a
         """
         if 'cnn.classifier.1.weight' in state_dict:
-            state_dict['cnn.classifier.0.weight'] = state_dict[
-                'cnn.classifier.1.weight']
+            state_dict['cnn.classifier.0.weight'] = state_dict['cnn.classifier.1.weight']
             del state_dict['cnn.classifier.1.weight']
-            state_dict['cnn.classifier.0.bias'] = state_dict[
-                'cnn.classifier.1.bias']
+            state_dict['cnn.classifier.0.bias'] = state_dict['cnn.classifier.1.bias']
             del state_dict['cnn.classifier.1.bias']
-            state_dict['cnn.classifier.3.weight'] = state_dict[
-                'cnn.classifier.4.weight']
+            state_dict['cnn.classifier.3.weight'] = state_dict['cnn.classifier.4.weight']
             del state_dict['cnn.classifier.4.weight']
-            state_dict['cnn.classifier.3.bias'] = state_dict[
-                'cnn.classifier.4.bias']
+            state_dict['cnn.classifier.3.bias'] = state_dict['cnn.classifier.4.bias']
             del state_dict['cnn.classifier.4.bias']
         super(EncoderImageFull, self).load_state_dict(state_dict)
 
@@ -180,8 +174,7 @@ class EncoderImagePrecomp(nn.Module):
 
 class EncoderText(nn.Module):
 
-    def __init__(self, vocab_size, word_dim, embed_size, num_layers,
-        use_abs=False):
+    def __init__(self, vocab_size, word_dim, embed_size, num_layers, use_abs=False):
         super(EncoderText, self).__init__()
         self.use_abs = use_abs
         self.embed_size = embed_size
@@ -217,8 +210,7 @@ def cosine_sim(im, s):
 def order_sim(im, s):
     """Order embeddings similarity measure $max(0, s-im)$
     """
-    YmX = s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1)
-        ) - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1))
+    YmX = s.unsqueeze(1).expand(s.size(0), im.size(0), s.size(1)) - im.unsqueeze(0).expand(s.size(0), im.size(0), s.size(1))
     score = -YmX.clamp(min=0).pow(2).sum(2).sqrt().t()
     return score
 
@@ -260,16 +252,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EncoderImageFull,
+     lambda: ([], {'embed_size': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (EncoderImagePrecomp,
+     lambda: ([], {'img_dim': 4, 'embed_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EncoderText,
+     lambda: ([], {'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_fartashf_vsepp(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(EncoderImageFull(*[], **{'embed_size': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(EncoderImagePrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EncoderText(*[], **{'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

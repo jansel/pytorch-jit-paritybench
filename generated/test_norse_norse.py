@@ -66,8 +66,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,20 +144,15 @@ class LIFParameters(NamedTuple):
 
 class Net(torch.nn.Module):
 
-    def __init__(self, device='cpu', num_channels=1, feature_size=32, model
-        ='super', dtype=torch.float):
+    def __init__(self, device='cpu', num_channels=1, feature_size=32, model='super', dtype=torch.float):
         super(Net, self).__init__()
         self.features = int(((feature_size - 4) / 2 - 4) / 2)
         self.conv1 = torch.nn.Conv2d(num_channels, 32, 5, 1)
         self.conv2 = torch.nn.Conv2d(32, 64, 5, 1)
         self.fc1 = torch.nn.Linear(self.features * self.features * 64, 1024)
-        self.lif0 = LIFFeedForwardCell((32, feature_size - 4, feature_size -
-            4), p=LIFParameters(method=model, alpha=100.0))
-        self.lif1 = LIFFeedForwardCell((64, int((feature_size - 4) / 2) - 4,
-            int((feature_size - 4) / 2) - 4), p=LIFParameters(method=model,
-            alpha=100.0))
-        self.lif2 = LIFFeedForwardCell((1024,), p=LIFParameters(method=
-            model, alpha=100.0))
+        self.lif0 = LIFFeedForwardCell((32, feature_size - 4, feature_size - 4), p=LIFParameters(method=model, alpha=100.0))
+        self.lif1 = LIFFeedForwardCell((64, int((feature_size - 4) / 2) - 4, int((feature_size - 4) / 2) - 4), p=LIFParameters(method=model, alpha=100.0))
+        self.lif2 = LIFFeedForwardCell((1024,), p=LIFParameters(method=model, alpha=100.0))
         self.out = LICell(1024, 10)
         self.device = device
         self.dtype = dtype
@@ -164,16 +160,11 @@ class Net(torch.nn.Module):
     def forward(self, x):
         seq_length = x.shape[0]
         seq_batch_size = x.shape[1]
-        s0 = self.lif0.initial_state(seq_batch_size, device=self.device,
-            dtype=self.dtype)
-        s1 = self.lif1.initial_state(seq_batch_size, device=self.device,
-            dtype=self.dtype)
-        s2 = self.lif2.initial_state(seq_batch_size, device=self.device,
-            dtype=self.dtype)
-        so = self.out.initial_state(seq_batch_size, device=self.device,
-            dtype=self.dtype)
-        voltages = torch.zeros(seq_length, seq_batch_size, 10, device=self.
-            device, dtype=self.dtype)
+        s0 = self.lif0.initial_state(seq_batch_size, device=self.device, dtype=self.dtype)
+        s1 = self.lif1.initial_state(seq_batch_size, device=self.device, dtype=self.dtype)
+        s2 = self.lif2.initial_state(seq_batch_size, device=self.device, dtype=self.dtype)
+        so = self.out.initial_state(seq_batch_size, device=self.device, dtype=self.dtype)
+        voltages = torch.zeros(seq_length, seq_batch_size, 10, device=self.device, dtype=self.dtype)
         for ts in range(seq_length):
             z = self.conv1(x[(ts), :])
             z, s0 = self.lif0(z, s0)
@@ -220,8 +211,7 @@ class Policy(torch.nn.Module):
         self.output_features = 2
         self.device = device
         self.constant_current_encoder = ConstantCurrentLIFEncoder(40)
-        self.lif = LIFCell(2 * self.state_dim, self.hidden_features, p=
-            LIFParameters(method='super', alpha=100.0))
+        self.lif = LIFCell(2 * self.state_dim, self.hidden_features, p=LIFParameters(method='super', alpha=100.0))
         self.dropout = torch.nn.Dropout(p=0.5)
         self.readout = LICell(self.hidden_features, self.output_features)
         self.saved_log_probs = []
@@ -230,16 +220,13 @@ class Policy(torch.nn.Module):
     def forward(self, x):
         scale = 50
         x = x
-        x_pos = self.constant_current_encoder(torch.nn.functional.relu(
-            scale * x))
-        x_neg = self.constant_current_encoder(torch.nn.functional.relu(-
-            scale * x))
+        x_pos = self.constant_current_encoder(torch.nn.functional.relu(scale * x))
+        x_neg = self.constant_current_encoder(torch.nn.functional.relu(-scale * x))
         x = torch.cat([x_pos, x_neg], dim=2)
         seq_length, batch_size, _ = x.shape
         s1 = self.lif.initial_state(batch_size, device=self.device)
         so = self.readout.initial_state(batch_size, device=self.device)
-        voltages = torch.zeros(seq_length, batch_size, self.output_features,
-            device=self.device)
+        voltages = torch.zeros(seq_length, batch_size, self.output_features, device=self.device)
         for ts in range(seq_length):
             z1, s1 = self.lif(x[(ts), :, :], s1)
             z1 = self.dropout(z1)
@@ -286,8 +273,7 @@ class LSNNPolicy(torch.nn.Module):
         self.output_features = 2
         self.device = device
         self.constant_current_encoder = ConstantCurrentLIFEncoder(40)
-        self.lif_layer = LSNNCell(2 * self.state_dim, self.hidden_features,
-            p=LSNNParameters(model, alpha=100.0))
+        self.lif_layer = LSNNCell(2 * self.state_dim, self.hidden_features, p=LSNNParameters(model, alpha=100.0))
         self.dropout = torch.nn.Dropout(p=0.5)
         self.readout = LICell(self.hidden_features, self.output_features)
         self.saved_log_probs = []
@@ -295,16 +281,13 @@ class LSNNPolicy(torch.nn.Module):
 
     def forward(self, x):
         scale = 50
-        _, x_pos = self.constant_current_encoder(torch.nn.functional.relu(
-            scale * x))
-        _, x_neg = self.constant_current_encoder(torch.nn.functional.relu(-
-            scale * x))
+        _, x_pos = self.constant_current_encoder(torch.nn.functional.relu(scale * x))
+        _, x_neg = self.constant_current_encoder(torch.nn.functional.relu(-scale * x))
         x = torch.cat([x_pos, x_neg], dim=2)
         seq_length, batch_size, _ = x.shape
         s1 = self.lif_layer.initial_state(batch_size, device=self.device)
         so = self.readout.initial_state(batch_size, device=self.device)
-        voltages = torch.zeros(seq_length, batch_size, self.output_features,
-            device=self.device)
+        voltages = torch.zeros(seq_length, batch_size, self.output_features, device=self.device)
         for ts in range(seq_length):
             z1, s1 = self.lif_layer(x[(ts), :, :], s1)
             z1 = self.dropout(z1)
@@ -321,11 +304,9 @@ class LIFConvNet(torch.nn.Module):
         super(LIFConvNet, self).__init__()
         if FLAGS.net == 'convnet':
             dtype = torch.float
-            self.rsnn = ConvNet(device=device, num_channels=num_channels,
-                feature_size=32, dtype=dtype)
+            self.rsnn = ConvNet(device=device, num_channels=num_channels, feature_size=32, dtype=dtype)
         elif FLAGS.net == 'convnet4':
-            self.rsnn = ConvNet4(device=device, num_channels=num_channels,
-                feature_size=32)
+            self.rsnn = ConvNet4(device=device, num_channels=num_channels, feature_size=32)
         self.device = device
 
     def forward(self, x):
@@ -337,11 +318,9 @@ class LIFConvNet(torch.nn.Module):
 
 class LIFConvNet(torch.nn.Module):
 
-    def __init__(self, input_features, seq_length, model='super', device=
-        'cpu', only_first_spike=False):
+    def __init__(self, input_features, seq_length, model='super', device='cpu', only_first_spike=False):
         super(LIFConvNet, self).__init__()
-        self.constant_current_encoder = ConstantCurrentLIFEncoder(seq_length
-            =seq_length)
+        self.constant_current_encoder = ConstantCurrentLIFEncoder(seq_length=seq_length)
         self.only_first_spike = only_first_spike
         self.input_features = input_features
         self.rsnn = ConvNet4(device=device, method=model)
@@ -350,8 +329,7 @@ class LIFConvNet(torch.nn.Module):
 
     def forward(self, x):
         batch_size = x.shape[0]
-        x = self.constant_current_encoder(x.view(-1, self.input_features) *
-            FLAGS.input_scale)
+        x = self.constant_current_encoder(x.view(-1, self.input_features) * FLAGS.input_scale)
         if self.only_first_spike:
             zeros = torch.zeros_like(x.cpu()).detach().numpy()
             idxs = x.cpu().nonzero().detach().numpy()
@@ -370,8 +348,7 @@ class LIFConvNet(torch.nn.Module):
 
 class ConvNet(torch.nn.Module):
 
-    def __init__(self, device, num_channels=1, feature_size=28, method=
-        'super', dtype=torch.float):
+    def __init__(self, device, num_channels=1, feature_size=28, method='super', dtype=torch.float):
         super(ConvNet, self).__init__()
         self.features = int(((feature_size - 4) / 2 - 4) / 2)
         self.conv1 = torch.nn.Conv2d(num_channels, 20, 5, 1)
@@ -379,13 +356,9 @@ class ConvNet(torch.nn.Module):
         self.fc1 = torch.nn.Linear(self.features * self.features * 50, 500)
         self.out = LICell(500, 10)
         self.device = device
-        self.lif0 = LIFFeedForwardCell((20, feature_size - 4, feature_size -
-            4), p=LIFParameters(method=method, alpha=100.0))
-        self.lif1 = LIFFeedForwardCell((50, int((feature_size - 4) / 2) - 4,
-            int((feature_size - 4) / 2) - 4), p=LIFParameters(method=method,
-            alpha=100.0))
-        self.lif2 = LIFFeedForwardCell((500,), p=LIFParameters(method=
-            method, alpha=100.0))
+        self.lif0 = LIFFeedForwardCell((20, feature_size - 4, feature_size - 4), p=LIFParameters(method=method, alpha=100.0))
+        self.lif1 = LIFFeedForwardCell((50, int((feature_size - 4) / 2) - 4, int((feature_size - 4) / 2) - 4), p=LIFParameters(method=method, alpha=100.0))
+        self.lif2 = LIFFeedForwardCell((500,), p=LIFParameters(method=method, alpha=100.0))
         self.dtype = dtype
 
     def forward(self, x):
@@ -394,10 +367,8 @@ class ConvNet(torch.nn.Module):
         s0 = self.lif0.initial_state(batch_size, self.device, self.dtype)
         s1 = self.lif1.initial_state(batch_size, self.device, self.dtype)
         s2 = self.lif2.initial_state(batch_size, self.device, self.dtype)
-        so = self.out.initial_state(batch_size, device=self.device, dtype=
-            self.dtype)
-        voltages = torch.zeros(seq_length, batch_size, 10, device=self.
-            device, dtype=self.dtype)
+        so = self.out.initial_state(batch_size, device=self.device, dtype=self.dtype)
+        voltages = torch.zeros(seq_length, batch_size, 10, device=self.device, dtype=self.dtype)
         for ts in range(seq_length):
             z = self.conv1(x[(ts), :])
             z, s0 = self.lif0(z, s0)
@@ -415,20 +386,15 @@ class ConvNet(torch.nn.Module):
 
 class ConvNet4(torch.nn.Module):
 
-    def __init__(self, device, num_channels=1, feature_size=28, method=
-        'super', dtype=torch.float):
+    def __init__(self, device, num_channels=1, feature_size=28, method='super', dtype=torch.float):
         super(ConvNet4, self).__init__()
         self.features = int(((feature_size - 4) / 2 - 4) / 2)
         self.conv1 = torch.nn.Conv2d(num_channels, 32, 5, 1)
         self.conv2 = torch.nn.Conv2d(32, 64, 5, 1)
         self.fc1 = torch.nn.Linear(self.features * self.features * 64, 1024)
-        self.lif0 = LIFFeedForwardCell((32, feature_size - 4, feature_size -
-            4), p=LIFParameters(method=method, alpha=100.0))
-        self.lif1 = LIFFeedForwardCell((64, int((feature_size - 4) / 2) - 4,
-            int((feature_size - 4) / 2) - 4), p=LIFParameters(method=method,
-            alpha=100.0))
-        self.lif2 = LIFFeedForwardCell((1024,), p=LIFParameters(method=
-            method, alpha=100.0))
+        self.lif0 = LIFFeedForwardCell((32, feature_size - 4, feature_size - 4), p=LIFParameters(method=method, alpha=100.0))
+        self.lif1 = LIFFeedForwardCell((64, int((feature_size - 4) / 2) - 4, int((feature_size - 4) / 2) - 4), p=LIFParameters(method=method, alpha=100.0))
+        self.lif2 = LIFFeedForwardCell((1024,), p=LIFParameters(method=method, alpha=100.0))
         self.out = LICell(1024, 10)
         self.device = device
         self.dtype = dtype
@@ -436,16 +402,11 @@ class ConvNet4(torch.nn.Module):
     def forward(self, x):
         seq_length = x.shape[0]
         batch_size = x.shape[1]
-        s0 = self.lif0.initial_state(batch_size, device=self.device, dtype=
-            self.dtype)
-        s1 = self.lif1.initial_state(batch_size, device=self.device, dtype=
-            self.dtype)
-        s2 = self.lif2.initial_state(batch_size, device=self.device, dtype=
-            self.dtype)
-        so = self.out.initial_state(batch_size, device=self.device, dtype=
-            self.dtype)
-        voltages = torch.zeros(seq_length, batch_size, 10, device=self.
-            device, dtype=self.dtype)
+        s0 = self.lif0.initial_state(batch_size, device=self.device, dtype=self.dtype)
+        s1 = self.lif1.initial_state(batch_size, device=self.device, dtype=self.dtype)
+        s2 = self.lif2.initial_state(batch_size, device=self.device, dtype=self.dtype)
+        so = self.out.initial_state(batch_size, device=self.device, dtype=self.dtype)
+        voltages = torch.zeros(seq_length, batch_size, 10, device=self.device, dtype=self.dtype)
         for ts in range(seq_length):
             z = self.conv1(x[(ts), :])
             z, s0 = self.lif0(z, s0)
@@ -516,8 +477,7 @@ def heaviside(data):
     .. math::
         H[n]=\\begin{cases} 0, & n <= 0, \\ 1, & n \\g 0, \\end{cases}
     """
-    return torch.where(data <= torch.zeros_like(data), torch.zeros_like(
-        data), torch.ones_like(data))
+    return torch.where(data <= torch.zeros_like(data), torch.zeros_like(data), torch.ones_like(data))
 
 
 class HeaviCirc(torch.autograd.Function):
@@ -536,9 +496,7 @@ class HeaviCirc(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dy):
         x, alpha = ctx.saved_tensors
-        return dy * (-(x.pow(2) / (2 * (alpha ** 2 + x.pow(2)).pow(1.5))) +
-            1 / (2 * (alpha ** 2 + x.pow(2)).sqrt())
-            ) * 2 * alpha, torch.zeros_like(x)
+        return dy * (-(x.pow(2) / (2 * (alpha ** 2 + x.pow(2)).pow(1.5))) + 1 / (2 * (alpha ** 2 + x.pow(2)).sqrt())) * 2 * alpha, torch.zeros_like(x)
 
 
 heavi_circ_fn = HeaviCirc.apply
@@ -647,16 +605,10 @@ def threshold(x: torch.Tensor, method: str, alpha: float) ->torch.Tensor:
     elif method == 'logistic':
         return logistic_fn(x, alpha)
     else:
-        raise ValueError(
-            f'Attempted to apply threshold function {method}, but no such ' +
-            'function exist. We currently support heaviside, super, ' +
-            'tanh, tent, circ, and logistic.')
+        raise ValueError(f'Attempted to apply threshold function {method}, but no such ' + 'function exist. We currently support heaviside, super, ' + 'tanh, tent, circ, and logistic.')
 
 
-def coba_lif_step(input_tensor: torch.Tensor, state: CobaLIFState,
-    input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p:
-    CobaLIFParameters=CobaLIFParameters(), dt: float=0.001) ->Tuple[torch.
-    Tensor, CobaLIFState]:
+def coba_lif_step(input_tensor: torch.Tensor, state: CobaLIFState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p: CobaLIFParameters=CobaLIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, CobaLIFState]:
     """Euler integration step for a conductance based LIF neuron.
 
     Parameters:
@@ -673,16 +625,11 @@ def coba_lif_step(input_tensor: torch.Tensor, state: CobaLIFState,
     g_e = state.g_e + dg_e
     dg_i = -dt * p.tau_syn_inh_inv * state.g_i
     g_i = state.g_i + dg_i
-    g_e = g_e + torch.nn.functional.linear(input_tensor, torch.nn.
-        functional.relu(input_weights))
-    g_i = g_i + torch.nn.functional.linear(input_tensor, torch.nn.
-        functional.relu(-input_weights))
-    g_e = g_e + torch.nn.functional.linear(state.z, torch.nn.functional.
-        relu(recurrent_weights))
-    g_i = g_i + torch.nn.functional.linear(state.z, torch.nn.functional.
-        relu(-recurrent_weights))
-    dv = dt * p.c_m_inv * (p.g_l * (p.v_rest - state.v) + g_e * (p.e_rev_E -
-        state.v) + g_i * (p.e_rev_I - state.v))
+    g_e = g_e + torch.nn.functional.linear(input_tensor, torch.nn.functional.relu(input_weights))
+    g_i = g_i + torch.nn.functional.linear(input_tensor, torch.nn.functional.relu(-input_weights))
+    g_e = g_e + torch.nn.functional.linear(state.z, torch.nn.functional.relu(recurrent_weights))
+    g_i = g_i + torch.nn.functional.linear(state.z, torch.nn.functional.relu(-recurrent_weights))
+    dv = dt * p.c_m_inv * (p.g_l * (p.v_rest - state.v) + g_e * (p.e_rev_E - state.v) + g_i * (p.e_rev_I - state.v))
     v = state.v + dv
     z_new = threshold(v - p.v_thresh, p.method, p.alpha)
     v = (1 - z_new) * v + z_new * p.v_reset
@@ -735,35 +682,23 @@ class CobaLIFCell(torch.nn.Module):
         >>> output, s0 = lif(input, s0)
     """
 
-    def __init__(self, input_size, hidden_size, p: CobaLIFParameters=
-        CobaLIFParameters(), dt: float=0.001):
+    def __init__(self, input_size, hidden_size, p: CobaLIFParameters=CobaLIFParameters(), dt: float=0.001):
         super(CobaLIFCell, self).__init__()
-        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            input_size) / np.sqrt(input_size))
-        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) / np.sqrt(hidden_size))
+        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size, input_size) / np.sqrt(input_size))
+        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) / np.sqrt(hidden_size))
         self.p = p
         self.dt = dt
 
-    def initial_state(self, batch_size: int, device: torch.device, dtype=
-        torch.float) ->CobaLIFState:
-        return CobaLIFState(z=torch.zeros(batch_size, self.hidden_size,
-            device=device, dtype=dtype), v=torch.zeros(batch_size, self.
-            hidden_size, device=device, dtype=dtype), g_e=torch.zeros(
-            batch_size, self.hidden_size, device=device, dtype=dtype), g_i=
-            torch.zeros(batch_size, self.hidden_size, device=device, dtype=
-            dtype))
+    def initial_state(self, batch_size: int, device: torch.device, dtype=torch.float) ->CobaLIFState:
+        return CobaLIFState(z=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), v=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), g_e=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), g_i=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: CobaLIFState) ->Tuple[
-        torch.Tensor, CobaLIFState]:
-        return coba_lif_step(input_tensor, state, self.input_weights, self.
-            recurrent_weights, p=self.p, dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: CobaLIFState) ->Tuple[torch.Tensor, CobaLIFState]:
+        return coba_lif_step(input_tensor, state, self.input_weights, self.recurrent_weights, p=self.p, dt=self.dt)
 
 
 class ConstantCurrentLIFEncoder(torch.nn.Module):
 
-    def __init__(self, seq_length: int, p: lif.LIFParameters=lif.
-        LIFParameters(), dt: float=0.001):
+    def __init__(self, seq_length: int, p: lif.LIFParameters=lif.LIFParameters(), dt: float=0.001):
         """
         Encodes input currents as fixed (constant) voltage currents, and simulates the spikes that 
         occur during a number of timesteps/iterations (seq_length).
@@ -788,8 +723,7 @@ class ConstantCurrentLIFEncoder(torch.nn.Module):
         self.dt = dt
 
     def forward(self, input_currents):
-        return encode.constant_current_lif_encode(input_currents,
-            seq_length=self.seq_length, p=self.p, dt=self.dt)
+        return encode.constant_current_lif_encode(input_currents, seq_length=self.seq_length, p=self.p, dt=self.dt)
 
 
 class PoissonEncoder(torch.nn.Module):
@@ -813,8 +747,7 @@ class PoissonEncoder(torch.nn.Module):
         self.dt = dt
 
     def forward(self, x):
-        return encode.poisson_encode(x, self.seq_length, f_max=self.f_max,
-            dt=self.dt)
+        return encode.poisson_encode(x, self.seq_length, f_max=self.f_max, dt=self.dt)
 
 
 class SignedPoissonEncoder(torch.nn.Module):
@@ -837,8 +770,7 @@ class SignedPoissonEncoder(torch.nn.Module):
         self.dt = dt
 
     def forward(self, x):
-        return encode.signed_poisson_encode(x, self.seq_length, f_max=self.
-            f_max, dt=self.dt)
+        return encode.signed_poisson_encode(x, self.seq_length, f_max=self.f_max, dt=self.dt)
 
 
 class SpikeLatencyLIFEncoder(torch.nn.Module):
@@ -859,8 +791,7 @@ class SpikeLatencyLIFEncoder(torch.nn.Module):
         self.dt = dt
 
     def forward(self, input_current):
-        return encode.spike_latency_lif_encode(input_current, self.
-            seq_length, self.p, self.dt)
+        return encode.spike_latency_lif_encode(input_current, self.seq_length, self.p, self.dt)
 
 
 class SpikeLatencyEncoder(torch.nn.Module):
@@ -888,9 +819,7 @@ class SpikeLatencyEncoder(torch.nn.Module):
         return encode.spike_latency_encode(input_spikes)
 
 
-def lif_current_encoder(input_current: torch.Tensor, voltage: torch.Tensor,
-    p: LIFParameters=LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor,
-    torch.Tensor]:
+def lif_current_encoder(input_current: torch.Tensor, voltage: torch.Tensor, p: LIFParameters=LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, torch.Tensor]:
     """Computes a single euler-integration step of a leaky integrator. More
     specifically it implements one integration step of the following ODE
 
@@ -913,8 +842,7 @@ def lif_current_encoder(input_current: torch.Tensor, voltage: torch.Tensor,
     return z, voltage
 
 
-def constant_current_lif_encode(input_current: torch.Tensor, seq_length:
-    int, p: LIFParameters=LIFParameters(), dt: float=0.001) ->torch.Tensor:
+def constant_current_lif_encode(input_current: torch.Tensor, seq_length: int, p: LIFParameters=LIFParameters(), dt: float=0.001) ->torch.Tensor:
     """
     Encodes input currents as fixed (constant) voltage currents, and simulates the spikes that 
     occur during a number of timesteps/iterations (seq_length).
@@ -941,19 +869,16 @@ def constant_current_lif_encode(input_current: torch.Tensor, seq_length:
     """
     v = torch.zeros(*input_current.shape, device=input_current.device)
     z = torch.zeros(*input_current.shape, device=input_current.device)
-    spikes = torch.zeros(seq_length, *input_current.shape, device=
-        input_current.device)
+    spikes = torch.zeros(seq_length, *input_current.shape, device=input_current.device)
     for ts in range(seq_length):
-        z, v = lif_current_encoder(input_current=input_current, voltage=v,
-            p=p, dt=dt)
+        z, v = lif_current_encoder(input_current=input_current, voltage=v, p=p, dt=dt)
         spikes[ts] = z
     return spikes
 
 
 class IFConstantCurrentEncoder(torch.nn.Module):
 
-    def __init__(self, seq_length, tau_mem_inv=1.0 / 0.01, v_th=1.0,
-        v_reset=0.0, dt: float=0.001, device='cpu'):
+    def __init__(self, seq_length, tau_mem_inv=1.0 / 0.01, v_th=1.0, v_reset=0.0, dt: float=0.001, device='cpu'):
         super(IFConstantCurrentEncoder, self).__init__()
         self.seq_length = seq_length
         self.tau_mem_inv = tau_mem_inv
@@ -963,10 +888,8 @@ class IFConstantCurrentEncoder(torch.nn.Module):
         self.dt = dt
 
     def forward(self, x):
-        lif_parameters = LIFParameters(tau_mem_inv=self.tau_mem_inv, v_th=
-            self.v_th, v_reset=self.v_reset)
-        return constant_current_lif_encode(x, self.v, p=lif_parameters, dt=
-            self.dt)
+        lif_parameters = LIFParameters(tau_mem_inv=self.tau_mem_inv, v_th=self.v_th, v_reset=self.v_reset)
+        return constant_current_lif_encode(x, self.v, p=lif_parameters, dt=self.dt)
 
 
 class LIParameters(NamedTuple):
@@ -995,9 +918,7 @@ class LIState(NamedTuple):
     i: torch.Tensor
 
 
-def li_step(input_tensor: torch.Tensor, state: LIState, input_weights:
-    torch.Tensor, p: LIParameters=LIParameters(), dt: float=0.001) ->Tuple[
-    torch.Tensor, LIState]:
+def li_step(input_tensor: torch.Tensor, state: LIState, input_weights: torch.Tensor, p: LIParameters=LIParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIState]:
     """Single euler integration step of a leaky-integrator.
     More specifically it implements a discretized version of the ODE
 
@@ -1053,29 +974,21 @@ class LICell(torch.nn.Module):
         dt (float): integration timestep to use
     """
 
-    def __init__(self, input_features: int, output_features: int, p:
-        LIParameters=LIParameters(), dt: float=0.001):
+    def __init__(self, input_features: int, output_features: int, p: LIParameters=LIParameters(), dt: float=0.001):
         super(LICell, self).__init__()
-        self.input_weights = torch.nn.Parameter(torch.randn(output_features,
-            input_features) / np.sqrt(input_features))
+        self.input_weights = torch.nn.Parameter(torch.randn(output_features, input_features) / np.sqrt(input_features))
         self.p = p
         self.dt = dt
         self.output_features = output_features
 
     def initial_state(self, batch_size, device, dtype=torch.float) ->LIState:
-        return LIState(v=torch.zeros((batch_size, self.output_features),
-            device=device, dtype=dtype), i=torch.zeros((batch_size, self.
-            output_features), device=device, dtype=dtype))
+        return LIState(v=torch.zeros((batch_size, self.output_features), device=device, dtype=dtype), i=torch.zeros((batch_size, self.output_features), device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LIState) ->Tuple[
-        torch.Tensor, LIState]:
-        return li_step(input_tensor, state, self.input_weights, p=self.p,
-            dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIState) ->Tuple[torch.Tensor, LIState]:
+        return li_step(input_tensor, state, self.input_weights, p=self.p, dt=self.dt)
 
 
-def li_feed_forward_step(input_tensor: torch.Tensor, state: LIState, p:
-    LIParameters=LIParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIState
-    ]:
+def li_feed_forward_step(input_tensor: torch.Tensor, state: LIState, p: LIParameters=LIParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIState]:
     dv = dt * p.tau_mem_inv * (p.v_leak - state.v + state.i)
     v_new = state.v + dv
     di = -dt * p.tau_syn_inv * state.i
@@ -1114,12 +1027,9 @@ class LIFeedForwardCell(torch.nn.Module):
         self.shape = shape
 
     def initial_state(self, batch_size, device, dtype=torch.float):
-        return LIState(v=torch.zeros(batch_size, *self.shape, device=device,
-            dtype=dtype), i=torch.zeros(batch_size, *self.shape, device=
-            device, dtype=dtype))
+        return LIState(v=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype), i=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, s: LIState) ->Tuple[torch
-        .Tensor, LIState]:
+    def forward(self, input_tensor: torch.Tensor, s: LIState) ->Tuple[torch.Tensor, LIState]:
         return li_feed_forward_step(input_tensor, s, p=self.p, dt=self.dt)
 
 
@@ -1136,9 +1046,7 @@ class LIFState(NamedTuple):
     i: torch.Tensor
 
 
-def lif_step(input_tensor: torch.Tensor, state: LIFState, input_weights:
-    torch.Tensor, recurrent_weights: torch.Tensor, p: LIFParameters=
-    LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFState]:
+def lif_step(input_tensor: torch.Tensor, state: LIFState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p: LIFParameters=LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFState]:
     """Computes a single euler-integration step of a LIF neuron-model. More
     specifically it implements one integration step of the following ODE
 
@@ -1179,8 +1087,7 @@ def lif_step(input_tensor: torch.Tensor, state: LIFState, input_weights:
     i_decayed = state.i + di
     z_new = threshold(v_decayed - p.v_th, p.method, p.alpha)
     v_new = (1 - z_new) * v_decayed + z_new * p.v_reset
-    i_new = i_decayed + torch.nn.functional.linear(input_tensor, input_weights
-        ) + torch.nn.functional.linear(state.z, recurrent_weights)
+    i_new = i_decayed + torch.nn.functional.linear(input_tensor, input_weights) + torch.nn.functional.linear(state.z, recurrent_weights)
     return z_new, LIFState(z_new, v_new, i_new)
 
 
@@ -1227,13 +1134,10 @@ class LIFCell(torch.nn.Module):
         >>> output, s0 = lif(input, s0)
     """
 
-    def __init__(self, input_size, hidden_size, p: LIFParameters=
-        LIFParameters(), dt: float=0.001):
+    def __init__(self, input_size, hidden_size, p: LIFParameters=LIFParameters(), dt: float=0.001):
         super(LIFCell, self).__init__()
-        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            input_size) * np.sqrt(2 / hidden_size))
-        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) * np.sqrt(2 / hidden_size))
+        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size, input_size) * np.sqrt(2 / hidden_size))
+        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) * np.sqrt(2 / hidden_size))
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.p = p
@@ -1244,15 +1148,10 @@ class LIFCell(torch.nn.Module):
         return s
 
     def initial_state(self, batch_size, device, dtype=torch.float) ->LIFState:
-        return LIFState(z=torch.zeros(batch_size, self.hidden_size, device=
-            device, dtype=dtype), v=torch.zeros(batch_size, self.
-            hidden_size, device=device, dtype=dtype), i=torch.zeros(
-            batch_size, self.hidden_size, device=device, dtype=dtype))
+        return LIFState(z=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), v=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), i=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LIFState) ->Tuple[
-        torch.Tensor, LIFState]:
-        return lif_step(input_tensor, state, self.input_weights, self.
-            recurrent_weights, p=self.p, dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIFState) ->Tuple[torch.Tensor, LIFState]:
+        return lif_step(input_tensor, state, self.input_weights, self.recurrent_weights, p=self.p, dt=self.dt)
 
 
 class LIFLayer(torch.nn.Module):
@@ -1261,8 +1160,7 @@ class LIFLayer(torch.nn.Module):
         super(LIFLayer, self).__init__()
         self.cell = LIFCell(*cell_args, **kw_args)
 
-    def forward(self, input_tensor: torch.Tensor, state: LIFState) ->Tuple[
-        torch.Tensor, LIFState]:
+    def forward(self, input_tensor: torch.Tensor, state: LIFState) ->Tuple[torch.Tensor, LIFState]:
         inputs = input_tensor.unbind(0)
         outputs = []
         for i in range(len(inputs)):
@@ -1282,10 +1180,7 @@ class LIFFeedForwardState(NamedTuple):
     i: torch.Tensor
 
 
-def lif_feed_forward_step(input_tensor: torch.Tensor, state:
-    LIFFeedForwardState=LIFFeedForwardState(0, 0), p: LIFParameters=
-    LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFFeedForwardState
-    ]:
+def lif_feed_forward_step(input_tensor: torch.Tensor, state: LIFFeedForwardState=LIFFeedForwardState(0, 0), p: LIFParameters=LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFFeedForwardState]:
     """Computes a single euler-integration step for a lif neuron-model.
     It takes as input the input current as generated by an arbitrary torch
     module or function. More specifically it implements one integration
@@ -1368,8 +1263,7 @@ class LIFFeedForwardCell(torch.nn.Module):
         >>> output, s0 = lif(data, s0)
     """
 
-    def __init__(self, shape, p: LIFParameters=LIFParameters(), dt: float=0.001
-        ):
+    def __init__(self, shape, p: LIFParameters=LIFParameters(), dt: float=0.001):
         super(LIFFeedForwardCell, self).__init__()
         self.shape = shape
         self.p = p
@@ -1379,14 +1273,10 @@ class LIFFeedForwardCell(torch.nn.Module):
         s = f'{self.shape}, p={self.p}, dt={self.dt}'
         return s
 
-    def initial_state(self, batch_size, device, dtype=None
-        ) ->LIFFeedForwardState:
-        return LIFFeedForwardState(v=torch.zeros(batch_size, *self.shape,
-            device=device, dtype=dtype), i=torch.zeros(batch_size, *self.
-            shape, device=device, dtype=dtype))
+    def initial_state(self, batch_size, device, dtype=None) ->LIFFeedForwardState:
+        return LIFFeedForwardState(v=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype), i=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype))
 
-    def forward(self, x: torch.Tensor, state: LIFFeedForwardState) ->Tuple[
-        torch.Tensor, LIFFeedForwardState]:
+    def forward(self, x: torch.Tensor, state: LIFFeedForwardState) ->Tuple[torch.Tensor, LIFFeedForwardState]:
         return lif_feed_forward_step(x, state, p=self.p, dt=self.dt)
 
 
@@ -1405,10 +1295,8 @@ class CorrelationSensorParameters(NamedTuple):
 
 class LIFCorrelationParameters(NamedTuple):
     lif_parameters: LIFParameters = LIFParameters()
-    input_correlation_parameters: CorrelationSensorParameters = (
-        CorrelationSensorParameters())
-    recurrent_correlation_parameters: CorrelationSensorParameters = (
-        CorrelationSensorParameters())
+    input_correlation_parameters: CorrelationSensorParameters = CorrelationSensorParameters()
+    recurrent_correlation_parameters: CorrelationSensorParameters = CorrelationSensorParameters()
 
 
 class LIFCorrelationState(NamedTuple):
@@ -1436,96 +1324,51 @@ def post_pre_update(post_pre, post_spike_mask, pre_spike_mask):
 def pre_mask(weights, z):
     """Computes the mask produced by the pre-synaptic spikes on
     the synapse array."""
-    return torch.transpose(torch.transpose(torch.zeros_like(weights), 1, 2) +
-        z, 1, 2)
+    return torch.transpose(torch.transpose(torch.zeros_like(weights), 1, 2) + z, 1, 2)
 
 
-def correlation_sensor_step(z_pre: torch.Tensor, z_post: torch.Tensor,
-    state: CorrelationSensorState, p: CorrelationSensorParameters=
-    CorrelationSensorParameters(), dt: float=0.001) ->CorrelationSensorState:
+def correlation_sensor_step(z_pre: torch.Tensor, z_post: torch.Tensor, state: CorrelationSensorState, p: CorrelationSensorParameters=CorrelationSensorParameters(), dt: float=0.001) ->CorrelationSensorState:
     """Euler integration step of an idealized version of the correlation sensor
     as it is present on the BrainScaleS 2 chips.
     """
     dcorrelation_trace = dt * p.tau_c_inv * -state.correlation_trace
-    correlation_trace_decayed = state.correlation_trace + (1 - state.post_pre
-        ) * dcorrelation_trace
+    correlation_trace_decayed = state.correlation_trace + (1 - state.post_pre) * dcorrelation_trace
     danti_correlation_trace = dt * p.tau_ac_inv * -state.anti_correlation_trace
-    anti_correlation_trace_decayed = (state.anti_correlation_trace + state.
-        post_pre * danti_correlation_trace)
+    anti_correlation_trace_decayed = state.anti_correlation_trace + state.post_pre * danti_correlation_trace
     pre_spike_mask = pre_mask(state.post_pre, z_pre)
     post_spike_mask = post_mask(state.post_pre, z_post)
-    post_pre_new = post_pre_update(state.post_pre, post_spike_mask,
-        pre_spike_mask)
-    correlation_trace_new = (correlation_trace_decayed + p.eta_p *
-        pre_spike_mask)
-    anti_correlation_trace_new = (anti_correlation_trace_decayed + p.eta_m *
-        post_spike_mask)
-    return CorrelationSensorState(post_pre=post_pre_new, correlation_trace=
-        correlation_trace_new, anti_correlation_trace=
-        anti_correlation_trace_new)
+    post_pre_new = post_pre_update(state.post_pre, post_spike_mask, pre_spike_mask)
+    correlation_trace_new = correlation_trace_decayed + p.eta_p * pre_spike_mask
+    anti_correlation_trace_new = anti_correlation_trace_decayed + p.eta_m * post_spike_mask
+    return CorrelationSensorState(post_pre=post_pre_new, correlation_trace=correlation_trace_new, anti_correlation_trace=anti_correlation_trace_new)
 
 
-def lif_correlation_step(input_tensor: torch.Tensor, state:
-    LIFCorrelationState, input_weights: torch.Tensor, recurrent_weights:
-    torch.Tensor, p: LIFCorrelationParameters=LIFCorrelationParameters(),
-    dt: float=0.001) ->Tuple[torch.Tensor, LIFCorrelationState]:
-    z_new, s_new = lif_step(input_tensor, state.lif_state, input_weights,
-        recurrent_weights, p.lif_parameters, dt)
-    input_correlation_state_new = correlation_sensor_step(z_pre=
-        input_tensor, z_post=z_new, state=state.input_correlation_state, p=
-        p.input_correlation_parameters, dt=dt)
-    recurrent_correlation_state_new = correlation_sensor_step(z_pre=state.
-        lif_state.z, z_post=z_new, state=state.recurrent_correlation_state,
-        p=p.recurrent_correlation_parameters, dt=dt)
-    return z_new, LIFCorrelationState(lif_state=s_new,
-        input_correlation_state=input_correlation_state_new,
-        recurrent_correlation_state=recurrent_correlation_state_new)
+def lif_correlation_step(input_tensor: torch.Tensor, state: LIFCorrelationState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p: LIFCorrelationParameters=LIFCorrelationParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFCorrelationState]:
+    z_new, s_new = lif_step(input_tensor, state.lif_state, input_weights, recurrent_weights, p.lif_parameters, dt)
+    input_correlation_state_new = correlation_sensor_step(z_pre=input_tensor, z_post=z_new, state=state.input_correlation_state, p=p.input_correlation_parameters, dt=dt)
+    recurrent_correlation_state_new = correlation_sensor_step(z_pre=state.lif_state.z, z_post=z_new, state=state.recurrent_correlation_state, p=p.recurrent_correlation_parameters, dt=dt)
+    return z_new, LIFCorrelationState(lif_state=s_new, input_correlation_state=input_correlation_state_new, recurrent_correlation_state=recurrent_correlation_state_new)
 
 
 class LIFCorrelation(torch.nn.Module):
 
-    def __init__(self, input_size, hidden_size, p: LIFCorrelationParameters
-        =LIFCorrelationParameters(), dt: float=0.001):
+    def __init__(self, input_size, hidden_size, p: LIFCorrelationParameters=LIFCorrelationParameters(), dt: float=0.001):
         super(LIFCorrelation, self).__init__()
         self.hidden_size = hidden_size
         self.input_size = input_size
         self.p = p
         self.dt = dt
 
-    def initial_state(self, batch_size, device, dtype=torch.float
-        ) ->LIFCorrelationState:
+    def initial_state(self, batch_size, device, dtype=torch.float) ->LIFCorrelationState:
         hidden_features = self.hidden_size
         input_features = self.input_size
-        return LIFCorrelationState(lif_state=LIFState(z=torch.zeros(
-            batch_size, hidden_features, device=device, dtype=dtype), v=
-            torch.zeros(batch_size, hidden_features, device=device, dtype=
-            dtype), i=torch.zeros(batch_size, hidden_features, device=
-            device, dtype=dtype)), input_correlation_state=
-            CorrelationSensorState(post_pre=torch.zeros((batch_size,
-            input_features, hidden_features), device=device, dtype=dtype),
-            correlation_trace=torch.zeros((batch_size, input_features,
-            hidden_features), device=device, dtype=dtype).float(),
-            anti_correlation_trace=torch.zeros((batch_size, input_features,
-            hidden_features), device=device, dtype=dtype).float()),
-            recurrent_correlation_state=CorrelationSensorState(
-            correlation_trace=torch.zeros((batch_size, hidden_features,
-            hidden_features), device=device, dtype=dtype),
-            anti_correlation_trace=torch.zeros((batch_size, hidden_features,
-            hidden_features), device=device, dtype=dtype), post_pre=torch.
-            zeros((batch_size, hidden_features, hidden_features), device=
-            device, dtype=dtype)))
+        return LIFCorrelationState(lif_state=LIFState(z=torch.zeros(batch_size, hidden_features, device=device, dtype=dtype), v=torch.zeros(batch_size, hidden_features, device=device, dtype=dtype), i=torch.zeros(batch_size, hidden_features, device=device, dtype=dtype)), input_correlation_state=CorrelationSensorState(post_pre=torch.zeros((batch_size, input_features, hidden_features), device=device, dtype=dtype), correlation_trace=torch.zeros((batch_size, input_features, hidden_features), device=device, dtype=dtype).float(), anti_correlation_trace=torch.zeros((batch_size, input_features, hidden_features), device=device, dtype=dtype).float()), recurrent_correlation_state=CorrelationSensorState(correlation_trace=torch.zeros((batch_size, hidden_features, hidden_features), device=device, dtype=dtype), anti_correlation_trace=torch.zeros((batch_size, hidden_features, hidden_features), device=device, dtype=dtype), post_pre=torch.zeros((batch_size, hidden_features, hidden_features), device=device, dtype=dtype)))
 
-    def forward(self, input_tensor: torch.Tensor, state:
-        LIFCorrelationState, input_weights: torch.Tensor, recurrent_weights:
-        torch.Tensor) ->Tuple[torch.Tensor, LIFCorrelationState]:
-        return lif_correlation_step(input_tensor, state, input_weights,
-            recurrent_weights, self.p, self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIFCorrelationState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor) ->Tuple[torch.Tensor, LIFCorrelationState]:
+        return lif_correlation_step(input_tensor, state, input_weights, recurrent_weights, self.p, self.dt)
 
 
-def lif_mc_step(input_tensor: torch.Tensor, state: LIFState, input_weights:
-    torch.Tensor, recurrent_weights: torch.Tensor, g_coupling: torch.Tensor,
-    p: LIFParameters=LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor,
-    LIFState]:
+def lif_mc_step(input_tensor: torch.Tensor, state: LIFState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, g_coupling: torch.Tensor, p: LIFParameters=LIFParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFState]:
     """Computes a single euler-integration step of a LIF multi-compartment
     neuron-model.
 
@@ -1539,8 +1382,7 @@ def lif_mc_step(input_tensor: torch.Tensor, state: LIFState, input_weights:
         dt (float): Integration timestep to use
     """
     v_new = state.v + dt * torch.nn.functional.linear(state.v, g_coupling)
-    return lif_step(input_tensor, LIFState(state.z, v_new, state.i),
-        input_weights, recurrent_weights, p, dt)
+    return lif_step(input_tensor, LIFState(state.z, v_new, state.i), input_weights, recurrent_weights, p, dt)
 
 
 class LIFMCCell(torch.nn.Module):
@@ -1581,28 +1423,18 @@ class LIFMCCell(torch.nn.Module):
         dt (float): Integration timestep to use
     """
 
-    def __init__(self, input_size: int, hidden_size: int, p: LIFParameters=
-        LIFParameters(), dt: float=0.001):
-        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            input_size) / np.sqrt(input_size))
-        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) / np.sqrt(hidden_size))
-        self.g_coupling = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) / np.sqrt(hidden_size))
+    def __init__(self, input_size: int, hidden_size: int, p: LIFParameters=LIFParameters(), dt: float=0.001):
+        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size, input_size) / np.sqrt(input_size))
+        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) / np.sqrt(hidden_size))
+        self.g_coupling = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) / np.sqrt(hidden_size))
         self.p = p
         self.dt = dt
 
-    def initial_state(self, batch_size: int, device: torch.device, dtype=
-        torch.float) ->LIFState:
-        return LIFState(z=torch.zeros(batch_size, self.hidden_size, device=
-            device, dtype=dtype), v=torch.zeros(batch_size, self.
-            hidden_size, device=device, dtype=dtype), i=torch.zeros(
-            batch_size, self.hidden_size, device=device, dtype=dtype))
+    def initial_state(self, batch_size: int, device: torch.device, dtype=torch.float) ->LIFState:
+        return LIFState(z=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), v=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), i=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LIFState) ->Tuple[
-        torch.Tensor, LIFState]:
-        return lif_mc_step(input_tensor, state, self.input_weights, self.
-            recurrent_weights, self.g_coupling, p=self.p, dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIFState) ->Tuple[torch.Tensor, LIFState]:
+        return lif_mc_step(input_tensor, state, self.input_weights, self.recurrent_weights, self.g_coupling, p=self.p, dt=self.dt)
 
 
 class LIFRefracParameters(NamedTuple):
@@ -1627,57 +1459,36 @@ class LIFRefracState(NamedTuple):
     rho: torch.Tensor
 
 
-def lif_mc_refrac_step(input_tensor: torch.Tensor, state: LIFRefracState,
-    input_weights: torch.Tensor, recurrent_weights: torch.Tensor,
-    g_coupling: torch.Tensor, p: LIFRefracParameters=LIFRefracParameters(),
-    dt: float=0.001) ->Tuple[torch.Tensor, LIFRefracState]:
+def lif_mc_refrac_step(input_tensor: torch.Tensor, state: LIFRefracState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, g_coupling: torch.Tensor, p: LIFRefracParameters=LIFRefracParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFRefracState]:
     refrac_mask = threshold(state.rho, p.lif.method, p.lif.alpha)
-    dv = (1 - refrac_mask) * dt * p.lif.tau_mem_inv * (p.lif.v_leak - state
-        .lif.v + state.lif.i) + torch.nn.functional.linear(state.lif.v,
-        g_coupling)
+    dv = (1 - refrac_mask) * dt * p.lif.tau_mem_inv * (p.lif.v_leak - state.lif.v + state.lif.i) + torch.nn.functional.linear(state.lif.v, g_coupling)
     v_decayed = state.lif.v + dv
     di = -dt * p.lif.tau_syn_inv * state.lif.i
     i_decayed = state.lif.i + di
     z_new = threshold(v_decayed - p.lif.v_th, p.lif.method, p.lif.alpha)
     v_new = (1 - z_new) * v_decayed + z_new * p.lif.v_reset
-    i_new = i_decayed + torch.nn.functional.linear(input_tensor, input_weights
-        ) + torch.nn.functional.linear(state.lif.z, recurrent_weights)
-    rho_new = (1 - z_new) * torch.nn.functional.relu(state.rho - refrac_mask
-        ) + z_new * p.rho_reset
+    i_new = i_decayed + torch.nn.functional.linear(input_tensor, input_weights) + torch.nn.functional.linear(state.lif.z, recurrent_weights)
+    rho_new = (1 - z_new) * torch.nn.functional.relu(state.rho - refrac_mask) + z_new * p.rho_reset
     return z_new, LIFRefracState(LIFState(z_new, v_new, i_new), rho_new)
 
 
 class LIFMCRefracCell(torch.nn.Module):
 
-    def __init__(self, input_size: int, hidden_size: int, p:
-        LIFRefracParameters=LIFRefracParameters(), dt: float=0.001):
-        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            input_size) / np.sqrt(input_size))
-        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) / np.sqrt(hidden_size))
-        self.g_coupling = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) / np.sqrt(hidden_size))
+    def __init__(self, input_size: int, hidden_size: int, p: LIFRefracParameters=LIFRefracParameters(), dt: float=0.001):
+        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size, input_size) / np.sqrt(input_size))
+        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) / np.sqrt(hidden_size))
+        self.g_coupling = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) / np.sqrt(hidden_size))
         self.p = p
         self.dt = dt
 
-    def initial_state(self, batch_size: int, device: torch.device, dtype:
-        torch.float=torch.float) ->LIFRefracState:
-        return LIFRefracState(lif=LIFState(z=torch.zeros(batch_size, self.
-            hidden_size, device=device, dtype=dtype), v=torch.zeros(
-            batch_size, self.hidden_size, device=device, dtype=dtype), i=
-            torch.zeros(batch_size, self.hidden_size, device=device, dtype=
-            dtype)), rho=torch.zeros(batch_size, self.hidden_size, device=
-            device, dtype=dtype))
+    def initial_state(self, batch_size: int, device: torch.device, dtype: torch.float=torch.float) ->LIFRefracState:
+        return LIFRefracState(lif=LIFState(z=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), v=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), i=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)), rho=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LIFRefracState
-        ) ->Tuple[torch.Tensor, LIFRefracState]:
-        return lif_mc_refrac_step(input_tensor, state, self.input_weights,
-            self.recurrent_weights, self.g_coupling, p=self.p, dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIFRefracState) ->Tuple[torch.Tensor, LIFRefracState]:
+        return lif_mc_refrac_step(input_tensor, state, self.input_weights, self.recurrent_weights, self.g_coupling, p=self.p, dt=self.dt)
 
 
-def compute_refractory_update(state: LIFRefracState, z_new: torch.Tensor,
-    v_new: torch.Tensor, p: LIFRefracParameters=LIFRefracParameters()) ->Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor]:
+def compute_refractory_update(state: LIFRefracState, z_new: torch.Tensor, v_new: torch.Tensor, p: LIFRefracParameters=LIFRefracParameters()) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Compute the refractory update.
 
     Parameters:
@@ -1689,15 +1500,11 @@ def compute_refractory_update(state: LIFRefracState, z_new: torch.Tensor,
     refrac_mask = threshold(state.rho, p.lif.method, p.lif.alpha)
     v_new = (1 - refrac_mask) * v_new + refrac_mask * state.lif.v
     z_new = (1 - refrac_mask) * z_new
-    rho_new = (1 - z_new) * torch.nn.functional.relu(state.rho - refrac_mask
-        ) + z_new * p.rho_reset
+    rho_new = (1 - z_new) * torch.nn.functional.relu(state.rho - refrac_mask) + z_new * p.rho_reset
     return v_new, z_new, rho_new
 
 
-def lif_refrac_step(input_tensor: torch.Tensor, state: LIFRefracState,
-    input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p:
-    LIFRefracParameters=LIFRefracParameters(), dt: float=0.001) ->Tuple[
-    torch.Tensor, LIFRefracState]:
+def lif_refrac_step(input_tensor: torch.Tensor, state: LIFRefracState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p: LIFRefracParameters=LIFRefracParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFRefracState]:
     """Computes a single euler-integration step of a recurrently connected
      LIF neuron-model with a refractory period.
 
@@ -1709,8 +1516,7 @@ def lif_refrac_step(input_tensor: torch.Tensor, state: LIFRefracState,
         p (LIFRefracParameters): parameters of the lif neuron
         dt (float): Integration timestep to use
     """
-    z_new, s_new = lif_step(input_tensor, state.lif, input_weights,
-        recurrent_weights, p.lif, dt)
+    z_new, s_new = lif_step(input_tensor, state.lif, input_weights, recurrent_weights, p.lif, dt)
     v_new, z_new, rho_new = compute_refractory_update(state, z_new, s_new.v, p)
     return z_new, LIFRefracState(LIFState(z_new, v_new, s_new.i), rho_new)
 
@@ -1765,30 +1571,19 @@ class LIFRefracCell(torch.nn.Module):
         >>> output, s0 = lif(input, s0)
     """
 
-    def __init__(self, input_size, hidden_size, p: LIFRefracParameters=
-        LIFRefracParameters(), dt: float=0.001):
+    def __init__(self, input_size, hidden_size, p: LIFRefracParameters=LIFRefracParameters(), dt: float=0.001):
         super(LIFRefracCell, self).__init__()
-        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            input_size) / np.sqrt(input_size))
-        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size,
-            hidden_size) / np.sqrt(hidden_size))
+        self.input_weights = torch.nn.Parameter(torch.randn(hidden_size, input_size) / np.sqrt(input_size))
+        self.recurrent_weights = torch.nn.Parameter(torch.randn(hidden_size, hidden_size) / np.sqrt(hidden_size))
         self.hidden_size = hidden_size
         self.p = p
         self.dt = dt
 
-    def initial_state(self, batch_size, device, dtype=torch.float
-        ) ->LIFRefracState:
-        return LIFRefracState(lif=LIFState(z=torch.zeros(batch_size, self.
-            hidden_size, device=device, dtype=dtype), v=torch.zeros(
-            batch_size, self.hidden_size, device=device, dtype=dtype), i=
-            torch.zeros(batch_size, self.hidden_size, device=device, dtype=
-            dtype)), rho=torch.zeros(batch_size, self.hidden_size, device=
-            device, dtype=dtype))
+    def initial_state(self, batch_size, device, dtype=torch.float) ->LIFRefracState:
+        return LIFRefracState(lif=LIFState(z=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), v=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype), i=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)), rho=torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LIFRefracState
-        ) ->Tuple[torch.Tensor, LIFRefracState]:
-        return lif_refrac_step(input_tensor, state, self.input_weights,
-            self.recurrent_weights, p=self.p, dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIFRefracState) ->Tuple[torch.Tensor, LIFRefracState]:
+        return lif_refrac_step(input_tensor, state, self.input_weights, self.recurrent_weights, p=self.p, dt=self.dt)
 
 
 class LIFRefracFeedForwardState(NamedTuple):
@@ -1803,9 +1598,7 @@ class LIFRefracFeedForwardState(NamedTuple):
     rho: torch.Tensor
 
 
-def lif_refrac_feed_forward_step(input_tensor: torch.Tensor, state:
-    LIFRefracFeedForwardState, p: LIFRefracParameters=LIFRefracParameters(),
-    dt: float=0.001) ->Tuple[torch.Tensor, LIFRefracFeedForwardState]:
+def lif_refrac_feed_forward_step(input_tensor: torch.Tensor, state: LIFRefracFeedForwardState, p: LIFRefracParameters=LIFRefracParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LIFRefracFeedForwardState]:
     """Computes a single euler-integration step of a feed forward
      LIF neuron-model with a refractory period.
 
@@ -1817,8 +1610,7 @@ def lif_refrac_feed_forward_step(input_tensor: torch.Tensor, state:
     """
     z_new, s_new = lif_feed_forward_step(input_tensor, state.lif, p.lif, dt)
     v_new, z_new, rho_new = compute_refractory_update(state, z_new, s_new.v, p)
-    return z_new, LIFRefracFeedForwardState(LIFFeedForwardState(v_new,
-        s_new.i), rho_new)
+    return z_new, LIFRefracFeedForwardState(LIFFeedForwardState(v_new, s_new.i), rho_new)
 
 
 class LIFRefracFeedForwardCell(torch.nn.Module):
@@ -1862,25 +1654,17 @@ class LIFRefracFeedForwardCell(torch.nn.Module):
         >>> output, s0 = lif(input, s0)
     """
 
-    def __init__(self, shape, p: LIFRefracParameters=LIFRefracParameters(),
-        dt: float=0.001):
+    def __init__(self, shape, p: LIFRefracParameters=LIFRefracParameters(), dt: float=0.001):
         super(LIFRefracFeedForwardCell, self).__init__()
         self.shape = shape
         self.p = p
         self.dt = dt
 
     def initial_state(self, batch_size, device, dtype) ->LIFFeedForwardState:
-        return LIFRefracFeedForwardState(LIFFeedForwardState(v=torch.zeros(
-            batch_size, *self.shape, device=device, dtype=dtype), i=torch.
-            zeros(batch_size, *self.shape, device=device, dtype=dtype)),
-            rho=torch.zeros(batch_size, *self.shape, device=device, dtype=
-            dtype))
+        return LIFRefracFeedForwardState(LIFFeedForwardState(v=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype), i=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype)), rho=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state:
-        LIFRefracFeedForwardState) ->Tuple[torch.Tensor,
-        LIFRefracFeedForwardState]:
-        return lif_refrac_feed_forward_step(input_tensor, state, p=self.p,
-            dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LIFRefracFeedForwardState) ->Tuple[torch.Tensor, LIFRefracFeedForwardState]:
+        return lif_refrac_feed_forward_step(input_tensor, state, p=self.p, dt=self.dt)
 
 
 class LSNNState(NamedTuple):
@@ -1898,9 +1682,7 @@ class LSNNState(NamedTuple):
     b: torch.Tensor
 
 
-def lsnn_step(input_tensor: torch.Tensor, state: LSNNState, input_weights:
-    torch.Tensor, recurrent_weights: torch.Tensor, p: LSNNParameters=
-    LSNNParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LSNNState]:
+def lsnn_step(input_tensor: torch.Tensor, state: LSNNState, input_weights: torch.Tensor, recurrent_weights: torch.Tensor, p: LSNNParameters=LSNNParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LSNNState]:
     """Euler integration step for LIF Neuron with threshold adaptation
     More specifically it implements one integration step of the following ODE
 
@@ -1945,8 +1727,7 @@ def lsnn_step(input_tensor: torch.Tensor, state: LSNNState, input_weights:
     b_decayed = state.b + db
     z_new = threshold(v_decayed - b_decayed, p.method, p.alpha)
     v_new = (1 - z_new) * v_decayed + z_new * p.v_reset
-    i_new = i_decayed + torch.nn.functional.linear(input_tensor, input_weights
-        ) + torch.nn.functional.linear(state.z, recurrent_weights)
+    i_new = i_decayed + torch.nn.functional.linear(input_tensor, input_weights) + torch.nn.functional.linear(state.z, recurrent_weights)
     b_new = b_decayed + z_new * p.tau_adapt_inv * p.beta
     return z_new, LSNNState(z_new, v_new, i_new, b_new)
 
@@ -1990,13 +1771,10 @@ class LSNNCell(torch.nn.Module):
         dt (float): Integration timestep to use
     """
 
-    def __init__(self, input_features, output_features, p: LSNNParameters=
-        LSNNParameters(), dt: float=0.001):
+    def __init__(self, input_features, output_features, p: LSNNParameters=LSNNParameters(), dt: float=0.001):
         super(LSNNCell, self).__init__()
-        self.input_weights = torch.nn.Parameter(torch.randn(output_features,
-            input_features) / np.sqrt(input_features))
-        self.recurrent_weights = torch.nn.Parameter(torch.randn(
-            output_features, output_features))
+        self.input_weights = torch.nn.Parameter(torch.randn(output_features, input_features) / np.sqrt(input_features))
+        self.recurrent_weights = torch.nn.Parameter(torch.randn(output_features, output_features))
         self.input_features = input_features
         self.output_features = output_features
         self.p = p
@@ -2004,17 +1782,10 @@ class LSNNCell(torch.nn.Module):
 
     def initial_state(self, batch_size, device, dtype=torch.float) ->LSNNState:
         """return the initial state of an LSNN neuron"""
-        return LSNNState(z=torch.zeros(batch_size, self.output_features,
-            device=device, dtype=dtype), v=torch.zeros(batch_size, self.
-            output_features, device=device, dtype=dtype), i=torch.zeros(
-            batch_size, self.output_features, device=device, dtype=dtype),
-            b=torch.zeros(batch_size, self.output_features, device=device,
-            dtype=dtype))
+        return LSNNState(z=torch.zeros(batch_size, self.output_features, device=device, dtype=dtype), v=torch.zeros(batch_size, self.output_features, device=device, dtype=dtype), i=torch.zeros(batch_size, self.output_features, device=device, dtype=dtype), b=torch.zeros(batch_size, self.output_features, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LSNNState) ->Tuple[
-        torch.Tensor, LSNNState]:
-        return lsnn_step(input_tensor, state, self.input_weights, self.
-            recurrent_weights, p=self.p, dt=self.dt)
+    def forward(self, input_tensor: torch.Tensor, state: LSNNState) ->Tuple[torch.Tensor, LSNNState]:
+        return lsnn_step(input_tensor, state, self.input_weights, self.recurrent_weights, p=self.p, dt=self.dt)
 
 
 class LSNNLayer(torch.nn.Module):
@@ -2043,8 +1814,7 @@ class LSNNLayer(torch.nn.Module):
         internal LSNNCell"""
         return self.cell.initial_state(batch_size, device, dtype)
 
-    def forward(self, input_tensor: torch.Tensor, state: LSNNState) ->Tuple[
-        torch.Tensor, LSNNState]:
+    def forward(self, input_tensor: torch.Tensor, state: LSNNState) ->Tuple[torch.Tensor, LSNNState]:
         inputs = input_tensor.unbind(0)
         outputs = []
         for i in range(len(inputs)):
@@ -2066,9 +1836,7 @@ class LSNNFeedForwardState(NamedTuple):
     b: torch.Tensor
 
 
-def lsnn_feed_forward_step(input_tensor: torch.Tensor, state:
-    LSNNFeedForwardState, p: LSNNParameters=LSNNParameters(), dt: float=0.001
-    ) ->Tuple[torch.Tensor, LSNNFeedForwardState]:
+def lsnn_feed_forward_step(input_tensor: torch.Tensor, state: LSNNFeedForwardState, p: LSNNParameters=LSNNParameters(), dt: float=0.001) ->Tuple[torch.Tensor, LSNNFeedForwardState]:
     """Euler integration step for LIF Neuron with threshold adaptation.
     More specifically it implements one integration step of the following ODE
 
@@ -2144,41 +1912,48 @@ class LSNNFeedForwardCell(torch.nn.Module):
         dt (float): Integration timestep to use
     """
 
-    def __init__(self, shape, p: LSNNParameters=LSNNParameters(), dt: float
-        =0.001):
+    def __init__(self, shape, p: LSNNParameters=LSNNParameters(), dt: float=0.001):
         super(LSNNFeedForwardCell, self).__init__()
         self.shape = shape
         self.p = p
         self.dt = dt
 
-    def initial_state(self, batch_size, device, dtype=torch.float
-        ) ->LSNNFeedForwardState:
+    def initial_state(self, batch_size, device, dtype=torch.float) ->LSNNFeedForwardState:
         """return the initial state of an LSNN neuron"""
-        return LSNNFeedForwardState(v=torch.zeros(batch_size, *self.shape,
-            device=device, dtype=dtype), i=torch.zeros(batch_size, *self.
-            shape, device=device, dtype=dtype), b=torch.zeros(batch_size, *
-            self.shape, device=device, dtype=dtype))
+        return LSNNFeedForwardState(v=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype), i=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype), b=torch.zeros(batch_size, *self.shape, device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, state: LSNNFeedForwardState
-        ) ->Tuple[torch.Tensor, LSNNFeedForwardState]:
-        return lsnn_feed_forward_step(input_tensor, state, p=self.p, dt=self.dt
-            )
+    def forward(self, input_tensor: torch.Tensor, state: LSNNFeedForwardState) ->Tuple[torch.Tensor, LSNNFeedForwardState]:
+        return lsnn_feed_forward_step(input_tensor, state, p=self.p, dt=self.dt)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ANNPolicy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConstantCurrentLIFEncoder,
+     lambda: ([], {'seq_length': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Policy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_norse_norse(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ANNPolicy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ConstantCurrentLIFEncoder(*[], **{'seq_length': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -107,19 +108,12 @@ from torch._six import inf
 
 class DeepBiAffine(nn.Module):
 
-    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim,
-        num_pos, rnn_mode, hidden_size, num_layers, num_labels, arc_space,
-        type_space, embedd_word=None, embedd_char=None, embedd_pos=None,
-        p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), pos=True, activation='elu'):
+    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim, num_pos, rnn_mode, hidden_size, num_layers, num_labels, arc_space, type_space, embedd_word=None, embedd_char=None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), pos=True, activation='elu'):
         super(DeepBiAffine, self).__init__()
-        self.word_embed = nn.Embedding(num_words, word_dim, _weight=
-            embedd_word, padding_idx=1)
-        self.pos_embed = nn.Embedding(num_pos, pos_dim, _weight=embedd_pos,
-            padding_idx=1) if pos else None
-        self.char_embed = nn.Embedding(num_chars, char_dim, _weight=
-            embedd_char, padding_idx=1)
-        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=
-            char_dim * 4, activation=activation)
+        self.word_embed = nn.Embedding(num_words, word_dim, _weight=embedd_word, padding_idx=1)
+        self.pos_embed = nn.Embedding(num_pos, pos_dim, _weight=embedd_pos, padding_idx=1) if pos else None
+        self.char_embed = nn.Embedding(num_chars, char_dim, _weight=embedd_char, padding_idx=1)
+        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=char_dim * 4, activation=activation)
         self.dropout_in = nn.Dropout2d(p=p_in)
         self.dropout_out = nn.Dropout2d(p=p_out)
         self.num_labels = num_labels
@@ -136,8 +130,7 @@ class DeepBiAffine(nn.Module):
         dim_enc = word_dim + char_dim
         if pos:
             dim_enc += pos_dim
-        self.rnn = RNN(dim_enc, hidden_size, num_layers=num_layers,
-            batch_first=True, bidirectional=True, dropout=p_rnn)
+        self.rnn = RNN(dim_enc, hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True, dropout=p_rnn)
         out_dim = hidden_size * 2
         self.arc_h = nn.Linear(out_dim, arc_space)
         self.arc_c = nn.Linear(out_dim, arc_space)
@@ -201,16 +194,14 @@ class DeepBiAffine(nn.Module):
         return (arc_h, arc_c), (type_h, type_c)
 
     def forward(self, input_word, input_char, input_pos, mask=None):
-        arc, type = self._get_rnn_output(input_word, input_char, input_pos,
-            mask=mask)
+        arc, type = self._get_rnn_output(input_word, input_char, input_pos, mask=mask)
         out_arc = self.biaffine(arc[0], arc[1], mask_query=mask, mask_key=mask)
         return out_arc, type
 
     def loss(self, input_word, input_char, input_pos, heads, types, mask=None):
         out_arc, out_type = self(input_word, input_char, input_pos, mask=mask)
         type_h, type_c = out_type
-        type_h = type_h.gather(dim=1, index=heads.unsqueeze(2).expand(
-            type_h.size()))
+        type_h = type_h.gather(dim=1, index=heads.unsqueeze(2).expand(type_h.size()))
         out_type = self.bilinear(type_h, type_c)
         if mask is not None:
             minus_mask = mask.eq(0).unsqueeze(2)
@@ -224,19 +215,16 @@ class DeepBiAffine(nn.Module):
 
     def _decode_types(self, out_type, heads, leading_symbolic):
         type_h, type_c = out_type
-        type_h = type_h.gather(dim=1, index=heads.unsqueeze(2).expand(
-            type_h.size()))
+        type_h = type_h.gather(dim=1, index=heads.unsqueeze(2).expand(type_h.size()))
         out_type = self.bilinear(type_h, type_c)
         out_type = out_type[:, :, leading_symbolic:]
         _, types = out_type.max(dim=2)
         return types + leading_symbolic
 
-    def decode_local(self, input_word, input_char, input_pos, mask=None,
-        leading_symbolic=0):
+    def decode_local(self, input_word, input_char, input_pos, mask=None, leading_symbolic=0):
         out_arc, out_type = self(input_word, input_char, input_pos, mask=mask)
         batch, max_len, _ = out_arc.size()
-        diag_mask = torch.eye(max_len, device=out_arc.device, dtype=torch.uint8
-            ).unsqueeze(0)
+        diag_mask = torch.eye(max_len, device=out_arc.device, dtype=torch.uint8).unsqueeze(0)
         out_arc.masked_fill_(diag_mask, float('-inf'))
         if mask is not None:
             minus_mask = mask.eq(0).unsqueeze(2)
@@ -245,8 +233,7 @@ class DeepBiAffine(nn.Module):
         types = self._decode_types(out_type, heads, leading_symbolic)
         return heads.cpu().numpy(), types.cpu().numpy()
 
-    def decode(self, input_word, input_char, input_pos, mask=None,
-        leading_symbolic=0):
+    def decode(self, input_word, input_char, input_pos, mask=None, leading_symbolic=0):
         """
         Args:
             input_word: Tensor
@@ -271,10 +258,8 @@ class DeepBiAffine(nn.Module):
         out_arc, out_type = self(input_word, input_char, input_pos, mask=mask)
         type_h, type_c = out_type
         batch, max_len, type_space = type_h.size()
-        type_h = type_h.unsqueeze(2).expand(batch, max_len, max_len, type_space
-            ).contiguous()
-        type_c = type_c.unsqueeze(1).expand(batch, max_len, max_len, type_space
-            ).contiguous()
+        type_h = type_h.unsqueeze(2).expand(batch, max_len, max_len, type_space).contiguous()
+        type_c = type_c.unsqueeze(1).expand(batch, max_len, max_len, type_space).contiguous()
         out_type = self.bilinear(type_h, type_c)
         if mask is not None:
             minus_mask = mask.eq(0).unsqueeze(2)
@@ -283,8 +268,7 @@ class DeepBiAffine(nn.Module):
         loss_type = F.log_softmax(out_type, dim=3).permute(0, 3, 1, 2)
         energy = loss_arc.unsqueeze(1) + loss_type
         length = mask.sum(dim=1).long().cpu().numpy()
-        return parser.decode_MST(energy.cpu().numpy(), length,
-            leading_symbolic=leading_symbolic, labeled=True)
+        return parser.decode_MST(energy.cpu().numpy(), length, leading_symbolic=leading_symbolic, labeled=True)
 
 
 class PriorOrder(Enum):
@@ -295,21 +279,12 @@ class PriorOrder(Enum):
 
 class StackPtrNet(nn.Module):
 
-    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim,
-        num_pos, rnn_mode, hidden_size, encoder_layers, decoder_layers,
-        num_labels, arc_space, type_space, embedd_word=None, embedd_char=
-        None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33),
-        pos=True, prior_order='inside_out', grandPar=False, sibling=False,
-        activation='elu'):
+    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim, num_pos, rnn_mode, hidden_size, encoder_layers, decoder_layers, num_labels, arc_space, type_space, embedd_word=None, embedd_char=None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), pos=True, prior_order='inside_out', grandPar=False, sibling=False, activation='elu'):
         super(StackPtrNet, self).__init__()
-        self.word_embed = nn.Embedding(num_words, word_dim, _weight=
-            embedd_word, padding_idx=1)
-        self.pos_embed = nn.Embedding(num_pos, pos_dim, _weight=embedd_pos,
-            padding_idx=1) if pos else None
-        self.char_embed = nn.Embedding(num_chars, char_dim, _weight=
-            embedd_char, padding_idx=1)
-        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=
-            char_dim * 4, activation=activation)
+        self.word_embed = nn.Embedding(num_words, word_dim, _weight=embedd_word, padding_idx=1)
+        self.pos_embed = nn.Embedding(num_pos, pos_dim, _weight=embedd_pos, padding_idx=1) if pos else None
+        self.char_embed = nn.Embedding(num_chars, char_dim, _weight=embedd_char, padding_idx=1)
+        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=char_dim * 4, activation=activation)
         self.dropout_in = nn.Dropout2d(p=p_in)
         self.dropout_out = nn.Dropout2d(p=p_out)
         self.num_labels = num_labels
@@ -341,15 +316,11 @@ class StackPtrNet(nn.Module):
         if pos:
             dim_enc += pos_dim
         self.encoder_layers = encoder_layers
-        self.encoder = RNN_ENCODER(dim_enc, hidden_size, num_layers=
-            encoder_layers, batch_first=True, bidirectional=True, dropout=p_rnn
-            )
+        self.encoder = RNN_ENCODER(dim_enc, hidden_size, num_layers=encoder_layers, batch_first=True, bidirectional=True, dropout=p_rnn)
         dim_dec = hidden_size // 2
         self.src_dense = nn.Linear(2 * hidden_size, dim_dec)
         self.decoder_layers = decoder_layers
-        self.decoder = RNN_DECODER(dim_dec, hidden_size, num_layers=
-            decoder_layers, batch_first=True, bidirectional=False, dropout=
-            p_rnn)
+        self.decoder = RNN_DECODER(dim_dec, hidden_size, num_layers=decoder_layers, batch_first=True, bidirectional=False, dropout=p_rnn)
         self.hx_dense = nn.Linear(2 * hidden_size, hidden_size)
         self.arc_h = nn.Linear(hidden_size, arc_space)
         self.arc_c = nn.Linear(hidden_size * 2, arc_space)
@@ -386,8 +357,7 @@ class StackPtrNet(nn.Module):
         nn.init.xavier_uniform_(self.type_c.weight)
         nn.init.constant_(self.type_c.bias, 0.0)
 
-    def _get_encoder_output(self, input_word, input_char, input_pos, mask=None
-        ):
+    def _get_encoder_output(self, input_word, input_char, input_pos, mask=None):
         word = self.word_embed(input_word)
         char = self.char_cnn(self.char_embed(input_char))
         word = self.dropout_in(word)
@@ -401,29 +371,24 @@ class StackPtrNet(nn.Module):
         output = self.dropout_out(output.transpose(1, 2)).transpose(1, 2)
         return output, hn
 
-    def _get_decoder_output(self, output_enc, heads, heads_stack, siblings,
-        hx, mask=None):
+    def _get_decoder_output(self, output_enc, heads, heads_stack, siblings, hx, mask=None):
         enc_dim = output_enc.size(2)
         batch, length_dec = heads_stack.size()
-        src_encoding = output_enc.gather(dim=1, index=heads_stack.unsqueeze
-            (2).expand(batch, length_dec, enc_dim))
+        src_encoding = output_enc.gather(dim=1, index=heads_stack.unsqueeze(2).expand(batch, length_dec, enc_dim))
         if self.sibling:
             mask_sib = siblings.gt(0).float().unsqueeze(2)
-            output_enc_sibling = output_enc.gather(dim=1, index=siblings.
-                unsqueeze(2).expand(batch, length_dec, enc_dim)) * mask_sib
+            output_enc_sibling = output_enc.gather(dim=1, index=siblings.unsqueeze(2).expand(batch, length_dec, enc_dim)) * mask_sib
             src_encoding = src_encoding + output_enc_sibling
         if self.grandPar:
             gpars = heads.gather(dim=1, index=heads_stack).unsqueeze(2)
-            output_enc_gpar = output_enc.gather(dim=1, index=gpars.expand(
-                batch, length_dec, enc_dim))
+            output_enc_gpar = output_enc.gather(dim=1, index=gpars.expand(batch, length_dec, enc_dim))
             src_encoding = src_encoding + output_enc_gpar
         src_encoding = self.activation(self.src_dense(src_encoding))
         output, hn = self.decoder(src_encoding, mask, hx=hx)
         output = self.dropout_out(output.transpose(1, 2)).transpose(1, 2)
         return output, hn
 
-    def forward(self, input_word, input_char, input_pos, mask=None, length=
-        None, hx=None):
+    def forward(self, input_word, input_char, input_pos, mask=None, length=None, hx=None):
         raise RuntimeError('Stack Pointer Network does not implement forward')
 
     def _transform_decoder_init_state(self, hn):
@@ -433,8 +398,7 @@ class StackPtrNet(nn.Module):
             cn = torch.cat([cn[-2], cn[-1]], dim=1).unsqueeze(0)
             cn = self.hx_dense(cn)
             if self.decoder_layers > 1:
-                cn = torch.cat([cn, cn.new_zeros(self.decoder_layers - 1,
-                    batch, hidden_size)], dim=0)
+                cn = torch.cat([cn, cn.new_zeros(self.decoder_layers - 1, batch, hidden_size)], dim=0)
             hn = torch.tanh(cn)
             hn = hn, cn
         else:
@@ -444,40 +408,31 @@ class StackPtrNet(nn.Module):
             hn = hn.view(batch, 1, 2 * hidden_size).transpose(0, 1)
             hn = torch.tanh(self.hx_dense(hn))
             if self.decoder_layers > 1:
-                hn = torch.cat([hn, hn.new_zeros(self.decoder_layers - 1,
-                    batch, hidden_size)], dim=0)
+                hn = torch.cat([hn, hn.new_zeros(self.decoder_layers - 1, batch, hidden_size)], dim=0)
         return hn
 
-    def loss(self, input_word, input_char, input_pos, heads, stacked_heads,
-        children, siblings, stacked_types, mask_e=None, mask_d=None):
-        output_enc, hn = self._get_encoder_output(input_word, input_char,
-            input_pos, mask=mask_e)
+    def loss(self, input_word, input_char, input_pos, heads, stacked_heads, children, siblings, stacked_types, mask_e=None, mask_d=None):
+        output_enc, hn = self._get_encoder_output(input_word, input_char, input_pos, mask=mask_e)
         arc_c = self.activation(self.arc_c(output_enc))
         type_c = self.activation(self.type_c(output_enc))
         hn = self._transform_decoder_init_state(hn)
-        output_dec, _ = self._get_decoder_output(output_enc, heads,
-            stacked_heads, siblings, hn, mask=mask_d)
+        output_dec, _ = self._get_decoder_output(output_enc, heads, stacked_heads, siblings, hn, mask=mask_d)
         arc_h = self.activation(self.arc_h(output_dec))
         type_h = self.activation(self.type_h(output_dec))
         batch, max_len_d, type_space = type_h.size()
-        arc = self.dropout_out(torch.cat([arc_h, arc_c], dim=1).transpose(1, 2)
-            ).transpose(1, 2)
+        arc = self.dropout_out(torch.cat([arc_h, arc_c], dim=1).transpose(1, 2)).transpose(1, 2)
         arc_h = arc[:, :max_len_d]
         arc_c = arc[:, max_len_d:]
-        type = self.dropout_out(torch.cat([type_h, type_c], dim=1).
-            transpose(1, 2)).transpose(1, 2)
+        type = self.dropout_out(torch.cat([type_h, type_c], dim=1).transpose(1, 2)).transpose(1, 2)
         type_h = type[:, :max_len_d].contiguous()
         type_c = type[:, max_len_d:]
-        out_arc = self.biaffine(arc_h, arc_c, mask_query=mask_d, mask_key=
-            mask_e)
-        type_c = type_c.gather(dim=1, index=children.unsqueeze(2).expand(
-            batch, max_len_d, type_space))
+        out_arc = self.biaffine(arc_h, arc_c, mask_query=mask_d, mask_key=mask_e)
+        type_c = type_c.gather(dim=1, index=children.unsqueeze(2).expand(batch, max_len_d, type_space))
         out_type = self.bilinear(type_h, type_c)
         if mask_e is not None:
             minus_mask_e = mask_e.eq(0).unsqueeze(1)
             minus_mask_d = mask_d.eq(0).unsqueeze(2)
-            out_arc = out_arc.masked_fill(minus_mask_d * minus_mask_e,
-                float('-inf'))
+            out_arc = out_arc.masked_fill(minus_mask_d * minus_mask_e, float('-inf'))
         loss_arc = self.criterion(out_arc.transpose(1, 2), children)
         loss_type = self.criterion(out_type.transpose(1, 2), stacked_types)
         if mask_d is not None:
@@ -485,11 +440,9 @@ class StackPtrNet(nn.Module):
             loss_type = loss_type * mask_d
         return loss_arc.sum(dim=1), loss_type.sum(dim=1)
 
-    def decode(self, input_word, input_char, input_pos, mask=None, beam=1,
-        leading_symbolic=0):
+    def decode(self, input_word, input_char, input_pos, mask=None, beam=1, leading_symbolic=0):
         self.decoder.reset_noise(0)
-        output_enc, hn = self._get_encoder_output(input_word, input_char,
-            input_pos, mask=mask)
+        output_enc, hn = self._get_encoder_output(input_word, input_char, input_pos, mask=mask)
         enc_dim = output_enc.size(2)
         device = output_enc.device
         arc_c = self.activation(self.arc_c(output_enc))
@@ -497,28 +450,19 @@ class StackPtrNet(nn.Module):
         type_space = type_c.size(2)
         hn = self._transform_decoder_init_state(hn)
         batch, max_len, _ = output_enc.size()
-        heads = torch.zeros(batch, 1, max_len, device=device, dtype=torch.int64
-            )
-        types = torch.zeros(batch, 1, max_len, device=device, dtype=torch.int64
-            )
+        heads = torch.zeros(batch, 1, max_len, device=device, dtype=torch.int64)
+        types = torch.zeros(batch, 1, max_len, device=device, dtype=torch.int64)
         num_steps = 2 * max_len - 1
-        stacked_heads = torch.zeros(batch, 1, num_steps + 1, device=device,
-            dtype=torch.int64)
-        siblings = torch.zeros(batch, 1, num_steps + 1, device=device,
-            dtype=torch.int64) if self.sibling else None
+        stacked_heads = torch.zeros(batch, 1, num_steps + 1, device=device, dtype=torch.int64)
+        siblings = torch.zeros(batch, 1, num_steps + 1, device=device, dtype=torch.int64) if self.sibling else None
         hypothesis_scores = output_enc.new_zeros((batch, 1))
-        children = torch.arange(max_len, device=device, dtype=torch.int64
-            ).view(1, 1, max_len).expand(batch, beam, max_len)
-        constraints = torch.zeros(batch, 1, max_len, device=device, dtype=
-            torch.bool)
+        children = torch.arange(max_len, device=device, dtype=torch.int64).view(1, 1, max_len).expand(batch, beam, max_len)
+        constraints = torch.zeros(batch, 1, max_len, device=device, dtype=torch.bool)
         constraints[:, :, (0)] = True
-        batch_index = torch.arange(batch, device=device, dtype=torch.int64
-            ).view(batch, 1)
+        batch_index = torch.arange(batch, device=device, dtype=torch.int64).view(batch, 1)
         if mask is None:
-            steps = torch.new_tensor([num_steps] * batch, dtype=torch.int64,
-                device=device)
-            mask_sent = torch.ones(batch, 1, max_len, dtype=torch.bool,
-                device=device)
+            steps = torch.new_tensor([num_steps] * batch, dtype=torch.int64, device=device)
+            mask_sent = torch.ones(batch, 1, max_len, dtype=torch.bool, device=device)
         else:
             steps = (mask.sum(dim=1) * 2 - 1).long()
             mask_sent = mask.unsqueeze(1).bool()
@@ -527,55 +471,41 @@ class StackPtrNet(nn.Module):
         hx = hn
         for t in range(num_steps):
             curr_heads = stacked_heads[:, :, (t)]
-            curr_gpars = heads.gather(dim=2, index=curr_heads.unsqueeze(2)
-                ).squeeze(2)
+            curr_gpars = heads.gather(dim=2, index=curr_heads.unsqueeze(2)).squeeze(2)
             curr_sibs = siblings[:, :, (t)] if self.sibling else None
-            src_encoding = output_enc.gather(dim=1, index=curr_heads.
-                unsqueeze(2).expand(batch, num_hyp, enc_dim))
+            src_encoding = output_enc.gather(dim=1, index=curr_heads.unsqueeze(2).expand(batch, num_hyp, enc_dim))
             if self.sibling:
                 mask_sib = curr_sibs.gt(0).float().unsqueeze(2)
-                output_enc_sibling = output_enc.gather(dim=1, index=
-                    curr_sibs.unsqueeze(2).expand(batch, num_hyp, enc_dim)
-                    ) * mask_sib
+                output_enc_sibling = output_enc.gather(dim=1, index=curr_sibs.unsqueeze(2).expand(batch, num_hyp, enc_dim)) * mask_sib
                 src_encoding = src_encoding + output_enc_sibling
             if self.grandPar:
-                output_enc_gpar = output_enc.gather(dim=1, index=curr_gpars
-                    .unsqueeze(2).expand(batch, num_hyp, enc_dim))
+                output_enc_gpar = output_enc.gather(dim=1, index=curr_gpars.unsqueeze(2).expand(batch, num_hyp, enc_dim))
                 src_encoding = src_encoding + output_enc_gpar
             src_encoding = self.activation(self.src_dense(src_encoding))
-            output_dec, hx = self.decoder.step(src_encoding.view(batch *
-                num_hyp, -1), hx=hx)
+            output_dec, hx = self.decoder.step(src_encoding.view(batch * num_hyp, -1), hx=hx)
             dec_dim = output_dec.size(1)
             output_dec = output_dec.view(batch, num_hyp, dec_dim)
             arc_h = self.activation(self.arc_h(output_dec))
             type_h = self.activation(self.type_h(output_dec))
-            out_arc = self.biaffine(arc_h, arc_c, mask_query=mask_hyp,
-                mask_key=mask)
+            out_arc = self.biaffine(arc_h, arc_c, mask_query=mask_hyp, mask_key=mask)
             if mask is not None:
                 minus_mask_enc = mask.eq(0).unsqueeze(1)
                 out_arc.masked_fill_(minus_mask_enc, float('-inf'))
             mask_last = steps.le(t + 1)
             mask_stop = steps.le(t)
             minus_mask_hyp = mask_hyp.eq(0).unsqueeze(2)
-            hyp_scores = F.log_softmax(out_arc, dim=2).masked_fill_(
-                mask_stop.view(batch, 1, 1) + minus_mask_hyp, 0)
+            hyp_scores = F.log_softmax(out_arc, dim=2).masked_fill_(mask_stop.view(batch, 1, 1) + minus_mask_hyp, 0)
             hypothesis_scores = hypothesis_scores.unsqueeze(2) + hyp_scores
-            mask_leaf = curr_heads.unsqueeze(2).eq(children[:, :num_hyp]
-                ) * mask_sent
+            mask_leaf = curr_heads.unsqueeze(2).eq(children[:, :num_hyp]) * mask_sent
             mask_non_leaf = ~mask_leaf * mask_sent
-            mask_leaf = mask_leaf * (mask_last.unsqueeze(1) + curr_heads.ne(0)
-                ).unsqueeze(2)
+            mask_leaf = mask_leaf * (mask_last.unsqueeze(1) + curr_heads.ne(0)).unsqueeze(2)
             mask_non_leaf = mask_non_leaf * ~constraints
-            hypothesis_scores.masked_fill_(~(mask_non_leaf + mask_leaf),
-                float('-inf'))
-            hypothesis_scores, hyp_index = torch.sort(hypothesis_scores.
-                view(batch, -1), dim=1, descending=True)
+            hypothesis_scores.masked_fill_(~(mask_non_leaf + mask_leaf), float('-inf'))
+            hypothesis_scores, hyp_index = torch.sort(hypothesis_scores.view(batch, -1), dim=1, descending=True)
             prev_num_hyp = num_hyp
-            num_hyps = (mask_leaf + mask_non_leaf).long().view(batch, -1).sum(
-                dim=1)
+            num_hyps = (mask_leaf + mask_non_leaf).long().view(batch, -1).sum(dim=1)
             num_hyp = num_hyps.max().clamp(max=beam).item()
-            hyps = torch.arange(num_hyp, device=device, dtype=torch.int64
-                ).view(1, num_hyp)
+            hyps = torch.arange(num_hyp, device=device, dtype=torch.int64).view(1, num_hyp)
             mask_hyp = hyps.lt(num_hyps.unsqueeze(1)).float()
             hypothesis_scores = hypothesis_scores[:, :num_hyp]
             hyp_index = hyp_index[:, :num_hyp]
@@ -583,42 +513,28 @@ class StackPtrNet(nn.Module):
             child_index = hyp_index % max_len
             hyp_heads = curr_heads.gather(dim=1, index=base_index)
             hyp_gpars = curr_gpars.gather(dim=1, index=base_index)
-            base_index_expand = base_index.unsqueeze(2).expand(batch,
-                num_hyp, max_len)
+            base_index_expand = base_index.unsqueeze(2).expand(batch, num_hyp, max_len)
             constraints = constraints.gather(dim=1, index=base_index_expand)
             constraints.scatter_(2, child_index.unsqueeze(2), True)
             mask_leaf = hyp_heads.eq(child_index)
             heads = heads.gather(dim=1, index=base_index_expand)
-            heads.scatter_(2, child_index.unsqueeze(2), torch.where(
-                mask_leaf, hyp_gpars, hyp_heads).unsqueeze(2))
+            heads.scatter_(2, child_index.unsqueeze(2), torch.where(mask_leaf, hyp_gpars, hyp_heads).unsqueeze(2))
             types = types.gather(dim=1, index=base_index_expand)
-            org_types = types.gather(dim=2, index=child_index.unsqueeze(2)
-                ).squeeze(2)
-            base_index_expand = base_index.unsqueeze(2).expand(batch,
-                num_hyp, num_steps + 1)
-            stacked_heads = stacked_heads.gather(dim=1, index=base_index_expand
-                )
-            stacked_heads[:, :, (t + 1)] = torch.where(mask_leaf, hyp_gpars,
-                child_index)
+            org_types = types.gather(dim=2, index=child_index.unsqueeze(2)).squeeze(2)
+            base_index_expand = base_index.unsqueeze(2).expand(batch, num_hyp, num_steps + 1)
+            stacked_heads = stacked_heads.gather(dim=1, index=base_index_expand)
+            stacked_heads[:, :, (t + 1)] = torch.where(mask_leaf, hyp_gpars, child_index)
             if self.sibling:
                 siblings = siblings.gather(dim=1, index=base_index_expand)
-                siblings[:, :, (t + 1)] = torch.where(mask_leaf,
-                    child_index, torch.zeros_like(child_index))
-            base_index_expand = base_index.unsqueeze(2).expand(batch,
-                num_hyp, type_space)
-            child_index_expand = child_index.unsqueeze(2).expand(batch,
-                num_hyp, type_space)
-            out_type = self.bilinear(type_h.gather(dim=1, index=
-                base_index_expand), type_c.gather(dim=1, index=
-                child_index_expand))
+                siblings[:, :, (t + 1)] = torch.where(mask_leaf, child_index, torch.zeros_like(child_index))
+            base_index_expand = base_index.unsqueeze(2).expand(batch, num_hyp, type_space)
+            child_index_expand = child_index.unsqueeze(2).expand(batch, num_hyp, type_space)
+            out_type = self.bilinear(type_h.gather(dim=1, index=base_index_expand), type_c.gather(dim=1, index=child_index_expand))
             hyp_type_scores = F.log_softmax(out_type, dim=2)
             hyp_type_scores, hyp_types = hyp_type_scores.max(dim=2)
-            hypothesis_scores = (hypothesis_scores + hyp_type_scores.
-                masked_fill_(mask_stop.view(batch, 1), 0))
-            types.scatter_(2, child_index.unsqueeze(2), torch.where(
-                mask_leaf, org_types, hyp_types).unsqueeze(2))
-            hx_index = (base_index + batch_index * prev_num_hyp).view(batch *
-                num_hyp)
+            hypothesis_scores = hypothesis_scores + hyp_type_scores.masked_fill_(mask_stop.view(batch, 1), 0)
+            types.scatter_(2, child_index.unsqueeze(2), torch.where(mask_leaf, org_types, hyp_types).unsqueeze(2))
+            hx_index = (base_index + batch_index * prev_num_hyp).view(batch * num_hyp)
             if isinstance(hx, tuple):
                 hx, cx = hx
                 hx = hx[:, (hx_index)]
@@ -633,17 +549,11 @@ class StackPtrNet(nn.Module):
 
 class BiRecurrentConv(nn.Module):
 
-    def __init__(self, word_dim, num_words, char_dim, num_chars, rnn_mode,
-        hidden_size, out_features, num_layers, num_labels, embedd_word=None,
-        embedd_char=None, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5),
-        activation='elu'):
+    def __init__(self, word_dim, num_words, char_dim, num_chars, rnn_mode, hidden_size, out_features, num_layers, num_labels, embedd_word=None, embedd_char=None, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), activation='elu'):
         super(BiRecurrentConv, self).__init__()
-        self.word_embed = nn.Embedding(num_words, word_dim, _weight=
-            embedd_word, padding_idx=1)
-        self.char_embed = nn.Embedding(num_chars, char_dim, _weight=
-            embedd_char, padding_idx=1)
-        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=4 *
-            char_dim, activation=activation)
+        self.word_embed = nn.Embedding(num_words, word_dim, _weight=embedd_word, padding_idx=1)
+        self.char_embed = nn.Embedding(num_chars, char_dim, _weight=embedd_char, padding_idx=1)
+        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=4 * char_dim, activation=activation)
         self.dropout_in = nn.Dropout2d(p=p_in)
         self.dropout_rnn_in = nn.Dropout(p=p_rnn[0])
         self.dropout_out = nn.Dropout(p_out)
@@ -655,8 +565,7 @@ class BiRecurrentConv(nn.Module):
             RNN = nn.GRU
         else:
             raise ValueError('Unknown RNN mode: %s' % rnn_mode)
-        self.rnn = RNN(word_dim + char_dim, hidden_size, num_layers=
-            num_layers, batch_first=True, bidirectional=True, dropout=p_rnn[1])
+        self.rnn = RNN(word_dim + char_dim, hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True, dropout=p_rnn[1])
         self.fc = nn.Linear(hidden_size * 2, out_features)
         assert activation in ['elu', 'tanh']
         if activation == 'elu':
@@ -694,8 +603,7 @@ class BiRecurrentConv(nn.Module):
         enc = self.dropout_rnn_in(enc)
         if mask is not None:
             length = mask.sum(dim=1).long()
-            packed_enc = pack_padded_sequence(enc, length, batch_first=True,
-                enforce_sorted=False)
+            packed_enc = pack_padded_sequence(enc, length, batch_first=True, enforce_sorted=False)
             packed_out, _ = self.rnn(packed_enc)
             output, _ = pad_packed_sequence(packed_out, batch_first=True)
         else:
@@ -747,13 +655,11 @@ class ChainCRF(nn.Module):
         self.bigram = bigram
         self.state_net = nn.Linear(input_size, self.num_labels)
         if bigram:
-            self.transition_net = nn.Linear(input_size, self.num_labels *
-                self.num_labels)
+            self.transition_net = nn.Linear(input_size, self.num_labels * self.num_labels)
             self.register_parameter('transition_matrix', None)
         else:
             self.transition_net = None
-            self.transition_matrix = Parameter(torch.Tensor(self.num_labels,
-                self.num_labels))
+            self.transition_matrix = Parameter(torch.Tensor(self.num_labels, self.num_labels))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -780,8 +686,7 @@ class ChainCRF(nn.Module):
         batch, length, _ = input.size()
         out_s = self.state_net(input).unsqueeze(2)
         if self.bigram:
-            out_t = self.transition_net(input).view(batch, length, self.
-                num_labels, self.num_labels)
+            out_t = self.transition_net(input).view(batch, length, self.num_labels, self.num_labels)
             output = out_t + out_s
         else:
             output = self.transition_matrix + out_s
@@ -819,16 +724,13 @@ class ChainCRF(nn.Module):
             if t == 0:
                 partition = curr_energy[:, (-1), :]
             else:
-                partition_new = torch.logsumexp(curr_energy + partition.
-                    unsqueeze(2), dim=1)
+                partition_new = torch.logsumexp(curr_energy + partition.unsqueeze(2), dim=1)
                 if mask_transpose is None:
                     partition = partition_new
                 else:
                     mask_t = mask_transpose[t]
-                    partition = partition + (partition_new - partition
-                        ) * mask_t
-            tgt_energy += curr_energy[batch_index, prev_label,
-                target_transpose[t]]
+                    partition = partition + (partition_new - partition) * mask_t
+            tgt_energy += curr_energy[batch_index, prev_label, target_transpose[t]]
             prev_label = target_transpose[t]
         return torch.logsumexp(partition, dim=1) - tgt_energy
 
@@ -849,8 +751,7 @@ class ChainCRF(nn.Module):
         """
         energy = self(input, mask=mask)
         energy_transpose = energy.transpose(0, 1)
-        energy_transpose = energy_transpose[:, :, leading_symbolic:-1,
-            leading_symbolic:-1]
+        energy_transpose = energy_transpose[:, :, leading_symbolic:-1, leading_symbolic:-1]
         length, batch_size, num_label, _ = energy_transpose.size()
         batch_index = torch.arange(0, batch_size).type_as(input).long()
         pi = input.new_zeros([length, batch_size, num_label])
@@ -860,8 +761,7 @@ class ChainCRF(nn.Module):
         pointer[0] = -1
         for t in range(1, length):
             pi_prev = pi[t - 1]
-            pi[t], pointer[t] = torch.max(energy_transpose[t] + pi_prev.
-                unsqueeze(2), dim=1)
+            pi[t], pointer[t] = torch.max(energy_transpose[t] + pi_prev.unsqueeze(2), dim=1)
         _, back_pointer[-1] = torch.max(pi[-1], dim=1)
         for t in reversed(range(length - 1)):
             pointer_last = pointer[t + 1]
@@ -971,12 +871,9 @@ class BiLinear(nn.Module):
         self.left_features = left_features
         self.right_features = right_features
         self.out_features = out_features
-        self.U = Parameter(torch.Tensor(self.out_features, self.
-            left_features, self.right_features))
-        self.weight_left = Parameter(torch.Tensor(self.out_features, self.
-            left_features))
-        self.weight_right = Parameter(torch.Tensor(self.out_features, self.
-            right_features))
+        self.U = Parameter(torch.Tensor(self.out_features, self.left_features, self.right_features))
+        self.weight_left = Parameter(torch.Tensor(self.out_features, self.left_features))
+        self.weight_right = Parameter(torch.Tensor(self.out_features, self.right_features))
         if bias:
             self.bias = Parameter(torch.Tensor(out_features))
         else:
@@ -1006,14 +903,11 @@ class BiLinear(nn.Module):
         input_left = input_left.view(batch, self.left_features)
         input_right = input_right.view(batch, self.right_features)
         output = F.bilinear(input_left, input_right, self.U, self.bias)
-        output = output + F.linear(input_left, self.weight_left, None
-            ) + F.linear(input_right, self.weight_right, None)
+        output = output + F.linear(input_left, self.weight_left, None) + F.linear(input_right, self.weight_right, None)
         return output.view(batch_size + (self.out_features,))
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + 'left_features=' + str(self
-            .left_features) + ', right_features=' + str(self.right_features
-            ) + ', out_features=' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + 'left_features=' + str(self.left_features) + ', right_features=' + str(self.right_features) + ', out_features=' + str(self.out_features) + ')'
 
 
 class CharCNN(nn.Module):
@@ -1021,8 +915,7 @@ class CharCNN(nn.Module):
     CNN layers for characters
     """
 
-    def __init__(self, num_layers, in_channels, out_channels,
-        hidden_channels=None, activation='elu'):
+    def __init__(self, num_layers, in_channels, out_channels, hidden_channels=None, activation='elu'):
         super(CharCNN, self).__init__()
         assert activation in ['elu', 'tanh']
         if activation == 'elu':
@@ -1031,12 +924,10 @@ class CharCNN(nn.Module):
             ACT = nn.Tanh
         layers = list()
         for i in range(num_layers - 1):
-            layers.append(('conv{}'.format(i), nn.Conv1d(in_channels,
-                hidden_channels, kernel_size=3, padding=1)))
+            layers.append(('conv{}'.format(i), nn.Conv1d(in_channels, hidden_channels, kernel_size=3, padding=1)))
             layers.append(('act{}'.format(i), ACT()))
             in_channels = hidden_channels
-        layers.append(('conv_top', nn.Conv1d(in_channels, out_channels,
-            kernel_size=3, padding=1)))
+        layers.append(('conv_top', nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1)))
         layers.append(('act_top', ACT()))
         self.act = ACT
         self.net = nn.Sequential(OrderedDict(layers))
@@ -1069,9 +960,7 @@ class CharCNN(nn.Module):
 
 class VarSkipRNNBase(nn.Module):
 
-    def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=
-        True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs
-        ):
+    def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs):
         super(VarSkipRNNBase, self).__init__()
         self.Cell = Cell
         self.input_size = input_size
@@ -1085,13 +974,10 @@ class VarSkipRNNBase(nn.Module):
         self.all_cells = []
         for layer in range(num_layers):
             for direction in range(num_directions):
-                layer_input_size = (input_size if layer == 0 else 
-                    hidden_size * num_directions)
-                cell = self.Cell(layer_input_size, hidden_size, self.bias,
-                    p=dropout, **kwargs)
+                layer_input_size = input_size if layer == 0 else hidden_size * num_directions
+                cell = self.Cell(layer_input_size, hidden_size, self.bias, p=dropout, **kwargs)
                 self.all_cells.append(cell)
-                self.add_module('cell%d' % (layer * num_directions +
-                    direction), cell)
+                self.add_module('cell%d' % (layer * num_directions + direction), cell)
 
     def reset_parameters(self):
         for cell in self.all_cells:
@@ -1105,16 +991,12 @@ class VarSkipRNNBase(nn.Module):
         batch_size = input.size(0) if self.batch_first else input.size(1)
         if hx is None:
             num_directions = 2 if self.bidirectional else 1
-            hx = input.new_zeros(self.num_layers * num_directions,
-                batch_size, self.hidden_size)
+            hx = input.new_zeros(self.num_layers * num_directions, batch_size, self.hidden_size)
             if self.lstm:
                 hx = hx, hx
-        func = rnn_F.AutogradSkipConnectRNN(num_layers=self.num_layers,
-            batch_first=self.batch_first, bidirectional=self.bidirectional,
-            lstm=self.lstm)
+        func = rnn_F.AutogradSkipConnectRNN(num_layers=self.num_layers, batch_first=self.batch_first, bidirectional=self.bidirectional, lstm=self.lstm)
         self.reset_noise(batch_size)
-        output, hidden = func(input, skip_connect, self.all_cells, hx, None if
-            mask is None else mask.view(mask.size() + (1,)))
+        output, hidden = func(input, skip_connect, self.all_cells, hx, None if mask is None else mask.view(mask.size() + (1,)))
         return output, hidden
 
     def step(self, input, hx=None, hs=None, mask=None):
@@ -1138,17 +1020,14 @@ class VarSkipRNNBase(nn.Module):
                 hx = hx, hx
         if hs is None:
             hs = input.new_zeros(self.num_layers, batch_size, self.hidden_size)
-        func = rnn_F.AutogradSkipConnectStep(num_layers=self.num_layers,
-            lstm=self.lstm)
+        func = rnn_F.AutogradSkipConnectStep(num_layers=self.num_layers, lstm=self.lstm)
         output, hidden = func(input, self.all_cells, hx, hs, mask)
         return output, hidden
 
 
 class VarRNNBase(nn.Module):
 
-    def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=
-        True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs
-        ):
+    def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs):
         super(VarRNNBase, self).__init__()
         self.Cell = Cell
         self.input_size = input_size
@@ -1162,13 +1041,10 @@ class VarRNNBase(nn.Module):
         self.all_cells = []
         for layer in range(num_layers):
             for direction in range(num_directions):
-                layer_input_size = (input_size if layer == 0 else 
-                    hidden_size * num_directions)
-                cell = self.Cell(layer_input_size, hidden_size, self.bias,
-                    p=dropout, **kwargs)
+                layer_input_size = input_size if layer == 0 else hidden_size * num_directions
+                cell = self.Cell(layer_input_size, hidden_size, self.bias, p=dropout, **kwargs)
                 self.all_cells.append(cell)
-                self.add_module('cell%d' % (layer * num_directions +
-                    direction), cell)
+                self.add_module('cell%d' % (layer * num_directions + direction), cell)
 
     def reset_parameters(self):
         for cell in self.all_cells:
@@ -1182,16 +1058,12 @@ class VarRNNBase(nn.Module):
         batch_size = input.size(0) if self.batch_first else input.size(1)
         if hx is None:
             num_directions = 2 if self.bidirectional else 1
-            hx = input.new_zeros(self.num_layers * num_directions,
-                batch_size, self.hidden_size)
+            hx = input.new_zeros(self.num_layers * num_directions, batch_size, self.hidden_size)
             if self.lstm:
                 hx = hx, hx
-        func = rnn_F.AutogradVarRNN(num_layers=self.num_layers, batch_first
-            =self.batch_first, bidirectional=self.bidirectional, lstm=self.lstm
-            )
+        func = rnn_F.AutogradVarRNN(num_layers=self.num_layers, batch_first=self.batch_first, bidirectional=self.bidirectional, lstm=self.lstm)
         self.reset_noise(batch_size)
-        output, hidden = func(input, self.all_cells, hx, None if mask is
-            None else mask.view(mask.size() + (1,)))
+        output, hidden = func(input, self.all_cells, hx, None if mask is None else mask.view(mask.size() + (1,)))
         return output, hidden
 
     def step(self, input, hx=None, mask=None):
@@ -1212,8 +1084,7 @@ class VarRNNBase(nn.Module):
             hx = input.new_zeros(self.num_layers, batch_size, self.hidden_size)
             if self.lstm:
                 hx = hx, hx
-        func = rnn_F.AutogradVarRNNStep(num_layers=self.num_layers, lstm=
-            self.lstm)
+        func = rnn_F.AutogradVarRNNStep(num_layers=self.num_layers, lstm=self.lstm)
         output, hidden = func(input, self.all_cells, hx, mask)
         return output, hidden
 
@@ -1242,16 +1113,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_XuezheMax_NeuroNLP2(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(BiLinear(*[], **{'left_features': 4, 'right_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiLinear,
+     lambda: ([], {'left_features': 4, 'right_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChainCRF,
+     lambda: ([], {'input_size': 4, 'num_labels': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (CharCNN,
+     lambda: ([], {'num_layers': 1, 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_XuezheMax_NeuroNLP2(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ChainCRF(*[], **{'input_size': 4, 'num_labels': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CharCNN(*[], **{'num_layers': 1, 'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

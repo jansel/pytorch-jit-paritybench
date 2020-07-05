@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,9 +57,6 @@ EMBED_SIZE = sum(EMBED.values())
 PAD_IDX = 0
 
 
-Tensor = torch.cuda.FloatTensor if CUDA else torch.FloatTensor
-
-
 zeros = lambda *x: torch.zeros(*x).cuda() if CUDA else torch.zeros
 
 
@@ -73,8 +71,7 @@ class embed(nn.Module):
             elif model == 'char-rnn':
                 self.char_embed = self.rnn(cti_size, dim)
             if model == 'lookup':
-                self.word_embed = nn.Embedding(wti_size, dim, padding_idx=
-                    PAD_IDX)
+                self.word_embed = nn.Embedding(wti_size, dim, padding_idx=PAD_IDX)
             elif model == 'sae':
                 self.word_embed = self.sae(wti_size, dim)
         if self.hre:
@@ -101,9 +98,7 @@ class embed(nn.Module):
             num_featmaps = 50
             kernel_sizes = [3]
             self.embed = nn.Embedding(vocab_size, dim, padding_idx=PAD_IDX)
-            self.conv = nn.ModuleList([nn.Conv2d(in_channels=1,
-                out_channels=num_featmaps, kernel_size=(i, dim)) for i in
-                kernel_sizes])
+            self.conv = nn.ModuleList([nn.Conv2d(in_channels=1, out_channels=num_featmaps, kernel_size=(i, dim)) for i in kernel_sizes])
             self.dropout = nn.Dropout(DROPOUT)
             self.fc = nn.Linear(len(kernel_sizes) * num_featmaps, embed_size)
 
@@ -131,12 +126,8 @@ class embed(nn.Module):
             self.num_dirs = 2
             self.num_layers = 2
             self.embedded = embedded
-            self.embed = nn.Embedding(vocab_size, embed_size, padding_idx=
-                PAD_IDX)
-            self.rnn = getattr(nn, self.rnn_type)(input_size=self.dim,
-                hidden_size=self.dim // self.num_dirs, num_layers=self.
-                num_layers, bias=True, batch_first=True, dropout=DROPOUT,
-                bidirectional=self.num_dirs == 2)
+            self.embed = nn.Embedding(vocab_size, embed_size, padding_idx=PAD_IDX)
+            self.rnn = getattr(nn, self.rnn_type)(input_size=self.dim, hidden_size=self.dim // self.num_dirs, num_layers=self.num_layers, bias=True, batch_first=True, dropout=DROPOUT, bidirectional=self.num_dirs == 2)
 
         def init_state(self, b):
             n = self.num_layers * self.num_dirs
@@ -168,8 +159,7 @@ class embed(nn.Module):
             num_layers = 1
             self.embed = nn.Embedding(vocab_size, dim, padding_idx=PAD_IDX)
             self.pe = self.pos_encoding(dim)
-            self.layers = nn.ModuleList([self.layer(dim) for _ in range(
-                num_layers)])
+            self.layers = nn.ModuleList([self.layer(dim) for _ in range(num_layers)])
 
         def forward(self, x):
             mask = x.eq(PAD_IDX).view(x.size(0), 1, 1, -1)
@@ -232,8 +222,7 @@ class embed(nn.Module):
                 k = self.Wk(k).view(b, -1, self.H, self.Dk).transpose(1, 2)
                 v = self.Wv(v).view(b, -1, self.H, self.Dv).transpose(1, 2)
                 z = self.attn_sdp(q, k, v, mask)
-                z = z.transpose(1, 2).contiguous().view(b, -1, self.H * self.Dv
-                    )
+                z = z.transpose(1, 2).contiguous().view(b, -1, self.H * self.Dv)
                 z = self.Wo(z)
                 z = self.norm(x + self.dropout(z))
                 return z
@@ -244,8 +233,7 @@ class embed(nn.Module):
             def __init__(self, dim):
                 super().__init__()
                 dim_ffn = 2048
-                self.layers = nn.Sequential(nn.Linear(dim, dim_ffn), nn.
-                    ReLU(), nn.Dropout(DROPOUT), nn.Linear(dim_ffn, dim))
+                self.layers = nn.Sequential(nn.Linear(dim, dim_ffn), nn.ReLU(), nn.Dropout(DROPOUT), nn.Linear(dim_ffn, dim))
                 self.norm = nn.LayerNorm(dim)
 
             def forward(self, x):
@@ -282,8 +270,7 @@ class rnn_crf(nn.Module):
         self.rnn.batch_size = len(lens)
         self.crf.batch_size = len(lens)
         if HRE:
-            mask = Tensor([([1] * x + [PAD_IDX] * (lens[0] - x)) for x in lens]
-                )
+            mask = Tensor([([1] * x + [PAD_IDX] * (lens[0] - x)) for x in lens])
         else:
             mask = xw.gt(PAD_IDX).float()
         h = self.rnn(xc, xw, mask)
@@ -308,9 +295,7 @@ class rnn(nn.Module):
         super().__init__()
         self.batch_size = 0
         self.embed = embed(cti_size, wti_size, HRE)
-        self.rnn = getattr(nn, RNN_TYPE)(input_size=EMBED_SIZE, hidden_size
-            =HIDDEN_SIZE // NUM_DIRS, num_layers=NUM_LAYERS, bias=True,
-            batch_first=True, dropout=DROPOUT, bidirectional=NUM_DIRS == 2)
+        self.rnn = getattr(nn, RNN_TYPE)(input_size=EMBED_SIZE, hidden_size=HIDDEN_SIZE // NUM_DIRS, num_layers=NUM_LAYERS, bias=True, batch_first=True, dropout=DROPOUT, bidirectional=NUM_DIRS == 2)
         self.out = nn.Linear(HIDDEN_SIZE, num_tags)
 
     def init_state(self, b):
@@ -327,8 +312,7 @@ class rnn(nn.Module):
         x = self.embed(xc, xw)
         if HRE:
             x = x.view(self.batch_size, -1, EMBED_SIZE)
-        x = nn.utils.rnn.pack_padded_sequence(x, mask.sum(1).int(),
-            batch_first=True)
+        x = nn.utils.rnn.pack_padded_sequence(x, mask.sum(1).int(), batch_first=True)
         h, _ = self.rnn(x, hs)
         h, _ = nn.utils.rnn.pad_packed_sequence(h, batch_first=True)
         h = self.out(h)
@@ -423,9 +407,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (embed,
+     lambda: ([], {'cti_size': 4, 'wti_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_threelittlemonkeys_lstm_crf_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(embed(*[], **{'cti_size': 4, 'wti_size': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

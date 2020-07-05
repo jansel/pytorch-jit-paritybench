@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -48,8 +49,7 @@ class AffinityFieldLoss(nn.Module):
         used for sigmentation tasks
     """
 
-    def __init__(self, kl_margin, lambda_edge=1.0, lambda_not_edge=1.0,
-        ignore_lb=255):
+    def __init__(self, kl_margin, lambda_edge=1.0, lambda_not_edge=1.0, ignore_lb=255):
         super(AffinityFieldLoss, self).__init__()
         self.kl_margin = kl_margin
         self.ignore_lb = ignore_lb
@@ -60,30 +60,21 @@ class AffinityFieldLoss(nn.Module):
     def forward(self, logits, labels):
         ignore_mask = labels.cpu() == self.ignore_lb
         n_valid = ignore_mask.numel() - ignore_mask.sum().item()
-        indices = [((1, None, None, None), (None, -1, None, None)), ((None,
-            -1, None, None), (1, None, None, None)), ((None, None, 1, None),
-            (None, None, None, -1)), ((None, None, None, -1), (None, None, 
-            1, None)), ((1, None, 1, None), (None, -1, None, -1)), ((1,
-            None, None, -1), (None, -1, 1, None)), ((None, -1, 1, None), (1,
-            None, None, -1)), ((None, -1, None, -1), (1, None, 1, None))]
+        indices = [((1, None, None, None), (None, -1, None, None)), ((None, -1, None, None), (1, None, None, None)), ((None, None, 1, None), (None, None, None, -1)), ((None, None, None, -1), (None, None, 1, None)), ((1, None, 1, None), (None, -1, None, -1)), ((1, None, None, -1), (None, -1, 1, None)), ((None, -1, 1, None), (1, None, None, -1)), ((None, -1, None, -1), (1, None, 1, None))]
         losses = []
         probs = torch.softmax(logits, dim=1)
         log_probs = torch.log_softmax(logits, dim=1)
         for idx_c, idx_e in indices:
             lbcenter = labels[:, idx_c[0]:idx_c[1], idx_c[2]:idx_c[3]].detach()
             lbedge = labels[:, idx_e[0]:idx_e[1], idx_e[2]:idx_e[3]].detach()
-            igncenter = ignore_mask[:, idx_c[0]:idx_c[1], idx_c[2]:idx_c[3]
-                ].detach()
-            ignedge = ignore_mask[:, idx_e[0]:idx_e[1], idx_e[2]:idx_e[3]
-                ].detach()
+            igncenter = ignore_mask[:, idx_c[0]:idx_c[1], idx_c[2]:idx_c[3]].detach()
+            ignedge = ignore_mask[:, idx_e[0]:idx_e[1], idx_e[2]:idx_e[3]].detach()
             lgp_center = probs[:, :, idx_c[0]:idx_c[1], idx_c[2]:idx_c[3]]
             lgp_edge = probs[:, :, idx_e[0]:idx_e[1], idx_e[2]:idx_e[3]]
             prob_edge = probs[:, :, idx_e[0]:idx_e[1], idx_e[2]:idx_e[3]]
             kldiv = (prob_edge * (lgp_edge - lgp_center)).sum(dim=1)
             kldiv[ignedge | igncenter] = 0
-            loss = torch.where(lbcenter == lbedge, self.lambda_edge * kldiv,
-                self.lambda_not_edge * F.relu(self.kl_margin - kldiv,
-                inplace=True)).sum() / n_valid
+            loss = torch.where(lbcenter == lbedge, self.lambda_edge * kldiv, self.lambda_not_edge * F.relu(self.kl_margin - kldiv, inplace=True)).sum() / n_valid
             losses.append(loss)
         return sum(losses) / 8
 
@@ -95,8 +86,7 @@ class AMSoftmax(nn.Module):
         self.m = m
         self.s = s
         self.in_feats = in_feats
-        self.W = torch.nn.Parameter(torch.randn(in_feats, n_classes),
-            requires_grad=True)
+        self.W = torch.nn.Parameter(torch.randn(in_feats, n_classes), requires_grad=True)
         self.ce = nn.CrossEntropyLoss()
         nn.init.xavier_normal_(self.W, gain=1)
 
@@ -122,8 +112,7 @@ class AMSoftmax(nn.Module):
 
 class GeneralizedSoftDiceLoss(nn.Module):
 
-    def __init__(self, p=1, smooth=1, reduction='mean', weight=None,
-        ignore_lb=255):
+    def __init__(self, p=1, smooth=1, reduction='mean', weight=None, ignore_lb=255):
         super(GeneralizedSoftDiceLoss, self).__init__()
         self.p = p
         self.smooth = smooth
@@ -140,8 +129,7 @@ class GeneralizedSoftDiceLoss(nn.Module):
         ignore = label.data.cpu() == self.ignore_lb
         label = label.clone()
         label[ignore] = 0
-        lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1
-            )
+        lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1)
         ignore = ignore.nonzero()
         _, M = ignore.size()
         a, *b = ignore.chunk(M, dim=1)
@@ -149,8 +137,7 @@ class GeneralizedSoftDiceLoss(nn.Module):
         lb_one_hot = lb_one_hot.detach()
         probs = torch.sigmoid(logits)
         numer = torch.sum(probs * lb_one_hot, dim=(2, 3))
-        denom = torch.sum(probs.pow(self.p) + lb_one_hot.pow(self.p), dim=(
-            2, 3))
+        denom = torch.sum(probs.pow(self.p) + lb_one_hot.pow(self.p), dim=(2, 3))
         if not self.weight is None:
             numer = numer * self.weight.view(1, -1)
             denom = denom * self.weight.view(1, -1)
@@ -180,8 +167,7 @@ class BatchSoftDiceLoss(nn.Module):
         ignore = label.data.cpu() == self.ignore_lb
         label = label.clone()
         label[ignore] = 0
-        lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1
-            )
+        lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1)
         ignore = ignore.nonzero()
         _, M = ignore.size()
         a, *b = ignore.chunk(M, dim=1)
@@ -189,8 +175,7 @@ class BatchSoftDiceLoss(nn.Module):
         lb_one_hot = lb_one_hot.detach()
         probs = torch.sigmoid(logits)
         numer = torch.sum(probs * lb_one_hot, dim=(2, 3))
-        denom = torch.sum(probs.pow(self.p) + lb_one_hot.pow(self.p), dim=(
-            2, 3))
+        denom = torch.sum(probs.pow(self.p) + lb_one_hot.pow(self.p), dim=(2, 3))
         if not self.weight is None:
             numer = numer * self.weight.view(1, -1)
             denom = denom * self.weight.view(1, -1)
@@ -219,11 +204,9 @@ class Dual_Focal_loss(nn.Module):
         n_valid = (ignore == 0).sum()
         label = label.clone()
         label[ignore] = 0
-        lb_one_hot = logits.data.clone().zero_().scatter_(1, label.
-            unsqueeze(1), 1).detach()
+        lb_one_hot = logits.data.clone().zero_().scatter_(1, label.unsqueeze(1), 1).detach()
         pred = torch.softmax(logits, dim=1)
-        loss = -torch.log(self.eps + 1.0 - self.mse(pred, lb_one_hot)).sum(dim
-            =1)
+        loss = -torch.log(self.eps + 1.0 - self.mse(pred, lb_one_hot)).sum(dim=1)
         loss[ignore] = 0
         if self.reduction == 'mean':
             loss = loss.sum() / n_valid
@@ -275,10 +258,8 @@ class FocalSigmoidLossFuncV2(torch.autograd.Function):
         coeff = torch.empty_like(logits).fill_(1 - alpha)
         coeff[label == 1] = alpha
         probs = torch.sigmoid(logits)
-        log_probs = torch.where(logits >= 0, F.softplus(logits, -1, 50), 
-            logits - F.softplus(logits, 1, 50))
-        log_1_probs = torch.where(logits >= 0, -logits + F.softplus(logits,
-            -1, 50), -F.softplus(logits, 1, 50))
+        log_probs = torch.where(logits >= 0, F.softplus(logits, -1, 50), logits - F.softplus(logits, 1, 50))
+        log_1_probs = torch.where(logits >= 0, -logits + F.softplus(logits, -1, 50), -F.softplus(logits, 1, 50))
         probs_gamma = probs ** gamma
         probs_1_gamma = (1.0 - probs) ** gamma
         ctx.coeff = coeff
@@ -307,11 +288,9 @@ class FocalSigmoidLossFuncV2(torch.autograd.Function):
         probs_1_gamma = ctx.probs_1_gamma
         label = ctx.label
         gamma = ctx.gamma
-        term1 = (1.0 - probs - gamma * probs * log_probs).mul_(probs_1_gamma
-            ).neg_()
+        term1 = (1.0 - probs - gamma * probs * log_probs).mul_(probs_1_gamma).neg_()
         term2 = (probs - gamma * (1.0 - probs) * log_1_probs).mul_(probs_gamma)
-        grads = torch.where(label == 1, term1, term2).mul_(coeff).mul_(
-            grad_output)
+        grads = torch.where(label == 1, term1, term2).mul_(coeff).mul_(grad_output)
         return grads, None, None, None
 
 
@@ -327,8 +306,7 @@ class FocalLossV2(nn.Module):
         self.reduction = reduction
 
     def forward(self, logits, label):
-        loss = FocalSigmoidLossFuncV2.apply(logits, label, self.alpha, self
-            .gamma)
+        loss = FocalSigmoidLossFuncV2.apply(logits, label, self.alpha, self.gamma)
         if self.reduction == 'mean':
             loss = loss.mean()
         if self.reduction == 'sum':
@@ -354,8 +332,7 @@ class FocalSigmoidLossFuncV3(torch.autograd.Function):
         compute gradient of focal loss
         """
         logits, labels, alpha, gamma = ctx.variables
-        grads = focal_cpp.focalloss_backward(grad_output, logits, labels,
-            gamma, alpha)
+        grads = focal_cpp.focalloss_backward(grad_output, logits, labels, gamma, alpha)
         return grads, None, None, None
 
 
@@ -371,8 +348,7 @@ class FocalLossV3(nn.Module):
         self.reduction = reduction
 
     def forward(self, logits, label):
-        loss = FocalSigmoidLossFuncV3.apply(logits, label, self.alpha, self
-            .gamma)
+        loss = FocalSigmoidLossFuncV3.apply(logits, label, self.alpha, self.gamma)
         if self.reduction == 'mean':
             loss = loss.mean()
         if self.reduction == 'sum':
@@ -405,8 +381,7 @@ class LabelSmoothSoftmaxCEV1(nn.Module):
             n_valid = (ignore == 0).sum()
             label[ignore] = 0
             lb_pos, lb_neg = 1.0 - self.lb_smooth, self.lb_smooth / num_classes
-            label = torch.empty_like(logits).fill_(lb_neg).scatter_(1,
-                label.unsqueeze(1), lb_pos).detach()
+            label = torch.empty_like(logits).fill_(lb_neg).scatter_(1, label.unsqueeze(1), lb_pos).detach()
         logs = self.log_softmax(logits)
         loss = -torch.sum(logs * label, dim=1)
         loss[ignore] = 0
@@ -427,8 +402,7 @@ class LSRCrossEntropyFunction(torch.autograd.Function):
         n_valid = (ignore == 0).sum()
         label[ignore] = 0
         lb_pos, lb_neg = 1.0 - lb_smooth, lb_smooth / num_classes
-        label = torch.empty_like(logits).fill_(lb_neg).scatter_(1, label.
-            unsqueeze(1), lb_pos).detach()
+        label = torch.empty_like(logits).fill_(lb_neg).scatter_(1, label.unsqueeze(1), lb_pos).detach()
         ignore = ignore.nonzero()
         _, M = ignore.size()
         a, *b = ignore.chunk(M, dim=1)
@@ -476,8 +450,7 @@ class LabelSmoothSoftmaxCEV2(nn.Module):
         self.lb_ignore = ignore_index
 
     def forward(self, logits, label):
-        return LSRCrossEntropyFunction.apply(logits, label, self.lb_smooth,
-            self.reduction, self.lb_ignore)
+        return LSRCrossEntropyFunction.apply(logits, label, self.lb_smooth, self.reduction, self.lb_ignore)
 
 
 class MishV1(nn.Module):
@@ -582,8 +555,7 @@ class PCSoftmaxCrossEntropyFunction(torch.autograd.Function):
         ignore = label == ignore_index
         n_valid = (ignore == 0).sum()
         label[ignore] = 0
-        lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1
-            ).detach()
+        lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1).detach()
         shape = [1, -1] + [(1) for _ in range(len(logits.size()) - 2)]
         W = torch.tensor(lb_proportion).view(*shape).to(logits.device).detach()
         logits = logits - logits.max(dim=1, keepdim=True)[0]
@@ -639,8 +611,7 @@ class PCSoftmaxCrossEntropyV2(nn.Module):
         self.ignore_index = ignore_index
 
     def forward(self, logits, label):
-        return PCSoftmaxCrossEntropyFunction.apply(logits, label, self.
-            lb_proportion, self.reduction, self.ignore_index)
+        return PCSoftmaxCrossEntropyFunction.apply(logits, label, self.lb_proportion, self.reduction, self.ignore_index)
 
 
 class SoftDiceLossV1(nn.Module):
@@ -694,10 +665,8 @@ class SoftDiceLossV2Func(torch.autograd.Function):
         M = numer.view(-1, 1, 1) - (probs * labels).mul_(2)
         N = denor.view(-1, 1, 1) - probs.pow(p)
         mppi_1 = probs.pow(p - 1).mul_(p).mul_(M)
-        grads = torch.where(labels == 1, probs.pow(p).mul_(2 * (1.0 - p)) -
-            mppi_1 + N.mul_(2), -mppi_1)
-        grads = grads.div_((probs.pow(p) + N).pow(2)).mul_(probs).mul_(1.0 -
-            probs)
+        grads = torch.where(labels == 1, probs.pow(p).mul_(2 * (1.0 - p)) - mppi_1 + N.mul_(2), -mppi_1)
+        grads = grads.div_((probs.pow(p) + N).pow(2)).mul_(probs).mul_(1.0 - probs)
         grads = grads.mul_(grad_output.view(-1, 1, 1)).neg_()
         return grads, None, None, None
 
@@ -744,8 +713,7 @@ class SoftDiceLossV3Func(torch.autograd.Function):
         compute gradient of soft-dice loss
         """
         logits, labels, p, smooth = ctx.vars
-        grads = soft_dice_cpp.soft_dice_backward(grad_output, logits,
-            labels, p, smooth)
+        grads = soft_dice_cpp.soft_dice_backward(grad_output, logits, labels, p, smooth)
         return grads, None, None, None
 
 
@@ -861,46 +829,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchSoftDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (FocalLossV1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FocalLossV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GeneralizedSoftDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (LabelSmoothSoftmaxCEV1,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (MishV1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MishV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SoftDiceLossV1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SoftDiceLossV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SwishV1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SwishV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_CoinCheung_pytorch_loss(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BatchSoftDiceLoss(*[], **{}), [torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(FocalLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(FocalLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GeneralizedSoftDiceLoss(*[], **{}), [torch.zeros([4, 4, 4, 4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(LabelSmoothSoftmaxCEV1(*[], **{}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(SoftDiceLossV1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(SoftDiceLossV2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(SwishV1(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(SwishV2(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

@@ -63,8 +63,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -221,8 +222,7 @@ def get_ext_suffix():
     return '.so'
 
 
-def byteps_push_pull(tensor, version=0, priority=0, name=None, is_average=True
-    ):
+def byteps_push_pull(tensor, version=0, priority=0, name=None, is_average=True):
     """
     A function that performs pushing and pulling tensors
 
@@ -246,13 +246,9 @@ def byteps_push_pull(tensor, version=0, priority=0, name=None, is_average=True
     """
     c_in = tensor.handle
     if isinstance(name, string_types):
-        check_call(MXNET_LIB_CTYPES.byteps_mxnet_push_pull_async(c_in,
-            c_str(name), ctypes.c_int(version), ctypes.c_int(priority),
-            ctypes.c_bool(is_average)))
+        check_call(MXNET_LIB_CTYPES.byteps_mxnet_push_pull_async(c_in, c_str(name), ctypes.c_int(version), ctypes.c_int(priority), ctypes.c_bool(is_average)))
     else:
-        check_call(MXNET_LIB_CTYPES.byteps_mxnet_push_pull_async(c_in, name,
-            ctypes.c_int(version), ctypes.c_int(priority), ctypes.c_bool(
-            is_average)))
+        check_call(MXNET_LIB_CTYPES.byteps_mxnet_push_pull_async(c_in, name, ctypes.c_int(version), ctypes.c_int(priority), ctypes.c_bool(is_average)))
     return
 
 
@@ -376,14 +372,10 @@ class DistributedDataParallel(Module):
         >>> net = torch.nn.DistributedDataParallel(model, device_ids=[2])
     """
 
-    def __init__(self, module, device_ids=None, broadcast_buffers=True,
-        compression=Compression.none):
+    def __init__(self, module, device_ids=None, broadcast_buffers=True, compression=Compression.none):
         super(DistributedDataParallel, self).__init__()
-        assert device_ids and len(device_ids
-            ) == 1, 'DistributedDataParallel device_ids contain exactlyone entry, but got {}.'.format(
-            device_ids)
-        self.device_ids = list(map(lambda x: _get_device_index(x, True),
-            device_ids))
+        assert device_ids and len(device_ids) == 1, 'DistributedDataParallel device_ids contain exactlyone entry, but got {}.'.format(device_ids)
+        self.device_ids = list(map(lambda x: _get_device_index(x, True), device_ids))
         self.module = module
         self.broadcast_buffers = broadcast_buffers
         self.require_forward_param_sync = broadcast_buffers
@@ -398,25 +390,17 @@ class DistributedDataParallel(Module):
         named_parameters = list(named_parameters)
         if len(named_parameters) > 0:
             if isinstance(named_parameters[0][1], torch.Tensor):
-                if any([(not isinstance(p, torch.Tensor)) for name, p in
-                    named_parameters]):
-                    raise ValueError(
-                        'named_parameters should consistently be a sequence of tuples (name, torch.Tensor)'
-                        )
+                if any([(not isinstance(p, torch.Tensor)) for name, p in named_parameters]):
+                    raise ValueError('named_parameters should consistently be a sequence of tuples (name, torch.Tensor)')
                 self._is_tensor_instance = True
-                self._parameter_names = {v.__hash__(): k for k, v in sorted
-                    (named_parameters)}
-                self._tensor_list = [tensor for name, tensor in
-                    named_parameters]
+                self._parameter_names = {v.__hash__(): k for k, v in sorted(named_parameters)}
+                self._tensor_list = [tensor for name, tensor in named_parameters]
             else:
                 self._is_tensor_instance = False
-                self._parameter_names = {v: k for k, v in sorted(
-                    named_parameters)}
+                self._parameter_names = {v: k for k, v in sorted(named_parameters)}
         else:
             self._is_tensor_instance = False
-            self._parameter_names = {v: ('push_pull.noname.%s' % i) for
-                param_group in self.param_groups for i, v in enumerate(
-                param_group['params'])}
+            self._parameter_names = {v: ('push_pull.noname.%s' % i) for param_group in self.param_groups for i, v in enumerate(param_group['params'])}
         if size() > 1:
             self._register_hooks()
             named_params = self.module.named_parameters()
@@ -428,8 +412,7 @@ class DistributedDataParallel(Module):
             declare('Parameter.' + name)
         module_states = list(self.module.state_dict().values())
         if len(module_states) > 0:
-            bps.torch.broadcast_parameters(self.module.state_dict(),
-                root_rank=0)
+            bps.torch.broadcast_parameters(self.module.state_dict(), root_rank=0)
 
     def forward(self, *inputs, **kwargs):
         if self.require_forward_param_sync:
@@ -439,8 +422,7 @@ class DistributedDataParallel(Module):
     def _sync_params(self):
         with torch.no_grad():
             if self.broadcast_buffers and len(self.modules_buffers[0]) > 0:
-                bps.torch.broadcast_parameters(list(self.module.
-                    named_buffers()), root_rank=0)
+                bps.torch.broadcast_parameters(list(self.module.named_buffers()), root_rank=0)
 
     def _register_hooks(self):
         for _, p in self.module.named_parameters():
@@ -462,8 +444,7 @@ class DistributedDataParallel(Module):
         else:
             tensor = p.grad
             tensor_compressed, ctx = self._compression.compress(tensor)
-            handle, grad_count = byteps_push_pull_group(tensor_compressed,
-                average=True, name='Gradient.' + name)
+            handle, grad_count = byteps_push_pull_group(tensor_compressed, average=True, name='Gradient.' + name)
         return handle, ctx, grad_count
 
     def _push_pull_grad_async(self, p):
@@ -476,16 +457,14 @@ class DistributedDataParallel(Module):
         else:
             tensor = p.grad
             tensor_compressed, ctx = self._compression.compress(tensor)
-            handle = byteps_push_pull(tensor_compressed, average=True, name
-                ='Gradient.' + name)
+            handle = byteps_push_pull(tensor_compressed, average=True, name='Gradient.' + name)
         return handle, ctx
 
     def _make_hook(self, p, num_grads):
 
         def hook(*ignore):
             handle, ctx = None, None
-            handle, ctx, grad_count = self._push_pull_grad_group_sync(p,
-                num_grads)
+            handle, ctx, grad_count = self._push_pull_grad_group_sync(p, num_grads)
             self._handles[p] = handle, ctx
             if grad_count == self._num_grads:
                 self.synchronize()
@@ -494,8 +473,7 @@ class DistributedDataParallel(Module):
     def synchronize(self):
         missing_p = self._requires_update - set(self._handles.keys())
         for p in missing_p:
-            handle, ctx, grad_count = self._push_pull_grad_group_sync(p,
-                self._num_grads)
+            handle, ctx, grad_count = self._push_pull_grad_group_sync(p, self._num_grads)
             self._handles[p] = handle, ctx
         for p, value in self._handles.items():
             handle, ctx = value
@@ -513,12 +491,8 @@ class ConvNet(nn.Module):
 
     def __init__(self, num_classes=10):
         super(ConvNet, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, stride=
-            1, padding=2), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(
-            kernel_size=2, stride=2))
-        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, stride
-            =1, padding=2), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(
-            kernel_size=2, stride=2))
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
+        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
         self.fc = nn.Linear(7 * 7 * 32, num_classes)
 
     def forward(self, x):
@@ -548,10 +522,3 @@ class Net(nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_bytedance_byteps(_paritybench_base):
-    pass

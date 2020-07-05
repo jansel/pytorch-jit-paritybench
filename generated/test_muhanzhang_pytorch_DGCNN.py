@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,8 +65,7 @@ class MySpMM(torch.autograd.Function):
         grad_matrix1 = grad_matrix2 = None
         assert not ctx.needs_input_grad[0]
         if ctx.needs_input_grad[1]:
-            grad_matrix2 = Variable(torch.mm(sp_mat.data.t(), grad_output.data)
-                )
+            grad_matrix2 = Variable(torch.mm(sp_mat.data.t(), grad_output.data))
         return grad_matrix1, grad_matrix2
 
 
@@ -108,9 +108,7 @@ def weights_init(m):
 
 class DGCNN(nn.Module):
 
-    def __init__(self, output_dim, num_node_feats, num_edge_feats,
-        latent_dim=[32, 32, 32, 1], k=30, conv1d_channels=[16, 32],
-        conv1d_kws=[0, 5], conv1d_activation='ReLU'):
+    def __init__(self, output_dim, num_node_feats, num_edge_feats, latent_dim=[32, 32, 32, 1], k=30, conv1d_channels=[16, 32], conv1d_kws=[0, 5], conv1d_activation='ReLU'):
         None
         super(DGCNN, self).__init__()
         self.latent_dim = latent_dim
@@ -121,16 +119,12 @@ class DGCNN(nn.Module):
         self.total_latent_dim = sum(latent_dim)
         conv1d_kws[0] = self.total_latent_dim
         self.conv_params = nn.ModuleList()
-        self.conv_params.append(nn.Linear(num_node_feats + num_edge_feats,
-            latent_dim[0]))
+        self.conv_params.append(nn.Linear(num_node_feats + num_edge_feats, latent_dim[0]))
         for i in range(1, len(latent_dim)):
-            self.conv_params.append(nn.Linear(latent_dim[i - 1], latent_dim[i])
-                )
-        self.conv1d_params1 = nn.Conv1d(1, conv1d_channels[0], conv1d_kws[0
-            ], conv1d_kws[0])
+            self.conv_params.append(nn.Linear(latent_dim[i - 1], latent_dim[i]))
+        self.conv1d_params1 = nn.Conv1d(1, conv1d_channels[0], conv1d_kws[0], conv1d_kws[0])
         self.maxpool1d = nn.MaxPool1d(2, 2)
-        self.conv1d_params2 = nn.Conv1d(conv1d_channels[0], conv1d_channels
-            [1], conv1d_kws[1], 1)
+        self.conv1d_params2 = nn.Conv1d(conv1d_channels[0], conv1d_channels[1], conv1d_kws[1], 1)
         dense_dim = int((k - 2) / 2 + 1)
         self.dense_dim = (dense_dim - conv1d_kws[1] + 1) * conv1d_channels[1]
         if output_dim > 0:
@@ -140,8 +134,7 @@ class DGCNN(nn.Module):
 
     def forward(self, graph_list, node_feat, edge_feat):
         graph_sizes = [graph_list[i].num_nodes for i in range(len(graph_list))]
-        node_degs = [(torch.Tensor(graph_list[i].degs) + 1) for i in range(
-            len(graph_list))]
+        node_degs = [(torch.Tensor(graph_list[i].degs) + 1) for i in range(len(graph_list))]
         node_degs = torch.cat(node_degs).unsqueeze(1)
         n2n_sp, e2n_sp, subg_sp = GNNLIB.PrepareSparseMatrices(graph_list)
         if torch.is_available() and isinstance(node_feat, torch.FloatTensor):
@@ -152,19 +145,16 @@ class DGCNN(nn.Module):
         node_feat = Variable(node_feat)
         if edge_feat is not None:
             edge_feat = Variable(edge_feat)
-            if torch.is_available() and isinstance(node_feat, torch.FloatTensor
-                ):
+            if torch.is_available() and isinstance(node_feat, torch.FloatTensor):
                 edge_feat = edge_feat
         n2n_sp = Variable(n2n_sp)
         e2n_sp = Variable(e2n_sp)
         subg_sp = Variable(subg_sp)
         node_degs = Variable(node_degs)
-        h = self.sortpooling_embedding(node_feat, edge_feat, n2n_sp, e2n_sp,
-            subg_sp, graph_sizes, node_degs)
+        h = self.sortpooling_embedding(node_feat, edge_feat, n2n_sp, e2n_sp, subg_sp, graph_sizes, node_degs)
         return h
 
-    def sortpooling_embedding(self, node_feat, edge_feat, n2n_sp, e2n_sp,
-        subg_sp, graph_sizes, node_degs):
+    def sortpooling_embedding(self, node_feat, edge_feat, n2n_sp, e2n_sp, subg_sp, graph_sizes, node_degs):
         """ if exists edge feature, concatenate to node feature vector """
         if edge_feat is not None:
             input_edge_linear = edge_feat
@@ -184,10 +174,8 @@ class DGCNN(nn.Module):
         cur_message_layer = torch.cat(cat_message_layers, 1)
         """ sortpooling layer """
         sort_channel = cur_message_layer[:, (-1)]
-        batch_sortpooling_graphs = torch.zeros(len(graph_sizes), self.k,
-            self.total_latent_dim)
-        if torch.is_available() and isinstance(node_feat.data, torch.
-            FloatTensor):
+        batch_sortpooling_graphs = torch.zeros(len(graph_sizes), self.k, self.total_latent_dim)
+        if torch.is_available() and isinstance(node_feat.data, torch.FloatTensor):
             batch_sortpooling_graphs = batch_sortpooling_graphs
         batch_sortpooling_graphs = Variable(batch_sortpooling_graphs)
         accum_count = 0
@@ -199,16 +187,14 @@ class DGCNN(nn.Module):
             sortpooling_graph = cur_message_layer.index_select(0, topk_indices)
             if k < self.k:
                 to_pad = torch.zeros(self.k - k, self.total_latent_dim)
-                if torch.is_available() and isinstance(node_feat.data,
-                    torch.FloatTensor):
+                if torch.is_available() and isinstance(node_feat.data, torch.FloatTensor):
                     to_pad = to_pad
                 to_pad = Variable(to_pad)
                 sortpooling_graph = torch.cat((sortpooling_graph, to_pad), 0)
             batch_sortpooling_graphs[i] = sortpooling_graph
             accum_count += graph_sizes[i]
         """ traditional 1d convlution and dense layers """
-        to_conv1d = batch_sortpooling_graphs.view((-1, 1, self.k * self.
-            total_latent_dim))
+        to_conv1d = batch_sortpooling_graphs.view((-1, 1, self.k * self.total_latent_dim))
         conv1d_res = self.conv1d_params1(to_conv1d)
         conv1d_res = self.conv1d_activation(conv1d_res)
         conv1d_res = self.maxpool1d(conv1d_res)
@@ -223,8 +209,7 @@ class DGCNN(nn.Module):
         return self.conv1d_activation(reluact_fp)
 
 
-cmd_opt = argparse.ArgumentParser(description=
-    'Argparser for graph_classification')
+cmd_opt = argparse.ArgumentParser(description='Argparser for graph_classification')
 
 
 class Classifier(nn.Module):
@@ -238,23 +223,16 @@ class Classifier(nn.Module):
             None
             sys.exit()
         if cmd_args.gm == 'DGCNN':
-            self.gnn = model(latent_dim=cmd_args.latent_dim, output_dim=
-                cmd_args.out_dim, num_node_feats=cmd_args.feat_dim +
-                cmd_args.attr_dim, num_edge_feats=cmd_args.edge_feat_dim, k
-                =cmd_args.sortpooling_k, conv1d_activation=cmd_args.
-                conv1d_activation)
+            self.gnn = model(latent_dim=cmd_args.latent_dim, output_dim=cmd_args.out_dim, num_node_feats=cmd_args.feat_dim + cmd_args.attr_dim, num_edge_feats=cmd_args.edge_feat_dim, k=cmd_args.sortpooling_k, conv1d_activation=cmd_args.conv1d_activation)
         out_dim = cmd_args.out_dim
         if out_dim == 0:
             if cmd_args.gm == 'DGCNN':
                 out_dim = self.gnn.dense_dim
             else:
                 out_dim = cmd_args.latent_dim
-        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.
-            hidden, num_class=cmd_args.num_class, with_dropout=cmd_args.dropout
-            )
+        self.mlp = MLPClassifier(input_size=out_dim, hidden_size=cmd_args.hidden, num_class=cmd_args.num_class, with_dropout=cmd_args.dropout)
         if regression:
-            self.mlp = MLPRegression(input_size=out_dim, hidden_size=
-                cmd_args.hidden, with_dropout=cmd_args.dropout)
+            self.mlp = MLPRegression(input_size=out_dim, hidden_size=cmd_args.hidden, with_dropout=cmd_args.dropout)
 
     def PrepareFeatureLabel(self, batch_graph):
         if self.regression:
@@ -283,13 +261,11 @@ class Classifier(nn.Module):
             if node_tag_flag == True:
                 concat_tag += batch_graph[i].node_tags
             if node_feat_flag == True:
-                tmp = torch.from_numpy(batch_graph[i].node_features).type(
-                    'torch.FloatTensor')
+                tmp = torch.from_numpy(batch_graph[i].node_features).type('torch.FloatTensor')
                 concat_feat.append(tmp)
             if edge_feat_flag == True:
                 if batch_graph[i].edge_features is not None:
-                    tmp = torch.from_numpy(batch_graph[i].edge_features).type(
-                        'torch.FloatTensor')
+                    tmp = torch.from_numpy(batch_graph[i].edge_features).type('torch.FloatTensor')
                     concat_edge_feat.append(tmp)
         if node_tag_flag == True:
             concat_tag = torch.LongTensor(concat_tag).view(-1, 1)
@@ -382,8 +358,7 @@ class MLPClassifier(nn.Module):
             y = Variable(y)
             loss = F.nll_loss(logits, y)
             pred = logits.data.max(1, keepdim=True)[1]
-            acc = pred.eq(y.data.view_as(pred)).cpu().sum().item() / float(y
-                .size()[0])
+            acc = pred.eq(y.data.view_as(pred)).cpu().sum().item() / float(y.size()[0])
             return logits, loss, acc
         else:
             return logits
@@ -393,13 +368,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_muhanzhang_pytorch_DGCNN(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(MLPClassifier(*[], **{'input_size': 4, 'hidden_size': 4, 'num_class': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLPClassifier,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_class': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLPRegression,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_muhanzhang_pytorch_DGCNN(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(MLPRegression(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

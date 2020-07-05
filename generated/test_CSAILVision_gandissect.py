@@ -58,8 +58,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -138,8 +139,7 @@ def make_matching_tensor(valuedict, name, data):
         valuedict[name] = v
     if len(v.shape) < len(data.shape):
         assert not v.requires_grad, '%s wrong dimensions' % name
-        v = v.view((1,) + tuple(v.shape) + (1,) * (len(data.shape) - len(v.
-            shape) - 1))
+        v = v.view((1,) + tuple(v.shape) + (1,) * (len(data.shape) - len(v.shape) - 1))
         valuedict[name] = v
     return v
 
@@ -288,8 +288,7 @@ class InstrumentedModel(torch.nn.Module):
         if layername in self._old_forward:
             raise ValueError('Layer %s already hooked' % layername)
         self._hooked_layer[aka] = layername
-        self._old_forward[layername] = layer, aka, layer.__dict__.get('forward'
-            , None)
+        self._old_forward[layername] = layer, aka, layer.__dict__.get('forward', None)
         editor = self
         original_forward = layer.forward
 
@@ -347,8 +346,7 @@ class InstrumentedModel(torch.nn.Module):
 
 class ProgressiveGenerator(nn.Sequential):
 
-    def __init__(self, resolution=None, sizes=None, modify_sequence=None,
-        output_tanh=False):
+    def __init__(self, resolution=None, sizes=None, modify_sequence=None, output_tanh=False):
         """
         A pytorch progessive GAN generator that can be converted directly
         from either a tensorflow model or a theano model.  It consists of
@@ -373,11 +371,7 @@ class ProgressiveGenerator(nn.Sequential):
         """
         assert (resolution is None) != (sizes is None)
         if sizes is None:
-            sizes = {(8): [512, 512, 512], (16): [512, 512, 512, 512], (32):
-                [512, 512, 512, 512, 256], (64): [512, 512, 512, 512, 256, 
-                128], (128): [512, 512, 512, 512, 256, 128, 64], (256): [
-                512, 512, 512, 512, 256, 128, 64, 32], (1024): [512, 512, 
-                512, 512, 512, 256, 128, 64, 32, 16]}[resolution]
+            sizes = {(8): [512, 512, 512], (16): [512, 512, 512, 512], (32): [512, 512, 512, 512, 256], (64): [512, 512, 512, 512, 256, 128], (128): [512, 512, 512, 512, 256, 128, 64], (256): [512, 512, 512, 512, 256, 128, 64, 32], (1024): [512, 512, 512, 512, 512, 256, 128, 64, 32, 16]}[resolution]
         sequence = []
 
         def add_d(layer, name=None):
@@ -390,8 +384,7 @@ class ProgressiveGenerator(nn.Sequential):
             add_d(NormUpscaleConvBlock(si, so, kernel_size=3, padding=1))
             add_d(NormConvBlock(so, so, kernel_size=3, padding=1))
         dim = 4 * 2 ** (len(sequence) // 2 - 1)
-        add_d(OutputConvBlock(sizes[-1], tanh=output_tanh), name=
-            'output_%dx%d' % (dim, dim))
+        add_d(OutputConvBlock(sizes[-1], tanh=output_tanh), name='output_%dx%d' % (dim, dim))
         if modify_sequence is not None:
             sequence = modify_sequence(sequence)
         super().__init__(OrderedDict(sequence))
@@ -427,8 +420,7 @@ class WScaleLayer(nn.Module):
 
     def forward(self, x):
         x_size = x.size()
-        x = x * self.scale + self.b.view(1, -1, 1, 1).expand(x_size[0],
-            self.size, x_size[2], x_size[3])
+        x = x * self.scale + self.b.view(1, -1, 1, 1).expand(x_size[0], self.size, x_size[2], x_size[3])
         return x
 
 
@@ -437,10 +429,8 @@ class NormConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, padding):
         super(NormConvBlock, self).__init__()
         self.norm = PixelNormLayer()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1,
-            padding, bias=False)
-        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.
-            sqrt(2) / kernel_size)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
+        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
         self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
 
     def forward(self, x):
@@ -456,10 +446,8 @@ class NormUpscaleConvBlock(nn.Module):
         super(NormUpscaleConvBlock, self).__init__()
         self.norm = PixelNormLayer()
         self.up = DoubleResolutionLayer()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1,
-            padding, bias=False)
-        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.
-            sqrt(2) / kernel_size)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
+        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
         self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
 
     def forward(self, x):
@@ -475,8 +463,7 @@ class OutputConvBlock(nn.Module):
     def __init__(self, in_channels, tanh=False):
         super().__init__()
         self.norm = PixelNormLayer()
-        self.conv = nn.Conv2d(in_channels, 3, kernel_size=1, padding=0,
-            bias=False)
+        self.conv = nn.Conv2d(in_channels, 3, kernel_size=1, padding=0, bias=False)
         self.wscale = WScaleLayer(3, in_channels, gain=1)
         self.clamp = nn.Hardtanh() if tanh else lambda x: x
 
@@ -598,19 +585,16 @@ class ResnetDilated(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 def conv3x3_bn_relu(in_planes, out_planes, stride=1):
-    return nn.Sequential(conv3x3(in_planes, out_planes, stride),
-        SynchronizedBatchNorm2d(out_planes), nn.ReLU(inplace=True))
+    return nn.Sequential(conv3x3(in_planes, out_planes, stride), SynchronizedBatchNorm2d(out_planes), nn.ReLU(inplace=True))
 
 
 class C1BilinearDeepSup(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=2048, inference=False,
-        use_softmax=False):
+    def __init__(self, num_class=150, fc_dim=2048, inference=False, use_softmax=False):
         super(C1BilinearDeepSup, self).__init__()
         self.use_softmax = use_softmax
         self.inference = inference
@@ -624,8 +608,7 @@ class C1BilinearDeepSup(nn.Module):
         x = self.cbr(conv5)
         x = self.conv_last(x)
         if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear',
-                align_corners=False)
+            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
             if self.use_softmax:
                 x = nn.functional.softmax(x, dim=1)
             return x
@@ -639,8 +622,7 @@ class C1BilinearDeepSup(nn.Module):
 
 class C1Bilinear(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=2048, inference=False,
-        use_softmax=False):
+    def __init__(self, num_class=150, fc_dim=2048, inference=False, use_softmax=False):
         super(C1Bilinear, self).__init__()
         self.use_softmax = use_softmax
         self.inference = inference
@@ -652,8 +634,7 @@ class C1Bilinear(nn.Module):
         x = self.cbr(conv5)
         x = self.conv_last(x)
         if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear',
-                align_corners=False)
+            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
             if self.use_softmax:
                 x = nn.functional.softmax(x, dim=1)
         else:
@@ -663,35 +644,26 @@ class C1Bilinear(nn.Module):
 
 class PPMBilinear(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, inference=False,
-        use_softmax=False, pool_scales=(1, 2, 3, 6)):
+    def __init__(self, num_class=150, fc_dim=4096, inference=False, use_softmax=False, pool_scales=(1, 2, 3, 6)):
         super(PPMBilinear, self).__init__()
         self.use_softmax = use_softmax
         self.inference = inference
         self.ppm = []
         for scale in pool_scales:
-            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.
-                Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
+            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm = nn.ModuleList(self.ppm)
-        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) *
-            512, 512, kernel_size=3, padding=1, bias=False),
-            SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.
-            Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
+        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) * 512, 512, kernel_size=3, padding=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
 
     def forward(self, conv_out, segSize=None):
         conv5 = conv_out[-1]
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale in self.ppm:
-            ppm_out.append(nn.functional.interpolate(pool_scale(conv5), (
-                input_size[2], input_size[3]), mode='bilinear',
-                align_corners=False))
+            ppm_out.append(nn.functional.interpolate(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear', align_corners=False))
         ppm_out = torch.cat(ppm_out, 1)
         x = self.conv_last(ppm_out)
         if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear',
-                align_corners=False)
+            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
             if self.use_softmax:
                 x = nn.functional.softmax(x, dim=1)
         else:
@@ -701,22 +673,16 @@ class PPMBilinear(nn.Module):
 
 class PPMBilinearDeepsup(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, inference=False,
-        use_softmax=False, pool_scales=(1, 2, 3, 6)):
+    def __init__(self, num_class=150, fc_dim=4096, inference=False, use_softmax=False, pool_scales=(1, 2, 3, 6)):
         super(PPMBilinearDeepsup, self).__init__()
         self.use_softmax = use_softmax
         self.inference = inference
         self.ppm = []
         for scale in pool_scales:
-            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.
-                Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
+            self.ppm.append(nn.Sequential(nn.AdaptiveAvgPool2d(scale), nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm = nn.ModuleList(self.ppm)
         self.cbr_deepsup = conv3x3_bn_relu(fc_dim // 2, fc_dim // 4, 1)
-        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) *
-            512, 512, kernel_size=3, padding=1, bias=False),
-            SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.
-            Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
+        self.conv_last = nn.Sequential(nn.Conv2d(fc_dim + len(pool_scales) * 512, 512, kernel_size=3, padding=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(512, num_class, kernel_size=1))
         self.conv_last_deepsup = nn.Conv2d(fc_dim // 4, num_class, 1, 1, 0)
         self.dropout_deepsup = nn.Dropout2d(0.1)
 
@@ -725,14 +691,11 @@ class PPMBilinearDeepsup(nn.Module):
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale in self.ppm:
-            ppm_out.append(nn.functional.interpolate(pool_scale(conv5), (
-                input_size[2], input_size[3]), mode='bilinear',
-                align_corners=False))
+            ppm_out.append(nn.functional.interpolate(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear', align_corners=False))
         ppm_out = torch.cat(ppm_out, 1)
         x = self.conv_last(ppm_out)
         if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear',
-                align_corners=False)
+            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
             if self.use_softmax:
                 x = nn.functional.softmax(x, dim=1)
             return x
@@ -747,9 +710,7 @@ class PPMBilinearDeepsup(nn.Module):
 
 class UPerNet(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, inference=False,
-        use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512,
-        1024, 2048), fpn_dim=256):
+    def __init__(self, num_class=150, fc_dim=4096, inference=False, use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048), fpn_dim=256):
         super(UPerNet, self).__init__()
         self.use_softmax = use_softmax
         self.inference = inference
@@ -757,56 +718,44 @@ class UPerNet(nn.Module):
         self.ppm_conv = []
         for scale in pool_scales:
             self.ppm_pooling.append(nn.AdaptiveAvgPool2d(scale))
-            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512,
-                kernel_size=1, bias=False), SynchronizedBatchNorm2d(512),
-                nn.ReLU(inplace=True)))
+            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm_pooling = nn.ModuleList(self.ppm_pooling)
         self.ppm_conv = nn.ModuleList(self.ppm_conv)
-        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 
-            512, fpn_dim, 1)
+        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 512, fpn_dim, 1)
         self.fpn_in = []
         for fpn_inplane in fpn_inplanes[:-1]:
-            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim,
-                kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim
-                ), nn.ReLU(inplace=True)))
+            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim, kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim), nn.ReLU(inplace=True)))
         self.fpn_in = nn.ModuleList(self.fpn_in)
         self.fpn_out = []
         for i in range(len(fpn_inplanes) - 1):
-            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim,
-                fpn_dim, 1)))
+            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1)))
         self.fpn_out = nn.ModuleList(self.fpn_out)
-        self.conv_last = nn.Sequential(conv3x3_bn_relu(len(fpn_inplanes) *
-            fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, num_class, kernel_size=1))
+        self.conv_last = nn.Sequential(conv3x3_bn_relu(len(fpn_inplanes) * fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, num_class, kernel_size=1))
 
     def forward(self, conv_out, segSize=None):
         conv5 = conv_out[-1]
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
-            ppm_out.append(pool_conv(nn.functional.interploate(pool_scale(
-                conv5), (input_size[2], input_size[3]), mode='bilinear',
-                align_corners=False)))
+            ppm_out.append(pool_conv(nn.functional.interploate(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear', align_corners=False)))
         ppm_out = torch.cat(ppm_out, 1)
         f = self.ppm_last_conv(ppm_out)
         fpn_feature_list = [f]
         for i in reversed(range(len(conv_out) - 1)):
             conv_x = conv_out[i]
             conv_x = self.fpn_in[i](conv_x)
-            f = nn.functional.interpolate(f, size=conv_x.size()[2:], mode=
-                'bilinear', align_corners=False)
+            f = nn.functional.interpolate(f, size=conv_x.size()[2:], mode='bilinear', align_corners=False)
             f = conv_x + f
             fpn_feature_list.append(self.fpn_out[i](f))
         fpn_feature_list.reverse()
         output_size = fpn_feature_list[0].size()[2:]
         fusion_list = [fpn_feature_list[0]]
         for i in range(1, len(fpn_feature_list)):
-            fusion_list.append(nn.functional.interpolate(fpn_feature_list[i
-                ], output_size, mode='bilinear', align_corners=False))
+            fusion_list.append(nn.functional.interpolate(fpn_feature_list[i], output_size, mode='bilinear', align_corners=False))
         fusion_out = torch.cat(fusion_list, 1)
         x = self.conv_last(fusion_out)
         if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear',
-                align_corners=False)
+            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
             if self.use_softmax:
                 x = nn.functional.softmax(x, dim=1)
             return x
@@ -848,8 +797,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = SynchronizedBatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = SynchronizedBatchNorm2d(planes * 4)
@@ -906,9 +854,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                SynchronizedBatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -938,8 +884,7 @@ class GroupBottleneck(nn.Module):
         super(GroupBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, groups=groups, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
         self.bn2 = SynchronizedBatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=False)
         self.bn3 = SynchronizedBatchNorm2d(planes * 2)
@@ -980,18 +925,14 @@ class ResNeXt(nn.Module):
         self.relu3 = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 128, layers[0], groups=groups)
-        self.layer2 = self._make_layer(block, 256, layers[1], stride=2,
-            groups=groups)
-        self.layer3 = self._make_layer(block, 512, layers[2], stride=2,
-            groups=groups)
-        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2,
-            groups=groups)
+        self.layer2 = self._make_layer(block, 256, layers[1], stride=2, groups=groups)
+        self.layer3 = self._make_layer(block, 512, layers[2], stride=2, groups=groups)
+        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2, groups=groups)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(1024 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1
-                    ] * m.out_channels // m.groups
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels // m.groups
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, SynchronizedBatchNorm2d):
                 m.weight.data.fill_(1)
@@ -1000,9 +941,7 @@ class ResNeXt(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, groups=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                SynchronizedBatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, groups, downsample))
         self.inplanes = planes * block.expansion
@@ -1040,8 +979,7 @@ class SegmentationModuleBase(nn.Module):
         return acc
 
     @staticmethod
-    def part_pixel_acc(pred_part, gt_seg_part, gt_seg_object, object_label,
-        valid):
+    def part_pixel_acc(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
         mask_object = gt_seg_object == object_label
         _, pred = torch.max(pred_part, dim=1)
         acc_sum = mask_object * (pred == gt_seg_part)
@@ -1054,8 +992,7 @@ class SegmentationModuleBase(nn.Module):
     @staticmethod
     def part_loss(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
         mask_object = gt_seg_object == object_label
-        loss = F.nll_loss(pred_part, gt_seg_part * mask_object.long(),
-            reduction='none')
+        loss = F.nll_loss(pred_part, gt_seg_part * mask_object.long(), reduction='none')
         loss = loss * mask_object.float()
         loss = torch.sum(loss.view(loss.size(0), -1), dim=1)
         nr_pixel = torch.sum(mask_object.view(mask_object.shape[0], -1), dim=1)
@@ -1104,49 +1041,31 @@ class Resnet(nn.Module):
 
 class UPerNet(nn.Module):
 
-    def __init__(self, nr_classes, fc_dim=4096, use_softmax=False,
-        pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048),
-        fpn_dim=256):
+    def __init__(self, nr_classes, fc_dim=4096, use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048), fpn_dim=256):
         super(UPerNet, self).__init__()
         self.use_softmax = use_softmax
         self.ppm_pooling = []
         self.ppm_conv = []
         for scale in pool_scales:
             self.ppm_pooling.append(PrRoIPool2D(scale, scale, 1.0))
-            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512,
-                kernel_size=1, bias=False), SynchronizedBatchNorm2d(512),
-                nn.ReLU(inplace=True)))
+            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
         self.ppm_pooling = nn.ModuleList(self.ppm_pooling)
         self.ppm_conv = nn.ModuleList(self.ppm_conv)
-        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 
-            512, fpn_dim, 1)
+        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 512, fpn_dim, 1)
         self.fpn_in = []
         for fpn_inplane in fpn_inplanes[:-1]:
-            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim,
-                kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim
-                ), nn.ReLU(inplace=True)))
+            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim, kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim), nn.ReLU(inplace=True)))
         self.fpn_in = nn.ModuleList(self.fpn_in)
         self.fpn_out = []
         for i in range(len(fpn_inplanes) - 1):
-            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim,
-                fpn_dim, 1)))
+            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1)))
         self.fpn_out = nn.ModuleList(self.fpn_out)
-        self.conv_fusion = conv3x3_bn_relu(len(fpn_inplanes) * fpn_dim,
-            fpn_dim, 1)
-        (self.nr_scene_class, self.nr_object_class, self.nr_part_class,
-            self.nr_material_class) = (nr_classes['scene'], nr_classes[
-            'object'], nr_classes['part'], nr_classes['material'])
-        self.scene_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1
-            ), nn.AdaptiveAvgPool2d(1), nn.Conv2d(fpn_dim, self.
-            nr_scene_class, kernel_size=1, bias=True))
-        self.object_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 
-            1), nn.Conv2d(fpn_dim, self.nr_object_class, kernel_size=1,
-            bias=True))
-        self.part_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1),
-            nn.Conv2d(fpn_dim, self.nr_part_class, kernel_size=1, bias=True))
-        self.material_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim,
-            1), nn.Conv2d(fpn_dim, self.nr_material_class, kernel_size=1,
-            bias=True))
+        self.conv_fusion = conv3x3_bn_relu(len(fpn_inplanes) * fpn_dim, fpn_dim, 1)
+        self.nr_scene_class, self.nr_object_class, self.nr_part_class, self.nr_material_class = nr_classes['scene'], nr_classes['object'], nr_classes['part'], nr_classes['material']
+        self.scene_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1), nn.AdaptiveAvgPool2d(1), nn.Conv2d(fpn_dim, self.nr_scene_class, kernel_size=1, bias=True))
+        self.object_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, self.nr_object_class, kernel_size=1, bias=True))
+        self.part_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, self.nr_part_class, kernel_size=1, bias=True))
+        self.material_head = nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, self.nr_material_class, kernel_size=1, bias=True))
 
     def forward(self, conv_out, output_switch=None, seg_size=None):
         output_dict = {k: None for k in output_switch.keys()}
@@ -1155,38 +1074,31 @@ class UPerNet(nn.Module):
         ppm_out = [conv5]
         roi = []
         for i in range(input_size[0]):
-            roi.append(torch.Tensor([i, 0, 0, input_size[3], input_size[2]]
-                ).view(1, -1))
+            roi.append(torch.Tensor([i, 0, 0, input_size[3], input_size[2]]).view(1, -1))
         roi = torch.cat(roi, dim=0).type_as(conv5)
         ppm_out = [conv5]
         for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
-            ppm_out.append(pool_conv(F.interpolate(pool_scale(conv5, roi.
-                detach()), (input_size[2], input_size[3]), mode='bilinear',
-                align_corners=False)))
+            ppm_out.append(pool_conv(F.interpolate(pool_scale(conv5, roi.detach()), (input_size[2], input_size[3]), mode='bilinear', align_corners=False)))
         ppm_out = torch.cat(ppm_out, 1)
         f = self.ppm_last_conv(ppm_out)
         if output_switch['scene']:
             output_dict['scene'] = self.scene_head(f)
-        if output_switch['object'] or output_switch['part'] or output_switch[
-            'material']:
+        if output_switch['object'] or output_switch['part'] or output_switch['material']:
             fpn_feature_list = [f]
             for i in reversed(range(len(conv_out) - 1)):
                 conv_x = conv_out[i]
                 conv_x = self.fpn_in[i](conv_x)
-                f = F.interpolate(f, size=conv_x.size()[2:], mode=
-                    'bilinear', align_corners=False)
+                f = F.interpolate(f, size=conv_x.size()[2:], mode='bilinear', align_corners=False)
                 f = conv_x + f
                 fpn_feature_list.append(self.fpn_out[i](f))
             fpn_feature_list.reverse()
             if output_switch['material']:
-                output_dict['material'] = self.material_head(fpn_feature_list
-                    [0])
+                output_dict['material'] = self.material_head(fpn_feature_list[0])
             if output_switch['object'] or output_switch['part']:
                 output_size = fpn_feature_list[0].size()[2:]
                 fusion_list = [fpn_feature_list[0]]
                 for i in range(1, len(fpn_feature_list)):
-                    fusion_list.append(F.interpolate(fpn_feature_list[i],
-                        output_size, mode='bilinear', align_corners=False))
+                    fusion_list.append(F.interpolate(fpn_feature_list[i], output_size, mode='bilinear', align_corners=False))
                 fusion_out = torch.cat(fusion_list, 1)
                 x = self.conv_fusion(fusion_out)
                 if output_switch['object']:
@@ -1200,18 +1112,15 @@ class UPerNet(nn.Module):
             output_dict['scene'] = x
             for k in ['object', 'material']:
                 x = output_dict[k]
-                x = F.interpolate(x, size=seg_size, mode='bilinear',
-                    align_corners=False)
+                x = F.interpolate(x, size=seg_size, mode='bilinear', align_corners=False)
                 x = F.softmax(x, dim=1)
                 output_dict[k] = x
             x = output_dict['part']
-            x = F.interpolate(x, size=seg_size, mode='bilinear',
-                align_corners=False)
+            x = F.interpolate(x, size=seg_size, mode='bilinear', align_corners=False)
             part_pred_list, head = [], 0
             for idx_part, object_label in enumerate(self.object_with_part):
                 n_part = len(self.object_part[object_label])
-                _x = F.interpolate(x[:, head:head + n_part], size=seg_size,
-                    mode='bilinear', align_corners=False)
+                _x = F.interpolate(x[:, head:head + n_part], size=seg_size, mode='bilinear', align_corners=False)
                 _x = F.softmax(_x, dim=1)
                 part_pred_list.append(_x)
                 head += n_part
@@ -1246,8 +1155,7 @@ class PrRoIPool2D(nn.Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return prroi_pool2d(features, rois, self.pooled_height, self.
-            pooled_width, self.spatial_scale)
+        return prroi_pool2d(features, rois, self.pooled_height, self.pooled_width, self.spatial_scale)
 
 
 class BasicBlock(nn.Module):
@@ -1284,8 +1192,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = SynchronizedBatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = SynchronizedBatchNorm2d(planes * 4)
@@ -1342,9 +1249,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                SynchronizedBatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1374,8 +1279,7 @@ class GroupBottleneck(nn.Module):
         super(GroupBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, groups=groups, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
         self.bn2 = SynchronizedBatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=False)
         self.bn3 = SynchronizedBatchNorm2d(planes * 2)
@@ -1416,18 +1320,14 @@ class ResNeXt(nn.Module):
         self.relu3 = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 128, layers[0], groups=groups)
-        self.layer2 = self._make_layer(block, 256, layers[1], stride=2,
-            groups=groups)
-        self.layer3 = self._make_layer(block, 512, layers[2], stride=2,
-            groups=groups)
-        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2,
-            groups=groups)
+        self.layer2 = self._make_layer(block, 256, layers[1], stride=2, groups=groups)
+        self.layer3 = self._make_layer(block, 512, layers[2], stride=2, groups=groups)
+        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2, groups=groups)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(1024 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1
-                    ] * m.out_channels // m.groups
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels // m.groups
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, SynchronizedBatchNorm2d):
                 m.weight.data.fill_(1)
@@ -1436,9 +1336,7 @@ class ResNeXt(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, groups=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                SynchronizedBatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, groups, downsample))
         self.inplanes = planes * block.expansion
@@ -1465,30 +1363,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_CSAILVision_gandissect(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(DoubleResolutionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DoubleResolutionLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InstrumentedModel,
+     lambda: ([], {'model': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (NormConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NormUpscaleConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OutputConvBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PixelNormLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WScaleLayer,
+     lambda: ([], {'size': 4, 'fan_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_CSAILVision_gandissect(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(InstrumentedModel(*[], **{'model': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NormConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(NormUpscaleConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(OutputConvBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PixelNormLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(WScaleLayer(*[], **{'size': 4, 'fan_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

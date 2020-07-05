@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,18 +54,15 @@ class VRNN(nn.Module):
         self.h_dim = h_dim
         self.z_dim = z_dim
         self.n_layers = n_layers
-        self.phi_x = nn.Sequential(nn.Linear(x_dim, h_dim), nn.ReLU(), nn.
-            Linear(h_dim, h_dim), nn.ReLU())
+        self.phi_x = nn.Sequential(nn.Linear(x_dim, h_dim), nn.ReLU(), nn.Linear(h_dim, h_dim), nn.ReLU())
         self.phi_z = nn.Sequential(nn.Linear(z_dim, h_dim), nn.ReLU())
-        self.enc = nn.Sequential(nn.Linear(h_dim + h_dim, h_dim), nn.ReLU(),
-            nn.Linear(h_dim, h_dim), nn.ReLU())
+        self.enc = nn.Sequential(nn.Linear(h_dim + h_dim, h_dim), nn.ReLU(), nn.Linear(h_dim, h_dim), nn.ReLU())
         self.enc_mean = nn.Linear(h_dim, z_dim)
         self.enc_std = nn.Sequential(nn.Linear(h_dim, z_dim), nn.Softplus())
         self.prior = nn.Sequential(nn.Linear(h_dim, h_dim), nn.ReLU())
         self.prior_mean = nn.Linear(h_dim, z_dim)
         self.prior_std = nn.Sequential(nn.Linear(h_dim, z_dim), nn.Softplus())
-        self.dec = nn.Sequential(nn.Linear(h_dim + h_dim, h_dim), nn.ReLU(),
-            nn.Linear(h_dim, h_dim), nn.ReLU())
+        self.dec = nn.Sequential(nn.Linear(h_dim + h_dim, h_dim), nn.ReLU(), nn.Linear(h_dim, h_dim), nn.ReLU())
         self.dec_std = nn.Sequential(nn.Linear(h_dim, x_dim), nn.Softplus())
         self.dec_mean = nn.Sequential(nn.Linear(h_dim, x_dim), nn.Sigmoid())
         self.rnn = nn.GRU(h_dim + h_dim, h_dim, n_layers, bias)
@@ -89,15 +87,13 @@ class VRNN(nn.Module):
             dec_mean_t = self.dec_mean(dec_t)
             dec_std_t = self.dec_std(dec_t)
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
-            kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t,
-                prior_std_t)
+            kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
             nll_loss += self._nll_bernoulli(dec_mean_t, x[t])
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
             all_dec_mean.append(dec_mean_t)
             all_dec_std.append(dec_std_t)
-        return kld_loss, nll_loss, (all_enc_mean, all_enc_std), (all_dec_mean,
-            all_dec_std)
+        return kld_loss, nll_loss, (all_enc_mean, all_enc_std), (all_dec_mean, all_dec_std)
 
     def sample(self, seq_len):
         sample = torch.zeros(seq_len, self.x_dim)
@@ -130,13 +126,11 @@ class VRNN(nn.Module):
 
     def _kld_gauss(self, mean_1, std_1, mean_2, std_2):
         """Using std to compute KLD"""
-        kld_element = 2 * torch.log(std_2) - 2 * torch.log(std_1) + (std_1.
-            pow(2) + (mean_1 - mean_2).pow(2)) / std_2.pow(2) - 1
+        kld_element = 2 * torch.log(std_2) - 2 * torch.log(std_1) + (std_1.pow(2) + (mean_1 - mean_2).pow(2)) / std_2.pow(2) - 1
         return 0.5 * torch.sum(kld_element)
 
     def _nll_bernoulli(self, theta, x):
-        return -torch.sum(x * torch.log(theta) + (1 - x) * torch.log(1 - theta)
-            )
+        return -torch.sum(x * torch.log(theta) + (1 - x) * torch.log(1 - theta))
 
     def _nll_gauss(self, mean, std, x):
         pass
@@ -146,9 +140,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (VRNN,
+     lambda: ([], {'x_dim': 4, 'h_dim': 4, 'z_dim': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_emited_VariationalRecurrentNeuralNetwork(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(VRNN(*[], **{'x_dim': 4, 'h_dim': 4, 'z_dim': 4, 'n_layers': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

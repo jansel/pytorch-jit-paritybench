@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -137,25 +138,19 @@ class STNClsNet(nn.Module):
         r1 = args.span_range_height
         r2 = args.span_range_width
         assert r1 < 1 and r2 < 1
-        target_control_points = torch.Tensor(list(itertools.product(np.
-            arange(-r1, r1 + 1e-05, 2.0 * r1 / (args.grid_height - 1)), np.
-            arange(-r2, r2 + 1e-05, 2.0 * r2 / (args.grid_width - 1)))))
+        target_control_points = torch.Tensor(list(itertools.product(np.arange(-r1, r1 + 1e-05, 2.0 * r1 / (args.grid_height - 1)), np.arange(-r2, r2 + 1e-05, 2.0 * r2 / (args.grid_width - 1)))))
         Y, X = target_control_points.split(1, dim=1)
         target_control_points = torch.cat([X, Y], dim=1)
-        GridLocNet = {'unbounded_stn': UnBoundedGridLocNet, 'bounded_stn':
-            BoundedGridLocNet}[args.model]
-        self.loc_net = GridLocNet(args.grid_height, args.grid_width,
-            target_control_points)
-        self.tps = TPSGridGen(args.image_height, args.image_width,
-            target_control_points)
+        GridLocNet = {'unbounded_stn': UnBoundedGridLocNet, 'bounded_stn': BoundedGridLocNet}[args.model]
+        self.loc_net = GridLocNet(args.grid_height, args.grid_width, target_control_points)
+        self.tps = TPSGridGen(args.image_height, args.image_width, target_control_points)
         self.cls_net = ClsNet()
 
     def forward(self, x):
         batch_size = x.size(0)
         source_control_points = self.loc_net(x)
         source_coordinate = self.tps(source_control_points)
-        grid = source_coordinate.view(batch_size, self.args.image_height,
-            self.args.image_width, 2)
+        grid = source_coordinate.view(batch_size, self.args.image_height, self.args.image_width, 2)
         transformed_x = grid_sample(x, grid)
         logit = self.cls_net(transformed_x)
         return logit
@@ -166,8 +161,7 @@ def compute_partial_repr(input_points, control_points):
     M = control_points.size(0)
     pairwise_diff = input_points.view(N, 1, 2) - control_points.view(1, M, 2)
     pairwise_diff_square = pairwise_diff * pairwise_diff
-    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:,
-        :, (1)]
+    pairwise_dist = pairwise_diff_square[:, :, (0)] + pairwise_diff_square[:, :, (1)]
     repr_matrix = 0.5 * pairwise_dist * torch.log(pairwise_dist)
     mask = repr_matrix != repr_matrix
     repr_matrix.masked_fill_(mask, 0)
@@ -184,8 +178,7 @@ class TPSGridGen(nn.Module):
         self.num_points = N
         target_control_points = target_control_points.float()
         forward_kernel = torch.zeros(N + 3, N + 3)
-        target_control_partial_repr = compute_partial_repr(
-            target_control_points, target_control_points)
+        target_control_partial_repr = compute_partial_repr(target_control_points, target_control_points)
         forward_kernel[:N, :N].copy_(target_control_partial_repr)
         forward_kernel[:N, (-3)].fill_(1)
         forward_kernel[(-3), :N].fill_(1)
@@ -193,17 +186,14 @@ class TPSGridGen(nn.Module):
         forward_kernel[-2:, :N].copy_(target_control_points.transpose(0, 1))
         inverse_kernel = torch.inverse(forward_kernel)
         HW = target_height * target_width
-        target_coordinate = list(itertools.product(range(target_height),
-            range(target_width)))
+        target_coordinate = list(itertools.product(range(target_height), range(target_width)))
         target_coordinate = torch.Tensor(target_coordinate)
         Y, X = target_coordinate.split(1, dim=1)
         Y = Y * 2 / (target_height - 1) - 1
         X = X * 2 / (target_width - 1) - 1
         target_coordinate = torch.cat([X, Y], dim=1)
-        target_coordinate_partial_repr = compute_partial_repr(target_coordinate
-            , target_control_points)
-        target_coordinate_repr = torch.cat([target_coordinate_partial_repr,
-            torch.ones(HW, 1), target_coordinate], dim=1)
+        target_coordinate_partial_repr = compute_partial_repr(target_coordinate, target_control_points)
+        target_coordinate_repr = torch.cat([target_coordinate_partial_repr, torch.ones(HW, 1), target_coordinate], dim=1)
         self.register_buffer('inverse_kernel', inverse_kernel)
         self.register_buffer('padding_matrix', torch.zeros(3, 2))
         self.register_buffer('target_coordinate_repr', target_coordinate_repr)
@@ -213,17 +203,8 @@ class TPSGridGen(nn.Module):
         assert source_control_points.size(1) == self.num_points
         assert source_control_points.size(2) == 2
         batch_size = source_control_points.size(0)
-        Y = torch.cat([source_control_points, Variable(self.padding_matrix.
-            expand(batch_size, 3, 2))], 1)
+        Y = torch.cat([source_control_points, Variable(self.padding_matrix.expand(batch_size, 3, 2))], 1)
         mapping_matrix = torch.matmul(Variable(self.inverse_kernel), Y)
-        source_coordinate = torch.matmul(Variable(self.
-            target_coordinate_repr), mapping_matrix)
+        source_coordinate = torch.matmul(Variable(self.target_coordinate_repr), mapping_matrix)
         return source_coordinate
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_WarBean_tps_stn_pytorch(_paritybench_base):
-    pass

@@ -48,8 +48,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -158,8 +159,7 @@ class BasePIFuNet(nn.Module):
         self.name = 'base'
         self.error_term = error_term
         self.index = index
-        self.projection = (orthogonal if projection_mode == 'orthogonal' else
-            perspective)
+        self.projection = orthogonal if projection_mode == 'orthogonal' else perspective
         self.preds = None
         self.labels = None
 
@@ -218,8 +218,7 @@ class MultiConv(nn.Module):
         super(MultiConv, self).__init__()
         self.filters = []
         for l in range(0, len(filter_channels) - 1):
-            self.filters.append(nn.Conv2d(filter_channels[l],
-                filter_channels[l + 1], kernel_size=4, stride=2))
+            self.filters.append(nn.Conv2d(filter_channels[l], filter_channels[l + 1], kernel_size=4, stride=2))
             self.add_module('conv%d' % l, self.filters[l])
 
     def forward(self, image):
@@ -339,17 +338,13 @@ class HourGlass(nn.Module):
         self._generate_network(self.depth)
 
     def _generate_network(self, level):
-        self.add_module('b1_' + str(level), ConvBlock(self.features, self.
-            features, norm=self.norm))
-        self.add_module('b2_' + str(level), ConvBlock(self.features, self.
-            features, norm=self.norm))
+        self.add_module('b1_' + str(level), ConvBlock(self.features, self.features, norm=self.norm))
+        self.add_module('b2_' + str(level), ConvBlock(self.features, self.features, norm=self.norm))
         if level > 1:
             self._generate_network(level - 1)
         else:
-            self.add_module('b2_plus_' + str(level), ConvBlock(self.
-                features, self.features, norm=self.norm))
-        self.add_module('b3_' + str(level), ConvBlock(self.features, self.
-            features, norm=self.norm))
+            self.add_module('b2_plus_' + str(level), ConvBlock(self.features, self.features, norm=self.norm))
+        self.add_module('b3_' + str(level), ConvBlock(self.features, self.features, norm=self.norm))
 
     def _forward(self, level, inp):
         up1 = inp
@@ -363,8 +358,7 @@ class HourGlass(nn.Module):
             low2 = self._modules['b2_plus_' + str(level)](low2)
         low3 = low2
         low3 = self._modules['b3_' + str(level)](low3)
-        up2 = F.interpolate(low3, scale_factor=2, mode='bicubic',
-            align_corners=True)
+        up2 = F.interpolate(low3, scale_factor=2, mode='bicubic', align_corners=True)
         return up1 + up2
 
     def forward(self, x):
@@ -384,12 +378,10 @@ class HGFilter(nn.Module):
             self.bn1 = nn.GroupNorm(32, 64)
         if self.opt.hg_down == 'conv64':
             self.conv2 = ConvBlock(64, 64, self.opt.norm)
-            self.down_conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=2,
-                padding=1)
+            self.down_conv2 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         elif self.opt.hg_down == 'conv128':
             self.conv2 = ConvBlock(64, 128, self.opt.norm)
-            self.down_conv2 = nn.Conv2d(128, 128, kernel_size=3, stride=2,
-                padding=1)
+            self.down_conv2 = nn.Conv2d(128, 128, kernel_size=3, stride=2, padding=1)
         elif self.opt.hg_down == 'ave_pool':
             self.conv2 = ConvBlock(64, 128, self.opt.norm)
         else:
@@ -397,24 +389,17 @@ class HGFilter(nn.Module):
         self.conv3 = ConvBlock(128, 128, self.opt.norm)
         self.conv4 = ConvBlock(128, 256, self.opt.norm)
         for hg_module in range(self.num_modules):
-            self.add_module('m' + str(hg_module), HourGlass(1, opt.
-                num_hourglass, 256, self.opt.norm))
-            self.add_module('top_m_' + str(hg_module), ConvBlock(256, 256,
-                self.opt.norm))
-            self.add_module('conv_last' + str(hg_module), nn.Conv2d(256, 
-                256, kernel_size=1, stride=1, padding=0))
+            self.add_module('m' + str(hg_module), HourGlass(1, opt.num_hourglass, 256, self.opt.norm))
+            self.add_module('top_m_' + str(hg_module), ConvBlock(256, 256, self.opt.norm))
+            self.add_module('conv_last' + str(hg_module), nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0))
             if self.opt.norm == 'batch':
                 self.add_module('bn_end' + str(hg_module), nn.BatchNorm2d(256))
             elif self.opt.norm == 'group':
-                self.add_module('bn_end' + str(hg_module), nn.GroupNorm(32,
-                    256))
-            self.add_module('l' + str(hg_module), nn.Conv2d(256, opt.
-                hourglass_dim, kernel_size=1, stride=1, padding=0))
+                self.add_module('bn_end' + str(hg_module), nn.GroupNorm(32, 256))
+            self.add_module('l' + str(hg_module), nn.Conv2d(256, opt.hourglass_dim, kernel_size=1, stride=1, padding=0))
             if hg_module < self.num_modules - 1:
-                self.add_module('bl' + str(hg_module), nn.Conv2d(256, 256,
-                    kernel_size=1, stride=1, padding=0))
-                self.add_module('al' + str(hg_module), nn.Conv2d(opt.
-                    hourglass_dim, 256, kernel_size=1, stride=1, padding=0))
+                self.add_module('bl' + str(hg_module), nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0))
+                self.add_module('al' + str(hg_module), nn.Conv2d(opt.hourglass_dim, 256, kernel_size=1, stride=1, padding=0))
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)), True)
@@ -435,8 +420,7 @@ class HGFilter(nn.Module):
             hg = self._modules['m' + str(i)](previous)
             ll = hg
             ll = self._modules['top_m_' + str(i)](ll)
-            ll = F.relu(self._modules['bn_end' + str(i)](self._modules[
-                'conv_last' + str(i)](ll)), True)
+            ll = F.relu(self._modules['bn_end' + str(i)](self._modules['conv_last' + str(i)](ll)), True)
             tmp_out = self._modules['l' + str(i)](ll)
             outputs.append(tmp_out)
             if i < self.num_modules - 1:
@@ -449,8 +433,7 @@ class HGFilter(nn.Module):
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
 
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias,
-        last=False):
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias, last=False):
         """Initialize the Resnet block
         A resnet block is a conv block with skip connections
         We construct a conv block with build_conv_block function,
@@ -458,11 +441,9 @@ class ResnetBlock(nn.Module):
         Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
         """
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias, last)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias, last)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias, last=False):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias, last=False):
         """Construct a convolutional block.
         Parameters:
             dim (int)           -- the number of channels in the conv layer.
@@ -481,10 +462,8 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -495,14 +474,11 @@ class ResnetBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
         if last:
-            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p,
-                bias=use_bias)]
+            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias)]
         else:
-            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p,
-                bias=use_bias), norm_layer(dim)]
+            conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -516,8 +492,7 @@ class ResnetFilter(nn.Module):
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
-    def __init__(self, opt, input_nc=3, output_nc=256, ngf=64, norm_layer=
-        nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(self, opt, input_nc=3, output_nc=256, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
         """Construct a Resnet-based generator
         Parameters:
             input_nc (int)      -- the number of channels in input images
@@ -534,25 +509,17 @@ class ResnetFilter(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf,
-            kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.
-            ReLU(True)]
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
         n_downsampling = 2
         for i in range(n_downsampling):
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3,
-                stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult *
-                2), nn.ReLU(True)]
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
         mult = 2 ** n_downsampling
         for i in range(n_blocks):
             if i == n_blocks - 1:
-                model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                    norm_layer=norm_layer, use_dropout=use_dropout,
-                    use_bias=use_bias, last=True)]
+                model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias, last=True)]
             else:
-                model += [ResnetBlock(ngf * mult, padding_type=padding_type,
-                    norm_layer=norm_layer, use_dropout=use_dropout,
-                    use_bias=use_bias)]
+                model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         if opt.use_tanh:
             model += [nn.Tanh()]
         self.model = nn.Sequential(*model)
@@ -564,8 +531,7 @@ class ResnetFilter(nn.Module):
 
 class SurfaceClassifier(nn.Module):
 
-    def __init__(self, filter_channels, num_views=1, no_residual=True,
-        last_op=None):
+    def __init__(self, filter_channels, num_views=1, no_residual=True, last_op=None):
         super(SurfaceClassifier, self).__init__()
         self.filters = []
         self.num_views = num_views
@@ -574,17 +540,14 @@ class SurfaceClassifier(nn.Module):
         self.last_op = last_op
         if self.no_residual:
             for l in range(0, len(filter_channels) - 1):
-                self.filters.append(nn.Conv1d(filter_channels[l],
-                    filter_channels[l + 1], 1))
+                self.filters.append(nn.Conv1d(filter_channels[l], filter_channels[l + 1], 1))
                 self.add_module('conv%d' % l, self.filters[l])
         else:
             for l in range(0, len(filter_channels) - 1):
                 if 0 != l:
-                    self.filters.append(nn.Conv1d(filter_channels[l] +
-                        filter_channels[0], filter_channels[l + 1], 1))
+                    self.filters.append(nn.Conv1d(filter_channels[l] + filter_channels[0], filter_channels[l + 1], 1))
                 else:
-                    self.filters.append(nn.Conv1d(filter_channels[l],
-                        filter_channels[l + 1], 1))
+                    self.filters.append(nn.Conv1d(filter_channels[l], filter_channels[l + 1], 1))
                 self.add_module('conv%d' % l, self.filters[l])
 
     def forward(self, feature):
@@ -604,10 +567,8 @@ class SurfaceClassifier(nn.Module):
             if i != len(self.filters) - 1:
                 y = F.leaky_relu(y)
             if self.num_views > 1 and i == len(self.filters) // 2:
-                y = y.view(-1, self.num_views, y.shape[1], y.shape[2]).mean(dim
-                    =1)
-                tmpy = feature.view(-1, self.num_views, feature.shape[1],
-                    feature.shape[2]).mean(dim=1)
+                y = y.view(-1, self.num_views, y.shape[1], y.shape[2]).mean(dim=1)
+                tmpy = feature.view(-1, self.num_views, feature.shape[1], feature.shape[2]).mean(dim=1)
         if self.last_op:
             y = self.last_op(y)
         return y
@@ -621,8 +582,7 @@ class Flatten(nn.Module):
 
 def conv3x3(in_planes, out_planes, strd=1, padding=1, bias=False):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=strd,
-        padding=padding, bias=bias)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=strd, padding=padding, bias=bias)
 
 
 class ConvBlock(nn.Module):
@@ -643,9 +603,7 @@ class ConvBlock(nn.Module):
             self.bn3 = nn.GroupNorm(32, int(out_planes / 4))
             self.bn4 = nn.GroupNorm(32, in_planes)
         if in_planes != out_planes:
-            self.downsample = nn.Sequential(self.bn4, nn.ReLU(True), nn.
-                Conv2d(in_planes, out_planes, kernel_size=1, stride=1, bias
-                =False))
+            self.downsample = nn.Sequential(self.bn4, nn.ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, bias=False))
         else:
             self.downsample = None
 
@@ -671,40 +629,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasePIFuNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DepthNormalizer,
+     lambda: ([], {'opt': _mock_config(loadSize=4, z_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HourGlass,
+     lambda: ([], {'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiConv,
+     lambda: ([], {'filter_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ResnetFilter,
+     lambda: ([], {'opt': _mock_config(use_tanh=4)}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SurfaceClassifier,
+     lambda: ([], {'filter_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (Vgg16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_shunsukesaito_PIFu(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasePIFuNet(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBlock(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DepthNormalizer(*[], **{'opt': _mock_config(loadSize=4, z_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(HourGlass(*[], **{'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MultiConv(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ResNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(ResnetFilter(*[], **{'opt': _mock_config(use_tanh=4)}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(SurfaceClassifier(*[], **{'filter_channels': [4, 4]}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[9])
 

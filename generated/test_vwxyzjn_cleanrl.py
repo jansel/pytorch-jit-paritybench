@@ -43,8 +43,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -97,8 +98,7 @@ import copy
 _global_config['cuda'] = False
 
 
-device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else
-    'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
 
 
 _global_config['gym_id'] = 4
@@ -173,9 +173,7 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.n_atoms = n_atoms
         self.atoms = torch.linspace(v_min, v_max, steps=n_atoms)
-        self.network = nn.Sequential(nn.Linear(np.array(env.
-            observation_space.shape).prod(), 120), nn.ReLU(), nn.Linear(120,
-            84), nn.ReLU(), nn.Linear(84, env.action_space.n * n_atoms))
+        self.network = nn.Sequential(nn.Linear(np.array(env.observation_space.shape).prod(), 120), nn.ReLU(), nn.Linear(120, 84), nn.ReLU(), nn.Linear(84, env.action_space.n * n_atoms))
 
     def forward(self, x):
         x = torch.Tensor(x)
@@ -183,8 +181,7 @@ class QNetwork(nn.Module):
 
     def get_action(self, x, action=None):
         logits = self.forward(x)
-        pmfs = torch.softmax(logits.view(len(x), env.action_space.n, self.
-            n_atoms), dim=2)
+        pmfs = torch.softmax(logits.view(len(x), env.action_space.n, self.n_atoms), dim=2)
         q_values = (pmfs * self.atoms).sum(2)
         if action is None:
             action = torch.argmax(q_values, 1)
@@ -207,11 +204,7 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.n_atoms = n_atoms
         self.atoms = torch.linspace(v_min, v_max, steps=n_atoms)
-        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 
-            8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.
-            ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(),
-            nn.Linear(3136, 512), nn.ReLU(), nn.Linear(512, env.
-            action_space.n * n_atoms))
+        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(), nn.Linear(3136, 512), nn.ReLU(), nn.Linear(512, env.action_space.n * n_atoms))
 
     def forward(self, x):
         x = torch.Tensor(x)
@@ -219,8 +212,7 @@ class QNetwork(nn.Module):
 
     def get_action(self, x, action=None):
         logits = self.forward(x)
-        pmfs = torch.softmax(logits.view(len(x), env.action_space.n, self.
-            n_atoms), dim=2)
+        pmfs = torch.softmax(logits.view(len(x), env.action_space.n, self.n_atoms), dim=2)
         q_values = (pmfs * self.atoms).sum(2)
         if action is None:
             action = torch.argmax(q_values, 1)
@@ -251,11 +243,7 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.n_atoms = n_atoms
         self.atoms = torch.linspace(v_min, v_max, steps=n_atoms)
-        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 
-            8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.
-            ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(),
-            nn.Linear(3136, 512), nn.ReLU(), Linear0(512, env.action_space.
-            n * n_atoms))
+        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(), nn.Linear(3136, 512), nn.ReLU(), Linear0(512, env.action_space.n * n_atoms))
 
     def forward(self, x):
         x = torch.Tensor(x)
@@ -263,8 +251,7 @@ class QNetwork(nn.Module):
 
     def get_action(self, x, action=None):
         logits = self.forward(x)
-        pmfs = torch.softmax(logits.view(len(x), env.action_space.n, self.
-            n_atoms), dim=2)
+        pmfs = torch.softmax(logits.view(len(x), env.action_space.n, self.n_atoms), dim=2)
         q_values = (pmfs * self.atoms).sum(2)
         if action is None:
             action = torch.argmax(q_values, 1)
@@ -335,11 +322,7 @@ class QNetwork(nn.Module):
 
     def __init__(self, frames=4):
         super(QNetwork, self).__init__()
-        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 
-            8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.
-            ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(),
-            nn.Linear(3136, 512), nn.ReLU(), nn.Linear(512, env.action_space.n)
-            )
+        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(), nn.Linear(3136, 512), nn.ReLU(), nn.Linear(512, env.action_space.n))
 
     def forward(self, x):
         x = torch.Tensor(x)
@@ -368,10 +351,7 @@ class QNetwork(nn.Module):
 
     def __init__(self, frames=4):
         super(QNetwork, self).__init__()
-        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 
-            8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.
-            ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(),
-            nn.Linear(3136, 512), nn.ReLU(), Linear0(512, env.action_space.n))
+        self.network = nn.Sequential(Scale(1 / 255), nn.Conv2d(frames, 32, 8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, 4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, 3, stride=1), nn.ReLU(), nn.Flatten(), nn.Linear(3136, 512), nn.ReLU(), Linear0(512, env.action_space.n))
 
     def forward(self, x):
         x = torch.Tensor(x)
@@ -458,8 +438,7 @@ class Policy(nn.Module):
         self.fc1 = nn.Linear(np.array(env.observation_space.shape).prod(), 120)
         self.fc2 = nn.Linear(120, 84)
         self.mean = nn.Linear(84, np.prod(env.action_space.shape))
-        self.logstd = nn.Parameter(torch.zeros(1, np.prod(env.action_space.
-            shape)))
+        self.logstd = nn.Parameter(torch.zeros(1, np.prod(env.action_space.shape)))
         if args.pol_layer_norm:
             self.ln1 = torch.nn.LayerNorm(120)
             self.ln2 = torch.nn.LayerNorm(84)
@@ -669,8 +648,7 @@ class Scale(nn.Module):
         return x * self.scale
 
 
-def update_mean_var_count_from_moments(mean, var, count, batch_mean,
-    batch_var, batch_count):
+def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, batch_count):
     delta = batch_mean - mean
     tot_count = count + batch_count
     new_mean = mean + delta * batch_count / tot_count
@@ -696,9 +674,7 @@ class RunningMeanStd(object):
         self.update_from_moments(batch_mean, batch_var, batch_count)
 
     def update_from_moments(self, batch_mean, batch_var, batch_count):
-        self.mean, self.var, self.count = update_mean_var_count_from_moments(
-            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
-            )
+        self.mean, self.var, self.count = update_mean_var_count_from_moments(self.mean, self.var, self.count, batch_mean, batch_var, batch_count)
 
 
 _global_config['exp_name'] = 4
@@ -707,8 +683,7 @@ _global_config['exp_name'] = 4
 _global_config['seed'] = 4
 
 
-experiment_name = (
-    f'{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}')
+experiment_name = f'{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}'
 
 
 _global_config['capture_video'] = 4
@@ -744,11 +719,7 @@ class Agent(nn.Module):
 
     def __init__(self, frames=4):
         super(Agent, self).__init__()
-        self.network = nn.Sequential(Scale(1 / 255), layer_init(nn.Conv2d(
-            frames, 32, 8, stride=4)), nn.ReLU(), layer_init(nn.Conv2d(32, 
-            64, 4, stride=2)), nn.ReLU(), layer_init(nn.Conv2d(64, 64, 3,
-            stride=1)), nn.ReLU(), nn.Flatten(), layer_init(nn.Linear(3136,
-            512)), nn.ReLU())
+        self.network = nn.Sequential(Scale(1 / 255), layer_init(nn.Conv2d(frames, 32, 8, stride=4)), nn.ReLU(), layer_init(nn.Conv2d(32, 64, 4, stride=2)), nn.ReLU(), layer_init(nn.Conv2d(64, 64, 3, stride=1)), nn.ReLU(), nn.Flatten(), layer_init(nn.Linear(3136, 512)), nn.ReLU())
         self.actor = layer_init(nn.Linear(512, envs.action_space.n), std=0.01)
         self.critic = layer_init(nn.Linear(512, 1), std=1)
 
@@ -780,11 +751,7 @@ class Agent(nn.Module):
 
     def __init__(self, frames=4):
         super(Agent, self).__init__()
-        self.network = nn.Sequential(Scale(1 / 255), layer_init(nn.Conv2d(
-            frames, 32, 8, stride=4)), nn.ReLU(), layer_init(nn.Conv2d(32, 
-            64, 4, stride=2)), nn.ReLU(), layer_init(nn.Conv2d(64, 64, 3,
-            stride=1)), nn.ReLU(), nn.Flatten(), layer_init(nn.Linear(3136,
-            512)), nn.ReLU())
+        self.network = nn.Sequential(Scale(1 / 255), layer_init(nn.Conv2d(frames, 32, 8, stride=4)), nn.ReLU(), layer_init(nn.Conv2d(32, 64, 4, stride=2)), nn.ReLU(), layer_init(nn.Conv2d(64, 64, 3, stride=1)), nn.ReLU(), nn.Flatten(), layer_init(nn.Linear(3136, 512)), nn.ReLU())
         self.actor = layer_init(nn.Linear(512, envs.action_space.n), std=0.01)
         self.critic = layer_init(nn.Linear(512, 1), std=1)
 
@@ -806,15 +773,9 @@ class Agent(nn.Module):
 
     def __init__(self):
         super(Agent, self).__init__()
-        self.critic = nn.Sequential(layer_init(nn.Linear(np.array(envs.
-            observation_space.shape).prod(), 64)), nn.Tanh(), layer_init(nn
-            .Linear(64, 64)), nn.Tanh(), layer_init(nn.Linear(64, 1), std=1.0))
-        self.actor_mean = nn.Sequential(layer_init(nn.Linear(np.array(envs.
-            observation_space.shape).prod(), 64)), nn.Tanh(), layer_init(nn
-            .Linear(64, 64)), nn.Tanh(), layer_init(nn.Linear(64, np.prod(
-            envs.action_space.shape)), std=0.01))
-        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.
-            action_space.shape)))
+        self.critic = nn.Sequential(layer_init(nn.Linear(np.array(envs.observation_space.shape).prod(), 64)), nn.Tanh(), layer_init(nn.Linear(64, 64)), nn.Tanh(), layer_init(nn.Linear(64, 1), std=1.0))
+        self.actor_mean = nn.Sequential(layer_init(nn.Linear(np.array(envs.observation_space.shape).prod(), 64)), nn.Tanh(), layer_init(nn.Linear(64, 64)), nn.Tanh(), layer_init(nn.Linear(64, np.prod(envs.action_space.shape)), std=0.01))
+        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.action_space.shape)))
 
     def get_action(self, x, action=None):
         action_mean = self.actor_mean(x)
@@ -964,10 +925,8 @@ class Policy(nn.Module):
         self.fc2 = nn.Linear(120, 84)
         self.mean = nn.Linear(84, output_shape)
         self.logstd = nn.Linear(84, output_shape)
-        self.action_scale = torch.FloatTensor((env.action_space.high - env.
-            action_space.low) / 2.0)
-        self.action_bias = torch.FloatTensor((env.action_space.high + env.
-            action_space.low) / 2.0)
+        self.action_scale = torch.FloatTensor((env.action_space.high - env.action_space.low) / 2.0)
+        self.action_bias = torch.FloatTensor((env.action_space.high + env.action_space.low) / 2.0)
 
     def forward(self, x):
         x = preprocess_obs_fn(x)
@@ -1052,11 +1011,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Linear0,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Scale,
+     lambda: ([], {'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_vwxyzjn_cleanrl(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Linear0(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Scale(*[], **{'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

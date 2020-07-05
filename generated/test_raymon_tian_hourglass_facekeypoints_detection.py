@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -77,17 +78,12 @@ class StackedHourGlass(nn.Module):
     def _init_stacked_hourglass(self):
         for i in range(self._nStack):
             setattr(self, 'hg' + str(i), HourGlass(4, self._nFeats))
-            setattr(self, 'hg' + str(i) + '_res1', Residual(self._nFeats,
-                self._nFeats))
-            setattr(self, 'hg' + str(i) + '_lin1', Lin(self._nFeats, self.
-                _nFeats))
-            setattr(self, 'hg' + str(i) + '_conv_pred', nn.Conv2d(self.
-                _nFeats, self._nJoints, 1))
+            setattr(self, 'hg' + str(i) + '_res1', Residual(self._nFeats, self._nFeats))
+            setattr(self, 'hg' + str(i) + '_lin1', Lin(self._nFeats, self._nFeats))
+            setattr(self, 'hg' + str(i) + '_conv_pred', nn.Conv2d(self._nFeats, self._nJoints, 1))
             if i < self._nStack - 1:
-                setattr(self, 'hg' + str(i) + '_conv1', nn.Conv2d(self.
-                    _nFeats, self._nFeats, 1))
-                setattr(self, 'hg' + str(i) + '_conv2', nn.Conv2d(self.
-                    _nJoints, self._nFeats, 1))
+                setattr(self, 'hg' + str(i) + '_conv1', nn.Conv2d(self._nFeats, self._nFeats, 1))
+                setattr(self, 'hg' + str(i) + '_conv2', nn.Conv2d(self._nJoints, self._nFeats, 1))
 
     def forward(self, x):
         x = self.relu1(self.bn1(self.conv1(x)))
@@ -161,11 +157,7 @@ class Residual(nn.Module):
 
     def __init__(self, ins, outs):
         super(Residual, self).__init__()
-        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace
-            =True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2),
-            nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1),
-            nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs /
-            2, outs, 1))
+        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace=True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs, 1))
         if ins != outs:
             self.skipConv = nn.Conv2d(ins, outs, 1)
         self.ins = ins
@@ -242,11 +234,7 @@ class Residual(nn.Module):
 
     def __init__(self, ins, outs):
         super(Residual, self).__init__()
-        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace
-            =True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2),
-            nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1),
-            nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs /
-            2, outs, 1))
+        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace=True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs, 1))
         if ins != outs:
             self.skipConv = nn.Conv2d(ins, outs, 1)
         self.ins = ins
@@ -296,8 +284,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Lin,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+]
+
 class Test_raymon_tian_hourglass_facekeypoints_detection(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Lin(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

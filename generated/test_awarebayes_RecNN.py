@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,10 +77,7 @@ class AnomalyDetector(nn.Module):
 
     def __init__(self):
         super(AnomalyDetector, self).__init__()
-        self.ae = nn.Sequential(nn.Linear(128, 64), nn.ReLU(), nn.
-            BatchNorm1d(64), nn.Linear(64, 32), nn.ReLU(), nn.BatchNorm1d(
-            32), nn.Linear(32, 64), nn.ReLU(), nn.BatchNorm1d(64), nn.
-            Linear(64, 128), nn.ReLU())
+        self.ae = nn.Sequential(nn.Linear(128, 64), nn.ReLU(), nn.BatchNorm1d(64), nn.Linear(64, 32), nn.ReLU(), nn.BatchNorm1d(32), nn.Linear(32, 64), nn.ReLU(), nn.BatchNorm1d(64), nn.Linear(64, 128), nn.ReLU())
 
     def forward(self, x):
         """"""
@@ -160,18 +158,15 @@ class DiscreteActor(nn.Module):
         pi_probs = self.forward(state)
         beta_categorical = Categorical(beta_probs)
         pi_categorical = Categorical(pi_probs)
-        available_actions = {'pi': pi_categorical.sample(), 'beta':
-            beta_categorical.sample()}
+        available_actions = {'pi': pi_categorical.sample(), 'beta': beta_categorical.sample()}
         pi_action = available_actions[self.action_source['pi']]
         beta_action = available_actions[self.action_source['beta']]
         pi_log_prob = pi_categorical.log_prob(pi_action)
         beta_log_prob = beta_categorical.log_prob(beta_action)
         return pi_log_prob, beta_log_prob, pi_probs
 
-    def _select_action_with_correction(self, state, beta, action, writer,
-        step, **kwargs):
-        pi_log_prob, beta_log_prob, pi_probs = self.pi_beta_sample(state,
-            beta, action)
+    def _select_action_with_correction(self, state, beta, action, writer, step, **kwargs):
+        pi_log_prob, beta_log_prob, pi_probs = self.pi_beta_sample(state, beta, action)
         corr = torch.exp(pi_log_prob) / torch.exp(beta_log_prob)
         writer.add_histogram('correction', corr, step)
         writer.add_histogram('pi_log_prob', pi_log_prob, step)
@@ -180,10 +175,8 @@ class DiscreteActor(nn.Module):
         self.saved_log_probs.append(pi_log_prob)
         return pi_probs
 
-    def _select_action_with_TopK_correction(self, state, beta, action, K,
-        writer, step, **kwargs):
-        pi_log_prob, beta_log_prob, pi_probs = self.pi_beta_sample(state,
-            beta, action)
+    def _select_action_with_TopK_correction(self, state, beta, action, K, writer, step, **kwargs):
+        pi_log_prob, beta_log_prob, pi_probs = self.pi_beta_sample(state, beta, action)
         corr = torch.exp(pi_log_prob) / torch.exp(beta_log_prob)
         l_k = K * (1 - torch.exp(pi_log_prob)) ** (K - 1)
         writer.add_histogram('correction', corr, step)
@@ -295,23 +288,18 @@ class Chomp1d(nn.Module):
 
 class TemporalBlock(nn.Module):
 
-    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation,
-        padding, dropout=0.2):
+    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
         super(TemporalBlock, self).__init__()
-        self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
-            stride=stride, padding=padding, dilation=dilation))
+        self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size, stride=stride, padding=padding, dilation=dilation))
         self.chomp1 = Chomp1d(padding)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
-        self.conv2 = weight_norm(nn.Conv1d(n_outputs, n_outputs,
-            kernel_size, stride=stride, padding=padding, dilation=dilation))
+        self.conv2 = weight_norm(nn.Conv1d(n_outputs, n_outputs, kernel_size, stride=stride, padding=padding, dilation=dilation))
         self.chomp2 = Chomp1d(padding)
         self.relu2 = nn.ReLU()
         self.dropout2 = nn.Dropout(dropout)
-        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.
-            dropout1, self.conv2, self.chomp2, self.relu2, self.dropout2)
-        self.downsample = nn.Conv1d(n_inputs, n_outputs, 1
-            ) if n_inputs != n_outputs else None
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1, self.conv2, self.chomp2, self.relu2, self.dropout2)
+        self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
         self.relu = nn.ReLU()
         self.init_weights()
 
@@ -337,9 +325,7 @@ class TemporalConvNet(nn.Module):
             dilation_size = 2 ** i
             in_channels = num_inputs if i == 0 else num_channels[i - 1]
             out_channels = num_channels[i]
-            layers += [TemporalBlock(in_channels, out_channels, kernel_size,
-                stride=1, dilation=dilation_size, padding=(kernel_size - 1) *
-                dilation_size, dropout=dropout)]
+            layers += [TemporalBlock(in_channels, out_channels, kernel_size, stride=1, dilation=dilation_size, padding=(kernel_size - 1) * dilation_size, dropout=dropout)]
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -350,32 +336,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'input_dim': 4, 'action_dim': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AnomalyDetector,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128])], {}),
+     True),
+    (Chomp1d,
+     lambda: ([], {'chomp_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'input_dim': 4, 'action_dim': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+    (DiscreteActor,
+     lambda: ([], {'input_dim': 4, 'action_dim': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TemporalConvNet,
+     lambda: ([], {'num_inputs': 4, 'num_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (bcqGenerator,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4, 'latent_dim': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (bcqPerturbator,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_awarebayes_RecNN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Actor(*[], **{'input_dim': 4, 'action_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AnomalyDetector(*[], **{}), [torch.rand([128, 128])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Chomp1d(*[], **{'chomp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Critic(*[], **{'input_dim': 4, 'action_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DiscreteActor(*[], **{'input_dim': 4, 'action_dim': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(TemporalConvNet(*[], **{'num_inputs': 4, 'num_channels': [4, 4]}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(bcqGenerator(*[], **{'state_dim': 4, 'action_dim': 4, 'latent_dim': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(bcqPerturbator(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 

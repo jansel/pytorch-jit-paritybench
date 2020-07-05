@@ -71,8 +71,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -161,22 +162,18 @@ from torch.nn.parameter import Parameter
 from torch.nn.functional import *
 
 
-def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01,
-    kaiming_normal=True, silent=False):
+def init_weights_by_filling(nn_module_or_seq, gaussian_std=0.01, kaiming_normal=True, silent=False):
     """ Note: gaussian_std is fully connected layer (nn.Linear) only.
         For nn.Conv2d:
            If kaiming_normal is enable, nn.Conv2d is initialized by kaiming_normal.
            Otherwise, initialized based on kernel size.
     """
     if not silent:
-        print(
-            '[init_weights_by_filling]  gaussian_std=%s   kaiming_normal=%s \n %s'
-             % (gaussian_std, kaiming_normal, nn_module_or_seq))
+        print('[init_weights_by_filling]  gaussian_std=%s   kaiming_normal=%s \n %s' % (gaussian_std, kaiming_normal, nn_module_or_seq))
     for name, m in nn_module_or_seq.named_modules():
         if isinstance(m, nn.Conv2d):
             if kaiming_normal:
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             else:
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
@@ -197,8 +194,7 @@ class _naiReg_Net(nn.Module):
 
     @staticmethod
     def head_seq(in_size, reg_n_D, nr_cate=12, nr_fc8=334):
-        seq = nn.Sequential(nn.Linear(in_size, nr_fc8), nn.ReLU(inplace=
-            True), nn.Linear(nr_fc8, nr_cate * reg_n_D))
+        seq = nn.Sequential(nn.Linear(in_size, nr_fc8), nn.ReLU(inplace=True), nn.Linear(nr_fc8, nr_cate * reg_n_D))
         init_weights_by_filling(seq, gaussian_std=0.005)
         return seq
     """BVLC alexnet architecture (Note: slightly different from pytorch implementation.)"""
@@ -208,8 +204,7 @@ class _naiReg_Net(nn.Module):
         _Trunk = net_arch2Trunk[net_arch]
         self.trunk = _Trunk(pretrained=pretrained)
         self.nr_cate = nr_cate
-        self.top_size = 4096 if not self.trunk.net_arch.startswith('resnet'
-            ) else 2048
+        self.top_size = 4096 if not self.trunk.net_arch.startswith('resnet') else 2048
 
     def forword(self, x, label):
         raise NotImplementedError
@@ -217,19 +212,16 @@ class _naiReg_Net(nn.Module):
 
 class down(nn.Module):
 
-    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
-        ):
+    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True):
         super(down, self).__init__()
         layers = []
         for v in block_cfg:
             if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
-                    return_indices=True)]
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)]
             else:
                 conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -260,11 +252,9 @@ class up(nn.Module):
             if v == 'M':
                 layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
-                    padding=1, bias=True)
+                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3, padding=1, bias=True)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -306,9 +296,7 @@ def get_weights_from_caffesnapeshot(proto_file, model_file):
 _global_config['caffemodel'] = 4
 
 
-def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet',
-    ignore_missing_dst=False, src2dsts=dict(conv1='conv1', conv2='conv2',
-    conv3='conv3', conv4='conv4', conv5='conv5', fc6='fc6', fc7='fc7')):
+def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet', ignore_missing_dst=False, src2dsts=dict(conv1='conv1', conv2='conv2', conv3='conv3', conv4='conv4', conv5='conv5', fc6='fc6', fc7='fc7')):
     """ src2dsts = dict(conv1='conv1', conv2='conv2', conv3='conv3', conv4='conv4', conv5='conv5')
     Or in list:
         src2dsts = dict(conv1=['conv1'], conv2=['conv2'], conv3=['conv3'], conv4=['conv4'], conv5=['conv5'])
@@ -318,13 +306,11 @@ def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet',
     print('-----------------------')
     if isinstance(pretrained_type, tuple):
         proto_file, model_file = pretrained_type
-        pretrained_weights = get_weights_from_caffesnapeshot(proto_file,
-            model_file)
+        pretrained_weights = get_weights_from_caffesnapeshot(proto_file, model_file)
     else:
         import pickle
         print('Loading: %s' % cfg.caffemodel[pretrained_type].pkl)
-        pretrained_weights = pickle.load(open(cfg.caffemodel[
-            pretrained_type].pkl, 'rb'), encoding='bytes')
+        pretrained_weights = pickle.load(open(cfg.caffemodel[pretrained_type].pkl, 'rb'), encoding='bytes')
         print(pretrained_weights.keys())
     not_copied = list(own_state.keys())
     src_list = sorted(src2dsts.keys())
@@ -337,24 +323,17 @@ def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet',
         b = torch.from_numpy(b)
         for dst in dsts:
             if ignore_missing_dst and dst not in own_state.keys():
-                print('%-20s  -->  %-20s   [ignored] Missing dst.' % (src, dst)
-                    )
+                print('%-20s  -->  %-20s   [ignored] Missing dst.' % (src, dst))
                 continue
             print('%-20s  -->  %-20s' % (src, dst))
             dst_w_name = '%s.weight' % dst
             dst_b_name = '%s.bias' % dst
-            assert dst_w_name in own_state.keys(), '[Error] %s not in %s' % (
-                dst_w_name, own_state.keys())
-            assert dst_b_name in own_state.keys(), '[Error] %s not in %s' % (
-                dst_b_name, own_state.keys())
-            assert own_state[dst_w_name
-                ].shape == w.shape, '[%s] w: dest. %s != src. %s' % (dst_w_name
-                , own_state[dst_w_name].shape, w.shape)
+            assert dst_w_name in own_state.keys(), '[Error] %s not in %s' % (dst_w_name, own_state.keys())
+            assert dst_b_name in own_state.keys(), '[Error] %s not in %s' % (dst_b_name, own_state.keys())
+            assert own_state[dst_w_name].shape == w.shape, '[%s] w: dest. %s != src. %s' % (dst_w_name, own_state[dst_w_name].shape, w.shape)
             own_state[dst_w_name].copy_(w)
             not_copied.remove(dst_w_name)
-            assert own_state[dst_b_name
-                ].shape == b.shape, '[%s] w: dest. %s != src. %s' % (dst_b_name
-                , own_state[dst_b_name].shape, b.shape)
+            assert own_state[dst_b_name].shape == b.shape, '[%s] w: dest. %s != src. %s' % (dst_b_name, own_state[dst_b_name].shape, b.shape)
             own_state[dst_b_name].copy_(b)
             not_copied.remove(dst_b_name)
     for name in not_copied:
@@ -373,8 +352,7 @@ def _copy_weights_from_caffemodel(own_state, pretrained_type='alexnet',
 _global_config['torchmodel'] = 4
 
 
-def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
-    strict=True, src2dsts=None):
+def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet', strict=True, src2dsts=None):
     from torch.nn.parameter import Parameter
     print('-----------------------')
     print('[Info] Copy from  %s ' % pretrained_type)
@@ -391,25 +369,16 @@ def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
                     not_copied.remove(dst)
                     print('%-20s  -->  %-20s' % (src, dst))
                 else:
-                    dst_w_name, src_w_name = ('%s.weight' % dst, 
-                        '%s.weight' % src)
+                    dst_w_name, src_w_name = '%s.weight' % dst, '%s.weight' % src
                     dst_b_name, src_b_name = '%s.bias' % dst, '%s.bias' % src
-                    if (dst_w_name not in own_state.keys() or dst_b_name not in
-                        own_state.keys()) and not strict:
-                        print('%-20s  -->  %-20s   [ignored] Missing dst.' %
-                            (src, dst))
+                    if (dst_w_name not in own_state.keys() or dst_b_name not in own_state.keys()) and not strict:
+                        print('%-20s  -->  %-20s   [ignored] Missing dst.' % (src, dst))
                         continue
                     print('%-20s  -->  %-20s' % (src, dst))
-                    assert own_state[dst_w_name].shape == src_state[src_w_name
-                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_w_name,
-                        own_state[dst_w_name].shape, src_state[src_w_name].
-                        shape)
+                    assert own_state[dst_w_name].shape == src_state[src_w_name].shape, '[%s] w: dest. %s != src. %s' % (dst_w_name, own_state[dst_w_name].shape, src_state[src_w_name].shape)
                     own_state[dst_w_name].copy_(src_state[src_w_name])
                     not_copied.remove(dst_w_name)
-                    assert own_state[dst_b_name].shape == src_state[src_b_name
-                        ].shape, '[%s] w: dest. %s != src. %s' % (dst_b_name,
-                        own_state[dst_b_name].shape, src_state[src_b_name].
-                        shape)
+                    assert own_state[dst_b_name].shape == src_state[src_b_name].shape, '[%s] w: dest. %s != src. %s' % (dst_b_name, own_state[dst_b_name].shape, src_state[src_b_name].shape)
                     own_state[dst_b_name].copy_(src_state[src_b_name])
                     not_copied.remove(dst_b_name)
     else:
@@ -422,15 +391,11 @@ def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
                     own_state[name].copy_(param)
                     not_copied.remove(name)
                 except Exception:
-                    raise RuntimeError(
-                        'While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'
-                        .format(name, own_state[name].size(), param.size()))
+                    raise RuntimeError('While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'.format(name, own_state[name].size(), param.size()))
             elif strict:
-                raise KeyError('unexpected key "{}" in state_dict'.format(name)
-                    )
+                raise KeyError('unexpected key "{}" in state_dict'.format(name))
             else:
-                print('%-30s  -->  %-30s   [ignored] Missing dst.' % (name,
-                    name))
+                print('%-30s  -->  %-30s   [ignored] Missing dst.' % (name, name))
     for name in not_copied:
         if name.endswith('.weight'):
             own_state[name].normal_(mean=0.0, std=0.005)
@@ -438,8 +403,7 @@ def _copy_weights_from_torchmodel(own_state, pretrained_type='alexnet',
         elif name.endswith('.bias'):
             own_state[name].fill_(0)
             print('%-30s  -->  %-30s' % ('[filler] 0', name))
-        elif name.endswith('.running_mean') or name.endswith('.running_var'
-            ) or name.endswith('num_batches_tracked'):
+        elif name.endswith('.running_mean') or name.endswith('.running_var') or name.endswith('num_batches_tracked'):
             print('*************************** pass', name)
         else:
             print('Unknow parameter type: ', name)
@@ -483,10 +447,8 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
     else:
         center = factor - 0.5
     og = np.ogrid[:kernel_size, :kernel_size]
-    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) /
-        factor)
-    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size),
-        dtype=np.float64)
+    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
+    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size), dtype=np.float64)
     weight[(range(in_channels)), (range(out_channels)), :, :] = filt
     return torch.from_numpy(weight).float()
 
@@ -535,20 +497,11 @@ class VGG16_Trunk(nn.Module):
             init_weights_by_filling(self)
         elif pretrained == 'caffemodel':
             None
-            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2',
-                conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1=
-                'conv3.conv.0', conv3_2='conv3.conv.2', conv3_3=
-                'conv3.conv.4', conv4_1='conv4.conv.0', conv4_2=
-                'conv4.conv.2', conv4_3='conv4.conv.4', conv5_1=
-                'conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
-            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch,
-                src2dsts=src2dsts)
+            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2', conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1='conv3.conv.0', conv3_2='conv3.conv.2', conv3_3='conv3.conv.4', conv4_1='conv4.conv.0', conv4_2='conv4.conv.2', conv4_3='conv4.conv.4', conv5_1='conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
+            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch, src2dsts=src2dsts)
         elif pretrained == 'torchmodel':
-            src2dsts = odict([map(str.strip, x.split('=')) for x in map(str
-                .strip, open(this_dir + '/src2dsts.vgg16_bn.txt').readlines
-                ()) if not x.startswith('=')])
-            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch,
-                strict=False, src2dsts=src2dsts)
+            src2dsts = odict([map(str.strip, x.split('=')) for x in map(str.strip, open(this_dir + '/src2dsts.vgg16_bn.txt').readlines()) if not x.startswith('=')])
+            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch, strict=False, src2dsts=src2dsts)
         else:
             raise NotImplementedError
         for name, m in self.named_modules():
@@ -556,8 +509,7 @@ class VGG16_Trunk(nn.Module):
                 None
                 assert m.kernel_size[0] == m.kernel_size[1]
                 try:
-                    initial_weight = get_upsampling_weight(m.in_channels, m
-                        .out_channels, m.kernel_size[0])
+                    initial_weight = get_upsampling_weight(m.in_channels, m.out_channels, m.kernel_size[0])
                     None
                     m.weight.data.copy_(initial_weight)
                 except:
@@ -577,19 +529,16 @@ class VGG16_Trunk(nn.Module):
 
 class down(nn.Module):
 
-    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
-        ):
+    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True):
         super(down, self).__init__()
         layers = []
         for v in block_cfg:
             if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
-                    return_indices=True)]
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)]
             else:
                 conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -620,11 +569,9 @@ class up(nn.Module):
             if v == 'M':
                 layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
-                    padding=1, bias=True)
+                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3, padding=1, bias=True)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -690,20 +637,11 @@ class VGG16_Trunk(nn.Module):
             init_weights_by_filling(self)
         elif pretrained == 'caffemodel':
             None
-            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2',
-                conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1=
-                'conv3.conv.0', conv3_2='conv3.conv.2', conv3_3=
-                'conv3.conv.4', conv4_1='conv4.conv.0', conv4_2=
-                'conv4.conv.2', conv4_3='conv4.conv.4', conv5_1=
-                'conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
-            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch,
-                src2dsts=src2dsts)
+            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2', conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1='conv3.conv.0', conv3_2='conv3.conv.2', conv3_3='conv3.conv.4', conv4_1='conv4.conv.0', conv4_2='conv4.conv.2', conv4_3='conv4.conv.4', conv5_1='conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
+            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch, src2dsts=src2dsts)
         elif pretrained == 'torchmodel':
-            src2dsts = odict([map(str.strip, x.split('=')) for x in map(str
-                .strip, open(this_dir + '/src2dsts.vgg16_bn.txt').readlines
-                ()) if not x.startswith('=')])
-            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch,
-                strict=False, src2dsts=src2dsts)
+            src2dsts = odict([map(str.strip, x.split('=')) for x in map(str.strip, open(this_dir + '/src2dsts.vgg16_bn.txt').readlines()) if not x.startswith('=')])
+            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch, strict=False, src2dsts=src2dsts)
         else:
             None
             raise NotImplementedError
@@ -712,8 +650,7 @@ class VGG16_Trunk(nn.Module):
                 None
                 assert m.kernel_size[0] == m.kernel_size[1]
                 try:
-                    initial_weight = get_upsampling_weight(m.in_channels, m
-                        .out_channels, m.kernel_size[0])
+                    initial_weight = get_upsampling_weight(m.in_channels, m.out_channels, m.kernel_size[0])
                     None
                     m.weight.data.copy_(initial_weight)
                 except:
@@ -733,19 +670,16 @@ class VGG16_Trunk(nn.Module):
 
 class down(nn.Module):
 
-    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True
-        ):
+    def __init__(self, block_cfg=['M', 64, 64], in_channels=3, batch_norm=True):
         super(down, self).__init__()
         layers = []
         for v in block_cfg:
             if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2,
-                    return_indices=True)]
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)]
             else:
                 conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -776,11 +710,9 @@ class up(nn.Module):
             if v == 'M':
                 layers += [nn.MaxUnpool2d(kernel_size=2, stride=2)]
             else:
-                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3,
-                    padding=1, bias=True)
+                conv2d = nn.ConvTranspose2d(in_channels, v, kernel_size=3, padding=1, bias=True)
                 if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)
-                        ]
+                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
                 else:
                     layers += [conv2d, nn.ReLU(inplace=True)]
                 in_channels = v
@@ -854,26 +786,11 @@ class VGG16_Trunk(nn.Module):
             init_weights_by_filling(self)
         elif pretrained == 'caffemodel':
             None
-            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2',
-                conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1=
-                'conv3.conv.0', conv3_2='conv3.conv.2', conv3_3=
-                'conv3.conv.4', conv4_1='conv4.conv.0', conv4_2=
-                'conv4.conv.2', conv4_3='conv4.conv.4', conv5_1=
-                'conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
-            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch,
-                src2dsts=src2dsts)
+            src2dsts = odict(conv1_1='conv1.conv.0', conv1_2='conv1.conv.2', conv2_1='conv2.conv.0', conv2_2='conv2.conv.2', conv3_1='conv3.conv.0', conv3_2='conv3.conv.2', conv3_3='conv3.conv.4', conv4_1='conv4.conv.0', conv4_2='conv4.conv.2', conv4_3='conv4.conv.4', conv5_1='conv5.conv.0', conv5_2='conv5.conv.2', conv5_3='conv5.conv.4')
+            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch, src2dsts=src2dsts)
         elif pretrained == 'torchmodel':
-            src2dsts = odict([('features.0', 'conv1.conv.0'), ('features.2',
-                'conv1.conv.2'), ('features.5', 'conv2.conv.0'), (
-                'features.7', 'conv2.conv.2'), ('features.10',
-                'conv3.conv.0'), ('features.12', 'conv3.conv.2'), (
-                'features.14', 'conv3.conv.4'), ('features.17',
-                'conv4.conv.0'), ('features.19', 'conv4.conv.2'), (
-                'features.21', 'conv4.conv.4'), ('features.24',
-                'conv5.conv.0'), ('features.26', 'conv5.conv.2'), (
-                'features.28', 'conv5.conv.4')])
-            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch,
-                strict=False, src2dsts=src2dsts)
+            src2dsts = odict([('features.0', 'conv1.conv.0'), ('features.2', 'conv1.conv.2'), ('features.5', 'conv2.conv.0'), ('features.7', 'conv2.conv.2'), ('features.10', 'conv3.conv.0'), ('features.12', 'conv3.conv.2'), ('features.14', 'conv3.conv.4'), ('features.17', 'conv4.conv.0'), ('features.19', 'conv4.conv.2'), ('features.21', 'conv4.conv.4'), ('features.24', 'conv5.conv.0'), ('features.26', 'conv5.conv.2'), ('features.28', 'conv5.conv.4')])
+            copy_weights(self.state_dict(), 'torchmodel.%s' % self.net_arch, strict=False, src2dsts=src2dsts)
         else:
             raise NotImplementedError
         for name, m in self.named_modules():
@@ -881,8 +798,7 @@ class VGG16_Trunk(nn.Module):
                 None
                 assert m.kernel_size[0] == m.kernel_size[1]
                 try:
-                    initial_weight = get_upsampling_weight(m.in_channels, m
-                        .out_channels, m.kernel_size[0])
+                    initial_weight = get_upsampling_weight(m.in_channels, m.out_channels, m.kernel_size[0])
                     None
                     m.weight.data.copy_(initial_weight)
                 except:
@@ -955,10 +871,7 @@ class double_conv(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(double_conv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch,
-            out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=
-            True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
 
     def forward(self, x):
         x = self.conv(x)
@@ -980,8 +893,7 @@ class down(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(down, self).__init__()
-        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch)
-            )
+        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch))
 
     def forward(self, x):
         x = self.mpconv(x)
@@ -993,8 +905,7 @@ class up(nn.Module):
     def __init__(self, in_ch, out_ch, bilinear=True):
         super(up, self).__init__()
         if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear',
-                align_corners=True)
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         else:
             self.up = nn.ConvTranspose2d(in_ch // 2, in_ch // 2, 2, stride=2)
         self.conv = double_conv(in_ch, out_ch)
@@ -1003,8 +914,7 @@ class up(nn.Module):
         x1 = self.up(x1)
         diffX = x1.size()[2] - x2.size()[2]
         diffY = x1.size()[3] - x2.size()[3]
-        x2 = F.pad(x2, (diffX // 2, int(diffX / 2), diffY // 2, int(diffY / 2))
-            )
+        x2 = F.pad(x2, (diffX // 2, int(diffX / 2), diffY // 2, int(diffY / 2)))
         x = torch.cat([x2, x1], dim=1)
         x = self.conv(x)
         return x
@@ -1025,11 +935,9 @@ class _BaseReg_Net(nn.Module):
 
     @staticmethod
     def head_seq(in_size, reg_n_D, nr_cate=12, nr_fc8=334, init_weights=True):
-        seq = nn.Sequential(nn.Linear(in_size, nr_fc8), nn.ReLU(inplace=
-            True), nn.Linear(nr_fc8, nr_cate * reg_n_D))
+        seq = nn.Sequential(nn.Linear(in_size, nr_fc8), nn.ReLU(inplace=True), nn.Linear(nr_fc8, nr_cate * reg_n_D))
         if init_weights:
-            init_weights_by_filling(seq, gaussian_std=0.005, kaiming_normal
-                =True)
+            init_weights_by_filling(seq, gaussian_std=0.005, kaiming_normal=True)
         return seq
     """BVLC alexnet architecture (Note: slightly different from pytorch implementation.)"""
 
@@ -1038,8 +946,7 @@ class _BaseReg_Net(nn.Module):
         _Trunk = net_arch2Trunk[net_arch]
         self.trunk = _Trunk(init_weights=init_weights)
         self.nr_cate = nr_cate
-        self.top_size = 4096 if not self.trunk.net_arch.startswith('resnet'
-            ) else 2048
+        self.top_size = 4096 if not self.trunk.net_arch.startswith('resnet') else 2048
 
     def forword(self, x, label):
         raise NotImplementedError
@@ -1050,20 +957,8 @@ class AlexNet_Trunk(nn.Module):
     def __init__(self, init_weights=True):
         super(AlexNet_Trunk, self).__init__()
         self.net_arch = 'alexnet'
-        self.Convs = nn.Sequential(nn.Conv2d(3, 96, kernel_size=11, stride=
-            4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=
-            3, stride=2), LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=1
-            ), nn.Conv2d(96, 256, kernel_size=5, padding=2, groups=2), nn.
-            ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2),
-            LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=1), nn.Conv2d(
-            256, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(384, 384, kernel_size=3, padding=1, groups=2), nn.ReLU(
-            inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1,
-            groups=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2))
-        self.Fcs = nn.Sequential(nn.Linear(256 * 6 * 6, 4096), nn.ReLU(
-            inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(
-            inplace=True), nn.Dropout())
+        self.Convs = nn.Sequential(nn.Conv2d(3, 96, kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=1), nn.Conv2d(96, 256, kernel_size=5, padding=2, groups=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), LocalResponseNorm(5, alpha=0.0001, beta=0.75, k=1), nn.Conv2d(256, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 384, kernel_size=3, padding=1, groups=2), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1, groups=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.Fcs = nn.Sequential(nn.Linear(256 * 6 * 6, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Dropout())
         if init_weights == True:
             self.init_weights(pretrained='caffemodel')
         elif isinstance(init_weights, str) or init_weights is None:
@@ -1091,11 +986,8 @@ class AlexNet_Trunk(nn.Module):
             init_weights_by_filling(self)
         elif pretrained == 'caffemodel':
             None
-            src2dsts = dict(conv1='Convs.0', conv2='Convs.4', conv3=
-                'Convs.8', conv4='Convs.10', conv5='Convs.12', fc6='Fcs.0',
-                fc7='Fcs.3')
-            copy_weights(self.state_dict(), 'caffemodel.alexnet', src2dsts=
-                src2dsts)
+            src2dsts = dict(conv1='Convs.0', conv2='Convs.4', conv3='Convs.8', conv4='Convs.10', conv5='Convs.12', fc6='Fcs.0', fc7='Fcs.3')
+            copy_weights(self.state_dict(), 'caffemodel.alexnet', src2dsts=src2dsts)
         elif pretrained == 'torchmodel':
             raise NotImplementedError
         else:
@@ -1123,9 +1015,7 @@ def norm2unit(vecs, dim=1, p=2):
     check_nan = vecs != vecs
     if check_inf.any() or check_nan.any():
         print(vecs)
-        print(
-            '[Exception] some input values are either "nan" or "inf" !   (from norm2unit)'
-            )
+        print('[Exception] some input values are either "nan" or "inf" !   (from norm2unit)')
         exit()
     signs = torch.sign(vecs)
     signs[signs == 0] = 1
@@ -1143,8 +1033,7 @@ def norm2unit(vecs, dim=1, p=2):
     if not check_mu.all():
         np.set_printoptions(threshold=np.inf)
         print(norm.data.cpu().numpy())
-        print(torch.cat([vecs_in, vecs, norm, recomputed_norm.view(
-            batchsize, 1)], dim=dim)[(~check_mu), :].data.cpu().numpy())
+        print(torch.cat([vecs_in, vecs, norm, recomputed_norm.view(batchsize, 1)], dim=dim)[(~check_mu), :].data.cpu().numpy())
         print('[Exception] normalization has problem.   (from norm2unit)')
         exit()
     return vecs
@@ -1161,14 +1050,10 @@ class Test_AlexNet(nn.Module):
     def forward(self, x, label):
         x = self.truck(x)
         batchsize = x.size(0)
-        self.head_s2 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 3))
-        self.head_s1 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 2))
-        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3
-            ), label)
-        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2
-            ), label)
+        self.head_s2 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=True), nn.Linear(84, self.nr_cate * 3))
+        self.head_s1 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=True), nn.Linear(84, self.nr_cate * 2))
+        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3), label)
+        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2), label)
         x_s2 = norm2unit(x_s2)
         x_s1 = norm2unit(x_s1)
         Pred = edict(s2=x_s2, s1=x_s1)
@@ -1179,18 +1064,8 @@ class AlexNet_Trunk(nn.Module):
 
     def __init__(self):
         super(AlexNet_Trunk, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5,
-            padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=
-            1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2))
-        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6,
-            4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 
-            4096), nn.ReLU(inplace=True))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.classifier = nn.Sequential(nn.Dropout(), nn.Linear(256 * 6 * 6, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True))
 
     def forward_Conv(self, x):
         return self.features(x)
@@ -1225,14 +1100,10 @@ class Test_AlexNet(nn.Module):
     def forward(self, x, label):
         x = self.truck(x)
         batchsize = x.size(0)
-        self.head_s2 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 3))
-        self.head_s1 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 2))
-        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3
-            ), label)
-        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2
-            ), label)
+        self.head_s2 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=True), nn.Linear(84, self.nr_cate * 3))
+        self.head_s1 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=True), nn.Linear(84, self.nr_cate * 2))
+        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3), label)
+        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2), label)
         x_s2 = norm2unit(x_s2)
         x_s1 = norm2unit(x_s1)
         Pred = edict(s2=x_s2, s1=x_s1)
@@ -1241,8 +1112,7 @@ class Test_AlexNet(nn.Module):
 
 class _Inception3_Trunk(nn.Module):
 
-    def __init__(self, aux_logits=True, transform_input=False, init_weights
-        =True, start=None, end=None):
+    def __init__(self, aux_logits=True, transform_input=False, init_weights=True, start=None, end=None):
         super(_Inception3_Trunk, self).__init__()
         self.net_arch = 'inception_v3'
         self.aux_logits = aux_logits
@@ -1284,12 +1154,9 @@ class _Inception3_Trunk(nn.Module):
 
     def forward(self, x):
         if self.transform_input:
-            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 -
-                0.5) / 0.5
-            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 -
-                0.5) / 0.5
-            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 -
-                0.5) / 0.5
+            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
             x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
         x = self.Conv2d_1a_3x3(x)
         x = self.Conv2d_2a_3x3(x)
@@ -1330,8 +1197,7 @@ class InceptionA(nn.Module):
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 64, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(64, 96, kernel_size=3, padding=1)
         self.branch3x3dbl_3 = BasicConv2d(96, 96, kernel_size=3, padding=1)
-        self.branch_pool = BasicConv2d(in_channels, pool_features,
-            kernel_size=1)
+        self.branch_pool = BasicConv2d(in_channels, pool_features, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
@@ -1372,19 +1238,13 @@ class InceptionC(nn.Module):
         self.branch1x1 = BasicConv2d(in_channels, 192, kernel_size=1)
         c7 = channels_7x7
         self.branch7x7_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=
-            (0, 3))
-        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding
-            =(3, 0))
+        self.branch7x7_2 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7_3 = BasicConv2d(c7, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7dbl_1 = BasicConv2d(in_channels, c7, kernel_size=1)
-        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1),
-            padding=(3, 0))
-        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7),
-            padding=(0, 3))
+        self.branch7x7dbl_2 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_3 = BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7dbl_4 = BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_5 = BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
@@ -1410,10 +1270,8 @@ class InceptionD(nn.Module):
         self.branch3x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
         self.branch3x3_2 = BasicConv2d(192, 320, kernel_size=3, stride=2)
         self.branch7x7x3_1 = BasicConv2d(in_channels, 192, kernel_size=1)
-        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7),
-            padding=(0, 3))
-        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1),
-            padding=(3, 0))
+        self.branch7x7x3_2 = BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7x3_3 = BasicConv2d(192, 192, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7x3_4 = BasicConv2d(192, 192, kernel_size=3, stride=2)
 
     def forward(self, x):
@@ -1434,28 +1292,22 @@ class InceptionE(nn.Module):
         super(InceptionE, self).__init__()
         self.branch1x1 = BasicConv2d(in_channels, 320, kernel_size=1)
         self.branch3x3_1 = BasicConv2d(in_channels, 384, kernel_size=1)
-        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3_2a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3_2b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch3x3dbl_1 = BasicConv2d(in_channels, 448, kernel_size=1)
         self.branch3x3dbl_2 = BasicConv2d(448, 384, kernel_size=3, padding=1)
-        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3),
-            padding=(0, 1))
-        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1),
-            padding=(1, 0))
+        self.branch3x3dbl_3a = BasicConv2d(384, 384, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3dbl_3b = BasicConv2d(384, 384, kernel_size=(3, 1), padding=(1, 0))
         self.branch_pool = BasicConv2d(in_channels, 192, kernel_size=1)
 
     def forward(self, x):
         branch1x1 = self.branch1x1(x)
         branch3x3 = self.branch3x3_1(x)
-        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)
-            ]
+        branch3x3 = [self.branch3x3_2a(branch3x3), self.branch3x3_2b(branch3x3)]
         branch3x3 = torch.cat(branch3x3, 1)
         branch3x3dbl = self.branch3x3dbl_1(x)
         branch3x3dbl = self.branch3x3dbl_2(branch3x3dbl)
-        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.
-            branch3x3dbl_3b(branch3x3dbl)]
+        branch3x3dbl = [self.branch3x3dbl_3a(branch3x3dbl), self.branch3x3dbl_3b(branch3x3dbl)]
         branch3x3dbl = torch.cat(branch3x3dbl, 1)
         branch_pool = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         branch_pool = self.branch_pool(branch_pool)
@@ -1517,15 +1369,13 @@ def _nn_xNorm(num_channels, xNorm='BN', **kwargs):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, xNorm=
-        'BN', xNorm_kwargs={}):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, xNorm='BN', xNorm_kwargs={}):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = _nn_xNorm(planes, xNorm=xNorm, **xNorm_kwargs)
@@ -1553,13 +1403,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, xNorm=
-        'BN', xNorm_kwargs={}):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, xNorm='BN', xNorm_kwargs={}):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = _nn_xNorm(planes, xNorm=xNorm, **xNorm_kwargs)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = _nn_xNorm(planes, xNorm=xNorm, **xNorm_kwargs)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = _nn_xNorm(planes * 4, xNorm=xNorm, **xNorm_kwargs)
@@ -1585,91 +1433,64 @@ class Bottleneck(nn.Module):
         return out
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
 
 
-type2blockFunc_layerCfgs = dict(resnet18=(BasicBlock, [2, 2, 2, 2]),
-    resnet34=(BasicBlock, [3, 4, 6, 3]), resnet50=(Bottleneck, [3, 4, 6, 3]
-    ), resnet101=(Bottleneck, [3, 4, 23, 3]), resnet152=(Bottleneck, [3, 8,
-    36, 3]))
+type2blockFunc_layerCfgs = dict(resnet18=(BasicBlock, [2, 2, 2, 2]), resnet34=(BasicBlock, [3, 4, 6, 3]), resnet50=(Bottleneck, [3, 4, 6, 3]), resnet101=(Bottleneck, [3, 4, 23, 3]), resnet152=(Bottleneck, [3, 8, 36, 3]))
 
 
 class _ResNet_Trunk(nn.Module):
 
-    def __init__(self, res_type='resnet101', pretrained='torchmodel', start
-        =None, end=None, xNorm='BN', xNorm_kwargs={}):
+    def __init__(self, res_type='resnet101', pretrained='torchmodel', start=None, end=None, xNorm='BN', xNorm_kwargs={}):
         self.inplanes = 64
         super(_ResNet_Trunk, self).__init__()
         self.net_arch = res_type
         blockFunc, layerCfgs = type2blockFunc_layerCfgs[res_type]
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = _nn_xNorm(64, xNorm=xNorm, **xNorm_kwargs)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(blockFunc, 64, layerCfgs[0], stride=
-            1, xNorm='BN', xNorm_kwargs={})
-        self.layer2 = self._make_layer(blockFunc, 128, layerCfgs[1], stride
-            =2, xNorm='BN', xNorm_kwargs={})
-        self.layer3 = self._make_layer(blockFunc, 256, layerCfgs[2], stride
-            =2, xNorm='BN', xNorm_kwargs={})
-        self.layer4 = self._make_layer(blockFunc, 512, layerCfgs[3], stride
-            =2, xNorm='BN', xNorm_kwargs={})
+        self.layer1 = self._make_layer(blockFunc, 64, layerCfgs[0], stride=1, xNorm='BN', xNorm_kwargs={})
+        self.layer2 = self._make_layer(blockFunc, 128, layerCfgs[1], stride=2, xNorm='BN', xNorm_kwargs={})
+        self.layer3 = self._make_layer(blockFunc, 256, layerCfgs[2], stride=2, xNorm='BN', xNorm_kwargs={})
+        self.layer4 = self._make_layer(blockFunc, 512, layerCfgs[3], stride=2, xNorm='BN', xNorm_kwargs={})
         self.pool5 = nn.AvgPool2d(7, stride=1)
         self._layer_names = [name for name, module in self.named_children()]
         if pretrained == True:
             pretrained = 'torchmodel'
         if pretrained == False:
             pretrained = None
-        assert pretrained in [None, 'caffemodel', 'torchmodel'
-            ], 'Unknown pretrained: %s' % pretrained
+        assert pretrained in [None, 'caffemodel', 'torchmodel'], 'Unknown pretrained: %s' % pretrained
         None
         self.init_weights(pretrained=pretrained)
         self.truck_seq = self.sub_seq(start=start, end=end)
 
     def sub_seq(self, start=None, end=None):
-        assert start is None or start in self._layer_names, '[Error] %s is not in %s' % (
-            start, self._layer_names)
-        assert end is None or end in self._layer_names, '[Error] %s is not in %s' % (
-            end, self._layer_names)
+        assert start is None or start in self._layer_names, '[Error] %s is not in %s' % (start, self._layer_names)
+        assert end is None or end in self._layer_names, '[Error] %s is not in %s' % (end, self._layer_names)
         start_ind = self._layer_names.index(start) if start is not None else 0
-        end_ind = self._layer_names.index(end) if end is not None else len(self
-            ._layer_names) - 1
+        end_ind = self._layer_names.index(end) if end is not None else len(self._layer_names) - 1
         assert start_ind <= end_ind
         self.selected_layer_name = self._layer_names[start_ind:end_ind + 1]
         None
-        _seq = nn.Sequential(*[self.__getattr__(x) for x in self.
-            selected_layer_name])
+        _seq = nn.Sequential(*[self.__getattr__(x) for x in self.selected_layer_name])
         return _seq
 
     def _make_layer(self, block, planes, blocks, stride, xNorm, xNorm_kwargs):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                _nn_xNorm(planes * block.expansion, xNorm=xNorm, **
-                xNorm_kwargs))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), _nn_xNorm(planes * block.expansion, xNorm=xNorm, **xNorm_kwargs))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            xNorm=xNorm, xNorm_kwargs=xNorm_kwargs))
+        layers.append(block(self.inplanes, planes, stride, downsample, xNorm=xNorm, xNorm_kwargs=xNorm_kwargs))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, xNorm=xNorm,
-                xNorm_kwargs=xNorm_kwargs))
+            layers.append(block(self.inplanes, planes, xNorm=xNorm, xNorm_kwargs=xNorm_kwargs))
         return nn.Sequential(*layers)
 
     def forward(self, x):
         """ x is input image data.
             x is of shape:  (batchsize, 3, 224, 224)  """
-        assert x.size()[1:] == (3, 224, 224
-            ), 'resnet need (3,224,224) input data, whereas %s is received.' % str(
-            tuple(x.size()[1:]))
+        assert x.size()[1:] == (3, 224, 224), 'resnet need (3,224,224) input data, whereas %s is received.' % str(tuple(x.size()[1:]))
         if self.selected_layer_name[-1] == 'pool5':
             return self.truck_seq(x).view(x.size(0), -1)
         else:
@@ -1687,12 +1508,10 @@ class _ResNet_Trunk(nn.Module):
             model_path = pretrained_cfg.caffemodel.resnet101.model
             None
             state_dict = torch.load(model_path)
-            self.load_state_dict({k: v for k, v in state_dict.items() if k in
-                self.state_dict()})
+            self.load_state_dict({k: v for k, v in state_dict.items() if k in self.state_dict()})
         elif pretrained == 'torchmodel':
             None
-            state_dict = model_zoo.load_url(model_urls[self.net_arch],
-                progress=True)
+            state_dict = model_zoo.load_url(model_urls[self.net_arch], progress=True)
             self.load_state_dict(state_dict, strict=False)
         else:
             raise NotImplementedError
@@ -1701,27 +1520,14 @@ class _ResNet_Trunk(nn.Module):
 
 def get_caffeSrc2Dst(net_arch='vgg16'):
     if net_arch == 'vgg16':
-        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
-            'features.5', conv2_2='features.7', conv3_1='features.10',
-            conv3_2='features.12', conv3_3='features.14', conv4_1=
-            'features.17', conv4_2='features.19', conv4_3='features.21',
-            conv5_1='features.24', conv5_2='features.26', conv5_3=
-            'features.28', fc6='classifier.0', fc7='classifier.3')
+        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1='features.5', conv2_2='features.7', conv3_1='features.10', conv3_2='features.12', conv3_3='features.14', conv4_1='features.17', conv4_2='features.19', conv4_3='features.21', conv5_1='features.24', conv5_2='features.26', conv5_3='features.28', fc6='classifier.0', fc7='classifier.3')
     elif net_arch == 'vgg19':
-        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1=
-            'features.5', conv2_2='features.7', conv3_1='features.10',
-            conv3_2='features.12', conv3_3='features.14', conv3_4=
-            'features.16', conv4_1='features.19', conv4_2='features.21',
-            conv4_3='features.23', conv4_4='features.25', conv5_1=
-            'features.28', conv5_2='features.30', conv5_3='features.32',
-            conv5_4='features.34', fc6='classifier.0', fc7='classifier.3')
+        return odict(conv1_1='features.0', conv1_2='features.2', conv2_1='features.5', conv2_2='features.7', conv3_1='features.10', conv3_2='features.12', conv3_3='features.14', conv3_4='features.16', conv4_1='features.19', conv4_2='features.21', conv4_3='features.23', conv4_4='features.25', conv5_1='features.28', conv5_2='features.30', conv5_3='features.32', conv5_4='features.34', fc6='classifier.0', fc7='classifier.3')
     elif net_arch in ['vgg16_bn', 'vgg19_bn']:
         print('No pretrained model for vgg16_bn, vgg19_bn.')
         raise NotImplementedError
     elif net_arch == 'vggm':
-        return odict(conv1='features.0', conv2='features.4', conv3=
-            'features.8', conv4='features.10', conv5='features.12', fc6=
-            'classifier.0', fc7='classifier.3')
+        return odict(conv1='features.0', conv2='features.4', conv3='features.8', conv4='features.10', conv5='features.12', fc6='classifier.0', fc7='classifier.3')
     else:
         raise NotImplementedError
 
@@ -1743,21 +1549,13 @@ def make_layers(cfg, batch_norm=False):
 
 
 def make_layers_vggm():
-    return nn.Sequential(nn.Conv2d(3, 96, (7, 7), (2, 2)), nn.ReLU(inplace=
-        True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3),
-        (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(96, 256, (5, 5), (2, 2),
-        (1, 1)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 
-        2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d
-        (256, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.
-        Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn
-        .Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True),
-        nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
-
-
-_global_config['E'] = 4
+    return nn.Sequential(nn.Conv2d(3, 96, (7, 7), (2, 2)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(96, 256, (5, 5), (2, 2), (1, 1)), nn.ReLU(inplace=True), LocalResponseNorm(5, 0.0005, 0.75, 2), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True), nn.Conv2d(256, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.Conv2d(512, 512, (3, 3), (1, 1), (1, 1)), nn.ReLU(inplace=True), nn.MaxPool2d((3, 3), (2, 2), (0, 0), ceil_mode=True))
 
 
 _global_config['D'] = 4
+
+
+_global_config['E'] = 4
 
 
 type2cfg = dict(vgg16=cfg['D'], vgg19=cfg['E'])
@@ -1770,14 +1568,10 @@ class _VGG_Trunk(nn.Module):
         self.net_arch = vgg_type
         if vgg_type == 'vggm':
             self.features = make_layers_vggm()
-            self.classifier = nn.Sequential(nn.Linear(512 * 6 * 6, 4096),
-                nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU
-                (True), nn.Dropout())
+            self.classifier = nn.Sequential(nn.Linear(512 * 6 * 6, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout())
         else:
             self.features = make_layers(type2cfg[vgg_type])
-            self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096),
-                nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU
-                (True), nn.Dropout())
+            self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout())
         if init_weights == True:
             assert self.net_arch in ['vgg16', 'vgg19']
             self.init_weights(pretrained='caffemodel')
@@ -1819,8 +1613,7 @@ class _VGG_Trunk(nn.Module):
         elif pretrained == 'caffemodel':
             None
             src2dsts = get_caffeSrc2Dst(self.net_arch)
-            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch,
-                src2dsts=src2dsts)
+            copy_weights(self.state_dict(), 'caffemodel.%s' % self.net_arch, src2dsts=src2dsts)
         elif pretrained == 'torchmodel':
             raise NotImplementedError
         else:
@@ -1844,14 +1637,10 @@ class Test_Net(nn.Module):
     def forward(self, x, label):
         x = self.truck(x)
         batchsize = x.size(0)
-        self.head_s2 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 3))
-        self.head_s1 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=
-            True), nn.Linear(84, self.nr_cate * 2))
-        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3
-            ), label)
-        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2
-            ), label)
+        self.head_s2 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=True), nn.Linear(84, self.nr_cate * 3))
+        self.head_s1 = nn.Sequential(nn.Linear(4096, 84), nn.ReLU(inplace=True), nn.Linear(84, self.nr_cate * 2))
+        x_s2 = self.maskout(self.head_s2(x).view(batchsize, self.nr_cate, 3), label)
+        x_s1 = self.maskout(self.head_s1(x).view(batchsize, self.nr_cate, 2), label)
         x_s2 = norm2unit(x_s2)
         x_s1 = norm2unit(x_s1)
         Pred = edict(s2=x_s2, s1=x_s1)
@@ -1880,8 +1669,7 @@ class Maskout(nn.Module):
         if x.is_cuda:
             item_inds = item_inds
         cate_ind = label.view(batchsize)
-        assert cate_ind.lt(self.nr_cate).all(
-            ), '[Exception] All index in cate_ind should be smaller than nr_cate.'
+        assert cate_ind.lt(self.nr_cate).all(), '[Exception] All index in cate_ind should be smaller than nr_cate.'
         masked_shape = (batchsize,) + x.size()[2:]
         return x[item_inds, cate_ind].view(*masked_shape)
 
@@ -1921,64 +1709,131 @@ class LocalResponseNorm(Module):
         self.k = k
 
     def forward(self, input):
-        return local_response_norm(input, self.size, self.alpha, self.beta,
-            self.k)
+        return local_response_norm(input, self.size, self.alpha, self.beta, self.k)
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + str(self.size
-            ) + ', alpha=' + str(self.alpha) + ', beta=' + str(self.beta
-            ) + ', k=' + str(self.k) + ')'
+        return self.__class__.__name__ + '(' + str(self.size) + ', alpha=' + str(self.alpha) + ', beta=' + str(self.beta) + ', k=' + str(self.k) + ')'
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionA,
+     lambda: ([], {'in_channels': 4, 'pool_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionAux,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 18, 18])], {}),
+     True),
+    (InceptionB,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionC,
+     lambda: ([], {'in_channels': 4, 'channels_7x7': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionD,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptionE,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LocalResponseNorm,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UNet,
+     lambda: ([], {'n_channels': 4, 'n_classes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (double_conv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (down,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (inconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (nnAdd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (outconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (up,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     True),
+]
+
 class Test_leoshine_Spherical_Regression(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(InceptionA(*[], **{'in_channels': 4, 'pool_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(InceptionB(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(InceptionC(*[], **{'in_channels': 4, 'channels_7x7': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(InceptionD(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(InceptionE(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(LocalResponseNorm(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(UNet(*[], **{'n_channels': 4, 'n_classes': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(inconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(nnAdd(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

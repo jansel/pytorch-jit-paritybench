@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -103,8 +104,7 @@ class Deeplab_VGG(nn.Module):
 
     def __init__(self, num_classes, depthconv=False):
         super(Deeplab_VGG, self).__init__()
-        self.Scale = VGG_Deeplab.vgg16(num_classes=num_classes, depthconv=
-            depthconv)
+        self.Scale = VGG_Deeplab.vgg16(num_classes=num_classes, depthconv=depthconv)
 
     def forward(self, x, depth=None):
         output = self.Scale(x, depth)
@@ -113,20 +113,16 @@ class Deeplab_VGG(nn.Module):
 
 class ConvModule(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, padding=1,
-        dilation=1, bn=False, maxpool=False, pool_kernel=3, pool_stride=2,
-        pool_pad=1):
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, padding=1, dilation=1, bn=False, maxpool=False, pool_kernel=3, pool_stride=2, pool_pad=1):
         super(ConvModule, self).__init__()
-        conv2d = nn.Conv2d(inplanes, planes, kernel_size=kernel_size,
-            stride=stride, padding=padding, dilation=dilation)
+        conv2d = nn.Conv2d(inplanes, planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
         layers = []
         if bn:
             layers += [nn.BatchNorm2d(planes), nn.ReLU(inplace=True)]
         else:
             layers += [nn.ReLU(inplace=True)]
         if maxpool:
-            layers += [nn.MaxPool2d(kernel_size=pool_kernel, stride=
-                pool_stride, padding=pool_pad)]
+            layers += [nn.MaxPool2d(kernel_size=pool_kernel, stride=pool_stride, padding=pool_pad)]
         self.layers = nn.Sequential(*([conv2d] + layers))
 
     def forward(self, x):
@@ -136,11 +132,9 @@ class ConvModule(nn.Module):
 
 class DepthConvModule(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, padding=1,
-        dilation=1, bn=False):
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, padding=1, dilation=1, bn=False):
         super(DepthConvModule, self).__init__()
-        conv2d = DepthConv(inplanes, planes, kernel_size=kernel_size,
-            stride=stride, padding=padding, dilation=dilation)
+        conv2d = DepthConv(inplanes, planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation)
         layers = []
         if bn:
             layers += [nn.BatchNorm2d(planes), nn.ReLU(inplace=True)]
@@ -179,19 +173,14 @@ class VGG_layer2(nn.Module):
         else:
             self.conv4_1 = ConvModule(256, 512, bn=batch_norm)
         self.conv4_2 = ConvModule(512, 512, bn=batch_norm)
-        self.conv4_3 = ConvModule(512, 512, bn=batch_norm, maxpool=True,
-            pool_kernel=3, pool_stride=1, pool_pad=1)
+        self.conv4_3 = ConvModule(512, 512, bn=batch_norm, maxpool=True, pool_kernel=3, pool_stride=1, pool_pad=1)
         if self.depthconv:
             self.conv5_1_depthconvweight = 1.0
-            self.conv5_1 = DepthConvModule(512, 512, bn=batch_norm,
-                dilation=2, padding=2)
+            self.conv5_1 = DepthConvModule(512, 512, bn=batch_norm, dilation=2, padding=2)
         else:
-            self.conv5_1 = ConvModule(512, 512, bn=batch_norm, dilation=2,
-                padding=2)
-        self.conv5_2 = ConvModule(512, 512, bn=batch_norm, dilation=2,
-            padding=2)
-        self.conv5_3 = ConvModule(512, 512, bn=batch_norm, dilation=2,
-            padding=2, maxpool=True, pool_kernel=3, pool_stride=1, pool_pad=1)
+            self.conv5_1 = ConvModule(512, 512, bn=batch_norm, dilation=2, padding=2)
+        self.conv5_2 = ConvModule(512, 512, bn=batch_norm, dilation=2, padding=2)
+        self.conv5_3 = ConvModule(512, 512, bn=batch_norm, dilation=2, padding=2, maxpool=True, pool_kernel=3, pool_stride=1, pool_pad=1)
         self.pool5a = nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
 
     def forward(self, x, depth=None):
@@ -255,19 +244,14 @@ class VGG_layer(nn.Module):
         else:
             self.conv4_1 = ConvModule(256, 512, bn=batch_norm)
         self.conv4_2 = ConvModule(512, 512, bn=batch_norm)
-        self.conv4_3 = ConvModule(512, 512, bn=batch_norm, maxpool=True,
-            pool_kernel=3, pool_stride=1, pool_pad=1)
+        self.conv4_3 = ConvModule(512, 512, bn=batch_norm, maxpool=True, pool_kernel=3, pool_stride=1, pool_pad=1)
         if self.depthconv:
             self.conv5_1_depthconvweight = 1.0
-            self.conv5_1 = DepthConvModule(512, 512, bn=batch_norm,
-                dilation=2, padding=2)
+            self.conv5_1 = DepthConvModule(512, 512, bn=batch_norm, dilation=2, padding=2)
         else:
-            self.conv5_1 = ConvModule(512, 512, bn=batch_norm, dilation=2,
-                padding=2)
-        self.conv5_2 = ConvModule(512, 512, bn=batch_norm, dilation=2,
-            padding=2)
-        self.conv5_3 = ConvModule(512, 512, bn=batch_norm, dilation=2,
-            padding=2, maxpool=True, pool_kernel=3, pool_stride=1, pool_pad=1)
+            self.conv5_1 = ConvModule(512, 512, bn=batch_norm, dilation=2, padding=2)
+        self.conv5_2 = ConvModule(512, 512, bn=batch_norm, dilation=2, padding=2)
+        self.conv5_3 = ConvModule(512, 512, bn=batch_norm, dilation=2, padding=2, maxpool=True, pool_kernel=3, pool_stride=1, pool_pad=1)
         self.pool5a = nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
         self.pool5a_d = Depthavgpooling(kernel_size=3, stride=1, padding=1)
 
@@ -317,52 +301,32 @@ class Classifier_Module(nn.Module):
         self.depthconv = depthconv
         if depthconv:
             self.fc6_1_depthconvweight = 1.0
-            self.fc6_1 = DepthConv(inplanes, 1024, kernel_size=3, stride=1,
-                padding=6, dilation=6)
+            self.fc6_1 = DepthConv(inplanes, 1024, kernel_size=3, stride=1, padding=6, dilation=6)
         else:
-            self.fc6_1 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1,
-                padding=6, dilation=6)
-        self.fc7_1 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d
-            (1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()]
-            )
-        self.fc8_1 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1,
-            bias=True)
+            self.fc6_1 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1, padding=6, dilation=6)
+        self.fc7_1 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d(1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()])
+        self.fc8_1 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1, bias=True)
         if depthconv:
             self.fc6_2_depthconvweight = 1.0
-            self.fc6_2 = DepthConv(inplanes, 1024, kernel_size=3, stride=1,
-                padding=12, dilation=12)
+            self.fc6_2 = DepthConv(inplanes, 1024, kernel_size=3, stride=1, padding=12, dilation=12)
         else:
-            self.fc6_2 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1,
-                padding=12, dilation=12)
-        self.fc7_2 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d
-            (1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()]
-            )
-        self.fc8_2 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1,
-            bias=True)
+            self.fc6_2 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1, padding=12, dilation=12)
+        self.fc7_2 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d(1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()])
+        self.fc8_2 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1, bias=True)
         if depthconv:
             self.fc6_3_depthconvweight = 1.0
-            self.fc6_3 = DepthConv(inplanes, 1024, kernel_size=3, stride=1,
-                padding=18, dilation=18)
+            self.fc6_3 = DepthConv(inplanes, 1024, kernel_size=3, stride=1, padding=18, dilation=18)
         else:
-            self.fc6_3 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1,
-                padding=18, dilation=18)
-        self.fc7_3 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d
-            (1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()]
-            )
-        self.fc8_3 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1,
-            bias=True)
+            self.fc6_3 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1, padding=18, dilation=18)
+        self.fc7_3 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d(1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()])
+        self.fc8_3 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1, bias=True)
         if depthconv:
             self.fc6_4_depthconvweight = 1.0
-            self.fc6_4 = DepthConv(inplanes, 1024, kernel_size=3, stride=1,
-                padding=24, dilation=24)
+            self.fc6_4 = DepthConv(inplanes, 1024, kernel_size=3, stride=1, padding=24, dilation=24)
         else:
-            self.fc6_4 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1,
-                padding=24, dilation=24)
-        self.fc7_4 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d
-            (1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()]
-            )
-        self.fc8_4 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1,
-            bias=True)
+            self.fc6_4 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1, padding=24, dilation=24)
+        self.fc7_4 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d(1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()])
+        self.fc8_4 = nn.Conv2d(1024, num_classes, kernel_size=1, stride=1, bias=True)
 
     def forward(self, x, depth=None):
         if self.depthconv:
@@ -399,20 +363,15 @@ class Classifier_Module2(nn.Module):
         self.depthconv = depthconv
         if depthconv:
             self.fc6_2_depthconvweight = 1.0
-            self.fc6_2 = DepthConv(inplanes, 1024, kernel_size=3, stride=1,
-                padding=12, dilation=12)
+            self.fc6_2 = DepthConv(inplanes, 1024, kernel_size=3, stride=1, padding=12, dilation=12)
             self.downsample_depth = None
         else:
             self.downsample_depth = nn.AvgPool2d(9, padding=1, stride=8)
-            self.fc6_2 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1,
-                padding=12, dilation=12)
-        self.fc7_2 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d
-            (1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()]
-            )
+            self.fc6_2 = nn.Conv2d(inplanes, 1024, kernel_size=3, stride=1, padding=12, dilation=12)
+        self.fc7_2 = nn.Sequential(*[nn.ReLU(True), nn.Dropout(), nn.Conv2d(1024, 1024, kernel_size=1, stride=1), nn.ReLU(True), nn.Dropout()])
         self.globalpooling = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout = nn.Dropout(0.3)
-        self.fc8_2 = nn.Conv2d(2048, num_classes, kernel_size=1, stride=1,
-            bias=True)
+        self.fc8_2 = nn.Conv2d(2048, num_classes, kernel_size=1, stride=1, bias=True)
 
     def forward(self, x, depth=None):
         if self.depthconv:
@@ -432,12 +391,10 @@ class Classifier_Module2(nn.Module):
 
 class VGG(nn.Module):
 
-    def __init__(self, num_classes=20, init_weights=True, depthconv=False,
-        bn=False):
+    def __init__(self, num_classes=20, init_weights=True, depthconv=False, bn=False):
         super(VGG, self).__init__()
         self.features = VGG_layer(batch_norm=bn, depthconv=depthconv)
-        self.classifier = Classifier_Module2(num_classes, 512, depthconv=
-            depthconv)
+        self.classifier = Classifier_Module2(num_classes, 512, depthconv=depthconv)
         if init_weights:
             self._initialize_weights()
 
@@ -584,15 +541,13 @@ class CrossEntropyLoss2d(nn.Module):
 
 class FocalLoss2d(nn.Module):
 
-    def __init__(self, gamma=2.0, weight=None, size_average=True,
-        ignore_index=255):
+    def __init__(self, gamma=2.0, weight=None, size_average=True, ignore_index=255):
         super(FocalLoss2d, self).__init__()
         self.gamma = gamma
         self.nll_loss = nn.NLLLoss2d(weight, size_average, ignore_index)
 
     def forward(self, inputs, targets):
-        return self.nll_loss((1 - F.softmax(inputs)) ** self.gamma * F.
-            log_softmax(inputs), targets)
+        return self.nll_loss((1 - F.softmax(inputs)) ** self.gamma * F.log_softmax(inputs), targets)
 
 
 class FocalLoss(nn.Module):
@@ -644,8 +599,7 @@ class FocalLoss(nn.Module):
 
 class LayerNorm(nn.Module):
 
-    def __init__(self, features, eps=1e-06, gamma=1.0, beta=0.0, learnable=
-        False):
+    def __init__(self, features, eps=1e-06, gamma=1.0, beta=0.0, learnable=False):
         super(LayerNorm, self).__init__()
         if learnable:
             self.gamma = nn.Parameter(torch.ones(features))
@@ -657,11 +611,8 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         x_size = x.size()
-        mean = x.view(x_size[0], x_size[1], x_size[2] * x_size[3]).mean(2
-            ).view(x_size[0], x_size[1], 1, 1).repeat(1, 1, x_size[2],
-            x_size[3])
-        std = x.view(x_size[0], x_size[1], x_size[2] * x_size[3]).std(2).view(
-            x_size[0], x_size[1], 1, 1).repeat(1, 1, x_size[2], x_size[3])
+        mean = x.view(x_size[0], x_size[1], x_size[2] * x_size[3]).mean(2).view(x_size[0], x_size[1], 1, 1).repeat(1, 1, x_size[2], x_size[3])
+        std = x.view(x_size[0], x_size[1], x_size[2] * x_size[3]).std(2).view(x_size[0], x_size[1], 1, 1).repeat(1, 1, x_size[2], x_size[3])
         return self.gamma * (x - mean) / (std + self.eps) + self.beta
 
 
@@ -687,8 +638,7 @@ class DepthGlobalPool(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.norm = CaffeNormalize(n_out)
         self.dropout = nn.Dropout(0.3)
-        n = self.model.kernel_size[0] * self.model.kernel_size[1
-            ] * self.model.out_channels
+        n = self.model.kernel_size[0] * self.model.kernel_size[1] * self.model.out_channels
         self.model.weight.data.normal_(0, np.sqrt(2.0 / n))
         if self.model.bias is not None:
             self.model.bias.data.zero_()
@@ -706,19 +656,15 @@ class DepthGlobalPool(nn.Module):
                 indices = ((depth <= bin_high) & (depth >= bin_low)).nonzero()
                 if indices[0].shape[0] != 0:
                     for j in range(n_c):
-                        output_ins = features[indices[0], indices[1] + j,
-                            indices[2], indices[3]]
-                        mean_feat = torch.mean(output_ins).expand_as(output_ins
-                            )
-                        outfeatures[indices[0], indices[1] + j, indices[2],
-                            indices[3]] = mean_feat
+                        output_ins = features[indices[0], indices[1] + j, indices[2], indices[3]]
+                        mean_feat = torch.mean(output_ins).expand_as(output_ins)
+                        outfeatures[indices[0], indices[1] + j, indices[2], indices[3]] = mean_feat
                     bin_low = bin_high
             outfeatures = self.dropout(outfeatures)
         else:
             features = self.pool(features)
             outfeatures = self.dropout(features)
-            self.upsample = nn.UpsamplingBilinear2d((out2_size[2],
-                out2_size[3]))
+            self.upsample = nn.UpsamplingBilinear2d((out2_size[2], out2_size[3]))
             outfeatures = self.upsample(outfeatures)
         return outfeatures
 
@@ -741,10 +687,7 @@ class DepthavgpoolingFunction(Function):
         else:
             if not isinstance(input, torch.cuda.FloatTensor):
                 raise NotImplementedError
-            depthavgpooling.depthavgpooling_forward_cuda(input, depth,
-                output, self.depthweightcount, self.kernel_size[1], self.
-                kernel_size[0], self.stride[1], self.stride[0], self.
-                padding[1], self.padding[0])
+            depthavgpooling.depthavgpooling_forward_cuda(input, depth, output, self.depthweightcount, self.kernel_size[1], self.kernel_size[0], self.stride[1], self.stride[0], self.padding[1], self.padding[0])
         return output
 
     def backward(self, grad_output):
@@ -757,10 +700,7 @@ class DepthavgpoolingFunction(Function):
                 raise NotImplementedError
             if self.needs_input_grad[0]:
                 grad_input = input.new(*input.size()).zero_()
-                depthavgpooling.depthavgpooling_backward_input_cuda(input,
-                    depth, self.depthweightcount, grad_output, grad_input,
-                    self.kernel_size[1], self.kernel_size[0], self.stride[1
-                    ], self.stride[0], self.padding[1], self.padding[0])
+                depthavgpooling.depthavgpooling_backward_input_cuda(input, depth, self.depthweightcount, grad_output, grad_input, self.kernel_size[1], self.kernel_size[0], self.stride[1], self.stride[0], self.padding[1], self.padding[0])
         return grad_input, None
 
     def _output_size(self, input):
@@ -772,18 +712,14 @@ class DepthavgpoolingFunction(Function):
             stride = self.stride[d]
             output_size += (in_size + 2 * pad - kernel) // stride + 1,
         if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError(
-                'avgpooling input is too small (output would be {})'.format
-                ('x'.join(map(str, output_size))))
+            raise ValueError('avgpooling input is too small (output would be {})'.format('x'.join(map(str, output_size))))
         return output_size
 
 
 def depth_avgpooling(input, depth, kernel_size=3, stride=1, padding=0):
     if input is not None and input.dim() != 4:
-        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'
-            .format(input.dim()))
-    f = DepthavgpoolingFunction(_pair(kernel_size), _pair(stride), _pair(
-        padding))
+        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
+    f = DepthavgpoolingFunction(_pair(kernel_size), _pair(stride), _pair(padding))
     return f(input, depth)
 
 
@@ -796,8 +732,7 @@ class Depthavgpooling(Module):
         self.padding = _pair(padding)
 
     def forward(self, input, depth):
-        return depth_avgpooling(input, depth, self.kernel_size, self.stride,
-            self.padding)
+        return depth_avgpooling(input, depth, self.kernel_size, self.stride, self.padding)
 
 
 class DepthconvFunction(Function):
@@ -815,21 +750,16 @@ class DepthconvFunction(Function):
         self.save_for_backward(input, depth, weight, bias)
         if not self.bias or bias is None:
             bias = self.null
-        output_size = [int((input.size()[i + 2] + 2 * self.padding[i] -
-            weight.size()[i + 2]) / self.stride[i] + 1) for i in range(2)]
+        output_size = [int((input.size()[i + 2] + 2 * self.padding[i] - weight.size()[i + 2]) / self.stride[i] + 1) for i in range(2)]
         output = input.new(*self._output_size(input, weight))
-        self.columns = input.new(weight.size(1) * weight.size(2) * weight.
-            size(3), output_size[0] * output_size[1]).zero_()
+        self.columns = input.new(weight.size(1) * weight.size(2) * weight.size(3), output_size[0] * output_size[1]).zero_()
         self.ones = input.new(output_size[0] * output_size[1]).zero_()
         if not input.is_cuda:
             raise NotImplementedError
         else:
             if not isinstance(input, torch.cuda.FloatTensor):
                 raise NotImplementedError
-            depthconv.depthconv_forward_cuda(input, depth, weight, bias,
-                output, self.columns, self.ones, weight.size(3), weight.
-                size(2), self.stride[1], self.stride[0], self.padding[1],
-                self.padding[0], self.dilation[1], self.dilation[0])
+            depthconv.depthconv_forward_cuda(input, depth, weight, bias, output, self.columns, self.ones, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0])
         return output
 
     def backward(self, grad_output):
@@ -842,11 +772,7 @@ class DepthconvFunction(Function):
                 raise NotImplementedError
             if self.needs_input_grad[0]:
                 grad_input = input.new(*input.size()).zero_()
-                depthconv.depthconv_backward_input_cuda(input, depth,
-                    grad_output, grad_input, weight, self.columns, weight.
-                    size(3), weight.size(2), self.stride[1], self.stride[0],
-                    self.padding[1], self.padding[0], self.dilation[1],
-                    self.dilation[0])
+                depthconv.depthconv_backward_input_cuda(input, depth, grad_output, grad_input, weight, self.columns, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0])
             if self.needs_input_grad[2]:
                 grad_weight = weight.new(*weight.size()).zero_()
                 if len(self.needs_input_grad) == 4:
@@ -856,11 +782,7 @@ class DepthconvFunction(Function):
                         grad_bias = self.null
                 else:
                     grad_bias = self.null
-                depthconv.depthconv_backward_parameters_cuda(input, depth,
-                    grad_output, grad_weight, grad_bias, self.columns, self
-                    .ones, weight.size(3), weight.size(2), self.stride[1],
-                    self.stride[0], self.padding[1], self.padding[0], self.
-                    dilation[1], self.dilation[0], 1)
+                depthconv.depthconv_backward_parameters_cuda(input, depth, grad_output, grad_weight, grad_bias, self.columns, self.ones, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], 1)
                 if len(self.needs_input_grad) == 4:
                     if not self.needs_input_grad[3]:
                         grad_bias = None
@@ -878,16 +800,13 @@ class DepthconvFunction(Function):
             stride = self.stride[d]
             output_size += (in_size + 2 * pad - kernel) // stride + 1,
         if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError(
-                'convolution input is too small (output would be {})'.
-                format('x'.join(map(str, output_size))))
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
         return output_size
 
 
 def depth_conv(input, depth, weight, bias, stride=1, padding=0, dilation=1):
     if input is not None and input.dim() != 4:
-        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'
-            .format(input.dim()))
+        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
     f = DepthconvFunction(_pair(stride), _pair(padding), _pair(dilation))
     if isinstance(bias, torch.nn.Parameter):
         return f(input, depth, weight, bias)
@@ -897,8 +816,7 @@ def depth_conv(input, depth, weight, bias, stride=1, padding=0, dilation=1):
 
 class DepthConv(Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True):
         super(DepthConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -906,8 +824,7 @@ class DepthConv(Module):
         self.stride = _pair(stride)
         self.padding = _pair(padding)
         self.dilation = _pair(dilation)
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels,
-            *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
@@ -924,46 +841,79 @@ class DepthConv(Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, input, depth):
-        return depth_conv(input, depth, self.weight, self.bias, self.stride,
-            self.padding, self.dilation)
+        return depth_conv(input, depth, self.weight, self.bias, self.stride, self.padding, self.dilation)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CaffeNormalize,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Classifier_Module,
+     lambda: ([], {'num_classes': 4, 'inplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Classifier_Module2,
+     lambda: ([], {'num_classes': 4, 'inplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvModule,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DepthGlobalPool,
+     lambda: ([], {'n_features': 4, 'n_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FocalLoss,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (VGG_layer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_laughtervv_DepthAwareCNN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CaffeNormalize(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Classifier_Module(*[], **{'num_classes': 4, 'inplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Classifier_Module2(*[], **{'num_classes': 4, 'inplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ConvModule(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DepthGlobalPool(*[], **{'n_features': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(FocalLoss(*[], **{'class_num': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(VGG(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(VGG_layer(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 

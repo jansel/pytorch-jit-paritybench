@@ -62,8 +62,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -168,19 +169,11 @@ class NetG(nn.Module):
     def __init__(self, ngf, nz, nc, ngpu):
         super(NetG, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
-            bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
-            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
-            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
-            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
-            4, 2, 1, bias=False), nn.Tanh())
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output
@@ -191,19 +184,11 @@ class NetD(nn.Module):
     def __init__(self, ndf, nc, ngpu):
         super(NetD, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 
-            1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1,
-            4, 1, 0, bias=False), nn.Sigmoid())
+        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False), nn.Sigmoid())
 
     def forward(self, input):
         if isinstance(input.data, torch.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output.view(-1, 1).squeeze(1)
@@ -211,14 +196,11 @@ class NetD(nn.Module):
 
 class UNetConvBlock(nn.Module):
 
-    def __init__(self, input_nch, output_nch, kernel_size=3, activation=F.
-        leaky_relu, use_bn=True, same_conv=True):
+    def __init__(self, input_nch, output_nch, kernel_size=3, activation=F.leaky_relu, use_bn=True, same_conv=True):
         super(UNetConvBlock, self).__init__()
         padding = kernel_size // 2 if same_conv else 0
-        self.conv0 = nn.Conv2d(input_nch, output_nch, kernel_size, padding=
-            padding)
-        self.conv1 = nn.Conv2d(output_nch, output_nch, kernel_size, padding
-            =padding)
+        self.conv0 = nn.Conv2d(input_nch, output_nch, kernel_size, padding=padding)
+        self.conv1 = nn.Conv2d(output_nch, output_nch, kernel_size, padding=padding)
         self.act = activation
         self.batch_norm = nn.BatchNorm2d(output_nch) if use_bn else None
 
@@ -246,8 +228,7 @@ class UNet(nn.Module):
             down_convs.append(UNetConvBlock(in_nch, out_nch, use_bn=use_bn))
             up_conv_in_ch = 2 * out_nch if i < self.n_stages - 1 else out_nch
             up_conv_out_ch = out_nch if i == 0 else in_nch
-            up_convs.insert(0, UNetConvBlock(up_conv_in_ch, up_conv_out_ch,
-                use_bn=use_bn))
+            up_convs.insert(0, UNetConvBlock(up_conv_in_ch, up_conv_out_ch, use_bn=use_bn))
             in_nch = out_nch
         self.down_convs = nn.ModuleList(down_convs)
         self.up_convs = nn.ModuleList(up_convs)
@@ -274,11 +255,9 @@ class BasicResBlock(nn.Module):
         super(BasicResBlock, self).__init__()
         self.transform_conv = nn.Conv2d(input_nch, output_nch, 1)
         self.bn1 = nn.BatchNorm2d(output_nch)
-        self.conv1 = nn.Conv2d(output_nch, output_nch, 3, padding=1, groups
-            =groups, bias=False)
+        self.conv1 = nn.Conv2d(output_nch, output_nch, 3, padding=1, groups=groups, bias=False)
         self.bn2 = nn.BatchNorm2d(output_nch)
-        self.conv2 = nn.Conv2d(output_nch, output_nch, 3, padding=1, groups
-            =groups, bias=False)
+        self.conv2 = nn.Conv2d(output_nch, output_nch, 3, padding=1, groups=groups, bias=False)
         self.act = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
@@ -305,21 +284,16 @@ class TriangleNet(nn.Module):
         for i in range(self.pyramid_height):
             for j in range(i, self.pyramid_height):
                 if i == 0 and j == 0:
-                    blocks[i].append(BasicResBlock(input_nch, conv_channels
-                        [j], groups=groups))
+                    blocks[i].append(BasicResBlock(input_nch, conv_channels[j], groups=groups))
                 else:
-                    blocks[i].append(BasicResBlock(conv_channels[j - 1],
-                        conv_channels[j], groups=groups))
+                    blocks[i].append(BasicResBlock(conv_channels[j - 1], conv_channels[j], groups=groups))
         for i in range(self.pyramid_height):
             blocks[i] = nn.ModuleList(blocks[i])
         self.blocks = nn.ModuleList(blocks)
         self.down_sample = nn.MaxPool2d(3, 2, 1)
-        self.up_samples = nn.ModuleList([nn.Upsample(scale_factor=2 ** i,
-            mode='bilinear') for i in range(1, self.pyramid_height)])
-        self.channel_out_convs = nn.ModuleList([nn.Conv2d(conv_channels[-1],
-            output_nch, 1) for _ in range(self.pyramid_height)])
-        self.out_conv = nn.Conv2d(self.pyramid_height * conv_channels[-1],
-            output_nch, 1)
+        self.up_samples = nn.ModuleList([nn.Upsample(scale_factor=2 ** i, mode='bilinear') for i in range(1, self.pyramid_height)])
+        self.channel_out_convs = nn.ModuleList([nn.Conv2d(conv_channels[-1], output_nch, 1) for _ in range(self.pyramid_height)])
+        self.out_conv = nn.Conv2d(self.pyramid_height * conv_channels[-1], output_nch, 1)
 
     def forward(self, x):
         x = [self.blocks[0][0](x)]
@@ -328,10 +302,8 @@ class TriangleNet(nn.Module):
             for j in range(i + 1):
                 x[j] = self.blocks[j][i - j](x[j])
         if self.training:
-            ms_out = [self.channel_out_convs[i](x[i]) for i in range(self.
-                pyramid_height)]
-        x = [x[0]] + [self.up_samples[i - 1](x[i]) for i in range(1, self.
-            pyramid_height)]
+            ms_out = [self.channel_out_convs[i](x[i]) for i in range(self.pyramid_height)]
+        x = [x[0]] + [self.up_samples[i - 1](x[i]) for i in range(1, self.pyramid_height)]
         out = self.out_conv(torch.cat(x, 1))
         return [out] + ms_out if self.training else out
 
@@ -346,36 +318,26 @@ class PSPTriangleNet(nn.Module):
         blocks = []
         for i in range(self.pyramid_height - 1):
             if i == 0:
-                blocks.append(BasicResBlock(input_nch, conv_channels[i],
-                    groups=groups))
+                blocks.append(BasicResBlock(input_nch, conv_channels[i], groups=groups))
             else:
-                blocks.append(BasicResBlock(conv_channels[i - 1],
-                    conv_channels[i], groups=groups))
+                blocks.append(BasicResBlock(conv_channels[i - 1], conv_channels[i], groups=groups))
         ms_blocks = []
         for i in range(self.pyramid_height):
-            ms_blocks.append(BasicResBlock(conv_channels[-2], conv_channels
-                [-1] // self.pyramid_height))
+            ms_blocks.append(BasicResBlock(conv_channels[-2], conv_channels[-1] // self.pyramid_height))
         self.blocks = nn.ModuleList(blocks)
         self.ms_blocks = nn.ModuleList(ms_blocks)
-        self.down_samples = nn.ModuleList([nn.MaxPool2d(2 ** i + 1, 2 ** i,
-            2 ** (i - 1)) for i in range(1, self.pyramid_height)])
-        self.up_samples = nn.ModuleList([nn.Upsample(scale_factor=2 ** i,
-            mode='bilinear') for i in range(1, self.pyramid_height)])
-        self.channel_out_convs = nn.ModuleList([nn.Conv2d(conv_channels[-1] //
-            self.pyramid_height, output_nch, 1) for _ in range(self.
-            pyramid_height)])
+        self.down_samples = nn.ModuleList([nn.MaxPool2d(2 ** i + 1, 2 ** i, 2 ** (i - 1)) for i in range(1, self.pyramid_height)])
+        self.up_samples = nn.ModuleList([nn.Upsample(scale_factor=2 ** i, mode='bilinear') for i in range(1, self.pyramid_height)])
+        self.channel_out_convs = nn.ModuleList([nn.Conv2d(conv_channels[-1] // self.pyramid_height, output_nch, 1) for _ in range(self.pyramid_height)])
         self.out_conv = nn.Conv2d(conv_channels[-1], output_nch, 1)
 
     def forward(self, x):
         for i in range(self.pyramid_height - 1):
             x = self.blocks[i](x)
-        x = [self.ms_blocks[0](x)] + [self.down_samples[i](self.ms_blocks[i
-            ](x)) for i in range(self.pyramid_height - 1)]
+        x = [self.ms_blocks[0](x)] + [self.down_samples[i](self.ms_blocks[i](x)) for i in range(self.pyramid_height - 1)]
         if self.training:
-            ms_out = [self.channel_out_convs[i](x[i]) for i in range(self.
-                pyramid_height)]
-        x = [x[0]] + [self.up_samples[i - 1](x[i]) for i in range(1, self.
-            pyramid_height)]
+            ms_out = [self.channel_out_convs[i](x[i]) for i in range(self.pyramid_height)]
+        x = [x[0]] + [self.up_samples[i - 1](x[i]) for i in range(1, self.pyramid_height)]
         out = self.out_conv(torch.cat(x, 1))
         return [out] + ms_out if self.training else out
 
@@ -398,11 +360,9 @@ class MSCrossEntropyLoss2D(nn.Module):
         self.weights = weights
 
     def forward(self, outputs, targets):
-        loss = self.weights[0] * self.nll_loss_2d(F.log_softmax(outputs[0]),
-            targets[0])
+        loss = self.weights[0] * self.nll_loss_2d(F.log_softmax(outputs[0]), targets[0])
         for i in range(len(self.weights) - 1):
-            loss += self.weights[i + 1] * self.nll_loss_2d(F.log_softmax(
-                outputs[i + 1]), targets[i])
+            loss += self.weights[i + 1] * self.nll_loss_2d(F.log_softmax(outputs[i + 1]), targets[i])
         return loss
 
 
@@ -410,38 +370,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicResBlock,
+     lambda: ([], {'input_nch': 4, 'output_nch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeepMLP,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NetD,
+     lambda: ([], {'ndf': 4, 'nc': 4, 'ngpu': False}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (NetG,
+     lambda: ([], {'ngf': 4, 'nz': 4, 'nc': 4, 'ngpu': False}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PSPTriangleNet,
+     lambda: ([], {'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SimpleMLP,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TriangleNet,
+     lambda: ([], {'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UNet,
+     lambda: ([], {'conv_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UNetConvBlock,
+     lambda: ([], {'input_nch': 4, 'output_nch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_frombeijingwithlove_dlcv_for_beginners(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicResBlock(*[], **{'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DeepMLP(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(NetD(*[], **{'ndf': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(NetG(*[], **{'ngf': 4, 'nz': 4, 'nc': 4, 'ngpu': False}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(PSPTriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SimpleMLP(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(TriangleNet(*[], **{'conv_channels': [4, 4], 'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(UNet(*[], **{'conv_channels': [4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(UNetConvBlock(*[], **{'input_nch': 4, 'output_nch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

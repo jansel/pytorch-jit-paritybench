@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -108,8 +109,7 @@ class Net(nn.Module):
         self.c1 = ops.BasicBlock(64 * 2, 64, 1, 1, 0)
         self.c2 = ops.BasicBlock(64 * 3, 64, 1, 1, 0)
         self.c3 = ops.BasicBlock(64 * 4, 64, 1, 1, 0)
-        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=
-            multi_scale, group=group)
+        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=multi_scale, group=group)
         self.exit = nn.Conv2d(64, 3, 3, 1, 1)
 
     def forward(self, x, scale):
@@ -170,8 +170,7 @@ class Net(nn.Module):
         self.c1 = ops.BasicBlock(64 * 2, 64, 1, 1, 0)
         self.c2 = ops.BasicBlock(64 * 3, 64, 1, 1, 0)
         self.c3 = ops.BasicBlock(64 * 4, 64, 1, 1, 0)
-        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=
-            multi_scale, group=group)
+        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=multi_scale, group=group)
         self.exit = nn.Conv2d(64, 3, 3, 1, 1)
 
     def forward(self, x, scale):
@@ -220,8 +219,7 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, ksize=3, stride=1, pad=1):
         super(BasicBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            ksize, stride, pad), nn.ReLU(inplace=True))
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, ksize, stride, pad), nn.ReLU(inplace=True))
         init_weights(self.modules)
 
     def forward(self, x):
@@ -233,9 +231,7 @@ class ResidualBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ResidualBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1,
-            1), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels,
-            3, 1, 1))
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, 3, 1, 1))
         init_weights(self.modules)
 
     def forward(self, x):
@@ -248,10 +244,7 @@ class EResidualBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, group=1):
         super(EResidualBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1,
-            1, groups=group), nn.ReLU(inplace=True), nn.Conv2d(out_channels,
-            out_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True), nn
-            .Conv2d(out_channels, out_channels, 1, 1, 0))
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, 1, 1, 0))
         init_weights(self.modules)
 
     def forward(self, x):
@@ -291,12 +284,10 @@ class _UpsampleBlock(nn.Module):
         modules = []
         if scale == 2 or scale == 4 or scale == 8:
             for _ in range(int(math.log(scale, 2))):
-                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1,
-                    groups=group), nn.ReLU(inplace=True)]
+                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
                 modules += [nn.PixelShuffle(2)]
         elif scale == 3:
-            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1,
-                groups=group), nn.ReLU(inplace=True)]
+            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
             modules += [nn.PixelShuffle(3)]
         self.body = nn.Sequential(*modules)
         init_weights(self.modules)
@@ -310,27 +301,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (EResidualBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MeanShift,
+     lambda: ([], {'mean_rgb': [4, 4, 4], 'sub': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResidualBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_UpsampleBlock,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_nmhkahn_CARN_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Block(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MeanShift(*[], **{'mean_rgb': [4, 4, 4], 'sub': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Net(*[], **{}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(_UpsampleBlock(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

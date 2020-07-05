@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -64,12 +65,10 @@ import copy
 
 class RT(nn.Module):
 
-    def __init__(self, input_size, d_model, output_size, h, rnn_type, ksize,
-        n, n_level, dropout, emb_dropout):
+    def __init__(self, input_size, d_model, output_size, h, rnn_type, ksize, n, n_level, dropout, emb_dropout):
         super(RT, self).__init__()
         self.encoder = nn.Linear(input_size, d_model)
-        self.rt = RTransformer(d_model, rnn_type, ksize, n_level, n, h, dropout
-            )
+        self.rt = RTransformer(d_model, rnn_type, ksize, n_level, n, h, dropout)
         self.linear = nn.Linear(d_model, output_size)
         self.sig = nn.Sigmoid()
 
@@ -82,12 +81,10 @@ class RT(nn.Module):
 
 class RT(nn.Module):
 
-    def __init__(self, input_size, d_model, output_size, h, rnn_type, ksize,
-        n_level, n, dropout=0.2, emb_dropout=0.2):
+    def __init__(self, input_size, d_model, output_size, h, rnn_type, ksize, n_level, n, dropout=0.2, emb_dropout=0.2):
         super(RT, self).__init__()
         self.encoder = nn.Linear(input_size, d_model)
-        self.rt = RTransformer(d_model, rnn_type, ksize, n_level, n, h, dropout
-            )
+        self.rt = RTransformer(d_model, rnn_type, ksize, n_level, n, h, dropout)
         self.linear = nn.Linear(d_model, output_size)
 
     def forward(self, x):
@@ -102,12 +99,10 @@ class RT(nn.Module):
 
 class RT(nn.Module):
 
-    def __init__(self, input_size, output_size, h, n, rnn_type, ksize,
-        n_level, dropout, emb_dropout):
+    def __init__(self, input_size, output_size, h, n, rnn_type, ksize, n_level, dropout, emb_dropout):
         super(RT, self).__init__()
         self.encoder = nn.Embedding(output_size, input_size)
-        self.rt = RTransformer(input_size, rnn_type, ksize, n_level, n, h,
-            dropout)
+        self.rt = RTransformer(input_size, rnn_type, ksize, n_level, n, h, dropout)
         self.decoder = nn.Linear(input_size, output_size)
         self.decoder.weight = self.encoder.weight
         self.drop = nn.Dropout(emb_dropout)
@@ -128,12 +123,10 @@ class RT(nn.Module):
 
 class RT(nn.Module):
 
-    def __init__(self, input_size, output_size, h, rnn_type, ksize, n_level,
-        n, dropout=0.2, emb_dropout=0.2, tied_weights=False):
+    def __init__(self, input_size, output_size, h, rnn_type, ksize, n_level, n, dropout=0.2, emb_dropout=0.2, tied_weights=False):
         super(RT, self).__init__()
         self.encoder = nn.Embedding(output_size, input_size)
-        self.rt = RTransformer(input_size, rnn_type, ksize, n_level, n, h,
-            dropout)
+        self.rt = RTransformer(input_size, rnn_type, ksize, n_level, n, h, dropout)
         self.decoder = nn.Linear(input_size, output_size)
         if tied_weights:
             self.decoder.weight = self.encoder.weight
@@ -238,12 +231,9 @@ class MHPooling(nn.Module):
     def forward(self, x):
         """Implements Figure 2"""
         nbatches, seq_len, d_model = x.shape
-        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).
-            transpose(1, 2) for l, x in zip(self.linears, (x, x, x))]
-        x, self.attn = attention(query, key, value, mask=self.mask[:, :, :
-            seq_len, :seq_len], dropout=self.dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k
-            )
+        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (x, x, x))]
+        x, self.attn = attention(query, key, value, mask=self.mask[:, :, :seq_len, :seq_len], dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
 
@@ -261,10 +251,8 @@ class LocalRNN(nn.Module):
             self.rnn = nn.LSTM(output_dim, output_dim, batch_first=True)
         else:
             self.rnn = nn.RNN(output_dim, output_dim, batch_first=True)
-        self.output = nn.Sequential(nn.Linear(output_dim, output_dim), nn.
-            ReLU())
-        idx = [i for j in range(self.ksize - 1, 10000, 1) for i in range(j -
-            (self.ksize - 1), j + 1, 1)]
+        self.output = nn.Sequential(nn.Linear(output_dim, output_dim), nn.ReLU())
+        idx = [i for j in range(self.ksize - 1, 10000, 1) for i in range(j - (self.ksize - 1), j + 1, 1)]
         self.select_index = torch.LongTensor(idx)
         self.zeros = torch.zeros((self.ksize - 1, input_dim))
 
@@ -289,8 +277,7 @@ class LocalRNNLayer(nn.Module):
 
     def __init__(self, input_dim, output_dim, rnn_type, ksize, dropout):
         super(LocalRNNLayer, self).__init__()
-        self.local_rnn = LocalRNN(input_dim, output_dim, rnn_type, ksize,
-            dropout)
+        self.local_rnn = LocalRNN(input_dim, output_dim, rnn_type, ksize, dropout)
         self.connection = SublayerConnection(output_dim, dropout)
 
     def forward(self, x):
@@ -306,8 +293,7 @@ class Block(nn.Module):
 
     def __init__(self, input_dim, output_dim, rnn_type, ksize, N, h, dropout):
         super(Block, self).__init__()
-        self.layers = clones(LocalRNNLayer(input_dim, output_dim, rnn_type,
-            ksize, dropout), N)
+        self.layers = clones(LocalRNNLayer(input_dim, output_dim, rnn_type, ksize, dropout), N)
         self.connections = clones(SublayerConnection(output_dim, dropout), 2)
         self.pooling = MHPooling(input_dim, h, dropout)
         self.feed_forward = PositionwiseFeedForward(input_dim, dropout)
@@ -335,8 +321,7 @@ class RTransformer(nn.Module):
         self.feed_forward = PositionwiseFeedForward(d_model, dropout)
         layers = []
         for i in range(n_level):
-            layers.append(Block(d_model, d_model, rnn_type, ksize, N=N, h=h,
-                dropout=dropout))
+            layers.append(Block(d_model, d_model, rnn_type, ksize, N=N, h=h, dropout=dropout))
         self.forward_net = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -348,35 +333,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Block,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'N': 4, 'h': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LocalRNN,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LocalRNNLayer,
+     lambda: ([], {'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MHPooling,
+     lambda: ([], {'d_model': 4, 'h': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RTransformer,
+     lambda: ([], {'d_model': 4, 'rnn_type': 4, 'ksize': 4, 'n_level': 4, 'n': 4, 'h': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (SublayerConnection,
+     lambda: ([], {'size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+]
+
 class Test_DSE_MSU_R_transformer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Block(*[], **{'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'N': 4, 'h': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LocalRNN(*[], **{'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LocalRNNLayer(*[], **{'input_dim': 4, 'output_dim': 4, 'rnn_type': 4, 'ksize': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(MHPooling(*[], **{'d_model': 4, 'h': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(RTransformer(*[], **{'d_model': 4, 'rnn_type': 4, 'ksize': 4, 'n_level': 4, 'n': 4, 'h': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[7])
 

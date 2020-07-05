@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -84,10 +85,8 @@ import numpy
 class ConditionalBatchNorm2d(nn.BatchNorm2d):
     """Conditional Batch Normalization"""
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=False,
-        track_running_stats=True):
-        super(ConditionalBatchNorm2d, self).__init__(num_features, eps,
-            momentum, affine, track_running_stats)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=False, track_running_stats=True):
+        super(ConditionalBatchNorm2d, self).__init__(num_features, eps, momentum, affine, track_running_stats)
 
     def forward(self, input, weight, bias, **kwargs):
         self._check_input_dim(input)
@@ -95,13 +94,10 @@ class ConditionalBatchNorm2d(nn.BatchNorm2d):
         if self.training and self.track_running_stats:
             self.num_batches_tracked += 1
             if self.momentum is None:
-                exponential_average_factor = (1.0 / self.
-                    num_batches_tracked.item())
+                exponential_average_factor = 1.0 / self.num_batches_tracked.item()
             else:
                 exponential_average_factor = self.momentum
-        output = F.batch_norm(input, self.running_mean, self.running_var,
-            self.weight, self.bias, self.training or not self.
-            track_running_stats, exponential_average_factor, self.eps)
+        output = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training or not self.track_running_stats, exponential_average_factor, self.eps)
         if weight.dim() == 1:
             weight = weight.unsqueeze(0)
         if bias.dim() == 1:
@@ -114,8 +110,7 @@ class ConditionalBatchNorm2d(nn.BatchNorm2d):
 
 class Block(nn.Module):
 
-    def __init__(self, in_ch, out_ch, h_ch=None, ksize=3, pad=1, activation
-        =F.relu, downsample=False):
+    def __init__(self, in_ch, out_ch, h_ch=None, ksize=3, pad=1, activation=F.relu, downsample=False):
         super(Block, self).__init__()
         self.activation = activation
         self.downsample = downsample
@@ -188,20 +183,14 @@ class SNResNetProjectionDiscriminator(nn.Module):
         self.num_classes = num_classes
         self.activation = activation
         self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=
-            activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=
-            activation, downsample=True)
-        self.block4 = Block(num_features * 4, num_features * 8, activation=
-            activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation
-            =activation, downsample=True)
-        self.block6 = Block(num_features * 16, num_features * 16,
-            activation=activation, downsample=True)
+        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
+        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
+        self.block4 = Block(num_features * 4, num_features * 8, activation=activation, downsample=True)
+        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
+        self.block6 = Block(num_features * 16, num_features * 16, activation=activation, downsample=True)
         self.l7 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
         if num_classes > 0:
-            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, 
-                num_features * 16))
+            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, num_features * 16))
         self._initialize()
 
     def _initialize(self):
@@ -224,26 +213,20 @@ class SNResNetProjectionDiscriminator(nn.Module):
 
 class SNResNetConcatDiscriminator(nn.Module):
 
-    def __init__(self, num_features, num_classes, activation=F.relu,
-        dim_emb=128):
+    def __init__(self, num_features, num_classes, activation=F.relu, dim_emb=128):
         super(SNResNetConcatDiscriminator, self).__init__()
         self.num_features = num_features
         self.num_classes = num_classes
         self.dim_emb = dim_emb
         self.activation = activation
         self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=
-            activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=
-            activation, downsample=True)
+        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
+        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
         if num_classes > 0:
             self.l_y = utils.spectral_norm(nn.Embedding(num_classes, dim_emb))
-        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8,
-            activation=activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation
-            =activation, downsample=True)
-        self.block6 = Block(num_features * 16, num_features * 16,
-            activation=activation, downsample=False)
+        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8, activation=activation, downsample=True)
+        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
+        self.block6 = Block(num_features * 16, num_features * 16, activation=activation, downsample=False)
         self.l7 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
         self._initialize()
 
@@ -274,18 +257,13 @@ class SNResNetProjectionDiscriminator(nn.Module):
         self.num_classes = num_classes
         self.activation = activation
         self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=
-            activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=
-            activation, downsample=True)
-        self.block4 = Block(num_features * 4, num_features * 8, activation=
-            activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation
-            =activation, downsample=True)
+        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
+        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
+        self.block4 = Block(num_features * 4, num_features * 8, activation=activation, downsample=True)
+        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
         self.l6 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
         if num_classes > 0:
-            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, 
-                num_features * 16))
+            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, num_features * 16))
         self._initialize()
 
     def _initialize(self):
@@ -311,24 +289,19 @@ class SNResNetProjectionDiscriminator(nn.Module):
 
 class SNResNetConcatDiscriminator(nn.Module):
 
-    def __init__(self, num_features, num_classes, activation=F.relu,
-        dim_emb=128):
+    def __init__(self, num_features, num_classes, activation=F.relu, dim_emb=128):
         super(SNResNetConcatDiscriminator, self).__init__()
         self.num_features = num_features
         self.num_classes = num_classes
         self.dim_emb = dim_emb
         self.activation = activation
         self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=
-            activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=
-            activation, downsample=True)
+        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
+        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
         if num_classes > 0:
             self.l_y = utils.spectral_norm(nn.Embedding(num_classes, dim_emb))
-        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8,
-            activation=activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation
-            =activation, downsample=True)
+        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8, activation=activation, downsample=True)
+        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
         self.l6 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
         self._initialize()
 
@@ -354,10 +327,8 @@ class SNResNetConcatDiscriminator(nn.Module):
 
 class CategoricalConditionalBatchNorm2d(ConditionalBatchNorm2d):
 
-    def __init__(self, num_classes, num_features, eps=1e-05, momentum=0.1,
-        affine=False, track_running_stats=True):
-        super(CategoricalConditionalBatchNorm2d, self).__init__(num_features,
-            eps, momentum, affine, track_running_stats)
+    def __init__(self, num_classes, num_features, eps=1e-05, momentum=0.1, affine=False, track_running_stats=True):
+        super(CategoricalConditionalBatchNorm2d, self).__init__(num_features, eps, momentum, affine, track_running_stats)
         self.weights = nn.Embedding(num_classes, num_features)
         self.biases = nn.Embedding(num_classes, num_features)
         self._initialize()
@@ -369,8 +340,7 @@ class CategoricalConditionalBatchNorm2d(ConditionalBatchNorm2d):
     def forward(self, input, c, **kwargs):
         weight = self.weights(c)
         bias = self.biases(c)
-        return super(CategoricalConditionalBatchNorm2d, self).forward(input,
-            weight, bias)
+        return super(CategoricalConditionalBatchNorm2d, self).forward(input, weight, bias)
 
 
 def _upsample(x):
@@ -380,8 +350,7 @@ def _upsample(x):
 
 class Block(nn.Module):
 
-    def __init__(self, in_ch, out_ch, h_ch=None, ksize=3, pad=1, activation
-        =F.relu, upsample=False, num_classes=0):
+    def __init__(self, in_ch, out_ch, h_ch=None, ksize=3, pad=1, activation=F.relu, upsample=False, num_classes=0):
         super(Block, self).__init__()
         self.activation = activation
         self.upsample = upsample
@@ -437,8 +406,7 @@ class Block(nn.Module):
 class ResNetGenerator(nn.Module):
     """Generator generates 128x128."""
 
-    def __init__(self, num_features=64, dim_z=128, bottom_width=4,
-        activation=F.relu, num_classes=0, distribution='normal'):
+    def __init__(self, num_features=64, dim_z=128, bottom_width=4, activation=F.relu, num_classes=0, distribution='normal'):
         super(ResNetGenerator, self).__init__()
         self.num_features = num_features
         self.dim_z = dim_z
@@ -447,16 +415,11 @@ class ResNetGenerator(nn.Module):
         self.num_classes = num_classes
         self.distribution = distribution
         self.l1 = nn.Linear(dim_z, 16 * num_features * bottom_width ** 2)
-        self.block2 = Block(num_features * 16, num_features * 16,
-            activation=activation, upsample=True, num_classes=num_classes)
-        self.block3 = Block(num_features * 16, num_features * 8, activation
-            =activation, upsample=True, num_classes=num_classes)
-        self.block4 = Block(num_features * 8, num_features * 4, activation=
-            activation, upsample=True, num_classes=num_classes)
-        self.block5 = Block(num_features * 4, num_features * 2, activation=
-            activation, upsample=True, num_classes=num_classes)
-        self.block6 = Block(num_features * 2, num_features, activation=
-            activation, upsample=True, num_classes=num_classes)
+        self.block2 = Block(num_features * 16, num_features * 16, activation=activation, upsample=True, num_classes=num_classes)
+        self.block3 = Block(num_features * 16, num_features * 8, activation=activation, upsample=True, num_classes=num_classes)
+        self.block4 = Block(num_features * 8, num_features * 4, activation=activation, upsample=True, num_classes=num_classes)
+        self.block5 = Block(num_features * 4, num_features * 2, activation=activation, upsample=True, num_classes=num_classes)
+        self.block6 = Block(num_features * 2, num_features, activation=activation, upsample=True, num_classes=num_classes)
         self.b7 = nn.BatchNorm2d(num_features)
         self.conv7 = nn.Conv2d(num_features, 3, 1, 1)
 
@@ -465,8 +428,7 @@ class ResNetGenerator(nn.Module):
         init.xavier_uniform_(self.conv7.weight.tensor)
 
     def forward(self, z, y=None, **kwargs):
-        h = self.l1(z).view(z.size(0), -1, self.bottom_width, self.bottom_width
-            )
+        h = self.l1(z).view(z.size(0), -1, self.bottom_width, self.bottom_width)
         for i in [2, 3, 4, 5, 6]:
             h = getattr(self, 'block{}'.format(i))(h, y, **kwargs)
         h = self.activation(self.b7(h))
@@ -476,8 +438,7 @@ class ResNetGenerator(nn.Module):
 class ResNetGenerator(nn.Module):
     """Generator generates 64x64."""
 
-    def __init__(self, num_features=64, dim_z=128, bottom_width=4,
-        activation=F.relu, num_classes=0, distribution='normal'):
+    def __init__(self, num_features=64, dim_z=128, bottom_width=4, activation=F.relu, num_classes=0, distribution='normal'):
         super(ResNetGenerator, self).__init__()
         self.num_features = num_features
         self.dim_z = dim_z
@@ -486,14 +447,10 @@ class ResNetGenerator(nn.Module):
         self.num_classes = num_classes
         self.distribution = distribution
         self.l1 = nn.Linear(dim_z, 16 * num_features * bottom_width ** 2)
-        self.block2 = Block(num_features * 16, num_features * 8, activation
-            =activation, upsample=True, num_classes=num_classes)
-        self.block3 = Block(num_features * 8, num_features * 4, activation=
-            activation, upsample=True, num_classes=num_classes)
-        self.block4 = Block(num_features * 4, num_features * 2, activation=
-            activation, upsample=True, num_classes=num_classes)
-        self.block5 = Block(num_features * 2, num_features, activation=
-            activation, upsample=True, num_classes=num_classes)
+        self.block2 = Block(num_features * 16, num_features * 8, activation=activation, upsample=True, num_classes=num_classes)
+        self.block3 = Block(num_features * 8, num_features * 4, activation=activation, upsample=True, num_classes=num_classes)
+        self.block4 = Block(num_features * 4, num_features * 2, activation=activation, upsample=True, num_classes=num_classes)
+        self.block5 = Block(num_features * 2, num_features, activation=activation, upsample=True, num_classes=num_classes)
         self.b6 = nn.BatchNorm2d(num_features)
         self.conv6 = nn.Conv2d(num_features, 3, 1, 1)
 
@@ -502,8 +459,7 @@ class ResNetGenerator(nn.Module):
         init.xavier_uniform_(self.conv7.weight.tensor)
 
     def forward(self, z, y=None, **kwargs):
-        h = self.l1(z).view(z.size(0), -1, self.bottom_width, self.bottom_width
-            )
+        h = self.l1(z).view(z.size(0), -1, self.bottom_width, self.bottom_width)
         for i in range(2, 6):
             h = getattr(self, 'block{}'.format(i))(h, y, **kwargs)
         h = self.activation(self.b6(h))
@@ -515,8 +471,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=
-        True, normalize_input=True, requires_grad=False):
+    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=True, normalize_input=True, requires_grad=False):
         """Build pretrained InceptionV3
 
         Parameters
@@ -547,21 +502,16 @@ class InceptionV3(nn.Module):
         assert self.last_needed_block <= 3, 'Last possible output block index is 3'
         self.blocks = nn.ModuleList()
         inception = models.inception_v3(pretrained=True)
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.
-                MaxPool2d(kernel_size=3, stride=2)]
+            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.
-                Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception
-                .Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
             self.blocks.append(nn.Sequential(*block3))
         for param in self.parameters():
             param.requires_grad = requires_grad
@@ -602,16 +552,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Block,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OptimizedBlock,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNetGenerator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128])], {}),
+     False),
+]
+
 class Test_crcrpar_pytorch_sngan_projection(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Block(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(OptimizedBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResNetGenerator(*[], **{}), [torch.rand([128, 128])], {})
+        self._check(*TESTCASES[2])
 

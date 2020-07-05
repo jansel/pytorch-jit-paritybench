@@ -45,8 +45,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -119,11 +120,9 @@ class SEModule(nn.Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0, bias=False)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0, bias=False)
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0, bias=False)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -143,14 +142,8 @@ class BottleNeck_IR(nn.Module):
         if in_channel == out_channel:
             self.shortcut_layer = nn.MaxPool2d(1, stride)
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -165,14 +158,8 @@ class BottleNeck_IR_SE(nn.Module):
         if in_channel == out_channel:
             self.shortcut_layer = nn.MaxPool2d(1, stride)
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel), SEModule(out_channel, 16))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), SEModule(out_channel, 16))
 
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -185,26 +172,16 @@ class Bottleneck(namedtuple('Block', ['in_channel', 'out_channel', 'stride'])):
 
 
 def get_block(in_channel, out_channel, num_units, stride=2):
-    return [Bottleneck(in_channel, out_channel, stride)] + [Bottleneck(
-        out_channel, out_channel, 1) for i in range(num_units - 1)]
+    return [Bottleneck(in_channel, out_channel, stride)] + [Bottleneck(out_channel, out_channel, 1) for i in range(num_units - 1)]
 
 
 def get_blocks(num_layers):
     if num_layers == 50:
-        blocks = [get_block(in_channel=64, out_channel=64, num_units=3),
-            get_block(in_channel=64, out_channel=128, num_units=4),
-            get_block(in_channel=128, out_channel=256, num_units=14),
-            get_block(in_channel=256, out_channel=512, num_units=3)]
+        blocks = [get_block(in_channel=64, out_channel=64, num_units=3), get_block(in_channel=64, out_channel=128, num_units=4), get_block(in_channel=128, out_channel=256, num_units=14), get_block(in_channel=256, out_channel=512, num_units=3)]
     elif num_layers == 100:
-        blocks = [get_block(in_channel=64, out_channel=64, num_units=3),
-            get_block(in_channel=64, out_channel=128, num_units=13),
-            get_block(in_channel=128, out_channel=256, num_units=30),
-            get_block(in_channel=256, out_channel=512, num_units=3)]
+        blocks = [get_block(in_channel=64, out_channel=64, num_units=3), get_block(in_channel=64, out_channel=128, num_units=13), get_block(in_channel=128, out_channel=256, num_units=30), get_block(in_channel=256, out_channel=512, num_units=3)]
     elif num_layers == 152:
-        blocks = [get_block(in_channel=64, out_channel=64, num_units=3),
-            get_block(in_channel=64, out_channel=128, num_units=8),
-            get_block(in_channel=128, out_channel=256, num_units=36),
-            get_block(in_channel=256, out_channel=512, num_units=3)]
+        blocks = [get_block(in_channel=64, out_channel=64, num_units=3), get_block(in_channel=64, out_channel=128, num_units=8), get_block(in_channel=128, out_channel=256, num_units=36), get_block(in_channel=256, out_channel=512, num_units=3)]
     return blocks
 
 
@@ -212,24 +189,19 @@ class SEResNet_IR(nn.Module):
 
     def __init__(self, num_layers, feature_dim=512, drop_ratio=0.4, mode='ir'):
         super(SEResNet_IR, self).__init__()
-        assert num_layers in [50, 100, 152
-            ], 'num_layers should be 50, 100 or 152'
+        assert num_layers in [50, 100, 152], 'num_layers should be 50, 100 or 152'
         assert mode in ['ir', 'se_ir'], 'mode should be ir or se_ir'
         blocks = get_blocks(num_layers)
         if mode == 'ir':
             unit_module = BottleNeck_IR
         elif mode == 'se_ir':
             unit_module = BottleNeck_IR_SE
-        self.input_layer = nn.Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1,
-            bias=False), nn.BatchNorm2d(64), nn.PReLU(64))
-        self.output_layer = nn.Sequential(nn.BatchNorm2d(512), nn.Dropout(
-            drop_ratio), Flatten(), nn.Linear(512 * 7 * 7, feature_dim), nn
-            .BatchNorm1d(feature_dim))
+        self.input_layer = nn.Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(64), nn.PReLU(64))
+        self.output_layer = nn.Sequential(nn.BatchNorm2d(512), nn.Dropout(drop_ratio), Flatten(), nn.Linear(512 * 7 * 7, feature_dim), nn.BatchNorm1d(feature_dim))
         modules = []
         for block in blocks:
             for bottleneck in block:
-                modules.append(unit_module(bottleneck.in_channel,
-                    bottleneck.out_channel, bottleneck.stride))
+                modules.append(unit_module(bottleneck.in_channel, bottleneck.out_channel, bottleneck.stride))
         self.body = nn.Sequential(*modules)
 
     def forward(self, x):
@@ -252,15 +224,8 @@ class ResidualBlock(nn.Module):
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.stride = stride
-        self.res_bottleneck = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            ReLU(inplace=True), nn.Conv2d(in_channel, out_channel // 4, 1, 
-            1, bias=False), nn.BatchNorm2d(out_channel // 4), nn.ReLU(
-            inplace=True), nn.Conv2d(out_channel // 4, out_channel // 4, 3,
-            stride, padding=1, bias=False), nn.BatchNorm2d(out_channel // 4
-            ), nn.ReLU(inplace=True), nn.Conv2d(out_channel // 4,
-            out_channel, 1, 1, bias=False))
-        self.shortcut = nn.Conv2d(in_channel, out_channel, 1, stride, bias=
-            False)
+        self.res_bottleneck = nn.Sequential(nn.BatchNorm2d(in_channel), nn.ReLU(inplace=True), nn.Conv2d(in_channel, out_channel // 4, 1, 1, bias=False), nn.BatchNorm2d(out_channel // 4), nn.ReLU(inplace=True), nn.Conv2d(out_channel // 4, out_channel // 4, 3, stride, padding=1, bias=False), nn.BatchNorm2d(out_channel // 4), nn.ReLU(inplace=True), nn.Conv2d(out_channel // 4, out_channel, 1, 1, bias=False))
+        self.shortcut = nn.Conv2d(in_channel, out_channel, 1, stride, bias=False)
 
     def forward(self, x):
         res = x
@@ -273,12 +238,10 @@ class ResidualBlock(nn.Module):
 
 class AttentionModule_stage1(nn.Module):
 
-    def __init__(self, in_channel, out_channel, size1=(56, 56), size2=(28, 
-        28), size3=(14, 14)):
+    def __init__(self, in_channel, out_channel, size1=(56, 56), size2=(28, 28), size3=(14, 14)):
         super(AttentionModule_stage1, self).__init__()
         self.share_residual_block = ResidualBlock(in_channel, out_channel)
-        self.trunk_branches = nn.Sequential(ResidualBlock(in_channel,
-            out_channel), ResidualBlock(in_channel, out_channel))
+        self.trunk_branches = nn.Sequential(ResidualBlock(in_channel, out_channel), ResidualBlock(in_channel, out_channel))
         self.mpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.mask_block1 = ResidualBlock(in_channel, out_channel)
         self.skip_connect1 = ResidualBlock(in_channel, out_channel)
@@ -286,18 +249,13 @@ class AttentionModule_stage1(nn.Module):
         self.mask_block2 = ResidualBlock(in_channel, out_channel)
         self.skip_connect2 = ResidualBlock(in_channel, out_channel)
         self.mpool3 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.mask_block3 = nn.Sequential(ResidualBlock(in_channel,
-            out_channel), ResidualBlock(in_channel, out_channel))
+        self.mask_block3 = nn.Sequential(ResidualBlock(in_channel, out_channel), ResidualBlock(in_channel, out_channel))
         self.interpolation3 = nn.UpsamplingBilinear2d(size=size3)
         self.mask_block4 = ResidualBlock(in_channel, out_channel)
         self.interpolation2 = nn.UpsamplingBilinear2d(size=size2)
         self.mask_block5 = ResidualBlock(in_channel, out_channel)
         self.interpolation1 = nn.UpsamplingBilinear2d(size=size1)
-        self.mask_block6 = nn.Sequential(nn.BatchNorm2d(out_channel), nn.
-            ReLU(inplace=True), nn.Conv2d(out_channel, out_channel, 1, 1,
-            bias=False), nn.BatchNorm2d(out_channel), nn.ReLU(inplace=True),
-            nn.Conv2d(out_channel, out_channel, 1, 1, bias=False), nn.Sigmoid()
-            )
+        self.mask_block6 = nn.Sequential(nn.BatchNorm2d(out_channel), nn.ReLU(inplace=True), nn.Conv2d(out_channel, out_channel, 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.ReLU(inplace=True), nn.Conv2d(out_channel, out_channel, 1, 1, bias=False), nn.Sigmoid())
         self.last_block = ResidualBlock(in_channel, out_channel)
 
     def forward(self, x):
@@ -326,27 +284,19 @@ class AttentionModule_stage1(nn.Module):
 
 class AttentionModule_stage2(nn.Module):
 
-    def __init__(self, in_channels, out_channels, size1=(28, 28), size2=(14,
-        14)):
+    def __init__(self, in_channels, out_channels, size1=(28, 28), size2=(14, 14)):
         super(AttentionModule_stage2, self).__init__()
         self.first_residual_blocks = ResidualBlock(in_channels, out_channels)
-        self.trunk_branches = nn.Sequential(ResidualBlock(in_channels,
-            out_channels), ResidualBlock(in_channels, out_channels))
+        self.trunk_branches = nn.Sequential(ResidualBlock(in_channels, out_channels), ResidualBlock(in_channels, out_channels))
         self.mpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.softmax1_blocks = ResidualBlock(in_channels, out_channels)
-        self.skip1_connection_residual_block = ResidualBlock(in_channels,
-            out_channels)
+        self.skip1_connection_residual_block = ResidualBlock(in_channels, out_channels)
         self.mpool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.softmax2_blocks = nn.Sequential(ResidualBlock(in_channels,
-            out_channels), ResidualBlock(in_channels, out_channels))
+        self.softmax2_blocks = nn.Sequential(ResidualBlock(in_channels, out_channels), ResidualBlock(in_channels, out_channels))
         self.interpolation2 = nn.UpsamplingBilinear2d(size=size2)
         self.softmax3_blocks = ResidualBlock(in_channels, out_channels)
         self.interpolation1 = nn.UpsamplingBilinear2d(size=size1)
-        self.softmax4_blocks = nn.Sequential(nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels,
-            kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(
-            out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels,
-            out_channels, kernel_size=1, stride=1, bias=False), nn.Sigmoid())
+        self.softmax4_blocks = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, bias=False), nn.Sigmoid())
         self.last_blocks = ResidualBlock(in_channels, out_channels)
 
     def forward(self, x):
@@ -354,8 +304,7 @@ class AttentionModule_stage2(nn.Module):
         out_trunk = self.trunk_branches(x)
         out_mpool1 = self.mpool1(x)
         out_softmax1 = self.softmax1_blocks(out_mpool1)
-        out_skip1_connection = self.skip1_connection_residual_block(
-            out_softmax1)
+        out_skip1_connection = self.skip1_connection_residual_block(out_softmax1)
         out_mpool2 = self.mpool2(out_softmax1)
         out_softmax2 = self.softmax2_blocks(out_mpool2)
         out_interp2 = self.interpolation2(out_softmax2) + out_softmax1
@@ -373,17 +322,11 @@ class AttentionModule_stage3(nn.Module):
     def __init__(self, in_channels, out_channels, size1=(14, 14)):
         super(AttentionModule_stage3, self).__init__()
         self.first_residual_blocks = ResidualBlock(in_channels, out_channels)
-        self.trunk_branches = nn.Sequential(ResidualBlock(in_channels,
-            out_channels), ResidualBlock(in_channels, out_channels))
+        self.trunk_branches = nn.Sequential(ResidualBlock(in_channels, out_channels), ResidualBlock(in_channels, out_channels))
         self.mpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.softmax1_blocks = nn.Sequential(ResidualBlock(in_channels,
-            out_channels), ResidualBlock(in_channels, out_channels))
+        self.softmax1_blocks = nn.Sequential(ResidualBlock(in_channels, out_channels), ResidualBlock(in_channels, out_channels))
         self.interpolation1 = nn.UpsamplingBilinear2d(size=size1)
-        self.softmax2_blocks = nn.Sequential(nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels,
-            kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(
-            out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels,
-            out_channels, kernel_size=1, stride=1, bias=False), nn.Sigmoid())
+        self.softmax2_blocks = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, bias=False), nn.Sigmoid())
         self.last_blocks = ResidualBlock(in_channels, out_channels)
 
     def forward(self, x):
@@ -402,8 +345,7 @@ class ResidualAttentionNet_56(nn.Module):
 
     def __init__(self, feature_dim=512, drop_ratio=0.4):
         super(ResidualAttentionNet_56, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1,
-            padding=1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
         self.mpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.residual_block1 = ResidualBlock(64, 256)
         self.attention_module1 = AttentionModule_stage1(256, 256)
@@ -414,9 +356,7 @@ class ResidualAttentionNet_56(nn.Module):
         self.residual_block4 = ResidualBlock(512, 512, 2)
         self.residual_block5 = ResidualBlock(512, 512)
         self.residual_block6 = ResidualBlock(512, 512)
-        self.output_layer = nn.Sequential(nn.BatchNorm2d(512), nn.Dropout(
-            drop_ratio), Flatten(), nn.Linear(512 * 7 * 7, feature_dim), nn
-            .BatchNorm1d(feature_dim))
+        self.output_layer = nn.Sequential(nn.BatchNorm2d(512), nn.Dropout(drop_ratio), Flatten(), nn.Linear(512 * 7 * 7, feature_dim), nn.BatchNorm1d(feature_dim))
 
     def forward(self, x):
         out = self.conv1(x)
@@ -438,8 +378,7 @@ class ResidualAttentionNet_92(nn.Module):
 
     def __init__(self, feature_dim=512, drop_ratio=0.4):
         super(ResidualAttentionNet_92, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1,
-            padding=1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
         self.mpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.residual_block1 = ResidualBlock(64, 256)
         self.attention_module1 = AttentionModule_stage1(256, 256)
@@ -453,9 +392,7 @@ class ResidualAttentionNet_92(nn.Module):
         self.residual_block4 = ResidualBlock(1024, 2048, 2)
         self.residual_block5 = ResidualBlock(2048, 2048)
         self.residual_block6 = ResidualBlock(2048, 2048)
-        self.output_layer = nn.Sequential(nn.BatchNorm2d(2048), nn.Dropout(
-            drop_ratio), Flatten(), nn.Linear(2048 * 7 * 7, feature_dim),
-            nn.BatchNorm1d(feature_dim))
+        self.output_layer = nn.Sequential(nn.BatchNorm2d(2048), nn.Dropout(drop_ratio), Flatten(), nn.Linear(2048 * 7 * 7, feature_dim), nn.BatchNorm1d(feature_dim))
 
     def forward(self, x):
         out = self.conv1(x)
@@ -488,11 +425,9 @@ class SEModule(nn.Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
-            padding=0, bias=False)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0, bias=False)
         self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
-            padding=0, bias=False)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -512,10 +447,7 @@ class CAModule(nn.Module):
         super(CAModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.shared_mlp = nn.Sequential(nn.Conv2d(channels, channels //
-            reduction, kernel_size=1, padding=0, bias=False), nn.ReLU(
-            inplace=True), nn.Conv2d(channels // reduction, channels,
-            kernel_size=1, padding=0, bias=False))
+        self.shared_mlp = nn.Sequential(nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0, bias=False), nn.ReLU(inplace=True), nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0, bias=False))
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -550,17 +482,11 @@ class BottleNeck_IR(nn.Module):
 
     def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel))
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel))
         if dim_match:
             self.shortcut_layer = None
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
         shortcut = x
@@ -575,17 +501,11 @@ class BottleNeck_IR_SE(nn.Module):
 
     def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR_SE, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel), SEModule(out_channel, 16))
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), SEModule(out_channel, 16))
         if dim_match:
             self.shortcut_layer = None
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
         shortcut = x
@@ -600,17 +520,11 @@ class BottleNeck_IR_CAM(nn.Module):
 
     def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR_CAM, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel), CAModule(out_channel, 16))
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), CAModule(out_channel, 16))
         if dim_match:
             self.shortcut_layer = None
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
         shortcut = x
@@ -625,17 +539,11 @@ class BottleNeck_IR_SAM(nn.Module):
 
     def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR_SAM, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel), SAModule())
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), SAModule())
         if dim_match:
             self.shortcut_layer = None
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
         shortcut = x
@@ -650,17 +558,11 @@ class BottleNeck_IR_CBAM(nn.Module):
 
     def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR_CBAM, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.
-            Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.
-            BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(
-            out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.
-            BatchNorm2d(out_channel), CAModule(out_channel, 16), SAModule())
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), CAModule(out_channel, 16), SAModule())
         if dim_match:
             self.shortcut_layer = None
         else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel,
-                out_channel, kernel_size=(1, 1), stride=stride, bias=False),
-                nn.BatchNorm2d(out_channel))
+            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
         shortcut = x
@@ -684,12 +586,7 @@ class BottleNeck(nn.Module):
     def __init__(self, inp, oup, stride, expansion):
         super(BottleNeck, self).__init__()
         self.connect = stride == 1 and inp == oup
-        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expansion, 1, 1, 0,
-            bias=False), nn.BatchNorm2d(inp * expansion), nn.PReLU(inp *
-            expansion), nn.Conv2d(inp * expansion, inp * expansion, 3,
-            stride, 1, groups=inp * expansion, bias=False), nn.BatchNorm2d(
-            inp * expansion), nn.PReLU(inp * expansion), nn.Conv2d(inp *
-            expansion, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expansion, 1, 1, 0, bias=False), nn.BatchNorm2d(inp * expansion), nn.PReLU(inp * expansion), nn.Conv2d(inp * expansion, inp * expansion, 3, stride, 1, groups=inp * expansion, bias=False), nn.BatchNorm2d(inp * expansion), nn.PReLU(inp * expansion), nn.Conv2d(inp * expansion, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.connect:
@@ -720,14 +617,12 @@ class ConvBlock(nn.Module):
             return self.prelu(x)
 
 
-MobileFaceNet_BottleNeck_Setting = [[2, 64, 5, 2], [4, 128, 1, 2], [2, 128,
-    6, 1], [4, 128, 1, 2], [2, 128, 2, 1]]
+MobileFaceNet_BottleNeck_Setting = [[2, 64, 5, 2], [4, 128, 1, 2], [2, 128, 6, 1], [4, 128, 1, 2], [2, 128, 2, 1]]
 
 
 class MobileFaceNet(nn.Module):
 
-    def __init__(self, feature_dim=128, bottleneck_setting=
-        MobileFaceNet_BottleNeck_Setting):
+    def __init__(self, feature_dim=128, bottleneck_setting=MobileFaceNet_BottleNeck_Setting):
         super(MobileFaceNet, self).__init__()
         self.conv1 = ConvBlock(3, 64, 3, 2, 1)
         self.dw_conv1 = ConvBlock(64, 64, 3, 1, 1, dw=True)
@@ -772,12 +667,10 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
@@ -801,14 +694,11 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, stride=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, stride=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -839,18 +729,15 @@ class Flatten(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, feature_dim=512, drop_ratio=0.4,
-        zero_init_residual=False):
+    def __init__(self, block, layers, feature_dim=512, drop_ratio=0.4, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -858,13 +745,10 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.output_layer = nn.Sequential(nn.BatchNorm2d(512 * block.
-            expansion), nn.Dropout(drop_ratio), Flatten(), nn.Linear(512 *
-            block.expansion * 7 * 7, feature_dim), nn.BatchNorm1d(feature_dim))
+        self.output_layer = nn.Sequential(nn.BatchNorm2d(512 * block.expansion), nn.Dropout(drop_ratio), Flatten(), nn.Linear(512 * block.expansion * 7 * 7, feature_dim), nn.BatchNorm1d(feature_dim))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -878,9 +762,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -927,25 +809,19 @@ class SphereNet(nn.Module):
 
     def __init__(self, num_layers=20, feature_dim=512):
         super(SphereNet, self).__init__()
-        assert num_layers in [20, 64
-            ], 'SphereNet num_layers should be 20 or 64'
+        assert num_layers in [20, 64], 'SphereNet num_layers should be 20 or 64'
         if num_layers == 20:
             layers = [1, 2, 4, 1]
         elif num_layers == 64:
             layers = [3, 7, 16, 3]
         else:
-            raise ValueError('sphere' + str(num_layers) +
-                ' IS NOT SUPPORTED! (sphere20 or sphere64)')
+            raise ValueError('sphere' + str(num_layers) + ' IS NOT SUPPORTED! (sphere20 or sphere64)')
         filter_list = [3, 64, 128, 256, 512]
         block = Block
-        self.layer1 = self._make_layer(block, filter_list[0], filter_list[1
-            ], layers[0], stride=2)
-        self.layer2 = self._make_layer(block, filter_list[1], filter_list[2
-            ], layers[1], stride=2)
-        self.layer3 = self._make_layer(block, filter_list[2], filter_list[3
-            ], layers[2], stride=2)
-        self.layer4 = self._make_layer(block, filter_list[3], filter_list[4
-            ], layers[3], stride=2)
+        self.layer1 = self._make_layer(block, filter_list[0], filter_list[1], layers[0], stride=2)
+        self.layer2 = self._make_layer(block, filter_list[1], filter_list[2], layers[1], stride=2)
+        self.layer3 = self._make_layer(block, filter_list[2], filter_list[3], layers[2], stride=2)
+        self.layer4 = self._make_layer(block, filter_list[3], filter_list[4], layers[3], stride=2)
         self.fc = nn.Linear(512 * 7 * 7, feature_dim)
         self.last_bn = nn.BatchNorm1d(feature_dim)
         for m in self.modules():
@@ -983,8 +859,7 @@ class AgentCenterLoss(nn.Module):
         self.num_classes = num_classes
         self.feat_dim = feat_dim
         self.scale = scale
-        self.centers = nn.Parameter(torch.randn(self.num_classes, self.
-            feat_dim))
+        self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
 
     def forward(self, x, labels):
         """
@@ -994,8 +869,7 @@ class AgentCenterLoss(nn.Module):
         Return:
             loss of centers
         """
-        cos_dis = F.linear(F.normalize(x), F.normalize(self.centers)
-            ) * self.scale
+        cos_dis = F.linear(F.normalize(x), F.normalize(self.centers)) * self.scale
         one_hot = torch.zeros_like(cos_dis)
         one_hot.scatter_(1, labels.view(-1, 1), 1.0)
         loss = one_hot * self.scale - one_hot * cos_dis
@@ -1008,8 +882,7 @@ class CenterLoss(nn.Module):
         super(CenterLoss, self).__init__()
         self.num_classes = num_classes
         self.feat_dim = feat_dim
-        self.centers = nn.Parameter(torch.randn(self.num_classes, self.
-            feat_dim))
+        self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
 
     def forward(self, x, labels):
         """
@@ -1020,9 +893,7 @@ class CenterLoss(nn.Module):
             loss of centers
         """
         batch_size = x.size(0)
-        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size,
-            self.num_classes) + torch.pow(self.centers, 2).sum(dim=1,
-            keepdim=True).expand(self.num_classes, batch_size).t()
+        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
         distmat.addmm_(1, -2, x, self.centers.t())
         device = torch.device('cuda' if torch.is_available() else 'cpu')
         classes = torch.arange(self.num_classes).long()
@@ -1040,8 +911,7 @@ class CenterLoss(nn.Module):
 
 class ArcMarginProduct(nn.Module):
 
-    def __init__(self, in_feature=128, out_feature=10575, s=32.0, m=0.5,
-        easy_margin=False):
+    def __init__(self, in_feature=128, out_feature=10575, s=32.0, m=0.5, easy_margin=False):
         super(ArcMarginProduct, self).__init__()
         self.in_feature = in_feature
         self.out_feature = out_feature
@@ -1105,8 +975,7 @@ class InnerProduct(nn.Module):
 
 class MultiMarginProduct(nn.Module):
 
-    def __init__(self, in_feature=128, out_feature=10575, s=32.0, m1=0.2,
-        m2=0.35, easy_margin=False):
+    def __init__(self, in_feature=128, out_feature=10575, s=32.0, m1=0.2, m2=0.35, easy_margin=False):
         super(MultiMarginProduct, self).__init__()
         self.in_feature = in_feature
         self.out_feature = out_feature
@@ -1139,8 +1008,7 @@ class MultiMarginProduct(nn.Module):
 
 class SphereMarginProduct(nn.Module):
 
-    def __init__(self, in_feature, out_feature, m=4, base=1000.0, gamma=
-        0.0001, power=2, lambda_min=5.0, iter=0):
+    def __init__(self, in_feature, out_feature, m=4, base=1000.0, gamma=0.0001, power=2, lambda_min=5.0, iter=0):
         assert m in [1, 2, 3, 4], 'margin should be 1, 2, 3 or 4'
         self.in_feature = in_feature
         self.out_feature = out_feature
@@ -1152,22 +1020,18 @@ class SphereMarginProduct(nn.Module):
         self.iter = 0
         self.weight = Parameter(torch.Tensor(out_feature, in_feature))
         nn.init.xavier_uniform_(self.weight)
-        self.margin_formula = [lambda x: x ** 0, lambda x: x ** 1, lambda x:
-            2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x **
-            4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
+        self.margin_formula = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
 
     def forward(self, input, label):
         self.iter += 1
-        self.cur_lambda = max(self.lambda_min, self.base * (1 + self.gamma *
-            self.iter) ** (-1 * self.power))
+        self.cur_lambda = max(self.lambda_min, self.base * (1 + self.gamma * self.iter) ** (-1 * self.power))
         cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
         cos_theta = cos_theta(-1, 1)
         cos_m_theta = self.margin_formula(self.m)(cos_theta)
         theta = cos_theta.data.acos()
         k = (self.m * theta / math.pi).floor()
         phi_theta = (-1.0) ** k * cos_m_theta - 2 * k
-        phi_theta_ = (self.cur_lambda * cos_theta + phi_theta) / (1 + self.
-            cur_lambda)
+        phi_theta_ = (self.cur_lambda * cos_theta + phi_theta) / (1 + self.cur_lambda)
         norm_of_feature = torch.norm(input, 2, 1)
         one_hot = torch.zeros_like(cos_theta)
         one_hot.scatter_(1, label.view(-1, 1), 1)
@@ -1180,57 +1044,135 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AgentCenterLoss,
+     lambda: ([], {'num_classes': 4, 'feat_dim': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ArcMarginProduct,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (AttentionModule_stage3,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 14, 14])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BottleNeck,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expansion': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BottleNeck_IR,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BottleNeck_IR_SAM,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CAModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InnerProduct,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileFaceNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+    (MultiMarginProduct,
+     lambda: ([], {}),
+     lambda: ([torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SAModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SphereNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 108, 108])], {}),
+     True),
+]
+
 class Test_wujiyang_Face_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AgentCenterLoss(*[], **{'num_classes': 4, 'feat_dim': 4, 'scale': 1.0}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ArcMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(AttentionModule_stage3(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 14, 14])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Block(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(BottleNeck(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expansion': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(BottleNeck_IR(*[], **{'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(BottleNeck_IR_SAM(*[], **{'in_channel': 4, 'out_channel': 4, 'stride': 1, 'dim_match': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(CAModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ConvBlock(*[], **{'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(InnerProduct(*[], **{}), [torch.rand([128, 128]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MobileFaceNet(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(MultiMarginProduct(*[], **{}), [torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(ResidualBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(SAModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(SEModule(*[], **{'channels': 4, 'reduction': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

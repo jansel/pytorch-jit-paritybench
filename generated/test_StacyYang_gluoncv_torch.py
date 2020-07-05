@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,9 +66,7 @@ up_kwargs = {'mode': 'bilinear', 'align_corners': True}
 
 class BaseNet(nn.Module):
 
-    def __init__(self, nclass, backbone, aux, se_loss, dilated=True,
-        norm_layer=None, base_size=520, crop_size=480, mean=[0.485, 0.456, 
-        0.406], std=[0.229, 0.224, 0.225], root='~/.gluoncvth/models'):
+    def __init__(self, nclass, backbone, aux, se_loss, dilated=True, norm_layer=None, base_size=520, crop_size=480, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], root='~/.gluoncvth/models'):
         super(BaseNet, self).__init__()
         self.nclass = nclass
         self.aux = aux
@@ -77,14 +76,11 @@ class BaseNet(nn.Module):
         self.base_size = base_size
         self.crop_size = crop_size
         if backbone == 'resnet50':
-            self.pretrained = resnet.resnet50(pretrained=False, dilated=
-                dilated, deep_base=True, norm_layer=norm_layer, root=root)
+            self.pretrained = resnet.resnet50(pretrained=False, dilated=dilated, deep_base=True, norm_layer=norm_layer, root=root)
         elif backbone == 'resnet101':
-            self.pretrained = resnet.resnet101(pretrained=False, dilated=
-                dilated, deep_base=True, norm_layer=norm_layer, root=root)
+            self.pretrained = resnet.resnet101(pretrained=False, dilated=dilated, deep_base=True, norm_layer=norm_layer, root=root)
         elif backbone == 'resnet152':
-            self.pretrained = resnet.resnet152(pretrained=False, dilated=
-                dilated, deep_base=True, norm_layer=norm_layer, root=root)
+            self.pretrained = resnet.resnet152(pretrained=False, dilated=dilated, deep_base=True, norm_layer=norm_layer, root=root)
         else:
             raise RuntimeError('unknown backbone: {}'.format(backbone))
         self._up_kwargs = up_kwargs
@@ -109,16 +105,11 @@ class BaseNet(nn.Module):
 
 class DeepLabV3Head(nn.Module):
 
-    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs,
-        atrous_rates=[12, 24, 36], **kwargs):
+    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs, atrous_rates=[12, 24, 36], **kwargs):
         super(DeepLabV3Head, self).__init__()
         inter_channels = in_channels // 8
-        self.aspp = ASPP_Module(in_channels, atrous_rates, norm_layer,
-            up_kwargs, **kwargs)
-        self.block = nn.Sequential(nn.Conv2d(inter_channels, inter_channels,
-            3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(
-            True), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels,
-            out_channels, 1))
+        self.aspp = ASPP_Module(in_channels, atrous_rates, norm_layer, up_kwargs, **kwargs)
+        self.block = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
 
     def forward(self, x):
         x = self.aspp(x)
@@ -131,9 +122,7 @@ class AsppPooling(nn.Module):
     def __init__(self, in_channels, out_channels, norm_layer, up_kwargs):
         super(AsppPooling, self).__init__()
         self._up_kwargs = up_kwargs
-        self.gap = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(
-            in_channels, out_channels, 1, bias=False), norm_layer(
-            out_channels), nn.ReLU(True))
+        self.gap = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
 
     def forward(self, x):
         _, _, h, w = x.size()
@@ -142,9 +131,7 @@ class AsppPooling(nn.Module):
 
 
 def ASPPConv(in_channels, out_channels, atrous_rate, norm_layer):
-    block = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=
-        atrous_rate, dilation=atrous_rate, bias=False), norm_layer(
-        out_channels), nn.ReLU(True))
+    block = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=atrous_rate, dilation=atrous_rate, bias=False), norm_layer(out_channels), nn.ReLU(True))
     return block
 
 
@@ -154,15 +141,12 @@ class ASPP_Module(nn.Module):
         super(ASPP_Module, self).__init__()
         out_channels = in_channels // 8
         rate1, rate2, rate3 = tuple(atrous_rates)
-        self.b0 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.b0 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
         self.b1 = ASPPConv(in_channels, out_channels, rate1, norm_layer)
         self.b2 = ASPPConv(in_channels, out_channels, rate2, norm_layer)
         self.b3 = ASPPConv(in_channels, out_channels, rate3, norm_layer)
         self.b4 = AsppPooling(in_channels, out_channels, norm_layer, up_kwargs)
-        self.project = nn.Sequential(nn.Conv2d(5 * out_channels,
-            out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU
-            (True), nn.Dropout2d(0.5, False))
+        self.project = nn.Sequential(nn.Conv2d(5 * out_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True), nn.Dropout2d(0.5, False))
 
     def forward(self, x):
         feat0 = self.b0(x)
@@ -179,10 +163,7 @@ class FCNHead(nn.Module):
     def __init__(self, in_channels, out_channels, norm_layer):
         super(FCNHead, self).__init__()
         inter_channels = in_channels // 4
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3,
-            padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(),
-            nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels,
-            out_channels, 1))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
 
     def forward(self, x):
         return self.conv5(x)
@@ -201,26 +182,18 @@ class PyramidPooling(nn.Module):
         self.pool3 = nn.AdaptiveAvgPool2d(3)
         self.pool4 = nn.AdaptiveAvgPool2d(6)
         out_channels = int(in_channels / 4)
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1,
-            bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
         self._up_kwargs = up_kwargs
 
     def forward(self, x):
         _, _, h, w = x.size()
-        feat1 = F.interpolate(self.conv1(self.pool1(x)), (h, w), **self.
-            _up_kwargs)
-        feat2 = F.interpolate(self.conv2(self.pool2(x)), (h, w), **self.
-            _up_kwargs)
-        feat3 = F.interpolate(self.conv3(self.pool3(x)), (h, w), **self.
-            _up_kwargs)
-        feat4 = F.interpolate(self.conv4(self.pool4(x)), (h, w), **self.
-            _up_kwargs)
+        feat1 = F.interpolate(self.conv1(self.pool1(x)), (h, w), **self._up_kwargs)
+        feat2 = F.interpolate(self.conv2(self.pool2(x)), (h, w), **self._up_kwargs)
+        feat3 = F.interpolate(self.conv3(self.pool3(x)), (h, w), **self._up_kwargs)
+        feat4 = F.interpolate(self.conv4(self.pool4(x)), (h, w), **self._up_kwargs)
         return torch.cat((x, feat1, feat2, feat3, feat4), 1)
 
 
@@ -229,11 +202,7 @@ class PSPHead(nn.Module):
     def __init__(self, in_channels, out_channels, norm_layer, up_kwargs):
         super(PSPHead, self).__init__()
         inter_channels = in_channels // 4
-        self.conv5 = nn.Sequential(PyramidPooling(in_channels, norm_layer,
-            up_kwargs), nn.Conv2d(in_channels * 2, inter_channels, 3,
-            padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(
-            True), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels,
-            out_channels, 1))
+        self.conv5 = nn.Sequential(PyramidPooling(in_channels, norm_layer, up_kwargs), nn.Conv2d(in_channels * 2, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
 
     def forward(self, x):
         return self.conv5(x)
@@ -244,15 +213,12 @@ class BasicBlock(nn.Module):
     """
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, previous_dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, previous_dilation=1, norm_layer=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=
-            stride, padding=dilation, dilation=dilation, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=previous_dilation, dilation=previous_dilation, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=previous_dilation, dilation=previous_dilation, bias=False)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
@@ -276,13 +242,11 @@ class Bottleneck(nn.Module):
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, previous_dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, previous_dilation=1, norm_layer=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = norm_layer(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation, dilation=dilation, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
         self.bn2 = norm_layer(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = norm_layer(planes * 4)
@@ -340,37 +304,24 @@ class ResNet(nn.Module):
         - Yu, Fisher, and Vladlen Koltun. "Multi-scale context aggregation by dilated convolutions."
     """
 
-    def __init__(self, block, layers, num_classes=1000, dilated=True,
-        deep_base=False, norm_layer=nn.BatchNorm2d):
+    def __init__(self, block, layers, num_classes=1000, dilated=True, deep_base=False, norm_layer=nn.BatchNorm2d):
         self.inplanes = 128 if deep_base else 64
         super(ResNet, self).__init__()
         if deep_base:
-            self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3,
-                stride=2, padding=1, bias=False), norm_layer(64), nn.ReLU(
-                inplace=True), nn.Conv2d(64, 64, kernel_size=3, stride=1,
-                padding=1, bias=False), norm_layer(64), nn.ReLU(inplace=
-                True), nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=
-                1, bias=False))
+            self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False), norm_layer(64), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False), norm_layer(64), nn.ReLU(inplace=True), nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False))
         else:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=
-                3, bias=False)
+            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
         if dilated:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-                dilation=2, norm_layer=norm_layer)
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-                dilation=4, norm_layer=norm_layer)
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2, norm_layer=norm_layer)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, norm_layer=norm_layer)
         else:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-                norm_layer=norm_layer)
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-                norm_layer=norm_layer)
+            self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+            self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
@@ -381,28 +332,20 @@ class ResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        norm_layer=None):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, norm_layer=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), norm_layer(planes * block.expansion))
         layers = []
         if dilation == 1 or dilation == 2:
-            layers.append(block(self.inplanes, planes, stride, dilation=1,
-                downsample=downsample, previous_dilation=dilation,
-                norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, stride, dilation=1, downsample=downsample, previous_dilation=dilation, norm_layer=norm_layer))
         elif dilation == 4:
-            layers.append(block(self.inplanes, planes, stride, dilation=2,
-                downsample=downsample, previous_dilation=dilation,
-                norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, stride, dilation=2, downsample=downsample, previous_dilation=dilation, norm_layer=norm_layer))
         else:
             raise RuntimeError('=> unknown dilation size: {}'.format(dilation))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                previous_dilation=dilation, norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, dilation=dilation, previous_dilation=dilation, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -424,16 +367,12 @@ class ABN(nn.BatchNorm2d):
     """Hacky for inference only
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, sync=True,
-        activation='none', slope=0.01):
-        super(ABN, self).__init__(num_features, eps=eps, momentum=momentum,
-            affine=True)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, sync=True, activation='none', slope=0.01):
+        super(ABN, self).__init__(num_features, eps=eps, momentum=momentum, affine=True)
         self.slope = slope
 
     def forward(self, x):
-        y = F.batch_norm(x, self.running_mean, self.running_var, self.
-            weight, self.bias, self.training or not self.
-            track_running_stats, self.momentum, self.eps)
+        y = F.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training or not self.track_running_stats, self.momentum, self.eps)
         return F.leaky_relu_(y, self.slope)
 
 
@@ -449,8 +388,7 @@ class GlobalAvgPool2d(nn.Module):
 
 class IdentityResidualBlock(nn.Module):
 
-    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=
-        1, norm_act=ABN, dropout=None):
+    def __init__(self, in_channels, channels, stride=1, dilation=1, groups=1, norm_act=ABN, dropout=None):
         """Configurable identity-mapping residual block
         Parameters
         ----------
@@ -474,35 +412,23 @@ class IdentityResidualBlock(nn.Module):
         """
         super(IdentityResidualBlock, self).__init__()
         if len(channels) != 2 and len(channels) != 3:
-            raise ValueError('channels must contain either two or three values'
-                )
+            raise ValueError('channels must contain either two or three values')
         if len(channels) == 2 and groups != 1:
             raise ValueError('groups > 1 are only valid if len(channels) == 3')
         is_bottleneck = len(channels) == 3
         need_proj_conv = stride != 1 or in_channels != channels[-1]
         self.bn1 = norm_act(in_channels)
         if not is_bottleneck:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3,
-                stride=stride, padding=dilation, bias=False, dilation=
-                dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.
-                Conv2d(channels[0], channels[1], 3, stride=1, padding=
-                dilation, bias=False, dilation=dilation))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 3, stride=stride, padding=dilation, bias=False, dilation=dilation)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=1, padding=dilation, bias=False, dilation=dilation))]
             if dropout is not None:
                 layers = layers[0:2] + [('dropout', dropout())] + layers[2:]
         else:
-            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1,
-                stride=1, padding=0, bias=False)), ('bn2', norm_act(
-                channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1],
-                3, stride=stride, padding=dilation, bias=False, groups=
-                groups, dilation=dilation)), ('bn3', norm_act(channels[1])),
-                ('conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1,
-                padding=0, bias=False))]
+            layers = [('conv1', nn.Conv2d(in_channels, channels[0], 1, stride=1, padding=0, bias=False)), ('bn2', norm_act(channels[0])), ('conv2', nn.Conv2d(channels[0], channels[1], 3, stride=stride, padding=dilation, bias=False, groups=groups, dilation=dilation)), ('bn3', norm_act(channels[1])), ('conv3', nn.Conv2d(channels[1], channels[2], 1, stride=1, padding=0, bias=False))]
             if dropout is not None:
                 layers = layers[0:4] + [('dropout', dropout())] + layers[4:]
         self.convs = nn.Sequential(OrderedDict(layers))
         if need_proj_conv:
-            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride
-                =stride, padding=0, bias=False)
+            self.proj_conv = nn.Conv2d(in_channels, channels[-1], 1, stride=stride, padding=0, bias=False)
 
     def forward(self, x):
         if hasattr(self, 'proj_conv'):
@@ -538,11 +464,9 @@ class WideResNet(nn.Module):
         self.dilation = dilation
         if len(structure) != 6:
             raise ValueError('Expected a structure with six values')
-        self.mod1 = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 64, 3,
-            stride=1, padding=1, bias=False))]))
+        self.mod1 = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False))]))
         in_channels = 64
-        channels = [(128, 128), (256, 256), (512, 512), (512, 1024), (512, 
-            1024, 2048), (1024, 2048, 4096)]
+        channels = [(128, 128), (256, 256), (512, 512), (512, 1024), (512, 1024, 2048), (1024, 2048, 4096)]
         for mod_id, num in enumerate(structure):
             blocks = []
             for block_id in range(num):
@@ -563,20 +487,14 @@ class WideResNet(nn.Module):
                     drop = partial(nn.Dropout2d, p=0.5)
                 else:
                     drop = None
-                blocks.append(('block%d' % (block_id + 1),
-                    IdentityResidualBlock(in_channels, channels[mod_id],
-                    norm_act=norm_act, stride=stride, dilation=dil, dropout
-                    =drop)))
+                blocks.append(('block%d' % (block_id + 1), IdentityResidualBlock(in_channels, channels[mod_id], norm_act=norm_act, stride=stride, dilation=dil, dropout=drop)))
                 in_channels = channels[mod_id][-1]
             if mod_id < 2:
-                self.add_module('pool%d' % (mod_id + 2), nn.MaxPool2d(3,
-                    stride=2, padding=1))
-            self.add_module('mod%d' % (mod_id + 2), nn.Sequential(
-                OrderedDict(blocks)))
+                self.add_module('pool%d' % (mod_id + 2), nn.MaxPool2d(3, stride=2, padding=1))
+            self.add_module('mod%d' % (mod_id + 2), nn.Sequential(OrderedDict(blocks)))
         self.bn_out = norm_act(in_channels)
         if classes != 0:
-            self.classifier = nn.Sequential(OrderedDict([('avg_pool',
-                GlobalAvgPool2d()), ('fc', nn.Linear(in_channels, classes))]))
+            self.classifier = nn.Sequential(OrderedDict([('avg_pool', GlobalAvgPool2d()), ('fc', nn.Linear(in_channels, classes))]))
 
     def forward(self, img):
         out = self.mod1(img)
@@ -600,17 +518,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ABN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FCNHead,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IdentityResidualBlock,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_StacyYang_gluoncv_torch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FCNHead(*[], **{'in_channels': 4, 'out_channels': 4, 'norm_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(IdentityResidualBlock(*[], **{'in_channels': 4, 'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

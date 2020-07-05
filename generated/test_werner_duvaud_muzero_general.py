@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -73,8 +74,7 @@ class AbstractNetwork(ABC, torch.nn.Module):
 
 
 def conv3x3(in_channels, out_channels, stride=1):
-    return torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, stride
-        =stride, padding=1, bias=False)
+    return torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResidualBlock(torch.nn.Module):
@@ -101,17 +101,12 @@ class DownSample(torch.nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv1 = torch.nn.Conv2d(in_channels, out_channels // 2,
-            kernel_size=3, stride=2, padding=1, bias=False)
-        self.resblocks1 = torch.nn.ModuleList([ResidualBlock(out_channels //
-            2) for _ in range(2)])
-        self.conv2 = torch.nn.Conv2d(out_channels // 2, out_channels,
-            kernel_size=3, stride=2, padding=1, bias=False)
-        self.resblocks2 = torch.nn.ModuleList([ResidualBlock(out_channels) for
-            _ in range(3)])
+        self.conv1 = torch.nn.Conv2d(in_channels, out_channels // 2, kernel_size=3, stride=2, padding=1, bias=False)
+        self.resblocks1 = torch.nn.ModuleList([ResidualBlock(out_channels // 2) for _ in range(2)])
+        self.conv2 = torch.nn.Conv2d(out_channels // 2, out_channels, kernel_size=3, stride=2, padding=1, bias=False)
+        self.resblocks2 = torch.nn.ModuleList([ResidualBlock(out_channels) for _ in range(3)])
         self.pooling1 = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
-        self.resblocks3 = torch.nn.ModuleList([ResidualBlock(out_channels) for
-            _ in range(3)])
+        self.resblocks3 = torch.nn.ModuleList([ResidualBlock(out_channels) for _ in range(3)])
         self.pooling2 = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -130,18 +125,14 @@ class DownSample(torch.nn.Module):
 
 class RepresentationNetwork(torch.nn.Module):
 
-    def __init__(self, observation_shape, stacked_observations, num_blocks,
-        num_channels, downsample):
+    def __init__(self, observation_shape, stacked_observations, num_blocks, num_channels, downsample):
         super().__init__()
         self.use_downsample = downsample
         if self.use_downsample:
-            self.downsample = DownSample(observation_shape[0] * (
-                stacked_observations + 1) + stacked_observations, num_channels)
-        self.conv = conv3x3(observation_shape[0] * (stacked_observations + 
-            1) + stacked_observations, num_channels)
+            self.downsample = DownSample(observation_shape[0] * (stacked_observations + 1) + stacked_observations, num_channels)
+        self.conv = conv3x3(observation_shape[0] * (stacked_observations + 1) + stacked_observations, num_channels)
         self.bn = torch.nn.BatchNorm2d(num_channels)
-        self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels) for
-            _ in range(num_blocks)])
+        self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels) for _ in range(num_blocks)])
 
     def forward(self, x):
         if self.use_downsample:
@@ -157,18 +148,14 @@ class RepresentationNetwork(torch.nn.Module):
 
 class DynamicsNetwork(torch.nn.Module):
 
-    def __init__(self, num_blocks, num_channels, reduced_channels_reward,
-        fc_reward_layers, full_support_size, block_output_size_reward):
+    def __init__(self, num_blocks, num_channels, reduced_channels_reward, fc_reward_layers, full_support_size, block_output_size_reward):
         super().__init__()
         self.conv = conv3x3(num_channels, num_channels - 1)
         self.bn = torch.nn.BatchNorm2d(num_channels - 1)
-        self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels - 
-            1) for _ in range(num_blocks)])
-        self.conv1x1_reward = torch.nn.Conv2d(num_channels - 1,
-            reduced_channels_reward, 1)
+        self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels - 1) for _ in range(num_blocks)])
+        self.conv1x1_reward = torch.nn.Conv2d(num_channels - 1, reduced_channels_reward, 1)
         self.block_output_size_reward = block_output_size_reward
-        self.fc = FullyConnectedNetwork(self.block_output_size_reward,
-            fc_reward_layers, full_support_size)
+        self.fc = FullyConnectedNetwork(self.block_output_size_reward, fc_reward_layers, full_support_size)
 
     def forward(self, x):
         out = self.conv(x)
@@ -185,23 +172,15 @@ class DynamicsNetwork(torch.nn.Module):
 
 class PredictionNetwork(torch.nn.Module):
 
-    def __init__(self, action_space_size, num_blocks, num_channels,
-        reduced_channels_value, reduced_channels_policy, fc_value_layers,
-        fc_policy_layers, full_support_size, block_output_size_value,
-        block_output_size_policy):
+    def __init__(self, action_space_size, num_blocks, num_channels, reduced_channels_value, reduced_channels_policy, fc_value_layers, fc_policy_layers, full_support_size, block_output_size_value, block_output_size_policy):
         super().__init__()
-        self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels) for
-            _ in range(num_blocks)])
-        self.conv1x1_value = torch.nn.Conv2d(num_channels,
-            reduced_channels_value, 1)
-        self.conv1x1_policy = torch.nn.Conv2d(num_channels,
-            reduced_channels_policy, 1)
+        self.resblocks = torch.nn.ModuleList([ResidualBlock(num_channels) for _ in range(num_blocks)])
+        self.conv1x1_value = torch.nn.Conv2d(num_channels, reduced_channels_value, 1)
+        self.conv1x1_policy = torch.nn.Conv2d(num_channels, reduced_channels_policy, 1)
         self.block_output_size_value = block_output_size_value
         self.block_output_size_policy = block_output_size_policy
-        self.fc_value = FullyConnectedNetwork(self.block_output_size_value,
-            fc_value_layers, full_support_size)
-        self.fc_policy = FullyConnectedNetwork(self.
-            block_output_size_policy, fc_policy_layers, action_space_size)
+        self.fc_value = FullyConnectedNetwork(self.block_output_size_value, fc_value_layers, full_support_size)
+        self.fc_policy = FullyConnectedNetwork(self.block_output_size_policy, fc_policy_layers, action_space_size)
 
     def forward(self, x):
         out = x
@@ -224,8 +203,7 @@ class FullyConnectedNetwork(torch.nn.Module):
         layers = []
         if 1 < len(size_list):
             for i in range(len(size_list) - 1):
-                layers.extend([torch.nn.Linear(size_list[i], size_list[i + 
-                    1]), torch.nn.LeakyReLU()])
+                layers.extend([torch.nn.Linear(size_list[i], size_list[i + 1]), torch.nn.LeakyReLU()])
         layers.append(torch.nn.Linear(size_list[-1], output_size))
         if activation:
             layers.append(activation)
@@ -241,14 +219,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DownSample,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RepresentationNetwork,
+     lambda: ([], {'observation_shape': [4, 4], 'stacked_observations': 4, 'num_blocks': 4, 'num_channels': 4, 'downsample': 4}),
+     lambda: ([torch.rand([4, 24, 64, 64])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_werner_duvaud_muzero_general(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DownSample(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(RepresentationNetwork(*[], **{'observation_shape': [4, 4], 'stacked_observations': 4, 'num_blocks': 4, 'num_channels': 4, 'downsample': 4}), [torch.rand([4, 24, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResidualBlock(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

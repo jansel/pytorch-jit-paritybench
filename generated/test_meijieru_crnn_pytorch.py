@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,13 +87,11 @@ class CRNN(nn.Module):
         def convRelu(i, batchNormalization=False):
             nIn = nc if i == 0 else nm[i - 1]
             nOut = nm[i]
-            cnn.add_module('conv{0}'.format(i), nn.Conv2d(nIn, nOut, ks[i],
-                ss[i], ps[i]))
+            cnn.add_module('conv{0}'.format(i), nn.Conv2d(nIn, nOut, ks[i], ss[i], ps[i]))
             if batchNormalization:
                 cnn.add_module('batchnorm{0}'.format(i), nn.BatchNorm2d(nOut))
             if leakyRelu:
-                cnn.add_module('relu{0}'.format(i), nn.LeakyReLU(0.2,
-                    inplace=True))
+                cnn.add_module('relu{0}'.format(i), nn.LeakyReLU(0.2, inplace=True))
             else:
                 cnn.add_module('relu{0}'.format(i), nn.ReLU(True))
         convRelu(0)
@@ -101,16 +100,13 @@ class CRNN(nn.Module):
         cnn.add_module('pooling{0}'.format(1), nn.MaxPool2d(2, 2))
         convRelu(2, True)
         convRelu(3)
-        cnn.add_module('pooling{0}'.format(2), nn.MaxPool2d((2, 2), (2, 1),
-            (0, 1)))
+        cnn.add_module('pooling{0}'.format(2), nn.MaxPool2d((2, 2), (2, 1), (0, 1)))
         convRelu(4, True)
         convRelu(5)
-        cnn.add_module('pooling{0}'.format(3), nn.MaxPool2d((2, 2), (2, 1),
-            (0, 1)))
+        cnn.add_module('pooling{0}'.format(3), nn.MaxPool2d((2, 2), (2, 1), (0, 1)))
         convRelu(6, True)
         self.cnn = cnn
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nclass))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nclass))
 
     def forward(self, input):
         conv = self.cnn(input)
@@ -126,8 +122,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BidirectionalLSTM,
+     lambda: ([], {'nIn': 4, 'nHidden': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_meijieru_crnn_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

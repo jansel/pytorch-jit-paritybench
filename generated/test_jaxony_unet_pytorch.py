@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -40,10 +41,8 @@ from torch.nn import init
 import numpy as np
 
 
-def conv3x3(in_channels, out_channels, stride=1, padding=1, bias=True, groups=1
-    ):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=padding, bias=bias, groups=groups)
+def conv3x3(in_channels, out_channels, stride=1, padding=1, bias=True, groups=1):
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=padding, bias=bias, groups=groups)
 
 
 class DownConv(nn.Module):
@@ -72,17 +71,14 @@ class DownConv(nn.Module):
 
 
 def conv1x1(in_channels, out_channels, groups=1):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=
-        groups, stride=1)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=groups, stride=1)
 
 
 def upconv2x2(in_channels, out_channels, mode='transpose'):
     if mode == 'transpose':
-        return nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2,
-            stride=2)
+        return nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
     else:
-        return nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2),
-            conv1x1(in_channels, out_channels))
+        return nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2), conv1x1(in_channels, out_channels))
 
 
 class UpConv(nn.Module):
@@ -91,15 +87,13 @@ class UpConv(nn.Module):
     A ReLU activation follows each convolution.
     """
 
-    def __init__(self, in_channels, out_channels, merge_mode='concat',
-        up_mode='transpose'):
+    def __init__(self, in_channels, out_channels, merge_mode='concat', up_mode='transpose'):
         super(UpConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.merge_mode = merge_mode
         self.up_mode = up_mode
-        self.upconv = upconv2x2(self.in_channels, self.out_channels, mode=
-            self.up_mode)
+        self.upconv = upconv2x2(self.in_channels, self.out_channels, mode=self.up_mode)
         if self.merge_mode == 'concat':
             self.conv1 = conv3x3(2 * self.out_channels, self.out_channels)
         else:
@@ -145,8 +139,7 @@ class UNet(nn.Module):
         the tranpose convolution (specified by upmode='transpose')
     """
 
-    def __init__(self, num_classes, in_channels=3, depth=5, start_filts=64,
-        up_mode='transpose', merge_mode='concat'):
+    def __init__(self, num_classes, in_channels=3, depth=5, start_filts=64, up_mode='transpose', merge_mode='concat'):
         """
         Arguments:
             in_channels: int, number of channels in the input tensor.
@@ -162,19 +155,13 @@ class UNet(nn.Module):
         if up_mode in ('transpose', 'upsample'):
             self.up_mode = up_mode
         else:
-            raise ValueError(
-                '"{}" is not a valid mode for upsampling. Only "transpose" and "upsample" are allowed.'
-                .format(up_mode))
+            raise ValueError('"{}" is not a valid mode for upsampling. Only "transpose" and "upsample" are allowed.'.format(up_mode))
         if merge_mode in ('concat', 'add'):
             self.merge_mode = merge_mode
         else:
-            raise ValueError(
-                '"{}" is not a valid mode formerging up and down paths. Only "concat" and "add" are allowed.'
-                .format(up_mode))
+            raise ValueError('"{}" is not a valid mode formerging up and down paths. Only "concat" and "add" are allowed.'.format(up_mode))
         if self.up_mode == 'upsample' and self.merge_mode == 'add':
-            raise ValueError(
-                'up_mode "upsample" is incompatible with merge_mode "add" at the moment because it doesn\'t make sense to use nearest neighbour to reduce depth channels (by half).'
-                )
+            raise ValueError('up_mode "upsample" is incompatible with merge_mode "add" at the moment because it doesn\'t make sense to use nearest neighbour to reduce depth channels (by half).')
         self.num_classes = num_classes
         self.in_channels = in_channels
         self.start_filts = start_filts
@@ -223,15 +210,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_jaxony_unet_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(DownConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DownConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UpConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_jaxony_unet_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(UNet(*[], **{'num_classes': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(UpConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

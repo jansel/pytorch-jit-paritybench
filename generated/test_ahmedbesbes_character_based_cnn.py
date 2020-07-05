@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,26 +96,16 @@ class CharacterLevelCNN(nn.Module):
     def __init__(self, args, number_of_classes):
         super(CharacterLevelCNN, self).__init__()
         self.dropout_input = nn.Dropout2d(args.dropout_input)
-        self.conv1 = nn.Sequential(nn.Conv1d(args.number_of_characters +
-            len(args.extra_characters), 256, kernel_size=7, padding=0), nn.
-            ReLU(), nn.MaxPool1d(3))
-        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7,
-            padding=0), nn.ReLU(), nn.MaxPool1d(3))
-        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            padding=0), nn.ReLU())
-        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            padding=0), nn.ReLU())
-        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            padding=0), nn.ReLU())
-        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3,
-            padding=0), nn.ReLU(), nn.MaxPool1d(3))
-        input_shape = 128, args.max_length, args.number_of_characters + len(
-            args.extra_characters)
+        self.conv1 = nn.Sequential(nn.Conv1d(args.number_of_characters + len(args.extra_characters), 256, kernel_size=7, padding=0), nn.ReLU(), nn.MaxPool1d(3))
+        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7, padding=0), nn.ReLU(), nn.MaxPool1d(3))
+        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, padding=0), nn.ReLU())
+        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, padding=0), nn.ReLU())
+        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, padding=0), nn.ReLU())
+        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, padding=0), nn.ReLU(), nn.MaxPool1d(3))
+        input_shape = 128, args.max_length, args.number_of_characters + len(args.extra_characters)
         self.output_dimension = self._get_conv_output(input_shape)
-        self.fc1 = nn.Sequential(nn.Linear(self.output_dimension, 1024), nn
-            .ReLU(), nn.Dropout(0.5))
-        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.
-            Dropout(0.5))
+        self.fc1 = nn.Sequential(nn.Linear(self.output_dimension, 1024), nn.ReLU(), nn.Dropout(0.5))
+        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.Dropout(0.5))
         self.fc3 = nn.Linear(1024, number_of_classes)
         self._create_weights()
 
@@ -151,10 +142,3 @@ class CharacterLevelCNN(nn.Module):
         x = self.fc3(x)
         return x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ahmedbesbes_character_based_cnn(_paritybench_base):
-    pass

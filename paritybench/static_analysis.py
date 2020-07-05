@@ -30,6 +30,8 @@ IMPORT_WHITELIST = {
     "typing",
     "uuid",
     "warnings",
+    # "tensorflow",
+    # "sklearn",
 }
 
 

@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -119,8 +120,7 @@ class UnidirectionalInterface(torch.nn.Module):
         Returns:
             The synthesized `message`.
         """
-        return self.synthesizer(trigger, _Manager.get_current_context()
-            ).detach()
+        return self.synthesizer(trigger, _Manager.get_current_context()).detach()
 
     def send(self, message, trigger):
         """Updates the estimate of synthetic `message` based on `trigger`.
@@ -136,8 +136,7 @@ class UnidirectionalInterface(torch.nn.Module):
             trigger: `trigger` that the `message` should be synthesized based
                 on.
         """
-        synthetic_message = self.synthesizer(trigger.detach(), _Manager.
-            get_current_context())
+        synthetic_message = self.synthesizer(trigger.detach(), _Manager.get_current_context())
         loss = F.mse_loss(synthetic_message, message.detach())
         _Manager.backward(loss)
 
@@ -148,8 +147,7 @@ class _SyntheticGradientUpdater(torch.autograd.Function):
     def forward(ctx, trigger, synthetic_gradient):
         _, needs_synthetic_gradient_grad = ctx.needs_input_grad
         if not needs_synthetic_gradient_grad:
-            raise ValueError(
-                'synthetic_gradient should need gradient but it does not')
+            raise ValueError('synthetic_gradient should need gradient but it does not')
         ctx.save_for_backward(synthetic_gradient)
         return trigger.clone()
 
@@ -157,8 +155,7 @@ class _SyntheticGradientUpdater(torch.autograd.Function):
     def backward(ctx, true_gradient):
         synthetic_gradient, = ctx.saved_variables
         batch_size, *_ = synthetic_gradient.size()
-        grad_synthetic_gradient = 2 / batch_size * (synthetic_gradient -
-            true_gradient)
+        grad_synthetic_gradient = 2 / batch_size * (synthetic_gradient - true_gradient)
         return true_gradient, grad_synthetic_gradient
 
 
@@ -232,8 +229,7 @@ class BackwardInterface(UnidirectionalInterface):
             attached.
         """
         if self.training:
-            return _SyntheticGradientUpdater.apply(trigger, self.
-                synthesizer(trigger, _Manager.get_current_context()))
+            return _SyntheticGradientUpdater.apply(trigger, self.synthesizer(trigger, _Manager.get_current_context()))
         else:
             return trigger
 
@@ -362,24 +358,19 @@ class BasicSynthesizer(torch.nn.Module):
             not use context. Defaults to `None`.
     """
 
-    def __init__(self, output_dim, n_hidden=0, hidden_dim=None, trigger_dim
-        =None, context_dim=None):
+    def __init__(self, output_dim, n_hidden=0, hidden_dim=None, trigger_dim=None, context_dim=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = output_dim
         if trigger_dim is None:
             trigger_dim = output_dim
         top_layer_dim = output_dim if n_hidden == 0 else hidden_dim
-        self.input_trigger = torch.nn.Linear(in_features=trigger_dim,
-            out_features=top_layer_dim)
+        self.input_trigger = torch.nn.Linear(in_features=trigger_dim, out_features=top_layer_dim)
         if context_dim is not None:
-            self.input_context = torch.nn.Linear(in_features=context_dim,
-                out_features=top_layer_dim)
+            self.input_context = torch.nn.Linear(in_features=context_dim, out_features=top_layer_dim)
         else:
             self.input_context = None
-        self.layers = torch.nn.ModuleList([torch.nn.Linear(in_features=
-            hidden_dim, out_features=hidden_dim if layer_index < n_hidden -
-            1 else output_dim) for layer_index in range(n_hidden)])
+        self.layers = torch.nn.ModuleList([torch.nn.Linear(in_features=hidden_dim, out_features=hidden_dim if layer_index < n_hidden - 1 else output_dim) for layer_index in range(n_hidden)])
         if n_hidden > 0:
             init.constant(self.layers[-1].weight, 0)
         else:
@@ -417,15 +408,14 @@ def one_hot(indexes, n_classes):
         result = result.cuda()
     result.zero_()
     indexes_rank = len(indexes.size())
-    result.scatter_(dim=indexes_rank, index=indexes.data.unsqueeze(dim=
-        indexes_rank), value=1)
+    result.scatter_(dim=indexes_rank, index=indexes.data.unsqueeze(dim=indexes_rank), value=1)
     return Variable(result)
 
 
-_global_config['dni'] = 4
-
-
 _global_config['context'] = 4
+
+
+_global_config['dni'] = 4
 
 
 class Net(nn.Module):
@@ -475,8 +465,7 @@ class ConvSynthesizer(nn.Module):
     def forward(self, trigger, context):
         x = self.input_trigger(trigger)
         if context is not None:
-            x += self.input_context(context).unsqueeze(2).unsqueeze(3
-                ).expand_as(x)
+            x += self.input_context(context).unsqueeze(2).unsqueeze(3).expand_as(x)
         x = self.hidden(F.relu(x))
         return self.output(F.relu(x))
 
@@ -494,10 +483,7 @@ class Net(nn.Module):
                 context_dim = 10
             else:
                 context_dim = None
-            self.bidirectional_interface = dni.BidirectionalInterface(dni.
-                BasicSynthesizer(output_dim=256, n_hidden=2, trigger_dim=
-                784, context_dim=context_dim), dni.BasicSynthesizer(
-                output_dim=256, n_hidden=2, context_dim=context_dim))
+            self.bidirectional_interface = dni.BidirectionalInterface(dni.BasicSynthesizer(output_dim=256, n_hidden=2, trigger_dim=784, context_dim=context_dim), dni.BasicSynthesizer(output_dim=256, n_hidden=2, context_dim=context_dim))
         self.output = nn.Linear(256, 10, bias=False)
         self.output_bn = nn.BatchNorm1d(10)
 
@@ -529,9 +515,7 @@ class Net(nn.Module):
                 context_dim = 10
             else:
                 context_dim = None
-            self.backward_interface = dni.BackwardInterface(dni.
-                BasicSynthesizer(output_dim=256, n_hidden=1, context_dim=
-                context_dim))
+            self.backward_interface = dni.BackwardInterface(dni.BasicSynthesizer(output_dim=256, n_hidden=1, context_dim=context_dim))
         self.output = nn.Linear(256, 10, bias=False)
         self.output_bn = nn.BatchNorm1d(10)
 
@@ -553,30 +537,23 @@ class Net(nn.Module):
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-        tie_weights=False, use_dni=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False, use_dni=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)
         if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=
-                dropout)
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
         else:
             try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[
-                    rnn_type]
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
             except KeyError:
-                raise ValueError(
-                    """An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']"""
-                    )
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=
-                nonlinearity, dropout=dropout)
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
         self.decoder = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
-                raise ValueError(
-                    'When using the tied flag, nhid must be equal to emsize')
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
             self.decoder.weight = self.encoder.weight
         self.init_weights()
         self.rnn_type = rnn_type
@@ -587,8 +564,7 @@ class RNNModel(nn.Module):
                 output_dim = 2 * nhid
             else:
                 output_dim = nhid
-            self.backward_interface = dni.BackwardInterface(dni.
-                BasicSynthesizer(output_dim, n_hidden=2))
+            self.backward_interface = dni.BackwardInterface(dni.BasicSynthesizer(output_dim, n_hidden=2))
         else:
             self.backward_interface = None
 
@@ -621,16 +597,13 @@ class RNNModel(nn.Module):
             self.backward_interface.backward(hidden, factor=0.1)
             hidden = self.split_hidden(hidden)
         output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0) * output.size(1),
-            output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)
-            ), hidden
+        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()
-                ), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
@@ -639,24 +612,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BackwardInterface,
+     lambda: ([], {'synthesizer': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicSynthesizer,
+     lambda: ([], {'output_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BidirectionalInterface,
+     lambda: ([], {'forward_synthesizer': 4, 'backward_synthesizer': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ForwardInterface,
+     lambda: ([], {'synthesizer': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     False),
+]
+
 class Test_koz4k_dni_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BackwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicSynthesizer(*[], **{'output_dim': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BidirectionalInterface(*[], **{'forward_synthesizer': 4, 'backward_synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ForwardInterface(*[], **{'synthesizer': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Net(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[4])
 

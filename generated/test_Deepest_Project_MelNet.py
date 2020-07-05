@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,14 +81,10 @@ class GMMLoss(nn.Module):
         super(GMMLoss, self).__init__()
 
     def forward(self, x, mu, std, pi, audio_lengths):
-        x = nn.utils.rnn.pack_padded_sequence(x.unsqueeze(-1).transpose(1, 
-            2), audio_lengths, batch_first=True, enforce_sorted=False).data
-        mu = nn.utils.rnn.pack_padded_sequence(mu.transpose(1, 2),
-            audio_lengths, batch_first=True, enforce_sorted=False).data
-        std = nn.utils.rnn.pack_padded_sequence(std.transpose(1, 2),
-            audio_lengths, batch_first=True, enforce_sorted=False).data
-        pi = nn.utils.rnn.pack_padded_sequence(pi.transpose(1, 2),
-            audio_lengths, batch_first=True, enforce_sorted=False).data
+        x = nn.utils.rnn.pack_padded_sequence(x.unsqueeze(-1).transpose(1, 2), audio_lengths, batch_first=True, enforce_sorted=False).data
+        mu = nn.utils.rnn.pack_padded_sequence(mu.transpose(1, 2), audio_lengths, batch_first=True, enforce_sorted=False).data
+        std = nn.utils.rnn.pack_padded_sequence(std.transpose(1, 2), audio_lengths, batch_first=True, enforce_sorted=False).data
+        pi = nn.utils.rnn.pack_padded_sequence(pi.transpose(1, 2), audio_lengths, batch_first=True, enforce_sorted=False).data
         log_prob = Normal(loc=mu, scale=std.exp()).log_prob(x)
         log_distrib = log_prob + F.log_softmax(pi, dim=-1)
         loss = -torch.logsumexp(log_distrib, dim=-1).mean()
@@ -111,10 +108,8 @@ class TierUtil:
     def cut_divide_tiers(self, x, tierNo):
         x = x[:, :x.shape[-1] - x.shape[-1] % self.t_div]
         M, T = x.shape
-        assert M % self.f_div == 0, 'freq(mel) dimension should be divisible by %d, got %d.' % (
-            self.f_div, M)
-        assert T % self.t_div == 0, 'time dimension should be divisible by %d, got %d.' % (
-            self.t_div, T)
+        assert M % self.f_div == 0, 'freq(mel) dimension should be divisible by %d, got %d.' % (self.f_div, M)
+        assert T % self.t_div == 0, 'time dimension should be divisible by %d, got %d.' % (self.t_div, T)
         tiers = list()
         for i in range(self.hp.model.tier, max(1, tierNo - 1), -1):
             if i % 2 == 0:
@@ -136,9 +131,7 @@ class TierUtil:
             y: x^{g}
             tier: g+1
         """
-        assert x.size() == y.size(
-            ), 'two inputs for interleave should be identical: got %s, %s' % (x
-            .size(), y.size())
+        assert x.size() == y.size(), 'two inputs for interleave should be identical: got %s, %s' % (x.size(), y.size())
         B, M, T = x.size()
         if tier % 2 == 0:
             temp = x.new_zeros(B, M, 2 * T)
@@ -287,8 +280,7 @@ def _text_to_sequence(text, cleaner_names, as_token):
         if not m:
             sequence += _symbols_to_sequence(_clean_text(text, cleaner_names))
             break
-        sequence += _symbols_to_sequence(_clean_text(m.group(1), cleaner_names)
-            )
+        sequence += _symbols_to_sequence(_clean_text(m.group(1), cleaner_names))
         sequence += _arpabet_to_sequence(m.group(2))
         text = m.group(3)
     sequence.append(_symbol_to_id[EOS])
@@ -314,17 +306,10 @@ class MelNet(nn.Module):
         self.n_mels = hp.audio.n_mels
         self.tierutil = TierUtil(hp)
         if infer_hp.conditional:
-            self.tiers = [TTS(hp=hp, freq=hp.audio.n_mels // self.f_div *
-                f_div[1], layers=hp.model.layers[0])] + [Tier(hp=hp, freq=
-                hp.audio.n_mels // self.f_div * f_div[tier], layers=hp.
-                model.layers[tier - 1], tierN=tier) for tier in range(2, hp
-                .model.tier + 1)]
+            self.tiers = [TTS(hp=hp, freq=hp.audio.n_mels // self.f_div * f_div[1], layers=hp.model.layers[0])] + [Tier(hp=hp, freq=hp.audio.n_mels // self.f_div * f_div[tier], layers=hp.model.layers[tier - 1], tierN=tier) for tier in range(2, hp.model.tier + 1)]
         else:
-            self.tiers = [Tier(hp=hp, freq=hp.audio.n_mels // self.f_div *
-                f_div[tier], layers=hp.model.layers[tier - 1], tierN=tier) for
-                tier in range(1, hp.model.tier + 1)]
-        self.tiers = nn.ModuleList([None] + [nn.DataParallel(tier) for tier in
-            self.tiers])
+            self.tiers = [Tier(hp=hp, freq=hp.audio.n_mels // self.f_div * f_div[tier], layers=hp.model.layers[tier - 1], tierN=tier) for tier in range(1, hp.model.tier + 1)]
+        self.tiers = nn.ModuleList([None] + [nn.DataParallel(tier) for tier in self.tiers])
 
     def forward(self, x, tier_num):
         assert tier_num > 0, 'tier_num should be larger than 0, got %d' % tier_num
@@ -341,13 +326,11 @@ class MelNet(nn.Module):
             if x is None:
                 x = torch.zeros((1, self.n_mels // self.f_div, 1))
             else:
-                x = torch.cat([x, torch.zeros((1, self.n_mels // self.f_div,
-                    1))], dim=-1)
+                x = torch.cat([x, torch.zeros((1, self.n_mels // self.f_div, 1))], dim=-1)
             for m in tqdm(range(self.n_mels // self.f_div)):
                 torch.synchronize()
                 if self.infer_hp.conditional:
-                    mu, std, pi, _ = self.tiers[1](x, seq, input_lengths,
-                        audio_lengths)
+                    mu, std, pi, _ = self.tiers[1](x, seq, input_lengths, audio_lengths)
                 else:
                     mu, std, pi = self.tiers[1](x, audio_lengths)
                 temp = sample_gmm(mu, std, pi)
@@ -373,14 +356,10 @@ class DelayedRNN(nn.Module):
     def __init__(self, hp):
         super(DelayedRNN, self).__init__()
         self.num_hidden = hp.model.hidden
-        self.t_delay_RNN_x = nn.LSTM(input_size=self.num_hidden,
-            hidden_size=self.num_hidden, batch_first=True)
-        self.t_delay_RNN_yz = nn.LSTM(input_size=self.num_hidden,
-            hidden_size=self.num_hidden, batch_first=True, bidirectional=True)
-        self.c_RNN = nn.LSTM(input_size=self.num_hidden, hidden_size=self.
-            num_hidden, batch_first=True)
-        self.f_delay_RNN = nn.LSTM(input_size=self.num_hidden, hidden_size=
-            self.num_hidden, batch_first=True)
+        self.t_delay_RNN_x = nn.LSTM(input_size=self.num_hidden, hidden_size=self.num_hidden, batch_first=True)
+        self.t_delay_RNN_yz = nn.LSTM(input_size=self.num_hidden, hidden_size=self.num_hidden, batch_first=True, bidirectional=True)
+        self.c_RNN = nn.LSTM(input_size=self.num_hidden, hidden_size=self.num_hidden, batch_first=True)
+        self.f_delay_RNN = nn.LSTM(input_size=self.num_hidden, hidden_size=self.num_hidden, batch_first=True)
         self.W_t = nn.Linear(3 * self.num_hidden, self.num_hidden)
         self.W_c = nn.Linear(self.num_hidden, self.num_hidden)
         self.W_f = nn.Linear(self.num_hidden, self.num_hidden)
@@ -395,12 +374,9 @@ class DelayedRNN(nn.Module):
         self.flatten_rnn()
         B, M, T, D = input_h_t.size()
         h_t_x_temp = input_h_t.view(-1, T, D)
-        h_t_x_packed = nn.utils.rnn.pack_padded_sequence(h_t_x_temp,
-            audio_lengths.unsqueeze(1).repeat(1, M).reshape(-1),
-            batch_first=True, enforce_sorted=False)
+        h_t_x_packed = nn.utils.rnn.pack_padded_sequence(h_t_x_temp, audio_lengths.unsqueeze(1).repeat(1, M).reshape(-1), batch_first=True, enforce_sorted=False)
         h_t_x, _ = self.t_delay_RNN_x(h_t_x_packed)
-        h_t_x, _ = nn.utils.rnn.pad_packed_sequence(h_t_x, batch_first=True,
-            total_length=T)
+        h_t_x, _ = nn.utils.rnn.pad_packed_sequence(h_t_x, batch_first=True, total_length=T)
         h_t_x = h_t_x.view(B, M, T, D)
         h_t_yz_temp = input_h_t.transpose(1, 2).contiguous()
         h_t_yz_temp = h_t_yz_temp.view(-1, M, D)
@@ -409,11 +385,9 @@ class DelayedRNN(nn.Module):
         h_t_yz = h_t_yz.transpose(1, 2)
         h_t_concat = torch.cat((h_t_x, h_t_yz), dim=3)
         output_h_t = input_h_t + self.W_t(h_t_concat)
-        h_c_temp = nn.utils.rnn.pack_padded_sequence(input_h_c,
-            audio_lengths, batch_first=True, enforce_sorted=False)
+        h_c_temp = nn.utils.rnn.pack_padded_sequence(input_h_c, audio_lengths, batch_first=True, enforce_sorted=False)
         h_c_temp, _ = self.c_RNN(h_c_temp)
-        h_c_temp, _ = nn.utils.rnn.pad_packed_sequence(h_c_temp,
-            batch_first=True, total_length=T)
+        h_c_temp, _ = nn.utils.rnn.pad_packed_sequence(h_c_temp, batch_first=True, total_length=T)
         output_h_c = input_h_c + self.W_c(h_c_temp)
         h_c_expanded = output_h_c.unsqueeze(1)
         h_f_sum = input_h_f + output_h_t + h_c_expanded
@@ -437,12 +411,10 @@ class Tier(nn.Module):
             self.W_t_0 = nn.Linear(1, num_hidden)
             self.W_f_0 = nn.Linear(1, num_hidden)
             self.W_c_0 = nn.Linear(freq, num_hidden)
-            self.layers = nn.ModuleList([DelayedRNN(hp) for _ in range(layers)]
-                )
+            self.layers = nn.ModuleList([DelayedRNN(hp) for _ in range(layers)])
         else:
             self.W_t = nn.Linear(1, num_hidden)
-            self.layers = nn.ModuleList([UpsampleRNN(hp) for _ in range(
-                layers)])
+            self.layers = nn.ModuleList([UpsampleRNN(hp) for _ in range(layers)])
         self.K = hp.model.gmm
         self.pi_softmax = nn.Softmax(dim=3)
         self.W_theta = nn.Linear(num_hidden, 3 * self.K)
@@ -470,8 +442,7 @@ class Attention(nn.Module):
     def __init__(self, hp):
         super(Attention, self).__init__()
         self.M = hp.model.gmm
-        self.rnn_cell = nn.LSTMCell(input_size=2 * hp.model.hidden,
-            hidden_size=hp.model.hidden)
+        self.rnn_cell = nn.LSTMCell(input_size=2 * hp.model.hidden, hidden_size=hp.model.hidden)
         self.W_g = nn.Linear(hp.model.hidden, 3 * self.M)
 
     def attention(self, h_i, memory, ksi):
@@ -482,10 +453,8 @@ class Attention(nn.Module):
         u = memory.new_tensor(np.arange(memory.size(1)), dtype=torch.float)
         u_R = u + 1.5
         u_L = u + 0.5
-        term1 = torch.sum(alpha.unsqueeze(-1) * torch.sigmoid((u_R - ksi.
-            unsqueeze(-1)) / beta.unsqueeze(-1)), keepdim=True, dim=1)
-        term2 = torch.sum(alpha.unsqueeze(-1) * torch.sigmoid((u_L - ksi.
-            unsqueeze(-1)) / beta.unsqueeze(-1)), keepdim=True, dim=1)
+        term1 = torch.sum(alpha.unsqueeze(-1) * torch.sigmoid((u_R - ksi.unsqueeze(-1)) / beta.unsqueeze(-1)), keepdim=True, dim=1)
+        term2 = torch.sum(alpha.unsqueeze(-1) * torch.sigmoid((u_L - ksi.unsqueeze(-1)) / beta.unsqueeze(-1)), keepdim=True, dim=1)
         weights = term1 - term2
         context = torch.bmm(weights, memory)
         termination = 1 - term1.squeeze(1)
@@ -500,8 +469,7 @@ class Attention(nn.Module):
         for i in range(T):
             x = torch.cat([input_h_c[:, (i)], context.squeeze(1)], dim=-1)
             h_i, c_i = self.rnn_cell(x, (h_i, c_i))
-            context, weight, termination, ksi = self.attention(h_i, memory, ksi
-                )
+            context, weight, termination, ksi = self.attention(h_i, memory, ksi)
             contexts.append(context)
             weights.append(weight)
         contexts = torch.cat(contexts, dim=1) + input_h_c
@@ -509,8 +477,7 @@ class Attention(nn.Module):
         return contexts, alignment
 
 
-en_symbols = (PAD + EOS +
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? ")
+en_symbols = PAD + EOS + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!'(),-.:;? "
 
 
 class TTS(nn.Module):
@@ -527,22 +494,18 @@ class TTS(nn.Module):
         if self.hp.data.name == 'KSS':
             self.embedding_text = nn.Embedding(len(symbols), hp.model.hidden)
         elif self.hp.data.name == 'Blizzard':
-            self.embedding_text = nn.Embedding(len(en_symbols), hp.model.hidden
-                )
+            self.embedding_text = nn.Embedding(len(en_symbols), hp.model.hidden)
         else:
             raise NotImplementedError
-        self.text_lstm = nn.LSTM(input_size=hp.model.hidden, hidden_size=hp
-            .model.hidden // 2, batch_first=True, bidirectional=True)
+        self.text_lstm = nn.LSTM(input_size=hp.model.hidden, hidden_size=hp.model.hidden // 2, batch_first=True, bidirectional=True)
         self.attention = Attention(hp)
 
     def text_encode(self, text, text_lengths):
         total_length = text.size(1)
         embed = self.embedding_text(text)
-        packed = nn.utils.rnn.pack_padded_sequence(embed, text_lengths,
-            batch_first=True, enforce_sorted=False)
+        packed = nn.utils.rnn.pack_padded_sequence(embed, text_lengths, batch_first=True, enforce_sorted=False)
         memory, _ = self.text_lstm(packed)
-        unpacked, _ = nn.utils.rnn.pad_packed_sequence(memory, batch_first=
-            True, total_length=total_length)
+        unpacked, _ = nn.utils.rnn.pad_packed_sequence(memory, batch_first=True, total_length=total_length)
         return unpacked
 
     def forward(self, x, text, text_lengths, audio_lengths):
@@ -568,10 +531,8 @@ class UpsampleRNN(nn.Module):
     def __init__(self, hp):
         super(UpsampleRNN, self).__init__()
         self.num_hidden = hp.model.hidden
-        self.rnn_x = nn.LSTM(input_size=self.num_hidden, hidden_size=self.
-            num_hidden, batch_first=True, bidirectional=True)
-        self.rnn_y = nn.LSTM(input_size=self.num_hidden, hidden_size=self.
-            num_hidden, batch_first=True, bidirectional=True)
+        self.rnn_x = nn.LSTM(input_size=self.num_hidden, hidden_size=self.num_hidden, batch_first=True, bidirectional=True)
+        self.rnn_y = nn.LSTM(input_size=self.num_hidden, hidden_size=self.num_hidden, batch_first=True, bidirectional=True)
         self.W = nn.Linear(4 * self.num_hidden, self.num_hidden)
 
     def flatten_parameters(self):
@@ -582,12 +543,9 @@ class UpsampleRNN(nn.Module):
         self.flatten_parameters()
         B, M, T, D = inp.size()
         inp_temp = inp.view(-1, T, D)
-        inp_temp = nn.utils.rnn.pack_padded_sequence(inp_temp,
-            audio_lengths.unsqueeze(1).repeat(1, M).reshape(-1),
-            batch_first=True, enforce_sorted=False)
+        inp_temp = nn.utils.rnn.pack_padded_sequence(inp_temp, audio_lengths.unsqueeze(1).repeat(1, M).reshape(-1), batch_first=True, enforce_sorted=False)
         x, _ = self.rnn_x(inp_temp)
-        x, _ = nn.utils.rnn.pad_packed_sequence(x, batch_first=True,
-            total_length=T)
+        x, _ = nn.utils.rnn.pad_packed_sequence(x, batch_first=True, total_length=T)
         x = x.view(B, M, T, 2 * D)
         y, _ = self.rnn_y(inp.transpose(1, 2).contiguous().view(-1, M, D))
         y = y.view(B, T, M, 2 * D).transpose(1, 2).contiguous()
@@ -595,10 +553,3 @@ class UpsampleRNN(nn.Module):
         output = inp + self.W(z)
         return output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_Deepest_Project_MelNet(_paritybench_base):
-    pass

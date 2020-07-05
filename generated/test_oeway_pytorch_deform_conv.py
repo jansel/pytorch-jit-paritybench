@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -126,8 +127,7 @@ class DeformConvNet(nn.Module):
                     param.requires_grad = True
 
     def parameters(self):
-        return filter(lambda p: p.requires_grad, super(DeformConvNet, self)
-            .parameters())
+        return filter(lambda p: p.requires_grad, super(DeformConvNet, self).parameters())
 
 
 def th_flatten(a):
@@ -156,8 +156,7 @@ def th_batch_map_coordinates(input, coords, order=1):
     input_height = input.size(1)
     input_width = input.size(2)
     n_coords = coords.size(1)
-    coords = torch.cat((torch.clamp(coords.narrow(2, 0, 1), 0, input_height -
-        1), torch.clamp(coords.narrow(2, 1, 1), 0, input_width - 1)), 2)
+    coords = torch.cat((torch.clamp(coords.narrow(2, 0, 1), 0, input_height - 1), torch.clamp(coords.narrow(2, 1, 1), 0, input_width - 1)), 2)
     assert coords.size(1) == n_coords
     coords_lt = coords.floor().long()
     coords_rb = coords.ceil().long()
@@ -169,10 +168,8 @@ def th_batch_map_coordinates(input, coords, order=1):
         idx = idx.cuda()
 
     def _get_vals_by_coords(input, coords):
-        indices = torch.stack([idx, th_flatten(coords[..., 0]), th_flatten(
-            coords[..., 1])], 1)
-        inds = indices[:, (0)] * input.size(1) * input.size(2) + indices[:, (1)
-            ] * input.size(2) + indices[:, (2)]
+        indices = torch.stack([idx, th_flatten(coords[..., 0]), th_flatten(coords[..., 1])], 1)
+        inds = indices[:, (0)] * input.size(1) * input.size(2) + indices[:, (1)] * input.size(2) + indices[:, (2)]
         vals = th_flatten(input).index_select(0, inds)
         vals = vals.view(batch_size, n_coords)
         return vals
@@ -221,8 +218,7 @@ def th_batch_map_offsets(input, offsets, grid=None, order=1):
     input_width = input.size(2)
     offsets = offsets.view(batch_size, -1, 2)
     if grid is None:
-        grid = th_generate_grid(batch_size, input_height, input_width,
-            offsets.data.type(), offsets.data.is_cuda)
+        grid = th_generate_grid(batch_size, input_height, input_width, offsets.data.type(), offsets.data.is_cuda)
     coords = offsets + grid
     mapped_vals = th_batch_map_coordinates(input, coords)
     return mapped_vals
@@ -252,10 +248,8 @@ class ConvOffset2D(nn.Conv2d):
         """
         self.filters = filters
         self._grid_param = None
-        super(ConvOffset2D, self).__init__(self.filters, self.filters * 2, 
-            3, padding=1, bias=False, **kwargs)
-        self.weight.data.copy_(self._init_weights(self.weight,
-            init_normal_stddev))
+        super(ConvOffset2D, self).__init__(self.filters, self.filters * 2, 3, padding=1, bias=False, **kwargs)
+        self.weight.data.copy_(self._init_weights(self.weight, init_normal_stddev))
 
     def forward(self, x):
         """Return the deformed featured map"""
@@ -263,8 +257,7 @@ class ConvOffset2D(nn.Conv2d):
         offsets = super(ConvOffset2D, self).forward(x)
         offsets = self._to_bc_h_w_2(offsets, x_shape)
         x = self._to_bc_h_w(x, x_shape)
-        x_offset = th_batch_map_offsets(x, offsets, grid=self._get_grid(
-            self, x))
+        x_offset = th_batch_map_offsets(x, offsets, grid=self._get_grid(self, x))
         x_offset = self._to_b_c_h_w(x_offset, x_shape)
         return x_offset
 
@@ -272,12 +265,10 @@ class ConvOffset2D(nn.Conv2d):
     def _get_grid(self, x):
         batch_size, input_height, input_width = x.size(0), x.size(1), x.size(2)
         dtype, cuda = x.data.type(), x.data.is_cuda
-        if self._grid_param == (batch_size, input_height, input_width,
-            dtype, cuda):
+        if self._grid_param == (batch_size, input_height, input_width, dtype, cuda):
             return self._grid
         self._grid_param = batch_size, input_height, input_width, dtype, cuda
-        self._grid = th_generate_grid(batch_size, input_height, input_width,
-            dtype, cuda)
+        self._grid = th_generate_grid(batch_size, input_height, input_width, dtype, cuda)
         return self._grid
 
     @staticmethod
@@ -302,8 +293,7 @@ class ConvOffset2D(nn.Conv2d):
     @staticmethod
     def _to_b_c_h_w(x, x_shape):
         """(b*c, h, w) -> (b, c, h, w)"""
-        x = x.contiguous().view(-1, int(x_shape[1]), int(x_shape[2]), int(
-            x_shape[3]))
+        x = x.contiguous().view(-1, int(x_shape[1]), int(x_shape[2]), int(x_shape[3]))
         return x
 
 
@@ -311,16 +301,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (ConvOffset2D,
+     lambda: ([], {'filters': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DeformConvNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+]
+
 class Test_oeway_pytorch_deform_conv(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ConvOffset2D(*[], **{'filters': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DeformConvNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

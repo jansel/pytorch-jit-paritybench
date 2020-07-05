@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,9 +54,7 @@ from torch.nn import init
 
 class MLP(nn.Module):
 
-    def __init__(self, input_size, output_size, hidden_size=400,
-        hidden_layer_num=2, hidden_dropout_prob=0.5, input_dropout_prob=0.2,
-        lamda=40):
+    def __init__(self, input_size, output_size, hidden_size=400, hidden_layer_num=2, hidden_dropout_prob=0.5, input_dropout_prob=0.2, lamda=40):
         super().__init__()
         self.input_size = input_size
         self.input_dropout_prob = input_dropout_prob
@@ -64,20 +63,11 @@ class MLP(nn.Module):
         self.hidden_dropout_prob = hidden_dropout_prob
         self.output_size = output_size
         self.lamda = lamda
-        self.layers = nn.ModuleList([nn.Linear(self.input_size, self.
-            hidden_size), nn.ReLU(), nn.Dropout(self.input_dropout_prob), *
-            ((nn.Linear(self.hidden_size, self.hidden_size), nn.ReLU(), nn.
-            Dropout(self.hidden_dropout_prob)) * self.hidden_layer_num), nn
-            .Linear(self.hidden_size, self.output_size)])
+        self.layers = nn.ModuleList([nn.Linear(self.input_size, self.hidden_size), nn.ReLU(), nn.Dropout(self.input_dropout_prob), *((nn.Linear(self.hidden_size, self.hidden_size), nn.ReLU(), nn.Dropout(self.hidden_dropout_prob)) * self.hidden_layer_num), nn.Linear(self.hidden_size, self.output_size)])
 
     @property
     def name(self):
-        return (
-            'MLP-lambda{lamda}-in{input_size}-out{output_size}-h{hidden_size}x{hidden_layer_num}-dropout_in{input_dropout_prob}_hidden{hidden_dropout_prob}'
-            .format(lamda=self.lamda, input_size=self.input_size,
-            output_size=self.output_size, hidden_size=self.hidden_size,
-            hidden_layer_num=self.hidden_layer_num, input_dropout_prob=self
-            .input_dropout_prob, hidden_dropout_prob=self.hidden_dropout_prob))
+        return 'MLP-lambda{lamda}-in{input_size}-out{output_size}-h{hidden_size}x{hidden_layer_num}-dropout_in{input_dropout_prob}_hidden{hidden_dropout_prob}'.format(lamda=self.lamda, input_size=self.input_size, output_size=self.output_size, hidden_size=self.hidden_size, hidden_layer_num=self.hidden_layer_num, input_dropout_prob=self.input_dropout_prob, hidden_dropout_prob=self.hidden_dropout_prob)
 
     def forward(self, x):
         return reduce(lambda x, l: l(x), self.layers, x)
@@ -89,18 +79,14 @@ class MLP(nn.Module):
             x = x.view(batch_size, -1)
             x = Variable(x) if self._is_on_cuda() else Variable(x)
             y = Variable(y) if self._is_on_cuda() else Variable(y)
-            loglikelihoods.append(F.log_softmax(self(x), dim=1)[range(
-                batch_size), y.data])
+            loglikelihoods.append(F.log_softmax(self(x), dim=1)[range(batch_size), y.data])
             if len(loglikelihoods) >= sample_size // batch_size:
                 break
         loglikelihoods = torch.cat(loglikelihoods).unbind()
-        loglikelihood_grads = zip(*[autograd.grad(l, self.parameters(),
-            retain_graph=i < len(loglikelihoods)) for i, l in enumerate(
-            loglikelihoods, 1)])
+        loglikelihood_grads = zip(*[autograd.grad(l, self.parameters(), retain_graph=i < len(loglikelihoods)) for i, l in enumerate(loglikelihoods, 1)])
         loglikelihood_grads = [torch.stack(gs) for gs in loglikelihood_grads]
         fisher_diagonals = [(g ** 2).mean(0) for g in loglikelihood_grads]
-        param_names = [n.replace('.', '__') for n, p in self.named_parameters()
-            ]
+        param_names = [n.replace('.', '__') for n, p in self.named_parameters()]
         return {n: f.detach() for n, f in zip(param_names, fisher_diagonals)}
 
     def consolidate(self, fisher):
@@ -121,8 +107,7 @@ class MLP(nn.Module):
                 losses.append((fisher * (p - mean) ** 2).sum())
             return self.lamda / 2 * sum(losses)
         except AttributeError:
-            return Variable(torch.zeros(1)) if cuda else Variable(torch.
-                zeros(1))
+            return Variable(torch.zeros(1)) if cuda else Variable(torch.zeros(1))
 
     def _is_on_cuda(self):
         return next(self.parameters()).is_cuda
@@ -132,9 +117,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_kuc2477_pytorch_ewc(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MLP(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

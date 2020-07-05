@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ class DotProductAttention(nn.Module):
         hidden_size = queries.size(2)
         input_lengths = values.size(1)
         attention_scores = torch.bmm(queries, values.transpose(1, 2))
-        attention_distribution = F.softmax(attention_scores.view(-1,
-            input_lengths), dim=1).view(batch_size, -1, input_lengths)
+        attention_distribution = F.softmax(attention_scores.view(-1, input_lengths), dim=1).view(batch_size, -1, input_lengths)
         attention_output = torch.bmm(attention_distribution, values)
         return attention_output, attention_distribution
 
@@ -110,8 +110,7 @@ class Decoder(nn.Module):
     """
     """
 
-    def __init__(self, vocab_size, embedding_dim, sos_id, eos_id,
-        hidden_size, num_layers, bidirectional_encoder=True):
+    def __init__(self, vocab_size, embedding_dim, sos_id, eos_id, hidden_size, num_layers, bidirectional_encoder=True):
         super(Decoder, self).__init__()
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
@@ -123,14 +122,11 @@ class Decoder(nn.Module):
         self.encoder_hidden_size = hidden_size
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_dim)
         self.rnn = nn.ModuleList()
-        self.rnn += [nn.LSTMCell(self.embedding_dim + self.
-            encoder_hidden_size, self.hidden_size)]
+        self.rnn += [nn.LSTMCell(self.embedding_dim + self.encoder_hidden_size, self.hidden_size)]
         for l in range(1, self.num_layers):
             self.rnn += [nn.LSTMCell(self.hidden_size, self.hidden_size)]
         self.attention = DotProductAttention()
-        self.mlp = nn.Sequential(nn.Linear(self.encoder_hidden_size + self.
-            hidden_size, self.hidden_size), nn.Tanh(), nn.Linear(self.
-            hidden_size, self.vocab_size))
+        self.mlp = nn.Sequential(nn.Linear(self.encoder_hidden_size + self.hidden_size, self.hidden_size), nn.Tanh(), nn.Linear(self.hidden_size, self.vocab_size))
 
     def zero_state(self, encoder_padded_outputs, H=None):
         N = encoder_padded_outputs.size(0)
@@ -161,28 +157,23 @@ class Decoder(nn.Module):
         for l in range(1, self.num_layers):
             h_list.append(self.zero_state(encoder_padded_outputs))
             c_list.append(self.zero_state(encoder_padded_outputs))
-        att_c = self.zero_state(encoder_padded_outputs, H=
-            encoder_padded_outputs.size(2))
+        att_c = self.zero_state(encoder_padded_outputs, H=encoder_padded_outputs.size(2))
         y_all = []
         embedded = self.embedding(ys_in_pad)
         for t in range(output_length):
             rnn_input = torch.cat((embedded[:, (t), :], att_c), dim=1)
-            h_list[0], c_list[0] = self.rnn[0](rnn_input, (h_list[0],
-                c_list[0]))
+            h_list[0], c_list[0] = self.rnn[0](rnn_input, (h_list[0], c_list[0]))
             for l in range(1, self.num_layers):
-                h_list[l], c_list[l] = self.rnn[l](h_list[l - 1], (h_list[l
-                    ], c_list[l]))
+                h_list[l], c_list[l] = self.rnn[l](h_list[l - 1], (h_list[l], c_list[l]))
             rnn_output = h_list[-1]
-            att_c, att_w = self.attention(rnn_output.unsqueeze(dim=1),
-                encoder_padded_outputs)
+            att_c, att_w = self.attention(rnn_output.unsqueeze(dim=1), encoder_padded_outputs)
             att_c = att_c.squeeze(dim=1)
             mlp_input = torch.cat((rnn_output, att_c), dim=1)
             predicted_y_t = self.mlp(mlp_input)
             y_all.append(predicted_y_t)
         y_all = torch.stack(y_all, dim=1)
         y_all = y_all.view(batch_size * output_length, self.vocab_size)
-        ce_loss = F.cross_entropy(y_all, ys_out_pad.view(-1), ignore_index=
-            IGNORE_ID, reduction='elementwise_mean')
+        ce_loss = F.cross_entropy(y_all, ys_out_pad.view(-1), ignore_index=IGNORE_ID, reduction='elementwise_mean')
         return ce_loss
 
     def recognize_beam(self, encoder_outputs, char_list, args):
@@ -206,12 +197,10 @@ class Decoder(nn.Module):
         for l in range(1, self.num_layers):
             h_list.append(self.zero_state(encoder_outputs.unsqueeze(0)))
             c_list.append(self.zero_state(encoder_outputs.unsqueeze(0)))
-        att_c = self.zero_state(encoder_outputs.unsqueeze(0), H=
-            encoder_outputs.unsqueeze(0).size(2))
+        att_c = self.zero_state(encoder_outputs.unsqueeze(0), H=encoder_outputs.unsqueeze(0).size(2))
         y = self.sos_id
         vy = encoder_outputs.new_zeros(1).long()
-        hyp = {'score': 0.0, 'yseq': [y], 'c_prev': c_list, 'h_prev':
-            h_list, 'a_prev': att_c}
+        hyp = {'score': 0.0, 'yseq': [y], 'c_prev': c_list, 'h_prev': h_list, 'a_prev': att_c}
         hyps = [hyp]
         ended_hyps = []
         for i in range(maxlen):
@@ -220,20 +209,16 @@ class Decoder(nn.Module):
                 vy[0] = hyp['yseq'][i]
                 embedded = self.embedding(vy)
                 rnn_input = torch.cat((embedded, hyp['a_prev']), dim=1)
-                h_list[0], c_list[0] = self.rnn[0](rnn_input, (hyp['h_prev'
-                    ][0], hyp['c_prev'][0]))
+                h_list[0], c_list[0] = self.rnn[0](rnn_input, (hyp['h_prev'][0], hyp['c_prev'][0]))
                 for l in range(1, self.num_layers):
-                    h_list[l], c_list[l] = self.rnn[l](h_list[l - 1], (hyp[
-                        'h_prev'][l], hyp['c_prev'][l]))
+                    h_list[l], c_list[l] = self.rnn[l](h_list[l - 1], (hyp['h_prev'][l], hyp['c_prev'][l]))
                 rnn_output = h_list[-1]
-                att_c, att_w = self.attention(rnn_output.unsqueeze(dim=1),
-                    encoder_outputs.unsqueeze(0))
+                att_c, att_w = self.attention(rnn_output.unsqueeze(dim=1), encoder_outputs.unsqueeze(0))
                 att_c = att_c.squeeze(dim=1)
                 mlp_input = torch.cat((rnn_output, att_c), dim=1)
                 predicted_y_t = self.mlp(mlp_input)
                 local_scores = F.log_softmax(predicted_y_t, dim=1)
-                local_best_scores, local_best_ids = torch.topk(local_scores,
-                    beam, dim=1)
+                local_best_scores, local_best_ids = torch.topk(local_scores, beam, dim=1)
                 for j in range(beam):
                     new_hyp = {}
                     new_hyp['h_prev'] = h_list[:]
@@ -242,11 +227,9 @@ class Decoder(nn.Module):
                     new_hyp['score'] = hyp['score'] + local_best_scores[0, j]
                     new_hyp['yseq'] = [0] * (1 + len(hyp['yseq']))
                     new_hyp['yseq'][:len(hyp['yseq'])] = hyp['yseq']
-                    new_hyp['yseq'][len(hyp['yseq'])] = int(local_best_ids[
-                        0, j])
+                    new_hyp['yseq'][len(hyp['yseq'])] = int(local_best_ids[0, j])
                     hyps_best_kept.append(new_hyp)
-                hyps_best_kept = sorted(hyps_best_kept, key=lambda x: x[
-                    'score'], reverse=True)[:beam]
+                hyps_best_kept = sorted(hyps_best_kept, key=lambda x: x['score'], reverse=True)[:beam]
             hyps = hyps_best_kept
             if i == maxlen - 1:
                 for hyp in hyps:
@@ -265,8 +248,7 @@ class Decoder(nn.Module):
                 break
             for hyp in hyps:
                 None
-        nbest_hyps = sorted(ended_hyps, key=lambda x: x['score'], reverse=True
-            )[:min(len(ended_hyps), nbest)]
+        nbest_hyps = sorted(ended_hyps, key=lambda x: x['score'], reverse=True)[:min(len(ended_hyps), nbest)]
         return nbest_hyps
 
 
@@ -274,8 +256,7 @@ class Encoder(nn.Module):
     """Applies a multi-layer LSTM to an variable length input sequence.
     """
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout=0.0,
-        bidirectional=True, rnn_type='lstm'):
+    def __init__(self, input_size, hidden_size, num_layers, dropout=0.0, bidirectional=True, rnn_type='lstm'):
         super(Encoder, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -284,8 +265,7 @@ class Encoder(nn.Module):
         self.rnn_type = rnn_type
         self.dropout = dropout
         if self.rnn_type == 'lstm':
-            self.rnn = nn.LSTM(input_size, hidden_size, num_layers,
-                batch_first=True, dropout=dropout, bidirectional=bidirectional)
+            self.rnn = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout, bidirectional=bidirectional)
 
     def forward(self, padded_input, input_lengths):
         """
@@ -298,11 +278,9 @@ class Encoder(nn.Module):
             - **hidden**: (num_layers * num_directions) x N x H 
         """
         total_length = padded_input.size(1)
-        packed_input = pack_padded_sequence(padded_input, input_lengths,
-            batch_first=True)
+        packed_input = pack_padded_sequence(padded_input, input_lengths, batch_first=True)
         packed_output, hidden = self.rnn(packed_input)
-        output, _ = pad_packed_sequence(packed_output, batch_first=True,
-            total_length=total_length)
+        output, _ = pad_packed_sequence(packed_output, batch_first=True, total_length=total_length)
         return output, hidden
 
     def flatten_parameters(self):
@@ -340,8 +318,7 @@ class Seq2Seq(nn.Module):
             nbest_hyps:
         """
         encoder_outputs, _ = self.encoder(input.unsqueeze(0), input_length)
-        nbest_hyps = self.decoder.recognize_beam(encoder_outputs[0],
-            char_list, args)
+        nbest_hyps = self.decoder.recognize_beam(encoder_outputs[0], char_list, args)
         return nbest_hyps
 
     @classmethod
@@ -352,12 +329,8 @@ class Seq2Seq(nn.Module):
 
     @classmethod
     def load_model_from_package(cls, package):
-        encoder = Encoder(package['einput'], package['ehidden'], package[
-            'elayer'], dropout=package['edropout'], bidirectional=package[
-            'ebidirectional'], rnn_type=package['etype'])
-        decoder = Decoder(package['dvocab_size'], package['dembed'],
-            package['dsos_id'], package['deos_id'], package['dhidden'],
-            package['dlayer'], bidirectional_encoder=package['ebidirectional'])
+        encoder = Encoder(package['einput'], package['ehidden'], package['elayer'], dropout=package['edropout'], bidirectional=package['ebidirectional'], rnn_type=package['etype'])
+        decoder = Decoder(package['dvocab_size'], package['dembed'], package['dsos_id'], package['deos_id'], package['dhidden'], package['dlayer'], bidirectional_encoder=package['ebidirectional'])
         encoder.flatten_parameters()
         model = cls(encoder, decoder)
         model.load_state_dict(package['state_dict'])
@@ -365,16 +338,7 @@ class Seq2Seq(nn.Module):
 
     @staticmethod
     def serialize(model, optimizer, epoch, tr_loss=None, cv_loss=None):
-        package = {'einput': model.encoder.input_size, 'ehidden': model.
-            encoder.hidden_size, 'elayer': model.encoder.num_layers,
-            'edropout': model.encoder.dropout, 'ebidirectional': model.
-            encoder.bidirectional, 'etype': model.encoder.rnn_type,
-            'dvocab_size': model.decoder.vocab_size, 'dembed': model.
-            decoder.embedding_dim, 'dsos_id': model.decoder.sos_id,
-            'deos_id': model.decoder.eos_id, 'dhidden': model.decoder.
-            hidden_size, 'dlayer': model.decoder.num_layers, 'state_dict':
-            model.state_dict(), 'optim_dict': optimizer.state_dict(),
-            'epoch': epoch}
+        package = {'einput': model.encoder.input_size, 'ehidden': model.encoder.hidden_size, 'elayer': model.encoder.num_layers, 'edropout': model.encoder.dropout, 'ebidirectional': model.encoder.bidirectional, 'etype': model.encoder.rnn_type, 'dvocab_size': model.decoder.vocab_size, 'dembed': model.decoder.embedding_dim, 'dsos_id': model.decoder.sos_id, 'deos_id': model.decoder.eos_id, 'dhidden': model.decoder.hidden_size, 'dlayer': model.decoder.num_layers, 'state_dict': model.state_dict(), 'optim_dict': optimizer.state_dict(), 'epoch': epoch}
         if tr_loss is not None:
             package['tr_loss'] = tr_loss
             package['cv_loss'] = cv_loss
@@ -385,11 +349,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DotProductAttention,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_kaituoxu_Listen_Attend_Spell(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DotProductAttention(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Encoder(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 

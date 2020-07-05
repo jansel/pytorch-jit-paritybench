@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,9 +95,7 @@ import random
 
 def myphi(x, m):
     x = x * m
-    return 1 - x ** 2 / math.factorial(2) + x ** 4 / math.factorial(4
-        ) - x ** 6 / math.factorial(6) + x ** 8 / math.factorial(8
-        ) - x ** 9 / math.factorial(9)
+    return 1 - x ** 2 / math.factorial(2) + x ** 4 / math.factorial(4) - x ** 6 / math.factorial(6) + x ** 8 / math.factorial(8) - x ** 9 / math.factorial(9)
 
 
 class AngleLinear(nn.Module):
@@ -109,9 +108,7 @@ class AngleLinear(nn.Module):
         init.normal_(self.weight.data, std=0.001)
         self.phiflag = phiflag
         self.m = m
-        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x **
-            2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 *
-            x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
+        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
 
     def forward(self, input):
         x = input
@@ -240,8 +237,7 @@ def weights_init_kaiming(m):
 
 class ClassBlock(nn.Module):
 
-    def __init__(self, input_dim, class_num, droprate, relu=False, bnorm=
-        True, num_bottleneck=512, linear=True, return_f=False):
+    def __init__(self, input_dim, class_num, droprate, relu=False, bnorm=True, num_bottleneck=512, linear=True, return_f=False):
         super(ClassBlock, self).__init__()
         self.return_f = return_f
         add_block = []
@@ -277,8 +273,7 @@ class ClassBlock(nn.Module):
 
 class ft_net(nn.Module):
 
-    def __init__(self, class_num, droprate=0.5, stride=2, init_model=None,
-        pool='avg'):
+    def __init__(self, class_num, droprate=0.5, stride=2, init_model=None, pool='avg'):
         super(ft_net, self).__init__()
         model_ft = models.resnet50(pretrained=True)
         if stride == 1:
@@ -386,8 +381,7 @@ class ft_net_arc(nn.Module):
 
 class ft_net_dense(nn.Module):
 
-    def __init__(self, class_num, droprate=0.5, stride=2, init_model=None,
-        pool='avg'):
+    def __init__(self, class_num, droprate=0.5, stride=2, init_model=None, pool='avg'):
         super().__init__()
         model_ft = models.densenet121(pretrained=True)
         if stride == 1:
@@ -486,8 +480,7 @@ class ft_net_NAS(nn.Module):
     def __init__(self, class_num, droprate=0.5, stride=2):
         super().__init__()
         model_name = 'nasnetalarge'
-        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000,
-            pretrained='imagenet')
+        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained='imagenet')
         model_ft.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         model_ft.dropout = nn.Sequential()
         model_ft.last_linear = nn.Sequential()
@@ -505,12 +498,10 @@ class ft_net_NAS(nn.Module):
 
 class ft_net_SE(nn.Module):
 
-    def __init__(self, class_num, droprate=0.5, stride=2, pool='avg',
-        init_model=None):
+    def __init__(self, class_num, droprate=0.5, stride=2, pool='avg', init_model=None):
         super().__init__()
         model_name = 'se_resnext101_32x4d'
-        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000,
-            pretrained='imagenet')
+        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained='imagenet')
         if stride == 1:
             model_ft.layer4[0].conv2.stride = 1, 1
             model_ft.layer4[0].downsample[0].stride = 1, 1
@@ -560,8 +551,7 @@ class ft_net_DSE(nn.Module):
     def __init__(self, class_num, droprate=0.5, stride=2, pool='avg'):
         super().__init__()
         model_name = 'senet154'
-        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000,
-            pretrained='imagenet')
+        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained='imagenet')
         if stride == 1:
             model_ft.layer4[0].conv2.stride = 1, 1
             model_ft.layer4[0].downsample[0].stride = 1, 1
@@ -588,8 +578,7 @@ class ft_net_IR(nn.Module):
     def __init__(self, class_num, droprate=0.5, stride=2):
         super().__init__()
         model_name = 'inceptionresnetv2'
-        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000,
-            pretrained='imagenet')
+        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained='imagenet')
         if stride == 1:
             model_ft.mixed_7a.branch0[1].conv.stride = 1, 1
             model_ft.mixed_7a.branch1[1].conv.stride = 1, 1
@@ -646,8 +635,7 @@ class PCB(nn.Module):
         self.model.layer4[0].conv2.stride = 1, 1
         for i in range(self.part):
             name = 'classifier' + str(i)
-            setattr(self, name, ClassBlock(2048, class_num, droprate=0.5,
-                relu=False, bnorm=True, num_bottleneck=256))
+            setattr(self, name, ClassBlock(2048, class_num, droprate=0.5, relu=False, bnorm=True, num_bottleneck=256))
 
     def forward(self, x):
         x = self.model.conv1(x)
@@ -704,15 +692,13 @@ class CPB(nn.Module):
         self.part = 4
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         model_name = 'se_resnext101_32x4d'
-        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000,
-            pretrained='imagenet')
+        model_ft = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained='imagenet')
         model_ft.layer4[0].conv2.stride = 1, 1
         model_ft.layer4[0].downsample[0].stride = 1, 1
         self.model = model_ft
         for i in range(self.part):
             name = 'classifier' + str(i)
-            setattr(self, name, ClassBlock(2048, class_num, droprate=0.2,
-                relu=False, bnorm=True, num_bottleneck=512))
+            setattr(self, name, ClassBlock(2048, class_num, droprate=0.2, relu=False, bnorm=True, num_bottleneck=512))
 
     def forward(self, x):
         x = self.model.features(x)
@@ -725,13 +711,11 @@ class CPB(nn.Module):
             if i == 0:
                 part_input = x[:, :, d:W - d, d:H - d]
                 part[i] = torch.squeeze(self.avgpool(part_input))
-                last_input = torch.nn.functional.pad(part_input, (p, p, p,
-                    p), mode='constant', value=0)
+                last_input = torch.nn.functional.pad(part_input, (p, p, p, p), mode='constant', value=0)
             else:
                 part_input = x[:, :, d:W - d, d:H - d] - last_input
                 part[i] = torch.squeeze(self.avgpool(part_input))
-                last_input = torch.nn.functional.pad(part_input, (p, p, p,
-                    p), mode='constant', value=0)
+                last_input = torch.nn.functional.pad(part_input, (p, p, p, p), mode='constant', value=0)
             name = 'classifier' + str(i)
             c = getattr(self, name)
             predict[i] = c(part[i])
@@ -746,41 +730,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AngleLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (ArcLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (ClassBlock,
+     lambda: ([], {'input_dim': 4, 'class_num': 4, 'droprate': 0.5}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (PCB,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net_angle,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net_arc,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net_dense,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ft_net_middle,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_layumi_AICIty_reID_2020(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AngleLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ArcLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ClassBlock(*[], **{'input_dim': 4, 'class_num': 4, 'droprate': 0.5}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(PCB(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ft_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ft_net_angle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ft_net_arc(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(ft_net_dense(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(ft_net_middle(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 

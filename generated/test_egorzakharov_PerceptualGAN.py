@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,8 +66,7 @@ class Model(nn.Module):
     def __init__(self, opt):
         super(Model, self).__init__()
         self.gpu_id = opt.gpu_ids[0]
-        self.weights_path = os.path.join('runs', opt.experiment_name,
-            'checkpoints')
+        self.weights_path = os.path.join('runs', opt.experiment_name, 'checkpoints')
         self.gen_A = Generator(opt)
         self.gen_B = Generator(opt)
         self.dis_A = Discriminator(opt)
@@ -96,17 +96,14 @@ class Model(nn.Module):
             num_params += p.numel()
         None
         None
-        self.gen_params = chain(self.gen_A.parameters(), self.gen_B.
-            parameters())
-        self.dis_params = chain(self.dis_A.parameters(), self.dis_B.
-            parameters())
+        self.gen_params = chain(self.gen_A.parameters(), self.gen_B.parameters())
+        self.dis_params = chain(self.dis_A.parameters(), self.dis_B.parameters())
         self.crit_dis = DiscriminatorLoss(opt)
         self.adv_weight = opt.adv_loss_weight
         if opt.mse_loss_type == 'perceptual' or opt.dis_use_encoder:
             if opt.enc_type[:5] == 'vgg19':
                 layers = '1,6,11,20,29'
-            self.enc = FeatureExtractor(input_range='tanh', net_type=opt.
-                enc_type, layers=layers).eval()
+            self.enc = FeatureExtractor(input_range='tanh', net_type=opt.enc_type, layers=layers).eval()
             None
             None
             None
@@ -137,12 +134,9 @@ class Model(nn.Module):
         ident_B = self.gen_B(self.real_B)
         self.loss_ident_A = self.crit_mse(ident_A, self.real_A)
         self.loss_ident_B = self.crit_mse(ident_B, self.real_B)
-        loss_mse = (self.loss_cycle_A + self.loss_ident_A + self.
-            loss_cycle_B + self.loss_ident_B)
-        loss_dis_A, _ = self.crit_dis(dis=self.dis_A, img_real_dst=self.
-            fake_A, enc=self.enc)
-        loss_dis_B, _ = self.crit_dis(dis=self.dis_B, img_real_dst=self.
-            fake_B, enc=self.enc)
+        loss_mse = self.loss_cycle_A + self.loss_ident_A + self.loss_cycle_B + self.loss_ident_B
+        loss_dis_A, _ = self.crit_dis(dis=self.dis_A, img_real_dst=self.fake_A, enc=self.enc)
+        loss_dis_B, _ = self.crit_dis(dis=self.dis_B, img_real_dst=self.fake_B, enc=self.enc)
         loss_dis = loss_dis_A + loss_dis_B
         loss_G = loss_mse * self.mse_weight + loss_dis * self.adv_weight
         if self.training:
@@ -153,12 +147,8 @@ class Model(nn.Module):
         self.loss_ident_B = self.loss_ident_B.data.item()
 
     def backward_D(self):
-        loss_dis_A, self.losses_adv_A = self.crit_dis(dis=self.dis_A,
-            img_real_dst=self.real_A, img_fake_dst=self.fake_A.detach(),
-            enc=self.enc)
-        loss_dis_B, self.losses_adv_B = self.crit_dis(dis=self.dis_B,
-            img_real_dst=self.real_B, img_fake_dst=self.fake_B.detach(),
-            enc=self.enc)
+        loss_dis_A, self.losses_adv_A = self.crit_dis(dis=self.dis_A, img_real_dst=self.real_A, img_fake_dst=self.fake_A.detach(), enc=self.enc)
+        loss_dis_B, self.losses_adv_B = self.crit_dis(dis=self.dis_B, img_real_dst=self.real_B, img_fake_dst=self.fake_B.detach(), enc=self.enc)
         loss_D = loss_dis_A + loss_dis_B
         if self.training:
             loss_D.backward()
@@ -180,8 +170,7 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.dis_input_sizes = opt.dis_input_sizes
         self.dis_output_sizes = opt.dis_output_sizes
-        num_down_blocks = int(log(opt.dis_input_sizes[0] // max(opt.
-            dis_output_sizes[-1], 4), 2))
+        num_down_blocks = int(log(opt.dis_input_sizes[0] // max(opt.dis_output_sizes[-1], 4), 2))
         in_channels = opt.dis_input_num_channels[0]
         out_channels = opt.dis_num_channels
         padding = (opt.dis_kernel_size - 1) // 2
@@ -191,21 +180,15 @@ class Discriminator(nn.Module):
         self.input_blocks = nn.ModuleList()
         self.output_blocks = nn.ModuleList()
         for i in range(num_down_blocks):
-            self.blocks += [nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, opt.dis_kernel_size, 2, padding), nn.
-                LeakyReLU(0.2, True))]
+            self.blocks += [nn.Sequential(nn.Conv2d(in_channels, out_channels, opt.dis_kernel_size, 2, padding), nn.LeakyReLU(0.2, True))]
             in_channels = out_channels
             spatial_size //= 2
             if spatial_size in opt.dis_input_sizes:
-                in_channels = opt.dis_input_num_channels[len(self.
-                    input_blocks) + 1]
-                self.input_blocks += [nn.Sequential(nn.Conv2d(in_channels,
-                    out_channels, opt.dis_kernel_size_io, 1, padding_io),
-                    nn.LeakyReLU(0.2, True))]
+                in_channels = opt.dis_input_num_channels[len(self.input_blocks) + 1]
+                self.input_blocks += [nn.Sequential(nn.Conv2d(in_channels, out_channels, opt.dis_kernel_size_io, 1, padding_io), nn.LeakyReLU(0.2, True))]
                 in_channels = out_channels * 2
             if spatial_size in opt.dis_output_sizes:
-                self.output_blocks += [nn.Conv2d(in_channels, 1, opt.
-                    dis_kernel_size_io, 1, padding_io)]
+                self.output_blocks += [nn.Conv2d(in_channels, 1, opt.dis_kernel_size_io, 1, padding_io)]
             out_channels = min(out_channels * 2, opt.dis_max_channels)
         if opt.dis_output_sizes[-1] == 1:
             self.output_blocks += [nn.Conv2d(out_channels, 1, 4, 4)]
@@ -256,8 +239,7 @@ class DiscriminatorLoss(nn.Module):
             self.labels_real += [Variable(torch.ones(shape))]
             self.labels_fake += [Variable(torch.zeros(shape))]
 
-    def __call__(self, dis, img_real_dst, img_fake_dst=None, aux_real_dst=
-        None, img_real_src=None, enc=None):
+    def __call__(self, dis, img_real_dst, img_fake_dst=None, aux_real_dst=None, img_real_src=None, enc=None):
         outputs_real = dis(img_real_dst, img_real_src, enc)
         if img_fake_dst is not None:
             outputs_fake = dis(img_fake_dst, img_real_src, enc)
@@ -266,8 +248,7 @@ class DiscriminatorLoss(nn.Module):
         for i in range(len(outputs_real)):
             losses_adv += [self.crit(outputs_real[i], self.labels_real[i])]
             if img_fake_dst is not None:
-                losses_adv[-1] += self.crit(outputs_fake[i], self.
-                    labels_fake[i])
+                losses_adv[-1] += self.crit(outputs_fake[i], self.labels_fake[i])
                 losses_adv[-1] *= 0.5
             loss += losses_adv[-1]
         losses_adv = [loss_adv.data.item() for loss_adv in losses_adv]
@@ -282,35 +263,23 @@ def get_vgg19(model_name, model_path):
         model = vgg19(pretrained=True)
     elif model_name == 'vgg19_pytorch_modified':
         model = VGGModified(vgg19(), 0.2)
-        model.load_state_dict(torch.load('%s/%s.pkl' % (model_path,
-            model_name))['state_dict'])
-    model.classifier = nn.Sequential(utils.View(), *model.classifier.
-        _modules.values())
+        model.load_state_dict(torch.load('%s/%s.pkl' % (model_path, model_name))['state_dict'])
+    model.classifier = nn.Sequential(utils.View(), *model.classifier._modules.values())
     vgg = model.features
     vgg_classifier = model.classifier
-    names = ['conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'pool1', 'conv2_1',
-        'relu2_1', 'conv2_2', 'relu2_2', 'pool2', 'conv3_1', 'relu3_1',
-        'conv3_2', 'relu3_2', 'conv3_3', 'relu3_3', 'conv3_4', 'relu3_4',
-        'pool3', 'conv4_1', 'relu4_1', 'conv4_2', 'relu4_2', 'conv4_3',
-        'relu4_3', 'conv4_4', 'relu4_4', 'pool4', 'conv5_1', 'relu5_1',
-        'conv5_2', 'relu5_2', 'conv5_3', 'relu5_3', 'conv5_4', 'relu5_4',
-        'pool5', 'torch_view', 'fc6', 'relu6', 'drop6', 'fc7', 'relu7',
-        'drop7', 'fc8']
+    names = ['conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'pool1', 'conv2_1', 'relu2_1', 'conv2_2', 'relu2_2', 'pool2', 'conv3_1', 'relu3_1', 'conv3_2', 'relu3_2', 'conv3_3', 'relu3_3', 'conv3_4', 'relu3_4', 'pool3', 'conv4_1', 'relu4_1', 'conv4_2', 'relu4_2', 'conv4_3', 'relu4_3', 'conv4_4', 'relu4_4', 'pool4', 'conv5_1', 'relu5_1', 'conv5_2', 'relu5_2', 'conv5_3', 'relu5_3', 'conv5_4', 'relu5_4', 'pool5', 'torch_view', 'fc6', 'relu6', 'drop6', 'fc7', 'relu7', 'drop7', 'fc8']
     model = nn.Sequential()
     for n, m in zip(names, list(vgg) + list(vgg_classifier)):
         model.add_module(n, m)
     if model_name == 'vgg19_caffe':
-        model.load_state_dict(torch.load('%s/%s.pth' % (model_path,
-            model_name)))
+        model.load_state_dict(torch.load('%s/%s.pth' % (model_path, model_name)))
     return model
 
 
 def get_pretrained_net(name, path):
     """ Load pretrained network """
     if name == 'vgg19_caffe':
-        os.system(
-            'wget -O vgg19_caffe.pth --no-check-certificate -nc https://www.dropbox.com/s/xlbdo688dy4keyk/vgg19-caffe.pth?dl=1'
-            )
+        os.system('wget -O vgg19_caffe.pth --no-check-certificate -nc https://www.dropbox.com/s/xlbdo688dy4keyk/vgg19-caffe.pth?dl=1')
         vgg = get_vgg19(name, path)
     elif name == 'vgg19_pytorch':
         vgg = get_vgg19(name, path)
@@ -328,9 +297,7 @@ class FeatureExtractor(nn.Module):
                             'tanh'                [-1, 1]
     """
 
-    def __init__(self, input_range='sigmoid', net_type=
-        'vgg19_pytorch_modified', preprocessing_type='corresponding',
-        layers='1,6,11,20,29', net_path='.'):
+    def __init__(self, input_range='sigmoid', net_type='vgg19_pytorch_modified', preprocessing_type='corresponding', layers='1,6,11,20,29', net_path='.'):
         super(FeatureExtractor, self).__init__()
         if input_range == 'sigmoid':
             self.preprocess_range = lambda x: x
@@ -347,14 +314,11 @@ class FeatureExtractor(nn.Module):
             else:
                 assert False, 'Unknown net_type'
         if self.preprocessing_type == 'caffe':
-            self.vgg_mean = nn.Parameter(torch.FloatTensor([103.939, 
-                116.779, 123.68]).view(1, 3, 1, 1))
+            self.vgg_mean = nn.Parameter(torch.FloatTensor([103.939, 116.779, 123.68]).view(1, 3, 1, 1))
             self.vgg_std = None
         elif self.preprocessing_type == 'pytorch':
-            self.vgg_mean = nn.Parameter(torch.FloatTensor([0.485, 0.456, 
-                0.406]).view(1, 3, 1, 1))
-            self.vgg_std = nn.Parameter(torch.FloatTensor([0.229, 0.224, 
-                0.225]).view(1, 3, 1, 1))
+            self.vgg_mean = nn.Parameter(torch.FloatTensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+            self.vgg_std = nn.Parameter(torch.FloatTensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         else:
             assert False, 'Unknown preprocessing_type'
         net = get_pretrained_net(net_type, net_path)
@@ -388,8 +352,7 @@ class FeatureExtractor(nn.Module):
 
 class Matcher(nn.Module):
 
-    def __init__(self, matching_type='features', matching_loss='L1',
-        average_loss=True):
+    def __init__(self, matching_type='features', matching_loss='L1', average_loss=True):
         super(Matcher, self).__init__()
         if matching_type == 'features':
             self.get_stats = self.gram_matrix
@@ -424,17 +387,13 @@ class Matcher(nn.Module):
 
 class PerceptualLoss(nn.Module):
 
-    def __init__(self, input_range='sigmoid', net_type=
-        'vgg19_pytorch_modified', preprocessing_type='corresponding',
-        matching_loss='L1', match=[{'matching_type': 'features', 'layers':
-        '1,6,11,20,29'}], average_loss=True, extractor=None):
+    def __init__(self, input_range='sigmoid', net_type='vgg19_pytorch_modified', preprocessing_type='corresponding', matching_loss='L1', match=[{'matching_type': 'features', 'layers': '1,6,11,20,29'}], average_loss=True, extractor=None):
         super(PerceptualLoss, self).__init__()
         self.average_loss = average_loss
         self.matchers = []
         layers = ''
         for m in match:
-            self.matchers += [Matcher(m['matching_type'], matching_loss,
-                average_loss)]
+            self.matchers += [Matcher(m['matching_type'], matching_loss, average_loss)]
             layers += m['layers'] + ','
         layers = layers[:-1]
         layers = np.asarray(layers.split(',')).astype(int)
@@ -448,8 +407,7 @@ class PerceptualLoss(nn.Module):
             self.layers_idx_m += [layers_idx_m]
         layers = ','.join(layers.astype(str))
         if extractor is None:
-            self.extractor = FeatureExtractor(input_range, net_type,
-                preprocessing_type, layers)
+            self.extractor = FeatureExtractor(input_range, net_type, preprocessing_type, layers)
         else:
             self.extractor = extractor
 
@@ -471,8 +429,7 @@ class Model(nn.Module):
     def __init__(self, opt):
         super(Model, self).__init__()
         self.gpu_id = opt.gpu_ids[0]
-        self.weights_path = os.path.join('runs', opt.experiment_name,
-            'checkpoints')
+        self.weights_path = os.path.join('runs', opt.experiment_name, 'checkpoints')
         self.gen_B = Generator(opt)
         if opt.adv_loss_weight:
             self.dis_B = Discriminator(opt)
@@ -494,12 +451,10 @@ class Model(nn.Module):
             self.dis_params = self.dis_B.parameters()
             self.crit_dis = DiscriminatorLoss(opt)
         self.adv_weight = opt.adv_loss_weight
-        if (opt.mse_loss_type == 'perceptual' or opt.adv_loss_weight and
-            opt.dis_use_encoder):
+        if opt.mse_loss_type == 'perceptual' or opt.adv_loss_weight and opt.dis_use_encoder:
             if opt.enc_type[:5] == 'vgg19':
                 self.layers = '1,6,11,20,29'
-            self.enc = FeatureExtractor(input_range='tanh', net_type=opt.
-                enc_type, layers=self.layers).eval()
+            self.enc = FeatureExtractor(input_range='tanh', net_type=opt.enc_type, layers=self.layers).eval()
             None
             None
             None
@@ -523,8 +478,7 @@ class Model(nn.Module):
         self.loss_ident_B = self.crit_mse(self.fake_B, self.real_B)
         loss_mse = self.loss_ident_B
         if self.adv_weight:
-            loss_dis, _ = self.crit_dis(dis=self.dis_B, img_real_dst=self.
-                fake_B, img_real_src=self.real_A, enc=self.enc)
+            loss_dis, _ = self.crit_dis(dis=self.dis_B, img_real_dst=self.fake_B, img_real_src=self.real_A, enc=self.enc)
         else:
             loss_dis = 0
         loss_G = loss_mse * self.mse_weight + loss_dis * self.adv_weight
@@ -533,9 +487,7 @@ class Model(nn.Module):
         self.loss_ident_B = self.loss_ident_B.data.item()
 
     def backward_D(self):
-        loss_dis, self.losses_adv_B = self.crit_dis(dis=self.dis_B,
-            img_real_dst=self.real_B, img_fake_dst=self.fake_B.detach(),
-            img_real_src=self.real_A, enc=self.enc)
+        loss_dis, self.losses_adv_B = self.crit_dis(dis=self.dis_B, img_real_dst=self.real_B, img_fake_dst=self.fake_B.detach(), img_real_src=self.real_A, enc=self.enc)
         loss_D = loss_dis
         if self.training:
             loss_D.backward()
@@ -560,22 +512,17 @@ class Generator(nn.Module):
         in_channels = opt.gen_num_channels
         padding = (opt.gen_kernel_size - 1) // 2
         bias = norm_layer != nn.BatchNorm2d
-        layers = [nn.Conv2d(3, in_channels, 7, 1, 3, bias=False), nn.ReLU(True)
-            ]
+        layers = [nn.Conv2d(3, in_channels, 7, 1, 3, bias=False), nn.ReLU(True)]
         for i in range(num_down_blocks):
             out_channels = min(in_channels * 2, opt.gen_max_channels)
-            layers += [nn.Conv2d(in_channels, out_channels, opt.
-                gen_kernel_size, 2, padding, bias), norm_layer(out_channels
-                ), nn.ReLU(True)]
+            layers += [nn.Conv2d(in_channels, out_channels, opt.gen_kernel_size, 2, padding, bias), norm_layer(out_channels), nn.ReLU(True)]
             in_channels = out_channels
         for i in range(opt.gen_num_res_blocks):
             layers += [utils.ResBlock(in_channels, norm_layer)]
         for i in range(num_up_blocks):
             out_channels = opt.gen_num_channels * 2 ** (num_up_blocks - i - 1)
-            out_channels = max(min(out_channels, opt.gen_max_channels), opt
-                .gen_num_channels)
-            layers += upsampling_layer(in_channels, out_channels, opt.
-                gen_kernel_size, 2, bias)
+            out_channels = max(min(out_channels, opt.gen_max_channels), opt.gen_num_channels)
+            layers += upsampling_layer(in_channels, out_channels, opt.gen_kernel_size, 2, bias)
             layers += [norm_layer(out_channels), nn.ReLU(True)]
             in_channels = out_channels
         layers += [nn.Conv2d(out_channels, 3, 7, 1, 3, bias=False), nn.Tanh()]
@@ -604,10 +551,7 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()
         norm_layer = Identity if norm_layer is None else norm_layer
         bias = norm_layer == Identity
-        self.block = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3, 1,
-            1, bias=bias), norm_layer(in_channels), nn.ReLU(True), nn.
-            Conv2d(in_channels, in_channels, 3, 1, 1, bias=bias),
-            norm_layer(in_channels))
+        self.block = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3, 1, 1, bias=bias), norm_layer(in_channels), nn.ReLU(True), nn.Conv2d(in_channels, in_channels, 3, 1, 1, bias=bias), norm_layer(in_channels))
 
     def forward(self, input):
         return input + self.block(input)
@@ -615,13 +559,11 @@ class ResBlock(nn.Module):
 
 class ConcatBlock(nn.Module):
 
-    def __init__(self, enc_channels, out_channels, nonlinear_layer=nn.ReLU,
-        norm_layer=None, norm_layer_cat=None, kernel_size=3):
+    def __init__(self, enc_channels, out_channels, nonlinear_layer=nn.ReLU, norm_layer=None, norm_layer_cat=None, kernel_size=3):
         super(ConcatBlock, self).__init__()
         norm_layer = Identity if norm_layer is None else norm_layer
         norm_layer_cat = Identity if norm_layer_cat is None else norm_layer_cat
-        layers = get_conv_block(enc_channels, out_channels, nonlinear_layer,
-            norm_layer, 'same', False, kernel_size)
+        layers = get_conv_block(enc_channels, out_channels, nonlinear_layer, norm_layer, 'same', False, kernel_size)
         layers += [norm_layer_cat(out_channels)]
         self.enc_block = nn.Sequential(*layers)
 
@@ -711,15 +653,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'in_channels': 4, 'norm_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (View,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_egorzakharov_PerceptualGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'norm_layer': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(View(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -145,17 +146,13 @@ from typing import List
 class _DCNv2(Function):
 
     @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias, stride, padding,
-        dilation, deformable_groups):
+    def forward(ctx, input, offset, mask, weight, bias, stride, padding, dilation, deformable_groups):
         ctx.stride = _pair(stride)
         ctx.padding = _pair(padding)
         ctx.dilation = _pair(dilation)
         ctx.kernel_size = _pair(weight.shape[2:4])
         ctx.deformable_groups = deformable_groups
-        output = _backend.dcn_v2_forward(input, weight, bias, offset, mask,
-            ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.
-            stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx
-            .dilation[1], ctx.deformable_groups)
+        output = _backend.dcn_v2_forward(input, weight, bias, offset, mask, ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx.dilation[1], ctx.deformable_groups)
         ctx.save_for_backward(input, offset, mask, weight, bias)
         return output
 
@@ -163,13 +160,8 @@ class _DCNv2(Function):
     @once_differentiable
     def backward(ctx, grad_output):
         input, offset, mask, weight, bias = ctx.saved_tensors
-        grad_input, grad_offset, grad_mask, grad_weight, grad_bias = (_backend
-            .dcn_v2_backward(input, weight, bias, offset, mask, grad_output,
-            ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.
-            stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx
-            .dilation[1], ctx.deformable_groups))
-        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
-            None, None, None, None)
+        grad_input, grad_offset, grad_mask, grad_weight, grad_bias = _backend.dcn_v2_backward(input, weight, bias, offset, mask, grad_output, ctx.kernel_size[0], ctx.kernel_size[1], ctx.stride[0], ctx.stride[1], ctx.padding[0], ctx.padding[1], ctx.dilation[0], ctx.dilation[1], ctx.deformable_groups)
+        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias, None, None, None, None
 
 
 dcn_v2_conv = _DCNv2.apply
@@ -179,24 +171,19 @@ class Bottleneck(nn.Module):
     """ Adapted from torchvision.models.resnet """
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=nn.BatchNorm2d, dilation=1, use_dcn=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=nn.BatchNorm2d, dilation=1, use_dcn=False):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False,
-            dilation=dilation)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False, dilation=dilation)
         self.bn1 = norm_layer(planes)
         if use_dcn:
-            self.conv2 = DCN(planes, planes, kernel_size=3, stride=stride,
-                padding=dilation, dilation=dilation, deformable_groups=1)
+            self.conv2 = DCN(planes, planes, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, deformable_groups=1)
             self.conv2.bias.data.zero_()
             self.conv2.conv_offset_mask.weight.data.zero_()
             self.conv2.conv_offset_mask.bias.data.zero_()
         else:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=dilation, bias=False, dilation=dilation)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
         self.bn2 = norm_layer(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=
-            False, dilation=dilation)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False, dilation=dilation)
         self.bn3 = norm_layer(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -222,8 +209,7 @@ class Bottleneck(nn.Module):
 class ResNetBackbone(nn.Module):
     """ Adapted from torchvision.models.resnet """
 
-    def __init__(self, layers, dcn_layers=[0, 0, 0, 0], dcn_interval=1,
-        atrous_layers=[], block=Bottleneck, norm_layer=nn.BatchNorm2d):
+    def __init__(self, layers, dcn_layers=[0, 0, 0, 0], dcn_interval=1, atrous_layers=[], block=Bottleneck, norm_layer=nn.BatchNorm2d):
         super().__init__()
         self.num_base_layers = len(layers)
         self.layers = nn.ModuleList()
@@ -232,43 +218,31 @@ class ResNetBackbone(nn.Module):
         self.dilation = 1
         self.atrous_layers = atrous_layers
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self._make_layer(block, 64, layers[0], dcn_layers=dcn_layers[0],
-            dcn_interval=dcn_interval)
-        self._make_layer(block, 128, layers[1], stride=2, dcn_layers=
-            dcn_layers[1], dcn_interval=dcn_interval)
-        self._make_layer(block, 256, layers[2], stride=2, dcn_layers=
-            dcn_layers[2], dcn_interval=dcn_interval)
-        self._make_layer(block, 512, layers[3], stride=2, dcn_layers=
-            dcn_layers[3], dcn_interval=dcn_interval)
-        self.backbone_modules = [m for m in self.modules() if isinstance(m,
-            nn.Conv2d)]
+        self._make_layer(block, 64, layers[0], dcn_layers=dcn_layers[0], dcn_interval=dcn_interval)
+        self._make_layer(block, 128, layers[1], stride=2, dcn_layers=dcn_layers[1], dcn_interval=dcn_interval)
+        self._make_layer(block, 256, layers[2], stride=2, dcn_layers=dcn_layers[2], dcn_interval=dcn_interval)
+        self._make_layer(block, 512, layers[3], stride=2, dcn_layers=dcn_layers[3], dcn_interval=dcn_interval)
+        self.backbone_modules = [m for m in self.modules() if isinstance(m, nn.Conv2d)]
 
-    def _make_layer(self, block, planes, blocks, stride=1, dcn_layers=0,
-        dcn_interval=1):
+    def _make_layer(self, block, planes, blocks, stride=1, dcn_layers=0, dcn_interval=1):
         """ Here one layer means a string of n Bottleneck blocks. """
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             if len(self.layers) in self.atrous_layers:
                 self.dilation += 1
                 stride = 1
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False,
-                dilation=self.dilation), self.norm_layer(planes * block.
-                expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False, dilation=self.dilation), self.norm_layer(planes * block.expansion))
         layers = []
         use_dcn = dcn_layers >= blocks
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .norm_layer, self.dilation, use_dcn=use_dcn))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.norm_layer, self.dilation, use_dcn=use_dcn))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             use_dcn = i + dcn_layers >= blocks and i % dcn_interval == 0
-            layers.append(block(self.inplanes, planes, norm_layer=self.
-                norm_layer, use_dcn=use_dcn))
+            layers.append(block(self.inplanes, planes, norm_layer=self.norm_layer, use_dcn=use_dcn))
         layer = nn.Sequential(*layers)
         self.channels.append(planes * block.expansion)
         self.layers.append(layer)
@@ -297,11 +271,9 @@ class ResNetBackbone(nn.Module):
                 state_dict[new_key] = state_dict.pop(key)
         self.load_state_dict(state_dict, strict=False)
 
-    def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=
-        Bottleneck):
+    def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=Bottleneck):
         """ Add a downsample layer to the backbone as per what SSD does. """
-        self._make_layer(block, conv_channels // block.expansion, blocks=
-            depth, stride=downsample)
+        self._make_layer(block, conv_channels // block.expansion, blocks=depth, stride=downsample)
 
 
 def darknetconvlayer(in_channels, out_channels, *args, **kwdargs):
@@ -309,9 +281,7 @@ def darknetconvlayer(in_channels, out_channels, *args, **kwdargs):
     Implements a conv, activation, then batch norm.
     Arguments are passed into the conv layer.
     """
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, *args, **
-        kwdargs, bias=False), nn.BatchNorm2d(out_channels), nn.LeakyReLU(
-        0.1, inplace=True))
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, *args, **kwdargs, bias=False), nn.BatchNorm2d(out_channels), nn.LeakyReLU(0.1, inplace=True))
 
 
 class DarkNetBlock(nn.Module):
@@ -321,8 +291,7 @@ class DarkNetBlock(nn.Module):
     def __init__(self, in_channels, channels):
         super().__init__()
         self.conv1 = darknetconvlayer(in_channels, channels, kernel_size=1)
-        self.conv2 = darknetconvlayer(channels, channels * self.expansion,
-            kernel_size=3, padding=1)
+        self.conv2 = darknetconvlayer(channels, channels * self.expansion, kernel_size=3, padding=1)
 
     def forward(self, x):
         return self.conv2(self.conv1(x)) + x
@@ -348,17 +317,14 @@ class DarkNetBackbone(nn.Module):
         self._make_layer(block, 128, layers[2])
         self._make_layer(block, 256, layers[3])
         self._make_layer(block, 512, layers[4])
-        self.backbone_modules = [m for m in self.modules() if isinstance(m,
-            nn.Conv2d)]
+        self.backbone_modules = [m for m in self.modules() if isinstance(m, nn.Conv2d)]
 
     def _make_layer(self, block, channels, num_blocks, stride=2):
         """ Here one layer means a string of n blocks. """
         layer_list = []
-        layer_list.append(darknetconvlayer(self.in_channels, channels *
-            block.expansion, kernel_size=3, padding=1, stride=stride))
+        layer_list.append(darknetconvlayer(self.in_channels, channels * block.expansion, kernel_size=3, padding=1, stride=stride))
         self.in_channels = channels * block.expansion
-        layer_list += [block(self.in_channels, channels) for _ in range(
-            num_blocks)]
+        layer_list += [block(self.in_channels, channels) for _ in range(num_blocks)]
         self.channels.append(self.in_channels)
         self.layers.append(nn.Sequential(*layer_list))
 
@@ -371,11 +337,9 @@ class DarkNetBackbone(nn.Module):
             outs.append(x)
         return tuple(outs)
 
-    def add_layer(self, conv_channels=1024, stride=2, depth=1, block=
-        DarkNetBlock):
+    def add_layer(self, conv_channels=1024, stride=2, depth=1, block=DarkNetBlock):
         """ Add a downsample layer to the backbone as per what SSD does. """
-        self._make_layer(block, conv_channels // block.expansion,
-            num_blocks=depth, stride=stride)
+        self._make_layer(block, conv_channels // block.expansion, num_blocks=depth, stride=stride)
 
     def init_backbone(self, path):
         """ Initializes the backbone weights for training. """
@@ -403,11 +367,9 @@ class VGGBackbone(nn.Module):
         self.state_dict_lookup = {}
         for idx, layer_cfg in enumerate(cfg):
             self._make_layer(layer_cfg)
-        self.norms = nn.ModuleList([nn.BatchNorm2d(self.channels[l]) for l in
-            norm_layers])
+        self.norms = nn.ModuleList([nn.BatchNorm2d(self.channels[l]) for l in norm_layers])
         self.norm_lookup = {l: idx for idx, l in enumerate(norm_layers)}
-        self.backbone_modules = [m for m in self.modules() if isinstance(m,
-            nn.Conv2d)]
+        self.backbone_modules = [m for m in self.modules() if isinstance(m, nn.Conv2d)]
 
     def _make_layer(self, cfg):
         """
@@ -426,8 +388,7 @@ class VGGBackbone(nn.Module):
                 layers.append(nn.MaxPool2d(**args))
             else:
                 cur_layer_idx = self.total_layer_count + len(layers)
-                self.state_dict_lookup[cur_layer_idx] = '%d.%d' % (len(self
-                    .layers), len(layers))
+                self.state_dict_lookup[cur_layer_idx] = '%d.%d' % (len(self.layers), len(layers))
                 if args is None:
                     args = {'kernel_size': 3, 'padding': 1}
                 layers.append(nn.Conv2d(self.in_channels, v, **args))
@@ -456,8 +417,7 @@ class VGGBackbone(nn.Module):
     def init_backbone(self, path):
         """ Initializes the backbone weights for training. """
         state_dict = torch.load(path)
-        state_dict = OrderedDict([(self.transform_key(k), v) for k, v in
-            state_dict.items()])
+        state_dict = OrderedDict([(self.transform_key(k), v) for k, v in state_dict.items()])
         self.load_state_dict(state_dict, strict=False)
 
     def add_layer(self, conv_channels=128, downsample=2):
@@ -465,10 +425,7 @@ class VGGBackbone(nn.Module):
         if len(self.extra_args) > 0:
             conv_channels, downsample = self.extra_args.pop()
         padding = 1 if downsample > 1 else 0
-        layer = nn.Sequential(nn.Conv2d(self.in_channels, conv_channels,
-            kernel_size=1), nn.ReLU(inplace=True), nn.Conv2d(conv_channels,
-            conv_channels * 2, kernel_size=3, stride=downsample, padding=
-            padding), nn.ReLU(inplace=True))
+        layer = nn.Sequential(nn.Conv2d(self.in_channels, conv_channels, kernel_size=1), nn.ReLU(inplace=True), nn.Conv2d(conv_channels, conv_channels * 2, kernel_size=3, stride=downsample, padding=padding), nn.ReLU(inplace=True))
         self.in_channels = conv_channels * 2
         self.channels.append(self.in_channels)
         self.layers.append(layer)
@@ -483,8 +440,7 @@ class CustomDataParallel(torch.nn.DataParallel):
 
 class DCNv2(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, deformable_groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
         super(DCNv2, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -493,8 +449,7 @@ class DCNv2(nn.Module):
         self.padding = _pair(padding)
         self.dilation = _pair(dilation)
         self.deformable_groups = deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels,
-            *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
         self.bias = nn.Parameter(torch.Tensor(out_channels))
         self.reset_parameters()
 
@@ -507,20 +462,15 @@ class DCNv2(nn.Module):
         self.bias.data.zero_()
 
     def forward(self, input, offset, mask):
-        assert 2 * self.deformable_groups * self.kernel_size[0
-            ] * self.kernel_size[1] == offset.shape[1]
-        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[
-            1] == mask.shape[1]
-        return dcn_v2_conv(input, offset, mask, self.weight, self.bias,
-            self.stride, self.padding, self.dilation, self.deformable_groups)
+        assert 2 * self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == offset.shape[1]
+        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == mask.shape[1]
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
 
 
 class _DCNv2Pooling(Function):
 
     @staticmethod
-    def forward(ctx, input, rois, offset, spatial_scale, pooled_size,
-        output_dim, no_trans, group_size=1, part_size=None, sample_per_part
-        =4, trans_std=0.0):
+    def forward(ctx, input, rois, offset, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         ctx.spatial_scale = spatial_scale
         ctx.no_trans = int(no_trans)
         ctx.output_dim = output_dim
@@ -529,10 +479,7 @@ class _DCNv2Pooling(Function):
         ctx.part_size = pooled_size if part_size is None else part_size
         ctx.sample_per_part = sample_per_part
         ctx.trans_std = trans_std
-        output, output_count = _backend.dcn_v2_psroi_pooling_forward(input,
-            rois, offset, ctx.no_trans, ctx.spatial_scale, ctx.output_dim,
-            ctx.group_size, ctx.pooled_size, ctx.part_size, ctx.
-            sample_per_part, ctx.trans_std)
+        output, output_count = _backend.dcn_v2_psroi_pooling_forward(input, rois, offset, ctx.no_trans, ctx.spatial_scale, ctx.output_dim, ctx.group_size, ctx.pooled_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
         ctx.save_for_backward(input, rois, offset, output_count)
         return output
 
@@ -540,12 +487,8 @@ class _DCNv2Pooling(Function):
     @once_differentiable
     def backward(ctx, grad_output):
         input, rois, offset, output_count = ctx.saved_tensors
-        grad_input, grad_offset = _backend.dcn_v2_psroi_pooling_backward(
-            grad_output, input, rois, offset, output_count, ctx.no_trans,
-            ctx.spatial_scale, ctx.output_dim, ctx.group_size, ctx.
-            pooled_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
-        return (grad_input, None, grad_offset, None, None, None, None, None,
-            None, None, None)
+        grad_input, grad_offset = _backend.dcn_v2_psroi_pooling_backward(grad_output, input, rois, offset, output_count, ctx.no_trans, ctx.spatial_scale, ctx.output_dim, ctx.group_size, ctx.pooled_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
+        return grad_input, None, grad_offset, None, None, None, None, None, None, None, None
 
 
 dcn_v2_pooling = _DCNv2Pooling.apply
@@ -553,8 +496,7 @@ dcn_v2_pooling = _DCNv2Pooling.apply
 
 class DCNv2Pooling(nn.Module):
 
-    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans,
-        group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
+    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         super(DCNv2Pooling, self).__init__()
         self.spatial_scale = spatial_scale
         self.pooled_size = pooled_size
@@ -569,9 +511,7 @@ class DCNv2Pooling(nn.Module):
         assert input.shape[1] == self.output_dim
         if self.no_trans:
             offset = input.new()
-        return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self
-            .pooled_size, self.output_dim, self.no_trans, self.group_size,
-            self.part_size, self.sample_per_part, self.trans_std)
+        return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
 class InterpolateModule(nn.Module):
@@ -627,9 +567,7 @@ class Config(object):
             print(k, ' = ', v)
 
 
-activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid,
-    'softmax': lambda x: torch.nn.functional.softmax(x, dim=-1), 'relu': lambda
-    x: torch.nn.functional.relu(x, inplace=True), 'none': lambda x: x})
+activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid, 'softmax': lambda x: torch.nn.functional.softmax(x, dim=-1), 'relu': lambda x: torch.nn.functional.relu(x, inplace=True), 'none': lambda x: x})
 
 
 @torch.jit.script
@@ -641,13 +579,11 @@ def center_size(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]), 1)
+    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] - boxes[:, :2]), 1)
 
 
 @torch.jit.script
-def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0, cast:
-    bool=True):
+def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0, cast: bool=True):
     """
     Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
     Also converts from relative to absolute coordinates and casts the results to long tensors.
@@ -678,14 +614,10 @@ def crop(masks, boxes, padding: int=1):
         - boxes should be a size [n, 4] tensor of bbox coords in relative point form
     """
     h, w, n = masks.size()
-    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding,
-        cast=False)
-    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding,
-        cast=False)
-    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1
-        ).expand(h, w, n)
-    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1
-        ).expand(h, w, n)
+    x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding, cast=False)
+    y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding, cast=False)
+    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1).expand(h, w, n)
+    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1).expand(h, w, n)
     masks_left = rows >= x1.view(1, 1, -1)
     masks_right = rows < x2.view(1, 1, -1)
     masks_up = cols >= y1.view(1, 1, -1)
@@ -703,8 +635,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 @torch.jit.script
@@ -735,14 +666,11 @@ def decode(loc, priors, use_yolo_regressors: bool=False):
              form with size [num_priors, 4]
     """
     if use_yolo_regressors:
-        boxes = torch.cat((loc[:, :2] + priors[:, :2], priors[:, 2:] *
-            torch.exp(loc[:, 2:])), 1)
+        boxes = torch.cat((loc[:, :2] + priors[:, :2], priors[:, 2:] * torch.exp(loc[:, 2:])), 1)
         boxes = point_form(boxes)
     else:
         variances = [0.1, 0.2]
-        boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] *
-            priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances
-            [1])), 1)
+        boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
         boxes[:, :2] -= boxes[:, 2:] / 2
         boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -814,8 +742,7 @@ def encode(matched, priors, use_yolo_regressors: bool=False):
     """
     if use_yolo_regressors:
         boxes = center_size(matched)
-        loc = torch.cat((boxes[:, :2] - priors[:, :2], torch.log(boxes[:, 2
-            :] / priors[:, 2:])), 1)
+        loc = torch.cat((boxes[:, :2] - priors[:, :2], torch.log(boxes[:, 2:] / priors[:, 2:])), 1)
     else:
         variances = [0.1, 0.2]
         g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]
@@ -851,29 +778,26 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
         box_a = box_a[None, ...]
         box_b = box_b[None, ...]
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] -
-        box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
-    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] -
-        box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
+    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] - box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
+    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] - box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
     union = area_a + area_b - inter
     out = inter / area_a if iscrowd else inter / union
     return out if use_batch else out.squeeze(0)
 
 
+_global_config['use_yolo_regressors'] = 4
+
+
 _global_config['use_prediction_matching'] = 4
-
-
-_global_config['crowd_iou_threshold'] = 4
 
 
 _global_config['use_change_matching'] = 4
 
 
-_global_config['use_yolo_regressors'] = 4
+_global_config['crowd_iou_threshold'] = 4
 
 
-def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
-    loc_t, conf_t, idx_t, idx, loc_data):
+def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes, loc_t, conf_t, idx_t, idx, loc_data):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -892,10 +816,8 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     Return:
         The matched indices corresponding to 1)location and 2)confidence preds.
     """
-    decoded_priors = decode(loc_data, priors, cfg.use_yolo_regressors
-        ) if cfg.use_prediction_matching else point_form(priors)
-    overlaps = jaccard(truths, decoded_priors
-        ) if not cfg.use_change_matching else change(truths, decoded_priors)
+    decoded_priors = decode(loc_data, priors, cfg.use_yolo_regressors) if cfg.use_prediction_matching else point_form(priors)
+    overlaps = jaccard(truths, decoded_priors) if not cfg.use_change_matching else change(truths, decoded_priors)
     best_truth_overlap, best_truth_idx = overlaps.max(0)
     for _ in range(overlaps.size(0)):
         best_prior_overlap, best_prior_idx = overlaps.max(1)
@@ -919,34 +841,16 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes,
     idx_t[idx] = best_truth_idx
 
 
-_global_config['class_existence_alpha'] = 4
-
-
-_global_config['use_mask_scoring'] = 4
-
-
-_global_config['conf_alpha'] = 4
-
-
-_global_config['ohem_use_most_confident'] = 4
-
-
-_global_config['use_maskiou'] = 4
-
-
-_global_config['maskious_to_train'] = False
+_global_config['mask_size'] = 4
 
 
 _global_config['mask_alpha'] = 4
 
 
-_global_config['mask_proto_crop'] = 4
+_global_config['use_mask_scoring'] = 4
 
 
-_global_config['use_instance_coeff'] = 4
-
-
-_global_config['mask_proto_crop_with_pred_box'] = 4
+_global_config['class_existence_alpha'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -972,8 +876,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, pos_threshold, neg_threshold, negpos_ratio
-        ):
+    def __init__(self, num_classes, pos_threshold, neg_threshold, negpos_ratio):
         super(MultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.pos_threshold = pos_threshold
@@ -1029,8 +932,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels[idx] = targets[idx][:, (-1)].data.long()
             if cfg.use_class_existence_loss:
-                class_existence_t[(idx), :] = torch.eye(num_classes - 1,
-                    device=conf_t.get_device())[labels[idx]].max(dim=0)[0]
+                class_existence_t[(idx), :] = torch.eye(num_classes - 1, device=conf_t.get_device())[labels[idx]].max(dim=0)[0]
             cur_crowds = num_crowds[idx]
             if cur_crowds > 0:
                 split = lambda x: (x[-cur_crowds:], x[:-cur_crowds])
@@ -1039,9 +941,7 @@ class MultiBoxLoss(nn.Module):
                 _, masks[idx] = split(masks[idx])
             else:
                 crowd_boxes = None
-            match(self.pos_threshold, self.neg_threshold, truths, priors.
-                data, labels[idx], crowd_boxes, loc_t, conf_t, idx_t, idx,
-                loc_data[idx])
+            match(self.pos_threshold, self.neg_threshold, truths, priors.data, labels[idx], crowd_boxes, loc_t, conf_t, idx_t, idx, loc_data[idx])
             gt_box_t[(idx), :, :] = truths[idx_t[idx]]
         loc_t = Variable(loc_t, requires_grad=False)
         conf_t = Variable(conf_t, requires_grad=False)
@@ -1053,8 +953,7 @@ class MultiBoxLoss(nn.Module):
         if cfg.train_boxes:
             loc_p = loc_data[pos_idx].view(-1, 4)
             loc_t = loc_t[pos_idx].view(-1, 4)
-            losses['B'] = F.smooth_l1_loss(loc_p, loc_t, reduction='sum'
-                ) * cfg.bbox_alpha
+            losses['B'] = F.smooth_l1_loss(loc_p, loc_t, reduction='sum') * cfg.bbox_alpha
         if cfg.train_masks:
             if cfg.mask_type == mask_type.direct:
                 if cfg.use_gt_bboxes:
@@ -1063,16 +962,11 @@ class MultiBoxLoss(nn.Module):
                         pos_masks.append(masks[idx][idx_t[idx, pos[idx]]])
                     masks_t = torch.cat(pos_masks, 0)
                     masks_p = mask_data[(pos), :].view(-1, cfg.mask_dim)
-                    losses['M'] = F.binary_cross_entropy(torch.clamp(
-                        masks_p, 0, 1), masks_t, reduction='sum'
-                        ) * cfg.mask_alpha
+                    losses['M'] = F.binary_cross_entropy(torch.clamp(masks_p, 0, 1), masks_t, reduction='sum') * cfg.mask_alpha
                 else:
-                    losses['M'] = self.direct_mask_loss(pos_idx, idx_t,
-                        loc_data, mask_data, priors, masks)
+                    losses['M'] = self.direct_mask_loss(pos_idx, idx_t, loc_data, mask_data, priors, masks)
             elif cfg.mask_type == mask_type.lincomb:
-                ret = self.lincomb_mask_loss(pos, idx_t, loc_data,
-                    mask_data, priors, proto_data, masks, gt_box_t,
-                    score_data, inst_data, labels)
+                ret = self.lincomb_mask_loss(pos, idx_t, loc_data, mask_data, priors, proto_data, masks, gt_box_t, score_data, inst_data, labels)
                 if cfg.use_maskiou:
                     loss, maskiou_targets = ret
                 else:
@@ -1080,33 +974,26 @@ class MultiBoxLoss(nn.Module):
                 losses.update(loss)
                 if cfg.mask_proto_loss is not None:
                     if cfg.mask_proto_loss == 'l1':
-                        losses['P'] = torch.mean(torch.abs(proto_data)
-                            ) / self.l1_expected_area * self.l1_alpha
+                        losses['P'] = torch.mean(torch.abs(proto_data)) / self.l1_expected_area * self.l1_alpha
                     elif cfg.mask_proto_loss == 'disj':
-                        losses['P'] = -torch.mean(torch.max(F.log_softmax(
-                            proto_data, dim=-1), dim=-1)[0])
+                        losses['P'] = -torch.mean(torch.max(F.log_softmax(proto_data, dim=-1), dim=-1)[0])
         if cfg.use_focal_loss:
             if cfg.use_sigmoid_focal_loss:
                 losses['C'] = self.focal_conf_sigmoid_loss(conf_data, conf_t)
             elif cfg.use_objectness_score:
-                losses['C'] = self.focal_conf_objectness_loss(conf_data, conf_t
-                    )
+                losses['C'] = self.focal_conf_objectness_loss(conf_data, conf_t)
             else:
                 losses['C'] = self.focal_conf_loss(conf_data, conf_t)
         elif cfg.use_objectness_score:
-            losses['C'] = self.conf_objectness_loss(conf_data, conf_t,
-                batch_size, loc_p, loc_t, priors)
+            losses['C'] = self.conf_objectness_loss(conf_data, conf_t, batch_size, loc_p, loc_t, priors)
         else:
-            losses['C'] = self.ohem_conf_loss(conf_data, conf_t, pos,
-                batch_size)
+            losses['C'] = self.ohem_conf_loss(conf_data, conf_t, pos, batch_size)
         if cfg.use_maskiou and maskiou_targets is not None:
             losses['I'] = self.mask_iou_loss(net, maskiou_targets)
         if cfg.use_class_existence_loss:
-            losses['E'] = self.class_existence_loss(predictions['classes'],
-                class_existence_t)
+            losses['E'] = self.class_existence_loss(predictions['classes'], class_existence_t)
         if cfg.use_semantic_segmentation_loss:
-            losses['S'] = self.semantic_segmentation_loss(predictions[
-                'segm'], masks, labels)
+            losses['S'] = self.semantic_segmentation_loss(predictions['segm'], masks, labels)
         total_num_pos = num_pos.data.sum().float()
         for k in losses:
             if k not in ('P', 'E', 'S'):
@@ -1116,27 +1003,21 @@ class MultiBoxLoss(nn.Module):
         return losses
 
     def class_existence_loss(self, class_data, class_existence_t):
-        return cfg.class_existence_alpha * F.binary_cross_entropy_with_logits(
-            class_data, class_existence_t, reduction='sum')
+        return cfg.class_existence_alpha * F.binary_cross_entropy_with_logits(class_data, class_existence_t, reduction='sum')
 
-    def semantic_segmentation_loss(self, segment_data, mask_t, class_t,
-        interpolation_mode='bilinear'):
+    def semantic_segmentation_loss(self, segment_data, mask_t, class_t, interpolation_mode='bilinear'):
         batch_size, num_classes, mask_h, mask_w = segment_data.size()
         loss_s = 0
         for idx in range(batch_size):
             cur_segment = segment_data[idx]
             cur_class_t = class_t[idx]
             with torch.no_grad():
-                downsampled_masks = F.interpolate(mask_t[idx].unsqueeze(0),
-                    (mask_h, mask_w), mode=interpolation_mode,
-                    align_corners=False).squeeze(0)
+                downsampled_masks = F.interpolate(mask_t[idx].unsqueeze(0), (mask_h, mask_w), mode=interpolation_mode, align_corners=False).squeeze(0)
                 downsampled_masks = downsampled_masks.gt(0.5).float()
                 segment_t = torch.zeros_like(cur_segment, requires_grad=False)
                 for obj_idx in range(downsampled_masks.size(0)):
-                    segment_t[cur_class_t[obj_idx]] = torch.max(segment_t[
-                        cur_class_t[obj_idx]], downsampled_masks[obj_idx])
-            loss_s += F.binary_cross_entropy_with_logits(cur_segment,
-                segment_t, reduction='sum')
+                    segment_t[cur_class_t[obj_idx]] = torch.max(segment_t[cur_class_t[obj_idx]], downsampled_masks[obj_idx])
+            loss_s += F.binary_cross_entropy_with_logits(cur_segment, segment_t, reduction='sum')
         return loss_s / mask_h / mask_w * cfg.semantic_segmentation_alpha
 
     def ohem_conf_loss(self, conf_data, conf_t, pos, num):
@@ -1158,20 +1039,17 @@ class MultiBoxLoss(nn.Module):
         neg[conf_t < 0] = 0
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='none')
         if cfg.use_class_balanced_conf:
             if self.class_instances is None:
-                self.class_instances = torch.zeros(self.num_classes, device
-                    =targets_weighted.device)
+                self.class_instances = torch.zeros(self.num_classes, device=targets_weighted.device)
             classes, counts = targets_weighted.unique(return_counts=True)
             for _cls, _cnt in zip(classes.cpu().numpy(), counts.cpu().numpy()):
                 self.class_instances[_cls] += _cnt
             self.total_instances += targets_weighted.size(0)
-            weighting = 1 - self.class_instances[targets_weighted
-                ] / self.total_instances
+            weighting = 1 - self.class_instances[targets_weighted] / self.total_instances
             weighting = torch.clamp(weighting, min=1 / self.num_classes)
             avg_weight = (self.num_classes - 1) / self.num_classes
             loss_c = (loss_c * weighting).sum() / avg_weight
@@ -1194,8 +1072,7 @@ class MultiBoxLoss(nn.Module):
         logpt = logpt.view(-1)
         pt = logpt.exp()
         background = (conf_t == 0).float()
-        at = (1 - cfg.focal_loss_alpha) * background + cfg.focal_loss_alpha * (
-            1 - background)
+        at = (1 - cfg.focal_loss_alpha) * background + cfg.focal_loss_alpha * (1 - background)
         loss = -at * (1 - pt) ** cfg.focal_loss_gamma * logpt
         return cfg.conf_alpha * (loss * keep).sum()
 
@@ -1214,8 +1091,7 @@ class MultiBoxLoss(nn.Module):
         conf_pm_t = conf_one_t * 2 - 1
         logpt = F.logsigmoid(conf_data * conf_pm_t)
         pt = logpt.exp()
-        at = cfg.focal_loss_alpha * conf_one_t + (1 - cfg.focal_loss_alpha) * (
-            1 - conf_one_t)
+        at = cfg.focal_loss_alpha * conf_one_t + (1 - cfg.focal_loss_alpha) * (1 - conf_one_t)
         at[..., 0] = 0
         loss = -at * (1 - pt) ** cfg.focal_loss_gamma * logpt
         loss = keep * loss.sum(dim=-1)
@@ -1234,21 +1110,17 @@ class MultiBoxLoss(nn.Module):
         keep = (conf_t >= 0).float()
         conf_t[conf_t < 0] = 0
         background = (conf_t == 0).float()
-        at = (1 - cfg.focal_loss_alpha) * background + cfg.focal_loss_alpha * (
-            1 - background)
-        logpt = F.logsigmoid(conf_data[:, (0)]) * (1 - background
-            ) + F.logsigmoid(-conf_data[:, (0)]) * background
+        at = (1 - cfg.focal_loss_alpha) * background + cfg.focal_loss_alpha * (1 - background)
+        logpt = F.logsigmoid(conf_data[:, (0)]) * (1 - background) + F.logsigmoid(-conf_data[:, (0)]) * background
         pt = logpt.exp()
         obj_loss = -at * (1 - pt) ** cfg.focal_loss_gamma * logpt
         pos_mask = conf_t > 0
         conf_data_pos = conf_data[:, 1:][pos_mask]
         conf_t_pos = conf_t[pos_mask] - 1
-        class_loss = F.cross_entropy(conf_data_pos, conf_t_pos, reduction='sum'
-            )
+        class_loss = F.cross_entropy(conf_data_pos, conf_t_pos, reduction='sum')
         return cfg.conf_alpha * (class_loss + (obj_loss * keep).sum())
 
-    def conf_objectness_loss(self, conf_data, conf_t, batch_size, loc_p,
-        loc_t, priors):
+    def conf_objectness_loss(self, conf_data, conf_t, batch_size, loc_p, loc_t, priors):
         """
         Instead of using softmax, use class[0] to be p(obj) * p(IoU) as in YOLO.
         Then for the rest of the classes, softmax them and apply CE for only the positive examples.
@@ -1262,52 +1134,42 @@ class MultiBoxLoss(nn.Module):
         obj_data_neg = obj_data[neg_mask]
         obj_neg_loss = -F.logsigmoid(-obj_data_neg).sum()
         with torch.no_grad():
-            pos_priors = priors.unsqueeze(0).expand(batch_size, -1, -1
-                ).reshape(-1, 4)[(pos_mask), :]
+            pos_priors = priors.unsqueeze(0).expand(batch_size, -1, -1).reshape(-1, 4)[(pos_mask), :]
             boxes_pred = decode(loc_p, pos_priors, cfg.use_yolo_regressors)
             boxes_targ = decode(loc_t, pos_priors, cfg.use_yolo_regressors)
             iou_targets = elemwise_box_iou(boxes_pred, boxes_targ)
-        obj_pos_loss = -iou_targets * F.logsigmoid(obj_data_pos) - (1 -
-            iou_targets) * F.logsigmoid(-obj_data_pos)
+        obj_pos_loss = -iou_targets * F.logsigmoid(obj_data_pos) - (1 - iou_targets) * F.logsigmoid(-obj_data_pos)
         obj_pos_loss = obj_pos_loss.sum()
         conf_data_pos = conf_data[:, 1:][pos_mask]
         conf_t_pos = conf_t[pos_mask] - 1
-        class_loss = F.cross_entropy(conf_data_pos, conf_t_pos, reduction='sum'
-            )
+        class_loss = F.cross_entropy(conf_data_pos, conf_t_pos, reduction='sum')
         return cfg.conf_alpha * (class_loss + obj_pos_loss + obj_neg_loss)
 
-    def direct_mask_loss(self, pos_idx, idx_t, loc_data, mask_data, priors,
-        masks):
+    def direct_mask_loss(self, pos_idx, idx_t, loc_data, mask_data, priors, masks):
         """ Crops the gt masks using the predicted bboxes, scales them down, and outputs the BCE loss. """
         loss_m = 0
         for idx in range(mask_data.size(0)):
             with torch.no_grad():
                 cur_pos_idx = pos_idx[(idx), :, :]
                 cur_pos_idx_squeezed = cur_pos_idx[:, (1)]
-                pos_bboxes = decode(loc_data[(idx), :, :], priors.data, cfg
-                    .use_yolo_regressors)
+                pos_bboxes = decode(loc_data[(idx), :, :], priors.data, cfg.use_yolo_regressors)
                 pos_bboxes = pos_bboxes[cur_pos_idx].view(-1, 4).clamp(0, 1)
                 pos_lookup = idx_t[idx, cur_pos_idx_squeezed]
                 cur_masks = masks[idx]
                 pos_masks = cur_masks[(pos_lookup), :, :]
                 num_pos, img_height, img_width = pos_masks.size()
-                x1, x2 = sanitize_coordinates(pos_bboxes[:, (0)],
-                    pos_bboxes[:, (2)], img_width)
-                y1, y2 = sanitize_coordinates(pos_bboxes[:, (1)],
-                    pos_bboxes[:, (3)], img_height)
+                x1, x2 = sanitize_coordinates(pos_bboxes[:, (0)], pos_bboxes[:, (2)], img_width)
+                y1, y2 = sanitize_coordinates(pos_bboxes[:, (1)], pos_bboxes[:, (3)], img_height)
                 scaled_masks = []
                 for jdx in range(num_pos):
-                    tmp_mask = pos_masks[(jdx), y1[jdx]:y2[jdx], x1[jdx]:x2
-                        [jdx]]
+                    tmp_mask = pos_masks[(jdx), y1[jdx]:y2[jdx], x1[jdx]:x2[jdx]]
                     while tmp_mask.dim() < 2:
                         tmp_mask = tmp_mask.unsqueeze(0)
-                    new_mask = F.adaptive_avg_pool2d(tmp_mask.unsqueeze(0),
-                        cfg.mask_size)
+                    new_mask = F.adaptive_avg_pool2d(tmp_mask.unsqueeze(0), cfg.mask_size)
                     scaled_masks.append(new_mask.view(1, -1))
                 mask_t = torch.cat(scaled_masks, 0).gt(0.5).float()
             pos_mask_data = mask_data[(idx), (cur_pos_idx_squeezed), :]
-            loss_m += F.binary_cross_entropy(torch.clamp(pos_mask_data, 0, 
-                1), mask_t, reduction='sum') * cfg.mask_alpha
+            loss_m += F.binary_cross_entropy(torch.clamp(pos_mask_data, 0, 1), mask_t, reduction='sum') * cfg.mask_alpha
         return loss_m
 
     def coeff_diversity_loss(self, coeffs, instance_t):
@@ -1319,19 +1181,15 @@ class MultiBoxLoss(nn.Module):
         instance_t = instance_t.view(-1)
         coeffs_norm = F.normalize(coeffs, dim=1)
         cos_sim = coeffs_norm @ coeffs_norm.t()
-        inst_eq = (instance_t[:, (None)].expand_as(cos_sim) == instance_t[(
-            None), :].expand_as(cos_sim)).float()
+        inst_eq = (instance_t[:, (None)].expand_as(cos_sim) == instance_t[(None), :].expand_as(cos_sim)).float()
         cos_sim = (cos_sim + 1) / 2
         loss = (1 - cos_sim) * inst_eq + cos_sim * (1 - inst_eq)
         return cfg.mask_proto_coeff_diversity_alpha * loss.sum() / num_pos
 
-    def lincomb_mask_loss(self, pos, idx_t, loc_data, mask_data, priors,
-        proto_data, masks, gt_box_t, score_data, inst_data, labels,
-        interpolation_mode='bilinear'):
+    def lincomb_mask_loss(self, pos, idx_t, loc_data, mask_data, priors, proto_data, masks, gt_box_t, score_data, inst_data, labels, interpolation_mode='bilinear'):
         mask_h = proto_data.size(1)
         mask_w = proto_data.size(2)
-        process_gt_bboxes = (cfg.mask_proto_normalize_emulate_roi_pooling or
-            cfg.mask_proto_crop)
+        process_gt_bboxes = cfg.mask_proto_normalize_emulate_roi_pooling or cfg.mask_proto_crop
         if cfg.mask_proto_remove_empty_masks:
             pos = pos.clone()
         loss_m = 0
@@ -1341,16 +1199,12 @@ class MultiBoxLoss(nn.Module):
         label_t_list = []
         for idx in range(mask_data.size(0)):
             with torch.no_grad():
-                downsampled_masks = F.interpolate(masks[idx].unsqueeze(0),
-                    (mask_h, mask_w), mode=interpolation_mode,
-                    align_corners=False).squeeze(0)
-                downsampled_masks = downsampled_masks.permute(1, 2, 0
-                    ).contiguous()
+                downsampled_masks = F.interpolate(masks[idx].unsqueeze(0), (mask_h, mask_w), mode=interpolation_mode, align_corners=False).squeeze(0)
+                downsampled_masks = downsampled_masks.permute(1, 2, 0).contiguous()
                 if cfg.mask_proto_binarize_downsampled_gt:
                     downsampled_masks = downsampled_masks.gt(0.5).float()
                 if cfg.mask_proto_remove_empty_masks:
-                    very_small_masks = downsampled_masks.sum(dim=(0, 1)
-                        ) <= 0.0001
+                    very_small_masks = downsampled_masks.sum(dim=(0, 1)) <= 0.0001
                     for i in range(very_small_masks.size(0)):
                         if very_small_masks[i]:
                             pos[idx, idx_t[idx] == i] = 0
@@ -1359,19 +1213,15 @@ class MultiBoxLoss(nn.Module):
                         bin_gt = downsampled_masks.gt(0.5).float()
                     else:
                         bin_gt = downsampled_masks
-                    gt_foreground_norm = bin_gt / (torch.sum(bin_gt, dim=(0,
-                        1), keepdim=True) + 0.0001)
-                    gt_background_norm = (1 - bin_gt) / (torch.sum(1 -
-                        bin_gt, dim=(0, 1), keepdim=True) + 0.0001)
-                    mask_reweighting = (gt_foreground_norm * cfg.
-                        mask_proto_reweight_coeff + gt_background_norm)
+                    gt_foreground_norm = bin_gt / (torch.sum(bin_gt, dim=(0, 1), keepdim=True) + 0.0001)
+                    gt_background_norm = (1 - bin_gt) / (torch.sum(1 - bin_gt, dim=(0, 1), keepdim=True) + 0.0001)
+                    mask_reweighting = gt_foreground_norm * cfg.mask_proto_reweight_coeff + gt_background_norm
                     mask_reweighting *= mask_h * mask_w
             cur_pos = pos[idx]
             pos_idx_t = idx_t[idx, cur_pos]
             if process_gt_bboxes:
                 if cfg.mask_proto_crop_with_pred_box:
-                    pos_gt_box_t = decode(loc_data[(idx), :, :], priors.
-                        data, cfg.use_yolo_regressors)[cur_pos]
+                    pos_gt_box_t = decode(loc_data[(idx), :, :], priors.data, cfg.use_yolo_regressors)[cur_pos]
                 else:
                     pos_gt_box_t = gt_box_t[idx, cur_pos]
             if pos_idx_t.size(0) == 0:
@@ -1403,20 +1253,16 @@ class MultiBoxLoss(nn.Module):
             pred_masks = cfg.mask_proto_mask_activation(pred_masks)
             if cfg.mask_proto_double_loss:
                 if cfg.mask_proto_mask_activation == activation_func.sigmoid:
-                    pre_loss = F.binary_cross_entropy(torch.clamp(
-                        pred_masks, 0, 1), mask_t, reduction='sum')
+                    pre_loss = F.binary_cross_entropy(torch.clamp(pred_masks, 0, 1), mask_t, reduction='sum')
                 else:
-                    pre_loss = F.smooth_l1_loss(pred_masks, mask_t,
-                        reduction='sum')
+                    pre_loss = F.smooth_l1_loss(pred_masks, mask_t, reduction='sum')
                 loss_m += cfg.mask_proto_double_loss_alpha * pre_loss
             if cfg.mask_proto_crop:
                 pred_masks = crop(pred_masks, pos_gt_box_t)
             if cfg.mask_proto_mask_activation == activation_func.sigmoid:
-                pre_loss = F.binary_cross_entropy(torch.clamp(pred_masks, 0,
-                    1), mask_t, reduction='none')
+                pre_loss = F.binary_cross_entropy(torch.clamp(pred_masks, 0, 1), mask_t, reduction='none')
             else:
-                pre_loss = F.smooth_l1_loss(pred_masks, mask_t, reduction=
-                    'none')
+                pre_loss = F.smooth_l1_loss(pred_masks, mask_t, reduction='none')
             if cfg.mask_proto_normalize_mask_loss_by_sqrt_area:
                 gt_area = torch.sum(mask_t, dim=(0, 1), keepdim=True)
                 pre_loss = pre_loss / (torch.sqrt(gt_area) + 0.0001)
@@ -1427,8 +1273,7 @@ class MultiBoxLoss(nn.Module):
                 pos_gt_csize = center_size(pos_gt_box_t)
                 gt_box_width = pos_gt_csize[:, (2)] * mask_w
                 gt_box_height = pos_gt_csize[:, (3)] * mask_h
-                pre_loss = pre_loss.sum(dim=(0, 1)
-                    ) / gt_box_width / gt_box_height * weight
+                pre_loss = pre_loss.sum(dim=(0, 1)) / gt_box_width / gt_box_height * weight
             if old_num_pos > num_pos:
                 pre_loss *= old_num_pos / num_pos
             loss_m += torch.sum(pre_loss)
@@ -1442,8 +1287,7 @@ class MultiBoxLoss(nn.Module):
                     pred_masks = pred_masks[:, :, (select)]
                     mask_t = mask_t[:, :, (select)]
                     label_t = label_t[select]
-                maskiou_net_input = pred_masks.permute(2, 0, 1).contiguous(
-                    ).unsqueeze(1)
+                maskiou_net_input = pred_masks.permute(2, 0, 1).contiguous().unsqueeze(1)
                 pred_masks = pred_masks.gt(0.5).float()
                 maskiou_t = self._mask_iou(pred_masks, mask_t)
                 maskiou_net_input_list.append(maskiou_net_input)
@@ -1459,8 +1303,7 @@ class MultiBoxLoss(nn.Module):
             label_t = torch.cat(label_t_list)
             maskiou_net_input = torch.cat(maskiou_net_input_list)
             num_samples = maskiou_t.size(0)
-            if (cfg.maskious_to_train > 0 and num_samples > cfg.
-                maskious_to_train):
+            if cfg.maskious_to_train > 0 and num_samples > cfg.maskious_to_train:
                 perm = torch.randperm(num_samples)
                 select = perm[:cfg.masks_to_train]
                 maskiou_t = maskiou_t[select]
@@ -1499,11 +1342,9 @@ def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
             h_prime = new_h
         w_prime = int(w_prime)
         h_prime = int(h_prime)
-        img = F.interpolate(img.unsqueeze(0), (h_prime, w_prime), mode=
-            'bilinear', align_corners=False)
+        img = F.interpolate(img.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
         img.squeeze_(0)
-        masks = F.interpolate(masks.unsqueeze(0), (h_prime, w_prime), mode=
-            'bilinear', align_corners=False)
+        masks = F.interpolate(masks.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
         masks.squeeze_(0)
         targets[:, ([0, 2])] *= w_prime / new_w
         targets[:, ([1, 3])] *= h_prime / new_h
@@ -1518,10 +1359,10 @@ def gradinator(x):
     return x
 
 
-_global_config['batch_size'] = 4
-
-
 _global_config['preserve_aspect_ratio'] = 4
+
+
+_global_config['batch_size'] = 4
 
 
 _global_config['cuda'] = False
@@ -1544,16 +1385,12 @@ def prepare_data(datum, devices: list=None, allocation: list=None):
                 cur_idx += 1
         if cfg.preserve_aspect_ratio:
             _, h, w = images[random.randint(0, len(images) - 1)].size()
-            for idx, (image, target, mask, num_crowd) in enumerate(zip(
-                images, targets, masks, num_crowds)):
-                images[idx], targets[idx], masks[idx], num_crowds[idx
-                    ] = enforce_size(image, target, mask, num_crowd, w, h)
+            for idx, (image, target, mask, num_crowd) in enumerate(zip(images, targets, masks, num_crowds)):
+                images[idx], targets[idx], masks[idx], num_crowds[idx] = enforce_size(image, target, mask, num_crowd, w, h)
         cur_idx = 0
-        split_images, split_targets, split_masks, split_numcrowds = [[None for
-            alloc in allocation] for _ in range(4)]
+        split_images, split_targets, split_masks, split_numcrowds = [[None for alloc in allocation] for _ in range(4)]
         for device_idx, alloc in enumerate(allocation):
-            split_images[device_idx] = torch.stack(images[cur_idx:cur_idx +
-                alloc], dim=0)
+            split_images[device_idx] = torch.stack(images[cur_idx:cur_idx + alloc], dim=0)
             split_targets[device_idx] = targets[cur_idx:cur_idx + alloc]
             split_masks[device_idx] = masks[cur_idx:cur_idx + alloc]
             split_numcrowds[device_idx] = num_crowds[cur_idx:cur_idx + alloc]
@@ -1573,8 +1410,7 @@ class CustomDataParallel(nn.DataParallel):
     def scatter(self, inputs, kwargs, device_ids):
         devices = [('cuda:' + str(x)) for x in device_ids]
         splits = prepare_data(inputs[0], devices, allocation=args.batch_alloc)
-        return [[split[device_idx] for split in splits] for device_idx in
-            range(len(devices))], [kwargs] * len(devices)
+        return [[split[device_idx] for split in splits] for device_idx in range(len(devices))], [kwargs] * len(devices)
 
     def gather(self, outputs, output_device):
         out = {}
@@ -1586,13 +1422,13 @@ class CustomDataParallel(nn.DataParallel):
 MEANS = 103.94, 116.78, 123.68
 
 
-_global_config['discard_box_width'] = 4
-
-
 _global_config['max_size'] = 4
 
 
 _global_config['discard_box_height'] = 4
+
+
+_global_config['discard_box_width'] = 4
 
 
 class Resize(object):
@@ -1614,8 +1450,7 @@ class Resize(object):
     def __call__(self, image, masks, boxes, labels=None):
         img_h, img_w, _ = image.shape
         if self.preserve_aspect_ratio:
-            width, height = Resize.calc_size_preserve_ar(img_w, img_h, self
-                .max_size)
+            width, height = Resize.calc_size_preserve_ar(img_w, img_h, self.max_size)
         else:
             width, height = self.max_size, self.max_size
         image = cv2.resize(image, (width, height))
@@ -1667,8 +1502,7 @@ class FastBaseTransform(torch.nn.Module):
         else:
             img_size = cfg.max_size, cfg.max_size
         img = img.permute(0, 3, 1, 2).contiguous()
-        img = F.interpolate(img, img_size, mode='bilinear', align_corners=False
-            )
+        img = F.interpolate(img, img_size, mode='bilinear', align_corners=False)
         if self.transform.normalize:
             img = (img - self.mean) / self.std
         elif self.transform.subtract_means:
@@ -1689,8 +1523,7 @@ class Concat(nn.Module):
         self.extra_params = extra_params
 
     def forward(self, x):
-        return torch.cat([net(x) for net in self.nets], dim=1, **self.
-            extra_params)
+        return torch.cat([net(x) for net in self.nets], dim=1, **self.extra_params)
 
 
 def make_net(in_channels, conf, include_last_relu=True):
@@ -1711,20 +1544,56 @@ def make_net(in_channels, conf, include_last_relu=True):
             num_channels = layer_cfg[0]
             kernel_size = layer_cfg[1]
             if kernel_size > 0:
-                layer = nn.Conv2d(in_channels, num_channels, kernel_size,
-                    **layer_cfg[2])
+                layer = nn.Conv2d(in_channels, num_channels, kernel_size, **layer_cfg[2])
             elif num_channels is None:
-                layer = InterpolateModule(scale_factor=-kernel_size, mode=
-                    'bilinear', align_corners=False, **layer_cfg[2])
+                layer = InterpolateModule(scale_factor=-kernel_size, mode='bilinear', align_corners=False, **layer_cfg[2])
             else:
-                layer = nn.ConvTranspose2d(in_channels, num_channels, -
-                    kernel_size, **layer_cfg[2])
+                layer = nn.ConvTranspose2d(in_channels, num_channels, -kernel_size, **layer_cfg[2])
         in_channels = num_channels if num_channels is not None else in_channels
         return [layer, nn.ReLU(inplace=True)]
     net = sum([make_layer(x) for x in conf], [])
     if not include_last_relu:
         net = net[:-1]
     return nn.Sequential(*net), in_channels
+
+
+_global_config['extra_head_net'] = 4
+
+
+_global_config['_tmp_img_h'] = 4
+
+
+_global_config['mask_proto_prototypes_as_features'] = 4
+
+
+_global_config['mask_proto_coeff_activation'] = 4
+
+
+_global_config['extra_layers'] = 1
+
+
+_global_config['num_heads'] = 4
+
+
+_global_config['mask_dim'] = 4
+
+
+_global_config['eval_mask_branch'] = 4
+
+
+_global_config['num_classes'] = 4
+
+
+_global_config['_tmp_img_w'] = 4
+
+
+_global_config['mask_type'] = 4
+
+
+_global_config['head_layer_params'] = 1
+
+
+_global_config['use_instance_coeff'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -1753,8 +1622,7 @@ class PredictionModule(nn.Module):
                          from parent instead of from this module.
     """
 
-    def __init__(self, in_channels, out_channels=1024, aspect_ratios=[[1]],
-        scales=[1], parent=None, index=0):
+    def __init__(self, in_channels, out_channels=1024, aspect_ratios=[[1]], scales=[1], parent=None, index=0):
         super().__init__()
         self.num_classes = cfg.num_classes
         self.mask_dim = cfg.mask_dim
@@ -1762,8 +1630,7 @@ class PredictionModule(nn.Module):
         self.parent = [parent]
         self.index = index
         self.num_heads = cfg.num_heads
-        if (cfg.mask_proto_split_prototypes_by_head and cfg.mask_type ==
-            mask_type.lincomb):
+        if cfg.mask_proto_split_prototypes_by_head and cfg.mask_type == mask_type.lincomb:
             self.mask_dim = self.mask_dim // self.num_heads
         if cfg.mask_proto_prototypes_as_features:
             in_channels += self.mask_dim
@@ -1771,39 +1638,27 @@ class PredictionModule(nn.Module):
             if cfg.extra_head_net is None:
                 out_channels = in_channels
             else:
-                self.upfeature, out_channels = make_net(in_channels, cfg.
-                    extra_head_net)
+                self.upfeature, out_channels = make_net(in_channels, cfg.extra_head_net)
             if cfg.use_prediction_module:
                 self.block = Bottleneck(out_channels, out_channels // 4)
-                self.conv = nn.Conv2d(out_channels, out_channels,
-                    kernel_size=1, bias=True)
+                self.conv = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=True)
                 self.bn = nn.BatchNorm2d(out_channels)
-            self.bbox_layer = nn.Conv2d(out_channels, self.num_priors * 4,
-                **cfg.head_layer_params)
-            self.conf_layer = nn.Conv2d(out_channels, self.num_priors *
-                self.num_classes, **cfg.head_layer_params)
-            self.mask_layer = nn.Conv2d(out_channels, self.num_priors *
-                self.mask_dim, **cfg.head_layer_params)
+            self.bbox_layer = nn.Conv2d(out_channels, self.num_priors * 4, **cfg.head_layer_params)
+            self.conf_layer = nn.Conv2d(out_channels, self.num_priors * self.num_classes, **cfg.head_layer_params)
+            self.mask_layer = nn.Conv2d(out_channels, self.num_priors * self.mask_dim, **cfg.head_layer_params)
             if cfg.use_mask_scoring:
-                self.score_layer = nn.Conv2d(out_channels, self.num_priors,
-                    **cfg.head_layer_params)
+                self.score_layer = nn.Conv2d(out_channels, self.num_priors, **cfg.head_layer_params)
             if cfg.use_instance_coeff:
-                self.inst_layer = nn.Conv2d(out_channels, self.num_priors *
-                    cfg.num_instance_coeffs, **cfg.head_layer_params)
+                self.inst_layer = nn.Conv2d(out_channels, self.num_priors * cfg.num_instance_coeffs, **cfg.head_layer_params)
 
             def make_extra(num_layers):
                 if num_layers == 0:
                     return lambda x: x
                 else:
-                    return nn.Sequential(*sum([[nn.Conv2d(out_channels,
-                        out_channels, kernel_size=3, padding=1), nn.ReLU(
-                        inplace=True)] for _ in range(num_layers)], []))
-            self.bbox_extra, self.conf_extra, self.mask_extra = [make_extra
-                (x) for x in cfg.extra_layers]
-            if (cfg.mask_type == mask_type.lincomb and cfg.
-                mask_proto_coeff_gate):
-                self.gate_layer = nn.Conv2d(out_channels, self.num_priors *
-                    self.mask_dim, kernel_size=3, padding=1)
+                    return nn.Sequential(*sum([[nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True)] for _ in range(num_layers)], []))
+            self.bbox_extra, self.conf_extra, self.mask_extra = [make_extra(x) for x in cfg.extra_layers]
+            if cfg.mask_type == mask_type.lincomb and cfg.mask_proto_coeff_gate:
+                self.gate_layer = nn.Conv2d(out_channels, self.num_priors * self.mask_dim, kernel_size=3, padding=1)
         self.aspect_ratios = aspect_ratios
         self.scales = scales
         self.priors = None
@@ -1836,22 +1691,16 @@ class PredictionModule(nn.Module):
         bbox_x = src.bbox_extra(x)
         conf_x = src.conf_extra(x)
         mask_x = src.mask_extra(x)
-        bbox = src.bbox_layer(bbox_x).permute(0, 2, 3, 1).contiguous().view(x
-            .size(0), -1, 4)
-        conf = src.conf_layer(conf_x).permute(0, 2, 3, 1).contiguous().view(x
-            .size(0), -1, self.num_classes)
+        bbox = src.bbox_layer(bbox_x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 4)
+        conf = src.conf_layer(conf_x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
         if cfg.eval_mask_branch:
-            mask = src.mask_layer(mask_x).permute(0, 2, 3, 1).contiguous(
-                ).view(x.size(0), -1, self.mask_dim)
+            mask = src.mask_layer(mask_x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.mask_dim)
         else:
-            mask = torch.zeros(x.size(0), bbox.size(1), self.mask_dim,
-                device=bbox.device)
+            mask = torch.zeros(x.size(0), bbox.size(1), self.mask_dim, device=bbox.device)
         if cfg.use_mask_scoring:
-            score = src.score_layer(x).permute(0, 2, 3, 1).contiguous().view(x
-                .size(0), -1, 1)
+            score = src.score_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 1)
         if cfg.use_instance_coeff:
-            inst = src.inst_layer(x).permute(0, 2, 3, 1).contiguous().view(x
-                .size(0), -1, cfg.num_instance_coeffs)
+            inst = src.inst_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, cfg.num_instance_coeffs)
         if cfg.use_yolo_regressors:
             bbox[:, :, :2] = torch.sigmoid(bbox[:, :, :2]) - 0.5
             bbox[:, :, (0)] /= conv_w
@@ -1862,13 +1711,10 @@ class PredictionModule(nn.Module):
             elif cfg.mask_type == mask_type.lincomb:
                 mask = cfg.mask_proto_coeff_activation(mask)
                 if cfg.mask_proto_coeff_gate:
-                    gate = src.gate_layer(x).permute(0, 2, 3, 1).contiguous(
-                        ).view(x.size(0), -1, self.mask_dim)
+                    gate = src.gate_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.mask_dim)
                     mask = mask * torch.sigmoid(gate)
-        if (cfg.mask_proto_split_prototypes_by_head and cfg.mask_type ==
-            mask_type.lincomb):
-            mask = F.pad(mask, (self.index * self.mask_dim, (self.num_heads -
-                self.index - 1) * self.mask_dim), mode='constant', value=0)
+        if cfg.mask_proto_split_prototypes_by_head and cfg.mask_type == mask_type.lincomb:
+            mask = F.pad(mask, (self.index * self.mask_dim, (self.num_heads - self.index - 1) * self.mask_dim), mode='constant', value=0)
         priors = self.make_priors(conv_h, conv_w, x.device)
         preds = {'loc': bbox, 'conf': conf, 'mask': mask, 'priors': priors}
         if cfg.use_mask_scoring:
@@ -1901,8 +1747,7 @@ class PredictionModule(nn.Module):
                                 if cfg.backbone.use_square_anchors:
                                     h = w
                                 prior_data += [x, y, w, h]
-                self.priors = torch.Tensor(prior_data, device=device).view(
-                    -1, 4).detach()
+                self.priors = torch.Tensor(prior_data, device=device).view(-1, 4).detach()
                 self.priors.requires_grad = False
                 self.last_img_size = cfg._tmp_img_w, cfg._tmp_img_h
                 self.last_conv_size = conv_w, conv_h
@@ -1967,19 +1812,16 @@ class Detect(object):
         with timer.env('Detect'):
             batch_size = loc_data.size(0)
             num_priors = prior_data.size(0)
-            conf_preds = conf_data.view(batch_size, num_priors, self.
-                num_classes).transpose(2, 1).contiguous()
+            conf_preds = conf_data.view(batch_size, num_priors, self.num_classes).transpose(2, 1).contiguous()
             for batch_idx in range(batch_size):
                 decoded_boxes = decode(loc_data[batch_idx], prior_data)
-                result = self.detect(batch_idx, conf_preds, decoded_boxes,
-                    mask_data, inst_data)
+                result = self.detect(batch_idx, conf_preds, decoded_boxes, mask_data, inst_data)
                 if result is not None and proto_data is not None:
                     result['proto'] = proto_data[batch_idx]
                 out.append({'detection': result, 'net': net})
         return out
 
-    def detect(self, batch_idx, conf_preds, decoded_boxes, mask_data, inst_data
-        ):
+    def detect(self, batch_idx, conf_preds, decoded_boxes, mask_data, inst_data):
         """ Perform nms for only the max scoring class that isn't background (class 0) """
         cur_scores = conf_preds[(batch_idx), 1:, :]
         conf_scores, _ = torch.max(cur_scores, dim=0)
@@ -1993,21 +1835,16 @@ class Detect(object):
             return None
         if self.use_fast_nms:
             if self.use_cross_class_nms:
-                boxes, masks, classes, scores = self.cc_fast_nms(boxes,
-                    masks, scores, self.nms_thresh, self.top_k)
+                boxes, masks, classes, scores = self.cc_fast_nms(boxes, masks, scores, self.nms_thresh, self.top_k)
             else:
-                boxes, masks, classes, scores = self.fast_nms(boxes, masks,
-                    scores, self.nms_thresh, self.top_k)
+                boxes, masks, classes, scores = self.fast_nms(boxes, masks, scores, self.nms_thresh, self.top_k)
         else:
-            boxes, masks, classes, scores = self.traditional_nms(boxes,
-                masks, scores, self.nms_thresh, self.conf_thresh)
+            boxes, masks, classes, scores = self.traditional_nms(boxes, masks, scores, self.nms_thresh, self.conf_thresh)
             if self.use_cross_class_nms:
-                print(
-                    'Warning: Cross Class Traditional NMS is not implemented.')
+                print('Warning: Cross Class Traditional NMS is not implemented.')
         return {'box': boxes, 'mask': masks, 'class': classes, 'score': scores}
 
-    def cc_fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5,
-        top_k: int=200):
+    def cc_fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5, top_k: int=200):
         scores, classes = scores.max(dim=0)
         _, idx = scores.sort(0, descending=True)
         idx = idx[:top_k]
@@ -2016,11 +1853,9 @@ class Detect(object):
         iou.triu_(diagonal=1)
         iou_max, _ = torch.max(iou, dim=0)
         idx_out = idx[iou_max <= iou_threshold]
-        return boxes[idx_out], masks[idx_out], classes[idx_out], scores[idx_out
-            ]
+        return boxes[idx_out], masks[idx_out], classes[idx_out], scores[idx_out]
 
-    def fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5,
-        top_k: int=200, second_threshold: bool=False):
+    def fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5, top_k: int=200, second_threshold: bool=False):
         scores, idx = scores.sort(1, descending=True)
         idx = idx[:, :top_k].contiguous()
         scores = scores[:, :top_k]
@@ -2033,8 +1868,7 @@ class Detect(object):
         keep = iou_max <= iou_threshold
         if second_threshold:
             keep *= scores > self.conf_thresh
-        classes = torch.arange(num_classes, device=boxes.device)[:, (None)
-            ].expand_as(keep)
+        classes = torch.arange(num_classes, device=boxes.device)[:, (None)].expand_as(keep)
         classes = classes[keep]
         boxes = boxes[keep]
         masks = masks[keep]
@@ -2047,11 +1881,9 @@ class Detect(object):
         masks = masks[idx]
         return boxes, masks, classes, scores
 
-    def traditional_nms(self, boxes, masks, scores, iou_threshold=0.5,
-        conf_thresh=0.05):
+    def traditional_nms(self, boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
         import pyximport
-        pyximport.install(setup_args={'include_dirs': np.get_include()},
-            reload_support=True)
+        pyximport.install(setup_args={'include_dirs': np.get_include()}, reload_support=True)
         from utils.cython_nms import nms as cnms
         num_classes = scores.size(0)
         idx_lst = []
@@ -2066,8 +1898,7 @@ class Detect(object):
             idx = idx[conf_mask]
             if cls_scores.size(0) == 0:
                 continue
-            preds = torch.cat([boxes[conf_mask], cls_scores[:, (None)]], dim=1
-                ).cpu().numpy()
+            preds = torch.cat([boxes[conf_mask], cls_scores[:, (None)]], dim=1).cpu().numpy()
             keep = cnms(preds, iou_threshold)
             keep = torch.Tensor(keep, device=boxes.device).long()
             idx_lst.append(idx[keep])
@@ -2090,8 +1921,7 @@ use_jit = torch.cuda.device_count() <= 1
 ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
 
 
-script_method_wrapper = (torch.jit.script_method if use_jit else lambda fn,
-    _rcn=None: fn)
+script_method_wrapper = torch.jit.script_method if use_jit else lambda fn, _rcn=None: fn
 
 
 _global_config['fpn'] = 4
@@ -2112,22 +1942,15 @@ class FPN(ScriptModuleWrapper):
         - in_channels (list): For each conv layer you supply in the forward pass,
                               how many features will it have?
     """
-    __constants__ = ['interpolation_mode', 'num_downsample',
-        'use_conv_downsample', 'relu_pred_layers', 'lat_layers',
-        'pred_layers', 'downsample_layers', 'relu_downsample_layers']
+    __constants__ = ['interpolation_mode', 'num_downsample', 'use_conv_downsample', 'relu_pred_layers', 'lat_layers', 'pred_layers', 'downsample_layers', 'relu_downsample_layers']
 
     def __init__(self, in_channels):
         super().__init__()
-        self.lat_layers = nn.ModuleList([nn.Conv2d(x, cfg.fpn.num_features,
-            kernel_size=1) for x in reversed(in_channels)])
+        self.lat_layers = nn.ModuleList([nn.Conv2d(x, cfg.fpn.num_features, kernel_size=1) for x in reversed(in_channels)])
         padding = 1 if cfg.fpn.pad else 0
-        self.pred_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features,
-            cfg.fpn.num_features, kernel_size=3, padding=padding) for _ in
-            in_channels])
+        self.pred_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features, cfg.fpn.num_features, kernel_size=3, padding=padding) for _ in in_channels])
         if cfg.fpn.use_conv_downsample:
-            self.downsample_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.
-                num_features, cfg.fpn.num_features, kernel_size=3, padding=
-                1, stride=2) for _ in range(cfg.fpn.num_downsample)])
+            self.downsample_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features, cfg.fpn.num_features, kernel_size=3, padding=1, stride=2) for _ in range(cfg.fpn.num_downsample)])
         self.interpolation_mode = cfg.fpn.interpolation_mode
         self.num_downsample = cfg.fpn.num_downsample
         self.use_conv_downsample = cfg.fpn.use_conv_downsample
@@ -2151,8 +1974,7 @@ class FPN(ScriptModuleWrapper):
             j -= 1
             if j < len(convouts) - 1:
                 _, _, h, w = convouts[j].size()
-                x = F.interpolate(x, size=(h, w), mode=self.
-                    interpolation_mode, align_corners=False)
+                x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode, align_corners=False)
             x = x + lat_layer(convouts[j])
             out[j] = x
         j = len(convouts)
@@ -2177,22 +1999,17 @@ class FPN(ScriptModuleWrapper):
 _global_config['maskiou_net'] = 4
 
 
-_global_config['num_classes'] = 4
-
-
 class FastMaskIoUNet(ScriptModuleWrapper):
 
     def __init__(self):
         super().__init__()
         input_channels = 1
         last_layer = [(cfg.num_classes - 1, 1, {})]
-        self.maskiou_net, _ = make_net(input_channels, cfg.maskiou_net +
-            last_layer, include_last_relu=True)
+        self.maskiou_net, _ = make_net(input_channels, cfg.maskiou_net + last_layer, include_last_relu=True)
 
     def forward(self, x):
         x = self.maskiou_net(x)
-        maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1
-            ).squeeze(-1)
+        maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1).squeeze(-1)
         return maskiou_p
 
 
@@ -2205,19 +2022,7 @@ def construct_backbone(cfg):
     return backbone
 
 
-_global_config['nms_top_k'] = 4
-
-
 _global_config['mask_proto_use_grid'] = 4
-
-
-_global_config['mask_proto_prototype_activation'] = 4
-
-
-_global_config['_tmp_img_w'] = 4
-
-
-_global_config['num_heads'] = 4
 
 
 class Yolact(nn.Module):
@@ -2261,8 +2066,7 @@ class Yolact(nn.Module):
             else:
                 in_channels = self.backbone.channels[self.proto_src]
             in_channels += self.num_grids
-            self.proto_net, cfg.mask_dim = make_net(in_channels, cfg.
-                mask_proto_net, include_last_relu=False)
+            self.proto_net, cfg.mask_dim = make_net(in_channels, cfg.mask_proto_net, include_last_relu=False)
             if cfg.mask_proto_bias:
                 cfg.mask_dim += 1
         self.selected_layers = cfg.backbone.selected_layers
@@ -2271,8 +2075,7 @@ class Yolact(nn.Module):
             self.maskiou_net = FastMaskIoUNet()
         if cfg.fpn is not None:
             self.fpn = FPN([src_channels[i] for i in self.selected_layers])
-            self.selected_layers = list(range(len(self.selected_layers) +
-                cfg.fpn.num_downsample))
+            self.selected_layers = list(range(len(self.selected_layers) + cfg.fpn.num_downsample))
             src_channels = [cfg.fpn.num_features] * len(self.selected_layers)
         self.prediction_layers = nn.ModuleList()
         cfg.num_heads = len(self.selected_layers)
@@ -2280,20 +2083,13 @@ class Yolact(nn.Module):
             parent = None
             if cfg.share_prediction_module and idx > 0:
                 parent = self.prediction_layers[0]
-            pred = PredictionModule(src_channels[layer_idx], src_channels[
-                layer_idx], aspect_ratios=cfg.backbone.pred_aspect_ratios[
-                idx], scales=cfg.backbone.pred_scales[idx], parent=parent,
-                index=idx)
+            pred = PredictionModule(src_channels[layer_idx], src_channels[layer_idx], aspect_ratios=cfg.backbone.pred_aspect_ratios[idx], scales=cfg.backbone.pred_scales[idx], parent=parent, index=idx)
             self.prediction_layers.append(pred)
         if cfg.use_class_existence_loss:
-            self.class_existence_fc = nn.Linear(src_channels[-1], cfg.
-                num_classes - 1)
+            self.class_existence_fc = nn.Linear(src_channels[-1], cfg.num_classes - 1)
         if cfg.use_semantic_segmentation_loss:
-            self.semantic_seg_conv = nn.Conv2d(src_channels[0], cfg.
-                num_classes - 1, kernel_size=1)
-        self.detect = Detect(cfg.num_classes, bkg_label=0, top_k=cfg.
-            nms_top_k, conf_thresh=cfg.nms_conf_thresh, nms_thresh=cfg.
-            nms_thresh)
+            self.semantic_seg_conv = nn.Conv2d(src_channels[0], cfg.num_classes - 1, kernel_size=1)
+        self.detect = Detect(cfg.num_classes, bkg_label=0, top_k=cfg.nms_top_k, conf_thresh=cfg.nms_conf_thresh, nms_thresh=cfg.nms_thresh)
 
     def save_weights(self, path):
         """ Saves the model's weights using compression because the file sizes were getting too big. """
@@ -2303,12 +2099,10 @@ class Yolact(nn.Module):
         """ Loads weights from a compressed save file. """
         state_dict = torch.load(path)
         for key in list(state_dict.keys()):
-            if key.startswith('backbone.layer') and not key.startswith(
-                'backbone.layers'):
+            if key.startswith('backbone.layer') and not key.startswith('backbone.layers'):
                 del state_dict[key]
             if key.startswith('fpn.downsample_layers.'):
-                if cfg.fpn is not None and int(key.split('.')[2]
-                    ) >= cfg.fpn.num_downsample:
+                if cfg.fpn is not None and int(key.split('.')[2]) >= cfg.fpn.num_downsample:
                     del state_dict[key]
         self.load_state_dict(state_dict)
 
@@ -2328,25 +2122,18 @@ class Yolact(nn.Module):
                 if hasattr(module, 'original_name'):
                     is_script_conv = 'Conv' in module.original_name
                 else:
-                    is_script_conv = all_in(module.__dict__[
-                        '_constants_set'], conv_constants) and all_in(
-                        conv_constants, module.__dict__['_constants_set'])
+                    is_script_conv = all_in(module.__dict__['_constants_set'], conv_constants) and all_in(conv_constants, module.__dict__['_constants_set'])
             is_conv_layer = isinstance(module, nn.Conv2d) or is_script_conv
             if is_conv_layer and module not in self.backbone.backbone_modules:
                 nn.init.xavier_uniform_(module.weight.data)
                 if module.bias is not None:
                     if cfg.use_focal_loss and 'conf_layer' in name:
                         if not cfg.use_sigmoid_focal_loss:
-                            module.bias.data[0] = np.log((1 - cfg.
-                                focal_loss_init_pi) / cfg.focal_loss_init_pi)
-                            module.bias.data[1:] = -np.log(module.bias.size
-                                (0) - 1)
+                            module.bias.data[0] = np.log((1 - cfg.focal_loss_init_pi) / cfg.focal_loss_init_pi)
+                            module.bias.data[1:] = -np.log(module.bias.size(0) - 1)
                         else:
-                            module.bias.data[0] = -np.log(cfg.
-                                focal_loss_init_pi / (1 - cfg.
-                                focal_loss_init_pi))
-                            module.bias.data[1:] = -np.log((1 - cfg.
-                                focal_loss_init_pi) / cfg.focal_loss_init_pi)
+                            module.bias.data[0] = -np.log(cfg.focal_loss_init_pi / (1 - cfg.focal_loss_init_pi))
+                            module.bias.data[1:] = -np.log((1 - cfg.focal_loss_init_pi) / cfg.focal_loss_init_pi)
                     else:
                         module.bias.data.zero_()
 
@@ -2391,25 +2178,19 @@ class Yolact(nn.Module):
                 if cfg.mask_proto_bias:
                     bias_shape = [x for x in proto_out.size()]
                     bias_shape[-1] = 1
-                    proto_out = torch.cat([proto_out, torch.ones(*
-                        bias_shape)], -1)
+                    proto_out = torch.cat([proto_out, torch.ones(*bias_shape)], -1)
         with timer.env('pred_heads'):
             pred_outs = {'loc': [], 'conf': [], 'mask': [], 'priors': []}
             if cfg.use_mask_scoring:
                 pred_outs['score'] = []
             if cfg.use_instance_coeff:
                 pred_outs['inst'] = []
-            for idx, pred_layer in zip(self.selected_layers, self.
-                prediction_layers):
+            for idx, pred_layer in zip(self.selected_layers, self.prediction_layers):
                 pred_x = outs[idx]
-                if (cfg.mask_type == mask_type.lincomb and cfg.
-                    mask_proto_prototypes_as_features):
-                    proto_downsampled = F.interpolate(proto_downsampled,
-                        size=outs[idx].size()[2:], mode='bilinear',
-                        align_corners=False)
+                if cfg.mask_type == mask_type.lincomb and cfg.mask_proto_prototypes_as_features:
+                    proto_downsampled = F.interpolate(proto_downsampled, size=outs[idx].size()[2:], mode='bilinear', align_corners=False)
                     pred_x = torch.cat([pred_x, proto_downsampled], dim=1)
-                if (cfg.share_prediction_module and pred_layer is not self.
-                    prediction_layers[0]):
+                if cfg.share_prediction_module and pred_layer is not self.prediction_layers[0]:
                     pred_layer.parent = [self.prediction_layers[0]]
                 p = pred_layer(pred_x)
                 for k, v in p.items():
@@ -2420,8 +2201,7 @@ class Yolact(nn.Module):
             pred_outs['proto'] = proto_out
         if self.training:
             if cfg.use_class_existence_loss:
-                pred_outs['classes'] = self.class_existence_fc(outs[-1].
-                    mean(dim=(2, 3)))
+                pred_outs['classes'] = self.class_existence_fc(outs[-1].mean(dim=(2, 3)))
             if cfg.use_semantic_segmentation_loss:
                 pred_outs['segm'] = self.semantic_seg_conv(outs[0])
             return pred_outs
@@ -2435,15 +2215,13 @@ class Yolact(nn.Module):
                         pred_outs['conf'] *= pred_outs['score']
                 elif cfg.use_objectness_score:
                     objectness = torch.sigmoid(pred_outs['conf'][:, :, (0)])
-                    pred_outs['conf'][:, :, 1:] = objectness[:, :, (None)
-                        ] * F.softmax(pred_outs['conf'][:, :, 1:], -1)
+                    pred_outs['conf'][:, :, 1:] = objectness[:, :, (None)] * F.softmax(pred_outs['conf'][:, :, 1:], -1)
                     pred_outs['conf'][:, :, (0)] = 1 - objectness
                 else:
                     pred_outs['conf'] = F.softmax(pred_outs['conf'], -1)
             elif cfg.use_objectness_score:
                 objectness = torch.sigmoid(pred_outs['conf'][:, :, (0)])
-                pred_outs['conf'][:, :, 1:] = (objectness > 0.1)[..., None
-                    ] * F.softmax(pred_outs['conf'][:, :, 1:], dim=-1)
+                pred_outs['conf'][:, :, 1:] = (objectness > 0.1)[..., None] * F.softmax(pred_outs['conf'][:, :, 1:], dim=-1)
             else:
                 pred_outs['conf'] = F.softmax(pred_outs['conf'], -1)
             return self.detect(pred_outs, self)
@@ -2453,21 +2231,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CustomDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (DarkNetBackbone,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResNetBackbone,
+     lambda: ([], {'layers': [4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (VGGBackbone,
+     lambda: ([], {'cfg': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_dbolya_yolact(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CustomDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(DarkNetBackbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ResNetBackbone(*[], **{'layers': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(VGGBackbone(*[], **{'cfg': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

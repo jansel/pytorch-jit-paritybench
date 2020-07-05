@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,10 +64,7 @@ import torch.nn as nn
 import torch.nn.init as init
 
 
-functional_derivatives = {torch.tanh: lambda x: 1 - torch.pow(torch.tanh(x),
-    2), F.leaky_relu: lambda x: (x > 0).type(torch.FloatTensor) + (x < 0).
-    type(torch.FloatTensor) * -0.01, F.elu: lambda x: (x > 0).type(torch.
-    FloatTensor) + (x < 0).type(torch.FloatTensor) * torch.exp(x)}
+functional_derivatives = {torch.tanh: lambda x: 1 - torch.pow(torch.tanh(x), 2), F.leaky_relu: lambda x: (x > 0).type(torch.FloatTensor) + (x < 0).type(torch.FloatTensor) * -0.01, F.elu: lambda x: (x > 0).type(torch.FloatTensor) + (x < 0).type(torch.FloatTensor) * torch.exp(x)}
 
 
 class Planar(nn.Module):
@@ -101,8 +99,7 @@ class Planar(nn.Module):
         if self.h in (F.elu, F.leaky_relu):
             u = self.u
         elif self.h == torch.tanh:
-            scal = torch.log(1 + torch.exp(self.w @ self.u)
-                ) - self.w @ self.u - 1
+            scal = torch.log(1 + torch.exp(self.w @ self.u)) - self.w @ self.u - 1
             u = self.u + scal * self.w / torch.norm(self.w) ** 2
         else:
             raise NotImplementedError('Non-linearity is not supported.')
@@ -145,8 +142,7 @@ class Radial(nn.Module):
         h = 1 / (torch.exp(self.log_alpha) + r)
         beta = -torch.exp(self.log_alpha) + torch.log(1 + torch.exp(self.beta))
         z = x + beta * h * (x - self.x0)
-        log_det = (n - 1) * torch.log(1 + beta * h) + torch.log(1 + beta *
-            h - beta * r / (torch.exp(self.log_alpha) + r) ** 2)
+        log_det = (n - 1) * torch.log(1 + beta * h) + torch.log(1 + beta * h - beta * r / (torch.exp(self.log_alpha) + r) ** 2)
         return z, log_det
 
 
@@ -157,9 +153,7 @@ class FCNN(nn.Module):
 
     def __init__(self, in_dim, out_dim, hidden_dim):
         super().__init__()
-        self.network = nn.Sequential(nn.Linear(in_dim, hidden_dim), nn.Tanh
-            (), nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(
-            hidden_dim, out_dim))
+        self.network = nn.Sequential(nn.Linear(in_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, out_dim))
 
     def forward(self, x):
         return self.network(x)
@@ -189,8 +183,7 @@ class RealNVP(nn.Module):
         s2_transformed = self.s2(upper)
         lower = t2_transformed + lower * torch.exp(s2_transformed)
         z = torch.cat([lower, upper], dim=1)
-        log_det = torch.sum(s1_transformed, dim=1) + torch.sum(s2_transformed,
-            dim=1)
+        log_det = torch.sum(s1_transformed, dim=1) + torch.sum(s2_transformed, dim=1)
         return z, log_det
 
     def inverse(self, z):
@@ -202,8 +195,7 @@ class RealNVP(nn.Module):
         s1_transformed = self.s1(lower)
         upper = (upper - t1_transformed) * torch.exp(-s1_transformed)
         x = torch.cat([lower, upper], dim=1)
-        log_det = torch.sum(-s1_transformed, dim=1) + torch.sum(-
-            s2_transformed, dim=1)
+        log_det = torch.sum(-s1_transformed, dim=1) + torch.sum(-s2_transformed, dim=1)
         return x, log_det
 
 
@@ -293,8 +285,7 @@ class OneByOneConv(nn.Module):
         self.P = torch.tensor(P, dtype=torch.float)
         self.L = nn.Parameter(torch.tensor(L, dtype=torch.float))
         self.S = nn.Parameter(torch.tensor(np.diag(U), dtype=torch.float))
-        self.U = nn.Parameter(torch.triu(torch.tensor(U, dtype=torch.float),
-            diagonal=1))
+        self.U = nn.Parameter(torch.triu(torch.tensor(U, dtype=torch.float), diagonal=1))
         self.W_inv = None
 
     def forward(self, x):
@@ -306,8 +297,7 @@ class OneByOneConv(nn.Module):
 
     def inverse(self, z):
         if not self.W_inv:
-            L = torch.tril(self.L, diagonal=-1) + torch.diag(torch.ones(
-                self.dim))
+            L = torch.tril(self.L, diagonal=-1) + torch.diag(torch.ones(self.dim))
             U = torch.triu(self.U, diagonal=1)
             W = self.P @ L @ (U + torch.diag(self.S))
             self.W_inv = torch.inverse(W)
@@ -330,10 +320,7 @@ def searchsorted(bin_locations, inputs, eps=1e-06):
     return torch.sum(inputs[..., None] >= bin_locations, dim=-1) - 1
 
 
-def RQS(inputs, unnormalized_widths, unnormalized_heights,
-    unnormalized_derivatives, inverse=False, left=0.0, right=1.0, bottom=
-    0.0, top=1.0, min_bin_width=DEFAULT_MIN_BIN_WIDTH, min_bin_height=
-    DEFAULT_MIN_BIN_HEIGHT, min_derivative=DEFAULT_MIN_DERIVATIVE):
+def RQS(inputs, unnormalized_widths, unnormalized_heights, unnormalized_derivatives, inverse=False, left=0.0, right=1.0, bottom=0.0, top=1.0, min_bin_width=DEFAULT_MIN_BIN_WIDTH, min_bin_height=DEFAULT_MIN_BIN_HEIGHT, min_derivative=DEFAULT_MIN_DERIVATIVE):
     if torch.min(inputs) < left or torch.max(inputs) > right:
         raise ValueError('Input outside domain')
     num_bins = unnormalized_widths.shape[-1]
@@ -372,47 +359,30 @@ def RQS(inputs, unnormalized_widths, unnormalized_heights,
     input_derivatives_plus_one = input_derivatives_plus_one[..., 0]
     input_heights = heights.gather(-1, bin_idx)[..., 0]
     if inverse:
-        a = (inputs - input_cumheights) * (input_derivatives +
-            input_derivatives_plus_one - 2 * input_delta) + input_heights * (
-            input_delta - input_derivatives)
-        b = input_heights * input_derivatives - (inputs - input_cumheights) * (
-            input_derivatives + input_derivatives_plus_one - 2 * input_delta)
+        a = (inputs - input_cumheights) * (input_derivatives + input_derivatives_plus_one - 2 * input_delta) + input_heights * (input_delta - input_derivatives)
+        b = input_heights * input_derivatives - (inputs - input_cumheights) * (input_derivatives + input_derivatives_plus_one - 2 * input_delta)
         c = -input_delta * (inputs - input_cumheights)
         discriminant = b.pow(2) - 4 * a * c
         assert (discriminant >= 0).all()
         root = 2 * c / (-b - torch.sqrt(discriminant))
         outputs = root * input_bin_widths + input_cumwidths
         theta_one_minus_theta = root * (1 - root)
-        denominator = input_delta + (input_derivatives +
-            input_derivatives_plus_one - 2 * input_delta
-            ) * theta_one_minus_theta
-        derivative_numerator = input_delta.pow(2) * (
-            input_derivatives_plus_one * root.pow(2) + 2 * input_delta *
-            theta_one_minus_theta + input_derivatives * (1 - root).pow(2))
-        logabsdet = torch.log(derivative_numerator) - 2 * torch.log(denominator
-            )
+        denominator = input_delta + (input_derivatives + input_derivatives_plus_one - 2 * input_delta) * theta_one_minus_theta
+        derivative_numerator = input_delta.pow(2) * (input_derivatives_plus_one * root.pow(2) + 2 * input_delta * theta_one_minus_theta + input_derivatives * (1 - root).pow(2))
+        logabsdet = torch.log(derivative_numerator) - 2 * torch.log(denominator)
         return outputs, -logabsdet
     else:
         theta = (inputs - input_cumwidths) / input_bin_widths
         theta_one_minus_theta = theta * (1 - theta)
-        numerator = input_heights * (input_delta * theta.pow(2) + 
-            input_derivatives * theta_one_minus_theta)
-        denominator = input_delta + (input_derivatives +
-            input_derivatives_plus_one - 2 * input_delta
-            ) * theta_one_minus_theta
+        numerator = input_heights * (input_delta * theta.pow(2) + input_derivatives * theta_one_minus_theta)
+        denominator = input_delta + (input_derivatives + input_derivatives_plus_one - 2 * input_delta) * theta_one_minus_theta
         outputs = input_cumheights + numerator / denominator
-        derivative_numerator = input_delta.pow(2) * (
-            input_derivatives_plus_one * theta.pow(2) + 2 * input_delta *
-            theta_one_minus_theta + input_derivatives * (1 - theta).pow(2))
-        logabsdet = torch.log(derivative_numerator) - 2 * torch.log(denominator
-            )
+        derivative_numerator = input_delta.pow(2) * (input_derivatives_plus_one * theta.pow(2) + 2 * input_delta * theta_one_minus_theta + input_derivatives * (1 - theta).pow(2))
+        logabsdet = torch.log(derivative_numerator) - 2 * torch.log(denominator)
         return outputs, logabsdet
 
 
-def unconstrained_RQS(inputs, unnormalized_widths, unnormalized_heights,
-    unnormalized_derivatives, inverse=False, tail_bound=1.0, min_bin_width=
-    DEFAULT_MIN_BIN_WIDTH, min_bin_height=DEFAULT_MIN_BIN_HEIGHT,
-    min_derivative=DEFAULT_MIN_DERIVATIVE):
+def unconstrained_RQS(inputs, unnormalized_widths, unnormalized_heights, unnormalized_derivatives, inverse=False, tail_bound=1.0, min_bin_width=DEFAULT_MIN_BIN_WIDTH, min_bin_height=DEFAULT_MIN_BIN_HEIGHT, min_derivative=DEFAULT_MIN_DERIVATIVE):
     inside_intvl_mask = (inputs >= -tail_bound) & (inputs <= tail_bound)
     outside_interval_mask = ~inside_intvl_mask
     outputs = torch.zeros_like(inputs)
@@ -423,14 +393,7 @@ def unconstrained_RQS(inputs, unnormalized_widths, unnormalized_heights,
     unnormalized_derivatives[..., -1] = constant
     outputs[outside_interval_mask] = inputs[outside_interval_mask]
     logabsdet[outside_interval_mask] = 0
-    outputs[inside_intvl_mask], logabsdet[inside_intvl_mask] = RQS(inputs=
-        inputs[inside_intvl_mask], unnormalized_widths=unnormalized_widths[
-        (inside_intvl_mask), :], unnormalized_heights=unnormalized_heights[
-        (inside_intvl_mask), :], unnormalized_derivatives=
-        unnormalized_derivatives[(inside_intvl_mask), :], inverse=inverse,
-        left=-tail_bound, right=tail_bound, bottom=-tail_bound, top=
-        tail_bound, min_bin_width=min_bin_width, min_bin_height=
-        min_bin_height, min_derivative=min_derivative)
+    outputs[inside_intvl_mask], logabsdet[inside_intvl_mask] = RQS(inputs=inputs[inside_intvl_mask], unnormalized_widths=unnormalized_widths[(inside_intvl_mask), :], unnormalized_heights=unnormalized_heights[(inside_intvl_mask), :], unnormalized_derivatives=unnormalized_derivatives[(inside_intvl_mask), :], inverse=inverse, left=-tail_bound, right=tail_bound, bottom=-tail_bound, top=tail_bound, min_bin_width=min_bin_width, min_bin_height=min_bin_height, min_derivative=min_derivative)
     return outputs, logabsdet
 
 
@@ -468,8 +431,7 @@ class NSF_AR(nn.Module):
             W, H = torch.softmax(W, dim=1), torch.softmax(H, dim=1)
             W, H = 2 * self.B * W, 2 * self.B * H
             D = F.softplus(D)
-            z[:, (i)], ld = unconstrained_RQS(x[:, (i)], W, H, D, inverse=
-                False, tail_bound=self.B)
+            z[:, (i)], ld = unconstrained_RQS(x[:, (i)], W, H, D, inverse=False, tail_bound=self.B)
             log_det += ld
         return z, log_det
 
@@ -486,8 +448,7 @@ class NSF_AR(nn.Module):
             W, H = torch.softmax(W, dim=1), torch.softmax(H, dim=1)
             W, H = 2 * self.B * W, 2 * self.B * H
             D = F.softplus(D)
-            x[:, (i)], ld = unconstrained_RQS(z[:, (i)], W, H, D, inverse=
-                True, tail_bound=self.B)
+            x[:, (i)], ld = unconstrained_RQS(z[:, (i)], W, H, D, inverse=True, tail_bound=self.B)
             log_det += ld
         return x, log_det
 
@@ -515,16 +476,14 @@ class NSF_CL(nn.Module):
         W, H = torch.softmax(W, dim=2), torch.softmax(H, dim=2)
         W, H = 2 * self.B * W, 2 * self.B * H
         D = F.softplus(D)
-        upper, ld = unconstrained_RQS(upper, W, H, D, inverse=False,
-            tail_bound=self.B)
+        upper, ld = unconstrained_RQS(upper, W, H, D, inverse=False, tail_bound=self.B)
         log_det += torch.sum(ld, dim=1)
         out = self.f2(upper).reshape(-1, self.dim // 2, 3 * self.K - 1)
         W, H, D = torch.split(out, self.K, dim=2)
         W, H = torch.softmax(W, dim=2), torch.softmax(H, dim=2)
         W, H = 2 * self.B * W, 2 * self.B * H
         D = F.softplus(D)
-        lower, ld = unconstrained_RQS(lower, W, H, D, inverse=False,
-            tail_bound=self.B)
+        lower, ld = unconstrained_RQS(lower, W, H, D, inverse=False, tail_bound=self.B)
         log_det += torch.sum(ld, dim=1)
         return torch.cat([lower, upper], dim=1), log_det
 
@@ -536,16 +495,14 @@ class NSF_CL(nn.Module):
         W, H = torch.softmax(W, dim=2), torch.softmax(H, dim=2)
         W, H = 2 * self.B * W, 2 * self.B * H
         D = F.softplus(D)
-        lower, ld = unconstrained_RQS(lower, W, H, D, inverse=True,
-            tail_bound=self.B)
+        lower, ld = unconstrained_RQS(lower, W, H, D, inverse=True, tail_bound=self.B)
         log_det += torch.sum(ld, dim=1)
         out = self.f1(lower).reshape(-1, self.dim // 2, 3 * self.K - 1)
         W, H, D = torch.split(out, self.K, dim=2)
         W, H = torch.softmax(W, dim=2), torch.softmax(H, dim=2)
         W, H = 2 * self.B * W, 2 * self.B * H
         D = F.softplus(D)
-        upper, ld = unconstrained_RQS(upper, W, H, D, inverse=True,
-            tail_bound=self.B)
+        upper, ld = unconstrained_RQS(upper, W, H, D, inverse=True, tail_bound=self.B)
         log_det += torch.sum(ld, dim=1)
         return torch.cat([lower, upper], dim=1), log_det
 
@@ -585,36 +542,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActNorm,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FCNN,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MAF,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (NSF_AR,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (NSF_CL,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (OneByOneConv,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Planar,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Radial,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (RealNVP,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 2])], {}),
+     True),
+]
+
 class Test_tonyduan_normalizing_flows(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ActNorm(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FCNN(*[], **{'in_dim': 4, 'out_dim': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MAF(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(NSF_AR(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(NSF_CL(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(OneByOneConv(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(Planar(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Radial(*[], **{'dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(RealNVP(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 2])], {})
+        self._check(*TESTCASES[8])
 

@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -88,8 +89,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x /= norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -136,10 +136,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -157,10 +155,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [num_objects, box_priors]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -173,8 +169,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -212,16 +207,7 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     conf_t[idx] = conf
 
 
-v = {'512': {'feature_maps': [64, 32, 16, 8, 4, 2, 1], 'min_dim': 512,
-    'steps': [8, 16, 32, 64, 128, 256, 512], 'min_sizes': [20, 51, 133, 215,
-    296, 378, 460], 'max_sizes': [51, 133, 215, 296, 378, 460, 542],
-    'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2, 3], [2], [2]],
-    'variance': [0.1, 0.2], 'clip': True, 'name': 'v2_512'}, '300': {
-    'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps': [8, 16,
-    32, 64, 100, 300], 'min_sizes': [30, 60, 111, 162, 213, 264],
-    'max_sizes': [60, 111, 162, 213, 264, 315], 'aspect_ratios': [[2], [2, 
-    3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True,
-    'name': 'v2_300'}}
+v = {'512': {'feature_maps': [64, 32, 16, 8, 4, 2, 1], 'min_dim': 512, 'steps': [8, 16, 32, 64, 128, 256, 512], 'min_sizes': [20, 51, 133, 215, 296, 378, 460], 'max_sizes': [51, 133, 215, 296, 378, 460, 542], 'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'v2_512'}, '300': {'feature_maps': [38, 19, 10, 5, 3, 1], 'min_dim': 300, 'steps': [8, 16, 32, 64, 100, 300], 'min_sizes': [30, 60, 111, 162, 213, 264], 'max_sizes': [60, 111, 162, 213, 264, 315], 'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]], 'variance': [0.1, 0.2], 'clip': True, 'name': 'v2_300'}}
 
 
 class MultiBoxLoss(nn.Module):
@@ -247,9 +233,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, size, overlap_thresh,
-        prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap,
-        encode_target, use_gpu=True):
+    def __init__(self, num_classes, size, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, use_gpu=True):
         super(MultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -286,8 +270,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -299,8 +282,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -310,8 +292,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum()
@@ -332,8 +313,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -403,8 +383,7 @@ class Detect(Function):
     confidence score and locations.
     """
 
-    def __init__(self, num_classes, size, bkg_label, top_k, conf_thresh,
-        nms_thresh):
+    def __init__(self, num_classes, size, bkg_label, top_k, conf_thresh, nms_thresh):
         self.num_classes = num_classes
         self.background_label = bkg_label
         self.top_k = top_k
@@ -432,8 +411,7 @@ class Detect(Function):
         if num == 1:
             conf_preds = conf_data.t().contiguous().unsqueeze(0)
         else:
-            conf_preds = conf_data.view(num, num_priors, self.num_classes
-                ).transpose(2, 1)
+            conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
             self.output.expand_(num, self.num_classes, self.top_k, 5)
         for i in range(num):
             decoded_boxes = decode(loc_data[i], prior_data, self.variance)
@@ -447,8 +425,7 @@ class Detect(Function):
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
-                self.output[(i), (cl), :count] = torch.cat((scores[ids[:
-                    count]].unsqueeze(1), boxes[ids[:count]]), 1)
+                self.output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
         flt = self.output.view(-1, 5)
         _, idx = flt[:, (0)].sort(0)
         _, rank = idx.sort(0)
@@ -574,20 +551,16 @@ class SSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(-1, self.num_classes)), self.priors.type(type(x.
-                data)))
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes)), self.priors.type(type(x.data)))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes), self.priors
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -597,8 +570,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_qijiezhao_pytorch_ssd(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

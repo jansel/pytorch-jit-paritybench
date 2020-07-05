@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,8 +100,7 @@ class Resample2dFunction(Function):
             _, d, _, _ = input1.size()
             b, _, h, w = input2.size()
             output = input1.new().resize_(b, d, h, w).zero_()
-            resample2d.Resample2d_cuda_forward(input1, input2, output, self
-                .kernel_size)
+            resample2d.Resample2d_cuda_forward(input1, input2, output, self.kernel_size)
         return output
 
     def backward(self, gradOutput):
@@ -111,8 +111,7 @@ class Resample2dFunction(Function):
             gradInput1 = input1.new().resize_(b, c, h, w).zero_()
             b, c, h, w = input2.size()
             gradInput2 = input2.new().resize_(b, c, h, w).zero_()
-            resample2d.Resample2d_cuda_backward(input1, input2, gradOutput,
-                gradInput1, gradInput2, self.kernel_size)
+            resample2d.Resample2d_cuda_backward(input1, input2, gradOutput, gradInput1, gradInput2, self.kernel_size)
         return gradInput1, gradInput2
 
 
@@ -136,12 +135,9 @@ class ConvLSTM(nn.Module):
         self.hidden_size = hidden_size
         pad = kernel_size // 2
         if type == '3d':
-            self.Gates = nn.Conv3d(input_size + hidden_size, 4 *
-                hidden_size, (1, kernel_size, kernel_size), padding=(0, pad,
-                pad))
+            self.Gates = nn.Conv3d(input_size + hidden_size, 4 * hidden_size, (1, kernel_size, kernel_size), padding=(0, pad, pad))
         else:
-            self.Gates = nn.Conv2d(input_size + hidden_size, 4 *
-                hidden_size, kernel_size, padding=pad)
+            self.Gates = nn.Conv2d(input_size + hidden_size, 4 * hidden_size, kernel_size, padding=pad)
 
     def forward(self, input_, prev_state=None):
         batch_size = input_.data.size()[0]
@@ -164,8 +160,7 @@ class ConvLSTM(nn.Module):
 
 class CorrelationFunction(Function):
 
-    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20,
-        stride1=1, stride2=2, corr_multiply=1):
+    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
         super(CorrelationFunction, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -182,10 +177,7 @@ class CorrelationFunction(Function):
             rbot1 = input1.new()
             rbot2 = input2.new()
             output = input1.new()
-            correlation.Correlation_forward_cuda(input1, input2, rbot1,
-                rbot2, output, self.pad_size, self.kernel_size, self.
-                max_displacement, self.stride1, self.stride2, self.
-                corr_multiply)
+            correlation.Correlation_forward_cuda(input1, input2, rbot1, rbot2, output, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return output
 
     def backward(self, grad_output):
@@ -196,17 +188,13 @@ class CorrelationFunction(Function):
             rbot2 = input2.new()
             grad_input1 = input1.new()
             grad_input2 = input2.new()
-            correlation.Correlation_backward_cuda(input1, input2, rbot1,
-                rbot2, grad_output, grad_input1, grad_input2, self.pad_size,
-                self.kernel_size, self.max_displacement, self.stride1, self
-                .stride2, self.corr_multiply)
+            correlation.Correlation_backward_cuda(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return grad_input1, grad_input2
 
 
 class Correlation(Module):
 
-    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0,
-        stride1=1, stride2=2, corr_multiply=1):
+    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
         super(Correlation, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -216,24 +204,15 @@ class Correlation(Module):
         self.corr_multiply = corr_multiply
 
     def forward(self, input1, input2):
-        result = CorrelationFunction(self.pad_size, self.kernel_size, self.
-            max_displacement, self.stride1, self.stride2, self.corr_multiply)(
-            input1, input2)
+        result = CorrelationFunction(self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)(input1, input2)
         return result
 
 
-def conv_(batch_norm, in_planes, out_planes, kernel_size=3, stride=1,
-    dilation=1):
+def conv_(batch_norm, in_planes, out_planes, kernel_size=3, stride=1, dilation=1):
     if batch_norm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, dilation=dilation, padding=(
-            kernel_size - 1) * dilation // 2, bias=False), nn.BatchNorm2d(
-            out_planes), nn.LeakyReLU(0.1, inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, dilation=dilation, padding=(kernel_size - 1) * dilation // 2, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, dilation=dilation, padding=(
-            kernel_size - 1) * dilation // 2, bias=True), nn.LeakyReLU(0.1,
-            inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, dilation=dilation, padding=(kernel_size - 1) * dilation // 2, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 class MaskEstimator_(nn.Module):
@@ -241,20 +220,15 @@ class MaskEstimator_(nn.Module):
     def __init__(self, args, ch_in):
         super(MaskEstimator_, self).__init__()
         self.args = args
-        self.convs = nn.Sequential(conv_(False, ch_in, ch_in // 2), conv_(
-            False, ch_in // 2, ch_in // 2), nn.Conv2d(in_channels=ch_in // 
-            2, out_channels=1, kernel_size=3, stride=1, padding=1, dilation
-            =1, groups=1, bias=True), nn.Sigmoid())
+        self.convs = nn.Sequential(conv_(False, ch_in, ch_in // 2), conv_(False, ch_in // 2, ch_in // 2), nn.Conv2d(in_channels=ch_in // 2, out_channels=1, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         return self.convs(x)
 
 
 def get_grid(x):
-    torchHorizontal = torch.linspace(-1.0, 1.0, x.size(3)).view(1, 1, 1, x.
-        size(3)).expand(x.size(0), 1, x.size(2), x.size(3))
-    torchVertical = torch.linspace(-1.0, 1.0, x.size(2)).view(1, 1, x.size(
-        2), 1).expand(x.size(0), 1, x.size(2), x.size(3))
+    torchHorizontal = torch.linspace(-1.0, 1.0, x.size(3)).view(1, 1, 1, x.size(3)).expand(x.size(0), 1, x.size(2), x.size(3))
+    torchVertical = torch.linspace(-1.0, 1.0, x.size(2)).view(1, 1, x.size(2), 1).expand(x.size(0), 1, x.size(2), x.size(3))
     grid = torch.cat([torchHorizontal, torchVertical], 1)
     return grid
 
@@ -266,27 +240,18 @@ class WarpingLayer(nn.Module):
 
     def forward(self, x, flow):
         flow_for_grip = torch.zeros_like(flow)
-        flow_for_grip[:, (0), :, :] = flow[:, (0), :, :] / ((flow.size(3) -
-            1.0) / 2.0)
-        flow_for_grip[:, (1), :, :] = flow[:, (1), :, :] / ((flow.size(2) -
-            1.0) / 2.0)
+        flow_for_grip[:, (0), :, :] = flow[:, (0), :, :] / ((flow.size(3) - 1.0) / 2.0)
+        flow_for_grip[:, (1), :, :] = flow[:, (1), :, :] / ((flow.size(2) - 1.0) / 2.0)
         grid = (get_grid(x) + flow_for_grip).permute(0, 2, 3, 1)
         x_warp = F.grid_sample(x, grid)
         return x_warp
 
 
-def conv(batch_norm, in_planes, out_planes, kernel_size=3, stride=1, dilation=1
-    ):
+def conv(batch_norm, in_planes, out_planes, kernel_size=3, stride=1, dilation=1):
     if batch_norm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, dilation=dilation, padding=(
-            kernel_size - 1) * dilation // 2, bias=False), nn.BatchNorm2d(
-            out_planes), nn.LeakyReLU(0.1, inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, dilation=dilation, padding=(kernel_size - 1) * dilation // 2, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, dilation=dilation, padding=(
-            kernel_size - 1) * dilation // 2, bias=True), nn.LeakyReLU(0.1,
-            inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, dilation=dilation, padding=(kernel_size - 1) * dilation // 2, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 class ContextNetwork(nn.Module):
@@ -294,12 +259,7 @@ class ContextNetwork(nn.Module):
     def __init__(self, args, ch_in):
         super(ContextNetwork, self).__init__()
         self.args = args
-        self.convs = nn.Sequential(conv(args.batch_norm, ch_in, 128, 3, 1, 
-            1), conv(args.batch_norm, 128, 128, 3, 1, 2), conv(args.
-            batch_norm, 128, 128, 3, 1, 4), conv(args.batch_norm, 128, 96, 
-            3, 1, 8), conv(args.batch_norm, 96, 64, 3, 1, 16), conv(args.
-            batch_norm, 64, 32, 3, 1, 1), conv(args.batch_norm, 32, 2, 3, 1, 1)
-            )
+        self.convs = nn.Sequential(conv(args.batch_norm, ch_in, 128, 3, 1, 1), conv(args.batch_norm, 128, 128, 3, 1, 2), conv(args.batch_norm, 128, 128, 3, 1, 4), conv(args.batch_norm, 128, 96, 3, 1, 8), conv(args.batch_norm, 96, 64, 3, 1, 16), conv(args.batch_norm, 64, 32, 3, 1, 1), conv(args.batch_norm, 32, 2, 3, 1, 1))
 
     def forward(self, x):
         return self.convs(x)
@@ -310,11 +270,8 @@ class LongFlowEstimatorCorr(nn.Module):
     def __init__(self, args, ch_in):
         super(LongFlowEstimatorCorr, self).__init__()
         self.args = args
-        self.convs = nn.Sequential(conv(args.batch_norm, ch_in, 128), conv(
-            args.batch_norm, 128, 128), conv(args.batch_norm, 128, 96),
-            conv(args.batch_norm, 96, 64), conv(args.batch_norm, 64, 32))
-        self.conv1 = nn.Conv2d(in_channels=32, out_channels=2, kernel_size=
-            3, stride=1, padding=1, dilation=1, groups=1, bias=True)
+        self.convs = nn.Sequential(conv(args.batch_norm, ch_in, 128), conv(args.batch_norm, 128, 128), conv(args.batch_norm, 128, 96), conv(args.batch_norm, 96, 64), conv(args.batch_norm, 64, 32))
+        self.conv1 = nn.Conv2d(in_channels=32, out_channels=2, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True)
         self.convs_fine = ContextNetwork(args, 32 + 2)
 
     def forward(self, x):
@@ -330,18 +287,14 @@ class LongFlowNetCorr(nn.Module):
     def __init__(self, args, in_ch):
         super(LongFlowNetCorr, self).__init__()
         self.args = args
-        self.corr = Correlation(pad_size=args.search_range, kernel_size=1,
-            max_displacement=args.search_range, stride1=1, stride2=1,
-            corr_multiply=1)
-        self.flow_estimator = LongFlowEstimatorCorr(args, in_ch + (args.
-            search_range * 2 + 1) ** 2)
+        self.corr = Correlation(pad_size=args.search_range, kernel_size=1, max_displacement=args.search_range, stride1=1, stride2=1, corr_multiply=1)
+        self.flow_estimator = LongFlowEstimatorCorr(args, in_ch + (args.search_range * 2 + 1) ** 2)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv3d):
                 if m.bias is not None:
                     nn.init.uniform_(m.bias)
                 nn.init.xavier_uniform_(m.weight)
-            if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.
-                ConvTranspose3d):
+            if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.ConvTranspose3d):
                 if m.bias is not None:
                     nn.init.uniform_(m.bias)
                 nn.init.xavier_uniform_(m.weight)
@@ -357,21 +310,16 @@ class LongFlowNetCorr(nn.Module):
 
 class GatedConvolution(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        dilation=1, padding=0, bias=False, type='3d', status='train'):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, dilation=1, padding=0, bias=False, type='3d', status='train'):
         super(GatedConvolution, self).__init__()
         assert type in ['2d', '3d']
         assert status in ['train', 'test']
         self.status = status
         self.type = type
         if type == '3d':
-            self.conv = nn.Conv3d(in_channels, out_channels * 2,
-                kernel_size, stride=stride, dilation=dilation, padding=
-                padding, bias=bias)
+            self.conv = nn.Conv3d(in_channels, out_channels * 2, kernel_size, stride=stride, dilation=dilation, padding=padding, bias=bias)
         elif type == '2d':
-            self.conv = nn.Conv2d(in_channels, out_channels * 2,
-                kernel_size, stride=stride, dilation=dilation, padding=
-                padding, bias=bias)
+            self.conv = nn.Conv2d(in_channels, out_channels * 2, kernel_size, stride=stride, dilation=dilation, padding=padding, bias=bias)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -386,8 +334,7 @@ class GatedConvolution(nn.Module):
 
 class GatedUpConvolution(nn.Module):
 
-    def __init__(self, size, in_channels, out_channels, kernel_size, stride,
-        padding, bias, mode='trilinear', type='3d', status='train'):
+    def __init__(self, size, in_channels, out_channels, kernel_size, stride, padding, bias, mode='trilinear', type='3d', status='train'):
         super(GatedUpConvolution, self).__init__()
         assert type in ['2d', '3d']
         assert status in ['train', 'test']
@@ -395,13 +342,9 @@ class GatedUpConvolution(nn.Module):
         self.type = type
         self.leaky_relu = nn.LeakyReLU(0.2)
         if type == '3d':
-            self.conv = nn.Sequential(nn.Upsample(size=size, mode=mode), nn
-                .Conv3d(in_channels, out_channels * 2, kernel_size, stride=
-                stride, padding=padding, bias=bias))
+            self.conv = nn.Sequential(nn.Upsample(size=size, mode=mode), nn.Conv3d(in_channels, out_channels * 2, kernel_size, stride=stride, padding=padding, bias=bias))
         elif type == '2d':
-            self.conv = nn.Sequential(nn.Upsample(size=size, mode=mode), nn
-                .Conv2d(in_channels, out_channels * 2, kernel_size, stride=
-                stride, padding=padding, bias=bias))
+            self.conv = nn.Sequential(nn.Upsample(size=size, mode=mode), nn.Conv2d(in_channels, out_channels * 2, kernel_size, stride=stride, padding=padding, bias=bias))
 
     def forward(self, x):
         x = self.conv(x)
@@ -410,8 +353,7 @@ class GatedUpConvolution(nn.Module):
         if self.status == 'train':
             return torch.sigmoid(gate) * self.leaky_relu(phi)
         else:
-            return torch.sigmoid(gate) * self.leaky_relu(phi), torch.sigmoid(
-                gate)
+            return torch.sigmoid(gate) * self.leaky_relu(phi), torch.sigmoid(gate)
 
 
 class VI_2D_Encoder_3(nn.Module):
@@ -420,27 +362,18 @@ class VI_2D_Encoder_3(nn.Module):
         super(VI_2D_Encoder_3, self).__init__()
         self.opt = opt
         st = 2 if self.opt.double_size else 1
-        self.ec0 = GatedConvolution(5, 32, kernel_size=(3, 3), stride=(st,
-            st), padding=(1, 1), bias=False, type='2d')
-        self.ec1 = GatedConvolution(32, 64, kernel_size=(3, 3), stride=(2, 
-            2), padding=(1, 1), bias=False, type='2d')
-        self.ec2 = GatedConvolution(64, 64, kernel_size=(3, 3), stride=(1, 
-            1), padding=(1, 1), bias=False, type='2d')
-        self.ec3_1 = GatedConvolution(64, 96, kernel_size=(3, 3), stride=(2,
-            2), padding=(1, 1), bias=False, type='2d')
-        self.ec3_2 = GatedConvolution(96, 96, kernel_size=(3, 3), stride=(1,
-            1), padding=(1, 1), bias=False, type='2d')
-        self.ec4_1 = GatedConvolution(96, 128, kernel_size=(3, 3), stride=(
-            2, 2), padding=(1, 1), bias=False, type='2d')
-        self.ec4 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1,
-            1), padding=(1, 1), bias=False, type='2d')
-        self.ec5 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1,
-            1), padding=(1, 1), bias=False, type='2d')
+        self.ec0 = GatedConvolution(5, 32, kernel_size=(3, 3), stride=(st, st), padding=(1, 1), bias=False, type='2d')
+        self.ec1 = GatedConvolution(32, 64, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False, type='2d')
+        self.ec2 = GatedConvolution(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False, type='2d')
+        self.ec3_1 = GatedConvolution(64, 96, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False, type='2d')
+        self.ec3_2 = GatedConvolution(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False, type='2d')
+        self.ec4_1 = GatedConvolution(96, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False, type='2d')
+        self.ec4 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False, type='2d')
+        self.ec5 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False, type='2d')
         for m in self.modules():
             if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
                 m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
-            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d
-                ):
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
@@ -458,61 +391,37 @@ class VI_2D_Decoder_3(nn.Module):
         super(VI_2D_Decoder_3, self).__init__()
         self.opt = opt
         dv = 2 if self.opt.double_size else 1
-        self.dc0 = GatedConvolution(128, 128, kernel_size=(1, 3, 3), stride
-            =(1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc1 = GatedConvolution(128, 128, kernel_size=(1, 3, 3), stride
-            =(1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc1_1 = GatedUpConvolution((1, opt.crop_size // 4 // dv, opt.
-            crop_size // 4 // dv), 128, 96, kernel_size=(1, 3, 3), stride=(
-            1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc2_1 = GatedConvolution(96 + 96, 96, kernel_size=(1, 3, 3),
-            stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc2_bt1 = GatedConvolution(96, 96, kernel_size=(1, 3, 3),
-            stride=(1, 1, 1), dilation=(1, 2, 2), padding=(0, 2, 2), bias=False
-            )
-        self.dc2_bt2 = GatedConvolution(96, 96, kernel_size=(1, 3, 3),
-            stride=(1, 1, 1), dilation=(1, 4, 4), padding=(0, 4, 4), bias=False
-            )
-        self.dc2_bt3 = GatedConvolution(96, 96, kernel_size=(1, 3, 3),
-            stride=(1, 1, 1), dilation=(1, 8, 8), padding=(0, 8, 8), bias=False
-            )
-        self.dc2_2 = GatedUpConvolution((1, opt.crop_size // 2 // dv, opt.
-            crop_size // 2 // dv), 96, 64, kernel_size=(1, 3, 3), stride=(1,
-            1, 1), padding=(0, 1, 1), bias=False)
-        self.dc3_1 = GatedConvolution(64 + 64, 64, kernel_size=(1, 3, 3),
-            stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc3_2 = GatedConvolution(64, 64, kernel_size=(1, 3, 3), stride
-            =(1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc4 = GatedUpConvolution((1, opt.crop_size // dv, opt.
-            crop_size // dv), 64, 32, kernel_size=(1, 3, 3), stride=(1, 1, 
-            1), padding=(0, 1, 1), bias=False)
+        self.dc0 = GatedConvolution(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc1 = GatedConvolution(128, 128, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc1_1 = GatedUpConvolution((1, opt.crop_size // 4 // dv, opt.crop_size // 4 // dv), 128, 96, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc2_1 = GatedConvolution(96 + 96, 96, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc2_bt1 = GatedConvolution(96, 96, kernel_size=(1, 3, 3), stride=(1, 1, 1), dilation=(1, 2, 2), padding=(0, 2, 2), bias=False)
+        self.dc2_bt2 = GatedConvolution(96, 96, kernel_size=(1, 3, 3), stride=(1, 1, 1), dilation=(1, 4, 4), padding=(0, 4, 4), bias=False)
+        self.dc2_bt3 = GatedConvolution(96, 96, kernel_size=(1, 3, 3), stride=(1, 1, 1), dilation=(1, 8, 8), padding=(0, 8, 8), bias=False)
+        self.dc2_2 = GatedUpConvolution((1, opt.crop_size // 2 // dv, opt.crop_size // 2 // dv), 96, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc3_1 = GatedConvolution(64 + 64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc3_2 = GatedConvolution(64, 64, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc4 = GatedUpConvolution((1, opt.crop_size // dv, opt.crop_size // dv), 64, 32, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
         if self.opt.double_size:
-            self.upsample = nn.Upsample(size=(1, opt.crop_size, opt.
-                crop_size), mode='trilinear')
-        self.dc5 = GatedConvolution(32, 16, kernel_size=(1, 3, 3), stride=(
-            1, 1, 1), padding=(0, 1, 1), bias=False)
-        self.dc6 = nn.Conv3d(16, 3, kernel_size=(1, 3, 3), stride=(1, 1, 1),
-            padding=(0, 1, 1), bias=False)
+            self.upsample = nn.Upsample(size=(1, opt.crop_size, opt.crop_size), mode='trilinear')
+        self.dc5 = GatedConvolution(32, 16, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
+        self.dc6 = nn.Conv3d(16, 3, kernel_size=(1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False)
         for m in self.modules():
             if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
                 m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
-            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d
-                ):
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
     def forward(self, x, x2_64_warp=None, x2_128_warp=None):
         x1_64 = self.dc1_1(self.dc1(self.dc0(x)))
         if x2_64_warp is not None and x2_128_warp is not None:
-            x1_64 = self.dc2_bt3(self.dc2_bt2(self.dc2_bt1(self.dc2_1(torch
-                .cat([x1_64, x2_64_warp], 1)))))
+            x1_64 = self.dc2_bt3(self.dc2_bt2(self.dc2_bt1(self.dc2_1(torch.cat([x1_64, x2_64_warp], 1)))))
             x1_128 = self.dc2_2(x1_64)
             if self.opt.double_size:
-                d6 = self.dc6(self.dc5(self.upsample(self.dc4(self.dc3_2(
-                    self.dc3_1(torch.cat([x1_128, x2_128_warp], 1)))))))
+                d6 = self.dc6(self.dc5(self.upsample(self.dc4(self.dc3_2(self.dc3_1(torch.cat([x1_128, x2_128_warp], 1)))))))
             else:
-                d6 = self.dc6(self.dc5(self.dc4(self.dc3_2(self.dc3_1(torch
-                    .cat([x1_128, x2_128_warp], 1))))))
+                d6 = self.dc6(self.dc5(self.dc4(self.dc3_2(self.dc3_1(torch.cat([x1_128, x2_128_warp], 1))))))
         return d6, None
 
 
@@ -521,19 +430,14 @@ class VI_2D_BottleNeck(nn.Module):
     def __init__(self, opt, in_ch):
         super(VI_2D_BottleNeck, self).__init__()
         self.opt = opt
-        self.bt0 = GatedConvolution(in_ch, 128, kernel_size=(3, 3), stride=
-            (1, 1), dilation=(1, 1), padding=(1, 1), bias=False, type='2d')
-        self.bt1 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1,
-            1), dilation=(2, 2), padding=(2, 2), bias=False, type='2d')
-        self.bt2 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1,
-            1), dilation=(4, 4), padding=(4, 4), bias=False, type='2d')
-        self.bt3 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1,
-            1), dilation=(8, 8), padding=(8, 8), bias=False, type='2d')
+        self.bt0 = GatedConvolution(in_ch, 128, kernel_size=(3, 3), stride=(1, 1), dilation=(1, 1), padding=(1, 1), bias=False, type='2d')
+        self.bt1 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1, 1), dilation=(2, 2), padding=(2, 2), bias=False, type='2d')
+        self.bt2 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1, 1), dilation=(4, 4), padding=(4, 4), bias=False, type='2d')
+        self.bt3 = GatedConvolution(128, 128, kernel_size=(3, 3), stride=(1, 1), dilation=(8, 8), padding=(8, 8), bias=False, type='2d')
         for m in self.modules():
             if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
                 m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
-            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d
-                ):
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
@@ -547,13 +451,11 @@ class VI_Aggregator(nn.Module):
     def __init__(self, opt, in_ch, T):
         super(VI_Aggregator, self).__init__()
         self.opt = opt
-        self.stAgg = GatedConvolution(in_ch, in_ch, kernel_size=(T, 3, 3),
-            stride=(1, 1, 1), padding=(0, 1, 1), bias=False, type='3d')
+        self.stAgg = GatedConvolution(in_ch, in_ch, kernel_size=(T, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1), bias=False, type='3d')
         for m in self.modules():
             if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d):
                 m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
-            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d
-                ):
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
@@ -575,8 +477,7 @@ class VINet_final(nn.Module):
         self.encoder1 = VI_2D_Encoder_3(self.opt)
         self.encoder2 = VI_2D_Encoder_3(self.opt)
         self.bottleneck = VI_2D_BottleNeck(self.opt, in_ch=256)
-        self.convlstm = ConvLSTM(input_size=128, hidden_size=128, kernel_size=3
-            )
+        self.convlstm = ConvLSTM(input_size=128, hidden_size=128, kernel_size=3)
         self.decoder = VI_2D_Decoder_3(self.opt)
         self.flownet = LongFlowNetCorr(self.opt, 128)
         self.flownet_64 = LongFlowNetCorr(self.opt, 96 + 2)
@@ -595,23 +496,17 @@ class VINet_final(nn.Module):
         self.warping_64 = WarpingLayer()
         self.warping_128 = WarpingLayer()
 
-    def forward(self, masked_img, mask, prev_state=None, prev_feed=None, idx=0
-        ):
+    def forward(self, masked_img, mask, prev_state=None, prev_feed=None, idx=0):
         T = masked_img.size(2)
         ref_idx = (T - 1) // 2
         ones = to_var(torch.ones(mask.size()))
         enc_output = []
         enc_input = torch.cat([masked_img, ones, ones * mask], dim=1)
-        f1, f1_64, f1_128, f1_256 = self.encoder1(enc_input[:, :, (ref_idx),
-            :, :])
-        f2, f2_64, f2_128, _ = self.encoder2(enc_input[:, :, (ref_idx - 2),
-            :, :])
-        f3, f3_64, f3_128, _ = self.encoder2(enc_input[:, :, (ref_idx - 1),
-            :, :])
-        f4, f4_64, f4_128, _ = self.encoder2(enc_input[:, :, (ref_idx + 1),
-            :, :])
-        f5, f5_64, f5_128, _ = self.encoder2(enc_input[:, :, (ref_idx + 2),
-            :, :])
+        f1, f1_64, f1_128, f1_256 = self.encoder1(enc_input[:, :, (ref_idx), :, :])
+        f2, f2_64, f2_128, _ = self.encoder2(enc_input[:, :, (ref_idx - 2), :, :])
+        f3, f3_64, f3_128, _ = self.encoder2(enc_input[:, :, (ref_idx - 1), :, :])
+        f4, f4_64, f4_128, _ = self.encoder2(enc_input[:, :, (ref_idx + 1), :, :])
+        f5, f5_64, f5_128, _ = self.encoder2(enc_input[:, :, (ref_idx + 2), :, :])
         f6, f6_64, f6_128, f6_256 = self.encoder2(prev_feed)
         flow2 = self.flownet(f1, f2)
         flow3 = self.flownet(f1, f3)
@@ -623,8 +518,7 @@ class VINet_final(nn.Module):
         f4_warp = self.warping(f4, flow4)
         f5_warp = self.warping(f5, flow5)
         f6_warp = self.warping(f6, flow6)
-        f_stack_oth = torch.stack([f2_warp, f3_warp, f4_warp, f5_warp,
-            f6_warp], 2)
+        f_stack_oth = torch.stack([f2_warp, f3_warp, f4_warp, f5_warp, f6_warp], 2)
         f_agg = self.st_agg(f_stack_oth).squeeze(2)
         occlusion_mask = self.masknet(torch.abs(f1 - f_agg))
         f_syn = (1 - occlusion_mask) * f1 + occlusion_mask * f_agg
@@ -651,12 +545,10 @@ class VINet_final(nn.Module):
         f4_64_warp = self.warping_64(f4_64, flow4_64)
         f5_64_warp = self.warping_64(f5_64, flow5_64)
         f6_64_warp = self.warping_64(f6_64, flow6_64)
-        f_stack_64_oth = torch.stack([f2_64_warp, f3_64_warp, f4_64_warp,
-            f5_64_warp, f6_64_warp], 2)
+        f_stack_64_oth = torch.stack([f2_64_warp, f3_64_warp, f4_64_warp, f5_64_warp, f6_64_warp], 2)
         f_agg_64 = self.st_agg_64(f_stack_64_oth).squeeze(2)
         occlusion_mask_64 = self.masknet_64(torch.abs(f1_64 - f_agg_64))
-        f_syn_64 = (1 - occlusion_mask_64
-            ) * f1_64 + occlusion_mask_64 * f_agg_64
+        f_syn_64 = (1 - occlusion_mask_64) * f1_64 + occlusion_mask_64 * f_agg_64
         flow2_128 = F.upsample(flow2_64, scale_factor=2, mode='bilinear') * 2
         flow3_128 = F.upsample(flow3_64, scale_factor=2, mode='bilinear') * 2
         flow4_128 = F.upsample(flow4_64, scale_factor=2, mode='bilinear') * 2
@@ -667,105 +559,116 @@ class VINet_final(nn.Module):
         f4_128_warp = self.warping_128(f4_128, flow4_128)
         f5_128_warp = self.warping_128(f5_128, flow5_128)
         f6_128_warp = self.warping_128(f6_128, flow6_128)
-        flow2_128 = self.flownet_128(f1_128, f2_128_warp, flow2_128
-            ) + flow2_128
-        flow3_128 = self.flownet_128(f1_128, f3_128_warp, flow3_128
-            ) + flow3_128
-        flow4_128 = self.flownet_128(f1_128, f4_128_warp, flow4_128
-            ) + flow4_128
-        flow5_128 = self.flownet_128(f1_128, f5_128_warp, flow5_128
-            ) + flow5_128
-        flow6_128 = self.flownet_128(f1_128, f6_128_warp, flow6_128
-            ) + flow6_128
+        flow2_128 = self.flownet_128(f1_128, f2_128_warp, flow2_128) + flow2_128
+        flow3_128 = self.flownet_128(f1_128, f3_128_warp, flow3_128) + flow3_128
+        flow4_128 = self.flownet_128(f1_128, f4_128_warp, flow4_128) + flow4_128
+        flow5_128 = self.flownet_128(f1_128, f5_128_warp, flow5_128) + flow5_128
+        flow6_128 = self.flownet_128(f1_128, f6_128_warp, flow6_128) + flow6_128
         f2_128_warp = self.warping_128(f2_128, flow2_128)
         f3_128_warp = self.warping_128(f3_128, flow3_128)
         f4_128_warp = self.warping_128(f4_128, flow4_128)
         f5_128_warp = self.warping_128(f5_128, flow5_128)
         f6_128_warp = self.warping_128(f6_128, flow6_128)
-        f_stack_128_oth = torch.stack([f2_128_warp, f3_128_warp,
-            f4_128_warp, f5_128_warp, f6_128_warp], 2)
+        f_stack_128_oth = torch.stack([f2_128_warp, f3_128_warp, f4_128_warp, f5_128_warp, f6_128_warp], 2)
         f_agg_128 = self.st_agg_128(f_stack_128_oth).squeeze(2)
         occlusion_mask_128 = self.masknet_128(torch.abs(f1_128 - f_agg_128))
-        f_syn_128 = (1 - occlusion_mask_128
-            ) * f1_128 + occlusion_mask_128 * f_agg_128
-        output, _ = self.decoder(state[0].unsqueeze(2), x2_64_warp=f_syn_64
-            .unsqueeze(2), x2_128_warp=f_syn_128.unsqueeze(2))
+        f_syn_128 = (1 - occlusion_mask_128) * f1_128 + occlusion_mask_128 * f_agg_128
+        output, _ = self.decoder(state[0].unsqueeze(2), x2_64_warp=f_syn_64.unsqueeze(2), x2_128_warp=f_syn_128.unsqueeze(2))
         occ_mask = F.upsample(occlusion_mask, scale_factor=8, mode='bilinear')
-        occ_mask_64 = F.upsample(occlusion_mask_64, scale_factor=4, mode=
-            'bilinear')
-        occ_mask_128 = F.upsample(occlusion_mask_128, scale_factor=2, mode=
-            'bilinear')
+        occ_mask_64 = F.upsample(occlusion_mask_64, scale_factor=4, mode='bilinear')
+        occ_mask_128 = F.upsample(occlusion_mask_128, scale_factor=2, mode='bilinear')
         flow6_256, flow6_512 = None, None
         if self.opt.prev_warp:
             if prev_state is not None or idx != 0:
-                flow6_256 = F.upsample(flow6_128, scale_factor=2, mode=
-                    'bilinear') * 2
-                flow6_512 = F.upsample(flow6_128, scale_factor=4, mode=
-                    'bilinear') * 4
+                flow6_256 = F.upsample(flow6_128, scale_factor=2, mode='bilinear') * 2
+                flow6_512 = F.upsample(flow6_128, scale_factor=4, mode='bilinear') * 4
                 f6_256_warp = self.warping_256(f6_256, flow6_256)
-                flow6_256 = self.flownet_256(f1_256, f6_256_warp, flow6_256
-                    ) + flow6_256
-                occlusion_mask_256 = self.masknet_256(torch.abs(f1_256 -
-                    f6_256_warp))
+                flow6_256 = self.flownet_256(f1_256, f6_256_warp, flow6_256) + flow6_256
+                occlusion_mask_256 = self.masknet_256(torch.abs(f1_256 - f6_256_warp))
                 output_ = output
                 if self.opt.double_size:
-                    prev_feed_warp = self.warping_256(prev_feed[:, :3],
-                        flow6_512)
-                    occlusion_mask_512 = F.upsample(occlusion_mask_256,
-                        scale_factor=2, mode='nearest')
-                    output = (1 - occlusion_mask_512.unsqueeze(2)
-                        ) * output + occlusion_mask_512 * prev_feed_warp.unsqueeze(
-                        2)
+                    prev_feed_warp = self.warping_256(prev_feed[:, :3], flow6_512)
+                    occlusion_mask_512 = F.upsample(occlusion_mask_256, scale_factor=2, mode='nearest')
+                    output = (1 - occlusion_mask_512.unsqueeze(2)) * output + occlusion_mask_512 * prev_feed_warp.unsqueeze(2)
                     flow6_256 = flow6_512
                 else:
-                    prev_feed_warp = self.warping_256(prev_feed[:, :3],
-                        flow6_256)
-                    output = (1 - occlusion_mask_256.unsqueeze(2)
-                        ) * output + occlusion_mask_256 * prev_feed_warp.unsqueeze(
-                        2)
+                    prev_feed_warp = self.warping_256(prev_feed[:, :3], flow6_256)
+                    output = (1 - occlusion_mask_256.unsqueeze(2)) * output + occlusion_mask_256 * prev_feed_warp.unsqueeze(2)
                 if self.opt.loss_on_raw:
                     output = output, output_
-        return output, torch.stack([flow2_128, flow3_128, flow4_128,
-            flow5_128, flow6_128], 2), state, torch.stack([occ_mask, 1 -
-            occ_mask, occ_mask_64, 1 - occ_mask_64, occ_mask_128, 1 -
-            occ_mask_128], 2), flow6_256
+        return output, torch.stack([flow2_128, flow3_128, flow4_128, flow5_128, flow6_128], 2), state, torch.stack([occ_mask, 1 - occ_mask, occ_mask_64, 1 - occ_mask_64, occ_mask_128, 1 - occ_mask_128], 2), flow6_256
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ContextNetwork,
+     lambda: ([], {'args': _mock_config(batch_norm=4), 'ch_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GatedConvolution,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
+    (GatedUpConvolution,
+     lambda: ([], {'size': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (LongFlowEstimatorCorr,
+     lambda: ([], {'args': _mock_config(batch_norm=4), 'ch_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaskEstimator_,
+     lambda: ([], {'args': _mock_config(), 'ch_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VI_2D_BottleNeck,
+     lambda: ([], {'opt': _mock_config(), 'in_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VI_2D_Encoder_3,
+     lambda: ([], {'opt': _mock_config(double_size=4)}),
+     lambda: ([torch.rand([4, 5, 64, 64])], {}),
+     False),
+    (VI_Aggregator,
+     lambda: ([], {'opt': _mock_config(), 'in_ch': 4, 'T': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
+    (WarpingLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {}),
+     True),
+]
+
 class Test_mcahny_Deep_Video_Inpainting(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ContextNetwork(*[], **{'args': _mock_config(batch_norm=4), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(GatedConvolution(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GatedUpConvolution(*[], **{'size': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'bias': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LongFlowEstimatorCorr(*[], **{'args': _mock_config(batch_norm=4), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MaskEstimator_(*[], **{'args': _mock_config(), 'ch_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(VI_2D_BottleNeck(*[], **{'opt': _mock_config(), 'in_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(VI_2D_Encoder_3(*[], **{'opt': _mock_config(double_size=4)}), [torch.rand([4, 5, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(VI_Aggregator(*[], **{'opt': _mock_config(), 'in_ch': 4, 'T': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(WarpingLayer(*[], **{}), [torch.rand([4, 2, 4, 4]), torch.rand([4, 2, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

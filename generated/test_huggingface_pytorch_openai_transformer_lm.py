@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -109,8 +110,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % cfg.n_head == 0
-        self.register_buffer('b', torch.tril(torch.ones(n_ctx, n_ctx)).view
-            (1, 1, n_ctx, n_ctx))
+        self.register_buffer('b', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = cfg.n_head
         self.split_size = n_state
         self.scale = scale
@@ -156,8 +156,7 @@ class Attention(nn.Module):
 
 
 def gelu(x):
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 *
-        torch.pow(x, 3))))
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 
 def swish(x):
@@ -210,8 +209,7 @@ class TransformerModel(nn.Module):
         self.embed = nn.Embedding(vocab, cfg.n_embd)
         self.drop = nn.Dropout(cfg.embd_pdrop)
         block = Block(n_ctx, cfg, scale=True)
-        self.h = nn.ModuleList([copy.deepcopy(block) for _ in range(cfg.
-            n_layer)])
+        self.h = nn.ModuleList([copy.deepcopy(block) for _ in range(cfg.n_layer)])
         nn.init.normal_(self.embed.weight, std=0.02)
 
     def forward(self, x):
@@ -235,8 +233,7 @@ class LMHead(nn.Module):
         self.trunc_and_reshape = trunc_and_reshape
 
     def forward(self, h):
-        h_trunc = h[:, :-1].contiguous().view(-1, self.n_embd
-            ) if self.trunc_and_reshape else h
+        h_trunc = h[:, :-1].contiguous().view(-1, self.n_embd) if self.trunc_and_reshape else h
         lm_logits = self.decoder(h_trunc)
         return lm_logits
 
@@ -347,17 +344,12 @@ class DoubleHeadModel(nn.Module):
             elif task_head_type == 'inference':
                 self.task_head = ClfHead(clf_token, cfg, 3)
             else:
-                raise ValueError(
-                    f"task_head_type is expected to be 'multiple_choice' 'similarity', 'inference' or ('classification', n_class) got {task_head_type}."
-                    )
-        elif isinstance(task_head_type, collections.abc.Sequence) and len(
-            task_head_type) == 2 and task_head_type[0] == 'classification':
+                raise ValueError(f"task_head_type is expected to be 'multiple_choice' 'similarity', 'inference' or ('classification', n_class) got {task_head_type}.")
+        elif isinstance(task_head_type, collections.abc.Sequence) and len(task_head_type) == 2 and task_head_type[0] == 'classification':
             n_class = task_head_type[1]
             self.task_head = ClfHead(clf_token, cfg, n_class)
         else:
-            raise ValueError(
-                f"task_head_type is expected to be 'multiple_choice' 'similarity', 'inference' or ('classification', n_class) got {task_head_type}."
-                )
+            raise ValueError(f"task_head_type is expected to be 'multiple_choice' 'similarity', 'inference' or ('classification', n_class) got {task_head_type}.")
 
     def forward(self, x):
         h = self.transformer(x)
@@ -370,18 +362,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'nx': 4, 'n_ctx': 4, 'cfg': _mock_config(n_head=4, attn_pdrop=0.5, resid_pdrop=0.5)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ClfHead,
+     lambda: ([], {'clf_token': 4, 'cfg': _mock_config(n_embd=4, clf_pdrop=0.5), 'n_class': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'n_state': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultipleChoiceHead,
+     lambda: ([], {'clf_token': 4, 'cfg': _mock_config(n_embd=4, clf_pdrop=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_huggingface_pytorch_openai_transformer_lm(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Attention(*[], **{'nx': 4, 'n_ctx': 4, 'cfg': _mock_config(n_head=4, attn_pdrop=0.5, resid_pdrop=0.5)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ClfHead(*[], **{'clf_token': 4, 'cfg': _mock_config(n_embd=4, clf_pdrop=0.5), 'n_class': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LayerNorm(*[], **{'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MultipleChoiceHead(*[], **{'clf_token': 4, 'cfg': _mock_config(n_embd=4, clf_pdrop=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

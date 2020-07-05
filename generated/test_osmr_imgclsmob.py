@@ -386,8 +386,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -494,9 +495,7 @@ def get_activation_layer(activation):
         return activation
 
 
-def conv1x1_block(in_channels, out_channels, stride=1, padding=0, groups=1,
-    bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(
-    inplace=True)):
+def conv1x1_block(in_channels, out_channels, stride=1, padding=0, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     1x1 version of the standard convolution block.
 
@@ -521,14 +520,10 @@ def conv1x1_block(in_channels, out_channels, stride=1, padding=0, groups=1,
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=padding, groups=groups, bias=
-        bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=padding, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
-def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
-    1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda :
-    nn.ReLU(inplace=True)):
+def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     3x3 version of the standard convolution block.
 
@@ -555,10 +550,7 @@ def conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=
-        activation)
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 class AirBlock(nn.Module):
@@ -581,21 +573,17 @@ class AirBlock(nn.Module):
         super(AirBlock, self).__init__()
         assert out_channels % ratio == 0
         mid_channels = out_channels // ratio
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, groups=groups)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, groups=groups)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.pool(x)
         x = self.conv2(x)
-        x = F.interpolate(input=x, scale_factor=2, mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(input=x, scale_factor=2, mode='bilinear', align_corners=True)
         x = self.conv3(x)
         x = self.sigmoid(x)
         return x
@@ -621,15 +609,11 @@ class AirBottleneck(nn.Module):
         super(AirBottleneck, self).__init__()
         mid_channels = out_channels // 4
         self.use_air_block = stride == 1 and mid_channels < 512
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
         if self.use_air_block:
-            self.air = AirBlock(in_channels=in_channels, out_channels=
-                mid_channels, ratio=ratio)
+            self.air = AirBlock(in_channels=in_channels, out_channels=mid_channels, ratio=ratio)
 
     def forward(self, x):
         if self.use_air_block:
@@ -661,11 +645,9 @@ class AirUnit(nn.Module):
     def __init__(self, in_channels, out_channels, stride, ratio):
         super(AirUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = AirBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, ratio=ratio)
+        self.body = AirBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, ratio=ratio)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -694,12 +676,9 @@ class AirInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(AirInitBlock, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels)
-        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels)
+        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -731,28 +710,22 @@ class AirNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, ratio, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, ratio, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(AirNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', AirInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', AirInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), AirUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, ratio=ratio))
+                stage.add_module('unit{}'.format(j + 1), AirUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, ratio=ratio))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -789,22 +762,17 @@ class AirNeXtBottleneck(nn.Module):
         Air compression ratio.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width, ratio):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width, ratio):
         super(AirNeXtBottleneck, self).__init__()
         mid_channels = out_channels // 4
         D = int(math.floor(mid_channels * (bottleneck_width / 64.0)))
         group_width = cardinality * D
         self.use_air_block = stride == 1 and mid_channels < 512
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            group_width)
-        self.conv2 = conv3x3_block(in_channels=group_width, out_channels=
-            group_width, stride=stride, groups=cardinality)
-        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=group_width)
+        self.conv2 = conv3x3_block(in_channels=group_width, out_channels=group_width, stride=stride, groups=cardinality)
+        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=out_channels, activation=None)
         if self.use_air_block:
-            self.air = AirBlock(in_channels=in_channels, out_channels=
-                group_width, groups=cardinality // ratio, ratio=ratio)
+            self.air = AirBlock(in_channels=in_channels, out_channels=group_width, groups=cardinality // ratio, ratio=ratio)
 
     def forward(self, x):
         if self.use_air_block:
@@ -837,16 +805,12 @@ class AirNeXtUnit(nn.Module):
         Air compression ratio.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width, ratio):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width, ratio):
         super(AirNeXtUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = AirNeXtBottleneck(in_channels=in_channels, out_channels
-            =out_channels, stride=stride, cardinality=cardinality,
-            bottleneck_width=bottleneck_width, ratio=ratio)
+        self.body = AirNeXtBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width, ratio=ratio)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -885,30 +849,22 @@ class AirNeXt(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, cardinality,
-        bottleneck_width, ratio, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, cardinality, bottleneck_width, ratio, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(AirNeXt, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', AirInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', AirInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), AirNeXtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, cardinality=cardinality,
-                    bottleneck_width=bottleneck_width, ratio=ratio))
+                stage.add_module('unit{}'.format(j + 1), AirNeXtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width, ratio=ratio))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -965,10 +921,8 @@ class AlexOutputBlock(nn.Module):
     def __init__(self, in_channels, classes):
         super(AlexOutputBlock, self).__init__()
         mid_channels = 4096
-        self.fc1 = AlexDense(in_channels=in_channels, out_channels=mid_channels
-            )
-        self.fc2 = AlexDense(in_channels=mid_channels, out_channels=
-            mid_channels)
+        self.fc1 = AlexDense(in_channels=in_channels, out_channels=mid_channels)
+        self.fc2 = AlexDense(in_channels=mid_channels, out_channels=mid_channels)
         self.fc3 = nn.Linear(in_features=mid_channels, out_features=classes)
 
     def forward(self, x):
@@ -1003,8 +957,7 @@ class AlexNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, kernel_sizes, strides, paddings, use_lrn,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, kernel_sizes, strides, paddings, use_lrn, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(AlexNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -1013,16 +966,11 @@ class AlexNet(nn.Module):
             use_lrn_i = use_lrn and i in [0, 1]
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), AlexConv(
-                    in_channels=in_channels, out_channels=out_channels,
-                    kernel_size=kernel_sizes[i][j], stride=strides[i][j],
-                    padding=paddings[i][j], use_lrn=use_lrn_i))
+                stage.add_module('unit{}'.format(j + 1), AlexConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_sizes[i][j], stride=strides[i][j], padding=paddings[i][j], use_lrn=use_lrn_i))
                 in_channels = out_channels
-            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(
-                kernel_size=3, stride=2, padding=0, ceil_mode=True))
+            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True))
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.output = AlexOutputBlock(in_channels=in_channels * 6 * 6,
-            classes=num_classes)
+        self.output = AlexOutputBlock(in_channels=in_channels * 6 * 6, classes=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -1041,8 +989,7 @@ class AlexNet(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class AlphaPose(nn.Module):
@@ -1067,8 +1014,7 @@ class AlphaPose(nn.Module):
         Number of keypoints.
     """
 
-    def __init__(self, backbone, backbone_out_channels, channels,
-        return_heatmap=False, in_channels=3, in_size=(256, 192), keypoints=17):
+    def __init__(self, backbone, backbone_out_channels, channels, return_heatmap=False, in_channels=3, in_size=(256, 192), keypoints=17):
         super(AlphaPose, self).__init__()
         assert in_channels == 3
         self.in_size = in_size
@@ -1076,16 +1022,12 @@ class AlphaPose(nn.Module):
         self.return_heatmap = return_heatmap
         self.backbone = backbone
         self.decoder = nn.Sequential()
-        self.decoder.add_module('init_block', nn.PixelShuffle(upscale_factor=2)
-            )
+        self.decoder.add_module('init_block', nn.PixelShuffle(upscale_factor=2))
         in_channels = backbone_out_channels // 4
         for i, out_channels in enumerate(channels):
-            self.decoder.add_module('unit{}'.format(i + 1), DucBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                scale_factor=2))
+            self.decoder.add_module('unit{}'.format(i + 1), DucBlock(in_channels=in_channels, out_channels=out_channels, scale_factor=2))
             in_channels = out_channels
-        self.decoder.add_module('final_block', conv3x3(in_channels=
-            in_channels, out_channels=keypoints, bias=True))
+        self.decoder.add_module('final_block', conv3x3(in_channels=in_channels, out_channels=keypoints, bias=True))
         self.heatmap_max_det = HeatmapMaxDetBlock()
         self._init_params()
 
@@ -1124,16 +1066,12 @@ class BagNetBottleneck(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        bottleneck_factor=4):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, bottleneck_factor=4):
         super(BagNetBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = ConvBlock(in_channels=mid_channels, out_channels=
-            mid_channels, kernel_size=kernel_size, stride=stride, padding=0)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = ConvBlock(in_channels=mid_channels, out_channels=mid_channels, kernel_size=kernel_size, stride=stride, padding=0)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1161,11 +1099,9 @@ class BagNetUnit(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride):
         super(BagNetUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = BagNetBottleneck(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride)
+        self.body = BagNetBottleneck(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -1201,10 +1137,8 @@ class BagNetInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(BagNetInitBlock, self).__init__()
-        self.conv1 = conv1x1(in_channels=in_channels, out_channels=out_channels
-            )
-        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, padding=0)
+        self.conv1 = conv1x1(in_channels=in_channels, out_channels=out_channels)
+        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=out_channels, padding=0)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1235,30 +1169,23 @@ class BagNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_pool_size,
-        normal_kernel_sizes, in_channels=3, in_size=(224, 224), num_classes
-        =1000):
+    def __init__(self, channels, init_block_channels, final_pool_size, normal_kernel_sizes, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(BagNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', BagNetInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', BagNetInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != len(channels) - 1 else 1
                 kernel_size = 3 if j < normal_kernel_sizes[i] else 1
-                stage.add_module('unit{}'.format(j + 1), BagNetUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    kernel_size=kernel_size, stride=stride))
+                stage.add_module('unit{}'.format(j + 1), BagNetUnit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=
-            final_pool_size, stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=final_pool_size, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -1318,14 +1245,11 @@ class ChannelGate(nn.Module):
         super(ChannelGate, self).__init__()
         mid_channels = channels // reduction_ratio
         self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
-        self.init_fc = DenseBlock(in_features=channels, out_features=
-            mid_channels)
+        self.init_fc = DenseBlock(in_features=channels, out_features=mid_channels)
         self.main_fcs = nn.Sequential()
         for i in range(num_layers - 1):
-            self.main_fcs.add_module('fc{}'.format(i + 1), DenseBlock(
-                in_features=mid_channels, out_features=mid_channels))
-        self.final_fc = nn.Linear(in_features=mid_channels, out_features=
-            channels)
+            self.main_fcs.add_module('fc{}'.format(i + 1), DenseBlock(in_features=mid_channels, out_features=mid_channels))
+        self.final_fc = nn.Linear(in_features=mid_channels, out_features=channels)
 
     def forward(self, x):
         input = x
@@ -1354,19 +1278,14 @@ class SpatialGate(nn.Module):
         Dilation/padding value for corresponding convolutions.
     """
 
-    def __init__(self, channels, reduction_ratio=16, num_dil_convs=2,
-        dilation=4):
+    def __init__(self, channels, reduction_ratio=16, num_dil_convs=2, dilation=4):
         super(SpatialGate, self).__init__()
         mid_channels = channels // reduction_ratio
-        self.init_conv = conv1x1_block(in_channels=channels, out_channels=
-            mid_channels, stride=1, bias=True)
+        self.init_conv = conv1x1_block(in_channels=channels, out_channels=mid_channels, stride=1, bias=True)
         self.dil_convs = nn.Sequential()
         for i in range(num_dil_convs):
-            self.dil_convs.add_module('conv{}'.format(i + 1), conv3x3_block
-                (in_channels=mid_channels, out_channels=mid_channels,
-                stride=1, padding=dilation, dilation=dilation, bias=True))
-        self.final_conv = conv1x1(in_channels=mid_channels, out_channels=1,
-            stride=1, bias=True)
+            self.dil_convs.add_module('conv{}'.format(i + 1), conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=1, padding=dilation, dilation=dilation, bias=True))
+        self.final_conv = conv1x1(in_channels=mid_channels, out_channels=1, stride=1, bias=True)
 
     def forward(self, x):
         input = x
@@ -1399,8 +1318,7 @@ class BamBlock(nn.Module):
         return x
 
 
-def pre_conv1x1_block(in_channels, out_channels, stride=1, bias=False,
-    use_bn=True, return_preact=False, activate=True):
+def pre_conv1x1_block(in_channels, out_channels, stride=1, bias=False, use_bn=True, return_preact=False, activate=True):
     """
     1x1 version of the pre-activated convolution block.
 
@@ -1421,13 +1339,10 @@ def pre_conv1x1_block(in_channels, out_channels, stride=1, bias=False,
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return PreConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, bias=bias, use_bn=use_bn,
-        return_preact=return_preact, activate=activate)
+    return PreConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, bias=bias, use_bn=use_bn, return_preact=return_preact, activate=activate)
 
 
-def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, bias=False, use_bn=True, return_preact=False, activate=True):
+def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, bias=False, use_bn=True, return_preact=False, activate=True):
     """
     3x3 version of the pre-activated convolution block.
 
@@ -1452,10 +1367,7 @@ def pre_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return PreConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        bias=bias, use_bn=use_bn, return_preact=return_preact, activate=
-        activate)
+    return PreConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, bias=bias, use_bn=use_bn, return_preact=return_preact, activate=activate)
 
 
 class BamResUnit(nn.Module):
@@ -1479,9 +1391,7 @@ class BamResUnit(nn.Module):
         self.use_bam = stride != 1
         if self.use_bam:
             self.bam = BamBlock(channels=in_channels)
-        self.res_unit = ResUnit(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, bottleneck=bottleneck,
-            conv1_stride=False)
+        self.res_unit = ResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False)
 
     def forward(self, x):
         if self.use_bam:
@@ -1490,8 +1400,7 @@ class BamResUnit(nn.Module):
         return x
 
 
-def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=
-    False, use_bn=True, activation=lambda : nn.ReLU(inplace=True)):
+def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=False, use_bn=True, activation=lambda : nn.ReLU(inplace=True)):
     """
     7x7 version of the standard convolution block.
 
@@ -1512,9 +1421,7 @@ def conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=7, stride=stride, padding=padding, bias=bias, use_bn=
-        use_bn, activation=activation)
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=stride, padding=padding, bias=bias, use_bn=use_bn, activation=activation)
 
 
 class BamResNet(nn.Module):
@@ -1537,28 +1444,22 @@ class BamResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(BamResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), BamResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck))
+                stage.add_module('unit{}'.format(j + 1), BamResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -1593,10 +1494,8 @@ class PyramidPoolingZeroBranch(nn.Module):
         super(PyramidPoolingZeroBranch, self).__init__()
         self.in_size = in_size
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels)
-        self.up = InterpolationBlock(scale_factor=None, mode='nearest',
-            align_corners=None)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels)
+        self.up = InterpolationBlock(scale_factor=None, mode='nearest', align_corners=None)
 
     def forward(self, x):
         in_size = self.in_size if self.in_size is not None else x.shape[2:]
@@ -1620,11 +1519,9 @@ class AttentionRefinementBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(AttentionRefinementBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=out_channels)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.conv2 = conv1x1_block(in_channels=out_channels, out_channels=
-            out_channels, activation=lambda : nn.Sigmoid())
+        self.conv2 = conv1x1_block(in_channels=out_channels, out_channels=out_channels, activation=lambda : nn.Sigmoid())
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1650,12 +1547,9 @@ class PyramidPoolingMainBranch(nn.Module):
 
     def __init__(self, in_channels, out_channels, scale_factor):
         super(PyramidPoolingMainBranch, self).__init__()
-        self.att = AttentionRefinementBlock(in_channels=in_channels,
-            out_channels=out_channels)
-        self.up = InterpolationBlock(scale_factor=scale_factor, mode=
-            'nearest', align_corners=None)
-        self.conv = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels)
+        self.att = AttentionRefinementBlock(in_channels=in_channels, out_channels=out_channels)
+        self.up = InterpolationBlock(scale_factor=scale_factor, mode='nearest', align_corners=None)
+        self.conv = conv3x3_block(in_channels=out_channels, out_channels=out_channels)
 
     def forward(self, x, y):
         x = self.att(x)
@@ -1682,14 +1576,11 @@ class FeatureFusion(nn.Module):
     def __init__(self, in_channels, out_channels, reduction=4):
         super(FeatureFusion, self).__init__()
         mid_channels = out_channels // reduction
-        self.conv_merge = conv1x1_block(in_channels=in_channels,
-            out_channels=out_channels)
+        self.conv_merge = conv1x1_block(in_channels=in_channels, out_channels=out_channels)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.conv1 = conv1x1(in_channels=out_channels, out_channels=
-            mid_channels)
+        self.conv1 = conv1x1(in_channels=out_channels, out_channels=mid_channels)
         self.activ = nn.ReLU(inplace=True)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, y):
@@ -1721,18 +1612,13 @@ class PyramidPooling(nn.Module):
         Spatial size of the y32 tensor.
     """
 
-    def __init__(self, x16_in_channels, x32_in_channels, y_out_channels,
-        y32_out_size):
+    def __init__(self, x16_in_channels, x32_in_channels, y_out_channels, y32_out_size):
         super(PyramidPooling, self).__init__()
         z_out_channels = 2 * y_out_channels
-        self.pool32 = PyramidPoolingZeroBranch(in_channels=x32_in_channels,
-            out_channels=y_out_channels, in_size=y32_out_size)
-        self.pool16 = PyramidPoolingMainBranch(in_channels=x32_in_channels,
-            out_channels=y_out_channels, scale_factor=2)
-        self.pool8 = PyramidPoolingMainBranch(in_channels=x16_in_channels,
-            out_channels=y_out_channels, scale_factor=2)
-        self.fusion = FeatureFusion(in_channels=z_out_channels,
-            out_channels=z_out_channels)
+        self.pool32 = PyramidPoolingZeroBranch(in_channels=x32_in_channels, out_channels=y_out_channels, in_size=y32_out_size)
+        self.pool16 = PyramidPoolingMainBranch(in_channels=x32_in_channels, out_channels=y_out_channels, scale_factor=2)
+        self.pool8 = PyramidPoolingMainBranch(in_channels=x16_in_channels, out_channels=y_out_channels, scale_factor=2)
+        self.fusion = FeatureFusion(in_channels=z_out_channels, out_channels=z_out_channels)
 
     def forward(self, x8, x16, x32):
         y32 = self.pool32(x32)
@@ -1758,10 +1644,8 @@ class BiSeHead(nn.Module):
 
     def __init__(self, in_channels, mid_channels, out_channels):
         super(BiSeHead, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1790,8 +1674,7 @@ class BiSeNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, backbone, aux=True, fixed_size=True, in_channels=3,
-        in_size=(640, 480), num_classes=19):
+    def __init__(self, backbone, aux=True, fixed_size=True, in_channels=3, in_size=(640, 480), num_classes=19):
         super(BiSeNet, self).__init__()
         assert in_channels == 3
         self.in_size = in_size
@@ -1801,22 +1684,15 @@ class BiSeNet(nn.Module):
         self.backbone, backbone_out_channels = backbone()
         y_out_channels = backbone_out_channels[0]
         z_out_channels = 2 * y_out_channels
-        y32_out_size = (self.in_size[0] // 32, self.in_size[1] // 32
-            ) if fixed_size else None
-        self.pool = PyramidPooling(x16_in_channels=backbone_out_channels[1],
-            x32_in_channels=backbone_out_channels[2], y_out_channels=
-            y_out_channels, y32_out_size=y32_out_size)
-        self.head_z8 = BiSeHead(in_channels=z_out_channels, mid_channels=
-            z_out_channels, out_channels=num_classes)
+        y32_out_size = (self.in_size[0] // 32, self.in_size[1] // 32) if fixed_size else None
+        self.pool = PyramidPooling(x16_in_channels=backbone_out_channels[1], x32_in_channels=backbone_out_channels[2], y_out_channels=y_out_channels, y32_out_size=y32_out_size)
+        self.head_z8 = BiSeHead(in_channels=z_out_channels, mid_channels=z_out_channels, out_channels=num_classes)
         self.up8 = InterpolationBlock(scale_factor=8 if fixed_size else None)
         if self.aux:
             mid_channels = y_out_channels // 2
-            self.head_y8 = BiSeHead(in_channels=y_out_channels,
-                mid_channels=mid_channels, out_channels=num_classes)
-            self.head_y16 = BiSeHead(in_channels=y_out_channels,
-                mid_channels=mid_channels, out_channels=num_classes)
-            self.up16 = InterpolationBlock(scale_factor=16 if fixed_size else
-                None)
+            self.head_y8 = BiSeHead(in_channels=y_out_channels, mid_channels=mid_channels, out_channels=num_classes)
+            self.head_y16 = BiSeHead(in_channels=y_out_channels, mid_channels=mid_channels, out_channels=num_classes)
+            self.up16 = InterpolationBlock(scale_factor=16 if fixed_size else None)
         self._init_params()
 
     def _init_params(self):
@@ -1862,13 +1738,10 @@ class Inception3x3Branch(nn.Module):
         Whether to use BatchNorm layers.
     """
 
-    def __init__(self, in_channels, out_channels, mid_channels, stride=1,
-        bias=True, use_bn=True):
+    def __init__(self, in_channels, out_channels, mid_channels, stride=1, bias=True, use_bn=True):
         super(Inception3x3Branch, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=bias, use_bn=use_bn)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=stride, bias=bias, use_bn=use_bn)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=bias, use_bn=use_bn)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1896,15 +1769,11 @@ class InceptionDouble3x3Branch(nn.Module):
         Whether to use BatchNorm layers.
     """
 
-    def __init__(self, in_channels, out_channels, mid_channels, stride=1,
-        bias=True, use_bn=True):
+    def __init__(self, in_channels, out_channels, mid_channels, stride=1, bias=True, use_bn=True):
         super(InceptionDouble3x3Branch, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=bias, use_bn=use_bn)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, bias=bias, use_bn=use_bn)
-        self.conv3 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, stride=stride, bias=bias, use_bn=use_bn)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=bias, use_bn=use_bn)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, bias=bias, use_bn=use_bn)
+        self.conv3 = conv3x3_block(in_channels=out_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1934,13 +1803,10 @@ class InceptionPoolBranch(nn.Module):
     def __init__(self, in_channels, out_channels, avg_pool, bias, use_bn):
         super(InceptionPoolBranch, self).__init__()
         if avg_pool:
-            self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1,
-                ceil_mode=True, count_include_pad=True)
+            self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True, count_include_pad=True)
         else:
-            self.pool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1,
-                ceil_mode=True)
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=bias, use_bn=use_bn)
+            self.pool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1, ceil_mode=True)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=bias, use_bn=use_bn)
 
     def forward(self, x):
         x = self.pool(x)
@@ -1968,14 +1834,10 @@ class StemBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels, bias, use_bn):
         super(StemBlock, self).__init__()
-        self.conv1 = conv7x7_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2, bias=bias, use_bn=use_bn)
-        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0,
-            ceil_mode=True)
-        self.conv2 = Inception3x3Branch(in_channels=mid_channels,
-            out_channels=out_channels, mid_channels=mid_channels)
-        self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0,
-            ceil_mode=True)
+        self.conv1 = conv7x7_block(in_channels=in_channels, out_channels=mid_channels, stride=2, bias=bias, use_bn=use_bn)
+        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
+        self.conv2 = Inception3x3Branch(in_channels=mid_channels, out_channels=out_channels, mid_channels=mid_channels)
+        self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -2005,24 +1867,15 @@ class InceptionBlock(nn.Module):
         Whether to use BatchNorm layers.
     """
 
-    def __init__(self, in_channels, mid1_channels_list, mid2_channels_list,
-        avg_pool, bias, use_bn):
+    def __init__(self, in_channels, mid1_channels_list, mid2_channels_list, avg_pool, bias, use_bn):
         super(InceptionBlock, self).__init__()
         assert len(mid1_channels_list) == 2
         assert len(mid2_channels_list) == 4
         self.branches = Concurrent()
-        self.branches.add_module('branch1', conv1x1_block(in_channels=
-            in_channels, out_channels=mid2_channels_list[0], bias=bias,
-            use_bn=use_bn))
-        self.branches.add_module('branch2', Inception3x3Branch(in_channels=
-            in_channels, out_channels=mid2_channels_list[1], mid_channels=
-            mid1_channels_list[0], bias=bias, use_bn=use_bn))
-        self.branches.add_module('branch3', InceptionDouble3x3Branch(
-            in_channels=in_channels, out_channels=mid2_channels_list[2],
-            mid_channels=mid1_channels_list[1], bias=bias, use_bn=use_bn))
-        self.branches.add_module('branch4', InceptionPoolBranch(in_channels
-            =in_channels, out_channels=mid2_channels_list[3], avg_pool=
-            avg_pool, bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch1', conv1x1_block(in_channels=in_channels, out_channels=mid2_channels_list[0], bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch2', Inception3x3Branch(in_channels=in_channels, out_channels=mid2_channels_list[1], mid_channels=mid1_channels_list[0], bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch3', InceptionDouble3x3Branch(in_channels=in_channels, out_channels=mid2_channels_list[2], mid_channels=mid1_channels_list[1], bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch4', InceptionPoolBranch(in_channels=in_channels, out_channels=mid2_channels_list[3], avg_pool=avg_pool, bias=bias, use_bn=use_bn))
 
     def forward(self, x):
         x = self.branches(x)
@@ -2047,21 +1900,14 @@ class ReductionBlock(nn.Module):
         Whether to use BatchNorm layers.
     """
 
-    def __init__(self, in_channels, mid1_channels_list, mid2_channels_list,
-        bias, use_bn):
+    def __init__(self, in_channels, mid1_channels_list, mid2_channels_list, bias, use_bn):
         super(ReductionBlock, self).__init__()
         assert len(mid1_channels_list) == 2
         assert len(mid2_channels_list) == 4
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Inception3x3Branch(in_channels=
-            in_channels, out_channels=mid2_channels_list[1], mid_channels=
-            mid1_channels_list[0], stride=2, bias=bias, use_bn=use_bn))
-        self.branches.add_module('branch2', InceptionDouble3x3Branch(
-            in_channels=in_channels, out_channels=mid2_channels_list[2],
-            mid_channels=mid1_channels_list[1], stride=2, bias=bias, use_bn
-            =use_bn))
-        self.branches.add_module('branch3', nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=0, ceil_mode=True))
+        self.branches.add_module('branch1', Inception3x3Branch(in_channels=in_channels, out_channels=mid2_channels_list[1], mid_channels=mid1_channels_list[0], stride=2, bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch2', InceptionDouble3x3Branch(in_channels=in_channels, out_channels=mid2_channels_list[2], mid_channels=mid1_channels_list[1], stride=2, bias=bias, use_bn=use_bn))
+        self.branches.add_module('branch3', nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True))
 
     def forward(self, x):
         x = self.branches(x)
@@ -2095,17 +1941,12 @@ class BNInception(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels_list,
-        mid1_channels_list, mid2_channels_list, bias=True, use_bn=True,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels_list, mid1_channels_list, mid2_channels_list, bias=True, use_bn=True, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(BNInception, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', StemBlock(in_channels=
-            in_channels, out_channels=init_block_channels_list[1],
-            mid_channels=init_block_channels_list[0], bias=bias, use_bn=use_bn)
-            )
+        self.features.add_module('init_block', StemBlock(in_channels=in_channels, out_channels=init_block_channels_list[1], mid_channels=init_block_channels_list[0], bias=bias, use_bn=use_bn))
         in_channels = init_block_channels_list[-1]
         for i, channels_per_stage in enumerate(channels):
             mid1_channels_list_i = mid1_channels_list[i]
@@ -2113,24 +1954,14 @@ class BNInception(nn.Module):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 if j == 0 and i != 0:
-                    stage.add_module('unit{}'.format(j + 1), ReductionBlock
-                        (in_channels=in_channels, mid1_channels_list=
-                        mid1_channels_list_i[j], mid2_channels_list=
-                        mid2_channels_list_i[j], bias=bias, use_bn=use_bn))
+                    stage.add_module('unit{}'.format(j + 1), ReductionBlock(in_channels=in_channels, mid1_channels_list=mid1_channels_list_i[j], mid2_channels_list=mid2_channels_list_i[j], bias=bias, use_bn=use_bn))
                 else:
-                    avg_pool = i != len(channels) - 1 or j != len(
-                        channels_per_stage) - 1
-                    stage.add_module('unit{}'.format(j + 1), InceptionBlock
-                        (in_channels=in_channels, mid1_channels_list=
-                        mid1_channels_list_i[j], mid2_channels_list=
-                        mid2_channels_list_i[j], avg_pool=avg_pool, bias=
-                        bias, use_bn=use_bn))
+                    avg_pool = i != len(channels) - 1 or j != len(channels_per_stage) - 1
+                    stage.add_module('unit{}'.format(j + 1), InceptionBlock(in_channels=in_channels, mid1_channels_list=mid1_channels_list_i[j], mid2_channels_list=mid2_channels_list_i[j], avg_pool=avg_pool, bias=bias, use_bn=use_bn))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -2212,8 +2043,7 @@ class SpatialGate(nn.Module):
 
     def __init__(self):
         super(SpatialGate, self).__init__()
-        self.conv = conv7x7_block(in_channels=2, out_channels=1, activation
-            =None)
+        self.conv = conv7x7_block(in_channels=2, out_channels=1, activation=None)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -2240,8 +2070,7 @@ class CbamBlock(nn.Module):
 
     def __init__(self, channels, reduction_ratio=16):
         super(CbamBlock, self).__init__()
-        self.ch_gate = ChannelGate(channels=channels, reduction_ratio=
-            reduction_ratio)
+        self.ch_gate = ChannelGate(channels=channels, reduction_ratio=reduction_ratio)
         self.sp_gate = SpatialGate()
 
     def forward(self, x):
@@ -2270,14 +2099,11 @@ class CbamResUnit(nn.Module):
         super(CbamResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ResBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, conv1_stride=False)
+            self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=False)
         else:
-            self.body = ResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.cbam = CbamBlock(channels=out_channels)
         self.activ = nn.ReLU(inplace=True)
 
@@ -2313,28 +2139,22 @@ class CbamResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(CbamResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), CbamResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck))
+                stage.add_module('unit{}'.format(j + 1), CbamResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -2365,10 +2185,8 @@ class CenterNetDecoderUnit(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(CenterNetDecoderUnit, self).__init__()
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, bias=True)
-        self.deconv = DeconvBlock(in_channels=out_channels, out_channels=
-            out_channels, kernel_size=4, stride=2, padding=1)
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, bias=True)
+        self.deconv = DeconvBlock(in_channels=out_channels, out_channels=out_channels, kernel_size=4, stride=2, padding=1)
 
     def forward(self, x):
         x = self.conv(x)
@@ -2390,10 +2208,8 @@ class CenterNetHeadBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(CenterNetHeadBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            in_channels, bias=True, use_bn=False)
-        self.conv2 = conv1x1(in_channels=in_channels, out_channels=
-            out_channels, bias=True)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=in_channels, bias=True, use_bn=False)
+        self.conv2 = conv1x1(in_channels=in_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -2418,8 +2234,7 @@ class CenterNetHeatmapBlock(nn.Module):
     def __init__(self, in_channels, out_channels, do_nms):
         super(CenterNetHeatmapBlock, self).__init__()
         self.do_nms = do_nms
-        self.head = CenterNetHeadBlock(in_channels=in_channels,
-            out_channels=out_channels)
+        self.head = CenterNetHeadBlock(in_channels=in_channels, out_channels=out_channels)
         self.sigmoid = nn.Sigmoid()
         if self.do_nms:
             self.pool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
@@ -2473,8 +2288,7 @@ class CenterNetHeatmapMaxDet(nn.Module):
         h = torch.gather(wh[:, :, (1)], dim=-1, index=topk_indices)
         half_w = 0.5 * w
         half_h = 0.5 * h
-        bboxes = torch.stack((topk_xs - half_w, topk_ys - half_h, topk_xs +
-            half_w, topk_ys + half_h), dim=-1)
+        bboxes = torch.stack((topk_xs - half_w, topk_ys - half_h, topk_xs + half_w, topk_ys + half_h), dim=-1)
         bboxes = bboxes * self.scale
         topk_classes = topk_classes.unsqueeze(dim=-1)
         scores = scores.unsqueeze(dim=-1)
@@ -2483,8 +2297,7 @@ class CenterNetHeatmapMaxDet(nn.Module):
 
     def __repr__(self):
         s = '{name}(topk={topk}, scale={scale})'
-        return s.format(name=self.__class__.__name__, topk=self.topk, scale
-            =self.scale)
+        return s.format(name=self.__class__.__name__, topk=self.topk, scale=self.scale)
 
     def calc_flops(self, x):
         assert x.shape[0] == 1
@@ -2517,9 +2330,7 @@ class CenterNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, backbone, backbone_out_channels, channels,
-        return_heatmap=False, topk=40, in_channels=3, in_size=(512, 512),
-        num_classes=80):
+    def __init__(self, backbone, backbone_out_channels, channels, return_heatmap=False, topk=40, in_channels=3, in_size=(512, 512), num_classes=80):
         super(CenterNet, self).__init__()
         self.in_size = in_size
         self.in_channels = in_channels
@@ -2528,18 +2339,12 @@ class CenterNet(nn.Module):
         self.decoder = nn.Sequential()
         in_channels = backbone_out_channels
         for i, out_channels in enumerate(channels):
-            self.decoder.add_module('unit{}'.format(i + 1),
-                CenterNetDecoderUnit(in_channels=in_channels, out_channels=
-                out_channels))
+            self.decoder.add_module('unit{}'.format(i + 1), CenterNetDecoderUnit(in_channels=in_channels, out_channels=out_channels))
             in_channels = out_channels
         heads = Concurrent()
-        heads.add_module('heapmap_block', CenterNetHeatmapBlock(in_channels
-            =in_channels, out_channels=num_classes, do_nms=not self.
-            return_heatmap))
-        heads.add_module('wh_block', CenterNetHeadBlock(in_channels=
-            in_channels, out_channels=2))
-        heads.add_module('reg_block', CenterNetHeadBlock(in_channels=
-            in_channels, out_channels=2))
+        heads.add_module('heapmap_block', CenterNetHeatmapBlock(in_channels=in_channels, out_channels=num_classes, do_nms=not self.return_heatmap))
+        heads.add_module('wh_block', CenterNetHeadBlock(in_channels=in_channels, out_channels=2))
+        heads.add_module('reg_block', CenterNetHeadBlock(in_channels=in_channels, out_channels=2))
         self.decoder.add_module('heads', heads)
         if not self.return_heatmap:
             self.heatmap_max_det = CenterNetHeatmapMaxDet(topk=topk, scale=4)
@@ -2588,15 +2393,11 @@ class ChannetConv(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, dropout_rate=0.0,
-        activate=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, dropout_rate=0.0, activate=True):
         super(ChannetConv, self).__init__()
         self.use_dropout = dropout_rate > 0.0
         self.activate = activate
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
@@ -2613,8 +2414,7 @@ class ChannetConv(nn.Module):
         return x
 
 
-def channet_conv1x1(in_channels, out_channels, stride=1, groups=1, bias=
-    False, dropout_rate=0.0, activate=True):
+def channet_conv1x1(in_channels, out_channels, stride=1, groups=1, bias=False, dropout_rate=0.0, activate=True):
     """
     1x1 version of ChannelNet specific convolution block.
 
@@ -2635,9 +2435,7 @@ def channet_conv1x1(in_channels, out_channels, stride=1, groups=1, bias=
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return ChannetConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias,
-        dropout_rate=dropout_rate, activate=activate)
+    return ChannetConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias, dropout_rate=dropout_rate, activate=activate)
 
 
 def dwconv3x3(in_channels, out_channels, stride, bias=False):
@@ -2655,9 +2453,7 @@ def dwconv3x3(in_channels, out_channels, stride, bias=False):
     bias : bool, default False
         Whether the layer uses a bias vector.
     """
-    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=1, groups=out_channels, bias=bias
-        )
+    return nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1, groups=out_channels, bias=bias)
 
 
 class ChannetDwsConvBlock(nn.Module):
@@ -2679,14 +2475,10 @@ class ChannetDwsConvBlock(nn.Module):
         Dropout rate.
     """
 
-    def __init__(self, in_channels, out_channels, stride, groups=1,
-        dropout_rate=0.0):
+    def __init__(self, in_channels, out_channels, stride, groups=1, dropout_rate=0.0):
         super(ChannetDwsConvBlock, self).__init__()
-        self.dw_conv = dwconv3x3(in_channels=in_channels, out_channels=
-            in_channels, stride=stride)
-        self.pw_conv = channet_conv1x1(in_channels=in_channels,
-            out_channels=out_channels, groups=groups, dropout_rate=dropout_rate
-            )
+        self.dw_conv = dwconv3x3(in_channels=in_channels, out_channels=in_channels, stride=stride)
+        self.pw_conv = channet_conv1x1(in_channels=in_channels, out_channels=out_channels, groups=groups, dropout_rate=dropout_rate)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -2714,9 +2506,7 @@ class SimpleGroupBlock(nn.Module):
         super(SimpleGroupBlock, self).__init__()
         self.blocks = nn.Sequential()
         for i in range(multi_blocks):
-            self.blocks.add_module('block{}'.format(i + 1),
-                ChannetDwsConvBlock(in_channels=channels, out_channels=
-                channels, stride=1, groups=groups, dropout_rate=dropout_rate))
+            self.blocks.add_module('block{}'.format(i + 1), ChannetDwsConvBlock(in_channels=channels, out_channels=channels, stride=1, groups=groups, dropout_rate=dropout_rate))
 
     def forward(self, x):
         x = self.blocks(x)
@@ -2738,9 +2528,7 @@ class ChannelwiseConv2d(nn.Module):
     def __init__(self, groups, dropout_rate):
         super(ChannelwiseConv2d, self).__init__()
         self.use_dropout = dropout_rate > 0.0
-        self.conv = nn.Conv3d(in_channels=1, out_channels=groups,
-            kernel_size=(4 * groups, 1, 1), stride=(groups, 1, 1), padding=
-            (2 * groups - 1, 0, 0), bias=False)
+        self.conv = nn.Conv3d(in_channels=1, out_channels=groups, kernel_size=(4 * groups, 1, 1), stride=(groups, 1, 1), padding=(2 * groups - 1, 0, 0), bias=False)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -2773,8 +2561,7 @@ class ConvGroupBlock(nn.Module):
     def __init__(self, channels, multi_blocks, groups, dropout_rate):
         super(ConvGroupBlock, self).__init__()
         self.conv = ChannelwiseConv2d(groups=groups, dropout_rate=dropout_rate)
-        self.block = SimpleGroupBlock(channels=channels, multi_blocks=
-            multi_blocks, groups=groups, dropout_rate=dropout_rate)
+        self.block = SimpleGroupBlock(channels=channels, multi_blocks=multi_blocks, groups=groups, dropout_rate=dropout_rate)
 
     def forward(self, x):
         x = self.conv(x)
@@ -2782,8 +2569,7 @@ class ConvGroupBlock(nn.Module):
         return x
 
 
-def channet_conv3x3(in_channels, out_channels, stride, padding=1, dilation=
-    1, groups=1, bias=False, dropout_rate=0.0, activate=True):
+def channet_conv3x3(in_channels, out_channels, stride, padding=1, dilation=1, groups=1, bias=False, dropout_rate=0.0, activate=True):
     """
     3x3 version of the standard convolution block.
 
@@ -2808,9 +2594,7 @@ def channet_conv3x3(in_channels, out_channels, stride, padding=1, dilation=
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return ChannetConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, dropout_rate=dropout_rate, activate=activate)
+    return ChannetConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, dropout_rate=dropout_rate, activate=activate)
 
 
 class ChannetUnit(nn.Module):
@@ -2837,34 +2621,22 @@ class ChannetUnit(nn.Module):
         Type of sub-block output merging.
     """
 
-    def __init__(self, in_channels, out_channels_list, strides,
-        multi_blocks, groups, dropout_rate, block_names, merge_type):
+    def __init__(self, in_channels, out_channels_list, strides, multi_blocks, groups, dropout_rate, block_names, merge_type):
         super(ChannetUnit, self).__init__()
         assert len(block_names) == 2
         assert merge_type in ['seq', 'add', 'cat']
         self.merge_type = merge_type
         self.blocks = nn.Sequential()
-        for i, (out_channels, block_name) in enumerate(zip(
-            out_channels_list, block_names)):
+        for i, (out_channels, block_name) in enumerate(zip(out_channels_list, block_names)):
             stride_i = strides if i == 0 else 1
             if block_name == 'channet_conv3x3':
-                self.blocks.add_module('block{}'.format(i + 1),
-                    channet_conv3x3(in_channels=in_channels, out_channels=
-                    out_channels, stride=stride_i, dropout_rate=
-                    dropout_rate, activate=False))
+                self.blocks.add_module('block{}'.format(i + 1), channet_conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride_i, dropout_rate=dropout_rate, activate=False))
             elif block_name == 'channet_dws_conv_block':
-                self.blocks.add_module('block{}'.format(i + 1),
-                    ChannetDwsConvBlock(in_channels=in_channels,
-                    out_channels=out_channels, stride=stride_i,
-                    dropout_rate=dropout_rate))
+                self.blocks.add_module('block{}'.format(i + 1), ChannetDwsConvBlock(in_channels=in_channels, out_channels=out_channels, stride=stride_i, dropout_rate=dropout_rate))
             elif block_name == 'simple_group_block':
-                self.blocks.add_module('block{}'.format(i + 1),
-                    SimpleGroupBlock(channels=in_channels, multi_blocks=
-                    multi_blocks, groups=groups, dropout_rate=dropout_rate))
+                self.blocks.add_module('block{}'.format(i + 1), SimpleGroupBlock(channels=in_channels, multi_blocks=multi_blocks, groups=groups, dropout_rate=dropout_rate))
             elif block_name == 'conv_group_block':
-                self.blocks.add_module('block{}'.format(i + 1),
-                    ConvGroupBlock(channels=in_channels, multi_blocks=
-                    multi_blocks, groups=groups, dropout_rate=dropout_rate))
+                self.blocks.add_module('block{}'.format(i + 1), ConvGroupBlock(channels=in_channels, multi_blocks=multi_blocks, groups=groups, dropout_rate=dropout_rate))
             else:
                 raise NotImplementedError()
             in_channels = out_channels
@@ -2909,9 +2681,7 @@ class ChannelNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, block_names, merge_types, dropout_rate=
-        0.0001, multi_blocks=2, groups=2, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, block_names, merge_types, dropout_rate=0.0001, multi_blocks=2, groups=2, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ChannelNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -2920,20 +2690,14 @@ class ChannelNet(nn.Module):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 strides = 2 if j == 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ChannetUnit(
-                    in_channels=in_channels, out_channels_list=out_channels,
-                    strides=strides, multi_blocks=multi_blocks, groups=
-                    groups, dropout_rate=dropout_rate, block_names=
-                    block_names[i][j], merge_type=merge_types[i][j]))
+                stage.add_module('unit{}'.format(j + 1), ChannetUnit(in_channels=in_channels, out_channels_list=out_channels, strides=strides, multi_blocks=multi_blocks, groups=groups, dropout_rate=dropout_rate, block_names=block_names[i][j], merge_type=merge_types[i][j]))
                 if merge_types[i][j] == 'cat':
                     in_channels = sum(out_channels)
                 else:
                     in_channels = out_channels[-1]
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -3029,9 +2793,7 @@ class ConvBlock(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=
-        1e-05, activation=lambda : nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
         super(ConvBlock, self).__init__()
         self.activate = activation is not None
         self.use_bn = use_bn
@@ -3039,9 +2801,7 @@ class ConvBlock(nn.Module):
         if self.use_pad:
             self.pad = nn.ZeroPad2d(padding=padding)
             padding = 0
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         if self.use_bn:
             self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
         if self.activate:
@@ -3058,9 +2818,7 @@ class ConvBlock(nn.Module):
         return x
 
 
-def dwconv_block(in_channels, out_channels, kernel_size, stride=1, padding=
-    1, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda :
-    nn.ReLU(inplace=True)):
+def dwconv_block(in_channels, out_channels, kernel_size, stride=1, padding=1, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     Depthwise version of the standard convolution block.
 
@@ -3087,10 +2845,7 @@ def dwconv_block(in_channels, out_channels, kernel_size, stride=1, padding=
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=kernel_size, stride=stride, padding=padding, dilation=
-        dilation, groups=out_channels, bias=bias, use_bn=use_bn, bn_eps=
-        bn_eps, activation=activation)
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 class DwsConvBlock(nn.Module):
@@ -3123,18 +2878,10 @@ class DwsConvBlock(nn.Module):
         Activation function after the pointwise convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, use_bn=True, bn_eps=1e-05,
-        dw_activation=lambda : nn.ReLU(inplace=True), pw_activation=lambda :
-        nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, dw_activation=lambda : nn.ReLU(inplace=True), pw_activation=lambda : nn.ReLU(inplace=True)):
         super(DwsConvBlock, self).__init__()
-        self.dw_conv = dwconv_block(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=
-            bn_eps, activation=dw_activation)
-        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps,
-            activation=pw_activation)
+        self.dw_conv = dwconv_block(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=dw_activation)
+        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=pw_activation)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -3170,9 +2917,7 @@ class PreConvBlock(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, use_bn=True, return_preact=False,
-        activate=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, use_bn=True, return_preact=False, activate=True):
         super(PreConvBlock, self).__init__()
         self.return_preact = return_preact
         self.activate = activate
@@ -3181,9 +2926,7 @@ class PreConvBlock(nn.Module):
             self.bn = nn.BatchNorm2d(num_features=in_channels)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=bias)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias)
 
     def forward(self, x):
         if self.use_bn:
@@ -3233,20 +2976,14 @@ class DeconvBlock(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, ext_padding=None, out_padding=0, dilation=1, groups=1,
-        bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(
-        inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, ext_padding=None, out_padding=0, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
         super(DeconvBlock, self).__init__()
         self.activate = activation is not None
         self.use_bn = use_bn
         self.use_pad = ext_padding is not None
         if self.use_pad:
             self.pad = nn.ZeroPad2d(padding=ext_padding)
-        self.conv = nn.ConvTranspose2d(in_channels=in_channels,
-            out_channels=out_channels, kernel_size=kernel_size, stride=
-            stride, padding=padding, output_padding=out_padding, dilation=
-            dilation, groups=groups, bias=bias)
+        self.conv = nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, output_padding=out_padding, dilation=dilation, groups=groups, bias=bias)
         if self.use_bn:
             self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
         if self.activate:
@@ -3304,8 +3041,7 @@ class InterpolationBlock(nn.Module):
         Whether to upsample or downsample.
     """
 
-    def __init__(self, scale_factor, out_size=None, mode='bilinear',
-        align_corners=True, up=True):
+    def __init__(self, scale_factor, out_size=None, mode='bilinear', align_corners=True, up=True):
         super(InterpolationBlock, self).__init__()
         self.scale_factor = scale_factor
         self.out_size = out_size
@@ -3316,11 +3052,9 @@ class InterpolationBlock(nn.Module):
     def forward(self, x, size=None):
         if self.mode == 'bilinear' or size is not None:
             out_size = self.calc_out_size(x) if size is None else size
-            return F.interpolate(input=x, size=out_size, mode=self.mode,
-                align_corners=self.align_corners)
+            return F.interpolate(input=x, size=out_size, mode=self.mode, align_corners=self.align_corners)
         else:
-            return F.interpolate(input=x, scale_factor=self.scale_factor,
-                mode=self.mode, align_corners=self.align_corners)
+            return F.interpolate(input=x, scale_factor=self.scale_factor, mode=self.mode, align_corners=self.align_corners)
 
     def calc_out_size(self, x):
         if self.out_size is not None:
@@ -3331,12 +3065,8 @@ class InterpolationBlock(nn.Module):
             return tuple(s // self.scale_factor for s in x.shape[2:])
 
     def __repr__(self):
-        s = (
-            '{name}(scale_factor={scale_factor}, out_size={out_size}, mode={mode}, align_corners={align_corners}, up={up})'
-            )
-        return s.format(name=self.__class__.__name__, scale_factor=self.
-            scale_factor, out_size=self.out_size, mode=self.mode,
-            align_corners=self.align_corners, up=self.up)
+        s = '{name}(scale_factor={scale_factor}, out_size={out_size}, mode={mode}, align_corners={align_corners}, up={up})'
+        return s.format(name=self.__class__.__name__, scale_factor=self.scale_factor, out_size=self.out_size, mode=self.mode, align_corners=self.align_corners, up=self.up)
 
     def calc_flops(self, x):
         assert x.shape[0] == 1
@@ -3443,8 +3173,7 @@ def round_channels(channels, divisor=8):
     int
         Weighted number of channels.
     """
-    rounded_channels = max(int(channels + divisor / 2.0) // divisor *
-        divisor, divisor)
+    rounded_channels = max(int(channels + divisor / 2.0) // divisor * divisor, divisor)
     if float(rounded_channels) < 0.9 * channels:
         rounded_channels += divisor
     return rounded_channels
@@ -3470,27 +3199,20 @@ class SEBlock(nn.Module):
         Activation function after the last convolution.
     """
 
-    def __init__(self, channels, reduction=16, round_mid=False, use_conv=
-        True, mid_activation=lambda : nn.ReLU(inplace=True), out_activation
-        =lambda : nn.Sigmoid()):
+    def __init__(self, channels, reduction=16, round_mid=False, use_conv=True, mid_activation=lambda : nn.ReLU(inplace=True), out_activation=lambda : nn.Sigmoid()):
         super(SEBlock, self).__init__()
         self.use_conv = use_conv
-        mid_channels = (channels // reduction if not round_mid else
-            round_channels(float(channels) / reduction))
+        mid_channels = channels // reduction if not round_mid else round_channels(float(channels) / reduction)
         self.pool = nn.AdaptiveAvgPool2d(output_size=1)
         if use_conv:
-            self.conv1 = conv1x1(in_channels=channels, out_channels=
-                mid_channels, bias=True)
+            self.conv1 = conv1x1(in_channels=channels, out_channels=mid_channels, bias=True)
         else:
-            self.fc1 = nn.Linear(in_features=channels, out_features=
-                mid_channels)
+            self.fc1 = nn.Linear(in_features=channels, out_features=mid_channels)
         self.activ = get_activation_layer(mid_activation)
         if use_conv:
-            self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-                channels, bias=True)
+            self.conv2 = conv1x1(in_channels=mid_channels, out_channels=channels, bias=True)
         else:
-            self.fc2 = nn.Linear(in_features=mid_channels, out_features=
-                channels)
+            self.fc2 = nn.Linear(in_features=mid_channels, out_features=channels)
         self.sigmoid = get_activation_layer(out_activation)
 
     def forward(self, x):
@@ -3525,8 +3247,7 @@ class DucBlock(nn.Module):
     def __init__(self, in_channels, out_channels, scale_factor):
         super(DucBlock, self).__init__()
         mid_channels = scale_factor * scale_factor * out_channels
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels)
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=mid_channels)
         self.pix_shuffle = nn.PixelShuffle(upscale_factor=scale_factor)
 
     def forward(self, x):
@@ -3557,17 +3278,14 @@ class IBN(nn.Module):
         h2_channels = channels - h1_channels
         self.split_sections = [h1_channels, h2_channels]
         if self.inst_first:
-            self.inst_norm = nn.InstanceNorm2d(num_features=h1_channels,
-                affine=True)
+            self.inst_norm = nn.InstanceNorm2d(num_features=h1_channels, affine=True)
             self.batch_norm = nn.BatchNorm2d(num_features=h2_channels)
         else:
             self.batch_norm = nn.BatchNorm2d(num_features=h1_channels)
-            self.inst_norm = nn.InstanceNorm2d(num_features=h2_channels,
-                affine=True)
+            self.inst_norm = nn.InstanceNorm2d(num_features=h2_channels, affine=True)
 
     def forward(self, x):
-        x1, x2 = torch.split(x, split_size_or_sections=self.split_sections,
-            dim=1)
+        x1, x2 = torch.split(x, split_size_or_sections=self.split_sections, dim=1)
         if self.inst_first:
             x1 = self.inst_norm(x1.contiguous())
             x2 = self.batch_norm(x2.contiguous())
@@ -3597,9 +3315,7 @@ class DualPathSequential(nn.Sequential):
         Scheme of dual path response for an ordinal module.
     """
 
-    def __init__(self, return_two=True, first_ordinals=0, last_ordinals=0,
-        dual_path_scheme=lambda module, x1, x2: module(x1, x2),
-        dual_path_scheme_ordinal=lambda module, x1, x2: (module(x1), x2)):
+    def __init__(self, return_two=True, first_ordinals=0, last_ordinals=0, dual_path_scheme=lambda module, x1, x2: module(x1, x2), dual_path_scheme_ordinal=lambda module, x1, x2: (module(x1), x2)):
         super(DualPathSequential, self).__init__()
         self.return_two = return_two
         self.first_ordinals = first_ordinals
@@ -3736,8 +3452,7 @@ class Hourglass(nn.Module):
         Whether return the first skip connection output. Used in ResAttNet.
     """
 
-    def __init__(self, down_seq, up_seq, skip_seq, merge_type='add',
-        return_first_skip=False):
+    def __init__(self, down_seq, up_seq, skip_seq, merge_type='add', return_first_skip=False):
         super(Hourglass, self).__init__()
         self.depth = len(down_seq)
         assert merge_type in ['add']
@@ -3795,8 +3510,7 @@ class SesquialteralHourglass(nn.Module):
         Type of concatenation of up and skip outputs.
     """
 
-    def __init__(self, down1_seq, skip1_seq, up_seq, skip2_seq, down2_seq,
-        merge_type='cat'):
+    def __init__(self, down1_seq, skip1_seq, up_seq, skip2_seq, down2_seq, merge_type='cat'):
         super(SesquialteralHourglass, self).__init__()
         assert len(down1_seq) == len(up_seq)
         assert len(down1_seq) == len(down2_seq)
@@ -3933,10 +3647,8 @@ class HeatmapMaxDetBlock(nn.Module):
                 px = int(pts[b, k, 0])
                 py = int(pts[b, k, 1])
                 if 0 < px < in_size[1] - 1 and 0 < py < in_size[0] - 1:
-                    pts[b, k, 0] += (hm[py, px + 1] - hm[py, px - 1]).sign(
-                        ) * 0.25
-                    pts[b, k, 1] += (hm[py + 1, px] - hm[py - 1, px]).sign(
-                        ) * 0.25
+                    pts[b, k, 0] += (hm[py, px + 1] - hm[py, px - 1]).sign() * 0.25
+                    pts[b, k, 1] += (hm[py + 1, px] - hm[py - 1, px]).sign() * 0.25
         return pts
 
     @staticmethod
@@ -3967,14 +3679,11 @@ class CondenseSimpleConv(nn.Module):
         Number of groups.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, groups):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, groups):
         super(CondenseSimpleConv, self).__init__()
         self.bn = nn.BatchNorm2d(num_features=in_channels)
         self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=groups, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False)
 
     def forward(self, x):
         x = self.bn(x)
@@ -4003,14 +3712,11 @@ class CondenseComplexConv(nn.Module):
         Number of groups.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, groups):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, groups):
         super(CondenseComplexConv, self).__init__()
         self.bn = nn.BatchNorm2d(num_features=in_channels)
         self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=groups, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False)
         self.c_shuffle = ChannelShuffle(channels=out_channels, groups=groups)
         self.register_buffer('index', torch.LongTensor(in_channels))
         self.index.fill_(0)
@@ -4037,8 +3743,7 @@ def condense_complex_conv1x1(in_channels, out_channels, groups):
     groups : int
         Number of groups.
     """
-    return CondenseComplexConv(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=1, stride=1, padding=0, groups=groups)
+    return CondenseComplexConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, groups=groups)
 
 
 def condense_simple_conv3x3(in_channels, out_channels, groups):
@@ -4054,8 +3759,7 @@ def condense_simple_conv3x3(in_channels, out_channels, groups):
     groups : int
         Number of groups.
     """
-    return CondenseSimpleConv(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=3, stride=1, padding=1, groups=groups)
+    return CondenseSimpleConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, groups=groups)
 
 
 class CondenseUnit(nn.Module):
@@ -4077,10 +3781,8 @@ class CondenseUnit(nn.Module):
         bottleneck_size = 4
         inc_channels = out_channels - in_channels
         mid_channels = inc_channels * bottleneck_size
-        self.conv1 = condense_complex_conv1x1(in_channels=in_channels,
-            out_channels=mid_channels, groups=groups)
-        self.conv2 = condense_simple_conv3x3(in_channels=mid_channels,
-            out_channels=inc_channels, groups=groups)
+        self.conv1 = condense_complex_conv1x1(in_channels=in_channels, out_channels=mid_channels, groups=groups)
+        self.conv2 = condense_simple_conv3x3(in_channels=mid_channels, out_channels=inc_channels, groups=groups)
 
     def forward(self, x):
         identity = x
@@ -4126,8 +3828,7 @@ class CondenseInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(CondenseInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=2, padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=1, bias=False)
 
     def forward(self, x):
         x = self.conv(x)
@@ -4172,8 +3873,7 @@ class CondenseLinear(nn.Module):
     def __init__(self, in_features, out_features, drop_rate=0.5):
         super(CondenseLinear, self).__init__()
         drop_in_features = int(in_features * drop_rate)
-        self.linear = nn.Linear(in_features=drop_in_features, out_features=
-            out_features)
+        self.linear = nn.Linear(in_features=drop_in_features, out_features=out_features)
         self.register_buffer('index', torch.LongTensor(drop_in_features))
         self.index.fill_(0)
 
@@ -4204,31 +3904,24 @@ class CondenseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, groups, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, groups, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(CondenseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', CondenseInitBlock(
-            in_channels=in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', CondenseInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             if i != 0:
                 stage.add_module('trans{}'.format(i + 1), TransitionBlock())
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), CondenseUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    groups=groups))
+                stage.add_module('unit{}'.format(j + 1), CondenseUnit(in_channels=in_channels, out_channels=out_channels, groups=groups))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PostActivation(in_channels=
-            in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = CondenseLinear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PostActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = CondenseLinear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -4266,13 +3959,9 @@ def dark_convYxY(in_channels, out_channels, alpha, pointwise):
         Whether use 1x1 (pointwise) convolution or 3x3 convolution.
     """
     if pointwise:
-        return conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, activation=nn.LeakyReLU(negative_slope=alpha,
-            inplace=True))
+        return conv1x1_block(in_channels=in_channels, out_channels=out_channels, activation=nn.LeakyReLU(negative_slope=alpha, inplace=True))
     else:
-        return conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, activation=nn.LeakyReLU(negative_slope=alpha,
-            inplace=True))
+        return conv3x3_block(in_channels=in_channels, out_channels=out_channels, activation=nn.LeakyReLU(negative_slope=alpha, inplace=True))
 
 
 class DarkNet(nn.Module):
@@ -4299,8 +3988,7 @@ class DarkNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, odd_pointwise, avg_pool_size, cls_activ,
-        alpha=0.1, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, odd_pointwise, avg_pool_size, cls_activ, alpha=0.1, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DarkNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -4308,23 +3996,16 @@ class DarkNet(nn.Module):
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), dark_convYxY(
-                    in_channels=in_channels, out_channels=out_channels,
-                    alpha=alpha, pointwise=len(channels_per_stage) > 1 and 
-                    not ((j + 1) % 2 == 1) ^ odd_pointwise))
+                stage.add_module('unit{}'.format(j + 1), dark_convYxY(in_channels=in_channels, out_channels=out_channels, alpha=alpha, pointwise=len(channels_per_stage) > 1 and not ((j + 1) % 2 == 1) ^ odd_pointwise))
                 in_channels = out_channels
             if i != len(channels) - 1:
-                stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(
-                    kernel_size=2, stride=2))
+                stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(kernel_size=2, stride=2))
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.output = nn.Sequential()
-        self.output.add_module('final_conv', nn.Conv2d(in_channels=
-            in_channels, out_channels=num_classes, kernel_size=1))
+        self.output.add_module('final_conv', nn.Conv2d(in_channels=in_channels, out_channels=num_classes, kernel_size=1))
         if cls_activ:
-            self.output.add_module('final_activ', nn.LeakyReLU(
-                negative_slope=alpha, inplace=True))
-        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=
-            avg_pool_size, stride=1))
+            self.output.add_module('final_activ', nn.LeakyReLU(negative_slope=alpha, inplace=True))
+        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=avg_pool_size, stride=1))
         self._init_params()
 
     def _init_params(self):
@@ -4362,12 +4043,8 @@ class DarkUnit(nn.Module):
         super(DarkUnit, self).__init__()
         assert out_channels % 2 == 0
         mid_channels = out_channels // 2
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, activation=nn.LeakyReLU(negative_slope=alpha,
-            inplace=True))
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=nn.LeakyReLU(negative_slope=alpha,
-            inplace=True))
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activation=nn.LeakyReLU(negative_slope=alpha, inplace=True))
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, activation=nn.LeakyReLU(negative_slope=alpha, inplace=True))
 
     def forward(self, x):
         identity = x
@@ -4396,34 +4073,24 @@ class DarkNet53(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, alpha=0.1,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, alpha=0.1, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DarkNet53, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, activation=nn.
-            LeakyReLU(negative_slope=alpha, inplace=True)))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, activation=nn.LeakyReLU(negative_slope=alpha, inplace=True)))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 if j == 0:
-                    stage.add_module('unit{}'.format(j + 1), conv3x3_block(
-                        in_channels=in_channels, out_channels=out_channels,
-                        stride=2, activation=nn.LeakyReLU(negative_slope=
-                        alpha, inplace=True)))
+                    stage.add_module('unit{}'.format(j + 1), conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2, activation=nn.LeakyReLU(negative_slope=alpha, inplace=True)))
                 else:
-                    stage.add_module('unit{}'.format(j + 1), DarkUnit(
-                        in_channels=in_channels, out_channels=out_channels,
-                        alpha=alpha))
+                    stage.add_module('unit{}'.format(j + 1), DarkUnit(in_channels=in_channels, out_channels=out_channels, alpha=alpha))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -4462,14 +4129,10 @@ class DwsConv(nn.Module):
         Whether the layers use a bias vector.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, bias=False):
         super(DwsConv, self).__init__()
-        self.dw_conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=in_channels, bias=bias)
-        self.pw_conv = conv1x1(in_channels=in_channels, out_channels=
-            out_channels, bias=bias)
+        self.dw_conv = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=bias)
+        self.pw_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, bias=bias)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -4497,15 +4160,12 @@ class DartsConv(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, activate=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, activate=True):
         super(DartsConv, self).__init__()
         self.activate = activate
         if self.activate:
             self.activ = nn.ReLU(inplace=False)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
 
     def forward(self, x):
@@ -4536,13 +4196,10 @@ class DartsDwsConv(nn.Module):
         Dilation value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation):
         super(DartsDwsConv, self).__init__()
         self.activ = nn.ReLU(inplace=False)
-        self.conv = DwsConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=False)
+        self.conv = DwsConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
 
     def forward(self, x):
@@ -4570,16 +4227,11 @@ class DartsDwsBranch(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(DartsDwsBranch, self).__init__()
         mid_channels = in_channels
-        self.conv1 = DartsDwsConv(in_channels=in_channels, out_channels=
-            mid_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=1)
-        self.conv2 = DartsDwsConv(in_channels=mid_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=1, padding=
-            padding, dilation=1)
+        self.conv1 = DartsDwsConv(in_channels=in_channels, out_channels=mid_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=1)
+        self.conv2 = DartsDwsConv(in_channels=mid_channels, out_channels=out_channels, kernel_size=kernel_size, stride=1, padding=padding, dilation=1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -4606,10 +4258,8 @@ class DartsReduceBranch(nn.Module):
         assert out_channels % 2 == 0
         mid_channels = out_channels // 2
         self.activ = nn.ReLU(inplace=False)
-        self.conv1 = conv1x1(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride)
-        self.conv2 = conv1x1(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride)
+        self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels, stride=stride)
+        self.conv2 = conv1x1(in_channels=in_channels, out_channels=mid_channels, stride=stride)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
 
     def forward(self, x):
@@ -4635,8 +4285,7 @@ def darts_conv3x3_s2(in_channels, out_channels, activate=True):
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return DartsConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=2, padding=1, activate=activate)
+    return DartsConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=1, activate=activate)
 
 
 class Stem1Unit(nn.Module):
@@ -4654,10 +4303,8 @@ class Stem1Unit(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(Stem1Unit, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = darts_conv3x3_s2(in_channels=in_channels, out_channels
-            =mid_channels, activate=False)
-        self.conv2 = darts_conv3x3_s2(in_channels=mid_channels,
-            out_channels=out_channels, activate=True)
+        self.conv1 = darts_conv3x3_s2(in_channels=in_channels, out_channels=mid_channels, activate=False)
+        self.conv2 = darts_conv3x3_s2(in_channels=mid_channels, out_channels=out_channels, activate=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -4676,8 +4323,7 @@ def darts_dws_branch3x3(channels, stride):
     stride : int or tuple/list of 2 int
         Strides of the convolution.
     """
-    return DartsDwsBranch(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=1)
+    return DartsDwsBranch(in_channels=channels, out_channels=channels, kernel_size=3, stride=stride, padding=1)
 
 
 def darts_dws_conv3x3(channels, stride):
@@ -4691,8 +4337,7 @@ def darts_dws_conv3x3(channels, stride):
     stride : int or tuple/list of 2 int
         Strides of the convolution.
     """
-    return DartsDwsConv(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=2, dilation=2)
+    return DartsDwsConv(in_channels=channels, out_channels=channels, kernel_size=3, stride=stride, padding=2, dilation=2)
 
 
 def darts_maxpool3x3(channels, stride):
@@ -4726,13 +4371,10 @@ def darts_skip_connection(channels, stride):
         return Identity()
     else:
         assert stride == 2
-        return DartsReduceBranch(in_channels=channels, out_channels=
-            channels, stride=stride)
+        return DartsReduceBranch(in_channels=channels, out_channels=channels, stride=stride)
 
 
-GENOTYPE_OPS = {'max_pool_3x3': darts_maxpool3x3, 'skip_connect':
-    darts_skip_connection, 'dil_conv_3x3': darts_dws_conv3x3,
-    'sep_conv_3x3': darts_dws_branch3x3}
+GENOTYPE_OPS = {'max_pool_3x3': darts_maxpool3x3, 'skip_connect': darts_skip_connection, 'dil_conv_3x3': darts_dws_conv3x3, 'sep_conv_3x3': darts_dws_branch3x3}
 
 
 class DartsMainBlock(nn.Module):
@@ -4793,8 +4435,7 @@ def darts_conv1x1(in_channels, out_channels, activate=True):
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return DartsConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=1, padding=0, activate=activate)
+    return DartsConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, activate=activate)
 
 
 class DartsUnit(nn.Module):
@@ -4815,20 +4456,15 @@ class DartsUnit(nn.Module):
         Whether use reduction.
     """
 
-    def __init__(self, in_channels, prev_in_channels, out_channels,
-        genotype, reduction, prev_reduction):
+    def __init__(self, in_channels, prev_in_channels, out_channels, genotype, reduction, prev_reduction):
         super(DartsUnit, self).__init__()
         mid_channels = out_channels // 4
         if prev_reduction:
-            self.preprocess_prev = DartsReduceBranch(in_channels=
-                prev_in_channels, out_channels=mid_channels)
+            self.preprocess_prev = DartsReduceBranch(in_channels=prev_in_channels, out_channels=mid_channels)
         else:
-            self.preprocess_prev = darts_conv1x1(in_channels=
-                prev_in_channels, out_channels=mid_channels)
-        self.preprocess = darts_conv1x1(in_channels=in_channels,
-            out_channels=mid_channels)
-        self.body = DartsMainBlock(genotype=genotype, channels=mid_channels,
-            reduction=reduction)
+            self.preprocess_prev = darts_conv1x1(in_channels=prev_in_channels, out_channels=mid_channels)
+        self.preprocess = darts_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.body = DartsMainBlock(genotype=genotype, channels=mid_channels, reduction=reduction)
 
     def forward(self, x, x_prev):
         x = self.preprocess(x)
@@ -4874,8 +4510,7 @@ class NasDualPathScheme(object):
         x_next = module(x, x_prev)
         if type(x_next) == tuple:
             x_next, x = x_next
-        if self.can_skip_input and hasattr(module, 'skip_input'
-            ) and module.skip_input:
+        if self.can_skip_input and hasattr(module, 'skip_input') and module.skip_input:
             x = x_prev
         return x_next, x
 
@@ -4902,8 +4537,7 @@ def nasnet_dual_path_scheme_ordinal(module, x, _):
     return module(x), x
 
 
-def nasnet_dual_path_sequential(return_two=True, first_ordinals=0,
-    last_ordinals=0, can_skip_input=False):
+def nasnet_dual_path_sequential(return_two=True, first_ordinals=0, last_ordinals=0, can_skip_input=False):
     """
     NASNet specific dual path sequential container.
 
@@ -4922,10 +4556,7 @@ def nasnet_dual_path_sequential(return_two=True, first_ordinals=0,
     can_skip_input : bool, default False
         Whether can skip input for some modules.
     """
-    return DualPathSequential(return_two=return_two, first_ordinals=
-        first_ordinals, last_ordinals=last_ordinals, dual_path_scheme=
-        NasDualPathScheme(can_skip_input=can_skip_input),
-        dual_path_scheme_ordinal=nasnet_dual_path_scheme_ordinal)
+    return DualPathSequential(return_two=return_two, first_ordinals=first_ordinals, last_ordinals=last_ordinals, dual_path_scheme=NasDualPathScheme(can_skip_input=can_skip_input), dual_path_scheme_ordinal=nasnet_dual_path_scheme_ordinal)
 
 
 def stem2_unit(in_channels, out_channels):
@@ -4939,8 +4570,7 @@ def stem2_unit(in_channels, out_channels):
     out_channels : int
         Number of output channels.
     """
-    return darts_conv3x3_s2(in_channels=in_channels, out_channels=
-        out_channels, activate=True)
+    return darts_conv3x3_s2(in_channels=in_channels, out_channels=out_channels, activate=True)
 
 
 class DARTS(nn.Module):
@@ -4961,18 +4591,14 @@ class DARTS(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, stem_blocks_channels, normal_genotype,
-        reduce_genotype, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, stem_blocks_channels, normal_genotype, reduce_genotype, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DARTS, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.features = nasnet_dual_path_sequential(return_two=False,
-            first_ordinals=2, last_ordinals=1)
-        self.features.add_module('stem1_unit', Stem1Unit(in_channels=
-            in_channels, out_channels=stem_blocks_channels))
+        self.features = nasnet_dual_path_sequential(return_two=False, first_ordinals=2, last_ordinals=1)
+        self.features.add_module('stem1_unit', Stem1Unit(in_channels=in_channels, out_channels=stem_blocks_channels))
         in_channels = stem_blocks_channels
-        self.features.add_module('stem2_unit', stem2_unit(in_channels=
-            in_channels, out_channels=stem_blocks_channels))
+        self.features.add_module('stem2_unit', stem2_unit(in_channels=in_channels, out_channels=stem_blocks_channels))
         prev_in_channels = in_channels
         in_channels = stem_blocks_channels
         for i, channels_per_stage in enumerate(channels):
@@ -4981,18 +4607,12 @@ class DARTS(nn.Module):
                 reduction = i != 0 and j == 0
                 prev_reduction = i == 0 and j == 0 or i != 0 and j == 1
                 genotype = reduce_genotype if reduction else normal_genotype
-                stage.add_module('unit{}'.format(j + 1), DartsUnit(
-                    in_channels=in_channels, prev_in_channels=
-                    prev_in_channels, out_channels=out_channels, genotype=
-                    genotype, reduction=reduction, prev_reduction=
-                    prev_reduction))
+                stage.add_module('unit{}'.format(j + 1), DartsUnit(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels, genotype=genotype, reduction=reduction, prev_reduction=prev_reduction))
                 prev_in_channels = in_channels
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5027,18 +4647,15 @@ class DeepLabv3FinalBlock(nn.Module):
         super(DeepLabv3FinalBlock, self).__init__()
         assert in_channels % bottleneck_factor == 0
         mid_channels = in_channels // bottleneck_factor
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels)
         self.dropout = nn.Dropout(p=0.1, inplace=False)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x, out_size):
         x = self.conv1(x)
         x = self.dropout(x)
         x = self.conv2(x)
-        x = F.interpolate(x, size=out_size, mode='bilinear', align_corners=True
-            )
+        x = F.interpolate(x, size=out_size, mode='bilinear', align_corners=True)
         return x
 
 
@@ -5060,12 +4677,10 @@ class ASPPAvgBranch(nn.Module):
         super(ASPPAvgBranch, self).__init__()
         self.upscale_out_size = upscale_out_size
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
-        in_size = (self.upscale_out_size if self.upscale_out_size is not
-            None else x.shape[2:])
+        in_size = self.upscale_out_size if self.upscale_out_size is not None else x.shape[2:]
         x = self.pool(x)
         x = self.conv(x)
         x = F.interpolate(x, size=in_size, mode='bilinear', align_corners=True)
@@ -5091,17 +4706,11 @@ class AtrousSpatialPyramidPooling(nn.Module):
         mid_channels = in_channels // 8
         project_in_channels = 5 * mid_channels
         self.branches = Concurrent()
-        self.branches.add_module('branch1', conv1x1_block(in_channels=
-            in_channels, out_channels=mid_channels))
+        self.branches.add_module('branch1', conv1x1_block(in_channels=in_channels, out_channels=mid_channels))
         for i, atrous_rate in enumerate(atrous_rates):
-            self.branches.add_module('branch{}'.format(i + 2),
-                conv3x3_block(in_channels=in_channels, out_channels=
-                mid_channels, padding=atrous_rate, dilation=atrous_rate))
-        self.branches.add_module('branch5', ASPPAvgBranch(in_channels=
-            in_channels, out_channels=mid_channels, upscale_out_size=
-            upscale_out_size))
-        self.conv = conv1x1_block(in_channels=project_in_channels,
-            out_channels=mid_channels)
+            self.branches.add_module('branch{}'.format(i + 2), conv3x3_block(in_channels=in_channels, out_channels=mid_channels, padding=atrous_rate, dilation=atrous_rate))
+        self.branches.add_module('branch5', ASPPAvgBranch(in_channels=in_channels, out_channels=mid_channels, upscale_out_size=upscale_out_size))
+        self.conv = conv1x1_block(in_channels=project_in_channels, out_channels=mid_channels)
         self.dropout = nn.Dropout(p=0.5, inplace=False)
 
     def forward(self, x):
@@ -5134,8 +4743,7 @@ class DeepLabv3(nn.Module):
         Number of segmentation classes.
     """
 
-    def __init__(self, backbone, backbone_out_channels=2048, aux=False,
-        fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
+    def __init__(self, backbone, backbone_out_channels=2048, aux=False, fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
         super(DeepLabv3, self).__init__()
         assert in_channels > 0
         self.in_size = in_size
@@ -5143,18 +4751,13 @@ class DeepLabv3(nn.Module):
         self.aux = aux
         self.fixed_size = fixed_size
         self.backbone = backbone
-        pool_out_size = (self.in_size[0] // 8, self.in_size[1] // 8
-            ) if fixed_size else None
-        self.pool = AtrousSpatialPyramidPooling(in_channels=
-            backbone_out_channels, upscale_out_size=pool_out_size)
+        pool_out_size = (self.in_size[0] // 8, self.in_size[1] // 8) if fixed_size else None
+        self.pool = AtrousSpatialPyramidPooling(in_channels=backbone_out_channels, upscale_out_size=pool_out_size)
         pool_out_channels = backbone_out_channels // 8
-        self.final_block = DeepLabv3FinalBlock(in_channels=
-            pool_out_channels, out_channels=num_classes, bottleneck_factor=1)
+        self.final_block = DeepLabv3FinalBlock(in_channels=pool_out_channels, out_channels=num_classes, bottleneck_factor=1)
         if self.aux:
             aux_out_channels = backbone_out_channels // 2
-            self.aux_block = DeepLabv3FinalBlock(in_channels=
-                aux_out_channels, out_channels=num_classes, bottleneck_factor=4
-                )
+            self.aux_block = DeepLabv3FinalBlock(in_channels=aux_out_channels, out_channels=num_classes, bottleneck_factor=4)
         self._init_params()
 
     def _init_params(self):
@@ -5196,10 +4799,8 @@ class DenseUnit(nn.Module):
         bn_size = 4
         inc_channels = out_channels - in_channels
         mid_channels = inc_channels * bn_size
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=inc_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=inc_channels)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -5228,8 +4829,7 @@ class TransitionBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(TransitionBlock, self).__init__()
-        self.conv = pre_conv1x1_block(in_channels=in_channels, out_channels
-            =out_channels)
+        self.conv = pre_conv1x1_block(in_channels=in_channels, out_channels=out_channels)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
 
     def forward(self, x):
@@ -5258,33 +4858,25 @@ class DenseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, dropout_rate=0.0, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DenseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels // 2))
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(in_channels=in_channels, out_channels=in_channels // 2))
                 in_channels = in_channels // 2
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), DenseUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    dropout_rate=dropout_rate))
+                stage.add_module('unit{}'.format(j + 1), DenseUnit(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5319,8 +4911,7 @@ class DenseSimpleUnit(nn.Module):
         super(DenseSimpleUnit, self).__init__()
         self.use_dropout = dropout_rate != 0.0
         inc_channels = out_channels - in_channels
-        self.conv = pre_conv3x3_block(in_channels=in_channels, out_channels
-            =inc_channels)
+        self.conv = pre_conv3x3_block(in_channels=in_channels, out_channels=inc_channels)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -5355,34 +4946,26 @@ class CIFARDenseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        dropout_rate=0.0, in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, dropout_rate=0.0, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARDenseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         unit_class = DenseUnit if bottleneck else DenseSimpleUnit
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels // 2))
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(in_channels=in_channels, out_channels=in_channels // 2))
                 in_channels = in_channels // 2
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), unit_class(
-                    in_channels=in_channels, out_channels=out_channels,
-                    dropout_rate=dropout_rate))
+                stage.add_module('unit{}'.format(j + 1), unit_class(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5419,20 +5002,15 @@ class DIAPreResUnit(nn.Module):
         Attention module.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        conv1_stride, attention=None):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, conv1_stride, attention=None):
         super(DIAPreResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = PreResBottleneck(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, conv1_stride=
-                conv1_stride)
+            self.body = PreResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride)
         else:
-            self.body = PreResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = PreResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.attention = attention
 
     def forward(self, x, hc=None):
@@ -5467,33 +5045,24 @@ class DIAPreResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DIAPreResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential(return_two=False)
-            attention = DIAAttention(in_x_features=channels_per_stage[0],
-                in_h_features=channels_per_stage[0])
+            attention = DIAAttention(in_x_features=channels_per_stage[0], in_h_features=channels_per_stage[0])
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
-                stage.add_module('unit{}'.format(j + 1), DIAPreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride, attention=attention))
+                stage.add_module('unit{}'.format(j + 1), DIAPreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride, attention=attention))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5530,33 +5099,24 @@ class CIFARDIAPreResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARDIAPreResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential(return_two=False)
-            attention = DIAAttention(in_x_features=channels_per_stage[0],
-                in_h_features=channels_per_stage[0])
+            attention = DIAAttention(in_x_features=channels_per_stage[0], in_h_features=channels_per_stage[0])
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), DIAPreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    False, attention=attention))
+                stage.add_module('unit{}'.format(j + 1), DIAPreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False, attention=attention))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5588,11 +5148,9 @@ class FirstLSTMAmp(nn.Module):
     def __init__(self, in_features, out_features):
         super(FirstLSTMAmp, self).__init__()
         mid_features = in_features // 4
-        self.fc1 = nn.Linear(in_features=in_features, out_features=mid_features
-            )
+        self.fc1 = nn.Linear(in_features=in_features, out_features=mid_features)
         self.activ = nn.ReLU(inplace=True)
-        self.fc2 = nn.Linear(in_features=mid_features, out_features=
-            out_features)
+        self.fc2 = nn.Linear(in_features=mid_features, out_features=out_features)
 
     def forward(self, x):
         x = self.fc1(x)
@@ -5617,8 +5175,7 @@ class DIALSTMCell(nn.Module):
         Parameter of Dropout layer. Faction of the input units to drop.
     """
 
-    def __init__(self, in_x_features, in_h_features, num_layers,
-        dropout_rate=0.1):
+    def __init__(self, in_x_features, in_h_features, num_layers, dropout_rate=0.1):
         super(DIALSTMCell, self).__init__()
         self.num_layers = num_layers
         out_features = 4 * in_h_features
@@ -5626,10 +5183,8 @@ class DIALSTMCell(nn.Module):
         self.h_amps = nn.Sequential()
         for i in range(num_layers):
             amp_class = FirstLSTMAmp if i == 0 else nn.Linear
-            self.x_amps.add_module('amp{}'.format(i + 1), amp_class(
-                in_features=in_x_features, out_features=out_features))
-            self.h_amps.add_module('amp{}'.format(i + 1), amp_class(
-                in_features=in_h_features, out_features=out_features))
+            self.x_amps.add_module('amp{}'.format(i + 1), amp_class(in_features=in_x_features, out_features=out_features))
+            self.h_amps.add_module('amp{}'.format(i + 1), amp_class(in_features=in_h_features, out_features=out_features))
             in_x_features = in_h_features
         self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -5671,8 +5226,7 @@ class DIAAttention(nn.Module):
         super(DIAAttention, self).__init__()
         self.num_layers = num_layers
         self.pool = nn.AdaptiveAvgPool2d(output_size=1)
-        self.lstm = DIALSTMCell(in_x_features=in_x_features, in_h_features=
-            in_h_features, num_layers=num_layers)
+        self.lstm = DIALSTMCell(in_x_features=in_x_features, in_h_features=in_h_features, num_layers=num_layers)
 
     def forward(self, x, hc=None):
         w = self.pool(x)
@@ -5712,20 +5266,15 @@ class DIAResUnit(nn.Module):
         Attention module.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding=1,
-        dilation=1, bottleneck=True, conv1_stride=False, attention=None):
+    def __init__(self, in_channels, out_channels, stride, padding=1, dilation=1, bottleneck=True, conv1_stride=False, attention=None):
         super(DIAResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ResBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, padding=padding, dilation=
-                dilation, conv1_stride=conv1_stride)
+            self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, dilation=dilation, conv1_stride=conv1_stride)
         else:
-            self.body = ResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
         self.attention = attention
 
@@ -5763,31 +5312,23 @@ class DIAResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DIAResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential(return_two=False)
-            attention = DIAAttention(in_x_features=channels_per_stage[0],
-                in_h_features=channels_per_stage[0])
+            attention = DIAAttention(in_x_features=channels_per_stage[0], in_h_features=channels_per_stage[0])
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), DIAResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride, attention=attention))
+                stage.add_module('unit{}'.format(j + 1), DIAResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride, attention=attention))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5824,31 +5365,23 @@ class CIFARDIAResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARDIAResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential(return_two=False)
-            attention = DIAAttention(in_x_features=channels_per_stage[0],
-                in_h_features=channels_per_stage[0])
+            attention = DIAAttention(in_x_features=channels_per_stage[0], in_h_features=channels_per_stage[0])
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), DIAResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    False, attention=attention))
+                stage.add_module('unit{}'.format(j + 1), DIAResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False, attention=attention))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -5883,13 +5416,10 @@ class DiracConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(DiracConv, self).__init__()
         self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=True)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=True)
 
     def forward(self, x):
         x = self.activ(x)
@@ -5911,8 +5441,7 @@ class DiracInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(DiracInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=7, stride=2, padding=3, bias=True)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=3, bias=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -5932,8 +5461,7 @@ def dirac_conv3x3(in_channels, out_channels):
     out_channels : int
         Number of output channels.
     """
-    return DiracConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=1, padding=1)
+    return DiracConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
 
 
 class DiracNetV2(nn.Module):
@@ -5955,30 +5483,24 @@ class DiracNetV2(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DiracNetV2, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', DiracInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', DiracInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), dirac_conv3x3(
-                    in_channels=in_channels, out_channels=out_channels))
+                stage.add_module('unit{}'.format(j + 1), dirac_conv3x3(in_channels=in_channels, out_channels=out_channels))
                 in_channels = out_channels
             if i != len(channels) - 1:
-                stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(
-                    kernel_size=2, stride=2, padding=0))
+                stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(kernel_size=2, stride=2, padding=0))
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('final_activ', nn.ReLU(inplace=True))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -6012,8 +5534,7 @@ class DLARoot(nn.Module):
     def __init__(self, in_channels, out_channels, residual):
         super(DLARoot, self).__init__()
         self.residual = residual
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, activation=None)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x2, x1, extra):
@@ -6054,9 +5575,7 @@ class DLATree(nn.Module):
         Whether return downsample result.
     """
 
-    def __init__(self, levels, in_channels, out_channels, res_body_class,
-        stride, root_residual, root_dim=0, first_tree=False, input_level=
-        True, return_down=False):
+    def __init__(self, levels, in_channels, out_channels, res_body_class, stride, root_residual, root_dim=0, first_tree=False, input_level=True, return_down=False):
         super(DLATree, self).__init__()
         self.return_down = return_down
         self.add_down = input_level and not first_tree
@@ -6066,25 +5585,13 @@ class DLATree(nn.Module):
         if self.add_down:
             root_dim += in_channels
         if self.root_level:
-            self.tree1 = DLAResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, body_class=res_body_class,
-                return_down=True)
-            self.tree2 = DLAResBlock(in_channels=out_channels, out_channels
-                =out_channels, stride=1, body_class=res_body_class,
-                return_down=False)
+            self.tree1 = DLAResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, body_class=res_body_class, return_down=True)
+            self.tree2 = DLAResBlock(in_channels=out_channels, out_channels=out_channels, stride=1, body_class=res_body_class, return_down=False)
         else:
-            self.tree1 = DLATree(levels=levels - 1, in_channels=in_channels,
-                out_channels=out_channels, res_body_class=res_body_class,
-                stride=stride, root_residual=root_residual, root_dim=0,
-                input_level=False, return_down=True)
-            self.tree2 = DLATree(levels=levels - 1, in_channels=
-                out_channels, out_channels=out_channels, res_body_class=
-                res_body_class, stride=1, root_residual=root_residual,
-                root_dim=root_dim + out_channels, input_level=False,
-                return_down=False)
+            self.tree1 = DLATree(levels=levels - 1, in_channels=in_channels, out_channels=out_channels, res_body_class=res_body_class, stride=stride, root_residual=root_residual, root_dim=0, input_level=False, return_down=True)
+            self.tree2 = DLATree(levels=levels - 1, in_channels=out_channels, out_channels=out_channels, res_body_class=res_body_class, stride=1, root_residual=root_residual, root_dim=root_dim + out_channels, input_level=False, return_down=False)
         if self.root_level:
-            self.root = DLARoot(in_channels=root_dim, out_channels=
-                out_channels, residual=root_residual)
+            self.root = DLARoot(in_channels=root_dim, out_channels=out_channels, residual=root_residual)
 
     def forward(self, x, extra=None):
         extra = [] if extra is None else extra
@@ -6118,12 +5625,9 @@ class DLAInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(DLAInitBlock, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = conv7x7_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels)
-        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=2)
+        self.conv1 = conv7x7_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels)
+        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=2)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -6156,29 +5660,21 @@ class DLA(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, levels, channels, init_block_channels,
-        res_body_class, residual_root, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, levels, channels, init_block_channels, res_body_class, residual_root, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DLA, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', DLAInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', DLAInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i in range(len(levels)):
             levels_i = levels[i]
             out_channels = channels[i]
             first_tree = i == 0
-            self.features.add_module('stage{}'.format(i + 1), DLATree(
-                levels=levels_i, in_channels=in_channels, out_channels=
-                out_channels, res_body_class=res_body_class, stride=2,
-                root_residual=residual_root, first_tree=first_tree))
+            self.features.add_module('stage{}'.format(i + 1), DLATree(levels=levels_i, in_channels=in_channels, out_channels=out_channels, res_body_class=res_body_class, stride=2, root_residual=residual_root, first_tree=first_tree))
             in_channels = out_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = conv1x1(in_channels=in_channels, out_channels=
-            num_classes, bias=True)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = conv1x1(in_channels=in_channels, out_channels=num_classes, bias=True)
         self._init_params()
 
     def _init_params(self):
@@ -6270,14 +5766,11 @@ class DPNConv(nn.Module):
         Number of groups.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, groups):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, groups):
         super(DPNConv, self).__init__()
         self.bn = dpn_batch_norm(channels=in_channels)
         self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=groups, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False)
 
     def forward(self, x):
         x = self.bn(x)
@@ -6299,8 +5792,7 @@ def dpn_conv1x1(in_channels, out_channels, stride=1):
     stride : int or tuple/list of 2 int, default 1
         Strides of the convolution.
     """
-    return DPNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, groups=1)
+    return DPNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=1)
 
 
 def dpn_conv3x3(in_channels, out_channels, stride, groups):
@@ -6318,8 +5810,7 @@ def dpn_conv3x3(in_channels, out_channels, stride, groups):
     groups : int
         Number of groups.
     """
-    return DPNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=1, groups=groups)
+    return DPNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1, groups=groups)
 
 
 class DPNUnit(nn.Module):
@@ -6346,26 +5837,21 @@ class DPNUnit(nn.Module):
         Whether to use B-case model.
     """
 
-    def __init__(self, in_channels, mid_channels, bw, inc, groups, has_proj,
-        key_stride, b_case=False):
+    def __init__(self, in_channels, mid_channels, bw, inc, groups, has_proj, key_stride, b_case=False):
         super(DPNUnit, self).__init__()
         self.bw = bw
         self.has_proj = has_proj
         self.b_case = b_case
         if self.has_proj:
-            self.conv_proj = dpn_conv1x1(in_channels=in_channels,
-                out_channels=bw + 2 * inc, stride=key_stride)
-        self.conv1 = dpn_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = dpn_conv3x3(in_channels=mid_channels, out_channels=
-            mid_channels, stride=key_stride, groups=groups)
+            self.conv_proj = dpn_conv1x1(in_channels=in_channels, out_channels=bw + 2 * inc, stride=key_stride)
+        self.conv1 = dpn_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = dpn_conv3x3(in_channels=mid_channels, out_channels=mid_channels, stride=key_stride, groups=groups)
         if b_case:
             self.preactiv = PreActivation(channels=mid_channels)
             self.conv3a = conv1x1(in_channels=mid_channels, out_channels=bw)
             self.conv3b = conv1x1(in_channels=mid_channels, out_channels=inc)
         else:
-            self.conv3 = dpn_conv1x1(in_channels=mid_channels, out_channels
-                =bw + inc)
+            self.conv3 = dpn_conv1x1(in_channels=mid_channels, out_channels=bw + inc)
 
     def forward(self, x1, x2=None):
         x_in = torch.cat((x1, x2), dim=1) if x2 is not None else x1
@@ -6410,9 +5896,7 @@ class DPNInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, padding):
         super(DPNInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=2, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=2, padding=padding, bias=False)
         self.bn = dpn_batch_norm(channels=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -6482,18 +5966,12 @@ class DPN(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels,
-        init_block_kernel_size, init_block_padding, rs, bws, incs, groups,
-        b_case, for_training, test_time_pool, in_channels=3, in_size=(224, 
-        224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, init_block_kernel_size, init_block_padding, rs, bws, incs, groups, b_case, for_training, test_time_pool, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DPN, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.features = DualPathSequential(return_two=False, first_ordinals
-            =1, last_ordinals=0)
-        self.features.add_module('init_block', DPNInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels, kernel_size=
-            init_block_kernel_size, padding=init_block_padding))
+        self.features = DualPathSequential(return_two=False, first_ordinals=1, last_ordinals=0)
+        self.features.add_module('init_block', DPNInitBlock(in_channels=in_channels, out_channels=init_block_channels, kernel_size=init_block_kernel_size, padding=init_block_padding))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential()
@@ -6503,25 +5981,17 @@ class DPN(nn.Module):
             for j, out_channels in enumerate(channels_per_stage):
                 has_proj = j == 0
                 key_stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), DPNUnit(
-                    in_channels=in_channels, mid_channels=r, bw=bw, inc=inc,
-                    groups=groups, has_proj=has_proj, key_stride=key_stride,
-                    b_case=b_case))
+                stage.add_module('unit{}'.format(j + 1), DPNUnit(in_channels=in_channels, mid_channels=r, bw=bw, inc=inc, groups=groups, has_proj=has_proj, key_stride=key_stride, b_case=b_case))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', DPNFinalBlock(channels=
-            in_channels))
+        self.features.add_module('final_block', DPNFinalBlock(channels=in_channels))
         self.output = nn.Sequential()
         if for_training or not test_time_pool:
-            self.output.add_module('final_pool', nn.AdaptiveAvgPool2d(
-                output_size=1))
-            self.output.add_module('classifier', conv1x1(in_channels=
-                in_channels, out_channels=num_classes, bias=True))
+            self.output.add_module('final_pool', nn.AdaptiveAvgPool2d(output_size=1))
+            self.output.add_module('classifier', conv1x1(in_channels=in_channels, out_channels=num_classes, bias=True))
         else:
-            self.output.add_module('avg_pool', nn.AvgPool2d(kernel_size=7,
-                stride=1))
-            self.output.add_module('classifier', conv1x1(in_channels=
-                in_channels, out_channels=num_classes, bias=True))
+            self.output.add_module('avg_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+            self.output.add_module('classifier', conv1x1(in_channels=in_channels, out_channels=num_classes, bias=True))
             self.output.add_module('avgmax_pool', GlobalAvgMaxPool2D())
         self._init_params()
 
@@ -6561,13 +6031,10 @@ class DRNConv(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, activate):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, activate):
         super(DRNConv, self).__init__()
         self.activate = activate
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
@@ -6597,9 +6064,7 @@ def drn_conv3x3(in_channels, out_channels, stride, dilation, activate):
     activate : bool
         Whether activate the convolution block.
     """
-    return DRNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=dilation, dilation=dilation,
-        activate=activate)
+    return DRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, activate=activate)
 
 
 class DRNBlock(nn.Module):
@@ -6620,10 +6085,8 @@ class DRNBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride, dilation):
         super(DRNBlock, self).__init__()
-        self.conv1 = drn_conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, dilation=dilation, activate=True)
-        self.conv2 = drn_conv3x3(in_channels=out_channels, out_channels=
-            out_channels, stride=1, dilation=dilation, activate=False)
+        self.conv1 = drn_conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilation, activate=True)
+        self.conv2 = drn_conv3x3(in_channels=out_channels, out_channels=out_channels, stride=1, dilation=dilation, activate=False)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -6646,8 +6109,7 @@ def drn_conv1x1(in_channels, out_channels, stride, activate):
     activate : bool
         Whether activate the convolution block.
     """
-    return DRNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, dilation=1, activate=activate)
+    return DRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, dilation=1, activate=activate)
 
 
 class DRNBottleneck(nn.Module):
@@ -6669,12 +6131,9 @@ class DRNBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, dilation):
         super(DRNBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = drn_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels, stride=1, activate=True)
-        self.conv2 = drn_conv3x3(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride, dilation=dilation, activate=True)
-        self.conv3 = drn_conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, stride=1, activate=False)
+        self.conv1 = drn_conv1x1(in_channels=in_channels, out_channels=mid_channels, stride=1, activate=True)
+        self.conv2 = drn_conv3x3(in_channels=mid_channels, out_channels=mid_channels, stride=stride, dilation=dilation, activate=True)
+        self.conv3 = drn_conv1x1(in_channels=mid_channels, out_channels=out_channels, stride=1, activate=False)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -6705,27 +6164,21 @@ class DRNUnit(nn.Module):
         Whether do residual calculations.
     """
 
-    def __init__(self, in_channels, out_channels, stride, dilation,
-        bottleneck, simplified, residual):
+    def __init__(self, in_channels, out_channels, stride, dilation, bottleneck, simplified, residual):
         super(DRNUnit, self).__init__()
         assert residual or not bottleneck
         assert not (bottleneck and simplified)
         assert not (residual and simplified)
         self.residual = residual
-        self.resize_identity = (in_channels != out_channels or stride != 1
-            ) and self.residual and not simplified
+        self.resize_identity = (in_channels != out_channels or stride != 1) and self.residual and not simplified
         if bottleneck:
-            self.body = DRNBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, dilation=dilation)
+            self.body = DRNBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilation)
         elif simplified:
-            self.body = drn_conv3x3(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, dilation=dilation, activate=False)
+            self.body = drn_conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilation, activate=False)
         else:
-            self.body = DRNBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, dilation=dilation)
+            self.body = DRNBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilation)
         if self.resize_identity:
-            self.identity_conv = drn_conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activate=False)
+            self.identity_conv = drn_conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride, activate=False)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -6751,8 +6204,7 @@ def drn_init_block(in_channels, out_channels):
     out_channels : int
         Number of output channels.
     """
-    return DRNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=7, stride=1, padding=3, dilation=1, activate=True)
+    return DRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=1, padding=3, dilation=1, activate=True)
 
 
 class DRN(nn.Module):
@@ -6781,31 +6233,22 @@ class DRN(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, dilations,
-        bottlenecks, simplifieds, residuals, in_channels=3, in_size=(224, 
-        224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, dilations, bottlenecks, simplifieds, residuals, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(DRN, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', drn_init_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', drn_init_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), DRNUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, dilation=dilations[i][j], bottleneck=
-                    bottlenecks[i][j] == 1, simplified=simplifieds[i][j] ==
-                    1, residual=residuals[i][j] == 1))
+                stage.add_module('unit{}'.format(j + 1), DRNUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilations[i][j], bottleneck=bottlenecks[i][j] == 1, simplified=simplifieds[i][j] == 1, residual=residuals[i][j] == 1))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=28,
-            stride=1))
-        self.output = nn.Conv2d(in_channels=in_channels, out_channels=
-            num_classes, kernel_size=1)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=28, stride=1))
+        self.output = nn.Conv2d(in_channels=in_channels, out_channels=num_classes, kernel_size=1)
         self._init_params()
 
     def _init_params(self):
@@ -6845,16 +6288,12 @@ def calc_tf_padding(x, kernel_size, stride=1, dilation=1):
     height, width = x.size()[2:]
     oh = math.ceil(height / stride)
     ow = math.ceil(width / stride)
-    pad_h = max((oh - 1) * stride + (kernel_size - 1) * dilation + 1 -
-        height, 0)
-    pad_w = max((ow - 1) * stride + (kernel_size - 1) * dilation + 1 - width, 0
-        )
+    pad_h = max((oh - 1) * stride + (kernel_size - 1) * dilation + 1 - height, 0)
+    pad_w = max((ow - 1) * stride + (kernel_size - 1) * dilation + 1 - width, 0)
     return pad_h // 2, pad_h - pad_h // 2, pad_w // 2, pad_w - pad_w // 2
 
 
-def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
-    dilation=1, use_bias=False, bn_eps=1e-05, activation='relu',
-    data_format='channels_last', **kwargs):
+def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, bn_eps=1e-05, activation='relu', data_format='channels_last', **kwargs):
     """
     3x3 depthwise version of the standard convolution block (SINet version).
 
@@ -6879,10 +6318,7 @@ def dwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
     data_format : str, default 'channels_last'
         The ordering of the dimensions in tensors.
     """
-    return dwconv_block(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, strides=strides, padding=padding, dilation=dilation,
-        use_bias=use_bias, bn_eps=bn_eps, activation=activation,
-        data_format=data_format, **kwargs)
+    return dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, bn_eps=bn_eps, activation=activation, data_format=data_format, **kwargs)
 
 
 class EffiDwsConvUnit(nn.Module):
@@ -6906,18 +6342,13 @@ class EffiDwsConvUnit(nn.Module):
         Whether to use TF-like mode.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bn_eps,
-        activation, tf_mode):
+    def __init__(self, in_channels, out_channels, stride, bn_eps, activation, tf_mode):
         super(EffiDwsConvUnit, self).__init__()
         self.tf_mode = tf_mode
         self.residual = in_channels == out_channels and stride == 1
-        self.dw_conv = dwconv3x3_block(in_channels=in_channels,
-            out_channels=in_channels, padding=0 if tf_mode else 1, bn_eps=
-            bn_eps, activation=activation)
-        self.se = SEBlock(channels=in_channels, reduction=4, mid_activation
-            =activation)
-        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bn_eps=bn_eps, activation=None)
+        self.dw_conv = dwconv3x3_block(in_channels=in_channels, out_channels=in_channels, padding=0 if tf_mode else 1, bn_eps=bn_eps, activation=activation)
+        self.se = SEBlock(channels=in_channels, reduction=4, mid_activation=activation)
+        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bn_eps=bn_eps, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -6932,9 +6363,7 @@ class EffiDwsConvUnit(nn.Module):
         return x
 
 
-def dwconv5x5_block(in_channels, out_channels, stride=1, padding=2,
-    dilation=1, bias=False, bn_eps=1e-05, activation=lambda : nn.ReLU(
-    inplace=True)):
+def dwconv5x5_block(in_channels, out_channels, stride=1, padding=2, dilation=1, bias=False, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     5x5 depthwise version of the standard convolution block.
 
@@ -6957,9 +6386,7 @@ def dwconv5x5_block(in_channels, out_channels, stride=1, padding=2,
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return dwconv_block(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, stride=stride, padding=padding, dilation=dilation,
-        bias=bias, bn_eps=bn_eps, activation=activation)
+    return dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=5, stride=stride, padding=padding, dilation=dilation, bias=bias, bn_eps=bn_eps, activation=activation)
 
 
 class EffiInvResUnit(nn.Module):
@@ -6988,8 +6415,7 @@ class EffiInvResUnit(nn.Module):
         Whether to use TF-like mode.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        exp_factor, se_factor, bn_eps, activation, tf_mode):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, exp_factor, se_factor, bn_eps, activation, tf_mode):
         super(EffiInvResUnit, self).__init__()
         self.kernel_size = kernel_size
         self.stride = stride
@@ -6997,26 +6423,19 @@ class EffiInvResUnit(nn.Module):
         self.residual = in_channels == out_channels and stride == 1
         self.use_se = se_factor > 0
         mid_channels = in_channels * exp_factor
-        dwconv_block_fn = (dwconv3x3_block if kernel_size == 3 else 
-            dwconv5x5_block if kernel_size == 5 else None)
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bn_eps=bn_eps, activation=activation)
-        self.conv2 = dwconv_block_fn(in_channels=mid_channels, out_channels
-            =mid_channels, stride=stride, padding=0 if tf_mode else 
-            kernel_size // 2, bn_eps=bn_eps, activation=activation)
+        dwconv_block_fn = dwconv3x3_block if kernel_size == 3 else dwconv5x5_block if kernel_size == 5 else None
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bn_eps=bn_eps, activation=activation)
+        self.conv2 = dwconv_block_fn(in_channels=mid_channels, out_channels=mid_channels, stride=stride, padding=0 if tf_mode else kernel_size // 2, bn_eps=bn_eps, activation=activation)
         if self.use_se:
-            self.se = SEBlock(channels=mid_channels, reduction=exp_factor *
-                se_factor, mid_activation=activation)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, bn_eps=bn_eps, activation=None)
+            self.se = SEBlock(channels=mid_channels, reduction=exp_factor * se_factor, mid_activation=activation)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, bn_eps=bn_eps, activation=None)
 
     def forward(self, x):
         if self.residual:
             identity = x
         x = self.conv1(x)
         if self.tf_mode:
-            x = F.pad(x, pad=calc_tf_padding(x, kernel_size=self.
-                kernel_size, stride=self.stride))
+            x = F.pad(x, pad=calc_tf_padding(x, kernel_size=self.kernel_size, stride=self.stride))
         x = self.conv2(x)
         if self.use_se:
             x = self.se(x)
@@ -7047,9 +6466,7 @@ class EffiInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels, bn_eps, activation, tf_mode):
         super(EffiInitBlock, self).__init__()
         self.tf_mode = tf_mode
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2, padding=0 if tf_mode else 1, bn_eps=
-            bn_eps, activation=activation)
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2, padding=0 if tf_mode else 1, bn_eps=bn_eps, activation=activation)
 
     def forward(self, x):
         if self.tf_mode:
@@ -7091,18 +6508,13 @@ class EfficientNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        kernel_sizes, strides_per_stage, expansion_factors, dropout_rate=
-        0.2, tf_mode=False, bn_eps=1e-05, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, kernel_sizes, strides_per_stage, expansion_factors, dropout_rate=0.2, tf_mode=False, bn_eps=1e-05, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(EfficientNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         activation = 'swish'
         self.features = nn.Sequential()
-        self.features.add_module('init_block', EffiInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels, bn_eps=bn_eps,
-            activation=activation, tf_mode=tf_mode))
+        self.features.add_module('init_block', EffiInitBlock(in_channels=in_channels, out_channels=init_block_channels, bn_eps=bn_eps, activation=activation, tf_mode=tf_mode))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             kernel_sizes_per_stage = kernel_sizes[i]
@@ -7113,29 +6525,18 @@ class EfficientNet(nn.Module):
                 expansion_factor = expansion_factors_per_stage[j]
                 stride = strides_per_stage[i] if j == 0 else 1
                 if i == 0:
-                    stage.add_module('unit{}'.format(j + 1),
-                        EffiDwsConvUnit(in_channels=in_channels,
-                        out_channels=out_channels, stride=stride, bn_eps=
-                        bn_eps, activation=activation, tf_mode=tf_mode))
+                    stage.add_module('unit{}'.format(j + 1), EffiDwsConvUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bn_eps=bn_eps, activation=activation, tf_mode=tf_mode))
                 else:
-                    stage.add_module('unit{}'.format(j + 1), EffiInvResUnit
-                        (in_channels=in_channels, out_channels=out_channels,
-                        kernel_size=kernel_size, stride=stride, exp_factor=
-                        expansion_factor, se_factor=4, bn_eps=bn_eps,
-                        activation=activation, tf_mode=tf_mode))
+                    stage.add_module('unit{}'.format(j + 1), EffiInvResUnit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, exp_factor=expansion_factor, se_factor=4, bn_eps=bn_eps, activation=activation, tf_mode=tf_mode))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, bn_eps=bn_eps,
-            activation=activation))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, bn_eps=bn_eps, activation=activation))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(
-            output_size=1))
+        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(output_size=1))
         self.output = nn.Sequential()
         if dropout_rate > 0.0:
             self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -7178,21 +6579,15 @@ class EffiEdgeResUnit(nn.Module):
         Name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride, exp_factor,
-        se_factor, mid_from_in, use_skip, bn_eps, activation):
+    def __init__(self, in_channels, out_channels, stride, exp_factor, se_factor, mid_from_in, use_skip, bn_eps, activation):
         super(EffiEdgeResUnit, self).__init__()
-        self.residual = (in_channels == out_channels and stride == 1 and
-            use_skip)
+        self.residual = in_channels == out_channels and stride == 1 and use_skip
         self.use_se = se_factor > 0
-        mid_channels = (in_channels * exp_factor if mid_from_in else 
-            out_channels * exp_factor)
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, bn_eps=bn_eps, activation=activation)
+        mid_channels = in_channels * exp_factor if mid_from_in else out_channels * exp_factor
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, bn_eps=bn_eps, activation=activation)
         if self.use_se:
-            self.se = SEBlock(channels=mid_channels, reduction=exp_factor *
-                se_factor, mid_activation=activation)
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=stride, bn_eps=bn_eps, activation=None)
+            self.se = SEBlock(channels=mid_channels, reduction=exp_factor * se_factor, mid_activation=activation)
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, stride=stride, bn_eps=bn_eps, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -7239,18 +6634,13 @@ class EfficientNetEdge(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        kernel_sizes, strides_per_stage, expansion_factors, dropout_rate=
-        0.2, tf_mode=False, bn_eps=1e-05, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, kernel_sizes, strides_per_stage, expansion_factors, dropout_rate=0.2, tf_mode=False, bn_eps=1e-05, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(EfficientNetEdge, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         activation = 'relu'
         self.features = nn.Sequential()
-        self.features.add_module('init_block', EffiInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels, bn_eps=bn_eps,
-            activation=activation, tf_mode=tf_mode))
+        self.features.add_module('init_block', EffiInitBlock(in_channels=in_channels, out_channels=init_block_channels, bn_eps=bn_eps, activation=activation, tf_mode=tf_mode))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             kernel_sizes_per_stage = kernel_sizes[i]
@@ -7263,31 +6653,18 @@ class EfficientNetEdge(nn.Module):
                 expansion_factor = expansion_factors_per_stage[j]
                 stride = strides_per_stage[i] if j == 0 else 1
                 if i < 3:
-                    stage.add_module('unit{}'.format(j + 1),
-                        EffiEdgeResUnit(in_channels=in_channels,
-                        out_channels=out_channels, stride=stride,
-                        exp_factor=expansion_factor, se_factor=0,
-                        mid_from_in=mid_from_in, use_skip=use_skip, bn_eps=
-                        bn_eps, activation=activation))
+                    stage.add_module('unit{}'.format(j + 1), EffiEdgeResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, exp_factor=expansion_factor, se_factor=0, mid_from_in=mid_from_in, use_skip=use_skip, bn_eps=bn_eps, activation=activation))
                 else:
-                    stage.add_module('unit{}'.format(j + 1), EffiInvResUnit
-                        (in_channels=in_channels, out_channels=out_channels,
-                        kernel_size=kernel_size, stride=stride, exp_factor=
-                        expansion_factor, se_factor=0, bn_eps=bn_eps,
-                        activation=activation, tf_mode=tf_mode))
+                    stage.add_module('unit{}'.format(j + 1), EffiInvResUnit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, exp_factor=expansion_factor, se_factor=0, bn_eps=bn_eps, activation=activation, tf_mode=tf_mode))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, bn_eps=bn_eps,
-            activation=activation))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, bn_eps=bn_eps, activation=activation))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(
-            output_size=1))
+        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(output_size=1))
         self.output = nn.Sequential()
         if dropout_rate > 0.0:
             self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -7339,10 +6716,8 @@ class ShortcutBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ShortcutBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            in_channels, activation=lambda : nn.PReLU(in_channels))
-        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=in_channels, activation=lambda : nn.PReLU(in_channels))
+        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -7399,17 +6774,11 @@ class ESPBlock(nn.Module):
         assert out_channels % num_branches == 0
         self.downsample = stride != 1
         mid_channels = out_channels // num_branches
-        self.reduce_conv = conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, groups=num_branches, activation=lambda :
-            nn.PReLU(mid_channels))
+        self.reduce_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, groups=num_branches, activation=lambda : nn.PReLU(mid_channels))
         self.branches = HierarchicalConcurrent()
         for i in range(num_branches):
-            self.branches.add_module('branch{}'.format(i + 1), conv3x3(
-                in_channels=mid_channels, out_channels=mid_channels, stride
-                =stride, padding=dilations[i], dilation=dilations[i],
-                groups=mid_channels))
-        self.merge_conv = conv1x1_block(in_channels=out_channels,
-            out_channels=out_channels, groups=num_branches, activation=None)
+            self.branches.add_module('branch{}'.format(i + 1), conv3x3(in_channels=mid_channels, out_channels=mid_channels, stride=stride, padding=dilations[i], dilation=dilations[i], groups=mid_channels))
+        self.merge_conv = conv1x1_block(in_channels=out_channels, out_channels=out_channels, groups=num_branches, activation=None)
         self.preactiv = PreActivation(in_channels=out_channels)
         if not self.downsample:
             self.activ = nn.PReLU(out_channels)
@@ -7445,10 +6814,8 @@ class DownsampleBlock(nn.Module):
         super(DownsampleBlock, self).__init__()
         inc_channels = out_channels - in_channels
         self.pool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
-        self.eesp = ESPBlock(in_channels=in_channels, out_channels=
-            inc_channels, stride=2, dilations=dilations)
-        self.shortcut_block = ShortcutBlock(in_channels=x0_channels,
-            out_channels=out_channels)
+        self.eesp = ESPBlock(in_channels=in_channels, out_channels=inc_channels, stride=2, dilations=dilations)
+        self.shortcut_block = ShortcutBlock(in_channels=x0_channels, out_channels=out_channels)
         self.activ = nn.PReLU(out_channels)
 
     def forward(self, x, x0):
@@ -7476,8 +6843,7 @@ class ESPInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ESPInitBlock, self).__init__()
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2, activation=lambda : nn.PReLU(out_channels))
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2, activation=lambda : nn.PReLU(out_channels))
         self.pool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x, x0):
@@ -7502,12 +6868,8 @@ class ESPFinalBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, final_groups):
         super(ESPFinalBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            in_channels, groups=in_channels, activation=lambda : nn.PReLU(
-            in_channels))
-        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, groups=final_groups, activation=lambda : nn.PReLU
-            (out_channels))
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=in_channels, groups=in_channels, activation=lambda : nn.PReLU(in_channels))
+        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=out_channels, groups=final_groups, activation=lambda : nn.PReLU(out_channels))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -7542,41 +6904,30 @@ class ESPNetv2(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        final_block_groups, dilations, dropout_rate=0.2, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, final_block_groups, dilations, dropout_rate=0.2, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ESPNetv2, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         x0_channels = in_channels
-        self.features = DualPathSequential(return_two=False, first_ordinals
-            =0, last_ordinals=2)
-        self.features.add_module('init_block', ESPInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features = DualPathSequential(return_two=False, first_ordinals=0, last_ordinals=2)
+        self.features.add_module('init_block', ESPInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential()
             for j, out_channels in enumerate(channels_per_stage):
                 if j == 0:
-                    unit = DownsampleBlock(in_channels=in_channels,
-                        out_channels=out_channels, x0_channels=x0_channels,
-                        dilations=dilations[i][j])
+                    unit = DownsampleBlock(in_channels=in_channels, out_channels=out_channels, x0_channels=x0_channels, dilations=dilations[i][j])
                 else:
-                    unit = ESPBlock(in_channels=in_channels, out_channels=
-                        out_channels, stride=1, dilations=dilations[i][j])
+                    unit = ESPBlock(in_channels=in_channels, out_channels=out_channels, stride=1, dilations=dilations[i][j])
                 stage.add_module('unit{}'.format(j + 1), unit)
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', ESPFinalBlock(in_channels=
-            in_channels, out_channels=final_block_channels, final_groups=
-            final_block_groups))
+        self.features.add_module('final_block', ESPFinalBlock(in_channels=in_channels, out_channels=final_block_channels, final_groups=final_block_groups))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -7613,23 +6964,18 @@ class FastSEResUnit(nn.Module):
         Whether to use SE-module.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        conv1_stride, use_se):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, conv1_stride, use_se):
         super(FastSEResUnit, self).__init__()
         self.use_se = use_se
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ResBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, conv1_stride=conv1_stride)
+            self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride)
         else:
-            self.body = ResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.use_se:
-            self.se = SEBlock(channels=out_channels, reduction=1, use_conv=
-                False)
+            self.se = SEBlock(channels=out_channels, reduction=1, use_conv=False)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -7667,30 +7013,23 @@ class FastSEResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(FastSEResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 use_se = j == 0
-                stage.add_module('unit{}'.format(j + 1), FastSEResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride, use_se=use_se))
+                stage.add_module('unit{}'.format(j + 1), FastSEResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride, use_se=use_se))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -7729,27 +7068,19 @@ class FBNetUnit(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bn_eps,
-        use_kernel3, exp_factor, activation='relu'):
+    def __init__(self, in_channels, out_channels, stride, bn_eps, use_kernel3, exp_factor, activation='relu'):
         super(FBNetUnit, self).__init__()
         assert exp_factor >= 1
         self.residual = in_channels == out_channels and stride == 1
         self.use_exp_conv = True
         mid_channels = exp_factor * in_channels
         if self.use_exp_conv:
-            self.exp_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels, bn_eps=bn_eps, activation=activation
-                )
+            self.exp_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bn_eps=bn_eps, activation=activation)
         if use_kernel3:
-            self.conv1 = dwconv3x3_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, bn_eps=bn_eps,
-                activation=activation)
+            self.conv1 = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, bn_eps=bn_eps, activation=activation)
         else:
-            self.conv1 = dwconv5x5_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, bn_eps=bn_eps,
-                activation=activation)
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, bn_eps=bn_eps, activation=None)
+            self.conv1 = dwconv5x5_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, bn_eps=bn_eps, activation=activation)
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, bn_eps=bn_eps, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -7779,11 +7110,8 @@ class FBNetInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, bn_eps):
         super(FBNetInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2, bn_eps=bn_eps)
-        self.conv2 = FBNetUnit(in_channels=out_channels, out_channels=
-            out_channels, stride=1, bn_eps=bn_eps, use_kernel3=True,
-            exp_factor=1)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2, bn_eps=bn_eps)
+        self.conv2 = FBNetUnit(in_channels=out_channels, out_channels=out_channels, stride=1, bn_eps=bn_eps, use_kernel3=True, exp_factor=1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -7818,15 +7146,12 @@ class FBNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        kernels3, exp_factors, bn_eps=1e-05, in_channels=3, in_size=(224, 
-        224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, kernels3, exp_factors, bn_eps=1e-05, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(FBNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', FBNetInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels, bn_eps=bn_eps))
+        self.features.add_module('init_block', FBNetInitBlock(in_channels=in_channels, out_channels=init_block_channels, bn_eps=bn_eps))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -7834,19 +7159,13 @@ class FBNet(nn.Module):
                 stride = 2 if j == 0 else 1
                 use_kernel3 = kernels3[i][j] == 1
                 exp_factor = exp_factors[i][j]
-                stage.add_module('unit{}'.format(j + 1), FBNetUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bn_eps=bn_eps, use_kernel3=use_kernel3,
-                    exp_factor=exp_factor))
+                stage.add_module('unit{}'.format(j + 1), FBNetUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bn_eps=bn_eps, use_kernel3=use_kernel3, exp_factor=exp_factor))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, bn_eps=bn_eps))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, bn_eps=bn_eps))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -7881,18 +7200,15 @@ class FCNFinalBlock(nn.Module):
         super(FCNFinalBlock, self).__init__()
         assert in_channels % bottleneck_factor == 0
         mid_channels = in_channels // bottleneck_factor
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels)
         self.dropout = nn.Dropout(p=0.1, inplace=False)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x, out_size):
         x = self.conv1(x)
         x = self.dropout(x)
         x = self.conv2(x)
-        x = F.interpolate(x, size=out_size, mode='bilinear', align_corners=True
-            )
+        x = F.interpolate(x, size=out_size, mode='bilinear', align_corners=True)
         return x
 
 
@@ -7919,8 +7235,7 @@ class FCN8sd(nn.Module):
         Number of segmentation classes.
     """
 
-    def __init__(self, backbone, backbone_out_channels=2048, aux=False,
-        fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
+    def __init__(self, backbone, backbone_out_channels=2048, aux=False, fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
         super(FCN8sd, self).__init__()
         assert in_channels > 0
         self.in_size = in_size
@@ -7929,12 +7244,10 @@ class FCN8sd(nn.Module):
         self.fixed_size = fixed_size
         self.backbone = backbone
         pool_out_channels = backbone_out_channels
-        self.final_block = FCNFinalBlock(in_channels=pool_out_channels,
-            out_channels=num_classes)
+        self.final_block = FCNFinalBlock(in_channels=pool_out_channels, out_channels=num_classes)
         if self.aux:
             aux_out_channels = backbone_out_channels // 2
-            self.aux_block = FCNFinalBlock(in_channels=aux_out_channels,
-                out_channels=num_classes)
+            self.aux_block = FCNFinalBlock(in_channels=aux_out_channels, out_channels=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -8019,10 +7332,8 @@ class PreSEAttBlock(nn.Module):
         self.bn = nn.BatchNorm2d(num_features=in_channels)
         self.relu = nn.ReLU(inplace=True)
         self.pool = nn.AdaptiveAvgPool2d(output_size=1)
-        self.conv1 = conv1x1(in_channels=in_channels, out_channels=
-            mid_cannels, bias=True)
-        self.conv2 = conv1x1(in_channels=mid_cannels, out_channels=
-            out_channels, bias=True)
+        self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_cannels, bias=True)
+        self.conv2 = conv1x1(in_channels=mid_cannels, out_channels=out_channels, bias=True)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -8055,13 +7366,9 @@ class FishBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, dilation):
         super(FishBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, padding=dilation,
-            dilation=dilation)
-        self.conv3 = pre_conv1x1_block(in_channels=mid_channels,
-            out_channels=out_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, padding=dilation, dilation=dilation)
+        self.conv3 = pre_conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -8088,19 +7395,16 @@ class FishBlock(nn.Module):
         Whether to use a channel squeeze operation.
     """
 
-    def __init__(self, in_channels, out_channels, stride=1, dilation=1,
-        squeeze=False):
+    def __init__(self, in_channels, out_channels, stride=1, dilation=1, squeeze=False):
         super(FishBlock, self).__init__()
         self.squeeze = squeeze
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = FishBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, dilation=dilation)
+        self.body = FishBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilation)
         if self.squeeze:
             assert in_channels // 2 == out_channels
             self.c_squeeze = ChannelSqueeze(channels=in_channels, groups=2)
         elif self.resize_identity:
-            self.identity_conv = pre_conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.identity_conv = pre_conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         if self.squeeze:
@@ -8130,8 +7434,7 @@ class DownUnit(nn.Module):
         super(DownUnit, self).__init__()
         self.blocks = nn.Sequential()
         for i, out_channels in enumerate(out_channels_list):
-            self.blocks.add_module('block{}'.format(i + 1), FishBlock(
-                in_channels=in_channels, out_channels=out_channels))
+            self.blocks.add_module('block{}'.format(i + 1), FishBlock(in_channels=in_channels, out_channels=out_channels))
             in_channels = out_channels
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
@@ -8160,12 +7463,9 @@ class UpUnit(nn.Module):
         self.blocks = nn.Sequential()
         for i, out_channels in enumerate(out_channels_list):
             squeeze = dilation > 1 and i == 0
-            self.blocks.add_module('block{}'.format(i + 1), FishBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                dilation=dilation, squeeze=squeeze))
+            self.blocks.add_module('block{}'.format(i + 1), FishBlock(in_channels=in_channels, out_channels=out_channels, dilation=dilation, squeeze=squeeze))
             in_channels = out_channels
-        self.upsample = InterpolationBlock(scale_factor=2, mode='nearest',
-            align_corners=None)
+        self.upsample = InterpolationBlock(scale_factor=2, mode='nearest', align_corners=None)
 
     def forward(self, x):
         x = self.blocks(x)
@@ -8189,8 +7489,7 @@ class SkipUnit(nn.Module):
         super(SkipUnit, self).__init__()
         self.blocks = nn.Sequential()
         for i, out_channels in enumerate(out_channels_list):
-            self.blocks.add_module('block{}'.format(i + 1), FishBlock(
-                in_channels=in_channels, out_channels=out_channels))
+            self.blocks.add_module('block{}'.format(i + 1), FishBlock(in_channels=in_channels, out_channels=out_channels))
             in_channels = out_channels
 
     def forward(self, x):
@@ -8214,17 +7513,13 @@ class SkipAttUnit(nn.Module):
         super(SkipAttUnit, self).__init__()
         mid_channels1 = in_channels // 2
         mid_channels2 = 2 * in_channels
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels1)
-        self.conv2 = pre_conv1x1_block(in_channels=mid_channels1,
-            out_channels=mid_channels2, bias=True)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels1)
+        self.conv2 = pre_conv1x1_block(in_channels=mid_channels1, out_channels=mid_channels2, bias=True)
         in_channels = mid_channels2
-        self.se = PreSEAttBlock(in_channels=mid_channels2, out_channels=
-            out_channels_list[-1])
+        self.se = PreSEAttBlock(in_channels=mid_channels2, out_channels=out_channels_list[-1])
         self.blocks = nn.Sequential()
         for i, out_channels in enumerate(out_channels_list):
-            self.blocks.add_module('block{}'.format(i + 1), FishBlock(
-                in_channels=in_channels, out_channels=out_channels))
+            self.blocks.add_module('block{}'.format(i + 1), FishBlock(in_channels=in_channels, out_channels=out_channels))
             in_channels = out_channels
 
     def forward(self, x):
@@ -8249,8 +7544,7 @@ class FishFinalBlock(nn.Module):
     def __init__(self, in_channels):
         super(FishFinalBlock, self).__init__()
         mid_channels = in_channels // 2
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
         self.preactiv = PreResActivation(in_channels=mid_channels)
 
     def forward(self, x):
@@ -8280,8 +7574,7 @@ class FishNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, direct_channels, skip_channels, init_block_channels,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, direct_channels, skip_channels, init_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(FishNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -8292,26 +7585,19 @@ class FishNet(nn.Module):
         skip1_channels = skip_channels[0]
         skip2_channels = skip_channels[1]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SEInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', SEInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         down1_seq = nn.Sequential()
         skip1_seq = nn.Sequential()
         for i in range(depth + 1):
             skip1_channels_list = skip1_channels[i]
             if i < depth:
-                skip1_seq.add_module('unit{}'.format(i + 1), SkipUnit(
-                    in_channels=in_channels, out_channels_list=
-                    skip1_channels_list))
+                skip1_seq.add_module('unit{}'.format(i + 1), SkipUnit(in_channels=in_channels, out_channels_list=skip1_channels_list))
                 down1_channels_list = down1_channels[i]
-                down1_seq.add_module('unit{}'.format(i + 1), DownUnit(
-                    in_channels=in_channels, out_channels_list=
-                    down1_channels_list))
+                down1_seq.add_module('unit{}'.format(i + 1), DownUnit(in_channels=in_channels, out_channels_list=down1_channels_list))
                 in_channels = down1_channels_list[-1]
             else:
-                skip1_seq.add_module('unit{}'.format(i + 1), SkipAttUnit(
-                    in_channels=in_channels, out_channels_list=
-                    skip1_channels_list))
+                skip1_seq.add_module('unit{}'.format(i + 1), SkipAttUnit(in_channels=in_channels, out_channels_list=skip1_channels_list))
                 in_channels = skip1_channels_list[-1]
         up_seq = nn.Sequential()
         skip2_seq = nn.Sequential()
@@ -8320,36 +7606,24 @@ class FishNet(nn.Module):
             if i > 0:
                 in_channels += skip1_channels[depth - i][-1]
             if i < depth:
-                skip2_seq.add_module('unit{}'.format(i + 1), SkipUnit(
-                    in_channels=in_channels, out_channels_list=
-                    skip2_channels_list))
+                skip2_seq.add_module('unit{}'.format(i + 1), SkipUnit(in_channels=in_channels, out_channels_list=skip2_channels_list))
                 up_channels_list = up_channels[i]
                 dilation = 2 ** i
-                up_seq.add_module('unit{}'.format(i + 1), UpUnit(
-                    in_channels=in_channels, out_channels_list=
-                    up_channels_list, dilation=dilation))
+                up_seq.add_module('unit{}'.format(i + 1), UpUnit(in_channels=in_channels, out_channels_list=up_channels_list, dilation=dilation))
                 in_channels = up_channels_list[-1]
             else:
                 skip2_seq.add_module('unit{}'.format(i + 1), Identity())
         down2_seq = nn.Sequential()
         for i in range(depth):
             down2_channels_list = down2_channels[i]
-            down2_seq.add_module('unit{}'.format(i + 1), DownUnit(
-                in_channels=in_channels, out_channels_list=down2_channels_list)
-                )
-            in_channels = down2_channels_list[-1] + skip2_channels[depth - 
-                1 - i][-1]
-        self.features.add_module('hg', SesquialteralHourglass(down1_seq=
-            down1_seq, skip1_seq=skip1_seq, up_seq=up_seq, skip2_seq=
-            skip2_seq, down2_seq=down2_seq))
-        self.features.add_module('final_block', FishFinalBlock(in_channels=
-            in_channels))
+            down2_seq.add_module('unit{}'.format(i + 1), DownUnit(in_channels=in_channels, out_channels_list=down2_channels_list))
+            in_channels = down2_channels_list[-1] + skip2_channels[depth - 1 - i][-1]
+        self.features.add_module('hg', SesquialteralHourglass(down1_seq=down1_seq, skip1_seq=skip1_seq, up_seq=up_seq, skip2_seq=skip2_seq, down2_seq=down2_seq))
+        self.features.add_module('final_block', FishFinalBlock(in_channels=in_channels))
         in_channels = in_channels // 2
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
         self.output = nn.Sequential()
-        self.output.add_module('final_conv', conv1x1(in_channels=
-            in_channels, out_channels=num_classes, bias=True))
+        self.output.add_module('final_conv', conv1x1(in_channels=in_channels, out_channels=num_classes, bias=True))
         self._init_params()
 
     def _init_params(self):
@@ -8388,13 +7662,10 @@ class DropConvBlock(nn.Module):
         Parameter of Dropout layer. Faction of the input units to drop.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, bias=False, dropout_prob=0.0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias=False, dropout_prob=0.0):
         super(DropConvBlock, self).__init__()
         self.use_dropout = dropout_prob != 0.0
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=bias)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         if self.use_dropout:
@@ -8409,8 +7680,7 @@ class DropConvBlock(nn.Module):
         return x
 
 
-def drop_conv3x3_block(in_channels, out_channels, stride=1, padding=1, bias
-    =False, dropout_prob=0.0):
+def drop_conv3x3_block(in_channels, out_channels, stride=1, padding=1, bias=False, dropout_prob=0.0):
     """
     3x3 version of the convolution block with dropout.
 
@@ -8429,9 +7699,7 @@ def drop_conv3x3_block(in_channels, out_channels, stride=1, padding=1, bias
     dropout_rate : float, default 0.0
         Parameter of Dropout layer. Faction of the input units to drop.
     """
-    return DropConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, bias=bias,
-        dropout_prob=dropout_prob)
+    return DropConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, bias=bias, dropout_prob=dropout_prob)
 
 
 class FractalBlock(nn.Module):
@@ -8452,8 +7720,7 @@ class FractalBlock(nn.Module):
         Probability of dropout.
     """
 
-    def __init__(self, in_channels, out_channels, num_columns,
-        loc_drop_prob, dropout_prob):
+    def __init__(self, in_channels, out_channels, num_columns, loc_drop_prob, dropout_prob):
         super(FractalBlock, self).__init__()
         assert num_columns >= 1
         self.num_columns = num_columns
@@ -8465,16 +7732,12 @@ class FractalBlock(nn.Module):
             for j in range(self.num_columns):
                 column_step_j = 2 ** j
                 if (i + 1) % column_step_j == 0:
-                    in_channels_ij = (in_channels if i + 1 == column_step_j
-                         else out_channels)
-                    level_block_i.add_module('subblock{}'.format(j + 1),
-                        drop_conv3x3_block(in_channels=in_channels_ij,
-                        out_channels=out_channels, dropout_prob=dropout_prob))
+                    in_channels_ij = in_channels if i + 1 == column_step_j else out_channels
+                    level_block_i.add_module('subblock{}'.format(j + 1), drop_conv3x3_block(in_channels=in_channels_ij, out_channels=out_channels, dropout_prob=dropout_prob))
             self.blocks.add_module('block{}'.format(i + 1), level_block_i)
 
     @staticmethod
-    def calc_drop_mask(batch_size, glob_num_columns, curr_num_columns,
-        max_num_columns, loc_drop_prob):
+    def calc_drop_mask(batch_size, glob_num_columns, curr_num_columns, max_num_columns, loc_drop_prob):
         """
         Calculate drop path mask.
 
@@ -8497,26 +7760,20 @@ class FractalBlock(nn.Module):
             Resulted mask.
         """
         glob_batch_size = glob_num_columns.shape[0]
-        glob_drop_mask = np.zeros((curr_num_columns, glob_batch_size),
-            dtype=np.float32)
-        glob_drop_num_columns = glob_num_columns - (max_num_columns -
-            curr_num_columns)
+        glob_drop_mask = np.zeros((curr_num_columns, glob_batch_size), dtype=np.float32)
+        glob_drop_num_columns = glob_num_columns - (max_num_columns - curr_num_columns)
         glob_drop_indices = np.where(glob_drop_num_columns >= 0)[0]
-        glob_drop_mask[glob_drop_num_columns[glob_drop_indices],
-            glob_drop_indices] = 1.0
+        glob_drop_mask[glob_drop_num_columns[glob_drop_indices], glob_drop_indices] = 1.0
         loc_batch_size = batch_size - glob_batch_size
-        loc_drop_mask = np.random.binomial(n=1, p=1.0 - loc_drop_prob, size
-            =(curr_num_columns, loc_batch_size)).astype(np.float32)
+        loc_drop_mask = np.random.binomial(n=1, p=1.0 - loc_drop_prob, size=(curr_num_columns, loc_batch_size)).astype(np.float32)
         alive_count = loc_drop_mask.sum(axis=0)
         dead_indices = np.where(alive_count == 0.0)[0]
-        loc_drop_mask[np.random.randint(0, curr_num_columns, size=
-            dead_indices.shape), dead_indices] = 1.0
+        loc_drop_mask[np.random.randint(0, curr_num_columns, size=dead_indices.shape), dead_indices] = 1.0
         drop_mask = np.concatenate((glob_drop_mask, loc_drop_mask), axis=1)
         return torch.from_numpy(drop_mask)
 
     @staticmethod
-    def join_outs(raw_outs, glob_num_columns, num_columns, loc_drop_prob,
-        training):
+    def join_outs(raw_outs, glob_num_columns, num_columns, loc_drop_prob, training):
         """
         Join outputs for current level of block.
 
@@ -8543,10 +7800,7 @@ class FractalBlock(nn.Module):
         assert out.size(0) == curr_num_columns
         if training:
             batch_size = out.size(1)
-            batch_mask = FractalBlock.calc_drop_mask(batch_size=batch_size,
-                glob_num_columns=glob_num_columns, curr_num_columns=
-                curr_num_columns, max_num_columns=num_columns,
-                loc_drop_prob=loc_drop_prob)
+            batch_mask = FractalBlock.calc_drop_mask(batch_size=batch_size, glob_num_columns=glob_num_columns, curr_num_columns=curr_num_columns, max_num_columns=num_columns, loc_drop_prob=loc_drop_prob)
             batch_mask = batch_mask
             assert batch_mask.size(0) == curr_num_columns
             assert batch_mask.size(1) == batch_size
@@ -8566,10 +7820,7 @@ class FractalBlock(nn.Module):
             for j, block_ij in enumerate(level_block_i._modules.values()):
                 input_i = outs[j]
                 outs_i.append(block_ij(input_i))
-            joined_out = FractalBlock.join_outs(raw_outs=outs_i[::-1],
-                glob_num_columns=glob_num_columns, num_columns=self.
-                num_columns, loc_drop_prob=self.loc_drop_prob, training=
-                self.training)
+            joined_out = FractalBlock.join_outs(raw_outs=outs_i[::-1], glob_num_columns=glob_num_columns, num_columns=self.num_columns, loc_drop_prob=self.loc_drop_prob, training=self.training)
             len_level_block_i = len(level_block_i._modules.values())
             for j in range(len_level_block_i):
                 outs[j] = joined_out
@@ -8594,12 +7845,9 @@ class FractalUnit(nn.Module):
         Probability of dropout.
     """
 
-    def __init__(self, in_channels, out_channels, num_columns,
-        loc_drop_prob, dropout_prob):
+    def __init__(self, in_channels, out_channels, num_columns, loc_drop_prob, dropout_prob):
         super(FractalUnit, self).__init__()
-        self.block = FractalBlock(in_channels=in_channels, out_channels=
-            out_channels, num_columns=num_columns, loc_drop_prob=
-            loc_drop_prob, dropout_prob=dropout_prob)
+        self.block = FractalBlock(in_channels=in_channels, out_channels=out_channels, num_columns=num_columns, loc_drop_prob=loc_drop_prob, dropout_prob=dropout_prob)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x, glob_num_columns):
@@ -8633,8 +7881,7 @@ class CIFARFractalNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, num_columns, dropout_probs, loc_drop_prob,
-        glob_drop_ratio, in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, num_columns, dropout_probs, loc_drop_prob, glob_drop_ratio, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARFractalNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -8643,13 +7890,9 @@ class CIFARFractalNet(nn.Module):
         self.features = ParametricSequential()
         for i, out_channels in enumerate(channels):
             dropout_prob = dropout_probs[i]
-            self.features.add_module('unit{}'.format(i + 1), FractalUnit(
-                in_channels=in_channels, out_channels=out_channels,
-                num_columns=num_columns, loc_drop_prob=loc_drop_prob,
-                dropout_prob=dropout_prob))
+            self.features.add_module('unit{}'.format(i + 1), FractalUnit(in_channels=in_channels, out_channels=out_channels, num_columns=num_columns, loc_drop_prob=loc_drop_prob, dropout_prob=dropout_prob))
             in_channels = out_channels
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -8661,8 +7904,7 @@ class CIFARFractalNet(nn.Module):
 
     def forward(self, x):
         glob_batch_size = int(x.size(0) * self.glob_drop_ratio)
-        glob_num_columns = np.random.randint(0, self.num_columns, size=(
-            glob_batch_size,))
+        glob_num_columns = np.random.randint(0, self.num_columns, size=(glob_batch_size,))
         x = self.features(x, glob_num_columns=glob_num_columns)
         x = x.view(x.size(0), -1)
         x = self.output(x)
@@ -8692,15 +7934,12 @@ class GhostConvBlock(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, activation=lambda : nn.
-        ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, activation=lambda : nn.ReLU(inplace=True)):
         super(GhostConvBlock, self).__init__()
         main_out_channels = math.ceil(0.5 * out_channels)
         cheap_out_channels = out_channels - main_out_channels
-        self.main_conv = conv1x1_block(in_channels=in_channels,
-            out_channels=main_out_channels, activation=activation)
-        self.cheap_conv = dwconv3x3_block(in_channels=main_out_channels,
-            out_channels=cheap_out_channels, activation=activation)
+        self.main_conv = conv1x1_block(in_channels=in_channels, out_channels=main_out_channels, activation=activation)
+        self.cheap_conv = dwconv3x3_block(in_channels=main_out_channels, out_channels=cheap_out_channels, activation=activation)
 
     def forward(self, x):
         x = self.main_conv(x)
@@ -8728,23 +7967,18 @@ class GhostExpBlock(nn.Module):
         Whether to use SE-module.
     """
 
-    def __init__(self, in_channels, out_channels, stride, use_kernel3,
-        exp_factor, use_se):
+    def __init__(self, in_channels, out_channels, stride, use_kernel3, exp_factor, use_se):
         super(GhostExpBlock, self).__init__()
         self.use_dw_conv = stride != 1
         self.use_se = use_se
         mid_channels = int(math.ceil(exp_factor * in_channels))
-        self.exp_conv = GhostConvBlock(in_channels=in_channels,
-            out_channels=mid_channels)
+        self.exp_conv = GhostConvBlock(in_channels=in_channels, out_channels=mid_channels)
         if self.use_dw_conv:
             dw_conv_class = dwconv3x3_block if use_kernel3 else dwconv5x5_block
-            self.dw_conv = dw_conv_class(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, activation=None)
+            self.dw_conv = dw_conv_class(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=None)
         if self.use_se:
-            self.se = SEBlock(channels=mid_channels, reduction=4,
-                out_activation=GhostHSigmoid())
-        self.pw_conv = GhostConvBlock(in_channels=mid_channels,
-            out_channels=out_channels, activation=None)
+            self.se = SEBlock(channels=mid_channels, reduction=4, out_activation=GhostHSigmoid())
+        self.pw_conv = GhostConvBlock(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.exp_conv(x)
@@ -8756,10 +7990,7 @@ class GhostExpBlock(nn.Module):
         return x
 
 
-def dwsconv3x3_block(in_channels, out_channels, strides=1, padding=1,
-    dilation=1, use_bias=False, dw_use_bn=True, pw_use_bn=True, bn_eps=
-    1e-05, dw_activation='relu', pw_activation='relu', se_reduction=0,
-    data_format='channels_last', **kwargs):
+def dwsconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, dw_use_bn=True, pw_use_bn=True, bn_eps=1e-05, dw_activation='relu', pw_activation='relu', se_reduction=0, data_format='channels_last', **kwargs):
     """
     3x3 depthwise separable version of the standard convolution block (SINet version).
 
@@ -8792,11 +8023,7 @@ def dwsconv3x3_block(in_channels, out_channels, strides=1, padding=1,
     data_format : str, default 'channels_last'
         The ordering of the dimensions in tensors.
     """
-    return DwsConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, strides=strides, padding=padding, dilation=dilation,
-        use_bias=use_bias, dw_use_bn=dw_use_bn, pw_use_bn=pw_use_bn, bn_eps
-        =bn_eps, dw_activation=dw_activation, pw_activation=pw_activation,
-        se_reduction=se_reduction, data_format=data_format, **kwargs)
+    return DwsConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, dw_use_bn=dw_use_bn, pw_use_bn=pw_use_bn, bn_eps=bn_eps, dw_activation=dw_activation, pw_activation=pw_activation, se_reduction=se_reduction, data_format=data_format, **kwargs)
 
 
 class GhostUnit(nn.Module):
@@ -8819,16 +8046,12 @@ class GhostUnit(nn.Module):
         Whether to use SE-module.
     """
 
-    def __init__(self, in_channels, out_channels, stride, use_kernel3,
-        exp_factor, use_se):
+    def __init__(self, in_channels, out_channels, stride, use_kernel3, exp_factor, use_se):
         super(GhostUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = GhostExpBlock(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, use_kernel3=use_kernel3,
-            exp_factor=exp_factor, use_se=use_se)
+        self.body = GhostExpBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, use_kernel3=use_kernel3, exp_factor=exp_factor, use_se=use_se)
         if self.resize_identity:
-            self.identity_conv = dwsconv3x3_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, pw_activation=None)
+            self.identity_conv = dwsconv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, pw_activation=None)
 
     def forward(self, x):
         if self.resize_identity:
@@ -8856,10 +8079,8 @@ class GhostClassifier(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels):
         super(GhostClassifier, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -8897,15 +8118,12 @@ class GhostNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        classifier_mid_channels, kernels3, exp_factors, use_se,
-        first_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, classifier_mid_channels, kernels3, exp_factors, use_se, first_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(GhostNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -8914,26 +8132,19 @@ class GhostNet(nn.Module):
                 use_kernel3 = kernels3[i][j] == 1
                 exp_factor = exp_factors[i][j]
                 use_se_flag = use_se[i][j] == 1
-                stage.add_module('unit{}'.format(j + 1), GhostUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, use_kernel3=use_kernel3, exp_factor=
-                    exp_factor, use_se=use_se_flag))
+                stage.add_module('unit{}'.format(j + 1), GhostUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, use_kernel3=use_kernel3, exp_factor=exp_factor, use_se=use_se_flag))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = GhostClassifier(in_channels=in_channels, out_channels
-            =num_classes, mid_channels=classifier_mid_channels)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = GhostClassifier(in_channels=in_channels, out_channels=num_classes, mid_channels=classifier_mid_channels)
         self._init_params()
 
     def _init_params(self):
         for name, module in self.named_modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_normal_(module.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
 
@@ -8974,18 +8185,10 @@ class InvDwsConvBlock(nn.Module):
         Activation function after the depthwise convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, use_bn=True, bn_eps=1e-05,
-        pw_activation=lambda : nn.ReLU(inplace=True), dw_activation=lambda :
-        nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, pw_activation=lambda : nn.ReLU(inplace=True), dw_activation=lambda : nn.ReLU(inplace=True)):
         super(InvDwsConvBlock, self).__init__()
-        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps,
-            activation=pw_activation)
-        self.dw_conv = dwconv_block(in_channels=out_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=
-            bn_eps, activation=dw_activation)
+        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=pw_activation)
+        self.dw_conv = dwconv_block(in_channels=out_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=dw_activation)
 
     def forward(self, x):
         x = self.pw_conv(x)
@@ -8993,9 +8196,7 @@ class InvDwsConvBlock(nn.Module):
         return x
 
 
-def invdwsconv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, bias=False, bn_eps=1e-05, pw_activation=lambda : nn.ReLU(
-    inplace=True), dw_activation=lambda : nn.ReLU(inplace=True)):
+def invdwsconv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, bias=False, bn_eps=1e-05, pw_activation=lambda : nn.ReLU(inplace=True), dw_activation=lambda : nn.ReLU(inplace=True)):
     """
     3x3 inverse depthwise separable version of the standard convolution block.
 
@@ -9020,10 +8221,7 @@ def invdwsconv3x3_block(in_channels, out_channels, stride=1, padding=1,
     dw_activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function after the depthwise convolution block.
     """
-    return InvDwsConvBlock(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=3, stride=stride, padding=padding,
-        dilation=dilation, bias=bias, bn_eps=bn_eps, pw_activation=
-        pw_activation, dw_activation=dw_activation)
+    return InvDwsConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, bias=bias, bn_eps=bn_eps, pw_activation=pw_activation, dw_activation=dw_activation)
 
 
 class HarDUnit(nn.Module):
@@ -9048,8 +8246,7 @@ class HarDUnit(nn.Module):
         Name of activation function.
     """
 
-    def __init__(self, in_channels_list, out_channels_list, links_list,
-        use_deptwise, use_dropout, downsampling, activation):
+    def __init__(self, in_channels_list, out_channels_list, links_list, use_deptwise, use_dropout, downsampling, activation):
         super(HarDUnit, self).__init__()
         self.links_list = links_list
         self.use_dropout = use_dropout
@@ -9059,29 +8256,22 @@ class HarDUnit(nn.Module):
             in_channels = in_channels_list[i]
             out_channels = out_channels_list[i]
             if use_deptwise:
-                unit = invdwsconv3x3_block(in_channels=in_channels,
-                    out_channels=out_channels, pw_activation=activation,
-                    dw_activation=None)
+                unit = invdwsconv3x3_block(in_channels=in_channels, out_channels=out_channels, pw_activation=activation, dw_activation=None)
             else:
-                unit = conv3x3_block(in_channels=in_channels, out_channels=
-                    out_channels)
+                unit = conv3x3_block(in_channels=in_channels, out_channels=out_channels)
             self.blocks.add_module('block{}'.format(i + 1), unit)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=0.1)
-        self.conv = conv1x1_block(in_channels=in_channels_list[-1],
-            out_channels=out_channels_list[-1], activation=activation)
+        self.conv = conv1x1_block(in_channels=in_channels_list[-1], out_channels=out_channels_list[-1], activation=activation)
         if self.downsampling:
             if use_deptwise:
-                self.downsample = dwconv3x3_block(in_channels=
-                    out_channels_list[-1], out_channels=out_channels_list[-
-                    1], stride=2, activation=None)
+                self.downsample = dwconv3x3_block(in_channels=out_channels_list[-1], out_channels=out_channels_list[-1], stride=2, activation=None)
             else:
                 self.downsample = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
         layer_outs = [x]
-        for links_i, layer_i in zip(self.links_list, self.blocks._modules.
-            values()):
+        for links_i, layer_i in zip(self.links_list, self.blocks._modules.values()):
             layer_in = []
             for idx_ij in links_i:
                 layer_in.append(layer_outs[idx_ij])
@@ -9123,14 +8313,11 @@ class HarDInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels, use_deptwise, activation):
         super(HarDInitBlock, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2, activation=activation)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2, activation=activation)
         conv2_block_class = conv1x1_block if use_deptwise else conv3x3_block
-        self.conv2 = conv2_block_class(in_channels=mid_channels,
-            out_channels=out_channels, activation=activation)
+        self.conv2 = conv2_block_class(in_channels=mid_channels, out_channels=out_channels, activation=activation)
         if use_deptwise:
-            self.downsample = dwconv3x3_block(in_channels=out_channels,
-                out_channels=out_channels, stride=2, activation=None)
+            self.downsample = dwconv3x3_block(in_channels=out_channels, out_channels=out_channels, stride=2, activation=None)
         else:
             self.downsample = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
@@ -9169,47 +8356,31 @@ class HarDNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, init_block_channels, unit_in_channels,
-        unit_out_channels, unit_links, use_deptwise, use_last_dropout,
-        output_dropout_rate, in_channels=3, in_size=(224, 224), num_classes
-        =1000):
+    def __init__(self, init_block_channels, unit_in_channels, unit_out_channels, unit_links, use_deptwise, use_last_dropout, output_dropout_rate, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(HarDNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         activation = 'relu6'
         self.features = nn.Sequential()
-        self.features.add_module('init_block', HarDInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels, use_deptwise=
-            use_deptwise, activation=activation))
-        for i, (in_channels_list_i, out_channels_list_i) in enumerate(zip(
-            unit_in_channels, unit_out_channels)):
+        self.features.add_module('init_block', HarDInitBlock(in_channels=in_channels, out_channels=init_block_channels, use_deptwise=use_deptwise, activation=activation))
+        for i, (in_channels_list_i, out_channels_list_i) in enumerate(zip(unit_in_channels, unit_out_channels)):
             stage = nn.Sequential()
-            for j, (in_channels_list_ij, out_channels_list_ij) in enumerate(zip
-                (in_channels_list_i, out_channels_list_i)):
-                use_dropout = j == len(in_channels_list_i) - 1 and i == len(
-                    unit_in_channels) - 1 and use_last_dropout
-                downsampling = j == len(in_channels_list_i) - 1 and i != len(
-                    unit_in_channels) - 1
-                stage.add_module('unit{}'.format(j + 1), HarDUnit(
-                    in_channels_list=in_channels_list_ij, out_channels_list
-                    =out_channels_list_ij, links_list=unit_links[i][j],
-                    use_deptwise=use_deptwise, use_dropout=use_dropout,
-                    downsampling=downsampling, activation=activation))
+            for j, (in_channels_list_ij, out_channels_list_ij) in enumerate(zip(in_channels_list_i, out_channels_list_i)):
+                use_dropout = j == len(in_channels_list_i) - 1 and i == len(unit_in_channels) - 1 and use_last_dropout
+                downsampling = j == len(in_channels_list_i) - 1 and i != len(unit_in_channels) - 1
+                stage.add_module('unit{}'.format(j + 1), HarDUnit(in_channels_list=in_channels_list_ij, out_channels_list=out_channels_list_ij, links_list=unit_links[i][j], use_deptwise=use_deptwise, use_dropout=use_dropout, downsampling=downsampling, activation=activation))
             self.features.add_module('stage{}'.format(i + 1), stage)
         in_channels = unit_out_channels[-1][-1][-1]
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=output_dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
         for module in self.named_modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_uniform_(module.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_uniform_(module.weight, mode='fan_out', nonlinearity='relu')
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.BatchNorm2d):
@@ -9239,8 +8410,7 @@ class UpSamplingBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, scale_factor):
         super(UpSamplingBlock, self).__init__()
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, stride=1, activation=None)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=1, activation=None)
         self.upsample = nn.Upsample(scale_factor=scale_factor, mode='nearest')
 
     def forward(self, x):
@@ -9265,8 +8435,7 @@ class HRBlock(nn.Module):
         Number of subblock.
     """
 
-    def __init__(self, in_channels_list, out_channels_list, num_branches,
-        num_subblocks):
+    def __init__(self, in_channels_list, out_channels_list, num_branches, num_subblocks):
         super(HRBlock, self).__init__()
         self.in_channels_list = in_channels_list
         self.num_branches = num_branches
@@ -9276,9 +8445,7 @@ class HRBlock(nn.Module):
             in_channels_i = self.in_channels_list[i]
             out_channels_i = out_channels_list[i]
             for j in range(num_subblocks[i]):
-                layers.add_module('unit{}'.format(j + 1), ResUnit(
-                    in_channels=in_channels_i, out_channels=out_channels_i,
-                    stride=1, bottleneck=False))
+                layers.add_module('unit{}'.format(j + 1), ResUnit(in_channels=in_channels_i, out_channels=out_channels_i, stride=1, bottleneck=False))
                 in_channels_i = out_channels_i
             self.in_channels_list[i] = out_channels_i
             self.branches.add_module('branch{}'.format(i + 1), layers)
@@ -9288,31 +8455,18 @@ class HRBlock(nn.Module):
                 fuse_layer = nn.Sequential()
                 for j in range(num_branches):
                     if j > i:
-                        fuse_layer.add_module('block{}'.format(j + 1),
-                            UpSamplingBlock(in_channels=in_channels_list[j],
-                            out_channels=in_channels_list[i], scale_factor=
-                            2 ** (j - i)))
+                        fuse_layer.add_module('block{}'.format(j + 1), UpSamplingBlock(in_channels=in_channels_list[j], out_channels=in_channels_list[i], scale_factor=2 ** (j - i)))
                     elif j == i:
-                        fuse_layer.add_module('block{}'.format(j + 1),
-                            Identity())
+                        fuse_layer.add_module('block{}'.format(j + 1), Identity())
                     else:
                         conv3x3_seq = nn.Sequential()
                         for k in range(i - j):
                             if k == i - j - 1:
-                                conv3x3_seq.add_module('subblock{}'.format(
-                                    k + 1), conv3x3_block(in_channels=
-                                    in_channels_list[j], out_channels=
-                                    in_channels_list[i], stride=2,
-                                    activation=None))
+                                conv3x3_seq.add_module('subblock{}'.format(k + 1), conv3x3_block(in_channels=in_channels_list[j], out_channels=in_channels_list[i], stride=2, activation=None))
                             else:
-                                conv3x3_seq.add_module('subblock{}'.format(
-                                    k + 1), conv3x3_block(in_channels=
-                                    in_channels_list[j], out_channels=
-                                    in_channels_list[j], stride=2))
-                        fuse_layer.add_module('block{}'.format(j + 1),
-                            conv3x3_seq)
-                self.fuse_layers.add_module('layer{}'.format(i + 1), fuse_layer
-                    )
+                                conv3x3_seq.add_module('subblock{}'.format(k + 1), conv3x3_block(in_channels=in_channels_list[j], out_channels=in_channels_list[j], stride=2))
+                        fuse_layer.add_module('block{}'.format(j + 1), conv3x3_seq)
+                self.fuse_layers.add_module('layer{}'.format(i + 1), fuse_layer)
             self.activ = nn.ReLU(True)
 
     def forward(self, x):
@@ -9350,8 +8504,7 @@ class HRStage(nn.Module):
         Number of subblocks.
     """
 
-    def __init__(self, in_channels_list, out_channels_list, num_modules,
-        num_branches, num_subblocks):
+    def __init__(self, in_channels_list, out_channels_list, num_modules, num_branches, num_subblocks):
         super(HRStage, self).__init__()
         self.branches = num_branches
         self.in_channels_list = out_channels_list
@@ -9361,37 +8514,26 @@ class HRStage(nn.Module):
         for i in range(out_branches):
             if i < in_branches:
                 if out_channels_list[i] != in_channels_list[i]:
-                    self.transition.add_module('block{}'.format(i + 1),
-                        conv3x3_block(in_channels=in_channels_list[i],
-                        out_channels=out_channels_list[i], stride=1))
+                    self.transition.add_module('block{}'.format(i + 1), conv3x3_block(in_channels=in_channels_list[i], out_channels=out_channels_list[i], stride=1))
                 else:
-                    self.transition.add_module('block{}'.format(i + 1),
-                        Identity())
+                    self.transition.add_module('block{}'.format(i + 1), Identity())
             else:
                 conv3x3_seq = nn.Sequential()
                 for j in range(i + 1 - in_branches):
                     in_channels_i = in_channels_list[-1]
-                    out_channels_i = out_channels_list[i
-                        ] if j == i - in_branches else in_channels_i
-                    conv3x3_seq.add_module('subblock{}'.format(j + 1),
-                        conv3x3_block(in_channels=in_channels_i,
-                        out_channels=out_channels_i, stride=2))
-                self.transition.add_module('block{}'.format(i + 1), conv3x3_seq
-                    )
+                    out_channels_i = out_channels_list[i] if j == i - in_branches else in_channels_i
+                    conv3x3_seq.add_module('subblock{}'.format(j + 1), conv3x3_block(in_channels=in_channels_i, out_channels=out_channels_i, stride=2))
+                self.transition.add_module('block{}'.format(i + 1), conv3x3_seq)
         self.layers = nn.Sequential()
         for i in range(num_modules):
-            self.layers.add_module('block{}'.format(i + 1), HRBlock(
-                in_channels_list=self.in_channels_list, out_channels_list=
-                out_channels_list, num_branches=num_branches, num_subblocks
-                =num_subblocks))
+            self.layers.add_module('block{}'.format(i + 1), HRBlock(in_channels_list=self.in_channels_list, out_channels_list=out_channels_list, num_branches=num_branches, num_subblocks=num_subblocks))
             self.in_channels_list = self.layers[-1].in_channels_list
 
     def forward(self, x):
         x_list = []
         for j in range(self.branches):
             if not isinstance(self.transition[j], Identity):
-                x_list.append(self.transition[j](x[-1] if type(x) is list else
-                    x))
+                x_list.append(self.transition[j](x[-1] if type(x) is list else x))
             else:
                 x_list_j = x[j] if type(x) is list else x
                 x_list.append(x_list_j)
@@ -9417,16 +8559,12 @@ class HRInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels, num_subblocks):
         super(HRInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=2)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=2)
         in_channels = mid_channels
         self.subblocks = nn.Sequential()
         for i in range(num_subblocks):
-            self.subblocks.add_module('block{}'.format(i + 1), ResUnit(
-                in_channels=in_channels, out_channels=out_channels, stride=
-                1, bottleneck=True))
+            self.subblocks.add_module('block{}'.format(i + 1), ResUnit(in_channels=in_channels, out_channels=out_channels, stride=1, bottleneck=True))
             in_channels = out_channels
 
     def forward(self, x):
@@ -9452,16 +8590,11 @@ class HRFinalBlock(nn.Module):
         super(HRFinalBlock, self).__init__()
         self.inc_blocks = nn.Sequential()
         for i, in_channels_i in enumerate(in_channels_list):
-            self.inc_blocks.add_module('block{}'.format(i + 1), ResUnit(
-                in_channels=in_channels_i, out_channels=out_channels_list[i
-                ], stride=1, bottleneck=True))
+            self.inc_blocks.add_module('block{}'.format(i + 1), ResUnit(in_channels=in_channels_i, out_channels=out_channels_list[i], stride=1, bottleneck=True))
         self.down_blocks = nn.Sequential()
         for i in range(len(in_channels_list) - 1):
-            self.down_blocks.add_module('block{}'.format(i + 1),
-                conv3x3_block(in_channels=out_channels_list[i],
-                out_channels=out_channels_list[i + 1], stride=2, bias=True))
-        self.final_layer = conv1x1_block(in_channels=1024, out_channels=
-            2048, stride=1, bias=True)
+            self.down_blocks.add_module('block{}'.format(i + 1), conv3x3_block(in_channels=out_channels_list[i], out_channels=out_channels_list[i + 1], stride=2, bias=True))
+        self.final_layer = conv1x1_block(in_channels=1024, out_channels=2048, stride=1, bias=True)
 
     def forward(self, x):
         y = self.inc_blocks[0](x[0])
@@ -9496,37 +8629,26 @@ class HRNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, init_num_subblocks,
-        num_modules, num_subblocks, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, init_num_subblocks, num_modules, num_subblocks, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(HRNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.branches = [2, 3, 4]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', HRInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels, mid_channels=64,
-            num_subblocks=init_num_subblocks))
+        self.features.add_module('init_block', HRInitBlock(in_channels=in_channels, out_channels=init_block_channels, mid_channels=64, num_subblocks=init_num_subblocks))
         in_channels_list = [init_block_channels]
         for i in range(len(self.branches)):
-            self.features.add_module('stage{}'.format(i + 1), HRStage(
-                in_channels_list=in_channels_list, out_channels_list=
-                channels[i], num_modules=num_modules[i], num_branches=self.
-                branches[i], num_subblocks=num_subblocks[i]))
+            self.features.add_module('stage{}'.format(i + 1), HRStage(in_channels_list=in_channels_list, out_channels_list=channels[i], num_modules=num_modules[i], num_branches=self.branches[i], num_subblocks=num_subblocks[i]))
             in_channels_list = self.features[-1].in_channels_list
-        self.features.add_module('final_block', HRFinalBlock(
-            in_channels_list=in_channels_list, out_channels_list=[128, 256,
-            512, 1024]))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
+        self.features.add_module('final_block', HRFinalBlock(in_channels_list=in_channels_list, out_channels_list=[128, 256, 512, 1024]))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
         self.output = nn.Linear(in_features=2048, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
         for module in self.named_modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_uniform_(module.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_uniform_(module.weight, mode='fan_out', nonlinearity='relu')
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.BatchNorm2d):
@@ -9566,15 +8688,11 @@ class IBNbConvBlock(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, activate=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, activate=True):
         super(IBNbConvBlock, self).__init__()
         self.activate = activate
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias)
-        self.inst_norm = nn.InstanceNorm2d(num_features=out_channels,
-            affine=True)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.inst_norm = nn.InstanceNorm2d(num_features=out_channels, affine=True)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
 
@@ -9606,14 +8724,11 @@ class IBNbResUnit(nn.Module):
         super(IBNbResUnit, self).__init__()
         self.use_inst_norm = use_inst_norm
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = ResBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, conv1_stride=False)
+        self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=False)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         if self.use_inst_norm:
-            self.inst_norm = nn.InstanceNorm2d(num_features=out_channels,
-                affine=True)
+            self.inst_norm = nn.InstanceNorm2d(num_features=out_channels, affine=True)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -9629,8 +8744,7 @@ class IBNbResUnit(nn.Module):
         return x
 
 
-def ibnb_conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias
-    =False, activate=True):
+def ibnb_conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias=False, activate=True):
     """
     7x7 version of the IBN(b)-ResNet specific convolution block.
 
@@ -9649,9 +8763,7 @@ def ibnb_conv7x7_block(in_channels, out_channels, stride=1, padding=3, bias
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return IBNbConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=7, stride=stride, padding=padding, bias=bias, activate=
-        activate)
+    return IBNbConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=stride, padding=padding, bias=bias, activate=activate)
 
 
 class IBNbResInitBlock(nn.Module):
@@ -9668,8 +8780,7 @@ class IBNbResInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(IBNbResInitBlock, self).__init__()
-        self.conv = ibnb_conv7x7_block(in_channels=in_channels,
-            out_channels=out_channels, stride=2)
+        self.conv = ibnb_conv7x7_block(in_channels=in_channels, out_channels=out_channels, stride=2)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -9697,29 +8808,23 @@ class IBNbResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(IBNbResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', IBNbResInitBlock(in_channels
-            =in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', IBNbResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 use_inst_norm = i < 2 and j == len(channels_per_stage) - 1
-                stage.add_module('unit{}'.format(j + 1), IBNbResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, use_inst_norm=use_inst_norm))
+                stage.add_module('unit{}'.format(j + 1), IBNbResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, use_inst_norm=use_inst_norm))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -9758,20 +8863,16 @@ class IBNPreConvBlock(nn.Module):
         Whether return pre-activation. It's used by PreResNet.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, use_ibn=False, return_preact=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, use_ibn=False, return_preact=False):
         super(IBNPreConvBlock, self).__init__()
         self.use_ibn = use_ibn
         self.return_preact = return_preact
         if self.use_ibn:
-            self.ibn = IBN(channels=in_channels, first_fraction=0.6,
-                inst_first=False)
+            self.ibn = IBN(channels=in_channels, first_fraction=0.6, inst_first=False)
         else:
             self.bn = nn.BatchNorm2d(num_features=in_channels)
         self.activ = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
 
     def forward(self, x):
         if self.use_ibn:
@@ -9788,8 +8889,7 @@ class IBNPreConvBlock(nn.Module):
             return x
 
 
-def ibn_pre_conv1x1_block(in_channels, out_channels, stride=1, use_ibn=
-    False, return_preact=False):
+def ibn_pre_conv1x1_block(in_channels, out_channels, stride=1, use_ibn=False, return_preact=False):
     """
     1x1 version of the IBN-Net specific pre-activated convolution block.
 
@@ -9806,9 +8906,7 @@ def ibn_pre_conv1x1_block(in_channels, out_channels, stride=1, use_ibn=
     return_preact : bool, default False
         Whether return pre-activation.
     """
-    return IBNPreConvBlock(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=1, stride=stride, padding=0, use_ibn=
-        use_ibn, return_preact=return_preact)
+    return IBNPreConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, use_ibn=use_ibn, return_preact=return_preact)
 
 
 class IBNDenseUnit(nn.Module):
@@ -9833,10 +8931,8 @@ class IBNDenseUnit(nn.Module):
         bn_size = 4
         inc_channels = out_channels - in_channels
         mid_channels = inc_channels * bn_size
-        self.conv1 = ibn_pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, use_ibn=conv1_ibn)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=inc_channels)
+        self.conv1 = ibn_pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels, use_ibn=conv1_ibn)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=inc_channels)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -9871,34 +8967,26 @@ class IBNDenseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, dropout_rate=0.0, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(IBNDenseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels // 2))
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(in_channels=in_channels, out_channels=in_channels // 2))
                 in_channels = in_channels // 2
             for j, out_channels in enumerate(channels_per_stage):
                 conv1_ibn = i < 3 and j % 3 == 0
-                stage.add_module('unit{}'.format(j + 1), IBNDenseUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    dropout_rate=dropout_rate, conv1_ibn=conv1_ibn))
+                stage.add_module('unit{}'.format(j + 1), IBNDenseUnit(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate, conv1_ibn=conv1_ibn))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -9943,15 +9031,11 @@ class IBNConvBlock(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, use_ibn=False, activate=True
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, use_ibn=False, activate=True):
         super(IBNConvBlock, self).__init__()
         self.activate = activate
         self.use_ibn = use_ibn
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         if self.use_ibn:
             self.ibn = IBN(channels=out_channels)
         else:
@@ -9970,8 +9054,7 @@ class IBNConvBlock(nn.Module):
         return x
 
 
-def ibn_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=
-    False, use_ibn=False, activate=True):
+def ibn_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=False, use_ibn=False, activate=True):
     """
     1x1 version of the IBN-Net specific convolution block.
 
@@ -9992,9 +9075,7 @@ def ibn_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return IBNConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias,
-        use_ibn=use_ibn, activate=activate)
+    return IBNConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias, use_ibn=use_ibn, activate=activate)
 
 
 class IBNResBottleneck(nn.Module):
@@ -10016,12 +9097,9 @@ class IBNResBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, conv1_ibn):
         super(IBNResBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = ibn_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, use_ibn=conv1_ibn)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = ibn_conv1x1_block(in_channels=in_channels, out_channels=mid_channels, use_ibn=conv1_ibn)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -10049,11 +9127,9 @@ class IBNResUnit(nn.Module):
     def __init__(self, in_channels, out_channels, stride, conv1_ibn):
         super(IBNResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = IBNResBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, conv1_ibn=conv1_ibn)
+        self.body = IBNResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_ibn=conv1_ibn)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -10086,29 +9162,23 @@ class IBNResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(IBNResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 conv1_ibn = out_channels < 2048
-                stage.add_module('unit{}'.format(j + 1), IBNResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, conv1_ibn=conv1_ibn))
+                stage.add_module('unit{}'.format(j + 1), IBNResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_ibn=conv1_ibn))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -10145,18 +9215,14 @@ class IBNResNeXtBottleneck(nn.Module):
         Whether to use IBN normalization in the first convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width, conv1_ibn):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width, conv1_ibn):
         super(IBNResNeXtBottleneck, self).__init__()
         mid_channels = out_channels // 4
         D = int(math.floor(mid_channels * (bottleneck_width / 64.0)))
         group_width = cardinality * D
-        self.conv1 = ibn_conv1x1_block(in_channels=in_channels,
-            out_channels=group_width, use_ibn=conv1_ibn)
-        self.conv2 = conv3x3_block(in_channels=group_width, out_channels=
-            group_width, stride=stride, groups=cardinality)
-        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=
-            out_channels, activation=None)
+        self.conv1 = ibn_conv1x1_block(in_channels=in_channels, out_channels=group_width, use_ibn=conv1_ibn)
+        self.conv2 = conv3x3_block(in_channels=group_width, out_channels=group_width, stride=stride, groups=cardinality)
+        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -10185,17 +9251,12 @@ class IBNResNeXtUnit(nn.Module):
         Whether to use IBN normalization in the first convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width, conv1_ibn):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width, conv1_ibn):
         super(IBNResNeXtUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = IBNResNeXtBottleneck(in_channels=in_channels,
-            out_channels=out_channels, stride=stride, cardinality=
-            cardinality, bottleneck_width=bottleneck_width, conv1_ibn=conv1_ibn
-            )
+        self.body = IBNResNeXtBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width, conv1_ibn=conv1_ibn)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -10232,30 +9293,23 @@ class IBNResNeXt(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, cardinality,
-        bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, cardinality, bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(IBNResNeXt, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 conv1_ibn = out_channels < 2048
-                stage.add_module('unit{}'.format(j + 1), IBNResNeXtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, cardinality=cardinality,
-                    bottleneck_width=bottleneck_width, conv1_ibn=conv1_ibn))
+                stage.add_module('unit{}'.format(j + 1), IBNResNeXtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width, conv1_ibn=conv1_ibn))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -10292,16 +9346,12 @@ class IbpResBottleneck(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bias=False,
-        bottleneck_factor=2, activation=lambda : nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, stride, bias=False, bottleneck_factor=2, activation=lambda : nn.ReLU(inplace=True)):
         super(IbpResBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=bias, activation=activation)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride, bias=bias, activation=activation)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, bias=bias, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=bias, activation=activation)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, bias=bias, activation=activation)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, bias=bias, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -10330,17 +9380,12 @@ class IbpResUnit(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride=1, bias=False,
-        bottleneck_factor=2, activation=lambda : nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, stride=1, bias=False, bottleneck_factor=2, activation=lambda : nn.ReLU(inplace=True)):
         super(IbpResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = IbpResBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, bias=bias, bottleneck_factor=
-            bottleneck_factor, activation=activation)
+        self.body = IbpResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, bottleneck_factor=bottleneck_factor, activation=activation)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, bias=bias,
-                activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, activation=None)
         self.activ = get_activation_layer(activation)
 
     def forward(self, x):
@@ -10373,19 +9418,13 @@ class IbpBackbone(nn.Module):
         dilations = 3, 3, 4, 4, 5, 5
         mid1_channels = out_channels // 4
         mid2_channels = out_channels // 2
-        self.conv1 = conv7x7_block(in_channels=in_channels, out_channels=
-            mid1_channels, stride=2, activation=activation)
-        self.res1 = IbpResUnit(in_channels=mid1_channels, out_channels=
-            mid2_channels, activation=activation)
+        self.conv1 = conv7x7_block(in_channels=in_channels, out_channels=mid1_channels, stride=2, activation=activation)
+        self.res1 = IbpResUnit(in_channels=mid1_channels, out_channels=mid2_channels, activation=activation)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.res2 = IbpResUnit(in_channels=mid2_channels, out_channels=
-            mid2_channels, activation=activation)
+        self.res2 = IbpResUnit(in_channels=mid2_channels, out_channels=mid2_channels, activation=activation)
         self.dilation_branch = nn.Sequential()
         for i, dilation in enumerate(dilations):
-            self.dilation_branch.add_module('block{}'.format(i + 1),
-                conv3x3_block(in_channels=mid2_channels, out_channels=
-                mid2_channels, padding=dilation, dilation=dilation,
-                activation=activation))
+            self.dilation_branch.add_module('block{}'.format(i + 1), conv3x3_block(in_channels=mid2_channels, out_channels=mid2_channels, padding=dilation, dilation=dilation, activation=activation))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -10414,8 +9453,7 @@ class IbpDownBlock(nn.Module):
     def __init__(self, in_channels, out_channels, activation):
         super(IbpDownBlock, self).__init__()
         self.down = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.res = IbpResUnit(in_channels=in_channels, out_channels=
-            out_channels, activation=activation)
+        self.res = IbpResUnit(in_channels=in_channels, out_channels=out_channels, activation=activation)
 
     def forward(self, x):
         x = self.down(x)
@@ -10441,13 +9479,9 @@ class IbpUpBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, use_bn, activation):
         super(IbpUpBlock, self).__init__()
-        self.res = IbpResUnit(in_channels=in_channels, out_channels=
-            out_channels, activation=activation)
-        self.up = InterpolationBlock(scale_factor=2, mode='nearest',
-            align_corners=None)
-        self.conv = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, bias=not use_bn, use_bn=use_bn, activation=activation
-            )
+        self.res = IbpResUnit(in_channels=in_channels, out_channels=out_channels, activation=activation)
+        self.up = InterpolationBlock(scale_factor=2, mode='nearest', align_corners=None)
+        self.conv = conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=not use_bn, use_bn=use_bn, activation=activation)
 
     def forward(self, x):
         x = self.res(x)
@@ -10472,8 +9506,7 @@ class MergeBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, use_bn):
         super(MergeBlock, self).__init__()
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=not use_bn, use_bn=use_bn, activation=None)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=not use_bn, use_bn=use_bn, activation=None)
 
     def forward(self, x):
         return self.conv(x)
@@ -10495,14 +9528,9 @@ class IbpPreBlock(nn.Module):
 
     def __init__(self, out_channels, use_bn, activation):
         super(IbpPreBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, bias=not use_bn, use_bn=use_bn, activation=activation
-            )
-        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, bias=not use_bn, use_bn=use_bn, activation=activation
-            )
-        self.se = SEBlock(channels=out_channels, use_conv=False,
-            mid_activation=activation)
+        self.conv1 = conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=not use_bn, use_bn=use_bn, activation=activation)
+        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=not use_bn, use_bn=use_bn, activation=activation)
+        self.se = SEBlock(channels=out_channels, use_conv=False, mid_activation=activation)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -10531,8 +9559,7 @@ class IbpPass(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, channels, mid_channels, depth, growth_rate, merge,
-        use_bn, activation):
+    def __init__(self, channels, mid_channels, depth, growth_rate, merge, use_bn, activation):
         super(IbpPass, self).__init__()
         self.merge = merge
         down_seq = nn.Sequential()
@@ -10541,29 +9568,18 @@ class IbpPass(nn.Module):
         top_channels = channels
         bottom_channels = channels
         for i in range(depth + 1):
-            skip_seq.add_module('skip{}'.format(i + 1), IbpResUnit(
-                in_channels=top_channels, out_channels=top_channels,
-                activation=activation))
+            skip_seq.add_module('skip{}'.format(i + 1), IbpResUnit(in_channels=top_channels, out_channels=top_channels, activation=activation))
             bottom_channels += growth_rate
             if i < depth:
-                down_seq.add_module('down{}'.format(i + 1), IbpDownBlock(
-                    in_channels=top_channels, out_channels=bottom_channels,
-                    activation=activation))
-                up_seq.add_module('up{}'.format(i + 1), IbpUpBlock(
-                    in_channels=bottom_channels, out_channels=top_channels,
-                    use_bn=use_bn, activation=activation))
+                down_seq.add_module('down{}'.format(i + 1), IbpDownBlock(in_channels=top_channels, out_channels=bottom_channels, activation=activation))
+                up_seq.add_module('up{}'.format(i + 1), IbpUpBlock(in_channels=bottom_channels, out_channels=top_channels, use_bn=use_bn, activation=activation))
             top_channels = bottom_channels
-        self.hg = Hourglass(down_seq=down_seq, up_seq=up_seq, skip_seq=
-            skip_seq, return_first_skip=False)
-        self.pre_block = IbpPreBlock(out_channels=channels, use_bn=use_bn,
-            activation=activation)
-        self.post_block = conv1x1_block(in_channels=channels, out_channels=
-            mid_channels, bias=True, use_bn=False, activation=None)
+        self.hg = Hourglass(down_seq=down_seq, up_seq=up_seq, skip_seq=skip_seq, return_first_skip=False)
+        self.pre_block = IbpPreBlock(out_channels=channels, use_bn=use_bn, activation=activation)
+        self.post_block = conv1x1_block(in_channels=channels, out_channels=mid_channels, bias=True, use_bn=False, activation=None)
         if self.merge:
-            self.pre_merge_block = MergeBlock(in_channels=channels,
-                out_channels=channels, use_bn=use_bn)
-            self.post_merge_block = MergeBlock(in_channels=mid_channels,
-                out_channels=channels, use_bn=use_bn)
+            self.pre_merge_block = MergeBlock(in_channels=channels, out_channels=channels, use_bn=use_bn)
+            self.post_merge_block = MergeBlock(in_channels=mid_channels, out_channels=channels, use_bn=use_bn)
 
     def forward(self, x, x_prev):
         x = self.hg(x)
@@ -10601,20 +9617,15 @@ class IbpPose(nn.Module):
         Spatial size of the expected input image.
     """
 
-    def __init__(self, passes, backbone_out_channels, outs_channels, depth,
-        growth_rate, use_bn, in_channels=3, in_size=(256, 256)):
+    def __init__(self, passes, backbone_out_channels, outs_channels, depth, growth_rate, use_bn, in_channels=3, in_size=(256, 256)):
         super(IbpPose, self).__init__()
         self.in_size = in_size
         activation = lambda : nn.LeakyReLU(inplace=True)
-        self.backbone = IbpBackbone(in_channels=in_channels, out_channels=
-            backbone_out_channels, activation=activation)
+        self.backbone = IbpBackbone(in_channels=in_channels, out_channels=backbone_out_channels, activation=activation)
         self.decoder = nn.Sequential()
         for i in range(passes):
             merge = i != passes - 1
-            self.decoder.add_module('pass{}'.format(i + 1), IbpPass(
-                channels=backbone_out_channels, mid_channels=outs_channels,
-                depth=depth, growth_rate=growth_rate, merge=merge, use_bn=
-                use_bn, activation=activation))
+            self.decoder.add_module('pass{}'.format(i + 1), IbpPass(channels=backbone_out_channels, mid_channels=outs_channels, depth=depth, growth_rate=growth_rate, merge=merge, use_bn=use_bn, activation=activation))
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -10655,12 +9666,9 @@ class ICInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ICInitBlock, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=2)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=2)
+        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=2)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -10687,8 +9695,7 @@ class PSPBlock(nn.Module):
         super(PSPBlock, self).__init__()
         assert in_channels % bottleneck_factor == 0
         mid_channels = in_channels // bottleneck_factor
-        self.pool = PyramidPooling(in_channels=in_channels,
-            upscale_out_size=upscale_out_size)
+        self.pool = PyramidPooling(in_channels=in_channels, upscale_out_size=upscale_out_size)
         self.conv = conv3x3_block(in_channels=4096, out_channels=mid_channels)
         self.dropout = nn.Dropout(p=0.1, inplace=False)
 
@@ -10715,17 +9722,13 @@ class CFFBlock(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, in_channels_low, in_channels_high, out_channels,
-        num_classes):
+    def __init__(self, in_channels_low, in_channels_high, out_channels, num_classes):
         super(CFFBlock, self).__init__()
         self.up = InterpolationBlock(scale_factor=2)
-        self.conv_low = conv3x3_block(in_channels=in_channels_low,
-            out_channels=out_channels, padding=2, dilation=2, activation=None)
-        self.conv_hign = conv1x1_block(in_channels=in_channels_high,
-            out_channels=out_channels, activation=None)
+        self.conv_low = conv3x3_block(in_channels=in_channels_low, out_channels=out_channels, padding=2, dilation=2, activation=None)
+        self.conv_hign = conv1x1_block(in_channels=in_channels_high, out_channels=out_channels, activation=None)
         self.activ = nn.ReLU(inplace=True)
-        self.conv_cls = conv1x1(in_channels=out_channels, out_channels=
-            num_classes)
+        self.conv_cls = conv1x1(in_channels=out_channels, out_channels=num_classes)
 
     def forward(self, xl, xh):
         xl = self.up(xl)
@@ -10749,10 +9752,8 @@ class ICHeadBlock(nn.Module):
 
     def __init__(self, num_classes):
         super(ICHeadBlock, self).__init__()
-        self.cff_12 = CFFBlock(in_channels_low=128, in_channels_high=64,
-            out_channels=128, num_classes=num_classes)
-        self.cff_24 = CFFBlock(in_channels_low=256, in_channels_high=256,
-            out_channels=128, num_classes=num_classes)
+        self.cff_12 = CFFBlock(in_channels_low=128, in_channels_high=64, out_channels=128, num_classes=num_classes)
+        self.cff_24 = CFFBlock(in_channels_low=256, in_channels_high=256, out_channels=128, num_classes=num_classes)
         self.up_x2 = InterpolationBlock(scale_factor=2)
         self.up_x8 = InterpolationBlock(scale_factor=4)
         self.conv_cls = conv1x1(in_channels=128, out_channels=num_classes)
@@ -10797,9 +9798,7 @@ class ICNet(nn.Module):
         Number of segmentation classes.
     """
 
-    def __init__(self, backbones, backbones_out_channels, channels, aux=
-        False, fixed_size=True, in_channels=3, in_size=(480, 480),
-        num_classes=21):
+    def __init__(self, backbones, backbones_out_channels, channels, aux=False, fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
         super(ICNet, self).__init__()
         assert in_channels > 0
         assert in_size[0] % 8 == 0 and in_size[1] % 8 == 0
@@ -10807,24 +9806,18 @@ class ICNet(nn.Module):
         self.num_classes = num_classes
         self.aux = aux
         self.fixed_size = fixed_size
-        psp_pool_out_size = (self.in_size[0] // 32, self.in_size[1] // 32
-            ) if fixed_size else None
+        psp_pool_out_size = (self.in_size[0] // 32, self.in_size[1] // 32) if fixed_size else None
         psp_head_out_channels = 512
-        self.branch1 = ICInitBlock(in_channels=in_channels, out_channels=
-            channels[0])
+        self.branch1 = ICInitBlock(in_channels=in_channels, out_channels=channels[0])
         self.branch2 = MultiOutputSequential()
         self.branch2.add_module('down1', InterpolationBlock(scale_factor=0.5))
         backbones[0].do_output = True
         self.branch2.add_module('backbones1', backbones[0])
         self.branch2.add_module('down2', InterpolationBlock(scale_factor=0.5))
         self.branch2.add_module('backbones2', backbones[1])
-        self.branch2.add_module('psp', PSPBlock(in_channels=
-            backbones_out_channels[1], upscale_out_size=psp_pool_out_size,
-            bottleneck_factor=4))
-        self.branch2.add_module('final_block', conv1x1_block(in_channels=
-            psp_head_out_channels, out_channels=channels[2]))
-        self.conv_y2 = conv1x1_block(in_channels=backbones_out_channels[0],
-            out_channels=channels[1])
+        self.branch2.add_module('psp', PSPBlock(in_channels=backbones_out_channels[1], upscale_out_size=psp_pool_out_size, bottleneck_factor=4))
+        self.branch2.add_module('final_block', conv1x1_block(in_channels=psp_head_out_channels, out_channels=channels[2]))
+        self.conv_y2 = conv1x1_block(in_channels=backbones_out_channels[0], out_channels=channels[1])
         self.final_block = ICHeadBlock(num_classes=num_classes)
         self._init_params()
 
@@ -10867,13 +9860,10 @@ class InvResUnit(nn.Module):
         self.residual = in_channels == out_channels and stride == 1
         mid_channels = in_channels * 6 if expansion else in_channels
         groups = 2
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, groups=groups, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, groups=groups, activation=None)
         self.c_shuffle = ChannelShuffle(channels=mid_channels, groups=groups)
-        self.conv2 = dwconv3x3_block(in_channels=mid_channels, out_channels
-            =mid_channels, stride=stride, activation='relu6')
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, groups=groups, activation=None)
+        self.conv2 = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation='relu6')
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, groups=groups, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -10908,34 +9898,25 @@ class IGCV3(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(IGCV3, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2,
-            activation='relu6'))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2, activation='relu6'))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 expansion = i != 0 or j != 0
-                stage.add_module('unit{}'.format(j + 1), InvResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, expansion=expansion))
+                stage.add_module('unit{}'.format(j + 1), InvResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, expansion=expansion))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, activation='relu6')
-            )
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, activation='relu6'))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -10970,14 +9951,10 @@ class InceptConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(InceptConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
-        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=0.001,
-            momentum=0.1)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=0.001, momentum=0.1)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -11012,8 +9989,7 @@ def incept_conv1x1(in_channels, out_channels):
     out_channels : int
         Number of output channels.
     """
-    return InceptConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=1, padding=0)
+    return InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0)
 
 
 class AvgPoolBranch(nn.Module):
@@ -11030,10 +10006,8 @@ class AvgPoolBranch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(AvgPoolBranch, self).__init__()
-        self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
-        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1, count_include_pad=False)
+        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.pool(x)
@@ -11055,8 +10029,7 @@ class Conv1x1Branch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(Conv1x1Branch, self).__init__()
-        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv(x)
@@ -11081,18 +10054,14 @@ class ConvSeqBranch(nn.Module):
         List of padding values for convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels_list, kernel_size_list,
-        strides_list, padding_list):
+    def __init__(self, in_channels, out_channels_list, kernel_size_list, strides_list, padding_list):
         super(ConvSeqBranch, self).__init__()
         assert len(out_channels_list) == len(kernel_size_list)
         assert len(out_channels_list) == len(strides_list)
         assert len(out_channels_list) == len(padding_list)
         self.conv_list = nn.Sequential()
-        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip
-            (out_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding))
+        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip(out_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=strides, padding=padding))
             in_channels = out_channels
 
     def forward(self, x):
@@ -11110,16 +10079,10 @@ class InceptionAUnit(nn.Module):
         self.scale = 0.17
         in_channels = 320
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=32))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(32, 32), kernel_size_list=(1, 3
-            ), strides_list=(1, 1), padding_list=(0, 1)))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(32, 48, 64), kernel_size_list=(
-            1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
-        self.conv = conv1x1(in_channels=128, out_channels=in_channels, bias
-            =True)
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=32))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(32, 32), kernel_size_list=(1, 3), strides_list=(1, 1), padding_list=(0, 1)))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(32, 48, 64), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
+        self.conv = conv1x1(in_channels=128, out_channels=in_channels, bias=True)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -11140,13 +10103,8 @@ class ReductionAUnit(nn.Module):
         super(ReductionAUnit, self).__init__()
         in_channels = 320
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(384,), kernel_size_list=(3,),
-            strides_list=(2,), padding_list=(0,)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 256, 384),
-            kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2),
-            padding_list=(0, 1, 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(384,), kernel_size_list=(3,), strides_list=(2,), padding_list=(0,)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 256, 384), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
         self.branches.add_module('branch3', MaxPoolBranch())
 
     def forward(self, x):
@@ -11164,14 +10122,9 @@ class InceptionBUnit(nn.Module):
         self.scale = 0.1
         in_channels = 1088
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=192))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(128, 160, 192),
-            kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 3), (3, 0))))
-        self.conv = conv1x1(in_channels=384, out_channels=in_channels, bias
-            =True)
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=192))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(128, 160, 192), kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 3), (3, 0))))
+        self.conv = conv1x1(in_channels=384, out_channels=in_channels, bias=True)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -11192,16 +10145,9 @@ class ReductionBUnit(nn.Module):
         super(ReductionBUnit, self).__init__()
         in_channels = 1088
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 384), kernel_size_list=(1,
-            3), strides_list=(1, 2), padding_list=(0, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 288), kernel_size_list=(1,
-            3), strides_list=(1, 2), padding_list=(0, 0)))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 288, 320),
-            kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2),
-            padding_list=(0, 1, 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 384), kernel_size_list=(1, 3), strides_list=(1, 2), padding_list=(0, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 288), kernel_size_list=(1, 3), strides_list=(1, 2), padding_list=(0, 0)))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 288, 320), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
         self.branches.add_module('branch4', MaxPoolBranch())
 
     def forward(self, x):
@@ -11227,14 +10173,9 @@ class InceptionCUnit(nn.Module):
         self.scale = scale
         in_channels = 2080
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=192))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 224, 256),
-            kernel_size_list=(1, (1, 3), (3, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 1), (1, 0))))
-        self.conv = conv1x1(in_channels=448, out_channels=in_channels, bias
-            =True)
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=192))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 224, 256), kernel_size_list=(1, (1, 3), (3, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 1), (1, 0))))
+        self.conv = conv1x1(in_channels=448, out_channels=in_channels, bias=True)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
 
@@ -11257,16 +10198,10 @@ class InceptBlock5b(nn.Module):
         super(InceptBlock5b, self).__init__()
         in_channels = 192
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=96))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(48, 64), kernel_size_list=(1, 5
-            ), strides_list=(1, 1), padding_list=(0, 2)))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(
-            1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=64))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=96))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(48, 64), kernel_size_list=(1, 5), strides_list=(1, 1), padding_list=(0, 2)))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=64))
 
     def forward(self, x):
         x = self.branches(x)
@@ -11285,17 +10220,12 @@ class InceptInitBlock(nn.Module):
 
     def __init__(self, in_channels):
         super(InceptInitBlock, self).__init__()
-        self.conv1 = InceptConv(in_channels=in_channels, out_channels=32,
-            kernel_size=3, stride=2, padding=0)
-        self.conv2 = InceptConv(in_channels=32, out_channels=32,
-            kernel_size=3, stride=1, padding=0)
-        self.conv3 = InceptConv(in_channels=32, out_channels=64,
-            kernel_size=3, stride=1, padding=1)
+        self.conv1 = InceptConv(in_channels=in_channels, out_channels=32, kernel_size=3, stride=2, padding=0)
+        self.conv2 = InceptConv(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=0)
+        self.conv3 = InceptConv(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
-        self.conv4 = InceptConv(in_channels=64, out_channels=80,
-            kernel_size=1, stride=1, padding=0)
-        self.conv5 = InceptConv(in_channels=80, out_channels=192,
-            kernel_size=3, stride=1, padding=0)
+        self.conv4 = InceptConv(in_channels=64, out_channels=80, kernel_size=1, stride=1, padding=0)
+        self.conv5 = InceptConv(in_channels=80, out_channels=192, kernel_size=3, stride=1, padding=0)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
         self.block = InceptBlock5b()
 
@@ -11328,8 +10258,7 @@ class InceptionResNetV2(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, dropout_rate=0.0, in_channels=3, in_size=(299, 299),
-        num_classes=1000):
+    def __init__(self, dropout_rate=0.0, in_channels=3, in_size=(299, 299), num_classes=1000):
         super(InceptionResNetV2, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -11337,8 +10266,7 @@ class InceptionResNetV2(nn.Module):
         normal_units = [InceptionAUnit, InceptionBUnit, InceptionCUnit]
         reduction_units = [ReductionAUnit, ReductionBUnit]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', InceptInitBlock(in_channels=
-            in_channels))
+        self.features.add_module('init_block', InceptInitBlock(in_channels=in_channels))
         for i, layers_per_stage in enumerate(layers):
             stage = nn.Sequential()
             for j in range(layers_per_stage):
@@ -11347,20 +10275,16 @@ class InceptionResNetV2(nn.Module):
                 else:
                     unit = normal_units[i]
                 if i == len(layers) - 1 and j == layers_per_stage - 1:
-                    stage.add_module('unit{}'.format(j + 1), unit(scale=1.0,
-                        activate=False))
+                    stage.add_module('unit{}'.format(j + 1), unit(scale=1.0, activate=False))
                 else:
                     stage.add_module('unit{}'.format(j + 1), unit())
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_conv', incept_conv1x1(in_channels=
-            2080, out_channels=1536))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
+        self.features.add_module('final_conv', incept_conv1x1(in_channels=2080, out_channels=1536))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
         self.output = nn.Sequential()
         if dropout_rate > 0.0:
             self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=1536,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=1536, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -11395,12 +10319,9 @@ class InceptConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(InceptConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels, eps=0.001)
         self.activ = nn.ReLU(inplace=True)
 
@@ -11440,8 +10361,7 @@ class AvgPoolBranch(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(AvgPoolBranch, self).__init__()
         self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1)
-        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.pool(x)
@@ -11463,8 +10383,7 @@ class Conv1x1Branch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(Conv1x1Branch, self).__init__()
-        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv(x)
@@ -11489,18 +10408,14 @@ class ConvSeqBranch(nn.Module):
         List of padding values for convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels_list, kernel_size_list,
-        strides_list, padding_list):
+    def __init__(self, in_channels, out_channels_list, kernel_size_list, strides_list, padding_list):
         super(ConvSeqBranch, self).__init__()
         assert len(out_channels_list) == len(kernel_size_list)
         assert len(out_channels_list) == len(strides_list)
         assert len(out_channels_list) == len(padding_list)
         self.conv_list = nn.Sequential()
-        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip
-            (out_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding))
+        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip(out_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=strides, padding=padding))
             in_channels = out_channels
 
     def forward(self, x):
@@ -11526,20 +10441,14 @@ class ConvSeq3x3Branch(nn.Module):
         List of padding values for convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels_list, kernel_size_list,
-        strides_list, padding_list):
+    def __init__(self, in_channels, out_channels_list, kernel_size_list, strides_list, padding_list):
         super(ConvSeq3x3Branch, self).__init__()
         self.conv_list = nn.Sequential()
-        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip
-            (out_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding))
+        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip(out_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=strides, padding=padding))
             in_channels = out_channels
-        self.conv1x3 = InceptConv(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=(1, 3), stride=1, padding=(0, 1))
-        self.conv3x1 = InceptConv(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=(3, 1), stride=1, padding=(1, 0))
+        self.conv1x3 = InceptConv(in_channels=in_channels, out_channels=in_channels, kernel_size=(1, 3), stride=1, padding=(0, 1))
+        self.conv3x1 = InceptConv(in_channels=in_channels, out_channels=in_channels, kernel_size=(3, 1), stride=1, padding=(1, 0))
 
     def forward(self, x):
         x = self.conv_list(x)
@@ -11566,16 +10475,10 @@ class InceptionAUnit(nn.Module):
         assert out_channels > 224
         pool_out_channels = out_channels - 224
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=64))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(48, 64), kernel_size_list=(1, 5
-            ), strides_list=(1, 1), padding_list=(0, 2)))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(
-            1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=pool_out_channels))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=64))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(48, 64), kernel_size_list=(1, 5), strides_list=(1, 1), padding_list=(0, 2)))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=pool_out_channels))
 
     def forward(self, x):
         x = self.branches(x)
@@ -11599,12 +10502,8 @@ class ReductionAUnit(nn.Module):
         assert in_channels == 288
         assert out_channels == 768
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(384,), kernel_size_list=(3,),
-            strides_list=(2,), padding_list=(0,)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(
-            1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(384,), kernel_size_list=(3,), strides_list=(2,), padding_list=(0,)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
         self.branches.add_module('branch3', MaxPoolBranch())
 
     def forward(self, x):
@@ -11631,19 +10530,10 @@ class InceptionBUnit(nn.Module):
         assert in_channels == 768
         assert out_channels == 768
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=192))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(mid_channels, mid_channels, 192
-            ), kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 3), (3, 0))))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(mid_channels, mid_channels,
-            mid_channels, mid_channels, 192), kernel_size_list=(1, (7, 1),
-            (1, 7), (7, 1), (1, 7)), strides_list=(1, 1, 1, 1, 1),
-            padding_list=(0, (3, 0), (0, 3), (3, 0), (0, 3))))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=192))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=192))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(mid_channels, mid_channels, 192), kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 3), (3, 0))))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(mid_channels, mid_channels, mid_channels, mid_channels, 192), kernel_size_list=(1, (7, 1), (1, 7), (7, 1), (1, 7)), strides_list=(1, 1, 1, 1, 1), padding_list=(0, (3, 0), (0, 3), (3, 0), (0, 3))))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=192))
 
     def forward(self, x):
         x = self.branches(x)
@@ -11667,13 +10557,8 @@ class ReductionBUnit(nn.Module):
         assert in_channels == 768
         assert out_channels == 1280
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 320), kernel_size_list=(1,
-            3), strides_list=(1, 2), padding_list=(0, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 192, 192, 192),
-            kernel_size_list=(1, (1, 7), (7, 1), 3), strides_list=(1, 1, 1,
-            2), padding_list=(0, (0, 3), (3, 0), 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 320), kernel_size_list=(1, 3), strides_list=(1, 2), padding_list=(0, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 192, 192, 192), kernel_size_list=(1, (1, 7), (7, 1), 3), strides_list=(1, 1, 1, 2), padding_list=(0, (0, 3), (3, 0), 0)))
         self.branches.add_module('branch3', MaxPoolBranch())
 
     def forward(self, x):
@@ -11697,16 +10582,10 @@ class InceptionCUnit(nn.Module):
         super(InceptionCUnit, self).__init__()
         assert out_channels == 2048
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=320))
-        self.branches.add_module('branch2', ConvSeq3x3Branch(in_channels=
-            in_channels, out_channels_list=(384,), kernel_size_list=(1,),
-            strides_list=(1,), padding_list=(0,)))
-        self.branches.add_module('branch3', ConvSeq3x3Branch(in_channels=
-            in_channels, out_channels_list=(448, 384), kernel_size_list=(1,
-            3), strides_list=(1, 1), padding_list=(0, 1)))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=192))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=320))
+        self.branches.add_module('branch2', ConvSeq3x3Branch(in_channels=in_channels, out_channels_list=(384,), kernel_size_list=(1,), strides_list=(1,), padding_list=(0,)))
+        self.branches.add_module('branch3', ConvSeq3x3Branch(in_channels=in_channels, out_channels_list=(448, 384), kernel_size_list=(1, 3), strides_list=(1, 1), padding_list=(0, 1)))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=192))
 
     def forward(self, x):
         x = self.branches(x)
@@ -11728,17 +10607,12 @@ class InceptInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(InceptInitBlock, self).__init__()
         assert out_channels == 192
-        self.conv1 = InceptConv(in_channels=in_channels, out_channels=32,
-            kernel_size=3, stride=2, padding=0)
-        self.conv2 = InceptConv(in_channels=32, out_channels=32,
-            kernel_size=3, stride=1, padding=0)
-        self.conv3 = InceptConv(in_channels=32, out_channels=64,
-            kernel_size=3, stride=1, padding=1)
+        self.conv1 = InceptConv(in_channels=in_channels, out_channels=32, kernel_size=3, stride=2, padding=0)
+        self.conv2 = InceptConv(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=0)
+        self.conv3 = InceptConv(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
-        self.conv4 = InceptConv(in_channels=64, out_channels=80,
-            kernel_size=1, stride=1, padding=0)
-        self.conv5 = InceptConv(in_channels=80, out_channels=192,
-            kernel_size=3, stride=1, padding=0)
+        self.conv4 = InceptConv(in_channels=64, out_channels=80, kernel_size=1, stride=1, padding=0)
+        self.conv5 = InceptConv(in_channels=80, out_channels=192, kernel_size=3, stride=1, padding=0)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
 
     def forward(self, x):
@@ -11775,16 +10649,14 @@ class InceptionV3(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, b_mid_channels,
-        dropout_rate=0.5, in_channels=3, in_size=(299, 299), num_classes=1000):
+    def __init__(self, channels, init_block_channels, b_mid_channels, dropout_rate=0.5, in_channels=3, in_size=(299, 299), num_classes=1000):
         super(InceptionV3, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         normal_units = [InceptionAUnit, InceptionBUnit, InceptionCUnit]
         reduction_units = [ReductionAUnit, ReductionBUnit]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', InceptInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', InceptInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -11794,20 +10666,15 @@ class InceptionV3(nn.Module):
                 else:
                     unit = normal_units[i]
                 if unit == InceptionBUnit:
-                    stage.add_module('unit{}'.format(j + 1), unit(
-                        in_channels=in_channels, out_channels=out_channels,
-                        mid_channels=b_mid_channels[j - 1]))
+                    stage.add_module('unit{}'.format(j + 1), unit(in_channels=in_channels, out_channels=out_channels, mid_channels=b_mid_channels[j - 1]))
                 else:
-                    stage.add_module('unit{}'.format(j + 1), unit(
-                        in_channels=in_channels, out_channels=out_channels))
+                    stage.add_module('unit{}'.format(j + 1), unit(in_channels=in_channels, out_channels=out_channels))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -11842,14 +10709,10 @@ class InceptConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(InceptConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
-        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=0.001,
-            momentum=0.1)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=0.001, momentum=0.1)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -11887,10 +10750,8 @@ class AvgPoolBranch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(AvgPoolBranch, self).__init__()
-        self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1,
-            count_include_pad=False)
-        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.pool = nn.AvgPool2d(kernel_size=3, stride=1, padding=1, count_include_pad=False)
+        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.pool(x)
@@ -11912,8 +10773,7 @@ class Conv1x1Branch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(Conv1x1Branch, self).__init__()
-        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = incept_conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv(x)
@@ -11935,8 +10795,7 @@ def incept_conv3x3(in_channels, out_channels, stride, padding=1):
     padding : int or tuple/list of 2 int, default 0
         Padding value for convolution layer.
     """
-    return InceptConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding)
+    return InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding)
 
 
 class Conv3x3Branch(nn.Module):
@@ -11953,8 +10812,7 @@ class Conv3x3Branch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(Conv3x3Branch, self).__init__()
-        self.conv = incept_conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=2, padding=0)
+        self.conv = incept_conv3x3(in_channels=in_channels, out_channels=out_channels, stride=2, padding=0)
 
     def forward(self, x):
         x = self.conv(x)
@@ -11979,18 +10837,14 @@ class ConvSeqBranch(nn.Module):
         List of padding values for convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels_list, kernel_size_list,
-        strides_list, padding_list):
+    def __init__(self, in_channels, out_channels_list, kernel_size_list, strides_list, padding_list):
         super(ConvSeqBranch, self).__init__()
         assert len(out_channels_list) == len(kernel_size_list)
         assert len(out_channels_list) == len(strides_list)
         assert len(out_channels_list) == len(padding_list)
         self.conv_list = nn.Sequential()
-        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip
-            (out_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding))
+        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip(out_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=strides, padding=padding))
             in_channels = out_channels
 
     def forward(self, x):
@@ -12018,20 +10872,14 @@ class ConvSeq3x3Branch(nn.Module):
         List of padding values for convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels, mid_channels_list,
-        kernel_size_list, strides_list, padding_list):
+    def __init__(self, in_channels, out_channels, mid_channels_list, kernel_size_list, strides_list, padding_list):
         super(ConvSeq3x3Branch, self).__init__()
         self.conv_list = nn.Sequential()
-        for i, (mid_channels, kernel_size, strides, padding) in enumerate(zip
-            (mid_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(
-                in_channels=in_channels, out_channels=mid_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding))
+        for i, (mid_channels, kernel_size, strides, padding) in enumerate(zip(mid_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), InceptConv(in_channels=in_channels, out_channels=mid_channels, kernel_size=kernel_size, stride=strides, padding=padding))
             in_channels = mid_channels
-        self.conv1x3 = InceptConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=(1, 3), stride=1, padding=(0, 1))
-        self.conv3x1 = InceptConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=(3, 1), stride=1, padding=(1, 0))
+        self.conv1x3 = InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=(1, 3), stride=1, padding=(0, 1))
+        self.conv3x1 = InceptConv(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 1), stride=1, padding=(1, 0))
 
     def forward(self, x):
         x = self.conv_list(x)
@@ -12050,16 +10898,10 @@ class InceptionAUnit(nn.Module):
         super(InceptionAUnit, self).__init__()
         in_channels = 384
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=96))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(64, 96), kernel_size_list=(1, 3
-            ), strides_list=(1, 1), padding_list=(0, 1)))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(
-            1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=96))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=96))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(64, 96), kernel_size_list=(1, 3), strides_list=(1, 1), padding_list=(0, 1)))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(64, 96, 96), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=96))
 
     def forward(self, x):
         x = self.branches(x)
@@ -12075,13 +10917,8 @@ class ReductionAUnit(nn.Module):
         super(ReductionAUnit, self).__init__()
         in_channels = 384
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(384,), kernel_size_list=(3,),
-            strides_list=(2,), padding_list=(0,)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 224, 256),
-            kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2),
-            padding_list=(0, 1, 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(384,), kernel_size_list=(3,), strides_list=(2,), padding_list=(0,)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 224, 256), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
         self.branches.add_module('branch3', MaxPoolBranch())
 
     def forward(self, x):
@@ -12098,19 +10935,10 @@ class InceptionBUnit(nn.Module):
         super(InceptionBUnit, self).__init__()
         in_channels = 1024
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=384))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 224, 256),
-            kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 3), (3, 0))))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 192, 224, 224, 256),
-            kernel_size_list=(1, (7, 1), (1, 7), (7, 1), (1, 7)),
-            strides_list=(1, 1, 1, 1, 1), padding_list=(0, (3, 0), (0, 3),
-            (3, 0), (0, 3))))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=128))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=384))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 224, 256), kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 3), (3, 0))))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 192, 224, 224, 256), kernel_size_list=(1, (7, 1), (1, 7), (7, 1), (1, 7)), strides_list=(1, 1, 1, 1, 1), padding_list=(0, (3, 0), (0, 3), (3, 0), (0, 3))))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=128))
 
     def forward(self, x):
         x = self.branches(x)
@@ -12126,13 +10954,8 @@ class ReductionBUnit(nn.Module):
         super(ReductionBUnit, self).__init__()
         in_channels = 1024
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 192), kernel_size_list=(1,
-            3), strides_list=(1, 2), padding_list=(0, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 256, 320, 320),
-            kernel_size_list=(1, (1, 7), (7, 1), 3), strides_list=(1, 1, 1,
-            2), padding_list=(0, (0, 3), (3, 0), 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 192), kernel_size_list=(1, 3), strides_list=(1, 2), padding_list=(0, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 256, 320, 320), kernel_size_list=(1, (1, 7), (7, 1), 3), strides_list=(1, 1, 1, 2), padding_list=(0, (0, 3), (3, 0), 0)))
         self.branches.add_module('branch3', MaxPoolBranch())
 
     def forward(self, x):
@@ -12149,17 +10972,10 @@ class InceptionCUnit(nn.Module):
         super(InceptionCUnit, self).__init__()
         in_channels = 1536
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv1x1Branch(in_channels=
-            in_channels, out_channels=256))
-        self.branches.add_module('branch2', ConvSeq3x3Branch(in_channels=
-            in_channels, out_channels=256, mid_channels_list=(384,),
-            kernel_size_list=(1,), strides_list=(1,), padding_list=(0,)))
-        self.branches.add_module('branch3', ConvSeq3x3Branch(in_channels=
-            in_channels, out_channels=256, mid_channels_list=(384, 448, 512
-            ), kernel_size_list=(1, (3, 1), (1, 3)), strides_list=(1, 1, 1),
-            padding_list=(0, (1, 0), (0, 1))))
-        self.branches.add_module('branch4', AvgPoolBranch(in_channels=
-            in_channels, out_channels=256))
+        self.branches.add_module('branch1', Conv1x1Branch(in_channels=in_channels, out_channels=256))
+        self.branches.add_module('branch2', ConvSeq3x3Branch(in_channels=in_channels, out_channels=256, mid_channels_list=(384,), kernel_size_list=(1,), strides_list=(1,), padding_list=(0,)))
+        self.branches.add_module('branch3', ConvSeq3x3Branch(in_channels=in_channels, out_channels=256, mid_channels_list=(384, 448, 512), kernel_size_list=(1, (3, 1), (1, 3)), strides_list=(1, 1, 1), padding_list=(0, (1, 0), (0, 1))))
+        self.branches.add_module('branch4', AvgPoolBranch(in_channels=in_channels, out_channels=256))
 
     def forward(self, x):
         x = self.branches(x)
@@ -12175,8 +10991,7 @@ class InceptBlock3a(nn.Module):
         super(InceptBlock3a, self).__init__()
         self.branches = Concurrent()
         self.branches.add_module('branch1', MaxPoolBranch())
-        self.branches.add_module('branch2', Conv3x3Branch(in_channels=64,
-            out_channels=96))
+        self.branches.add_module('branch2', Conv3x3Branch(in_channels=64, out_channels=96))
 
     def forward(self, x):
         x = self.branches(x)
@@ -12191,13 +11006,8 @@ class InceptBlock4a(nn.Module):
     def __init__(self):
         super(InceptBlock4a, self).__init__()
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=160,
-            out_channels_list=(64, 96), kernel_size_list=(1, 3),
-            strides_list=(1, 1), padding_list=(0, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=160,
-            out_channels_list=(64, 64, 64, 96), kernel_size_list=(1, (1, 7),
-            (7, 1), 3), strides_list=(1, 1, 1, 1), padding_list=(0, (0, 3),
-            (3, 0), 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=160, out_channels_list=(64, 96), kernel_size_list=(1, 3), strides_list=(1, 1), padding_list=(0, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=160, out_channels_list=(64, 64, 64, 96), kernel_size_list=(1, (1, 7), (7, 1), 3), strides_list=(1, 1, 1, 1), padding_list=(0, (0, 3), (3, 0), 0)))
 
     def forward(self, x):
         x = self.branches(x)
@@ -12212,8 +11022,7 @@ class InceptBlock5a(nn.Module):
     def __init__(self):
         super(InceptBlock5a, self).__init__()
         self.branches = Concurrent()
-        self.branches.add_module('branch1', Conv3x3Branch(in_channels=192,
-            out_channels=192))
+        self.branches.add_module('branch1', Conv3x3Branch(in_channels=192, out_channels=192))
         self.branches.add_module('branch2', MaxPoolBranch())
 
     def forward(self, x):
@@ -12233,12 +11042,9 @@ class InceptInitBlock(nn.Module):
 
     def __init__(self, in_channels):
         super(InceptInitBlock, self).__init__()
-        self.conv1 = InceptConv(in_channels=in_channels, out_channels=32,
-            kernel_size=3, stride=2, padding=0)
-        self.conv2 = InceptConv(in_channels=32, out_channels=32,
-            kernel_size=3, stride=1, padding=0)
-        self.conv3 = InceptConv(in_channels=32, out_channels=64,
-            kernel_size=3, stride=1, padding=1)
+        self.conv1 = InceptConv(in_channels=in_channels, out_channels=32, kernel_size=3, stride=2, padding=0)
+        self.conv2 = InceptConv(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=0)
+        self.conv3 = InceptConv(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.block1 = InceptBlock3a()
         self.block2 = InceptBlock4a()
         self.block3 = InceptBlock5a()
@@ -12270,8 +11076,7 @@ class InceptionV4(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, dropout_rate=0.0, in_channels=3, in_size=(299, 299),
-        num_classes=1000):
+    def __init__(self, dropout_rate=0.0, in_channels=3, in_size=(299, 299), num_classes=1000):
         super(InceptionV4, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -12279,8 +11084,7 @@ class InceptionV4(nn.Module):
         normal_units = [InceptionAUnit, InceptionBUnit, InceptionCUnit]
         reduction_units = [ReductionAUnit, ReductionBUnit]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', InceptInitBlock(in_channels=
-            in_channels))
+        self.features.add_module('init_block', InceptInitBlock(in_channels=in_channels))
         for i, layers_per_stage in enumerate(layers):
             stage = nn.Sequential()
             for j in range(layers_per_stage):
@@ -12290,13 +11094,11 @@ class InceptionV4(nn.Module):
                     unit = normal_units[i]
                 stage.add_module('unit{}'.format(j + 1), unit())
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
         self.output = nn.Sequential()
         if dropout_rate > 0.0:
             self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=1536,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=1536, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -12334,8 +11136,7 @@ class IRevDownscale(nn.Module):
         y_height = x_height // self.scale
         y = x.permute(0, 2, 3, 1)
         d2_split_seq = y.split(split_size=self.scale, dim=2)
-        d2_split_seq = [t.contiguous().view(batch, y_height, y_channels) for
-            t in d2_split_seq]
+        d2_split_seq = [t.contiguous().view(batch, y_height, y_channels) for t in d2_split_seq]
         y = torch.stack(d2_split_seq, dim=1)
         y = y.permute(0, 3, 2, 1)
         return y.contiguous()
@@ -12348,14 +11149,11 @@ class IRevDownscale(nn.Module):
         x_height = y_height * self.scale
         x_width = y_width * self.scale
         x = y.permute(0, 2, 3, 1)
-        x = x.contiguous().view(batch, y_height, y_width, scale_sqr, x_channels
-            )
+        x = x.contiguous().view(batch, y_height, y_width, scale_sqr, x_channels)
         d3_split_seq = x.split(split_size=self.scale, dim=3)
-        d3_split_seq = [t.contiguous().view(batch, y_height, x_width,
-            x_channels) for t in d3_split_seq]
+        d3_split_seq = [t.contiguous().view(batch, y_height, x_width, x_channels) for t in d3_split_seq]
         x = torch.stack(d3_split_seq, dim=0)
-        x = x.transpose(0, 1).permute(0, 2, 1, 3, 4).contiguous().view(batch,
-            x_height, x_width, x_channels)
+        x = x.transpose(0, 1).permute(0, 2, 1, 3, 4).contiguous().view(batch, x_height, x_width, x_channels)
         x = x.permute(0, 3, 1, 2)
         return x.contiguous()
 
@@ -12438,15 +11236,11 @@ class IRevBottleneck(nn.Module):
         super(IRevBottleneck, self).__init__()
         mid_channels = out_channels // 4
         if preactivate:
-            self.conv1 = pre_conv3x3_block(in_channels=in_channels,
-                out_channels=mid_channels, stride=stride)
+            self.conv1 = pre_conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=stride)
         else:
-            self.conv1 = conv3x3(in_channels=in_channels, out_channels=
-                mid_channels, stride=stride)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.conv3 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=out_channels)
+            self.conv1 = conv3x3(in_channels=in_channels, out_channels=mid_channels, stride=stride)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels)
+        self.conv3 = pre_conv3x3_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -12480,8 +11274,7 @@ class IRevUnit(nn.Module):
         self.do_downscale = stride != 1
         if self.do_padding:
             self.pad = IRevInjectivePad(padding)
-        self.bottleneck = IRevBottleneck(in_channels=in_channels,
-            out_channels=out_channels, stride=stride, preactivate=preactivate)
+        self.bottleneck = IRevBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, preactivate=preactivate)
         if self.do_downscale:
             self.psi = IRevDownscale(stride)
 
@@ -12553,14 +11346,8 @@ class IRevDualPathSequential(DualPathSequential):
         Number of the final modules skipped during inverse.
     """
 
-    def __init__(self, return_two=True, first_ordinals=0, last_ordinals=0,
-        dual_path_scheme=lambda module, x1, x2: module(x1, x2),
-        dual_path_scheme_ordinal=lambda module, x1, x2: (module(x1), x2),
-        last_noninvertible=0):
-        super(IRevDualPathSequential, self).__init__(return_two=return_two,
-            first_ordinals=first_ordinals, last_ordinals=last_ordinals,
-            dual_path_scheme=dual_path_scheme, dual_path_scheme_ordinal=
-            dual_path_scheme_ordinal)
+    def __init__(self, return_two=True, first_ordinals=0, last_ordinals=0, dual_path_scheme=lambda module, x1, x2: module(x1, x2), dual_path_scheme_ordinal=lambda module, x1, x2: (module(x1), x2), last_noninvertible=0):
+        super(IRevDualPathSequential, self).__init__(return_two=return_two, first_ordinals=first_ordinals, last_ordinals=last_ordinals, dual_path_scheme=dual_path_scheme, dual_path_scheme_ordinal=dual_path_scheme_ordinal)
         self.last_noninvertible = last_noninvertible
 
     def inverse(self, x1, x2=None):
@@ -12600,14 +11387,12 @@ class IRevNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(IRevNet, self).__init__()
         assert in_channels > 0
         self.in_size = in_size
         self.num_classes = num_classes
-        self.features = IRevDualPathSequential(first_ordinals=1,
-            last_ordinals=2, last_noninvertible=2)
+        self.features = IRevDualPathSequential(first_ordinals=1, last_ordinals=2, last_noninvertible=2)
         self.features.add_module('init_block', IRevDownscale(scale=2))
         in_channels = init_block_channels
         self.features.add_module('init_split', IRevSplitBlock())
@@ -12616,19 +11401,14 @@ class IRevNet(nn.Module):
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 else 1
                 preactivate = not (i == 0 and j == 0)
-                stage.add_module('unit{}'.format(j + 1), IRevUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, preactivate=preactivate))
+                stage.add_module('unit{}'.format(j + 1), IRevUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, preactivate=preactivate))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         in_channels = final_block_channels
         self.features.add_module('final_merge', IRevMergeBlock())
-        self.features.add_module('final_postactiv', IRevPostActivation(
-            in_channels=in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_postactiv', IRevPostActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -12662,10 +11442,8 @@ class CovPool(torch.autograd.Function):
         batch, channels, height, width = x.size()
         n = height * width
         xn = x.reshape(batch, channels, n)
-        identity_bar = (1.0 / n * torch.eye(n, dtype=xn.dtype, device=xn.
-            device)).unsqueeze(dim=0).repeat(batch, 1, 1)
-        ones_bar = torch.full((batch, n, n), fill_value=-1.0 / n / n, dtype
-            =xn.dtype, device=xn.device)
+        identity_bar = (1.0 / n * torch.eye(n, dtype=xn.dtype, device=xn.device)).unsqueeze(dim=0).repeat(batch, 1, 1)
+        ones_bar = torch.full((batch, n, n), fill_value=-1.0 / n / n, dtype=xn.dtype, device=xn.device)
         i_bar = identity_bar + ones_bar
         sigma = xn.bmm(i_bar).bmm(xn.transpose(1, 2))
         ctx.save_for_backward(x, i_bar)
@@ -12701,8 +11479,7 @@ class NewtonSchulzSqrt(torch.autograd.Function):
         batch, cols, rows = x.size()
         assert cols == rows
         m = cols
-        identity = torch.eye(m, dtype=x.dtype, device=x.device).unsqueeze(dim=0
-            ).repeat(batch, 1, 1)
+        identity = torch.eye(m, dtype=x.dtype, device=x.device).unsqueeze(dim=0).repeat(batch, 1, 1)
         x_trace = (x * identity).sum(dim=(1, 2), keepdim=True)
         a = x / x_trace
         i3 = 3.0 * identity
@@ -12733,27 +11510,20 @@ class NewtonSchulzSqrt(torch.autograd.Function):
         i3 = 3.0 * identity
         grad_yn = grad_c * x_trace_sqrt
         b = i3 - yi[:, (n - 2), :, :].bmm(zi[:, (n - 2), :, :])
-        grad_yi = 0.5 * (grad_yn.bmm(b) - zi[:, (n - 2), :, :].bmm(yi[:, (n -
-            2), :, :]).bmm(grad_yn))
-        grad_zi = -0.5 * yi[:, (n - 2), :, :].bmm(grad_yn).bmm(yi[:, (n - 2
-            ), :, :])
+        grad_yi = 0.5 * (grad_yn.bmm(b) - zi[:, (n - 2), :, :].bmm(yi[:, (n - 2), :, :]).bmm(grad_yn))
+        grad_zi = -0.5 * yi[:, (n - 2), :, :].bmm(grad_yn).bmm(yi[:, (n - 2), :, :])
         for i in range(n - 3, -1, -1):
             b = i3 - yi[:, (i), :, :].bmm(zi[:, (i), :, :])
             ziyi = zi[:, (i), :, :].bmm(yi[:, (i), :, :])
-            grad_yi_m1 = 0.5 * (grad_yi.bmm(b) - zi[:, (i), :, :].bmm(
-                grad_zi).bmm(zi[:, (i), :, :]) - ziyi.bmm(grad_yi))
-            grad_zi_m1 = 0.5 * (b.bmm(grad_zi) - yi[:, (i), :, :].bmm(
-                grad_yi).bmm(yi[:, (i), :, :]) - grad_zi.bmm(ziyi))
+            grad_yi_m1 = 0.5 * (grad_yi.bmm(b) - zi[:, (i), :, :].bmm(grad_zi).bmm(zi[:, (i), :, :]) - ziyi.bmm(grad_yi))
+            grad_zi_m1 = 0.5 * (b.bmm(grad_zi) - yi[:, (i), :, :].bmm(grad_yi).bmm(yi[:, (i), :, :]) - grad_zi.bmm(ziyi))
             grad_yi = grad_yi_m1
             grad_zi = grad_zi_m1
         grad_a = 0.5 * (grad_yi.bmm(i3 - a) - grad_zi - a.bmm(grad_yi))
         x_trace_sqr = x_trace * x_trace
-        grad_atx_trace = (grad_a.transpose(1, 2).bmm(x) * identity).sum(dim
-            =(1, 2), keepdim=True)
-        grad_cty_trace = (grad_c.transpose(1, 2).bmm(yn) * identity).sum(dim
-            =(1, 2), keepdim=True)
-        grad_x_extra = (0.5 * grad_cty_trace / x_trace_sqrt - 
-            grad_atx_trace / x_trace_sqr).repeat(1, m, m) * identity
+        grad_atx_trace = (grad_a.transpose(1, 2).bmm(x) * identity).sum(dim=(1, 2), keepdim=True)
+        grad_cty_trace = (grad_c.transpose(1, 2).bmm(yn) * identity).sum(dim=(1, 2), keepdim=True)
+        grad_x_extra = (0.5 * grad_cty_trace / x_trace_sqrt - grad_atx_trace / x_trace_sqr).repeat(1, m, m) * identity
         grad_x = grad_a / x_trace + grad_x_extra
         return grad_x, None
 
@@ -12833,33 +11603,25 @@ class iSQRTCOVResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        bottleneck, conv1_stride, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(iSQRTCOVResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i not in [0, len(channels) - 1] else 1
-                stage.add_module('unit{}'.format(j + 1), ResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), ResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels))
         in_channels = final_block_channels
         self.features.add_module('final_pool', iSQRTCOVPool())
         in_features = in_channels * (in_channels + 1) // 2
-        self.output = nn.Linear(in_features=in_features, out_features=
-            num_classes)
+        self.output = nn.Linear(in_features=in_features, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -12894,10 +11656,8 @@ class LffdDetectionBranch(nn.Module):
 
     def __init__(self, in_channels, out_channels, bias, use_bn):
         super(LffdDetectionBranch, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            in_channels, bias=bias, use_bn=use_bn)
-        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=bias, use_bn=use_bn, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=in_channels, bias=bias, use_bn=use_bn)
+        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=bias, use_bn=use_bn, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -12923,15 +11683,10 @@ class LffdDetectionBlock(nn.Module):
 
     def __init__(self, in_channels, mid_channels, bias, use_bn):
         super(LffdDetectionBlock, self).__init__()
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=bias, use_bn=use_bn)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=bias, use_bn=use_bn)
         self.branches = Concurrent()
-        self.branches.add_module('bbox_branch', LffdDetectionBranch(
-            in_channels=mid_channels, out_channels=4, bias=bias, use_bn=use_bn)
-            )
-        self.branches.add_module('score_branch', LffdDetectionBranch(
-            in_channels=mid_channels, out_channels=2, bias=bias, use_bn=use_bn)
-            )
+        self.branches.add_module('bbox_branch', LffdDetectionBranch(in_channels=mid_channels, out_channels=4, bias=bias, use_bn=use_bn))
+        self.branches.add_module('score_branch', LffdDetectionBranch(in_channels=mid_channels, out_channels=2, bias=bias, use_bn=use_bn))
 
     def forward(self, x):
         x = self.conv(x)
@@ -12963,29 +11718,22 @@ class LFFD(nn.Module):
         Spatial size of the expected input image.
     """
 
-    def __init__(self, enc_channels, dec_channels, init_block_channels,
-        layers, int_bends, use_preresnet, in_channels=3, in_size=(640, 640)):
+    def __init__(self, enc_channels, dec_channels, init_block_channels, layers, int_bends, use_preresnet, in_channels=3, in_size=(640, 640)):
         super(LFFD, self).__init__()
         self.in_size = in_size
         unit_class = PreResUnit if use_preresnet else ResUnit
         bias = True
         use_bn = False
         self.encoder = MultiOutputSequential(return_last=False)
-        self.encoder.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2,
-            padding=0, bias=bias, use_bn=use_bn))
+        self.encoder.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2, padding=0, bias=bias, use_bn=use_bn))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(enc_channels):
             layers_per_stage = layers[i]
             int_bends_per_stage = int_bends[i]
             stage = MultiOutputSequential(multi_output=False, dual_output=True)
-            stage.add_module('trans{}'.format(i + 1), conv3x3(in_channels=
-                in_channels, out_channels=channels_per_stage, stride=2,
-                padding=0, bias=bias))
+            stage.add_module('trans{}'.format(i + 1), conv3x3(in_channels=in_channels, out_channels=channels_per_stage, stride=2, padding=0, bias=bias))
             for j in range(layers_per_stage):
-                unit = unit_class(in_channels=channels_per_stage,
-                    out_channels=channels_per_stage, stride=1, bias=bias,
-                    use_bn=use_bn, bottleneck=False)
+                unit = unit_class(in_channels=channels_per_stage, out_channels=channels_per_stage, stride=1, bias=bias, use_bn=use_bn, bottleneck=False)
                 if layers_per_stage - j <= int_bends_per_stage:
                     unit.do_output = True
                 stage.add_module('unit{}'.format(j + 1), unit)
@@ -13002,13 +11750,9 @@ class LFFD(nn.Module):
             int_bends_per_stage = int_bends[i]
             for j in range(layers_per_stage):
                 if layers_per_stage - j <= int_bends_per_stage:
-                    self.decoder.add_module('unit{}'.format(k + 1),
-                        LffdDetectionBlock(in_channels=channels_per_stage,
-                        mid_channels=dec_channels, bias=bias, use_bn=use_bn))
+                    self.decoder.add_module('unit{}'.format(k + 1), LffdDetectionBlock(in_channels=channels_per_stage, mid_channels=dec_channels, bias=bias, use_bn=use_bn))
                     k += 1
-            self.decoder.add_module('unit{}'.format(k + 1),
-                LffdDetectionBlock(in_channels=channels_per_stage,
-                mid_channels=dec_channels, bias=bias, use_bn=use_bn))
+            self.decoder.add_module('unit{}'.format(k + 1), LffdDetectionBlock(in_channels=channels_per_stage, mid_channels=dec_channels, bias=bias, use_bn=use_bn))
             k += 1
         self._init_params()
 
@@ -13045,17 +11789,12 @@ class LwopResBottleneck(nn.Module):
         Whether to squeeze the output channels.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bias=True,
-        bottleneck_factor=2, squeeze_out=False):
+    def __init__(self, in_channels, out_channels, stride, bias=True, bottleneck_factor=2, squeeze_out=False):
         super(LwopResBottleneck, self).__init__()
-        mid_channels = (out_channels // bottleneck_factor if squeeze_out else
-            in_channels // bottleneck_factor)
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=bias)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride, bias=bias)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, bias=bias, activation=None)
+        mid_channels = out_channels // bottleneck_factor if squeeze_out else in_channels // bottleneck_factor
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=bias)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, bias=bias)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, bias=bias, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -13086,18 +11825,13 @@ class LwopResUnit(nn.Module):
         Whether to activate the sum.
     """
 
-    def __init__(self, in_channels, out_channels, stride=1, bias=True,
-        bottleneck_factor=2, squeeze_out=False, activate=False):
+    def __init__(self, in_channels, out_channels, stride=1, bias=True, bottleneck_factor=2, squeeze_out=False, activate=False):
         super(LwopResUnit, self).__init__()
         self.activate = activate
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = LwopResBottleneck(in_channels=in_channels, out_channels
-            =out_channels, stride=stride, bias=bias, bottleneck_factor=
-            bottleneck_factor, squeeze_out=squeeze_out)
+        self.body = LwopResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, bottleneck_factor=bottleneck_factor, squeeze_out=squeeze_out)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, bias=bias,
-                activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, activation=None)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
 
@@ -13127,16 +11861,11 @@ class LwopEncoderFinalBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(LwopEncoderFinalBlock, self).__init__()
-        self.pre_conv = conv1x1_block(in_channels=in_channels, out_channels
-            =out_channels, bias=True, use_bn=False)
+        self.pre_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=True, use_bn=False)
         self.body = nn.Sequential()
         for i in range(3):
-            self.body.add_module('block{}'.format(i + 1), dwsconv3x3_block(
-                in_channels=out_channels, out_channels=out_channels, use_bn
-                =False, dw_activation=lambda : nn.ELU(inplace=True),
-                pw_activation=lambda : nn.ELU(inplace=True)))
-        self.post_conv = conv3x3_block(in_channels=out_channels,
-            out_channels=out_channels, bias=True, use_bn=False)
+            self.body.add_module('block{}'.format(i + 1), dwsconv3x3_block(in_channels=out_channels, out_channels=out_channels, use_bn=False, dw_activation=lambda : nn.ELU(inplace=True), pw_activation=lambda : nn.ELU(inplace=True)))
+        self.post_conv = conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=True, use_bn=False)
 
     def forward(self, x):
         x = self.pre_conv(x)
@@ -13159,14 +11888,10 @@ class LwopRefinementBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(LwopRefinementBlock, self).__init__()
-        self.pre_conv = conv1x1_block(in_channels=in_channels, out_channels
-            =out_channels, bias=True, use_bn=False)
+        self.pre_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=True, use_bn=False)
         self.body = nn.Sequential()
-        self.body.add_module('block1', conv3x3_block(in_channels=
-            out_channels, out_channels=out_channels, bias=True))
-        self.body.add_module('block2', conv3x3_block(in_channels=
-            out_channels, out_channels=out_channels, padding=2, dilation=2,
-            bias=True))
+        self.body.add_module('block1', conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=True))
+        self.body.add_module('block2', conv3x3_block(in_channels=out_channels, out_channels=out_channels, padding=2, dilation=2, bias=True))
 
     def forward(self, x):
         x = self.pre_conv(x)
@@ -13190,10 +11915,8 @@ class LwopDecoderBend(nn.Module):
 
     def __init__(self, in_channels, mid_channels, out_channels):
         super(LwopDecoderBend, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=True, use_bn=False)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=True, use_bn=False)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -13220,13 +11943,9 @@ class LwopDecoderInitBlock(nn.Module):
         bend_mid_channels = 512
         self.body = nn.Sequential()
         for i in range(3):
-            self.body.add_module('block{}'.format(i + 1), conv3x3_block(
-                in_channels=in_channels, out_channels=in_channels, bias=
-                True, use_bn=False))
-        self.heatmap_bend = LwopDecoderBend(in_channels=in_channels,
-            mid_channels=bend_mid_channels, out_channels=num_heatmap)
-        self.paf_bend = LwopDecoderBend(in_channels=in_channels,
-            mid_channels=bend_mid_channels, out_channels=num_paf)
+            self.body.add_module('block{}'.format(i + 1), conv3x3_block(in_channels=in_channels, out_channels=in_channels, bias=True, use_bn=False))
+        self.heatmap_bend = LwopDecoderBend(in_channels=in_channels, mid_channels=bend_mid_channels, out_channels=num_heatmap)
+        self.paf_bend = LwopDecoderBend(in_channels=in_channels, mid_channels=bend_mid_channels, out_channels=num_paf)
 
     def forward(self, x):
         y = self.body(x)
@@ -13255,15 +11974,10 @@ class LwopDecoderUnit(nn.Module):
         self.features_channels = in_channels - num_heatmap - num_paf
         self.body = nn.Sequential()
         for i in range(5):
-            self.body.add_module('block{}'.format(i + 1),
-                LwopRefinementBlock(in_channels=in_channels, out_channels=
-                self.features_channels))
+            self.body.add_module('block{}'.format(i + 1), LwopRefinementBlock(in_channels=in_channels, out_channels=self.features_channels))
             in_channels = self.features_channels
-        self.heatmap_bend = LwopDecoderBend(in_channels=self.
-            features_channels, mid_channels=self.features_channels,
-            out_channels=num_heatmap)
-        self.paf_bend = LwopDecoderBend(in_channels=self.features_channels,
-            mid_channels=self.features_channels, out_channels=num_paf)
+        self.heatmap_bend = LwopDecoderBend(in_channels=self.features_channels, mid_channels=self.features_channels, out_channels=num_heatmap)
+        self.paf_bend = LwopDecoderBend(in_channels=self.features_channels, mid_channels=self.features_channels, out_channels=num_paf)
 
     def forward(self, x):
         features = x[:, :self.features_channels]
@@ -13292,12 +12006,9 @@ class LwopDecoderFeaturesBend(nn.Module):
         super(LwopDecoderFeaturesBend, self).__init__()
         self.body = nn.Sequential()
         for i in range(2):
-            self.body.add_module('block{}'.format(i + 1),
-                LwopRefinementBlock(in_channels=in_channels, out_channels=
-                mid_channels))
+            self.body.add_module('block{}'.format(i + 1), LwopRefinementBlock(in_channels=in_channels, out_channels=mid_channels))
             in_channels = mid_channels
-        self.features_bend = LwopDecoderBend(in_channels=mid_channels,
-            mid_channels=mid_channels, out_channels=out_channels)
+        self.features_bend = LwopDecoderBend(in_channels=mid_channels, mid_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.body(x)
@@ -13321,8 +12032,7 @@ class LwopDecoderFinalBlock(nn.Module):
         Whether to calculate 3D features.
     """
 
-    def __init__(self, in_channels, keypoints, bottleneck_factor,
-        calc_3d_features):
+    def __init__(self, in_channels, keypoints, bottleneck_factor, calc_3d_features):
         super(LwopDecoderFinalBlock, self).__init__()
         self.num_heatmap_paf = 3 * keypoints
         self.calc_3d_features = calc_3d_features
@@ -13331,13 +12041,9 @@ class LwopDecoderFinalBlock(nn.Module):
         if self.calc_3d_features:
             self.body = nn.Sequential()
             for i in range(5):
-                self.body.add_module('block{}'.format(i + 1), LwopResUnit(
-                    in_channels=in_channels, out_channels=
-                    features_in_channels, bottleneck_factor=bottleneck_factor))
+                self.body.add_module('block{}'.format(i + 1), LwopResUnit(in_channels=in_channels, out_channels=features_in_channels, bottleneck_factor=bottleneck_factor))
                 in_channels = features_in_channels
-            self.features_bend = LwopDecoderFeaturesBend(in_channels=
-                features_in_channels, mid_channels=features_in_channels,
-                out_channels=features_out_channels)
+            self.features_bend = LwopDecoderFeaturesBend(in_channels=features_in_channels, mid_channels=features_in_channels, out_channels=features_out_channels)
 
     def forward(self, x):
         heatmap_paf_2d = x[:, -self.num_heatmap_paf:]
@@ -13378,10 +12084,7 @@ class LwOpenPose(nn.Module):
         Number of keypoints.
     """
 
-    def __init__(self, encoder_channels, encoder_paddings,
-        encoder_init_block_channels, encoder_final_block_channels,
-        refinement_units, calc_3d_features, return_heatmap=True,
-        in_channels=3, in_size=(368, 368), keypoints=19):
+    def __init__(self, encoder_channels, encoder_paddings, encoder_init_block_channels, encoder_final_block_channels, refinement_units, calc_3d_features, return_heatmap=True, in_channels=3, in_size=(368, 368), keypoints=19):
         super(LwOpenPose, self).__init__()
         assert in_channels == 3
         self.in_size = in_size
@@ -13391,34 +12094,25 @@ class LwOpenPose(nn.Module):
         num_heatmap_paf = 3 * keypoints
         self.encoder = nn.Sequential()
         backbone = nn.Sequential()
-        backbone.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=encoder_init_block_channels, stride=2))
+        backbone.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=encoder_init_block_channels, stride=2))
         in_channels = encoder_init_block_channels
         for i, channels_per_stage in enumerate(encoder_channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 padding = encoder_paddings[i][j]
-                stage.add_module('unit{}'.format(j + 1), dwsconv3x3_block(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, padding=padding, dilation=padding))
+                stage.add_module('unit{}'.format(j + 1), dwsconv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, dilation=padding))
                 in_channels = out_channels
             backbone.add_module('stage{}'.format(i + 1), stage)
         self.encoder.add_module('backbone', backbone)
-        self.encoder.add_module('final_block', LwopEncoderFinalBlock(
-            in_channels=in_channels, out_channels=encoder_final_block_channels)
-            )
+        self.encoder.add_module('final_block', LwopEncoderFinalBlock(in_channels=in_channels, out_channels=encoder_final_block_channels))
         in_channels = encoder_final_block_channels
         self.decoder = nn.Sequential()
-        self.decoder.add_module('init_block', LwopDecoderInitBlock(
-            in_channels=in_channels, keypoints=keypoints))
+        self.decoder.add_module('init_block', LwopDecoderInitBlock(in_channels=in_channels, keypoints=keypoints))
         in_channels = encoder_final_block_channels + num_heatmap_paf
         for i in range(refinement_units):
-            self.decoder.add_module('unit{}'.format(i + 1), LwopDecoderUnit
-                (in_channels=in_channels, keypoints=keypoints))
-        self.decoder.add_module('final_block', LwopDecoderFinalBlock(
-            in_channels=in_channels, keypoints=keypoints, bottleneck_factor
-            =2, calc_3d_features=calc_3d_features))
+            self.decoder.add_module('unit{}'.format(i + 1), LwopDecoderUnit(in_channels=in_channels, keypoints=keypoints))
+        self.decoder.add_module('final_block', LwopDecoderFinalBlock(in_channels=in_channels, keypoints=keypoints, bottleneck_factor=2, calc_3d_features=calc_3d_features))
         self._init_params()
 
     def _init_params(self):
@@ -13448,8 +12142,7 @@ def depthwise_conv3x3(channels, stride):
     strides : int or tuple/list of 2 int
         Strides of the convolution.
     """
-    return nn.Conv2d(in_channels=channels, out_channels=channels,
-        kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
+    return nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=stride, padding=1, groups=channels, bias=False)
 
 
 class MEUnit(nn.Module):
@@ -13472,34 +12165,27 @@ class MEUnit(nn.Module):
         Whether ignore group value in the first convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, side_channels, groups,
-        downsample, ignore_group):
+    def __init__(self, in_channels, out_channels, side_channels, groups, downsample, ignore_group):
         super(MEUnit, self).__init__()
         self.downsample = downsample
         mid_channels = out_channels // 4
         if downsample:
             out_channels -= in_channels
-        self.compress_conv1 = conv1x1(in_channels=in_channels, out_channels
-            =mid_channels, groups=1 if ignore_group else groups)
+        self.compress_conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels, groups=1 if ignore_group else groups)
         self.compress_bn1 = nn.BatchNorm2d(num_features=mid_channels)
         self.c_shuffle = ChannelShuffle(channels=mid_channels, groups=groups)
-        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if
-            self.downsample else 1)
+        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if self.downsample else 1)
         self.dw_bn2 = nn.BatchNorm2d(num_features=mid_channels)
-        self.expand_conv3 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, groups=groups)
+        self.expand_conv3 = conv1x1(in_channels=mid_channels, out_channels=out_channels, groups=groups)
         self.expand_bn3 = nn.BatchNorm2d(num_features=out_channels)
         if downsample:
             self.avgpool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
         self.activ = nn.ReLU(inplace=True)
-        self.s_merge_conv = conv1x1(in_channels=mid_channels, out_channels=
-            side_channels)
+        self.s_merge_conv = conv1x1(in_channels=mid_channels, out_channels=side_channels)
         self.s_merge_bn = nn.BatchNorm2d(num_features=side_channels)
-        self.s_conv = conv3x3(in_channels=side_channels, out_channels=
-            side_channels, stride=2 if self.downsample else 1)
+        self.s_conv = conv3x3(in_channels=side_channels, out_channels=side_channels, stride=2 if self.downsample else 1)
         self.s_conv_bn = nn.BatchNorm2d(num_features=side_channels)
-        self.s_evolve_conv = conv1x1(in_channels=side_channels,
-            out_channels=mid_channels)
+        self.s_evolve_conv = conv1x1(in_channels=side_channels, out_channels=mid_channels)
         self.s_evolve_bn = nn.BatchNorm2d(num_features=mid_channels)
 
     def forward(self, x):
@@ -13545,8 +12231,7 @@ class MEInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(MEInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=2, padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -13582,30 +12267,23 @@ class MENet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, side_channels, groups,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, side_channels, groups, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MENet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', MEInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', MEInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 downsample = j == 0
                 ignore_group = i == 0 and j == 0
-                stage.add_module('unit{}'.format(j + 1), MEUnit(in_channels
-                    =in_channels, out_channels=out_channels, side_channels=
-                    side_channels, groups=groups, downsample=downsample,
-                    ignore_group=ignore_group))
+                stage.add_module('unit{}'.format(j + 1), MEUnit(in_channels=in_channels, out_channels=out_channels, side_channels=side_channels, groups=groups, downsample=downsample, ignore_group=ignore_group))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -13648,25 +12326,18 @@ class MixConv(nn.Module):
         The axis on which to concatenate the outputs.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, axis=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, axis=1):
         super(MixConv, self).__init__()
-        kernel_size = kernel_size if isinstance(kernel_size, list) else [
-            kernel_size]
+        kernel_size = kernel_size if isinstance(kernel_size, list) else [kernel_size]
         padding = padding if isinstance(padding, list) else [padding]
         kernel_count = len(kernel_size)
-        self.splitted_in_channels = self.split_channels(in_channels,
-            kernel_count)
+        self.splitted_in_channels = self.split_channels(in_channels, kernel_count)
         splitted_out_channels = self.split_channels(out_channels, kernel_count)
         for i, kernel_size_i in enumerate(kernel_size):
             in_channels_i = self.splitted_in_channels[i]
             out_channels_i = splitted_out_channels[i]
             padding_i = padding[i]
-            self.add_module(name=str(i), module=nn.Conv2d(in_channels=
-                in_channels_i, out_channels=out_channels_i, kernel_size=
-                kernel_size_i, stride=stride, padding=padding_i, dilation=
-                dilation, groups=out_channels_i if out_channels == groups else
-                groups, bias=bias))
+            self.add_module(name=str(i), module=nn.Conv2d(in_channels=in_channels_i, out_channels=out_channels_i, kernel_size=kernel_size_i, stride=stride, padding=padding_i, dilation=dilation, groups=out_channels_i if out_channels == groups else groups, bias=bias))
         self.axis = axis
 
     def forward(self, x):
@@ -13714,15 +12385,11 @@ class MixConvBlock(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=
-        1e-05, activation=lambda : nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
         super(MixConvBlock, self).__init__()
         self.activate = activation is not None
         self.use_bn = use_bn
-        self.conv = MixConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias)
+        self.conv = MixConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         if self.use_bn:
             self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
         if self.activate:
@@ -13737,9 +12404,7 @@ class MixConvBlock(nn.Module):
         return x
 
 
-def mixconv1x1_block(in_channels, out_channels, kernel_count, stride=1,
-    groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn
-    .ReLU(inplace=True)):
+def mixconv1x1_block(in_channels, out_channels, kernel_count, stride=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     1x1 version of the mixed convolution block.
 
@@ -13764,10 +12429,7 @@ def mixconv1x1_block(in_channels, out_channels, kernel_count, stride=1,
     activation : function or str, or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return MixConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=[1] * kernel_count, stride=stride, padding=[0] *
-        kernel_count, groups=groups, bias=bias, use_bn=use_bn, bn_eps=
-        bn_eps, activation=activation)
+    return MixConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=[1] * kernel_count, stride=stride, padding=[0] * kernel_count, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 class MixUnit(nn.Module):
@@ -13798,9 +12460,7 @@ class MixUnit(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride, exp_kernel_count,
-        conv1_kernel_count, conv2_kernel_count, exp_factor, se_factor,
-        activation):
+    def __init__(self, in_channels, out_channels, stride, exp_kernel_count, conv1_kernel_count, conv2_kernel_count, exp_factor, se_factor, activation):
         super(MixUnit, self).__init__()
         assert exp_factor >= 1
         assert se_factor >= 0
@@ -13810,32 +12470,19 @@ class MixUnit(nn.Module):
         self.use_exp_conv = exp_factor > 1
         if self.use_exp_conv:
             if exp_kernel_count == 1:
-                self.exp_conv = conv1x1_block(in_channels=in_channels,
-                    out_channels=mid_channels, activation=activation)
+                self.exp_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activation=activation)
             else:
-                self.exp_conv = mixconv1x1_block(in_channels=in_channels,
-                    out_channels=mid_channels, kernel_count=
-                    exp_kernel_count, activation=activation)
+                self.exp_conv = mixconv1x1_block(in_channels=in_channels, out_channels=mid_channels, kernel_count=exp_kernel_count, activation=activation)
         if conv1_kernel_count == 1:
-            self.conv1 = dwconv3x3_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, activation=activation
-                )
+            self.conv1 = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=activation)
         else:
-            self.conv1 = MixConvBlock(in_channels=mid_channels,
-                out_channels=mid_channels, kernel_size=[(3 + 2 * i) for i in
-                range(conv1_kernel_count)], stride=stride, padding=[(1 + i) for
-                i in range(conv1_kernel_count)], groups=mid_channels,
-                activation=activation)
+            self.conv1 = MixConvBlock(in_channels=mid_channels, out_channels=mid_channels, kernel_size=[(3 + 2 * i) for i in range(conv1_kernel_count)], stride=stride, padding=[(1 + i) for i in range(conv1_kernel_count)], groups=mid_channels, activation=activation)
         if self.use_se:
-            self.se = SEBlock(channels=mid_channels, reduction=exp_factor *
-                se_factor, round_mid=False, mid_activation=activation)
+            self.se = SEBlock(channels=mid_channels, reduction=exp_factor * se_factor, round_mid=False, mid_activation=activation)
         if conv2_kernel_count == 1:
-            self.conv2 = conv1x1_block(in_channels=mid_channels,
-                out_channels=out_channels, activation=None)
+            self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
         else:
-            self.conv2 = mixconv1x1_block(in_channels=mid_channels,
-                out_channels=out_channels, kernel_count=conv2_kernel_count,
-                activation=None)
+            self.conv2 = mixconv1x1_block(in_channels=mid_channels, out_channels=out_channels, kernel_count=conv2_kernel_count, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -13865,12 +12512,8 @@ class MixInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(MixInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2)
-        self.conv2 = MixUnit(in_channels=out_channels, out_channels=
-            out_channels, stride=1, exp_kernel_count=1, conv1_kernel_count=
-            1, conv2_kernel_count=1, exp_factor=1, se_factor=0, activation=
-            'relu')
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2)
+        self.conv2 = MixUnit(in_channels=out_channels, out_channels=out_channels, stride=1, exp_kernel_count=1, conv1_kernel_count=1, conv2_kernel_count=1, exp_factor=1, se_factor=0, activation='relu')
 
     def forward(self, x):
         x = self.conv1(x)
@@ -13908,43 +12551,30 @@ class MixNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        exp_kernel_counts, conv1_kernel_counts, conv2_kernel_counts,
-        exp_factors, se_factors, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, exp_kernel_counts, conv1_kernel_counts, conv2_kernel_counts, exp_factors, se_factors, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MixNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', MixInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', MixInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stride = 2 if j == 0 and i != 3 or j == len(channels_per_stage
-                    ) // 2 and i == 3 else 1
+                stride = 2 if j == 0 and i != 3 or j == len(channels_per_stage) // 2 and i == 3 else 1
                 exp_kernel_count = exp_kernel_counts[i][j]
                 conv1_kernel_count = conv1_kernel_counts[i][j]
                 conv2_kernel_count = conv2_kernel_counts[i][j]
                 exp_factor = exp_factors[i][j]
                 se_factor = se_factors[i][j]
                 activation = 'relu' if i == 0 else 'swish'
-                stage.add_module('unit{}'.format(j + 1), MixUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, exp_kernel_count=exp_kernel_count,
-                    conv1_kernel_count=conv1_kernel_count,
-                    conv2_kernel_count=conv2_kernel_count, exp_factor=
-                    exp_factor, se_factor=se_factor, activation=activation))
+                stage.add_module('unit{}'.format(j + 1), MixUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, exp_kernel_count=exp_kernel_count, conv1_kernel_count=conv1_kernel_count, conv2_kernel_count=conv2_kernel_count, exp_factor=exp_factor, se_factor=se_factor, activation=activation))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -13985,26 +12615,20 @@ class DwsExpSEResUnit(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride=1, use_kernel3=
-        True, exp_factor=1, se_factor=0, use_skip=True, activation='relu'):
+    def __init__(self, in_channels, out_channels, stride=1, use_kernel3=True, exp_factor=1, se_factor=0, use_skip=True, activation='relu'):
         super(DwsExpSEResUnit, self).__init__()
         assert exp_factor >= 1
-        self.residual = (in_channels == out_channels and stride == 1 and
-            use_skip)
+        self.residual = in_channels == out_channels and stride == 1 and use_skip
         self.use_exp_conv = exp_factor > 1
         self.use_se = se_factor > 0
         mid_channels = exp_factor * in_channels
         dwconv_block_fn = dwconv3x3_block if use_kernel3 else dwconv5x5_block
         if self.use_exp_conv:
-            self.exp_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels, activation=activation)
-        self.dw_conv = dwconv_block_fn(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, activation=activation)
+            self.exp_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activation=activation)
+        self.dw_conv = dwconv_block_fn(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=activation)
         if self.use_se:
-            self.se = SEBlock(channels=mid_channels, reduction=exp_factor *
-                se_factor, round_mid=False, mid_activation=activation)
-        self.pw_conv = conv1x1_block(in_channels=mid_channels, out_channels
-            =out_channels, activation=None)
+            self.se = SEBlock(channels=mid_channels, reduction=exp_factor * se_factor, round_mid=False, mid_activation=activation)
+        self.pw_conv = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -14038,10 +12662,8 @@ class MnasInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels, use_skip):
         super(MnasInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = DwsExpSEResUnit(in_channels=mid_channels, out_channels
-            =out_channels, use_skip=use_skip)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = DwsExpSEResUnit(in_channels=mid_channels, out_channels=out_channels, use_skip=use_skip)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -14067,10 +12689,8 @@ class MnasFinalBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels, use_skip):
         super(MnasFinalBlock, self).__init__()
-        self.conv1 = DwsExpSEResUnit(in_channels=in_channels, out_channels=
-            mid_channels, exp_factor=6, use_skip=use_skip)
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = DwsExpSEResUnit(in_channels=in_channels, out_channels=mid_channels, exp_factor=6, use_skip=use_skip)
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -14109,17 +12729,12 @@ class MnasNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        kernels3, exp_factors, se_factors, init_block_use_skip,
-        final_block_use_skip, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, kernels3, exp_factors, se_factors, init_block_use_skip, final_block_use_skip, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MnasNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', MnasInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels[1], mid_channels=
-            init_block_channels[0], use_skip=init_block_use_skip))
+        self.features.add_module('init_block', MnasInitBlock(in_channels=in_channels, out_channels=init_block_channels[1], mid_channels=init_block_channels[0], use_skip=init_block_use_skip))
         in_channels = init_block_channels[1]
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -14128,20 +12743,13 @@ class MnasNet(nn.Module):
                 use_kernel3 = kernels3[i][j] == 1
                 exp_factor = exp_factors[i][j]
                 se_factor = se_factors[i][j]
-                stage.add_module('unit{}'.format(j + 1), DwsExpSEResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, use_kernel3=use_kernel3, exp_factor=
-                    exp_factor, se_factor=se_factor))
+                stage.add_module('unit{}'.format(j + 1), DwsExpSEResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, use_kernel3=use_kernel3, exp_factor=exp_factor, se_factor=se_factor))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', MnasFinalBlock(in_channels=
-            in_channels, out_channels=final_block_channels[1], mid_channels
-            =final_block_channels[0], use_skip=final_block_use_skip))
+        self.features.add_module('final_block', MnasFinalBlock(in_channels=in_channels, out_channels=final_block_channels[1], mid_channels=final_block_channels[0], use_skip=final_block_use_skip))
         in_channels = final_block_channels[1]
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -14177,29 +12785,23 @@ class MobileNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, first_stage_stride, in_channels=3, in_size
-        =(224, 224), num_classes=1000):
+    def __init__(self, channels, first_stage_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MobileNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
         init_block_channels = channels[0][0]
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels[1:]):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and (i != 0 or first_stage_stride) else 1
-                stage.add_module('unit{}'.format(j + 1), dwsconv3x3_block(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride))
+                stage.add_module('unit{}'.format(j + 1), dwsconv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -14240,19 +12842,15 @@ class LinearBottleneck(nn.Module):
         Whether to remove expansion convolution.
     """
 
-    def __init__(self, in_channels, out_channels, stride, expansion,
-        remove_exp_conv):
+    def __init__(self, in_channels, out_channels, stride, expansion, remove_exp_conv):
         super(LinearBottleneck, self).__init__()
         self.residual = in_channels == out_channels and stride == 1
         mid_channels = in_channels * 6 if expansion else in_channels
         self.use_exp_conv = expansion or not remove_exp_conv
         if self.use_exp_conv:
-            self.conv1 = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels, activation='relu6')
-        self.conv2 = dwconv3x3_block(in_channels=mid_channels, out_channels
-            =mid_channels, stride=stride, activation='relu6')
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+            self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activation='relu6')
+        self.conv2 = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation='relu6')
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -14288,35 +12886,25 @@ class MobileNetV2(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        remove_exp_conv, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, remove_exp_conv, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MobileNetV2, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2,
-            activation='relu6'))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2, activation='relu6'))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 expansion = i != 0 or j != 0
-                stage.add_module('unit{}'.format(j + 1), LinearBottleneck(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, expansion=expansion, remove_exp_conv=
-                    remove_exp_conv))
+                stage.add_module('unit{}'.format(j + 1), LinearBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, expansion=expansion, remove_exp_conv=remove_exp_conv))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, activation='relu6')
-            )
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, activation='relu6'))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = conv1x1(in_channels=in_channels, out_channels=
-            num_classes, bias=False)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = conv1x1(in_channels=in_channels, out_channels=num_classes, bias=False)
         self._init_params()
 
     def _init_params(self):
@@ -14355,8 +12943,7 @@ class MobileNetV3Unit(nn.Module):
         Whether to use SE-module.
     """
 
-    def __init__(self, in_channels, out_channels, exp_channels, stride,
-        use_kernel3, activation, use_se):
+    def __init__(self, in_channels, out_channels, exp_channels, stride, use_kernel3, activation, use_se):
         super(MobileNetV3Unit, self).__init__()
         assert exp_channels >= out_channels
         self.residual = in_channels == out_channels and stride == 1
@@ -14364,21 +12951,14 @@ class MobileNetV3Unit(nn.Module):
         self.use_exp_conv = exp_channels != out_channels
         mid_channels = exp_channels
         if self.use_exp_conv:
-            self.exp_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels, activation=activation)
+            self.exp_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activation=activation)
         if use_kernel3:
-            self.conv1 = dwconv3x3_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, activation=activation
-                )
+            self.conv1 = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=activation)
         else:
-            self.conv1 = dwconv5x5_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, activation=activation
-                )
+            self.conv1 = dwconv5x5_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=activation)
         if self.use_se:
-            self.se = SEBlock(channels=mid_channels, reduction=4, round_mid
-                =True, out_activation='hsigmoid')
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+            self.se = SEBlock(channels=mid_channels, reduction=4, round_mid=True, out_activation='hsigmoid')
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -14411,11 +12991,9 @@ class MobileNetV3FinalBlock(nn.Module):
     def __init__(self, in_channels, out_channels, use_se):
         super(MobileNetV3FinalBlock, self).__init__()
         self.use_se = use_se
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, activation='hswish')
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, activation='hswish')
         if self.use_se:
-            self.se = SEBlock(channels=out_channels, reduction=4, round_mid
-                =True, out_activation='hsigmoid')
+            self.se = SEBlock(channels=out_channels, reduction=4, round_mid=True, out_activation='hsigmoid')
 
     def forward(self, x):
         x = self.conv(x)
@@ -14443,13 +13021,11 @@ class MobileNetV3Classifier(nn.Module):
     def __init__(self, in_channels, out_channels, mid_channels, dropout_rate):
         super(MobileNetV3Classifier, self).__init__()
         self.use_dropout = dropout_rate != 0.0
-        self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels
-            )
+        self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels)
         self.activ = HSwish(inplace=True)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -14494,17 +13070,12 @@ class MobileNetV3(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, exp_channels, init_block_channels,
-        final_block_channels, classifier_mid_channels, kernels3, use_relu,
-        use_se, first_stride, final_use_se, in_channels=3, in_size=(224, 
-        224), num_classes=1000):
+    def __init__(self, channels, exp_channels, init_block_channels, final_block_channels, classifier_mid_channels, kernels3, use_relu, use_se, first_stride, final_use_se, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MobileNetV3, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2,
-            activation='hswish'))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2, activation='hswish'))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -14514,21 +13085,13 @@ class MobileNetV3(nn.Module):
                 use_kernel3 = kernels3[i][j] == 1
                 activation = 'relu' if use_relu[i][j] == 1 else 'hswish'
                 use_se_flag = use_se[i][j] == 1
-                stage.add_module('unit{}'.format(j + 1), MobileNetV3Unit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    exp_channels=exp_channels_ij, use_kernel3=use_kernel3,
-                    stride=stride, activation=activation, use_se=use_se_flag))
+                stage.add_module('unit{}'.format(j + 1), MobileNetV3Unit(in_channels=in_channels, out_channels=out_channels, exp_channels=exp_channels_ij, use_kernel3=use_kernel3, stride=stride, activation=activation, use_se=use_se_flag))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', MobileNetV3FinalBlock(
-            in_channels=in_channels, out_channels=final_block_channels,
-            use_se=final_use_se))
+        self.features.add_module('final_block', MobileNetV3FinalBlock(in_channels=in_channels, out_channels=final_block_channels, use_se=final_use_se))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = MobileNetV3Classifier(in_channels=in_channels,
-            out_channels=num_classes, mid_channels=classifier_mid_channels,
-            dropout_rate=0.2)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = MobileNetV3Classifier(in_channels=in_channels, out_channels=num_classes, mid_channels=classifier_mid_channels, dropout_rate=0.2)
         self._init_params()
 
     def _init_params(self):
@@ -14597,17 +13160,13 @@ class MSDBaseBlock(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, stride, use_bottleneck,
-        bottleneck_factor):
+    def __init__(self, in_channels, out_channels, stride, use_bottleneck, bottleneck_factor):
         super(MSDBaseBlock, self).__init__()
         self.use_bottleneck = use_bottleneck
-        mid_channels = min(in_channels, bottleneck_factor * out_channels
-            ) if use_bottleneck else in_channels
+        mid_channels = min(in_channels, bottleneck_factor * out_channels) if use_bottleneck else in_channels
         if self.use_bottleneck:
-            self.bn_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels)
-        self.conv = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=stride)
+            self.bn_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         if self.use_bottleneck:
@@ -14632,14 +13191,11 @@ class MSDFirstScaleBlock(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, use_bottleneck,
-        bottleneck_factor):
+    def __init__(self, in_channels, out_channels, use_bottleneck, bottleneck_factor):
         super(MSDFirstScaleBlock, self).__init__()
         assert out_channels > in_channels
         inc_channels = out_channels - in_channels
-        self.block = MSDBaseBlock(in_channels=in_channels, out_channels=
-            inc_channels, stride=1, use_bottleneck=use_bottleneck,
-            bottleneck_factor=bottleneck_factor)
+        self.block = MSDBaseBlock(in_channels=in_channels, out_channels=inc_channels, stride=1, use_bottleneck=use_bottleneck, bottleneck_factor=bottleneck_factor)
 
     def forward(self, x):
         y = self.block(x)
@@ -14667,19 +13223,14 @@ class MSDScaleBlock(nn.Module):
         Bottleneck factor for the current scale.
     """
 
-    def __init__(self, in_channels_prev, in_channels, out_channels,
-        use_bottleneck, bottleneck_factor_prev, bottleneck_factor):
+    def __init__(self, in_channels_prev, in_channels, out_channels, use_bottleneck, bottleneck_factor_prev, bottleneck_factor):
         super(MSDScaleBlock, self).__init__()
         assert out_channels > in_channels
         assert out_channels % 2 == 0
         inc_channels = out_channels - in_channels
         mid_channels = inc_channels // 2
-        self.down_block = MSDBaseBlock(in_channels=in_channels_prev,
-            out_channels=mid_channels, stride=2, use_bottleneck=
-            use_bottleneck, bottleneck_factor=bottleneck_factor_prev)
-        self.curr_block = MSDBaseBlock(in_channels=in_channels,
-            out_channels=mid_channels, stride=1, use_bottleneck=
-            use_bottleneck, bottleneck_factor=bottleneck_factor)
+        self.down_block = MSDBaseBlock(in_channels=in_channels_prev, out_channels=mid_channels, stride=2, use_bottleneck=use_bottleneck, bottleneck_factor=bottleneck_factor_prev)
+        self.curr_block = MSDBaseBlock(in_channels=in_channels, out_channels=mid_channels, stride=1, use_bottleneck=use_bottleneck, bottleneck_factor=bottleneck_factor)
 
     def forward(self, x_prev, x):
         y_prev = self.down_block(x_prev)
@@ -14705,13 +13256,9 @@ class MSDInitLayer(nn.Module):
         self.scale_blocks = MultiOutputSequential()
         for i, out_channels_per_scale in enumerate(out_channels):
             if i == 0:
-                self.scale_blocks.add_module('scale_block{}'.format(i + 1),
-                    ResInitBlock(in_channels=in_channels, out_channels=
-                    out_channels_per_scale))
+                self.scale_blocks.add_module('scale_block{}'.format(i + 1), ResInitBlock(in_channels=in_channels, out_channels=out_channels_per_scale))
             else:
-                self.scale_blocks.add_module('scale_block{}'.format(i + 1),
-                    conv3x3_block(in_channels=in_channels, out_channels=
-                    out_channels_per_scale, stride=2))
+                self.scale_blocks.add_module('scale_block{}'.format(i + 1), conv3x3_block(in_channels=in_channels, out_channels=out_channels_per_scale, stride=2))
             in_channels = out_channels_per_scale
 
     def forward(self, x):
@@ -14735,8 +13282,7 @@ class MSDLayer(nn.Module):
         Bottleneck factor for each input scale.
     """
 
-    def __init__(self, in_channels, out_channels, use_bottleneck,
-        bottleneck_factors):
+    def __init__(self, in_channels, out_channels, use_bottleneck, bottleneck_factors):
         super(MSDLayer, self).__init__()
         in_scales = len(in_channels)
         out_scales = len(out_channels)
@@ -14745,19 +13291,9 @@ class MSDLayer(nn.Module):
         self.scale_blocks = nn.Sequential()
         for i in range(out_scales):
             if i == 0 and self.dec_scales == 0:
-                self.scale_blocks.add_module('scale_block{}'.format(i + 1),
-                    MSDFirstScaleBlock(in_channels=in_channels[self.
-                    dec_scales + i], out_channels=out_channels[i],
-                    use_bottleneck=use_bottleneck, bottleneck_factor=
-                    bottleneck_factors[self.dec_scales + i]))
+                self.scale_blocks.add_module('scale_block{}'.format(i + 1), MSDFirstScaleBlock(in_channels=in_channels[self.dec_scales + i], out_channels=out_channels[i], use_bottleneck=use_bottleneck, bottleneck_factor=bottleneck_factors[self.dec_scales + i]))
             else:
-                self.scale_blocks.add_module('scale_block{}'.format(i + 1),
-                    MSDScaleBlock(in_channels_prev=in_channels[self.
-                    dec_scales + i - 1], in_channels=in_channels[self.
-                    dec_scales + i], out_channels=out_channels[i],
-                    use_bottleneck=use_bottleneck, bottleneck_factor_prev=
-                    bottleneck_factors[self.dec_scales + i - 1],
-                    bottleneck_factor=bottleneck_factors[self.dec_scales + i]))
+                self.scale_blocks.add_module('scale_block{}'.format(i + 1), MSDScaleBlock(in_channels_prev=in_channels[self.dec_scales + i - 1], in_channels=in_channels[self.dec_scales + i], out_channels=out_channels[i], use_bottleneck=use_bottleneck, bottleneck_factor_prev=bottleneck_factors[self.dec_scales + i - 1], bottleneck_factor=bottleneck_factors[self.dec_scales + i]))
 
     def forward(self, x):
         outs = []
@@ -14765,8 +13301,7 @@ class MSDLayer(nn.Module):
             if i == 0 and self.dec_scales == 0:
                 y = self.scale_blocks[i](x[i])
             else:
-                y = self.scale_blocks[i](x_prev=x[self.dec_scales + i - 1],
-                    x=x[self.dec_scales + i])
+                y = self.scale_blocks[i](x_prev=x[self.dec_scales + i - 1], x=x[self.dec_scales + i])
             outs.append(y)
         return outs
 
@@ -14788,9 +13323,7 @@ class MSDTransitionLayer(nn.Module):
         assert len(in_channels) == len(out_channels)
         self.scale_blocks = MultiBlockSequential()
         for i in range(len(out_channels)):
-            self.scale_blocks.add_module('scale_block{}'.format(i + 1),
-                conv1x1_block(in_channels=in_channels[i], out_channels=
-                out_channels[i]))
+            self.scale_blocks.add_module('scale_block{}'.format(i + 1), conv1x1_block(in_channels=in_channels[i], out_channels=out_channels[i]))
 
     def forward(self, x):
         y = self.scale_blocks(x)
@@ -14813,20 +13346,14 @@ class MSDFeatureBlock(nn.Module):
         Bottleneck factor for each layer and for each input scale.
     """
 
-    def __init__(self, in_channels, out_channels, use_bottleneck,
-        bottleneck_factors):
+    def __init__(self, in_channels, out_channels, use_bottleneck, bottleneck_factors):
         super(MSDFeatureBlock, self).__init__()
         self.blocks = nn.Sequential()
         for i, out_channels_per_layer in enumerate(out_channels):
             if len(bottleneck_factors[i]) == 0:
-                self.blocks.add_module('trans{}'.format(i + 1),
-                    MSDTransitionLayer(in_channels=in_channels,
-                    out_channels=out_channels_per_layer))
+                self.blocks.add_module('trans{}'.format(i + 1), MSDTransitionLayer(in_channels=in_channels, out_channels=out_channels_per_layer))
             else:
-                self.blocks.add_module('layer{}'.format(i + 1), MSDLayer(
-                    in_channels=in_channels, out_channels=
-                    out_channels_per_layer, use_bottleneck=use_bottleneck,
-                    bottleneck_factors=bottleneck_factors[i]))
+                self.blocks.add_module('layer{}'.format(i + 1), MSDLayer(in_channels=in_channels, out_channels=out_channels_per_layer, use_bottleneck=use_bottleneck, bottleneck_factors=bottleneck_factors[i]))
             in_channels = out_channels_per_layer
 
     def forward(self, x):
@@ -14849,13 +13376,10 @@ class MSDClassifier(nn.Module):
     def __init__(self, in_channels, num_classes):
         super(MSDClassifier, self).__init__()
         self.features = nn.Sequential()
-        self.features.add_module('conv1', conv3x3_block(in_channels=
-            in_channels, out_channels=in_channels, stride=2))
-        self.features.add_module('conv2', conv3x3_block(in_channels=
-            in_channels, out_channels=in_channels, stride=2))
+        self.features.add_module('conv1', conv3x3_block(in_channels=in_channels, out_channels=in_channels, stride=2))
+        self.features.add_module('conv2', conv3x3_block(in_channels=in_channels, out_channels=in_channels, stride=2))
         self.features.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
 
     def forward(self, x):
         x = self.features(x)
@@ -14889,26 +13413,18 @@ class MSDNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_layer_channels, num_feature_blocks,
-        use_bottleneck, bottleneck_factors, in_channels=3, in_size=(224, 
-        224), num_classes=1000):
+    def __init__(self, channels, init_layer_channels, num_feature_blocks, use_bottleneck, bottleneck_factors, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(MSDNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.init_layer = MSDInitLayer(in_channels=in_channels,
-            out_channels=init_layer_channels)
+        self.init_layer = MSDInitLayer(in_channels=in_channels, out_channels=init_layer_channels)
         in_channels = init_layer_channels
         self.feature_blocks = nn.Sequential()
         self.classifiers = nn.Sequential()
         for i in range(num_feature_blocks):
-            self.feature_blocks.add_module('block{}'.format(i + 1),
-                MSDFeatureBlock(in_channels=in_channels, out_channels=
-                channels[i], use_bottleneck=use_bottleneck,
-                bottleneck_factors=bottleneck_factors[i]))
+            self.feature_blocks.add_module('block{}'.format(i + 1), MSDFeatureBlock(in_channels=in_channels, out_channels=channels[i], use_bottleneck=use_bottleneck, bottleneck_factors=bottleneck_factors[i]))
             in_channels = channels[i][-1]
-            self.classifiers.add_module('classifier{}'.format(i + 1),
-                MSDClassifier(in_channels=in_channels[-1], num_classes=
-                num_classes))
+            self.classifiers.add_module('classifier{}'.format(i + 1), MSDClassifier(in_channels=in_channels[-1], num_classes=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -14921,8 +13437,7 @@ class MSDNet(nn.Module):
     def forward(self, x, only_last=True):
         x = self.init_layer(x)
         outs = []
-        for feature_block, classifier in zip(self.feature_blocks, self.
-            classifiers):
+        for feature_block, classifier in zip(self.feature_blocks, self.classifiers):
             x = feature_block(x)
             y = classifier(x[-1])
             outs.append(y)
@@ -14949,9 +13464,7 @@ class CIFAR10MSDInitLayer(nn.Module):
         self.scale_blocks = MultiOutputSequential()
         for i, out_channels_per_scale in enumerate(out_channels):
             stride = 1 if i == 0 else 2
-            self.scale_blocks.add_module('scale_block{}'.format(i + 1),
-                conv3x3_block(in_channels=in_channels, out_channels=
-                out_channels_per_scale, stride=stride))
+            self.scale_blocks.add_module('scale_block{}'.format(i + 1), conv3x3_block(in_channels=in_channels, out_channels=out_channels_per_scale, stride=stride))
             in_channels = out_channels_per_scale
 
     def forward(self, x):
@@ -14975,13 +13488,10 @@ class CIFAR10MSDClassifier(nn.Module):
         super(CIFAR10MSDClassifier, self).__init__()
         mid_channels = 128
         self.features = nn.Sequential()
-        self.features.add_module('conv1', conv3x3_block(in_channels=
-            in_channels, out_channels=mid_channels, stride=2))
-        self.features.add_module('conv2', conv3x3_block(in_channels=
-            mid_channels, out_channels=mid_channels, stride=2))
+        self.features.add_module('conv1', conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2))
+        self.features.add_module('conv2', conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=2))
         self.features.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
-        self.output = nn.Linear(in_features=mid_channels, out_features=
-            num_classes)
+        self.output = nn.Linear(in_features=mid_channels, out_features=num_classes)
 
     def forward(self, x):
         x = self.features(x)
@@ -15015,26 +13525,18 @@ class CIFAR10MSDNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_layer_channels, num_feature_blocks,
-        use_bottleneck, bottleneck_factors, in_channels=3, in_size=(32, 32),
-        num_classes=10):
+    def __init__(self, channels, init_layer_channels, num_feature_blocks, use_bottleneck, bottleneck_factors, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFAR10MSDNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.init_layer = CIFAR10MSDInitLayer(in_channels=in_channels,
-            out_channels=init_layer_channels)
+        self.init_layer = CIFAR10MSDInitLayer(in_channels=in_channels, out_channels=init_layer_channels)
         in_channels = init_layer_channels
         self.feature_blocks = nn.Sequential()
         self.classifiers = nn.Sequential()
         for i in range(num_feature_blocks):
-            self.feature_blocks.add_module('block{}'.format(i + 1),
-                MSDFeatureBlock(in_channels=in_channels, out_channels=
-                channels[i], use_bottleneck=use_bottleneck,
-                bottleneck_factors=bottleneck_factors[i]))
+            self.feature_blocks.add_module('block{}'.format(i + 1), MSDFeatureBlock(in_channels=in_channels, out_channels=channels[i], use_bottleneck=use_bottleneck, bottleneck_factors=bottleneck_factors[i]))
             in_channels = channels[i][-1]
-            self.classifiers.add_module('classifier{}'.format(i + 1),
-                CIFAR10MSDClassifier(in_channels=in_channels[-1],
-                num_classes=num_classes))
+            self.classifiers.add_module('classifier{}'.format(i + 1), CIFAR10MSDClassifier(in_channels=in_channels[-1], num_classes=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -15047,8 +13549,7 @@ class CIFAR10MSDNet(nn.Module):
     def forward(self, x, only_last=True):
         x = self.init_layer(x)
         outs = []
-        for feature_block, classifier in zip(self.feature_blocks, self.
-            classifiers):
+        for feature_block, classifier in zip(self.feature_blocks, self.classifiers):
             x = feature_block(x)
             y = classifier(x[-1])
             outs.append(y)
@@ -15097,8 +13598,7 @@ class NasAvgPoolBlock(nn.Module):
     def __init__(self, extra_padding=False):
         super(NasAvgPoolBlock, self).__init__()
         self.extra_padding = extra_padding
-        self.pool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1,
-            count_include_pad=False)
+        self.pool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1, count_include_pad=False)
         if self.extra_padding:
             self.pad = nn.ZeroPad2d(padding=(1, 0, 1, 0))
 
@@ -15120,8 +13620,7 @@ def nasnet_batch_norm(channels):
     channels : int
         Number of channels in input data.
     """
-    return nn.BatchNorm2d(num_features=channels, eps=0.001, momentum=0.1,
-        affine=True)
+    return nn.BatchNorm2d(num_features=channels, eps=0.001, momentum=0.1, affine=True)
 
 
 class NasConv(nn.Module):
@@ -15144,13 +13643,10 @@ class NasConv(nn.Module):
         Number of groups.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, groups):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, groups):
         super(NasConv, self).__init__()
         self.activ = nn.ReLU()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=groups, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False)
         self.bn = nasnet_batch_norm(channels=out_channels)
 
     def forward(self, x):
@@ -15180,14 +13676,10 @@ class DwsConv(nn.Module):
         Whether the layers use a bias vector.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, bias=False):
         super(DwsConv, self).__init__()
-        self.dw_conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=in_channels, bias=bias)
-        self.pw_conv = conv1x1(in_channels=in_channels, out_channels=
-            out_channels, bias=bias)
+        self.dw_conv = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=bias)
+        self.pw_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, bias=bias)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -15215,14 +13707,11 @@ class NasDwsConv(nn.Module):
         Whether to use extra padding.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, extra_padding=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, extra_padding=False):
         super(NasDwsConv, self).__init__()
         self.extra_padding = extra_padding
         self.activ = nn.ReLU()
-        self.conv = DwsConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = DwsConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nasnet_batch_norm(channels=out_channels)
         if self.extra_padding:
             self.pad = nn.ZeroPad2d(padding=(1, 0, 1, 0))
@@ -15260,16 +13749,12 @@ class DwsBranch(nn.Module):
         Whether to use squeeze reduction if False.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, extra_padding=False, stem=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, extra_padding=False, stem=False):
         super(DwsBranch, self).__init__()
         assert not stem or not extra_padding
         mid_channels = out_channels if stem else in_channels
-        self.conv1 = NasDwsConv(in_channels=in_channels, out_channels=
-            mid_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, extra_padding=extra_padding)
-        self.conv2 = NasDwsConv(in_channels=mid_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=1, padding=padding)
+        self.conv1 = NasDwsConv(in_channels=in_channels, out_channels=mid_channels, kernel_size=kernel_size, stride=stride, padding=padding, extra_padding=extra_padding)
+        self.conv2 = NasDwsConv(in_channels=mid_channels, out_channels=out_channels, kernel_size=kernel_size, stride=1, padding=padding)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -15331,10 +13816,8 @@ class NasPathBlock(nn.Module):
         super(NasPathBlock, self).__init__()
         mid_channels = out_channels // 2
         self.activ = nn.ReLU()
-        self.path1 = NasPathBranch(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.path2 = NasPathBranch(in_channels=in_channels, out_channels=
-            mid_channels, extra_padding=True)
+        self.path1 = NasPathBranch(in_channels=in_channels, out_channels=mid_channels)
+        self.path2 = NasPathBranch(in_channels=in_channels, out_channels=mid_channels, extra_padding=True)
         self.bn = nasnet_batch_norm(channels=out_channels)
 
     def forward(self, x):
@@ -15359,12 +13842,10 @@ def dws_branch_k3_s1_p1(in_channels, out_channels, extra_padding=False):
     extra_padding : bool, default False
         Whether to use extra padding.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=1, padding=1, extra_padding=extra_padding)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, extra_padding=extra_padding)
 
 
-def dws_branch_k5_s2_p2(in_channels, out_channels, extra_padding=False,
-    stem=False):
+def dws_branch_k5_s2_p2(in_channels, out_channels, extra_padding=False, stem=False):
     """
     5x5/2/2 version of the NASNet specific depthwise separable convolution branch.
 
@@ -15379,13 +13860,10 @@ def dws_branch_k5_s2_p2(in_channels, out_channels, extra_padding=False,
     stem : bool, default False
         Whether to use squeeze reduction if False.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, stride=2, padding=2, extra_padding=extra_padding,
-        stem=stem)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=5, stride=2, padding=2, extra_padding=extra_padding, stem=stem)
 
 
-def dws_branch_k7_s2_p3(in_channels, out_channels, extra_padding=False,
-    stem=False):
+def dws_branch_k7_s2_p3(in_channels, out_channels, extra_padding=False, stem=False):
     """
     7x7/2/3 version of the NASNet specific depthwise separable convolution branch.
 
@@ -15400,9 +13878,7 @@ def dws_branch_k7_s2_p3(in_channels, out_channels, extra_padding=False,
     stem : bool, default False
         Whether to use squeeze reduction if False.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=7, stride=2, padding=3, extra_padding=extra_padding,
-        stem=stem)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=3, extra_padding=extra_padding, stem=stem)
 
 
 def nas_conv1x1(in_channels, out_channels):
@@ -15416,24 +13892,21 @@ def nas_conv1x1(in_channels, out_channels):
     out_channels : int
         Number of output channels.
     """
-    return NasConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=1, padding=0, groups=1)
+    return NasConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, groups=1)
 
 
 def nasnet_avgpool3x3_s1():
     """
     NASNet specific 3x3 Average pooling layer with stride 1.
     """
-    return nn.AvgPool2d(kernel_size=3, stride=1, padding=1,
-        count_include_pad=False)
+    return nn.AvgPool2d(kernel_size=3, stride=1, padding=1, count_include_pad=False)
 
 
 def nasnet_avgpool3x3_s2():
     """
     NASNet specific 3x3 Average pooling layer with stride 2.
     """
-    return nn.AvgPool2d(kernel_size=3, stride=2, padding=1,
-        count_include_pad=False)
+    return nn.AvgPool2d(kernel_size=3, stride=2, padding=1, count_include_pad=False)
 
 
 class Stem1Unit(nn.Module):
@@ -15451,21 +13924,15 @@ class Stem1Unit(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(Stem1Unit, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.comb0_left = dws_branch_k5_s2_p2(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb0_right = dws_branch_k7_s2_p3(in_channels=in_channels,
-            out_channels=mid_channels, stem=True)
+        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.comb0_left = dws_branch_k5_s2_p2(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb0_right = dws_branch_k7_s2_p3(in_channels=in_channels, out_channels=mid_channels, stem=True)
         self.comb1_left = NasMaxPoolBlock(extra_padding=False)
-        self.comb1_right = dws_branch_k7_s2_p3(in_channels=in_channels,
-            out_channels=mid_channels, stem=True)
+        self.comb1_right = dws_branch_k7_s2_p3(in_channels=in_channels, out_channels=mid_channels, stem=True)
         self.comb2_left = nasnet_avgpool3x3_s2()
-        self.comb2_right = dws_branch_k5_s2_p2(in_channels=in_channels,
-            out_channels=mid_channels, stem=True)
+        self.comb2_right = dws_branch_k5_s2_p2(in_channels=in_channels, out_channels=mid_channels, stem=True)
         self.comb3_right = nasnet_avgpool3x3_s1()
-        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
+        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
         self.comb4_right = NasMaxPoolBlock(extra_padding=False)
 
     def forward(self, x, _=None):
@@ -15496,27 +13963,19 @@ class Stem2Unit(nn.Module):
         Whether to use extra padding.
     """
 
-    def __init__(self, in_channels, prev_in_channels, out_channels,
-        extra_padding):
+    def __init__(self, in_channels, prev_in_channels, out_channels, extra_padding):
         super(Stem2Unit, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.path = NasPathBlock(in_channels=prev_in_channels, out_channels
-            =mid_channels)
-        self.comb0_left = dws_branch_k5_s2_p2(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
-        self.comb0_right = dws_branch_k7_s2_p3(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.path = NasPathBlock(in_channels=prev_in_channels, out_channels=mid_channels)
+        self.comb0_left = dws_branch_k5_s2_p2(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb0_right = dws_branch_k7_s2_p3(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb1_left = NasMaxPoolBlock(extra_padding=extra_padding)
-        self.comb1_right = dws_branch_k7_s2_p3(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb1_right = dws_branch_k7_s2_p3(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb2_left = NasAvgPoolBlock(extra_padding=extra_padding)
-        self.comb2_right = dws_branch_k5_s2_p2(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb2_right = dws_branch_k5_s2_p2(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb3_right = nasnet_avgpool3x3_s1()
-        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb4_right = NasMaxPoolBlock(extra_padding=extra_padding)
 
     def forward(self, x, x_prev):
@@ -15544,8 +14003,7 @@ def dws_branch_k5_s1_p2(in_channels, out_channels, extra_padding=False):
     extra_padding : bool, default False
         Whether to use extra padding.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, stride=1, padding=2, extra_padding=extra_padding)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=5, stride=1, padding=2, extra_padding=extra_padding)
 
 
 class FirstUnit(nn.Module):
@@ -15565,23 +14023,16 @@ class FirstUnit(nn.Module):
     def __init__(self, in_channels, prev_in_channels, out_channels):
         super(FirstUnit, self).__init__()
         mid_channels = out_channels // 6
-        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.path = NasPathBlock(in_channels=prev_in_channels, out_channels
-            =mid_channels)
-        self.comb0_left = dws_branch_k5_s1_p2(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb0_right = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb1_left = dws_branch_k5_s1_p2(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb1_right = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
+        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.path = NasPathBlock(in_channels=prev_in_channels, out_channels=mid_channels)
+        self.comb0_left = dws_branch_k5_s1_p2(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb0_right = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb1_left = dws_branch_k5_s1_p2(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb1_right = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
         self.comb2_left = nasnet_avgpool3x3_s1()
         self.comb3_left = nasnet_avgpool3x3_s1()
         self.comb3_right = nasnet_avgpool3x3_s1()
-        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
+        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
 
     def forward(self, x, x_prev):
         x_left = self.conv1x1(x)
@@ -15612,23 +14063,16 @@ class NormalUnit(nn.Module):
     def __init__(self, in_channels, prev_in_channels, out_channels):
         super(NormalUnit, self).__init__()
         mid_channels = out_channels // 6
-        self.conv1x1_prev = nas_conv1x1(in_channels=prev_in_channels,
-            out_channels=mid_channels)
-        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.comb0_left = dws_branch_k5_s1_p2(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb0_right = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb1_left = dws_branch_k5_s1_p2(in_channels=mid_channels,
-            out_channels=mid_channels)
-        self.comb1_right = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
+        self.conv1x1_prev = nas_conv1x1(in_channels=prev_in_channels, out_channels=mid_channels)
+        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.comb0_left = dws_branch_k5_s1_p2(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb0_right = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb1_left = dws_branch_k5_s1_p2(in_channels=mid_channels, out_channels=mid_channels)
+        self.comb1_right = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
         self.comb2_left = nasnet_avgpool3x3_s1()
         self.comb3_left = nasnet_avgpool3x3_s1()
         self.comb3_right = nasnet_avgpool3x3_s1()
-        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels)
+        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels)
 
     def forward(self, x, x_prev):
         x_left = self.conv1x1(x)
@@ -15658,28 +14102,20 @@ class ReductionBaseUnit(nn.Module):
         Whether to use extra padding.
     """
 
-    def __init__(self, in_channels, prev_in_channels, out_channels,
-        extra_padding=True):
+    def __init__(self, in_channels, prev_in_channels, out_channels, extra_padding=True):
         super(ReductionBaseUnit, self).__init__()
         self.skip_input = True
         mid_channels = out_channels // 4
-        self.conv1x1_prev = nas_conv1x1(in_channels=prev_in_channels,
-            out_channels=mid_channels)
-        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.comb0_left = dws_branch_k5_s2_p2(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
-        self.comb0_right = dws_branch_k7_s2_p3(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.conv1x1_prev = nas_conv1x1(in_channels=prev_in_channels, out_channels=mid_channels)
+        self.conv1x1 = nas_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.comb0_left = dws_branch_k5_s2_p2(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb0_right = dws_branch_k7_s2_p3(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb1_left = NasMaxPoolBlock(extra_padding=extra_padding)
-        self.comb1_right = dws_branch_k7_s2_p3(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb1_right = dws_branch_k7_s2_p3(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb2_left = NasAvgPoolBlock(extra_padding=extra_padding)
-        self.comb2_right = dws_branch_k5_s2_p2(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb2_right = dws_branch_k5_s2_p2(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb3_right = nasnet_avgpool3x3_s1()
-        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels,
-            out_channels=mid_channels, extra_padding=extra_padding)
+        self.comb4_left = dws_branch_k3_s1_p1(in_channels=mid_channels, out_channels=mid_channels, extra_padding=extra_padding)
         self.comb4_right = NasMaxPoolBlock(extra_padding=extra_padding)
 
     def forward(self, x, x_prev):
@@ -15708,8 +14144,7 @@ class NASNetInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(NASNetInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=2, padding=0, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=0, bias=False)
         self.bn = nasnet_batch_norm(channels=out_channels)
 
     def forward(self, x):
@@ -15733,9 +14168,7 @@ class Reduction1Unit(ReductionBaseUnit):
     """
 
     def __init__(self, in_channels, prev_in_channels, out_channels):
-        super(Reduction1Unit, self).__init__(in_channels=in_channels,
-            prev_in_channels=prev_in_channels, out_channels=out_channels,
-            extra_padding=True)
+        super(Reduction1Unit, self).__init__(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels, extra_padding=True)
 
 
 class Reduction2Unit(ReductionBaseUnit):
@@ -15754,11 +14187,8 @@ class Reduction2Unit(ReductionBaseUnit):
         Whether to use extra padding.
     """
 
-    def __init__(self, in_channels, prev_in_channels, out_channels,
-        extra_padding):
-        super(Reduction2Unit, self).__init__(in_channels=in_channels,
-            prev_in_channels=prev_in_channels, out_channels=out_channels,
-            extra_padding=extra_padding)
+    def __init__(self, in_channels, prev_in_channels, out_channels, extra_padding):
+        super(Reduction2Unit, self).__init__(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels, extra_padding=extra_padding)
 
 
 class NASNet(nn.Module):
@@ -15788,32 +14218,24 @@ class NASNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, stem_blocks_channels,
-        final_pool_size, extra_padding, skip_reduction_layer_input,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, stem_blocks_channels, final_pool_size, extra_padding, skip_reduction_layer_input, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(NASNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         reduction_units = [Reduction1Unit, Reduction2Unit]
-        self.features = nasnet_dual_path_sequential(return_two=False,
-            first_ordinals=1, last_ordinals=2)
-        self.features.add_module('init_block', NASNetInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features = nasnet_dual_path_sequential(return_two=False, first_ordinals=1, last_ordinals=2)
+        self.features.add_module('init_block', NASNetInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         out_channels = stem_blocks_channels[0]
-        self.features.add_module('stem1_unit', Stem1Unit(in_channels=
-            in_channels, out_channels=out_channels))
+        self.features.add_module('stem1_unit', Stem1Unit(in_channels=in_channels, out_channels=out_channels))
         prev_in_channels = in_channels
         in_channels = out_channels
         out_channels = stem_blocks_channels[1]
-        self.features.add_module('stem2_unit', Stem2Unit(in_channels=
-            in_channels, prev_in_channels=prev_in_channels, out_channels=
-            out_channels, extra_padding=extra_padding))
+        self.features.add_module('stem2_unit', Stem2Unit(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels, extra_padding=extra_padding))
         prev_in_channels = in_channels
         in_channels = out_channels
         for i, channels_per_stage in enumerate(channels):
-            stage = nasnet_dual_path_sequential(can_skip_input=
-                skip_reduction_layer_input)
+            stage = nasnet_dual_path_sequential(can_skip_input=skip_reduction_layer_input)
             for j, out_channels in enumerate(channels_per_stage):
                 if j == 0 and i != 0:
                     unit = reduction_units[i - 1]
@@ -15822,24 +14244,17 @@ class NASNet(nn.Module):
                 else:
                     unit = NormalUnit
                 if unit == Reduction2Unit:
-                    stage.add_module('unit{}'.format(j + 1), Reduction2Unit
-                        (in_channels=in_channels, prev_in_channels=
-                        prev_in_channels, out_channels=out_channels,
-                        extra_padding=extra_padding))
+                    stage.add_module('unit{}'.format(j + 1), Reduction2Unit(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels, extra_padding=extra_padding))
                 else:
-                    stage.add_module('unit{}'.format(j + 1), unit(
-                        in_channels=in_channels, prev_in_channels=
-                        prev_in_channels, out_channels=out_channels))
+                    stage.add_module('unit{}'.format(j + 1), unit(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels))
                 prev_in_channels = in_channels
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('activ', nn.ReLU())
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=
-            final_pool_size, stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=final_pool_size, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=0.5))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -15874,12 +14289,9 @@ class NINConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
         super(NINConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=True)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=True)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -15906,8 +14318,7 @@ class CIFARNIN(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, first_kernel_sizes, in_channels=3, in_size
-        =(32, 32), num_classes=10):
+    def __init__(self, channels, first_kernel_sizes, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARNIN, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -15917,25 +14328,18 @@ class CIFARNIN(nn.Module):
             for j, out_channels in enumerate(channels_per_stage):
                 if j == 0 and i != 0:
                     if i == 1:
-                        stage.add_module('pool{}'.format(i + 1), nn.
-                            MaxPool2d(kernel_size=3, stride=2, padding=1))
+                        stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
                     else:
-                        stage.add_module('pool{}'.format(i + 1), nn.
-                            AvgPool2d(kernel_size=3, stride=2, padding=1))
-                    stage.add_module('dropout{}'.format(i + 1), nn.Dropout(
-                        p=0.5))
+                        stage.add_module('pool{}'.format(i + 1), nn.AvgPool2d(kernel_size=3, stride=2, padding=1))
+                    stage.add_module('dropout{}'.format(i + 1), nn.Dropout(p=0.5))
                 kernel_size = first_kernel_sizes[i] if j == 0 else 1
                 padding = (kernel_size - 1) // 2
-                stage.add_module('unit{}'.format(j + 1), NINConv(
-                    in_channels=in_channels, out_channels=out_channels,
-                    kernel_size=kernel_size, padding=padding))
+                stage.add_module('unit{}'.format(j + 1), NINConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.output = nn.Sequential()
-        self.output.add_module('final_conv', NINConv(in_channels=
-            in_channels, out_channels=num_classes, kernel_size=1))
-        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
+        self.output.add_module('final_conv', NINConv(in_channels=in_channels, out_channels=num_classes, kernel_size=1))
+        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
         self._init_params()
 
     def _init_params(self):
@@ -15969,11 +14373,9 @@ class NavigatorBranch(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super(NavigatorBranch, self).__init__()
         mid_channels = 128
-        self.down_conv = conv3x3(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride, bias=True)
+        self.down_conv = conv3x3(in_channels=in_channels, out_channels=mid_channels, stride=stride, bias=True)
         self.activ = nn.ReLU(inplace=False)
-        self.tidy_conv = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.tidy_conv = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
         self.flatten = Flatten()
 
     def forward(self, x):
@@ -15991,12 +14393,9 @@ class NavigatorUnit(nn.Module):
 
     def __init__(self):
         super(NavigatorUnit, self).__init__()
-        self.branch1 = NavigatorBranch(in_channels=2048, out_channels=6,
-            stride=1)
-        self.branch2 = NavigatorBranch(in_channels=128, out_channels=6,
-            stride=2)
-        self.branch3 = NavigatorBranch(in_channels=128, out_channels=9,
-            stride=2)
+        self.branch1 = NavigatorBranch(in_channels=2048, out_channels=6, stride=1)
+        self.branch2 = NavigatorBranch(in_channels=128, out_channels=6, stride=2)
+        self.branch3 = NavigatorBranch(in_channels=128, out_channels=9, stride=2)
 
     def forward(self, x):
         t1, x = self.branch1(x)
@@ -16041,11 +14440,8 @@ def hard_nms(cdds, top_n=10, iou_thresh=0.25):
         end_min = np.minimum(res[:, 3:5], cdd[3:5])
         lengths = end_min - start_max
         intersec_map = lengths[:, (0)] * lengths[:, (1)]
-        intersec_map[np.logical_or(lengths[:, (0)] < 0, lengths[:, (1)] < 0)
-            ] = 0
-        iou_map_cur = intersec_map / ((res[:, (3)] - res[:, (1)]) * (res[:,
-            (4)] - res[:, (2)]) + (cdd[3] - cdd[1]) * (cdd[4] - cdd[2]) -
-            intersec_map)
+        intersec_map[np.logical_or(lengths[:, (0)] < 0, lengths[:, (1)] < 0)] = 0
+        iou_map_cur = intersec_map / ((res[:, (3)] - res[:, (1)]) * (res[:, (4)] - res[:, (2)]) + (cdd[3] - cdd[1]) * (cdd[4] - cdd[2]) - intersec_map)
         res = res[iou_map_cur < iou_thresh]
     return np.array(cdd_results)
 
@@ -16070,8 +14466,7 @@ class NTSNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, backbone, aux=False, top_n=4, in_channels=3, in_size
-        =(448, 448), num_classes=200):
+    def __init__(self, backbone, aux=False, top_n=4, in_channels=3, in_size=(448, 448), num_classes=200):
         super(NTSNet, self).__init__()
         assert in_channels > 0
         self.in_size = in_size
@@ -16083,22 +14478,18 @@ class NTSNet(nn.Module):
         self.num_cat = 4
         _, edge_anchors, _ = self._generate_default_anchor_maps()
         self.edge_anchors = (edge_anchors + 224).astype(np.int)
-        self.edge_anchors = np.concatenate((self.edge_anchors.copy(), np.
-            arange(0, len(self.edge_anchors)).reshape(-1, 1)), axis=1)
+        self.edge_anchors = np.concatenate((self.edge_anchors.copy(), np.arange(0, len(self.edge_anchors)).reshape(-1, 1)), axis=1)
         self.backbone = backbone
         self.backbone_tail = nn.Sequential()
         self.backbone_tail.add_module('final_pool', nn.AdaptiveAvgPool2d(1))
         self.backbone_tail.add_module('flatten', Flatten())
         self.backbone_tail.add_module('dropout', nn.Dropout(p=0.5))
-        self.backbone_classifier = nn.Linear(in_features=512 * 4,
-            out_features=num_classes)
+        self.backbone_classifier = nn.Linear(in_features=512 * 4, out_features=num_classes)
         self.pad = nn.ZeroPad2d(padding=pad_width)
         self.navigator_unit = NavigatorUnit()
-        self.concat_net = nn.Linear(in_features=2048 * (self.num_cat + 1),
-            out_features=num_classes)
+        self.concat_net = nn.Linear(in_features=2048 * (self.num_cat + 1), out_features=num_classes)
         if self.aux:
-            self.partcls_net = nn.Linear(in_features=512 * 4, out_features=
-                num_classes)
+            self.partcls_net = nn.Linear(in_features=512 * 4, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -16111,25 +14502,19 @@ class NTSNet(nn.Module):
     def forward(self, x):
         raw_pre_features = self.backbone(x)
         rpn_score = self.navigator_unit(raw_pre_features)
-        all_cdds = [np.concatenate((y.reshape(-1, 1), self.edge_anchors.
-            copy()), axis=1) for y in rpn_score.detach().cpu().numpy()]
-        top_n_cdds = [hard_nms(y, top_n=self.top_n, iou_thresh=0.25) for y in
-            all_cdds]
+        all_cdds = [np.concatenate((y.reshape(-1, 1), self.edge_anchors.copy()), axis=1) for y in rpn_score.detach().cpu().numpy()]
+        top_n_cdds = [hard_nms(y, top_n=self.top_n, iou_thresh=0.25) for y in all_cdds]
         top_n_cdds = np.array(top_n_cdds)
         top_n_index = top_n_cdds[:, :, (-1)].astype(np.int64)
         top_n_index = torch.from_numpy(top_n_index).long()
         top_n_prob = torch.gather(rpn_score, dim=1, index=top_n_index)
         batch = x.size(0)
-        part_imgs = torch.zeros(batch, self.top_n, 3, 224, 224, dtype=x.
-            dtype, device=x.device)
+        part_imgs = torch.zeros(batch, self.top_n, 3, 224, 224, dtype=x.dtype, device=x.device)
         x_pad = self.pad(x)
         for i in range(batch):
             for j in range(self.top_n):
-                y0, x0, y1, x1 = tuple(top_n_cdds[i][(j), 1:5].astype(np.int64)
-                    )
-                part_imgs[i:i + 1, (j)] = F.interpolate(input=x_pad[i:i + 1,
-                    :, y0:y1, x0:x1], size=(224, 224), mode='bilinear',
-                    align_corners=True)
+                y0, x0, y1, x1 = tuple(top_n_cdds[i][(j), 1:5].astype(np.int64))
+                part_imgs[i:i + 1, (j)] = F.interpolate(input=x_pad[i:i + 1, :, y0:y1, x0:x1], size=(224, 224), mode='bilinear', align_corners=True)
         part_imgs = part_imgs.view(batch * self.top_n, 3, 224, 224)
         part_features = self.backbone_tail(self.backbone(part_imgs.detach()))
         part_feature = part_features.view(batch, self.top_n, -1)
@@ -16140,8 +14525,7 @@ class NTSNet(nn.Module):
         concat_logits = self.concat_net(concat_out)
         if self.aux:
             raw_logits = self.backbone_classifier(raw_features)
-            part_logits = self.partcls_net(part_features).view(batch, self.
-                top_n, -1)
+            part_logits = self.partcls_net(part_features).view(batch, self.top_n, -1)
             return concat_logits, raw_logits, part_logits, top_n_prob
         else:
             return concat_logits
@@ -16167,12 +14551,7 @@ class NTSNet(nn.Module):
         """
         anchor_scale = [2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]
         anchor_aspect_ratio = [0.667, 1, 1.5]
-        anchors_setting = dict(layer='p3', stride=32, size=48, scale=
-            anchor_scale, aspect_ratio=anchor_aspect_ratio), dict(layer=
-            'p4', stride=64, size=96, scale=anchor_scale, aspect_ratio=
-            anchor_aspect_ratio), dict(layer='p5', stride=128, size=192,
-            scale=[1, anchor_scale[0], anchor_scale[1]], aspect_ratio=
-            anchor_aspect_ratio)
+        anchors_setting = dict(layer='p3', stride=32, size=48, scale=anchor_scale, aspect_ratio=anchor_aspect_ratio), dict(layer='p4', stride=64, size=96, scale=anchor_scale, aspect_ratio=anchor_aspect_ratio), dict(layer='p5', stride=128, size=192, scale=[1, anchor_scale[0], anchor_scale[1]], aspect_ratio=anchor_aspect_ratio)
         center_anchors = np.zeros((0, 4), dtype=np.float32)
         edge_anchors = np.zeros((0, 4), dtype=np.float32)
         anchor_areas = np.zeros((0,), dtype=np.float32)
@@ -16190,29 +14569,19 @@ class NTSNet(nn.Module):
             oy = oy.reshape(output_shape[0], 1)
             ox = np.arange(ostart, ostart + stride * output_shape[1], stride)
             ox = ox.reshape(1, output_shape[1])
-            center_anchor_map_template = np.zeros(output_shape, dtype=np.
-                float32)
+            center_anchor_map_template = np.zeros(output_shape, dtype=np.float32)
             center_anchor_map_template[:, :, (0)] = oy
             center_anchor_map_template[:, :, (1)] = ox
             for anchor_scale in scales:
                 for anchor_aspect_ratio in aspect_ratios:
                     center_anchor_map = center_anchor_map_template.copy()
-                    center_anchor_map[:, :, (2)] = size * anchor_scale / float(
-                        anchor_aspect_ratio) ** 0.5
-                    center_anchor_map[:, :, (3)] = size * anchor_scale * float(
-                        anchor_aspect_ratio) ** 0.5
-                    edge_anchor_map = np.concatenate((center_anchor_map[:,
-                        :, :2] - center_anchor_map[:, :, 2:4] / 2.0, 
-                        center_anchor_map[:, :, :2] + center_anchor_map[:,
-                        :, 2:4] / 2.0), axis=-1)
-                    anchor_area_map = center_anchor_map[:, :, (2)
-                        ] * center_anchor_map[:, :, (3)]
-                    center_anchors = np.concatenate((center_anchors,
-                        center_anchor_map.reshape(-1, 4)))
-                    edge_anchors = np.concatenate((edge_anchors,
-                        edge_anchor_map.reshape(-1, 4)))
-                    anchor_areas = np.concatenate((anchor_areas,
-                        anchor_area_map.reshape(-1)))
+                    center_anchor_map[:, :, (2)] = size * anchor_scale / float(anchor_aspect_ratio) ** 0.5
+                    center_anchor_map[:, :, (3)] = size * anchor_scale * float(anchor_aspect_ratio) ** 0.5
+                    edge_anchor_map = np.concatenate((center_anchor_map[:, :, :2] - center_anchor_map[:, :, 2:4] / 2.0, center_anchor_map[:, :, :2] + center_anchor_map[:, :, 2:4] / 2.0), axis=-1)
+                    anchor_area_map = center_anchor_map[:, :, (2)] * center_anchor_map[:, :, (3)]
+                    center_anchors = np.concatenate((center_anchors, center_anchor_map.reshape(-1, 4)))
+                    edge_anchors = np.concatenate((edge_anchors, edge_anchor_map.reshape(-1, 4)))
+                    anchor_areas = np.concatenate((anchor_areas, anchor_area_map.reshape(-1)))
         return center_anchors, edge_anchors, anchor_areas
 
 
@@ -16246,9 +14615,7 @@ class OctConv(nn.Conv2d):
         Octave value.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding=1, dilation=1, groups=1, bias=False, oct_alpha=0.0,
-        oct_mode='std', oct_value=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding=1, dilation=1, groups=1, bias=False, oct_alpha=0.0, oct_mode='std', oct_value=2):
         if isinstance(stride, int):
             stride = stride, stride
         self.downsample = stride[0] > 1 or stride[1] > 1
@@ -16267,60 +14634,41 @@ class OctConv(nn.Conv2d):
             in_alpha = 0.0
             out_alpha = 0.0
         else:
-            raise ValueError('Unsupported octave convolution mode: {}'.
-                format(oct_mode))
+            raise ValueError('Unsupported octave convolution mode: {}'.format(oct_mode))
         self.h_in_channels = int(in_channels * (1.0 - in_alpha))
         self.h_out_channels = int(out_channels * (1.0 - out_alpha))
         self.l_out_channels = out_channels - self.h_out_channels
         self.oct_alpha = oct_alpha
         self.oct_mode = oct_mode
         self.oct_value = oct_value
-        super(OctConv, self).__init__(in_channels=in_channels, out_channels
-            =out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias)
-        self.conv_kwargs = {'stride': stride, 'padding': padding,
-            'dilation': dilation, 'groups': groups}
+        super(OctConv, self).__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.conv_kwargs = {'stride': stride, 'padding': padding, 'dilation': dilation, 'groups': groups}
 
     def forward(self, hx, lx=None):
         if self.oct_mode == 'std':
-            return F.conv2d(input=hx, weight=self.weight, bias=self.bias,
-                **self.conv_kwargs), None
+            return F.conv2d(input=hx, weight=self.weight, bias=self.bias, **self.conv_kwargs), None
         if self.downsample:
-            hx = F.avg_pool2d(input=hx, kernel_size=(self.oct_value, self.
-                oct_value), stride=(self.oct_value, self.oct_value))
-        hhy = F.conv2d(input=hx, weight=self.weight[0:self.h_out_channels, 
-            0:self.h_in_channels, :, :], bias=self.bias[0:self.
-            h_out_channels] if self.bias is not None else None, **self.
-            conv_kwargs)
+            hx = F.avg_pool2d(input=hx, kernel_size=(self.oct_value, self.oct_value), stride=(self.oct_value, self.oct_value))
+        hhy = F.conv2d(input=hx, weight=self.weight[0:self.h_out_channels, 0:self.h_in_channels, :, :], bias=self.bias[0:self.h_out_channels] if self.bias is not None else None, **self.conv_kwargs)
         if self.oct_mode != 'first':
-            hlx = F.conv2d(input=lx, weight=self.weight[0:self.
-                h_out_channels, self.h_in_channels:, :, :], bias=self.bias[
-                0:self.h_out_channels] if self.bias is not None else None,
-                **self.conv_kwargs)
+            hlx = F.conv2d(input=lx, weight=self.weight[0:self.h_out_channels, self.h_in_channels:, :, :], bias=self.bias[0:self.h_out_channels] if self.bias is not None else None, **self.conv_kwargs)
         if self.oct_mode == 'last':
             hy = hhy + hlx
             ly = None
             return hy, ly
-        lhx = F.avg_pool2d(input=hx, kernel_size=(self.oct_value, self.
-            oct_value), stride=(self.oct_value, self.oct_value))
-        lhy = F.conv2d(input=lhx, weight=self.weight[self.h_out_channels:, 
-            0:self.h_in_channels, :, :], bias=self.bias[self.h_out_channels
-            :] if self.bias is not None else None, **self.conv_kwargs)
+        lhx = F.avg_pool2d(input=hx, kernel_size=(self.oct_value, self.oct_value), stride=(self.oct_value, self.oct_value))
+        lhy = F.conv2d(input=lhx, weight=self.weight[self.h_out_channels:, 0:self.h_in_channels, :, :], bias=self.bias[self.h_out_channels:] if self.bias is not None else None, **self.conv_kwargs)
         if self.oct_mode == 'first':
             hy = hhy
             ly = lhy
             return hy, ly
         if self.downsample:
             hly = hlx
-            llx = F.avg_pool2d(input=lx, kernel_size=(self.oct_value, self.
-                oct_value), stride=(self.oct_value, self.oct_value))
+            llx = F.avg_pool2d(input=lx, kernel_size=(self.oct_value, self.oct_value), stride=(self.oct_value, self.oct_value))
         else:
-            hly = F.interpolate(input=hlx, scale_factor=self.oct_value,
-                mode='nearest')
+            hly = F.interpolate(input=hlx, scale_factor=self.oct_value, mode='nearest')
             llx = lx
-        lly = F.conv2d(input=llx, weight=self.weight[self.h_out_channels:,
-            self.h_in_channels:, :, :], bias=self.bias[self.h_out_channels:
-            ] if self.bias is not None else None, **self.conv_kwargs)
+        lly = F.conv2d(input=llx, weight=self.weight[self.h_out_channels:, self.h_in_channels:, :, :], bias=self.bias[self.h_out_channels:] if self.bias is not None else None, **self.conv_kwargs)
         hy = hhy + hly
         ly = lhy + lly
         return hy, ly
@@ -16360,20 +14708,14 @@ class OctConvBlock(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, oct_alpha=0.0, oct_mode=
-        'std', bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True),
-        activate=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, oct_alpha=0.0, oct_mode='std', bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True), activate=True):
         super(OctConvBlock, self).__init__()
         self.activate = activate
         self.last = oct_mode == 'last' or oct_mode == 'std'
         out_alpha = 0.0 if self.last else oct_alpha
         h_out_channels = int(out_channels * (1.0 - out_alpha))
         l_out_channels = out_channels - h_out_channels
-        self.conv = OctConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias, oct_alpha
-            =oct_alpha, oct_mode=oct_mode)
+        self.conv = OctConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, oct_alpha=oct_alpha, oct_mode=oct_mode)
         self.h_bn = nn.BatchNorm2d(num_features=h_out_channels, eps=bn_eps)
         if not self.last:
             self.l_bn = nn.BatchNorm2d(num_features=l_out_channels, eps=bn_eps)
@@ -16403,9 +14745,7 @@ class OctConvBlock(nn.Module):
         return hx, lx
 
 
-def oct_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, groups=1, bias=False, oct_alpha=0.0, oct_mode='std', bn_eps
-    =1e-05, activation=lambda : nn.ReLU(inplace=True), activate=True):
+def oct_conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, groups=1, bias=False, oct_alpha=0.0, oct_mode='std', bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True), activate=True):
     """
     3x3 version of the octave convolution block.
 
@@ -16436,10 +14776,7 @@ def oct_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return OctConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, oct_alpha=oct_alpha, oct_mode=oct_mode,
-        bn_eps=bn_eps, activation=activation, activate=activate)
+    return OctConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, oct_alpha=oct_alpha, oct_mode=oct_mode, bn_eps=bn_eps, activation=activation, activate=activate)
 
 
 class OctResBlock(nn.Module):
@@ -16460,16 +14797,10 @@ class OctResBlock(nn.Module):
         Octave convolution mode. It can be 'first', 'norm', 'last', or 'std'.
     """
 
-    def __init__(self, in_channels, out_channels, stride, oct_alpha=0.0,
-        oct_mode='std'):
+    def __init__(self, in_channels, out_channels, stride, oct_alpha=0.0, oct_mode='std'):
         super(OctResBlock, self).__init__()
-        self.conv1 = oct_conv3x3_block(in_channels=in_channels,
-            out_channels=out_channels, stride=stride, oct_alpha=oct_alpha,
-            oct_mode=oct_mode)
-        self.conv2 = oct_conv3x3_block(in_channels=out_channels,
-            out_channels=out_channels, oct_alpha=oct_alpha, oct_mode='std' if
-            oct_mode == 'last' else oct_mode if oct_mode != 'first' else
-            'norm', activation=None, activate=False)
+        self.conv1 = oct_conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, oct_alpha=oct_alpha, oct_mode=oct_mode)
+        self.conv2 = oct_conv3x3_block(in_channels=out_channels, out_channels=out_channels, oct_alpha=oct_alpha, oct_mode='std' if oct_mode == 'last' else oct_mode if oct_mode != 'first' else 'norm', activation=None, activate=False)
 
     def forward(self, hx, lx=None):
         hx, lx = self.conv1(hx, lx)
@@ -16477,9 +14808,7 @@ class OctResBlock(nn.Module):
         return hx, lx
 
 
-def oct_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=
-    False, oct_alpha=0.0, oct_mode='std', bn_eps=1e-05, activation=lambda :
-    nn.ReLU(inplace=True), activate=True):
+def oct_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=False, oct_alpha=0.0, oct_mode='std', bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True), activate=True):
     """
     1x1 version of the octave convolution block.
 
@@ -16506,10 +14835,7 @@ def oct_conv1x1_block(in_channels, out_channels, stride=1, groups=1, bias=
     activate : bool, default True
         Whether activate the convolution block.
     """
-    return OctConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias,
-        oct_alpha=oct_alpha, oct_mode=oct_mode, bn_eps=bn_eps, activation=
-        activation, activate=activate)
+    return OctConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=groups, bias=bias, oct_alpha=oct_alpha, oct_mode=oct_mode, bn_eps=bn_eps, activation=activation, activate=activate)
 
 
 class OctResBottleneck(nn.Module):
@@ -16538,23 +14864,12 @@ class OctResBottleneck(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding=1,
-        dilation=1, oct_alpha=0.0, oct_mode='std', conv1_stride=False,
-        bottleneck_factor=4):
+    def __init__(self, in_channels, out_channels, stride, padding=1, dilation=1, oct_alpha=0.0, oct_mode='std', conv1_stride=False, bottleneck_factor=4):
         super(OctResBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = oct_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, stride=stride if conv1_stride else 1,
-            oct_alpha=oct_alpha, oct_mode=oct_mode if oct_mode != 'last' else
-            'norm')
-        self.conv2 = oct_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=1 if conv1_stride else stride,
-            padding=padding, dilation=dilation, oct_alpha=oct_alpha,
-            oct_mode=oct_mode if oct_mode != 'first' else 'norm')
-        self.conv3 = oct_conv1x1_block(in_channels=mid_channels,
-            out_channels=out_channels, oct_alpha=oct_alpha, oct_mode='std' if
-            oct_mode == 'last' else oct_mode if oct_mode != 'first' else
-            'norm', activation=None, activate=False)
+        self.conv1 = oct_conv1x1_block(in_channels=in_channels, out_channels=mid_channels, stride=stride if conv1_stride else 1, oct_alpha=oct_alpha, oct_mode=oct_mode if oct_mode != 'last' else 'norm')
+        self.conv2 = oct_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=1 if conv1_stride else stride, padding=padding, dilation=dilation, oct_alpha=oct_alpha, oct_mode=oct_mode if oct_mode != 'first' else 'norm')
+        self.conv3 = oct_conv1x1_block(in_channels=mid_channels, out_channels=out_channels, oct_alpha=oct_alpha, oct_mode='std' if oct_mode == 'last' else oct_mode if oct_mode != 'first' else 'norm', activation=None, activate=False)
 
     def forward(self, hx, lx=None):
         hx, lx = self.conv1(hx, lx)
@@ -16589,25 +14904,15 @@ class OctResUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding=1,
-        dilation=1, oct_alpha=0.0, oct_mode='std', bottleneck=True,
-        conv1_stride=False):
+    def __init__(self, in_channels, out_channels, stride, padding=1, dilation=1, oct_alpha=0.0, oct_mode='std', bottleneck=True, conv1_stride=False):
         super(OctResUnit, self).__init__()
-        self.resize_identity = (in_channels != out_channels or stride != 1 or
-            oct_mode == 'first' and oct_alpha != 0.0)
+        self.resize_identity = in_channels != out_channels or stride != 1 or oct_mode == 'first' and oct_alpha != 0.0
         if bottleneck:
-            self.body = OctResBottleneck(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, padding=padding,
-                dilation=dilation, oct_alpha=oct_alpha, oct_mode=oct_mode,
-                conv1_stride=conv1_stride)
+            self.body = OctResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, dilation=dilation, oct_alpha=oct_alpha, oct_mode=oct_mode, conv1_stride=conv1_stride)
         else:
-            self.body = OctResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, oct_alpha=oct_alpha, oct_mode=
-                oct_mode)
+            self.body = OctResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, oct_alpha=oct_alpha, oct_mode=oct_mode)
         if self.resize_identity:
-            self.identity_conv = oct_conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, oct_alpha=
-                oct_alpha, oct_mode=oct_mode, activation=None, activate=False)
+            self.identity_conv = oct_conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, oct_alpha=oct_alpha, oct_mode=oct_mode, activation=None, activate=False)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, hx, lx=None):
@@ -16649,16 +14954,12 @@ class OctResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, oct_alpha=0.5, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, oct_alpha=0.5, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(OctResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.features = DualPathSequential(return_two=False, first_ordinals
-            =1, last_ordinals=1)
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features = DualPathSequential(return_two=False, first_ordinals=1, last_ordinals=1)
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential()
@@ -16672,16 +14973,11 @@ class OctResNet(nn.Module):
                     oct_mode = 'std'
                 else:
                     oct_mode = 'norm'
-                stage.add_module('unit{}'.format(j + 1), OctResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, oct_alpha=oct_alpha, oct_mode=oct_mode,
-                    bottleneck=bottleneck, conv1_stride=conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), OctResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, oct_alpha=oct_alpha, oct_mode=oct_mode, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -16700,12 +14996,9 @@ class OctResNet(nn.Module):
 
 class ConvBNReLU(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -16725,9 +15018,7 @@ class BasicBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = None
         if in_channels != out_channels or stride != 1:
-            self.downsample = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, bias=False), nn
-                .BatchNorm2d(out_channels))
+            self.downsample = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
         residual = self.conv1(x)
@@ -16746,8 +15037,7 @@ class Resnet18(nn.Module):
 
     def __init__(self):
         super(Resnet18, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self.create_layer_basic(64, 64, bnum=2, stride=1)
@@ -16777,11 +15067,9 @@ class AttentionRefinementModule(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(AttentionRefinementModule, self).__init__()
-        self.conv = ConvBNReLU(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv = ConvBNReLU(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.conv_atten = nn.Conv2d(in_channels=out_channels, out_channels=
-            out_channels, kernel_size=1, bias=False)
+        self.conv_atten = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=1, bias=False)
         self.bn_atten = nn.BatchNorm2d(out_channels)
         self.sigmoid = nn.Sigmoid()
 
@@ -16802,12 +15090,9 @@ class ContextPath(nn.Module):
         self.resnet = Resnet18()
         self.arm16 = AttentionRefinementModule(256, 128)
         self.arm32 = AttentionRefinementModule(512, 128)
-        self.conv_head32 = ConvBNReLU(128, 128, kernel_size=3, stride=1,
-            padding=1)
-        self.conv_head16 = ConvBNReLU(128, 128, kernel_size=3, stride=1,
-            padding=1)
-        self.conv_avg = ConvBNReLU(512, 128, kernel_size=1, stride=1, padding=0
-            )
+        self.conv_head32 = ConvBNReLU(128, 128, kernel_size=3, stride=1, padding=1)
+        self.conv_head16 = ConvBNReLU(128, 128, kernel_size=3, stride=1, padding=1)
+        self.conv_avg = ConvBNReLU(512, 128, kernel_size=1, stride=1, padding=0)
         self.pool = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, x):
@@ -16833,13 +15118,10 @@ class FeatureFusionModule(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(FeatureFusionModule, self).__init__()
-        self.convblk = ConvBNReLU(in_channels, out_channels, kernel_size=1,
-            stride=1, padding=0)
+        self.convblk = ConvBNReLU(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.conv1 = nn.Conv2d(out_channels, out_channels // 4, kernel_size
-            =1, stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(out_channels // 4, out_channels, kernel_size
-            =1, stride=1, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(out_channels, out_channels // 4, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(out_channels // 4, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
 
@@ -16860,10 +15142,8 @@ class BiSeNetOutput(nn.Module):
 
     def __init__(self, in_channels, mid_channels, out_channels):
         super(BiSeNetOutput, self).__init__()
-        self.conv = ConvBNReLU(in_channels, mid_channels, kernel_size=3,
-            stride=1, padding=1)
-        self.conv_out = nn.Conv2d(mid_channels, out_channels, kernel_size=1,
-            bias=False)
+        self.conv = ConvBNReLU(in_channels, mid_channels, kernel_size=3, stride=1, padding=1)
+        self.conv_out = nn.Conv2d(mid_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         x = self.conv(x)
@@ -16898,12 +15178,9 @@ class BiSeNet(nn.Module):
         feat_out = self.conv_out(feat_fuse)
         feat_out16 = self.conv_out16(feat_cp8)
         feat_out32 = self.conv_out32(feat_cp16)
-        feat_out = F.interpolate(feat_out, size=(H, W), mode='bilinear',
-            align_corners=True)
-        feat_out16 = F.interpolate(feat_out16, size=(H, W), mode='bilinear',
-            align_corners=True)
-        feat_out32 = F.interpolate(feat_out32, size=(H, W), mode='bilinear',
-            align_corners=True)
+        feat_out = F.interpolate(feat_out, size=(H, W), mode='bilinear', align_corners=True)
+        feat_out16 = F.interpolate(feat_out16, size=(H, W), mode='bilinear', align_corners=True)
+        feat_out32 = F.interpolate(feat_out32, size=(H, W), mode='bilinear', align_corners=True)
         return feat_out, feat_out16, feat_out32
 
 
@@ -16913,15 +15190,9 @@ class Residual(nn.Module):
     def __init__(self, ins, outs, bn=True, relu=True):
         super(Residual, self).__init__()
         self.relu_flag = relu
-        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=
-            False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=
-            0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1,
-            bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(
-            negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 
-            1, bias=False), nn.BatchNorm2d(outs))
+        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 1, bias=False), nn.BatchNorm2d(outs))
         if ins != outs:
-            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=
-                False), nn.BatchNorm2d(outs))
+            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=False), nn.BatchNorm2d(outs))
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.ins = ins
         self.outs = outs
@@ -16941,8 +15212,7 @@ class Residual(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True,
-        relu=True, dropout=False, dialated=1):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True, relu=True, dropout=False, dialated=1):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -16951,17 +15221,13 @@ class Conv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=False, dilation=1)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False, dilation=1)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=True, dilation=1)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True, dilation=1)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -16977,8 +15243,7 @@ class DilatedConv(nn.Module):
     Dilated convolutional layer of stride=1 only!
     """
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True,
-        relu=True, dropout=False, dialation=3):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True, relu=True, dropout=False, dialation=3):
         super(DilatedConv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -16987,17 +15252,13 @@ class DilatedConv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=dialation, bias=False, dilation=dialation)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=dialation, bias=False, dilation=dialation)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=dialation, bias=True, dilation=dialation)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=dialation, bias=True, dilation=dialation)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -17013,23 +15274,18 @@ class Backbone(nn.Module):
     Input Tensor: a batch of images with shape (N, C, H, W)
     """
 
-    def __init__(self, nFeat=256, inplanes=3, resBlock=Residual,
-        dilatedBlock=DilatedConv):
+    def __init__(self, nFeat=256, inplanes=3, resBlock=Residual, dilatedBlock=DilatedConv):
         super(Backbone, self).__init__()
         self.nFeat = nFeat
         self.resBlock = resBlock
         self.inplanes = inplanes
-        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.res1 = self.resBlock(64, 128)
         self.pool = nn.MaxPool2d(2, 2)
         self.res2 = self.resBlock(128, 128)
-        self.dilation = nn.Sequential(dilatedBlock(128, 128, dialation=3),
-            dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128,
-            dialation=4), dilatedBlock(128, 128, dialation=4), dilatedBlock
-            (128, 128, dialation=5), dilatedBlock(128, 128, dialation=5))
+        self.dilation = nn.Sequential(dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128, dialation=4), dilatedBlock(128, 128, dialation=4), dilatedBlock(128, 128, dialation=5), dilatedBlock(128, 128, dialation=5))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -17046,8 +15302,7 @@ class Backbone(nn.Module):
 class Hourglass(nn.Module):
     """Instantiate an n order Hourglass Network block using recursive trick."""
 
-    def __init__(self, depth, nFeat, increase=128, bn=False, resBlock=
-        Residual, convBlock=Conv):
+    def __init__(self, depth, nFeat, increase=128, bn=False, resBlock=Residual, convBlock=Conv):
         super(Hourglass, self).__init__()
         self.depth = depth
         self.nFeat = nFeat
@@ -17060,18 +15315,10 @@ class Hourglass(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
 
     def _make_single_residual(self, depth_id):
-        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), 
-            self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
+        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
 
     def _make_lower_residual(self, depth_id):
-        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id,
-            self.nFeat + self.increase * depth_id, bn=self.bn), self.
-            resBlock(self.nFeat + self.increase * depth_id, self.nFeat + 
-            self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self
-            .nFeat + self.increase * (depth_id + 1), self.nFeat + self.
-            increase * depth_id, bn=self.bn), self.convBlock(self.nFeat + 
-            self.increase * depth_id, self.nFeat + self.increase * depth_id,
-            bn=self.bn)]
+        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * depth_id, bn=self.bn), self.convBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn)]
         return pack_layers
 
     def _make_hour_glass(self):
@@ -17128,9 +15375,7 @@ class SELayer(nn.Module):
         """
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction),
-            nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction,
-            inp_dim), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction), nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction, inp_dim), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -17156,22 +15401,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim,
-            inp_dim, 3, bn=bn, dropout=False), SELayer(inp_dim)) for i in
-            range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim, inp_dim, 3, bn=bn, dropout=False), SELayer(inp_dim)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -17183,18 +15422,11 @@ class PoseNet(nn.Module):
         """
         super(PoseNet, self).__init__()
         self.pre = Backbone(nFeat=inp_dim)
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1,
-            relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -17207,25 +15439,18 @@ class PoseNet(nn.Module):
             preds_instack = []
             hourglass_feature = self.hourglass[i](x)
             if i == 0:
-                features_cache = [torch.zeros_like(hourglass_feature[scale]
-                    ) for scale in range(5)]
+                features_cache = [torch.zeros_like(hourglass_feature[scale]) for scale in range(5)]
             else:
-                hourglass_feature = [(hourglass_feature[scale] +
-                    features_cache[scale]) for scale in range(5)]
+                hourglass_feature = [(hourglass_feature[scale] + features_cache[scale]) for scale in range(5)]
             features_instack = self.features[i](hourglass_feature)
             for j in range(5):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
                     else:
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         return pred[-1][0]
 
@@ -17249,15 +15474,9 @@ class Residual(nn.Module):
     def __init__(self, ins, outs, bn=True, relu=True):
         super(Residual, self).__init__()
         self.relu_flag = relu
-        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=
-            False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=
-            0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1,
-            bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(
-            negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 
-            1, bias=False), nn.BatchNorm2d(outs))
+        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 1, bias=False), nn.BatchNorm2d(outs))
         if ins != outs:
-            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=
-                False), nn.BatchNorm2d(outs))
+            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=False), nn.BatchNorm2d(outs))
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.ins = ins
         self.outs = outs
@@ -17277,8 +15496,7 @@ class Residual(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True,
-        relu=True, dropout=False, dialated=1):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True, relu=True, dropout=False, dialated=1):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -17287,17 +15505,13 @@ class Conv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=False, dilation=1)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False, dilation=1)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=True, dilation=1)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True, dilation=1)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -17313,8 +15527,7 @@ class DilatedConv(nn.Module):
     Dilated convolutional layer of stride=1 only!
     """
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True,
-        relu=True, dropout=False, dialation=3):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True, relu=True, dropout=False, dialation=3):
         super(DilatedConv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -17323,17 +15536,13 @@ class DilatedConv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=dialation, bias=False, dilation=dialation)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=dialation, bias=False, dilation=dialation)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=dialation, bias=True, dilation=dialation)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=dialation, bias=True, dilation=dialation)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -17349,23 +15558,18 @@ class Backbone(nn.Module):
     Input Tensor: a batch of images with shape (N, C, H, W)
     """
 
-    def __init__(self, nFeat=256, inplanes=3, resBlock=Residual,
-        dilatedBlock=DilatedConv):
+    def __init__(self, nFeat=256, inplanes=3, resBlock=Residual, dilatedBlock=DilatedConv):
         super(Backbone, self).__init__()
         self.nFeat = nFeat
         self.resBlock = resBlock
         self.inplanes = inplanes
-        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.res1 = self.resBlock(64, 128)
         self.pool = nn.MaxPool2d(2, 2)
         self.res2 = self.resBlock(128, 128)
-        self.dilation = nn.Sequential(dilatedBlock(128, 128, dialation=3),
-            dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128,
-            dialation=4), dilatedBlock(128, 128, dialation=4), dilatedBlock
-            (128, 128, dialation=5), dilatedBlock(128, 128, dialation=5))
+        self.dilation = nn.Sequential(dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128, dialation=4), dilatedBlock(128, 128, dialation=4), dilatedBlock(128, 128, dialation=5), dilatedBlock(128, 128, dialation=5))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -17382,8 +15586,7 @@ class Backbone(nn.Module):
 class Hourglass(nn.Module):
     """Instantiate an n order Hourglass Network block using recursive trick."""
 
-    def __init__(self, depth, nFeat, increase=128, bn=False, resBlock=
-        Residual, convBlock=Conv):
+    def __init__(self, depth, nFeat, increase=128, bn=False, resBlock=Residual, convBlock=Conv):
         super(Hourglass, self).__init__()
         self.depth = depth
         self.nFeat = nFeat
@@ -17396,18 +15599,10 @@ class Hourglass(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
 
     def _make_single_residual(self, depth_id):
-        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), 
-            self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
+        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
 
     def _make_lower_residual(self, depth_id):
-        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id,
-            self.nFeat + self.increase * depth_id, bn=self.bn), self.
-            resBlock(self.nFeat + self.increase * depth_id, self.nFeat + 
-            self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self
-            .nFeat + self.increase * (depth_id + 1), self.nFeat + self.
-            increase * depth_id, bn=self.bn), self.convBlock(self.nFeat + 
-            self.increase * depth_id, self.nFeat + self.increase * depth_id,
-            bn=self.bn)]
+        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * depth_id, bn=self.bn), self.convBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn)]
         return pack_layers
 
     def _make_hour_glass(self):
@@ -17464,9 +15659,7 @@ class SELayer(nn.Module):
         """
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction),
-            nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction,
-            inp_dim), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction), nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction, inp_dim), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -17492,22 +15685,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim,
-            inp_dim, 3, bn=bn, dropout=False), SELayer(inp_dim)) for i in
-            range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim, inp_dim, 3, bn=bn, dropout=False), SELayer(inp_dim)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -17519,18 +15706,11 @@ class PoseNet(nn.Module):
         """
         super(PoseNet, self).__init__()
         self.pre = Backbone(nFeat=inp_dim)
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1,
-            relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -17543,25 +15723,18 @@ class PoseNet(nn.Module):
             preds_instack = []
             hourglass_feature = self.hourglass[i](x)
             if i == 0:
-                features_cache = [torch.zeros_like(hourglass_feature[scale]
-                    ) for scale in range(5)]
+                features_cache = [torch.zeros_like(hourglass_feature[scale]) for scale in range(5)]
             else:
-                hourglass_feature = [(hourglass_feature[scale] +
-                    features_cache[scale]) for scale in range(5)]
+                hourglass_feature = [(hourglass_feature[scale] + features_cache[scale]) for scale in range(5)]
             features_instack = self.features[i](hourglass_feature)
             for j in range(5):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
                     else:
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         y = pred[-1][0]
         return y
@@ -17587,11 +15760,9 @@ class Resv2Block(nn.Module):
         super(Resv2Block, self).__init__()
         self.is_branch = is_branch
         self.relu1 = nn.ReLU()
-        self.conv1 = conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.conv1 = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.relu2 = nn.ReLU()
-        self.conv2 = conv3x3(in_channels=out_channels, out_channels=
-            out_channels, stride=stride)
+        self.conv2 = conv3x3(in_channels=out_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         out_branch = self.relu1(x)
@@ -17619,10 +15790,8 @@ class BranchBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(BranchBlock, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            in_channels, bias=True, use_bn=False)
-        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=True, use_bn=False, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=in_channels, bias=True, use_bn=False)
+        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=True, use_bn=False, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -17644,8 +15813,7 @@ class BranchUnit(nn.Module):
 
     def __init__(self, in_channels, mid_channels):
         super(BranchUnit, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=True, use_bn=False)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=True, use_bn=False)
         self.conv_score = BranchBlock(in_channels=mid_channels, out_channels=2)
         self.conv_bbox = BranchBlock(in_channels=mid_channels, out_channels=4)
 
@@ -17668,79 +15836,41 @@ class NaiveNet(nn.Module):
         self.block = block
         num_filters_list = [32, 64, 128, 256]
         if self.arch == 'naivenet20':
-            self.conv1 = conv3x3(in_channels=3, out_channels=
-                num_filters_list[1], stride=2, padding=0)
+            self.conv1 = conv3x3(in_channels=3, out_channels=num_filters_list[1], stride=2, padding=0)
             self.relu1 = nn.ReLU()
-            self.layer1 = self._make_layer(num_filters_list[1],
-                num_filters_list[1], blocks=layers[0])
-            self.branch1 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer2 = self._make_layer(num_filters_list[1],
-                num_filters_list[1], blocks=layers[1])
-            self.branch2 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer3 = self._make_layer(num_filters_list[1],
-                num_filters_list[1], blocks=layers[2])
-            self.branch3 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer4 = self._make_layer(num_filters_list[1],
-                num_filters_list[2], blocks=layers[3])
-            self.branch4 = nn.Sequential(BranchUnit(num_filters_list[2],
-                num_filters_list[2]))
-            self.layer5 = self._make_layer(num_filters_list[2],
-                num_filters_list[2], blocks=layers[4])
-            self.branch5 = nn.Sequential(BranchUnit(num_filters_list[2],
-                num_filters_list[2]))
+            self.layer1 = self._make_layer(num_filters_list[1], num_filters_list[1], blocks=layers[0])
+            self.branch1 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+            self.layer2 = self._make_layer(num_filters_list[1], num_filters_list[1], blocks=layers[1])
+            self.branch2 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+            self.layer3 = self._make_layer(num_filters_list[1], num_filters_list[1], blocks=layers[2])
+            self.branch3 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+            self.layer4 = self._make_layer(num_filters_list[1], num_filters_list[2], blocks=layers[3])
+            self.branch4 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
+            self.layer5 = self._make_layer(num_filters_list[2], num_filters_list[2], blocks=layers[4])
+            self.branch5 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
         elif self.arch == 'naivenet25':
-            self.conv1 = conv3x3(in_channels=3, out_channels=
-                num_filters_list[1], stride=2, padding=0)
+            self.conv1 = conv3x3(in_channels=3, out_channels=num_filters_list[1], stride=2, padding=0)
             self.relu1 = nn.ReLU()
-            self.stage1_1 = self._make_layer(num_filters_list[1],
-                num_filters_list[1], blocks=layers[0] - 1)
-            self.stage1_2_branch1 = nn.Sequential(self.block(
-                num_filters_list[1], num_filters_list[1], stride=1,
-                is_branch=True))
-            self.branch1 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
+            self.stage1_1 = self._make_layer(num_filters_list[1], num_filters_list[1], blocks=layers[0] - 1)
+            self.stage1_2_branch1 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+            self.branch1 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
             self.stage1_3_branch2 = nn.Sequential(nn.ReLU())
-            self.branch2 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
-            self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1],
-                num_filters_list[1], stride=2, padding=0), Resv2Block(
-                num_filters_list[1], num_filters_list[1], stride=1,
-                is_branch=False))
-            self.stage2_2_branch3 = nn.Sequential(Resv2Block(
-                num_filters_list[1], num_filters_list[1], stride=1,
-                is_branch=True))
-            self.branch3 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
+            self.branch2 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+            self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[1], stride=2, padding=0), Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=False))
+            self.stage2_2_branch3 = nn.Sequential(Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+            self.branch3 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
             self.stage2_3_branch4 = nn.Sequential(nn.ReLU())
-            self.branch4 = nn.Sequential(BranchUnit(num_filters_list[1],
-                num_filters_list[2]))
-            self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1],
-                num_filters_list[2], stride=2, padding=0), Resv2Block(
-                num_filters_list[2], num_filters_list[2], stride=1,
-                is_branch=False))
+            self.branch4 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+            self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
             self.stage3_2_branch5 = nn.Sequential(nn.ReLU())
-            self.branch5 = nn.Sequential(BranchUnit(num_filters_list[2],
-                num_filters_list[2]))
-            self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2],
-                num_filters_list[2], stride=2, padding=0), Resv2Block(
-                num_filters_list[2], num_filters_list[2], stride=1,
-                is_branch=False))
-            self.stage4_2_branch6 = nn.Sequential(Resv2Block(
-                num_filters_list[2], num_filters_list[2], stride=1,
-                is_branch=True))
-            self.branch6 = nn.Sequential(BranchUnit(num_filters_list[2],
-                num_filters_list[2]))
-            self.stage4_3_branch7 = nn.Sequential(Resv2Block(
-                num_filters_list[2], num_filters_list[2], stride=1,
-                is_branch=True))
-            self.branch7 = nn.Sequential(BranchUnit(num_filters_list[2],
-                num_filters_list[2]))
+            self.branch5 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
+            self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
+            self.stage4_2_branch6 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+            self.branch6 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
+            self.stage4_3_branch7 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+            self.branch7 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
             self.stage4_4_branch8 = nn.Sequential(nn.ReLU())
-            self.branch8 = nn.Sequential(BranchUnit(num_filters_list[2],
-                num_filters_list[2]))
+            self.branch8 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
         else:
             raise TypeError('Unsupported NaiveNet Version.')
 
@@ -17748,13 +15878,11 @@ class NaiveNet(nn.Module):
         stride = 2
         layers = []
         if self.arch == 'naivenet25':
-            layers.append(conv3x3(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, padding=0))
+            layers.append(conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=0))
             for _ in range(blocks):
                 layers.append(self.block(out_channels, out_channels, stride=1))
         elif self.arch == 'naivenet20':
-            layers.append(conv3x3(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, padding=0))
+            layers.append(conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=0))
             for _ in range(blocks):
                 layers.append(self.block(out_channels, out_channels, stride=1))
             layers.append(nn.ReLU())
@@ -17776,8 +15904,7 @@ class NaiveNet(nn.Module):
             score4, bbox4 = self.branch4(x)
             x = self.layer5(x)
             score5, bbox5 = self.branch5(x)
-            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4,
-                bbox4, score5, bbox5]
+            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5]
             return outs
         if self.arch == 'naivenet25':
             x = self.conv1(x)
@@ -17802,9 +15929,7 @@ class NaiveNet(nn.Module):
             score7, bbox7 = self.branch7(b7)
             x = b8 = self.stage4_4_branch8(x)
             score8, bbox8 = self.branch8(b8)
-            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4,
-                bbox4, score5, bbox5, score6, bbox6, score7, bbox7, score8,
-                bbox8]
+            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5, score6, bbox6, score7, bbox7, score8, bbox8]
             return outs
 
 
@@ -17815,11 +15940,9 @@ class Resv2Block(nn.Module):
         super(Resv2Block, self).__init__()
         self.is_branch = is_branch
         self.relu1 = nn.ReLU()
-        self.conv1 = conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.conv1 = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.relu2 = nn.ReLU()
-        self.conv2 = conv3x3(in_channels=out_channels, out_channels=
-            out_channels, stride=stride)
+        self.conv2 = conv3x3(in_channels=out_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         out_branch = self.relu1(x)
@@ -17847,10 +15970,8 @@ class BranchBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(BranchBlock, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            in_channels, bias=True, use_bn=False)
-        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=True, use_bn=False, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=in_channels, bias=True, use_bn=False)
+        self.conv2 = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=True, use_bn=False, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -17872,8 +15993,7 @@ class BranchUnit(nn.Module):
 
     def __init__(self, in_channels, mid_channels):
         super(BranchUnit, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=True, use_bn=False)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bias=True, use_bn=False)
         self.conv_score = BranchBlock(in_channels=mid_channels, out_channels=2)
         self.conv_bbox = BranchBlock(in_channels=mid_channels, out_channels=4)
 
@@ -17895,57 +16015,33 @@ class NaiveNet(nn.Module):
         self.block = Resv2Block
         num_filters_list = [32, 64, 128, 256]
         layers = [4, 2, 1, 3]
-        self.conv1 = conv3x3(in_channels=3, out_channels=num_filters_list[1
-            ], stride=2, padding=0)
+        self.conv1 = conv3x3(in_channels=3, out_channels=num_filters_list[1], stride=2, padding=0)
         self.relu1 = nn.ReLU()
-        self.stage1_1 = self._make_layer(num_filters_list[1],
-            num_filters_list[1], blocks=layers[0] - 1)
-        self.stage1_2_branch1 = nn.Sequential(self.block(num_filters_list[1
-            ], num_filters_list[1], stride=1, is_branch=True))
-        self.branch1 = nn.Sequential(BranchUnit(num_filters_list[1],
-            num_filters_list[2]))
+        self.stage1_1 = self._make_layer(num_filters_list[1], num_filters_list[1], blocks=layers[0] - 1)
+        self.stage1_2_branch1 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+        self.branch1 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
         self.stage1_3_branch2 = nn.Sequential(nn.ReLU())
-        self.branch2 = nn.Sequential(BranchUnit(num_filters_list[1],
-            num_filters_list[2]))
-        self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1],
-            num_filters_list[1], stride=2, padding=0), Resv2Block(
-            num_filters_list[1], num_filters_list[1], stride=1, is_branch=
-            False))
-        self.stage2_2_branch3 = nn.Sequential(Resv2Block(num_filters_list[1
-            ], num_filters_list[1], stride=1, is_branch=True))
-        self.branch3 = nn.Sequential(BranchUnit(num_filters_list[1],
-            num_filters_list[2]))
+        self.branch2 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+        self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[1], stride=2, padding=0), Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=False))
+        self.stage2_2_branch3 = nn.Sequential(Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+        self.branch3 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
         self.stage2_3_branch4 = nn.Sequential(nn.ReLU())
-        self.branch4 = nn.Sequential(BranchUnit(num_filters_list[1],
-            num_filters_list[2]))
-        self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1],
-            num_filters_list[2], stride=2, padding=0), Resv2Block(
-            num_filters_list[2], num_filters_list[2], stride=1, is_branch=
-            False))
+        self.branch4 = nn.Sequential(BranchUnit(num_filters_list[1], num_filters_list[2]))
+        self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
         self.stage3_2_branch5 = nn.Sequential(nn.ReLU())
-        self.branch5 = nn.Sequential(BranchUnit(num_filters_list[2],
-            num_filters_list[2]))
-        self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2],
-            num_filters_list[2], stride=2, padding=0), Resv2Block(
-            num_filters_list[2], num_filters_list[2], stride=1, is_branch=
-            False))
-        self.stage4_2_branch6 = nn.Sequential(Resv2Block(num_filters_list[2
-            ], num_filters_list[2], stride=1, is_branch=True))
-        self.branch6 = nn.Sequential(BranchUnit(num_filters_list[2],
-            num_filters_list[2]))
-        self.stage4_3_branch7 = nn.Sequential(Resv2Block(num_filters_list[2
-            ], num_filters_list[2], stride=1, is_branch=True))
-        self.branch7 = nn.Sequential(BranchUnit(num_filters_list[2],
-            num_filters_list[2]))
+        self.branch5 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
+        self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
+        self.stage4_2_branch6 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+        self.branch6 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
+        self.stage4_3_branch7 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+        self.branch7 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
         self.stage4_4_branch8 = nn.Sequential(nn.ReLU())
-        self.branch8 = nn.Sequential(BranchUnit(num_filters_list[2],
-            num_filters_list[2]))
+        self.branch8 = nn.Sequential(BranchUnit(num_filters_list[2], num_filters_list[2]))
 
     def _make_layer(self, in_channels, out_channels, blocks):
         stride = 2
         layers = []
-        layers.append(conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, padding=0))
+        layers.append(conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=0))
         for _ in range(blocks):
             layers.append(self.block(out_channels, out_channels, stride=1))
         return nn.Sequential(*layers)
@@ -17973,15 +16069,12 @@ class NaiveNet(nn.Module):
         score7, bbox7 = self.branch7(b7)
         x = b8 = self.stage4_4_branch8(x)
         score8, bbox8 = self.branch8(b8)
-        outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4,
-            score5, bbox5, score6, bbox6, score7, bbox7, score8, bbox8]
+        outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5, score6, bbox6, score7, bbox7, score8, bbox8]
         return outs
 
 
-def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True,
-    dilation=1, stride=1, relu=True, bias=True):
-    modules = [nn.Conv2d(in_channels, out_channels, kernel_size, stride,
-        padding, dilation, bias=bias)]
+def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True, dilation=1, stride=1, relu=True, bias=True):
+    modules = [nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, bias=bias)]
     if bn:
         modules.append(nn.BatchNorm2d(out_channels))
     if relu:
@@ -17989,23 +16082,16 @@ def conv(in_channels, out_channels, kernel_size=3, padding=1, bn=True,
     return nn.Sequential(*modules)
 
 
-def conv_dw_no_bn(in_channels, out_channels, kernel_size=3, padding=1,
-    stride=1, dilation=1):
-    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size,
-        stride, padding, dilation=dilation, groups=in_channels, bias=False),
-        nn.ELU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0,
-        bias=False), nn.ELU(inplace=True))
+def conv_dw_no_bn(in_channels, out_channels, kernel_size=3, padding=1, stride=1, dilation=1):
+    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation=dilation, groups=in_channels, bias=False), nn.ELU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False), nn.ELU(inplace=True))
 
 
 class Cpm(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.align = conv(in_channels, out_channels, kernel_size=1, padding
-            =0, bn=False)
-        self.trunk = nn.Sequential(conv_dw_no_bn(out_channels, out_channels
-            ), conv_dw_no_bn(out_channels, out_channels), conv_dw_no_bn(
-            out_channels, out_channels))
+        self.align = conv(in_channels, out_channels, kernel_size=1, padding=0, bn=False)
+        self.trunk = nn.Sequential(conv_dw_no_bn(out_channels, out_channels), conv_dw_no_bn(out_channels, out_channels), conv_dw_no_bn(out_channels, out_channels))
         self.conv = conv(out_channels, out_channels, bn=False)
 
     def forward(self, x):
@@ -18018,15 +16104,9 @@ class InitialStage(nn.Module):
 
     def __init__(self, num_channels, num_heatmaps, num_pafs):
         super().__init__()
-        self.trunk = nn.Sequential(conv(num_channels, num_channels, bn=
-            False), conv(num_channels, num_channels, bn=False), conv(
-            num_channels, num_channels, bn=False))
-        self.heatmaps = nn.Sequential(conv(num_channels, 512, kernel_size=1,
-            padding=0, bn=False), conv(512, num_heatmaps, kernel_size=1,
-            padding=0, bn=False, relu=False))
-        self.pafs = nn.Sequential(conv(num_channels, 512, kernel_size=1,
-            padding=0, bn=False), conv(512, num_pafs, kernel_size=1,
-            padding=0, bn=False, relu=False))
+        self.trunk = nn.Sequential(conv(num_channels, num_channels, bn=False), conv(num_channels, num_channels, bn=False), conv(num_channels, num_channels, bn=False))
+        self.heatmaps = nn.Sequential(conv(num_channels, 512, kernel_size=1, padding=0, bn=False), conv(512, num_heatmaps, kernel_size=1, padding=0, bn=False, relu=False))
+        self.pafs = nn.Sequential(conv(num_channels, 512, kernel_size=1, padding=0, bn=False), conv(512, num_pafs, kernel_size=1, padding=0, bn=False, relu=False))
 
     def forward(self, x):
         trunk_features = self.trunk(x)
@@ -18039,10 +16119,8 @@ class RefinementStageBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.initial = conv(in_channels, out_channels, kernel_size=1,
-            padding=0, bn=False)
-        self.trunk = nn.Sequential(conv(out_channels, out_channels), conv(
-            out_channels, out_channels, dilation=2, padding=2))
+        self.initial = conv(in_channels, out_channels, kernel_size=1, padding=0, bn=False)
+        self.trunk = nn.Sequential(conv(out_channels, out_channels), conv(out_channels, out_channels, dilation=2, padding=2))
 
     def forward(self, x):
         initial_features = self.initial(x)
@@ -18054,17 +16132,9 @@ class RefinementStage(nn.Module):
 
     def __init__(self, in_channels, out_channels, num_heatmaps, num_pafs):
         super().__init__()
-        self.trunk = nn.Sequential(RefinementStageBlock(in_channels,
-            out_channels), RefinementStageBlock(out_channels, out_channels),
-            RefinementStageBlock(out_channels, out_channels),
-            RefinementStageBlock(out_channels, out_channels),
-            RefinementStageBlock(out_channels, out_channels))
-        self.heatmaps = nn.Sequential(conv(out_channels, out_channels,
-            kernel_size=1, padding=0, bn=False), conv(out_channels,
-            num_heatmaps, kernel_size=1, padding=0, bn=False, relu=False))
-        self.pafs = nn.Sequential(conv(out_channels, out_channels,
-            kernel_size=1, padding=0, bn=False), conv(out_channels,
-            num_pafs, kernel_size=1, padding=0, bn=False, relu=False))
+        self.trunk = nn.Sequential(RefinementStageBlock(in_channels, out_channels), RefinementStageBlock(out_channels, out_channels), RefinementStageBlock(out_channels, out_channels), RefinementStageBlock(out_channels, out_channels), RefinementStageBlock(out_channels, out_channels))
+        self.heatmaps = nn.Sequential(conv(out_channels, out_channels, kernel_size=1, padding=0, bn=False), conv(out_channels, num_heatmaps, kernel_size=1, padding=0, bn=False, relu=False))
+        self.pafs = nn.Sequential(conv(out_channels, out_channels, kernel_size=1, padding=0, bn=False), conv(out_channels, num_pafs, kernel_size=1, padding=0, bn=False, relu=False))
 
     def forward(self, x):
         trunk_features = self.trunk(x)
@@ -18073,40 +16143,27 @@ class RefinementStage(nn.Module):
         return [heatmaps, pafs]
 
 
-def conv_dw(in_channels, out_channels, kernel_size=3, padding=1, stride=1,
-    dilation=1):
-    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size,
-        stride, padding, dilation=dilation, groups=in_channels, bias=False),
-        nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(
-        in_channels, out_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(
-        out_channels), nn.ReLU(inplace=True))
+def conv_dw(in_channels, out_channels, kernel_size=3, padding=1, stride=1, dilation=1):
+    return nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation=dilation, groups=in_channels, bias=False), nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
 
 class PoseEstimationWithMobileNet2d(nn.Module):
 
-    def __init__(self, num_refinement_stages=1, num_channels=128,
-        num_heatmaps=19, num_pafs=38):
+    def __init__(self, num_refinement_stages=1, num_channels=128, num_heatmaps=19, num_pafs=38):
         super().__init__()
-        self.model = nn.Sequential(conv(3, 32, stride=2, bias=False),
-            conv_dw(32, 64), conv_dw(64, 128, stride=2), conv_dw(128, 128),
-            conv_dw(128, 256, stride=2), conv_dw(256, 256), conv_dw(256, 
-            512), conv_dw(512, 512, dilation=2, padding=2), conv_dw(512, 
-            512), conv_dw(512, 512), conv_dw(512, 512), conv_dw(512, 512))
+        self.model = nn.Sequential(conv(3, 32, stride=2, bias=False), conv_dw(32, 64), conv_dw(64, 128, stride=2), conv_dw(128, 128), conv_dw(128, 256, stride=2), conv_dw(256, 256), conv_dw(256, 512), conv_dw(512, 512, dilation=2, padding=2), conv_dw(512, 512), conv_dw(512, 512), conv_dw(512, 512), conv_dw(512, 512))
         self.cpm = Cpm(512, num_channels)
         self.initial_stage = InitialStage(num_channels, num_heatmaps, num_pafs)
         self.refinement_stages = nn.ModuleList()
         for idx in range(num_refinement_stages):
-            self.refinement_stages.append(RefinementStage(num_channels +
-                num_heatmaps + num_pafs, num_channels, num_heatmaps, num_pafs))
+            self.refinement_stages.append(RefinementStage(num_channels + num_heatmaps + num_pafs, num_channels, num_heatmaps, num_pafs))
 
     def forward(self, x):
         backbone_features = self.model(x)
         backbone_features = self.cpm(backbone_features)
         stages_output = self.initial_stage(backbone_features)
         for refinement_stage in self.refinement_stages:
-            stages_output.extend(refinement_stage(torch.cat([
-                backbone_features, stages_output[-2], stages_output[-1]],
-                dim=1)))
+            stages_output.extend(refinement_stage(torch.cat([backbone_features, stages_output[-2], stages_output[-1]], dim=1)))
         stages_output = stages_output[-2:]
         y = torch.cat(stages_output, dim=1)
         return y
@@ -18116,11 +16173,8 @@ class Cpm(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.align = conv(in_channels, out_channels, kernel_size=1, padding
-            =0, bn=False)
-        self.trunk = nn.Sequential(conv_dw_no_bn(out_channels, out_channels
-            ), conv_dw_no_bn(out_channels, out_channels), conv_dw_no_bn(
-            out_channels, out_channels))
+        self.align = conv(in_channels, out_channels, kernel_size=1, padding=0, bn=False)
+        self.trunk = nn.Sequential(conv_dw_no_bn(out_channels, out_channels), conv_dw_no_bn(out_channels, out_channels), conv_dw_no_bn(out_channels, out_channels))
         self.conv = conv(out_channels, out_channels, bn=False)
 
     def forward(self, x):
@@ -18133,15 +16187,9 @@ class InitialStage(nn.Module):
 
     def __init__(self, num_channels, num_heatmaps, num_pafs):
         super().__init__()
-        self.trunk = nn.Sequential(conv(num_channels, num_channels, bn=
-            False), conv(num_channels, num_channels, bn=False), conv(
-            num_channels, num_channels, bn=False))
-        self.heatmaps = nn.Sequential(conv(num_channels, 512, kernel_size=1,
-            padding=0, bn=False), conv(512, num_heatmaps, kernel_size=1,
-            padding=0, bn=False, relu=False))
-        self.pafs = nn.Sequential(conv(num_channels, 512, kernel_size=1,
-            padding=0, bn=False), conv(512, num_pafs, kernel_size=1,
-            padding=0, bn=False, relu=False))
+        self.trunk = nn.Sequential(conv(num_channels, num_channels, bn=False), conv(num_channels, num_channels, bn=False), conv(num_channels, num_channels, bn=False))
+        self.heatmaps = nn.Sequential(conv(num_channels, 512, kernel_size=1, padding=0, bn=False), conv(512, num_heatmaps, kernel_size=1, padding=0, bn=False, relu=False))
+        self.pafs = nn.Sequential(conv(num_channels, 512, kernel_size=1, padding=0, bn=False), conv(512, num_pafs, kernel_size=1, padding=0, bn=False, relu=False))
 
     def forward(self, x):
         trunk_features = self.trunk(x)
@@ -18154,10 +16202,8 @@ class RefinementStageBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.initial = conv(in_channels, out_channels, kernel_size=1,
-            padding=0, bn=False)
-        self.trunk = nn.Sequential(conv(out_channels, out_channels), conv(
-            out_channels, out_channels, dilation=2, padding=2))
+        self.initial = conv(in_channels, out_channels, kernel_size=1, padding=0, bn=False)
+        self.trunk = nn.Sequential(conv(out_channels, out_channels), conv(out_channels, out_channels, dilation=2, padding=2))
 
     def forward(self, x):
         initial_features = self.initial(x)
@@ -18169,17 +16215,9 @@ class RefinementStage(nn.Module):
 
     def __init__(self, in_channels, out_channels, num_heatmaps, num_pafs):
         super().__init__()
-        self.trunk = nn.Sequential(RefinementStageBlock(in_channels,
-            out_channels), RefinementStageBlock(out_channels, out_channels),
-            RefinementStageBlock(out_channels, out_channels),
-            RefinementStageBlock(out_channels, out_channels),
-            RefinementStageBlock(out_channels, out_channels))
-        self.heatmaps = nn.Sequential(conv(out_channels, out_channels,
-            kernel_size=1, padding=0, bn=False), conv(out_channels,
-            num_heatmaps, kernel_size=1, padding=0, bn=False, relu=False))
-        self.pafs = nn.Sequential(conv(out_channels, out_channels,
-            kernel_size=1, padding=0, bn=False), conv(out_channels,
-            num_pafs, kernel_size=1, padding=0, bn=False, relu=False))
+        self.trunk = nn.Sequential(RefinementStageBlock(in_channels, out_channels), RefinementStageBlock(out_channels, out_channels), RefinementStageBlock(out_channels, out_channels), RefinementStageBlock(out_channels, out_channels), RefinementStageBlock(out_channels, out_channels))
+        self.heatmaps = nn.Sequential(conv(out_channels, out_channels, kernel_size=1, padding=0, bn=False), conv(out_channels, num_heatmaps, kernel_size=1, padding=0, bn=False, relu=False))
+        self.pafs = nn.Sequential(conv(out_channels, out_channels, kernel_size=1, padding=0, bn=False), conv(out_channels, num_pafs, kernel_size=1, padding=0, bn=False, relu=False))
 
     def forward(self, x):
         trunk_features = self.trunk(x)
@@ -18192,11 +16230,8 @@ class RefinementStageLight(nn.Module):
 
     def __init__(self, in_channels, mid_channels, out_channels):
         super().__init__()
-        self.trunk = nn.Sequential(RefinementStageBlock(in_channels,
-            mid_channels), RefinementStageBlock(mid_channels, mid_channels))
-        self.feature_maps = nn.Sequential(conv(mid_channels, mid_channels,
-            kernel_size=1, padding=0, bn=False), conv(mid_channels,
-            out_channels, kernel_size=1, padding=0, bn=False, relu=False))
+        self.trunk = nn.Sequential(RefinementStageBlock(in_channels, mid_channels), RefinementStageBlock(mid_channels, mid_channels))
+        self.feature_maps = nn.Sequential(conv(mid_channels, mid_channels, kernel_size=1, padding=0, bn=False), conv(mid_channels, out_channels, kernel_size=1, padding=0, bn=False, relu=False))
 
     def forward(self, x):
         trunk_features = self.trunk(x)
@@ -18209,13 +16244,9 @@ class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, ratio, should_align=False):
         super().__init__()
         self.should_align = should_align
-        self.bottleneck = nn.Sequential(conv(in_channels, in_channels //
-            ratio, kernel_size=1, padding=0), conv(in_channels // ratio, 
-            in_channels // ratio), conv(in_channels // ratio, out_channels,
-            kernel_size=1, padding=0))
+        self.bottleneck = nn.Sequential(conv(in_channels, in_channels // ratio, kernel_size=1, padding=0), conv(in_channels // ratio, in_channels // ratio), conv(in_channels // ratio, out_channels, kernel_size=1, padding=0))
         if self.should_align:
-            self.align = conv(in_channels, out_channels, kernel_size=1,
-                padding=0)
+            self.align = conv(in_channels, out_channels, kernel_size=1, padding=0)
 
     def forward(self, x):
         res = self.bottleneck(x)
@@ -18228,13 +16259,8 @@ class Pose3D(nn.Module):
 
     def __init__(self, in_channels, num_2d_heatmaps, ratio=2, out_channels=57):
         super().__init__()
-        self.stem = nn.Sequential(ResBlock(in_channels + num_2d_heatmaps,
-            in_channels, ratio, should_align=True), ResBlock(in_channels,
-            in_channels, ratio), ResBlock(in_channels, in_channels, ratio),
-            ResBlock(in_channels, in_channels, ratio), ResBlock(in_channels,
-            in_channels, ratio))
-        self.prediction = RefinementStageLight(in_channels, in_channels,
-            out_channels)
+        self.stem = nn.Sequential(ResBlock(in_channels + num_2d_heatmaps, in_channels, ratio, should_align=True), ResBlock(in_channels, in_channels, ratio), ResBlock(in_channels, in_channels, ratio), ResBlock(in_channels, in_channels, ratio), ResBlock(in_channels, in_channels, ratio))
+        self.prediction = RefinementStageLight(in_channels, in_channels, out_channels)
 
     def forward(self, x, feature_maps_2d):
         stem = self.stem(torch.cat([x, feature_maps_2d], 1))
@@ -18244,49 +16270,34 @@ class Pose3D(nn.Module):
 
 class PoseEstimationWithMobileNet3d(nn.Module):
 
-    def __init__(self, num_refinement_stages=1, num_channels=128,
-        num_heatmaps=19, num_pafs=38, is_convertible_by_mo=False):
+    def __init__(self, num_refinement_stages=1, num_channels=128, num_heatmaps=19, num_pafs=38, is_convertible_by_mo=False):
         super().__init__()
         self.is_convertible_by_mo = is_convertible_by_mo
-        self.model = nn.Sequential(conv(3, 32, stride=2, bias=False),
-            conv_dw(32, 64), conv_dw(64, 128, stride=2), conv_dw(128, 128),
-            conv_dw(128, 256, stride=2), conv_dw(256, 256), conv_dw(256, 
-            512), conv_dw(512, 512, dilation=2, padding=2), conv_dw(512, 
-            512), conv_dw(512, 512), conv_dw(512, 512), conv_dw(512, 512))
+        self.model = nn.Sequential(conv(3, 32, stride=2, bias=False), conv_dw(32, 64), conv_dw(64, 128, stride=2), conv_dw(128, 128), conv_dw(128, 256, stride=2), conv_dw(256, 256), conv_dw(256, 512), conv_dw(512, 512, dilation=2, padding=2), conv_dw(512, 512), conv_dw(512, 512), conv_dw(512, 512), conv_dw(512, 512))
         self.cpm = Cpm(512, num_channels)
         self.initial_stage = InitialStage(num_channels, num_heatmaps, num_pafs)
         self.refinement_stages = nn.ModuleList()
         for idx in range(num_refinement_stages):
-            self.refinement_stages.append(RefinementStage(num_channels +
-                num_heatmaps + num_pafs, num_channels, num_heatmaps, num_pafs))
+            self.refinement_stages.append(RefinementStage(num_channels + num_heatmaps + num_pafs, num_channels, num_heatmaps, num_pafs))
         self.Pose3D = Pose3D(128, num_2d_heatmaps=57)
         if self.is_convertible_by_mo:
-            self.fake_conv_heatmaps = nn.Conv2d(num_heatmaps, num_heatmaps,
-                kernel_size=1, bias=False)
-            self.fake_conv_heatmaps.weight = nn.Parameter(torch.zeros(
-                num_heatmaps, num_heatmaps, 1, 1))
-            self.fake_conv_pafs = nn.Conv2d(num_pafs, num_pafs, kernel_size
-                =1, bias=False)
-            self.fake_conv_pafs.weight = nn.Parameter(torch.zeros(num_pafs,
-                num_pafs, 1, 1))
+            self.fake_conv_heatmaps = nn.Conv2d(num_heatmaps, num_heatmaps, kernel_size=1, bias=False)
+            self.fake_conv_heatmaps.weight = nn.Parameter(torch.zeros(num_heatmaps, num_heatmaps, 1, 1))
+            self.fake_conv_pafs = nn.Conv2d(num_pafs, num_pafs, kernel_size=1, bias=False)
+            self.fake_conv_pafs.weight = nn.Parameter(torch.zeros(num_pafs, num_pafs, 1, 1))
 
     def forward(self, x):
         model_features = self.model(x)
         backbone_features = self.cpm(model_features)
         stages_output = self.initial_stage(backbone_features)
         for refinement_stage in self.refinement_stages:
-            stages_output.extend(refinement_stage(torch.cat([
-                backbone_features, stages_output[-2], stages_output[-1]],
-                dim=1)))
+            stages_output.extend(refinement_stage(torch.cat([backbone_features, stages_output[-2], stages_output[-1]], dim=1)))
         keypoints2d_maps = stages_output[-2]
         paf_maps = stages_output[-1]
         if self.is_convertible_by_mo:
-            keypoints2d_maps = stages_output[-2] + self.fake_conv_heatmaps(
-                stages_output[-2])
-            paf_maps = stages_output[-1] + self.fake_conv_pafs(stages_output
-                [-1])
-        out = self.Pose3D(backbone_features, torch.cat([stages_output[-2],
-            stages_output[-1]], dim=1))
+            keypoints2d_maps = stages_output[-2] + self.fake_conv_heatmaps(stages_output[-2])
+            paf_maps = stages_output[-1] + self.fake_conv_pafs(stages_output[-1])
+        out = self.Pose3D(backbone_features, torch.cat([stages_output[-2], stages_output[-1]], dim=1))
         y = torch.cat((keypoints2d_maps, paf_maps, out[0]), dim=1)
         return y
 
@@ -18375,121 +16386,62 @@ class NaiveNet(nn.Module):
         self.block = block
         if self.arch == 'naivenet25':
             if self.block == Resv2Block:
-                self.conv1 = conv3x3(3, num_filters_list[1], stride=2,
-                    padding=0)
+                self.conv1 = conv3x3(3, num_filters_list[1], stride=2, padding=0)
                 self.relu1 = nn.ReLU()
-                self.stage1_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[1], layers[0] - 1,
-                    stride=2)
-                self.stage1_2_branch1 = nn.Sequential(self.block(
-                    num_filters_list[1], num_filters_list[1], stride=1,
-                    is_branch=True))
-                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
+                self.stage1_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[0] - 1, stride=2)
+                self.stage1_2_branch1 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
                 self.stage1_3_branch2 = nn.Sequential(nn.ReLU())
-                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1],
-                    num_filters_list[1], stride=2, padding=0), Resv2Block(
-                    num_filters_list[1], num_filters_list[1], stride=1,
-                    is_branch=False))
-                self.stage2_2_branch3 = nn.Sequential(Resv2Block(
-                    num_filters_list[1], num_filters_list[1], stride=1,
-                    is_branch=True))
-                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
+                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage2_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[1], stride=2, padding=0), Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=False))
+                self.stage2_2_branch3 = nn.Sequential(Resv2Block(num_filters_list[1], num_filters_list[1], stride=1, is_branch=True))
+                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
                 self.stage2_3_branch4 = nn.Sequential(nn.ReLU())
-                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1],
-                    num_filters_list[2], stride=2, padding=0), Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=False))
+                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage3_1 = nn.Sequential(conv3x3(num_filters_list[1], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
                 self.stage3_2_branch5 = nn.Sequential(nn.ReLU())
-                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2],
-                    num_filters_list[2], stride=2, padding=0), Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=False))
-                self.stage4_2_branch6 = nn.Sequential(Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=True))
-                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_3_branch7 = nn.Sequential(Resv2Block(
-                    num_filters_list[2], num_filters_list[2], stride=1,
-                    is_branch=True))
-                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
+                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_1 = nn.Sequential(conv3x3(num_filters_list[2], num_filters_list[2], stride=2, padding=0), Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=False))
+                self.stage4_2_branch6 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_3_branch7 = nn.Sequential(Resv2Block(num_filters_list[2], num_filters_list[2], stride=1, is_branch=True))
+                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
                 self.stage4_4_branch8 = nn.Sequential(nn.ReLU())
-                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
+                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
             elif self.block == Resv1Block:
-                self.conv1 = conv3x3(3, num_filters_list[1], stride=2,
-                    padding=0)
+                self.conv1 = conv3x3(3, num_filters_list[1], stride=2, padding=0)
                 self.relu1 = nn.ReLU()
-                self.stage1_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[1], layers[0] - 1,
-                    stride=2)
-                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage1_2 = nn.Sequential(self.block(num_filters_list[1
-                    ], num_filters_list[1], stride=1))
-                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage2_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[1], layers[1] - 1,
-                    stride=2)
-                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage2_2 = nn.Sequential(self.block(num_filters_list[1
-                    ], num_filters_list[1], stride=1))
-                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1],
-                    num_filters_list[2]))
-                self.stage3_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[1], num_filters_list[2], layers[2],
-                    stride=2)
-                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_1 = self._make_layer(self.arch, self.block,
-                    num_filters_list[2], num_filters_list[2], layers[3] - 2,
-                    stride=2)
-                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_2 = nn.Sequential(self.block(num_filters_list[2
-                    ], num_filters_list[2], stride=1))
-                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
-                self.stage4_3 = nn.Sequential(self.block(num_filters_list[2
-                    ], num_filters_list[2], stride=1))
-                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2],
-                    num_filters_list[2]))
+                self.stage1_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[0] - 1, stride=2)
+                self.branch1 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage1_2 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1))
+                self.branch2 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage2_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[1] - 1, stride=2)
+                self.branch3 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage2_2 = nn.Sequential(self.block(num_filters_list[1], num_filters_list[1], stride=1))
+                self.branch4 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+                self.stage3_1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[2], layers[2], stride=2)
+                self.branch5 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_1 = self._make_layer(self.arch, self.block, num_filters_list[2], num_filters_list[2], layers[3] - 2, stride=2)
+                self.branch6 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_2 = nn.Sequential(self.block(num_filters_list[2], num_filters_list[2], stride=1))
+                self.branch7 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+                self.stage4_3 = nn.Sequential(self.block(num_filters_list[2], num_filters_list[2], stride=1))
+                self.branch8 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
             else:
                 raise TypeError('Unsupported ResNet Block Version.')
         elif self.arch == 'naivenet20':
             self.conv1 = conv3x3(3, num_filters_list[1], stride=2, padding=0)
             self.relu1 = nn.ReLU()
-            self.layer1 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[1], layers[0], stride=2)
-            self.branch1 = nn.Sequential(BranchNet(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer2 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[1], layers[1], stride=2)
-            self.branch2 = nn.Sequential(BranchNet(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer3 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[1], layers[2], stride=2)
-            self.branch3 = nn.Sequential(BranchNet(num_filters_list[1],
-                num_filters_list[2]))
-            self.layer4 = self._make_layer(self.arch, self.block,
-                num_filters_list[1], num_filters_list[2], layers[3], stride=2)
-            self.branch4 = nn.Sequential(BranchNet(num_filters_list[2],
-                num_filters_list[2]))
-            self.layer5 = self._make_layer(self.arch, self.block,
-                num_filters_list[2], num_filters_list[2], layers[4], stride=2)
-            self.branch5 = nn.Sequential(BranchNet(num_filters_list[2],
-                num_filters_list[2]))
+            self.layer1 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[0], stride=2)
+            self.branch1 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+            self.layer2 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[1], stride=2)
+            self.branch2 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+            self.layer3 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[1], layers[2], stride=2)
+            self.branch3 = nn.Sequential(BranchNet(num_filters_list[1], num_filters_list[2]))
+            self.layer4 = self._make_layer(self.arch, self.block, num_filters_list[1], num_filters_list[2], layers[3], stride=2)
+            self.branch4 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
+            self.layer5 = self._make_layer(self.arch, self.block, num_filters_list[2], num_filters_list[2], layers[4], stride=2)
+            self.branch5 = nn.Sequential(BranchNet(num_filters_list[2], num_filters_list[2]))
         else:
             raise TypeError('Unsupported NaiveNet Version.')
 
@@ -18497,13 +16449,11 @@ class NaiveNet(nn.Module):
         layers = []
         if self.arch == 'naivenet25':
             if block == Resv2Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
             elif block == Resv1Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 layers.append(nn.ReLU())
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
@@ -18511,14 +16461,12 @@ class NaiveNet(nn.Module):
                 raise TypeError('Unsupported ResNet Block Version.')
         elif self.arch == 'naivenet20':
             if block == Resv2Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
                 layers.append(nn.ReLU())
             elif block == Resv1Block:
-                layers.append(conv3x3(inplanes, planes, stride=stride,
-                    padding=0))
+                layers.append(conv3x3(inplanes, planes, stride=stride, padding=0))
                 layers.append(nn.ReLU())
                 for _ in range(blocks):
                     layers.append(block(planes, planes, stride=1))
@@ -18572,9 +16520,7 @@ class NaiveNet(nn.Module):
                 score7, bbox7 = self.branch7(x)
                 x = self.stage4_3(x)
                 score8, bbox8 = self.branch8(x)
-            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4,
-                bbox4, score5, bbox5, score6, bbox6, score7, bbox7, score8,
-                bbox8]
+            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5, score6, bbox6, score7, bbox7, score8, bbox8]
             return outs
         if self.arch == 'naivenet20':
             x = self.conv1(x)
@@ -18589,8 +16535,7 @@ class NaiveNet(nn.Module):
             score4, bbox4 = self.branch4(x)
             x = self.layer5(x)
             score5, bbox5 = self.branch5(x)
-            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4,
-                bbox4, score5, bbox5]
+            outs = [score1, bbox1, score2, bbox2, score3, bbox3, score4, bbox4, score5, bbox5]
             return outs
 
 
@@ -18620,10 +16565,8 @@ class HeatmapMaxDetBlock(nn.Module):
                 px = int(pts[b, k, 0])
                 py = int(pts[b, k, 1])
                 if 0 < px < in_size[1] - 1 and 0 < py < in_size[0] - 1:
-                    pts[b, k, 0] += (hm[py, px + 1] - hm[py, px - 1]).sign(
-                        ) * 0.25
-                    pts[b, k, 1] += (hm[py + 1, px] - hm[py - 1, px]).sign(
-                        ) * 0.25
+                    pts[b, k, 0] += (hm[py, px + 1] - hm[py, px - 1]).sign() * 0.25
+                    pts[b, k, 1] += (hm[py + 1, px] - hm[py - 1, px]).sign() * 0.25
         return pts
 
     @staticmethod
@@ -18671,13 +16614,10 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -18704,16 +16644,12 @@ class Bottleneck_CAFFE(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck_CAFFE, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=
-            stride, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -18750,8 +16686,7 @@ class PoseResNet(nn.Module):
         self.inplanes = 64
         self.deconv_with_bias = extra_DECONV_WITH_BIAS
         super(PoseResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -18759,20 +16694,14 @@ class PoseResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.deconv_layers = self._make_deconv_layer(extra_NUM_DECONV_LAYERS,
-            extra_NUM_DECONV_FILTERS, extra_NUM_DECONV_KERNELS)
-        self.final_layer = nn.Conv2d(in_channels=extra_NUM_DECONV_FILTERS[-
-            1], out_channels=MODEL_NUM_JOINTS, kernel_size=
-            extra_FINAL_CONV_KERNEL, stride=1, padding=1 if 
-            extra_FINAL_CONV_KERNEL == 3 else 0)
+        self.deconv_layers = self._make_deconv_layer(extra_NUM_DECONV_LAYERS, extra_NUM_DECONV_FILTERS, extra_NUM_DECONV_KERNELS)
+        self.final_layer = nn.Conv2d(in_channels=extra_NUM_DECONV_FILTERS[-1], out_channels=MODEL_NUM_JOINTS, kernel_size=extra_FINAL_CONV_KERNEL, stride=1, padding=1 if extra_FINAL_CONV_KERNEL == 3 else 0)
         self.heatmap_max_det = HeatmapMaxDetBlock()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -18793,19 +16722,13 @@ class PoseResNet(nn.Module):
         return deconv_kernel, padding, output_padding
 
     def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
-        assert num_layers == len(num_filters
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
-        assert num_layers == len(num_kernels
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_filters), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
         layers = []
         for i in range(num_layers):
-            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels
-                [i], i)
+            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels[i], i)
             planes = num_filters[i]
-            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes,
-                out_channels=planes, kernel_size=kernel, stride=2, padding=
-                padding, output_padding=output_padding, bias=self.
-                deconv_with_bias))
+            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes, out_channels=planes, kernel_size=kernel, stride=2, padding=padding, output_padding=output_padding, bias=self.deconv_with_bias))
             layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = planes
@@ -18830,8 +16753,7 @@ class PoseResNet(nn.Module):
             logger.info('=> init deconv weights from normal distribution')
             for name, m in self.deconv_layers.named_modules():
                 if isinstance(m, nn.ConvTranspose2d):
-                    logger.info('=> init {}.weight as normal(0, 0.001)'.
-                        format(name))
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
                     logger.info('=> init {}.bias as 0'.format(name))
                     nn.init.normal_(m.weight, std=0.001)
                     if self.deconv_with_bias:
@@ -18844,8 +16766,7 @@ class PoseResNet(nn.Module):
             logger.info('=> init final conv weights from normal distribution')
             for m in self.final_layer.modules():
                 if isinstance(m, nn.Conv2d):
-                    logger.info('=> init {}.weight as normal(0, 0.001)'.
-                        format(name))
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
                     logger.info('=> init {}.bias as 0'.format(name))
                     nn.init.normal_(m.weight, std=0.001)
                     nn.init.constant_(m.bias, 0)
@@ -18862,8 +16783,7 @@ class PoseResNet(nn.Module):
                     else:
                         state_dict[key] = state_dict_old[key]
             else:
-                raise RuntimeError('No state_dict found in checkpoint file {}'
-                    .format(pretrained))
+                raise RuntimeError('No state_dict found in checkpoint file {}'.format(pretrained))
             self.load_state_dict(state_dict, strict=False)
         else:
             logger.error('=> imagenet pretrained model dose not exist')
@@ -18875,13 +16795,9 @@ def padding_same_conv2d(input_size, in_c, out_c, kernel_size=4, stride=1):
     output_size = input_size // stride
     padding_num = stride * (output_size - 1) - input_size + kernel_size
     if padding_num % 2 == 0:
-        return nn.Sequential(nn.Conv2d(in_c, out_c, kernel_size=kernel_size,
-            stride=stride, padding=padding_num // 2, bias=False))
+        return nn.Sequential(nn.Conv2d(in_c, out_c, kernel_size=kernel_size, stride=stride, padding=padding_num // 2, bias=False))
     else:
-        return nn.Sequential(nn.ConstantPad2d((padding_num // 2, 
-            padding_num // 2 + 1, padding_num // 2, padding_num // 2 + 1), 
-            0), nn.Conv2d(in_c, out_c, kernel_size=kernel_size, stride=
-            stride, padding=0, bias=False))
+        return nn.Sequential(nn.ConstantPad2d((padding_num // 2, padding_num // 2 + 1, padding_num // 2, padding_num // 2 + 1), 0), nn.Conv2d(in_c, out_c, kernel_size=kernel_size, stride=stride, padding=0, bias=False))
 
 
 class resBlock(nn.Module):
@@ -18891,21 +16807,13 @@ class resBlock(nn.Module):
         assert kernel_size == 4
         self.shortcut = lambda x: x
         if in_c != out_c:
-            self.shortcut = nn.Conv2d(in_c, out_c, kernel_size=1, stride=
-                stride, bias=False)
-        main_layers = [nn.Conv2d(in_c, out_c // 2, kernel_size=1, stride=1,
-            padding=0, bias=False), nn.BatchNorm2d(out_c // 2, eps=0.001,
-            momentum=0.001), nn.ReLU(inplace=True)]
-        main_layers += list(padding_same_conv2d(input_size, out_c // 2, 
-            out_c // 2, kernel_size=kernel_size, stride=stride)._modules.
-            values())
-        main_layers.extend([nn.BatchNorm2d(out_c // 2, eps=0.001, momentum=
-            0.001), nn.ReLU(inplace=True)])
-        main_layers.extend(padding_same_conv2d(input_size, out_c // 2,
-            out_c, kernel_size=1, stride=1))
+            self.shortcut = nn.Conv2d(in_c, out_c, kernel_size=1, stride=stride, bias=False)
+        main_layers = [nn.Conv2d(in_c, out_c // 2, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(out_c // 2, eps=0.001, momentum=0.001), nn.ReLU(inplace=True)]
+        main_layers += list(padding_same_conv2d(input_size, out_c // 2, out_c // 2, kernel_size=kernel_size, stride=stride)._modules.values())
+        main_layers.extend([nn.BatchNorm2d(out_c // 2, eps=0.001, momentum=0.001), nn.ReLU(inplace=True)])
+        main_layers.extend(padding_same_conv2d(input_size, out_c // 2, out_c, kernel_size=1, stride=1))
         self.main = nn.Sequential(*main_layers)
-        self.activate = nn.Sequential(nn.BatchNorm2d(out_c, eps=0.001,
-            momentum=0.001), nn.ReLU(inplace=True))
+        self.activate = nn.Sequential(nn.BatchNorm2d(out_c, eps=0.001, momentum=0.001), nn.ReLU(inplace=True))
 
     def forward(self, x):
         shortcut_x = self.shortcut(x)
@@ -18921,14 +16829,8 @@ class upBlock(nn.Module):
         additional_conv = []
         layer_length = 4
         for i in range(1, conv_num + 1):
-            additional_conv += [nn.ConstantPad2d((2, 1, 2, 1), 0), nn.
-                ConvTranspose2d(out_c, out_c, kernel_size=4, stride=1,
-                padding=3, bias=False), nn.BatchNorm2d(out_c, eps=0.001,
-                momentum=0.001), nn.ReLU(inplace=True)]
-        self.main = nn.Sequential(nn.ConvTranspose2d(in_c, out_c,
-            kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d
-            (out_c, eps=0.001, momentum=0.001), nn.ReLU(inplace=True), *
-            additional_conv)
+            additional_conv += [nn.ConstantPad2d((2, 1, 2, 1), 0), nn.ConvTranspose2d(out_c, out_c, kernel_size=4, stride=1, padding=3, bias=False), nn.BatchNorm2d(out_c, eps=0.001, momentum=0.001), nn.ReLU(inplace=True)]
+        self.main = nn.Sequential(nn.ConvTranspose2d(in_c, out_c, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(out_c, eps=0.001, momentum=0.001), nn.ReLU(inplace=True), *additional_conv)
 
     def forward(self, x):
         x = self.main(x)
@@ -18940,48 +16842,24 @@ class PRNet(nn.Module):
     def __init__(self, in_channel, out_channel=3, pretrained=False):
         super().__init__()
         size = 16
-        self.input_conv = nn.Sequential(*(list(padding_same_conv2d(256,
-            in_channel, size, kernel_size=4, stride=1)._modules.values()) +
-            [nn.BatchNorm2d(size, eps=0.001, momentum=0.001), nn.ReLU(
-            inplace=True)]))
-        self.down_conv_1 = resBlock(size, size * 2, kernel_size=4, stride=2,
-            input_size=256)
-        self.down_conv_2 = resBlock(size * 2, size * 2, kernel_size=4,
-            stride=1, input_size=128)
-        self.down_conv_3 = resBlock(size * 2, size * 4, kernel_size=4,
-            stride=2, input_size=128)
-        self.down_conv_4 = resBlock(size * 4, size * 4, kernel_size=4,
-            stride=1, input_size=64)
-        self.down_conv_5 = resBlock(size * 4, size * 8, kernel_size=4,
-            stride=2, input_size=64)
-        self.down_conv_6 = resBlock(size * 8, size * 8, kernel_size=4,
-            stride=1, input_size=32)
-        self.down_conv_7 = resBlock(size * 8, size * 16, kernel_size=4,
-            stride=2, input_size=32)
-        self.down_conv_8 = resBlock(size * 16, size * 16, kernel_size=4,
-            stride=1, input_size=16)
-        self.down_conv_9 = resBlock(size * 16, size * 32, kernel_size=4,
-            stride=2, input_size=16)
-        self.down_conv_10 = resBlock(size * 32, size * 32, kernel_size=4,
-            stride=1, input_size=8)
-        self.center_conv = nn.Sequential(nn.ConstantPad2d((2, 1, 2, 1), 0),
-            nn.ConvTranspose2d(size * 32, size * 32, kernel_size=4, stride=
-            1, padding=3, bias=False), nn.BatchNorm2d(size * 32, eps=0.001,
-            momentum=0.001), nn.ReLU(inplace=True))
+        self.input_conv = nn.Sequential(*(list(padding_same_conv2d(256, in_channel, size, kernel_size=4, stride=1)._modules.values()) + [nn.BatchNorm2d(size, eps=0.001, momentum=0.001), nn.ReLU(inplace=True)]))
+        self.down_conv_1 = resBlock(size, size * 2, kernel_size=4, stride=2, input_size=256)
+        self.down_conv_2 = resBlock(size * 2, size * 2, kernel_size=4, stride=1, input_size=128)
+        self.down_conv_3 = resBlock(size * 2, size * 4, kernel_size=4, stride=2, input_size=128)
+        self.down_conv_4 = resBlock(size * 4, size * 4, kernel_size=4, stride=1, input_size=64)
+        self.down_conv_5 = resBlock(size * 4, size * 8, kernel_size=4, stride=2, input_size=64)
+        self.down_conv_6 = resBlock(size * 8, size * 8, kernel_size=4, stride=1, input_size=32)
+        self.down_conv_7 = resBlock(size * 8, size * 16, kernel_size=4, stride=2, input_size=32)
+        self.down_conv_8 = resBlock(size * 16, size * 16, kernel_size=4, stride=1, input_size=16)
+        self.down_conv_9 = resBlock(size * 16, size * 32, kernel_size=4, stride=2, input_size=16)
+        self.down_conv_10 = resBlock(size * 32, size * 32, kernel_size=4, stride=1, input_size=8)
+        self.center_conv = nn.Sequential(nn.ConstantPad2d((2, 1, 2, 1), 0), nn.ConvTranspose2d(size * 32, size * 32, kernel_size=4, stride=1, padding=3, bias=False), nn.BatchNorm2d(size * 32, eps=0.001, momentum=0.001), nn.ReLU(inplace=True))
         self.up_conv_5 = upBlock(size * 32, size * 16)
         self.up_conv_4 = upBlock(size * 16, size * 8)
         self.up_conv_3 = upBlock(size * 8, size * 4)
         self.up_conv_2 = upBlock(size * 4, size * 2, 1)
         self.up_conv_1 = upBlock(size * 2, size, 1)
-        self.output_conv = nn.Sequential(nn.ConstantPad2d((2, 1, 2, 1), 0),
-            nn.ConvTranspose2d(size, 3, kernel_size=4, stride=1, padding=3,
-            bias=False), nn.BatchNorm2d(3, eps=0.001, momentum=0.001), nn.
-            ReLU(inplace=True), nn.ConstantPad2d((2, 1, 2, 1), 0), nn.
-            ConvTranspose2d(3, 3, kernel_size=4, stride=1, padding=3, bias=
-            False), nn.BatchNorm2d(3, eps=0.001, momentum=0.001), nn.ReLU(
-            inplace=True), nn.ConstantPad2d((2, 1, 2, 1), 0), nn.
-            ConvTranspose2d(3, 3, kernel_size=4, stride=1, padding=3, bias=
-            False), nn.BatchNorm2d(3, eps=0.001, momentum=0.001), nn.Sigmoid())
+        self.output_conv = nn.Sequential(nn.ConstantPad2d((2, 1, 2, 1), 0), nn.ConvTranspose2d(size, 3, kernel_size=4, stride=1, padding=3, bias=False), nn.BatchNorm2d(3, eps=0.001, momentum=0.001), nn.ReLU(inplace=True), nn.ConstantPad2d((2, 1, 2, 1), 0), nn.ConvTranspose2d(3, 3, kernel_size=4, stride=1, padding=3, bias=False), nn.BatchNorm2d(3, eps=0.001, momentum=0.001), nn.ReLU(inplace=True), nn.ConstantPad2d((2, 1, 2, 1), 0), nn.ConvTranspose2d(3, 3, kernel_size=4, stride=1, padding=3, bias=False), nn.BatchNorm2d(3, eps=0.001, momentum=0.001), nn.Sigmoid())
 
     def forward(self, x):
         x = self.input_conv(x)
@@ -19023,8 +16901,7 @@ class CBR(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride,
-            padding=(padding, padding), bias=False)
+        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
         self.bn = nn.BatchNorm2d(nOut, eps=0.001, momentum=BN_moment)
         self.act = nn.PReLU(nOut)
 
@@ -19054,9 +16931,7 @@ class separableCBR(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Sequential(nn.Conv2d(nIn, nIn, (kSize, kSize),
-            stride=stride, padding=(padding, padding), groups=nIn, bias=
-            False), nn.Conv2d(nIn, nOut, kernel_size=1, stride=1, bias=False))
+        self.conv = nn.Sequential(nn.Conv2d(nIn, nIn, (kSize, kSize), stride=stride, padding=(padding, padding), groups=nIn, bias=False), nn.Conv2d(nIn, nOut, kernel_size=1, stride=1, bias=False))
         self.bn = nn.BatchNorm2d(nOut, eps=0.001, momentum=BN_moment)
         self.act = nn.PReLU(nOut)
 
@@ -19076,17 +16951,13 @@ class SqueezeBlock(nn.Module):
     def __init__(self, exp_size, divide=4.0):
         super(SqueezeBlock, self).__init__()
         if divide > 1:
-            self.dense = nn.Sequential(nn.Linear(exp_size, int(exp_size /
-                divide)), nn.PReLU(int(exp_size / divide)), nn.Linear(int(
-                exp_size / divide), exp_size), nn.PReLU(exp_size))
+            self.dense = nn.Sequential(nn.Linear(exp_size, int(exp_size / divide)), nn.PReLU(int(exp_size / divide)), nn.Linear(int(exp_size / divide), exp_size), nn.PReLU(exp_size))
         else:
-            self.dense = nn.Sequential(nn.Linear(exp_size, exp_size), nn.
-                PReLU(exp_size))
+            self.dense = nn.Sequential(nn.Linear(exp_size, exp_size), nn.PReLU(exp_size))
 
     def forward(self, x):
         batch, channels, height, width = x.size()
-        out = torch.nn.functional.avg_pool2d(x, kernel_size=[height, width]
-            ).view(batch, -1)
+        out = torch.nn.functional.avg_pool2d(x, kernel_size=[height, width]).view(batch, -1)
         out = self.dense(out)
         out = out.view(batch, channels, 1, 1)
         return out * x
@@ -19107,10 +16978,7 @@ class SEseparableCBR(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Sequential(nn.Conv2d(nIn, nIn, (kSize, kSize),
-            stride=stride, padding=(padding, padding), groups=nIn, bias=
-            False), SqueezeBlock(nIn, divide=divide), nn.Conv2d(nIn, nOut,
-            kernel_size=1, stride=1, bias=False))
+        self.conv = nn.Sequential(nn.Conv2d(nIn, nIn, (kSize, kSize), stride=stride, padding=(padding, padding), groups=nIn, bias=False), SqueezeBlock(nIn, divide=divide), nn.Conv2d(nIn, nOut, kernel_size=1, stride=1, bias=False))
         self.bn = nn.BatchNorm2d(nOut, eps=0.001, momentum=BN_moment)
         self.act = nn.PReLU(nOut)
 
@@ -19162,8 +17030,7 @@ class CB(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride,
-            padding=(padding, padding), bias=False)
+        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
         self.bn = nn.BatchNorm2d(nOut, eps=0.001, momentum=BN_moment)
 
     def forward(self, input):
@@ -19192,8 +17059,7 @@ class C(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride,
-            padding=(padding, padding), bias=False, groups=group)
+        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False, groups=group)
 
     def forward(self, input):
         """
@@ -19222,9 +17088,7 @@ class SBblock(nn.Module):
         avgsize = config[1]
         self.SB = True if avgsize > 0 else False
         if avgsize == 0:
-            self.conv = nn.Sequential(nn.Conv2d(nIn, nIn, kernel_size=3,
-                stride=1, padding=1, bias=False, groups=nIn), nn.
-                BatchNorm2d(nIn, eps=0.001, momentum=BN_moment))
+            self.conv = nn.Sequential(nn.Conv2d(nIn, nIn, kernel_size=3, stride=1, padding=1, bias=False, groups=nIn), nn.BatchNorm2d(nIn, eps=0.001, momentum=BN_moment))
         else:
             self.resolution_down = False
             if avgsize > 1:
@@ -19232,14 +17096,11 @@ class SBblock(nn.Module):
                 self.down_res = nn.AvgPool2d(avgsize, avgsize)
                 self.up_res = nn.UpsamplingBilinear2d(scale_factor=avgsize)
             padding = int((kSize - 1) / 2)
-            self.vertical = nn.Conv2d(nIn, nIn, kernel_size=(kSize, 1),
-                stride=1, padding=(padding, 0), groups=nIn, bias=False)
-            self.horizontal = nn.Conv2d(nIn, nIn, kernel_size=(1, kSize),
-                stride=1, padding=(0, padding), groups=nIn, bias=False)
+            self.vertical = nn.Conv2d(nIn, nIn, kernel_size=(kSize, 1), stride=1, padding=(padding, 0), groups=nIn, bias=False)
+            self.horizontal = nn.Conv2d(nIn, nIn, kernel_size=(1, kSize), stride=1, padding=(0, padding), groups=nIn, bias=False)
             self.B_v = nn.BatchNorm2d(nIn, eps=0.001, momentum=BN_moment)
             self.B_h = nn.BatchNorm2d(nIn, eps=0.001, momentum=BN_moment)
-        self.act_conv1x1 = nn.Sequential(nn.PReLU(nIn), nn.Conv2d(nIn, nOut,
-            kernel_size=1, stride=1, bias=False))
+        self.act_conv1x1 = nn.Sequential(nn.PReLU(nIn), nn.Conv2d(nIn, nOut, kernel_size=1, stride=1, bias=False))
         self.bn = nn.BatchNorm2d(nOut, eps=0.001, momentum=BN_moment)
 
     def forward(self, input):
@@ -19284,8 +17145,7 @@ class SBmodule(nn.Module):
         for i in range(group_n):
             var_name = 'd{}'.format(i + 1)
             if i == 0:
-                self.__dict__['_modules'][var_name] = SBblock(n, n + n1,
-                    config[i])
+                self.__dict__['_modules'][var_name] = SBblock(n, n + n1, config[i])
             else:
                 self.__dict__['_modules'][var_name] = SBblock(n, n, config[i])
         self.BR = BR(nOut)
@@ -19359,8 +17219,7 @@ class SBNet_Encoder(nn.Module):
         self.level3 = nn.ModuleList()
         for i in range(0, p):
             if i == 0:
-                self.level3.append(SBmodule(dim1, dim2, config=config[i],
-                    add=False))
+                self.level3.append(SBmodule(dim1, dim2, config=config[i], add=False))
             else:
                 self.level3.append(SBmodule(dim2, dim2, config=config[i]))
         self.BR3 = BR(dim2 + dim1)
@@ -19368,14 +17227,12 @@ class SBNet_Encoder(nn.Module):
         self.level4 = nn.ModuleList()
         for i in range(0, q // 2):
             if i == 0:
-                self.level4.append(SBmodule(dim2, dim3, config=config[p + i
-                    ], add=False))
+                self.level4.append(SBmodule(dim2, dim3, config=config[p + i], add=False))
             else:
                 self.level4.append(SBmodule(dim3, dim3, config=config[p + i]))
         for i in range(q // 2, q):
             if i == q // 2:
-                self.level4.append(SBmodule(dim3, dim4, config=config[p + i
-                    ], add=False))
+                self.level4.append(SBmodule(dim3, dim4, config=config[p + i], add=False))
             else:
                 self.level4.append(SBmodule(dim4, dim4, config=config[p + i]))
         self.BR4 = BR(dim4 + dim2)
@@ -19407,8 +17264,7 @@ class SBNet_Encoder(nn.Module):
 
 class SBNet_aux(nn.Module):
 
-    def __init__(self, config, num_classes=20, p=2, q=3, chnn=1.0,
-        encoderFile=None, in_channels=3, in_size=(480, 480)):
+    def __init__(self, config, num_classes=20, p=2, q=3, chnn=1.0, encoderFile=None, in_channels=3, in_size=(480, 480)):
         """
         :param num_classes: number of classes in the dataset. Default is 20 for the cityscapes
         :param p: depth multiplier
@@ -19429,8 +17285,7 @@ class SBNet_aux(nn.Module):
         self.encoder = SBNet_Encoder(config, num_classes, p, q, chnn)
         if encoderFile != None:
             if torch.device_count() == 0:
-                self.encoder.load_state_dict(torch.load(encoderFile,
-                    map_location='cpu'))
+                self.encoder.load_state_dict(torch.load(encoderFile, map_location='cpu'))
             else:
                 self.encoder.load_state_dict(torch.load(encoderFile))
             None
@@ -19438,8 +17293,7 @@ class SBNet_aux(nn.Module):
         self.bn_4 = nn.BatchNorm2d(num_classes, eps=0.001)
         self.level3_C = CBR(dim2, num_classes, 1, 1)
         self.bn_3 = nn.BatchNorm2d(num_classes, eps=0.001)
-        self.classifier = nn.ConvTranspose2d(num_classes, num_classes, 2,
-            stride=2, padding=0, output_padding=0, bias=False)
+        self.classifier = nn.ConvTranspose2d(num_classes, num_classes, 2, stride=2, padding=0, output_padding=0, bias=False)
 
     def forward(self, input, train=False):
         """
@@ -19454,8 +17308,7 @@ class SBNet_aux(nn.Module):
                 output3 = layer(output3_0)
             else:
                 output3 = layer(output3)
-        output4_0 = self.encoder.level4_0(self.encoder.BR3(torch.cat([
-            output3_0, output3], 1)))
+        output4_0 = self.encoder.level4_0(self.encoder.BR3(torch.cat([output3_0, output3], 1)))
         for i, layer in enumerate(self.encoder.level4):
             if i == 0:
                 output4 = layer(output4_0)
@@ -19463,24 +17316,19 @@ class SBNet_aux(nn.Module):
                 output4 = layer(output4)
         output4_cat = self.encoder.BR4(torch.cat([output4_0, output4], 1))
         Enc_final = self.encoder.classifier(output4_cat)
-        Dnc_stage1 = self.bn_4(self.up(Enc_final, scale_factor=2, mode=
-            'bilinear'))
+        Dnc_stage1 = self.bn_4(self.up(Enc_final, scale_factor=2, mode='bilinear'))
         stage1_confidence = nn.Softmax2d()(Dnc_stage1)
         b, c, h, w = Dnc_stage1.size()
-        stage1_blocking = torch.max(stage1_confidence, dim=1)[0].unsqueeze(1
-            ).expand(b, c, h, w)
+        stage1_blocking = torch.max(stage1_confidence, dim=1)[0].unsqueeze(1).expand(b, c, h, w)
         Dnc_stage2_0 = self.level3_C(output3)
-        Dnc_stage2 = self.bn_3(self.up(Dnc_stage2_0 * (1 - stage1_blocking) +
-            Dnc_stage1, scale_factor=2, mode='bilinear'))
+        Dnc_stage2 = self.bn_3(self.up(Dnc_stage2_0 * (1 - stage1_blocking) + Dnc_stage1, scale_factor=2, mode='bilinear'))
         stage2_confidence = nn.Softmax2d()(Dnc_stage2)
         b, c, h, w = Dnc_stage2.size()
-        stage2_blocking = torch.max(stage2_confidence, dim=1)[0].unsqueeze(1
-            ).expand(b, c, h, w)
+        stage2_blocking = torch.max(stage2_confidence, dim=1)[0].unsqueeze(1).expand(b, c, h, w)
         Dnc_stage3 = output2_0 * (1 - stage2_blocking) + Dnc_stage2
         classifier = self.classifier(Dnc_stage3)
         import torch.nn.functional as F
-        classifier = F.interpolate(classifier, scale_factor=2, mode=
-            'bilinear', align_corners=True)
+        classifier = F.interpolate(classifier, scale_factor=2, mode='bilinear', align_corners=True)
         if train:
             return Enc_final, classifier
         else:
@@ -19505,10 +17353,8 @@ class PeleeBranch1(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels, stride=1):
         super(PeleeBranch1, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=stride)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -19532,12 +17378,9 @@ class PeleeBranch2(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels):
         super(PeleeBranch2, self).__init__()
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels)
-        self.conv3 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels)
+        self.conv3 = conv3x3_block(in_channels=out_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -19562,16 +17405,11 @@ class StemBlock(nn.Module):
         super(StemBlock, self).__init__()
         mid1_channels = out_channels // 2
         mid2_channels = out_channels * 2
-        self.first_conv = conv3x3_block(in_channels=in_channels,
-            out_channels=out_channels, stride=2)
+        self.first_conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2)
         self.branches = Concurrent()
-        self.branches.add_module('branch1', PeleeBranch1(in_channels=
-            out_channels, out_channels=out_channels, mid_channels=
-            mid1_channels, stride=2))
-        self.branches.add_module('branch2', nn.MaxPool2d(kernel_size=2,
-            stride=2, padding=0))
-        self.last_conv = conv1x1_block(in_channels=mid2_channels,
-            out_channels=out_channels)
+        self.branches.add_module('branch1', PeleeBranch1(in_channels=out_channels, out_channels=out_channels, mid_channels=mid1_channels, stride=2))
+        self.branches.add_module('branch2', nn.MaxPool2d(kernel_size=2, stride=2, padding=0))
+        self.last_conv = conv1x1_block(in_channels=mid2_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.first_conv(x)
@@ -19598,10 +17436,8 @@ class DenseBlock(nn.Module):
         super(DenseBlock, self).__init__()
         inc_channels = (out_channels - in_channels) // 2
         mid_channels = inc_channels * bottleneck_size
-        self.branch1 = PeleeBranch1(in_channels=in_channels, out_channels=
-            inc_channels, mid_channels=mid_channels)
-        self.branch2 = PeleeBranch2(in_channels=in_channels, out_channels=
-            inc_channels, mid_channels=mid_channels)
+        self.branch1 = PeleeBranch1(in_channels=in_channels, out_channels=inc_channels, mid_channels=mid_channels)
+        self.branch2 = PeleeBranch2(in_channels=in_channels, out_channels=inc_channels, mid_channels=mid_channels)
 
     def forward(self, x):
         x1 = self.branch1(x)
@@ -19624,8 +17460,7 @@ class TransitionBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(TransitionBlock, self).__init__()
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
 
     def forward(self, x):
@@ -19657,35 +17492,27 @@ class PeleeNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck_sizes,
-        dropout_rate=0.5, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck_sizes, dropout_rate=0.5, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(PeleeNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', StemBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', StemBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             bottleneck_size = bottleneck_sizes[i]
             stage = nn.Sequential()
             if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels))
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(in_channels=in_channels, out_channels=in_channels))
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), DenseBlock(
-                    in_channels=in_channels, out_channels=out_channels,
-                    bottleneck_size=bottleneck_size))
+                stage.add_module('unit{}'.format(j + 1), DenseBlock(in_channels=in_channels, out_channels=out_channels, bottleneck_size=bottleneck_size))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -19750,17 +17577,13 @@ class DwsBranch(nn.Module):
         Whether to use squeeze reduction if False.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        extra_padding=False, stem=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, extra_padding=False, stem=False):
         super(DwsBranch, self).__init__()
         assert not stem or not extra_padding
         mid_channels = out_channels if stem else in_channels
         padding = kernel_size // 2
-        self.conv1 = NasDwsConv(in_channels=in_channels, out_channels=
-            mid_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, extra_padding=extra_padding)
-        self.conv2 = NasDwsConv(in_channels=mid_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=1, padding=padding)
+        self.conv1 = NasDwsConv(in_channels=in_channels, out_channels=mid_channels, kernel_size=kernel_size, stride=stride, padding=padding, extra_padding=extra_padding)
+        self.conv2 = NasDwsConv(in_channels=mid_channels, out_channels=out_channels, kernel_size=kernel_size, stride=1, padding=padding)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -19809,14 +17632,12 @@ class PnasBaseUnit(nn.Module):
         x1 = self.comb1_left(x_right) + self.comb1_right(x_right)
         x2 = self.comb2_left(x_right) + self.comb2_right(x_right)
         x3 = self.comb3_left(x2) + self.comb3_right(x_right)
-        x4 = self.comb4_left(x_left) + (self.comb4_right(x_right) if self.
-            comb4_right else x_right)
+        x4 = self.comb4_left(x_left) + (self.comb4_right(x_right) if self.comb4_right else x_right)
         x_out = torch.cat((x0, x1, x2, x3, x4), dim=1)
         return x_out
 
 
-def dws_branch_k3(in_channels, out_channels, stride=2, extra_padding=False,
-    stem=False):
+def dws_branch_k3(in_channels, out_channels, stride=2, extra_padding=False, stem=False):
     """
     3x3 version of the PNASNet specific depthwise separable convolution branch.
 
@@ -19833,12 +17654,10 @@ def dws_branch_k3(in_channels, out_channels, stride=2, extra_padding=False,
     stem : bool, default False
         Whether to use squeeze reduction if False.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, extra_padding=extra_padding, stem=stem)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, extra_padding=extra_padding, stem=stem)
 
 
-def dws_branch_k5(in_channels, out_channels, stride=2, extra_padding=False,
-    stem=False):
+def dws_branch_k5(in_channels, out_channels, stride=2, extra_padding=False, stem=False):
     """
     5x5 version of the PNASNet specific depthwise separable convolution branch.
 
@@ -19855,8 +17674,7 @@ def dws_branch_k5(in_channels, out_channels, stride=2, extra_padding=False,
     stem : bool, default False
         Whether to use squeeze reduction if False.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, stride=stride, extra_padding=extra_padding, stem=stem)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=5, stride=stride, extra_padding=extra_padding, stem=stem)
 
 
 def dws_branch_k7(in_channels, out_channels, stride=2, extra_padding=False):
@@ -19874,8 +17692,7 @@ def dws_branch_k7(in_channels, out_channels, stride=2, extra_padding=False):
     extra_padding : bool, default False
         Whether to use extra padding.
     """
-    return DwsBranch(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=7, stride=stride, extra_padding=extra_padding, stem=False)
+    return DwsBranch(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=stride, extra_padding=extra_padding, stem=False)
 
 
 def pnas_conv1x1(in_channels, out_channels, stride=1):
@@ -19891,8 +17708,7 @@ def pnas_conv1x1(in_channels, out_channels, stride=1):
     stride : int or tuple/list of 2 int, default 1
         Strides of the convolution.
     """
-    return NasConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, groups=1)
+    return NasConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, groups=1)
 
 
 class PnasUnit(PnasBaseUnit):
@@ -19915,46 +17731,26 @@ class PnasUnit(PnasBaseUnit):
         Whether to match previous layer dimensions.
     """
 
-    def __init__(self, in_channels, prev_in_channels, out_channels,
-        reduction=False, extra_padding=False, match_prev_layer_dimensions=False
-        ):
+    def __init__(self, in_channels, prev_in_channels, out_channels, reduction=False, extra_padding=False, match_prev_layer_dimensions=False):
         super(PnasUnit, self).__init__()
         mid_channels = out_channels // 5
         stride = 2 if reduction else 1
         if match_prev_layer_dimensions:
-            self.conv_prev_1x1 = NasPathBlock(in_channels=prev_in_channels,
-                out_channels=mid_channels)
+            self.conv_prev_1x1 = NasPathBlock(in_channels=prev_in_channels, out_channels=mid_channels)
         else:
-            self.conv_prev_1x1 = pnas_conv1x1(in_channels=prev_in_channels,
-                out_channels=mid_channels)
-        self.conv_1x1 = pnas_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.comb0_left = dws_branch_k5(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, extra_padding=
-            extra_padding)
-        self.comb0_right = PnasMaxPoolBlock(stride=stride, extra_padding=
-            extra_padding)
-        self.comb1_left = dws_branch_k7(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, extra_padding=
-            extra_padding)
-        self.comb1_right = PnasMaxPoolBlock(stride=stride, extra_padding=
-            extra_padding)
-        self.comb2_left = dws_branch_k5(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, extra_padding=
-            extra_padding)
-        self.comb2_right = dws_branch_k3(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, extra_padding=
-            extra_padding)
-        self.comb3_left = dws_branch_k3(in_channels=mid_channels,
-            out_channels=mid_channels, stride=1)
-        self.comb3_right = PnasMaxPoolBlock(stride=stride, extra_padding=
-            extra_padding)
-        self.comb4_left = dws_branch_k3(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride, extra_padding=
-            extra_padding)
+            self.conv_prev_1x1 = pnas_conv1x1(in_channels=prev_in_channels, out_channels=mid_channels)
+        self.conv_1x1 = pnas_conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.comb0_left = dws_branch_k5(in_channels=mid_channels, out_channels=mid_channels, stride=stride, extra_padding=extra_padding)
+        self.comb0_right = PnasMaxPoolBlock(stride=stride, extra_padding=extra_padding)
+        self.comb1_left = dws_branch_k7(in_channels=mid_channels, out_channels=mid_channels, stride=stride, extra_padding=extra_padding)
+        self.comb1_right = PnasMaxPoolBlock(stride=stride, extra_padding=extra_padding)
+        self.comb2_left = dws_branch_k5(in_channels=mid_channels, out_channels=mid_channels, stride=stride, extra_padding=extra_padding)
+        self.comb2_right = dws_branch_k3(in_channels=mid_channels, out_channels=mid_channels, stride=stride, extra_padding=extra_padding)
+        self.comb3_left = dws_branch_k3(in_channels=mid_channels, out_channels=mid_channels, stride=1)
+        self.comb3_right = PnasMaxPoolBlock(stride=stride, extra_padding=extra_padding)
+        self.comb4_left = dws_branch_k3(in_channels=mid_channels, out_channels=mid_channels, stride=stride, extra_padding=extra_padding)
         if reduction:
-            self.comb4_right = pnas_conv1x1(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride)
+            self.comb4_right = pnas_conv1x1(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
         else:
             self.comb4_right = None
 
@@ -19985,18 +17781,14 @@ class PNASNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, stem1_blocks_channels,
-        in_channels=3, in_size=(331, 331), num_classes=1000):
+    def __init__(self, channels, init_block_channels, stem1_blocks_channels, in_channels=3, in_size=(331, 331), num_classes=1000):
         super(PNASNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.features = nasnet_dual_path_sequential(return_two=False,
-            first_ordinals=2, last_ordinals=2)
-        self.features.add_module('init_block', NASNetInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features = nasnet_dual_path_sequential(return_two=False, first_ordinals=2, last_ordinals=2)
+        self.features.add_module('init_block', NASNetInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
-        self.features.add_module('stem1_unit', Stem1Unit(in_channels=
-            in_channels, out_channels=stem1_blocks_channels))
+        self.features.add_module('stem1_unit', Stem1Unit(in_channels=in_channels, out_channels=stem1_blocks_channels))
         prev_in_channels = in_channels
         in_channels = stem1_blocks_channels
         for i, channels_per_stage in enumerate(channels):
@@ -20005,21 +17797,15 @@ class PNASNet(nn.Module):
                 reduction = j == 0
                 extra_padding = j == 0 and i not in [0, 2]
                 match_prev_layer_dimensions = j == 1 or j == 0 and i == 0
-                stage.add_module('unit{}'.format(j + 1), PnasUnit(
-                    in_channels=in_channels, prev_in_channels=
-                    prev_in_channels, out_channels=out_channels, reduction=
-                    reduction, extra_padding=extra_padding,
-                    match_prev_layer_dimensions=match_prev_layer_dimensions))
+                stage.add_module('unit{}'.format(j + 1), PnasUnit(in_channels=in_channels, prev_in_channels=prev_in_channels, out_channels=out_channels, reduction=reduction, extra_padding=extra_padding, match_prev_layer_dimensions=match_prev_layer_dimensions))
                 prev_in_channels = in_channels
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('activ', nn.ReLU())
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=11,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=11, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=0.5))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -20059,12 +17845,9 @@ class PolyConv(nn.Module):
         Number of blocks (BatchNorm layers).
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, num_blocks):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, num_blocks):
         super(PolyConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bns = nn.ModuleList()
         for i in range(num_blocks):
             self.bns.append(nn.BatchNorm2d(num_features=out_channels))
@@ -20105,8 +17888,7 @@ class Conv1x1Branch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(Conv1x1Branch, self).__init__()
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv(x)
@@ -20127,8 +17909,7 @@ class Conv3x3Branch(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(Conv3x3Branch, self).__init__()
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2, padding=0)
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2, padding=0)
 
     def forward(self, x):
         x = self.conv(x)
@@ -20153,18 +17934,14 @@ class ConvSeqBranch(nn.Module):
         List of padding values for convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels_list, kernel_size_list,
-        strides_list, padding_list):
+    def __init__(self, in_channels, out_channels_list, kernel_size_list, strides_list, padding_list):
         super(ConvSeqBranch, self).__init__()
         assert len(out_channels_list) == len(kernel_size_list)
         assert len(out_channels_list) == len(strides_list)
         assert len(out_channels_list) == len(padding_list)
         self.conv_list = nn.Sequential()
-        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip
-            (out_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), ConvBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding))
+        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip(out_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=strides, padding=padding))
             in_channels = out_channels
 
     def forward(self, x):
@@ -20192,19 +17969,14 @@ class PolyConvSeqBranch(nn.Module):
         Number of blocks for PolyConv.
     """
 
-    def __init__(self, in_channels, out_channels_list, kernel_size_list,
-        strides_list, padding_list, num_blocks):
+    def __init__(self, in_channels, out_channels_list, kernel_size_list, strides_list, padding_list, num_blocks):
         super(PolyConvSeqBranch, self).__init__()
         assert len(out_channels_list) == len(kernel_size_list)
         assert len(out_channels_list) == len(strides_list)
         assert len(out_channels_list) == len(padding_list)
         self.conv_list = ParametricSequential()
-        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip
-            (out_channels_list, kernel_size_list, strides_list, padding_list)):
-            self.conv_list.add_module('conv{}'.format(i + 1), PolyConv(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=kernel_size, stride=strides, padding=padding,
-                num_blocks=num_blocks))
+        for i, (out_channels, kernel_size, strides, padding) in enumerate(zip(out_channels_list, kernel_size_list, strides_list, padding_list)):
+            self.conv_list.add_module('conv{}'.format(i + 1), PolyConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=strides, padding=padding, num_blocks=num_blocks))
             in_channels = out_channels
 
     def forward(self, x, index):
@@ -20221,16 +17993,10 @@ class TwoWayABlock(nn.Module):
         super(TwoWayABlock, self).__init__()
         in_channels = 384
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(32, 48, 64), kernel_size_list=(
-            1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(32, 32), kernel_size_list=(1, 3
-            ), strides_list=(1, 1), padding_list=(0, 1)))
-        self.branches.add_module('branch3', Conv1x1Branch(in_channels=
-            in_channels, out_channels=32))
-        self.conv = conv1x1_block(in_channels=128, out_channels=in_channels,
-            activation=None)
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(32, 48, 64), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 1), padding_list=(0, 1, 1)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(32, 32), kernel_size_list=(1, 3), strides_list=(1, 1), padding_list=(0, 1)))
+        self.branches.add_module('branch3', Conv1x1Branch(in_channels=in_channels, out_channels=32))
+        self.conv = conv1x1_block(in_channels=128, out_channels=in_channels, activation=None)
 
     def forward(self, x):
         x = self.branches(x)
@@ -20247,14 +18013,9 @@ class TwoWayBBlock(nn.Module):
         super(TwoWayBBlock, self).__init__()
         in_channels = 1152
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(128, 160, 192),
-            kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 3), (3, 0))))
-        self.branches.add_module('branch2', Conv1x1Branch(in_channels=
-            in_channels, out_channels=192))
-        self.conv = conv1x1_block(in_channels=384, out_channels=in_channels,
-            activation=None)
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(128, 160, 192), kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 3), (3, 0))))
+        self.branches.add_module('branch2', Conv1x1Branch(in_channels=in_channels, out_channels=192))
+        self.conv = conv1x1_block(in_channels=384, out_channels=in_channels, activation=None)
 
     def forward(self, x):
         x = self.branches(x)
@@ -20271,14 +18032,9 @@ class TwoWayCBlock(nn.Module):
         super(TwoWayCBlock, self).__init__()
         in_channels = 2048
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 224, 256),
-            kernel_size_list=(1, (1, 3), (3, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 1), (1, 0))))
-        self.branches.add_module('branch2', Conv1x1Branch(in_channels=
-            in_channels, out_channels=192))
-        self.conv = conv1x1_block(in_channels=448, out_channels=in_channels,
-            activation=None)
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 224, 256), kernel_size_list=(1, (1, 3), (3, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 1), (1, 0))))
+        self.branches.add_module('branch2', Conv1x1Branch(in_channels=in_channels, out_channels=192))
+        self.conv = conv1x1_block(in_channels=448, out_channels=in_channels, activation=None)
 
     def forward(self, x):
         x = self.branches(x)
@@ -20299,8 +18055,7 @@ def poly_conv1x1(in_channels, out_channels, num_blocks):
     num_blocks : int
         Number of blocks (BatchNorm layers).
     """
-    return PolyConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=1, padding=0, num_blocks=num_blocks)
+    return PolyConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, num_blocks=num_blocks)
 
 
 class PolyPreBBlock(nn.Module):
@@ -20321,12 +18076,8 @@ class PolyPreBBlock(nn.Module):
         super(PolyPreBBlock, self).__init__()
         in_channels = 1152
         self.branches = ParametricConcurrent()
-        self.branches.add_module('branch1', PolyConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(128, 160, 192),
-            kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 3), (3, 0)), num_blocks=num_blocks))
-        self.branches.add_module('branch2', poly_conv1x1(in_channels=
-            in_channels, out_channels=192, num_blocks=num_blocks))
+        self.branches.add_module('branch1', PolyConvSeqBranch(in_channels=in_channels, out_channels_list=(128, 160, 192), kernel_size_list=(1, (1, 7), (7, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 3), (3, 0)), num_blocks=num_blocks))
+        self.branches.add_module('branch2', poly_conv1x1(in_channels=in_channels, out_channels=192, num_blocks=num_blocks))
 
     def forward(self, x, index):
         x = self.branches(x, index=index)
@@ -20351,12 +18102,8 @@ class PolyPreCBlock(nn.Module):
         super(PolyPreCBlock, self).__init__()
         in_channels = 2048
         self.branches = ParametricConcurrent()
-        self.branches.add_module('branch1', PolyConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(192, 224, 256),
-            kernel_size_list=(1, (1, 3), (3, 1)), strides_list=(1, 1, 1),
-            padding_list=(0, (0, 1), (1, 0)), num_blocks=num_blocks))
-        self.branches.add_module('branch2', poly_conv1x1(in_channels=
-            in_channels, out_channels=192, num_blocks=num_blocks))
+        self.branches.add_module('branch1', PolyConvSeqBranch(in_channels=in_channels, out_channels_list=(192, 224, 256), kernel_size_list=(1, (1, 3), (3, 1)), strides_list=(1, 1, 1), padding_list=(0, (0, 1), (1, 0)), num_blocks=num_blocks))
+        self.branches.add_module('branch2', poly_conv1x1(in_channels=in_channels, out_channels=192, num_blocks=num_blocks))
 
     def forward(self, x, index):
         x = self.branches(x, index=index)
@@ -20381,8 +18128,7 @@ class MultiResidual(nn.Module):
         super(MultiResidual, self).__init__()
         assert num_blocks >= 1
         self.scale = scale
-        self.res_blocks = nn.ModuleList([res_block() for _ in range(
-            num_blocks)])
+        self.res_blocks = nn.ModuleList([res_block() for _ in range(num_blocks)])
         self.activ = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -20414,8 +18160,7 @@ class PolyResidual(nn.Module):
         assert num_blocks >= 1
         self.scale = scale
         self.pre_block = pre_block(num_blocks=num_blocks)
-        self.res_blocks = nn.ModuleList([res_block() for _ in range(
-            num_blocks)])
+        self.res_blocks = nn.ModuleList([res_block() for _ in range(num_blocks)])
         self.activ = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -20447,20 +18192,17 @@ class PolyBaseUnit(nn.Module):
         Preliminary branch block for poly-stage.
     """
 
-    def __init__(self, two_way_scale, two_way_block, poly_scale=0.0,
-        poly_res_block=None, poly_pre_block=None):
+    def __init__(self, two_way_scale, two_way_block, poly_scale=0.0, poly_res_block=None, poly_pre_block=None):
         super(PolyBaseUnit, self).__init__()
         if poly_res_block is not None:
             assert poly_scale != 0.0
             assert poly_pre_block is not None
-            self.poly = PolyResidual(scale=poly_scale, res_block=
-                poly_res_block, num_blocks=3, pre_block=poly_pre_block)
+            self.poly = PolyResidual(scale=poly_scale, res_block=poly_res_block, num_blocks=3, pre_block=poly_pre_block)
         else:
             assert poly_scale == 0.0
             assert poly_pre_block is None
             self.poly = None
-        self.twoway = MultiResidual(scale=two_way_scale, res_block=
-            two_way_block, num_blocks=2)
+        self.twoway = MultiResidual(scale=two_way_scale, res_block=two_way_block, num_blocks=2)
 
     def forward(self, x):
         if self.poly is not None:
@@ -20478,13 +18220,8 @@ class ReductionAUnit(nn.Module):
         super(ReductionAUnit, self).__init__()
         in_channels = 384
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 256, 384),
-            kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2),
-            padding_list=(0, 1, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(384,), kernel_size_list=(3,),
-            strides_list=(2,), padding_list=(0,)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 256, 384), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(384,), kernel_size_list=(3,), strides_list=(2,), padding_list=(0,)))
         self.branches.add_module('branch3', MaxPoolBranch())
 
     def forward(self, x):
@@ -20501,16 +18238,9 @@ class ReductionBUnit(nn.Module):
         super(ReductionBUnit, self).__init__()
         in_channels = 1152
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 256, 256),
-            kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2),
-            padding_list=(0, 1, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 256), kernel_size_list=(1,
-            3), strides_list=(1, 2), padding_list=(0, 0)))
-        self.branches.add_module('branch3', ConvSeqBranch(in_channels=
-            in_channels, out_channels_list=(256, 384), kernel_size_list=(1,
-            3), strides_list=(1, 2), padding_list=(0, 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 256, 256), kernel_size_list=(1, 3, 3), strides_list=(1, 1, 2), padding_list=(0, 1, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 256), kernel_size_list=(1, 3), strides_list=(1, 2), padding_list=(0, 0)))
+        self.branches.add_module('branch3', ConvSeqBranch(in_channels=in_channels, out_channels_list=(256, 384), kernel_size_list=(1, 3), strides_list=(1, 2), padding_list=(0, 0)))
         self.branches.add_module('branch4', MaxPoolBranch())
 
     def forward(self, x):
@@ -20527,8 +18257,7 @@ class PolyBlock3a(nn.Module):
         super(PolyBlock3a, self).__init__()
         self.branches = Concurrent()
         self.branches.add_module('branch1', MaxPoolBranch())
-        self.branches.add_module('branch2', Conv3x3Branch(in_channels=64,
-            out_channels=96))
+        self.branches.add_module('branch2', Conv3x3Branch(in_channels=64, out_channels=96))
 
     def forward(self, x):
         x = self.branches(x)
@@ -20543,13 +18272,8 @@ class PolyBlock4a(nn.Module):
     def __init__(self):
         super(PolyBlock4a, self).__init__()
         self.branches = Concurrent()
-        self.branches.add_module('branch1', ConvSeqBranch(in_channels=160,
-            out_channels_list=(64, 96), kernel_size_list=(1, 3),
-            strides_list=(1, 1), padding_list=(0, 0)))
-        self.branches.add_module('branch2', ConvSeqBranch(in_channels=160,
-            out_channels_list=(64, 64, 64, 96), kernel_size_list=(1, (7, 1),
-            (1, 7), 3), strides_list=(1, 1, 1, 1), padding_list=(0, (3, 0),
-            (0, 3), 0)))
+        self.branches.add_module('branch1', ConvSeqBranch(in_channels=160, out_channels_list=(64, 96), kernel_size_list=(1, 3), strides_list=(1, 1), padding_list=(0, 0)))
+        self.branches.add_module('branch2', ConvSeqBranch(in_channels=160, out_channels_list=(64, 64, 64, 96), kernel_size_list=(1, (7, 1), (1, 7), 3), strides_list=(1, 1, 1, 1), padding_list=(0, (3, 0), (0, 3), 0)))
 
     def forward(self, x):
         x = self.branches(x)
@@ -20565,8 +18289,7 @@ class PolyBlock5a(nn.Module):
         super(PolyBlock5a, self).__init__()
         self.branches = Concurrent()
         self.branches.add_module('branch1', MaxPoolBranch())
-        self.branches.add_module('branch2', Conv3x3Branch(in_channels=192,
-            out_channels=192))
+        self.branches.add_module('branch2', Conv3x3Branch(in_channels=192, out_channels=192))
 
     def forward(self, x):
         x = self.branches(x)
@@ -20585,8 +18308,7 @@ class PolyInitBlock(nn.Module):
 
     def __init__(self, in_channels):
         super(PolyInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=32,
-            stride=2, padding=0)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=32, stride=2, padding=0)
         self.conv2 = conv3x3_block(in_channels=32, out_channels=32, padding=0)
         self.conv3 = conv3x3_block(in_channels=32, out_channels=64)
         self.block1 = PolyBlock3a()
@@ -20616,8 +18338,7 @@ class PolyAUnit(PolyBaseUnit):
     """
 
     def __init__(self, two_way_scale, poly_scale=0.0):
-        super(PolyAUnit, self).__init__(two_way_scale=two_way_scale,
-            two_way_block=TwoWayABlock)
+        super(PolyAUnit, self).__init__(two_way_scale=two_way_scale, two_way_block=TwoWayABlock)
         assert poly_scale == 0.0
 
 
@@ -20625,8 +18346,7 @@ def poly_res_b_block():
     """
     PolyNet type PolyResidual-Res-B block.
     """
-    return conv1x1_block(in_channels=384, out_channels=1152, stride=1,
-        activation=None)
+    return conv1x1_block(in_channels=384, out_channels=1152, stride=1, activation=None)
 
 
 class PolyBUnit(PolyBaseUnit):
@@ -20642,17 +18362,14 @@ class PolyBUnit(PolyBaseUnit):
     """
 
     def __init__(self, two_way_scale, poly_scale):
-        super(PolyBUnit, self).__init__(two_way_scale=two_way_scale,
-            two_way_block=TwoWayBBlock, poly_scale=poly_scale,
-            poly_res_block=poly_res_b_block, poly_pre_block=PolyPreBBlock)
+        super(PolyBUnit, self).__init__(two_way_scale=two_way_scale, two_way_block=TwoWayBBlock, poly_scale=poly_scale, poly_res_block=poly_res_b_block, poly_pre_block=PolyPreBBlock)
 
 
 def poly_res_c_block():
     """
     PolyNet type PolyResidual-Res-C block.
     """
-    return conv1x1_block(in_channels=448, out_channels=2048, stride=1,
-        activation=None)
+    return conv1x1_block(in_channels=448, out_channels=2048, stride=1, activation=None)
 
 
 class PolyCUnit(PolyBaseUnit):
@@ -20668,9 +18385,7 @@ class PolyCUnit(PolyBaseUnit):
     """
 
     def __init__(self, two_way_scale, poly_scale):
-        super(PolyCUnit, self).__init__(two_way_scale=two_way_scale,
-            two_way_block=TwoWayCBlock, poly_scale=poly_scale,
-            poly_res_block=poly_res_c_block, poly_pre_block=PolyPreCBlock)
+        super(PolyCUnit, self).__init__(two_way_scale=two_way_scale, two_way_block=TwoWayCBlock, poly_scale=poly_scale, poly_res_block=poly_res_c_block, poly_pre_block=PolyPreCBlock)
 
 
 class PolyNet(nn.Module):
@@ -20694,35 +18409,28 @@ class PolyNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, two_way_scales, poly_scales, dropout_rate=0.2,
-        in_channels=3, in_size=(331, 331), num_classes=1000):
+    def __init__(self, two_way_scales, poly_scales, dropout_rate=0.2, in_channels=3, in_size=(331, 331), num_classes=1000):
         super(PolyNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         normal_units = [PolyAUnit, PolyBUnit, PolyCUnit]
         reduction_units = [ReductionAUnit, ReductionBUnit]
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PolyInitBlock(in_channels=
-            in_channels))
-        for i, (two_way_scales_per_stage, poly_scales_per_stage) in enumerate(
-            zip(two_way_scales, poly_scales)):
+        self.features.add_module('init_block', PolyInitBlock(in_channels=in_channels))
+        for i, (two_way_scales_per_stage, poly_scales_per_stage) in enumerate(zip(two_way_scales, poly_scales)):
             stage = nn.Sequential()
-            for j, (two_way_scale, poly_scale) in enumerate(zip(
-                two_way_scales_per_stage, poly_scales_per_stage)):
+            for j, (two_way_scale, poly_scale) in enumerate(zip(two_way_scales_per_stage, poly_scales_per_stage)):
                 if j == 0 and i != 0:
                     unit = reduction_units[i - 1]
                     stage.add_module('unit{}'.format(j + 1), unit())
                 else:
                     unit = normal_units[i]
-                    stage.add_module('unit{}'.format(j + 1), unit(
-                        two_way_scale=two_way_scale, poly_scale=poly_scale))
+                    stage.add_module('unit{}'.format(j + 1), unit(two_way_scale=two_way_scale, poly_scale=poly_scale))
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=9,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=9, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=dropout_rate))
-        self.output.add_module('fc', nn.Linear(in_features=2048,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=2048, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -20757,14 +18465,10 @@ class PreResBlock(nn.Module):
         Whether to use BatchNorm layer.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bias=False,
-        use_bn=True):
+    def __init__(self, in_channels, out_channels, stride, bias=False, use_bn=True):
         super(PreResBlock, self).__init__()
-        self.conv1 = pre_conv3x3_block(in_channels=in_channels,
-            out_channels=out_channels, stride=stride, bias=bias, use_bn=
-            use_bn, return_preact=True)
-        self.conv2 = pre_conv3x3_block(in_channels=out_channels,
-            out_channels=out_channels, bias=bias, use_bn=use_bn)
+        self.conv1 = pre_conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn, return_preact=True)
+        self.conv2 = pre_conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=bias, use_bn=use_bn)
 
     def forward(self, x):
         x, x_pre_activ = self.conv1(x)
@@ -20791,13 +18495,9 @@ class PreResBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, conv1_stride):
         super(PreResBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, stride=stride if conv1_stride else 1,
-            return_preact=True)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=1 if conv1_stride else stride)
-        self.conv3 = pre_conv1x1_block(in_channels=mid_channels,
-            out_channels=out_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels, stride=stride if conv1_stride else 1, return_preact=True)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=1 if conv1_stride else stride)
+        self.conv3 = pre_conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x, x_pre_activ = self.conv1(x)
@@ -20828,20 +18528,15 @@ class PreResUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bias=False,
-        use_bn=True, bottleneck=True, conv1_stride=False):
+    def __init__(self, in_channels, out_channels, stride, bias=False, use_bn=True, bottleneck=True, conv1_stride=False):
         super(PreResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = PreResBottleneck(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, conv1_stride=
-                conv1_stride)
+            self.body = PreResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride)
         else:
-            self.body = PreResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, bias=bias, use_bn=use_bn)
+            self.body = PreResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn)
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, bias=bias)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias)
 
     def forward(self, x):
         identity = x
@@ -20866,8 +18561,7 @@ class PreResInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(PreResInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -20923,31 +18617,23 @@ class PreResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(PreResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
-                stage.add_module('unit{}'.format(j + 1), PreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), PreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -20984,30 +18670,23 @@ class CIFARPreResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARPreResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), PreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=False))
+                stage.add_module('unit{}'.format(j + 1), PreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -21024,9 +18703,7 @@ class CIFARPreResNet(nn.Module):
         return x
 
 
-def conv4x4_block(in_channels, out_channels, stride=1, padding=(1, 2, 1, 2),
-    dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation
-    =lambda : nn.ReLU(inplace=True)):
+def conv4x4_block(in_channels, out_channels, stride=1, padding=(1, 2, 1, 2), dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     4x4 version of the standard convolution block.
 
@@ -21053,10 +18730,7 @@ def conv4x4_block(in_channels, out_channels, stride=1, padding=(1, 2, 1, 2),
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return ConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=4, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=
-        activation)
+    return ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=4, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 class PRResBottleneck(nn.Module):
@@ -21079,16 +18753,12 @@ class PRResBottleneck(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding, bn_eps,
-        bottleneck_factor=2):
+    def __init__(self, in_channels, out_channels, stride, padding, bn_eps, bottleneck_factor=2):
         super(PRResBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, bn_eps=bn_eps)
-        self.conv2 = conv4x4_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride, padding=padding, bn_eps=bn_eps)
-        self.conv3 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bn_eps=bn_eps)
+        self.conv2 = conv4x4_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, padding=padding, bn_eps=bn_eps)
+        self.conv3 = conv1x1(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -21119,12 +18789,9 @@ class PRResUnit(nn.Module):
         super(PRResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
-        self.body = PRResBottleneck(in_channels=in_channels, out_channels=
-            out_channels, bn_eps=bn_eps, stride=stride, padding=padding)
-        self.norm_activ = NormActivation(in_channels=out_channels, bn_eps=
-            bn_eps)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.body = PRResBottleneck(in_channels=in_channels, out_channels=out_channels, bn_eps=bn_eps, stride=stride, padding=padding)
+        self.norm_activ = NormActivation(in_channels=out_channels, bn_eps=bn_eps)
 
     def forward(self, x):
         if self.resize_identity:
@@ -21137,10 +18804,7 @@ class PRResUnit(nn.Module):
         return x
 
 
-def deconv4x4_block(in_channels, out_channels, stride=1, padding=3,
-    ext_padding=(2, 1, 2, 1), out_padding=0, dilation=1, groups=1, bias=
-    False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)
-    ):
+def deconv4x4_block(in_channels, out_channels, stride=1, padding=3, ext_padding=(2, 1, 2, 1), out_padding=0, dilation=1, groups=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
     """
     4x4 version of the standard deconvolution block.
 
@@ -21171,10 +18835,7 @@ def deconv4x4_block(in_channels, out_channels, stride=1, padding=3,
     activation : function or str or None, default nn.ReLU(inplace=True)
         Activation function or name of activation function.
     """
-    return DeconvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=4, stride=stride, padding=padding, ext_padding=
-        ext_padding, out_padding=out_padding, dilation=dilation, groups=
-        groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
+    return DeconvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=4, stride=stride, padding=padding, ext_padding=ext_padding, out_padding=out_padding, dilation=dilation, groups=groups, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation)
 
 
 class PROutputBlock(nn.Module):
@@ -21193,12 +18854,9 @@ class PROutputBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, bn_eps):
         super(PROutputBlock, self).__init__()
-        self.conv1 = deconv4x4_block(in_channels=in_channels, out_channels=
-            out_channels, bn_eps=bn_eps)
-        self.conv2 = deconv4x4_block(in_channels=out_channels, out_channels
-            =out_channels, bn_eps=bn_eps)
-        self.conv3 = deconv4x4_block(in_channels=out_channels, out_channels
-            =out_channels, bn_eps=bn_eps, activation=nn.Sigmoid())
+        self.conv1 = deconv4x4_block(in_channels=in_channels, out_channels=out_channels, bn_eps=bn_eps)
+        self.conv2 = deconv4x4_block(in_channels=out_channels, out_channels=out_channels, bn_eps=bn_eps)
+        self.conv3 = deconv4x4_block(in_channels=out_channels, out_channels=out_channels, bn_eps=bn_eps, activation=nn.Sigmoid())
 
     def forward(self, x):
         x = self.conv1(x)
@@ -21228,14 +18886,12 @@ class PRNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bn_eps=1e-05,
-        in_channels=3, in_size=(256, 256), num_classes=3):
+    def __init__(self, channels, init_block_channels, bn_eps=1e-05, in_channels=3, in_size=(256, 256), num_classes=3):
         super(PRNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv4x4_block(in_channels=
-            in_channels, out_channels=init_block_channels, bn_eps=bn_eps))
+        self.features.add_module('init_block', conv4x4_block(in_channels=in_channels, out_channels=init_block_channels, bn_eps=bn_eps))
         in_channels = init_block_channels
         encoder = nn.Sequential()
         for i, channels_per_stage in enumerate(channels[0]):
@@ -21243,9 +18899,7 @@ class PRNet(nn.Module):
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 else 1
                 padding = (1, 2, 1, 2) if stride == 1 else 1
-                stage.add_module('unit{}'.format(j + 1), PRResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, padding=padding, bn_eps=bn_eps))
+                stage.add_module('unit{}'.format(j + 1), PRResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, bn_eps=bn_eps))
                 in_channels = out_channels
             encoder.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('encoder', encoder)
@@ -21256,15 +18910,11 @@ class PRNet(nn.Module):
                 stride = 2 if j == 0 and i != 0 else 1
                 padding = 3 if stride == 1 else 1
                 ext_padding = (2, 1, 2, 1) if stride == 1 else None
-                stage.add_module('unit{}'.format(j + 1), deconv4x4_block(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, padding=padding, ext_padding=ext_padding,
-                    bn_eps=bn_eps))
+                stage.add_module('unit{}'.format(j + 1), deconv4x4_block(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, ext_padding=ext_padding, bn_eps=bn_eps))
                 in_channels = out_channels
             decoder.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('decoder', decoder)
-        self.output = PROutputBlock(in_channels=in_channels, out_channels=
-            num_classes, bn_eps=bn_eps)
+        self.output = PROutputBlock(in_channels=in_channels, out_channels=num_classes, bn_eps=bn_eps)
         self._init_params()
 
     def _init_params(self):
@@ -21300,20 +18950,15 @@ class ProxylessBlock(nn.Module):
         Expansion ratio.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        bn_eps, expansion):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, bn_eps, expansion):
         super(ProxylessBlock, self).__init__()
         self.use_bc = expansion > 1
         mid_channels = in_channels * expansion
         if self.use_bc:
-            self.bc_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels, bn_eps=bn_eps, activation='relu6')
+            self.bc_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, bn_eps=bn_eps, activation='relu6')
         padding = (kernel_size - 1) // 2
-        self.dw_conv = ConvBlock(in_channels=mid_channels, out_channels=
-            mid_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=mid_channels, bn_eps=bn_eps, activation='relu6')
-        self.pw_conv = conv1x1_block(in_channels=mid_channels, out_channels
-            =out_channels, bn_eps=bn_eps, activation=None)
+        self.dw_conv = ConvBlock(in_channels=mid_channels, out_channels=mid_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=mid_channels, bn_eps=bn_eps, activation='relu6')
+        self.pw_conv = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, bn_eps=bn_eps, activation=None)
 
     def forward(self, x):
         if self.use_bc:
@@ -21347,16 +18992,13 @@ class ProxylessUnit(nn.Module):
         Whether to use identity branch.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        bn_eps, expansion, residual, shortcut):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, bn_eps, expansion, residual, shortcut):
         super(ProxylessUnit, self).__init__()
         assert residual or shortcut
         self.residual = residual
         self.shortcut = shortcut
         if self.residual:
-            self.body = ProxylessBlock(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=kernel_size, stride=
-                stride, bn_eps=bn_eps, expansion=expansion)
+            self.body = ProxylessBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, bn_eps=bn_eps, expansion=expansion)
 
     def forward(self, x):
         if not self.residual:
@@ -21400,16 +19042,12 @@ class ProxylessNAS(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        residuals, shortcuts, kernel_sizes, expansions, bn_eps=0.001,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, residuals, shortcuts, kernel_sizes, expansions, bn_eps=0.001, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ProxylessNAS, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2, bn_eps
-            =bn_eps, activation='relu6'))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2, bn_eps=bn_eps, activation='relu6'))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -21423,20 +19061,13 @@ class ProxylessNAS(nn.Module):
                 kernel_size = kernel_sizes_per_stage[j]
                 expansion = expansions_per_stage[j]
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ProxylessUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    kernel_size=kernel_size, stride=stride, bn_eps=bn_eps,
-                    expansion=expansion, residual=residual, shortcut=shortcut))
+                stage.add_module('unit{}'.format(j + 1), ProxylessUnit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, bn_eps=bn_eps, expansion=expansion, residual=residual, shortcut=shortcut))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, bn_eps=bn_eps,
-            activation='relu6'))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, bn_eps=bn_eps, activation='relu6'))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -21471,18 +19102,15 @@ class PSPFinalBlock(nn.Module):
         super(PSPFinalBlock, self).__init__()
         assert in_channels % bottleneck_factor == 0
         mid_channels = in_channels // bottleneck_factor
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels)
         self.dropout = nn.Dropout(p=0.1, inplace=False)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x, out_size):
         x = self.conv1(x)
         x = self.dropout(x)
         x = self.conv2(x)
-        x = F.interpolate(x, size=out_size, mode='bilinear', align_corners=True
-            )
+        x = F.interpolate(x, size=out_size, mode='bilinear', align_corners=True)
         return x
 
 
@@ -21502,17 +19130,14 @@ class PyramidPoolingBranch(nn.Module):
         Spatial size of output image for the bilinear upsampling operation.
     """
 
-    def __init__(self, in_channels, out_channels, pool_out_size,
-        upscale_out_size):
+    def __init__(self, in_channels, out_channels, pool_out_size, upscale_out_size):
         super(PyramidPoolingBranch, self).__init__()
         self.upscale_out_size = upscale_out_size
         self.pool = nn.AdaptiveAvgPool2d(pool_out_size)
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
-        in_size = (self.upscale_out_size if self.upscale_out_size is not
-            None else x.shape[2:])
+        in_size = self.upscale_out_size if self.upscale_out_size is not None else x.shape[2:]
         x = self.pool(x)
         x = self.conv(x)
         x = F.interpolate(x, size=in_size, mode='bilinear', align_corners=True)
@@ -21540,10 +19165,7 @@ class PyramidPooling(nn.Module):
         self.branches = Concurrent()
         self.branches.add_module('branch1', Identity())
         for i, pool_out_size in enumerate(pool_out_sizes):
-            self.branches.add_module('branch{}'.format(i + 2),
-                PyramidPoolingBranch(in_channels=in_channels, out_channels=
-                mid_channels, pool_out_size=pool_out_size, upscale_out_size
-                =upscale_out_size))
+            self.branches.add_module('branch{}'.format(i + 2), PyramidPoolingBranch(in_channels=in_channels, out_channels=mid_channels, pool_out_size=pool_out_size, upscale_out_size=upscale_out_size))
 
     def forward(self, x):
         x = self.branches(x)
@@ -21572,8 +19194,7 @@ class PSPNet(nn.Module):
         Number of segmentation classes.
     """
 
-    def __init__(self, backbone, backbone_out_channels=2048, aux=False,
-        fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
+    def __init__(self, backbone, backbone_out_channels=2048, aux=False, fixed_size=True, in_channels=3, in_size=(480, 480), num_classes=21):
         super(PSPNet, self).__init__()
         assert in_channels > 0
         assert in_size[0] % 8 == 0 and in_size[1] % 8 == 0
@@ -21582,17 +19203,13 @@ class PSPNet(nn.Module):
         self.aux = aux
         self.fixed_size = fixed_size
         self.backbone = backbone
-        pool_out_size = (self.in_size[0] // 8, self.in_size[1] // 8
-            ) if fixed_size else None
-        self.pool = PyramidPooling(in_channels=backbone_out_channels,
-            upscale_out_size=pool_out_size)
+        pool_out_size = (self.in_size[0] // 8, self.in_size[1] // 8) if fixed_size else None
+        self.pool = PyramidPooling(in_channels=backbone_out_channels, upscale_out_size=pool_out_size)
         pool_out_channels = 2 * backbone_out_channels
-        self.final_block = PSPFinalBlock(in_channels=pool_out_channels,
-            out_channels=num_classes, bottleneck_factor=8)
+        self.final_block = PSPFinalBlock(in_channels=pool_out_channels, out_channels=num_classes, bottleneck_factor=8)
         if self.aux:
             aux_out_channels = backbone_out_channels // 2
-            self.aux_block = PSPFinalBlock(in_channels=aux_out_channels,
-                out_channels=num_classes, bottleneck_factor=4)
+            self.aux_block = PSPFinalBlock(in_channels=aux_out_channels, out_channels=num_classes, bottleneck_factor=4)
         self._init_params()
 
     def _init_params(self):
@@ -21630,10 +19247,8 @@ class PyrBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride):
         super(PyrBlock, self).__init__()
-        self.conv1 = pre_conv3x3_block(in_channels=in_channels,
-            out_channels=out_channels, stride=stride, activate=False)
-        self.conv2 = pre_conv3x3_block(in_channels=out_channels,
-            out_channels=out_channels)
+        self.conv1 = pre_conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activate=False)
+        self.conv2 = pre_conv3x3_block(in_channels=out_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -21658,12 +19273,9 @@ class PyrBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super(PyrBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, activate=False)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride)
-        self.conv3 = pre_conv1x1_block(in_channels=mid_channels,
-            out_channels=out_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activate=False)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
+        self.conv3 = pre_conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -21694,15 +19306,12 @@ class PyrUnit(nn.Module):
         self.resize_identity = stride != 1
         self.identity_pad_width = 0, 0, 0, 0, 0, out_channels - in_channels
         if bottleneck:
-            self.body = PyrBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride)
+            self.body = PyrBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride)
         else:
-            self.body = PyrBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = PyrBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         if self.resize_identity:
-            self.identity_pool = nn.AvgPool2d(kernel_size=2, stride=stride,
-                ceil_mode=True)
+            self.identity_pool = nn.AvgPool2d(kernel_size=2, stride=stride, ceil_mode=True)
 
     def forward(self, x):
         identity = x
@@ -21729,8 +19338,7 @@ class PyrInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(PyrInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -21763,30 +19371,23 @@ class PyramidNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(PyramidNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PyrInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PyrInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
-                stage.add_module('unit{}'.format(j + 1), PyrUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck))
+                stage.add_module('unit{}'.format(j + 1), PyrUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -21823,30 +19424,23 @@ class CIFARPyramidNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARPyramidNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, activation=None))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, activation=None))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
-                stage.add_module('unit{}'.format(j + 1), PyrUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck))
+                stage.add_module('unit{}'.format(j + 1), PyrUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -21880,12 +19474,9 @@ class PreResBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super(PreResBottleneck, self).__init__()
         mid_channels = out_channels // 4
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, return_preact=True)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride)
-        self.conv3 = pre_conv1x1_block(in_channels=mid_channels,
-            out_channels=out_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels, return_preact=True)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
+        self.conv3 = pre_conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x, x_pre_activ = self.conv1(x)
@@ -21911,11 +19502,9 @@ class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResBlock, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = PreResBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.body = PreResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         identity = x
@@ -21941,8 +19530,7 @@ class InterpolationBlock(nn.Module):
         self.scale_factor = scale_factor
 
     def forward(self, x):
-        return F.interpolate(input=x, scale_factor=self.scale_factor, mode=
-            'bilinear', align_corners=True)
+        return F.interpolate(input=x, scale_factor=self.scale_factor, mode='bilinear', align_corners=True)
 
 
 class DoubleSkipBlock(nn.Module):
@@ -21959,8 +19547,7 @@ class DoubleSkipBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(DoubleSkipBlock, self).__init__()
-        self.skip1 = ResBlock(in_channels=in_channels, out_channels=
-            out_channels)
+        self.skip1 = ResBlock(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = x + self.skip1(x)
@@ -21985,8 +19572,7 @@ class ResBlockSequence(nn.Module):
         super(ResBlockSequence, self).__init__()
         self.blocks = nn.Sequential()
         for i in range(length):
-            self.blocks.add_module('block{}'.format(i + 1), ResBlock(
-                in_channels=in_channels, out_channels=out_channels))
+            self.blocks.add_module('block{}'.format(i + 1), ResBlock(in_channels=in_channels, out_channels=out_channels))
 
     def forward(self, x):
         x = self.blocks(x)
@@ -22010,8 +19596,7 @@ class DownAttBlock(nn.Module):
     def __init__(self, in_channels, out_channels, length):
         super(DownAttBlock, self).__init__()
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.res_blocks = ResBlockSequence(in_channels=in_channels,
-            out_channels=out_channels, length=length)
+        self.res_blocks = ResBlockSequence(in_channels=in_channels, out_channels=out_channels, length=length)
 
     def forward(self, x):
         x = self.pool(x)
@@ -22037,8 +19622,7 @@ class UpAttBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, length, scale_factor):
         super(UpAttBlock, self).__init__()
-        self.res_blocks = ResBlockSequence(in_channels=in_channels,
-            out_channels=out_channels, length=length)
+        self.res_blocks = ResBlockSequence(in_channels=in_channels, out_channels=out_channels, length=length)
         self.upsample = InterpolationBlock(scale_factor)
 
     def forward(self, x):
@@ -22059,10 +19643,8 @@ class MiddleAttBlock(nn.Module):
 
     def __init__(self, channels):
         super(MiddleAttBlock, self).__init__()
-        self.conv1 = pre_conv1x1_block(in_channels=channels, out_channels=
-            channels)
-        self.conv2 = pre_conv1x1_block(in_channels=channels, out_channels=
-            channels)
+        self.conv1 = pre_conv1x1_block(in_channels=channels, out_channels=channels)
+        self.conv2 = pre_conv1x1_block(in_channels=channels, out_channels=channels)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -22093,29 +19675,20 @@ class AttBlock(nn.Module):
         assert len(att_scales) == 3
         scale_factor = 2
         scale_p, scale_t, scale_r = att_scales
-        self.init_blocks = ResBlockSequence(in_channels=in_channels,
-            out_channels=out_channels, length=scale_p)
+        self.init_blocks = ResBlockSequence(in_channels=in_channels, out_channels=out_channels, length=scale_p)
         down_seq = nn.Sequential()
         up_seq = nn.Sequential()
         skip_seq = nn.Sequential()
         for i in range(hourglass_depth):
-            down_seq.add_module('down{}'.format(i + 1), DownAttBlock(
-                in_channels=in_channels, out_channels=out_channels, length=
-                scale_r))
-            up_seq.add_module('up{}'.format(i + 1), UpAttBlock(in_channels=
-                in_channels, out_channels=out_channels, length=scale_r,
-                scale_factor=scale_factor))
+            down_seq.add_module('down{}'.format(i + 1), DownAttBlock(in_channels=in_channels, out_channels=out_channels, length=scale_r))
+            up_seq.add_module('up{}'.format(i + 1), UpAttBlock(in_channels=in_channels, out_channels=out_channels, length=scale_r, scale_factor=scale_factor))
             if i == 0:
-                skip_seq.add_module('skip1', ResBlockSequence(in_channels=
-                    in_channels, out_channels=out_channels, length=scale_t))
+                skip_seq.add_module('skip1', ResBlockSequence(in_channels=in_channels, out_channels=out_channels, length=scale_t))
             else:
-                skip_seq.add_module('skip{}'.format(i + 1), DoubleSkipBlock
-                    (in_channels=in_channels, out_channels=out_channels))
-        self.hg = Hourglass(down_seq=down_seq, up_seq=up_seq, skip_seq=
-            skip_seq, return_first_skip=True)
+                skip_seq.add_module('skip{}'.format(i + 1), DoubleSkipBlock(in_channels=in_channels, out_channels=out_channels))
+        self.hg = Hourglass(down_seq=down_seq, up_seq=up_seq, skip_seq=skip_seq, return_first_skip=True)
         self.middle_block = MiddleAttBlock(channels=out_channels)
-        self.final_block = ResBlock(in_channels=in_channels, out_channels=
-            out_channels)
+        self.final_block = ResBlock(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.init_blocks(x)
@@ -22140,8 +19713,7 @@ class ResAttInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ResAttInitBlock, self).__init__()
-        self.conv = conv7x7_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2)
+        self.conv = conv7x7_block(in_channels=in_channels, out_channels=out_channels, stride=2)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -22193,14 +19765,12 @@ class ResAttNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, attentions,
-        att_scales, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, attentions, att_scales, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ResAttNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResAttInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResAttInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             hourglass_depth = len(channels) - 1 - i
@@ -22208,22 +19778,14 @@ class ResAttNet(nn.Module):
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
                 if attentions[i][j]:
-                    stage.add_module('unit{}'.format(j + 1), AttBlock(
-                        in_channels=in_channels, out_channels=out_channels,
-                        hourglass_depth=hourglass_depth, att_scales=att_scales)
-                        )
+                    stage.add_module('unit{}'.format(j + 1), AttBlock(in_channels=in_channels, out_channels=out_channels, hourglass_depth=hourglass_depth, att_scales=att_scales))
                 else:
-                    stage.add_module('unit{}'.format(j + 1), ResBlock(
-                        in_channels=in_channels, out_channels=out_channels,
-                        stride=stride))
+                    stage.add_module('unit{}'.format(j + 1), ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreActivation(in_channels=
-            in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -22258,17 +19820,14 @@ class ResDropResUnit(nn.Module):
         Residual branch life probability.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck, life_prob
-        ):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, life_prob):
         super(ResDropResUnit, self).__init__()
         self.life_prob = life_prob
         self.resize_identity = in_channels != out_channels or stride != 1
         body_class = ResBottleneck if bottleneck else ResBlock
-        self.body = body_class(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.body = body_class(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -22278,8 +19837,7 @@ class ResDropResUnit(nn.Module):
             identity = x
         x = self.body(x)
         if self.training:
-            b = torch.bernoulli(torch.full((1,), self.life_prob, dtype=x.
-                dtype, device=x.device))
+            b = torch.bernoulli(torch.full((1,), self.life_prob, dtype=x.dtype, device=x.device))
             x = float(b) / self.life_prob * x
         x = x + identity
         x = self.activ(x)
@@ -22308,31 +19866,24 @@ class CIFARResDropResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        life_probs, in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, life_probs, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARResDropResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         k = 0
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ResDropResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, life_prob=
-                    life_probs[k]))
+                stage.add_module('unit{}'.format(j + 1), ResDropResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, life_prob=life_probs[k]))
                 in_channels = out_channels
                 k += 1
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -22367,13 +19918,10 @@ class ResBlock(nn.Module):
         Whether to use BatchNorm layer.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bias=False,
-        use_bn=True):
+    def __init__(self, in_channels, out_channels, stride, bias=False, use_bn=True):
         super(ResBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, bias=bias, use_bn=use_bn)
-        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, bias=bias, use_bn=use_bn, activation=None)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn)
+        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=out_channels, bias=bias, use_bn=use_bn, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -22403,17 +19951,12 @@ class ResBottleneck(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding=1,
-        dilation=1, conv1_stride=False, bottleneck_factor=4):
+    def __init__(self, in_channels, out_channels, stride, padding=1, dilation=1, conv1_stride=False, bottleneck_factor=4):
         super(ResBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride if conv1_stride else 1)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels, stride=1 if conv1_stride else stride, padding=
-            padding, dilation=dilation)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, stride=stride if conv1_stride else 1)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=1 if conv1_stride else stride, padding=padding, dilation=dilation)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -22448,22 +19991,15 @@ class ResUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding=1,
-        dilation=1, bias=False, use_bn=True, bottleneck=True, conv1_stride=
-        False):
+    def __init__(self, in_channels, out_channels, stride, padding=1, dilation=1, bias=False, use_bn=True, bottleneck=True, conv1_stride=False):
         super(ResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ResBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, padding=padding, dilation=
-                dilation, conv1_stride=conv1_stride)
+            self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, dilation=dilation, conv1_stride=conv1_stride)
         else:
-            self.body = ResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, bias=bias, use_bn=use_bn)
+            self.body = ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, bias=bias, use_bn
-                =use_bn, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=bias, use_bn=use_bn, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -22491,8 +20027,7 @@ class ResInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ResInitBlock, self).__init__()
-        self.conv = conv7x7_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2)
+        self.conv = conv7x7_block(in_channels=in_channels, out_channels=out_channels, stride=2)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -22523,29 +20058,22 @@ class ResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), ResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -22582,28 +20110,22 @@ class CIFARResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=False))
+                stage.add_module('unit{}'.format(j + 1), ResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -22638,11 +20160,8 @@ class ResADownBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride, dilation=1):
         super(ResADownBlock, self).__init__()
-        self.pool = nn.AvgPool2d(kernel_size=stride if dilation == 1 else 1,
-            stride=stride if dilation == 1 else 1, ceil_mode=True,
-            count_include_pad=False)
-        self.conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, activation=None)
+        self.pool = nn.AvgPool2d(kernel_size=stride if dilation == 1 else 1, stride=stride if dilation == 1 else 1, ceil_mode=True, count_include_pad=False)
+        self.conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.pool(x)
@@ -22672,20 +20191,15 @@ class ResAUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, padding=1,
-        dilation=1, bottleneck=True, conv1_stride=False):
+    def __init__(self, in_channels, out_channels, stride, padding=1, dilation=1, bottleneck=True, conv1_stride=False):
         super(ResAUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ResBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, padding=padding, dilation=
-                dilation, conv1_stride=conv1_stride)
+            self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=padding, dilation=dilation, conv1_stride=conv1_stride)
         else:
-            self.body = ResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_block = ResADownBlock(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, dilation=dilation)
+            self.identity_block = ResADownBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, dilation=dilation)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -22724,15 +20238,12 @@ class ResNetA(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, dilated=False, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, dilated=False, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ResNetA, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SEInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', SEInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
@@ -22743,16 +20254,11 @@ class ResNetA(nn.Module):
                 else:
                     stride = 2 if j == 0 and i != 0 else 1
                     dilation = 1
-                stage.add_module('unit{}'.format(j + 1), ResAUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, padding=dilation, dilation=dilation,
-                    bottleneck=bottleneck, conv1_stride=conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), ResAUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=dilation, dilation=dilation, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(
-            output_size=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(output_size=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -22795,39 +20301,30 @@ class ResNetD(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, ordinary_init=False, bends=None, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, ordinary_init=False, bends=None, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ResNetD, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.multi_output = bends is not None
         self.features = MultiOutputSequential()
         if ordinary_init:
-            self.features.add_module('init_block', ResInitBlock(in_channels
-                =in_channels, out_channels=init_block_channels))
+            self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         else:
             init_block_channels = 2 * init_block_channels
-            self.features.add_module('init_block', SEInitBlock(in_channels=
-                in_channels, out_channels=init_block_channels))
+            self.features.add_module('init_block', SEInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 and i < 2 else 1
                 dilation = 2 ** max(0, i - 1 - int(j == 0))
-                stage.add_module('unit{}'.format(j + 1), ResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, padding=dilation, dilation=dilation,
-                    bottleneck=bottleneck, conv1_stride=conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), ResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=dilation, dilation=dilation, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             if self.multi_output and i + 1 in bends:
                 stage.do_output = True
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(
-            output_size=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AdaptiveAvgPool2d(output_size=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -22868,18 +20365,14 @@ class ResNeXtBottleneck(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width, bottleneck_factor=4):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width, bottleneck_factor=4):
         super(ResNeXtBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
         D = int(math.floor(mid_channels * (bottleneck_width / 64.0)))
         group_width = cardinality * D
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            group_width)
-        self.conv2 = conv3x3_block(in_channels=group_width, out_channels=
-            group_width, stride=stride, groups=cardinality)
-        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=group_width)
+        self.conv2 = conv3x3_block(in_channels=group_width, out_channels=group_width, stride=stride, groups=cardinality)
+        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -22906,16 +20399,12 @@ class ResNeXtUnit(nn.Module):
         Width of bottleneck block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width):
         super(ResNeXtUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = ResNeXtBottleneck(in_channels=in_channels, out_channels
-            =out_channels, stride=stride, cardinality=cardinality,
-            bottleneck_width=bottleneck_width)
+        self.body = ResNeXtBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -22951,29 +20440,22 @@ class ResNeXt(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, cardinality,
-        bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, cardinality, bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ResNeXt, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ResNeXtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, cardinality=cardinality,
-                    bottleneck_width=bottleneck_width))
+                stage.add_module('unit{}'.format(j + 1), ResNeXtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -23013,29 +20495,22 @@ class CIFARResNeXt(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, cardinality,
-        bottleneck_width, in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, cardinality, bottleneck_width, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARResNeXt, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ResNeXtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, cardinality=cardinality,
-                    bottleneck_width=bottleneck_width))
+                stage.add_module('unit{}'.format(j + 1), ResNeXtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -23052,8 +20527,7 @@ class CIFARResNeXt(nn.Module):
         return x
 
 
-use_context_mans = int(torch.__version__[0]) * 100 + int(torch.__version__[2]
-    ) - (1 if 'a' in torch.__version__ else 0) > 3
+use_context_mans = int(torch.__version__[0]) * 100 + int(torch.__version__[2]) - (1 if 'a' in torch.__version__ else 0) > 3
 
 
 class ReversibleBlockFunction(torch.autograd.Function):
@@ -23098,8 +20572,7 @@ class ReversibleBlockFunction(torch.autograd.Function):
             y1_ = x1_ + fm.forward(x2_)
             y2_ = x2_ + gm(y1_)
             y = torch.cat((y1_, y2_), dim=1)
-            dd = torch.autograd.grad(y, (x1_, x2_) + tuple(gm.parameters()) +
-                tuple(fm.parameters()), grad_y)
+            dd = torch.autograd.grad(y, (x1_, x2_) + tuple(gm.parameters()) + tuple(fm.parameters()), grad_y)
             gm_params_len = len([p for p in gm.parameters()])
             gm_params_grads = dd[2:2 + gm_params_len]
             fm_params_grads = dd[2 + gm_params_len:]
@@ -23131,8 +20604,7 @@ class ReversibleBlock(nn.Module):
 
     def forward(self, x):
         assert x.shape[1] % 2 == 0
-        params = [w for w in self.fm.parameters()] + [w for w in self.gm.
-            parameters()]
+        params = [w for w in self.fm.parameters()] + [w for w in self.gm.parameters()]
         y = self.rev_funct(x, self.fm, self.gm, *params)
         x.data.set_()
         return y
@@ -23167,13 +20639,10 @@ class RevResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride, preactivate):
         super(RevResBlock, self).__init__()
         if preactivate:
-            self.conv1 = pre_conv3x3_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.conv1 = pre_conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride)
         else:
-            self.conv1 = conv3x3(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
-        self.conv2 = pre_conv3x3_block(in_channels=out_channels,
-            out_channels=out_channels)
+            self.conv1 = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.conv2 = pre_conv3x3_block(in_channels=out_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -23199,20 +20668,15 @@ class RevResBottleneck(nn.Module):
         Bottleneck factor.
     """
 
-    def __init__(self, in_channels, out_channels, stride, preactivate,
-        bottleneck_factor=4):
+    def __init__(self, in_channels, out_channels, stride, preactivate, bottleneck_factor=4):
         super(RevResBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
         if preactivate:
-            self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels)
+            self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
         else:
-            self.conv1 = conv1x1(in_channels=in_channels, out_channels=
-                mid_channels)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=stride)
-        self.conv3 = pre_conv1x1_block(in_channels=mid_channels,
-            out_channels=out_channels)
+            self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
+        self.conv3 = pre_conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -23239,8 +20703,7 @@ class RevUnit(nn.Module):
         Whether use pre-activation for the first convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        preactivate):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, preactivate):
         super(RevUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         body_class = RevResBottleneck if bottleneck else RevResBlock
@@ -23249,17 +20712,13 @@ class RevUnit(nn.Module):
             assert out_channels % 2 == 0
             in_channels2 = in_channels // 2
             out_channels2 = out_channels // 2
-            gm = body_class(in_channels=in_channels2, out_channels=
-                out_channels2, stride=1, preactivate=preactivate)
-            fm = body_class(in_channels=in_channels2, out_channels=
-                out_channels2, stride=1, preactivate=preactivate)
+            gm = body_class(in_channels=in_channels2, out_channels=out_channels2, stride=1, preactivate=preactivate)
+            fm = body_class(in_channels=in_channels2, out_channels=out_channels2, stride=1, preactivate=preactivate)
             self.body = ReversibleBlock(gm, fm)
         else:
-            self.body = body_class(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, preactivate=preactivate)
+            self.body = body_class(in_channels=in_channels, out_channels=out_channels, stride=stride, preactivate=preactivate)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
 
     def forward(self, x):
         if self.resize_identity:
@@ -23313,32 +20772,24 @@ class RevNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(RevNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
                 preactivate = j != 0 or i != 0
-                stage.add_module('unit{}'.format(j + 1), RevUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, preactivate=
-                    preactivate))
+                stage.add_module('unit{}'.format(j + 1), RevUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, preactivate=preactivate))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_postactiv', RevPostActivation(
-            in_channels=in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=56,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_postactiv', RevPostActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=56, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -23393,19 +20844,14 @@ class RiRUnit(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super(RiRUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.res_pass_conv = conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
-        self.trans_pass_conv = conv3x3(in_channels=in_channels,
-            out_channels=out_channels, stride=stride)
-        self.res_cross_conv = conv3x3(in_channels=in_channels, out_channels
-            =out_channels, stride=stride)
-        self.trans_cross_conv = conv3x3(in_channels=in_channels,
-            out_channels=out_channels, stride=stride)
+        self.res_pass_conv = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.trans_pass_conv = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.res_cross_conv = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.trans_cross_conv = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.res_postactiv = PostActivation(in_channels=out_channels)
         self.trans_postactiv = PostActivation(in_channels=out_channels)
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x_res, x_trans):
         if self.resize_identity:
@@ -23437,10 +20883,8 @@ class RiRInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(RiRInitBlock, self).__init__()
-        self.res_conv = conv3x3_block(in_channels=in_channels, out_channels
-            =out_channels)
-        self.trans_conv = conv3x3_block(in_channels=in_channels,
-            out_channels=out_channels)
+        self.res_conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels)
+        self.trans_conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x, _):
         x_res = self.res_conv(x)
@@ -23481,32 +20925,25 @@ class CIFARRiR(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, final_block_channels, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARRiR, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
-        self.features = DualPathSequential(return_two=False, first_ordinals
-            =0, last_ordinals=0)
-        self.features.add_module('init_block', RiRInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features = DualPathSequential(return_two=False, first_ordinals=0, last_ordinals=0)
+        self.features.add_module('init_block', RiRInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = DualPathSequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), RiRUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride))
+                stage.add_module('unit{}'.format(j + 1), RiRUnit(in_channels=in_channels, out_channels=out_channels, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('final_block', RiRFinalBlock())
         in_channels = final_block_channels
         self.output = nn.Sequential()
-        self.output.add_module('final_conv', conv1x1_block(in_channels=
-            in_channels, out_channels=num_classes, activation=None))
-        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
+        self.output.add_module('final_conv', conv1x1_block(in_channels=in_channels, out_channels=num_classes, activation=None))
+        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
         self._init_params()
 
     def _init_params(self):
@@ -23540,10 +20977,8 @@ class RoRBlock(nn.Module):
     def __init__(self, in_channels, out_channels, dropout_rate):
         super(RoRBlock, self).__init__()
         self.use_dropout = dropout_rate != 0.0
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels)
-        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=out_channels)
+        self.conv2 = conv3x3_block(in_channels=out_channels, out_channels=out_channels, activation=None)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -23571,16 +21006,13 @@ class RoRResUnit(nn.Module):
         Whether activate output.
     """
 
-    def __init__(self, in_channels, out_channels, dropout_rate,
-        last_activate=True):
+    def __init__(self, in_channels, out_channels, dropout_rate, last_activate=True):
         super(RoRResUnit, self).__init__()
         self.last_activate = last_activate
         self.resize_identity = in_channels != out_channels
-        self.body = RoRBlock(in_channels=in_channels, out_channels=
-            out_channels, dropout_rate=dropout_rate)
+        self.body = RoRBlock(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -23611,18 +21043,14 @@ class RoRResStage(nn.Module):
         Whether downsample output.
     """
 
-    def __init__(self, in_channels, out_channels_list, dropout_rate,
-        downsample=True):
+    def __init__(self, in_channels, out_channels_list, dropout_rate, downsample=True):
         super(RoRResStage, self).__init__()
         self.downsample = downsample
-        self.shortcut = conv1x1_block(in_channels=in_channels, out_channels
-            =out_channels_list[-1], activation=None)
+        self.shortcut = conv1x1_block(in_channels=in_channels, out_channels=out_channels_list[-1], activation=None)
         self.units = nn.Sequential()
         for i, out_channels in enumerate(out_channels_list):
             last_activate = i != len(out_channels_list) - 1
-            self.units.add_module('unit{}'.format(i + 1), RoRResUnit(
-                in_channels=in_channels, out_channels=out_channels,
-                dropout_rate=dropout_rate, last_activate=last_activate))
+            self.units.add_module('unit{}'.format(i + 1), RoRResUnit(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate, last_activate=last_activate))
             in_channels = out_channels
         if self.downsample:
             self.activ = nn.ReLU(inplace=True)
@@ -23654,15 +21082,11 @@ class RoRResBody(nn.Module):
 
     def __init__(self, in_channels, out_channels_lists, dropout_rate):
         super(RoRResBody, self).__init__()
-        self.shortcut = conv1x1_block(in_channels=in_channels, out_channels
-            =out_channels_lists[-1][-1], stride=4, activation=None)
+        self.shortcut = conv1x1_block(in_channels=in_channels, out_channels=out_channels_lists[-1][-1], stride=4, activation=None)
         self.stages = nn.Sequential()
         for i, channels_per_stage in enumerate(out_channels_lists):
             downsample = i != len(out_channels_lists) - 1
-            self.stages.add_module('stage{}'.format(i + 1), RoRResStage(
-                in_channels=in_channels, out_channels_list=
-                channels_per_stage, dropout_rate=dropout_rate, downsample=
-                downsample))
+            self.stages.add_module('stage{}'.format(i + 1), RoRResStage(in_channels=in_channels, out_channels_list=channels_per_stage, dropout_rate=dropout_rate, downsample=downsample))
             in_channels = channels_per_stage[-1]
         self.activ = nn.ReLU(inplace=True)
 
@@ -23695,22 +21119,17 @@ class CIFARRoR(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, dropout_rate=0.0, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARRoR, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
-        self.features.add_module('body', RoRResBody(in_channels=in_channels,
-            out_channels_lists=channels, dropout_rate=dropout_rate))
+        self.features.add_module('body', RoRResBody(in_channels=in_channels, out_channels_lists=channels, dropout_rate=dropout_rate))
         in_channels = channels[-1][-1]
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -23742,10 +21161,8 @@ class SelecSLSBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(SelecSLSBlock, self).__init__()
         mid_channels = 2 * out_channels
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -23771,21 +21188,15 @@ class SelecSLSUnit(nn.Module):
         Strides of the branch convolution layers.
     """
 
-    def __init__(self, in_channels, out_channels, skip_channels,
-        mid_channels, stride):
+    def __init__(self, in_channels, out_channels, skip_channels, mid_channels, stride):
         super(SelecSLSUnit, self).__init__()
         self.resize = stride == 2
         mid2_channels = mid_channels // 2
-        last_channels = 2 * mid_channels + (skip_channels if stride == 1 else 0
-            )
-        self.branch1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride)
-        self.branch2 = SelecSLSBlock(in_channels=mid_channels, out_channels
-            =mid2_channels)
-        self.branch3 = SelecSLSBlock(in_channels=mid2_channels,
-            out_channels=mid2_channels)
-        self.last_conv = conv1x1_block(in_channels=last_channels,
-            out_channels=out_channels)
+        last_channels = 2 * mid_channels + (skip_channels if stride == 1 else 0)
+        self.branch1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=stride)
+        self.branch2 = SelecSLSBlock(in_channels=mid_channels, out_channels=mid2_channels)
+        self.branch3 = SelecSLSBlock(in_channels=mid2_channels, out_channels=mid2_channels)
+        self.last_conv = conv1x1_block(in_channels=last_channels, out_channels=out_channels)
 
     def forward(self, x, x0):
         x1 = self.branch1(x)
@@ -23824,16 +21235,13 @@ class SelecSLS(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, skip_channels, mid_channels, kernels3,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, skip_channels, mid_channels, kernels3, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SelecSLS, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         init_block_channels = 32
-        self.features = DualPathSequential(return_two=False, first_ordinals
-            =1, last_ordinals=1 + len(kernels3))
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels, stride=2))
+        self.features = DualPathSequential(return_two=False, first_ordinals=1, last_ordinals=1 + len(kernels3))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels, stride=2))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             k = i - len(skip_channels)
@@ -23841,29 +21249,21 @@ class SelecSLS(nn.Module):
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 else 1
                 if k < 0:
-                    unit = SelecSLSUnit(in_channels=in_channels,
-                        out_channels=out_channels, skip_channels=
-                        skip_channels[i][j], mid_channels=mid_channels[i][j
-                        ], stride=stride)
+                    unit = SelecSLSUnit(in_channels=in_channels, out_channels=out_channels, skip_channels=skip_channels[i][j], mid_channels=mid_channels[i][j], stride=stride)
                 else:
-                    conv_block_class = conv3x3_block if kernels3[k][j
-                        ] == 1 else conv1x1_block
-                    unit = conv_block_class(in_channels=in_channels,
-                        out_channels=out_channels, stride=stride)
+                    conv_block_class = conv3x3_block if kernels3[k][j] == 1 else conv1x1_block
+                    unit = conv_block_class(in_channels=in_channels, out_channels=out_channels, stride=stride)
                 stage.add_module('unit{}'.format(j + 1), unit)
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=4,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=4, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
         for module in self.named_modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_uniform_(module.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_uniform_(module.weight, mode='fan_out', nonlinearity='relu')
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.BatchNorm2d):
@@ -23895,19 +21295,15 @@ class SENetBottleneck(nn.Module):
         Width of bottleneck block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width):
         super(SENetBottleneck, self).__init__()
         mid_channels = out_channels // 4
         D = int(math.floor(mid_channels * (bottleneck_width / 64.0)))
         group_width = cardinality * D
         group_width2 = group_width // 2
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            group_width2)
-        self.conv2 = conv3x3_block(in_channels=group_width2, out_channels=
-            group_width, stride=stride, groups=cardinality)
-        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=group_width2)
+        self.conv2 = conv3x3_block(in_channels=group_width2, out_channels=group_width, stride=stride, groups=cardinality)
+        self.conv3 = conv1x1_block(in_channels=group_width, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -23936,21 +21332,16 @@ class SENetUnit(nn.Module):
         Whether to use 3x3 convolution in the identity link.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width, identity_conv3x3):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width, identity_conv3x3):
         super(SENetUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = SENetBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, cardinality=cardinality,
-            bottleneck_width=bottleneck_width)
+        self.body = SENetBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width)
         self.se = SEBlock(channels=out_channels)
         if self.resize_identity:
             if identity_conv3x3:
-                self.identity_conv = conv3x3_block(in_channels=in_channels,
-                    out_channels=out_channels, stride=stride, activation=None)
+                self.identity_conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
             else:
-                self.identity_conv = conv1x1_block(in_channels=in_channels,
-                    out_channels=out_channels, stride=stride, activation=None)
+                self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -23980,12 +21371,9 @@ class SEInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(SEInitBlock, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels)
-        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels)
+        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -24018,33 +21406,25 @@ class SENet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, cardinality,
-        bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, cardinality, bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SENet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SEInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', SEInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             identity_conv3x3 = i != 0
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SENetUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, cardinality=cardinality,
-                    bottleneck_width=bottleneck_width, identity_conv3x3=
-                    identity_conv3x3))
+                stage.add_module('unit{}'.format(j + 1), SENetUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width, identity_conv3x3=identity_conv3x3))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
         self.output = nn.Sequential()
         self.output.add_module('dropout', nn.Dropout(p=0.2))
-        self.output.add_module('fc', nn.Linear(in_features=in_channels,
-            out_features=num_classes))
+        self.output.add_module('fc', nn.Linear(in_features=in_channels, out_features=num_classes))
         self._init_params()
 
     def _init_params(self):
@@ -24079,21 +21459,16 @@ class SEPreResUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        conv1_stride):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, conv1_stride):
         super(SEPreResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = PreResBottleneck(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, conv1_stride=
-                conv1_stride)
+            self.body = PreResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride)
         else:
-            self.body = PreResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = PreResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.se = SEBlock(channels=out_channels)
         if self.resize_identity:
-            self.identity_conv = conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride)
+            self.identity_conv = conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride)
 
     def forward(self, x):
         identity = x
@@ -24127,31 +21502,23 @@ class SEPreResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SEPreResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 1 if i == 0 or j != 0 else 2
-                stage.add_module('unit{}'.format(j + 1), SEPreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), SEPreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24188,28 +21555,22 @@ class CIFARSEPreResNet(nn.Module):
         Number of classification num_classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARSEPreResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SEPreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=False))
+                stage.add_module('unit{}'.format(j + 1), SEPreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24244,20 +21605,16 @@ class SEResUnit(nn.Module):
         Whether to use stride in the first or the second convolution layer of the block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        conv1_stride):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, conv1_stride):
         super(SEResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ResBottleneck(in_channels=in_channels, out_channels
-                =out_channels, stride=stride, conv1_stride=conv1_stride)
+            self.body = ResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride)
         else:
-            self.body = ResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride)
+            self.body = ResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.se = SEBlock(channels=out_channels)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -24294,29 +21651,22 @@ class SEResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SEResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SEResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=
-                    conv1_stride))
+                stage.add_module('unit{}'.format(j + 1), SEResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24353,28 +21703,22 @@ class CIFARSEResNet(nn.Module):
         Number of classification num_classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARSEResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SEResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, conv1_stride=False))
+                stage.add_module('unit{}'.format(j + 1), SEResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=False))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24409,17 +21753,13 @@ class SEResNeXtUnit(nn.Module):
         Width of bottleneck block.
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        bottleneck_width):
+    def __init__(self, in_channels, out_channels, stride, cardinality, bottleneck_width):
         super(SEResNeXtUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = ResNeXtBottleneck(in_channels=in_channels, out_channels
-            =out_channels, stride=stride, cardinality=cardinality,
-            bottleneck_width=bottleneck_width)
+        self.body = ResNeXtBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width)
         self.se = SEBlock(channels=out_channels)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -24456,29 +21796,22 @@ class SEResNeXt(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, cardinality,
-        bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, cardinality, bottleneck_width, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SEResNeXt, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SEResNeXtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, cardinality=cardinality,
-                    bottleneck_width=bottleneck_width))
+                stage.add_module('unit{}'.format(j + 1), SEResNeXtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, cardinality=cardinality, bottleneck_width=bottleneck_width))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24508,8 +21841,7 @@ class ShakeDrop(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dy):
-        beta = torch.rand(dy.size(0), dtype=dy.dtype, device=dy.device).view(
-            -1, 1, 1, 1)
+        beta = torch.rand(dy.size(0), dtype=dy.dtype, device=dy.device).view(-1, 1, 1, 1)
         b, = ctx.saved_tensors
         return (b + beta - b * beta) * dy, None, None
 
@@ -24532,17 +21864,14 @@ class ShakeDropResUnit(nn.Module):
         Residual branch life probability.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck, life_prob
-        ):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, life_prob):
         super(ShakeDropResUnit, self).__init__()
         self.life_prob = life_prob
         self.resize_identity = in_channels != out_channels or stride != 1
         body_class = ResBottleneck if bottleneck else ResBlock
-        self.body = body_class(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.body = body_class(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
         self.shake_drop = ShakeDrop.apply
 
@@ -24553,10 +21882,8 @@ class ShakeDropResUnit(nn.Module):
             identity = x
         x = self.body(x)
         if self.training:
-            b = torch.bernoulli(torch.full((1,), self.life_prob, dtype=x.
-                dtype, device=x.device))
-            alpha = torch.empty(x.size(0), dtype=x.dtype, device=x.device
-                ).view(-1, 1, 1, 1).uniform_(-1.0, 1.0)
+            b = torch.bernoulli(torch.full((1,), self.life_prob, dtype=x.dtype, device=x.device))
+            alpha = torch.empty(x.size(0), dtype=x.dtype, device=x.device).view(-1, 1, 1, 1).uniform_(-1.0, 1.0)
             x = self.shake_drop(x, b, alpha)
         else:
             x = self.life_prob * x
@@ -24588,31 +21915,24 @@ class CIFARShakeDropResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        life_probs, in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, life_probs, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARShakeDropResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         k = 0
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ShakeDropResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck, life_prob=
-                    life_probs[k]))
+                stage.add_module('unit{}'.format(j + 1), ShakeDropResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, life_prob=life_probs[k]))
                 in_channels = out_channels
                 k += 1
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24648,10 +21968,8 @@ class ShakeShakeShortcut(nn.Module):
         assert out_channels % 2 == 0
         mid_channels = out_channels // 2
         self.pool = nn.AvgPool2d(kernel_size=1, stride=stride)
-        self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels
-            )
-        self.conv2 = conv1x1(in_channels=in_channels, out_channels=mid_channels
-            )
+        self.conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = conv1x1(in_channels=in_channels, out_channels=mid_channels)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.pad = nn.ZeroPad2d(padding=(1, 0, 1, 0))
 
@@ -24679,8 +21997,7 @@ class ShakeShake(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dy):
-        beta = torch.rand(dy.size(0), dtype=dy.dtype, device=dy.device).view(
-            -1, 1, 1, 1)
+        beta = torch.rand(dy.size(0), dtype=dy.dtype, device=dy.device).view(-1, 1, 1, 1)
         return beta * dy, (1 - beta) * dy, None
 
 
@@ -24704,13 +22021,10 @@ class ShakeShakeResUnit(nn.Module):
         super(ShakeShakeResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         branch_class = ResBottleneck if bottleneck else ResBlock
-        self.branch1 = branch_class(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
-        self.branch2 = branch_class(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.branch1 = branch_class(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.branch2 = branch_class(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_branch = ShakeShakeShortcut(in_channels=
-                in_channels, out_channels=out_channels, stride=stride)
+            self.identity_branch = ShakeShakeShortcut(in_channels=in_channels, out_channels=out_channels, stride=stride)
         self.activ = nn.ReLU(inplace=True)
         self.shake_shake = ShakeShake.apply
 
@@ -24722,8 +22036,7 @@ class ShakeShakeResUnit(nn.Module):
         x1 = self.branch1(x)
         x2 = self.branch2(x)
         if self.training:
-            alpha = torch.rand(x1.size(0), dtype=x1.dtype, device=x1.device
-                ).view(-1, 1, 1, 1)
+            alpha = torch.rand(x1.size(0), dtype=x1.dtype, device=x1.device).view(-1, 1, 1, 1)
             x = self.shake_shake(x1, x2, alpha)
         else:
             x = 0.5 * (x1 + x2)
@@ -24752,28 +22065,22 @@ class CIFARShakeShakeResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARShakeShakeResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_block(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3_block(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), ShakeShakeResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=bottleneck))
+                stage.add_module('unit{}'.format(j + 1), ShakeShakeResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -24820,15 +22127,11 @@ class ShaConvBlock(nn.Module):
         Shared convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, activation=lambda : nn.
-        ReLU(inplace=True), activate=True, shared_conv=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, activation=lambda : nn.ReLU(inplace=True), activate=True, shared_conv=None):
         super(ShaConvBlock, self).__init__()
         self.activate = activate
         if shared_conv is None:
-            self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-                out_channels, kernel_size=kernel_size, stride=stride,
-                padding=padding, dilation=dilation, groups=groups, bias=bias)
+            self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         else:
             self.conv = shared_conv
         self.bn = nn.BatchNorm2d(num_features=out_channels)
@@ -24854,9 +22157,7 @@ class ShaConvBlock(nn.Module):
         return x
 
 
-def sha_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, groups=1, bias=False, activation=lambda : nn.ReLU(inplace=
-    True), activate=True, shared_conv=None):
+def sha_conv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, groups=1, bias=False, activation=lambda : nn.ReLU(inplace=True), activate=True, shared_conv=None):
     """
     3x3 version of the shared convolution block.
 
@@ -24883,10 +22184,7 @@ def sha_conv3x3_block(in_channels, out_channels, stride=1, padding=1,
     shared_conv : Module, default None
         Shared convolution layer.
     """
-    return ShaConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, activation=activation, activate=activate,
-        shared_conv=shared_conv)
+    return ShaConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, activation=activation, activate=activate, shared_conv=shared_conv)
 
 
 class ShaResBlock(nn.Module):
@@ -24907,11 +22205,8 @@ class ShaResBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride, shared_conv=None):
         super(ShaResBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
-        self.conv2 = sha_conv3x3_block(in_channels=out_channels,
-            out_channels=out_channels, activation=None, activate=False,
-            shared_conv=shared_conv)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride)
+        self.conv2 = sha_conv3x3_block(in_channels=out_channels, out_channels=out_channels, activation=None, activate=False, shared_conv=shared_conv)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -24939,18 +22234,13 @@ class ShaResBottleneck(nn.Module):
         Shared convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, stride, conv1_stride=
-        False, bottleneck_factor=4, shared_conv=None):
+    def __init__(self, in_channels, out_channels, stride, conv1_stride=False, bottleneck_factor=4, shared_conv=None):
         super(ShaResBottleneck, self).__init__()
         assert conv1_stride or not (stride > 1 and shared_conv is not None)
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=stride if conv1_stride else 1)
-        self.conv2 = sha_conv3x3_block(in_channels=mid_channels,
-            out_channels=mid_channels, stride=1 if conv1_stride else stride,
-            shared_conv=shared_conv)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, stride=stride if conv1_stride else 1)
+        self.conv2 = sha_conv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=1 if conv1_stride else stride, shared_conv=shared_conv)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -24979,20 +22269,15 @@ class ShaResUnit(nn.Module):
         Shared convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, stride, bottleneck,
-        conv1_stride, shared_conv=None):
+    def __init__(self, in_channels, out_channels, stride, bottleneck, conv1_stride, shared_conv=None):
         super(ShaResUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if bottleneck:
-            self.body = ShaResBottleneck(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, conv1_stride=
-                conv1_stride, shared_conv=shared_conv)
+            self.body = ShaResBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, conv1_stride=conv1_stride, shared_conv=shared_conv)
         else:
-            self.body = ShaResBlock(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, shared_conv=shared_conv)
+            self.body = ShaResBlock(in_channels=in_channels, out_channels=out_channels, stride=stride, shared_conv=shared_conv)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -25029,33 +22314,26 @@ class ShaResNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, bottleneck, conv1_stride, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ShaResNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             shared_conv = None
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                unit = ShaResUnit(in_channels=in_channels, out_channels=
-                    out_channels, stride=stride, bottleneck=bottleneck,
-                    conv1_stride=conv1_stride, shared_conv=shared_conv)
-                if shared_conv is None and not (bottleneck and not
-                    conv1_stride and stride > 1):
+                unit = ShaResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=bottleneck, conv1_stride=conv1_stride, shared_conv=shared_conv)
+                if shared_conv is None and not (bottleneck and not conv1_stride and stride > 1):
                     shared_conv = unit.body.conv2.conv
                 stage.add_module('unit{}'.format(j + 1), unit)
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -25090,22 +22368,18 @@ class ShuffleUnit(nn.Module):
         Whether ignore group value in the first convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, groups, downsample,
-        ignore_group):
+    def __init__(self, in_channels, out_channels, groups, downsample, ignore_group):
         super(ShuffleUnit, self).__init__()
         self.downsample = downsample
         mid_channels = out_channels // 4
         if downsample:
             out_channels -= in_channels
-        self.compress_conv1 = conv1x1(in_channels=in_channels, out_channels
-            =mid_channels, groups=1 if ignore_group else groups)
+        self.compress_conv1 = conv1x1(in_channels=in_channels, out_channels=mid_channels, groups=1 if ignore_group else groups)
         self.compress_bn1 = nn.BatchNorm2d(num_features=mid_channels)
         self.c_shuffle = ChannelShuffle(channels=mid_channels, groups=groups)
-        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if
-            self.downsample else 1)
+        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if self.downsample else 1)
         self.dw_bn2 = nn.BatchNorm2d(num_features=mid_channels)
-        self.expand_conv3 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, groups=groups)
+        self.expand_conv3 = conv1x1(in_channels=mid_channels, out_channels=out_channels, groups=groups)
         self.expand_bn3 = nn.BatchNorm2d(num_features=out_channels)
         if downsample:
             self.avgpool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
@@ -25144,8 +22418,7 @@ class ShuffleInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ShuffleInitBlock, self).__init__()
-        self.conv = conv3x3(in_channels=in_channels, out_channels=
-            out_channels, stride=2)
+        self.conv = conv3x3(in_channels=in_channels, out_channels=out_channels, stride=2)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -25179,30 +22452,23 @@ class ShuffleNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, groups, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, groups, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ShuffleNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ShuffleInitBlock(in_channels
-            =in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ShuffleInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 downsample = j == 0
                 ignore_group = i == 0 and j == 0
-                stage.add_module('unit{}'.format(j + 1), ShuffleUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    groups=groups, downsample=downsample, ignore_group=
-                    ignore_group))
+                stage.add_module('unit{}'.format(j + 1), ShuffleUnit(in_channels=in_channels, out_channels=out_channels, groups=groups, downsample=downsample, ignore_group=ignore_group))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -25237,29 +22503,24 @@ class ShuffleUnit(nn.Module):
         Whether to use residual connection.
     """
 
-    def __init__(self, in_channels, out_channels, downsample, use_se,
-        use_residual):
+    def __init__(self, in_channels, out_channels, downsample, use_se, use_residual):
         super(ShuffleUnit, self).__init__()
         self.downsample = downsample
         self.use_se = use_se
         self.use_residual = use_residual
         mid_channels = out_channels // 2
-        self.compress_conv1 = conv1x1(in_channels=in_channels if self.
-            downsample else mid_channels, out_channels=mid_channels)
+        self.compress_conv1 = conv1x1(in_channels=in_channels if self.downsample else mid_channels, out_channels=mid_channels)
         self.compress_bn1 = nn.BatchNorm2d(num_features=mid_channels)
-        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if
-            self.downsample else 1)
+        self.dw_conv2 = depthwise_conv3x3(channels=mid_channels, stride=2 if self.downsample else 1)
         self.dw_bn2 = nn.BatchNorm2d(num_features=mid_channels)
-        self.expand_conv3 = conv1x1(in_channels=mid_channels, out_channels=
-            mid_channels)
+        self.expand_conv3 = conv1x1(in_channels=mid_channels, out_channels=mid_channels)
         self.expand_bn3 = nn.BatchNorm2d(num_features=mid_channels)
         if self.use_se:
             self.se = SEBlock(channels=mid_channels)
         if downsample:
             self.dw_conv4 = depthwise_conv3x3(channels=in_channels, stride=2)
             self.dw_bn4 = nn.BatchNorm2d(num_features=in_channels)
-            self.expand_conv5 = conv1x1(in_channels=in_channels,
-                out_channels=mid_channels)
+            self.expand_conv5 = conv1x1(in_channels=in_channels, out_channels=mid_channels)
             self.expand_bn5 = nn.BatchNorm2d(num_features=mid_channels)
         self.activ = nn.ReLU(inplace=True)
         self.c_shuffle = ChannelShuffle(channels=out_channels, groups=2)
@@ -25305,10 +22566,8 @@ class ShuffleInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ShuffleInitBlock, self).__init__()
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2)
-        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0,
-            ceil_mode=True)
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2)
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
 
     def forward(self, x):
         x = self.conv(x)
@@ -25341,33 +22600,24 @@ class ShuffleNetV2(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        use_se=False, use_residual=False, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, use_se=False, use_residual=False, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ShuffleNetV2, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ShuffleInitBlock(in_channels
-            =in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ShuffleInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 downsample = j == 0
-                stage.add_module('unit{}'.format(j + 1), ShuffleUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    downsample=downsample, use_se=use_se, use_residual=
-                    use_residual))
+                stage.add_module('unit{}'.format(j + 1), ShuffleUnit(in_channels=in_channels, out_channels=out_channels, downsample=downsample, use_se=use_se, use_residual=use_residual))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -25404,8 +22654,7 @@ class ShuffleUnit(nn.Module):
         Whether to use channel shuffle in group first mode.
     """
 
-    def __init__(self, in_channels, out_channels, downsample, use_se,
-        use_residual, shuffle_group_first):
+    def __init__(self, in_channels, out_channels, downsample, use_se, use_residual, shuffle_group_first):
         super(ShuffleUnit, self).__init__()
         self.downsample = downsample
         self.use_se = use_se
@@ -25415,19 +22664,14 @@ class ShuffleUnit(nn.Module):
         assert in_channels % 2 == 0
         y2_in_channels = in_channels if downsample else in_channels2
         y2_out_channels = out_channels - y2_in_channels
-        self.conv1 = conv1x1_block(in_channels=y2_in_channels, out_channels
-            =mid_channels)
-        self.dconv = dwconv3x3_block(in_channels=mid_channels, out_channels
-            =mid_channels, stride=2 if self.downsample else 1, activation=None)
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            y2_out_channels)
+        self.conv1 = conv1x1_block(in_channels=y2_in_channels, out_channels=mid_channels)
+        self.dconv = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=2 if self.downsample else 1, activation=None)
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=y2_out_channels)
         if self.use_se:
             self.se = SEBlock(channels=y2_out_channels)
         if downsample:
-            self.shortcut_dconv = dwconv3x3_block(in_channels=in_channels,
-                out_channels=in_channels, stride=2, activation=None)
-            self.shortcut_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=in_channels)
+            self.shortcut_dconv = dwconv3x3_block(in_channels=in_channels, out_channels=in_channels, stride=2, activation=None)
+            self.shortcut_conv = conv1x1_block(in_channels=in_channels, out_channels=in_channels)
         if shuffle_group_first:
             self.c_shuffle = ChannelShuffle(channels=out_channels, groups=2)
         else:
@@ -25466,10 +22710,8 @@ class ShuffleInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(ShuffleInitBlock, self).__init__()
-        self.conv = conv3x3_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2)
-        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            ceil_mode=False)
+        self.conv = conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=2)
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=False)
 
     def forward(self, x):
         x = self.conv(x)
@@ -25504,33 +22746,24 @@ class ShuffleNetV2b(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        use_se=False, use_residual=False, shuffle_group_first=True,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, use_se=False, use_residual=False, shuffle_group_first=True, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(ShuffleNetV2b, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ShuffleInitBlock(in_channels
-            =in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ShuffleInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 downsample = j == 0
-                stage.add_module('unit{}'.format(j + 1), ShuffleUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    downsample=downsample, use_se=use_se, use_residual=
-                    use_residual, shuffle_group_first=shuffle_group_first))
+                stage.add_module('unit{}'.format(j + 1), ShuffleUnit(in_channels=in_channels, out_channels=out_channels, downsample=downsample, use_se=use_se, use_residual=use_residual, shuffle_group_first=shuffle_group_first))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -25569,8 +22802,7 @@ class SimplePose(nn.Module):
         Number of keypoints.
     """
 
-    def __init__(self, backbone, backbone_out_channels, channels,
-        return_heatmap=False, in_channels=3, in_size=(256, 192), keypoints=17):
+    def __init__(self, backbone, backbone_out_channels, channels, return_heatmap=False, in_channels=3, in_size=(256, 192), keypoints=17):
         super(SimplePose, self).__init__()
         assert in_channels == 3
         self.in_size = in_size
@@ -25580,12 +22812,9 @@ class SimplePose(nn.Module):
         self.decoder = nn.Sequential()
         in_channels = backbone_out_channels
         for i, out_channels in enumerate(channels):
-            self.decoder.add_module('unit{}'.format(i + 1), DeconvBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=4, stride=2, padding=1))
+            self.decoder.add_module('unit{}'.format(i + 1), DeconvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=4, stride=2, padding=1))
             in_channels = out_channels
-        self.decoder.add_module('final_block', conv1x1(in_channels=
-            in_channels, out_channels=keypoints, bias=True))
+        self.decoder.add_module('final_block', conv1x1(in_channels=in_channels, out_channels=keypoints, bias=True))
         self.heatmap_max_det = HeatmapMaxDetBlock()
         self._init_params()
 
@@ -25631,9 +22860,7 @@ class SimplePoseMobile(nn.Module):
         Number of keypoints.
     """
 
-    def __init__(self, backbone, backbone_out_channels, channels,
-        decoder_init_block_channels, return_heatmap=False, in_channels=3,
-        in_size=(256, 192), keypoints=17):
+    def __init__(self, backbone, backbone_out_channels, channels, decoder_init_block_channels, return_heatmap=False, in_channels=3, in_size=(256, 192), keypoints=17):
         super(SimplePoseMobile, self).__init__()
         assert in_channels == 3
         self.in_size = in_size
@@ -25642,16 +22869,12 @@ class SimplePoseMobile(nn.Module):
         self.backbone = backbone
         self.decoder = nn.Sequential()
         in_channels = backbone_out_channels
-        self.decoder.add_module('init_block', conv1x1(in_channels=
-            in_channels, out_channels=decoder_init_block_channels))
+        self.decoder.add_module('init_block', conv1x1(in_channels=in_channels, out_channels=decoder_init_block_channels))
         in_channels = decoder_init_block_channels
         for i, out_channels in enumerate(channels):
-            self.decoder.add_module('unit{}'.format(i + 1), DucBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                scale_factor=2))
+            self.decoder.add_module('unit{}'.format(i + 1), DucBlock(in_channels=in_channels, out_channels=out_channels, scale_factor=2))
             in_channels = out_channels
-        self.decoder.add_module('final_block', conv1x1(in_channels=
-            in_channels, out_channels=keypoints))
+        self.decoder.add_module('final_block', conv1x1(in_channels=in_channels, out_channels=keypoints))
         self.heatmap_max_det = HeatmapMaxDetBlock()
         self._init_params()
 
@@ -25691,19 +22914,15 @@ class SEBlock(nn.Module):
         Activation function after the last convolution.
     """
 
-    def __init__(self, channels, reduction=16, round_mid=False,
-        mid_activation=lambda : nn.ReLU(inplace=True), out_activation=lambda :
-        nn.Sigmoid()):
+    def __init__(self, channels, reduction=16, round_mid=False, mid_activation=lambda : nn.ReLU(inplace=True), out_activation=lambda : nn.Sigmoid()):
         super(SEBlock, self).__init__()
         self.use_conv2 = reduction > 1
-        mid_channels = (channels // reduction if not round_mid else
-            round_channels(float(channels) / reduction))
+        mid_channels = channels // reduction if not round_mid else round_channels(float(channels) / reduction)
         self.pool = nn.AdaptiveAvgPool2d(output_size=1)
         self.fc1 = nn.Linear(in_features=channels, out_features=mid_channels)
         if self.use_conv2:
             self.activ = get_activation_layer(mid_activation)
-            self.fc2 = nn.Linear(in_features=mid_channels, out_features=
-                channels)
+            self.fc2 = nn.Linear(in_features=mid_channels, out_features=channels)
         self.sigmoid = get_activation_layer(out_activation)
 
     def forward(self, x):
@@ -25753,24 +22972,13 @@ class DwsConvBlock(nn.Module):
         Squeeze reduction value (0 means no-se).
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, dw_use_bn=True, pw_use_bn=True,
-        bn_eps=1e-05, dw_activation=lambda : nn.ReLU(inplace=True),
-        pw_activation=lambda : nn.ReLU(inplace=True), se_reduction=0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, dw_use_bn=True, pw_use_bn=True, bn_eps=1e-05, dw_activation=lambda : nn.ReLU(inplace=True), pw_activation=lambda : nn.ReLU(inplace=True), se_reduction=0):
         super(DwsConvBlock, self).__init__()
         self.use_se = se_reduction > 0
-        self.dw_conv = dwconv_block(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=bias, use_bn=dw_use_bn, bn_eps
-            =bn_eps, activation=dw_activation)
+        self.dw_conv = dwconv_block(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, use_bn=dw_use_bn, bn_eps=bn_eps, activation=dw_activation)
         if self.use_se:
-            self.se = SEBlock(channels=in_channels, reduction=se_reduction,
-                round_mid=False, mid_activation=lambda : nn.PReLU(
-                in_channels // se_reduction), out_activation=lambda : nn.
-                PReLU(in_channels))
-        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=
-            out_channels, bias=bias, use_bn=pw_use_bn, bn_eps=bn_eps,
-            activation=pw_activation)
+            self.se = SEBlock(channels=in_channels, reduction=se_reduction, round_mid=False, mid_activation=lambda : nn.PReLU(in_channels // se_reduction), out_activation=lambda : nn.PReLU(in_channels))
+        self.pw_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, bias=bias, use_bn=pw_use_bn, bn_eps=bn_eps, activation=pw_activation)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -25808,20 +23016,12 @@ class FDWConvBlock(nn.Module):
         Activation function after the each convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, use_bn=True, bn_eps=1e-05,
-        activation=lambda : nn.ReLU(inplace=True)):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, use_bn=True, bn_eps=1e-05, activation=lambda : nn.ReLU(inplace=True)):
         super(FDWConvBlock, self).__init__()
         assert use_bn
         self.activate = activation is not None
-        self.v_conv = dwconv_block(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=(kernel_size, 1), stride=stride,
-            padding=(padding, 0), dilation=dilation, bias=bias, use_bn=
-            use_bn, bn_eps=bn_eps, activation=None)
-        self.h_conv = dwconv_block(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=(1, kernel_size), stride=stride,
-            padding=(0, padding), dilation=dilation, bias=bias, use_bn=
-            use_bn, bn_eps=bn_eps, activation=None)
+        self.v_conv = dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=(kernel_size, 1), stride=stride, padding=(padding, 0), dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=None)
+        self.h_conv = dwconv_block(in_channels=in_channels, out_channels=out_channels, kernel_size=(1, kernel_size), stride=stride, padding=(0, padding), dilation=dilation, bias=bias, use_bn=use_bn, bn_eps=bn_eps, activation=None)
         if self.activate:
             self.act = get_activation_layer(activation)
 
@@ -25832,9 +23032,7 @@ class FDWConvBlock(nn.Module):
         return x
 
 
-def fdwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
-    dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation=
-    'relu', data_format='channels_last', **kwargs):
+def fdwconv3x3_block(in_channels, out_channels, strides=1, padding=1, dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation='relu', data_format='channels_last', **kwargs):
     """
     3x3 factorized depthwise version of the standard convolution block.
 
@@ -25861,15 +23059,10 @@ def fdwconv3x3_block(in_channels, out_channels, strides=1, padding=1,
     data_format : str, default 'channels_last'
         The ordering of the dimensions in tensors.
     """
-    return FDWConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, strides=strides, padding=padding, dilation=dilation,
-        use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=
-        activation, data_format=data_format, **kwargs)
+    return FDWConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation, data_format=data_format, **kwargs)
 
 
-def fdwconv5x5_block(in_channels, out_channels, strides=1, padding=2,
-    dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation=
-    'relu', data_format='channels_last', **kwargs):
+def fdwconv5x5_block(in_channels, out_channels, strides=1, padding=2, dilation=1, use_bias=False, use_bn=True, bn_eps=1e-05, activation='relu', data_format='channels_last', **kwargs):
     """
     5x5 factorized depthwise version of the standard convolution block.
 
@@ -25896,10 +23089,7 @@ def fdwconv5x5_block(in_channels, out_channels, strides=1, padding=2,
     data_format : str, default 'channels_last'
         The ordering of the dimensions in tensors.
     """
-    return FDWConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=5, strides=strides, padding=padding, dilation=dilation,
-        use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=
-        activation, data_format=data_format, **kwargs)
+    return FDWConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=5, strides=strides, padding=padding, dilation=dilation, use_bias=use_bias, use_bn=use_bn, bn_eps=bn_eps, activation=activation, data_format=data_format, **kwargs)
 
 
 class SBBlock(nn.Module):
@@ -25920,27 +23110,19 @@ class SBBlock(nn.Module):
         Small float added to variance in Batch norm.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, scale_factor,
-        bn_eps):
+    def __init__(self, in_channels, out_channels, kernel_size, scale_factor, bn_eps):
         super(SBBlock, self).__init__()
         self.use_scale = scale_factor > 1
         if self.use_scale:
-            self.down_scale = nn.AvgPool2d(kernel_size=scale_factor, stride
-                =scale_factor)
+            self.down_scale = nn.AvgPool2d(kernel_size=scale_factor, stride=scale_factor)
             self.up_scale = InterpolationBlock(scale_factor=scale_factor)
         use_fdw = scale_factor > 0
         if use_fdw:
-            fdwconv3x3_class = (fdwconv3x3_block if kernel_size == 3 else
-                fdwconv5x5_block)
-            self.conv1 = fdwconv3x3_class(in_channels=in_channels,
-                out_channels=in_channels, bn_eps=bn_eps, activation=lambda :
-                nn.PReLU(in_channels))
+            fdwconv3x3_class = fdwconv3x3_block if kernel_size == 3 else fdwconv5x5_block
+            self.conv1 = fdwconv3x3_class(in_channels=in_channels, out_channels=in_channels, bn_eps=bn_eps, activation=lambda : nn.PReLU(in_channels))
         else:
-            self.conv1 = dwconv3x3_block(in_channels=in_channels,
-                out_channels=in_channels, bn_eps=bn_eps, activation=lambda :
-                nn.PReLU(in_channels))
-        self.conv2 = conv1x1(in_channels=in_channels, out_channels=out_channels
-            )
+            self.conv1 = dwconv3x3_block(in_channels=in_channels, out_channels=in_channels, bn_eps=bn_eps, activation=lambda : nn.PReLU(in_channels))
+        self.conv2 = conv1x1(in_channels=in_channels, out_channels=out_channels)
         self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
 
     def forward(self, x):
@@ -25997,24 +23179,18 @@ class ESPBlock(nn.Module):
         Small float added to variance in Batch norm.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_sizes,
-        scale_factors, use_residual, bn_eps):
+    def __init__(self, in_channels, out_channels, kernel_sizes, scale_factors, use_residual, bn_eps):
         super(ESPBlock, self).__init__()
         self.use_residual = use_residual
         groups = len(kernel_sizes)
         mid_channels = int(out_channels / groups)
         res_channels = out_channels - groups * mid_channels
-        self.conv = conv1x1(in_channels=in_channels, out_channels=
-            mid_channels, groups=groups)
+        self.conv = conv1x1(in_channels=in_channels, out_channels=mid_channels, groups=groups)
         self.c_shuffle = ChannelShuffle(channels=mid_channels, groups=groups)
         self.branches = Concurrent()
         for i in range(groups):
-            out_channels_i = (mid_channels + res_channels if i == 0 else
-                mid_channels)
-            self.branches.add_module('branch{}'.format(i + 1), SBBlock(
-                in_channels=mid_channels, out_channels=out_channels_i,
-                kernel_size=kernel_sizes[i], scale_factor=scale_factors[i],
-                bn_eps=bn_eps))
+            out_channels_i = mid_channels + res_channels if i == 0 else mid_channels
+            self.branches.add_module('branch{}'.format(i + 1), SBBlock(in_channels=mid_channels, out_channels=out_channels_i, kernel_size=kernel_sizes[i], scale_factor=scale_factors[i], bn_eps=bn_eps))
         self.preactiv = PreActivation(in_channels=out_channels, bn_eps=bn_eps)
 
     def forward(self, x):
@@ -26053,27 +23229,18 @@ class SBStage(nn.Module):
         Small float added to variance in Batch norm.
     """
 
-    def __init__(self, in_channels, down_channels, channels_list,
-        kernel_sizes_list, scale_factors_list, use_residual_list,
-        se_reduction, bn_eps):
+    def __init__(self, in_channels, down_channels, channels_list, kernel_sizes_list, scale_factors_list, use_residual_list, se_reduction, bn_eps):
         super(SBStage, self).__init__()
-        self.down_conv = dwsconv3x3_block(in_channels=in_channels,
-            out_channels=down_channels, stride=2, dw_use_bn=False, bn_eps=
-            bn_eps, dw_activation=None, pw_activation=lambda : nn.PReLU(
-            down_channels), se_reduction=se_reduction)
+        self.down_conv = dwsconv3x3_block(in_channels=in_channels, out_channels=down_channels, stride=2, dw_use_bn=False, bn_eps=bn_eps, dw_activation=None, pw_activation=lambda : nn.PReLU(down_channels), se_reduction=se_reduction)
         in_channels = down_channels
         self.main_branch = nn.Sequential()
         for i, out_channels in enumerate(channels_list):
             use_residual = use_residual_list[i] == 1
             kernel_sizes = kernel_sizes_list[i]
             scale_factors = scale_factors_list[i]
-            self.main_branch.add_module('block{}'.format(i + 1), ESPBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_sizes=kernel_sizes, scale_factors=scale_factors,
-                use_residual=use_residual, bn_eps=bn_eps))
+            self.main_branch.add_module('block{}'.format(i + 1), ESPBlock(in_channels=in_channels, out_channels=out_channels, kernel_sizes=kernel_sizes, scale_factors=scale_factors, use_residual=use_residual, bn_eps=bn_eps))
             in_channels = out_channels
-        self.preactiv = PreActivation(in_channels=down_channels +
-            in_channels, bn_eps=bn_eps)
+        self.preactiv = PreActivation(in_channels=down_channels + in_channels, bn_eps=bn_eps)
 
     def forward(self, x):
         x = self.down_conv(x)
@@ -26101,13 +23268,8 @@ class SBEncoderInitBlock(nn.Module):
 
     def __init__(self, in_channels, mid_channels, out_channels, bn_eps):
         super(SBEncoderInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2, bn_eps=bn_eps, activation=lambda : nn.
-            PReLU(mid_channels))
-        self.conv2 = dwsconv3x3_block(in_channels=mid_channels,
-            out_channels=out_channels, stride=2, dw_use_bn=False, bn_eps=
-            bn_eps, dw_activation=None, pw_activation=lambda : nn.PReLU(
-            out_channels), se_reduction=1)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2, bn_eps=bn_eps, activation=lambda : nn.PReLU(mid_channels))
+        self.conv2 = dwsconv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=2, dw_use_bn=False, bn_eps=bn_eps, dw_activation=None, pw_activation=lambda : nn.PReLU(out_channels), se_reduction=1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -26141,28 +23303,15 @@ class SBEncoder(nn.Module):
         Small float added to variance in Batch norm.
     """
 
-    def __init__(self, in_channels, out_channels, init_block_channels,
-        down_channels_list, channels_list, kernel_sizes_list,
-        scale_factors_list, use_residual_list, bn_eps):
+    def __init__(self, in_channels, out_channels, init_block_channels, down_channels_list, channels_list, kernel_sizes_list, scale_factors_list, use_residual_list, bn_eps):
         super(SBEncoder, self).__init__()
-        self.init_block = SBEncoderInitBlock(in_channels=in_channels,
-            mid_channels=init_block_channels[0], out_channels=
-            init_block_channels[1], bn_eps=bn_eps)
+        self.init_block = SBEncoderInitBlock(in_channels=in_channels, mid_channels=init_block_channels[0], out_channels=init_block_channels[1], bn_eps=bn_eps)
         in_channels = init_block_channels[1]
-        self.stage1 = SBStage(in_channels=in_channels, down_channels=
-            down_channels_list[0], channels_list=channels_list[0],
-            kernel_sizes_list=kernel_sizes_list[0], scale_factors_list=
-            scale_factors_list[0], use_residual_list=use_residual_list[0],
-            se_reduction=1, bn_eps=bn_eps)
+        self.stage1 = SBStage(in_channels=in_channels, down_channels=down_channels_list[0], channels_list=channels_list[0], kernel_sizes_list=kernel_sizes_list[0], scale_factors_list=scale_factors_list[0], use_residual_list=use_residual_list[0], se_reduction=1, bn_eps=bn_eps)
         in_channels = down_channels_list[0] + channels_list[0][-1]
-        self.stage2 = SBStage(in_channels=in_channels, down_channels=
-            down_channels_list[1], channels_list=channels_list[1],
-            kernel_sizes_list=kernel_sizes_list[1], scale_factors_list=
-            scale_factors_list[1], use_residual_list=use_residual_list[1],
-            se_reduction=2, bn_eps=bn_eps)
+        self.stage2 = SBStage(in_channels=in_channels, down_channels=down_channels_list[1], channels_list=channels_list[1], kernel_sizes_list=kernel_sizes_list[1], scale_factors_list=scale_factors_list[1], use_residual_list=use_residual_list[1], se_reduction=2, bn_eps=bn_eps)
         in_channels = down_channels_list[1] + channels_list[1][-1]
-        self.output = conv1x1(in_channels=in_channels, out_channels=
-            out_channels)
+        self.output = conv1x1(in_channels=in_channels, out_channels=out_channels)
 
     def forward(self, x):
         y1 = self.init_block(x)
@@ -26217,12 +23366,8 @@ class SBDecoder(nn.Module):
         super(SBDecoder, self).__init__()
         self.decode1 = SBDecodeBlock(channels=num_classes, bn_eps=bn_eps)
         self.decode2 = SBDecodeBlock(channels=num_classes, bn_eps=bn_eps)
-        self.conv3c = conv1x1_block(in_channels=dim2, out_channels=
-            num_classes, bn_eps=bn_eps, activation=lambda : nn.PReLU(
-            num_classes))
-        self.output = nn.ConvTranspose2d(in_channels=num_classes,
-            out_channels=num_classes, kernel_size=2, stride=2, padding=0,
-            output_padding=0, bias=False)
+        self.conv3c = conv1x1_block(in_channels=dim2, out_channels=num_classes, bn_eps=bn_eps, activation=lambda : nn.PReLU(num_classes))
+        self.output = nn.ConvTranspose2d(in_channels=num_classes, out_channels=num_classes, kernel_size=2, stride=2, padding=0, output_padding=0, bias=False)
         self.up = InterpolationBlock(scale_factor=2)
 
     def forward(self, y3, y2, y1):
@@ -26267,9 +23412,7 @@ class SINet(nn.Module):
         Number of segmentation classes.
     """
 
-    def __init__(self, down_channels_list, channels_list, kernel_sizes_list,
-        scale_factors_list, use_residual_list, dim2, bn_eps, aux=False,
-        fixed_size=False, in_channels=3, in_size=(1024, 2048), num_classes=21):
+    def __init__(self, down_channels_list, channels_list, kernel_sizes_list, scale_factors_list, use_residual_list, dim2, bn_eps, aux=False, fixed_size=False, in_channels=3, in_size=(1024, 2048), num_classes=21):
         super(SINet, self).__init__()
         assert fixed_size is not None
         assert in_channels > 0
@@ -26279,14 +23422,8 @@ class SINet(nn.Module):
         self.aux = aux
         init_block_channels = [16, num_classes]
         out_channels = num_classes
-        self.encoder = SBEncoder(in_channels=in_channels, out_channels=
-            out_channels, init_block_channels=init_block_channels,
-            down_channels_list=down_channels_list, channels_list=
-            channels_list, kernel_sizes_list=kernel_sizes_list,
-            scale_factors_list=scale_factors_list, use_residual_list=
-            use_residual_list, bn_eps=bn_eps)
-        self.decoder = SBDecoder(dim2=dim2, num_classes=num_classes, bn_eps
-            =bn_eps)
+        self.encoder = SBEncoder(in_channels=in_channels, out_channels=out_channels, init_block_channels=init_block_channels, down_channels_list=down_channels_list, channels_list=channels_list, kernel_sizes_list=kernel_sizes_list, scale_factors_list=scale_factors_list, use_residual_list=use_residual_list, bn_eps=bn_eps)
+        self.decoder = SBDecoder(dim2=dim2, num_classes=num_classes, bn_eps=bn_eps)
         self._init_params()
 
     def _init_params(self):
@@ -26327,8 +23464,7 @@ class SKConvBlock(nn.Module):
         Minimal number of intermediate channels (`L` parameter in the paper).
     """
 
-    def __init__(self, in_channels, out_channels, stride, groups=32,
-        num_branches=2, reduction=16, min_channels=32):
+    def __init__(self, in_channels, out_channels, stride, groups=32, num_branches=2, reduction=16, min_channels=32):
         super(SKConvBlock, self).__init__()
         self.num_branches = num_branches
         self.out_channels = out_channels
@@ -26336,15 +23472,10 @@ class SKConvBlock(nn.Module):
         self.branches = Concurrent(stack=True)
         for i in range(num_branches):
             dilation = 1 + i
-            self.branches.add_module('branch{}'.format(i + 2),
-                conv3x3_block(in_channels=in_channels, out_channels=
-                out_channels, stride=stride, padding=dilation, dilation=
-                dilation, groups=groups))
+            self.branches.add_module('branch{}'.format(i + 2), conv3x3_block(in_channels=in_channels, out_channels=out_channels, stride=stride, padding=dilation, dilation=dilation, groups=groups))
         self.pool = nn.AdaptiveAvgPool2d(output_size=1)
-        self.fc1 = conv1x1_block(in_channels=out_channels, out_channels=
-            mid_channels)
-        self.fc2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels * num_branches)
+        self.fc1 = conv1x1_block(in_channels=out_channels, out_channels=mid_channels)
+        self.fc2 = conv1x1(in_channels=mid_channels, out_channels=out_channels * num_branches)
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
@@ -26381,12 +23512,9 @@ class SKNetBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, bottleneck_factor=2):
         super(SKNetBottleneck, self).__init__()
         mid_channels = out_channels // bottleneck_factor
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            mid_channels)
-        self.conv2 = SKConvBlock(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride)
-        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = SKConvBlock(in_channels=mid_channels, out_channels=mid_channels, stride=stride)
+        self.conv3 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -26412,11 +23540,9 @@ class SKNetUnit(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super(SKNetUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = SKNetBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride)
+        self.body = SKNetBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -26448,28 +23574,22 @@ class SKNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SKNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', ResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', ResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SKNetUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride))
+                stage.add_module('unit{}'.format(j + 1), SKNetUnit(in_channels=in_channels, out_channels=out_channels, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -26505,10 +23625,8 @@ class SparseBlock(nn.Module):
         self.use_dropout = dropout_rate != 0.0
         bn_size = 4
         mid_channels = out_channels * bn_size
-        self.conv1 = pre_conv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels)
-        self.conv2 = pre_conv3x3_block(in_channels=mid_channels,
-            out_channels=out_channels)
+        self.conv1 = pre_conv1x1_block(in_channels=in_channels, out_channels=mid_channels)
+        self.conv2 = pre_conv3x3_block(in_channels=mid_channels, out_channels=out_channels)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -26534,8 +23652,7 @@ def sparsenet_exponential_fetch(lst):
     list
         Filtered list.
     """
-    return [lst[len(lst) - 2 ** i] for i in range(1 + math.floor(math.log(
-        len(lst), 2)))]
+    return [lst[len(lst) - 2 ** i] for i in range(1 + math.floor(math.log(len(lst), 2)))]
 
 
 class SparseStage(nn.Module):
@@ -26556,19 +23673,15 @@ class SparseStage(nn.Module):
         Whether use transition block.
     """
 
-    def __init__(self, in_channels, channels_per_stage, growth_rate,
-        dropout_rate, do_transition):
+    def __init__(self, in_channels, channels_per_stage, growth_rate, dropout_rate, do_transition):
         super(SparseStage, self).__init__()
         self.do_transition = do_transition
         if self.do_transition:
-            self.trans = TransitionBlock(in_channels=in_channels,
-                out_channels=in_channels // 2)
+            self.trans = TransitionBlock(in_channels=in_channels, out_channels=in_channels // 2)
             in_channels = in_channels // 2
         self.blocks = nn.Sequential()
         for i, out_channels in enumerate(channels_per_stage):
-            self.blocks.add_module('block{}'.format(i + 1), SparseBlock(
-                in_channels=in_channels, out_channels=growth_rate,
-                dropout_rate=dropout_rate))
+            self.blocks.add_module('block{}'.format(i + 1), SparseBlock(in_channels=in_channels, out_channels=growth_rate, dropout_rate=dropout_rate))
             in_channels = out_channels
 
     def forward(self, x):
@@ -26605,27 +23718,20 @@ class SparseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, growth_rate,
-        dropout_rate=0.0, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, growth_rate, dropout_rate=0.0, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SparseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
-            stage = SparseStage(in_channels=in_channels, channels_per_stage
-                =channels_per_stage, growth_rate=growth_rate, dropout_rate=
-                dropout_rate, do_transition=i != 0)
+            stage = SparseStage(in_channels=in_channels, channels_per_stage=channels_per_stage, growth_rate=growth_rate, dropout_rate=dropout_rate, do_transition=i != 0)
             in_channels = channels_per_stage[-1]
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -26664,27 +23770,19 @@ class SPNASUnit(nn.Module):
         Activation function or name of activation function.
     """
 
-    def __init__(self, in_channels, out_channels, stride, use_kernel3,
-        exp_factor, use_skip=True, activation='relu'):
+    def __init__(self, in_channels, out_channels, stride, use_kernel3, exp_factor, use_skip=True, activation='relu'):
         super(SPNASUnit, self).__init__()
         assert exp_factor >= 1
-        self.residual = (in_channels == out_channels and stride == 1 and
-            use_skip)
+        self.residual = in_channels == out_channels and stride == 1 and use_skip
         self.use_exp_conv = exp_factor > 1
         mid_channels = exp_factor * in_channels
         if self.use_exp_conv:
-            self.exp_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=mid_channels, activation=activation)
+            self.exp_conv = conv1x1_block(in_channels=in_channels, out_channels=mid_channels, activation=activation)
         if use_kernel3:
-            self.conv1 = dwconv3x3_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, activation=activation
-                )
+            self.conv1 = dwconv3x3_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=activation)
         else:
-            self.conv1 = dwconv5x5_block(in_channels=mid_channels,
-                out_channels=mid_channels, stride=stride, activation=activation
-                )
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels, activation=None)
+            self.conv1 = dwconv5x5_block(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activation=activation)
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels, activation=None)
 
     def forward(self, x):
         if self.residual:
@@ -26714,11 +23812,8 @@ class SPNASInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels):
         super(SPNASInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = SPNASUnit(in_channels=mid_channels, out_channels=
-            out_channels, stride=1, use_kernel3=True, exp_factor=1,
-            use_skip=False)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = SPNASUnit(in_channels=mid_channels, out_channels=out_channels, stride=1, use_kernel3=True, exp_factor=1, use_skip=False)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -26742,11 +23837,8 @@ class SPNASFinalBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, mid_channels):
         super(SPNASFinalBlock, self).__init__()
-        self.conv1 = SPNASUnit(in_channels=in_channels, out_channels=
-            mid_channels, stride=1, use_kernel3=True, exp_factor=6,
-            use_skip=False)
-        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=
-            out_channels)
+        self.conv1 = SPNASUnit(in_channels=in_channels, out_channels=mid_channels, stride=1, use_kernel3=True, exp_factor=6, use_skip=False)
+        self.conv2 = conv1x1_block(in_channels=mid_channels, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -26779,38 +23871,26 @@ class SPNASNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        kernels3, exp_factors, in_channels=3, in_size=(224, 224),
-        num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, kernels3, exp_factors, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SPNASNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SPNASInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels[1], mid_channels=
-            init_block_channels[0]))
+        self.features.add_module('init_block', SPNASInitBlock(in_channels=in_channels, out_channels=init_block_channels[1], mid_channels=init_block_channels[0]))
         in_channels = init_block_channels[1]
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stride = 2 if j == 0 and i != 3 or j == len(channels_per_stage
-                    ) // 2 and i == 3 else 1
+                stride = 2 if j == 0 and i != 3 or j == len(channels_per_stage) // 2 and i == 3 else 1
                 use_kernel3 = kernels3[i][j] == 1
                 exp_factor = exp_factors[i][j]
-                stage.add_module('unit{}'.format(j + 1), SPNASUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, use_kernel3=use_kernel3, exp_factor=
-                    exp_factor))
+                stage.add_module('unit{}'.format(j + 1), SPNASUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, use_kernel3=use_kernel3, exp_factor=exp_factor))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', SPNASFinalBlock(in_channels
-            =in_channels, out_channels=final_block_channels[1],
-            mid_channels=final_block_channels[0]))
+        self.features.add_module('final_block', SPNASFinalBlock(in_channels=in_channels, out_channels=final_block_channels[1], mid_channels=final_block_channels[0]))
         in_channels = final_block_channels[1]
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -26845,8 +23925,7 @@ class FireConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, padding):
         super(FireConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, padding=padding)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -26873,16 +23952,12 @@ class FireUnit(nn.Module):
         Whether use residual connection.
     """
 
-    def __init__(self, in_channels, squeeze_channels, expand1x1_channels,
-        expand3x3_channels, residual):
+    def __init__(self, in_channels, squeeze_channels, expand1x1_channels, expand3x3_channels, residual):
         super(FireUnit, self).__init__()
         self.residual = residual
-        self.squeeze = FireConv(in_channels=in_channels, out_channels=
-            squeeze_channels, kernel_size=1, padding=0)
-        self.expand1x1 = FireConv(in_channels=squeeze_channels,
-            out_channels=expand1x1_channels, kernel_size=1, padding=0)
-        self.expand3x3 = FireConv(in_channels=squeeze_channels,
-            out_channels=expand3x3_channels, kernel_size=3, padding=1)
+        self.squeeze = FireConv(in_channels=in_channels, out_channels=squeeze_channels, kernel_size=1, padding=0)
+        self.expand1x1 = FireConv(in_channels=squeeze_channels, out_channels=expand1x1_channels, kernel_size=1, padding=0)
+        self.expand3x3 = FireConv(in_channels=squeeze_channels, out_channels=expand3x3_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
         if self.residual:
@@ -26912,8 +23987,7 @@ class SqueezeInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size):
         super(SqueezeInitBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=2)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=2)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -26945,38 +24019,27 @@ class SqueezeNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, residuals, init_block_kernel_size,
-        init_block_channels, in_channels=3, in_size=(224, 224), num_classes
-        =1000):
+    def __init__(self, channels, residuals, init_block_kernel_size, init_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SqueezeNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SqueezeInitBlock(in_channels
-            =in_channels, out_channels=init_block_channels, kernel_size=
-            init_block_kernel_size))
+        self.features.add_module('init_block', SqueezeInitBlock(in_channels=in_channels, out_channels=init_block_channels, kernel_size=init_block_kernel_size))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
-            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(
-                kernel_size=3, stride=2, ceil_mode=True))
+            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True))
             for j, out_channels in enumerate(channels_per_stage):
                 expand_channels = out_channels // 2
                 squeeze_channels = out_channels // 8
-                stage.add_module('unit{}'.format(j + 1), FireUnit(
-                    in_channels=in_channels, squeeze_channels=
-                    squeeze_channels, expand1x1_channels=expand_channels,
-                    expand3x3_channels=expand_channels, residual=residuals
-                     is not None and residuals[i][j] == 1))
+                stage.add_module('unit{}'.format(j + 1), FireUnit(in_channels=in_channels, squeeze_channels=squeeze_channels, expand1x1_channels=expand_channels, expand3x3_channels=expand_channels, residual=residuals is not None and residuals[i][j] == 1))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('dropout', nn.Dropout(p=0.5))
         self.output = nn.Sequential()
-        self.output.add_module('final_conv', nn.Conv2d(in_channels=
-            in_channels, out_channels=num_classes, kernel_size=1))
+        self.output.add_module('final_conv', nn.Conv2d(in_channels=in_channels, out_channels=num_classes, kernel_size=1))
         self.output.add_module('final_activ', nn.ReLU(inplace=True))
-        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=13,
-            stride=1))
+        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=13, stride=1))
         self._init_params()
 
     def _init_params(self):
@@ -27021,21 +24084,13 @@ class SqnxtUnit(nn.Module):
         else:
             reduction_den = 2
             self.resize_identity = False
-        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=
-            in_channels // reduction_den, stride=stride, bias=True)
-        self.conv2 = conv1x1_block(in_channels=in_channels // reduction_den,
-            out_channels=in_channels // (2 * reduction_den), bias=True)
-        self.conv3 = ConvBlock(in_channels=in_channels // (2 *
-            reduction_den), out_channels=in_channels // reduction_den,
-            kernel_size=(1, 3), stride=1, padding=(0, 1), bias=True)
-        self.conv4 = ConvBlock(in_channels=in_channels // reduction_den,
-            out_channels=in_channels // reduction_den, kernel_size=(3, 1),
-            stride=1, padding=(1, 0), bias=True)
-        self.conv5 = conv1x1_block(in_channels=in_channels // reduction_den,
-            out_channels=out_channels, bias=True)
+        self.conv1 = conv1x1_block(in_channels=in_channels, out_channels=in_channels // reduction_den, stride=stride, bias=True)
+        self.conv2 = conv1x1_block(in_channels=in_channels // reduction_den, out_channels=in_channels // (2 * reduction_den), bias=True)
+        self.conv3 = ConvBlock(in_channels=in_channels // (2 * reduction_den), out_channels=in_channels // reduction_den, kernel_size=(1, 3), stride=1, padding=(0, 1), bias=True)
+        self.conv4 = ConvBlock(in_channels=in_channels // reduction_den, out_channels=in_channels // reduction_den, kernel_size=(3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv5 = conv1x1_block(in_channels=in_channels // reduction_den, out_channels=out_channels, bias=True)
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, bias=True)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, bias=True)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -27067,8 +24122,7 @@ class SqnxtInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(SqnxtInitBlock, self).__init__()
-        self.conv = conv7x7_block(in_channels=in_channels, out_channels=
-            out_channels, stride=2, padding=1, bias=True)
+        self.conv = conv7x7_block(in_channels=in_channels, out_channels=out_channels, stride=2, padding=1, bias=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True)
 
     def forward(self, x):
@@ -27097,31 +24151,24 @@ class SqueezeNext(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, final_block_channels,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, final_block_channels, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(SqueezeNext, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', SqnxtInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', SqnxtInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), SqnxtUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride))
+                stage.add_module('unit{}'.format(j + 1), SqnxtUnit(in_channels=in_channels, out_channels=out_channels, stride=stride))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_block', conv1x1_block(in_channels=
-            in_channels, out_channels=final_block_channels, bias=True))
+        self.features.add_module('final_block', conv1x1_block(in_channels=in_channels, out_channels=final_block_channels, bias=True))
         in_channels = final_block_channels
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -27154,10 +24201,8 @@ class SPHead(nn.Module):
 
     def __init__(self, in_channels, mid_channels, out_channels):
         super(SPHead, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, bias=True, use_bn=False)
-        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, bias=True)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, bias=True, use_bn=False)
+        self.conv2 = conv1x1(in_channels=mid_channels, out_channels=out_channels, bias=True)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -27185,16 +24230,14 @@ class SPDetector(nn.Module):
         Feature reduction factor.
     """
 
-    def __init__(self, in_channels, mid_channels, conf_thresh=0.015,
-        nms_dist=4, border_size=4, reduction=8):
+    def __init__(self, in_channels, mid_channels, conf_thresh=0.015, nms_dist=4, border_size=4, reduction=8):
         super(SPDetector, self).__init__()
         self.conf_thresh = conf_thresh
         self.nms_dist = nms_dist
         self.border_size = border_size
         self.reduction = reduction
         num_classes = reduction * reduction + 1
-        self.detector = SPHead(in_channels=in_channels, mid_channels=
-            mid_channels, out_channels=num_classes)
+        self.detector = SPHead(in_channels=in_channels, mid_channels=mid_channels, out_channels=num_classes)
 
     def forward(self, x):
         batch = x.size(0)
@@ -27205,11 +24248,9 @@ class SPDetector(nn.Module):
         dense = semi.softmax(dim=1)
         nodust = dense[:, :-1, :, :]
         heatmap = nodust.permute(0, 2, 3, 1)
-        heatmap = heatmap.reshape((-1, x_height, x_width, self.reduction,
-            self.reduction))
+        heatmap = heatmap.reshape((-1, x_height, x_width, self.reduction, self.reduction))
         heatmap = heatmap.permute(0, 1, 3, 2, 4)
-        heatmap = heatmap.reshape((-1, 1, x_height * self.reduction, 
-            x_width * self.reduction))
+        heatmap = heatmap.reshape((-1, 1, x_height * self.reduction, x_width * self.reduction))
         heatmap_mask = heatmap >= self.conf_thresh
         pad = self.nms_dist
         bord = self.border_size + pad
@@ -27232,10 +24273,8 @@ class SPDetector(nn.Module):
                 assert 0 <= pt[0] - pad < img_height
                 assert 0 <= pt[1] - pad < img_width
                 if heatmap_mask2_i[pt[0], pt[1]] == 1:
-                    heatmap_mask2_i[pt[0] - pad:pt[0] + pad + 1, pt[1] -
-                        pad:pt[1] + pad + 1] = 0
-                    if bord < pt[0] - pad <= img_height - bord and bord < pt[1
-                        ] - pad <= img_width - bord:
+                    heatmap_mask2_i[pt[0] - pad:pt[0] + pad + 1, pt[1] - pad:pt[1] + pad + 1] = 0
+                    if bord < pt[0] - pad <= img_height - bord and bord < pt[1] - pad <= img_width - bord:
                         dst_inds[dst_pts_count] = ind_j
                         dst_pts_count += 1
             dst_inds = dst_inds[:dst_pts_count]
@@ -27264,14 +24303,12 @@ class SPDescriptor(nn.Module):
         Feature reduction factor.
     """
 
-    def __init__(self, in_channels, mid_channels, descriptor_length=256,
-        transpose_descriptors=True, reduction=8):
+    def __init__(self, in_channels, mid_channels, descriptor_length=256, transpose_descriptors=True, reduction=8):
         super(SPDescriptor, self).__init__()
         self.desc_length = descriptor_length
         self.transpose_descriptors = transpose_descriptors
         self.reduction = reduction
-        self.head = SPHead(in_channels=in_channels, mid_channels=
-            mid_channels, out_channels=descriptor_length)
+        self.head = SPHead(in_channels=in_channels, mid_channels=mid_channels, out_channels=descriptor_length)
 
     def forward(self, x, pts_list):
         x_height, x_width = x.size()[-2:]
@@ -27283,8 +24320,7 @@ class SPDescriptor(nn.Module):
             pts[:, (0)] = pts[:, (0)] / (0.5 * x_height * self.reduction) - 1.0
             pts[:, (1)] = pts[:, (1)] / (0.5 * x_width * self.reduction) - 1.0
             if self.transpose_descriptors:
-                pts = torch.index_select(pts, dim=1, index=torch.tensor([1,
-                    0], device=pts.device))
+                pts = torch.index_select(pts, dim=1, index=torch.tensor([1, 0], device=pts.device))
             pts = pts.unsqueeze(0).unsqueeze(0)
             descriptors = F.grid_sample(coarse_desc_map[i:i + 1], pts)
             descriptors = descriptors.squeeze(0).squeeze(1)
@@ -27311,26 +24347,19 @@ class SuperPointNet(nn.Module):
         Number of input channels.
     """
 
-    def __init__(self, channels, final_block_channels,
-        transpose_descriptors=True, in_channels=1):
+    def __init__(self, channels, final_block_channels, transpose_descriptors=True, in_channels=1):
         super(SuperPointNet, self).__init__()
         self.features = nn.Sequential()
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 if j == 0 and i != 0:
-                    stage.add_module('reduce{}'.format(i + 1), nn.MaxPool2d
-                        (kernel_size=2, stride=2))
-                stage.add_module('unit{}'.format(j + 1), conv3x3_block(
-                    in_channels=in_channels, out_channels=out_channels,
-                    bias=True, use_bn=False))
+                    stage.add_module('reduce{}'.format(i + 1), nn.MaxPool2d(kernel_size=2, stride=2))
+                stage.add_module('unit{}'.format(j + 1), conv3x3_block(in_channels=in_channels, out_channels=out_channels, bias=True, use_bn=False))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.detector = SPDetector(in_channels=in_channels, mid_channels=
-            final_block_channels)
-        self.descriptor = SPDescriptor(in_channels=in_channels,
-            mid_channels=final_block_channels, transpose_descriptors=
-            transpose_descriptors)
+        self.detector = SPDetector(in_channels=in_channels, mid_channels=final_block_channels)
+        self.descriptor = SPDescriptor(in_channels=in_channels, mid_channels=final_block_channels, transpose_descriptors=transpose_descriptors)
         self._init_params()
 
     def _init_params(self):
@@ -27389,8 +24418,7 @@ class VGGOutputBlock(nn.Module):
         super(VGGOutputBlock, self).__init__()
         mid_channels = 4096
         self.fc1 = VGGDense(in_channels=in_channels, out_channels=mid_channels)
-        self.fc2 = VGGDense(in_channels=mid_channels, out_channels=mid_channels
-            )
+        self.fc2 = VGGDense(in_channels=mid_channels, out_channels=mid_channels)
         self.fc3 = nn.Linear(in_features=mid_channels, out_features=classes)
 
     def forward(self, x):
@@ -27421,8 +24449,7 @@ class VGG(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, bias=True, use_bn=False, in_channels=3,
-        in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, bias=True, use_bn=False, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(VGG, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
@@ -27430,15 +24457,11 @@ class VGG(nn.Module):
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), conv3x3_block(
-                    in_channels=in_channels, out_channels=out_channels,
-                    bias=bias, use_bn=use_bn))
+                stage.add_module('unit{}'.format(j + 1), conv3x3_block(in_channels=in_channels, out_channels=out_channels, bias=bias, use_bn=use_bn))
                 in_channels = out_channels
-            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(
-                kernel_size=2, stride=2, padding=0))
+            stage.add_module('pool{}'.format(i + 1), nn.MaxPool2d(kernel_size=2, stride=2, padding=0))
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.output = VGGOutputBlock(in_channels=in_channels * 7 * 7,
-            classes=num_classes)
+        self.output = VGGOutputBlock(in_channels=in_channels * 7 * 7, classes=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -27471,8 +24494,7 @@ class VocaEncoder(nn.Module):
         Number of encoder features.
     """
 
-    def __init__(self, audio_features, audio_window_size, base_persons,
-        encoder_features):
+    def __init__(self, audio_features, audio_window_size, base_persons, encoder_features):
         super(VocaEncoder, self).__init__()
         self.audio_window_size = audio_window_size
         channels = 32, 32, 64, 64
@@ -27481,16 +24503,11 @@ class VocaEncoder(nn.Module):
         in_channels = audio_features + base_persons
         self.branch = nn.Sequential()
         for i, out_channels in enumerate(channels):
-            self.branch.add_module('conv{}'.format(i + 1), ConvBlock(
-                in_channels=in_channels, out_channels=out_channels,
-                kernel_size=(3, 1), stride=(2, 1), padding=(1, 0), bias=
-                True, use_bn=False))
+            self.branch.add_module('conv{}'.format(i + 1), ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=(3, 1), stride=(2, 1), padding=(1, 0), bias=True, use_bn=False))
             in_channels = out_channels
         in_channels += base_persons
-        self.fc1 = nn.Linear(in_features=in_channels, out_features=fc1_channels
-            )
-        self.fc2 = nn.Linear(in_features=fc1_channels, out_features=
-            encoder_features)
+        self.fc1 = nn.Linear(in_features=in_channels, out_features=fc1_channels)
+        self.fc2 = nn.Linear(in_features=fc1_channels, out_features=encoder_features)
 
     def forward(self, x, pid):
         x = self.bn(x)
@@ -27525,15 +24542,11 @@ class VOCA(nn.Module):
         Number of 3D geometry vertices.
     """
 
-    def __init__(self, audio_features=29, audio_window_size=16,
-        base_persons=8, encoder_features=50, vertices=5023):
+    def __init__(self, audio_features=29, audio_window_size=16, base_persons=8, encoder_features=50, vertices=5023):
         super(VOCA, self).__init__()
         self.base_persons = base_persons
-        self.encoder = VocaEncoder(audio_features=audio_features,
-            audio_window_size=audio_window_size, base_persons=base_persons,
-            encoder_features=encoder_features)
-        self.decoder = nn.Linear(in_features=encoder_features, out_features
-            =3 * vertices)
+        self.encoder = VocaEncoder(audio_features=audio_features, audio_window_size=audio_window_size, base_persons=base_persons, encoder_features=encoder_features)
+        self.decoder = nn.Linear(in_features=encoder_features, out_features=3 * vertices)
         self._init_params()
 
     def _init_params(self):
@@ -27571,8 +24584,7 @@ class VoVUnit(nn.Module):
         Whether to use residual block.
     """
 
-    def __init__(self, in_channels, out_channels, branch_channels,
-        num_branches, resize, use_residual):
+    def __init__(self, in_channels, out_channels, branch_channels, num_branches, resize, use_residual):
         super(VoVUnit, self).__init__()
         self.resize = resize
         self.use_residual = use_residual
@@ -27581,12 +24593,9 @@ class VoVUnit(nn.Module):
         self.branches = SequentialConcurrent()
         branch_in_channels = in_channels
         for i in range(num_branches):
-            self.branches.add_module('branch{}'.format(i + 1),
-                conv3x3_block(in_channels=branch_in_channels, out_channels=
-                branch_channels))
+            self.branches.add_module('branch{}'.format(i + 1), conv3x3_block(in_channels=branch_in_channels, out_channels=branch_channels))
             branch_in_channels = branch_channels
-        self.concat_conv = conv1x1_block(in_channels=in_channels + 
-            num_branches * branch_channels, out_channels=out_channels)
+        self.concat_conv = conv1x1_block(in_channels=in_channels + num_branches * branch_channels, out_channels=out_channels)
 
     def forward(self, x):
         if self.resize:
@@ -27615,12 +24624,9 @@ class VoVInitBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(VoVInitBlock, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=
-            mid_channels, stride=2)
-        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=
-            mid_channels)
-        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=
-            out_channels, stride=2)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=mid_channels, stride=2)
+        self.conv2 = conv3x3_block(in_channels=mid_channels, out_channels=mid_channels)
+        self.conv3 = conv3x3_block(in_channels=mid_channels, out_channels=out_channels, stride=2)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -27650,38 +24656,30 @@ class VoVNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, branch_channels, num_branches, in_channels
-        =3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, branch_channels, num_branches, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(VoVNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         init_block_channels = 128
         self.features = nn.Sequential()
-        self.features.add_module('init_block', VoVInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', VoVInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 use_residual = j != 0
                 resize = j == 0 and i != 0
-                stage.add_module('unit{}'.format(j + 1), VoVUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    branch_channels=branch_channels[i][j], num_branches=
-                    num_branches, resize=resize, use_residual=use_residual))
+                stage.add_module('unit{}'.format(j + 1), VoVUnit(in_channels=in_channels, out_channels=out_channels, branch_channels=branch_channels[i][j], num_branches=num_branches, resize=resize, use_residual=use_residual))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
         for module in self.named_modules():
             if isinstance(module, nn.Conv2d):
-                nn.init.kaiming_uniform_(module.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_uniform_(module.weight, mode='fan_out', nonlinearity='relu')
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.BatchNorm2d):
@@ -27715,13 +24713,10 @@ class WRNConv(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, activate):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, activate):
         super(WRNConv, self).__init__()
         self.activate = activate
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, bias=True)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=True)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
 
@@ -27747,8 +24742,7 @@ def wrn_conv1x1(in_channels, out_channels, stride, activate):
     activate : bool
         Whether activate the convolution block.
     """
-    return WRNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, activate=activate)
+    return WRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, activate=activate)
 
 
 def wrn_conv3x3(in_channels, out_channels, stride, activate):
@@ -27766,8 +24760,7 @@ def wrn_conv3x3(in_channels, out_channels, stride, activate):
     activate : bool
         Whether activate the convolution block.
     """
-    return WRNConv(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=1, activate=activate)
+    return WRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1, activate=activate)
 
 
 class WRNBottleneck(nn.Module):
@@ -27789,12 +24782,9 @@ class WRNBottleneck(nn.Module):
     def __init__(self, in_channels, out_channels, stride, width_factor):
         super(WRNBottleneck, self).__init__()
         mid_channels = int(round(out_channels // 4 * width_factor))
-        self.conv1 = wrn_conv1x1(in_channels=in_channels, out_channels=
-            mid_channels, stride=1, activate=True)
-        self.conv2 = wrn_conv3x3(in_channels=mid_channels, out_channels=
-            mid_channels, stride=stride, activate=True)
-        self.conv3 = wrn_conv1x1(in_channels=mid_channels, out_channels=
-            out_channels, stride=1, activate=False)
+        self.conv1 = wrn_conv1x1(in_channels=in_channels, out_channels=mid_channels, stride=1, activate=True)
+        self.conv2 = wrn_conv3x3(in_channels=mid_channels, out_channels=mid_channels, stride=stride, activate=True)
+        self.conv3 = wrn_conv1x1(in_channels=mid_channels, out_channels=out_channels, stride=1, activate=False)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -27822,11 +24812,9 @@ class WRNUnit(nn.Module):
     def __init__(self, in_channels, out_channels, stride, width_factor):
         super(WRNUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
-        self.body = WRNBottleneck(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, width_factor=width_factor)
+        self.body = WRNBottleneck(in_channels=in_channels, out_channels=out_channels, stride=stride, width_factor=width_factor)
         if self.resize_identity:
-            self.identity_conv = wrn_conv1x1(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activate=False)
+            self.identity_conv = wrn_conv1x1(in_channels=in_channels, out_channels=out_channels, stride=stride, activate=False)
         self.activ = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -27854,8 +24842,7 @@ class WRNInitBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(WRNInitBlock, self).__init__()
-        self.conv = WRNConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=7, stride=2, padding=3, activate=True)
+        self.conv = WRNConv(in_channels=in_channels, out_channels=out_channels, kernel_size=7, stride=2, padding=3, activate=True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
@@ -27884,28 +24871,22 @@ class WRN(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, width_factor,
-        in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, width_factor, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(WRN, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', WRNInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', WRNInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), WRNUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, width_factor=width_factor))
+                stage.add_module('unit{}'.format(j + 1), WRNUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, width_factor=width_factor))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -27929,8 +24910,7 @@ class Binarize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x):
-        return math.sqrt(2.0 / (x.shape[1] * x.shape[2] * x.shape[3])
-            ) * x.sign()
+        return math.sqrt(2.0 / (x.shape[1] * x.shape[2] * x.shape[3])) * x.sign()
 
     @staticmethod
     def backward(ctx, dy):
@@ -27963,21 +24943,14 @@ class Conv2d1bit(nn.Conv2d):
         Whether to use binarization.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding=1, dilation=1, groups=1, bias=False, binarized=False):
-        super(Conv2d1bit, self).__init__(in_channels=in_channels,
-            out_channels=out_channels, kernel_size=kernel_size, stride=
-            stride, padding=padding, dilation=dilation, groups=groups, bias
-            =bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding=1, dilation=1, groups=1, bias=False, binarized=False):
+        super(Conv2d1bit, self).__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.binarized = binarized
 
     def forward(self, input):
         weight = Binarize.apply(self.weight) if self.binarized else self.weight
-        bias = Binarize.apply(self.bias
-            ) if self.bias is not None and self.binarized else self.bias
-        return F.conv2d(input=input, weight=weight, bias=bias, stride=self.
-            stride, padding=self.padding, dilation=self.dilation, groups=
-            self.groups)
+        bias = Binarize.apply(self.bias) if self.bias is not None and self.binarized else self.bias
+        return F.conv2d(input=input, weight=weight, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
 class ConvBlock1bit(nn.Module):
@@ -28010,15 +24983,10 @@ class ConvBlock1bit(nn.Module):
         Whether to use binarization.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, groups=1, bias=False, bn_affine=True, activate
-        =True, binarized=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, groups=1, bias=False, bn_affine=True, activate=True, binarized=False):
         super(ConvBlock1bit, self).__init__()
         self.activate = activate
-        self.conv = Conv2d1bit(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, groups=groups, bias=bias, binarized
-            =binarized)
+        self.conv = Conv2d1bit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, binarized=binarized)
         self.bn = nn.BatchNorm2d(num_features=out_channels, affine=bn_affine)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
@@ -28061,18 +25029,14 @@ class PreConvBlock1bit(nn.Module):
         Whether to use binarization.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, bn_affine=True, return_preact=
-        False, activate=True, binarized=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, bn_affine=True, return_preact=False, activate=True, binarized=False):
         super(PreConvBlock1bit, self).__init__()
         self.return_preact = return_preact
         self.activate = activate
         self.bn = nn.BatchNorm2d(num_features=in_channels, affine=bn_affine)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
-        self.conv = Conv2d1bit(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=bias, binarized=binarized)
+        self.conv = Conv2d1bit(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, binarized=binarized)
 
     def forward(self, x):
         x = self.bn(x)
@@ -28087,9 +25051,7 @@ class PreConvBlock1bit(nn.Module):
             return x
 
 
-def pre_conv3x3_block_1bit(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, bn_affine=True, return_preact=False, activate=True,
-    binarized=False):
+def pre_conv3x3_block_1bit(in_channels, out_channels, stride=1, padding=1, dilation=1, bn_affine=True, return_preact=False, activate=True, binarized=False):
     """
     3x3 version of the pre-activated convolution block with binarization.
 
@@ -28114,10 +25076,7 @@ def pre_conv3x3_block_1bit(in_channels, out_channels, stride=1, padding=1,
     binarized : bool, default False
         Whether to use binarization.
     """
-    return PreConvBlock1bit(in_channels=in_channels, out_channels=
-        out_channels, kernel_size=3, stride=stride, padding=padding,
-        dilation=dilation, bn_affine=bn_affine, return_preact=return_preact,
-        activate=activate, binarized=binarized)
+    return PreConvBlock1bit(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, bn_affine=bn_affine, return_preact=return_preact, activate=activate, binarized=binarized)
 
 
 class PreResBlock1bit(nn.Module):
@@ -28138,11 +25097,8 @@ class PreResBlock1bit(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride, binarized=False):
         super(PreResBlock1bit, self).__init__()
-        self.conv1 = pre_conv3x3_block_1bit(in_channels=in_channels,
-            out_channels=out_channels, stride=stride, bn_affine=False,
-            return_preact=False, binarized=binarized)
-        self.conv2 = pre_conv3x3_block_1bit(in_channels=out_channels,
-            out_channels=out_channels, bn_affine=False, binarized=binarized)
+        self.conv1 = pre_conv3x3_block_1bit(in_channels=in_channels, out_channels=out_channels, stride=stride, bn_affine=False, return_preact=False, binarized=binarized)
+        self.conv2 = pre_conv3x3_block_1bit(in_channels=out_channels, out_channels=out_channels, bn_affine=False, binarized=binarized)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -28169,11 +25125,9 @@ class PreResUnit1bit(nn.Module):
     def __init__(self, in_channels, out_channels, stride, binarized=False):
         super(PreResUnit1bit, self).__init__()
         self.resize_identity = stride != 1
-        self.body = PreResBlock1bit(in_channels=in_channels, out_channels=
-            out_channels, stride=stride, binarized=binarized)
+        self.body = PreResBlock1bit(in_channels=in_channels, out_channels=out_channels, stride=stride, binarized=binarized)
         if self.resize_identity:
-            self.identity_pool = nn.AvgPool2d(kernel_size=3, stride=2,
-                padding=1)
+            self.identity_pool = nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
         identity = x
@@ -28208,8 +25162,7 @@ class PreResActivation(nn.Module):
         return x
 
 
-def conv1x1_block_1bit(in_channels, out_channels, stride=1, padding=0,
-    groups=1, bias=False, bn_affine=True, activate=True, binarized=False):
+def conv1x1_block_1bit(in_channels, out_channels, stride=1, padding=0, groups=1, bias=False, bn_affine=True, activate=True, binarized=False):
     """
     1x1 version of the standard convolution block with binarization.
 
@@ -28234,13 +25187,10 @@ def conv1x1_block_1bit(in_channels, out_channels, stride=1, padding=0,
     binarized : bool, default False
         Whether to use binarization.
     """
-    return ConvBlock1bit(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=padding, groups=groups, bias=
-        bias, bn_affine=bn_affine, activate=activate, binarized=binarized)
+    return ConvBlock1bit(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=padding, groups=groups, bias=bias, bn_affine=bn_affine, activate=activate, binarized=binarized)
 
 
-def conv3x3_1bit(in_channels, out_channels, stride=1, padding=1, dilation=1,
-    groups=1, bias=False, binarized=False):
+def conv3x3_1bit(in_channels, out_channels, stride=1, padding=1, dilation=1, groups=1, bias=False, binarized=False):
     """
     Convolution 3x3 layer with binarization.
 
@@ -28261,9 +25211,7 @@ def conv3x3_1bit(in_channels, out_channels, stride=1, padding=1, dilation=1,
     binarized : bool, default False
         Whether to use binarization.
     """
-    return Conv2d1bit(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        groups=groups, bias=bias, binarized=binarized)
+    return Conv2d1bit(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, binarized=binarized)
 
 
 class CIFARWRN1bit(nn.Module):
@@ -28286,33 +25234,24 @@ class CIFARWRN1bit(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, binarized=True,
-        in_channels=3, in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, binarized=True, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARWRN1bit, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3_1bit(in_channels=
-            in_channels, out_channels=init_block_channels, binarized=binarized)
-            )
+        self.features.add_module('init_block', conv3x3_1bit(in_channels=in_channels, out_channels=init_block_channels, binarized=binarized))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), PreResUnit1bit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, binarized=binarized))
+                stage.add_module('unit{}'.format(j + 1), PreResUnit1bit(in_channels=in_channels, out_channels=out_channels, stride=stride, binarized=binarized))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels, bn_affine=False))
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels, bn_affine=False))
         self.output = nn.Sequential()
-        self.output.add_module('final_conv', conv1x1_block_1bit(in_channels
-            =in_channels, out_channels=num_classes, activate=False,
-            binarized=binarized))
-        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
+        self.output.add_module('final_conv', conv1x1_block_1bit(in_channels=in_channels, out_channels=num_classes, activate=False, binarized=binarized))
+        self.output.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
         self._init_params()
 
     def _init_params(self):
@@ -28347,30 +25286,23 @@ class CIFARWRN(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, in_channels=3,
-        in_size=(32, 32), num_classes=10):
+    def __init__(self, channels, init_block_channels, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARWRN, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
                 stride = 2 if j == 0 and i != 0 else 1
-                stage.add_module('unit{}'.format(j + 1), PreResUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=stride, bottleneck=False, conv1_stride=False))
+                stage.add_module('unit{}'.format(j + 1), PreResUnit(in_channels=in_channels, out_channels=out_channels, stride=stride, bottleneck=False, conv1_stride=False))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -28405,14 +25337,10 @@ class DwsConv(nn.Module):
         Padding value for convolution layer.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
         super(DwsConv, self).__init__()
-        self.dw_conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            in_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, groups=in_channels, bias=False)
-        self.pw_conv = nn.Conv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1, bias=False)
+        self.dw_conv = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=False)
+        self.pw_conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         x = self.dw_conv(x)
@@ -28440,15 +25368,12 @@ class DwsConvBlock(nn.Module):
         Whether activate the convolution block.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, activate):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, activate):
         super(DwsConvBlock, self).__init__()
         self.activate = activate
         if self.activate:
             self.activ = nn.ReLU(inplace=False)
-        self.conv = DwsConv(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding)
+        self.conv = DwsConv(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn = nn.BatchNorm2d(num_features=out_channels)
 
     def forward(self, x):
@@ -28472,8 +25397,7 @@ def dws_conv3x3_block(in_channels, out_channels, activate):
     activate : bool
         Whether activate the convolution block.
     """
-    return DwsConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=1, padding=1, activate=activate)
+    return DwsConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, activate=activate)
 
 
 class XceptionUnit(nn.Module):
@@ -28496,13 +25420,11 @@ class XceptionUnit(nn.Module):
         Whether start from growing.
     """
 
-    def __init__(self, in_channels, out_channels, stride, reps,
-        start_with_relu=True, grow_first=True):
+    def __init__(self, in_channels, out_channels, stride, reps, start_with_relu=True, grow_first=True):
         super(XceptionUnit, self).__init__()
         self.resize_identity = in_channels != out_channels or stride != 1
         if self.resize_identity:
-            self.identity_conv = conv1x1_block(in_channels=in_channels,
-                out_channels=out_channels, stride=stride, activation=None)
+            self.identity_conv = conv1x1_block(in_channels=in_channels, out_channels=out_channels, stride=stride, activation=None)
         self.body = nn.Sequential()
         for i in range(reps):
             if grow_first and i == 0 or not grow_first and i == reps - 1:
@@ -28515,12 +25437,9 @@ class XceptionUnit(nn.Module):
                 in_channels_i = in_channels
                 out_channels_i = in_channels
             activate = start_with_relu if i == 0 else True
-            self.body.add_module('block{}'.format(i + 1), dws_conv3x3_block
-                (in_channels=in_channels_i, out_channels=out_channels_i,
-                activate=activate))
+            self.body.add_module('block{}'.format(i + 1), dws_conv3x3_block(in_channels=in_channels_i, out_channels=out_channels_i, activate=activate))
         if stride != 1:
-            self.body.add_module('pool', nn.MaxPool2d(kernel_size=3, stride
-                =stride, padding=1))
+            self.body.add_module('pool', nn.MaxPool2d(kernel_size=3, stride=stride, padding=1))
 
     def forward(self, x):
         if self.resize_identity:
@@ -28544,10 +25463,8 @@ class XceptionInitBlock(nn.Module):
 
     def __init__(self, in_channels):
         super(XceptionInitBlock, self).__init__()
-        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=32,
-            stride=2, padding=0)
-        self.conv2 = conv3x3_block(in_channels=32, out_channels=64, stride=
-            1, padding=0)
+        self.conv1 = conv3x3_block(in_channels=in_channels, out_channels=32, stride=2, padding=0)
+        self.conv2 = conv3x3_block(in_channels=32, out_channels=64, stride=1, padding=0)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -28562,10 +25479,8 @@ class XceptionFinalBlock(nn.Module):
 
     def __init__(self):
         super(XceptionFinalBlock, self).__init__()
-        self.conv1 = dws_conv3x3_block(in_channels=1024, out_channels=1536,
-            activate=False)
-        self.conv2 = dws_conv3x3_block(in_channels=1536, out_channels=2048,
-            activate=True)
+        self.conv1 = dws_conv3x3_block(in_channels=1024, out_channels=1536, activate=False)
+        self.conv2 = dws_conv3x3_block(in_channels=1536, out_channels=2048, activate=True)
         self.activ = nn.ReLU(inplace=True)
         self.pool = nn.AvgPool2d(kernel_size=10, stride=1)
 
@@ -28594,23 +25509,17 @@ class Xception(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, in_channels=3, in_size=(299, 299),
-        num_classes=1000):
+    def __init__(self, channels, in_channels=3, in_size=(299, 299), num_classes=1000):
         super(Xception, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', XceptionInitBlock(
-            in_channels=in_channels))
+        self.features.add_module('init_block', XceptionInitBlock(in_channels=in_channels))
         in_channels = 64
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), XceptionUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    stride=2 if j == 0 else 1, reps=2 if j == 0 else 3,
-                    start_with_relu=i != 0 or j != 0, grow_first=i != len(
-                    channels) - 1 or j != len(channels_per_stage) - 1))
+                stage.add_module('unit{}'.format(j + 1), XceptionUnit(in_channels=in_channels, out_channels=out_channels, stride=2 if j == 0 else 1, reps=2 if j == 0 else 3, start_with_relu=i != 0 or j != 0, grow_first=i != len(channels) - 1 or j != len(channels_per_stage) - 1))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
         self.features.add_module('final_block', XceptionFinalBlock())
@@ -28649,16 +25558,13 @@ class XConv2d(nn.Conv2d):
         Ratio of expansion.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, groups=1,
-        expand_ratio=2, **kwargs):
-        super(XConv2d, self).__init__(in_channels=in_channels, out_channels
-            =out_channels, kernel_size=kernel_size, groups=groups, **kwargs)
+    def __init__(self, in_channels, out_channels, kernel_size, groups=1, expand_ratio=2, **kwargs):
+        super(XConv2d, self).__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, groups=groups, **kwargs)
         self.expand_ratio = expand_ratio
         if isinstance(kernel_size, int):
             kernel_size = kernel_size, kernel_size
         grouped_in_channels = in_channels // groups
-        self.mask = torch.nn.Parameter(data=torch.Tensor(out_channels,
-            grouped_in_channels, *kernel_size), requires_grad=False)
+        self.mask = torch.nn.Parameter(data=torch.Tensor(out_channels, grouped_in_channels, *kernel_size), requires_grad=False)
         self.init_parameters()
 
     def init_parameters(self):
@@ -28666,15 +25572,12 @@ class XConv2d(nn.Conv2d):
         expand_size = max(shape[1] // self.expand_ratio, 1)
         self.mask[:] = 0
         for i in range(shape[0]):
-            jj = torch.randperm(shape[1], device=self.mask.device)[:expand_size
-                ]
+            jj = torch.randperm(shape[1], device=self.mask.device)[:expand_size]
             self.mask[(i), (jj), :, :] = 1
 
     def forward(self, input):
         masked_weight = self.weight.mul(self.mask)
-        return F.conv2d(input=input, weight=masked_weight, bias=self.bias,
-            stride=self.stride, padding=self.padding, dilation=self.
-            dilation, groups=self.groups)
+        return F.conv2d(input=input, weight=masked_weight, bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
 class PreXConvBlock(nn.Module):
@@ -28705,18 +25608,14 @@ class PreXConvBlock(nn.Module):
         Ratio of expansion.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, dilation=1, bias=False, return_preact=False, activate=True,
-        expand_ratio=2):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, bias=False, return_preact=False, activate=True, expand_ratio=2):
         super(PreXConvBlock, self).__init__()
         self.return_preact = return_preact
         self.activate = activate
         self.bn = nn.BatchNorm2d(num_features=in_channels)
         if self.activate:
             self.activ = nn.ReLU(inplace=True)
-        self.conv = XConv2d(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=kernel_size, stride=stride, padding=
-            padding, dilation=dilation, bias=bias, expand_ratio=expand_ratio)
+        self.conv = XConv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, expand_ratio=expand_ratio)
 
     def forward(self, x):
         x = self.bn(x)
@@ -28731,8 +25630,7 @@ class PreXConvBlock(nn.Module):
             return x
 
 
-def pre_xconv1x1_block(in_channels, out_channels, stride=1, bias=False,
-    return_preact=False, activate=True, expand_ratio=2):
+def pre_xconv1x1_block(in_channels, out_channels, stride=1, bias=False, return_preact=False, activate=True, expand_ratio=2):
     """
     1x1 version of the pre-activated x-convolution block.
 
@@ -28753,13 +25651,10 @@ def pre_xconv1x1_block(in_channels, out_channels, stride=1, bias=False,
     expand_ratio : int, default 2
         Ratio of expansion.
     """
-    return PreXConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=1, stride=stride, padding=0, bias=bias, return_preact=
-        return_preact, activate=activate, expand_ratio=expand_ratio)
+    return PreXConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=stride, padding=0, bias=bias, return_preact=return_preact, activate=activate, expand_ratio=expand_ratio)
 
 
-def pre_xconv3x3_block(in_channels, out_channels, stride=1, padding=1,
-    dilation=1, return_preact=False, activate=True, expand_ratio=2):
+def pre_xconv3x3_block(in_channels, out_channels, stride=1, padding=1, dilation=1, return_preact=False, activate=True, expand_ratio=2):
     """
     3x3 version of the pre-activated x-convolution block.
 
@@ -28782,10 +25677,7 @@ def pre_xconv3x3_block(in_channels, out_channels, stride=1, padding=1,
     expand_ratio : int, default 2
         Ratio of expansion.
     """
-    return PreXConvBlock(in_channels=in_channels, out_channels=out_channels,
-        kernel_size=3, stride=stride, padding=padding, dilation=dilation,
-        return_preact=return_preact, activate=activate, expand_ratio=
-        expand_ratio)
+    return PreXConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=padding, dilation=dilation, return_preact=return_preact, activate=activate, expand_ratio=expand_ratio)
 
 
 class XDenseUnit(nn.Module):
@@ -28810,10 +25702,8 @@ class XDenseUnit(nn.Module):
         bn_size = 4
         inc_channels = out_channels - in_channels
         mid_channels = inc_channels * bn_size
-        self.conv1 = pre_xconv1x1_block(in_channels=in_channels,
-            out_channels=mid_channels, expand_ratio=expand_ratio)
-        self.conv2 = pre_xconv3x3_block(in_channels=mid_channels,
-            out_channels=inc_channels, expand_ratio=expand_ratio)
+        self.conv1 = pre_xconv1x1_block(in_channels=in_channels, out_channels=mid_channels, expand_ratio=expand_ratio)
+        self.conv2 = pre_xconv3x3_block(in_channels=mid_channels, out_channels=inc_channels, expand_ratio=expand_ratio)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -28850,33 +25740,25 @@ class XDenseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, dropout_rate=0.0,
-        expand_ratio=2, in_channels=3, in_size=(224, 224), num_classes=1000):
+    def __init__(self, channels, init_block_channels, dropout_rate=0.0, expand_ratio=2, in_channels=3, in_size=(224, 224), num_classes=1000):
         super(XDenseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         self.features = nn.Sequential()
-        self.features.add_module('init_block', PreResInitBlock(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', PreResInitBlock(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels // 2))
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(in_channels=in_channels, out_channels=in_channels // 2))
                 in_channels = in_channels // 2
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), XDenseUnit(
-                    in_channels=in_channels, out_channels=out_channels,
-                    dropout_rate=dropout_rate, expand_ratio=expand_ratio))
+                stage.add_module('unit{}'.format(j + 1), XDenseUnit(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate, expand_ratio=expand_ratio))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=7, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -28913,8 +25795,7 @@ class XDenseSimpleUnit(nn.Module):
         super(XDenseSimpleUnit, self).__init__()
         self.use_dropout = dropout_rate != 0.0
         inc_channels = out_channels - in_channels
-        self.conv = pre_xconv3x3_block(in_channels=in_channels,
-            out_channels=inc_channels, expand_ratio=expand_ratio)
+        self.conv = pre_xconv3x3_block(in_channels=in_channels, out_channels=inc_channels, expand_ratio=expand_ratio)
         if self.use_dropout:
             self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -28952,35 +25833,26 @@ class CIFARXDenseNet(nn.Module):
         Number of classification classes.
     """
 
-    def __init__(self, channels, init_block_channels, bottleneck,
-        dropout_rate=0.0, expand_ratio=2, in_channels=3, in_size=(32, 32),
-        num_classes=10):
+    def __init__(self, channels, init_block_channels, bottleneck, dropout_rate=0.0, expand_ratio=2, in_channels=3, in_size=(32, 32), num_classes=10):
         super(CIFARXDenseNet, self).__init__()
         self.in_size = in_size
         self.num_classes = num_classes
         unit_class = XDenseUnit if bottleneck else XDenseSimpleUnit
         self.features = nn.Sequential()
-        self.features.add_module('init_block', conv3x3(in_channels=
-            in_channels, out_channels=init_block_channels))
+        self.features.add_module('init_block', conv3x3(in_channels=in_channels, out_channels=init_block_channels))
         in_channels = init_block_channels
         for i, channels_per_stage in enumerate(channels):
             stage = nn.Sequential()
             if i != 0:
-                stage.add_module('trans{}'.format(i + 1), TransitionBlock(
-                    in_channels=in_channels, out_channels=in_channels // 2))
+                stage.add_module('trans{}'.format(i + 1), TransitionBlock(in_channels=in_channels, out_channels=in_channels // 2))
                 in_channels = in_channels // 2
             for j, out_channels in enumerate(channels_per_stage):
-                stage.add_module('unit{}'.format(j + 1), unit_class(
-                    in_channels=in_channels, out_channels=out_channels,
-                    dropout_rate=dropout_rate, expand_ratio=expand_ratio))
+                stage.add_module('unit{}'.format(j + 1), unit_class(in_channels=in_channels, out_channels=out_channels, dropout_rate=dropout_rate, expand_ratio=expand_ratio))
                 in_channels = out_channels
             self.features.add_module('stage{}'.format(i + 1), stage)
-        self.features.add_module('post_activ', PreResActivation(in_channels
-            =in_channels))
-        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8,
-            stride=1))
-        self.output = nn.Linear(in_features=in_channels, out_features=
-            num_classes)
+        self.features.add_module('post_activ', PreResActivation(in_channels=in_channels))
+        self.features.add_module('final_pool', nn.AvgPool2d(kernel_size=8, stride=1))
+        self.output = nn.Linear(in_features=in_channels, out_features=num_classes)
         self._init_params()
 
     def _init_params(self):
@@ -29004,8 +25876,7 @@ class PytorchModel(torch.nn.Module):
 
     def __init__(self):
         super(PytorchModel, self).__init__()
-        self.bn = torch.nn.BatchNorm2d(num_features=LENGTH, eps=1e-05,
-            momentum=0.9)
+        self.bn = torch.nn.BatchNorm2d(num_features=LENGTH, eps=1e-05, momentum=0.9)
 
     def forward(self, x):
         x = self.bn(x)
@@ -29016,8 +25887,7 @@ class PytorchModel(torch.nn.Module):
 
     def __init__(self):
         super(PytorchModel, self).__init__()
-        self.conv = torch.nn.Conv2d(in_channels=3, out_channels=64,
-            kernel_size=7, stride=2, padding=3, bias=True)
+        self.conv = torch.nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3, bias=True)
 
     def forward(self, x):
         x = self.conv(x)
@@ -29028,8 +25898,7 @@ class PytorchModel(torch.nn.Module):
 
     def __init__(self):
         super(PytorchModel, self).__init__()
-        self.dense = torch.nn.Linear(in_features=1024, out_features=1000,
-            bias=False)
+        self.dense = torch.nn.Linear(in_features=1024, out_features=1000, bias=False)
 
     def forward(self, x):
         x = self.dense(x)
@@ -29040,1015 +25909,1969 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AirBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AirBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'ratio': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (AirInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AirNeXtBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'ratio': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (AirNeXtUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'ratio': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (AirUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'ratio': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (AlexDense,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AlexOutputBlock,
+     lambda: ([], {'in_channels': 4, 'classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AttentionRefinementBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AttentionRefinementModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AvgPoolBranch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BR,
+     lambda: ([], {'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Backbone,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (BagNetBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BagNetInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BagNetUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BamResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BiSeHead,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BiSeNetOutput,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BranchNet,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchUnit,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (C,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CB,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CBR,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CFFBlock,
+     lambda: ([], {'in_channels_low': 4, 'in_channels_high': 4, 'out_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
+     False),
+    (CIFAR10MSDClassifier,
+     lambda: ([], {'in_channels': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8])], {}),
+     False),
+    (CIFAR10MSDInitLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CbamBlock,
+     lambda: ([], {'channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     False),
+    (CbamResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 16, 'stride': 1, 'bottleneck': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CenterNetDecoderUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelGate,
+     lambda: ([], {'channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (ChannelShuffle,
+     lambda: ([], {'channels': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelShuffle2,
+     lambda: ([], {'channels': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelSqueeze,
+     lambda: ([], {'channels': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannetConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannetDwsConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CondenseComplexConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CondenseInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CondenseLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 2])], {}),
+     False),
+    (CondenseSimpleConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv1x1Branch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2d1bit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv3x3Branch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvBNReLU,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvBlock1bit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvSeq3x3Branch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvSeqBranch,
+     lambda: ([], {'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Cpm,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DIAAttention,
+     lambda: ([], {'in_x_features': 4, 'in_h_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DIALSTMCell,
+     lambda: ([], {'in_x_features': 4, 'in_h_features': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (DLAInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DPNConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DPNInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DPNUnit,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'bw': 4, 'inc': 4, 'groups': 1, 'has_proj': 4, 'key_stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DRNBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DRNBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DRNConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1, 'activate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DarkUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DartsConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeconvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (DilatedConv,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiracConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiracInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels_list': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DropConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DualPathSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DucBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'scale_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DwsConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DwsConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ESPFinalBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'final_groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ESPInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FeatureFusion,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (FeatureFusionModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (FireConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FirstLSTMAmp,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FishBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FishBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FishFinalBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FractalBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FractalUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GhostHSigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgMaxPool2D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HRInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'num_subblocks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (HSigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HSwish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HeatmapMaxDetBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Hourglass,
+     lambda: ([], {'depth': 1, 'nFeat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IBN,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IBNConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IBNPreConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IBNResNeXtBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'conv1_ibn': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (IBNResNeXtUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'conv1_ibn': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (IBNbConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IBNbResInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IBNbResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'use_inst_norm': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ICInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IRevBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IRevDualPathSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IRevInjectivePad,
+     lambda: ([], {'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IRevMergeBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IRevPostActivation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IRevSplitBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IRevUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IbpResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (IbpResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptBlock3a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (InceptBlock4a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 160, 64, 64])], {}),
+     False),
+    (InceptBlock5a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     False),
+    (InceptBlock5b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     False),
+    (InceptConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InceptInitBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Inception3x3Branch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InceptionAUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     False),
+    (InceptionBUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     False),
+    (InceptionCUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1536, 64, 64])], {}),
+     False),
+    (InceptionDouble3x3Branch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InceptionPoolBranch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'avg_pool': 4, 'bias': 4, 'use_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InitialStage,
+     lambda: ([], {'num_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InputProjectionA,
+     lambda: ([], {'samplingTimes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (InterpolationBlock,
+     lambda: ([], {'scale_factor': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvDwsConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LffdDetectionBlock,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'bias': 4, 'use_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LffdDetectionBranch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'bias': 4, 'use_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LwopRefinementBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LwopResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LwopResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MEInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MLP,
+     lambda: ([], {'channels': 16}),
+     lambda: ([torch.rand([16, 16])], {}),
+     True),
+    (MSDBaseBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'use_bottleneck': 4, 'bottleneck_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MSDInitLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MSDTransitionLayer,
+     lambda: ([], {'in_channels': [4, 4], 'out_channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
+    (MaxPoolBranch,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Merge,
+     lambda: ([], {'x_dim': 4, 'y_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MergeBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'use_bn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MiddleAttBlock,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MixConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MixConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MobileNetV3FinalBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'use_se': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiBlockSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiOutputSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiResidual,
+     lambda: ([], {'scale': 1.0, 'res_block': _mock_layer, 'num_blocks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NASNetInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NINConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NasAvgPoolBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NasConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NasMaxPoolBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NasPathBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NasPathBranch,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NormActivation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (OctConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OctConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OctResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OctResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OctResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PROutputBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'bn_eps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PRResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'padding': 4, 'bn_eps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ParallelConcurent,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ParametricSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PeleeBranch1,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PeleeBranch2,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PnasMaxPathBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PnasMaxPoolBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PolyAUnit,
+     lambda: ([], {'two_way_scale': 1.0}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     False),
+    (PolyBUnit,
+     lambda: ([], {'two_way_scale': 1.0, 'poly_scale': 1.0}),
+     lambda: ([torch.rand([4, 1152, 64, 64])], {}),
+     False),
+    (PolyBaseUnit,
+     lambda: ([], {'two_way_scale': 1.0, 'two_way_block': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PolyBlock3a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (PolyBlock4a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 160, 64, 64])], {}),
+     False),
+    (PolyBlock5a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     False),
+    (PolyCUnit,
+     lambda: ([], {'two_way_scale': 1.0, 'poly_scale': 1.0}),
+     lambda: ([torch.rand([4, 2048, 64, 64])], {}),
+     False),
+    (PolyConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'num_blocks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+    (PolyConvSeqBranch,
+     lambda: ([], {'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4], 'num_blocks': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+    (PolyInitBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (PolyPreBBlock,
+     lambda: ([], {'num_blocks': 4}),
+     lambda: ([torch.rand([4, 1152, 64, 64]), 0], {}),
+     False),
+    (PolyPreCBlock,
+     lambda: ([], {'num_blocks': 4}),
+     lambda: ([torch.rand([4, 2048, 64, 64]), 0], {}),
+     False),
+    (PoseEstimationWithMobileNet2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (PostActivation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreActivation,
+     lambda: ([], {'in_channels': 4, 'bn_eps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreConvBlock1bit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreResActivation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreResBlock1bit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreResInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreResUnit1bit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreXConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ProxylessBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'bn_eps': 4, 'expansion': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ProxylessUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'bn_eps': 4, 'expansion': 4, 'residual': 4, 'shortcut': 4}),
+     lambda: ([torch.rand([4, 4, 2, 2])], {}),
+     False),
+    (PyrBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PyrBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PyrInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PyrUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PytorchModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([1024, 1024])], {}),
+     True),
+    (ReductionAUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     False),
+    (ReductionBUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1152, 64, 64])], {}),
+     False),
+    (RefinementStage,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RefinementStageBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RefinementStageLight,
+     lambda: ([], {'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResADownBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResAUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResAttInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResDropResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'life_prob': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResNeXtBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (ResNeXtUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (ResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Residual,
+     lambda: ([], {'ins': 4, 'outs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Resv1Block,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Resv2Block,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RevPostActivation,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RevResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RevResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RevUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'preactivate': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (RiRFinalBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RiRInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RoRBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RoRResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SBmodule,
+     lambda: ([], {'nIn': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SEBlock,
+     lambda: ([], {'channels': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SEInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SELayer,
+     lambda: ([], {'inp_dim': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SENetBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 64, 'bottleneck_width': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SENetUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 64, 'bottleneck_width': 64, 'identity_conv3x3': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SEResNeXtUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SEResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 16, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SEseparableCBR,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SKConvBlock,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SKNetBottleneck,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SKNetUnit,
+     lambda: ([], {'in_channels': 64, 'out_channels': 64, 'stride': 1}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (SelecSLSBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SelecSLSUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'skip_channels': 4, 'mid_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SequentialConcurrent,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShaConvBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShaResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShaResBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShaResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShakeDropResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'life_prob': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShakeShakeResUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShakeShakeShortcut,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShortcutBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShuffleInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SimpleGroupBlock,
+     lambda: ([], {'channels': 4, 'multi_blocks': 4, 'groups': 1, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SimplePoseMobile,
+     lambda: ([], {'backbone': _mock_layer(), 'backbone_out_channels': 4, 'channels': [4, 4], 'decoder_init_block_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SkipUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels_list': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SparseBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SpatialGate,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SqnxtInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (SqnxtUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SqueezeBlock,
+     lambda: ([], {'exp_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SqueezeInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StemBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TransitionBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TwoWayABlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 384, 64, 64])], {}),
+     False),
+    (TwoWayBBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1152, 64, 64])], {}),
+     False),
+    (TwoWayCBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 64, 64])], {}),
+     False),
+    (UpSamplingBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'scale_factor': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VGGDense,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGGOutputBlock,
+     lambda: ([], {'in_channels': 4, 'classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VoVInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VoVUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'branch_channels': 4, 'num_branches': 4, 'resize': 4, 'use_residual': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WRNBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WRNConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WRNInitBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WRNUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (XConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (XceptionFinalBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     False),
+    (XceptionInitBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (XceptionUnit,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'reps': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (iSQRTCOVPool,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (separableCBR,
+     lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (upBlock,
+     lambda: ([], {'in_c': 4, 'out_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_osmr_imgclsmob(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AirBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(AirBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(AirInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(AirNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(AirNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(AirUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'ratio': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(AlexDense(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(AlexOutputBlock(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(AttentionRefinementBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(AttentionRefinementModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(AvgPoolBranch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(BR(*[], **{'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(Backbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[12])
 
-    @_fails_compile()
     def test_013(self):
-        self._check(BagNetBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(BagNetInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(BagNetUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(BamResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(BiSeHead(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(BiSeNetOutput(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
-    @_fails_compile()
     def test_020(self):
-        self._check(BranchBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(BranchNet(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
 
-    @_fails_compile()
     def test_022(self):
-        self._check(BranchUnit(*[], **{'in_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[22])
 
     def test_023(self):
-        self._check(C(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[23])
 
     def test_024(self):
-        self._check(CB(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[24])
 
     def test_025(self):
-        self._check(CBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[25])
 
-    @_fails_compile()
     def test_026(self):
-        self._check(CFFBlock(*[], **{'in_channels_low': 4, 'in_channels_high': 4, 'out_channels': 4, 'num_classes': 4}), [torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {})
+        self._check(*TESTCASES[26])
 
-    @_fails_compile()
     def test_027(self):
-        self._check(CIFAR10MSDInitLayer(*[], **{'in_channels': 4, 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[27])
 
-    @_fails_compile()
     def test_028(self):
-        self._check(CenterNetDecoderUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[28])
 
-    @_fails_compile()
     def test_029(self):
-        self._check(ChannelShuffle(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[29])
 
-    @_fails_compile()
     def test_030(self):
-        self._check(ChannelShuffle2(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[30])
 
-    @_fails_compile()
     def test_031(self):
-        self._check(ChannelSqueeze(*[], **{'channels': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[31])
 
-    @_fails_compile()
     def test_032(self):
-        self._check(ChannetConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[32])
 
-    @_fails_compile()
     def test_033(self):
-        self._check(ChannetDwsConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[33])
 
-    @_fails_compile()
     def test_034(self):
-        self._check(CondenseComplexConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[34])
 
     def test_035(self):
-        self._check(CondenseInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[35])
 
-    @_fails_compile()
     def test_036(self):
-        self._check(CondenseLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 2])], {})
+        self._check(*TESTCASES[36])
 
     def test_037(self):
-        self._check(CondenseSimpleConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[37])
 
     def test_038(self):
-        self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[38])
 
-    @_fails_compile()
     def test_039(self):
-        self._check(Conv1x1Branch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[39])
 
-    @_fails_compile()
     def test_040(self):
-        self._check(Conv2d1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[40])
 
-    @_fails_compile()
     def test_041(self):
-        self._check(Conv3x3Branch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[41])
 
     def test_042(self):
-        self._check(ConvBNReLU(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[42])
 
-    @_fails_compile()
     def test_043(self):
-        self._check(ConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[43])
 
-    @_fails_compile()
     def test_044(self):
-        self._check(ConvBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[44])
 
-    @_fails_compile()
     def test_045(self):
-        self._check(ConvSeqBranch(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[45])
 
     def test_046(self):
-        self._check(Cpm(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[46])
 
-    @_fails_compile()
     def test_047(self):
-        self._check(DIAAttention(*[], **{'in_x_features': 4, 'in_h_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[47])
 
-    @_fails_compile()
     def test_048(self):
-        self._check(DIALSTMCell(*[], **{'in_x_features': 4, 'in_h_features': 4, 'num_layers': 1}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[48])
 
-    @_fails_compile()
     def test_049(self):
-        self._check(DLAInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[49])
 
     def test_050(self):
-        self._check(DPNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[50])
 
     def test_051(self):
-        self._check(DPNInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[51])
 
-    @_fails_compile()
     def test_052(self):
-        self._check(DPNUnit(*[], **{'in_channels': 4, 'mid_channels': 4, 'bw': 4, 'inc': 4, 'groups': 1, 'has_proj': 4, 'key_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[52])
 
-    @_fails_compile()
     def test_053(self):
-        self._check(DRNBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[53])
 
-    @_fails_compile()
     def test_054(self):
-        self._check(DRNBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[54])
 
     def test_055(self):
-        self._check(DRNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[55])
 
-    @_fails_compile()
     def test_056(self):
-        self._check(DarkUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'alpha': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[56])
 
     def test_057(self):
-        self._check(DartsConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[57])
 
-    @_fails_compile()
     def test_058(self):
-        self._check(DeconvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[58])
 
     def test_059(self):
-        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[59])
 
     def test_060(self):
-        self._check(DiracConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[60])
 
     def test_061(self):
-        self._check(DiracInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[61])
 
-    @_fails_compile()
     def test_062(self):
-        self._check(DownUnit(*[], **{'in_channels': 4, 'out_channels_list': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[62])
 
-    @_fails_compile()
     def test_063(self):
-        self._check(DropConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[63])
 
-    @_fails_compile()
     def test_064(self):
-        self._check(DualPathSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[64])
 
-    @_fails_compile()
     def test_065(self):
-        self._check(DucBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'scale_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[65])
 
     def test_066(self):
-        self._check(DwsConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[66])
 
     def test_067(self):
-        self._check(DwsConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[67])
 
-    @_fails_compile()
     def test_068(self):
-        self._check(ESPFinalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'final_groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[68])
 
-    @_fails_compile()
     def test_069(self):
-        self._check(ESPInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[69])
 
-    @_fails_compile()
     def test_070(self):
-        self._check(FeatureFusion(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[70])
 
     def test_071(self):
-        self._check(FeatureFusionModule(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[71])
 
     def test_072(self):
-        self._check(FireConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[72])
 
     def test_073(self):
-        self._check(FirstLSTMAmp(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[73])
 
-    @_fails_compile()
     def test_074(self):
-        self._check(FishBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[74])
 
-    @_fails_compile()
     def test_075(self):
-        self._check(FishBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[75])
 
-    @_fails_compile()
     def test_076(self):
-        self._check(FishFinalBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[76])
 
     def test_077(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[77])
 
-    @_fails_compile()
     def test_078(self):
-        self._check(FractalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[78])
 
-    @_fails_compile()
     def test_079(self):
-        self._check(FractalUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'num_columns': 4, 'loc_drop_prob': 4, 'dropout_prob': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[79])
 
     def test_080(self):
-        self._check(GhostHSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[80])
 
     def test_081(self):
-        self._check(GlobalAvgMaxPool2D(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[81])
 
-    @_fails_compile()
     def test_082(self):
-        self._check(HRInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4, 'num_subblocks': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[82])
 
     def test_083(self):
-        self._check(HSigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[83])
 
     def test_084(self):
-        self._check(HSwish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[84])
 
-    @_fails_compile()
     def test_085(self):
-        self._check(HeatmapMaxDetBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[85])
 
-    @_fails_compile()
     def test_086(self):
-        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[86])
 
-    @_fails_compile()
     def test_087(self):
-        self._check(IBN(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[87])
 
-    @_fails_compile()
     def test_088(self):
-        self._check(IBNConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[88])
 
-    @_fails_compile()
     def test_089(self):
-        self._check(IBNPreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[89])
 
-    @_fails_compile()
     def test_090(self):
-        self._check(IBNResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'conv1_ibn': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[90])
 
-    @_fails_compile()
     def test_091(self):
-        self._check(IBNResNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4, 'conv1_ibn': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[91])
 
     def test_092(self):
-        self._check(IBNbConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[92])
 
     def test_093(self):
-        self._check(IBNbResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[93])
 
-    @_fails_compile()
     def test_094(self):
-        self._check(IBNbResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'use_inst_norm': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[94])
 
-    @_fails_compile()
     def test_095(self):
-        self._check(ICInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[95])
 
-    @_fails_compile()
     def test_096(self):
-        self._check(IRevBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[96])
 
-    @_fails_compile()
     def test_097(self):
-        self._check(IRevDualPathSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[97])
 
     def test_098(self):
-        self._check(IRevInjectivePad(*[], **{'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[98])
 
     def test_099(self):
-        self._check(IRevMergeBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[99])
 
     def test_100(self):
-        self._check(IRevPostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[100])
 
     def test_101(self):
-        self._check(IRevSplitBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[101])
 
-    @_fails_compile()
     def test_102(self):
-        self._check(IRevUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[102])
 
-    @_fails_compile()
     def test_103(self):
-        self._check(IbpResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[103])
 
-    @_fails_compile()
     def test_104(self):
-        self._check(IbpResUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[104])
 
     def test_105(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[105])
 
-    @_fails_compile()
     def test_106(self):
-        self._check(InceptBlock3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[106])
 
-    @_fails_compile()
     def test_107(self):
-        self._check(InceptBlock4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+        self._check(*TESTCASES[107])
 
-    @_fails_compile()
     def test_108(self):
-        self._check(InceptBlock5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(*TESTCASES[108])
 
-    @_fails_compile()
     def test_109(self):
-        self._check(InceptBlock5b(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(*TESTCASES[109])
 
     def test_110(self):
-        self._check(InceptConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[110])
 
-    @_fails_compile()
     def test_111(self):
-        self._check(InceptInitBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[111])
 
-    @_fails_compile()
     def test_112(self):
-        self._check(Inception3x3Branch(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[112])
 
-    @_fails_compile()
     def test_113(self):
-        self._check(InceptionAUnit(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(*TESTCASES[113])
 
-    @_fails_compile()
     def test_114(self):
-        self._check(InceptionBUnit(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(*TESTCASES[114])
 
-    @_fails_compile()
     def test_115(self):
-        self._check(InceptionCUnit(*[], **{}), [torch.rand([4, 1536, 64, 64])], {})
+        self._check(*TESTCASES[115])
 
-    @_fails_compile()
     def test_116(self):
-        self._check(InceptionDouble3x3Branch(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[116])
 
-    @_fails_compile()
     def test_117(self):
-        self._check(InceptionPoolBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'avg_pool': 4, 'bias': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[117])
 
     def test_118(self):
-        self._check(InitialStage(*[], **{'num_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[118])
 
     def test_119(self):
-        self._check(InputProjectionA(*[], **{'samplingTimes': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[119])
 
     def test_120(self):
-        self._check(InterpolationBlock(*[], **{'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[120])
 
-    @_fails_compile()
     def test_121(self):
-        self._check(InvDwsConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[121])
 
-    @_fails_compile()
     def test_122(self):
-        self._check(LffdDetectionBlock(*[], **{'in_channels': 4, 'mid_channels': 4, 'bias': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[122])
 
-    @_fails_compile()
     def test_123(self):
-        self._check(LffdDetectionBranch(*[], **{'in_channels': 4, 'out_channels': 4, 'bias': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[123])
 
-    @_fails_compile()
     def test_124(self):
-        self._check(LwopRefinementBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[124])
 
-    @_fails_compile()
     def test_125(self):
-        self._check(LwopResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[125])
 
-    @_fails_compile()
     def test_126(self):
-        self._check(LwopResUnit(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[126])
 
     def test_127(self):
-        self._check(MEInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[127])
 
-    @_fails_compile()
     def test_128(self):
-        self._check(MSDBaseBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'use_bottleneck': 4, 'bottleneck_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[128])
 
-    @_fails_compile()
     def test_129(self):
-        self._check(MSDInitLayer(*[], **{'in_channels': 4, 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[129])
 
-    @_fails_compile()
     def test_130(self):
-        self._check(MSDTransitionLayer(*[], **{'in_channels': [4, 4], 'out_channels': [4, 4]}), [torch.rand([4, 4, 4, 64, 64])], {})
+        self._check(*TESTCASES[130])
 
     def test_131(self):
-        self._check(MaxPoolBranch(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[131])
 
     def test_132(self):
-        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[132])
 
-    @_fails_compile()
     def test_133(self):
-        self._check(MergeBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'use_bn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[133])
 
-    @_fails_compile()
     def test_134(self):
-        self._check(MiddleAttBlock(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[134])
 
-    @_fails_compile()
     def test_135(self):
-        self._check(MixConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[135])
 
-    @_fails_compile()
     def test_136(self):
-        self._check(MixConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[136])
 
-    @_fails_compile()
     def test_137(self):
-        self._check(MobileNetV3FinalBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'use_se': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[137])
 
-    @_fails_compile()
     def test_138(self):
-        self._check(MultiBlockSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[138])
 
-    @_fails_compile()
     def test_139(self):
-        self._check(MultiOutputSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[139])
 
     def test_140(self):
-        self._check(MultiResidual(*[], **{'scale': 1.0, 'res_block': _mock_layer, 'num_blocks': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[140])
 
     def test_141(self):
-        self._check(NASNetInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[141])
 
     def test_142(self):
-        self._check(NINConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[142])
 
-    @_fails_compile()
     def test_143(self):
-        self._check(NasAvgPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[143])
 
     def test_144(self):
-        self._check(NasConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'groups': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[144])
 
-    @_fails_compile()
     def test_145(self):
-        self._check(NasMaxPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[145])
 
-    @_fails_compile()
     def test_146(self):
-        self._check(NasPathBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[146])
 
-    @_fails_compile()
     def test_147(self):
-        self._check(NasPathBranch(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[147])
 
     def test_148(self):
-        self._check(NormActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[148])
 
-    @_fails_compile()
     def test_149(self):
-        self._check(OctConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[149])
 
-    @_fails_compile()
     def test_150(self):
-        self._check(OctConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[150])
 
-    @_fails_compile()
     def test_151(self):
-        self._check(OctResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[151])
 
-    @_fails_compile()
     def test_152(self):
-        self._check(OctResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[152])
 
-    @_fails_compile()
     def test_153(self):
-        self._check(OctResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[153])
 
-    @_fails_compile()
     def test_154(self):
-        self._check(PROutputBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[154])
 
-    @_fails_compile()
     def test_155(self):
-        self._check(PRResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'padding': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[155])
 
-    @_fails_compile()
     def test_156(self):
-        self._check(ParallelConcurent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[156])
 
-    @_fails_compile()
     def test_157(self):
-        self._check(ParametricSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[157])
 
-    @_fails_compile()
     def test_158(self):
-        self._check(PeleeBranch1(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[158])
 
-    @_fails_compile()
     def test_159(self):
-        self._check(PeleeBranch2(*[], **{'in_channels': 4, 'out_channels': 4, 'mid_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[159])
 
-    @_fails_compile()
     def test_160(self):
-        self._check(PnasMaxPathBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[160])
 
-    @_fails_compile()
     def test_161(self):
-        self._check(PnasMaxPoolBlock(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[161])
 
-    @_fails_compile()
     def test_162(self):
-        self._check(PolyAUnit(*[], **{'two_way_scale': 1.0}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(*TESTCASES[162])
 
-    @_fails_compile()
     def test_163(self):
-        self._check(PolyBUnit(*[], **{'two_way_scale': 1.0, 'poly_scale': 1.0}), [torch.rand([4, 1152, 64, 64])], {})
+        self._check(*TESTCASES[163])
 
     def test_164(self):
-        self._check(PolyBaseUnit(*[], **{'two_way_scale': 1.0, 'two_way_block': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[164])
 
-    @_fails_compile()
     def test_165(self):
-        self._check(PolyBlock3a(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[165])
 
-    @_fails_compile()
     def test_166(self):
-        self._check(PolyBlock4a(*[], **{}), [torch.rand([4, 160, 64, 64])], {})
+        self._check(*TESTCASES[166])
 
-    @_fails_compile()
     def test_167(self):
-        self._check(PolyBlock5a(*[], **{}), [torch.rand([4, 192, 64, 64])], {})
+        self._check(*TESTCASES[167])
 
-    @_fails_compile()
     def test_168(self):
-        self._check(PolyCUnit(*[], **{'two_way_scale': 1.0, 'poly_scale': 1.0}), [torch.rand([4, 2048, 64, 64])], {})
+        self._check(*TESTCASES[168])
 
-    @_fails_compile()
     def test_169(self):
-        self._check(PolyConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'num_blocks': 4}), [torch.rand([4, 4, 4, 4]), 0], {})
+        self._check(*TESTCASES[169])
 
-    @_fails_compile()
     def test_170(self):
-        self._check(PolyConvSeqBranch(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'kernel_size_list': [4, 4], 'strides_list': [4, 4], 'padding_list': [4, 4], 'num_blocks': 4}), [torch.rand([4, 4, 4, 4]), 0], {})
+        self._check(*TESTCASES[170])
 
-    @_fails_compile()
     def test_171(self):
-        self._check(PolyInitBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[171])
 
-    @_fails_compile()
     def test_172(self):
-        self._check(PolyPreBBlock(*[], **{'num_blocks': 4}), [torch.rand([4, 1152, 64, 64]), 0], {})
+        self._check(*TESTCASES[172])
 
-    @_fails_compile()
     def test_173(self):
-        self._check(PolyPreCBlock(*[], **{'num_blocks': 4}), [torch.rand([4, 2048, 64, 64]), 0], {})
+        self._check(*TESTCASES[173])
 
     def test_174(self):
-        self._check(PoseEstimationWithMobileNet2d(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[174])
 
     def test_175(self):
-        self._check(PostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[175])
 
-    @_fails_compile()
     def test_176(self):
-        self._check(PreActivation(*[], **{'in_channels': 4, 'bn_eps': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[176])
 
-    @_fails_compile()
     def test_177(self):
-        self._check(PreConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[177])
 
-    @_fails_compile()
     def test_178(self):
-        self._check(PreConvBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[178])
 
     def test_179(self):
-        self._check(PreResActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[179])
 
-    @_fails_compile()
     def test_180(self):
-        self._check(PreResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[180])
 
-    @_fails_compile()
     def test_181(self):
-        self._check(PreResBlock1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[181])
 
-    @_fails_compile()
     def test_182(self):
-        self._check(PreResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[182])
 
     def test_183(self):
-        self._check(PreResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[183])
 
-    @_fails_compile()
     def test_184(self):
-        self._check(PreResUnit1bit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[184])
 
-    @_fails_compile()
     def test_185(self):
-        self._check(PreXConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[185])
 
-    @_fails_compile()
     def test_186(self):
-        self._check(ProxylessBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'bn_eps': 4, 'expansion': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[186])
 
-    @_fails_compile()
     def test_187(self):
-        self._check(ProxylessUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'bn_eps': 4, 'expansion': 4, 'residual': 4, 'shortcut': 4}), [torch.rand([4, 4, 2, 2])], {})
+        self._check(*TESTCASES[187])
 
-    @_fails_compile()
     def test_188(self):
-        self._check(PyrBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[188])
 
-    @_fails_compile()
     def test_189(self):
-        self._check(PyrBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[189])
 
     def test_190(self):
-        self._check(PyrInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[190])
 
-    @_fails_compile()
     def test_191(self):
-        self._check(PyrUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[191])
 
     def test_192(self):
-        self._check(PytorchModel(*[], **{}), [torch.rand([1024, 1024])], {})
+        self._check(*TESTCASES[192])
 
-    @_fails_compile()
     def test_193(self):
-        self._check(ReductionAUnit(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(*TESTCASES[193])
 
-    @_fails_compile()
     def test_194(self):
-        self._check(ReductionBUnit(*[], **{}), [torch.rand([4, 1152, 64, 64])], {})
+        self._check(*TESTCASES[194])
 
     def test_195(self):
-        self._check(RefinementStage(*[], **{'in_channels': 4, 'out_channels': 4, 'num_heatmaps': 4, 'num_pafs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[195])
 
     def test_196(self):
-        self._check(RefinementStageBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[196])
 
     def test_197(self):
-        self._check(RefinementStageLight(*[], **{'in_channels': 4, 'mid_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[197])
 
-    @_fails_compile()
     def test_198(self):
-        self._check(ResADownBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[198])
 
-    @_fails_compile()
     def test_199(self):
-        self._check(ResAUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[199])
 
-    @_fails_compile()
     def test_200(self):
-        self._check(ResAttInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[200])
 
-    @_fails_compile()
     def test_201(self):
-        self._check(ResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[201])
 
-    @_fails_compile()
     def test_202(self):
-        self._check(ResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[202])
 
-    @_fails_compile()
     def test_203(self):
-        self._check(ResDropResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'life_prob': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[203])
 
-    @_fails_compile()
     def test_204(self):
-        self._check(ResInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[204])
 
-    @_fails_compile()
     def test_205(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[205])
 
-    @_fails_compile()
     def test_206(self):
-        self._check(ResNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[206])
 
-    @_fails_compile()
     def test_207(self):
-        self._check(ResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[207])
 
-    @_fails_compile()
     def test_208(self):
-        self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[208])
 
     def test_209(self):
-        self._check(Resv1Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[209])
 
-    @_fails_compile()
     def test_210(self):
-        self._check(Resv2Block(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[210])
 
     def test_211(self):
-        self._check(RevPostActivation(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[211])
 
-    @_fails_compile()
     def test_212(self):
-        self._check(RevResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[212])
 
-    @_fails_compile()
     def test_213(self):
-        self._check(RevResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'preactivate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[213])
 
-    @_fails_compile()
     def test_214(self):
-        self._check(RevUnit(*[], **{'in_channels': 64, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'preactivate': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[214])
 
     def test_215(self):
-        self._check(RiRFinalBlock(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[215])
 
-    @_fails_compile()
     def test_216(self):
-        self._check(RiRInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[216])
 
-    @_fails_compile()
     def test_217(self):
-        self._check(RoRBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[217])
 
-    @_fails_compile()
     def test_218(self):
-        self._check(RoRResStage(*[], **{'in_channels': 4, 'out_channels_list': [4, 4], 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[218])
 
-    @_fails_compile()
     def test_219(self):
-        self._check(RoRResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[219])
 
-    @_fails_compile()
     def test_220(self):
-        self._check(SBmodule(*[], **{'nIn': 4, 'nOut': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[220])
 
-    @_fails_compile()
     def test_221(self):
-        self._check(SEInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[221])
 
-    @_fails_compile()
     def test_222(self):
-        self._check(SENetBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 64, 'bottleneck_width': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[222])
 
-    @_fails_compile()
     def test_223(self):
-        self._check(SENetUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 64, 'cardinality': 64, 'bottleneck_width': 64, 'identity_conv3x3': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[223])
 
-    @_fails_compile()
     def test_224(self):
-        self._check(SEResNeXtUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1, 'cardinality': 4, 'bottleneck_width': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[224])
 
     def test_225(self):
-        self._check(SEseparableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[225])
 
-    @_fails_compile()
     def test_226(self):
-        self._check(SKConvBlock(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[226])
 
-    @_fails_compile()
     def test_227(self):
-        self._check(SKNetBottleneck(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[227])
 
-    @_fails_compile()
     def test_228(self):
-        self._check(SKNetUnit(*[], **{'in_channels': 64, 'out_channels': 64, 'stride': 1}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[228])
 
-    @_fails_compile()
     def test_229(self):
-        self._check(SelecSLSBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[229])
 
-    @_fails_compile()
     def test_230(self):
-        self._check(SelecSLSUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'skip_channels': 4, 'mid_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[230])
 
-    @_fails_compile()
     def test_231(self):
-        self._check(SequentialConcurrent(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[231])
 
     def test_232(self):
-        self._check(ShaConvBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[232])
 
-    @_fails_compile()
     def test_233(self):
-        self._check(ShaResBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[233])
 
-    @_fails_compile()
     def test_234(self):
-        self._check(ShaResBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[234])
 
-    @_fails_compile()
     def test_235(self):
-        self._check(ShaResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'conv1_stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[235])
 
-    @_fails_compile()
     def test_236(self):
-        self._check(ShakeDropResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4, 'life_prob': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[236])
 
-    @_fails_compile()
     def test_237(self):
-        self._check(ShakeShakeResUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'bottleneck': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[237])
 
     def test_238(self):
-        self._check(ShakeShakeShortcut(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[238])
 
-    @_fails_compile()
     def test_239(self):
-        self._check(ShortcutBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[239])
 
-    @_fails_compile()
     def test_240(self):
-        self._check(ShuffleInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[240])
 
     def test_241(self):
-        self._check(SimpleGroupBlock(*[], **{'channels': 4, 'multi_blocks': 4, 'groups': 1, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[241])
 
-    @_fails_compile()
     def test_242(self):
-        self._check(SimplePoseMobile(*[], **{'backbone': _mock_layer(), 'backbone_out_channels': 4, 'channels': [4, 4], 'decoder_init_block_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[242])
 
-    @_fails_compile()
     def test_243(self):
-        self._check(SkipUnit(*[], **{'in_channels': 4, 'out_channels_list': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[243])
 
-    @_fails_compile()
     def test_244(self):
-        self._check(SparseBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[244])
 
-    @_fails_compile()
     def test_245(self):
-        self._check(SpatialGate(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[245])
 
-    @_fails_compile()
     def test_246(self):
-        self._check(SqnxtInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[246])
 
-    @_fails_compile()
     def test_247(self):
-        self._check(SqnxtUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[247])
 
     def test_248(self):
-        self._check(SqueezeBlock(*[], **{'exp_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[248])
 
     def test_249(self):
-        self._check(SqueezeInitBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[249])
 
-    @_fails_compile()
     def test_250(self):
-        self._check(StemBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[250])
 
     def test_251(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[251])
 
-    @_fails_compile()
     def test_252(self):
-        self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[252])
 
-    @_fails_compile()
     def test_253(self):
-        self._check(TwoWayABlock(*[], **{}), [torch.rand([4, 384, 64, 64])], {})
+        self._check(*TESTCASES[253])
 
-    @_fails_compile()
     def test_254(self):
-        self._check(TwoWayBBlock(*[], **{}), [torch.rand([4, 1152, 64, 64])], {})
+        self._check(*TESTCASES[254])
 
-    @_fails_compile()
     def test_255(self):
-        self._check(TwoWayCBlock(*[], **{}), [torch.rand([4, 2048, 64, 64])], {})
+        self._check(*TESTCASES[255])
 
-    @_fails_compile()
     def test_256(self):
-        self._check(UpSamplingBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'scale_factor': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[256])
 
     def test_257(self):
-        self._check(VGGDense(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[257])
 
     def test_258(self):
-        self._check(VGGOutputBlock(*[], **{'in_channels': 4, 'classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[258])
 
-    @_fails_compile()
     def test_259(self):
-        self._check(VoVInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[259])
 
-    @_fails_compile()
     def test_260(self):
-        self._check(VoVUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'branch_channels': 4, 'num_branches': 4, 'resize': 4, 'use_residual': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[260])
 
-    @_fails_compile()
     def test_261(self):
-        self._check(WRNBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[261])
 
     def test_262(self):
-        self._check(WRNConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'activate': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[262])
 
     def test_263(self):
-        self._check(WRNInitBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[263])
 
-    @_fails_compile()
     def test_264(self):
-        self._check(WRNUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'width_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[264])
 
     def test_265(self):
-        self._check(XConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[265])
 
-    @_fails_compile()
     def test_266(self):
-        self._check(XceptionFinalBlock(*[], **{}), [torch.rand([4, 1024, 64, 64])], {})
+        self._check(*TESTCASES[266])
 
-    @_fails_compile()
     def test_267(self):
-        self._check(XceptionInitBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[267])
 
-    @_fails_compile()
     def test_268(self):
-        self._check(XceptionUnit(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'reps': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[268])
 
-    @_fails_compile()
     def test_269(self):
-        self._check(iSQRTCOVPool(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[269])
 
     def test_270(self):
-        self._check(separableCBR(*[], **{'nIn': 4, 'nOut': 4, 'kSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[270])
 
-    @_fails_compile()
     def test_271(self):
-        self._check(upBlock(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[271])
+
+    def test_272(self):
+        self._check(*TESTCASES[272])
+
+    def test_273(self):
+        self._check(*TESTCASES[273])
+
+    def test_274(self):
+        self._check(*TESTCASES[274])
+
+    def test_275(self):
+        self._check(*TESTCASES[275])
+
+    def test_276(self):
+        self._check(*TESTCASES[276])
+
+    def test_277(self):
+        self._check(*TESTCASES[277])
+
+    def test_278(self):
+        self._check(*TESTCASES[278])
+
+    def test_279(self):
+        self._check(*TESTCASES[279])
 

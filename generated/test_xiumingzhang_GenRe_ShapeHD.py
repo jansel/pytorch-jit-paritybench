@@ -55,8 +55,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -143,11 +144,9 @@ def depth_to_mesh_df(depth_im, th, jitter, upsample=0.6, cam_dist=2.0):
         if np.any(np.abs(pt) >= 0.5):
             continue
         center = (ids + 0.5) * 1 / 128 - 0.5
-        dist = ((center[0] - pt[0]) ** 2 + (center[1] - pt[1]) ** 2 + (
-            center[2] - pt[2]) ** 2) ** 0.5
+        dist = ((center[0] - pt[0]) ** 2 + (center[1] - pt[1]) ** 2 + (center[2] - pt[2]) ** 2) ** 0.5
         n = cnt[ids[0], ids[1], ids[2]]
-        tdf[ids[0], ids[1], ids[2]] = (tdf[ids[0], ids[1], ids[2]] * n + dist
-            ) / (n + 1)
+        tdf[ids[0], ids[1], ids[2]] = (tdf[ids[0], ids[1], ids[2]] * n + dist) / (n + 1)
         cnt[ids[0], ids[1], ids[2]] += 1
     return tdf
 
@@ -169,8 +168,7 @@ def make_sgrid(b, alpha, beta, gamma):
 
 
 def render_model(mesh, sgrid):
-    index_tri, index_ray, loc = mesh.ray.intersects_id(ray_origins=sgrid,
-        ray_directions=-sgrid, multiple_hits=False, return_locations=True)
+    index_tri, index_ray, loc = mesh.ray.intersects_id(ray_origins=sgrid, ray_directions=-sgrid, multiple_hits=False, return_locations=True)
     loc = loc.reshape((-1, 3))
     grid_hits = sgrid[index_ray]
     dist = np.linalg.norm(grid_hits - loc, axis=-1)
@@ -213,8 +211,7 @@ def resize(im, target_size, which_dim, interpolation='bicubic', clamp=None):
         scale_factor = target_size / h
     else:
         raise ValueError(which_dim)
-    im_resized = cv2.resize(im, None, fx=scale_factor, fy=scale_factor,
-        interpolation=interpolation)
+    im_resized = cv2.resize(im, None, fx=scale_factor, fy=scale_factor, interpolation=interpolation)
     if clamp is not None:
         min_val, max_val = clamp
         im_resized[im_resized < min_val] = min_val
@@ -233,8 +230,7 @@ def render_spherical(data, mask, obj_path=None, debug=False):
     b = 64
     tdf = depth_to_mesh_df(depth_im, th, False, 1.0, 2.2)
     try:
-        verts, faces, normals, values = measure.marching_cubes_lewiner(tdf,
-            0.999 / 128, spacing=(1 / 128, 1 / 128, 1 / 128))
+        verts, faces, normals, values = measure.marching_cubes_lewiner(tdf, 0.999 / 128, spacing=(1 / 128, 1 / 128, 1 / 128))
         mesh = trimesh.Trimesh(vertices=verts - 0.5, faces=faces)
         sgrid = make_sgrid(b, 0, 0, 0)
         im_depth = render_model(mesh, sgrid)
@@ -251,10 +247,8 @@ def sph_pad(sph_tensor, padding_margin=16):
     pad2d = padding_margin, padding_margin, padding_margin, padding_margin
     rep_padded_sph = F.pad(sph_tensor, pad2d, mode='replicate')
     _, _, h, w = rep_padded_sph.shape
-    rep_padded_sph[:, :, :, 0:padding_margin] = rep_padded_sph[:, :, :, w -
-        2 * padding_margin:w - padding_margin]
-    rep_padded_sph[:, :, :, h - padding_margin:] = rep_padded_sph[:, :, :,
-        padding_margin:2 * padding_margin]
+    rep_padded_sph[:, :, :, 0:padding_margin] = rep_padded_sph[:, :, :, w - 2 * padding_margin:w - padding_margin]
+    rep_padded_sph[:, :, :, h - padding_margin:] = rep_padded_sph[:, :, :, padding_margin:2 * padding_margin]
     return rep_padded_sph
 
 
@@ -311,8 +305,7 @@ class Net(nn.Module):
         batch_size, _, h, w = sph.shape
         grid = self.grid[(0), :, :, :, :]
         grid = grid.expand(batch_size, -1, -1, -1, -1)
-        crop_sph = sph[:, :, self.margin:h - self.margin, self.margin:w -
-            self.margin]
+        crop_sph = sph[:, :, self.margin:h - self.margin, self.margin:w - self.margin]
         proj_df, cnt = self.proj_spherical(1 - crop_sph, grid, 128)
         mask = torch.clamp(cnt.detach(), 0, 1)
         proj_df = (-proj_df + 1 / 128) * 128
@@ -327,11 +320,9 @@ class Net(nn.Module):
          fixed      finetuned
     """
 
-    def __init__(self, marrnet1_path=None, marrnet2_path=None,
-        pred_silhou_thres=0.3):
+    def __init__(self, marrnet1_path=None, marrnet2_path=None, pred_silhou_thres=0.3):
         super().__init__()
-        self.marrnet1 = Marrnet1([3, 1, 1], ['normal', 'depth', 'silhou'],
-            pred_depth_minmax=True)
+        self.marrnet1 = Marrnet1([3, 1, 1], ['normal', 'depth', 'silhou'], pred_depth_minmax=True)
         if marrnet1_path:
             state_dict = torch.load(marrnet1_path)['nets'][0]
             self.marrnet1.load_state_dict(state_dict)
@@ -453,8 +444,7 @@ class ImageEncoder(nn.Module):
     def __init__(self, input_nc, encode_dims=200):
         super().__init__()
         resnet_m = resnet18(pretrained=True)
-        resnet_m.conv1 = nn.Conv2d(input_nc, 64, 7, stride=2, padding=3,
-            bias=False)
+        resnet_m.conv1 = nn.Conv2d(input_nc, 64, 7, stride=2, padding=3, bias=False)
         resnet_m.avgpool = nn.AdaptiveAvgPool2d(1)
         resnet_m.fc = nn.Linear(512, encode_dims)
         self.main = nn.Sequential(resnet_m)
@@ -468,13 +458,11 @@ def batchnorm3d(n_feat):
 
 
 def deconv3d_2x(n_ch_in, n_ch_out, bias):
-    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1,
-        dilation=1, groups=1, bias=bias)
+    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=2, padding=1, dilation=1, groups=1, bias=bias)
 
 
 def deconv3d_add3(n_ch_in, n_ch_out, bias):
-    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=1, padding=0,
-        dilation=1, groups=1, bias=bias)
+    return nn.ConvTranspose3d(n_ch_in, n_ch_out, 4, stride=1, padding=0, dilation=1, groups=1, bias=bias)
 
 
 def relu():
@@ -488,13 +476,7 @@ class VoxelDecoder(nn.Module):
 
     def __init__(self, n_dims=200, nf=512):
         super().__init__()
-        self.main = nn.Sequential(deconv3d_add3(n_dims, nf, True),
-            batchnorm3d(nf), relu(), deconv3d_2x(nf, nf // 2, True),
-            batchnorm3d(nf // 2), relu(), nn.Sequential(), nn.Sequential(),
-            deconv3d_2x(nf // 2, nf // 4, True), batchnorm3d(nf // 4), relu
-            (), deconv3d_2x(nf // 4, nf // 8, True), batchnorm3d(nf // 8),
-            relu(), deconv3d_2x(nf // 8, nf // 16, True), batchnorm3d(nf //
-            16), relu(), deconv3d_2x(nf // 16, 1, True))
+        self.main = nn.Sequential(deconv3d_add3(n_dims, nf, True), batchnorm3d(nf), relu(), deconv3d_2x(nf, nf // 2, True), batchnorm3d(nf // 2), relu(), nn.Sequential(), nn.Sequential(), deconv3d_2x(nf // 2, nf // 4, True), batchnorm3d(nf // 4), relu(), deconv3d_2x(nf // 4, nf // 8, True), batchnorm3d(nf // 8), relu(), deconv3d_2x(nf // 8, nf // 16, True), batchnorm3d(nf // 16), relu(), deconv3d_2x(nf // 16, 1, True))
 
     def forward(self, x):
         x_vox = x.view(x.size(0), -1, 1, 1, 1)
@@ -505,15 +487,11 @@ class VoxelGenerator(nn.Module):
 
     def __init__(self, nz=200, nf=64, bias=False, res=128):
         super().__init__()
-        layers = [deconv3d_add3(nz, nf * 8, bias), batchnorm3d(nf * 8),
-            relu(), deconv3d_2x(nf * 8, nf * 4, bias), batchnorm3d(nf * 4),
-            relu(), deconv3d_2x(nf * 4, nf * 2, bias), batchnorm3d(nf * 2),
-            relu(), deconv3d_2x(nf * 2, nf, bias), batchnorm3d(nf), relu()]
+        layers = [deconv3d_add3(nz, nf * 8, bias), batchnorm3d(nf * 8), relu(), deconv3d_2x(nf * 8, nf * 4, bias), batchnorm3d(nf * 4), relu(), deconv3d_2x(nf * 4, nf * 2, bias), batchnorm3d(nf * 2), relu(), deconv3d_2x(nf * 2, nf, bias), batchnorm3d(nf), relu()]
         if res == 64:
             layers.append(deconv3d_2x(nf, 1, bias))
         elif res == 128:
-            layers += [deconv3d_2x(nf, nf, bias), batchnorm3d(nf), relu(),
-                deconv3d_2x(nf, 1, bias)]
+            layers += [deconv3d_2x(nf, nf, bias), batchnorm3d(nf), relu(), deconv3d_2x(nf, 1, bias)]
         else:
             raise NotImplementedError(res)
         layers.append(nn.Sigmoid())
@@ -524,13 +502,11 @@ class VoxelGenerator(nn.Module):
 
 
 def conv3d_half(n_ch_in, n_ch_out, bias):
-    return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=2, padding=1, dilation=1,
-        groups=1, bias=bias)
+    return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=2, padding=1, dilation=1, groups=1, bias=bias)
 
 
 def conv3d_minus3(n_ch_in, n_ch_out, bias):
-    return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=1, padding=0, dilation=1,
-        groups=1, bias=bias)
+    return nn.Conv3d(n_ch_in, n_ch_out, 4, stride=1, padding=0, dilation=1, groups=1, bias=bias)
 
 
 def relu_leaky():
@@ -541,10 +517,7 @@ class VoxelDiscriminator(nn.Module):
 
     def __init__(self, nf=64, bias=False, res=128):
         super().__init__()
-        layers = [conv3d_half(1, nf, bias), relu_leaky(), conv3d_half(nf, 
-            nf * 2, bias), relu_leaky(), conv3d_half(nf * 2, nf * 4, bias),
-            relu_leaky(), conv3d_half(nf * 4, nf * 8, bias), relu_leaky(),
-            conv3d_minus3(nf * 8, 1, bias)]
+        layers = [conv3d_half(1, nf, bias), relu_leaky(), conv3d_half(nf, nf * 2, bias), relu_leaky(), conv3d_half(nf * 2, nf * 4, bias), relu_leaky(), conv3d_half(nf * 4, nf * 8, bias), relu_leaky(), conv3d_minus3(nf * 8, 1, bias)]
         if res == 64:
             pass
         elif res == 128:
@@ -570,8 +543,7 @@ class Unet_3D(nn.Module):
         self.enc4 = Conv3d_block(4 * nf, 8 * nf, 4, 2, 1)
         self.enc5 = Conv3d_block(8 * nf, 16 * nf, 4, 2, 1)
         self.enc6 = Conv3d_block(16 * nf, 32 * nf, 4, 1, 0)
-        self.full_conv_block = nn.Sequential(nn.Linear(32 * nf, 32 * nf),
-            nn.LeakyReLU())
+        self.full_conv_block = nn.Sequential(nn.Linear(32 * nf, 32 * nf), nn.LeakyReLU())
         self.dec1 = Deconv3d_skip(32 * 2 * nf, 16 * nf, 4, 1, 0, 0)
         self.dec2 = Deconv3d_skip(16 * 2 * nf, 8 * nf, 4, 2, 1, 0)
         self.dec3 = Deconv3d_skip(8 * 2 * nf, 4 * nf, 4, 2, 1, 0)
@@ -606,8 +578,7 @@ class Conv3d_block(nn.Module):
 
     def __init__(self, ncin, ncout, kernel_size, stride, pad, dropout=False):
         super().__init__()
-        self.net = nn.Sequential(nn.Conv3d(ncin, ncout, kernel_size, stride,
-            pad), nn.BatchNorm3d(ncout), nn.LeakyReLU())
+        self.net = nn.Sequential(nn.Conv3d(ncin, ncout, kernel_size, stride, pad), nn.BatchNorm3d(ncout), nn.LeakyReLU())
 
     def forward(self, x):
         return self.net(x)
@@ -615,16 +586,12 @@ class Conv3d_block(nn.Module):
 
 class Deconv3d_skip(nn.Module):
 
-    def __init__(self, ncin, ncout, kernel_size, stride, pad, extra=0,
-        is_activate=True):
+    def __init__(self, ncin, ncout, kernel_size, stride, pad, extra=0, is_activate=True):
         super(Deconv3d_skip, self).__init__()
         if is_activate:
-            self.net = nn.Sequential(nn.ConvTranspose3d(ncin, ncout,
-                kernel_size, stride, pad, extra), nn.BatchNorm3d(ncout), nn
-                .LeakyReLU())
+            self.net = nn.Sequential(nn.ConvTranspose3d(ncin, ncout, kernel_size, stride, pad, extra), nn.BatchNorm3d(ncout), nn.LeakyReLU())
         else:
-            self.net = nn.ConvTranspose3d(ncin, ncout, kernel_size, stride,
-                pad, extra)
+            self.net = nn.ConvTranspose3d(ncin, ncout, kernel_size, stride, pad, extra)
 
     def forward(self, x, skip_in):
         y = cat((x, skip_in), dim=1)
@@ -639,8 +606,7 @@ class ViewAsLinear(nn.Module):
 
 
 def deconv3x3(in_planes, out_planes, stride=1, output_padding=0):
-    return nn.ConvTranspose2d(in_planes, out_planes, kernel_size=3, stride=
-        stride, padding=1, bias=False, output_padding=output_padding)
+    return nn.ConvTranspose2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, output_padding=output_padding)
 
 
 class RevBasicBlock(nn.Module):
@@ -651,8 +617,7 @@ class RevBasicBlock(nn.Module):
         self.deconv1 = deconv3x3(inplanes, planes, stride=1)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.deconv2 = deconv3x3(planes, planes, stride=stride,
-            output_padding=1 if stride > 1 else 0)
+        self.deconv2 = deconv3x3(planes, planes, stride=stride, output_padding=1 if stride > 1 else 0)
         self.bn2 = nn.BatchNorm2d(planes)
         self.upsample = upsample
         self.stride = stride
@@ -677,15 +642,11 @@ class RevBottleneck(nn.Module):
     def __init__(self, inplanes, planes, stride=1, upsample=None):
         super(RevBottleneck, self).__init__()
         bottleneck_planes = int(inplanes / 4)
-        self.deconv1 = nn.ConvTranspose2d(inplanes, bottleneck_planes,
-            kernel_size=1, bias=False, stride=1)
+        self.deconv1 = nn.ConvTranspose2d(inplanes, bottleneck_planes, kernel_size=1, bias=False, stride=1)
         self.bn1 = nn.BatchNorm2d(bottleneck_planes)
-        self.deconv2 = nn.ConvTranspose2d(bottleneck_planes,
-            bottleneck_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.deconv2 = nn.ConvTranspose2d(bottleneck_planes, bottleneck_planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(bottleneck_planes)
-        self.deconv3 = nn.ConvTranspose2d(bottleneck_planes, planes,
-            kernel_size=1, bias=False, stride=stride, output_padding=1 if 
-            stride > 0 else 0)
+        self.deconv3 = nn.ConvTranspose2d(bottleneck_planes, planes, kernel_size=1, bias=False, stride=stride, output_padding=1 if stride > 0 else 0)
         self.bn3 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.upsample = upsample
@@ -721,10 +682,8 @@ class RevResNet(nn.Module):
         self.inplanes = inplanes[0]
         super(RevResNet, self).__init__()
         inplanes_after_blocks = inplanes[4] if len(inplanes) > 4 else planes[3]
-        self.deconv1 = nn.ConvTranspose2d(inplanes_after_blocks, planes[3],
-            kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.deconv2 = nn.ConvTranspose2d(planes[3], out_planes,
-            kernel_size=7, stride=2, padding=3, bias=False, output_padding=1)
+        self.deconv1 = nn.ConvTranspose2d(inplanes_after_blocks, planes[3], kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.deconv2 = nn.ConvTranspose2d(planes[3], out_planes, kernel_size=7, stride=2, padding=3, bias=False, output_padding=1)
         self.bn1 = nn.BatchNorm2d(planes[3])
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, planes[0], layers[0], stride=2)
@@ -741,9 +700,7 @@ class RevResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         upsample = None
         if stride != 1 or self.inplanes != planes:
-            upsample = nn.Sequential(nn.ConvTranspose2d(self.inplanes,
-                planes, kernel_size=1, stride=stride, bias=False,
-                output_padding=1 if stride > 1 else 0), nn.BatchNorm2d(planes))
+            upsample = nn.Sequential(nn.ConvTranspose2d(self.inplanes, planes, kernel_size=1, stride=stride, bias=False, output_padding=1 if stride > 1 else 0), nn.BatchNorm2d(planes))
         layers = []
         layers.append(block(self.inplanes, planes, stride, upsample))
         self.inplanes = planes
@@ -767,8 +724,7 @@ def revuresnet18(**kwargs):
     """
     Reverse ResNet-18 compatible with the U-Net setting
     """
-    model = RevResNet(RevBasicBlock, [2, 2, 2, 2], [256, 128, 64, 64],
-        inplanes=[512, 512, 256, 128, 128], **kwargs)
+    model = RevResNet(RevBasicBlock, [2, 2, 2, 2], [256, 128, 64, 64], inplanes=[512, 512, 256, 128, 128], **kwargs)
     return model
 
 
@@ -781,10 +737,8 @@ class Net(nn.Module):
         super().__init__()
         module_list = list()
         resnet = resnet18(pretrained=True)
-        in_conv = nn.Conv2d(input_planes, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
-        module_list.append(nn.Sequential(resnet.conv1 if input_planes == 3 else
-            in_conv, resnet.bn1, resnet.relu, resnet.maxpool))
+        in_conv = nn.Conv2d(input_planes, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        module_list.append(nn.Sequential(resnet.conv1 if input_planes == 3 else in_conv, resnet.bn1, resnet.relu, resnet.maxpool))
         module_list.append(resnet.layer1)
         module_list.append(resnet.layer2)
         module_list.append(resnet.layer3)
@@ -799,8 +753,7 @@ class Net(nn.Module):
             module_list.append(revresnet.layer2)
             module_list.append(revresnet.layer3)
             module_list.append(revresnet.layer4)
-            module_list.append(nn.Sequential(revresnet.deconv1, revresnet.
-                bn1, revresnet.relu, revresnet.deconv2))
+            module_list.append(nn.Sequential(revresnet.deconv1, revresnet.bn1, revresnet.relu, revresnet.deconv2))
             module_list = nn.ModuleList(module_list)
             setattr(self, 'decoder_' + layer_name, module_list)
             self.decoders[layer_name] = module_list
@@ -834,18 +787,15 @@ class Net_inpaint(nn.Module):
         super().__init__()
         module_list = list()
         resnet = resnet18(pretrained=True)
-        in_conv = nn.Conv2d(input_planes, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
-        module_list.append(nn.Sequential(resnet.conv1 if input_planes == 3 else
-            in_conv, resnet.bn1, resnet.relu, resnet.maxpool))
+        in_conv = nn.Conv2d(input_planes, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        module_list.append(nn.Sequential(resnet.conv1 if input_planes == 3 else in_conv, resnet.bn1, resnet.relu, resnet.maxpool))
         module_list.append(resnet.layer1)
         module_list.append(resnet.layer2)
         module_list.append(resnet.layer3)
         module_list.append(resnet.layer4)
         self.encoder = nn.ModuleList(module_list)
         self.encoder_out = None
-        self.deconv2 = nn.ConvTranspose2d(64, 1, kernel_size=8, stride=2,
-            padding=3, bias=False, output_padding=0)
+        self.deconv2 = nn.ConvTranspose2d(64, 1, kernel_size=8, stride=2, padding=3, bias=False, output_padding=0)
         self.decoders = {}
         for out_plane, layer_name in zip(out_planes, layer_names):
             module_list = list()
@@ -854,8 +804,7 @@ class Net_inpaint(nn.Module):
             module_list.append(revresnet.layer2)
             module_list.append(revresnet.layer3)
             module_list.append(revresnet.layer4)
-            module_list.append(nn.Sequential(revresnet.deconv1, revresnet.
-                bn1, revresnet.relu, self.deconv2))
+            module_list.append(nn.Sequential(revresnet.deconv1, revresnet.bn1, revresnet.relu, self.deconv2))
             module_list = nn.ModuleList(module_list)
             setattr(self, 'decoder_' + layer_name, module_list)
             self.decoders[layer_name] = module_list
@@ -996,24 +945,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv3d_block,
+     lambda: ([], {'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (Deconv3d_skip,
+     lambda: ([], {'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64]), torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
+    (ImageEncoder,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RevBasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ViewAsLinear,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VoxelDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 200])], {}),
+     True),
+]
+
 class Test_xiumingzhang_GenRe_ShapeHD(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv3d_block(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Deconv3d_skip(*[], **{'ncin': 4, 'ncout': 4, 'kernel_size': 4, 'stride': 1, 'pad': 4}), [torch.rand([4, 1, 64, 64, 64]), torch.rand([4, 3, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ImageEncoder(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RevBasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ViewAsLinear(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(VoxelDecoder(*[], **{}), [torch.rand([4, 200])], {})
+        self._check(*TESTCASES[5])
 

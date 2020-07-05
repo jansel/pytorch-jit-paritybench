@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,17 +84,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, padding=1,
-            bias=False, stride=stride)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, padding=1, bias=False, stride=stride)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1,
-            bias=False, stride=1)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, bias=False, stride=1)
         self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or self.expansion * planes != inplanes:
-            self.downsample = nn.Sequential(nn.Conv2d(inplanes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.downsample = nn.Sequential(nn.Conv2d(inplanes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
         else:
             self.downsample = None
 
@@ -119,17 +116,13 @@ class BottleNeck(nn.Module):
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu1 = nn.ReLU(True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.relu2 = nn.ReLU(True)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         if stride != 1 or self.expansion * planes != inplanes:
-            self.downsample = nn.Sequential(nn.Conv2d(inplanes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.downsample = nn.Sequential(nn.Conv2d(inplanes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
         else:
             self.downsample = None
         self.relu = nn.ReLU(True)
@@ -153,23 +146,20 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         self.inplanes = 64
         self.block = block_type
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(num_blocks[0], 64)
         self.layer2 = self._make_layer(num_blocks[1], 128, stride=2)
         self.layer3 = self._make_layer(num_blocks[2], 256, stride=2)
-        self.layer4 = self._make_layer(num_blocks[3], 512, stride=
-            last_layer_stride)
+        self.layer4 = self._make_layer(num_blocks[3], 512, stride=last_layer_stride)
 
     def load_model(self, pretrain):
         None
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
-        pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        pretrain_dict = pretrain_dict['state_dict'] if 'state_dict' in pretrain_dict else pretrain_dict
         from collections import OrderedDict
         new_dict = OrderedDict()
         for k, v in pretrain_dict.items():
@@ -208,16 +198,14 @@ class BBN_ResNet(nn.Module):
         super(BBN_ResNet, self).__init__()
         self.inplanes = 64
         self.block = block_type
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(True)
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(num_blocks[0], 64)
         self.layer2 = self._make_layer(num_blocks[1], 128, stride=2)
         self.layer3 = self._make_layer(num_blocks[2], 256, stride=2)
-        self.layer4 = self._make_layer(num_blocks[3] - 1, 512, stride=
-            last_layer_stride)
+        self.layer4 = self._make_layer(num_blocks[3] - 1, 512, stride=last_layer_stride)
         self.cb_block = self.block(self.inplanes, self.inplanes // 4, stride=1)
         self.rb_block = self.block(self.inplanes, self.inplanes // 4, stride=1)
 
@@ -225,8 +213,7 @@ class BBN_ResNet(nn.Module):
         None
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
-        pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        pretrain_dict = pretrain_dict['state_dict'] if 'state_dict' in pretrain_dict else pretrain_dict
         from collections import OrderedDict
         new_dict = OrderedDict()
         for k, v in pretrain_dict.items():
@@ -283,11 +270,9 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1, option='A'):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
@@ -295,12 +280,9 @@ class BasicBlock(nn.Module):
                 """
                 For CIFAR10 ResNet paper uses option A.
                 """
-                self.shortcut = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::
-                    2], (0, 0, 0, 0, planes // 4, planes // 4), 'constant', 0))
+                self.shortcut = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes // 4, planes // 4), 'constant', 0))
             elif option == 'B':
-                self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                    expansion * planes, kernel_size=1, stride=stride, bias=
-                    False), nn.BatchNorm2d(self.expansion * planes))
+                self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -321,8 +303,7 @@ class ResNet_Cifar(nn.Module):
     def __init__(self, block, num_blocks):
         super(ResNet_Cifar, self).__init__()
         self.in_planes = 16
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
@@ -341,15 +322,13 @@ class ResNet_Cifar(nn.Module):
         None
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
-        pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        pretrain_dict = pretrain_dict['state_dict'] if 'state_dict' in pretrain_dict else pretrain_dict
         from collections import OrderedDict
         new_dict = OrderedDict()
         for k, v in pretrain_dict.items():
             if k.startswith('module'):
                 k = k[7:]
-            if ('last_linear' not in k and 'classifier' not in k and 
-                'linear' not in k and 'fd' not in k):
+            if 'last_linear' not in k and 'classifier' not in k and 'linear' not in k and 'fd' not in k:
                 k = k.replace('backbone.', '')
                 k = k.replace('fr', 'layer3.4')
                 new_dict[k] = v
@@ -370,8 +349,7 @@ class BBN_ResNet_Cifar(nn.Module):
     def __init__(self, block, num_blocks):
         super(BBN_ResNet_Cifar, self).__init__()
         self.in_planes = 16
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
@@ -450,8 +428,7 @@ class CSCE(nn.Module):
     def update_weight(self, beta):
         effective_num = 1.0 - np.power(beta, self.num_class_list)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
-        per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self
-            .num_class_list)
+        per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self.num_class_list)
         self.weight = torch.FloatTensor(per_cls_weights)
 
     def reset_epoch(self, epoch):
@@ -486,8 +463,7 @@ class LDAMLoss(nn.Module):
         betas = [0, 0.9999]
         effective_num = 1.0 - np.power(betas[idx], self.num_class_list)
         per_cls_weights = (1.0 - betas[idx]) / np.array(effective_num)
-        per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self
-            .num_class_list)
+        per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(self.num_class_list)
         self.weight = torch.FloatTensor(per_cls_weights)
 
     def forward(self, x, target):
@@ -495,8 +471,7 @@ class LDAMLoss(nn.Module):
         index.scatter_(1, target.data.view(-1, 1), 1)
         index_float = index.type(torch.FloatTensor)
         index_float = index_float
-        batch_m = torch.matmul(self.m_list[(None), :], index_float.
-            transpose(0, 1))
+        batch_m = torch.matmul(self.m_list[(None), :], index_float.transpose(0, 1))
         batch_m = batch_m.view((-1, 1))
         x_m = x - batch_m
         output = torch.where(index, x_m, x)
@@ -507,8 +482,7 @@ class FCNorm(nn.Module):
 
     def __init__(self, num_features, num_classes):
         super(FCNorm, self).__init__()
-        self.weight = nn.Parameter(torch.FloatTensor(num_classes, num_features)
-            )
+        self.weight = nn.Parameter(torch.FloatTensor(num_classes, num_features))
         self.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-05).mul_(100000.0)
 
     def forward(self, x):
@@ -543,20 +517,16 @@ class Network(nn.Module):
 
     def __init__(self, cfg, mode='train', num_classes=1000):
         super(Network, self).__init__()
-        pretrain = (True if mode == 'train' and cfg.RESUME_MODEL == '' and 
-            cfg.BACKBONE.PRETRAINED_MODEL != '' else False)
+        pretrain = True if mode == 'train' and cfg.RESUME_MODEL == '' and cfg.BACKBONE.PRETRAINED_MODEL != '' else False
         self.num_classes = num_classes
         self.cfg = cfg
-        self.backbone = eval(self.cfg.BACKBONE.TYPE)(self.cfg, pretrain=
-            pretrain, pretrained_model=cfg.BACKBONE.PRETRAINED_MODEL,
-            last_layer_stride=2)
+        self.backbone = eval(self.cfg.BACKBONE.TYPE)(self.cfg, pretrain=pretrain, pretrained_model=cfg.BACKBONE.PRETRAINED_MODEL, last_layer_stride=2)
         self.module = self._get_module()
         self.classifier = self._get_classifer()
         self.feature_len = self.get_feature_length()
 
     def forward(self, x, **kwargs):
-        if ('feature_flag' in kwargs or 'feature_cb' in kwargs or 
-            'feature_rb' in kwargs):
+        if 'feature_flag' in kwargs or 'feature_cb' in kwargs or 'feature_rb' in kwargs:
             return self.extract_feature(x, **kwargs)
         elif 'classifier_flag' in kwargs:
             return self.classifier(x)
@@ -585,10 +555,8 @@ class Network(nn.Module):
         None
 
     def load_model(self, model_path):
-        pretrain_dict = torch.load(model_path, map_location='cpu' if self.
-            cfg.CPU_MODE else 'cuda')
-        pretrain_dict = pretrain_dict['state_dict'
-            ] if 'state_dict' in pretrain_dict else pretrain_dict
+        pretrain_dict = torch.load(model_path, map_location='cpu' if self.cfg.CPU_MODE else 'cuda')
+        pretrain_dict = pretrain_dict['state_dict'] if 'state_dict' in pretrain_dict else pretrain_dict
         model_dict = self.state_dict()
         from collections import OrderedDict
         new_dict = OrderedDict()
@@ -626,8 +594,7 @@ class Network(nn.Module):
         if self.cfg.CLASSIFIER.TYPE == 'FCNorm':
             classifier = FCNorm(num_features, self.num_classes)
         elif self.cfg.CLASSIFIER.TYPE == 'FC':
-            classifier = nn.Linear(num_features, self.num_classes, bias=
-                bias_flag)
+            classifier = nn.Linear(num_features, self.num_classes, bias=bias_flag)
         else:
             raise NotImplementedError
         return classifier
@@ -637,24 +604,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Megvii_Nanjing_BBN(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BottleNeck,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FCNorm,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GAP,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LambdaLayer,
+     lambda: ([], {'lambd': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_Megvii_Nanjing_BBN(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(BottleNeck(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FCNorm(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GAP(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LambdaLayer(*[], **{'lambd': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -75,8 +76,7 @@ import torch.nn.functional as F
 
 class _NonLocalBlock(nn.Module):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3,
-        sub_sample=1, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=1, bn_layer=True):
         super(_NonLocalBlock, self).__init__()
         assert dimension in [1, 2, 3]
         self.dimension = dimension
@@ -100,14 +100,10 @@ class _NonLocalBlock(nn.Module):
             bn = nn.BatchNorm1d
         else:
             raise Exception('Error feature dimension.')
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.
-            inter_channels, kernel_size=1, stride=1, padding=0)
-        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels *
-            2, 1, 1, 1, 0, bias=False), nn.ReLU())
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.concat_project = nn.Sequential(nn.Conv2d(self.inter_channels * 2, 1, 1, 1, 0, bias=False), nn.ReLU())
         nn.init.kaiming_normal_(self.concat_project[0].weight)
         nn.init.kaiming_normal_(self.g.weight)
         nn.init.constant_(self.g.bias, 0)
@@ -116,22 +112,18 @@ class _NonLocalBlock(nn.Module):
         nn.init.kaiming_normal_(self.phi.weight)
         nn.init.constant_(self.phi.bias, 0)
         if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels,
-                out_channels=self.in_channels, kernel_size=1, stride=1,
-                padding=0), bn(self.in_channels))
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
             nn.init.kaiming_normal_(self.W[0].weight)
             nn.init.constant_(self.W[0].bias, 0)
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
         else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=
-                self.in_channels, kernel_size=1, stride=1, padding=0)
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
             nn.init.constant_(self.W.weight, 0)
             nn.init.constant_(self.W.bias, 0)
         if sub_sample > 1:
             self.g = nn.Sequential(self.g, max_pool(kernel_size=sub_sample))
-            self.phi = nn.Sequential(self.phi, max_pool(kernel_size=sub_sample)
-                )
+            self.phi = nn.Sequential(self.phi, max_pool(kernel_size=sub_sample))
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -184,8 +176,7 @@ class Linear(nn.Module):
 
 class LinearModel(nn.Module):
 
-    def __init__(self, input_size, output_size, linear_size=1024, num_stage
-        =2, p_dropout=0.5):
+    def __init__(self, input_size, output_size, linear_size=1024, num_stage=2, p_dropout=0.5):
         super(LinearModel, self).__init__()
         self.linear_size = linear_size
         self.p_dropout = p_dropout
@@ -222,17 +213,14 @@ class SemCHGraphConv(nn.Module):
         super(SemCHGraphConv, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.W = nn.Parameter(torch.zeros(size=(2, in_features,
-            out_features), dtype=torch.float))
+        self.W = nn.Parameter(torch.zeros(size=(2, in_features, out_features), dtype=torch.float))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
         self.adj = adj.unsqueeze(0).repeat(out_features, 1, 1)
         self.m = self.adj > 0
-        self.e = nn.Parameter(torch.zeros(out_features, len(self.m[0].
-            nonzero()), dtype=torch.float))
+        self.e = nn.Parameter(torch.zeros(out_features, len(self.m[0].nonzero()), dtype=torch.float))
         nn.init.constant_(self.e.data, 1)
         if bias:
-            self.bias = nn.Parameter(torch.zeros(out_features, dtype=torch.
-                float))
+            self.bias = nn.Parameter(torch.zeros(out_features, dtype=torch.float))
             stdv = 1.0 / math.sqrt(self.W.size(1))
             self.bias.data.uniform_(-stdv, stdv)
         else:
@@ -254,8 +242,7 @@ class SemCHGraphConv(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class SemGraphConv(nn.Module):
@@ -267,17 +254,14 @@ class SemGraphConv(nn.Module):
         super(SemGraphConv, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.W = nn.Parameter(torch.zeros(size=(2, in_features,
-            out_features), dtype=torch.float))
+        self.W = nn.Parameter(torch.zeros(size=(2, in_features, out_features), dtype=torch.float))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
         self.adj = adj
         self.m = self.adj > 0
-        self.e = nn.Parameter(torch.zeros(1, len(self.m.nonzero()), dtype=
-            torch.float))
+        self.e = nn.Parameter(torch.zeros(1, len(self.m.nonzero()), dtype=torch.float))
         nn.init.constant_(self.e.data, 1)
         if bias:
-            self.bias = nn.Parameter(torch.zeros(out_features, dtype=torch.
-                float))
+            self.bias = nn.Parameter(torch.zeros(out_features, dtype=torch.float))
             stdv = 1.0 / math.sqrt(self.W.size(2))
             self.bias.data.uniform_(-stdv, stdv)
         else:
@@ -297,20 +281,30 @@ class SemGraphConv(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_garyzhao_SemGCN(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Linear(*[], **{'linear_size': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Linear,
+     lambda: ([], {'linear_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (LinearModel,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+]
+
+class Test_garyzhao_SemGCN(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(LinearModel(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 

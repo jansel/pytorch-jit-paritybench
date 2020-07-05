@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,9 +54,7 @@ class SEModule(nn.Module):
     def __init__(self, channel, reduction=4):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction,
-            bias=False), nn.ReLU(inplace=True), nn.Linear(channel //
-            reduction, channel, bias=False), Hsigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), Hsigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -93,11 +92,7 @@ class MobileBottleneck(nn.Module):
             SELayer = SEModule
         else:
             SELayer = Identity
-        self.conv = nn.Sequential(conv_layer(inp, exp, 1, 1, 0, bias=False),
-            norm_layer(exp), nlin_layer(inplace=True), conv_layer(exp, exp,
-            kernel, stride, padding, groups=exp, bias=False), norm_layer(
-            exp), SELayer(exp), nlin_layer(inplace=True), conv_layer(exp,
-            oup, 1, 1, 0, bias=False), norm_layer(oup))
+        self.conv = nn.Sequential(conv_layer(inp, exp, 1, 1, 0, bias=False), norm_layer(exp), nlin_layer(inplace=True), conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False), norm_layer(exp), SELayer(exp), nlin_layer(inplace=True), conv_layer(exp, oup, 1, 1, 0, bias=False), norm_layer(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -106,16 +101,12 @@ class MobileBottleneck(nn.Module):
             return self.conv(x)
 
 
-def conv_1x1_bn(inp, oup, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d,
-    nlin_layer=nn.ReLU):
-    return nn.Sequential(conv_layer(inp, oup, 1, 1, 0, bias=False),
-        norm_layer(oup), nlin_layer(inplace=True))
+def conv_1x1_bn(inp, oup, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
+    return nn.Sequential(conv_layer(inp, oup, 1, 1, 0, bias=False), norm_layer(oup), nlin_layer(inplace=True))
 
 
-def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.
-    BatchNorm2d, nlin_layer=nn.ReLU):
-    return nn.Sequential(conv_layer(inp, oup, 3, stride, 1, bias=False),
-        norm_layer(oup), nlin_layer(inplace=True))
+def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
+    return nn.Sequential(conv_layer(inp, oup, 3, stride, 1, bias=False), norm_layer(oup), nlin_layer(inplace=True))
 
 
 def make_divisible(x, divisible_by=8):
@@ -125,59 +116,41 @@ def make_divisible(x, divisible_by=8):
 
 class MobileNetV3(nn.Module):
 
-    def __init__(self, n_class=1000, input_size=224, dropout=0.8, mode=
-        'small', width_mult=1.0):
+    def __init__(self, n_class=1000, input_size=224, dropout=0.8, mode='small', width_mult=1.0):
         super(MobileNetV3, self).__init__()
         input_channel = 16
         last_channel = 1280
         if mode == 'large':
-            mobile_setting = [[3, 16, 16, False, 'RE', 1], [3, 64, 24, 
-                False, 'RE', 2], [3, 72, 24, False, 'RE', 1], [5, 72, 40, 
-                True, 'RE', 2], [5, 120, 40, True, 'RE', 1], [5, 120, 40, 
-                True, 'RE', 1], [3, 240, 80, False, 'HS', 2], [3, 200, 80, 
-                False, 'HS', 1], [3, 184, 80, False, 'HS', 1], [3, 184, 80,
-                False, 'HS', 1], [3, 480, 112, True, 'HS', 1], [3, 672, 112,
-                True, 'HS', 1], [5, 672, 160, True, 'HS', 2], [5, 960, 160,
-                True, 'HS', 1], [5, 960, 160, True, 'HS', 1]]
+            mobile_setting = [[3, 16, 16, False, 'RE', 1], [3, 64, 24, False, 'RE', 2], [3, 72, 24, False, 'RE', 1], [5, 72, 40, True, 'RE', 2], [5, 120, 40, True, 'RE', 1], [5, 120, 40, True, 'RE', 1], [3, 240, 80, False, 'HS', 2], [3, 200, 80, False, 'HS', 1], [3, 184, 80, False, 'HS', 1], [3, 184, 80, False, 'HS', 1], [3, 480, 112, True, 'HS', 1], [3, 672, 112, True, 'HS', 1], [5, 672, 160, True, 'HS', 2], [5, 960, 160, True, 'HS', 1], [5, 960, 160, True, 'HS', 1]]
         elif mode == 'small':
-            mobile_setting = [[3, 16, 16, True, 'RE', 2], [3, 72, 24, False,
-                'RE', 2], [3, 88, 24, False, 'RE', 1], [5, 96, 40, True,
-                'HS', 2], [5, 240, 40, True, 'HS', 1], [5, 240, 40, True,
-                'HS', 1], [5, 120, 48, True, 'HS', 1], [5, 144, 48, True,
-                'HS', 1], [5, 288, 96, True, 'HS', 2], [5, 576, 96, True,
-                'HS', 1], [5, 576, 96, True, 'HS', 1]]
+            mobile_setting = [[3, 16, 16, True, 'RE', 2], [3, 72, 24, False, 'RE', 2], [3, 88, 24, False, 'RE', 1], [5, 96, 40, True, 'HS', 2], [5, 240, 40, True, 'HS', 1], [5, 240, 40, True, 'HS', 1], [5, 120, 48, True, 'HS', 1], [5, 144, 48, True, 'HS', 1], [5, 288, 96, True, 'HS', 2], [5, 576, 96, True, 'HS', 1], [5, 576, 96, True, 'HS', 1]]
         else:
             raise NotImplementedError
         assert input_size % 32 == 0
-        last_channel = make_divisible(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
         self.classifier = []
         for k, exp, c, se, nl, s in mobile_setting:
             output_channel = make_divisible(c * width_mult)
             exp_channel = make_divisible(exp * width_mult)
-            self.features.append(MobileBottleneck(input_channel,
-                output_channel, k, s, exp_channel, se, nl))
+            self.features.append(MobileBottleneck(input_channel, output_channel, k, s, exp_channel, se, nl))
             input_channel = output_channel
         if mode == 'large':
             last_conv = make_divisible(960 * width_mult)
-            self.features.append(conv_1x1_bn(input_channel, last_conv,
-                nlin_layer=Hswish))
+            self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
             self.features.append(nn.AdaptiveAvgPool2d(1))
             self.features.append(nn.Conv2d(last_conv, last_channel, 1, 1, 0))
             self.features.append(Hswish(inplace=True))
         elif mode == 'small':
             last_conv = make_divisible(576 * width_mult)
-            self.features.append(conv_1x1_bn(input_channel, last_conv,
-                nlin_layer=Hswish))
+            self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
             self.features.append(nn.AdaptiveAvgPool2d(1))
             self.features.append(nn.Conv2d(last_conv, last_channel, 1, 1, 0))
             self.features.append(Hswish(inplace=True))
         else:
             raise NotImplementedError
         self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(p=dropout), nn.Linear(
-            last_channel, n_class))
+        self.classifier = nn.Sequential(nn.Dropout(p=dropout), nn.Linear(last_channel, n_class))
         self._initialize_weights()
 
     def forward(self, x):
@@ -205,23 +178,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Hsigmoid,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Hswish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileBottleneck,
+     lambda: ([], {'inp': 4, 'oup': 4, 'kernel': 3, 'stride': 1, 'exp': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNetV3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kuan_wang_pytorch_mobilenet_v3(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Hsigmoid(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Hswish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Identity(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MobileBottleneck(*[], **{'inp': 4, 'oup': 4, 'kernel': 3, 'stride': 1, 'exp': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MobileNetV3(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(SEModule(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

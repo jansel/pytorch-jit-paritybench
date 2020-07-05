@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -129,8 +130,7 @@ def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
             xv, yv = np.meshgrid(x, y)
             xv = xv.reshape(-1)
             yv = yv.reshape(-1)
-            boxes = np.vstack((yv - anchor_size_y_2, xv - anchor_size_x_2, 
-                yv + anchor_size_y_2, xv + anchor_size_x_2))
+            boxes = np.vstack((yv - anchor_size_y_2, xv - anchor_size_x_2, yv + anchor_size_y_2, xv + anchor_size_x_2))
             boxes = np.swapaxes(boxes, 0, 1)
             boxes_level.append(np.expand_dims(boxes, axis=1))
         boxes_level = np.concatenate(boxes_level, axis=1)
@@ -164,16 +164,14 @@ def _generate_anchor_configs(min_level, max_level, num_scales, aspect_ratios):
         anchor_configs[level] = []
         for scale_octave in range(num_scales):
             for aspect in aspect_ratios:
-                anchor_configs[level].append((2 ** level, scale_octave /
-                    float(num_scales), aspect))
+                anchor_configs[level].append((2 ** level, scale_octave / float(num_scales), aspect))
     return anchor_configs
 
 
 class Anchors(nn.Module):
     """RetinaNet Anchors class."""
 
-    def __init__(self, min_level, max_level, num_scales, aspect_ratios,
-        anchor_scale, image_size):
+    def __init__(self, min_level, max_level, num_scales, aspect_ratios, anchor_scale, image_size):
         """Constructs multiscale RetinaNet anchors.
 
         Args:
@@ -208,13 +206,11 @@ class Anchors(nn.Module):
 
     def _generate_configs(self):
         """Generate configurations of anchor boxes."""
-        return _generate_anchor_configs(self.min_level, self.max_level,
-            self.num_scales, self.aspect_ratios)
+        return _generate_anchor_configs(self.min_level, self.max_level, self.num_scales, self.aspect_ratios)
 
     def _generate_boxes(self):
         """Generates multiscale anchor boxes."""
-        boxes = _generate_anchor_boxes(self.image_size, self.anchor_scale,
-            self.config)
+        boxes = _generate_anchor_boxes(self.image_size, self.anchor_scale, self.config)
         boxes = torch.from_numpy(boxes).float()
         return boxes
 
@@ -267,9 +263,7 @@ def decode_box_outputs(rel_codes, anchors, output_xyxy: bool=False):
     return out
 
 
-def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
-    classes, img_scale, img_size, max_det_per_image: int=
-    MAX_DETECTIONS_PER_IMAGE):
+def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices, classes, img_scale, img_size, max_det_per_image: int=MAX_DETECTIONS_PER_IMAGE):
     """Generates detections with RetinaNet model outputs and anchors.
 
     Args:
@@ -300,8 +294,7 @@ def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
             each row representing [x, y, width, height, score, class]
     """
     anchor_boxes = anchor_boxes[(indices), :]
-    boxes = decode_box_outputs(box_outputs.float(), anchor_boxes,
-        output_xyxy=True)
+    boxes = decode_box_outputs(box_outputs.float(), anchor_boxes, output_xyxy=True)
     boxes = clip_boxes_xyxy(boxes, img_size / img_scale)
     scores = cls_outputs.sigmoid().squeeze(1).float()
     top_detection_idx = batched_nms(boxes, scores, classes, iou_threshold=0.5)
@@ -315,19 +308,15 @@ def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
     classes += 1
     detections = torch.cat([boxes, scores, classes.float()], dim=1)
     if len(top_detection_idx) < max_det_per_image:
-        detections = torch.cat([detections, torch.zeros((max_det_per_image -
-            len(top_detection_idx), 6), device=detections.device, dtype=
-            detections.dtype)], dim=0)
+        detections = torch.cat([detections, torch.zeros((max_det_per_image - len(top_detection_idx), 6), device=detections.device, dtype=detections.dtype)], dim=0)
     return detections
 
 
 @torch.jit.script
-def _batch_detection(batch_size: int, class_out, box_out, anchor_boxes,
-    indices, classes, img_scale, img_size):
+def _batch_detection(batch_size: int, class_out, box_out, anchor_boxes, indices, classes, img_scale, img_size):
     batch_detections = []
     for i in range(batch_size):
-        detections = generate_detections(class_out[i], box_out[i],
-            anchor_boxes, indices[i], classes[i], img_scale[i], img_size[i])
+        detections = generate_detections(class_out[i], box_out[i], anchor_boxes, indices[i], classes[i], img_scale[i], img_size[i])
         batch_detections.append(detections)
     return torch.stack(batch_detections, dim=0)
 
@@ -351,23 +340,15 @@ def _post_process(config, cls_outputs, box_outputs):
             representing box regression targets in [batch_size, height, width, num_anchors * 4].
     """
     batch_size = cls_outputs[0].shape[0]
-    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, config.num_classes]) for level in range(
-        config.num_levels)], 1)
-    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
-    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size,
-        -1), dim=1, k=MAX_DETECTION_POINTS)
+    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).reshape([batch_size, -1, config.num_classes]) for level in range(config.num_levels)], 1)
+    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
+    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size, -1), dim=1, k=MAX_DETECTION_POINTS)
     indices_all = cls_topk_indices_all / config.num_classes
     classes_all = cls_topk_indices_all % config.num_classes
-    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, 4))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2,
-        classes_all.unsqueeze(2))
-    return (cls_outputs_all_after_topk, box_outputs_all_after_topk,
-        indices_all, classes_all)
+    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1, indices_all.unsqueeze(2).expand(-1, -1, 4))
+    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1, indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
+    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2, classes_all.unsqueeze(2))
+    return cls_outputs_all_after_topk, box_outputs_all_after_topk, indices_all, classes_all
 
 
 class DetBenchPredict(nn.Module):
@@ -376,16 +357,12 @@ class DetBenchPredict(nn.Module):
         super(DetBenchPredict, self).__init__()
         self.config = config
         self.model = model
-        self.anchors = Anchors(config.min_level, config.max_level, config.
-            num_scales, config.aspect_ratios, config.anchor_scale, config.
-            image_size)
+        self.anchors = Anchors(config.min_level, config.max_level, config.num_scales, config.aspect_ratios, config.anchor_scale, config.image_size)
 
     def forward(self, x, img_scales, img_size):
         class_out, box_out = self.model(x)
-        class_out, box_out, indices, classes = _post_process(self.config,
-            class_out, box_out)
-        return _batch_detection(x.shape[0], class_out, box_out, self.
-            anchors.boxes, indices, classes, img_scales, img_size)
+        class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+        return _batch_detection(x.shape[0], class_out, box_out, self.anchors.boxes, indices, classes, img_scales, img_size)
 
 
 EPS = 1e-08
@@ -410,12 +387,9 @@ class AnchorLabeler(object):
                 to assign positive labels for anchors.
         """
         similarity_calc = IouSimilarity()
-        matcher = ArgMaxMatcher(match_threshold, unmatched_threshold=
-            match_threshold, negatives_lower_than_unmatched=True,
-            force_match_for_each_row=True)
+        matcher = ArgMaxMatcher(match_threshold, unmatched_threshold=match_threshold, negatives_lower_than_unmatched=True, force_match_for_each_row=True)
         box_coder = FasterRcnnBoxCoder()
-        self.target_assigner = TargetAssigner(similarity_calc, matcher,
-            box_coder)
+        self.target_assigner = TargetAssigner(similarity_calc, matcher, box_coder)
         self.anchors = anchors
         self.match_threshold = match_threshold
         self.num_classes = num_classes
@@ -448,8 +422,7 @@ class AnchorLabeler(object):
         box_targets_out = []
         gt_box_list = BoxList(gt_boxes)
         anchor_box_list = BoxList(self.anchors.boxes)
-        cls_targets, _, box_targets, _, matches = self.target_assigner.assign(
-            anchor_box_list, gt_box_list, gt_labels)
+        cls_targets, _, box_targets, _, matches = self.target_assigner.assign(anchor_box_list, gt_box_list, gt_labels)
         cls_targets -= 1
         cls_targets = cls_targets.long()
         """Unpacks an array of cls/box into multiple scales."""
@@ -457,13 +430,10 @@ class AnchorLabeler(object):
         for level in range(self.anchors.min_level, self.anchors.max_level + 1):
             feat_size = self.feat_size[level]
             steps = feat_size ** 2 * self.anchors.get_anchors_per_location()
-            indices = torch.arange(count, count + steps, device=cls_targets
-                .device)
+            indices = torch.arange(count, count + steps, device=cls_targets.device)
             count += steps
-            cls_targets_out.append(torch.index_select(cls_targets, 0,
-                indices).view([feat_size, feat_size, -1]))
-            box_targets_out.append(torch.index_select(box_targets, 0,
-                indices).view([feat_size, feat_size, -1]))
+            cls_targets_out.append(torch.index_select(cls_targets, 0, indices).view([feat_size, feat_size, -1]))
+            box_targets_out.append(torch.index_select(box_targets, 0, indices).view([feat_size, feat_size, -1]))
         num_positives = (matches.match_results != -1).float().sum()
         return cls_targets_out, box_targets_out, num_positives
 
@@ -492,27 +462,20 @@ class AnchorLabeler(object):
         anchor_box_list = BoxList(self.anchors.boxes)
         for i in range(batch_size):
             last_sample = i == batch_size - 1
-            cls_targets, _, box_targets, _, matches = (self.target_assigner
-                .assign(anchor_box_list, BoxList(gt_boxes[i]), gt_classes[i]))
+            cls_targets, _, box_targets, _, matches = self.target_assigner.assign(anchor_box_list, BoxList(gt_boxes[i]), gt_classes[i])
             cls_targets -= 1
             cls_targets = cls_targets.long()
             """Unpacks an array of cls/box into multiple scales."""
-            for level in range(self.anchors.min_level, self.anchors.
-                max_level + 1):
+            for level in range(self.anchors.min_level, self.anchors.max_level + 1):
                 level_index = level - self.anchors.min_level
                 feat_size = self.feat_size[level]
                 indices = self._get_indices(cls_targets.device, level)
-                cls_targets_out[level_index].append(torch.index_select(
-                    cls_targets, 0, indices).view([feat_size, feat_size, -1]))
-                box_targets_out[level_index].append(torch.index_select(
-                    box_targets, 0, indices).view([feat_size, feat_size, -1]))
+                cls_targets_out[level_index].append(torch.index_select(cls_targets, 0, indices).view([feat_size, feat_size, -1]))
+                box_targets_out[level_index].append(torch.index_select(box_targets, 0, indices).view([feat_size, feat_size, -1]))
                 if last_sample:
-                    cls_targets_out[level_index] = torch.stack(cls_targets_out
-                        [level_index])
-                    box_targets_out[level_index] = torch.stack(box_targets_out
-                        [level_index])
-            num_positives_out.append((matches.match_results != -1).float().
-                sum())
+                    cls_targets_out[level_index] = torch.stack(cls_targets_out[level_index])
+                    box_targets_out[level_index] = torch.stack(box_targets_out[level_index])
+            num_positives_out.append((matches.match_results != -1).float().sum())
             if last_sample:
                 num_positives_out = torch.stack(num_positives_out)
         return cls_targets_out, box_targets_out, num_positives_out
@@ -524,26 +487,18 @@ class DetBenchTrain(nn.Module):
         super(DetBenchTrain, self).__init__()
         self.config = config
         self.model = model
-        self.anchors = Anchors(config.min_level, config.max_level, config.
-            num_scales, config.aspect_ratios, config.anchor_scale, config.
-            image_size)
-        self.anchor_labeler = AnchorLabeler(self.anchors, config.
-            num_classes, match_threshold=0.5)
+        self.anchors = Anchors(config.min_level, config.max_level, config.num_scales, config.aspect_ratios, config.anchor_scale, config.image_size)
+        self.anchor_labeler = AnchorLabeler(self.anchors, config.num_classes, match_threshold=0.5)
         self.loss_fn = DetectionLoss(self.config)
 
     def forward(self, x, target):
         class_out, box_out = self.model(x)
-        cls_targets, box_targets, num_positives = (self.anchor_labeler.
-            batch_label_anchors(x.shape[0], target['bbox'], target['cls']))
-        loss, class_loss, box_loss = self.loss_fn(class_out, box_out,
-            cls_targets, box_targets, num_positives)
+        cls_targets, box_targets, num_positives = self.anchor_labeler.batch_label_anchors(x.shape[0], target['bbox'], target['cls'])
+        loss, class_loss, box_loss = self.loss_fn(class_out, box_out, cls_targets, box_targets, num_positives)
         output = dict(loss=loss, class_loss=class_loss, box_loss=box_loss)
         if not self.training:
-            class_out, box_out, indices, classes = _post_process(self.
-                config, class_out, box_out)
-            output['detections'] = _batch_detection(x.shape[0], class_out,
-                box_out, self.anchors.boxes, indices, classes, target[
-                'img_scale'], target['img_size'])
+            class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
+            output['detections'] = _batch_detection(x.shape[0], class_out, box_out, self.anchors.boxes, indices, classes, target['img_scale'], target['img_size'])
         return output
 
 
@@ -571,10 +526,7 @@ class SequentialAppendLast(nn.Sequential):
 
 class ResampleFeatureMap(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, reduction_ratio=1.0,
-        pad_type='', pooling_type='max', norm_layer=nn.BatchNorm2d,
-        norm_kwargs=None, apply_bn=False, conv_after_downsample=False,
-        redundant_bias=False):
+    def __init__(self, in_channels, out_channels, reduction_ratio=1.0, pad_type='', pooling_type='max', norm_layer=nn.BatchNorm2d, norm_kwargs=None, apply_bn=False, conv_after_downsample=False, redundant_bias=False):
         super(ResampleFeatureMap, self).__init__()
         pooling_type = pooling_type or 'max'
         self.in_channels = in_channels
@@ -583,17 +535,12 @@ class ResampleFeatureMap(nn.Sequential):
         self.conv_after_downsample = conv_after_downsample
         conv = None
         if in_channels != out_channels:
-            conv = ConvBnAct2d(in_channels, out_channels, kernel_size=1,
-                padding=pad_type, norm_layer=norm_layer if apply_bn else
-                None, norm_kwargs=norm_kwargs, bias=not apply_bn or
-                redundant_bias, act_layer=None)
+            conv = ConvBnAct2d(in_channels, out_channels, kernel_size=1, padding=pad_type, norm_layer=norm_layer if apply_bn else None, norm_kwargs=norm_kwargs, bias=not apply_bn or redundant_bias, act_layer=None)
         if reduction_ratio > 1:
             stride_size = int(reduction_ratio)
             if conv is not None and not self.conv_after_downsample:
                 self.add_module('conv', conv)
-            self.add_module('downsample', create_pool2d(pooling_type,
-                kernel_size=stride_size + 1, stride=stride_size, padding=
-                pad_type))
+            self.add_module('downsample', create_pool2d(pooling_type, kernel_size=stride_size + 1, stride=stride_size, padding=pad_type))
             if conv is not None and self.conv_after_downsample:
                 self.add_module('conv', conv)
         else:
@@ -601,17 +548,12 @@ class ResampleFeatureMap(nn.Sequential):
                 self.add_module('conv', conv)
             if reduction_ratio < 1:
                 scale = int(1 // reduction_ratio)
-                self.add_module('upsample', nn.UpsamplingNearest2d(
-                    scale_factor=scale))
+                self.add_module('upsample', nn.UpsamplingNearest2d(scale_factor=scale))
 
 
 class FpnCombine(nn.Module):
 
-    def __init__(self, feature_info, fpn_config, fpn_channels,
-        inputs_offsets, target_reduction, pad_type='', pooling_type='max',
-        norm_layer=nn.BatchNorm2d, norm_kwargs=None,
-        apply_bn_for_resampling=False, conv_after_downsample=False,
-        redundant_bias=False, weight_method='attn'):
+    def __init__(self, feature_info, fpn_config, fpn_channels, inputs_offsets, target_reduction, pad_type='', pooling_type='max', norm_layer=nn.BatchNorm2d, norm_kwargs=None, apply_bn_for_resampling=False, conv_after_downsample=False, redundant_bias=False, weight_method='attn'):
         super(FpnCombine, self).__init__()
         self.inputs_offsets = inputs_offsets
         self.weight_method = weight_method
@@ -625,15 +567,9 @@ class FpnCombine(nn.Module):
                 node_idx = offset - len(feature_info)
                 input_reduction = fpn_config.nodes[node_idx]['reduction']
             reduction_ratio = target_reduction / input_reduction
-            self.resample[str(offset)] = ResampleFeatureMap(in_channels,
-                fpn_channels, reduction_ratio=reduction_ratio, pad_type=
-                pad_type, pooling_type=pooling_type, norm_layer=norm_layer,
-                norm_kwargs=norm_kwargs, apply_bn=apply_bn_for_resampling,
-                conv_after_downsample=conv_after_downsample, redundant_bias
-                =redundant_bias)
+            self.resample[str(offset)] = ResampleFeatureMap(in_channels, fpn_channels, reduction_ratio=reduction_ratio, pad_type=pad_type, pooling_type=pooling_type, norm_layer=norm_layer, norm_kwargs=norm_kwargs, apply_bn=apply_bn_for_resampling, conv_after_downsample=conv_after_downsample, redundant_bias=redundant_bias)
         if weight_method == 'attn' or weight_method == 'fastattn':
-            self.edge_weights = nn.Parameter(torch.ones(len(inputs_offsets)
-                ), requires_grad=True)
+            self.edge_weights = nn.Parameter(torch.ones(len(inputs_offsets)), requires_grad=True)
         else:
             self.edge_weights = None
 
@@ -645,19 +581,16 @@ class FpnCombine(nn.Module):
             input_node = self.resample[str(offset)](input_node)
             nodes.append(input_node)
         if self.weight_method == 'attn':
-            normalized_weights = torch.softmax(self.edge_weights.type(dtype
-                ), dim=0)
+            normalized_weights = torch.softmax(self.edge_weights.type(dtype), dim=0)
             x = torch.stack(nodes, dim=-1) * normalized_weights
         elif self.weight_method == 'fastattn':
             edge_weights = nn.functional.relu(self.edge_weights.type(dtype))
             weights_sum = torch.sum(edge_weights)
-            x = torch.stack([(nodes[i] * edge_weights[i] / (weights_sum + 
-                0.0001)) for i in range(len(nodes))], dim=-1)
+            x = torch.stack([(nodes[i] * edge_weights[i] / (weights_sum + 0.0001)) for i in range(len(nodes))], dim=-1)
         elif self.weight_method == 'sum':
             x = torch.stack(nodes, dim=-1)
         else:
-            raise ValueError('unknown weight_method {}'.format(self.
-                weight_method))
+            raise ValueError('unknown weight_method {}'.format(self.weight_method))
         x = torch.sum(x, dim=-1)
         return x
 
@@ -665,14 +598,7 @@ class FpnCombine(nn.Module):
 def bifpn_sum_config(base_reduction=8):
     """BiFPN config with sum."""
     p = OmegaConf.create()
-    p.nodes = [{'reduction': base_reduction << 3, 'inputs_offsets': [3, 4]},
-        {'reduction': base_reduction << 2, 'inputs_offsets': [2, 5]}, {
-        'reduction': base_reduction << 1, 'inputs_offsets': [1, 6]}, {
-        'reduction': base_reduction, 'inputs_offsets': [0, 7]}, {
-        'reduction': base_reduction << 1, 'inputs_offsets': [1, 7, 8]}, {
-        'reduction': base_reduction << 2, 'inputs_offsets': [2, 6, 9]}, {
-        'reduction': base_reduction << 3, 'inputs_offsets': [3, 5, 10]}, {
-        'reduction': base_reduction << 4, 'inputs_offsets': [4, 11]}]
+    p.nodes = [{'reduction': base_reduction << 3, 'inputs_offsets': [3, 4]}, {'reduction': base_reduction << 2, 'inputs_offsets': [2, 5]}, {'reduction': base_reduction << 1, 'inputs_offsets': [1, 6]}, {'reduction': base_reduction, 'inputs_offsets': [0, 7]}, {'reduction': base_reduction << 1, 'inputs_offsets': [1, 7, 8]}, {'reduction': base_reduction << 2, 'inputs_offsets': [2, 6, 9]}, {'reduction': base_reduction << 3, 'inputs_offsets': [3, 5, 10]}, {'reduction': base_reduction << 4, 'inputs_offsets': [4, 11]}]
     p.weight_method = 'sum'
     return p
 
@@ -694,8 +620,7 @@ def bifpn_fa_config():
 def get_fpn_config(fpn_name):
     if not fpn_name:
         fpn_name = 'bifpn_fa'
-    name_to_config = {'bifpn_sum': bifpn_sum_config(), 'bifpn_attn':
-        bifpn_attn_config(), 'bifpn_fa': bifpn_fa_config()}
+    name_to_config = {'bifpn_sum': bifpn_sum_config(), 'bifpn_attn': bifpn_attn_config(), 'bifpn_fa': bifpn_fa_config()}
     return name_to_config[fpn_name]
 
 
@@ -706,9 +631,7 @@ def _init_weight(m, n=''):
     def _fan_in_out(w, groups=1):
         dimensions = w.dim()
         if dimensions < 2:
-            raise ValueError(
-                'Fan in and fan out can not be computed for tensor with fewer than 2 dimensions'
-                )
+            raise ValueError('Fan in and fan out can not be computed for tensor with fewer than 2 dimensions')
         num_input_fmaps = w.size(1)
         num_output_fmaps = w.size(0)
         receptive_field_size = 1
@@ -814,66 +737,7 @@ def default_detection_model_configs():
     return h
 
 
-efficientdet_model_param_dict = dict(efficientdet_d0=dict(name=
-    'efficientdet_d0', backbone_name='efficientnet_b0', image_size=512,
-    fpn_channels=64, fpn_cell_repeats=3, box_class_repeats=3, pad_type='',
-    redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''),
-    efficientdet_d1=dict(name='efficientdet_d1', backbone_name=
-    'efficientnet_b1', image_size=640, fpn_channels=88, fpn_cell_repeats=4,
-    box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=
-    dict(drop_path_rate=0.2), url=''), efficientdet_d2=dict(name=
-    'efficientdet_d2', backbone_name='efficientnet_b2', image_size=768,
-    fpn_channels=112, fpn_cell_repeats=5, box_class_repeats=3, pad_type='',
-    redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''),
-    efficientdet_d3=dict(name='efficientdet_d3', backbone_name=
-    'efficientnet_b3', image_size=768, fpn_channels=112, fpn_cell_repeats=5,
-    box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=
-    dict(drop_path_rate=0.2), url=''), mixdet_m=dict(name='mixdet_m',
-    backbone_name='mixnet_m', image_size=512, fpn_channels=64,
-    fpn_cell_repeats=3, box_class_repeats=3, pad_type='', redundant_bias=
-    False, backbone_args=dict(drop_path_rate=0.2), url=''), mixdet_l=dict(
-    name='mixdet_l', backbone_name='mixnet_l', image_size=640, fpn_channels
-    =88, fpn_cell_repeats=4, box_class_repeats=3, pad_type='',
-    redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''),
-    tf_efficientdet_d0=dict(name='tf_efficientdet_d0', backbone_name=
-    'tf_efficientnet_b0', image_size=512, fpn_channels=64, fpn_cell_repeats
-    =3, box_class_repeats=3, backbone_args=dict(drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d0-d92fd44f.pth'
-    ), tf_efficientdet_d1=dict(name='tf_efficientdet_d1', backbone_name=
-    'tf_efficientnet_b1', image_size=640, fpn_channels=88, fpn_cell_repeats
-    =4, box_class_repeats=3, backbone_args=dict(drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d1-4c7ebaf2.pth'
-    ), tf_efficientdet_d2=dict(name='tf_efficientdet_d2', backbone_name=
-    'tf_efficientnet_b2', image_size=768, fpn_channels=112,
-    fpn_cell_repeats=5, box_class_repeats=3, backbone_args=dict(
-    drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d2-cb4ce77d.pth'
-    ), tf_efficientdet_d3=dict(name='tf_efficientdet_d3', backbone_name=
-    'tf_efficientnet_b3', image_size=896, fpn_channels=160,
-    fpn_cell_repeats=6, box_class_repeats=4, backbone_args=dict(
-    drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d3-b0ea2cbc.pth'
-    ), tf_efficientdet_d4=dict(name='tf_efficientdet_d4', backbone_name=
-    'tf_efficientnet_b4', image_size=1024, fpn_channels=224,
-    fpn_cell_repeats=7, box_class_repeats=4, backbone_args=dict(
-    drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d4-5b370b7a.pth'
-    ), tf_efficientdet_d5=dict(name='tf_efficientdet_d5', backbone_name=
-    'tf_efficientnet_b5', image_size=1280, fpn_channels=288,
-    fpn_cell_repeats=7, box_class_repeats=4, backbone_args=dict(
-    drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d5-ef44aea8.pth'
-    ), tf_efficientdet_d6=dict(name='tf_efficientdet_d6', backbone_name=
-    'tf_efficientnet_b6', image_size=1280, fpn_channels=384,
-    fpn_cell_repeats=8, box_class_repeats=5, fpn_name='bifpn_sum',
-    backbone_args=dict(drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d6-51cb0132.pth'
-    ), tf_efficientdet_d7=dict(name='tf_efficientdet_d7', backbone_name=
-    'tf_efficientnet_b6', image_size=1536, fpn_channels=384,
-    fpn_cell_repeats=8, box_class_repeats=5, anchor_scale=5.0, fpn_name=
-    'bifpn_sum', backbone_args=dict(drop_path_rate=0.2), url=
-    'https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d7-f05bf714.pth'
-    ))
+efficientdet_model_param_dict = dict(efficientdet_d0=dict(name='efficientdet_d0', backbone_name='efficientnet_b0', image_size=512, fpn_channels=64, fpn_cell_repeats=3, box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''), efficientdet_d1=dict(name='efficientdet_d1', backbone_name='efficientnet_b1', image_size=640, fpn_channels=88, fpn_cell_repeats=4, box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''), efficientdet_d2=dict(name='efficientdet_d2', backbone_name='efficientnet_b2', image_size=768, fpn_channels=112, fpn_cell_repeats=5, box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''), efficientdet_d3=dict(name='efficientdet_d3', backbone_name='efficientnet_b3', image_size=768, fpn_channels=112, fpn_cell_repeats=5, box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''), mixdet_m=dict(name='mixdet_m', backbone_name='mixnet_m', image_size=512, fpn_channels=64, fpn_cell_repeats=3, box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''), mixdet_l=dict(name='mixdet_l', backbone_name='mixnet_l', image_size=640, fpn_channels=88, fpn_cell_repeats=4, box_class_repeats=3, pad_type='', redundant_bias=False, backbone_args=dict(drop_path_rate=0.2), url=''), tf_efficientdet_d0=dict(name='tf_efficientdet_d0', backbone_name='tf_efficientnet_b0', image_size=512, fpn_channels=64, fpn_cell_repeats=3, box_class_repeats=3, backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d0-d92fd44f.pth'), tf_efficientdet_d1=dict(name='tf_efficientdet_d1', backbone_name='tf_efficientnet_b1', image_size=640, fpn_channels=88, fpn_cell_repeats=4, box_class_repeats=3, backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d1-4c7ebaf2.pth'), tf_efficientdet_d2=dict(name='tf_efficientdet_d2', backbone_name='tf_efficientnet_b2', image_size=768, fpn_channels=112, fpn_cell_repeats=5, box_class_repeats=3, backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d2-cb4ce77d.pth'), tf_efficientdet_d3=dict(name='tf_efficientdet_d3', backbone_name='tf_efficientnet_b3', image_size=896, fpn_channels=160, fpn_cell_repeats=6, box_class_repeats=4, backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d3-b0ea2cbc.pth'), tf_efficientdet_d4=dict(name='tf_efficientdet_d4', backbone_name='tf_efficientnet_b4', image_size=1024, fpn_channels=224, fpn_cell_repeats=7, box_class_repeats=4, backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d4-5b370b7a.pth'), tf_efficientdet_d5=dict(name='tf_efficientdet_d5', backbone_name='tf_efficientnet_b5', image_size=1280, fpn_channels=288, fpn_cell_repeats=7, box_class_repeats=4, backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d5-ef44aea8.pth'), tf_efficientdet_d6=dict(name='tf_efficientdet_d6', backbone_name='tf_efficientnet_b6', image_size=1280, fpn_channels=384, fpn_cell_repeats=8, box_class_repeats=5, fpn_name='bifpn_sum', backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d6-51cb0132.pth'), tf_efficientdet_d7=dict(name='tf_efficientdet_d7', backbone_name='tf_efficientnet_b6', image_size=1536, fpn_channels=384, fpn_cell_repeats=8, box_class_repeats=5, anchor_scale=5.0, fpn_name='bifpn_sum', backbone_args=dict(drop_path_rate=0.2), url='https://github.com/rwightman/efficientdet-pytorch/releases/download/v0.1/tf_efficientdet_d7-f05bf714.pth'))
 
 
 def get_efficientdet_config(model_name='tf_efficientdet_d1'):
@@ -885,19 +749,15 @@ def get_efficientdet_config(model_name='tf_efficientdet_d1'):
 
 def load_pretrained(model, url, filter_fn=None, strict=True):
     if not url:
-        logging.warning(
-            'Pretrained model URL is empty, using random initialization. Did you intend to use a `tf_` variant of the model?'
-            )
+        logging.warning('Pretrained model URL is empty, using random initialization. Did you intend to use a `tf_` variant of the model?')
         return
-    state_dict = load_state_dict_from_url(url, progress=False, map_location
-        ='cpu')
+    state_dict = load_state_dict_from_url(url, progress=False, map_location='cpu')
     if filter_fn is not None:
         state_dict = filter_fn(state_dict)
     model.load_state_dict(state_dict, strict=strict)
 
 
-def create_model(model_name, bench_task='', pretrained=False,
-    checkpoint_path='', **kwargs):
+def create_model(model_name, bench_task='', pretrained=False, checkpoint_path='', **kwargs):
     config = get_efficientdet_config(model_name)
     pretrained_backbone = kwargs.pop('pretrained_backbone', True)
     if pretrained or checkpoint_path:
@@ -905,8 +765,7 @@ def create_model(model_name, bench_task='', pretrained=False,
     redundant_bias = kwargs.pop('redundant_bias', None)
     if redundant_bias is not None:
         config.redundant_bias = redundant_bias
-    model = EfficientDet(config, pretrained_backbone=pretrained_backbone,
-        **kwargs)
+    model = EfficientDet(config, pretrained_backbone=pretrained_backbone, **kwargs)
     if checkpoint_path:
         load_checkpoint(model, checkpoint_path)
     elif pretrained:
@@ -920,18 +779,13 @@ def create_model(model_name, bench_task='', pretrained=False,
 
 class EfficientDet(nn.Module):
 
-    def __init__(self, config, norm_kwargs=None, pretrained_backbone=True,
-        alternate_init=False):
+    def __init__(self, config, norm_kwargs=None, pretrained_backbone=True, alternate_init=False):
         super(EfficientDet, self).__init__()
         norm_kwargs = norm_kwargs or dict(eps=0.001, momentum=0.01)
-        self.backbone = create_model(config.backbone_name, features_only=
-            True, out_indices=(2, 3, 4), pretrained=pretrained_backbone, **
-            config.backbone_args)
-        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction']
-            ) for i, f in enumerate(self.backbone.feature_info())]
+        self.backbone = create_model(config.backbone_name, features_only=True, out_indices=(2, 3, 4), pretrained=pretrained_backbone, **config.backbone_args)
+        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction']) for i, f in enumerate(self.backbone.feature_info())]
         self.fpn = BiFpn(config, feature_info, norm_kwargs=norm_kwargs)
-        self.class_net = HeadNet(config, num_outputs=config.num_classes,
-            norm_kwargs=norm_kwargs)
+        self.class_net = HeadNet(config, num_outputs=config.num_classes, norm_kwargs=norm_kwargs)
         self.box_net = HeadNet(config, num_outputs=4, norm_kwargs=norm_kwargs)
         for n, m in self.named_modules():
             if 'backbone' not in n:
@@ -948,8 +802,7 @@ class EfficientDet(nn.Module):
         return x_class, x_box
 
 
-def huber_loss(input, target, delta: float=1.0, weights: Optional[torch.
-    Tensor]=None, size_average: bool=True):
+def huber_loss(input, target, delta: float=1.0, weights: Optional[torch.Tensor]=None, size_average: bool=True):
     """
     """
     err = input - target
@@ -966,8 +819,7 @@ def _box_loss(box_outputs, box_targets, num_positives, delta: float=0.1):
     """Computes box regression loss."""
     normalizer = num_positives * 4.0
     mask = box_targets != 0.0
-    box_loss = huber_loss(box_targets, box_outputs, weights=mask, delta=
-        delta, size_average=False)
+    box_loss = huber_loss(box_targets, box_outputs, weights=mask, delta=delta, size_average=False)
     box_loss /= normalizer
     return box_loss
 
@@ -994,24 +846,19 @@ def focal_loss(logits, targets, alpha: float, gamma: float, normalizer):
         loss: A float32 scalar representing normalized total loss.
     """
     positive_label_mask = targets == 1.0
-    cross_entropy = F.binary_cross_entropy_with_logits(logits, targets.to(
-        logits.dtype), reduction='none')
+    cross_entropy = F.binary_cross_entropy_with_logits(logits, targets.to(logits.dtype), reduction='none')
     neg_logits = -1.0 * logits
-    modulator = torch.exp(gamma * targets * neg_logits - gamma * torch.
-        log1p(torch.exp(neg_logits)))
+    modulator = torch.exp(gamma * targets * neg_logits - gamma * torch.log1p(torch.exp(neg_logits)))
     loss = modulator * cross_entropy
-    weighted_loss = torch.where(positive_label_mask, alpha * loss, (1.0 -
-        alpha) * loss)
+    weighted_loss = torch.where(positive_label_mask, alpha * loss, (1.0 - alpha) * loss)
     weighted_loss /= normalizer
     return weighted_loss
 
 
-def _classification_loss(cls_outputs, cls_targets, num_positives, alpha:
-    float=0.25, gamma: float=2.0):
+def _classification_loss(cls_outputs, cls_targets, num_positives, alpha: float=0.25, gamma: float=2.0):
     """Computes classification loss."""
     normalizer = num_positives
-    classification_loss = focal_loss(cls_outputs, cls_targets, alpha, gamma,
-        normalizer)
+    classification_loss = focal_loss(cls_outputs, cls_targets, alpha, gamma, normalizer)
     return classification_loss
 
 
@@ -1026,9 +873,7 @@ class DetectionLoss(nn.Module):
         self.delta = config.delta
         self.box_loss_weight = config.box_loss_weight
 
-    def forward(self, cls_outputs: List[torch.Tensor], box_outputs: List[
-        torch.Tensor], cls_targets: List[torch.Tensor], box_targets: List[
-        torch.Tensor], num_positives: torch.Tensor):
+    def forward(self, cls_outputs: List[torch.Tensor], box_outputs: List[torch.Tensor], cls_targets: List[torch.Tensor], box_targets: List[torch.Tensor], num_positives: torch.Tensor):
         """Computes total detection loss.
         Computes total detection loss including box and class loss from all levels.
         Args:
@@ -1059,22 +904,15 @@ class DetectionLoss(nn.Module):
             cls_targets_at_level = cls_targets[l]
             box_targets_at_level = box_targets[l]
             cls_targets_non_neg = cls_targets_at_level >= 0
-            cls_targets_at_level_oh = F.one_hot(cls_targets_at_level *
-                cls_targets_non_neg, self.num_classes)
-            cls_targets_at_level_oh = torch.where(cls_targets_non_neg.
-                unsqueeze(-1), cls_targets_at_level_oh, torch.zeros_like(
-                cls_targets_at_level_oh))
+            cls_targets_at_level_oh = F.one_hot(cls_targets_at_level * cls_targets_non_neg, self.num_classes)
+            cls_targets_at_level_oh = torch.where(cls_targets_non_neg.unsqueeze(-1), cls_targets_at_level_oh, torch.zeros_like(cls_targets_at_level_oh))
             bs, height, width, _, _ = cls_targets_at_level_oh.shape
-            cls_targets_at_level_oh = cls_targets_at_level_oh.view(bs,
-                height, width, -1)
-            cls_loss = _classification_loss(cls_outputs[l].permute(0, 2, 3,
-                1), cls_targets_at_level_oh, num_positives_sum, alpha=self.
-                alpha, gamma=self.gamma)
+            cls_targets_at_level_oh = cls_targets_at_level_oh.view(bs, height, width, -1)
+            cls_loss = _classification_loss(cls_outputs[l].permute(0, 2, 3, 1), cls_targets_at_level_oh, num_positives_sum, alpha=self.alpha, gamma=self.gamma)
             cls_loss = cls_loss.view(bs, height, width, -1, self.num_classes)
             cls_loss *= (cls_targets_at_level != -2).unsqueeze(-1).float()
             cls_losses.append(cls_loss.sum())
-            box_losses.append(_box_loss(box_outputs[l].permute(0, 2, 3, 1),
-                box_targets_at_level, num_positives_sum, delta=self.delta))
+            box_losses.append(_box_loss(box_outputs[l].permute(0, 2, 3, 1), box_targets_at_level, num_positives_sum, delta=self.delta))
         cls_loss = torch.sum(torch.stack(cls_losses, dim=-1), dim=-1)
         box_loss = torch.sum(torch.stack(box_losses, dim=-1), dim=-1)
         total_loss = cls_loss + self.box_loss_weight * box_loss
@@ -1085,14 +923,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResampleFeatureMap,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SequentialAppend,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SequentialAppendLast,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_rwightman_efficientdet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ResampleFeatureMap(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(SequentialAppend(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(SequentialAppendLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

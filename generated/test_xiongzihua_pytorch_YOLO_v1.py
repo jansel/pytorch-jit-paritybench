@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -63,8 +64,7 @@ class VGG(nn.Module):
         super(VGG, self).__init__()
         self.features = features
         self.image_size = image_size
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 1470))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 1470))
         self._initialize_weights()
 
     def forward(self, x):
@@ -92,8 +92,7 @@ class VGG(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -130,8 +129,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -163,18 +161,13 @@ class detnet_bottleneck(nn.Module):
         super(detnet_bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=2, bias=False, dilation=2)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=2, bias=False, dilation=2)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = nn.Sequential()
-        if (stride != 1 or in_planes != self.expansion * planes or 
-            block_type == 'B'):
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+        if stride != 1 or in_planes != self.expansion * planes or block_type == 'B':
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -190,8 +183,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1470):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -200,8 +192,7 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.layer5 = self._make_detnet_layer(in_channels=2048)
-        self.conv_end = nn.Conv2d(256, 30, kernel_size=3, stride=1, padding
-            =1, bias=False)
+        self.conv_end = nn.Conv2d(256, 30, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn_end = nn.BatchNorm2d(30)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -214,9 +205,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -226,12 +215,9 @@ class ResNet(nn.Module):
 
     def _make_detnet_layer(self, in_channels):
         layers = []
-        layers.append(detnet_bottleneck(in_planes=in_channels, planes=256,
-            block_type='B'))
-        layers.append(detnet_bottleneck(in_planes=256, planes=256,
-            block_type='A'))
-        layers.append(detnet_bottleneck(in_planes=256, planes=256,
-            block_type='A'))
+        layers.append(detnet_bottleneck(in_planes=in_channels, planes=256, block_type='B'))
+        layers.append(detnet_bottleneck(in_planes=256, planes=256, block_type='A'))
+        layers.append(detnet_bottleneck(in_planes=256, planes=256, block_type='A'))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -270,10 +256,8 @@ class yoloLoss(nn.Module):
         """
         N = box1.size(0)
         M = box2.size(0)
-        lt = torch.max(box1[:, :2].unsqueeze(1).expand(N, M, 2), box2[:, :2
-            ].unsqueeze(0).expand(N, M, 2))
-        rb = torch.min(box1[:, 2:].unsqueeze(1).expand(N, M, 2), box2[:, 2:
-            ].unsqueeze(0).expand(N, M, 2))
+        lt = torch.max(box1[:, :2].unsqueeze(1).expand(N, M, 2), box2[:, :2].unsqueeze(0).expand(N, M, 2))
+        rb = torch.min(box1[:, 2:].unsqueeze(1).expand(N, M, 2), box2[:, 2:].unsqueeze(0).expand(N, M, 2))
         wh = rb - lt
         wh[wh < 0] = 0
         inter = wh[:, :, (0)] * wh[:, :, (1)]
@@ -333,34 +317,44 @@ class yoloLoss(nn.Module):
         box_pred_response = box_pred[coo_response_mask].view(-1, 5)
         box_target_response_iou = box_target_iou[coo_response_mask].view(-1, 5)
         box_target_response = box_target[coo_response_mask].view(-1, 5)
-        contain_loss = F.mse_loss(box_pred_response[:, (4)],
-            box_target_response_iou[:, (4)], size_average=False)
-        loc_loss = F.mse_loss(box_pred_response[:, :2], box_target_response
-            [:, :2], size_average=False) + F.mse_loss(torch.sqrt(
-            box_pred_response[:, 2:4]), torch.sqrt(box_target_response[:, 2
-            :4]), size_average=False)
+        contain_loss = F.mse_loss(box_pred_response[:, (4)], box_target_response_iou[:, (4)], size_average=False)
+        loc_loss = F.mse_loss(box_pred_response[:, :2], box_target_response[:, :2], size_average=False) + F.mse_loss(torch.sqrt(box_pred_response[:, 2:4]), torch.sqrt(box_target_response[:, 2:4]), size_average=False)
         box_pred_not_response = box_pred[coo_not_response_mask].view(-1, 5)
         box_target_not_response = box_target[coo_not_response_mask].view(-1, 5)
         box_target_not_response[:, (4)] = 0
-        not_contain_loss = F.mse_loss(box_pred_not_response[:, (4)],
-            box_target_not_response[:, (4)], size_average=False)
+        not_contain_loss = F.mse_loss(box_pred_not_response[:, (4)], box_target_not_response[:, (4)], size_average=False)
         class_loss = F.mse_loss(class_pred, class_target, size_average=False)
-        return (self.l_coord * loc_loss + 2 * contain_loss +
-            not_contain_loss + self.l_noobj * nooobj_loss + class_loss) / N
+        return (self.l_coord * loc_loss + 2 * contain_loss + not_contain_loss + self.l_noobj * nooobj_loss + class_loss) / N
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+    (detnet_bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_xiongzihua_pytorch_YOLO_v1(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([25088, 25088])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(detnet_bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

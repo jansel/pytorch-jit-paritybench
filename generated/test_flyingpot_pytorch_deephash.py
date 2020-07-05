@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -51,8 +52,7 @@ class AlexNetPlusLatent(nn.Module):
         super(AlexNetPlusLatent, self).__init__()
         self.bits = bits
         self.features = nn.Sequential(*list(alexnet_model.features.children()))
-        self.remain = nn.Sequential(*list(alexnet_model.classifier.children
-            ())[:-1])
+        self.remain = nn.Sequential(*list(alexnet_model.classifier.children())[:-1])
         self.Linear1 = nn.Linear(4096, self.bits)
         self.sigmoid = nn.Sigmoid()
         self.Linear2 = nn.Linear(self.bits, 10)
@@ -66,10 +66,3 @@ class AlexNetPlusLatent(nn.Module):
         result = self.Linear2(features)
         return features, result
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_flyingpot_pytorch_deephash(_paritybench_base):
-    pass

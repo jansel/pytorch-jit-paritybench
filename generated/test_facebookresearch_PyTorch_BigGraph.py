@@ -65,8 +65,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -196,8 +197,7 @@ class AbstractLossFunction(nn.Module, ABC):
         super().__init__()
 
     @abstractmethod
-    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType
-        ) ->FloatTensorType:
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
         pass
 
 
@@ -255,12 +255,10 @@ class TensorList(object):
 
     @classmethod
     def empty(cls, num_tensors=0):
-        return cls(torch.zeros((), dtype=torch.long).expand((num_tensors + 
-            1,)), torch.empty((0,), dtype=torch.long))
+        return cls(torch.zeros((), dtype=torch.long).expand((num_tensors + 1,)), torch.empty((0,), dtype=torch.long))
 
     def new(self):
-        return type(self)(self.offsets.new_zeros((1,)), self.data.new_empty
-            ((0,)))
+        return type(self)(self.offsets.new_zeros((1,)), self.data.new_empty((0,)))
 
     def __init__(self, offsets, data):
         assert isinstance(offsets, (torch.LongTensor, torch.cuda.LongTensor))
@@ -277,8 +275,7 @@ class TensorList(object):
         if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)):
             offsets_sub = self.offsets[index]
             sizes_sub = self.offsets[index + 1] - offsets_sub
-            new_offsets, new_data = _extract_intervals(offsets_sub,
-                sizes_sub, self.data)
+            new_offsets, new_data = _extract_intervals(offsets_sub, sizes_sub, self.data)
             return TensorList(new_offsets, new_data)
         elif isinstance(index, int):
             if self.offsets[index] != self.offsets[index + 1]:
@@ -299,8 +296,7 @@ class TensorList(object):
     def __eq__(self, other):
         if not isinstance(other, TensorList):
             return NotImplemented
-        return torch.equal(self.offsets, other.offsets) and torch.equal(self
-            .data, other.data)
+        return torch.equal(self.offsets, other.offsets) and torch.equal(self.data, other.data)
 
     def __len__(self):
         return self.offsets.size(0) - 1
@@ -334,8 +330,7 @@ class TensorList(object):
 
     def __repr__(self):
         if self.offsets.nelement() < 100 or self.data.nelement() < 1000:
-            return 'TensorList( [%s] )' % ' , '.join(str(self[i].tolist()) for
-                i in range(len(self)))
+            return 'TensorList( [%s] )' % ' , '.join(str(self[i].tolist()) for i in range(len(self)))
         return 'TensorList{offsets=%s, data=%s}' % (self.offsets, self.data)
 
     def apply(self, F):
@@ -378,12 +373,10 @@ class TensorList(object):
         if dim < 0:
             dim = self.data.ndimension() + dim
         assert dim > 0, "Can't sum along the 'list' dimension"
-        return self.__class__(self.offsets, self.data.sum(dim, keepdim=keepdim)
-            )
+        return self.__class__(self.offsets, self.data.sum(dim, keepdim=keepdim))
 
     def to(self, *args, **kwargs) ->'TensorList':
-        return type(self)(self.offsets.to(*args, **kwargs), self.data.to(*
-            args, **kwargs))
+        return type(self)(self.offsets.to(*args, **kwargs), self.data.to(*args, **kwargs))
 
 
 class EntityList:
@@ -414,63 +407,45 @@ class EntityList:
 
     @classmethod
     def cat(cls, entity_lists: Sequence['EntityList']) ->'EntityList':
-        return cls(torch.cat([el.tensor for el in entity_lists]),
-            TensorList.cat(el.tensor_list for el in entity_lists))
+        return cls(torch.cat([el.tensor for el in entity_lists]), TensorList.cat(el.tensor_list for el in entity_lists))
 
     def __init__(self, tensor: LongTensorType, tensor_list: TensorList) ->None:
         if not isinstance(tensor, (torch.LongTensor, torch.cuda.LongTensor)):
-            raise TypeError(
-                'Expected long tensor as first argument, got %s' % type(tensor)
-                )
+            raise TypeError('Expected long tensor as first argument, got %s' % type(tensor))
         if not isinstance(tensor_list, TensorList):
-            raise TypeError(
-                'Expected tensor list as second argument, got %s' % type(
-                tensor_list))
+            raise TypeError('Expected tensor list as second argument, got %s' % type(tensor_list))
         if tensor.dim() != 1:
-            raise ValueError(
-                'Expected 1-dimensional tensor, got %d-dimensional one' %
-                tensor.dim())
+            raise ValueError('Expected 1-dimensional tensor, got %d-dimensional one' % tensor.dim())
         if tensor.shape[0] != len(tensor_list):
-            raise ValueError(
-                'The tensor and tensor list have different lengths: %d != %d' %
-                (tensor.shape[0], len(tensor_list)))
+            raise ValueError('The tensor and tensor list have different lengths: %d != %d' % (tensor.shape[0], len(tensor_list)))
         self.tensor: LongTensorType = tensor
         self.tensor_list: TensorList = tensor_list
 
     def to_tensor(self) ->LongTensorType:
         if len(self.tensor_list.data) != 0:
-            raise RuntimeError(
-                'Getting the tensor data of an EntityList that also has tensor list data'
-                )
+            raise RuntimeError('Getting the tensor data of an EntityList that also has tensor list data')
         return self.tensor
 
     def to_tensor_list(self) ->TensorList:
         if not self.tensor.eq(-1).all():
-            raise RuntimeError(
-                'Getting the tensor list data of an EntityList that also has tensor data'
-                )
+            raise RuntimeError('Getting the tensor list data of an EntityList that also has tensor data')
         return self.tensor_list
 
     def __eq__(self, other: Any) ->bool:
         if not isinstance(other, EntityList):
             return NotImplemented
-        return torch.equal(self.tensor, other.tensor) and torch.equal(self.
-            tensor_list.offsets, other.tensor_list.offsets) and torch.equal(
-            self.tensor_list.data, other.tensor_list.data)
+        return torch.equal(self.tensor, other.tensor) and torch.equal(self.tensor_list.offsets, other.tensor_list.offsets) and torch.equal(self.tensor_list.data, other.tensor_list.data)
 
     def __str__(self) ->str:
         return repr(self)
 
     def __repr__(self) ->str:
-        return 'EntityList(%r, TensorList(%r, %r))' % (self.tensor, self.
-            tensor_list.offsets, self.tensor_list.data)
+        return 'EntityList(%r, TensorList(%r, %r))' % (self.tensor, self.tensor_list.offsets, self.tensor_list.data)
 
-    def __getitem__(self, index: Union[int, slice, LongTensorType]
-        ) ->'EntityList':
+    def __getitem__(self, index: Union[int, slice, LongTensorType]) ->'EntityList':
         if isinstance(index, int):
             return self[index:index + 1]
-        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)
-            ) or isinstance(index, int):
+        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)) or isinstance(index, int):
             tensor_sub = self.tensor[index]
             tensor_list_sub = self.tensor_list[index]
             return type(self)(tensor_sub, tensor_list_sub)
@@ -487,8 +462,7 @@ class EntityList:
         return self.tensor.shape[0]
 
     def to(self, *args, **kwargs) ->'EntityList':
-        return type(self)(self.tensor.to(*args, **kwargs), self.tensor_list
-            .to(*args, **kwargs))
+        return type(self)(self.tensor.to(*args, **kwargs), self.tensor_list.to(*args, **kwargs))
 
 
 class AbstractEmbedding(nn.Module, ABC):
@@ -547,8 +521,7 @@ class AbstractDynamicOperator(nn.Module, ABC):
         self.num_operations = num_operations
 
     @abstractmethod
-    def forward(self, embeddings: FloatTensorType, operator_idxs:
-        LongTensorType) ->FloatTensorType:
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
         pass
 
 
@@ -593,9 +566,7 @@ class AbstractComparator(nn.Module, ABC):
         pass
 
     @abstractmethod
-    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType,
-        lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[
-        FloatTensorType, FloatTensorType, FloatTensorType]:
+    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
         pass
 
 
@@ -633,8 +604,7 @@ class EdgeList:
 
     @classmethod
     def empty(cls) ->'EdgeList':
-        return cls(EntityList.empty(), EntityList.empty(), torch.empty((0,),
-            dtype=torch.long))
+        return cls(EntityList.empty(), EntityList.empty(), torch.empty((0,), dtype=torch.long))
 
     @classmethod
     def cat(cls, edge_lists: Sequence['EdgeList']) ->'EdgeList':
@@ -644,32 +614,21 @@ class EdgeList:
             rel_types = {el.get_relation_type_as_scalar() for el in edge_lists}
             if len(rel_types) == 1:
                 rel_type, = rel_types
-                return cls(cat_lhs, cat_rhs, torch.tensor(rel_type, dtype=
-                    torch.long))
+                return cls(cat_lhs, cat_rhs, torch.tensor(rel_type, dtype=torch.long))
         cat_rel = torch.cat([el.rel.expand((len(el),)) for el in edge_lists])
         return EdgeList(cat_lhs, cat_rhs, cat_rel)
 
-    def __init__(self, lhs: EntityList, rhs: EntityList, rel: LongTensorType
-        ) ->None:
+    def __init__(self, lhs: EntityList, rhs: EntityList, rel: LongTensorType) ->None:
         if not isinstance(lhs, EntityList) or not isinstance(rhs, EntityList):
-            raise TypeError(
-                'Expected left- and right-hand side to be entity lists, got %s and %s instead'
-                 % (type(lhs), type(rhs)))
+            raise TypeError('Expected left- and right-hand side to be entity lists, got %s and %s instead' % (type(lhs), type(rhs)))
         if not isinstance(rel, (torch.LongTensor, torch.cuda.LongTensor)):
-            raise TypeError('Expected relation to be a long tensor, got %s' %
-                type(rel))
+            raise TypeError('Expected relation to be a long tensor, got %s' % type(rel))
         if len(lhs) != len(rhs):
-            raise ValueError(
-                'The left- and right-hand side entity lists have different lengths: %d != %d'
-                 % (len(lhs), len(rhs)))
+            raise ValueError('The left- and right-hand side entity lists have different lengths: %d != %d' % (len(lhs), len(rhs)))
         if rel.dim() > 1:
-            raise ValueError(
-                'The relation can be either a scalar or a 1-dimensional tensor, got a %d-dimensional tensor'
-                 % rel.dim())
+            raise ValueError('The relation can be either a scalar or a 1-dimensional tensor, got a %d-dimensional tensor' % rel.dim())
         if rel.dim() == 1 and rel.shape[0] != len(lhs):
-            raise ValueError(
-                'The relation has a different length than the entity lists: %d != %d'
-                 % (rel.shape[0], len(lhs)))
+            raise ValueError('The relation has a different length than the entity lists: %d != %d' % (rel.shape[0], len(lhs)))
         self.lhs = lhs
         self.rhs = rhs
         self.rel = rel
@@ -696,8 +655,7 @@ class EdgeList:
     def __eq__(self, other: Any) ->bool:
         if not isinstance(other, EdgeList):
             return NotImplemented
-        return self.lhs == other.lhs and self.rhs == other.rhs and torch.equal(
-            self.rel, other.rel)
+        return self.lhs == other.lhs and self.rhs == other.rhs and torch.equal(self.rel, other.rel)
 
     def __str__(self) ->str:
         return repr(self)
@@ -705,18 +663,11 @@ class EdgeList:
     def __repr__(self) ->str:
         return 'EdgeList(%r, %r, %r)' % (self.lhs, self.rhs, self.rel)
 
-    def __getitem__(self, index: Union[int, slice, LongTensorType]
-        ) ->'EdgeList':
-        if not isinstance(index, (int, slice, (torch.LongTensor, torch.cuda
-            .LongTensor))):
-            raise TypeError(
-                'Index can only be int, slice or long tensor, got %s' %
-                type(index))
-        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)
-            ) and index.dim() != 1:
-            raise ValueError(
-                'Long tensor index must be 1-dimensional, got %d-dimensional' %
-                (index.dim(),))
+    def __getitem__(self, index: Union[int, slice, LongTensorType]) ->'EdgeList':
+        if not isinstance(index, (int, slice, (torch.LongTensor, torch.cuda.LongTensor))):
+            raise TypeError('Index can only be int, slice or long tensor, got %s' % type(index))
+        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)) and index.dim() != 1:
+            raise ValueError('Long tensor index must be 1-dimensional, got %d-dimensional' % (index.dim(),))
         sub_lhs = self.lhs[index]
         sub_rhs = self.rhs[index]
         if self.has_scalar_relation_type():
@@ -729,8 +680,7 @@ class EdgeList:
         return len(self.lhs)
 
     def to(self, *args, **kwargs):
-        return type(self)(self.lhs.to(*args, **kwargs), self.rhs.to(*args,
-            **kwargs), self.rel.to(*args, **kwargs))
+        return type(self)(self.lhs.to(*args, **kwargs), self.rhs.to(*args, **kwargs), self.rel.to(*args, **kwargs))
 
 
 class BucketOrder(Enum):
@@ -811,16 +761,13 @@ class FeaturizedEmbedding(AbstractEmbedding):
     def get(self, input_: TensorList) ->FloatTensorType:
         if input_.size(0) == 0:
             return torch.empty((0, self.weight.size(1)))
-        return F.embedding_bag(input_.data.long(), self.weight, input_.
-            offsets[:-1], max_norm=self.max_norm, sparse=True)
+        return F.embedding_bag(input_.data.long(), self.weight, input_.offsets[:-1], max_norm=self.max_norm, sparse=True)
 
     def get_all_entities(self) ->FloatTensorType:
-        raise NotImplementedError(
-            'Cannot list all entities for featurized entities')
+        raise NotImplementedError('Cannot list all entities for featurized entities')
 
     def sample_entities(self, *dims: int) ->FloatTensorType:
-        raise NotImplementedError(
-            'Cannot sample entities for featurized entities.')
+        raise NotImplementedError('Cannot sample entities for featurized entities.')
 
 
 Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
@@ -851,24 +798,20 @@ class SimpleEmbedding(AbstractEmbedding):
         return self.get(input_.to_tensor())
 
     def get(self, input_: LongTensorType) ->FloatTensorType:
-        return F.embedding(input_, self.weight, max_norm=self.max_norm,
-            sparse=True)
+        return F.embedding(input_, self.weight, max_norm=self.max_norm, sparse=True)
 
     def get_all_entities(self) ->FloatTensorType:
-        return self.get(torch.arange(self.weight.size(0), dtype=torch.long,
-            device=self.weight.device))
+        return self.get(torch.arange(self.weight.size(0), dtype=torch.long, device=self.weight.device))
 
     def sample_entities(self, *dims: int) ->FloatTensorType:
-        return self.get(torch.randint(low=0, high=self.weight.size(0), size
-            =dims, device=self.weight.device))
+        return self.get(torch.randint(low=0, high=self.weight.size(0), size=dims, device=self.weight.device))
 
 
 def ceil_of_ratio(num: int, den: int) ->int:
     return (num - 1) // den + 1
 
 
-def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(
-    Ellipsis)]) ->Union[None, int, Tuple[int, ...]]:
+def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]) ->Union[None, int, Tuple[int, ...]]:
     """Compare the given tensor's shape with what you expect it to be.
 
     This function serves two goals: it can be used both to assert that the size
@@ -903,24 +846,19 @@ def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(
 
     """
     if not all(isinstance(d, int) or d is Ellipsis for d in expected_shape):
-        raise RuntimeError("Some arguments aren't ints or ellipses: %s" % (
-            expected_shape,))
+        raise RuntimeError("Some arguments aren't ints or ellipses: %s" % (expected_shape,))
     actual_shape = tensor.size()
-    error = TypeError("Shape doesn't match: (%s) != (%s)" % (', '.join('%d' %
-        d for d in actual_shape), ', '.join('...' if d is Ellipsis else '*' if
-        d < 0 else '%d' % d for d in expected_shape)))
+    error = TypeError("Shape doesn't match: (%s) != (%s)" % (', '.join('%d' % d for d in actual_shape), ', '.join('...' if d is Ellipsis else '*' if d < 0 else '%d' % d for d in expected_shape)))
     if Ellipsis not in expected_shape:
         if len(actual_shape) != len(expected_shape):
             raise error
     else:
         if expected_shape.count(Ellipsis) > 1:
-            raise RuntimeError('Two or more ellipses in %s' % (tuple(
-                expected_shape),))
+            raise RuntimeError('Two or more ellipses in %s' % (tuple(expected_shape),))
         if len(actual_shape) < len(expected_shape) - 1:
             raise error
         pos = expected_shape.index(Ellipsis)
-        expected_shape = expected_shape[:pos] + actual_shape[pos:pos + 1 -
-            len(expected_shape)] + expected_shape[pos + 1:]
+        expected_shape = expected_shape[:pos] + actual_shape[pos:pos + 1 - len(expected_shape)] + expected_shape[pos + 1:]
     unknown_dims: List[int] = []
     for actual_dim, expected_dim in zip(actual_shape, expected_shape):
         if expected_dim < 0:
@@ -934,10 +872,3 @@ def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(
         return unknown_dims[0]
     return tuple(unknown_dims)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_facebookresearch_PyTorch_BigGraph(_paritybench_base):
-    pass

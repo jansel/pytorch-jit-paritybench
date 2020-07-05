@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -184,10 +185,7 @@ class ActorCritic(nn.Module):
             s_prime_lst.append(s_prime)
             done_mask = 0.0 if done else 1.0
             done_lst.append([done_mask])
-        s_batch, a_batch, r_batch, s_prime_batch, done_batch = torch.tensor(
-            s_lst, dtype=torch.float), torch.tensor(a_lst), torch.tensor(r_lst,
-            dtype=torch.float), torch.tensor(s_prime_lst, dtype=torch.float
-            ), torch.tensor(done_lst, dtype=torch.float)
+        s_batch, a_batch, r_batch, s_prime_batch, done_batch = torch.tensor(s_lst, dtype=torch.float), torch.tensor(a_lst), torch.tensor(r_lst, dtype=torch.float), torch.tensor(s_prime_lst, dtype=torch.float), torch.tensor(done_lst, dtype=torch.float)
         self.data = []
         return s_batch, a_batch, r_batch, s_prime_batch, done_batch
 
@@ -197,8 +195,7 @@ class ActorCritic(nn.Module):
         delta = td_target - self.v(s)
         pi = self.pi(s, softmax_dim=1)
         pi_a = pi.gather(1, a)
-        loss = -torch.log(pi_a) * delta.detach() + F.smooth_l1_loss(self.v(
-            s), td_target.detach())
+        loss = -torch.log(pi_a) * delta.detach() + F.smooth_l1_loss(self.v(s), td_target.detach())
         self.optimizer.zero_grad()
         loss.mean().backward()
         self.optimizer.step()
@@ -299,8 +296,7 @@ class PPO(nn.Module):
         self.data.append(transition)
 
     def make_batch(self):
-        (s_lst, a_lst, r_lst, s_prime_lst, prob_a_lst, h_in_lst, h_out_lst,
-            done_lst) = [], [], [], [], [], [], [], []
+        s_lst, a_lst, r_lst, s_prime_lst, prob_a_lst, h_in_lst, h_out_lst, done_lst = [], [], [], [], [], [], [], []
         for transition in self.data:
             s, a, r, s_prime, prob_a, h_in, h_out, done = transition
             s_lst.append(s)
@@ -312,16 +308,12 @@ class PPO(nn.Module):
             h_out_lst.append(h_out)
             done_mask = 0 if done else 1
             done_lst.append([done_mask])
-        s, a, r, s_prime, done_mask, prob_a = torch.tensor(s_lst, dtype=
-            torch.float), torch.tensor(a_lst), torch.tensor(r_lst
-            ), torch.tensor(s_prime_lst, dtype=torch.float), torch.tensor(
-            done_lst, dtype=torch.float), torch.tensor(prob_a_lst)
+        s, a, r, s_prime, done_mask, prob_a = torch.tensor(s_lst, dtype=torch.float), torch.tensor(a_lst), torch.tensor(r_lst), torch.tensor(s_prime_lst, dtype=torch.float), torch.tensor(done_lst, dtype=torch.float), torch.tensor(prob_a_lst)
         self.data = []
         return s, a, r, s_prime, done_mask, prob_a, h_in_lst[0], h_out_lst[0]
 
     def train_net(self):
-        s, a, r, s_prime, done_mask, prob_a, (h1_in, h2_in), (h1_out, h2_out
-            ) = self.make_batch()
+        s, a, r, s_prime, done_mask, prob_a, (h1_in, h2_in), (h1_out, h2_out) = self.make_batch()
         first_hidden = h1_in.detach(), h2_in.detach()
         second_hidden = h1_out.detach(), h2_out.detach()
         for i in range(K_epoch):
@@ -342,8 +334,7 @@ class PPO(nn.Module):
             ratio = torch.exp(torch.log(pi_a) - torch.log(prob_a))
             surr1 = ratio * advantage
             surr2 = torch.clamp(ratio, 1 - eps_clip, 1 + eps_clip) * advantage
-            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(v_s,
-                td_target.detach())
+            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(v_s, td_target.detach())
             self.optimizer.zero_grad()
             loss.mean().backward(retain_graph=True)
             self.optimizer.step()
@@ -374,8 +365,7 @@ class PPO(nn.Module):
         self.data.append(transition)
 
     def make_batch(self):
-        s_lst, a_lst, r_lst, s_prime_lst, prob_a_lst, done_lst = [], [], [], [
-            ], [], []
+        s_lst, a_lst, r_lst, s_prime_lst, prob_a_lst, done_lst = [], [], [], [], [], []
         for transition in self.data:
             s, a, r, s_prime, prob_a, done = transition
             s_lst.append(s)
@@ -385,10 +375,7 @@ class PPO(nn.Module):
             prob_a_lst.append([prob_a])
             done_mask = 0 if done else 1
             done_lst.append([done_mask])
-        s, a, r, s_prime, done_mask, prob_a = torch.tensor(s_lst, dtype=
-            torch.float), torch.tensor(a_lst), torch.tensor(r_lst
-            ), torch.tensor(s_prime_lst, dtype=torch.float), torch.tensor(
-            done_lst, dtype=torch.float), torch.tensor(prob_a_lst)
+        s, a, r, s_prime, done_mask, prob_a = torch.tensor(s_lst, dtype=torch.float), torch.tensor(a_lst), torch.tensor(r_lst), torch.tensor(s_prime_lst, dtype=torch.float), torch.tensor(done_lst, dtype=torch.float), torch.tensor(prob_a_lst)
         self.data = []
         return s, a, r, s_prime, done_mask, prob_a
 
@@ -410,8 +397,7 @@ class PPO(nn.Module):
             ratio = torch.exp(torch.log(pi_a) - torch.log(prob_a))
             surr1 = ratio * advantage
             surr2 = torch.clamp(ratio, 1 - eps_clip, 1 + eps_clip) * advantage
-            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.v(s),
-                td_target.detach())
+            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.v(s), td_target.detach())
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
@@ -421,17 +407,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MuNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (Policy,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (QNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3]), torch.rand([3, 1])], {}),
+     True),
+    (Qnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_seungeunrho_minimalRL(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MuNet(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Policy(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(QNet(*[], **{}), [torch.rand([3, 3]), torch.rand([3, 1])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Qnet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

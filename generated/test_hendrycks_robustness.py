@@ -40,8 +40,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -112,10 +113,8 @@ class _DenseLayer(nn.Module):
         super(_DenseLayer, self).__init__()
         self.group_1x1 = args.group_1x1
         self.group_3x3 = args.group_3x3
-        self.conv_1 = CondenseConv(in_channels, args.bottleneck *
-            growth_rate, kernel_size=1, groups=self.group_1x1)
-        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate,
-            kernel_size=3, padding=1, groups=self.group_3x3)
+        self.conv_1 = CondenseConv(in_channels, args.bottleneck * growth_rate, kernel_size=1, groups=self.group_1x1)
+        self.conv_2 = Conv(args.bottleneck * growth_rate, growth_rate, kernel_size=3, padding=1, groups=self.group_3x3)
 
     def forward(self, x):
         x_ = x
@@ -129,8 +128,7 @@ class _DenseBlock(nn.Sequential):
     def __init__(self, num_layers, in_channels, growth_rate, args):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate,
-                args)
+            layer = _DenseLayer(in_channels + i * growth_rate, growth_rate, args)
             self.add_module('denselayer_%d' % (i + 1), layer)
 
 
@@ -162,13 +160,10 @@ class CondenseNet(nn.Module):
             self.pool_size = 7
         self.features = nn.Sequential()
         self.num_features = 2 * self.growth[0]
-        self.features.add_module('init_conv', nn.Conv2d(3, self.
-            num_features, kernel_size=3, stride=self.init_stride, padding=1,
-            bias=False))
+        self.features.add_module('init_conv', nn.Conv2d(3, self.num_features, kernel_size=3, stride=self.init_stride, padding=1, bias=False))
         for i in range(len(self.stages)):
             self.add_block(i)
-        self.classifier = CondenseLinear(self.num_features, args.
-            num_classes, 0.5)
+        self.classifier = CondenseLinear(self.num_features, args.num_classes, 0.5)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -181,16 +176,14 @@ class CondenseNet(nn.Module):
 
     def add_block(self, i):
         last = i == len(self.stages) - 1
-        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.
-            num_features, growth_rate=self.growth[i], args=self.args)
+        block = _DenseBlock(num_layers=self.stages[i], in_channels=self.num_features, growth_rate=self.growth[i], args=self.args)
         self.features.add_module('denseblock_%d' % (i + 1), block)
         self.num_features += self.stages[i] * self.growth[i]
         if not last:
             trans = _Transition(in_channels=self.num_features, args=self.args)
             self.features.add_module('transition_%d' % (i + 1), trans)
         else:
-            self.features.add_module('norm_last', nn.BatchNorm2d(self.
-                num_features))
+            self.features.add_module('norm_last', nn.BatchNorm2d(self.num_features))
             self.features.add_module('relu_last', nn.ReLU(inplace=True))
             self.features.add_module('pool_last', nn.AvgPool2d(self.pool_size))
 
@@ -217,17 +210,14 @@ class LambdaBase(nn.Sequential):
 class LearnedGroupConv(nn.Module):
     global_progress = 0.0
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, condense_factor=None, dropout_rate=0.0
-        ):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, condense_factor=None, dropout_rate=0.0):
         super(LearnedGroupConv, self).__init__()
         self.norm = nn.BatchNorm2d(in_channels)
         self.relu = nn.ReLU(inplace=True)
         self.dropout_rate = dropout_rate
         if self.dropout_rate > 0:
             self.drop = nn.Dropout(dropout_rate, inplace=False)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups=1, bias=False)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups=1, bias=False)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.groups = groups
@@ -248,8 +238,7 @@ class LearnedGroupConv(nn.Module):
         if self.dropout_rate > 0:
             x = self.drop(x)
         weight = self.conv.weight * self.mask
-        return F.conv2d(x, weight, None, self.conv.stride, self.conv.
-            padding, self.conv.dilation, 1)
+        return F.conv2d(x, weight, None, self.conv.stride, self.conv.padding, self.conv.dilation, 1)
 
     def _check_drop(self):
         progress = LearnedGroupConv.global_progress
@@ -354,36 +343,27 @@ class CondensingConv(nn.Module):
 
     def __init__(self, model):
         super(CondensingConv, self).__init__()
-        self.in_channels = (model.conv.in_channels * model.groups // model.
-            condense_factor)
+        self.in_channels = model.conv.in_channels * model.groups // model.condense_factor
         self.out_channels = model.conv.out_channels
         self.groups = model.groups
         self.condense_factor = model.condense_factor
         self.norm = nn.BatchNorm2d(self.in_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(self.in_channels, self.out_channels,
-            kernel_size=model.conv.kernel_size, padding=model.conv.padding,
-            groups=self.groups, bias=False, stride=model.conv.stride)
+        self.conv = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=model.conv.kernel_size, padding=model.conv.padding, groups=self.groups, bias=False, stride=model.conv.stride)
         self.register_buffer('index', torch.LongTensor(self.in_channels))
         index = 0
         mask = model._mask.mean(-1).mean(-1)
         for i in range(self.groups):
             for j in range(model.conv.in_channels):
-                if index < self.in_channels // self.groups * (i + 1) and mask[
-                    i, j] == 1:
+                if index < self.in_channels // self.groups * (i + 1) and mask[i, j] == 1:
                     for k in range(self.out_channels // self.groups):
                         idx_i = int(k + i * (self.out_channels // self.groups))
                         idx_j = index % (self.in_channels // self.groups)
-                        self.conv.weight.data[(idx_i), (idx_j), :, :
-                            ] = model.conv.weight.data[(int(i + k * self.
-                            groups)), (j), :, :]
-                        self.norm.weight.data[index] = model.norm.weight.data[j
-                            ]
+                        self.conv.weight.data[(idx_i), (idx_j), :, :] = model.conv.weight.data[(int(i + k * self.groups)), (j), :, :]
+                        self.norm.weight.data[index] = model.norm.weight.data[j]
                         self.norm.bias.data[index] = model.norm.bias.data[j]
-                        self.norm.running_mean[index
-                            ] = model.norm.running_mean[j]
-                        self.norm.running_var[index] = model.norm.running_var[j
-                            ]
+                        self.norm.running_mean[index] = model.norm.running_mean[j]
+                        self.norm.running_var[index] = model.norm.running_var[j]
                     self.index[index] = j
                     index += 1
 
@@ -413,17 +393,14 @@ class CondenseLinear(nn.Module):
 
 class CondenseConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
         super(CondenseConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.groups = groups
         self.norm = nn.BatchNorm2d(self.in_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(self.in_channels, self.out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, groups
-            =self.groups, bias=False)
+        self.conv = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=self.groups, bias=False)
         self.register_buffer('index', torch.LongTensor(self.in_channels))
         self.index.fill_(0)
 
@@ -438,14 +415,11 @@ class CondenseConv(nn.Module):
 
 class Conv(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, groups=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
         super(Conv, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(in_channels))
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(in_channels, out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, bias=
-            False, groups=groups))
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False, groups=groups))
 
 
 class LambdaBase(nn.Sequential):
@@ -506,14 +480,12 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.drop_rate = drop_rate
         self.bn = nn.BatchNorm2d(in_channels)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
         y = self.conv(F.relu(self.bn(x), inplace=True))
         if self.drop_rate > 0:
-            y = F.dropout(y, p=self.drop_rate, training=self.training,
-                inplace=False)
+            y = F.dropout(y, p=self.drop_rate, training=self.training, inplace=False)
         return torch.cat([x, y], dim=1)
 
 
@@ -524,21 +496,17 @@ class BottleneckBlock(nn.Module):
         self.drop_rate = drop_rate
         bottleneck_channels = out_channels * 4
         self.bn1 = nn.BatchNorm2d(in_channels)
-        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels,
-            kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv2 = nn.Conv2d(bottleneck_channels, out_channels,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def forward(self, x):
         y = self.conv1(F.relu(self.bn1(x), inplace=True))
         if self.drop_rate > 0:
-            y = F.dropout(y, p=self.drop_rate, training=self.training,
-                inplace=False)
+            y = F.dropout(y, p=self.drop_rate, training=self.training, inplace=False)
         y = self.conv2(F.relu(self.bn2(y), inplace=True))
         if self.drop_rate > 0:
-            y = F.dropout(y, p=self.drop_rate, training=self.training,
-                inplace=False)
+            y = F.dropout(y, p=self.drop_rate, training=self.training, inplace=False)
         return torch.cat([x, y], dim=1)
 
 
@@ -548,14 +516,12 @@ class TransitionBlock(nn.Module):
         super(TransitionBlock, self).__init__()
         self.drop_rate = drop_rate
         self.bn = nn.BatchNorm2d(in_channels)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1,
-            stride=1, padding=0, bias=False)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, x):
         x = self.conv(F.relu(self.bn(x), inplace=True))
         if self.drop_rate > 0:
-            x = F.dropout(x, p=self.drop_rate, training=self.training,
-                inplace=False)
+            x = F.dropout(x, p=self.drop_rate, training=self.training, inplace=False)
         x = F.avg_pool2d(x, kernel_size=2, stride=2)
         return x
 
@@ -592,38 +558,29 @@ class DenseNet(nn.Module):
             assert n_blocks_per_stage * 6 + 4 == depth
         in_channels = [2 * self.growth_rate]
         for index in range(3):
-            denseblock_out_channels = int(in_channels[-1] + 
-                n_blocks_per_stage * self.growth_rate)
+            denseblock_out_channels = int(in_channels[-1] + n_blocks_per_stage * self.growth_rate)
             if index < 2:
-                transitionblock_out_channels = int(denseblock_out_channels *
-                    self.compression_rate)
+                transitionblock_out_channels = int(denseblock_out_channels * self.compression_rate)
             else:
                 transitionblock_out_channels = denseblock_out_channels
             in_channels.append(transitionblock_out_channels)
-        self.conv = nn.Conv2d(input_shape[1], in_channels[0], kernel_size=3,
-            stride=1, padding=1, bias=False)
-        self.stage1 = self._make_stage(in_channels[0], n_blocks_per_stage,
-            block, True)
-        self.stage2 = self._make_stage(in_channels[1], n_blocks_per_stage,
-            block, True)
-        self.stage3 = self._make_stage(in_channels[2], n_blocks_per_stage,
-            block, False)
+        self.conv = nn.Conv2d(input_shape[1], in_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.stage1 = self._make_stage(in_channels[0], n_blocks_per_stage, block, True)
+        self.stage2 = self._make_stage(in_channels[1], n_blocks_per_stage, block, True)
+        self.stage3 = self._make_stage(in_channels[2], n_blocks_per_stage, block, False)
         self.bn = nn.BatchNorm2d(in_channels[3])
-        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(
-            -1).shape[0]
+        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
         self.fc = nn.Linear(self.feature_size, n_classes)
         self.apply(initialize_weights)
 
     def _make_stage(self, in_channels, n_blocks, block, add_transition_block):
         stage = nn.Sequential()
         for index in range(n_blocks):
-            stage.add_module('block{}'.format(index + 1), block(in_channels +
-                index * self.growth_rate, self.growth_rate, self.drop_rate))
+            stage.add_module('block{}'.format(index + 1), block(in_channels + index * self.growth_rate, self.growth_rate, self.drop_rate))
         if add_transition_block:
             in_channels = int(in_channels + n_blocks * self.growth_rate)
             out_channels = int(in_channels * self.compression_rate)
-            stage.add_module('transition', TransitionBlock(in_channels,
-                out_channels, self.drop_rate))
+            stage.add_module('transition', TransitionBlock(in_channels, out_channels, self.drop_rate))
         return stage
 
     def _forward_conv(self, x):
@@ -693,8 +650,7 @@ def get_conv_params(use_gcn, args):
 
 class MSDLayer(nn.Module):
 
-    def __init__(self, in_channels, out_channels, in_scales, out_scales,
-        orig_scales, args):
+    def __init__(self, in_channels, out_channels, in_scales, out_scales, orig_scales, args):
         """
         Creates a regular/transition MSDLayer. this layer uses DenseNet like concatenation on each scale,
         and performs spatial reduction between scales. if input and output scales are different, than this
@@ -731,39 +687,27 @@ class MSDLayer(nn.Module):
         """
         subnets = nn.ModuleList()
         if self.to_drop:
-            in_channels1 = self.current_channels * self.growth_factor[self.
-                dropped - 1]
-            in_channels2 = self.current_channels * self.growth_factor[self.
-                dropped]
+            in_channels1 = self.current_channels * self.growth_factor[self.dropped - 1]
+            in_channels2 = self.current_channels * self.growth_factor[self.dropped]
             out_channels = self.out_channels * self.growth_factor[self.dropped]
             bn_width1 = self.bottleneck_factor[self.dropped - 1]
             bn_width2 = self.bottleneck_factor[self.dropped]
-            subnets.append(self.build_down_densenet(in_channels1,
-                in_channels2, out_channels, self.bottleneck, bn_width1,
-                bn_width2))
+            subnets.append(self.build_down_densenet(in_channels1, in_channels2, out_channels, self.bottleneck, bn_width1, bn_width2))
         else:
-            in_channels = self.current_channels * self.growth_factor[self.
-                dropped]
+            in_channels = self.current_channels * self.growth_factor[self.dropped]
             out_channels = self.out_channels * self.growth_factor[self.dropped]
             bn_width = self.bottleneck_factor[self.dropped]
-            subnets.append(self.build_densenet(in_channels, out_channels,
-                self.bottleneck, bn_width))
+            subnets.append(self.build_densenet(in_channels, out_channels, self.bottleneck, bn_width))
         for scale in range(1, self.out_scales):
-            in_channels1 = self.current_channels * self.growth_factor[self.
-                dropped + scale - 1]
-            in_channels2 = self.current_channels * self.growth_factor[self.
-                dropped + scale]
-            out_channels = self.out_channels * self.growth_factor[self.
-                dropped + scale]
+            in_channels1 = self.current_channels * self.growth_factor[self.dropped + scale - 1]
+            in_channels2 = self.current_channels * self.growth_factor[self.dropped + scale]
+            out_channels = self.out_channels * self.growth_factor[self.dropped + scale]
             bn_width1 = self.bottleneck_factor[self.dropped + scale - 1]
             bn_width2 = self.bottleneck_factor[self.dropped + scale]
-            subnets.append(self.build_down_densenet(in_channels1,
-                in_channels2, out_channels, self.bottleneck, bn_width1,
-                bn_width2))
+            subnets.append(self.build_down_densenet(in_channels1, in_channels2, out_channels, self.bottleneck, bn_width1, bn_width2))
         return subnets
 
-    def build_down_densenet(self, in_channels1, in_channels2, out_channels,
-        bottleneck, bn_width1, bn_width2):
+    def build_down_densenet(self, in_channels1, in_channels2, out_channels, bottleneck, bn_width1, bn_width2):
         """
         Builds a scale sub-network for scales 2 and up.
 
@@ -775,10 +719,8 @@ class MSDLayer(nn.Module):
         :param bn_width2: The first input width of the bottleneck factor
         :return: A scale module
         """
-        conv_module1 = self.convolve(in_channels1, int(out_channels / 2),
-            'down', bottleneck, bn_width1)
-        conv_module2 = self.convolve(in_channels2, int(out_channels / 2),
-            'normal', bottleneck, bn_width2)
+        conv_module1 = self.convolve(in_channels1, int(out_channels / 2), 'down', bottleneck, bn_width1)
+        conv_module2 = self.convolve(in_channels2, int(out_channels / 2), 'normal', bottleneck, bn_width2)
         conv_modules = [conv_module1, conv_module2]
         return _DynamicInputDenseBlock(nn.ModuleList(conv_modules), self.debug)
 
@@ -792,13 +734,10 @@ class MSDLayer(nn.Module):
         :param bn_width: The width of the bottleneck factor
         :return: A scale module
         """
-        conv_module = self.convolve(in_channels, out_channels, 'normal',
-            bottleneck, bn_width)
-        return _DynamicInputDenseBlock(nn.ModuleList([conv_module]), self.debug
-            )
+        conv_module = self.convolve(in_channels, out_channels, 'normal', bottleneck, bn_width)
+        return _DynamicInputDenseBlock(nn.ModuleList([conv_module]), self.debug)
 
-    def convolve(self, in_channels, out_channels, conv_type, bottleneck,
-        bn_width=4):
+    def convolve(self, in_channels, out_channels, conv_type, bottleneck, bn_width=4):
         """
         Doing the main convolution of a specific scale in the
         MSD network
@@ -814,16 +753,13 @@ class MSDLayer(nn.Module):
         tmp_channels = in_channels
         if bottleneck:
             tmp_channels = int(min([in_channels, bn_width * out_channels]))
-            conv.add_module('Bottleneck_1x1', nn.Conv2d(in_channels,
-                tmp_channels, kernel_size=1, stride=1, padding=0))
+            conv.add_module('Bottleneck_1x1', nn.Conv2d(in_channels, tmp_channels, kernel_size=1, stride=1, padding=0))
             conv.add_module('Bottleneck_BN', nn.BatchNorm2d(tmp_channels))
             conv.add_module('Bottleneck_ReLU', nn.ReLU(inplace=True))
         if conv_type == 'normal':
-            conv.add_module('Spatial_forward', self.conv_l(tmp_channels,
-                out_channels, kernel_size=self.ks, stride=1, padding=self.pad))
+            conv.add_module('Spatial_forward', self.conv_l(tmp_channels, out_channels, kernel_size=self.ks, stride=1, padding=self.pad))
         elif conv_type == 'down':
-            conv.add_module('Spatial_down', self.conv_l(tmp_channels,
-                out_channels, kernel_size=self.ks, stride=2, padding=self.pad))
+            conv.add_module('Spatial_down', self.conv_l(tmp_channels, out_channels, kernel_size=self.ks, stride=2, padding=self.pad))
         else:
             raise NotImplementedError
         conv.add_module('BN_out', nn.BatchNorm2d(out_channels))
@@ -837,15 +773,13 @@ class MSDLayer(nn.Module):
             for scale in range(0, self.out_scales):
                 last_same_scale = x[self.to_drop + scale]
                 last_upper_scale = x[self.to_drop + scale - 1]
-                cur_input.append([last_same_scale, last_upper_scale,
-                    last_same_scale])
+                cur_input.append([last_same_scale, last_upper_scale, last_same_scale])
         else:
             cur_input.append([x[0], x[0]])
             for scale in range(1, self.out_scales):
                 last_same_scale = x[scale]
                 last_upper_scale = x[scale - 1]
-                cur_input.append([last_same_scale, last_upper_scale,
-                    last_same_scale])
+                cur_input.append([last_same_scale, last_upper_scale, last_same_scale])
         for scale in range(0, self.out_scales):
             outputs.append(self.subnets[scale](cur_input[scale]))
         return outputs
@@ -880,21 +814,14 @@ class MSDFirstLayer(nn.Module):
     def create_modules(self):
         modules = nn.ModuleList()
         if 'cifar' in self.args.data:
-            current_channels = int(self.out_channels * self.args.
-                msd_growth_factor[0])
-            current_m = nn.Sequential(self.conv_l(self.in_channels,
-                current_channels, kernel_size=self.ks, stride=1, padding=
-                self.pad), nn.BatchNorm2d(current_channels), nn.ReLU(
-                inplace=True))
+            current_channels = int(self.out_channels * self.args.msd_growth_factor[0])
+            current_m = nn.Sequential(self.conv_l(self.in_channels, current_channels, kernel_size=self.ks, stride=1, padding=self.pad), nn.BatchNorm2d(current_channels), nn.ReLU(inplace=True))
             modules.append(current_m)
         else:
             raise NotImplementedError
         for scale in range(1, self.num_scales):
-            out_channels = int(self.out_channels * self.args.
-                msd_growth_factor[scale])
-            current_m = nn.Sequential(self.conv_l(current_channels,
-                out_channels, kernel_size=self.ks, stride=2, padding=self.
-                pad), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+            out_channels = int(self.out_channels * self.args.msd_growth_factor[scale])
+            current_m = nn.Sequential(self.conv_l(current_channels, out_channels, kernel_size=self.ks, stride=2, padding=self.pad), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
             current_channels = out_channels
             modules.append(current_m)
         return modules
@@ -911,8 +838,7 @@ class MSDFirstLayer(nn.Module):
 
 class Transition(nn.Sequential):
 
-    def __init__(self, channels_in, channels_out, out_scales, offset,
-        growth_factor, args):
+    def __init__(self, channels_in, channels_out, out_scales, offset, growth_factor, args):
         """
         Performs 1x1 convolution to increase channels size after reducing a spatial size reduction
         in transition layer.
@@ -941,9 +867,7 @@ class Transition(nn.Sequential):
         :param out_channels: number of output channels
         :return: A Sequential module to perform 1x1 convolution
         """
-        scale = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(
-            out_channels), nn.ReLU(inplace=True))
+        scale = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
         return scale
 
     def forward(self, x):
@@ -975,12 +899,7 @@ class CifarClassifier(nn.Module):
         """
         super(CifarClassifier, self).__init__()
         self.inner_channels = 128
-        self.features = nn.Sequential(nn.Conv2d(num_channels, self.
-            inner_channels, kernel_size=3, stride=2, padding=1), nn.
-            BatchNorm2d(self.inner_channels), nn.ReLU(inplace=True), nn.
-            Conv2d(self.inner_channels, self.inner_channels, kernel_size=3,
-            stride=2, padding=1), nn.BatchNorm2d(self.inner_channels), nn.
-            ReLU(inplace=True), nn.AvgPool2d(2, 2))
+        self.features = nn.Sequential(nn.Conv2d(num_channels, self.inner_channels, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(self.inner_channels), nn.ReLU(inplace=True), nn.Conv2d(self.inner_channels, self.inner_channels, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(self.inner_channels), nn.ReLU(inplace=True), nn.AvgPool2d(2, 2))
         self.classifier = nn.Linear(self.inner_channels, num_classes)
 
     def forward(self, x):
@@ -999,8 +918,7 @@ class CifarClassifier(nn.Module):
 
 class GCN(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=7, stride=1,
-        padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=7, stride=1, padding=1):
         """
         Global convolutional network module implementation
 
@@ -1012,14 +930,10 @@ class GCN(nn.Module):
         :param share_weights: use shared weights for every side of GCN
         """
         super(GCN, self).__init__()
-        self.conv_l1 = nn.Conv2d(in_channels, out_channels, kernel_size=(
-            kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
-        self.conv_l2 = nn.Conv2d(out_channels, out_channels, kernel_size=(1,
-            kernel_size), padding=(0, padding), stride=(1, stride))
-        self.conv_r1 = nn.Conv2d(in_channels, out_channels, kernel_size=(1,
-            kernel_size), padding=(0, padding), stride=(1, stride))
-        self.conv_r2 = nn.Conv2d(out_channels, out_channels, kernel_size=(
-            kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
+        self.conv_l1 = nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
+        self.conv_l2 = nn.Conv2d(out_channels, out_channels, kernel_size=(1, kernel_size), padding=(0, padding), stride=(1, stride))
+        self.conv_r1 = nn.Conv2d(in_channels, out_channels, kernel_size=(1, kernel_size), padding=(0, padding), stride=(1, stride))
+        self.conv_r2 = nn.Conv2d(out_channels, out_channels, kernel_size=(kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
 
     def forward(self, x):
         if GCN.share_weights:
@@ -1099,8 +1013,7 @@ class MSDNet(nn.Module):
         steps = [None] * self.num_blocks
         steps[0] = num_layers = self.base
         for i in range(1, self.num_blocks):
-            steps[i] = self.step_mode == 'even' and self.step or self.step * (i
-                 - 1) + 1
+            steps[i] = self.step_mode == 'even' and self.step or self.step * (i - 1) + 1
             num_layers += steps[i]
         return num_layers, steps
 
@@ -1117,10 +1030,8 @@ class MSDNet(nn.Module):
         for i in range(0, self.num_blocks):
             None
             modules[i], num_channels = self.create_block(num_channels, i)
-            channels_in_last_layer = num_channels * self.growth_factor[self
-                .num_scales]
-            modules[i + self.num_blocks] = CifarClassifier(
-                channels_in_last_layer, self.num_classes)
+            channels_in_last_layer = num_channels * self.growth_factor[self.num_scales]
+            modules[i + self.num_blocks] = CifarClassifier(channels_in_last_layer, self.num_classes)
         return modules
 
     def create_block(self, num_channels, block_num):
@@ -1131,32 +1042,23 @@ class MSDNet(nn.Module):
         """
         block = nn.Sequential()
         if block_num == 0:
-            block.add_module('MSD_first', MSDFirstLayer(self.image_channels,
-                num_channels, self.num_scales, self.args))
+            block.add_module('MSD_first', MSDFirstLayer(self.image_channels, num_channels, self.num_scales, self.args))
         current_channels = num_channels
         for _ in range(0, self.steps[block_num]):
             if self.msd_prune == 'max':
                 interval = math.ceil(self.num_layers / self.num_scales)
-                in_scales = int(self.num_scales - math.floor(max(0, self.
-                    cur_layer - 2) / interval))
-                out_scales = int(self.num_scales - math.floor((self.
-                    cur_layer - 1) / interval))
+                in_scales = int(self.num_scales - math.floor(max(0, self.cur_layer - 2) / interval))
+                out_scales = int(self.num_scales - math.floor((self.cur_layer - 1) / interval))
             else:
                 raise NotImplementedError
             self.print_layer(in_scales, out_scales)
             self.cur_layer += 1
-            block.add_module('MSD_layer_{}'.format(self.cur_layer - 1),
-                MSDLayer(current_channels, self.growth, in_scales,
-                out_scales, self.num_scales, self.args))
+            block.add_module('MSD_layer_{}'.format(self.cur_layer - 1), MSDLayer(current_channels, self.growth, in_scales, out_scales, self.num_scales, self.args))
             current_channels += self.growth
-            if (self.msd_prune == 'max' and in_scales > out_scales and self
-                .reduction_rate):
+            if self.msd_prune == 'max' and in_scales > out_scales and self.reduction_rate:
                 offset = self.num_scales - out_scales
-                new_channels = int(math.floor(current_channels * self.
-                    reduction_rate))
-                block.add_module('Transition', Transition(current_channels,
-                    new_channels, out_scales, offset, self.growth_factor,
-                    self.args))
+                new_channels = int(math.floor(current_channels * self.reduction_rate))
+                block.add_module('Transition', Transition(current_channels, new_channels, out_scales, offset, self.growth_factor, self.args))
                 None
                 current_channels = new_channels
                 self.cur_transition_layer += 1
@@ -1187,8 +1089,7 @@ class MSDNet(nn.Module):
                 None
                 for s, b in enumerate(block_output):
                     None
-            class_output = self.subnets[block_num + self.num_blocks](
-                block_output[-1])
+            class_output = self.subnets[block_num + self.num_blocks](block_output[-1])
             outputs[block_num] = class_output
         return outputs
 
@@ -1198,17 +1099,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('conv', nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, padding=0, bias
-                =False))
+            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
             self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
@@ -1225,20 +1122,15 @@ class BottleneckBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
         super(BottleneckBlock, self).__init__()
         bottleneck_channels = out_channels // self.expansion
-        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels,
-            kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels,
-            kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels,
-            kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm2d(out_channels)
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('conv', nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, padding=0, bias
-                =False))
+            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
             self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
@@ -1268,19 +1160,13 @@ class ResNet(nn.Module):
             block = BottleneckBlock
             n_blocks_per_stage = (depth - 2) // 9
             assert n_blocks_per_stage * 9 + 2 == depth
-        n_channels = [base_channels, base_channels * 2 * block.expansion, 
-            base_channels * 4 * block.expansion]
-        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3,
-            stride=1, padding=1, bias=False)
+        n_channels = [base_channels, base_channels * 2 * block.expansion, base_channels * 4 * block.expansion]
+        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(base_channels)
-        self.stage1 = self._make_stage(n_channels[0], n_channels[0],
-            n_blocks_per_stage, block, stride=1)
-        self.stage2 = self._make_stage(n_channels[0], n_channels[1],
-            n_blocks_per_stage, block, stride=2)
-        self.stage3 = self._make_stage(n_channels[1], n_channels[2],
-            n_blocks_per_stage, block, stride=2)
-        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(
-            -1).shape[0]
+        self.stage1 = self._make_stage(n_channels[0], n_channels[0], n_blocks_per_stage, block, stride=1)
+        self.stage2 = self._make_stage(n_channels[0], n_channels[1], n_blocks_per_stage, block, stride=2)
+        self.stage3 = self._make_stage(n_channels[1], n_channels[2], n_blocks_per_stage, block, stride=2)
+        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
         self.fc = nn.Linear(self.feature_size, n_classes)
         self.apply(initialize_weights)
 
@@ -1289,11 +1175,9 @@ class ResNet(nn.Module):
         for index in range(n_blocks):
             block_name = 'block{}'.format(index + 1)
             if index == 0:
-                stage.add_module(block_name, block(in_channels,
-                    out_channels, stride=stride))
+                stage.add_module(block_name, block(in_channels, out_channels, stride=stride))
             else:
-                stage.add_module(block_name, block(out_channels,
-                    out_channels, stride=1))
+                stage.add_module(block_name, block(out_channels, out_channels, stride=1))
         return stage
 
     def _forward_conv(self, x):
@@ -1317,21 +1201,15 @@ class BottleneckBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride, cardinality):
         super(BottleneckBlock, self).__init__()
         bottleneck_channels = cardinality * out_channels // self.expansion
-        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels,
-            kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels,
-            kernel_size=3, stride=stride, padding=1, groups=cardinality,
-            bias=False)
+        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn2 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels,
-            kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm2d(out_channels)
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('conv', nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, padding=0, bias
-                =False))
+            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
             self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
@@ -1355,21 +1233,14 @@ class ResNeXt(nn.Module):
         n_blocks_per_stage = (depth - 2) // 9
         assert n_blocks_per_stage * 9 + 2 == depth
         block = BottleneckBlock
-        n_channels = [base_channels, base_channels * block.expansion, 
-            base_channels * 2 * block.expansion, base_channels * 4 * block.
-            expansion]
-        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3,
-            stride=1, padding=1, bias=False)
+        n_channels = [base_channels, base_channels * block.expansion, base_channels * 2 * block.expansion, base_channels * 4 * block.expansion]
+        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(n_channels[0])
-        self.stage1 = self._make_stage(n_channels[0], n_channels[1],
-            n_blocks_per_stage, stride=1)
-        self.stage2 = self._make_stage(n_channels[1], n_channels[2],
-            n_blocks_per_stage, stride=2)
-        self.stage3 = self._make_stage(n_channels[2], n_channels[3],
-            n_blocks_per_stage, stride=2)
+        self.stage1 = self._make_stage(n_channels[0], n_channels[1], n_blocks_per_stage, stride=1)
+        self.stage2 = self._make_stage(n_channels[1], n_channels[2], n_blocks_per_stage, stride=2)
+        self.stage3 = self._make_stage(n_channels[2], n_channels[3], n_blocks_per_stage, stride=2)
         with torch.no_grad():
-            self.feature_size = self._forward_conv(torch.zeros(*input_shape)
-                ).view(-1).shape[0]
+            self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
         self.fc = nn.Linear(self.feature_size, n_classes)
         self.apply(initialize_weights)
 
@@ -1378,11 +1249,9 @@ class ResNeXt(nn.Module):
         for index in range(n_blocks):
             block_name = 'block{}'.format(index + 1)
             if index == 0:
-                stage.add_module(block_name, BottleneckBlock(in_channels,
-                    out_channels, stride, self.cardinality))
+                stage.add_module(block_name, BottleneckBlock(in_channels, out_channels, stride, self.cardinality))
             else:
-                stage.add_module(block_name, BottleneckBlock(out_channels,
-                    out_channels, 1, self.cardinality))
+                stage.add_module(block_name, BottleneckBlock(out_channels, out_channels, 1, self.cardinality))
         return stage
 
     def _forward_conv(self, x):
@@ -1404,11 +1273,9 @@ class ResidualPath(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride):
         super(ResidualPath, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
-            stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
@@ -1422,10 +1289,8 @@ class DownsamplingShortcut(nn.Module):
 
     def __init__(self, in_channels):
         super(DownsamplingShortcut, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=1,
-            stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(in_channels, in_channels, kernel_size=1,
-            stride=1, padding=0, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(in_channels * 2)
 
     def forward(self, x):
@@ -1490,8 +1355,7 @@ class BasicBlock(nn.Module):
         self.residual_path2 = ResidualPath(in_channels, out_channels, stride)
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('downsample', DownsamplingShortcut(
-                in_channels))
+            self.shortcut.add_module('downsample', DownsamplingShortcut(in_channels))
 
     def forward(self, x):
         x1 = self.residual_path1(x)
@@ -1513,23 +1377,17 @@ class ResNeXt(nn.Module):
         n_classes = config['n_classes']
         base_channels = config['base_channels']
         depth = config['depth']
-        self.shake_config = config['shake_forward'], config['shake_backward'
-            ], config['shake_image']
+        self.shake_config = config['shake_forward'], config['shake_backward'], config['shake_image']
         block = BasicBlock
         n_blocks_per_stage = (depth - 2) // 6
         assert n_blocks_per_stage * 6 + 2 == depth
         n_channels = [base_channels, base_channels * 2, base_channels * 4]
-        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
         self.bn = nn.BatchNorm2d(base_channels)
-        self.stage1 = self._make_stage(n_channels[0], n_channels[0],
-            n_blocks_per_stage, block, stride=1)
-        self.stage2 = self._make_stage(n_channels[0], n_channels[1],
-            n_blocks_per_stage, block, stride=2)
-        self.stage3 = self._make_stage(n_channels[1], n_channels[2],
-            n_blocks_per_stage, block, stride=2)
-        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(
-            -1).shape[0]
+        self.stage1 = self._make_stage(n_channels[0], n_channels[0], n_blocks_per_stage, block, stride=1)
+        self.stage2 = self._make_stage(n_channels[0], n_channels[1], n_blocks_per_stage, block, stride=2)
+        self.stage3 = self._make_stage(n_channels[1], n_channels[2], n_blocks_per_stage, block, stride=2)
+        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
         self.fc = nn.Linear(self.feature_size, n_classes)
         self.apply(initialize_weights)
 
@@ -1538,12 +1396,9 @@ class ResNeXt(nn.Module):
         for index in range(n_blocks):
             block_name = 'block{}'.format(index + 1)
             if index == 0:
-                stage.add_module(block_name, block(in_channels,
-                    out_channels, stride=stride, shake_config=self.
-                    shake_config))
+                stage.add_module(block_name, block(in_channels, out_channels, stride=stride, shake_config=self.shake_config))
             else:
-                stage.add_module(block_name, block(out_channels,
-                    out_channels, stride=1, shake_config=self.shake_config))
+                stage.add_module(block_name, block(out_channels, out_channels, stride=1, shake_config=self.shake_config))
         return stage
 
     def _forward_conv(self, x):
@@ -1567,17 +1422,13 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride
-            =stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_planes)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.droprate = dropRate
         self.equalInOut = in_planes == out_planes
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes,
-            out_planes, kernel_size=1, stride=stride, padding=0, bias=False
-            ) or None
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
         if not self.equalInOut:
@@ -1599,18 +1450,14 @@ class BasicBlock(nn.Module):
 
 class NetworkBlock(nn.Module):
 
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride,
-        dropRate=0.0):
+    def __init__(self, nb_layers, in_planes, out_planes, block, stride, dropRate=0.0):
         super(NetworkBlock, self).__init__()
-        self.layer = self._make_layer(block, in_planes, out_planes,
-            nb_layers, stride, dropRate)
+        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride, dropRate)
 
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride,
-        dropRate):
+    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, dropRate):
         layers = []
         for i in range(nb_layers):
-            layers.append(block(i == 0 and in_planes or out_planes,
-                out_planes, i == 0 and stride or 1, dropRate))
+            layers.append(block(i == 0 and in_planes or out_planes, out_planes, i == 0 and stride or 1, dropRate))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1621,19 +1468,14 @@ class WideResNet(nn.Module):
 
     def __init__(self, depth, num_classes, widen_factor=1, dropRate=0.0):
         super(WideResNet, self).__init__()
-        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 *
-            widen_factor]
+        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
         assert (depth - 4) % 6 == 0
         n = (depth - 4) // 6
         block = BasicBlock
-        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,
-            dropRate)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,
-            dropRate)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,
-            dropRate)
+        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2, dropRate)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2, dropRate)
         self.bn1 = nn.BatchNorm2d(nChannels[3])
         self.relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(nChannels[3], num_classes)
@@ -1673,12 +1515,10 @@ class FineTuneModel(nn.Module):
         super(FineTuneModel, self).__init__()
         if arch.startswith('alexnet') or arch.startswith('vgg'):
             self.features = original_model.features
-            self.fc = nn.Sequential(*list(original_model.classifier.
-                children())[:-1])
+            self.fc = nn.Sequential(*list(original_model.classifier.children())[:-1])
             self.classifier = nn.Sequential(nn.Linear(4096, num_classes))
         elif arch.startswith('resnet') or arch.startswith('resnext'):
-            self.features = nn.Sequential(*list(original_model.children())[:-1]
-                )
+            self.features = nn.Sequential(*list(original_model.children())[:-1])
             if arch == 'resnet18':
                 self.classifier = nn.Sequential(nn.Linear(512, num_classes))
             else:
@@ -1718,12 +1558,10 @@ class FineTuneModel(nn.Module):
         super(FineTuneModel, self).__init__()
         if arch.startswith('alexnet') or arch.startswith('vgg'):
             self.features = original_model.features
-            self.fc = nn.Sequential(*list(original_model.classifier.
-                children())[:-1])
+            self.fc = nn.Sequential(*list(original_model.classifier.children())[:-1])
             self.classifier = nn.Sequential(nn.Linear(4096, num_classes))
         elif arch.startswith('resnet') or arch.startswith('resnext'):
-            self.features = nn.Sequential(*list(original_model.children())[:-1]
-                )
+            self.features = nn.Sequential(*list(original_model.children())[:-1])
             if arch == 'resnet18':
                 self.classifier = nn.Sequential(nn.Linear(512, num_classes))
             else:
@@ -1753,49 +1591,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BottleneckBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CondenseConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownsamplingShortcut,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LambdaBase,
+     lambda: ([], {'fn': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LearnedGroupConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NetworkBlock,
+     lambda: ([], {'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualPath,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TransitionBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'in_channels': 4, 'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_hendrycks_robustness(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BottleneckBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(CondenseConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Conv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DownsamplingShortcut(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LambdaBase(*[], **{'fn': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(LearnedGroupConv(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(NetworkBlock(*[], **{'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ResidualPath(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(TransitionBlock(*[], **{'in_channels': 4, 'out_channels': 4, 'drop_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(_DenseBlock(*[], **{'num_layers': 1, 'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(_DenseLayer(*[], **{'in_channels': 4, 'growth_rate': 4, 'args': _mock_config(group_1x1=4, group_3x3=4, bottleneck=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(_Transition(*[], **{'in_channels': 4, 'args': _mock_config()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 

@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,13 +60,10 @@ class DCGAN_Discriminator(nn.Module):
     def __init__(self, featmap_dim=512, n_channel=1):
         super(DCGAN_Discriminator, self).__init__()
         self.featmap_dim = featmap_dim
-        self.conv1 = nn.Conv2d(n_channel, featmap_dim / 4, 5, stride=2,
-            padding=2)
-        self.conv2 = nn.Conv2d(featmap_dim / 4, featmap_dim / 2, 5, stride=
-            2, padding=2)
+        self.conv1 = nn.Conv2d(n_channel, featmap_dim / 4, 5, stride=2, padding=2)
+        self.conv2 = nn.Conv2d(featmap_dim / 4, featmap_dim / 2, 5, stride=2, padding=2)
         self.BN2 = nn.BatchNorm2d(featmap_dim / 2)
-        self.conv3 = nn.Conv2d(featmap_dim / 2, featmap_dim, 5, stride=2,
-            padding=2)
+        self.conv3 = nn.Conv2d(featmap_dim / 2, featmap_dim, 5, stride=2, padding=2)
         self.BN3 = nn.BatchNorm2d(featmap_dim)
         self.fc = nn.Linear(featmap_dim * 4 * 4, 1)
 
@@ -89,14 +87,11 @@ class DCGAN_Generator(nn.Module):
         super(DCGAN_Generator, self).__init__()
         self.featmap_dim = featmap_dim
         self.fc1 = nn.Linear(noise_dim, 4 * 4 * featmap_dim)
-        self.conv1 = nn.ConvTranspose2d(featmap_dim, featmap_dim / 2, 5,
-            stride=2, padding=2)
+        self.conv1 = nn.ConvTranspose2d(featmap_dim, featmap_dim / 2, 5, stride=2, padding=2)
         self.BN1 = nn.BatchNorm2d(featmap_dim / 2)
-        self.conv2 = nn.ConvTranspose2d(featmap_dim / 2, featmap_dim / 4, 6,
-            stride=2, padding=2)
+        self.conv2 = nn.ConvTranspose2d(featmap_dim / 2, featmap_dim / 4, 6, stride=2, padding=2)
         self.BN2 = nn.BatchNorm2d(featmap_dim / 4)
-        self.conv3 = nn.ConvTranspose2d(featmap_dim / 4, n_channel, 6,
-            stride=2, padding=2)
+        self.conv3 = nn.ConvTranspose2d(featmap_dim / 4, n_channel, 6, stride=2, padding=2)
 
     def forward(self, x):
         """
@@ -148,8 +143,7 @@ class Generator(nn.Module):
 
 class ImprovedGAN_Discriminator(nn.Module):
 
-    def __init__(self, featmap_dim=512, n_channel=1, use_gpu=False, n_B=128,
-        n_C=16):
+    def __init__(self, featmap_dim=512, n_channel=1, use_gpu=False, n_B=128, n_C=16):
         """
         Minibatch discrimination: learn a tensor to encode side information
         from other examples in the same minibatch.
@@ -159,13 +153,10 @@ class ImprovedGAN_Discriminator(nn.Module):
         self.n_B = n_B
         self.n_C = n_C
         self.featmap_dim = featmap_dim
-        self.conv1 = nn.Conv2d(n_channel, featmap_dim / 4, 5, stride=2,
-            padding=2)
-        self.conv2 = nn.Conv2d(featmap_dim / 4, featmap_dim / 2, 5, stride=
-            2, padding=2)
+        self.conv1 = nn.Conv2d(n_channel, featmap_dim / 4, 5, stride=2, padding=2)
+        self.conv2 = nn.Conv2d(featmap_dim / 4, featmap_dim / 2, 5, stride=2, padding=2)
         self.BN2 = nn.BatchNorm2d(featmap_dim / 2)
-        self.conv3 = nn.Conv2d(featmap_dim / 2, featmap_dim, 5, stride=2,
-            padding=2)
+        self.conv3 = nn.Conv2d(featmap_dim / 2, featmap_dim, 5, stride=2, padding=2)
         self.BN3 = nn.BatchNorm2d(featmap_dim)
         T_ten_init = torch.randn(featmap_dim * 4 * 4, n_B * n_C) * 0.1
         self.T_tensor = nn.Parameter(T_ten_init, requires_grad=True)
@@ -208,14 +199,11 @@ class ImprovedGAN_Generator(nn.Module):
         super(ImprovedGAN_Generator, self).__init__()
         self.featmap_dim = featmap_dim
         self.fc1 = nn.Linear(noise_dim, 4 * 4 * featmap_dim)
-        self.conv1 = nn.ConvTranspose2d(featmap_dim, featmap_dim / 2, 5,
-            stride=2, padding=2)
+        self.conv1 = nn.ConvTranspose2d(featmap_dim, featmap_dim / 2, 5, stride=2, padding=2)
         self.BN1 = nn.BatchNorm2d(featmap_dim / 2)
-        self.conv2 = nn.ConvTranspose2d(featmap_dim / 2, featmap_dim / 4, 6,
-            stride=2, padding=2)
+        self.conv2 = nn.ConvTranspose2d(featmap_dim / 2, featmap_dim / 4, 6, stride=2, padding=2)
         self.BN2 = nn.BatchNorm2d(featmap_dim / 4)
-        self.conv3 = nn.ConvTranspose2d(featmap_dim / 4, n_channel, 6,
-            stride=2, padding=2)
+        self.conv3 = nn.ConvTranspose2d(featmap_dim / 4, n_channel, 6, stride=2, padding=2)
 
     def forward(self, x):
         """
@@ -233,8 +221,7 @@ class ImprovedGAN_Generator(nn.Module):
 
 class InfoGAN_Discriminator(nn.Module):
 
-    def __init__(self, n_layer=3, n_conti=2, n_discrete=1, num_category=10,
-        use_gpu=False, featmap_dim=256, n_channel=1):
+    def __init__(self, n_layer=3, n_conti=2, n_discrete=1, num_category=10, use_gpu=False, featmap_dim=256, n_channel=1):
         """
         InfoGAN Discriminator, have additional outputs for latent codes.
         Architecture brought from DCGAN.
@@ -253,8 +240,7 @@ class InfoGAN_Discriminator(nn.Module):
             else:
                 n_conv_in = int(featmap_dim / 2 ** (layer + 1))
             n_conv_out = int(featmap_dim / 2 ** layer)
-            _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5, stride=
-                2, padding=2)
+            _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5, stride=2, padding=2)
             if use_gpu:
                 _conv = _conv
             convs.append(_conv)
@@ -293,8 +279,7 @@ class InfoGAN_Discriminator(nn.Module):
 
 class InfoGAN_Generator(nn.Module):
 
-    def __init__(self, noise_dim=10, n_layer=3, n_conti=2, n_discrete=1,
-        num_category=10, use_gpu=False, featmap_dim=256, n_channel=1):
+    def __init__(self, noise_dim=10, n_layer=3, n_conti=2, n_discrete=1, num_category=10, use_gpu=False, featmap_dim=256, n_channel=1):
         """
         InfoGAN Generator, have an additional input branch for latent codes.
         Architecture brought from DCGAN.
@@ -316,8 +301,7 @@ class InfoGAN_Generator(nn.Module):
                 n_conv_out = featmap_dim / 2 ** (self.n_layer - layer)
             n_conv_in = featmap_dim / 2 ** (self.n_layer - layer - 1)
             n_width = 5 if layer == self.n_layer - 1 else 6
-            _conv = nn.ConvTranspose2d(n_conv_in, n_conv_out, n_width,
-                stride=2, padding=2)
+            _conv = nn.ConvTranspose2d(n_conv_in, n_conv_out, n_width, stride=2, padding=2)
             if use_gpu:
                 _conv = _conv
             convs.append(_conv)
@@ -347,8 +331,7 @@ class InfoGAN_Generator(nn.Module):
 
 class CondiGAN_Discriminator(nn.Module):
 
-    def __init__(self, n_layer=3, condition=True, n_condition=100, use_gpu=
-        False, featmap_dim=256, n_channel=1, condi_featmap_dim=256):
+    def __init__(self, n_layer=3, condition=True, n_condition=100, use_gpu=False, featmap_dim=256, n_channel=1, condi_featmap_dim=256):
         """
         Conditional Discriminator.
         Architecture brought from DCGAN.
@@ -365,8 +348,7 @@ class CondiGAN_Discriminator(nn.Module):
             else:
                 n_conv_in = int(featmap_dim / 2 ** (layer + 1))
             n_conv_out = int(featmap_dim / 2 ** layer)
-            _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5, stride=
-                2, padding=2)
+            _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5, stride=2, padding=2)
             if use_gpu:
                 _conv = _conv
             convs.append(_conv)
@@ -385,8 +367,7 @@ class CondiGAN_Discriminator(nn.Module):
                 else:
                     n_conv_in = int(condi_featmap_dim / 2 ** (layer + 1))
                 n_conv_out = int(condi_featmap_dim / 2 ** layer)
-                _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5,
-                    stride=2, padding=2)
+                _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5, stride=2, padding=2)
                 if use_gpu:
                     _conv = _conv
                 convs_condi.append(_conv)
@@ -425,8 +406,7 @@ class CondiGAN_Discriminator(nn.Module):
                     condi_x = F.leaky_relu(_conv(condi_x), negative_slope=0.2)
                 else:
                     BN_layer = self.BNs_condi[self.n_layer - layer - 1]
-                    condi_x = F.leaky_relu(BN_layer(_conv(condi_x)),
-                        negative_slope=0.2)
+                    condi_x = F.leaky_relu(BN_layer(_conv(condi_x)), negative_slope=0.2)
             condi_x = condi_x.view(-1, self.condi_featmap_dim * 4 * 4)
             condi_x = self.fc_c(condi_x)
             x = torch.cat((x, condi_x), 1)
@@ -436,9 +416,7 @@ class CondiGAN_Discriminator(nn.Module):
 
 class CondiGAN_Generator(nn.Module):
 
-    def __init__(self, noise_dim=10, n_layer=3, condition=True, n_condition
-        =100, use_gpu=False, featmap_dim=256, n_channel=1,
-        condi_featmap_dim=256):
+    def __init__(self, noise_dim=10, n_layer=3, condition=True, n_condition=100, use_gpu=False, featmap_dim=256, n_channel=1, condi_featmap_dim=256):
         """
         Conditional Generator.
         Architecture brought from DCGAN.
@@ -456,8 +434,7 @@ class CondiGAN_Generator(nn.Module):
                 else:
                     n_conv_in = int(condi_featmap_dim / 2 ** (layer + 1))
                 n_conv_out = int(condi_featmap_dim / 2 ** layer)
-                _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5,
-                    stride=2, padding=2)
+                _conv = nn.Conv2d(n_conv_in, n_conv_out, kernel_size=5, stride=2, padding=2)
                 if use_gpu:
                     _conv = _conv
                 convs_condi.append(_conv)
@@ -481,8 +458,7 @@ class CondiGAN_Generator(nn.Module):
                 n_conv_out = featmap_dim / 2 ** (self.n_layer - layer)
             n_conv_in = featmap_dim / 2 ** (self.n_layer - layer - 1)
             n_width = 5 if layer == self.n_layer - 1 else 6
-            _conv = nn.ConvTranspose2d(n_conv_in, n_conv_out, n_width,
-                stride=2, padding=2)
+            _conv = nn.ConvTranspose2d(n_conv_in, n_conv_out, n_width, stride=2, padding=2)
             if use_gpu:
                 _conv = _conv
             convs.append(_conv)
@@ -508,8 +484,7 @@ class CondiGAN_Generator(nn.Module):
                     condi_x = F.leaky_relu(_conv(condi_x), negative_slope=0.2)
                 else:
                     BN_layer = self.BNs_condi[self.n_layer - layer - 1]
-                    condi_x = F.leaky_relu(BN_layer(_conv(condi_x)),
-                        negative_slope=0.2)
+                    condi_x = F.leaky_relu(BN_layer(_conv(condi_x)), negative_slope=0.2)
             condi_x = condi_x.view(-1, self.condi_featmap_dim * 4 * 4)
             condi_x = self.fc_c(condi_x)
             x = torch.cat((x, condi_x), 1)
@@ -529,15 +504,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 2])], {}),
+     True),
+    (InfoGAN_Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+]
+
 class Test_AaronYALai_Generative_Adversarial_Networks_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Generator(*[], **{}), [torch.rand([4, 4, 4, 2])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(InfoGAN_Discriminator(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,8 +72,7 @@ class AdaptiveLossFunction(nn.Module):
   respectively.
   """
 
-    def __init__(self, num_dims, float_dtype, device, alpha_lo=0.001,
-        alpha_hi=1.999, alpha_init=None, scale_lo=1e-05, scale_init=1.0):
+    def __init__(self, num_dims, float_dtype, device, alpha_lo=0.001, alpha_hi=1.999, alpha_init=None, scale_lo=1e-05, scale_init=1.0):
         """Sets up the loss function.
 
     Args:
@@ -98,38 +98,26 @@ class AdaptiveLossFunction(nn.Module):
     """
         super(AdaptiveLossFunction, self).__init__()
         if not np.isscalar(alpha_lo):
-            raise ValueError('`alpha_lo` must be a scalar, but is of type {}'
-                .format(type(alpha_lo)))
+            raise ValueError('`alpha_lo` must be a scalar, but is of type {}'.format(type(alpha_lo)))
         if not np.isscalar(alpha_hi):
-            raise ValueError('`alpha_hi` must be a scalar, but is of type {}'
-                .format(type(alpha_hi)))
+            raise ValueError('`alpha_hi` must be a scalar, but is of type {}'.format(type(alpha_hi)))
         if alpha_init is not None and not np.isscalar(alpha_init):
-            raise ValueError(
-                '`alpha_init` must be None or a scalar, but is of type {}'.
-                format(type(alpha_init)))
+            raise ValueError('`alpha_init` must be None or a scalar, but is of type {}'.format(type(alpha_init)))
         if not alpha_lo >= 0:
-            raise ValueError('`alpha_lo` must be >= 0, but is {}'.format(
-                alpha_lo))
+            raise ValueError('`alpha_lo` must be >= 0, but is {}'.format(alpha_lo))
         if not alpha_hi >= alpha_lo:
-            raise ValueError('`alpha_hi` = {} must be >= `alpha_lo` = {}'.
-                format(alpha_hi, alpha_lo))
+            raise ValueError('`alpha_hi` = {} must be >= `alpha_lo` = {}'.format(alpha_hi, alpha_lo))
         if alpha_init is not None and alpha_lo != alpha_hi:
             if not (alpha_init > alpha_lo and alpha_init < alpha_hi):
-                raise ValueError(
-                    '`alpha_init` = {} must be in (`alpha_lo`, `alpha_hi`) = ({} {})'
-                    .format(alpha_init, alpha_lo, alpha_hi))
+                raise ValueError('`alpha_init` = {} must be in (`alpha_lo`, `alpha_hi`) = ({} {})'.format(alpha_init, alpha_lo, alpha_hi))
         if not np.isscalar(scale_lo):
-            raise ValueError('`scale_lo` must be a scalar, but is of type {}'
-                .format(type(scale_lo)))
+            raise ValueError('`scale_lo` must be a scalar, but is of type {}'.format(type(scale_lo)))
         if not np.isscalar(scale_init):
-            raise ValueError('`scale_init` must be a scalar, but is of type {}'
-                .format(type(scale_init)))
+            raise ValueError('`scale_init` must be a scalar, but is of type {}'.format(type(scale_init)))
         if not scale_lo > 0:
-            raise ValueError('`scale_lo` must be > 0, but is {}'.format(
-                scale_lo))
+            raise ValueError('`scale_lo` must be > 0, but is {}'.format(scale_lo))
         if not scale_init >= scale_lo:
-            raise ValueError('`scale_init` = {} must be >= `scale_lo` = {}'
-                .format(scale_init, scale_lo))
+            raise ValueError('`scale_init` = {} must be >= `scale_lo` = {}'.format(scale_init, scale_lo))
         self.num_dims = num_dims
         if float_dtype == np.float32:
             float_dtype = torch.float32
@@ -137,36 +125,24 @@ class AdaptiveLossFunction(nn.Module):
             float_dtype = torch.float64
         self.float_dtype = float_dtype
         self.device = device
-        if isinstance(device, int) or isinstance(device, str
-            ) and 'cuda' in device or isinstance(device, torch.device
-            ) and device.type == 'cuda':
+        if isinstance(device, int) or isinstance(device, str) and 'cuda' in device or isinstance(device, torch.device) and device.type == 'cuda':
             torch.set_device(self.device)
         self.distribution = distribution.Distribution()
         if alpha_lo == alpha_hi:
-            self.fixed_alpha = torch.tensor(alpha_lo, dtype=self.
-                float_dtype, device=self.device)[np.newaxis, np.newaxis
-                ].repeat(1, self.num_dims)
+            self.fixed_alpha = torch.tensor(alpha_lo, dtype=self.float_dtype, device=self.device)[np.newaxis, np.newaxis].repeat(1, self.num_dims)
             self.alpha = lambda : self.fixed_alpha
         else:
             if alpha_init is None:
                 alpha_init = (alpha_lo + alpha_hi) / 2.0
-            latent_alpha_init = util.inv_affine_sigmoid(alpha_init, lo=
-                alpha_lo, hi=alpha_hi)
-            self.register_parameter('latent_alpha', torch.nn.Parameter(
-                latent_alpha_init.clone().detach()[np.newaxis, np.newaxis].
-                repeat(1, self.num_dims), requires_grad=True))
-            self.alpha = lambda : util.affine_sigmoid(self.latent_alpha, lo
-                =alpha_lo, hi=alpha_hi)
+            latent_alpha_init = util.inv_affine_sigmoid(alpha_init, lo=alpha_lo, hi=alpha_hi)
+            self.register_parameter('latent_alpha', torch.nn.Parameter(latent_alpha_init.clone().detach()[np.newaxis, np.newaxis].repeat(1, self.num_dims), requires_grad=True))
+            self.alpha = lambda : util.affine_sigmoid(self.latent_alpha, lo=alpha_lo, hi=alpha_hi)
         if scale_lo == scale_init:
-            self.fixed_scale = torch.tensor(scale_init, dtype=self.
-                float_dtype, device=self.device)[np.newaxis, np.newaxis
-                ].repeat(1, self.num_dims)
+            self.fixed_scale = torch.tensor(scale_init, dtype=self.float_dtype, device=self.device)[np.newaxis, np.newaxis].repeat(1, self.num_dims)
             self.scale = lambda : self.fixed_scale
         else:
-            self.register_parameter('latent_scale', torch.nn.Parameter(
-                torch.zeros((1, self.num_dims)), requires_grad=True))
-            self.scale = lambda : util.affine_softplus(self.latent_scale,
-                lo=scale_lo, ref=scale_init)
+            self.register_parameter('latent_scale', torch.nn.Parameter(torch.zeros((1, self.num_dims)), requires_grad=True))
+            self.scale = lambda : util.affine_softplus(self.latent_scale, lo=scale_lo, ref=scale_init)
 
     def lossfun(self, x, **kwargs):
         """Computes the loss on a matrix.
@@ -189,15 +165,13 @@ class AdaptiveLossFunction(nn.Module):
         assert len(x.shape) == 2
         assert x.shape[1] == self.num_dims
         assert x.dtype == self.float_dtype
-        return self.distribution.nllfun(x, self.alpha(), self.scale(), **kwargs
-            )
+        return self.distribution.nllfun(x, self.alpha(), self.scale(), **kwargs)
 
 
 class StudentsTLossFunction(nn.Module):
     """A variant of AdaptiveLossFunction that uses a Student's t-distribution."""
 
-    def __init__(self, num_dims, float_dtype, device, scale_lo=1e-05,
-        scale_init=1.0):
+    def __init__(self, num_dims, float_dtype, device, scale_lo=1e-05, scale_init=1.0):
         """Sets up the adaptive loss for a matrix of inputs.
 
     Args:
@@ -215,17 +189,13 @@ class StudentsTLossFunction(nn.Module):
     """
         super(StudentsTLossFunction, self).__init__()
         if not np.isscalar(scale_lo):
-            raise ValueError('`scale_lo` must be a scalar, but is of type {}'
-                .format(type(scale_lo)))
+            raise ValueError('`scale_lo` must be a scalar, but is of type {}'.format(type(scale_lo)))
         if not np.isscalar(scale_init):
-            raise ValueError('`scale_init` must be a scalar, but is of type {}'
-                .format(type(scale_init)))
+            raise ValueError('`scale_init` must be a scalar, but is of type {}'.format(type(scale_init)))
         if not scale_lo > 0:
-            raise ValueError('`scale_lo` must be > 0, but is {}'.format(
-                scale_lo))
+            raise ValueError('`scale_lo` must be > 0, but is {}'.format(scale_lo))
         if not scale_init >= scale_lo:
-            raise ValueError('`scale_init` = {} must be >= `scale_lo` = {}'
-                .format(scale_init, scale_lo))
+            raise ValueError('`scale_init` = {} must be >= `scale_lo` = {}'.format(scale_init, scale_lo))
         self.num_dims = num_dims
         if float_dtype == np.float32:
             float_dtype = torch.float32
@@ -233,25 +203,18 @@ class StudentsTLossFunction(nn.Module):
             float_dtype = torch.float64
         self.float_dtype = float_dtype
         self.device = device
-        if isinstance(device, int) or isinstance(device, str
-            ) and 'cuda' in device or isinstance(device, torch.device
-            ) and device.type == 'cuda':
+        if isinstance(device, int) or isinstance(device, str) and 'cuda' in device or isinstance(device, torch.device) and device.type == 'cuda':
             torch.set_device(self.device)
-        self.log_df = torch.nn.Parameter(torch.zeros((1, self.num_dims)),
-            requires_grad=True)
+        self.log_df = torch.nn.Parameter(torch.zeros((1, self.num_dims)), requires_grad=True)
         self.register_parameter('log_df', self.log_df)
         if scale_lo == scale_init:
             self.latent_scale = None
-            self.scale = torch.tensor(scale_init, dtype=self.float_dtype,
-                device=self.device)[np.newaxis, np.newaxis].repeat(1, self.
-                num_dims)
+            self.scale = torch.tensor(scale_init, dtype=self.float_dtype, device=self.device)[np.newaxis, np.newaxis].repeat(1, self.num_dims)
         else:
-            self.latent_scale = torch.nn.Parameter(torch.zeros((1, self.
-                num_dims)), requires_grad=True)
+            self.latent_scale = torch.nn.Parameter(torch.zeros((1, self.num_dims)), requires_grad=True)
         self.register_parameter('latent_scale', self.latent_scale)
         self.df = lambda : torch.exp(self.log_df)
-        self.scale = lambda : util.affine_softplus(self.latent_scale, lo=
-            scale_lo, ref=scale_init)
+        self.scale = lambda : util.affine_softplus(self.latent_scale, lo=scale_lo, ref=scale_init)
 
     def lossfun(self, x):
         """A variant of lossfun() that uses the NLL of a Student's t-distribution.
@@ -288,19 +251,13 @@ class AdaptiveImageLossFunction(nn.Module):
         _, width, height, num_channels = x.shape
         x_stack = torch.reshape(x.permute(0, 3, 1, 2), (-1, width, height))
         if self.representation in wavelet.generate_filters():
-            x_stack = wavelet.flatten(wavelet.rescale(wavelet.construct(
-                x_stack, self.wavelet_num_levels, self.representation),
-                self.wavelet_scale_base))
+            x_stack = wavelet.flatten(wavelet.rescale(wavelet.construct(x_stack, self.wavelet_num_levels, self.representation), self.wavelet_scale_base))
         elif self.representation == 'DCT':
             x_stack = util.image_dct(x_stack)
-        x_mat = torch.reshape(torch.reshape(x_stack, (-1, num_channels,
-            width, height)).permute(0, 2, 3, 1), [-1, width * height *
-            num_channels])
+        x_mat = torch.reshape(torch.reshape(x_stack, (-1, num_channels, width, height)).permute(0, 2, 3, 1), [-1, width * height * num_channels])
         return x_mat
 
-    def __init__(self, image_size, float_dtype, device, color_space='YUV',
-        representation='CDF9/7', wavelet_num_levels=5, wavelet_scale_base=1,
-        use_students_t=False, **kwargs):
+    def __init__(self, image_size, float_dtype, device, color_space='YUV', representation='CDF9/7', wavelet_num_levels=5, wavelet_scale_base=1, use_students_t=False, **kwargs):
         """Sets up the adaptive form of the robust loss on a set of images.
 
     This function is a wrapper around AdaptiveLossFunction. It requires inputs
@@ -350,12 +307,10 @@ class AdaptiveImageLossFunction(nn.Module):
         super(AdaptiveImageLossFunction, self).__init__()
         color_spaces = ['RGB', 'YUV']
         if color_space not in color_spaces:
-            raise ValueError('`color_space` must be in {}, but is {!r}'.
-                format(color_spaces, color_space))
+            raise ValueError('`color_space` must be in {}, but is {!r}'.format(color_spaces, color_space))
         representations = wavelet.generate_filters() + ['DCT', 'PIXEL']
         if representation not in representations:
-            raise ValueError('`representation` must be in {}, but is {!r}'.
-                format(representations, representation))
+            raise ValueError('`representation` must be in {}, but is {!r}'.format(representations, representation))
         assert len(image_size) == 3
         self.color_space = color_space
         self.representation = representation
@@ -369,20 +324,15 @@ class AdaptiveImageLossFunction(nn.Module):
             float_dtype = torch.float64
         self.float_dtype = float_dtype
         self.device = device
-        if isinstance(device, int) or isinstance(device, str
-            ) and 'cuda' in device or isinstance(device, torch.device
-            ) and device.type == 'cuda':
+        if isinstance(device, int) or isinstance(device, str) and 'cuda' in device or isinstance(device, torch.device) and device.type == 'cuda':
             torch.set_device(self.device)
-        x_example = torch.zeros([1] + list(self.image_size)).type(self.
-            float_dtype)
+        x_example = torch.zeros([1] + list(self.image_size)).type(self.float_dtype)
         x_example_mat = self.transform_to_mat(x_example)
         self.num_dims = x_example_mat.shape[1]
         if self.use_students_t:
-            self.adaptive_lossfun = StudentsTLossFunction(self.num_dims,
-                self.float_dtype, self.device, **kwargs)
+            self.adaptive_lossfun = StudentsTLossFunction(self.num_dims, self.float_dtype, self.device, **kwargs)
         else:
-            self.adaptive_lossfun = AdaptiveLossFunction(self.num_dims,
-                self.float_dtype, self.device, **kwargs)
+            self.adaptive_lossfun = AdaptiveLossFunction(self.num_dims, self.float_dtype, self.device, **kwargs)
 
     def lossfun(self, x):
         """Computes the adaptive form of the robust loss on a set of images.
@@ -418,10 +368,3 @@ class AdaptiveImageLossFunction(nn.Module):
         """Returns an image of scales."""
         return torch.reshape(self.adaptive_lossfun.scale(), self.image_size)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_jonbarron_robust_loss_pytorch(_paritybench_base):
-    pass

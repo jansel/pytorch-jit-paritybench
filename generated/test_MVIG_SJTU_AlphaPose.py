@@ -100,8 +100,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -197,8 +198,7 @@ class Registry(object):
         self._module_dict = dict()
 
     def __repr__(self):
-        format_str = self.__class__.__name__ + '(name={}, items={})'.format(
-            self._name, list(self._module_dict.keys()))
+        format_str = self.__class__.__name__ + '(name={}, items={})'.format(self._name, list(self._module_dict.keys()))
         return format_str
 
     @property
@@ -219,12 +219,10 @@ class Registry(object):
             module (:obj:`nn.Module`): Module to be registered.
         """
         if not inspect.isclass(module_class):
-            raise TypeError('module must be a class, but got {}'.format(
-                type(module_class)))
+            raise TypeError('module must be a class, but got {}'.format(type(module_class)))
         module_name = module_class.__name__
         if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(
-                module_name, self.name))
+            raise KeyError('{} is already registered in {}'.format(module_name, self.name))
         self._module_dict[module_name] = module_class
 
     def register_module(self, cls):
@@ -245,24 +243,20 @@ class FastPose(nn.Module):
         if 'DCN' in cfg.keys():
             stage_with_dcn = cfg['STAGE_WITH_DCN']
             dcn = cfg['DCN']
-            self.preact = SEResnet(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn,
-                stage_with_dcn=stage_with_dcn)
+            self.preact = SEResnet(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn, stage_with_dcn=stage_with_dcn)
         else:
             self.preact = SEResnet(f"resnet{cfg['NUM_LAYERS']}")
         import torchvision.models as tm
         assert cfg['NUM_LAYERS'] in [18, 34, 50, 101, 152]
         x = eval(f"tm.resnet{cfg['NUM_LAYERS']}(pretrained=True)")
         model_state = self.preact.state_dict()
-        state = {k: v for k, v in x.state_dict().items() if k in self.
-            preact.state_dict() and v.size() == self.preact.state_dict()[k]
-            .size()}
+        state = {k: v for k, v in x.state_dict().items() if k in self.preact.state_dict() and v.size() == self.preact.state_dict()[k].size()}
         model_state.update(state)
         self.preact.load_state_dict(model_state)
         self.suffle1 = nn.PixelShuffle(2)
         self.duc1 = DUC(512, 1024, upscale_factor=2, norm_layer=norm_layer)
         self.duc2 = DUC(256, 512, upscale_factor=2, norm_layer=norm_layer)
-        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg[
-            'NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
+        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg['NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         out = self.preact(x)
@@ -298,17 +292,14 @@ class FastPose_DUC(nn.Module):
         if 'DCN' in cfg.keys():
             stage_with_dcn = cfg['STAGE_WITH_DCN']
             dcn = cfg['DCN']
-            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn,
-                stage_with_dcn=stage_with_dcn)
+            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn, stage_with_dcn=stage_with_dcn)
         else:
             self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}")
         import torchvision.models as tm
         assert cfg['NUM_LAYERS'] in [18, 34, 50, 101, 152]
         x = eval(f"tm.resnet{cfg['NUM_LAYERS']}(pretrained=True)")
         model_state = self.preact.state_dict()
-        state = {k: v for k, v in x.state_dict().items() if k in self.
-            preact.state_dict() and v.size() == self.preact.state_dict()[k]
-            .size()}
+        state = {k: v for k, v in x.state_dict().items() if k in self.preact.state_dict() and v.size() == self.preact.state_dict()[k].size()}
         model_state.update(state)
         self.preact.load_state_dict(model_state)
         self.norm_layer = norm_layer
@@ -318,8 +309,7 @@ class FastPose_DUC(nn.Module):
         self.duc1 = self._make_duc_stage(stage1_cfg, 2048, 1024)
         self.duc2 = self._make_duc_stage(stage2_cfg, 1024, 512)
         self.duc3 = self._make_duc_stage(stage3_cfg, 512, self.conv_dim)
-        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg[
-            'NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
+        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg['NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         out = self.preact(x)
@@ -335,13 +325,11 @@ class FastPose_DUC(nn.Module):
         inplanes //= 4
         layers.append(shuffle)
         for i in range(layer_config.NUM_CONV - 1):
-            conv = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1,
-                bias=False)
+            conv = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1, bias=False)
             norm_layer = self.norm_layer(inplanes, momentum=0.1)
             relu = nn.ReLU(inplace=True)
             layers += [conv, norm_layer, relu]
-        conv = nn.Conv2d(inplanes, outplanes, kernel_size=3, padding=1,
-            bias=False)
+        conv = nn.Conv2d(inplanes, outplanes, kernel_size=3, padding=1, bias=False)
         norm_layer = self.norm_layer(outplanes, momentum=0.1)
         relu = nn.ReLU(inplace=True)
         layers += [conv, norm_layer, relu]
@@ -373,8 +361,7 @@ class FastPose_DUC_Dense(nn.Module):
         if 'DCN' in cfg.keys():
             stage_with_dcn = cfg['STAGE_WITH_DCN']
             dcn = cfg['DCN']
-            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn,
-                stage_with_dcn=stage_with_dcn)
+            self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}", dcn=dcn, stage_with_dcn=stage_with_dcn)
         else:
             self.preact = backbone(f"resnet{cfg['NUM_LAYERS']}")
         for m in self.preact.modules():
@@ -400,9 +387,7 @@ class FastPose_DUC_Dense(nn.Module):
         else:
             raise NotImplementedError
         model_state = self.preact.state_dict()
-        state = {k: v for k, v in x.state_dict().items() if k in self.
-            preact.state_dict() and v.size() == self.preact.state_dict()[k]
-            .size()}
+        state = {k: v for k, v in x.state_dict().items() if k in self.preact.state_dict() and v.size() == self.preact.state_dict()[k].size()}
         model_state.update(state)
         self.preact.load_state_dict(model_state)
         self.norm_layer = norm_layer
@@ -417,11 +402,8 @@ class FastPose_DUC_Dense(nn.Module):
         duc2_dense = self._make_duc_stage(stage2_cfg, 1024, 512)
         duc3_dense = self._make_duc_stage(stage3_cfg, 512, self.conv_dim)
         self.duc_dense = nn.Sequential(duc1_dense, duc2_dense, duc3_dense)
-        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg[
-            'NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
-        self.conv_out_dense = nn.Conv2d(self.conv_dim, self._preset_cfg[
-            'NUM_JOINTS_DENSE'] - self._preset_cfg['NUM_JOINTS'],
-            kernel_size=3, stride=1, padding=1)
+        self.conv_out = nn.Conv2d(self.conv_dim, self._preset_cfg['NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
+        self.conv_out_dense = nn.Conv2d(self.conv_dim, self._preset_cfg['NUM_JOINTS_DENSE'] - self._preset_cfg['NUM_JOINTS'], kernel_size=3, stride=1, padding=1)
         for params in self.preact.parameters():
             params.requires_grad = False
         for params in self.duc.parameters():
@@ -442,13 +424,11 @@ class FastPose_DUC_Dense(nn.Module):
         inplanes //= 4
         layers.append(shuffle)
         for i in range(layer_config.NUM_CONV - 1):
-            conv = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1,
-                bias=False)
+            conv = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=1, bias=False)
             norm_layer = self.norm_layer(inplanes, momentum=0.1)
             relu = nn.ReLU(inplace=True)
             layers += [conv, norm_layer, relu]
-        conv = nn.Conv2d(inplanes, outplanes, kernel_size=3, padding=1,
-            bias=False)
+        conv = nn.Conv2d(inplanes, outplanes, kernel_size=3, padding=1, bias=False)
         norm_layer = self.norm_layer(outplanes, momentum=0.1)
         relu = nn.ReLU(inplace=True)
         layers += [conv, norm_layer, relu]
@@ -488,8 +468,7 @@ BN_MOMENTUM = 0.1
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
@@ -526,13 +505,10 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -556,60 +532,43 @@ class Bottleneck(nn.Module):
 
 class HighResolutionModule(nn.Module):
 
-    def __init__(self, num_branches, blocks, num_blocks, num_inchannels,
-        num_channels, fuse_method, multi_scale_output=True):
+    def __init__(self, num_branches, blocks, num_blocks, num_inchannels, num_channels, fuse_method, multi_scale_output=True):
         super(HighResolutionModule, self).__init__()
-        self._check_branches(num_branches, blocks, num_blocks,
-            num_inchannels, num_channels)
+        self._check_branches(num_branches, blocks, num_blocks, num_inchannels, num_channels)
         self.num_inchannels = num_inchannels
         self.fuse_method = fuse_method
         self.num_branches = num_branches
         self.multi_scale_output = multi_scale_output
-        self.branches = self._make_branches(num_branches, blocks,
-            num_blocks, num_channels)
+        self.branches = self._make_branches(num_branches, blocks, num_blocks, num_channels)
         self.fuse_layers = self._make_fuse_layers()
         self.relu = nn.ReLU(True)
 
-    def _check_branches(self, num_branches, blocks, num_blocks,
-        num_inchannels, num_channels):
+    def _check_branches(self, num_branches, blocks, num_blocks, num_inchannels, num_channels):
         if num_branches != len(num_blocks):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(
-                num_branches, len(num_blocks))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(num_branches, len(num_blocks))
             raise ValueError(error_msg)
         if num_branches != len(num_channels):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(
-                num_branches, len(num_channels))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(num_branches, len(num_channels))
             raise ValueError(error_msg)
         if num_branches != len(num_inchannels):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(
-                num_branches, len(num_inchannels))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(num_branches, len(num_inchannels))
             raise ValueError(error_msg)
 
-    def _make_one_branch(self, branch_index, block, num_blocks,
-        num_channels, stride=1):
+    def _make_one_branch(self, branch_index, block, num_blocks, num_channels, stride=1):
         downsample = None
-        if stride != 1 or self.num_inchannels[branch_index] != num_channels[
-            branch_index] * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.num_inchannels[
-                branch_index], num_channels[branch_index] * block.expansion,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                num_channels[branch_index] * block.expansion, momentum=
-                BN_MOMENTUM))
+        if stride != 1 or self.num_inchannels[branch_index] != num_channels[branch_index] * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.num_inchannels[branch_index], num_channels[branch_index] * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(num_channels[branch_index] * block.expansion, momentum=BN_MOMENTUM))
         layers = []
-        layers.append(block(self.num_inchannels[branch_index], num_channels
-            [branch_index], stride, downsample))
-        self.num_inchannels[branch_index] = num_channels[branch_index
-            ] * block.expansion
+        layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index], stride, downsample))
+        self.num_inchannels[branch_index] = num_channels[branch_index] * block.expansion
         for i in range(1, num_blocks[branch_index]):
-            layers.append(block(self.num_inchannels[branch_index],
-                num_channels[branch_index]))
+            layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index]))
         return nn.Sequential(*layers)
 
     def _make_branches(self, num_branches, block, num_blocks, num_channels):
         branches = []
         for i in range(num_branches):
-            branches.append(self._make_one_branch(i, block, num_blocks,
-                num_channels))
+            branches.append(self._make_one_branch(i, block, num_blocks, num_channels))
         return nn.ModuleList(branches)
 
     def _make_fuse_layers(self):
@@ -622,10 +581,7 @@ class HighResolutionModule(nn.Module):
             fuse_layer = []
             for j in range(num_branches):
                 if j > i:
-                    fuse_layer.append(nn.Sequential(nn.Conv2d(
-                        num_inchannels[j], num_inchannels[i], 1, 1, 0, bias
-                        =False), nn.BatchNorm2d(num_inchannels[i]), nn.
-                        Upsample(scale_factor=2 ** (j - i), mode='nearest')))
+                    fuse_layer.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_inchannels[i], 1, 1, 0, bias=False), nn.BatchNorm2d(num_inchannels[i]), nn.Upsample(scale_factor=2 ** (j - i), mode='nearest')))
                 elif j == i:
                     fuse_layer.append(None)
                 else:
@@ -633,16 +589,10 @@ class HighResolutionModule(nn.Module):
                     for k in range(i - j):
                         if k == i - j - 1:
                             num_outchannels_conv3x3 = num_inchannels[i]
-                            conv3x3s.append(nn.Sequential(nn.Conv2d(
-                                num_inchannels[j], num_outchannels_conv3x3,
-                                3, 2, 1, bias=False), nn.BatchNorm2d(
-                                num_outchannels_conv3x3)))
+                            conv3x3s.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_outchannels_conv3x3, 3, 2, 1, bias=False), nn.BatchNorm2d(num_outchannels_conv3x3)))
                         else:
                             num_outchannels_conv3x3 = num_inchannels[j]
-                            conv3x3s.append(nn.Sequential(nn.Conv2d(
-                                num_inchannels[j], num_outchannels_conv3x3,
-                                3, 2, 1, bias=False), nn.BatchNorm2d(
-                                num_outchannels_conv3x3), nn.ReLU(True)))
+                            conv3x3s.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_outchannels_conv3x3, 3, 2, 1, bias=False), nn.BatchNorm2d(num_outchannels_conv3x3), nn.ReLU(True)))
                     fuse_layer.append(nn.Sequential(*conv3x3s))
             fuse_layers.append(nn.ModuleList(fuse_layer))
         return nn.ModuleList(fuse_layers)
@@ -677,78 +627,56 @@ class PoseHighResolutionNet(nn.Module):
         self.inplanes = 64
         super(PoseHighResolutionNet, self).__init__()
         self._preset_cfg = cfg['PRESET']
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(Bottleneck, 64, 4)
         self.stage2_cfg = cfg['STAGE2']
         num_channels = self.stage2_cfg['NUM_CHANNELS']
         block = blocks_dict[self.stage2_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(
-            len(num_channels))]
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
         self.transition1 = self._make_transition_layer([256], num_channels)
-        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg,
-            num_channels)
+        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg, num_channels)
         self.stage3_cfg = cfg['STAGE3']
         num_channels = self.stage3_cfg['NUM_CHANNELS']
         block = blocks_dict[self.stage3_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(
-            len(num_channels))]
-        self.transition2 = self._make_transition_layer(pre_stage_channels,
-            num_channels)
-        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg,
-            num_channels)
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition2 = self._make_transition_layer(pre_stage_channels, num_channels)
+        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg, num_channels)
         self.stage4_cfg = cfg['STAGE4']
         num_channels = self.stage4_cfg['NUM_CHANNELS']
         block = blocks_dict[self.stage4_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(
-            len(num_channels))]
-        self.transition3 = self._make_transition_layer(pre_stage_channels,
-            num_channels)
-        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg,
-            num_channels, multi_scale_output=False)
-        self.final_layer = nn.Conv2d(in_channels=pre_stage_channels[0],
-            out_channels=self._preset_cfg['NUM_JOINTS'], kernel_size=cfg[
-            'FINAL_CONV_KERNEL'], stride=1, padding=1 if cfg[
-            'FINAL_CONV_KERNEL'] == 3 else 0)
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels)
+        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg, num_channels, multi_scale_output=False)
+        self.final_layer = nn.Conv2d(in_channels=pre_stage_channels[0], out_channels=self._preset_cfg['NUM_JOINTS'], kernel_size=cfg['FINAL_CONV_KERNEL'], stride=1, padding=1 if cfg['FINAL_CONV_KERNEL'] == 3 else 0)
         self.pretrained_layers = cfg['PRETRAINED_LAYERS']
 
-    def _make_transition_layer(self, num_channels_pre_layer,
-        num_channels_cur_layer):
+    def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer):
         num_branches_cur = len(num_channels_cur_layer)
         num_branches_pre = len(num_channels_pre_layer)
         transition_layers = []
         for i in range(num_branches_cur):
             if i < num_branches_pre:
                 if num_channels_cur_layer[i] != num_channels_pre_layer[i]:
-                    transition_layers.append(nn.Sequential(nn.Conv2d(
-                        num_channels_pre_layer[i], num_channels_cur_layer[i
-                        ], 3, 1, 1, bias=False), nn.BatchNorm2d(
-                        num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
+                    transition_layers.append(nn.Sequential(nn.Conv2d(num_channels_pre_layer[i], num_channels_cur_layer[i], 3, 1, 1, bias=False), nn.BatchNorm2d(num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
                 else:
                     transition_layers.append(None)
             else:
                 conv3x3s = []
                 for j in range(i + 1 - num_branches_pre):
                     inchannels = num_channels_pre_layer[-1]
-                    outchannels = num_channels_cur_layer[i
-                        ] if j == i - num_branches_pre else inchannels
-                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels,
-                        outchannels, 3, 2, 1, bias=False), nn.BatchNorm2d(
-                        outchannels), nn.ReLU(inplace=True)))
+                    outchannels = num_channels_cur_layer[i] if j == i - num_branches_pre else inchannels
+                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels, outchannels, 3, 2, 1, bias=False), nn.BatchNorm2d(outchannels), nn.ReLU(inplace=True)))
                 transition_layers.append(nn.Sequential(*conv3x3s))
         return nn.ModuleList(transition_layers)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -756,8 +684,7 @@ class PoseHighResolutionNet(nn.Module):
             layers.append(block(self.inplanes, planes))
         return nn.Sequential(*layers)
 
-    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True
-        ):
+    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True):
         num_modules = layer_config['NUM_MODULES']
         num_branches = layer_config['NUM_BRANCHES']
         num_blocks = layer_config['NUM_BLOCKS']
@@ -770,9 +697,7 @@ class PoseHighResolutionNet(nn.Module):
                 reset_multi_scale_output = False
             else:
                 reset_multi_scale_output = True
-            modules.append(HighResolutionModule(num_branches, block,
-                num_blocks, num_inchannels, num_channels, fuse_method,
-                reset_multi_scale_output))
+            modules.append(HighResolutionModule(num_branches, block, num_blocks, num_inchannels, num_channels, fuse_method, reset_multi_scale_output))
             num_inchannels = modules[-1].get_num_inchannels()
         return nn.Sequential(*modules), num_inchannels
 
@@ -827,9 +752,7 @@ class PoseHighResolutionNet(nn.Module):
             pretrained_state_dict = torch.load(pretrained)
             need_init_state_dict = {}
             for name, m in pretrained_state_dict.items():
-                if name.split('.')[0
-                    ] in self.pretrained_layers or self.pretrained_layers[0
-                    ] == '*':
+                if name.split('.')[0] in self.pretrained_layers or self.pretrained_layers[0] == '*':
                     need_init_state_dict[name] = m
             self.load_state_dict(need_init_state_dict, strict=False)
         elif pretrained:
@@ -842,11 +765,9 @@ class DUC(nn.Module):
     OUTPUT: (planes // upscale_factor^2) * ht * wd
     """
 
-    def __init__(self, inplanes, planes, upscale_factor=2, norm_layer=nn.
-        BatchNorm2d):
+    def __init__(self, inplanes, planes, upscale_factor=2, norm_layer=nn.BatchNorm2d):
         super(DUC, self).__init__()
-        self.conv = nn.Conv2d(inplanes, planes, kernel_size=3, padding=1,
-            bias=False)
+        self.conv = nn.Conv2d(inplanes, planes, kernel_size=3, padding=1, bias=False)
         self.bn = norm_layer(planes, momentum=0.1)
         self.relu = nn.ReLU(inplace=True)
         self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
@@ -875,25 +796,21 @@ class PixelUnshuffle(nn.Module):
         out_h = h // self._r
         out_w = w // self._r
         x_view = x.contiguous().view(b, c, out_h, self._r, out_w, self._r)
-        x_prime = x_view.permute(0, 1, 3, 5, 2, 4).contiguous().view(b,
-            out_c, out_h, out_w)
+        x_prime = x_view.permute(0, 1, 3, 5, 2, 4).contiguous().view(b, out_c, out_h, out_w)
         return x_prime
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
-            raise ValueError(
-                'BasicBlock only supports groups=1 and base_width=64')
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
-            raise NotImplementedError(
-                'Dilation > 1 not supported in BasicBlock')
+            raise NotImplementedError('Dilation > 1 not supported in BasicBlock')
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -919,8 +836,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=nn.BatchNorm2d, dcn=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=nn.BatchNorm2d, dcn=None):
         super(Bottleneck, self).__init__()
         self.dcn = dcn
         self.with_dcn = dcn is not None
@@ -930,8 +846,7 @@ class Bottleneck(nn.Module):
             fallback_on_stride = dcn.get('FALLBACK_ON_STRIDE', False)
             self.with_modulated_dcn = dcn.get('MODULATED', False)
         if not self.with_dcn or fallback_on_stride:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         else:
             self.deformable_groups = dcn.get('DEFORM_GROUP', 1)
             if not self.with_modulated_dcn:
@@ -940,11 +855,8 @@ class Bottleneck(nn.Module):
             else:
                 conv_op = ModulatedDeformConv
                 offset_channels = 27
-            self.conv2_offset = nn.Conv2d(planes, self.deformable_groups *
-                offset_channels, kernel_size=3, stride=stride, padding=1)
-            self.conv2 = conv_op(planes, planes, kernel_size=3, stride=
-                stride, padding=1, deformable_groups=self.deformable_groups,
-                bias=False)
+            self.conv2_offset = nn.Conv2d(planes, self.deformable_groups * offset_channels, kernel_size=3, stride=stride, padding=1)
+            self.conv2 = conv_op(planes, planes, kernel_size=3, stride=stride, padding=1, deformable_groups=self.deformable_groups, bias=False)
         self.bn2 = norm_layer(planes, momentum=0.1)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = norm_layer(planes * 4, momentum=0.1)
@@ -977,36 +889,26 @@ class Bottleneck(nn.Module):
 class ResNet(nn.Module):
     """ ResNet """
 
-    def __init__(self, architecture, norm_layer=nn.BatchNorm2d, dcn=None,
-        stage_with_dcn=(False, False, False, False)):
+    def __init__(self, architecture, norm_layer=nn.BatchNorm2d, dcn=None, stage_with_dcn=(False, False, False, False)):
         super(ResNet, self).__init__()
         self._norm_layer = norm_layer
-        assert architecture in ['resnet18', 'resnet50', 'resnet101',
-            'resnet152']
-        layers = {'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3],
-            'resnet50': [3, 4, 6, 3], 'resnet101': [3, 4, 23, 3],
-            'resnet152': [3, 8, 36, 3]}
+        assert architecture in ['resnet18', 'resnet50', 'resnet101', 'resnet152']
+        layers = {'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3], 'resnet50': [3, 4, 6, 3], 'resnet101': [3, 4, 23, 3], 'resnet152': [3, 8, 36, 3]}
         self.inplanes = 64
         if architecture == 'resnet18' or architecture == 'resnet34':
             self.block = BasicBlock
         else:
             self.block = Bottleneck
         self.layers = layers[architecture]
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64, eps=1e-05, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        stage_dcn = [(dcn if with_dcn else None) for with_dcn in stage_with_dcn
-            ]
-        self.layer1 = self.make_layer(self.block, 64, self.layers[0], dcn=
-            stage_dcn[0])
-        self.layer2 = self.make_layer(self.block, 128, self.layers[1],
-            stride=2, dcn=stage_dcn[1])
-        self.layer3 = self.make_layer(self.block, 256, self.layers[2],
-            stride=2, dcn=stage_dcn[2])
-        self.layer4 = self.make_layer(self.block, 512, self.layers[3],
-            stride=2, dcn=stage_dcn[3])
+        stage_dcn = [(dcn if with_dcn else None) for with_dcn in stage_with_dcn]
+        self.layer1 = self.make_layer(self.block, 64, self.layers[0], dcn=stage_dcn[0])
+        self.layer2 = self.make_layer(self.block, 128, self.layers[1], stride=2, dcn=stage_dcn[1])
+        self.layer3 = self.make_layer(self.block, 256, self.layers[2], stride=2, dcn=stage_dcn[2])
+        self.layer4 = self.make_layer(self.block, 512, self.layers[3], stride=2, dcn=stage_dcn[3])
 
     def forward(self, x):
         x = self.maxpool(self.relu(self.bn1(self.conv1(x))))
@@ -1022,24 +924,19 @@ class ResNet(nn.Module):
     def make_layer(self, block, planes, blocks, stride=1, dcn=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                self._norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), self._norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            norm_layer=self._norm_layer, dcn=dcn))
+        layers.append(block(self.inplanes, planes, stride, downsample, norm_layer=self._norm_layer, dcn=dcn))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, norm_layer=self.
-                _norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, norm_layer=self._norm_layer, dcn=dcn))
         return nn.Sequential(*layers)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=False, norm_layer=nn.BatchNorm2d):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=False, norm_layer=nn.BatchNorm2d):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
@@ -1071,8 +968,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=False, norm_layer=nn.BatchNorm2d, dcn=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=False, norm_layer=nn.BatchNorm2d, dcn=None):
         super(Bottleneck, self).__init__()
         self.dcn = dcn
         self.with_dcn = dcn is not None
@@ -1082,8 +978,7 @@ class Bottleneck(nn.Module):
             fallback_on_stride = dcn.get('FALLBACK_ON_STRIDE', False)
             self.with_modulated_dcn = dcn.get('MODULATED', False)
         if not self.with_dcn or fallback_on_stride:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         else:
             self.deformable_groups = dcn.get('DEFORM_GROUP', 1)
             if not self.with_modulated_dcn:
@@ -1092,11 +987,8 @@ class Bottleneck(nn.Module):
             else:
                 conv_op = ModulatedDeformConv
                 offset_channels = 27
-            self.conv2_offset = nn.Conv2d(planes, self.deformable_groups *
-                offset_channels, kernel_size=3, stride=stride, padding=1)
-            self.conv2 = conv_op(planes, planes, kernel_size=3, stride=
-                stride, padding=1, deformable_groups=self.deformable_groups,
-                bias=False)
+            self.conv2_offset = nn.Conv2d(planes, self.deformable_groups * offset_channels, kernel_size=3, stride=stride, padding=1)
+            self.conv2 = conv_op(planes, planes, kernel_size=3, stride=stride, padding=1, deformable_groups=self.deformable_groups, bias=False)
         self.bn2 = norm_layer(planes, momentum=0.1)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = norm_layer(planes * 4, momentum=0.1)
@@ -1134,36 +1026,26 @@ class Bottleneck(nn.Module):
 class SEResnet(nn.Module):
     """ SEResnet """
 
-    def __init__(self, architecture, norm_layer=nn.BatchNorm2d, dcn=None,
-        stage_with_dcn=(False, False, False, False)):
+    def __init__(self, architecture, norm_layer=nn.BatchNorm2d, dcn=None, stage_with_dcn=(False, False, False, False)):
         super(SEResnet, self).__init__()
         self._norm_layer = norm_layer
-        assert architecture in ['resnet18', 'resnet50', 'resnet101',
-            'resnet152']
-        layers = {'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3],
-            'resnet50': [3, 4, 6, 3], 'resnet101': [3, 4, 23, 3],
-            'resnet152': [3, 8, 36, 3]}
+        assert architecture in ['resnet18', 'resnet50', 'resnet101', 'resnet152']
+        layers = {'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3], 'resnet50': [3, 4, 6, 3], 'resnet101': [3, 4, 23, 3], 'resnet152': [3, 8, 36, 3]}
         self.inplanes = 64
         if architecture == 'resnet18' or architecture == 'resnet34':
             self.block = BasicBlock
         else:
             self.block = Bottleneck
         self.layers = layers[architecture]
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64, eps=1e-05, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        stage_dcn = [(dcn if with_dcn else None) for with_dcn in stage_with_dcn
-            ]
-        self.layer1 = self.make_layer(self.block, 64, self.layers[0], dcn=
-            stage_dcn[0])
-        self.layer2 = self.make_layer(self.block, 128, self.layers[1],
-            stride=2, dcn=stage_dcn[1])
-        self.layer3 = self.make_layer(self.block, 256, self.layers[2],
-            stride=2, dcn=stage_dcn[2])
-        self.layer4 = self.make_layer(self.block, 512, self.layers[3],
-            stride=2, dcn=stage_dcn[3])
+        stage_dcn = [(dcn if with_dcn else None) for with_dcn in stage_with_dcn]
+        self.layer1 = self.make_layer(self.block, 64, self.layers[0], dcn=stage_dcn[0])
+        self.layer2 = self.make_layer(self.block, 128, self.layers[1], stride=2, dcn=stage_dcn[1])
+        self.layer3 = self.make_layer(self.block, 256, self.layers[2], stride=2, dcn=stage_dcn[2])
+        self.layer4 = self.make_layer(self.block, 512, self.layers[3], stride=2, dcn=stage_dcn[3])
 
     def forward(self, x):
         x = self.maxpool(self.relu(self.bn1(self.conv1(x))))
@@ -1179,20 +1061,15 @@ class SEResnet(nn.Module):
     def make_layer(self, block, planes, blocks, stride=1, dcn=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                self._norm_layer(planes * block.expansion, momentum=0.1))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), self._norm_layer(planes * block.expansion, momentum=0.1))
         layers = []
         if downsample is not None:
-            layers.append(block(self.inplanes, planes, stride, downsample,
-                reduction=True, norm_layer=self._norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, stride, downsample, reduction=True, norm_layer=self._norm_layer, dcn=dcn))
         else:
-            layers.append(block(self.inplanes, planes, stride, downsample,
-                norm_layer=self._norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, stride, downsample, norm_layer=self._norm_layer, dcn=dcn))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, norm_layer=self.
-                _norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, norm_layer=self._norm_layer, dcn=dcn))
         return nn.Sequential(*layers)
 
 
@@ -1201,9 +1078,7 @@ class SELayer(nn.Module):
     def __init__(self, channel, reduction=1):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction),
-            nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel),
-            nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -1215,8 +1090,7 @@ class SELayer(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=False, norm_layer=nn.BatchNorm2d):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=False, norm_layer=nn.BatchNorm2d):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
@@ -1248,8 +1122,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        reduction=False, norm_layer=nn.BatchNorm2d, dcn=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=False, norm_layer=nn.BatchNorm2d, dcn=None):
         super(Bottleneck, self).__init__()
         self.dcn = dcn
         self.with_dcn = dcn is not None
@@ -1262,18 +1135,14 @@ class Bottleneck(nn.Module):
             conv_layers = []
             conv_layers.append(PixelUnshuffle(stride))
             if not self.with_dcn or fallback_on_stride:
-                conv_layers.append(nn.Conv2d(planes * 4, planes,
-                    kernel_size=3, stride=1, padding=1, bias=False))
+                conv_layers.append(nn.Conv2d(planes * 4, planes, kernel_size=3, stride=1, padding=1, bias=False))
             else:
-                conv_layers.append(DCN(planes * 4, planes, dcn, kernel_size
-                    =3, stride=1, padding=1, bias=False))
+                conv_layers.append(DCN(planes * 4, planes, dcn, kernel_size=3, stride=1, padding=1, bias=False))
             self.conv2 = nn.Sequential(*conv_layers)
         elif not self.with_dcn or fallback_on_stride:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         else:
-            self.conv2 = DCN(planes, planes, dcn, kernel_size=3, stride=
-                stride, padding=1, bias=False)
+            self.conv2 = DCN(planes, planes, dcn, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = norm_layer(planes, momentum=0.1)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = norm_layer(planes * 4, momentum=0.1)
@@ -1301,36 +1170,26 @@ class Bottleneck(nn.Module):
 class ShuffleResnet(nn.Module):
     """ ShuffleResnet """
 
-    def __init__(self, architecture, norm_layer=nn.BatchNorm2d, dcn=None,
-        stage_with_dcn=(False, False, False, False)):
+    def __init__(self, architecture, norm_layer=nn.BatchNorm2d, dcn=None, stage_with_dcn=(False, False, False, False)):
         super(ShuffleResnet, self).__init__()
         self._norm_layer = norm_layer
-        assert architecture in ['resnet18', 'resnet50', 'resnet101',
-            'resnet152']
-        layers = {'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3],
-            'resnet50': [3, 4, 6, 3], 'resnet101': [3, 4, 23, 3],
-            'resnet152': [3, 8, 36, 3]}
+        assert architecture in ['resnet18', 'resnet50', 'resnet101', 'resnet152']
+        layers = {'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3], 'resnet50': [3, 4, 6, 3], 'resnet101': [3, 4, 23, 3], 'resnet152': [3, 8, 36, 3]}
         self.inplanes = 64
         if architecture == 'resnet18' or architecture == 'resnet34':
             self.block = BasicBlock
         else:
             self.block = Bottleneck
         self.layers = layers[architecture]
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64, eps=1e-05, momentum=0.1, affine=True)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        stage_dcn = [(dcn if with_dcn else None) for with_dcn in stage_with_dcn
-            ]
-        self.layer1 = self.make_layer(self.block, 64, self.layers[0], dcn=
-            stage_dcn[0])
-        self.layer2 = self.make_layer(self.block, 128, self.layers[1],
-            stride=2, dcn=stage_dcn[1])
-        self.layer3 = self.make_layer(self.block, 256, self.layers[2],
-            stride=2, dcn=stage_dcn[2])
-        self.layer4 = self.make_layer(self.block, 512, self.layers[3],
-            stride=2, dcn=stage_dcn[3])
+        stage_dcn = [(dcn if with_dcn else None) for with_dcn in stage_with_dcn]
+        self.layer1 = self.make_layer(self.block, 64, self.layers[0], dcn=stage_dcn[0])
+        self.layer2 = self.make_layer(self.block, 128, self.layers[1], stride=2, dcn=stage_dcn[1])
+        self.layer3 = self.make_layer(self.block, 256, self.layers[2], stride=2, dcn=stage_dcn[2])
+        self.layer4 = self.make_layer(self.block, 512, self.layers[3], stride=2, dcn=stage_dcn[3])
 
     def forward(self, x):
         x = self.maxpool(self.relu(self.bn1(self.conv1(x))))
@@ -1346,20 +1205,15 @@ class ShuffleResnet(nn.Module):
     def make_layer(self, block, planes, blocks, stride=1, dcn=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                self._norm_layer(planes * block.expansion, momentum=0.1))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), self._norm_layer(planes * block.expansion, momentum=0.1))
         layers = []
         if downsample is not None:
-            layers.append(block(self.inplanes, planes, stride, downsample,
-                reduction=True, norm_layer=self._norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, stride, downsample, reduction=True, norm_layer=self._norm_layer, dcn=dcn))
         else:
-            layers.append(block(self.inplanes, planes, stride, downsample,
-                norm_layer=self._norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, stride, downsample, norm_layer=self._norm_layer, dcn=dcn))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, norm_layer=self.
-                _norm_layer, dcn=dcn))
+            layers.append(block(self.inplanes, planes, norm_layer=self._norm_layer, dcn=dcn))
         return nn.Sequential(*layers)
 
 
@@ -1369,14 +1223,12 @@ class DCN(nn.Module):
     OUTPUT: (planes // upscale_factor^2) * ht * wd
     """
 
-    def __init__(self, inplanes, planes, dcn, kernel_size, stride=1,
-        padding=0, bias=False):
+    def __init__(self, inplanes, planes, dcn, kernel_size, stride=1, padding=0, bias=False):
         super(DCN, self).__init__()
         fallback_on_stride = dcn.get('FALLBACK_ON_STRIDE', False)
         self.with_modulated_dcn = dcn.get('MODULATED', False)
         if fallback_on_stride:
-            self.conv = nn.Conv2d(inplanes, planes, kernel_size=kernel_size,
-                stride=stride, padding=padding, bias=bias)
+            self.conv = nn.Conv2d(inplanes, planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
         else:
             self.deformable_groups = dcn.get('DEFORM_GROUP', 1)
             if not self.with_modulated_dcn:
@@ -1385,12 +1237,8 @@ class DCN(nn.Module):
             else:
                 conv_op = ModulatedDeformConv
                 offset_channels = 27
-            self.conv_offset = nn.Conv2d(inplanes, self.deformable_groups *
-                offset_channels, kernel_size=kernel_size, stride=stride,
-                padding=padding)
-            self.conv = conv_op(inplanes, planes, kernel_size=kernel_size,
-                stride=stride, padding=padding, deformable_groups=self.
-                deformable_groups, bias=bias)
+            self.conv_offset = nn.Conv2d(inplanes, self.deformable_groups * offset_channels, kernel_size=kernel_size, stride=stride, padding=padding)
+            self.conv = conv_op(inplanes, planes, kernel_size=kernel_size, stride=stride, padding=padding, deformable_groups=self.deformable_groups, bias=bias)
 
     def forward(self, x):
         if self.with_modulated_dcn:
@@ -1408,12 +1256,9 @@ class DCN(nn.Module):
 class DeformConvFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1,
-        groups=1, deformable_groups=1, im2col_step=64):
+    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, im2col_step=64):
         if input is not None and input.dim() != 4:
-            raise ValueError(
-                'Expected 4D tensor as input, got {}D tensor instead.'.
-                format(input.dim()))
+            raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
         ctx.stride = _pair(stride)
         ctx.padding = _pair(padding)
         ctx.dilation = _pair(dilation)
@@ -1421,20 +1266,14 @@ class DeformConvFunction(Function):
         ctx.deformable_groups = deformable_groups
         ctx.im2col_step = im2col_step
         ctx.save_for_backward(input, offset, weight)
-        output = input.new_empty(DeformConvFunction._output_size(input,
-            weight, ctx.padding, ctx.dilation, ctx.stride))
+        output = input.new_empty(DeformConvFunction._output_size(input, weight, ctx.padding, ctx.dilation, ctx.stride))
         ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
         if not input.is_cuda:
             raise NotImplementedError
         else:
             cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0
-                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset,
-                output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.
-                size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.
-                padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups,
-                ctx.deformable_groups, cur_im2col_step)
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset, output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
         return output
 
     @staticmethod
@@ -1446,27 +1285,15 @@ class DeformConvFunction(Function):
             raise NotImplementedError
         else:
             cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0
-                ] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
             if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
                 grad_input = torch.zeros_like(input)
                 grad_offset = torch.zeros_like(offset)
-                deform_conv_cuda.deform_conv_backward_input_cuda(input,
-                    offset, grad_output, grad_input, grad_offset, weight,
-                    ctx.bufs_[0], weight.size(3), weight.size(2), ctx.
-                    stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0
-                    ], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.
-                    deformable_groups, cur_im2col_step)
+                deform_conv_cuda.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, ctx.bufs_[0], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
             if ctx.needs_input_grad[2]:
                 grad_weight = torch.zeros_like(weight)
-                deform_conv_cuda.deform_conv_backward_parameters_cuda(input,
-                    offset, grad_output, grad_weight, ctx.bufs_[0], ctx.
-                    bufs_[1], weight.size(3), weight.size(2), ctx.stride[1],
-                    ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.
-                    dilation[1], ctx.dilation[0], ctx.groups, ctx.
-                    deformable_groups, 1, cur_im2col_step)
-        return (grad_input, grad_offset, grad_weight, None, None, None,
-            None, None)
+                deform_conv_cuda.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, 1, cur_im2col_step)
+        return grad_input, grad_offset, grad_weight, None, None, None, None, None
 
     @staticmethod
     def _output_size(input, weight, padding, dilation, stride):
@@ -1479,9 +1306,7 @@ class DeformConvFunction(Function):
             stride_ = stride[d]
             output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
         if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError(
-                'convolution input is too small (output would be {})'.
-                format('x'.join(map(str, output_size))))
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
         return output_size
 
 
@@ -1490,14 +1315,11 @@ deform_conv = DeformConvFunction.apply
 
 class DeformConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
         super(DeformConv, self).__init__()
         assert not bias
-        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(
-            in_channels, groups)
-        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(
-            out_channels, groups)
+        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(in_channels, groups)
+        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(out_channels, groups)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = _pair(kernel_size)
@@ -1506,8 +1328,7 @@ class DeformConv(nn.Module):
         self.dilation = _pair(dilation)
         self.groups = groups
         self.deformable_groups = deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels //
-            self.groups, *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // self.groups, *self.kernel_size))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -1518,15 +1339,13 @@ class DeformConv(nn.Module):
         self.weight.data.uniform_(-stdv, stdv)
 
     def forward(self, x, offset):
-        return deform_conv(x, offset, self.weight, self.stride, self.
-            padding, self.dilation, self.groups, self.deformable_groups)
+        return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
 class ModulatedDeformConvFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias=None, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1):
+    def forward(ctx, input, offset, mask, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1):
         ctx.stride = stride
         ctx.padding = padding
         ctx.dilation = dilation
@@ -1537,17 +1356,11 @@ class ModulatedDeformConvFunction(Function):
             bias = input.new_empty(1)
         if not input.is_cuda:
             raise NotImplementedError
-        if (weight.requires_grad or mask.requires_grad or offset.
-            requires_grad or input.requires_grad):
+        if weight.requires_grad or mask.requires_grad or offset.requires_grad or input.requires_grad:
             ctx.save_for_backward(input, offset, mask, weight, bias)
-        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(
-            ctx, input, weight))
+        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(ctx, input, weight))
         ctx._bufs = [input.new_empty(0), input.new_empty(0)]
-        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight,
-            bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.
-            shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding,
-            ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.
-            deformable_groups, ctx.with_bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight, bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
         return output
 
     @staticmethod
@@ -1561,16 +1374,10 @@ class ModulatedDeformConvFunction(Function):
         grad_mask = torch.zeros_like(mask)
         grad_weight = torch.zeros_like(weight)
         grad_bias = torch.zeros_like(bias)
-        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight,
-            bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input,
-            grad_weight, grad_bias, grad_offset, grad_mask, grad_output,
-            weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.
-            padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups,
-            ctx.deformable_groups, ctx.with_bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight, bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input, grad_weight, grad_bias, grad_offset, grad_mask, grad_output, weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
         if not ctx.with_bias:
             grad_bias = None
-        return (grad_input, grad_offset, grad_mask, grad_weight, grad_bias,
-            None, None, None, None, None)
+        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias, None, None, None, None, None
 
     @staticmethod
     def _infer_shape(ctx, input, weight):
@@ -1578,10 +1385,8 @@ class ModulatedDeformConvFunction(Function):
         channels_out = weight.size(0)
         height, width = input.shape[2:4]
         kernel_h, kernel_w = weight.shape[2:4]
-        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h -
-            1) + 1)) // ctx.stride + 1
-        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 
-            1) + 1)) // ctx.stride + 1
+        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h - 1) + 1)) // ctx.stride + 1
+        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 1) + 1)) // ctx.stride + 1
         return n, channels_out, height_out, width_out
 
 
@@ -1590,8 +1395,7 @@ modulated_deform_conv = ModulatedDeformConvFunction.apply
 
 class ModulatedDeformConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
         super(ModulatedDeformConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -1602,8 +1406,7 @@ class ModulatedDeformConv(nn.Module):
         self.groups = groups
         self.deformable_groups = deformable_groups
         self.with_bias = bias
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels //
-            groups, *self.kernel_size))
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *self.kernel_size))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_channels))
         else:
@@ -1620,17 +1423,13 @@ class ModulatedDeformConv(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, x, offset, mask):
-        return modulated_deform_conv(x, offset, mask, self.weight, self.
-            bias, self.stride, self.padding, self.dilation, self.groups,
-            self.deformable_groups)
+        return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
-    def forward(ctx, data, rois, offset, spatial_scale, out_size,
-        out_channels, no_trans, group_size=1, part_size=None,
-        sample_per_part=4, trans_std=0.0):
+    def forward(ctx, data, rois, offset, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         out_h, out_w = _pair(out_size)
         assert isinstance(out_h, int) and isinstance(out_w, int)
         assert out_h == out_w
@@ -1649,10 +1448,7 @@ class DeformRoIPoolingFunction(Function):
         n = rois.shape[0]
         output = data.new_empty(n, out_channels, out_size, out_size)
         output_count = data.new_empty(n, out_channels, out_size, out_size)
-        deform_pool_cuda.deform_psroi_pooling_cuda_forward(data, rois,
-            offset, output, output_count, ctx.no_trans, ctx.spatial_scale,
-            ctx.out_channels, ctx.group_size, ctx.out_size, ctx.part_size,
-            ctx.sample_per_part, ctx.trans_std)
+        deform_pool_cuda.deform_psroi_pooling_cuda_forward(data, rois, offset, output, output_count, ctx.no_trans, ctx.spatial_scale, ctx.out_channels, ctx.group_size, ctx.out_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
         if data.requires_grad or rois.requires_grad or offset.requires_grad:
             ctx.save_for_backward(data, rois, offset)
         ctx.output_count = output_count
@@ -1668,12 +1464,8 @@ class DeformRoIPoolingFunction(Function):
         grad_input = torch.zeros_like(data)
         grad_rois = None
         grad_offset = torch.zeros_like(offset)
-        deform_pool_cuda.deform_psroi_pooling_cuda_backward(grad_output,
-            data, rois, offset, output_count, grad_input, grad_offset, ctx.
-            no_trans, ctx.spatial_scale, ctx.out_channels, ctx.group_size,
-            ctx.out_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
-        return (grad_input, grad_rois, grad_offset, None, None, None, None,
-            None, None, None, None)
+        deform_pool_cuda.deform_psroi_pooling_cuda_backward(grad_output, data, rois, offset, output_count, grad_input, grad_offset, ctx.no_trans, ctx.spatial_scale, ctx.out_channels, ctx.group_size, ctx.out_size, ctx.part_size, ctx.sample_per_part, ctx.trans_std)
+        return grad_input, grad_rois, grad_offset, None, None, None, None, None, None, None, None
 
 
 deform_roi_pooling = DeformRoIPoolingFunction.apply
@@ -1681,8 +1473,7 @@ deform_roi_pooling = DeformRoIPoolingFunction.apply
 
 class DeformRoIPooling(nn.Module):
 
-    def __init__(self, spatial_scale, out_size, out_channels, no_trans,
-        group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
         super(DeformRoIPooling, self).__init__()
         self.spatial_scale = spatial_scale
         self.out_size = _pair(out_size)
@@ -1696,9 +1487,7 @@ class DeformRoIPooling(nn.Module):
     def forward(self, data, rois, offset):
         if self.no_trans:
             offset = data.new_empty(0)
-        return deform_roi_pooling(data, rois, offset, self.spatial_scale,
-            self.out_size, self.out_channels, self.no_trans, self.
-            group_size, self.part_size, self.sample_per_part, self.trans_std)
+        return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
 @SPPE.register_module
@@ -1714,25 +1503,19 @@ class SimplePose(nn.Module):
         assert cfg['NUM_LAYERS'] in [18, 34, 50, 101, 152]
         x = eval(f"tm.resnet{cfg['NUM_LAYERS']}(pretrained=True)")
         model_state = self.preact.state_dict()
-        state = {k: v for k, v in x.state_dict().items() if k in self.
-            preact.state_dict() and v.size() == self.preact.state_dict()[k]
-            .size()}
+        state = {k: v for k, v in x.state_dict().items() if k in self.preact.state_dict() and v.size() == self.preact.state_dict()[k].size()}
         model_state.update(state)
         self.preact.load_state_dict(model_state)
         self.deconv_layers = self._make_deconv_layer()
-        self.final_layer = nn.Conv2d(self.deconv_dim[2], self._preset_cfg[
-            'NUM_JOINTS'], kernel_size=1, stride=1, padding=0)
+        self.final_layer = nn.Conv2d(self.deconv_dim[2], self._preset_cfg['NUM_JOINTS'], kernel_size=1, stride=1, padding=0)
 
     def _make_deconv_layer(self):
         deconv_layers = []
-        deconv1 = nn.ConvTranspose2d(2048, self.deconv_dim[0], kernel_size=
-            4, stride=2, padding=int(4 / 2) - 1, bias=False)
+        deconv1 = nn.ConvTranspose2d(2048, self.deconv_dim[0], kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
         bn1 = self._norm_layer(self.deconv_dim[0])
-        deconv2 = nn.ConvTranspose2d(self.deconv_dim[0], self.deconv_dim[1],
-            kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
+        deconv2 = nn.ConvTranspose2d(self.deconv_dim[0], self.deconv_dim[1], kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
         bn2 = self._norm_layer(self.deconv_dim[1])
-        deconv3 = nn.ConvTranspose2d(self.deconv_dim[1], self.deconv_dim[2],
-            kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
+        deconv3 = nn.ConvTranspose2d(self.deconv_dim[1], self.deconv_dim[2], kernel_size=4, stride=2, padding=int(4 / 2) - 1, bias=False)
         bn3 = self._norm_layer(self.deconv_dim[2])
         deconv_layers.append(deconv1)
         deconv_layers.append(bn1)
@@ -1778,8 +1561,7 @@ class RoIAlignFunction(Function):
         num_rois = rois.size(0)
         output = features.new_zeros(num_rois, num_channels, out_h, out_w)
         if features.is_cuda:
-            roi_align_cuda.forward(features, rois, out_h, out_w,
-                spatial_scale, sample_num, output)
+            roi_align_cuda.forward(features, rois, out_h, out_w, spatial_scale, sample_num, output)
         else:
             raise NotImplementedError
         return output
@@ -1797,10 +1579,8 @@ class RoIAlignFunction(Function):
         out_h = grad_output.size(2)
         grad_input = grad_rois = None
         if ctx.needs_input_grad[0]:
-            grad_input = rois.new_zeros(batch_size, num_channels,
-                data_height, data_width)
-            roi_align_cuda.backward(grad_output.contiguous(), rois, out_h,
-                out_w, spatial_scale, sample_num, grad_input)
+            grad_input = rois.new_zeros(batch_size, num_channels, data_height, data_width)
+            roi_align_cuda.backward(grad_output.contiguous(), rois, out_h, out_w, spatial_scale, sample_num, grad_input)
         return grad_input, grad_rois, None, None, None
 
 
@@ -1809,8 +1589,7 @@ roi_align = RoIAlignFunction.apply
 
 class RoIAlign(nn.Module):
 
-    def __init__(self, out_size, spatial_scale=1, sample_num=0,
-        use_torchvision=False):
+    def __init__(self, out_size, spatial_scale=1, sample_num=0, use_torchvision=False):
         super(RoIAlign, self).__init__()
         self.out_size = out_size
         self.spatial_scale = float(spatial_scale)
@@ -1820,16 +1599,13 @@ class RoIAlign(nn.Module):
     def forward(self, features, rois):
         if self.use_torchvision:
             from torchvision.ops import roi_align as tv_roi_align
-            return tv_roi_align(features, rois, _pair(self.out_size), self.
-                spatial_scale, self.sample_num)
+            return tv_roi_align(features, rois, _pair(self.out_size), self.spatial_scale, self.sample_num)
         else:
-            return roi_align(features, rois, self.out_size, self.
-                spatial_scale, self.sample_num)
+            return roi_align(features, rois, self.out_size, self.spatial_scale, self.sample_num)
 
     def __repr__(self):
         format_str = self.__class__.__name__
-        format_str += '(out_size={}, spatial_scale={}, sample_num={}'.format(
-            self.out_size, self.spatial_scale, self.sample_num)
+        format_str += '(out_size={}, spatial_scale={}, sample_num={}'.format(self.out_size, self.spatial_scale, self.sample_num)
         format_str += ', use_torchvision={})'.format(self.use_torchvision)
         return format_str
 
@@ -1868,8 +1644,7 @@ def _generate_anchor_boxes(image_size, anchor_scale, anchor_configs):
             xv, yv = np.meshgrid(x, y)
             xv = xv.reshape(-1)
             yv = yv.reshape(-1)
-            boxes = np.vstack((yv - anchor_size_y_2, xv - anchor_size_x_2, 
-                yv + anchor_size_y_2, xv + anchor_size_x_2))
+            boxes = np.vstack((yv - anchor_size_y_2, xv - anchor_size_x_2, yv + anchor_size_y_2, xv + anchor_size_x_2))
             boxes = np.swapaxes(boxes, 0, 1)
             boxes_level.append(np.expand_dims(boxes, axis=1))
         boxes_level = np.concatenate(boxes_level, axis=1)
@@ -1903,16 +1678,14 @@ def _generate_anchor_configs(min_level, max_level, num_scales, aspect_ratios):
         anchor_configs[level] = []
         for scale_octave in range(num_scales):
             for aspect in aspect_ratios:
-                anchor_configs[level].append((2 ** level, scale_octave /
-                    float(num_scales), aspect))
+                anchor_configs[level].append((2 ** level, scale_octave / float(num_scales), aspect))
     return anchor_configs
 
 
 class Anchors(nn.Module):
     """RetinaNet Anchors class."""
 
-    def __init__(self, min_level, max_level, num_scales, aspect_ratios,
-        anchor_scale, image_size):
+    def __init__(self, min_level, max_level, num_scales, aspect_ratios, anchor_scale, image_size):
         """Constructs multiscale RetinaNet anchors.
 
         Args:
@@ -1947,13 +1720,11 @@ class Anchors(nn.Module):
 
     def _generate_configs(self):
         """Generate configurations of anchor boxes."""
-        return _generate_anchor_configs(self.min_level, self.max_level,
-            self.num_scales, self.aspect_ratios)
+        return _generate_anchor_configs(self.min_level, self.max_level, self.num_scales, self.aspect_ratios)
 
     def _generate_boxes(self):
         """Generates multiscale anchor boxes."""
-        boxes = _generate_anchor_boxes(self.image_size, self.anchor_scale,
-            self.config)
+        boxes = _generate_anchor_boxes(self.image_size, self.anchor_scale, self.config)
         boxes = torch.from_numpy(boxes).float()
         return boxes
 
@@ -1978,12 +1749,9 @@ class AnchorLabeler(nn.Module):
         """
         super(AnchorLabeler, self).__init__()
         similarity_calc = region_similarity_calculator.IouSimilarity()
-        matcher = argmax_matcher.ArgMaxMatcher(match_threshold,
-            unmatched_threshold=match_threshold,
-            negatives_lower_than_unmatched=True, force_match_for_each_row=True)
+        matcher = argmax_matcher.ArgMaxMatcher(match_threshold, unmatched_threshold=match_threshold, negatives_lower_than_unmatched=True, force_match_for_each_row=True)
         box_coder = faster_rcnn_box_coder.FasterRcnnBoxCoder()
-        self.target_assigner = target_assigner.TargetAssigner(similarity_calc,
-            matcher, box_coder)
+        self.target_assigner = target_assigner.TargetAssigner(similarity_calc, matcher, box_coder)
         self.anchors = anchors
         self.match_threshold = match_threshold
         self.num_classes = num_classes
@@ -1998,8 +1766,7 @@ class AnchorLabeler(nn.Module):
             steps = feat_size ** 2 * anchors.get_anchors_per_location()
             indices = torch.arange(count, count + steps, device=labels.device)
             count += steps
-            labels_unpacked.append(torch.index_select(labels, 0, indices).
-                view([feat_size, feat_size, -1]))
+            labels_unpacked.append(torch.index_select(labels, 0, indices).view([feat_size, feat_size, -1]))
         return labels_unpacked
 
     def label_anchors(self, gt_boxes, gt_labels):
@@ -2024,8 +1791,7 @@ class AnchorLabeler(nn.Module):
         """
         gt_box_list = box_list.BoxList(gt_boxes)
         anchor_box_list = box_list.BoxList(self.anchors.boxes)
-        cls_targets, _, box_targets, _, matches = self.target_assigner.assign(
-            anchor_box_list, gt_box_list, gt_labels)
+        cls_targets, _, box_targets, _, matches = self.target_assigner.assign(anchor_box_list, gt_box_list, gt_labels)
         cls_targets -= 1
         cls_targets = cls_targets.long()
         cls_targets_dict = self._unpack_labels(cls_targets)
@@ -2053,23 +1819,15 @@ def _post_process(config, cls_outputs, box_outputs):
             representing box regression targets in [batch_size, height, width, num_anchors * 4].
     """
     batch_size = cls_outputs[0].shape[0]
-    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, config.num_classes]) for level in range(
-        config.num_levels)], 1)
-    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).
-        reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
-    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size,
-        -1), dim=1, k=MAX_DETECTION_POINTS)
+    cls_outputs_all = torch.cat([cls_outputs[level].permute(0, 2, 3, 1).reshape([batch_size, -1, config.num_classes]) for level in range(config.num_levels)], 1)
+    box_outputs_all = torch.cat([box_outputs[level].permute(0, 2, 3, 1).reshape([batch_size, -1, 4]) for level in range(config.num_levels)], 1)
+    _, cls_topk_indices_all = torch.topk(cls_outputs_all.reshape(batch_size, -1), dim=1, k=MAX_DETECTION_POINTS)
     indices_all = cls_topk_indices_all / config.num_classes
     classes_all = cls_topk_indices_all % config.num_classes
-    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, 4))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1,
-        indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
-    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2,
-        classes_all.unsqueeze(2))
-    return (cls_outputs_all_after_topk, box_outputs_all_after_topk,
-        indices_all, classes_all)
+    box_outputs_all_after_topk = torch.gather(box_outputs_all, 1, indices_all.unsqueeze(2).expand(-1, -1, 4))
+    cls_outputs_all_after_topk = torch.gather(cls_outputs_all, 1, indices_all.unsqueeze(2).expand(-1, -1, config.num_classes))
+    cls_outputs_all_after_topk = torch.gather(cls_outputs_all_after_topk, 2, classes_all.unsqueeze(2))
+    return cls_outputs_all_after_topk, box_outputs_all_after_topk, indices_all, classes_all
 
 
 def decode_box_outputs(rel_codes, anchors, output_xyxy=False):
@@ -2107,8 +1865,7 @@ def decode_box_outputs(rel_codes, anchors, output_xyxy=False):
     return out
 
 
-def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
-    classes, image_scale, nms_thres=0.5, max_dets=100):
+def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices, classes, image_scale, nms_thres=0.5, max_dets=100):
     """Generates detections with RetinaNet model outputs and anchors.
 
     Args:
@@ -2137,15 +1894,13 @@ def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
             each row representing [x, y, width, height, score, class]
     """
     anchor_boxes = anchor_boxes[(indices), :]
-    boxes = decode_box_outputs(box_outputs.T.float(), anchor_boxes.T,
-        output_xyxy=True)
+    boxes = decode_box_outputs(box_outputs.T.float(), anchor_boxes.T, output_xyxy=True)
     scores = cls_outputs.sigmoid().squeeze(1).float()
     human_idx = classes == 0
     boxes = boxes[human_idx]
     scores = scores[human_idx]
     classes = classes[human_idx]
-    top_detection_idx = batched_nms(boxes, scores, classes, iou_threshold=
-        nms_thres)
+    top_detection_idx = batched_nms(boxes, scores, classes, iou_threshold=nms_thres)
     top_detection_idx = top_detection_idx[:max_dets]
     boxes = boxes[top_detection_idx]
     scores = scores[top_detection_idx, None]
@@ -2156,9 +1911,7 @@ def generate_detections(cls_outputs, box_outputs, anchor_boxes, indices,
     classes += 1
     detections = torch.cat([boxes, scores, classes.float()], dim=1)
     if len(top_detection_idx) < max_dets:
-        detections = torch.cat([detections, torch.zeros((max_dets - len(
-            top_detection_idx), 6), device=detections.device, dtype=
-            detections.dtype)], dim=0)
+        detections = torch.cat([detections, torch.zeros((max_dets - len(top_detection_idx), 6), device=detections.device, dtype=detections.dtype)], dim=0)
     return detections
 
 
@@ -2170,19 +1923,14 @@ class DetBenchEval(nn.Module):
         self.nms_thres = nms_thres
         self.max_dets = max_dets
         self.model = model
-        self.anchors = Anchors(config.min_level, config.max_level, config.
-            num_scales, config.aspect_ratios, config.anchor_scale, config.
-            image_size)
+        self.anchors = Anchors(config.min_level, config.max_level, config.num_scales, config.aspect_ratios, config.anchor_scale, config.image_size)
 
     def forward(self, x, image_scales):
         class_out, box_out = self.model(x)
-        class_out, box_out, indices, classes = _post_process(self.config,
-            class_out, box_out)
+        class_out, box_out, indices, classes = _post_process(self.config, class_out, box_out)
         batch_detections = []
         for i in range(x.shape[0]):
-            detections = generate_detections(class_out[i], box_out[i], self
-                .anchors.boxes, indices[i], classes[i], image_scales[i],
-                nms_thres=self.nms_thres, max_dets=self.max_dets)
+            detections = generate_detections(class_out[i], box_out[i], self.anchors.boxes, indices[i], classes[i], image_scales[i], nms_thres=self.nms_thres, max_dets=self.max_dets)
             batch_detections.append(detections)
         return torch.stack(batch_detections, dim=0)
 
@@ -2193,11 +1941,8 @@ class DetBenchTrain(nn.Module):
         super(DetBenchTrain, self).__init__()
         self.config = config
         self.model = model
-        anchors = Anchors(config.min_level, config.max_level, config.
-            num_scales, config.aspect_ratios, config.anchor_scale, config.
-            image_size)
-        self.anchor_labeler = AnchorLabeler(anchors, config.num_classes,
-            match_threshold=0.5)
+        anchors = Anchors(config.min_level, config.max_level, config.num_scales, config.aspect_ratios, config.anchor_scale, config.image_size)
+        self.anchor_labeler = AnchorLabeler(anchors, config.num_classes, match_threshold=0.5)
         self.loss_fn = None
 
     def forward(self, x, gt_boxes, gt_labels):
@@ -2207,8 +1952,7 @@ class DetBenchTrain(nn.Module):
         gbl = []
         total_positive = 0
         for i in range(x.shape[0]):
-            gt_class_out, gt_box_out, num_positive = (self.anchor_labeler.
-                label_anchors(gt_boxes[i], gt_labels[i]))
+            gt_class_out, gt_box_out, num_positive = self.anchor_labeler.label_anchors(gt_boxes[i], gt_labels[i])
             gcl.append(gt_class_out)
             gbl.append(gt_box_out)
             total_positive += num_positive
@@ -2239,9 +1983,7 @@ class SequentialAppendLast(nn.Sequential):
 
 class ResampleFeatureMap(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, reduction_ratio=1.0,
-        pad_type='', pooling_type='max', norm_layer=nn.BatchNorm2d,
-        norm_kwargs=None, conv_after_downsample=False, apply_bn=False):
+    def __init__(self, in_channels, out_channels, reduction_ratio=1.0, pad_type='', pooling_type='max', norm_layer=nn.BatchNorm2d, norm_kwargs=None, conv_after_downsample=False, apply_bn=False):
         super(ResampleFeatureMap, self).__init__()
         pooling_type = pooling_type or 'max'
         self.in_channels = in_channels
@@ -2250,16 +1992,12 @@ class ResampleFeatureMap(nn.Sequential):
         self.conv_after_downsample = conv_after_downsample
         conv = None
         if in_channels != out_channels:
-            conv = ConvBnAct2d(in_channels, out_channels, kernel_size=1,
-                padding=pad_type, norm_layer=norm_layer if apply_bn else
-                None, norm_kwargs=norm_kwargs, bias=True, act_layer=None)
+            conv = ConvBnAct2d(in_channels, out_channels, kernel_size=1, padding=pad_type, norm_layer=norm_layer if apply_bn else None, norm_kwargs=norm_kwargs, bias=True, act_layer=None)
         if reduction_ratio > 1:
             stride_size = int(reduction_ratio)
             if conv is not None and not self.conv_after_downsample:
                 self.add_module('conv', conv)
-            self.add_module('downsample', create_pool2d(pooling_type,
-                kernel_size=stride_size + 1, stride=stride_size, padding=
-                pad_type))
+            self.add_module('downsample', create_pool2d(pooling_type, kernel_size=stride_size + 1, stride=stride_size, padding=pad_type))
             if conv is not None and self.conv_after_downsample:
                 self.add_module('conv', conv)
         else:
@@ -2267,17 +2005,12 @@ class ResampleFeatureMap(nn.Sequential):
                 self.add_module('conv', conv)
             if reduction_ratio < 1:
                 scale = int(1 // reduction_ratio)
-                self.add_module('upsample', nn.UpsamplingNearest2d(
-                    scale_factor=scale))
+                self.add_module('upsample', nn.UpsamplingNearest2d(scale_factor=scale))
 
 
 class FpnCombine(nn.Module):
 
-    def __init__(self, feature_info, fpn_config, fpn_channels,
-        inputs_offsets, target_reduction, pad_type='', pooling_type='max',
-        norm_layer=nn.BatchNorm2d, norm_kwargs=None,
-        apply_bn_for_resampling=False, conv_after_downsample=False,
-        weight_method='attn'):
+    def __init__(self, feature_info, fpn_config, fpn_channels, inputs_offsets, target_reduction, pad_type='', pooling_type='max', norm_layer=nn.BatchNorm2d, norm_kwargs=None, apply_bn_for_resampling=False, conv_after_downsample=False, weight_method='attn'):
         super(FpnCombine, self).__init__()
         self.inputs_offsets = inputs_offsets
         self.weight_method = weight_method
@@ -2291,14 +2024,9 @@ class FpnCombine(nn.Module):
                 node_idx = offset - len(feature_info)
                 input_reduction = fpn_config.nodes[node_idx]['reduction']
             reduction_ratio = target_reduction / input_reduction
-            self.resample[str(offset)] = ResampleFeatureMap(in_channels,
-                fpn_channels, reduction_ratio=reduction_ratio, pad_type=
-                pad_type, pooling_type=pooling_type, norm_layer=norm_layer,
-                norm_kwargs=norm_kwargs, apply_bn=apply_bn_for_resampling,
-                conv_after_downsample=conv_after_downsample)
+            self.resample[str(offset)] = ResampleFeatureMap(in_channels, fpn_channels, reduction_ratio=reduction_ratio, pad_type=pad_type, pooling_type=pooling_type, norm_layer=norm_layer, norm_kwargs=norm_kwargs, apply_bn=apply_bn_for_resampling, conv_after_downsample=conv_after_downsample)
         if weight_method == 'attn' or weight_method == 'fastattn':
-            self.edge_weights = nn.Parameter(torch.ones(len(inputs_offsets)
-                ), requires_grad=True)
+            self.edge_weights = nn.Parameter(torch.ones(len(inputs_offsets)), requires_grad=True)
         else:
             self.edge_weights = None
 
@@ -2310,19 +2038,16 @@ class FpnCombine(nn.Module):
             input_node = self.resample[str(offset)](input_node)
             nodes.append(input_node)
         if self.weight_method == 'attn':
-            normalized_weights = torch.softmax(self.edge_weights.type(dtype
-                ), dim=0)
+            normalized_weights = torch.softmax(self.edge_weights.type(dtype), dim=0)
             x = torch.stack(nodes, dim=-1) * normalized_weights
         elif self.weight_method == 'fastattn':
             edge_weights = nn.functional.relu(self.edge_weights.type(dtype))
             weights_sum = torch.sum(edge_weights)
-            x = torch.stack([(nodes[i] * edge_weights[i] / (weights_sum + 
-                0.0001)) for i in range(len(nodes))], dim=-1)
+            x = torch.stack([(nodes[i] * edge_weights[i] / (weights_sum + 0.0001)) for i in range(len(nodes))], dim=-1)
         elif self.weight_method == 'sum':
             x = torch.stack(nodes, dim=-1)
         else:
-            raise ValueError('unknown weight_method {}'.format(self.
-                weight_method))
+            raise ValueError('unknown weight_method {}'.format(self.weight_method))
         x = torch.sum(x, dim=-1)
         return x
 
@@ -2333,14 +2058,7 @@ _global_config['Config'] = 4
 def bifpn_sum_config(base_reduction=8):
     """BiFPN config with sum."""
     p = config.Config()
-    p.nodes = [{'reduction': base_reduction << 3, 'inputs_offsets': [3, 4]},
-        {'reduction': base_reduction << 2, 'inputs_offsets': [2, 5]}, {
-        'reduction': base_reduction << 1, 'inputs_offsets': [1, 6]}, {
-        'reduction': base_reduction, 'inputs_offsets': [0, 7]}, {
-        'reduction': base_reduction << 1, 'inputs_offsets': [1, 7, 8]}, {
-        'reduction': base_reduction << 2, 'inputs_offsets': [2, 6, 9]}, {
-        'reduction': base_reduction << 3, 'inputs_offsets': [3, 5, 10]}, {
-        'reduction': base_reduction << 4, 'inputs_offsets': [4, 11]}]
+    p.nodes = [{'reduction': base_reduction << 3, 'inputs_offsets': [3, 4]}, {'reduction': base_reduction << 2, 'inputs_offsets': [2, 5]}, {'reduction': base_reduction << 1, 'inputs_offsets': [1, 6]}, {'reduction': base_reduction, 'inputs_offsets': [0, 7]}, {'reduction': base_reduction << 1, 'inputs_offsets': [1, 7, 8]}, {'reduction': base_reduction << 2, 'inputs_offsets': [2, 6, 9]}, {'reduction': base_reduction << 3, 'inputs_offsets': [3, 5, 10]}, {'reduction': base_reduction << 4, 'inputs_offsets': [4, 11]}]
     p.weight_method = 'sum'
     return p
 
@@ -2362,8 +2080,7 @@ def bifpn_fa_config():
 def get_fpn_config(fpn_name):
     if not fpn_name:
         fpn_name = 'bifpn_fa'
-    name_to_config = {'bifpn_sum': bifpn_sum_config(), 'bifpn_attn':
-        bifpn_attn_config(), 'bifpn_fa': bifpn_fa_config()}
+    name_to_config = {'bifpn_sum': bifpn_sum_config(), 'bifpn_attn': bifpn_attn_config(), 'bifpn_fa': bifpn_fa_config()}
     return name_to_config[fpn_name]
 
 
@@ -2372,13 +2089,10 @@ class EfficientDet(nn.Module):
     def __init__(self, config, norm_kwargs=None):
         super(EfficientDet, self).__init__()
         norm_kwargs = norm_kwargs or dict(eps=0.001)
-        self.backbone = create_model(config.backbone_name, features_only=
-            True, out_indices=(2, 3, 4))
-        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction']
-            ) for i, f in enumerate(self.backbone.feature_info())]
+        self.backbone = create_model(config.backbone_name, features_only=True, out_indices=(2, 3, 4))
+        feature_info = [dict(num_chs=f['num_chs'], reduction=f['reduction']) for i, f in enumerate(self.backbone.feature_info())]
         self.fpn = BiFpn(config, feature_info, norm_kwargs=norm_kwargs)
-        self.class_net = HeadNet(config, num_outputs=config.num_classes,
-            norm_kwargs=norm_kwargs)
+        self.class_net = HeadNet(config, num_outputs=config.num_classes, norm_kwargs=norm_kwargs)
         self.box_net = HeadNet(config, num_outputs=4, norm_kwargs=norm_kwargs)
 
     def forward(self, x):
@@ -2481,25 +2195,18 @@ def bbox_iou(box1, box2, x1y1x2y2=False):
     """
     N, M = len(box1), len(box2)
     if x1y1x2y2:
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)
-            ], box1[:, (3)]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)
-            ], box2[:, (3)]
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, (0)], box1[:, (1)], box1[:, (2)], box1[:, (3)]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, (0)], box2[:, (1)], box2[:, (2)], box2[:, (3)]
     else:
-        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:,
-            (2)] / 2
-        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:,
-            (3)] / 2
-        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:,
-            (2)] / 2
-        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:,
-            (3)] / 2
+        b1_x1, b1_x2 = box1[:, (0)] - box1[:, (2)] / 2, box1[:, (0)] + box1[:, (2)] / 2
+        b1_y1, b1_y2 = box1[:, (1)] - box1[:, (3)] / 2, box1[:, (1)] + box1[:, (3)] / 2
+        b2_x1, b2_x2 = box2[:, (0)] - box2[:, (2)] / 2, box2[:, (0)] + box2[:, (2)] / 2
+        b2_y1, b2_y2 = box2[:, (1)] - box2[:, (3)] / 2, box2[:, (1)] + box2[:, (3)] / 2
     inter_rect_x1 = torch.max(b1_x1.unsqueeze(1), b2_x1)
     inter_rect_y1 = torch.max(b1_y1.unsqueeze(1), b2_y1)
     inter_rect_x2 = torch.min(b1_x2.unsqueeze(1), b2_x2)
     inter_rect_y2 = torch.min(b1_y2.unsqueeze(1), b2_y2)
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(
-        inter_rect_y2 - inter_rect_y1, 0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(inter_rect_y2 - inter_rect_y1, 0)
     b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
     b1_area = ((b1_x2 - b1_x1) * (b1_y2 - b1_y1)).view(-1, 1).expand(N, M)
     b2_area = ((b2_x2 - b2_x1) * (b2_y2 - b2_y1)).view(1, -1).expand(N, M)
@@ -2507,10 +2214,8 @@ def bbox_iou(box1, box2, x1y1x2y2=False):
 
 
 def encode_delta(gt_box_list, fg_anchor_list):
-    px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)
-        ], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
-    gx, gy, gw, gh = gt_box_list[:, (0)], gt_box_list[:, (1)], gt_box_list[:,
-        (2)], gt_box_list[:, (3)]
+    px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
+    gx, gy, gw, gh = gt_box_list[:, (0)], gt_box_list[:, (1)], gt_box_list[:, (2)], gt_box_list[:, (3)]
     dx = (gx - px) / pw
     dy = (gy - py) / ph
     dw = torch.log(gw / pw)
@@ -2523,8 +2228,7 @@ def generate_anchor(nGh, nGw, anchor_wh):
     yy, xx = torch.meshgrid(torch.arange(nGh), torch.arange(nGw))
     mesh = torch.stack([xx, yy], dim=0).to(anchor_wh)
     mesh = mesh.unsqueeze(0).repeat(nA, 1, 1, 1).float()
-    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1,
-        nGh, nGw)
+    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, nGh, nGw)
     anchor_mesh = torch.cat([mesh, anchor_offset_mesh], dim=1)
     return anchor_mesh
 
@@ -2581,16 +2285,14 @@ def create_grids(self, img_size, nGh, nGw):
     self.stride = img_size[0] / nGw
     assert self.stride == img_size[1] / nGh
     grid_x = torch.arange(nGw).repeat((nGh, 1)).view((1, 1, nGh, nGw)).float()
-    grid_y = torch.arange(nGh).repeat((nGw, 1)).transpose(0, 1).view((1, 1,
-        nGh, nGw)).float()
+    grid_y = torch.arange(nGh).repeat((nGw, 1)).transpose(0, 1).view((1, 1, nGh, nGw)).float()
     self.grid_xy = torch.stack((grid_x, grid_y), 4)
     self.anchor_vec = self.anchors / self.stride
     self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2)
 
 
 def decode_delta(delta, fg_anchor_list):
-    px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)
-        ], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
+    px, py, pw, ph = fg_anchor_list[:, (0)], fg_anchor_list[:, (1)], fg_anchor_list[:, (2)], fg_anchor_list[:, (3)]
     dx, dy, dw, dh = delta[:, (0)], delta[:, (1)], delta[:, (2)], delta[:, (3)]
     gx = pw * dx + px
     gy = ph * dy + py
@@ -2634,26 +2336,22 @@ class YOLOLayer(nn.Module):
         self.s_id = nn.Parameter(-2.3 * torch.ones(1))
         self.emb_scale = math.sqrt(2) * math.log(self.nID - 1)
 
-    def forward(self, p_cat, img_size, targets=None, classifier=None,
-        test_emb=False):
+    def forward(self, p_cat, img_size, targets=None, classifier=None, test_emb=False):
         p, p_emb = p_cat[:, :24, (...)], p_cat[:, 24:, (...)]
         nB, nGh, nGw = p.shape[0], p.shape[-2], p.shape[-1]
         if self.img_size != img_size:
             create_grids(self, img_size, nGh, nGw)
             self.grid_xy = self.grid_xy
             self.anchor_wh = self.anchor_wh
-        p = p.view(nB, self.nA, self.nC + 5, nGh, nGw).permute(0, 1, 3, 4, 2
-            ).contiguous()
+        p = p.view(nB, self.nA, self.nC + 5, nGh, nGw).permute(0, 1, 3, 4, 2).contiguous()
         p_emb = p_emb.permute(0, 2, 3, 1).contiguous()
         p_box = p[(...), :4]
         p_conf = p[(...), 4:6].permute(0, 4, 1, 2, 3)
         if targets is not None:
             if test_emb:
-                tconf, tbox, tids = build_targets_max(targets, self.
-                    anchor_vec, self.nA, self.nC, nGh, nGw)
+                tconf, tbox, tids = build_targets_max(targets, self.anchor_vec, self.nA, self.nC, nGh, nGw)
             else:
-                tconf, tbox, tids = build_targets_thres(targets, self.
-                    anchor_vec, self.nA, self.nC, nGh, nGw)
+                tconf, tbox, tids = build_targets_thres(targets, self.anchor_vec, self.nA, self.nC, nGh, nGw)
             tconf, tbox, tids = tconf, tbox, tids
             mask = tconf > 0
             nT = sum([len(x) for x in targets])
@@ -2680,9 +2378,7 @@ class YOLOLayer(nn.Module):
             if len(embedding) > 1:
                 logits = classifier(embedding).contiguous()
                 lid = self.IDLoss(logits, tids.squeeze())
-            loss = torch.exp(-self.s_r) * lbox + torch.exp(-self.s_c
-                ) * lconf + torch.exp(-self.s_id) * lid + (self.s_r + self.
-                s_c + self.s_id)
+            loss = torch.exp(-self.s_r) * lbox + torch.exp(-self.s_c) * lconf + torch.exp(-self.s_id) * lid + (self.s_r + self.s_c + self.s_id)
             loss *= 0.5
             return loss, loss.item(), lbox.item(), lconf.item(), lid.item(), nT
         else:
@@ -2721,8 +2417,7 @@ def create_modules(blocks):
                 pad = (kernel_size - 1) // 2
             else:
                 pad = 0
-            conv = nn.Conv2d(prev_filters, filters, kernel_size, stride,
-                pad, bias=bias)
+            conv = nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=bias)
             module.add_module('conv_{0}'.format(index), conv)
             if batch_normalize:
                 bn = nn.BatchNorm2d(filters)
@@ -2749,18 +2444,14 @@ def create_modules(blocks):
                 route = EmptyLayer()
                 module.add_module('route_{0}'.format(index), route)
                 if end < 0:
-                    filters = output_filters[index + start] + output_filters[
-                        index + end]
+                    filters = output_filters[index + start] + output_filters[index + end]
                 else:
                     filters = output_filters[index + start]
             else:
                 assert len(x['layers']) == 4
                 round = EmptyLayer()
                 module.add_module('route_{0}'.format(index), route)
-                filters = output_filters[index + start] + output_filters[
-                    index + int(x['layers'][1])] + output_filters[index +
-                    int(x['layers'][2])] + output_filters[index + int(x[
-                    'layers'][3])]
+                filters = output_filters[index + start] + output_filters[index + int(x['layers'][1])] + output_filters[index + int(x['layers'][2])] + output_filters[index + int(x['layers'][3])]
         elif x['type'] == 'shortcut':
             from_ = int(x['from'])
             shortcut = EmptyLayer()
@@ -2778,8 +2469,7 @@ def create_modules(blocks):
             mask = [int(x) for x in mask]
             anchors = x['anchors'].split(',')
             anchors = [int(a) for a in anchors]
-            anchors = [(anchors[i], anchors[i + 1]) for i in range(0, len(
-                anchors), 2)]
+            anchors = [(anchors[i], anchors[i + 1]) for i in range(0, len(anchors), 2)]
             anchors = [anchors[i] for i in mask]
             detection = DetectionLayer(anchors)
             module.add_module('Detection_{}'.format(index), detection)
@@ -2816,8 +2506,7 @@ def parse_model_cfg(path):
 class Darknet(nn.Module):
     """YOLOv3 object detection model"""
 
-    def __init__(self, cfg_path, img_size=(1088, 608), nID=1591, test_emb=False
-        ):
+    def __init__(self, cfg_path, img_size=(1088, 608), nID=1591, test_emb=False):
         super(Darknet, self).__init__()
         self.module_defs = parse_model_cfg(cfg_path)
         self.module_defs[0]['cfg'] = cfg_path
@@ -2839,8 +2528,7 @@ class Darknet(nn.Module):
         is_training = targets is not None and not self.test_emb
         layer_outputs = []
         output = []
-        for i, (module_def, module) in enumerate(zip(self.module_defs, self
-            .module_list)):
+        for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             mtype = module_def['type']
             if mtype in ['convolutional', 'upsample', 'maxpool']:
                 x = module(x)
@@ -2855,17 +2543,13 @@ class Darknet(nn.Module):
                 x = layer_outputs[-1] + layer_outputs[layer_i]
             elif mtype == 'yolo':
                 if is_training:
-                    targets = [targets[i][:int(l)] for i, l in enumerate(
-                        targets_len)]
-                    x, *losses = module[0](x, self.img_size, targets, self.
-                        classifier)
+                    targets = [targets[i][:int(l)] for i, l in enumerate(targets_len)]
+                    x, *losses = module[0](x, self.img_size, targets, self.classifier)
                     for name, loss in zip(self.loss_names, losses):
                         self.losses[name] += loss
                 elif self.test_emb:
-                    targets = [targets[i][:int(l)] for i, l in enumerate(
-                        targets_len)]
-                    x = module[0](x, self.img_size, targets, self.
-                        classifier, self.test_emb)
+                    targets = [targets[i][:int(l)] for i, l in enumerate(targets_len)]
+                    x = module[0](x, self.img_size, targets, self.classifier, self.test_emb)
                 else:
                     x = module[0](x, self.img_size)
                 output.append(x)
@@ -2885,8 +2569,7 @@ class test_net(nn.Module):
         super(test_net, self).__init__()
         self.num_layers = num_layers
         self.linear_1 = nn.Linear(input_size, 5)
-        self.middle = nn.ModuleList([nn.Linear(5, 5) for x in range(
-            num_layers)])
+        self.middle = nn.ModuleList([nn.Linear(5, 5) for x in range(num_layers)])
         self.output = nn.Linear(5, 2)
 
     def forward(self, x):
@@ -2904,8 +2587,7 @@ class MaxPoolStride1(nn.Module):
 
     def forward(self, x):
         padding = int(self.pad / 2)
-        padded_x = F.pad(x, (padding, padding, padding, padding), mode=
-            'constant', value=0)
+        padded_x = F.pad(x, (padding, padding, padding, padding), mode='constant', value=0)
         pooled_x = nn.MaxPool2d(self.kernel_size, 1)(padded_x)
         return pooled_x
 
@@ -2923,11 +2605,9 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, args):
     bbox_attrs = 5 + num_classes
     num_anchors = len(anchors)
     anchors = [(a[0] / stride, a[1] / stride) for a in anchors]
-    prediction = prediction.view(batch_size, bbox_attrs * num_anchors, 
-        grid_size * grid_size)
+    prediction = prediction.view(batch_size, bbox_attrs * num_anchors, grid_size * grid_size)
     prediction = prediction.transpose(1, 2).contiguous()
-    prediction = prediction.view(batch_size, grid_size * grid_size *
-        num_anchors, bbox_attrs)
+    prediction = prediction.view(batch_size, grid_size * grid_size * num_anchors, bbox_attrs)
     prediction[:, :, (0)] = torch.sigmoid(prediction[:, :, (0)])
     prediction[:, :, (1)] = torch.sigmoid(prediction[:, :, (1)])
     prediction[:, :, (4)] = torch.sigmoid(prediction[:, :, (4)])
@@ -2941,8 +2621,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, args):
     else:
         x_offset = x_offset.cuda()
         y_offset = y_offset.cuda()
-    x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors
-        ).view(-1, 2).unsqueeze(0)
+    x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors).view(-1, 2).unsqueeze(0)
     prediction[:, :, :2] += x_y_offset
     anchors = torch.FloatTensor(anchors)
     if args:
@@ -2951,8 +2630,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, args):
         anchors = anchors.cuda()
     anchors = anchors.repeat(grid_size * grid_size, 1).unsqueeze(0)
     prediction[:, :, 2:4] = torch.exp(prediction[:, :, 2:4]) * anchors
-    prediction[:, :, 5:5 + num_classes] = torch.sigmoid(prediction[:, :, 5:
-        5 + num_classes])
+    prediction[:, :, 5:5 + num_classes] = torch.sigmoid(prediction[:, :, 5:5 + num_classes])
     prediction[:, :, :4] *= stride
     return prediction
 
@@ -2967,8 +2645,7 @@ class DetectionLayer(nn.Module):
         x = x.data
         global args
         prediction = x
-        prediction = predict_transform(prediction, inp_dim, self.anchors,
-            num_classes, confidence, args)
+        prediction = predict_transform(prediction, inp_dim, self.anchors, num_classes, confidence, args)
         return prediction
 
 
@@ -2987,8 +2664,7 @@ class Upsample(nn.Module):
         W = x.data.size(3)
         ws = stride
         hs = stride
-        x = x.view(B, C, H, 1, W, 1).expand(B, C, H, stride, W, stride
-            ).contiguous().view(B, C, H * stride, W * stride)
+        x = x.view(B, C, H, 1, W, 1).expand(B, C, H, stride, W, stride).contiguous().view(B, C, H * stride, W * stride)
         return x
 
 
@@ -3003,17 +2679,12 @@ class ReOrgLayer(nn.Module):
         B, C, H, W = x.data.shape
         hs = self.stride
         ws = self.stride
-        assert H % hs == 0, 'The stride ' + str(self.stride
-            ) + ' is not a proper divisor of height ' + str(H)
-        assert W % ws == 0, 'The stride ' + str(self.stride
-            ) + ' is not a proper divisor of height ' + str(W)
-        x = x.view(B, C, H // hs, hs, W // ws, ws).transpose(-2, -3
-            ).contiguous()
+        assert H % hs == 0, 'The stride ' + str(self.stride) + ' is not a proper divisor of height ' + str(H)
+        assert W % ws == 0, 'The stride ' + str(self.stride) + ' is not a proper divisor of height ' + str(W)
+        x = x.view(B, C, H // hs, hs, W // ws, ws).transpose(-2, -3).contiguous()
         x = x.view(B, C, H // hs * W // ws, hs, ws)
-        x = x.view(B, C, H // hs * W // ws, hs * ws).transpose(-1, -2
-            ).contiguous()
-        x = x.view(B, C, ws * hs, H // ws, W // ws).transpose(1, 2).contiguous(
-            )
+        x = x.view(B, C, H // hs * W // ws, hs * ws).transpose(-1, -2).contiguous()
+        x = x.view(B, C, ws * hs, H // ws, W // ws).transpose(1, 2).contiguous()
         x = x.view(B, C * ws * hs, H // ws, W // ws)
         return x
 
@@ -3068,8 +2739,7 @@ class Darknet(nn.Module):
         write = 0
         for i in range(len(modules)):
             module_type = modules[i]['type']
-            if (module_type == 'convolutional' or module_type == 'upsample' or
-                module_type == 'maxpool'):
+            if module_type == 'convolutional' or module_type == 'upsample' or module_type == 'maxpool':
                 x = self.module_list[i](x)
                 outputs[i] = x
             elif module_type == 'route':
@@ -3127,25 +2797,20 @@ class Darknet(nn.Module):
             if module_type == 'convolutional':
                 model = self.module_list[i]
                 try:
-                    batch_normalize = int(self.blocks[i + 1]['batch_normalize']
-                        )
+                    batch_normalize = int(self.blocks[i + 1]['batch_normalize'])
                 except:
                     batch_normalize = 0
                 conv = model[0]
                 if batch_normalize:
                     bn = model[1]
                     num_bn_biases = bn.bias.numel()
-                    bn_biases = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-                    bn_weights = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_weights = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-                    bn_running_mean = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_running_mean = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-                    bn_running_var = torch.from_numpy(weights[ptr:ptr +
-                        num_bn_biases])
+                    bn_running_var = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
                     bn_biases = bn_biases.view_as(bn.bias.data)
                     bn_weights = bn_weights.view_as(bn.weight.data)
@@ -3157,8 +2822,7 @@ class Darknet(nn.Module):
                     bn.running_var.copy_(bn_running_var)
                 else:
                     num_biases = conv.bias.numel()
-                    conv_biases = torch.from_numpy(weights[ptr:ptr +
-                        num_biases])
+                    conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
                     ptr = ptr + num_biases
                     conv_biases = conv_biases.view_as(conv.bias.data)
                     conv.bias.data.copy_(conv_biases)
@@ -3181,8 +2845,7 @@ class Darknet(nn.Module):
             if module_type == 'convolutional':
                 model = self.module_list[i]
                 try:
-                    batch_normalize = int(self.blocks[i + 1]['batch_normalize']
-                        )
+                    batch_normalize = int(self.blocks[i + 1]['batch_normalize'])
                 except:
                     batch_normalize = 0
                 conv = model[0]
@@ -3201,37 +2864,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DUC,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxPoolStride1,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PixelUnshuffle,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReOrgLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResampleFeatureMap,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SequentialAppend,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SequentialAppendLast,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Upsample,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_MVIG_SJTU_AlphaPose(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DUC(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MaxPoolStride1(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PixelUnshuffle(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ReOrgLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ResampleFeatureMap(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(SELayer(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(SequentialAppend(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(SequentialAppendLast(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Upsample(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

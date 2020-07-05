@@ -53,8 +53,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -116,17 +117,13 @@ class BasicBlock2d(nn.Module):
                                                   ``torch.nn.LeakyReLU``.
     """
 
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding
-        =0, batchnorm=True, nonlinearity=None):
+    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, batchnorm=True, nonlinearity=None):
         super(BasicBlock2d, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         if batchnorm is True:
-            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.
-                Conv2d(in_channels, out_channels, kernel, stride, padding,
-                bias=False))
+            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.Conv2d(in_channels, out_channels, kernel, stride, padding, bias=False))
         else:
-            self.model = nn.Sequential(nl, nn.Conv2d(in_channels,
-                out_channels, kernel, stride, padding, bias=True))
+            self.model = nn.Sequential(nl, nn.Conv2d(in_channels, out_channels, kernel, stride, padding, bias=True))
 
     def forward(self, x):
         """Computes the output of the basic dense block
@@ -166,23 +163,14 @@ class BottleneckBlock2d(nn.Module):
                                                   ``torch.nn.LeakyReLU``.
     """
 
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding
-        =0, bottleneck_channels=None, batchnorm=True, nonlinearity=None):
+    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, bottleneck_channels=None, batchnorm=True, nonlinearity=None):
         super(BottleneckBlock2d, self).__init__()
-        bottleneck_channels = (4 * in_channels if bottleneck_channels is
-            None else bottleneck_channels)
+        bottleneck_channels = 4 * in_channels if bottleneck_channels is None else bottleneck_channels
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         if batchnorm is True:
-            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.
-                Conv2d(in_channels, bottleneck_channels, 1, 1, 0, bias=
-                False), nn.BatchNorm2d(bottleneck_channels), nl, nn.Conv2d(
-                bottleneck_channels, out_channels, kernel, stride, padding,
-                bias=False))
+            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.Conv2d(in_channels, bottleneck_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(bottleneck_channels), nl, nn.Conv2d(bottleneck_channels, out_channels, kernel, stride, padding, bias=False))
         else:
-            self.model = nn.Sequential(nl, nn.Conv2d(in_channels,
-                bottleneck_channels, 1, 1, 0, bias=True), nl, nn.Conv2d(
-                bottleneck_channels, out_channels, kernel, stride, padding,
-                bias=True))
+            self.model = nn.Sequential(nl, nn.Conv2d(in_channels, bottleneck_channels, 1, 1, 0, bias=True), nl, nn.Conv2d(bottleneck_channels, out_channels, kernel, stride, padding, bias=True))
 
     def forward(self, x):
         """Computes the output of the bottleneck dense block
@@ -214,17 +202,13 @@ class TransitionBlock2d(nn.Module):
                                                   ``torch.nn.LeakyReLU``.
     """
 
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding
-        =0, batchnorm=True, nonlinearity=None):
+    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, batchnorm=True, nonlinearity=None):
         super(TransitionBlock2d, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         if batchnorm is True:
-            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.
-                Conv2d(in_channels, out_channels, kernel, stride, padding,
-                bias=False))
+            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.Conv2d(in_channels, out_channels, kernel, stride, padding, bias=False))
         else:
-            self.model = nn.Sequential(nl, nn.Conv2d(in_channels,
-                out_channels, kernel, stride, padding, bias=True))
+            self.model = nn.Sequential(nl, nn.Conv2d(in_channels, out_channels, kernel, stride, padding, bias=True))
 
     def forward(self, x):
         """Computes the output of the transition block
@@ -253,17 +237,13 @@ class TransitionBlockTranspose2d(nn.Module):
                                                   ``torch.nn.LeakyReLU``.
     """
 
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding
-        =0, batchnorm=True, nonlinearity=None):
+    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, batchnorm=True, nonlinearity=None):
         super(TransitionBlockTranspose2d, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         if batchnorm is True:
-            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.
-                ConvTranspose2d(in_channels, out_channels, kernel, stride,
-                padding, bias=False))
+            self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nl, nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, bias=False))
         else:
-            self.model = nn.Sequential(nl, nn.ConvTranspose2d(in_channels,
-                out_channels, kernel, stride, padding, bias=True))
+            self.model = nn.Sequential(nl, nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, bias=True))
 
     def forward(self, x):
         """Computes the output of the transition block transpose
@@ -297,14 +277,12 @@ class DenseBlock2d(nn.Module):
                                                   ``torch.nn.LeakyReLU``.
     """
 
-    def __init__(self, depth, in_channels, growth_rate, block, kernel,
-        stride=1, padding=0, batchnorm=True, nonlinearity=None):
+    def __init__(self, depth, in_channels, growth_rate, block, kernel, stride=1, padding=0, batchnorm=True, nonlinearity=None):
         super(DenseBlock2d, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         model = []
         for i in range(depth):
-            model.append(block(in_channels + i * growth_rate, growth_rate,
-                kernel, stride, padding, batchnorm=batchnorm, nonlinearity=nl))
+            model.append(block(in_channels + i * growth_rate, growth_rate, kernel, stride, padding, batchnorm=batchnorm, nonlinearity=nl))
         self.model = nn.Sequential(*model)
 
     def forward(self, x):
@@ -355,8 +333,7 @@ class MinibatchDiscrimination1d(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.intermediate_features = intermediate_features
-        self.T = nn.Parameter(torch.Tensor(in_features, out_features,
-            intermediate_features))
+        self.T = nn.Parameter(torch.Tensor(in_features, out_features, intermediate_features))
         nn.init.normal_(self.T)
 
     def forward(self, x):
@@ -369,8 +346,7 @@ class MinibatchDiscrimination1d(nn.Module):
             3D Torch Tensor of size :math: `(N,infeatures + outfeatures)` after applying Minibatch Discrimination
         """
         M = torch.mm(x, self.T.view(self.in_features, -1))
-        M = M.view(-1, self.out_features, self.intermediate_features
-            ).unsqueeze(0)
+        M = M.view(-1, self.out_features, self.intermediate_features).unsqueeze(0)
         M_t = M.permute(1, 0, 2, 3)
         out = torch.sum(torch.exp(-torch.abs(M - M_t).sum(3)), dim=0) - 1
         return torch.cat([x, out], 1)
@@ -410,21 +386,17 @@ class ResidualBlock2d(nn.Module):
             the residual block.
     """
 
-    def __init__(self, filters, kernels, strides=None, paddings=None,
-        nonlinearity=None, batchnorm=True, shortcut=None, last_nonlinearity
-        =None):
+    def __init__(self, filters, kernels, strides=None, paddings=None, nonlinearity=None, batchnorm=True, shortcut=None, last_nonlinearity=None):
         super(ResidualBlock2d, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         if strides is None:
             strides = [(1) for _ in range(len(kernels))]
         if paddings is None:
             paddings = [(0) for _ in range(len(kernels))]
-        assert len(filters) == len(kernels) + 1 and len(filters) == len(strides
-            ) + 1 and len(filters) == len(paddings) + 1
+        assert len(filters) == len(kernels) + 1 and len(filters) == len(strides) + 1 and len(filters) == len(paddings) + 1
         layers = []
         for i in range(1, len(filters)):
-            layers.append(nn.Conv2d(filters[i - 1], filters[i], kernels[i -
-                1], strides[i - 1], paddings[i - 1]))
+            layers.append(nn.Conv2d(filters[i - 1], filters[i], kernels[i - 1], strides[i - 1], paddings[i - 1]))
             if batchnorm:
                 layers.append(nn.BatchNorm2d(filters[i]))
             if i != len(filters):
@@ -448,8 +420,7 @@ class ResidualBlock2d(nn.Module):
             out += self.shortcut(x)
         else:
             out += x
-        return (out if self.last_nonlinearity is None else self.
-            last_nonlinearity(out))
+        return out if self.last_nonlinearity is None else self.last_nonlinearity(out)
 
 
 class ResidualBlockTranspose2d(nn.Module):
@@ -485,21 +456,17 @@ class ResidualBlockTranspose2d(nn.Module):
             the residual block.
     """
 
-    def __init__(self, filters, kernels, strides=None, paddings=None,
-        nonlinearity=None, batchnorm=True, shortcut=None, last_nonlinearity
-        =None):
+    def __init__(self, filters, kernels, strides=None, paddings=None, nonlinearity=None, batchnorm=True, shortcut=None, last_nonlinearity=None):
         super(ResidualBlockTranspose2d, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
         if strides is None:
             strides = [(1) for _ in range(len(kernels))]
         if paddings is None:
             paddings = [(0) for _ in range(len(kernels))]
-        assert len(filters) == len(kernels) + 1 and len(filters) == len(strides
-            ) + 1 and len(filters) == len(paddings) + 1
+        assert len(filters) == len(kernels) + 1 and len(filters) == len(strides) + 1 and len(filters) == len(paddings) + 1
         layers = []
         for i in range(1, len(filters)):
-            layers.append(nn.ConvTranspose2d(filters[i - 1], filters[i],
-                kernels[i - 1], strides[i - 1], paddings[i - 1]))
+            layers.append(nn.ConvTranspose2d(filters[i - 1], filters[i], kernels[i - 1], strides[i - 1], paddings[i - 1]))
             if batchnorm:
                 layers.append(nn.BatchNorm2d(filters[i]))
             if i != len(filters):
@@ -523,8 +490,7 @@ class ResidualBlockTranspose2d(nn.Module):
             out += self.shortcut(x)
         else:
             out += x
-        return (out if self.last_nonlinearity is None else self.
-            last_nonlinearity(out))
+        return out if self.last_nonlinearity is None else self.last_nonlinearity(out)
 
 
 class SelfAttention2d(nn.Module):
@@ -553,9 +519,7 @@ class SelfAttention2d(nn.Module):
     def __init__(self, input_dims, output_dims=None, return_attn=False):
         output_dims = input_dims // 8 if output_dims is None else output_dims
         if output_dims == 0:
-            raise Exception(
-                'The output dims corresponding to the input dims is 0. Increase the input                            dims to 8 or more. Else specify output_dims'
-                )
+            raise Exception('The output dims corresponding to the input dims is 0. Increase the input                            dims to 8 or more. Else specify output_dims')
         super(SelfAttention2d, self).__init__()
         self.query = nn.Conv2d(input_dims, output_dims, 1)
         self.key = nn.Conv2d(input_dims, output_dims, 1)
@@ -622,10 +586,8 @@ class SpectralNorm2d(nn.Module):
         w = getattr(self.module, self.name)
         height = w.data.shape[0]
         width = w.view(height, -1).data.shape[1]
-        self.u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=
-            False)
-        self.v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False
-            )
+        self.u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
+        self.v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
         self.u.data = self._l2normalize(self.u.data)
         self.v.data = self._l2normalize(self.v.data)
         self.w_bar = Parameter(w.data)
@@ -652,13 +614,10 @@ class SpectralNorm2d(nn.Module):
         """
         height = self.w_bar.data.shape[0]
         for _ in range(self.power_iterations):
-            self.v.data = self._l2normalize(torch.mv(torch.t(self.w_bar.
-                view(height, -1)), self.u))
-            self.u.data = self._l2normalize(torch.mv(self.w_bar.view(height,
-                -1), self.v))
+            self.v.data = self._l2normalize(torch.mv(torch.t(self.w_bar.view(height, -1)), self.u))
+            self.u.data = self._l2normalize(torch.mv(self.w_bar.view(height, -1), self.v))
         sigma = self.u.dot(self.w_bar.view(height, -1).mv(self.v))
-        setattr(self.module, self.name, self.w_bar / sigma.expand_as(self.
-            w_bar))
+        setattr(self.module, self.name, self.w_bar / sigma.expand_as(self.w_bar))
         return self.module.forward(*args)
 
 
@@ -785,8 +744,7 @@ class GeneratorLoss(nn.Module):
         """
         self.arg_map.update(value)
 
-    def train_ops(self, generator, discriminator, optimizer_generator,
-        device, batch_size, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_generator, device, batch_size, labels=None):
         """Defines the standard ``train_ops`` used by most losses. Losses which have a different
         training procedure can either ``subclass`` it **(recommended approach)** or make use of
         ``override_train_ops`` argument.
@@ -814,17 +772,14 @@ class GeneratorLoss(nn.Module):
             Scalar value of the loss.
         """
         if self.override_train_ops is not None:
-            return self.override_train_ops(generator, discriminator,
-                optimizer_generator, device, batch_size, labels)
+            return self.override_train_ops(generator, discriminator, optimizer_generator, device, batch_size, labels)
         else:
             if labels is None and generator.label_type == 'required':
                 raise Exception('GAN model requires labels for training')
-            noise = torch.randn(batch_size, generator.encoding_dims, device
-                =device)
+            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
             optimizer_generator.zero_grad()
             if generator.label_type == 'generated':
-                label_gen = torch.randint(0, generator.num_classes, (
-                    batch_size,), device=device)
+                label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
             if generator.label_type == 'none':
                 fake = generator(noise)
             elif generator.label_type == 'required':
@@ -877,8 +832,7 @@ class DiscriminatorLoss(nn.Module):
         """
         self.arg_map.update(value)
 
-    def train_ops(self, generator, discriminator, optimizer_discriminator,
-        real_inputs, device, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device, labels=None):
         """Defines the standard ``train_ops`` used by most losses. Losses which have a different
         training procedure can either ``subclass`` it **(recommended approach)** or make use of
         ``override_train_ops`` argument.
@@ -908,18 +862,14 @@ class DiscriminatorLoss(nn.Module):
             Scalar value of the loss.
         """
         if self.override_train_ops is not None:
-            return self.override_train_ops(self, generator, discriminator,
-                optimizer_discriminator, real_inputs, device, labels)
+            return self.override_train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device, labels)
         else:
-            if labels is None and (generator.label_type == 'required' or 
-                discriminator.label_type == 'required'):
+            if labels is None and (generator.label_type == 'required' or discriminator.label_type == 'required'):
                 raise Exception('GAN model requires labels for training')
             batch_size = real_inputs.size(0)
-            noise = torch.randn(batch_size, generator.encoding_dims, device
-                =device)
+            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
             if generator.label_type == 'generated':
-                label_gen = torch.randint(0, generator.num_classes, (
-                    batch_size,), device=device)
+                label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
             optimizer_discriminator.zero_grad()
             if discriminator.label_type == 'none':
                 dx = discriminator(real_inputs)
@@ -1016,18 +966,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MinibatchDiscrimination1d,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (TransitionBlock2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TransitionBlockTranspose2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VirtualBatchNorm,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_torchgan_torchgan(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MinibatchDiscrimination1d(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(TransitionBlock2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TransitionBlockTranspose2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(VirtualBatchNorm(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

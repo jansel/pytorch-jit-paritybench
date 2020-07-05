@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,15 +100,11 @@ def get_grid(pose, grid_size, device):
     t = t * np.pi / 180.0
     cos_t = t.cos()
     sin_t = t.sin()
-    theta11 = torch.stack([cos_t, -sin_t, torch.zeros(cos_t.shape).float().
-        to(device)], 1)
-    theta12 = torch.stack([sin_t, cos_t, torch.zeros(cos_t.shape).float().
-        to(device)], 1)
+    theta11 = torch.stack([cos_t, -sin_t, torch.zeros(cos_t.shape).float().to(device)], 1)
+    theta12 = torch.stack([sin_t, cos_t, torch.zeros(cos_t.shape).float().to(device)], 1)
     theta1 = torch.stack([theta11, theta12], 1)
-    theta21 = torch.stack([torch.ones(x.shape).to(device), -torch.zeros(x.
-        shape).to(device), x], 1)
-    theta22 = torch.stack([torch.zeros(x.shape).to(device), torch.ones(x.
-        shape).to(device), y], 1)
+    theta21 = torch.stack([torch.ones(x.shape).to(device), -torch.zeros(x.shape).to(device), x], 1)
+    theta22 = torch.stack([torch.zeros(x.shape).to(device), torch.ones(x.shape).to(device), y], 1)
     theta2 = torch.stack([theta21, theta22], 1)
     rot_grid = F.affine_grid(theta1, torch.Size(grid_size))
     trans_grid = F.affine_grid(theta2, torch.Size(grid_size))
@@ -131,10 +128,8 @@ class Neural_SLAM_Module(nn.Module):
         self.use_pe = args.use_pose_estimation
         resnet = models.resnet18(pretrained=args.pretrained_resnet)
         self.resnet_l5 = nn.Sequential(*list(resnet.children())[0:8])
-        self.conv = nn.Sequential(*filter(bool, [nn.Conv2d(512, 64, (1, 1),
-            stride=(1, 1)), nn.ReLU()]))
-        input_test = torch.randn(1, self.n_channels, self.screen_h, self.
-            screen_w)
+        self.conv = nn.Sequential(*filter(bool, [nn.Conv2d(512, 64, (1, 1), stride=(1, 1)), nn.ReLU()]))
+        input_test = torch.randn(1, self.n_channels, self.screen_h, self.screen_w)
         conv_output = self.conv(self.resnet_l5(input_test))
         self.pool = ChannelPool(1)
         self.conv_output_size = conv_output.view(-1).size(0)
@@ -143,17 +138,9 @@ class Neural_SLAM_Module(nn.Module):
         if self.dropout > 0:
             self.dropout1 = nn.Dropout(self.dropout)
             self.dropout2 = nn.Dropout(self.dropout)
-        self.deconv = nn.Sequential(*filter(bool, [nn.ConvTranspose2d(64, 
-            32, (4, 4), stride=(2, 2), padding=(1, 1)), nn.ReLU(), nn.
-            ConvTranspose2d(32, 16, (4, 4), stride=(2, 2), padding=(1, 1)),
-            nn.ReLU(), nn.ConvTranspose2d(16, 2, (4, 4), stride=(2, 2),
-            padding=(1, 1))]))
-        self.pose_conv = nn.Sequential(*filter(bool, [nn.Conv2d(4, 64, (4, 
-            4), stride=(2, 2)), nn.ReLU(), nn.Conv2d(64, 32, (4, 4), stride
-            =(2, 2)), nn.ReLU(), nn.Conv2d(32, 16, (3, 3), stride=(1, 1)),
-            nn.ReLU()]))
-        pose_conv_output = self.pose_conv(torch.randn(1, 4, self.
-            vision_range, self.vision_range))
+        self.deconv = nn.Sequential(*filter(bool, [nn.ConvTranspose2d(64, 32, (4, 4), stride=(2, 2), padding=(1, 1)), nn.ReLU(), nn.ConvTranspose2d(32, 16, (4, 4), stride=(2, 2), padding=(1, 1)), nn.ReLU(), nn.ConvTranspose2d(16, 2, (4, 4), stride=(2, 2), padding=(1, 1))]))
+        self.pose_conv = nn.Sequential(*filter(bool, [nn.Conv2d(4, 64, (4, 4), stride=(2, 2)), nn.ReLU(), nn.Conv2d(64, 32, (4, 4), stride=(2, 2)), nn.ReLU(), nn.Conv2d(32, 16, (3, 3), stride=(1, 1)), nn.ReLU()]))
+        pose_conv_output = self.pose_conv(torch.randn(1, 4, self.vision_range, self.vision_range))
         self.pose_conv_output_size = pose_conv_output.view(-1).size(0)
         self.pose_proj1 = nn.Linear(self.pose_conv_output_size, 1024)
         self.pose_proj2_x = nn.Linear(1024, 128)
@@ -167,21 +154,15 @@ class Neural_SLAM_Module(nn.Module):
         self.st_poses_eval = torch.zeros(args.num_processes, 3)
         self.st_poses_train = torch.zeros(args.slam_batch_size, 3)
         grid_size = self.vision_range * 2
-        self.grid_map_eval = torch.zeros(args.num_processes, 2, grid_size,
-            grid_size).float()
-        self.grid_map_train = torch.zeros(args.slam_batch_size, 2,
-            grid_size, grid_size).float()
-        self.agent_view = torch.zeros(args.num_processes, 2, self.
-            map_size_cm // self.resolution, self.map_size_cm // self.resolution
-            ).float()
+        self.grid_map_eval = torch.zeros(args.num_processes, 2, grid_size, grid_size).float()
+        self.grid_map_train = torch.zeros(args.slam_batch_size, 2, grid_size, grid_size).float()
+        self.agent_view = torch.zeros(args.num_processes, 2, self.map_size_cm // self.resolution, self.map_size_cm // self.resolution).float()
 
-    def forward(self, obs_last, obs, poses, maps, explored, current_poses,
-        build_maps=True):
+    def forward(self, obs_last, obs, poses, maps, explored, current_poses, build_maps=True):
         bs, c, h, w = obs.size()
         resnet_output = self.resnet_l5(obs[:, :3, :, :])
         conv_output = self.conv(resnet_output)
-        proj1 = nn.ReLU()(self.proj1(conv_output.view(-1, self.
-            conv_output_size)))
+        proj1 = nn.ReLU()(self.proj1(conv_output.view(-1, self.conv_output_size)))
         if self.dropout > 0:
             proj1 = self.dropout1(proj1)
         proj3 = nn.ReLU()(self.proj2(proj1))
@@ -194,8 +175,7 @@ class Neural_SLAM_Module(nn.Module):
             bs, c, h, w = obs_last.size()
             resnet_output = self.resnet_l5(obs_last[:, :3, :, :])
             conv_output = self.conv(resnet_output)
-            proj1 = nn.ReLU()(self.proj1(conv_output.view(-1, self.
-                conv_output_size)))
+            proj1 = nn.ReLU()(self.proj1(conv_output.view(-1, self.conv_output_size)))
             if self.dropout > 0:
                 proj1 = self.dropout1(proj1)
             proj3 = nn.ReLU()(self.proj2(proj1))
@@ -211,24 +191,19 @@ class Neural_SLAM_Module(nn.Module):
                 st_poses = self.st_poses_train.detach_()
                 grid_map = self.grid_map_train.detach_()
             st_poses.fill_(0.0)
-            st_poses[:, (0)] = poses[:, (1)
-                ] * 200.0 / self.resolution / grid_size
-            st_poses[:, (1)] = poses[:, (0)
-                ] * 200.0 / self.resolution / grid_size
+            st_poses[:, (0)] = poses[:, (1)] * 200.0 / self.resolution / grid_size
+            st_poses[:, (1)] = poses[:, (0)] * 200.0 / self.resolution / grid_size
             st_poses[:, (2)] = poses[:, (2)] * 57.29577951308232
-            rot_mat, trans_mat = get_grid(st_poses, (bs, 2, grid_size,
-                grid_size), self.device)
+            rot_mat, trans_mat = get_grid(st_poses, (bs, 2, grid_size, grid_size), self.device)
             grid_map.fill_(0.0)
             grid_map[:, :, vr:, int(vr / 2):int(vr / 2 + vr)] = pred_last
             translated = F.grid_sample(grid_map, trans_mat)
             rotated = F.grid_sample(translated, rot_mat)
             rotated = rotated[:, :, vr:, int(vr / 2):int(vr / 2 + vr)]
             pred_last_st = rotated
-        pose_est_input = torch.cat((pred.detach(), pred_last_st.detach()),
-            dim=1)
+        pose_est_input = torch.cat((pred.detach(), pred_last_st.detach()), dim=1)
         pose_conv_output = self.pose_conv(pose_est_input)
-        pose_conv_output = pose_conv_output.view(-1, self.pose_conv_output_size
-            )
+        pose_conv_output = pose_conv_output.view(-1, self.pose_conv_output_size)
         proj1 = nn.ReLU()(self.pose_proj1(pose_conv_output))
         if self.dropout > 0:
             proj1 = self.pose_dropout1(proj1)
@@ -245,8 +220,7 @@ class Neural_SLAM_Module(nn.Module):
             with torch.no_grad():
                 agent_view = self.agent_view.detach_()
                 agent_view.fill_(0.0)
-                x1 = self.map_size_cm // (self.resolution * 2
-                    ) - self.vision_range // 2
+                x1 = self.map_size_cm // (self.resolution * 2) - self.vision_range // 2
                 x2 = x1 + self.vision_range
                 y1 = self.map_size_cm // (self.resolution * 2)
                 y2 = y1 + self.vision_range
@@ -254,47 +228,33 @@ class Neural_SLAM_Module(nn.Module):
                 corrected_pose = poses + pose_pred
 
                 def get_new_pose_batch(pose, rel_pose_change):
-                    pose[:, (1)] += rel_pose_change[:, (0)] * torch.sin(
-                        pose[:, (2)] / 57.29577951308232) + rel_pose_change[:,
-                        (1)] * torch.cos(pose[:, (2)] / 57.29577951308232)
-                    pose[:, (0)] += rel_pose_change[:, (0)] * torch.cos(
-                        pose[:, (2)] / 57.29577951308232) - rel_pose_change[:,
-                        (1)] * torch.sin(pose[:, (2)] / 57.29577951308232)
+                    pose[:, (1)] += rel_pose_change[:, (0)] * torch.sin(pose[:, (2)] / 57.29577951308232) + rel_pose_change[:, (1)] * torch.cos(pose[:, (2)] / 57.29577951308232)
+                    pose[:, (0)] += rel_pose_change[:, (0)] * torch.cos(pose[:, (2)] / 57.29577951308232) - rel_pose_change[:, (1)] * torch.sin(pose[:, (2)] / 57.29577951308232)
                     pose[:, (2)] += rel_pose_change[:, (2)] * 57.29577951308232
-                    pose[:, (2)] = torch.fmod(pose[:, (2)] - 180.0, 360.0
-                        ) + 180.0
-                    pose[:, (2)] = torch.fmod(pose[:, (2)] + 180.0, 360.0
-                        ) - 180.0
+                    pose[:, (2)] = torch.fmod(pose[:, (2)] - 180.0, 360.0) + 180.0
+                    pose[:, (2)] = torch.fmod(pose[:, (2)] + 180.0, 360.0) - 180.0
                     return pose
-                current_poses = get_new_pose_batch(current_poses,
-                    corrected_pose)
+                current_poses = get_new_pose_batch(current_poses, corrected_pose)
                 st_pose = current_poses.clone().detach()
-                st_pose[:, :2] = -(st_pose[:, :2] * 100.0 / self.resolution -
-                    self.map_size_cm // (self.resolution * 2)) / (self.
-                    map_size_cm // (self.resolution * 2))
+                st_pose[:, :2] = -(st_pose[:, :2] * 100.0 / self.resolution - self.map_size_cm // (self.resolution * 2)) / (self.map_size_cm // (self.resolution * 2))
                 st_pose[:, (2)] = 90.0 - st_pose[:, (2)]
-                rot_mat, trans_mat = get_grid(st_pose, agent_view.size(),
-                    self.device)
+                rot_mat, trans_mat = get_grid(st_pose, agent_view.size(), self.device)
                 rotated = F.grid_sample(agent_view, rot_mat)
                 translated = F.grid_sample(rotated, trans_mat)
-                maps2 = torch.cat((maps.unsqueeze(1), translated[:, :1, :,
-                    :]), 1)
-                explored2 = torch.cat((explored.unsqueeze(1), translated[:,
-                    1:, :, :]), 1)
+                maps2 = torch.cat((maps.unsqueeze(1), translated[:, :1, :, :]), 1)
+                explored2 = torch.cat((explored.unsqueeze(1), translated[:, 1:, :, :]), 1)
                 map_pred = self.pool(maps2).squeeze(1)
                 exp_pred = self.pool(explored2).squeeze(1)
         else:
             map_pred = None
             exp_pred = None
             current_poses = None
-        return (proj_pred, fp_exp_pred, map_pred, exp_pred, pose_pred,
-            current_poses)
+        return proj_pred, fp_exp_pred, map_pred, exp_pred, pose_pred, current_poses
 
 
 class RL_Policy(nn.Module):
 
-    def __init__(self, obs_shape, action_space, model_type=0, base_kwargs=None
-        ):
+    def __init__(self, obs_shape, action_space, model_type=0, base_kwargs=None):
         super(RL_Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
@@ -462,19 +422,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Categorical,
+     lambda: ([], {'num_inputs': 4, 'num_outputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelPool,
+     lambda: ([], {'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DiagGaussian,
+     lambda: ([], {'num_inputs': 4, 'num_outputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_devendrachaplot_Neural_SLAM(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Categorical(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ChannelPool(*[], **{'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DiagGaussian(*[], **{'num_inputs': 4, 'num_outputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

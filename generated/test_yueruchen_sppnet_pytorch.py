@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -41,8 +42,7 @@ import numpy as np
 import torch.nn.functional as F
 
 
-def spatial_pyramid_pool(self, previous_conv, num_sample,
-    previous_conv_size, out_pool_size):
+def spatial_pyramid_pool(self, previous_conv, num_sample, previous_conv_size, out_pool_size):
     """
     previous_conv: a tensor vector of previous convolution layer
     num_sample: an int number of image in the batch
@@ -56,8 +56,7 @@ def spatial_pyramid_pool(self, previous_conv, num_sample,
         w_wid = int(math.ceil(previous_conv_size[1] / out_pool_size[i]))
         h_pad = (h_wid * out_pool_size[i] - previous_conv_size[0] + 1) / 2
         w_pad = (w_wid * out_pool_size[i] - previous_conv_size[1] + 1) / 2
-        maxpool = nn.MaxPool2d((h_wid, w_wid), stride=(h_wid, w_wid),
-            padding=(h_pad, w_pad))
+        maxpool = nn.MaxPool2d((h_wid, w_wid), stride=(h_wid, w_wid), padding=(h_pad, w_pad))
         x = maxpool(previous_conv)
         if i == 0:
             spp = x.view(num_sample, -1)
@@ -94,18 +93,10 @@ class SPP_NET(nn.Module):
         x = self.conv3(x)
         x = F.leaky_relu(self.BN2(x))
         x = self.conv4(x)
-        spp = spatial_pyramid_pool(x, 1, [int(x.size(2)), int(x.size(3))],
-            self.output_num)
+        spp = spatial_pyramid_pool(x, 1, [int(x.size(2)), int(x.size(3))], self.output_num)
         fc1 = self.fc1(spp)
         fc2 = self.fc2(fc1)
         s = nn.Sigmoid()
         output = s(fc2)
         return output
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_yueruchen_sppnet_pytorch(_paritybench_base):
-    pass

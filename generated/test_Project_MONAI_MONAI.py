@@ -234,8 +234,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -303,8 +304,7 @@ def one_hot(labels, num_classes):
     """
     num_dims = labels.dim()
     if num_dims > 1:
-        assert labels.shape[1
-            ] == 1, 'labels should have a channel with length equals to one.'
+        assert labels.shape[1] == 1, 'labels should have a channel with length equals to one.'
         labels = torch.squeeze(labels, 1)
     labels = f.one_hot(labels.long(), num_classes)
     new_axes = [0, -1] + list(range(1, num_dims - 1))
@@ -327,9 +327,7 @@ class DiceLoss(_Loss):
     the signal from the background so excluding it in such cases helps convergence.
     """
 
-    def __init__(self, include_background=True, to_onehot_y=False,
-        do_sigmoid=False, do_softmax=False, squared_pred=False, jaccard=
-        False, reduction='mean'):
+    def __init__(self, include_background=True, to_onehot_y=False, do_sigmoid=False, do_softmax=False, squared_pred=False, jaccard=False, reduction='mean'):
         """
         Args:
             include_background (bool): If False channel index 0 (background category) is excluded from the calculation.
@@ -348,8 +346,7 @@ class DiceLoss(_Loss):
         self.include_background = include_background
         self.to_onehot_y = to_onehot_y
         if do_sigmoid and do_softmax:
-            raise ValueError(
-                'do_sigmoid=True and do_softmax=True are not compatible.')
+            raise ValueError('do_sigmoid=True and do_softmax=True are not compatible.')
         self.do_sigmoid = do_sigmoid
         self.do_softmax = do_softmax
         self.squared_pred = squared_pred
@@ -367,15 +364,11 @@ class DiceLoss(_Loss):
         n_pred_ch = input.shape[1]
         if n_pred_ch == 1:
             if self.do_softmax:
-                warnings.warn(
-                    'single channel prediction, `do_softmax=True` ignored.')
+                warnings.warn('single channel prediction, `do_softmax=True` ignored.')
             if self.to_onehot_y:
-                warnings.warn(
-                    'single channel prediction, `to_onehot_y=True` ignored.')
+                warnings.warn('single channel prediction, `to_onehot_y=True` ignored.')
             if not self.include_background:
-                warnings.warn(
-                    'single channel prediction, `include_background=False` ignored.'
-                    )
+                warnings.warn('single channel prediction, `include_background=False` ignored.')
         else:
             if self.do_softmax:
                 input = torch.softmax(input, 1)
@@ -416,8 +409,7 @@ class GeneralizedDiceLoss(_Loss):
         https://github.com/NifTK/NiftyNet/blob/v0.6.0/niftynet/layer/loss_segmentation.py#L279
     """
 
-    def __init__(self, include_background=True, to_onehot_y=False,
-        do_sigmoid=False, do_softmax=False, w_type='square', reduction='mean'):
+    def __init__(self, include_background=True, to_onehot_y=False, do_sigmoid=False, do_softmax=False, w_type='square', reduction='mean'):
         """
         Args:
             include_background (bool): If False channel index 0 (background category) is excluded from the calculation.
@@ -436,8 +428,7 @@ class GeneralizedDiceLoss(_Loss):
         self.include_background = include_background
         self.to_onehot_y = to_onehot_y
         if do_sigmoid and do_softmax:
-            raise ValueError(
-                'do_sigmoid=True and do_softmax=True are not compatible.')
+            raise ValueError('do_sigmoid=True and do_softmax=True are not compatible.')
         self.do_sigmoid = do_sigmoid
         self.do_softmax = do_softmax
         self.w_func = torch.ones_like
@@ -458,15 +449,11 @@ class GeneralizedDiceLoss(_Loss):
         n_pred_ch = input.shape[1]
         if n_pred_ch == 1:
             if self.do_softmax:
-                warnings.warn(
-                    'single channel prediction, `do_softmax=True` ignored.')
+                warnings.warn('single channel prediction, `do_softmax=True` ignored.')
             if self.to_onehot_y:
-                warnings.warn(
-                    'single channel prediction, `to_onehot_y=True` ignored.')
+                warnings.warn('single channel prediction, `to_onehot_y=True` ignored.')
             if not self.include_background:
-                warnings.warn(
-                    'single channel prediction, `include_background=False` ignored.'
-                    )
+                warnings.warn('single channel prediction, `include_background=False` ignored.')
         else:
             if self.do_softmax:
                 input = torch.softmax(input, 1)
@@ -486,8 +473,7 @@ class GeneralizedDiceLoss(_Loss):
             infs = torch.isinf(b)
             b[infs] = 0.0
             b[infs] = torch.max(b)
-        f = 1.0 - (2.0 * (intersection * w).sum(1) + smooth) / ((
-            denominator * w).sum(1) + smooth)
+        f = 1.0 - (2.0 * (intersection * w).sum(1) + smooth) / ((denominator * w).sum(1) + smooth)
         if self.reduction == 'sum':
             return f.sum()
         if self.reduction == 'none':
@@ -542,15 +528,9 @@ class FocalLoss(_WeightedLoss):
         i = input
         t = target
         if i.ndim != t.ndim:
-            raise ValueError(
-                f'input and target must have the same number of dimensions, got {i.ndim} and {t.ndim}'
-                )
+            raise ValueError(f'input and target must have the same number of dimensions, got {i.ndim} and {t.ndim}')
         if target.shape[1] != 1:
-            raise ValueError(
-                f'target must have one channel, and should be a class index in the range [0, C-1] '
-                 +
-                f"where C is the number of classes inferred from 'input': C={i.shape[1]}."
-                )
+            raise ValueError(f'target must have one channel, and should be a class index in the range [0, C-1] ' + f"where C is the number of classes inferred from 'input': C={i.shape[1]}.")
         if input.dim() > 2:
             i = i.view(i.size(0), i.size(1), -1)
             t = t.view(t.size(0), t.size(1), -1)
@@ -591,9 +571,7 @@ class TverskyLoss(_Loss):
 
     """
 
-    def __init__(self, include_background=True, to_onehot_y=False,
-        do_sigmoid=False, do_softmax=False, alpha=0.5, beta=0.5, reduction=
-        'mean'):
+    def __init__(self, include_background=True, to_onehot_y=False, do_sigmoid=False, do_softmax=False, alpha=0.5, beta=0.5, reduction='mean'):
         """
         Args:
             include_background (bool): If False channel index 0 (background category) is excluded from the calculation.
@@ -613,8 +591,7 @@ class TverskyLoss(_Loss):
         self.include_background = include_background
         self.to_onehot_y = to_onehot_y
         if do_sigmoid and do_softmax:
-            raise ValueError(
-                'do_sigmoid=True and do_softmax=True are not compatible.')
+            raise ValueError('do_sigmoid=True and do_softmax=True are not compatible.')
         self.do_sigmoid = do_sigmoid
         self.do_softmax = do_softmax
         self.alpha = alpha
@@ -632,15 +609,11 @@ class TverskyLoss(_Loss):
         n_pred_ch = input.shape[1]
         if n_pred_ch == 1:
             if self.do_softmax:
-                warnings.warn(
-                    'single channel prediction, `do_softmax=True` ignored.')
+                warnings.warn('single channel prediction, `do_softmax=True` ignored.')
             if self.to_onehot_y:
-                warnings.warn(
-                    'single channel prediction, `to_onehot_y=True` ignored.')
+                warnings.warn('single channel prediction, `to_onehot_y=True` ignored.')
             if not self.include_background:
-                warnings.warn(
-                    'single channel prediction, `include_background=False` ignored.'
-                    )
+                warnings.warn('single channel prediction, `include_background=False` ignored.')
         else:
             if self.do_softmax:
                 input = torch.softmax(input, 1)
@@ -765,11 +738,8 @@ def split_args(args):
         return args, {}
     else:
         name_obj, args = args
-        if not isinstance(name_obj, (str, Callable)) or not isinstance(args,
-            dict):
-            msg = (
-                'Layer specifiers must be single strings or pairs of the form (name/object-types, argument dict)'
-                )
+        if not isinstance(name_obj, (str, Callable)) or not isinstance(args, dict):
+            msg = 'Layer specifiers must be single strings or pairs of the form (name/object-types, argument dict)'
             raise ValueError(msg)
         return name_obj, args
 
@@ -808,8 +778,7 @@ def ensure_tuple_rep(tup, dim):
         return (tup,) * dim
     elif len(tup) == dim:
         return tuple(tup)
-    raise ValueError(f'sequence must have length {dim}, got length {len(tup)}.'
-        )
+    raise ValueError(f'sequence must have length {dim}, got length {len(tup)}.')
 
 
 def gaussian_1d(sigma, truncated=4.0):
@@ -846,8 +815,7 @@ class GaussianFilter(nn.Module):
         super().__init__()
         self.spatial_dims = int(spatial_dims)
         _sigma = ensure_tuple_rep(sigma, self.spatial_dims)
-        self.kernel = [torch.nn.Parameter(torch.as_tensor(gaussian_1d(s,
-            truncated), dtype=torch.float32), False) for s in _sigma]
+        self.kernel = [torch.nn.Parameter(torch.as_tensor(gaussian_1d(s, truncated), dtype=torch.float32), False) for s in _sigma]
         self.padding = [same_padding(k.size()[0]) for k in self.kernel]
         self.conv_n = [F.conv1d, F.conv2d, F.conv3d][spatial_dims - 1]
         for idx, param in enumerate(self.kernel):
@@ -871,15 +839,13 @@ class GaussianFilter(nn.Module):
             kernel = kernel.repeat([chns, 1] + [1] * sp_dim)
             padding = [0] * sp_dim
             padding[d] = self.padding[d]
-            return self.conv_n(input=_conv(input_, d - 1), weight=kernel,
-                padding=padding, groups=chns)
+            return self.conv_n(input=_conv(input_, d - 1), weight=kernel, padding=padding, groups=chns)
         return _conv(x, sp_dim - 1)
 
 
 class _DenseLayer(nn.Sequential):
 
-    def __init__(self, spatial_dims, in_channels, growth_rate, bn_size,
-        dropout_prob):
+    def __init__(self, spatial_dims, in_channels, growth_rate, bn_size, dropout_prob):
         super(_DenseLayer, self).__init__()
         out_channels = bn_size * growth_rate
         conv_type = Conv[Conv.CONV, spatial_dims]
@@ -887,12 +853,10 @@ class _DenseLayer(nn.Sequential):
         dropout_type = Dropout[Dropout.DROPOUT, spatial_dims]
         self.add_module('norm1', norm_type(in_channels))
         self.add_module('relu1', nn.ReLU(inplace=True))
-        self.add_module('conv1', conv_type(in_channels, out_channels,
-            kernel_size=1, bias=False))
+        self.add_module('conv1', conv_type(in_channels, out_channels, kernel_size=1, bias=False))
         self.add_module('norm2', norm_type(out_channels))
         self.add_module('relu2', nn.ReLU(inplace=True))
-        self.add_module('conv2', conv_type(out_channels, growth_rate,
-            kernel_size=3, padding=1, bias=False))
+        self.add_module('conv2', conv_type(out_channels, growth_rate, kernel_size=3, padding=1, bias=False))
         if dropout_prob > 0:
             self.add_module('dropout', dropout_type(dropout_prob))
 
@@ -903,12 +867,10 @@ class _DenseLayer(nn.Sequential):
 
 class _DenseBlock(nn.Sequential):
 
-    def __init__(self, spatial_dims, layers, in_channels, bn_size,
-        growth_rate, dropout_prob):
+    def __init__(self, spatial_dims, layers, in_channels, bn_size, growth_rate, dropout_prob):
         super(_DenseBlock, self).__init__()
         for i in range(layers):
-            layer = _DenseLayer(spatial_dims, in_channels, growth_rate,
-                bn_size, dropout_prob)
+            layer = _DenseLayer(spatial_dims, in_channels, growth_rate, bn_size, dropout_prob)
             in_channels += growth_rate
             self.add_module('denselayer%d' % (i + 1), layer)
 
@@ -925,8 +887,7 @@ class _Transition(nn.Sequential):
         pool_type = Pool[Pool.AVG, spatial_dims]
         self.add_module('norm', norm_type(in_channels))
         self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', conv_type(in_channels, out_channels,
-            kernel_size=1, bias=False))
+        self.add_module('conv', conv_type(in_channels, out_channels, kernel_size=1, bias=False))
         self.add_module('pool', pool_type(kernel_size=2, stride=2))
 
 
@@ -948,37 +909,26 @@ class DenseNet(nn.Module):
         dropout_prob (Float): dropout rate after each dense layer.
     """
 
-    def __init__(self, spatial_dims, in_channels, out_channels,
-        init_features=64, growth_rate=32, block_config=(6, 12, 24, 16),
-        bn_size=4, dropout_prob=0):
+    def __init__(self, spatial_dims, in_channels, out_channels, init_features=64, growth_rate=32, block_config=(6, 12, 24, 16), bn_size=4, dropout_prob=0):
         super(DenseNet, self).__init__()
         conv_type = Conv[Conv.CONV, spatial_dims]
         norm_type = Norm[Norm.BATCH, spatial_dims]
         pool_type = Pool[Pool.MAX, spatial_dims]
         avg_pool_type = Pool[Pool.ADAPTIVEAVG, spatial_dims]
-        self.features = nn.Sequential(OrderedDict([('conv0', conv_type(
-            in_channels, init_features, kernel_size=7, stride=2, padding=3,
-            bias=False)), ('norm0', norm_type(init_features)), ('relu0', nn
-            .ReLU(inplace=True)), ('pool0', pool_type(kernel_size=3, stride
-            =2, padding=1))]))
+        self.features = nn.Sequential(OrderedDict([('conv0', conv_type(in_channels, init_features, kernel_size=7, stride=2, padding=3, bias=False)), ('norm0', norm_type(init_features)), ('relu0', nn.ReLU(inplace=True)), ('pool0', pool_type(kernel_size=3, stride=2, padding=1))]))
         in_channels = init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(spatial_dims=spatial_dims, layers=
-                num_layers, in_channels=in_channels, bn_size=bn_size,
-                growth_rate=growth_rate, dropout_prob=dropout_prob)
+            block = _DenseBlock(spatial_dims=spatial_dims, layers=num_layers, in_channels=in_channels, bn_size=bn_size, growth_rate=growth_rate, dropout_prob=dropout_prob)
             self.features.add_module('denseblock%d' % (i + 1), block)
             in_channels += num_layers * growth_rate
             if i == len(block_config) - 1:
                 self.features.add_module('norm5', norm_type(in_channels))
             else:
                 _out_channels = in_channels // 2
-                trans = _Transition(spatial_dims, in_channels=in_channels,
-                    out_channels=_out_channels)
+                trans = _Transition(spatial_dims, in_channels=in_channels, out_channels=_out_channels)
                 self.features.add_module('transition%d' % (i + 1), trans)
                 in_channels = _out_channels
-        self.class_layers = nn.Sequential(OrderedDict([('relu', nn.ReLU(
-            inplace=True)), ('norm', avg_pool_type(1)), ('flatten', nn.
-            Flatten(1)), ('class', nn.Linear(in_channels, out_channels))]))
+        self.class_layers = nn.Sequential(OrderedDict([('relu', nn.ReLU(inplace=True)), ('norm', avg_pool_type(1)), ('flatten', nn.Flatten(1)), ('class', nn.Linear(in_channels, out_channels))]))
         for m in self.modules():
             if isinstance(m, conv_type):
                 nn.init.kaiming_normal_(m.weight)
@@ -997,25 +947,20 @@ class DenseNet(nn.Module):
 SUPPORTED_ACTI = {'relu': nn.ReLU, 'prelu': nn.PReLU, 'relu6': nn.ReLU6}
 
 
-SUPPORTED_NORM = {'batch': lambda spatial_dims: Norm[Norm.BATCH,
-    spatial_dims], 'instance': lambda spatial_dims: Norm[Norm.INSTANCE,
-    spatial_dims]}
+SUPPORTED_NORM = {'batch': lambda spatial_dims: Norm[Norm.BATCH, spatial_dims], 'instance': lambda spatial_dims: Norm[Norm.INSTANCE, spatial_dims]}
 
 
 class ConvNormActi(nn.Module):
 
-    def __init__(self, spatial_dims, in_channels, out_channels, kernel_size,
-        norm_type=None, acti_type=None, dropout_prob=None):
+    def __init__(self, spatial_dims, in_channels, out_channels, kernel_size, norm_type=None, acti_type=None, dropout_prob=None):
         super(ConvNormActi, self).__init__()
         layers = nn.ModuleList()
         conv_type = Conv[Conv.CONV, spatial_dims]
         padding_size = same_padding(kernel_size)
-        conv = conv_type(in_channels, out_channels, kernel_size, padding=
-            padding_size)
+        conv = conv_type(in_channels, out_channels, kernel_size, padding=padding_size)
         layers.append(conv)
         if norm_type is not None:
-            layers.append(SUPPORTED_NORM[norm_type](spatial_dims)(out_channels)
-                )
+            layers.append(SUPPORTED_NORM[norm_type](spatial_dims)(out_channels))
         if acti_type is not None:
             layers.append(SUPPORTED_ACTI[acti_type](inplace=True))
         if dropout_prob is not None:
@@ -1029,9 +974,7 @@ class ConvNormActi(nn.Module):
 
 class HighResBlock(nn.Module):
 
-    def __init__(self, spatial_dims, in_channels, out_channels, kernels=(3,
-        3), dilation=1, norm_type='instance', acti_type='relu',
-        channel_matching='pad'):
+    def __init__(self, spatial_dims, in_channels, out_channels, kernels=(3, 3), dilation=1, norm_type='instance', acti_type='relu', channel_matching='pad'):
         """
         Args:
             kernels (list of int): each integer k in `kernels` corresponds to a convolution layer with kernel size k.
@@ -1043,17 +986,12 @@ class HighResBlock(nn.Module):
         self.project, self.pad = None, None
         if in_channels != out_channels:
             if channel_matching not in ('pad', 'project'):
-                raise ValueError(
-                    f'channel matching must be pad or project, got {channel_matching}.'
-                    )
+                raise ValueError(f'channel matching must be pad or project, got {channel_matching}.')
             if channel_matching == 'project':
-                self.project = conv_type(in_channels, out_channels,
-                    kernel_size=1)
+                self.project = conv_type(in_channels, out_channels, kernel_size=1)
             if channel_matching == 'pad':
                 if in_channels > out_channels:
-                    raise ValueError(
-                        'in_channels > out_channels is incompatible with `channel_matching=pad`.'
-                        )
+                    raise ValueError('in_channels > out_channels is incompatible with `channel_matching=pad`.')
                 pad_1 = (out_channels - in_channels) // 2
                 pad_2 = out_channels - in_channels - pad_1
                 pad = [0, 0] * spatial_dims + [pad_1, pad_2] + [0, 0]
@@ -1063,9 +1001,7 @@ class HighResBlock(nn.Module):
         for kernel_size in kernels:
             layers.append(SUPPORTED_NORM[norm_type](spatial_dims)(_in_chns))
             layers.append(SUPPORTED_ACTI[acti_type](inplace=True))
-            layers.append(conv_type(_in_chns, _out_chns, kernel_size,
-                padding=same_padding(kernel_size, dilation), dilation=dilation)
-                )
+            layers.append(conv_type(_in_chns, _out_chns, kernel_size, padding=same_padding(kernel_size, dilation), dilation=dilation))
             _in_chns = _out_chns
         self.layers = nn.Sequential(*layers)
 
@@ -1078,12 +1014,7 @@ class HighResBlock(nn.Module):
         return x_conv + x
 
 
-DEFAULT_LAYER_PARAMS_3D = {'name': 'conv_0', 'n_features': 16, 'kernel_size': 3
-    }, {'name': 'res_1', 'n_features': 16, 'kernels': (3, 3), 'repeat': 3}, {
-    'name': 'res_2', 'n_features': 32, 'kernels': (3, 3), 'repeat': 3}, {'name'
-    : 'res_3', 'n_features': 64, 'kernels': (3, 3), 'repeat': 3}, {'name':
-    'conv_1', 'n_features': 80, 'kernel_size': 1}, {'name': 'conv_2',
-    'kernel_size': 1}
+DEFAULT_LAYER_PARAMS_3D = {'name': 'conv_0', 'n_features': 16, 'kernel_size': 3}, {'name': 'res_1', 'n_features': 16, 'kernels': (3, 3), 'repeat': 3}, {'name': 'res_2', 'n_features': 32, 'kernels': (3, 3), 'repeat': 3}, {'name': 'res_3', 'n_features': 64, 'kernels': (3, 3), 'repeat': 3}, {'name': 'conv_1', 'n_features': 80, 'kernel_size': 1}, {'name': 'conv_2', 'kernel_size': 1}
 
 
 class HighResNet(nn.Module):
@@ -1107,34 +1038,24 @@ class HighResNet(nn.Module):
         layer_params (a list of dictionaries): specifying key parameters of each layer/block.
     """
 
-    def __init__(self, spatial_dims=3, in_channels=1, out_channels=1,
-        norm_type='batch', acti_type='relu', dropout_prob=None,
-        layer_params=DEFAULT_LAYER_PARAMS_3D):
+    def __init__(self, spatial_dims=3, in_channels=1, out_channels=1, norm_type='batch', acti_type='relu', dropout_prob=None, layer_params=DEFAULT_LAYER_PARAMS_3D):
         super(HighResNet, self).__init__()
         blocks = nn.ModuleList()
         params = layer_params[0]
         _in_chns, _out_chns = in_channels, params['n_features']
-        blocks.append(ConvNormActi(spatial_dims, _in_chns, _out_chns,
-            kernel_size=params['kernel_size'], norm_type=norm_type,
-            acti_type=acti_type, dropout_prob=None))
+        blocks.append(ConvNormActi(spatial_dims, _in_chns, _out_chns, kernel_size=params['kernel_size'], norm_type=norm_type, acti_type=acti_type, dropout_prob=None))
         for idx, params in enumerate(layer_params[1:-2]):
             _in_chns, _out_chns = _out_chns, params['n_features']
             _dilation = 2 ** idx
             for _ in range(params['repeat']):
-                blocks.append(HighResBlock(spatial_dims, _in_chns,
-                    _out_chns, params['kernels'], dilation=_dilation,
-                    norm_type=norm_type, acti_type=acti_type))
+                blocks.append(HighResBlock(spatial_dims, _in_chns, _out_chns, params['kernels'], dilation=_dilation, norm_type=norm_type, acti_type=acti_type))
                 _in_chns = _out_chns
         params = layer_params[-2]
         _in_chns, _out_chns = _out_chns, params['n_features']
-        blocks.append(ConvNormActi(spatial_dims, _in_chns, _out_chns,
-            kernel_size=params['kernel_size'], norm_type=norm_type,
-            acti_type=acti_type, dropout_prob=dropout_prob))
+        blocks.append(ConvNormActi(spatial_dims, _in_chns, _out_chns, kernel_size=params['kernel_size'], norm_type=norm_type, acti_type=acti_type, dropout_prob=dropout_prob))
         params = layer_params[-1]
         _in_chns = _out_chns
-        blocks.append(ConvNormActi(spatial_dims, _in_chns, out_channels,
-            kernel_size=params['kernel_size'], norm_type=norm_type,
-            acti_type=None, dropout_prob=None))
+        blocks.append(ConvNormActi(spatial_dims, _in_chns, out_channels, kernel_size=params['kernel_size'], norm_type=norm_type, acti_type=None, dropout_prob=None))
         self.blocks = nn.Sequential(*blocks)
 
     def forward(self, x):
@@ -1181,23 +1102,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GeneralizedDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SkipConnection,
+     lambda: ([], {'submodule': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TverskyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_Project_MONAI_MONAI(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(DiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GeneralizedDiceLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SkipConnection(*[], **{'submodule': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(TverskyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

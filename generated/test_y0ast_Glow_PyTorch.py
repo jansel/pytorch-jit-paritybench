@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,10 +55,7 @@ import torch.utils.data as data
 
 
 def get_block(in_channels, out_channels, hidden_channels):
-    block = nn.Sequential(Conv2d(in_channels, hidden_channels), nn.ReLU(
-        inplace=False), Conv2d(hidden_channels, hidden_channels,
-        kernel_size=(1, 1)), nn.ReLU(inplace=False), Conv2dZeros(
-        hidden_channels, out_channels))
+    block = nn.Sequential(Conv2d(in_channels, hidden_channels), nn.ReLU(inplace=False), Conv2d(hidden_channels, hidden_channels, kernel_size=(1, 1)), nn.ReLU(inplace=False), Conv2dZeros(hidden_channels, out_channels))
     return block
 
 
@@ -74,30 +72,23 @@ def split_feature(tensor, type='split'):
 
 class FlowStep(nn.Module):
 
-    def __init__(self, in_channels, hidden_channels, actnorm_scale,
-        flow_permutation, flow_coupling, LU_decomposed):
+    def __init__(self, in_channels, hidden_channels, actnorm_scale, flow_permutation, flow_coupling, LU_decomposed):
         super().__init__()
         self.flow_coupling = flow_coupling
         self.actnorm = ActNorm2d(in_channels, actnorm_scale)
         if flow_permutation == 'invconv':
-            self.invconv = InvertibleConv1x1(in_channels, LU_decomposed=
-                LU_decomposed)
-            self.flow_permutation = lambda z, logdet, rev: self.invconv(z,
-                logdet, rev)
+            self.invconv = InvertibleConv1x1(in_channels, LU_decomposed=LU_decomposed)
+            self.flow_permutation = lambda z, logdet, rev: self.invconv(z, logdet, rev)
         elif flow_permutation == 'shuffle':
             self.shuffle = Permute2d(in_channels, shuffle=True)
-            self.flow_permutation = lambda z, logdet, rev: (self.shuffle(z,
-                rev), logdet)
+            self.flow_permutation = lambda z, logdet, rev: (self.shuffle(z, rev), logdet)
         else:
             self.reverse = Permute2d(in_channels, shuffle=False)
-            self.flow_permutation = lambda z, logdet, rev: (self.reverse(z,
-                rev), logdet)
+            self.flow_permutation = lambda z, logdet, rev: (self.reverse(z, rev), logdet)
         if flow_coupling == 'additive':
-            self.block = get_block(in_channels // 2, in_channels // 2,
-                hidden_channels)
+            self.block = get_block(in_channels // 2, in_channels // 2, hidden_channels)
         elif flow_coupling == 'affine':
-            self.block = get_block(in_channels // 2, in_channels,
-                hidden_channels)
+            self.block = get_block(in_channels // 2, in_channels, hidden_channels)
 
     def forward(self, input, logdet=None, reverse=False):
         if not reverse:
@@ -142,8 +133,7 @@ class FlowStep(nn.Module):
 
 class FlowNet(nn.Module):
 
-    def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale,
-        flow_permutation, flow_coupling, LU_decomposed):
+    def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale, flow_permutation, flow_coupling, LU_decomposed):
         super().__init__()
         self.layers = nn.ModuleList()
         self.output_shapes = []
@@ -155,10 +145,7 @@ class FlowNet(nn.Module):
             self.layers.append(SqueezeLayer(factor=2))
             self.output_shapes.append([-1, C, H, W])
             for _ in range(K):
-                self.layers.append(FlowStep(in_channels=C, hidden_channels=
-                    hidden_channels, actnorm_scale=actnorm_scale,
-                    flow_permutation=flow_permutation, flow_coupling=
-                    flow_coupling, LU_decomposed=LU_decomposed))
+                self.layers.append(FlowStep(in_channels=C, hidden_channels=hidden_channels, actnorm_scale=actnorm_scale, flow_permutation=flow_permutation, flow_coupling=flow_coupling, LU_decomposed=LU_decomposed))
                 self.output_shapes.append([-1, C, H, W])
             if i < L - 1:
                 self.layers.append(Split2d(num_channels=C))
@@ -179,8 +166,7 @@ class FlowNet(nn.Module):
     def decode(self, z, temperature=None):
         for layer in reversed(self.layers):
             if isinstance(layer, Split2d):
-                z, logdet = layer(z, logdet=0, reverse=True, temperature=
-                    temperature)
+                z, logdet = layer(z, logdet=0, reverse=True, temperature=temperature)
             else:
                 z, logdet = layer(z, logdet=0, reverse=True)
         return z
@@ -226,14 +212,9 @@ def uniform_binning_correction(x, n_bits=8):
 
 class Glow(nn.Module):
 
-    def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale,
-        flow_permutation, flow_coupling, LU_decomposed, y_classes,
-        learn_top, y_condition):
+    def __init__(self, image_shape, hidden_channels, K, L, actnorm_scale, flow_permutation, flow_coupling, LU_decomposed, y_classes, learn_top, y_condition):
         super().__init__()
-        self.flow = FlowNet(image_shape=image_shape, hidden_channels=
-            hidden_channels, K=K, L=L, actnorm_scale=actnorm_scale,
-            flow_permutation=flow_permutation, flow_coupling=flow_coupling,
-            LU_decomposed=LU_decomposed)
+        self.flow = FlowNet(image_shape=image_shape, hidden_channels=hidden_channels, K=K, L=L, actnorm_scale=actnorm_scale, flow_permutation=flow_permutation, flow_coupling=flow_coupling, LU_decomposed=LU_decomposed)
         self.y_classes = y_classes
         self.y_condition = y_condition
         self.learn_top = learn_top
@@ -244,9 +225,7 @@ class Glow(nn.Module):
             C = self.flow.output_shapes[-1][1]
             self.project_ycond = LinearZeros(y_classes, 2 * C)
             self.project_class = LinearZeros(C, y_classes)
-        self.register_buffer('prior_h', torch.zeros([1, self.flow.
-            output_shapes[-1][1] * 2, self.flow.output_shapes[-1][2], self.
-            flow.output_shapes[-1][3]]))
+        self.register_buffer('prior_h', torch.zeros([1, self.flow.output_shapes[-1][1] * 2, self.flow.output_shapes[-1][2], self.flow.output_shapes[-1][3]]))
 
     def prior(self, data, y_onehot=None):
         if data is not None:
@@ -262,8 +241,7 @@ class Glow(nn.Module):
             h += yp.view(data.shape[0], channels, 1, 1)
         return split_feature(h, 'split')
 
-    def forward(self, x=None, y_onehot=None, z=None, temperature=None,
-        reverse=False):
+    def forward(self, x=None, y_onehot=None, z=None, temperature=None, reverse=False):
         if reverse:
             return self.reverse_flow(z, y_onehot, temperature)
         else:
@@ -319,8 +297,7 @@ class _ActNorm(nn.Module):
             raise ValueError('In Eval mode, but ActNorm not inited')
         with torch.no_grad():
             bias = -torch.mean(input.clone(), dim=[0, 2, 3], keepdim=True)
-            vars = torch.mean((input.clone() + bias) ** 2, dim=[0, 2, 3],
-                keepdim=True)
+            vars = torch.mean((input.clone() + bias) ** 2, dim=[0, 2, 3], keepdim=True)
             logs = torch.log(self.scale / (torch.sqrt(vars) + 1e-06))
             self.bias.data.copy_(bias.data)
             self.logs.data.copy_(logs.data)
@@ -382,22 +359,19 @@ def compute_same_pad(kernel_size, stride):
         kernel_size = [kernel_size]
     if isinstance(stride, int):
         stride = [stride]
-    assert len(stride) == len(kernel_size
-        ), 'Pass kernel size and stride both as int, or both as equal length iterable'
+    assert len(stride) == len(kernel_size), 'Pass kernel size and stride both as int, or both as equal length iterable'
     return [(((k - 1) * s + 1) // 2) for k, s in zip(kernel_size, stride)]
 
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3),
-        stride=(1, 1), padding='same', do_actnorm=True, weight_std=0.05):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), stride=(1, 1), padding='same', do_actnorm=True, weight_std=0.05):
         super().__init__()
         if padding == 'same':
             padding = compute_same_pad(kernel_size, stride)
         elif padding == 'valid':
             padding = 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding, bias=not do_actnorm)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=not do_actnorm)
         self.conv.weight.data.normal_(mean=0.0, std=weight_std)
         if not do_actnorm:
             self.conv.bias.data.zero_()
@@ -414,15 +388,13 @@ class Conv2d(nn.Module):
 
 class Conv2dZeros(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3),
-        stride=(1, 1), padding='same', logscale_factor=3):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), stride=(1, 1), padding='same', logscale_factor=3):
         super().__init__()
         if padding == 'same':
             padding = compute_same_pad(kernel_size, stride)
         elif padding == 'valid':
             padding = 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         self.conv.weight.data.zero_()
         self.conv.bias.data.zero_()
         self.logscale_factor = logscale_factor
@@ -438,8 +410,7 @@ class Permute2d(nn.Module):
     def __init__(self, num_channels, shuffle):
         super().__init__()
         self.num_channels = num_channels
-        self.indices = torch.arange(self.num_channels - 1, -1, -1, dtype=
-            torch.long)
+        self.indices = torch.arange(self.num_channels - 1, -1, -1, dtype=torch.long)
         self.indices_inverse = torch.zeros(self.num_channels, dtype=torch.long)
         for i in range(self.num_channels):
             self.indices_inverse[self.indices[i]] = i
@@ -593,27 +564,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_y0ast_Glow_PyTorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Conv2dZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dZeros,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertibleConv1x1,
+     lambda: ([], {'num_channels': 4, 'LU_decomposed': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LinearZeros,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Permute2d,
+     lambda: ([], {'num_channels': 4, 'shuffle': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Split2d,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SqueezeLayer,
+     lambda: ([], {'factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_y0ast_Glow_PyTorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(InvertibleConv1x1(*[], **{'num_channels': 4, 'LU_decomposed': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LinearZeros(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Permute2d(*[], **{'num_channels': 4, 'shuffle': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Split2d(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SqueezeLayer(*[], **{'factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

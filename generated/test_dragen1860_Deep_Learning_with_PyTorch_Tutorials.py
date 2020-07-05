@@ -39,8 +39,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -118,9 +119,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.ReLU(inplace=
-            True), nn.Linear(200, 200), nn.ReLU(inplace=True), nn.Linear(
-            200, 10), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.ReLU(inplace=True), nn.Linear(200, 200), nn.ReLU(inplace=True), nn.Linear(200, 10), nn.ReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -131,9 +130,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -144,9 +141,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -157,9 +152,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -170,9 +163,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -183,9 +174,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -196,9 +185,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -216,16 +203,13 @@ class ResBlk(nn.Module):
         :param ch_out:
         """
         super(ResBlk, self).__init__()
-        self.conv1 = nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=1,
-            padding=1)
+        self.conv1 = nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(ch_out)
-        self.conv2 = nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(ch_out)
         self.extra = nn.Sequential()
         if ch_out != ch_in:
-            self.extra = nn.Sequential(nn.Conv2d(ch_in, ch_out, kernel_size
-                =1, stride=1), nn.BatchNorm2d(ch_out))
+            self.extra = nn.Sequential(nn.Conv2d(ch_in, ch_out, kernel_size=1, stride=1), nn.BatchNorm2d(ch_out))
 
     def forward(self, x):
         """
@@ -242,8 +226,7 @@ class ResNet18(nn.Module):
 
     def __init__(self):
         super(ResNet18, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, kernel_size=3, stride=1,
-            padding=1), nn.BatchNorm2d(16))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(16))
         self.blk1 = ResBlk(16, 16)
         self.blk2 = ResBlk(16, 32)
         self.outlayer = nn.Linear(32 * 32 * 32, 10)
@@ -286,8 +269,7 @@ class TestNet(nn.Module):
 
     def __init__(self):
         super(TestNet, self).__init__()
-        self.net = nn.Sequential(nn.Conv2d(1, 16, stride=1, padding=1), nn.
-            MaxPool2d(2, 2), Flatten(), nn.Linear(1 * 14 * 14, 10))
+        self.net = nn.Sequential(nn.Conv2d(1, 16, stride=1, padding=1), nn.MaxPool2d(2, 2), Flatten(), nn.Linear(1 * 14 * 14, 10))
 
     def forward(self, x):
         return self.net(x)
@@ -317,9 +299,7 @@ class MLP(nn.Module):
 
     def __init__(self):
         super(MLP, self).__init__()
-        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(
-            inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True),
-            nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
+        self.model = nn.Sequential(nn.Linear(784, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 200), nn.LeakyReLU(inplace=True), nn.Linear(200, 10), nn.LeakyReLU(inplace=True))
 
     def forward(self, x):
         x = self.model(x)
@@ -333,12 +313,8 @@ class Lenet5(nn.Module):
 
     def __init__(self):
         super(Lenet5, self).__init__()
-        self.conv_unit = nn.Sequential(nn.Conv2d(3, 16, kernel_size=5,
-            stride=1, padding=0), nn.MaxPool2d(kernel_size=2, stride=2,
-            padding=0), nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=
-            0), nn.MaxPool2d(kernel_size=2, stride=2, padding=0))
-        self.fc_unit = nn.Sequential(nn.Linear(32 * 5 * 5, 32), nn.ReLU(),
-            nn.Linear(32, 10))
+        self.conv_unit = nn.Sequential(nn.Conv2d(3, 16, kernel_size=5, stride=1, padding=0), nn.MaxPool2d(kernel_size=2, stride=2, padding=0), nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=0), nn.MaxPool2d(kernel_size=2, stride=2, padding=0))
+        self.fc_unit = nn.Sequential(nn.Linear(32 * 5 * 5, 32), nn.ReLU(), nn.Linear(32, 10))
         tmp = torch.randn(2, 3, 32, 32)
         out = self.conv_unit(tmp)
         None
@@ -368,16 +344,13 @@ class ResBlk(nn.Module):
         :param ch_out:
         """
         super(ResBlk, self).__init__()
-        self.conv1 = nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=stride,
-            padding=1)
+        self.conv1 = nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=stride, padding=1)
         self.bn1 = nn.BatchNorm2d(ch_out)
-        self.conv2 = nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(ch_out)
         self.extra = nn.Sequential()
         if ch_out != ch_in:
-            self.extra = nn.Sequential(nn.Conv2d(ch_in, ch_out, kernel_size
-                =1, stride=stride), nn.BatchNorm2d(ch_out))
+            self.extra = nn.Sequential(nn.Conv2d(ch_in, ch_out, kernel_size=1, stride=stride), nn.BatchNorm2d(ch_out))
 
     def forward(self, x):
         """
@@ -396,8 +369,7 @@ class ResNet18(nn.Module):
 
     def __init__(self):
         super(ResNet18, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=3,
-            padding=0), nn.BatchNorm2d(64))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=3, padding=0), nn.BatchNorm2d(64))
         self.blk1 = ResBlk(64, 128, stride=2)
         self.blk2 = ResBlk(128, 256, stride=2)
         self.blk3 = ResBlk(256, 512, stride=2)
@@ -434,8 +406,7 @@ class Net(nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size,
-            num_layers=1, batch_first=True)
+        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, num_layers=1, batch_first=True)
         for p in self.rnn.parameters():
             nn.init.normal_(p, mean=0.0, std=0.001)
         self.linear = nn.Linear(hidden_size, output_size)
@@ -452,10 +423,8 @@ class AE(nn.Module):
 
     def __init__(self):
         super(AE, self).__init__()
-        self.encoder = nn.Sequential(nn.Linear(784, 256), nn.ReLU(), nn.
-            Linear(256, 64), nn.ReLU(), nn.Linear(64, 20), nn.ReLU())
-        self.decoder = nn.Sequential(nn.Linear(20, 64), nn.ReLU(), nn.
-            Linear(64, 256), nn.ReLU(), nn.Linear(256, 784), nn.Sigmoid())
+        self.encoder = nn.Sequential(nn.Linear(784, 256), nn.ReLU(), nn.Linear(256, 64), nn.ReLU(), nn.Linear(64, 20), nn.ReLU())
+        self.decoder = nn.Sequential(nn.Linear(20, 64), nn.ReLU(), nn.Linear(64, 256), nn.ReLU(), nn.Linear(256, 784), nn.Sigmoid())
 
     def forward(self, x):
         """
@@ -475,10 +444,8 @@ class VAE(nn.Module):
 
     def __init__(self):
         super(VAE, self).__init__()
-        self.encoder = nn.Sequential(nn.Linear(784, 256), nn.ReLU(), nn.
-            Linear(256, 64), nn.ReLU(), nn.Linear(64, 20), nn.ReLU())
-        self.decoder = nn.Sequential(nn.Linear(10, 64), nn.ReLU(), nn.
-            Linear(64, 256), nn.ReLU(), nn.Linear(256, 784), nn.Sigmoid())
+        self.encoder = nn.Sequential(nn.Linear(784, 256), nn.ReLU(), nn.Linear(256, 64), nn.ReLU(), nn.Linear(64, 20), nn.ReLU())
+        self.decoder = nn.Sequential(nn.Linear(10, 64), nn.ReLU(), nn.Linear(64, 256), nn.ReLU(), nn.Linear(256, 784), nn.Sigmoid())
         self.criteon = nn.MSELoss()
 
     def forward(self, x):
@@ -494,8 +461,7 @@ class VAE(nn.Module):
         h = mu + sigma * torch.randn_like(sigma)
         x_hat = self.decoder(h)
         x_hat = x_hat.view(batchsz, 1, 28, 28)
-        kld = 0.5 * torch.sum(torch.pow(mu, 2) + torch.pow(sigma, 2) -
-            torch.log(1e-08 + torch.pow(sigma, 2)) - 1) / (batchsz * 28 * 28)
+        kld = 0.5 * torch.sum(torch.pow(mu, 2) + torch.pow(sigma, 2) - torch.log(1e-08 + torch.pow(sigma, 2)) - 1) / (batchsz * 28 * 28)
         return x_hat, kld
 
 
@@ -506,9 +472,7 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.
-            Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim),
-            nn.ReLU(True), nn.Linear(h_dim, 2))
+        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, 2))
 
     def forward(self, z):
         output = self.net(z)
@@ -519,9 +483,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.
-            Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim),
-            nn.ReLU(True), nn.Linear(h_dim, 1), nn.Sigmoid())
+        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, 1), nn.Sigmoid())
 
     def forward(self, x):
         output = self.net(x)
@@ -532,9 +494,7 @@ class Generator(nn.Module):
 
     def __init__(self):
         super(Generator, self).__init__()
-        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.
-            Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim),
-            nn.ReLU(True), nn.Linear(h_dim, 2))
+        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, 2))
 
     def forward(self, z):
         output = self.net(z)
@@ -545,9 +505,7 @@ class Discriminator(nn.Module):
 
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.
-            Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim),
-            nn.ReLU(True), nn.Linear(h_dim, 1), nn.Sigmoid())
+        self.net = nn.Sequential(nn.Linear(2, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, h_dim), nn.ReLU(True), nn.Linear(h_dim, 1), nn.Sigmoid())
 
     def forward(self, x):
         output = self.net(x)
@@ -563,8 +521,7 @@ class GraphConvolution(nn.Module):
         super(GraphConvolution, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features)
-            )
+        self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features))
         if bias:
             self.bias = nn.Parameter(torch.FloatTensor(out_features))
         else:
@@ -592,8 +549,7 @@ class GraphConvolution(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GCN(nn.Module):
@@ -628,16 +584,13 @@ class ResBlk(nn.Module):
         :param ch_out:
         """
         super(ResBlk, self).__init__()
-        self.conv1 = nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=stride,
-            padding=1)
+        self.conv1 = nn.Conv2d(ch_in, ch_out, kernel_size=3, stride=stride, padding=1)
         self.bn1 = nn.BatchNorm2d(ch_out)
-        self.conv2 = nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1,
-            padding=1)
+        self.conv2 = nn.Conv2d(ch_out, ch_out, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(ch_out)
         self.extra = nn.Sequential()
         if ch_out != ch_in:
-            self.extra = nn.Sequential(nn.Conv2d(ch_in, ch_out, kernel_size
-                =1, stride=stride), nn.BatchNorm2d(ch_out))
+            self.extra = nn.Sequential(nn.Conv2d(ch_in, ch_out, kernel_size=1, stride=stride), nn.BatchNorm2d(ch_out))
 
     def forward(self, x):
         """
@@ -655,8 +608,7 @@ class ResNet18(nn.Module):
 
     def __init__(self, num_class):
         super(ResNet18, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, kernel_size=3, stride=3,
-            padding=0), nn.BatchNorm2d(16))
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 16, kernel_size=3, stride=3, padding=0), nn.BatchNorm2d(16))
         self.blk1 = ResBlk(16, 32, stride=3)
         self.blk2 = ResBlk(32, 64, stride=3)
         self.blk3 = ResBlk(64, 128, stride=2)
@@ -692,40 +644,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 784])], {}),
+     True),
+    (BasicNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([2, 2])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GCN,
+     lambda: ([], {'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([2, 2])], {}),
+     True),
+    (GraphConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (MLP,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (MyLinear,
+     lambda: ([], {'inp': 4, 'outp': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResBlk,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNet18,
+     lambda: ([], {'num_class': 4}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (VAE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 784])], {}),
+     True),
+]
+
 class Test_dragen1860_Deep_Learning_with_PyTorch_Tutorials(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AE(*[], **{}), [torch.rand([4, 784])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([2, 2])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(GCN(*[], **{'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Generator(*[], **{}), [torch.rand([2, 2])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(MLP(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(MyLinear(*[], **{'inp': 4, 'outp': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ResBlk(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(VAE(*[], **{}), [torch.rand([4, 784])], {})
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

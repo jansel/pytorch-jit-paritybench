@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,8 +96,7 @@ class TemporalConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=9, stride=1):
         super().__init__()
         pad = int((kernel_size - 1) / 2)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=(
-            kernel_size, 1), padding=(pad, 0), stride=(stride, 1))
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, 1), padding=(pad, 0), stride=(stride, 1))
         self.bn = nn.BatchNorm2d(out_channels)
         conv_init(self.conv)
         bn_init(self.bn, 1)
@@ -111,8 +111,7 @@ class BiTemporalConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size=9, stride=1):
         super().__init__()
-        self.tempconv = TemporalConv(in_channels, out_channels, kernel_size,
-            stride)
+        self.tempconv = TemporalConv(in_channels, out_channels, kernel_size, stride)
 
     def forward(self, fv, fe):
         return self.tempconv(fv), self.tempconv(fe)
@@ -123,10 +122,8 @@ class DGNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, source_M, target_M):
         super().__init__()
         self.num_nodes, self.num_edges = source_M.shape
-        self.source_M = nn.Parameter(torch.from_numpy(source_M.astype(
-            'float32')))
-        self.target_M = nn.Parameter(torch.from_numpy(target_M.astype(
-            'float32')))
+        self.source_M = nn.Parameter(torch.from_numpy(source_M.astype('float32')))
+        self.target_M = nn.Parameter(torch.from_numpy(target_M.astype('float32')))
         self.H_v = nn.Linear(3 * in_channels, out_channels)
         self.H_e = nn.Linear(3 * in_channels, out_channels)
         self.bn_v = nn.BatchNorm2d(out_channels)
@@ -140,10 +137,8 @@ class DGNBlock(nn.Module):
         _, _, _, V_edge = fe.shape
         fv = fv.view(N, -1, V_node)
         fe = fe.view(N, -1, V_edge)
-        fe_in_agg = torch.einsum('nce,ev->ncv', fe, self.source_M.transpose
-            (0, 1))
-        fe_out_agg = torch.einsum('nce,ev->ncv', fe, self.target_M.
-            transpose(0, 1))
+        fe_in_agg = torch.einsum('nce,ev->ncv', fe, self.source_M.transpose(0, 1))
+        fe_out_agg = torch.einsum('nce,ev->ncv', fe, self.target_M.transpose(0, 1))
         fvp = torch.stack((fv, fe_in_agg, fe_out_agg), dim=1)
         fvp = fvp.view(N, 3 * C, T, V_node).contiguous().permute(0, 2, 3, 1)
         fvp = self.H_v(fvp).permute(0, 3, 1, 2)
@@ -161,20 +156,17 @@ class DGNBlock(nn.Module):
 
 class GraphTemporalConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, source_M, target_M,
-        temp_kernel_size=9, stride=1, residual=True):
+    def __init__(self, in_channels, out_channels, source_M, target_M, temp_kernel_size=9, stride=1, residual=True):
         super(GraphTemporalConv, self).__init__()
         self.dgn = DGNBlock(in_channels, out_channels, source_M, target_M)
-        self.tcn = BiTemporalConv(out_channels, out_channels, kernel_size=
-            temp_kernel_size, stride=stride)
+        self.tcn = BiTemporalConv(out_channels, out_channels, kernel_size=temp_kernel_size, stride=stride)
         self.relu = nn.ReLU(inplace=True)
         if not residual:
             self.residual = lambda fv, fe: (0, 0)
         elif in_channels == out_channels and stride == 1:
             self.residual = lambda fv, fe: (fv, fe)
         else:
-            self.residual = BiTemporalConv(in_channels, out_channels,
-                kernel_size=temp_kernel_size, stride=stride)
+            self.residual = BiTemporalConv(in_channels, out_channels, kernel_size=temp_kernel_size, stride=stride)
 
     def forward(self, fv, fe):
         fv_res, fe_res = self.residual(fv, fe)
@@ -195,8 +187,7 @@ def import_class(name):
 
 class Model(nn.Module):
 
-    def __init__(self, num_class=60, num_point=25, num_person=2, graph=None,
-        graph_args=dict(), in_channels=3):
+    def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3):
         super(Model, self).__init__()
         if graph is None:
             raise ValueError()
@@ -234,12 +225,10 @@ class Model(nn.Module):
         _, _, _, V_edge, _ = fe.shape
         fv = fv.permute(0, 4, 3, 1, 2).contiguous().view(N, M * V_node * C, T)
         fv = self.data_bn_v(fv)
-        fv = fv.view(N, M, V_node, C, T).permute(0, 1, 3, 4, 2).contiguous(
-            ).view(N * M, C, T, V_node)
+        fv = fv.view(N, M, V_node, C, T).permute(0, 1, 3, 4, 2).contiguous().view(N * M, C, T, V_node)
         fe = fe.permute(0, 4, 3, 1, 2).contiguous().view(N, M * V_edge * C, T)
         fe = self.data_bn_e(fe)
-        fe = fe.view(N, M, V_edge, C, T).permute(0, 1, 3, 4, 2).contiguous(
-            ).view(N * M, C, T, V_edge)
+        fe = fe.view(N, M, V_edge, C, T).permute(0, 1, 3, 4, 2).contiguous().view(N * M, C, T, V_edge)
         fv, fe = self.l1(fv, fe)
         fv, fe = self.l2(fv, fe)
         fv, fe = self.l3(fv, fe)
@@ -261,11 +250,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiTemporalConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (TemporalConv,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_kenziyuliu_Unofficial_DGNN_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BiTemporalConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(TemporalConv(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

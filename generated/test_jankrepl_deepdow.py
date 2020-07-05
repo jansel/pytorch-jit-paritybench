@@ -44,8 +44,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -154,16 +155,14 @@ class NCO(nn.Module):
 
     """
 
-    def __init__(self, n_clusters, n_init=10, init='random', random_state=None
-        ):
+    def __init__(self, n_clusters, n_init=10, init='random', random_state=None):
         super().__init__()
         self.n_clusters = n_clusters
         self.n_init = n_init
         self.init = init
         self.random_state = random_state
         self.cov2corr_layer = Cov2Corr()
-        self.kmeans_layer = KMeans(n_clusters=self.n_clusters, n_init=self.
-            n_init, init=self.init, random_state=self.random_state)
+        self.kmeans_layer = KMeans(n_clusters=self.n_clusters, n_init=self.n_init, init=self.init, random_state=self.random_state)
         self.analytical_markowitz_layer = AnalyticalMarkowitz()
 
     def forward(self, covmat, rets=None):
@@ -196,22 +195,15 @@ class NCO(nn.Module):
         w_l = []
         for i in range(n_samples):
             cluster_ixs, cluster_centers = self.kmeans_layer(corrmat[i])
-            w_intra_clusters = torch.zeros((n_assets, self.n_clusters),
-                dtype=dtype, device=device)
+            w_intra_clusters = torch.zeros((n_assets, self.n_clusters), dtype=dtype, device=device)
             for c in range(self.n_clusters):
                 in_cluster = torch.where(cluster_ixs == c)[0]
-                intra_covmat = covmat[[i]].index_select(1, in_cluster
-                    ).index_select(2, in_cluster)
-                intra_rets = None if rets is None else rets[[i]].index_select(
-                    1, in_cluster)
-                w_intra_clusters[in_cluster, c
-                    ] = self.analytical_markowitz_layer(intra_covmat,
-                    intra_rets)[0]
+                intra_covmat = covmat[[i]].index_select(1, in_cluster).index_select(2, in_cluster)
+                intra_rets = None if rets is None else rets[[i]].index_select(1, in_cluster)
+                w_intra_clusters[in_cluster, c] = self.analytical_markowitz_layer(intra_covmat, intra_rets)[0]
             inter_covmat = w_intra_clusters.T @ (covmat[i] @ w_intra_clusters)
-            inter_rets = None if rets is None else (w_intra_clusters.T @
-                rets[i]).view(1, -1)
-            w_inter_clusters = self.analytical_markowitz_layer(inter_covmat
-                .view(1, self.n_clusters, self.n_clusters), inter_rets)
+            inter_rets = None if rets is None else (w_intra_clusters.T @ rets[i]).view(1, -1)
+            w_inter_clusters = self.analytical_markowitz_layer(inter_covmat.view(1, self.n_clusters, self.n_clusters), inter_rets)
             w_final = (w_intra_clusters * w_inter_clusters).sum(dim=1)
             w_l.append(w_final)
         res = torch.stack(w_l, dim=0)
@@ -247,11 +239,9 @@ class NumericalMarkowitz(nn.Module):
         ret = rets @ w
         risk = cp.sum_squares(covmat_sqrt @ w)
         reg = alpha * cp.norm(w) ** 2
-        prob = cp.Problem(cp.Maximize(ret - risk - reg), [cp.sum(w) == 1, w >=
-            0, w <= max_weight])
+        prob = cp.Problem(cp.Maximize(ret - risk - reg), [cp.sum(w) == 1, w >= 0, w <= max_weight])
         assert prob.is_dpp()
-        self.cvxpylayer = CvxpyLayer(prob, parameters=[rets, covmat_sqrt,
-            alpha], variables=[w])
+        self.cvxpylayer = CvxpyLayer(prob, parameters=[rets, covmat_sqrt, alpha], variables=[w])
 
     def forward(self, rets, covmat_sqrt, gamma_sqrt, alpha):
         """Perform forward pass.
@@ -281,8 +271,7 @@ class NumericalMarkowitz(nn.Module):
 
         """
         n_samples, n_assets = rets.shape
-        gamma_sqrt_ = gamma_sqrt.repeat((1, n_assets * n_assets)).view(
-            n_samples, n_assets, n_assets)
+        gamma_sqrt_ = gamma_sqrt.repeat((1, n_assets * n_assets)).view(n_samples, n_assets, n_assets)
         alpha_abs = torch.abs(alpha)
         return self.cvxpylayer(rets, gamma_sqrt_ * covmat_sqrt, alpha_abs)[0]
 
@@ -324,20 +313,16 @@ class Resample(nn.Module):
         Available at SSRN 2658657 (2007)
     """
 
-    def __init__(self, allocator, n_draws=None, n_portfolios=5, sqrt=False,
-        random_state=None):
+    def __init__(self, allocator, n_draws=None, n_portfolios=5, sqrt=False, random_state=None):
         super().__init__()
-        if not isinstance(allocator, (AnalyticalMarkowitz, NCO,
-            NumericalMarkowitz)):
-            raise TypeError('Unsupported type of allocator: {}'.format(type
-                (allocator)))
+        if not isinstance(allocator, (AnalyticalMarkowitz, NCO, NumericalMarkowitz)):
+            raise TypeError('Unsupported type of allocator: {}'.format(type(allocator)))
         self.allocator = allocator
         self.sqrt = sqrt
         self.n_draws = n_draws
         self.n_portfolios = n_portfolios
         self.random_state = random_state
-        mapper = {'AnalyticalMarkowitz': False, 'NCO': True,
-            'NumericalMarkowitz': True}
+        mapper = {'AnalyticalMarkowitz': False, 'NCO': True, 'NumericalMarkowitz': True}
         self.uses_sqrt = mapper[allocator.__class__.__name__]
 
     def forward(self, matrix, rets=None, **kwargs):
@@ -370,15 +355,13 @@ class Resample(nn.Module):
         dtype, device = matrix.dtype, matrix.device
         n_draws = self.n_draws or n_assets
         covmat = matrix @ matrix if self.sqrt else matrix
-        dist_rets = torch.zeros(n_samples, n_assets, dtype=dtype, device=device
-            ) if rets is None else rets
+        dist_rets = torch.zeros(n_samples, n_assets, dtype=dtype, device=device) if rets is None else rets
         dist = MultivariateNormal(loc=dist_rets, covariance_matrix=covmat)
         portfolios = []
         for _ in range(self.n_portfolios):
             draws = dist.sample((n_draws,))
             rets_ = draws.mean(dim=0) if rets is not None else None
-            covmat_ = CovarianceMatrix(sqrt=self.uses_sqrt)(draws.permute(1,
-                0, 2))
+            covmat_ = CovarianceMatrix(sqrt=self.uses_sqrt)(draws.permute(1, 0, 2))
             if isinstance(self.allocator, (AnalyticalMarkowitz, NCO)):
                 portfolio = self.allocator(covmat=covmat_, rets=rets_)
             elif isinstance(self.allocator, NumericalMarkowitz):
@@ -412,24 +395,17 @@ class SoftmaxAllocator(torch.nn.Module):
 
     """
 
-    def __init__(self, temperature=1, formulation='analytical', n_assets=
-        None, max_weight=1):
+    def __init__(self, temperature=1, formulation='analytical', n_assets=None, max_weight=1):
         super().__init__()
         self.temperature = temperature
         if formulation not in {'analytical', 'variational'}:
             raise ValueError('Unrecognized formulation {}'.format(formulation))
         if formulation == 'variational' and n_assets is None:
-            raise ValueError(
-                'One needs to provide n_assets for the variational formulation.'
-                )
+            raise ValueError('One needs to provide n_assets for the variational formulation.')
         if formulation == 'analytical' and max_weight != 1:
-            raise ValueError(
-                'Cannot constraint weights via max_weight for analytical formulation'
-                )
+            raise ValueError('Cannot constraint weights via max_weight for analytical formulation')
         if formulation == 'variational' and n_assets * max_weight < 1:
-            raise ValueError(
-                'One cannot create fully invested portfolio with the given max_weight'
-                )
+            raise ValueError('One cannot create fully invested portfolio with the given max_weight')
         self.formulation = formulation
         if formulation == 'analytical':
             self.layer = torch.nn.Softmax(dim=1)
@@ -466,11 +442,9 @@ class SoftmaxAllocator(torch.nn.Module):
         if temperature is not None:
             temperature_ = temperature
         else:
-            temperature_ = float(self.temperature) * torch.ones(n_samples,
-                dtype=dtype, device=device)
+            temperature_ = float(self.temperature) * torch.ones(n_samples, dtype=dtype, device=device)
         inp = x / temperature_[..., None]
-        return self.layer(inp
-            ) if self.formulation == 'analytical' else self.layer(inp)[0]
+        return self.layer(inp) if self.formulation == 'analytical' else self.layer(inp)[0]
 
 
 class SparsemaxAllocator(torch.nn.Module):
@@ -501,9 +475,7 @@ class SparsemaxAllocator(torch.nn.Module):
     def __init__(self, n_assets, temperature=1, max_weight=1):
         super().__init__()
         if n_assets * max_weight < 1:
-            raise ValueError(
-                'One cannot create fully invested portfolio with the given max_weight'
-                )
+            raise ValueError('One cannot create fully invested portfolio with the given max_weight')
         self.n_assets = n_assets
         self.temperature = temperature
         x = cp.Parameter(n_assets)
@@ -538,8 +510,7 @@ class SparsemaxAllocator(torch.nn.Module):
         if temperature is not None:
             temperature_ = temperature
         else:
-            temperature_ = float(self.temperature) * torch.ones(n_samples,
-                dtype=dtype, device=device)
+            temperature_ = float(self.temperature) * torch.ones(n_samples, dtype=dtype, device=device)
         inp = x / temperature_[..., None]
         return self.layer(inp)[0]
 
@@ -552,8 +523,7 @@ class WeightNorm(torch.nn.Module):
 
     def __init__(self, n_assets):
         super().__init__()
-        self.asset_weights = torch.nn.Parameter(torch.ones(n_assets),
-            requires_grad=True)
+        self.asset_weights = torch.nn.Parameter(torch.ones(n_assets), requires_grad=True)
 
     def forward(self, x):
         """Perform forward pass.
@@ -692,8 +662,7 @@ class ExponentialCollapse(nn.Module):
     def __init__(self, collapse_dim=2, forgetting_factor=None):
         super().__init__()
         self.collapse_dim = collapse_dim
-        self.forgetting_factor = forgetting_factor or torch.nn.Parameter(torch
-            .Tensor([0.5]), requires_grad=True)
+        self.forgetting_factor = forgetting_factor or torch.nn.Parameter(torch.Tensor([0.5]), requires_grad=True)
 
     def forward(self, x):
         """Perform forward pass.
@@ -809,16 +778,13 @@ class CovarianceMatrix(nn.Module):
         If None then needs to be provided dynamically when performing forward pass.
     """
 
-    def __init__(self, sqrt=True, shrinkage_strategy='diagonal',
-        shrinkage_coef=0.5):
+    def __init__(self, sqrt=True, shrinkage_strategy='diagonal', shrinkage_coef=0.5):
         """Construct."""
         super().__init__()
         self.sqrt = sqrt
         if shrinkage_strategy is not None:
-            if shrinkage_strategy not in {'diagonal', 'identity',
-                'scaled_identity'}:
-                raise ValueError('Unrecognized shrinkage strategy {}'.
-                    format(shrinkage_strategy))
+            if shrinkage_strategy not in {'diagonal', 'identity', 'scaled_identity'}:
+                raise ValueError('Unrecognized shrinkage strategy {}'.format(shrinkage_strategy))
         self.shrinkage_strategy = shrinkage_strategy
         self.shrinkage_coef = shrinkage_coef
 
@@ -847,12 +813,9 @@ class CovarianceMatrix(nn.Module):
         if shrinkage_coef is not None:
             shrinkage_coef_ = shrinkage_coef
         else:
-            shrinkage_coef_ = self.shrinkage_coef * torch.ones(n_samples,
-                dtype=dtype, device=device)
+            shrinkage_coef_ = self.shrinkage_coef * torch.ones(n_samples, dtype=dtype, device=device)
         wrapper = self.compute_sqrt if self.sqrt else lambda h: h
-        return torch.stack([wrapper(self.compute_covariance(x[i].T.clone(),
-            shrinkage_strategy=self.shrinkage_strategy, shrinkage_coef=
-            shrinkage_coef_[i])) for i in range(n_samples)], dim=0)
+        return torch.stack([wrapper(self.compute_covariance(x[i].T.clone(), shrinkage_strategy=self.shrinkage_strategy, shrinkage_coef=shrinkage_coef_[i])) for i in range(n_samples)], dim=0)
 
     @staticmethod
     def compute_covariance(m, shrinkage_strategy=None, shrinkage_coef=0.5):
@@ -909,8 +872,7 @@ class CovarianceMatrix(nn.Module):
 
         """
         _, s, v = m.svd()
-        good = s > s.max(-1, True).values * s.size(-1) * torch.finfo(s.dtype
-            ).eps
+        good = s > s.max(-1, True).values * s.size(-1) * torch.finfo(s.dtype).eps
         components = good.sum(-1)
         common = components.max()
         unbalanced = common != components.min()
@@ -953,8 +915,7 @@ class KMeans(torch.nn.Module):
         Control level of verbosity.
     """
 
-    def __init__(self, n_clusters=5, init='random', n_init=1, max_iter=30,
-        tol=1e-05, random_state=None, verbose=False):
+    def __init__(self, n_clusters=5, init='random', n_init=1, max_iter=30, tol=1e-05, random_state=None, verbose=False):
         super().__init__()
         self.n_clusters = n_clusters
         self.init = init
@@ -964,8 +925,7 @@ class KMeans(torch.nn.Module):
         self.random_state = random_state
         self.verbose = verbose
         if self.init not in {'manual', 'random', 'k-means++'}:
-            raise ValueError('Unrecognized initialization {}'.format(self.init)
-                )
+            raise ValueError('Unrecognized initialization {}'.format(self.init))
 
     def initialize(self, x, manual_init=None):
         """Initialize the k-means algorithm.
@@ -989,16 +949,14 @@ class KMeans(torch.nn.Module):
         device, dtype = x.device, x.dtype
         if self.init == 'random':
             p = torch.ones(n_samples, dtype=dtype, device=device)
-            centroid_samples = torch.multinomial(p, num_samples=self.
-                n_clusters, replacement=False)
+            centroid_samples = torch.multinomial(p, num_samples=self.n_clusters, replacement=False)
             cluster_centers = x[centroid_samples]
         elif self.init == 'k-means++':
             p = torch.ones(n_samples, dtype=dtype, device=device)
             cluster_centers_l = []
             centroid_samples_l = []
             while len(cluster_centers_l) < self.n_clusters:
-                centroid_sample = torch.multinomial(p, num_samples=1,
-                    replacement=False)
+                centroid_sample = torch.multinomial(p, num_samples=1, replacement=False)
                 if centroid_sample in centroid_samples_l:
                     continue
                 centroid_samples_l.append(centroid_sample)
@@ -1010,13 +968,9 @@ class KMeans(torch.nn.Module):
             if not torch.is_tensor(manual_init):
                 raise TypeError('The manual_init needs to be a torch.Tensor')
             if manual_init.shape[0] != self.n_clusters:
-                raise ValueError(
-                    'The number of manually provided cluster centers is different from n_clusters'
-                    )
+                raise ValueError('The number of manually provided cluster centers is different from n_clusters')
             if manual_init.shape[1] != x.shape[1]:
-                raise ValueError(
-                    'The feature size of manually provided cluster centers is different from the input'
-                    )
+                raise ValueError('The feature size of manually provided cluster centers is different from the input')
             cluster_centers = manual_init
         return cluster_centers
 
@@ -1043,8 +997,7 @@ class KMeans(torch.nn.Module):
         """
         n_samples, n_features = x.shape
         if n_samples < self.n_clusters:
-            raise ValueError(
-                'The number of samples is lower than the number of clusters.')
+            raise ValueError('The number of samples is lower than the number of clusters.')
         if self.random_state is not None:
             torch.manual_seed(self.random_state)
         lowest_potential = float('inf')
@@ -1056,12 +1009,9 @@ class KMeans(torch.nn.Module):
             for it in range(self.max_iter):
                 distances = self.compute_distances(x, cluster_centers)
                 cluster_ixs = torch.argmin(distances, dim=1)
-                cluster_centers = torch.stack([x[cluster_ixs == i].mean(dim
-                    =0) for i in range(self.n_clusters)], dim=0)
-                current_potential = distances.gather(1, cluster_ixs.view(-1, 1)
-                    ).sum()
-                if abs(current_potential - previous_potential
-                    ) < self.tol or it == self.max_iter - 1:
+                cluster_centers = torch.stack([x[cluster_ixs == i].mean(dim=0) for i in range(self.n_clusters)], dim=0)
+                current_potential = distances.gather(1, cluster_ixs.view(-1, 1)).sum()
+                if abs(current_potential - previous_potential) < self.tol or it == self.max_iter - 1:
                     if self.verbose:
                         None
                     break
@@ -1115,8 +1065,7 @@ class MultiplyByConstant(torch.nn.Module):
         super().__init__()
         self.dim_size = dim_size
         self.dim_ix = dim_ix
-        self.constant = torch.nn.Parameter(torch.ones(self.dim_size),
-            requires_grad=True)
+        self.constant = torch.nn.Parameter(torch.ones(self.dim_size), requires_grad=True)
 
     def forward(self, x):
         """Perform forward pass.
@@ -1133,11 +1082,8 @@ class MultiplyByConstant(torch.nn.Module):
 
         """
         if self.dim_size != x.shape[self.dim_ix]:
-            raise ValueError(
-                'The size of dimension {} is {} which is different than {}'
-                .format(self.dim_ix, x.shape[self.dim_ix], self.dim_size))
-        view = [(self.dim_size if i == self.dim_ix else 1) for i in range(x
-            .ndim)]
+            raise ValueError('The size of dimension {} is {} which is different than {}'.format(self.dim_ix, x.shape[self.dim_ix], self.dim_size))
+        view = [(self.dim_size if i == self.dim_ix else 1) for i in range(x.ndim)]
         return x * self.constant.view(view)
 
 
@@ -1159,19 +1105,15 @@ class Conv(nn.Module):
         What type of convolution is used in the background.
     """
 
-    def __init__(self, n_input_channels, n_output_channels, kernel_size=3,
-        method='2D'):
+    def __init__(self, n_input_channels, n_output_channels, kernel_size=3, method='2D'):
         super().__init__()
         self.method = method
         if method == '2D':
-            self.conv = nn.Conv2d(n_input_channels, n_output_channels,
-                kernel_size=kernel_size, padding=(kernel_size - 1) // 2)
+            self.conv = nn.Conv2d(n_input_channels, n_output_channels, kernel_size=kernel_size, padding=(kernel_size - 1) // 2)
         elif method == '1D':
-            self.conv = nn.Conv1d(n_input_channels, n_output_channels,
-                kernel_size=kernel_size, padding=(kernel_size - 1) // 2)
+            self.conv = nn.Conv1d(n_input_channels, n_output_channels, kernel_size=kernel_size, padding=(kernel_size - 1) // 2)
         else:
-            raise ValueError("Invalid method {}, only supports '1D' or '2D'."
-                .format(method))
+            raise ValueError("Invalid method {}, only supports '1D' or '2D'.".format(method))
 
     def forward(self, x):
         """Perform forward pass.
@@ -1214,22 +1156,16 @@ class RNN(nn.Module):
 
     """
 
-    def __init__(self, n_channels, hidden_size, cell_type='LSTM',
-        bidirectional=True, n_layers=1):
+    def __init__(self, n_channels, hidden_size, cell_type='LSTM', bidirectional=True, n_layers=1):
         """Construct."""
         super().__init__()
         if hidden_size % 2 != 0 and bidirectional:
-            raise ValueError(
-                'Hidden size needs to be divisible by two for bidirectional RNNs.'
-                )
-        hidden_size_one_direction = int(hidden_size // (1 + int(bidirectional))
-            )
+            raise ValueError('Hidden size needs to be divisible by two for bidirectional RNNs.')
+        hidden_size_one_direction = int(hidden_size // (1 + int(bidirectional)))
         if cell_type == 'RNN':
-            self.cell = torch.nn.RNN(n_channels, hidden_size_one_direction,
-                bidirectional=bidirectional, num_layers=n_layers)
+            self.cell = torch.nn.RNN(n_channels, hidden_size_one_direction, bidirectional=bidirectional, num_layers=n_layers)
         elif cell_type == 'LSTM':
-            self.cell = torch.nn.LSTM(n_channels, hidden_size_one_direction,
-                bidirectional=bidirectional, num_layers=n_layers)
+            self.cell = torch.nn.LSTM(n_channels, hidden_size_one_direction, bidirectional=bidirectional, num_layers=n_layers)
         else:
             raise ValueError('Unsupported cell_type {}'.format(cell_type))
 
@@ -1303,12 +1239,10 @@ class Zoom(torch.nn.Module):
 
         """
         translate = 1 - scale
-        theta = torch.stack([torch.tensor([[1, 0, 0], [0, s, t]]) for s, t in
-            zip(scale, translate)], dim=0)
+        theta = torch.stack([torch.tensor([[1, 0, 0], [0, s, t]]) for s, t in zip(scale, translate)], dim=0)
         theta = theta
         grid = nn.functional.affine_grid(theta, x.shape)
-        x_zoomed = nn.functional.grid_sample(x, grid, mode=self.mode,
-            padding_mode=self.padding_mode, align_corners=False)
+        x_zoomed = nn.functional.grid_sample(x, grid, mode=self.mode, padding_mode=self.padding_mode, align_corners=False)
         return x_zoomed
 
 
@@ -1316,52 +1250,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AnalyticalMarkowitz,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (AttentionCollapse,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AverageCollapse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv,
+     lambda: ([], {'n_input_channels': 4, 'n_output_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Cov2Corr,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (CovarianceMatrix,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ElementCollapse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ExponentialCollapse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MaxCollapse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NCO,
+     lambda: ([], {'n_clusters': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (RNN,
+     lambda: ([], {'n_channels': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SoftmaxAllocator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (SumCollapse,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (WeightNorm,
+     lambda: ([], {'n_assets': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jankrepl_deepdow(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AnalyticalMarkowitz(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AttentionCollapse(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(AverageCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Conv(*[], **{'n_input_channels': 4, 'n_output_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Cov2Corr(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(CovarianceMatrix(*[], **{}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(ElementCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(ExponentialCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(MaxCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(NCO(*[], **{'n_clusters': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(RNN(*[], **{'n_channels': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(SoftmaxAllocator(*[], **{}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(SumCollapse(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(WeightNorm(*[], **{'n_assets': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 

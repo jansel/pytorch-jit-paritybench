@@ -182,8 +182,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -226,8 +227,7 @@ def _get_default_args(func):
         (positional idx, default value)
     """
     signature = inspect.signature(func)
-    return {k: (idx, v.default) for idx, (k, v) in enumerate(signature.
-        parameters.items()) if v.default is not inspect.Parameter.empty}
+    return {k: (idx, v.default) for idx, (k, v) in enumerate(signature.parameters.items()) if v.default is not inspect.Parameter.empty}
 
 
 def args_to_numpy(args):
@@ -248,8 +248,7 @@ def args_to_numpy(args):
                 res.append(i.detach().numpy())
         else:
             res.append(i)
-    res = [(i.tolist() if isinstance(i, np.ndarray) and not i.shape else i) for
-        i in res]
+    res = [(i.tolist() if isinstance(i, np.ndarray) and not i.shape else i) for i in res]
     return res
 
 
@@ -271,8 +270,7 @@ def kwargs_to_numpy(kwargs):
                 res[key] = val.detach().numpy()
         else:
             res[key] = val
-    res = {k: (v.tolist() if isinstance(v, np.ndarray) and not v.shape else
-        v) for k, v in res.items()}
+    res = {k: (v.tolist() if isinstance(v, np.ndarray) and not v.shape else v) for k, v in res.items()}
     return res
 
 
@@ -352,8 +350,7 @@ def to_torch(qnode):
                 if isinstance(i, torch.Tensor):
                     if i.is_cuda:
                         cuda_device = i.get_device()
-                        return torch.as_tensor(torch.from_numpy(res),
-                            device=cuda_device)
+                        return torch.as_tensor(torch.from_numpy(res), device=cuda_device)
             return torch.from_numpy(res)
 
         @staticmethod
@@ -386,8 +383,7 @@ def to_torch(qnode):
         def __str__(self):
             """String representation"""
             detail = "<QNode: device='{}', func={}, wires={}, interface={}>"
-            return detail.format(qnode.device.short_name, qnode.func.
-                __name__, qnode.num_wires, self.interface)
+            return detail.format(qnode.device.short_name, qnode.func.__name__, qnode.num_wires, self.interface)
 
         def __repr__(self):
             """REPL representation"""
@@ -578,57 +574,35 @@ class TorchLayer(Module):
             Average loss over epoch 8: 0.1528
     """
 
-    def __init__(self, qnode, weight_shapes: dict, init_method: Optional[
-        Callable]=None):
+    def __init__(self, qnode, weight_shapes: dict, init_method: Optional[Callable]=None):
         if not TORCH_IMPORTED:
-            raise ImportError(
-                """TorchLayer requires PyTorch. PyTorch can be installed using:
-pip install torch
-Alternatively, visit https://pytorch.org/get-started/locally/ for detailed instructions."""
-                )
+            raise ImportError('TorchLayer requires PyTorch. PyTorch can be installed using:\npip install torch\nAlternatively, visit https://pytorch.org/get-started/locally/ for detailed instructions.')
         super().__init__()
         self.sig = qnode.func.sig
         if self.input_arg not in self.sig:
-            raise TypeError(
-                'QNode must include an argument with name {} for inputting data'
-                .format(self.input_arg))
+            raise TypeError('QNode must include an argument with name {} for inputting data'.format(self.input_arg))
         if self.input_arg in set(weight_shapes.keys()):
-            raise ValueError(
-                '{} argument should not have its dimension specified in weight_shapes'
-                .format(self.input_arg))
-        if set(weight_shapes.keys()) | {self.input_arg} != set(self.sig.keys()
-            ):
-            raise ValueError(
-                'Must specify a shape for every non-input parameter in the QNode'
-                )
+            raise ValueError('{} argument should not have its dimension specified in weight_shapes'.format(self.input_arg))
+        if set(weight_shapes.keys()) | {self.input_arg} != set(self.sig.keys()):
+            raise ValueError('Must specify a shape for every non-input parameter in the QNode')
         if qnode.func.var_pos:
-            raise TypeError(
-                'Cannot have a variable number of positional arguments')
+            raise TypeError('Cannot have a variable number of positional arguments')
         if qnode.func.var_keyword:
-            raise TypeError(
-                'Cannot have a variable number of keyword arguments')
+            raise TypeError('Cannot have a variable number of keyword arguments')
         self.qnode = to_torch(qnode)
-        weight_shapes = {weight: (tuple(size) if isinstance(size, Iterable)
-             else (size,) if size > 1 else ()) for weight, size in
-            weight_shapes.items()}
-        defaults = {name for name, sig in self.sig.items() if sig.par.
-            default != inspect.Parameter.empty}
+        weight_shapes = {weight: (tuple(size) if isinstance(size, Iterable) else (size,) if size > 1 else ()) for weight, size in weight_shapes.items()}
+        defaults = {name for name, sig in self.sig.items() if sig.par.default != inspect.Parameter.empty}
         self.input_is_default = self.input_arg in defaults
         if defaults - {self.input_arg} != set():
-            raise TypeError(
-                'Only the argument {} is permitted to have a default'.
-                format(self.input_arg))
+            raise TypeError('Only the argument {} is permitted to have a default'.format(self.input_arg))
         if not init_method:
-            init_method = functools.partial(torch.nn.init.uniform_, b=2 *
-                math.pi)
+            init_method = functools.partial(torch.nn.init.uniform_, b=2 * math.pi)
         self.qnode_weights = {}
         for name, size in weight_shapes.items():
             if len(size) == 0:
-                self.qnode_weights[name] = torch.nn.Parameter(init_method(
-                    torch.Tensor(1))[0])
+                self.qnode_weights[name] = torch.nn.Parameter(init_method(torch.Tensor(1))[0])
             else:
-                self.qnode_weights[name] = torch.nn.Parameter(init_method(
-                    torch.Tensor(*size)))
+                self.qnode_weights[name] = torch.nn.Parameter(init_method(torch.Tensor(*size)))
             self.register_parameter(name, self.qnode_weights[name])
 
     def forward(self, inputs):
@@ -676,10 +650,3 @@ Alternatively, visit https://pytorch.org/get-started/locally/ for detailed instr
         """Name of the argument to be used as the input to the Torch layer. Set to ``"inputs"``."""
         return self._input_arg
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_XanaduAI_pennylane(_paritybench_base):
-    pass

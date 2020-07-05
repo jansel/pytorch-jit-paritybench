@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,13 +55,10 @@ class GraphWaveletNeuralNetwork(torch.nn.Module):
         """
         Setting up a sparse and a dense layer.
         """
-        self.convolution_1 = SparseGraphWaveletLayer(self.feature_number,
-            self.args.filters, self.ncount, self.device)
-        self.convolution_2 = DenseGraphWaveletLayer(self.args.filters, self
-            .class_number, self.ncount, self.device)
+        self.convolution_1 = SparseGraphWaveletLayer(self.feature_number, self.args.filters, self.ncount, self.device)
+        self.convolution_2 = DenseGraphWaveletLayer(self.args.filters, self.class_number, self.ncount, self.device)
 
-    def forward(self, phi_indices, phi_values, phi_inverse_indices,
-        phi_inverse_values, feature_indices, feature_values):
+    def forward(self, phi_indices, phi_values, phi_inverse_indices, phi_inverse_values, feature_indices, feature_values):
         """
         Forward propagation pass.
         :param phi_indices: Sparse wavelet matrix index pairs.
@@ -71,11 +69,8 @@ class GraphWaveletNeuralNetwork(torch.nn.Module):
         :param feature_values: Feature matrix values.
         :param predictions: Predicted node label vector.
         """
-        deep_features_1 = self.convolution_1(phi_indices, phi_values,
-            phi_inverse_indices, phi_inverse_values, feature_indices,
-            feature_values, self.args.dropout)
-        deep_features_2 = self.convolution_2(phi_indices, phi_values,
-            phi_inverse_indices, phi_inverse_values, deep_features_1)
+        deep_features_1 = self.convolution_1(phi_indices, phi_values, phi_inverse_indices, phi_inverse_values, feature_indices, feature_values, self.args.dropout)
+        deep_features_2 = self.convolution_2(phi_indices, phi_values, phi_inverse_indices, phi_inverse_values, deep_features_1)
         predictions = torch.nn.functional.log_softmax(deep_features_2, dim=1)
         return predictions
 
@@ -102,13 +97,10 @@ class GraphWaveletLayer(torch.nn.Module):
         """
         Defining diagonal filter matrix (Theta in the paper) and weight matrix.
         """
-        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.
-            in_channels, self.out_channels))
-        self.diagonal_weight_indices = torch.LongTensor([[node for node in
-            range(self.ncount)], [node for node in range(self.ncount)]])
+        self.weight_matrix = torch.nn.Parameter(torch.Tensor(self.in_channels, self.out_channels))
+        self.diagonal_weight_indices = torch.LongTensor([[node for node in range(self.ncount)], [node for node in range(self.ncount)]])
         self.diagonal_weight_indices = self.diagonal_weight_indices
-        self.diagonal_weight_filter = torch.nn.Parameter(torch.Tensor(self.
-            ncount, 1))
+        self.diagonal_weight_filter = torch.nn.Parameter(torch.Tensor(self.ncount, 1))
 
     def init_parameters(self):
         """
@@ -117,10 +109,3 @@ class GraphWaveletLayer(torch.nn.Module):
         torch.nn.init.uniform_(self.diagonal_weight_filter, 0.9, 1.1)
         torch.nn.init.xavier_uniform_(self.weight_matrix)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_benedekrozemberczki_GraphWaveletNeuralNetwork(_paritybench_base):
-    pass

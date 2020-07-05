@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,19 +80,12 @@ from torch.nn import functional as F
 class ResNetBackbone(nn.Module):
 
     def __init__(self, resnet_type):
-        resnet_spec = {(18): (BasicBlock, [2, 2, 2, 2], [64, 64, 128, 256, 
-            512], 'resnet18'), (34): (BasicBlock, [3, 4, 6, 3], [64, 64, 
-            128, 256, 512], 'resnet34'), (50): (Bottleneck, [3, 4, 6, 3], [
-            64, 256, 512, 1024, 2048], 'resnet50'), (101): (Bottleneck, [3,
-            4, 23, 3], [64, 256, 512, 1024, 2048], 'resnet101'), (152): (
-            Bottleneck, [3, 8, 36, 3], [64, 256, 512, 1024, 2048], 'resnet152')
-            }
+        resnet_spec = {(18): (BasicBlock, [2, 2, 2, 2], [64, 64, 128, 256, 512], 'resnet18'), (34): (BasicBlock, [3, 4, 6, 3], [64, 64, 128, 256, 512], 'resnet34'), (50): (Bottleneck, [3, 4, 6, 3], [64, 256, 512, 1024, 2048], 'resnet50'), (101): (Bottleneck, [3, 4, 23, 3], [64, 256, 512, 1024, 2048], 'resnet101'), (152): (Bottleneck, [3, 8, 36, 3], [64, 256, 512, 1024, 2048], 'resnet152')}
         block, layers, channels, name = resnet_spec[resnet_type]
         self.name = name
         self.inplanes = 64
         super(ResNetBackbone, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -109,9 +103,7 @@ class ResNetBackbone(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -148,19 +140,15 @@ class RootNet(nn.Module):
         self.outplanes = 256
         super(RootNet, self).__init__()
         self.deconv_layers = self._make_deconv_layer(3)
-        self.xy_layer = nn.Conv2d(in_channels=self.outplanes, out_channels=
-            1, kernel_size=1, stride=1, padding=0)
-        self.depth_layer = nn.Conv2d(in_channels=self.inplanes,
-            out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.xy_layer = nn.Conv2d(in_channels=self.outplanes, out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.depth_layer = nn.Conv2d(in_channels=self.inplanes, out_channels=1, kernel_size=1, stride=1, padding=0)
 
     def _make_deconv_layer(self, num_layers):
         layers = []
         inplanes = self.inplanes
         outplanes = self.outplanes
         for i in range(num_layers):
-            layers.append(nn.ConvTranspose2d(in_channels=inplanes,
-                out_channels=outplanes, kernel_size=4, stride=2, padding=1,
-                output_padding=0, bias=False))
+            layers.append(nn.ConvTranspose2d(in_channels=inplanes, out_channels=outplanes, kernel_size=4, stride=2, padding=1, output_padding=0, bias=False))
             layers.append(nn.BatchNorm2d(outplanes))
             layers.append(nn.ReLU(inplace=True))
             inplanes = outplanes
@@ -174,16 +162,11 @@ class RootNet(nn.Module):
         xy = xy.view(-1, 1, cfg.output_shape[0], cfg.output_shape[1])
         hm_x = xy.sum(dim=2)
         hm_y = xy.sum(dim=3)
-        coord_x = hm_x * torch.comm.broadcast(torch.arange(1, cfg.
-            output_shape[1] + 1).type(torch.FloatTensor), devices=[hm_x.
-            device.index])[0]
-        coord_y = hm_y * torch.comm.broadcast(torch.arange(1, cfg.
-            output_shape[0] + 1).type(torch.FloatTensor), devices=[hm_y.
-            device.index])[0]
+        coord_x = hm_x * torch.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.FloatTensor), devices=[hm_x.device.index])[0]
+        coord_y = hm_y * torch.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.FloatTensor), devices=[hm_y.device.index])[0]
         coord_x = coord_x.sum(dim=2) - 1
         coord_y = coord_y.sum(dim=2) - 1
-        img_feat = torch.mean(x.view(x.size(0), x.size(1), x.size(2) * x.
-            size(3)), dim=2)
+        img_feat = torch.mean(x.view(x.size(0), x.size(1), x.size(2) * x.size(3)), dim=2)
         img_feat = torch.unsqueeze(img_feat, 2)
         img_feat = torch.unsqueeze(img_feat, 3)
         gamma = self.depth_layer(img_feat)
@@ -226,14 +209,6 @@ class ResPoseNet(nn.Module):
             target_vis = target['vis']
             target_have_depth = target['have_depth']
             loss_coord = torch.abs(coord - target_coord) * target_vis
-            loss_coord = (loss_coord[:, (0)] + loss_coord[:, (1)] + 
-                loss_coord[:, (2)] * target_have_depth.view(-1)) / 3.0
+            loss_coord = (loss_coord[:, (0)] + loss_coord[:, (1)] + loss_coord[:, (2)] * target_have_depth.view(-1)) / 3.0
             return loss_coord
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_mks0601_3DMPPE_ROOTNET_RELEASE(_paritybench_base):
-    pass

@@ -45,8 +45,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,20 +101,17 @@ class BilinearNet(nn.Module):
 
     """
 
-    def __init__(self, num_users, num_items, embedding_dim=32,
-        user_embedding_layer=None, item_embedding_layer=None, sparse=False):
+    def __init__(self, num_users, num_items, embedding_dim=32, user_embedding_layer=None, item_embedding_layer=None, sparse=False):
         super(BilinearNet, self).__init__()
         self.embedding_dim = embedding_dim
         if user_embedding_layer is not None:
             self.user_embeddings = user_embedding_layer
         else:
-            self.user_embeddings = ScaledEmbedding(num_users, embedding_dim,
-                sparse=sparse)
+            self.user_embeddings = ScaledEmbedding(num_users, embedding_dim, sparse=sparse)
         if item_embedding_layer is not None:
             self.item_embeddings = item_embedding_layer
         else:
-            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim,
-                sparse=sparse)
+            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim, sparse=sparse)
         self.user_biases = ZeroEmbedding(num_users, 1, sparse=sparse)
         self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse)
 
@@ -193,10 +191,7 @@ class ScaledEmbeddingBag(nn.EmbeddingBag):
         self.weight.data.normal_(0, 1.0 / self.embedding_dim)
 
 
-SEEDS = [179424941, 179425457, 179425907, 179426369, 179424977, 179425517, 
-    179425943, 179426407, 179424989, 179425529, 179425993, 179426447, 
-    179425003, 179425537, 179426003, 179426453, 179425019, 179425559, 
-    179426029, 179426491, 179425027, 179425579, 179426081, 179426549]
+SEEDS = [179424941, 179425457, 179425907, 179426369, 179424977, 179425517, 179425943, 179426407, 179424989, 179425529, 179425993, 179426447, 179425003, 179425537, 179426003, 179426453, 179425019, 179425559, 179426029, 179426491, 179425027, 179425579, 179426081, 179426549]
 
 
 class BloomEmbedding(nn.Module):
@@ -259,34 +254,27 @@ class BloomEmbedding(nn.Module):
        arXiv preprint arXiv:1706.03993 (2017).
     """
 
-    def __init__(self, num_embeddings, embedding_dim, compression_ratio=0.2,
-        num_hash_functions=4, bag=False, padding_idx=0):
+    def __init__(self, num_embeddings, embedding_dim, compression_ratio=0.2, num_hash_functions=4, bag=False, padding_idx=0):
         super(BloomEmbedding, self).__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.compression_ratio = compression_ratio
-        self.compressed_num_embeddings = int(compression_ratio * num_embeddings
-            )
+        self.compressed_num_embeddings = int(compression_ratio * num_embeddings)
         self.num_hash_functions = num_hash_functions
         self.padding_idx = padding_idx
         self._bag = bag
         if num_hash_functions > len(SEEDS):
-            raise ValueError('Can use at most {} hash functions ({} requested)'
-                .format(len(SEEDS), num_hash_functions))
+            raise ValueError('Can use at most {} hash functions ({} requested)'.format(len(SEEDS), num_hash_functions))
         self._masks = SEEDS[:self.num_hash_functions]
         if self._bag:
-            self.embeddings = ScaledEmbeddingBag(self.
-                compressed_num_embeddings, self.embedding_dim, mode='sum')
+            self.embeddings = ScaledEmbeddingBag(self.compressed_num_embeddings, self.embedding_dim, mode='sum')
         else:
-            self.embeddings = ScaledEmbedding(self.
-                compressed_num_embeddings, self.embedding_dim, padding_idx=
-                self.padding_idx)
+            self.embeddings = ScaledEmbedding(self.compressed_num_embeddings, self.embedding_dim, padding_idx=self.padding_idx)
         self._hashes = None
         self._offsets = None
 
     def __repr__(self):
-        return '<BloomEmbedding (compression_ratio: {}): {}>'.format(self.
-            compression_ratio, repr(self.embeddings))
+        return '<BloomEmbedding (compression_ratio: {}): {}>'.format(self.compression_ratio, repr(self.embeddings))
 
     def _get_hashed_indices(self, original_indices):
 
@@ -296,14 +284,12 @@ class BloomEmbedding(nn.Module):
             return result % self.compressed_num_embeddings
         if self._hashes is None:
             indices = np.arange(self.num_embeddings, dtype=np.int32)
-            hashes = np.stack([_hash(indices, seed) for seed in self._masks
-                ], axis=1).astype(np.int64)
+            hashes = np.stack([_hash(indices, seed) for seed in self._masks], axis=1).astype(np.int64)
             assert hashes[self.padding_idx].sum() == 0
             self._hashes = torch.from_numpy(hashes)
             if original_indices.is_cuda:
                 self._hashes = self._hashes
-        hashed_indices = torch.index_select(self._hashes, 0,
-            original_indices.squeeze())
+        hashed_indices = torch.index_select(self._hashes, 0, original_indices.squeeze())
         return hashed_indices
 
     def forward(self, indices):
@@ -320,10 +306,8 @@ class BloomEmbedding(nn.Module):
             indices = indices.contiguous()
         indices = indices.data.view(batch_size * seq_size, 1)
         if self._bag:
-            if self._offsets is None or self._offsets.size(0
-                ) != batch_size * seq_size:
-                self._offsets = torch.arange(0, indices.numel(), indices.
-                    size(1)).long()
+            if self._offsets is None or self._offsets.size(0) != batch_size * seq_size:
+                self._offsets = torch.arange(0, indices.numel(), indices.size(1)).long()
                 if indices.is_cuda:
                     self._offsets = self._offsets
             hashed_indices = self._get_hashed_indices(indices)
@@ -372,17 +356,14 @@ class PoolNet(nn.Module):
 
     """
 
-    def __init__(self, num_items, embedding_dim=32, item_embedding_layer=
-        None, sparse=False):
+    def __init__(self, num_items, embedding_dim=32, item_embedding_layer=None, sparse=False):
         super(PoolNet, self).__init__()
         self.embedding_dim = embedding_dim
         if item_embedding_layer is not None:
             self.item_embeddings = item_embedding_layer
         else:
-            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim,
-                padding_idx=PADDING_IDX, sparse=sparse)
-        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse,
-            padding_idx=PADDING_IDX)
+            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim, padding_idx=PADDING_IDX, sparse=sparse)
+        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse, padding_idx=PADDING_IDX)
 
     def user_representation(self, item_sequences):
         """
@@ -398,17 +379,13 @@ class PoolNet(nn.Module):
             at step t (all items seen). This final state can be used
             for prediction or evaluation.
         """
-        sequence_embeddings = self.item_embeddings(item_sequences).permute(
-            0, 2, 1)
+        sequence_embeddings = self.item_embeddings(item_sequences).permute(0, 2, 1)
         sequence_embeddings = sequence_embeddings.unsqueeze(3)
         sequence_embeddings = F.pad(sequence_embeddings, (0, 0, 1, 0))
         sequence_embedding_sum = torch.cumsum(sequence_embeddings, 2)
-        non_padding_entries = torch.cumsum((sequence_embeddings != 0.0).
-            float(), 2).expand_as(sequence_embedding_sum)
-        user_representations = (sequence_embedding_sum / (
-            non_padding_entries + 1)).squeeze(3)
-        return user_representations[:, :, :-1], user_representations[:, :, (-1)
-            ]
+        non_padding_entries = torch.cumsum((sequence_embeddings != 0.0).float(), 2).expand_as(sequence_embedding_sum)
+        user_representations = (sequence_embedding_sum / (non_padding_entries + 1)).squeeze(3)
+        return user_representations[:, :, :-1], user_representations[:, :, (-1)]
 
     def forward(self, user_representations, targets):
         """
@@ -429,8 +406,7 @@ class PoolNet(nn.Module):
         predictions: tensor
             of shape (minibatch_size, sequence_length)
         """
-        target_embedding = self.item_embeddings(targets).permute(0, 2, 1
-            ).squeeze()
+        target_embedding = self.item_embeddings(targets).permute(0, 2, 1).squeeze()
         target_bias = self.item_biases(targets).squeeze()
         dot = (user_representations * target_embedding).sum(1)
         return target_bias + dot
@@ -465,19 +441,15 @@ class LSTMNet(nn.Module):
        recurrent neural networks." arXiv preprint arXiv:1511.06939 (2015).
     """
 
-    def __init__(self, num_items, embedding_dim=32, item_embedding_layer=
-        None, sparse=False):
+    def __init__(self, num_items, embedding_dim=32, item_embedding_layer=None, sparse=False):
         super(LSTMNet, self).__init__()
         self.embedding_dim = embedding_dim
         if item_embedding_layer is not None:
             self.item_embeddings = item_embedding_layer
         else:
-            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim,
-                padding_idx=PADDING_IDX, sparse=sparse)
-        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse,
-            padding_idx=PADDING_IDX)
-        self.lstm = nn.LSTM(batch_first=True, input_size=embedding_dim,
-            hidden_size=embedding_dim)
+            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim, padding_idx=PADDING_IDX, sparse=sparse)
+        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse, padding_idx=PADDING_IDX)
+        self.lstm = nn.LSTM(batch_first=True, input_size=embedding_dim, hidden_size=embedding_dim)
 
     def user_representation(self, item_sequences):
         """
@@ -493,16 +465,13 @@ class LSTMNet(nn.Module):
             at step t (all items seen). This final state can be used
             for prediction or evaluation.
         """
-        sequence_embeddings = self.item_embeddings(item_sequences).permute(
-            0, 2, 1)
+        sequence_embeddings = self.item_embeddings(item_sequences).permute(0, 2, 1)
         sequence_embeddings = sequence_embeddings.unsqueeze(3)
-        sequence_embeddings = F.pad(sequence_embeddings, (0, 0, 1, 0)).squeeze(
-            3)
+        sequence_embeddings = F.pad(sequence_embeddings, (0, 0, 1, 0)).squeeze(3)
         sequence_embeddings = sequence_embeddings.permute(0, 2, 1)
         user_representations, _ = self.lstm(sequence_embeddings)
         user_representations = user_representations.permute(0, 2, 1)
-        return user_representations[:, :, :-1], user_representations[:, :, (-1)
-            ]
+        return user_representations[:, :, :-1], user_representations[:, :, (-1)]
 
     def forward(self, user_representations, targets):
         """
@@ -523,8 +492,7 @@ class LSTMNet(nn.Module):
         predictions: tensor
             of shape (minibatch_size, sequence_length)
         """
-        target_embedding = self.item_embeddings(targets).permute(0, 2, 1
-            ).squeeze()
+        target_embedding = self.item_embeddings(targets).permute(0, 2, 1).squeeze()
         target_bias = self.item_biases(targets).squeeze()
         dot = (user_representations * target_embedding).sum(1).squeeze()
         return target_bias + dot
@@ -598,9 +566,7 @@ class CNNNet(nn.Module):
        arXiv preprint arXiv:1610.10099 (2016).
     """
 
-    def __init__(self, num_items, embedding_dim=32, kernel_width=3,
-        dilation=1, num_layers=1, nonlinearity='tanh', residual_connections
-        =True, sparse=False, benchmark=True, item_embedding_layer=None):
+    def __init__(self, num_items, embedding_dim=32, kernel_width=3, dilation=1, num_layers=1, nonlinearity='tanh', residual_connections=True, sparse=False, benchmark=True, item_embedding_layer=None):
         super(CNNNet, self).__init__()
         cudnn.benchmark = benchmark
         self.embedding_dim = embedding_dim
@@ -616,13 +582,9 @@ class CNNNet(nn.Module):
         if item_embedding_layer is not None:
             self.item_embeddings = item_embedding_layer
         else:
-            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim,
-                padding_idx=PADDING_IDX, sparse=sparse)
-        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse,
-            padding_idx=PADDING_IDX)
-        self.cnn_layers = [nn.Conv2d(embedding_dim, embedding_dim, (
-            _kernel_width, 1), dilation=(_dilation, 1)) for _kernel_width,
-            _dilation in zip(self.kernel_width, self.dilation)]
+            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim, padding_idx=PADDING_IDX, sparse=sparse)
+        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse, padding_idx=PADDING_IDX)
+        self.cnn_layers = [nn.Conv2d(embedding_dim, embedding_dim, (_kernel_width, 1), dilation=(_dilation, 1)) for _kernel_width, _dilation in zip(self.kernel_width, self.dilation)]
         for i, layer in enumerate(self.cnn_layers):
             self.add_module('cnn_{}'.format(i), layer)
 
@@ -640,20 +602,16 @@ class CNNNet(nn.Module):
             at step t (all items seen). This final state can be used
             for prediction or evaluation.
         """
-        sequence_embeddings = self.item_embeddings(item_sequences).permute(
-            0, 2, 1)
+        sequence_embeddings = self.item_embeddings(item_sequences).permute(0, 2, 1)
         sequence_embeddings = sequence_embeddings.unsqueeze(3)
-        receptive_field_width = self.kernel_width[0] + (self.kernel_width[0
-            ] - 1) * (self.dilation[0] - 1)
+        receptive_field_width = self.kernel_width[0] + (self.kernel_width[0] - 1) * (self.dilation[0] - 1)
         x = F.pad(sequence_embeddings, (0, 0, receptive_field_width, 0))
         x = self.nonlinearity(self.cnn_layers[0](x))
         if self.residual_connections:
             residual = F.pad(sequence_embeddings, (0, 0, 1, 0))
             x = x + residual
-        for cnn_layer, kernel_width, dilation in zip(self.cnn_layers[1:],
-            self.kernel_width[1:], self.dilation[1:]):
-            receptive_field_width = kernel_width + (kernel_width - 1) * (
-                dilation - 1)
+        for cnn_layer, kernel_width, dilation in zip(self.cnn_layers[1:], self.kernel_width[1:], self.dilation[1:]):
+            receptive_field_width = kernel_width + (kernel_width - 1) * (dilation - 1)
             residual = x
             x = F.pad(x, (0, 0, receptive_field_width - 1, 0))
             x = self.nonlinearity(cnn_layer(x))
@@ -681,8 +639,7 @@ class CNNNet(nn.Module):
         predictions: tensor
             Of shape (minibatch_size, sequence_length).
         """
-        target_embedding = self.item_embeddings(targets).permute(0, 2, 1
-            ).squeeze()
+        target_embedding = self.item_embeddings(targets).permute(0, 2, 1).squeeze()
         target_bias = self.item_biases(targets).squeeze()
         dot = (user_representations * target_embedding).sum(1).squeeze()
         return target_bias + dot
@@ -721,22 +678,17 @@ class MixtureLSTMNet(nn.Module):
        Users with Diverse Interests" https://github.com/maciejkula/mixture (2017)
     """
 
-    def __init__(self, num_items, embedding_dim=32, num_mixtures=4,
-        item_embedding_layer=None, sparse=False):
+    def __init__(self, num_items, embedding_dim=32, num_mixtures=4, item_embedding_layer=None, sparse=False):
         super(MixtureLSTMNet, self).__init__()
         self.embedding_dim = embedding_dim
         self.num_mixtures = num_mixtures
         if item_embedding_layer is not None:
             self.item_embeddings = item_embedding_layer
         else:
-            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim,
-                padding_idx=PADDING_IDX, sparse=sparse)
-        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse,
-            padding_idx=PADDING_IDX)
-        self.lstm = nn.LSTM(batch_first=True, input_size=embedding_dim,
-            hidden_size=embedding_dim)
-        self.projection = nn.Conv1d(embedding_dim, embedding_dim * self.
-            num_mixtures * 2, kernel_size=1)
+            self.item_embeddings = ScaledEmbedding(num_items, embedding_dim, padding_idx=PADDING_IDX, sparse=sparse)
+        self.item_biases = ZeroEmbedding(num_items, 1, sparse=sparse, padding_idx=PADDING_IDX)
+        self.lstm = nn.LSTM(batch_first=True, input_size=embedding_dim, hidden_size=embedding_dim)
+        self.projection = nn.Conv1d(embedding_dim, embedding_dim * self.num_mixtures * 2, kernel_size=1)
 
     def user_representation(self, item_sequences):
         """
@@ -753,20 +705,16 @@ class MixtureLSTMNet(nn.Module):
             for prediction or evaluation.
         """
         batch_size, sequence_length = item_sequences.size()
-        sequence_embeddings = self.item_embeddings(item_sequences).permute(
-            0, 2, 1)
+        sequence_embeddings = self.item_embeddings(item_sequences).permute(0, 2, 1)
         sequence_embeddings = sequence_embeddings.unsqueeze(3)
-        sequence_embeddings = F.pad(sequence_embeddings, (0, 0, 1, 0)).squeeze(
-            3)
+        sequence_embeddings = F.pad(sequence_embeddings, (0, 0, 1, 0)).squeeze(3)
         sequence_embeddings = sequence_embeddings
         sequence_embeddings = sequence_embeddings.permute(0, 2, 1)
         user_representations, _ = self.lstm(sequence_embeddings)
         user_representations = user_representations.permute(0, 2, 1)
         user_representations = self.projection(user_representations)
-        user_representations = user_representations.view(batch_size, self.
-            num_mixtures * 2, self.embedding_dim, sequence_length + 1)
-        return user_representations[:, :, :, :-1], user_representations[:,
-            :, :, -1:]
+        user_representations = user_representations.view(batch_size, self.num_mixtures * 2, self.embedding_dim, sequence_length + 1)
+        return user_representations[:, :, :, :-1], user_representations[:, :, :, -1:]
 
     def forward(self, user_representations, targets):
         """
@@ -791,14 +739,10 @@ class MixtureLSTMNet(nn.Module):
         mixture_vectors = user_representations[:, self.num_mixtures:, :, :]
         target_embedding = self.item_embeddings(targets).permute(0, 2, 1)
         target_bias = self.item_biases(targets).squeeze()
-        mixture_weights = mixture_vectors * target_embedding.unsqueeze(1
-            ).expand_as(user_components)
-        mixture_weights = F.softmax(mixture_weights.sum(2), 1).unsqueeze(2
-            ).expand_as(user_components)
-        weighted_user_representations = (mixture_weights * user_components
-            ).sum(1)
-        dot = (weighted_user_representations * target_embedding).sum(1
-            ).squeeze()
+        mixture_weights = mixture_vectors * target_embedding.unsqueeze(1).expand_as(user_components)
+        mixture_weights = F.softmax(mixture_weights.sum(2), 1).unsqueeze(2).expand_as(user_components)
+        weighted_user_representations = (mixture_weights * user_components).sum(1)
+        dot = (weighted_user_representations * target_embedding).sum(1).squeeze()
         return target_bias + dot
 
 
@@ -806,14 +750,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BilinearNet,
+     lambda: ([], {'num_users': 4, 'num_items': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ScaledEmbedding,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ZeroEmbedding,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_maciejkula_spotlight(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BilinearNet(*[], **{'num_users': 4, 'num_items': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ScaledEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ZeroEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

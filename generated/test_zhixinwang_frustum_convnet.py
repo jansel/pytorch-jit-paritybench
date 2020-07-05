@@ -40,8 +40,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -91,10 +92,8 @@ import torch.backends.cudnn as cudnn
 import torchvision
 
 
-def separable_conv2d(in_channels, out_channels, k, s=(1, 1), depth_multiplier=1
-    ):
-    conv = [nn.Conv2d(in_channels, in_channels * depth_multiplier, k,
-        groups=in_channels)]
+def separable_conv2d(in_channels, out_channels, k, s=(1, 1), depth_multiplier=1):
+    conv = [nn.Conv2d(in_channels, in_channels * depth_multiplier, k, groups=in_channels)]
     if out_channels is not None:
         conv += [nn.Conv2d(in_channels * depth_multiplier, out_channels, 1, 1)]
     conv = nn.Sequential(*conv)
@@ -105,15 +104,10 @@ class XConv(nn.Module):
 
     def __init__(self, K, C, depth_multiplier=1, with_X_transformation=True):
         super(XConv, self).__init__()
-        self.conv_t0 = nn.Sequential(nn.Conv2d(3, K * K, (1, K)), nn.ELU(
-            inplace=True), nn.BatchNorm2d(K * K))
-        self.conv_t1 = nn.Sequential(separable_conv2d(K, None, (1, K), (1, 
-            1), K), nn.ELU(inplace=True), nn.BatchNorm2d(K * K))
-        self.conv_t2 = nn.Sequential(separable_conv2d(K, None, (1, K), (1, 
-            1), K), nn.BatchNorm2d(K * K))
-        self.separable_conv2d = nn.Sequential(separable_conv2d(C, None, (1,
-            K), (1, 1), depth_multiplier), nn.ELU(inplace=True), nn.
-            BatchNorm2d(C))
+        self.conv_t0 = nn.Sequential(nn.Conv2d(3, K * K, (1, K)), nn.ELU(inplace=True), nn.BatchNorm2d(K * K))
+        self.conv_t1 = nn.Sequential(separable_conv2d(K, None, (1, K), (1, 1), K), nn.ELU(inplace=True), nn.BatchNorm2d(K * K))
+        self.conv_t2 = nn.Sequential(separable_conv2d(K, None, (1, K), (1, 1), K), nn.BatchNorm2d(K * K))
+        self.separable_conv2d = nn.Sequential(separable_conv2d(C, None, (1, K), (1, 1), depth_multiplier), nn.ELU(inplace=True), nn.BatchNorm2d(C))
         self.with_X_transformation = with_X_transformation
         for m in self.modules():
             if isinstance(m, (nn.Conv2d, nn.Linear)):
@@ -140,8 +134,7 @@ class XConv(nn.Module):
             X_2 = self.conv_t2(X_1)
             X_2 = X_1.view(N, K, K, P).permute(0, 3, 1, 2).contiguous()
             X = X_2.view(N * P, K, K)
-            nn_fts_input = nn_fts_input.permute(0, 2, 3, 1).contiguous().view(
-                N * P, K, -1)
+            nn_fts_input = nn_fts_input.permute(0, 2, 3, 1).contiguous().view(N * P, K, -1)
             fts_X = torch.bmm(X, nn_fts_input)
             fts_X = fts_X.view(N, P, K, -1).permute(0, 3, 1, 2).contiguous()
         else:
@@ -152,8 +145,7 @@ class XConv(nn.Module):
 
 def Conv2d(i_c, o_c, k, s=1, p=0, bn=True):
     if bn:
-        return nn.Sequential(nn.Conv2d(i_c, o_c, k, s, p, bias=False), nn.
-            BatchNorm2d(o_c), nn.ReLU(True))
+        return nn.Sequential(nn.Conv2d(i_c, o_c, k, s, p, bias=False), nn.BatchNorm2d(o_c), nn.ReLU(True))
     else:
         return nn.Sequential(nn.Conv2d(i_c, o_c, k, s, p), nn.ReLU(True))
 
@@ -180,8 +172,7 @@ def init_params(m, method='constant'):
 
 class PointNetModule(nn.Module):
 
-    def __init__(self, Infea, mlp, dist, nsample, use_xyz=True, use_feature
-        =True):
+    def __init__(self, Infea, mlp, dist, nsample, use_xyz=True, use_feature=True):
         super(PointNetModule, self).__init__()
         self.dist = dist
         self.nsample = nsample
@@ -198,8 +189,7 @@ class PointNetModule(nn.Module):
             self.conv1 = Conv2d(Infea, mlp[0], 1)
         self.conv2 = Conv2d(mlp[0], mlp[1], 1)
         self.conv3 = Conv2d(mlp[1], mlp[2], 1)
-        init_params([self.conv1[0], self.conv2[0], self.conv3[0]],
-            'kaiming_normal')
+        init_params([self.conv1[0], self.conv2[0], self.conv3[0]], 'kaiming_normal')
         init_params([self.conv1[1], self.conv2[1], self.conv3[1]], 1)
 
     def forward(self, pc, feat, new_pc=None):
@@ -211,13 +201,10 @@ class PointNetModule(nn.Module):
         grouped_pc = None
         grouped_feature = None
         if self.use_xyz:
-            grouped_pc = torch.gather(pc, 2, indices.view(batch_size, 1, 
-                npoint * k).expand(-1, 3, -1)).view(batch_size, 3, npoint, k)
+            grouped_pc = torch.gather(pc, 2, indices.view(batch_size, 1, npoint * k).expand(-1, 3, -1)).view(batch_size, 3, npoint, k)
             grouped_pc = grouped_pc - new_pc.unsqueeze(3)
         if self.use_feature:
-            grouped_feature = torch.gather(feat, 2, indices.view(batch_size,
-                1, npoint * k).expand(-1, feat.size(1), -1)).view(batch_size,
-                feat.size(1), npoint, k)
+            grouped_feature = torch.gather(feat, 2, indices.view(batch_size, 1, npoint * k).expand(-1, feat.size(1), -1)).view(batch_size, feat.size(1), npoint, k)
         if self.use_feature and self.use_xyz:
             grouped_feature = torch.cat([grouped_pc, grouped_feature], 1)
         elif self.use_xyz:
@@ -240,14 +227,10 @@ class PointNetFeat(nn.Module):
         self.num_vec = num_vec
         u = cfg.DATA.HEIGHT_HALF
         assert len(u) == 4
-        self.pointnet1 = PointNetModule(input_channel - 3, [64, 64, 128], u
-            [0], 32, use_xyz=True, use_feature=True)
-        self.pointnet2 = PointNetModule(input_channel - 3, [64, 64, 128], u
-            [1], 64, use_xyz=True, use_feature=True)
-        self.pointnet3 = PointNetModule(input_channel - 3, [128, 128, 256],
-            u[2], 64, use_xyz=True, use_feature=True)
-        self.pointnet4 = PointNetModule(input_channel - 3, [256, 256, 512],
-            u[3], 128, use_xyz=True, use_feature=True)
+        self.pointnet1 = PointNetModule(input_channel - 3, [64, 64, 128], u[0], 32, use_xyz=True, use_feature=True)
+        self.pointnet2 = PointNetModule(input_channel - 3, [64, 64, 128], u[1], 64, use_xyz=True, use_feature=True)
+        self.pointnet3 = PointNetModule(input_channel - 3, [128, 128, 256], u[2], 64, use_xyz=True, use_feature=True)
+        self.pointnet4 = PointNetModule(input_channel - 3, [256, 256, 512], u[3], 128, use_xyz=True, use_feature=True)
 
     def forward(self, point_cloud, sample_pc, feat=None, one_hot_vec=None):
         pc = point_cloud
@@ -278,19 +261,16 @@ class PointNetFeat(nn.Module):
 
 def Conv1d(i_c, o_c, k, s=1, p=0, bn=True):
     if bn:
-        return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p, bias=False), nn.
-            BatchNorm1d(o_c), nn.ReLU(True))
+        return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p, bias=False), nn.BatchNorm1d(o_c), nn.ReLU(True))
     else:
         return nn.Sequential(nn.Conv1d(i_c, o_c, k, s, p), nn.ReLU(True))
 
 
 def DeConv1d(i_c, o_c, k, s=1, p=0, bn=True):
     if bn:
-        return nn.Sequential(nn.ConvTranspose1d(i_c, o_c, k, s, p, bias=
-            False), nn.BatchNorm1d(o_c), nn.ReLU(True))
+        return nn.Sequential(nn.ConvTranspose1d(i_c, o_c, k, s, p, bias=False), nn.BatchNorm1d(o_c), nn.ReLU(True))
     else:
-        return nn.Sequential(nn.ConvTranspose1d(i_c, o_c, k, s, p), nn.ReLU
-            (True))
+        return nn.Sequential(nn.ConvTranspose1d(i_c, o_c, k, s, p), nn.ReLU(True))
 
 
 class ConvFeatNet(nn.Module):
@@ -339,17 +319,13 @@ class ConvFeatNet(nn.Module):
         xx1 = self.block2_deconv(xx1)
         xx2 = self.block3_deconv(xx2)
         xx3 = self.block4_deconv(xx3)
-        x = torch.cat([xx1, xx2[:, :, :xx1.shape[-1]], xx3[:, :, :xx1.shape
-            [-1]]], 1)
+        x = torch.cat([xx1, xx2[:, :, :xx1.shape[-1]], xx3[:, :, :xx1.shape[-1]]], 1)
         return x
 
 
 class KITTICategory(object):
     CLASSES = ['Car', 'Pedestrian', 'Cyclist']
-    CLASS_MEAN_SIZE = {'Car': np.array([3.88311640418, 1.62856739989, 
-        1.52563191462]), 'Pedestrian': np.array([0.84422524, 0.66068622, 
-        1.76255119]), 'Cyclist': np.array([1.76282397, 0.59706367, 1.73698127])
-        }
+    CLASS_MEAN_SIZE = {'Car': np.array([3.88311640418, 1.62856739989, 1.52563191462]), 'Pedestrian': np.array([0.84422524, 0.66068622, 1.76255119]), 'Cyclist': np.array([1.76282397, 0.59706367, 1.73698127])}
     NUM_SIZE_CLUSTER = len(CLASSES)
     MEAN_SIZE_ARRAY = np.zeros((NUM_SIZE_CLUSTER, 3))
     for i in range(NUM_SIZE_CLUSTER):
@@ -363,8 +339,7 @@ def angle_decode(ex_res, ex_class_id, num_bins=12, to_label_format=True):
     ex_res_select = torch.gather(ex_res, 1, ex_class_id.unsqueeze(1))
     ex_res_select = ex_res_select.squeeze(1)
     angle_per_class = 2 * np.pi / float(num_bins)
-    angle = ex_class_id.float() * angle_per_class + ex_res_select * (
-        angle_per_class / 2)
+    angle = ex_class_id.float() * angle_per_class + ex_res_select * (angle_per_class / 2)
     if to_label_format:
         flag = angle > np.pi
         angle[flag] = angle[flag] - 2 * np.pi
@@ -377,8 +352,7 @@ def angle_encode(gt_angle, num_bins=12):
     angle_per_class = 2 * np.pi / float(num_bins)
     shifted_angle = (gt_angle + angle_per_class / 2) % (2 * np.pi)
     gt_class_id = torch.floor(shifted_angle / angle_per_class).long()
-    gt_res = shifted_angle - (gt_class_id.float() * angle_per_class + 
-        angle_per_class / 2)
+    gt_res = shifted_angle - (gt_class_id.float() * angle_per_class + angle_per_class / 2)
     gt_res /= angle_per_class / 2
     return gt_class_id, gt_res
 
@@ -409,12 +383,9 @@ def get_box3d_corners_helper(centers, headings, sizes):
     l = sizes[:, (0)]
     w = sizes[:, (1)]
     h = sizes[:, (2)]
-    x_corners = torch.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l /
-        2, -l / 2], 1)
-    y_corners = torch.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h /
-        2, -h / 2], 1)
-    z_corners = torch.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -
-        w / 2, w / 2], 1)
+    x_corners = torch.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2], 1)
+    y_corners = torch.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2], 1)
+    z_corners = torch.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2], 1)
     corners = torch.stack([x_corners, y_corners, z_corners], 1)
     c = torch.cos(headings)
     s = torch.sin(headings)
@@ -449,12 +420,9 @@ def boxes3d2corners(boxes_3d):
     w = boxes_3d[:, (4)]
     h = boxes_3d[:, (5)]
     headings = boxes_3d[:, (6)]
-    x_corners = np.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 
-        2, -l / 2], 1)
-    y_corners = np.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 
-        2, -h / 2], 1)
-    z_corners = np.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w /
-        2, w / 2], 1)
+    x_corners = np.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2], 1)
+    y_corners = np.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2], 1)
+    z_corners = np.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2], 1)
     corners = np.stack([x_corners, y_corners, z_corners], 1)
     c = np.cos(headings)
     s = np.sin(headings)
@@ -483,8 +451,7 @@ def rbbox_iou_3d_pair(boxes_3d, qboxes_3d):
 
 
 def size_decode(offset, class_mean_size, size_class_label):
-    offset_select = torch.gather(offset, 1, size_class_label.view(-1, 1, 1)
-        .expand(-1, -1, 3))
+    offset_select = torch.gather(offset, 1, size_class_label.view(-1, 1, 1).expand(-1, -1, 3))
     offset_select = offset_select.squeeze(1)
     ex = class_mean_size[size_class_label]
     return offset_select * ex + ex
@@ -495,24 +462,22 @@ def size_encode(gt, class_mean_size, size_class_label):
     return (gt - ex) / ex
 
 
-def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1
-    ):
+def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1):
     keep = (target != ignore_idx).nonzero().view(-1)
     num_fg = (target > 0).data.sum()
     target = target[keep]
     prob = prob[(keep), :]
-    alpha_t = (1 - alpha) * (target == 0).float() + alpha * (target >= 1
-        ).float()
+    alpha_t = (1 - alpha) * (target == 0).float() + alpha * (target >= 1).float()
     prob_t = prob[range(len(target)), target]
     loss = -alpha_t * (1 - prob_t) ** gamma * torch.log(prob_t + 1e-14)
     loss = loss.sum() / (num_fg + 1e-14)
     return loss
 
 
-_global_config['IOU_THRESH'] = 4
-
-
 _global_config['LOSS'] = 4
+
+
+_global_config['IOU_THRESH'] = 4
 
 
 class PointNetDet(nn.Module):
@@ -544,53 +509,38 @@ class PointNetDet(nn.Module):
         num_sizes = self.num_size_cluster
         center = output[:, 0:3].contiguous()
         heading_scores = output[:, 3:3 + num_bins].contiguous()
-        heading_res_norm = output[:, 3 + num_bins:3 + num_bins * 2].contiguous(
-            )
-        size_scores = output[:, 3 + num_bins * 2:3 + num_bins * 2 + num_sizes
-            ].contiguous()
+        heading_res_norm = output[:, 3 + num_bins:3 + num_bins * 2].contiguous()
+        size_scores = output[:, 3 + num_bins * 2:3 + num_bins * 2 + num_sizes].contiguous()
         size_res_norm = output[:, 3 + num_bins * 2 + num_sizes:].contiguous()
         size_res_norm = size_res_norm.view(batch_size, num_sizes, 3)
-        return (center, heading_scores, heading_res_norm, size_scores,
-            size_res_norm)
+        return center, heading_scores, heading_res_norm, size_scores, size_res_norm
 
     def get_center_loss(self, pred_offsets, gt_offsets):
         center_dist = torch.norm(gt_offsets - pred_offsets, 2, dim=-1)
         center_loss = huber_loss(center_dist, delta=3.0)
         return center_loss
 
-    def get_heading_loss(self, heading_scores, heading_res_norm,
-        heading_class_label, heading_res_norm_label):
-        heading_class_loss = F.cross_entropy(heading_scores,
-            heading_class_label)
-        heading_res_norm_select = torch.gather(heading_res_norm, 1,
-            heading_class_label.view(-1, 1))
-        heading_res_norm_loss = huber_loss(heading_res_norm_select.squeeze(
-            1) - heading_res_norm_label, delta=1.0)
+    def get_heading_loss(self, heading_scores, heading_res_norm, heading_class_label, heading_res_norm_label):
+        heading_class_loss = F.cross_entropy(heading_scores, heading_class_label)
+        heading_res_norm_select = torch.gather(heading_res_norm, 1, heading_class_label.view(-1, 1))
+        heading_res_norm_loss = huber_loss(heading_res_norm_select.squeeze(1) - heading_res_norm_label, delta=1.0)
         return heading_class_loss, heading_res_norm_loss
 
-    def get_size_loss(self, size_scores, size_res_norm, size_class_label,
-        size_res_label_norm):
+    def get_size_loss(self, size_scores, size_res_norm, size_class_label, size_res_label_norm):
         batch_size = size_scores.shape[0]
         size_class_loss = F.cross_entropy(size_scores, size_class_label)
-        size_res_norm_select = torch.gather(size_res_norm, 1,
-            size_class_label.view(batch_size, 1, 1).expand(batch_size, 1, 3))
-        size_norm_dist = torch.norm(size_res_label_norm -
-            size_res_norm_select.squeeze(1), 2, dim=-1)
+        size_res_norm_select = torch.gather(size_res_norm, 1, size_class_label.view(batch_size, 1, 1).expand(batch_size, 1, 3))
+        size_norm_dist = torch.norm(size_res_label_norm - size_res_norm_select.squeeze(1), 2, dim=-1)
         size_res_norm_loss = huber_loss(size_norm_dist, delta=1.0)
         return size_class_loss, size_res_norm_loss
 
     def get_corner_loss(self, preds, gts):
         center_label, heading_label, size_label = gts
         center_preds, heading_preds, size_preds = preds
-        corners_3d_gt = get_box3d_corners_helper(center_label,
-            heading_label, size_label)
-        corners_3d_gt_flip = get_box3d_corners_helper(center_label, 
-            heading_label + np.pi, size_label)
-        corners_3d_pred = get_box3d_corners_helper(center_preds,
-            heading_preds, size_preds)
-        corners_dist = torch.min(torch.norm(corners_3d_pred - corners_3d_gt,
-            2, dim=-1).mean(-1), torch.norm(corners_3d_pred -
-            corners_3d_gt_flip, 2, dim=-1).mean(-1))
+        corners_3d_gt = get_box3d_corners_helper(center_label, heading_label, size_label)
+        corners_3d_gt_flip = get_box3d_corners_helper(center_label, heading_label + np.pi, size_label)
+        corners_3d_pred = get_box3d_corners_helper(center_preds, heading_preds, size_preds)
+        corners_dist = torch.min(torch.norm(corners_3d_pred - corners_3d_gt, 2, dim=-1).mean(-1), torch.norm(corners_3d_pred - corners_3d_gt_flip, 2, dim=-1).mean(-1))
         corners_loss = huber_loss(corners_dist, delta=1.0)
         return corners_loss, corners_3d_gt
 
@@ -612,11 +562,8 @@ class PointNetDet(nn.Module):
             object_point_cloud_i = point_cloud[:, ([3]), :].contiguous()
         else:
             object_point_cloud_i = None
-        mean_size_array = torch.from_numpy(self.mean_size_array).type_as(
-            point_cloud)
-        feat1, feat2, feat3, feat4 = self.feat_net(object_point_cloud_xyz,
-            [center_ref1, center_ref2, center_ref3, center_ref4],
-            object_point_cloud_i, one_hot_vec)
+        mean_size_array = torch.from_numpy(self.mean_size_array).type_as(point_cloud)
+        feat1, feat2, feat3, feat4 = self.feat_net(object_point_cloud_xyz, [center_ref1, center_ref2, center_ref3, center_ref4], object_point_cloud_i, one_hot_vec)
         x = self.conv_net(feat1, feat2, feat3, feat4)
         cls_scores = self.cls_out(x)
         outputs = self.reg_out(x)
@@ -629,17 +576,14 @@ class PointNetDet(nn.Module):
         if center_label is None:
             assert not self.training, 'Please provide labels for training.'
             det_outputs = self._slice_output(outputs)
-            (center_boxnet, heading_scores, heading_res_norm, size_scores,
-                size_res_norm) = det_outputs
+            center_boxnet, heading_scores, heading_res_norm, size_scores, size_res_norm = det_outputs
             heading_probs = F.softmax(heading_scores, -1)
             size_probs = F.softmax(size_scores, -1)
             heading_pred_label = torch.argmax(heading_probs, -1)
             size_pred_label = torch.argmax(size_probs, -1)
             center_preds = center_boxnet + center_ref2
-            heading_preds = angle_decode(heading_res_norm,
-                heading_pred_label, num_bins=self.num_bins)
-            size_preds = size_decode(size_res_norm, mean_size_array,
-                size_pred_label)
+            heading_preds = angle_decode(heading_res_norm, heading_pred_label, num_bins=self.num_bins)
+            size_preds = size_decode(size_res_norm, mean_size_array, size_pred_label)
             cls_probs = cls_probs.view(batch_size, -1, 2)
             center_preds = center_preds.view(batch_size, -1, 3)
             size_preds = size_preds.view(batch_size, -1, 3)
@@ -651,60 +595,39 @@ class PointNetDet(nn.Module):
         outputs = outputs[(fg_idx), :]
         center_ref2 = center_ref2[fg_idx]
         det_outputs = self._slice_output(outputs)
-        (center_boxnet, heading_scores, heading_res_norm, size_scores,
-            size_res_norm) = det_outputs
+        center_boxnet, heading_scores, heading_res_norm, size_scores, size_res_norm = det_outputs
         heading_probs = F.softmax(heading_scores, -1)
         size_probs = F.softmax(size_scores, -1)
-        cls_loss = softmax_focal_loss_ignore(cls_probs, cls_label.view(-1),
-            ignore_idx=-1)
-        center_label = center_label.unsqueeze(1).expand(-1, num_out, -1
-            ).contiguous().view(-1, 3)[fg_idx]
-        heading_label = heading_label.expand(-1, num_out).contiguous().view(-1
-            )[fg_idx]
-        size_label = size_label.unsqueeze(1).expand(-1, num_out, -1
-            ).contiguous().view(-1, 3)[fg_idx]
-        size_class_label = size_class_label.expand(-1, num_out).contiguous(
-            ).view(-1)[fg_idx]
+        cls_loss = softmax_focal_loss_ignore(cls_probs, cls_label.view(-1), ignore_idx=-1)
+        center_label = center_label.unsqueeze(1).expand(-1, num_out, -1).contiguous().view(-1, 3)[fg_idx]
+        heading_label = heading_label.expand(-1, num_out).contiguous().view(-1)[fg_idx]
+        size_label = size_label.unsqueeze(1).expand(-1, num_out, -1).contiguous().view(-1, 3)[fg_idx]
+        size_class_label = size_class_label.expand(-1, num_out).contiguous().view(-1)[fg_idx]
         center_gt_offsets = center_encode(center_label, center_ref2)
-        heading_class_label, heading_res_norm_label = angle_encode(
-            heading_label, num_bins=self.num_bins)
-        size_res_label_norm = size_encode(size_label, mean_size_array,
-            size_class_label)
+        heading_class_label, heading_res_norm_label = angle_encode(heading_label, num_bins=self.num_bins)
+        size_res_label_norm = size_encode(size_label, mean_size_array, size_class_label)
         center_loss = self.get_center_loss(center_boxnet, center_gt_offsets)
-        heading_class_loss, heading_res_norm_loss = self.get_heading_loss(
-            heading_scores, heading_res_norm, heading_class_label,
-            heading_res_norm_label)
-        size_class_loss, size_res_norm_loss = self.get_size_loss(size_scores,
-            size_res_norm, size_class_label, size_res_label_norm)
+        heading_class_loss, heading_res_norm_loss = self.get_heading_loss(heading_scores, heading_res_norm, heading_class_label, heading_res_norm_label)
+        size_class_loss, size_res_norm_loss = self.get_size_loss(size_scores, size_res_norm, size_class_label, size_res_label_norm)
         center_preds = center_decode(center_ref2, center_boxnet)
-        heading = angle_decode(heading_res_norm, heading_class_label,
-            num_bins=self.num_bins)
+        heading = angle_decode(heading_res_norm, heading_class_label, num_bins=self.num_bins)
         size = size_decode(size_res_norm, mean_size_array, size_class_label)
-        corners_loss, corner_gts = self.get_corner_loss((center_preds,
-            heading, size), (center_label, heading_label, size_label))
+        corners_loss, corner_gts = self.get_corner_loss((center_preds, heading, size), (center_label, heading_label, size_label))
         BOX_LOSS_WEIGHT = cfg.LOSS.BOX_LOSS_WEIGHT
         CORNER_LOSS_WEIGHT = cfg.LOSS.CORNER_LOSS_WEIGHT
         HEAD_REG_WEIGHT = cfg.LOSS.HEAD_REG_WEIGHT
         SIZE_REG_WEIGHT = cfg.LOSS.SIZE_REG_WEIGHT
-        loss = cls_loss + BOX_LOSS_WEIGHT * (center_loss +
-            heading_class_loss + size_class_loss + HEAD_REG_WEIGHT *
-            heading_res_norm_loss + SIZE_REG_WEIGHT * size_res_norm_loss + 
-            CORNER_LOSS_WEIGHT * corners_loss)
+        loss = cls_loss + BOX_LOSS_WEIGHT * (center_loss + heading_class_loss + size_class_loss + HEAD_REG_WEIGHT * heading_res_norm_loss + SIZE_REG_WEIGHT * size_res_norm_loss + CORNER_LOSS_WEIGHT * corners_loss)
         with torch.no_grad():
             cls_prec = get_accuracy(cls_probs, cls_label.view(-1), ignore=-1)
-            heading_prec = get_accuracy(heading_probs, heading_class_label.
-                view(-1))
+            heading_prec = get_accuracy(heading_probs, heading_class_label.view(-1))
             size_prec = get_accuracy(size_probs, size_class_label.view(-1))
             heading_pred_label = torch.argmax(heading_probs, -1)
             size_pred_label = torch.argmax(size_probs, -1)
-            heading_preds = angle_decode(heading_res_norm,
-                heading_pred_label, num_bins=self.num_bins)
-            size_preds = size_decode(size_res_norm, mean_size_array,
-                size_pred_label)
-            corner_preds = get_box3d_corners_helper(center_preds,
-                heading_preds, size_preds)
-            overlap = rbbox_iou_3d_pair(corner_preds.detach().cpu().numpy(),
-                corner_gts.detach().cpu().numpy())
+            heading_preds = angle_decode(heading_res_norm, heading_pred_label, num_bins=self.num_bins)
+            size_preds = size_decode(size_res_norm, mean_size_array, size_pred_label)
+            corner_preds = get_box3d_corners_helper(center_preds, heading_preds, size_preds)
+            overlap = rbbox_iou_3d_pair(corner_preds.detach().cpu().numpy(), corner_gts.detach().cpu().numpy())
             iou2ds, iou3ds = overlap[:, (0)], overlap[:, (1)]
             iou2d_mean = iou2ds.mean()
             iou3d_mean = iou3ds.mean()
@@ -712,14 +635,8 @@ class PointNetDet(nn.Module):
             iou2d_mean = torch.tensor(iou2d_mean).type_as(cls_prec)
             iou3d_mean = torch.tensor(iou3d_mean).type_as(cls_prec)
             iou3d_gt_mean = torch.tensor(iou3d_gt_mean).type_as(cls_prec)
-        losses = {'total_loss': loss, 'cls_loss': cls_loss, 'center_loss':
-            center_loss, 'head_cls_loss': heading_class_loss,
-            'head_res_loss': heading_res_norm_loss, 'size_cls_loss':
-            size_class_loss, 'size_res_loss': size_res_norm_loss,
-            'corners_loss': corners_loss}
-        metrics = {'cls_acc': cls_prec, 'head_acc': heading_prec,
-            'size_acc': size_prec, 'IoU_2D': iou2d_mean, 'IoU_3D':
-            iou3d_mean, ('IoU_' + str(cfg.IOU_THRESH)): iou3d_gt_mean}
+        losses = {'total_loss': loss, 'cls_loss': cls_loss, 'center_loss': center_loss, 'head_cls_loss': heading_class_loss, 'head_res_loss': heading_res_norm_loss, 'size_cls_loss': size_class_loss, 'size_res_loss': size_res_norm_loss, 'corners_loss': corners_loss}
+        metrics = {'cls_acc': cls_prec, 'head_acc': heading_prec, 'size_acc': size_prec, 'IoU_2D': iou2d_mean, 'IoU_3D': iou3d_mean, ('IoU_' + str(cfg.IOU_THRESH)): iou3d_gt_mean}
         return losses, metrics
 
 
@@ -749,8 +666,7 @@ class _query_depth_point(Function):
         m = xyz2.size(1)
         idx = xyz1.new(b, m, nsample).long().zero_()
         pts_cnt = xyz1.new(b, m).int().zero_()
-        query_depth_point_cuda.forward(b, n, m, dis_z, nsample, xyz1, xyz2,
-            idx, pts_cnt)
+        query_depth_point_cuda.forward(b, n, m, dis_z, nsample, xyz1, xyz2, idx, pts_cnt)
         return idx, pts_cnt
 
     @staticmethod
@@ -768,10 +684,3 @@ class QueryDepthPoint(nn.Module):
     def forward(self, xyz1, xyz2):
         return _query_depth_point.apply(self.dis_z, self.nsample, xyz1, xyz2)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_zhixinwang_frustum_convnet(_paritybench_base):
-    pass

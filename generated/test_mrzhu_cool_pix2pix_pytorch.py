@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,8 +54,7 @@ import torch.backends.cudnn as cudnn
 
 class ResnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.
-        BatchNorm2d, use_dropout=False, n_blocks=9, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=9, padding_type='reflect'):
         assert n_blocks >= 0
         super(ResnetGenerator, self).__init__()
         self.input_nc = input_nc
@@ -69,9 +69,7 @@ class ResnetGenerator(nn.Module):
         self.down2 = Down(ngf * 2, ngf * 4, norm_layer, use_bias)
         model = []
         for i in range(n_blocks):
-            model += [ResBlock(ngf * 4, padding_type=padding_type,
-                norm_layer=norm_layer, use_dropout=use_dropout, use_bias=
-                use_bias)]
+            model += [ResBlock(ngf * 4, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
         self.resblocks = nn.Sequential(*model)
         self.up1 = Up(ngf * 4, ngf * 2, norm_layer, use_bias)
         self.up2 = Up(ngf * 2, ngf, norm_layer, use_bias)
@@ -92,9 +90,7 @@ class Inconv(nn.Module):
 
     def __init__(self, in_ch, out_ch, norm_layer, use_bias):
         super(Inconv, self).__init__()
-        self.inconv = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(in_ch,
-            out_ch, kernel_size=7, padding=0, bias=use_bias), norm_layer(
-            out_ch), nn.ReLU(True))
+        self.inconv = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(in_ch, out_ch, kernel_size=7, padding=0, bias=use_bias), norm_layer(out_ch), nn.ReLU(True))
 
     def forward(self, x):
         x = self.inconv(x)
@@ -105,9 +101,7 @@ class Down(nn.Module):
 
     def __init__(self, in_ch, out_ch, norm_layer, use_bias):
         super(Down, self).__init__()
-        self.down = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size=3,
-            stride=2, padding=1, bias=use_bias), norm_layer(out_ch), nn.
-            ReLU(True))
+        self.down = nn.Sequential(nn.Conv2d(in_ch, out_ch, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(out_ch), nn.ReLU(True))
 
     def forward(self, x):
         x = self.down(x)
@@ -118,11 +112,9 @@ class ResBlock(nn.Module):
 
     def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         super(ResBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type,
-            norm_layer, use_dropout, use_bias)
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout,
-        use_bias):
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -132,10 +124,8 @@ class ResBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim), nn.ReLU(True)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
         p = 0
@@ -146,10 +136,8 @@ class ResBlock(nn.Module):
         elif padding_type == 'zero':
             p = 1
         else:
-            raise NotImplementedError('padding [%s] is not implemented' %
-                padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=
-            use_bias), norm_layer(dim)]
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -161,9 +149,7 @@ class Up(nn.Module):
 
     def __init__(self, in_ch, out_ch, norm_layer, use_bias):
         super(Up, self).__init__()
-        self.up = nn.Sequential(nn.ConvTranspose2d(in_ch, out_ch,
-            kernel_size=3, stride=2, padding=1, output_padding=1, bias=
-            use_bias), norm_layer(out_ch), nn.ReLU(True))
+        self.up = nn.Sequential(nn.ConvTranspose2d(in_ch, out_ch, kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(out_ch), nn.ReLU(True))
 
     def forward(self, x):
         x = self.up(x)
@@ -174,8 +160,7 @@ class Outconv(nn.Module):
 
     def __init__(self, in_ch, out_ch):
         super(Outconv, self).__init__()
-        self.outconv = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(in_ch,
-            out_ch, kernel_size=7, padding=0), nn.Tanh())
+        self.outconv = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(in_ch, out_ch, kernel_size=7, padding=0), nn.Tanh())
 
     def forward(self, x):
         x = self.outconv(x)
@@ -184,8 +169,7 @@ class Outconv(nn.Module):
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(NLayerDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -193,23 +177,17 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -220,18 +198,13 @@ class NLayerDiscriminator(nn.Module):
 
 class PixelDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d,
-        use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(PixelDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1,
-            padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2,
-            kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(
-            ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1,
-            kernel_size=1, stride=1, padding=0, bias=use_bias)]
+        self.net = [nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias), norm_layer(ndf * 2), nn.LeakyReLU(0.2, True), nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
         if use_sigmoid:
             self.net.append(nn.Sigmoid())
         self.net = nn.Sequential(*self.net)
@@ -242,8 +215,7 @@ class PixelDiscriminator(nn.Module):
 
 class GANLoss(nn.Module):
 
-    def __init__(self, use_lsgan=True, target_real_label=1.0,
-        target_fake_label=0.0):
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
         super(GANLoss, self).__init__()
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
@@ -268,30 +240,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Down,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'norm_layer': _mock_layer, 'use_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GANLoss,
+     lambda: ([], {}),
+     lambda: ([], {'input': torch.rand([4, 4]), 'target_is_real': 4}),
+     True),
+    (Inconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'norm_layer': _mock_layer, 'use_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Outconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PixelDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResnetGenerator,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (Up,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'norm_layer': _mock_layer, 'use_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_mrzhu_cool_pix2pix_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Down(*[], **{'in_ch': 4, 'out_ch': 4, 'norm_layer': _mock_layer, 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(GANLoss(*[], **{}), [], {'input': torch.rand([4, 4]), 'target_is_real': 4})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Inconv(*[], **{'in_ch': 4, 'out_ch': 4, 'norm_layer': _mock_layer, 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(NLayerDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(PixelDiscriminator(*[], **{'input_nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ResnetGenerator(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Up(*[], **{'in_ch': 4, 'out_ch': 4, 'norm_layer': _mock_layer, 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

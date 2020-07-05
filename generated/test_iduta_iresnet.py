@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -77,22 +78,18 @@ import torchvision.models as models
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResGroupBlock(nn.Module):
     reduction = 2
 
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None,
-        norm_layer=None, start_block=False, end_block=False, exclude_bn0=False
-        ):
+    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
         super(ResGroupBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -144,26 +141,20 @@ class ResGroupBlock(nn.Module):
 
 class iResGroup(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None, groups=None, dropout_prob0=0.0):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, groups=None, dropout_prob0=0.0):
         super(iResGroup, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups is None:
             groups = 64
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 256, layers[0], groups=max(1,
-            groups // 8), stride=2, norm_layer=norm_layer)
-        self.layer2 = self._make_layer(block, 512, layers[1], groups=max(1,
-            groups // 4), stride=2, norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 1024, layers[2], groups=max(1,
-            groups // 2), stride=2, norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 2048, layers[3], groups=
-            groups, stride=2, norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 256, layers[0], groups=max(1, groups // 8), stride=2, norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 512, layers[1], groups=max(1, groups // 4), stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 1024, layers[2], groups=max(1, groups // 2), stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 2048, layers[3], groups=groups, stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         if dropout_prob0 > 0.0:
             self.dp = nn.Dropout(dropout_prob0, inplace=True)
@@ -173,8 +164,7 @@ class iResGroup(nn.Module):
         self.fc = nn.Linear(2048 // block.reduction, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -183,31 +173,24 @@ class iResGroup(nn.Module):
                 if isinstance(m, ResGroupBlock):
                     nn.init.constant_(m.bn3.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, groups, stride=1,
-        norm_layer=None):
+    def _make_layer(self, block, planes, blocks, groups, stride=1, norm_layer=None):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 and self.inplanes != planes // block.reduction:
-            downsample = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=
-                stride, padding=1), conv1x1(self.inplanes, planes // block.
-                reduction), norm_layer(planes // block.reduction))
+            downsample = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=stride, padding=1), conv1x1(self.inplanes, planes // block.reduction), norm_layer(planes // block.reduction))
         elif self.inplanes != planes // block.reduction:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes //
-                block.reduction), norm_layer(planes // block.reduction))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes // block.reduction), norm_layer(planes // block.reduction))
         elif stride != 1:
             downsample = nn.MaxPool2d(kernel_size=3, stride=stride, padding=1)
         layers = []
-        layers.append(block(self.inplanes, planes, groups, stride,
-            downsample, norm_layer, start_block=True))
+        layers.append(block(self.inplanes, planes, groups, stride, downsample, norm_layer, start_block=True))
         self.inplanes = planes // block.reduction
         exclude_bn0 = True
         for _ in range(1, blocks - 1):
-            layers.append(block(self.inplanes, planes, groups, norm_layer=
-                norm_layer, exclude_bn0=exclude_bn0))
+            layers.append(block(self.inplanes, planes, groups, norm_layer=norm_layer, exclude_bn0=exclude_bn0))
             exclude_bn0 = False
-        layers.append(block(self.inplanes, planes, groups, norm_layer=
-            norm_layer, end_block=True, exclude_bn0=exclude_bn0))
+        layers.append(block(self.inplanes, planes, groups, norm_layer=norm_layer, end_block=True, exclude_bn0=exclude_bn0))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -229,9 +212,7 @@ class iResGroup(nn.Module):
 class ResGroupBlock(nn.Module):
     reduction = 2
 
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None,
-        norm_layer=None, start_block=False, end_block=False, exclude_bn0=False
-        ):
+    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
         super(ResGroupBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -283,26 +264,20 @@ class ResGroupBlock(nn.Module):
 
 class iResGroupFix(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None, groups=None, dropout_prob0=0.0):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, groups=None, dropout_prob0=0.0):
         super(iResGroupFix, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups is None:
             groups = 64
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 256, layers[0], groups=groups,
-            stride=2, norm_layer=norm_layer)
-        self.layer2 = self._make_layer(block, 512, layers[1], groups=groups,
-            stride=2, norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 1024, layers[2], groups=
-            groups, stride=2, norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 2048, layers[3], groups=
-            groups, stride=2, norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 256, layers[0], groups=groups, stride=2, norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 512, layers[1], groups=groups, stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 1024, layers[2], groups=groups, stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 2048, layers[3], groups=groups, stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         if dropout_prob0 > 0.0:
             self.dp = nn.Dropout(dropout_prob0, inplace=True)
@@ -312,8 +287,7 @@ class iResGroupFix(nn.Module):
         self.fc = nn.Linear(2048 // block.reduction, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -322,31 +296,24 @@ class iResGroupFix(nn.Module):
                 if isinstance(m, ResGroupBlock):
                     nn.init.constant_(m.bn3.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, groups, stride=1,
-        norm_layer=None):
+    def _make_layer(self, block, planes, blocks, groups, stride=1, norm_layer=None):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 and self.inplanes != planes // block.reduction:
-            downsample = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=
-                stride, padding=1), conv1x1(self.inplanes, planes // block.
-                reduction), norm_layer(planes // block.reduction))
+            downsample = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=stride, padding=1), conv1x1(self.inplanes, planes // block.reduction), norm_layer(planes // block.reduction))
         elif self.inplanes != planes // block.reduction:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes //
-                block.reduction), norm_layer(planes // block.reduction))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes // block.reduction), norm_layer(planes // block.reduction))
         elif stride != 1:
             downsample = nn.MaxPool2d(kernel_size=3, stride=stride, padding=1)
         layers = []
-        layers.append(block(self.inplanes, planes, groups, stride,
-            downsample, norm_layer, start_block=True))
+        layers.append(block(self.inplanes, planes, groups, stride, downsample, norm_layer, start_block=True))
         self.inplanes = planes // block.reduction
         exclude_bn0 = True
         for _ in range(1, blocks - 1):
-            layers.append(block(self.inplanes, planes, groups, norm_layer=
-                norm_layer, exclude_bn0=exclude_bn0))
+            layers.append(block(self.inplanes, planes, groups, norm_layer=norm_layer, exclude_bn0=exclude_bn0))
             exclude_bn0 = False
-        layers.append(block(self.inplanes, planes, groups, norm_layer=
-            norm_layer, end_block=True, exclude_bn0=exclude_bn0))
+        layers.append(block(self.inplanes, planes, groups, norm_layer=norm_layer, end_block=True, exclude_bn0=exclude_bn0))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -368,9 +335,7 @@ class iResGroupFix(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None, start_block=False, end_block=False, exclude_bn0=False
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -418,9 +383,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None, start_block=False, end_block=False, exclude_bn0=False
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -472,24 +435,18 @@ class Bottleneck(nn.Module):
 
 class iResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None, dropout_prob0=0.0):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, dropout_prob0=0.0):
         super(iResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=2,
-            norm_layer=norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=2, norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         if dropout_prob0 > 0.0:
             self.dp = nn.Dropout(dropout_prob0, inplace=True)
@@ -499,8 +456,7 @@ class iResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -516,25 +472,19 @@ class iResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 and self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=
-                stride, padding=1), conv1x1(self.inplanes, planes * block.
-                expansion), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=stride, padding=1), conv1x1(self.inplanes, planes * block.expansion), norm_layer(planes * block.expansion))
         elif self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion), norm_layer(planes * block.expansion))
         elif stride != 1:
             downsample = nn.MaxPool2d(kernel_size=3, stride=stride, padding=1)
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            norm_layer, start_block=True))
+        layers.append(block(self.inplanes, planes, stride, downsample, norm_layer, start_block=True))
         self.inplanes = planes * block.expansion
         exclude_bn0 = True
         for _ in range(1, blocks - 1):
-            layers.append(block(self.inplanes, planes, norm_layer=
-                norm_layer, exclude_bn0=exclude_bn0))
+            layers.append(block(self.inplanes, planes, norm_layer=norm_layer, exclude_bn0=exclude_bn0))
             exclude_bn0 = False
-        layers.append(block(self.inplanes, planes, norm_layer=norm_layer,
-            end_block=True, exclude_bn0=exclude_bn0))
+        layers.append(block(self.inplanes, planes, norm_layer=norm_layer, end_block=True, exclude_bn0=exclude_bn0))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -556,8 +506,7 @@ class iResNet(nn.Module):
 class ResGroupBlock(nn.Module):
     reduction = 2
 
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None,
-        norm_layer=None):
+    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None):
         super(ResGroupBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -590,33 +539,26 @@ class ResGroupBlock(nn.Module):
 
 class ResGroup(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None, groups=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, groups=None):
         super(ResGroup, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups is None:
             groups = 64
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 256, layers[0], groups=max(1,
-            groups // 8), norm_layer=norm_layer)
-        self.layer2 = self._make_layer(block, 512, layers[1], groups=max(1,
-            groups // 4), stride=2, norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 1024, layers[2], groups=max(1,
-            groups // 2), stride=2, norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 2048, layers[3], groups=
-            groups, stride=2, norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 256, layers[0], groups=max(1, groups // 8), norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 512, layers[1], groups=max(1, groups // 4), stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 1024, layers[2], groups=max(1, groups // 2), stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 2048, layers[3], groups=groups, stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(2048 // block.reduction, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -625,22 +567,17 @@ class ResGroup(nn.Module):
                 if isinstance(m, ResGroupBlock):
                     nn.init.constant_(m.bn3.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, groups, stride=1,
-        norm_layer=None):
+    def _make_layer(self, block, planes, blocks, groups, stride=1, norm_layer=None):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes // block.reduction:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes //
-                block.reduction, stride), norm_layer(planes // block.reduction)
-                )
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes // block.reduction, stride), norm_layer(planes // block.reduction))
         layers = []
-        layers.append(block(self.inplanes, planes, groups, stride,
-            downsample, norm_layer))
+        layers.append(block(self.inplanes, planes, groups, stride, downsample, norm_layer))
         self.inplanes = planes // block.reduction
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups, norm_layer=
-                norm_layer))
+            layers.append(block(self.inplanes, planes, groups, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -661,8 +598,7 @@ class ResGroup(nn.Module):
 class ResGroupBlock(nn.Module):
     reduction = 2
 
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None,
-        norm_layer=None):
+    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None):
         super(ResGroupBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -695,33 +631,26 @@ class ResGroupBlock(nn.Module):
 
 class ResGroupFix(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None, groups=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, groups=None):
         super(ResGroupFix, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups is None:
             groups = 64
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 256, layers[0], groups=groups,
-            norm_layer=norm_layer)
-        self.layer2 = self._make_layer(block, 512, layers[1], groups=groups,
-            stride=2, norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 1024, layers[2], groups=
-            groups, stride=2, norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 2048, layers[3], groups=
-            groups, stride=2, norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 256, layers[0], groups=groups, norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 512, layers[1], groups=groups, stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 1024, layers[2], groups=groups, stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 2048, layers[3], groups=groups, stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(2048 // block.reduction, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -730,22 +659,17 @@ class ResGroupFix(nn.Module):
                 if isinstance(m, ResGroupBlock):
                     nn.init.constant_(m.bn3.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, groups, stride=1,
-        norm_layer=None):
+    def _make_layer(self, block, planes, blocks, groups, stride=1, norm_layer=None):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes // block.reduction:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes //
-                block.reduction, stride), norm_layer(planes // block.reduction)
-                )
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes // block.reduction, stride), norm_layer(planes // block.reduction))
         layers = []
-        layers.append(block(self.inplanes, planes, groups, stride,
-            downsample, norm_layer))
+        layers.append(block(self.inplanes, planes, groups, stride, downsample, norm_layer))
         self.inplanes = planes // block.reduction
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups, norm_layer=
-                norm_layer))
+            layers.append(block(self.inplanes, planes, groups, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -766,8 +690,7 @@ class ResGroupFix(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -796,8 +719,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -830,25 +752,19 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None, dropout_prob0=0.0):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, dropout_prob0=0.0):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         if dropout_prob0 > 0.0:
             self.dp = nn.Dropout(dropout_prob0, inplace=True)
@@ -858,8 +774,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -875,11 +790,9 @@ class ResNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.inplanes, planes, norm_layer=norm_layer))
@@ -905,9 +818,7 @@ class ResNet(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None, start_block=False, end_block=False, exclude_bn0=False
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -955,9 +866,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=None, start_block=False, end_block=False, exclude_bn0=False
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -1009,31 +918,24 @@ class Bottleneck(nn.Module):
 
 class ResStage(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None):
         super(ResStage, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=
-            norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            norm_layer=norm_layer)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-            norm_layer=norm_layer)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-            norm_layer=norm_layer)
+        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -1049,19 +951,15 @@ class ResStage(nn.Module):
             norm_layer = nn.BatchNorm2d
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            norm_layer, start_block=True))
+        layers.append(block(self.inplanes, planes, stride, downsample, norm_layer, start_block=True))
         self.inplanes = planes * block.expansion
         exclude_bn0 = True
         for _ in range(1, blocks - 1):
-            layers.append(block(self.inplanes, planes, norm_layer=
-                norm_layer, exclude_bn0=exclude_bn0))
+            layers.append(block(self.inplanes, planes, norm_layer=norm_layer, exclude_bn0=exclude_bn0))
             exclude_bn0 = False
-        layers.append(block(self.inplanes, planes, norm_layer=norm_layer,
-            end_block=True, exclude_bn0=exclude_bn0))
+        layers.append(block(self.inplanes, planes, norm_layer=norm_layer, end_block=True, exclude_bn0=exclude_bn0))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1083,9 +981,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_iduta_iresnet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

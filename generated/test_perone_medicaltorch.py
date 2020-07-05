@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -137,75 +138,49 @@ class NoPoolASPP(Module):
         self.conv1a = nn.Conv2d(1, base_num_filters, kernel_size=3, padding=1)
         self.conv1a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.conv1a_drop = nn.Dropout2d(drop_rate)
-        self.conv1b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=1)
+        self.conv1b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=1)
         self.conv1b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.conv1b_drop = nn.Dropout2d(drop_rate)
-        self.conv2a = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=2, dilation=2)
+        self.conv2a = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=2, dilation=2)
         self.conv2a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.conv2a_drop = nn.Dropout2d(drop_rate)
-        self.conv2b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=2, dilation=2)
+        self.conv2b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=2, dilation=2)
         self.conv2b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.conv2b_drop = nn.Dropout2d(drop_rate)
-        self.branch1a = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=1)
-        self.branch1a_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch1a = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=1)
+        self.branch1a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch1a_drop = nn.Dropout2d(drop_rate)
-        self.branch1b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=1)
-        self.branch1b_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch1b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=1)
+        self.branch1b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch1b_drop = nn.Dropout2d(drop_rate)
-        self.branch2a = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=6, dilation=6)
-        self.branch2a_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch2a = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=6, dilation=6)
+        self.branch2a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch2a_drop = nn.Dropout2d(drop_rate)
-        self.branch2b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=6, dilation=6)
-        self.branch2b_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch2b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=6, dilation=6)
+        self.branch2b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch2b_drop = nn.Dropout2d(drop_rate)
-        self.branch3a = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=12, dilation=12)
-        self.branch3a_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch3a = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=12, dilation=12)
+        self.branch3a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch3a_drop = nn.Dropout2d(drop_rate)
-        self.branch3b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=12, dilation=12)
-        self.branch3b_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch3b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=12, dilation=12)
+        self.branch3b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch3b_drop = nn.Dropout2d(drop_rate)
-        self.branch4a = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=18, dilation=18)
-        self.branch4a_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch4a = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=18, dilation=18)
+        self.branch4a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch4a_drop = nn.Dropout2d(drop_rate)
-        self.branch4b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=18, dilation=18)
-        self.branch4b_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch4b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=18, dilation=18)
+        self.branch4b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch4b_drop = nn.Dropout2d(drop_rate)
-        self.branch5a = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=24, dilation=24)
-        self.branch5a_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch5a = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=24, dilation=24)
+        self.branch5a_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch5a_drop = nn.Dropout2d(drop_rate)
-        self.branch5b = nn.Conv2d(base_num_filters, base_num_filters,
-            kernel_size=3, padding=24, dilation=24)
-        self.branch5b_bn = nn.BatchNorm2d(base_num_filters, momentum=
-            bn_momentum)
+        self.branch5b = nn.Conv2d(base_num_filters, base_num_filters, kernel_size=3, padding=24, dilation=24)
+        self.branch5b_bn = nn.BatchNorm2d(base_num_filters, momentum=bn_momentum)
         self.branch5b_drop = nn.Dropout2d(drop_rate)
         self.concat_drop = nn.Dropout2d(drop_rate)
-        self.concat_bn = nn.BatchNorm2d(6 * base_num_filters, momentum=
-            bn_momentum)
-        self.amort = nn.Conv2d(6 * base_num_filters, base_num_filters * 2,
-            kernel_size=1)
-        self.amort_bn = nn.BatchNorm2d(base_num_filters * 2, momentum=
-            bn_momentum)
+        self.concat_bn = nn.BatchNorm2d(6 * base_num_filters, momentum=bn_momentum)
+        self.amort = nn.Conv2d(6 * base_num_filters, base_num_filters * 2, kernel_size=1)
+        self.amort_bn = nn.BatchNorm2d(base_num_filters * 2, momentum=bn_momentum)
         self.amort_drop = nn.Dropout2d(drop_rate)
         self.prediction = nn.Conv2d(base_num_filters * 2, 1, kernel_size=1)
 
@@ -258,8 +233,7 @@ class NoPoolASPP(Module):
         branch5 = self.branch5b_drop(branch5)
         global_pool = F.avg_pool2d(x, kernel_size=x.size()[2:])
         global_pool = global_pool.expand(x.size())
-        concatenation = torch.cat([branch1, branch2, branch3, branch4,
-            branch5, global_pool], dim=1)
+        concatenation = torch.cat([branch1, branch2, branch3, branch4, branch5, global_pool], dim=1)
         concatenation = self.concat_bn(concatenation)
         concatenation = self.concat_drop(concatenation)
         amort = F.relu(self.amort(concatenation))
@@ -361,8 +335,7 @@ class UNet3D(nn.Module):
         self.in_channel = in_channel
         self.n_classes = n_classes
         super(UNet3D, self).__init__()
-        self.ec0 = self.down_conv(self.in_channel, 32, bias=False,
-            batchnorm=False)
+        self.ec0 = self.down_conv(self.in_channel, 32, bias=False, batchnorm=False)
         self.ec1 = self.down_conv(32, 64, bias=False, batchnorm=False)
         self.ec2 = self.down_conv(64, 64, bias=False, batchnorm=False)
         self.ec3 = self.down_conv(64, 128, bias=False, batchnorm=False)
@@ -381,28 +354,18 @@ class UNet3D(nn.Module):
         self.dc4 = self.down_conv(128, 128, bias=False)
         self.dc3 = self.up_conv(128, 128, kernel_size=2, stride=2, bias=False)
         self.dc2 = self.down_conv(64 + 128, 64, bias=False)
-        self.dc1 = self.down_conv(64, 64, kernel_size=3, stride=1, padding=
-            1, bias=False)
-        self.dc0 = self.down_conv(64, n_classes, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.dc1 = self.down_conv(64, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.dc0 = self.down_conv(64, n_classes, kernel_size=1, stride=1, padding=0, bias=False)
 
-    def down_conv(self, in_channels, out_channels, kernel_size=3, stride=1,
-        padding=1, bias=True, batchnorm=False):
+    def down_conv(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=True, batchnorm=False):
         if batchnorm:
-            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, bias=bias), nn
-                .BatchNorm2d(out_channels), nn.LeakyReLU())
+            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(out_channels), nn.LeakyReLU())
         else:
-            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels,
-                kernel_size, stride=stride, padding=padding, bias=bias), nn
-                .LeakyReLU())
+            layer = nn.Sequential(nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=bias), nn.LeakyReLU())
         return layer
 
-    def up_conv(self, in_channels, out_channels, kernel_size=2, stride=2,
-        padding=0, output_padding=0, bias=True):
-        layer = nn.Sequential(nn.ConvTranspose3d(in_channels, out_channels,
-            kernel_size, stride=stride, padding=padding, output_padding=
-            output_padding, bias=bias), nn.LeakyReLU())
+    def up_conv(self, in_channels, out_channels, kernel_size=2, stride=2, padding=0, output_padding=0, bias=True):
+        layer = nn.Sequential(nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, bias=bias), nn.LeakyReLU())
         return layer
 
     def forward(self, x):
@@ -443,22 +406,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConfidentMSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DownConv,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoPoolASPP,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (Unet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     False),
+    (UpConv,
+     lambda: ([], {'in_feat': 4, 'out_feat': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 8, 8])], {}),
+     False),
+]
+
 class Test_perone_medicaltorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConfidentMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DownConv(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NoPoolASPP(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Unet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(UpConv(*[], **{'in_feat': 4, 'out_feat': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 8, 8])], {})
+        self._check(*TESTCASES[4])
 

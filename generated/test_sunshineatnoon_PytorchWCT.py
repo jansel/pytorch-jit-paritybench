@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,8 +101,7 @@ class encoder2(nn.Module):
         self.conv3.weight = torch.nn.Parameter(vgg.get(5).weight.float())
         self.conv3.bias = torch.nn.Parameter(vgg.get(5).bias.float())
         self.relu3 = nn.ReLU(inplace=True)
-        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices
-            =True)
+        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad4 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv4 = nn.Conv2d(64, 128, 3, 1, 0)
         self.conv4.weight = torch.nn.Parameter(vgg.get(9).weight.float())
@@ -173,8 +173,7 @@ class encoder3(nn.Module):
         self.conv3.weight = torch.nn.Parameter(vgg.get(5).weight.float())
         self.conv3.bias = torch.nn.Parameter(vgg.get(5).bias.float())
         self.relu3 = nn.ReLU(inplace=True)
-        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices
-            =True)
+        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad4 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv4 = nn.Conv2d(64, 128, 3, 1, 0)
         self.conv4.weight = torch.nn.Parameter(vgg.get(9).weight.float())
@@ -185,8 +184,7 @@ class encoder3(nn.Module):
         self.conv5.weight = torch.nn.Parameter(vgg.get(12).weight.float())
         self.conv5.bias = torch.nn.Parameter(vgg.get(12).bias.float())
         self.relu5 = nn.ReLU(inplace=True)
-        self.maxPool2 = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.maxPool2 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad6 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv6 = nn.Conv2d(128, 256, 3, 1, 0)
         self.conv6.weight = torch.nn.Parameter(vgg.get(16).weight.float())
@@ -283,8 +281,7 @@ class encoder4(nn.Module):
         self.conv3.weight = torch.nn.Parameter(vgg.get(5).weight.float())
         self.conv3.bias = torch.nn.Parameter(vgg.get(5).bias.float())
         self.relu3 = nn.ReLU(inplace=True)
-        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices
-            =True)
+        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad4 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv4 = nn.Conv2d(64, 128, 3, 1, 0)
         self.conv4.weight = torch.nn.Parameter(vgg.get(9).weight.float())
@@ -295,8 +292,7 @@ class encoder4(nn.Module):
         self.conv5.weight = torch.nn.Parameter(vgg.get(12).weight.float())
         self.conv5.bias = torch.nn.Parameter(vgg.get(12).bias.float())
         self.relu5 = nn.ReLU(inplace=True)
-        self.maxPool2 = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.maxPool2 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad6 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv6 = nn.Conv2d(128, 256, 3, 1, 0)
         self.conv6.weight = torch.nn.Parameter(vgg.get(16).weight.float())
@@ -317,8 +313,7 @@ class encoder4(nn.Module):
         self.conv9.weight = torch.nn.Parameter(vgg.get(25).weight.float())
         self.conv9.bias = torch.nn.Parameter(vgg.get(25).bias.float())
         self.relu9 = nn.ReLU(inplace=True)
-        self.maxPool3 = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.maxPool3 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad10 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv10 = nn.Conv2d(256, 512, 3, 1, 0)
         self.conv10.weight = torch.nn.Parameter(vgg.get(29).weight.float())
@@ -462,8 +457,7 @@ class encoder5(nn.Module):
         self.conv3.weight = torch.nn.Parameter(vgg.get(5).weight.float())
         self.conv3.bias = torch.nn.Parameter(vgg.get(5).bias.float())
         self.relu3 = nn.ReLU(inplace=True)
-        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices
-            =True)
+        self.maxPool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad4 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv4 = nn.Conv2d(64, 128, 3, 1, 0)
         self.conv4.weight = torch.nn.Parameter(vgg.get(9).weight.float())
@@ -474,8 +468,7 @@ class encoder5(nn.Module):
         self.conv5.weight = torch.nn.Parameter(vgg.get(12).weight.float())
         self.conv5.bias = torch.nn.Parameter(vgg.get(12).bias.float())
         self.relu5 = nn.ReLU(inplace=True)
-        self.maxPool2 = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.maxPool2 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad6 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv6 = nn.Conv2d(128, 256, 3, 1, 0)
         self.conv6.weight = torch.nn.Parameter(vgg.get(16).weight.float())
@@ -496,8 +489,7 @@ class encoder5(nn.Module):
         self.conv9.weight = torch.nn.Parameter(vgg.get(25).weight.float())
         self.conv9.bias = torch.nn.Parameter(vgg.get(25).bias.float())
         self.relu9 = nn.ReLU(inplace=True)
-        self.maxPool3 = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.maxPool3 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad10 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv10 = nn.Conv2d(256, 512, 3, 1, 0)
         self.conv10.weight = torch.nn.Parameter(vgg.get(29).weight.float())
@@ -518,8 +510,7 @@ class encoder5(nn.Module):
         self.conv13.weight = torch.nn.Parameter(vgg.get(38).weight.float())
         self.conv13.bias = torch.nn.Parameter(vgg.get(38).bias.float())
         self.relu13 = nn.ReLU(inplace=True)
-        self.maxPool4 = nn.MaxPool2d(kernel_size=2, stride=2,
-            return_indices=True)
+        self.maxPool4 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
         self.reflecPad14 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv14 = nn.Conv2d(512, 512, 3, 1, 0)
         self.conv14.weight = torch.nn.Parameter(vgg.get(42).weight.float())
@@ -723,8 +714,7 @@ class WCT(nn.Module):
         c_mean = torch.mean(cF, 1)
         c_mean = c_mean.unsqueeze(1).expand_as(cF)
         cF = cF - c_mean
-        contentConv = torch.mm(cF, cF.t()).div(cFSize[1] - 1) + torch.eye(
-            cFSize[0]).double()
+        contentConv = torch.mm(cF, cF.t()).div(cFSize[1] - 1) + torch.eye(cFSize[0]).double()
         c_u, c_e, c_v = torch.svd(contentConv, some=False)
         k_c = cFSize[0]
         for i in range(cFSize[0]):
@@ -746,10 +736,8 @@ class WCT(nn.Module):
         step2 = torch.mm(step1, c_v[:, 0:k_c].t())
         whiten_cF = torch.mm(step2, cF)
         s_d = s_e[0:k_s].pow(0.5)
-        targetFeature = torch.mm(torch.mm(torch.mm(s_v[:, 0:k_s], torch.
-            diag(s_d)), s_v[:, 0:k_s].t()), whiten_cF)
-        targetFeature = targetFeature + s_mean.unsqueeze(1).expand_as(
-            targetFeature)
+        targetFeature = torch.mm(torch.mm(torch.mm(s_v[:, 0:k_s], torch.diag(s_d)), s_v[:, 0:k_s].t()), whiten_cF)
+        targetFeature = targetFeature + s_mean.unsqueeze(1).expand_as(targetFeature)
         return targetFeature
 
     def transform(self, cF, sF, csF, alpha):
@@ -766,10 +754,3 @@ class WCT(nn.Module):
         csF.data.resize_(ccsF.size()).copy_(ccsF)
         return csF
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_sunshineatnoon_PytorchWCT(_paritybench_base):
-    pass

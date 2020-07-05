@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,9 +103,7 @@ class AveragedHausdorffLoss(nn.Module):
         """
         assert set1.ndimension() == 2, 'got %s' % set1.ndimension()
         assert set2.ndimension() == 2, 'got %s' % set2.ndimension()
-        assert set1.size()[1] == set2.size()[1
-            ], 'The points in both sets must have the same number of dimensions, got %s and %s.' % (
-            set2.size()[1], set2.size()[1])
+        assert set1.size()[1] == set2.size()[1], 'The points in both sets must have the same number of dimensions, got %s and %s.' % (set2.size()[1], set2.size()[1])
         d2_matrix = cdist(set1, set2)
         term_1 = torch.mean(torch.min(d2_matrix, 1)[0])
         term_2 = torch.mean(torch.min(d2_matrix, 0)[0])
@@ -133,8 +132,7 @@ def generaliz_mean(tensor, dim, p=-9, keepdim=False):
 
 class WeightedHausdorffDistance(nn.Module):
 
-    def __init__(self, resized_height, resized_width, p=-9, return_2_terms=
-        False, device=torch.device('cpu')):
+    def __init__(self, resized_height, resized_width, p=-9, return_2_terms=False, device=torch.device('cpu')):
         """
         :param resized_height: Number of rows in the image.
         :param resized_width: Number of columns in the image.
@@ -146,12 +144,10 @@ class WeightedHausdorffDistance(nn.Module):
         """
         super(nn.Module, self).__init__()
         self.height, self.width = resized_height, resized_width
-        self.resized_size = torch.tensor([resized_height, resized_width],
-            dtype=torch.get_default_dtype(), device=device)
+        self.resized_size = torch.tensor([resized_height, resized_width], dtype=torch.get_default_dtype(), device=device)
         self.max_dist = math.sqrt(resized_height ** 2 + resized_width ** 2)
         self.n_pixels = resized_height * resized_width
-        self.all_img_locations = torch.from_numpy(cartesian([np.arange(
-            resized_height), np.arange(resized_width)]))
+        self.all_img_locations = torch.from_numpy(cartesian([np.arange(resized_height), np.arange(resized_width)]))
         self.all_img_locations = self.all_img_locations
         self.return_2_terms = return_2_terms
         self.p = p
@@ -181,9 +177,7 @@ class WeightedHausdorffDistance(nn.Module):
         """
         _assert_no_grad(gt)
         assert prob_map.dim() == 3, 'The probability map must be (B x H x W)'
-        assert prob_map.size()[1:3] == (self.height, self.width
-            ), 'You must configure the WeightedHausdorffDistance with the height and width of the probability map that you are using, got a probability map of size %s' % str(
-            prob_map.size())
+        assert prob_map.size()[1:3] == (self.height, self.width), 'You must configure the WeightedHausdorffDistance with the height and width of the probability map that you are using, got a probability map of size %s' % str(prob_map.size())
         batch_size = prob_map.shape[0]
         assert batch_size == len(gt)
         terms_1 = []
@@ -195,25 +189,19 @@ class WeightedHausdorffDistance(nn.Module):
             norm_factor = (orig_size_b / self.resized_size).unsqueeze(0)
             n_gt_pts = gt_b.size()[0]
             if gt_b.ndimension() == 1 and (gt_b < 0).all().item() == 0:
-                terms_1.append(torch.tensor([0], dtype=torch.
-                    get_default_dtype()))
-                terms_2.append(torch.tensor([self.max_dist], dtype=torch.
-                    get_default_dtype()))
+                terms_1.append(torch.tensor([0], dtype=torch.get_default_dtype()))
+                terms_2.append(torch.tensor([self.max_dist], dtype=torch.get_default_dtype()))
                 continue
             n_gt_pts = gt_b.size()[0]
-            normalized_x = norm_factor.repeat(self.n_pixels, 1
-                ) * self.all_img_locations
+            normalized_x = norm_factor.repeat(self.n_pixels, 1) * self.all_img_locations
             normalized_y = norm_factor.repeat(len(gt_b), 1) * gt_b
             d_matrix = cdist(normalized_x, normalized_y)
             p = prob_map_b.view(prob_map_b.nelement())
             n_est_pts = p.sum()
             p_replicated = p.view(-1, 1).repeat(1, n_gt_pts)
-            term_1 = 1 / (n_est_pts + 1e-06) * torch.sum(p * torch.min(
-                d_matrix, 1)[0])
-            weighted_d_matrix = (1 - p_replicated
-                ) * self.max_dist + p_replicated * d_matrix
-            minn = generaliz_mean(weighted_d_matrix, p=self.p, dim=0,
-                keepdim=False)
+            term_1 = 1 / (n_est_pts + 1e-06) * torch.sum(p * torch.min(d_matrix, 1)[0])
+            weighted_d_matrix = (1 - p_replicated) * self.max_dist + p_replicated * d_matrix
+            minn = generaliz_mean(weighted_d_matrix, p=self.p, dim=0, keepdim=False)
             term_2 = torch.mean(minn)
             terms_1.append(term_1)
             terms_2.append(term_2)
@@ -228,8 +216,7 @@ class WeightedHausdorffDistance(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, n_channels, n_classes, height, width, known_n_points
-        =None, ultrasmall=False, device=torch.device('cuda')):
+    def __init__(self, n_channels, n_classes, height, width, known_n_points=None, ultrasmall=False, device=torch.device('cuda')):
         """
         Instantiate a UNet network.
         :param n_channels: Number of input channels (e.g, 3 for RGB)
@@ -248,8 +235,7 @@ class UNet(nn.Module):
         self.ultrasmall = ultrasmall
         self.device = device
         if height < 256 or width < 256:
-            raise ValueError('Minimum input image size is 256x256, got {}x{}'
-                .format(height, width))
+            raise ValueError('Minimum input image size is 256x256, got {}x{}'.format(height, width))
         self.inc = inconv(n_channels, 64)
         self.down1 = down(64, 128)
         self.down2 = down(128, 256)
@@ -280,11 +266,8 @@ class UNet(nn.Module):
             steps = 3 if self.ultrasmall else 8
             height_mid_features = height // 2 ** steps
             width_mid_features = width // 2 ** steps
-            self.branch_1 = nn.Sequential(nn.Linear(height_mid_features *
-                width_mid_features * 512, 64), nn.ReLU(inplace=True), nn.
-                Dropout(p=0.5))
-            self.branch_2 = nn.Sequential(nn.Linear(height * width, 64), nn
-                .ReLU(inplace=True), nn.Dropout(p=0.5))
+            self.branch_1 = nn.Sequential(nn.Linear(height_mid_features * width_mid_features * 512, 64), nn.ReLU(inplace=True), nn.Dropout(p=0.5))
+            self.branch_2 = nn.Sequential(nn.Linear(height * width, 64), nn.ReLU(inplace=True), nn.Dropout(p=0.5))
             self.regressor = nn.Sequential(nn.Linear(64 + 64, 1), nn.ReLU())
         self.lin = nn.Linear(1, 1, bias=False)
 
@@ -325,8 +308,7 @@ class UNet(nn.Module):
             regression = self.regressor(regression_features)
             return x, regression
         else:
-            n_pts = torch.tensor([self.known_n_points] * batch_size, dtype=
-                torch.get_default_dtype())
+            n_pts = torch.tensor([self.known_n_points] * batch_size, dtype=torch.get_default_dtype())
             n_pts = n_pts
             return x, n_pts
 
@@ -368,8 +350,7 @@ class down(nn.Module):
 
     def __init__(self, in_ch, out_ch, normaliz=True):
         super(down, self).__init__()
-        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch,
-            out_ch, normaliz=normaliz))
+        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch, normaliz=normaliz))
 
     def forward(self, x):
         x = self.mpconv(x)
@@ -380,8 +361,7 @@ class up(nn.Module):
 
     def __init__(self, in_ch, out_ch, normaliz=True, activ=True):
         super(up, self).__init__()
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear',
-            align_corners=True)
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv = double_conv(in_ch, out_ch, normaliz=normaliz, activ=activ)
 
     def forward(self, x1, x2):
@@ -390,8 +370,7 @@ class up(nn.Module):
             x1 = self.up(x1)
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, (diffX // 2, int(math.ceil(diffX / 2)), diffY // 2,
-            int(math.ceil(diffY / 2))))
+        x1 = F.pad(x1, (diffX // 2, int(math.ceil(diffX / 2)), diffY // 2, int(math.ceil(diffY / 2))))
         x = torch.cat([x2, x1], dim=1)
         x = self.conv(x)
         return x
@@ -412,21 +391,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (double_conv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (down,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (inconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (outconv,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (up,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
+     False),
+]
+
 class Test_javiribera_locating_objects_without_bboxes(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(double_conv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(down(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(inconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(outconv(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(up(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

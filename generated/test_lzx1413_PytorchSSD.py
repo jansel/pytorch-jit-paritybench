@@ -50,8 +50,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -117,8 +118,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x /= norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -168,10 +168,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -189,10 +187,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -205,8 +201,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -267,8 +262,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
         super(MultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.threshold = overlap_thresh
@@ -303,8 +297,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if GPU:
             loc_t = loc_t
             conf_t = conf_t
@@ -316,8 +309,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c = loss_c.view(pos.size()[0], pos.size()[1])
         loss_c[pos] = 0
         loss_c = loss_c.view(num, -1)
@@ -328,8 +320,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum().float()
@@ -346,8 +337,7 @@ def center_size(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]], 1)
+    return torch.cat([(boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] - boxes[:, :2]], 1)
 
 
 def decode(loc, priors, variances):
@@ -362,15 +352,13 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
 
 
-def refine_match(threshold, truths, priors, variances, labels, loc_t,
-    conf_t, idx, arm_loc):
+def refine_match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx, arm_loc):
     """Match each arm bbox with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -430,9 +418,7 @@ class RefineMultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target,
-        object_score=0):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, object_score=0):
         super(RefineMultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.threshold = overlap_thresh
@@ -445,8 +431,7 @@ class RefineMultiBoxLoss(nn.Module):
         self.object_score = object_score
         self.variance = [0.1, 0.2]
 
-    def forward(self, odm_data, priors, targets, arm_data=None,
-        filter_object=False):
+    def forward(self, odm_data, priors, targets, arm_data=None, filter_object=False):
         """Multibox Loss
         Args:
             predictions (tuple): A tuple containing loc preds, conf preds,
@@ -474,11 +459,9 @@ class RefineMultiBoxLoss(nn.Module):
             if self.num_classes == 2:
                 labels = labels > 0
             if arm_data:
-                refine_match(self.threshold, truths, priors, self.variance,
-                    labels, loc_t, conf_t, idx, arm_loc[idx].data)
+                refine_match(self.threshold, truths, priors, self.variance, labels, loc_t, conf_t, idx, arm_loc[idx].data)
             else:
-                match(self.threshold, truths, priors, self.variance, labels,
-                    loc_t, conf_t, idx)
+                match(self.threshold, truths, priors, self.variance, labels, loc_t, conf_t, idx)
         if GPU:
             loc_t = loc_t
             conf_t = conf_t
@@ -496,8 +479,7 @@ class RefineMultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -507,8 +489,7 @@ class RefineMultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum()
@@ -519,20 +500,14 @@ class RefineMultiBoxLoss(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True,
-        up_size=0):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True, up_size=0):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
         self.up_size = up_size
-        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear'
-            ) if up_size != 0 else None
+        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear') if up_size != 0 else None
 
     def forward(self, x):
         x = self.conv(x)
@@ -562,8 +537,7 @@ class FRFBSSD(nn.Module):
         head: "multibox head" consists of loc and conf conv layers
     """
 
-    def __init__(self, base, extras, ft_module, pyramid_ext, head, num_classes
-        ):
+    def __init__(self, base, extras, ft_module, pyramid_ext, head, num_classes):
         super(FRFBSSD, self).__init__()
         self.num_classes = num_classes
         self.size = 300
@@ -629,19 +603,16 @@ class FRFBSSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -649,20 +620,14 @@ class FRFBSSD(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True,
-        up_size=0):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True, up_size=0):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
         self.up_size = up_size
-        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear'
-            ) if up_size != 0 else None
+        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear') if up_size != 0 else None
 
     def forward(self, x):
         x = self.conv(x)
@@ -676,15 +641,11 @@ class BasicConv(nn.Module):
 
 
 def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
 def conv_dw(inp, oup, stride):
-    return nn.Sequential(Conv2dDepthwise(inp, kernel_size=3, stride=stride,
-        padding=1, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True),
-        nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.
-        ReLU(inplace=True))
+    return nn.Sequential(Conv2dDepthwise(inp, kernel_size=3, stride=stride, padding=1, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
 
 
 def MobileNet():
@@ -786,12 +747,10 @@ class FSSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
             features = ()
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
             features = fea_bn
         return output
 
@@ -799,8 +758,7 @@ class FSSD(nn.Module):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            state_dict = torch.load(base_file, map_location=lambda storage,
-                loc: storage)
+            state_dict = torch.load(base_file, map_location=lambda storage, loc: storage)
             from collections import OrderedDict
             new_state_dict = OrderedDict()
             for k, v in state_dict.items():
@@ -818,20 +776,14 @@ class FSSD(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True,
-        up_size=0):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True, up_size=0):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
         self.up_size = up_size
-        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear'
-            ) if up_size != 0 else None
+        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear') if up_size != 0 else None
 
     def forward(self, x):
         x = self.conv(x)
@@ -860,8 +812,7 @@ class FSSD(nn.Module):
         head: "multibox head" consists of loc and conf conv layers
     """
 
-    def __init__(self, base, extras, ft_module, pyramid_ext, head,
-        num_classes, size):
+    def __init__(self, base, extras, ft_module, pyramid_ext, head, num_classes, size):
         super(FSSD, self).__init__()
         self.num_classes = num_classes
         self.size = size
@@ -921,19 +872,16 @@ class FSSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -959,12 +907,10 @@ class Flatten(nn.Module):
 
 class CombConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1,
-        dropout=0.1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
         super().__init__()
         self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels,
-            stride=stride))
+        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
 
     def forward(self, x):
         return super().forward(x)
@@ -977,8 +923,7 @@ class DWConvLayer(nn.Sequential):
         out_ch = out_channels
         groups = in_channels
         kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3,
-            stride=stride, padding=1, groups=groups, bias=bias))
+        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(groups))
 
     def forward(self, x):
@@ -987,15 +932,13 @@ class DWConvLayer(nn.Sequential):
 
 class ConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1,
-        padding=0, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
         super().__init__()
         self.out_channels = out_channels
         out_ch = out_channels
         groups = 1
         pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=
-            kernel, stride=stride, padding=pad, groups=groups, bias=bias))
+        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(out_ch))
         self.add_module('relu', nn.ReLU(True))
 
@@ -1027,16 +970,14 @@ class HarDBlock(nn.Module):
     def get_out_ch(self):
         return self.out_channels
 
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=
-        False, residual_out=False, dwconv=False):
+    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
         super().__init__()
         self.keepBase = keepBase
         self.links = []
         layers_ = []
         self.out_channels = 0
         for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels,
-                growth_rate, grmul)
+            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
             self.links.append(link)
             use_relu = residual_out
             if dwconv:
@@ -1081,10 +1022,8 @@ class HarDNetBase(nn.Module):
             first_ch = [24, 48]
         blks = len(n_layers)
         self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0],
-            kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=
-            second_kernel))
+        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
+        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
         self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
         ch = first_ch[1]
         for i in range(blks):
@@ -1094,28 +1033,20 @@ class HarDNetBase(nn.Module):
             self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
             ch = ch_list[i]
             if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2,
-                    ceil_mode=True))
+                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
             elif i != blks - 1 and i != 1:
                 self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
         ch = ch_list[blks - 1]
-        self.base.append(nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1,
-            padding=1), nn.Conv2d(ch, ch, kernel_size=3, padding=4,
-            dilation=4, bias=False), nn.BatchNorm2d(ch), nn.ReLU(True),
-            ConvLayer(ch, ch, kernel=1)))
+        self.base.append(nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), nn.Conv2d(ch, ch, kernel_size=3, padding=4, dilation=4, bias=False), nn.BatchNorm2d(ch), nn.ReLU(True), ConvLayer(ch, ch, kernel=1)))
 
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -1134,22 +1065,10 @@ class BasicRFB(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=
-            stride, padding=1), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1,
-            dilation=2 * visual + 1, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1, dilation=2 * visual + 1, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1170,19 +1089,9 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
         """
         self.branch3 = nn.Sequential(
                 BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
@@ -1190,17 +1099,9 @@ class BasicRFB_a(nn.Module):
                 BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
                 )
         """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1290,11 +1191,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -1336,12 +1235,10 @@ class Flatten(nn.Module):
 
 class CombConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1,
-        dropout=0.1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
         super().__init__()
         self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels,
-            stride=stride))
+        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
 
     def forward(self, x):
         return super().forward(x)
@@ -1354,8 +1251,7 @@ class DWConvLayer(nn.Sequential):
         out_ch = out_channels
         groups = in_channels
         kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3,
-            stride=stride, padding=1, groups=groups, bias=bias))
+        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(groups))
 
     def forward(self, x):
@@ -1364,15 +1260,13 @@ class DWConvLayer(nn.Sequential):
 
 class ConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1,
-        padding=0, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
         super().__init__()
         self.out_channels = out_channels
         out_ch = out_channels
         groups = 1
         pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=
-            kernel, stride=stride, padding=pad, groups=groups, bias=bias))
+        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(out_ch))
         self.add_module('relu', nn.ReLU(True))
 
@@ -1404,16 +1298,14 @@ class HarDBlock(nn.Module):
     def get_out_ch(self):
         return self.out_channels
 
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=
-        False, residual_out=False, dwconv=False):
+    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
         super().__init__()
         self.keepBase = keepBase
         self.links = []
         layers_ = []
         self.out_channels = 0
         for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels,
-                growth_rate, grmul)
+            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
             self.links.append(link)
             use_relu = residual_out
             if dwconv:
@@ -1458,10 +1350,8 @@ class HarDNetBase(nn.Module):
             first_ch = [24, 48]
         blks = len(n_layers)
         self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0],
-            kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=
-            second_kernel))
+        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
+        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
         self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
         ch = first_ch[1]
         for i in range(blks):
@@ -1471,23 +1361,18 @@ class HarDNetBase(nn.Module):
             self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
             ch = ch_list[i]
             if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2,
-                    ceil_mode=True))
+                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
             elif i != blks - 1 and i != 1 and i != 3:
                 self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
 
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -1506,22 +1391,10 @@ class BasicRFB(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=
-            stride, padding=1), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1,
-            dilation=2 * visual + 1, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1, dilation=2 * visual + 1, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1542,19 +1415,9 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
         """
         self.branch3 = nn.Sequential(
                 BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
@@ -1562,17 +1425,9 @@ class BasicRFB_a(nn.Module):
                 BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
                 )
         """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1662,11 +1517,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -1690,15 +1543,11 @@ class RFBNet(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -1712,38 +1561,17 @@ class BasicConv(nn.Module):
 
 class BasicRFB(nn.Module):
 
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8
-        ):
+    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8):
         super(BasicRFB, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // map_reduce
-        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes,
-            kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=
-            stride, padding=1), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv
-            (inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1),
-            stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.ConvLinear = BasicConv(8 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1), stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.ConvLinear = BasicConv(8 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1761,31 +1589,16 @@ class BasicRFB(nn.Module):
 
 class BasicRFB_c(nn.Module):
 
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8
-        ):
+    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8):
         super(BasicRFB_c, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // map_reduce
-        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes,
-            kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv
-            (inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1),
-            stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.ConvLinear = BasicConv(6 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1), stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.ConvLinear = BasicConv(6 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1807,47 +1620,15 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=5,
-            dilation=5, relu=False))
-        self.branch4 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=5,
-            dilation=5, relu=False))
-        self.branch5 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.branch6 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(3, 1), stride=1, padding=(1,
-            0)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.ConvLinear = BasicConv(7 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.branch4 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.branch5 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.branch6 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.ConvLinear = BasicConv(7 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -1930,11 +1711,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -1949,15 +1728,11 @@ class RFBNet(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -1971,14 +1746,11 @@ class BasicConv(nn.Module):
 
 class BasicSepConv(nn.Module):
 
-    def __init__(self, in_planes, kernel_size, stride=1, padding=0,
-        dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicSepConv, self).__init__()
         self.out_channels = in_planes
-        self.conv = Conv2dDepthwise(in_planes, kernel_size=kernel_size,
-            stride=stride, padding=padding, dilation=dilation, bias=bias)
-        self.bn = nn.BatchNorm2d(in_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = Conv2dDepthwise(in_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias)
+        self.bn = nn.BatchNorm2d(in_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -1997,26 +1769,14 @@ class BasicRFB(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv
-            (inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=(3, 
-            1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=3,
-            stride=stride, padding=1), BasicSepConv(inter_planes // 2 * 3,
-            kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(3 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=3, stride=stride, padding=1), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(3 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
         if in_planes == out_planes:
             self.identity = True
         else:
             self.identity = False
-            self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-                stride=stride, relu=False)
+            self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -2040,28 +1800,11 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicSepConv(inter_planes,
-            kernel_size=3, stride=1, padding=1, dilation=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicSepConv(
-            inter_planes, kernel_size=3, stride=1, padding=3, dilation=3,
-            relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)),
-            BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=1, dilation=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -2133,11 +1876,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -2152,15 +1893,11 @@ class RFBNet(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -2179,22 +1916,10 @@ class BasicRFB(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=
-            stride, padding=1), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1,
-            dilation=2 * visual + 1, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1, dilation=2 * visual + 1, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -2215,19 +1940,9 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
         """
         self.branch3 = nn.Sequential(
                 BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
@@ -2235,17 +1950,9 @@ class BasicRFB_a(nn.Module):
                 BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
                 )
         """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -2335,11 +2042,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -2370,14 +2075,11 @@ def vgg(cfg, i, batch_norm=False):
     pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
     conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
     return layers
 
 
-vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
-    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
-    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
+vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class RefineSSD(nn.Module):
@@ -2405,50 +2107,16 @@ class RefineSSD(nn.Module):
         self.base = nn.ModuleList(vgg(vgg_base['320'], 3))
         self.L2Norm_4_3 = L2Norm(512, 10)
         self.L2Norm_5_3 = L2Norm(512, 8)
-        self.last_layer_trans = nn.Sequential(nn.Conv2d(512, 256,
-            kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1), nn.Conv2d
-            (256, 256, kernel_size=3, stride=1, padding=1))
-        self.extras = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1,
-            stride=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(256, 512,
-            kernel_size=3, stride=2, padding=1), nn.ReLU(inplace=True))
+        self.last_layer_trans = nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))
+        self.extras = nn.Sequential(nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1), nn.ReLU(inplace=True))
         if use_refine:
-            self.arm_loc = nn.ModuleList([nn.Conv2d(512, 12, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(512, 12, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(1024, 12, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(512, 12, kernel_size=3,
-                stride=1, padding=1)])
-            self.arm_conf = nn.ModuleList([nn.Conv2d(512, 6, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(512, 6, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(1024, 6, kernel_size=3,
-                stride=1, padding=1), nn.Conv2d(512, 6, kernel_size=3,
-                stride=1, padding=1)])
-        self.odm_loc = nn.ModuleList([nn.Conv2d(256, 12, kernel_size=3,
-            stride=1, padding=1), nn.Conv2d(256, 12, kernel_size=3, stride=
-            1, padding=1), nn.Conv2d(256, 12, kernel_size=3, stride=1,
-            padding=1), nn.Conv2d(256, 12, kernel_size=3, stride=1, padding=1)]
-            )
-        self.odm_conf = nn.ModuleList([nn.Conv2d(256, 3 * num_classes,
-            kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 3 *
-            num_classes, kernel_size=3, stride=1, padding=1), nn.Conv2d(256,
-            3 * num_classes, kernel_size=3, stride=1, padding=1), nn.Conv2d
-            (256, 3 * num_classes, kernel_size=3, stride=1, padding=1)])
-        self.trans_layers = nn.ModuleList([nn.Sequential(nn.Conv2d(512, 256,
-            kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1)), nn.
-            Sequential(nn.Conv2d(512, 256, kernel_size=3, stride=1, padding
-            =1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            stride=1, padding=1)), nn.Sequential(nn.Conv2d(1024, 256,
-            kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.
-            Conv2d(256, 256, kernel_size=3, stride=1, padding=1))])
-        self.up_layers = nn.ModuleList([nn.ConvTranspose2d(256, 256,
-            kernel_size=2, stride=2, padding=0), nn.ConvTranspose2d(256, 
-            256, kernel_size=2, stride=2, padding=0), nn.ConvTranspose2d(
-            256, 256, kernel_size=2, stride=2, padding=0)])
-        self.latent_layrs = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=
-            3, stride=1, padding=1), nn.Conv2d(256, 256, kernel_size=3,
-            stride=1, padding=1), nn.Conv2d(256, 256, kernel_size=3, stride
-            =1, padding=1)])
+            self.arm_loc = nn.ModuleList([nn.Conv2d(512, 12, kernel_size=3, stride=1, padding=1), nn.Conv2d(512, 12, kernel_size=3, stride=1, padding=1), nn.Conv2d(1024, 12, kernel_size=3, stride=1, padding=1), nn.Conv2d(512, 12, kernel_size=3, stride=1, padding=1)])
+            self.arm_conf = nn.ModuleList([nn.Conv2d(512, 6, kernel_size=3, stride=1, padding=1), nn.Conv2d(512, 6, kernel_size=3, stride=1, padding=1), nn.Conv2d(1024, 6, kernel_size=3, stride=1, padding=1), nn.Conv2d(512, 6, kernel_size=3, stride=1, padding=1)])
+        self.odm_loc = nn.ModuleList([nn.Conv2d(256, 12, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 12, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 12, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 12, kernel_size=3, stride=1, padding=1)])
+        self.odm_conf = nn.ModuleList([nn.Conv2d(256, 3 * num_classes, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 3 * num_classes, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 3 * num_classes, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 3 * num_classes, kernel_size=3, stride=1, padding=1)])
+        self.trans_layers = nn.ModuleList([nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)), nn.Sequential(nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)), nn.Sequential(nn.Conv2d(1024, 256, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1))])
+        self.up_layers = nn.ModuleList([nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2, padding=0), nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2, padding=0), nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2, padding=0)])
+        self.latent_layrs = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)])
         self.softmax = nn.Softmax()
 
     def forward(self, x, test=False):
@@ -2493,10 +2161,8 @@ class RefineSSD(nn.Module):
             for x, l, c in zip(arm_sources, self.arm_loc, self.arm_conf):
                 arm_loc_list.append(l(x).permute(0, 2, 3, 1).contiguous())
                 arm_conf_list.append(c(x).permute(0, 2, 3, 1).contiguous())
-            arm_loc = torch.cat([o.view(o.size(0), -1) for o in
-                arm_loc_list], 1)
-            arm_conf = torch.cat([o.view(o.size(0), -1) for o in
-                arm_conf_list], 1)
+            arm_loc = torch.cat([o.view(o.size(0), -1) for o in arm_loc_list], 1)
+            arm_conf = torch.cat([o.view(o.size(0), -1) for o in arm_conf_list], 1)
         x = self.last_layer_trans(x)
         obm_sources.append(x)
         trans_layer_list = list()
@@ -2504,8 +2170,7 @@ class RefineSSD(nn.Module):
             trans_layer_list.append(t(x_t))
         trans_layer_list.reverse()
         arm_sources.reverse()
-        for t, u, l in zip(trans_layer_list, self.up_layers, self.latent_layrs
-            ):
+        for t, u, l in zip(trans_layer_list, self.up_layers, self.latent_layrs):
             x = F.relu(l(F.relu(u(x) + t, inplace=True)), inplace=True)
             obm_sources.append(x)
         obm_sources.reverse()
@@ -2516,27 +2181,20 @@ class RefineSSD(nn.Module):
         obm_conf = torch.cat([o.view(o.size(0), -1) for o in obm_conf_list], 1)
         if test:
             if self.use_refine:
-                output = arm_loc.view(arm_loc.size(0), -1, 4), self.softmax(
-                    arm_conf.view(-1, 2)), obm_loc.view(obm_loc.size(0), -1, 4
-                    ), self.softmax(obm_conf.view(-1, self.num_classes))
+                output = arm_loc.view(arm_loc.size(0), -1, 4), self.softmax(arm_conf.view(-1, 2)), obm_loc.view(obm_loc.size(0), -1, 4), self.softmax(obm_conf.view(-1, self.num_classes))
             else:
-                output = obm_loc.view(obm_loc.size(0), -1, 4), self.softmax(
-                    obm_conf.view(-1, self.num_classes))
+                output = obm_loc.view(obm_loc.size(0), -1, 4), self.softmax(obm_conf.view(-1, self.num_classes))
         elif self.use_refine:
-            output = arm_loc.view(arm_loc.size(0), -1, 4), arm_conf.view(
-                arm_conf.size(0), -1, 2), obm_loc.view(obm_loc.size(0), -1, 4
-                ), obm_conf.view(obm_conf.size(0), -1, self.num_classes)
+            output = arm_loc.view(arm_loc.size(0), -1, 4), arm_conf.view(arm_conf.size(0), -1, 2), obm_loc.view(obm_loc.size(0), -1, 4), obm_conf.view(obm_conf.size(0), -1, self.num_classes)
         else:
-            output = obm_loc.view(obm_loc.size(0), -1, 4), obm_conf.view(
-                obm_conf.size(0), -1, self.num_classes)
+            output = obm_loc.view(obm_loc.size(0), -1, 4), obm_conf.view(obm_conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -2562,12 +2220,10 @@ class Flatten(nn.Module):
 
 class CombConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1,
-        dropout=0.1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
         super().__init__()
         self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels,
-            stride=stride))
+        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
 
     def forward(self, x):
         return super().forward(x)
@@ -2580,8 +2236,7 @@ class DWConvLayer(nn.Sequential):
         out_ch = out_channels
         groups = in_channels
         kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3,
-            stride=stride, padding=1, groups=groups, bias=bias))
+        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(groups))
 
     def forward(self, x):
@@ -2590,15 +2245,13 @@ class DWConvLayer(nn.Sequential):
 
 class ConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1,
-        padding=0, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
         super().__init__()
         self.out_channels = out_channels
         out_ch = out_channels
         groups = 1
         pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=
-            kernel, stride=stride, padding=pad, groups=groups, bias=bias))
+        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(out_ch))
         self.add_module('relu', nn.ReLU(True))
 
@@ -2630,16 +2283,14 @@ class HarDBlock(nn.Module):
     def get_out_ch(self):
         return self.out_channels
 
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=
-        False, residual_out=False, dwconv=False):
+    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
         super().__init__()
         self.keepBase = keepBase
         self.links = []
         layers_ = []
         self.out_channels = 0
         for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels,
-                growth_rate, grmul)
+            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
             self.links.append(link)
             use_relu = residual_out
             if dwconv:
@@ -2684,10 +2335,8 @@ class HarDNetBase(nn.Module):
             first_ch = [24, 48]
         blks = len(n_layers)
         self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0],
-            kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=
-            second_kernel))
+        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
+        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
         self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
         ch = first_ch[1]
         for i in range(blks):
@@ -2697,15 +2346,11 @@ class HarDNetBase(nn.Module):
             self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
             ch = ch_list[i]
             if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2,
-                    ceil_mode=True))
+                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
             elif i != blks - 1 and i != 1:
                 self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
         ch = ch_list[blks - 1]
-        self.base.append(nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1,
-            padding=1), nn.Conv2d(ch, ch, kernel_size=3, padding=4,
-            dilation=4, bias=False), nn.BatchNorm2d(ch), nn.ReLU(True),
-            ConvLayer(ch, ch, kernel=1)))
+        self.base.append(nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), nn.Conv2d(ch, ch, kernel_size=3, padding=4, dilation=4, bias=False), nn.BatchNorm2d(ch), nn.ReLU(True), ConvLayer(ch, ch, kernel=1)))
 
 
 class SSD(nn.Module):
@@ -2776,19 +2421,16 @@ class SSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -2814,12 +2456,10 @@ class Flatten(nn.Module):
 
 class CombConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1,
-        dropout=0.1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
         super().__init__()
         self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels,
-            stride=stride))
+        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
 
     def forward(self, x):
         return super().forward(x)
@@ -2832,8 +2472,7 @@ class DWConvLayer(nn.Sequential):
         out_ch = out_channels
         groups = in_channels
         kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3,
-            stride=stride, padding=1, groups=groups, bias=bias))
+        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(groups))
 
     def forward(self, x):
@@ -2842,15 +2481,13 @@ class DWConvLayer(nn.Sequential):
 
 class ConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1,
-        padding=0, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
         super().__init__()
         self.out_channels = out_channels
         out_ch = out_channels
         groups = 1
         pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=
-            kernel, stride=stride, padding=pad, groups=groups, bias=bias))
+        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
         self.add_module('norm', nn.BatchNorm2d(out_ch))
         self.add_module('relu', nn.ReLU(True))
 
@@ -2882,16 +2519,14 @@ class HarDBlock(nn.Module):
     def get_out_ch(self):
         return self.out_channels
 
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=
-        False, residual_out=False, dwconv=False):
+    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
         super().__init__()
         self.keepBase = keepBase
         self.links = []
         layers_ = []
         self.out_channels = 0
         for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels,
-                growth_rate, grmul)
+            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
             self.links.append(link)
             use_relu = residual_out
             if dwconv:
@@ -2936,10 +2571,8 @@ class HarDNetBase(nn.Module):
             first_ch = [24, 48]
         blks = len(n_layers)
         self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0],
-            kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=
-            second_kernel))
+        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
+        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
         self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
         ch = first_ch[1]
         for i in range(blks):
@@ -2949,8 +2582,7 @@ class HarDNetBase(nn.Module):
             self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
             ch = ch_list[i]
             if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2,
-                    ceil_mode=True))
+                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
             elif i != blks - 1 and i != 1 and i != 3:
                 self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
 
@@ -2977,8 +2609,7 @@ class SSD(nn.Module):
         self.num_classes = num_classes
         self.size = size
         self.base = HarDNetBase().base
-        self.bridge = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1,
-            padding=1), ConvLayer(720, 960), ConvLayer(960, 720, kernel=1))
+        self.bridge = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), ConvLayer(720, 960), ConvLayer(960, 720, kernel=1))
         self.dropout = nn.Dropout2d(p=0.1, inplace=False)
         self.extras = nn.ModuleList(extras)
         self.L2Norm = L2Norm(320, 20)
@@ -3026,19 +2657,16 @@ class SSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -3111,19 +2739,16 @@ class SSD(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            self.load_state_dict(torch.load(base_file, map_location=lambda
-                storage, loc: storage))
+            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
             None
         else:
             None
@@ -3131,15 +2756,11 @@ class SSD(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -3158,19 +2779,9 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
         """
         self.branch3 = nn.Sequential(
                 BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
@@ -3178,17 +2789,9 @@ class BasicRFB_a(nn.Module):
                 BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
                 )
         """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -3209,11 +2812,9 @@ class DepthWiseBlock(nn.Module):
     def __init__(self, inplanes, planes, stride=1, padding=1):
         super(DepthWiseBlock, self).__init__()
         inplanes, planes = int(inplanes), int(planes)
-        self.conv_dw = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding
-            =padding, stride=stride, groups=inplanes, bias=False)
+        self.conv_dw = nn.Conv2d(inplanes, inplanes, kernel_size=3, padding=padding, stride=stride, groups=inplanes, bias=False)
         self.bn_dw = nn.BatchNorm2d(inplanes)
-        self.conv_sep = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv_sep = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_sep = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
 
@@ -3237,8 +2838,7 @@ class MobileNet(nn.Module):
         """
         super(MobileNet, self).__init__()
         block = DepthWiseBlock
-        self.conv1 = nn.Conv2d(3, int(32 * widen_factor), kernel_size=3,
-            stride=2, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, int(32 * widen_factor), kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(int(32 * widen_factor))
         self.relu = nn.ReLU(inplace=True)
         self.dw2_1 = block(32 * widen_factor, 64 * widen_factor)
@@ -3288,48 +2888,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicRFB,
+     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (BasicRFB_a,
+     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (BasicRFB_c,
+     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (CombConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DWConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DepthWiseBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HarDBlock,
+     lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'grmul': 4, 'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_lzx1413_PytorchSSD(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicRFB_a(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicRFB_c(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(CombConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(DWConvLayer(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(DepthWiseBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(HarDBlock(*[], **{'in_channels': 4, 'growth_rate': 4, 'grmul': 4, 'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(MobileNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[12])
 

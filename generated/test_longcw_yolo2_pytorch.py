@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,34 +87,33 @@ def _make_layers(in_channels, net_cfg):
                 layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
             else:
                 out_channels, ksize = item
-                layers.append(net_utils.Conv2d_BatchNorm(in_channels,
-                    out_channels, ksize, same_padding=True))
+                layers.append(net_utils.Conv2d_BatchNorm(in_channels, out_channels, ksize, same_padding=True))
                 in_channels = out_channels
     return nn.Sequential(*layers), in_channels
-
-
-_global_config['anchors'] = 4
 
 
 _global_config['noobject_scale'] = 1.0
 
 
-_global_config['class_scale'] = 1.0
-
-
 _global_config['num_classes'] = 4
-
-
-_global_config['multi_scale_out_size'] = 1.0
 
 
 _global_config['iou_thresh'] = 4
 
 
-_global_config['coord_scale'] = 1.0
+_global_config['class_scale'] = 1.0
 
 
 _global_config['object_scale'] = 1.0
+
+
+_global_config['coord_scale'] = 1.0
+
+
+_global_config['anchors'] = 4
+
+
+_global_config['multi_scale_out_size'] = 1.0
 
 
 _global_config['multi_scale_inp_size'] = 1.0
@@ -135,15 +135,13 @@ def _process_batch(data, size_index):
     _box_mask = np.zeros([hw, num_anchors, 1], dtype=np.float) + 0.01
     anchors = np.ascontiguousarray(cfg.anchors, dtype=np.float)
     bbox_pred_np = np.expand_dims(bbox_pred_np, 0)
-    bbox_np = yolo_to_bbox(np.ascontiguousarray(bbox_pred_np, dtype=np.
-        float), anchors, H, W)
+    bbox_np = yolo_to_bbox(np.ascontiguousarray(bbox_pred_np, dtype=np.float), anchors, H, W)
     bbox_np = bbox_np[0]
     bbox_np[:, :, 0::2] *= float(inp_size[0])
     bbox_np[:, :, 1::2] *= float(inp_size[1])
     gt_boxes_b = np.asarray(gt_boxes, dtype=np.float)
     bbox_np_b = np.reshape(bbox_np, [-1, 4])
-    ious = bbox_ious(np.ascontiguousarray(bbox_np_b, dtype=np.float), np.
-        ascontiguousarray(gt_boxes_b, dtype=np.float))
+    ious = bbox_ious(np.ascontiguousarray(bbox_np_b, dtype=np.float), np.ascontiguousarray(gt_boxes_b, dtype=np.float))
     best_ious = np.max(ious, axis=1).reshape(_iou_mask.shape)
     iou_penalty = 0 - iou_pred_np[best_ious < cfg.iou_thresh]
     _iou_mask[best_ious <= cfg.iou_thresh] = cfg.noobject_scale * iou_penalty
@@ -156,15 +154,12 @@ def _process_batch(data, size_index):
     target_boxes = np.empty(gt_boxes_b.shape, dtype=np.float)
     target_boxes[:, (0)] = cx - np.floor(cx)
     target_boxes[:, (1)] = cy - np.floor(cy)
-    target_boxes[:, (2)] = (gt_boxes_b[:, (2)] - gt_boxes_b[:, (0)]
-        ) / inp_size[0] * out_size[0]
-    target_boxes[:, (3)] = (gt_boxes_b[:, (3)] - gt_boxes_b[:, (1)]
-        ) / inp_size[1] * out_size[1]
+    target_boxes[:, (2)] = (gt_boxes_b[:, (2)] - gt_boxes_b[:, (0)]) / inp_size[0] * out_size[0]
+    target_boxes[:, (3)] = (gt_boxes_b[:, (3)] - gt_boxes_b[:, (1)]) / inp_size[1] * out_size[1]
     gt_boxes_resize = np.copy(gt_boxes_b)
     gt_boxes_resize[:, 0::2] *= out_size[0] / float(inp_size[0])
     gt_boxes_resize[:, 1::2] *= out_size[1] / float(inp_size[1])
-    anchor_ious = anchor_intersections(anchors, np.ascontiguousarray(
-        gt_boxes_resize, dtype=np.float))
+    anchor_ious = anchor_intersections(anchors, np.ascontiguousarray(gt_boxes_resize, dtype=np.float))
     anchor_inds = np.argmax(anchor_ious, axis=0)
     ious_reshaped = np.reshape(ious, [hw, num_anchors, len(cell_inds)])
     for i, cell_ind in enumerate(cell_inds):
@@ -174,8 +169,7 @@ def _process_batch(data, size_index):
             continue
         a = anchor_inds[i]
         iou_pred_cell_anchor = iou_pred_np[(cell_ind), (a), :]
-        _iou_mask[(cell_ind), (a), :] = cfg.object_scale * (1 -
-            iou_pred_cell_anchor)
+        _iou_mask[(cell_ind), (a), :] = cfg.object_scale * (1 - iou_pred_cell_anchor)
         _ious[(cell_ind), (a), :] = ious_reshaped[cell_ind, a, i]
         _box_mask[(cell_ind), (a), :] = cfg.coord_scale
         target_boxes[(i), 2:4] /= anchors[a]
@@ -192,11 +186,7 @@ class Darknet19(nn.Module):
 
     def __init__(self):
         super(Darknet19, self).__init__()
-        net_cfgs = [[(32, 3)], ['M', (64, 3)], ['M', (128, 3), (64, 1), (
-            128, 3)], ['M', (256, 3), (128, 1), (256, 3)], ['M', (512, 3),
-            (256, 1), (512, 3), (256, 1), (512, 3)], ['M', (1024, 3), (512,
-            1), (1024, 3), (512, 1), (1024, 3)], [(1024, 3), (1024, 3)], [(
-            1024, 3)]]
+        net_cfgs = [[(32, 3)], ['M', (64, 3)], ['M', (128, 3), (64, 1), (128, 3)], ['M', (256, 3), (128, 1), (256, 3)], ['M', (512, 3), (256, 1), (512, 3), (256, 1), (512, 3)], ['M', (1024, 3), (512, 1), (1024, 3), (512, 1), (1024, 3)], [(1024, 3), (1024, 3)], [(1024, 3)]]
         self.conv1s, c1 = _make_layers(3, net_cfgs[0:5])
         self.conv2, c2 = _make_layers(c1, net_cfgs[5])
         self.conv3, c3 = _make_layers(c2, net_cfgs[6])
@@ -215,8 +205,7 @@ class Darknet19(nn.Module):
     def loss(self):
         return self.bbox_loss + self.iou_loss + self.cls_loss
 
-    def forward(self, im_data, gt_boxes=None, gt_classes=None, dontcare=
-        None, size_index=0):
+    def forward(self, im_data, gt_boxes=None, gt_classes=None, dontcare=None, size_index=0):
         conv1s = self.conv1s(im_data)
         conv2 = self.conv2(conv1s)
         conv3 = self.conv3(conv2)
@@ -226,52 +215,38 @@ class Darknet19(nn.Module):
         conv5 = self.conv5(conv4)
         global_average_pool = self.global_average_pool(conv5)
         bsize, _, h, w = global_average_pool.size()
-        global_average_pool_reshaped = global_average_pool.permute(0, 2, 3, 1
-            ).contiguous().view(bsize, -1, cfg.num_anchors, cfg.num_classes + 5
-            )
+        global_average_pool_reshaped = global_average_pool.permute(0, 2, 3, 1).contiguous().view(bsize, -1, cfg.num_anchors, cfg.num_classes + 5)
         xy_pred = F.sigmoid(global_average_pool_reshaped[:, :, :, 0:2])
         wh_pred = torch.exp(global_average_pool_reshaped[:, :, :, 2:4])
         bbox_pred = torch.cat([xy_pred, wh_pred], 3)
         iou_pred = F.sigmoid(global_average_pool_reshaped[:, :, :, 4:5])
         score_pred = global_average_pool_reshaped[:, :, :, 5:].contiguous()
-        prob_pred = F.softmax(score_pred.view(-1, score_pred.size()[-1])
-            ).view_as(score_pred)
+        prob_pred = F.softmax(score_pred.view(-1, score_pred.size()[-1])).view_as(score_pred)
         if self.training:
             bbox_pred_np = bbox_pred.data.cpu().numpy()
             iou_pred_np = iou_pred.data.cpu().numpy()
-            _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask = (self
-                ._build_target(bbox_pred_np, gt_boxes, gt_classes, dontcare,
-                iou_pred_np, size_index))
+            _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask = self._build_target(bbox_pred_np, gt_boxes, gt_classes, dontcare, iou_pred_np, size_index)
             _boxes = net_utils.np_to_variable(_boxes)
             _ious = net_utils.np_to_variable(_ious)
             _classes = net_utils.np_to_variable(_classes)
-            box_mask = net_utils.np_to_variable(_box_mask, dtype=torch.
-                FloatTensor)
-            iou_mask = net_utils.np_to_variable(_iou_mask, dtype=torch.
-                FloatTensor)
-            class_mask = net_utils.np_to_variable(_class_mask, dtype=torch.
-                FloatTensor)
+            box_mask = net_utils.np_to_variable(_box_mask, dtype=torch.FloatTensor)
+            iou_mask = net_utils.np_to_variable(_iou_mask, dtype=torch.FloatTensor)
+            class_mask = net_utils.np_to_variable(_class_mask, dtype=torch.FloatTensor)
             num_boxes = sum(len(boxes) for boxes in gt_boxes)
             box_mask = box_mask.expand_as(_boxes)
-            self.bbox_loss = nn.MSELoss(size_average=False)(bbox_pred *
-                box_mask, _boxes * box_mask) / num_boxes
-            self.iou_loss = nn.MSELoss(size_average=False)(iou_pred *
-                iou_mask, _ious * iou_mask) / num_boxes
+            self.bbox_loss = nn.MSELoss(size_average=False)(bbox_pred * box_mask, _boxes * box_mask) / num_boxes
+            self.iou_loss = nn.MSELoss(size_average=False)(iou_pred * iou_mask, _ious * iou_mask) / num_boxes
             class_mask = class_mask.expand_as(prob_pred)
-            self.cls_loss = nn.MSELoss(size_average=False)(prob_pred *
-                class_mask, _classes * class_mask) / num_boxes
+            self.cls_loss = nn.MSELoss(size_average=False)(prob_pred * class_mask, _classes * class_mask) / num_boxes
         return bbox_pred, iou_pred, prob_pred
 
-    def _build_target(self, bbox_pred_np, gt_boxes, gt_classes, dontcare,
-        iou_pred_np, size_index):
+    def _build_target(self, bbox_pred_np, gt_boxes, gt_classes, dontcare, iou_pred_np, size_index):
         """
         :param bbox_pred: shape: (bsize, h x w, num_anchors, 4) :
                           (sig(tx), sig(ty), exp(tw), exp(th))
         """
         bsize = bbox_pred_np.shape[0]
-        targets = self.pool.map(partial(_process_batch, size_index=
-            size_index), ((bbox_pred_np[b], gt_boxes[b], gt_classes[b],
-            dontcare[b], iou_pred_np[b]) for b in range(bsize)))
+        targets = self.pool.map(partial(_process_batch, size_index=size_index), ((bbox_pred_np[b], gt_boxes[b], gt_classes[b], dontcare[b], iou_pred_np[b]) for b in range(bsize)))
         _boxes = np.stack(tuple(row[0] for row in targets))
         _ious = np.stack(tuple(row[1] for row in targets))
         _classes = np.stack(tuple(row[2] for row in targets))
@@ -281,9 +256,7 @@ class Darknet19(nn.Module):
         return _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask
 
     def load_from_npz(self, fname, num_conv=None):
-        dest_src = {'conv.weight': 'kernel', 'conv.bias': 'biases',
-            'bn.weight': 'gamma', 'bn.bias': 'biases', 'bn.running_mean':
-            'moving_mean', 'bn.running_var': 'moving_variance'}
+        dest_src = {'conv.weight': 'kernel', 'conv.bias': 'biases', 'bn.weight': 'gamma', 'bn.bias': 'biases', 'bn.running_mean': 'moving_mean', 'bn.running_var': 'moving_variance'}
         params = np.load(fname)
         own_dict = self.state_dict()
         keys = list(own_dict.keys())
@@ -310,16 +283,13 @@ class ReorgFunction(Function):
     def forward(self, x):
         stride = self.stride
         bsize, c, h, w = x.size()
-        out_w, out_h, out_c = int(w / stride), int(h / stride), c * (stride *
-            stride)
+        out_w, out_h, out_c = int(w / stride), int(h / stride), c * (stride * stride)
         out = torch.FloatTensor(bsize, out_c, out_h, out_w)
         if x.is_cuda:
             out = out.cuda()
-            reorg_layer.reorg_cuda(x, out_w, out_h, out_c, bsize, stride, 0,
-                out)
+            reorg_layer.reorg_cuda(x, out_w, out_h, out_c, bsize, stride, 0, out)
         else:
-            reorg_layer.reorg_cpu(x, out_w, out_h, out_c, bsize, stride, 0, out
-                )
+            reorg_layer.reorg_cpu(x, out_w, out_h, out_c, bsize, stride, 0, out)
         return out
 
     def backward(self, grad_top):
@@ -329,11 +299,9 @@ class ReorgFunction(Function):
         grad_bottom = torch.FloatTensor(bsize, int(out_c), out_h, out_w)
         if grad_top.is_cuda:
             grad_bottom = grad_bottom.cuda()
-            reorg_layer.reorg_cuda(grad_top, w, h, c, bsize, stride, 1,
-                grad_bottom)
+            reorg_layer.reorg_cuda(grad_top, w, h, c, bsize, stride, 1, grad_bottom)
         else:
-            reorg_layer.reorg_cpu(grad_top, w, h, c, bsize, stride, 1,
-                grad_bottom)
+            reorg_layer.reorg_cpu(grad_top, w, h, c, bsize, stride, 1, grad_bottom)
         return grad_bottom
 
 
@@ -362,20 +330,15 @@ class RoIPoolFunction(Function):
     def forward(self, features, rois):
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size()[0]
-        output = torch.zeros(num_rois, num_channels, self.pooled_height,
-            self.pooled_width)
-        argmax = torch.IntTensor(num_rois, num_channels, self.pooled_height,
-            self.pooled_width).zero_()
+        output = torch.zeros(num_rois, num_channels, self.pooled_height, self.pooled_width)
+        argmax = torch.IntTensor(num_rois, num_channels, self.pooled_height, self.pooled_width).zero_()
         if not features.is_cuda:
             _features = features.permute(0, 2, 3, 1)
-            roi_pooling.roi_pooling_forward(self.pooled_height, self.
-                pooled_width, self.spatial_scale, _features, rois, output)
+            roi_pooling.roi_pooling_forward(self.pooled_height, self.pooled_width, self.spatial_scale, _features, rois, output)
         else:
             output = output.cuda()
             argmax = argmax.cuda()
-            roi_pooling.roi_pooling_forward_cuda(self.pooled_height, self.
-                pooled_width, self.spatial_scale, features, rois, output,
-                argmax)
+            roi_pooling.roi_pooling_forward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, features, rois, output, argmax)
             self.output = output
             self.argmax = argmax
             self.rois = rois
@@ -385,11 +348,8 @@ class RoIPoolFunction(Function):
     def backward(self, grad_output):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = torch.zeros(batch_size, num_channels, data_height,
-            data_width).cuda()
-        roi_pooling.roi_pooling_backward_cuda(self.pooled_height, self.
-            pooled_width, self.spatial_scale, grad_output, self.rois,
-            grad_input, self.argmax)
+        grad_input = torch.zeros(batch_size, num_channels, data_height, data_width).cuda()
+        roi_pooling.roi_pooling_backward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, grad_output, self.rois, grad_input, self.argmax)
         return grad_input, None
 
 
@@ -402,8 +362,7 @@ class RoIPool(torch.nn.Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.
-            spatial_scale)(features, rois)
+        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.spatial_scale)(features, rois)
 
 
 class RoIPool(nn.Module):
@@ -417,12 +376,10 @@ class RoIPool(nn.Module):
     def forward(self, features, rois):
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size()[0]
-        outputs = Variable(torch.zeros(num_rois, num_channels, self.
-            pooled_height, self.pooled_width))
+        outputs = Variable(torch.zeros(num_rois, num_channels, self.pooled_height, self.pooled_width))
         for roi_ind, roi in enumerate(rois):
             batch_ind = int(roi[0].data[0])
-            roi_start_w, roi_start_h, roi_end_w, roi_end_h = np.round(roi[1
-                :].data.cpu().numpy() * self.spatial_scale).astype(int)
+            roi_start_w, roi_start_h, roi_end_w, roi_end_h = np.round(roi[1:].data.cpu().numpy() * self.spatial_scale).astype(int)
             roi_width = max(roi_end_w - roi_start_w + 1, 1)
             roi_height = max(roi_end_h - roi_start_h + 1, 1)
             bin_size_w = float(roi_width) / float(self.pooled_width)
@@ -442,20 +399,16 @@ class RoIPool(nn.Module):
                         outputs[(roi_ind), :, (ph), (pw)] = 0
                     else:
                         data = features[batch_ind]
-                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch
-                            .max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0
-                            ].view(-1)
+                        outputs[(roi_ind), :, (ph), (pw)] = torch.max(torch.max(data[:, hstart:hend, wstart:wend], 1)[0], 2)[0].view(-1)
         return outputs
 
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        relu=True, same_padding=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, relu=True, same_padding=False):
         super(Conv2d, self).__init__()
         padding = int((kernel_size - 1) / 2) if same_padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding=padding)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding)
         self.relu = nn.LeakyReLU(0.1, inplace=True) if relu else None
 
     def forward(self, x):
@@ -467,12 +420,10 @@ class Conv2d(nn.Module):
 
 class Conv2d_BatchNorm(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        relu=True, same_padding=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, relu=True, same_padding=False):
         super(Conv2d_BatchNorm, self).__init__()
         padding = int((kernel_size - 1) / 2) if same_padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-            stride, padding=padding, bias=False)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_channels, momentum=0.01)
         self.relu = nn.LeakyReLU(0.1, inplace=True) if relu else None
 
@@ -502,14 +453,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv2d_BatchNorm,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FC,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_longcw_yolo2_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Conv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Conv2d_BatchNorm(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FC(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,30 +97,18 @@ class s3fd(nn.Module):
         self.conv3_3_norm = L2Norm(256, scale=10)
         self.conv4_3_norm = L2Norm(512, scale=8)
         self.conv5_3_norm = L2Norm(512, scale=5)
-        self.conv3_3_norm_mbox_conf = nn.Conv2d(256, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.conv3_3_norm_mbox_loc = nn.Conv2d(256, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.conv4_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3,
-            stride=1, padding=1)
-        self.conv4_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.conv5_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3,
-            stride=1, padding=1)
-        self.conv5_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3,
-            stride=1, padding=1)
-        self.fc7_mbox_conf = nn.Conv2d(1024, 2, kernel_size=3, stride=1,
-            padding=1)
-        self.fc7_mbox_loc = nn.Conv2d(1024, 4, kernel_size=3, stride=1,
-            padding=1)
-        self.conv6_2_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1,
-            padding=1)
-        self.conv6_2_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1,
-            padding=1)
-        self.conv7_2_mbox_conf = nn.Conv2d(256, 2, kernel_size=3, stride=1,
-            padding=1)
-        self.conv7_2_mbox_loc = nn.Conv2d(256, 4, kernel_size=3, stride=1,
-            padding=1)
+        self.conv3_3_norm_mbox_conf = nn.Conv2d(256, 4, kernel_size=3, stride=1, padding=1)
+        self.conv3_3_norm_mbox_loc = nn.Conv2d(256, 4, kernel_size=3, stride=1, padding=1)
+        self.conv4_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1, padding=1)
+        self.conv4_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1, padding=1)
+        self.conv5_3_norm_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1, padding=1)
+        self.conv5_3_norm_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1, padding=1)
+        self.fc7_mbox_conf = nn.Conv2d(1024, 2, kernel_size=3, stride=1, padding=1)
+        self.fc7_mbox_loc = nn.Conv2d(1024, 4, kernel_size=3, stride=1, padding=1)
+        self.conv6_2_mbox_conf = nn.Conv2d(512, 2, kernel_size=3, stride=1, padding=1)
+        self.conv6_2_mbox_loc = nn.Conv2d(512, 4, kernel_size=3, stride=1, padding=1)
+        self.conv7_2_mbox_conf = nn.Conv2d(256, 2, kernel_size=3, stride=1, padding=1)
+        self.conv7_2_mbox_loc = nn.Conv2d(256, 4, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         h = F.relu(self.conv1_1(x))
@@ -170,19 +159,30 @@ class s3fd(nn.Module):
         chunk = torch.chunk(cls1, 4, 1)
         bmax = torch.max(torch.max(chunk[0], chunk[1]), chunk[2])
         cls1 = torch.cat([bmax, chunk[3]], dim=1)
-        return [cls1, reg1, cls2, reg2, cls3, reg3, cls4, reg4, cls5, reg5,
-            cls6, reg6]
+        return [cls1, reg1, cls2, reg2, cls3, reg3, cls4, reg4, cls5, reg5, cls6, reg6]
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (L2Norm,
+     lambda: ([], {'n_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (s3fd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_clcarwin_SFD_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(s3fd(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 

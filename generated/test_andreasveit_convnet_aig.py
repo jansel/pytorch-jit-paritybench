@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,17 +100,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
         self.fc1 = nn.Conv2d(in_planes, 16, kernel_size=1)
         self.fc1bn = nn.BatchNorm1d(16)
         self.fc2 = nn.Conv2d(16, 2, kernel_size=1)
@@ -137,17 +134,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
         self.fc1 = nn.Conv2d(in_planes, 16, kernel_size=1)
         self.fc1bn = nn.BatchNorm1d(16)
         self.fc2 = nn.Conv2d(16, 2, kernel_size=1)
@@ -174,8 +167,7 @@ class ResNet_ImageNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.in_planes = 64
         super(ResNet_ImageNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -222,8 +214,7 @@ class ResNet_ImageNet(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResNet_cifar(nn.Module):
@@ -290,18 +281,15 @@ class GumbleSoftmax(torch.nn.Module):
 
     def sample_gumbel_like(self, template_tensor, eps=1e-10):
         uniform_samples_tensor = template_tensor.clone().uniform_()
-        gumble_samples_tensor = -torch.log(eps - torch.log(
-            uniform_samples_tensor + eps))
+        gumble_samples_tensor = -torch.log(eps - torch.log(uniform_samples_tensor + eps))
         return gumble_samples_tensor
 
     def gumbel_softmax_sample(self, logits, temperature):
         """ Draw a sample from the Gumbel-Softmax distribution"""
         dim = logits.size(-1)
         gumble_samples_tensor = self.sample_gumbel_like(logits.data)
-        gumble_trick_log_prob_samples = logits + Variable(gumble_samples_tensor
-            )
-        soft_samples = F.softmax(gumble_trick_log_prob_samples /
-            temperature, dim)
+        gumble_trick_log_prob_samples = logits + Variable(gumble_samples_tensor)
+        soft_samples = F.softmax(gumble_trick_log_prob_samples / temperature, dim)
         return soft_samples
 
     def gumbel_softmax(self, logits, temperature, hard=False):
@@ -318,8 +306,7 @@ class GumbleSoftmax(torch.nn.Module):
         y = self.gumbel_softmax_sample(logits, temperature)
         if hard:
             _, max_value_indexes = y.data.max(1, keepdim=True)
-            y_hard = logits.data.clone().zero_().scatter_(1,
-                max_value_indexes, 1)
+            y_hard = logits.data.clone().zero_().scatter_(1, max_value_indexes, 1)
             y = Variable(y_hard - y.data) + y
         return y
 
@@ -335,13 +322,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_andreasveit_convnet_aig(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(GumbleSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GumbleSoftmax,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (Sequential_ext,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_andreasveit_convnet_aig(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Sequential_ext(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

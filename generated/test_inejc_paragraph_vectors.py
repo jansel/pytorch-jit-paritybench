@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,8 +57,7 @@ class NegativeSampling(nn.Module):
             are scores of samples from the noise distribution.
         """
         k = scores.size()[1] - 1
-        return -torch.sum(self._log_sigmoid(scores[:, (0)]) + torch.sum(
-            self._log_sigmoid(-scores[:, 1:]), dim=1) / k) / scores.size()[0]
+        return -torch.sum(self._log_sigmoid(scores[:, (0)]) + torch.sum(self._log_sigmoid(-scores[:, 1:]), dim=1) / k) / scores.size()[0]
 
 
 class DM(nn.Module):
@@ -77,12 +77,9 @@ class DM(nn.Module):
 
     def __init__(self, vec_dim, num_docs, num_words):
         super(DM, self).__init__()
-        self._D = nn.Parameter(torch.randn(num_docs, vec_dim),
-            requires_grad=True)
-        self._W = nn.Parameter(torch.randn(num_words, vec_dim),
-            requires_grad=True)
-        self._O = nn.Parameter(torch.FloatTensor(vec_dim, num_words).zero_(
-            ), requires_grad=True)
+        self._D = nn.Parameter(torch.randn(num_docs, vec_dim), requires_grad=True)
+        self._W = nn.Parameter(torch.randn(num_words, vec_dim), requires_grad=True)
+        self._O = nn.Parameter(torch.FloatTensor(vec_dim, num_words).zero_(), requires_grad=True)
 
     def forward(self, context_ids, doc_ids, target_noise_ids):
         """Sparse computation of scores (unnormalized log probabilities)
@@ -105,10 +102,8 @@ class DM(nn.Module):
         -------
             autograd.Variable of size (batch_size, num_noise_words + 1)
         """
-        x = torch.add(self._D[(doc_ids), :], torch.sum(self._W[(context_ids
-            ), :], dim=1))
-        return torch.bmm(x.unsqueeze(1), self._O[:, (target_noise_ids)].
-            permute(1, 0, 2)).squeeze()
+        x = torch.add(self._D[(doc_ids), :], torch.sum(self._W[(context_ids), :], dim=1))
+        return torch.bmm(x.unsqueeze(1), self._O[:, (target_noise_ids)].permute(1, 0, 2)).squeeze()
 
     def get_paragraph_vector(self, index):
         return self._D[(index), :].data.tolist()
@@ -131,10 +126,8 @@ class DBOW(nn.Module):
 
     def __init__(self, vec_dim, num_docs, num_words):
         super(DBOW, self).__init__()
-        self._D = nn.Parameter(torch.randn(num_docs, vec_dim),
-            requires_grad=True)
-        self._O = nn.Parameter(torch.FloatTensor(vec_dim, num_words).zero_(
-            ), requires_grad=True)
+        self._D = nn.Parameter(torch.randn(num_docs, vec_dim), requires_grad=True)
+        self._O = nn.Parameter(torch.FloatTensor(vec_dim, num_words).zero_(), requires_grad=True)
 
     def forward(self, doc_ids, target_noise_ids):
         """Sparse computation of scores (unnormalized log probabilities)
@@ -154,8 +147,7 @@ class DBOW(nn.Module):
         -------
             autograd.Variable of size (batch_size, num_noise_words + 1)
         """
-        return torch.bmm(self._D[(doc_ids), :].unsqueeze(1), self._O[:, (
-            target_noise_ids)].permute(1, 0, 2)).squeeze()
+        return torch.bmm(self._D[(doc_ids), :].unsqueeze(1), self._O[:, (target_noise_ids)].permute(1, 0, 2)).squeeze()
 
     def get_paragraph_vector(self, index):
         return self._D[(index), :].data.tolist()
@@ -165,8 +157,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NegativeSampling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_inejc_paragraph_vectors(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(NegativeSampling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

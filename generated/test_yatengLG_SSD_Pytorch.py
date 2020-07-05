@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -97,8 +98,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -123,8 +123,7 @@ def add_extras(cfg, i, size=300):
     for k, v in enumerate(cfg):
         if in_channels != 'S':
             if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(
-                    1, 3)[flag], stride=2, padding=1)]
+                layers += [nn.Conv2d(in_channels, cfg[k + 1], kernel_size=(1, 3)[flag], stride=2, padding=1)]
             else:
                 layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
             flag = not flag
@@ -153,18 +152,14 @@ def add_vgg(cfg, batch_norm=False):
     pool5 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
     conv6 = nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6)
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
-    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=
-        True)]
+    layers += [pool5, conv6, nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
     return layers
 
 
-extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
+extras_base = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256], '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
 
 
-vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 
-    512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256,
-    256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
+vgg_base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
 
 
 class VGG(nn.Module):
@@ -175,8 +170,7 @@ class VGG(nn.Module):
         vgg_config = vgg_base[str(self.cfg.MODEL.INPUT.IMAGE_SIZE)]
         extras_config = extras_base[str(self.cfg.MODEL.INPUT.IMAGE_SIZE)]
         self.vgg = nn.ModuleList(add_vgg(vgg_config))
-        self.extras = nn.ModuleList(add_extras(extras_config, i=1024, size=
-            self.cfg.MODEL.INPUT.IMAGE_SIZE))
+        self.extras = nn.ModuleList(add_extras(extras_config, i=1024, size=self.cfg.MODEL.INPUT.IMAGE_SIZE))
         self.l2_norm = L2Norm(512, scale=20)
 
     def forward(self, x):
@@ -234,10 +228,8 @@ class Expand(object):
         ratio = random.uniform(1, 4)
         left = random.uniform(0, width * ratio - width)
         top = random.uniform(0, height * ratio - height)
-        expand_image = np.zeros((int(height * ratio), int(width * ratio),
-            depth), dtype=image.dtype)
-        expand_image[int(top):int(top + height), int(left):int(left + width)
-            ] = image
+        expand_image = np.zeros((int(height * ratio), int(width * ratio), depth), dtype=image.dtype)
+        expand_image[int(top):int(top + height), int(left):int(left + width)] = image
         image = expand_image
         boxes = boxes.copy()
         boxes[:, :2] += int(left), int(top)
@@ -360,8 +352,7 @@ class SwapChannels(object):
 class RandomLightingNoise(object):
 
     def __init__(self):
-        self.perms = (0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (
-            2, 1, 0)
+        self.perms = (0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0)
 
     def __call__(self, image, boxes=None, labels=None):
         if random.randint(2):
@@ -388,9 +379,7 @@ class RandomSaturation(object):
 class PhotometricDistort(object):
 
     def __init__(self):
-        self.pd = [RandomContrast(), ConvertColor(current='RGB', transform=
-            'HSV'), RandomSaturation(), RandomHue(), ConvertColor(current=
-            'HSV', transform='RGB'), RandomContrast()]
+        self.pd = [RandomContrast(), ConvertColor(current='RGB', transform='HSV'), RandomSaturation(), RandomHue(), ConvertColor(current='HSV', transform='RGB'), RandomContrast()]
         self.rand_brightness = RandomBrightness()
         self.rand_light_noise = RandomLightingNoise()
 
@@ -456,8 +445,7 @@ class RandomSampleCrop(object):
     """
 
     def __init__(self):
-        self.sample_options = None, (0.1, None), (0.3, None), (0.7, None), (
-            0.9, None), (None, None)
+        self.sample_options = None, (0.1, None), (0.3, None), (0.7, None), (0.9, None), (None, None)
 
     def __call__(self, image, boxes=None, labels=None):
         if boxes is not None and boxes.shape[0] == 0:
@@ -480,8 +468,7 @@ class RandomSampleCrop(object):
                     continue
                 left = random.uniform(width - w)
                 top = random.uniform(height - h)
-                rect = np.array([int(left), int(top), int(left + w), int(
-                    top + h)])
+                rect = np.array([int(left), int(top), int(left + w), int(top + h)])
                 overlap = jaccard_numpy(boxes, rect)
                 if overlap.max() < min_iou or overlap.min() > max_iou:
                     continue
@@ -491,15 +478,12 @@ class RandomSampleCrop(object):
                 mask = m1 * m2
                 if not mask.any():
                     continue
-                current_image = current_image[rect[1]:rect[3], rect[0]:rect
-                    [2], :]
+                current_image = current_image[rect[1]:rect[3], rect[0]:rect[2], :]
                 current_boxes = boxes[(mask), :].copy()
                 current_labels = labels[mask]
-                current_boxes[:, :2] = np.maximum(current_boxes[:, :2],
-                    rect[:2])
+                current_boxes[:, :2] = np.maximum(current_boxes[:, :2], rect[:2])
                 current_boxes[:, :2] -= rect[:2]
-                current_boxes[:, 2:] = np.minimum(current_boxes[:, 2:],
-                    rect[2:])
+                current_boxes[:, 2:] = np.minimum(current_boxes[:, 2:], rect[2:])
                 current_boxes[:, 2:] -= rect[:2]
                 return current_image, current_boxes, current_labels
 
@@ -539,8 +523,7 @@ class ToPercentCoords(object):
 class ToTensor(object):
 
     def __call__(self, cvimage, boxes=None, labels=None):
-        return torch.from_numpy(cvimage.astype(np.float32)).permute(2, 0, 1
-            ), boxes, labels
+        return torch.from_numpy(cvimage.astype(np.float32)).permute(2, 0, 1), boxes, labels
 
 
 class SSDTramsfrom:
@@ -552,13 +535,9 @@ class SSDTramsfrom:
 
     def __init__(self, cfg, is_train):
         if is_train:
-            self.transforms = [ConvertFromInts(), PhotometricDistort(),
-                Expand(), RandomSampleCrop(), RandomMirror(),
-                ToPercentCoords(), Resize(cfg.MODEL.INPUT.IMAGE_SIZE),
-                ToTensor()]
+            self.transforms = [ConvertFromInts(), PhotometricDistort(), Expand(), RandomSampleCrop(), RandomMirror(), ToPercentCoords(), Resize(cfg.MODEL.INPUT.IMAGE_SIZE), ToTensor()]
         else:
-            self.transforms = [Resize(cfg.MODEL.INPUT.IMAGE_SIZE),
-                SubtractMeans(cfg.MODEL.INPUT.PIXEL_MEAN), ToTensor()]
+            self.transforms = [Resize(cfg.MODEL.INPUT.IMAGE_SIZE), SubtractMeans(cfg.MODEL.INPUT.PIXEL_MEAN), ToTensor()]
 
     def __call__(self, img, boxes=None, labels=None):
         for t in self.transforms:
@@ -584,12 +563,10 @@ def boxes_nms(boxes, scores, nms_thresh, max_count=-1):
 
 
 def center_form_to_corner_form(locations):
-    return torch.cat([locations[(...), :2] - locations[(...), 2:] / 2, 
-        locations[(...), :2] + locations[(...), 2:] / 2], locations.dim() - 1)
+    return torch.cat([locations[(...), :2] - locations[(...), 2:] / 2, locations[(...), :2] + locations[(...), 2:] / 2], locations.dim() - 1)
 
 
-def convert_locations_to_boxes(locations, priors, center_variance,
-    size_variance):
+def convert_locations_to_boxes(locations, priors, center_variance, size_variance):
     """Convert regressional location results of SSD into boxes in the form of (center_x, center_y, h, w).
 
     The conversion:
@@ -607,14 +584,11 @@ def convert_locations_to_boxes(locations, priors, center_variance,
     """
     if priors.dim() + 1 == locations.dim():
         priors = priors.unsqueeze(0)
-    return torch.cat([locations[(...), :2] * center_variance * priors[(...),
-        2:] + priors[(...), :2], torch.exp(locations[(...), 2:] *
-        size_variance) * priors[(...), 2:]], dim=locations.dim() - 1)
+    return torch.cat([locations[(...), :2] * center_variance * priors[(...), 2:] + priors[(...), :2], torch.exp(locations[(...), 2:] * size_variance) * priors[(...), 2:]], dim=locations.dim() - 1)
 
 
 def corner_form_to_center_form(boxes):
-    return torch.cat([(boxes[(...), :2] + boxes[(...), 2:]) / 2, boxes[(...
-        ), 2:] - boxes[(...), :2]], boxes.dim() - 1)
+    return torch.cat([(boxes[(...), :2] + boxes[(...), 2:]) / 2, boxes[(...), 2:] - boxes[(...), :2]], boxes.dim() - 1)
 
 
 class priorbox:
@@ -676,9 +650,7 @@ class postprocessor:
     def __call__(self, cls_logits, bbox_pred):
         priors = priorbox(self.cfg)().to(self.cfg.DEVICE.MAINDEVICE)
         batches_scores = F.softmax(cls_logits, dim=2)
-        boxes = convert_locations_to_boxes(bbox_pred, priors, self.cfg.
-            MODEL.ANCHORS.CENTER_VARIANCE, self.cfg.MODEL.ANCHORS.
-            CENTER_VARIANCE)
+        boxes = convert_locations_to_boxes(bbox_pred, priors, self.cfg.MODEL.ANCHORS.CENTER_VARIANCE, self.cfg.MODEL.ANCHORS.CENTER_VARIANCE)
         batches_boxes = center_form_to_corner_form(boxes)
         device = batches_scores.device
         batch_size = batches_scores.size(0)
@@ -687,8 +659,7 @@ class postprocessor:
             processed_boxes = []
             processed_scores = []
             processed_labels = []
-            per_img_scores, per_img_boxes = batches_scores[batch_id
-                ], batches_boxes[batch_id]
+            per_img_scores, per_img_boxes = batches_scores[batch_id], batches_boxes[batch_id]
             for class_id in range(1, per_img_scores.size(1)):
                 scores = per_img_scores[:, (class_id)]
                 mask = scores > self.cfg.MODEL.TEST.CONFIDENCE_THRESHOLD
@@ -698,11 +669,9 @@ class postprocessor:
                 boxes = per_img_boxes[(mask), :]
                 boxes[:, 0::2] *= self.width
                 boxes[:, 1::2] *= self.height
-                keep = boxes_nms(boxes, scores, self.cfg.MODEL.TEST.
-                    NMS_THRESHOLD, self.cfg.MODEL.TEST.MAX_PER_CLASS)
+                keep = boxes_nms(boxes, scores, self.cfg.MODEL.TEST.NMS_THRESHOLD, self.cfg.MODEL.TEST.MAX_PER_CLASS)
                 nmsed_boxes = boxes[(keep), :]
-                nmsed_labels = torch.tensor([class_id] * keep.size(0),
-                    device=device)
+                nmsed_labels = torch.tensor([class_id] * keep.size(0), device=device)
                 nmsed_scores = scores[keep]
                 processed_boxes.append(nmsed_boxes)
                 processed_scores.append(nmsed_scores)
@@ -716,18 +685,15 @@ class postprocessor:
                 processed_labels = torch.cat(processed_labels, 0)
                 processed_scores = torch.cat(processed_scores, 0)
             if processed_boxes.size(0) > self.cfg.MODEL.TEST.MAX_PER_IMAGE > 0:
-                processed_scores, keep = torch.topk(processed_scores, k=
-                    self.cfg.MODEL.TEST.MAX_PER_IMAGE)
+                processed_scores, keep = torch.topk(processed_scores, k=self.cfg.MODEL.TEST.MAX_PER_IMAGE)
                 processed_boxes = processed_boxes[(keep), :]
                 processed_labels = processed_labels[keep]
-            results.append([processed_boxes, processed_labels,
-                processed_scores])
+            results.append([processed_boxes, processed_labels, processed_scores])
         return results
 
 
 def vgg(cfg, pretrained=True):
-    print(' --- base_model = vgg16_ssd{} --- '.format(cfg.MODEL.INPUT.
-        IMAGE_SIZE))
+    print(' --- base_model = vgg16_ssd{} --- '.format(cfg.MODEL.INPUT.IMAGE_SIZE))
     model = VGG(cfg)
     if pretrained:
         model.load_weights()
@@ -781,8 +747,7 @@ class SSD(nn.Module):
         self.eval()
         assert isinstance(image, Image.Image)
         w, h = image.width, image.height
-        images_tensor = SSDTramsfrom(self.cfg, is_train=False)(np.array(image)
-            )[0].unsqueeze(0)
+        images_tensor = SSDTramsfrom(self.cfg, is_train=False)(np.array(image))[0].unsqueeze(0)
         self
         images_tensor = images_tensor
         time1 = time.time()
@@ -796,14 +761,11 @@ class SSD(nn.Module):
         labels = labels[indices]
         scores = scores[indices]
         None
-        drawn_image = draw_boxes(image=image, boxes=boxes, labels=labels,
-            scores=scores, class_name_map=self.cfg.DATA.DATASET.CLASS_NAME
-            ).astype(np.uint8)
+        drawn_image = draw_boxes(image=image, boxes=boxes, labels=labels, scores=scores, class_name_map=self.cfg.DATA.DATASET.CLASS_NAME).astype(np.uint8)
         return drawn_image, boxes, labels, scores
 
     @torch.no_grad()
-    def Detect_video(self, video_path, score_threshold=0.5, save_video_path
-        =None, show=True):
+    def Detect_video(self, video_path, score_threshold=0.5, save_video_path=None, show=True):
         """
         检测视频
         :param video_path:      视频路径  eg: /XXX/aaa.mp4
@@ -817,17 +779,13 @@ class SSD(nn.Module):
         weight = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         if save_video_path:
-            out = cv2.VideoWriter(save_video_path, fourcc, cap.get(5), (
-                weight, height))
+            out = cv2.VideoWriter(save_video_path, fourcc, cap.get(5), (weight, height))
         while cap.isOpened():
             ret, frame = cap.read()
             if ret == True:
                 image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                drawn_image, boxes, labels, scores = self.Detect_single_img(
-                    image=image, device='cuda:0', score_threshold=
-                    score_threshold)
-                frame = cv2.cvtColor(np.asarray(drawn_image), cv2.COLOR_RGB2BGR
-                    )
+                drawn_image, boxes, labels, scores = self.Detect_single_img(image=image, device='cuda:0', score_threshold=score_threshold)
+                frame = cv2.cvtColor(np.asarray(drawn_image), cv2.COLOR_RGB2BGR)
                 if show:
                     cv2.imshow('frame', frame)
                 if save_video_path:
@@ -887,13 +845,11 @@ class multiboxloss(nn.Module):
             loss = -F.log_softmax(confidence, dim=2)[:, :, (0)]
             mask = hard_negative_mining(loss, labels, self.neg_pos_ratio)
         confidence = confidence[(mask), :]
-        classification_loss = F.cross_entropy(confidence.view(-1,
-            num_classes), labels[mask], reduction='sum')
+        classification_loss = F.cross_entropy(confidence.view(-1, num_classes), labels[mask], reduction='sum')
         pos_mask = labels > 0
         predicted_locations = predicted_locations[(pos_mask), :].view(-1, 4)
         gt_locations = gt_locations[(pos_mask), :].view(-1, 4)
-        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations,
-            reduction='sum')
+        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
         num_pos = gt_locations.size(0)
         return smooth_l1_loss / num_pos, classification_loss / num_pos
 
@@ -908,21 +864,16 @@ class predictor(nn.Module):
         self.cfg = cfg
         self.cls_headers = nn.ModuleList()
         self.reg_headers = nn.ModuleList()
-        for boxes_per_location, out_channels in zip(cfg.MODEL.ANCHORS.
-            BOXES_PER_LOCATION, cfg.MODEL.ANCHORS.OUT_CHANNELS):
-            self.cls_headers.append(self.cls_block(out_channels,
-                boxes_per_location))
-            self.reg_headers.append(self.reg_block(out_channels,
-                boxes_per_location))
+        for boxes_per_location, out_channels in zip(cfg.MODEL.ANCHORS.BOXES_PER_LOCATION, cfg.MODEL.ANCHORS.OUT_CHANNELS):
+            self.cls_headers.append(self.cls_block(out_channels, boxes_per_location))
+            self.reg_headers.append(self.reg_block(out_channels, boxes_per_location))
         self.reset_parameters()
 
     def cls_block(self, out_channels, boxes_per_location):
-        return nn.Conv2d(out_channels, boxes_per_location * self.cfg.DATA.
-            DATASET.NUM_CLASSES, kernel_size=3, stride=1, padding=1)
+        return nn.Conv2d(out_channels, boxes_per_location * self.cfg.DATA.DATASET.NUM_CLASSES, kernel_size=3, stride=1, padding=1)
 
     def reg_block(self, out_channels, boxes_per_location):
-        return nn.Conv2d(out_channels, boxes_per_location * 4, kernel_size=
-            3, stride=1, padding=1)
+        return nn.Conv2d(out_channels, boxes_per_location * 4, kernel_size=3, stride=1, padding=1)
 
     def reset_parameters(self):
         for m in self.modules():
@@ -938,17 +889,12 @@ class predictor(nn.Module):
         """
         cls_logits = []
         bbox_pred = []
-        for feature, cls_header, reg_header in zip(features, self.
-            cls_headers, self.reg_headers):
-            cls_logits.append(cls_header(feature).permute(0, 2, 3, 1).
-                contiguous())
-            bbox_pred.append(reg_header(feature).permute(0, 2, 3, 1).
-                contiguous())
+        for feature, cls_header, reg_header in zip(features, self.cls_headers, self.reg_headers):
+            cls_logits.append(cls_header(feature).permute(0, 2, 3, 1).contiguous())
+            bbox_pred.append(reg_header(feature).permute(0, 2, 3, 1).contiguous())
         batch_size = features[0].shape[0]
-        cls_logits = torch.cat([c.view(c.shape[0], -1) for c in cls_logits],
-            dim=1).view(batch_size, -1, self.cfg.DATA.DATASET.NUM_CLASSES)
-        bbox_pred = torch.cat([l.view(l.shape[0], -1) for l in bbox_pred],
-            dim=1).view(batch_size, -1, 4)
+        cls_logits = torch.cat([c.view(c.shape[0], -1) for c in cls_logits], dim=1).view(batch_size, -1, self.cfg.DATA.DATASET.NUM_CLASSES)
+        bbox_pred = torch.cat([l.view(l.shape[0], -1) for l in bbox_pred], dim=1).view(batch_size, -1, 4)
         return cls_logits, bbox_pred
 
 
@@ -956,8 +902,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_yatengLG_SSD_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

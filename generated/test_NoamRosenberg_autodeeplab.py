@@ -70,8 +70,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -200,29 +201,19 @@ class Decoder(object):
         self.network_space = torch.zeros(12, 4, 3)
         for layer in range(self._num_layers):
             if layer == 0:
-                self.network_space[layer][0][1:] = F.softmax(self._betas[
-                    layer][0][1:], dim=-1) * (2 / 3)
+                self.network_space[layer][0][1:] = F.softmax(self._betas[layer][0][1:], dim=-1) * (2 / 3)
             elif layer == 1:
-                self.network_space[layer][0][1:] = F.softmax(self._betas[
-                    layer][0][1:], dim=-1) * (2 / 3)
-                self.network_space[layer][1] = F.softmax(self._betas[layer]
-                    [1], dim=-1)
+                self.network_space[layer][0][1:] = F.softmax(self._betas[layer][0][1:], dim=-1) * (2 / 3)
+                self.network_space[layer][1] = F.softmax(self._betas[layer][1], dim=-1)
             elif layer == 2:
-                self.network_space[layer][0][1:] = F.softmax(self._betas[
-                    layer][0][1:], dim=-1) * (2 / 3)
-                self.network_space[layer][1] = F.softmax(self._betas[layer]
-                    [1], dim=-1)
-                self.network_space[layer][2] = F.softmax(self._betas[layer]
-                    [2], dim=-1)
+                self.network_space[layer][0][1:] = F.softmax(self._betas[layer][0][1:], dim=-1) * (2 / 3)
+                self.network_space[layer][1] = F.softmax(self._betas[layer][1], dim=-1)
+                self.network_space[layer][2] = F.softmax(self._betas[layer][2], dim=-1)
             else:
-                self.network_space[layer][0][1:] = F.softmax(self._betas[
-                    layer][0][1:], dim=-1) * (2 / 3)
-                self.network_space[layer][1] = F.softmax(self._betas[layer]
-                    [1], dim=-1)
-                self.network_space[layer][2] = F.softmax(self._betas[layer]
-                    [2], dim=-1)
-                self.network_space[layer][3][:2] = F.softmax(self._betas[
-                    layer][3][:2], dim=-1) * (2 / 3)
+                self.network_space[layer][0][1:] = F.softmax(self._betas[layer][0][1:], dim=-1) * (2 / 3)
+                self.network_space[layer][1] = F.softmax(self._betas[layer][1], dim=-1)
+                self.network_space[layer][2] = F.softmax(self._betas[layer][2], dim=-1)
+                self.network_space[layer][3][:2] = F.softmax(self._betas[layer][3][:2], dim=-1) * (2 / 3)
 
     def viterbi_decode(self):
         prob_space = np.zeros(self.network_space.shape[:2])
@@ -239,13 +230,10 @@ class Decoder(object):
                         continue
                     local_prob = []
                     for rate in range(self.network_space.shape[2]):
-                        if (sample == 0 and rate == 2 or sample == 3 and 
-                            rate == 0):
+                        if sample == 0 and rate == 2 or sample == 3 and rate == 0:
                             continue
                         else:
-                            local_prob.append(prob_space[layer - 1][sample +
-                                1 - rate] * self.network_space[layer][
-                                sample + 1 - rate][rate])
+                            local_prob.append(prob_space[layer - 1][sample + 1 - rate] * self.network_space[layer][sample + 1 - rate][rate])
                     prob_space[layer][sample] = np.max(local_prob, axis=0)
                     rate = np.argmax(local_prob, axis=0)
                     path = 1 - rate if sample != 3 else -rate
@@ -254,8 +242,7 @@ class Decoder(object):
         actual_path = np.zeros(12).astype('uint8')
         actual_path[-1] = output_sample
         for i in range(1, self._num_layers):
-            actual_path[-i - 1] = actual_path[-i] + path_space[self.
-                _num_layers - i, actual_path[-i]]
+            actual_path[-i - 1] = actual_path[-i] + path_space[self._num_layers - i, actual_path[-i]]
         return actual_path, network_layer_to_space(actual_path)
 
     def dfs_decode(self):
@@ -276,15 +263,13 @@ class Decoder(object):
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     print('end0-1')
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
             elif layer == 1:
@@ -293,35 +278,30 @@ class Decoder(object):
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     print('end1-1')
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                 num = 1
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][2]
                     curr_result.append([num, 2])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 2)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 2)
                     curr_value = curr_value / weight_network[layer][num][2]
                     curr_result.pop()
             elif layer == 2:
@@ -330,55 +310,47 @@ class Decoder(object):
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     print('end2-1')
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                 num = 1
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][2]
                     curr_result.append([num, 2])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 2)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 2)
                     curr_value = curr_value / weight_network[layer][num][2]
                     curr_result.pop()
                 num = 2
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 2)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 2)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][2]
                     curr_result.append([num, 2])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 3)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 3)
                     curr_value = curr_value / weight_network[layer][num][2]
                     curr_result.pop()
             else:
@@ -386,68 +358,58 @@ class Decoder(object):
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                 num = 1
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 0)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 0)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][2]
                     curr_result.append([num, 2])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 2)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 2)
                     curr_value = curr_value / weight_network[layer][num][2]
                     curr_result.pop()
                 num = 2
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 1)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 1)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 2)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 2)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][2]
                     curr_result.append([num, 2])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 3)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 3)
                     curr_value = curr_value / weight_network[layer][num][2]
                     curr_result.pop()
                 num = 3
                 if last == num:
                     curr_value = curr_value * weight_network[layer][num][0]
                     curr_result.append([num, 0])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 2)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 2)
                     curr_value = curr_value / weight_network[layer][num][0]
                     curr_result.pop()
                     curr_value = curr_value * weight_network[layer][num][1]
                     curr_result.append([num, 1])
-                    _parse(weight_network, layer + 1, curr_value,
-                        curr_result, 3)
+                    _parse(weight_network, layer + 1, curr_value, curr_result, 3)
                     curr_value = curr_value / weight_network[layer][num][1]
                     curr_result.pop()
         network_weight = F.softmax(self.last_betas_network, dim=-1) * 5
@@ -464,8 +426,7 @@ class Decoder(object):
             n = 2
             for i in range(steps):
                 end = start + n
-                edges = sorted(range(start, end), key=lambda x: -np.max(
-                    alphas[(x), 1:]))
+                edges = sorted(range(start, end), key=lambda x: -np.max(alphas[(x), 1:]))
                 top2edges = edges[:2]
                 for j in top2edges:
                     best_op_index = np.argmax(alphas[j])
@@ -478,22 +439,10 @@ class Decoder(object):
         return gene_cell
 
 
-PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect',
-    'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
+PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect', 'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
 
 
-OPS = {'none': lambda C, stride, affine, use_ABN: Zero(stride),
-    'avg_pool_3x3': lambda C, stride, affine, use_ABN: nn.AvgPool2d(3,
-    stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda
-    C, stride, affine, use_ABN: nn.MaxPool2d(3, stride=stride, padding=1),
-    'skip_connect': lambda C, stride, affine, use_ABN: Identity() if stride ==
-    1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C,
-    stride, affine, use_ABN: SepConv(C, C, 3, stride, 1, affine=affine),
-    'sep_conv_5x5': lambda C, stride, affine, use_ABN: SepConv(C, C, 5,
-    stride, 2, affine=affine), 'dil_conv_3x3': lambda C, stride, affine,
-    use_ABN: DilConv(C, C, 3, stride, 2, 2, affine=affine, use_ABN=use_ABN),
-    'dil_conv_5x5': lambda C, stride, affine, use_ABN: DilConv(C, C, 5,
-    stride, 4, 2, affine=affine, use_ABN=use_ABN)}
+OPS = {'none': lambda C, stride, affine, use_ABN: Zero(stride), 'avg_pool_3x3': lambda C, stride, affine, use_ABN: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine, use_ABN: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda C, stride, affine, use_ABN: Identity() if stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C, stride, affine, use_ABN: SepConv(C, C, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine, use_ABN: SepConv(C, C, 5, stride, 2, affine=affine), 'dil_conv_3x3': lambda C, stride, affine, use_ABN: DilConv(C, C, 3, stride, 2, 2, affine=affine, use_ABN=use_ABN), 'dil_conv_5x5': lambda C, stride, affine, use_ABN: DilConv(C, C, 5, stride, 4, 2, affine=affine, use_ABN=use_ABN)}
 
 
 class MixedOp(nn.Module):
@@ -513,9 +462,7 @@ class MixedOp(nn.Module):
 
 class Cell(nn.Module):
 
-    def __init__(self, steps, block_multiplier, prev_prev_fmultiplier,
-        prev_fmultiplier_down, prev_fmultiplier_same, prev_fmultiplier_up,
-        filter_multiplier):
+    def __init__(self, steps, block_multiplier, prev_prev_fmultiplier, prev_fmultiplier_down, prev_fmultiplier_same, prev_fmultiplier_up, filter_multiplier):
         super(Cell, self).__init__()
         self.C_in = block_multiplier * filter_multiplier
         self.C_out = filter_multiplier
@@ -523,19 +470,15 @@ class Cell(nn.Module):
         self._prev_fmultiplier_same = prev_fmultiplier_same
         if prev_fmultiplier_down is not None:
             self.C_prev_down = int(prev_fmultiplier_down * block_multiplier)
-            self.preprocess_down = ReLUConvBN(self.C_prev_down, self.C_out,
-                1, 1, 0, affine=False)
+            self.preprocess_down = ReLUConvBN(self.C_prev_down, self.C_out, 1, 1, 0, affine=False)
         if prev_fmultiplier_same is not None:
             self.C_prev_same = int(prev_fmultiplier_same * block_multiplier)
-            self.preprocess_same = ReLUConvBN(self.C_prev_same, self.C_out,
-                1, 1, 0, affine=False)
+            self.preprocess_same = ReLUConvBN(self.C_prev_same, self.C_out, 1, 1, 0, affine=False)
         if prev_fmultiplier_up is not None:
             self.C_prev_up = int(prev_fmultiplier_up * block_multiplier)
-            self.preprocess_up = ReLUConvBN(self.C_prev_up, self.C_out, 1, 
-                1, 0, affine=False)
+            self.preprocess_up = ReLUConvBN(self.C_prev_up, self.C_out, 1, 1, 0, affine=False)
         if prev_prev_fmultiplier != -1:
-            self.pre_preprocess = ReLUConvBN(self.C_prev_prev, self.C_out, 
-                1, 1, 0, affine=False)
+            self.pre_preprocess = ReLUConvBN(self.C_prev_prev, self.C_out, 1, 1, 0, affine=False)
         self._steps = steps
         self.block_multiplier = block_multiplier
         self._ops = nn.ModuleList()
@@ -551,8 +494,7 @@ class Cell(nn.Module):
 
     def scale_dimension(self, dim, scale):
         assert isinstance(dim, int)
-        return int((float(dim) - 1.0) * scale + 1.0) if dim % 2 else int(
-            dim * scale)
+        return int((float(dim) - 1.0) * scale + 1.0) if dim % 2 else int(dim * scale)
 
     def prev_feature_resize(self, prev_feature, mode):
         if mode == 'down':
@@ -561,8 +503,7 @@ class Cell(nn.Module):
         elif mode == 'up':
             feature_size_h = self.scale_dimension(prev_feature.shape[2], 2)
             feature_size_w = self.scale_dimension(prev_feature.shape[3], 2)
-        return F.interpolate(prev_feature, (feature_size_h, feature_size_w),
-            mode='bilinear', align_corners=True)
+        return F.interpolate(prev_feature, (feature_size_h, feature_size_w), mode='bilinear', align_corners=True)
 
     def forward(self, s0, s1_down, s1_same, s1_up, n_alphas):
         if s1_down is not None:
@@ -578,9 +519,7 @@ class Cell(nn.Module):
             size_h, size_w = s1_up.shape[2], s1_up.shape[3]
         all_states = []
         if s0 is not None:
-            s0 = F.interpolate(s0, (size_h, size_w), mode='bilinear',
-                align_corners=True) if s0.shape[2] != size_h or s0.shape[3
-                ] != size_w else s0
+            s0 = F.interpolate(s0, (size_h, size_w), mode='bilinear', align_corners=True) if s0.shape[2] != size_h or s0.shape[3] != size_w else s0
             s0 = self.pre_preprocess(s0) if s0.shape[1] != self.C_out else s0
             if s1_down is not None:
                 states_down = [s0, s1_down]
@@ -610,8 +549,7 @@ class Cell(nn.Module):
                     branch_index = offset + j
                     if self._ops[branch_index] is None:
                         continue
-                    new_state = self._ops[branch_index](h, n_alphas[
-                        branch_index])
+                    new_state = self._ops[branch_index](h, n_alphas[branch_index])
                     new_states.append(new_state)
                 s = sum(new_states)
                 offset += len(states)
@@ -633,13 +571,11 @@ class Cell(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None
-        ):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            dilation=dilation, padding=dilation, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, dilation=dilation, padding=dilation, bias=False)
         self.bn2 = BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm2d(planes * 4)
@@ -680,19 +616,14 @@ class ResNet(nn.Module):
             blocks = [1, 2, 1]
         else:
             raise NotImplementedError
-        self.conv1 = nn.Conv2d(nInputChannels, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(nInputChannels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides
-            [0], dilation=dilations[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=
-            strides[1], dilation=dilations[1])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=
-            strides[2], dilation=dilations[2])
-        self.layer4 = self._make_MG_unit(block, 512, blocks=blocks, stride=
-            strides[3], dilation=dilations[3])
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides[0], dilation=dilations[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=strides[1], dilation=dilations[1])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=strides[2], dilation=dilations[2])
+        self.layer4 = self._make_MG_unit(block, 512, blocks=blocks, stride=strides[3], dilation=dilations[3])
         self._init_weight()
         if pretrained:
             self._load_pretrained_model()
@@ -700,31 +631,23 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, dilation,
-            downsample))
+        layers.append(block(self.inplanes, planes, stride, dilation, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
         return nn.Sequential(*layers)
 
-    def _make_MG_unit(self, block, planes, blocks=[1, 2, 4], stride=1,
-        dilation=1):
+    def _make_MG_unit(self, block, planes, blocks=[1, 2, 4], stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, dilation=blocks[
-            0] * dilation, downsample=downsample))
+        layers.append(block(self.inplanes, planes, stride, dilation=blocks[0] * dilation, downsample=downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, len(blocks)):
-            layers.append(block(self.inplanes, planes, stride=1, dilation=
-                blocks[i] * dilation))
+            layers.append(block(self.inplanes, planes, stride=1, dilation=blocks[i] * dilation))
         return nn.Sequential(*layers)
 
     def forward(self, input):
@@ -749,8 +672,7 @@ class ResNet(nn.Module):
                 m.bias.data.zero_()
 
     def _load_pretrained_model(self):
-        pretrain_dict = model_zoo.load_url(
-            'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth')
+        pretrain_dict = model_zoo.load_url('https://download.pytorch.org/models/resnet101-5d3b4d8f.pth')
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
@@ -770,9 +692,7 @@ class ASPP_module(nn.Module):
         else:
             kernel_size = 3
             padding = dilation
-        self.atrous_convolution = nn.Conv2d(inplanes, planes, kernel_size=
-            kernel_size, stride=1, padding=padding, dilation=dilation, bias
-            =False)
+        self.atrous_convolution = nn.Conv2d(inplanes, planes, kernel_size=kernel_size, stride=1, padding=padding, dilation=dilation, bias=False)
         self.bn = BatchNorm2d(planes)
         self.relu = nn.ReLU()
         self._init_weight()
@@ -797,15 +717,13 @@ def ResNet101(output_stride, BatchNorm, pretrained=True):
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], output_stride, BatchNorm,
-        pretrained=pretrained)
+    model = ResNet(Bottleneck, [3, 4, 23, 3], output_stride, BatchNorm, pretrained=pretrained)
     return model
 
 
 class DeepLabv3_plus(nn.Module):
 
-    def __init__(self, nInputChannels=3, n_classes=21, os=16, pretrained=
-        False, freeze_bn=False, _print=True):
+    def __init__(self, nInputChannels=3, n_classes=21, os=16, pretrained=False, freeze_bn=False, _print=True):
         if _print:
             None
             None
@@ -813,8 +731,7 @@ class DeepLabv3_plus(nn.Module):
             None
             None
         super(DeepLabv3_plus, self).__init__()
-        self.resnet_features = ResNet101(nInputChannels, os, pretrained=
-            pretrained)
+        self.resnet_features = ResNet101(nInputChannels, os, pretrained=pretrained)
         if os == 16:
             dilations = [1, 6, 12, 18]
         elif os == 8:
@@ -826,18 +743,12 @@ class DeepLabv3_plus(nn.Module):
         self.aspp3 = ASPP_module(2048, 256, dilation=dilations[2])
         self.aspp4 = ASPP_module(2048, 256, dilation=dilations[3])
         self.relu = nn.ReLU()
-        self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Conv2d(2048, 256, 1, stride=1, bias=False), BatchNorm2d(256),
-            nn.ReLU())
+        self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(2048, 256, 1, stride=1, bias=False), BatchNorm2d(256), nn.ReLU())
         self.conv1 = nn.Conv2d(1280, 256, 1, bias=False)
         self.bn1 = BatchNorm2d(256)
         self.conv2 = nn.Conv2d(256, 48, 1, bias=False)
         self.bn2 = BatchNorm2d(48)
-        self.last_conv = nn.Sequential(nn.Conv2d(304, 256, kernel_size=3,
-            stride=1, padding=1, bias=False), BatchNorm2d(256), nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=
-            False), BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, n_classes,
-            kernel_size=1, stride=1))
+        self.last_conv = nn.Sequential(nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, n_classes, kernel_size=1, stride=1))
         if freeze_bn:
             self._freeze_bn()
 
@@ -848,22 +759,18 @@ class DeepLabv3_plus(nn.Module):
         x3 = self.aspp3(x)
         x4 = self.aspp4(x)
         x5 = self.global_avg_pool(x)
-        x5 = F.upsample(x5, size=x4.size()[2:], mode='bilinear',
-            align_corners=True)
+        x5 = F.upsample(x5, size=x4.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x1, x2, x3, x4, x5), dim=1)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
-        x = F.upsample(x, size=(int(math.ceil(input.size()[-2] / 4)), int(
-            math.ceil(input.size()[-1] / 4))), mode='bilinear',
-            align_corners=True)
+        x = F.upsample(x, size=(int(math.ceil(input.size()[-2] / 4)), int(math.ceil(input.size()[-1] / 4))), mode='bilinear', align_corners=True)
         low_level_features = self.conv2(low_level_features)
         low_level_features = self.bn2(low_level_features)
         low_level_features = self.relu(low_level_features)
         x = torch.cat((x, low_level_features), dim=1)
         x = self.last_conv(x)
-        x = F.interpolate(x, size=input.size()[2:], mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
         return x
 
     def _freeze_bn(self):
@@ -883,11 +790,9 @@ class DeepLabv3_plus(nn.Module):
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, padding=0,
-        dilation=1, bias=False):
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, padding=0, dilation=1, bias=False):
         super(SeparableConv2d, self)._init_()
-        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride,
-            padding, dilation, groups=inplanes, bias=bias)
+        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, padding, dilation, groups=inplanes, bias=bias)
         self.pointwise = nn.Conv2d(inplanes, planes, 1, 1, 0, 1, 1, bias=bias)
 
     def forward(self, x):
@@ -907,16 +812,13 @@ def fixed_padding(inputs, kernel_size, dilation):
 
 class SeparableConv2d_same(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=
-        1, bias=False):
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, bias=False):
         super(SeparableConv2d_same, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0,
-            dilation, groups=inplanes, bias=bias)
+        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0, dilation, groups=inplanes, bias=bias)
         self.pointwise = nn.Conv2d(inplanes, planes, 1, 1, 0, 1, 1, bias=bias)
 
     def forward(self, x):
-        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1
-            .dilation[0])
+        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1.dilation[0])
         x = self.conv1(x)
         x = self.pointwise(x)
         return x
@@ -924,12 +826,10 @@ class SeparableConv2d_same(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, inplanes, planes, reps, stride=1, dilation=1,
-        start_with_relu=True, grow_first=True, is_last=False):
+    def __init__(self, inplanes, planes, reps, stride=1, dilation=1, start_with_relu=True, grow_first=True, is_last=False):
         super(Block, self).__init__()
         if planes != inplanes or stride != 1:
-            self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=
-                False)
+            self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=False)
             self.skipbn = BatchNorm2d(planes)
         else:
             self.skip = None
@@ -938,19 +838,16 @@ class Block(nn.Module):
         filters = inplanes
         if grow_first:
             rep.append(self.relu)
-            rep.append(SeparableConv2d_same(inplanes, planes, 3, stride=1,
-                dilation=dilation))
+            rep.append(SeparableConv2d_same(inplanes, planes, 3, stride=1, dilation=dilation))
             rep.append(BatchNorm2d(planes))
             filters = planes
         for i in range(reps - 1):
             rep.append(self.relu)
-            rep.append(SeparableConv2d_same(filters, filters, 3, stride=1,
-                dilation=dilation))
+            rep.append(SeparableConv2d_same(filters, filters, 3, stride=1, dilation=dilation))
             rep.append(BatchNorm2d(filters))
         if not grow_first:
             rep.append(self.relu)
-            rep.append(SeparableConv2d_same(inplanes, planes, 3, stride=1,
-                dilation=dilation))
+            rep.append(SeparableConv2d_same(inplanes, planes, 3, stride=1, dilation=dilation))
             rep.append(BatchNorm2d(planes))
         if not start_with_relu:
             rep = rep[1:]
@@ -988,60 +885,36 @@ class Xception(nn.Module):
             exit_block_dilations = 2, 4
         else:
             raise NotImplementedError
-        self.conv1 = nn.Conv2d(inplanes, 32, 3, stride=2, padding=1, bias=False
-            )
+        self.conv1 = nn.Conv2d(inplanes, 32, 3, stride=2, padding=1, bias=False)
         self.bn1 = BatchNorm2d(32)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False)
         self.bn2 = BatchNorm2d(64)
         self.block1 = Block(64, 128, reps=2, stride=2, start_with_relu=False)
-        self.block2 = Block(128, 256, reps=2, stride=2, start_with_relu=
-            True, grow_first=True)
-        self.block3 = Block(256, 728, reps=2, stride=entry_block3_stride,
-            start_with_relu=True, grow_first=True, is_last=True)
-        self.block4 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block5 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block6 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block7 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block8 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block9 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block10 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block11 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block12 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block13 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block14 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block15 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block16 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block17 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block18 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block19 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, start_with_relu=True, grow_first=True)
-        self.block20 = Block(728, 1024, reps=2, stride=1, dilation=
-            exit_block_dilations[0], start_with_relu=True, grow_first=False,
-            is_last=True)
-        self.conv3 = SeparableConv2d_same(1024, 1536, 3, stride=1, dilation
-            =exit_block_dilations[1])
+        self.block2 = Block(128, 256, reps=2, stride=2, start_with_relu=True, grow_first=True)
+        self.block3 = Block(256, 728, reps=2, stride=entry_block3_stride, start_with_relu=True, grow_first=True, is_last=True)
+        self.block4 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block5 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block6 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block7 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block8 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block9 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block10 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block11 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block12 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block13 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block14 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block15 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block16 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block17 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block18 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block19 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, start_with_relu=True, grow_first=True)
+        self.block20 = Block(728, 1024, reps=2, stride=1, dilation=exit_block_dilations[0], start_with_relu=True, grow_first=False, is_last=True)
+        self.conv3 = SeparableConv2d_same(1024, 1536, 3, stride=1, dilation=exit_block_dilations[1])
         self.bn3 = BatchNorm2d(1536)
-        self.conv4 = SeparableConv2d_same(1536, 1536, 3, stride=1, dilation
-            =exit_block_dilations[1])
+        self.conv4 = SeparableConv2d_same(1536, 1536, 3, stride=1, dilation=exit_block_dilations[1])
         self.bn4 = BatchNorm2d(1536)
-        self.conv5 = SeparableConv2d_same(1536, 2048, 3, stride=1, dilation
-            =exit_block_dilations[1])
+        self.conv5 = SeparableConv2d_same(1536, 2048, 3, stride=1, dilation=exit_block_dilations[1])
         self.bn5 = BatchNorm2d(2048)
         self._init_weight()
         if pretrained:
@@ -1096,9 +969,7 @@ class Xception(nn.Module):
                 m.bias.data.zero_()
 
     def _load_xception_pretrained(self):
-        pretrain_dict = model_zoo.load_url(
-            'http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth'
-            )
+        pretrain_dict = model_zoo.load_url('http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth')
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
@@ -1140,9 +1011,7 @@ class ASPP_module(nn.Module):
         else:
             kernel_size = 3
             padding = dilation
-        self.atrous_convolution = nn.Conv2d(inplanes, planes, kernel_size=
-            kernel_size, stride=1, padding=padding, dilation=dilation, bias
-            =False)
+        self.atrous_convolution = nn.Conv2d(inplanes, planes, kernel_size=kernel_size, stride=1, padding=padding, dilation=dilation, bias=False)
         self.bn = BatchNorm2d(planes)
         self.relu = nn.ReLU()
         self._init_weight()
@@ -1164,8 +1033,7 @@ class ASPP_module(nn.Module):
 
 class DeepLabv3_plus(nn.Module):
 
-    def __init__(self, nInputChannels=3, n_classes=21, os=16, pretrained=
-        False, freeze_bn=False, _print=True):
+    def __init__(self, nInputChannels=3, n_classes=21, os=16, pretrained=False, freeze_bn=False, _print=True):
         if _print:
             None
             None
@@ -1185,18 +1053,12 @@ class DeepLabv3_plus(nn.Module):
         self.aspp3 = ASPP_module(2048, 256, dilation=dilations[2])
         self.aspp4 = ASPP_module(2048, 256, dilation=dilations[3])
         self.relu = nn.ReLU()
-        self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Conv2d(2048, 256, 1, stride=1, bias=False), BatchNorm2d(256),
-            nn.ReLU())
+        self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(2048, 256, 1, stride=1, bias=False), BatchNorm2d(256), nn.ReLU())
         self.conv1 = nn.Conv2d(1280, 256, 1, bias=False)
         self.bn1 = BatchNorm2d(256)
         self.conv2 = nn.Conv2d(128, 48, 1, bias=False)
         self.bn2 = BatchNorm2d(48)
-        self.last_conv = nn.Sequential(nn.Conv2d(304, 256, kernel_size=3,
-            stride=1, padding=1, bias=False), BatchNorm2d(256), nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=
-            False), BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, n_classes,
-            kernel_size=1, stride=1))
+        self.last_conv = nn.Sequential(nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, n_classes, kernel_size=1, stride=1))
         if freeze_bn:
             self._freeze_bn()
 
@@ -1207,22 +1069,18 @@ class DeepLabv3_plus(nn.Module):
         x3 = self.aspp3(x)
         x4 = self.aspp4(x)
         x5 = self.global_avg_pool(x)
-        x5 = F.interpolate(x5, size=x4.size()[2:], mode='bilinear',
-            align_corners=True)
+        x5 = F.interpolate(x5, size=x4.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x1, x2, x3, x4, x5), dim=1)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
-        x = F.interpolate(x, size=(int(math.ceil(input.size()[-2] / 4)),
-            int(math.ceil(input.size()[-1] / 4))), mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=(int(math.ceil(input.size()[-2] / 4)), int(math.ceil(input.size()[-1] / 4))), mode='bilinear', align_corners=True)
         low_level_features = self.conv2(low_level_features)
         low_level_features = self.bn2(low_level_features)
         low_level_features = self.relu(low_level_features)
         x = torch.cat((x, low_level_features), dim=1)
         x = self.last_conv(x)
-        x = F.interpolate(x, size=input.size()[2:], mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
         return x
 
     def _freeze_bn(self):
@@ -1242,16 +1100,12 @@ class DeepLabv3_plus(nn.Module):
 
 class _ASPPModule(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size, padding, dilation,
-        BatchNorm, separate=False):
+    def __init__(self, inplanes, planes, kernel_size, padding, dilation, BatchNorm, separate=False):
         super(_ASPPModule, self).__init__()
         if separate:
-            self.atrous_conv = SeparateConv(inplanes, planes, kernel_size, 
-                1, padding, dilation, False, BatchNorm)
+            self.atrous_conv = SeparateConv(inplanes, planes, kernel_size, 1, padding, dilation, False, BatchNorm)
         else:
-            self.atrous_conv = nn.Conv2d(inplanes, planes, kernel_size=
-                kernel_size, stride=1, padding=padding, dilation=dilation,
-                bias=False)
+            self.atrous_conv = nn.Conv2d(inplanes, planes, kernel_size=kernel_size, stride=1, padding=padding, dilation=dilation, bias=False)
         self.bn = BatchNorm(planes)
         self._init_weight()
 
@@ -1269,22 +1123,18 @@ class _ASPPModule(nn.Module):
 
 
 def conv3x3(in_planes, out_planes, stride=1, padding=1, dilation=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=padding, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True, BatchNorm=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True, BatchNorm=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0],
-            dilation=dilation[0])
+        self.conv1 = conv3x3(inplanes, planes, stride, padding=dilation[0], dilation=dilation[0])
         self.bn1 = BatchNorm(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=
-            dilation[1])
+        self.conv2 = conv3x3(planes, planes, padding=dilation[1], dilation=dilation[1])
         self.bn2 = BatchNorm(planes)
         self.downsample = downsample
         self.stride = stride
@@ -1308,13 +1158,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        dilation=(1, 1), residual=True, BatchNorm=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True, BatchNorm=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation[1], bias=False, dilation=dilation[1])
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation[1], bias=False, dilation=dilation[1])
         self.bn2 = BatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
@@ -1341,50 +1189,31 @@ class Bottleneck(nn.Module):
 
 class DRN(nn.Module):
 
-    def __init__(self, block, layers, arch='D', channels=(16, 32, 64, 128, 
-        256, 512, 512, 512), BatchNorm=None):
+    def __init__(self, block, layers, arch='D', channels=(16, 32, 64, 128, 256, 512, 512, 512), BatchNorm=None):
         super(DRN, self).__init__()
         self.inplanes = channels[0]
         self.out_dim = channels[-1]
         self.arch = arch
         if arch == 'C':
-            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
-                padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False)
             self.bn1 = BatchNorm(channels[0])
             self.relu = nn.ReLU(inplace=True)
-            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[
-                0], stride=1, BatchNorm=BatchNorm)
-            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[
-                1], stride=2, BatchNorm=BatchNorm)
+            self.layer1 = self._make_layer(BasicBlock, channels[0], layers[0], stride=1, BatchNorm=BatchNorm)
+            self.layer2 = self._make_layer(BasicBlock, channels[1], layers[1], stride=2, BatchNorm=BatchNorm)
         elif arch == 'D':
-            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0],
-                kernel_size=7, stride=1, padding=3, bias=False), BatchNorm(
-                channels[0]), nn.ReLU(inplace=True))
-            self.layer1 = self._make_conv_layers(channels[0], layers[0],
-                stride=1, BatchNorm=BatchNorm)
-            self.layer2 = self._make_conv_layers(channels[1], layers[1],
-                stride=2, BatchNorm=BatchNorm)
-        self.layer3 = self._make_layer(block, channels[2], layers[2],
-            stride=2, BatchNorm=BatchNorm)
-        self.layer4 = self._make_layer(block, channels[3], layers[3],
-            stride=2, BatchNorm=BatchNorm)
-        self.layer5 = self._make_layer(block, channels[4], layers[4],
-            dilation=2, new_level=False, BatchNorm=BatchNorm)
-        self.layer6 = None if layers[5] == 0 else self._make_layer(block,
-            channels[5], layers[5], dilation=4, new_level=False, BatchNorm=
-            BatchNorm)
+            self.layer0 = nn.Sequential(nn.Conv2d(3, channels[0], kernel_size=7, stride=1, padding=3, bias=False), BatchNorm(channels[0]), nn.ReLU(inplace=True))
+            self.layer1 = self._make_conv_layers(channels[0], layers[0], stride=1, BatchNorm=BatchNorm)
+            self.layer2 = self._make_conv_layers(channels[1], layers[1], stride=2, BatchNorm=BatchNorm)
+        self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2, BatchNorm=BatchNorm)
+        self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2, BatchNorm=BatchNorm)
+        self.layer5 = self._make_layer(block, channels[4], layers[4], dilation=2, new_level=False, BatchNorm=BatchNorm)
+        self.layer6 = None if layers[5] == 0 else self._make_layer(block, channels[5], layers[5], dilation=4, new_level=False, BatchNorm=BatchNorm)
         if arch == 'C':
-            self.layer7 = None if layers[6] == 0 else self._make_layer(
-                BasicBlock, channels[6], layers[6], dilation=2, new_level=
-                False, residual=False, BatchNorm=BatchNorm)
-            self.layer8 = None if layers[7] == 0 else self._make_layer(
-                BasicBlock, channels[7], layers[7], dilation=1, new_level=
-                False, residual=False, BatchNorm=BatchNorm)
+            self.layer7 = None if layers[6] == 0 else self._make_layer(BasicBlock, channels[6], layers[6], dilation=2, new_level=False, residual=False, BatchNorm=BatchNorm)
+            self.layer8 = None if layers[7] == 0 else self._make_layer(BasicBlock, channels[7], layers[7], dilation=1, new_level=False, residual=False, BatchNorm=BatchNorm)
         elif arch == 'D':
-            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(
-                channels[6], layers[6], dilation=2, BatchNorm=BatchNorm)
-            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(
-                channels[7], layers[7], dilation=1, BatchNorm=BatchNorm)
+            self.layer7 = None if layers[6] == 0 else self._make_conv_layers(channels[6], layers[6], dilation=2, BatchNorm=BatchNorm)
+            self.layer8 = None if layers[7] == 0 else self._make_conv_layers(channels[7], layers[7], dilation=1, BatchNorm=BatchNorm)
         self._init_weight()
 
     def _init_weight(self):
@@ -1399,33 +1228,22 @@ class DRN(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        new_level=True, residual=True, BatchNorm=None):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, new_level=True, residual=True, BatchNorm=None):
         assert dilation == 1 or dilation % 2 == 0
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm(planes * block.expansion))
         layers = list()
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation=(1, 1) if dilation == 1 else (dilation // 2 if
-            new_level else dilation, dilation), residual=residual,
-            BatchNorm=BatchNorm))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=(1, 1) if dilation == 1 else (dilation // 2 if new_level else dilation, dilation), residual=residual, BatchNorm=BatchNorm))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, residual=residual,
-                dilation=(dilation, dilation), BatchNorm=BatchNorm))
+            layers.append(block(self.inplanes, planes, residual=residual, dilation=(dilation, dilation), BatchNorm=BatchNorm))
         return nn.Sequential(*layers)
 
-    def _make_conv_layers(self, channels, convs, stride=1, dilation=1,
-        BatchNorm=None):
+    def _make_conv_layers(self, channels, convs, stride=1, dilation=1, BatchNorm=None):
         modules = []
         for i in range(convs):
-            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=
-                3, stride=stride if i == 0 else 1, padding=dilation, bias=
-                False, dilation=dilation), BatchNorm(channels), nn.ReLU(
-                inplace=True)])
+            modules.extend([nn.Conv2d(self.inplanes, channels, kernel_size=3, stride=stride if i == 0 else 1, padding=dilation, bias=False, dilation=dilation), BatchNorm(channels), nn.ReLU(inplace=True)])
             self.inplanes = channels
         return nn.Sequential(*modules)
 
@@ -1457,19 +1275,14 @@ class DRN_A(nn.Module):
         self.inplanes = 64
         super(DRN_A, self).__init__()
         self.out_dim = 512 * block.expansion
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = BatchNorm(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], BatchNorm=
-            BatchNorm)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-            BatchNorm=BatchNorm)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1,
-            dilation=2, BatchNorm=BatchNorm)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=4, BatchNorm=BatchNorm)
+        self.layer1 = self._make_layer(block, 64, layers[0], BatchNorm=BatchNorm)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, BatchNorm=BatchNorm)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2, BatchNorm=BatchNorm)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, BatchNorm=BatchNorm)
         self._init_weight()
 
     def _init_weight(self):
@@ -1484,20 +1297,15 @@ class DRN_A(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        BatchNorm=None):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, BatchNorm=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            BatchNorm=BatchNorm))
+        layers.append(block(self.inplanes, planes, stride, downsample, BatchNorm=BatchNorm))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=(dilation,
-                dilation), BatchNorm=BatchNorm))
+            layers.append(block(self.inplanes, planes, dilation=(dilation, dilation), BatchNorm=BatchNorm))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -1523,17 +1331,9 @@ class InvertedResidual(nn.Module):
         self.kernel_size = 3
         self.dilation = dilation
         if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3,
-                stride, 0, dilation, groups=hidden_dim, bias=False),
-                BatchNorm(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(
-                hidden_dim, oup, 1, 1, 0, 1, 1, bias=False), BatchNorm(oup))
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 0, dilation, groups=hidden_dim, bias=False), BatchNorm(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, 1, 1, bias=False), BatchNorm(oup))
         else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, 1,
-                bias=False), BatchNorm(hidden_dim), nn.ReLU6(inplace=True),
-                nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 0, dilation,
-                groups=hidden_dim, bias=False), BatchNorm(hidden_dim), nn.
-                ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, 1,
-                bias=False), BatchNorm(oup))
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, 1, bias=False), BatchNorm(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 0, dilation, groups=hidden_dim, bias=False), BatchNorm(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, 1, bias=False), BatchNorm(oup))
 
     def forward(self, x):
         x_pad = fixed_padding(x, self.kernel_size, dilation=self.dilation)
@@ -1545,22 +1345,18 @@ class InvertedResidual(nn.Module):
 
 
 def conv_bn(inp, oup, stride, BatchNorm):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-        BatchNorm(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), BatchNorm(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
 
-    def __init__(self, output_stride=8, BatchNorm=None, width_mult=1.0,
-        pretrained=True):
+    def __init__(self, output_stride=8, BatchNorm=None, width_mult=1.0, pretrained=True):
         super(MobileNetV2, self).__init__()
         block = InvertedResidual
         input_channel = 32
         current_stride = 1
         rate = 1
-        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 
-            32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 
-            320, 1, 1]]
+        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
         input_channel = int(input_channel * width_mult)
         self.features = [conv_bn(3, input_channel, 2, BatchNorm)]
         current_stride *= 2
@@ -1576,11 +1372,9 @@ class MobileNetV2(nn.Module):
             output_channel = int(c * width_mult)
             for i in range(n):
                 if i == 0:
-                    self.features.append(block(input_channel,
-                        output_channel, stride, dilation, t, BatchNorm))
+                    self.features.append(block(input_channel, output_channel, stride, dilation, t, BatchNorm))
                 else:
-                    self.features.append(block(input_channel,
-                        output_channel, 1, dilation, t, BatchNorm))
+                    self.features.append(block(input_channel, output_channel, 1, dilation, t, BatchNorm))
                 input_channel = output_channel
         self.features = nn.Sequential(*self.features)
         self._initialize_weights()
@@ -1595,8 +1389,7 @@ class MobileNetV2(nn.Module):
         return x, low_level_feat
 
     def _load_pretrained_model(self):
-        pretrain_dict = model_zoo.load_url(
-            'http://jeff95.me/models/mobilenet_v2-6a65762b.pth')
+        pretrain_dict = model_zoo.load_url('http://jeff95.me/models/mobilenet_v2-6a65762b.pth')
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
@@ -1620,13 +1413,11 @@ class MobileNetV2(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=
-        None, BatchNorm=None):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, BatchNorm=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            dilation=dilation, padding=dilation, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, dilation=dilation, padding=dilation, bias=False)
         self.bn2 = BatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
@@ -1651,8 +1442,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, output_stride, BatchNorm, pretrained=True
-        ):
+    def __init__(self, block, layers, output_stride, BatchNorm, pretrained=True):
         self.inplanes = 64
         super(ResNet, self).__init__()
         blocks = [1, 2, 4]
@@ -1664,52 +1454,37 @@ class ResNet(nn.Module):
             dilations = [1, 1, 2, 4]
         else:
             raise NotImplementedError
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = BatchNorm(64)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides
-            [0], dilation=dilations[0], BatchNorm=BatchNorm)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=
-            strides[1], dilation=dilations[1], BatchNorm=BatchNorm)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=
-            strides[2], dilation=dilations[2], BatchNorm=BatchNorm)
-        self.layer4 = self._make_MG_unit(block, 512, blocks=blocks, stride=
-            strides[3], dilation=dilations[3], BatchNorm=BatchNorm)
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides[0], dilation=dilations[0], BatchNorm=BatchNorm)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=strides[1], dilation=dilations[1], BatchNorm=BatchNorm)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=strides[2], dilation=dilations[2], BatchNorm=BatchNorm)
+        self.layer4 = self._make_MG_unit(block, 512, blocks=blocks, stride=strides[3], dilation=dilations[3], BatchNorm=BatchNorm)
         self._init_weight()
         if pretrained:
             self._load_pretrained_model()
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-        BatchNorm=None):
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, BatchNorm=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, dilation,
-            downsample, BatchNorm))
+        layers.append(block(self.inplanes, planes, stride, dilation, downsample, BatchNorm))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation,
-                BatchNorm=BatchNorm))
+            layers.append(block(self.inplanes, planes, dilation=dilation, BatchNorm=BatchNorm))
         return nn.Sequential(*layers)
 
-    def _make_MG_unit(self, block, planes, blocks, stride=1, dilation=1,
-        BatchNorm=None):
+    def _make_MG_unit(self, block, planes, blocks, stride=1, dilation=1, BatchNorm=None):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, dilation=blocks[
-            0] * dilation, downsample=downsample, BatchNorm=BatchNorm))
+        layers.append(block(self.inplanes, planes, stride, dilation=blocks[0] * dilation, downsample=downsample, BatchNorm=BatchNorm))
         self.inplanes = planes * block.expansion
         for i in range(1, len(blocks)):
-            layers.append(block(self.inplanes, planes, stride=1, dilation=
-                blocks[i] * dilation, BatchNorm=BatchNorm))
+            layers.append(block(self.inplanes, planes, stride=1, dilation=blocks[i] * dilation, BatchNorm=BatchNorm))
         return nn.Sequential(*layers)
 
     def forward(self, input):
@@ -1736,8 +1511,7 @@ class ResNet(nn.Module):
                 m.bias.data.zero_()
 
     def _load_pretrained_model(self):
-        pretrain_dict = model_zoo.load_url(
-            'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth')
+        pretrain_dict = model_zoo.load_url('https://download.pytorch.org/models/resnet101-5d3b4d8f.pth')
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
@@ -1749,17 +1523,14 @@ class ResNet(nn.Module):
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=
-        1, bias=False, BatchNorm=None):
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, bias=False, BatchNorm=None):
         super(SeparableConv2d, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0,
-            dilation, groups=inplanes, bias=bias)
+        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0, dilation, groups=inplanes, bias=bias)
         self.bn = BatchNorm(inplanes)
         self.pointwise = nn.Conv2d(inplanes, planes, 1, 1, 0, 1, 1, bias=bias)
 
     def forward(self, x):
-        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1
-            .dilation[0])
+        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1.dilation[0])
         x = self.conv1(x)
         x = self.bn(x)
         x = self.pointwise(x)
@@ -1768,18 +1539,14 @@ class SeparableConv2d(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, inplanes, planes, reps, stride=1, dilation=1,
-        BatchNorm=None, start_with_relu=True, grow_first=True, is_last=
-        False, skip=None):
+    def __init__(self, inplanes, planes, reps, stride=1, dilation=1, BatchNorm=None, start_with_relu=True, grow_first=True, is_last=False, skip=None):
         super(Block, self).__init__()
         if planes != inplanes or stride != 1:
-            self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=
-                False)
+            self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=False)
             self.skipbn = BatchNorm(planes)
         elif skip is not None:
             if skip == 'conv':
-                self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride,
-                    bias=False)
+                self.skip = nn.Conv2d(inplanes, planes, 1, stride=stride, bias=False)
                 self.skipbn = BatchNorm(planes)
         else:
             self.skip = None
@@ -1788,29 +1555,24 @@ class Block(nn.Module):
         filters = inplanes
         if grow_first:
             rep.append(self.relu)
-            rep.append(SeparableConv2d(inplanes, planes, 3, 1, dilation,
-                BatchNorm=BatchNorm))
+            rep.append(SeparableConv2d(inplanes, planes, 3, 1, dilation, BatchNorm=BatchNorm))
             rep.append(BatchNorm(planes))
             filters = planes
         for i in range(reps - 1):
             rep.append(self.relu)
-            rep.append(SeparableConv2d(filters, filters, 3, 1, dilation,
-                BatchNorm=BatchNorm))
+            rep.append(SeparableConv2d(filters, filters, 3, 1, dilation, BatchNorm=BatchNorm))
             rep.append(BatchNorm(filters))
         if not grow_first:
             rep.append(self.relu)
-            rep.append(SeparableConv2d(inplanes, planes, 3, 1, dilation,
-                BatchNorm=BatchNorm))
+            rep.append(SeparableConv2d(inplanes, planes, 3, 1, dilation, BatchNorm=BatchNorm))
             rep.append(BatchNorm(planes))
         if stride != 1:
             rep.append(self.relu)
-            rep.append(SeparableConv2d(planes, planes, 3, 2, BatchNorm=
-                BatchNorm))
+            rep.append(SeparableConv2d(planes, planes, 3, 2, BatchNorm=BatchNorm))
             rep.append(BatchNorm(planes))
         if stride == 1 and is_last:
             rep.append(self.relu)
-            rep.append(SeparableConv2d(planes, planes, 3, 1, BatchNorm=
-                BatchNorm))
+            rep.append(SeparableConv2d(planes, planes, 3, 1, BatchNorm=BatchNorm))
             rep.append(BatchNorm(planes))
         if not start_with_relu:
             rep = rep[1:]
@@ -1832,8 +1594,7 @@ class AlignedXception(nn.Module):
     Modified Alighed Xception
     """
 
-    def __init__(self, output_stride, BatchNorm, pretrained=False, mode=
-        'xception_71'):
+    def __init__(self, output_stride, BatchNorm, pretrained=False, mode='xception_71'):
         super(AlignedXception, self).__init__()
         if output_stride == 16:
             entry_block3_stride = 2
@@ -1852,94 +1613,44 @@ class AlignedXception(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False)
         self.bn2 = BatchNorm(64)
         self.block0_1 = nn.Sequential(self.conv2, self.bn2, self.relu)
-        self.block1 = Block(64, 128, reps=2, stride=2, BatchNorm=BatchNorm,
-            start_with_relu=False)
+        self.block1 = Block(64, 128, reps=2, stride=2, BatchNorm=BatchNorm, start_with_relu=False)
         if mode == 'xception_71':
-            self.block2_0 = Block(128, 256, reps=2, stride=2, BatchNorm=
-                BatchNorm, start_with_relu=False, grow_first=True)
-            self.block2_1 = Block(256, 256, reps=2, stride=1, BatchNorm=
-                BatchNorm, start_with_relu=False, is_last=True, grow_first=
-                True, skip='conv')
+            self.block2_0 = Block(128, 256, reps=2, stride=2, BatchNorm=BatchNorm, start_with_relu=False, grow_first=True)
+            self.block2_1 = Block(256, 256, reps=2, stride=1, BatchNorm=BatchNorm, start_with_relu=False, is_last=True, grow_first=True, skip='conv')
             self.block2 = nn.Sequential(self.block2_0, self.block2_1)
         elif mode == 'xception_65':
-            self.block2 = Block(128, 256, reps=2, stride=2, BatchNorm=
-                BatchNorm, start_with_relu=False, grow_first=True)
+            self.block2 = Block(128, 256, reps=2, stride=2, BatchNorm=BatchNorm, start_with_relu=False, grow_first=True)
         if mode == 'xception_71':
-            self.block3_0 = Block(256, 728, reps=3, stride=
-                entry_block3_stride, BatchNorm=BatchNorm, start_with_relu=
-                True, grow_first=True)
-            self.block3_1 = Block(728, 728, reps=2, stride=1, BatchNorm=
-                BatchNorm, start_with_relu=True, grow_first=True, is_last=
-                True, skip='conv')
+            self.block3_0 = Block(256, 728, reps=3, stride=entry_block3_stride, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+            self.block3_1 = Block(728, 728, reps=2, stride=1, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True, is_last=True, skip='conv')
             self.block3 = nn.Sequential(self.block3_0, self.block3_1)
         if mode == 'xception_65':
-            self.block3 = Block(256, 728, reps=2, stride=
-                entry_block3_stride, BatchNorm=BatchNorm, start_with_relu=
-                True, grow_first=True, is_last=True)
-        self.entry_flow = nn.Sequential(self.conv1, self.bn1, self.relu,
-            self.conv2, self.bn2, self.block1, self.block2, self.block3)
-        self.block4 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block5 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block6 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block7 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block8 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block9 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block10 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block11 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block12 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block13 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block14 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block15 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block16 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block17 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block18 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block19 = Block(728, 728, reps=3, stride=1, dilation=
-            middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=True)
-        self.block20 = Block(728, 1024, reps=2, stride=1, dilation=
-            exit_block_dilations[0], BatchNorm=BatchNorm, start_with_relu=
-            True, grow_first=False, is_last=True)
-        self.conv3 = SeparableConv2d(1024, 1536, 3, stride=1, dilation=
-            exit_block_dilations[1], BatchNorm=BatchNorm)
+            self.block3 = Block(256, 728, reps=2, stride=entry_block3_stride, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True, is_last=True)
+        self.entry_flow = nn.Sequential(self.conv1, self.bn1, self.relu, self.conv2, self.bn2, self.block1, self.block2, self.block3)
+        self.block4 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block5 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block6 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block7 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block8 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block9 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block10 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block11 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block12 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block13 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block14 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block15 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block16 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block17 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block18 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block19 = Block(728, 728, reps=3, stride=1, dilation=middle_block_dilation, BatchNorm=BatchNorm, start_with_relu=True, grow_first=True)
+        self.block20 = Block(728, 1024, reps=2, stride=1, dilation=exit_block_dilations[0], BatchNorm=BatchNorm, start_with_relu=True, grow_first=False, is_last=True)
+        self.conv3 = SeparableConv2d(1024, 1536, 3, stride=1, dilation=exit_block_dilations[1], BatchNorm=BatchNorm)
         self.bn3 = BatchNorm(1536)
-        self.conv4 = SeparableConv2d(1536, 1536, 3, stride=1, dilation=
-            exit_block_dilations[1], BatchNorm=BatchNorm)
+        self.conv4 = SeparableConv2d(1536, 1536, 3, stride=1, dilation=exit_block_dilations[1], BatchNorm=BatchNorm)
         self.bn4 = BatchNorm(1536)
-        self.conv5 = SeparableConv2d(1536, 2048, 3, stride=1, dilation=
-            exit_block_dilations[1], BatchNorm=BatchNorm)
+        self.conv5 = SeparableConv2d(1536, 2048, 3, stride=1, dilation=exit_block_dilations[1], BatchNorm=BatchNorm)
         self.bn5 = BatchNorm(2048)
-        self.exit_flow = nn.Sequential(self.block20, self.conv3, self.bn3,
-            self.conv4, self.bn4, self.conv5, self.bn5)
+        self.exit_flow = nn.Sequential(self.block20, self.conv3, self.bn3, self.conv4, self.bn4, self.conv5, self.bn5)
         self._init_weight()
         if pretrained:
             self._load_pretrained_model()
@@ -1994,9 +1705,7 @@ class AlignedXception(nn.Module):
                 m.bias.data.zero_()
 
     def _load_pretrained_model(self):
-        pretrain_dict = model_zoo.load_url(
-            'http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth'
-            )
+        pretrain_dict = model_zoo.load_url('http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth')
         model_dict = {}
         state_dict = self.state_dict()
         for k, v in pretrain_dict.items():
@@ -2047,25 +1756,17 @@ class Decoder(nn.Module):
         self.feature_projection = nn.Sequential(self.conv_feature, self.bn1)
         concate_channel = 48 + 256
         if separate:
-            self.conv1 = nn.Sequential(SeparateConv(concate_channel, 256,
-                kernel_size=3, stride=1, padding=1, bias=False, BatchNorm=
-                BatchNorm), nn.Dropout(0.5))
-            self.conv2 = nn.Sequential(SeparateConv(256, 256, kernel_size=3,
-                stride=1, padding=1, bias=False, BatchNorm=BatchNorm), nn.
-                Dropout(0.1))
+            self.conv1 = nn.Sequential(SeparateConv(concate_channel, 256, kernel_size=3, stride=1, padding=1, bias=False, BatchNorm=BatchNorm), nn.Dropout(0.5))
+            self.conv2 = nn.Sequential(SeparateConv(256, 256, kernel_size=3, stride=1, padding=1, bias=False, BatchNorm=BatchNorm), nn.Dropout(0.1))
         else:
-            self.conv1 = nn.Sequential(nn.Conv2d(concate_channel, 256,
-                kernel_size=3, stride=1, padding=1, bias=False), BatchNorm(256)
-                )
-            self.conv2 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=3,
-                stride=1, padding=1, bias=False), BatchNorm(256))
+            self.conv1 = nn.Sequential(nn.Conv2d(concate_channel, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm(256))
+            self.conv2 = nn.Sequential(nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm(256))
         self.last_linear = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
         self._init_weight()
 
     def forward(self, x, low_level_feat):
         low_level_feat = self.feature_projection(low_level_feat)
-        x = F.interpolate(x, size=low_level_feat.size()[2:], mode=
-            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=low_level_feat.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x, low_level_feat), dim=1)
         x = self.conv1(x)
         x = self.conv2(x)
@@ -2081,8 +1782,7 @@ class Decoder(nn.Module):
 
 
 def build_aspp(backbone, output_stride, BatchNorm, args, separate):
-    return ASPP_train(backbone, output_stride, args.filter_multiplier, 5,
-        BatchNorm, separate)
+    return ASPP_train(backbone, output_stride, args.filter_multiplier, 5, BatchNorm, separate)
 
 
 def get_default_cell():
@@ -2109,8 +1809,7 @@ def get_default_arch():
 def get_default_net(args=None):
     filter_multiplier = args.filter_multiplier if args is not None else 20
     path_arch, cell_arch, backbone = get_default_arch()
-    return newModel(path_arch, cell_arch, 19, 12, filter_multiplier=
-        filter_multiplier, args=args)
+    return newModel(path_arch, cell_arch, 19, 12, filter_multiplier=filter_multiplier, args=args)
 
 
 def build_backbone(backbone, output_stride, BatchNorm, args):
@@ -2134,8 +1833,7 @@ def build_decoder(num_classes, backbone, BatchNorm, args, separate):
 
 class DeepLab(nn.Module):
 
-    def __init__(self, backbone='resnet', output_stride=16, num_classes=19,
-        use_ABN=True, freeze_bn=False, args=None, separate=False):
+    def __init__(self, backbone='resnet', output_stride=16, num_classes=19, use_ABN=True, freeze_bn=False, args=None, separate=False):
         super(DeepLab, self).__init__()
         if backbone == 'drn':
             output_stride = 8
@@ -2143,12 +1841,9 @@ class DeepLab(nn.Module):
             BatchNorm = ABN
         else:
             BatchNorm = NaiveBN
-        self.backbone = build_backbone(backbone, output_stride, BatchNorm, args
-            )
-        self.aspp = build_aspp(backbone, output_stride, BatchNorm, args,
-            separate)
-        self.decoder = build_decoder(num_classes, backbone, BatchNorm, args,
-            separate)
+        self.backbone = build_backbone(backbone, output_stride, BatchNorm, args)
+        self.aspp = build_aspp(backbone, output_stride, BatchNorm, args, separate)
+        self.decoder = build_decoder(num_classes, backbone, BatchNorm, args, separate)
         if freeze_bn:
             self.freeze_bn()
 
@@ -2156,8 +1851,7 @@ class DeepLab(nn.Module):
         x, low_level_feat = self.backbone(input_feature)
         x = self.aspp(x)
         x = self.decoder(x, low_level_feat)
-        x = F.interpolate(x, size=input_feature.shape[2:], mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=input_feature.shape[2:], mode='bilinear', align_corners=True)
         return x
 
     def freeze_bn(self):
@@ -2171,9 +1865,7 @@ class DeepLab(nn.Module):
         modules = [self.backbone]
         for i in range(len(modules)):
             for m in modules[i].named_modules():
-                if isinstance(m[1], nn.Conv2d) or isinstance(m[1],
-                    SynchronizedBatchNorm2d) or isinstance(m[1], nn.BatchNorm2d
-                    ):
+                if isinstance(m[1], nn.Conv2d) or isinstance(m[1], SynchronizedBatchNorm2d) or isinstance(m[1], nn.BatchNorm2d):
                     for p in m[1].parameters():
                         if p.requires_grad:
                             yield p
@@ -2182,9 +1874,7 @@ class DeepLab(nn.Module):
         modules = [self.aspp, self.decoder]
         for i in range(len(modules)):
             for m in modules[i].named_modules():
-                if isinstance(m[1], nn.Conv2d) or isinstance(m[1],
-                    SynchronizedBatchNorm2d) or isinstance(m[1], nn.BatchNorm2d
-                    ):
+                if isinstance(m[1], nn.Conv2d) or isinstance(m[1], SynchronizedBatchNorm2d) or isinstance(m[1], nn.BatchNorm2d):
                     for p in m[1].parameters():
                         if p.requires_grad:
                             yield p
@@ -2205,8 +1895,7 @@ class ABN(nn.Module):
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        activation='leaky_relu', slope=0.01):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
         """Creates an Activated Batch Normalization module
 
         Parameters
@@ -2249,22 +1938,18 @@ class ABN(nn.Module):
             nn.init.constant_(self.bias, 0)
 
     def forward(self, x):
-        x = functional.batch_norm(x, self.running_mean, self.running_var,
-            self.weight, self.bias, self.training, self.momentum, self.eps)
+        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         if self.activation == ACT_RELU:
             return functional.relu(x, inplace=True)
         elif self.activation == ACT_LEAKY_RELU:
-            return functional.leaky_relu(x, negative_slope=self.slope,
-                inplace=True)
+            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
         elif self.activation == ACT_ELU:
             return functional.elu(x, inplace=True)
         else:
             return x
 
     def __repr__(self):
-        rep = (
-            '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-            )
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
         if self.activation == 'leaky_relu':
             rep += ', slope={slope})'
         else:
@@ -2316,8 +2001,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -2367,8 +2051,7 @@ class SyncMaster(object):
         Returns: a `SlavePipe` object which can be used to communicate with the master device.
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -2391,8 +2074,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -2406,8 +2088,7 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
@@ -2426,8 +2107,7 @@ def _unsqueeze_ft(tensor):
 class _SynchronizedBatchNorm(_BatchNorm):
 
     def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
@@ -2435,22 +2115,18 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input):
         if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -2465,8 +2141,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -2476,8 +2151,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _compute_mean_std(self, sum_, ssum, size):
@@ -2488,10 +2162,8 @@ class _SynchronizedBatchNorm(_BatchNorm):
         sumvar = ssum - sum_ * mean
         unbias_var = sumvar / (size - 1)
         bias_var = sumvar / size
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.data
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.data
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
@@ -2531,8 +2203,7 @@ class DataParallelWithCallback(DataParallel):
     """
 
     def replicate(self, module, device_ids):
-        modules = super(DataParallelWithCallback, self).replicate(module,
-            device_ids)
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
 
@@ -2541,8 +2212,7 @@ class NaiveBN(nn.Module):
 
     def __init__(self, C_out, momentum=0.1, affine=True):
         super(NaiveBN, self).__init__()
-        self.op = nn.Sequential(nn.BatchNorm2d(C_out, affine=affine), nn.ReLU()
-            )
+        self.op = nn.Sequential(nn.BatchNorm2d(C_out, affine=affine), nn.ReLU())
         self._initialize_weights()
 
     def forward(self, x):
@@ -2559,16 +2229,12 @@ class NaiveBN(nn.Module):
 
 class ReLUConvBN(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=
-        True, use_ABN=False):
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True, use_ABN=False):
         super(ReLUConvBN, self).__init__()
         if use_ABN:
-            self.op = nn.Sequential(nn.Conv2d(C_in, C_out, kernel_size,
-                stride=stride, padding=padding, bias=False), ABN(C_out))
+            self.op = nn.Sequential(nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), ABN(C_out))
         else:
-            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-                C_out, kernel_size, stride=stride, padding=padding, bias=
-                False), nn.BatchNorm2d(C_out, affine=affine))
+            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
         self._initialize_weights()
 
     def forward(self, x):
@@ -2586,34 +2252,17 @@ class ReLUConvBN(nn.Module):
 
 class DilConv(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation,
-        affine=True, seperate=True, use_ABN=False):
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True, seperate=True, use_ABN=False):
         super(DilConv, self).__init__()
         if use_ABN:
             if seperate:
-                self.op = nn.Sequential(nn.Conv2d(C_in, C_in, kernel_size=
-                    kernel_size, stride=stride, padding=padding, dilation=
-                    dilation, groups=C_in, bias=False), nn.Conv2d(C_in,
-                    C_out, kernel_size=1, padding=0, bias=False), ABN(C_out,
-                    affine=affine))
+                self.op = nn.Sequential(nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), ABN(C_out, affine=affine))
             else:
-                self.op = nn.Sequential(nn.Conv2d(C_in, C_in, kernel_size=
-                    kernel_size, stride=stride, padding=padding, dilation=
-                    dilation, bias=False), nn.Conv2d(C_in, C_out,
-                    kernel_size=1, padding=0, bias=False), ABN(C_out,
-                    affine=affine))
+                self.op = nn.Sequential(nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), ABN(C_out, affine=affine))
         elif seperate:
-            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-                C_in, kernel_size=kernel_size, stride=stride, padding=
-                padding, dilation=dilation, groups=C_in, bias=False), nn.
-                Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False),
-                nn.BatchNorm2d(C_out, affine=affine))
+            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
         else:
-            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-                C_in, kernel_size=kernel_size, stride=stride, padding=
-                padding, dilation=dilation, bias=False), nn.Conv2d(C_in,
-                C_out, kernel_size=1, padding=0, bias=False), nn.
-                BatchNorm2d(C_out, affine=affine))
+            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
         self._initialize_weights()
 
     def forward(self, x):
@@ -2631,27 +2280,12 @@ class DilConv(nn.Module):
 
 class SepConv(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=
-        True, use_ABN=False):
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True, use_ABN=False):
         super(SepConv, self).__init__()
         if use_ABN:
-            self.op = nn.Sequential(nn.Conv2d(C_in, C_in, kernel_size=
-                kernel_size, stride=stride, padding=padding, groups=C_in,
-                bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0,
-                bias=False), ABN(C_in, affine=affine), nn.Conv2d(C_in, C_in,
-                kernel_size=kernel_size, stride=1, padding=padding, groups=
-                C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1,
-                padding=0, bias=False), ABN(C_out, affine=affine))
+            self.op = nn.Sequential(nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), ABN(C_in, affine=affine), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), ABN(C_out, affine=affine))
         else:
-            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-                C_in, kernel_size=kernel_size, stride=stride, padding=
-                padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in,
-                kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in,
-                affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in,
-                C_in, kernel_size=kernel_size, stride=1, padding=padding,
-                groups=C_in, bias=False), nn.Conv2d(C_in, C_out,
-                kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out,
-                affine=affine))
+            self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
         self._initialize_weights()
 
     def forward(self, x):
@@ -2720,10 +2354,8 @@ class FactorizedReduce(nn.Module):
         super(FactorizedReduce, self).__init__()
         assert C_out % 2 == 0
         self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(C_out, affine=affine)
         self._initialize_weights()
 
@@ -2756,10 +2388,8 @@ class DoubleFactorizedReduce(nn.Module):
         super(DoubleFactorizedReduce, self).__init__()
         assert C_out % 2 == 0
         self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=4, padding=0,
-            bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=4, padding=0,
-            bias=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=4, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=4, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(C_out, affine=affine)
         self._initialize_weights()
 
@@ -2784,9 +2414,7 @@ class FactorizedIncrease(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(FactorizedIncrease, self).__init__()
         self._in_channel = in_channel
-        self.op = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'
-            ), nn.ReLU(inplace=False), nn.Conv2d(self._in_channel,
-            out_channel, 1, stride=1, padding=0), nn.BatchNorm2d(out_channel))
+        self.op = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), nn.ReLU(inplace=False), nn.Conv2d(self._in_channel, out_channel, 1, stride=1, padding=0), nn.BatchNorm2d(out_channel))
         self._initialize_weights()
 
     def forward(self, x):
@@ -2807,9 +2435,7 @@ class DoubleFactorizedIncrease(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(DoubleFactorizedIncrease, self).__init__()
         self._in_channel = in_channel
-        self.op = nn.Sequential(nn.Upsample(scale_factor=4, mode='bilinear'
-            ), nn.ReLU(inplace=False), nn.Conv2d(self._in_channel,
-            out_channel, 1, stride=1, padding=0), nn.BatchNorm2d(out_channel))
+        self.op = nn.Sequential(nn.Upsample(scale_factor=4, mode='bilinear'), nn.ReLU(inplace=False), nn.Conv2d(self._in_channel, out_channel, 1, stride=1, padding=0), nn.BatchNorm2d(out_channel))
         self._initialize_weights()
 
     def forward(self, x):
@@ -2827,29 +2453,21 @@ class DoubleFactorizedIncrease(nn.Module):
 
 class ASPP(nn.Module):
 
-    def __init__(self, in_channels, out_channels, paddings, dilations,
-        momentum=0.0003):
+    def __init__(self, in_channels, out_channels, paddings, dilations, momentum=0.0003):
         super(ASPP, self).__init__()
-        self.conv11 = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1,
-            bias=False), nn.BatchNorm2d(in_channels))
-        self.conv33 = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3,
-            padding=paddings, dilation=dilations, bias=False), nn.
-            BatchNorm2d(in_channels))
-        self.conv_p = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1,
-            bias=False), nn.BatchNorm2d(in_channels), nn.ReLU())
-        self.concate_conv = nn.Conv2d(in_channels * 3, in_channels, 1, bias
-            =False, stride=1, padding=0)
+        self.conv11 = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1, bias=False), nn.BatchNorm2d(in_channels))
+        self.conv33 = nn.Sequential(nn.Conv2d(in_channels, in_channels, 3, padding=paddings, dilation=dilations, bias=False), nn.BatchNorm2d(in_channels))
+        self.conv_p = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1, bias=False), nn.BatchNorm2d(in_channels), nn.ReLU())
+        self.concate_conv = nn.Conv2d(in_channels * 3, in_channels, 1, bias=False, stride=1, padding=0)
         self.concate_bn = nn.BatchNorm2d(in_channels, momentum)
-        self.final_conv = nn.Conv2d(in_channels, out_channels, 1, bias=
-            False, stride=1, padding=0)
+        self.final_conv = nn.Conv2d(in_channels, out_channels, 1, bias=False, stride=1, padding=0)
         self._initialize_weights()
 
     def forward(self, x):
         conv11 = self.conv11(x)
         conv33 = self.conv33(x)
         image_pool = nn.AvgPool2d(kernel_size=x.size()[2:])
-        upsample = nn.Upsample(size=x.size()[2:], mode='bilinear',
-            align_corners=True)
+        upsample = nn.Upsample(size=x.size()[2:], mode='bilinear', align_corners=True)
         image_pool = image_pool(x)
         conv_image_pool = self.conv_p(image_pool)
         upsample = upsample(conv_image_pool)
@@ -2870,28 +2488,23 @@ class ASPP(nn.Module):
 
 class ASPP(nn.Module):
 
-    def __init__(self, C, depth, num_classes, conv=nn.Conv2d, norm=NaiveBN,
-        momentum=0.0003, mult=1):
+    def __init__(self, C, depth, num_classes, conv=nn.Conv2d, norm=NaiveBN, momentum=0.0003, mult=1):
         super(ASPP, self).__init__()
         self._C = C
         self._depth = depth
         self._num_classes = num_classes
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.aspp1 = conv(C, depth, kernel_size=1, stride=1, bias=False)
-        self.aspp2 = conv(C, depth, kernel_size=3, stride=1, dilation=int(6 *
-            mult), padding=int(6 * mult), bias=False)
-        self.aspp3 = conv(C, depth, kernel_size=3, stride=1, dilation=int(
-            12 * mult), padding=int(12 * mult), bias=False)
-        self.aspp4 = conv(C, depth, kernel_size=3, stride=1, dilation=int(
-            18 * mult), padding=int(18 * mult), bias=False)
+        self.aspp2 = conv(C, depth, kernel_size=3, stride=1, dilation=int(6 * mult), padding=int(6 * mult), bias=False)
+        self.aspp3 = conv(C, depth, kernel_size=3, stride=1, dilation=int(12 * mult), padding=int(12 * mult), bias=False)
+        self.aspp4 = conv(C, depth, kernel_size=3, stride=1, dilation=int(18 * mult), padding=int(18 * mult), bias=False)
         self.aspp5 = conv(C, depth, kernel_size=1, stride=1, bias=False)
         self.aspp1_bn = norm(depth, momentum)
         self.aspp2_bn = norm(depth, momentum)
         self.aspp3_bn = norm(depth, momentum)
         self.aspp4_bn = norm(depth, momentum)
         self.aspp5_bn = norm(depth, momentum)
-        self.conv2 = conv(depth * 5, depth, kernel_size=1, stride=1, bias=False
-            )
+        self.conv2 = conv(depth * 5, depth, kernel_size=1, stride=1, bias=False)
         self.bn2 = norm(depth, momentum)
         self._init_weight()
 
@@ -2907,8 +2520,7 @@ class ASPP(nn.Module):
         x5 = self.global_pooling(x)
         x5 = self.aspp5(x5)
         x5 = self.aspp5_bn(x5)
-        x5 = nn.Upsample((x.shape[2], x.shape[3]), mode='bilinear',
-            align_corners=True)(x5)
+        x5 = nn.Upsample((x.shape[2], x.shape[3]), mode='bilinear', align_corners=True)(x5)
         x = torch.cat((x1, x2, x3, x4, x5), 1)
         x = self.conv2(x)
         x = self.bn2(x)
@@ -2929,59 +2541,44 @@ class Retrain_Autodeeplab(nn.Module):
         super(Retrain_Autodeeplab, self).__init__()
         filter_param_dict = {(0): 1, (1): 2, (2): 4, (3): 8}
         BatchNorm2d = ABN if args.use_ABN else NaiveBN
-        if (not args.dist and args.use_ABN or args.dist and args.use_ABN and
-            dist.get_rank() == 0):
+        if not args.dist and args.use_ABN or args.dist and args.use_ABN and dist.get_rank() == 0:
             None
         if args.net_arch is not None and args.cell_arch is not None:
-            net_arch, cell_arch = np.load(args.net_arch), np.load(args.
-                cell_arch)
+            net_arch, cell_arch = np.load(args.net_arch), np.load(args.cell_arch)
         else:
             network_arch, cell_arch, network_path = get_default_arch()
-        self.encoder = newModel(network_arch, cell_arch, args.num_classes, 
-            12, args.filter_multiplier, BatchNorm=BatchNorm2d, args=args)
-        self.aspp = ASPP(args.filter_multiplier * args.block_multiplier *
-            filter_param_dict[network_path[-1]], 256, args.num_classes,
-            conv=nn.Conv2d, norm=BatchNorm2d)
-        self.decoder = Decoder(args.num_classes, filter_multiplier=args.
-            filter_multiplier * args.block_multiplier, args=args,
-            last_level=network_path[-1])
+        self.encoder = newModel(network_arch, cell_arch, args.num_classes, 12, args.filter_multiplier, BatchNorm=BatchNorm2d, args=args)
+        self.aspp = ASPP(args.filter_multiplier * args.block_multiplier * filter_param_dict[network_path[-1]], 256, args.num_classes, conv=nn.Conv2d, norm=BatchNorm2d)
+        self.decoder = Decoder(args.num_classes, filter_multiplier=args.filter_multiplier * args.block_multiplier, args=args, last_level=network_path[-1])
 
     def forward(self, x):
         encoder_output, low_level_feature = self.encoder(x)
         high_level_feature = self.aspp(encoder_output)
         decoder_output = self.decoder(high_level_feature, low_level_feature)
-        return nn.Upsample((x.shape[2], x.shape[3]), mode='bilinear',
-            align_corners=True)(decoder_output)
+        return nn.Upsample((x.shape[2], x.shape[3]), mode='bilinear', align_corners=True)(decoder_output)
 
     def get_params(self):
         back_bn_params, back_no_bn_params = self.encoder.get_params()
-        tune_wd_params = list(self.aspp.parameters()) + list(self.decoder.
-            parameters()) + back_no_bn_params
+        tune_wd_params = list(self.aspp.parameters()) + list(self.decoder.parameters()) + back_no_bn_params
         no_tune_wd_params = back_bn_params
         return tune_wd_params, no_tune_wd_params
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, num_classes, filter_multiplier, BatchNorm=NaiveBN,
-        args=None, last_level=0):
+    def __init__(self, num_classes, filter_multiplier, BatchNorm=NaiveBN, args=None, last_level=0):
         super(Decoder, self).__init__()
         low_level_inplanes = filter_multiplier
         C_low = 48
         self.conv1 = nn.Conv2d(low_level_inplanes, C_low, 1, bias=False)
         self.bn1 = BatchNorm(48)
-        self.last_conv = nn.Sequential(nn.Conv2d(304, 256, kernel_size=3,
-            stride=1, padding=1, bias=False), BatchNorm(256), nn.Dropout(
-            0.5), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1,
-            bias=False), BatchNorm(256), nn.Dropout(0.1), nn.Conv2d(256,
-            num_classes, kernel_size=1, stride=1))
+        self.last_conv = nn.Sequential(nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm(256), nn.Dropout(0.5), nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False), BatchNorm(256), nn.Dropout(0.1), nn.Conv2d(256, num_classes, kernel_size=1, stride=1))
         self._init_weight()
 
     def forward(self, x, low_level_feat):
         low_level_feat = self.conv1(low_level_feat)
         low_level_feat = self.bn1(low_level_feat)
-        x = F.interpolate(x, size=low_level_feat.size()[2:], mode=
-            'bilinear', align_corners=True)
+        x = F.interpolate(x, size=low_level_feat.size()[2:], mode='bilinear', align_corners=True)
         x = torch.cat((x, low_level_feat), dim=1)
         x = self.last_conv(x)
         return x
@@ -2997,9 +2594,7 @@ class Decoder(nn.Module):
 
 class Cell(nn.Module):
 
-    def __init__(self, steps, block_multiplier, prev_prev_fmultiplier,
-        prev_filter_multiplier, cell_arch, network_arch, filter_multiplier,
-        downup_sample, args=None):
+    def __init__(self, steps, block_multiplier, prev_prev_fmultiplier, prev_filter_multiplier, cell_arch, network_arch, filter_multiplier, downup_sample, args=None):
         super(Cell, self).__init__()
         self.cell_arch = cell_arch
         self.C_in = block_multiplier * filter_multiplier
@@ -3007,10 +2602,8 @@ class Cell(nn.Module):
         self.C_prev = int(block_multiplier * prev_filter_multiplier)
         self.C_prev_prev = int(block_multiplier * prev_prev_fmultiplier)
         self.downup_sample = downup_sample
-        self.pre_preprocess = ReLUConvBN(self.C_prev_prev, self.C_out, 1, 1,
-            0, args.affine, args.use_ABN)
-        self.preprocess = ReLUConvBN(self.C_prev, self.C_out, 1, 1, 0, args
-            .affine, args.use_ABN)
+        self.pre_preprocess = ReLUConvBN(self.C_prev_prev, self.C_out, 1, 1, 0, args.affine, args.use_ABN)
+        self.preprocess = ReLUConvBN(self.C_prev, self.C_out, 1, 1, 0, args.affine, args.use_ABN)
         self._steps = steps
         self.block_multiplier = block_multiplier
         self._ops = nn.ModuleList()
@@ -3020,13 +2613,11 @@ class Cell(nn.Module):
             self.scale = 2
         for x in self.cell_arch:
             primitive = PRIMITIVES[x[1]]
-            op = OPS[primitive](self.C_out, stride=1, affine=args.affine,
-                use_ABN=args.use_ABN)
+            op = OPS[primitive](self.C_out, stride=1, affine=args.affine, use_ABN=args.use_ABN)
             self._ops.append(op)
 
     def scale_dimension(self, dim, scale):
-        return int((float(dim) - 1.0) * scale + 1.0) if dim % 2 == 1 else int(
-            float(dim) * scale)
+        return int((float(dim) - 1.0) * scale + 1.0) if dim % 2 == 1 else int(float(dim) * scale)
 
     def forward(self, prev_prev_input, prev_input):
         s0 = prev_prev_input
@@ -3034,11 +2625,9 @@ class Cell(nn.Module):
         if self.downup_sample != 0:
             feature_size_h = self.scale_dimension(s1.shape[2], self.scale)
             feature_size_w = self.scale_dimension(s1.shape[3], self.scale)
-            s1 = F.interpolate(s1, [feature_size_h, feature_size_w], mode=
-                'bilinear', align_corners=True)
+            s1 = F.interpolate(s1, [feature_size_h, feature_size_w], mode='bilinear', align_corners=True)
         if s0.shape[2] != s1.shape[2] or s0.shape[3] != s1.shape[3]:
-            s0 = F.interpolate(s0, (s1.shape[2], s1.shape[3]), mode=
-                'bilinear', align_corners=True)
+            s0 = F.interpolate(s0, (s1.shape[2], s1.shape[3]), mode='bilinear', align_corners=True)
         s0 = self.pre_preprocess(s0) if s0.shape[1] != self.C_out else s0
         s1 = self.preprocess(s1)
         states = [s0, s1]
@@ -3064,9 +2653,7 @@ class Cell(nn.Module):
 
 class newModel(nn.Module):
 
-    def __init__(self, network_arch, cell_arch, num_classes, num_layers,
-        filter_multiplier=20, lock_multiplier=5, step=5, cell=Cell,
-        BatchNorm=NaiveBN, args=None):
+    def __init__(self, network_arch, cell_arch, num_classes, num_layers, filter_multiplier=20, lock_multiplier=5, step=5, cell=Cell, BatchNorm=NaiveBN, args=None):
         super(newModel, self).__init__()
         self.args = args
         self._step = step
@@ -3080,13 +2667,10 @@ class newModel(nn.Module):
         self.use_ABN = args.use_ABN
         initial_fm = 128 if args.initial_fm is None else args.initial_fm
         half_initial_fm = initial_fm // 2
-        self.stem0 = nn.Sequential(nn.Conv2d(3, half_initial_fm, 3, stride=
-            2, padding=1), BatchNorm(half_initial_fm))
-        self.stem1 = nn.Sequential(nn.Conv2d(half_initial_fm,
-            half_initial_fm, 3, padding=1), BatchNorm(half_initial_fm))
+        self.stem0 = nn.Sequential(nn.Conv2d(3, half_initial_fm, 3, stride=2, padding=1), BatchNorm(half_initial_fm))
+        self.stem1 = nn.Sequential(nn.Conv2d(half_initial_fm, half_initial_fm, 3, padding=1), BatchNorm(half_initial_fm))
         ini_initial_fm = half_initial_fm
-        self.stem2 = nn.Sequential(nn.Conv2d(half_initial_fm, initial_fm, 3,
-            stride=2, padding=1), BatchNorm(initial_fm))
+        self.stem2 = nn.Sequential(nn.Conv2d(half_initial_fm, initial_fm, 3, stride=2, padding=1), BatchNorm(initial_fm))
         filter_param_dict = {(0): 1, (1): 2, (2): 4, (3): 8}
         for i in range(self._num_layers):
             level_option = torch.sum(self.network_arch[i], dim=1)
@@ -3096,30 +2680,15 @@ class newModel(nn.Module):
             prev_level = torch.argmax(prev_level_option).item()
             prev_prev_level = torch.argmax(prev_prev_level_option).item()
             if i == 0:
-                downup_sample = -torch.argmax(torch.sum(self.network_arch[0
-                    ], dim=1))
-                _cell = cell(self._step, self._block_multiplier, 
-                    ini_initial_fm / args.block_multiplier, initial_fm /
-                    args.block_multiplier, self.cell_arch, self.
-                    network_arch[i], self._filter_multiplier *
-                    filter_param_dict[level], downup_sample, self.args)
+                downup_sample = -torch.argmax(torch.sum(self.network_arch[0], dim=1))
+                _cell = cell(self._step, self._block_multiplier, ini_initial_fm / args.block_multiplier, initial_fm / args.block_multiplier, self.cell_arch, self.network_arch[i], self._filter_multiplier * filter_param_dict[level], downup_sample, self.args)
             else:
                 three_branch_options = torch.sum(self.network_arch[i], dim=0)
                 downup_sample = torch.argmax(three_branch_options).item() - 1
                 if i == 1:
-                    _cell = cell(self._step, self._block_multiplier, 
-                        initial_fm / args.block_multiplier, self.
-                        _filter_multiplier * filter_param_dict[prev_level],
-                        self.cell_arch, self.network_arch[i], self.
-                        _filter_multiplier * filter_param_dict[level],
-                        downup_sample, self.args)
+                    _cell = cell(self._step, self._block_multiplier, initial_fm / args.block_multiplier, self._filter_multiplier * filter_param_dict[prev_level], self.cell_arch, self.network_arch[i], self._filter_multiplier * filter_param_dict[level], downup_sample, self.args)
                 else:
-                    _cell = cell(self._step, self._block_multiplier, self.
-                        _filter_multiplier * filter_param_dict[
-                        prev_prev_level], self._filter_multiplier *
-                        filter_param_dict[prev_level], self.cell_arch, self
-                        .network_arch[i], self._filter_multiplier *
-                        filter_param_dict[level], downup_sample, self.args)
+                    _cell = cell(self._step, self._block_multiplier, self._filter_multiplier * filter_param_dict[prev_prev_level], self._filter_multiplier * filter_param_dict[prev_level], self.cell_arch, self.network_arch[i], self._filter_multiplier * filter_param_dict[level], downup_sample, self.args)
             self.cells += [_cell]
 
     def forward(self, x):
@@ -3128,8 +2697,7 @@ class newModel(nn.Module):
         stem1 = self.stem2(stem0)
         two_last_inputs = stem0, stem1
         for i in range(self._num_layers):
-            two_last_inputs = self.cells[i](two_last_inputs[0],
-                two_last_inputs[1])
+            two_last_inputs = self.cells[i](two_last_inputs[0], two_last_inputs[1])
             if i == 2:
                 low_level_feature = two_last_inputs[1]
         last_output = two_last_inputs[-1]
@@ -3148,8 +2716,7 @@ class newModel(nn.Module):
 
 class OhemCELoss(nn.Module):
 
-    def __init__(self, thresh, n_min, ignore_index=255, cuda=False, *args,
-        **kwargs):
+    def __init__(self, thresh, n_min, ignore_index=255, cuda=False, *args, **kwargs):
         super(OhemCELoss, self).__init__()
         self.thresh = thresh
         self.n_min = n_min
@@ -3171,8 +2738,7 @@ class OhemCELoss(nn.Module):
             picks = scores[torch.arange(n_pixs), labels_cpu]
             picks[invalid_mask] = 1
             sorteds, _ = torch.sort(picks)
-            thresh = self.thresh if sorteds[self.n_min
-                ] < self.thresh else sorteds[self.n_min]
+            thresh = self.thresh if sorteds[self.n_min] < self.thresh else sorteds[self.n_min]
             labels[picks > thresh] = self.ignore_lb
         labels = labels.clone()
         loss = self.criteria(logits, labels)
@@ -3183,68 +2749,135 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ABN,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ASPP,
+     lambda: ([], {'C': 4, 'depth': 1, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (Decoder,
+     lambda: ([], {'num_classes': 4, 'filter_multiplier': 4}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DilConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DoubleFactorizedIncrease,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DoubleFactorizedReduce,
+     lambda: ([], {'C_in': 4, 'C_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorizedIncrease,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorizedReduce,
+     lambda: ([], {'C_in': 4, 'C_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MixedOp,
+     lambda: ([], {'C': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NaiveBN,
+     lambda: ([], {'C_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReLUConvBN,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SepConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d_same,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SingleGPU,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Zero,
+     lambda: ([], {'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_NoamRosenberg_autodeeplab(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ABN(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ASPP(*[], **{'C': 4, 'depth': 1, 'num_classes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Decoder(*[], **{'num_classes': 4, 'filter_multiplier': 4}), [torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(DoubleFactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(DoubleFactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(FactorizedIncrease(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(GlobalAvgPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'dilation': 1, 'expand_ratio': 4, 'BatchNorm': _mock_layer}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(MixedOp(*[], **{'C': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(NaiveBN(*[], **{'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(SeparableConv2d_same(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(SingleGPU(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
-
-    def test_018(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 

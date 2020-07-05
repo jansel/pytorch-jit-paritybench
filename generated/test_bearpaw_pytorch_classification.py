@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,15 +96,7 @@ class AlexNet(nn.Module):
 
     def __init__(self, num_classes=10):
         super(AlexNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=4, padding=5), nn.ReLU(inplace=True), nn.MaxPool2d(
-            kernel_size=2, stride=2), nn.Conv2d(64, 192, kernel_size=5,
-            padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2,
-            stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.
-            ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=
-            1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2,
-            stride=2))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=5), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(64, 192, kernel_size=5, padding=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(192, 384, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=2, stride=2))
         self.classifier = nn.Linear(256, num_classes)
 
     def forward(self, x):
@@ -121,8 +114,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, growthRate, kernel_size=3, padding=1,
-            bias=False)
+        self.conv2 = nn.Conv2d(planes, growthRate, kernel_size=3, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.dropRate = dropRate
 
@@ -145,8 +137,7 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         planes = expansion * growthRate
         self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, growthRate, kernel_size=3, padding
-            =1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, growthRate, kernel_size=3, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
         self.dropRate = dropRate
 
@@ -178,16 +169,14 @@ class Transition(nn.Module):
 
 class DenseNet(nn.Module):
 
-    def __init__(self, depth=22, block=Bottleneck, dropRate=0, num_classes=
-        10, growthRate=12, compressionRate=2):
+    def __init__(self, depth=22, block=Bottleneck, dropRate=0, num_classes=10, growthRate=12, compressionRate=2):
         super(DenseNet, self).__init__()
         assert (depth - 4) % 3 == 0, 'depth should be 3n+4'
         n = (depth - 4) / 3 if block == BasicBlock else (depth - 4) // 6
         self.growthRate = growthRate
         self.dropRate = dropRate
         self.inplanes = growthRate * 2
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, padding=1, bias=False)
         self.dense1 = self._make_denseblock(block, n)
         self.trans1 = self._make_transition(compressionRate)
         self.dense2 = self._make_denseblock(block, n)
@@ -208,8 +197,7 @@ class DenseNet(nn.Module):
     def _make_denseblock(self, block, blocks):
         layers = []
         for i in range(blocks):
-            layers.append(block(self.inplanes, growthRate=self.growthRate,
-                dropRate=self.dropRate))
+            layers.append(block(self.inplanes, growthRate=self.growthRate, dropRate=self.dropRate))
             self.inplanes += self.growthRate
         return nn.Sequential(*layers)
 
@@ -234,8 +222,7 @@ class DenseNet(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -273,8 +260,7 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
@@ -303,13 +289,11 @@ class PreResNet(nn.Module):
     def __init__(self, depth, num_classes=1000, block_name='BasicBlock'):
         super(PreResNet, self).__init__()
         if block_name.lower() == 'basicblock':
-            assert (depth - 2
-                ) % 6 == 0, 'When use basicblock, depth should be 6n+2, e.g. 20, 32, 44, 56, 110, 1202'
+            assert (depth - 2) % 6 == 0, 'When use basicblock, depth should be 6n+2, e.g. 20, 32, 44, 56, 110, 1202'
             n = (depth - 2) // 6
             block = BasicBlock
         elif block_name.lower() == 'bottleneck':
-            assert (depth - 2
-                ) % 9 == 0, 'When use bottleneck, depth should be 9n+2, e.g. 20, 29, 47, 56, 110, 1199'
+            assert (depth - 2) % 9 == 0, 'When use bottleneck, depth should be 9n+2, e.g. 20, 29, 47, 56, 110, 1199'
             n = (depth - 2) // 9
             block = Bottleneck
         else:
@@ -334,8 +318,7 @@ class PreResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -390,8 +373,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -421,13 +403,11 @@ class ResNet(nn.Module):
     def __init__(self, depth, num_classes=1000, block_name='BasicBlock'):
         super(ResNet, self).__init__()
         if block_name.lower() == 'basicblock':
-            assert (depth - 2
-                ) % 6 == 0, 'When use basicblock, depth should be 6n+2, e.g. 20, 32, 44, 56, 110, 1202'
+            assert (depth - 2) % 6 == 0, 'When use basicblock, depth should be 6n+2, e.g. 20, 32, 44, 56, 110, 1202'
             n = (depth - 2) // 6
             block = BasicBlock
         elif block_name.lower() == 'bottleneck':
-            assert (depth - 2
-                ) % 9 == 0, 'When use bottleneck, depth should be 9n+2, e.g. 20, 29, 47, 56, 110, 1199'
+            assert (depth - 2) % 9 == 0, 'When use bottleneck, depth should be 9n+2, e.g. 20, 29, 47, 56, 110, 1199'
             n = (depth - 2) // 9
             block = Bottleneck
         else:
@@ -452,9 +432,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -480,8 +458,7 @@ class ResNeXtBottleneck(nn.Module):
     RexNeXt bottleneck type C (https://github.com/facebookresearch/ResNeXt/blob/master/models/resnext.lua)
     """
 
-    def __init__(self, in_channels, out_channels, stride, cardinality,
-        widen_factor):
+    def __init__(self, in_channels, out_channels, stride, cardinality, widen_factor):
         """ Constructor
         Args:
             in_channels: input channel dimensionality
@@ -492,22 +469,16 @@ class ResNeXtBottleneck(nn.Module):
         """
         super(ResNeXtBottleneck, self).__init__()
         D = cardinality * out_channels // widen_factor
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=
-            1, padding=0, bias=False)
+        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride,
-            padding=1, groups=cardinality, bias=False)
+        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride
-            =1, padding=0, bias=False)
+        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_expand = nn.BatchNorm2d(out_channels)
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=stride, padding=0, bias
-                =False))
-            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(
-                out_channels))
+            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
+            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
         bottleneck = self.conv_reduce.forward(x)
@@ -526,8 +497,7 @@ class CifarResNeXt(nn.Module):
     https://arxiv.org/pdf/1611.05431.pdf
     """
 
-    def __init__(self, cardinality, depth, num_classes, widen_factor=4,
-        dropRate=0):
+    def __init__(self, cardinality, depth, num_classes, widen_factor=4, dropRate=0):
         """ Constructor
         Args:
             cardinality: number of convolution groups.
@@ -542,8 +512,7 @@ class CifarResNeXt(nn.Module):
         self.widen_factor = widen_factor
         self.num_classes = num_classes
         self.output_size = 64
-        self.stages = [64, 64 * self.widen_factor, 128 * self.widen_factor,
-            256 * self.widen_factor]
+        self.stages = [64, 64 * self.widen_factor, 128 * self.widen_factor, 256 * self.widen_factor]
         self.conv_1_3x3 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
         self.bn_1 = nn.BatchNorm2d(64)
         self.stage_1 = self.block('stage_1', self.stages[0], self.stages[1], 1)
@@ -573,12 +542,9 @@ class CifarResNeXt(nn.Module):
         for bottleneck in range(self.block_depth):
             name_ = '%s_bottleneck_%d' % (name, bottleneck)
             if bottleneck == 0:
-                block.add_module(name_, ResNeXtBottleneck(in_channels,
-                    out_channels, pool_stride, self.cardinality, self.
-                    widen_factor))
+                block.add_module(name_, ResNeXtBottleneck(in_channels, out_channels, pool_stride, self.cardinality, self.widen_factor))
             else:
-                block.add_module(name_, ResNeXtBottleneck(out_channels,
-                    out_channels, 1, self.cardinality, self.widen_factor))
+                block.add_module(name_, ResNeXtBottleneck(out_channels, out_channels, 1, self.cardinality, self.widen_factor))
         return block
 
     def forward(self, x):
@@ -628,17 +594,13 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride
-            =stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_planes)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3,
-            stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.droprate = dropRate
         self.equalInOut = in_planes == out_planes
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes,
-            out_planes, kernel_size=1, stride=stride, padding=0, bias=False
-            ) or None
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
         if not self.equalInOut:
@@ -654,18 +616,14 @@ class BasicBlock(nn.Module):
 
 class NetworkBlock(nn.Module):
 
-    def __init__(self, nb_layers, in_planes, out_planes, block, stride,
-        dropRate=0.0):
+    def __init__(self, nb_layers, in_planes, out_planes, block, stride, dropRate=0.0):
         super(NetworkBlock, self).__init__()
-        self.layer = self._make_layer(block, in_planes, out_planes,
-            nb_layers, stride, dropRate)
+        self.layer = self._make_layer(block, in_planes, out_planes, nb_layers, stride, dropRate)
 
-    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride,
-        dropRate):
+    def _make_layer(self, block, in_planes, out_planes, nb_layers, stride, dropRate):
         layers = []
         for i in range(nb_layers):
-            layers.append(block(i == 0 and in_planes or out_planes,
-                out_planes, i == 0 and stride or 1, dropRate))
+            layers.append(block(i == 0 and in_planes or out_planes, out_planes, i == 0 and stride or 1, dropRate))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -676,19 +634,14 @@ class WideResNet(nn.Module):
 
     def __init__(self, depth, num_classes, widen_factor=1, dropRate=0.0):
         super(WideResNet, self).__init__()
-        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 *
-            widen_factor]
+        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
         assert (depth - 4) % 6 == 0, 'depth should be 6n+4'
         n = (depth - 4) // 6
         block = BasicBlock
-        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1,
-            padding=1, bias=False)
-        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1,
-            dropRate)
-        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2,
-            dropRate)
-        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2,
-            dropRate)
+        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2, dropRate)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2, dropRate)
         self.bn1 = nn.BatchNorm2d(nChannels[3])
         self.relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(nChannels[3], num_classes)
@@ -720,8 +673,7 @@ class Bottleneck(nn.Module):
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, baseWidth, cardinality, stride=1,
-        downsample=None):
+    def __init__(self, inplanes, planes, baseWidth, cardinality, stride=1, downsample=None):
         """ Constructor
         Args:
             inplanes: input channel dimensionality
@@ -733,14 +685,11 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         D = int(math.floor(planes * (baseWidth / 64)))
         C = cardinality
-        self.conv1 = nn.Conv2d(inplanes, D * C, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, D * C, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(D * C)
-        self.conv2 = nn.Conv2d(D * C, D * C, kernel_size=3, stride=stride,
-            padding=1, groups=C, bias=False)
+        self.conv2 = nn.Conv2d(D * C, D * C, kernel_size=3, stride=stride, padding=1, groups=C, bias=False)
         self.bn2 = nn.BatchNorm2d(D * C)
-        self.conv3 = nn.Conv2d(D * C, planes * 4, kernel_size=1, stride=1,
-            padding=0, bias=False)
+        self.conv3 = nn.Conv2d(D * C, planes * 4, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -812,16 +761,12 @@ class ResNeXt(nn.Module):
         """
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, self.baseWidth, self.
-            cardinality, stride, downsample))
+        layers.append(block(self.inplanes, planes, self.baseWidth, self.cardinality, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, self.baseWidth, self
-                .cardinality))
+            layers.append(block(self.inplanes, planes, self.baseWidth, self.cardinality))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -843,24 +788,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlexNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CifarResNeXt,
+     lambda: ([], {'cardinality': 4, 'depth': 1, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 9, 9])], {}),
+     True),
+    (NetworkBlock,
+     lambda: ([], {'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResNeXt,
+     lambda: ([], {'baseWidth': 4, 'cardinality': 4, 'layers': [4, 4, 4, 4], 'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (ResNeXtBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Transition,
+     lambda: ([], {'inplanes': 4, 'outplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer()}),
+     lambda: ([torch.rand([512, 512])], {}),
+     True),
+]
+
 class Test_bearpaw_pytorch_classification(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(NetworkBlock(*[], **{'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResNeXt(*[], **{'baseWidth': 4, 'cardinality': 4, 'layers': [4, 4, 4, 4], 'num_classes': 4}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ResNeXtBottleneck(*[], **{'in_channels': 4, 'out_channels': 4, 'stride': 1, 'cardinality': 4, 'widen_factor': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Transition(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(VGG(*[], **{'features': _mock_layer()}), [torch.rand([512, 512])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

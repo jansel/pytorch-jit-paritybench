@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,19 +56,16 @@ class Encoder(nn.Module):
     :param block: LSTM/GRU block
     """
 
-    def __init__(self, number_of_features, hidden_size, hidden_layer_depth,
-        latent_length, dropout, block='LSTM'):
+    def __init__(self, number_of_features, hidden_size, hidden_layer_depth, latent_length, dropout, block='LSTM'):
         super(Encoder, self).__init__()
         self.number_of_features = number_of_features
         self.hidden_size = hidden_size
         self.hidden_layer_depth = hidden_layer_depth
         self.latent_length = latent_length
         if block == 'LSTM':
-            self.model = nn.LSTM(self.number_of_features, self.hidden_size,
-                self.hidden_layer_depth, dropout=dropout)
+            self.model = nn.LSTM(self.number_of_features, self.hidden_size, self.hidden_layer_depth, dropout=dropout)
         elif block == 'GRU':
-            self.model = nn.GRU(self.number_of_features, self.hidden_size,
-                self.hidden_layer_depth, dropout=dropout)
+            self.model = nn.GRU(self.number_of_features, self.hidden_size, self.hidden_layer_depth, dropout=dropout)
         else:
             raise NotImplementedError
 
@@ -127,8 +125,7 @@ class Decoder(nn.Module):
     :param dtype: Depending on cuda enabled/disabled, create the tensor
     """
 
-    def __init__(self, sequence_length, batch_size, hidden_size,
-        hidden_layer_depth, latent_length, output_size, dtype, block='LSTM'):
+    def __init__(self, sequence_length, batch_size, hidden_size, hidden_layer_depth, latent_length, output_size, dtype, block='LSTM'):
         super(Decoder, self).__init__()
         self.hidden_size = hidden_size
         self.batch_size = batch_size
@@ -145,10 +142,8 @@ class Decoder(nn.Module):
             raise NotImplementedError
         self.latent_to_hidden = nn.Linear(self.latent_length, self.hidden_size)
         self.hidden_to_output = nn.Linear(self.hidden_size, self.output_size)
-        self.decoder_inputs = torch.zeros(self.sequence_length, self.
-            batch_size, 1, requires_grad=True).type(self.dtype)
-        self.c_0 = torch.zeros(self.hidden_layer_depth, self.batch_size,
-            self.hidden_size, requires_grad=True).type(self.dtype)
+        self.decoder_inputs = torch.zeros(self.sequence_length, self.batch_size, 1, requires_grad=True).type(self.dtype)
+        self.c_0 = torch.zeros(self.hidden_layer_depth, self.batch_size, self.hidden_size, requires_grad=True).type(self.dtype)
         nn.init.xavier_uniform_(self.latent_to_hidden.weight)
         nn.init.xavier_uniform_(self.hidden_to_output.weight)
 
@@ -160,13 +155,10 @@ class Decoder(nn.Module):
         """
         h_state = self.latent_to_hidden(latent)
         if isinstance(self.model, nn.LSTM):
-            h_0 = torch.stack([h_state for _ in range(self.hidden_layer_depth)]
-                )
-            decoder_output, _ = self.model(self.decoder_inputs, (h_0, self.c_0)
-                )
+            h_0 = torch.stack([h_state for _ in range(self.hidden_layer_depth)])
+            decoder_output, _ = self.model(self.decoder_inputs, (h_0, self.c_0))
         elif isinstance(self.model, nn.GRU):
-            h_0 = torch.stack([h_state for _ in range(self.hidden_layer_depth)]
-                )
+            h_0 = torch.stack([h_state for _ in range(self.hidden_layer_depth)])
             decoder_output, _ = self.model(self.decoder_inputs, h_0)
         else:
             raise NotImplementedError
@@ -178,11 +170,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Encoder,
+     lambda: ([], {'number_of_features': 4, 'hidden_size': 4, 'hidden_layer_depth': 1, 'latent_length': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Lambda,
+     lambda: ([], {'hidden_size': 4, 'latent_length': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_tejaslodaya_timeseries_clustering_vae(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Encoder(*[], **{'number_of_features': 4, 'hidden_size': 4, 'hidden_layer_depth': 1, 'latent_length': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Lambda(*[], **{'hidden_size': 4, 'latent_length': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ class VanillaBlock(nn.Module):
         err_str = 'Vanilla block does not support bm, gw, and se_r options'
         assert bm is None and gw is None and se_r is None, err_str
         super(VanillaBlock, self).__init__()
-        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False
-            )
+        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False)
         self.a_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
         self.b = nn.Conv2d(w_out, w_out, 3, stride=1, padding=1, bias=False)
@@ -125,8 +125,7 @@ class BasicTransform(nn.Module):
 
     def __init__(self, w_in, w_out, stride):
         super(BasicTransform, self).__init__()
-        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False
-            )
+        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False)
         self.a_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
         self.b = nn.Conv2d(w_out, w_out, 3, stride=1, padding=1, bias=False)
@@ -156,10 +155,8 @@ class ResBasicBlock(nn.Module):
         super(ResBasicBlock, self).__init__()
         self.proj_block = w_in != w_out or stride != 1
         if self.proj_block:
-            self.proj = nn.Conv2d(w_in, w_out, 1, stride=stride, padding=0,
-                bias=False)
-            self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM
-                )
+            self.proj = nn.Conv2d(w_in, w_out, 1, stride=stride, padding=0, bias=False)
+            self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.f = BasicTransform(w_in, w_out, stride)
         self.relu = nn.ReLU(cfg.MEM.RELU_INPLACE)
 
@@ -191,9 +188,7 @@ class SE(nn.Module):
     def __init__(self, w_in, w_se):
         super(SE, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True), nn.
-            ReLU(inplace=cfg.MEM.RELU_INPLACE), nn.Conv2d(w_se, w_in, 1,
-            bias=True), nn.Sigmoid())
+        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True), nn.ReLU(inplace=cfg.MEM.RELU_INPLACE), nn.Conv2d(w_se, w_in, 1, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         return x * self.f_ex(self.avg_pool(x))
@@ -218,8 +213,7 @@ class BottleneckTransform(nn.Module):
         self.a = nn.Conv2d(w_in, w_b, 1, stride=1, padding=0, bias=False)
         self.a_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        self.b = nn.Conv2d(w_b, w_b, 3, stride=stride, padding=1, groups=g,
-            bias=False)
+        self.b = nn.Conv2d(w_b, w_b, 3, stride=stride, padding=1, groups=g, bias=False)
         self.b_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.b_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
         if se_r:
@@ -257,10 +251,8 @@ class ResBottleneckBlock(nn.Module):
         super(ResBottleneckBlock, self).__init__()
         self.proj_block = w_in != w_out or stride != 1
         if self.proj_block:
-            self.proj = nn.Conv2d(w_in, w_out, 1, stride=stride, padding=0,
-                bias=False)
-            self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM
-                )
+            self.proj = nn.Conv2d(w_in, w_out, 1, stride=stride, padding=0, bias=False)
+            self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.f = BottleneckTransform(w_in, w_out, stride, bm, gw, se_r)
         self.relu = nn.ReLU(cfg.MEM.RELU_INPLACE)
 
@@ -280,8 +272,7 @@ class ResBottleneckBlock(nn.Module):
             cx = net.complexity_conv2d(cx, w_in, w_out, 1, stride, 0)
             cx = net.complexity_batchnorm2d(cx, w_out)
             cx['h'], cx['w'] = h, w
-        cx = BottleneckTransform.complexity(cx, w_in, w_out, stride, bm, gw,
-            se_r)
+        cx = BottleneckTransform.complexity(cx, w_in, w_out, stride, bm, gw, se_r)
         return cx
 
 
@@ -359,8 +350,7 @@ class AnyStage(nn.Module):
             b_stride = stride if i == 0 else 1
             b_w_in = w_in if i == 0 else w_out
             name = 'b{}'.format(i + 1)
-            self.add_module(name, block_fun(b_w_in, w_out, b_stride, bm, gw,
-                se_r))
+            self.add_module(name, block_fun(b_w_in, w_out, b_stride, bm, gw, se_r))
 
     def forward(self, x):
         for block in self.children():
@@ -372,15 +362,13 @@ class AnyStage(nn.Module):
         for i in range(d):
             b_stride = stride if i == 0 else 1
             b_w_in = w_in if i == 0 else w_out
-            cx = block_fun.complexity(cx, b_w_in, w_out, b_stride, bm, gw, se_r
-                )
+            cx = block_fun.complexity(cx, b_w_in, w_out, b_stride, bm, gw, se_r)
         return cx
 
 
 def get_block_fun(block_type):
     """Retrieves the block function by name."""
-    block_funs = {'vanilla_block': VanillaBlock, 'res_basic_block':
-        ResBasicBlock, 'res_bottleneck_block': ResBottleneckBlock}
+    block_funs = {'vanilla_block': VanillaBlock, 'res_basic_block': ResBasicBlock, 'res_bottleneck_block': ResBottleneckBlock}
     err_str = "Block type '{}' not supported"
     assert block_type in block_funs.keys(), err_str.format(block_type)
     return block_funs[block_type]
@@ -388,8 +376,7 @@ def get_block_fun(block_type):
 
 def get_stem_fun(stem_type):
     """Retrieves the stem function by name."""
-    stem_funs = {'res_stem_cifar': ResStemCifar, 'res_stem_in': ResStemIN,
-        'simple_stem_in': SimpleStemIN}
+    stem_funs = {'res_stem_cifar': ResStemCifar, 'res_stem_in': ResStemIN, 'simple_stem_in': SimpleStemIN}
     err_str = "Stem type '{}' not supported"
     assert stem_type in stem_funs.keys(), err_str.format(stem_type)
     return stem_funs[stem_type]
@@ -406,12 +393,7 @@ class AnyNet(nn.Module):
 
     @staticmethod
     def get_args():
-        return {'stem_type': cfg.ANYNET.STEM_TYPE, 'stem_w': cfg.ANYNET.
-            STEM_W, 'block_type': cfg.ANYNET.BLOCK_TYPE, 'ds': cfg.ANYNET.
-            DEPTHS, 'ws': cfg.ANYNET.WIDTHS, 'ss': cfg.ANYNET.STRIDES,
-            'bms': cfg.ANYNET.BOT_MULS, 'gws': cfg.ANYNET.GROUP_WS, 'se_r':
-            cfg.ANYNET.SE_R if cfg.ANYNET.SE_ON else None, 'nc': cfg.MODEL.
-            NUM_CLASSES}
+        return {'stem_type': cfg.ANYNET.STEM_TYPE, 'stem_w': cfg.ANYNET.STEM_W, 'block_type': cfg.ANYNET.BLOCK_TYPE, 'ds': cfg.ANYNET.DEPTHS, 'ws': cfg.ANYNET.WIDTHS, 'ss': cfg.ANYNET.STRIDES, 'bms': cfg.ANYNET.BOT_MULS, 'gws': cfg.ANYNET.GROUP_WS, 'se_r': cfg.ANYNET.SE_R if cfg.ANYNET.SE_ON else None, 'nc': cfg.MODEL.NUM_CLASSES}
 
     def __init__(self, **kwargs):
         super(AnyNet, self).__init__()
@@ -419,8 +401,7 @@ class AnyNet(nn.Module):
         self._construct(**kwargs)
         self.apply(net.init_weights)
 
-    def _construct(self, stem_type, stem_w, block_type, ds, ws, ss, bms,
-        gws, se_r, nc):
+    def _construct(self, stem_type, stem_w, block_type, ds, ws, ss, bms, gws, se_r, nc):
         bms = bms if bms else [None for _d in ds]
         gws = gws if gws else [None for _d in ds]
         stage_params = list(zip(ds, ws, ss, bms, gws))
@@ -430,8 +411,7 @@ class AnyNet(nn.Module):
         prev_w = stem_w
         for i, (d, w, s, bm, gw) in enumerate(stage_params):
             name = 's{}'.format(i + 1)
-            self.add_module(name, AnyStage(prev_w, w, s, d, block_fun, bm,
-                gw, se_r))
+            self.add_module(name, AnyStage(prev_w, w, s, d, block_fun, bm, gw, se_r))
             prev_w = w
         self.head = AnyHead(w_in=prev_w, nc=nc)
 
@@ -447,8 +427,7 @@ class AnyNet(nn.Module):
         return AnyNet._complexity(cx, **kwargs)
 
     @staticmethod
-    def _complexity(cx, stem_type, stem_w, block_type, ds, ws, ss, bms, gws,
-        se_r, nc):
+    def _complexity(cx, stem_type, stem_w, block_type, ds, ws, ss, bms, gws, se_r, nc):
         bms = bms if bms else [None for _d in ds]
         gws = gws if gws else [None for _d in ds]
         stage_params = list(zip(ds, ws, ss, bms, gws))
@@ -457,8 +436,7 @@ class AnyNet(nn.Module):
         block_fun = get_block_fun(block_type)
         prev_w = stem_w
         for d, w, s, bm, gw in stage_params:
-            cx = AnyStage.complexity(cx, prev_w, w, s, d, block_fun, bm, gw,
-                se_r)
+            cx = AnyStage.complexity(cx, prev_w, w, s, d, block_fun, bm, gw, se_r)
             prev_w = w
         cx = AnyHead.complexity(cx, prev_w, nc)
         return cx
@@ -473,8 +451,7 @@ class EffHead(nn.Module):
     def __init__(self, w_in, w_out, nc):
         super(EffHead, self).__init__()
         self.conv = nn.Conv2d(w_in, w_out, 1, stride=1, padding=0, bias=False)
-        self.conv_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.
-            BN.MOM)
+        self.conv_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.conv_swish = Swish()
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         if cfg.EN.DROPOUT_RATIO > 0.0:
@@ -514,8 +491,7 @@ class SE(nn.Module):
     def __init__(self, w_in, w_se):
         super(SE, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True),
-            Swish(), nn.Conv2d(w_se, w_in, 1, bias=True), nn.Sigmoid())
+        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True), Swish(), nn.Conv2d(w_se, w_in, 1, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         return x * self.f_ex(self.avg_pool(x))
@@ -538,23 +514,16 @@ class MBConv(nn.Module):
         self.exp = None
         w_exp = int(w_in * exp_r)
         if w_exp != w_in:
-            self.exp = nn.Conv2d(w_in, w_exp, 1, stride=1, padding=0, bias=
-                False)
-            self.exp_bn = nn.BatchNorm2d(w_exp, eps=cfg.BN.EPS, momentum=
-                cfg.BN.MOM)
+            self.exp = nn.Conv2d(w_in, w_exp, 1, stride=1, padding=0, bias=False)
+            self.exp_bn = nn.BatchNorm2d(w_exp, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
             self.exp_swish = Swish()
-        dwise_args = {'groups': w_exp, 'padding': (kernel - 1) // 2, 'bias':
-            False}
-        self.dwise = nn.Conv2d(w_exp, w_exp, kernel, stride=stride, **
-            dwise_args)
-        self.dwise_bn = nn.BatchNorm2d(w_exp, eps=cfg.BN.EPS, momentum=cfg.
-            BN.MOM)
+        dwise_args = {'groups': w_exp, 'padding': (kernel - 1) // 2, 'bias': False}
+        self.dwise = nn.Conv2d(w_exp, w_exp, kernel, stride=stride, **dwise_args)
+        self.dwise_bn = nn.BatchNorm2d(w_exp, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.dwise_swish = Swish()
         self.se = SE(w_exp, int(w_in * se_r))
-        self.lin_proj = nn.Conv2d(w_exp, w_out, 1, stride=1, padding=0,
-            bias=False)
-        self.lin_proj_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=
-            cfg.BN.MOM)
+        self.lin_proj = nn.Conv2d(w_exp, w_out, 1, stride=1, padding=0, bias=False)
+        self.lin_proj_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.has_skip = stride == 1 and w_in == w_out
 
     def forward(self, x):
@@ -577,8 +546,7 @@ class MBConv(nn.Module):
             cx = net.complexity_conv2d(cx, w_in, w_exp, 1, 1, 0)
             cx = net.complexity_batchnorm2d(cx, w_exp)
         padding = (kernel - 1) // 2
-        cx = net.complexity_conv2d(cx, w_exp, w_exp, kernel, stride,
-            padding, w_exp)
+        cx = net.complexity_conv2d(cx, w_exp, w_exp, kernel, stride, padding, w_exp)
         cx = net.complexity_batchnorm2d(cx, w_exp)
         cx = SE.complexity(cx, w_exp, int(w_in * se_r))
         cx = net.complexity_conv2d(cx, w_exp, w_out, 1, 1, 0)
@@ -595,8 +563,7 @@ class EffStage(nn.Module):
             b_stride = stride if i == 0 else 1
             b_w_in = w_in if i == 0 else w_out
             name = 'b{}'.format(i + 1)
-            self.add_module(name, MBConv(b_w_in, exp_r, kernel, b_stride,
-                se_r, w_out))
+            self.add_module(name, MBConv(b_w_in, exp_r, kernel, b_stride, se_r, w_out))
 
     def forward(self, x):
         for block in self.children():
@@ -608,8 +575,7 @@ class EffStage(nn.Module):
         for i in range(d):
             b_stride = stride if i == 0 else 1
             b_w_in = w_in if i == 0 else w_out
-            cx = MBConv.complexity(cx, b_w_in, exp_r, kernel, b_stride,
-                se_r, w_out)
+            cx = MBConv.complexity(cx, b_w_in, exp_r, kernel, b_stride, se_r, w_out)
         return cx
 
 
@@ -634,10 +600,10 @@ class StemIN(nn.Module):
         return cx
 
 
-_global_config['TRAIN'] = 4
-
-
 _global_config['TEST'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 class EffNet(nn.Module):
@@ -645,17 +611,12 @@ class EffNet(nn.Module):
 
     @staticmethod
     def get_args():
-        return {'stem_w': cfg.EN.STEM_W, 'ds': cfg.EN.DEPTHS, 'ws': cfg.EN.
-            WIDTHS, 'exp_rs': cfg.EN.EXP_RATIOS, 'se_r': cfg.EN.SE_R, 'ss':
-            cfg.EN.STRIDES, 'ks': cfg.EN.KERNELS, 'head_w': cfg.EN.HEAD_W,
-            'nc': cfg.MODEL.NUM_CLASSES}
+        return {'stem_w': cfg.EN.STEM_W, 'ds': cfg.EN.DEPTHS, 'ws': cfg.EN.WIDTHS, 'exp_rs': cfg.EN.EXP_RATIOS, 'se_r': cfg.EN.SE_R, 'ss': cfg.EN.STRIDES, 'ks': cfg.EN.KERNELS, 'head_w': cfg.EN.HEAD_W, 'nc': cfg.MODEL.NUM_CLASSES}
 
     def __init__(self):
         err_str = 'Dataset {} is not supported'
-        assert cfg.TRAIN.DATASET in ['imagenet'], err_str.format(cfg.TRAIN.
-            DATASET)
-        assert cfg.TEST.DATASET in ['imagenet'], err_str.format(cfg.TEST.
-            DATASET)
+        assert cfg.TRAIN.DATASET in ['imagenet'], err_str.format(cfg.TRAIN.DATASET)
+        assert cfg.TEST.DATASET in ['imagenet'], err_str.format(cfg.TEST.DATASET)
         super(EffNet, self).__init__()
         self._construct(**EffNet.get_args())
         self.apply(net.init_weights)
@@ -666,8 +627,7 @@ class EffNet(nn.Module):
         prev_w = stem_w
         for i, (d, w, exp_r, stride, kernel) in enumerate(stage_params):
             name = 's{}'.format(i + 1)
-            self.add_module(name, EffStage(prev_w, exp_r, kernel, stride,
-                se_r, w, d))
+            self.add_module(name, EffStage(prev_w, exp_r, kernel, stride, se_r, w, d))
             prev_w = w
         self.head = EffHead(prev_w, head_w, nc)
 
@@ -687,8 +647,7 @@ class EffNet(nn.Module):
         cx = StemIN.complexity(cx, 3, stem_w)
         prev_w = stem_w
         for d, w, exp_r, stride, kernel in stage_params:
-            cx = EffStage.complexity(cx, prev_w, exp_r, kernel, stride,
-                se_r, w, d)
+            cx = EffStage.complexity(cx, prev_w, exp_r, kernel, stride, se_r, w, d)
             prev_w = w
         cx = EffHead.complexity(cx, prev_w, head_w, nc)
         return cx
@@ -722,8 +681,7 @@ class BasicTransform(nn.Module):
         err_str = 'Basic transform does not support w_b and num_gs options'
         assert w_b is None and num_gs == 1, err_str
         super(BasicTransform, self).__init__()
-        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False
-            )
+        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False)
         self.a_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
         self.b = nn.Conv2d(w_out, w_out, 3, stride=1, padding=1, bias=False)
@@ -758,8 +716,7 @@ class BottleneckTransform(nn.Module):
         self.a = nn.Conv2d(w_in, w_b, 1, stride=s1, padding=0, bias=False)
         self.a_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        self.b = nn.Conv2d(w_b, w_b, 3, stride=s3, padding=1, groups=num_gs,
-            bias=False)
+        self.b = nn.Conv2d(w_b, w_b, 3, stride=s3, padding=1, groups=num_gs, bias=False)
         self.b_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.b_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
         self.c = nn.Conv2d(w_b, w_out, 1, stride=1, padding=0, bias=False)
@@ -790,10 +747,8 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()
         self.proj_block = w_in != w_out or stride != 1
         if self.proj_block:
-            self.proj = nn.Conv2d(w_in, w_out, 1, stride=stride, padding=0,
-                bias=False)
-            self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM
-                )
+            self.proj = nn.Conv2d(w_in, w_out, 1, stride=stride, padding=0, bias=False)
+            self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.f = trans_fun(w_in, w_out, stride, w_b, num_gs)
         self.relu = nn.ReLU(cfg.MEM.RELU_INPLACE)
 
@@ -819,8 +774,7 @@ class ResBlock(nn.Module):
 
 def get_trans_fun(name):
     """Retrieves the transformation function by name."""
-    trans_funs = {'basic_transform': BasicTransform, 'bottleneck_transform':
-        BottleneckTransform}
+    trans_funs = {'basic_transform': BasicTransform, 'bottleneck_transform': BottleneckTransform}
     err_str = "Transformation function '{}' not supported"
     assert name in trans_funs.keys(), err_str.format(name)
     return trans_funs[name]
@@ -835,8 +789,7 @@ class ResStage(nn.Module):
             b_stride = stride if i == 0 else 1
             b_w_in = w_in if i == 0 else w_out
             trans_fun = get_trans_fun(cfg.RESNET.TRANS_FUN)
-            res_block = ResBlock(b_w_in, w_out, b_stride, trans_fun, w_b,
-                num_gs)
+            res_block = ResBlock(b_w_in, w_out, b_stride, trans_fun, w_b, num_gs)
             self.add_module('b{}'.format(i + 1), res_block)
 
     def forward(self, x):
@@ -850,8 +803,7 @@ class ResStage(nn.Module):
             b_stride = stride if i == 0 else 1
             b_w_in = w_in if i == 0 else w_out
             trans_f = get_trans_fun(cfg.RESNET.TRANS_FUN)
-            cx = ResBlock.complexity(cx, b_w_in, w_out, b_stride, trans_f,
-                w_b, num_gs)
+            cx = ResBlock.complexity(cx, b_w_in, w_out, b_stride, trans_f, w_b, num_gs)
         return cx
 
 
@@ -959,12 +911,9 @@ class ResNet(nn.Module):
             w_b = gw * g
             cx = ResStemIN.complexity(cx, 3, 64)
             cx = ResStage.complexity(cx, 64, 256, 1, d=d1, w_b=w_b, num_gs=g)
-            cx = ResStage.complexity(cx, 256, 512, 2, d=d2, w_b=w_b * 2,
-                num_gs=g)
-            cx = ResStage.complexity(cx, 512, 1024, 2, d=d3, w_b=w_b * 4,
-                num_gs=g)
-            cx = ResStage.complexity(cx, 1024, 2048, 2, d=d4, w_b=w_b * 8,
-                num_gs=g)
+            cx = ResStage.complexity(cx, 256, 512, 2, d=d2, w_b=w_b * 2, num_gs=g)
+            cx = ResStage.complexity(cx, 512, 1024, 2, d=d3, w_b=w_b * 4, num_gs=g)
+            cx = ResStage.complexity(cx, 1024, 2048, 2, d=d4, w_b=w_b * 8, num_gs=g)
             cx = ResHead.complexity(cx, 2048, nc=cfg.MODEL.NUM_CLASSES)
         return cx
 
@@ -973,20 +922,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AnyHead,
+     lambda: ([], {'w_in': 4, 'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (AnyStage,
+     lambda: ([], {'w_in': 4, 'w_out': 4, 'stride': 1, 'd': 4, 'block_fun': _mock_layer, 'bm': 4, 'gw': 4, 'se_r': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResHead,
+     lambda: ([], {'w_in': 4, 'nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SE,
+     lambda: ([], {'w_in': 4, 'w_se': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Swish,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_facebookresearch_pycls(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AnyHead(*[], **{'w_in': 4, 'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AnyStage(*[], **{'w_in': 4, 'w_out': 4, 'stride': 1, 'd': 4, 'block_fun': _mock_layer, 'bm': 4, 'gw': 4, 'se_r': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ResHead(*[], **{'w_in': 4, 'nc': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SE(*[], **{'w_in': 4, 'w_se': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Swish(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

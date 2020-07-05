@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -103,13 +104,10 @@ class Discriminator(nn.Module):
         self.current_scale = 0
         self.sub_discriminators = nn.ModuleList()
         first_discriminator = nn.ModuleList()
-        first_discriminator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1,
-            1), nn.LeakyReLU(0.2)))
+        first_discriminator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1, 1), nn.LeakyReLU(0.2)))
         for _ in range(3):
-            first_discriminator.append(nn.Sequential(nn.Conv2d(self.nf,
-                self.nf, 3, 1, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
-        first_discriminator.append(nn.Sequential(nn.Conv2d(self.nf, 1, 3, 1,
-            1)))
+            first_discriminator.append(nn.Sequential(nn.Conv2d(self.nf, self.nf, 3, 1, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
+        first_discriminator.append(nn.Sequential(nn.Conv2d(self.nf, 1, 3, 1, 1)))
         first_discriminator = nn.Sequential(*first_discriminator)
         self.sub_discriminators.append(first_discriminator)
 
@@ -122,18 +120,15 @@ class Discriminator(nn.Module):
         if self.current_scale % 4 == 0:
             self.nf *= 2
         tmp_discriminator = nn.ModuleList()
-        tmp_discriminator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1, 
-            1), nn.LeakyReLU(0.2)))
+        tmp_discriminator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1, 1), nn.LeakyReLU(0.2)))
         for _ in range(3):
-            tmp_discriminator.append(nn.Sequential(nn.Conv2d(self.nf, self.
-                nf, 3, 1, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
+            tmp_discriminator.append(nn.Sequential(nn.Conv2d(self.nf, self.nf, 3, 1, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
         tmp_discriminator.append(nn.Sequential(nn.Conv2d(self.nf, 1, 3, 1, 1)))
         tmp_discriminator = nn.Sequential(*tmp_discriminator)
         if self.current_scale % 4 != 0:
             prev_discriminator = self.sub_discriminators[-1]
             if self.current_scale >= 1:
-                tmp_discriminator.load_state_dict(prev_discriminator.
-                    state_dict())
+                tmp_discriminator.load_state_dict(prev_discriminator.state_dict())
         self.sub_discriminators.append(tmp_discriminator)
         None
 
@@ -147,18 +142,14 @@ class Generator(nn.Module):
         self.num_scale = num_scale
         self.nf = 32
         self.current_scale = 0
-        self.size_list = [int(self.img_size_min * scale_factor ** i) for i in
-            range(num_scale + 1)]
+        self.size_list = [int(self.img_size_min * scale_factor ** i) for i in range(num_scale + 1)]
         None
         self.sub_generators = nn.ModuleList()
         first_generator = nn.ModuleList()
-        first_generator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1),
-            nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
+        first_generator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
         for _ in range(3):
-            first_generator.append(nn.Sequential(nn.Conv2d(self.nf, self.nf,
-                3, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
-        first_generator.append(nn.Sequential(nn.Conv2d(self.nf, 3, 3, 1),
-            nn.Tanh()))
+            first_generator.append(nn.Sequential(nn.Conv2d(self.nf, self.nf, 3, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
+        first_generator.append(nn.Sequential(nn.Conv2d(self.nf, 3, 3, 1), nn.Tanh()))
         first_generator = nn.Sequential(*first_generator)
         self.sub_generators.append(first_generator)
 
@@ -171,8 +162,7 @@ class Generator(nn.Module):
         else:
             x_inter = x_first
         for i in range(1, self.current_scale + 1):
-            x_inter = F.interpolate(x_inter, (self.size_list[i], self.
-                size_list[i]), mode='bilinear', align_corners=True)
+            x_inter = F.interpolate(x_inter, (self.size_list[i], self.size_list[i]), mode='bilinear', align_corners=True)
             x_prev = x_inter
             x_inter = F.pad(x_inter, [5, 5, 5, 5], value=0)
             x_inter = x_inter + z[i]
@@ -185,13 +175,10 @@ class Generator(nn.Module):
         if self.current_scale % 4 == 0:
             self.nf *= 2
         tmp_generator = nn.ModuleList()
-        tmp_generator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1), nn.
-            BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
+        tmp_generator.append(nn.Sequential(nn.Conv2d(3, self.nf, 3, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
         for _ in range(3):
-            tmp_generator.append(nn.Sequential(nn.Conv2d(self.nf, self.nf, 
-                3, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
-        tmp_generator.append(nn.Sequential(nn.Conv2d(self.nf, 3, 3, 1), nn.
-            Tanh()))
+            tmp_generator.append(nn.Sequential(nn.Conv2d(self.nf, self.nf, 3, 1), nn.BatchNorm2d(self.nf), nn.LeakyReLU(0.2)))
+        tmp_generator.append(nn.Sequential(nn.Conv2d(self.nf, 3, 3, 1), nn.Tanh()))
         tmp_generator = nn.Sequential(*tmp_generator)
         if self.current_scale % 4 != 0:
             prev_generator = self.sub_generators[-1]
@@ -241,8 +228,7 @@ class ConditionalBatchNorm2d(nn.Module):
     def forward(self, x, y):
         out = self.bn(x)
         gamma, beta = self.embed(y).chunk(2, 1)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
@@ -259,15 +245,13 @@ class MultiConditionalBatchNorm2d(nn.Module):
         out = self.bn(x)
         gamma = self.gamma(y)
         beta = self.beta(y)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
 class SpatialAdaptiveNorm2d(nn.Module):
 
-    def __init__(self, num_features, hid_features=64, momentum=0.1,
-        num_classes=0):
+    def __init__(self, num_features, hid_features=64, momentum=0.1, num_classes=0):
         super().__init__()
         self.num_features = num_features
         self.hid_features = hid_features
@@ -275,10 +259,8 @@ class SpatialAdaptiveNorm2d(nn.Module):
         if num_classes > 0:
             self.bn = MultiConditionalBatchNorm2d(num_features, num_classes)
         else:
-            self.bn = nn.BatchNorm2d(num_features, affine=False, momentum=
-                momentum)
-        self.hidden = nn.Sequential(nn.Conv2d(3, hid_features, 3, 1, 1), nn
-            .LeakyReLU(0.2))
+            self.bn = nn.BatchNorm2d(num_features, affine=False, momentum=momentum)
+        self.hidden = nn.Sequential(nn.Conv2d(3, hid_features, 3, 1, 1), nn.LeakyReLU(0.2))
         self.gamma = nn.Conv2d(hid_features, num_features, 3, 1, 1)
         self.beta = nn.Conv2d(hid_features, num_features, 3, 1, 1)
 
@@ -297,20 +279,16 @@ class SpatialAdaptiveNorm2d(nn.Module):
 
 class SpatialModulatedNorm2d(nn.Module):
 
-    def __init__(self, num_features, hid_features=64, momentum=0.1,
-        num_classes=0):
+    def __init__(self, num_features, hid_features=64, momentum=0.1, num_classes=0):
         super().__init__()
         self.num_features = num_features
         self.hid_features = hid_features
         self.num_classes = num_classes
         if num_classes > 0:
-            self.bn = MultiConditionalBatchNorm2d(num_features, num_classes,
-                momentum=momentum)
+            self.bn = MultiConditionalBatchNorm2d(num_features, num_classes, momentum=momentum)
         else:
-            self.bn = nn.BatchNorm2d(num_features, affine=False, momentum=
-                momentum)
-        self.hidden_img = nn.Sequential(nn.Conv2d(3 + 16, hid_features, 3, 
-            1, 1), nn.LeakyReLU(0.2))
+            self.bn = nn.BatchNorm2d(num_features, affine=False, momentum=momentum)
+        self.hidden_img = nn.Sequential(nn.Conv2d(3 + 16, hid_features, 3, 1, 1), nn.LeakyReLU(0.2))
         self.gamma = nn.Conv2d(hid_features, num_features, 3, 1, 1)
         self.beta = nn.Conv2d(hid_features, num_features, 3, 1, 1)
 
@@ -331,8 +309,7 @@ class SpatialModulatedNorm2d(nn.Module):
 
 class SelfModulratedBatchNorm2d(nn.Module):
 
-    def __init__(self, num_features, num_latent, num_hidden=0, num_classes=
-        0, momentum=0.1):
+    def __init__(self, num_features, num_latent, num_hidden=0, num_classes=0, momentum=0.1):
         super(SelfModulratedBatchNorm2d, self).__init__()
         self.num_features = num_features
         self.num_latent = num_latent
@@ -340,8 +317,7 @@ class SelfModulratedBatchNorm2d(nn.Module):
         self.num_classes = num_classes
         self.bn = nn.BatchNorm2d(num_features, affine=False, momentum=momentum)
         if num_hidden > 0:
-            self.fc_z = nn.Sequential(nn.Linear(num_latent, num_hidden), nn
-                .ReLU(True))
+            self.fc_z = nn.Sequential(nn.Linear(num_latent, num_hidden), nn.ReLU(True))
             num_latent = num_hidden
         self.gamma = nn.Linear(num_latent, num_features)
         self.beta = nn.Linear(num_latent, num_features)
@@ -357,8 +333,7 @@ class SelfModulratedBatchNorm2d(nn.Module):
         out = self.bn(h)
         gamma = self.gamma(z)
         beta = self.beta(z)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
@@ -380,23 +355,20 @@ class Embedding(torch.nn.Embedding):
         super(Embedding, self).__init__(*args, **kwargs)
         self.spectral_norm_pi = spectral_norm_pi
         if spectral_norm_pi > 0:
-            self.register_buffer('u', torch.randn((1, self.num_embeddings),
-                requires_grad=False))
+            self.register_buffer('u', torch.randn((1, self.num_embeddings), requires_grad=False))
         else:
             self.register_buffer('u', None)
 
     def forward(self, input):
         if self.spectral_norm_pi > 0:
             w_mat = self.weight.view(self.num_embeddings, -1)
-            u, sigma, _ = max_singular_value(w_mat, self.u, self.
-                spectral_norm_pi)
+            u, sigma, _ = max_singular_value(w_mat, self.u, self.spectral_norm_pi)
             w_bar = torch.div(self.weight, sigma)
             if self.training:
                 self.u = u
         else:
             w_bar = self.weight
-        return F.embedding(input, w_bar, self.padding_idx, self.max_norm,
-            self.norm_type, self.scale_grad_by_freq, self.sparse)
+        return F.embedding(input, w_bar, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
 
 
 class GCRNNCellBase(torch.nn.Module):
@@ -407,34 +379,21 @@ class GCRNNCellBase(torch.nn.Module):
         self.latent_size = latent_size
         self.concat_size = self.latent_size // 4
         if sn:
-            self.layer_zh = torch.nn.utils.spectral_norm(torch.nn.Conv2d(
-                latent_size, self.concat_size, 3, 1, 1, bias=bias))
-            self.layer_hh = torch.nn.ModuleList([torch.nn.utils.
-                spectral_norm(torch.nn.Conv2d(ch, self.concat_size, 3, 1, 1,
-                bias=bias))])
+            self.layer_zh = torch.nn.utils.spectral_norm(torch.nn.Conv2d(latent_size, self.concat_size, 3, 1, 1, bias=bias))
+            self.layer_hh = torch.nn.ModuleList([torch.nn.utils.spectral_norm(torch.nn.Conv2d(ch, self.concat_size, 3, 1, 1, bias=bias))])
             nf = 2 * self.concat_size
             for i in range(num_hidden - 1):
-                self.layer_hh.append(torch.nn.Sequential(torch.nn.utils.
-                    spectral_norm(torch.nn.Conv2d(nf, 2 * nf, 3, 1, 1, bias
-                    =bias)), torch.nn.BatchNorm2d(2 * nf), torch.nn.ReLU(True))
-                    )
+                self.layer_hh.append(torch.nn.Sequential(torch.nn.utils.spectral_norm(torch.nn.Conv2d(nf, 2 * nf, 3, 1, 1, bias=bias)), torch.nn.BatchNorm2d(2 * nf), torch.nn.ReLU(True)))
                 nf *= 2
-            self.layer_hh.append(torch.nn.Sequential(torch.nn.utils.
-                spectral_norm(torch.nn.Conv2d(nf, 3, 3, 1, 1, bias=bias)),
-                torch.nn.Tanh()))
+            self.layer_hh.append(torch.nn.Sequential(torch.nn.utils.spectral_norm(torch.nn.Conv2d(nf, 3, 3, 1, 1, bias=bias)), torch.nn.Tanh()))
         else:
-            self.layer_zh = torch.nn.Conv2d(latent_size, self.concat_size, 
-                3, 1, 1, bias=bias)
-            self.layer_hh = torch.nn.ModuleList([torch.nn.Conv2d(ch, self.
-                concat_size, 3, 1, 1, bias=bias)])
+            self.layer_zh = torch.nn.Conv2d(latent_size, self.concat_size, 3, 1, 1, bias=bias)
+            self.layer_hh = torch.nn.ModuleList([torch.nn.Conv2d(ch, self.concat_size, 3, 1, 1, bias=bias)])
             nf = 2 * self.concat_size
             for i in range(num_hidden - 1):
-                self.layer_hh.append(torch.nn.Sequential(torch.nn.Conv2d(nf,
-                    2 * nf, 3, 1, 1, bias=bias), torch.nn.BatchNorm2d(2 *
-                    nf), torch.nn.ReLU(True)))
+                self.layer_hh.append(torch.nn.Sequential(torch.nn.Conv2d(nf, 2 * nf, 3, 1, 1, bias=bias), torch.nn.BatchNorm2d(2 * nf), torch.nn.ReLU(True)))
                 nf *= 2
-            self.layer_hh.append(torch.nn.Sequential(torch.nn.Conv2d(nf, 3,
-                3, 1, 1, bias=bias), torch.nn.Tanh()))
+            self.layer_hh.append(torch.nn.Sequential(torch.nn.Conv2d(nf, 3, 3, 1, 1, bias=bias), torch.nn.Tanh()))
 
     def extra_repr(self):
         s = '{input_size}, {hidden_size}'
@@ -446,9 +405,7 @@ class GCRNNCellBase(torch.nn.Module):
 
     def check_forward_input(self, input):
         if input.size(1) != self.latent_size:
-            raise RuntimeError(
-                'input has inconsistent input_size: got {}, expected {}'.
-                format(input.size(1), self.latent_size))
+            raise RuntimeError('input has inconsistent input_size: got {}, expected {}'.format(input.size(1), self.latent_size))
 
 
 class DCRNNCellBase(torch.nn.Module):
@@ -458,32 +415,19 @@ class DCRNNCellBase(torch.nn.Module):
         self.ch = ch
         self.nf = nf
         if sn:
-            self.layer_xhh = torch.nn.ModuleList([torch.nn.Sequential(torch
-                .nn.utils.spectral_norm(torch.nn.Conv2d(ch + self.nf, self.
-                nf, 3, 1, 1, bias=bias)), torch.nn.LeakyReLU(inplace=True))])
+            self.layer_xhh = torch.nn.ModuleList([torch.nn.Sequential(torch.nn.utils.spectral_norm(torch.nn.Conv2d(ch + self.nf, self.nf, 3, 1, 1, bias=bias)), torch.nn.LeakyReLU(inplace=True))])
             nf_ = self.nf
             for i in range(num_hidden - 1):
-                self.layer_xhh.append(torch.nn.Sequential(torch.nn.utils.
-                    spectral_norm(torch.nn.Conv2d(nf_, 2 * nf_, 3, 1, 1,
-                    bias=bias)), torch.nn.BatchNorm2d(2 * nf_), torch.nn.
-                    LeakyReLU(True)))
+                self.layer_xhh.append(torch.nn.Sequential(torch.nn.utils.spectral_norm(torch.nn.Conv2d(nf_, 2 * nf_, 3, 1, 1, bias=bias)), torch.nn.BatchNorm2d(2 * nf_), torch.nn.LeakyReLU(True)))
                 nf_ *= 2
-            self.layer_xhh.append(torch.nn.Sequential(torch.nn.utils.
-                spectral_norm(torch.nn.Conv2d(nf_, self.nf, 3, 1, 1, bias=
-                bias)), torch.nn.BatchNorm2d(self.nf), torch.nn.LeakyReLU()))
+            self.layer_xhh.append(torch.nn.Sequential(torch.nn.utils.spectral_norm(torch.nn.Conv2d(nf_, self.nf, 3, 1, 1, bias=bias)), torch.nn.BatchNorm2d(self.nf), torch.nn.LeakyReLU()))
         else:
-            self.layer_xhh = torch.nn.ModuleList([torch.nn.Sequential(torch
-                .nn.Conv2d(ch + self.nf, self.nf, 3, 1, 1, bias=bias),
-                torch.nn.LeakyReLU(inplace=True))])
+            self.layer_xhh = torch.nn.ModuleList([torch.nn.Sequential(torch.nn.Conv2d(ch + self.nf, self.nf, 3, 1, 1, bias=bias), torch.nn.LeakyReLU(inplace=True))])
             nf_ = self.nf
             for i in range(num_hidden - 1):
-                self.layer_xhh.append(torch.nn.Sequential(torch.nn.Conv2d(
-                    nf_, 2 * nf_, 3, 1, 1, bias=bias), torch.nn.BatchNorm2d
-                    (2 * nf_), torch.nn.LeakyReLU(True)))
+                self.layer_xhh.append(torch.nn.Sequential(torch.nn.Conv2d(nf_, 2 * nf_, 3, 1, 1, bias=bias), torch.nn.BatchNorm2d(2 * nf_), torch.nn.LeakyReLU(True)))
                 nf_ *= 2
-            self.layer_xhh.append(torch.nn.Sequential(torch.nn.Conv2d(nf_,
-                self.nf, 3, 1, 1, bias=bias), torch.nn.BatchNorm2d(self.nf),
-                torch.nn.LeakyReLU()))
+            self.layer_xhh.append(torch.nn.Sequential(torch.nn.Conv2d(nf_, self.nf, 3, 1, 1, bias=bias), torch.nn.BatchNorm2d(self.nf), torch.nn.LeakyReLU()))
 
     def extra_repr(self):
         s = '{input_size}, {hidden_size}'
@@ -495,9 +439,7 @@ class DCRNNCellBase(torch.nn.Module):
 
     def check_forward_input(self, input):
         if input.size(1) != self.latent_size:
-            raise RuntimeError(
-                'input has inconsistent input_size: got {}, expected {}'.
-                format(input.size(1), self.latent_size))
+            raise RuntimeError('input has inconsistent input_size: got {}, expected {}'.format(input.size(1), self.latent_size))
 
 
 class EMA(torch.nn.Module):
@@ -521,30 +463,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CInstanceNorm,
+     lambda: ([], {'nfilter': 4, 'nlabels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Embedding,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (Generator,
+     lambda: ([], {'img_size_min': 4, 'num_scale': 1}),
+     lambda: ([torch.rand([4, 4, 3, 64, 64])], {}),
+     False),
+    (MultiConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SelfModulratedBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_latent': 4}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_FriedRonaldo_SinGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(CInstanceNorm(*[], **{'nfilter': 4, 'nlabels': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Embedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Generator(*[], **{'img_size_min': 4, 'num_scale': 1}), [torch.rand([4, 4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MultiConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SelfModulratedBatchNorm2d(*[], **{'num_features': 4, 'num_latent': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

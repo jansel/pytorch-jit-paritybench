@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -90,17 +91,14 @@ class GLU(nn.Module):
 
 
 def conv3x3(in_planes, out_planes):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
 
 
 class ResBlock(nn.Module):
 
     def __init__(self, channel_num):
         super(ResBlock, self).__init__()
-        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2),
-            nn.BatchNorm2d(channel_num * 2), GLU(), conv3x3(channel_num,
-            channel_num), nn.BatchNorm2d(channel_num))
+        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2), nn.BatchNorm2d(channel_num * 2), GLU(), conv3x3(channel_num, channel_num), nn.BatchNorm2d(channel_num))
 
     def forward(self, x):
         residual = x
@@ -130,16 +128,14 @@ class GET_MASK(nn.Module):
 
 
 def upBlock(in_planes, out_planes):
-    block = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'),
-        conv3x3(in_planes, out_planes * 2), nn.BatchNorm2d(out_planes * 2),
-        GLU())
+    block = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'), conv3x3(in_planes, out_planes * 2), nn.BatchNorm2d(out_planes * 2), GLU())
     return block
 
 
-_global_config['FINE_GRAINED_CATEGORIES'] = 4
-
-
 _global_config['GAN'] = 4
+
+
+_global_config['FINE_GRAINED_CATEGORIES'] = 4
 
 
 class BACKGROUND_STAGE(nn.Module):
@@ -148,8 +144,7 @@ class BACKGROUND_STAGE(nn.Module):
         super().__init__()
         self.ngf = ngf
         in_dim = cfg.GAN.Z_DIM + cfg.FINE_GRAINED_CATEGORIES
-        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=
-            False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
+        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
         self.upsample1 = upBlock(ngf, ngf // 2)
         self.upsample2 = upBlock(ngf // 2, ngf // 4)
         self.upsample3 = upBlock(ngf // 4, ngf // 8)
@@ -168,8 +163,7 @@ class BACKGROUND_STAGE(nn.Module):
 
 
 def sameBlock(in_planes, out_planes):
-    block = nn.Sequential(conv3x3(in_planes, out_planes * 2), nn.
-        BatchNorm2d(out_planes * 2), GLU())
+    block = nn.Sequential(conv3x3(in_planes, out_planes * 2), nn.BatchNorm2d(out_planes * 2), GLU())
     return block
 
 
@@ -183,8 +177,7 @@ class PARENT_STAGE(nn.Module):
         self.ngf = ngf
         in_dim = cfg.GAN.Z_DIM + cfg.SUPER_CATEGORIES
         self.code_len = cfg.SUPER_CATEGORIES
-        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=
-            False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
+        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
         self.upsample1 = upBlock(ngf, ngf // 2)
         self.upsample2 = upBlock(ngf // 2, ngf // 4)
         self.upsample3 = upBlock(ngf // 4, ngf // 8)
@@ -293,25 +286,17 @@ class G_NET(nn.Module):
 
 
 def Block3x3_leakRelu(in_planes, out_planes):
-    block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(
-        out_planes), nn.LeakyReLU(0.2, inplace=True))
+    block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
 def downBlock(in_planes, out_planes):
-    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias=
-        False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
+    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
 def encode_parent_and_child_img(ndf, in_c=3):
-    encode_img = nn.Sequential(nn.Conv2d(in_c, ndf, 4, 2, 1, bias=False),
-        nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1,
-        bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=
-        True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.
-        BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(
-        ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn
-        .LeakyReLU(0.2, inplace=True))
+    encode_img = nn.Sequential(nn.Conv2d(in_c, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True))
     return encode_img
 
 
@@ -321,26 +306,10 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.ndf = 64
         self.softmax = torch.nn.Softmax(dim=1)
-        self.model_z = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.GAN.Z_DIM, kernel_size=4,
-            stride=4), nn.Tanh())
-        self.model_b = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES,
-            kernel_size=4, stride=4))
-        self.model_p = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.SUPER_CATEGORIES,
-            kernel_size=4, stride=4))
-        self.model_c = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES,
-            kernel_size=4, stride=4))
+        self.model_z = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.GAN.Z_DIM, kernel_size=4, stride=4), nn.Tanh())
+        self.model_b = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES, kernel_size=4, stride=4))
+        self.model_p = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.SUPER_CATEGORIES, kernel_size=4, stride=4))
+        self.model_c = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES, kernel_size=4, stride=4))
 
     def forward(self, x_var, type_):
         code_z = self.model_z(x_var).view(-1, cfg.GAN.Z_DIM) * 4
@@ -350,18 +319,15 @@ class Encoder(nn.Module):
         if type_ == 'logits':
             return code_z, code_b, code_p, code_c
         if type_ == 'softmax':
-            return code_z, self.softmax(code_b), self.softmax(code_p
-                ), self.softmax(code_c)
+            return code_z, self.softmax(code_b), self.softmax(code_p), self.softmax(code_c)
 
 
 def Down_unet(in_c, out_c):
-    return nn.Sequential(nn.Conv2d(in_c, out_c * 2, 4, 2, 1), nn.
-        BatchNorm2d(out_c * 2), GLU())
+    return nn.Sequential(nn.Conv2d(in_c, out_c * 2, 4, 2, 1), nn.BatchNorm2d(out_c * 2), GLU())
 
 
 def Up_unet(in_c, out_c):
-    return nn.Sequential(nn.ConvTranspose2d(in_c, out_c * 2, 4, 2, 1), nn.
-        BatchNorm2d(out_c * 2), GLU())
+    return nn.Sequential(nn.ConvTranspose2d(in_c, out_c * 2, 4, 2, 1), nn.BatchNorm2d(out_c * 2), GLU())
 
 
 class FeatureExtractor(nn.Module):
@@ -415,9 +381,7 @@ class ResBlock(nn.Module):
 
     def __init__(self, channel_num):
         super(ResBlock, self).__init__()
-        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2),
-            nn.BatchNorm2d(channel_num * 2), GLU(), conv3x3(channel_num,
-            channel_num), nn.BatchNorm2d(channel_num))
+        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2), nn.BatchNorm2d(channel_num * 2), GLU(), conv3x3(channel_num, channel_num), nn.BatchNorm2d(channel_num))
 
     def forward(self, x):
         residual = x
@@ -452,8 +416,7 @@ class BACKGROUND_STAGE(nn.Module):
         super().__init__()
         self.ngf = ngf
         in_dim = cfg.GAN.Z_DIM + cfg.FINE_GRAINED_CATEGORIES
-        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=
-            False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
+        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
         self.upsample1 = upBlock(ngf, ngf // 2)
         self.upsample2 = upBlock(ngf // 2, ngf // 4)
         self.upsample3 = upBlock(ngf // 4, ngf // 8)
@@ -478,8 +441,7 @@ class PARENT_STAGE(nn.Module):
         self.ngf = ngf
         in_dim = cfg.GAN.Z_DIM + cfg.SUPER_CATEGORIES
         self.code_len = cfg.SUPER_CATEGORIES
-        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=
-            False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
+        self.fc = nn.Sequential(nn.Linear(in_dim, ngf * 4 * 4 * 2, bias=False), nn.BatchNorm1d(ngf * 4 * 4 * 2), GLU())
         self.upsample1 = upBlock(ngf, ngf // 2)
         self.upsample2 = upBlock(ngf // 2, ngf // 4)
         self.upsample3 = upBlock(ngf // 4, ngf // 8)
@@ -593,15 +555,9 @@ class BACKGROUND_D(nn.Module):
 
     def __init__(self, ndf=64):
         super().__init__()
-        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 0, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2,
-            4, 2, 0, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 2, ndf * 4, 4, 1, 0, bias=False), nn.LeakyReLU(0.2,
-            inplace=True))
-        self.class_logits = nn.Sequential(nn.Conv2d(ndf * 4, 1, kernel_size
-            =4, stride=1), nn.Sigmoid())
-        self.rf_logits = nn.Sequential(nn.Conv2d(ndf * 4, 1, kernel_size=4,
-            stride=1), nn.Sigmoid())
+        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 0, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 0, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 1, 0, bias=False), nn.LeakyReLU(0.2, inplace=True))
+        self.class_logits = nn.Sequential(nn.Conv2d(ndf * 4, 1, kernel_size=4, stride=1), nn.Sigmoid())
+        self.rf_logits = nn.Sequential(nn.Conv2d(ndf * 4, 1, kernel_size=4, stride=1), nn.Sigmoid())
 
     def forward(self, x):
         x = self.encode_img(x)
@@ -613,23 +569,9 @@ class PARENT_D(nn.Module):
     def __init__(self, ndf=32):
         super().__init__()
         self.code_len = cfg.SUPER_CATEGORIES
-        self.encode_mask = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2,
-            4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 
-            ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 8, 3, 1,
-            1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2,
-            inplace=True))
-        self.code_logits = nn.Sequential(nn.Conv2d(ndf * 8, ndf * 8, 3, 1, 
-            1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 8, self.code_len, kernel_size=4,
-            stride=4))
-        self.rf_logits = nn.Sequential(nn.Conv2d(ndf * 8, 1, kernel_size=4,
-            stride=4), nn.Sigmoid())
+        self.encode_mask = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 8, 3, 1, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True))
+        self.code_logits = nn.Sequential(nn.Conv2d(ndf * 8, ndf * 8, 3, 1, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, self.code_len, kernel_size=4, stride=4))
+        self.rf_logits = nn.Sequential(nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4), nn.Sigmoid())
 
     def forward(self, x):
         x = self.encode_mask(x)
@@ -641,23 +583,9 @@ class CHILD_D(nn.Module):
     def __init__(self, ndf=64):
         super().__init__()
         self.code_len = cfg.FINE_GRAINED_CATEGORIES
-        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2,
-            4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 
-            ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 8, 3, 1,
-            1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2,
-            inplace=True))
-        self.code_logits = nn.Sequential(nn.Conv2d(ndf * 8, ndf * 8, 3, 1, 
-            1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 8, self.code_len, kernel_size=4,
-            stride=4))
-        self.rf_logits = nn.Sequential(nn.Conv2d(ndf * 8, 1, kernel_size=4,
-            stride=4), nn.Sigmoid())
+        self.encode_img = nn.Sequential(nn.Conv2d(3, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, ndf * 8, 3, 1, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True))
+        self.code_logits = nn.Sequential(nn.Conv2d(ndf * 8, ndf * 8, 3, 1, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, self.code_len, kernel_size=4, stride=4))
+        self.rf_logits = nn.Sequential(nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4), nn.Sigmoid())
 
     def forward(self, x):
         x = self.encode_img(x)
@@ -670,26 +598,10 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.ndf = 64
         self.softmax = torch.nn.Softmax(dim=1)
-        self.model_z = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.GAN.Z_DIM, kernel_size=4,
-            stride=4), nn.Tanh())
-        self.model_b = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES,
-            kernel_size=4, stride=4))
-        self.model_p = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.SUPER_CATEGORIES,
-            kernel_size=4, stride=4))
-        self.model_c = nn.Sequential(encode_parent_and_child_img(self.ndf),
-            downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.
-            ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.
-            ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES,
-            kernel_size=4, stride=4))
+        self.model_z = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.GAN.Z_DIM, kernel_size=4, stride=4), nn.Tanh())
+        self.model_b = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES, kernel_size=4, stride=4))
+        self.model_p = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.SUPER_CATEGORIES, kernel_size=4, stride=4))
+        self.model_c = nn.Sequential(encode_parent_and_child_img(self.ndf), downBlock(self.ndf * 8, self.ndf * 16), Block3x3_leakRelu(self.ndf * 16, self.ndf * 8), Block3x3_leakRelu(self.ndf * 8, self.ndf * 8), nn.Conv2d(self.ndf * 8, cfg.FINE_GRAINED_CATEGORIES, kernel_size=4, stride=4))
 
     def forward(self, x_var, type_):
         code_z = self.model_z(x_var).view(-1, cfg.GAN.Z_DIM) * 4
@@ -699,8 +611,7 @@ class Encoder(nn.Module):
         if type_ == 'logits':
             return code_z, code_b, code_p, code_c
         if type_ == 'softmax':
-            return code_z, self.softmax(code_b), self.softmax(code_p
-                ), self.softmax(code_c)
+            return code_z, self.softmax(code_b), self.softmax(code_p), self.softmax(code_c)
 
 
 class Gaussian(nn.Module):
@@ -716,8 +627,7 @@ class Gaussian(nn.Module):
 
 class ConvT_Block(nn.Module):
 
-    def __init__(self, in_c, out_c, k, s, p, bn=True, activation=None,
-        noise=False, std=None):
+    def __init__(self, in_c, out_c, k, s, p, bn=True, activation=None, noise=False, std=None):
         super(ConvT_Block, self).__init__()
         model = [nn.ConvTranspose2d(in_c, out_c, k, s, p)]
         if bn:
@@ -744,8 +654,7 @@ class ConvT_Block(nn.Module):
 
 class Conv_Block(nn.Module):
 
-    def __init__(self, in_c, out_c, k, s, p=0, bn=True, activation=None,
-        noise=False, std=None):
+    def __init__(self, in_c, out_c, k, s, p=0, bn=True, activation=None, noise=False, std=None):
         super(Conv_Block, self).__init__()
         model = [nn.Conv2d(in_c, out_c, k, s, p)]
         if bn:
@@ -772,8 +681,7 @@ class Conv_Block(nn.Module):
 
 class Linear_Block(nn.Module):
 
-    def __init__(self, in_c, out_c, bn=True, activation=None, noise=False,
-        std=None):
+    def __init__(self, in_c, out_c, bn=True, activation=None, noise=False, std=None):
         super(Linear_Block, self).__init__()
         model = [nn.Linear(in_c, out_c)]
         if bn:
@@ -812,24 +720,9 @@ class Bi_Dis_base(nn.Module):
 
     def __init__(self, code_len, ngf=16):
         super(Bi_Dis_base, self).__init__()
-        self.image_layer = nn.Sequential(Conv_Block(3, ngf, 4, 2, 1, bn=
-            False, activation='leaky', noise=False, std=0.3), Conv_Block(
-            ngf, ngf * 2, 4, 2, 1, bn=False, activation='leaky', noise=
-            False, std=0.5), Conv_Block(ngf * 2, ngf * 4, 4, 2, 1, bn=False,
-            activation='leaky', noise=False, std=0.5), Conv_Block(ngf * 4, 
-            ngf * 8, 4, 2, 1, bn=False, activation='leaky', noise=False,
-            std=0.5), Conv_Block(ngf * 8, ngf * 16, 4, 2, 1, bn=False,
-            activation='leaky', noise=False, std=0.5), Conv_Block(ngf * 16,
-            512, 4, 1, 0, bn=False, activation='leaky', noise=False, std=
-            0.5), Viewer([-1, 512]))
-        self.code_layer = nn.Sequential(Linear_Block(code_len, 512, bn=
-            False, activation='leaky', noise=True, std=0.5), Linear_Block(
-            512, 512, bn=False, activation='leaky', noise=True, std=0.3),
-            Linear_Block(512, 512, bn=False, activation='leaky', noise=True,
-            std=0.3))
-        self.joint = nn.Sequential(Linear_Block(1024, 1024, bn=False,
-            activation='leaky', noise=False, std=0.5), Linear_Block(1024, 1,
-            bn=False, activation='None'), Viewer([-1]))
+        self.image_layer = nn.Sequential(Conv_Block(3, ngf, 4, 2, 1, bn=False, activation='leaky', noise=False, std=0.3), Conv_Block(ngf, ngf * 2, 4, 2, 1, bn=False, activation='leaky', noise=False, std=0.5), Conv_Block(ngf * 2, ngf * 4, 4, 2, 1, bn=False, activation='leaky', noise=False, std=0.5), Conv_Block(ngf * 4, ngf * 8, 4, 2, 1, bn=False, activation='leaky', noise=False, std=0.5), Conv_Block(ngf * 8, ngf * 16, 4, 2, 1, bn=False, activation='leaky', noise=False, std=0.5), Conv_Block(ngf * 16, 512, 4, 1, 0, bn=False, activation='leaky', noise=False, std=0.5), Viewer([-1, 512]))
+        self.code_layer = nn.Sequential(Linear_Block(code_len, 512, bn=False, activation='leaky', noise=True, std=0.5), Linear_Block(512, 512, bn=False, activation='leaky', noise=True, std=0.3), Linear_Block(512, 512, bn=False, activation='leaky', noise=True, std=0.3))
+        self.joint = nn.Sequential(Linear_Block(1024, 1024, bn=False, activation='leaky', noise=False, std=0.5), Linear_Block(1024, 1, bn=False, activation='None'), Viewer([-1]))
 
     def forward(self, img, code):
         t1 = self.image_layer(img)
@@ -893,12 +786,8 @@ class Dis_Dis(nn.Module):
 
     def __init__(self, in_c):
         super().__init__()
-        self.encode_img = nn.Sequential(nn.Conv2d(in_c, 32, 4, 2, 0, bias=
-            False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(32, 64, 4, 2,
-            0, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 
-            128, 4, 1, 0, bias=False), nn.LeakyReLU(0.2, inplace=True))
-        self.rf_logits = nn.Sequential(nn.Conv2d(128, 1, kernel_size=4,
-            stride=1), nn.Sigmoid())
+        self.encode_img = nn.Sequential(nn.Conv2d(in_c, 32, 4, 2, 0, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(32, 64, 4, 2, 0, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(64, 128, 4, 1, 0, bias=False), nn.LeakyReLU(0.2, inplace=True))
+        self.rf_logits = nn.Sequential(nn.Conv2d(128, 1, kernel_size=4, stride=1), nn.Sigmoid())
 
     def forward(self, x):
         x = F.interpolate(x, [126, 126], mode='bilinear', align_corners=True)
@@ -910,51 +799,114 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_Yuheng_Li_MixNMatch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BACKGROUND_D(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BACKGROUND_D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Bi_Dis_base,
+     lambda: ([], {'code_len': 4}),
+     lambda: ([torch.rand([4, 3, 128, 128]), torch.rand([4, 4])], {}),
+     False),
+    (CHILD_D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (CHILD_STAGE,
+     lambda: ([], {'ngf': 4}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvT_Block,
+     lambda: ([], {'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv_Block,
+     lambda: ([], {'in_c': 4, 'out_c': 4, 'k': 4, 's': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Dis_Dis,
+     lambda: ([], {'in_c': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeatureExtractor,
+     lambda: ([], {'in_c': 4, 'out_c': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (GET_IMAGE,
+     lambda: ([], {'ngf': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GET_MASK,
+     lambda: ([], {'ngf': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Gaussian,
+     lambda: ([], {'std': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear_Block,
+     lambda: ([], {'in_c': 4, 'out_c': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (PARENT_D,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     True),
+    (ResBlock,
+     lambda: ([], {'channel_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_Yuheng_Li_MixNMatch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Bi_Dis_base(*[], **{'code_len': 4}), [torch.rand([4, 3, 128, 128]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(CHILD_D(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(CHILD_STAGE(*[], **{'ngf': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ConvT_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Conv_Block(*[], **{'in_c': 4, 'out_c': 4, 'k': 4, 's': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Dis_Dis(*[], **{'in_c': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(FeatureExtractor(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(GET_IMAGE(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(GET_MASK(*[], **{'ngf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(GLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Gaussian(*[], **{'std': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(Linear_Block(*[], **{'in_c': 4, 'out_c': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(PARENT_D(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[13])
 
     def test_014(self):
-        self._check(ResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 

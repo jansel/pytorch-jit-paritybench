@@ -173,8 +173,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -350,8 +351,7 @@ class bidirectionalRNN(nn.Module):
         super(bidirectionalRNN, self).__init__()
         self.dropout = dropout
         self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout=dropout)
-        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers,
-            dropout=dropout)
+        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout=dropout)
         self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
 
     def forward(self, input, collect_hidden=False):
@@ -360,13 +360,10 @@ class bidirectionalRNN(nn.Module):
         """
         seq_len = input.size(0)
         bsz = input.size(1)
-        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=
-            collect_hidden))
-        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True,
-            collect_hidden=collect_hidden))
+        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=collect_hidden))
+        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collect_hidden=collect_hidden))
         output = torch.cat([fwd_out, bckwrd_out], -1)
-        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens,
-            bckwrd_hiddens))
+        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens, bckwrd_hiddens))
         return output, hiddens
 
     def reset_parameters(self):
@@ -575,14 +572,12 @@ class RNNCell(OperatorLayerBase):
 
     def params(self):
         if self.gemm is None:
-            p = OrderedDict([('cell', self.cell), ('X', self.inp), ('H',
-                self.hid), ('B', self.b), ('type', self.type)])
+            p = OrderedDict([('cell', self.cell), ('X', self.inp), ('H', self.hid), ('B', self.b), ('type', self.type)])
         else:
             assert self.m is not None
             assert self.n is not None
             assert self.k is not None
-            p = OrderedDict([('gemm', self.gemm), ('M', self.m), ('N', self
-                .n), ('K', self.k), ('type', self.type)])
+            p = OrderedDict([('gemm', self.gemm), ('M', self.m), ('N', self.n), ('K', self.k), ('type', self.type)])
         return p
 
     def tc(self):
@@ -645,8 +640,7 @@ class RNNCell(OperatorLayerBase):
                 recurGemmElems = multiple * H * B
                 cElems = H * B
                 hElems = H * B
-                totElems = (layerGemmElems + recurGemmElems + 2 * cElems +
-                    hElems)
+                totElems = layerGemmElems + recurGemmElems + 2 * cElems + hElems
                 self.elems = totElems
         elif 'gemm' in name and hasTileSize(name):
             tileX, tileY = ctaTile(name)
@@ -695,8 +689,7 @@ class RNNCell(OperatorLayerBase):
 
 
 def is_iterable(maybe_iterable):
-    return isinstance(maybe_iterable, list) or isinstance(maybe_iterable, tuple
-        )
+    return isinstance(maybe_iterable, list) or isinstance(maybe_iterable, tuple)
 
 
 def flatten_list(tens_list):
@@ -705,8 +698,7 @@ def flatten_list(tens_list):
     """
     if not is_iterable(tens_list):
         return tens_list
-    return torch.cat(tens_list, dim=0).view(len(tens_list), *tens_list[0].
-        size())
+    return torch.cat(tens_list, dim=0).view(len(tens_list), *tens_list[0].size())
 
 
 class stackedRNN(nn.Module):
@@ -722,8 +714,7 @@ class stackedRNN(nn.Module):
             for i in range(num_layers - 1):
                 self.rnns.append(inputRNN.new_like(inputRNN.output_size))
         elif isinstance(inputRNN, list):
-            assert len(inputRNN
-                ) == num_layers, 'RNN list length must be equal to num_layers'
+            assert len(inputRNN) == num_layers, 'RNN list length must be equal to num_layers'
             self.rnns = inputRNN
         else:
             raise RuntimeError()
@@ -779,18 +770,15 @@ class stackedRNN(nn.Module):
         if not collect_hidden:
             seq_len = 1
         n_hid = self.rnns[0].n_hidden_states
-        new_hidden = [[[None for k in range(self.nLayers)] for j in range(
-            seq_len)] for i in range(n_hid)]
+        new_hidden = [[[None for k in range(self.nLayers)] for j in range(seq_len)] for i in range(n_hid)]
         for i in range(n_hid):
             for j in range(seq_len):
                 for k in range(self.nLayers):
                     new_hidden[i][j][k] = hidden_states[k][j][i]
         hidden_states = new_hidden
         if reverse:
-            hidden_states = list(list(reversed(list(entry))) for entry in
-                hidden_states)
-        hiddens = list(list(flatten_list(seq) for seq in hidden) for hidden in
-            hidden_states)
+            hidden_states = list(list(reversed(list(entry))) for entry in hidden_states)
+        hiddens = list(list(flatten_list(seq) for seq in hidden) for hidden in hidden_states)
         if not collect_hidden:
             hidden_states = list(entry[0] for entry in hidden_states)
         return output, hidden_states
@@ -842,8 +830,7 @@ class RNNCell(nn.Module):
     if one will go directly to cell as tensor, if more will go as list
     """
 
-    def __init__(self, gate_multiplier, input_size, hidden_size, cell,
-        n_hidden_states=2, bias=False, output_size=None):
+    def __init__(self, gate_multiplier, input_size, hidden_size, cell, n_hidden_states=2, bias=False, output_size=None):
         super(RNNCell, self).__init__()
         self.gate_multiplier = gate_multiplier
         self.input_size = input_size
@@ -856,11 +843,9 @@ class RNNCell(nn.Module):
         self.gate_size = gate_multiplier * self.hidden_size
         self.n_hidden_states = n_hidden_states
         self.w_ih = nn.Parameter(torch.Tensor(self.gate_size, self.input_size))
-        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size)
-            )
+        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size))
         if self.output_size != self.hidden_size:
-            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.
-                hidden_size))
+            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.hidden_size))
         self.b_ih = self.b_hh = None
         if self.bias:
             self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
@@ -874,9 +859,7 @@ class RNNCell(nn.Module):
         """
         if new_input_size is None:
             new_input_size = self.input_size
-        return type(self)(self.gate_multiplier, new_input_size, self.
-            hidden_size, self.cell, self.n_hidden_states, self.bias, self.
-            output_size)
+        return type(self)(self.gate_multiplier, new_input_size, self.hidden_size, self.cell, self.n_hidden_states, self.bias, self.output_size)
 
     def reset_parameters(self, gain=1):
         """
@@ -928,8 +911,7 @@ class RNNCell(nn.Module):
         """
         for i, _ in enumerate(self.hidden):
             if self.hidden[i] is None:
-                raise RuntimeError(
-                    'Must initialize hidden state before you can detach it')
+                raise RuntimeError('Must initialize hidden state before you can detach it')
         for i, _ in enumerate(self.hidden):
             self.hidden[i] = self.hidden[i].detach()
 
@@ -939,10 +921,8 @@ class RNNCell(nn.Module):
         if not inited or bsz has changed this will create hidden states
         """
         self.init_hidden(input.size()[0])
-        hidden_state = self.hidden[0
-            ] if self.n_hidden_states == 1 else self.hidden
-        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh,
-            b_ih=self.b_ih, b_hh=self.b_hh)
+        hidden_state = self.hidden[0] if self.n_hidden_states == 1 else self.hidden
+        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh, b_ih=self.b_ih, b_hh=self.b_hh)
         if self.n_hidden_states > 1:
             self.hidden = list(self.hidden)
         else:
@@ -955,10 +935,7 @@ class RNNCell(nn.Module):
 class bn_NHWC_impl(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x, s, b, rm, riv, mini_m, mini_riv, ret_cta, mom,
-        epsilon, fuse_relu, is_train, bn_group, my_data, pair_data, magic,
-        pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup,
-        bwd_grid_x, multi_stream):
+    def forward(ctx, x, s, b, rm, riv, mini_m, mini_riv, ret_cta, mom, epsilon, fuse_relu, is_train, bn_group, my_data, pair_data, magic, pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup, bwd_grid_x, multi_stream):
         if is_train:
             ctx.save_for_backward(x, s, b, rm, riv, mini_m, mini_riv)
             ctx.epsilon = epsilon
@@ -974,14 +951,10 @@ class bn_NHWC_impl(torch.autograd.Function):
             ctx.bwd_occup = bwd_occup
             ctx.bwd_grid_x = bwd_grid_x
             ctx.multi_stream = multi_stream
-            res = bnp.bn_fwd_nhwc(x, s, b, rm, riv, mini_m, mini_riv,
-                ret_cta, mom, epsilon, fuse_relu, my_data, pair_data,
-                pair_data2, pair_data3, bn_group, magic, fwd_occup,
-                fwd_grid_x, multi_stream)
+            res = bnp.bn_fwd_nhwc(x, s, b, rm, riv, mini_m, mini_riv, ret_cta, mom, epsilon, fuse_relu, my_data, pair_data, pair_data2, pair_data3, bn_group, magic, fwd_occup, fwd_grid_x, multi_stream)
             return res
         else:
-            return bnp.bn_fwd_eval_nhwc(x, s, b, rm, riv, ret_cta, bn_group,
-                mom, epsilon, fuse_relu)
+            return bnp.bn_fwd_eval_nhwc(x, s, b, rm, riv, ret_cta, bn_group, mom, epsilon, fuse_relu)
 
     @staticmethod
     def backward(ctx, grad_y):
@@ -999,25 +972,16 @@ class bn_NHWC_impl(torch.autograd.Function):
         bwd_occup = ctx.bwd_occup
         bwd_grid_x = ctx.bwd_grid_x
         multi_stream = ctx.multi_stream
-        dx, dscale, dbias = bnp.bn_bwd_nhwc(x, grad_y, s, b, rm, riv,
-            mini_m, mini_riv, ret_cta, mom, epsilon, fuse_relu, my_data,
-            pair_data, pair_data2, pair_data3, bn_group, magic, bwd_occup,
-            bwd_grid_x, multi_stream)
-        return (dx, dscale, dbias, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None,
-            None, None, None)
+        dx, dscale, dbias = bnp.bn_bwd_nhwc(x, grad_y, s, b, rm, riv, mini_m, mini_riv, ret_cta, mom, epsilon, fuse_relu, my_data, pair_data, pair_data2, pair_data3, bn_group, magic, bwd_occup, bwd_grid_x, multi_stream)
+        return dx, dscale, dbias, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
 
 
 class bn_addrelu_NHWC_impl(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x, z, s, b, rm, riv, mini_m, mini_riv, grid_dim_y,
-        ret_cta, mom, epsilon, is_train, bn_group, my_data, pair_data,
-        magic, pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup,
-        bwd_grid_x, multi_stream):
+    def forward(ctx, x, z, s, b, rm, riv, mini_m, mini_riv, grid_dim_y, ret_cta, mom, epsilon, is_train, bn_group, my_data, pair_data, magic, pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup, bwd_grid_x, multi_stream):
         if is_train:
-            bitmask = torch.cuda.IntTensor((x.numel() + 31) // 32 * 2 *
-                grid_dim_y)
+            bitmask = torch.cuda.IntTensor((x.numel() + 31) // 32 * 2 * grid_dim_y)
             ctx.save_for_backward(x, s, b, rm, riv, mini_m, mini_riv, bitmask)
             ctx.epsilon = epsilon
             ctx.momentum = mom
@@ -1031,14 +995,10 @@ class bn_addrelu_NHWC_impl(torch.autograd.Function):
             ctx.bwd_occup = bwd_occup
             ctx.bwd_grid_x = bwd_grid_x
             ctx.multi_stream = multi_stream
-            res = bnp.bn_addrelu_fwd_nhwc(x, z, s, b, rm, riv, mini_m,
-                mini_riv, bitmask, ret_cta, mom, epsilon, my_data,
-                pair_data, pair_data2, pair_data3, bn_group, magic,
-                fwd_occup, fwd_grid_x, multi_stream)
+            res = bnp.bn_addrelu_fwd_nhwc(x, z, s, b, rm, riv, mini_m, mini_riv, bitmask, ret_cta, mom, epsilon, my_data, pair_data, pair_data2, pair_data3, bn_group, magic, fwd_occup, fwd_grid_x, multi_stream)
             return res
         else:
-            return bnp.bn_addrelu_fwd_eval_nhwc(x, z, s, b, rm, riv,
-                ret_cta, bn_group, mom, epsilon)
+            return bnp.bn_addrelu_fwd_eval_nhwc(x, z, s, b, rm, riv, ret_cta, bn_group, mom, epsilon)
 
     @staticmethod
     def backward(ctx, grad_y):
@@ -1055,19 +1015,13 @@ class bn_addrelu_NHWC_impl(torch.autograd.Function):
         bwd_occup = ctx.bwd_occup
         bwd_grid_x = ctx.bwd_grid_x
         multi_stream = ctx.multi_stream
-        dx, dz, dscale, dbias = bnp.bn_addrelu_bwd_nhwc(x, grad_y, s, b, rm,
-            riv, mini_m, mini_riv, bitmask, ret_cta, mom, epsilon, my_data,
-            pair_data, pair_data2, pair_data3, bn_group, magic, bwd_occup,
-            bwd_grid_x, multi_stream)
-        return (dx, dz, dscale, dbias, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None)
+        dx, dz, dscale, dbias = bnp.bn_addrelu_bwd_nhwc(x, grad_y, s, b, rm, riv, mini_m, mini_riv, bitmask, ret_cta, mom, epsilon, my_data, pair_data, pair_data2, pair_data3, bn_group, magic, bwd_occup, bwd_grid_x, multi_stream)
+        return dx, dz, dscale, dbias, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
 
 
 class BatchNorm2d_NHWC(_BatchNorm):
 
-    def __init__(self, num_features, fuse_relu=False, bn_group=1,
-        max_cta_per_sm=2, cta_launch_margin=12, multi_stream=False):
+    def __init__(self, num_features, fuse_relu=False, bn_group=1, max_cta_per_sm=2, cta_launch_margin=12, multi_stream=False):
         super(BatchNorm2d_NHWC, self).__init__(num_features)
         self.fuse_relu = fuse_relu
         self.multi_stream = multi_stream
@@ -1085,19 +1039,13 @@ class BatchNorm2d_NHWC(_BatchNorm):
         assert max_cta_per_sm > 0
         self.fwd_occupancy = min(bnp.bn_fwd_nhwc_occupancy(), max_cta_per_sm)
         self.bwd_occupancy = min(bnp.bn_bwd_nhwc_occupancy(), max_cta_per_sm)
-        self.addrelu_fwd_occupancy = min(bnp.bn_addrelu_fwd_nhwc_occupancy(
-            ), max_cta_per_sm)
-        self.addrelu_bwd_occupancy = min(bnp.bn_addrelu_bwd_nhwc_occupancy(
-            ), max_cta_per_sm)
+        self.addrelu_fwd_occupancy = min(bnp.bn_addrelu_fwd_nhwc_occupancy(), max_cta_per_sm)
+        self.addrelu_bwd_occupancy = min(bnp.bn_addrelu_bwd_nhwc_occupancy(), max_cta_per_sm)
         mp_count = torch.get_device_properties(None).multi_processor_count
-        self.fwd_grid_dim_x = max(mp_count * self.fwd_occupancy -
-            cta_launch_margin, 1)
-        self.bwd_grid_dim_x = max(mp_count * self.bwd_occupancy -
-            cta_launch_margin, 1)
-        self.addrelu_fwd_grid_dim_x = max(mp_count * self.
-            addrelu_fwd_occupancy - cta_launch_margin, 1)
-        self.addrelu_bwd_grid_dim_x = max(mp_count * self.
-            addrelu_bwd_occupancy - cta_launch_margin, 1)
+        self.fwd_grid_dim_x = max(mp_count * self.fwd_occupancy - cta_launch_margin, 1)
+        self.bwd_grid_dim_x = max(mp_count * self.bwd_occupancy - cta_launch_margin, 1)
+        self.addrelu_fwd_grid_dim_x = max(mp_count * self.addrelu_fwd_occupancy - cta_launch_margin, 1)
+        self.addrelu_bwd_grid_dim_x = max(mp_count * self.addrelu_bwd_occupancy - cta_launch_margin, 1)
         self.grid_dim_y = (num_features + 63) // 64
         self.ret_cta = torch.ByteTensor(8192).fill_(0)
         if bn_group > 1:
@@ -1110,61 +1058,39 @@ class BatchNorm2d_NHWC(_BatchNorm):
                 bn_sync_steps = 2
             if bn_group == 8:
                 bn_sync_steps = 3
-            self.ipc_buffer = torch.ByteTensor(bnp.get_buffer_size(
-                bn_sync_steps))
+            self.ipc_buffer = torch.ByteTensor(bnp.get_buffer_size(bn_sync_steps))
             self.my_data = bnp.get_data_ptr(self.ipc_buffer)
             self.storage = self.ipc_buffer.storage()
             self.share_cuda = self.storage._share_cuda_()
             internal_cuda_mem = self.share_cuda
-            my_handle = torch.ByteTensor(np.frombuffer(internal_cuda_mem[1],
-                dtype=np.uint8))
+            my_handle = torch.ByteTensor(np.frombuffer(internal_cuda_mem[1], dtype=np.uint8))
             my_offset = torch.IntTensor([internal_cuda_mem[3]])
-            handles_all = torch.empty(world_size, my_handle.size(0), dtype=
-                my_handle.dtype, device=my_handle.device)
+            handles_all = torch.empty(world_size, my_handle.size(0), dtype=my_handle.dtype, device=my_handle.device)
             handles_l = list(handles_all.unbind(0))
             torch.distributed.all_gather(handles_l, my_handle)
-            offsets_all = torch.empty(world_size, my_offset.size(0), dtype=
-                my_offset.dtype, device=my_offset.device)
+            offsets_all = torch.empty(world_size, my_offset.size(0), dtype=my_offset.dtype, device=my_offset.device)
             offsets_l = list(offsets_all.unbind(0))
             torch.distributed.all_gather(offsets_l, my_offset)
             self.pair_handle = handles_l[local_rank ^ 1].cpu().contiguous()
             pair_offset = offsets_l[local_rank ^ 1].cpu()
-            self.pair_data = bnp.get_remote_data_ptr(self.pair_handle,
-                pair_offset)
+            self.pair_data = bnp.get_remote_data_ptr(self.pair_handle, pair_offset)
             if bn_group > 2:
-                self.pair_handle2 = handles_l[local_rank ^ 2].cpu().contiguous(
-                    )
+                self.pair_handle2 = handles_l[local_rank ^ 2].cpu().contiguous()
                 pair_offset2 = offsets_l[local_rank ^ 2].cpu()
-                self.pair_data2 = bnp.get_remote_data_ptr(self.pair_handle2,
-                    pair_offset2)
+                self.pair_data2 = bnp.get_remote_data_ptr(self.pair_handle2, pair_offset2)
             if bn_group > 4:
-                self.pair_handle3 = handles_l[local_rank ^ 4].cpu().contiguous(
-                    )
+                self.pair_handle3 = handles_l[local_rank ^ 4].cpu().contiguous()
                 pair_offset3 = offsets_l[local_rank ^ 4].cpu()
-                self.pair_data3 = bnp.get_remote_data_ptr(self.pair_handle3,
-                    pair_offset3)
+                self.pair_data3 = bnp.get_remote_data_ptr(self.pair_handle3, pair_offset3)
             self.magic = torch.IntTensor([2])
             self.local_rank = local_rank
 
     def forward(self, x, z=None):
         if z is not None:
             assert self.fuse_relu == True
-            return bn_addrelu_NHWC_impl.apply(x, z, self.weight, self.bias,
-                self.running_mean, self.running_var, self.minibatch_mean,
-                self.minibatch_riv, self.grid_dim_y, self.ret_cta, self.
-                momentum, self.eps, self.training, self.bn_group, self.
-                my_data, self.pair_data, self.magic, self.pair_data2, self.
-                pair_data3, self.addrelu_fwd_occupancy, self.
-                addrelu_fwd_grid_dim_x, self.addrelu_bwd_occupancy, self.
-                addrelu_bwd_grid_dim_x, self.multi_stream)
+            return bn_addrelu_NHWC_impl.apply(x, z, self.weight, self.bias, self.running_mean, self.running_var, self.minibatch_mean, self.minibatch_riv, self.grid_dim_y, self.ret_cta, self.momentum, self.eps, self.training, self.bn_group, self.my_data, self.pair_data, self.magic, self.pair_data2, self.pair_data3, self.addrelu_fwd_occupancy, self.addrelu_fwd_grid_dim_x, self.addrelu_bwd_occupancy, self.addrelu_bwd_grid_dim_x, self.multi_stream)
         else:
-            return bn_NHWC_impl.apply(x, self.weight, self.bias, self.
-                running_mean, self.running_var, self.minibatch_mean, self.
-                minibatch_riv, self.ret_cta, self.momentum, self.eps, self.
-                fuse_relu, self.training, self.bn_group, self.my_data, self
-                .pair_data, self.magic, self.pair_data2, self.pair_data3,
-                self.fwd_occupancy, self.fwd_grid_dim_x, self.bwd_occupancy,
-                self.bwd_grid_dim_x, self.multi_stream)
+            return bn_NHWC_impl.apply(x, self.weight, self.bias, self.running_mean, self.running_var, self.minibatch_mean, self.minibatch_riv, self.ret_cta, self.momentum, self.eps, self.fuse_relu, self.training, self.bn_group, self.my_data, self.pair_data, self.magic, self.pair_data2, self.pair_data3, self.fwd_occupancy, self.fwd_grid_dim_x, self.bwd_occupancy, self.bwd_grid_dim_x, self.multi_stream)
 
     def __del__(self):
         if self.bn_group > 1:
@@ -1178,9 +1104,7 @@ class BatchNorm2d_NHWC(_BatchNorm):
 class EncdecAttnFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, scale, inputs_q,
-        inputs_kv, input_weights_q, input_weights_kv, output_weights,
-        input_biases_q, input_biases_kv, output_biases, mask, dropout_prob):
+    def forward(ctx, use_time_mask, is_training, heads, scale, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, input_biases_q, input_biases_kv, output_biases, mask, dropout_prob):
         use_biases_t = torch.tensor([input_biases_q is not None])
         heads_t = torch.tensor([heads])
         scale_t = torch.tensor([scale])
@@ -1188,157 +1112,92 @@ class EncdecAttnFunc(torch.autograd.Function):
         null_tensor = torch.tensor([])
         head_dim = inputs_q.size(2) // heads
         if use_biases_t[0]:
-            input_lin_q_results = torch.addmm(input_biases_q, inputs_q.view
-                (inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)),
-                input_weights_q.transpose(0, 1), beta=1.0, alpha=1.0)
+            input_lin_q_results = torch.addmm(input_biases_q, inputs_q.view(inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)), input_weights_q.transpose(0, 1), beta=1.0, alpha=1.0)
         else:
-            input_lin_q_results = torch.mm(inputs_q.view(inputs_q.size(0) *
-                inputs_q.size(1), inputs_q.size(2)), input_weights_q.
-                transpose(0, 1))
-        input_lin_q_results = input_lin_q_results.view(inputs_q.size(0),
-            inputs_q.size(1), input_weights_q.size(0))
+            input_lin_q_results = torch.mm(inputs_q.view(inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)), input_weights_q.transpose(0, 1))
+        input_lin_q_results = input_lin_q_results.view(inputs_q.size(0), inputs_q.size(1), input_weights_q.size(0))
         if use_biases_t[0]:
-            input_lin_kv_results = torch.addmm(input_biases_kv, inputs_kv.
-                view(inputs_kv.size(0) * inputs_kv.size(1), inputs_kv.size(
-                2)), input_weights_kv.transpose(0, 1), beta=1.0, alpha=1.0)
+            input_lin_kv_results = torch.addmm(input_biases_kv, inputs_kv.view(inputs_kv.size(0) * inputs_kv.size(1), inputs_kv.size(2)), input_weights_kv.transpose(0, 1), beta=1.0, alpha=1.0)
         else:
-            input_lin_kv_results = torch.mm(inputs_kv.view(inputs_kv.size(0
-                ) * inputs_kv.size(1), inputs_kv.size(2)), input_weights_kv
-                .transpose(0, 1))
-        input_lin_kv_results = input_lin_kv_results.view(inputs_kv.size(0),
-            inputs_kv.size(1), input_weights_kv.size(0))
-        queries = input_lin_q_results.view(inputs_q.size(0), inputs_q.size(
-            1) * heads, head_dim)
-        input_lin_kv_results = input_lin_kv_results.view(inputs_kv.size(0),
-            inputs_kv.size(1) * heads, 2, head_dim)
+            input_lin_kv_results = torch.mm(inputs_kv.view(inputs_kv.size(0) * inputs_kv.size(1), inputs_kv.size(2)), input_weights_kv.transpose(0, 1))
+        input_lin_kv_results = input_lin_kv_results.view(inputs_kv.size(0), inputs_kv.size(1), input_weights_kv.size(0))
+        queries = input_lin_q_results.view(inputs_q.size(0), inputs_q.size(1) * heads, head_dim)
+        input_lin_kv_results = input_lin_kv_results.view(inputs_kv.size(0), inputs_kv.size(1) * heads, 2, head_dim)
         keys = input_lin_kv_results[:, :, (0), :]
         values = input_lin_kv_results[:, :, (1), :]
-        matmul1_results = torch.empty((queries.size(1), queries.size(0),
-            keys.size(0)), dtype=queries.dtype, device=torch.device('cuda'))
-        matmul1_results = torch.baddbmm(matmul1_results, queries.transpose(
-            0, 1), keys.transpose(0, 1).transpose(1, 2), out=
-            matmul1_results, beta=0.0, alpha=scale_t[0])
+        matmul1_results = torch.empty((queries.size(1), queries.size(0), keys.size(0)), dtype=queries.dtype, device=torch.device('cuda'))
+        matmul1_results = torch.baddbmm(matmul1_results, queries.transpose(0, 1), keys.transpose(0, 1).transpose(1, 2), out=matmul1_results, beta=0.0, alpha=scale_t[0])
         if mask is not None:
             if use_time_mask:
                 assert len(mask.size()) == 2, 'Timing mask is not 2D!'
-                assert mask.size(0) == mask.size(1
-                    ), 'Sequence length should match!'
+                assert mask.size(0) == mask.size(1), 'Sequence length should match!'
                 mask = mask.to(torch.bool)
-                matmul1_results = matmul1_results.masked_fill_(mask, float(
-                    '-inf'))
+                matmul1_results = matmul1_results.masked_fill_(mask, float('-inf'))
             else:
                 batches, seql_q, seql_k = matmul1_results.size()
                 seqs = int(batches / heads)
-                matmul1_results = matmul1_results.view(seqs, heads, seql_q,
-                    seql_k)
+                matmul1_results = matmul1_results.view(seqs, heads, seql_q, seql_k)
                 mask = mask.to(torch.bool)
-                matmul1_results = matmul1_results.masked_fill_(mask.
-                    unsqueeze(1).unsqueeze(2), float('-inf'))
-                matmul1_results = matmul1_results.view(seqs * heads, seql_q,
-                    seql_k)
+                matmul1_results = matmul1_results.masked_fill_(mask.unsqueeze(1).unsqueeze(2), float('-inf'))
+                matmul1_results = matmul1_results.view(seqs * heads, seql_q, seql_k)
         softmax_results = F.softmax(matmul1_results, dim=-1)
         if is_training:
-            dropout_results, dropout_mask = torch._fused_dropout(
-                softmax_results, p=1.0 - dropout_prob_t[0])
+            dropout_results, dropout_mask = torch._fused_dropout(softmax_results, p=1.0 - dropout_prob_t[0])
         else:
             dropout_results = softmax_results
             dropout_mask = null_tensor
-        matmul2_results = torch.empty((dropout_results.size(1),
-            dropout_results.size(0), values.size(2)), dtype=dropout_results
-            .dtype, device=torch.device('cuda')).transpose(1, 0)
-        matmul2_results = torch.bmm(dropout_results, values.transpose(0, 1),
-            out=matmul2_results)
-        matmul2_results = matmul2_results.transpose(0, 1).contiguous().view(
-            inputs_q.size(0), inputs_q.size(1), inputs_q.size(2))
+        matmul2_results = torch.empty((dropout_results.size(1), dropout_results.size(0), values.size(2)), dtype=dropout_results.dtype, device=torch.device('cuda')).transpose(1, 0)
+        matmul2_results = torch.bmm(dropout_results, values.transpose(0, 1), out=matmul2_results)
+        matmul2_results = matmul2_results.transpose(0, 1).contiguous().view(inputs_q.size(0), inputs_q.size(1), inputs_q.size(2))
         if use_biases_t[0]:
-            outputs = torch.addmm(output_biases, matmul2_results.view(
-                inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)),
-                output_weights.transpose(0, 1), beta=1.0, alpha=1.0)
+            outputs = torch.addmm(output_biases, matmul2_results.view(inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)), output_weights.transpose(0, 1), beta=1.0, alpha=1.0)
         else:
-            outputs = torch.mm(matmul2_results.view(inputs_q.size(0) *
-                inputs_q.size(1), inputs_q.size(2)), output_weights.
-                transpose(0, 1))
-        outputs = outputs.view(inputs_q.size(0), inputs_q.size(1),
-            output_weights.size(0))
-        ctx.save_for_backward(use_biases_t, heads_t, scale_t,
-            matmul2_results, dropout_results, softmax_results,
-            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
-            input_weights_q, input_weights_kv, output_weights, dropout_mask,
-            dropout_prob_t)
+            outputs = torch.mm(matmul2_results.view(inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)), output_weights.transpose(0, 1))
+        outputs = outputs.view(inputs_q.size(0), inputs_q.size(1), output_weights.size(0))
+        ctx.save_for_backward(use_biases_t, heads_t, scale_t, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (use_biases_t, heads_t, scale_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_q_results, input_lin_kv_results,
-            inputs_q, inputs_kv, input_weights_q, input_weights_kv,
-            output_weights, dropout_mask, dropout_prob_t) = ctx.saved_tensors
+        use_biases_t, heads_t, scale_t, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_prob_t = ctx.saved_tensors
         head_dim = inputs_q.size(2) // heads_t[0]
-        queries = input_lin_q_results.view(inputs_q.size(0), inputs_q.size(
-            1) * heads_t[0], head_dim)
-        input_lin_kv_results = input_lin_kv_results.view(inputs_kv.size(0),
-            inputs_kv.size(1) * heads_t[0], 2, head_dim)
+        queries = input_lin_q_results.view(inputs_q.size(0), inputs_q.size(1) * heads_t[0], head_dim)
+        input_lin_kv_results = input_lin_kv_results.view(inputs_kv.size(0), inputs_kv.size(1) * heads_t[0], 2, head_dim)
         keys = input_lin_kv_results[:, :, (0), :]
         values = input_lin_kv_results[:, :, (1), :]
         input_lin_kv_results_grads = torch.empty_like(input_lin_kv_results)
         queries_grads = torch.empty_like(queries)
         keys_grads = input_lin_kv_results_grads[:, :, (0), :]
         values_grads = input_lin_kv_results_grads[:, :, (1), :]
-        output_lin_grads = torch.mm(output_grads.view(output_grads.size(0) *
-            output_grads.size(1), output_grads.size(2)), output_weights)
-        output_lin_grads = output_lin_grads.view(output_grads.size(0),
-            output_grads.size(1), output_weights.size(1))
-        output_weight_grads = torch.mm(output_grads.view(output_grads.size(
-            0) * output_grads.size(1), output_grads.size(2)).transpose(0, 1
-            ), matmul2_results.view(matmul2_results.size(0) *
-            matmul2_results.size(1), matmul2_results.size(2)))
-        output_lin_grads = output_lin_grads.view(output_grads.size(0), 
-            output_grads.size(1) * heads_t[0], head_dim).transpose(0, 1)
+        output_lin_grads = torch.mm(output_grads.view(output_grads.size(0) * output_grads.size(1), output_grads.size(2)), output_weights)
+        output_lin_grads = output_lin_grads.view(output_grads.size(0), output_grads.size(1), output_weights.size(1))
+        output_weight_grads = torch.mm(output_grads.view(output_grads.size(0) * output_grads.size(1), output_grads.size(2)).transpose(0, 1), matmul2_results.view(matmul2_results.size(0) * matmul2_results.size(1), matmul2_results.size(2)))
+        output_lin_grads = output_lin_grads.view(output_grads.size(0), output_grads.size(1) * heads_t[0], head_dim).transpose(0, 1)
         if use_biases_t[0]:
-            output_bias_grads = torch.sum(output_grads.view(output_grads.
-                size(0) * output_grads.size(1), output_grads.size(2)), 0)
+            output_bias_grads = torch.sum(output_grads.view(output_grads.size(0) * output_grads.size(1), output_grads.size(2)), 0)
         else:
             output_bias_grads = None
-        matmul2_dgrad1 = torch.bmm(output_lin_grads, values.transpose(0, 1)
-            .transpose(1, 2))
-        values_grads = torch.bmm(dropout_results.transpose(1, 2),
-            output_lin_grads, out=values_grads.transpose(0, 1))
-        dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 
-            1.0 / (1.0 - dropout_prob_t[0]))
-        softmax_grads = torch._softmax_backward_data(dropout_grads,
-            softmax_results, -1, softmax_results)
-        queries_grads = torch.baddbmm(queries_grads.transpose(0, 1),
-            softmax_grads, keys.transpose(0, 1), out=queries_grads.
-            transpose(0, 1), beta=0.0, alpha=scale_t[0])
-        keys_grads = torch.baddbmm(keys_grads.transpose(0, 1),
-            softmax_grads.transpose(1, 2), queries.transpose(0, 1), out=
-            keys_grads.transpose(0, 1), beta=0.0, alpha=scale_t[0])
-        queries_grads = queries_grads.transpose(0, 1).view(inputs_q.size(0) *
-            inputs_q.size(1), heads_t[0] * head_dim)
+        matmul2_dgrad1 = torch.bmm(output_lin_grads, values.transpose(0, 1).transpose(1, 2))
+        values_grads = torch.bmm(dropout_results.transpose(1, 2), output_lin_grads, out=values_grads.transpose(0, 1))
+        dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 1.0 / (1.0 - dropout_prob_t[0]))
+        softmax_grads = torch._softmax_backward_data(dropout_grads, softmax_results, -1, softmax_results)
+        queries_grads = torch.baddbmm(queries_grads.transpose(0, 1), softmax_grads, keys.transpose(0, 1), out=queries_grads.transpose(0, 1), beta=0.0, alpha=scale_t[0])
+        keys_grads = torch.baddbmm(keys_grads.transpose(0, 1), softmax_grads.transpose(1, 2), queries.transpose(0, 1), out=keys_grads.transpose(0, 1), beta=0.0, alpha=scale_t[0])
+        queries_grads = queries_grads.transpose(0, 1).view(inputs_q.size(0) * inputs_q.size(1), heads_t[0] * head_dim)
         input_q_grads = torch.mm(queries_grads, input_weights_q)
-        input_q_grads = input_q_grads.view(inputs_q.size(0), inputs_q.size(
-            1), inputs_q.size(2))
-        input_lin_kv_results_grads = input_lin_kv_results_grads.view(
-            inputs_kv.size(0) * inputs_kv.size(1), heads_t[0] * 2 * head_dim)
+        input_q_grads = input_q_grads.view(inputs_q.size(0), inputs_q.size(1), inputs_q.size(2))
+        input_lin_kv_results_grads = input_lin_kv_results_grads.view(inputs_kv.size(0) * inputs_kv.size(1), heads_t[0] * 2 * head_dim)
         input_kv_grads = torch.mm(input_lin_kv_results_grads, input_weights_kv)
-        input_kv_grads = input_kv_grads.view(inputs_kv.size(0), inputs_kv.
-            size(1), inputs_kv.size(2))
-        input_weight_q_grads = torch.mm(queries_grads.transpose(0, 1),
-            inputs_q.view(inputs_q.size(0) * inputs_q.size(1), inputs_q.
-            size(2)))
-        input_weight_kv_grads = torch.mm(input_lin_kv_results_grads.
-            transpose(0, 1), inputs_kv.view(inputs_kv.size(0) * inputs_kv.
-            size(1), inputs_kv.size(2)))
+        input_kv_grads = input_kv_grads.view(inputs_kv.size(0), inputs_kv.size(1), inputs_kv.size(2))
+        input_weight_q_grads = torch.mm(queries_grads.transpose(0, 1), inputs_q.view(inputs_q.size(0) * inputs_q.size(1), inputs_q.size(2)))
+        input_weight_kv_grads = torch.mm(input_lin_kv_results_grads.transpose(0, 1), inputs_kv.view(inputs_kv.size(0) * inputs_kv.size(1), inputs_kv.size(2)))
         if use_biases_t[0]:
             input_bias_grads_q = torch.sum(queries_grads, 0)
             input_bias_grads_kv = torch.sum(input_lin_kv_results_grads, 0)
         else:
             input_bias_grads_q = None
             input_bias_grads_kv = None
-        return (None, None, None, None, input_q_grads, input_kv_grads,
-            input_weight_q_grads, input_weight_kv_grads,
-            output_weight_grads, input_bias_grads_q, input_bias_grads_kv,
-            output_bias_grads, None, None)
+        return None, None, None, None, input_q_grads, input_kv_grads, input_weight_q_grads, input_weight_kv_grads, output_weight_grads, input_bias_grads_q, input_bias_grads_kv, output_bias_grads, None, None
 
 
 encdec_attn_func = EncdecAttnFunc.apply
@@ -1347,41 +1206,20 @@ encdec_attn_func = EncdecAttnFunc.apply
 class FastEncdecAttnFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, inputs_q, inputs_kv,
-        input_weights_q, input_weights_kv, output_weights, pad_mask,
-        dropout_prob):
+    def forward(ctx, use_time_mask, is_training, heads, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, pad_mask, dropout_prob):
         heads_t = torch.tensor([heads])
         dropout_prob_t = torch.tensor([dropout_prob])
         null_tensor = torch.tensor([])
         use_mask = pad_mask is not None
-        (input_lin_q_results, input_lin_kv_results, softmax_results,
-            dropout_results, dropout_mask, matmul2_results, outputs) = (
-            fast_encdec_multihead_attn.forward(use_mask, use_time_mask,
-            is_training, heads, inputs_q, inputs_kv, input_weights_q,
-            input_weights_kv, output_weights, pad_mask if use_mask else
-            null_tensor, dropout_prob))
-        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_q_results, input_lin_kv_results,
-            inputs_q, inputs_kv, input_weights_q, input_weights_kv,
-            output_weights, dropout_mask, dropout_prob_t)
+        input_lin_q_results, input_lin_kv_results, softmax_results, dropout_results, dropout_mask, matmul2_results, outputs = fast_encdec_multihead_attn.forward(use_mask, use_time_mask, is_training, heads, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, pad_mask if use_mask else null_tensor, dropout_prob)
+        ctx.save_for_backward(heads_t, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (heads_t, matmul2_results, dropout_results, softmax_results,
-            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
-            input_weights_q, input_weights_kv, output_weights, dropout_mask,
-            dropout_prob_t) = ctx.saved_tensors
-        (input_q_grads, input_kv_grads, input_weight_q_grads,
-            input_weight_kv_grads, output_weight_grads) = (
-            fast_encdec_multihead_attn.backward(heads_t[0], output_grads,
-            matmul2_results, dropout_results, softmax_results,
-            input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv,
-            input_weights_q, input_weights_kv, output_weights, dropout_mask,
-            dropout_prob_t[0]))
-        return (None, None, None, input_q_grads, input_kv_grads,
-            input_weight_q_grads, input_weight_kv_grads,
-            output_weight_grads, None, None)
+        heads_t, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_prob_t = ctx.saved_tensors
+        input_q_grads, input_kv_grads, input_weight_q_grads, input_weight_kv_grads, output_weight_grads = fast_encdec_multihead_attn.backward(heads_t[0], output_grads, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, inputs_q, inputs_kv, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_prob_t[0])
+        return None, None, None, input_q_grads, input_kv_grads, input_weight_q_grads, input_weight_kv_grads, output_weight_grads, None, None
 
 
 fast_encdec_attn_func = FastEncdecAttnFunc.apply
@@ -1390,49 +1228,20 @@ fast_encdec_attn_func = FastEncdecAttnFunc.apply
 class FastEncdecAttnNormAddFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, inputs_q, inputs_kv,
-        lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q,
-        input_weights_kv, output_weights, pad_mask, dropout_prob):
+    def forward(ctx, use_time_mask, is_training, heads, inputs_q, inputs_kv, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q, input_weights_kv, output_weights, pad_mask, dropout_prob):
         heads_t = torch.tensor([heads])
         dropout_prob_t = torch.tensor([dropout_prob])
         null_tensor = torch.tensor([])
         use_mask = pad_mask is not None
-        (lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_q_results,
-            input_lin_kv_results, softmax_results, dropout_results,
-            dropout_mask, matmul2_results, dropout_add_mask, outputs) = (
-            fast_encdec_multihead_attn_norm_add.forward(use_mask,
-            use_time_mask, is_training, heads, inputs_q, inputs_kv,
-            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q,
-            input_weights_kv, output_weights, pad_mask if use_mask else
-            null_tensor, dropout_prob))
-        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_q_results, input_lin_kv_results,
-            lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs_q,
-            inputs_kv, lyr_nrm_gamma_weights, lyr_nrm_beta_weights,
-            input_weights_q, input_weights_kv, output_weights, dropout_mask,
-            dropout_add_mask, dropout_prob_t)
+        lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_q_results, input_lin_kv_results, softmax_results, dropout_results, dropout_mask, matmul2_results, dropout_add_mask, outputs = fast_encdec_multihead_attn_norm_add.forward(use_mask, use_time_mask, is_training, heads, inputs_q, inputs_kv, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q, input_weights_kv, output_weights, pad_mask if use_mask else null_tensor, dropout_prob)
+        ctx.save_for_backward(heads_t, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs_q, inputs_kv, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_add_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (heads_t, matmul2_results, dropout_results, softmax_results,
-            input_lin_q_results, input_lin_kv_results, lyr_nrm_results,
-            lyr_nrm_mean, lyr_nrm_invvar, inputs_q, inputs_kv,
-            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q,
-            input_weights_kv, output_weights, dropout_mask,
-            dropout_add_mask, dropout_prob_t) = ctx.saved_tensors
-        (input_q_grads, input_kv_grads, lyr_nrm_gamma_grads,
-            lyr_nrm_beta_grads, input_weight_q_grads, input_weight_kv_grads,
-            output_weight_grads) = (fast_encdec_multihead_attn_norm_add.
-            backward(heads_t[0], output_grads, matmul2_results,
-            dropout_results, softmax_results, input_lin_q_results,
-            input_lin_kv_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs_q, inputs_kv, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights_q, input_weights_kv,
-            output_weights, dropout_mask, dropout_add_mask, dropout_prob_t[0]))
-        return (None, None, None, input_q_grads, input_kv_grads,
-            lyr_nrm_gamma_grads, lyr_nrm_beta_grads, input_weight_q_grads,
-            input_weight_kv_grads, output_weight_grads, None, None)
+        heads_t, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs_q, inputs_kv, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_add_mask, dropout_prob_t = ctx.saved_tensors
+        input_q_grads, input_kv_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads, input_weight_q_grads, input_weight_kv_grads, output_weight_grads = fast_encdec_multihead_attn_norm_add.backward(heads_t[0], output_grads, matmul2_results, dropout_results, softmax_results, input_lin_q_results, input_lin_kv_results, lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs_q, inputs_kv, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights_q, input_weights_kv, output_weights, dropout_mask, dropout_add_mask, dropout_prob_t[0])
+        return None, None, None, input_q_grads, input_kv_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads, input_weight_q_grads, input_weight_kv_grads, output_weight_grads, None, None
 
 
 fast_encdec_attn_norm_add_func = FastEncdecAttnNormAddFunc.apply
@@ -1451,8 +1260,7 @@ class EncdecMultiheadAttn(nn.Module):
     See "Attention Is All You Need" for more details.
     """
 
-    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=False,
-        include_norm_add=False, impl='fast'):
+    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=False, include_norm_add=False, impl='fast'):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -1464,8 +1272,7 @@ class EncdecMultiheadAttn(nn.Module):
         self.impl = impl
         self.scaling = self.head_dim ** -0.5
         self.in_proj_weight_q = Parameter(torch.Tensor(embed_dim, embed_dim))
-        self.in_proj_weight_kv = Parameter(torch.Tensor(2 * embed_dim,
-            embed_dim))
+        self.in_proj_weight_kv = Parameter(torch.Tensor(2 * embed_dim, embed_dim))
         self.out_proj_weight = Parameter(torch.Tensor(embed_dim, embed_dim))
         if self.bias:
             assert impl != 'fast', 'ERROR! The Fast implementation does not support biases!'
@@ -1519,8 +1326,7 @@ class EncdecMultiheadAttn(nn.Module):
             else:
                 self.lyr_nrm.reset_parameters()
 
-    def forward(self, query, key, value, key_padding_mask=None,
-        need_weights=False, attn_mask=None, is_training=True):
+    def forward(self, query, key, value, key_padding_mask=None, need_weights=False, attn_mask=None, is_training=True):
         """Input shape: Time x Batch x Channel
 
         Self-attention can be implemented by passing in the same arguments for
@@ -1538,42 +1344,25 @@ class EncdecMultiheadAttn(nn.Module):
             mask = None
         if self.include_norm_add:
             if self.impl == 'fast':
-                outputs = self.attn_func(attn_mask is not None, is_training,
-                    self.num_heads, query, key, self.lyr_nrm_gamma_weights,
-                    self.lyr_nrm_beta_weights, self.in_proj_weight_q, self.
-                    in_proj_weight_kv, self.out_proj_weight, mask, self.dropout
-                    )
+                outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, query, key, self.lyr_nrm_gamma_weights, self.lyr_nrm_beta_weights, self.in_proj_weight_q, self.in_proj_weight_kv, self.out_proj_weight, mask, self.dropout)
             else:
                 lyr_nrm_results = self.lyr_nrm(query)
-                outputs = self.attn_func(attn_mask is not None, is_training,
-                    self.num_heads, self.scaling, lyr_nrm_results, key,
-                    self.in_proj_weight_q, self.in_proj_weight_kv, self.
-                    out_proj_weight, self.in_proj_bias_q, self.
-                    in_proj_bias_kv, self.out_proj_bias, mask, self.dropout)
+                outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, self.scaling, lyr_nrm_results, key, self.in_proj_weight_q, self.in_proj_weight_kv, self.out_proj_weight, self.in_proj_bias_q, self.in_proj_bias_kv, self.out_proj_bias, mask, self.dropout)
                 if is_training:
-                    outputs = jit_dropout_add(outputs, query, self.dropout,
-                        is_training)
+                    outputs = jit_dropout_add(outputs, query, self.dropout, is_training)
                 else:
                     outputs = outputs + query
         elif self.impl == 'fast':
-            outputs = self.attn_func(attn_mask is not None, is_training,
-                self.num_heads, query, key, self.in_proj_weight_q, self.
-                in_proj_weight_kv, self.out_proj_weight, mask, self.dropout)
+            outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, query, key, self.in_proj_weight_q, self.in_proj_weight_kv, self.out_proj_weight, mask, self.dropout)
         else:
-            outputs = self.attn_func(attn_mask is not None, is_training,
-                self.num_heads, self.scaling, query, key, self.
-                in_proj_weight_q, self.in_proj_weight_kv, self.
-                out_proj_weight, self.in_proj_bias_q, self.in_proj_bias_kv,
-                self.out_proj_bias, mask, self.dropout)
+            outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, self.scaling, query, key, self.in_proj_weight_q, self.in_proj_weight_kv, self.out_proj_weight, self.in_proj_bias_q, self.in_proj_bias_kv, self.out_proj_bias, mask, self.dropout)
         return outputs, None
 
 
 class FastSelfAttnFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, inputs,
-        input_weights, output_weights, input_biases, output_biases,
-        pad_mask, mask_additive, dropout_prob):
+    def forward(ctx, use_time_mask, is_training, heads, inputs, input_weights, output_weights, input_biases, output_biases, pad_mask, mask_additive, dropout_prob):
         use_biases_t = torch.tensor([input_biases is not None])
         heads_t = torch.tensor([heads])
         dropout_prob_t = torch.tensor([dropout_prob])
@@ -1581,55 +1370,24 @@ class FastSelfAttnFunc(torch.autograd.Function):
         use_mask = pad_mask is not None
         if use_biases_t[0]:
             if not mask_additive:
-                (input_lin_results, softmax_results, dropout_results,
-                    dropout_mask, matmul2_results, outputs) = (
-                    fast_self_multihead_attn_bias.forward(use_mask,
-                    use_time_mask, is_training, heads, inputs,
-                    input_weights, output_weights, input_biases,
-                    output_biases, pad_mask if use_mask else null_tensor,
-                    dropout_prob))
+                input_lin_results, softmax_results, dropout_results, dropout_mask, matmul2_results, outputs = fast_self_multihead_attn_bias.forward(use_mask, use_time_mask, is_training, heads, inputs, input_weights, output_weights, input_biases, output_biases, pad_mask if use_mask else null_tensor, dropout_prob)
             else:
-                (input_lin_results, softmax_results, dropout_results,
-                    dropout_mask, matmul2_results, outputs) = (
-                    fast_self_multihead_attn_bias_additive_mask.forward(
-                    use_mask, use_time_mask, is_training, heads, inputs,
-                    input_weights, output_weights, input_biases,
-                    output_biases, pad_mask if use_mask else null_tensor,
-                    dropout_prob))
+                input_lin_results, softmax_results, dropout_results, dropout_mask, matmul2_results, outputs = fast_self_multihead_attn_bias_additive_mask.forward(use_mask, use_time_mask, is_training, heads, inputs, input_weights, output_weights, input_biases, output_biases, pad_mask if use_mask else null_tensor, dropout_prob)
         else:
-            (input_lin_results, softmax_results, dropout_results,
-                dropout_mask, matmul2_results, outputs) = (
-                fast_self_multihead_attn.forward(use_mask, use_time_mask,
-                is_training, heads, inputs, input_weights, output_weights, 
-                pad_mask if use_mask else null_tensor, dropout_prob))
-        ctx.save_for_backward(use_biases_t, heads_t, matmul2_results,
-            dropout_results, softmax_results, input_lin_results, inputs,
-            input_weights, output_weights, dropout_mask, dropout_prob_t)
+            input_lin_results, softmax_results, dropout_results, dropout_mask, matmul2_results, outputs = fast_self_multihead_attn.forward(use_mask, use_time_mask, is_training, heads, inputs, input_weights, output_weights, pad_mask if use_mask else null_tensor, dropout_prob)
+        ctx.save_for_backward(use_biases_t, heads_t, matmul2_results, dropout_results, softmax_results, input_lin_results, inputs, input_weights, output_weights, dropout_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (use_biases_t, heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_results, inputs, input_weights,
-            output_weights, dropout_mask, dropout_prob_t) = ctx.saved_tensors
+        use_biases_t, heads_t, matmul2_results, dropout_results, softmax_results, input_lin_results, inputs, input_weights, output_weights, dropout_mask, dropout_prob_t = ctx.saved_tensors
         if use_biases_t[0]:
-            (input_grads, input_weight_grads, output_weight_grads,
-                input_bias_grads, output_bias_grads) = (
-                fast_self_multihead_attn_bias.backward(heads_t[0],
-                output_grads, matmul2_results, dropout_results,
-                softmax_results, input_lin_results, inputs, input_weights,
-                output_weights, dropout_mask, dropout_prob_t[0]))
+            input_grads, input_weight_grads, output_weight_grads, input_bias_grads, output_bias_grads = fast_self_multihead_attn_bias.backward(heads_t[0], output_grads, matmul2_results, dropout_results, softmax_results, input_lin_results, inputs, input_weights, output_weights, dropout_mask, dropout_prob_t[0])
         else:
             input_bias_grads = None
             output_bias_grads = None
-            input_grads, input_weight_grads, output_weight_grads = (
-                fast_self_multihead_attn.backward(heads_t[0], output_grads,
-                matmul2_results, dropout_results, softmax_results,
-                input_lin_results, inputs, input_weights, output_weights,
-                dropout_mask, dropout_prob_t[0]))
-        return (None, None, None, input_grads, input_weight_grads,
-            output_weight_grads, input_bias_grads, output_bias_grads, None,
-            None, None)
+            input_grads, input_weight_grads, output_weight_grads = fast_self_multihead_attn.backward(heads_t[0], output_grads, matmul2_results, dropout_results, softmax_results, input_lin_results, inputs, input_weights, output_weights, dropout_mask, dropout_prob_t[0])
+        return None, None, None, input_grads, input_weight_grads, output_weight_grads, input_bias_grads, output_bias_grads, None, None, None
 
 
 fast_self_attn_func = FastSelfAttnFunc.apply
@@ -1638,45 +1396,20 @@ fast_self_attn_func = FastSelfAttnFunc.apply
 class FastSelfAttnNormAddFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, inputs,
-        lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
-        output_weights, pad_mask, dropout_prob):
+    def forward(ctx, use_time_mask, is_training, heads, inputs, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights, output_weights, pad_mask, dropout_prob):
         heads_t = torch.tensor([heads])
         dropout_prob_t = torch.tensor([dropout_prob])
         null_tensor = torch.tensor([])
         use_mask = pad_mask is not None
-        (lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_results,
-            softmax_results, dropout_results, dropout_mask, matmul2_results,
-            dropout_add_mask, outputs) = (fast_self_multihead_attn_norm_add
-            .forward(use_mask, use_time_mask, is_training, heads, inputs,
-            lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights,
-            output_weights, pad_mask if use_mask else null_tensor,
-            dropout_prob))
-        ctx.save_for_backward(heads_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_results, lyr_nrm_results,
-            lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t)
+        lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, input_lin_results, softmax_results, dropout_results, dropout_mask, matmul2_results, dropout_add_mask, outputs = fast_self_multihead_attn_norm_add.forward(use_mask, use_time_mask, is_training, heads, inputs, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights, output_weights, pad_mask if use_mask else null_tensor, dropout_prob)
+        ctx.save_for_backward(heads_t, matmul2_results, dropout_results, softmax_results, input_lin_results, lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights, output_weights, dropout_mask, dropout_add_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (heads_t, matmul2_results, dropout_results, softmax_results,
-            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t) = ctx.saved_tensors
-        (input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads,
-            input_weight_grads, output_weight_grads) = (
-            fast_self_multihead_attn_norm_add.backward(heads_t[0],
-            output_grads, matmul2_results, dropout_results, softmax_results,
-            input_lin_results, lyr_nrm_results, lyr_nrm_mean,
-            lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights,
-            lyr_nrm_beta_weights, input_weights, output_weights,
-            dropout_mask, dropout_add_mask, dropout_prob_t[0]))
-        return (None, None, None, input_grads, lyr_nrm_gamma_grads,
-            lyr_nrm_beta_grads, input_weight_grads, output_weight_grads,
-            None, None)
+        heads_t, matmul2_results, dropout_results, softmax_results, input_lin_results, lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights, output_weights, dropout_mask, dropout_add_mask, dropout_prob_t = ctx.saved_tensors
+        input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads, input_weight_grads, output_weight_grads = fast_self_multihead_attn_norm_add.backward(heads_t[0], output_grads, matmul2_results, dropout_results, softmax_results, input_lin_results, lyr_nrm_results, lyr_nrm_mean, lyr_nrm_invvar, inputs, lyr_nrm_gamma_weights, lyr_nrm_beta_weights, input_weights, output_weights, dropout_mask, dropout_add_mask, dropout_prob_t[0])
+        return None, None, None, input_grads, lyr_nrm_gamma_grads, lyr_nrm_beta_grads, input_weight_grads, output_weight_grads, None, None
 
 
 fast_self_attn_norm_add_func = FastSelfAttnNormAddFunc.apply
@@ -1685,9 +1418,7 @@ fast_self_attn_norm_add_func = FastSelfAttnNormAddFunc.apply
 class SelfAttnFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, use_time_mask, is_training, heads, scale, inputs,
-        input_weights, output_weights, input_biases, output_biases, mask,
-        dropout_prob):
+    def forward(ctx, use_time_mask, is_training, heads, scale, inputs, input_weights, output_weights, input_biases, output_biases, mask, dropout_prob):
         use_biases_t = torch.tensor([input_biases is not None])
         heads_t = torch.tensor([heads])
         scale_t = torch.tensor([scale])
@@ -1695,79 +1426,51 @@ class SelfAttnFunc(torch.autograd.Function):
         null_tensor = torch.tensor([])
         head_dim = inputs.size(2) // heads
         if use_biases_t[0]:
-            input_lin_results = torch.addmm(input_biases, inputs.view(
-                inputs.size(0) * inputs.size(1), inputs.size(2)),
-                input_weights.transpose(0, 1), beta=1.0, alpha=1.0)
+            input_lin_results = torch.addmm(input_biases, inputs.view(inputs.size(0) * inputs.size(1), inputs.size(2)), input_weights.transpose(0, 1), beta=1.0, alpha=1.0)
         else:
-            input_lin_results = torch.mm(inputs.view(inputs.size(0) *
-                inputs.size(1), inputs.size(2)), input_weights.transpose(0, 1))
-        input_lin_results = input_lin_results.view(inputs.size(0), inputs.
-            size(1), input_weights.size(0))
-        input_lin_results = input_lin_results.view(inputs.size(0), inputs.
-            size(1) * heads, 3, head_dim)
+            input_lin_results = torch.mm(inputs.view(inputs.size(0) * inputs.size(1), inputs.size(2)), input_weights.transpose(0, 1))
+        input_lin_results = input_lin_results.view(inputs.size(0), inputs.size(1), input_weights.size(0))
+        input_lin_results = input_lin_results.view(inputs.size(0), inputs.size(1) * heads, 3, head_dim)
         queries = input_lin_results[:, :, (0), :]
         keys = input_lin_results[:, :, (1), :]
         values = input_lin_results[:, :, (2), :]
-        matmul1_results = torch.empty((queries.size(1), queries.size(0),
-            keys.size(0)), dtype=queries.dtype, device=torch.device('cuda'))
-        matmul1_results = torch.baddbmm(matmul1_results, queries.transpose(
-            0, 1), keys.transpose(0, 1).transpose(1, 2), out=
-            matmul1_results, beta=0.0, alpha=scale_t[0])
+        matmul1_results = torch.empty((queries.size(1), queries.size(0), keys.size(0)), dtype=queries.dtype, device=torch.device('cuda'))
+        matmul1_results = torch.baddbmm(matmul1_results, queries.transpose(0, 1), keys.transpose(0, 1).transpose(1, 2), out=matmul1_results, beta=0.0, alpha=scale_t[0])
         if mask is not None:
             if use_time_mask:
                 assert len(mask.size()) == 2, 'Timing mask is not 2D!'
-                assert mask.size(0) == mask.size(1
-                    ), 'Sequence length should match!'
+                assert mask.size(0) == mask.size(1), 'Sequence length should match!'
                 mask = mask.to(torch.bool)
-                matmul1_results = matmul1_results.masked_fill_(mask, float(
-                    '-inf'))
+                matmul1_results = matmul1_results.masked_fill_(mask, float('-inf'))
             else:
                 batches, seql_q, seql_k = matmul1_results.size()
                 seqs = int(batches / heads)
-                matmul1_results = matmul1_results.view(seqs, heads, seql_q,
-                    seql_k)
+                matmul1_results = matmul1_results.view(seqs, heads, seql_q, seql_k)
                 mask = mask.to(torch.bool)
-                matmul1_results = matmul1_results.masked_fill_(mask.
-                    unsqueeze(1).unsqueeze(2), float('-inf'))
-                matmul1_results = matmul1_results.view(seqs * heads, seql_q,
-                    seql_k)
+                matmul1_results = matmul1_results.masked_fill_(mask.unsqueeze(1).unsqueeze(2), float('-inf'))
+                matmul1_results = matmul1_results.view(seqs * heads, seql_q, seql_k)
         softmax_results = F.softmax(matmul1_results, dim=-1)
         if is_training:
-            dropout_results, dropout_mask = torch._fused_dropout(
-                softmax_results, p=1.0 - dropout_prob_t[0])
+            dropout_results, dropout_mask = torch._fused_dropout(softmax_results, p=1.0 - dropout_prob_t[0])
         else:
             dropout_results = softmax_results
             dropout_mask = null_tensor
-        matmul2_results = torch.empty((dropout_results.size(1),
-            dropout_results.size(0), values.size(2)), dtype=dropout_results
-            .dtype, device=torch.device('cuda')).transpose(1, 0)
-        matmul2_results = torch.bmm(dropout_results, values.transpose(0, 1),
-            out=matmul2_results)
-        matmul2_results = matmul2_results.transpose(0, 1).contiguous().view(
-            inputs.size(0), inputs.size(1), inputs.size(2))
+        matmul2_results = torch.empty((dropout_results.size(1), dropout_results.size(0), values.size(2)), dtype=dropout_results.dtype, device=torch.device('cuda')).transpose(1, 0)
+        matmul2_results = torch.bmm(dropout_results, values.transpose(0, 1), out=matmul2_results)
+        matmul2_results = matmul2_results.transpose(0, 1).contiguous().view(inputs.size(0), inputs.size(1), inputs.size(2))
         if use_biases_t[0]:
-            outputs = torch.addmm(output_biases, matmul2_results.view(
-                inputs.size(0) * inputs.size(1), inputs.size(2)),
-                output_weights.transpose(0, 1), beta=1.0, alpha=1.0)
+            outputs = torch.addmm(output_biases, matmul2_results.view(inputs.size(0) * inputs.size(1), inputs.size(2)), output_weights.transpose(0, 1), beta=1.0, alpha=1.0)
         else:
-            outputs = torch.mm(matmul2_results.view(inputs.size(0) * inputs
-                .size(1), inputs.size(2)), output_weights.transpose(0, 1))
-        outputs = outputs.view(inputs.size(0), inputs.size(1),
-            output_weights.size(0))
-        ctx.save_for_backward(use_biases_t, heads_t, scale_t,
-            matmul2_results, dropout_results, softmax_results,
-            input_lin_results, inputs, input_weights, output_weights,
-            dropout_mask, dropout_prob_t)
+            outputs = torch.mm(matmul2_results.view(inputs.size(0) * inputs.size(1), inputs.size(2)), output_weights.transpose(0, 1))
+        outputs = outputs.view(inputs.size(0), inputs.size(1), output_weights.size(0))
+        ctx.save_for_backward(use_biases_t, heads_t, scale_t, matmul2_results, dropout_results, softmax_results, input_lin_results, inputs, input_weights, output_weights, dropout_mask, dropout_prob_t)
         return outputs.detach()
 
     @staticmethod
     def backward(ctx, output_grads):
-        (use_biases_t, heads_t, scale_t, matmul2_results, dropout_results,
-            softmax_results, input_lin_results, inputs, input_weights,
-            output_weights, dropout_mask, dropout_prob_t) = ctx.saved_tensors
+        use_biases_t, heads_t, scale_t, matmul2_results, dropout_results, softmax_results, input_lin_results, inputs, input_weights, output_weights, dropout_mask, dropout_prob_t = ctx.saved_tensors
         head_dim = inputs.size(2) // heads_t[0]
-        input_lin_results = input_lin_results.view(inputs.size(0), inputs.
-            size(1) * heads_t[0], 3, head_dim)
+        input_lin_results = input_lin_results.view(inputs.size(0), inputs.size(1) * heads_t[0], 3, head_dim)
         queries = input_lin_results[:, :, (0), :]
         keys = input_lin_results[:, :, (1), :]
         values = input_lin_results[:, :, (2), :]
@@ -1775,49 +1478,29 @@ class SelfAttnFunc(torch.autograd.Function):
         queries_grads = input_lin_results_grads[:, :, (0), :]
         keys_grads = input_lin_results_grads[:, :, (1), :]
         values_grads = input_lin_results_grads[:, :, (2), :]
-        output_lin_grads = torch.mm(output_grads.view(output_grads.size(0) *
-            output_grads.size(1), output_grads.size(2)), output_weights)
-        output_lin_grads = output_lin_grads.view(output_grads.size(0),
-            output_grads.size(1), output_weights.size(1))
-        output_weight_grads = torch.mm(output_grads.view(output_grads.size(
-            0) * output_grads.size(1), output_grads.size(2)).transpose(0, 1
-            ), matmul2_results.view(matmul2_results.size(0) *
-            matmul2_results.size(1), matmul2_results.size(2)))
-        output_lin_grads = output_lin_grads.view(inputs.size(0), inputs.
-            size(1) * heads_t[0], head_dim).transpose(0, 1)
+        output_lin_grads = torch.mm(output_grads.view(output_grads.size(0) * output_grads.size(1), output_grads.size(2)), output_weights)
+        output_lin_grads = output_lin_grads.view(output_grads.size(0), output_grads.size(1), output_weights.size(1))
+        output_weight_grads = torch.mm(output_grads.view(output_grads.size(0) * output_grads.size(1), output_grads.size(2)).transpose(0, 1), matmul2_results.view(matmul2_results.size(0) * matmul2_results.size(1), matmul2_results.size(2)))
+        output_lin_grads = output_lin_grads.view(inputs.size(0), inputs.size(1) * heads_t[0], head_dim).transpose(0, 1)
         if use_biases_t[0]:
-            output_bias_grads = torch.sum(output_grads.view(output_grads.
-                size(0) * output_grads.size(1), output_grads.size(2)), 0)
+            output_bias_grads = torch.sum(output_grads.view(output_grads.size(0) * output_grads.size(1), output_grads.size(2)), 0)
         else:
             output_bias_grads = None
-        matmul2_dgrad1 = torch.bmm(output_lin_grads, values.transpose(0, 1)
-            .transpose(1, 2))
-        values_grads = torch.bmm(dropout_results.transpose(1, 2),
-            output_lin_grads, out=values_grads.transpose(0, 1))
-        dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 
-            1.0 / (1.0 - dropout_prob_t[0]))
-        softmax_grads = torch._softmax_backward_data(dropout_grads,
-            softmax_results, -1, softmax_results)
-        queries_grads = torch.baddbmm(queries_grads.transpose(0, 1),
-            softmax_grads, keys.transpose(0, 1), out=queries_grads.
-            transpose(0, 1), beta=0.0, alpha=scale_t[0])
-        keys_grads = torch.baddbmm(keys_grads.transpose(0, 1),
-            softmax_grads.transpose(1, 2), queries.transpose(0, 1), out=
-            keys_grads.transpose(0, 1), beta=0.0, alpha=scale_t[0])
-        input_lin_results_grads = input_lin_results_grads.view(inputs.size(
-            0) * inputs.size(1), heads_t[0] * 3 * head_dim)
+        matmul2_dgrad1 = torch.bmm(output_lin_grads, values.transpose(0, 1).transpose(1, 2))
+        values_grads = torch.bmm(dropout_results.transpose(1, 2), output_lin_grads, out=values_grads.transpose(0, 1))
+        dropout_grads = torch._masked_scale(matmul2_dgrad1, dropout_mask, 1.0 / (1.0 - dropout_prob_t[0]))
+        softmax_grads = torch._softmax_backward_data(dropout_grads, softmax_results, -1, softmax_results)
+        queries_grads = torch.baddbmm(queries_grads.transpose(0, 1), softmax_grads, keys.transpose(0, 1), out=queries_grads.transpose(0, 1), beta=0.0, alpha=scale_t[0])
+        keys_grads = torch.baddbmm(keys_grads.transpose(0, 1), softmax_grads.transpose(1, 2), queries.transpose(0, 1), out=keys_grads.transpose(0, 1), beta=0.0, alpha=scale_t[0])
+        input_lin_results_grads = input_lin_results_grads.view(inputs.size(0) * inputs.size(1), heads_t[0] * 3 * head_dim)
         input_grads = torch.mm(input_lin_results_grads, input_weights)
-        input_grads = input_grads.view(inputs.size(0), inputs.size(1),
-            inputs.size(2))
-        input_weight_grads = torch.mm(input_lin_results_grads.transpose(0, 
-            1), inputs.view(inputs.size(0) * inputs.size(1), inputs.size(2)))
+        input_grads = input_grads.view(inputs.size(0), inputs.size(1), inputs.size(2))
+        input_weight_grads = torch.mm(input_lin_results_grads.transpose(0, 1), inputs.view(inputs.size(0) * inputs.size(1), inputs.size(2)))
         if use_biases_t[0]:
             input_bias_grads = torch.sum(input_lin_results_grads, 0)
         else:
             input_bias_grads = None
-        return (None, None, None, None, input_grads, input_weight_grads,
-            output_weight_grads, input_bias_grads, output_bias_grads, None,
-            None)
+        return None, None, None, None, input_grads, input_weight_grads, output_weight_grads, input_bias_grads, output_bias_grads, None, None
 
 
 self_attn_func = SelfAttnFunc.apply
@@ -1829,9 +1512,7 @@ class SelfMultiheadAttn(nn.Module):
     See "Attention Is All You Need" for more details.
     """
 
-    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=False,
-        include_norm_add=False, impl='fast', separate_qkv_params=False,
-        mask_additive=False):
+    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=False, include_norm_add=False, impl='fast', separate_qkv_params=False, mask_additive=False):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -1852,8 +1533,7 @@ class SelfMultiheadAttn(nn.Module):
             self.k_weight = Parameter(torch.Tensor(embed_dim, embed_dim))
             self.v_weight = Parameter(torch.Tensor(embed_dim, embed_dim))
         else:
-            self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim,
-                embed_dim))
+            self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim, embed_dim))
         self.out_proj_weight = Parameter(torch.Tensor(embed_dim, embed_dim))
         if self.bias:
             if separate_qkv_params:
@@ -1925,8 +1605,7 @@ class SelfMultiheadAttn(nn.Module):
             else:
                 self.lyr_nrm.reset_parameters()
 
-    def forward(self, query, key, value, key_padding_mask=None,
-        need_weights=False, attn_mask=None, is_training=True):
+    def forward(self, query, key, value, key_padding_mask=None, need_weights=False, attn_mask=None, is_training=True):
         """Input shape: Time x Batch x Channel
 
         Self-attention can be implemented by passing in the same arguments for
@@ -1936,20 +1615,12 @@ class SelfMultiheadAttn(nn.Module):
         batch x src_len, where padding elements are indicated by 1s.
         """
         if self.separate_qkv_params:
-            input_weights = torch.cat([self.q_weight.view(self.num_heads, 1,
-                self.head_dim, self.embed_dim), self.k_weight.view(self.
-                num_heads, 1, self.head_dim, self.embed_dim), self.v_weight
-                .view(self.num_heads, 1, self.head_dim, self.embed_dim)], dim=1
-                ).reshape(3 * self.embed_dim, self.embed_dim).contiguous()
+            input_weights = torch.cat([self.q_weight.view(self.num_heads, 1, self.head_dim, self.embed_dim), self.k_weight.view(self.num_heads, 1, self.head_dim, self.embed_dim), self.v_weight.view(self.num_heads, 1, self.head_dim, self.embed_dim)], dim=1).reshape(3 * self.embed_dim, self.embed_dim).contiguous()
         else:
             input_weights = self.in_proj_weight
         if self.bias:
             if self.separate_qkv_params:
-                input_bias = torch.cat([self.q_bias.view(self.num_heads, 1,
-                    self.head_dim), self.k_bias.view(self.num_heads, 1,
-                    self.head_dim), self.v_bias.view(self.num_heads, 1,
-                    self.head_dim)], dim=1).reshape(3 * self.embed_dim
-                    ).contiguous()
+                input_bias = torch.cat([self.q_bias.view(self.num_heads, 1, self.head_dim), self.k_bias.view(self.num_heads, 1, self.head_dim), self.v_bias.view(self.num_heads, 1, self.head_dim)], dim=1).reshape(3 * self.embed_dim).contiguous()
             else:
                 input_bias = self.in_proj_bias
         else:
@@ -1964,31 +1635,18 @@ class SelfMultiheadAttn(nn.Module):
             mask = None
         if self.include_norm_add:
             if self.impl == 'fast':
-                outputs = self.attn_func(attn_mask is not None, is_training,
-                    self.num_heads, query, self.lyr_nrm_gamma_weights, self
-                    .lyr_nrm_beta_weights, input_weights, self.
-                    out_proj_weight, mask, self.dropout)
+                outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, query, self.lyr_nrm_gamma_weights, self.lyr_nrm_beta_weights, input_weights, self.out_proj_weight, mask, self.dropout)
             else:
                 lyr_nrm_results = self.lyr_nrm(query)
-                outputs = self.attn_func(attn_mask is not None, is_training,
-                    self.num_heads, self.scaling, lyr_nrm_results,
-                    input_weights, self.out_proj_weight, input_bias, self.
-                    out_proj_bias, mask, self.dropout)
+                outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, self.scaling, lyr_nrm_results, input_weights, self.out_proj_weight, input_bias, self.out_proj_bias, mask, self.dropout)
                 if is_training:
-                    outputs = jit_dropout_add(outputs, query, self.dropout,
-                        is_training)
+                    outputs = jit_dropout_add(outputs, query, self.dropout, is_training)
                 else:
                     outputs = outputs + query
         elif self.impl == 'fast':
-            outputs = self.attn_func(attn_mask is not None, is_training,
-                self.num_heads, query, input_weights, self.out_proj_weight,
-                input_bias, self.out_proj_bias, mask, self.mask_additive,
-                self.dropout)
+            outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, query, input_weights, self.out_proj_weight, input_bias, self.out_proj_bias, mask, self.mask_additive, self.dropout)
         else:
-            outputs = self.attn_func(attn_mask is not None, is_training,
-                self.num_heads, self.scaling, query, input_weights, self.
-                out_proj_weight, input_bias, self.out_proj_bias, mask, self
-                .mask_additive, self.dropout)
+            outputs = self.attn_func(attn_mask is not None, is_training, self.num_heads, self.scaling, query, input_weights, self.out_proj_weight, input_bias, self.out_proj_bias, mask, self.mask_additive, self.dropout)
         return outputs, None
 
 
@@ -2015,8 +1673,7 @@ def convert_module(module, dtype):
         if param is not None:
             if param.data.dtype.is_floating_point:
                 param.data = param.data.to(dtype=dtype)
-            if (param._grad is not None and param._grad.data.dtype.
-                is_floating_point):
+            if param._grad is not None and param._grad.data.dtype.is_floating_point:
                 param._grad.data = param._grad.data.to(dtype=dtype)
     for buf in module.buffers(recurse=False):
         if buf is not None and buf.data.dtype.is_floating_point:
@@ -2028,12 +1685,10 @@ def convert_network(network, dtype):
     Converts a network's parameters and buffers to dtype.
     """
     for module in network.modules():
-        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm
-            ) and module.affine is True:
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm) and module.affine is True:
             continue
         convert_module(module, dtype)
-        if isinstance(module, torch.nn.RNNBase) or isinstance(module, torch
-            .nn.modules.rnn.RNNBase):
+        if isinstance(module, torch.nn.RNNBase) or isinstance(module, torch.nn.modules.rnn.RNNBase):
             module.flatten_parameters()
     return network
 
@@ -2065,8 +1720,7 @@ class MlpFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_o):
-        grads = mlp_cuda.backward(ctx.bias, ctx.activation, grad_o, ctx.
-            outputs, ctx.saved_tensors)
+        grads = mlp_cuda.backward(ctx.bias, ctx.activation, grad_o, ctx.outputs, ctx.saved_tensors)
         del ctx.outputs
         return None, None, *grads
 
@@ -2118,13 +1772,10 @@ class MLP(torch.nn.Module):
                 nn.init.normal_(bias, 0.0, std)
 
     def forward(self, input):
-        return mlp_function(self.bias, self.activation, input, *self.
-            weights, *self.biases)
+        return mlp_function(self.bias, self.activation, input, *self.weights, *self.biases)
 
     def extra_repr(self):
-        s = (
-            f'MLP sizes: {self.mlp_sizes}, Bias={self.bias}, activation={self.activation}'
-            )
+        s = f'MLP sizes: {self.mlp_sizes}, Bias={self.bias}, activation={self.activation}'
         return s
 
 
@@ -2134,15 +1785,13 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
     def forward(ctx, input, weight, bias, normalized_shape, eps):
         global fused_layer_norm_cuda
         if fused_layer_norm_cuda is None:
-            fused_layer_norm_cuda = importlib.import_module(
-                'fused_layer_norm_cuda')
+            fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
         ctx.normalized_shape = normalized_shape
         ctx.eps = eps
         input_ = input.contiguous()
         weight_ = weight.contiguous()
         bias_ = bias.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward_affine(input_,
-            ctx.normalized_shape, weight_, bias_, ctx.eps)
+        output, mean, invvar = fused_layer_norm_cuda.forward_affine(input_, ctx.normalized_shape, weight_, bias_, ctx.eps)
         ctx.save_for_backward(input_, weight_, bias_, mean, invvar)
         return output
 
@@ -2150,9 +1799,7 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         input_, weight_, bias_, mean, invvar = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
-        grad_input, grad_weight, grad_bias = (fused_layer_norm_cuda.
-            backward_affine(grad_output.contiguous(), mean, invvar, input_,
-            ctx.normalized_shape, weight_, bias_, ctx.eps))
+        grad_input, grad_weight, grad_bias = fused_layer_norm_cuda.backward_affine(grad_output.contiguous(), mean, invvar, input_, ctx.normalized_shape, weight_, bias_, ctx.eps)
         return grad_input, grad_weight, grad_bias, None, None
 
 
@@ -2162,13 +1809,11 @@ class FusedLayerNormFunction(torch.autograd.Function):
     def forward(ctx, input, normalized_shape, eps):
         global fused_layer_norm_cuda
         if fused_layer_norm_cuda is None:
-            fused_layer_norm_cuda = importlib.import_module(
-                'fused_layer_norm_cuda')
+            fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
         ctx.normalized_shape = normalized_shape
         ctx.eps = eps
         input_ = input.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.
-            normalized_shape, ctx.eps)
+        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.normalized_shape, ctx.eps)
         ctx.save_for_backward(input_, mean, invvar)
         return output
 
@@ -2176,8 +1821,7 @@ class FusedLayerNormFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         input_, mean, invvar = ctx.saved_tensors
         grad_input = None
-        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
-            ), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
+        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
         return grad_input, None, None
 
 
@@ -2244,8 +1888,7 @@ class FusedLayerNorm(torch.nn.Module):
     def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
         super(FusedLayerNorm, self).__init__()
         global fused_layer_norm_cuda
-        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda'
-            )
+        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
         if isinstance(normalized_shape, numbers.Integral):
             normalized_shape = normalized_shape,
         self.normalized_shape = torch.Size(normalized_shape)
@@ -2266,19 +1909,14 @@ class FusedLayerNorm(torch.nn.Module):
 
     def forward(self, input):
         if not input.is_cuda:
-            return F.layer_norm(input, self.normalized_shape, self.weight,
-                self.bias, self.eps)
+            return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
         if self.elementwise_affine:
-            return FusedLayerNormAffineFunction.apply(input, self.weight,
-                self.bias, self.normalized_shape, self.eps)
+            return FusedLayerNormAffineFunction.apply(input, self.weight, self.bias, self.normalized_shape, self.eps)
         else:
-            return FusedLayerNormFunction.apply(input, self.
-                normalized_shape, self.eps)
+            return FusedLayerNormFunction.apply(input, self.normalized_shape, self.eps)
 
     def extra_repr(self):
-        return (
-            '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'
-            .format(**self.__dict__))
+        return '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'.format(**self.__dict__)
 
 
 def import_flatten_impl():
@@ -2288,9 +1926,7 @@ def import_flatten_impl():
         flatten_impl = apex_C.flatten
         unflatten_impl = apex_C.unflatten
     except ImportError:
-        print(
-            'Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.'
-            )
+        print('Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.')
         flatten_impl = torch._utils._flatten_dense_tensors
         unflatten_impl = torch._utils._unflatten_dense_tensors
     imported_flatten_impl = True
@@ -2355,9 +1991,7 @@ class MultiTensorApply(object):
 
     def check_avail(self):
         if MultiTensorApply.available == False:
-            raise RuntimeError(
-                'Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:'
-                , MultiTensorApply.import_err)
+            raise RuntimeError('Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:', MultiTensorApply.import_err)
 
     def __call__(self, op, noop_flag_buffer, tensor_lists, *args):
         self.check_avail()
@@ -2368,8 +2002,7 @@ multi_tensor_applier = MultiTensorApply(2048 * 32)
 
 
 def split_half_float_double(tensors):
-    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor']
+    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor', 'torch.cuda.DoubleTensor']
     buckets = []
     for i, dtype in enumerate(dtypes):
         bucket = [t for t in tensors if t.type() == dtype]
@@ -2411,12 +2044,7 @@ class DistributedDataParallel(Module):
 
     """
 
-    def __init__(self, module, message_size=10000000, delay_allreduce=False,
-        shared_param=None, allreduce_trigger_params=None,
-        retain_allreduce_buffers=False, allreduce_always_fp32=False,
-        num_allreduce_streams=1, allreduce_communicators=None,
-        gradient_average=True, gradient_predivide_factor=1.0,
-        gradient_average_split_factor=None, prof=False):
+    def __init__(self, module, message_size=10000000, delay_allreduce=False, shared_param=None, allreduce_trigger_params=None, retain_allreduce_buffers=False, allreduce_always_fp32=False, num_allreduce_streams=1, allreduce_communicators=None, gradient_average=True, gradient_predivide_factor=1.0, gradient_average_split_factor=None, prof=False):
         super(DistributedDataParallel, self).__init__()
         if hasattr(dist, 'get_backend'):
             self._backend = dist.get_backend()
@@ -2427,25 +2055,19 @@ class DistributedDataParallel(Module):
         else:
             self._backend = dist._backend
             self.backend_enum_holder = dist.dist_backend
-        self.warn_on_half = (True if self._backend == self.
-            backend_enum_holder.GLOO else False)
+        self.warn_on_half = True if self._backend == self.backend_enum_holder.GLOO else False
         self.prof = prof
         self.allreduce_different_streams = num_allreduce_streams > 1
         self.num_allreduce_streams = num_allreduce_streams
         self.allreduce_communicators = allreduce_communicators
         if self.allreduce_communicators:
             assert len(allreduce_communicators[0]) == num_allreduce_streams
-            assert len(allreduce_communicators[0]) == len(
-                allreduce_communicators[1])
+            assert len(allreduce_communicators[0]) == len(allreduce_communicators[1])
             assert self.allreduce_different_streams
         if self.allreduce_different_streams and delay_allreduce:
-            raise ValueError(
-                'self.allreduce_different_streams may only be used if delay_allreduce=False.'
-                )
+            raise ValueError('self.allreduce_different_streams may only be used if delay_allreduce=False.')
         if shared_param is not None:
-            raise ValueError(
-                'shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.'
-                )
+            raise ValueError('shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.')
         self.world_size = float(dist.get_world_size())
         self.retain_allreduce_buffers = retain_allreduce_buffers
         self.allreduce_always_fp32 = allreduce_always_fp32
@@ -2454,12 +2076,9 @@ class DistributedDataParallel(Module):
         self.custom_allreduce_triggers = False
         if allreduce_trigger_params is not None:
             if delay_allreduce:
-                raise ValueError(
-                    'Setting allreduce_trigger_params is only valid if delay_allreduce=False.'
-                    )
+                raise ValueError('Setting allreduce_trigger_params is only valid if delay_allreduce=False.')
             self.custom_allreduce_triggers = True
-            self.allreduce_trigger_params = set([id(param) for param in
-                allreduce_trigger_params])
+            self.allreduce_trigger_params = set([id(param) for param in allreduce_trigger_params])
         self.delay_allreduce = delay_allreduce
         self.message_size = message_size
         self.main_stream = torch.current_stream()
@@ -2471,21 +2090,17 @@ class DistributedDataParallel(Module):
             for param in self.module.parameters():
                 assert param.is_cuda, 'NCCL backend only supports model parameters to be on GPU.'
         self.active_params = []
-        self.param_type_to_tmp_i = {'torch.cuda.HalfTensor': 0,
-            'torch.cuda.FloatTensor': 1, 'torch.cuda.DoubleTensor': 2}
+        self.param_type_to_tmp_i = {'torch.cuda.HalfTensor': 0, 'torch.cuda.FloatTensor': 1, 'torch.cuda.DoubleTensor': 2}
         if multi_tensor_applier.available:
             self.multi_tensor_scale = amp_C.multi_tensor_scale
             self._overflow_buf = torch.IntTensor([0])
         self.create_hooks()
-        flat_dist_call([param.data for param in self.module.parameters()],
-            dist.broadcast, (0,))
+        flat_dist_call([param.data for param in self.module.parameters()], dist.broadcast, (0,))
 
     def __setstate__(self, state):
         super(DistributedDataParallel, self).__setstate__(state)
         if self.allreduce_different_streams and delay_allreduce:
-            raise ValueError(
-                'self.allreduce_different_streams may only be used if delay_allreduce=False.'
-                )
+            raise ValueError('self.allreduce_different_streams may only be used if delay_allreduce=False.')
         if self.delay_allreduce:
             self.needs_refresh = True
         self.bucket_streams = []
@@ -2510,24 +2125,20 @@ class DistributedDataParallel(Module):
                 self.active_i_buckets.append(tmp_bucket)
         self.num_buckets = len(self.active_i_buckets)
         self.bucket_sizes = [len(bucket) for bucket in self.active_i_buckets]
-        info_tensor = torch.IntTensor([self.num_buckets] + self.
-            bucket_sizes + list(chain(*self.active_i_buckets)))
+        info_tensor = torch.IntTensor([self.num_buckets] + self.bucket_sizes + list(chain(*self.active_i_buckets)))
         dist.broadcast(info_tensor, 0)
         info = [int(entry) for entry in info_tensor]
         self.num_buckets = info[0]
         self.bucket_sizes = info[1:self.num_buckets + 1]
-        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in
-            range(self.num_buckets)]
-        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])
-            ] for i in range(self.num_buckets)]
+        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)]
+        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)]
         flattened_buckets = info[self.num_buckets + 1:]
         flat_i = 0
         for bucket_idx in range(self.num_buckets):
             for bucket_loc in range(self.bucket_sizes[bucket_idx]):
                 param_i = flattened_buckets[flat_i]
                 self.active_i_buckets[bucket_idx][bucket_loc] = param_i
-                self.param_id_to_bucket[id(self.active_params[param_i])
-                    ] = bucket_idx, bucket_loc
+                self.param_id_to_bucket[id(self.active_params[param_i])] = bucket_idx, bucket_loc
                 flat_i += 1
 
     def create_hooks(self):
@@ -2544,16 +2155,10 @@ class DistributedDataParallel(Module):
                 stream.record_event(event)
                 torch.current_stream().wait_event(event)
             if self.next_bucket != self.num_buckets:
-                raise RuntimeError(
-                    'In epilogue, next_bucket ({}) != num_buckets ({}).  '.
-                    format(self.next_bucket, self.num_buckets),
-                    'This probably indicates some buckets were not allreduced.'
-                    )
-            for actual, expected in zip(self.buckets_ready_size, self.
-                bucket_sizes):
+                raise RuntimeError('In epilogue, next_bucket ({}) != num_buckets ({}).  '.format(self.next_bucket, self.num_buckets), 'This probably indicates some buckets were not allreduced.')
+            for actual, expected in zip(self.buckets_ready_size, self.bucket_sizes):
                 if actual != expected:
-                    raise RuntimeError(
-                        'Some param buckets were not allreduced.')
+                    raise RuntimeError('Some param buckets were not allreduced.')
         self.grad_accs = []
         for param in self.module.parameters():
             if param.requires_grad:
@@ -2567,38 +2172,28 @@ class DistributedDataParallel(Module):
                             torch.nvtx.range_push('allreduce_hook')
                         if not self._disable_allreduce:
                             if self.delay_allreduce or self.needs_refresh:
-                                if (not self.delay_allreduce and self.
-                                    needs_refresh):
-                                    active_i = self.param_id_to_active_i[id
-                                        (param)]
-                                    current_type = self.param_type_to_tmp_i[
-                                        param.type()]
-                                    self.tmp_buckets[current_type].append(
-                                        active_i)
+                                if not self.delay_allreduce and self.needs_refresh:
+                                    active_i = self.param_id_to_active_i[id(param)]
+                                    current_type = self.param_type_to_tmp_i[param.type()]
+                                    self.tmp_buckets[current_type].append(active_i)
                                     ship_tmp_bucket = False
                                     if self.custom_allreduce_triggers:
-                                        if id(param
-                                            ) in self.allreduce_trigger_params:
+                                        if id(param) in self.allreduce_trigger_params:
                                             ship_tmp_bucket = True
                                     else:
-                                        self.tmp_numels[current_type
-                                            ] += param.numel()
-                                        if self.tmp_numels[current_type
-                                            ] >= self.message_size:
+                                        self.tmp_numels[current_type] += param.numel()
+                                        if self.tmp_numels[current_type] >= self.message_size:
                                             ship_tmp_bucket = True
                                     if ship_tmp_bucket:
-                                        self.active_i_buckets.append(self.
-                                            tmp_buckets[current_type])
+                                        self.active_i_buckets.append(self.tmp_buckets[current_type])
                                         self.tmp_buckets[current_type] = []
                                         self.tmp_numels[current_type] = 0
                                 if not self.callback_queued:
-                                    Variable._execution_engine.queue_callback(
-                                        allreduce_params)
+                                    Variable._execution_engine.queue_callback(allreduce_params)
                                     self.callback_queued = True
                             else:
                                 if not self.callback_queued:
-                                    Variable._execution_engine.queue_callback(
-                                        overlapping_backward_epilogue)
+                                    Variable._execution_engine.queue_callback(overlapping_backward_epilogue)
                                     self.callback_queued = True
                                 self.comm_ready_buckets(param)
                         if self.prof:
@@ -2635,36 +2230,27 @@ class DistributedDataParallel(Module):
             if self.gradient_predivide_factor != 1.0:
                 tensor_to_allreduce.mul_(1.0 / self.gradient_predivide_factor)
             if self.allreduce_different_streams and not force_default_stream:
-                dist.all_reduce(tensor_to_allreduce, group=self.bucket_pgs[
-                    bucket_idx % self.num_allreduce_streams])
+                dist.all_reduce(tensor_to_allreduce, group=self.bucket_pgs[bucket_idx % self.num_allreduce_streams])
             else:
                 dist.all_reduce(tensor_to_allreduce)
             if self.gradient_average:
-                tensor_to_allreduce.mul_(self.gradient_predivide_factor /
-                    self.world_size)
-            if (self.allreduce_always_fp32 and tensor is not
-                tensor_to_allreduce):
+                tensor_to_allreduce.mul_(self.gradient_predivide_factor / self.world_size)
+            if self.allreduce_always_fp32 and tensor is not tensor_to_allreduce:
                 tensor.copy_(tensor_to_allreduce)
             if not self.retain_allreduce_buffers:
                 if multi_tensor_applier.available:
-                    multi_tensor_applier(self.multi_tensor_scale, self.
-                        _overflow_buf, [unflatten(tensor, bucket), bucket], 1.0
-                        )
+                    multi_tensor_applier(self.multi_tensor_scale, self._overflow_buf, [unflatten(tensor, bucket), bucket], 1.0)
                 else:
                     for buf, synced in zip(bucket, unflatten(tensor, bucket)):
                         buf.copy_(synced)
             tensor.record_stream(bucket_stream)
         return tensor
 
-    def allreduce_maybe_retain(self, bucket, bucket_idx,
-        force_default_stream=False):
-        allreduced = self.allreduce_bucket(bucket, bucket_idx,
-            force_default_stream)
+    def allreduce_maybe_retain(self, bucket, bucket_idx, force_default_stream=False):
+        allreduced = self.allreduce_bucket(bucket, bucket_idx, force_default_stream)
         if self.retain_allreduce_buffers:
             if self.allreduce_buffers[bucket_idx] is not None:
-                raise RuntimeError(
-                    'The backward pass is attempting to replace an already-filled allreduce buffer.  This is almost certainly an error.'
-                    )
+                raise RuntimeError('The backward pass is attempting to replace an already-filled allreduce buffer.  This is almost certainly an error.')
             self.allreduce_buffers[bucket_idx] = allreduced
             for view, grad in zip(unflatten(allreduced, bucket), bucket):
                 grad.data = view
@@ -2674,36 +2260,29 @@ class DistributedDataParallel(Module):
             stream.record_event(event)
             torch.current_stream().wait_event(event)
         if self.retain_allreduce_buffers:
-            grads = [param.grad for param in self.module.parameters() if 
-                param.grad is not None]
+            grads = [param.grad for param in self.module.parameters() if param.grad is not None]
         else:
-            grads = [param.grad.data for param in self.module.parameters() if
-                param.grad is not None]
+            grads = [param.grad.data for param in self.module.parameters() if param.grad is not None]
         split_buckets = split_half_float_double(grads)
         if self.retain_allreduce_buffers:
             self.allreduce_buffers = [None for _ in range(len(split_buckets))]
         for i, bucket in enumerate(split_buckets):
-            allreduced = self.allreduce_maybe_retain(bucket, i,
-                force_default_stream=True)
+            allreduced = self.allreduce_maybe_retain(bucket, i, force_default_stream=True)
 
     def comm_ready_buckets(self, param):
         if self.prof:
             torch.nvtx.range_push('comm_ready_buckets')
         bucket_idx, bucket_loc = self.param_id_to_bucket[id(param)]
         if self.buckets[bucket_idx][bucket_loc] is not None:
-            raise RuntimeError(
-                'The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.'
-                )
+            raise RuntimeError('The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.')
         if self.retain_allreduce_buffers:
             self.buckets[bucket_idx][bucket_loc] = param.grad
         else:
             self.buckets[bucket_idx][bucket_loc] = param.grad.data
         self.buckets_ready_size[bucket_idx] += 1
-        if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx
-            ]:
+        if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx]:
             if bucket_idx == self.next_bucket:
-                self.allreduce_maybe_retain(self.buckets[bucket_idx],
-                    bucket_idx)
+                self.allreduce_maybe_retain(self.buckets[bucket_idx], bucket_idx)
                 self.next_bucket += 1
                 if len(self.ready_buckets_not_reduced) > 0:
                     sorted_todo = sorted(self.ready_buckets_not_reduced)
@@ -2715,8 +2294,7 @@ class DistributedDataParallel(Module):
                             self.ready_buckets_not_reduced.remove(i)
                             self.next_bucket += 1
                         else:
-                            raise ValueError(
-                                'i should always be >= next_bucket')
+                            raise ValueError('i should always be >= next_bucket')
             else:
                 self.ready_buckets_not_reduced.add(bucket_idx)
         if self.prof:
@@ -2728,11 +2306,8 @@ class DistributedDataParallel(Module):
             torch.nvtx.range_push('forward pass DDP logic')
         if not self._disable_allreduce:
             if not self.delay_allreduce:
-                param_list = [param for param in self.module.parameters() if
-                    param.requires_grad]
-                if not self.active_params or len(param_list) != len(self.
-                    active_params) or any([(param1 is not param2) for 
-                    param1, param2 in zip(param_list, self.active_params)]):
+                param_list = [param for param in self.module.parameters() if param.requires_grad]
+                if not self.active_params or len(param_list) != len(self.active_params) or any([(param1 is not param2) for param1, param2 in zip(param_list, self.active_params)]):
                     self.needs_refresh = True
                 if self.needs_refresh:
                     self.active_i_buckets = []
@@ -2740,55 +2315,40 @@ class DistributedDataParallel(Module):
                     self.tmp_buckets = [[], [], []]
                     self.tmp_numels = [0, 0, 0]
                     self.bucket_sizes = []
-                    self.param_id_to_active_i = {id(param): i for i, param in
-                        enumerate(param_list)}
+                    self.param_id_to_active_i = {id(param): i for i, param in enumerate(param_list)}
                     self.param_id_to_bucket = {}
                     self.bucket_pgs = []
                     self.bucket_streams = []
                     self.bucket_events = []
                 else:
                     if not self.buckets:
-                        self.buckets = [[None for _ in range(self.
-                            bucket_sizes[i])] for i in range(self.num_buckets)]
+                        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)]
                     else:
-                        assert len(self.buckets
-                            ) == self.num_buckets, 'len(buckets) = {}, expected {}'.format(
-                            len(self.buckets), self.num_buckets)
+                        assert len(self.buckets) == self.num_buckets, 'len(buckets) = {}, expected {}'.format(len(self.buckets), self.num_buckets)
                         for b, bucket in enumerate(self.buckets):
-                            assert len(bucket) == self.bucket_sizes[b
-                                ], 'len(buckets[{}]) = {}, expected {})'.format(
-                                b, len(buckets[b]), self.bucket_sizes[b])
+                            assert len(bucket) == self.bucket_sizes[b], 'len(buckets[{}]) = {}, expected {})'.format(b, len(buckets[b]), self.bucket_sizes[b])
                             for i in range(len(bucket)):
                                 bucket[i] = None
                     if self.allreduce_communicators:
                         self.bucket_pgs = self.allreduce_communicators[0]
                         self.bucket_streams = self.allreduce_communicators[1]
-                        self.bucket_events = [torch.Event(enable_timing=
-                            False, blocking=False) for _ in range(self.
-                            num_allreduce_streams)]
+                        self.bucket_events = [torch.Event(enable_timing=False, blocking=False) for _ in range(self.num_allreduce_streams)]
                     else:
                         if self.allreduce_different_streams:
                             if not self.bucket_pgs:
-                                self.bucket_pgs = [dist.new_group() for _ in
-                                    range(self.num_allreduce_streams)]
+                                self.bucket_pgs = [dist.new_group() for _ in range(self.num_allreduce_streams)]
                                 for i, bg in enumerate(self.bucket_pgs):
                                     None
                         if self.allreduce_different_streams:
                             if not self.bucket_streams:
-                                self.bucket_streams = [torch.Stream() for _ in
-                                    range(self.num_allreduce_streams)]
-                                self.bucket_events = [torch.Event(
-                                    enable_timing=False, blocking=False) for
-                                    _ in range(self.num_allreduce_streams)]
+                                self.bucket_streams = [torch.Stream() for _ in range(self.num_allreduce_streams)]
+                                self.bucket_events = [torch.Event(enable_timing=False, blocking=False) for _ in range(self.num_allreduce_streams)]
                         elif not self.bucket_streams:
                             self.bucket_streams = [torch.Stream()]
-                            self.bucket_events = [torch.Event(enable_timing
-                                =False, blocking=False)]
-                    self.buckets_ready_size = [(0) for i in range(self.
-                        num_buckets)]
+                            self.bucket_events = [torch.Event(enable_timing=False, blocking=False)]
+                    self.buckets_ready_size = [(0) for i in range(self.num_buckets)]
                     if self.retain_allreduce_buffers:
-                        self.allreduce_buffers = [None for _ in range(self.
-                            num_buckets)]
+                        self.allreduce_buffers = [None for _ in range(self.num_buckets)]
                     self.next_bucket = 0
                     self.ready_buckets_not_reduced = set()
                 self.active_params = param_list
@@ -2801,9 +2361,7 @@ class DistributedDataParallel(Module):
 class SyncBatchnormFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, z, weight, bias, running_mean, running_variance,
-        eps, track_running_stats=True, momentum=1.0, process_group=None,
-        channel_last=False, fuse_relu=False):
+    def forward(ctx, input, z, weight, bias, running_mean, running_variance, eps, track_running_stats=True, momentum=1.0, process_group=None, channel_last=False, fuse_relu=False):
         input = input.contiguous()
         world_size = 0
         mean = None
@@ -2823,31 +2381,22 @@ class SyncBatchnormFunction(Function):
                 if not process_group:
                     process_group = torch.distributed.group.WORLD
                 world_size = torch.distributed.get_world_size(process_group)
-                mean_all = torch.empty(world_size, mean.size(0), dtype=mean
-                    .dtype, device=mean.device)
-                var_all = torch.empty(world_size, var_biased.size(0), dtype
-                    =var_biased.dtype, device=var_biased.device)
+                mean_all = torch.empty(world_size, mean.size(0), dtype=mean.dtype, device=mean.device)
+                var_all = torch.empty(world_size, var_biased.size(0), dtype=var_biased.dtype, device=var_biased.device)
                 mean_l = [mean_all.narrow(0, i, 1) for i in range(world_size)]
                 var_l = [var_all.narrow(0, i, 1) for i in range(world_size)]
                 torch.distributed.all_gather(mean_l, mean, process_group)
                 torch.distributed.all_gather(var_l, var_biased, process_group)
-                mean, var, inv_std = syncbn.welford_parallel(mean_all,
-                    var_all, count, eps)
+                mean, var, inv_std = syncbn.welford_parallel(mean_all, var_all, count, eps)
             else:
                 inv_std = 1.0 / torch.sqrt(var_biased + eps)
                 var = var_biased * count / (count - 1)
             if count == 1 and world_size < 2:
-                raise ValueError(
-                    'Expected more than 1 value per channel when training, got input size{}'
-                    .format(input.size()))
-            r_m_inc = (mean if running_mean.dtype != torch.float16 else
-                mean.half())
-            r_v_inc = (var if running_variance.dtype != torch.float16 else
-                var.half())
-            running_mean.data = running_mean.data * (1 - momentum
-                ) + momentum * r_m_inc
-            running_variance.data = running_variance.data * (1 - momentum
-                ) + momentum * r_v_inc
+                raise ValueError('Expected more than 1 value per channel when training, got input size{}'.format(input.size()))
+            r_m_inc = mean if running_mean.dtype != torch.float16 else mean.half()
+            r_v_inc = var if running_variance.dtype != torch.float16 else var.half()
+            running_mean.data = running_mean.data * (1 - momentum) + momentum * r_m_inc
+            running_variance.data = running_variance.data * (1 - momentum) + momentum * r_v_inc
         else:
             mean = running_mean.data
             inv_std = 1.0 / torch.sqrt(running_variance.data + eps)
@@ -2857,8 +2406,7 @@ class SyncBatchnormFunction(Function):
         ctx.world_size = world_size
         ctx.fuse_relu = fuse_relu
         if channel_last:
-            out = syncbn.batchnorm_forward_c_last(input, z, mean, inv_std,
-                weight, bias, fuse_relu)
+            out = syncbn.batchnorm_forward_c_last(input, z, mean, inv_std, weight, bias, fuse_relu)
         else:
             out = syncbn.batchnorm_forward(input, mean, inv_std, weight, bias)
         return out
@@ -2873,37 +2421,28 @@ class SyncBatchnormFunction(Function):
         fuse_relu = ctx.fuse_relu
         grad_input = grad_z = grad_weight = grad_bias = None
         if fuse_relu:
-            grad_output = syncbn.relu_bw_c_last(grad_output, saved_input, z,
-                mean, inv_std, weight, bias)
+            grad_output = syncbn.relu_bw_c_last(grad_output, saved_input, z, mean, inv_std, weight, bias)
         if isinstance(z, torch.Tensor) and ctx.needs_input_grad[1]:
             grad_z = grad_output.clone()
         if channel_last:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = (syncbn.
-                reduce_bn_c_last(grad_output, saved_input, mean, inv_std,
-                weight))
+            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn_c_last(grad_output, saved_input, mean, inv_std, weight)
         else:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(
-                grad_output, saved_input, mean, inv_std, weight)
+            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(grad_output, saved_input, mean, inv_std, weight)
         if ctx.needs_input_grad[0]:
             if torch.distributed.is_initialized():
-                torch.distributed.all_reduce(mean_dy, ReduceOp.SUM,
-                    process_group)
+                torch.distributed.all_reduce(mean_dy, ReduceOp.SUM, process_group)
                 mean_dy = mean_dy / world_size
-                torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM,
-                    process_group)
+                torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM, process_group)
                 mean_dy_xmu = mean_dy_xmu / world_size
             if channel_last:
-                grad_input = syncbn.batchnorm_backward_c_last(grad_output,
-                    saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
+                grad_input = syncbn.batchnorm_backward_c_last(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
             else:
-                grad_input = syncbn.batchnorm_backward(grad_output,
-                    saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
+                grad_input = syncbn.batchnorm_backward(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
         if weight is None or not ctx.needs_input_grad[2]:
             grad_weight = None
         if weight is None or not ctx.needs_input_grad[3]:
             grad_bias = None
-        return (grad_input, grad_z, grad_weight, grad_bias, None, None,
-            None, None, None, None, None, None)
+        return grad_input, grad_z, grad_weight, grad_bias, None, None, None, None, None, None, None, None
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -2955,11 +2494,8 @@ class SyncBatchNorm(_BatchNorm):
         >>> inp = torch.randn(10, 14, 14, 100).cuda()
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True, process_group=None, channel_last=False,
-        fuse_relu=False):
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum
-            =momentum, affine=affine, track_running_stats=track_running_stats)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None, channel_last=False, fuse_relu=False):
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
         self.process_group = process_group
         self.channel_last = channel_last
         self.fuse_relu = fuse_relu
@@ -2972,24 +2508,17 @@ class SyncBatchNorm(_BatchNorm):
 
     def forward(self, input, z=None):
         channel_last = self.channel_last if input.dim() != 2 else True
-        if (not self.training and self.track_running_stats and not
-            channel_last and not self.fuse_relu and z == None):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, False, 0.0, self.eps)
+        if not self.training and self.track_running_stats and not channel_last and not self.fuse_relu and z == None:
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
         else:
             exponential_average_factor = 0.0
             if self.training and self.track_running_stats:
                 self.num_batches_tracked += 1
                 if self.momentum is None:
-                    exponential_average_factor = 1.0 / float(self.
-                        num_batches_tracked)
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
                 else:
                     exponential_average_factor = self.momentum
-            return SyncBatchnormFunction.apply(input, z, self.weight, self.
-                bias, self.running_mean, self.running_var, self.eps, self.
-                training or not self.track_running_stats,
-                exponential_average_factor, self.process_group,
-                channel_last, self.fuse_relu)
+            return SyncBatchnormFunction.apply(input, z, self.weight, self.bias, self.running_mean, self.running_var, self.eps, self.training or not self.track_running_stats, exponential_average_factor, self.process_group, channel_last, self.fuse_relu)
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -3033,20 +2562,16 @@ class SyncBatchNorm(_BatchNorm):
     """
     warned = False
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True, process_group=None, channel_last=False):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None, channel_last=False):
         if channel_last == True:
-            raise AttributeError(
-                'channel_last is not supported by primitive SyncBatchNorm implementation. Try install apex with `--cuda_ext` if channel_last is desired.'
-                )
+            raise AttributeError('channel_last is not supported by primitive SyncBatchNorm implementation. Try install apex with `--cuda_ext` if channel_last is desired.')
         if not SyncBatchNorm.warned:
             if hasattr(self, 'syncbn_import_error'):
                 None
             else:
                 None
             SyncBatchNorm.warned = True
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum
-            =momentum, affine=affine, track_running_stats=track_running_stats)
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
         self.process_group = process_group
 
     def _specify_process_group(self, process_group):
@@ -3068,8 +2593,7 @@ class SyncBatchNorm(_BatchNorm):
                 cast = input.dtype
         if not self.training and self.track_running_stats:
             torch.nvtx.range_pop()
-            out = F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, False, 0.0, self.eps)
+            out = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
         else:
             process_group = self.process_group
             world_size = 1
@@ -3078,21 +2602,16 @@ class SyncBatchNorm(_BatchNorm):
             self.num_batches_tracked += 1
             with torch.no_grad():
                 channel_first_input = input.transpose(0, 1).contiguous()
-                squashed_input_tensor_view = channel_first_input.view(
-                    channel_first_input.size(0), -1)
+                squashed_input_tensor_view = channel_first_input.view(channel_first_input.size(0), -1)
                 m = None
                 local_m = float(squashed_input_tensor_view.size()[1])
                 local_mean = torch.mean(squashed_input_tensor_view, 1)
-                local_sqr_mean = torch.pow(squashed_input_tensor_view, 2).mean(
-                    1)
+                local_sqr_mean = torch.pow(squashed_input_tensor_view, 2).mean(1)
                 if torch.distributed.is_initialized():
-                    world_size = torch.distributed.get_world_size(process_group
-                        )
-                    torch.distributed.all_reduce(local_mean, ReduceOp.SUM,
-                        process_group)
+                    world_size = torch.distributed.get_world_size(process_group)
+                    torch.distributed.all_reduce(local_mean, ReduceOp.SUM, process_group)
                     mean = local_mean / world_size
-                    torch.distributed.all_reduce(local_sqr_mean, ReduceOp.
-                        SUM, process_group)
+                    torch.distributed.all_reduce(local_sqr_mean, ReduceOp.SUM, process_group)
                     sqr_mean = local_sqr_mean / world_size
                     m = local_m * world_size
                 else:
@@ -3101,14 +2620,11 @@ class SyncBatchNorm(_BatchNorm):
                     sqr_mean = local_sqr_mean
                 var = sqr_mean - mean.pow(2)
                 if self.running_mean is not None:
-                    self.running_mean = self.momentum * mean + (1 - self.
-                        momentum) * self.running_mean
+                    self.running_mean = self.momentum * mean + (1 - self.momentum) * self.running_mean
                 if self.running_var is not None:
-                    self.running_var = m / (m - 1) * self.momentum * var + (
-                        1 - self.momentum) * self.running_var
+                    self.running_var = m / (m - 1) * self.momentum * var + (1 - self.momentum) * self.running_var
             torch.nvtx.range_pop()
-            out = SyncBatchnormFunction.apply(input, self.weight, self.bias,
-                mean, var, self.eps, process_group, world_size)
+            out = SyncBatchnormFunction.apply(input, self.weight, self.bias, mean, var, self.eps, process_group, world_size)
         return out
 
 
@@ -3175,22 +2691,19 @@ class LeNet5(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
     count = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=
-        1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
         super(Bottleneck, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -3250,8 +2763,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, groups=1,
-        width_per_group=64, norm_layer=None):
+    def __init__(self, block, layers, num_classes=1000, groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -3260,8 +2772,7 @@ class ResNet(nn.Module):
         self.dilation = 1
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -3273,8 +2784,7 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -3287,16 +2797,12 @@ class ResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), norm_layer(planes * block.expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, self
-            .groups, self.base_width, previous_dilation, norm_layer))
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups,
-                base_width=self.base_width, dilation=self.dilation,
-                norm_layer=norm_layer))
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, dilation=self.dilation, norm_layer=norm_layer))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -3337,19 +2843,11 @@ class Generator(nn.Module):
     def __init__(self, ngpu):
         super(Generator, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0,
-            bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.
-            ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.
-            BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4,
-            ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU
-            (True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc,
-            4, 2, 1, bias=False), nn.Tanh())
+        self.main = nn.Sequential(nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(ngf), nn.ReLU(True), nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False), nn.Tanh())
 
     def forward(self, input):
         if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output
@@ -3360,19 +2858,11 @@ class Discriminator(nn.Module):
     def __init__(self, ngpu):
         super(Discriminator, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 
-            1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2,
-            inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.
-            Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(
-            ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1,
-            4, 1, 0, bias=False))
+        self.main = nn.Sequential(nn.Conv2d(nc, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(ndf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False))
 
     def forward(self, input):
         if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self
-                .ngpu))
+            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
         else:
             output = self.main(input)
         return output.view(-1, 1).squeeze(1)
@@ -3382,10 +2872,8 @@ class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
         super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda',
-            dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device=
-            'cuda', dtype=torch.float16))
+        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
+        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
 
     @staticmethod
     def ops(input, weight0, weight1):
@@ -3399,8 +2887,7 @@ class WhitelistModule(torch.nn.Module):
 
     def __init__(self, dtype):
         super(WhitelistModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(8 * 8, device='cuda',
-            dtype=dtype).view(8, 8))
+        self.weight = torch.nn.Parameter(torch.arange(8 * 8, device='cuda', dtype=dtype).view(8, 8))
 
     @staticmethod
     def ops(input, weight):
@@ -3414,8 +2901,7 @@ class BlacklistModule(torch.nn.Module):
 
     def __init__(self, dtype):
         super(BlacklistModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda',
-            dtype=dtype).view(2, 8))
+        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda', dtype=dtype).view(2, 8))
 
     @staticmethod
     def ops(input, weight):
@@ -3429,8 +2915,7 @@ class PromoteModule(torch.nn.Module):
 
     def __init__(self, dtype):
         super(PromoteModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda',
-            dtype=dtype).view(2, 8))
+        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda', dtype=dtype).view(2, 8))
 
     @staticmethod
     def ops(input, weight):
@@ -3459,10 +2944,8 @@ class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
         super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda',
-            dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device=
-            'cuda', dtype=torch.float16))
+        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
+        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
 
     @staticmethod
     def ops(input, weight0, weight1):
@@ -3476,8 +2959,7 @@ class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
         super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda',
-            dtype=torch.float32))
+        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
 
     def forward(self, input):
         return (input * self.weight0).sum()
@@ -3487,10 +2969,8 @@ class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
         super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda',
-            dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device=
-            'cuda', dtype=torch.float16))
+        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
+        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
 
     @staticmethod
     def ops(input, weight0, weight1):
@@ -3555,17 +3035,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DummyNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Foo,
+     lambda: ([], {'size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LeNet5,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 32, 32])], {}),
+     True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 16777216])], {}),
+     True),
+    (tofp16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_NVIDIA_apex(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Foo(*[], **{'size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 16777216])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

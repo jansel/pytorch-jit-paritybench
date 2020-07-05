@@ -35,8 +35,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,8 +103,7 @@ class NoiseLayer(nn.Module):
         super(NoiseLayer, self).__init__()
         self.noise = torch.randn(1, in_planes, 1, 1)
         self.level = level
-        self.layers = nn.Sequential(nn.ReLU(True), nn.Conv2d(in_planes,
-            out_planes, kernel_size=1, stride=1), nn.BatchNorm2d(out_planes))
+        self.layers = nn.Sequential(nn.ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1), nn.BatchNorm2d(out_planes))
 
     def forward(self, x):
         tmp1 = x.data.shape
@@ -125,8 +125,7 @@ class NoiseModel(nn.Module):
         layers = []
         layers.append(NoiseLayer(3, nfilters, self.level))
         for i in range(1, nlayers):
-            layers.append(self._make_layer(nfilters, nfilters, nblocks,
-                self.level))
+            layers.append(self._make_layer(nfilters, nfilters, nblocks, self.level))
             layers.append(nn.MaxPool2d(2, 2))
         self.features = nn.Sequential(*layers)
         self.classifier = nn.Linear(self.num, nclasses)
@@ -150,8 +149,7 @@ class NoiseLayer(nn.Module):
         super(NoiseLayer, self).__init__()
         self.noise = nn.Parameter(torch.Tensor(0), requires_grad=False)
         self.level = level
-        self.layers = nn.Sequential(nn.ReLU(True), nn.BatchNorm2d(in_planes
-            ), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1))
+        self.layers = nn.Sequential(nn.ReLU(True), nn.BatchNorm2d(in_planes), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1))
 
     def forward(self, x):
         if self.noise.numel() == 0:
@@ -167,9 +165,7 @@ class NoiseBasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1, shortcut=None, level=0.2):
         super(NoiseBasicBlock, self).__init__()
-        self.layers = nn.Sequential(NoiseLayer(in_planes, planes, level),
-            nn.MaxPool2d(stride, stride), nn.BatchNorm2d(planes), nn.ReLU(
-            True), NoiseLayer(planes, planes, level), nn.BatchNorm2d(planes))
+        self.layers = nn.Sequential(NoiseLayer(in_planes, planes, level), nn.MaxPool2d(stride, stride), nn.BatchNorm2d(planes), nn.ReLU(True), NoiseLayer(planes, planes, level), nn.BatchNorm2d(planes))
         self.shortcut = shortcut
 
     def forward(self, x):
@@ -187,12 +183,7 @@ class NoiseBottleneck(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1, shortcut=None, level=0.2):
         super(NoiseBottleneck, self).__init__()
-        self.layers = nn.Sequential(nn.Conv2d(in_planes, planes,
-            kernel_size=1, bias=False), nn.BatchNorm2d(planes), nn.ReLU(
-            True), NoiseLayer(planes, planes, level), nn.MaxPool2d(stride,
-            stride), nn.BatchNorm2d(planes), nn.ReLU(True), nn.Conv2d(
-            planes, planes * 4, kernel_size=1, bias=False), nn.BatchNorm2d(
-            planes * 4))
+        self.layers = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, bias=False), nn.BatchNorm2d(planes), nn.ReLU(True), NoiseLayer(planes, planes, level), nn.MaxPool2d(stride, stride), nn.BatchNorm2d(planes), nn.ReLU(True), nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False), nn.BatchNorm2d(planes * 4))
         self.shortcut = shortcut
 
     def forward(self, x):
@@ -207,34 +198,23 @@ class NoiseBottleneck(nn.Module):
 
 class NoiseResNet(nn.Module):
 
-    def __init__(self, block, nblocks, nchannels, nfilters, nclasses, pool,
-        level):
+    def __init__(self, block, nblocks, nchannels, nfilters, nclasses, pool, level):
         super(NoiseResNet, self).__init__()
         self.in_planes = nfilters
-        self.pre_layers = nn.Sequential(nn.Conv2d(nchannels, nfilters,
-            kernel_size=7, stride=2, padding=3, bias=False), nn.BatchNorm2d
-            (nfilters), nn.ReLU(True), nn.MaxPool2d(kernel_size=3, stride=2,
-            padding=1))
-        self.layer1 = self._make_layer(block, 1 * nfilters, nblocks[0],
-            level=level)
-        self.layer2 = self._make_layer(block, 2 * nfilters, nblocks[1],
-            stride=2, level=level)
-        self.layer3 = self._make_layer(block, 4 * nfilters, nblocks[2],
-            stride=2, level=level)
-        self.layer4 = self._make_layer(block, 8 * nfilters, nblocks[3],
-            stride=2, level=level)
+        self.pre_layers = nn.Sequential(nn.Conv2d(nchannels, nfilters, kernel_size=7, stride=2, padding=3, bias=False), nn.BatchNorm2d(nfilters), nn.ReLU(True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+        self.layer1 = self._make_layer(block, 1 * nfilters, nblocks[0], level=level)
+        self.layer2 = self._make_layer(block, 2 * nfilters, nblocks[1], stride=2, level=level)
+        self.layer3 = self._make_layer(block, 4 * nfilters, nblocks[2], stride=2, level=level)
+        self.layer4 = self._make_layer(block, 8 * nfilters, nblocks[3], stride=2, level=level)
         self.avgpool = nn.AvgPool2d(pool, stride=1)
         self.linear = nn.Linear(8 * nfilters * block.expansion, nclasses)
 
     def _make_layer(self, block, planes, nblocks, stride=1, level=0.2):
         shortcut = None
         if stride != 1 or self.in_planes != planes * block.expansion:
-            shortcut = nn.Sequential(nn.Conv2d(self.in_planes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            shortcut = nn.Sequential(nn.Conv2d(self.in_planes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.in_planes, planes, stride, shortcut, level
-            =level))
+        layers.append(block(self.in_planes, planes, stride, shortcut, level=level))
         self.in_planes = planes * block.expansion
         for i in range(1, nblocks):
             layers.append(block(self.in_planes, planes, level=level))
@@ -275,8 +255,7 @@ class Net(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -313,8 +292,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -344,18 +322,14 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, nchannels, nfilters, nclasses=1000):
         self.inplanes = nfilters
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(nchannels, nfilters, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(nchannels, nfilters, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(nfilters)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, nfilters, layers[0])
-        self.layer2 = self._make_layer(block, 2 * nfilters, layers[1], stride=2
-            )
-        self.layer3 = self._make_layer(block, 4 * nfilters, layers[2], stride=2
-            )
-        self.layer4 = self._make_layer(block, 8 * nfilters, layers[3], stride=2
-            )
+        self.layer2 = self._make_layer(block, 2 * nfilters, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 4 * nfilters, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 8 * nfilters, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.fc = nn.Linear(8 * nfilters * block.expansion, nclasses)
         for m in self.modules():
@@ -369,9 +343,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -398,11 +370,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+    (Regression,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_juefeix_pnn_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Regression(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

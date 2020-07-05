@@ -32,8 +32,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ def _is_control(char):
 def _is_punctuation(char):
     """Checks whether `chars` is a punctuation character."""
     cp = ord(char)
-    if (cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <=
-        96 or cp >= 123 and cp <= 126):
+    if cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <= 96 or cp >= 123 and cp <= 126:
         return True
     cat = unicodedata.category(char)
     if cat.startswith('P'):
@@ -127,8 +127,7 @@ def whitespace_tokenize(text):
 class BasicTokenizer(object):
     """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
 
-    def __init__(self, do_lower_case=True, never_split=('[UNK]', '[SEP]',
-        '[PAD]', '[CLS]', '[MASK]')):
+    def __init__(self, do_lower_case=True, never_split=('[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]')):
         """Constructs a BasicTokenizer.
 
         Args:
@@ -198,10 +197,7 @@ class BasicTokenizer(object):
 
     def _is_chinese_char(self, cp):
         """Checks whether CP is the codepoint of a CJK character."""
-        if (cp >= 19968 and cp <= 40959 or cp >= 13312 and cp <= 19903 or 
-            cp >= 131072 and cp <= 173791 or cp >= 173824 and cp <= 177983 or
-            cp >= 177984 and cp <= 178207 or cp >= 178208 and cp <= 183983 or
-            cp >= 63744 and cp <= 64255 or cp >= 194560 and cp <= 195103):
+        if cp >= 19968 and cp <= 40959 or cp >= 13312 and cp <= 19903 or cp >= 131072 and cp <= 173791 or cp >= 173824 and cp <= 177983 or cp >= 177984 and cp <= 178207 or cp >= 178208 and cp <= 183983 or cp >= 63744 and cp <= 64255 or cp >= 194560 and cp <= 195103:
             return True
         return False
 
@@ -219,27 +215,10 @@ class BasicTokenizer(object):
         return ''.join(output)
 
 
-PRETRAINED_VOCAB_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased-vocab.txt'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased-vocab.txt'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased-vocab.txt'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased-vocab.txt'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased-vocab.txt'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese-vocab.txt'
-    }
+PRETRAINED_VOCAB_ARCHIVE_MAP = {'bert-base-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt', 'bert-large-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased-vocab.txt', 'bert-base-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased-vocab.txt', 'bert-large-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased-vocab.txt', 'bert-base-multilingual-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased-vocab.txt', 'bert-base-multilingual-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased-vocab.txt', 'bert-base-chinese': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese-vocab.txt'}
 
 
-PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512,
-    'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 
-    512, 'bert-base-multilingual-uncased': 512,
-    'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
+PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512, 'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 512, 'bert-base-multilingual-uncased': 512, 'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
 
 
 VOCAB_NAME = 'vocab.txt'
@@ -379,23 +358,20 @@ def get_from_cache(url, cache_dir=None):
     else:
         response = requests.head(url, allow_redirects=True)
         if response.status_code != 200:
-            raise IOError('HEAD request failed for url {} with status code {}'
-                .format(url, response.status_code))
+            raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
         etag = response.headers.get('ETag')
     filename = url_to_filename(url, etag)
     cache_path = os.path.join(cache_dir, filename)
     if not os.path.exists(cache_path):
         with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url,
-                temp_file.name)
+            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
             if url.startswith('s3://'):
                 s3_get(url, temp_file)
             else:
                 http_get(url, temp_file)
             temp_file.flush()
             temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path
-                )
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
             with open(cache_path, 'wb') as cache_file:
                 shutil.copyfileobj(temp_file, cache_file)
             logger.info('creating metadata file for %s', cache_path)
@@ -428,8 +404,7 @@ def cached_path(url_or_filename, cache_dir=None):
     elif parsed.scheme == '':
         raise EnvironmentError('file {} not found'.format(url_or_filename))
     else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.
-            format(url_or_filename))
+        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
 
 
 def load_vocab(vocab_file):
@@ -450,9 +425,7 @@ def load_vocab(vocab_file):
 class BertTokenizer(object):
     """Runs end-to-end tokenization: punctuation splitting + wordpiece"""
 
-    def __init__(self, vocab_file, do_lower_case=True, max_len=None,
-        do_basic_tokenize=True, never_split=('[UNK]', '[SEP]', '[PAD]',
-        '[CLS]', '[MASK]')):
+    def __init__(self, vocab_file, do_lower_case=True, max_len=None, do_basic_tokenize=True, never_split=('[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]')):
         """Constructs a BertTokenizer.
 
         Args:
@@ -468,16 +441,12 @@ class BertTokenizer(object):
                          Only has an effect when do_wordpiece_only=False
         """
         if not os.path.isfile(vocab_file):
-            raise ValueError(
-                "Can't find a vocabulary file at path '{}'. To load the vocabulary from a Google pretrained model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`"
-                .format(vocab_file))
+            raise ValueError("Can't find a vocabulary file at path '{}'. To load the vocabulary from a Google pretrained model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`".format(vocab_file))
         self.vocab = load_vocab(vocab_file)
-        self.ids_to_tokens = collections.OrderedDict([(ids, tok) for tok,
-            ids in self.vocab.items()])
+        self.ids_to_tokens = collections.OrderedDict([(ids, tok) for tok, ids in self.vocab.items()])
         self.do_basic_tokenize = do_basic_tokenize
         if do_basic_tokenize:
-            self.basic_tokenizer = BasicTokenizer(do_lower_case=
-                do_lower_case, never_split=never_split)
+            self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case, never_split=never_split)
         self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
         self.max_len = max_len if max_len is not None else int(1000000000000.0)
 
@@ -497,9 +466,7 @@ class BertTokenizer(object):
         for token in tokens:
             ids.append(self.vocab[token])
         if len(ids) > self.max_len:
-            logger.warning(
-                'Token indices sequence length is longer than the specified maximum  sequence length for this BERT model ({} > {}). Running this sequence through BERT will result in indexing errors'
-                .format(len(ids), self.max_len))
+            logger.warning('Token indices sequence length is longer than the specified maximum  sequence length for this BERT model ({} > {}). Running this sequence through BERT will result in indexing errors'.format(len(ids), self.max_len))
         return ids
 
     def convert_ids_to_tokens(self, ids):
@@ -510,15 +477,13 @@ class BertTokenizer(object):
         return tokens
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None,
-        *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, *inputs, **kwargs):
         """
         Instantiate a PreTrainedBertModel from a pre-trained model file.
         Download and cache the pre-trained model file if needed.
         """
         if pretrained_model_name_or_path in PRETRAINED_VOCAB_ARCHIVE_MAP:
-            vocab_file = PRETRAINED_VOCAB_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            vocab_file = PRETRAINED_VOCAB_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
             vocab_file = pretrained_model_name_or_path
         if os.path.isdir(vocab_file):
@@ -526,22 +491,15 @@ class BertTokenizer(object):
         try:
             resolved_vocab_file = cached_path(vocab_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_VOCAB_ARCHIVE_MAP.keys()), vocab_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_VOCAB_ARCHIVE_MAP.keys()), vocab_file))
             return None
         if resolved_vocab_file == vocab_file:
             logger.info('loading vocabulary file {}'.format(vocab_file))
         else:
-            logger.info('loading vocabulary file {} from cache at {}'.
-                format(vocab_file, resolved_vocab_file))
-        if (pretrained_model_name_or_path in
-            PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP):
-            max_len = PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP[
-                pretrained_model_name_or_path]
-            kwargs['max_len'] = min(kwargs.get('max_len', int(
-                1000000000000.0)), max_len)
+            logger.info('loading vocabulary file {} from cache at {}'.format(vocab_file, resolved_vocab_file))
+        if pretrained_model_name_or_path in PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP:
+            max_len = PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP[pretrained_model_name_or_path]
+            kwargs['max_len'] = min(kwargs.get('max_len', int(1000000000000.0)), max_len)
         tokenizer = cls(resolved_vocab_file, *inputs, **kwargs)
         return tokenizer
 
@@ -549,8 +507,7 @@ class BertTokenizer(object):
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, lm_label_ids,
-        visual_feats, obj_labels, is_matched, ans):
+    def __init__(self, input_ids, input_mask, segment_ids, lm_label_ids, visual_feats, obj_labels, is_matched, ans):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
@@ -579,8 +536,7 @@ def convert_sents_to_features(sents, max_seq_length, tokenizer):
         assert len(input_ids) == max_seq_length
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
-        features.append(InputFeatures(input_ids=input_ids, input_mask=
-            input_mask, segment_ids=segment_ids))
+        features.append(InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids))
     return features
 
 
@@ -596,9 +552,7 @@ class VisualConfig(object):
         self.obj_id_num = 1600
         self.attr_id_num = 400
         self.visual_losses = self.VISUAL_LOSSES
-        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 /
-            0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15),
-            'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
+        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 / 0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15), 'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
 
     def set_visual_dims(self, feat_dim, pos_dim):
         self.visual_feat_dim = feat_dim
@@ -620,10 +574,8 @@ class LXRTEncoder(nn.Module):
         super().__init__()
         self.max_seq_length = max_seq_length
         set_visual_config(args)
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased',
-            do_lower_case=True)
-        self.model = VisualBertForLXRFeature.from_pretrained(
-            'bert-base-uncased', mode=mode)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+        self.model = VisualBertForLXRFeature.from_pretrained('bert-base-uncased', mode=mode)
         if args.from_scratch:
             None
             self.model.apply(self.model.init_bert_weights)
@@ -636,16 +588,11 @@ class LXRTEncoder(nn.Module):
         return 768
 
     def forward(self, sents, feats, visual_attention_mask=None):
-        train_features = convert_sents_to_features(sents, self.
-            max_seq_length, self.tokenizer)
-        input_ids = torch.tensor([f.input_ids for f in train_features],
-            dtype=torch.long)
-        input_mask = torch.tensor([f.input_mask for f in train_features],
-            dtype=torch.long)
-        segment_ids = torch.tensor([f.segment_ids for f in train_features],
-            dtype=torch.long)
-        output = self.model(input_ids, segment_ids, input_mask,
-            visual_feats=feats, visual_attention_mask=visual_attention_mask)
+        train_features = convert_sents_to_features(sents, self.max_seq_length, self.tokenizer)
+        input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+        input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+        segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+        output = self.model(input_ids, segment_ids, input_mask, visual_feats=feats, visual_attention_mask=visual_attention_mask)
         return output
 
     def save(self, path):
@@ -707,27 +654,22 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size, padding_idx=0)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size, padding_idx=0)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, padding_idx=0)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size, padding_idx=0)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -738,14 +680,10 @@ class BertAttention(nn.Module):
     def __init__(self, config, ctx_dim=None):
         super().__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         if ctx_dim is None:
             ctx_dim = config.hidden_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
@@ -754,8 +692,7 @@ class BertAttention(nn.Module):
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -766,18 +703,15 @@ class BertAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer
 
@@ -835,8 +769,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
@@ -889,16 +822,12 @@ class LXRTXLayer(nn.Module):
         self.visn_inter = BertIntermediate(config)
         self.visn_output = BertOutput(config)
 
-    def cross_att(self, lang_input, lang_attention_mask, visn_input,
-        visn_attention_mask):
-        lang_att_output = self.visual_attention(lang_input, visn_input,
-            ctx_att_mask=visn_attention_mask)
-        visn_att_output = self.visual_attention(visn_input, lang_input,
-            ctx_att_mask=lang_attention_mask)
+    def cross_att(self, lang_input, lang_attention_mask, visn_input, visn_attention_mask):
+        lang_att_output = self.visual_attention(lang_input, visn_input, ctx_att_mask=visn_attention_mask)
+        visn_att_output = self.visual_attention(visn_input, lang_input, ctx_att_mask=lang_attention_mask)
         return lang_att_output, visn_att_output
 
-    def self_att(self, lang_input, lang_attention_mask, visn_input,
-        visn_attention_mask):
+    def self_att(self, lang_input, lang_attention_mask, visn_input, visn_attention_mask):
         lang_att_output = self.lang_self_att(lang_input, lang_attention_mask)
         visn_att_output = self.visn_self_att(visn_input, visn_attention_mask)
         return lang_att_output, visn_att_output
@@ -910,16 +839,12 @@ class LXRTXLayer(nn.Module):
         visn_output = self.visn_output(visn_inter_output, visn_input)
         return lang_output, visn_output
 
-    def forward(self, lang_feats, lang_attention_mask, visn_feats,
-        visn_attention_mask):
+    def forward(self, lang_feats, lang_attention_mask, visn_feats, visn_attention_mask):
         lang_att_output = lang_feats
         visn_att_output = visn_feats
-        lang_att_output, visn_att_output = self.cross_att(lang_att_output,
-            lang_attention_mask, visn_att_output, visn_attention_mask)
-        lang_att_output, visn_att_output = self.self_att(lang_att_output,
-            lang_attention_mask, visn_att_output, visn_attention_mask)
-        lang_output, visn_output = self.output_fc(lang_att_output,
-            visn_att_output)
+        lang_att_output, visn_att_output = self.cross_att(lang_att_output, lang_attention_mask, visn_att_output, visn_attention_mask)
+        lang_att_output, visn_att_output = self.self_att(lang_att_output, lang_attention_mask, visn_att_output, visn_attention_mask)
+        lang_output, visn_output = self.output_fc(lang_att_output, visn_att_output)
         return lang_output, visn_output
 
 
@@ -955,23 +880,18 @@ class LXRTEncoder(nn.Module):
         self.num_x_layers = VISUAL_CONFIG.x_layers
         self.num_r_layers = VISUAL_CONFIG.r_layers
         None
-        self.layer = nn.ModuleList([BertLayer(config) for _ in range(self.
-            num_l_layers)])
-        self.x_layers = nn.ModuleList([LXRTXLayer(config) for _ in range(
-            self.num_x_layers)])
-        self.r_layers = nn.ModuleList([BertLayer(config) for _ in range(
-            self.num_r_layers)])
+        self.layer = nn.ModuleList([BertLayer(config) for _ in range(self.num_l_layers)])
+        self.x_layers = nn.ModuleList([LXRTXLayer(config) for _ in range(self.num_x_layers)])
+        self.r_layers = nn.ModuleList([BertLayer(config) for _ in range(self.num_r_layers)])
 
-    def forward(self, lang_feats, lang_attention_mask, visn_feats,
-        visn_attention_mask=None):
+    def forward(self, lang_feats, lang_attention_mask, visn_feats, visn_attention_mask=None):
         visn_feats = self.visn_fc(visn_feats)
         for layer_module in self.layer:
             lang_feats = layer_module(lang_feats, lang_attention_mask)
         for layer_module in self.r_layers:
             visn_feats = layer_module(visn_feats, visn_attention_mask)
         for layer_module in self.x_layers:
-            lang_feats, visn_feats = layer_module(lang_feats,
-                lang_attention_mask, visn_feats, visn_attention_mask)
+            lang_feats, visn_feats = layer_module(lang_feats, lang_attention_mask, visn_feats, visn_attention_mask)
         return lang_feats, visn_feats
 
 
@@ -994,8 +914,7 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
@@ -1013,11 +932,9 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0), bias=False)
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1), bert_model_embedding_weights.size(0), bias=False)
         self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.
-            size(0)))
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -1030,9 +947,7 @@ class BertVisualAnswerHead(nn.Module):
     def __init__(self, config, num_answers):
         super().__init__()
         hid_dim = config.hidden_size
-        self.logit_fc = nn.Sequential(nn.Linear(hid_dim, hid_dim * 2), GeLU
-            (), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 
-            2, num_answers))
+        self.logit_fc = nn.Sequential(nn.Linear(hid_dim, hid_dim * 2), GeLU(), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 2, num_answers))
 
     def forward(self, hidden_states):
         return self.logit_fc(hidden_states)
@@ -1047,9 +962,7 @@ class BertVisualObjHead(nn.Module):
         for loss in visual_losses:
             assert loss in VISUAL_CONFIG.VISUAL_LOSSES
         self.visual_losses = visual_losses
-        self.decoder_dict = nn.ModuleDict({key: nn.Linear(config.
-            hidden_size, VISUAL_CONFIG.visual_loss_config[key][0]) for key in
-            self.visual_losses})
+        self.decoder_dict = nn.ModuleDict({key: nn.Linear(config.hidden_size, VISUAL_CONFIG.visual_loss_config[key][0]) for key in self.visual_losses})
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -1063,8 +976,7 @@ class BertPreTrainingHeads(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
@@ -1077,11 +989,7 @@ class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file, hidden_size=768,
-        num_hidden_layers=12, num_attention_heads=12, intermediate_size=
-        3072, hidden_act='gelu', hidden_dropout_prob=0.1,
-        attention_probs_dropout_prob=0.1, max_position_embeddings=512,
-        type_vocab_size=2, initializer_range=0.02):
+    def __init__(self, vocab_size_or_config_json_file, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act='gelu', hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=2, initializer_range=0.02):
         """Constructs BertConfig.
 
         Args:
@@ -1106,10 +1014,8 @@ class BertConfig(object):
             initializer_range: The sttdev of the truncated_normal_initializer for
                 initializing all weight matrices.
         """
-        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[
-            0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
-            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8'
-                ) as reader:
+        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
+            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
@@ -1126,9 +1032,7 @@ class BertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
         else:
-            raise ValueError(
-                'First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)'
-                )
+            raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
     @classmethod
     def from_dict(cls, json_object):
@@ -1161,21 +1065,7 @@ class BertConfig(object):
 CONFIG_NAME = 'bert_config.json'
 
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz', 'bert-large-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz', 'bert-base-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz', 'bert-large-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz', 'bert-base-multilingual-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz', 'bert-base-multilingual-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz', 'bert-base-chinese': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'}
 
 
 TF_WEIGHTS_NAME = 'model.ckpt'
@@ -1192,9 +1082,7 @@ def load_tf_weights_in_bert(model, tf_checkpoint_path):
         import numpy as np
         import tensorflow as tf
     except Importtokenization:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
+        print('Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
     print('Converting TensorFlow checkpoint from {}'.format(tf_path))
@@ -1250,17 +1138,14 @@ class BertPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(BertPreTrainedModel, self).__init__()
         if not isinstance(config, BertConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_bert_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -1268,8 +1153,7 @@ class BertPreTrainedModel(nn.Module):
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None,
-        cache_dir=None, from_tf=False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a BertPreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -1297,42 +1181,32 @@ class BertPreTrainedModel(nn.Module):
                 (ex: num_labels for BertForSequenceClassification)
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except EnvironmentError:
             if pretrained_model_name_or_path == 'bert-base-uncased':
                 try:
                     None
-                    archive_file = (
-                        'https://nlp.cs.unc.edu/data/bert/bert-base-uncased.tar.gz'
-                        )
-                    resolved_archive_file = cached_path(archive_file,
-                        cache_dir=cache_dir)
+                    archive_file = 'https://nlp.cs.unc.edu/data/bert/bert-base-uncased.tar.gz'
+                    resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
                 except EnvironmentError:
                     None
                     return None
             else:
-                logger.error(
-                    "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                    .format(pretrained_model_name_or_path, ', '.join(
-                    PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+                logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
         if resolved_archive_file == archive_file:
             logger.info('loading archive file {}'.format(archive_file))
         else:
-            logger.info('loading archive file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading archive file {} from cache at {}'.format(archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file) or from_tf:
             serialization_dir = resolved_archive_file
         else:
             tempdir = tempfile.mkdtemp()
-            logger.info('extracting archive file {} to temp dir {}'.format(
-                resolved_archive_file, tempdir))
+            logger.info('extracting archive file {} to temp dir {}'.format(resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
@@ -1342,8 +1216,7 @@ class BertPreTrainedModel(nn.Module):
         model = cls(config, *inputs, **kwargs)
         if state_dict is None and not from_tf:
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
-            state_dict = torch.load(weights_path, map_location='cpu' if not
-                torch.is_available() else None)
+            state_dict = torch.load(weights_path, map_location='cpu' if not torch.is_available() else None)
         if tempdir:
             shutil.rmtree(tempdir)
         if from_tf:
@@ -1371,21 +1244,17 @@ class BertPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in
-            state_dict.keys()):
+        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in state_dict.keys()):
             start_prefix = 'bert.'
         load(model, prefix=start_prefix)
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         return model
 
 
@@ -1398,9 +1267,7 @@ class GQAModel(nn.Module):
         super().__init__()
         self.lxrt_encoder = LXRTEncoder(args, max_seq_length=MAX_GQA_LENGTH)
         hid_dim = self.lxrt_encoder.dim
-        self.logit_fc = nn.Sequential(nn.Linear(hid_dim, hid_dim * 2), GeLU
-            (), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 
-            2, num_answers))
+        self.logit_fc = nn.Sequential(nn.Linear(hid_dim, hid_dim * 2), GeLU(), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 2, num_answers))
         self.logit_fc.apply(self.lxrt_encoder.model.init_bert_weights)
 
     def forward(self, feat, pos, sent):
@@ -1424,9 +1291,7 @@ class NLVR2Model(nn.Module):
         super().__init__()
         self.lxrt_encoder = LXRTEncoder(args, max_seq_length=20)
         self.hid_dim = hid_dim = self.lxrt_encoder.dim
-        self.logit_fc = nn.Sequential(nn.Linear(hid_dim * 2, hid_dim * 2),
-            GeLU(), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(
-            hid_dim * 2, 2))
+        self.logit_fc = nn.Sequential(nn.Linear(hid_dim * 2, hid_dim * 2), GeLU(), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 2, 2))
         self.logit_fc.apply(self.lxrt_encoder.model.init_bert_weights)
 
     def forward(self, feat, pos, sent):
@@ -1457,9 +1322,7 @@ class VQAModel(nn.Module):
         super().__init__()
         self.lxrt_encoder = LXRTEncoder(args, max_seq_length=MAX_VQA_LENGTH)
         hid_dim = self.lxrt_encoder.dim
-        self.logit_fc = nn.Sequential(nn.Linear(hid_dim, hid_dim * 2), GeLU
-            (), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 
-            2, num_answers))
+        self.logit_fc = nn.Sequential(nn.Linear(hid_dim, hid_dim * 2), GeLU(), BertLayerNorm(hid_dim * 2, eps=1e-12), nn.Linear(hid_dim * 2, num_answers))
         self.logit_fc.apply(self.lxrt_encoder.model.init_bert_weights)
 
     def forward(self, feat, pos, sent):
@@ -1481,42 +1344,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BertAttOutput,
+     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertCrossattLayer,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertEmbeddings,
+     lambda: ([], {'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (BertIntermediate,
+     lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertOutput,
+     lambda: ([], {'config': _mock_config(intermediate_size=4, hidden_size=4, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertPooler,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertPredictionHeadTransform,
+     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertSelfattLayer,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (BertVisualAnswerHead,
+     lambda: ([], {'config': _mock_config(hidden_size=4), 'num_answers': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GeLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_airsplay_lxmert(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BertAttOutput(*[], **{'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(BertAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(BertCrossattLayer(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(BertEmbeddings(*[], **{'config': _mock_config(vocab_size=4, hidden_size=4, max_position_embeddings=4, type_vocab_size=4, hidden_dropout_prob=0.5)}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(BertOutput(*[], **{'config': _mock_config(intermediate_size=4, hidden_size=4, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(BertPredictionHeadTransform(*[], **{'config': _mock_config(hidden_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(BertSelfattLayer(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, hidden_dropout_prob=0.5)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(BertVisualAnswerHead(*[], **{'config': _mock_config(hidden_size=4), 'num_answers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(GeLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

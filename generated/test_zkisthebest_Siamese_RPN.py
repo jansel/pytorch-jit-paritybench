@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,21 +56,14 @@ import numpy as np
 from torchvision.transforms import functional as F
 
 
-model_urls = {'alexnet':
-    'https://download.pytorch.org/models/alexnet-owt-4df8aa71.pth'}
+model_urls = {'alexnet': 'https://download.pytorch.org/models/alexnet-owt-4df8aa71.pth'}
 
 
 class SiameseRPN(nn.Module):
 
     def __init__(self):
         super(SiameseRPN, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11,
-            stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3,
-            stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.ReLU(inplace=
-            True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 
-            384, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(384, 256,
-            kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(256, 256,
-            kernel_size=3))
+        self.features = nn.Sequential(nn.Conv2d(3, 64, kernel_size=11, stride=2), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(64, 192, kernel_size=5), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), nn.Conv2d(192, 384, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(384, 256, kernel_size=3), nn.ReLU(inplace=True), nn.Conv2d(256, 256, kernel_size=3))
         self.k = 5
         self.conv1 = nn.Conv2d(256, 2 * self.k * 256, kernel_size=3)
         self.relu1 = nn.ReLU(inplace=True)
@@ -86,8 +80,7 @@ class SiameseRPN(nn.Module):
     def reset_params(self):
         pretrained_dict = model_zoo.load_url(model_urls['alexnet'])
         model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            model_dict}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)
 
@@ -115,14 +108,11 @@ class SmoothL1Loss(Module):
         return
 
     def forward(self, clabel, target, routput, rlabel):
-        rloss = F.smooth_l1_loss(routput, rlabel, size_average=False,
-            reduce=False)
+        rloss = F.smooth_l1_loss(routput, rlabel, size_average=False, reduce=False)
         e = torch.eq(clabel.float(), target)
         e = e.squeeze()
-        e0, e1, e2, e3, e4 = e[0].unsqueeze(0), e[1].unsqueeze(0), e[2
-            ].unsqueeze(0), e[3].unsqueeze(0), e[4].unsqueeze(0)
-        eq = torch.cat([e0, e0, e0, e0, e1, e1, e1, e1, e2, e2, e2, e2, e3,
-            e3, e3, e3, e4, e4, e4, e4], dim=0).float()
+        e0, e1, e2, e3, e4 = e[0].unsqueeze(0), e[1].unsqueeze(0), e[2].unsqueeze(0), e[3].unsqueeze(0), e[4].unsqueeze(0)
+        eq = torch.cat([e0, e0, e0, e0, e1, e1, e1, e1, e2, e2, e2, e2, e3, e3, e3, e3, e4, e4, e4, e4], dim=0).float()
         rloss = rloss.squeeze()
         rloss = torch.mul(eq, rloss)
         rloss = torch.sum(rloss)
@@ -138,14 +128,11 @@ class Myloss(Module):
 
     def forward(self, coutput, clabel, target, routput, rlabel, lmbda):
         closs = F.cross_entropy(coutput, clabel)
-        rloss = F.smooth_l1_loss(routput, rlabel, size_average=False,
-            reduce=False)
+        rloss = F.smooth_l1_loss(routput, rlabel, size_average=False, reduce=False)
         e = torch.eq(clabel.float(), target)
         e = e.squeeze()
-        e0, e1, e2, e3, e4 = e[0].unsqueeze(0), e[1].unsqueeze(0), e[2
-            ].unsqueeze(0), e[3].unsqueeze(0), e[4].unsqueeze(0)
-        eq = torch.cat([e0, e0, e0, e0, e1, e1, e1, e1, e2, e2, e2, e2, e3,
-            e3, e3, e3, e4, e4, e4, e4], dim=0).float()
+        e0, e1, e2, e3, e4 = e[0].unsqueeze(0), e[1].unsqueeze(0), e[2].unsqueeze(0), e[3].unsqueeze(0), e[4].unsqueeze(0)
+        eq = torch.cat([e0, e0, e0, e0, e1, e1, e1, e1, e2, e2, e2, e2, e3, e3, e3, e3, e4, e4, e4, e4], dim=0).float()
         rloss = rloss.squeeze()
         rloss = torch.mul(eq, rloss)
         rloss = torch.sum(rloss)
@@ -153,10 +140,3 @@ class Myloss(Module):
         loss = torch.add(closs, lmbda, rloss)
         return loss
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_zkisthebest_Siamese_RPN(_paritybench_base):
-    pass

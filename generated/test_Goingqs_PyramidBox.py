@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,8 +93,7 @@ class L2Norm(nn.Module):
     def forward(self, x):
         norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
         x = torch.div(x, norm)
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x
-            ) * x
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
 
 
@@ -144,19 +144,15 @@ def intersect(box_a, box_b):
         print('Warning! Memory is:', A * B * 2 / 1024 / 1024 * 4, 'MB')
         box_a_cpu = box_a.cpu()
         box_b_cpu = box_b.cpu()
-        max_xy_cpu = torch.min(box_a_cpu[:, 2:].unsqueeze(1).expand(A, B, 2
-            ), box_b_cpu[:, 2:].unsqueeze(0).expand(A, B, 2))
-        max_xy_cpu = torch.max(box_a_cpu[:, :2].unsqueeze(1).expand(A, B, 2
-            ), box_b_cpu[:, :2].unsqueeze(0).expand(A, B, 2))
+        max_xy_cpu = torch.min(box_a_cpu[:, 2:].unsqueeze(1).expand(A, B, 2), box_b_cpu[:, 2:].unsqueeze(0).expand(A, B, 2))
+        max_xy_cpu = torch.max(box_a_cpu[:, :2].unsqueeze(1).expand(A, B, 2), box_b_cpu[:, :2].unsqueeze(0).expand(A, B, 2))
         max_xy_cpu -= max_xy_cpu
         max_xy_cpu.clamp_(min=0)
         res_cpu = max_xy_cpu[:, :, (0)] * max_xy_cpu[:, :, (1)]
         res = res_cpu
     else:
-        max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b
-            [:, 2:].unsqueeze(0).expand(A, B, 2))
-        min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b
-            [:, :2].unsqueeze(0).expand(A, B, 2))
+        max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+        min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
         max_xy -= min_xy
         max_xy.clamp_(min=0)
         res = max_xy[:, :, (0)] * max_xy[:, :, (1)]
@@ -179,17 +175,13 @@ def jaccard(box_a, box_b):
     if not inter.is_cuda:
         box_a_cpu = box_a.cpu()
         box_b_cpu = box_b.cpu()
-        area_a_cpu = ((box_a_cpu[:, (2)] - box_a_cpu[:, (0)]) * (box_a_cpu[
-            :, (3)] - box_a_cpu[:, (1)])).unsqueeze(1).expand_as(inter)
-        area_b_cpu = ((box_b_cpu[:, (2)] - box_b_cpu[:, (0)]) * (box_b_cpu[
-            :, (3)] - box_b_cpu[:, (1)])).unsqueeze(0).expand_as(inter)
+        area_a_cpu = ((box_a_cpu[:, (2)] - box_a_cpu[:, (0)]) * (box_a_cpu[:, (3)] - box_a_cpu[:, (1)])).unsqueeze(1).expand_as(inter)
+        area_b_cpu = ((box_b_cpu[:, (2)] - box_b_cpu[:, (0)]) * (box_b_cpu[:, (3)] - box_b_cpu[:, (1)])).unsqueeze(0).expand_as(inter)
         union_cpu = area_a_cpu + area_b_cpu - inter.cpu()
         return inter / union_cpu
     else:
-        area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[
-            :, (1)])).unsqueeze(1).expand_as(inter)
-        area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[
-            :, (1)])).unsqueeze(0).expand_as(inter)
+        area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+        area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
         union = area_a + area_b - inter
         return inter / union
 
@@ -202,8 +194,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -246,8 +237,7 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     conf_t[idx] = conf
 
 
-def matchNoBipartite(threshold, truths, priors, variances, labels, loc_t,
-    conf_t, idx):
+def matchNoBipartite(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -305,9 +295,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target,
-        bipartite=True, use_gpu=True):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target, bipartite=True, use_gpu=True):
         super(MultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -345,11 +333,9 @@ class MultiBoxLoss(nn.Module):
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
             if self.bipartite:
-                match(self.threshold, truths, defaults, self.variance,
-                    labels, loc_t, conf_t, idx)
+                match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
             else:
-                matchNoBipartite(self.threshold, truths, defaults, self.
-                    variance, labels, loc_t, conf_t, idx)
+                matchNoBipartite(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t
             conf_t = conf_t
@@ -362,8 +348,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -373,8 +358,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = num_pos.data.sum()
@@ -387,11 +371,9 @@ class MultiBoxLoss(nn.Module):
 
 class ConvBN(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
-        padding=0, relu=False):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, relu=False):
         super(ConvBN, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=
-            kernel_size, stride=stride, padding=padding)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = relu
 
@@ -407,16 +389,11 @@ class SSHContext(nn.Module):
 
     def __init__(self, channels, Xchannels=256):
         super(SSHContext, self).__init__()
-        self.conv1 = nn.Conv2d(channels, Xchannels, kernel_size=3, stride=1,
-            padding=1)
-        self.conv2 = nn.Conv2d(channels, Xchannels // 2, kernel_size=3,
-            dilation=2, stride=1, padding=2)
-        self.conv2_1 = nn.Conv2d(Xchannels // 2, Xchannels // 2,
-            kernel_size=3, stride=1, padding=1)
-        self.conv2_2 = nn.Conv2d(Xchannels // 2, Xchannels // 2,
-            kernel_size=3, dilation=2, stride=1, padding=2)
-        self.conv2_2_1 = nn.Conv2d(Xchannels // 2, Xchannels // 2,
-            kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(channels, Xchannels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(channels, Xchannels // 2, kernel_size=3, dilation=2, stride=1, padding=2)
+        self.conv2_1 = nn.Conv2d(Xchannels // 2, Xchannels // 2, kernel_size=3, stride=1, padding=1)
+        self.conv2_2 = nn.Conv2d(Xchannels // 2, Xchannels // 2, kernel_size=3, dilation=2, stride=1, padding=2)
+        self.conv2_2_1 = nn.Conv2d(Xchannels // 2, Xchannels // 2, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         x1 = F.relu(self.conv1(x), inplace=True)
@@ -432,10 +409,8 @@ class ContextTexture(nn.Module):
 
     def __init__(self, **channels):
         super(ContextTexture, self).__init__()
-        self.up_conv = nn.Conv2d(channels['up'], channels['main'],
-            kernel_size=1)
-        self.main_conv = nn.Conv2d(channels['main'], channels['main'],
-            kernel_size=1)
+        self.up_conv = nn.Conv2d(channels['up'], channels['main'], kernel_size=1)
+        self.main_conv = nn.Conv2d(channels['main'], channels['main'], kernel_size=1)
 
     def forward(self, up, main):
         up = self.up_conv(up)
@@ -455,17 +430,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)), inplace=True)
@@ -488,8 +459,7 @@ def decode(loc, priors, variances):
     Return:
         decoded bounding box predictions
     """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:,
-        2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes
@@ -583,8 +553,7 @@ class Detect(Function):
         num = loc_data.size(0)
         num_priors = prior_data.size(0)
         output = torch.zeros(num, self.num_classes, self.top_k, 5)
-        conf_preds = conf_data.view(num, num_priors, self.num_classes
-            ).transpose(2, 1)
+        conf_preds = conf_data.view(num, num_priors, self.num_classes).transpose(2, 1)
         for i in range(num):
             decoded_boxes = decode(loc_data[i], prior_data, self.variance)
             conf_scores = conf_preds[i].clone()
@@ -595,11 +564,9 @@ class Detect(Function):
                     continue
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
-                ids, count = nms(boxes, scores, self.nms_thresh, min(boxes.
-                    shape[0], self.nms_top_k))
+                ids, count = nms(boxes, scores, self.nms_thresh, min(boxes.shape[0], self.nms_top_k))
                 select_count = min(count, self.top_k)
-                output[(i), (cl), :select_count] = torch.cat((scores[ids[:
-                    select_count]].unsqueeze(1), boxes[ids[:select_count]]), 1)
+                output[(i), (cl), :select_count] = torch.cat((scores[ids[:select_count]].unsqueeze(1), boxes[ids[:select_count]]), 1)
         flt = output.contiguous().view(num, -1, 5)
         _, idx = flt[:, :, (0)].sort(1, descending=True)
         _, rank = idx.sort(1)
@@ -617,9 +584,7 @@ class PriorBoxLayer(object):
 
     """
 
-    def __init__(self, width, height, stride=[4, 8, 16, 32, 64, 128], box=[
-        16, 32, 64, 128, 256, 512], scale=[1, 1, 1, 1, 1, 1], aspect_ratios
-        =[[], [], [], [], [], []]):
+    def __init__(self, width, height, stride=[4, 8, 16, 32, 64, 128], box=[16, 32, 64, 128, 256, 512], scale=[1, 1, 1, 1, 1, 1], aspect_ratios=[[], [], [], [], [], []]):
         super(PriorBoxLayer, self).__init__()
         self.width = width
         self.height = height
@@ -651,32 +616,22 @@ class SFD(nn.Module):
         super(SFD, self).__init__()
         self.phase = phase
         self.num_classes = num_classes
-        self.priorbox = PriorBoxLayer(size, size, stride=[4, 8, 16, 32, 64,
-            128])
+        self.priorbox = PriorBoxLayer(size, size, stride=[4, 8, 16, 32, 64, 128])
         self.priors = None
-        self.priorbox_head = PriorBoxLayer(size, size, stride=[8, 16, 32, 
-            64, 128, 128])
+        self.priorbox_head = PriorBoxLayer(size, size, stride=[8, 16, 32, 64, 128, 128])
         self.priors_head = None
-        self.priorbox_body = PriorBoxLayer(size, size, stride=[16, 32, 64, 
-            128, 128, 128])
+        self.priorbox_body = PriorBoxLayer(size, size, stride=[16, 32, 64, 128, 128, 128])
         self.priors_body = None
         self.size = size
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.layer5 = nn.Sequential(*[nn.Conv2d(2048, 512, kernel_size=1),
-            nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Conv2d(512, 512,
-            kernel_size=3, padding=1, stride=2), nn.BatchNorm2d(512), nn.
-            ReLU(inplace=True)])
-        self.layer6 = nn.Sequential(*[nn.Conv2d(512, 128, kernel_size=1),
-            nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 256,
-            kernel_size=3, padding=1, stride=2), nn.BatchNorm2d(256), nn.
-            ReLU(inplace=True)])
+        self.layer5 = nn.Sequential(*[nn.Conv2d(2048, 512, kernel_size=1), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.Conv2d(512, 512, kernel_size=3, padding=1, stride=2), nn.BatchNorm2d(512), nn.ReLU(inplace=True)])
+        self.layer6 = nn.Sequential(*[nn.Conv2d(512, 128, kernel_size=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 256, kernel_size=3, padding=1, stride=2), nn.BatchNorm2d(256), nn.ReLU(inplace=True)])
         self.conv3_ct_py = ContextTexture(up=512, main=256)
         self.conv4_ct_py = ContextTexture(up=1024, main=512)
         self.conv5_ct_py = ContextTexture(up=2048, main=1024)
@@ -696,19 +651,15 @@ class SFD(nn.Module):
         loc = []
         conf = []
         for i in range(6):
-            loc.append(nn.Conv2d(self.SSHchannels[i], 4, kernel_size=3,
-                stride=1, padding=1))
-            conf.append(nn.Conv2d(self.SSHchannels[i], 4, kernel_size=3,
-                stride=1, padding=1))
+            loc.append(nn.Conv2d(self.SSHchannels[i], 4, kernel_size=3, stride=1, padding=1))
+            conf.append(nn.Conv2d(self.SSHchannels[i], 4, kernel_size=3, stride=1, padding=1))
         self.face_loc = nn.ModuleList(loc)
         self.face_conf = nn.ModuleList(conf)
         head_loc = []
         head_conf = []
         for i in range(5):
-            head_loc.append(nn.Conv2d(self.SSHchannels[i + 1], 4,
-                kernel_size=3, stride=1, padding=1))
-            head_conf.append(nn.Conv2d(self.SSHchannels[i + 1], 2,
-                kernel_size=3, stride=1, padding=1))
+            head_loc.append(nn.Conv2d(self.SSHchannels[i + 1], 4, kernel_size=3, stride=1, padding=1))
+            head_conf.append(nn.Conv2d(self.SSHchannels[i + 1], 2, kernel_size=3, stride=1, padding=1))
         self.head_loc = nn.ModuleList(head_loc)
         self.head_conf = nn.ModuleList(head_conf)
         """body_loc = []
@@ -772,36 +723,28 @@ class SFD(nn.Module):
         prior_head_boxes = []
         prior_body_boxes = []
         for idx, f_layer in enumerate(sources):
-            prior_boxs.append(self.priorbox.forward(idx, f_layer.shape[3],
-                f_layer.shape[2]))
+            prior_boxs.append(self.priorbox.forward(idx, f_layer.shape[3], f_layer.shape[2]))
             if idx > 0:
-                prior_head_boxes.append(self.priorbox_head.forward(idx - 1,
-                    f_layer.shape[3], f_layer.shape[2]))
-        self.priors = Variable(torch.cat([p for p in prior_boxs], 0),
-            volatile=True)
-        self.priors_head = Variable(torch.cat([p for p in prior_head_boxes],
-            0), volatile=True)
-        for idx, (x, l, c) in enumerate(zip(sources, self.face_loc, self.
-            face_conf)):
+                prior_head_boxes.append(self.priorbox_head.forward(idx - 1, f_layer.shape[3], f_layer.shape[2]))
+        self.priors = Variable(torch.cat([p for p in prior_boxs], 0), volatile=True)
+        self.priors_head = Variable(torch.cat([p for p in prior_head_boxes], 0), volatile=True)
+        for idx, (x, l, c) in enumerate(zip(sources, self.face_loc, self.face_conf)):
             if idx == 0:
                 tmp_conf = c(x)
                 a, b, c, pos_conf = tmp_conf.chunk(4, 1)
                 neg_conf = torch.cat([a, b, c], 1)
                 max_conf, _ = neg_conf.max(1)
                 max_conf = max_conf.view_as(pos_conf)
-                conf.append(torch.cat([max_conf, pos_conf], 1).permute(0, 2,
-                    3, 1).contiguous())
+                conf.append(torch.cat([max_conf, pos_conf], 1).permute(0, 2, 3, 1).contiguous())
             else:
                 tmp_conf = c(x)
                 neg_conf, a, b, c = tmp_conf.chunk(4, 1)
                 pos_conf = torch.cat([a, b, c], 1)
                 max_conf, _ = pos_conf.max(1)
                 max_conf = max_conf.view_as(neg_conf)
-                conf.append(torch.cat([neg_conf, max_conf], 1).permute(0, 2,
-                    3, 1).contiguous())
+                conf.append(torch.cat([neg_conf, max_conf], 1).permute(0, 2, 3, 1).contiguous())
             loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-        for idx, (x, l, c) in enumerate(zip(sources[1:], self.head_loc,
-            self.head_conf)):
+        for idx, (x, l, c) in enumerate(zip(sources[1:], self.head_loc, self.head_conf)):
             head_loc.append(l(x).permute(0, 2, 3, 1).contiguous())
             head_conf.append(c(x).permute(0, 2, 3, 1).contiguous())
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
@@ -809,24 +752,18 @@ class SFD(nn.Module):
         head_loc = torch.cat([o.view(o.size(0), -1) for o in head_loc], 1)
         head_conf = torch.cat([o.view(o.size(0), -1) for o in head_conf], 1)
         if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax
-                (conf.view(conf.size(0), -1, 2)), self.priors.type(type(x.
-                data)))
+            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, 2)), self.priors.type(type(x.data)))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, 2), self.priors, head_loc.view(head_loc.size(0), -1, 4
-                ), head_conf.view(head_conf.size(0), -1, 2), self.priors_head
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, 2), self.priors, head_loc.view(head_loc.size(0), -1, 4), head_conf.view(head_conf.size(0), -1, 2), self.priors_head
         return output
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)
         if ext == '.pkl' or '.pth':
             None
-            pretrained_model = torch.load(base_file, map_location=lambda
-                storage, loc: storage)
+            pretrained_model = torch.load(base_file, map_location=lambda storage, loc: storage)
             model_dict = self.state_dict()
-            pretrained_model = {k: v for k, v in pretrained_model.items() if
-                k in model_dict}
+            pretrained_model = {k: v for k, v in pretrained_model.items() if k in model_dict}
             model_dict.update(pretrained_model)
             self.load_state_dict(model_dict)
             None
@@ -838,17 +775,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBN,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Norm,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SSHContext,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Goingqs_PyramidBox(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBN(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(L2Norm(*[], **{'n_channels': 4, 'scale': 1.0}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SSHContext(*[], **{'channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

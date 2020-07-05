@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,8 +62,7 @@ class AgreementRouting(nn.Module):
             for r in range(self.n_iterations):
                 v = v.unsqueeze(1)
                 b_batch = b_batch + (u_predict * v).sum(-1)
-                c = F.softmax(b_batch.view(-1, output_caps)).view(-1,
-                    input_caps, output_caps, 1)
+                c = F.softmax(b_batch.view(-1, output_caps)).view(-1, input_caps, output_caps, 1)
                 s = (c * u_predict).sum(dim=1)
                 v = squash(s)
         return v
@@ -70,15 +70,13 @@ class AgreementRouting(nn.Module):
 
 class CapsLayer(nn.Module):
 
-    def __init__(self, input_caps, input_dim, output_caps, output_dim,
-        routing_module):
+    def __init__(self, input_caps, input_dim, output_caps, output_dim, routing_module):
         super(CapsLayer, self).__init__()
         self.input_dim = input_dim
         self.input_caps = input_caps
         self.output_dim = output_dim
         self.output_caps = output_caps
-        self.weights = nn.Parameter(torch.Tensor(input_caps, input_dim, 
-            output_caps * output_dim))
+        self.weights = nn.Parameter(torch.Tensor(input_caps, input_dim, output_caps * output_dim))
         self.routing_module = routing_module
         self.reset_parameters()
 
@@ -89,19 +87,16 @@ class CapsLayer(nn.Module):
     def forward(self, caps_output):
         caps_output = caps_output.unsqueeze(2)
         u_predict = caps_output.matmul(self.weights)
-        u_predict = u_predict.view(u_predict.size(0), self.input_caps, self
-            .output_caps, self.output_dim)
+        u_predict = u_predict.view(u_predict.size(0), self.input_caps, self.output_caps, self.output_dim)
         v = self.routing_module(u_predict)
         return v
 
 
 class PrimaryCapsLayer(nn.Module):
 
-    def __init__(self, input_channels, output_caps, output_dim, kernel_size,
-        stride):
+    def __init__(self, input_channels, output_caps, output_dim, kernel_size, stride):
         super(PrimaryCapsLayer, self).__init__()
-        self.conv = nn.Conv2d(input_channels, output_caps * output_dim,
-            kernel_size=kernel_size, stride=stride)
+        self.conv = nn.Conv2d(input_channels, output_caps * output_dim, kernel_size=kernel_size, stride=stride)
         self.input_channels = input_channels
         self.output_caps = output_caps
         self.output_dim = output_dim
@@ -121,13 +116,10 @@ class CapsNet(nn.Module):
     def __init__(self, routing_iterations, n_classes=10):
         super(CapsNet, self).__init__()
         self.conv1 = nn.Conv2d(1, 256, kernel_size=9, stride=1)
-        self.primaryCaps = PrimaryCapsLayer(256, 32, 8, kernel_size=9, stride=2
-            )
+        self.primaryCaps = PrimaryCapsLayer(256, 32, 8, kernel_size=9, stride=2)
         self.num_primaryCaps = 32 * 6 * 6
-        routing_module = AgreementRouting(self.num_primaryCaps, n_classes,
-            routing_iterations)
-        self.digitCaps = CapsLayer(self.num_primaryCaps, 8, n_classes, 16,
-            routing_module)
+        routing_module = AgreementRouting(self.num_primaryCaps, n_classes, routing_iterations)
+        self.digitCaps = CapsLayer(self.num_primaryCaps, 8, n_classes, 16, routing_module)
 
     def forward(self, input):
         x = self.conv1(input)
@@ -149,8 +141,7 @@ class ReconstructionNet(nn.Module):
         self.n_classes = n_classes
 
     def forward(self, x, target):
-        mask = Variable(torch.zeros((x.size()[0], self.n_classes)),
-            requires_grad=False)
+        mask = Variable(torch.zeros((x.size()[0], self.n_classes)), requires_grad=False)
         if next(self.parameters()).is_cuda:
             mask = mask
         mask.scatter_(1, target.view(-1, 1), 1.0)
@@ -190,9 +181,7 @@ class MarginLoss(nn.Module):
             t = t
         t = t.scatter_(1, targets.data.view(-1, 1), 1)
         targets = Variable(t)
-        losses = targets.float() * F.relu(self.m_pos - lengths).pow(2
-            ) + self.lambda_ * (1.0 - targets.float()) * F.relu(lengths -
-            self.m_neg).pow(2)
+        losses = targets.float() * F.relu(self.m_pos - lengths).pow(2) + self.lambda_ * (1.0 - targets.float()) * F.relu(lengths - self.m_neg).pow(2)
         return losses.mean() if size_average else losses.sum()
 
 
@@ -200,22 +189,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AgreementRouting,
+     lambda: ([], {'input_caps': 4, 'output_caps': 4, 'n_iterations': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CapsLayer,
+     lambda: ([], {'input_caps': 4, 'input_dim': 4, 'output_caps': 4, 'output_dim': 4, 'routing_module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (MarginLoss,
+     lambda: ([], {'m_pos': 4, 'm_neg': 4, 'lambda_': 4}),
+     lambda: ([torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (PrimaryCapsLayer,
+     lambda: ([], {'input_channels': 4, 'output_caps': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReconstructionNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 10, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_adambielski_CapsNet_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AgreementRouting(*[], **{'input_caps': 4, 'output_caps': 4, 'n_iterations': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CapsLayer(*[], **{'input_caps': 4, 'input_dim': 4, 'output_caps': 4, 'output_dim': 4, 'routing_module': _mock_layer()}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MarginLoss(*[], **{'m_pos': 4, 'm_neg': 4, 'lambda_': 4}), [torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(PrimaryCapsLayer(*[], **{'input_channels': 4, 'output_caps': 4, 'output_dim': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ReconstructionNet(*[], **{}), [torch.rand([4, 4, 10, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 

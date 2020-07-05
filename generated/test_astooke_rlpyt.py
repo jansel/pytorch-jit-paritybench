@@ -232,8 +232,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -269,8 +270,7 @@ def conv2d_output_shape(h, w, kernel_size=1, stride=1, padding=0, dilation=1):
     """
     Returns output H, W after convolution/pooling on input H, W.
     """
-    kh, kw = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,
-        ) * 2
+    kh, kw = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,) * 2
     sh, sw = stride if isinstance(stride, tuple) else (stride,) * 2
     ph, pw = padding if isinstance(padding, tuple) else (padding,) * 2
     d = dilation
@@ -285,14 +285,11 @@ class Conv2dModel(torch.nn.Module):
     not input shape.  Uses ``torch.nn.Conv2d``.
     """
 
-    def __init__(self, in_channels, channels, kernel_sizes, strides,
-        paddings=None, nonlinearity=torch.nn.ReLU, use_maxpool=False,
-        head_sizes=None):
+    def __init__(self, in_channels, channels, kernel_sizes, strides, paddings=None, nonlinearity=torch.nn.ReLU, use_maxpool=False, head_sizes=None):
         super().__init__()
         if paddings is None:
             paddings = [(0) for _ in range(len(channels))]
-        assert len(channels) == len(kernel_sizes) == len(strides) == len(
-            paddings)
+        assert len(channels) == len(kernel_sizes) == len(strides) == len(paddings)
         in_channels = [in_channels] + channels[:-1]
         ones = [(1) for _ in range(len(strides))]
         if use_maxpool:
@@ -300,9 +297,7 @@ class Conv2dModel(torch.nn.Module):
             strides = ones
         else:
             maxp_strides = ones
-        conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc,
-            kernel_size=k, stride=s, padding=p) for ic, oc, k, s, p in zip(
-            in_channels, channels, kernel_sizes, strides, paddings)]
+        conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc, kernel_size=k, stride=s, padding=p) for ic, oc, k, s, p in zip(in_channels, channels, kernel_sizes, strides, paddings)]
         sequence = list()
         for conv_layer, maxp_stride in zip(conv_layers, maxp_strides):
             sequence.extend([conv_layer, nonlinearity()])
@@ -320,8 +315,7 @@ class Conv2dModel(torch.nn.Module):
         without actually performing a forward pass through the model."""
         for child in self.conv.children():
             try:
-                h, w = conv2d_output_shape(h, w, child.kernel_size, child.
-                    stride, child.padding)
+                h, w = conv2d_output_shape(h, w, child.kernel_size, child.stride, child.padding)
             except AttributeError:
                 pass
             try:
@@ -337,23 +331,17 @@ class Conv2dHeadModel(torch.nn.Module):
     instantiate the MLP head.
     """
 
-    def __init__(self, image_shape, channels, kernel_sizes, strides,
-        hidden_sizes, output_size=None, paddings=None, nonlinearity=torch.
-        nn.ReLU, use_maxpool=False):
+    def __init__(self, image_shape, channels, kernel_sizes, strides, hidden_sizes, output_size=None, paddings=None, nonlinearity=torch.nn.ReLU, use_maxpool=False):
         super().__init__()
         c, h, w = image_shape
-        self.conv = Conv2dModel(in_channels=c, channels=channels,
-            kernel_sizes=kernel_sizes, strides=strides, paddings=paddings,
-            nonlinearity=nonlinearity, use_maxpool=use_maxpool)
+        self.conv = Conv2dModel(in_channels=c, channels=channels, kernel_sizes=kernel_sizes, strides=strides, paddings=paddings, nonlinearity=nonlinearity, use_maxpool=use_maxpool)
         conv_out_size = self.conv.conv_out_size(h, w)
         if hidden_sizes or output_size:
-            self.head = MlpModel(conv_out_size, hidden_sizes, output_size=
-                output_size, nonlinearity=nonlinearity)
+            self.head = MlpModel(conv_out_size, hidden_sizes, output_size=output_size, nonlinearity=nonlinearity)
             if output_size is not None:
                 self._output_size = output_size
             else:
-                self._output_size = hidden_sizes if isinstance(hidden_sizes,
-                    int) else hidden_sizes[-1]
+                self._output_size = hidden_sizes if isinstance(hidden_sizes, int) else hidden_sizes[-1]
         else:
             self.head = lambda x: x
             self._output_size = conv_out_size
@@ -424,24 +412,18 @@ class AtariCatDqnModel(torch.nn.Module):
     """2D conlutional network feeding into MLP with ``n_atoms`` outputs
     per action, representing a discrete probability distribution of Q-values."""
 
-    def __init__(self, image_shape, output_size, n_atoms=51, fc_sizes=512,
-        dueling=False, use_maxpool=False, channels=None, kernel_sizes=None,
-        strides=None, paddings=None):
+    def __init__(self, image_shape, output_size, n_atoms=51, fc_sizes=512, dueling=False, use_maxpool=False, channels=None, kernel_sizes=None, strides=None, paddings=None):
         """Instantiates the neural network according to arguments; network defaults
         stored within this method."""
         super().__init__()
         self.dueling = dueling
         c, h, w = image_shape
-        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64,
-            64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or
-            [4, 2, 1], paddings=paddings or [0, 1, 1], use_maxpool=use_maxpool)
+        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings or [0, 1, 1], use_maxpool=use_maxpool)
         conv_out_size = self.conv.conv_out_size(h, w)
         if dueling:
-            self.head = DistributionalDuelingHeadModel(conv_out_size,
-                fc_sizes, output_size=output_size, n_atoms=n_atoms)
+            self.head = DistributionalDuelingHeadModel(conv_out_size, fc_sizes, output_size=output_size, n_atoms=n_atoms)
         else:
-            self.head = DistributionalHeadModel(conv_out_size, fc_sizes,
-                output_size=output_size, n_atoms=n_atoms)
+            self.head = DistributionalHeadModel(conv_out_size, fc_sizes, output_size=output_size, n_atoms=n_atoms)
 
     def forward(self, observation, prev_action, prev_reward):
         """Returns the probability masses ``num_atoms x num_actions`` for the Q-values
@@ -462,17 +444,13 @@ class AtariDqnModel(torch.nn.Module):
     the action set.
     """
 
-    def __init__(self, image_shape, output_size, fc_sizes=512, dueling=
-        False, use_maxpool=False, channels=None, kernel_sizes=None, strides
-        =None, paddings=None):
+    def __init__(self, image_shape, output_size, fc_sizes=512, dueling=False, use_maxpool=False, channels=None, kernel_sizes=None, strides=None, paddings=None):
         """Instantiates the neural network according to arguments; network defaults
         stored within this method."""
         super().__init__()
         self.dueling = dueling
         c, h, w = image_shape
-        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64,
-            64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or
-            [4, 2, 1], paddings=paddings or [0, 1, 1], use_maxpool=use_maxpool)
+        self.conv = Conv2dModel(in_channels=c, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings or [0, 1, 1], use_maxpool=use_maxpool)
         conv_out_size = self.conv.conv_out_size(h, w)
         if dueling:
             self.head = DuelingHeadModel(conv_out_size, fc_sizes, output_size)
@@ -508,8 +486,7 @@ def tuple_itemgetter(i):
     return _tuple_itemgetter
 
 
-def namedarraytuple(typename, field_names, return_namedtuple_cls=False,
-    classname_suffix=False):
+def namedarraytuple(typename, field_names, return_namedtuple_cls=False, classname_suffix=False):
     """
     Returns a new subclass of a namedtuple which exposes indexing / slicing
     reads and writes applied to all contained objects, which must share
@@ -559,12 +536,8 @@ def namedarraytuple(typename, field_names, return_namedtuple_cls=False,
                 try:
                     _ = s[loc]
                 except IndexError:
-                    raise Exception(
-                        f"Occured in {self.__class__} at field '{self._fields[j]}'."
-                        ) from e
-    __getitem__.__doc__ = (
-        f'Return a new {typename} instance containing the selected index or slice from each field.'
-        )
+                    raise Exception(f"Occured in {self.__class__} at field '{self._fields[j]}'.") from e
+    __getitem__.__doc__ = f'Return a new {typename} instance containing the selected index or slice from each field.'
 
     def __setitem__(self, loc, value):
         """
@@ -573,17 +546,14 @@ def namedarraytuple(typename, field_names, return_namedtuple_cls=False,
         field.  Else, assign whole of value to selected index or slice of
         all fields.  Ignore fields that are both None.
         """
-        if not (isinstance(value, tuple) and getattr(value, '_fields', None
-            ) == self._fields):
+        if not (isinstance(value, tuple) and getattr(value, '_fields', None) == self._fields):
             value = tuple(None if s is None else value for s in self)
         try:
             for j, (s, v) in enumerate(zip(self, value)):
                 if s is not None or v is not None:
                     s[loc] = v
         except (ValueError, IndexError, TypeError) as e:
-            raise Exception(
-                f"Occured in {self.__class__} at field '{self._fields[j]}'."
-                ) from e
+            raise Exception(f"Occured in {self.__class__} at field '{self._fields[j]}'.") from e
 
     def __contains__(self, key):
         """Checks presence of field name (unlike tuple; like dict)."""
@@ -600,9 +570,7 @@ def namedarraytuple(typename, field_names, return_namedtuple_cls=False,
     for method in (__getitem__, __setitem__, get, items):
         method.__qualname__ = f'{typename}.{method.__name__}'
     arg_list = repr(NtCls._fields).replace("'", '')[1:-1]
-    class_namespace = {'__doc__': f'{typename}({arg_list})', '__slots__': (
-        ), '__getitem__': __getitem__, '__setitem__': __setitem__,
-        '__contains__': __contains__, 'get': get, 'items': items}
+    class_namespace = {'__doc__': f'{typename}({arg_list})', '__slots__': (), '__getitem__': __getitem__, '__setitem__': __setitem__, '__contains__': __contains__, 'get': get, 'items': items}
     for index, name in enumerate(NtCls._fields):
         if name in RESERVED_NAMES:
             raise ValueError(f'Disallowed field name: {name}.')
@@ -624,19 +592,13 @@ class AtariR2d1Model(torch.nn.Module):
     observation) feeding into an LSTM and MLP output for Q-value outputs for
     the action set."""
 
-    def __init__(self, image_shape, output_size, fc_size=512, lstm_size=512,
-        head_size=512, dueling=False, use_maxpool=False, channels=None,
-        kernel_sizes=None, strides=None, paddings=None):
+    def __init__(self, image_shape, output_size, fc_size=512, lstm_size=512, head_size=512, dueling=False, use_maxpool=False, channels=None, kernel_sizes=None, strides=None, paddings=None):
         """Instantiates the neural network according to arguments; network defaults
         stored within this method."""
         super().__init__()
         self.dueling = dueling
-        self.conv = Conv2dHeadModel(image_shape=image_shape, channels=
-            channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3
-            ], strides=strides or [4, 2, 1], paddings=paddings or [0, 1, 1],
-            use_maxpool=use_maxpool, hidden_sizes=fc_size)
-        self.lstm = torch.nn.LSTM(self.conv.output_size + output_size + 1,
-            lstm_size)
+        self.conv = Conv2dHeadModel(image_shape=image_shape, channels=channels or [32, 64, 64], kernel_sizes=kernel_sizes or [8, 4, 3], strides=strides or [4, 2, 1], paddings=paddings or [0, 1, 1], use_maxpool=use_maxpool, hidden_sizes=fc_size)
+        self.lstm = torch.nn.LSTM(self.conv.output_size + output_size + 1, lstm_size)
         if dueling:
             self.head = DuelingHeadModel(lstm_size, head_size, output_size)
         else:
@@ -649,10 +611,8 @@ class AtariR2d1Model(torch.nn.Module):
         img = img.mul_(1.0 / 255)
         lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
         conv_out = self.conv(img.view(T * B, *img_shape))
-        lstm_input = torch.cat([conv_out.view(T, B, -1), prev_action.view(T,
-            B, -1), prev_reward.view(T, B, 1)], dim=2)
-        init_rnn_state = None if init_rnn_state is None else tuple(
-            init_rnn_state)
+        lstm_input = torch.cat([conv_out.view(T, B, -1), prev_action.view(T, B, -1), prev_reward.view(T, B, 1)], dim=2)
+        init_rnn_state = None if init_rnn_state is None else tuple(init_rnn_state)
         lstm_out, (hn, cn) = self.lstm(lstm_input, init_rnn_state)
         q = self.head(lstm_out.view(T * B, -1))
         q = restore_leading_dims(q, lead_dim, T, B)
@@ -691,14 +651,12 @@ class DuelingHeadModel(torch.nn.Module):
     backward pass.
     """
 
-    def __init__(self, input_size, hidden_sizes, output_size, grad_scale=2 **
-        (-1 / 2)):
+    def __init__(self, input_size, hidden_sizes, output_size, grad_scale=2 ** (-1 / 2)):
         super().__init__()
         if isinstance(hidden_sizes, int):
             hidden_sizes = [hidden_sizes]
         self.advantage_hidden = MlpModel(input_size, hidden_sizes)
-        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size,
-            bias=False)
+        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size, bias=False)
         self.advantage_bias = torch.nn.Parameter(torch.zeros(1))
         self.value = MlpModel(input_size, hidden_sizes, output_size=1)
         self._grad_scale = grad_scale
@@ -723,14 +681,12 @@ class DistributionalDuelingHeadModel(torch.nn.Module):
     Q-value distribution.
     """
 
-    def __init__(self, input_size, hidden_sizes, output_size, n_atoms,
-        grad_scale=2 ** (-1 / 2)):
+    def __init__(self, input_size, hidden_sizes, output_size, n_atoms, grad_scale=2 ** (-1 / 2)):
         super().__init__()
         if isinstance(hidden_sizes, int):
             hidden_sizes = [hidden_sizes]
         self.advantage_hidden = MlpModel(input_size, hidden_sizes)
-        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size *
-            n_atoms, bias=False)
+        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size * n_atoms, bias=False)
         self.advantage_bias = torch.nn.Parameter(torch.zeros(n_atoms))
         self.value = MlpModel(input_size, hidden_sizes, output_size=n_atoms)
         self._grad_scale = grad_scale
@@ -760,13 +716,11 @@ class MlpModel(torch.nn.Module):
         nonlinearity: torch nonlinearity Module (not Functional).
     """
 
-    def __init__(self, input_size, hidden_sizes, output_size=None,
-        nonlinearity=torch.nn.ReLU):
+    def __init__(self, input_size, hidden_sizes, output_size=None, nonlinearity=torch.nn.ReLU):
         super().__init__()
         if isinstance(hidden_sizes, int):
             hidden_sizes = [hidden_sizes]
-        hidden_layers = [torch.nn.Linear(n_in, n_out) for n_in, n_out in
-            zip([input_size] + hidden_sizes[:-1], hidden_sizes)]
+        hidden_layers = [torch.nn.Linear(n_in, n_out) for n_in, n_out in zip([input_size] + hidden_sizes[:-1], hidden_sizes)]
         sequence = list()
         for layer in hidden_layers:
             sequence.extend([layer, nonlinearity()])
@@ -774,8 +728,7 @@ class MlpModel(torch.nn.Module):
             last_size = hidden_sizes[-1] if hidden_sizes else input_size
             sequence.append(torch.nn.Linear(last_size, output_size))
         self.model = torch.nn.Sequential(*sequence)
-        self._output_size = hidden_sizes[-1
-            ] if output_size is None else output_size
+        self._output_size = hidden_sizes[-1] if output_size is None else output_size
 
     def forward(self, input):
         """Compute the model on the input, assuming input shape [B,input_size]."""
@@ -793,14 +746,10 @@ class AtariFfModel(torch.nn.Module):
     MLP with outputs for action probabilities and state-value estimate.
     """
 
-    def __init__(self, image_shape, output_size, fc_sizes=512, use_maxpool=
-        False, channels=None, kernel_sizes=None, strides=None, paddings=None):
+    def __init__(self, image_shape, output_size, fc_sizes=512, use_maxpool=False, channels=None, kernel_sizes=None, strides=None, paddings=None):
         """Instantiate neural net module according to inputs."""
         super().__init__()
-        self.conv = Conv2dHeadModel(image_shape=image_shape, channels=
-            channels or [16, 32], kernel_sizes=kernel_sizes or [8, 4],
-            strides=strides or [4, 2], paddings=paddings or [0, 1],
-            use_maxpool=use_maxpool, hidden_sizes=fc_sizes)
+        self.conv = Conv2dHeadModel(image_shape=image_shape, channels=channels or [16, 32], kernel_sizes=kernel_sizes or [8, 4], strides=strides or [4, 2], paddings=paddings or [0, 1], use_maxpool=use_maxpool, hidden_sizes=fc_sizes)
         self.pi = torch.nn.Linear(self.conv.output_size, output_size)
         self.value = torch.nn.Linear(self.conv.output_size, 1)
 
@@ -829,17 +778,11 @@ class AtariLstmModel(torch.nn.Module):
     into an LSTM which outputs action probabilities and state-value estimate.
     """
 
-    def __init__(self, image_shape, output_size, fc_sizes=512, lstm_size=
-        512, use_maxpool=False, channels=None, kernel_sizes=None, strides=
-        None, paddings=None):
+    def __init__(self, image_shape, output_size, fc_sizes=512, lstm_size=512, use_maxpool=False, channels=None, kernel_sizes=None, strides=None, paddings=None):
         """Instantiate neural net module according to inputs."""
         super().__init__()
-        self.conv = Conv2dHeadModel(image_shape=image_shape, channels=
-            channels or [16, 32], kernel_sizes=kernel_sizes or [8, 4],
-            strides=strides or [4, 2], paddings=paddings or [0, 1],
-            use_maxpool=use_maxpool, hidden_sizes=fc_sizes)
-        self.lstm = torch.nn.LSTM(self.conv.output_size + output_size + 1,
-            lstm_size)
+        self.conv = Conv2dHeadModel(image_shape=image_shape, channels=channels or [16, 32], kernel_sizes=kernel_sizes or [8, 4], strides=strides or [4, 2], paddings=paddings or [0, 1], use_maxpool=use_maxpool, hidden_sizes=fc_sizes)
+        self.lstm = torch.nn.LSTM(self.conv.output_size + output_size + 1, lstm_size)
         self.pi = torch.nn.Linear(lstm_size, output_size)
         self.value = torch.nn.Linear(lstm_size, 1)
 
@@ -858,10 +801,8 @@ class AtariLstmModel(torch.nn.Module):
         img = img.mul_(1.0 / 255)
         lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
         fc_out = self.conv(img.view(T * B, *img_shape))
-        lstm_input = torch.cat([fc_out.view(T, B, -1), prev_action.view(T,
-            B, -1), prev_reward.view(T, B, 1)], dim=2)
-        init_rnn_state = None if init_rnn_state is None else tuple(
-            init_rnn_state)
+        lstm_input = torch.cat([fc_out.view(T, B, -1), prev_action.view(T, B, -1), prev_reward.view(T, B, 1)], dim=2)
+        init_rnn_state = None if init_rnn_state is None else tuple(init_rnn_state)
         lstm_out, (hn, cn) = self.lstm(lstm_input, init_rnn_state)
         pi = F.softmax(self.pi(lstm_out.view(T * B, -1)), dim=-1)
         v = self.value(lstm_out.view(T * B, -1)).squeeze(-1)
@@ -877,25 +818,19 @@ class MujocoFfModel(torch.nn.Module):
     MLP for state-value estimate.
     """
 
-    def __init__(self, observation_shape, action_size, hidden_sizes=None,
-        hidden_nonlinearity=torch.nn.Tanh, mu_nonlinearity=torch.nn.Tanh,
-        init_log_std=0.0, normalize_observation=False, norm_obs_clip=10,
-        norm_obs_var_clip=1e-06):
+    def __init__(self, observation_shape, action_size, hidden_sizes=None, hidden_nonlinearity=torch.nn.Tanh, mu_nonlinearity=torch.nn.Tanh, init_log_std=0.0, normalize_observation=False, norm_obs_clip=10, norm_obs_var_clip=1e-06):
         """Instantiate neural net modules according to inputs."""
         super().__init__()
         self._obs_ndim = len(observation_shape)
         input_size = int(np.prod(observation_shape))
         hidden_sizes = hidden_sizes or [64, 64]
-        mu_mlp = MlpModel(input_size=input_size, hidden_sizes=hidden_sizes,
-            output_size=action_size, nonlinearity=hidden_nonlinearity)
+        mu_mlp = MlpModel(input_size=input_size, hidden_sizes=hidden_sizes, output_size=action_size, nonlinearity=hidden_nonlinearity)
         if mu_nonlinearity is not None:
             self.mu = torch.nn.Sequential(mu_mlp, mu_nonlinearity())
         else:
             self.mu = mu_mlp
-        self.v = MlpModel(input_size=input_size, hidden_sizes=hidden_sizes,
-            output_size=1, nonlinearity=hidden_nonlinearity)
-        self.log_std = torch.nn.Parameter(init_log_std * torch.ones(
-            action_size))
+        self.v = MlpModel(input_size=input_size, hidden_sizes=hidden_sizes, output_size=1, nonlinearity=hidden_nonlinearity)
+        self.log_std = torch.nn.Parameter(init_log_std * torch.ones(action_size))
         if normalize_observation:
             self.obs_rms = RunningMeanStdModel(observation_shape)
             self.norm_obs_clip = norm_obs_clip
@@ -915,8 +850,7 @@ class MujocoFfModel(torch.nn.Module):
             obs_var = self.obs_rms.var
             if self.norm_obs_var_clip is not None:
                 obs_var = torch.clamp(obs_var, min=self.norm_obs_var_clip)
-            observation = torch.clamp((observation - self.obs_rms.mean) /
-                obs_var.sqrt(), -self.norm_obs_clip, self.norm_obs_clip)
+            observation = torch.clamp((observation - self.obs_rms.mean) / obs_var.sqrt(), -self.norm_obs_clip, self.norm_obs_clip)
         obs_flat = observation.view(T * B, -1)
         mu = self.mu(obs_flat)
         v = self.v(obs_flat).squeeze(-1)
@@ -935,16 +869,13 @@ class MujocoLstmModel(torch.nn.Module):
     outputs distribution means, log_std, and state-value estimate.
     """
 
-    def __init__(self, observation_shape, action_size, hidden_sizes=None,
-        lstm_size=256, nonlinearity=torch.nn.ReLU, normalize_observation=
-        False, norm_obs_clip=10, norm_obs_var_clip=1e-06):
+    def __init__(self, observation_shape, action_size, hidden_sizes=None, lstm_size=256, nonlinearity=torch.nn.ReLU, normalize_observation=False, norm_obs_clip=10, norm_obs_var_clip=1e-06):
         super().__init__()
         self._obs_n_dim = len(observation_shape)
         self._action_size = action_size
         hidden_sizes = hidden_sizes or [256, 256]
         mlp_input_size = int(np.prod(observation_shape))
-        self.mlp = MlpModel(input_size=mlp_input_size, hidden_sizes=
-            hidden_sizes, output_size=None, nonlinearity=nonlinearity)
+        self.mlp = MlpModel(input_size=mlp_input_size, hidden_sizes=hidden_sizes, output_size=None, nonlinearity=nonlinearity)
         mlp_output_size = hidden_sizes[-1] if hidden_sizes else mlp_input_size
         self.lstm = torch.nn.LSTM(mlp_output_size + action_size + 1, lstm_size)
         self.head = torch.nn.Linear(lstm_size, action_size * 2 + 1)
@@ -968,13 +899,10 @@ class MujocoLstmModel(torch.nn.Module):
             obs_var = self.obs_rms.var
             if self.norm_obs_var_clip is not None:
                 obs_var = torch.clamp(obs_var, min=self.norm_obs_var_clip)
-            observation = torch.clamp((observation - self.obs_rms.mean) /
-                obs_var.sqrt(), -self.norm_obs_clip, self.norm_obs_clip)
+            observation = torch.clamp((observation - self.obs_rms.mean) / obs_var.sqrt(), -self.norm_obs_clip, self.norm_obs_clip)
         mlp_out = self.mlp(observation.view(T * B, -1))
-        lstm_input = torch.cat([mlp_out.view(T, B, -1), prev_action.view(T,
-            B, -1), prev_reward.view(T, B, 1)], dim=2)
-        init_rnn_state = None if init_rnn_state is None else tuple(
-            init_rnn_state)
+        lstm_input = torch.cat([mlp_out.view(T, B, -1), prev_action.view(T, B, -1), prev_reward.view(T, B, 1)], dim=2)
+        init_rnn_state = None if init_rnn_state is None else tuple(init_rnn_state)
         lstm_out, (hn, cn) = self.lstm(lstm_input, init_rnn_state)
         outputs = self.head(lstm_out.view(T * B, -1))
         mu = outputs[:, :self._action_size]
@@ -992,19 +920,16 @@ class MujocoLstmModel(torch.nn.Module):
 class MuMlpModel(torch.nn.Module):
     """MLP neural net for action mean (mu) output for DDPG agent."""
 
-    def __init__(self, observation_shape, hidden_sizes, action_size,
-        output_max=1):
+    def __init__(self, observation_shape, hidden_sizes, action_size, output_max=1):
         """Instantiate neural net according to inputs."""
         super().__init__()
         self._output_max = output_max
         self._obs_ndim = len(observation_shape)
-        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)),
-            hidden_sizes=hidden_sizes, output_size=action_size)
+        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)), hidden_sizes=hidden_sizes, output_size=action_size)
 
     def forward(self, observation, prev_action, prev_reward):
         lead_dim, T, B, _ = infer_leading_dims(observation, self._obs_ndim)
-        mu = self._output_max * torch.tanh(self.mlp(observation.view(T * B,
-            -1)))
+        mu = self._output_max * torch.tanh(self.mlp(observation.view(T * B, -1)))
         mu = restore_leading_dims(mu, lead_dim, T, B)
         return mu
 
@@ -1016,14 +941,12 @@ class PiMlpModel(torch.nn.Module):
         super().__init__()
         self._obs_ndim = len(observation_shape)
         self._action_size = action_size
-        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)),
-            hidden_sizes=hidden_sizes, output_size=action_size * 2)
+        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)), hidden_sizes=hidden_sizes, output_size=action_size * 2)
 
     def forward(self, observation, prev_action, prev_reward):
         lead_dim, T, B, _ = infer_leading_dims(observation, self._obs_ndim)
         output = self.mlp(observation.view(T * B, -1))
-        mu, log_std = output[:, :self._action_size], output[:, self.
-            _action_size:]
+        mu, log_std = output[:, :self._action_size], output[:, self._action_size:]
         mu, log_std = restore_leading_dims((mu, log_std), lead_dim, T, B)
         return mu, log_std
 
@@ -1035,13 +958,11 @@ class QofMuMlpModel(torch.nn.Module):
         """Instantiate neural net according to inputs."""
         super().__init__()
         self._obs_ndim = len(observation_shape)
-        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)) +
-            action_size, hidden_sizes=hidden_sizes, output_size=1)
+        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)) + action_size, hidden_sizes=hidden_sizes, output_size=1)
 
     def forward(self, observation, prev_action, prev_reward, action):
         lead_dim, T, B, _ = infer_leading_dims(observation, self._obs_ndim)
-        q_input = torch.cat([observation.view(T * B, -1), action.view(T * B,
-            -1)], dim=1)
+        q_input = torch.cat([observation.view(T * B, -1), action.view(T * B, -1)], dim=1)
         q = self.mlp(q_input).squeeze(-1)
         q = restore_leading_dims(q, lead_dim, T, B)
         return q
@@ -1052,8 +973,7 @@ class VMlpModel(torch.nn.Module):
     def __init__(self, observation_shape, hidden_sizes, action_size=None):
         super().__init__()
         self._obs_ndim = len(observation_shape)
-        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)),
-            hidden_sizes=hidden_sizes, output_size=1)
+        self.mlp = MlpModel(input_size=int(np.prod(observation_shape)), hidden_sizes=hidden_sizes, output_size=1)
 
     def forward(self, observation, prev_action, prev_reward):
         lead_dim, T, B, _ = infer_leading_dims(observation, self._obs_ndim)
@@ -1106,22 +1026,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_astooke_rlpyt(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(Conv2dModel(*[], **{'in_channels': 4, 'channels': [4, 4], 'kernel_sizes': [4, 4], 'strides': [4, 4]}), [torch.rand([4, 4, 64, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv2dModel,
+     lambda: ([], {'in_channels': 4, 'channels': [4, 4], 'kernel_sizes': [4, 4], 'strides': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (DistributionalDuelingHeadModel,
+     lambda: ([], {'input_size': 4, 'hidden_sizes': 4, 'output_size': 4, 'n_atoms': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DistributionalHeadModel,
+     lambda: ([], {'input_size': 4, 'layer_sizes': 1, 'output_size': 4, 'n_atoms': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DuelingHeadModel,
+     lambda: ([], {'input_size': 4, 'hidden_sizes': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MlpModel,
+     lambda: ([], {'input_size': 4, 'hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_astooke_rlpyt(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DistributionalDuelingHeadModel(*[], **{'input_size': 4, 'hidden_sizes': 4, 'output_size': 4, 'n_atoms': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DistributionalHeadModel(*[], **{'input_size': 4, 'layer_sizes': 1, 'output_size': 4, 'n_atoms': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DuelingHeadModel(*[], **{'input_size': 4, 'hidden_sizes': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MlpModel(*[], **{'input_size': 4, 'hidden_sizes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

@@ -116,8 +116,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -282,14 +283,12 @@ class GraphConvolution(Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GCN(nn.Module):
 
-    def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01,
-        weight_decay=0.0005, with_relu=True, with_bias=True, device=None):
+    def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=0.0005, with_relu=True, with_bias=True, device=None):
         super(GCN, self).__init__()
         assert device is not None, "Please specify 'device'!"
         self.device = device
@@ -328,9 +327,7 @@ class GCN(nn.Module):
         self.gc1.reset_parameters()
         self.gc2.reset_parameters()
 
-    def fit(self, features, adj, labels, idx_train, idx_val=None,
-        train_iters=200, initialize=True, verbose=False, normalize=True,
-        patience=500):
+    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, initialize=True, verbose=False, normalize=True, patience=500):
         """
             train the gcn model, when idx_val is not None, pick the best model
             according to the validation loss
@@ -339,8 +336,7 @@ class GCN(nn.Module):
         if initialize:
             self.initialize()
         if type(adj) is not torch.Tensor:
-            features, adj, labels = utils.to_tensor(features, adj, labels,
-                device=self.device)
+            features, adj, labels = utils.to_tensor(features, adj, labels, device=self.device)
         else:
             features = features
             adj = adj
@@ -358,16 +354,13 @@ class GCN(nn.Module):
         if idx_val is None:
             self._train_without_val(labels, idx_train, train_iters, verbose)
         elif patience < train_iters:
-            self._train_with_early_stopping(labels, idx_train, idx_val,
-                train_iters, patience, verbose)
+            self._train_with_early_stopping(labels, idx_train, idx_val, train_iters, patience, verbose)
         else:
-            self._train_with_val(labels, idx_train, idx_val, train_iters,
-                verbose)
+            self._train_with_val(labels, idx_train, idx_val, train_iters, verbose)
 
     def _train_without_val(self, labels, idx_train, train_iters, verbose):
         self.train()
-        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=
-            self.weight_decay)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         for i in range(train_iters):
             optimizer.zero_grad()
             output = self.forward(self.features, self.adj_norm)
@@ -380,12 +373,10 @@ class GCN(nn.Module):
         output = self.forward(self.features, self.adj_norm)
         self.output = output
 
-    def _train_with_val(self, labels, idx_train, idx_val, train_iters, verbose
-        ):
+    def _train_with_val(self, labels, idx_train, idx_val, train_iters, verbose):
         if verbose:
             None
-        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=
-            self.weight_decay)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         best_loss_val = 100
         best_acc_val = 0
         for i in range(train_iters):
@@ -413,12 +404,10 @@ class GCN(nn.Module):
             None
         self.load_state_dict(weights)
 
-    def _train_with_early_stopping(self, labels, idx_train, idx_val,
-        train_iters, patience, verbose):
+    def _train_with_early_stopping(self, labels, idx_train, idx_val, train_iters, patience, verbose):
         if verbose:
             None
-        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=
-            self.weight_decay)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         early_stopping = patience
         best_loss_val = 100
         for i in range(train_iters):
@@ -464,8 +453,7 @@ class GCN(nn.Module):
             return self.forward(self.features, self.adj_norm)
         else:
             if type(adj) is not torch.Tensor:
-                features, adj = utils.to_tensor(features, adj, device=self.
-                    device)
+                features, adj = utils.to_tensor(features, adj, device=self.device)
             self.features = features
             if utils.is_sparse_tensor(adj):
                 self.adj_norm = utils.normalize_adj_tensor(adj, sparse=True)
@@ -517,10 +505,8 @@ class GGCL_F(Module):
         self.in_features = in_features
         self.out_features = out_features
         self.dropout = dropout
-        self.weight_miu = Parameter(torch.FloatTensor(in_features,
-            out_features))
-        self.weight_sigma = Parameter(torch.FloatTensor(in_features,
-            out_features))
+        self.weight_miu = Parameter(torch.FloatTensor(in_features, out_features))
+        self.weight_sigma = Parameter(torch.FloatTensor(in_features, out_features))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -545,10 +531,8 @@ class GGCL_D(Module):
         self.in_features = in_features
         self.out_features = out_features
         self.dropout = dropout
-        self.weight_miu = Parameter(torch.FloatTensor(in_features,
-            out_features))
-        self.weight_sigma = Parameter(torch.FloatTensor(in_features,
-            out_features))
+        self.weight_miu = Parameter(torch.FloatTensor(in_features, out_features))
+        self.weight_sigma = Parameter(torch.FloatTensor(in_features, out_features))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -572,35 +556,29 @@ class GaussianConvolution(Module):
         super(GaussianConvolution, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight_miu = Parameter(torch.FloatTensor(in_features,
-            out_features))
-        self.weight_sigma = Parameter(torch.FloatTensor(in_features,
-            out_features))
+        self.weight_miu = Parameter(torch.FloatTensor(in_features, out_features))
+        self.weight_sigma = Parameter(torch.FloatTensor(in_features, out_features))
         self.reset_parameters()
 
     def reset_parameters(self):
         torch.nn.init.xavier_uniform_(self.weight_miu)
         torch.nn.init.xavier_uniform_(self.weight_sigma)
 
-    def forward(self, previous_miu, previous_sigma, adj_norm1=None,
-        adj_norm2=None, gamma=1):
+    def forward(self, previous_miu, previous_sigma, adj_norm1=None, adj_norm2=None, gamma=1):
         if adj_norm1 is None and adj_norm2 is None:
-            return torch.mm(previous_miu, self.weight_miu), torch.mm(
-                previous_miu, self.weight_miu)
+            return torch.mm(previous_miu, self.weight_miu), torch.mm(previous_miu, self.weight_miu)
         Att = torch.exp(-gamma * previous_sigma)
         M = adj_norm1 @ (previous_miu * Att) @ self.weight_miu
         Sigma = adj_norm2 @ (previous_sigma * Att * Att) @ self.weight_sigma
         return M, Sigma
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class RGCN(Module):
 
-    def __init__(self, nnodes, nfeat, nhid, nclass, gamma=1.0, beta1=0.0005,
-        beta2=0.0005, lr=0.01, dropout=0.6, device='cpu'):
+    def __init__(self, nnodes, nfeat, nhid, nclass, gamma=1.0, beta1=0.0005, beta2=0.0005, lr=0.01, dropout=0.6, device='cpu'):
         super(RGCN, self).__init__()
         self.device = device
         self.lr = lr
@@ -612,24 +590,19 @@ class RGCN(Module):
         self.gc1 = GGCL_F(nfeat, nhid, dropout=dropout)
         self.gc2 = GGCL_D(nhid, nclass, dropout=dropout)
         self.dropout = dropout
-        self.gaussian = MultivariateNormal(torch.zeros(nnodes, self.nclass),
-            torch.diag_embed(torch.ones(nnodes, self.nclass)))
+        self.gaussian = MultivariateNormal(torch.zeros(nnodes, self.nclass), torch.diag_embed(torch.ones(nnodes, self.nclass)))
         self.adj_norm1, self.adj_norm2 = None, None
         self.features, self.labels = None, None
 
     def forward(self):
         features = self.features
-        miu, sigma = self.gc1(features, self.adj_norm1, self.adj_norm2,
-            self.gamma)
-        miu, sigma = self.gc2(miu, sigma, self.adj_norm1, self.adj_norm2,
-            self.gamma)
+        miu, sigma = self.gc1(features, self.adj_norm1, self.adj_norm2, self.gamma)
+        miu, sigma = self.gc2(miu, sigma, self.adj_norm1, self.adj_norm2, self.gamma)
         output = miu + self.gaussian.sample() * torch.sqrt(sigma + 1e-08)
         return F.log_softmax(output, dim=1)
 
-    def fit(self, features, adj, labels, idx_train, idx_val=None,
-        train_iters=200, verbose=True):
-        adj, features, labels = utils.to_tensor(adj.todense(), features.
-            todense(), labels, device=self.device)
+    def fit(self, features, adj, labels, idx_train, idx_val=None, train_iters=200, verbose=True):
+        adj, features, labels = utils.to_tensor(adj.todense(), features.todense(), labels, device=self.device)
         self.features, self.labels = features, labels
         self.adj_norm1 = self._normalize_adj(adj, power=-1 / 2)
         self.adj_norm2 = self._normalize_adj(adj, power=-1)
@@ -638,8 +611,7 @@ class RGCN(Module):
         if idx_val is None:
             self._train_without_val(labels, idx_train, train_iters, verbose)
         else:
-            self._train_with_val(labels, idx_train, idx_val, train_iters,
-                verbose)
+            self._train_with_val(labels, idx_train, idx_val, train_iters, verbose)
 
     def _train_without_val(self, labels, idx_train, train_iters, verbose=True):
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
@@ -656,8 +628,7 @@ class RGCN(Module):
         output = self.forward()
         self.output = output
 
-    def _train_with_val(self, labels, idx_train, idx_val, train_iters, verbose
-        ):
+    def _train_with_val(self, labels, idx_train, idx_val, train_iters, verbose):
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
         best_loss_val = 100
         best_acc_val = 0
@@ -692,11 +663,9 @@ class RGCN(Module):
         loss = F.nll_loss(input, labels)
         miu1 = self.gc1.miu
         sigma1 = self.gc1.sigma
-        kl_loss = 0.5 * (miu1.pow(2) + sigma1 - torch.log(1e-08 + sigma1)
-            ).mean(1)
+        kl_loss = 0.5 * (miu1.pow(2) + sigma1 - torch.log(1e-08 + sigma1)).mean(1)
         kl_loss = kl_loss.sum()
-        norm2 = torch.norm(self.gc1.weight_miu, 2).pow(2) + torch.norm(self
-            .gc1.weight_sigma, 2).pow(2)
+        norm2 = torch.norm(self.gc1.weight_miu, 2).pow(2) + torch.norm(self.gc1.weight_sigma, 2).pow(2)
         return loss + self.beta1 * kl_loss + self.beta2 * norm2
 
     def _initialize(self):
@@ -714,8 +683,7 @@ class RGCN(Module):
 
 class BaseAttack(Module):
 
-    def __init__(self, model, nnodes, attack_structure=True,
-        attack_features=False, device='cpu'):
+    def __init__(self, model, nnodes, attack_structure=True, attack_features=False, device='cpu'):
         super(BaseAttack, self).__init__()
         self.surrogate = model
         self.nnodes = nnodes
@@ -780,17 +748,14 @@ class GraphNormTool(object):
         edges = np.hstack((edges.T, rev_edges))
         idxes = torch.LongTensor(edges)
         values = torch.ones(idxes.size()[1])
-        self.raw_adj = torch.sparse.FloatTensor(idxes, values, StaticGraph.
-            get_gsize())
+        self.raw_adj = torch.sparse.FloatTensor(idxes, values, StaticGraph.get_gsize())
         self.raw_adj = self.raw_adj.to(device)
         self.normed_adj = self.raw_adj.clone()
         if self.adj_norm:
             if self.gm == 'gcn':
-                self.normed_adj = utils.normalize_adj_tensor(self.
-                    normed_adj, sparse=True)
+                self.normed_adj = utils.normalize_adj_tensor(self.normed_adj, sparse=True)
             else:
-                self.normed_adj = utils.degree_normalize_adj_tensor(self.
-                    normed_adj, sparse=True)
+                self.normed_adj = utils.degree_normalize_adj_tensor(self.normed_adj, sparse=True)
 
     def norm_extra(self, added_adj=None):
         if added_adj is None:
@@ -800,8 +765,7 @@ class GraphNormTool(object):
             if self.gm == 'gcn':
                 new_adj = utils.normalize_adj_tensor(new_adj, sparse=True)
             else:
-                new_adj = utils.degree_normalize_adj_tensor(new_adj, sparse
-                    =True)
+                new_adj = utils.degree_normalize_adj_tensor(new_adj, sparse=True)
         return new_adj
 
 
@@ -840,9 +804,7 @@ def weights_init(m):
 
 class QNetNode(nn.Module):
 
-    def __init__(self, node_features, node_labels, list_action_space,
-        n_injected, bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1, gm=
-        'mean_field', device='cpu'):
+    def __init__(self, node_features, node_labels, list_action_space, n_injected, bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1, gm='mean_field', device='cpu'):
         """
         bilin_q: bilinear q or not
         mlp_hidden: mlp hidden layer size
@@ -864,12 +826,10 @@ class QNetNode(nn.Module):
             self.linear_out = nn.Linear(mlp_hidden, 1)
         else:
             self.linear_out = nn.Linear(embed_dim * 3, 1)
-        self.w_n2l = Parameter(torch.Tensor(node_features.size()[1], embed_dim)
-            )
+        self.w_n2l = Parameter(torch.Tensor(node_features.size()[1], embed_dim))
         self.bias_n2l = Parameter(torch.Tensor(embed_dim))
         self.conv_params = nn.Linear(embed_dim, embed_dim)
-        self.norm_tool = GraphNormTool(normalize=True, gm=self.gm, device=
-            device)
+        self.norm_tool = GraphNormTool(normalize=True, gm=self.gm, device=device)
         weights_init(self)
         input_dim = (node_labels.max() + 1) * self.n_injected
         self.label_encoder_1 = nn.Linear(input_dim, mlp_hidden)
@@ -887,8 +847,7 @@ class QNetNode(nn.Module):
 
     def get_action_label_encoding(self, label):
         onehot = self.to_onehot(label)
-        zeros = torch.zeros((onehot.shape[0], self.embed_dim - onehot.shape[1])
-            )
+        zeros = torch.zeros((onehot.shape[0], self.embed_dim - onehot.shape[1]))
         return torch.cat((onehot, zeros), dim=1)
 
     def get_graph_embedding(self, adj):
@@ -910,14 +869,12 @@ class QNetNode(nn.Module):
     def make_spmat(self, n_rows, n_cols, row_idx, col_idx):
         idxes = torch.LongTensor([[row_idx], [col_idx]])
         values = torch.ones(1)
-        sp = torch.sparse.FloatTensor(idxes, values, torch.Size([n_rows,
-            n_cols]))
+        sp = torch.sparse.FloatTensor(idxes, values, torch.Size([n_rows, n_cols]))
         if next(self.parameters()).is_cuda:
             sp = sp
         return sp
 
-    def forward(self, time_t, states, actions, greedy_acts=False,
-        is_inference=False):
+    def forward(self, time_t, states, actions, greedy_acts=False, is_inference=False):
         preds = torch.zeros(len(states))
         batch_graph, modified_labels = zip(*states)
         greedy_actions = []
@@ -925,13 +882,11 @@ class QNetNode(nn.Module):
             for i in range(len(batch_graph)):
                 if batch_graph[i] is None:
                     continue
-                adj = self.norm_tool.norm_extra(batch_graph[i].
-                    get_extra_adj(self.device))
+                adj = self.norm_tool.norm_extra(batch_graph[i].get_extra_adj(self.device))
                 graph_embed, node_embed = self.get_graph_embedding(adj)
                 label_embed = self.get_label_embedding(modified_labels[i])
                 if time_t != 2:
-                    action_embed = node_embed[actions[i]].view(-1, self.
-                        embed_dim)
+                    action_embed = node_embed[actions[i]].view(-1, self.embed_dim)
                 else:
                     action_embed = self.get_action_label_encoding(actions[i])
                 embed_s = torch.cat((graph_embed, label_embed), dim=1)
@@ -952,9 +907,7 @@ class QNetNode(nn.Module):
 
 class NStepQNetNode(nn.Module):
 
-    def __init__(self, num_steps, node_features, node_labels,
-        list_action_space, n_injected, bilin_q=1, embed_dim=64, mlp_hidden=
-        64, max_lv=1, gm='mean_field', device='cpu'):
+    def __init__(self, num_steps, node_features, node_labels, list_action_space, n_injected, bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1, gm='mean_field', device='cpu'):
         super(NStepQNetNode, self).__init__()
         self.node_features = node_features
         self.node_labels = node_labels
@@ -962,17 +915,13 @@ class NStepQNetNode(nn.Module):
         self.total_nodes = len(list_action_space)
         list_mod = []
         for i in range(0, num_steps):
-            list_mod.append(QNetNode(node_features, node_labels,
-                list_action_space, n_injected, bilin_q, embed_dim,
-                mlp_hidden, max_lv, gm=gm, device=device))
+            list_mod.append(QNetNode(node_features, node_labels, list_action_space, n_injected, bilin_q, embed_dim, mlp_hidden, max_lv, gm=gm, device=device))
         self.list_mod = nn.ModuleList(list_mod)
         self.num_steps = num_steps
 
-    def forward(self, time_t, states, actions, greedy_acts=False,
-        is_inference=False):
+    def forward(self, time_t, states, actions, greedy_acts=False, is_inference=False):
         time_t = time_t % 3
-        return self.list_mod[time_t](time_t, states, actions, greedy_acts,
-            is_inference)
+        return self.list_mod[time_t](time_t, states, actions, greedy_acts, is_inference)
 
 
 def node_greedy_actions(target_nodes, picked_nodes, list_q, net):
@@ -1000,9 +949,7 @@ def node_greedy_actions(target_nodes, picked_nodes, list_q, net):
 
 class QNetNode(nn.Module):
 
-    def __init__(self, node_features, node_labels, list_action_space,
-        bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1, gm='mean_field',
-        device='cpu'):
+    def __init__(self, node_features, node_labels, list_action_space, bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1, gm='mean_field', device='cpu'):
         """
         bilin_q: bilinear q or not
         mlp_hidden: mlp hidden layer size
@@ -1028,26 +975,22 @@ class QNetNode(nn.Module):
             self.linear_out = nn.Linear(mlp_hidden, last_wout)
         else:
             self.linear_out = nn.Linear(embed_dim * 2, last_wout)
-        self.w_n2l = Parameter(torch.Tensor(node_features.size()[1], embed_dim)
-            )
+        self.w_n2l = Parameter(torch.Tensor(node_features.size()[1], embed_dim))
         self.bias_n2l = Parameter(torch.Tensor(embed_dim))
         self.bias_picked = Parameter(torch.Tensor(1, embed_dim))
         self.conv_params = nn.Linear(embed_dim, embed_dim)
-        self.norm_tool = GraphNormTool(normalize=True, gm=self.gm, device=
-            device)
+        self.norm_tool = GraphNormTool(normalize=True, gm=self.gm, device=device)
         weights_init(self)
 
     def make_spmat(self, n_rows, n_cols, row_idx, col_idx):
         idxes = torch.LongTensor([[row_idx], [col_idx]])
         values = torch.ones(1)
-        sp = torch.sparse.FloatTensor(idxes, values, torch.Size([n_rows,
-            n_cols]))
+        sp = torch.sparse.FloatTensor(idxes, values, torch.Size([n_rows, n_cols]))
         if next(self.parameters()).is_cuda:
             sp = sp
         return sp
 
-    def forward(self, time_t, states, actions, greedy_acts=False,
-        is_inference=False):
+    def forward(self, time_t, states, actions, greedy_acts=False, is_inference=False):
         if self.node_features.data.is_sparse:
             input_node_linear = torch.spmm(self.node_features, self.w_n2l)
         else:
@@ -1061,19 +1004,16 @@ class QNetNode(nn.Module):
             node_embed = input_node_linear.clone()
             if picked_nodes is not None and picked_nodes[i] is not None:
                 with torch.set_grad_enabled(mode=not is_inference):
-                    picked_sp = self.make_spmat(self.total_nodes, 1,
-                        picked_nodes[i], 0)
+                    picked_sp = self.make_spmat(self.total_nodes, 1, picked_nodes[i], 0)
                     node_embed += torch.spmm(picked_sp, self.bias_picked)
                     region = self.list_action_space[picked_nodes[i]]
             if not self.bilin_q:
                 with torch.set_grad_enabled(mode=not is_inference):
-                    target_sp = self.make_spmat(self.total_nodes, 1,
-                        target_nodes[i], 0)
+                    target_sp = self.make_spmat(self.total_nodes, 1, target_nodes[i], 0)
                     node_embed += torch.spmm(target_sp, self.bias_target)
             with torch.set_grad_enabled(mode=not is_inference):
                 device = self.node_features.device
-                adj = self.norm_tool.norm_extra(batch_graph[i].
-                    get_extra_adj(device))
+                adj = self.norm_tool.norm_extra(batch_graph[i].get_extra_adj(device))
                 lv = 0
                 input_message = node_embed
                 node_embed = F.relu(input_message)
@@ -1103,16 +1043,13 @@ class QNetNode(nn.Module):
                     raw_pred = torch.mm(raw_pred, target_embed)
                 list_pred.append(raw_pred)
         if greedy_acts:
-            actions, _ = node_greedy_actions(target_nodes, picked_nodes,
-                list_pred, self)
+            actions, _ = node_greedy_actions(target_nodes, picked_nodes, list_pred, self)
         return actions, list_pred
 
 
 class NStepQNetNode(nn.Module):
 
-    def __init__(self, num_steps, node_features, node_labels,
-        list_action_space, bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1,
-        gm='mean_field', device='cpu'):
+    def __init__(self, num_steps, node_features, node_labels, list_action_space, bilin_q=1, embed_dim=64, mlp_hidden=64, max_lv=1, gm='mean_field', device='cpu'):
         super(NStepQNetNode, self).__init__()
         self.node_features = node_features
         self.node_labels = node_labels
@@ -1120,23 +1057,18 @@ class NStepQNetNode(nn.Module):
         self.total_nodes = len(list_action_space)
         list_mod = []
         for i in range(0, num_steps):
-            list_mod.append(QNetNode(node_features, node_labels,
-                list_action_space, bilin_q, embed_dim, mlp_hidden, max_lv,
-                gm=gm, device=device))
+            list_mod.append(QNetNode(node_features, node_labels, list_action_space, bilin_q, embed_dim, mlp_hidden, max_lv, gm=gm, device=device))
         self.list_mod = nn.ModuleList(list_mod)
         self.num_steps = num_steps
 
-    def forward(self, time_t, states, actions, greedy_acts=False,
-        is_inference=False):
+    def forward(self, time_t, states, actions, greedy_acts=False, is_inference=False):
         assert time_t >= 0 and time_t < self.num_steps
-        return self.list_mod[time_t](time_t, states, actions, greedy_acts,
-            is_inference)
+        return self.list_mod[time_t](time_t, states, actions, greedy_acts, is_inference)
 
 
 class BaseAttack(Module):
 
-    def __init__(self, model, nnodes, attack_structure=True,
-        attack_features=False, device='cpu'):
+    def __init__(self, model, nnodes, attack_structure=True, attack_features=False, device='cpu'):
         super(BaseAttack, self).__init__()
         self.surrogate = model
         self.nnodes = nnodes
@@ -1206,16 +1138,13 @@ class CrossEntropyWithWeightPenlty(_Loss):
 
 class Net(nn.Module):
 
-    def __init__(self, in_channel1=1, out_channel1=32, out_channel2=64, H=
-        28, W=28):
+    def __init__(self, in_channel1=1, out_channel1=32, out_channel2=64, H=28, W=28):
         super(Net, self).__init__()
         self.H = H
         self.W = W
         self.out_channel2 = out_channel2
-        self.conv1 = nn.Conv2d(in_channels=in_channel1, out_channels=
-            out_channel1, kernel_size=5, stride=1, padding=(2, 2))
-        self.conv2 = nn.Conv2d(in_channels=out_channel1, out_channels=
-            out_channel2, kernel_size=5, stride=1, padding=(2, 2))
+        self.conv1 = nn.Conv2d(in_channels=in_channel1, out_channels=out_channel1, kernel_size=5, stride=1, padding=(2, 2))
+        self.conv2 = nn.Conv2d(in_channels=out_channel1, out_channels=out_channel2, kernel_size=5, stride=1, padding=(2, 2))
         self.fc1 = nn.Linear(int(H / 4) * int(W / 4) * out_channel2, 1024)
         self.fc2 = nn.Linear(1024, 10)
 
@@ -1242,16 +1171,13 @@ class Net(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, in_channel1=1, out_channel1=32, out_channel2=64, H=
-        28, W=28):
+    def __init__(self, in_channel1=1, out_channel1=32, out_channel2=64, H=28, W=28):
         super(Net, self).__init__()
         self.H = H
         self.W = W
         self.out_channel2 = out_channel2
-        self.conv1 = nn.Conv2d(in_channels=in_channel1, out_channels=
-            out_channel1, kernel_size=5, stride=1, padding=(2, 2))
-        self.conv2 = nn.Conv2d(in_channels=out_channel1, out_channels=
-            out_channel2, kernel_size=5, stride=1, padding=(2, 2))
+        self.conv1 = nn.Conv2d(in_channels=in_channel1, out_channels=out_channel1, kernel_size=5, stride=1, padding=(2, 2))
+        self.conv2 = nn.Conv2d(in_channels=out_channel1, out_channels=out_channel2, kernel_size=5, stride=1, padding=(2, 2))
         self.fc1 = nn.Linear(int(H / 4) * int(W / 4) * out_channel2, 1024)
         self.fc2 = nn.Linear(1024, 10)
 
@@ -1260,8 +1186,7 @@ class Net(nn.Module):
         self.layers[1] = F.max_pool2d(x, 2, 2)
         self.layers[2] = F.relu(self.conv2(x))
         self.layers[3] = F.max_pool2d(x, 2, 2)
-        self.layers[4] = x.view(-1, int(self.H / 4) * int(self.W / 4) *
-            self.out_channel2)
+        self.layers[4] = x.view(-1, int(self.H / 4) * int(self.W / 4) * self.out_channel2)
         self.layers[5] = F.relu(self.fc1(x))
         self.layers[6] = self.fc2(x)
         return F.log_softmax(layers[6], dim=1)
@@ -1275,17 +1200,9 @@ class Net(nn.Module):
         self.num_labels = 10
         activ = nn.ReLU(True)
         self.conv1 = nn.Conv2d(self.num_channels, 32, 3)
-        self.layer_one = nn.Sequential(OrderedDict([('conv1', self.conv1),
-            ('relu1', activ)]))
-        self.feature_extractor = nn.Sequential(OrderedDict([('conv2', nn.
-            Conv2d(32, 32, 3)), ('relu2', activ), ('maxpool1', nn.MaxPool2d
-            (2, 2)), ('conv3', nn.Conv2d(32, 64, 3)), ('relu3', activ), (
-            'conv4', nn.Conv2d(64, 64, 3)), ('relu4', activ), ('maxpool2',
-            nn.MaxPool2d(2, 2))]))
-        self.classifier = nn.Sequential(OrderedDict([('fc1', nn.Linear(64 *
-            4 * 4, 200)), ('relu1', activ), ('drop', nn.Dropout(drop)), (
-            'fc2', nn.Linear(200, 200)), ('relu2', activ), ('fc3', nn.
-            Linear(200, self.num_labels))]))
+        self.layer_one = nn.Sequential(OrderedDict([('conv1', self.conv1), ('relu1', activ)]))
+        self.feature_extractor = nn.Sequential(OrderedDict([('conv2', nn.Conv2d(32, 32, 3)), ('relu2', activ), ('maxpool1', nn.MaxPool2d(2, 2)), ('conv3', nn.Conv2d(32, 64, 3)), ('relu3', activ), ('conv4', nn.Conv2d(64, 64, 3)), ('relu4', activ), ('maxpool2', nn.MaxPool2d(2, 2))]))
+        self.classifier = nn.Sequential(OrderedDict([('fc1', nn.Linear(64 * 4 * 4, 200)), ('relu1', activ), ('drop', nn.Dropout(drop)), ('fc2', nn.Linear(200, 200)), ('relu2', activ), ('fc3', nn.Linear(200, self.num_labels))]))
         self.other_layers = nn.ModuleList()
         self.other_layers.append(self.feature_extractor)
         self.other_layers.append(self.classifier)
@@ -1315,11 +1232,9 @@ class Bottleneck(nn.Module):
     def __init__(self, in_planes, growth_rate):
         super(Bottleneck, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, 4 * growth_rate, kernel_size=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(in_planes, 4 * growth_rate, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(4 * growth_rate)
-        self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3, padding=1, bias=False)
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
@@ -1343,13 +1258,11 @@ class Transition(nn.Module):
 
 class DenseNet(nn.Module):
 
-    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5,
-        num_classes=10):
+    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_classes=10):
         super(DenseNet, self).__init__()
         self.growth_rate = growth_rate
         num_planes = 2 * growth_rate
-        self.conv1 = nn.Conv2d(3, num_planes, kernel_size=3, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, num_planes, kernel_size=3, padding=1, bias=False)
         self.dense1 = self._make_dense_layers(block, num_planes, nblocks[0])
         num_planes += nblocks[0] * growth_rate
         out_planes = int(math.floor(num_planes * reduction))
@@ -1396,14 +1309,11 @@ class PreActBlock(nn.Module):
     def __init__(self, in_planes, planes, stride=1):
         super(PreActBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -1423,14 +1333,11 @@ class PreActBottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=False))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
@@ -1447,8 +1354,7 @@ class PreActResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(PreActResNet, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
@@ -1482,17 +1388,13 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1509,17 +1411,13 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size
-            =1, bias=False)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                expansion * planes, kernel_size=1, stride=stride, bias=
-                False), nn.BatchNorm2d(self.expansion * planes))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -1535,8 +1433,7 @@ class Net(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(Net, self).__init__()
         self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -1584,8 +1481,7 @@ class VGG(nn.Module):
             if x == 'M':
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding
-                    =1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
                 in_channels = x
         layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
         return nn.Sequential(*layers)
@@ -1615,40 +1511,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GGCL_D,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GGCL_F,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GaussianConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GraphConvolution,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Hamiltonian,
+     lambda: ([], {'layer': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreActBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PreActBottleneck,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Transition,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_DSE_MSU_DeepRobust(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GGCL_D(*[], **{'in_features': 4, 'out_features': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(GGCL_F(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(GaussianConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(GraphConvolution(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Hamiltonian(*[], **{'layer': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(PreActBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(PreActBottleneck(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Transition(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

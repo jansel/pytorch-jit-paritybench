@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,8 +77,7 @@ from torch.autograd import Function
 
 class LSTMAM(nn.Module):
 
-    def __init__(self, input_size, output_size, hidden_size, num_layers,
-        dropout, bidirectional):
+    def __init__(self, input_size, output_size, hidden_size, num_layers, dropout, bidirectional):
         super(LSTMStack, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -88,9 +88,7 @@ class LSTMAM(nn.Module):
             self.output_layer = nn.Linear(hidden_size * 2, output_size)
         else:
             self.output_layer = nn.Linear(hidden_size, output_size)
-        self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.
-            hidden_size, num_layers=self.num_layers, batch_first=True,
-            dropout=self.dropout, bidirectional=self.bidirectional)
+        self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers, batch_first=True, dropout=self.dropout, bidirectional=self.bidirectional)
 
     def forward(self, data):
         self.lstm.flatten_parameters()
@@ -101,17 +99,14 @@ class LSTMAM(nn.Module):
 
 class LSTMStack(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout,
-        bidirectional):
+    def __init__(self, input_size, hidden_size, num_layers, dropout, bidirectional):
         super(LSTMStack, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.dropout = dropout
         self.bidirectional = bidirectional
-        self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.
-            hidden_size, num_layers=self.num_layers, batch_first=True,
-            dropout=self.dropout, bidirectional=self.bidirectional)
+        self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers, batch_first=True, dropout=self.dropout, bidirectional=self.bidirectional)
 
     def forward(self, data):
         self.lstm.flatten_parameters()
@@ -140,8 +135,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = th.zeros(max_len, dim_model)
         position = th.arange(0, max_len, dtype=th.float).unsqueeze(1)
-        div_term = th.exp(th.arange(0, dim_model, 2).float() * (-math.log(
-            10000.0) / dim_model))
+        div_term = th.exp(th.arange(0, dim_model, 2).float() * (-math.log(10000.0) / dim_model))
         pe[:, 0::2] = th.sin(position * div_term)
         pe[:, 1::2] = th.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
@@ -157,13 +151,10 @@ class TransformerEncoderLayerWithConv1d(nn.Module):
       Input and output shape: seqlen x batch_size x dim
     """
 
-    def __init__(self, dim_model, nheads, dim_feedforward, dropout,
-        kernel_size, stride):
+    def __init__(self, dim_model, nheads, dim_feedforward, dropout, kernel_size, stride):
         super(TransformerEncoderLayerWithConv1d, self).__init__()
-        self.encoder_layer = nn.TransformerEncoderLayer(dim_model, nheads,
-            dim_feedforward, dropout)
-        self.conv1d = nn.Conv1d(dim_model, dim_model, kernel_size, stride=
-            stride, padding=1)
+        self.encoder_layer = nn.TransformerEncoderLayer(dim_model, nheads, dim_feedforward, dropout)
+        self.conv1d = nn.Conv1d(dim_model, dim_model, kernel_size, stride=stride, padding=1)
 
     def forward(self, src, src_mask=None, src_key_padding_mask=None):
         output = self.encoder_layer(src, src_mask, src_key_padding_mask)
@@ -173,22 +164,18 @@ class TransformerEncoderLayerWithConv1d(nn.Module):
 
 class TransformerAM(nn.Module):
 
-    def __init__(self, dim_feat, dim_model, nheads, dim_feedforward,
-        nlayers, dropout, output_size, kernel_size=3, stride=1):
+    def __init__(self, dim_feat, dim_model, nheads, dim_feedforward, nlayers, dropout, output_size, kernel_size=3, stride=1):
         super(TransformerAM, self).__init__()
         self.pos_encoder = PositionalEncoding(dim_model, dropout)
         self.input_layer = nn.Linear(dim_feat, dim_model)
         self.output_layer = nn.Linear(dim_model, output_size)
         encoder_norm = nn.LayerNorm(dim_model)
-        encoder_layer = TransformerEncoderLayerWithConv1d(dim_model, nheads,
-            dim_feedforward, dropout, kernel_size, stride)
-        self.transformer = nn.TransformerEncoder(encoder_layer, nlayers,
-            norm=encoder_norm)
+        encoder_layer = TransformerEncoderLayerWithConv1d(dim_model, nheads, dim_feedforward, dropout, kernel_size, stride)
+        self.transformer = nn.TransformerEncoder(encoder_layer, nlayers, norm=encoder_norm)
 
     def forward(self, data, src_mask=None, src_key_padding_mask=None):
         input = self.input_layer(data)
-        output = self.transformer(input, mask=src_mask,
-            src_key_padding_mask=src_key_padding_mask)
+        output = self.transformer(input, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
         output = self.output_layer(output)
         return output
 
@@ -197,17 +184,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (PositionalEncoding,
+     lambda: ([], {'dim_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TransformerAM,
+     lambda: ([], {'dim_feat': 4, 'dim_model': 4, 'nheads': 4, 'dim_feedforward': 4, 'nlayers': 1, 'dropout': 0.5, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (TransformerEncoderLayerWithConv1d,
+     lambda: ([], {'dim_model': 4, 'nheads': 4, 'dim_feedforward': 4, 'dropout': 0.5, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_jzlianglu_pykaldi2(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PositionalEncoding(*[], **{'dim_model': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(TransformerAM(*[], **{'dim_feat': 4, 'dim_model': 4, 'nheads': 4, 'dim_feedforward': 4, 'nlayers': 1, 'dropout': 0.5, 'output_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(TransformerEncoderLayerWithConv1d(*[], **{'dim_model': 4, 'nheads': 4, 'dim_feedforward': 4, 'dropout': 0.5, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

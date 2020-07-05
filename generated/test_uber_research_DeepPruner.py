@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -114,21 +115,12 @@ class feature_extractor(nn.Module):
                              one_hot_filter.shape = (filter_size * filter_size)
         """
         device = left_input.get_device()
-        label = torch.arange(0, self.filter_size * self.filter_size, device
-            =device).repeat(self.filter_size * self.filter_size).view(self.
-            filter_size * self.filter_size, 1, 1, self.filter_size, self.
-            filter_size)
+        label = torch.arange(0, self.filter_size * self.filter_size, device=device).repeat(self.filter_size * self.filter_size).view(self.filter_size * self.filter_size, 1, 1, self.filter_size, self.filter_size)
         one_hot_filter = torch.zeros_like(label).scatter_(0, label, 1).float()
-        left_features = F.conv3d(left_input.unsqueeze(1), one_hot_filter,
-            padding=(0, self.filter_size // 2, self.filter_size // 2))
-        right_features = F.conv3d(right_input.unsqueeze(1), one_hot_filter,
-            padding=(0, self.filter_size // 2, self.filter_size // 2))
-        left_features = left_features.view(left_features.size()[0], 
-            left_features.size()[1] * left_features.size()[2],
-            left_features.size()[3], left_features.size()[4])
-        right_features = right_features.view(right_features.size()[0], 
-            right_features.size()[1] * right_features.size()[2],
-            right_features.size()[3], right_features.size()[4])
+        left_features = F.conv3d(left_input.unsqueeze(1), one_hot_filter, padding=(0, self.filter_size // 2, self.filter_size // 2))
+        right_features = F.conv3d(right_input.unsqueeze(1), one_hot_filter, padding=(0, self.filter_size // 2, self.filter_size // 2))
+        left_features = left_features.view(left_features.size()[0], left_features.size()[1] * left_features.size()[2], left_features.size()[3], left_features.size()[4])
+        right_features = right_features.view(right_features.size()[0], right_features.size()[1] * right_features.size()[2], right_features.size()[3], right_features.size()[4])
         return left_features, right_features, one_hot_filter
 
 
@@ -138,8 +130,7 @@ class Reconstruct(nn.Module):
         super(Reconstruct, self).__init__()
         self.filter_size = filter_size
 
-    def forward(self, right_input, offset_x, offset_y, x_coordinate,
-        y_coordinate, neighbour_extraction_filter):
+    def forward(self, right_input, offset_x, offset_y, x_coordinate, y_coordinate, neighbour_extraction_filter):
         """
         Reconstruct the left image using the NNF(NNF represented by the offsets and the xy_coordinates)
         We did Patch Voting on the offset field, before reconstruction, in order to
@@ -155,37 +146,27 @@ class Reconstruct(nn.Module):
             :reconstruction: Right image reconstruction
         """
         pad_size = self.filter_size // 2
-        smooth_offset_x = nn.ReflectionPad2d((pad_size, pad_size, pad_size,
-            pad_size))(offset_x)
-        smooth_offset_y = nn.ReflectionPad2d((pad_size, pad_size, pad_size,
-            pad_size))(offset_y)
-        smooth_offset_x = F.conv2d(smooth_offset_x,
-            neighbour_extraction_filter, padding=(pad_size, pad_size))[:, :,
-            pad_size:-pad_size, pad_size:-pad_size]
-        smooth_offset_y = F.conv2d(smooth_offset_y,
-            neighbour_extraction_filter, padding=(pad_size, pad_size))[:, :,
-            pad_size:-pad_size, pad_size:-pad_size]
-        coord_x = torch.clamp(x_coordinate - smooth_offset_x, min=0, max=
-            smooth_offset_x.size()[3] - 1)
-        coord_y = torch.clamp(y_coordinate - smooth_offset_y, min=0, max=
-            smooth_offset_x.size()[2] - 1)
+        smooth_offset_x = nn.ReflectionPad2d((pad_size, pad_size, pad_size, pad_size))(offset_x)
+        smooth_offset_y = nn.ReflectionPad2d((pad_size, pad_size, pad_size, pad_size))(offset_y)
+        smooth_offset_x = F.conv2d(smooth_offset_x, neighbour_extraction_filter, padding=(pad_size, pad_size))[:, :, pad_size:-pad_size, pad_size:-pad_size]
+        smooth_offset_y = F.conv2d(smooth_offset_y, neighbour_extraction_filter, padding=(pad_size, pad_size))[:, :, pad_size:-pad_size, pad_size:-pad_size]
+        coord_x = torch.clamp(x_coordinate - smooth_offset_x, min=0, max=smooth_offset_x.size()[3] - 1)
+        coord_y = torch.clamp(y_coordinate - smooth_offset_y, min=0, max=smooth_offset_x.size()[2] - 1)
         coord_x -= coord_x.size()[3] / 2
         coord_x /= coord_x.size()[3] / 2
         coord_y -= coord_y.size()[2] / 2
         coord_y /= coord_y.size()[2] / 2
         grid = torch.cat((coord_x.unsqueeze(4), coord_y.unsqueeze(4)), dim=4)
-        grid = grid.view(grid.size()[0] * grid.size()[1], grid.size()[2],
-            grid.size()[3], grid.size()[4])
-        reconstruction = F.grid_sample(right_input.repeat(grid.size()[0], 1,
-            1, 1), grid)
+        grid = grid.view(grid.size()[0] * grid.size()[1], grid.size()[2], grid.size()[3], grid.size()[4])
+        reconstruction = F.grid_sample(right_input.repeat(grid.size()[0], 1, 1, 1), grid)
         reconstruction = torch.mean(reconstruction, dim=0).unsqueeze(0)
         return reconstruction
 
 
-_global_config['patch_match_args'] = _mock_config()
-
-
 _global_config['feature_extractor_filter_size'] = 4
+
+
+_global_config['patch_match_args'] = _mock_config()
 
 
 class ImageReconstruction(nn.Module):
@@ -218,12 +199,9 @@ class ImageReconstruction(nn.Module):
         Returns:
             :reconstruction: Reconstructed left image.
         """
-        left_features, right_features, neighbour_extraction_filter = (self.
-            feature_extractor(left_input, right_input))
-        offset_x, offset_y, x_coordinate, y_coordinate = self.patch_match(
-            left_features, right_features)
-        reconstruction = self.reconstruct(right_input, offset_x, offset_y,
-            x_coordinate, y_coordinate, neighbour_extraction_filter.squeeze(1))
+        left_features, right_features, neighbour_extraction_filter = self.feature_extractor(left_input, right_input)
+        offset_x, offset_y, x_coordinate, y_coordinate = self.patch_match(left_features, right_features)
+        reconstruction = self.reconstruct(right_input, offset_x, offset_y, x_coordinate, y_coordinate, neighbour_extraction_filter.squeeze(1))
         return reconstruction
 
 
@@ -232,8 +210,7 @@ class RandomSampler(nn.Module):
     def __init__(self, device, number_of_samples):
         super(RandomSampler, self).__init__()
         self.number_of_samples = number_of_samples
-        self.range_multiplier = torch.arange(0.0, number_of_samples + 1, 1,
-            device=device).view(number_of_samples + 1, 1, 1)
+        self.range_multiplier = torch.arange(0.0, number_of_samples + 1, 1, device=device).view(number_of_samples + 1, 1, 1)
 
     def forward(self, min_offset_x, max_offset_x, min_offset_y, max_offset_y):
         """
@@ -258,49 +235,31 @@ class RandomSampler(nn.Module):
             :offset_y: samples representing offset in the vertical direction.
         """
         device = min_offset_x.get_device()
-        noise = torch.rand(min_offset_x.repeat(1, self.number_of_samples + 
-            1, 1, 1).size(), device=device)
-        offset_x = min_offset_x + (max_offset_x - min_offset_x) / (self.
-            number_of_samples + 1) * (self.range_multiplier + noise)
-        offset_y = min_offset_y + (max_offset_y - min_offset_y) / (self.
-            number_of_samples + 1) * (self.range_multiplier + noise)
-        offset_x = offset_x.unsqueeze_(1).expand(-1, offset_y.size()[1], -1,
-            -1, -1)
-        offset_x = offset_x.contiguous().view(offset_x.size()[0], offset_x.
-            size()[1] * offset_x.size()[2], offset_x.size()[3], offset_x.
-            size()[4])
-        offset_y = offset_y.unsqueeze_(2).expand(-1, -1, offset_y.size()[1],
-            -1, -1)
-        offset_y = offset_y.contiguous().view(offset_y.size()[0], offset_y.
-            size()[1] * offset_y.size()[2], offset_y.size()[3], offset_y.
-            size()[4])
+        noise = torch.rand(min_offset_x.repeat(1, self.number_of_samples + 1, 1, 1).size(), device=device)
+        offset_x = min_offset_x + (max_offset_x - min_offset_x) / (self.number_of_samples + 1) * (self.range_multiplier + noise)
+        offset_y = min_offset_y + (max_offset_y - min_offset_y) / (self.number_of_samples + 1) * (self.range_multiplier + noise)
+        offset_x = offset_x.unsqueeze_(1).expand(-1, offset_y.size()[1], -1, -1, -1)
+        offset_x = offset_x.contiguous().view(offset_x.size()[0], offset_x.size()[1] * offset_x.size()[2], offset_x.size()[3], offset_x.size()[4])
+        offset_y = offset_y.unsqueeze_(2).expand(-1, -1, offset_y.size()[1], -1, -1)
+        offset_y = offset_y.contiguous().view(offset_y.size()[0], offset_y.size()[1] * offset_y.size()[2], offset_y.size()[3], offset_y.size()[4])
         return offset_x, offset_y
 
 
 class Evaluate(nn.Module):
 
-    def __init__(self, left_features, filter_size, evaluation_type=
-        'softmax', temperature=10000):
+    def __init__(self, left_features, filter_size, evaluation_type='softmax', temperature=10000):
         super(Evaluate, self).__init__()
         self.temperature = temperature
         self.filter_size = filter_size
         self.softmax = torch.nn.Softmax(dim=1)
         self.evaluation_type = evaluation_type
         device = left_features.get_device()
-        self.left_x_coordinate = torch.arange(0.0, left_features.size()[3],
-            device=device).repeat(left_features.size()[2]).view(left_features
-            .size()[2], left_features.size()[3])
-        self.left_x_coordinate = torch.clamp(self.left_x_coordinate, min=0,
-            max=left_features.size()[3] - 1)
-        self.left_x_coordinate = self.left_x_coordinate.expand(left_features
-            .size()[0], -1, -1).unsqueeze(1)
-        self.left_y_coordinate = torch.arange(0.0, left_features.size()[2],
-            device=device).unsqueeze(1).repeat(1, left_features.size()[3]
-            ).view(left_features.size()[2], left_features.size()[3])
-        self.left_y_coordinate = torch.clamp(self.left_y_coordinate, min=0,
-            max=left_features.size()[3] - 1)
-        self.left_y_coordinate = self.left_y_coordinate.expand(left_features
-            .size()[0], -1, -1).unsqueeze(1)
+        self.left_x_coordinate = torch.arange(0.0, left_features.size()[3], device=device).repeat(left_features.size()[2]).view(left_features.size()[2], left_features.size()[3])
+        self.left_x_coordinate = torch.clamp(self.left_x_coordinate, min=0, max=left_features.size()[3] - 1)
+        self.left_x_coordinate = self.left_x_coordinate.expand(left_features.size()[0], -1, -1).unsqueeze(1)
+        self.left_y_coordinate = torch.arange(0.0, left_features.size()[2], device=device).unsqueeze(1).repeat(1, left_features.size()[3]).view(left_features.size()[2], left_features.size()[3])
+        self.left_y_coordinate = torch.clamp(self.left_y_coordinate, min=0, max=left_features.size()[3] - 1)
+        self.left_y_coordinate = self.left_y_coordinate.expand(left_features.size()[0], -1, -1).unsqueeze(1)
 
     def forward(self, left_features, right_features, offset_x, offset_y):
         """
@@ -325,31 +284,20 @@ class Evaluate(nn.Module):
             :offset_y: vertical offset evaluated as the best offset to generate NNF.
 
         """
-        right_x_coordinate = torch.clamp(self.left_x_coordinate - offset_x,
-            min=0, max=left_features.size()[3] - 1)
-        right_y_coordinate = torch.clamp(self.left_y_coordinate - offset_y,
-            min=0, max=left_features.size()[2] - 1)
+        right_x_coordinate = torch.clamp(self.left_x_coordinate - offset_x, min=0, max=left_features.size()[3] - 1)
+        right_y_coordinate = torch.clamp(self.left_y_coordinate - offset_y, min=0, max=left_features.size()[2] - 1)
         right_x_coordinate -= right_x_coordinate.size()[3] / 2
         right_x_coordinate /= right_x_coordinate.size()[3] / 2
         right_y_coordinate -= right_y_coordinate.size()[2] / 2
         right_y_coordinate /= right_y_coordinate.size()[2] / 2
-        samples = torch.cat((right_x_coordinate.unsqueeze(4),
-            right_y_coordinate.unsqueeze(4)), dim=4)
-        samples = samples.view(samples.size()[0] * samples.size()[1],
-            samples.size()[2], samples.size()[3], samples.size()[4])
-        offset_strength = torch.mean(-1.0 * torch.abs(left_features.expand(
-            offset_x.size()[1], -1, -1, -1) - F.grid_sample(right_features.
-            expand(offset_x.size()[1], -1, -1, -1), samples)), dim=1
-            ) * self.temperature
-        offset_strength = offset_strength.view(left_features.size()[0], 
-            offset_strength.size()[0] // left_features.size()[0],
-            offset_strength.size()[1], offset_strength.size()[2])
+        samples = torch.cat((right_x_coordinate.unsqueeze(4), right_y_coordinate.unsqueeze(4)), dim=4)
+        samples = samples.view(samples.size()[0] * samples.size()[1], samples.size()[2], samples.size()[3], samples.size()[4])
+        offset_strength = torch.mean(-1.0 * torch.abs(left_features.expand(offset_x.size()[1], -1, -1, -1) - F.grid_sample(right_features.expand(offset_x.size()[1], -1, -1, -1), samples)), dim=1) * self.temperature
+        offset_strength = offset_strength.view(left_features.size()[0], offset_strength.size()[0] // left_features.size()[0], offset_strength.size()[1], offset_strength.size()[2])
         if self.evaluation_type == 'softmax':
             offset_strength = torch.softmax(offset_strength, dim=1)
-            offset_x = torch.sum(offset_x * offset_strength, dim=1).unsqueeze(1
-                )
-            offset_y = torch.sum(offset_y * offset_strength, dim=1).unsqueeze(1
-                )
+            offset_x = torch.sum(offset_x * offset_strength, dim=1).unsqueeze(1)
+            offset_y = torch.sum(offset_y * offset_strength, dim=1).unsqueeze(1)
         else:
             offset_strength = torch.argmax(offset_strength, dim=1).unsqueeze(1)
             offset_x = torch.gather(offset_x, index=offset_strength, dim=1)
@@ -362,15 +310,10 @@ class Propagation(nn.Module):
     def __init__(self, device, filter_size):
         super(Propagation, self).__init__()
         self.filter_size = filter_size
-        label = torch.arange(0, self.filter_size, device=device).repeat(self
-            .filter_size).view(self.filter_size, 1, 1, 1, self.filter_size)
-        self.one_hot_filter_h = torch.zeros_like(label).scatter_(0, label, 1
-            ).float()
-        label = torch.arange(0, self.filter_size, device=device).repeat(self
-            .filter_size).view(self.filter_size, 1, 1, self.filter_size, 1
-            ).long()
-        self.one_hot_filter_v = torch.zeros_like(label).scatter_(0, label, 1
-            ).float()
+        label = torch.arange(0, self.filter_size, device=device).repeat(self.filter_size).view(self.filter_size, 1, 1, 1, self.filter_size)
+        self.one_hot_filter_h = torch.zeros_like(label).scatter_(0, label, 1).float()
+        label = torch.arange(0, self.filter_size, device=device).repeat(self.filter_size).view(self.filter_size, 1, 1, self.filter_size, 1).long()
+        self.one_hot_filter_v = torch.zeros_like(label).scatter_(0, label, 1).float()
 
     def forward(self, offset_x, offset_y, propagation_type='horizontal'):
         """
@@ -390,30 +333,18 @@ class Propagation(nn.Module):
             :aggregated_offset_y: Vertical offset samples aggregated from the neighbours.
 
         """
-        offset_x = offset_x.view(offset_x.size()[0], 1, offset_x.size()[1],
-            offset_x.size()[2], offset_x.size()[3])
-        offset_y = offset_y.view(offset_y.size()[0], 1, offset_y.size()[1],
-            offset_y.size()[2], offset_y.size()[3])
+        offset_x = offset_x.view(offset_x.size()[0], 1, offset_x.size()[1], offset_x.size()[2], offset_x.size()[3])
+        offset_y = offset_y.view(offset_y.size()[0], 1, offset_y.size()[1], offset_y.size()[2], offset_y.size()[3])
         if propagation_type is 'horizontal':
-            aggregated_offset_x = F.conv3d(offset_x, self.one_hot_filter_h,
-                padding=(0, 0, self.filter_size // 2))
-            aggregated_offset_y = F.conv3d(offset_y, self.one_hot_filter_h,
-                padding=(0, 0, self.filter_size // 2))
+            aggregated_offset_x = F.conv3d(offset_x, self.one_hot_filter_h, padding=(0, 0, self.filter_size // 2))
+            aggregated_offset_y = F.conv3d(offset_y, self.one_hot_filter_h, padding=(0, 0, self.filter_size // 2))
         else:
-            aggregated_offset_x = F.conv3d(offset_x, self.one_hot_filter_v,
-                padding=(0, self.filter_size // 2, 0))
-            aggregated_offset_y = F.conv3d(offset_y, self.one_hot_filter_v,
-                padding=(0, self.filter_size // 2, 0))
+            aggregated_offset_x = F.conv3d(offset_x, self.one_hot_filter_v, padding=(0, self.filter_size // 2, 0))
+            aggregated_offset_y = F.conv3d(offset_y, self.one_hot_filter_v, padding=(0, self.filter_size // 2, 0))
         aggregated_offset_x = aggregated_offset_x.permute([0, 2, 1, 3, 4])
-        aggregated_offset_x = aggregated_offset_x.contiguous().view(
-            aggregated_offset_x.size()[0], aggregated_offset_x.size()[1] *
-            aggregated_offset_x.size()[2], aggregated_offset_x.size()[3],
-            aggregated_offset_x.size()[4])
+        aggregated_offset_x = aggregated_offset_x.contiguous().view(aggregated_offset_x.size()[0], aggregated_offset_x.size()[1] * aggregated_offset_x.size()[2], aggregated_offset_x.size()[3], aggregated_offset_x.size()[4])
         aggregated_offset_y = aggregated_offset_y.permute([0, 2, 1, 3, 4])
-        aggregated_offset_y = aggregated_offset_y.contiguous().view(
-            aggregated_offset_y.size()[0], aggregated_offset_y.size()[1] *
-            aggregated_offset_y.size()[2], aggregated_offset_y.size()[3],
-            aggregated_offset_y.size()[4])
+        aggregated_offset_y = aggregated_offset_y.contiguous().view(aggregated_offset_y.size()[0], aggregated_offset_y.size()[1] * aggregated_offset_y.size()[2], aggregated_offset_y.size()[3], aggregated_offset_y.size()[4])
         return aggregated_offset_x, aggregated_offset_y
 
 
@@ -422,8 +353,7 @@ class PropagationFaster(nn.Module):
     def __init__(self):
         super(PropagationFaster, self).__init__()
 
-    def forward(self, offset_x, offset_y, device, propagation_type='horizontal'
-        ):
+    def forward(self, offset_x, offset_y, device, propagation_type='horizontal'):
         """
         Faster version of PatchMatch Propagation Block
         This version uses a fixed propagation filter size of size 3. This implementation is not recommended
@@ -444,24 +374,14 @@ class PropagationFaster(nn.Module):
             :aggregated_offset_y: Vertical offset samples aggregated from the neighbours.
 
         """
-        self.vertical_zeros = torch.zeros((offset_x.size()[0], offset_x.
-            size()[1], 1, offset_x.size()[3]))
-        self.horizontal_zeros = torch.zeros((offset_x.size()[0], offset_x.
-            size()[1], offset_x.size()[2], 1))
+        self.vertical_zeros = torch.zeros((offset_x.size()[0], offset_x.size()[1], 1, offset_x.size()[3]))
+        self.horizontal_zeros = torch.zeros((offset_x.size()[0], offset_x.size()[1], offset_x.size()[2], 1))
         if propagation_type is 'horizontal':
-            offset_x = torch.cat((torch.cat((self.horizontal_zeros,
-                offset_x[:, :, :, :-1]), dim=3), offset_x, torch.cat((
-                offset_x[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
-            offset_y = torch.cat((torch.cat((self.horizontal_zeros,
-                offset_y[:, :, :, :-1]), dim=3), offset_y, torch.cat((
-                offset_y[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
+            offset_x = torch.cat((torch.cat((self.horizontal_zeros, offset_x[:, :, :, :-1]), dim=3), offset_x, torch.cat((offset_x[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
+            offset_y = torch.cat((torch.cat((self.horizontal_zeros, offset_y[:, :, :, :-1]), dim=3), offset_y, torch.cat((offset_y[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
         else:
-            offset_x = torch.cat((torch.cat((self.vertical_zeros, offset_x[
-                :, :, :-1, :]), dim=2), offset_x, torch.cat((offset_x[:, :,
-                1:, :], self.vertical_zeros), dim=2)), dim=1)
-            offset_y = torch.cat((torch.cat((self.vertical_zeros, offset_y[
-                :, :, :-1, :]), dim=2), offset_y, torch.cat((offset_y[:, :,
-                1:, :], self.vertical_zeros), dim=2)), dim=1)
+            offset_x = torch.cat((torch.cat((self.vertical_zeros, offset_x[:, :, :-1, :]), dim=2), offset_x, torch.cat((offset_x[:, :, 1:, :], self.vertical_zeros), dim=2)), dim=1)
+            offset_y = torch.cat((torch.cat((self.vertical_zeros, offset_y[:, :, :-1, :]), dim=2), offset_y, torch.cat((offset_y[:, :, 1:, :], self.vertical_zeros), dim=2)), dim=1)
         return offset_x, offset_y
 
 
@@ -508,47 +428,28 @@ class PatchMatch(nn.Module):
         if self.propagation_type is 'faster_filter_3_propagation':
             self.propagation = PropagationFaster()
         else:
-            self.propagation = Propagation(device, self.propagation_filter_size
-                )
-        self.evaluate = Evaluate(left_features, self.
-            propagation_filter_size, self.evaluation_type, self.
-            softmax_temperature)
+            self.propagation = Propagation(device, self.propagation_filter_size)
+        self.evaluate = Evaluate(left_features, self.propagation_filter_size, self.evaluation_type, self.softmax_temperature)
         self.uniform_sampler = RandomSampler(device, self.number_of_samples)
-        min_offset_x = torch.zeros((left_features.size()[0], 1,
-            left_features.size()[2], left_features.size()[3])
-            ) - left_features.size()[3]
+        min_offset_x = torch.zeros((left_features.size()[0], 1, left_features.size()[2], left_features.size()[3])) - left_features.size()[3]
         max_offset_x = min_offset_x + 2 * left_features.size()[3]
-        min_offset_y = min_offset_x + left_features.size()[3
-            ] - left_features.size()[2]
+        min_offset_y = min_offset_x + left_features.size()[3] - left_features.size()[2]
         max_offset_y = min_offset_y + 2 * left_features.size()[2]
         for prop_iter in range(self.iteration_count):
-            offset_x, offset_y = self.uniform_sampler(min_offset_x,
-                max_offset_x, min_offset_y, max_offset_y)
-            offset_x, offset_y = self.propagation(offset_x, offset_y,
-                device, 'horizontal')
-            offset_x, offset_y = self.evaluate(left_features,
-                right_features, offset_x, offset_y)
-            offset_x, offset_y = self.propagation(offset_x, offset_y,
-                device, 'vertical')
-            offset_x, offset_y = self.evaluate(left_features,
-                right_features, offset_x, offset_y)
-            min_offset_x = torch.clamp(offset_x - self.window_size_x // 2,
-                min=-left_features.size()[3], max=left_features.size()[3])
-            max_offset_x = torch.clamp(offset_x + self.window_size_x // 2,
-                min=-left_features.size()[3], max=left_features.size()[3])
-            min_offset_y = torch.clamp(offset_y - self.window_size_y // 2,
-                min=-left_features.size()[2], max=left_features.size()[2])
-            max_offset_y = torch.clamp(offset_y + self.window_size_y // 2,
-                min=-left_features.size()[2], max=left_features.size()[2])
-        return (offset_x, offset_y, self.evaluate.left_x_coordinate, self.
-            evaluate.left_y_coordinate)
+            offset_x, offset_y = self.uniform_sampler(min_offset_x, max_offset_x, min_offset_y, max_offset_y)
+            offset_x, offset_y = self.propagation(offset_x, offset_y, device, 'horizontal')
+            offset_x, offset_y = self.evaluate(left_features, right_features, offset_x, offset_y)
+            offset_x, offset_y = self.propagation(offset_x, offset_y, device, 'vertical')
+            offset_x, offset_y = self.evaluate(left_features, right_features, offset_x, offset_y)
+            min_offset_x = torch.clamp(offset_x - self.window_size_x // 2, min=-left_features.size()[3], max=left_features.size()[3])
+            max_offset_x = torch.clamp(offset_x + self.window_size_x // 2, min=-left_features.size()[3], max=left_features.size()[3])
+            min_offset_y = torch.clamp(offset_y - self.window_size_y // 2, min=-left_features.size()[2], max=left_features.size()[2])
+            max_offset_y = torch.clamp(offset_y + self.window_size_y // 2, min=-left_features.size()[2], max=left_features.size()[2])
+        return offset_x, offset_y, self.evaluate.left_x_coordinate, self.evaluate.left_y_coordinate
 
 
 def convbn_relu(in_planes, out_planes, kernel_size, stride, pad, dilation):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-        kernel_size, stride=stride, padding=dilation if dilation > 1 else
-        pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes), nn
-        .ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
 
 
 class feature_extraction(nn.Module):
@@ -556,32 +457,23 @@ class feature_extraction(nn.Module):
     def __init__(self):
         super(feature_extraction, self).__init__()
         self.inplanes = 32
-        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1),
-            convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
+        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
         self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
-        self.branch1 = nn.Sequential(nn.AvgPool2d((64, 64), stride=(64, 64)
-            ), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)
-            ), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)
-            ), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)),
-            convbn_relu(128, 32, 1, 1, 0, 1))
-        self.lastconv = nn.Sequential(convbn_relu(320, 128, 3, 1, 1, 1), nn
-            .Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
+        self.branch1 = nn.Sequential(nn.AvgPool2d((64, 64), stride=(64, 64)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.lastconv = nn.Sequential(convbn_relu(320, 128, 3, 1, 1, 1), nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
 
     def _make_layer(self, block, planes, blocks, stride, pad, dilation):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, pad,
-            dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample, pad, dilation))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, 1, None, pad, dilation))
@@ -611,19 +503,14 @@ class feature_extraction(nn.Module):
         output = self.layer3(output_raw)
         output_skip = self.layer4(output)
         output_branch1 = self.branch1(output_skip)
-        output_branch1 = F.upsample(output_branch1, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch1 = F.upsample(output_branch1, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch2 = self.branch2(output_skip)
-        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch3 = self.branch3(output_skip)
-        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch4 = self.branch4(output_skip)
-        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
-        output_feature = torch.cat((output_raw, output_skip, output_branch4,
-            output_branch3, output_branch2, output_branch1), 1)
+        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
+        output_feature = torch.cat((output_raw, output_skip, output_branch4, output_branch3, output_branch2, output_branch1), 1)
         output_feature = self.lastconv(output_feature)
         return output_feature, output1
 
@@ -633,30 +520,22 @@ class feature_extraction(nn.Module):
     def __init__(self):
         super(feature_extraction, self).__init__()
         self.inplanes = 32
-        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1),
-            convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
+        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
         self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 2, 1, 1)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
-        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)
-            ), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)
-            ), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)),
-            convbn_relu(128, 32, 1, 1, 0, 1))
-        self.lastconv = nn.Sequential(convbn_relu(352, 128, 3, 1, 1, 1), nn
-            .Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
+        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.lastconv = nn.Sequential(convbn_relu(352, 128, 3, 1, 1, 1), nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
 
     def _make_layer(self, block, planes, blocks, stride, pad, dilation):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, pad,
-            dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample, pad, dilation))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, 1, None, pad, dilation))
@@ -687,16 +566,12 @@ class feature_extraction(nn.Module):
         output = self.layer3(output_raw)
         output_skip = self.layer4(output)
         output_branch2 = self.branch2(output_skip)
-        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch3 = self.branch3(output_skip)
-        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch4 = self.branch4(output_skip)
-        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
-        output_feature = torch.cat((output, output_skip, output_branch4,
-            output_branch3, output_branch2), 1)
+        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
+        output_feature = torch.cat((output, output_skip, output_branch4, output_branch3, output_branch2), 1)
         output_feature = self.lastconv(output_feature)
         return output_feature, output_raw, output1
 
@@ -728,15 +603,10 @@ class DisparityInitialization(nn.Module):
         """
         device = min_disparity.get_device()
         multiplier = 1.0 / number_of_intervals
-        range_multiplier = torch.arange(0.0, 1, multiplier, device=device
-            ).view(number_of_intervals, 1, 1)
-        range_multiplier = range_multiplier.repeat(1, min_disparity.size()[
-            2], min_disparity.size()[3])
-        interval_noise = min_disparity.new_empty(min_disparity.size()[0],
-            number_of_intervals, min_disparity.size()[2], min_disparity.
-            size()[3]).uniform_(0, 1)
-        interval_min_disparity = min_disparity + (max_disparity - min_disparity
-            ) * range_multiplier
+        range_multiplier = torch.arange(0.0, 1, multiplier, device=device).view(number_of_intervals, 1, 1)
+        range_multiplier = range_multiplier.repeat(1, min_disparity.size()[2], min_disparity.size()[3])
+        interval_noise = min_disparity.new_empty(min_disparity.size()[0], number_of_intervals, min_disparity.size()[2], min_disparity.size()[3]).uniform_(0, 1)
+        interval_min_disparity = min_disparity + (max_disparity - min_disparity) * range_multiplier
         return interval_noise, interval_min_disparity, multiplier
 
 
@@ -748,8 +618,7 @@ class Evaluate(nn.Module):
         self.filter_size = filter_size
         self.softmax = torch.nn.Softmax(dim=1)
 
-    def forward(self, left_input, right_input, disparity_samples,
-        normalized_disparity_samples):
+    def forward(self, left_input, right_input, disparity_samples, normalized_disparity_samples):
         """
         PatchMatch Evaluation Block
         Description:    For each pixel i, matching scores are computed by taking the inner product between the
@@ -773,55 +642,26 @@ class Evaluate(nn.Module):
             :normalized_disparity_samples: Evaluated normaized disparity sample, one per disparity interval.
         """
         device = left_input.get_device()
-        left_y_coordinate = torch.arange(0.0, left_input.size()[3], device=
-            device).repeat(left_input.size()[2]).view(left_input.size()[2],
-            left_input.size()[3])
-        left_y_coordinate = torch.clamp(left_y_coordinate, min=0, max=
-            left_input.size()[3] - 1)
-        left_y_coordinate = left_y_coordinate.expand(left_input.size()[0], 
-            -1, -1)
-        right_feature_map = right_input.expand(disparity_samples.size()[1],
-            -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
-        left_feature_map = left_input.expand(disparity_samples.size()[1], -
-            1, -1, -1, -1).permute([1, 2, 0, 3, 4])
-        disparity_sample_strength = disparity_samples.new(disparity_samples
-            .size()[0], disparity_samples.size()[1], disparity_samples.size
-            ()[2], disparity_samples.size()[3])
-        right_y_coordinate = left_y_coordinate.expand(disparity_samples.
-            size()[1], -1, -1, -1).permute([1, 0, 2, 3]).float()
+        left_y_coordinate = torch.arange(0.0, left_input.size()[3], device=device).repeat(left_input.size()[2]).view(left_input.size()[2], left_input.size()[3])
+        left_y_coordinate = torch.clamp(left_y_coordinate, min=0, max=left_input.size()[3] - 1)
+        left_y_coordinate = left_y_coordinate.expand(left_input.size()[0], -1, -1)
+        right_feature_map = right_input.expand(disparity_samples.size()[1], -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
+        left_feature_map = left_input.expand(disparity_samples.size()[1], -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
+        disparity_sample_strength = disparity_samples.new(disparity_samples.size()[0], disparity_samples.size()[1], disparity_samples.size()[2], disparity_samples.size()[3])
+        right_y_coordinate = left_y_coordinate.expand(disparity_samples.size()[1], -1, -1, -1).permute([1, 0, 2, 3]).float()
         right_y_coordinate = right_y_coordinate - disparity_samples
-        right_y_coordinate = torch.clamp(right_y_coordinate, min=0, max=
-            right_input.size()[3] - 1)
-        warped_right_feature_map = torch.gather(right_feature_map, dim=4,
-            index=right_y_coordinate.expand(right_input.size()[1], -1, -1, 
-            -1, -1).permute([1, 0, 2, 3, 4]).long())
-        disparity_sample_strength = torch.mean(left_feature_map *
-            warped_right_feature_map, dim=1) * self.temperature
-        disparity_sample_strength = disparity_sample_strength.view(
-            disparity_sample_strength.size()[0], disparity_sample_strength.
-            size()[1] // self.filter_size, self.filter_size,
-            disparity_sample_strength.size()[2], disparity_sample_strength.
-            size()[3])
-        disparity_samples = disparity_samples.view(disparity_samples.size()
-            [0], disparity_samples.size()[1] // self.filter_size, self.
-            filter_size, disparity_samples.size()[2], disparity_samples.
-            size()[3])
-        normalized_disparity_samples = normalized_disparity_samples.view(
-            normalized_disparity_samples.size()[0], 
-            normalized_disparity_samples.size()[1] // self.filter_size,
-            self.filter_size, normalized_disparity_samples.size()[2],
-            normalized_disparity_samples.size()[3])
-        disparity_sample_strength = disparity_sample_strength.permute([0, 2,
-            1, 3, 4])
+        right_y_coordinate = torch.clamp(right_y_coordinate, min=0, max=right_input.size()[3] - 1)
+        warped_right_feature_map = torch.gather(right_feature_map, dim=4, index=right_y_coordinate.expand(right_input.size()[1], -1, -1, -1, -1).permute([1, 0, 2, 3, 4]).long())
+        disparity_sample_strength = torch.mean(left_feature_map * warped_right_feature_map, dim=1) * self.temperature
+        disparity_sample_strength = disparity_sample_strength.view(disparity_sample_strength.size()[0], disparity_sample_strength.size()[1] // self.filter_size, self.filter_size, disparity_sample_strength.size()[2], disparity_sample_strength.size()[3])
+        disparity_samples = disparity_samples.view(disparity_samples.size()[0], disparity_samples.size()[1] // self.filter_size, self.filter_size, disparity_samples.size()[2], disparity_samples.size()[3])
+        normalized_disparity_samples = normalized_disparity_samples.view(normalized_disparity_samples.size()[0], normalized_disparity_samples.size()[1] // self.filter_size, self.filter_size, normalized_disparity_samples.size()[2], normalized_disparity_samples.size()[3])
+        disparity_sample_strength = disparity_sample_strength.permute([0, 2, 1, 3, 4])
         disparity_samples = disparity_samples.permute([0, 2, 1, 3, 4])
-        normalized_disparity_samples = normalized_disparity_samples.permute([
-            0, 2, 1, 3, 4])
-        disparity_sample_strength = torch.softmax(disparity_sample_strength,
-            dim=1)
-        disparity_samples = torch.sum(disparity_samples *
-            disparity_sample_strength, dim=1)
-        normalized_disparity_samples = torch.sum(
-            normalized_disparity_samples * disparity_sample_strength, dim=1)
+        normalized_disparity_samples = normalized_disparity_samples.permute([0, 2, 1, 3, 4])
+        disparity_sample_strength = torch.softmax(disparity_sample_strength, dim=1)
+        disparity_samples = torch.sum(disparity_samples * disparity_sample_strength, dim=1)
+        normalized_disparity_samples = torch.sum(normalized_disparity_samples * disparity_sample_strength, dim=1)
         return normalized_disparity_samples, disparity_samples
 
 
@@ -831,8 +671,7 @@ class Propagation(nn.Module):
         super(Propagation, self).__init__()
         self.filter_size = filter_size
 
-    def forward(self, disparity_samples, device, propagation_type='horizontal'
-        ):
+    def forward(self, disparity_samples, device, propagation_type='horizontal'):
         """
         PatchMatch Propagation Block
         Description:    Particles from adjacent pixels are propagated together through convolution with a
@@ -854,33 +693,17 @@ class Propagation(nn.Module):
             :aggregated_disparity_samples: Disparity Samples aggregated from the neighbours.
 
         """
-        disparity_samples = disparity_samples.view(disparity_samples.size()
-            [0], 1, disparity_samples.size()[1], disparity_samples.size()[2
-            ], disparity_samples.size()[3])
+        disparity_samples = disparity_samples.view(disparity_samples.size()[0], 1, disparity_samples.size()[1], disparity_samples.size()[2], disparity_samples.size()[3])
         if propagation_type is 'horizontal':
-            label = torch.arange(0, self.filter_size, device=device).repeat(
-                self.filter_size).view(self.filter_size, 1, 1, 1, self.
-                filter_size)
-            one_hot_filter = torch.zeros_like(label).scatter_(0, label, 1
-                ).float()
-            aggregated_disparity_samples = F.conv3d(disparity_samples,
-                one_hot_filter, padding=(0, 0, self.filter_size // 2))
+            label = torch.arange(0, self.filter_size, device=device).repeat(self.filter_size).view(self.filter_size, 1, 1, 1, self.filter_size)
+            one_hot_filter = torch.zeros_like(label).scatter_(0, label, 1).float()
+            aggregated_disparity_samples = F.conv3d(disparity_samples, one_hot_filter, padding=(0, 0, self.filter_size // 2))
         else:
-            label = torch.arange(0, self.filter_size, device=device).repeat(
-                self.filter_size).view(self.filter_size, 1, 1, self.
-                filter_size, 1).long()
-            one_hot_filter = torch.zeros_like(label).scatter_(0, label, 1
-                ).float()
-            aggregated_disparity_samples = F.conv3d(disparity_samples,
-                one_hot_filter, padding=(0, self.filter_size // 2, 0))
-        aggregated_disparity_samples = aggregated_disparity_samples.permute([
-            0, 2, 1, 3, 4])
-        aggregated_disparity_samples = aggregated_disparity_samples.contiguous(
-            ).view(aggregated_disparity_samples.size()[0], 
-            aggregated_disparity_samples.size()[1] *
-            aggregated_disparity_samples.size()[2],
-            aggregated_disparity_samples.size()[3],
-            aggregated_disparity_samples.size()[4])
+            label = torch.arange(0, self.filter_size, device=device).repeat(self.filter_size).view(self.filter_size, 1, 1, self.filter_size, 1).long()
+            one_hot_filter = torch.zeros_like(label).scatter_(0, label, 1).float()
+            aggregated_disparity_samples = F.conv3d(disparity_samples, one_hot_filter, padding=(0, self.filter_size // 2, 0))
+        aggregated_disparity_samples = aggregated_disparity_samples.permute([0, 2, 1, 3, 4])
+        aggregated_disparity_samples = aggregated_disparity_samples.contiguous().view(aggregated_disparity_samples.size()[0], aggregated_disparity_samples.size()[1] * aggregated_disparity_samples.size()[2], aggregated_disparity_samples.size()[3], aggregated_disparity_samples.size()[4])
         return aggregated_disparity_samples
 
 
@@ -893,8 +716,7 @@ class PatchMatch(nn.Module):
         self.disparity_initialization = DisparityInitialization()
         self.evaluate = Evaluate(filter_size=propagation_filter_size)
 
-    def forward(self, left_input, right_input, min_disparity, max_disparity,
-        sample_count=10, iteration_count=3):
+    def forward(self, left_input, right_input, min_disparity, max_disparity, sample_count=10, iteration_count=3):
         """
         Differntail PatchMatch Block
         Description:    In this work, we unroll generalized PatchMatch as a recurrent neural network,
@@ -918,37 +740,20 @@ class PatchMatch(nn.Module):
         device = left_input.get_device()
         min_disparity = torch.floor(min_disparity)
         max_disparity = torch.ceil(max_disparity)
-        normalized_disparity_samples, min_disp_tensor, multiplier = (self.
-            disparity_initialization(min_disparity, max_disparity,
-            sample_count))
-        min_disp_tensor = min_disp_tensor.unsqueeze(2).repeat(1, 1, self.
-            propagation_filter_size, 1, 1).view(min_disp_tensor.size()[0], 
-            min_disp_tensor.size()[1] * self.propagation_filter_size,
-            min_disp_tensor.size()[2], min_disp_tensor.size()[3])
+        normalized_disparity_samples, min_disp_tensor, multiplier = self.disparity_initialization(min_disparity, max_disparity, sample_count)
+        min_disp_tensor = min_disp_tensor.unsqueeze(2).repeat(1, 1, self.propagation_filter_size, 1, 1).view(min_disp_tensor.size()[0], min_disp_tensor.size()[1] * self.propagation_filter_size, min_disp_tensor.size()[2], min_disp_tensor.size()[3])
         for prop_iter in range(iteration_count):
-            normalized_disparity_samples = self.propagation(
-                normalized_disparity_samples, device, propagation_type=
-                'horizontal')
-            disparity_samples = normalized_disparity_samples * (max_disparity -
-                min_disparity) * multiplier + min_disp_tensor
-            normalized_disparity_samples, disparity_samples = self.evaluate(
-                left_input, right_input, disparity_samples,
-                normalized_disparity_samples)
-            normalized_disparity_samples = self.propagation(
-                normalized_disparity_samples, device, propagation_type=
-                'vertical')
-            disparity_samples = normalized_disparity_samples * (max_disparity -
-                min_disparity) * multiplier + min_disp_tensor
-            normalized_disparity_samples, disparity_samples = self.evaluate(
-                left_input, right_input, disparity_samples,
-                normalized_disparity_samples)
+            normalized_disparity_samples = self.propagation(normalized_disparity_samples, device, propagation_type='horizontal')
+            disparity_samples = normalized_disparity_samples * (max_disparity - min_disparity) * multiplier + min_disp_tensor
+            normalized_disparity_samples, disparity_samples = self.evaluate(left_input, right_input, disparity_samples, normalized_disparity_samples)
+            normalized_disparity_samples = self.propagation(normalized_disparity_samples, device, propagation_type='vertical')
+            disparity_samples = normalized_disparity_samples * (max_disparity - min_disparity) * multiplier + min_disp_tensor
+            normalized_disparity_samples, disparity_samples = self.evaluate(left_input, right_input, disparity_samples, normalized_disparity_samples)
         return disparity_samples
 
 
 def convbn(in_planes, out_planes, kernel_size, stride, pad, dilation):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-        kernel_size, stride=stride, padding=dilation if dilation > 1 else
-        pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes))
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes))
 
 
 class BasicBlock(nn.Module):
@@ -981,8 +786,7 @@ class SubModule(nn.Module):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, nn.Conv3d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2
-                    ] * m.out_channels
+                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -1015,8 +819,7 @@ class UniformSampler(nn.Module):
         """
         device = min_disparity.get_device()
         multiplier = (max_disparity - min_disparity) / (number_of_samples + 1)
-        range_multiplier = torch.arange(1.0, number_of_samples + 1, 1,
-            device=device).view(number_of_samples, 1, 1)
+        range_multiplier = torch.arange(1.0, number_of_samples + 1, 1, device=device).view(number_of_samples, 1, 1)
         sampled_disparities = min_disparity + multiplier * range_multiplier
         return sampled_disparities
 
@@ -1045,32 +848,19 @@ class SpatialTransformer(nn.Module):
             :left_feature_map: expanded left image features.
         """
         device = left_input.get_device()
-        left_y_coordinate = torch.arange(0.0, left_input.size()[3], device=
-            device).repeat(left_input.size()[2])
-        left_y_coordinate = left_y_coordinate.view(left_input.size()[2],
-            left_input.size()[3])
-        left_y_coordinate = torch.clamp(left_y_coordinate, min=0, max=
-            left_input.size()[3] - 1)
-        left_y_coordinate = left_y_coordinate.expand(left_input.size()[0], 
-            -1, -1)
-        right_feature_map = right_input.expand(disparity_samples.size()[1],
-            -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
-        left_feature_map = left_input.expand(disparity_samples.size()[1], -
-            1, -1, -1, -1).permute([1, 2, 0, 3, 4])
+        left_y_coordinate = torch.arange(0.0, left_input.size()[3], device=device).repeat(left_input.size()[2])
+        left_y_coordinate = left_y_coordinate.view(left_input.size()[2], left_input.size()[3])
+        left_y_coordinate = torch.clamp(left_y_coordinate, min=0, max=left_input.size()[3] - 1)
+        left_y_coordinate = left_y_coordinate.expand(left_input.size()[0], -1, -1)
+        right_feature_map = right_input.expand(disparity_samples.size()[1], -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
+        left_feature_map = left_input.expand(disparity_samples.size()[1], -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
         disparity_samples = disparity_samples.float()
-        right_y_coordinate = left_y_coordinate.expand(disparity_samples.
-            size()[1], -1, -1, -1).permute([1, 0, 2, 3]) - disparity_samples
+        right_y_coordinate = left_y_coordinate.expand(disparity_samples.size()[1], -1, -1, -1).permute([1, 0, 2, 3]) - disparity_samples
         right_y_coordinate_1 = right_y_coordinate
-        right_y_coordinate = torch.clamp(right_y_coordinate, min=0, max=
-            right_input.size()[3] - 1)
-        warped_right_feature_map = torch.gather(right_feature_map, dim=4,
-            index=right_y_coordinate.expand(right_input.size()[1], -1, -1, 
-            -1, -1).permute([1, 0, 2, 3, 4]).long())
+        right_y_coordinate = torch.clamp(right_y_coordinate, min=0, max=right_input.size()[3] - 1)
+        warped_right_feature_map = torch.gather(right_feature_map, dim=4, index=right_y_coordinate.expand(right_input.size()[1], -1, -1, -1, -1).permute([1, 0, 2, 3, 4]).long())
         right_y_coordinate_1 = right_y_coordinate_1.unsqueeze(1)
-        warped_right_feature_map = (1 - ((right_y_coordinate_1 < 0) + (
-            right_y_coordinate_1 > right_input.size()[3] - 1)).float()
-            ) * warped_right_feature_map + torch.zeros_like(
-            warped_right_feature_map)
+        warped_right_feature_map = (1 - ((right_y_coordinate_1 < 0) + (right_y_coordinate_1 > right_input.size()[3] - 1)).float()) * warped_right_feature_map + torch.zeros_like(warped_right_feature_map)
         return warped_right_feature_map, left_feature_map
 
 
@@ -1078,12 +868,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (PropagationFaster,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (feature_extraction,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+]
+
 class Test_uber_research_DeepPruner(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(PropagationFaster(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(feature_extraction(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[1])
 

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -39,36 +40,12 @@ from torch.autograd import Variable
 import torch.nn as nn
 
 
-OPS = {'none': lambda C_in, C_out, stride, affine: Zero(stride),
-    'avg_pool_3x3': lambda C_in, C_out, stride, affine: nn.AvgPool2d(3,
-    stride=stride, padding=1, count_include_pad=False) if C_in == C_out else
-    nn.Sequential(nn.AvgPool2d(3, stride=stride, padding=1,
-    count_include_pad=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0,
-    bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine)),
-    'max_pool_3x3': lambda C_in, C_out, stride, affine: nn.MaxPool2d(3,
-    stride=stride, padding=1) if C_in == C_out else nn.Sequential(nn.
-    MaxPool2d(3, stride=stride, padding=1), nn.Conv2d(C_in, C_out, 1,
-    stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001,
-    affine=affine)), 'skip_connect': lambda C_in, C_out, stride, affine: 
-    Identity() if stride == 1 else ReLUConvBN(C_in, C_out, 1, stride, 0,
-    affine=affine), 'sep_conv_3x3': lambda C_in, C_out, stride, affine:
-    SepConv(C_in, C_out, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda
-    C_in, C_out, stride, affine: SepConv(C_in, C_out, 5, stride, 2, affine=
-    affine), 'sep_conv_7x7': lambda C_in, C_out, stride, affine: SepConv(
-    C_in, C_out, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C_in,
-    C_out, stride, affine: DilConv(C_in, C_out, 3, stride, 2, 2, affine=
-    affine), 'dil_conv_5x5': lambda C_in, C_out, stride, affine: DilConv(
-    C_in, C_out, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda
-    C_in, C_out, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.
-    Conv2d(C_in, C_in, (1, 7), stride=(1, stride), padding=(0, 3), bias=
-    False), nn.Conv2d(C_in, C_out, (7, 1), stride=(stride, 1), padding=(3, 
-    0), bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine))}
+OPS = {'none': lambda C_in, C_out, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C_in, C_out, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False) if C_in == C_out else nn.Sequential(nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine)), 'max_pool_3x3': lambda C_in, C_out, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1) if C_in == C_out else nn.Sequential(nn.MaxPool2d(3, stride=stride, padding=1), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine)), 'skip_connect': lambda C_in, C_out, stride, affine: Identity() if stride == 1 else ReLUConvBN(C_in, C_out, 1, stride, 0, affine=affine), 'sep_conv_3x3': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C_in, C_out, stride, affine: DilConv(C_in, C_out, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C_in, C_out, stride, affine: DilConv(C_in, C_out, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C_in, C_out, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C_in, C_out, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine))}
 
 
 class Cell(nn.Module):
 
-    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction,
-        reduction_prev):
+    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
         super(Cell, self).__init__()
         None
         self.reduction = reduction
@@ -120,11 +97,7 @@ class AuxiliaryHeadImageNet(nn.Module):
     def __init__(self, C, num_classes):
         """assuming input size 14x14"""
         super(AuxiliaryHeadImageNet, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5,
-            stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128,
-            1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(
-            inplace=True))
+        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
         self.classifier = nn.Linear(768, num_classes)
 
     def forward(self, x):
@@ -139,14 +112,11 @@ class NetworkImageNet(nn.Module):
         super(NetworkImageNet, self).__init__()
         self._layers = layers
         self._auxiliary = auxiliary
-        self.conv0 = nn.Conv2d(3, 96, kernel_size=3, stride=2, padding=0,
-            bias=False)
+        self.conv0 = nn.Conv2d(3, 96, kernel_size=3, stride=2, padding=0, bias=False)
         self.conv0_bn = nn.BatchNorm2d(96, eps=0.001)
         self.stem1 = Cell(genotype, 96, 96, C // 4, True, None)
-        self.stem2 = Cell(genotype, 96, C * self.stem1.multiplier // 4, C //
-            2, True, True)
-        C_prev_prev, C_prev, C_curr = (C * self.stem1.multiplier // 4, C *
-            self.stem2.multiplier // 2, C)
+        self.stem2 = Cell(genotype, 96, C * self.stem1.multiplier // 4, C // 2, True, True)
+        C_prev_prev, C_prev, C_curr = C * self.stem1.multiplier // 4, C * self.stem2.multiplier // 2, C
         self.cells = nn.ModuleList()
         reduction_prev = True
         for i in xrange(layers):
@@ -155,16 +125,14 @@ class NetworkImageNet(nn.Module):
                 reduction = True
             else:
                 reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction,
-                reduction_prev)
+            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev)
             reduction_prev = reduction
             self.cells += [cell]
             C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
             if i == 2 * layers // 3:
                 C_to_auxiliary = C_prev
         if auxiliary:
-            self.auxiliary_head = AuxiliaryHeadImageNet(C_to_auxiliary,
-                num_classes)
+            self.auxiliary_head = AuxiliaryHeadImageNet(C_to_auxiliary, num_classes)
         self.relu = nn.ReLU(inplace=False)
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(C_prev, num_classes)
@@ -190,9 +158,7 @@ class ReLUConvBN(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
         super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-            C_out, kernel_size, stride=stride, padding=padding, bias=False),
-            nn.BatchNorm2d(C_out, eps=0.001, affine=affine))
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine))
 
     def forward(self, x):
         return self.op(x)
@@ -200,14 +166,9 @@ class ReLUConvBN(nn.Module):
 
 class DilConv(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation,
-        affine=True):
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
         super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-            C_in, kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in,
-            C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(
-            C_out, eps=0.001, affine=affine))
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine))
 
     def forward(self, x):
         return self.op(x)
@@ -217,15 +178,7 @@ class SepConv(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
         super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-            C_in, kernel_size=kernel_size, stride=stride, padding=padding,
-            groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1,
-            padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine
-            =affine), nn.ReLU(inplace=False), nn.Conv2d(C_out, C_out,
-            kernel_size=kernel_size, stride=1, padding=padding, groups=
-            C_out, bias=False), nn.Conv2d(C_out, C_out, kernel_size=1,
-            padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine
-            =affine))
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_out, C_out, kernel_size=kernel_size, stride=1, padding=padding, groups=C_out, bias=False), nn.Conv2d(C_out, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, eps=0.001, affine=affine))
 
     def forward(self, x):
         return self.op(x)
@@ -258,10 +211,8 @@ class FactorizedReduce(nn.Module):
         super(FactorizedReduce, self).__init__()
         assert C_out % 2 == 0
         self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(C_out, eps=0.001, affine=affine)
         self.pad = nn.ConstantPad2d((0, 1, 0, 1), 0)
 
@@ -277,24 +228,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_chenxi116_PNASNet_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AuxiliaryHeadImageNet,
+     lambda: ([], {'C': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8])], {}),
+     True),
+    (DilConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorizedReduce,
+     lambda: ([], {'C_in': 4, 'C_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReLUConvBN,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SepConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Zero,
+     lambda: ([], {'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_chenxi116_PNASNet_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

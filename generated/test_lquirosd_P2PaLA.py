@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -74,24 +75,16 @@ class buildUnet(nn.Module):
     doc goes here :)
     """
 
-    def __init__(self, input_nc, output_nc, ngf=64, net_type='R', out_mode=None
-        ):
+    def __init__(self, input_nc, output_nc, ngf=64, net_type='R', out_mode=None):
         super(buildUnet, self).__init__()
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=None,
-            block_type='center', i_id='center')
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model,
-            i_id='a_1', useDO=True)
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model,
-            i_id='a_2', useDO=True)
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model,
-            i_id='a_3')
-        model = uSkipBlock(ngf * 4, ngf * 8, ngf * 4, inner_slave=model,
-            i_id='a_5')
-        model = uSkipBlock(ngf * 2, ngf * 4, ngf * 2, inner_slave=model,
-            i_id='a_6')
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=None, block_type='center', i_id='center')
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_1', useDO=True)
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_2', useDO=True)
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_3')
+        model = uSkipBlock(ngf * 4, ngf * 8, ngf * 4, inner_slave=model, i_id='a_5')
+        model = uSkipBlock(ngf * 2, ngf * 4, ngf * 2, inner_slave=model, i_id='a_6')
         model = uSkipBlock(ngf, ngf * 2, ngf, inner_slave=model, i_id='a_7')
-        model = uSkipBlock(input_nc, ngf, output_nc, inner_slave=model,
-            block_type=net_type, out_mode=out_mode, i_id='out')
+        model = uSkipBlock(input_nc, ngf, output_nc, inner_slave=model, block_type=net_type, out_mode=out_mode, i_id='out')
         self.model = model
         self.num_params = 0
         for param in self.model.parameters():
@@ -119,56 +112,44 @@ def size_splits(tensor, split_sizes, dim=0):
     if dim_size != torch.sum(torch.Tensor(split_sizes)):
         raise KeyError('Sum of split sizes exceeds tensor dim')
     splits = torch.cumsum(torch.Tensor([0] + split_sizes), dim=0)[:-1]
-    return tuple(tensor.narrow(int(dim), int(start), int(length)) for start,
-        length in zip(splits, split_sizes))
+    return tuple(tensor.narrow(int(dim), int(start), int(length)) for start, length in zip(splits, split_sizes))
 
 
 class uSkipBlock(nn.Module):
     """
     """
 
-    def __init__(self, input_nc, inner_nc, output_nc, inner_slave,
-        block_type='inner', out_mode=None, i_id='0', useDO=False):
+    def __init__(self, input_nc, inner_nc, output_nc, inner_slave, block_type='inner', out_mode=None, i_id='0', useDO=False):
         super(uSkipBlock, self).__init__()
         self.type = block_type
         self.name = str(input_nc) + str(inner_nc) + str(output_nc) + self.type
         self.id = i_id
         self.out_mode = out_mode
         if self.type == 'R':
-            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-                padding=1, bias=False)
-            d_conv = nn.ConvTranspose2d(2 * inner_nc, output_nc,
-                kernel_size=4, stride=2, padding=1, bias=False)
+            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=False)
+            d_conv = nn.ConvTranspose2d(2 * inner_nc, output_nc, kernel_size=4, stride=2, padding=1, bias=False)
             d_non_lin = nn.ReLU(True)
             model = [e_conv] + [inner_slave] + [d_non_lin, d_conv, nn.Tanh()]
         elif self.type == 'C':
-            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-                padding=1, bias=False)
-            d_conv = nn.ConvTranspose2d(2 * inner_nc, output_nc,
-                kernel_size=4, stride=2, padding=1, bias=False)
+            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=False)
+            d_conv = nn.ConvTranspose2d(2 * inner_nc, output_nc, kernel_size=4, stride=2, padding=1, bias=False)
             d_non_lin = nn.ReLU(True)
             model = [e_conv] + [inner_slave] + [d_non_lin, d_conv]
         elif self.type == 'center':
-            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-                padding=1, bias=False)
+            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=False)
             e_non_lin = nn.LeakyReLU(0.2, True)
-            d_conv = nn.ConvTranspose2d(inner_nc, output_nc, kernel_size=4,
-                stride=2, padding=1, bias=False)
+            d_conv = nn.ConvTranspose2d(inner_nc, output_nc, kernel_size=4, stride=2, padding=1, bias=False)
             d_non_lin = nn.ReLU(True)
             d_norm = nn.BatchNorm2d(output_nc)
-            model = [e_non_lin, e_conv, d_non_lin, d_conv, d_norm, nn.
-                Dropout(0.5)]
+            model = [e_non_lin, e_conv, d_non_lin, d_conv, d_norm, nn.Dropout(0.5)]
         elif self.type == 'inner':
-            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2,
-                padding=1, bias=False)
+            e_conv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=False)
             e_non_lin = nn.LeakyReLU(0.2, True)
             e_norm = nn.BatchNorm2d(inner_nc)
-            d_conv = nn.ConvTranspose2d(2 * inner_nc, output_nc,
-                kernel_size=4, stride=2, padding=1, bias=False)
+            d_conv = nn.ConvTranspose2d(2 * inner_nc, output_nc, kernel_size=4, stride=2, padding=1, bias=False)
             d_non_lin = nn.ReLU(True)
             d_norm = nn.BatchNorm2d(output_nc)
-            model = [e_non_lin, e_conv, e_norm, inner_slave, d_non_lin,
-                d_conv, d_norm]
+            model = [e_non_lin, e_conv, e_norm, inner_slave, d_non_lin, d_conv, d_norm]
             if useDO:
                 model = model + [nn.Dropout(0.5)]
         self.model = nn.Sequential(*model)
@@ -199,24 +180,17 @@ class buildDNet(nn.Module):
         """
         """
         super(buildDNet, self).__init__()
-        model = [nn.Conv2d(input_nc + output_nc, ngf, kernel_size=4, stride
-            =2, padding=1, bias=False)]
+        model = [nn.Conv2d(input_nc + output_nc, ngf, kernel_size=4, stride=2, padding=1, bias=False)]
         model = model + [nn.LeakyReLU(0.2, True)]
         nf_mult = 1
         nf_prev = 1
         for n in range(1, n_layers):
             nf_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            model = model + [nn.Conv2d(ngf * nf_prev, ngf * nf_mult,
-                kernel_size=4, stride=2, padding=1, bias=False), nn.
-                BatchNorm2d(ngf * nf_mult), nn.LeakyReLU(0.2, True)]
+            model = model + [nn.Conv2d(ngf * nf_prev, ngf * nf_mult, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(ngf * nf_mult), nn.LeakyReLU(0.2, True)]
         nf_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        model = model + [nn.Conv2d(ngf * nf_prev, ngf * nf_mult,
-            kernel_size=4, stride=1, padding=1, bias=False), nn.BatchNorm2d
-            (ngf * nf_mult), nn.LeakyReLU(0.2, True), nn.Conv2d(ngf *
-            nf_mult, 1, kernel_size=4, stride=1, padding=1, bias=False), nn
-            .Sigmoid()]
+        model = model + [nn.Conv2d(ngf * nf_prev, ngf * nf_mult, kernel_size=4, stride=1, padding=1, bias=False), nn.BatchNorm2d(ngf * nf_mult), nn.LeakyReLU(0.2, True), nn.Conv2d(ngf * nf_mult, 1, kernel_size=4, stride=1, padding=1, bias=False), nn.Sigmoid()]
         self.model = nn.Sequential(*model)
         self.num_params = 0
         for param in self.model.parameters():
@@ -232,12 +206,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_lquirosd_P2PaLA(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(buildDNet(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 8, 64, 64])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (buildDNet,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (buildUnet,
+     lambda: ([], {'input_nc': 4, 'output_nc': 4}),
+     lambda: ([torch.rand([4, 4, 256, 256])], {}),
+     False),
+]
+
+class Test_lquirosd_P2PaLA(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(buildUnet(*[], **{'input_nc': 4, 'output_nc': 4}), [torch.rand([4, 4, 256, 256])], {})
+        self._check(*TESTCASES[1])
 

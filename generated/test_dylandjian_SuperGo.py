@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,11 +95,9 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
 
     def forward(self, x):
@@ -139,12 +138,10 @@ class Extractor(nn.Module):
 
     def __init__(self, inplanes, outplanes):
         super(Extractor, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, outplanes, stride=1, kernel_size=3,
-            padding=1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, outplanes, stride=1, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(outplanes)
         for block in range(BLOCKS):
-            setattr(self, 'res{}'.format(block), BasicBlock(outplanes,
-                outplanes))
+            setattr(self, 'res{}'.format(block), BasicBlock(outplanes, outplanes))
 
     def forward(self, x):
         """
@@ -218,15 +215,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlphaLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([64, 4]), torch.rand([64, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Extractor,
+     lambda: ([], {'inplanes': 4, 'outplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_dylandjian_SuperGo(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AlphaLoss(*[], **{}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([64, 4]), torch.rand([64, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Extractor(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

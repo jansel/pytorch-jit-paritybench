@@ -44,8 +44,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -113,11 +114,9 @@ class BasicBlock(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1, option='A'):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
@@ -125,12 +124,9 @@ class BasicBlock(nn.Module):
                 """
                 For CIFAR10 ResNet paper uses option A.
                 """
-                self.shortcut = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::
-                    2], (0, 0, 0, 0, planes // 4, planes // 4), 'constant', 0))
+                self.shortcut = LambdaLayer(lambda x: F.pad(x[:, :, ::2, ::2], (0, 0, 0, 0, planes // 4, planes // 4), 'constant', 0))
             elif option == 'B':
-                self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.
-                    expansion * planes, kernel_size=1, stride=stride, bias=
-                    False), nn.BatchNorm2d(self.expansion * planes))
+                self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -151,8 +147,7 @@ class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 16
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
@@ -186,8 +181,7 @@ class ConvBNReLU(nn.Module):
         super(ConvBNReLU, self).__init__()
         self.in_planes = in_planes
         self.out_planes = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=3, padding
-            =3 // 2)
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=3, padding=3 // 2)
         self.bn = nn.BatchNorm2d(out_planes, eps=0.001)
         self.relu = nn.ReLU(inplace=True)
 
@@ -203,20 +197,8 @@ class VGGBnDrop(nn.Module):
     def __init__(self, num_classes=10):
         super(VGGBnDrop, self).__init__()
         self.num_classes = num_classes
-        self.features = nn.Sequential(ConvBNReLU(3, 64), nn.Dropout(0.3),
-            ConvBNReLU(64, 64), nn.MaxPool2d(2, 2, ceil_mode=True),
-            ConvBNReLU(64, 128), nn.Dropout(0.4), ConvBNReLU(128, 128), nn.
-            MaxPool2d(2, 2, ceil_mode=True), ConvBNReLU(128, 256), nn.
-            Dropout(0.4), ConvBNReLU(256, 256), nn.Dropout(0.4), ConvBNReLU
-            (256, 256), nn.MaxPool2d(2, 2, ceil_mode=True), ConvBNReLU(256,
-            512), nn.Dropout(0.4), ConvBNReLU(512, 512), nn.Dropout(0.4),
-            ConvBNReLU(512, 512), nn.MaxPool2d(2, 2, ceil_mode=True),
-            ConvBNReLU(512, 512), nn.Dropout(0.4), ConvBNReLU(512, 512), nn
-            .Dropout(0.4), ConvBNReLU(512, 512), nn.MaxPool2d(2, 2,
-            ceil_mode=True))
-        self.classifier = nn.Sequential(nn.Dropout(0.5), nn.Linear(512, 512
-            ), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Dropout(0.5),
-            nn.Linear(512, self.num_classes))
+        self.features = nn.Sequential(ConvBNReLU(3, 64), nn.Dropout(0.3), ConvBNReLU(64, 64), nn.MaxPool2d(2, 2, ceil_mode=True), ConvBNReLU(64, 128), nn.Dropout(0.4), ConvBNReLU(128, 128), nn.MaxPool2d(2, 2, ceil_mode=True), ConvBNReLU(128, 256), nn.Dropout(0.4), ConvBNReLU(256, 256), nn.Dropout(0.4), ConvBNReLU(256, 256), nn.MaxPool2d(2, 2, ceil_mode=True), ConvBNReLU(256, 512), nn.Dropout(0.4), ConvBNReLU(512, 512), nn.Dropout(0.4), ConvBNReLU(512, 512), nn.MaxPool2d(2, 2, ceil_mode=True), ConvBNReLU(512, 512), nn.Dropout(0.4), ConvBNReLU(512, 512), nn.Dropout(0.4), ConvBNReLU(512, 512), nn.MaxPool2d(2, 2, ceil_mode=True))
+        self.classifier = nn.Sequential(nn.Dropout(0.5), nn.Linear(512, 512), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(512, self.num_classes))
         self.classifier[-1].is_classifier = True
 
     def forward(self, input):
@@ -337,16 +319,14 @@ class MaskedModule(nn.Module):
         return weight, bias
 
     def set_masks(self, weight_mask, bias_mask=None):
-        assert _same_shape(weight_mask, self.weight
-            ), f'Weight Mask must match dimensions'
+        assert _same_shape(weight_mask, self.weight), f'Weight Mask must match dimensions'
         weight_mask = _ensure_tensor(weight_mask)
         self.weight_mask = _same_device(weight_mask, self.weight)
         self.weight.data.mul_(weight_mask)
         if bias_mask is not None:
             bias_mask = _ensure_tensor(bias_mask)
             assert self.bias is not None, 'Provided layer must have bias for it to be masked'
-            assert _same_shape(bias_mask, self.bias
-                ), f'Bias Mask must match dimensions'
+            assert _same_shape(bias_mask, self.bias), f'Bias Mask must match dimensions'
             self.bias_mask = _same_device(bias_mask, self.bias)
             self.bias.data.mul_(bias_mask)
 
@@ -355,14 +335,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'in_planes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBNReLU,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LambdaLayer,
+     lambda: ([], {'lambd': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGGBnDrop,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     True),
+]
+
 class Test_JJGO_shrinkbench(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'in_planes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBNReLU(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(LambdaLayer(*[], **{'lambd': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

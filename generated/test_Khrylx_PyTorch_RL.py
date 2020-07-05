@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -98,15 +99,13 @@ class Discriminator(nn.Module):
 
 def normal_log_density(x, mean, log_std, std):
     var = std.pow(2)
-    log_density = -(x - mean).pow(2) / (2 * var) - 0.5 * math.log(2 * math.pi
-        ) - log_std
+    log_density = -(x - mean).pow(2) / (2 * var) - 0.5 * math.log(2 * math.pi) - log_std
     return log_density.sum(1, keepdim=True)
 
 
 class Policy(nn.Module):
 
-    def __init__(self, state_dim, action_dim, hidden_size=(128, 128),
-        activation='tanh', log_std=0):
+    def __init__(self, state_dim, action_dim, hidden_size=(128, 128), activation='tanh', log_std=0):
         super().__init__()
         self.is_disc_action = False
         if activation == 'tanh':
@@ -143,19 +142,16 @@ class Policy(nn.Module):
         mean0 = mean1.detach()
         log_std0 = log_std1.detach()
         std0 = std1.detach()
-        kl = log_std1 - log_std0 + (std0.pow(2) + (mean0 - mean1).pow(2)) / (
-            2.0 * std1.pow(2)) - 0.5
+        kl = log_std1 - log_std0 + (std0.pow(2) + (mean0 - mean1).pow(2)) / (2.0 * std1.pow(2)) - 0.5
         return kl.sum(1, keepdim=True)
 
     def get_log_prob(self, x, actions):
         action_mean, action_log_std, action_std = self.forward(x)
-        return normal_log_density(actions, action_mean, action_log_std,
-            action_std)
+        return normal_log_density(actions, action_mean, action_log_std, action_std)
 
     def get_fim(self, x):
         mean, _, _ = self.forward(x)
-        cov_inv = self.action_log_std.exp().pow(-2).squeeze(0).repeat(x.size(0)
-            )
+        cov_inv = self.action_log_std.exp().pow(-2).squeeze(0).repeat(x.size(0))
         param_count = 0
         std_index = 0
         id = 0
@@ -165,14 +161,12 @@ class Policy(nn.Module):
                 std_index = param_count
             param_count += param.view(-1).shape[0]
             id += 1
-        return cov_inv.detach(), mean, {'std_id': std_id, 'std_index':
-            std_index}
+        return cov_inv.detach(), mean, {'std_id': std_id, 'std_index': std_index}
 
 
 class DiscretePolicy(nn.Module):
 
-    def __init__(self, state_dim, action_num, hidden_size=(128, 128),
-        activation='tanh'):
+    def __init__(self, state_dim, action_num, hidden_size=(128, 128), activation='tanh'):
         super().__init__()
         self.is_disc_action = True
         if activation == 'tanh':
@@ -221,17 +215,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DiscretePolicy,
+     lambda: ([], {'state_dim': 4, 'action_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {'num_inputs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Policy,
+     lambda: ([], {'state_dim': 4, 'action_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Value,
+     lambda: ([], {'state_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_Khrylx_PyTorch_RL(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DiscretePolicy(*[], **{'state_dim': 4, 'action_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Discriminator(*[], **{'num_inputs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Policy(*[], **{'state_dim': 4, 'action_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Value(*[], **{'state_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

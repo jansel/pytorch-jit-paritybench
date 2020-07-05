@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -76,26 +77,20 @@ class JODIE(nn.Module):
         self.user_static_embedding_size = num_users
         self.item_static_embedding_size = num_items
         None
-        self.initial_user_embedding = nn.Parameter(torch.Tensor(args.
-            embedding_dim))
-        self.initial_item_embedding = nn.Parameter(torch.Tensor(args.
-            embedding_dim))
-        rnn_input_size_items = rnn_input_size_users = (self.embedding_dim +
-            1 + num_features)
+        self.initial_user_embedding = nn.Parameter(torch.Tensor(args.embedding_dim))
+        self.initial_item_embedding = nn.Parameter(torch.Tensor(args.embedding_dim))
+        rnn_input_size_items = rnn_input_size_users = self.embedding_dim + 1 + num_features
         None
         self.item_rnn = nn.RNNCell(rnn_input_size_users, self.embedding_dim)
         self.user_rnn = nn.RNNCell(rnn_input_size_items, self.embedding_dim)
         None
         self.linear_layer1 = nn.Linear(self.embedding_dim, 50)
         self.linear_layer2 = nn.Linear(50, 2)
-        self.prediction_layer = nn.Linear(self.user_static_embedding_size +
-            self.item_static_embedding_size + self.embedding_dim * 2, self.
-            item_static_embedding_size + self.embedding_dim)
+        self.prediction_layer = nn.Linear(self.user_static_embedding_size + self.item_static_embedding_size + self.embedding_dim * 2, self.item_static_embedding_size + self.embedding_dim)
         self.embedding_layer = NormalLinear(1, self.embedding_dim)
         None
 
-    def forward(self, user_embeddings, item_embeddings, timediffs=None,
-        features=None, select=None):
+    def forward(self, user_embeddings, item_embeddings, timediffs=None, features=None, select=None):
         if select == 'item_update':
             input1 = torch.cat([user_embeddings, timediffs, features], dim=1)
             item_embedding_output = self.item_rnn(input1, item_embeddings)
@@ -105,8 +100,7 @@ class JODIE(nn.Module):
             user_embedding_output = self.user_rnn(input2, user_embeddings)
             return F.normalize(user_embedding_output)
         elif select == 'project':
-            user_projected_embedding = self.context_convert(user_embeddings,
-                timediffs, features)
+            user_projected_embedding = self.context_convert(user_embeddings, timediffs, features)
             return user_projected_embedding
 
     def context_convert(self, embeddings, timediffs, features):
@@ -127,12 +121,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (JODIE,
+     lambda: ([], {'args': _mock_config(model=4, embedding_dim=4), 'num_features': 4, 'num_users': 4, 'num_items': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NormalLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_srijankr_jodie(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(JODIE(*[], **{'args': _mock_config(model=4, embedding_dim=4), 'num_features': 4, 'num_users': 4, 'num_items': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(NormalLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

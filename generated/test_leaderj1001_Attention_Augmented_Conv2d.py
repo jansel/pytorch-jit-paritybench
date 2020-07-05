@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -41,8 +42,7 @@ import time
 
 class AugmentedConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dk, dv, Nh,
-        shape=0, relative=False, stride=1):
+    def __init__(self, in_channels, out_channels, kernel_size, dk, dv, Nh, shape=0, relative=False, stride=1):
         super(AugmentedConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -58,22 +58,17 @@ class AugmentedConv(nn.Module):
         assert self.dk % self.Nh == 0, 'dk should be divided by Nh. (example: out_channels: 20, dk: 40, Nh: 4)'
         assert self.dv % self.Nh == 0, 'dv should be divided by Nh. (example: out_channels: 20, dv: 4, Nh: 4)'
         assert stride in [1, 2], str(stride) + ' Up to 2 strides are allowed.'
-        self.conv_out = nn.Conv2d(self.in_channels, self.out_channels -
-            self.dv, self.kernel_size, stride=stride, padding=self.padding)
-        self.qkv_conv = nn.Conv2d(self.in_channels, 2 * self.dk + self.dv,
-            kernel_size=self.kernel_size, stride=stride, padding=self.padding)
+        self.conv_out = nn.Conv2d(self.in_channels, self.out_channels - self.dv, self.kernel_size, stride=stride, padding=self.padding)
+        self.qkv_conv = nn.Conv2d(self.in_channels, 2 * self.dk + self.dv, kernel_size=self.kernel_size, stride=stride, padding=self.padding)
         self.attn_out = nn.Conv2d(self.dv, self.dv, kernel_size=1, stride=1)
         if self.relative:
-            self.key_rel_w = nn.Parameter(torch.randn((2 * self.shape - 1, 
-                dk // Nh), requires_grad=True))
-            self.key_rel_h = nn.Parameter(torch.randn((2 * self.shape - 1, 
-                dk // Nh), requires_grad=True))
+            self.key_rel_w = nn.Parameter(torch.randn((2 * self.shape - 1, dk // Nh), requires_grad=True))
+            self.key_rel_h = nn.Parameter(torch.randn((2 * self.shape - 1, dk // Nh), requires_grad=True))
 
     def forward(self, x):
         conv_out = self.conv_out(x)
         batch, _, height, width = conv_out.size()
-        flat_q, flat_k, flat_v, q, k, v = self.compute_flat_qkv(x, self.dk,
-            self.dv, self.Nh)
+        flat_q, flat_k, flat_v, q, k, v = self.compute_flat_qkv(x, self.dk, self.dv, self.Nh)
         logits = torch.matmul(flat_q.transpose(2, 3), flat_k)
         if self.relative:
             h_rel_logits, w_rel_logits = self.relative_logits(q)
@@ -81,8 +76,7 @@ class AugmentedConv(nn.Module):
             logits += w_rel_logits
         weights = F.softmax(logits, dim=-1)
         attn_out = torch.matmul(weights, flat_v.transpose(2, 3))
-        attn_out = torch.reshape(attn_out, (batch, self.Nh, self.dv // self
-            .Nh, height, width))
+        attn_out = torch.reshape(attn_out, (batch, self.Nh, self.dv // self.Nh, height, width))
         attn_out = self.combine_heads_2d(attn_out)
         attn_out = self.attn_out(attn_out)
         return torch.cat((conv_out, attn_out), dim=1)
@@ -115,10 +109,8 @@ class AugmentedConv(nn.Module):
     def relative_logits(self, q):
         B, Nh, dk, H, W = q.size()
         q = torch.transpose(q, 2, 4).transpose(2, 3)
-        rel_logits_w = self.relative_logits_1d(q, self.key_rel_w, H, W, Nh, 'w'
-            )
-        rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3),
-            self.key_rel_h, W, H, Nh, 'h')
+        rel_logits_w = self.relative_logits_1d(q, self.key_rel_w, H, W, Nh, 'w')
+        rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3), self.key_rel_h, W, H, Nh, 'h')
         return rel_logits_h, rel_logits_w
 
     def relative_logits_1d(self, q, rel_k, H, W, Nh, case):
@@ -131,8 +123,7 @@ class AugmentedConv(nn.Module):
         if case == 'w':
             rel_logits = torch.transpose(rel_logits, 3, 4)
         elif case == 'h':
-            rel_logits = torch.transpose(rel_logits, 2, 4).transpose(4, 5
-                ).transpose(3, 5)
+            rel_logits = torch.transpose(rel_logits, 2, 4).transpose(4, 5).transpose(3, 5)
         rel_logits = torch.reshape(rel_logits, (-1, Nh, H * W, H * W))
         return rel_logits
 
@@ -150,27 +141,20 @@ class AugmentedConv(nn.Module):
 
 class wide_basic(nn.Module):
 
-    def __init__(self, in_planes, planes, dropout_rate, shape, stride=1, v=
-        0.2, k=2, Nh=4):
+    def __init__(self, in_planes, planes, dropout_rate, shape, stride=1, v=0.2, k=2, Nh=4):
         super(wide_basic, self).__init__()
         if stride == 2:
             original_shape = shape * 2
         else:
             original_shape = shape
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = AugmentedConv(in_planes, planes, kernel_size=3, dk=k *
-            planes, dv=int(v * planes), Nh=Nh, relative=True, shape=
-            original_shape)
+        self.conv1 = AugmentedConv(in_planes, planes, kernel_size=3, dk=k * planes, dv=int(v * planes), Nh=Nh, relative=True, shape=original_shape)
         self.dropout = nn.Dropout(p=dropout_rate)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = AugmentedConv(planes, planes, kernel_size=3, dk=k *
-            planes, dv=int(v * planes), Nh=Nh, stride=stride, relative=True,
-            shape=shape)
+        self.conv2 = AugmentedConv(planes, planes, kernel_size=3, dk=k * planes, dv=int(v * planes), Nh=Nh, stride=stride, relative=True, shape=shape)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(AugmentedConv(in_planes, planes,
-                kernel_size=3, dk=k * planes, dv=int(v * planes), Nh=Nh,
-                relative=True, stride=stride, shape=shape))
+            self.shortcut = nn.Sequential(AugmentedConv(in_planes, planes, kernel_size=3, dk=k * planes, dv=int(v * planes), Nh=Nh, relative=True, stride=stride, shape=shape))
 
     def forward(self, x):
         out = self.dropout(self.conv1(F.relu(self.bn1(x))))
@@ -208,26 +192,19 @@ class Wide_ResNet(nn.Module):
         Nh = 4
         None
         n_Stages = [20, 20 * k, 40 * k, 60 * k]
-        self.conv1 = AugmentedConv(in_channels=3, out_channels=n_Stages[0],
-            kernel_size=3, dk=dk_k * n_Stages[0], dv=int(dv_v * n_Stages[0]
-            ), shape=shape, Nh=Nh, relative=True)
-        self.layer1 = nn.Sequential(self._wide_layer(wide_basic, n_Stages[1
-            ], n, dropout_rate, stride=1, shape=shape))
-        self.layer2 = nn.Sequential(self._wide_layer(wide_basic, n_Stages[2
-            ], n, dropout_rate, stride=2, shape=shape // 2))
-        self.layer3 = nn.Sequential(self._wide_layer(wide_basic, n_Stages[3
-            ], n, dropout_rate, stride=2, shape=shape // 4))
+        self.conv1 = AugmentedConv(in_channels=3, out_channels=n_Stages[0], kernel_size=3, dk=dk_k * n_Stages[0], dv=int(dv_v * n_Stages[0]), shape=shape, Nh=Nh, relative=True)
+        self.layer1 = nn.Sequential(self._wide_layer(wide_basic, n_Stages[1], n, dropout_rate, stride=1, shape=shape))
+        self.layer2 = nn.Sequential(self._wide_layer(wide_basic, n_Stages[2], n, dropout_rate, stride=2, shape=shape // 2))
+        self.layer3 = nn.Sequential(self._wide_layer(wide_basic, n_Stages[3], n, dropout_rate, stride=2, shape=shape // 4))
         self.bn1 = nn.BatchNorm2d(n_Stages[3], momentum=0.9)
         self.linear = nn.Linear(n_Stages[3], num_classes)
         self.apply(_weights_init)
 
-    def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride,
-        shape):
+    def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride, shape):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, dropout_rate=
-                dropout_rate, stride=stride, shape=shape))
+            layers.append(block(self.in_planes, planes, dropout_rate=dropout_rate, stride=stride, shape=shape))
             self.in_planes = planes
         return nn.Sequential(*layers)
 
@@ -245,8 +222,7 @@ class Wide_ResNet(nn.Module):
 
 class AugmentedConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dk, dv, Nh,
-        shape=0, relative=False, stride=1):
+    def __init__(self, in_channels, out_channels, kernel_size, dk, dv, Nh, shape=0, relative=False, stride=1):
         super(AugmentedConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -262,22 +238,17 @@ class AugmentedConv(nn.Module):
         assert self.dk % self.Nh == 0, 'dk should be divided by Nh. (example: out_channels: 20, dk: 40, Nh: 4)'
         assert self.dv % self.Nh == 0, 'dv should be divided by Nh. (example: out_channels: 20, dv: 4, Nh: 4)'
         assert stride in [1, 2], str(stride) + ' Up to 2 strides are allowed.'
-        self.conv_out = nn.Conv2d(self.in_channels, self.out_channels -
-            self.dv, self.kernel_size, stride=stride, padding=self.padding)
-        self.qkv_conv = nn.Conv2d(self.in_channels, 2 * self.dk + self.dv,
-            kernel_size=self.kernel_size, stride=stride, padding=self.padding)
+        self.conv_out = nn.Conv2d(self.in_channels, self.out_channels - self.dv, self.kernel_size, stride=stride, padding=self.padding)
+        self.qkv_conv = nn.Conv2d(self.in_channels, 2 * self.dk + self.dv, kernel_size=self.kernel_size, stride=stride, padding=self.padding)
         self.attn_out = nn.Conv2d(self.dv, self.dv, kernel_size=1, stride=1)
         if self.relative:
-            self.key_rel_w = nn.Parameter(torch.randn((2 * self.shape - 1, 
-                dk // Nh), requires_grad=True))
-            self.key_rel_h = nn.Parameter(torch.randn((2 * self.shape - 1, 
-                dk // Nh), requires_grad=True))
+            self.key_rel_w = nn.Parameter(torch.randn((2 * self.shape - 1, dk // Nh), requires_grad=True))
+            self.key_rel_h = nn.Parameter(torch.randn((2 * self.shape - 1, dk // Nh), requires_grad=True))
 
     def forward(self, x):
         conv_out = self.conv_out(x)
         batch, _, height, width = conv_out.size()
-        flat_q, flat_k, flat_v, q, k, v = self.compute_flat_qkv(x, self.dk,
-            self.dv, self.Nh)
+        flat_q, flat_k, flat_v, q, k, v = self.compute_flat_qkv(x, self.dk, self.dv, self.Nh)
         logits = torch.matmul(flat_q.transpose(2, 3), flat_k)
         if self.relative:
             h_rel_logits, w_rel_logits = self.relative_logits(q)
@@ -285,8 +256,7 @@ class AugmentedConv(nn.Module):
             logits += w_rel_logits
         weights = F.softmax(logits, dim=-1)
         attn_out = torch.matmul(weights, flat_v.transpose(2, 3))
-        attn_out = torch.reshape(attn_out, (batch, self.Nh, self.dv // self
-            .Nh, height, width))
+        attn_out = torch.reshape(attn_out, (batch, self.Nh, self.dv // self.Nh, height, width))
         attn_out = self.combine_heads_2d(attn_out)
         attn_out = self.attn_out(attn_out)
         return torch.cat((conv_out, attn_out), dim=1)
@@ -319,10 +289,8 @@ class AugmentedConv(nn.Module):
     def relative_logits(self, q):
         B, Nh, dk, H, W = q.size()
         q = torch.transpose(q, 2, 4).transpose(2, 3)
-        rel_logits_w = self.relative_logits_1d(q, self.key_rel_w, H, W, Nh, 'w'
-            )
-        rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3),
-            self.key_rel_h, W, H, Nh, 'h')
+        rel_logits_w = self.relative_logits_1d(q, self.key_rel_w, H, W, Nh, 'w')
+        rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3), self.key_rel_h, W, H, Nh, 'h')
         return rel_logits_h, rel_logits_w
 
     def relative_logits_1d(self, q, rel_k, H, W, Nh, case):
@@ -335,8 +303,7 @@ class AugmentedConv(nn.Module):
         if case == 'w':
             rel_logits = torch.transpose(rel_logits, 3, 4)
         elif case == 'h':
-            rel_logits = torch.transpose(rel_logits, 2, 4).transpose(4, 5
-                ).transpose(3, 5)
+            rel_logits = torch.transpose(rel_logits, 2, 4).transpose(4, 5).transpose(3, 5)
         rel_logits = torch.reshape(rel_logits, (-1, Nh, H * W, H * W))
         return rel_logits
 
@@ -360,8 +327,7 @@ device = torch.device('cuda' if use_cuda else 'cpu')
 
 class AugmentedConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dk, dv, Nh,
-        relative):
+    def __init__(self, in_channels, out_channels, kernel_size, dk, dv, Nh, relative):
         super(AugmentedConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -370,17 +336,14 @@ class AugmentedConv(nn.Module):
         self.dv = dv
         self.Nh = Nh
         self.relative = relative
-        self.conv_out = nn.Conv2d(self.in_channels, self.out_channels -
-            self.dv, self.kernel_size, padding=1)
-        self.qkv_conv = nn.Conv2d(self.in_channels, 2 * self.dk + self.dv,
-            kernel_size=1)
+        self.conv_out = nn.Conv2d(self.in_channels, self.out_channels - self.dv, self.kernel_size, padding=1)
+        self.qkv_conv = nn.Conv2d(self.in_channels, 2 * self.dk + self.dv, kernel_size=1)
         self.attn_out = nn.Conv2d(self.dv, self.dv, 1)
 
     def forward(self, x):
         batch, _, height, width = x.size()
         conv_out = self.conv_out(x)
-        flat_q, flat_k, flat_v, q, k, v = self.compute_flat_qkv(x, self.dk,
-            self.dv, self.Nh)
+        flat_q, flat_k, flat_v, q, k, v = self.compute_flat_qkv(x, self.dk, self.dv, self.Nh)
         logits = torch.matmul(flat_q.transpose(2, 3), flat_k)
         if self.relative:
             h_rel_logits, w_rel_logits = self.relative_logits(q)
@@ -388,8 +351,7 @@ class AugmentedConv(nn.Module):
             logits += w_rel_logits
         weights = F.softmax(logits, dim=-1)
         attn_out = torch.matmul(weights, flat_v.transpose(2, 3))
-        attn_out = torch.reshape(attn_out, (batch, self.Nh, self.dv // self
-            .Nh, height, width))
+        attn_out = torch.reshape(attn_out, (batch, self.Nh, self.dv // self.Nh, height, width))
         attn_out = self.combine_heads_2d(attn_out)
         attn_out = self.attn_out(attn_out)
         return torch.cat((conv_out, attn_out), dim=1)
@@ -422,13 +384,10 @@ class AugmentedConv(nn.Module):
     def relative_logits(self, q):
         B, Nh, dk, H, W = q.size()
         q = torch.transpose(q, 2, 4).transpose(2, 3)
-        key_rel_w = nn.Parameter(torch.randn((2 * W - 1, dk), requires_grad
-            =True))
+        key_rel_w = nn.Parameter(torch.randn((2 * W - 1, dk), requires_grad=True))
         rel_logits_w = self.relative_logits_1d(q, key_rel_w, H, W, Nh, 'w')
-        key_rel_h = nn.Parameter(torch.randn((2 * H - 1, dk), requires_grad
-            =True))
-        rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3),
-            key_rel_h, W, H, Nh, 'h')
+        key_rel_h = nn.Parameter(torch.randn((2 * H - 1, dk), requires_grad=True))
+        rel_logits_h = self.relative_logits_1d(torch.transpose(q, 2, 3), key_rel_h, W, H, Nh, 'h')
         return rel_logits_h, rel_logits_w
 
     def relative_logits_1d(self, q, rel_k, H, W, Nh, case):
@@ -441,8 +400,7 @@ class AugmentedConv(nn.Module):
         if case == 'w':
             rel_logits = torch.transpose(rel_logits, 3, 4)
         elif case == 'h':
-            rel_logits = torch.transpose(rel_logits, 2, 4).transpose(4, 5
-                ).transpose(3, 5)
+            rel_logits = torch.transpose(rel_logits, 2, 4).transpose(4, 5).transpose(3, 5)
         rel_logits = torch.reshape(rel_logits, (-1, Nh, H * W, H * W))
         return rel_logits
 
@@ -457,10 +415,3 @@ class AugmentedConv(nn.Module):
         final_x = final_x[:, :, :L, L - 1:]
         return final_x
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_leaderj1001_Attention_Augmented_Conv2d(_paritybench_base):
-    pass

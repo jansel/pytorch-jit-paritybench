@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,17 +81,14 @@ from torchvision import models as tv
 
 class PerceptualLoss(torch.nn.Module):
 
-    def __init__(self, model='net-lin', net='alex', colorspace='rgb',
-        spatial=False, use_gpu=True, gpu_ids=[0], version='0.1'):
+    def __init__(self, model='net-lin', net='alex', colorspace='rgb', spatial=False, use_gpu=True, gpu_ids=[0], version='0.1'):
         super(PerceptualLoss, self).__init__()
         None
         self.use_gpu = use_gpu
         self.spatial = spatial
         self.gpu_ids = gpu_ids
         self.model = dist_model.DistModel()
-        self.model.initialize(model=model, net=net, use_gpu=use_gpu,
-            colorspace=colorspace, spatial=self.spatial, gpu_ids=gpu_ids,
-            version=version)
+        self.model.initialize(model=model, net=net, use_gpu=use_gpu, colorspace=colorspace, spatial=self.spatial, gpu_ids=gpu_ids, version=version)
         None
         None
 
@@ -116,14 +114,12 @@ def spatial_average(in_tens, keepdim=True):
 def upsample(in_tens, out_H=64):
     in_H = in_tens.shape[2]
     scale_factor = 1.0 * out_H / in_H
-    return nn.Upsample(scale_factor=scale_factor, mode='bilinear',
-        align_corners=False)(in_tens)
+    return nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False)(in_tens)
 
 
 class PNetLin(nn.Module):
 
-    def __init__(self, pnet_type='vgg', pnet_rand=False, pnet_tune=False,
-        use_dropout=True, spatial=False, version='0.1', lpips=True):
+    def __init__(self, pnet_type='vgg', pnet_rand=False, pnet_tune=False, use_dropout=True, spatial=False, version='0.1', lpips=True):
         super(PNetLin, self).__init__()
         self.pnet_type = pnet_type
         self.pnet_tune = pnet_tune
@@ -142,8 +138,7 @@ class PNetLin(nn.Module):
             net_type = pn.squeezenet
             self.chns = [64, 128, 256, 384, 384, 512, 512]
         self.L = len(self.chns)
-        self.net = net_type(pretrained=not self.pnet_rand, requires_grad=
-            self.pnet_tune)
+        self.net = net_type(pretrained=not self.pnet_rand, requires_grad=self.pnet_tune)
         if lpips:
             self.lin0 = NetLinLayer(self.chns[0], use_dropout=use_dropout)
             self.lin1 = NetLinLayer(self.chns[1], use_dropout=use_dropout)
@@ -157,27 +152,21 @@ class PNetLin(nn.Module):
                 self.lins += [self.lin5, self.lin6]
 
     def forward(self, in0, in1, retPerLayer=False):
-        in0_input, in1_input = (self.scaling_layer(in0), self.scaling_layer
-            (in1)) if self.version == '0.1' else (in0, in1)
+        in0_input, in1_input = (self.scaling_layer(in0), self.scaling_layer(in1)) if self.version == '0.1' else (in0, in1)
         outs0, outs1 = self.net.forward(in0_input), self.net.forward(in1_input)
         feats0, feats1, diffs = {}, {}, {}
         for kk in range(self.L):
-            feats0[kk], feats1[kk] = util.normalize_tensor(outs0[kk]
-                ), util.normalize_tensor(outs1[kk])
+            feats0[kk], feats1[kk] = util.normalize_tensor(outs0[kk]), util.normalize_tensor(outs1[kk])
             diffs[kk] = (feats0[kk] - feats1[kk]) ** 2
         if self.lpips:
             if self.spatial:
-                res = [upsample(self.lins[kk].model(diffs[kk]), out_H=in0.
-                    shape[2]) for kk in range(self.L)]
+                res = [upsample(self.lins[kk].model(diffs[kk]), out_H=in0.shape[2]) for kk in range(self.L)]
             else:
-                res = [spatial_average(self.lins[kk].model(diffs[kk]),
-                    keepdim=True) for kk in range(self.L)]
+                res = [spatial_average(self.lins[kk].model(diffs[kk]), keepdim=True) for kk in range(self.L)]
         elif self.spatial:
-            res = [upsample(diffs[kk].sum(dim=1, keepdim=True), out_H=in0.
-                shape[2]) for kk in range(self.L)]
+            res = [upsample(diffs[kk].sum(dim=1, keepdim=True), out_H=in0.shape[2]) for kk in range(self.L)]
         else:
-            res = [spatial_average(diffs[kk].sum(dim=1, keepdim=True),
-                keepdim=True) for kk in range(self.L)]
+            res = [spatial_average(diffs[kk].sum(dim=1, keepdim=True), keepdim=True) for kk in range(self.L)]
         val = res[0]
         for l in range(1, self.L):
             val += res[l]
@@ -191,10 +180,8 @@ class ScalingLayer(nn.Module):
 
     def __init__(self):
         super(ScalingLayer, self).__init__()
-        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])
-            [(None), :, (None), (None)])
-        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(
-            None), :, (None), (None)])
+        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[(None), :, (None), (None)])
+        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(None), :, (None), (None)])
 
     def forward(self, inp):
         return (inp - self.shift) / self.scale
@@ -206,8 +193,7 @@ class NetLinLayer(nn.Module):
     def __init__(self, chn_in, chn_out=1, use_dropout=False):
         super(NetLinLayer, self).__init__()
         layers = [nn.Dropout()] if use_dropout else []
-        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=
-            False)]
+        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
         self.model = nn.Sequential(*layers)
 
 
@@ -218,8 +204,7 @@ class Dist2LogitLayer(nn.Module):
         super(Dist2LogitLayer, self).__init__()
         layers = [nn.Conv2d(5, chn_mid, 1, stride=1, padding=0, bias=True)]
         layers += [nn.LeakyReLU(0.2, True)]
-        layers += [nn.Conv2d(chn_mid, chn_mid, 1, stride=1, padding=0, bias
-            =True)]
+        layers += [nn.Conv2d(chn_mid, chn_mid, 1, stride=1, padding=0, bias=True)]
         layers += [nn.LeakyReLU(0.2, True)]
         layers += [nn.Conv2d(chn_mid, 1, 1, stride=1, padding=0, bias=True)]
         if use_sigmoid:
@@ -227,8 +212,7 @@ class Dist2LogitLayer(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, d0, d1, eps=0.1):
-        return self.model.forward(torch.cat((d0, d1, d0 - d1, d0 / (d1 +
-            eps), d1 / (d0 + eps)), dim=1))
+        return self.model.forward(torch.cat((d0, d1, d0 - d1, d0 / (d1 + eps), d1 / (d0 + eps)), dim=1))
 
 
 class BCERankingLoss(nn.Module):
@@ -298,10 +282,8 @@ class squeezenet(torch.nn.Module):
         h_relu6 = h
         h = self.slice7(h)
         h_relu7 = h
-        vgg_outputs = namedtuple('SqueezeOutputs', ['relu1', 'relu2',
-            'relu3', 'relu4', 'relu5', 'relu6', 'relu7'])
-        out = vgg_outputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5,
-            h_relu6, h_relu7)
+        vgg_outputs = namedtuple('SqueezeOutputs', ['relu1', 'relu2', 'relu3', 'relu4', 'relu5', 'relu6', 'relu7'])
+        out = vgg_outputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5, h_relu6, h_relu7)
         return out
 
 
@@ -309,8 +291,7 @@ class alexnet(torch.nn.Module):
 
     def __init__(self, requires_grad=False, pretrained=True):
         super(alexnet, self).__init__()
-        alexnet_pretrained_features = tv.alexnet(pretrained=pretrained
-            ).features
+        alexnet_pretrained_features = tv.alexnet(pretrained=pretrained).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -342,8 +323,7 @@ class alexnet(torch.nn.Module):
         h_relu4 = h
         h = self.slice5(h)
         h_relu5 = h
-        alexnet_outputs = namedtuple('AlexnetOutputs', ['relu1', 'relu2',
-            'relu3', 'relu4', 'relu5'])
+        alexnet_outputs = namedtuple('AlexnetOutputs', ['relu1', 'relu2', 'relu3', 'relu4', 'relu5'])
         out = alexnet_outputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5)
         return out
 
@@ -384,10 +364,8 @@ class vgg16(torch.nn.Module):
         h_relu4_3 = h
         h = self.slice5(h)
         h_relu5_3 = h
-        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2',
-            'relu3_3', 'relu4_3', 'relu5_3'])
-        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3
-            )
+        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3', 'relu5_3'])
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
         return out
 
 
@@ -429,8 +407,7 @@ class resnet(torch.nn.Module):
         h_conv4 = h
         h = self.layer4(h)
         h_conv5 = h
-        outputs = namedtuple('Outputs', ['relu1', 'conv2', 'conv3', 'conv4',
-            'conv5'])
+        outputs = namedtuple('Outputs', ['relu1', 'conv2', 'conv3', 'conv4', 'conv5'])
         out = outputs(h_relu1, h_conv2, h_conv3, h_conv4, h_conv5)
         return out
 
@@ -439,28 +416,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Dist2LogitLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {}),
+     False),
+    (ScalingLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (alexnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (resnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (squeezenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (vgg16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_richzhang_PerceptualSimilarity(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Dist2LogitLayer(*[], **{}), [torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ScalingLayer(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(alexnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(resnet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(squeezenet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(vgg16(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 

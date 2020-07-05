@@ -31,8 +31,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -124,13 +125,11 @@ class L2Loss(nn.Module):
 
 class MultiScale(nn.Module):
 
-    def __init__(self, args, startScale=4, numScales=5, l_weight=0.32, norm
-        ='L1'):
+    def __init__(self, args, startScale=4, numScales=5, l_weight=0.32, norm='L1'):
         super(MultiScale, self).__init__()
         self.startScale = startScale
         self.numScales = numScales
-        self.loss_weights = torch.FloatTensor([(l_weight / 2 ** scale) for
-            scale in range(self.numScales)])
+        self.loss_weights = torch.FloatTensor([(l_weight / 2 ** scale) for scale in range(self.numScales)])
         self.args = args
         self.l_type = norm
         self.div_flow = 0.05
@@ -139,8 +138,7 @@ class MultiScale(nn.Module):
             self.loss = L1()
         else:
             self.loss = L2()
-        self.multiScales = [nn.AvgPool2d(self.startScale * 2 ** scale, self
-            .startScale * 2 ** scale) for scale in range(self.numScales)]
+        self.multiScales = [nn.AvgPool2d(self.startScale * 2 ** scale, self.startScale * 2 ** scale) for scale in range(self.numScales)]
         self.loss_labels = ['MultiScale-' + self.l_type, 'EPE'],
 
     def forward(self, output, target):
@@ -192,8 +190,7 @@ class FlowNet2(nn.Module):
             self.resample4 = nn.Sequential(tofp32(), Resample2d(), tofp16())
         else:
             self.resample4 = Resample2d()
-        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=
-            self.batchNorm)
+        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=self.batchNorm)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m.bias is not None:
@@ -221,8 +218,7 @@ class FlowNet2(nn.Module):
         return
 
     def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim
-            =-1).view(inputs.size()[:2] + (1, 1, 1))
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
         x1 = x[:, :, (0), :, :]
         x2 = x[:, :, (1), :, :]
@@ -232,30 +228,24 @@ class FlowNet2(nn.Module):
         resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets1_flow2 = self.flownets_1(concat1)[0]
         flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
         resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets2_flow2 = self.flownets_2(concat2)[0]
         flownets2_flow = self.upsample4(flownets2_flow2 * self.div_flow)
         norm_flownets2_flow = self.channelnorm(flownets2_flow)
         diff_flownets2_flow = self.resample4(x[:, 3:, :, :], flownets2_flow)
-        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] -
-            diff_flownets2_flow)
+        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownets2_flow)
         flownetsd_flow2 = self.flownets_d(x)[0]
         flownetsd_flow = self.upsample3(flownetsd_flow2 / self.div_flow)
         norm_flownetsd_flow = self.channelnorm(flownetsd_flow)
         diff_flownetsd_flow = self.resample3(x[:, 3:, :, :], flownetsd_flow)
-        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] -
-            diff_flownetsd_flow)
-        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow,
-            norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1,
-            diff_flownets2_img1), dim=1)
+        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownetsd_flow)
+        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow, norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1, diff_flownets2_img1), dim=1)
         flownetfusion_flow = self.flownetfusion(concat3)
         return flownetfusion_flow
 
@@ -288,8 +278,7 @@ class FlowNet2CS(nn.Module):
                 init.xavier_uniform(m.weight)
 
     def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim
-            =-1).view(inputs.size()[:2] + (1, 1, 1))
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
         x1 = x[:, :, (0), :, :]
         x2 = x[:, :, (1), :, :]
@@ -299,8 +288,7 @@ class FlowNet2CS(nn.Module):
         resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets1_flow2 = self.flownets_1(concat1)[0]
         flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
         return flownets1_flow
@@ -340,8 +328,7 @@ class FlowNet2CSS(nn.Module):
                 init.xavier_uniform(m.weight)
 
     def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim
-            =-1).view(inputs.size()[:2] + (1, 1, 1))
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
         x = (inputs - rgb_mean) / self.rgb_max
         x1 = x[:, :, (0), :, :]
         x2 = x[:, :, (1), :, :]
@@ -351,15 +338,13 @@ class FlowNet2CSS(nn.Module):
         resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets1_flow2 = self.flownets_1(concat1)[0]
         flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
         resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
         diff_img0 = x[:, :3, :, :] - resampled_img1
         norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.
-            div_flow, norm_diff_img0), dim=1)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
         flownets2_flow2 = self.flownets_2(concat2)[0]
         flownets2_flow = self.upsample3(flownets2_flow2 * self.div_flow)
         return flownets2_flow
@@ -367,25 +352,17 @@ class FlowNet2CSS(nn.Module):
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1,
-            inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=False), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=True), nn.LeakyReLU(0.1, inplace=True))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 def deconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1,
-        inplace=True))
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=True), nn.LeakyReLU(0.1, inplace=True))
 
 
 def predict_flow(in_planes):
-    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias
-        =True)
+    return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias=True)
 
 
 class FlowNetC(nn.Module):
@@ -397,15 +374,11 @@ class FlowNetC(nn.Module):
         self.conv1 = conv(self.batchNorm, 3, 64, kernel_size=7, stride=2)
         self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2)
         self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2)
-        self.conv_redir = conv(self.batchNorm, 256, 32, kernel_size=1, stride=1
-            )
+        self.conv_redir = conv(self.batchNorm, 256, 32, kernel_size=1, stride=1)
         if args.fp16:
-            self.corr = nn.Sequential(tofp32(), Correlation(pad_size=20,
-                kernel_size=1, max_displacement=20, stride1=1, stride2=2,
-                corr_multiply=1), tofp16())
+            self.corr = nn.Sequential(tofp32(), Correlation(pad_size=20, kernel_size=1, max_displacement=20, stride1=1, stride2=2, corr_multiply=1), tofp16())
         else:
-            self.corr = Correlation(pad_size=20, kernel_size=1,
-                max_displacement=20, stride1=1, stride2=2, corr_multiply=1)
+            self.corr = Correlation(pad_size=20, kernel_size=1, max_displacement=20, stride1=1, stride2=2, corr_multiply=1)
         self.corr_activation = nn.LeakyReLU(0.1, inplace=True)
         self.conv3_1 = conv(self.batchNorm, 473, 256)
         self.conv4 = conv(self.batchNorm, 256, 512, stride=2)
@@ -423,14 +396,10 @@ class FlowNetC(nn.Module):
         self.predict_flow4 = predict_flow(770)
         self.predict_flow3 = predict_flow(386)
         self.predict_flow2 = predict_flow(194)
-        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
-        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
-        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
-        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True
-            )
+        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
+        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
+        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
+        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m.bias is not None:
@@ -482,16 +451,11 @@ class FlowNetC(nn.Module):
             return flow2,
 
 
-def i_conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, bias=True
-    ):
+def i_conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, bias=True):
     if batchNorm:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=bias), nn.BatchNorm2d(out_planes))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=bias), nn.BatchNorm2d(out_planes))
     else:
-        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=(kernel_size - 1) // 2,
-            bias=bias))
+        return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, bias=bias))
 
 
 class FlowNetFusion(nn.Module):
@@ -546,8 +510,7 @@ class FlowNetS(nn.Module):
     def __init__(self, args, input_channels=12, batchNorm=True):
         super(FlowNetS, self).__init__()
         self.batchNorm = batchNorm
-        self.conv1 = conv(self.batchNorm, input_channels, 64, kernel_size=7,
-            stride=2)
+        self.conv1 = conv(self.batchNorm, input_channels, 64, kernel_size=7, stride=2)
         self.conv2 = conv(self.batchNorm, 64, 128, kernel_size=5, stride=2)
         self.conv3 = conv(self.batchNorm, 128, 256, kernel_size=5, stride=2)
         self.conv3_1 = conv(self.batchNorm, 256, 256)
@@ -566,14 +529,10 @@ class FlowNetS(nn.Module):
         self.predict_flow4 = predict_flow(770)
         self.predict_flow3 = predict_flow(386)
         self.predict_flow2 = predict_flow(194)
-        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
-        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=
-            False)
+        self.upsampled_flow6_to_5 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow5_to_4 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow4_to_3 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
+        self.upsampled_flow3_to_2 = nn.ConvTranspose2d(2, 2, 4, 2, 1, bias=False)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 if m.bias is not None:
@@ -712,8 +671,7 @@ class ChannelNormFunction(Function):
     def backward(ctx, grad_output):
         input1, output = ctx.saved_tensors
         grad_input1 = Variable(input1.new(input1.size()).zero_())
-        channelnorm_cuda.backward(input1, output, grad_output.data,
-            grad_input1.data, ctx.norm_deg)
+        channelnorm_cuda.backward(input1, output, grad_output.data, grad_input1.data, ctx.norm_deg)
         return grad_input1, None
 
 
@@ -730,8 +688,7 @@ class ChannelNorm(Module):
 class CorrelationFunction(Function):
 
     @staticmethod
-    def forward(ctx, input1, input2, pad_size=3, kernel_size=3,
-        max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
+    def forward(ctx, input1, input2, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
         ctx.save_for_backward(input1, input2)
         ctx.pad_size = pad_size
         ctx.kernel_size = kernel_size
@@ -743,9 +700,7 @@ class CorrelationFunction(Function):
             rbot1 = input1.new()
             rbot2 = input2.new()
             output = input1.new()
-            correlation_cuda.forward(input1, input2, rbot1, rbot2, output,
-                ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.
-                stride1, ctx.stride2, ctx.corr_multiply)
+            correlation_cuda.forward(input1, input2, rbot1, rbot2, output, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
         return output
 
     @staticmethod
@@ -756,17 +711,13 @@ class CorrelationFunction(Function):
             rbot2 = input2.new()
             grad_input1 = input1.new()
             grad_input2 = input2.new()
-            correlation_cuda.backward(input1, input2, rbot1, rbot2,
-                grad_output, grad_input1, grad_input2, ctx.pad_size, ctx.
-                kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2,
-                ctx.corr_multiply)
+            correlation_cuda.backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
         return grad_input1, grad_input2, None, None, None, None, None, None
 
 
 class Correlation(Module):
 
-    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0,
-        stride1=1, stride2=2, corr_multiply=1):
+    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
         super(Correlation, self).__init__()
         self.pad_size = pad_size
         self.kernel_size = kernel_size
@@ -776,9 +727,7 @@ class Correlation(Module):
         self.corr_multiply = corr_multiply
 
     def forward(self, input1, input2):
-        result = CorrelationFunction.apply(input1, input2, self.pad_size,
-            self.kernel_size, self.max_displacement, self.stride1, self.
-            stride2, self.corr_multiply)
+        result = CorrelationFunction.apply(input1, input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return result
 
 
@@ -804,8 +753,7 @@ class Resample2dFunction(Function):
         input1, input2 = ctx.saved_tensors
         grad_input1 = Variable(input1.new(input1.size()).zero_())
         grad_input2 = Variable(input1.new(input2.size()).zero_())
-        resample2d_cuda.backward(input1, input2, grad_output.data,
-            grad_input1.data, grad_input2.data, ctx.kernel_size, ctx.bilinear)
+        resample2d_cuda.backward(input1, input2, grad_output.data, grad_input1.data, grad_input2.data, ctx.kernel_size, ctx.bilinear)
         return grad_input1, grad_input2, None, None
 
 
@@ -818,8 +766,7 @@ class Resample2d(Module):
 
     def forward(self, input1, input2):
         input1_c = input1.contiguous()
-        return Resample2dFunction.apply(input1_c, input2, self.kernel_size,
-            self.bilinear)
+        return Resample2dFunction.apply(input1_c, input2, self.kernel_size, self.bilinear)
 
 
 class tofp16(nn.Module):
@@ -844,38 +791,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FlowNetFusion,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 11, 64, 64])], {}),
+     True),
+    (FlowNetS,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 12, 64, 64])], {}),
+     False),
+    (FlowNetSD,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 6, 64, 64])], {}),
+     False),
+    (L1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L1Loss,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (L2Loss,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiScale,
+     lambda: ([], {'args': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (tofp16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (tofp32,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_NVIDIA_flownet2_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(FlowNetFusion(*[], **{'args': _mock_config()}), [torch.rand([4, 11, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(FlowNetS(*[], **{'args': _mock_config()}), [torch.rand([4, 12, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(FlowNetSD(*[], **{'args': _mock_config()}), [torch.rand([4, 6, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(L1(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(L1Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(L2(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(L2Loss(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MultiScale(*[], **{'args': _mock_config()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(tofp32(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

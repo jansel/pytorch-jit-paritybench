@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,8 +70,7 @@ class AdaptiveAvgMaxPool2d(torch.nn.Module):
         self.output_size = output_size
         self.pool_type = pool_type
         if pool_type == 'avgmaxc' or pool_type == 'avgmax':
-            self.pool = nn.ModuleList([nn.AdaptiveAvgPool2d(output_size),
-                nn.AdaptiveMaxPool2d(output_size)])
+            self.pool = nn.ModuleList([nn.AdaptiveAvgPool2d(output_size), nn.AdaptiveMaxPool2d(output_size)])
         elif pool_type == 'max':
             self.pool = nn.AdaptiveMaxPool2d(output_size)
         else:
@@ -82,8 +82,7 @@ class AdaptiveAvgMaxPool2d(torch.nn.Module):
         if self.pool_type == 'avgmaxc':
             x = torch.cat([p(x) for p in self.pool], dim=1)
         elif self.pool_type == 'avgmax':
-            x = 0.5 * torch.sum(torch.stack([p(x) for p in self.pool]), 0
-                ).squeeze(dim=0)
+            x = 0.5 * torch.sum(torch.stack([p(x) for p in self.pool]), 0).squeeze(dim=0)
         else:
             x = self.pool(x)
         return x
@@ -92,8 +91,7 @@ class AdaptiveAvgMaxPool2d(torch.nn.Module):
         return pooling_factor(self.pool_type)
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + 'output_size=' + str(self.
-            output_size) + ', pool_type=' + self.pool_type + ')'
+        return self.__class__.__name__ + ' (' + 'output_size=' + str(self.output_size) + ', pool_type=' + self.pool_type + ')'
 
 
 class CatBnAct(nn.Module):
@@ -110,13 +108,11 @@ class CatBnAct(nn.Module):
 
 class BnActConv2d(nn.Module):
 
-    def __init__(self, in_chs, out_chs, kernel_size, stride, padding=0,
-        groups=1, activation_fn=nn.ReLU(inplace=True)):
+    def __init__(self, in_chs, out_chs, kernel_size, stride, padding=0, groups=1, activation_fn=nn.ReLU(inplace=True)):
         super(BnActConv2d, self).__init__()
         self.bn = nn.BatchNorm2d(in_chs, eps=0.001)
         self.act = activation_fn
-        self.conv = nn.Conv2d(in_chs, out_chs, kernel_size, stride, padding,
-            groups=groups, bias=False)
+        self.conv = nn.Conv2d(in_chs, out_chs, kernel_size, stride, padding, groups=groups, bias=False)
 
     def forward(self, x):
         return self.conv(self.act(self.bn(x)))
@@ -124,11 +120,9 @@ class BnActConv2d(nn.Module):
 
 class InputBlock(nn.Module):
 
-    def __init__(self, num_init_features, kernel_size=7, padding=3,
-        activation_fn=nn.ReLU(inplace=True)):
+    def __init__(self, num_init_features, kernel_size=7, padding=3, activation_fn=nn.ReLU(inplace=True)):
         super(InputBlock, self).__init__()
-        self.conv = nn.Conv2d(3, num_init_features, kernel_size=kernel_size,
-            stride=2, padding=padding, bias=False)
+        self.conv = nn.Conv2d(3, num_init_features, kernel_size=kernel_size, stride=2, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(num_init_features, eps=0.001)
         self.act = activation_fn
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -143,8 +137,7 @@ class InputBlock(nn.Module):
 
 class DualPathBlock(nn.Module):
 
-    def __init__(self, in_chs, num_1x1_a, num_3x3_b, num_1x1_c, inc, groups,
-        block_type='normal', b=False):
+    def __init__(self, in_chs, num_1x1_a, num_3x3_b, num_1x1_c, inc, groups, block_type='normal', b=False):
         super(DualPathBlock, self).__init__()
         self.num_1x1_c = num_1x1_c
         self.inc = inc
@@ -161,23 +154,17 @@ class DualPathBlock(nn.Module):
             self.has_proj = False
         if self.has_proj:
             if self.key_stride == 2:
-                self.c1x1_w_s2 = BnActConv2d(in_chs=in_chs, out_chs=
-                    num_1x1_c + 2 * inc, kernel_size=1, stride=2)
+                self.c1x1_w_s2 = BnActConv2d(in_chs=in_chs, out_chs=num_1x1_c + 2 * inc, kernel_size=1, stride=2)
             else:
-                self.c1x1_w_s1 = BnActConv2d(in_chs=in_chs, out_chs=
-                    num_1x1_c + 2 * inc, kernel_size=1, stride=1)
-        self.c1x1_a = BnActConv2d(in_chs=in_chs, out_chs=num_1x1_a,
-            kernel_size=1, stride=1)
-        self.c3x3_b = BnActConv2d(in_chs=num_1x1_a, out_chs=num_3x3_b,
-            kernel_size=3, stride=self.key_stride, padding=1, groups=groups)
+                self.c1x1_w_s1 = BnActConv2d(in_chs=in_chs, out_chs=num_1x1_c + 2 * inc, kernel_size=1, stride=1)
+        self.c1x1_a = BnActConv2d(in_chs=in_chs, out_chs=num_1x1_a, kernel_size=1, stride=1)
+        self.c3x3_b = BnActConv2d(in_chs=num_1x1_a, out_chs=num_3x3_b, kernel_size=3, stride=self.key_stride, padding=1, groups=groups)
         if b:
             self.c1x1_c = CatBnAct(in_chs=num_3x3_b)
-            self.c1x1_c1 = nn.Conv2d(num_3x3_b, num_1x1_c, kernel_size=1,
-                bias=False)
+            self.c1x1_c1 = nn.Conv2d(num_3x3_b, num_1x1_c, kernel_size=1, bias=False)
             self.c1x1_c2 = nn.Conv2d(num_3x3_b, inc, kernel_size=1, bias=False)
         else:
-            self.c1x1_c = BnActConv2d(in_chs=num_3x3_b, out_chs=num_1x1_c +
-                inc, kernel_size=1, stride=1)
+            self.c1x1_c = BnActConv2d(in_chs=num_3x3_b, out_chs=num_1x1_c + inc, kernel_size=1, stride=1)
 
     def forward(self, x):
         x_in = torch.cat(x, dim=1) if isinstance(x, tuple) else x
@@ -206,94 +193,71 @@ class DualPathBlock(nn.Module):
         return resid, dense
 
 
-def adaptive_avgmax_pool2d(x, pool_type='avg', padding=0, count_include_pad
-    =False):
+def adaptive_avgmax_pool2d(x, pool_type='avg', padding=0, count_include_pad=False):
     """Selectable global pooling function with dynamic input kernel size
     """
     if pool_type == 'avgmaxc':
-        x = torch.cat([F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)),
-            padding=padding, count_include_pad=count_include_pad), F.
-            max_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=
-            padding)], dim=1)
+        x = torch.cat([F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding, count_include_pad=count_include_pad), F.max_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding)], dim=1)
     elif pool_type == 'avgmax':
-        x_avg = F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding
-            =padding, count_include_pad=count_include_pad)
-        x_max = F.max_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding
-            =padding)
+        x_avg = F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding, count_include_pad=count_include_pad)
+        x_max = F.max_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding)
         x = 0.5 * (x_avg + x_max)
     elif pool_type == 'max':
-        x = F.max_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding
-            )
+        x = F.max_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding)
     else:
         if pool_type != 'avg':
-            print(
-                'Invalid pool type %s specified. Defaulting to average pooling.'
-                 % pool_type)
-        x = F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=
-            padding, count_include_pad=count_include_pad)
+            print('Invalid pool type %s specified. Defaulting to average pooling.' % pool_type)
+        x = F.avg_pool2d(x, kernel_size=(x.size(2), x.size(3)), padding=padding, count_include_pad=count_include_pad)
     return x
 
 
 class DPN(nn.Module):
 
-    def __init__(self, small=False, num_init_features=64, k_r=96, groups=32,
-        b=False, k_sec=(3, 4, 20, 3), inc_sec=(16, 32, 24, 128),
-        num_classes=1000, test_time_pool=False):
+    def __init__(self, small=False, num_init_features=64, k_r=96, groups=32, b=False, k_sec=(3, 4, 20, 3), inc_sec=(16, 32, 24, 128), num_classes=1000, test_time_pool=False):
         super(DPN, self).__init__()
         self.test_time_pool = test_time_pool
         self.b = b
         bw_factor = 1 if small else 4
         blocks = OrderedDict()
         if small:
-            blocks['conv1_1'] = InputBlock(num_init_features, kernel_size=3,
-                padding=1)
+            blocks['conv1_1'] = InputBlock(num_init_features, kernel_size=3, padding=1)
         else:
-            blocks['conv1_1'] = InputBlock(num_init_features, kernel_size=7,
-                padding=3)
+            blocks['conv1_1'] = InputBlock(num_init_features, kernel_size=7, padding=3)
         bw = 64 * bw_factor
         inc = inc_sec[0]
         r = k_r * bw // (64 * bw_factor)
-        blocks['conv2_1'] = DualPathBlock(num_init_features, r, r, bw, inc,
-            groups, 'proj', b)
+        blocks['conv2_1'] = DualPathBlock(num_init_features, r, r, bw, inc, groups, 'proj', b)
         in_chs = bw + 3 * inc
         for i in range(2, k_sec[0] + 1):
-            blocks['conv2_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc,
-                groups, 'normal', b)
+            blocks['conv2_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'normal', b)
             in_chs += inc
         bw = 128 * bw_factor
         inc = inc_sec[1]
         r = k_r * bw // (64 * bw_factor)
-        blocks['conv3_1'] = DualPathBlock(in_chs, r, r, bw, inc, groups,
-            'down', b)
+        blocks['conv3_1'] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'down', b)
         in_chs = bw + 3 * inc
         for i in range(2, k_sec[1] + 1):
-            blocks['conv3_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc,
-                groups, 'normal', b)
+            blocks['conv3_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'normal', b)
             in_chs += inc
         bw = 256 * bw_factor
         inc = inc_sec[2]
         r = k_r * bw // (64 * bw_factor)
-        blocks['conv4_1'] = DualPathBlock(in_chs, r, r, bw, inc, groups,
-            'down', b)
+        blocks['conv4_1'] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'down', b)
         in_chs = bw + 3 * inc
         for i in range(2, k_sec[2] + 1):
-            blocks['conv4_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc,
-                groups, 'normal', b)
+            blocks['conv4_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'normal', b)
             in_chs += inc
         bw = 512 * bw_factor
         inc = inc_sec[3]
         r = k_r * bw // (64 * bw_factor)
-        blocks['conv5_1'] = DualPathBlock(in_chs, r, r, bw, inc, groups,
-            'down', b)
+        blocks['conv5_1'] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'down', b)
         in_chs = bw + 3 * inc
         for i in range(2, k_sec[3] + 1):
-            blocks['conv5_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc,
-                groups, 'normal', b)
+            blocks['conv5_' + str(i)] = DualPathBlock(in_chs, r, r, bw, inc, groups, 'normal', b)
             in_chs += inc
         blocks['conv5_bn_ac'] = CatBnAct(in_chs)
         self.features = nn.Sequential(blocks)
-        self.classifier = nn.Conv2d(in_chs, num_classes, kernel_size=1,
-            bias=True)
+        self.classifier = nn.Conv2d(in_chs, num_classes, kernel_size=1, bias=True)
 
     def forward(self, x):
         x = self.features(x)
@@ -311,23 +275,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveAvgMaxPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BnActConv2d,
+     lambda: ([], {'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CatBnAct,
+     lambda: ([], {'in_chs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (InputBlock,
+     lambda: ([], {'num_init_features': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_rwightman_pytorch_dpn_pretrained(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AdaptiveAvgMaxPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BnActConv2d(*[], **{'in_chs': 4, 'out_chs': 4, 'kernel_size': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(CatBnAct(*[], **{'in_chs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DPN(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(InputBlock(*[], **{'num_init_features': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 

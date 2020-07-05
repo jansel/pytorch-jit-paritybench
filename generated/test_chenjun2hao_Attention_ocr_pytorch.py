@@ -15,8 +15,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -102,16 +103,13 @@ class AttentionCell(nn.Module):
         hidden_size = self.hidden_size
         input_size = self.input_size
         feats_proj = self.i2h(feats.view(-1, nC))
-        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size
-            ).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
-        emition = self.score(torch.tanh(feats_proj + prev_hidden_proj).view
-            (-1, hidden_size)).view(nT, nB).transpose(0, 1)
+        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
+        emition = self.score(torch.tanh(feats_proj + prev_hidden_proj).view(-1, hidden_size)).view(nT, nB).transpose(0, 1)
         alpha = F.softmax(emition, dim=1)
         if self.processed_batches % 10000 == 0:
             None
             None
-        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 
-            1).expand(nT, nB, nC)).sum(0).squeeze(0)
+        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 1).expand(nT, nB, nC)).sum(0).squeeze(0)
         cur_hidden = self.rnn(context, prev_hidden)
         return cur_hidden, alpha
 
@@ -137,8 +135,7 @@ class Attention(nn.Module):
         assert nB == text_length.numel()
         num_steps = text_length.data.max()
         num_labels = text_length.data.sum()
-        output_hiddens = Variable(torch.zeros(num_steps, nB, hidden_size).
-            type_as(feats.data))
+        output_hiddens = Variable(torch.zeros(num_steps, nB, hidden_size).type_as(feats.data))
         hidden = Variable(torch.zeros(nB, hidden_size).type_as(feats.data))
         max_locs = torch.zeros(num_steps, nB)
         max_vals = torch.zeros(num_steps, nB)
@@ -152,13 +149,11 @@ class Attention(nn.Module):
         if self.processed_batches % 500 == 0:
             None
             None
-        new_hiddens = Variable(torch.zeros(num_labels, hidden_size).type_as
-            (feats.data))
+        new_hiddens = Variable(torch.zeros(num_labels, hidden_size).type_as(feats.data))
         b = 0
         start = 0
         for length in text_length.data:
-            new_hiddens[start:start + length] = output_hiddens[0:length, (b), :
-                ]
+            new_hiddens[start:start + length] = output_hiddens[0:length, (b), :]
             start = start + length
             b = b + 1
         probs = self.generator(new_hiddens)
@@ -170,17 +165,8 @@ class CRNN(nn.Module):
     def __init__(self, imgH, nc, nclass, nh, n_rnn=2, leakyRelu=False):
         super(CRNN, self).__init__()
         assert imgH % 16 == 0, 'imgH has to be a multiple of 16'
-        self.cnn = nn.Sequential(nn.Conv2d(nc, 64, 3, 1, 1), nn.ReLU(True),
-            nn.MaxPool2d(2, 2), nn.Conv2d(64, 128, 3, 1, 1), nn.ReLU(True),
-            nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, 1, 1), nn.
-            BatchNorm2d(256), nn.ReLU(True), nn.Conv2d(256, 256, 3, 1, 1),
-            nn.ReLU(True), nn.MaxPool2d((2, 2), (2, 1), (0, 1)), nn.Conv2d(
-            256, 512, 3, 1, 1), nn.BatchNorm2d(512), nn.ReLU(True), nn.
-            Conv2d(512, 512, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d((2, 2),
-            (2, 1), (0, 1)), nn.Conv2d(512, 512, 2, 1, 0), nn.BatchNorm2d(
-            512), nn.ReLU(True))
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nh))
+        self.cnn = nn.Sequential(nn.Conv2d(nc, 64, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(64, 128, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, 1, 1), nn.BatchNorm2d(256), nn.ReLU(True), nn.Conv2d(256, 256, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d((2, 2), (2, 1), (0, 1)), nn.Conv2d(256, 512, 3, 1, 1), nn.BatchNorm2d(512), nn.ReLU(True), nn.Conv2d(512, 512, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d((2, 2), (2, 1), (0, 1)), nn.Conv2d(512, 512, 2, 1, 0), nn.BatchNorm2d(512), nn.ReLU(True))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nh))
         self.attention = Attention(nh, nh, nclass)
 
     def forward(self, input, length):
@@ -230,10 +216,8 @@ class AttentionCell(nn.Module):
         hidden_size = self.hidden_size
         input_size = self.input_size
         feats_proj = self.i2h(feats.view(-1, nC))
-        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size
-            ).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
-        emition = self.score(torch.tanh(feats_proj + prev_hidden_proj).view
-            (-1, hidden_size)).view(nT, nB).transpose(0, 1)
+        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
+        emition = self.score(torch.tanh(feats_proj + prev_hidden_proj).view(-1, hidden_size)).view(nT, nB).transpose(0, 1)
         self.processed_batches = self.processed_batches + 1
         if self.processed_batches % 10000 == 0:
             None
@@ -241,8 +225,7 @@ class AttentionCell(nn.Module):
         if self.processed_batches % 10000 == 0:
             None
             None
-        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 
-            1).expand(nT, nB, nC)).sum(0).squeeze(0)
+        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 1).expand(nT, nB, nC)).sum(0).squeeze(0)
         context = torch.cat([context, cur_embeddings], 1)
         cur_hidden = self.rnn(context, prev_hidden)
         return cur_hidden, alpha
@@ -294,10 +277,8 @@ class Attentiondecoder(nn.Module):
     def forward(self, input, hidden, encoder_outputs):
         embedded = self.embedding(input)
         embedded = self.dropout(embedded)
-        attn_weights = F.softmax(self.attn(torch.cat((embedded, hidden[0]),
-            1)), dim=1)
-        attn_applied = torch.matmul(attn_weights.unsqueeze(1),
-            encoder_outputs.permute((1, 0, 2)))
+        attn_weights = F.softmax(self.attn(torch.cat((embedded, hidden[0]), 1)), dim=1)
+        attn_applied = torch.matmul(attn_weights.unsqueeze(1), encoder_outputs.permute((1, 0, 2)))
         output = torch.cat((embedded, attn_applied.squeeze(1)), 1)
         output = self.attn_combine(output).unsqueeze(0)
         output = F.relu(output)
@@ -318,17 +299,8 @@ class CNN(nn.Module):
     def __init__(self, imgH, nc, nh):
         super(CNN, self).__init__()
         assert imgH % 16 == 0, 'imgH has to be a multiple of 16'
-        self.cnn = nn.Sequential(nn.Conv2d(nc, 64, 3, 1, 1), nn.ReLU(True),
-            nn.MaxPool2d(2, 2), nn.Conv2d(64, 128, 3, 1, 1), nn.ReLU(True),
-            nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, 1, 1), nn.
-            BatchNorm2d(256), nn.ReLU(True), nn.Conv2d(256, 256, 3, 1, 1),
-            nn.ReLU(True), nn.MaxPool2d((2, 2), (2, 1), (0, 1)), nn.Conv2d(
-            256, 512, 3, 1, 1), nn.BatchNorm2d(512), nn.ReLU(True), nn.
-            Conv2d(512, 512, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d((2, 2),
-            (2, 1), (0, 1)), nn.Conv2d(512, 512, 2, 1, 0), nn.BatchNorm2d(
-            512), nn.ReLU(True))
-        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh),
-            BidirectionalLSTM(nh, nh, nh))
+        self.cnn = nn.Sequential(nn.Conv2d(nc, 64, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(64, 128, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, 1, 1), nn.BatchNorm2d(256), nn.ReLU(True), nn.Conv2d(256, 256, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d((2, 2), (2, 1), (0, 1)), nn.Conv2d(256, 512, 3, 1, 1), nn.BatchNorm2d(512), nn.ReLU(True), nn.Conv2d(512, 512, 3, 1, 1), nn.ReLU(True), nn.MaxPool2d((2, 2), (2, 1), (0, 1)), nn.Conv2d(512, 512, 2, 1, 0), nn.BatchNorm2d(512), nn.ReLU(True))
+        self.rnn = nn.Sequential(BidirectionalLSTM(512, nh, nh), BidirectionalLSTM(nh, nh, nh))
 
     def forward(self, input):
         conv = self.cnn(input)
@@ -384,8 +356,7 @@ class AttentiondecoderV2(nn.Module):
         attn_weights = self.vat(torch.tanh(alpha))
         attn_weights = attn_weights.view(-1, 1, batch_size).permute((2, 1, 0))
         attn_weights = F.softmax(attn_weights, dim=2)
-        attn_applied = torch.matmul(attn_weights, encoder_outputs.permute((
-            1, 0, 2)))
+        attn_applied = torch.matmul(attn_weights, encoder_outputs.permute((1, 0, 2)))
         output = torch.cat((embedded, attn_applied.squeeze(1)), 1)
         output = self.attn_combine(output).unsqueeze(0)
         output = F.relu(output)
@@ -420,11 +391,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentiondecoderV2,
+     lambda: ([], {'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (BidirectionalLSTM,
+     lambda: ([], {'nIn': 4, 'nHidden': 4, 'nOut': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_chenjun2hao_Attention_ocr_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AttentiondecoderV2(*[], **{'hidden_size': 4, 'output_size': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BidirectionalLSTM(*[], **{'nIn': 4, 'nHidden': 4, 'nOut': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

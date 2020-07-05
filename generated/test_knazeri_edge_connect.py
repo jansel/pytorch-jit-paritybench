@@ -22,8 +22,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,8 +70,7 @@ class InceptionV3(nn.Module):
     DEFAULT_BLOCK_INDEX = 3
     BLOCK_INDEX_BY_DIM = {(64): 0, (192): 1, (768): 2, (2048): 3}
 
-    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=
-        True, normalize_input=True, requires_grad=False):
+    def __init__(self, output_blocks=[DEFAULT_BLOCK_INDEX], resize_input=True, normalize_input=True, requires_grad=False):
         """Build pretrained InceptionV3
         Parameters
         ----------
@@ -100,21 +100,16 @@ class InceptionV3(nn.Module):
         assert self.last_needed_block <= 3, 'Last possible output block index is 3'
         self.blocks = nn.ModuleList()
         inception = models.inception_v3(pretrained=True)
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.
-                MaxPool2d(kernel_size=3, stride=2)]
+            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.
-                Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception
-                .Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
             self.blocks.append(nn.Sequential(*block3))
         for param in self.parameters():
             param.requires_grad = requires_grad
@@ -155,8 +150,7 @@ class AdversarialLoss(nn.Module):
     https://arxiv.org/abs/1711.10337
     """
 
-    def __init__(self, type='nsgan', target_real_label=1.0,
-        target_fake_label=0.0):
+    def __init__(self, type='nsgan', target_real_label=1.0, target_fake_label=0.0):
         """
         type = nsgan | lsgan | hinge
         """
@@ -180,8 +174,7 @@ class AdversarialLoss(nn.Module):
             else:
                 return (-outputs).mean()
         else:
-            labels = (self.real_label if is_real else self.fake_label
-                ).expand_as(outputs)
+            labels = (self.real_label if is_real else self.fake_label).expand_as(outputs)
             loss = self.criterion(outputs, labels)
             return loss
 
@@ -208,14 +201,10 @@ class StyleLoss(nn.Module):
     def __call__(self, x, y):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         style_loss = 0.0
-        style_loss += self.criterion(self.compute_gram(x_vgg['relu2_2']),
-            self.compute_gram(y_vgg['relu2_2']))
-        style_loss += self.criterion(self.compute_gram(x_vgg['relu3_4']),
-            self.compute_gram(y_vgg['relu3_4']))
-        style_loss += self.criterion(self.compute_gram(x_vgg['relu4_4']),
-            self.compute_gram(y_vgg['relu4_4']))
-        style_loss += self.criterion(self.compute_gram(x_vgg['relu5_2']),
-            self.compute_gram(y_vgg['relu5_2']))
+        style_loss += self.criterion(self.compute_gram(x_vgg['relu2_2']), self.compute_gram(y_vgg['relu2_2']))
+        style_loss += self.criterion(self.compute_gram(x_vgg['relu3_4']), self.compute_gram(y_vgg['relu3_4']))
+        style_loss += self.criterion(self.compute_gram(x_vgg['relu4_4']), self.compute_gram(y_vgg['relu4_4']))
+        style_loss += self.criterion(self.compute_gram(x_vgg['relu5_2']), self.compute_gram(y_vgg['relu5_2']))
         return style_loss
 
 
@@ -235,16 +224,11 @@ class PerceptualLoss(nn.Module):
     def __call__(self, x, y):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         content_loss = 0.0
-        content_loss += self.weights[0] * self.criterion(x_vgg['relu1_1'],
-            y_vgg['relu1_1'])
-        content_loss += self.weights[1] * self.criterion(x_vgg['relu2_1'],
-            y_vgg['relu2_1'])
-        content_loss += self.weights[2] * self.criterion(x_vgg['relu3_1'],
-            y_vgg['relu3_1'])
-        content_loss += self.weights[3] * self.criterion(x_vgg['relu4_1'],
-            y_vgg['relu4_1'])
-        content_loss += self.weights[4] * self.criterion(x_vgg['relu5_1'],
-            y_vgg['relu5_1'])
+        content_loss += self.weights[0] * self.criterion(x_vgg['relu1_1'], y_vgg['relu1_1'])
+        content_loss += self.weights[1] * self.criterion(x_vgg['relu2_1'], y_vgg['relu2_1'])
+        content_loss += self.weights[2] * self.criterion(x_vgg['relu3_1'], y_vgg['relu3_1'])
+        content_loss += self.weights[3] * self.criterion(x_vgg['relu4_1'], y_vgg['relu4_1'])
+        content_loss += self.weights[4] * self.criterion(x_vgg['relu5_1'], y_vgg['relu5_1'])
         return content_loss
 
 
@@ -321,12 +305,7 @@ class VGG19(torch.nn.Module):
         relu5_2 = self.relu5_2(relu5_1)
         relu5_3 = self.relu5_3(relu5_2)
         relu5_4 = self.relu5_4(relu5_3)
-        out = {'relu1_1': relu1_1, 'relu1_2': relu1_2, 'relu2_1': relu2_1,
-            'relu2_2': relu2_2, 'relu3_1': relu3_1, 'relu3_2': relu3_2,
-            'relu3_3': relu3_3, 'relu3_4': relu3_4, 'relu4_1': relu4_1,
-            'relu4_2': relu4_2, 'relu4_3': relu4_3, 'relu4_4': relu4_4,
-            'relu5_1': relu5_1, 'relu5_2': relu5_2, 'relu5_3': relu5_3,
-            'relu5_4': relu5_4}
+        out = {'relu1_1': relu1_1, 'relu1_2': relu1_2, 'relu2_1': relu2_1, 'relu2_2': relu2_2, 'relu3_1': relu3_1, 'relu3_2': relu3_2, 'relu3_3': relu3_3, 'relu3_4': relu3_4, 'relu4_1': relu4_1, 'relu4_2': relu4_2, 'relu4_3': relu4_3, 'relu4_4': relu4_4, 'relu5_1': relu5_1, 'relu5_2': relu5_2, 'relu5_3': relu5_3, 'relu5_4': relu5_4}
         return out
 
 
@@ -384,8 +363,7 @@ class BaseModel(nn.Module):
             if torch.is_available():
                 data = torch.load(self.gen_weights_path)
             else:
-                data = torch.load(self.gen_weights_path, map_location=lambda
-                    storage, loc: storage)
+                data = torch.load(self.gen_weights_path, map_location=lambda storage, loc: storage)
             self.generator.load_state_dict(data['generator'])
             self.iteration = data['iteration']
         if self.config.MODE == 1 and os.path.exists(self.dis_weights_path):
@@ -393,16 +371,13 @@ class BaseModel(nn.Module):
             if torch.is_available():
                 data = torch.load(self.dis_weights_path)
             else:
-                data = torch.load(self.dis_weights_path, map_location=lambda
-                    storage, loc: storage)
+                data = torch.load(self.dis_weights_path, map_location=lambda storage, loc: storage)
             self.discriminator.load_state_dict(data['discriminator'])
 
     def save(self):
         None
-        torch.save({'iteration': self.iteration, 'generator': self.
-            generator.state_dict()}, self.gen_weights_path)
-        torch.save({'discriminator': self.discriminator.state_dict()}, self
-            .dis_weights_path)
+        torch.save({'iteration': self.iteration, 'generator': self.generator.state_dict()}, self.gen_weights_path)
+        torch.save({'discriminator': self.discriminator.state_dict()}, self.dis_weights_path)
 
 
 class BaseNetwork(nn.Module):
@@ -419,8 +394,7 @@ class BaseNetwork(nn.Module):
 
         def init_func(m):
             classname = m.__class__.__name__
-            if hasattr(m, 'weight') and (classname.find('Conv') != -1 or 
-                classname.find('Linear') != -1):
+            if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
                 if init_type == 'normal':
                     nn.init.normal_(m.weight.data, 0.0, gain)
                 elif init_type == 'xavier':
@@ -447,15 +421,7 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, dim, dilation=1, use_spectral_norm=False):
         super(ResnetBlock, self).__init__()
-        self.conv_block = nn.Sequential(nn.ReflectionPad2d(dilation),
-            spectral_norm(nn.Conv2d(in_channels=dim, out_channels=dim,
-            kernel_size=3, padding=0, dilation=dilation, bias=not
-            use_spectral_norm), use_spectral_norm), nn.InstanceNorm2d(dim,
-            track_running_stats=False), nn.ReLU(True), nn.ReflectionPad2d(1
-            ), spectral_norm(nn.Conv2d(in_channels=dim, out_channels=dim,
-            kernel_size=3, padding=0, dilation=1, bias=not
-            use_spectral_norm), use_spectral_norm), nn.InstanceNorm2d(dim,
-            track_running_stats=False))
+        self.conv_block = nn.Sequential(nn.ReflectionPad2d(dilation), spectral_norm(nn.Conv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=0, dilation=dilation, bias=not use_spectral_norm), use_spectral_norm), nn.InstanceNorm2d(dim, track_running_stats=False), nn.ReLU(True), nn.ReflectionPad2d(1), spectral_norm(nn.Conv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=0, dilation=1, bias=not use_spectral_norm), use_spectral_norm), nn.InstanceNorm2d(dim, track_running_stats=False))
 
     def forward(self, x):
         out = x + self.conv_block(x)
@@ -466,17 +432,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdversarialLoss,
+     lambda: ([], {}),
+     lambda: ([], {'outputs': torch.rand([4, 4]), 'is_real': 4}),
+     True),
+    (PerceptualLoss,
+     lambda: ([], {}),
+     lambda: ([], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])}),
+     True),
+    (ResnetBlock,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StyleLoss,
+     lambda: ([], {}),
+     lambda: ([], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])}),
+     True),
+    (VGG19,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
 class Test_knazeri_edge_connect(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(PerceptualLoss(*[], **{}), [], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ResnetBlock(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(StyleLoss(*[], **{}), [], {'x': torch.rand([4, 3, 64, 64]), 'y': torch.rand([4, 3, 64, 64])})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(VGG19(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

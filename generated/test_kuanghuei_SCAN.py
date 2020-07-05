@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -132,15 +133,13 @@ class EncoderImageWeightNormPrecomp(nn.Module):
 
 class EncoderText(nn.Module):
 
-    def __init__(self, vocab_size, word_dim, embed_size, num_layers,
-        use_bi_gru=False, no_txtnorm=False):
+    def __init__(self, vocab_size, word_dim, embed_size, num_layers, use_bi_gru=False, no_txtnorm=False):
         super(EncoderText, self).__init__()
         self.embed_size = embed_size
         self.no_txtnorm = no_txtnorm
         self.embed = nn.Embedding(vocab_size, word_dim)
         self.use_bi_gru = use_bi_gru
-        self.rnn = nn.GRU(word_dim, embed_size, num_layers, batch_first=
-            True, bidirectional=use_bi_gru)
+        self.rnn = nn.GRU(word_dim, embed_size, num_layers, batch_first=True, bidirectional=use_bi_gru)
         self.init_weights()
 
     def init_weights(self):
@@ -155,8 +154,7 @@ class EncoderText(nn.Module):
         padded = pad_packed_sequence(out, batch_first=True)
         cap_emb, cap_len = padded
         if self.use_bi_gru:
-            cap_emb = (cap_emb[:, :, :cap_emb.size(2) / 2] + cap_emb[:, :, 
-                cap_emb.size(2) / 2:]) / 2
+            cap_emb = (cap_emb[:, :, :cap_emb.size(2) / 2] + cap_emb[:, :, cap_emb.size(2) / 2:]) / 2
         if not self.no_txtnorm:
             cap_emb = l2norm(cap_emb, dim=-1)
         return cap_emb, cap_len
@@ -236,8 +234,7 @@ def xattn_score_i2t(images, captions, cap_lens, opt):
             weiContext: (n_image, n_region, d)
             attn: (n_image, n_word, n_region)
         """
-        weiContext, attn = func_attention(images, cap_i_expand, opt, smooth
-            =opt.lambda_softmax)
+        weiContext, attn = func_attention(images, cap_i_expand, opt, smooth=opt.lambda_softmax)
         row_sim = cosine_similarity(images, weiContext, dim=2)
         if opt.agg_func == 'LogSumExp':
             row_sim.mul_(opt.lambda_lse).exp_()
@@ -275,8 +272,7 @@ def xattn_score_t2i(images, captions, cap_lens, opt):
             weiContext: (n_image, n_word, d)
             attn: (n_image, n_region, n_word)
         """
-        weiContext, attn = func_attention(cap_i_expand, images, opt, smooth
-            =opt.lambda_softmax)
+        weiContext, attn = func_attention(cap_i_expand, images, opt, smooth=opt.lambda_softmax)
         cap_i_expand = cap_i_expand.contiguous()
         weiContext = weiContext.contiguous()
         row_sim = cosine_similarity(cap_i_expand, weiContext, dim=2)
@@ -336,17 +332,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EncoderImagePrecomp,
+     lambda: ([], {'img_dim': 4, 'embed_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EncoderImageWeightNormPrecomp,
+     lambda: ([], {'img_dim': 4, 'embed_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EncoderText,
+     lambda: ([], {'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_kuanghuei_SCAN(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(EncoderImagePrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(EncoderImageWeightNormPrecomp(*[], **{'img_dim': 4, 'embed_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EncoderText(*[], **{'vocab_size': 4, 'word_dim': 4, 'embed_size': 4, 'num_layers': 1}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[2])
 

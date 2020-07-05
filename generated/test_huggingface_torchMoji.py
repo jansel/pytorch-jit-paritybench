@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -148,14 +149,12 @@ class Attention(Module):
         logits = inputs.matmul(self.attention_vector)
         unnorm_ai = (logits - logits.max()).exp()
         max_len = unnorm_ai.size(1)
-        idxes = torch.arange(0, max_len, out=torch.LongTensor(max_len)
-            ).unsqueeze(0)
+        idxes = torch.arange(0, max_len, out=torch.LongTensor(max_len)).unsqueeze(0)
         mask = Variable((idxes < input_lengths.unsqueeze(1)).float())
         masked_weights = unnorm_ai * mask
         att_sums = masked_weights.sum(dim=1, keepdim=True)
         attentions = masked_weights.div(att_sums)
-        weighted = torch.mul(inputs, attentions.unsqueeze(-1).expand_as(inputs)
-            )
+        weighted = torch.mul(inputs, attentions.unsqueeze(-1).expand_as(inputs))
         representations = weighted.sum(dim=1)
         return representations, attentions if self.return_attention else None
 
@@ -191,8 +190,7 @@ def Recurrent(inner, reverse=False):
 
     def forward(input, hidden, weight):
         output = []
-        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input
-            .size(0))
+        steps = range(input.size(0) - 1, -1, -1) if reverse else range(input.size(0))
         for i in steps:
             hidden = inner(input[i], hidden, *weight)
             output.append(hidden[0] if isinstance(hidden, tuple) else hidden)
@@ -221,16 +219,12 @@ def StackedRNN(inners, num_layers, lstm=False, dropout=0, train=True):
                 all_output.append(output)
             input = torch.cat(all_output, input.dim() - 1)
             if dropout != 0 and i < num_layers - 1:
-                input = F.dropout(input, p=dropout, training=train, inplace
-                    =False)
+                input = F.dropout(input, p=dropout, training=train, inplace=False)
         if lstm:
             next_h, next_c = zip(*next_hidden)
-            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0
-                ].size()), torch.cat(next_c, 0).view(total_layers, *next_c[
-                0].size())
+            next_hidden = torch.cat(next_h, 0).view(total_layers, *next_h[0].size()), torch.cat(next_c, 0).view(total_layers, *next_c[0].size())
         else:
-            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *
-                next_hidden[0].size())
+            next_hidden = torch.cat(next_hidden, 0).view(total_layers, *next_hidden[0].size())
         return next_hidden, input
     return forward
 
@@ -284,8 +278,7 @@ def VariableRecurrentReverse(batch_sizes, inner):
         for batch_size in reversed(batch_sizes):
             inc = batch_size - last_batch_size
             if inc > 0:
-                hidden = tuple(torch.cat((h, ih[last_batch_size:batch_size]
-                    ), 0) for h, ih in zip(hidden, initial_hidden))
+                hidden = tuple(torch.cat((h, ih[last_batch_size:batch_size]), 0) for h, ih in zip(hidden, initial_hidden))
             last_batch_size = batch_size
             step_input = input[input_offset - batch_size:input_offset]
             input_offset -= batch_size
@@ -312,9 +305,7 @@ def variable_recurrent_factory(batch_sizes):
     return fac
 
 
-def AutogradRNN(input_size, hidden_size, num_layers=1, batch_first=False,
-    dropout=0, train=True, bidirectional=False, batch_sizes=None,
-    dropout_state=None, flat_weight=None):
+def AutogradRNN(input_size, hidden_size, num_layers=1, batch_first=False, dropout=0, train=True, bidirectional=False, batch_sizes=None, dropout_state=None, flat_weight=None):
     cell = LSTMCell
     if batch_sizes is None:
         rec_factory = Recurrent
@@ -338,8 +329,7 @@ def AutogradRNN(input_size, hidden_size, num_layers=1, batch_first=False,
 
 class LSTMHardSigmoid(Module):
 
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True,
-        batch_first=False, dropout=0, bidirectional=False):
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=0, bidirectional=False):
         super(LSTMHardSigmoid, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -354,8 +344,7 @@ class LSTMHardSigmoid(Module):
         self._all_weights = []
         for layer in range(num_layers):
             for direction in range(num_directions):
-                layer_input_size = (input_size if layer == 0 else 
-                    hidden_size * num_directions)
+                layer_input_size = input_size if layer == 0 else hidden_size * num_directions
                 w_ih = Parameter(torch.Tensor(gate_size, layer_input_size))
                 w_hh = Parameter(torch.Tensor(gate_size, hidden_size))
                 b_ih = Parameter(torch.Tensor(gate_size))
@@ -396,28 +385,19 @@ class LSTMHardSigmoid(Module):
             max_batch_size = batch_sizes[0]
         else:
             batch_sizes = None
-            max_batch_size = input.size(0) if self.batch_first else input.size(
-                1)
+            max_batch_size = input.size(0) if self.batch_first else input.size(1)
         if hx is None:
             num_directions = 2 if self.bidirectional else 1
-            hx = torch.autograd.Variable(input.data.new(self.num_layers *
-                num_directions, max_batch_size, self.hidden_size).zero_(),
-                requires_grad=False)
+            hx = torch.autograd.Variable(input.data.new(self.num_layers * num_directions, max_batch_size, self.hidden_size).zero_(), requires_grad=False)
             hx = hx, hx
-        has_flat_weights = list(p.data.data_ptr() for p in self.parameters()
-            ) == self._data_ptrs
+        has_flat_weights = list(p.data.data_ptr() for p in self.parameters()) == self._data_ptrs
         if has_flat_weights:
             first_data = next(self.parameters()).data
             assert first_data.storage().size() == self._param_buf_size
-            flat_weight = first_data.new().set_(first_data.storage(), 0,
-                torch.Size([self._param_buf_size]))
+            flat_weight = first_data.new().set_(first_data.storage(), 0, torch.Size([self._param_buf_size]))
         else:
             flat_weight = None
-        func = AutogradRNN(self.input_size, self.hidden_size, num_layers=
-            self.num_layers, batch_first=self.batch_first, dropout=self.
-            dropout, train=self.training, bidirectional=self.bidirectional,
-            batch_sizes=batch_sizes, dropout_state=self.dropout_state,
-            flat_weight=flat_weight)
+        func = AutogradRNN(self.input_size, self.hidden_size, num_layers=self.num_layers, batch_first=self.batch_first, dropout=self.dropout, train=self.training, bidirectional=self.bidirectional, batch_sizes=batch_sizes, dropout_state=self.dropout_state, flat_weight=flat_weight)
         output, hidden = func(input, self.all_weights, hx)
         if is_packed:
             output = PackedSequence(output, batch_sizes)
@@ -451,8 +431,7 @@ class LSTMHardSigmoid(Module):
         for layer in range(num_layers):
             for direction in range(num_directions):
                 suffix = '_reverse' if direction == 1 else ''
-                weights = ['weight_ih_l{}{}', 'weight_hh_l{}{}',
-                    'bias_ih_l{}{}', 'bias_hh_l{}{}']
+                weights = ['weight_ih_l{}{}', 'weight_hh_l{}{}', 'bias_ih_l{}{}', 'bias_hh_l{}{}']
                 weights = [x.format(layer, suffix) for x in weights]
                 if self.bias:
                     self._all_weights += [weights]
@@ -461,15 +440,12 @@ class LSTMHardSigmoid(Module):
 
     @property
     def all_weights(self):
-        return [[getattr(self, weight) for weight in weights] for weights in
-            self._all_weights]
+        return [[getattr(self, weight) for weight in weights] for weights in self._all_weights]
 
 
 class TorchMoji(nn.Module):
 
-    def __init__(self, nb_classes, nb_tokens, feature_output=False,
-        output_logits=False, embed_dropout_rate=0, final_dropout_rate=0,
-        return_attention=False):
+    def __init__(self, nb_classes, nb_tokens, feature_output=False, output_logits=False, embed_dropout_rate=0, final_dropout_rate=0, return_attention=False):
         """
         torchMoji model.
         IMPORTANT: The model is loaded in evaluation mode by default (self.eval())
@@ -500,21 +476,15 @@ class TorchMoji(nn.Module):
         self.nb_classes = nb_classes
         self.add_module('embed', nn.Embedding(nb_tokens, embedding_dim))
         self.add_module('embed_dropout', nn.Dropout2d(embed_dropout_rate))
-        self.add_module('lstm_0', LSTMHardSigmoid(embedding_dim,
-            hidden_size, batch_first=True, bidirectional=True))
-        self.add_module('lstm_1', LSTMHardSigmoid(hidden_size * 2,
-            hidden_size, batch_first=True, bidirectional=True))
-        self.add_module('attention_layer', Attention(attention_size=
-            attention_size, return_attention=return_attention))
+        self.add_module('lstm_0', LSTMHardSigmoid(embedding_dim, hidden_size, batch_first=True, bidirectional=True))
+        self.add_module('lstm_1', LSTMHardSigmoid(hidden_size * 2, hidden_size, batch_first=True, bidirectional=True))
+        self.add_module('attention_layer', Attention(attention_size=attention_size, return_attention=return_attention))
         if not feature_output:
             self.add_module('final_dropout', nn.Dropout(final_dropout_rate))
             if output_logits:
-                self.add_module('output_layer', nn.Sequential(nn.Linear(
-                    attention_size, nb_classes if self.nb_classes > 2 else 1)))
+                self.add_module('output_layer', nn.Sequential(nn.Linear(attention_size, nb_classes if self.nb_classes > 2 else 1)))
             else:
-                self.add_module('output_layer', nn.Sequential(nn.Linear(
-                    attention_size, nb_classes if self.nb_classes > 2 else 
-                    1), nn.Softmax() if self.nb_classes > 2 else nn.Sigmoid()))
+                self.add_module('output_layer', nn.Sequential(nn.Linear(attention_size, nb_classes if self.nb_classes > 2 else 1), nn.Softmax() if self.nb_classes > 2 else nn.Sigmoid()))
         self.init_weights()
         self.eval()
 
@@ -522,12 +492,9 @@ class TorchMoji(nn.Module):
         """
         Here we reproduce Keras default initialization weights for consistency with Keras version
         """
-        ih = (param.data for name, param in self.named_parameters() if 
-            'weight_ih' in name)
-        hh = (param.data for name, param in self.named_parameters() if 
-            'weight_hh' in name)
-        b = (param.data for name, param in self.named_parameters() if 
-            'bias' in name)
+        ih = (param.data for name, param in self.named_parameters() if 'weight_ih' in name)
+        hh = (param.data for name, param in self.named_parameters() if 'weight_hh' in name)
+        b = (param.data for name, param in self.named_parameters() if 'bias' in name)
         nn.init.uniform(self.embed.weight.data, a=-0.5, b=0.5)
         for t in ih:
             nn.init.xavier_uniform(t)
@@ -553,40 +520,30 @@ class TorchMoji(nn.Module):
             input_seqs = Variable(input_seqs)
             return_tensor = True
         elif not isinstance(input_seqs, Variable):
-            input_seqs = Variable(torch.from_numpy(input_seqs.astype(
-                'int64')).long())
+            input_seqs = Variable(torch.from_numpy(input_seqs.astype('int64')).long())
             return_numpy = True
         reorder_output = False
         if not isinstance(input_seqs, PackedSequence):
-            ho = self.lstm_0.weight_hh_l0.data.new(2, input_seqs.size()[0],
-                self.hidden_size).zero_()
-            co = self.lstm_0.weight_hh_l0.data.new(2, input_seqs.size()[0],
-                self.hidden_size).zero_()
-            input_lengths = torch.LongTensor([(torch.max(input_seqs[(i), :]
-                .data.nonzero()) + 1) for i in range(input_seqs.size()[0])])
+            ho = self.lstm_0.weight_hh_l0.data.new(2, input_seqs.size()[0], self.hidden_size).zero_()
+            co = self.lstm_0.weight_hh_l0.data.new(2, input_seqs.size()[0], self.hidden_size).zero_()
+            input_lengths = torch.LongTensor([(torch.max(input_seqs[(i), :].data.nonzero()) + 1) for i in range(input_seqs.size()[0])])
             input_lengths, perm_idx = input_lengths.sort(0, descending=True)
             input_seqs = input_seqs[perm_idx][:, :input_lengths.max()]
-            packed_input = pack_padded_sequence(input_seqs, input_lengths.
-                cpu().numpy(), batch_first=True)
+            packed_input = pack_padded_sequence(input_seqs, input_lengths.cpu().numpy(), batch_first=True)
             reorder_output = True
         else:
-            ho = self.lstm_0.weight_hh_l0.data.data.new(2, input_seqs.size(
-                )[0], self.hidden_size).zero_()
-            co = self.lstm_0.weight_hh_l0.data.data.new(2, input_seqs.size(
-                )[0], self.hidden_size).zero_()
+            ho = self.lstm_0.weight_hh_l0.data.data.new(2, input_seqs.size()[0], self.hidden_size).zero_()
+            co = self.lstm_0.weight_hh_l0.data.data.new(2, input_seqs.size()[0], self.hidden_size).zero_()
             input_lengths = input_seqs.batch_sizes
             packed_input = input_seqs
-        hidden = Variable(ho, requires_grad=False), Variable(co,
-            requires_grad=False)
+        hidden = Variable(ho, requires_grad=False), Variable(co, requires_grad=False)
         x = self.embed(packed_input.data)
         x = nn.Tanh()(x)
         x = self.embed_dropout(x)
         packed_input = PackedSequence(x, packed_input.batch_sizes)
         lstm_0_output, _ = self.lstm_0(packed_input, hidden)
         lstm_1_output, _ = self.lstm_1(lstm_0_output, hidden)
-        packed_input = PackedSequence(torch.cat((lstm_1_output.data,
-            lstm_0_output.data, packed_input.data), dim=1), packed_input.
-            batch_sizes)
+        packed_input = PackedSequence(torch.cat((lstm_1_output.data, lstm_0_output.data, packed_input.data), dim=1), packed_input.batch_sizes)
         input_seqs, _ = pad_packed_sequence(packed_input, batch_first=True)
         x, att_weights = self.attention_layer(input_seqs, input_lengths)
         if not self.feature_output:
@@ -612,9 +569,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (LSTMHardSigmoid,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+]
+
 class Test_huggingface_torchMoji(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(LSTMHardSigmoid(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

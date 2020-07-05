@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,22 +57,18 @@ def conv1x1(in_channels, out_channels, groups=1):
     - Normal pointwise convolution When groups == 1
     - Grouped pointwise convolution when groups > 1
     """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=
-        groups, stride=1)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=1, groups=groups, stride=1)
 
 
-def conv3x3(in_channels, out_channels, stride=1, padding=1, bias=True, groups=1
-    ):
+def conv3x3(in_channels, out_channels, stride=1, padding=1, bias=True, groups=1):
     """3x3 convolution with padding
     """
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=padding, bias=bias, groups=groups)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=padding, bias=bias, groups=groups)
 
 
 class ShuffleUnit(nn.Module):
 
-    def __init__(self, in_channels, out_channels, groups=3, grouped_conv=
-        True, combine='add'):
+    def __init__(self, in_channels, out_channels, groups=3, grouped_conv=True, combine='add'):
         super(ShuffleUnit, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -87,20 +84,12 @@ class ShuffleUnit(nn.Module):
             self._combine_func = self._concat
             self.out_channels -= self.in_channels
         else:
-            raise ValueError(
-                'Cannot combine tensors with "{}"Only "add" and "concat" aresupported'
-                .format(self.combine))
+            raise ValueError('Cannot combine tensors with "{}"Only "add" and "concat" aresupported'.format(self.combine))
         self.first_1x1_groups = self.groups if grouped_conv else 1
-        self.g_conv_1x1_compress = self._make_grouped_conv1x1(self.
-            in_channels, self.bottleneck_channels, self.first_1x1_groups,
-            batch_norm=True, relu=True)
-        self.depthwise_conv3x3 = conv3x3(self.bottleneck_channels, self.
-            bottleneck_channels, stride=self.depthwise_stride, groups=self.
-            bottleneck_channels)
+        self.g_conv_1x1_compress = self._make_grouped_conv1x1(self.in_channels, self.bottleneck_channels, self.first_1x1_groups, batch_norm=True, relu=True)
+        self.depthwise_conv3x3 = conv3x3(self.bottleneck_channels, self.bottleneck_channels, stride=self.depthwise_stride, groups=self.bottleneck_channels)
         self.bn_after_depthwise = nn.BatchNorm2d(self.bottleneck_channels)
-        self.g_conv_1x1_expand = self._make_grouped_conv1x1(self.
-            bottleneck_channels, self.out_channels, self.groups, batch_norm
-            =True, relu=False)
+        self.g_conv_1x1_expand = self._make_grouped_conv1x1(self.bottleneck_channels, self.out_channels, self.groups, batch_norm=True, relu=False)
 
     @staticmethod
     def _add(x, out):
@@ -110,8 +99,7 @@ class ShuffleUnit(nn.Module):
     def _concat(x, out):
         return torch.cat((x, out), 1)
 
-    def _make_grouped_conv1x1(self, in_channels, out_channels, groups,
-        batch_norm=True, relu=False):
+    def _make_grouped_conv1x1(self, in_channels, out_channels, groups, batch_norm=True, relu=False):
         modules = OrderedDict()
         conv = conv1x1(in_channels, out_channels, groups=groups)
         modules['conv1x1'] = conv
@@ -127,8 +115,7 @@ class ShuffleUnit(nn.Module):
     def forward(self, x):
         residual = x
         if self.combine == 'concat':
-            residual = F.avg_pool2d(residual, kernel_size=3, stride=2,
-                padding=1)
+            residual = F.avg_pool2d(residual, kernel_size=3, stride=2, padding=1)
         out = self.g_conv_1x1_compress(x)
         out = channel_shuffle(out, self.groups)
         out = self.depthwise_conv3x3(out)
@@ -171,12 +158,9 @@ class ShuffleNet(nn.Module):
         elif groups == 8:
             self.stage_out_channels = [-1, 24, 384, 768, 1536]
         else:
-            raise ValueError(
-                """{} groups is not supported for
-                   1x1 Grouped Convolutions"""
-                .format(num_groups))
-        self.conv1 = conv3x3(self.in_channels, self.stage_out_channels[1],
-            stride=2)
+            raise ValueError("""{} groups is not supported for
+                   1x1 Grouped Convolutions""".format(num_groups))
+        self.conv1 = conv3x3(self.in_channels, self.stage_out_channels[1], stride=2)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.stage2 = self._make_stage(2)
         self.stage3 = self._make_stage(3)
@@ -203,15 +187,11 @@ class ShuffleNet(nn.Module):
         modules = OrderedDict()
         stage_name = 'ShuffleUnit_Stage{}'.format(stage)
         grouped_conv = stage > 2
-        first_module = ShuffleUnit(self.stage_out_channels[stage - 1], self
-            .stage_out_channels[stage], groups=self.groups, grouped_conv=
-            grouped_conv, combine='concat')
+        first_module = ShuffleUnit(self.stage_out_channels[stage - 1], self.stage_out_channels[stage], groups=self.groups, grouped_conv=grouped_conv, combine='concat')
         modules[stage_name + '_0'] = first_module
         for i in range(self.stage_repeats[stage - 2]):
             name = stage_name + '_{}'.format(i + 1)
-            module = ShuffleUnit(self.stage_out_channels[stage], self.
-                stage_out_channels[stage], groups=self.groups, grouped_conv
-                =True, combine='add')
+            module = ShuffleUnit(self.stage_out_channels[stage], self.stage_out_channels[stage], groups=self.groups, grouped_conv=True, combine='add')
             modules[name] = module
         return nn.Sequential(modules)
 
@@ -231,9 +211,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ShuffleNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_jaxony_ShuffleNet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ShuffleNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

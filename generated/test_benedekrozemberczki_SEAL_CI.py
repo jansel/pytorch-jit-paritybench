@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -49,14 +50,10 @@ class SAGE(torch.nn.Module):
         """
         Setting up upstream and pooling layers.
         """
-        self.graph_convolution_1 = GCNConv(self.number_of_features, self.
-            args.first_gcn_dimensions)
-        self.graph_convolution_2 = GCNConv(self.args.first_gcn_dimensions,
-            self.args.second_gcn_dimensions)
-        self.fully_connected_1 = torch.nn.Linear(self.args.
-            second_gcn_dimensions, self.args.first_dense_neurons)
-        self.fully_connected_2 = torch.nn.Linear(self.args.
-            first_dense_neurons, self.args.second_dense_neurons)
+        self.graph_convolution_1 = GCNConv(self.number_of_features, self.args.first_gcn_dimensions)
+        self.graph_convolution_2 = GCNConv(self.args.first_gcn_dimensions, self.args.second_gcn_dimensions)
+        self.fully_connected_1 = torch.nn.Linear(self.args.second_gcn_dimensions, self.args.first_dense_neurons)
+        self.fully_connected_2 = torch.nn.Linear(self.args.first_dense_neurons, self.args.second_dense_neurons)
 
     def forward(self, data):
         """
@@ -67,17 +64,13 @@ class SAGE(torch.nn.Module):
         """
         edges = data['edges']
         features = data['features']
-        node_features_1 = torch.nn.functional.relu(self.graph_convolution_1
-            (features, edges))
+        node_features_1 = torch.nn.functional.relu(self.graph_convolution_1(features, edges))
         node_features_2 = self.graph_convolution_2(node_features_1, edges)
-        abstract_features_1 = torch.tanh(self.fully_connected_1(
-            node_features_2))
-        attention = torch.nn.functional.softmax(self.fully_connected_2(
-            abstract_features_1), dim=0)
+        abstract_features_1 = torch.tanh(self.fully_connected_1(node_features_2))
+        attention = torch.nn.functional.softmax(self.fully_connected_2(abstract_features_1), dim=0)
         graph_embedding = torch.mm(torch.t(attention), node_features_2)
         graph_embedding = graph_embedding.view(1, -1)
-        penalty = torch.mm(torch.t(attention), attention) - torch.eye(self.
-            args.second_dense_neurons)
+        penalty = torch.mm(torch.t(attention), attention) - torch.eye(self.args.second_dense_neurons)
         penalty = torch.sum(torch.norm(penalty, p=2, dim=1))
         return graph_embedding, penalty
 
@@ -104,10 +97,8 @@ class MacroGCN(torch.nn.Module):
         """
         We define two GCN layers, the downstram does classification.
         """
-        self.graph_convolution_1 = GCNConv(self.number_of_features, self.
-            args.macro_gcn_dimensions)
-        self.graph_convolution_2 = GCNConv(self.args.macro_gcn_dimensions,
-            self.number_of_labels)
+        self.graph_convolution_1 = GCNConv(self.number_of_features, self.args.macro_gcn_dimensions)
+        self.graph_convolution_2 = GCNConv(self.args.macro_gcn_dimensions, self.number_of_labels)
 
     def forward(self, features, edges):
         """
@@ -116,8 +107,7 @@ class MacroGCN(torch.nn.Module):
         :param egdes: Edge matrix of macro-model.
         :return predictions: Predictions for nodes.
         """
-        node_features_1 = torch.nn.functional.relu(self.graph_convolution_1
-            (features, edges))
+        node_features_1 = torch.nn.functional.relu(self.graph_convolution_1(features, edges))
         node_features_2 = self.graph_convolution_2(node_features_1, edges)
         predictions = torch.nn.functional.log_softmax(node_features_2, dim=1)
         return predictions
@@ -146,9 +136,7 @@ class SEAL(torch.nn.Module):
         Creating a two stage model/
         """
         self.graph_level_model = SAGE(self.args, self.number_of_features)
-        self.hierarchical_model = MacroGCN(self.args, self.args.
-            second_gcn_dimensions * self.args.second_dense_neurons, self.
-            number_of_labels)
+        self.hierarchical_model = MacroGCN(self.args, self.args.second_gcn_dimensions * self.args.second_dense_neurons, self.number_of_labels)
 
     def forward(self, graphs, macro_edges):
         """
@@ -169,10 +157,3 @@ class SEAL(torch.nn.Module):
         predictions = self.hierarchical_model(embeddings, macro_edges)
         return predictions, penalties
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_benedekrozemberczki_SEAL_CI(_paritybench_base):
-    pass

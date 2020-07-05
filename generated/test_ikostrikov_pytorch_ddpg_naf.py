@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -141,10 +142,8 @@ class Policy(nn.Module):
         self.L = nn.Linear(hidden_size, num_outputs ** 2)
         self.L.weight.data.mul_(0.1)
         self.L.bias.data.mul_(0.1)
-        self.tril_mask = Variable(torch.tril(torch.ones(num_outputs,
-            num_outputs), diagonal=-1).unsqueeze(0))
-        self.diag_mask = Variable(torch.diag(torch.diag(torch.ones(
-            num_outputs, num_outputs))).unsqueeze(0))
+        self.tril_mask = Variable(torch.tril(torch.ones(num_outputs, num_outputs), diagonal=-1).unsqueeze(0))
+        self.diag_mask = Variable(torch.diag(torch.diag(torch.ones(num_outputs, num_outputs))).unsqueeze(0))
 
     def forward(self, inputs):
         x, u = inputs
@@ -157,12 +156,10 @@ class Policy(nn.Module):
         if u is not None:
             num_outputs = mu.size(1)
             L = self.L(x).view(-1, num_outputs, num_outputs)
-            L = L * self.tril_mask.expand_as(L) + torch.exp(L
-                ) * self.diag_mask.expand_as(L)
+            L = L * self.tril_mask.expand_as(L) + torch.exp(L) * self.diag_mask.expand_as(L)
             P = torch.bmm(L, L.transpose(2, 1))
             u_mu = (u - mu).unsqueeze(2)
-            A = -0.5 * torch.bmm(torch.bmm(u_mu.transpose(2, 1), P), u_mu)[:,
-                :, (0)]
+            A = -0.5 * torch.bmm(torch.bmm(u_mu.transpose(2, 1), P), u_mu)[:, :, (0)]
             Q = A + V
         return mu, Q, V
 
@@ -171,15 +168,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Actor,
+     lambda: ([], {'hidden_size': 4, 'num_inputs': 4, 'action_space': torch.rand([4, 4])}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Critic,
+     lambda: ([], {'hidden_size': 4, 'num_inputs': 4, 'action_space': torch.rand([4, 4])}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (LayerNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_ikostrikov_pytorch_ddpg_naf(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Actor(*[], **{'hidden_size': 4, 'num_inputs': 4, 'action_space': torch.rand([4, 4])}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Critic(*[], **{'hidden_size': 4, 'num_inputs': 4, 'action_space': torch.rand([4, 4])}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(LayerNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

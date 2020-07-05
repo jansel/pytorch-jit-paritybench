@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,12 +70,7 @@ class Bottleneck(nn.Module):
     def __init__(self, inp, oup, stride, expansion):
         super(Bottleneck, self).__init__()
         self.connect = stride == 1 and inp == oup
-        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expansion, 1, 1, 0,
-            bias=False), nn.BatchNorm2d(inp * expansion), nn.PReLU(inp *
-            expansion), nn.Conv2d(inp * expansion, inp * expansion, 3,
-            stride, 1, groups=inp * expansion, bias=False), nn.BatchNorm2d(
-            inp * expansion), nn.PReLU(inp * expansion), nn.Conv2d(inp *
-            expansion, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+        self.conv = nn.Sequential(nn.Conv2d(inp, inp * expansion, 1, 1, 0, bias=False), nn.BatchNorm2d(inp * expansion), nn.PReLU(inp * expansion), nn.Conv2d(inp * expansion, inp * expansion, 3, stride, 1, groups=inp * expansion, bias=False), nn.BatchNorm2d(inp * expansion), nn.PReLU(inp * expansion), nn.Conv2d(inp * expansion, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.connect:
@@ -105,8 +101,7 @@ class ConvBlock(nn.Module):
             return self.prelu(x)
 
 
-Mobilefacenet_bottleneck_setting = [[2, 64, 5, 2], [4, 128, 1, 2], [2, 128,
-    6, 1], [4, 128, 1, 2], [2, 128, 2, 1]]
+Mobilefacenet_bottleneck_setting = [[2, 64, 5, 2], [4, 128, 1, 2], [2, 128, 6, 1], [4, 128, 1, 2], [2, 128, 2, 1]]
 
 
 class MobileFacenet(nn.Module):
@@ -153,8 +148,7 @@ class MobileFacenet(nn.Module):
 
 class ArcMarginProduct(nn.Module):
 
-    def __init__(self, in_features=128, out_features=200, s=32.0, m=0.5,
-        easy_margin=False):
+    def __init__(self, in_features=128, out_features=200, s=32.0, m=0.5, easy_margin=False):
         super(ArcMarginProduct, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -187,15 +181,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Bottleneck,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expansion': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MobileFacenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+]
+
 class Test_Xiaoccer_MobileFaceNet_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Bottleneck(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expansion': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvBlock(*[], **{'inp': 4, 'oup': 4, 'k': 4, 's': 4, 'p': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MobileFacenet(*[], **{}), [torch.rand([4, 3, 128, 128])], {})
+        self._check(*TESTCASES[2])
 

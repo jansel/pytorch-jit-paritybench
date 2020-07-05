@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -116,9 +117,7 @@ class NaluLayer(nn.Module):
         self.output_shape = output_shape
         self.n_layers = n_layers
         self.hidden_shape = hidden_shape
-        layers = [NaluCell(hidden_shape if n > 0 else input_shape, 
-            hidden_shape if n < n_layers - 1 else output_shape) for n in
-            range(n_layers)]
+        layers = [NaluCell(hidden_shape if n > 0 else input_shape, hidden_shape if n < n_layers - 1 else output_shape) for n in range(n_layers)]
         self.model = Sequential(*layers)
 
     def forward(self, data):
@@ -129,14 +128,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NacCell,
+     lambda: ([], {'in_shape': 4, 'out_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NaluCell,
+     lambda: ([], {'in_shape': 4, 'out_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NaluLayer,
+     lambda: ([], {'input_shape': 4, 'output_shape': 4, 'n_layers': 1, 'hidden_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_bharathgs_NALU(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(NacCell(*[], **{'in_shape': 4, 'out_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(NaluCell(*[], **{'in_shape': 4, 'out_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NaluLayer(*[], **{'input_shape': 4, 'output_shape': 4, 'n_layers': 1, 'hidden_shape': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -49,8 +49,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -118,13 +119,9 @@ class FCModel(nn.Module):
         """
         super(FCModel, self).__init__()
         sizes.insert(0, n_features)
-        self.layers = [nn.Linear(size_in, size_out) for size_in, size_out in
-            zip(sizes[:-1], sizes[1:])]
-        self.input_norm = nn.LayerNorm(n_features
-            ) if input_norm else nn.Identity()
-        self.activation = nn.Identity(
-            ) if activation is None else instantiate_class(
-            'torch.nn.modules.activation', activation)
+        self.layers = [nn.Linear(size_in, size_out) for size_in, size_out in zip(sizes[:-1], sizes[1:])]
+        self.input_norm = nn.LayerNorm(n_features) if input_norm else nn.Identity()
+        self.activation = nn.Identity() if activation is None else instantiate_class('torch.nn.modules.activation', activation)
         self.dropout = nn.Dropout(dropout or 0.0)
         self.output_size = sizes[-1]
         self.layers = nn.ModuleList(self.layers)
@@ -191,8 +188,7 @@ class LTRModel(nn.Module):
         :param indices: original item ranks used in positional encoding, shape [batch_size, slate_length]
         :return: scores of shape [batch_size, slate_length]
         """
-        return self.output_layer.score(self.prepare_for_output(x, mask,
-            indices))
+        return self.output_layer.score(self.prepare_for_output(x, mask, indices))
 
 
 class OutputLayer(nn.Module):
@@ -207,9 +203,7 @@ class OutputLayer(nn.Module):
         :param output_activation: name of the PyTorch activation function used before scoring, e.g. Sigmoid or Tanh
         """
         super(OutputLayer, self).__init__()
-        self.activation = nn.Identity(
-            ) if output_activation is None else instantiate_class(
-            'torch.nn.modules.activation', output_activation)
+        self.activation = nn.Identity() if output_activation is None else instantiate_class('torch.nn.modules.activation', output_activation)
         self.d_output = d_output
         self.w_1 = nn.Linear(d_model, d_output)
 
@@ -264,8 +258,7 @@ class FixedPositionalEncoding(nn.Module):
         super().__init__()
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0.0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0.0, d_model, 2) * -(math.log(
-            10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0.0, d_model, 2) * -(math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = torch.cat((pe, torch.zeros([1, d_model])))
@@ -308,8 +301,7 @@ class LearnedPositionalEncoding(nn.Module):
         :return: output of shape [batch_size, slate_length, d_model]
         """
         padded_indices = indices.masked_fill(mask, self.pe.padding_idx)
-        padded_indices[padded_indices > self.pe.padding_idx
-            ] = self.pe.padding_idx
+        padded_indices[padded_indices > self.pe.padding_idx] = self.pe.padding_idx
         x = math.sqrt(self.pe.embedding_dim) * x + self.pe(padded_indices)
         return x
 
@@ -487,12 +479,9 @@ class MultiHeadedAttention(nn.Module):
         if mask is not None:
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
-        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).
-            transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
-        x, self.attn = attention(query, key, value, mask=mask, dropout=self
-            .dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k
-            )
+        query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (query, key, value))]
+        x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
 
@@ -525,26 +514,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CustomDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MultiHeadedAttention,
+     lambda: ([], {'h': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (OutputLayer,
+     lambda: ([], {'d_model': 4, 'd_output': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SublayerConnection,
+     lambda: ([], {'size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+]
+
 class Test_allegro_allRank(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CustomDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MultiHeadedAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(OutputLayer(*[], **{'d_model': 4, 'd_output': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[5])
 

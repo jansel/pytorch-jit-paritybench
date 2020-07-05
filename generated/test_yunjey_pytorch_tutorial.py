@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,8 +100,7 @@ class BiRNN(nn.Module):
         super(BiRNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers,
-            batch_first=True, bidirectional=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
         self.fc = nn.Linear(hidden_size * 2, num_classes)
 
     def forward(self, x):
@@ -115,12 +115,8 @@ class ConvNet(nn.Module):
 
     def __init__(self, num_classes=10):
         super(ConvNet, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, stride=
-            1, padding=2), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(
-            kernel_size=2, stride=2))
-        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, stride
-            =1, padding=2), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(
-            kernel_size=2, stride=2))
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 16, kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
+        self.layer2 = nn.Sequential(nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(kernel_size=2, stride=2))
         self.fc = nn.Linear(7 * 7 * 32, num_classes)
 
     def forward(self, x):
@@ -132,8 +128,7 @@ class ConvNet(nn.Module):
 
 
 def conv3x3(in_channels, out_channels, stride=1):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=
-        stride, padding=1, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResidualBlock(nn.Module):
@@ -178,11 +173,9 @@ class ResNet(nn.Module):
     def make_layer(self, block, out_channels, blocks, stride=1):
         downsample = None
         if stride != 1 or self.in_channels != out_channels:
-            downsample = nn.Sequential(conv3x3(self.in_channels,
-                out_channels, stride=stride), nn.BatchNorm2d(out_channels))
+            downsample = nn.Sequential(conv3x3(self.in_channels, out_channels, stride=stride), nn.BatchNorm2d(out_channels))
         layers = []
-        layers.append(block(self.in_channels, out_channels, stride, downsample)
-            )
+        layers.append(block(self.in_channels, out_channels, stride, downsample))
         self.in_channels = out_channels
         for i in range(1, blocks):
             layers.append(block(out_channels, out_channels))
@@ -206,8 +199,7 @@ class RNNLM(nn.Module):
     def __init__(self, vocab_size, embed_size, hidden_size, num_layers):
         super(RNNLM, self).__init__()
         self.embed = nn.Embedding(vocab_size, embed_size)
-        self.lstm = nn.LSTM(embed_size, hidden_size, num_layers,
-            batch_first=True)
+        self.lstm = nn.LSTM(embed_size, hidden_size, num_layers, batch_first=True)
         self.linear = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, x, h):
@@ -224,8 +216,7 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers,
-            batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
@@ -258,13 +249,11 @@ class EncoderCNN(nn.Module):
 
 class DecoderRNN(nn.Module):
 
-    def __init__(self, embed_size, hidden_size, vocab_size, num_layers,
-        max_seq_length=20):
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, max_seq_length=20):
         """Set the hyper-parameters and build the layers."""
         super(DecoderRNN, self).__init__()
         self.embed = nn.Embedding(vocab_size, embed_size)
-        self.lstm = nn.LSTM(embed_size, hidden_size, num_layers,
-            batch_first=True)
+        self.lstm = nn.LSTM(embed_size, hidden_size, num_layers, batch_first=True)
         self.linear = nn.Linear(hidden_size, vocab_size)
         self.max_seg_length = max_seq_length
 
@@ -359,29 +348,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_yunjey_pytorch_tutorial(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BiRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (EncoderCNN,
+     lambda: ([], {'embed_size': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (NeuralNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (RNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (ResidualBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VAE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([784, 784])], {}),
+     True),
+    (VGGNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_yunjey_pytorch_tutorial(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(EncoderCNN(*[], **{'embed_size': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(NeuralNet(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ResidualBlock(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(VAE(*[], **{}), [torch.rand([784, 784])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(VGGNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 

@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,8 +72,7 @@ import math
 
 class WaveletTransform(nn.Module):
 
-    def __init__(self, scale=1, dec=True, params_path=
-        'wavelet_weights_c2.pkl', transpose=True):
+    def __init__(self, scale=1, dec=True, params_path='wavelet_weights_c2.pkl', transpose=True):
         super(WaveletTransform, self).__init__()
         self.scale = scale
         self.dec = dec
@@ -80,11 +80,9 @@ class WaveletTransform(nn.Module):
         ks = int(math.pow(2, self.scale))
         nc = 3 * ks * ks
         if dec:
-            self.conv = nn.Conv2d(in_channels=3, out_channels=nc,
-                kernel_size=ks, stride=ks, padding=0, groups=3, bias=False)
+            self.conv = nn.Conv2d(in_channels=3, out_channels=nc, kernel_size=ks, stride=ks, padding=0, groups=3, bias=False)
         else:
-            self.conv = nn.ConvTranspose2d(in_channels=nc, out_channels=3,
-                kernel_size=ks, stride=ks, padding=0, groups=3, bias=False)
+            self.conv = nn.ConvTranspose2d(in_channels=nc, out_channels=3, kernel_size=ks, stride=ks, padding=0, groups=3, bias=False)
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
                 f = file(params_path, 'rb')
@@ -98,14 +96,12 @@ class WaveletTransform(nn.Module):
             output = self.conv(x)
             if self.transpose:
                 osz = output.size()
-                output = output.view(osz[0], 3, -1, osz[2], osz[3]).transpose(
-                    1, 2).contiguous().view(osz)
+                output = output.view(osz[0], 3, -1, osz[2], osz[3]).transpose(1, 2).contiguous().view(osz)
         else:
             if self.transpose:
                 xx = x
                 xsz = xx.size()
-                xx = xx.view(xsz[0], -1, 3, xsz[2], xsz[3]).transpose(1, 2
-                    ).contiguous().view(xsz)
+                xx = xx.view(xsz[0], -1, 3, xsz[2], xsz[3]).transpose(1, 2).contiguous().view(xsz)
             output = self.conv(xx)
         return output
 
@@ -115,16 +111,13 @@ class _Residual_Block(nn.Module):
     def __init__(self, inc=64, outc=64, groups=1):
         super(_Residual_Block, self).__init__()
         if inc is not outc:
-            self.conv_expand = nn.Conv2d(in_channels=inc, out_channels=outc,
-                kernel_size=1, stride=1, padding=0, groups=1, bias=False)
+            self.conv_expand = nn.Conv2d(in_channels=inc, out_channels=outc, kernel_size=1, stride=1, padding=0, groups=1, bias=False)
         else:
             self.conv_expand = None
-        self.conv1 = nn.Conv2d(in_channels=inc, out_channels=outc,
-            kernel_size=3, stride=1, padding=1, groups=groups, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=inc, out_channels=outc, kernel_size=3, stride=1, padding=1, groups=groups, bias=False)
         self.bn1 = nn.BatchNorm2d(outc)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=outc, out_channels=outc,
-            kernel_size=3, stride=1, padding=1, groups=groups, bias=False)
+        self.conv2 = nn.Conv2d(in_channels=outc, out_channels=outc, kernel_size=3, stride=1, padding=1, groups=groups, bias=False)
         self.bn2 = nn.BatchNorm2d(outc)
         self.relu2 = nn.ReLU(inplace=True)
 
@@ -143,14 +136,11 @@ class _Interim_Block(nn.Module):
 
     def __init__(self, inc=64, outc=64, groups=1):
         super(_Interim_Block, self).__init__()
-        self.conv_expand = nn.Conv2d(in_channels=inc, out_channels=outc,
-            kernel_size=1, stride=1, padding=0, groups=1, bias=False)
-        self.conv1 = nn.Conv2d(in_channels=inc, out_channels=outc,
-            kernel_size=3, stride=1, padding=1, groups=1, bias=False)
+        self.conv_expand = nn.Conv2d(in_channels=inc, out_channels=outc, kernel_size=1, stride=1, padding=0, groups=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=inc, out_channels=outc, kernel_size=3, stride=1, padding=1, groups=1, bias=False)
         self.bn1 = nn.BatchNorm2d(outc)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=outc, out_channels=outc,
-            kernel_size=3, stride=1, padding=1, groups=groups, bias=False)
+        self.conv2 = nn.Conv2d(in_channels=outc, out_channels=outc, kernel_size=3, stride=1, padding=1, groups=groups, bias=False)
         self.bn2 = nn.BatchNorm2d(outc)
         self.relu2 = nn.ReLU(inplace=True)
 
@@ -177,58 +167,37 @@ class NetSR(nn.Module):
         self.scale = int(scale)
         self.groups = int(math.pow(4, self.scale))
         self.wavelet_c = wavelet_c = 32
-        self.conv_input = nn.Conv2d(in_channels=3, out_channels=64,
-            kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv_input = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn_input = nn.BatchNorm2d(64)
         self.relu_input = nn.ReLU(inplace=True)
-        self.residual = nn.Sequential(make_layer(_Residual_Block,
-            num_layers_res, inc=64, outc=64), make_layer(_Residual_Block,
-            num_layers_res, inc=64, outc=128), make_layer(_Residual_Block,
-            num_layers_res, inc=128, outc=256), make_layer(_Residual_Block,
-            num_layers_res, inc=256, outc=512), make_layer(_Residual_Block,
-            num_layers_res, inc=512, outc=1024))
+        self.residual = nn.Sequential(make_layer(_Residual_Block, num_layers_res, inc=64, outc=64), make_layer(_Residual_Block, num_layers_res, inc=64, outc=128), make_layer(_Residual_Block, num_layers_res, inc=128, outc=256), make_layer(_Residual_Block, num_layers_res, inc=256, outc=512), make_layer(_Residual_Block, num_layers_res, inc=512, outc=1024))
         inc = 1024
         layer_num = 1
         if self.scale >= 0:
             g = 1
             self.interim_0 = _Interim_Block(inc, wavelet_c * g, g)
-            self.wavelet_0 = make_layer(_Residual_Block, layer_num, 
-                wavelet_c * g, wavelet_c * 2 * g, g)
-            self.predict_0 = nn.Conv2d(in_channels=wavelet_c * 2 * g,
-                out_channels=3 * g, kernel_size=3, stride=1, padding=1,
-                groups=g, bias=True)
+            self.wavelet_0 = make_layer(_Residual_Block, layer_num, wavelet_c * g, wavelet_c * 2 * g, g)
+            self.predict_0 = nn.Conv2d(in_channels=wavelet_c * 2 * g, out_channels=3 * g, kernel_size=3, stride=1, padding=1, groups=g, bias=True)
         if self.scale >= 1:
             g = 3
             self.interim_1 = _Interim_Block(inc, wavelet_c * g, g)
-            self.wavelet_1 = make_layer(_Residual_Block, layer_num, 
-                wavelet_c * g, wavelet_c * 2 * g, g)
-            self.predict_1 = nn.Conv2d(in_channels=wavelet_c * 2 * g,
-                out_channels=3 * g, kernel_size=3, stride=1, padding=1,
-                groups=g, bias=True)
+            self.wavelet_1 = make_layer(_Residual_Block, layer_num, wavelet_c * g, wavelet_c * 2 * g, g)
+            self.predict_1 = nn.Conv2d(in_channels=wavelet_c * 2 * g, out_channels=3 * g, kernel_size=3, stride=1, padding=1, groups=g, bias=True)
         if self.scale >= 2:
             g = 12
             self.interim_2 = _Interim_Block(inc, wavelet_c * g, g)
-            self.wavelet_2 = make_layer(_Residual_Block, layer_num, 
-                wavelet_c * g, wavelet_c * 2 * g, g)
-            self.predict_2 = nn.Conv2d(in_channels=wavelet_c * 2 * g,
-                out_channels=3 * g, kernel_size=3, stride=1, padding=1,
-                groups=g, bias=True)
+            self.wavelet_2 = make_layer(_Residual_Block, layer_num, wavelet_c * g, wavelet_c * 2 * g, g)
+            self.predict_2 = nn.Conv2d(in_channels=wavelet_c * 2 * g, out_channels=3 * g, kernel_size=3, stride=1, padding=1, groups=g, bias=True)
         if self.scale >= 3:
             g = 48
             self.interim_3 = _Interim_Block(inc, wavelet_c * g, g)
-            self.wavelet_3 = make_layer(_Residual_Block, layer_num, 
-                wavelet_c * g, wavelet_c * 2 * g, g)
-            self.predict_3 = nn.Conv2d(in_channels=wavelet_c * 2 * g,
-                out_channels=3 * g, kernel_size=3, stride=1, padding=1,
-                groups=g, bias=True)
+            self.wavelet_3 = make_layer(_Residual_Block, layer_num, wavelet_c * g, wavelet_c * 2 * g, g)
+            self.predict_3 = nn.Conv2d(in_channels=wavelet_c * 2 * g, out_channels=3 * g, kernel_size=3, stride=1, padding=1, groups=g, bias=True)
         if self.scale >= 4:
             g = 192
             self.interim_4 = _Interim_Block(inc, wavelet_c * g, g)
-            self.wavelet_4 = make_layer(_Residual_Block, layer_num, 
-                wavelet_c * g, wavelet_c * 2 * g, g)
-            self.predict_4 = nn.Conv2d(in_channels=wavelet_c * 2 * g,
-                out_channels=3 * g, kernel_size=3, stride=1, padding=1,
-                groups=g, bias=True)
+            self.wavelet_4 = make_layer(_Residual_Block, layer_num, wavelet_c * g, wavelet_c * 2 * g, g)
+            self.predict_4 = nn.Conv2d(in_channels=wavelet_c * 2 * g, out_channels=3 * g, kernel_size=3, stride=1, padding=1, groups=g, bias=True)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -275,15 +244,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (NetSR,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (_Interim_Block,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (_Residual_Block,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_hhb072_WaveletSRNet(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(NetSR(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(_Interim_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(_Residual_Block(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

@@ -34,8 +34,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -140,10 +141,8 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 
-        2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:,
-        :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
+    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
     inter = torch.clamp(max_xy - min_xy, min=0)
     return inter[:, :, (0)] * inter[:, :, (1)]
 
@@ -161,10 +160,8 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-        ).unsqueeze(1).expand_as(inter)
-    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])
-        ).unsqueeze(0).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
     return inter / union
 
@@ -177,8 +174,7 @@ def point_form(boxes):
     Return:
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
-    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes
-        [:, 2:] / 2), 1)
+    return torch.cat((boxes[:, :2] - boxes[:, 2:] / 2, boxes[:, :2] + boxes[:, 2:] / 2), 1)
 
 
 def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
@@ -239,8 +235,7 @@ class MultiBoxLoss(nn.Module):
         See: https://arxiv.org/pdf/1512.02325.pdf for more details.
     """
 
-    def __init__(self, num_classes, overlap_thresh, prior_for_matching,
-        bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
+    def __init__(self, num_classes, overlap_thresh, prior_for_matching, bkg_label, neg_mining, neg_pos, neg_overlap, encode_target):
         super(MultiBoxLoss, self).__init__()
         self.num_classes = num_classes
         self.threshold = overlap_thresh
@@ -275,8 +270,7 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, (-1)].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                loc_t, conf_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, loc_t, conf_t, idx)
         if GPU:
             loc_t = loc_t
             conf_t = conf_t
@@ -288,8 +282,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         batch_conf = conf_data.view(-1, self.num_classes)
-        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view
-            (-1, 1))
+        loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
         loss_c[pos.view(-1, 1)] = 0
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
@@ -299,8 +292,7 @@ class MultiBoxLoss(nn.Module):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes
-            )
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
         loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         N = max(num_pos.data.sum().float(), 1)
@@ -311,15 +303,11 @@ class MultiBoxLoss(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -333,38 +321,17 @@ class BasicConv(nn.Module):
 
 class BasicRFB(nn.Module):
 
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8
-        ):
+    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8):
         super(BasicRFB, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // map_reduce
-        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes,
-            kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=
-            stride, padding=1), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv
-            (inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1),
-            stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.ConvLinear = BasicConv(8 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1), stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.ConvLinear = BasicConv(8 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -382,31 +349,16 @@ class BasicRFB(nn.Module):
 
 class BasicRFB_c(nn.Module):
 
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8
-        ):
+    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8):
         super(BasicRFB_c, self).__init__()
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // map_reduce
-        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes,
-            kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv
-            (inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1),
-            stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.ConvLinear = BasicConv(6 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1), stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.ConvLinear = BasicConv(6 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -428,47 +380,15 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=5,
-            dilation=5, relu=False))
-        self.branch4 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=5,
-            dilation=5, relu=False))
-        self.branch5 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.branch6 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(3, 1), stride=1, padding=(1,
-            0)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=7, dilation=7,
-            relu=False))
-        self.ConvLinear = BasicConv(7 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.branch4 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.branch5 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.branch6 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
+        self.ConvLinear = BasicConv(7 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -539,8 +459,7 @@ class RFBNet(nn.Module):
         for k in range(23, len(self.base)):
             x = self.base[k](x)
         s2 = self.up_reduce(x)
-        s2 = F.upsample(s2, scale_factor=2, mode='bilinear', align_corners=True
-            )
+        s2 = F.upsample(s2, scale_factor=2, mode='bilinear', align_corners=True)
         s = torch.cat((s1, s2), 1)
         ss = self.Norm(s)
         sources.append(ss)
@@ -554,11 +473,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -573,15 +490,11 @@ class RFBNet(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -595,15 +508,11 @@ class BasicConv(nn.Module):
 
 class BasicSepConv(nn.Module):
 
-    def __init__(self, in_planes, kernel_size, stride=1, padding=0,
-        dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicSepConv, self).__init__()
         self.out_channels = in_planes
-        self.conv = nn.Conv2d(in_planes, in_planes, kernel_size=kernel_size,
-            stride=stride, padding=padding, dilation=dilation, groups=
-            in_planes, bias=bias)
-        self.bn = nn.BatchNorm2d(in_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, in_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=in_planes, bias=bias)
+        self.bn = nn.BatchNorm2d(in_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -622,26 +531,14 @@ class BasicRFB(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv
-            (inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=(3, 
-            1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=3,
-            stride=stride, padding=1), BasicSepConv(inter_planes // 2 * 3,
-            kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(3 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=3, stride=stride, padding=1), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(3 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
         if in_planes == out_planes:
             self.identity = True
         else:
             self.identity = False
-            self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-                stride=stride, relu=False)
+            self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -665,28 +562,11 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicSepConv(inter_planes,
-            kernel_size=3, stride=1, padding=1, dilation=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicSepConv(
-            inter_planes, kernel_size=3, stride=1, padding=3, dilation=3,
-            relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)),
-            BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=1, dilation=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -760,11 +640,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -779,15 +657,11 @@ class RFBNet(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=
-            kernel_size, stride=stride, padding=padding, dilation=dilation,
-            groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01,
-            affine=True) if bn else None
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
     def forward(self, x):
@@ -806,26 +680,11 @@ class BasicRFB(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes,
-            kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=visual, dilation
-            =visual, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, 2 *
-            inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)
-            ), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3,
-            stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes //
-            2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(
-            inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=
-            stride, padding=1), BasicConv(2 * inter_planes, 2 *
-            inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1,
-            dilation=2 * visual + 1, relu=False))
-        self.ConvLinear = BasicConv(6 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual, dilation=visual, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1, dilation=2 * visual + 1, relu=False))
+        self.ConvLinear = BasicConv(6 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -847,30 +706,12 @@ class BasicRFB_a(nn.Module):
         self.scale = scale
         self.out_channels = out_planes
         inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes,
-            kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes,
-            kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(
-            inter_planes, inter_planes, kernel_size=3, stride=1, padding=3,
-            dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2,
-            kernel_size=1, stride=1), BasicConv(inter_planes // 2, 
-            inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0,
-            1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size
-            =(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes,
-            inter_planes, kernel_size=3, stride=1, padding=5, dilation=5,
-            relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes,
-            kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1,
-            stride=stride, relu=False)
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -962,11 +803,9 @@ class RFBNet(nn.Module):
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
         if self.phase == 'test':
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-
-                1, self.num_classes))
+            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
         else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), 
-                -1, self.num_classes)
+            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
 
     def load_weights(self, base_file):
@@ -983,20 +822,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicConv,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicRFB,
+     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (BasicRFB_a,
+     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (BasicRFB_c,
+     lambda: ([], {'in_planes': 64, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (BasicSepConv,
+     lambda: ([], {'in_planes': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ruinmessi_RFBNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicConv(*[], **{'in_planes': 4, 'out_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicRFB(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BasicRFB_a(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BasicRFB_c(*[], **{'in_planes': 64, 'out_planes': 4}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BasicSepConv(*[], **{'in_planes': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

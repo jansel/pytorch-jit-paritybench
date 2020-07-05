@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -95,13 +96,11 @@ class Unpool(nn.Module):
         super(Unpool, self).__init__()
         self.num_channels = num_channels
         self.stride = stride
-        self.weights = torch.autograd.Variable(torch.zeros(num_channels, 1,
-            stride, stride))
+        self.weights = torch.autograd.Variable(torch.zeros(num_channels, 1, stride, stride))
         self.weights[:, :, (0), (0)] = 1
 
     def forward(self, x):
-        return F.conv_transpose2d(x, self.weights, stride=self.stride,
-            groups=self.num_channels)
+        return F.conv_transpose2d(x, self.weights, stride=self.stride, groups=self.num_channels)
 
 
 class Decoder(nn.Module):
@@ -125,8 +124,7 @@ class Decoder(nn.Module):
 class DeConv(Decoder):
 
     def __init__(self, in_channels, kernel_size):
-        assert kernel_size >= 2, 'kernel_size out of range: {}'.format(
-            kernel_size)
+        assert kernel_size >= 2, 'kernel_size out of range: {}'.format(kernel_size)
         super(DeConv, self).__init__()
 
         def convt(in_channels):
@@ -135,11 +133,7 @@ class DeConv(Decoder):
             output_padding = kernel_size % 2
             assert -2 - 2 * padding + kernel_size + output_padding == 0, 'deconv parameters incorrect'
             module_name = 'deconv{}'.format(kernel_size)
-            return nn.Sequential(collections.OrderedDict([(module_name, nn.
-                ConvTranspose2d(in_channels, in_channels // 2, kernel_size,
-                stride, padding, output_padding, bias=False)), ('batchnorm',
-                nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU(inplace
-                =True))]))
+            return nn.Sequential(collections.OrderedDict([(module_name, nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size, stride, padding, output_padding, bias=False)), ('batchnorm', nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU(inplace=True))]))
         self.layer1 = convt(in_channels)
         self.layer2 = convt(in_channels // 2)
         self.layer3 = convt(in_channels // 2 ** 2)
@@ -149,10 +143,7 @@ class DeConv(Decoder):
 class UpConv(Decoder):
 
     def upconv_module(self, in_channels):
-        upconv = nn.Sequential(collections.OrderedDict([('unpool', Unpool(
-            in_channels)), ('conv', nn.Conv2d(in_channels, in_channels // 2,
-            kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm',
-            nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU())]))
+        upconv = nn.Sequential(collections.OrderedDict([('unpool', Unpool(in_channels)), ('conv', nn.Conv2d(in_channels, in_channels // 2, kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm', nn.BatchNorm2d(in_channels // 2)), ('relu', nn.ReLU())]))
         return upconv
 
     def __init__(self, in_channels):
@@ -172,17 +163,8 @@ class UpProj(Decoder):
             super(UpProj.UpProjModule, self).__init__()
             out_channels = in_channels // 2
             self.unpool = Unpool(in_channels)
-            self.upper_branch = nn.Sequential(collections.OrderedDict([(
-                'conv1', nn.Conv2d(in_channels, out_channels, kernel_size=5,
-                stride=1, padding=2, bias=False)), ('batchnorm1', nn.
-                BatchNorm2d(out_channels)), ('relu', nn.ReLU()), ('conv2',
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride
-                =1, padding=1, bias=False)), ('batchnorm2', nn.BatchNorm2d(
-                out_channels))]))
-            self.bottom_branch = nn.Sequential(collections.OrderedDict([(
-                'conv', nn.Conv2d(in_channels, out_channels, kernel_size=5,
-                stride=1, padding=2, bias=False)), ('batchnorm', nn.
-                BatchNorm2d(out_channels))]))
+            self.upper_branch = nn.Sequential(collections.OrderedDict([('conv1', nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm1', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU()), ('conv2', nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)), ('batchnorm2', nn.BatchNorm2d(out_channels))]))
+            self.bottom_branch = nn.Sequential(collections.OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)), ('batchnorm', nn.BatchNorm2d(out_channels))]))
             self.relu = nn.ReLU()
 
         def forward(self, x):
@@ -232,21 +214,16 @@ def weights_init(m):
 
 class ResNet(nn.Module):
 
-    def __init__(self, layers, decoder, output_size, in_channels=3,
-        pretrained=True):
+    def __init__(self, layers, decoder, output_size, in_channels=3, pretrained=True):
         if layers not in [18, 34, 50, 101, 152]:
-            raise RuntimeError(
-                'Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'
-                .format(layers))
+            raise RuntimeError('Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
         super(ResNet, self).__init__()
-        pretrained_model = torchvision.models.__dict__['resnet{}'.format(
-            layers)](pretrained=pretrained)
+        pretrained_model = torchvision.models.__dict__['resnet{}'.format(layers)](pretrained=pretrained)
         if in_channels == 3:
             self.conv1 = pretrained_model._modules['conv1']
             self.bn1 = pretrained_model._modules['bn1']
         else:
-            self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2,
-                padding=3, bias=False)
+            self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             weights_init(self.conv1)
             weights_init(self.bn1)
@@ -262,14 +239,11 @@ class ResNet(nn.Module):
             num_channels = 512
         elif layers >= 50:
             num_channels = 2048
-        self.conv2 = nn.Conv2d(num_channels, num_channels // 2, kernel_size
-            =1, bias=False)
+        self.conv2 = nn.Conv2d(num_channels, num_channels // 2, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(num_channels // 2)
         self.decoder = choose_decoder(decoder, num_channels // 2)
-        self.conv3 = nn.Conv2d(num_channels // 32, 1, kernel_size=3, stride
-            =1, padding=1, bias=False)
-        self.bilinear = nn.Upsample(size=self.output_size, mode='bilinear',
-            align_corners=True)
+        self.conv3 = nn.Conv2d(num_channels // 32, 1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bilinear = nn.Upsample(size=self.output_size, mode='bilinear', align_corners=True)
         self.conv2.apply(weights_init)
         self.bn2.apply(weights_init)
         self.decoder.apply(weights_init)
@@ -296,23 +270,51 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DeConv,
+     lambda: ([], {'in_channels': 64, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (MaskedL1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaskedMSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Unpool,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (UpConv,
+     lambda: ([], {'in_channels': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (UpProj,
+     lambda: ([], {'in_channels': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+]
+
 class Test_fangchangma_sparse_to_dense_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DeConv(*[], **{'in_channels': 64, 'kernel_size': 4}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(MaskedL1Loss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(MaskedMSELoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Unpool(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(UpConv(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(UpProj(*[], **{'in_channels': 64}), [torch.rand([4, 64, 4, 4])], {})
+        self._check(*TESTCASES[5])
 

@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,12 +59,9 @@ class ActNorm(nn.Module):
 
     def initialize(self, input):
         with torch.no_grad():
-            flatten = input.permute(1, 0, 2, 3).contiguous().view(input.
-                shape[1], -1)
-            mean = flatten.mean(1).unsqueeze(1).unsqueeze(2).unsqueeze(3
-                ).permute(1, 0, 2, 3)
-            std = flatten.std(1).unsqueeze(1).unsqueeze(2).unsqueeze(3
-                ).permute(1, 0, 2, 3)
+            flatten = input.permute(1, 0, 2, 3).contiguous().view(input.shape[1], -1)
+            mean = flatten.mean(1).unsqueeze(1).unsqueeze(2).unsqueeze(3).permute(1, 0, 2, 3)
+            std = flatten.std(1).unsqueeze(1).unsqueeze(2).unsqueeze(3).permute(1, 0, 2, 3)
             self.loc.data.copy_(-mean)
             self.scale.data.copy_(1 / (std + 1e-06))
 
@@ -95,13 +93,11 @@ class InvConv2d(nn.Module):
     def forward(self, input):
         _, _, height, width = input.shape
         out = F.conv2d(input, self.weight)
-        logdet = height * width * torch.slogdet(self.weight.squeeze().double()
-            )[1].float()
+        logdet = height * width * torch.slogdet(self.weight.squeeze().double())[1].float()
         return out, logdet
 
     def reverse(self, output):
-        return F.conv2d(output, self.weight.squeeze().inverse().unsqueeze(2
-            ).unsqueeze(3))
+        return F.conv2d(output, self.weight.squeeze().inverse().unsqueeze(2).unsqueeze(3))
 
 
 class InvConv2dLU(nn.Module):
@@ -136,14 +132,12 @@ class InvConv2dLU(nn.Module):
         return out, logdet
 
     def calc_weight(self):
-        weight = self.w_p @ (self.w_l * self.l_mask + self.l_eye) @ (self.
-            w_u * self.u_mask + torch.diag(self.s_sign * torch.exp(self.w_s)))
+        weight = self.w_p @ (self.w_l * self.l_mask + self.l_eye) @ (self.w_u * self.u_mask + torch.diag(self.s_sign * torch.exp(self.w_s)))
         return weight.unsqueeze(2).unsqueeze(3)
 
     def reverse(self, output):
         weight = self.calc_weight()
-        return F.conv2d(output, weight.squeeze().inverse().unsqueeze(2).
-            unsqueeze(3))
+        return F.conv2d(output, weight.squeeze().inverse().unsqueeze(2).unsqueeze(3))
 
 
 class ZeroConv2d(nn.Module):
@@ -167,10 +161,7 @@ class AffineCoupling(nn.Module):
     def __init__(self, in_channel, filter_size=512, affine=True):
         super().__init__()
         self.affine = affine
-        self.net = nn.Sequential(nn.Conv2d(in_channel // 2, filter_size, 3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(filter_size,
-            filter_size, 1), nn.ReLU(inplace=True), ZeroConv2d(filter_size,
-            in_channel if self.affine else in_channel // 2))
+        self.net = nn.Sequential(nn.Conv2d(in_channel // 2, filter_size, 3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(filter_size, filter_size, 1), nn.ReLU(inplace=True), ZeroConv2d(filter_size, in_channel if self.affine else in_channel // 2))
         self.net[0].weight.data.normal_(0, 0.05)
         self.net[0].bias.data.zero_()
         self.net[2].weight.data.normal_(0, 0.05)
@@ -229,8 +220,7 @@ class Flow(nn.Module):
 
 
 def gaussian_log_p(x, mean, log_sd):
-    return -0.5 * log(2 * pi) - log_sd - 0.5 * (x - mean) ** 2 / torch.exp(
-        2 * log_sd)
+    return -0.5 * log(2 * pi) - log_sd - 0.5 * (x - mean) ** 2 / torch.exp(2 * log_sd)
 
 
 def gaussian_sample(eps, mean, log_sd):
@@ -239,14 +229,12 @@ def gaussian_sample(eps, mean, log_sd):
 
 class Block(nn.Module):
 
-    def __init__(self, in_channel, n_flow, split=True, affine=True, conv_lu
-        =True):
+    def __init__(self, in_channel, n_flow, split=True, affine=True, conv_lu=True):
         super().__init__()
         squeeze_dim = in_channel * 4
         self.flows = nn.ModuleList()
         for i in range(n_flow):
-            self.flows.append(Flow(squeeze_dim, affine=affine, conv_lu=conv_lu)
-                )
+            self.flows.append(Flow(squeeze_dim, affine=affine, conv_lu=conv_lu))
         self.split = split
         if split:
             self.prior = ZeroConv2d(in_channel * 2, in_channel * 4)
@@ -257,8 +245,7 @@ class Block(nn.Module):
         b_size, n_channel, height, width = input.shape
         squeezed = input.view(b_size, n_channel, height // 2, 2, width // 2, 2)
         squeezed = squeezed.permute(0, 1, 3, 5, 2, 4)
-        out = squeezed.contiguous().view(b_size, n_channel * 4, height // 2,
-            width // 2)
+        out = squeezed.contiguous().view(b_size, n_channel * 4, height // 2, width // 2)
         logdet = 0
         for flow in self.flows:
             out, det = flow(out)
@@ -297,8 +284,7 @@ class Block(nn.Module):
         b_size, n_channel, height, width = input.shape
         unsqueezed = input.view(b_size, n_channel // 4, 2, 2, height, width)
         unsqueezed = unsqueezed.permute(0, 1, 4, 2, 5, 3)
-        unsqueezed = unsqueezed.contiguous().view(b_size, n_channel // 4, 
-            height * 2, width * 2)
+        unsqueezed = unsqueezed.contiguous().view(b_size, n_channel // 4, height * 2, width * 2)
         return unsqueezed
 
 
@@ -309,11 +295,9 @@ class Glow(nn.Module):
         self.blocks = nn.ModuleList()
         n_channel = in_channel
         for i in range(n_block - 1):
-            self.blocks.append(Block(n_channel, n_flow, affine=affine,
-                conv_lu=conv_lu))
+            self.blocks.append(Block(n_channel, n_flow, affine=affine, conv_lu=conv_lu))
             n_channel *= 2
-        self.blocks.append(Block(n_channel, n_flow, split=False, affine=affine)
-            )
+        self.blocks.append(Block(n_channel, n_flow, split=False, affine=affine))
 
     def forward(self, input):
         log_p_sum = 0
@@ -331,11 +315,9 @@ class Glow(nn.Module):
     def reverse(self, z_list, reconstruct=False):
         for i, block in enumerate(self.blocks[::-1]):
             if i == 0:
-                input = block.reverse(z_list[-1], z_list[-1], reconstruct=
-                    reconstruct)
+                input = block.reverse(z_list[-1], z_list[-1], reconstruct=reconstruct)
             else:
-                input = block.reverse(input, z_list[-(i + 1)], reconstruct=
-                    reconstruct)
+                input = block.reverse(input, z_list[-(i + 1)], reconstruct=reconstruct)
         return input
 
 
@@ -343,31 +325,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ActNorm,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AffineCoupling,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Block,
+     lambda: ([], {'in_channel': 4, 'n_flow': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Flow,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InvConv2d,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvConv2dLU,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ZeroConv2d,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_rosinality_glow_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ActNorm(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(AffineCoupling(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Block(*[], **{'in_channel': 4, 'n_flow': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Flow(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(InvConv2d(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(InvConv2dLU(*[], **{'in_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(ZeroConv2d(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

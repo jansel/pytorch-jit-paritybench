@@ -111,8 +111,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -264,10 +265,7 @@ class LayerConfigUndefinedError(BaseError):
     pass
 
 
-def get_conf(layer_id, layer_name, input_layer_ids, all_layer_configs,
-    model_input_ids, use_gpu, conf_dict=None, shared_conf=None,
-    succeed_embedding_flag=False, output_layer_flag=False, target_num=None,
-    fixed_lengths=None, target_dict=None):
+def get_conf(layer_id, layer_name, input_layer_ids, all_layer_configs, model_input_ids, use_gpu, conf_dict=None, shared_conf=None, succeed_embedding_flag=False, output_layer_flag=False, target_num=None, fixed_lengths=None, target_dict=None):
     """ get layer configuration
 
     Args
@@ -302,77 +300,49 @@ def get_conf(layer_id, layer_name, input_layer_ids, all_layer_configs,
                         assert target_num is not None, 'Number of targets should be given!'
                         conf_dict['hidden_dim'][-1] = target_num
                     elif conf_dict['hidden_dim'][-1] == '#target#':
-                        logging.info(
-                            '#target# position will be replace by target num: %d'
-                             % target_num)
+                        logging.info('#target# position will be replace by target num: %d' % target_num)
                         conf_dict['hidden_dim'][-1] = target_num
-                elif isinstance(conf_dict['hidden_dim'], int) and conf_dict[
-                    'hidden_dim'] == -1:
+                elif isinstance(conf_dict['hidden_dim'], int) and conf_dict['hidden_dim'] == -1:
                     assert output_layer_flag is True, 'Only in the last layer, hidden_dim == -1 is allowed!'
                     assert target_num is not None, 'Number of targets should be given!'
                     conf_dict['hidden_dim'] = target_num
-                elif isinstance(conf_dict['hidden_dim'], str) and conf_dict[
-                    'hidden_dim'] == '#target#':
-                    logging.info(
-                        '#target# position will be replace by target num: %d' %
-                        target_num)
+                elif isinstance(conf_dict['hidden_dim'], str) and conf_dict['hidden_dim'] == '#target#':
+                    logging.info('#target# position will be replace by target num: %d' % target_num)
                     conf_dict['hidden_dim'] = target_num
             if layer_name == 'CRF':
                 conf_dict['target_dict'] = target_dict
             conf = eval(layer_name + 'Conf')(**conf_dict)
         except NameError as e:
-            raise LayerConfigUndefinedError('"%sConf" has not been defined' %
-                layer_name)
+            raise LayerConfigUndefinedError('"%sConf" has not been defined' % layer_name)
     if layer_name == EMBED_LAYER_NAME:
         pass
     else:
         for input_layer_id in input_layer_ids:
-            if not (input_layer_id in all_layer_configs or input_layer_id in
-                model_input_ids):
-                raise ConfigurationError(
-                    'The input %s of layer %s does not exist. Please define it before defining layer %s!'
-                     % (input_layer_id, layer_id, layer_id))
-        former_output_ranks = [(all_layer_configs[input_layer_id].
-            output_rank if input_layer_id in all_layer_configs else
-            all_layer_configs[EMBED_LAYER_ID].output_rank) for
-            input_layer_id in input_layer_ids]
-        conf.input_dims = [(all_layer_configs[input_layer_id].output_dim if
-            input_layer_id in all_layer_configs else all_layer_configs[
-            EMBED_LAYER_ID].output_dim) for input_layer_id in input_layer_ids]
-        if len(input_layer_ids) == 1 and input_layer_ids[0
-            ] in model_input_ids and fixed_lengths:
+            if not (input_layer_id in all_layer_configs or input_layer_id in model_input_ids):
+                raise ConfigurationError('The input %s of layer %s does not exist. Please define it before defining layer %s!' % (input_layer_id, layer_id, layer_id))
+        former_output_ranks = [(all_layer_configs[input_layer_id].output_rank if input_layer_id in all_layer_configs else all_layer_configs[EMBED_LAYER_ID].output_rank) for input_layer_id in input_layer_ids]
+        conf.input_dims = [(all_layer_configs[input_layer_id].output_dim if input_layer_id in all_layer_configs else all_layer_configs[EMBED_LAYER_ID].output_dim) for input_layer_id in input_layer_ids]
+        if len(input_layer_ids) == 1 and input_layer_ids[0] in model_input_ids and fixed_lengths:
             conf.input_dims[0][1] = fixed_lengths[input_layer_ids[0]]
         if conf.num_of_inputs > 0:
             if conf.num_of_inputs != len(input_layer_ids):
-                raise ConfigurationError(
-                    '%s only accept %d inputs but you feed %d inputs to it!' %
-                    (layer_name, conf.num_of_inputs, len(input_layer_ids)))
+                raise ConfigurationError('%s only accept %d inputs but you feed %d inputs to it!' % (layer_name, conf.num_of_inputs, len(input_layer_ids)))
         elif conf.num_of_inputs == -1:
             conf.num_of_inputs = len(input_layer_ids)
             if isinstance(conf.input_ranks, list):
                 conf.input_ranks = conf.input_ranks * conf.num_of_inputs
             else:
-                logging.warning(
-                    '[For developer of %s] The input_ranks attribute should be a list!'
-                     % layer_name)
+                logging.warning('[For developer of %s] The input_ranks attribute should be a list!' % layer_name)
                 [conf.input_ranks] * conf.num_of_inputs
-        for input_rank, former_output_rank in zip(conf.input_ranks,
-            former_output_ranks):
+        for input_rank, former_output_rank in zip(conf.input_ranks, former_output_ranks):
             if input_rank != -1 and input_rank != former_output_rank:
-                raise ConfigurationError(
-                    'Input ranks of %s are inconsistent with former layers' %
-                    layer_id)
+                raise ConfigurationError('Input ranks of %s are inconsistent with former layers' % layer_id)
         conf.input_ranks = copy.deepcopy(former_output_ranks)
     conf.inference()
     conf.verify()
-    former_conf = None if len(all_layer_configs) == 0 else list(
-        all_layer_configs.values())[-1]
+    former_conf = None if len(all_layer_configs) == 0 else list(all_layer_configs.values())[-1]
     conf.verify_former_block(former_conf)
-    logging.debug(
-        'Layer id: %s; name: %s; input_dims: %s; input_ranks: %s; output_dim: %s; output_rank: %s'
-         % (layer_id, layer_name, conf.input_dims if layer_id !=
-        'embedding' else 'None', conf.input_ranks, conf.output_dim, conf.
-        output_rank))
+    logging.debug('Layer id: %s; name: %s; input_dims: %s; input_ranks: %s; output_dim: %s; output_rank: %s' % (layer_id, layer_name, conf.input_dims if layer_id != 'embedding' else 'None', conf.input_ranks, conf.output_dim, conf.output_rank))
     return conf
 
 
@@ -390,8 +360,7 @@ def get_layer(layer_name, conf):
     try:
         layer = eval(layer_name)(conf)
     except NameError as e:
-        raise Exception('%s; Layer "%s" has not been defined' % (str(e),
-            layer_name))
+        raise Exception('%s; Layer "%s" has not been defined' % (str(e), layer_name))
     return layer
 
 
@@ -404,8 +373,7 @@ def transfer_to_gpu(cpu_element):
     Returns:
 
     """
-    return cpu_element.to(torch.device('cuda' if torch.cuda.is_available() else
-        'cpu'))
+    return cpu_element.to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
 
 def transform_tensors2params(inputs_desc, length_desc, param_list):
@@ -492,62 +460,34 @@ class Model(nn.Module):
         self.layer_dependencies[EMBED_LAYER_ID] = set()
         self.output_layer_id = []
         for layer_index, layer_arch in enumerate(layer_archs):
-            output_layer_flag = (True if 'output_layer_flag' in layer_arch and
-                layer_arch['output_layer_flag'] is True else False)
-            succeed_embedding_flag = (True if layer_index > 0 and 'inputs' in
-                layer_arch and [(input in inputs) for input in layer_arch[
-                'inputs']].count(True) == len(layer_arch['inputs']) else False)
+            output_layer_flag = True if 'output_layer_flag' in layer_arch and layer_arch['output_layer_flag'] is True else False
+            succeed_embedding_flag = True if layer_index > 0 and 'inputs' in layer_arch and [(input in inputs) for input in layer_arch['inputs']].count(True) == len(layer_arch['inputs']) else False
             if output_layer_flag:
                 self.output_layer_id.append(layer_arch['layer_id'])
             if layer_index == 0:
                 emb_conf = copy.deepcopy(vocab_info)
                 for input_cluster in emb_conf:
-                    emb_conf[input_cluster]['dim'] = layer_arch['conf'][
-                        input_cluster]['dim']
-                    emb_conf[input_cluster]['fix_weight'] = layer_arch['conf'][
-                        input_cluster].get('fix_weight', False)
-                emb_conf['weight_on_gpu'] = layer_arch.get('weight_on_gpu',
-                    True)
-                all_layer_configs[EMBED_LAYER_ID] = get_conf(EMBED_LAYER_ID,
-                    layer_arch['layer'], None, all_layer_configs, inputs,
-                    self.use_gpu, conf_dict={'conf': emb_conf}, shared_conf
-                    =None, succeed_embedding_flag=False, output_layer_flag=
-                    output_layer_flag, target_num=target_num, fixed_lengths
-                    =fixed_lengths_corrected, target_dict=problem.output_dict)
-                self.add_layer(EMBED_LAYER_ID, get_layer(layer_arch['layer'
-                    ], all_layer_configs[EMBED_LAYER_ID]))
+                    emb_conf[input_cluster]['dim'] = layer_arch['conf'][input_cluster]['dim']
+                    emb_conf[input_cluster]['fix_weight'] = layer_arch['conf'][input_cluster].get('fix_weight', False)
+                emb_conf['weight_on_gpu'] = layer_arch.get('weight_on_gpu', True)
+                all_layer_configs[EMBED_LAYER_ID] = get_conf(EMBED_LAYER_ID, layer_arch['layer'], None, all_layer_configs, inputs, self.use_gpu, conf_dict={'conf': emb_conf}, shared_conf=None, succeed_embedding_flag=False, output_layer_flag=output_layer_flag, target_num=target_num, fixed_lengths=fixed_lengths_corrected, target_dict=problem.output_dict)
+                self.add_layer(EMBED_LAYER_ID, get_layer(layer_arch['layer'], all_layer_configs[EMBED_LAYER_ID]))
             else:
-                if layer_arch['layer'
-                    ] in self.layers and not 'conf' in layer_arch:
-                    logging.debug(
-                        'Layer id: %s; Sharing configuration with layer %s' %
-                        (layer_arch['layer_id'], layer_arch['layer']))
+                if layer_arch['layer'] in self.layers and not 'conf' in layer_arch:
+                    logging.debug('Layer id: %s; Sharing configuration with layer %s' % (layer_arch['layer_id'], layer_arch['layer']))
                     conf_dict = None
                     shared_conf = all_layer_configs[layer_arch['layer']]
                 else:
                     conf_dict = layer_arch['conf']
                     shared_conf = None
                 if layer_arch['layer'] == 'EncoderDecoder':
-                    layer_arch['conf']['decoder_conf']['decoder_vocab_size'
-                        ] = target_num
-                all_layer_configs[layer_arch['layer_id']] = get_conf(layer_arch
-                    ['layer_id'], layer_arch['layer'], layer_arch['inputs'],
-                    all_layer_configs, inputs, self.use_gpu, conf_dict=
-                    conf_dict, shared_conf=shared_conf,
-                    succeed_embedding_flag=succeed_embedding_flag,
-                    output_layer_flag=output_layer_flag, target_num=
-                    target_num, fixed_lengths=fixed_lengths_corrected,
-                    target_dict=problem.output_dict)
-                if layer_arch['layer'
-                    ] in self.layers and not 'conf' in layer_arch:
-                    self.add_layer(layer_arch['layer_id'], self.layers[
-                        layer_arch['layer']])
+                    layer_arch['conf']['decoder_conf']['decoder_vocab_size'] = target_num
+                all_layer_configs[layer_arch['layer_id']] = get_conf(layer_arch['layer_id'], layer_arch['layer'], layer_arch['inputs'], all_layer_configs, inputs, self.use_gpu, conf_dict=conf_dict, shared_conf=shared_conf, succeed_embedding_flag=succeed_embedding_flag, output_layer_flag=output_layer_flag, target_num=target_num, fixed_lengths=fixed_lengths_corrected, target_dict=problem.output_dict)
+                if layer_arch['layer'] in self.layers and not 'conf' in layer_arch:
+                    self.add_layer(layer_arch['layer_id'], self.layers[layer_arch['layer']])
                 else:
-                    self.add_layer(layer_arch['layer_id'], get_layer(
-                        layer_arch['layer'], all_layer_configs[layer_arch[
-                        'layer_id']]))
-                self.layer_inputs[layer_arch['layer_id']] = layer_arch['inputs'
-                    ]
+                    self.add_layer(layer_arch['layer_id'], get_layer(layer_arch['layer'], all_layer_configs[layer_arch['layer_id']]))
+                self.layer_inputs[layer_arch['layer_id']] = layer_arch['inputs']
                 cur_layer_depend = set()
                 for layer_depend_id in layer_arch['inputs']:
                     if not layer_depend_id in inputs:
@@ -629,11 +569,8 @@ class Model(nn.Module):
                     rest_layers = []
                     while not total_layer_ids.empty():
                         rest_layers.append(total_layer_ids.get())
-                    raise ConfigurationError(
-                        'The model architecture is illegal because there is a circular dependency or there are some isolated layers. The layers can not be resolved: [%s]'
-                         % ', '.join(rest_layers))
-        logging.debug('Topological sequence of nodes: %s' % ','.join(
-            topological_list))
+                    raise ConfigurationError('The model architecture is illegal because there is a circular dependency or there are some isolated layers. The layers can not be resolved: [%s]' % ', '.join(rest_layers))
+        logging.debug('Topological sequence of nodes: %s' % ','.join(topological_list))
         return topological_list
 
     def forward(self, inputs_desc, length_desc, *param_list):
@@ -664,15 +601,13 @@ class Model(nn.Module):
         Returns:
 
         """
-        inputs, lengths = transform_tensors2params(inputs_desc, length_desc,
-            param_list)
+        inputs, lengths = transform_tensors2params(inputs_desc, length_desc, param_list)
         representation = dict()
         representation[EMBED_LAYER_ID] = dict()
         repre_lengths = dict()
         repre_lengths[EMBED_LAYER_ID] = dict()
         for input in inputs:
-            representation[input] = self.layers[EMBED_LAYER_ID](inputs[
-                input], use_gpu=self.is_cuda())
+            representation[input] = self.layers[EMBED_LAYER_ID](inputs[input], use_gpu=self.is_cuda())
             if self.use_gpu:
                 repre_lengths[input] = transfer_to_gpu(lengths[input])
             else:
@@ -682,12 +617,10 @@ class Model(nn.Module):
             for input_layer_id in self.layer_inputs[layer_id]:
                 input_params.append(representation[input_layer_id])
                 input_params.append(repre_lengths[input_layer_id])
-            representation[layer_id], repre_lengths[layer_id] = self.layers[
-                layer_id](*input_params)
+            representation[layer_id], repre_lengths[layer_id] = self.layers[layer_id](*input_params)
         representation_output = dict()
         for single_output_layer_id in self.output_layer_id:
-            representation_output[single_output_layer_id] = representation[
-                single_output_layer_id]
+            representation_output[single_output_layer_id] = representation[single_output_layer_id]
         return representation_output
 
     def is_cuda(self):
@@ -698,10 +631,8 @@ class Model(nn.Module):
         for layer_id in self.layers.keys():
             if isinstance(self.layers[layer_id], Embedding):
                 for input_cluster in self.layers[layer_id].embeddings:
-                    if isinstance(self.layers[layer_id].embeddings[
-                        input_cluster], CNNCharEmbedding):
-                        self.layers[layer_id].embeddings[input_cluster
-                            ].layer_conf.use_gpu = new_use_gpu
+                    if isinstance(self.layers[layer_id].embeddings[input_cluster], CNNCharEmbedding):
+                        self.layers[layer_id].embeddings[input_cluster].layer_conf.use_gpu = new_use_gpu
             elif isinstance(self.layers[layer_id], EncoderDecoder):
                 self.layers[layer_id].encoder.layer_conf.use_gpu = new_use_gpu
                 self.layers[layer_id].decoder.layer_conf.use_gpu = new_use_gpu
@@ -799,11 +730,9 @@ class QRNNLayer(nn.Module):
         - h_n (1, batch, hidden_size): tensor containing the hidden state for t=seq_len
     """
 
-    def __init__(self, input_size, hidden_size=None, save_prev_x=False,
-        zoneout=0, window=1, output_gate=True):
+    def __init__(self, input_size, hidden_size=None, save_prev_x=False, zoneout=0, window=1, output_gate=True):
         super(QRNNLayer, self).__init__()
-        assert window in [1, 2
-            ], 'This QRNN implementation currently only handles convolutional window of size 1 or size 2'
+        assert window in [1, 2], 'This QRNN implementation currently only handles convolutional window of size 1 or size 2'
         self.window = window
         self.input_size = input_size
         self.hidden_size = hidden_size if hidden_size else input_size
@@ -811,8 +740,7 @@ class QRNNLayer(nn.Module):
         self.save_prev_x = save_prev_x
         self.prevX = None
         self.output_gate = output_gate
-        self.linear = nn.Linear(self.window * self.input_size, 3 * self.
-            hidden_size if self.output_gate else 2 * self.hidden_size)
+        self.linear = nn.Linear(self.window * self.input_size, 3 * self.hidden_size if self.output_gate else 2 * self.hidden_size)
 
     def reset(self):
         self.prevX = None
@@ -824,8 +752,7 @@ class QRNNLayer(nn.Module):
             source = X
         elif self.window == 2:
             Xm1 = []
-            Xm1.append(self.prevX if self.prevX is not None else X[:1, :, :
-                ] * 0)
+            Xm1.append(self.prevX if self.prevX is not None else X[:1, :, :] * 0)
             if len(X) > 1:
                 Xm1.append(X[:-1, :, :])
             Xm1 = torch.cat(Xm1, 0)
@@ -841,8 +768,7 @@ class QRNNLayer(nn.Module):
         F = torch.sigmoid(F)
         if self.zoneout:
             if self.training:
-                mask = F.new_empty(F.size(), requires_grad=False).bernoulli_(
-                    1 - self.zoneout)
+                mask = F.new_empty(F.size(), requires_grad=False).bernoulli_(1 - self.zoneout)
                 F = F * mask
             else:
                 F *= 1 - self.zoneout
@@ -879,19 +805,14 @@ class QRNN(torch.nn.Module):
         - h_n (num_layers * num_directions, batch, hidden_size): tensor containing the hidden state for t=seq_len
     """
 
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True,
-        batch_first=False, dropout=0.0, bidirectional=False, **kwargs):
+    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=0.0, bidirectional=False, **kwargs):
         assert batch_first == False, 'Batch first mode is not yet supported'
         assert bias == True, 'Removing underlying bias is not yet supported'
         super(QRNN, self).__init__()
         if bidirectional:
-            self.layers = torch.nn.ModuleList([QRNNLayer(input_size if l < 
-                2 else hidden_size * 2, hidden_size, **kwargs) for l in
-                range(num_layers * 2)])
+            self.layers = torch.nn.ModuleList([QRNNLayer(input_size if l < 2 else hidden_size * 2, hidden_size, **kwargs) for l in range(num_layers * 2)])
         else:
-            self.layers = torch.nn.ModuleList([QRNNLayer(input_size if l ==
-                0 else hidden_size, hidden_size, **kwargs) for l in range(
-                num_layers)])
+            self.layers = torch.nn.ModuleList([QRNNLayer(input_size if l == 0 else hidden_size, hidden_size, **kwargs) for l in range(num_layers)])
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -918,18 +839,15 @@ class QRNN(torch.nn.Module):
                 layer = self.layers[l]
                 if j == 1:
                     input = self.tensor_reverse(input)
-                output, hn = layer(input, None if hidden is None else hidden[l]
-                    )
+                output, hn = layer(input, None if hidden is None else hidden[l])
                 next_hidden.append(hn)
                 if j == 1:
                     output = self.tensor_reverse(output)
                 all_output.append(output)
             input = torch.cat(all_output, input.dim() - 1)
             if self.dropout != 0 and i < self.num_layers - 1:
-                input = torch.nn.functional.dropout(input, p=self.dropout,
-                    training=self.training, inplace=False)
-        next_hidden = torch.cat(next_hidden, 0).view(self.num_layers * self
-            .num_directions, *next_hidden[0].size()[-2:])
+                input = torch.nn.functional.dropout(input, p=self.dropout, training=self.training, inplace=False)
+        next_hidden = torch.cat(next_hidden, 0).view(self.num_layers * self.num_directions, *next_hidden[0].size()[-2:])
         return input, next_hidden
 
 
@@ -943,12 +861,7 @@ class Transformer(nn.Module):
     def __init__(self, layer_conf):
         super(Transformer, self).__init__()
         self.layer_conf = layer_conf
-        self.transformer_layer = nn.ModuleList([copy.deepcopy(nn.ModuleList
-            ([eval(layer_conf.attention_name)(layer_conf.attention_conf_cls
-            ), eval(layer_conf.layernorm1_name)(layer_conf.
-            layernorm1_conf_cls), eval(layer_conf.mlp_name)(layer_conf.
-            mlp_conf_cls), eval(layer_conf.layernorm2_name)(layer_conf.
-            layernorm2_conf_cls)])) for _ in range(self.layer_conf.n_layer)])
+        self.transformer_layer = nn.ModuleList([copy.deepcopy(nn.ModuleList([eval(layer_conf.attention_name)(layer_conf.attention_conf_cls), eval(layer_conf.layernorm1_name)(layer_conf.layernorm1_conf_cls), eval(layer_conf.mlp_name)(layer_conf.mlp_conf_cls), eval(layer_conf.layernorm2_name)(layer_conf.layernorm2_conf_cls)])) for _ in range(self.layer_conf.n_layer)])
 
     def forward(self, string, string_len):
         """ process input
@@ -980,8 +893,7 @@ class Add2D(nn.Module):
     def __init__(self, layer_conf):
         super(Add2D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Add2D layer returns is the length of first input')
+        logging.warning('The length Add2D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process input
@@ -1007,8 +919,7 @@ class Add3D(nn.Module):
     def __init__(self, layer_conf):
         super(Add3D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Add3D layer returns is the length of first input')
+        logging.warning('The length Add3D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process input
@@ -1022,17 +933,13 @@ class Add3D(nn.Module):
         """
         dim_flag = True
         input_dims = list(self.layer_conf.input_dims)
-        if args[0].shape[1] * args[0].shape[2] != args[2].shape[1] * args[2
-            ].shape[2]:
-            if args[0].shape[1] == args[2].shape[1] and (input_dims[1][-1] ==
-                1 or input_dims[0][-1] == 1):
+        if args[0].shape[1] * args[0].shape[2] != args[2].shape[1] * args[2].shape[2]:
+            if args[0].shape[1] == args[2].shape[1] and (input_dims[1][-1] == 1 or input_dims[0][-1] == 1):
                 dim_flag = True
             else:
                 dim_flag = False
         if dim_flag == False:
-            raise ConfigurationError(
-                'For layer Add3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal'
-                )
+            raise ConfigurationError('For layer Add3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal')
         return torch.add(args[0], args[2]), args[1]
 
 
@@ -1047,9 +954,7 @@ class ElementWisedMultiply2D(nn.Module):
     def __init__(self, layer_conf):
         super(ElementWisedMultiply2D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length ElementWisedMultiply2D layer returns is the length of first input'
-            )
+        logging.warning('The length ElementWisedMultiply2D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process input
@@ -1062,8 +967,7 @@ class ElementWisedMultiply2D(nn.Module):
         Returns:
             Tensor: [batch_size, output_dim], [batch_size]
         """
-        return torch.addcmul(torch.zeros(args[0].size()), 1, args[0], args[2]
-            ), args[1]
+        return torch.addcmul(torch.zeros(args[0].size()), 1, args[0], args[2]), args[1]
 
 
 class ElementWisedMultiply3D(nn.Module):
@@ -1077,9 +981,7 @@ class ElementWisedMultiply3D(nn.Module):
     def __init__(self, layer_conf):
         super(ElementWisedMultiply3D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length ElementWisedMultiply3D layer returns is the length of first input'
-            )
+        logging.warning('The length ElementWisedMultiply3D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process input
@@ -1094,19 +996,14 @@ class ElementWisedMultiply3D(nn.Module):
         """
         dim_flag = True
         input_dims = list(self.layer_conf.input_dims)
-        if args[0].shape[1] * args[0].shape[2] != args[2].shape[1] * args[2
-            ].shape[2]:
-            if args[0].shape[1] == args[2].shape[1] and (input_dims[1][-1] ==
-                1 or input_dims[0][-1] == 1):
+        if args[0].shape[1] * args[0].shape[2] != args[2].shape[1] * args[2].shape[2]:
+            if args[0].shape[1] == args[2].shape[1] and (input_dims[1][-1] == 1 or input_dims[0][-1] == 1):
                 dim_flag = True
             else:
                 dim_flag = False
         if dim_flag == False:
-            raise ConfigurationError(
-                'For layer ElementWisedMultiply3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal'
-                )
-        return torch.addcmul(torch.zeros(args[0].size()), 1, args[0], args[2]
-            ), args[1]
+            raise ConfigurationError('For layer ElementWisedMultiply3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal')
+        return torch.addcmul(torch.zeros(args[0].size()), 1, args[0], args[2]), args[1]
 
 
 class MatrixMultiply(nn.Module):
@@ -1119,9 +1016,7 @@ class MatrixMultiply(nn.Module):
     def __init__(self, layer_conf):
         super(MatrixMultiply, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length MatrixMultiply layer returns is the length of first input'
-            )
+        logging.warning('The length MatrixMultiply layer returns is the length of first input')
 
     def forward(self, *args):
         """ process input
@@ -1138,22 +1033,19 @@ class MatrixMultiply(nn.Module):
             if args[0].shape[2] == args[2].shape[1]:
                 return torch.matmul(args[0], args[2]), args[1]
             else:
-                raise Exception(
-                    'the dimensions of the two matrix for multiply is illegal')
+                raise Exception('the dimensions of the two matrix for multiply is illegal')
         if self.layer_conf.operation == 'seq_based':
             if args[0].shape[1] == args[2].shape[1]:
                 string = args[0].permute(0, 2, 1)
                 return torch.matmul(string, args[2]), args[1]
             else:
-                raise Exception(
-                    'the dimensions of the two matrix for multiply is illegal')
+                raise Exception('the dimensions of the two matrix for multiply is illegal')
         if self.layer_conf.operation == 'dim_based':
             if args[0].shape[2] == args[2].shape[2]:
                 string = args[2].permute(0, 2, 1)
                 return torch.matmul(args[0], string), args[1]
             else:
-                raise Exception(
-                    'the dimensions of the two matrix for multiply is illegal')
+                raise Exception('the dimensions of the two matrix for multiply is illegal')
 
 
 class Minus2D(nn.Module):
@@ -1167,8 +1059,7 @@ class Minus2D(nn.Module):
     def __init__(self, layer_conf):
         super(Minus2D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Minus2D layer returns is the length of first input')
+        logging.warning('The length Minus2D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process inputs
@@ -1198,8 +1089,7 @@ class Minus3D(nn.Module):
     def __init__(self, layer_conf):
         super(Minus3D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Minus3D layer returns is the length of first input')
+        logging.warning('The length Minus3D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process input
@@ -1213,17 +1103,13 @@ class Minus3D(nn.Module):
         """
         dim_flag = True
         input_dims = list(self.layer_conf.input_dims)
-        if args[0].shape[1] * args[0].shape[2] != args[2].shape[1] * args[2
-            ].shape[2]:
-            if args[0].shape[1] == args[2].shape[1] and (input_dims[1][-1] ==
-                1 or input_dims[0][-1] == 1):
+        if args[0].shape[1] * args[0].shape[2] != args[2].shape[1] * args[2].shape[2]:
+            if args[0].shape[1] == args[2].shape[1] and (input_dims[1][-1] == 1 or input_dims[0][-1] == 1):
                 dim_flag = True
             else:
                 dim_flag = False
         if dim_flag == False:
-            raise ConfigurationError(
-                'For layer Minus3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal'
-                )
+            raise ConfigurationError('For layer Minus3D, the dimensions of each inputs should be equal or 1 ,or the elements number of two inputs (expect for the first dimension) should be equal')
         if self.layer_conf.abs_flag == False:
             return args[0] - args[2], args[1]
         if self.layer_conf.abs_flag == True:
@@ -1271,9 +1157,7 @@ class Combination(nn.Module):
     def __init__(self, layer_conf):
         super(Combination, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Combination layer returns is the length of first input'
-            )
+        logging.warning('The length Combination layer returns is the length of first input')
 
     def forward(self, *args):
         """ process inputs
@@ -1316,8 +1200,7 @@ class Concat2D(nn.Module):
     def __init__(self, layer_conf):
         super(Concat2D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Concat2D layer returns is the length of first input')
+        logging.warning('The length Concat2D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process inputs
@@ -1347,8 +1230,7 @@ class Concat3D(nn.Module):
     def __init__(self, layer_conf):
         super(Concat3D, self).__init__()
         self.layer_conf = layer_conf
-        logging.warning(
-            'The length Concat3D layer returns is the length of first input')
+        logging.warning('The length Concat3D layer returns is the length of first input')
 
     def forward(self, *args):
         """ process inputs
@@ -1373,9 +1255,7 @@ class Concat3D(nn.Module):
                     if input_shape == input.shape[1]:
                         result.append(input)
                     else:
-                        raise Exception(
-                            'Concat3D with axis = 2 require that the input sequences length should be the same!'
-                            )
+                        raise Exception('Concat3D with axis = 2 require that the input sequences length should be the same!')
         return torch.cat(result, self.layer_conf.concat3D_axis), args[1]
 
 
@@ -1416,14 +1296,11 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
         self.layer_conf = layer_conf
         self.n_state = self.layer_conf.input_dims[0][-1]
-        self.c_fc = nn.Linear(self.layer_conf.input_dims[0][-1], 4 * self.
-            n_state)
-        self.c_proj = nn.Linear(4 * self.n_state, self.layer_conf.
-            input_dims[0][-1])
+        self.c_fc = nn.Linear(self.layer_conf.input_dims[0][-1], 4 * self.n_state)
+        self.c_proj = nn.Linear(4 * self.n_state, self.layer_conf.input_dims[0][-1])
 
     def gelu(self, x):
-        return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 
-            0.044715 * torch.pow(x, 3))))
+        return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
     def forward(self, string, string_len):
         """ process input
@@ -1456,10 +1333,8 @@ class MultiHeadAttention(nn.Module):
         self.n_state = self.layer_conf.input_dims[0][-1]
         self.device = torch.device('cuda' if torch.is_available() else 'cpu')
         assert self.n_state % self.layer_conf.n_head == 0
-        self.c_attn = nn.Linear(self.layer_conf.input_dims[0][-1], self.
-            n_state * 3)
-        self.c_proj = nn.Linear(self.layer_conf.input_dims[0][-1], self.n_state
-            )
+        self.c_attn = nn.Linear(self.layer_conf.input_dims[0][-1], self.n_state * 3)
+        self.c_proj = nn.Linear(self.layer_conf.input_dims[0][-1], self.n_state)
 
     def _attn(self, q, k, v):
         w = torch.matmul(q, k)
@@ -1476,8 +1351,7 @@ class MultiHeadAttention(nn.Module):
         return x.view(*new_x_shape)
 
     def split_heads(self, x, k=False):
-        new_x_shape = x.size()[:-1] + (self.layer_conf.n_head, x.size(-1) //
-            self.layer_conf.n_head)
+        new_x_shape = x.size()[:-1] + (self.layer_conf.n_head, x.size(-1) // self.layer_conf.n_head)
         x = x.view(*new_x_shape)
         if k:
             return x.permute(0, 2, 3, 1)
@@ -1494,8 +1368,7 @@ class MultiHeadAttention(nn.Module):
         Returns:
             Tensor: [batch_size, seq_len, output_dim], [batch_size]
         """
-        self.register_buffer('b', torch.tril(torch.ones(string.shape[1],
-            string.shape[1])).view(1, 1, string.shape[1], string.shape[1]))
+        self.register_buffer('b', torch.tril(torch.ones(string.shape[1], string.shape[1])).view(1, 1, string.shape[1], string.shape[1]))
         x = self.c_attn(string)
         query, key, value = x.split(self.split_size, dim=2)
         query = self.split_heads(query)
@@ -1535,24 +1408,18 @@ class CRFLoss(nn.Module):
             if idx == 0:
                 new_tags[:, (0)] = (tag_size - 2) * tag_size + tags[:, (0)]
             else:
-                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:,
-                    (idx)]
-        end_transition = transitions[:, (crf_layer_conf.target_dict[
-            crf_layer_conf.STOP_TAG])].contiguous().view(1, tag_size).expand(
-            batch_size, tag_size)
+                new_tags[:, (idx)] = tags[:, (idx - 1)] * tag_size + tags[:, (idx)]
+        end_transition = transitions[:, (crf_layer_conf.target_dict[crf_layer_conf.STOP_TAG])].contiguous().view(1, tag_size).expand(batch_size, tag_size)
         length_mask = torch.sum(mask.long(), dim=1).view(batch_size, 1).long()
         end_ids = torch.gather(tags, 1, length_mask - 1)
         end_energy = torch.gather(end_transition, 1, end_ids)
-        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len,
-            batch_size, 1)
-        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2,
-            new_tags).view(seq_len, batch_size)
+        new_tags = new_tags.transpose(1, 0).contiguous().view(seq_len, batch_size, 1)
+        tg_energy = torch.gather(scores.view(seq_len, batch_size, -1), 2, new_tags).view(seq_len, batch_size)
         tg_energy = tg_energy.masked_select(mask.transpose(1, 0))
         gold_score = tg_energy.sum() + end_energy.sum()
         return gold_score
 
-    def forward(self, forward_score, scores, masks, tags, transitions,
-        crf_layer_conf):
+    def forward(self, forward_score, scores, masks, tags, transitions, crf_layer_conf):
         """
         
         :param forward_score: Tensor scale
@@ -1561,8 +1428,7 @@ class CRFLoss(nn.Module):
         :param tags:   Tensor [batch_size, seq_len]
         :return: goal_score - forward_score
         """
-        gold_score = self._score_sentence(scores, masks, tags, transitions,
-            crf_layer_conf)
+        gold_score = self._score_sentence(scores, masks, tags, transitions, crf_layer_conf)
         return forward_score - gold_score
 
 
@@ -1660,19 +1526,12 @@ class Loss(nn.Module):
         support_loss_op = set(LossOperationType.__members__.keys())
         if kwargs['multiLoss']:
             if not kwargs['multi_loss_op'].lower() in support_loss_op:
-                raise Exception(
-                    'The multi_loss_op %s is not supported. Supported multi_loss_op are: %s'
-                     % (kwargs['multi_loss_op'], support_loss_op))
+                raise Exception('The multi_loss_op %s is not supported. Supported multi_loss_op are: %s' % (kwargs['multi_loss_op'], support_loss_op))
             self.multi_loss_op = kwargs['multi_loss_op']
         for single_loss in kwargs['losses']:
-            if not single_loss['inputs'][0] in kwargs['output_layer_id'
-                ] or not single_loss['inputs'][1] in kwargs[
-                'answer_column_name']:
-                raise Exception(
-                    'The loss inputs are excepted to be part of output_layer_id and targets!'
-                    )
-            self.loss_fn.append(eval(single_loss['type'])(**single_loss[
-                'conf']))
+            if not single_loss['inputs'][0] in kwargs['output_layer_id'] or not single_loss['inputs'][1] in kwargs['answer_column_name']:
+                raise Exception('The loss inputs are excepted to be part of output_layer_id and targets!')
+            self.loss_fn.append(eval(single_loss['type'])(**single_loss['conf']))
             self.loss_input.append(single_loss['inputs'])
 
     def forward(self, model_outputs, targets):
@@ -1687,11 +1546,9 @@ class Loss(nn.Module):
         all_losses = []
         result_loss = 0.0
         for index, single_loss_fn in enumerate(self.loss_fn):
-            all_losses.append(single_loss_fn(model_outputs[self.loss_input[
-                index][0]], targets[self.loss_input[index][1]]))
+            all_losses.append(single_loss_fn(model_outputs[self.loss_input[index][0]], targets[self.loss_input[index][1]]))
         if hasattr(self, 'multi_loss_op'):
-            if LossOperationType[self.multi_loss_op.lower()
-                ] == LossOperationType.weighted_sum:
+            if LossOperationType[self.multi_loss_op.lower()] == LossOperationType.weighted_sum:
                 for index, single_loss in enumerate(all_losses):
                     result_loss += self.weights[index] * single_loss
         else:
@@ -1703,24 +1560,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BaseLayer,
+     lambda: ([], {'layer_conf': 1}),
+     lambda: ([], {}),
+     False),
+    (Flatten,
+     lambda: ([], {'layer_conf': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ForgetMult,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (QRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (QRNNLayer,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_microsoft_NeuronBlocks(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(BaseLayer(*[], **{'layer_conf': 1}), [], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Flatten(*[], **{'layer_conf': 1}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ForgetMult(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(QRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(QRNNLayer(*[], **{'input_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

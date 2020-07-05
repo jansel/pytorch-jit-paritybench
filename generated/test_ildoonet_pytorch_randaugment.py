@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,15 +87,13 @@ from torch.nn.parallel.data_parallel import DataParallel
 
 
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=True)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True)
 
 
 class BasicBlock(nn.Module):
     outchannel_ratio = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        p_shakedrop=1.0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, p_shakedrop=1.0):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv3x3(inplanes, planes, stride)
@@ -124,9 +123,7 @@ class BasicBlock(nn.Module):
         residual_channel = out.size()[1]
         shortcut_channel = shortcut.size()[1]
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size,
-                residual_channel - shortcut_channel, featuremap_size[0],
-                featuremap_size[1]).fill_(0))
+            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut
@@ -136,17 +133,14 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     outchannel_ratio = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        p_shakedrop=1.0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, p_shakedrop=1.0):
         super(Bottleneck, self).__init__()
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes * 1, kernel_size=3, stride=
-            stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes * 1, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 1)
-        self.conv3 = nn.Conv2d(planes * 1, planes * Bottleneck.
-            outchannel_ratio, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes * 1, planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False)
         self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -174,9 +168,7 @@ class Bottleneck(nn.Module):
         residual_channel = out.size()[1]
         shortcut_channel = shortcut.size()[1]
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size,
-                residual_channel - shortcut_channel, featuremap_size[0],
-                featuremap_size[1]).fill_(0))
+            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut
@@ -197,11 +189,9 @@ class PyramidNet(nn.Module):
                 n = int((depth - 2) / 6)
                 block = BasicBlock
             self.addrate = alpha / (3 * n * 1.0)
-            self.ps_shakedrop = [(1.0 - (1.0 - 0.5 / (3 * n) * (i + 1))) for
-                i in range(3 * n)]
+            self.ps_shakedrop = [(1.0 - (1.0 - 0.5 / (3 * n) * (i + 1))) for i in range(3 * n)]
             self.input_featuremap_dim = self.inplanes
-            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim,
-                kernel_size=3, stride=1, padding=1, bias=False)
+            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(self.input_featuremap_dim)
             self.featuremap_dim = self.input_featuremap_dim
             self.layer1 = self.pyramidal_make_layer(block, n)
@@ -213,11 +203,8 @@ class PyramidNet(nn.Module):
             self.avgpool = nn.AvgPool2d(8)
             self.fc = nn.Linear(self.final_featuremap_dim, num_classes)
         elif dataset == 'imagenet':
-            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck,
-                (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
-            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 
-                6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [
-                3, 24, 36, 3]}
+            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck, (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
+            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [3, 24, 36, 3]}
             if layers.get(depth) is None:
                 if bottleneck == True:
                     blocks[depth] = Bottleneck
@@ -230,20 +217,15 @@ class PyramidNet(nn.Module):
             self.inplanes = 64
             self.addrate = alpha / (sum(layers[depth]) * 1.0)
             self.input_featuremap_dim = self.inplanes
-            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim,
-                kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, self.input_featuremap_dim, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(self.input_featuremap_dim)
             self.relu = nn.ReLU(inplace=True)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
             self.featuremap_dim = self.input_featuremap_dim
-            self.layer1 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][0])
-            self.layer2 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][1], stride=2)
-            self.layer3 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][2], stride=2)
-            self.layer4 = self.pyramidal_make_layer(blocks[depth], layers[
-                depth][3], stride=2)
+            self.layer1 = self.pyramidal_make_layer(blocks[depth], layers[depth][0])
+            self.layer2 = self.pyramidal_make_layer(blocks[depth], layers[depth][1], stride=2)
+            self.layer3 = self.pyramidal_make_layer(blocks[depth], layers[depth][2], stride=2)
+            self.layer4 = self.pyramidal_make_layer(blocks[depth], layers[depth][3], stride=2)
             self.final_featuremap_dim = self.input_featuremap_dim
             self.bn_final = nn.BatchNorm2d(self.final_featuremap_dim)
             self.relu_final = nn.ReLU(inplace=True)
@@ -264,17 +246,12 @@ class PyramidNet(nn.Module):
             downsample = nn.AvgPool2d((2, 2), stride=(2, 2), ceil_mode=True)
         layers = []
         self.featuremap_dim = self.featuremap_dim + self.addrate
-        layers.append(block(self.input_featuremap_dim, int(round(self.
-            featuremap_dim)), stride, downsample, p_shakedrop=self.
-            ps_shakedrop.pop(0)))
+        layers.append(block(self.input_featuremap_dim, int(round(self.featuremap_dim)), stride, downsample, p_shakedrop=self.ps_shakedrop.pop(0)))
         for i in range(1, block_depth):
             temp_featuremap_dim = self.featuremap_dim + self.addrate
-            layers.append(block(int(round(self.featuremap_dim)) * block.
-                outchannel_ratio, int(round(temp_featuremap_dim)), 1,
-                p_shakedrop=self.ps_shakedrop.pop(0)))
+            layers.append(block(int(round(self.featuremap_dim)) * block.outchannel_ratio, int(round(temp_featuremap_dim)), 1, p_shakedrop=self.ps_shakedrop.pop(0)))
             self.featuremap_dim = temp_featuremap_dim
-        self.input_featuremap_dim = int(round(self.featuremap_dim)
-            ) * block.outchannel_ratio
+        self.input_featuremap_dim = int(round(self.featuremap_dim)) * block.outchannel_ratio
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -340,11 +317,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -381,8 +356,7 @@ class ResNet(nn.Module):
             else:
                 n = int((depth - 2) / 6)
                 block = BasicBlock
-            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=
-                1, padding=1, bias=False)
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(self.inplanes)
             self.relu = nn.ReLU(inplace=True)
             self.layer1 = self._make_layer(block, 16, n)
@@ -391,26 +365,18 @@ class ResNet(nn.Module):
             self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
             self.fc = nn.Linear(64 * block.expansion, num_classes)
         elif dataset == 'imagenet':
-            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck,
-                (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
-            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 
-                6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [
-                3, 24, 36, 3]}
-            assert layers[depth
-                ], 'invalid detph for ResNet (depth should be one of 18, 34, 50, 101, 152, and 200)'
+            blocks = {(18): BasicBlock, (34): BasicBlock, (50): Bottleneck, (101): Bottleneck, (152): Bottleneck, (200): Bottleneck}
+            layers = {(18): [2, 2, 2, 2], (34): [3, 4, 6, 3], (50): [3, 4, 6, 3], (101): [3, 4, 23, 3], (152): [3, 8, 36, 3], (200): [3, 24, 36, 3]}
+            assert layers[depth], 'invalid detph for ResNet (depth should be one of 18, 34, 50, 101, 152, and 200)'
             self.inplanes = 64
-            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=
-                2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             self.relu = nn.ReLU(inplace=True)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
             self.layer1 = self._make_layer(blocks[depth], 64, layers[depth][0])
-            self.layer2 = self._make_layer(blocks[depth], 128, layers[depth
-                ][1], stride=2)
-            self.layer3 = self._make_layer(blocks[depth], 256, layers[depth
-                ][2], stride=2)
-            self.layer4 = self._make_layer(blocks[depth], 512, layers[depth
-                ][3], stride=2)
+            self.layer2 = self._make_layer(blocks[depth], 128, layers[depth][1], stride=2)
+            self.layer3 = self._make_layer(blocks[depth], 256, layers[depth][2], stride=2)
+            self.layer4 = self._make_layer(blocks[depth], 512, layers[depth][3], stride=2)
             self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
             self.fc = nn.Linear(512 * blocks[depth].expansion, num_classes)
         for m in self.modules():
@@ -424,9 +390,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -468,8 +432,7 @@ class ShakeDropFunction(torch.autograd.Function):
             gate = torch.cuda.FloatTensor([0]).bernoulli_(1 - p_drop)
             ctx.save_for_backward(gate)
             if gate.item() == 0:
-                alpha = torch.cuda.FloatTensor(x.size(0)).uniform_(*alpha_range
-                    )
+                alpha = torch.cuda.FloatTensor(x.size(0)).uniform_(*alpha_range)
                 alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x)
                 return alpha * x
             else:
@@ -497,8 +460,7 @@ class ShakeDrop(nn.Module):
         self.alpha_range = alpha_range
 
     def forward(self, x):
-        return ShakeDropFunction.apply(x, self.training, self.p_drop, self.
-            alpha_range)
+        return ShakeDropFunction.apply(x, self.training, self.p_drop, self.alpha_range)
 
 
 class ShakeShake(torch.autograd.Function):
@@ -525,8 +487,7 @@ class ShakeBlock(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1):
         super(ShakeBlock, self).__init__()
         self.equal_io = in_ch == out_ch
-        self.shortcut = self.equal_io and None or Shortcut(in_ch, out_ch,
-            stride=stride)
+        self.shortcut = self.equal_io and None or Shortcut(in_ch, out_ch, stride=stride)
         self.branch1 = self._make_branch(in_ch, out_ch, stride)
         self.branch2 = self._make_branch(in_ch, out_ch, stride)
 
@@ -538,11 +499,7 @@ class ShakeBlock(nn.Module):
         return h + h0
 
     def _make_branch(self, in_ch, out_ch, stride=1):
-        return nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(in_ch,
-            out_ch, 3, padding=1, stride=stride, bias=False), nn.
-            BatchNorm2d(out_ch), nn.ReLU(inplace=False), nn.Conv2d(out_ch,
-            out_ch, 3, padding=1, stride=1, bias=False), nn.BatchNorm2d(out_ch)
-            )
+        return nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(in_ch, out_ch, 3, padding=1, stride=stride, bias=False), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=False), nn.Conv2d(out_ch, out_ch, 3, padding=1, stride=1, bias=False), nn.BatchNorm2d(out_ch))
 
 
 class ShakeResNet(nn.Module):
@@ -591,12 +548,9 @@ class ShakeBottleNeck(nn.Module):
     def __init__(self, in_ch, mid_ch, out_ch, cardinary, stride=1):
         super(ShakeBottleNeck, self).__init__()
         self.equal_io = in_ch == out_ch
-        self.shortcut = None if self.equal_io else Shortcut(in_ch, out_ch,
-            stride=stride)
-        self.branch1 = self._make_branch(in_ch, mid_ch, out_ch, cardinary,
-            stride)
-        self.branch2 = self._make_branch(in_ch, mid_ch, out_ch, cardinary,
-            stride)
+        self.shortcut = None if self.equal_io else Shortcut(in_ch, out_ch, stride=stride)
+        self.branch1 = self._make_branch(in_ch, mid_ch, out_ch, cardinary, stride)
+        self.branch2 = self._make_branch(in_ch, mid_ch, out_ch, cardinary, stride)
 
     def forward(self, x):
         h1 = self.branch1(x)
@@ -606,12 +560,7 @@ class ShakeBottleNeck(nn.Module):
         return h + h0
 
     def _make_branch(self, in_ch, mid_ch, out_ch, cardinary, stride=1):
-        return nn.Sequential(nn.Conv2d(in_ch, mid_ch, 1, padding=0, bias=
-            False), nn.BatchNorm2d(mid_ch), nn.ReLU(inplace=False), nn.
-            Conv2d(mid_ch, mid_ch, 3, padding=1, stride=stride, groups=
-            cardinary, bias=False), nn.BatchNorm2d(mid_ch), nn.ReLU(inplace
-            =False), nn.Conv2d(mid_ch, out_ch, 1, padding=0, bias=False),
-            nn.BatchNorm2d(out_ch))
+        return nn.Sequential(nn.Conv2d(in_ch, mid_ch, 1, padding=0, bias=False), nn.BatchNorm2d(mid_ch), nn.ReLU(inplace=False), nn.Conv2d(mid_ch, mid_ch, 3, padding=1, stride=stride, groups=cardinary, bias=False), nn.BatchNorm2d(mid_ch), nn.ReLU(inplace=False), nn.Conv2d(mid_ch, out_ch, 1, padding=0, bias=False), nn.BatchNorm2d(out_ch))
 
 
 class ShakeResNeXt(nn.Module):
@@ -652,8 +601,7 @@ class ShakeResNeXt(nn.Module):
         layers = []
         mid_ch, out_ch = n_ch * (w_base // 64) * cardinary, n_ch * 4
         for i in range(n_units):
-            layers.append(ShakeBottleNeck(self.in_ch, mid_ch, out_ch,
-                cardinary, stride=stride))
+            layers.append(ShakeBottleNeck(self.in_ch, mid_ch, out_ch, cardinary, stride=stride))
             self.in_ch, stride = out_ch, 1
         return nn.Sequential(*layers)
 
@@ -663,10 +611,8 @@ class Shortcut(nn.Module):
     def __init__(self, in_ch, out_ch, stride):
         super(Shortcut, self).__init__()
         self.stride = stride
-        self.conv1 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0,
-            bias=False)
-        self.conv2 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0,
-            bias=False)
+        self.conv1 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(out_ch)
 
     def forward(self, x):
@@ -687,16 +633,13 @@ class WideBasic(nn.Module):
     def __init__(self, in_planes, planes, dropout_rate, stride=1):
         super(WideBasic, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes, momentum=_bn_momentum)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1,
-            bias=True)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
         self.dropout = nn.Dropout(p=dropout_rate)
         self.bn2 = nn.BatchNorm2d(planes, momentum=_bn_momentum)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes,
-                kernel_size=1, stride=stride, bias=True))
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True))
 
     def forward(self, x):
         out = self.dropout(self.conv1(F.relu(self.bn1(x))))
@@ -715,12 +658,9 @@ class WideResNet(nn.Module):
         k = widen_factor
         nStages = [16, 16 * k, 32 * k, 64 * k]
         self.conv1 = conv3x3(3, nStages[0])
-        self.layer1 = self._wide_layer(WideBasic, nStages[1], n,
-            dropout_rate, stride=1)
-        self.layer2 = self._wide_layer(WideBasic, nStages[2], n,
-            dropout_rate, stride=2)
-        self.layer3 = self._wide_layer(WideBasic, nStages[3], n,
-            dropout_rate, stride=2)
+        self.layer1 = self._wide_layer(WideBasic, nStages[1], n, dropout_rate, stride=1)
+        self.layer2 = self._wide_layer(WideBasic, nStages[2], n, dropout_rate, stride=2)
+        self.layer3 = self._wide_layer(WideBasic, nStages[3], n, dropout_rate, stride=2)
         self.bn1 = nn.BatchNorm2d(nStages[3], momentum=_bn_momentum)
         self.linear = nn.Linear(nStages[3], num_classes)
 
@@ -774,8 +714,7 @@ class SmoothCrossEntropyLoss(Module):
 
     def forward(self, input, target):
         if len(target.size()) == 1:
-            target = torch.nn.functional.one_hot(target, num_classes=input.
-                size(-1))
+            target = torch.nn.functional.one_hot(target, num_classes=input.size(-1))
             target = target.float()
         if self.label_smoothing > 0.0:
             s_by_c = self.label_smoothing / len(input[0])
@@ -789,36 +728,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ShakeBlock,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShakeBottleNeck,
+     lambda: ([], {'in_ch': 4, 'mid_ch': 4, 'out_ch': 4, 'cardinary': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShakeDrop,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ShakeResNeXt,
+     lambda: ([], {'depth': 1, 'w_base': 4, 'cardinary': 4, 'label': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (ShakeResNet,
+     lambda: ([], {'depth': 1, 'w_base': 4, 'label': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (Shortcut,
+     lambda: ([], {'in_ch': 4, 'out_ch': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SmoothCrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WideBasic,
+     lambda: ([], {'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ildoonet_pytorch_randaugment(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(ShakeBlock(*[], **{'in_ch': 4, 'out_ch': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ShakeBottleNeck(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4, 'cardinary': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ShakeDrop(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(ShakeResNeXt(*[], **{'depth': 1, 'w_base': 4, 'cardinary': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(ShakeResNet(*[], **{'depth': 1, 'w_base': 4, 'label': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Shortcut(*[], **{'in_ch': 4, 'out_ch': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(SmoothCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(WideBasic(*[], **{'in_planes': 4, 'planes': 4, 'dropout_rate': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 

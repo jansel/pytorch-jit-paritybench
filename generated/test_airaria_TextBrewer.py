@@ -67,8 +67,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -192,21 +193,12 @@ class BertForQA(nn.Module):
         self.apply(initializer)
         self.num_heads = config.num_attention_heads
 
-    def forward(self, input_ids, token_type_ids, attention_mask, doc_mask,
-        start_positions=None, end_positions=None, start_logits_T=None,
-        end_logits_T=None, attention_probs_sum_layer=None,
-        attention_probs_sum_T=None):
+    def forward(self, input_ids, token_type_ids, attention_mask, doc_mask, start_positions=None, end_positions=None, start_logits_T=None, end_logits_T=None, attention_probs_sum_layer=None, attention_probs_sum_T=None):
         if attention_probs_sum_layer is not None:
-            sequence_output, pooled_output, all_attention_probs_sum = (self
-                .bert(input_ids, token_type_ids, attention_mask,
-                output_all_encoded_layers=False, output_attention_layer=[
-                attention_probs_sum_layer]))
-            attention_probs_sum = all_attention_probs_sum[
-                attention_probs_sum_layer]
+            sequence_output, pooled_output, all_attention_probs_sum = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False, output_attention_layer=[attention_probs_sum_layer])
+            attention_probs_sum = all_attention_probs_sum[attention_probs_sum_layer]
         else:
-            sequence_output, pooled_output = self.bert(input_ids,
-                token_type_ids, attention_mask, output_all_encoded_layers=False
-                )
+            sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         output_for_cls = self.dropout(pooled_output)
         span_logits = self.qa_outputs(sequence_output)
         cls_logits = self.cls_outputs(output_for_cls).squeeze(-1)
@@ -227,21 +219,14 @@ class BertForQA(nn.Module):
                 end_logits /= temp
                 start_prob_T = F.softmax(start_logits_T, dim=-1)
                 end_prob_T = F.softmax(end_logits_T, dim=-1)
-                ce_loss = -(start_prob_T * F.log_softmax(start_logits, dim=
-                    -1) + end_prob_T * F.log_softmax(end_logits, dim=-1)).sum(
-                    dim=-1)
+                ce_loss = -(start_prob_T * F.log_softmax(start_logits, dim=-1) + end_prob_T * F.log_softmax(end_logits, dim=-1)).sum(dim=-1)
                 ce_loss = ce_loss.mean()
                 total_loss += ce_loss
                 if attention_probs_sum_T is not None:
-                    attention_probs_sum_T = (attention_probs_sum_T / self.
-                        num_heads)
+                    attention_probs_sum_T = attention_probs_sum_T / self.num_heads
                     attention_probs_sum = attention_probs_sum / self.num_heads
-                    attention_probs_sum_T = F.softmax(attention_probs_sum_T,
-                        dim=-1)
-                    att_loss = -((attention_probs_sum_T * F.log_softmax(
-                        attention_probs_sum, dim=-1)).sum(dim=-1) *
-                        attention_mask).sum() / attention_mask.sum(
-                        ) * Conf.args.att_loss_weight
+                    attention_probs_sum_T = F.softmax(attention_probs_sum_T, dim=-1)
+                    att_loss = -((attention_probs_sum_T * F.log_softmax(attention_probs_sum, dim=-1)).sum(dim=-1) * attention_mask).sum() / attention_mask.sum() * Conf.args.att_loss_weight
                     total_loss += att_loss
             if start_positions is not None:
                 if len(start_positions.size()) > 1:
@@ -251,12 +236,9 @@ class BertForQA(nn.Module):
                 start_positions.clamp_(0, ignored_index)
                 end_positions.clamp_(0, ignored_index)
                 is_noans = (start_positions == 0).float()
-                loss_fct_span = CrossEntropyLoss(ignore_index=ignored_index,
-                    reduction='none')
-                start_loss = (loss_fct_span(start_logits, start_positions) *
-                    (1 - is_noans)).mean()
-                end_loss = (loss_fct_span(end_logits, end_positions) * (1 -
-                    is_noans)).mean()
+                loss_fct_span = CrossEntropyLoss(ignore_index=ignored_index, reduction='none')
+                start_loss = (loss_fct_span(start_logits, start_positions) * (1 - is_noans)).mean()
+                end_loss = (loss_fct_span(end_logits, end_positions) * (1 - is_noans)).mean()
                 total_loss += (start_loss + end_loss) / 2
             return total_loss, att_loss
         elif attention_probs_sum_layer is not None:
@@ -271,20 +253,15 @@ class BertForQASimple(nn.Module):
         super(BertForQASimple, self).__init__()
         self.output_encoded_layers = args.output_encoded_layers == 'true'
         self.output_attention_layers = args.output_attention_layers == 'true'
-        self.bert = BertModel(config, output_score=args.output_att_score ==
-            'true', output_sum=args.output_att_sum == 'true')
+        self.bert = BertModel(config, output_score=args.output_att_score == 'true', output_sum=args.output_att_sum == 'true')
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
         self.cls_outputs = nn.Linear(config.hidden_size, 1)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         initializer = initializer_builder(config.initializer_range)
         self.apply(initializer)
 
-    def forward(self, input_ids, token_type_ids, attention_mask, doc_mask,
-        start_positions=None, end_positions=None):
-        sequence_output, pooled_output, attention_output = self.bert(input_ids,
-            token_type_ids, attention_mask, output_all_encoded_layers=self.
-            output_encoded_layers, output_all_attention_layers=self.
-            output_attention_layers)
+    def forward(self, input_ids, token_type_ids, attention_mask, doc_mask, start_positions=None, end_positions=None):
+        sequence_output, pooled_output, attention_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=self.output_encoded_layers, output_all_attention_layers=self.output_attention_layers)
         if self.output_encoded_layers is True:
             span_logits = self.qa_outputs(sequence_output[-1])
         else:
@@ -303,15 +280,11 @@ class BertForQASimple(nn.Module):
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
             is_noans = (start_positions == 0).float()
-            loss_fct_span = CrossEntropyLoss(ignore_index=ignored_index,
-                reduction='none')
-            start_loss = (loss_fct_span(start_logits, start_positions) * (1 -
-                is_noans)).mean()
-            end_loss = (loss_fct_span(end_logits, end_positions) * (1 -
-                is_noans)).mean()
+            loss_fct_span = CrossEntropyLoss(ignore_index=ignored_index, reduction='none')
+            start_loss = (loss_fct_span(start_logits, start_positions) * (1 - is_noans)).mean()
+            end_loss = (loss_fct_span(end_logits, end_positions) * (1 - is_noans)).mean()
             total_loss += (start_loss + end_loss) / 2
-            return (start_logits, end_logits, sequence_output,
-                attention_output, total_loss)
+            return start_logits, end_logits, sequence_output, attention_output, total_loss
         else:
             return start_logits, end_logits
 
@@ -322,27 +295,22 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -353,14 +321,10 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
@@ -369,8 +333,7 @@ class BertSelfAttention(nn.Module):
         self.output_sum = config.output_sum
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -381,10 +344,8 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         if self.output_score is True:
@@ -396,8 +357,7 @@ class BertSelfAttention(nn.Module):
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer, attention_probs_sum
 
@@ -425,8 +385,7 @@ class BertAttention(nn.Module):
         self.output = BertSelfOutput(config)
 
     def forward(self, input_tensor, attention_mask):
-        self_output, attention_probs_sum = self.self(input_tensor,
-            attention_mask)
+        self_output, attention_probs_sum = self.self(input_tensor, attention_mask)
         attention_output = self.output(self_output, input_tensor)
         return attention_output, attention_probs_sum
 
@@ -452,8 +411,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
@@ -488,8 +446,7 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask):
-        attention_output, attention_probs_sum = self.attention(hidden_states,
-            attention_mask)
+        attention_output, attention_probs_sum = self.attention(hidden_states, attention_mask)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output, attention_probs_sum
@@ -500,17 +457,14 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            config.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True, output_attention_layer=[]):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_attention_layer=[]):
         all_encoder_layers = []
         all_attention_probs_sum = []
         for idx, layer_module in enumerate(self.layer):
             if idx in output_attention_layer:
-                hidden_states, attention_probs_sum = layer_module(hidden_states
-                    , attention_mask)
+                hidden_states, attention_probs_sum = layer_module(hidden_states, attention_mask)
                 all_attention_probs_sum.append(attention_probs_sum)
             else:
                 hidden_states, _ = layer_module(hidden_states, attention_mask)
@@ -541,8 +495,7 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
@@ -560,11 +513,9 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0), bias=False)
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1), bert_model_embedding_weights.size(0), bias=False)
         self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.
-            size(0)))
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -576,8 +527,7 @@ class BertOnlyMLMHead(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertOnlyMLMHead, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
     def forward(self, sequence_output):
         prediction_scores = self.predictions(sequence_output)
@@ -599,8 +549,7 @@ class BertPreTrainingHeads(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
@@ -616,11 +565,7 @@ class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file, hidden_size=768,
-        num_hidden_layers=12, num_attention_heads=12, intermediate_size=
-        3072, hidden_act='gelu', hidden_dropout_prob=0.1,
-        attention_probs_dropout_prob=0.1, max_position_embeddings=512,
-        type_vocab_size=2, initializer_range=0.02):
+    def __init__(self, vocab_size_or_config_json_file, hidden_size=768, num_hidden_layers=12, num_attention_heads=12, intermediate_size=3072, hidden_act='gelu', hidden_dropout_prob=0.1, attention_probs_dropout_prob=0.1, max_position_embeddings=512, type_vocab_size=2, initializer_range=0.02):
         """Constructs BertConfig.
 
         Args:
@@ -645,10 +590,8 @@ class BertConfig(object):
             initializer_range: The sttdev of the truncated_normal_initializer for
                 initializing all weight matrices.
         """
-        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[
-            0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
-            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8'
-                ) as reader:
+        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
+            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
@@ -665,9 +608,7 @@ class BertConfig(object):
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
         else:
-            raise ValueError(
-                'First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)'
-                )
+            raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
     @classmethod
     def from_dict(cls, json_object):
@@ -705,21 +646,7 @@ class BertConfig(object):
 CONFIG_NAME = 'config.json'
 
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz'
-    , 'bert-large-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz'
-    , 'bert-base-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz'
-    , 'bert-large-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz'
-    , 'bert-base-multilingual-uncased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz'
-    , 'bert-base-multilingual-cased':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz'
-    , 'bert-base-chinese':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'
-    }
+PRETRAINED_MODEL_ARCHIVE_MAP = {'bert-base-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz', 'bert-large-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz', 'bert-base-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased.tar.gz', 'bert-large-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased.tar.gz', 'bert-base-multilingual-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased.tar.gz', 'bert-base-multilingual-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased.tar.gz', 'bert-base-chinese': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese.tar.gz'}
 
 
 TF_WEIGHTS_NAME = 'model.ckpt'
@@ -817,22 +744,19 @@ def get_from_cache(url, cache_dir=None):
     cache_path = os.path.join(cache_dir, filename)
     if not os.path.exists(cache_path) and etag is None:
         matching_files = fnmatch.filter(os.listdir(cache_dir), filename + '.*')
-        matching_files = list(filter(lambda s: not s.endswith('.json'),
-            matching_files))
+        matching_files = list(filter(lambda s: not s.endswith('.json'), matching_files))
         if matching_files:
             cache_path = os.path.join(cache_dir, matching_files[-1])
     if not os.path.exists(cache_path):
         with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url,
-                temp_file.name)
+            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
             if url.startswith('s3://'):
                 s3_get(url, temp_file)
             else:
                 http_get(url, temp_file)
             temp_file.flush()
             temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path
-                )
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
             with open(cache_path, 'wb') as cache_file:
                 shutil.copyfileobj(temp_file, cache_file)
             logger.info('creating metadata file for %s', cache_path)
@@ -868,8 +792,7 @@ def cached_path(url_or_filename, cache_dir=None):
     elif parsed.scheme == '':
         raise EnvironmentError('file {} not found'.format(url_or_filename))
     else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.
-            format(url_or_filename))
+        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
 
 
 def load_tf_weights_in_bert(model, tf_checkpoint_path):
@@ -880,9 +803,7 @@ def load_tf_weights_in_bert(model, tf_checkpoint_path):
         import numpy as np
         import tensorflow as tf
     except ImportError:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
+        print('Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
     print('Converting TensorFlow checkpoint from {}'.format(tf_path))
@@ -944,17 +865,14 @@ class BertPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(BertPreTrainedModel, self).__init__()
         if not isinstance(config, BertConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_bert_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -996,31 +914,24 @@ class BertPreTrainedModel(nn.Module):
         from_tf = kwargs.get('from_tf', False)
         kwargs.pop('from_tf', None)
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
             return None
         if resolved_archive_file == archive_file:
             logger.info('loading archive file {}'.format(archive_file))
         else:
-            logger.info('loading archive file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading archive file {} from cache at {}'.format(archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file) or from_tf:
             serialization_dir = resolved_archive_file
         else:
             tempdir = tempfile.mkdtemp()
-            logger.info('extracting archive file {} to temp dir {}'.format(
-                resolved_archive_file, tempdir))
+            logger.info('extracting archive file {} to temp dir {}'.format(resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
@@ -1060,28 +971,21 @@ class BertPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in
-            state_dict.keys()):
+        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in state_dict.keys()):
             start_prefix = 'bert.'
         load(model, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         return model
 
 
@@ -1108,8 +1012,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -1146,8 +1049,7 @@ class Attention(nn.Module):
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
         if layer_past is not None:
-            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[
-                1]
+            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[1]
             key = torch.cat((past_key, key), dim=-1)
             value = torch.cat((past_value, value), dim=-2)
         present = torch.stack((key.transpose(-2, -1), value))
@@ -1219,8 +1121,7 @@ class GPT2MultipleChoiceHead(nn.Module):
         nn.init.normal_(self.linear.bias, 0)
 
     def forward(self, hidden_states, mc_token_ids):
-        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, 
-            -1, -1, hidden_states.size(-1))
+        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, hidden_states.size(-1))
         multiple_choice_h = hidden_states.gather(2, mc_token_ids).squeeze(2)
         multiple_choice_logits = self.linear(multiple_choice_h).squeeze(-1)
         return multiple_choice_logits
@@ -1230,9 +1131,7 @@ class GPT2Config(object):
     """Configuration class to store the configuration of a `GPT2Model`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file=50257, n_positions=
-        1024, n_ctx=1024, n_embd=768, n_layer=12, n_head=12,
-        layer_norm_epsilon=1e-05, initializer_range=0.02):
+    def __init__(self, vocab_size_or_config_json_file=50257, n_positions=1024, n_ctx=1024, n_embd=768, n_layer=12, n_head=12, layer_norm_epsilon=1e-05, initializer_range=0.02):
         """Constructs GPT2Config.
 
         Args:
@@ -1247,10 +1146,8 @@ class GPT2Config(object):
             initializer_range: The sttdev of the truncated_normal_initializer for
                 initializing all weight matrices.
         """
-        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[
-            0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
-            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8'
-                ) as reader:
+        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
+            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
@@ -1264,9 +1161,7 @@ class GPT2Config(object):
             self.layer_norm_epsilon = layer_norm_epsilon
             self.initializer_range = initializer_range
         else:
-            raise ValueError(
-                'First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)'
-                )
+            raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
     @classmethod
     def from_dict(cls, json_object):
@@ -1301,9 +1196,7 @@ class GPT2Config(object):
             writer.write(self.to_json_string())
 
 
-PRETRAINED_CONFIG_ARCHIVE_MAP = {'transfo-xl-wt103':
-    'https://s3.amazonaws.com/models.huggingface.co/bert/transfo-xl-wt103-config.json'
-    }
+PRETRAINED_CONFIG_ARCHIVE_MAP = {'transfo-xl-wt103': 'https://s3.amazonaws.com/models.huggingface.co/bert/transfo-xl-wt103-config.json'}
 
 
 def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
@@ -1314,9 +1207,7 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
         import numpy as np
         import tensorflow as tf
     except ImportError:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
+        print('Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
         raise
     tf_path = os.path.abspath(gpt2_checkpoint_path)
     print('Converting TensorFlow checkpoint from {}'.format(tf_path))
@@ -1367,9 +1258,7 @@ class GPT2PreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(GPT2PreTrainedModel, self).__init__()
         if not isinstance(config, GPT2Config):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `GPT2Config`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `GPT2Config`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def set_tied(self):
@@ -1379,8 +1268,7 @@ class GPT2PreTrainedModel(nn.Module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -1388,8 +1276,7 @@ class GPT2PreTrainedModel(nn.Module):
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None,
-        cache_dir=None, from_tf=False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a GPT2PreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -1410,36 +1297,23 @@ class GPT2PreTrainedModel(nn.Module):
             *inputs, **kwargs: additional input for the specific GPT class
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
-                pretrained_model_name_or_path, archive_file, config_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), pretrained_model_name_or_path, archive_file, config_file))
             return None
-        if (resolved_archive_file == archive_file and resolved_config_file ==
-            config_file):
+        if resolved_archive_file == archive_file and resolved_config_file == config_file:
             logger.info('loading weights file {}'.format(archive_file))
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = GPT2Config.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
@@ -1471,28 +1345,21 @@ class GPT2PreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_model = model
-        if hasattr(model, 'transformer') and all(not s.startswith(
-            'transformer.') for s in state_dict.keys()):
+        if hasattr(model, 'transformer') and all(not s.startswith('transformer.') for s in state_dict.keys()):
             start_model = model.transformer
         load(start_model, prefix='')
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         model.set_tied()
         return model
 
@@ -1527,8 +1394,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -1640,11 +1506,9 @@ class OpenAIGPTMultipleChoiceHead(nn.Module):
         nn.init.normal_(self.linear.bias, 0)
 
     def forward(self, hidden_states, mc_token_ids):
-        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, 
-            -1, -1, hidden_states.size(-1))
+        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, hidden_states.size(-1))
         multiple_choice_h = hidden_states.gather(2, mc_token_ids).squeeze(2)
-        multiple_choice_h = self.dropout(multiple_choice_h.transpose(1, 2)
-            ).transpose(1, 2)
+        multiple_choice_h = self.dropout(multiple_choice_h.transpose(1, 2)).transpose(1, 2)
         multiple_choice_logits = self.linear(multiple_choice_h).squeeze(-1)
         return multiple_choice_logits
 
@@ -1653,10 +1517,7 @@ class OpenAIGPTConfig(object):
     """Configuration class to store the configuration of a `OpenAIGPTModel`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file=40478, n_special=0,
-        n_positions=512, n_ctx=512, n_embd=768, n_layer=12, n_head=12, afn=
-        'gelu', resid_pdrop=0.1, embd_pdrop=0.1, attn_pdrop=0.1,
-        layer_norm_epsilon=1e-05, initializer_range=0.02):
+    def __init__(self, vocab_size_or_config_json_file=40478, n_special=0, n_positions=512, n_ctx=512, n_embd=768, n_layer=12, n_head=12, afn='gelu', resid_pdrop=0.1, embd_pdrop=0.1, attn_pdrop=0.1, layer_norm_epsilon=1e-05, initializer_range=0.02):
         """Constructs OpenAIGPTConfig.
 
         Args:
@@ -1679,10 +1540,8 @@ class OpenAIGPTConfig(object):
             initializer_range: The sttdev of the truncated_normal_initializer for
                 initializing all weight matrices.
         """
-        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[
-            0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
-            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8'
-                ) as reader:
+        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
+            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
@@ -1701,9 +1560,7 @@ class OpenAIGPTConfig(object):
             self.layer_norm_epsilon = layer_norm_epsilon
             self.initializer_range = initializer_range
         else:
-            raise ValueError(
-                'First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)'
-                )
+            raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
     @property
     def total_tokens_embeddings(self):
@@ -1748,16 +1605,12 @@ def load_tf_weights_in_openai_gpt(model, openai_checkpoint_folder_path):
     import re
     import numpy as np
     print('Loading weights...')
-    names = json.load(open(openai_checkpoint_folder_path +
-        '/parameters_names.json', 'r', encoding='utf-8'))
-    shapes = json.load(open(openai_checkpoint_folder_path +
-        '/params_shapes.json', 'r', encoding='utf-8'))
+    names = json.load(open(openai_checkpoint_folder_path + '/parameters_names.json', 'r', encoding='utf-8'))
+    shapes = json.load(open(openai_checkpoint_folder_path + '/params_shapes.json', 'r', encoding='utf-8'))
     offsets = np.cumsum([np.prod(shape) for shape in shapes])
-    init_params = [np.load(openai_checkpoint_folder_path + '/params_{}.npy'
-        .format(n)) for n in range(10)]
+    init_params = [np.load(openai_checkpoint_folder_path + '/params_{}.npy'.format(n)) for n in range(10)]
     init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
-    init_params = [param.reshape(shape) for param, shape in zip(init_params,
-        shapes)]
+    init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
     init_params = [arr.squeeze() for arr in init_params]
     try:
         assert model.tokens_embed.weight.shape == init_params[1].shape
@@ -1816,17 +1669,14 @@ class OpenAIGPTPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(OpenAIGPTPreTrainedModel, self).__init__()
         if not isinstance(config, OpenAIGPTConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `OpenAIGPTConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `OpenAIGPTConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -1837,9 +1687,7 @@ class OpenAIGPTPreTrainedModel(nn.Module):
         pass
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path,
-        num_special_tokens=None, state_dict=None, cache_dir=None, from_tf=
-        False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, num_special_tokens=None, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a OpenAIGPTPreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -1861,36 +1709,23 @@ class OpenAIGPTPreTrainedModel(nn.Module):
                 (ex: num_labels for BertForSequenceClassification)
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
-                pretrained_model_name_or_path, archive_file, config_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), pretrained_model_name_or_path, archive_file, config_file))
             return None
-        if (resolved_archive_file == archive_file and resolved_config_file ==
-            config_file):
+        if resolved_archive_file == archive_file and resolved_config_file == config_file:
             logger.info('loading weights file {}'.format(archive_file))
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = OpenAIGPTConfig.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
@@ -1922,30 +1757,22 @@ class OpenAIGPTPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_model = model
-        if hasattr(model, 'transformer') and all(not s.startswith(
-            'transformer.') for s in state_dict.keys()):
+        if hasattr(model, 'transformer') and all(not s.startswith('transformer.') for s in state_dict.keys()):
             start_model = model.transformer
         load(start_model, prefix='')
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
-        model.set_num_special_tokens(num_special_tokens if 
-            num_special_tokens is not None else config.n_special)
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+        model.set_num_special_tokens(num_special_tokens if num_special_tokens is not None else config.n_special)
         return model
 
 
@@ -1973,9 +1800,7 @@ class PositionwiseFF(nn.Module):
         self.d_model = d_model
         self.d_inner = d_inner
         self.dropout = dropout
-        self.CoreNet = nn.Sequential(nn.Linear(d_model, d_inner), nn.ReLU(
-            inplace=True), nn.Dropout(dropout), nn.Linear(d_inner, d_model),
-            nn.Dropout(dropout))
+        self.CoreNet = nn.Sequential(nn.Linear(d_model, d_inner), nn.ReLU(inplace=True), nn.Dropout(dropout), nn.Linear(d_inner, d_model), nn.Dropout(dropout))
         self.layer_norm = LayerNorm(d_model)
         self.pre_lnorm = pre_lnorm
 
@@ -1991,8 +1816,7 @@ class PositionwiseFF(nn.Module):
 
 class MultiHeadAttn(nn.Module):
 
-    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0,
-        pre_lnorm=False, r_r_bias=None, r_w_bias=None):
+    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, pre_lnorm=False, r_r_bias=None, r_w_bias=None):
         super(MultiHeadAttn, self).__init__()
         self.n_head = n_head
         self.d_model = d_model
@@ -2007,10 +1831,8 @@ class MultiHeadAttn(nn.Module):
         self.scale = 1 / d_head ** 0.5
         self.pre_lnorm = pre_lnorm
         if r_r_bias is None or r_w_bias is None:
-            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
-            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
+            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
+            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
         else:
             self.r_r_bias = r_r_bias
             self.r_w_bias = r_w_bias
@@ -2031,16 +1853,13 @@ class MultiHeadAttn(nn.Module):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -
-                    float('inf'))
+                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float(
-                    'inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, head_v))
-        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.
-            size(1), self.n_head * self.d_head)
+        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
         if self.pre_lnorm:
@@ -2052,9 +1871,7 @@ class MultiHeadAttn(nn.Module):
 
 class RelMultiHeadAttn(nn.Module):
 
-    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, tgt_len
-        =None, ext_len=None, mem_len=None, pre_lnorm=False, r_r_bias=None,
-        r_w_bias=None):
+    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, tgt_len=None, ext_len=None, mem_len=None, pre_lnorm=False, r_r_bias=None, r_w_bias=None):
         super(RelMultiHeadAttn, self).__init__()
         self.n_head = n_head
         self.d_model = d_model
@@ -2068,10 +1885,8 @@ class RelMultiHeadAttn(nn.Module):
         self.scale = 1 / d_head ** 0.5
         self.pre_lnorm = pre_lnorm
         if r_r_bias is None or r_w_bias is None:
-            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
-            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
+            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
+            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
         else:
             self.r_r_bias = r_r_bias
             self.r_w_bias = r_w_bias
@@ -2088,8 +1903,7 @@ class RelMultiHeadAttn(nn.Module):
 
     def _shift(self, x, qlen, klen, mask, left=False):
         if qlen > 1:
-            zero_pad = torch.zeros((x.size(0), qlen - 1, x.size(2), x.size(
-                3)), device=x.device, dtype=x.dtype)
+            zero_pad = torch.zeros((x.size(0), qlen - 1, x.size(2), x.size(3)), device=x.device, dtype=x.dtype)
         else:
             zero_pad = torch.zeros(0, device=x.device, dtype=x.dtype)
         if left:
@@ -2097,8 +1911,7 @@ class RelMultiHeadAttn(nn.Module):
             x_padded = torch.cat([zero_pad, x], dim=1).expand(qlen, -1, -1, -1)
         else:
             x_padded = torch.cat([x, zero_pad], dim=1).expand(qlen, -1, -1, -1)
-        x = x_padded.masked_select(mask[:, :, (None), (None)]).view(qlen,
-            klen, x.size(2), x.size(3))
+        x = x_padded.masked_select(mask[:, :, (None), (None)]).view(qlen, klen, x.size(2), x.size(3))
         return x
 
     def _rel_shift(self, x, zero_triu=False):
@@ -2110,8 +1923,7 @@ class RelMultiHeadAttn(nn.Module):
         x = x_padded[1:].view_as(x)
         if zero_triu:
             ones = torch.ones((x.size(0), x.size(1)))
-            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, (None), (
-                None)]
+            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, (None), (None)]
         return x
 
     def forward(self, w, r, attn_mask=None, mems=None):
@@ -2122,10 +1934,8 @@ class DecoderLayer(nn.Module):
 
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(DecoderLayer, self).__init__()
-        self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **
-            kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'))
+        self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, dec_attn_mask=None, mems=None):
         output = self.dec_attn(dec_inp, attn_mask=dec_attn_mask, mems=mems)
@@ -2175,16 +1985,13 @@ class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -
-                    float('inf'))
+                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float(
-                    'inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
-        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.
-            size(1), self.n_head * self.d_head)
+        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
         if self.pre_lnorm:
@@ -2198,15 +2005,11 @@ class RelLearnableDecoderLayer(nn.Module):
 
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(RelLearnableDecoderLayer, self).__init__()
-        self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head,
-            dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'))
+        self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
-    def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None,
-        mems=None):
-        output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias, attn_mask=
-            dec_attn_mask, mems=mems)
+    def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None, mems=None):
+        output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias, attn_mask=dec_attn_mask, mems=mems)
         output = self.pos_ff(output)
         return output
 
@@ -2215,8 +2018,7 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
 
     def __init__(self, *args, **kwargs):
         super(RelPartialLearnableMultiHeadAttn, self).__init__(*args, **kwargs)
-        self.r_net = nn.Linear(self.d_model, self.n_head * self.d_head,
-            bias=False)
+        self.r_net = nn.Linear(self.d_model, self.n_head * self.d_head, bias=False)
 
     def forward(self, w, r, attn_mask=None, mems=None):
         qlen, rlen, bsz = w.size(0), r.size(0), w.size(1)
@@ -2250,16 +2052,13 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score = attn_score.float().masked_fill(attn_mask[(None
-                    ), :, :, (None)], -1e+30).type_as(attn_score)
+                attn_score = attn_score.float().masked_fill(attn_mask[(None), :, :, (None)], -1e+30).type_as(attn_score)
             elif attn_mask.dim() == 3:
-                attn_score = attn_score.float().masked_fill(attn_mask[:, :,
-                    :, (None)], -1e+30).type_as(attn_score)
+                attn_score = attn_score.float().masked_fill(attn_mask[:, :, :, (None)], -1e+30).type_as(attn_score)
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
-        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.
-            size(1), self.n_head * self.d_head)
+        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
         if self.pre_lnorm:
@@ -2273,10 +2072,8 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(RelPartialLearnableDecoderLayer, self).__init__()
-        self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model,
-            d_head, dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'))
+        self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, r, dec_attn_mask=None, mems=None):
         output = self.dec_attn(dec_inp, r, attn_mask=dec_attn_mask, mems=mems)
@@ -2286,8 +2083,7 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
 class AdaptiveEmbedding(nn.Module):
 
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
-        sample_softmax=False):
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, sample_softmax=False):
         super(AdaptiveEmbedding, self).__init__()
         self.n_token = n_token
         self.d_embed = d_embed
@@ -2299,18 +2095,15 @@ class AdaptiveEmbedding(nn.Module):
         self.emb_layers = nn.ModuleList()
         self.emb_projs = nn.ParameterList()
         if div_val == 1:
-            self.emb_layers.append(nn.Embedding(n_token, d_embed, sparse=
-                sample_softmax > 0))
+            self.emb_layers.append(nn.Embedding(n_token, d_embed, sparse=sample_softmax > 0))
             if d_proj != d_embed:
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                    d_embed)))
+                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // div_val ** i
                 self.emb_layers.append(nn.Embedding(r_idx - l_idx, d_emb_i))
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                    d_emb_i)))
+                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
 
     def forward(self, inp):
         if self.div_val == 1:
@@ -2320,8 +2113,7 @@ class AdaptiveEmbedding(nn.Module):
         else:
             param = next(self.parameters())
             inp_flat = inp.view(-1)
-            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], dtype=
-                param.dtype, device=param.device)
+            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], dtype=param.dtype, device=param.device)
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 mask_i = (inp_flat >= l_idx) & (inp_flat < r_idx)
@@ -2342,14 +2134,7 @@ class TransfoXLConfig(object):
     """Configuration class to store the configuration of a `TransfoXLModel`.
     """
 
-    def __init__(self, vocab_size_or_config_json_file=267735, cutoffs=[
-        20000, 40000, 200000], d_model=1024, d_embed=1024, n_head=16,
-        d_head=64, d_inner=4096, div_val=4, pre_lnorm=False, n_layer=18,
-        tgt_len=128, ext_len=0, mem_len=1600, clamp_len=1000, same_length=
-        True, proj_share_all_but_first=True, attn_type=0, sample_softmax=-1,
-        adaptive=True, tie_weight=True, dropout=0.1, dropatt=0.0, untie_r=
-        True, init='normal', init_range=0.01, proj_init_std=0.01, init_std=0.02
-        ):
+    def __init__(self, vocab_size_or_config_json_file=267735, cutoffs=[20000, 40000, 200000], d_model=1024, d_embed=1024, n_head=16, d_head=64, d_inner=4096, div_val=4, pre_lnorm=False, n_layer=18, tgt_len=128, ext_len=0, mem_len=1600, clamp_len=1000, same_length=True, proj_share_all_but_first=True, attn_type=0, sample_softmax=-1, adaptive=True, tie_weight=True, dropout=0.1, dropatt=0.0, untie_r=True, init='normal', init_range=0.01, proj_init_std=0.01, init_std=0.02):
         """Constructs TransfoXLConfig.
 
         Args:
@@ -2384,10 +2169,8 @@ class TransfoXLConfig(object):
             proj_init_std: parameters initialized by N(0, init_std)
             init_std: parameters initialized by N(0, init_std)
         """
-        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[
-            0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
-            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8'
-                ) as reader:
+        if isinstance(vocab_size_or_config_json_file, str) or sys.version_info[0] == 2 and isinstance(vocab_size_or_config_json_file, unicode):
+            with open(vocab_size_or_config_json_file, 'r', encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
@@ -2424,9 +2207,7 @@ class TransfoXLConfig(object):
             self.proj_init_std = proj_init_std
             self.init_std = init_std
         else:
-            raise ValueError(
-                'First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)'
-                )
+            raise ValueError('First argument must be either a vocabulary size (int)or the path to a pretrained model config file (str)')
 
     @classmethod
     def from_dict(cls, json_object):
@@ -2467,42 +2248,23 @@ def build_tf_to_pytorch_map(model, config):
     """
     tf_to_pt_map = {}
     if hasattr(model, 'transformer'):
-        tf_to_pt_map.update({
-            'transformer/adaptive_softmax/cutoff_0/cluster_W': model.crit.
-            cluster_weight,
-            'transformer/adaptive_softmax/cutoff_0/cluster_b': model.crit.
-            cluster_bias})
-        for i, (out_l, proj_l, tie_proj) in enumerate(zip(model.crit.
-            out_layers, model.crit.out_projs, config.tie_projs)):
+        tf_to_pt_map.update({'transformer/adaptive_softmax/cutoff_0/cluster_W': model.crit.cluster_weight, 'transformer/adaptive_softmax/cutoff_0/cluster_b': model.crit.cluster_bias})
+        for i, (out_l, proj_l, tie_proj) in enumerate(zip(model.crit.out_layers, model.crit.out_projs, config.tie_projs)):
             layer_str = 'transformer/adaptive_softmax/cutoff_%d/' % i
             if config.tie_weight:
                 tf_to_pt_map.update({(layer_str + 'b'): out_l.bias})
             else:
                 raise NotImplementedError
-                tf_to_pt_map.update({(layer_str + 'lookup_table'): out_l.
-                    weight, (layer_str + 'b'): out_l.bias})
+                tf_to_pt_map.update({(layer_str + 'lookup_table'): out_l.weight, (layer_str + 'b'): out_l.bias})
             if not tie_proj:
                 tf_to_pt_map.update({(layer_str + 'proj'): proj_l})
         model = model.transformer
-    for i, (embed_l, proj_l) in enumerate(zip(model.word_emb.emb_layers,
-        model.word_emb.emb_projs)):
+    for i, (embed_l, proj_l) in enumerate(zip(model.word_emb.emb_layers, model.word_emb.emb_projs)):
         layer_str = 'transformer/adaptive_embed/cutoff_%d/' % i
-        tf_to_pt_map.update({(layer_str + 'lookup_table'): embed_l.weight,
-            (layer_str + 'proj_W'): proj_l})
+        tf_to_pt_map.update({(layer_str + 'lookup_table'): embed_l.weight, (layer_str + 'proj_W'): proj_l})
     for i, b in enumerate(model.layers):
         layer_str = 'transformer/layer_%d/' % i
-        tf_to_pt_map.update({(layer_str + 'rel_attn/LayerNorm/gamma'): b.
-            dec_attn.layer_norm.weight, (layer_str +
-            'rel_attn/LayerNorm/beta'): b.dec_attn.layer_norm.bias, (
-            layer_str + 'rel_attn/o/kernel'): b.dec_attn.o_net.weight, (
-            layer_str + 'rel_attn/qkv/kernel'): b.dec_attn.qkv_net.weight,
-            (layer_str + 'rel_attn/r/kernel'): b.dec_attn.r_net.weight, (
-            layer_str + 'ff/LayerNorm/gamma'): b.pos_ff.layer_norm.weight,
-            (layer_str + 'ff/LayerNorm/beta'): b.pos_ff.layer_norm.bias, (
-            layer_str + 'ff/layer_1/kernel'): b.pos_ff.CoreNet[0].weight, (
-            layer_str + 'ff/layer_1/bias'): b.pos_ff.CoreNet[0].bias, (
-            layer_str + 'ff/layer_2/kernel'): b.pos_ff.CoreNet[3].weight, (
-            layer_str + 'ff/layer_2/bias'): b.pos_ff.CoreNet[3].bias})
+        tf_to_pt_map.update({(layer_str + 'rel_attn/LayerNorm/gamma'): b.dec_attn.layer_norm.weight, (layer_str + 'rel_attn/LayerNorm/beta'): b.dec_attn.layer_norm.bias, (layer_str + 'rel_attn/o/kernel'): b.dec_attn.o_net.weight, (layer_str + 'rel_attn/qkv/kernel'): b.dec_attn.qkv_net.weight, (layer_str + 'rel_attn/r/kernel'): b.dec_attn.r_net.weight, (layer_str + 'ff/LayerNorm/gamma'): b.pos_ff.layer_norm.weight, (layer_str + 'ff/LayerNorm/beta'): b.pos_ff.layer_norm.bias, (layer_str + 'ff/layer_1/kernel'): b.pos_ff.CoreNet[0].weight, (layer_str + 'ff/layer_1/bias'): b.pos_ff.CoreNet[0].bias, (layer_str + 'ff/layer_2/kernel'): b.pos_ff.CoreNet[3].weight, (layer_str + 'ff/layer_2/bias'): b.pos_ff.CoreNet[3].bias})
     if config.untie_r:
         r_r_list = []
         r_w_list = []
@@ -2512,8 +2274,7 @@ def build_tf_to_pytorch_map(model, config):
     else:
         r_r_list = [model.r_r_bias]
         r_w_list = [model.r_w_bias]
-    tf_to_pt_map.update({'transformer/r_r_bias': r_r_list,
-        'transformer/r_w_bias': r_w_list})
+    tf_to_pt_map.update({'transformer/r_r_bias': r_r_list, 'transformer/r_w_bias': r_w_list})
     return tf_to_pt_map
 
 
@@ -2524,9 +2285,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
         import numpy as np
         import tensorflow as tf
     except ImportError:
-        print(
-            'Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.'
-            )
+        print('Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
         raise
     tf_to_pt_map = build_tf_to_pytorch_map(model, config)
     init_vars = tf.train.list_variables(tf_path)
@@ -2549,8 +2308,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
                 except AssertionError as e:
                     e.args += p_i.shape, arr_i.shape
                     raise
-                print('Initialize PyTorch weight {} for layer {}'.format(
-                    name, i))
+                print('Initialize PyTorch weight {} for layer {}'.format(name, i))
                 p_i.data = torch.from_numpy(arr_i)
         else:
             try:
@@ -2563,8 +2321,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
         tf_weights.pop(name, None)
         tf_weights.pop(name + '/Adam', None)
         tf_weights.pop(name + '/Adam_1', None)
-    print('Weights not copied to PyTorch model: {}'.format(', '.join(
-        tf_weights.keys())))
+    print('Weights not copied to PyTorch model: {}'.format(', '.join(tf_weights.keys())))
     return model
 
 
@@ -2576,15 +2333,12 @@ class TransfoXLPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(TransfoXLPreTrainedModel, self).__init__()
         if not isinstance(config, TransfoXLConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `TransfoXLConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `TransfoXLConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_weight(self, weight):
         if self.config.init == 'uniform':
-            nn.init.uniform_(weight, -self.config.init_range, self.config.
-                init_range)
+            nn.init.uniform_(weight, -self.config.init_range, self.config.init_range)
         elif self.config.init == 'normal':
             nn.init.normal_(weight, 0.0, self.config.init_std)
 
@@ -2604,8 +2358,7 @@ class TransfoXLPreTrainedModel(nn.Module):
             if hasattr(m, 'emb_projs'):
                 for i in range(len(m.emb_projs)):
                     if m.emb_projs[i] is not None:
-                        nn.init.normal_(m.emb_projs[i], 0.0, self.config.
-                            proj_init_std)
+                        nn.init.normal_(m.emb_projs[i], 0.0, self.config.proj_init_std)
         elif classname.find('Embedding') != -1:
             if hasattr(m, 'weight'):
                 self.init_weight(m.weight)
@@ -2617,8 +2370,7 @@ class TransfoXLPreTrainedModel(nn.Module):
             if hasattr(m, 'out_projs'):
                 for i in range(len(m.out_projs)):
                     if m.out_projs[i] is not None:
-                        nn.init.normal_(m.out_projs[i], 0.0, self.config.
-                            proj_init_std)
+                        nn.init.normal_(m.out_projs[i], 0.0, self.config.proj_init_std)
         elif classname.find('LayerNorm') != -1:
             if hasattr(m, 'weight'):
                 nn.init.normal_(m.weight, 1.0, self.config.init_std)
@@ -2638,8 +2390,7 @@ class TransfoXLPreTrainedModel(nn.Module):
         pass
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None,
-        cache_dir=None, from_tf=False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a TransfoXLPreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -2661,44 +2412,30 @@ class TransfoXLPreTrainedModel(nn.Module):
                 (ex: num_labels for BertForSequenceClassification)
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
-                pretrained_model_name_or_path, archive_file, config_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), pretrained_model_name_or_path, archive_file, config_file))
             return None
-        if (resolved_archive_file == archive_file and resolved_config_file ==
-            config_file):
+        if resolved_archive_file == archive_file and resolved_config_file == config_file:
             logger.info('loading weights file {}'.format(archive_file))
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = TransfoXLConfig.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
         if state_dict is None and not from_tf:
             state_dict = torch.load(resolved_archive_file, map_location='cpu')
         if from_tf:
-            return load_tf_weights_in_transfo_xl(model, config,
-                pretrained_model_name_or_path)
+            return load_tf_weights_in_transfo_xl(model, config, pretrained_model_name_or_path)
         missing_keys = []
         unexpected_keys = []
         error_msgs = []
@@ -2708,28 +2445,21 @@ class TransfoXLPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'transformer') and any(s.startswith(
-            'transformer.') for s in state_dict.keys()):
+        if not hasattr(model, 'transformer') and any(s.startswith('transformer.') for s in state_dict.keys()):
             start_prefix = 'transformer.'
         load(model, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         if hasattr(model, 'tie_weights'):
             model.tie_weights()
         return model
@@ -2737,8 +2467,7 @@ class TransfoXLPreTrainedModel(nn.Module):
 
 class ProjectedAdaptiveLogSoftmax(nn.Module):
 
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
-        keep_order=False):
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, keep_order=False):
         super(ProjectedAdaptiveLogSoftmax, self).__init__()
         self.n_token = n_token
         self.d_embed = d_embed
@@ -2750,16 +2479,14 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
         self.n_clusters = len(self.cutoffs) - 1
         self.head_size = self.shortlist_size + self.n_clusters
         if self.n_clusters > 0:
-            self.cluster_weight = nn.Parameter(torch.zeros(self.n_clusters,
-                self.d_embed))
+            self.cluster_weight = nn.Parameter(torch.zeros(self.n_clusters, self.d_embed))
             self.cluster_bias = nn.Parameter(torch.zeros(self.n_clusters))
         self.out_layers = nn.ModuleList()
         self.out_projs = nn.ParameterList()
         if div_val == 1:
             for i in range(len(self.cutoffs)):
                 if d_proj != d_embed:
-                    self.out_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                        d_embed)))
+                    self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
                 else:
                     self.out_projs.append(None)
             self.out_layers.append(nn.Linear(d_embed, n_token))
@@ -2767,8 +2494,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // div_val ** i
-                self.out_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                    d_emb_i)))
+                self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
                 self.out_layers.append(nn.Linear(d_emb_i, r_idx - l_idx))
         self.keep_order = keep_order
 
@@ -2797,15 +2523,11 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
         if target is not None:
             target = target.view(-1)
             if hidden.size(0) != target.size(0):
-                raise RuntimeError(
-                    'Input and target should have the same size in the batch dimension.'
-                    )
+                raise RuntimeError('Input and target should have the same size in the batch dimension.')
         if self.n_clusters == 0:
-            logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                self.out_layers[0].bias, self.out_projs[0])
+            logit = self._compute_logit(hidden, self.out_layers[0].weight, self.out_layers[0].bias, self.out_projs[0])
             if target is not None:
-                output = -F.log_softmax(logit, dim=-1).gather(1, target.
-                    unsqueeze(1)).squeeze(1)
+                output = -F.log_softmax(logit, dim=-1).gather(1, target.unsqueeze(1)).squeeze(1)
             else:
                 output = F.log_softmax(logit, dim=-1)
         else:
@@ -2819,21 +2541,17 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
                 if i == 0:
-                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0
-                        )
+                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0)
                     bias_i = torch.cat([bias_i, self.cluster_bias], dim=0)
                 weights.append(weight_i)
                 biases.append(bias_i)
-            head_weight, head_bias, head_proj = weights[0], biases[0
-                ], self.out_projs[0]
-            head_logit = self._compute_logit(hidden, head_weight, head_bias,
-                head_proj)
+            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             head_logprob = F.log_softmax(head_logit, dim=1)
             if target is None:
                 out = hidden.new_empty((head_logit.size(0), self.n_token))
             else:
-                out = torch.zeros_like(target, dtype=hidden.dtype, device=
-                    hidden.device)
+                out = torch.zeros_like(target, dtype=hidden.dtype, device=hidden.device)
             offset = 0
             cutoff_values = [0] + self.cutoffs
             for i in range(len(cutoff_values) - 1):
@@ -2850,33 +2568,24 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     hidden_i = hidden
                 if i == 0:
                     if target is not None:
-                        logprob_i = head_logprob_i.gather(1, target_i[:, (
-                            None)]).squeeze(1)
+                        logprob_i = head_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
                     else:
-                        out[:, :self.cutoffs[0]] = head_logprob[:, :self.
-                            cutoffs[0]]
+                        out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i
-                        ], self.out_projs[i]
-                    tail_logit_i = self._compute_logit(hidden_i, weight_i,
-                        bias_i, proj_i)
+                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    tail_logit_i = self._compute_logit(hidden_i, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     cluster_prob_idx = self.cutoffs[0] + i - 1
                     if target is not None:
-                        logprob_i = head_logprob_i[:, (cluster_prob_idx)
-                            ] + tail_logprob_i.gather(1, target_i[:, (None)]
-                            ).squeeze(1)
+                        logprob_i = head_logprob_i[:, (cluster_prob_idx)] + tail_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
                     else:
-                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)
-                            ] + tail_logprob_i
+                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)] + tail_logprob_i
                         out[:, l_idx:r_idx] = logprob_i
                 if target is not None:
-                    if hasattr(self, 'keep_order'
-                        ) and self.keep_order or keep_order:
+                    if hasattr(self, 'keep_order') and self.keep_order or keep_order:
                         out.index_copy_(0, indices_i, -logprob_i)
                     else:
-                        out[offset:offset + logprob_i.size(0)].copy_(-logprob_i
-                            )
+                        out[offset:offset + logprob_i.size(0)].copy_(-logprob_i)
                     offset += logprob_i.size(0)
         return out
 
@@ -2894,8 +2603,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             - Output: :math:`(N, n\\_classes)`
         """
         if self.n_clusters == 0:
-            logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                self.out_layers[0].bias, self.out_projs[0])
+            logit = self._compute_logit(hidden, self.out_layers[0].weight, self.out_layers[0].bias, self.out_projs[0])
             return F.log_softmax(logit, dim=-1)
         else:
             weights, biases = [], []
@@ -2908,28 +2616,22 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
                 if i == 0:
-                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0
-                        )
+                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0)
                     bias_i = torch.cat([bias_i, self.cluster_bias], dim=0)
                 weights.append(weight_i)
                 biases.append(bias_i)
-            head_weight, head_bias, head_proj = weights[0], biases[0
-                ], self.out_projs[0]
-            head_logit = self._compute_logit(hidden, head_weight, head_bias,
-                head_proj)
+            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             out = hidden.new_empty((head_logit.size(0), self.n_token))
             head_logprob = F.log_softmax(head_logit, dim=1)
             cutoff_values = [0] + self.cutoffs
             for i in range(len(cutoff_values) - 1):
                 start_idx, stop_idx = cutoff_values[i], cutoff_values[i + 1]
                 if i == 0:
-                    out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]
-                        ]
+                    out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i
-                        ], self.out_projs[i]
-                    tail_logit_i = self._compute_logit(hidden, weight_i,
-                        bias_i, proj_i)
+                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    tail_logit_i = self._compute_logit(hidden, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     logprob_i = head_logprob[:, (-i)] + tail_logprob_i
                     out[:, (start_idx), (stop_idx)] = logprob_i
@@ -2942,28 +2644,22 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -2974,14 +2670,10 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
@@ -2990,8 +2682,7 @@ class BertSelfAttention(nn.Module):
         self.output_sum = config.output_sum
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -3002,10 +2693,8 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         if self.output_score is True:
@@ -3017,8 +2706,7 @@ class BertSelfAttention(nn.Module):
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer, attention_probs_sum
 
@@ -3028,8 +2716,7 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -3057,8 +2744,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
@@ -3074,8 +2760,7 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -3094,8 +2779,7 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask):
-        attention_output, att_layer = self.attention(hidden_states,
-            attention_mask)
+        attention_output, att_layer = self.attention(hidden_states, attention_mask)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output, att_layer
@@ -3106,16 +2790,13 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            config.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True, output_all_attention_layers=False):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_all_attention_layers=False):
         all_encoder_layers = [hidden_states]
         all_attention_layers = [None]
         for idx, layer_module in enumerate(self.layer):
-            hidden_states, att_layer = layer_module(hidden_states,
-                attention_mask)
+            hidden_states, att_layer = layer_module(hidden_states, attention_mask)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
             if output_all_attention_layers:
@@ -3144,13 +2825,11 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.
-            layer_norm_eps)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
@@ -3164,11 +2843,9 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0), bias=False)
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1), bert_model_embedding_weights.size(0), bias=False)
         self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.
-            size(0)))
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -3180,8 +2857,7 @@ class BertOnlyMLMHead(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertOnlyMLMHead, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
     def forward(self, sequence_output):
         prediction_scores = self.predictions(sequence_output)
@@ -3203,8 +2879,7 @@ class BertPreTrainingHeads(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
@@ -3221,17 +2896,14 @@ class BertPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(BertPreTrainedModel, self).__init__()
         if not isinstance(config, BertConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_bert_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -3273,31 +2945,24 @@ class BertPreTrainedModel(nn.Module):
         from_tf = kwargs.get('from_tf', False)
         kwargs.pop('from_tf', None)
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
             return None
         if resolved_archive_file == archive_file:
             logger.info('loading archive file {}'.format(archive_file))
         else:
-            logger.info('loading archive file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading archive file {} from cache at {}'.format(archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file) or from_tf:
             serialization_dir = resolved_archive_file
         else:
             tempdir = tempfile.mkdtemp()
-            logger.info('extracting archive file {} to temp dir {}'.format(
-                resolved_archive_file, tempdir))
+            logger.info('extracting archive file {} to temp dir {}'.format(resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
@@ -3337,28 +3002,21 @@ class BertPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in
-            state_dict.keys()):
+        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in state_dict.keys()):
             start_prefix = 'bert.'
         load(model, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         return model
 
 
@@ -3370,11 +3028,9 @@ class ALBertEncoder(nn.Module):
         self.num_hidden_layers = config.num_hidden_layers
         self.skip_connection = config.skip_connection
         self.num_repetitions = config.num_repetitions
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            self.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(self.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True, output_attention_layer=None):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_attention_layer=None):
         all_encoder_layers = []
         all_attention_probs_sum = []
         for idx_outer, layer_module in enumerate(self.layer):
@@ -3382,13 +3038,10 @@ class ALBertEncoder(nn.Module):
             for idx_inner in range(self.num_repetitions):
                 idx = idx_inner + idx_outer * self.num_repetitions
                 if idx_inner == 0 or self.skip_connection is False:
-                    hidden_states, attention_probs_sum = layer_module(
-                        hidden_states, attention_mask)
+                    hidden_states, attention_probs_sum = layer_module(hidden_states, attention_mask)
                 else:
-                    hidden_states, attention_probs_sum = layer_module(
-                        hidden_states + x0, attention_mask)
-                if (output_attention_layer is not None and idx in
-                    output_attention_layer):
+                    hidden_states, attention_probs_sum = layer_module(hidden_states + x0, attention_mask)
+                if output_attention_layer is not None and idx in output_attention_layer:
                     all_attention_probs_sum.append(attention_probs_sum)
                 if output_all_encoded_layers:
                     all_encoder_layers.append(hidden_states)
@@ -3409,27 +3062,17 @@ class BertForGLUE(nn.Module):
         initializer = initializer_builder(config.initializer_range)
         self.apply(initializer)
 
-    def forward(self, input_ids, token_type_ids, attention_mask, labels=
-        None, logits_T=None, attention_probs_sum_layer=None,
-        attention_probs_sum_T=None, hidden_match_layer=None, hidden_match_T
-        =None):
+    def forward(self, input_ids, token_type_ids, attention_mask, labels=None, logits_T=None, attention_probs_sum_layer=None, attention_probs_sum_T=None, hidden_match_layer=None, hidden_match_T=None):
         if hidden_match_layer is not None:
-            sequence_output, pooled_output, attention_probs_sum = self.bert(
-                input_ids, token_type_ids, attention_mask,
-                output_all_encoded_layers=True, output_attention_layer=
-                attention_probs_sum_layer)
+            sequence_output, pooled_output, attention_probs_sum = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=True, output_attention_layer=attention_probs_sum_layer)
             hidden_states = [sequence_output[i] for i in hidden_match_layer]
             sequence_output = sequence_output[-1]
         else:
-            sequence_output, pooled_output, attention_probs_sum = self.bert(
-                input_ids, token_type_ids, attention_mask,
-                output_all_encoded_layers=False, output_attention_layer=
-                attention_probs_sum_layer)
+            sequence_output, pooled_output, attention_probs_sum = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False, output_attention_layer=attention_probs_sum_layer)
             hidden_states = []
         output_for_cls = self.dropout(pooled_output)
         logits = self.classifier(output_for_cls)
-        if (logits_T is not None or labels is not None or 
-            attention_probs_sum_T is not None):
+        if logits_T is not None or labels is not None or attention_probs_sum_T is not None:
             total_loss = 0
             hidden_losses = None
             att_losses = None
@@ -3445,29 +3088,18 @@ class BertForGLUE(nn.Module):
                 if Conf.args.mask_inter == 1:
                     mask = attention_mask
                     valid_count = torch.pow(mask.sum(dim=1), 2).sum()
-                    att_losses = [((F.mse_loss(attention_probs_sum[i],
-                        attention_probs_sum_T[i], reduction='none') * mask.
-                        unsqueeze(-1) * mask.unsqueeze(1)).sum() /
-                        valid_count) for i in range(len(attention_probs_sum_T))
-                        ]
+                    att_losses = [((F.mse_loss(attention_probs_sum[i], attention_probs_sum_T[i], reduction='none') * mask.unsqueeze(-1) * mask.unsqueeze(1)).sum() / valid_count) for i in range(len(attention_probs_sum_T))]
                 else:
-                    att_losses = [F.mse_loss(attention_probs_sum[i],
-                        attention_probs_sum_T[i]) for i in range(len(
-                        attention_probs_sum_T))]
+                    att_losses = [F.mse_loss(attention_probs_sum[i], attention_probs_sum_T[i]) for i in range(len(attention_probs_sum_T))]
                 att_loss = sum(att_losses) * Conf.args.att_loss_weight
                 total_loss += att_loss
             if hidden_match_T:
                 if Conf.args.mask_inter == 1:
                     mask = attention_mask
                     valid_count = mask.sum() * hidden_states[0].size(-1)
-                    hidden_losses = [((F.mse_loss(hidden_states[i],
-                        hidden_match_T[i], reduction='none') * mask.
-                        unsqueeze(-1)).sum() / valid_count) for i in range(
-                        len(hidden_match_layer))]
+                    hidden_losses = [((F.mse_loss(hidden_states[i], hidden_match_T[i], reduction='none') * mask.unsqueeze(-1)).sum() / valid_count) for i in range(len(hidden_match_layer))]
                 else:
-                    hidden_losses = [F.mse_loss(hidden_states[i],
-                        hidden_match_T[i]) for i in range(len(
-                        hidden_match_layer))]
+                    hidden_losses = [F.mse_loss(hidden_states[i], hidden_match_T[i]) for i in range(len(hidden_match_layer))]
                 hidden_loss = sum(hidden_losses) * Conf.args.hidden_loss_weight
                 total_loss += hidden_loss
             if labels is not None:
@@ -3490,18 +3122,14 @@ class BertForGLUESimple(nn.Module):
         self.num_labels = num_labels
         self.output_encoded_layers = args.output_encoded_layers == 'true'
         self.output_attention_layers = args.output_attention_layers == 'true'
-        self.bert = BertModel(config, output_score=args.output_att_score ==
-            'true', output_sum=args.output_att_sum == 'true')
+        self.bert = BertModel(config, output_score=args.output_att_score == 'true', output_sum=args.output_att_sum == 'true')
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         initializer = initializer_builder(config.initializer_range)
         self.apply(initializer)
 
     def forward(self, input_ids, attention_mask, token_type_ids, labels=None):
-        sequence_output, pooled_output, attention_output = self.bert(input_ids,
-            token_type_ids, attention_mask, output_all_encoded_layers=self.
-            output_encoded_layers, output_all_attention_layers=self.
-            output_attention_layers)
+        sequence_output, pooled_output, attention_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=self.output_encoded_layers, output_all_attention_layers=self.output_attention_layers)
         output_for_cls = self.dropout(pooled_output)
         logits = self.classifier(output_for_cls)
         if labels is not None:
@@ -3520,27 +3148,22 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -3551,14 +3174,10 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
@@ -3567,8 +3186,7 @@ class BertSelfAttention(nn.Module):
         self.output_sum = config.output_sum
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -3579,10 +3197,8 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         if self.output_score is True:
@@ -3594,8 +3210,7 @@ class BertSelfAttention(nn.Module):
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer, attention_probs_sum
 
@@ -3623,8 +3238,7 @@ class BertAttention(nn.Module):
         self.output = BertSelfOutput(config)
 
     def forward(self, input_tensor, attention_mask):
-        self_output, attention_probs_sum = self.self(input_tensor,
-            attention_mask)
+        self_output, attention_probs_sum = self.self(input_tensor, attention_mask)
         attention_output = self.output(self_output, input_tensor)
         return attention_output, attention_probs_sum
 
@@ -3634,8 +3248,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
@@ -3670,8 +3283,7 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask):
-        attention_output, attention_probs_sum = self.attention(hidden_states,
-            attention_mask)
+        attention_output, attention_probs_sum = self.attention(hidden_states, attention_mask)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output, attention_probs_sum
@@ -3682,17 +3294,14 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            config.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True, output_attention_layer=[]):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_attention_layer=[]):
         all_encoder_layers = []
         all_attention_probs_sum = []
         for idx, layer_module in enumerate(self.layer):
             if idx in output_attention_layer:
-                hidden_states, attention_probs_sum = layer_module(hidden_states
-                    , attention_mask)
+                hidden_states, attention_probs_sum = layer_module(hidden_states, attention_mask)
                 all_attention_probs_sum.append(attention_probs_sum)
             else:
                 hidden_states, _ = layer_module(hidden_states, attention_mask)
@@ -3723,8 +3332,7 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
@@ -3742,11 +3350,9 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0), bias=False)
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1), bert_model_embedding_weights.size(0), bias=False)
         self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.
-            size(0)))
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -3758,8 +3364,7 @@ class BertOnlyMLMHead(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertOnlyMLMHead, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
     def forward(self, sequence_output):
         prediction_scores = self.predictions(sequence_output)
@@ -3781,8 +3386,7 @@ class BertPreTrainingHeads(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
@@ -3799,17 +3403,14 @@ class BertPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(BertPreTrainedModel, self).__init__()
         if not isinstance(config, BertConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_bert_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -3851,31 +3452,24 @@ class BertPreTrainedModel(nn.Module):
         from_tf = kwargs.get('from_tf', False)
         kwargs.pop('from_tf', None)
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
             return None
         if resolved_archive_file == archive_file:
             logger.info('loading archive file {}'.format(archive_file))
         else:
-            logger.info('loading archive file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading archive file {} from cache at {}'.format(archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file) or from_tf:
             serialization_dir = resolved_archive_file
         else:
             tempdir = tempfile.mkdtemp()
-            logger.info('extracting archive file {} to temp dir {}'.format(
-                resolved_archive_file, tempdir))
+            logger.info('extracting archive file {} to temp dir {}'.format(resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
@@ -3915,28 +3509,21 @@ class BertPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in
-            state_dict.keys()):
+        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in state_dict.keys()):
             start_prefix = 'bert.'
         load(model, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         return model
 
 
@@ -3963,8 +3550,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -4001,8 +3587,7 @@ class Attention(nn.Module):
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
         if layer_past is not None:
-            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[
-                1]
+            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[1]
             key = torch.cat((past_key, key), dim=-1)
             value = torch.cat((past_value, value), dim=-2)
         present = torch.stack((key.transpose(-2, -1), value))
@@ -4074,8 +3659,7 @@ class GPT2MultipleChoiceHead(nn.Module):
         nn.init.normal_(self.linear.bias, 0)
 
     def forward(self, hidden_states, mc_token_ids):
-        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, 
-            -1, -1, hidden_states.size(-1))
+        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, hidden_states.size(-1))
         multiple_choice_h = hidden_states.gather(2, mc_token_ids).squeeze(2)
         multiple_choice_logits = self.linear(multiple_choice_h).squeeze(-1)
         return multiple_choice_logits
@@ -4089,9 +3673,7 @@ class GPT2PreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(GPT2PreTrainedModel, self).__init__()
         if not isinstance(config, GPT2Config):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `GPT2Config`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `GPT2Config`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def set_tied(self):
@@ -4101,8 +3683,7 @@ class GPT2PreTrainedModel(nn.Module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -4110,8 +3691,7 @@ class GPT2PreTrainedModel(nn.Module):
             module.bias.data.zero_()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None,
-        cache_dir=None, from_tf=False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a GPT2PreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -4132,36 +3712,23 @@ class GPT2PreTrainedModel(nn.Module):
             *inputs, **kwargs: additional input for the specific GPT class
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
-                pretrained_model_name_or_path, archive_file, config_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), pretrained_model_name_or_path, archive_file, config_file))
             return None
-        if (resolved_archive_file == archive_file and resolved_config_file ==
-            config_file):
+        if resolved_archive_file == archive_file and resolved_config_file == config_file:
             logger.info('loading weights file {}'.format(archive_file))
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = GPT2Config.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
@@ -4193,28 +3760,21 @@ class GPT2PreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_model = model
-        if hasattr(model, 'transformer') and all(not s.startswith(
-            'transformer.') for s in state_dict.keys()):
+        if hasattr(model, 'transformer') and all(not s.startswith('transformer.') for s in state_dict.keys()):
             start_model = model.transformer
         load(start_model, prefix='')
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         model.set_tied()
         return model
 
@@ -4249,8 +3809,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         n_state = nx
         assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).
-            view(1, 1, n_ctx, n_ctx))
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
@@ -4359,11 +3918,9 @@ class OpenAIGPTMultipleChoiceHead(nn.Module):
         nn.init.normal_(self.linear.bias, 0)
 
     def forward(self, hidden_states, mc_token_ids):
-        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, 
-            -1, -1, hidden_states.size(-1))
+        mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, hidden_states.size(-1))
         multiple_choice_h = hidden_states.gather(2, mc_token_ids).squeeze(2)
-        multiple_choice_h = self.dropout(multiple_choice_h.transpose(1, 2)
-            ).transpose(1, 2)
+        multiple_choice_h = self.dropout(multiple_choice_h.transpose(1, 2)).transpose(1, 2)
         multiple_choice_logits = self.linear(multiple_choice_h).squeeze(-1)
         return multiple_choice_logits
 
@@ -4376,17 +3933,14 @@ class OpenAIGPTPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(OpenAIGPTPreTrainedModel, self).__init__()
         if not isinstance(config, OpenAIGPTConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `OpenAIGPTConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `OpenAIGPTConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -4397,9 +3951,7 @@ class OpenAIGPTPreTrainedModel(nn.Module):
         pass
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path,
-        num_special_tokens=None, state_dict=None, cache_dir=None, from_tf=
-        False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, num_special_tokens=None, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a OpenAIGPTPreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -4421,36 +3973,23 @@ class OpenAIGPTPreTrainedModel(nn.Module):
                 (ex: num_labels for BertForSequenceClassification)
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
-                pretrained_model_name_or_path, archive_file, config_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), pretrained_model_name_or_path, archive_file, config_file))
             return None
-        if (resolved_archive_file == archive_file and resolved_config_file ==
-            config_file):
+        if resolved_archive_file == archive_file and resolved_config_file == config_file:
             logger.info('loading weights file {}'.format(archive_file))
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = OpenAIGPTConfig.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
@@ -4482,30 +4021,22 @@ class OpenAIGPTPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_model = model
-        if hasattr(model, 'transformer') and all(not s.startswith(
-            'transformer.') for s in state_dict.keys()):
+        if hasattr(model, 'transformer') and all(not s.startswith('transformer.') for s in state_dict.keys()):
             start_model = model.transformer
         load(start_model, prefix='')
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
-        model.set_num_special_tokens(num_special_tokens if 
-            num_special_tokens is not None else config.n_special)
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+        model.set_num_special_tokens(num_special_tokens if num_special_tokens is not None else config.n_special)
         return model
 
 
@@ -4533,9 +4064,7 @@ class PositionwiseFF(nn.Module):
         self.d_model = d_model
         self.d_inner = d_inner
         self.dropout = dropout
-        self.CoreNet = nn.Sequential(nn.Linear(d_model, d_inner), nn.ReLU(
-            inplace=True), nn.Dropout(dropout), nn.Linear(d_inner, d_model),
-            nn.Dropout(dropout))
+        self.CoreNet = nn.Sequential(nn.Linear(d_model, d_inner), nn.ReLU(inplace=True), nn.Dropout(dropout), nn.Linear(d_inner, d_model), nn.Dropout(dropout))
         self.layer_norm = LayerNorm(d_model)
         self.pre_lnorm = pre_lnorm
 
@@ -4551,8 +4080,7 @@ class PositionwiseFF(nn.Module):
 
 class MultiHeadAttn(nn.Module):
 
-    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0,
-        pre_lnorm=False, r_r_bias=None, r_w_bias=None):
+    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, pre_lnorm=False, r_r_bias=None, r_w_bias=None):
         super(MultiHeadAttn, self).__init__()
         self.n_head = n_head
         self.d_model = d_model
@@ -4567,10 +4095,8 @@ class MultiHeadAttn(nn.Module):
         self.scale = 1 / d_head ** 0.5
         self.pre_lnorm = pre_lnorm
         if r_r_bias is None or r_w_bias is None:
-            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
-            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
+            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
+            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
         else:
             self.r_r_bias = r_r_bias
             self.r_w_bias = r_w_bias
@@ -4591,16 +4117,13 @@ class MultiHeadAttn(nn.Module):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -
-                    float('inf'))
+                attn_score.masked_fill_(attn_mask[(None), :, :, (None)], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float(
-                    'inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, (None)], -float('inf'))
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, head_v))
-        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.
-            size(1), self.n_head * self.d_head)
+        attn_vec = attn_vec.contiguous().view(attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
         if self.pre_lnorm:
@@ -4612,9 +4135,7 @@ class MultiHeadAttn(nn.Module):
 
 class RelMultiHeadAttn(nn.Module):
 
-    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, tgt_len
-        =None, ext_len=None, mem_len=None, pre_lnorm=False, r_r_bias=None,
-        r_w_bias=None):
+    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, tgt_len=None, ext_len=None, mem_len=None, pre_lnorm=False, r_r_bias=None, r_w_bias=None):
         super(RelMultiHeadAttn, self).__init__()
         self.n_head = n_head
         self.d_model = d_model
@@ -4628,10 +4149,8 @@ class RelMultiHeadAttn(nn.Module):
         self.scale = 1 / d_head ** 0.5
         self.pre_lnorm = pre_lnorm
         if r_r_bias is None or r_w_bias is None:
-            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
-            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head)
-                )
+            self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
+            self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
         else:
             self.r_r_bias = r_r_bias
             self.r_w_bias = r_w_bias
@@ -4648,8 +4167,7 @@ class RelMultiHeadAttn(nn.Module):
 
     def _shift(self, x, qlen, klen, mask, left=False):
         if qlen > 1:
-            zero_pad = torch.zeros((x.size(0), qlen - 1, x.size(2), x.size(
-                3)), device=x.device, dtype=x.dtype)
+            zero_pad = torch.zeros((x.size(0), qlen - 1, x.size(2), x.size(3)), device=x.device, dtype=x.dtype)
         else:
             zero_pad = torch.zeros(0, device=x.device, dtype=x.dtype)
         if left:
@@ -4657,8 +4175,7 @@ class RelMultiHeadAttn(nn.Module):
             x_padded = torch.cat([zero_pad, x], dim=1).expand(qlen, -1, -1, -1)
         else:
             x_padded = torch.cat([x, zero_pad], dim=1).expand(qlen, -1, -1, -1)
-        x = x_padded.masked_select(mask[:, :, (None), (None)]).view(qlen,
-            klen, x.size(2), x.size(3))
+        x = x_padded.masked_select(mask[:, :, (None), (None)]).view(qlen, klen, x.size(2), x.size(3))
         return x
 
     def _rel_shift(self, x, zero_triu=False):
@@ -4670,8 +4187,7 @@ class RelMultiHeadAttn(nn.Module):
         x = x_padded[1:].view_as(x)
         if zero_triu:
             ones = torch.ones((x.size(0), x.size(1)))
-            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, (None), (
-                None)]
+            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, (None), (None)]
         return x
 
     def forward(self, w, r, attn_mask=None, mems=None):
@@ -4682,10 +4198,8 @@ class DecoderLayer(nn.Module):
 
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(DecoderLayer, self).__init__()
-        self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **
-            kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'))
+        self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, dec_attn_mask=None, mems=None):
         output = self.dec_attn(dec_inp, attn_mask=dec_attn_mask, mems=mems)
@@ -4697,15 +4211,11 @@ class RelLearnableDecoderLayer(nn.Module):
 
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(RelLearnableDecoderLayer, self).__init__()
-        self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head,
-            dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'))
+        self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
-    def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None,
-        mems=None):
-        output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias, attn_mask=
-            dec_attn_mask, mems=mems)
+    def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None, mems=None):
+        output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias, attn_mask=dec_attn_mask, mems=mems)
         output = self.pos_ff(output)
         return output
 
@@ -4714,10 +4224,8 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(RelPartialLearnableDecoderLayer, self).__init__()
-        self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model,
-            d_head, dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=
-            kwargs.get('pre_lnorm'))
+        self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, r, dec_attn_mask=None, mems=None):
         output = self.dec_attn(dec_inp, r, attn_mask=dec_attn_mask, mems=mems)
@@ -4727,8 +4235,7 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
 class AdaptiveEmbedding(nn.Module):
 
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
-        sample_softmax=False):
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, sample_softmax=False):
         super(AdaptiveEmbedding, self).__init__()
         self.n_token = n_token
         self.d_embed = d_embed
@@ -4740,18 +4247,15 @@ class AdaptiveEmbedding(nn.Module):
         self.emb_layers = nn.ModuleList()
         self.emb_projs = nn.ParameterList()
         if div_val == 1:
-            self.emb_layers.append(nn.Embedding(n_token, d_embed, sparse=
-                sample_softmax > 0))
+            self.emb_layers.append(nn.Embedding(n_token, d_embed, sparse=sample_softmax > 0))
             if d_proj != d_embed:
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                    d_embed)))
+                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // div_val ** i
                 self.emb_layers.append(nn.Embedding(r_idx - l_idx, d_emb_i))
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                    d_emb_i)))
+                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
 
     def forward(self, inp):
         if self.div_val == 1:
@@ -4761,8 +4265,7 @@ class AdaptiveEmbedding(nn.Module):
         else:
             param = next(self.parameters())
             inp_flat = inp.view(-1)
-            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], dtype=
-                param.dtype, device=param.device)
+            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], dtype=param.dtype, device=param.device)
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 mask_i = (inp_flat >= l_idx) & (inp_flat < r_idx)
@@ -4787,15 +4290,12 @@ class TransfoXLPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(TransfoXLPreTrainedModel, self).__init__()
         if not isinstance(config, TransfoXLConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `TransfoXLConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `TransfoXLConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_weight(self, weight):
         if self.config.init == 'uniform':
-            nn.init.uniform_(weight, -self.config.init_range, self.config.
-                init_range)
+            nn.init.uniform_(weight, -self.config.init_range, self.config.init_range)
         elif self.config.init == 'normal':
             nn.init.normal_(weight, 0.0, self.config.init_std)
 
@@ -4815,8 +4315,7 @@ class TransfoXLPreTrainedModel(nn.Module):
             if hasattr(m, 'emb_projs'):
                 for i in range(len(m.emb_projs)):
                     if m.emb_projs[i] is not None:
-                        nn.init.normal_(m.emb_projs[i], 0.0, self.config.
-                            proj_init_std)
+                        nn.init.normal_(m.emb_projs[i], 0.0, self.config.proj_init_std)
         elif classname.find('Embedding') != -1:
             if hasattr(m, 'weight'):
                 self.init_weight(m.weight)
@@ -4828,8 +4327,7 @@ class TransfoXLPreTrainedModel(nn.Module):
             if hasattr(m, 'out_projs'):
                 for i in range(len(m.out_projs)):
                     if m.out_projs[i] is not None:
-                        nn.init.normal_(m.out_projs[i], 0.0, self.config.
-                            proj_init_std)
+                        nn.init.normal_(m.out_projs[i], 0.0, self.config.proj_init_std)
         elif classname.find('LayerNorm') != -1:
             if hasattr(m, 'weight'):
                 nn.init.normal_(m.weight, 1.0, self.config.init_std)
@@ -4849,8 +4347,7 @@ class TransfoXLPreTrainedModel(nn.Module):
         pass
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None,
-        cache_dir=None, from_tf=False, *inputs, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None, from_tf=False, *inputs, **kwargs):
         """
         Instantiate a TransfoXLPreTrainedModel from a pre-trained model file or a pytorch state dict.
         Download and cache the pre-trained model file if needed.
@@ -4872,44 +4369,30 @@ class TransfoXLPreTrainedModel(nn.Module):
                 (ex: num_labels for BertForSequenceClassification)
         """
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
+            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
-            archive_file = os.path.join(pretrained_model_name_or_path,
-                WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path,
-                CONFIG_NAME)
+            archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
+            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir
-                )
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()),
-                pretrained_model_name_or_path, archive_file, config_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find files {} and {} at this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), pretrained_model_name_or_path, archive_file, config_file))
             return None
-        if (resolved_archive_file == archive_file and resolved_config_file ==
-            config_file):
+        if resolved_archive_file == archive_file and resolved_config_file == config_file:
             logger.info('loading weights file {}'.format(archive_file))
             logger.info('loading configuration file {}'.format(config_file))
         else:
-            logger.info('loading weights file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
-            logger.info('loading configuration file {} from cache at {}'.
-                format(config_file, resolved_config_file))
+            logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
+            logger.info('loading configuration file {} from cache at {}'.format(config_file, resolved_config_file))
         config = TransfoXLConfig.from_json_file(resolved_config_file)
         logger.info('Model config {}'.format(config))
         model = cls(config, *inputs, **kwargs)
         if state_dict is None and not from_tf:
             state_dict = torch.load(resolved_archive_file, map_location='cpu')
         if from_tf:
-            return load_tf_weights_in_transfo_xl(model, config,
-                pretrained_model_name_or_path)
+            return load_tf_weights_in_transfo_xl(model, config, pretrained_model_name_or_path)
         missing_keys = []
         unexpected_keys = []
         error_msgs = []
@@ -4919,28 +4402,21 @@ class TransfoXLPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'transformer') and any(s.startswith(
-            'transformer.') for s in state_dict.keys()):
+        if not hasattr(model, 'transformer') and any(s.startswith('transformer.') for s in state_dict.keys()):
             start_prefix = 'transformer.'
         load(model, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         if hasattr(model, 'tie_weights'):
             model.tie_weights()
         return model
@@ -4948,8 +4424,7 @@ class TransfoXLPreTrainedModel(nn.Module):
 
 class ProjectedAdaptiveLogSoftmax(nn.Module):
 
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
-        keep_order=False):
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, keep_order=False):
         super(ProjectedAdaptiveLogSoftmax, self).__init__()
         self.n_token = n_token
         self.d_embed = d_embed
@@ -4961,16 +4436,14 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
         self.n_clusters = len(self.cutoffs) - 1
         self.head_size = self.shortlist_size + self.n_clusters
         if self.n_clusters > 0:
-            self.cluster_weight = nn.Parameter(torch.zeros(self.n_clusters,
-                self.d_embed))
+            self.cluster_weight = nn.Parameter(torch.zeros(self.n_clusters, self.d_embed))
             self.cluster_bias = nn.Parameter(torch.zeros(self.n_clusters))
         self.out_layers = nn.ModuleList()
         self.out_projs = nn.ParameterList()
         if div_val == 1:
             for i in range(len(self.cutoffs)):
                 if d_proj != d_embed:
-                    self.out_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                        d_embed)))
+                    self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
                 else:
                     self.out_projs.append(None)
             self.out_layers.append(nn.Linear(d_embed, n_token))
@@ -4978,8 +4451,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // div_val ** i
-                self.out_projs.append(nn.Parameter(torch.Tensor(d_proj,
-                    d_emb_i)))
+                self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
                 self.out_layers.append(nn.Linear(d_emb_i, r_idx - l_idx))
         self.keep_order = keep_order
 
@@ -5008,15 +4480,11 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
         if target is not None:
             target = target.view(-1)
             if hidden.size(0) != target.size(0):
-                raise RuntimeError(
-                    'Input and target should have the same size in the batch dimension.'
-                    )
+                raise RuntimeError('Input and target should have the same size in the batch dimension.')
         if self.n_clusters == 0:
-            logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                self.out_layers[0].bias, self.out_projs[0])
+            logit = self._compute_logit(hidden, self.out_layers[0].weight, self.out_layers[0].bias, self.out_projs[0])
             if target is not None:
-                output = -F.log_softmax(logit, dim=-1).gather(1, target.
-                    unsqueeze(1)).squeeze(1)
+                output = -F.log_softmax(logit, dim=-1).gather(1, target.unsqueeze(1)).squeeze(1)
             else:
                 output = F.log_softmax(logit, dim=-1)
         else:
@@ -5030,21 +4498,17 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
                 if i == 0:
-                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0
-                        )
+                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0)
                     bias_i = torch.cat([bias_i, self.cluster_bias], dim=0)
                 weights.append(weight_i)
                 biases.append(bias_i)
-            head_weight, head_bias, head_proj = weights[0], biases[0
-                ], self.out_projs[0]
-            head_logit = self._compute_logit(hidden, head_weight, head_bias,
-                head_proj)
+            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             head_logprob = F.log_softmax(head_logit, dim=1)
             if target is None:
                 out = hidden.new_empty((head_logit.size(0), self.n_token))
             else:
-                out = torch.zeros_like(target, dtype=hidden.dtype, device=
-                    hidden.device)
+                out = torch.zeros_like(target, dtype=hidden.dtype, device=hidden.device)
             offset = 0
             cutoff_values = [0] + self.cutoffs
             for i in range(len(cutoff_values) - 1):
@@ -5061,33 +4525,24 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     hidden_i = hidden
                 if i == 0:
                     if target is not None:
-                        logprob_i = head_logprob_i.gather(1, target_i[:, (
-                            None)]).squeeze(1)
+                        logprob_i = head_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
                     else:
-                        out[:, :self.cutoffs[0]] = head_logprob[:, :self.
-                            cutoffs[0]]
+                        out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i
-                        ], self.out_projs[i]
-                    tail_logit_i = self._compute_logit(hidden_i, weight_i,
-                        bias_i, proj_i)
+                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    tail_logit_i = self._compute_logit(hidden_i, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     cluster_prob_idx = self.cutoffs[0] + i - 1
                     if target is not None:
-                        logprob_i = head_logprob_i[:, (cluster_prob_idx)
-                            ] + tail_logprob_i.gather(1, target_i[:, (None)]
-                            ).squeeze(1)
+                        logprob_i = head_logprob_i[:, (cluster_prob_idx)] + tail_logprob_i.gather(1, target_i[:, (None)]).squeeze(1)
                     else:
-                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)
-                            ] + tail_logprob_i
+                        logprob_i = head_logprob[:, (cluster_prob_idx), (None)] + tail_logprob_i
                         out[:, l_idx:r_idx] = logprob_i
                 if target is not None:
-                    if hasattr(self, 'keep_order'
-                        ) and self.keep_order or keep_order:
+                    if hasattr(self, 'keep_order') and self.keep_order or keep_order:
                         out.index_copy_(0, indices_i, -logprob_i)
                     else:
-                        out[offset:offset + logprob_i.size(0)].copy_(-logprob_i
-                            )
+                        out[offset:offset + logprob_i.size(0)].copy_(-logprob_i)
                     offset += logprob_i.size(0)
         return out
 
@@ -5105,8 +4560,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             - Output: :math:`(N, n\\_classes)`
         """
         if self.n_clusters == 0:
-            logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                self.out_layers[0].bias, self.out_projs[0])
+            logit = self._compute_logit(hidden, self.out_layers[0].weight, self.out_layers[0].bias, self.out_projs[0])
             return F.log_softmax(logit, dim=-1)
         else:
             weights, biases = [], []
@@ -5119,28 +4573,22 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
                 if i == 0:
-                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0
-                        )
+                    weight_i = torch.cat([weight_i, self.cluster_weight], dim=0)
                     bias_i = torch.cat([bias_i, self.cluster_bias], dim=0)
                 weights.append(weight_i)
                 biases.append(bias_i)
-            head_weight, head_bias, head_proj = weights[0], biases[0
-                ], self.out_projs[0]
-            head_logit = self._compute_logit(hidden, head_weight, head_bias,
-                head_proj)
+            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             out = hidden.new_empty((head_logit.size(0), self.n_token))
             head_logprob = F.log_softmax(head_logit, dim=1)
             cutoff_values = [0] + self.cutoffs
             for i in range(len(cutoff_values) - 1):
                 start_idx, stop_idx = cutoff_values[i], cutoff_values[i + 1]
                 if i == 0:
-                    out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]
-                        ]
+                    out[:, :self.cutoffs[0]] = head_logprob[:, :self.cutoffs[0]]
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i
-                        ], self.out_projs[i]
-                    tail_logit_i = self._compute_logit(hidden, weight_i,
-                        bias_i, proj_i)
+                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    tail_logit_i = self._compute_logit(hidden, weight_i, bias_i, proj_i)
                     tail_logprob_i = F.log_softmax(tail_logit_i, dim=1)
                     logprob_i = head_logprob[:, (-i)] + tail_logprob_i
                     out[:, (start_idx), (stop_idx)] = logprob_i
@@ -5153,27 +4601,22 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.
-            hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.
-            max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size,
-            config.hidden_size)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids, token_type_ids=None):
         seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=
-            input_ids.device)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids)
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = (words_embeddings + position_embeddings +
-            token_type_embeddings)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -5184,14 +4627,10 @@ class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError(
-                'The hidden size (%d) is not a multiple of the number of attention heads (%d)'
-                 % (config.hidden_size, config.num_attention_heads))
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
         self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.
-            num_attention_heads)
-        self.all_head_size = (self.num_attention_heads * self.
-            attention_head_size)
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
@@ -5200,8 +4639,7 @@ class BertSelfAttention(nn.Module):
         self.output_sum = config.output_sum
 
     def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.
-            attention_head_size)
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
@@ -5212,10 +4650,8 @@ class BertSelfAttention(nn.Module):
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1,
-            -2))
-        attention_scores = attention_scores / math.sqrt(self.
-            attention_head_size)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_scores = attention_scores + attention_mask
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         if self.output_score is True:
@@ -5227,8 +4663,7 @@ class BertSelfAttention(nn.Module):
         attention_probs = self.dropout(attention_probs)
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.
-            all_head_size,)
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer, attention_probs_sum
 
@@ -5266,8 +4701,7 @@ class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
@@ -5302,8 +4736,7 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask):
-        attention_output, att_layer = self.attention(hidden_states,
-            attention_mask)
+        attention_output, att_layer = self.attention(hidden_states, attention_mask)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output, att_layer
@@ -5314,16 +4747,13 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            config.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True, output_all_attention_layers=False):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_all_attention_layers=False):
         all_encoder_layers = [hidden_states]
         all_attention_layers = [None]
         for idx, layer_module in enumerate(self.layer):
-            hidden_states, att_layer = layer_module(hidden_states,
-                attention_mask)
+            hidden_states, att_layer = layer_module(hidden_states, attention_mask)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
             if output_all_attention_layers:
@@ -5352,8 +4782,7 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0
-            ] == 2 and isinstance(config.hidden_act, unicode):
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
             self.transform_act_fn = ACT2FN[config.hidden_act]
         else:
             self.transform_act_fn = config.hidden_act
@@ -5371,11 +4800,9 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0), bias=False)
+        self.decoder = nn.Linear(bert_model_embedding_weights.size(1), bert_model_embedding_weights.size(0), bias=False)
         self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.
-            size(0)))
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
 
     def forward(self, hidden_states):
         hidden_states = self.transform(hidden_states)
@@ -5387,8 +4814,7 @@ class BertOnlyMLMHead(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertOnlyMLMHead, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
     def forward(self, sequence_output):
         prediction_scores = self.predictions(sequence_output)
@@ -5410,8 +4836,7 @@ class BertPreTrainingHeads(nn.Module):
 
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
-        self.predictions = BertLMPredictionHead(config,
-            bert_model_embedding_weights)
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output):
@@ -5428,17 +4853,14 @@ class BertPreTrainedModel(nn.Module):
     def __init__(self, config, *inputs, **kwargs):
         super(BertPreTrainedModel, self).__init__()
         if not isinstance(config, BertConfig):
-            raise ValueError(
-                'Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'
-                .format(self.__class__.__name__, self.__class__.__name__))
+            raise ValueError('Parameter config in `{}(config)` should be an instance of class `BertConfig`. To create a model from a Google pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
         self.config = config
 
     def init_bert_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=self.config.
-                initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
@@ -5480,31 +4902,24 @@ class BertPreTrainedModel(nn.Module):
         from_tf = kwargs.get('from_tf', False)
         kwargs.pop('from_tf', None)
         if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[
-                pretrained_model_name_or_path]
+            archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
         else:
             archive_file = pretrained_model_name_or_path
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=
-                cache_dir)
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
         except EnvironmentError:
-            logger.error(
-                "Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url."
-                .format(pretrained_model_name_or_path, ', '.join(
-                PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
+            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_MODEL_ARCHIVE_MAP.keys()), archive_file))
             return None
         if resolved_archive_file == archive_file:
             logger.info('loading archive file {}'.format(archive_file))
         else:
-            logger.info('loading archive file {} from cache at {}'.format(
-                archive_file, resolved_archive_file))
+            logger.info('loading archive file {} from cache at {}'.format(archive_file, resolved_archive_file))
         tempdir = None
         if os.path.isdir(resolved_archive_file) or from_tf:
             serialization_dir = resolved_archive_file
         else:
             tempdir = tempfile.mkdtemp()
-            logger.info('extracting archive file {} to temp dir {}'.format(
-                resolved_archive_file, tempdir))
+            logger.info('extracting archive file {} to temp dir {}'.format(resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
             serialization_dir = tempdir
@@ -5544,28 +4959,21 @@ class BertPreTrainedModel(nn.Module):
             state_dict._metadata = metadata
 
         def load(module, prefix=''):
-            local_metadata = {} if metadata is None else metadata.get(prefix
-                [:-1], {})
-            module._load_from_state_dict(state_dict, prefix, local_metadata,
-                True, missing_keys, unexpected_keys, error_msgs)
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
             for name, child in module._modules.items():
                 if child is not None:
                     load(child, prefix + name + '.')
         start_prefix = ''
-        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in
-            state_dict.keys()):
+        if not hasattr(model, 'bert') and any(s.startswith('bert.') for s in state_dict.keys()):
             start_prefix = 'bert.'
         load(model, prefix=start_prefix)
         if len(missing_keys) > 0:
-            logger.info(
-                'Weights of {} not initialized from pretrained model: {}'.
-                format(model.__class__.__name__, missing_keys))
+            logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
         if len(unexpected_keys) > 0:
-            logger.info('Weights from pretrained model not used in {}: {}'.
-                format(model.__class__.__name__, unexpected_keys))
+            logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
-            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'
-                .format(model.__class__.__name__, '\n\t'.join(error_msgs)))
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         return model
 
 
@@ -5577,11 +4985,9 @@ class ALBertEncoder(nn.Module):
         self.num_hidden_layers = config.num_hidden_layers
         self.skip_connection = config.skip_connection
         self.num_repetitions = config.num_repetitions
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(
-            self.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(self.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask,
-        output_all_encoded_layers=True, output_attention_layer=None):
+    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_attention_layer=None):
         all_encoder_layers = []
         all_attention_probs_sum = []
         for idx_outer, layer_module in enumerate(self.layer):
@@ -5589,13 +4995,10 @@ class ALBertEncoder(nn.Module):
             for idx_inner in range(self.num_repetitions):
                 idx = idx_inner + idx_outer * self.num_repetitions
                 if idx_inner == 0 or self.skip_connection is False:
-                    hidden_states, attention_probs_sum = layer_module(
-                        hidden_states, attention_mask)
+                    hidden_states, attention_probs_sum = layer_module(hidden_states, attention_mask)
                 else:
-                    hidden_states, attention_probs_sum = layer_module(
-                        hidden_states + x0, attention_mask)
-                if (output_attention_layer is not None and idx in
-                    output_attention_layer):
+                    hidden_states, attention_probs_sum = layer_module(hidden_states + x0, attention_mask)
+                if output_attention_layer is not None and idx in output_attention_layer:
                     all_attention_probs_sum.append(attention_probs_sum)
                 if output_all_encoded_layers:
                     all_encoder_layers.append(hidden_states)
@@ -5608,22 +5011,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4, attn_pdrop=0.5, resid_pdrop=0.5)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (BertIntermediate,
+     lambda: ([], {'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertOnlyNSPHead,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertPooler,
+     lambda: ([], {'config': _mock_config(hidden_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertSelfAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, output_score=4, output_sum=4)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_airaria_TextBrewer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Attention(*[], **{'nx': 4, 'n_ctx': 4, 'config': _mock_config(n_head=4, attn_pdrop=0.5, resid_pdrop=0.5)}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BertIntermediate(*[], **{'config': _mock_config(hidden_size=4, intermediate_size=4, hidden_act=_mock_layer())}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BertOnlyNSPHead(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(BertPooler(*[], **{'config': _mock_config(hidden_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(BertSelfAttention(*[], **{'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, output_score=4, output_sum=4)}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

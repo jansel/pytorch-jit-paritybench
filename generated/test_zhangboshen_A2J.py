@@ -20,8 +20,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,28 +83,24 @@ def shift(shape, stride, anchors):
     shifts = np.vstack((shift_h.ravel(), shift_w.ravel())).transpose()
     A = anchors.shape[0]
     K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 2)) + shifts.reshape((1, K, 2)
-        ).transpose((1, 0, 2))
+    all_anchors = anchors.reshape((1, A, 2)) + shifts.reshape((1, K, 2)).transpose((1, 0, 2))
     all_anchors = all_anchors.reshape((K * A, 2))
     return all_anchors
 
 
 class post_process(nn.Module):
 
-    def __init__(self, P_h=[2, 6], P_w=[2, 6], shape=[48, 26], stride=8,
-        thres=8, is_3D=True):
+    def __init__(self, P_h=[2, 6], P_w=[2, 6], shape=[48, 26], stride=8, thres=8, is_3D=True):
         super(post_process, self).__init__()
         anchors = generate_anchors(P_h=P_h, P_w=P_w)
-        self.all_anchors = torch.from_numpy(shift(shape, stride, anchors)
-            ).float()
+        self.all_anchors = torch.from_numpy(shift(shape, stride, anchors)).float()
         self.thres = torch.from_numpy(np.array(thres)).float()
         self.is_3D = is_3D
 
     def calc_distance(self, a, b):
         dis = torch.zeros(a.shape[0], b.shape[0])
         for i in range(a.shape[1]):
-            dis += torch.pow(torch.unsqueeze(a[:, (i)], dim=1) - b[:, (i)], 0.5
-                )
+            dis += torch.pow(torch.unsqueeze(a[:, (i)], dim=1) - b[:, (i)], 0.5)
         return dis
 
     def forward(self, heads, voting=False):
@@ -121,8 +118,7 @@ class post_process(nn.Module):
                 depthregression = depthregressions[(j), :, :]
             reg = torch.unsqueeze(anchor, 1) + regression
             reg_weight = F.softmax(classifications[(j), :, :], dim=0)
-            reg_weight_xy = torch.unsqueeze(reg_weight, 2).expand(reg_weight
-                .shape[0], reg_weight.shape[1], 2)
+            reg_weight_xy = torch.unsqueeze(reg_weight, 2).expand(reg_weight.shape[0], reg_weight.shape[1], 2)
             P_xy = (reg_weight_xy * reg).sum(0)
             if self.is_3D:
                 P_depth = (reg_weight * depthregression).sum(0)
@@ -136,29 +132,23 @@ class post_process(nn.Module):
 
 class DepthRegressionModel(nn.Module):
 
-    def __init__(self, num_features_in, num_anchors=16, num_classes=15,
-        feature_size=256):
+    def __init__(self, num_features_in, num_anchors=16, num_classes=15, feature_size=256):
         super(DepthRegressionModel, self).__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(feature_size)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(feature_size)
         self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(feature_size)
         self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(feature_size)
         self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes,
-            kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight.data)
@@ -182,36 +172,29 @@ class DepthRegressionModel(nn.Module):
         out = self.output(out)
         out1 = out.permute(0, 3, 2, 1)
         batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.
-            num_classes)
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         return out2.contiguous().view(out2.shape[0], -1, self.num_classes)
 
 
 class RegressionModel(nn.Module):
 
-    def __init__(self, num_features_in, num_anchors=16, num_classes=15,
-        feature_size=256):
+    def __init__(self, num_features_in, num_anchors=16, num_classes=15, feature_size=256):
         super(RegressionModel, self).__init__()
         self.num_anchors = num_anchors
         self.num_classes = num_classes
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(feature_size)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(feature_size)
         self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(feature_size)
         self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(feature_size)
         self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes * 2,
-            kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes * 2, kernel_size=3, padding=1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight.data)
@@ -235,36 +218,29 @@ class RegressionModel(nn.Module):
         out = self.output(out)
         out1 = out.permute(0, 3, 2, 1)
         batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.
-            num_classes, 2)
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes, 2)
         return out2.contiguous().view(out2.shape[0], -1, self.num_classes, 2)
 
 
 class ClassificationModel(nn.Module):
 
-    def __init__(self, num_features_in, num_anchors=16, num_classes=15,
-        prior=0.01, feature_size=256):
+    def __init__(self, num_features_in, num_anchors=16, num_classes=15, prior=0.01, feature_size=256):
         super(ClassificationModel, self).__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(feature_size)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(feature_size)
         self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(feature_size)
         self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(feature_size)
         self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes,
-            kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight.data)
@@ -288,8 +264,7 @@ class ClassificationModel(nn.Module):
         out = self.output(out)
         out1 = out.permute(0, 3, 2, 1)
         batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.
-            num_classes)
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
 
@@ -322,11 +297,9 @@ class A2J_model(nn.Module):
         self.is_3D = is_3D
         self.Backbone = ResNetBackBone()
         self.regressionModel = RegressionModel(2048, num_classes=num_classes)
-        self.classificationModel = ClassificationModel(1024, num_classes=
-            num_classes)
+        self.classificationModel = ClassificationModel(1024, num_classes=num_classes)
         if is_3D:
-            self.DepthRegressionModel = DepthRegressionModel(2048,
-                num_classes=num_classes)
+            self.DepthRegressionModel = DepthRegressionModel(2048, num_classes=num_classes)
 
     def forward(self, x):
         x3, x4 = self.Backbone(x)
@@ -340,15 +313,13 @@ class A2J_model(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        dilation=dilation, padding=dilation, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, dilation=dilation, padding=dilation, bias=False)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -374,15 +345,13 @@ class BasicBlock(nn.Module):
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-        bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -413,26 +382,22 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -446,9 +411,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -473,20 +436,17 @@ class ResNet(nn.Module):
 
 class post_process(nn.Module):
 
-    def __init__(self, P_h=[2, 6], P_w=[2, 6], shape=[48, 26], stride=8,
-        thres=8, is_3D=True):
+    def __init__(self, P_h=[2, 6], P_w=[2, 6], shape=[48, 26], stride=8, thres=8, is_3D=True):
         super(post_process, self).__init__()
         anchors = generate_anchors(P_h=P_h, P_w=P_w)
-        self.all_anchors = torch.from_numpy(shift(shape, stride, anchors)
-            ).float()
+        self.all_anchors = torch.from_numpy(shift(shape, stride, anchors)).float()
         self.thres = torch.from_numpy(np.array(thres)).float()
         self.is_3D = is_3D
 
     def calc_distance(self, a, b):
         dis = torch.zeros(a.shape[0], b.shape[0])
         for i in range(a.shape[1]):
-            dis += torch.pow(torch.unsqueeze(a[:, (i)], dim=1) - b[:, (i)], 0.5
-                )
+            dis += torch.pow(torch.unsqueeze(a[:, (i)], dim=1) - b[:, (i)], 0.5)
         return dis
 
     def forward(self, heads, voting=False):
@@ -504,8 +464,7 @@ class post_process(nn.Module):
                 depthregression = depthregressions[(j), :, :]
             reg = torch.unsqueeze(anchor, 1) + regression
             reg_weight = F.softmax(classifications[(j), :, :], dim=0)
-            reg_weight_xy = torch.unsqueeze(reg_weight, 2).expand(reg_weight
-                .shape[0], reg_weight.shape[1], 2)
+            reg_weight_xy = torch.unsqueeze(reg_weight, 2).expand(reg_weight.shape[0], reg_weight.shape[1], 2)
             P_xy = (reg_weight_xy * reg).sum(0)
             if self.is_3D:
                 P_depth = (reg_weight * depthregression).sum(0)
@@ -519,12 +478,10 @@ class post_process(nn.Module):
 
 class A2J_loss(nn.Module):
 
-    def __init__(self, P_h=[2, 6], P_w=[2, 6], shape=[8, 4], stride=8,
-        thres=[10.0, 20.0], spatialFactor=0.1, img_shape=[0, 0], is_3D=True):
+    def __init__(self, P_h=[2, 6], P_w=[2, 6], shape=[8, 4], stride=8, thres=[10.0, 20.0], spatialFactor=0.1, img_shape=[0, 0], is_3D=True):
         super(A2J_loss, self).__init__()
         anchors = generate_anchors(P_h=P_h, P_w=P_w)
-        self.all_anchors = torch.from_numpy(shift(shape, stride, anchors)
-            ).float()
+        self.all_anchors = torch.from_numpy(shift(shape, stride, anchors)).float()
         self.thres = torch.from_numpy(np.array(thres)).float()
         self.spatialFactor = spatialFactor
         self.img_shape = img_shape
@@ -555,60 +512,44 @@ class A2J_loss(nn.Module):
                 depthregression = depthregressions[(j), :, :]
             bbox_annotation = annotations[(j), :, :]
             reg_weight = F.softmax(classification, dim=0)
-            reg_weight_xy = torch.unsqueeze(reg_weight, 2).expand(reg_weight
-                .shape[0], reg_weight.shape[1], 2)
+            reg_weight_xy = torch.unsqueeze(reg_weight, 2).expand(reg_weight.shape[0], reg_weight.shape[1], 2)
             gt_xy = bbox_annotation[:, :2]
-            anchor_diff = torch.abs(gt_xy - (reg_weight_xy * torch.
-                unsqueeze(anchor, 1)).sum(0))
-            anchor_loss = torch.where(torch.le(anchor_diff, 1), 0.5 * 1 *
-                torch.pow(anchor_diff, 2), anchor_diff - 0.5 / 1)
+            anchor_diff = torch.abs(gt_xy - (reg_weight_xy * torch.unsqueeze(anchor, 1)).sum(0))
+            anchor_loss = torch.where(torch.le(anchor_diff, 1), 0.5 * 1 * torch.pow(anchor_diff, 2), anchor_diff - 0.5 / 1)
             anchor_regression_loss = anchor_loss.mean()
             anchor_regression_loss_tuple.append(anchor_regression_loss)
             reg = torch.unsqueeze(anchor, 1) + regression
             regression_diff = torch.abs(gt_xy - (reg_weight_xy * reg).sum(0))
-            regression_loss = torch.where(torch.le(regression_diff, 1), 0.5 *
-                1 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 1)
+            regression_loss = torch.where(torch.le(regression_diff, 1), 0.5 * 1 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 1)
             regression_loss = regression_loss.mean() * self.spatialFactor
             if self.is_3D:
                 gt_depth = bbox_annotation[:, (2)]
-                regression_diff_depth = torch.abs(gt_depth - (reg_weight *
-                    depthregression).sum(0))
-                regression_loss_depth = torch.where(torch.le(
-                    regression_diff_depth, 3), 0.5 * (1 / 3) * torch.pow(
-                    regression_diff_depth, 2), regression_diff_depth - 0.5 /
-                    (1 / 3))
+                regression_diff_depth = torch.abs(gt_depth - (reg_weight * depthregression).sum(0))
+                regression_loss_depth = torch.where(torch.le(regression_diff_depth, 3), 0.5 * (1 / 3) * torch.pow(regression_diff_depth, 2), regression_diff_depth - 0.5 / (1 / 3))
                 regression_loss += regression_diff_depth.mean()
             regression_losses.append(regression_loss)
-        return torch.stack(anchor_regression_loss_tuple).mean(dim=0,
-            keepdim=True), torch.stack(regression_losses).mean(dim=0,
-            keepdim=True)
+        return torch.stack(anchor_regression_loss_tuple).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
 
 class DepthRegressionModel(nn.Module):
 
-    def __init__(self, num_features_in, num_anchors=16, num_classes=15,
-        feature_size=256):
+    def __init__(self, num_features_in, num_anchors=16, num_classes=15, feature_size=256):
         super(DepthRegressionModel, self).__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(feature_size)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(feature_size)
         self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(feature_size)
         self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(feature_size)
         self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes,
-            kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight.data)
@@ -632,36 +573,29 @@ class DepthRegressionModel(nn.Module):
         out = self.output(out)
         out1 = out.permute(0, 3, 2, 1)
         batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.
-            num_classes)
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         return out2.contiguous().view(out2.shape[0], -1, self.num_classes)
 
 
 class RegressionModel(nn.Module):
 
-    def __init__(self, num_features_in, num_anchors=16, num_classes=15,
-        feature_size=256):
+    def __init__(self, num_features_in, num_anchors=16, num_classes=15, feature_size=256):
         super(RegressionModel, self).__init__()
         self.num_anchors = num_anchors
         self.num_classes = num_classes
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(feature_size)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(feature_size)
         self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(feature_size)
         self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(feature_size)
         self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes * 2,
-            kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes * 2, kernel_size=3, padding=1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight.data)
@@ -685,36 +619,29 @@ class RegressionModel(nn.Module):
         out = self.output(out)
         out1 = out.permute(0, 3, 2, 1)
         batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.
-            num_classes, 2)
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes, 2)
         return out2.contiguous().view(out2.shape[0], -1, self.num_classes, 2)
 
 
 class ClassificationModel(nn.Module):
 
-    def __init__(self, num_features_in, num_anchors=16, num_classes=15,
-        prior=0.01, feature_size=256):
+    def __init__(self, num_features_in, num_anchors=16, num_classes=15, prior=0.01, feature_size=256):
         super(ClassificationModel, self).__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3,
-            padding=1)
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(feature_size)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(feature_size)
         self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(feature_size)
         self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3,
-            padding=1)
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
         self.bn4 = nn.BatchNorm2d(feature_size)
         self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes,
-            kernel_size=3, padding=1)
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.xavier_normal_(m.weight.data)
@@ -738,8 +665,7 @@ class ClassificationModel(nn.Module):
         out = self.output(out)
         out1 = out.permute(0, 3, 2, 1)
         batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.
-            num_classes)
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
 
@@ -772,11 +698,9 @@ class A2J_model(nn.Module):
         self.is_3D = is_3D
         self.Backbone = ResNetBackBone()
         self.regressionModel = RegressionModel(2048, num_classes=num_classes)
-        self.classificationModel = ClassificationModel(1024, num_classes=
-            num_classes)
+        self.classificationModel = ClassificationModel(1024, num_classes=num_classes)
         if is_3D:
-            self.DepthRegressionModel = DepthRegressionModel(2048,
-                num_classes=num_classes)
+            self.DepthRegressionModel = DepthRegressionModel(2048, num_classes=num_classes)
 
     def forward(self, x):
         x3, x4 = self.Backbone(x)
@@ -791,8 +715,7 @@ class A2J_model(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -819,8 +742,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -851,26 +773,22 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=
-        False):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False):
         super(ResNet, self).__init__()
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1,
-            dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -884,9 +802,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes *
-                block.expansion, stride), nn.BatchNorm2d(planes * block.
-                expansion))
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -913,17 +829,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ClassificationModel,
+     lambda: ([], {'num_features_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DepthRegressionModel,
+     lambda: ([], {'num_features_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RegressionModel,
+     lambda: ([], {'num_features_in': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_zhangboshen_A2J(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ClassificationModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(DepthRegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(RegressionModel(*[], **{'num_features_in': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

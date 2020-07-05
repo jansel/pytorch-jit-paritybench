@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -176,17 +177,12 @@ class CNN(nn.Module):
 
 class LSTMATTHighway(nn.Module):
 
-    def __init__(self, word_dim, char_dim, output_dim, hidden_size,
-        num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers
-        ):
+    def __init__(self, word_dim, char_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers):
         super(LSTMATTHighway, self).__init__()
-        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze
-            =False)
-        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze
-            =False)
+        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze=False)
+        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze=False)
         self.text_embedding = Embedding(highway_layers, word_dim, char_dim)
-        self.rnn = LSTM(word_dim + char_dim, hidden_size, num_layers,
-            bidirectional, dropout)
+        self.rnn = LSTM(word_dim + char_dim, hidden_size, num_layers, bidirectional, dropout)
         self.fc = nn.Linear(hidden_size * 2, output_dim)
         self.dropout = nn.Dropout(dropout)
         self.W_w = nn.Parameter(torch.Tensor(hidden_size * 2, hidden_size * 2))
@@ -212,13 +208,10 @@ class LSTMATTHighway(nn.Module):
 
 class LSTMATT(nn.Module):
 
-    def __init__(self, embedding_dim, output_dim, hidden_size, num_layers,
-        bidirectional, dropout, pretrained_embeddings):
+    def __init__(self, embedding_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, pretrained_embeddings):
         super(LSTMATT, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings,
-            freeze=False)
-        self.rnn = LSTM(embedding_dim, hidden_size, num_layers,
-            bidirectional, dropout)
+        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=False)
+        self.rnn = LSTM(embedding_dim, hidden_size, num_layers, bidirectional, dropout)
         self.fc = nn.Linear(hidden_size * 2, output_dim)
         self.dropout = nn.Dropout(dropout)
         self.W_w = nn.Parameter(torch.Tensor(hidden_size * 2, hidden_size * 2))
@@ -241,11 +234,9 @@ class LSTMATT(nn.Module):
 
 class TextCNN(nn.Module):
 
-    def __init__(self, embedding_dim, n_filters, filter_sizes, output_dim,
-        dropout, pretrained_embeddings):
+    def __init__(self, embedding_dim, n_filters, filter_sizes, output_dim, dropout, pretrained_embeddings):
         super().__init__()
-        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings,
-            freeze=False)
+        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=False)
         self.convs = Conv1d(embedding_dim, n_filters, filter_sizes)
         self.fc = Linear(len(filter_sizes) * n_filters, output_dim)
         self.dropout = nn.Dropout(dropout)
@@ -256,21 +247,17 @@ class TextCNN(nn.Module):
         embedded = self.embedding(text)
         embedded = embedded.permute(0, 2, 1)
         conved = self.convs(embedded)
-        pooled = [F.max_pool1d(conv, conv.shape[2]).squeeze(2) for conv in
-            conved]
+        pooled = [F.max_pool1d(conv, conv.shape[2]).squeeze(2) for conv in conved]
         cat = self.dropout(torch.cat(pooled, dim=1))
         return self.fc(cat)
 
 
 class TextCNNHighway(nn.Module):
 
-    def __init__(self, word_dim, char_dim, n_filters, filter_sizes,
-        output_dim, dropout, word_emb, char_emb, highway_layers):
+    def __init__(self, word_dim, char_dim, n_filters, filter_sizes, output_dim, dropout, word_emb, char_emb, highway_layers):
         super().__init__()
-        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze
-            =False)
-        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze
-            =False)
+        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze=False)
+        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze=False)
         self.text_embedding = Embedding(highway_layers, word_dim, char_dim)
         self.convs = Conv1d(word_dim + char_dim, n_filters, filter_sizes)
         self.fc = Linear(len(filter_sizes) * n_filters, output_dim)
@@ -284,21 +271,17 @@ class TextCNNHighway(nn.Module):
         text_emb = self.text_embedding(word_emb, char_emb)
         text_emb = text_emb.permute(1, 2, 0)
         conved = self.convs(text_emb)
-        pooled = [F.max_pool1d(conv, conv.shape[2]).squeeze(2) for conv in
-            conved]
+        pooled = [F.max_pool1d(conv, conv.shape[2]).squeeze(2) for conv in conved]
         cat = self.dropout(torch.cat(pooled, dim=1))
         return self.fc(cat)
 
 
 class TextRCNN(nn.Module):
 
-    def __init__(self, embedding_dim, output_dim, hidden_size, num_layers,
-        bidirectional, dropout, pretrained_embeddings):
+    def __init__(self, embedding_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, pretrained_embeddings):
         super(TextRCNN, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings,
-            freeze=False)
-        self.rnn = nn.LSTM(embedding_dim, hidden_size, num_layers,
-            bidirectional=bidirectional, dropout=dropout)
+        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=False)
+        self.rnn = nn.LSTM(embedding_dim, hidden_size, num_layers, bidirectional=bidirectional, dropout=dropout)
         self.W2 = Linear(2 * hidden_size + embedding_dim, hidden_size * 2)
         self.fc = Linear(hidden_size * 2, output_dim)
         self.dropout = nn.Dropout(dropout)
@@ -317,19 +300,13 @@ class TextRCNN(nn.Module):
 
 class TextRCNNHighway(nn.Module):
 
-    def __init__(self, word_dim, char_dim, output_dim, hidden_size,
-        num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers
-        ):
+    def __init__(self, word_dim, char_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers):
         super(TextRCNNHighway, self).__init__()
-        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze
-            =False)
-        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze
-            =False)
+        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze=False)
+        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze=False)
         self.text_embedding = Embedding(highway_layers, word_dim, char_dim)
-        self.rnn = nn.LSTM(word_dim + char_dim, hidden_size, num_layers,
-            bidirectional=bidirectional, dropout=dropout)
-        self.W2 = Linear(2 * hidden_size + word_dim + char_dim, hidden_size * 2
-            )
+        self.rnn = nn.LSTM(word_dim + char_dim, hidden_size, num_layers, bidirectional=bidirectional, dropout=dropout)
+        self.W2 = Linear(2 * hidden_size + word_dim + char_dim, hidden_size * 2)
         self.fc = Linear(hidden_size * 2, output_dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -350,13 +327,10 @@ class TextRCNNHighway(nn.Module):
 
 class TextRNN(nn.Module):
 
-    def __init__(self, embedding_dim, output_dim, hidden_size, num_layers,
-        bidirectional, dropout, pretrained_embeddings):
+    def __init__(self, embedding_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, pretrained_embeddings):
         super(TextRNN, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings,
-            freeze=False)
-        self.rnn = LSTM(embedding_dim, hidden_size, num_layers,
-            bidirectional, dropout)
+        self.embedding = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=False)
+        self.rnn = LSTM(embedding_dim, hidden_size, num_layers, bidirectional, dropout)
         self.fc = Linear(hidden_size * 2, output_dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -364,24 +338,18 @@ class TextRNN(nn.Module):
         text, text_lengths = x
         embedded = self.dropout(self.embedding(text))
         hidden, outputs = self.rnn(embedded, text_lengths)
-        hidden = self.dropout(torch.cat((hidden[(-2), :, :], hidden[(-1), :,
-            :]), dim=1))
+        hidden = self.dropout(torch.cat((hidden[(-2), :, :], hidden[(-1), :, :]), dim=1))
         return self.fc(hidden)
 
 
 class TextRNNHighway(nn.Module):
 
-    def __init__(self, word_dim, char_dim, output_dim, hidden_size,
-        num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers
-        ):
+    def __init__(self, word_dim, char_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers):
         super(TextRNNHighway, self).__init__()
-        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze
-            =False)
-        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze
-            =False)
+        self.char_embedding = nn.Embedding.from_pretrained(char_emb, freeze=False)
+        self.word_embedding = nn.Embedding.from_pretrained(word_emb, freeze=False)
         self.text_embedding = Embedding(highway_layers, word_dim, char_dim)
-        self.rnn = LSTM(word_dim + char_dim, hidden_size, num_layers,
-            bidirectional, dropout)
+        self.rnn = LSTM(word_dim + char_dim, hidden_size, num_layers, bidirectional, dropout)
         self.fc = Linear(hidden_size * 2, output_dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -392,8 +360,7 @@ class TextRNNHighway(nn.Module):
         char_emb = char_emb.permute(1, 0, 2, 3)
         text_emb = self.text_embedding(word_emb, char_emb)
         hidden, outputs = self.rnn(text_emb, text_lengths)
-        hidden = self.dropout(torch.cat((hidden[(-2), :, :], hidden[(-1), :,
-            :]), dim=1))
+        hidden = self.dropout(torch.cat((hidden[(-2), :, :], hidden[(-1), :, :]), dim=1))
         return self.fc(hidden)
 
 
@@ -438,8 +405,7 @@ class Embeddings(nn.Module):
 
     def __init__(self, pretrained_embeddings, d_model, freeze=False):
         super(Embeddings, self).__init__()
-        self.lut = nn.Embedding.from_pretrained(pretrained_embeddings,
-            freeze=freeze)
+        self.lut = nn.Embedding.from_pretrained(pretrained_embeddings, freeze=freeze)
         self.d_model = d_model
 
     def forward(self, x):
@@ -529,11 +495,9 @@ class MultiHeadAttention(nn.Module):
         if mask is not None:
             mask = mask.unsqueeze(1)
         batch_size = Q.size(0)
-        Q, K, V = [l(x).view(batch_size, -1, self.h, self.d_k).transpose(1,
-            2) for l, x in zip(self.linears, (Q, K, V))]
+        Q, K, V = [l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2) for l, x in zip(self.linears, (Q, K, V))]
         x, attn = self.attn(Q, K, V, mask=mask)
-        x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h *
-            self.d_k)
+        x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
 
@@ -544,8 +508,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0.0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0.0, d_model, 2) * -1 * (math.log
-            (10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0.0, d_model, 2) * -1 * (math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -620,16 +583,14 @@ class SublayerConnection(nn.Module):
 class TransformerText(nn.Module):
     """ 用 Transformer 来作为特征抽取的基本单元 """
 
-    def __init__(self, head, n_layer, emd_dim, d_model, d_ff, output_dim,
-        dropout, pretrained_embeddings):
+    def __init__(self, head, n_layer, emd_dim, d_model, d_ff, output_dim, dropout, pretrained_embeddings):
         super(TransformerText, self).__init__()
         self.word_embedding = Embeddings(pretrained_embeddings, emd_dim)
         self.position_embedding = PositionalEncoding(emd_dim, dropout)
         self.trans_linear = nn.Linear(emd_dim, d_model)
         multi_attn = MultiHeadAttention(head, d_model)
         feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.encoder = Encoder(EncoderLayer(d_model, multi_attn,
-            feed_forward, dropout), n_layer)
+        self.encoder = Encoder(EncoderLayer(d_model, multi_attn, feed_forward, dropout), n_layer)
         self.fc = nn.Linear(d_model, output_dim)
 
     def forward(self, x):
@@ -652,8 +613,7 @@ class Conv1d(nn.Module):
 
     def __init__(self, in_channels, out_channels, filter_sizes):
         super(Conv1d, self).__init__()
-        self.convs = nn.ModuleList([nn.Conv1d(in_channels=in_channels,
-            out_channels=out_channels, kernel_size=fs) for fs in filter_sizes])
+        self.convs = nn.ModuleList([nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=fs) for fs in filter_sizes])
         self.init_params()
 
     def init_params(self):
@@ -693,10 +653,8 @@ class Highway(nn.Module):
     def __init__(self, layer_num, dim=600):
         super(Highway, self).__init__()
         self.layer_num = layer_num
-        self.linear = nn.ModuleList([nn.Linear(dim, dim) for _ in range(
-            self.layer_num)])
-        self.gate = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.
-            layer_num)])
+        self.linear = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.layer_num)])
+        self.gate = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.layer_num)])
 
     def forward(self, x):
         for i in range(self.layer_num):
@@ -708,8 +666,7 @@ class Highway(nn.Module):
 
 class LSTM(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_layers, bidirectional,
-        dropout):
+    def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout):
         """
         Args: 
             input_size: x 的特征维度
@@ -717,9 +674,7 @@ class LSTM(nn.Module):
             num_layers: LSTM 层数
         """
         super(LSTM, self).__init__()
-        self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_layers, bidirectional=bidirectional, dropout=dropout
-            )
+        self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, bidirectional=bidirectional, dropout=dropout)
         self.init_params()
 
     def init_params(self):
@@ -730,21 +685,16 @@ class LSTM(nn.Module):
             nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}'), val=0)
             getattr(self.rnn, f'bias_hh_l{i}').chunk(4)[1].fill_(1)
             if self.rnn.bidirectional:
-                nn.init.orthogonal_(getattr(self.rnn,
-                    f'weight_hh_l{i}_reverse'))
-                nn.init.kaiming_normal_(getattr(self.rnn,
-                    f'weight_ih_l{i}_reverse'))
-                nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}_reverse'
-                    ), val=0)
-                nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}_reverse'
-                    ), val=0)
+                nn.init.orthogonal_(getattr(self.rnn, f'weight_hh_l{i}_reverse'))
+                nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}_reverse'))
+                nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}_reverse'), val=0)
+                nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}_reverse'), val=0)
                 getattr(self.rnn, f'bias_hh_l{i}_reverse').chunk(4)[1].fill_(1)
 
     def forward(self, x, lengths):
         packed_x = nn.utils.rnn.pack_padded_sequence(x, lengths)
         packed_output, (hidden, cell) = self.rnn(packed_x)
-        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output
-            )
+        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
         return hidden, output
 
 
@@ -752,8 +702,7 @@ class Linear(nn.Module):
 
     def __init__(self, in_features, out_features):
         super(Linear, self).__init__()
-        self.linear = nn.Linear(in_features=in_features, out_features=
-            out_features)
+        self.linear = nn.Linear(in_features=in_features, out_features=out_features)
         self.init_params()
 
     def init_params(self):
@@ -769,48 +718,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Embedding,
+     lambda: ([], {'highway_layers': 1, 'word_dim': 4, 'char_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (FNN,
+     lambda: ([], {'config': _mock_config(input_size=4, hidden_size=4, output_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Highway,
+     lambda: ([], {'layer_num': 1}),
+     lambda: ([torch.rand([600, 600])], {}),
+     False),
+    (LayerNorm,
+     lambda: ([], {'features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Linear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LinearRegression,
+     lambda: ([], {'config': _mock_config(input_size=4, output_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LogisticRegressionMulti,
+     lambda: ([], {'config': _mock_config(input_size=4, output_size=4)}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MultiHeadAttention,
+     lambda: ([], {'h': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PositionwiseFeedForward,
+     lambda: ([], {'d_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ScaledDotProduction,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SublayerConnection,
+     lambda: ([], {'size': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
+     False),
+]
+
 class Test_songyingxin_TextClassification(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Embedding(*[], **{'highway_layers': 1, 'word_dim': 4, 'char_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(FNN(*[], **{'config': _mock_config(input_size=4, hidden_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Highway(*[], **{'layer_num': 1}), [torch.rand([600, 600])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(LayerNorm(*[], **{'features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Linear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(LinearRegression(*[], **{'config': _mock_config(input_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(LogisticRegressionMulti(*[], **{'config': _mock_config(input_size=4, output_size=4)}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(MultiHeadAttention(*[], **{'h': 4, 'd_model': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PositionwiseFeedForward(*[], **{'d_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(ScaledDotProduction(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(SublayerConnection(*[], **{'size': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4]), _mock_layer()], {})
+        self._check(*TESTCASES[11])
 

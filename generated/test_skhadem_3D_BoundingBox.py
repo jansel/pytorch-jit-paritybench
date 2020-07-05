@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -61,15 +62,9 @@ class Model(nn.Module):
         self.bins = bins
         self.w = w
         self.features = features
-        self.orientation = nn.Sequential(nn.Linear(512 * 7 * 7, 256), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(256, 256), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(256, bins * 2))
-        self.confidence = nn.Sequential(nn.Linear(512 * 7 * 7, 256), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(256, 256), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(256, bins))
-        self.dimension = nn.Sequential(nn.Linear(512 * 7 * 7, 512), nn.ReLU
-            (True), nn.Dropout(), nn.Linear(512, 512), nn.ReLU(True), nn.
-            Dropout(), nn.Linear(512, 3))
+        self.orientation = nn.Sequential(nn.Linear(512 * 7 * 7, 256), nn.ReLU(True), nn.Dropout(), nn.Linear(256, 256), nn.ReLU(True), nn.Dropout(), nn.Linear(256, bins * 2))
+        self.confidence = nn.Sequential(nn.Linear(512 * 7 * 7, 256), nn.ReLU(True), nn.Dropout(), nn.Linear(256, 256), nn.ReLU(True), nn.Dropout(), nn.Linear(256, bins))
+        self.dimension = nn.Sequential(nn.Linear(512 * 7 * 7, 512), nn.ReLU(True), nn.Dropout(), nn.Linear(512, 512), nn.ReLU(True), nn.Dropout(), nn.Linear(512, 3))
 
     def forward(self, x):
         x = self.features(x)
@@ -81,10 +76,3 @@ class Model(nn.Module):
         dimension = self.dimension(x)
         return orientation, confidence, dimension
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_skhadem_3D_BoundingBox(_paritybench_base):
-    pass

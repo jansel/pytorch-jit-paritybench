@@ -148,8 +148,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -193,8 +194,7 @@ import torch.optim as optim
 from torch import optim
 
 
-def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module],
-    dictionary: nn.ModuleDict, target: str) ->nn.Module:
+def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module], dictionary: nn.ModuleDict, target: str) ->nn.Module:
     """
     Parse loss and activation.
 
@@ -210,30 +210,19 @@ def _parse(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module],
         if identifier in dictionary:
             return dictionary[identifier]
         else:
-            raise ValueError(f'Could not interpret {target} identifier: ' +
-                str(identifier))
+            raise ValueError(f'Could not interpret {target} identifier: ' + str(identifier))
     elif isinstance(identifier, nn.Module):
         return identifier
     elif issubclass(identifier, nn.Module):
         return identifier()
     else:
-        raise ValueError(f'Could not interpret {target} identifier: ' + str
-            (identifier))
+        raise ValueError(f'Could not interpret {target} identifier: ' + str(identifier))
 
 
-activation = nn.ModuleDict([['relu', nn.ReLU()], ['hardtanh', nn.Hardtanh()
-    ], ['relu6', nn.ReLU6()], ['sigmoid', nn.Sigmoid()], ['tanh', nn.Tanh()
-    ], ['softmax', nn.Softmax()], ['softmax2d', nn.Softmax2d()], [
-    'logsoftmax', nn.LogSoftmax()], ['elu', nn.ELU()], ['selu', nn.SELU()],
-    ['celu', nn.CELU()], ['hardshrink', nn.Hardshrink()], ['leakyrelu', nn.
-    LeakyReLU()], ['logsigmoid', nn.LogSigmoid()], ['softplus', nn.Softplus
-    ()], ['softshrink', nn.Softshrink()], ['prelu', nn.PReLU()], [
-    'softsign', nn.Softsign()], ['softmin', nn.Softmin()], ['tanhshrink',
-    nn.Tanhshrink()], ['rrelu', nn.RReLU()], ['glu', nn.GLU()]])
+activation = nn.ModuleDict([['relu', nn.ReLU()], ['hardtanh', nn.Hardtanh()], ['relu6', nn.ReLU6()], ['sigmoid', nn.Sigmoid()], ['tanh', nn.Tanh()], ['softmax', nn.Softmax()], ['softmax2d', nn.Softmax2d()], ['logsoftmax', nn.LogSoftmax()], ['elu', nn.ELU()], ['selu', nn.SELU()], ['celu', nn.CELU()], ['hardshrink', nn.Hardshrink()], ['leakyrelu', nn.LeakyReLU()], ['logsigmoid', nn.LogSigmoid()], ['softplus', nn.Softplus()], ['softshrink', nn.Softshrink()], ['prelu', nn.PReLU()], ['softsign', nn.Softsign()], ['softmin', nn.Softmin()], ['tanhshrink', nn.Tanhshrink()], ['rrelu', nn.RReLU()], ['glu', nn.GLU()]])
 
 
-def parse_activation(identifier: typing.Union[str, typing.Type[nn.Module],
-    nn.Module]) ->nn.Module:
+def parse_activation(identifier: typing.Union[str, typing.Type[nn.Module], nn.Module]) ->nn.Module:
     """
     Retrieves a torch Module instance.
 
@@ -292,8 +281,7 @@ class RankCrossEntropyLoss(nn.Module):
             neg_labels = y_true[neg_idx + 1::self.num_neg + 1, :]
             logits = torch.cat((logits, neg_logits), dim=-1)
             labels = torch.cat((labels, neg_labels), dim=-1)
-        return -torch.mean(torch.sum(labels * torch.log(F.softmax(logits,
-            dim=-1) + torch.finfo(float).eps), dim=-1))
+        return -torch.mean(torch.sum(labels * torch.log(F.softmax(logits, dim=-1) + torch.finfo(float).eps), dim=-1))
 
     @property
     def num_neg(self):
@@ -324,8 +312,7 @@ class RankHingeLoss(nn.Module):
     """
     __constants__ = ['num_neg', 'margin', 'reduction']
 
-    def __init__(self, num_neg: int=1, margin: float=1.0, reduction: str='mean'
-        ):
+    def __init__(self, num_neg: int=1, margin: float=1.0, reduction: str='mean'):
         """
         :class:`RankHingeLoss` constructor.
 
@@ -360,8 +347,7 @@ class RankHingeLoss(nn.Module):
         y_neg = torch.cat(y_neg, dim=-1)
         y_neg = torch.mean(y_neg, dim=-1, keepdim=True)
         y_true = torch.ones_like(y_pos)
-        return F.margin_ranking_loss(y_pos, y_neg, y_true, margin=self.
-            margin, reduction=self.reduction)
+        return F.margin_ranking_loss(y_pos, y_neg, y_true, margin=self.margin, reduction=self.reduction)
 
     @property
     def num_neg(self):
@@ -433,10 +419,8 @@ class BidirectionalAttention(nn.Module):
     def forward(self, v1, v1_mask, v2, v2_mask):
         """Forward."""
         similarity_matrix = v1.bmm(v2.transpose(2, 1).contiguous())
-        v2_v1_attn = F.softmax(similarity_matrix.masked_fill(v1_mask.
-            unsqueeze(2), -1e-07), dim=1)
-        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.
-            unsqueeze(1), -1e-07), dim=2)
+        v2_v1_attn = F.softmax(similarity_matrix.masked_fill(v1_mask.unsqueeze(2), -1e-07), dim=1)
+        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.unsqueeze(1), -1e-07), dim=2)
         attended_v1 = v1_v2_attn.bmm(v2)
         attended_v2 = v2_v1_attn.transpose(1, 2).bmm(v1)
         attended_v1.masked_fill_(v1_mask.unsqueeze(2), 0)
@@ -476,8 +460,7 @@ class MatchModule(nn.Module):
         """Computing attention vectors and projection vectors."""
         proj_v2 = self.v2_proj(v2)
         similarity_matrix = v1.bmm(proj_v2.transpose(2, 1).contiguous())
-        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.
-            unsqueeze(1).bool(), -1e-07), dim=2)
+        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.unsqueeze(1).bool(), -1e-07), dim=2)
         v2_wsum = v1_v2_attn.bmm(v2)
         fusion = torch.cat([v1, v2_wsum, v1 - v2_wsum, v1 * v2_wsum], dim=2)
         match = self.dropout(F.relu(self.proj(fusion)))
@@ -505,11 +488,9 @@ class BertModule(nn.Module):
     def forward(self, x, y):
         """Forward."""
         input_ids = torch.cat((x, y), dim=-1)
-        token_type_ids = torch.cat((torch.zeros_like(x), torch.ones_like(y)
-            ), dim=-1).long()
+        token_type_ids = torch.cat((torch.zeros_like(x), torch.ones_like(y)), dim=-1).long()
         attention_mask = input_ids != 0
-        return self.bert(input_ids=input_ids, token_type_ids=token_type_ids,
-            attention_mask=attention_mask)
+        return self.bert(input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask)
 
 
 class CharacterEmbedding(nn.Module):
@@ -532,15 +513,11 @@ class CharacterEmbedding(nn.Module):
 
     """
 
-    def __init__(self, char_embedding_input_dim: int=100,
-        char_embedding_output_dim: int=8, char_conv_filters: int=100,
-        char_conv_kernel_size: int=5):
+    def __init__(self, char_embedding_input_dim: int=100, char_embedding_output_dim: int=8, char_conv_filters: int=100, char_conv_kernel_size: int=5):
         """Init."""
         super().__init__()
-        self.char_embedding = nn.Embedding(num_embeddings=
-            char_embedding_input_dim, embedding_dim=char_embedding_output_dim)
-        self.conv = nn.Conv1d(in_channels=char_embedding_output_dim,
-            out_channels=char_conv_filters, kernel_size=char_conv_kernel_size)
+        self.char_embedding = nn.Embedding(num_embeddings=char_embedding_input_dim, embedding_dim=char_embedding_output_dim)
+        self.conv = nn.Conv1d(in_channels=char_embedding_output_dim, out_channels=char_conv_filters, kernel_size=char_conv_kernel_size)
 
     def forward(self, x):
         """Forward."""
@@ -556,14 +533,12 @@ class CharacterEmbedding(nn.Module):
 class DenseBlock(nn.Module):
     """Dense block of DenseNet."""
 
-    def __init__(self, in_channels, growth_rate: int=20, kernel_size: tuple
-        =(2, 2), layers_per_dense_block: int=3):
+    def __init__(self, in_channels, growth_rate: int=20, kernel_size: tuple=(2, 2), layers_per_dense_block: int=3):
         """Init."""
         super().__init__()
         dense_block = []
         for _ in range(layers_per_dense_block):
-            conv_block = self._make_conv_block(in_channels, growth_rate,
-                kernel_size)
+            conv_block = self._make_conv_block(in_channels, growth_rate, kernel_size)
             dense_block.append(conv_block)
             in_channels += growth_rate
         self._dense_block = nn.ModuleList(dense_block)
@@ -576,12 +551,9 @@ class DenseBlock(nn.Module):
         return x
 
     @classmethod
-    def _make_conv_block(cls, in_channels: int, out_channels: int,
-        kernel_size: tuple) ->nn.Module:
+    def _make_conv_block(cls, in_channels: int, out_channels: int, kernel_size: tuple) ->nn.Module:
         """Make conv block."""
-        return nn.Sequential(nn.ConstantPad2d((0, kernel_size[1] - 1, 0, 
-            kernel_size[0] - 1), 0), nn.Conv2d(in_channels=in_channels,
-            out_channels=out_channels, kernel_size=kernel_size), nn.ReLU())
+        return nn.Sequential(nn.ConstantPad2d((0, kernel_size[1] - 1, 0, kernel_size[0] - 1), 0), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size), nn.ReLU())
 
 
 class DenseNet(nn.Module):
@@ -598,21 +570,16 @@ class DenseNet(nn.Module):
     :param pool_kernel_size: The kernel size of pooling layer in transition block.
     """
 
-    def __init__(self, in_channels, nb_dense_blocks: int=3,
-        layers_per_dense_block: int=3, growth_rate: int=10,
-        transition_scale_down_ratio: float=0.5, conv_kernel_size: tuple=(2,
-        2), pool_kernel_size: tuple=(2, 2)):
+    def __init__(self, in_channels, nb_dense_blocks: int=3, layers_per_dense_block: int=3, growth_rate: int=10, transition_scale_down_ratio: float=0.5, conv_kernel_size: tuple=(2, 2), pool_kernel_size: tuple=(2, 2)):
         """Init."""
         super().__init__()
         dense_blocks = []
         transition_blocks = []
         for _ in range(nb_dense_blocks):
-            dense_block = DenseBlock(in_channels, growth_rate,
-                conv_kernel_size, layers_per_dense_block)
+            dense_block = DenseBlock(in_channels, growth_rate, conv_kernel_size, layers_per_dense_block)
             in_channels += layers_per_dense_block * growth_rate
             dense_blocks.append(dense_block)
-            transition_block = self._make_transition_block(in_channels,
-                transition_scale_down_ratio, pool_kernel_size)
+            transition_block = self._make_transition_block(in_channels, transition_scale_down_ratio, pool_kernel_size)
             in_channels = int(in_channels * transition_scale_down_ratio)
             transition_blocks.append(transition_block)
         self._dense_blocks = nn.ModuleList(dense_blocks)
@@ -626,20 +593,14 @@ class DenseNet(nn.Module):
 
     def forward(self, x):
         """Forward."""
-        for dense_block, trans_block in zip(self._dense_blocks, self.
-            _transition_blocks):
+        for dense_block, trans_block in zip(self._dense_blocks, self._transition_blocks):
             x = dense_block(x)
             x = trans_block(x)
         return x
 
     @classmethod
-    def _make_transition_block(cls, in_channels: int,
-        transition_scale_down_ratio: float, pool_kernel_size: tuple
-        ) ->nn.Module:
-        return nn.Sequential(nn.Conv2d(in_channels=in_channels,
-            out_channels=int(in_channels * transition_scale_down_ratio),
-            kernel_size=1), nn.MaxPool2d(kernel_size=pool_kernel_size,
-            stride=pool_kernel_size))
+    def _make_transition_block(cls, in_channels: int, transition_scale_down_ratio: float, pool_kernel_size: tuple) ->nn.Module:
+        return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=int(in_channels * transition_scale_down_ratio), kernel_size=1), nn.MaxPool2d(kernel_size=pool_kernel_size, stride=pool_kernel_size))
 
 
 class RNNDropout(nn.Dropout):
@@ -647,10 +608,8 @@ class RNNDropout(nn.Dropout):
 
     def forward(self, sequences_batch):
         """Masking whole hidden vector for tokens."""
-        ones = sequences_batch.data.new_ones(sequences_batch.shape[0],
-            sequences_batch.shape[-1])
-        dropout_mask = nn.functional.dropout(ones, self.p, self.training,
-            inplace=False)
+        ones = sequences_batch.data.new_ones(sequences_batch.shape[0], sequences_batch.shape[-1])
+        dropout_mask = nn.functional.dropout(ones, self.p, self.training, inplace=False)
         return dropout_mask.unsqueeze(1) * sequences_batch
 
 
@@ -712,12 +671,9 @@ class Matching(nn.Module):
 
     @classmethod
     def _validate_matching_type(cls, matching_type: str='dot'):
-        valid_matching_type = ['dot', 'exact', 'mul', 'plus', 'minus', 'concat'
-            ]
+        valid_matching_type = ['dot', 'exact', 'mul', 'plus', 'minus', 'concat']
         if matching_type not in valid_matching_type:
-            raise ValueError(
-                f'{matching_type} is not a valid matching type, {valid_matching_type} expected.'
-                )
+            raise ValueError(f'{matching_type} is not a valid matching type, {valid_matching_type} expected.')
 
     def forward(self, x, y):
         """Perform attention on the input."""
@@ -773,25 +729,21 @@ class MatchingTensor(nn.Module):
 
     """
 
-    def __init__(self, matching_dim: int, channels: int=4, normalize: bool=
-        True, init_diag: bool=True):
+    def __init__(self, matching_dim: int, channels: int=4, normalize: bool=True, init_diag: bool=True):
         """:class:`MatchingTensor` constructor."""
         super().__init__()
         self._matching_dim = matching_dim
         self._channels = channels
         self._normalize = normalize
         self._init_diag = init_diag
-        self.interaction_matrix = torch.empty(self._channels, self.
-            _matching_dim, self._matching_dim)
+        self.interaction_matrix = torch.empty(self._channels, self._matching_dim, self._matching_dim)
         if self._init_diag:
-            self.interaction_matrix = self.interaction_matrix.uniform_(-
-                0.05, 0.05)
+            self.interaction_matrix = self.interaction_matrix.uniform_(-0.05, 0.05)
             for channel_index in range(self._channels):
                 self.interaction_matrix[channel_index].fill_diagonal_(0.1)
             self.interaction_matrix = nn.Parameter(self.interaction_matrix)
         else:
-            self.interaction_matrix = nn.Parameter(self.interaction_matrix.
-                uniform_())
+            self.interaction_matrix = nn.Parameter(self.interaction_matrix.uniform_())
 
     def forward(self, x, y):
         """
@@ -802,8 +754,7 @@ class MatchingTensor(nn.Module):
         if self._normalize:
             x = F.normalize(x, p=2, dim=-1)
             y = F.normalize(y, p=2, dim=-1)
-        output = torch.einsum('bld,cde,bre->bclr', x, self.
-            interaction_matrix, y)
+        output = torch.einsum('bld,cde,bre->bclr', x, self.interaction_matrix, y)
         return output
 
 
@@ -885,10 +836,7 @@ class SpatialGRU(nn.Module):
 
     """
 
-    def __init__(self, channels: int=4, units: int=10, activation: typing.
-        Union[str, typing.Type[nn.Module], nn.Module]='tanh',
-        recurrent_activation: typing.Union[str, typing.Type[nn.Module], nn.
-        Module]='sigmoid', direction: str='lt'):
+    def __init__(self, channels: int=4, units: int=10, activation: typing.Union[str, typing.Type[nn.Module], nn.Module]='tanh', recurrent_activation: typing.Union[str, typing.Type[nn.Module], nn.Module]='sigmoid', direction: str='lt'):
         """:class:`SpatialGRU` constructor."""
         super().__init__()
         self._units = units
@@ -897,9 +845,7 @@ class SpatialGRU(nn.Module):
         self._direction = direction
         self._channels = channels
         if self._direction not in ('lt', 'rb'):
-            raise ValueError(
-                f'Invalid direction. `{self._direction}` received. Must be in `lt`, `rb`.'
-                )
+            raise ValueError(f'Invalid direction. `{self._direction}` received. Must be in `lt`, `rb`.')
         self._input_dim = self._channels + 3 * self._units
         self._wr = nn.Linear(self._input_dim, self._units * 3)
         self._wz = nn.Linear(self._input_dim, self._units * 4)
@@ -920,8 +866,7 @@ class SpatialGRU(nn.Module):
         zi, zl, zt, zd = F.softmax(z_transform, dim=1).unbind(dim=1)
         return zi, zl, zt, zd
 
-    def calculate_recurrent_unit(self, inputs: torch.tensor, states: list,
-        i: int, j: int):
+    def calculate_recurrent_unit(self, inputs: torch.tensor, states: list, i: int, j: int):
         """
         Calculate recurrent unit.
 
@@ -937,8 +882,7 @@ class SpatialGRU(nn.Module):
         h_top = states[i][j + 1]
         h_left = states[i + 1][j]
         s_ij = inputs[i][j]
-        q = torch.cat([torch.cat([h_top, h_left], 1), torch.cat([h_diag,
-            s_ij], 1)], 1)
+        q = torch.cat([torch.cat([h_top, h_left], 1), torch.cat([h_diag, s_ij], 1)], 1)
         r = self._recurrent_activation(self._wr(q))
         z = self._wz(q)
         zi, zl, zt, zd = self.softmax_by_row(z)
@@ -958,12 +902,10 @@ class SpatialGRU(nn.Module):
         inputs = inputs.permute([2, 3, 0, 1])
         if self._direction == 'rb':
             inputs = torch.flip(inputs, [0, 1])
-        states = [[torch.zeros([batch_size, self._units]).type_as(inputs) for
-            j in range(right_length + 1)] for i in range(left_length + 1)]
+        states = [[torch.zeros([batch_size, self._units]).type_as(inputs) for j in range(right_length + 1)] for i in range(left_length + 1)]
         for i in range(left_length):
             for j in range(right_length):
-                states[i + 1][j + 1] = self.calculate_recurrent_unit(inputs,
-                    states, i, j)
+                states[i + 1][j + 1] = self.calculate_recurrent_unit(inputs, states, i, j)
         return states[left_length][right_length]
 
 
@@ -994,8 +936,7 @@ class StackedBRNN(nn.Module):
 
     """
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0,
-        dropout_output=False, rnn_type=nn.LSTM, concat_layers=False):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0, dropout_output=False, rnn_type=nn.LSTM, concat_layers=False):
         """Stacked Bidirectional LSTM."""
         super().__init__()
         self.dropout_output = dropout_output
@@ -1005,8 +946,7 @@ class StackedBRNN(nn.Module):
         self.rnns = nn.ModuleList()
         for i in range(num_layers):
             input_size = input_size if i == 0 else 2 * hidden_size
-            self.rnns.append(rnn_type(input_size, hidden_size, num_layers=1,
-                bidirectional=True))
+            self.rnns.append(rnn_type(input_size, hidden_size, num_layers=1, bidirectional=True))
 
     def forward(self, x, x_mask):
         """Encode either padded or non-padded sequences."""
@@ -1022,8 +962,7 @@ class StackedBRNN(nn.Module):
         for i in range(self.num_layers):
             rnn_input = outputs[-1]
             if self.dropout_rate > 0:
-                rnn_input = F.dropout(rnn_input, p=self.dropout_rate,
-                    training=self.training)
+                rnn_input = F.dropout(rnn_input, p=self.dropout_rate, training=self.training)
             rnn_output = self.rnns[i](rnn_input)[0]
             outputs.append(rnn_output)
         if self.concat_layers:
@@ -1032,8 +971,7 @@ class StackedBRNN(nn.Module):
             output = outputs[-1]
         output = output.transpose(0, 1)
         if self.dropout_output and self.dropout_rate > 0:
-            output = F.dropout(output, p=self.dropout_rate, training=self.
-                training)
+            output = F.dropout(output, p=self.dropout_rate, training=self.training)
         return output
 
 
@@ -1041,53 +979,100 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(DenseBlock(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DenseBlock,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DenseNet,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (GaussianKernel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MatchModule,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Matching,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (MatchingTensor,
+     lambda: ([], {'matching_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (RNNDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RankCrossEntropyLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RankHingeLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SemanticComposite,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (SpatialGRU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Squeeze,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StackedBRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_NTMC_Community_MatchZoo_py(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(DenseNet(*[], **{'in_channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(GaussianKernel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MatchModule(*[], **{'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Matching(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(MatchingTensor(*[], **{'matching_dim': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(RNNDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(RankCrossEntropyLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(RankHingeLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(SemanticComposite(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(SpatialGRU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Squeeze(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(StackedBRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'num_layers': 1}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 

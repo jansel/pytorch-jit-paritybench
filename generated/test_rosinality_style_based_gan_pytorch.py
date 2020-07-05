@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,10 +86,8 @@ class FusedUpsample(nn.Module):
 
     def forward(self, input):
         weight = F.pad(self.weight * self.multiplier, [1, 1, 1, 1])
-        weight = (weight[:, :, 1:, 1:] + weight[:, :, :-1, 1:] + weight[:,
-            :, 1:, :-1] + weight[:, :, :-1, :-1]) / 4
-        out = F.conv_transpose2d(input, weight, self.bias, stride=2,
-            padding=self.pad)
+        weight = (weight[:, :, 1:, 1:] + weight[:, :, :-1, 1:] + weight[:, :, 1:, :-1] + weight[:, :, :-1, :-1]) / 4
+        out = F.conv_transpose2d(input, weight, self.bias, stride=2, padding=self.pad)
         return out
 
 
@@ -106,8 +105,7 @@ class FusedDownsample(nn.Module):
 
     def forward(self, input):
         weight = F.pad(self.weight * self.multiplier, [1, 1, 1, 1])
-        weight = (weight[:, :, 1:, 1:] + weight[:, :, :-1, 1:] + weight[:,
-            :, 1:, :-1] + weight[:, :, :-1, :-1]) / 4
+        weight = (weight[:, :, 1:, 1:] + weight[:, :, :-1, 1:] + weight[:, :, 1:, :-1] + weight[:, :, :-1, :-1]) / 4
         out = F.conv2d(input, weight, self.bias, stride=2, padding=self.pad)
         return out
 
@@ -118,8 +116,7 @@ class PixelNorm(nn.Module):
         super().__init__()
 
     def forward(self, input):
-        return input / torch.sqrt(torch.mean(input ** 2, dim=1, keepdim=
-            True) + 1e-08)
+        return input / torch.sqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-08)
 
 
 class BlurFunctionBackward(Function):
@@ -127,15 +124,13 @@ class BlurFunctionBackward(Function):
     @staticmethod
     def forward(ctx, grad_output, kernel, kernel_flip):
         ctx.save_for_backward(kernel, kernel_flip)
-        grad_input = F.conv2d(grad_output, kernel_flip, padding=1, groups=
-            grad_output.shape[1])
+        grad_input = F.conv2d(grad_output, kernel_flip, padding=1, groups=grad_output.shape[1])
         return grad_input
 
     @staticmethod
     def backward(ctx, gradgrad_output):
         kernel, kernel_flip = ctx.saved_tensors
-        grad_input = F.conv2d(gradgrad_output, kernel, padding=1, groups=
-            gradgrad_output.shape[1])
+        grad_input = F.conv2d(gradgrad_output, kernel, padding=1, groups=gradgrad_output.shape[1])
         return grad_input, None, None
 
 
@@ -150,8 +145,7 @@ class BlurFunction(Function):
     @staticmethod
     def backward(ctx, grad_output):
         kernel, kernel_flip = ctx.saved_tensors
-        grad_input = BlurFunctionBackward.apply(grad_output, kernel,
-            kernel_flip)
+        grad_input = BlurFunctionBackward.apply(grad_output, kernel, kernel_flip)
         return grad_input, None, None
 
 
@@ -162,14 +156,12 @@ class Blur(nn.Module):
 
     def __init__(self, channel):
         super().__init__()
-        weight = torch.tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=
-            torch.float32)
+        weight = torch.tensor([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=torch.float32)
         weight = weight.view(1, 1, 3, 3)
         weight = weight / weight.sum()
         weight_flip = torch.flip(weight, [2, 3])
         self.register_buffer('weight', weight.repeat(channel, 1, 1, 1))
-        self.register_buffer('weight_flip', weight_flip.repeat(channel, 1, 
-            1, 1))
+        self.register_buffer('weight_flip', weight_flip.repeat(channel, 1, 1, 1))
 
     def forward(self, input):
         return blur(input, self.weight, self.weight_flip)
@@ -232,8 +224,7 @@ class EqualLinear(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size, padding,
-        kernel_size2=None, padding2=None, downsample=False, fused=False):
+    def __init__(self, in_channel, out_channel, kernel_size, padding, kernel_size2=None, padding2=None, downsample=False, fused=False):
         super().__init__()
         pad1 = padding
         pad2 = padding
@@ -243,20 +234,14 @@ class ConvBlock(nn.Module):
         kernel2 = kernel_size
         if kernel_size2 is not None:
             kernel2 = kernel_size2
-        self.conv1 = nn.Sequential(EqualConv2d(in_channel, out_channel,
-            kernel1, padding=pad1), nn.LeakyReLU(0.2))
+        self.conv1 = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.LeakyReLU(0.2))
         if downsample:
             if fused:
-                self.conv2 = nn.Sequential(Blur(out_channel),
-                    FusedDownsample(out_channel, out_channel, kernel2,
-                    padding=pad2), nn.LeakyReLU(0.2))
+                self.conv2 = nn.Sequential(Blur(out_channel), FusedDownsample(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
             else:
-                self.conv2 = nn.Sequential(Blur(out_channel), EqualConv2d(
-                    out_channel, out_channel, kernel2, padding=pad2), nn.
-                    AvgPool2d(2), nn.LeakyReLU(0.2))
+                self.conv2 = nn.Sequential(Blur(out_channel), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.AvgPool2d(2), nn.LeakyReLU(0.2))
         else:
-            self.conv2 = nn.Sequential(EqualConv2d(out_channel, out_channel,
-                kernel2, padding=pad2), nn.LeakyReLU(0.2))
+            self.conv2 = nn.Sequential(EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
 
     def forward(self, input):
         out = self.conv1(input)
@@ -305,28 +290,21 @@ class ConstantInput(nn.Module):
 
 class StyledConvBlock(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1,
-        style_dim=512, initial=False, upsample=False, fused=False):
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False, upsample=False, fused=False):
         super().__init__()
         if initial:
             self.conv1 = ConstantInput(in_channel)
         elif upsample:
             if fused:
-                self.conv1 = nn.Sequential(FusedUpsample(in_channel,
-                    out_channel, kernel_size, padding=padding), Blur(
-                    out_channel))
+                self.conv1 = nn.Sequential(FusedUpsample(in_channel, out_channel, kernel_size, padding=padding), Blur(out_channel))
             else:
-                self.conv1 = nn.Sequential(nn.Upsample(scale_factor=2, mode
-                    ='nearest'), EqualConv2d(in_channel, out_channel,
-                    kernel_size, padding=padding), Blur(out_channel))
+                self.conv1 = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'), EqualConv2d(in_channel, out_channel, kernel_size, padding=padding), Blur(out_channel))
         else:
-            self.conv1 = EqualConv2d(in_channel, out_channel, kernel_size,
-                padding=padding)
+            self.conv1 = EqualConv2d(in_channel, out_channel, kernel_size, padding=padding)
         self.noise1 = equal_lr(NoiseInjection(out_channel))
         self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
         self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size,
-            padding=padding)
+        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size, padding=padding)
         self.noise2 = equal_lr(NoiseInjection(out_channel))
         self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
         self.lrelu2 = nn.LeakyReLU(0.2)
@@ -347,19 +325,8 @@ class Generator(nn.Module):
 
     def __init__(self, code_dim, fused=True):
         super().__init__()
-        self.progression = nn.ModuleList([StyledConvBlock(512, 512, 3, 1,
-            initial=True), StyledConvBlock(512, 512, 3, 1, upsample=True),
-            StyledConvBlock(512, 512, 3, 1, upsample=True), StyledConvBlock
-            (512, 512, 3, 1, upsample=True), StyledConvBlock(512, 256, 3, 1,
-            upsample=True), StyledConvBlock(256, 128, 3, 1, upsample=True,
-            fused=fused), StyledConvBlock(128, 64, 3, 1, upsample=True,
-            fused=fused), StyledConvBlock(64, 32, 3, 1, upsample=True,
-            fused=fused), StyledConvBlock(32, 16, 3, 1, upsample=True,
-            fused=fused)])
-        self.to_rgb = nn.ModuleList([EqualConv2d(512, 3, 1), EqualConv2d(
-            512, 3, 1), EqualConv2d(512, 3, 1), EqualConv2d(512, 3, 1),
-            EqualConv2d(256, 3, 1), EqualConv2d(128, 3, 1), EqualConv2d(64,
-            3, 1), EqualConv2d(32, 3, 1), EqualConv2d(16, 3, 1)])
+        self.progression = nn.ModuleList([StyledConvBlock(512, 512, 3, 1, initial=True), StyledConvBlock(512, 512, 3, 1, upsample=True), StyledConvBlock(512, 512, 3, 1, upsample=True), StyledConvBlock(512, 512, 3, 1, upsample=True), StyledConvBlock(512, 256, 3, 1, upsample=True), StyledConvBlock(256, 128, 3, 1, upsample=True, fused=fused), StyledConvBlock(128, 64, 3, 1, upsample=True, fused=fused), StyledConvBlock(64, 32, 3, 1, upsample=True, fused=fused), StyledConvBlock(32, 16, 3, 1, upsample=True, fused=fused)])
+        self.to_rgb = nn.ModuleList([EqualConv2d(512, 3, 1), EqualConv2d(512, 3, 1), EqualConv2d(512, 3, 1), EqualConv2d(512, 3, 1), EqualConv2d(256, 3, 1), EqualConv2d(128, 3, 1), EqualConv2d(64, 3, 1), EqualConv2d(32, 3, 1), EqualConv2d(16, 3, 1)])
 
     def forward(self, style, noise, step=0, alpha=-1, mixing_range=(-1, -1)):
         out = noise[0]
@@ -370,8 +337,7 @@ class Generator(nn.Module):
         crossover = 0
         for i, (conv, to_rgb) in enumerate(zip(self.progression, self.to_rgb)):
             if mixing_range == (-1, -1):
-                if crossover < len(inject_index) and i > inject_index[crossover
-                    ]:
+                if crossover < len(inject_index) and i > inject_index[crossover]:
                     crossover = min(crossover + 1, len(style))
                 style_step = style[crossover]
             elif mixing_range[0] <= i <= mixing_range[1]:
@@ -385,8 +351,7 @@ class Generator(nn.Module):
                 out = to_rgb(out)
                 if i > 0 and 0 <= alpha < 1:
                     skip_rgb = self.to_rgb[i - 1](out_prev)
-                    skip_rgb = F.interpolate(skip_rgb, scale_factor=2, mode
-                        ='nearest')
+                    skip_rgb = F.interpolate(skip_rgb, scale_factor=2, mode='nearest')
                     out = (1 - alpha) * skip_rgb + alpha * out
                 break
         return out
@@ -403,8 +368,7 @@ class StyledGenerator(nn.Module):
             layers.append(nn.LeakyReLU(0.2))
         self.style = nn.Sequential(*layers)
 
-    def forward(self, input, noise=None, step=0, alpha=-1, mean_style=None,
-        style_weight=0, mixing_range=(-1, -1)):
+    def forward(self, input, noise=None, step=0, alpha=-1, mean_style=None, style_weight=0, mixing_range=(-1, -1)):
         styles = []
         if type(input) not in (list, tuple):
             input = [input]
@@ -415,16 +379,13 @@ class StyledGenerator(nn.Module):
             noise = []
             for i in range(step + 1):
                 size = 4 * 2 ** i
-                noise.append(torch.randn(batch, 1, size, size, device=input
-                    [0].device))
+                noise.append(torch.randn(batch, 1, size, size, device=input[0].device))
         if mean_style is not None:
             styles_norm = []
             for style in styles:
-                styles_norm.append(mean_style + style_weight * (style -
-                    mean_style))
+                styles_norm.append(mean_style + style_weight * (style - mean_style))
             styles = styles_norm
-        return self.generator(styles, noise, step, alpha, mixing_range=
-            mixing_range)
+        return self.generator(styles, noise, step, alpha, mixing_range=mixing_range)
 
     def mean_style(self, input):
         style = self.style(input).mean(0, keepdim=True)
@@ -435,25 +396,14 @@ class Discriminator(nn.Module):
 
     def __init__(self, fused=True, from_rgb_activate=False):
         super().__init__()
-        self.progression = nn.ModuleList([ConvBlock(16, 32, 3, 1,
-            downsample=True, fused=fused), ConvBlock(32, 64, 3, 1,
-            downsample=True, fused=fused), ConvBlock(64, 128, 3, 1,
-            downsample=True, fused=fused), ConvBlock(128, 256, 3, 1,
-            downsample=True, fused=fused), ConvBlock(256, 512, 3, 1,
-            downsample=True), ConvBlock(512, 512, 3, 1, downsample=True),
-            ConvBlock(512, 512, 3, 1, downsample=True), ConvBlock(512, 512,
-            3, 1, downsample=True), ConvBlock(513, 512, 3, 1, 4, 0)])
+        self.progression = nn.ModuleList([ConvBlock(16, 32, 3, 1, downsample=True, fused=fused), ConvBlock(32, 64, 3, 1, downsample=True, fused=fused), ConvBlock(64, 128, 3, 1, downsample=True, fused=fused), ConvBlock(128, 256, 3, 1, downsample=True, fused=fused), ConvBlock(256, 512, 3, 1, downsample=True), ConvBlock(512, 512, 3, 1, downsample=True), ConvBlock(512, 512, 3, 1, downsample=True), ConvBlock(512, 512, 3, 1, downsample=True), ConvBlock(513, 512, 3, 1, 4, 0)])
 
         def make_from_rgb(out_channel):
             if from_rgb_activate:
-                return nn.Sequential(EqualConv2d(3, out_channel, 1), nn.
-                    LeakyReLU(0.2))
+                return nn.Sequential(EqualConv2d(3, out_channel, 1), nn.LeakyReLU(0.2))
             else:
                 return EqualConv2d(3, out_channel, 1)
-        self.from_rgb = nn.ModuleList([make_from_rgb(16), make_from_rgb(32),
-            make_from_rgb(64), make_from_rgb(128), make_from_rgb(256),
-            make_from_rgb(512), make_from_rgb(512), make_from_rgb(512),
-            make_from_rgb(512)])
+        self.from_rgb = nn.ModuleList([make_from_rgb(16), make_from_rgb(32), make_from_rgb(64), make_from_rgb(128), make_from_rgb(256), make_from_rgb(512), make_from_rgb(512), make_from_rgb(512), make_from_rgb(512)])
         self.n_layer = len(self.progression)
         self.linear = EqualLinear(512, 1)
 
@@ -482,44 +432,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Blur,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConstantInput,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Discriminator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (EqualConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EqualLinear,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FusedDownsample,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (FusedUpsample,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoiseInjection,
+     lambda: ([], {'channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PixelNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StyledConvBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([512, 4, 64, 64]), torch.rand([512, 512]), torch.rand([512, 4, 64, 64])], {}),
+     True),
+    (StyledGenerator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([512, 512])], {}),
+     False),
+]
+
 class Test_rosinality_style_based_gan_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Blur(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConstantInput(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Discriminator(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(EqualConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(EqualLinear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(FusedDownsample(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(FusedUpsample(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(NoiseInjection(*[], **{'channel': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(StyledConvBlock(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([512, 4, 64, 64]), torch.rand([512, 512]), torch.rand([512, 4, 64, 64])], {})
+        self._check(*TESTCASES[10])
 
-    @_fails_compile()
     def test_011(self):
-        self._check(StyledGenerator(*[], **{}), [torch.rand([512, 512])], {})
+        self._check(*TESTCASES[11])
 

@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -55,8 +56,7 @@ def channel_split(x, split):
 
 class Choice_Block(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel, stride, supernet=True
-        ):
+    def __init__(self, in_channels, out_channels, kernel, stride, supernet=True):
         super(Choice_Block, self).__init__()
         padding = kernel // 2
         if supernet:
@@ -67,24 +67,9 @@ class Choice_Block(nn.Module):
         self.in_channels = in_channels
         self.mid_channels = out_channels // 2
         self.out_channels = out_channels - in_channels
-        self.cb_main = nn.Sequential(nn.Conv2d(self.in_channels, self.
-            mid_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.ReLU(
-            inplace=True), nn.Conv2d(self.mid_channels, self.mid_channels,
-            kernel_size=kernel, stride=stride, padding=padding, bias=False,
-            groups=self.mid_channels), nn.BatchNorm2d(self.mid_channels,
-            affine=self.affine), nn.Conv2d(self.mid_channels, self.
-            out_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(self.out_channels, affine=self.affine), nn.ReLU(
-            inplace=True))
+        self.cb_main = nn.Sequential(nn.Conv2d(self.in_channels, self.mid_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.ReLU(inplace=True), nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=kernel, stride=stride, padding=padding, bias=False, groups=self.mid_channels), nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.Conv2d(self.mid_channels, self.out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.out_channels, affine=self.affine), nn.ReLU(inplace=True))
         if stride == 2:
-            self.cb_proj = nn.Sequential(nn.Conv2d(self.in_channels, self.
-                in_channels, kernel_size=kernel, stride=2, padding=padding,
-                bias=False, groups=self.in_channels), nn.BatchNorm2d(self.
-                in_channels, affine=self.affine), nn.Conv2d(self.
-                in_channels, self.in_channels, kernel_size=1, stride=1,
-                padding=0, bias=False), nn.BatchNorm2d(self.in_channels,
-                affine=self.affine), nn.ReLU(inplace=True))
+            self.cb_proj = nn.Sequential(nn.Conv2d(self.in_channels, self.in_channels, kernel_size=kernel, stride=2, padding=padding, bias=False, groups=self.in_channels), nn.BatchNorm2d(self.in_channels, affine=self.affine), nn.Conv2d(self.in_channels, self.in_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.in_channels, affine=self.affine), nn.ReLU(inplace=True))
 
     def forward(self, x):
         if self.stride == 1:
@@ -107,32 +92,9 @@ class Choice_Block_x(nn.Module):
         self.in_channels = in_channels
         self.mid_channels = out_channels // 2
         self.out_channels = out_channels - in_channels
-        self.cb_main = nn.Sequential(nn.Conv2d(self.in_channels, self.
-            in_channels, kernel_size=3, stride=stride, padding=1, bias=
-            False, groups=self.in_channels), nn.BatchNorm2d(self.
-            in_channels, affine=self.affine), nn.Conv2d(self.in_channels,
-            self.mid_channels, kernel_size=1, stride=1, padding=0, bias=
-            False), nn.BatchNorm2d(self.mid_channels, affine=self.affine),
-            nn.ReLU(inplace=True), nn.Conv2d(self.mid_channels, self.
-            mid_channels, kernel_size=3, stride=1, padding=1, bias=False,
-            groups=self.mid_channels), nn.BatchNorm2d(self.mid_channels,
-            affine=self.affine), nn.Conv2d(self.mid_channels, self.
-            mid_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.ReLU(
-            inplace=True), nn.Conv2d(self.mid_channels, self.mid_channels,
-            kernel_size=3, stride=1, padding=1, bias=False, groups=self.
-            mid_channels), nn.BatchNorm2d(self.mid_channels, affine=self.
-            affine), nn.Conv2d(self.mid_channels, self.out_channels,
-            kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d
-            (self.out_channels, affine=self.affine), nn.ReLU(inplace=True))
+        self.cb_main = nn.Sequential(nn.Conv2d(self.in_channels, self.in_channels, kernel_size=3, stride=stride, padding=1, bias=False, groups=self.in_channels), nn.BatchNorm2d(self.in_channels, affine=self.affine), nn.Conv2d(self.in_channels, self.mid_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.ReLU(inplace=True), nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=3, stride=1, padding=1, bias=False, groups=self.mid_channels), nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.ReLU(inplace=True), nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=3, stride=1, padding=1, bias=False, groups=self.mid_channels), nn.BatchNorm2d(self.mid_channels, affine=self.affine), nn.Conv2d(self.mid_channels, self.out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.out_channels, affine=self.affine), nn.ReLU(inplace=True))
         if stride == 2:
-            self.cb_proj = nn.Sequential(nn.Conv2d(self.in_channels, self.
-                in_channels, kernel_size=3, stride=2, padding=1, groups=
-                self.in_channels, bias=False), nn.BatchNorm2d(self.
-                in_channels, affine=self.affine), nn.Conv2d(self.
-                in_channels, self.in_channels, kernel_size=1, stride=1,
-                padding=0, bias=False), nn.BatchNorm2d(self.in_channels,
-                affine=self.affine), nn.ReLU(inplace=True))
+            self.cb_proj = nn.Sequential(nn.Conv2d(self.in_channels, self.in_channels, kernel_size=3, stride=2, padding=1, groups=self.in_channels, bias=False), nn.BatchNorm2d(self.in_channels, affine=self.affine), nn.Conv2d(self.in_channels, self.in_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(self.in_channels, affine=self.affine), nn.ReLU(inplace=True))
 
     def forward(self, x):
         if self.stride == 1:
@@ -143,8 +105,7 @@ class Choice_Block_x(nn.Module):
         return y
 
 
-channel = [16, 64, 64, 64, 64, 160, 160, 160, 160, 320, 320, 320, 320, 320,
-    320, 320, 320, 640, 640, 640, 640]
+channel = [16, 64, 64, 64, 64, 160, 160, 160, 160, 320, 320, 320, 320, 320, 320, 320, 320, 640, 640, 640, 640]
 
 
 last_channel = 1024
@@ -163,9 +124,7 @@ class SinglePath_OneShot(nn.Module):
         self.classes = classes
         self.layers = layers
         self.kernel_list = [3, 5, 7, 'x']
-        self.stem = nn.Sequential(nn.Conv2d(3, channel[0], kernel_size=3,
-            stride=first_stride, padding=1, bias=False), nn.BatchNorm2d(
-            channel[0], affine=False), nn.ReLU6(inplace=True))
+        self.stem = nn.Sequential(nn.Conv2d(3, channel[0], kernel_size=3, stride=first_stride, padding=1, bias=False), nn.BatchNorm2d(channel[0], affine=False), nn.ReLU6(inplace=True))
         self.choice_block = nn.ModuleList([])
         for i in range(layers):
             if i in self.downsample_layers:
@@ -179,12 +138,9 @@ class SinglePath_OneShot(nn.Module):
                 if j == 'x':
                     layer_cb.append(Choice_Block_x(inp, oup, stride=stride))
                 else:
-                    layer_cb.append(Choice_Block(inp, oup, kernel=j, stride
-                        =stride))
+                    layer_cb.append(Choice_Block(inp, oup, kernel=j, stride=stride))
             self.choice_block.append(layer_cb)
-        self.last_conv = nn.Sequential(nn.Conv2d(channel[-1], last_channel,
-            kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d
-            (last_channel, affine=False), nn.ReLU6(inplace=True))
+        self.last_conv = nn.Sequential(nn.Conv2d(channel[-1], last_channel, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(last_channel, affine=False), nn.ReLU6(inplace=True))
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(last_channel, self.classes, bias=False)
         self._initialize_weights()
@@ -238,9 +194,7 @@ class SinglePath_Network(nn.Module):
         self.classes = classes
         self.layers = layers
         self.kernel_list = [3, 5, 7, 'x']
-        self.stem = nn.Sequential(nn.Conv2d(3, channel[0], kernel_size=3,
-            stride=first_stride, padding=1, bias=False), nn.BatchNorm2d(
-            channel[0]), nn.ReLU6(inplace=True))
+        self.stem = nn.Sequential(nn.Conv2d(3, channel[0], kernel_size=3, stride=first_stride, padding=1, bias=False), nn.BatchNorm2d(channel[0]), nn.ReLU6(inplace=True))
         self.choice_block = nn.ModuleList([])
         for i in range(layers):
             if i in self.downsample_layers:
@@ -250,14 +204,10 @@ class SinglePath_Network(nn.Module):
                 stride = 1
                 inp, oup = channel[i] // 2, channel[i + 1]
             if choice[i] == 3:
-                self.choice_block.append(Choice_Block_x(inp, oup, stride=
-                    stride, supernet=False))
+                self.choice_block.append(Choice_Block_x(inp, oup, stride=stride, supernet=False))
             else:
-                self.choice_block.append(Choice_Block(inp, oup, kernel=self
-                    .kernel_list[choice[i]], stride=stride, supernet=False))
-        self.last_conv = nn.Sequential(nn.Conv2d(channel[-1], last_channel,
-            kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d
-            (last_channel), nn.ReLU6(inplace=True))
+                self.choice_block.append(Choice_Block(inp, oup, kernel=self.kernel_list[choice[i]], stride=stride, supernet=False))
+        self.last_conv = nn.Sequential(nn.Conv2d(channel[-1], last_channel, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(last_channel), nn.ReLU6(inplace=True))
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(last_channel, self.classes, bias=False)
         self._initialize_weights()
@@ -297,10 +247,3 @@ class SinglePath_Network(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ShunLu91_Single_Path_One_Shot_NAS(_paritybench_base):
-    pass

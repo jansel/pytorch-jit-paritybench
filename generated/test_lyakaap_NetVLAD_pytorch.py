@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -56,8 +57,7 @@ def _get_triplet_mask(labels):
     i_not_equal_k = torch.unsqueeze(indices_not_same, 1)
     j_not_equal_k = torch.unsqueeze(indices_not_same, 0)
     distinct_indices = i_not_equal_j * i_not_equal_k * j_not_equal_k
-    label_equal = torch.eq(torch.unsqueeze(labels, 0), torch.unsqueeze(
-        labels, 1))
+    label_equal = torch.eq(torch.unsqueeze(labels, 0), torch.unsqueeze(labels, 1))
     i_equal_j = torch.unsqueeze(label_equal, 2)
     i_equal_k = torch.unsqueeze(label_equal, 1)
     valid_labels = i_equal_j * (i_equal_k ^ 1)
@@ -109,21 +109,14 @@ class HardTripletLoss(nn.Module):
         """
         pairwise_dist = _pairwise_distance(embeddings, squared=self.squared)
         if self.hardest:
-            mask_anchor_positive = _get_anchor_positive_triplet_mask(labels
-                ).float()
+            mask_anchor_positive = _get_anchor_positive_triplet_mask(labels).float()
             valid_positive_dist = pairwise_dist * mask_anchor_positive
-            hardest_positive_dist, _ = torch.max(valid_positive_dist, dim=1,
-                keepdim=True)
-            mask_anchor_negative = _get_anchor_negative_triplet_mask(labels
-                ).float()
-            max_anchor_negative_dist, _ = torch.max(pairwise_dist, dim=1,
-                keepdim=True)
-            anchor_negative_dist = pairwise_dist + max_anchor_negative_dist * (
-                1.0 - mask_anchor_negative)
-            hardest_negative_dist, _ = torch.min(anchor_negative_dist, dim=
-                1, keepdim=True)
-            triplet_loss = F.relu(hardest_positive_dist -
-                hardest_negative_dist + 0.1)
+            hardest_positive_dist, _ = torch.max(valid_positive_dist, dim=1, keepdim=True)
+            mask_anchor_negative = _get_anchor_negative_triplet_mask(labels).float()
+            max_anchor_negative_dist, _ = torch.max(pairwise_dist, dim=1, keepdim=True)
+            anchor_negative_dist = pairwise_dist + max_anchor_negative_dist * (1.0 - mask_anchor_negative)
+            hardest_negative_dist, _ = torch.min(anchor_negative_dist, dim=1, keepdim=True)
+            triplet_loss = F.relu(hardest_positive_dist - hardest_negative_dist + 0.1)
             triplet_loss = torch.mean(triplet_loss)
         else:
             anc_pos_dist = pairwise_dist.unsqueeze(dim=2)
@@ -134,16 +127,14 @@ class HardTripletLoss(nn.Module):
             triplet_loss = F.relu(triplet_loss)
             hard_triplets = torch.gt(triplet_loss, 1e-16).float()
             num_hard_triplets = torch.sum(hard_triplets)
-            triplet_loss = torch.sum(triplet_loss) / (num_hard_triplets + 1e-16
-                )
+            triplet_loss = torch.sum(triplet_loss) / (num_hard_triplets + 1e-16)
         return triplet_loss
 
 
 class NetVLAD(nn.Module):
     """NetVLAD layer implementation"""
 
-    def __init__(self, num_clusters=64, dim=128, alpha=100.0,
-        normalize_input=True):
+    def __init__(self, num_clusters=64, dim=128, alpha=100.0, normalize_input=True):
         """
         Args:
             num_clusters : int
@@ -165,8 +156,7 @@ class NetVLAD(nn.Module):
         self._init_params()
 
     def _init_params(self):
-        self.conv.weight = nn.Parameter((2.0 * self.alpha * self.centroids)
-            .unsqueeze(-1).unsqueeze(-1))
+        self.conv.weight = nn.Parameter((2.0 * self.alpha * self.centroids).unsqueeze(-1).unsqueeze(-1))
         self.conv.bias = nn.Parameter(-self.alpha * self.centroids.norm(dim=1))
 
     def forward(self, x):
@@ -176,9 +166,7 @@ class NetVLAD(nn.Module):
         soft_assign = self.conv(x).view(N, self.num_clusters, -1)
         soft_assign = F.softmax(soft_assign, dim=1)
         x_flatten = x.view(N, C, -1)
-        residual = x_flatten.expand(self.num_clusters, -1, -1, -1).permute(
-            1, 0, 2, 3) - self.centroids.expand(x_flatten.size(-1), -1, -1
-            ).permute(1, 2, 0).unsqueeze(0)
+        residual = x_flatten.expand(self.num_clusters, -1, -1, -1).permute(1, 0, 2, 3) - self.centroids.expand(x_flatten.size(-1), -1, -1).permute(1, 2, 0).unsqueeze(0)
         residual *= soft_assign.unsqueeze(2)
         vlad = residual.sum(dim=-1)
         vlad = F.normalize(vlad, p=2, dim=2)
@@ -220,15 +208,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_lyakaap_NetVLAD_pytorch(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(EmbedNet(*[], **{'base_model': _mock_layer(), 'net_vlad': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EmbedNet,
+     lambda: ([], {'base_model': _mock_layer(), 'net_vlad': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NetVLAD,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     False),
+    (TripletNet,
+     lambda: ([], {'embed_net': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_lyakaap_NetVLAD_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(NetVLAD(*[], **{}), [torch.rand([4, 128, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TripletNet(*[], **{'embed_net': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -9,8 +9,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,8 +55,7 @@ class TreeLSTM(nn.Module):
         lstm_in = self.left(left_in[0])
         lstm_in += self.right(right_in[0])
         a, i, f1, f2, o = lstm_in.chunk(5, 1)
-        c = a.tanh() * i.sigmoid() + f1.sigmoid() * left_in[1] + f2.sigmoid(
-            ) * right_in[1]
+        c = a.tanh() * i.sigmoid() + f1.sigmoid() * left_in[1] + f2.sigmoid() * right_in[1]
         h = o.sigmoid() * c.tanh()
         return h, c
 
@@ -70,8 +70,7 @@ class SPINN(nn.Module):
         self.out = nn.Linear(size, n_classes)
 
     def leaf(self, word_id):
-        return self.embeddings(word_id), Variable(torch.FloatTensor(word_id
-            .size()[0], self.size))
+        return self.embeddings(word_id), Variable(torch.FloatTensor(word_id.size()[0], self.size))
 
     def children(self, left_h, left_c, right_h, right_c):
         return self.tree_lstm((left_h, left_c), (right_h, right_c))
@@ -119,8 +118,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (TreeLSTM,
+     lambda: ([], {'num_units': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_nearai_torchfold(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(TreeLSTM(*[], **{'num_units': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 

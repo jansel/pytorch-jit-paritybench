@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,9 +84,7 @@ from itertools import chain
 
 
 def conv(in_planes, out_planes, kernel_size=3):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-        kernel_size, padding=(kernel_size - 1) // 2, stride=2), nn.ReLU(
-        inplace=True))
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, padding=(kernel_size - 1) // 2, stride=2), nn.ReLU(inplace=True))
 
 
 def crop_like(input, ref):
@@ -94,20 +93,15 @@ def crop_like(input, ref):
 
 
 def downsample_conv(in_planes, out_planes, kernel_size=3):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-        kernel_size, stride=2, padding=(kernel_size - 1) // 2), nn.ReLU(
-        inplace=True), nn.Conv2d(out_planes, out_planes, kernel_size=
-        kernel_size, padding=(kernel_size - 1) // 2), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=2, padding=(kernel_size - 1) // 2), nn.ReLU(inplace=True), nn.Conv2d(out_planes, out_planes, kernel_size=kernel_size, padding=(kernel_size - 1) // 2), nn.ReLU(inplace=True))
 
 
 def predict_disp(in_planes):
-    return nn.Sequential(nn.Conv2d(in_planes, 1, kernel_size=3, padding=1),
-        nn.Sigmoid())
+    return nn.Sequential(nn.Conv2d(in_planes, 1, kernel_size=3, padding=1), nn.Sigmoid())
 
 
 def upconv(in_planes, out_planes):
-    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes,
-        kernel_size=4, stride=2, padding=1), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.ConvTranspose2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1), nn.ReLU(inplace=True))
 
 
 class DispNetS(nn.Module):
@@ -118,8 +112,7 @@ class DispNetS(nn.Module):
         self.beta = beta
         conv_planes = [32, 64, 128, 256, 512, 512, 512]
         self.conv1 = downsample_conv(3, conv_planes[0], kernel_size=7)
-        self.conv2 = downsample_conv(conv_planes[0], conv_planes[1],
-            kernel_size=5)
+        self.conv2 = downsample_conv(conv_planes[0], conv_planes[1], kernel_size=5)
         self.conv3 = downsample_conv(conv_planes[1], conv_planes[2])
         self.conv4 = downsample_conv(conv_planes[2], conv_planes[3])
         self.conv5 = downsample_conv(conv_planes[3], conv_planes[4])
@@ -137,10 +130,8 @@ class DispNetS(nn.Module):
         self.iconv6 = conv(upconv_planes[1] + conv_planes[4], upconv_planes[1])
         self.iconv5 = conv(upconv_planes[2] + conv_planes[3], upconv_planes[2])
         self.iconv4 = conv(upconv_planes[3] + conv_planes[2], upconv_planes[3])
-        self.iconv3 = conv(1 + upconv_planes[4] + conv_planes[1],
-            upconv_planes[4])
-        self.iconv2 = conv(1 + upconv_planes[5] + conv_planes[0],
-            upconv_planes[5])
+        self.iconv3 = conv(1 + upconv_planes[4] + conv_planes[1], upconv_planes[4])
+        self.iconv2 = conv(1 + upconv_planes[5] + conv_planes[0], upconv_planes[5])
         self.iconv1 = conv(1 + upconv_planes[6], upconv_planes[6])
         self.predict_disp4 = predict_disp(upconv_planes[3])
         self.predict_disp3 = predict_disp(upconv_planes[4])
@@ -176,20 +167,17 @@ class DispNetS(nn.Module):
         out_iconv4 = self.iconv4(concat4)
         disp4 = self.alpha * self.predict_disp4(out_iconv4) + self.beta
         out_upconv3 = crop_like(self.upconv3(out_iconv4), out_conv2)
-        disp4_up = crop_like(F.interpolate(disp4, scale_factor=2, mode=
-            'bilinear', align_corners=False), out_conv2)
+        disp4_up = crop_like(F.interpolate(disp4, scale_factor=2, mode='bilinear', align_corners=False), out_conv2)
         concat3 = torch.cat((out_upconv3, out_conv2, disp4_up), 1)
         out_iconv3 = self.iconv3(concat3)
         disp3 = self.alpha * self.predict_disp3(out_iconv3) + self.beta
         out_upconv2 = crop_like(self.upconv2(out_iconv3), out_conv1)
-        disp3_up = crop_like(F.interpolate(disp3, scale_factor=2, mode=
-            'bilinear', align_corners=False), out_conv1)
+        disp3_up = crop_like(F.interpolate(disp3, scale_factor=2, mode='bilinear', align_corners=False), out_conv1)
         concat2 = torch.cat((out_upconv2, out_conv1, disp3_up), 1)
         out_iconv2 = self.iconv2(concat2)
         disp2 = self.alpha * self.predict_disp2(out_iconv2) + self.beta
         out_upconv1 = crop_like(self.upconv1(out_iconv2), x)
-        disp2_up = crop_like(F.interpolate(disp2, scale_factor=2, mode=
-            'bilinear', align_corners=False), x)
+        disp2_up = crop_like(F.interpolate(disp2, scale_factor=2, mode='bilinear', align_corners=False), x)
         concat1 = torch.cat((out_upconv1, disp2_up), 1)
         out_iconv1 = self.iconv1(concat1)
         disp1 = self.alpha * self.predict_disp1(out_iconv1) + self.beta
@@ -206,16 +194,14 @@ class PoseExpNet(nn.Module):
         self.nb_ref_imgs = nb_ref_imgs
         self.output_exp = output_exp
         conv_planes = [16, 32, 64, 128, 256, 256, 256]
-        self.conv1 = conv(3 * (1 + self.nb_ref_imgs), conv_planes[0],
-            kernel_size=7)
+        self.conv1 = conv(3 * (1 + self.nb_ref_imgs), conv_planes[0], kernel_size=7)
         self.conv2 = conv(conv_planes[0], conv_planes[1], kernel_size=5)
         self.conv3 = conv(conv_planes[1], conv_planes[2])
         self.conv4 = conv(conv_planes[2], conv_planes[3])
         self.conv5 = conv(conv_planes[3], conv_planes[4])
         self.conv6 = conv(conv_planes[4], conv_planes[5])
         self.conv7 = conv(conv_planes[5], conv_planes[6])
-        self.pose_pred = nn.Conv2d(conv_planes[6], 6 * self.nb_ref_imgs,
-            kernel_size=1, padding=0)
+        self.pose_pred = nn.Conv2d(conv_planes[6], 6 * self.nb_ref_imgs, kernel_size=1, padding=0)
         if self.output_exp:
             upconv_planes = [256, 128, 64, 32, 16]
             self.upconv5 = upconv(conv_planes[4], upconv_planes[0])
@@ -223,14 +209,10 @@ class PoseExpNet(nn.Module):
             self.upconv3 = upconv(upconv_planes[1], upconv_planes[2])
             self.upconv2 = upconv(upconv_planes[2], upconv_planes[3])
             self.upconv1 = upconv(upconv_planes[3], upconv_planes[4])
-            self.predict_mask4 = nn.Conv2d(upconv_planes[1], self.
-                nb_ref_imgs, kernel_size=3, padding=1)
-            self.predict_mask3 = nn.Conv2d(upconv_planes[2], self.
-                nb_ref_imgs, kernel_size=3, padding=1)
-            self.predict_mask2 = nn.Conv2d(upconv_planes[3], self.
-                nb_ref_imgs, kernel_size=3, padding=1)
-            self.predict_mask1 = nn.Conv2d(upconv_planes[4], self.
-                nb_ref_imgs, kernel_size=3, padding=1)
+            self.predict_mask4 = nn.Conv2d(upconv_planes[1], self.nb_ref_imgs, kernel_size=3, padding=1)
+            self.predict_mask3 = nn.Conv2d(upconv_planes[2], self.nb_ref_imgs, kernel_size=3, padding=1)
+            self.predict_mask2 = nn.Conv2d(upconv_planes[3], self.nb_ref_imgs, kernel_size=3, padding=1)
+            self.predict_mask1 = nn.Conv2d(upconv_planes[4], self.nb_ref_imgs, kernel_size=3, padding=1)
 
     def init_weights(self):
         for m in self.modules():
@@ -255,16 +237,11 @@ class PoseExpNet(nn.Module):
         pose = pose.mean(3).mean(2)
         pose = 0.01 * pose.view(pose.size(0), self.nb_ref_imgs, 6)
         if self.output_exp:
-            out_upconv5 = self.upconv5(out_conv5)[:, :, 0:out_conv4.size(2),
-                0:out_conv4.size(3)]
-            out_upconv4 = self.upconv4(out_upconv5)[:, :, 0:out_conv3.size(
-                2), 0:out_conv3.size(3)]
-            out_upconv3 = self.upconv3(out_upconv4)[:, :, 0:out_conv2.size(
-                2), 0:out_conv2.size(3)]
-            out_upconv2 = self.upconv2(out_upconv3)[:, :, 0:out_conv1.size(
-                2), 0:out_conv1.size(3)]
-            out_upconv1 = self.upconv1(out_upconv2)[:, :, 0:input.size(2), 
-                0:input.size(3)]
+            out_upconv5 = self.upconv5(out_conv5)[:, :, 0:out_conv4.size(2), 0:out_conv4.size(3)]
+            out_upconv4 = self.upconv4(out_upconv5)[:, :, 0:out_conv3.size(2), 0:out_conv3.size(3)]
+            out_upconv3 = self.upconv3(out_upconv4)[:, :, 0:out_conv2.size(2), 0:out_conv2.size(3)]
+            out_upconv2 = self.upconv2(out_upconv3)[:, :, 0:out_conv1.size(2), 0:out_conv1.size(3)]
+            out_upconv1 = self.upconv1(out_upconv2)[:, :, 0:input.size(2), 0:input.size(3)]
             exp_mask4 = sigmoid(self.predict_mask4(out_upconv4))
             exp_mask3 = sigmoid(self.predict_mask3(out_upconv3))
             exp_mask2 = sigmoid(self.predict_mask2(out_upconv2))
@@ -279,10 +256,3 @@ class PoseExpNet(nn.Module):
         else:
             return exp_mask1, pose
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_ClementPinard_SfmLearner_Pytorch(_paritybench_base):
-    pass

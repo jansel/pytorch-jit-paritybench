@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -54,8 +55,7 @@ class MaskedLinear(nn.Linear):
 
 class MADE(nn.Module):
 
-    def __init__(self, nin, hidden_sizes, nout, num_masks=1,
-        natural_ordering=False):
+    def __init__(self, nin, hidden_sizes, nout, num_masks=1, natural_ordering=False):
         """
         nin: integer; number of inputs
         hidden sizes: a list of integers; number of units in hidden layers
@@ -90,13 +90,10 @@ class MADE(nn.Module):
         L = len(self.hidden_sizes)
         rng = np.random.RandomState(self.seed)
         self.seed = (self.seed + 1) % self.num_masks
-        self.m[-1] = np.arange(self.nin
-            ) if self.natural_ordering else rng.permutation(self.nin)
+        self.m[-1] = np.arange(self.nin) if self.natural_ordering else rng.permutation(self.nin)
         for l in range(L):
-            self.m[l] = rng.randint(self.m[l - 1].min(), self.nin - 1, size
-                =self.hidden_sizes[l])
-        masks = [(self.m[l - 1][:, (None)] <= self.m[l][(None), :]) for l in
-            range(L)]
+            self.m[l] = rng.randint(self.m[l - 1].min(), self.nin - 1, size=self.hidden_sizes[l])
+        masks = [(self.m[l - 1][:, (None)] <= self.m[l][(None), :]) for l in range(L)]
         masks.append(self.m[L - 1][:, (None)] < self.m[-1][(None), :])
         if self.nout > self.nin:
             k = int(self.nout / self.nin)
@@ -113,8 +110,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MaskedLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_karpathy_pytorch_made(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MaskedLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

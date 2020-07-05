@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -79,8 +80,7 @@ def fixed_padding(x, kernel_size):
     pad_total = kernel_size - 1
     pad_beg = pad_total // 2
     pad_end = pad_total - pad_beg
-    x = jax.lax.pad(x, 0.0, ((0, 0, 0), (pad_beg, pad_end, 0), (pad_beg,
-        pad_end, 0), (0, 0, 0)))
+    x = jax.lax.pad(x, 0.0, ((0, 0, 0), (pad_beg, pad_end, 0), (pad_beg, pad_end, 0), (0, 0, 0)))
     return x
 
 
@@ -88,8 +88,7 @@ class RootBlock(nn.Module):
 
     def apply(self, x, width):
         x = fixed_padding(x, 7)
-        x = StdConv(x, width, (7, 7), (2, 2), padding='VALID', bias=False,
-            name='conv_root')
+        x = StdConv(x, width, (7, 7), (2, 2), padding='VALID', bias=False, name='conv_root')
         x = fixed_padding(x, 3)
         x = nn.max_pool(x, (3, 3), strides=(2, 2), padding='VALID')
         return x
@@ -139,13 +138,11 @@ class ResNet(nn.Module):
         root_block = RootBlock.partial(width=width)
         x = root_block(x, name='root_block')
         for i, block_size in enumerate(block_sizes):
-            x = ResidualBlock(x, block_size, width * 2 ** i, first_stride=(
-                1, 1) if i == 0 else (2, 2), name=f'block{i + 1}')
+            x = ResidualBlock(x, block_size, width * 2 ** i, first_stride=(1, 1) if i == 0 else (2, 2), name=f'block{i + 1}')
         x = GroupNorm(x, name='norm-pre-head')
         x = nn.relu(x)
         x = jnp.mean(x, axis=(1, 2))
-        x = nn.Dense(x, num_classes, name='conv_head', kernel_init=nn.
-            initializers.zeros)
+        x = nn.Dense(x, num_classes, name='conv_head', kernel_init=nn.initializers.zeros)
         return x.astype(jnp.float32)
 
 
@@ -155,18 +152,15 @@ class StdConv2d(nn.Conv2d):
         w = self.weight
         v, m = torch.var_mean(w, dim=[1, 2, 3], keepdim=True, unbiased=False)
         w = (w - m) / torch.sqrt(v + 1e-10)
-        return F.conv2d(x, w, self.bias, self.stride, self.padding, self.
-            dilation, self.groups)
+        return F.conv2d(x, w, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 def conv1x1(cin, cout, stride=1, bias=False):
-    return StdConv2d(cin, cout, kernel_size=1, stride=stride, padding=0,
-        bias=bias)
+    return StdConv2d(cin, cout, kernel_size=1, stride=stride, padding=0, bias=bias)
 
 
 def conv3x3(cin, cout, stride=1, groups=1, bias=False):
-    return StdConv2d(cin, cout, kernel_size=3, stride=stride, padding=1,
-        bias=bias, groups=groups)
+    return StdConv2d(cin, cout, kernel_size=3, stride=stride, padding=1, bias=bias, groups=groups)
 
 
 def tf2th(conv_weights):
@@ -212,18 +206,12 @@ class PreActBottleneck(nn.Module):
     def load_from(self, weights, prefix=''):
         convname = 'standardized_conv2d'
         with torch.no_grad():
-            self.conv1.weight.copy_(tf2th(weights[
-                f'{prefix}a/{convname}/kernel']))
-            self.conv2.weight.copy_(tf2th(weights[
-                f'{prefix}b/{convname}/kernel']))
-            self.conv3.weight.copy_(tf2th(weights[
-                f'{prefix}c/{convname}/kernel']))
-            self.gn1.weight.copy_(tf2th(weights[f'{prefix}a/group_norm/gamma'])
-                )
-            self.gn2.weight.copy_(tf2th(weights[f'{prefix}b/group_norm/gamma'])
-                )
-            self.gn3.weight.copy_(tf2th(weights[f'{prefix}c/group_norm/gamma'])
-                )
+            self.conv1.weight.copy_(tf2th(weights[f'{prefix}a/{convname}/kernel']))
+            self.conv2.weight.copy_(tf2th(weights[f'{prefix}b/{convname}/kernel']))
+            self.conv3.weight.copy_(tf2th(weights[f'{prefix}c/{convname}/kernel']))
+            self.gn1.weight.copy_(tf2th(weights[f'{prefix}a/group_norm/gamma']))
+            self.gn2.weight.copy_(tf2th(weights[f'{prefix}b/group_norm/gamma']))
+            self.gn3.weight.copy_(tf2th(weights[f'{prefix}c/group_norm/gamma']))
             self.gn1.bias.copy_(tf2th(weights[f'{prefix}a/group_norm/beta']))
             self.gn2.bias.copy_(tf2th(weights[f'{prefix}b/group_norm/beta']))
             self.gn3.bias.copy_(tf2th(weights[f'{prefix}c/group_norm/beta']))
@@ -235,36 +223,13 @@ class PreActBottleneck(nn.Module):
 class ResNetV2(nn.Module):
     """Implementation of Pre-activation (v2) ResNet mode."""
 
-    def __init__(self, block_units, width_factor, head_size=21843,
-        zero_head=False):
+    def __init__(self, block_units, width_factor, head_size=21843, zero_head=False):
         super().__init__()
         wf = width_factor
-        self.root = nn.Sequential(OrderedDict([('conv', StdConv2d(3, 64 *
-            wf, kernel_size=7, stride=2, padding=3, bias=False)), ('pad',
-            nn.ConstantPad2d(1, 0)), ('pool', nn.MaxPool2d(kernel_size=3,
-            stride=2, padding=0))]))
-        self.body = nn.Sequential(OrderedDict([('block1', nn.Sequential(
-            OrderedDict([('unit01', PreActBottleneck(cin=64 * wf, cout=256 *
-            wf, cmid=64 * wf))] + [(f'unit{i:02d}', PreActBottleneck(cin=
-            256 * wf, cout=256 * wf, cmid=64 * wf)) for i in range(2, 
-            block_units[0] + 1)]))), ('block2', nn.Sequential(OrderedDict([
-            ('unit01', PreActBottleneck(cin=256 * wf, cout=512 * wf, cmid=
-            128 * wf, stride=2))] + [(f'unit{i:02d}', PreActBottleneck(cin=
-            512 * wf, cout=512 * wf, cmid=128 * wf)) for i in range(2, 
-            block_units[1] + 1)]))), ('block3', nn.Sequential(OrderedDict([
-            ('unit01', PreActBottleneck(cin=512 * wf, cout=1024 * wf, cmid=
-            256 * wf, stride=2))] + [(f'unit{i:02d}', PreActBottleneck(cin=
-            1024 * wf, cout=1024 * wf, cmid=256 * wf)) for i in range(2, 
-            block_units[2] + 1)]))), ('block4', nn.Sequential(OrderedDict([
-            ('unit01', PreActBottleneck(cin=1024 * wf, cout=2048 * wf, cmid
-            =512 * wf, stride=2))] + [(f'unit{i:02d}', PreActBottleneck(cin
-            =2048 * wf, cout=2048 * wf, cmid=512 * wf)) for i in range(2, 
-            block_units[3] + 1)])))]))
+        self.root = nn.Sequential(OrderedDict([('conv', StdConv2d(3, 64 * wf, kernel_size=7, stride=2, padding=3, bias=False)), ('pad', nn.ConstantPad2d(1, 0)), ('pool', nn.MaxPool2d(kernel_size=3, stride=2, padding=0))]))
+        self.body = nn.Sequential(OrderedDict([('block1', nn.Sequential(OrderedDict([('unit01', PreActBottleneck(cin=64 * wf, cout=256 * wf, cmid=64 * wf))] + [(f'unit{i:02d}', PreActBottleneck(cin=256 * wf, cout=256 * wf, cmid=64 * wf)) for i in range(2, block_units[0] + 1)]))), ('block2', nn.Sequential(OrderedDict([('unit01', PreActBottleneck(cin=256 * wf, cout=512 * wf, cmid=128 * wf, stride=2))] + [(f'unit{i:02d}', PreActBottleneck(cin=512 * wf, cout=512 * wf, cmid=128 * wf)) for i in range(2, block_units[1] + 1)]))), ('block3', nn.Sequential(OrderedDict([('unit01', PreActBottleneck(cin=512 * wf, cout=1024 * wf, cmid=256 * wf, stride=2))] + [(f'unit{i:02d}', PreActBottleneck(cin=1024 * wf, cout=1024 * wf, cmid=256 * wf)) for i in range(2, block_units[2] + 1)]))), ('block4', nn.Sequential(OrderedDict([('unit01', PreActBottleneck(cin=1024 * wf, cout=2048 * wf, cmid=512 * wf, stride=2))] + [(f'unit{i:02d}', PreActBottleneck(cin=2048 * wf, cout=2048 * wf, cmid=512 * wf)) for i in range(2, block_units[3] + 1)])))]))
         self.zero_head = zero_head
-        self.head = nn.Sequential(OrderedDict([('gn', nn.GroupNorm(32, 2048 *
-            wf)), ('relu', nn.ReLU(inplace=True)), ('avg', nn.
-            AdaptiveAvgPool2d(output_size=1)), ('conv', nn.Conv2d(2048 * wf,
-            head_size, kernel_size=1, bias=True))]))
+        self.head = nn.Sequential(OrderedDict([('gn', nn.GroupNorm(32, 2048 * wf)), ('relu', nn.ReLU(inplace=True)), ('avg', nn.AdaptiveAvgPool2d(output_size=1)), ('conv', nn.Conv2d(2048 * wf, head_size, kernel_size=1, bias=True))]))
 
     def forward(self, x):
         x = self.head(self.body(self.root(x)))
@@ -273,19 +238,15 @@ class ResNetV2(nn.Module):
 
     def load_from(self, weights, prefix='resnet/'):
         with torch.no_grad():
-            self.root.conv.weight.copy_(tf2th(weights[
-                f'{prefix}root_block/standardized_conv2d/kernel']))
-            self.head.gn.weight.copy_(tf2th(weights[
-                f'{prefix}group_norm/gamma']))
+            self.root.conv.weight.copy_(tf2th(weights[f'{prefix}root_block/standardized_conv2d/kernel']))
+            self.head.gn.weight.copy_(tf2th(weights[f'{prefix}group_norm/gamma']))
             self.head.gn.bias.copy_(tf2th(weights[f'{prefix}group_norm/beta']))
             if self.zero_head:
                 nn.init.zeros_(self.head.conv.weight)
                 nn.init.zeros_(self.head.conv.bias)
             else:
-                self.head.conv.weight.copy_(tf2th(weights[
-                    f'{prefix}head/conv2d/kernel']))
-                self.head.conv.bias.copy_(tf2th(weights[
-                    f'{prefix}head/conv2d/bias']))
+                self.head.conv.weight.copy_(tf2th(weights[f'{prefix}head/conv2d/kernel']))
+                self.head.conv.bias.copy_(tf2th(weights[f'{prefix}head/conv2d/bias']))
             for bname, block in self.body.named_children():
                 for uname, unit in block.named_children():
                     unit.load_from(weights, prefix=f'{prefix}{bname}/{uname}/')
@@ -295,12 +256,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResNetV2,
+     lambda: ([], {'block_units': [4, 4, 4, 4], 'width_factor': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (StdConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_google_research_big_transfer(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ResNetV2(*[], **{'block_units': [4, 4, 4, 4], 'width_factor': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(StdConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

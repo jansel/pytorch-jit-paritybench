@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -81,16 +82,7 @@ class Generator(torch.nn.Module):
 
     def __init__(self, channels):
         super().__init__()
-        self.main_module = nn.Sequential(nn.ConvTranspose2d(in_channels=100,
-            out_channels=1024, kernel_size=4, stride=1, padding=0), nn.
-            BatchNorm2d(num_features=1024), nn.ReLU(True), nn.
-            ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size
-            =4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.
-            ReLU(True), nn.ConvTranspose2d(in_channels=512, out_channels=
-            256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(
-            num_features=256), nn.ReLU(True), nn.ConvTranspose2d(
-            in_channels=256, out_channels=channels, kernel_size=4, stride=2,
-            padding=1))
+        self.main_module = nn.Sequential(nn.ConvTranspose2d(in_channels=100, out_channels=1024, kernel_size=4, stride=1, padding=0), nn.BatchNorm2d(num_features=1024), nn.ReLU(True), nn.ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.ReLU(True), nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=256), nn.ReLU(True), nn.ConvTranspose2d(in_channels=256, out_channels=channels, kernel_size=4, stride=2, padding=1))
         self.output = nn.Tanh()
 
     def forward(self, x):
@@ -102,15 +94,8 @@ class Discriminator(torch.nn.Module):
 
     def __init__(self, channels):
         super().__init__()
-        self.main_module = nn.Sequential(nn.Conv2d(in_channels=channels,
-            out_channels=256, kernel_size=4, stride=2, padding=1), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=256,
-            out_channels=512, kernel_size=4, stride=2, padding=1), nn.
-            BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(
-            in_channels=512, out_channels=1024, kernel_size=4, stride=2,
-            padding=1), nn.BatchNorm2d(1024), nn.LeakyReLU(0.2, inplace=True))
-        self.output = nn.Sequential(nn.Conv2d(in_channels=1024,
-            out_channels=1, kernel_size=4, stride=1, padding=0), nn.Sigmoid())
+        self.main_module = nn.Sequential(nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=4, stride=2, padding=1), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(512), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(1024), nn.LeakyReLU(0.2, inplace=True))
+        self.output = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=4, stride=1, padding=0), nn.Sigmoid())
 
     def forward(self, x):
         x = self.main_module(x)
@@ -125,16 +110,7 @@ class Generator(torch.nn.Module):
 
     def __init__(self, channels):
         super().__init__()
-        self.main_module = nn.Sequential(nn.ConvTranspose2d(in_channels=100,
-            out_channels=1024, kernel_size=4, stride=1, padding=0), nn.
-            BatchNorm2d(num_features=1024), nn.ReLU(True), nn.
-            ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size
-            =4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.
-            ReLU(True), nn.ConvTranspose2d(in_channels=512, out_channels=
-            256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(
-            num_features=256), nn.ReLU(True), nn.ConvTranspose2d(
-            in_channels=256, out_channels=channels, kernel_size=4, stride=2,
-            padding=1))
+        self.main_module = nn.Sequential(nn.ConvTranspose2d(in_channels=100, out_channels=1024, kernel_size=4, stride=1, padding=0), nn.BatchNorm2d(num_features=1024), nn.ReLU(True), nn.ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.ReLU(True), nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=256), nn.ReLU(True), nn.ConvTranspose2d(in_channels=256, out_channels=channels, kernel_size=4, stride=2, padding=1))
         self.output = nn.Tanh()
 
     def forward(self, x):
@@ -146,16 +122,8 @@ class Discriminator(torch.nn.Module):
 
     def __init__(self, channels):
         super().__init__()
-        self.main_module = nn.Sequential(nn.Conv2d(in_channels=channels,
-            out_channels=256, kernel_size=4, stride=2, padding=1), nn.
-            BatchNorm2d(num_features=256), nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4,
-            stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.
-            LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=512,
-            out_channels=1024, kernel_size=4, stride=2, padding=1), nn.
-            BatchNorm2d(num_features=1024), nn.LeakyReLU(0.2, inplace=True))
-        self.output = nn.Sequential(nn.Conv2d(in_channels=1024,
-            out_channels=1, kernel_size=4, stride=1, padding=0))
+        self.main_module = nn.Sequential(nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=256), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=1024), nn.LeakyReLU(0.2, inplace=True))
+        self.output = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=4, stride=1, padding=0))
 
     def forward(self, x):
         x = self.main_module(x)
@@ -170,16 +138,7 @@ class Generator(torch.nn.Module):
 
     def __init__(self, channels):
         super().__init__()
-        self.main_module = nn.Sequential(nn.ConvTranspose2d(in_channels=100,
-            out_channels=1024, kernel_size=4, stride=1, padding=0), nn.
-            BatchNorm2d(num_features=1024), nn.ReLU(True), nn.
-            ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size
-            =4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.
-            ReLU(True), nn.ConvTranspose2d(in_channels=512, out_channels=
-            256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(
-            num_features=256), nn.ReLU(True), nn.ConvTranspose2d(
-            in_channels=256, out_channels=channels, kernel_size=4, stride=2,
-            padding=1))
+        self.main_module = nn.Sequential(nn.ConvTranspose2d(in_channels=100, out_channels=1024, kernel_size=4, stride=1, padding=0), nn.BatchNorm2d(num_features=1024), nn.ReLU(True), nn.ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=512), nn.ReLU(True), nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(num_features=256), nn.ReLU(True), nn.ConvTranspose2d(in_channels=256, out_channels=channels, kernel_size=4, stride=2, padding=1))
         self.output = nn.Tanh()
 
     def forward(self, x):
@@ -191,16 +150,8 @@ class Discriminator(torch.nn.Module):
 
     def __init__(self, channels):
         super().__init__()
-        self.main_module = nn.Sequential(nn.Conv2d(in_channels=channels,
-            out_channels=256, kernel_size=4, stride=2, padding=1), nn.
-            InstanceNorm2d(256, affine=True), nn.LeakyReLU(0.2, inplace=
-            True), nn.Conv2d(in_channels=256, out_channels=512, kernel_size
-            =4, stride=2, padding=1), nn.InstanceNorm2d(512, affine=True),
-            nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=512,
-            out_channels=1024, kernel_size=4, stride=2, padding=1), nn.
-            InstanceNorm2d(1024, affine=True), nn.LeakyReLU(0.2, inplace=True))
-        self.output = nn.Sequential(nn.Conv2d(in_channels=1024,
-            out_channels=1, kernel_size=4, stride=1, padding=0))
+        self.main_module = nn.Sequential(nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(256, affine=True), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(512, affine=True), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(1024, affine=True), nn.LeakyReLU(0.2, inplace=True))
+        self.output = nn.Sequential(nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=4, stride=1, padding=0))
 
     def forward(self, x):
         x = self.main_module(x)
@@ -215,11 +166,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Discriminator,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (Generator,
+     lambda: ([], {'channels': 4}),
+     lambda: ([torch.rand([4, 100, 4, 4])], {}),
+     True),
+]
+
 class Test_Zeleni9_pytorch_wgan(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Discriminator(*[], **{'channels': 4}), [torch.rand([4, 4, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Generator(*[], **{'channels': 4}), [torch.rand([4, 100, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

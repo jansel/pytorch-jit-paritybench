@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -65,11 +66,9 @@ class CenterLoss(nn.Module):
         self.feat_dim = feat_dim
         self.use_gpu = use_gpu
         if self.use_gpu:
-            self.centers = nn.Parameter(torch.randn(self.num_classes, self.
-                feat_dim))
+            self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
         else:
-            self.centers = nn.Parameter(torch.randn(self.num_classes, self.
-                feat_dim))
+            self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
 
     def forward(self, x, labels):
         """
@@ -78,9 +77,7 @@ class CenterLoss(nn.Module):
             labels: ground truth labels with shape (batch_size).
         """
         batch_size = x.size(0)
-        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size,
-            self.num_classes) + torch.pow(self.centers, 2).sum(dim=1,
-            keepdim=True).expand(self.num_classes, batch_size).t()
+        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
         distmat.addmm_(1, -2, x, self.centers.t())
         classes = torch.arange(self.num_classes).long()
         if self.use_gpu:
@@ -133,5 +130,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 1, 24, 24])], {}),
+     True),
+]
+
 class Test_KaiyangZhou_pytorch_center_loss(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

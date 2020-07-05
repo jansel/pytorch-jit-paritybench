@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,14 +59,9 @@ class PointConvDensityClsSsg(nn.Module):
 
     def __init__(self, num_classes=40):
         super(PointConvDensityClsSsg, self).__init__()
-        self.sa1 = PointConvDensitySetAbstraction(npoint=512, nsample=32,
-            in_channel=3, mlp=[64, 64, 128], bandwidth=0.1, group_all=False)
-        self.sa2 = PointConvDensitySetAbstraction(npoint=128, nsample=64,
-            in_channel=128 + 3, mlp=[128, 128, 256], bandwidth=0.2,
-            group_all=False)
-        self.sa3 = PointConvDensitySetAbstraction(npoint=1, nsample=None,
-            in_channel=256 + 3, mlp=[256, 512, 1024], bandwidth=0.4,
-            group_all=True)
+        self.sa1 = PointConvDensitySetAbstraction(npoint=512, nsample=32, in_channel=3, mlp=[64, 64, 128], bandwidth=0.1, group_all=False)
+        self.sa2 = PointConvDensitySetAbstraction(npoint=128, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256], bandwidth=0.2, group_all=False)
+        self.sa3 = PointConvDensitySetAbstraction(npoint=1, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], bandwidth=0.4, group_all=True)
         self.fc1 = nn.Linear(1024, 512)
         self.bn1 = nn.BatchNorm1d(512)
         self.drop1 = nn.Dropout(0.4)
@@ -96,8 +92,7 @@ class DensityNet(nn.Module):
         self.mlp_convs.append(nn.Conv1d(1, hidden_unit[0], 1))
         self.mlp_bns.append(nn.BatchNorm1d(hidden_unit[0]))
         for i in range(1, len(hidden_unit)):
-            self.mlp_convs.append(nn.Conv1d(hidden_unit[i - 1], hidden_unit
-                [i], 1))
+            self.mlp_convs.append(nn.Conv1d(hidden_unit[i - 1], hidden_unit[i], 1))
             self.mlp_bns.append(nn.BatchNorm1d(hidden_unit[i]))
         self.mlp_convs.append(nn.Conv1d(hidden_unit[-1], 1, 1))
         self.mlp_bns.append(nn.BatchNorm1d(1))
@@ -128,8 +123,7 @@ class WeightNet(nn.Module):
             self.mlp_convs.append(nn.Conv2d(in_channel, hidden_unit[0], 1))
             self.mlp_bns.append(nn.BatchNorm2d(hidden_unit[0]))
             for i in range(1, len(hidden_unit)):
-                self.mlp_convs.append(nn.Conv2d(hidden_unit[i - 1],
-                    hidden_unit[i], 1))
+                self.mlp_convs.append(nn.Conv2d(hidden_unit[i - 1], hidden_unit[i], 1))
                 self.mlp_bns.append(nn.BatchNorm2d(hidden_unit[i]))
             self.mlp_convs.append(nn.Conv2d(hidden_unit[-1], out_channel, 1))
             self.mlp_bns.append(nn.BatchNorm2d(out_channel))
@@ -181,8 +175,7 @@ def index_points(points, idx):
     view_shape[1:] = [1] * (len(view_shape) - 1)
     repeat_shape = list(idx.shape)
     repeat_shape[0] = 1
-    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(
-        view_shape).repeat(repeat_shape)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
     new_points = points[(batch_indices), (idx), :]
     return new_points
 
@@ -221,8 +214,7 @@ def knn_point(nsample, xyz, new_xyz):
         group_idx: grouped points index, [B, S, nsample]
     """
     sqrdists = square_distance(new_xyz, xyz)
-    _, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False,
-        sorted=False)
+    _, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False, sorted=False)
     return group_idx
 
 
@@ -312,19 +304,16 @@ class PointConvSetAbstraction(nn.Module):
         if points is not None:
             points = points.permute(0, 2, 1)
         if self.group_all:
-            new_xyz, new_points, grouped_xyz_norm = sample_and_group_all(xyz,
-                points)
+            new_xyz, new_points, grouped_xyz_norm = sample_and_group_all(xyz, points)
         else:
-            new_xyz, new_points, grouped_xyz_norm, _ = sample_and_group(self
-                .npoint, self.nsample, xyz, points)
+            new_xyz, new_points, grouped_xyz_norm, _ = sample_and_group(self.npoint, self.nsample, xyz, points)
         new_points = new_points.permute(0, 3, 2, 1)
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
             new_points = F.relu(bn(conv(new_points)))
         grouped_xyz = grouped_xyz_norm.permute(0, 3, 2, 1)
         weights = self.weightnet(grouped_xyz)
-        new_points = torch.matmul(input=new_points.permute(0, 3, 1, 2),
-            other=weights.permute(0, 3, 2, 1)).view(B, self.npoint, -1)
+        new_points = torch.matmul(input=new_points.permute(0, 3, 1, 2), other=weights.permute(0, 3, 2, 1)).view(B, self.npoint, -1)
         new_points = self.linear(new_points)
         new_points = self.bn_linear(new_points.permute(0, 2, 1))
         new_points = F.relu(new_points)
@@ -338,8 +327,7 @@ def compute_density(xyz, bandwidth):
     """
     B, N, C = xyz.shape
     sqrdists = square_distance(xyz, xyz)
-    gaussion_density = torch.exp(-sqrdists / (2.0 * bandwidth * bandwidth)) / (
-        2.5 * bandwidth)
+    gaussion_density = torch.exp(-sqrdists / (2.0 * bandwidth * bandwidth)) / (2.5 * bandwidth)
     xyz_density = gaussion_density.mean(dim=-1)
     return xyz_density
 
@@ -381,12 +369,9 @@ class PointConvDensitySetAbstraction(nn.Module):
         xyz_density = compute_density(xyz, self.bandwidth)
         density_scale = self.densitynet(xyz_density)
         if self.group_all:
-            new_xyz, new_points, grouped_xyz_norm, grouped_density = (
-                sample_and_group_all(xyz, points, density_scale.view(B, N, 1)))
+            new_xyz, new_points, grouped_xyz_norm, grouped_density = sample_and_group_all(xyz, points, density_scale.view(B, N, 1))
         else:
-            new_xyz, new_points, grouped_xyz_norm, _, grouped_density = (
-                sample_and_group(self.npoint, self.nsample, xyz, points,
-                density_scale.view(B, N, 1)))
+            new_xyz, new_points, grouped_xyz_norm, _, grouped_density = sample_and_group(self.npoint, self.nsample, xyz, points, density_scale.view(B, N, 1))
         new_points = new_points.permute(0, 3, 2, 1)
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
@@ -394,8 +379,7 @@ class PointConvDensitySetAbstraction(nn.Module):
         grouped_xyz = grouped_xyz_norm.permute(0, 3, 2, 1)
         weights = self.weightnet(grouped_xyz)
         new_points = new_points * grouped_density.permute(0, 3, 2, 1)
-        new_points = torch.matmul(input=new_points.permute(0, 3, 1, 2),
-            other=weights.permute(0, 3, 2, 1)).view(B, self.npoint, -1)
+        new_points = torch.matmul(input=new_points.permute(0, 3, 1, 2), other=weights.permute(0, 3, 2, 1)).view(B, self.npoint, -1)
         new_points = self.linear(new_points)
         new_points = self.bn_linear(new_points.permute(0, 2, 1))
         new_points = F.relu(new_points)
@@ -407,13 +391,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_DylanWusee_pointconv_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(DensityNet(*[], **{}), [torch.rand([4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DensityNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (WeightNet,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_DylanWusee_pointconv_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(WeightNet(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

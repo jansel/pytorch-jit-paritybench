@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -40,15 +41,12 @@ class NormalizingFlow(nn.Module):
 
     def __init__(self, dim, flow_length):
         super().__init__()
-        self.transforms = nn.Sequential(*(PlanarFlow(dim) for _ in range(
-            flow_length)))
-        self.log_jacobians = nn.Sequential(*(PlanarFlowLogDetJacobian(t) for
-            t in self.transforms))
+        self.transforms = nn.Sequential(*(PlanarFlow(dim) for _ in range(flow_length)))
+        self.log_jacobians = nn.Sequential(*(PlanarFlowLogDetJacobian(t) for t in self.transforms))
 
     def forward(self, z):
         log_jacobians = []
-        for transform, log_jacobian in zip(self.transforms, self.log_jacobians
-            ):
+        for transform, log_jacobian in zip(self.transforms, self.log_jacobians):
             log_jacobians.append(log_jacobian(z))
             z = transform(z)
         zk = z
@@ -112,15 +110,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (FreeEnergyBound,
+     lambda: ([], {'density': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NormalizingFlow,
+     lambda: ([], {'dim': 4, 'flow_length': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (PlanarFlow,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ex4sperans_variational_inference_with_normalizing_flows(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(FreeEnergyBound(*[], **{'density': _mock_layer()}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(NormalizingFlow(*[], **{'dim': 4, 'flow_length': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(PlanarFlow(*[], **{'dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

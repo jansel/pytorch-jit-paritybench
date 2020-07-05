@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,11 +106,7 @@ class Prenet(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.hidden_size = hidden_size
-        self.layer = nn.Sequential(OrderedDict([('fc1', SeqLinear(self.
-            input_size, self.hidden_size)), ('relu1', nn.ReLU()), (
-            'dropout1', nn.Dropout(0.5)), ('fc2', SeqLinear(self.
-            hidden_size, self.output_size)), ('relu2', nn.ReLU()), (
-            'dropout2', nn.Dropout(0.5))]))
+        self.layer = nn.Sequential(OrderedDict([('fc1', SeqLinear(self.input_size, self.hidden_size)), ('relu1', nn.ReLU()), ('dropout1', nn.Dropout(0.5)), ('fc2', SeqLinear(self.hidden_size, self.output_size)), ('relu2', nn.ReLU()), ('dropout2', nn.Dropout(0.5))]))
 
     def forward(self, input_):
         out = self.layer(input_)
@@ -124,8 +121,7 @@ class CBHG(nn.Module):
     CBHG Module
     """
 
-    def __init__(self, hidden_size, K=16, projection_size=128,
-        num_gru_layers=2, max_pool_kernel_size=2, is_post=False):
+    def __init__(self, hidden_size, K=16, projection_size=128, num_gru_layers=2, max_pool_kernel_size=2, is_post=False):
         """
 
         :param hidden_size: dimension of hidden unit
@@ -140,38 +136,25 @@ class CBHG(nn.Module):
         self.num_gru_layers = num_gru_layers
         self.projection_size = projection_size
         self.convbank_list = nn.ModuleList()
-        self.convbank_list.append(nn.Conv1d(in_channels=projection_size,
-            out_channels=hidden_size, kernel_size=1, padding=int(np.floor(1 /
-            2))))
+        self.convbank_list.append(nn.Conv1d(in_channels=projection_size, out_channels=hidden_size, kernel_size=1, padding=int(np.floor(1 / 2))))
         for i in range(2, K + 1):
-            self.convbank_list.append(nn.Conv1d(in_channels=hidden_size,
-                out_channels=hidden_size, kernel_size=i, padding=int(np.
-                floor(i / 2))))
+            self.convbank_list.append(nn.Conv1d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=i, padding=int(np.floor(i / 2))))
         self.batchnorm_list = nn.ModuleList()
         for i in range(1, K + 1):
             self.batchnorm_list.append(nn.BatchNorm1d(hidden_size))
         convbank_outdim = hidden_size * K
         if is_post:
-            self.conv_projection_1 = nn.Conv1d(in_channels=convbank_outdim,
-                out_channels=hidden_size * 2, kernel_size=3, padding=int(np
-                .floor(3 / 2)))
-            self.conv_projection_2 = nn.Conv1d(in_channels=hidden_size * 2,
-                out_channels=projection_size, kernel_size=3, padding=int(np
-                .floor(3 / 2)))
+            self.conv_projection_1 = nn.Conv1d(in_channels=convbank_outdim, out_channels=hidden_size * 2, kernel_size=3, padding=int(np.floor(3 / 2)))
+            self.conv_projection_2 = nn.Conv1d(in_channels=hidden_size * 2, out_channels=projection_size, kernel_size=3, padding=int(np.floor(3 / 2)))
             self.batchnorm_proj_1 = nn.BatchNorm1d(hidden_size * 2)
         else:
-            self.conv_projection_1 = nn.Conv1d(in_channels=convbank_outdim,
-                out_channels=hidden_size, kernel_size=3, padding=int(np.
-                floor(3 / 2)))
-            self.conv_projection_2 = nn.Conv1d(in_channels=hidden_size,
-                out_channels=projection_size, kernel_size=3, padding=int(np
-                .floor(3 / 2)))
+            self.conv_projection_1 = nn.Conv1d(in_channels=convbank_outdim, out_channels=hidden_size, kernel_size=3, padding=int(np.floor(3 / 2)))
+            self.conv_projection_2 = nn.Conv1d(in_channels=hidden_size, out_channels=projection_size, kernel_size=3, padding=int(np.floor(3 / 2)))
             self.batchnorm_proj_1 = nn.BatchNorm1d(hidden_size)
         self.batchnorm_proj_2 = nn.BatchNorm1d(projection_size)
         self.max_pool = nn.MaxPool1d(max_pool_kernel_size, stride=1, padding=1)
         self.highway = Highwaynet(self.projection_size)
-        self.gru = nn.GRU(self.projection_size, self.hidden_size,
-            num_layers=2, batch_first=True, bidirectional=True)
+        self.gru = nn.GRU(self.projection_size, self.hidden_size, num_layers=2, batch_first=True, bidirectional=True)
 
     def _conv_fit_dim(self, x, kernel_size=3):
         if kernel_size % 2 == 0:
@@ -184,25 +167,19 @@ class CBHG(nn.Module):
         batch_size = input_.size()[0]
         convbank_list = list()
         convbank_input = input_
-        for k, (conv, batchnorm) in enumerate(zip(self.convbank_list, self.
-            batchnorm_list)):
-            convbank_input = F.relu(batchnorm(self._conv_fit_dim(conv(
-                convbank_input), k + 1).contiguous()))
+        for k, (conv, batchnorm) in enumerate(zip(self.convbank_list, self.batchnorm_list)):
+            convbank_input = F.relu(batchnorm(self._conv_fit_dim(conv(convbank_input), k + 1).contiguous()))
             convbank_list.append(convbank_input)
         conv_cat = torch.cat(convbank_list, dim=1)
         conv_cat = self.max_pool(conv_cat)[:, :, :-1]
-        conv_projection = F.relu(self.batchnorm_proj_1(self._conv_fit_dim(
-            self.conv_projection_1(conv_cat))))
-        conv_projection = self.batchnorm_proj_2(self._conv_fit_dim(self.
-            conv_projection_2(conv_projection))) + input_
+        conv_projection = F.relu(self.batchnorm_proj_1(self._conv_fit_dim(self.conv_projection_1(conv_cat))))
+        conv_projection = self.batchnorm_proj_2(self._conv_fit_dim(self.conv_projection_2(conv_projection))) + input_
         highway = self.highway.forward(conv_projection)
         highway = torch.transpose(highway, 1, 2)
         if use_cuda:
-            init_gru = Variable(torch.zeros(2 * self.num_gru_layers,
-                batch_size, self.hidden_size))
+            init_gru = Variable(torch.zeros(2 * self.num_gru_layers, batch_size, self.hidden_size))
         else:
-            init_gru = Variable(torch.zeros(2 * self.num_gru_layers,
-                batch_size, self.hidden_size))
+            init_gru = Variable(torch.zeros(2 * self.num_gru_layers, batch_size, self.hidden_size))
         self.gru.flatten_parameters()
         out, _ = self.gru(highway, init_gru)
         return out
@@ -259,20 +236,17 @@ class AttentionDecoder(nn.Module):
         self.attn_projection = nn.Linear(num_units * 2, num_units)
         self.out = nn.Linear(num_units, hp.num_mels * hp.outputs_per_step)
 
-    def forward(self, decoder_input, memory, attn_hidden, gru1_hidden,
-        gru2_hidden):
+    def forward(self, decoder_input, memory, attn_hidden, gru1_hidden, gru2_hidden):
         memory_len = memory.size()[1]
         batch_size = memory.size()[0]
         keys = self.W1(memory.contiguous().view(-1, self.num_units))
         keys = keys.view(-1, memory_len, self.num_units)
         d_t = self.attn_grucell(decoder_input, attn_hidden)
         d_t_duplicate = self.W2(d_t).unsqueeze(1).expand_as(memory)
-        attn_weights = self.v(F.tanh(keys + d_t_duplicate).view(-1, self.
-            num_units)).view(-1, memory_len, 1)
+        attn_weights = self.v(F.tanh(keys + d_t_duplicate).view(-1, self.num_units)).view(-1, memory_len, 1)
         attn_weights = attn_weights.squeeze(2)
         attn_weights = F.softmax(attn_weights)
-        d_t_prime = torch.bmm(attn_weights.view([batch_size, 1, -1]), memory
-            ).squeeze(1)
+        d_t_prime = torch.bmm(attn_weights.view([batch_size, 1, -1]), memory).squeeze(1)
         gru1_input = self.attn_projection(torch.cat([d_t, d_t_prime], 1))
         gru1_hidden = self.gru1(gru1_input, gru1_hidden)
         gru2_input = gru1_input + gru1_hidden
@@ -283,19 +257,13 @@ class AttentionDecoder(nn.Module):
 
     def inithidden(self, batch_size):
         if use_cuda:
-            attn_hidden = Variable(torch.zeros(batch_size, self.num_units),
-                requires_grad=False)
-            gru1_hidden = Variable(torch.zeros(batch_size, self.num_units),
-                requires_grad=False)
-            gru2_hidden = Variable(torch.zeros(batch_size, self.num_units),
-                requires_grad=False)
+            attn_hidden = Variable(torch.zeros(batch_size, self.num_units), requires_grad=False)
+            gru1_hidden = Variable(torch.zeros(batch_size, self.num_units), requires_grad=False)
+            gru2_hidden = Variable(torch.zeros(batch_size, self.num_units), requires_grad=False)
         else:
-            attn_hidden = Variable(torch.zeros(batch_size, self.num_units),
-                requires_grad=False)
-            gru1_hidden = Variable(torch.zeros(batch_size, self.num_units),
-                requires_grad=False)
-            gru2_hidden = Variable(torch.zeros(batch_size, self.num_units),
-                requires_grad=False)
+            attn_hidden = Variable(torch.zeros(batch_size, self.num_units), requires_grad=False)
+            gru1_hidden = Variable(torch.zeros(batch_size, self.num_units), requires_grad=False)
+            gru2_hidden = Variable(torch.zeros(batch_size, self.num_units), requires_grad=False)
         return attn_hidden, gru1_hidden, gru2_hidden
 
 
@@ -321,8 +289,7 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.embedding_size = embedding_size
         self.embed = nn.Embedding(len(symbols), embedding_size)
-        self.prenet = Prenet(embedding_size, hp.hidden_size * 2, hp.hidden_size
-            )
+        self.prenet = Prenet(embedding_size, hp.hidden_size * 2, hp.hidden_size)
         self.cbhg = CBHG(hp.hidden_size)
 
     def forward(self, input_):
@@ -343,18 +310,14 @@ class MelDecoder(nn.Module):
         self.attn_decoder = AttentionDecoder(hp.hidden_size * 2)
 
     def forward(self, decoder_input, memory):
-        attn_hidden, gru1_hidden, gru2_hidden = self.attn_decoder.inithidden(
-            decoder_input.size()[0])
+        attn_hidden, gru1_hidden, gru2_hidden = self.attn_decoder.inithidden(decoder_input.size()[0])
         outputs = list()
         if self.training:
             dec_input = self.prenet.forward(decoder_input)
             timesteps = dec_input.size()[2] // hp.outputs_per_step
             prev_output = dec_input[:, :, (0)]
             for i in range(timesteps):
-                prev_output, attn_hidden, gru1_hidden, gru2_hidden = (self.
-                    attn_decoder.forward(prev_output, memory, attn_hidden=
-                    attn_hidden, gru1_hidden=gru1_hidden, gru2_hidden=
-                    gru2_hidden))
+                prev_output, attn_hidden, gru1_hidden, gru2_hidden = self.attn_decoder.forward(prev_output, memory, attn_hidden=attn_hidden, gru1_hidden=gru1_hidden, gru2_hidden=gru2_hidden)
                 outputs.append(prev_output)
                 if random.random() < hp.teacher_forcing_ratio:
                     prev_output = dec_input[:, :, (i * hp.outputs_per_step)]
@@ -366,10 +329,7 @@ class MelDecoder(nn.Module):
             for i in range(hp.max_iters):
                 prev_output = self.prenet.forward(prev_output)
                 prev_output = prev_output[:, :, (0)]
-                prev_output, attn_hidden, gru1_hidden, gru2_hidden = (self.
-                    attn_decoder.forward(prev_output, memory, attn_hidden=
-                    attn_hidden, gru1_hidden=gru1_hidden, gru2_hidden=
-                    gru2_hidden))
+                prev_output, attn_hidden, gru1_hidden, gru2_hidden = self.attn_decoder.forward(prev_output, memory, attn_hidden=attn_hidden, gru1_hidden=gru1_hidden, gru2_hidden=gru2_hidden)
                 outputs.append(prev_output)
                 prev_output = prev_output[:, :, (-1)].unsqueeze(2)
             outputs = torch.cat(outputs, 2)
@@ -383,8 +343,7 @@ class PostProcessingNet(nn.Module):
 
     def __init__(self):
         super(PostProcessingNet, self).__init__()
-        self.postcbhg = CBHG(hp.hidden_size, K=8, projection_size=hp.
-            num_mels, is_post=True)
+        self.postcbhg = CBHG(hp.hidden_size, K=8, projection_size=hp.num_mels, is_post=True)
         self.linear = SeqLinear(hp.hidden_size * 2, hp.num_freq)
 
     def forward(self, input_):
@@ -415,18 +374,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CBHG,
+     lambda: ([], {'hidden_size': 4}),
+     lambda: ([torch.rand([4, 128, 64])], {}),
+     False),
+    (Highwaynet,
+     lambda: ([], {'num_units': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (Prenet,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeqLinear,
+     lambda: ([], {'input_size': 4, 'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_soobinseo_Tacotron_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CBHG(*[], **{'hidden_size': 4}), [torch.rand([4, 128, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Highwaynet(*[], **{'num_units': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Prenet(*[], **{'input_size': 4, 'hidden_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SeqLinear(*[], **{'input_size': 4, 'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

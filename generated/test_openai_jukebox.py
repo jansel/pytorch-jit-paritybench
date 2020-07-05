@@ -194,8 +194,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -353,8 +354,7 @@ class bidirectionalRNN(nn.Module):
         super(bidirectionalRNN, self).__init__()
         self.dropout = dropout
         self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout=dropout)
-        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers,
-            dropout=dropout)
+        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout=dropout)
         self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
 
     def forward(self, input, collect_hidden=False):
@@ -363,13 +363,10 @@ class bidirectionalRNN(nn.Module):
         """
         seq_len = input.size(0)
         bsz = input.size(1)
-        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=
-            collect_hidden))
-        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True,
-            collect_hidden=collect_hidden))
+        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=collect_hidden))
+        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collect_hidden=collect_hidden))
         output = torch.cat([fwd_out, bckwrd_out], -1)
-        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens,
-            bckwrd_hiddens))
+        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens, bckwrd_hiddens))
         return output, hiddens
 
     def reset_parameters(self):
@@ -409,8 +406,7 @@ class bidirectionalRNN(nn.Module):
 
 
 def is_iterable(maybe_iterable):
-    return isinstance(maybe_iterable, list) or isinstance(maybe_iterable, tuple
-        )
+    return isinstance(maybe_iterable, list) or isinstance(maybe_iterable, tuple)
 
 
 def flatten_list(tens_list):
@@ -419,8 +415,7 @@ def flatten_list(tens_list):
     """
     if not is_iterable(tens_list):
         return tens_list
-    return torch.cat(tens_list, dim=0).view(len(tens_list), *tens_list[0].
-        size())
+    return torch.cat(tens_list, dim=0).view(len(tens_list), *tens_list[0].size())
 
 
 class stackedRNN(nn.Module):
@@ -436,8 +431,7 @@ class stackedRNN(nn.Module):
             for i in range(num_layers - 1):
                 self.rnns.append(inputRNN.new_like(inputRNN.output_size))
         elif isinstance(inputRNN, list):
-            assert len(inputRNN
-                ) == num_layers, 'RNN list length must be equal to num_layers'
+            assert len(inputRNN) == num_layers, 'RNN list length must be equal to num_layers'
             self.rnns = inputRNN
         else:
             raise RuntimeError()
@@ -493,18 +487,15 @@ class stackedRNN(nn.Module):
         if not collect_hidden:
             seq_len = 1
         n_hid = self.rnns[0].n_hidden_states
-        new_hidden = [[[None for k in range(self.nLayers)] for j in range(
-            seq_len)] for i in range(n_hid)]
+        new_hidden = [[[None for k in range(self.nLayers)] for j in range(seq_len)] for i in range(n_hid)]
         for i in range(n_hid):
             for j in range(seq_len):
                 for k in range(self.nLayers):
                     new_hidden[i][j][k] = hidden_states[k][j][i]
         hidden_states = new_hidden
         if reverse:
-            hidden_states = list(list(reversed(list(entry))) for entry in
-                hidden_states)
-        hiddens = list(list(flatten_list(seq) for seq in hidden) for hidden in
-            hidden_states)
+            hidden_states = list(list(reversed(list(entry))) for entry in hidden_states)
+        hiddens = list(list(flatten_list(seq) for seq in hidden) for hidden in hidden_states)
         if not collect_hidden:
             hidden_states = list(entry[0] for entry in hidden_states)
         return output, hidden_states
@@ -556,8 +547,7 @@ class RNNCell(nn.Module):
     if one will go directly to cell as tensor, if more will go as list
     """
 
-    def __init__(self, gate_multiplier, input_size, hidden_size, cell,
-        n_hidden_states=2, bias=False, output_size=None):
+    def __init__(self, gate_multiplier, input_size, hidden_size, cell, n_hidden_states=2, bias=False, output_size=None):
         super(RNNCell, self).__init__()
         self.gate_multiplier = gate_multiplier
         self.input_size = input_size
@@ -570,11 +560,9 @@ class RNNCell(nn.Module):
         self.gate_size = gate_multiplier * self.hidden_size
         self.n_hidden_states = n_hidden_states
         self.w_ih = nn.Parameter(torch.Tensor(self.gate_size, self.input_size))
-        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size)
-            )
+        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size))
         if self.output_size != self.hidden_size:
-            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.
-                hidden_size))
+            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.hidden_size))
         self.b_ih = self.b_hh = None
         if self.bias:
             self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
@@ -588,9 +576,7 @@ class RNNCell(nn.Module):
         """
         if new_input_size is None:
             new_input_size = self.input_size
-        return type(self)(self.gate_multiplier, new_input_size, self.
-            hidden_size, self.cell, self.n_hidden_states, self.bias, self.
-            output_size)
+        return type(self)(self.gate_multiplier, new_input_size, self.hidden_size, self.cell, self.n_hidden_states, self.bias, self.output_size)
 
     def reset_parameters(self, gain=1):
         """
@@ -642,8 +628,7 @@ class RNNCell(nn.Module):
         """
         for i, _ in enumerate(self.hidden):
             if self.hidden[i] is None:
-                raise RuntimeError(
-                    'Must initialize hidden state before you can detach it')
+                raise RuntimeError('Must initialize hidden state before you can detach it')
         for i, _ in enumerate(self.hidden):
             self.hidden[i] = self.hidden[i].detach()
 
@@ -653,10 +638,8 @@ class RNNCell(nn.Module):
         if not inited or bsz has changed this will create hidden states
         """
         self.init_hidden(input.size()[0])
-        hidden_state = self.hidden[0
-            ] if self.n_hidden_states == 1 else self.hidden
-        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh,
-            b_ih=self.b_ih, b_hh=self.b_hh)
+        hidden_state = self.hidden[0] if self.n_hidden_states == 1 else self.hidden
+        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh, b_ih=self.b_ih, b_hh=self.b_hh)
         if self.n_hidden_states > 1:
             self.hidden = list(self.hidden)
         else:
@@ -689,8 +672,7 @@ def convert_module(module, dtype):
         if param is not None:
             if param.data.dtype.is_floating_point:
                 param.data = param.data.to(dtype=dtype)
-            if (param._grad is not None and param._grad.data.dtype.
-                is_floating_point):
+            if param._grad is not None and param._grad.data.dtype.is_floating_point:
                 param._grad.data = param._grad.data.to(dtype=dtype)
     for buf in module.buffers(recurse=False):
         if buf is not None and buf.data.dtype.is_floating_point:
@@ -702,12 +684,10 @@ def convert_network(network, dtype):
     Converts a network's parameters and buffers to dtype.
     """
     for module in network.modules():
-        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm
-            ) and module.affine is True:
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm) and module.affine is True:
             continue
         convert_module(module, dtype)
-        if isinstance(module, torch.nn.RNNBase) or isinstance(module, torch
-            .nn.modules.rnn.RNNBase):
+        if isinstance(module, torch.nn.RNNBase) or isinstance(module, torch.nn.modules.rnn.RNNBase):
             module.flatten_parameters()
     return network
 
@@ -730,8 +710,7 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
 
     def __init__(self, normalized_shape, eps=1e-06):
         global fused_layer_norm_cuda
-        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda'
-            )
+        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
         self.normalized_shape = normalized_shape
         self.eps = eps
 
@@ -739,17 +718,14 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
         input_ = input.contiguous()
         weight_ = weight.contiguous()
         bias_ = bias.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward_affine(input_,
-            self.normalized_shape, weight_, bias_, self.eps)
+        output, mean, invvar = fused_layer_norm_cuda.forward_affine(input_, self.normalized_shape, weight_, bias_, self.eps)
         self.save_for_backward(input_, weight_, bias_, mean, invvar)
         return output
 
     def backward(self, grad_output):
         input_, weight_, bias_, mean, invvar = self.saved_tensors
         grad_input = grad_weight = grad_bias = None
-        grad_input, grad_weight, grad_bias = (fused_layer_norm_cuda.
-            backward_affine(grad_output.contiguous(), mean, invvar, input_,
-            self.normalized_shape, weight_, bias_, self.eps))
+        grad_input, grad_weight, grad_bias = fused_layer_norm_cuda.backward_affine(grad_output.contiguous(), mean, invvar, input_, self.normalized_shape, weight_, bias_, self.eps)
         return grad_input, grad_weight, grad_bias
 
 
@@ -757,23 +733,20 @@ class FusedLayerNormFunction(torch.autograd.Function):
 
     def __init__(self, normalized_shape, eps=1e-06):
         global fused_layer_norm_cuda
-        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda'
-            )
+        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
         self.normalized_shape = normalized_shape
         self.eps = eps
 
     def forward(self, input):
         input_ = input.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward(input_, self.
-            normalized_shape, self.eps)
+        output, mean, invvar = fused_layer_norm_cuda.forward(input_, self.normalized_shape, self.eps)
         self.save_for_backward(input_, mean, invvar)
         return output
 
     def backward(self, grad_output):
         input_, mean, invvar = self.saved_tensors
         grad_input = None
-        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(
-            ), mean, invvar, input_, self.normalized_shape, self.eps)
+        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(), mean, invvar, input_, self.normalized_shape, self.eps)
         return grad_input
 
 
@@ -840,8 +813,7 @@ class FusedLayerNorm(torch.nn.Module):
     def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
         super(FusedLayerNorm, self).__init__()
         global fused_layer_norm_cuda
-        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda'
-            )
+        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
         if isinstance(normalized_shape, numbers.Integral):
             normalized_shape = normalized_shape,
         self.normalized_shape = torch.Size(normalized_shape)
@@ -862,19 +834,14 @@ class FusedLayerNorm(torch.nn.Module):
 
     def forward(self, input):
         if not input.is_cuda:
-            return F.layer_norm(input, self.normalized_shape, self.weight,
-                self.bias, self.eps)
+            return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
         if self.elementwise_affine:
-            return FusedLayerNormAffineFunction(self.normalized_shape, self.eps
-                )(input, self.weight, self.bias)
+            return FusedLayerNormAffineFunction(self.normalized_shape, self.eps)(input, self.weight, self.bias)
         else:
-            return FusedLayerNormFunction(self.normalized_shape, self.eps)(
-                input)
+            return FusedLayerNormFunction(self.normalized_shape, self.eps)(input)
 
     def extra_repr(self):
-        return (
-            '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'
-            .format(**self.__dict__))
+        return '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'.format(**self.__dict__)
 
 
 def import_flatten_impl():
@@ -884,9 +851,7 @@ def import_flatten_impl():
         flatten_impl = apex_C.flatten
         unflatten_impl = apex_C.unflatten
     except ImportError:
-        print(
-            'Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.'
-            )
+        print('Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.')
         flatten_impl = torch._utils._flatten_dense_tensors
         unflatten_impl = torch._utils._unflatten_dense_tensors
     imported_flatten_impl = True
@@ -951,9 +916,7 @@ class MultiTensorApply(object):
 
     def check_avail(self):
         if MultiTensorApply.available == False:
-            raise RuntimeError(
-                'Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:'
-                , MultiTensorApply.import_err)
+            raise RuntimeError('Attempted to call MultiTensorApply method, but MultiTensorApply is not available, possibly because Apex was installed without --cpp_ext --cuda_ext.  Original import error message:', MultiTensorApply.import_err)
 
     def __call__(self, op, noop_flag_buffer, tensor_lists, *args):
         self.check_avail()
@@ -964,8 +927,7 @@ multi_tensor_applier = MultiTensorApply(2048 * 32)
 
 
 def split_half_float_double(tensors):
-    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor',
-        'torch.cuda.DoubleTensor']
+    dtypes = ['torch.cuda.HalfTensor', 'torch.cuda.FloatTensor', 'torch.cuda.DoubleTensor']
     buckets = []
     for i, dtype in enumerate(dtypes):
         bucket = [t for t in tensors if t.type() == dtype]
@@ -1007,10 +969,7 @@ class DistributedDataParallel(Module):
 
     """
 
-    def __init__(self, module, message_size=10000000, delay_allreduce=False,
-        shared_param=None, allreduce_trigger_params=None,
-        retain_allreduce_buffers=False, allreduce_always_fp32=False,
-        gradient_average=True, gradient_predivide_factor=1.0):
+    def __init__(self, module, message_size=10000000, delay_allreduce=False, shared_param=None, allreduce_trigger_params=None, retain_allreduce_buffers=False, allreduce_always_fp32=False, gradient_average=True, gradient_predivide_factor=1.0):
         super(DistributedDataParallel, self).__init__()
         if hasattr(dist, 'get_backend'):
             self._backend = dist.get_backend()
@@ -1021,12 +980,9 @@ class DistributedDataParallel(Module):
         else:
             self._backend = dist._backend
             self.backend_enum_holder = dist.dist_backend
-        self.warn_on_half = (True if self._backend == self.
-            backend_enum_holder.GLOO else False)
+        self.warn_on_half = True if self._backend == self.backend_enum_holder.GLOO else False
         if shared_param is not None:
-            raise ValueError(
-                'shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.'
-                )
+            raise ValueError('shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.')
         self.world_size = float(dist.get_world_size())
         self.retain_allreduce_buffers = retain_allreduce_buffers
         self.allreduce_always_fp32 = allreduce_always_fp32
@@ -1035,12 +991,9 @@ class DistributedDataParallel(Module):
         self.custom_allreduce_triggers = False
         if allreduce_trigger_params is not None:
             if delay_allreduce:
-                raise ValueError(
-                    'Setting allreduce_trigger_params is only valid if delay_allreduce=False.'
-                    )
+                raise ValueError('Setting allreduce_trigger_params is only valid if delay_allreduce=False.')
             self.custom_allreduce_triggers = True
-            self.allreduce_trigger_params = set([id(param) for param in
-                allreduce_trigger_params])
+            self.allreduce_trigger_params = set([id(param) for param in allreduce_trigger_params])
         self.delay_allreduce = delay_allreduce
         self.message_size = message_size
         self.reduction_stream = torch.Stream()
@@ -1051,14 +1004,12 @@ class DistributedDataParallel(Module):
             for param in self.module.parameters():
                 assert param.is_cuda, 'NCCL backend only supports model parameters to be on GPU.'
         self.active_params = []
-        self.param_type_to_tmp_i = {'torch.cuda.HalfTensor': 0,
-            'torch.cuda.FloatTensor': 1, 'torch.cuda.DoubleTensor': 2}
+        self.param_type_to_tmp_i = {'torch.cuda.HalfTensor': 0, 'torch.cuda.FloatTensor': 1, 'torch.cuda.DoubleTensor': 2}
         if multi_tensor_applier.available:
             self.multi_tensor_scale = amp_C.multi_tensor_scale
             self._overflow_buf = torch.IntTensor([0])
         self.create_hooks()
-        flat_dist_call([param.data for param in self.module.parameters()],
-            dist.broadcast, (0,))
+        flat_dist_call([param.data for param in self.module.parameters()], dist.broadcast, (0,))
 
     def __setstate__(self, state):
         super(DistributedDataParallel, self).__setstate__(state)
@@ -1084,24 +1035,20 @@ class DistributedDataParallel(Module):
                 self.active_i_buckets.append(tmp_bucket)
         self.num_buckets = len(self.active_i_buckets)
         self.bucket_sizes = [len(bucket) for bucket in self.active_i_buckets]
-        info_tensor = torch.IntTensor([self.num_buckets] + self.
-            bucket_sizes + list(chain(*self.active_i_buckets)))
+        info_tensor = torch.IntTensor([self.num_buckets] + self.bucket_sizes + list(chain(*self.active_i_buckets)))
         dist.broadcast(info_tensor, 0)
         info = [int(entry) for entry in info_tensor]
         self.num_buckets = info[0]
         self.bucket_sizes = info[1:self.num_buckets + 1]
-        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in
-            range(self.num_buckets)]
-        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])
-            ] for i in range(self.num_buckets)]
+        self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)]
+        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)]
         flattened_buckets = info[self.num_buckets + 1:]
         flat_i = 0
         for bucket_idx in range(self.num_buckets):
             for bucket_loc in range(self.bucket_sizes[bucket_idx]):
                 param_i = flattened_buckets[flat_i]
                 self.active_i_buckets[bucket_idx][bucket_loc] = param_i
-                self.param_id_to_bucket[id(self.active_params[param_i])
-                    ] = bucket_idx, bucket_loc
+                self.param_id_to_bucket[id(self.active_params[param_i])] = bucket_idx, bucket_loc
                 flat_i += 1
 
     def create_hooks(self):
@@ -1117,16 +1064,10 @@ class DistributedDataParallel(Module):
             self.reduction_stream.record_event(self.reduction_event)
             torch.current_stream().wait_event(self.reduction_event)
             if self.next_bucket != self.num_buckets:
-                raise RuntimeError(
-                    'In epilogue, next_bucket ({}) != num_buckets ({}).  '.
-                    format(self.next_bucket, self.num_buckets),
-                    'This probably indicates some buckets were not allreduced.'
-                    )
-            for actual, expected in zip(self.buckets_ready_size, self.
-                bucket_sizes):
+                raise RuntimeError('In epilogue, next_bucket ({}) != num_buckets ({}).  '.format(self.next_bucket, self.num_buckets), 'This probably indicates some buckets were not allreduced.')
+            for actual, expected in zip(self.buckets_ready_size, self.bucket_sizes):
                 if actual != expected:
-                    raise RuntimeError(
-                        'Some param buckets were not allreduced.')
+                    raise RuntimeError('Some param buckets were not allreduced.')
         self.grad_accs = []
         for param in self.module.parameters():
             if param.requires_grad:
@@ -1138,38 +1079,28 @@ class DistributedDataParallel(Module):
                     def allreduce_hook(*unused):
                         if not self._disable_allreduce:
                             if self.delay_allreduce or self.needs_refresh:
-                                if (not self.delay_allreduce and self.
-                                    needs_refresh):
-                                    active_i = self.param_id_to_active_i[id
-                                        (param)]
-                                    current_type = self.param_type_to_tmp_i[
-                                        param.type()]
-                                    self.tmp_buckets[current_type].append(
-                                        active_i)
+                                if not self.delay_allreduce and self.needs_refresh:
+                                    active_i = self.param_id_to_active_i[id(param)]
+                                    current_type = self.param_type_to_tmp_i[param.type()]
+                                    self.tmp_buckets[current_type].append(active_i)
                                     ship_tmp_bucket = False
                                     if self.custom_allreduce_triggers:
-                                        if id(param
-                                            ) in self.allreduce_trigger_params:
+                                        if id(param) in self.allreduce_trigger_params:
                                             ship_tmp_bucket = True
                                     else:
-                                        self.tmp_numels[current_type
-                                            ] += param.numel()
-                                        if self.tmp_numels[current_type
-                                            ] >= self.message_size:
+                                        self.tmp_numels[current_type] += param.numel()
+                                        if self.tmp_numels[current_type] >= self.message_size:
                                             ship_tmp_bucket = True
                                     if ship_tmp_bucket:
-                                        self.active_i_buckets.append(self.
-                                            tmp_buckets[current_type])
+                                        self.active_i_buckets.append(self.tmp_buckets[current_type])
                                         self.tmp_buckets[current_type] = []
                                         self.tmp_numels[current_type] = 0
                                 if not self.callback_queued:
-                                    Variable._execution_engine.queue_callback(
-                                        allreduce_params)
+                                    Variable._execution_engine.queue_callback(allreduce_params)
                                     self.callback_queued = True
                             else:
                                 if not self.callback_queued:
-                                    Variable._execution_engine.queue_callback(
-                                        overlapping_backward_epilogue)
+                                    Variable._execution_engine.queue_callback(overlapping_backward_epilogue)
                                     self.callback_queued = True
                                 self.comm_ready_buckets(param)
                     grad_acc.register_hook(allreduce_hook)
@@ -1186,8 +1117,7 @@ class DistributedDataParallel(Module):
         dist.all_reduce(tensor_to_allreduce)
         if self.gradient_average:
             if self.gradient_predivide_factor != self.world_size:
-                tensor_to_allreduce.mul_(self.gradient_predivide_factor /
-                    self.world_size)
+                tensor_to_allreduce.mul_(self.gradient_predivide_factor / self.world_size)
         if self.allreduce_always_fp32 and tensor is not tensor_to_allreduce:
             tensor.copy_(tensor_to_allreduce)
         return tensor
@@ -1196,20 +1126,16 @@ class DistributedDataParallel(Module):
         allreduced = self.allreduce_bucket(bucket)
         if self.retain_allreduce_buffers:
             if self.allreduce_buffers[bucket_idx] is not None:
-                raise RuntimeError(
-                    'The backward pass is attempting to replace an already-filled allreduce buffer.  This is almost certainly an error.'
-                    )
+                raise RuntimeError('The backward pass is attempting to replace an already-filled allreduce buffer.  This is almost certainly an error.')
             self.allreduce_buffers[bucket_idx] = allreduced
         elif multi_tensor_applier.available:
-            multi_tensor_applier(self.multi_tensor_scale, self.
-                _overflow_buf, [unflatten(allreduced, bucket), bucket], 1.0)
+            multi_tensor_applier(self.multi_tensor_scale, self._overflow_buf, [unflatten(allreduced, bucket), bucket], 1.0)
         else:
             for buf, synced in zip(bucket, unflatten(allreduced, bucket)):
                 buf.copy_(synced)
 
     def allreduce_fallback(self):
-        grads = [param.grad.data for param in self.module.parameters() if 
-            param.grad is not None]
+        grads = [param.grad.data for param in self.module.parameters() if param.grad is not None]
         split_buckets = split_half_float_double(grads)
         if self.retain_allreduce_buffers:
             self.allreduce_buffers = [None for _ in range(len(split_buckets))]
@@ -1219,19 +1145,15 @@ class DistributedDataParallel(Module):
     def comm_ready_buckets(self, param):
         bucket_idx, bucket_loc = self.param_id_to_bucket[id(param)]
         if self.buckets[bucket_idx][bucket_loc] is not None:
-            raise RuntimeError(
-                'The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.'
-                )
+            raise RuntimeError('The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.')
         self.buckets[bucket_idx][bucket_loc] = param.grad.data
         self.buckets_ready_size[bucket_idx] += 1
-        if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx
-            ]:
+        if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx]:
             if bucket_idx == self.next_bucket:
                 torch.current_stream().record_event(self.reduction_event)
                 self.reduction_stream.wait_event(self.reduction_event)
                 with torch.stream(self.reduction_stream):
-                    self.allreduce_maybe_retain(self.buckets[bucket_idx],
-                        bucket_idx)
+                    self.allreduce_maybe_retain(self.buckets[bucket_idx], bucket_idx)
                     self.next_bucket += 1
                     if len(self.ready_buckets_not_reduced) > 0:
                         sorted_todo = sorted(self.ready_buckets_not_reduced)
@@ -1243,8 +1165,7 @@ class DistributedDataParallel(Module):
                                 self.ready_buckets_not_reduced.remove(i)
                                 self.next_bucket += 1
                             else:
-                                raise ValueError(
-                                    'i should always be >= next_bucket')
+                                raise ValueError('i should always be >= next_bucket')
             else:
                 self.ready_buckets_not_reduced.add(bucket_idx)
 
@@ -1252,11 +1173,8 @@ class DistributedDataParallel(Module):
         result = self.module(*inputs, **kwargs)
         if not self._disable_allreduce:
             if not self.delay_allreduce:
-                param_list = [param for param in self.module.parameters() if
-                    param.requires_grad]
-                if not self.active_params or len(param_list) != len(self.
-                    active_params) or any([(param1 is not param2) for 
-                    param1, param2 in zip(param_list, self.active_params)]):
+                param_list = [param for param in self.module.parameters() if param.requires_grad]
+                if not self.active_params or len(param_list) != len(self.active_params) or any([(param1 is not param2) for param1, param2 in zip(param_list, self.active_params)]):
                     self.needs_refresh = True
                 if self.needs_refresh:
                     self.active_i_buckets = []
@@ -1264,17 +1182,13 @@ class DistributedDataParallel(Module):
                     self.tmp_buckets = [[], [], []]
                     self.tmp_numels = [0, 0, 0]
                     self.bucket_sizes = []
-                    self.param_id_to_active_i = {id(param): i for i, param in
-                        enumerate(param_list)}
+                    self.param_id_to_active_i = {id(param): i for i, param in enumerate(param_list)}
                     self.param_id_to_bucket = {}
                 else:
-                    self.buckets = [[None for _ in range(self.bucket_sizes[
-                        i])] for i in range(self.num_buckets)]
-                    self.buckets_ready_size = [(0) for i in range(self.
-                        num_buckets)]
+                    self.buckets = [[None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)]
+                    self.buckets_ready_size = [(0) for i in range(self.num_buckets)]
                     if self.retain_allreduce_buffers:
-                        self.allreduce_buffers = [None for _ in range(self.
-                            num_buckets)]
+                        self.allreduce_buffers = [None for _ in range(self.num_buckets)]
                     self.next_bucket = 0
                     self.ready_buckets_not_reduced = set()
                 self.active_params = param_list
@@ -1285,9 +1199,7 @@ class DistributedDataParallel(Module):
 class SyncBatchnormFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, weight, bias, running_mean, running_variance,
-        eps, track_running_stats=True, momentum=1.0, process_group=None,
-        channel_last=False):
+    def forward(ctx, input, weight, bias, running_mean, running_variance, eps, track_running_stats=True, momentum=1.0, process_group=None, channel_last=False):
         torch.cuda.nvtx.range_push('sync_BN_fw')
         input = input.contiguous()
         world_size = 0
@@ -1308,31 +1220,22 @@ class SyncBatchnormFunction(Function):
                 if not process_group:
                     process_group = torch.distributed.group.WORLD
                 world_size = torch.distributed.get_world_size(process_group)
-                mean_all = torch.empty(world_size, mean.size(0), dtype=mean
-                    .dtype, device=mean.device)
-                var_all = torch.empty(world_size, var_biased.size(0), dtype
-                    =var_biased.dtype, device=var_biased.device)
+                mean_all = torch.empty(world_size, mean.size(0), dtype=mean.dtype, device=mean.device)
+                var_all = torch.empty(world_size, var_biased.size(0), dtype=var_biased.dtype, device=var_biased.device)
                 mean_l = [mean_all.narrow(0, i, 1) for i in range(world_size)]
                 var_l = [var_all.narrow(0, i, 1) for i in range(world_size)]
                 torch.distributed.all_gather(mean_l, mean, process_group)
                 torch.distributed.all_gather(var_l, var_biased, process_group)
-                mean, var, inv_std = syncbn.welford_parallel(mean_all,
-                    var_all, count, eps)
+                mean, var, inv_std = syncbn.welford_parallel(mean_all, var_all, count, eps)
             else:
                 inv_std = 1.0 / torch.sqrt(var_biased + eps)
                 var = var_biased * count / (count - 1)
             if count == 1 and world_size < 2:
-                raise ValueError(
-                    'Expected more than 1 value per channel when training, got input size{}'
-                    .format(input.size()))
-            r_m_inc = (mean if running_mean.dtype != torch.float16 else
-                mean.half())
-            r_v_inc = (var if running_variance.dtype != torch.float16 else
-                var.half())
-            running_mean.data = running_mean.data * (1 - momentum
-                ) + momentum * r_m_inc
-            running_variance.data = running_variance.data * (1 - momentum
-                ) + momentum * r_v_inc
+                raise ValueError('Expected more than 1 value per channel when training, got input size{}'.format(input.size()))
+            r_m_inc = mean if running_mean.dtype != torch.float16 else mean.half()
+            r_v_inc = var if running_variance.dtype != torch.float16 else var.half()
+            running_mean.data = running_mean.data * (1 - momentum) + momentum * r_m_inc
+            running_variance.data = running_variance.data * (1 - momentum) + momentum * r_v_inc
         else:
             mean = running_mean.data
             inv_std = 1.0 / torch.sqrt(running_variance.data + eps)
@@ -1341,8 +1244,7 @@ class SyncBatchnormFunction(Function):
         ctx.channel_last = channel_last
         ctx.world_size = world_size
         if channel_last:
-            out = syncbn.batchnorm_forward_c_last(input, mean, inv_std,
-                weight, bias)
+            out = syncbn.batchnorm_forward_c_last(input, mean, inv_std, weight, bias)
         else:
             out = syncbn.batchnorm_forward(input, mean, inv_std, weight, bias)
         torch.cuda.nvtx.range_pop()
@@ -1358,33 +1260,25 @@ class SyncBatchnormFunction(Function):
         world_size = ctx.world_size
         grad_input = grad_weight = grad_bias = None
         if channel_last:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = (syncbn.
-                reduce_bn_c_last(grad_output, saved_input, mean, inv_std,
-                weight))
+            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn_c_last(grad_output, saved_input, mean, inv_std, weight)
         else:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(
-                grad_output, saved_input, mean, inv_std, weight)
+            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(grad_output, saved_input, mean, inv_std, weight)
         if ctx.needs_input_grad[0]:
             if torch.distributed.is_initialized():
-                torch.distributed.all_reduce(mean_dy, ReduceOp.SUM,
-                    process_group)
+                torch.distributed.all_reduce(mean_dy, ReduceOp.SUM, process_group)
                 mean_dy = mean_dy / world_size
-                torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM,
-                    process_group)
+                torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM, process_group)
                 mean_dy_xmu = mean_dy_xmu / world_size
             if channel_last:
-                grad_input = syncbn.batchnorm_backward_c_last(grad_output,
-                    saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
+                grad_input = syncbn.batchnorm_backward_c_last(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
             else:
-                grad_input = syncbn.batchnorm_backward(grad_output,
-                    saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
+                grad_input = syncbn.batchnorm_backward(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
         if weight is None or not ctx.needs_input_grad[1]:
             grad_weight = None
         if weight is None or not ctx.needs_input_grad[2]:
             grad_bias = None
         torch.cuda.nvtx.range_pop()
-        return (grad_input, grad_weight, grad_bias, None, None, None, None,
-            None, None, None)
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None, None
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -1436,10 +1330,8 @@ class SyncBatchNorm(_BatchNorm):
         >>> inp = torch.randn(10, 14, 14, 100).cuda()
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True, process_group=None, channel_last=False):
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum
-            =momentum, affine=affine, track_running_stats=track_running_stats)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None, channel_last=False):
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
         self.process_group = process_group
         self.channel_last = channel_last
 
@@ -1452,21 +1344,16 @@ class SyncBatchNorm(_BatchNorm):
     def forward(self, input):
         channel_last = self.channel_last if input.dim() != 2 else True
         if not self.training and self.track_running_stats and not channel_last:
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, False, 0.0, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
         else:
             exponential_average_factor = 0.0
             if self.training and self.track_running_stats:
                 self.num_batches_tracked += 1
                 if self.momentum is None:
-                    exponential_average_factor = 1.0 / float(self.
-                        num_batches_tracked)
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
                 else:
                     exponential_average_factor = self.momentum
-            return SyncBatchnormFunction.apply(input, self.weight, self.
-                bias, self.running_mean, self.running_var, self.eps, self.
-                training or not self.track_running_stats,
-                exponential_average_factor, self.process_group, channel_last)
+            return SyncBatchnormFunction.apply(input, self.weight, self.bias, self.running_mean, self.running_var, self.eps, self.training or not self.track_running_stats, exponential_average_factor, self.process_group, channel_last)
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -1510,17 +1397,13 @@ class SyncBatchNorm(_BatchNorm):
     """
     warned = False
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True, process_group=None, channel_last=False):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None, channel_last=False):
         if channel_last == True:
-            raise AttributeError(
-                'channel_last is not supported by primitive SyncBatchNorm implementation. Try install apex with `--cuda_ext` if channel_last is desired.'
-                )
+            raise AttributeError('channel_last is not supported by primitive SyncBatchNorm implementation. Try install apex with `--cuda_ext` if channel_last is desired.')
         if not SyncBatchNorm.warned:
             None
             SyncBatchNorm.warned = True
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum
-            =momentum, affine=affine, track_running_stats=track_running_stats)
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
         self.process_group = process_group
 
     def _specify_process_group(self, process_group):
@@ -1542,8 +1425,7 @@ class SyncBatchNorm(_BatchNorm):
                 cast = input.dtype
         if not self.training and self.track_running_stats:
             torch.nvtx.range_pop()
-            out = F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, False, 0.0, self.eps)
+            out = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
         else:
             process_group = self.process_group
             world_size = 1
@@ -1552,21 +1434,16 @@ class SyncBatchNorm(_BatchNorm):
             self.num_batches_tracked += 1
             with torch.no_grad():
                 channel_first_input = input.transpose(0, 1).contiguous()
-                squashed_input_tensor_view = channel_first_input.view(
-                    channel_first_input.size(0), -1)
+                squashed_input_tensor_view = channel_first_input.view(channel_first_input.size(0), -1)
                 m = None
                 local_m = float(squashed_input_tensor_view.size()[1])
                 local_mean = torch.mean(squashed_input_tensor_view, 1)
-                local_sqr_mean = torch.pow(squashed_input_tensor_view, 2).mean(
-                    1)
+                local_sqr_mean = torch.pow(squashed_input_tensor_view, 2).mean(1)
                 if torch.distributed.is_initialized():
-                    world_size = torch.distributed.get_world_size(process_group
-                        )
-                    torch.distributed.all_reduce(local_mean, ReduceOp.SUM,
-                        process_group)
+                    world_size = torch.distributed.get_world_size(process_group)
+                    torch.distributed.all_reduce(local_mean, ReduceOp.SUM, process_group)
                     mean = local_mean / world_size
-                    torch.distributed.all_reduce(local_sqr_mean, ReduceOp.
-                        SUM, process_group)
+                    torch.distributed.all_reduce(local_sqr_mean, ReduceOp.SUM, process_group)
                     sqr_mean = local_sqr_mean / world_size
                     m = local_m * world_size
                 else:
@@ -1575,14 +1452,11 @@ class SyncBatchNorm(_BatchNorm):
                     sqr_mean = local_sqr_mean
                 var = sqr_mean - mean.pow(2)
                 if self.running_mean is not None:
-                    self.running_mean = self.momentum * mean + (1 - self.
-                        momentum) * self.running_mean
+                    self.running_mean = self.momentum * mean + (1 - self.momentum) * self.running_mean
                 if self.running_var is not None:
-                    self.running_var = m / (m - 1) * self.momentum * var + (
-                        1 - self.momentum) * self.running_var
+                    self.running_var = m / (m - 1) * self.momentum * var + (1 - self.momentum) * self.running_var
             torch.nvtx.range_pop()
-            out = SyncBatchnormFunction.apply(input, self.weight, self.bias,
-                mean, var, self.eps, process_group, world_size)
+            out = SyncBatchnormFunction.apply(input, self.weight, self.bias, mean, var, self.eps, process_group, world_size)
         out = out
 
 
@@ -1590,10 +1464,8 @@ class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
         super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda',
-            dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device=
-            'cuda', dtype=torch.float16))
+        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
+        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
 
     @staticmethod
     def ops(input, weight0, weight1):
@@ -1607,8 +1479,7 @@ class WhitelistModule(torch.nn.Module):
 
     def __init__(self, dtype):
         super(WhitelistModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(8 * 8, device='cuda',
-            dtype=dtype).view(8, 8))
+        self.weight = torch.nn.Parameter(torch.arange(8 * 8, device='cuda', dtype=dtype).view(8, 8))
 
     @staticmethod
     def ops(input, weight):
@@ -1622,8 +1493,7 @@ class BlacklistModule(torch.nn.Module):
 
     def __init__(self, dtype):
         super(BlacklistModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda',
-            dtype=dtype).view(2, 8))
+        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda', dtype=dtype).view(2, 8))
 
     @staticmethod
     def ops(input, weight):
@@ -1637,8 +1507,7 @@ class PromoteModule(torch.nn.Module):
 
     def __init__(self, dtype):
         super(PromoteModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda',
-            dtype=dtype).view(2, 8))
+        self.weight = torch.nn.Parameter(torch.arange(2 * 8, device='cuda', dtype=dtype).view(2, 8))
 
     @staticmethod
     def ops(input, weight):
@@ -1652,10 +1521,8 @@ class MyModel(torch.nn.Module):
 
     def __init__(self, unique):
         super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda',
-            dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device=
-            'cuda', dtype=torch.float16))
+        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
+        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
 
     @staticmethod
     def ops(input, weight0, weight1):
@@ -1730,21 +1597,18 @@ class PositionEmbedding(nn.Module):
         self.input_dims = input_dims = np.prod(input_shape)
         self.pos_init = pos_init
         if pos_init:
-            self.register_buffer('pos', t.tensor(get_pos_idx(input_shape)).
-                long())
+            self.register_buffer('pos', t.tensor(get_pos_idx(input_shape)).long())
             self._pos_embs = nn.ModuleList()
             for i in range(len(input_shape)):
                 emb = nn.Embedding(input_shape[i], width)
                 nn.init.normal_(emb.weight, std=0.02)
                 self._pos_embs.append(emb)
         else:
-            self.pos_emb = nn.Parameter(get_normal(input_dims, width, std=
-                0.01 * init_scale))
+            self.pos_emb = nn.Parameter(get_normal(input_dims, width, std=0.01 * init_scale))
 
     def forward(self):
         if self.pos_init:
-            pos_emb = sum([self._pos_embs[i](self.pos[:, (i)]) for i in
-                range(len(self.input_shape))])
+            pos_emb = sum([self._pos_embs[i](self.pos[:, (i)]) for i in range(len(self.input_shape))])
         else:
             pos_emb = self.pos_emb
         return pos_emb
@@ -1766,25 +1630,21 @@ def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
     top_k = min(top_k, logits.size(-1))
     assert top_k == 0 or top_p == 0.0
     if top_k > 0:
-        indices_to_remove = logits < t.topk(logits, top_k, dim=-1)[0][(...),
-            -1:]
+        indices_to_remove = logits < t.topk(logits, top_k, dim=-1)[0][(...), -1:]
         logits[indices_to_remove] = filter_value
     if top_p > 0.0:
         sorted_logits, sorted_indices = t.sort(logits, descending=True, dim=-1)
         cumulative_probs = t.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
         sorted_indices_to_remove = cumulative_probs > top_p
-        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...
-            ), :-1].clone()
+        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...), :-1].clone()
         sorted_indices_to_remove[..., 0] = 0
-        indices_to_remove = t.zeros_like(logits, dtype=t.uint8).scatter_(dim
-            =-1, index=sorted_indices, src=sorted_indices_to_remove)
+        indices_to_remove = t.zeros_like(logits, dtype=t.uint8).scatter_(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
         logits[indices_to_remove] = filter_value
     return logits
 
 
 def def_tqdm(x):
-    return tqdm(x, leave=True, file=sys.stdout, bar_format=
-        '{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
+    return tqdm(x, leave=True, file=sys.stdout, bar_format='{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
 
 def get_range(x):
@@ -1800,21 +1660,14 @@ def roll(x, n):
 
 def split_chunks(length, chunk_size):
     n_passes = (length + chunk_size - 1) // chunk_size
-    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) %
-        chunk_size + 1]
+    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) % chunk_size + 1]
     assert sum(chunk_sizes) == length
     return chunk_sizes
 
 
 class ConditionalAutoregressive2D(nn.Module):
 
-    def __init__(self, input_shape, bins, width=128, depth=2, heads=1,
-        attn_dropout=0.0, resid_dropout=0.0, emb_dropout=0.0, mask=True,
-        zero_out=False, init_scale=1.0, res_scale=False, pos_init=False,
-        m_attn=0.25, m_mlp=1, checkpoint_res=0, checkpoint_attn=0,
-        checkpoint_mlp=0, attn_order=0, blocks=None, spread=None, x_cond=
-        False, y_cond=False, encoder_dims=0, only_encode=False,
-        merged_decoder=False, prime_len=None):
+    def __init__(self, input_shape, bins, width=128, depth=2, heads=1, attn_dropout=0.0, resid_dropout=0.0, emb_dropout=0.0, mask=True, zero_out=False, init_scale=1.0, res_scale=False, pos_init=False, m_attn=0.25, m_mlp=1, checkpoint_res=0, checkpoint_attn=0, checkpoint_mlp=0, attn_order=0, blocks=None, spread=None, x_cond=False, y_cond=False, encoder_dims=0, only_encode=False, merged_decoder=False, prime_len=None):
         super().__init__()
         self.input_shape = input_shape
         self.input_dims = input_dims = np.prod(input_shape)
@@ -1828,19 +1681,10 @@ class ConditionalAutoregressive2D(nn.Module):
         self.y_cond = y_cond
         self.x_cond = x_cond
         if not y_cond:
-            self.start_token = nn.Parameter(get_normal(1, width, std=0.01 *
-                init_scale))
-        self.pos_emb = PositionEmbedding(input_shape=input_shape, width=
-            width, init_scale=init_scale, pos_init=pos_init)
+            self.start_token = nn.Parameter(get_normal(1, width, std=0.01 * init_scale))
+        self.pos_emb = PositionEmbedding(input_shape=input_shape, width=width, init_scale=init_scale, pos_init=pos_init)
         self.pos_emb_dropout = nn.Dropout(emb_dropout)
-        self.transformer = Transformer(n_in=width, n_ctx=input_dims, n_head
-            =heads, n_depth=depth, attn_dropout=attn_dropout, resid_dropout
-            =resid_dropout, afn='quick_gelu', scale=True, mask=mask,
-            zero_out=zero_out, init_scale=init_scale, res_scale=res_scale,
-            m_attn=m_attn, m_mlp=m_mlp, checkpoint_attn=checkpoint_attn,
-            checkpoint_mlp=checkpoint_mlp, checkpoint_res=checkpoint_res,
-            attn_order=attn_order, blocks=blocks, spread=spread,
-            encoder_dims=encoder_dims, prime_len=prime_len)
+        self.transformer = Transformer(n_in=width, n_ctx=input_dims, n_head=heads, n_depth=depth, attn_dropout=attn_dropout, resid_dropout=resid_dropout, afn='quick_gelu', scale=True, mask=mask, zero_out=zero_out, init_scale=init_scale, res_scale=res_scale, m_attn=m_attn, m_mlp=m_mlp, checkpoint_attn=checkpoint_attn, checkpoint_mlp=checkpoint_mlp, checkpoint_res=checkpoint_res, attn_order=attn_order, blocks=blocks, spread=spread, encoder_dims=encoder_dims, prime_len=prime_len)
         self.only_encode = only_encode
         self.prime_len = prime_len
         if merged_decoder:
@@ -1867,9 +1711,7 @@ class ConditionalAutoregressive2D(nn.Module):
         else:
             return x.view(N, -1)
 
-    def forward(self, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=
-        False, loss_full=False, encode=False, get_preds=False, get_acts=
-        False, get_sep_loss=False):
+    def forward(self, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, loss_full=False, encode=False, get_preds=False, get_acts=False, get_sep_loss=False):
         with t.no_grad():
             x = self.preprocess(x)
         N, D = x.shape
@@ -1882,13 +1724,10 @@ class ConditionalAutoregressive2D(nn.Module):
             assert y_cond is None
         if self.x_cond:
             assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N,
-                1, self.width
-                ), f'{x_cond.shape} != {N, D, self.width} nor {N, 1, self.width}. Did you pass the correct --sample_length?'
+            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'{x_cond.shape} != {N, D, self.width} nor {N, 1, self.width}. Did you pass the correct --sample_length?'
         else:
             assert x_cond is None
-            x_cond = t.zeros((N, 1, self.width), device=x.device, dtype=t.float
-                )
+            x_cond = t.zeros((N, 1, self.width), device=x.device, dtype=t.float)
         x_t = x
         x = self.x_emb(x)
         x = roll(x, 1)
@@ -1896,8 +1735,7 @@ class ConditionalAutoregressive2D(nn.Module):
             x[:, (0)] = y_cond.view(N, self.width)
         else:
             x[:, (0)] = self.start_token
-        x = self.x_emb_dropout(x) + self.pos_emb_dropout(self.pos_emb()
-            ) + x_cond
+        x = self.x_emb_dropout(x) + self.pos_emb_dropout(self.pos_emb()) + x_cond
         x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16)
         if self.add_cond_after_transformer:
             x = x + x_cond
@@ -1909,14 +1747,11 @@ class ConditionalAutoregressive2D(nn.Module):
             assert self.prime_len is not None
             x_prime = x[:, :self.prime_len].reshape(-1, self.bins)
             x_gen = x[:, self.prime_len:].reshape(-1, self.bins)
-            prime_loss = F.cross_entropy(x_prime, x_t[:, :self.prime_len].
-                reshape(-1)) / np.log(2.0)
-            gen_loss = F.cross_entropy(x_gen, x_t[:, self.prime_len:].
-                reshape(-1)) / np.log(2.0)
+            prime_loss = F.cross_entropy(x_prime, x_t[:, :self.prime_len].reshape(-1)) / np.log(2.0)
+            gen_loss = F.cross_entropy(x_gen, x_t[:, self.prime_len:].reshape(-1)) / np.log(2.0)
             loss = prime_loss, gen_loss
         else:
-            loss = F.cross_entropy(x.view(-1, self.bins), x_t.view(-1)
-                ) / np.log(2.0)
+            loss = F.cross_entropy(x.view(-1, self.bins), x_t.view(-1)) / np.log(2.0)
         if get_preds:
             return loss, x
         elif get_acts:
@@ -1945,9 +1780,7 @@ class ConditionalAutoregressive2D(nn.Module):
         assert x.shape == (n_samples, 1, self.width)
         return x, cond
 
-    def sample(self, n_samples, x_cond=None, y_cond=None, encoder_kv=None,
-        fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False,
-        sample_tokens=None):
+    def sample(self, n_samples, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False, sample_tokens=None):
         assert self.training == False
         if sample_tokens is None:
             sample_tokens = self.input_dims
@@ -1959,9 +1792,7 @@ class ConditionalAutoregressive2D(nn.Module):
             assert y_cond is None
         if self.x_cond:
             assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N,
-                1, self.width
-                ), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
+            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
         else:
             assert x_cond is None
             x_cond = t.zeros((N, 1, self.width), dtype=t.float)
@@ -1972,8 +1803,7 @@ class ConditionalAutoregressive2D(nn.Module):
             for sample_t in get_range(range(0, sample_tokens)):
                 x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
                 self.transformer.check_cache(n_samples, sample_t, fp16)
-                x = self.transformer(x, encoder_kv=encoder_kv, sample=True,
-                    fp16=fp16)
+                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16)
                 if self.add_cond_after_transformer:
                     x = x + cond
                 assert x.shape == (n_samples, 1, self.width)
@@ -1996,9 +1826,7 @@ class ConditionalAutoregressive2D(nn.Module):
         else:
             return x
 
-    def primed_sample(self, n_samples, x, x_cond=None, y_cond=None,
-        encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0,
-        get_preds=False, chunk_size=None, sample_tokens=None):
+    def primed_sample(self, n_samples, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False, chunk_size=None, sample_tokens=None):
         assert self.training == False
         if sample_tokens is None:
             sample_tokens = self.input_dims
@@ -2018,9 +1846,7 @@ class ConditionalAutoregressive2D(nn.Module):
             assert y_cond is None
         if self.x_cond:
             assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N,
-                1, self.width
-                ), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
+            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
         else:
             assert x_cond is None
             x_cond = t.zeros((N, 1, self.width), dtype=t.float)
@@ -2036,29 +1862,23 @@ class ConditionalAutoregressive2D(nn.Module):
             for current_chunk_size in get_range(chunk_sizes):
                 xs_prime, conds_prime = [], []
                 for sample_t in range(start, start + current_chunk_size):
-                    x_prime, cond_prime = self.get_emb(sample_t, n_samples,
-                        x, x_cond, y_cond)
+                    x_prime, cond_prime = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
                     x = xs[sample_t]
                     xs_prime.append(x_prime)
                     conds_prime.append(cond_prime)
                 start = start + current_chunk_size
-                x_prime, cond_prime = t.cat(xs_prime, dim=1), t.cat(conds_prime
-                    , dim=1)
-                assert x_prime.shape == (n_samples, current_chunk_size,
-                    self.width)
-                assert cond_prime.shape == (n_samples, current_chunk_size,
-                    self.width)
+                x_prime, cond_prime = t.cat(xs_prime, dim=1), t.cat(conds_prime, dim=1)
+                assert x_prime.shape == (n_samples, current_chunk_size, self.width)
+                assert cond_prime.shape == (n_samples, current_chunk_size, self.width)
                 del xs_prime
                 del conds_prime
                 if not get_preds:
                     del cond_prime
-                x_prime = self.transformer(x_prime, encoder_kv=encoder_kv,
-                    sample=True, fp16=fp16)
+                x_prime = self.transformer(x_prime, encoder_kv=encoder_kv, sample=True, fp16=fp16)
                 if get_preds:
                     if self.add_cond_after_transformer:
                         x_prime = x_prime + cond_prime
-                    assert x_prime.shape == (n_samples, current_chunk_size,
-                        self.width)
+                    assert x_prime.shape == (n_samples, current_chunk_size, self.width)
                     del cond_prime
                     x_primes.append(x_prime)
                 else:
@@ -2076,8 +1896,7 @@ class ConditionalAutoregressive2D(nn.Module):
             for sample_t in get_range(range(len(xs), sample_tokens)):
                 x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
                 self.transformer.check_cache(n_samples, sample_t, fp16)
-                x = self.transformer(x, encoder_kv=encoder_kv, sample=True,
-                    fp16=fp16)
+                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16)
                 if self.add_cond_after_transformer:
                     x = x + cond
                 assert x.shape == (n_samples, 1, self.width)
@@ -2108,28 +1927,19 @@ class ConditionalAutoregressive2D(nn.Module):
             y_cond = t.randn(bs, 1, d) if self.y_cond else None
             x_cond = t.randn(bs, l, d) if self.x_cond else None
             encoder_kv = t.randn(bs, enc_l, d)
-            x, preds_sample = self.sample(bs, x_cond, y_cond, encoder_kv,
-                get_preds=True)
-            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv,
-                get_preds=True)
+            x, preds_sample = self.sample(bs, x_cond, y_cond, encoder_kv, get_preds=True)
+            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
             max_err = t.max(t.abs(preds_sample - preds_forw))
             assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
             x_prime = x.view(bs, -1)[:, :prime]
-            x, preds_sample = self.primed_sample(bs, x_prime.clone(),
-                x_cond, y_cond, encoder_kv, get_preds=True)
-            assert (x.view(bs, -1)[:, :prime] == x_prime).all(
-                ), "Priming samples don't match"
-            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv,
-                get_preds=True)
+            x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True)
+            assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
+            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
             max_err = t.max(t.abs(preds_sample - preds_forw))
             assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
-            x, preds_sample = self.primed_sample(bs, x_prime.clone(),
-                x_cond, y_cond, encoder_kv, get_preds=True, chunk_size=
-                chunk_size)
-            assert (x.view(bs, -1)[:, :prime] == x_prime).all(
-                ), "Priming samples don't match"
-            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv,
-                get_preds=True)
+            x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True, chunk_size=chunk_size)
+            assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
+            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
             max_err = t.max(t.abs(preds_sample - preds_forw))
             assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
 
@@ -2137,15 +1947,13 @@ class ConditionalAutoregressive2D(nn.Module):
 class LayerNorm(FusedLayerNorm):
 
     def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
-        super().__init__(normalized_shape, eps=eps, elementwise_affine=
-            elementwise_affine)
+        super().__init__(normalized_shape, eps=eps, elementwise_affine=elementwise_affine)
         self.width = np.prod(normalized_shape)
         self.max_numel = 65535 * self.width
 
     def forward(self, input):
         if input.numel() > self.max_numel:
-            return F.layer_norm(input.float(), self.normalized_shape, self.
-                weight, self.bias, self.eps).type_as(input)
+            return F.layer_norm(input.float(), self.normalized_shape, self.weight, self.bias, self.eps).type_as(input)
         else:
             return super(LayerNorm, self).forward(input.float()).type_as(input)
 
@@ -2156,15 +1964,13 @@ def assert_shape(x, exp_shape):
 
 class Conditioner(nn.Module):
 
-    def __init__(self, input_shape, bins, down_t, stride_t, out_width,
-        init_scale, zero_out, res_scale, **block_kwargs):
+    def __init__(self, input_shape, bins, down_t, stride_t, out_width, init_scale, zero_out, res_scale, **block_kwargs):
         super().__init__()
         self.x_shape = input_shape
         self.width = out_width
         self.x_emb = nn.Embedding(bins, out_width)
         nn.init.normal_(self.x_emb.weight, std=0.02 * init_scale)
-        self.cond = DecoderConvBock(self.width, self.width, down_t,
-            stride_t, **block_kwargs, zero_out=zero_out, res_scale=res_scale)
+        self.cond = DecoderConvBock(self.width, self.width, down_t, stride_t, **block_kwargs, zero_out=zero_out, res_scale=res_scale)
         self.ln = LayerNorm(self.width)
 
     def preprocess(self, x):
@@ -2203,17 +2009,14 @@ class SimpleEmbedding(nn.Module):
 
     def forward(self, y):
         assert len(y.shape) == 2, f'Expected shape with 2 dims, got {y.shape}'
-        assert isinstance(y, t.cuda.LongTensor
-            ), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
-        assert (0 <= y).all() and (y < self.bins).all(
-            ), f'Bins {self.bins}, got label {y}'
+        assert isinstance(y, t.cuda.LongTensor), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
+        assert (0 <= y).all() and (y < self.bins).all(), f'Bins {self.bins}, got label {y}'
         return self.emb(y)
 
 
 class RangeEmbedding(nn.Module):
 
-    def __init__(self, n_time, bins, range, out_width, init_scale, clamp=False
-        ):
+    def __init__(self, n_time, bins, range, out_width, init_scale, clamp=False):
         super().__init__()
         self.n_time = n_time
         self.bins = bins
@@ -2223,87 +2026,62 @@ class RangeEmbedding(nn.Module):
         self.clamp = clamp
 
     def forward(self, pos_start, pos_end=None):
-        assert len(pos_start.shape
-            ) == 2, f'Expected shape with 2 dims, got {pos_start.shape}'
-        assert (self.pos_min <= pos_start).all() and (pos_start < self.pos_max
-            ).all(
-            ), f'Range is [{self.pos_min},{self.pos_max}), got {pos_start}'
+        assert len(pos_start.shape) == 2, f'Expected shape with 2 dims, got {pos_start.shape}'
+        assert (self.pos_min <= pos_start).all() and (pos_start < self.pos_max).all(), f'Range is [{self.pos_min},{self.pos_max}), got {pos_start}'
         pos_start = pos_start.float()
         if pos_end is not None:
-            assert len(pos_end.shape
-                ) == 2, f'Expected shape with 2 dims, got {pos_end.shape}'
+            assert len(pos_end.shape) == 2, f'Expected shape with 2 dims, got {pos_end.shape}'
             if self.clamp:
                 pos_end = pos_end.clamp(self.pos_min, self.pos_max)
-            assert (self.pos_min <= pos_end).all() and (pos_end <= self.pos_max
-                ).all(
-                ), f'Range is [{self.pos_min},{self.pos_max}), got {pos_end}'
+            assert (self.pos_min <= pos_end).all() and (pos_end <= self.pos_max).all(), f'Range is [{self.pos_min},{self.pos_max}), got {pos_end}'
             pos_end = pos_end.float()
         n_time = self.n_time
         if n_time != 1:
             assert pos_end is not None
-            interpolation = t.arange(0, n_time, dtype=t.float, device='cuda'
-                ).view(1, n_time) / n_time
+            interpolation = t.arange(0, n_time, dtype=t.float, device='cuda').view(1, n_time) / n_time
             position = pos_start + (pos_end - pos_start) * interpolation
         else:
             position = pos_start
-        normalised_position = (position - self.pos_min) / (self.pos_max -
-            self.pos_min)
+        normalised_position = (position - self.pos_min) / (self.pos_max - self.pos_min)
         bins = (self.bins * normalised_position).floor().long().detach()
         return self.emb(bins)
 
 
 class LabelConditioner(nn.Module):
 
-    def __init__(self, y_bins, t_bins, sr, min_duration, max_duration,
-        n_time, out_width, init_scale, max_bow_genre_size, include_time_signal
-        ):
+    def __init__(self, y_bins, t_bins, sr, min_duration, max_duration, n_time, out_width, init_scale, max_bow_genre_size, include_time_signal):
         super().__init__()
         self.n_time = n_time
         self.out_width = out_width
-        assert len(y_bins
-            ) == 2, f'Expecting (genre, artist) bins, got {y_bins}'
+        assert len(y_bins) == 2, f'Expecting (genre, artist) bins, got {y_bins}'
         bow_genre_bins, artist_bins = y_bins
         self.max_bow_genre_size = max_bow_genre_size
-        self.bow_genre_emb = SimpleEmbedding(bow_genre_bins, out_width,
-            init_scale)
+        self.bow_genre_emb = SimpleEmbedding(bow_genre_bins, out_width, init_scale)
         self.artist_emb = SimpleEmbedding(artist_bins, out_width, init_scale)
         self.include_time_signal = include_time_signal
         if self.include_time_signal:
-            t_ranges = (min_duration * sr, max_duration * sr), (0.0, 
-                max_duration * sr), (0.0, 1.0)
-            assert len(t_ranges
-                ) == 3, f'Expecting (total, absolute, relative) ranges, got {t_ranges}'
-            total_length_range, absolute_pos_range, relative_pos_range = (
-                t_ranges)
-            self.total_length_emb = RangeEmbedding(1, t_bins,
-                total_length_range, out_width, init_scale)
-            self.absolute_pos_emb = RangeEmbedding(n_time, t_bins,
-                absolute_pos_range, out_width, init_scale)
-            self.relative_pos_emb = RangeEmbedding(n_time, t_bins,
-                relative_pos_range, out_width, init_scale, clamp=True)
+            t_ranges = (min_duration * sr, max_duration * sr), (0.0, max_duration * sr), (0.0, 1.0)
+            assert len(t_ranges) == 3, f'Expecting (total, absolute, relative) ranges, got {t_ranges}'
+            total_length_range, absolute_pos_range, relative_pos_range = t_ranges
+            self.total_length_emb = RangeEmbedding(1, t_bins, total_length_range, out_width, init_scale)
+            self.absolute_pos_emb = RangeEmbedding(n_time, t_bins, absolute_pos_range, out_width, init_scale)
+            self.relative_pos_emb = RangeEmbedding(n_time, t_bins, relative_pos_range, out_width, init_scale, clamp=True)
 
     def forward(self, y):
         assert len(y.shape) == 2, f'Expected shape with 2 dims, got {y.shape}'
-        assert y.shape[-1
-            ] == 4 + self.max_bow_genre_size, f'Expected shape (N,{4 + self.max_bow_genre_size}), got {y.shape}'
-        assert isinstance(y, t.cuda.LongTensor
-            ), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
+        assert y.shape[-1] == 4 + self.max_bow_genre_size, f'Expected shape (N,{4 + self.max_bow_genre_size}), got {y.shape}'
+        assert isinstance(y, t.cuda.LongTensor), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
         N = y.shape[0]
-        total_length, offset, length, artist, genre = y[:, 0:1], y[:, 1:2], y[:
-            , 2:3], y[:, 3:4], y[:, 4:]
+        total_length, offset, length, artist, genre = y[:, 0:1], y[:, 1:2], y[:, 2:3], y[:, 3:4], y[:, 4:]
         artist_emb = self.artist_emb(artist)
         mask = (genre >= 0).float().unsqueeze(2)
-        genre_emb = (self.bow_genre_emb(genre.clamp(0)) * mask).sum(dim=1,
-            keepdim=True)
+        genre_emb = (self.bow_genre_emb(genre.clamp(0)) * mask).sum(dim=1, keepdim=True)
         start_emb = genre_emb + artist_emb
         assert_shape(start_emb, (N, 1, self.out_width))
         if self.include_time_signal:
             start, end = offset, offset + length
-            total_length, start, end = total_length.float(), start.float(
-                ), end.float()
-            pos_emb = self.total_length_emb(total_length
-                ) + self.absolute_pos_emb(start, end) + self.relative_pos_emb(
-                start / total_length, end / total_length)
+            total_length, start, end = total_length.float(), start.float(), end.float()
+            pos_emb = self.total_length_emb(total_length) + self.absolute_pos_emb(start, end) + self.relative_pos_emb(start / total_length, end / total_length)
             assert_shape(pos_emb, (N, self.n_time, self.out_width))
         else:
             pos_emb = None
@@ -2322,9 +2100,7 @@ def create_reverse_lookup(atoi):
     return itoa
 
 
-accepted = frozenset([chr(i) for i in range(ord('a'), ord('z') + 1)] + [chr
-    (i) for i in range(ord('A'), ord('Z') + 1)] + [chr(i) for i in range(
-    ord('0'), ord('9') + 1)])
+accepted = frozenset([chr(i) for i in range(ord('a'), ord('z') + 1)] + [chr(i) for i in range(ord('A'), ord('Z') + 1)] + [chr(i) for i in range(ord('0'), ord('9') + 1)])
 
 
 rex = re.compile('_+')
@@ -2357,9 +2133,7 @@ class ArtistGenreProcessor:
         else:
             artist = norm(artist)
         if artist not in self.artist_ids:
-            print(
-                f'Input artist {input_artist} maps to {artist}, which is not present in {self.artist_id_file}. Defaulting to (artist_id, artist) = (0, unknown), if that seems wrong please format artist correctly'
-                )
+            print(f'Input artist {input_artist} maps to {artist}, which is not present in {self.artist_id_file}. Defaulting to (artist_id, artist) = (0, unknown), if that seems wrong please format artist correctly')
         return self.artist_ids.get(artist, 0)
 
     def get_genre_ids(self, genre):
@@ -2369,9 +2143,7 @@ class ArtistGenreProcessor:
             genres = norm(genre).split('_')
         for word in genres:
             if word not in self.genre_ids:
-                print(
-                    f'Input genre {genre} maps to the list {genres}. {word} is not present in {self.genre_id_file}. Defaulting to (word_id, word) = (0, unknown), if that seems wrong please format genre correctly'
-                    )
+                print(f'Input genre {genre} maps to the list {genres}. {word} is not present in {self.genre_id_file}. Defaulting to (word_id, word) = (0, unknown), if that seems wrong please format genre correctly')
         return [self.genre_ids.get(word, 0) for word in genres]
 
     def get_artist(self, artist_id):
@@ -2382,8 +2154,7 @@ class ArtistGenreProcessor:
             assert len(genre_ids) == 1
             genre = self.genres[genre_ids[0]]
         else:
-            genre = '_'.join([self.genres[genre_id] for genre_id in
-                genre_ids if genre_id >= 0])
+            genre = '_'.join([self.genres[genre_id] for genre_id in genre_ids if genre_id >= 0])
         return genre
 
     def load_artists(self):
@@ -2409,12 +2180,10 @@ class TextProcessor:
 
     def __init__(self, v3=False):
         if v3:
-            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-'"()[] 	
-"""
+            vocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-\'"()[] \t\n'
             not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-\'"()\\[\\] \t\n]+')
         else:
-            vocab = """ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+'"()[] 	
-"""
+            vocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+\'"()[] \t\n'
             not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-+\'"()\\[\\] \t\n]+')
         self.vocab = {vocab[index]: (index + 1) for index in range(len(vocab))}
         self.vocab['<unk>'] = 0
@@ -2439,27 +2208,19 @@ class TextProcessor:
         return [self.tokens[token] for token in tokens]
 
 
-def get_relevant_lyric_tokens(full_tokens, n_tokens, total_length, offset,
-    duration):
+def get_relevant_lyric_tokens(full_tokens, n_tokens, total_length, offset, duration):
     if len(full_tokens) < n_tokens:
         tokens = [0] * (n_tokens - len(full_tokens)) + full_tokens
-        indices = [-1] * (n_tokens - len(full_tokens)) + list(range(0, len(
-            full_tokens)))
+        indices = [-1] * (n_tokens - len(full_tokens)) + list(range(0, len(full_tokens)))
     else:
         assert 0 <= offset < total_length
-        midpoint = int(len(full_tokens) * (offset + duration / 2.0) /
-            total_length)
-        midpoint = min(max(midpoint, n_tokens // 2), len(full_tokens) - 
-            n_tokens // 2)
+        midpoint = int(len(full_tokens) * (offset + duration / 2.0) / total_length)
+        midpoint = min(max(midpoint, n_tokens // 2), len(full_tokens) - n_tokens // 2)
         tokens = full_tokens[midpoint - n_tokens // 2:midpoint + n_tokens // 2]
-        indices = list(range(midpoint - n_tokens // 2, midpoint + n_tokens //
-            2))
-    assert len(tokens
-        ) == n_tokens, f'Expected length {n_tokens}, got {len(tokens)}'
-    assert len(indices
-        ) == n_tokens, f'Expected length {n_tokens}, got {len(indices)}'
-    assert tokens == [(full_tokens[index] if index != -1 else 0) for index in
-        indices]
+        indices = list(range(midpoint - n_tokens // 2, midpoint + n_tokens // 2))
+    assert len(tokens) == n_tokens, f'Expected length {n_tokens}, got {len(tokens)}'
+    assert len(indices) == n_tokens, f'Expected length {n_tokens}, got {len(indices)}'
+    assert tokens == [(full_tokens[index] if index != -1 else 0) for index in indices]
     return tokens, indices
 
 
@@ -2478,27 +2239,22 @@ class Labeller:
         genre_ids = self.ag_processor.get_genre_ids(genre)
         lyrics = self.text_processor.clean(lyrics)
         full_tokens = self.text_processor.tokenise(lyrics)
-        tokens, _ = get_relevant_lyric_tokens(full_tokens, self.n_tokens,
-            total_length, offset, self.sample_length)
+        tokens, _ = get_relevant_lyric_tokens(full_tokens, self.n_tokens, total_length, offset, self.sample_length)
         assert len(genre_ids) <= self.max_genre_words
         genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
-        y = np.array([total_length, offset, self.sample_length, artist_id,
-            *genre_ids, *tokens], dtype=np.int64)
+        y = np.array([total_length, offset, self.sample_length, artist_id, *genre_ids, *tokens], dtype=np.int64)
         assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
-        info = dict(artist=artist, genre=genre, lyrics=lyrics, full_tokens=
-            full_tokens)
+        info = dict(artist=artist, genre=genre, lyrics=lyrics, full_tokens=full_tokens)
         return dict(y=y, info=info)
 
-    def get_y_from_ids(self, artist_id, genre_ids, lyric_tokens,
-        total_length, offset):
+    def get_y_from_ids(self, artist_id, genre_ids, lyric_tokens, total_length, offset):
         assert len(genre_ids) <= self.max_genre_words
         genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
         if self.n_tokens > 0:
             assert len(lyric_tokens) == self.n_tokens
         else:
             lyric_tokens = []
-        y = np.array([total_length, offset, self.sample_length, artist_id,
-            *genre_ids, *lyric_tokens], dtype=np.int64)
+        y = np.array([total_length, offset, self.sample_length, artist_id, *genre_ids, *lyric_tokens], dtype=np.int64)
         assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
         return y
 
@@ -2523,12 +2279,10 @@ class Labeller:
             for i in range(ys.shape[0]):
                 full_tokens = info[i]['full_tokens']
                 total_length, offset, duration = ys[i, 0], ys[i, 1], ys[i, 2]
-                tokens, indices = get_relevant_lyric_tokens(full_tokens,
-                    self.n_tokens, total_length, offset, duration)
+                tokens, indices = get_relevant_lyric_tokens(full_tokens, self.n_tokens, total_length, offset, duration)
                 tokens_list.append(tokens)
                 indices_list.append(indices)
-            ys[:, -self.n_tokens:] = t.tensor(tokens_list, dtype=t.long,
-                device='cuda')
+            ys[:, -self.n_tokens:] = t.tensor(tokens_list, dtype=t.long, device='cuda')
             return indices_list
         else:
             return None
@@ -2536,8 +2290,7 @@ class Labeller:
     def describe_label(self, y):
         assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
         y = np.array(y).tolist()
-        total_length, offset, length, artist_id, *genre_ids = y[:4 + self.
-            max_genre_words]
+        total_length, offset, length, artist_id, *genre_ids = y[:4 + self.max_genre_words]
         tokens = y[4 + self.max_genre_words:]
         artist = self.ag_processor.get_artist(artist_id)
         genre = self.ag_processor.get_genre(genre_ids)
@@ -2556,10 +2309,7 @@ def print_once(msg):
 
 class SimplePrior(nn.Module):
 
-    def __init__(self, z_shapes, l_bins, encoder, decoder, level, downs_t,
-        strides_t, labels, prior_kwargs, x_cond_kwargs, y_cond_kwargs,
-        prime_kwargs, copy_input, labels_v3=False, merged_decoder=False,
-        single_enc_dec=False):
+    def __init__(self, z_shapes, l_bins, encoder, decoder, level, downs_t, strides_t, labels, prior_kwargs, x_cond_kwargs, y_cond_kwargs, prime_kwargs, copy_input, labels_v3=False, merged_decoder=False, single_enc_dec=False):
         super().__init__()
         self.use_tokens = prime_kwargs.pop('use_tokens')
         self.n_tokens = prime_kwargs.pop('n_tokens')
@@ -2581,72 +2331,52 @@ class SimplePrior(nn.Module):
         self.single_enc_dec = single_enc_dec
         if self.x_cond:
             self.conditioner_blocks = nn.ModuleList()
-            conditioner_block = lambda _level: Conditioner(input_shape=
-                z_shapes[_level], bins=l_bins, down_t=downs_t[_level],
-                stride_t=strides_t[_level], **x_cond_kwargs)
+            conditioner_block = lambda _level: Conditioner(input_shape=z_shapes[_level], bins=l_bins, down_t=downs_t[_level], stride_t=strides_t[_level], **x_cond_kwargs)
             if dist.get_rank() == 0:
                 None
             self.conditioner_blocks.append(conditioner_block(self.cond_level))
         if self.y_cond:
             self.n_time = self.z_shape[0]
-            self.y_emb = LabelConditioner(n_time=self.n_time,
-                include_time_signal=not self.x_cond, **y_cond_kwargs)
+            self.y_emb = LabelConditioner(n_time=self.n_time, include_time_signal=not self.x_cond, **y_cond_kwargs)
         if single_enc_dec:
-            self.prior_shapes = [(self.n_tokens,), prior_kwargs.pop(
-                'input_shape')]
+            self.prior_shapes = [(self.n_tokens,), prior_kwargs.pop('input_shape')]
             self.prior_bins = [prime_kwargs['bins'], prior_kwargs.pop('bins')]
             self.prior_dims = [np.prod(shape) for shape in self.prior_shapes]
             self.prior_bins_shift = np.cumsum([0, *self.prior_bins])[:-1]
             self.prior_width = prior_kwargs['width']
-            print_once(
-                f'Creating cond. autoregress with prior bins {self.prior_bins}, '
-                )
+            print_once(f'Creating cond. autoregress with prior bins {self.prior_bins}, ')
             print_once(f'dims {self.prior_dims}, ')
             print_once(f'shift {self.prior_bins_shift}')
             print_once(f'input shape {sum(self.prior_dims)}')
             print_once(f'input bins {sum(self.prior_bins)}')
             print_once(f'Self copy is {self.copy_input}')
-            self.prime_loss_dims, self.gen_loss_dims = self.prior_dims[0
-                ], self.prior_dims[1]
+            self.prime_loss_dims, self.gen_loss_dims = self.prior_dims[0], self.prior_dims[1]
             self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
-            self.prior = ConditionalAutoregressive2D(input_shape=(sum(self.
-                prior_dims),), bins=sum(self.prior_bins), x_cond=self.
-                x_cond or self.y_cond, y_cond=True, prime_len=self.
-                prime_loss_dims, **prior_kwargs)
+            self.prior = ConditionalAutoregressive2D(input_shape=(sum(self.prior_dims),), bins=sum(self.prior_bins), x_cond=self.x_cond or self.y_cond, y_cond=True, prime_len=self.prime_loss_dims, **prior_kwargs)
         else:
             if self.n_tokens != 0 and self.use_tokens:
                 prime_input_shape = self.n_tokens,
                 self.prime_loss_dims = np.prod(prime_input_shape)
-                self.prime_acts_width, self.prime_state_width = prime_kwargs[
-                    'width'], prior_kwargs['width']
-                self.prime_prior = ConditionalAutoregressive2D(input_shape=
-                    prime_input_shape, x_cond=False, y_cond=False,
-                    only_encode=True, **prime_kwargs)
-                self.prime_state_proj = Conv1D(self.prime_acts_width, self.
-                    prime_state_width, init_scale=prime_kwargs['init_scale'])
+                self.prime_acts_width, self.prime_state_width = prime_kwargs['width'], prior_kwargs['width']
+                self.prime_prior = ConditionalAutoregressive2D(input_shape=prime_input_shape, x_cond=False, y_cond=False, only_encode=True, **prime_kwargs)
+                self.prime_state_proj = Conv1D(self.prime_acts_width, self.prime_state_width, init_scale=prime_kwargs['init_scale'])
                 self.prime_state_ln = LayerNorm(self.prime_state_width)
                 self.prime_bins = prime_kwargs['bins']
-                self.prime_x_out = nn.Linear(self.prime_state_width, self.
-                    prime_bins, bias=False)
-                nn.init.normal_(self.prime_x_out.weight, std=0.02 *
-                    prior_kwargs['init_scale'])
+                self.prime_x_out = nn.Linear(self.prime_state_width, self.prime_bins, bias=False)
+                nn.init.normal_(self.prime_x_out.weight, std=0.02 * prior_kwargs['init_scale'])
             else:
                 self.prime_loss_dims = 0
             self.gen_loss_dims = np.prod(self.z_shape)
             self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
-            self.prior = ConditionalAutoregressive2D(x_cond=self.x_cond or
-                self.y_cond, y_cond=self.y_cond, encoder_dims=self.
-                prime_loss_dims, merged_decoder=merged_decoder, **prior_kwargs)
+            self.prior = ConditionalAutoregressive2D(x_cond=self.x_cond or self.y_cond, y_cond=self.y_cond, encoder_dims=self.prime_loss_dims, merged_decoder=merged_decoder, **prior_kwargs)
         self.n_ctx = self.gen_loss_dims
         self.downsamples = calculate_strides(strides_t, downs_t)
-        self.cond_downsample = self.downsamples[level + 1
-            ] if level != self.levels - 1 else None
+        self.cond_downsample = self.downsamples[level + 1] if level != self.levels - 1 else None
         self.raw_to_tokens = np.prod(self.downsamples[:level + 1])
         self.sample_length = self.n_ctx * self.raw_to_tokens
         if labels:
             self.labels_v3 = labels_v3
-            self.labeller = Labeller(self.y_emb.max_bow_genre_size, self.
-                n_tokens, self.sample_length, v3=self.labels_v3)
+            self.labeller = Labeller(self.y_emb.max_bow_genre_size, self.n_tokens, self.sample_length, v3=self.labels_v3)
         None
 
     def get_y(self, labels, start, get_indices=False):
@@ -2662,8 +2392,7 @@ class SimplePrior(nn.Module):
     def get_z_conds(self, zs, start, end):
         if self.level != self.levels - 1:
             assert start % self.cond_downsample == end % self.cond_downsample == 0
-            z_cond = zs[self.level + 1][:, start // self.cond_downsample:
-                end // self.cond_downsample]
+            z_cond = zs[self.level + 1][:, start // self.cond_downsample:end // self.cond_downsample]
             assert z_cond.shape[1] == self.n_ctx // self.cond_downsample
             z_conds = [z_cond]
         else:
@@ -2674,19 +2403,16 @@ class SimplePrior(nn.Module):
         N = xs[0].shape[0]
         for i in range(len(xs)):
             x, shape, dims = xs[i], self.prior_shapes[i], self.prior_dims[i]
-            bins, bins_shift = int(self.prior_bins[i]), int(self.
-                prior_bins_shift[i])
+            bins, bins_shift = int(self.prior_bins[i]), int(self.prior_bins_shift[i])
             assert isinstance(x, t.cuda.LongTensor), x
             assert (0 <= x).all() and (x < bins).all()
             xs[i] = (xs[i] + bins_shift).view(N, -1)
         for i in range(len(conds)):
-            cond, shape, dims = conds[i], self.prior_shapes[i
-                ], self.prior_dims[i]
+            cond, shape, dims = conds[i], self.prior_shapes[i], self.prior_dims[i]
             if cond is not None:
                 assert_shape(cond, (N, dims, self.prior_width))
             else:
-                conds[i] = t.zeros((N, dims, self.prior_width), dtype=t.
-                    float, device='cuda')
+                conds[i] = t.zeros((N, dims, self.prior_width), dtype=t.float, device='cuda')
         return t.cat(xs, dim=1), t.cat(conds, dim=1)
 
     def prior_postprocess(self, z):
@@ -2695,21 +2421,17 @@ class SimplePrior(nn.Module):
         xs = list(t.split(z, dims, dim=1))
         for i in range(len(xs)):
             shape = self.prior_shapes[i]
-            bins, bins_shift = int(self.prior_bins[i]), int(self.
-                prior_bins_shift[i])
+            bins, bins_shift = int(self.prior_bins[i]), int(self.prior_bins_shift[i])
             xs[i] = (xs[i] - bins_shift).view(N, -1, *shape[1:])
             xs[i] = t.clamp(xs[i], min=0)
-            assert (xs[i] < bins).all(
-                ), f'rank: {dist.get_rank()}, bins: {bins}, dims {dims}, shape {shape}, prior_shape {self.prior_shapes}, bins_shift {bins_shift}, xs[i]: {xs[i]}'
+            assert (xs[i] < bins).all(), f'rank: {dist.get_rank()}, bins: {bins}, dims {dims}, shape {shape}, prior_shape {self.prior_shapes}, bins_shift {bins_shift}, xs[i]: {xs[i]}'
         return xs[-1]
 
     def x_emb(self, z_conds):
         z_conds = z_conds[:self.cond_level - self.level]
-        assert len(z_conds) == len(self.conditioner_blocks
-            ) == self.cond_level - self.level, f'Expected {len(z_conds)} == {len(self.conditioner_blocks)} == {self.cond_level} - {self.level}'
+        assert len(z_conds) == len(self.conditioner_blocks) == self.cond_level - self.level, f'Expected {len(z_conds)} == {len(self.conditioner_blocks)} == {self.cond_level} - {self.level}'
         x_cond = None
-        for z_cond, conditioner_block in reversed(list(zip(z_conds, self.
-            conditioner_blocks))):
+        for z_cond, conditioner_block in reversed(list(zip(z_conds, self.conditioner_blocks))):
             x_cond = conditioner_block(z_cond, x_cond)
         return x_cond
 
@@ -2719,8 +2441,7 @@ class SimplePrior(nn.Module):
         if end_level == None:
             end_level = self.levels
         with t.no_grad():
-            zs = self.encoder(x, start_level=start_level, end_level=
-                end_level, bs_chunks=bs_chunks)
+            zs = self.encoder(x, start_level=start_level, end_level=end_level, bs_chunks=bs_chunks)
         return zs
 
     def decode(self, zs, start_level=None, end_level=None, bs_chunks=1):
@@ -2730,14 +2451,12 @@ class SimplePrior(nn.Module):
             end_level = self.levels
         assert len(zs) == end_level - start_level
         with t.no_grad():
-            x_out = self.decoder(zs, start_level=start_level, end_level=
-                end_level, bs_chunks=bs_chunks)
+            x_out = self.decoder(zs, start_level=start_level, end_level=end_level, bs_chunks=bs_chunks)
         return x_out
 
     def get_cond(self, z_conds, y):
         if y is not None:
-            assert y.shape[1
-                ] == 4 + self.y_emb.max_bow_genre_size + self.n_tokens, f'Expected {4} + {self.y_emb.max_bow_genre_size} + {self.n_tokens}, got {y.shape[1]}'
+            assert y.shape[1] == 4 + self.y_emb.max_bow_genre_size + self.n_tokens, f'Expected {4} + {self.y_emb.max_bow_genre_size} + {self.n_tokens}, got {y.shape[1]}'
             n_labels = y.shape[1] - self.n_tokens
             y, prime = y[:, :n_labels], y[:, n_labels:]
         else:
@@ -2746,19 +2465,15 @@ class SimplePrior(nn.Module):
         x_cond = self.x_emb(z_conds) if self.x_cond else y_pos
         return x_cond, y_cond, prime
 
-    def sample(self, n_samples, z=None, z_conds=None, y=None, fp16=False,
-        temp=1.0, top_k=0, top_p=0.0, chunk_size=None, sample_tokens=None):
+    def sample(self, n_samples, z=None, z_conds=None, y=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, chunk_size=None, sample_tokens=None):
         N = n_samples
         if z is not None:
-            assert z.shape[0
-                ] == N, f'Expected shape ({N},**), got shape {z.shape}'
+            assert z.shape[0] == N, f'Expected shape ({N},**), got shape {z.shape}'
         if y is not None:
-            assert y.shape[0
-                ] == N, f'Expected shape ({N},**), got shape {y.shape}'
+            assert y.shape[0] == N, f'Expected shape ({N},**), got shape {y.shape}'
         if z_conds is not None:
             for z_cond in z_conds:
-                assert z_cond.shape[0
-                    ] == N, f'Expected shape ({N},**), got shape {z_cond.shape}'
+                assert z_cond.shape[0] == N, f'Expected shape ({N},**), got shape {z_cond.shape}'
         no_past_context = z is None or z.shape[1] == 0
         if dist.get_rank() == 0:
             name = {(True): 'Ancestral', (False): 'Primed'}[no_past_context]
@@ -2769,25 +2484,17 @@ class SimplePrior(nn.Module):
                 if no_past_context:
                     z, x_cond = self.prior_preprocess([prime], [None, x_cond])
                 else:
-                    z, x_cond = self.prior_preprocess([prime, z], [None,
-                        x_cond])
+                    z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
                 if sample_tokens is not None:
                     sample_tokens += self.n_tokens
-                z = self.prior.primed_sample(n_samples, z, x_cond, y_cond,
-                    fp16=fp16, temp=temp, top_k=top_k, top_p=top_p,
-                    chunk_size=chunk_size, sample_tokens=sample_tokens)
+                z = self.prior.primed_sample(n_samples, z, x_cond, y_cond, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, chunk_size=chunk_size, sample_tokens=sample_tokens)
                 z = self.prior_postprocess(z)
             else:
                 encoder_kv = self.get_encoder_kv(prime, fp16=fp16, sample=True)
                 if no_past_context:
-                    z = self.prior.sample(n_samples, x_cond, y_cond,
-                        encoder_kv, fp16=fp16, temp=temp, top_k=top_k,
-                        top_p=top_p, sample_tokens=sample_tokens)
+                    z = self.prior.sample(n_samples, x_cond, y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, sample_tokens=sample_tokens)
                 else:
-                    z = self.prior.primed_sample(n_samples, z, x_cond,
-                        y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=
-                        top_k, top_p=top_p, chunk_size=chunk_size,
-                        sample_tokens=sample_tokens)
+                    z = self.prior.primed_sample(n_samples, z, x_cond, y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, chunk_size=chunk_size, sample_tokens=sample_tokens)
             if sample_tokens is None:
                 assert_shape(z, (N, *self.z_shape))
         return z
@@ -2798,8 +2505,7 @@ class SimplePrior(nn.Module):
                 self.prime_prior
             N = prime.shape[0]
             prime_acts = self.prime_prior(prime, None, None, None, fp16=fp16)
-            assert_shape(prime_acts, (N, self.prime_loss_dims, self.
-                prime_acts_width))
+            assert_shape(prime_acts, (N, self.prime_loss_dims, self.prime_acts_width))
             assert prime_acts.dtype == t.float, f'Expected t.float, got {prime_acts.dtype}'
             encoder_kv = self.prime_state_ln(self.prime_state_proj(prime_acts))
             assert encoder_kv.dtype == t.float, f'Expected t.float, got {encoder_kv.dtype}'
@@ -2815,14 +2521,12 @@ class SimplePrior(nn.Module):
         if self.use_tokens:
             encoder_kv = encoder_kv.float()
             encoder_kv = self.prime_x_out(encoder_kv)
-            prime_loss = nn.functional.cross_entropy(encoder_kv.view(-1,
-                self.prime_bins), prime_t.view(-1)) / np.log(2.0)
+            prime_loss = nn.functional.cross_entropy(encoder_kv.view(-1, self.prime_bins), prime_t.view(-1)) / np.log(2.0)
         else:
             prime_loss = t.tensor(0.0, device='cuda')
         return prime_loss
 
-    def z_forward(self, z, z_conds=[], y=None, fp16=False, get_preds=False,
-        get_attn_weights=False):
+    def z_forward(self, z, z_conds=[], y=None, fp16=False, get_preds=False, get_attn_weights=False):
         """
         Arguments:
             get_attn_weights (bool or set): Makes forward prop dump
@@ -2838,18 +2542,13 @@ class SimplePrior(nn.Module):
             prime = z[:, :self.n_tokens]
         if self.single_enc_dec:
             z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
-            (prime_loss, gen_loss), preds = self.prior(z, x_cond, y_cond,
-                fp16=fp16, get_sep_loss=True, get_preds=get_preds)
+            (prime_loss, gen_loss), preds = self.prior(z, x_cond, y_cond, fp16=fp16, get_sep_loss=True, get_preds=get_preds)
         else:
             encoder_kv = self.get_encoder_kv(prime, fp16=fp16)
             prime_loss = self.get_prime_loss(encoder_kv, prime)
-            gen_loss, preds = self.prior(z, x_cond, y_cond, encoder_kv,
-                fp16=fp16, get_preds=get_preds)
-        loss = (self.prime_loss_fraction * prime_loss * self.
-            prime_loss_dims / self.total_loss_dims + gen_loss * self.
-            gen_loss_dims / self.total_loss_dims)
-        metrics = dict(bpd=gen_loss.clone().detach(), prime_loss=prime_loss
-            .clone().detach(), gen_loss=gen_loss.clone().detach())
+            gen_loss, preds = self.prior(z, x_cond, y_cond, encoder_kv, fp16=fp16, get_preds=get_preds)
+        loss = self.prime_loss_fraction * prime_loss * self.prime_loss_dims / self.total_loss_dims + gen_loss * self.gen_loss_dims / self.total_loss_dims
+        metrics = dict(bpd=gen_loss.clone().detach(), prime_loss=prime_loss.clone().detach(), gen_loss=gen_loss.clone().detach())
         if get_preds:
             metrics['preds'] = preds.clone().detach()
         if get_attn_weights:
@@ -2862,8 +2561,7 @@ class SimplePrior(nn.Module):
     def forward(self, x, y=None, fp16=False, decode=False, get_preds=False):
         bs = x.shape[0]
         z, *z_conds = self.encode(x, bs_chunks=bs)
-        loss, metrics = self.z_forward(z=z, z_conds=z_conds, y=y, fp16=fp16,
-            get_preds=get_preds)
+        loss, metrics = self.z_forward(z=z, z_conds=z_conds, y=y, fp16=fp16, get_preds=get_preds)
         if decode:
             x_out = self.decode([z, *z_conds])
         else:
@@ -2890,8 +2588,7 @@ class CheckpointFunction(t.autograd.Function):
             ctx.input_tensors[i].requires_grad = temp.requires_grad
         with t.enable_grad():
             output_tensors = ctx.run_function(*ctx.input_tensors)
-        input_grads = t.autograd.grad(output_tensors, ctx.input_tensors +
-            ctx.input_params, output_grads, allow_unused=True)
+        input_grads = t.autograd.grad(output_tensors, ctx.input_tensors + ctx.input_params, output_grads, allow_unused=True)
         del ctx.input_tensors
         del output_tensors
         return (None, None) + input_grads
@@ -2912,9 +2609,7 @@ def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
     if mask == 'autoregressive':
         mask = t.ones(q_l, kv_l, device=device).tril(offset)
     elif mask == 'summary':
-        mask = t.nn.functional.pad(t.ones(q_l, q_l, device=device).tril().
-            view(q_l, blocks, q_l // blocks)[:, :-1, -kv_l // blocks:], (0,
-            0, 1, 0), value=1).contiguous().view(q_l, kv_l)
+        mask = t.nn.functional.pad(t.ones(q_l, q_l, device=device).tril().view(q_l, blocks, q_l // blocks)[:, :-1, -kv_l // blocks:], (0, 0, 1, 0), value=1).contiguous().view(q_l, kv_l)
     elif mask == 'prime':
         mask = t.ones(q_l, kv_l, device=device).tril(offset)
     return mask.view(1, 1, q_l, kv_l)
@@ -2922,10 +2617,7 @@ def get_mask(mask, q_l, kv_l, blocks, spread, device, sample, sample_t):
 
 class FactoredAttention(nn.Module):
 
-    def __init__(self, n_in, n_ctx, n_state, n_head, attn_dropout=0.0,
-        resid_dropout=0.0, scale=True, mask=False, zero_out=False,
-        init_scale=1.0, checkpoint_attn=0, attn_func=0, blocks=None, spread
-        =None, encoder_dims=None, prime_len=None):
+    def __init__(self, n_in, n_ctx, n_state, n_head, attn_dropout=0.0, resid_dropout=0.0, scale=True, mask=False, zero_out=False, init_scale=1.0, checkpoint_attn=0, attn_func=0, blocks=None, spread=None, encoder_dims=None, prime_len=None):
         super().__init__()
         self.n_in = n_in
         self.n_ctx = n_ctx
@@ -2940,20 +2632,10 @@ class FactoredAttention(nn.Module):
         else:
             self.c_attn = Conv1D(n_in, n_state * 3, init_scale=init_scale)
         self.c_proj = Conv1D(n_state, n_in, zero_out, init_scale=init_scale)
-        self.attn_dropout = nn.Dropout(attn_dropout
-            ) if attn_dropout > 0.0 else lambda x: x
-        self.resid_dropout = nn.Dropout(resid_dropout
-            ) if resid_dropout > 0.0 else lambda x: x
+        self.attn_dropout = nn.Dropout(attn_dropout) if attn_dropout > 0.0 else lambda x: x
+        self.resid_dropout = nn.Dropout(resid_dropout) if resid_dropout > 0.0 else lambda x: x
         self.attn_func = attn_func
-        self.qkv, self.attn, self.attn_mask = {(0): (self.factored_qkv,
-            self.dense_attn, 'autoregressive'), (1): (self.factored_qkv,
-            self.block_attn, 'autoregressive'), (2): (self.factored_qkv,
-            self.transpose_block_attn, 'autoregressive'), (3): (self.
-            factored_qkv, self.prev_block_attn, None), (4): (self.
-            factored_qkv, self.summary_attn, 'summary'), (5): (self.
-            factored_qkv, self.summary_spread_attn, 'summary'), (6): (self.
-            decode_qkv, self.decode_attn, None), (7): (self.prime_qkv, self
-            .prime_attn, 'prime')}[attn_func]
+        self.qkv, self.attn, self.attn_mask = {(0): (self.factored_qkv, self.dense_attn, 'autoregressive'), (1): (self.factored_qkv, self.block_attn, 'autoregressive'), (2): (self.factored_qkv, self.transpose_block_attn, 'autoregressive'), (3): (self.factored_qkv, self.prev_block_attn, None), (4): (self.factored_qkv, self.summary_attn, 'summary'), (5): (self.factored_qkv, self.summary_spread_attn, 'summary'), (6): (self.decode_qkv, self.decode_attn, None), (7): (self.prime_qkv, self.prime_attn, 'prime')}[attn_func]
         self.blocks = blocks
         self.spread = spread
         if blocks is not None:
@@ -2977,8 +2659,7 @@ class FactoredAttention(nn.Module):
         wtype = w.dtype
         w = w.float()
         if self.mask:
-            mask = get_mask(self.attn_mask, q.size(-2), k.size(-1), self.
-                blocks, self.spread, w.device, sample, self.sample_t)
+            mask = get_mask(self.attn_mask, q.size(-2), k.size(-1), self.blocks, self.spread, w.device, sample, self.sample_t)
             if mask is not None:
                 w = w * mask + -1000000000.0 * (1 - mask)
             w = F.softmax(w, dim=-1).type(wtype)
@@ -3010,8 +2691,7 @@ class FactoredAttention(nn.Module):
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
         if self.checkpoint_attn == 1 and not sample:
-            a = checkpoint(lambda q, k, v, s=sample: self._attn(q, k, v, s),
-                (query, key, value), (), True)
+            a = checkpoint(lambda q, k, v, s=sample: self._attn(q, k, v, s), (query, key, value), (), True)
         else:
             a = self._attn(query, key, value, sample)
         a = self.merge_heads(a)
@@ -3021,8 +2701,7 @@ class FactoredAttention(nn.Module):
         blocks, block_ctx = self.blocks, self.block_ctx
         bs, l, d = v.shape
         if sample:
-            assert l == self._suff_cache_len(
-                ), f'{l} != {self._suff_cache_len()}'
+            assert l == self._suff_cache_len(), f'{l} != {self._suff_cache_len()}'
             return self.dense_attn(q, k, v, sample).view(bs, 1, d)
         else:
             ql = q.shape[1]
@@ -3045,21 +2724,16 @@ class FactoredAttention(nn.Module):
             return self.dense_attn(q, k, v, sample).view(bs, 1, d)
         else:
             ql = q.shape[1]
-            q = q.view(bs, ql // block_ctx, block_ctx, d).transpose(1, 2
-                ).contiguous().view(bs * block_ctx, ql // block_ctx, d)
-            k = k.view(bs, l // block_ctx, block_ctx, d).transpose(1, 2
-                ).contiguous().view(bs * block_ctx, l // block_ctx, d)
-            v = v.view(bs, l // block_ctx, block_ctx, d).transpose(1, 2
-                ).contiguous().view(bs * block_ctx, l // block_ctx, d)
-            return self.dense_attn(q, k, v, sample).view(bs, block_ctx, ql //
-                block_ctx, d).transpose(1, 2).contiguous().view(bs, ql, d)
+            q = q.view(bs, ql // block_ctx, block_ctx, d).transpose(1, 2).contiguous().view(bs * block_ctx, ql // block_ctx, d)
+            k = k.view(bs, l // block_ctx, block_ctx, d).transpose(1, 2).contiguous().view(bs * block_ctx, l // block_ctx, d)
+            v = v.view(bs, l // block_ctx, block_ctx, d).transpose(1, 2).contiguous().view(bs * block_ctx, l // block_ctx, d)
+            return self.dense_attn(q, k, v, sample).view(bs, block_ctx, ql // block_ctx, d).transpose(1, 2).contiguous().view(bs, ql, d)
 
     def prev_block_attn(self, q, k, v, sample):
         blocks, block_ctx = self.blocks, self.block_ctx
         bs, l, d = v.shape
         if sample:
-            assert l == self._suff_cache_len(
-                ), f'{l} != {self._suff_cache_len()}'
+            assert l == self._suff_cache_len(), f'{l} != {self._suff_cache_len()}'
             block = (l - 1) // block_ctx
             prev_l = (block - 1) * block_ctx
             if block > 0:
@@ -3073,36 +2747,26 @@ class FactoredAttention(nn.Module):
         else:
             ql = q.shape[1]
             q = q.view(bs * ql // block_ctx, block_ctx, d)
-            k = t.nn.functional.pad(k.view(bs, l // block_ctx, block_ctx, d
-                )[:, :-1, :, :], (0, 0, 0, 0, 1, 0)).view(bs * l //
-                block_ctx, block_ctx, d)
-            v = t.nn.functional.pad(v.view(bs, l // block_ctx, block_ctx, d
-                )[:, :-1, :, :], (0, 0, 0, 0, 1, 0)).view(bs * l //
-                block_ctx, block_ctx, d)
+            k = t.nn.functional.pad(k.view(bs, l // block_ctx, block_ctx, d)[:, :-1, :, :], (0, 0, 0, 0, 1, 0)).view(bs * l // block_ctx, block_ctx, d)
+            v = t.nn.functional.pad(v.view(bs, l // block_ctx, block_ctx, d)[:, :-1, :, :], (0, 0, 0, 0, 1, 0)).view(bs * l // block_ctx, block_ctx, d)
             if ql < l:
                 qb = ql // block_ctx
                 kb = l // block_ctx
                 l = ql
-                k = k.view(bs, kb, block_ctx, d)[:, -qb:].contiguous().view(
-                    bs * qb, block_ctx, d)
-                v = v.view(bs, kb, block_ctx, d)[:, -qb:].contiguous().view(
-                    bs * qb, block_ctx, d)
+                k = k.view(bs, kb, block_ctx, d)[:, -qb:].contiguous().view(bs * qb, block_ctx, d)
+                v = v.view(bs, kb, block_ctx, d)[:, -qb:].contiguous().view(bs * qb, block_ctx, d)
             return self.dense_attn(q, k, v, sample).view(bs, l, d)
 
     def summary_attn(self, q, k, v, sample):
         blocks, block_ctx = self.blocks, self.block_ctx
         bs, l, d = v.shape
         if sample:
-            k = t.nn.functional.pad(k[:, block_ctx - 1:blocks * block_ctx -
-                1:block_ctx, :], (0, 0, 1, 0))
-            v = t.nn.functional.pad(v[:, block_ctx - 1:blocks * block_ctx -
-                1:block_ctx, :], (0, 0, 1, 0))
+            k = t.nn.functional.pad(k[:, block_ctx - 1:blocks * block_ctx - 1:block_ctx, :], (0, 0, 1, 0))
+            v = t.nn.functional.pad(v[:, block_ctx - 1:blocks * block_ctx - 1:block_ctx, :], (0, 0, 1, 0))
             return self.dense_attn(q, k, v, sample).view(bs, 1, d)
         else:
-            k = t.nn.functional.pad(k.view(bs, blocks, l // blocks, d)[:, :
-                -1, (-1), :], (0, 0, 1, 0))
-            v = t.nn.functional.pad(v.view(bs, blocks, l // blocks, d)[:, :
-                -1, (-1), :], (0, 0, 1, 0))
+            k = t.nn.functional.pad(k.view(bs, blocks, l // blocks, d)[:, :-1, (-1), :], (0, 0, 1, 0))
+            v = t.nn.functional.pad(v.view(bs, blocks, l // blocks, d)[:, :-1, (-1), :], (0, 0, 1, 0))
             return self.dense_attn(q, k, v, sample).view(bs, l, d)
 
     def summary_spread_attn(self, q, k, v, sample):
@@ -3111,12 +2775,8 @@ class FactoredAttention(nn.Module):
         if sample:
             assert False, 'Not yet implemented'
         else:
-            k = t.nn.functional.pad(k.view(bs, blocks, l // blocks, d)[:, :
-                -1, -spread:, :], (0, 0, 0, 0, 1, 0)).contiguous().view(bs,
-                blocks * spread, d)
-            v = t.nn.functional.pad(v.view(bs, blocks, l // blocks, d)[:, :
-                -1, -spread:, :], (0, 0, 0, 0, 1, 0)).contiguous().view(bs,
-                blocks * spread, d)
+            k = t.nn.functional.pad(k.view(bs, blocks, l // blocks, d)[:, :-1, -spread:, :], (0, 0, 0, 0, 1, 0)).contiguous().view(bs, blocks * spread, d)
+            v = t.nn.functional.pad(v.view(bs, blocks, l // blocks, d)[:, :-1, -spread:, :], (0, 0, 0, 0, 1, 0)).contiguous().view(bs, blocks * spread, d)
             return self.dense_attn(q, k, v, sample).view(bs, l, d)
 
     def prime_attn(self, q, k, v, sample):
@@ -3126,8 +2786,7 @@ class FactoredAttention(nn.Module):
         return self.dense_attn(q, k, v, sample)
 
     def decode_attn(self, q, k, v, sample):
-        assert k.shape[1] == v.shape[1
-            ] == self.encoder_dims, f'k: {k.shape}, v: {v.shape}, enc_dims: {self.encoder_dims}'
+        assert k.shape[1] == v.shape[1] == self.encoder_dims, f'k: {k.shape}, v: {v.shape}, enc_dims: {self.encoder_dims}'
         return self.dense_attn(q, k, v, sample)
 
     def factored_qkv(self, x, encoder_kv=None, sample=False):
@@ -3166,15 +2825,11 @@ class FactoredAttention(nn.Module):
                 self._slice_cache(0, self._prime_len)
             key, value = self.cache['key'], self.cache['value']
             self.sample_t += curr_ctx
-            assert key.shape[1] == value.shape[1] == self._suff_cache_len(
-                ), f'k: {key.shape}, v: {value.shape}, prime_dims: {self._suff_cache_len()}'
+            assert key.shape[1] == value.shape[1] == self._suff_cache_len(), f'k: {key.shape}, v: {value.shape}, prime_dims: {self._suff_cache_len()}'
         else:
-            assert key.shape[1] == value.shape[1
-                ] == self.n_ctx, f'k: {key.shape}, v: {value.shape}, prime_dims: {self.n_ctx}'
-        assert key.shape[0] == value.shape[0] == query.shape[0
-            ], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
-        assert key.shape[2] == value.shape[2] == query.shape[2
-            ], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
+            assert key.shape[1] == value.shape[1] == self.n_ctx, f'k: {key.shape}, v: {value.shape}, prime_dims: {self.n_ctx}'
+        assert key.shape[0] == value.shape[0] == query.shape[0], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
+        assert key.shape[2] == value.shape[2] == query.shape[2], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
         return query, key, value, sample
 
     def decode_qkv(self, x, encoder_kv=None, sample=False):
@@ -3183,28 +2838,22 @@ class FactoredAttention(nn.Module):
         query = x
         if sample:
             if self.sample_t == 0:
-                self.cache['key'], self.cache['value'] = self.c_enc_kv(
-                    encoder_kv.type_as(x)).chunk(2, dim=2)
+                self.cache['key'], self.cache['value'] = self.c_enc_kv(encoder_kv.type_as(x)).chunk(2, dim=2)
             key, value = self.cache['key'], self.cache['value']
             self.sample_t += curr_ctx
         else:
             key, value = self.c_enc_kv(encoder_kv.type_as(x)).chunk(2, dim=2)
-        assert key.shape[0] == value.shape[0] == query.shape[0
-            ], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
-        assert key.shape[1] == value.shape[1
-            ] == self.encoder_dims, f'k: {key.shape}, v: {value.shape}, enc_dims: {self.encoder_dims}'
-        assert key.shape[2] == value.shape[2] == query.shape[2
-            ], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
+        assert key.shape[0] == value.shape[0] == query.shape[0], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
+        assert key.shape[1] == value.shape[1] == self.encoder_dims, f'k: {key.shape}, v: {value.shape}, enc_dims: {self.encoder_dims}'
+        assert key.shape[2] == value.shape[2] == query.shape[2], f'k: {key.shape}, v: {value.shape}, q: {query.shape}'
         return query, key, value, sample
 
     def forward(self, x, encoder_kv=None, sample=False):
         curr_ctx = x.shape[1]
         x = self.c_attn(x)
-        query, key, value, sample = self.qkv(x, encoder_kv=encoder_kv,
-            sample=sample)
+        query, key, value, sample = self.qkv(x, encoder_kv=encoder_kv, sample=sample)
         if self.checkpoint_attn == 2 and not sample:
-            a = checkpoint(lambda q, k, v, s=sample: self.attn(q, k, v, s),
-                (query, key, value), (), True)
+            a = checkpoint(lambda q, k, v, s=sample: self.attn(q, k, v, s), (query, key, value), (), True)
         else:
             a = self.attn(query, key, value, sample)
         if a.shape[1] != curr_ctx:
@@ -3309,16 +2958,9 @@ class FactoredAttention(nn.Module):
         assert (grad[(2), pos + 1:] == 0).all()
         pos_grad = (t.sum(grad[2] ** 2, dim=-1) > 0).nonzero().view(-1).cpu()
         block_pos = pos - pos % (l // blocks)
-        exp_pos_grad = {(0): t.arange(pos), (1): t.arange(block_pos, pos),
-            (2): t.arange(pos % (l // blocks), pos, l // blocks), (3): t.
-            arange(block_pos - l // blocks, block_pos), (4): t.arange(l //
-            blocks - 1, pos, l // blocks), (5): ((t.arange(pos) % (l //
-            blocks) >= l // blocks - spread) & (t.arange(pos) < block_pos))
-            .nonzero().view(-1)}[self.attn_func]
+        exp_pos_grad = {(0): t.arange(pos), (1): t.arange(block_pos, pos), (2): t.arange(pos % (l // blocks), pos, l // blocks), (3): t.arange(block_pos - l // blocks, block_pos), (4): t.arange(l // blocks - 1, pos, l // blocks), (5): ((t.arange(pos) % (l // blocks) >= l // blocks - spread) & (t.arange(pos) < block_pos)).nonzero().view(-1)}[self.attn_func]
         exp_pos_grad = t.cat([exp_pos_grad, t.tensor([pos])], dim=-1)
-        assert len(pos_grad) == len(exp_pos_grad) and (pos_grad == exp_pos_grad
-            ).all(
-            ), f'Expected pos grad {exp_pos_grad} got {pos_grad} for attn_func {self.attn_func} pos {pos} l {l} blocks {blocks}'
+        assert len(pos_grad) == len(exp_pos_grad) and (pos_grad == exp_pos_grad).all(), f'Expected pos grad {exp_pos_grad} got {pos_grad} for attn_func {self.attn_func} pos {pos} l {l} blocks {blocks}'
 
     def check_cache(self, n_samples, sample_t, fp16):
         assert self.sample_t == sample_t, f'{self.sample_t} != {sample_t}'
@@ -3327,14 +2969,10 @@ class FactoredAttention(nn.Module):
         else:
             dtype = {(True): t.float16, (False): t.float32}[fp16]
             l_cache = self._suff_cache_len()
-            assert self.cache['key'].shape == (n_samples, l_cache, self.n_state
-                )
-            assert self.cache['value'].shape == (n_samples, l_cache, self.
-                n_state)
-            assert self.cache['key'
-                ].dtype == dtype, f"Expected {dtype}, got {self.cache['key'].dtype}"
-            assert self.cache['value'
-                ].dtype == dtype, f"Expected {dtype}, got {self.cache['value'].dtype}"
+            assert self.cache['key'].shape == (n_samples, l_cache, self.n_state)
+            assert self.cache['value'].shape == (n_samples, l_cache, self.n_state)
+            assert self.cache['key'].dtype == dtype, f"Expected {dtype}, got {self.cache['key'].dtype}"
+            assert self.cache['value'].dtype == dtype, f"Expected {dtype}, got {self.cache['value'].dtype}"
 
     def check_sample(self):
         t.manual_seed(42)
@@ -3350,15 +2988,13 @@ class FactoredAttention(nn.Module):
             if self.attn_func == 6:
                 encoder_kv = t.randn(bs, enc_l, d)
             x_out_normal = self.forward(x, encoder_kv=encoder_kv)
-            x_out_sample = t.cat([self.forward(xs[i], encoder_kv=encoder_kv,
-                sample=True) for i in range(l)], dim=1)
+            x_out_sample = t.cat([self.forward(xs[i], encoder_kv=encoder_kv, sample=True) for i in range(l)], dim=1)
         max_err = t.max(t.abs(x_out_sample - x_out_normal))
         assert max_err < 1e-08, f'Max sampling err is {max_err} {[i for i in range(l) if t.max(t.abs(x_out_sample - x_out_normal)[:, (i), :]) > 1e-08]}'
         with t.no_grad():
             x_out_normal = x_out_normal[:, :prime, :]
             self.del_cache()
-            x_out_sample = self.forward(x[:, :prime, :].contiguous(),
-                encoder_kv=encoder_kv, sample=True)
+            x_out_sample = self.forward(x[:, :prime, :].contiguous(), encoder_kv=encoder_kv, sample=True)
             self.check_cache(bs, prime, False)
         max_err = t.max(t.abs(x_out_sample - x_out_normal))
         assert max_err < 1e-08, f'Max prime sampling err is {max_err} {[i for i in range(prime) if t.max(t.abs(x_out_sample - x_out_normal)[:, (i), :]) > 1e-08]}'
@@ -3385,8 +3021,7 @@ class FactoredAttention(nn.Module):
             y_chunks = []
             total_len = 0
             for x_chunk in x_chunks:
-                y_chunk = self.forward(x_chunk.contiguous(), encoder_kv=
-                    encoder_kv, sample=True)
+                y_chunk = self.forward(x_chunk.contiguous(), encoder_kv=encoder_kv, sample=True)
                 total_len += x_chunk.shape[1]
                 self.check_cache(bs, total_len, False)
                 y_chunks.append(y_chunk)
@@ -3412,8 +3047,7 @@ class Conv1D(nn.Module):
 
     def forward(self, x):
         size_out = *x.size()[:-1], self.n_out
-        x = t.addmm(self.b.type_as(x), x.view(-1, x.size(-1)), self.w.
-            type_as(x))
+        x = t.addmm(self.b.type_as(x), x.view(-1, x.size(-1)), self.w.type_as(x))
         x = x.view(*size_out)
         return x
 
@@ -3422,8 +3056,7 @@ class Mask(nn.Module):
 
     def __init__(self, n_ctx):
         super().__init__()
-        self.register_buffer('b', t.tril(t.ones(n_ctx, n_ctx)).view(1, 1,
-            n_ctx, n_ctx))
+        self.register_buffer('b', t.tril(t.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
 
     def forward(self, w):
         w = w * self.b + -1000000000.0 * (1 - self.b)
@@ -3431,8 +3064,7 @@ class Mask(nn.Module):
 
 
 def gelu(x):
-    return 0.5 * x * (1 + t.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * t
-        .pow(x, 3))))
+    return 0.5 * x * (1 + t.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * t.pow(x, 3))))
 
 
 @t.jit.script
@@ -3466,20 +3098,17 @@ def swish(x):
     return x * t.sigmoid(x)
 
 
-ACT_FNS = {'relu': t.nn.functional.relu, 'swish': swish, 'gelu': gelu,
-    'quick_gelu': memory_efficient_quick_gelu}
+ACT_FNS = {'relu': t.nn.functional.relu, 'swish': swish, 'gelu': gelu, 'quick_gelu': memory_efficient_quick_gelu}
 
 
 class MLP(nn.Module):
 
-    def __init__(self, n_in, n_state, resid_dropout=0.0, afn='quick_gelu',
-        zero_out=False, init_scale=1.0):
+    def __init__(self, n_in, n_state, resid_dropout=0.0, afn='quick_gelu', zero_out=False, init_scale=1.0):
         super().__init__()
         self.c_fc = Conv1D(n_in, n_state, init_scale=init_scale)
         self.c_proj = Conv1D(n_state, n_in, zero_out, init_scale=init_scale)
         self.act = ACT_FNS[afn]
-        self.resid_dropout = nn.Dropout(resid_dropout
-            ) if resid_dropout > 0.0 else lambda x: x
+        self.resid_dropout = nn.Dropout(resid_dropout) if resid_dropout > 0.0 else lambda x: x
 
     def forward(self, x):
         m = self.act(self.c_fc(x))
@@ -3489,21 +3118,11 @@ class MLP(nn.Module):
 
 class ResAttnBlock(nn.Module):
 
-    def __init__(self, n_in, n_ctx, n_head, attn_dropout=0.0, resid_dropout
-        =0.0, afn='quick_gelu', scale=True, mask=False, zero_out=False,
-        init_scale=1.0, res_scale=1.0, m_attn=0.25, m_mlp=1.0,
-        checkpoint_attn=0, checkpoint_mlp=0, attn_func=0, blocks=None,
-        spread=None, encoder_dims=None, prime_len=None):
+    def __init__(self, n_in, n_ctx, n_head, attn_dropout=0.0, resid_dropout=0.0, afn='quick_gelu', scale=True, mask=False, zero_out=False, init_scale=1.0, res_scale=1.0, m_attn=0.25, m_mlp=1.0, checkpoint_attn=0, checkpoint_mlp=0, attn_func=0, blocks=None, spread=None, encoder_dims=None, prime_len=None):
         super().__init__()
-        self.attn = FactoredAttention(n_in=n_in, n_ctx=n_ctx, n_state=int(
-            m_attn * n_in), n_head=n_head, attn_dropout=attn_dropout,
-            resid_dropout=resid_dropout, scale=scale, mask=mask, zero_out=
-            zero_out, init_scale=init_scale, checkpoint_attn=
-            checkpoint_attn, attn_func=attn_func, blocks=blocks, spread=
-            spread, encoder_dims=encoder_dims, prime_len=prime_len)
+        self.attn = FactoredAttention(n_in=n_in, n_ctx=n_ctx, n_state=int(m_attn * n_in), n_head=n_head, attn_dropout=attn_dropout, resid_dropout=resid_dropout, scale=scale, mask=mask, zero_out=zero_out, init_scale=init_scale, checkpoint_attn=checkpoint_attn, attn_func=attn_func, blocks=blocks, spread=spread, encoder_dims=encoder_dims, prime_len=prime_len)
         self.ln_0 = LayerNorm(n_in)
-        self.mlp = MLP(n_in=n_in, n_state=int(m_mlp * n_in), resid_dropout=
-            resid_dropout, afn=afn, zero_out=zero_out, init_scale=init_scale)
+        self.mlp = MLP(n_in=n_in, n_state=int(m_mlp * n_in), resid_dropout=resid_dropout, afn=afn, zero_out=zero_out, init_scale=init_scale)
         self.ln_1 = LayerNorm(n_in)
         self.res_scale = res_scale
         self.checkpoint_attn = checkpoint_attn
@@ -3518,19 +3137,11 @@ class ResAttnBlock(nn.Module):
         else:
             if self.attn_func == 6:
                 assert encoder_kv is not None
-                a = checkpoint(lambda _x, _enc_kv, _s=sample: self.attn(
-                    self.ln_0(_x), _enc_kv, _s), (x, encoder_kv), (*self.
-                    attn.parameters(), *self.ln_0.parameters()), self.
-                    checkpoint_attn == 3)
+                a = checkpoint(lambda _x, _enc_kv, _s=sample: self.attn(self.ln_0(_x), _enc_kv, _s), (x, encoder_kv), (*self.attn.parameters(), *self.ln_0.parameters()), self.checkpoint_attn == 3)
             else:
                 assert encoder_kv is None
-                a = checkpoint(lambda _x, _enc_kv=None, _s=sample: self.
-                    attn(self.ln_0(_x), _enc_kv, _s), (x,), (*self.attn.
-                    parameters(), *self.ln_0.parameters()), self.
-                    checkpoint_attn == 3)
-            m = checkpoint(lambda _x: self.mlp(self.ln_1(_x)), (x + a,), (*
-                self.mlp.parameters(), *self.ln_1.parameters()), self.
-                checkpoint_mlp == 1)
+                a = checkpoint(lambda _x, _enc_kv=None, _s=sample: self.attn(self.ln_0(_x), _enc_kv, _s), (x,), (*self.attn.parameters(), *self.ln_0.parameters()), self.checkpoint_attn == 3)
+            m = checkpoint(lambda _x: self.mlp(self.ln_1(_x)), (x + a,), (*self.mlp.parameters(), *self.ln_1.parameters()), self.checkpoint_mlp == 1)
         if self.res_scale == 1.0:
             h = x + a + m
         else:
@@ -3540,12 +3151,7 @@ class ResAttnBlock(nn.Module):
 
 class Transformer(nn.Module):
 
-    def __init__(self, n_in, n_ctx, n_head, n_depth, attn_dropout=0.0,
-        resid_dropout=0.0, afn='quick_gelu', scale=True, mask=False,
-        zero_out=False, init_scale=1.0, res_scale=False, m_attn=0.25, m_mlp
-        =1.0, checkpoint_attn=0, checkpoint_mlp=0, checkpoint_res=0,
-        attn_order=0, blocks=None, spread=None, encoder_dims=None,
-        prime_len=None):
+    def __init__(self, n_in, n_ctx, n_head, n_depth, attn_dropout=0.0, resid_dropout=0.0, afn='quick_gelu', scale=True, mask=False, zero_out=False, init_scale=1.0, res_scale=False, m_attn=0.25, m_mlp=1.0, checkpoint_attn=0, checkpoint_mlp=0, checkpoint_res=0, attn_order=0, blocks=None, spread=None, encoder_dims=None, prime_len=None):
         super().__init__()
         self.n_in = n_in
         self.n_ctx = n_ctx
@@ -3557,27 +3163,9 @@ class Transformer(nn.Module):
         self.prime_len = prime_len
         self.n_head = n_head
         res_scale = 1.0 / n_depth if res_scale else 1.0
-        attn_func = {(0): lambda d: 0, (1): lambda d: [1, 2][d % 2], (2): 
-            lambda d: [1, 2, 3][d % 3], (3): lambda d: [1, 4][d % 2], (4): 
-            lambda d: [1, 5][d % 2], (5): lambda d: [1, 4, 1, 1][d % 4], (6
-            ): lambda d: [1, 2, 3, 6][d % 4], (7): lambda d: [*([1, 2, 3] *
-            5), 6][d % 16], (8): lambda d: [1, 2, 3, 1, 2, 3, 1, 2, 3, 6][d %
-            10], (9): lambda d: [1, 2, 3, 0][d % 4], (10): lambda d: [*[1, 
-            2, 3, 1, 2, 3, 1, 2, 3], *([1, 2, 3, 1, 2, 3, 1, 2, 3, 6] * 7)]
-            [d % 79], (11): lambda d: [6, 6, 0][d % 3] if d % 16 == 15 else
-            [1, 2, 3][d % 3], (12): lambda d: [7, 7, 0][d % 3] if d % 16 ==
-            15 else [1, 2, 3][d % 3]}[attn_order]
-        attn_cycle = {(0): 1, (1): 2, (2): 3, (3): 2, (4): 2, (5): 4, (6): 
-            4, (7): 16, (8): 10, (9): 4, (10): 79, (11): 16, (12): 16}[
-            attn_order]
-        attn_block = lambda d: ResAttnBlock(n_in=n_in, n_ctx=n_ctx, n_head=
-            n_head, attn_dropout=attn_dropout, resid_dropout=resid_dropout,
-            afn=afn, scale=scale, mask=mask, zero_out=zero_out if attn_func
-            (d) != 6 else True, init_scale=init_scale, res_scale=res_scale,
-            m_attn=m_attn, m_mlp=m_mlp, checkpoint_attn=checkpoint_attn,
-            checkpoint_mlp=checkpoint_mlp, attn_func=attn_func(d), blocks=
-            blocks, spread=spread, encoder_dims=encoder_dims, prime_len=
-            prime_len)
+        attn_func = {(0): lambda d: 0, (1): lambda d: [1, 2][d % 2], (2): lambda d: [1, 2, 3][d % 3], (3): lambda d: [1, 4][d % 2], (4): lambda d: [1, 5][d % 2], (5): lambda d: [1, 4, 1, 1][d % 4], (6): lambda d: [1, 2, 3, 6][d % 4], (7): lambda d: [*([1, 2, 3] * 5), 6][d % 16], (8): lambda d: [1, 2, 3, 1, 2, 3, 1, 2, 3, 6][d % 10], (9): lambda d: [1, 2, 3, 0][d % 4], (10): lambda d: [*[1, 2, 3, 1, 2, 3, 1, 2, 3], *([1, 2, 3, 1, 2, 3, 1, 2, 3, 6] * 7)][d % 79], (11): lambda d: [6, 6, 0][d % 3] if d % 16 == 15 else [1, 2, 3][d % 3], (12): lambda d: [7, 7, 0][d % 3] if d % 16 == 15 else [1, 2, 3][d % 3]}[attn_order]
+        attn_cycle = {(0): 1, (1): 2, (2): 3, (3): 2, (4): 2, (5): 4, (6): 4, (7): 16, (8): 10, (9): 4, (10): 79, (11): 16, (12): 16}[attn_order]
+        attn_block = lambda d: ResAttnBlock(n_in=n_in, n_ctx=n_ctx, n_head=n_head, attn_dropout=attn_dropout, resid_dropout=resid_dropout, afn=afn, scale=scale, mask=mask, zero_out=zero_out if attn_func(d) != 6 else True, init_scale=init_scale, res_scale=res_scale, m_attn=m_attn, m_mlp=m_mlp, checkpoint_attn=checkpoint_attn, checkpoint_mlp=checkpoint_mlp, attn_func=attn_func(d), blocks=blocks, spread=spread, encoder_dims=encoder_dims, prime_len=prime_len)
         self.checkpoint_res = checkpoint_res
         self._attn_mods = nn.ModuleList()
         for d in range(n_depth):
@@ -3608,8 +3196,7 @@ class Transformer(nn.Module):
             for l in self._attn_mods:
                 l.attn.w = None
 
-    def forward(self, x, encoder_kv=None, sample=False, fp16=False,
-        fp16_out=False):
+    def forward(self, x, encoder_kv=None, sample=False, fp16=False, fp16_out=False):
         if fp16:
             x = x.half()
         for i, l in enumerate(self._attn_mods):
@@ -3652,8 +3239,7 @@ class Transformer(nn.Module):
             n = 0
             for x_chunk in x_chunks:
                 self.check_cache(bs, n, False)
-                y_chunk = self.forward(x_chunk, encoder_kv=encoder_kv,
-                    sample=True)
+                y_chunk = self.forward(x_chunk, encoder_kv=encoder_kv, sample=True)
                 y_chunks.append(y_chunk)
                 n += x_chunk.shape[1]
             self.check_cache(bs, n, False)
@@ -3726,8 +3312,7 @@ class BottleneckBlock(nn.Module):
             self.k_sum = mu * self.k_sum + (1.0 - mu) * _k_sum
             self.k_elem = mu * self.k_elem + (1.0 - mu) * _k_elem
             usage = (self.k_elem.view(k_bins, 1) >= self.threshold).float()
-            self.k = usage * (self.k_sum.view(k_bins, emb_width) / self.
-                k_elem.view(k_bins, 1)) + (1 - usage) * _k_rand
+            self.k = usage * (self.k_sum.view(k_bins, emb_width) / self.k_elem.view(k_bins, 1)) + (1 - usage) * _k_rand
             _k_prob = _k_elem / t.sum(_k_elem)
             entropy = -t.sum(_k_prob * t.log(_k_prob + 1e-08))
             used_curr = (_k_elem >= self.threshold).sum()
@@ -3742,8 +3327,7 @@ class BottleneckBlock(nn.Module):
             prenorm = t.norm(x - t.mean(x)) / np.sqrt(np.prod(x.shape))
         elif x.shape[-1] == 2 * self.emb_width:
             x1, x2 = x[(...), :self.emb_width], x[(...), self.emb_width:]
-            prenorm = t.norm(x1 - t.mean(x1)) / np.sqrt(np.prod(x1.shape)
-                ) + t.norm(x2 - t.mean(x2)) / np.sqrt(np.prod(x2.shape))
+            prenorm = t.norm(x1 - t.mean(x1)) / np.sqrt(np.prod(x1.shape)) + t.norm(x2 - t.mean(x2)) / np.sqrt(np.prod(x2.shape))
             x = x1 + x2
         else:
             assert False, f'Expected {x.shape[-1]} to be (1 or 2) * {self.emb_width}'
@@ -3757,8 +3341,7 @@ class BottleneckBlock(nn.Module):
 
     def quantise(self, x):
         k_w = self.k.t()
-        distance = t.sum(x ** 2, dim=-1, keepdim=True) - 2 * t.matmul(x, k_w
-            ) + t.sum(k_w ** 2, dim=0, keepdim=True)
+        distance = t.sum(x ** 2, dim=-1, keepdim=True) - 2 * t.matmul(x, k_w) + t.sum(k_w ** 2, dim=0, keepdim=True)
         min_distance, x_l = t.min(distance, dim=-1)
         fit = t.mean(min_distance)
         return x_l, fit
@@ -3795,8 +3378,7 @@ class BottleneckBlock(nn.Module):
         commit_loss = t.norm(x_d.detach() - x) ** 2 / np.prod(x.shape)
         x_d = x + (x_d - x).detach()
         x_l, x_d = self.postprocess(x_l, x_d, (N, T))
-        return x_l, x_d, commit_loss, dict(fit=fit, pn=prenorm, **
-            update_metrics)
+        return x_l, x_d, commit_loss, dict(fit=fit, pn=prenorm, **update_metrics)
 
 
 class Bottleneck(nn.Module):
@@ -3810,15 +3392,13 @@ class Bottleneck(nn.Module):
             self.level_blocks.append(level_block(level))
 
     def encode(self, xs):
-        zs = [level_block.encode(x) for level_block, x in zip(self.
-            level_blocks, xs)]
+        zs = [level_block.encode(x) for level_block, x in zip(self.level_blocks, xs)]
         return zs
 
     def decode(self, zs, start_level=0, end_level=None):
         if end_level is None:
             end_level = self.levels
-        xs_quantised = [level_block.decode(z) for level_block, z in zip(
-            self.level_blocks[start_level:end_level], zs)]
+        xs_quantised = [level_block.decode(z) for level_block, z in zip(self.level_blocks[start_level:end_level], zs)]
         return xs_quantised
 
     def forward(self, xs):
@@ -3826,8 +3406,7 @@ class Bottleneck(nn.Module):
         for level in range(self.levels):
             level_block = self.level_blocks[level]
             x = xs[level]
-            z, x_quantised, commit_loss, metric = level_block(x, update_k=
-                self.training)
+            z, x_quantised, commit_loss, metric = level_block(x, update_k=self.training)
             zs.append(z)
             if not self.training:
                 x_quantised = x_quantised.detach()
@@ -3864,25 +3443,19 @@ class NoBottleneck(nn.Module):
     def forward(self, xs):
         zero = t.zeros(())
         commit_losses = [zero for _ in range(self.levels)]
-        metrics = [dict(entropy=zero, usage=zero, used_curr=zero, pn=zero,
-            dk=zero) for _ in range(self.levels)]
+        metrics = [dict(entropy=zero, usage=zero, used_curr=zero, pn=zero, dk=zero) for _ in range(self.levels)]
         return xs, xs, commit_losses, metrics
 
 
 class EncoderConvBlock(nn.Module):
 
-    def __init__(self, input_emb_width, output_emb_width, down_t, stride_t,
-        width, depth, m_conv, dilation_growth_rate=1, dilation_cycle=None,
-        zero_out=False, res_scale=False):
+    def __init__(self, input_emb_width, output_emb_width, down_t, stride_t, width, depth, m_conv, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False):
         super().__init__()
         blocks = []
         filter_t, pad_t = stride_t * 2, stride_t // 2
         if down_t > 0:
             for i in range(down_t):
-                block = nn.Sequential(nn.Conv1d(input_emb_width if i == 0 else
-                    width, width, filter_t, stride_t, pad_t), Resnet1D(
-                    width, depth, m_conv, dilation_growth_rate,
-                    dilation_cycle, zero_out, res_scale))
+                block = nn.Sequential(nn.Conv1d(input_emb_width if i == 0 else width, width, filter_t, stride_t, pad_t), Resnet1D(width, depth, m_conv, dilation_growth_rate, dilation_cycle, zero_out, res_scale))
                 blocks.append(block)
             block = nn.Conv1d(width, output_emb_width, 3, 1, 1)
             blocks.append(block)
@@ -3894,10 +3467,7 @@ class EncoderConvBlock(nn.Module):
 
 class DecoderConvBock(nn.Module):
 
-    def __init__(self, input_emb_width, output_emb_width, down_t, stride_t,
-        width, depth, m_conv, dilation_growth_rate=1, dilation_cycle=None,
-        zero_out=False, res_scale=False, reverse_decoder_dilation=False,
-        checkpoint_res=False):
+    def __init__(self, input_emb_width, output_emb_width, down_t, stride_t, width, depth, m_conv, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False, reverse_decoder_dilation=False, checkpoint_res=False):
         super().__init__()
         blocks = []
         if down_t > 0:
@@ -3905,12 +3475,7 @@ class DecoderConvBock(nn.Module):
             block = nn.Conv1d(output_emb_width, width, 3, 1, 1)
             blocks.append(block)
             for i in range(down_t):
-                block = nn.Sequential(Resnet1D(width, depth, m_conv,
-                    dilation_growth_rate, dilation_cycle, zero_out=zero_out,
-                    res_scale=res_scale, reverse_dilation=
-                    reverse_decoder_dilation, checkpoint_res=checkpoint_res
-                    ), nn.ConvTranspose1d(width, input_emb_width if i == 
-                    down_t - 1 else width, filter_t, stride_t, pad_t))
+                block = nn.Sequential(Resnet1D(width, depth, m_conv, dilation_growth_rate, dilation_cycle, zero_out=zero_out, res_scale=res_scale, reverse_dilation=reverse_decoder_dilation, checkpoint_res=checkpoint_res), nn.ConvTranspose1d(width, input_emb_width if i == down_t - 1 else width, filter_t, stride_t, pad_t))
                 blocks.append(block)
         self.model = nn.Sequential(*blocks)
 
@@ -3920,8 +3485,7 @@ class DecoderConvBock(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, input_emb_width, output_emb_width, levels, downs_t,
-        strides_t, **block_kwargs):
+    def __init__(self, input_emb_width, output_emb_width, levels, downs_t, strides_t, **block_kwargs):
         super().__init__()
         self.input_emb_width = input_emb_width
         self.output_emb_width = output_emb_width
@@ -3931,9 +3495,7 @@ class Encoder(nn.Module):
         block_kwargs_copy = dict(**block_kwargs)
         if 'reverse_decoder_dilation' in block_kwargs_copy:
             del block_kwargs_copy['reverse_decoder_dilation']
-        level_block = lambda level, down_t, stride_t: EncoderConvBlock(
-            input_emb_width if level == 0 else output_emb_width,
-            output_emb_width, down_t, stride_t, **block_kwargs_copy)
+        level_block = lambda level, down_t, stride_t: EncoderConvBlock(input_emb_width if level == 0 else output_emb_width, output_emb_width, down_t, stride_t, **block_kwargs_copy)
         self.level_blocks = nn.ModuleList()
         iterator = zip(list(range(self.levels)), downs_t, strides_t)
         for level, down_t, stride_t in iterator:
@@ -3956,17 +3518,14 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, input_emb_width, output_emb_width, levels, downs_t,
-        strides_t, **block_kwargs):
+    def __init__(self, input_emb_width, output_emb_width, levels, downs_t, strides_t, **block_kwargs):
         super().__init__()
         self.input_emb_width = input_emb_width
         self.output_emb_width = output_emb_width
         self.levels = levels
         self.downs_t = downs_t
         self.strides_t = strides_t
-        level_block = lambda level, down_t, stride_t: DecoderConvBock(
-            output_emb_width, output_emb_width, down_t, stride_t, **
-            block_kwargs)
+        level_block = lambda level, down_t, stride_t: DecoderConvBock(output_emb_width, output_emb_width, down_t, stride_t, **block_kwargs)
         self.level_blocks = nn.ModuleList()
         iterator = zip(list(range(self.levels)), downs_t, strides_t)
         for level, down_t, stride_t in iterator:
@@ -3982,8 +3541,7 @@ class Decoder(nn.Module):
         N, T = x.shape[0], x.shape[-1]
         emb = self.output_emb_width
         assert_shape(x, (N, emb, T))
-        iterator = reversed(list(zip(list(range(self.levels)), self.downs_t,
-            self.strides_t)))
+        iterator = reversed(list(zip(list(range(self.levels)), self.downs_t, self.strides_t)))
         for level, down_t, stride_t in iterator:
             level_block = self.level_blocks[level]
             x = level_block(x)
@@ -3999,8 +3557,7 @@ class ResConvBlock(nn.Module):
 
     def __init__(self, n_in, n_state):
         super().__init__()
-        self.model = nn.Sequential(nn.ReLU(), nn.Conv2d(n_in, n_state, 3, 1,
-            1), nn.ReLU(), nn.Conv2d(n_state, n_in, 1, 1, 0))
+        self.model = nn.Sequential(nn.ReLU(), nn.Conv2d(n_in, n_state, 3, 1, 1), nn.ReLU(), nn.Conv2d(n_state, n_in, 1, 1, 0))
 
     def forward(self, x):
         return x + self.model(x)
@@ -4010,8 +3567,7 @@ class Resnet(nn.Module):
 
     def __init__(self, n_in, n_depth, m_conv=1.0):
         super().__init__()
-        self.model = nn.Sequential(*[ResConvBlock(n_in, int(m_conv * n_in)) for
-            _ in range(n_depth)])
+        self.model = nn.Sequential(*[ResConvBlock(n_in, int(m_conv * n_in)) for _ in range(n_depth)])
 
     def forward(self, x):
         return self.model(x)
@@ -4019,12 +3575,10 @@ class Resnet(nn.Module):
 
 class ResConv1DBlock(nn.Module):
 
-    def __init__(self, n_in, n_state, dilation=1, zero_out=False, res_scale=1.0
-        ):
+    def __init__(self, n_in, n_state, dilation=1, zero_out=False, res_scale=1.0):
         super().__init__()
         padding = dilation
-        self.model = nn.Sequential(nn.ReLU(), nn.Conv1d(n_in, n_state, 3, 1,
-            padding, dilation), nn.ReLU(), nn.Conv1d(n_state, n_in, 1, 1, 0))
+        self.model = nn.Sequential(nn.ReLU(), nn.Conv1d(n_in, n_state, 3, 1, padding, dilation), nn.ReLU(), nn.Conv1d(n_state, n_in, 1, 1, 0))
         if zero_out:
             out = self.model[-1]
             nn.init.zeros_(out.weight)
@@ -4037,9 +3591,7 @@ class ResConv1DBlock(nn.Module):
 
 class Resnet1D(nn.Module):
 
-    def __init__(self, n_in, n_depth, m_conv=1.0, dilation_growth_rate=1,
-        dilation_cycle=None, zero_out=False, res_scale=False,
-        reverse_dilation=False, checkpoint_res=False):
+    def __init__(self, n_in, n_depth, m_conv=1.0, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False, reverse_dilation=False, checkpoint_res=False):
         super().__init__()
 
         def _get_depth(depth):
@@ -4047,10 +3599,7 @@ class Resnet1D(nn.Module):
                 return depth
             else:
                 return depth % dilation_cycle
-        blocks = [ResConv1DBlock(n_in, int(m_conv * n_in), dilation=
-            dilation_growth_rate ** _get_depth(depth), zero_out=zero_out,
-            res_scale=1.0 if not res_scale else 1.0 / math.sqrt(n_depth)) for
-            depth in range(n_depth)]
+        blocks = [ResConv1DBlock(n_in, int(m_conv * n_in), dilation=dilation_growth_rate ** _get_depth(depth), zero_out=zero_out, res_scale=1.0 if not res_scale else 1.0 / math.sqrt(n_depth)) for depth in range(n_depth)]
         if reverse_dilation:
             blocks = blocks[::-1]
         self.checkpoint_res = checkpoint_res
@@ -4116,8 +3665,7 @@ class STFTValues:
 
 
 def stft(sig, hps):
-    return t.stft(sig, hps.n_fft, hps.hop_length, win_length=hps.
-        window_size, window=t.hann_window(hps.window_size, device=sig.device))
+    return t.stft(sig, hps.n_fft, hps.hop_length, win_length=hps.window_size, window=t.hann_window(hps.window_size, device=sig.device))
 
 
 def spec(x, hps):
@@ -4135,10 +3683,8 @@ def squeeze(x):
 
 def multispectral_loss(x_in, x_out, hps):
     losses = []
-    assert len(hps.multispec_loss_n_fft) == len(hps.multispec_loss_hop_length
-        ) == len(hps.multispec_loss_window_size)
-    args = [hps.multispec_loss_n_fft, hps.multispec_loss_hop_length, hps.
-        multispec_loss_window_size]
+    assert len(hps.multispec_loss_n_fft) == len(hps.multispec_loss_hop_length) == len(hps.multispec_loss_window_size)
+    args = [hps.multispec_loss_n_fft, hps.multispec_loss_hop_length, hps.multispec_loss_window_size]
     for n_fft, hop_length, window_size in zip(*args):
         hps = STFTValues(hps, n_fft, hop_length, window_size)
         spec_in = spec(squeeze(x_in.float()), hps)
@@ -4175,17 +3721,14 @@ def spectral_loss(x_in, x_out, hps):
 
 class VQVAE(nn.Module):
 
-    def __init__(self, input_shape, levels, downs_t, strides_t, emb_width,
-        l_bins, mu, commit, spectral, multispectral, multipliers=None,
-        use_bottleneck=True, **block_kwargs):
+    def __init__(self, input_shape, levels, downs_t, strides_t, emb_width, l_bins, mu, commit, spectral, multispectral, multipliers=None, use_bottleneck=True, **block_kwargs):
         super().__init__()
         self.sample_length = input_shape[0]
         x_shape, x_channels = input_shape[:-1], input_shape[-1]
         self.x_shape = x_shape
         self.downsamples = calculate_strides(strides_t, downs_t)
         self.hop_lengths = np.cumprod(self.downsamples)
-        self.z_shapes = z_shapes = [(x_shape[0] // self.hop_lengths[level],
-            ) for level in range(levels)]
+        self.z_shapes = z_shapes = [(x_shape[0] // self.hop_lengths[level],) for level in range(levels)]
         self.levels = levels
         if multipliers is None:
             self.multipliers = [1] * levels
@@ -4198,10 +3741,8 @@ class VQVAE(nn.Module):
             this_block_kwargs['width'] *= self.multipliers[level]
             this_block_kwargs['depth'] *= self.multipliers[level]
             return this_block_kwargs
-        encoder = lambda level: Encoder(x_channels, emb_width, level + 1,
-            downs_t[:level + 1], strides_t[:level + 1], **_block_kwargs(level))
-        decoder = lambda level: Decoder(x_channels, emb_width, level + 1,
-            downs_t[:level + 1], strides_t[:level + 1], **_block_kwargs(level))
+        encoder = lambda level: Encoder(x_channels, emb_width, level + 1, downs_t[:level + 1], strides_t[:level + 1], **_block_kwargs(level))
+        decoder = lambda level: Decoder(x_channels, emb_width, level + 1, downs_t[:level + 1], strides_t[:level + 1], **_block_kwargs(level))
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         for level in range(levels):
@@ -4231,8 +3772,7 @@ class VQVAE(nn.Module):
         if end_level is None:
             end_level = self.levels
         assert len(zs) == end_level - start_level
-        xs_quantised = self.bottleneck.decode(zs, start_level=start_level,
-            end_level=end_level)
+        xs_quantised = self.bottleneck.decode(zs, start_level=start_level, end_level=end_level)
         assert len(xs_quantised) == end_level - start_level
         decoder, x_quantised = self.decoders[start_level], xs_quantised[0:1]
         x_out = decoder(x_quantised, all_levels=False)
@@ -4244,8 +3784,7 @@ class VQVAE(nn.Module):
         x_outs = []
         for i in range(bs_chunks):
             zs_i = [z_chunk[i] for z_chunk in z_chunks]
-            x_out = self._decode(zs_i, start_level=start_level, end_level=
-                end_level)
+            x_out = self._decode(zs_i, start_level=start_level, end_level=end_level)
             x_outs.append(x_out)
         return t.cat(x_outs, dim=0)
 
@@ -4265,15 +3804,13 @@ class VQVAE(nn.Module):
         x_chunks = t.chunk(x, bs_chunks, dim=0)
         zs_list = []
         for x_i in x_chunks:
-            zs_i = self._encode(x_i, start_level=start_level, end_level=
-                end_level)
+            zs_i = self._encode(x_i, start_level=start_level, end_level=end_level)
             zs_list.append(zs_i)
         zs = [t.cat(zs_level_list, dim=0) for zs_level_list in zip(*zs_list)]
         return zs
 
     def sample(self, n_samples):
-        zs = [t.randint(0, self.l_bins, size=(n_samples, *z_shape), device=
-            'cuda') for z_shape in self.z_shapes]
+        zs = [t.randint(0, self.l_bins, size=(n_samples, *z_shape), device='cuda') for z_shape in self.z_shapes]
         return self.decode(zs)
 
     def forward(self, x, hps, loss_fn='l1'):
@@ -4285,8 +3822,7 @@ class VQVAE(nn.Module):
             encoder = self.encoders[level]
             x_out = encoder(x_in)
             xs.append(x_out[-1])
-        zs, xs_quantised, commit_losses, quantiser_metrics = self.bottleneck(xs
-            )
+        zs, xs_quantised, commit_losses, quantiser_metrics = self.bottleneck(xs)
         x_outs = []
         for level in range(self.levels):
             decoder = self.decoders[level]
@@ -4296,16 +3832,14 @@ class VQVAE(nn.Module):
 
         def _spectral_loss(x_target, x_out, hps):
             if hps.use_nonrelative_specloss:
-                sl = spectral_loss(x_target, x_out, hps) / hps.bandwidth['spec'
-                    ]
+                sl = spectral_loss(x_target, x_out, hps) / hps.bandwidth['spec']
             else:
                 sl = spectral_convergence(x_target, x_out, hps)
             sl = t.mean(sl)
             return sl
 
         def _multispectral_loss(x_target, x_out, hps):
-            sl = multispectral_loss(x_target, x_out, hps) / hps.bandwidth[
-                'spec']
+            sl = multispectral_loss(x_target, x_out, hps) / hps.bandwidth['spec']
             sl = t.mean(sl)
             return sl
         recons_loss = t.zeros(())
@@ -4325,18 +3859,14 @@ class VQVAE(nn.Module):
             spec_loss += this_spec_loss
             multispec_loss += this_multispec_loss
         commit_loss = sum(commit_losses)
-        loss = (recons_loss + self.spectral * spec_loss + self.
-            multispectral * multispec_loss + self.commit * commit_loss)
+        loss = recons_loss + self.spectral * spec_loss + self.multispectral * multispec_loss + self.commit * commit_loss
         with t.no_grad():
             sc = t.mean(spectral_convergence(x_target, x_out, hps))
             l2_loss = _loss_fn('l2', x_target, x_out, hps)
             l1_loss = _loss_fn('l1', x_target, x_out, hps)
             linf_loss = _loss_fn('linf', x_target, x_out, hps)
         quantiser_metrics = average_metrics(quantiser_metrics)
-        metrics.update(dict(recons_loss=recons_loss, spectral_loss=
-            spec_loss, multispectral_loss=multispec_loss,
-            spectral_convergence=sc, l2_loss=l2_loss, l1_loss=l1_loss,
-            linf_loss=linf_loss, commit_loss=commit_loss, **quantiser_metrics))
+        metrics.update(dict(recons_loss=recons_loss, spectral_loss=spec_loss, multispectral_loss=multispec_loss, spectral_convergence=sc, l2_loss=l2_loss, l1_loss=l1_loss, linf_loss=linf_loss, commit_loss=commit_loss, **quantiser_metrics))
         for key, val in metrics.items():
             metrics[key] = val.detach()
         return x_out, loss, metrics
@@ -4415,8 +3945,7 @@ class SimpleModel(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -4511,10 +4040,8 @@ class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(RNN, self).__init__()
         self.hidden_size = hidden_size
-        self.i2h = nn.Linear(n_categories + input_size + hidden_size,
-            hidden_size)
-        self.i2o = nn.Linear(n_categories + input_size + hidden_size,
-            output_size)
+        self.i2h = nn.Linear(n_categories + input_size + hidden_size, hidden_size)
+        self.i2o = nn.Linear(n_categories + input_size + hidden_size, output_size)
         self.o2o = nn.Linear(hidden_size + output_size, output_size)
         self.dropout = nn.Dropout(0.1)
         self.softmax = nn.LogSoftmax(dim=1)
@@ -4537,80 +4064,170 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'l_bins': 4, 'emb_width': 4, 'mu': 4, 'levels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv1D,
+     lambda: ([], {'n_in': 4, 'n_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DecoderConvBock,
+     lambda: ([], {'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (DummyNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (EncoderConvBlock,
+     lambda: ([], {'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (FactoredAttention,
+     lambda: ([], {'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (LinearInLinear,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (M,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 16, 16])], {}),
+     True),
+    (MLP,
+     lambda: ([], {'n_in': 4, 'n_state': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Mask,
+     lambda: ([], {'n_ctx': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 16777216])], {}),
+     True),
+    (MultipleInput,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3]), torch.rand([3, 3])], {}),
+     True),
+    (MultipleOutput,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (MultipleOutput_shared,
+     lambda: ([], {}),
+     lambda: ([torch.rand([3, 3])], {}),
+     True),
+    (NoBottleneck,
+     lambda: ([], {'levels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PositionEmbedding,
+     lambda: ([], {'input_shape': 4, 'width': 4}),
+     lambda: ([], {}),
+     False),
+    (ResConv1DBlock,
+     lambda: ([], {'n_in': 4, 'n_state': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (ResConvBlock,
+     lambda: ([], {'n_in': 4, 'n_state': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Resnet,
+     lambda: ([], {'n_in': 4, 'n_depth': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Resnet1D,
+     lambda: ([], {'n_in': 4, 'n_depth': 1}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (SimpleModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (tofp16,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_openai_jukebox(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Bottleneck(*[], **{'l_bins': 4, 'emb_width': 4, 'mu': 4, 'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Conv1D(*[], **{'n_in': 4, 'n_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DecoderConvBock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(DummyNet(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(EncoderConvBlock(*[], **{'input_emb_width': 4, 'output_emb_width': 4, 'down_t': 4, 'stride_t': 1, 'width': 4, 'depth': 1, 'm_conv': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(FactoredAttention(*[], **{'n_in': 4, 'n_ctx': 4, 'n_state': 4, 'n_head': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(LinearInLinear(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(MLP(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Mask(*[], **{'n_ctx': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(Model(*[], **{}), [torch.rand([4, 16777216])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(MultipleInput(*[], **{}), [torch.rand([3, 3]), torch.rand([3, 3])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(MultipleOutput(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(MultipleOutput_shared(*[], **{}), [torch.rand([3, 3])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(NoBottleneck(*[], **{'levels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
-    @_fails_compile()
     def test_015(self):
-        self._check(PositionEmbedding(*[], **{'input_shape': 4, 'width': 4}), [], {})
+        self._check(*TESTCASES[15])
 
     def test_016(self):
-        self._check(ResConv1DBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[16])
 
     def test_017(self):
-        self._check(ResConvBlock(*[], **{'n_in': 4, 'n_state': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
     def test_018(self):
-        self._check(Resnet(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
-    @_fails_compile()
     def test_019(self):
-        self._check(Resnet1D(*[], **{'n_in': 4, 'n_depth': 1}), [torch.rand([4, 4, 64])], {})
+        self._check(*TESTCASES[19])
 
     def test_020(self):
-        self._check(SimpleModel(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 
     def test_021(self):
-        self._check(tofp16(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
 

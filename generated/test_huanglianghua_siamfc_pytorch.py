@@ -17,8 +17,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -59,8 +60,7 @@ from torch.utils.data import DataLoader
 class _BatchNorm2d(nn.BatchNorm2d):
 
     def __init__(self, num_features, *args, **kwargs):
-        super(_BatchNorm2d, self).__init__(num_features, *args, eps=1e-06,
-            momentum=0.05, **kwargs)
+        super(_BatchNorm2d, self).__init__(num_features, *args, eps=1e-06, momentum=0.05, **kwargs)
 
 
 class _AlexNet(nn.Module):
@@ -107,18 +107,15 @@ class BalancedLoss(nn.Module):
         weight[pos_mask] = 1 / pos_num
         weight[neg_mask] = 1 / neg_num * self.neg_weight
         weight /= weight.sum()
-        return F.binary_cross_entropy_with_logits(input, target, weight,
-            reduction='sum')
+        return F.binary_cross_entropy_with_logits(input, target, weight, reduction='sum')
 
 
 def log_minus_sigmoid(x):
-    return torch.clamp(-x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))
-        ) + 0.5 * torch.clamp(x, min=0, max=0)
+    return torch.clamp(-x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))) + 0.5 * torch.clamp(x, min=0, max=0)
 
 
 def log_sigmoid(x):
-    return torch.clamp(x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))
-        ) + 0.5 * torch.clamp(x, min=0, max=0)
+    return torch.clamp(x, max=0) - torch.log(1 + torch.exp(-torch.abs(x))) + 0.5 * torch.clamp(x, min=0, max=0)
 
 
 class FocalLoss(nn.Module):
@@ -133,8 +130,7 @@ class FocalLoss(nn.Module):
         prob = torch.sigmoid(input)
         pos_weight = torch.pow(1 - prob, self.gamma)
         neg_weight = torch.pow(prob, self.gamma)
-        loss = -(target * pos_weight * pos_log_sig + (1 - target) *
-            neg_weight * neg_log_sig)
+        loss = -(target * pos_weight * pos_log_sig + (1 - target) * neg_weight * neg_log_sig)
         avg_weight = target * pos_weight + (1 - target) * neg_weight
         loss /= avg_weight.mean()
         return loss.mean()
@@ -163,16 +159,14 @@ class GHMCLoss(nn.Module):
             num_in_bin = inds.sum().item()
             if num_in_bin > 0:
                 if mmt > 0:
-                    self.acc_sum[i] = mmt * self.acc_sum[i] + (1 - mmt
-                        ) * num_in_bin
+                    self.acc_sum[i] = mmt * self.acc_sum[i] + (1 - mmt) * num_in_bin
                     weights[inds] = tot / self.acc_sum[i]
                 else:
                     weights[inds] = tot / num_in_bin
                 n += 1
         if n > 0:
             weights /= weights.mean()
-        loss = F.binary_cross_entropy_with_logits(input, target, weights,
-            reduction='sum') / tot
+        loss = F.binary_cross_entropy_with_logits(input, target, weights, reduction='sum') / tot
         return loss
 
 
@@ -191,9 +185,7 @@ class OHNMLoss(nn.Module):
         neg_num = int(pos_num * self.neg_ratio)
         neg_logits, neg_indices = neg_logits.topk(neg_num)
         neg_labels = neg_labels[neg_indices]
-        loss = F.binary_cross_entropy_with_logits(torch.cat([pos_logits,
-            neg_logits]), torch.cat([pos_labels, neg_labels]), reduction='mean'
-            )
+        loss = F.binary_cross_entropy_with_logits(torch.cat([pos_logits, neg_logits]), torch.cat([pos_labels, neg_labels]), reduction='mean')
         return loss
 
 
@@ -214,21 +206,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BalancedLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FocalLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GHMCLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SiamFC,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_huanglianghua_siamfc_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BalancedLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(FocalLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(GHMCLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SiamFC(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(_BatchNorm2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

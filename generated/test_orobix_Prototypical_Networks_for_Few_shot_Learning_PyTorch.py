@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -41,8 +42,7 @@ def conv_block(in_channels, out_channels):
     """
     returns a block conv-bn-relu-pool
     """
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1),
-        nn.BatchNorm2d(out_channels), nn.ReLU(), nn.MaxPool2d(2))
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(), nn.MaxPool2d(2))
 
 
 class ProtoNet(nn.Module):
@@ -53,9 +53,7 @@ class ProtoNet(nn.Module):
 
     def __init__(self, x_dim=1, hid_dim=64, z_dim=64):
         super(ProtoNet, self).__init__()
-        self.encoder = nn.Sequential(conv_block(x_dim, hid_dim), conv_block
-            (hid_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(
-            hid_dim, z_dim))
+        self.encoder = nn.Sequential(conv_block(x_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, z_dim))
 
     def forward(self, x):
         x = self.encoder(x)
@@ -101,10 +99,8 @@ def prototypical_loss(input, target, n_support):
     n_classes = len(classes)
     n_query = target_cpu.eq(classes[0].item()).sum().item() - n_support
     support_idxs = list(map(supp_idxs, classes))
-    prototypes = torch.stack([input_cpu[idx_list].mean(0) for idx_list in
-        support_idxs])
-    query_idxs = torch.stack(list(map(lambda c: target_cpu.eq(c).nonzero()[
-        n_support:], classes))).view(-1)
+    prototypes = torch.stack([input_cpu[idx_list].mean(0) for idx_list in support_idxs])
+    query_idxs = torch.stack(list(map(lambda c: target_cpu.eq(c).nonzero()[n_support:], classes))).view(-1)
     query_samples = input.to('cpu')[query_idxs]
     dists = euclidean_dist(query_samples, prototypes)
     log_p_y = F.log_softmax(-dists, dim=1).view(n_classes, n_query, -1)
@@ -134,8 +130,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ProtoNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+]
+
 class Test_orobix_Prototypical_Networks_for_Few_shot_Learning_PyTorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ProtoNet(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

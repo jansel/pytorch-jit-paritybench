@@ -62,8 +62,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -172,8 +173,7 @@ def extractRelUIndexes(sequence, layers):
                 hasCaughtRelUOnLayer = True
                 output.append(index)
                 indexRef += 1
-        if isinstance(sequence[index], torch.nn.MaxPool2d) or isinstance(
-            sequence[index], torch.nn.AvgPool2d):
+        if isinstance(sequence[index], torch.nn.MaxPool2d) or isinstance(sequence[index], torch.nn.AvgPool2d):
             hasCaughtRelUOnLayer = False
             indexScale += 1
         index += 1
@@ -220,39 +220,31 @@ class LossTexture(torch.nn.Module):
         self.reductionFactor = [(1 / float(2 ** (i - 1))) for i in scalesOut]
         refMean = [(2 * p - 1) for p in [0.485, 0.456, 0.406]]
         refSTD = [(2 * p) for p in [0.229, 0.224, 0.225]]
-        self.imgTransform = FeatureTransform(mean=refMean, std=refSTD, size
-            =None)
+        self.imgTransform = FeatureTransform(mean=refMean, std=refSTD, size=None)
         self.imgTransform = self.imgTransform
 
     def getLoss(self, fake, reals, mask=None):
-        featuresReals = self.getFeatures(reals, detach=True, prepImg=True,
-            mask=mask).mean(dim=0)
-        featuresFakes = self.getFeatures(fake, detach=False, prepImg=True,
-            mask=None).mean(dim=0)
+        featuresReals = self.getFeatures(reals, detach=True, prepImg=True, mask=mask).mean(dim=0)
+        featuresFakes = self.getFeatures(fake, detach=False, prepImg=True, mask=None).mean(dim=0)
         outLoss = ((featuresReals - featuresFakes) ** 2).mean()
         return outLoss
 
     def getFeatures(self, image, detach=True, prepImg=True, mask=None):
         if prepImg:
             image = self.imgTransform(image)
-        fullSequence = extractIndexedLayers(self.featuresSeq, image, self.
-            indexLayers, detach)
+        fullSequence = extractIndexedLayers(self.featuresSeq, image, self.indexLayers, detach)
         outFeatures = []
         nFeatures = len(fullSequence)
         for i in range(nFeatures):
             if mask is not None:
-                locMask = (1.0 + F.upsample(mask, size=(image.size(2) *
-                    self.reductionFactor[i], image.size(3) * self.
-                    reductionFactor[i]), mode='bilinear')) * 0.5
+                locMask = (1.0 + F.upsample(mask, size=(image.size(2) * self.reductionFactor[i], image.size(3) * self.reductionFactor[i]), mode='bilinear')) * 0.5
                 locMask = locMask.view(locMask.size(0), locMask.size(1), -1)
                 totVal = locMask.sum(dim=2)
                 meanReals = (fullSequence[i] * locMask).sum(dim=2) / totVal
-                varReals = (fullSequence[i] * fullSequence[i] * locMask).sum(
-                    dim=2) / totVal - meanReals * meanReals
+                varReals = (fullSequence[i] * fullSequence[i] * locMask).sum(dim=2) / totVal - meanReals * meanReals
             else:
                 meanReals = fullSequence[i].mean(dim=2)
-                varReals = (fullSequence[i] * fullSequence[i]).mean(dim=2
-                    ) - meanReals * meanReals
+                varReals = (fullSequence[i] * fullSequence[i]).mean(dim=2) - meanReals * meanReals
             outFeatures.append(meanReals)
             outFeatures.append(varReals)
         return torch.cat(outFeatures, dim=1)
@@ -261,9 +253,7 @@ class LossTexture(torch.nn.Module):
         return self.getFeatures(x, detach=False, prepImg=False, mask=mask)
 
     def saveModel(self, pathOut):
-        torch.save(dict(model=self, fullDump=True, mean=self.imgTransform.
-            mean.view(-1).tolist(), std=self.imgTransform.std.view(-1).
-            tolist()), pathOut)
+        torch.save(dict(model=self, fullDump=True, mean=self.imgTransform.mean.view(-1).tolist(), std=self.imgTransform.std.view(-1).tolist()), pathOut)
 
 
 def weights_init(m):
@@ -277,8 +267,7 @@ def weights_init(m):
 
 class GNet(nn.Module):
 
-    def __init__(self, dimLatentVector, dimOutput, dimModelG, depthModel=3,
-        generationActivation=nn.Tanh()):
+    def __init__(self, dimLatentVector, dimOutput, dimModelG, depthModel=3, generationActivation=nn.Tanh()):
         super(GNet, self).__init__()
         self.depthModel = depthModel
         self.refDim = dimModelG
@@ -289,21 +278,18 @@ class GNet(nn.Module):
         sequence['relu0'] = nn.ReLU(True)
         for i in range(depthModel):
             nextDepth = int(currDepth / 2)
-            sequence['convTranspose' + str(i + 1)] = nn.ConvTranspose2d(
-                currDepth, nextDepth, 4, 2, 1, bias=False)
+            sequence['convTranspose' + str(i + 1)] = nn.ConvTranspose2d(currDepth, nextDepth, 4, 2, 1, bias=False)
             sequence['batchNorm' + str(i + 1)] = nn.BatchNorm2d(nextDepth)
             sequence['relu' + str(i + 1)] = nn.ReLU(True)
             currDepth = nextDepth
-        sequence['outlayer'] = nn.ConvTranspose2d(dimModelG, dimOutput, 4, 
-            2, 1, bias=False)
+        sequence['outlayer'] = nn.ConvTranspose2d(dimModelG, dimOutput, 4, 2, 1, bias=False)
         self.outputAcctivation = generationActivation
         self.main = nn.Sequential(sequence)
         self.main.apply(weights_init)
 
     def initFormatLayer(self, dimLatentVector):
         currDepth = int(self.refDim * 2 ** self.depthModel)
-        self.formatLayer = nn.ConvTranspose2d(dimLatentVector, currDepth, 4,
-            1, 0, bias=False)
+        self.formatLayer = nn.ConvTranspose2d(dimLatentVector, currDepth, 4, 1, 0, bias=False)
 
     def forward(self, input):
         x = input.view(-1, input.size(1), 1, 1)
@@ -320,14 +306,12 @@ class DNet(nn.Module):
         super(DNet, self).__init__()
         currDepth = dimModelD
         sequence = OrderedDict([])
-        sequence['convTranspose' + str(depthModel)] = nn.Conv2d(dimInput,
-            currDepth, 4, 2, 1, bias=False)
+        sequence['convTranspose' + str(depthModel)] = nn.Conv2d(dimInput, currDepth, 4, 2, 1, bias=False)
         sequence['relu' + str(depthModel)] = nn.LeakyReLU(0.2, inplace=True)
         for i in range(depthModel):
             index = depthModel - i - 1
             nextDepth = currDepth * 2
-            sequence['convTranspose' + str(index)] = nn.Conv2d(currDepth,
-                nextDepth, 4, 2, 1, bias=False)
+            sequence['convTranspose' + str(index)] = nn.Conv2d(currDepth, nextDepth, 4, 2, 1, bias=False)
             sequence['batchNorm' + str(index)] = nn.BatchNorm2d(nextDepth)
             sequence['relu' + str(index)] = nn.LeakyReLU(0.2, inplace=True)
             currDepth = nextDepth
@@ -337,16 +321,14 @@ class DNet(nn.Module):
         self.initDecisionLayer(sizeDecisionLayer)
 
     def initDecisionLayer(self, sizeDecisionLayer):
-        self.decisionLayer = nn.Conv2d(self.dimFeatureMap,
-            sizeDecisionLayer, 4, 1, 0, bias=False)
+        self.decisionLayer = nn.Conv2d(self.dimFeatureMap, sizeDecisionLayer, 4, 1, 0, bias=False)
         self.decisionLayer.apply(weights_init)
         self.sizeDecisionLayer = sizeDecisionLayer
 
     def forward(self, input, getFeature=False):
         x = self.main(input)
         if getFeature:
-            return self.decisionLayer(x).view(-1, self.sizeDecisionLayer
-                ), x.view(-1, self.dimFeatureMap * 16)
+            return self.decisionLayer(x).view(-1, self.sizeDecisionLayer), x.view(-1, self.dimFeatureMap * 16)
         x = self.decisionLayer(x)
         return x.view(-1, self.sizeDecisionLayer)
 
@@ -360,8 +342,7 @@ class ConstantNet(nn.Module):
 
     def forward(self, x):
         if self.shapeOut is not None:
-            x = x.view(x.size[0], self.shapeOut[0], self.shapeOut[1], self.
-                shapeOut[2])
+            x = x.view(x.size[0], self.shapeOut[0], self.shapeOut[1], self.shapeOut[2])
         return x
 
 
@@ -389,15 +370,12 @@ class FeatureTransform(nn.Module):
             mean = [0.0, 0.0, 0.0]
         if std is None:
             std = [1.0, 1.0, 1.0]
-        self.register_buffer('mean', torch.tensor(mean, dtype=torch.float).
-            view(1, 3, 1, 1))
-        self.register_buffer('std', torch.tensor(std, dtype=torch.float).
-            view(1, 3, 1, 1))
+        self.register_buffer('mean', torch.tensor(mean, dtype=torch.float).view(1, 3, 1, 1))
+        self.register_buffer('std', torch.tensor(std, dtype=torch.float).view(1, 3, 1, 1))
         if size is None:
             self.upsamplingModule = None
         else:
-            self.upsamplingModule = torch.nn.Upsample((size, size), mode=
-                'bilinear')
+            self.upsamplingModule = torch.nn.Upsample((size, size), mode='bilinear')
 
     def forward(self, x):
         if self.upsamplingModule is not None:
@@ -458,8 +436,7 @@ class ConstrainedLayer(nn.Module):
 
 class EqualizedConv2d(ConstrainedLayer):
 
-    def __init__(self, nChannelsPrevious, nChannels, kernelSize, padding=0,
-        bias=True, **kwargs):
+    def __init__(self, nChannelsPrevious, nChannels, kernelSize, padding=0, bias=True, **kwargs):
         """
         A nn.Conv2d module with specific constraints
         Args:
@@ -469,8 +446,7 @@ class EqualizedConv2d(ConstrainedLayer):
             padding (int): convolution's padding
             bias (bool): with bias ?
         """
-        ConstrainedLayer.__init__(self, nn.Conv2d(nChannelsPrevious,
-            nChannels, kernelSize, padding=padding, bias=bias), **kwargs)
+        ConstrainedLayer.__init__(self, nn.Conv2d(nChannelsPrevious, nChannels, kernelSize, padding=padding, bias=bias), **kwargs)
 
 
 class EqualizedLinear(ConstrainedLayer):
@@ -483,8 +459,7 @@ class EqualizedLinear(ConstrainedLayer):
             nChannels (int): number of channels of the current layer
             bias (bool): with bias ?
         """
-        ConstrainedLayer.__init__(self, nn.Linear(nChannelsPrevious,
-            nChannels, bias=bias), **kwargs)
+        ConstrainedLayer.__init__(self, nn.Linear(nChannelsPrevious, nChannels, bias=bias), **kwargs)
 
 
 def Upscale2d(x, factor=2):
@@ -508,9 +483,7 @@ def num_flat_features(x):
 
 class GNet(nn.Module):
 
-    def __init__(self, dimLatent, depthScale0, initBiasToZero=True,
-        leakyReluLeak=0.2, normalization=True, generationActivation=None,
-        dimOutput=3, equalizedlR=True):
+    def __init__(self, dimLatent, depthScale0, initBiasToZero=True, leakyReluLeak=0.2, normalization=True, generationActivation=None, dimOutput=3, equalizedlR=True):
         """
         Build a generator for a progressive GAN model
 
@@ -541,10 +514,8 @@ class GNet(nn.Module):
         self.initFormatLayer(dimLatent)
         self.dimOutput = dimOutput
         self.groupScale0 = nn.ModuleList()
-        self.groupScale0.append(EqualizedConv2d(depthScale0, depthScale0, 3,
-            equalized=equalizedlR, initBiasToZero=initBiasToZero, padding=1))
-        self.toRGBLayers.append(EqualizedConv2d(depthScale0, self.dimOutput,
-            1, equalized=equalizedlR, initBiasToZero=initBiasToZero))
+        self.groupScale0.append(EqualizedConv2d(depthScale0, depthScale0, 3, equalized=equalizedlR, initBiasToZero=initBiasToZero, padding=1))
+        self.toRGBLayers.append(EqualizedConv2d(depthScale0, self.dimOutput, 1, equalized=equalizedlR, initBiasToZero=initBiasToZero))
         self.alpha = 0
         self.leakyRelu = torch.nn.LeakyReLU(leakyReluLeak)
         self.normalizationLayer = None
@@ -560,9 +531,7 @@ class GNet(nn.Module):
         layer.
         """
         self.dimLatent = dimLatentVector
-        self.formatLayer = EqualizedLinear(self.dimLatent, 16 * self.
-            scalesDepth[0], equalized=self.equalizedlR, initBiasToZero=self
-            .initBiasToZero)
+        self.formatLayer = EqualizedLinear(self.dimLatent, 16 * self.scalesDepth[0], equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero)
 
     def getOutputSize(self):
         """
@@ -582,15 +551,9 @@ class GNet(nn.Module):
         depthLastScale = self.scalesDepth[-1]
         self.scalesDepth.append(depthNewScale)
         self.scaleLayers.append(nn.ModuleList())
-        self.scaleLayers[-1].append(EqualizedConv2d(depthLastScale,
-            depthNewScale, 3, padding=1, equalized=self.equalizedlR,
-            initBiasToZero=self.initBiasToZero))
-        self.scaleLayers[-1].append(EqualizedConv2d(depthNewScale,
-            depthNewScale, 3, padding=1, equalized=self.equalizedlR,
-            initBiasToZero=self.initBiasToZero))
-        self.toRGBLayers.append(EqualizedConv2d(depthNewScale, self.
-            dimOutput, 1, equalized=self.equalizedlR, initBiasToZero=self.
-            initBiasToZero))
+        self.scaleLayers[-1].append(EqualizedConv2d(depthLastScale, depthNewScale, 3, padding=1, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero))
+        self.scaleLayers[-1].append(EqualizedConv2d(depthNewScale, depthNewScale, 3, padding=1, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero))
+        self.toRGBLayers.append(EqualizedConv2d(depthNewScale, self.dimOutput, 1, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero))
 
     def setNewAlpha(self, alpha):
         """
@@ -603,8 +566,7 @@ class GNet(nn.Module):
         if alpha < 0 or alpha > 1:
             raise ValueError('alpha must be in [0,1]')
         if not self.toRGBLayers:
-            raise AttributeError(
-                "Can't set an alpha layer if only the scale 0is defined")
+            raise AttributeError("Can't set an alpha layer if only the scale 0is defined")
         self.alpha = alpha
 
     def forward(self, x):
@@ -673,9 +635,7 @@ def miniBatchStdDev(x, subGroupSize=4):
 
 class DNet(nn.Module):
 
-    def __init__(self, depthScale0, initBiasToZero=True, leakyReluLeak=0.2,
-        sizeDecisionLayer=1, miniBatchNormalization=False, dimInput=3,
-        equalizedlR=True):
+    def __init__(self, depthScale0, initBiasToZero=True, leakyReluLeak=0.2, sizeDecisionLayer=1, miniBatchNormalization=False, dimInput=3, equalizedlR=True):
         """
         Build a discriminator for a progressive GAN model
 
@@ -707,17 +667,13 @@ class DNet(nn.Module):
         self.mergeLayers = nn.ModuleList()
         self.initDecisionLayer(sizeDecisionLayer)
         self.groupScaleZero = nn.ModuleList()
-        self.fromRGBLayers.append(EqualizedConv2d(dimInput, depthScale0, 1,
-            equalized=equalizedlR, initBiasToZero=initBiasToZero))
+        self.fromRGBLayers.append(EqualizedConv2d(dimInput, depthScale0, 1, equalized=equalizedlR, initBiasToZero=initBiasToZero))
         dimEntryScale0 = depthScale0
         if miniBatchNormalization:
             dimEntryScale0 += 1
         self.miniBatchNormalization = miniBatchNormalization
-        self.groupScaleZero.append(EqualizedConv2d(dimEntryScale0,
-            depthScale0, 3, padding=1, equalized=equalizedlR,
-            initBiasToZero=initBiasToZero))
-        self.groupScaleZero.append(EqualizedLinear(depthScale0 * 16,
-            depthScale0, equalized=equalizedlR, initBiasToZero=initBiasToZero))
+        self.groupScaleZero.append(EqualizedConv2d(dimEntryScale0, depthScale0, 3, padding=1, equalized=equalizedlR, initBiasToZero=initBiasToZero))
+        self.groupScaleZero.append(EqualizedLinear(depthScale0 * 16, depthScale0, equalized=equalizedlR, initBiasToZero=initBiasToZero))
         self.alpha = 0
         self.leakyRelu = torch.nn.LeakyReLU(leakyReluLeak)
 
@@ -725,15 +681,9 @@ class DNet(nn.Module):
         depthLastScale = self.scalesDepth[-1]
         self.scalesDepth.append(depthNewScale)
         self.scaleLayers.append(nn.ModuleList())
-        self.scaleLayers[-1].append(EqualizedConv2d(depthNewScale,
-            depthNewScale, 3, padding=1, equalized=self.equalizedlR,
-            initBiasToZero=self.initBiasToZero))
-        self.scaleLayers[-1].append(EqualizedConv2d(depthNewScale,
-            depthLastScale, 3, padding=1, equalized=self.equalizedlR,
-            initBiasToZero=self.initBiasToZero))
-        self.fromRGBLayers.append(EqualizedConv2d(self.dimInput,
-            depthNewScale, 1, equalized=self.equalizedlR, initBiasToZero=
-            self.initBiasToZero))
+        self.scaleLayers[-1].append(EqualizedConv2d(depthNewScale, depthNewScale, 3, padding=1, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero))
+        self.scaleLayers[-1].append(EqualizedConv2d(depthNewScale, depthLastScale, 3, padding=1, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero))
+        self.fromRGBLayers.append(EqualizedConv2d(self.dimInput, depthNewScale, 1, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero))
 
     def setNewAlpha(self, alpha):
         """
@@ -746,14 +696,11 @@ class DNet(nn.Module):
         if alpha < 0 or alpha > 1:
             raise ValueError('alpha must be in [0,1]')
         if not self.fromRGBLayers:
-            raise AttributeError(
-                "Can't set an alpha layer if only the scale 0is defined")
+            raise AttributeError("Can't set an alpha layer if only the scale 0is defined")
         self.alpha = alpha
 
     def initDecisionLayer(self, sizeDecisionLayer):
-        self.decisionLayer = EqualizedLinear(self.scalesDepth[0],
-            sizeDecisionLayer, equalized=self.equalizedlR, initBiasToZero=
-            self.initBiasToZero)
+        self.decisionLayer = EqualizedLinear(self.scalesDepth[0], sizeDecisionLayer, equalized=self.equalizedlR, initBiasToZero=self.initBiasToZero)
 
     def forward(self, x, getFeature=False):
         if self.alpha > 0 and len(self.fromRGBLayers) > 1:
@@ -786,16 +733,14 @@ class AdaIN(nn.Module):
     def __init__(self, dimIn, dimOut, epsilon=1e-08):
         super(AdaIN, self).__init__()
         self.epsilon = epsilon
-        self.styleModulator = EqualizedLinear(dimIn, 2 * dimOut, equalized=
-            True, initBiasToZero=True)
+        self.styleModulator = EqualizedLinear(dimIn, 2 * dimOut, equalized=True, initBiasToZero=True)
         self.dimOut = dimOut
 
     def forward(self, x, y):
         batchSize, nChannel, width, height = x.size()
         tmpX = x.view(batchSize, nChannel, -1)
         mux = tmpX.mean(dim=2).view(batchSize, nChannel, 1, 1)
-        varx = torch.clamp((tmpX * tmpX).mean(dim=2).view(batchSize,
-            nChannel, 1, 1) - mux * mux, min=0)
+        varx = torch.clamp((tmpX * tmpX).mean(dim=2).view(batchSize, nChannel, 1, 1) - mux * mux, min=0)
         varx = torch.rsqrt(varx + self.epsilon)
         x = (x - mux) * varx
         styleY = self.styleModulator(y)
@@ -822,8 +767,7 @@ class MappingLayer(nn.Module):
         self.FC = nn.ModuleList()
         inDim = dimIn
         for i in range(nLayers):
-            self.FC.append(EqualizedLinear(inDim, dimLatent, lrMul=0.01,
-                equalized=True, initBiasToZero=True))
+            self.FC.append(EqualizedLinear(inDim, dimLatent, lrMul=0.01, equalized=True, initBiasToZero=True))
             inDim = dimLatent
         self.activation = torch.nn.LeakyReLU(leakyReluLeak)
 
@@ -835,14 +779,11 @@ class MappingLayer(nn.Module):
 
 class GNet(nn.Module):
 
-    def __init__(self, dimInput=512, dimMapping=512, dimOutput=3,
-        nMappingLayers=8, leakyReluLeak=0.2, generationActivation=None,
-        phiTruncation=0.5, gamma_avg=0.99):
+    def __init__(self, dimInput=512, dimMapping=512, dimOutput=3, nMappingLayers=8, leakyReluLeak=0.2, generationActivation=None, phiTruncation=0.5, gamma_avg=0.99):
         super(GNet, self).__init__()
         self.dimMapping = dimMapping
         self.mapping = MappingLayer(dimInput, dimMapping, nMappingLayers)
-        self.baseScale0 = nn.Parameter(torch.ones(1, dimMapping, 4, 4),
-            requires_grad=True)
+        self.baseScale0 = nn.Parameter(torch.ones(1, dimMapping, 4, 4), requires_grad=True)
         self.scaleLayers = nn.ModuleList()
         self.toRGBLayers = nn.ModuleList()
         self.noiseModulators = nn.ModuleList()
@@ -852,8 +793,7 @@ class GNet(nn.Module):
         self.noiseMod00 = NoiseMultiplier()
         self.adain01 = AdaIN(dimMapping, dimMapping)
         self.noiseMod01 = NoiseMultiplier()
-        self.conv0 = EqualizedConv2d(dimMapping, dimMapping, 3, equalized=
-            True, initBiasToZero=True, padding=1)
+        self.conv0 = EqualizedConv2d(dimMapping, dimMapping, 3, equalized=True, initBiasToZero=True, padding=1)
         self.activation = torch.nn.LeakyReLU(leakyReluLeak)
         self.alpha = 0
         self.generationActivation = generationActivation
@@ -873,21 +813,17 @@ class GNet(nn.Module):
         if alpha < 0 or alpha > 1:
             raise ValueError('alpha must be in [0,1]')
         if not self.toRGBLayers:
-            raise AttributeError(
-                "Can't set an alpha layer if only the scale 0is defined")
+            raise AttributeError("Can't set an alpha layer if only the scale 0is defined")
         self.alpha = alpha
 
     def addScale(self, dimNewScale):
         lastDim = self.depthScales[-1]
         self.scaleLayers.append(nn.ModuleList())
-        self.scaleLayers[-1].append(EqualizedConv2d(lastDim, dimNewScale, 3,
-            padding=1, equalized=True, initBiasToZero=True))
+        self.scaleLayers[-1].append(EqualizedConv2d(lastDim, dimNewScale, 3, padding=1, equalized=True, initBiasToZero=True))
         self.scaleLayers[-1].append(AdaIN(self.dimMapping, dimNewScale))
-        self.scaleLayers[-1].append(EqualizedConv2d(dimNewScale,
-            dimNewScale, 3, padding=1, equalized=True, initBiasToZero=True))
+        self.scaleLayers[-1].append(EqualizedConv2d(dimNewScale, dimNewScale, 3, padding=1, equalized=True, initBiasToZero=True))
         self.scaleLayers[-1].append(AdaIN(self.dimMapping, dimNewScale))
-        self.toRGBLayers.append(EqualizedConv2d(dimNewScale, self.dimOutput,
-            1, equalized=True, initBiasToZero=True))
+        self.toRGBLayers.append(EqualizedConv2d(dimNewScale, self.dimOutput, 1, equalized=True, initBiasToZero=True))
         self.noiseModulators.append(nn.ModuleList())
         self.noiseModulators[-1].append(NoiseMultiplier())
         self.noiseModulators[-1].append(NoiseMultiplier())
@@ -897,32 +833,24 @@ class GNet(nn.Module):
         batchSize = x.size(0)
         mapping = self.mapping(self.noramlizationLayer(x))
         if self.training:
-            self.mean_w = self.gamma_avg * self.mean_w + (1 - self.gamma_avg
-                ) * mapping.mean(dim=0, keepdim=True)
+            self.mean_w = self.gamma_avg * self.mean_w + (1 - self.gamma_avg) * mapping.mean(dim=0, keepdim=True)
         if self.phiTruncation < 1:
-            mapping = self.mean_w + self.phiTruncation * (mapping - self.mean_w
-                )
+            mapping = self.mean_w + self.phiTruncation * (mapping - self.mean_w)
         feature = self.baseScale0.expand(batchSize, -1, 4, 4)
-        feature = feature + self.noiseMod00(torch.randn((batchSize, 1, 4, 4
-            ), device=x.device))
+        feature = feature + self.noiseMod00(torch.randn((batchSize, 1, 4, 4), device=x.device))
         feature = self.activation(feature)
         feature = self.adain00(feature, mapping)
         feature = self.conv0(feature)
-        feature = feature + self.noiseMod01(torch.randn((batchSize, 1, 4, 4
-            ), device=x.device))
+        feature = feature + self.noiseMod01(torch.randn((batchSize, 1, 4, 4), device=x.device))
         feature = self.activation(feature)
         feature = self.adain01(feature, mapping)
         for nLayer, group in enumerate(self.scaleLayers):
             noiseMod = self.noiseModulators[nLayer]
             feature = Upscale2d(feature)
-            feature = group[0](feature) + noiseMod[0](torch.randn((
-                batchSize, 1, feature.size(2), feature.size(3)), device=x.
-                device))
+            feature = group[0](feature) + noiseMod[0](torch.randn((batchSize, 1, feature.size(2), feature.size(3)), device=x.device))
             feature = self.activation(feature)
             feature = group[1](feature, mapping)
-            feature = group[2](feature) + noiseMod[1](torch.randn((
-                batchSize, 1, feature.size(2), feature.size(3)), device=x.
-                device))
+            feature = group[2](feature) + noiseMod[1](torch.randn((batchSize, 1, feature.size(2), feature.size(3)), device=x.device))
             feature = self.activation(feature)
             feature = group[3](feature, mapping)
             if self.alpha > 0 and nLayer == len(self.scaleLayers) - 2:
@@ -944,36 +872,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaIN,
+     lambda: ([], {'dimIn': 4, 'dimOut': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (ConstantNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DNet,
+     lambda: ([], {'depthScale0': 1}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
+    (EqualizedConv2d,
+     lambda: ([], {'nChannelsPrevious': 4, 'nChannels': 4, 'kernelSize': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EqualizedLinear,
+     lambda: ([], {'nChannelsPrevious': 4, 'nChannels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FeatureTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     True),
+    (IDModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MappingLayer,
+     lambda: ([], {'dimIn': 4, 'dimLatent': 4, 'nLayers': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MeanStd,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NoiseMultiplier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
+    (NormalizationLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_facebookresearch_pytorch_GAN_zoo(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AdaIN(*[], **{'dimIn': 4, 'dimOut': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConstantNet(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EqualizedConv2d(*[], **{'nChannelsPrevious': 4, 'nChannels': 4, 'kernelSize': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(EqualizedLinear(*[], **{'nChannelsPrevious': 4, 'nChannels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(FeatureTransform(*[], **{}), [torch.rand([4, 3, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(IDModule(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(MappingLayer(*[], **{'dimIn': 4, 'dimLatent': 4, 'nLayers': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(MeanStd(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(NoiseMultiplier(*[], **{}), [torch.rand([4, 1, 64, 64])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(NormalizationLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

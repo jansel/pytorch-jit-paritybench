@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -86,18 +87,10 @@ class MAMLFewShotClassifier(nn.Module):
         self.im_shape = im_shape
         self.current_epoch = 0
         self.rng = set_torch_seed(seed=args.seed)
-        self.classifier = VGGReLUNormNetwork(im_shape=self.im_shape,
-            num_output_classes=self.args.num_classes_per_set, args=args,
-            device=device, meta_classifier=True)
+        self.classifier = VGGReLUNormNetwork(im_shape=self.im_shape, num_output_classes=self.args.num_classes_per_set, args=args, device=device, meta_classifier=True)
         self.task_learning_rate = args.task_learning_rate
-        self.inner_loop_optimizer = LSLRGradientDescentLearningRule(device=
-            device, init_learning_rate=self.task_learning_rate,
-            total_num_inner_loop_steps=self.args.
-            number_of_training_steps_per_iter, use_learnable_learning_rates
-            =self.args.learnable_per_layer_per_step_inner_loop_learning_rate)
-        self.inner_loop_optimizer.initialise(names_weights_dict=self.
-            get_inner_loop_parameter_dict(params=self.classifier.
-            named_parameters()))
+        self.inner_loop_optimizer = LSLRGradientDescentLearningRule(device=device, init_learning_rate=self.task_learning_rate, total_num_inner_loop_steps=self.args.number_of_training_steps_per_iter, use_learnable_learning_rates=self.args.learnable_per_layer_per_step_inner_loop_learning_rate)
+        self.inner_loop_optimizer.initialise(names_weights_dict=self.get_inner_loop_parameter_dict(params=self.classifier.named_parameters()))
         None
         for key, value in self.inner_loop_optimizer.named_parameters():
             None
@@ -109,11 +102,8 @@ class MAMLFewShotClassifier(nn.Module):
         for name, param in self.named_parameters():
             if param.requires_grad:
                 None
-        self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.
-            meta_learning_rate, amsgrad=False)
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=
-            self.optimizer, T_max=self.args.total_epochs, eta_min=self.args
-            .min_learning_rate)
+        self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.meta_learning_rate, amsgrad=False)
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=self.optimizer, T_max=self.args.total_epochs, eta_min=self.args.min_learning_rate)
         self.device = torch.device('cpu')
         if torch.is_available():
             if torch.device_count() > 1:
@@ -130,21 +120,13 @@ class MAMLFewShotClassifier(nn.Module):
         :return: A tensor to be used to compute the weighted average of the loss, useful for
         the MSL (Multi Step Loss) mechanism.
         """
-        loss_weights = np.ones(shape=self.args.
-            number_of_training_steps_per_iter) * (1.0 / self.args.
-            number_of_training_steps_per_iter)
-        decay_rate = (1.0 / self.args.number_of_training_steps_per_iter /
-            self.args.multi_step_loss_num_epochs)
-        min_value_for_non_final_losses = (0.03 / self.args.
-            number_of_training_steps_per_iter)
+        loss_weights = np.ones(shape=self.args.number_of_training_steps_per_iter) * (1.0 / self.args.number_of_training_steps_per_iter)
+        decay_rate = 1.0 / self.args.number_of_training_steps_per_iter / self.args.multi_step_loss_num_epochs
+        min_value_for_non_final_losses = 0.03 / self.args.number_of_training_steps_per_iter
         for i in range(len(loss_weights) - 1):
-            curr_value = np.maximum(loss_weights[i] - self.current_epoch *
-                decay_rate, min_value_for_non_final_losses)
+            curr_value = np.maximum(loss_weights[i] - self.current_epoch * decay_rate, min_value_for_non_final_losses)
             loss_weights[i] = curr_value
-        curr_value = np.minimum(loss_weights[-1] + self.current_epoch * (
-            self.args.number_of_training_steps_per_iter - 1) * decay_rate, 
-            1.0 - (self.args.number_of_training_steps_per_iter - 1) *
-            min_value_for_non_final_losses)
+        curr_value = np.minimum(loss_weights[-1] + self.current_epoch * (self.args.number_of_training_steps_per_iter - 1) * decay_rate, 1.0 - (self.args.number_of_training_steps_per_iter - 1) * min_value_for_non_final_losses)
         loss_weights[-1] = curr_value
         loss_weights = torch.Tensor(loss_weights)
         return loss_weights
@@ -164,8 +146,7 @@ class MAMLFewShotClassifier(nn.Module):
                     param_dict[name] = param
         return param_dict
 
-    def apply_inner_loop_update(self, loss, names_weights_copy,
-        use_second_order, current_step_idx):
+    def apply_inner_loop_update(self, loss, names_weights_copy, use_second_order, current_step_idx):
         """
         Applies an inner loop update given current step's loss, the weights to update, a flag indicating whether to use
         second order derivatives and the current step's index.
@@ -180,23 +161,16 @@ class MAMLFewShotClassifier(nn.Module):
             self.classifier.module.zero_grad(params=names_weights_copy)
         else:
             self.classifier.zero_grad(params=names_weights_copy)
-        grads = torch.autograd.grad(loss, names_weights_copy.values(),
-            create_graph=use_second_order, allow_unused=True)
+        grads = torch.autograd.grad(loss, names_weights_copy.values(), create_graph=use_second_order, allow_unused=True)
         names_grads_copy = dict(zip(names_weights_copy.keys(), grads))
-        names_weights_copy = {key: value[0] for key, value in
-            names_weights_copy.items()}
+        names_weights_copy = {key: value[0] for key, value in names_weights_copy.items()}
         for key, grad in names_grads_copy.items():
             if grad is None:
                 None
             names_grads_copy[key] = names_grads_copy[key].sum(dim=0)
-        names_weights_copy = self.inner_loop_optimizer.update_params(
-            names_weights_dict=names_weights_copy,
-            names_grads_wrt_params_dict=names_grads_copy, num_step=
-            current_step_idx)
+        names_weights_copy = self.inner_loop_optimizer.update_params(names_weights_dict=names_weights_copy, names_grads_wrt_params_dict=names_grads_copy, num_step=current_step_idx)
         num_devices = torch.device_count() if torch.is_available() else 1
-        names_weights_copy = {name.replace('module.', ''): value.unsqueeze(
-            0).repeat([num_devices] + [(1) for i in range(len(value.shape))
-            ]) for name, value in names_weights_copy.items()}
+        names_weights_copy = {name.replace('module.', ''): value.unsqueeze(0).repeat([num_devices] + [(1) for i in range(len(value.shape))]) for name, value in names_weights_copy.items()}
         return names_weights_copy
 
     def get_across_task_loss_metrics(self, total_losses, total_accuracies):
@@ -205,8 +179,7 @@ class MAMLFewShotClassifier(nn.Module):
         losses['accuracy'] = np.mean(total_accuracies)
         return losses
 
-    def forward(self, data_batch, epoch, use_second_order,
-        use_multi_step_loss_optimization, num_steps, training_phase):
+    def forward(self, data_batch, epoch, use_second_order, use_multi_step_loss_optimization, num_steps, training_phase):
         """
         Runs a forward outer loop pass on the batch of tasks using the MAML/++ framework.
         :param data_batch: A data batch containing the support and target sets.
@@ -225,66 +198,41 @@ class MAMLFewShotClassifier(nn.Module):
         total_accuracies = []
         per_task_target_preds = [[] for i in range(len(x_target_set))]
         self.classifier.zero_grad()
-        for task_id, (x_support_set_task, y_support_set_task,
-            x_target_set_task, y_target_set_task) in enumerate(zip(
-            x_support_set, y_support_set, x_target_set, y_target_set)):
+        for task_id, (x_support_set_task, y_support_set_task, x_target_set_task, y_target_set_task) in enumerate(zip(x_support_set, y_support_set, x_target_set, y_target_set)):
             task_losses = []
             task_accuracies = []
-            per_step_loss_importance_vectors = (self.
-                get_per_step_loss_importance_vector())
-            names_weights_copy = self.get_inner_loop_parameter_dict(self.
-                classifier.named_parameters())
+            per_step_loss_importance_vectors = self.get_per_step_loss_importance_vector()
+            names_weights_copy = self.get_inner_loop_parameter_dict(self.classifier.named_parameters())
             num_devices = torch.device_count() if torch.is_available() else 1
-            names_weights_copy = {name.replace('module.', ''): value.
-                unsqueeze(0).repeat([num_devices] + [(1) for i in range(len
-                (value.shape))]) for name, value in names_weights_copy.items()}
+            names_weights_copy = {name.replace('module.', ''): value.unsqueeze(0).repeat([num_devices] + [(1) for i in range(len(value.shape))]) for name, value in names_weights_copy.items()}
             n, s, c, h, w = x_target_set_task.shape
             x_support_set_task = x_support_set_task.view(-1, c, h, w)
             y_support_set_task = y_support_set_task.view(-1)
             x_target_set_task = x_target_set_task.view(-1, c, h, w)
             y_target_set_task = y_target_set_task.view(-1)
             for num_step in range(num_steps):
-                support_loss, support_preds = self.net_forward(x=
-                    x_support_set_task, y=y_support_set_task, weights=
-                    names_weights_copy, backup_running_statistics=True if 
-                    num_step == 0 else False, training=True, num_step=num_step)
-                names_weights_copy = self.apply_inner_loop_update(loss=
-                    support_loss, names_weights_copy=names_weights_copy,
-                    use_second_order=use_second_order, current_step_idx=
-                    num_step)
-                if (use_multi_step_loss_optimization and training_phase and
-                    epoch < self.args.multi_step_loss_num_epochs):
-                    target_loss, target_preds = self.net_forward(x=
-                        x_target_set_task, y=y_target_set_task, weights=
-                        names_weights_copy, backup_running_statistics=False,
-                        training=True, num_step=num_step)
-                    task_losses.append(per_step_loss_importance_vectors[
-                        num_step] * target_loss)
+                support_loss, support_preds = self.net_forward(x=x_support_set_task, y=y_support_set_task, weights=names_weights_copy, backup_running_statistics=True if num_step == 0 else False, training=True, num_step=num_step)
+                names_weights_copy = self.apply_inner_loop_update(loss=support_loss, names_weights_copy=names_weights_copy, use_second_order=use_second_order, current_step_idx=num_step)
+                if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
+                    target_loss, target_preds = self.net_forward(x=x_target_set_task, y=y_target_set_task, weights=names_weights_copy, backup_running_statistics=False, training=True, num_step=num_step)
+                    task_losses.append(per_step_loss_importance_vectors[num_step] * target_loss)
                 elif num_step == self.args.number_of_training_steps_per_iter - 1:
-                    target_loss, target_preds = self.net_forward(x=
-                        x_target_set_task, y=y_target_set_task, weights=
-                        names_weights_copy, backup_running_statistics=False,
-                        training=True, num_step=num_step)
+                    target_loss, target_preds = self.net_forward(x=x_target_set_task, y=y_target_set_task, weights=names_weights_copy, backup_running_statistics=False, training=True, num_step=num_step)
                     task_losses.append(target_loss)
-            per_task_target_preds[task_id] = target_preds.detach().cpu().numpy(
-                )
+            per_task_target_preds[task_id] = target_preds.detach().cpu().numpy()
             _, predicted = torch.max(target_preds.data, 1)
-            accuracy = predicted.float().eq(y_target_set_task.data.float()
-                ).cpu().float()
+            accuracy = predicted.float().eq(y_target_set_task.data.float()).cpu().float()
             task_losses = torch.sum(torch.stack(task_losses))
             total_losses.append(task_losses)
             total_accuracies.extend(accuracy)
             if not training_phase:
                 self.classifier.restore_backup_stats()
-        losses = self.get_across_task_loss_metrics(total_losses=
-            total_losses, total_accuracies=total_accuracies)
+        losses = self.get_across_task_loss_metrics(total_losses=total_losses, total_accuracies=total_accuracies)
         for idx, item in enumerate(per_step_loss_importance_vectors):
-            losses['loss_importance_vector_{}'.format(idx)] = item.detach(
-                ).cpu().numpy()
+            losses['loss_importance_vector_{}'.format(idx)] = item.detach().cpu().numpy()
         return losses, per_task_target_preds
 
-    def net_forward(self, x, y, weights, backup_running_statistics,
-        training, num_step):
+    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step):
         """
         A base model forward pass on some data points x. Using the parameters in the weights dictionary. Also requires
         boolean flags indicating whether to reset the running statistics at the end of the run (if at evaluation phase).
@@ -299,9 +247,7 @@ class MAMLFewShotClassifier(nn.Module):
         :param num_step: An integer indicating the number of the step in the inner loop.
         :return: the crossentropy losses with respect to the given y, the predictions of the base model.
         """
-        preds = self.classifier.forward(x=x, params=weights, training=
-            training, backup_running_statistics=backup_running_statistics,
-            num_step=num_step)
+        preds = self.classifier.forward(x=x, params=weights, training=training, backup_running_statistics=backup_running_statistics, num_step=num_step)
         loss = F.cross_entropy(input=preds, target=y)
         return loss, preds
 
@@ -320,12 +266,7 @@ class MAMLFewShotClassifier(nn.Module):
         :param epoch: The index of the currrent epoch.
         :return: A dictionary of losses for the current step.
         """
-        losses, per_task_target_preds = self.forward(data_batch=data_batch,
-            epoch=epoch, use_second_order=self.args.second_order and epoch >
-            self.args.first_order_to_second_order_epoch,
-            use_multi_step_loss_optimization=self.args.
-            use_multi_step_loss_optimization, num_steps=self.args.
-            number_of_training_steps_per_iter, training_phase=True)
+        losses, per_task_target_preds = self.forward(data_batch=data_batch, epoch=epoch, use_second_order=self.args.second_order and epoch > self.args.first_order_to_second_order_epoch, use_multi_step_loss_optimization=self.args.use_multi_step_loss_optimization, num_steps=self.args.number_of_training_steps_per_iter, training_phase=True)
         return losses, per_task_target_preds
 
     def evaluation_forward_prop(self, data_batch, epoch):
@@ -335,10 +276,7 @@ class MAMLFewShotClassifier(nn.Module):
         :param epoch: The index of the currrent epoch.
         :return: A dictionary of losses for the current step.
         """
-        losses, per_task_target_preds = self.forward(data_batch=data_batch,
-            epoch=epoch, use_second_order=False,
-            use_multi_step_loss_optimization=True, num_steps=self.args.
-            number_of_evaluation_steps_per_iter, training_phase=False)
+        losses, per_task_target_preds = self.forward(data_batch=data_batch, epoch=epoch, use_second_order=False, use_multi_step_loss_optimization=True, num_steps=self.args.number_of_evaluation_steps_per_iter, training_phase=False)
         return losses, per_task_target_preds
 
     def meta_update(self, loss):
@@ -373,8 +311,7 @@ class MAMLFewShotClassifier(nn.Module):
         y_support_set = torch.Tensor(y_support_set).long()
         y_target_set = torch.Tensor(y_target_set).long()
         data_batch = x_support_set, x_target_set, y_support_set, y_target_set
-        losses, per_task_target_preds = self.train_forward_prop(data_batch=
-            data_batch, epoch=epoch)
+        losses, per_task_target_preds = self.train_forward_prop(data_batch=data_batch, epoch=epoch)
         self.meta_update(loss=losses['loss'])
         losses['learning_rate'] = self.scheduler.get_lr()[0]
         self.optimizer.zero_grad()
@@ -396,8 +333,7 @@ class MAMLFewShotClassifier(nn.Module):
         y_support_set = torch.Tensor(y_support_set).long()
         y_target_set = torch.Tensor(y_target_set).long()
         data_batch = x_support_set, x_target_set, y_support_set, y_target_set
-        losses, per_task_target_preds = self.evaluation_forward_prop(data_batch
-            =data_batch, epoch=self.current_epoch)
+        losses, per_task_target_preds = self.evaluation_forward_prop(data_batch=data_batch, epoch=self.current_epoch)
         return losses, per_task_target_preds
 
     def save_model(self, model_save_dir, state):
@@ -419,8 +355,7 @@ class MAMLFewShotClassifier(nn.Module):
         experiment)
         :return: A dictionary containing the experiment state and the saved model parameters.
         """
-        filepath = os.path.join(model_save_dir, '{}_{}'.format(model_name,
-            model_idx))
+        filepath = os.path.join(model_save_dir, '{}_{}'.format(model_name, model_idx))
         state = torch.load(filepath)
         state_dict_loaded = state['network']
         self.load_state_dict(state_dict=state_dict_loaded)
@@ -454,8 +389,7 @@ class GradientDescentLearningRule(nn.Module):
         self.learning_rate = torch.ones(1) * learning_rate
         self.learning_rate
 
-    def update_params(self, names_weights_dict, names_grads_wrt_params_dict,
-        num_step, tau=0.9):
+    def update_params(self, names_weights_dict, names_grads_wrt_params_dict, num_step, tau=0.9):
         """Applies a single gradient descent update to all parameters.
         All parameter updates are performed using in-place operations and so
         nothing is returned.
@@ -466,8 +400,7 @@ class GradientDescentLearningRule(nn.Module):
         """
         updated_names_weights_dict = dict()
         for key in names_weights_dict.keys():
-            updated_names_weights_dict[key] = names_weights_dict[key
-                ] - self.learning_rate * names_grads_wrt_params_dict[key]
+            updated_names_weights_dict[key] = names_weights_dict[key] - self.learning_rate * names_grads_wrt_params_dict[key]
         return updated_names_weights_dict
 
 
@@ -485,8 +418,7 @@ class LSLRGradientDescentLearningRule(nn.Module):
     will correspond to a stochastic gradient descent learning rule.
     """
 
-    def __init__(self, device, total_num_inner_loop_steps,
-        use_learnable_learning_rates, init_learning_rate=0.001):
+    def __init__(self, device, total_num_inner_loop_steps, use_learnable_learning_rates, init_learning_rate=0.001):
         """Creates a new learning rule object.
         Args:
             init_learning_rate: A postive scalar to scale gradient updates to the
@@ -505,16 +437,12 @@ class LSLRGradientDescentLearningRule(nn.Module):
     def initialise(self, names_weights_dict):
         self.names_learning_rates_dict = nn.ParameterDict()
         for idx, (key, param) in enumerate(names_weights_dict.items()):
-            self.names_learning_rates_dict[key.replace('.', '-')
-                ] = nn.Parameter(data=torch.ones(self.
-                total_num_inner_loop_steps + 1) * self.init_learning_rate,
-                requires_grad=self.use_learnable_learning_rates)
+            self.names_learning_rates_dict[key.replace('.', '-')] = nn.Parameter(data=torch.ones(self.total_num_inner_loop_steps + 1) * self.init_learning_rate, requires_grad=self.use_learnable_learning_rates)
 
     def reset(self):
         pass
 
-    def update_params(self, names_weights_dict, names_grads_wrt_params_dict,
-        num_step, tau=0.1):
+    def update_params(self, names_weights_dict, names_grads_wrt_params_dict, num_step, tau=0.1):
         """Applies a single gradient descent update to all parameters.
         All parameter updates are performed using in-place operations and so
         nothing is returned.
@@ -525,9 +453,7 @@ class LSLRGradientDescentLearningRule(nn.Module):
         """
         updated_names_weights_dict = dict()
         for key in names_grads_wrt_params_dict.keys():
-            updated_names_weights_dict[key] = names_weights_dict[key
-                ] - self.names_learning_rates_dict[key.replace('.', '-')][
-                num_step] * names_grads_wrt_params_dict[key]
+            updated_names_weights_dict[key] = names_weights_dict[key] - self.names_learning_rates_dict[key.replace('.', '-')][num_step] * names_grads_wrt_params_dict[key]
         return updated_names_weights_dict
 
 
@@ -553,8 +479,7 @@ def extract_top_level_dict(current_dict):
             else:
                 output_dict[top_level] = {sub_level: current_dict[key]}
         else:
-            new_item = {key: value for key, value in output_dict[top_level]
-                .items()}
+            new_item = {key: value for key, value in output_dict[top_level].items()}
             new_item[sub_level] = current_dict[key]
             output_dict[top_level] = new_item
     return output_dict
@@ -562,8 +487,7 @@ def extract_top_level_dict(current_dict):
 
 class MetaConv2dLayer(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride,
-        padding, use_bias, groups=1, dilation_rate=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, use_bias, groups=1, dilation_rate=1):
         """
         A MetaConv2D layer. Applies the same functionality of a standard Conv2D layer with the added functionality of
         being able to receive a parameter dictionary at the forward pass which allows the convolution to use external
@@ -583,8 +507,7 @@ class MetaConv2dLayer(nn.Module):
         self.dilation_rate = int(dilation_rate)
         self.use_bias = use_bias
         self.groups = int(groups)
-        self.weight = nn.Parameter(torch.empty(num_filters, in_channels,
-            kernel_size, kernel_size))
+        self.weight = nn.Parameter(torch.empty(num_filters, in_channels, kernel_size, kernel_size))
         nn.init.xavier_uniform_(self.weight)
         if self.use_bias:
             self.bias = nn.Parameter(torch.zeros(num_filters))
@@ -609,9 +532,7 @@ class MetaConv2dLayer(nn.Module):
         else:
             weight = self.weight
             bias = None
-        out = F.conv2d(input=x, weight=weight, bias=bias, stride=self.
-            stride, padding=self.padding, dilation=self.dilation_rate,
-            groups=self.groups)
+        out = F.conv2d(input=x, weight=weight, bias=bias, stride=self.stride, padding=self.padding, dilation=self.dilation_rate, groups=self.groups)
         return out
 
 
@@ -664,9 +585,7 @@ class MetaLinearLayer(nn.Module):
 
 class MetaBatchNormLayer(nn.Module):
 
-    def __init__(self, num_features, device, args, eps=1e-05, momentum=0.1,
-        affine=True, track_running_stats=True, meta_batch_norm=True,
-        no_learnable_params=False, use_per_step_bn_statistics=False):
+    def __init__(self, num_features, device, args, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, meta_batch_norm=True, no_learnable_params=False, use_per_step_bn_statistics=False):
         """
         A MetaBatchNorm layer. Applies the same functionality of a standard BatchNorm layer with the added functionality of
         being able to receive a parameter dictionary at the forward pass which allows the convolution to use external
@@ -696,38 +615,23 @@ class MetaBatchNormLayer(nn.Module):
         self.learnable_gamma = self.args.learnable_bn_gamma
         self.learnable_beta = self.args.learnable_bn_beta
         if use_per_step_bn_statistics:
-            self.running_mean = nn.Parameter(torch.zeros(args.
-                number_of_training_steps_per_iter, num_features),
-                requires_grad=False)
-            self.running_var = nn.Parameter(torch.ones(args.
-                number_of_training_steps_per_iter, num_features),
-                requires_grad=False)
-            self.bias = nn.Parameter(torch.zeros(args.
-                number_of_training_steps_per_iter, num_features),
-                requires_grad=self.learnable_beta)
-            self.weight = nn.Parameter(torch.ones(args.
-                number_of_training_steps_per_iter, num_features),
-                requires_grad=self.learnable_gamma)
+            self.running_mean = nn.Parameter(torch.zeros(args.number_of_training_steps_per_iter, num_features), requires_grad=False)
+            self.running_var = nn.Parameter(torch.ones(args.number_of_training_steps_per_iter, num_features), requires_grad=False)
+            self.bias = nn.Parameter(torch.zeros(args.number_of_training_steps_per_iter, num_features), requires_grad=self.learnable_beta)
+            self.weight = nn.Parameter(torch.ones(args.number_of_training_steps_per_iter, num_features), requires_grad=self.learnable_gamma)
         else:
-            self.running_mean = nn.Parameter(torch.zeros(num_features),
-                requires_grad=False)
-            self.running_var = nn.Parameter(torch.zeros(num_features),
-                requires_grad=False)
-            self.bias = nn.Parameter(torch.zeros(num_features),
-                requires_grad=self.learnable_beta)
-            self.weight = nn.Parameter(torch.ones(num_features),
-                requires_grad=self.learnable_gamma)
+            self.running_mean = nn.Parameter(torch.zeros(num_features), requires_grad=False)
+            self.running_var = nn.Parameter(torch.zeros(num_features), requires_grad=False)
+            self.bias = nn.Parameter(torch.zeros(num_features), requires_grad=self.learnable_beta)
+            self.weight = nn.Parameter(torch.ones(num_features), requires_grad=self.learnable_gamma)
         if self.args.enable_inner_loop_optimizable_bn_params:
-            self.bias = nn.Parameter(torch.zeros(num_features),
-                requires_grad=self.learnable_beta)
-            self.weight = nn.Parameter(torch.ones(num_features),
-                requires_grad=self.learnable_gamma)
+            self.bias = nn.Parameter(torch.zeros(num_features), requires_grad=self.learnable_beta)
+            self.weight = nn.Parameter(torch.ones(num_features), requires_grad=self.learnable_gamma)
         self.backup_running_mean = torch.zeros(self.running_mean.shape)
         self.backup_running_var = torch.ones(self.running_var.shape)
         self.momentum = momentum
 
-    def forward(self, input, num_step, params=None, training=False,
-        backup_running_statistics=False):
+    def forward(self, input, num_step, params=None, training=False, backup_running_statistics=False):
         """
         Forward propagates by applying a bach norm function. If params are none then internal params are used.
         Otherwise passed params will be used to execute the function.
@@ -759,8 +663,7 @@ class MetaBatchNormLayer(nn.Module):
             self.backup_running_mean.data = copy(self.running_mean.data)
             self.backup_running_var.data = copy(self.running_var.data)
         momentum = self.momentum
-        output = F.batch_norm(input, running_mean, running_var, weight,
-            bias, training=True, momentum=momentum, eps=self.eps)
+        output = F.batch_norm(input, running_mean, running_var, weight, bias, training=True, momentum=momentum, eps=self.eps)
         return output
 
     def restore_backup_stats(self):
@@ -768,21 +671,16 @@ class MetaBatchNormLayer(nn.Module):
         Resets batch statistics to their backup values which are collected after each forward pass.
         """
         if self.use_per_step_bn_statistics:
-            self.running_mean = nn.Parameter(self.backup_running_mean,
-                requires_grad=False)
-            self.running_var = nn.Parameter(self.backup_running_var,
-                requires_grad=False)
+            self.running_mean = nn.Parameter(self.backup_running_mean, requires_grad=False)
+            self.running_var = nn.Parameter(self.backup_running_var, requires_grad=False)
 
     def extra_repr(self):
-        return (
-            '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'
-            .format(**self.__dict__))
+        return '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'.format(**self.__dict__)
 
 
 class MetaLayerNormLayer(nn.Module):
 
-    def __init__(self, input_feature_shape, eps=1e-05, elementwise_affine=True
-        ):
+    def __init__(self, input_feature_shape, eps=1e-05, elementwise_affine=True):
         """
         A MetaLayerNorm layer. A layer that applies the same functionality as a layer norm layer with the added
         capability of being able to receive params at inference time to use instead of the internal ones. As well as
@@ -799,8 +697,7 @@ class MetaLayerNormLayer(nn.Module):
         self.eps = eps
         self.elementwise_affine = elementwise_affine
         if self.elementwise_affine:
-            self.weight = nn.Parameter(torch.Tensor(*input_feature_shape),
-                requires_grad=False)
+            self.weight = nn.Parameter(torch.Tensor(*input_feature_shape), requires_grad=False)
             self.bias = nn.Parameter(torch.Tensor(*input_feature_shape))
         else:
             self.register_parameter('weight', None)
@@ -815,8 +712,7 @@ class MetaLayerNormLayer(nn.Module):
             self.weight.data.fill_(1)
             self.bias.data.zero_()
 
-    def forward(self, input, num_step, params=None, training=False,
-        backup_running_statistics=False):
+    def forward(self, input, num_step, params=None, training=False, backup_running_statistics=False):
         """
             Forward propagates by applying a layer norm function. If params are none then internal params are used.
             Otherwise passed params will be used to execute the function.
@@ -834,23 +730,18 @@ class MetaLayerNormLayer(nn.Module):
             bias = params['bias']
         else:
             bias = self.bias
-        return F.layer_norm(input, self.normalized_shape, self.weight, bias,
-            self.eps)
+        return F.layer_norm(input, self.normalized_shape, self.weight, bias, self.eps)
 
     def restore_backup_stats(self):
         pass
 
     def extra_repr(self):
-        return (
-            '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'
-            .format(**self.__dict__))
+        return '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'.format(**self.__dict__)
 
 
 class MetaConvNormLayerReLU(nn.Module):
 
-    def __init__(self, input_shape, num_filters, kernel_size, stride,
-        padding, use_bias, args, normalization=True, meta_layer=True,
-        no_bn_learnable_params=False, device=None):
+    def __init__(self, input_shape, num_filters, kernel_size, stride, padding, use_bias, args, normalization=True, meta_layer=True, no_bn_learnable_params=False, device=None):
         """
            Initializes a BatchNorm->Conv->ReLU layer which applies those operation in that order.
            :param args: A named tuple containing the system's hyperparameters.
@@ -884,27 +775,18 @@ class MetaConvNormLayerReLU(nn.Module):
     def build_block(self):
         x = torch.zeros(self.input_shape)
         out = x
-        self.conv = MetaConv2dLayer(in_channels=out.shape[1], out_channels=
-            self.num_filters, kernel_size=self.kernel_size, stride=self.
-            stride, padding=self.padding, use_bias=self.use_bias)
+        self.conv = MetaConv2dLayer(in_channels=out.shape[1], out_channels=self.num_filters, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, use_bias=self.use_bias)
         out = self.conv(out)
         if self.normalization:
             if self.args.norm_layer == 'batch_norm':
-                self.norm_layer = MetaBatchNormLayer(out.shape[1],
-                    track_running_stats=True, meta_batch_norm=self.
-                    meta_layer, no_learnable_params=self.
-                    no_bn_learnable_params, device=self.device,
-                    use_per_step_bn_statistics=self.
-                    use_per_step_bn_statistics, args=self.args)
+                self.norm_layer = MetaBatchNormLayer(out.shape[1], track_running_stats=True, meta_batch_norm=self.meta_layer, no_learnable_params=self.no_bn_learnable_params, device=self.device, use_per_step_bn_statistics=self.use_per_step_bn_statistics, args=self.args)
             elif self.args.norm_layer == 'layer_norm':
-                self.norm_layer = MetaLayerNormLayer(input_feature_shape=
-                    out.shape[1:])
+                self.norm_layer = MetaLayerNormLayer(input_feature_shape=out.shape[1:])
             out = self.norm_layer(out, num_step=0)
         out = F.leaky_relu(out)
         None
 
-    def forward(self, x, num_step, params=None, training=False,
-        backup_running_statistics=False):
+    def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
         """
             Forward propagates by applying the function. If params are none then internal params are used.
             Otherwise passed params will be used to execute the function.
@@ -926,15 +808,12 @@ class MetaConvNormLayerReLU(nn.Module):
                 if 'norm_layer' in params:
                     batch_norm_params = params['norm_layer']
                 if 'activation_function_pre' in params:
-                    activation_function_pre_params = params[
-                        'activation_function_pre']
+                    activation_function_pre_params = params['activation_function_pre']
             conv_params = params['conv']
         out = x
         out = self.conv(out, params=conv_params)
         if self.normalization:
-            out = self.norm_layer.forward(out, num_step=num_step, params=
-                batch_norm_params, training=training,
-                backup_running_statistics=backup_running_statistics)
+            out = self.norm_layer.forward(out, num_step=num_step, params=batch_norm_params, training=training, backup_running_statistics=backup_running_statistics)
         out = F.leaky_relu(out)
         return out
 
@@ -948,9 +827,7 @@ class MetaConvNormLayerReLU(nn.Module):
 
 class MetaNormLayerConvReLU(nn.Module):
 
-    def __init__(self, input_shape, num_filters, kernel_size, stride,
-        padding, use_bias, args, normalization=True, meta_layer=True,
-        no_bn_learnable_params=False, device=None):
+    def __init__(self, input_shape, num_filters, kernel_size, stride, padding, use_bias, args, normalization=True, meta_layer=True, no_bn_learnable_params=False, device=None):
         """
            Initializes a BatchNorm->Conv->ReLU layer which applies those operation in that order.
            :param args: A named tuple containing the system's hyperparameters.
@@ -986,26 +863,16 @@ class MetaNormLayerConvReLU(nn.Module):
         out = x
         if self.normalization:
             if self.args.norm_layer == 'batch_norm':
-                self.norm_layer = MetaBatchNormLayer(self.input_shape[1],
-                    track_running_stats=True, meta_batch_norm=self.
-                    meta_layer, no_learnable_params=self.
-                    no_bn_learnable_params, device=self.device,
-                    use_per_step_bn_statistics=self.
-                    use_per_step_bn_statistics, args=self.args)
+                self.norm_layer = MetaBatchNormLayer(self.input_shape[1], track_running_stats=True, meta_batch_norm=self.meta_layer, no_learnable_params=self.no_bn_learnable_params, device=self.device, use_per_step_bn_statistics=self.use_per_step_bn_statistics, args=self.args)
             elif self.args.norm_layer == 'layer_norm':
-                self.norm_layer = MetaLayerNormLayer(input_feature_shape=
-                    out.shape[1:])
+                self.norm_layer = MetaLayerNormLayer(input_feature_shape=out.shape[1:])
             out = self.norm_layer.forward(out, num_step=0)
-        self.conv = MetaConv2dLayer(in_channels=out.shape[1], out_channels=
-            self.num_filters, kernel_size=self.kernel_size, stride=self.
-            stride, padding=self.padding, use_bias=self.use_bias)
+        self.conv = MetaConv2dLayer(in_channels=out.shape[1], out_channels=self.num_filters, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, use_bias=self.use_bias)
         self.layer_dict['activation_function_pre'] = nn.LeakyReLU()
-        out = self.layer_dict['activation_function_pre'].forward(self.conv.
-            forward(out))
+        out = self.layer_dict['activation_function_pre'].forward(self.conv.forward(out))
         None
 
-    def forward(self, x, num_step, params=None, training=False,
-        backup_running_statistics=False):
+    def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
         """
             Forward propagates by applying the function. If params are none then internal params are used.
             Otherwise passed params will be used to execute the function.
@@ -1029,9 +896,7 @@ class MetaNormLayerConvReLU(nn.Module):
             conv_params = None
         out = x
         if self.normalization:
-            out = self.norm_layer.forward(out, num_step=num_step, params=
-                batch_norm_params, training=training,
-                backup_running_statistics=backup_running_statistics)
+            out = self.norm_layer.forward(out, num_step=num_step, params=batch_norm_params, training=training, backup_running_statistics=backup_running_statistics)
         out = self.conv.forward(out, params=conv_params)
         out = self.layer_dict['activation_function_pre'].forward(out)
         return out
@@ -1046,8 +911,7 @@ class MetaNormLayerConvReLU(nn.Module):
 
 class VGGReLUNormNetwork(nn.Module):
 
-    def __init__(self, im_shape, num_output_classes, args, device,
-        meta_classifier=True):
+    def __init__(self, im_shape, num_output_classes, args, device, meta_classifier=True):
         """
         Builds a multilayer convolutional network. It also provides functionality for passing external parameters to be
         used at inference time. Enables inner loop optimization readily.
@@ -1091,29 +955,19 @@ class VGGReLUNormNetwork(nn.Module):
         self.layer_dict = nn.ModuleDict()
         self.upscale_shapes.append(x.shape)
         for i in range(self.num_stages):
-            self.layer_dict['conv{}'.format(i)] = MetaConvNormLayerReLU(
-                input_shape=out.shape, num_filters=self.cnn_filters,
-                kernel_size=3, stride=self.conv_stride, padding=self.args.
-                conv_padding, use_bias=True, args=self.args, normalization=
-                True, meta_layer=self.meta_classifier,
-                no_bn_learnable_params=False, device=self.device)
-            out = self.layer_dict['conv{}'.format(i)](out, training=True,
-                num_step=0)
+            self.layer_dict['conv{}'.format(i)] = MetaConvNormLayerReLU(input_shape=out.shape, num_filters=self.cnn_filters, kernel_size=3, stride=self.conv_stride, padding=self.args.conv_padding, use_bias=True, args=self.args, normalization=True, meta_layer=self.meta_classifier, no_bn_learnable_params=False, device=self.device)
+            out = self.layer_dict['conv{}'.format(i)](out, training=True, num_step=0)
             if self.args.max_pooling:
-                out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2,
-                    padding=0)
+                out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2, padding=0)
         if not self.args.max_pooling:
             out = F.avg_pool2d(out, out.shape[2])
         self.encoder_features_shape = list(out.shape)
         out = out.view(out.shape[0], -1)
-        self.layer_dict['linear'] = MetaLinearLayer(input_shape=(out.shape[
-            0], np.prod(out.shape[1:])), num_filters=self.
-            num_output_classes, use_bias=True)
+        self.layer_dict['linear'] = MetaLinearLayer(input_shape=(out.shape[0], np.prod(out.shape[1:])), num_filters=self.num_output_classes, use_bias=True)
         out = self.layer_dict['linear'](out)
         None
 
-    def forward(self, x, num_step, params=None, training=False,
-        backup_running_statistics=False):
+    def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
         """
         Forward propages through the network. If any params are passed then they are used instead of stored params.
         :param x: Input image batch.
@@ -1136,13 +990,9 @@ class VGGReLUNormNetwork(nn.Module):
                 param_dict[layer_name] = None
         out = x
         for i in range(self.num_stages):
-            out = self.layer_dict['conv{}'.format(i)](out, params=
-                param_dict['conv{}'.format(i)], training=training,
-                backup_running_statistics=backup_running_statistics,
-                num_step=num_step)
+            out = self.layer_dict['conv{}'.format(i)](out, params=param_dict['conv{}'.format(i)], training=training, backup_running_statistics=backup_running_statistics, num_step=num_step)
             if self.args.max_pooling:
-                out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2,
-                    padding=0)
+                out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2, padding=0)
         if not self.args.max_pooling:
             out = F.avg_pool2d(out, out.shape[2])
         out = out.view(out.size(0), -1)
@@ -1178,17 +1028,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MetaConv2dLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'use_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MetaLayerNormLayer,
+     lambda: ([], {'input_feature_shape': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MetaLinearLayer,
+     lambda: ([], {'input_shape': [4, 4], 'num_filters': 4, 'use_bias': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_AntreasAntoniou_HowToTrainYourMAMLPytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MetaConv2dLayer(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(MetaLayerNormLayer(*[], **{'input_feature_shape': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(MetaLinearLayer(*[], **{'input_shape': [4, 4], 'num_filters': 4, 'use_bias': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -70,8 +71,7 @@ class ChannelSELayer(nn.Module):
         :return: output tensor
         """
         batch_size, num_channels, H, W = input_tensor.size()
-        squeeze_tensor = input_tensor.view(batch_size, num_channels, -1).mean(
-            dim=2)
+        squeeze_tensor = input_tensor.view(batch_size, num_channels, -1).mean(dim=2)
         fc_out_1 = self.relu(self.fc1(squeeze_tensor))
         fc_out_2 = self.sigmoid(self.fc2(fc_out_1))
         a, b = squeeze_tensor.size()
@@ -108,8 +108,7 @@ class SpatialSELayer(nn.Module):
         else:
             out = self.conv(input_tensor)
         squeeze_tensor = self.sigmoid(out)
-        output_tensor = torch.mul(input_tensor, squeeze_tensor.view(
-            batch_size, 1, a, b))
+        output_tensor = torch.mul(input_tensor, squeeze_tensor.view(batch_size, 1, a, b))
         return output_tensor
 
 
@@ -135,8 +134,7 @@ class ChannelSpatialSELayer(nn.Module):
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
         :return: output_tensor
         """
-        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(
-            input_tensor))
+        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(input_tensor))
         return output_tensor
 
 
@@ -168,8 +166,7 @@ class ChannelSELayer(nn.Module):
         :return: output tensor
         """
         batch_size, num_channels, H, W = input_tensor.size()
-        squeeze_tensor = input_tensor.view(batch_size, num_channels, -1).mean(
-            dim=2)
+        squeeze_tensor = input_tensor.view(batch_size, num_channels, -1).mean(dim=2)
         fc_out_1 = self.relu(self.fc1(squeeze_tensor))
         fc_out_2 = self.sigmoid(self.fc2(fc_out_1))
         a, b = squeeze_tensor.size()
@@ -234,8 +231,7 @@ class ChannelSpatialSELayer(nn.Module):
         :param input_tensor: X, shape = (batch_size, num_channels, H, W)
         :return: output_tensor
         """
-        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(
-            input_tensor))
+        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(input_tensor))
         return output_tensor
 
 
@@ -267,11 +263,9 @@ class ChannelSELayer3D(nn.Module):
         """
         batch_size, num_channels, D, H, W = input_tensor.size()
         squeeze_tensor = self.avg_pool(input_tensor)
-        fc_out_1 = self.relu(self.fc1(squeeze_tensor.view(batch_size,
-            num_channels)))
+        fc_out_1 = self.relu(self.fc1(squeeze_tensor.view(batch_size, num_channels)))
         fc_out_2 = self.sigmoid(self.fc2(fc_out_1))
-        output_tensor = torch.mul(input_tensor, fc_out_2.view(batch_size,
-            num_channels, 1, 1, 1))
+        output_tensor = torch.mul(input_tensor, fc_out_2.view(batch_size, num_channels, 1, 1, 1))
         return output_tensor
 
 
@@ -303,8 +297,7 @@ class SpatialSELayer3D(nn.Module):
         else:
             out = self.conv(input_tensor)
         squeeze_tensor = self.sigmoid(out)
-        output_tensor = torch.mul(input_tensor, squeeze_tensor.view(
-            batch_size, 1, D, H, W))
+        output_tensor = torch.mul(input_tensor, squeeze_tensor.view(batch_size, 1, D, H, W))
         return output_tensor
 
 
@@ -328,8 +321,7 @@ class ChannelSpatialSELayer3D(nn.Module):
         :param input_tensor: X, shape = (batch_size, num_channels, D, H, W)
         :return: output_tensor
         """
-        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(
-            input_tensor))
+        output_tensor = torch.max(self.cSE(input_tensor), self.sSE(input_tensor))
         return output_tensor
 
 
@@ -348,10 +340,8 @@ class ProjectExciteLayer(nn.Module):
         num_channels_reduced = num_channels // reduction_ratio
         self.reduction_ratio = reduction_ratio
         self.relu = nn.ReLU()
-        self.conv_c = nn.Conv3d(in_channels=num_channels, out_channels=
-            num_channels_reduced, kernel_size=1, stride=1)
-        self.conv_cT = nn.Conv3d(in_channels=num_channels_reduced,
-            out_channels=num_channels, kernel_size=1, stride=1)
+        self.conv_c = nn.Conv3d(in_channels=num_channels, out_channels=num_channels_reduced, kernel_size=1, stride=1)
+        self.conv_cT = nn.Conv3d(in_channels=num_channels_reduced, out_channels=num_channels, kernel_size=1, stride=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, input_tensor):
@@ -363,12 +353,8 @@ class ProjectExciteLayer(nn.Module):
         squeeze_tensor_w = F.adaptive_avg_pool3d(input_tensor, (1, 1, W))
         squeeze_tensor_h = F.adaptive_avg_pool3d(input_tensor, (1, H, 1))
         squeeze_tensor_d = F.adaptive_avg_pool3d(input_tensor, (D, 1, 1))
-        final_squeeze_tensor = sum([squeeze_tensor_w.view(batch_size,
-            num_channels, 1, 1, W), squeeze_tensor_h.view(batch_size,
-            num_channels, 1, H, 1), squeeze_tensor_d.view(batch_size,
-            num_channels, D, 1, 1)])
-        final_squeeze_tensor = self.sigmoid(self.conv_cT(self.relu(self.
-            conv_c(final_squeeze_tensor))))
+        final_squeeze_tensor = sum([squeeze_tensor_w.view(batch_size, num_channels, 1, 1, W), squeeze_tensor_h.view(batch_size, num_channels, 1, H, 1), squeeze_tensor_d.view(batch_size, num_channels, D, 1, 1)])
+        final_squeeze_tensor = self.sigmoid(self.conv_cT(self.relu(self.conv_c(final_squeeze_tensor))))
         output_tensor = torch.mul(input_tensor, final_squeeze_tensor)
         return output_tensor
 
@@ -377,31 +363,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ChannelSELayer,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ChannelSELayer3D,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (ChannelSpatialSELayer,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ChannelSpatialSELayer3D,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (ProjectExciteLayer,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (SpatialSELayer,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SpatialSELayer3D,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_ai_med_squeeze_and_excitation(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ChannelSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ChannelSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ChannelSpatialSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(ChannelSpatialSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ProjectExciteLayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SpatialSELayer(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SpatialSELayer3D(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

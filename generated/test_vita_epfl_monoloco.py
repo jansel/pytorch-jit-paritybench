@@ -44,8 +44,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -132,8 +133,7 @@ class LinearModel(nn.Module):
     Pytorch implementation from: https://github.com/weigq/3d_pose_baseline_pytorch
     """
 
-    def __init__(self, input_size, output_size=2, linear_size=256,
-        p_dropout=0.2, num_stage=3):
+    def __init__(self, input_size, output_size=2, linear_size=256, p_dropout=0.2, num_stage=3):
         super(LinearModel, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -225,8 +225,7 @@ class CustomL1Loss(torch.nn.Module):
         plt.show()
 
     def forward(self, output, target):
-        unnormalized_output = output.cpu().detach().numpy() * self.dic_norm[
-            'std']['Y'] + self.dic_norm['mean']['Y']
+        unnormalized_output = output.cpu().detach().numpy() * self.dic_norm['std']['Y'] + self.dic_norm['mean']['Y']
         weights_np = self.compute_weights(unnormalized_output, self.beta)
         weights = torch.from_numpy(weights_np).float()
         losses = torch.abs(output - target) * weights
@@ -256,8 +255,7 @@ class LaplacianLoss(torch.nn.Module):
         norm = 1 - mu / xx
         term_a = torch.abs(norm) * torch.exp(-si)
         term_b = si
-        norm_bi = np.mean(np.abs(norm.cpu().detach().numpy())), np.mean(torch
-            .exp(si).cpu().detach().numpy())
+        norm_bi = np.mean(np.abs(norm.cpu().detach().numpy())), np.mean(torch.exp(si).cpu().detach().numpy())
         if self.evaluate:
             return norm_bi
         return term_a + term_b
@@ -296,8 +294,7 @@ class GaussianLoss(torch.nn.Module):
         norm = xx - mu
         term_a = (norm / si) ** 2 / 2
         term_b = torch.log(si * math.sqrt(2 * math.pi))
-        norm_si = np.mean(np.abs(norm.cpu().detach().numpy())), np.mean(si.
-            cpu().detach().numpy())
+        norm_si = np.mean(np.abs(norm.cpu().detach().numpy())), np.mean(si.cpu().detach().numpy())
         if self.evaluate:
             return norm_si
         return term_a + term_b
@@ -316,24 +313,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_vita_epfl_monoloco(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(GaussianLoss(*[], **{'device': 0}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (GaussianLoss,
+     lambda: ([], {'device': 0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LaplacianLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Linear,
+     lambda: ([], {'linear_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (LinearModel,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (ResNet50,
+     lambda: ([], {'num_classes': 4, 'loss': MSELoss()}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
+class Test_vita_epfl_monoloco(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(LaplacianLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Linear(*[], **{'linear_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(LinearModel(*[], **{'input_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ResNet50(*[], **{'num_classes': 4, 'loss': MSELoss()}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[4])
 

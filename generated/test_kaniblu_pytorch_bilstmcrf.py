@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -100,18 +101,15 @@ class CRF(nn.Module):
         c_lens = lens.clone()
         logits_t = logits.transpose(1, 0)
         for logit in logits_t:
-            logit_exp = logit.unsqueeze(-1).expand(batch_size, *self.
-                transitions.size())
-            alpha_exp = alpha.unsqueeze(1).expand(batch_size, *self.
-                transitions.size())
+            logit_exp = logit.unsqueeze(-1).expand(batch_size, *self.transitions.size())
+            alpha_exp = alpha.unsqueeze(1).expand(batch_size, *self.transitions.size())
             trans_exp = self.transitions.unsqueeze(0).expand_as(alpha_exp)
             mat = trans_exp + alpha_exp + logit_exp
             alpha_nxt = log_sum_exp(mat, 2).squeeze(-1)
             mask = (c_lens > 0).float().unsqueeze(-1).expand_as(alpha)
             alpha = mask * alpha_nxt + (1 - mask) * alpha
             c_lens = c_lens - 1
-        alpha = alpha + self.transitions[self.stop_idx].unsqueeze(0).expand_as(
-            alpha)
+        alpha = alpha + self.transitions[self.stop_idx].unsqueeze(0).expand_as(alpha)
         norm = log_sum_exp(alpha, 1).squeeze(-1)
         return norm
 
@@ -140,8 +138,7 @@ class CRF(nn.Module):
             mask = (c_lens > 0).float().unsqueeze(-1).expand_as(vit_nxt)
             vit = mask * vit_nxt + (1 - mask) * vit
             mask = (c_lens == 1).float().unsqueeze(-1).expand_as(vit_nxt)
-            vit += mask * self.transitions[self.stop_idx].unsqueeze(0
-                ).expand_as(vit_nxt)
+            vit += mask * self.transitions[self.stop_idx].unsqueeze(0).expand_as(vit_nxt)
             c_lens = c_lens - 1
         pointers = torch.cat(pointers)
         scores, idx = vit.max(1)
@@ -187,8 +184,7 @@ class CRF(nn.Module):
 
 class LSTMCRF(nn.Module):
 
-    def __init__(self, crf, vocab_sizes, word_dims, hidden_dim, layers,
-        dropout_prob, bidirectional=False):
+    def __init__(self, crf, vocab_sizes, word_dims, hidden_dim, layers, dropout_prob, bidirectional=False):
         super(LSTMCRF, self).__init__()
         self.n_feats = len(word_dims)
         self.total_word_dim = sum(word_dims)
@@ -200,17 +196,14 @@ class LSTMCRF(nn.Module):
         self.crf = crf
         self.bidirectional = bidirectional
         self.n_labels = n_labels = self.crf.n_labels
-        self.embeddings = nn.ModuleList([nn.Embedding(vocab_size, word_dim) for
-            vocab_size, word_dim in zip(vocab_sizes, word_dims)])
+        self.embeddings = nn.ModuleList([nn.Embedding(vocab_size, word_dim) for vocab_size, word_dim in zip(vocab_sizes, word_dims)])
         self.output_hidden_dim = self.hidden_dim
         if bidirectional:
             self.output_hidden_dim *= 2
         self.tanh = nn.Tanh()
         self.input_layer = nn.Linear(self.total_word_dim, hidden_dim)
         self.output_layer = nn.Linear(self.output_hidden_dim, n_labels)
-        self.lstm = nn.LSTM(input_size=hidden_dim, hidden_size=hidden_dim,
-            num_layers=layers, bidirectional=bidirectional, dropout=
-            dropout_prob, batch_first=True)
+        self.lstm = nn.LSTM(input_size=hidden_dim, hidden_size=hidden_dim, num_layers=layers, bidirectional=bidirectional, dropout=dropout_prob, batch_first=True)
 
     def reset_parameters(self):
         for emb in self.embeddings:
@@ -221,8 +214,7 @@ class LSTMCRF(nn.Module):
         self.lstm.reset_parameters()
 
     def _run_rnn_packed(self, cell, x, x_lens, h=None):
-        x_packed = R.pack_padded_sequence(x, x_lens.data.tolist(),
-            batch_first=True)
+        x_packed = R.pack_padded_sequence(x, x_lens.data.tolist(), batch_first=True)
         if h is not None:
             output, h = cell(x_packed, h)
         else:
@@ -313,9 +305,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (TransparentDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_kaniblu_pytorch_bilstmcrf(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(TransparentDataParallel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[0])
 

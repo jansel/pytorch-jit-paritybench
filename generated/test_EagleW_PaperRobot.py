@@ -38,8 +38,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -94,8 +95,7 @@ class GAT(nn.Module):
     def __init__(self, nfeat, nhid, dropout, alpha, nheads):
         super(GAT, self).__init__()
         self.dropout = dropout
-        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout,
-            alpha=alpha, concat=True) for _ in range(nheads)]
+        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
 
@@ -108,31 +108,25 @@ class GAT(nn.Module):
 
 class GATA(nn.Module):
 
-    def __init__(self, emb_dim, hid_dim, out_dim, num_voc, num_heads,
-        num_ent, num_rel, dropout, alpha, **kwargs):
+    def __init__(self, emb_dim, hid_dim, out_dim, num_voc, num_heads, num_ent, num_rel, dropout, alpha, **kwargs):
         super(GATA, self).__init__()
         self.ent_embedding = nn.Embedding(num_ent, emb_dim)
         self.rel_embedding = nn.Embedding(num_rel, emb_dim)
-        self.graph = GAT(nfeat=emb_dim, nhid=hid_dim, dropout=dropout,
-            nheads=num_heads, alpha=alpha)
+        self.graph = GAT(nfeat=emb_dim, nhid=hid_dim, dropout=dropout, nheads=num_heads, alpha=alpha)
         self.text = TAT(emb_dim, num_voc)
         self.gate = nn.Embedding(num_ent, out_dim)
 
-    def forward(self, nodes, adj, pos, shifted_pos, h_sents, h_order,
-        h_lengths, t_sents, t_order, t_lengths):
+    def forward(self, nodes, adj, pos, shifted_pos, h_sents, h_order, h_lengths, t_sents, t_order, t_lengths):
         node_features = self.ent_embedding(nodes)
         graph = self.graph(node_features, adj)
         head_graph = graph[[shifted_pos[:, (0)].squeeze()]]
         tail_graph = graph[[shifted_pos[:, (1)].squeeze()]]
-        head_text = self.text(h_sents, h_order, h_lengths, node_features[[
-            shifted_pos[:, (0)].squeeze()]])
-        tail_text = self.text(t_sents, t_order, t_lengths, node_features[[
-            shifted_pos[:, (1)].squeeze()]])
+        head_text = self.text(h_sents, h_order, h_lengths, node_features[[shifted_pos[:, (0)].squeeze()]])
+        tail_text = self.text(t_sents, t_order, t_lengths, node_features[[shifted_pos[:, (1)].squeeze()]])
         r_pos = self.rel_embedding(pos[:, (2)].squeeze())
         gate_head = self.gate(pos[:, (0)].squeeze())
         gate_tail = self.gate(pos[:, (1)].squeeze())
-        score_pos = self._score(head_graph, head_text, tail_graph,
-            tail_text, r_pos, gate_head, gate_tail)
+        score_pos = self._score(head_graph, head_text, tail_graph, tail_text, r_pos, gate_head, gate_tail)
         return score_pos
 
     def _score(self, hg, ht, tg, tt, r, gh, gt):
@@ -153,8 +147,7 @@ class TAT(nn.Module):
         super(TAT, self).__init__()
         self.hidden_dim = embedding_dim
         self.word_embeddings = nn.Embedding(voc_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim // 2,
-            bidirectional=True)
+        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim // 2, bidirectional=True)
         self.attF = nn.Linear(self.hidden_dim, self.hidden_dim)
 
     def forward(self, sentence, orders, lengths, ent_emb):
@@ -182,16 +175,9 @@ class GraphAttentionLayer(nn.Module):
         self.out_features = out_features
         self.alpha = alpha
         self.concat = concat
-        self.W = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(
-            in_features, out_features).type(torch.FloatTensor if torch.
-            is_available() else torch.FloatTensor), gain=np.sqrt(2.0)),
-            requires_grad=True)
-        self.a1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(
-            out_features, 1).type(torch.FloatTensor if torch.is_available()
-             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
-        self.a2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(
-            out_features, 1).type(torch.FloatTensor if torch.is_available()
-             else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.W = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(in_features, out_features).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.a1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(out_features, 1).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.a2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(out_features, 1).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
     def forward(self, input, adj):
@@ -211,8 +197,7 @@ class GraphAttentionLayer(nn.Module):
             return h_prime
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features
-            ) + ' -> ' + str(self.out_features) + ')'
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class TermEncoder(nn.Module):
@@ -231,8 +216,7 @@ class TermEncoder(nn.Module):
 
 class BaseRNN(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size, input_dropout_p, n_layers,
-        rnn_cell):
+    def __init__(self, vocab_size, hidden_size, input_dropout_p, n_layers, rnn_cell):
         super(BaseRNN, self).__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
@@ -258,16 +242,10 @@ class Seq2seq(nn.Module):
         self.term_encoder = term_encoder
         self.decoder = decoder
 
-    def forward(self, batch_s, batch_o_s, source_len, max_source_oov,
-        batch_term, batch_o_term, batch_t=None, batch_o_t=None,
-        teacher_forcing_ratio=0, beam=False, stopwords=None, sflag=False):
-        encoder_outputs, encoder_hidden, enc_mask = self.ref_encoder(batch_s,
-            source_len)
+    def forward(self, batch_s, batch_o_s, source_len, max_source_oov, batch_term, batch_o_term, batch_t=None, batch_o_t=None, teacher_forcing_ratio=0, beam=False, stopwords=None, sflag=False):
+        encoder_outputs, encoder_hidden, enc_mask = self.ref_encoder(batch_s, source_len)
         term_output, term_mask = self.term_encoder(batch_term)
-        result = self.decoder(max_source_oov, batch_t, batch_o_t, batch_o_s,
-            enc_mask, encoder_hidden, encoder_outputs, batch_o_term,
-            term_mask, term_output, teacher_forcing_ratio, beam, stopwords,
-            sflag)
+        result = self.decoder(max_source_oov, batch_t, batch_o_t, batch_o_s, enc_mask, encoder_hidden, encoder_outputs, batch_o_term, term_mask, term_output, teacher_forcing_ratio, beam, stopwords, sflag)
         return result
 
 
@@ -294,17 +272,13 @@ class MemoryComponent(nn.Module):
         u = query.transpose(0, 1)
         batch_size, max_enc_len = src_mask.size()
         for i in range(self.max_hops):
-            enc_proj = self.Wih_layers[i](src.view(batch_size * max_enc_len,
-                -1)).view(batch_size, max_enc_len, -1)
+            enc_proj = self.Wih_layers[i](src.view(batch_size * max_enc_len, -1)).view(batch_size, max_enc_len, -1)
             dec_proj = self.Ws_layers[i](u).expand_as(enc_proj)
             if cov_mem is not None:
-                cov_proj = self.Wc(cov_mem.view(-1, 1)).view(batch_size,
-                    max_enc_len, -1)
-                e_t = self.vt_layers[i](torch.tanh(enc_proj + dec_proj +
-                    cov_proj).view(batch_size * max_enc_len, -1))
+                cov_proj = self.Wc(cov_mem.view(-1, 1)).view(batch_size, max_enc_len, -1)
+                e_t = self.vt_layers[i](torch.tanh(enc_proj + dec_proj + cov_proj).view(batch_size * max_enc_len, -1))
             else:
-                e_t = self.vt_layers[i](torch.tanh(enc_proj + dec_proj).
-                    view(batch_size * max_enc_len, -1))
+                e_t = self.vt_layers[i](torch.tanh(enc_proj + dec_proj).view(batch_size * max_enc_len, -1))
             term_attn = e_t.view(batch_size, max_enc_len)
             del e_t
             term_attn.data.masked_fill_(src_mask.data.byte(), -float('inf'))
@@ -318,15 +292,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MemoryComponent,
+     lambda: ([], {'hop': 4, 'h': 4, 'd_model': 4, 'dropout_p': 0.5}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (TAT,
+     lambda: ([], {'embedding_dim': 4, 'voc_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     True),
+    (TermEncoder,
+     lambda: ([], {'embedding': _mock_layer(), 'input_dropout_p': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_EagleW_PaperRobot(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(MemoryComponent(*[], **{'hop': 4, 'h': 4, 'd_model': 4, 'dropout_p': 0.5}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(TAT(*[], **{'embedding_dim': 4, 'voc_size': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(TermEncoder(*[], **{'embedding': _mock_layer(), 'input_dropout_p': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

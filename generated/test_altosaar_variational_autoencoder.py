@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -57,8 +58,7 @@ class InverseAutoregressiveFlow(nn.Module):
 
     def __init__(self, num_input, num_hidden, num_context):
         super().__init__()
-        self.made = MADE(num_input=num_input, num_output=num_input * 2,
-            num_hidden=num_hidden, num_context=num_context)
+        self.made = MADE(num_input=num_input, num_output=num_input * 2, num_hidden=num_hidden, num_context=num_context)
         self.sigmoid_arg_bias = nn.Parameter(torch.ones(num_input) * 2)
         self.sigmoid = nn.Sigmoid()
         self.log_sigmoid = nn.LogSigmoid()
@@ -85,18 +85,15 @@ class FlowSequential(nn.Sequential):
 class MaskedLinear(nn.Module):
     """Linear layer with some input-output connections masked."""
 
-    def __init__(self, in_features, out_features, mask, context_features=
-        None, bias=True):
+    def __init__(self, in_features, out_features, mask, context_features=None, bias=True):
         super().__init__()
         self.linear = nn.Linear(in_features, out_features, bias)
         self.register_buffer('mask', mask)
         if context_features is not None:
-            self.cond_linear = nn.Linear(context_features, out_features,
-                bias=False)
+            self.cond_linear = nn.Linear(context_features, out_features, bias=False)
 
     def forward(self, input, context=None):
-        output = F.linear(input, self.mask * self.linear.weight, self.
-            linear.bias)
+        output = F.linear(input, self.mask * self.linear.weight, self.linear.bias)
         if context is None:
             return output
         else:
@@ -118,14 +115,11 @@ class MADE(nn.Module):
         self._build_masks(num_input, num_output, num_hidden, num_layers=3)
         self._check_masks()
         modules = []
-        self.input_context_net = MaskedLinear(num_input, num_hidden, self.
-            _masks[0], num_context)
+        self.input_context_net = MaskedLinear(num_input, num_hidden, self._masks[0], num_context)
         modules.append(nn.ReLU())
-        modules.append(MaskedLinear(num_hidden, num_hidden, self._masks[1],
-            context_features=None))
+        modules.append(MaskedLinear(num_hidden, num_hidden, self._masks[1], context_features=None))
         modules.append(nn.ReLU())
-        modules.append(MaskedLinear(num_hidden, num_output, self._masks[2],
-            context_features=None))
+        modules.append(MaskedLinear(num_hidden, num_output, self._masks[2], context_features=None))
         self.net = nn.Sequential(*modules)
 
     def _build_masks(self, num_input, num_output, num_hidden, num_layers):
@@ -136,8 +130,7 @@ class MADE(nn.Module):
             if i == num_layers:
                 m = np.arange(1, num_input + 1)
                 assert num_output % num_input == 0, 'num_output must be multiple of num_input'
-                self._m.append(np.hstack([m for _ in range(num_output //
-                    num_input)]))
+                self._m.append(np.hstack([m for _ in range(num_output // num_input)]))
             else:
                 self._m.append(rng.randint(1, num_input, size=num_hidden))
             if i == num_layers:
@@ -158,8 +151,7 @@ class MADE(nn.Module):
         if num_output == num_input:
             assert np.triu(final).all() == 0
         else:
-            for submat in np.split(final, indices_or_sections=num_output //
-                num_input, axis=1):
+            for submat in np.split(final, indices_or_sections=num_output // num_input, axis=1):
                 assert np.triu(submat).all() == 0
 
     def forward(self, input, context=None):
@@ -182,11 +174,9 @@ class Reverse(nn.Module):
 
     def forward(self, inputs, context=None, mode='forward'):
         if mode == 'forward':
-            return inputs[:, :, (self.perm)], torch.zeros_like(inputs,
-                device=inputs.device)
+            return inputs[:, :, (self.perm)], torch.zeros_like(inputs, device=inputs.device)
         elif mode == 'inverse':
-            return inputs[:, :, (self.inv_perm)], torch.zeros_like(inputs,
-                device=inputs.device)
+            return inputs[:, :, (self.inv_perm)], torch.zeros_like(inputs, device=inputs.device)
         else:
             raise ValueError('Mode must be one of {forward, inverse}.')
 
@@ -200,13 +190,11 @@ class Model(nn.Module):
         self.register_buffer('p_z_scale', torch.ones(latent_size))
         self.log_p_z = NormalLogProb()
         self.log_p_x = BernoulliLogProb()
-        self.generative_network = NeuralNetwork(input_size=latent_size,
-            output_size=data_size, hidden_size=latent_size * 2)
+        self.generative_network = NeuralNetwork(input_size=latent_size, output_size=data_size, hidden_size=latent_size * 2)
 
     def forward(self, z, x):
         """Return log probability of model."""
-        log_p_z = self.log_p_z(self.p_z_loc, self.p_z_scale, z).sum(-1,
-            keepdim=True)
+        log_p_z = self.log_p_z(self.p_z_loc, self.p_z_scale, z).sum(-1, keepdim=True)
         logits = self.generative_network(z)
         logits, x = torch.broadcast_tensors(logits, x.unsqueeze(1))
         log_p_x = self.log_p_x(logits, x).sum(-1, keepdim=True)
@@ -218,18 +206,15 @@ class VariationalMeanField(nn.Module):
 
     def __init__(self, latent_size, data_size):
         super().__init__()
-        self.inference_network = NeuralNetwork(input_size=data_size,
-            output_size=latent_size * 2, hidden_size=latent_size * 2)
+        self.inference_network = NeuralNetwork(input_size=data_size, output_size=latent_size * 2, hidden_size=latent_size * 2)
         self.log_q_z = NormalLogProb()
         self.softplus = nn.Softplus()
 
     def forward(self, x, n_samples=1):
         """Return sample of latent variable and log prob."""
-        loc, scale_arg = torch.chunk(self.inference_network(x).unsqueeze(1),
-            chunks=2, dim=-1)
+        loc, scale_arg = torch.chunk(self.inference_network(x).unsqueeze(1), chunks=2, dim=-1)
         scale = self.softplus(scale_arg)
-        eps = torch.randn((loc.shape[0], n_samples, loc.shape[-1]), device=
-            loc.device)
+        eps = torch.randn((loc.shape[0], n_samples, loc.shape[-1]), device=loc.device)
         z = loc + scale * eps
         log_q_z = self.log_q_z(loc, scale, z).sum(-1, keepdim=True)
         return z, log_q_z
@@ -241,12 +226,10 @@ class VariationalFlow(nn.Module):
     def __init__(self, latent_size, data_size, flow_depth):
         super().__init__()
         hidden_size = latent_size * 2
-        self.inference_network = NeuralNetwork(input_size=data_size,
-            output_size=latent_size * 3, hidden_size=hidden_size)
+        self.inference_network = NeuralNetwork(input_size=data_size, output_size=latent_size * 3, hidden_size=hidden_size)
         modules = []
         for _ in range(flow_depth):
-            modules.append(flow.InverseAutoregressiveFlow(num_input=
-                latent_size, num_hidden=hidden_size, num_context=latent_size))
+            modules.append(flow.InverseAutoregressiveFlow(num_input=latent_size, num_hidden=hidden_size, num_context=latent_size))
             modules.append(flow.Reverse(latent_size))
         self.q_z_flow = flow.FlowSequential(*modules)
         self.log_q_z_0 = NormalLogProb()
@@ -254,11 +237,9 @@ class VariationalFlow(nn.Module):
 
     def forward(self, x, n_samples=1):
         """Return sample of latent variable and log prob."""
-        loc, scale_arg, h = torch.chunk(self.inference_network(x).unsqueeze
-            (1), chunks=3, dim=-1)
+        loc, scale_arg, h = torch.chunk(self.inference_network(x).unsqueeze(1), chunks=3, dim=-1)
         scale = self.softplus(scale_arg)
-        eps = torch.randn((loc.shape[0], n_samples, loc.shape[-1]), device=
-            loc.device)
+        eps = torch.randn((loc.shape[0], n_samples, loc.shape[-1]), device=loc.device)
         z_0 = loc + scale * eps
         log_q_z_0 = self.log_q_z_0(loc, scale, z_0)
         z_T, log_q_z_flow = self.q_z_flow(z_0, context=h)
@@ -270,9 +251,7 @@ class NeuralNetwork(nn.Module):
 
     def __init__(self, input_size, output_size, hidden_size):
         super().__init__()
-        modules = [nn.Linear(input_size, hidden_size), nn.ReLU(), nn.Linear
-            (hidden_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size,
-            output_size)]
+        modules = [nn.Linear(input_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, output_size)]
         self.net = nn.Sequential(*modules)
 
     def forward(self, input):
@@ -286,8 +265,7 @@ class NormalLogProb(nn.Module):
 
     def forward(self, loc, scale, z):
         var = torch.pow(scale, 2)
-        return -0.5 * torch.log(2 * np.pi * var) - torch.pow(z - loc, 2) / (
-            2 * var)
+        return -0.5 * torch.log(2 * np.pi * var) - torch.pow(z - loc, 2) / (2 * var)
 
 
 class BernoulliLogProb(nn.Module):
@@ -304,41 +282,79 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BernoulliLogProb,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FlowSequential,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (InverseAutoregressiveFlow,
+     lambda: ([], {'num_input': 4, 'num_hidden': 4, 'num_context': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MADE,
+     lambda: ([], {'num_input': 4, 'num_output': 4, 'num_hidden': 4, 'num_context': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Model,
+     lambda: ([], {'latent_size': 4, 'data_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NeuralNetwork,
+     lambda: ([], {'input_size': 4, 'output_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NormalLogProb,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Reverse,
+     lambda: ([], {'num_input': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VariationalFlow,
+     lambda: ([], {'latent_size': 4, 'data_size': 4, 'flow_depth': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VariationalMeanField,
+     lambda: ([], {'latent_size': 4, 'data_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_altosaar_variational_autoencoder(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BernoulliLogProb(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(FlowSequential(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(InverseAutoregressiveFlow(*[], **{'num_input': 4, 'num_hidden': 4, 'num_context': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MADE(*[], **{'num_input': 4, 'num_output': 4, 'num_hidden': 4, 'num_context': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Model(*[], **{'latent_size': 4, 'data_size': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(NeuralNetwork(*[], **{'input_size': 4, 'output_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(NormalLogProb(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(Reverse(*[], **{'num_input': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(VariationalFlow(*[], **{'latent_size': 4, 'data_size': 4, 'flow_depth': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(VariationalMeanField(*[], **{'latent_size': 4, 'data_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 

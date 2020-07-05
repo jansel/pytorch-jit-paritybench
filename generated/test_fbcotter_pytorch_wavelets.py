@@ -42,8 +42,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -82,15 +83,13 @@ def _load_from_file(basename, varnames):
     try:
         mat = COEFF_CACHE[basename]
     except KeyError:
-        with resource_stream('pytorch_wavelets.dtcwt.data', basename + '.npz'
-            ) as f:
+        with resource_stream('pytorch_wavelets.dtcwt.data', basename + '.npz') as f:
             mat = dict(load(f))
         COEFF_CACHE[basename] = mat
     try:
         return tuple(mat[k] for k in varnames)
     except KeyError:
-        raise ValueError('Wavelet does not define ({0}) coefficients'.
-            format(', '.join(varnames)))
+        raise ValueError('Wavelet does not define ({0}) coefficients'.format(', '.join(varnames)))
 
 
 def level1(name, compact=False):
@@ -124,13 +123,11 @@ def level1(name, compact=False):
     """
     if compact:
         if name == 'near_sym_b_bp':
-            return _load_from_file(name, ('h0o', 'g0o', 'h1o', 'g1o', 'h2o',
-                'g2o'))
+            return _load_from_file(name, ('h0o', 'g0o', 'h1o', 'g1o', 'h2o', 'g2o'))
         else:
             return _load_from_file(name, ('h0o', 'g0o', 'h1o', 'g1o'))
     else:
-        return _load_from_file(name, ('h0a', 'h0b', 'g0a', 'g0b', 'h1a',
-            'h1b', 'g1a', 'g1b'))
+        return _load_from_file(name, ('h0a', 'h0b', 'g0a', 'g0b', 'h1a', 'h1b', 'g1a', 'g1b'))
 
 
 def pm(a, b):
@@ -143,8 +140,7 @@ class DTCWTForward2(nn.Module):
     """ DTCWT based on 4 DWTs. Still works, but the above implementation is
     faster """
 
-    def __init__(self, biort='farras', qshift='qshift_a', J=3, mode='symmetric'
-        ):
+    def __init__(self, biort='farras', qshift='qshift_a', J=3, mode='symmetric'):
         super().__init__()
         self.biort = biort
         self.qshift = qshift
@@ -191,10 +187,8 @@ class DTCWTForward2(nn.Module):
             deg135r, deg45i = pm(w[j][0][0][:, :, (2)], w[j][1][1][:, :, (2)])
             deg45r, deg135i = pm(w[j][0][1][:, :, (2)], w[j][1][0][:, :, (2)])
             w[j] = None
-            yhr = torch.stack((deg15r, deg45r, deg75r, deg105r, deg135r,
-                deg165r), dim=1)
-            yhi = torch.stack((deg15i, deg45i, deg75i, deg105i, deg135i,
-                deg165i), dim=1)
+            yhr = torch.stack((deg15r, deg45r, deg75r, deg105r, deg135r, deg165r), dim=1)
+            yhi = torch.stack((deg15i, deg45i, deg75i, deg105i, deg135i, deg165i), dim=1)
             yh[j] = torch.stack((yhr, yhi), dim=-1)
         return lows, yh
 
@@ -227,21 +221,14 @@ class DTCWTInverse2(nn.Module):
     def forward(self, x):
         yl, yh = x
         J = len(yh)
-        w = [[[[None for band in range(3)] for j in range(J)] for m in
-            range(2)] for n in range(2)]
+        w = [[[[None for band in range(3)] for j in range(J)] for m in range(2)] for n in range(2)]
         for j in range(J):
-            w[0][0][j][0], w[1][1][j][0] = pm(yh[j][:, (2), :, :, :, (0)],
-                yh[j][:, (3), :, :, :, (1)])
-            w[0][1][j][0], w[1][0][j][0] = pm(yh[j][:, (3), :, :, :, (0)],
-                yh[j][:, (2), :, :, :, (1)])
-            w[0][0][j][1], w[1][1][j][1] = pm(yh[j][:, (0), :, :, :, (0)],
-                yh[j][:, (5), :, :, :, (1)])
-            w[0][1][j][1], w[1][0][j][1] = pm(yh[j][:, (5), :, :, :, (0)],
-                yh[j][:, (0), :, :, :, (1)])
-            w[0][0][j][2], w[1][1][j][2] = pm(yh[j][:, (1), :, :, :, (0)],
-                yh[j][:, (4), :, :, :, (1)])
-            w[0][1][j][2], w[1][0][j][2] = pm(yh[j][:, (4), :, :, :, (0)],
-                yh[j][:, (1), :, :, :, (1)])
+            w[0][0][j][0], w[1][1][j][0] = pm(yh[j][:, (2), :, :, :, (0)], yh[j][:, (3), :, :, :, (1)])
+            w[0][1][j][0], w[1][0][j][0] = pm(yh[j][:, (3), :, :, :, (0)], yh[j][:, (2), :, :, :, (1)])
+            w[0][0][j][1], w[1][1][j][1] = pm(yh[j][:, (0), :, :, :, (0)], yh[j][:, (5), :, :, :, (1)])
+            w[0][1][j][1], w[1][0][j][1] = pm(yh[j][:, (5), :, :, :, (0)], yh[j][:, (0), :, :, :, (1)])
+            w[0][0][j][2], w[1][1][j][2] = pm(yh[j][:, (1), :, :, :, (0)], yh[j][:, (4), :, :, :, (1)])
+            w[0][1][j][2], w[1][0][j][2] = pm(yh[j][:, (4), :, :, :, (0)], yh[j][:, (1), :, :, :, (1)])
             w[0][0][j] = torch.stack(w[0][0][j], dim=2)
             w[0][1][j] = torch.stack(w[0][1][j], dim=2)
             w[1][0][j] = torch.stack(w[1][0][j], dim=2)
@@ -288,10 +275,8 @@ def highs_to_orientations(lh, hl, hh, o_dim):
     (deg15r, deg15i), (deg165r, deg165i) = q2c(lh)
     (deg45r, deg45i), (deg135r, deg135i) = q2c(hh)
     (deg75r, deg75i), (deg105r, deg105i) = q2c(hl)
-    reals = torch.stack([deg15r, deg45r, deg75r, deg105r, deg135r, deg165r],
-        dim=o_dim)
-    imags = torch.stack([deg15i, deg45i, deg75i, deg105i, deg135i, deg165i],
-        dim=o_dim)
+    reals = torch.stack([deg15r, deg45r, deg75r, deg105r, deg135r, deg165r], dim=o_dim)
+    imags = torch.stack([deg15i, deg45i, deg75i, deg105i, deg135i, deg165i], dim=o_dim)
     return reals, imags
 
 
@@ -489,8 +474,7 @@ def coldfilt(X, ha, hb, highpass=False, mode='symmetric'):
     batch, ch, r, c = X.shape
     r2 = r // 2
     if r % 4 != 0:
-        raise ValueError('No. of rows in X must be a multiple of 4\n' +
-            'X was {}'.format(X.shape))
+        raise ValueError('No. of rows in X must be a multiple of 4\n' + 'X was {}'.format(X.shape))
     if mode == 'symmetric':
         m = ha.shape[2]
         xe = symm_pad(r, m)
@@ -512,14 +496,12 @@ def rowdfilt(X, ha, hb, highpass=False, mode='symmetric'):
     batch, ch, r, c = X.shape
     c2 = c // 2
     if c % 4 != 0:
-        raise ValueError('No. of cols in X must be a multiple of 4\n' +
-            'X was {}'.format(X.shape))
+        raise ValueError('No. of cols in X must be a multiple of 4\n' + 'X was {}'.format(X.shape))
     if mode == 'symmetric':
         m = ha.shape[2]
         xe = symm_pad(c, m)
         X = torch.cat((X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
-        h = torch.cat((ha.reshape(1, 1, 1, m).repeat(ch, 1, 1, 1), hb.
-            reshape(1, 1, 1, m).repeat(ch, 1, 1, 1)), dim=0)
+        h = torch.cat((ha.reshape(1, 1, 1, m).repeat(ch, 1, 1, 1), hb.reshape(1, 1, 1, m).repeat(ch, 1, 1, 1)), dim=0)
         X = F.conv2d(X, h, stride=(1, 2), groups=ch * 2)
     else:
         raise NotImplementedError()
@@ -565,8 +547,7 @@ def colifilt(X, ha, hb, highpass=False, mode='symmetric'):
     hbe = hb[:, :, ::2]
     batch, ch, r, c = X.shape
     if r % 2 != 0:
-        raise ValueError('No. of rows in X must be a multiple of 2.\n' +
-            'X was {}'.format(X.shape))
+        raise ValueError('No. of rows in X must be a multiple of 2.\n' + 'X was {}'.format(X.shape))
     xe = symm_pad(r, m2)
     if m2 % 2 == 0:
         h1 = hae
@@ -574,27 +555,21 @@ def colifilt(X, ha, hb, highpass=False, mode='symmetric'):
         h3 = hao
         h4 = hbo
         if highpass:
-            X = torch.cat((X[:, :, (xe[1:-2:2])], X[:, :, (xe[:-2:2])], X[:,
-                :, (xe[3::2])], X[:, :, (xe[2::2])]), dim=1)
+            X = torch.cat((X[:, :, (xe[1:-2:2])], X[:, :, (xe[:-2:2])], X[:, :, (xe[3::2])], X[:, :, (xe[2::2])]), dim=1)
         else:
-            X = torch.cat((X[:, :, (xe[:-2:2])], X[:, :, (xe[1:-2:2])], X[:,
-                :, (xe[2::2])], X[:, :, (xe[3::2])]), dim=1)
+            X = torch.cat((X[:, :, (xe[:-2:2])], X[:, :, (xe[1:-2:2])], X[:, :, (xe[2::2])], X[:, :, (xe[3::2])]), dim=1)
     else:
         h1 = hao
         h2 = hbo
         h3 = hae
         h4 = hbe
         if highpass:
-            X = torch.cat((X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])], X[
-                :, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])]), dim=1)
+            X = torch.cat((X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])]), dim=1)
         else:
-            X = torch.cat((X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])], X[
-                :, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])]), dim=1)
-    h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.
-        repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0)
+            X = torch.cat((X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])], X[:, :, (xe[1:-1:2])], X[:, :, (xe[2:-1:2])]), dim=1)
+    h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0)
     X = F.conv2d(X, h, groups=4 * ch)
-    X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 
-        3 * ch:]], dim=3).view(batch, ch, r * 2, c)
+    X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 3 * ch:]], dim=3).view(batch, ch, r * 2, c)
     return X
 
 
@@ -609,8 +584,7 @@ def rowifilt(X, ha, hb, highpass=False, mode='symmetric'):
     hbe = hb[:, :, ::2]
     batch, ch, r, c = X.shape
     if c % 2 != 0:
-        raise ValueError('No. of cols in X must be a multiple of 2.\n' +
-            'X was {}'.format(X.shape))
+        raise ValueError('No. of cols in X must be a multiple of 2.\n' + 'X was {}'.format(X.shape))
     xe = symm_pad(c, m2)
     if m2 % 2 == 0:
         h1 = hae
@@ -618,56 +592,43 @@ def rowifilt(X, ha, hb, highpass=False, mode='symmetric'):
         h3 = hao
         h4 = hbo
         if highpass:
-            X = torch.cat((X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[:-2:2])
-                ], X[:, :, :, (xe[3::2])], X[:, :, :, (xe[2::2])]), dim=1)
+            X = torch.cat((X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[3::2])], X[:, :, :, (xe[2::2])]), dim=1)
         else:
-            X = torch.cat((X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[1:-2:2])
-                ], X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
+            X = torch.cat((X[:, :, :, (xe[:-2:2])], X[:, :, :, (xe[1:-2:2])], X[:, :, :, (xe[2::2])], X[:, :, :, (xe[3::2])]), dim=1)
     else:
         h1 = hao
         h2 = hbo
         h3 = hae
         h4 = hbe
         if highpass:
-            X = torch.cat((X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2]
-                )], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])]), dim=1)
+            X = torch.cat((X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])]), dim=1)
         else:
-            X = torch.cat((X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2]
-                )], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])]), dim=1)
-    h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.
-        repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0).reshape(4 * ch,
-        1, 1, m2)
+            X = torch.cat((X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])], X[:, :, :, (xe[1:-1:2])], X[:, :, :, (xe[2:-1:2])]), dim=1)
+    h = torch.cat((h1.repeat(ch, 1, 1, 1), h2.repeat(ch, 1, 1, 1), h3.repeat(ch, 1, 1, 1), h4.repeat(ch, 1, 1, 1)), dim=0).reshape(4 * ch, 1, 1, m2)
     X = F.conv2d(X, h, groups=4 * ch)
-    X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 
-        3 * ch:]], dim=4).view(batch, ch, r, c * 2)
+    X = torch.stack([X[:, :ch], X[:, ch:2 * ch], X[:, 2 * ch:3 * ch], X[:, 3 * ch:]], dim=4).view(batch, ch, r, c * 2)
     return X
 
 
-def inv_j2plus(ll, highr, highi, g0a, g1a, g0b, g1b, o_dim, h_dim, w_dim, mode
-    ):
+def inv_j2plus(ll, highr, highi, g0a, g1a, g0b, g1b, o_dim, h_dim, w_dim, mode):
     """ Level2+ inverse dtcwt.
 
     Have it as a separate function as can be used by the forward pass of the
     inverse transform and the backward pass of the forward transform.
     """
     if highr is None or highr.shape == torch.Size([]):
-        y = rowifilt(colifilt(ll, g0b, g0a, False, mode), g0b, g0a, False, mode
-            )
+        y = rowifilt(colifilt(ll, g0b, g0a, False, mode), g0b, g0a, False, mode)
     else:
         lh, hl, hh = orientations_to_highs(highr, highi, o_dim)
         if ll is None or ll.shape == torch.Size([]):
-            hi = colifilt(hh, g1b, g1a, True, mode) + colifilt(hl, g0b, g0a,
-                False, mode)
+            hi = colifilt(hh, g1b, g1a, True, mode) + colifilt(hl, g0b, g0a, False, mode)
             lo = colifilt(lh, g1b, g1a, True, mode)
             del lh, hh, hl
         else:
-            hi = colifilt(hh, g1b, g1a, True, mode) + colifilt(hl, g0b, g0a,
-                False, mode)
-            lo = colifilt(lh, g1b, g1a, True, mode) + colifilt(ll, g0b, g0a,
-                False, mode)
+            hi = colifilt(hh, g1b, g1a, True, mode) + colifilt(hl, g0b, g0a, False, mode)
+            lo = colifilt(lh, g1b, g1a, True, mode) + colifilt(ll, g0b, g0a, False, mode)
             del lh, hl, hh
-        y = rowifilt(hi, g1b, g1a, True, mode) + rowifilt(lo, g0b, g0a, 
-            False, mode)
+        y = rowifilt(hi, g1b, g1a, True, mode) + rowifilt(lo, g0b, g0a, False, mode)
     return y
 
 
@@ -681,8 +642,7 @@ class FWD_J2PLUS(Function):
         ctx.save_for_backward(h0a, h1a, h0b, h1b)
         ctx.dims = get_dimensions5(o_dim, ri_dim)
         o_dim, ri_dim = ctx.dims[0], ctx.dims[1]
-        ll, highr, highi = fwd_j2plus(x, h0a, h1a, h0b, h1b, skip_hps,
-            o_dim, mode)
+        ll, highr, highi = fwd_j2plus(x, h0a, h1a, h0b, h1b, skip_hps, o_dim, mode)
         if not skip_hps:
             highs = torch.stack((highr, highi), dim=ri_dim)
         else:
@@ -703,8 +663,7 @@ class FWD_J2PLUS(Function):
             else:
                 dhr = dl.new_zeros([])
                 dhi = dl.new_zeros([])
-            dx = inv_j2plus(dl, dhr, dhi, h0a, h1a, h0b, h1b, o_dim, h_dim,
-                w_dim, mode)
+            dx = inv_j2plus(dl, dhr, dhi, h0a, h1a, h0b, h1b, o_dim, h_dim, w_dim, mode)
         return dx, None, None, None, None, None, None, None, None
 
 
@@ -774,13 +733,10 @@ class DTCWTForward(nn.Module):
         ri_dim (int): which dimension to put the real and imaginary parts
     """
 
-    def __init__(self, biort='near_sym_a', qshift='qshift_a', J=3, skip_hps
-        =False, include_scale=False, o_dim=2, ri_dim=-1, mode='symmetric'):
+    def __init__(self, biort='near_sym_a', qshift='qshift_a', J=3, skip_hps=False, include_scale=False, o_dim=2, ri_dim=-1, mode='symmetric'):
         super().__init__()
         if o_dim == ri_dim:
-            raise ValueError(
-                'Orientations and real/imaginary parts must be in different dimensions.'
-                )
+            raise ValueError('Orientations and real/imaginary parts must be in different dimensions.')
         self.biort = biort
         self.qshift = qshift
         self.J = J
@@ -845,8 +801,7 @@ class DTCWTForward(nn.Module):
             x = torch.cat((x, x[:, :, -1:]), dim=2)
         if c % 2 != 0:
             x = torch.cat((x, x[:, :, :, -1:]), dim=3)
-        low, h = FWD_J1.apply(x, self.h0o, self.h1o, self.skip_hps[0], self
-            .o_dim, self.ri_dim, mode)
+        low, h = FWD_J1.apply(x, self.h0o, self.h1o, self.skip_hps[0], self.o_dim, self.ri_dim, mode)
         highs[0] = h
         if self.include_scale[0]:
             scales[0] = low
@@ -855,10 +810,8 @@ class DTCWTForward(nn.Module):
             if r % 4 != 0:
                 low = torch.cat((low[:, :, 0:1], low, low[:, :, -1:]), dim=2)
             if c % 4 != 0:
-                low = torch.cat((low[:, :, :, 0:1], low, low[:, :, :, -1:]),
-                    dim=3)
-            low, h = FWD_J2PLUS.apply(low, self.h0a, self.h1a, self.h0b,
-                self.h1b, self.skip_hps[j], self.o_dim, self.ri_dim, mode)
+                low = torch.cat((low[:, :, :, 0:1], low, low[:, :, :, -1:]), dim=3)
+            low, h = FWD_J2PLUS.apply(low, self.h0a, self.h1a, self.h0b, self.h1b, self.skip_hps[j], self.o_dim, self.ri_dim, mode)
             highs[j] = h
             if self.include_scale[j]:
                 scales[j] = low
@@ -919,8 +872,7 @@ class INV_J2PLUS(Function):
         else:
             highr = lows.new_zeros([])
             highi = lows.new_zeros([])
-        y = inv_j2plus(lows, highr, highi, g0a, g1a, g0b, g1b, o_dim, h_dim,
-            w_dim, mode)
+        y = inv_j2plus(lows, highr, highi, g0a, g1a, g0b, g1b, o_dim, h_dim, w_dim, mode)
         return y
 
     @staticmethod
@@ -935,12 +887,10 @@ class INV_J2PLUS(Function):
         if ctx.needs_input_grad[0] and not ctx.needs_input_grad[1]:
             dl, _, _ = fwd_j2plus(dy, g0a, g1a, g0b, g1b, True, o_dim, mode)
         elif ctx.needs_input_grad[1] and not ctx.needs_input_grad[0]:
-            _, dhr, dhi = fwd_j2plus(dy, g0a, g1a, g0b, g1b, False, o_dim, mode
-                )
+            _, dhr, dhi = fwd_j2plus(dy, g0a, g1a, g0b, g1b, False, o_dim, mode)
             dh = torch.stack((dhr, dhi), dim=ri_dim)
         elif ctx.needs_input_grad[0] and ctx.needs_input_grad[1]:
-            dl, dhr, dhi = fwd_j2plus(dy, g0a, g1a, g0b, g1b, False, o_dim,
-                mode)
+            dl, dhr, dhi = fwd_j2plus(dy, g0a, g1a, g0b, g1b, False, o_dim, mode)
             dh = torch.stack((dhr, dhi), dim=ri_dim)
         return dl, dh, None, None, None, None, None, None, None
 
@@ -983,8 +933,7 @@ class DTCWTInverse(nn.Module):
         ri_dim (int): which dimension to put th real and imaginary parts in
     """
 
-    def __init__(self, biort='near_sym_a', qshift='qshift_a', o_dim=2,
-        ri_dim=-1, mode='symmetric'):
+    def __init__(self, biort='near_sym_a', qshift='qshift_a', o_dim=2, ri_dim=-1, mode='symmetric'):
         super().__init__()
         self.biort = biort
         self.qshift = qshift
@@ -1042,20 +991,16 @@ class DTCWTInverse(nn.Module):
         _, _, h_dim, w_dim = get_dimensions6(self.o_dim, self.ri_dim)
         for j, s in zip(range(J - 1, 0, -1), highs[1:][::-1]):
             if s is not None and s.shape != torch.Size([]):
-                assert s.shape[self.o_dim
-                    ] == 6, 'Inverse transform must have input with 6 orientations'
-                assert len(s.shape
-                    ) == 6, 'Bandpass inputs must have 6 dimensions'
-                assert s.shape[self.ri_dim
-                    ] == 2, 'Inputs must be complex with real and imaginary parts in the ri dimension'
+                assert s.shape[self.o_dim] == 6, 'Inverse transform must have input with 6 orientations'
+                assert len(s.shape) == 6, 'Bandpass inputs must have 6 dimensions'
+                assert s.shape[self.ri_dim] == 2, 'Inputs must be complex with real and imaginary parts in the ri dimension'
                 r, c = low.shape[2:]
                 r1, c1 = s.shape[h_dim], s.shape[w_dim]
                 if r != r1 * 2:
                     low = low[:, :, 1:-1]
                 if c != c1 * 2:
                     low = low[:, :, :, 1:-1]
-            low = INV_J2PLUS.apply(low, s, self.g0a, self.g1a, self.g0b,
-                self.g1b, self.o_dim, self.ri_dim, mode)
+            low = INV_J2PLUS.apply(low, s, self.g0a, self.g1a, self.g0b, self.g1b, self.o_dim, self.ri_dim, mode)
         if highs[0] is not None and highs[0].shape != torch.Size([]):
             r, c = low.shape[2:]
             r1, c1 = highs[0].shape[h_dim], highs[0].shape[w_dim]
@@ -1063,8 +1008,7 @@ class DTCWTInverse(nn.Module):
                 low = low[:, :, 1:-1]
             if c != c1 * 2:
                 low = low[:, :, :, 1:-1]
-        low = INV_J1.apply(low, highs[0], self.g0o, self.g1o, self.o_dim,
-            self.ri_dim, mode)
+        low = INV_J1.apply(low, highs[0], self.g0o, self.g1o, self.o_dim, self.ri_dim, mode)
         return low
 
 
@@ -1096,8 +1040,7 @@ class SWTInverse(nn.Module):
             self.g0_row = nn.Parameter(filts[2], requires_grad=False)
             self.g1_row = nn.Parameter(filts[3], requires_grad=False)
         else:
-            filts = lowlevel.prep_filt_sfb2d_nonsep(g0_col, g1_col, g0_row,
-                g1_row)
+            filts = lowlevel.prep_filt_sfb2d_nonsep(g0_col, g1_col, g0_row, g1_row)
             self.h = nn.Parameter(filts, requires_grad=False)
         self.mode = mode
         self.separable = separable
@@ -1126,8 +1069,7 @@ class SWTInverse(nn.Module):
         ll = yl
         for h in yh[::-1]:
             if h is None:
-                h = torch.zeros(ll.shape[0], ll.shape[1], 3, ll.shape[-2],
-                    ll.shape[-1], device=ll.device)
+                h = torch.zeros(ll.shape[0], ll.shape[1], 3, ll.shape[-2], ll.shape[-1], device=ll.device)
             if ll.shape[-2] > h.shape[-2]:
                 ll = ll[(...), :-1, :]
             if ll.shape[-1] > h.shape[-1]:
@@ -1201,8 +1143,7 @@ class DWTForward(nn.Module):
         ll = x
         mode = lowlevel.mode_to_int(self.mode)
         for j in range(self.J):
-            ll, high = lowlevel.AFB2D.apply(ll, self.h0_col, self.h1_col,
-                self.h0_row, self.h1_row, mode)
+            ll, high = lowlevel.AFB2D.apply(ll, self.h0_col, self.h1_col, self.h0_row, self.h1_row, mode)
             yh.append(high)
         return ll, yh
 
@@ -1260,14 +1201,12 @@ class DWTInverse(nn.Module):
         mode = lowlevel.mode_to_int(self.mode)
         for h in yh[::-1]:
             if h is None:
-                h = torch.zeros(ll.shape[0], ll.shape[1], 3, ll.shape[-2],
-                    ll.shape[-1], device=ll.device)
+                h = torch.zeros(ll.shape[0], ll.shape[1], 3, ll.shape[-2], ll.shape[-1], device=ll.device)
             if ll.shape[-2] > h.shape[-2]:
                 ll = ll[(...), :-1, :]
             if ll.shape[-1] > h.shape[-1]:
                 ll = ll[(...), :-1]
-            ll = lowlevel.SFB2D.apply(ll, h, self.g0_col, self.g1_col, self
-                .g0_row, self.g1_row, mode)
+            ll = lowlevel.SFB2D.apply(ll, h, self.g0_col, self.g1_col, self.g0_row, self.g1_row, mode)
         return ll
 
 
@@ -1344,9 +1283,7 @@ class ScatLayerj1_f(torch.autograd.Function):
         ll, reals, imags = fwd_j1(x, h0o, h1o, False, 1, mode)
         ll = F.avg_pool2d(ll, 2)
         if combine_colour:
-            r = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + 
-                reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :,
-                (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            r = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
             r = r[:, :, (None)]
         else:
             r = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
@@ -1436,8 +1373,7 @@ def inv_j1_rot(ll, highr, highi, g0, g1, g2, o_dim, h_dim, w_dim, mode):
             hi = colfilter(hl, g0, mode)
             ba = colfilter(hh, g2, mode)
             del lh, hl, hh
-        y = rowfilter(hi, g1, mode) + rowfilter(lo, g0, mode) + rowfilter(ba,
-            g2, mode)
+        y = rowfilter(hi, g1, mode) + rowfilter(lo, g0, mode) + rowfilter(ba, g2, mode)
     return y
 
 
@@ -1457,9 +1393,7 @@ class ScatLayerj1_rot_f(torch.autograd.Function):
         ll, reals, imags = fwd_j1_rot(x, h0o, h1o, h2o, False, 1, mode)
         ll = F.avg_pool2d(ll, 2)
         if combine_colour:
-            r = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + 
-                reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :,
-                (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            r = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
             r = r[:, :, (None)]
         else:
             r = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
@@ -1515,8 +1449,7 @@ class ScatLayer(nn.Module):
             the magnitude highpass outputs.
     """
 
-    def __init__(self, biort='near_sym_a', mode='symmetric', magbias=0.01,
-        combine_colour=False):
+    def __init__(self, biort='near_sym_a', mode='symmetric', magbias=0.01, combine_colour=False):
         super().__init__()
         self.biort = biort
         self.mode_str = mode
@@ -1544,19 +1477,16 @@ class ScatLayer(nn.Module):
         if self.combine_colour:
             assert ch == 3
         if self.bandpass_diag:
-            Z = ScatLayerj1_rot_f.apply(x, self.h0o, self.h1o, self.h2o,
-                self.mode, self.magbias, self.combine_colour)
+            Z = ScatLayerj1_rot_f.apply(x, self.h0o, self.h1o, self.h2o, self.mode, self.magbias, self.combine_colour)
         else:
-            Z = ScatLayerj1_f.apply(x, self.h0o, self.h1o, self.mode, self.
-                magbias, self.combine_colour)
+            Z = ScatLayerj1_f.apply(x, self.h0o, self.h1o, self.mode, self.magbias, self.combine_colour)
         if not self.combine_colour:
             b, _, c, h, w = Z.shape
             Z = Z.view(b, 7 * c, h, w)
         return Z
 
     def extra_repr(self):
-        return "biort='{}', mode='{}', magbias={}".format(self.biort, self.
-            mode_str, self.magbias)
+        return "biort='{}', mode='{}', magbias={}".format(self.biort, self.mode_str, self.magbias)
 
 
 class ScatLayerj2_f(torch.autograd.Function):
@@ -1564,8 +1494,7 @@ class ScatLayerj2_f(torch.autograd.Function):
     layer with the DTCWT biorthogonal filters. """
 
     @staticmethod
-    def forward(ctx, x, h0o, h1o, h0a, h0b, h1a, h1b, mode, bias,
-        combine_colour):
+    def forward(ctx, x, h0o, h1o, h0a, h0b, h1a, h1b, mode, bias, combine_colour):
         ctx.in_shape = x.shape
         batch, ch, r, c = x.shape
         assert r % 8 == c % 8 == 0
@@ -1574,19 +1503,14 @@ class ScatLayerj2_f(torch.autograd.Function):
         ctx.combine_colour = combine_colour
         s0, reals, imags = fwd_j1(x, h0o, h1o, False, 1, mode)
         if combine_colour:
-            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
-                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
-                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
             s1_j1 = s1_j1[:, :, (None)]
             if x.requires_grad:
                 dsdx1 = reals / s1_j1
                 dsdy1 = imags / s1_j1
             s1_j1 = s1_j1 - bias
-            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1,
-                mode)
-            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
-                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
-                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1, mode)
+            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
             s1_j2 = s1_j2[:, :, (None)]
             if x.requires_grad:
                 dsdx2 = reals / s1_j2
@@ -1604,12 +1528,10 @@ class ScatLayerj2_f(torch.autograd.Function):
             s2_j1 = s2_j1 - bias
             s1_j1 = F.avg_pool2d(s1_j1, 2)
             if x.requires_grad:
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1,
-                    dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
             else:
                 z = x.new_zeros(1)
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z,
-                    z, z, z)
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z, z, z, z)
             del reals, imags
             Z = torch.cat((s0, s1_j1, s1_j2[:, :, (0)], s2_j1), dim=1)
         else:
@@ -1618,8 +1540,7 @@ class ScatLayerj2_f(torch.autograd.Function):
                 dsdx1 = reals / s1_j1
                 dsdy1 = imags / s1_j1
             s1_j1 = s1_j1 - bias
-            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1,
-                mode)
+            s0, reals, imags = fwd_j2plus(s0, h0a, h1a, h0b, h1b, False, 1, mode)
             s1_j2 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
                 dsdx2 = reals / s1_j2
@@ -1639,12 +1560,10 @@ class ScatLayerj2_f(torch.autograd.Function):
             s1_j1 = F.avg_pool2d(s1_j1, 2)
             s1_j1 = s1_j1.view(p[0], 6, p[2], p[3] // 2, p[4] // 2)
             if x.requires_grad:
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1,
-                    dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
             else:
                 z = x.new_zeros(1)
-                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z,
-                    z, z, z)
+                ctx.save_for_backward(h0o, h1o, h0a, h0b, h1a, h1b, z, z, z, z, z, z)
             del reals, imags
             Z = torch.cat((s0[:, (None)], s1_j1, s1_j2, s2_j1), dim=1)
         return Z
@@ -1657,8 +1576,7 @@ class ScatLayerj2_f(torch.autograd.Function):
             o_dim = 1
             h_dim = 3
             w_dim = 4
-            (h0o, h1o, h0a, h0b, h1a, h1b, dsdx1, dsdy1, dsdx2, dsdy2,
-                dsdx2_1, dsdy2_1) = ctx.saved_tensors
+            h0o, h1o, h0a, h0b, h1a, h1b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1 = ctx.saved_tensors
             h0o_t = h0o
             h1o_t = h1o
             h0a_t = h0b
@@ -1666,52 +1584,40 @@ class ScatLayerj2_f(torch.autograd.Function):
             h1a_t = h1b
             h1b_t = h1a
             if ctx.combine_colour:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15
-                    ], dZ[:, 15:]
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15], dZ[:, 15:]
                 ds1_j2 = ds1_j2[:, :, (None)]
-                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
-                    ='nearest')
+                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
                 q = ds2_j1.shape
                 ds2_j1 = ds2_j1.view(q[0], 6, 6, q[2], q[3])
                 reals = ds2_j1 * dsdx2_1
                 imags = ds2_j1 * dsdy2_1
-                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim,
-                    h_dim, w_dim, mode)
+                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim, h_dim, w_dim, mode)
                 ds1_j1 = ds1_j1[:, :, (None)]
-                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
-                    )
+                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest')
                 reals = ds1_j2 * dsdx2
                 imags = ds1_j2 * dsdy2
-                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
-                    h1b_t, o_dim, h_dim, w_dim, mode)
+                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t, h1b_t, o_dim, h_dim, w_dim, mode)
                 reals = ds1_j1 * dsdx1
                 imags = ds1_j1 * dsdy1
-                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim,
-                    w_dim, mode)
+                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim, w_dim, mode)
             else:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:,
-                    7:13], dZ[:, 13:]
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:, 7:13], dZ[:, 13:]
                 p = ds1_j1.shape
                 ds1_j1 = ds1_j1.view(p[0], p[2] * 6, p[3], p[4])
-                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
-                    ='nearest')
+                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
                 q = ds2_j1.shape
                 ds2_j1 = ds2_j1.view(q[0], 6, q[2] * 6, q[3], q[4])
                 reals = ds2_j1 * dsdx2_1
                 imags = ds2_j1 * dsdy2_1
-                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim,
-                    h_dim, w_dim, mode)
+                ds1_j1 = inv_j1(ds1_j1, reals, imags, h0o_t, h1o_t, o_dim, h_dim, w_dim, mode)
                 ds1_j1 = ds1_j1.view(p[0], 6, p[2], p[3] * 2, p[4] * 2)
-                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
-                    )
+                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest')
                 reals = ds1_j2 * dsdx2
                 imags = ds1_j2 * dsdy2
-                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
-                    h1b_t, o_dim, h_dim, w_dim, mode)
+                ds0 = inv_j2plus(ds0, reals, imags, h0a_t, h1a_t, h0b_t, h1b_t, o_dim, h_dim, w_dim, mode)
                 reals = ds1_j1 * dsdx1
                 imags = ds1_j1 * dsdy1
-                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim,
-                    w_dim, mode)
+                dX = inv_j1(ds0, reals, imags, h0o_t, h1o_t, o_dim, h_dim, w_dim, mode)
         return (dX,) + (None,) * 9
 
 
@@ -1740,16 +1646,14 @@ def fwd_j2plus_rot(x, h0a, h1a, h0b, h1b, h2a, h2b, skip_hps, o_dim, mode):
     return ll, highr, highi
 
 
-def inv_j2plus_rot(ll, highr, highi, g0a, g1a, g0b, g1b, g2a, g2b, o_dim,
-    h_dim, w_dim, mode):
+def inv_j2plus_rot(ll, highr, highi, g0a, g1a, g0b, g1b, g2a, g2b, o_dim, h_dim, w_dim, mode):
     """ Level2+ inverse dtcwt.
 
     Have it as a separate function as can be used by the forward pass of the
     inverse transform and the backward pass of the forward transform.
     """
     if highr is None or highr.shape == torch.Size([]):
-        y = rowifilt(colifilt(ll, g0b, g0a, False, mode), g0b, g0a, False, mode
-            )
+        y = rowifilt(colifilt(ll, g0b, g0a, False, mode), g0b, g0a, False, mode)
     else:
         lh, hl, hh = orientations_to_highs(highr, highi, o_dim)
         if ll is None or ll.shape == torch.Size([]):
@@ -1758,13 +1662,11 @@ def inv_j2plus_rot(ll, highr, highi, g0a, g1a, g0b, g1b, g2a, g2b, o_dim,
             ba = colifilt(hh, g2b, g2a, True, mode)
             del lh, hh, hl
         else:
-            lo = colifilt(lh, g1b, g1a, True, mode) + colifilt(ll, g0b, g0a,
-                False, mode)
+            lo = colifilt(lh, g1b, g1a, True, mode) + colifilt(ll, g0b, g0a, False, mode)
             hi = colifilt(hl, g0b, g0a, False, mode)
             ba = colifilt(hh, g2b, g2a, True, mode)
             del lh, hl, hh
-        y = rowifilt(hi, g1b, g1a, True, mode) + rowifilt(lo, g0b, g0a, 
-            False, mode) + rowifilt(ba, g2b, g2a, True, mode)
+        y = rowifilt(hi, g1b, g1a, True, mode) + rowifilt(lo, g0b, g0a, False, mode) + rowifilt(ba, g2b, g2a, True, mode)
     return y
 
 
@@ -1773,8 +1675,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
     layer with the DTCWT bandpass biorthogonal and qshift filters . """
 
     @staticmethod
-    def forward(ctx, x, h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, mode,
-        bias, combine_colour):
+    def forward(ctx, x, h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, mode, bias, combine_colour):
         ctx.in_shape = x.shape
         batch, ch, r, c = x.shape
         assert r % 8 == c % 8 == 0
@@ -1783,19 +1684,14 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
         ctx.combine_colour = combine_colour
         s0, reals, imags = fwd_j1_rot(x, h0o, h1o, h2o, False, 1, mode)
         if combine_colour:
-            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
-                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
-                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            s1_j1 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
             s1_j1 = s1_j1[:, :, (None)]
             if x.requires_grad:
                 dsdx1 = reals / s1_j1
                 dsdy1 = imags / s1_j1
             s1_j1 = s1_j1 - bias
-            s0, reals, imags = fwd_j2plus_rot(s0, h0a, h1a, h0b, h1b, h2a,
-                h2b, False, 1, mode)
-            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 
-                2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:,
-                :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
+            s0, reals, imags = fwd_j2plus_rot(s0, h0a, h1a, h0b, h1b, h2a, h2b, False, 1, mode)
+            s1_j2 = torch.sqrt(reals[:, :, (0)] ** 2 + imags[:, :, (0)] ** 2 + reals[:, :, (1)] ** 2 + imags[:, :, (1)] ** 2 + reals[:, :, (2)] ** 2 + imags[:, :, (2)] ** 2 + bias ** 2)
             s1_j2 = s1_j2[:, :, (None)]
             if x.requires_grad:
                 dsdx2 = reals / s1_j2
@@ -1803,8 +1699,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             s1_j2 = s1_j2 - bias
             s0 = F.avg_pool2d(s0, 2)
             s1_j1 = s1_j1[:, :, (0)]
-            s1_j1, reals, imags = fwd_j1_rot(s1_j1, h0o, h1o, h2o, False, 1,
-                mode)
+            s1_j1, reals, imags = fwd_j1_rot(s1_j1, h0o, h1o, h2o, False, 1, mode)
             s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
                 dsdx2_1 = reals / s2_j1
@@ -1814,12 +1709,10 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             s2_j1 = s2_j1 - bias
             s1_j1 = F.avg_pool2d(s1_j1, 2)
             if x.requires_grad:
-                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b,
-                    h2a, h2b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
+                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
             else:
                 z = x.new_zeros(1)
-                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b,
-                    h2a, h2b, z, z, z, z, z, z)
+                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, z, z, z, z, z, z)
             del reals, imags
             Z = torch.cat((s0, s1_j1, s1_j2[:, :, (0)], s2_j1), dim=1)
         else:
@@ -1828,8 +1721,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
                 dsdx1 = reals / s1_j1
                 dsdy1 = imags / s1_j1
             s1_j1 = s1_j1 - bias
-            s0, reals, imags = fwd_j2plus_rot(s0, h0a, h1a, h0b, h1b, h2a,
-                h2b, False, 1, mode)
+            s0, reals, imags = fwd_j2plus_rot(s0, h0a, h1a, h0b, h1b, h2a, h2b, False, 1, mode)
             s1_j2 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
                 dsdx2 = reals / s1_j2
@@ -1838,8 +1730,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             s0 = F.avg_pool2d(s0, 2)
             p = s1_j1.shape
             s1_j1 = s1_j1.view(p[0], 6 * p[2], p[3], p[4])
-            s1_j1, reals, imags = fwd_j1_rot(s1_j1, h0o, h1o, h2o, False, 1,
-                mode)
+            s1_j1, reals, imags = fwd_j1_rot(s1_j1, h0o, h1o, h2o, False, 1, mode)
             s2_j1 = torch.sqrt(reals ** 2 + imags ** 2 + bias ** 2)
             if x.requires_grad:
                 dsdx2_1 = reals / s2_j1
@@ -1850,12 +1741,10 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             s1_j1 = F.avg_pool2d(s1_j1, 2)
             s1_j1 = s1_j1.view(p[0], 6, p[2], p[3] // 2, p[4] // 2)
             if x.requires_grad:
-                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b,
-                    h2a, h2b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
+                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1)
             else:
                 z = x.new_zeros(1)
-                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b,
-                    h2a, h2b, z, z, z, z, z, z)
+                ctx.save_for_backward(h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, z, z, z, z, z, z)
             del reals, imags
             Z = torch.cat((s0[:, (None)], s1_j1, s1_j2, s2_j1), dim=1)
         return Z
@@ -1868,8 +1757,7 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             o_dim = 1
             h_dim = 3
             w_dim = 4
-            (h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, dsdx1, dsdy1,
-                dsdx2, dsdy2, dsdx2_1, dsdy2_1) = ctx.saved_tensors
+            h0o, h1o, h2o, h0a, h0b, h1a, h1b, h2a, h2b, dsdx1, dsdy1, dsdx2, dsdy2, dsdx2_1, dsdy2_1 = ctx.saved_tensors
             h0o_t = h0o
             h1o_t = h1o
             h2o_t = h2o
@@ -1880,52 +1768,40 @@ class ScatLayerj2_rot_f(torch.autograd.Function):
             h2a_t = h2b
             h2b_t = h2a
             if ctx.combine_colour:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15
-                    ], dZ[:, 15:]
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, :3], dZ[:, 3:9], dZ[:, 9:15], dZ[:, 15:]
                 ds1_j2 = ds1_j2[:, :, (None)]
-                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
-                    ='nearest')
+                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
                 q = ds2_j1.shape
                 ds2_j1 = ds2_j1.view(q[0], 6, 6, q[2], q[3])
                 reals = ds2_j1 * dsdx2_1
                 imags = ds2_j1 * dsdy2_1
-                ds1_j1 = inv_j1_rot(ds1_j1, reals, imags, h0o_t, h1o_t,
-                    h2o_t, o_dim, h_dim, w_dim, mode)
+                ds1_j1 = inv_j1_rot(ds1_j1, reals, imags, h0o_t, h1o_t, h2o_t, o_dim, h_dim, w_dim, mode)
                 ds1_j1 = ds1_j1[:, :, (None)]
-                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
-                    )
+                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest')
                 reals = ds1_j2 * dsdx2
                 imags = ds1_j2 * dsdy2
-                ds0 = inv_j2plus_rot(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
-                    h1b_t, h2a_t, h2b_t, o_dim, h_dim, w_dim, mode)
+                ds0 = inv_j2plus_rot(ds0, reals, imags, h0a_t, h1a_t, h0b_t, h1b_t, h2a_t, h2b_t, o_dim, h_dim, w_dim, mode)
                 reals = ds1_j1 * dsdx1
                 imags = ds1_j1 * dsdy1
-                dX = inv_j1_rot(ds0, reals, imags, h0o_t, h1o_t, h2o_t,
-                    o_dim, h_dim, w_dim, mode)
+                dX = inv_j1_rot(ds0, reals, imags, h0o_t, h1o_t, h2o_t, o_dim, h_dim, w_dim, mode)
             else:
-                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:,
-                    7:13], dZ[:, 13:]
+                ds0, ds1_j1, ds1_j2, ds2_j1 = dZ[:, (0)], dZ[:, 1:7], dZ[:, 7:13], dZ[:, 13:]
                 p = ds1_j1.shape
                 ds1_j1 = ds1_j1.view(p[0], p[2] * 6, p[3], p[4])
-                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode
-                    ='nearest')
+                ds1_j1 = 1 / 4 * F.interpolate(ds1_j1, scale_factor=2, mode='nearest')
                 q = ds2_j1.shape
                 ds2_j1 = ds2_j1.view(q[0], 6, q[2] * 6, q[3], q[4])
                 reals = ds2_j1 * dsdx2_1
                 imags = ds2_j1 * dsdy2_1
-                ds1_j1 = inv_j1_rot(ds1_j1, reals, imags, h0o_t, h1o_t,
-                    h2o_t, o_dim, h_dim, w_dim, mode)
+                ds1_j1 = inv_j1_rot(ds1_j1, reals, imags, h0o_t, h1o_t, h2o_t, o_dim, h_dim, w_dim, mode)
                 ds1_j1 = ds1_j1.view(p[0], 6, p[2], p[3] * 2, p[4] * 2)
-                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest'
-                    )
+                ds0 = 1 / 4 * F.interpolate(ds0, scale_factor=2, mode='nearest')
                 reals = ds1_j2 * dsdx2
                 imags = ds1_j2 * dsdy2
-                ds0 = inv_j2plus_rot(ds0, reals, imags, h0a_t, h1a_t, h0b_t,
-                    h1b_t, h2a_t, h2b_t, o_dim, h_dim, w_dim, mode)
+                ds0 = inv_j2plus_rot(ds0, reals, imags, h0a_t, h1a_t, h0b_t, h1b_t, h2a_t, h2b_t, o_dim, h_dim, w_dim, mode)
                 reals = ds1_j1 * dsdx1
                 imags = ds1_j1 * dsdy1
-                dX = inv_j1_rot(ds0, reals, imags, h0o_t, h1o_t, h2o_t,
-                    o_dim, h_dim, w_dim, mode)
+                dX = inv_j1_rot(ds0, reals, imags, h0o_t, h1o_t, h2o_t, o_dim, h_dim, w_dim, mode)
         return (dX,) + (None,) * 12
 
 
@@ -1947,8 +1823,7 @@ class ScatLayerj2(nn.Module):
             the magnitude highpass outputs.
     """
 
-    def __init__(self, biort='near_sym_a', qshift='qshift_a', mode=
-        'symmetric', magbias=0.01, combine_colour=False):
+    def __init__(self, biort='near_sym_a', qshift='qshift_a', mode='symmetric', magbias=0.01, combine_colour=False):
         super().__init__()
         self.biort = biort
         self.qshift = biort
@@ -1963,8 +1838,7 @@ class ScatLayerj2(nn.Module):
             self.h0o = torch.nn.Parameter(prep_filt(h0o, 1), False)
             self.h1o = torch.nn.Parameter(prep_filt(h1o, 1), False)
             self.h2o = torch.nn.Parameter(prep_filt(h2o, 1), False)
-            h0a, h0b, _, _, h1a, h1b, _, _, h2a, h2b, _, _ = _qshift(
-                'qshift_b_bp')
+            h0a, h0b, _, _, h1a, h1b, _, _, h2a, h2b, _, _ = _qshift('qshift_b_bp')
             self.h0a = torch.nn.Parameter(prep_filt(h0a, 1), False)
             self.h0b = torch.nn.Parameter(prep_filt(h0b, 1), False)
             self.h1a = torch.nn.Parameter(prep_filt(h1a, 1), False)
@@ -1988,33 +1862,26 @@ class ScatLayerj2(nn.Module):
         if rem != 0:
             rows_after = (9 - rem) // 2
             rows_before = (8 - rem) // 2
-            x = torch.cat((x[:, :, :rows_before], x, x[:, :, -rows_after:]),
-                dim=2)
+            x = torch.cat((x[:, :, :rows_before], x, x[:, :, -rows_after:]), dim=2)
         rem = c % 8
         if rem != 0:
             cols_after = (9 - rem) // 2
             cols_before = (8 - rem) // 2
-            x = torch.cat((x[:, :, :, :cols_before], x, x[:, :, :, -
-                cols_after:]), dim=3)
+            x = torch.cat((x[:, :, :, :cols_before], x, x[:, :, :, -cols_after:]), dim=3)
         if self.combine_colour:
             assert ch == 3
         if self.bandpass_diag:
             pass
-            Z = ScatLayerj2_rot_f.apply(x, self.h0o, self.h1o, self.h2o,
-                self.h0a, self.h0b, self.h1a, self.h1b, self.h2a, self.h2b,
-                self.mode, self.magbias, self.combine_colour)
+            Z = ScatLayerj2_rot_f.apply(x, self.h0o, self.h1o, self.h2o, self.h0a, self.h0b, self.h1a, self.h1b, self.h2a, self.h2b, self.mode, self.magbias, self.combine_colour)
         else:
-            Z = ScatLayerj2_f.apply(x, self.h0o, self.h1o, self.h0a, self.
-                h0b, self.h1a, self.h1b, self.mode, self.magbias, self.
-                combine_colour)
+            Z = ScatLayerj2_f.apply(x, self.h0o, self.h1o, self.h0a, self.h0b, self.h1a, self.h1b, self.mode, self.magbias, self.combine_colour)
         if not self.combine_colour:
             b, _, c, h, w = Z.shape
             Z = Z.view(b, 49 * c, h, w)
         return Z
 
     def extra_repr(self):
-        return "biort='{}', mode='{}', magbias={}".format(self.biort, self.
-            mode_str, self.magbias)
+        return "biort='{}', mode='{}', magbias={}".format(self.biort, self.mode_str, self.magbias)
 
 
 class Net(nn.Module):
@@ -2031,10 +1898,3 @@ class Net(nn.Module):
         y = self.ifm(coeffs)
         return y
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_fbcotter_pytorch_wavelets(_paritybench_base):
-    pass

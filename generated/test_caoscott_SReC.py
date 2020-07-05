@@ -26,8 +26,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -121,8 +122,7 @@ def get_act(act: str, n_feats: int=0) ->nn.Module:
 class ResBlock(nn.Module):
     """ Implementation for ResNet block. """
 
-    def __init__(self, n_feats: int, kernel_size: int, act: str=
-        'leaky_relu', atrous: int=1, bn: bool=False) ->None:
+    def __init__(self, n_feats: int, kernel_size: int, act: str='leaky_relu', atrous: int=1, bn: bool=False) ->None:
         """ param n_feats: Channel size.
             param kernel_size: kernel size.
             param act: string of activation to use.
@@ -134,11 +134,9 @@ class ResBlock(nn.Module):
         _repr = []
         for i in range(2):
             atrous_rate = 1 if i == 0 else atrous
-            conv_filter = util.conv(n_feats, n_feats, kernel_size, rate=
-                atrous_rate, bias=True)
+            conv_filter = util.conv(n_feats, n_feats, kernel_size, rate=atrous_rate, bias=True)
             m.append(conv_filter)
-            _repr.append(f'Conv({n_feats}x{kernel_size}' + (
-                f';A*{atrous_rate})' if atrous_rate != 1 else '') + ')')
+            _repr.append(f'Conv({n_feats}x{kernel_size}' + (f';A*{atrous_rate})' if atrous_rate != 1 else '') + ')')
             if bn:
                 m.append(nn.BatchNorm2d(n_feats))
                 _repr.append(f'BN({n_feats})')
@@ -159,8 +157,7 @@ class ResBlock(nn.Module):
 
 class Upsampler(nn.Sequential):
 
-    def __init__(self, scale: int, n_feats: int, bn: bool=False, act: str=
-        'none', bias: bool=True) ->None:
+    def __init__(self, scale: int, n_feats: int, bn: bool=False, act: str='none', bias: bool=True) ->None:
         m: List[nn.Module] = []
         if scale & scale - 1 == 0:
             for _ in range(int(math.log(scale, 2))):
@@ -182,13 +179,10 @@ class Upsampler(nn.Sequential):
 
 class EDSRDec(nn.Module):
 
-    def __init__(self, in_ch: int, out_ch: int, resblocks: int=8,
-        kernel_size: int=3, tail: str='none', channel_attention: bool=False
-        ) ->None:
+    def __init__(self, in_ch: int, out_ch: int, resblocks: int=8, kernel_size: int=3, tail: str='none', channel_attention: bool=False) ->None:
         super().__init__()
         self.head = util.conv(in_ch, out_ch, 1)
-        m_body: List[nn.Module] = [ResBlock(out_ch, kernel_size) for _ in
-            range(resblocks)]
+        m_body: List[nn.Module] = [ResBlock(out_ch, kernel_size) for _ in range(resblocks)]
         m_body.append(util.conv(out_ch, out_ch, kernel_size))
         self.body = nn.Sequential(*m_body)
         self.tail: nn.Module
@@ -201,8 +195,7 @@ class EDSRDec(nn.Module):
         else:
             raise NotImplementedError(f'{tail} is not implemented.')
 
-    def forward(self, x: torch.Tensor, features_to_fuse: torch.Tensor=0.0
-        ) ->torch.Tensor:
+    def forward(self, x: torch.Tensor, features_to_fuse: torch.Tensor=0.0) ->torch.Tensor:
         """
         :param x: N C H W
         :return: N C" H W
@@ -258,9 +251,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
         self.bin_width = (x_max - x_min) / (L - 1)
         self.x_lower_bound = x_min + 0.001
         self.x_upper_bound = x_max - 0.001
-        self._extra_repr = ('DMLL: x={}, L={}, coeffs={}, P={}, bin_width={}'
-            .format((self.x_min, self.x_max), self.L, self.use_coeffs, self
-            ._num_params, self.bin_width))
+        self._extra_repr = 'DMLL: x={}, L={}, coeffs={}, P={}, bin_width={}'.format((self.x_min, self.x_max), self.L, self.use_coeffs, self._num_params, self.bin_width)
 
     def extra_repr(self):
         return self._extra_repr
@@ -278,8 +269,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
 
     def cdf_step_non_shared(self, l, targets, c_cur, C, x_c=None) ->CDFOut:
         assert c_cur < C
-        logit_probs_c, means_c, log_scales_c, K = self._extract_non_shared_c(
-            c_cur, C, l, x_c)
+        logit_probs_c, means_c, log_scales_c, K = self._extract_non_shared_c(c_cur, C, l, x_c)
         logit_probs_c_softmax = F.softmax(logit_probs_c, dim=1)
         return CDFOut(logit_probs_c_softmax, means_c, log_scales_c, K, targets)
 
@@ -288,9 +278,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
 
     def log_cdf(self, lo, hi, means, log_scales):
         assert torch.all(lo <= hi), f'{lo[lo > hi]} > {hi[lo > hi]}'
-        assert lo.min() >= self.x_min and hi.max(
-            ) <= self.x_max, '{},{} not in {},{}'.format(lo.min(), hi.max(),
-            self.x_min, self.x_max)
+        assert lo.min() >= self.x_min and hi.max() <= self.x_max, '{},{} not in {},{}'.format(lo.min(), hi.max(), self.x_min, self.x_max)
         centered_lo = lo - means
         centered_hi = hi - means
         inv_stdv = torch.exp(-log_scales)
@@ -302,8 +290,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
         cdf_hi = hi_cond * torch.sigmoid(normalized_hi) + (1 - hi_cond)
         cdf_delta = cdf_hi - cdf_lo
         log_cdf_delta = torch.log(torch.clamp(cdf_delta, min=1e-12))
-        assert not torch.any(log_cdf_delta > 1e-06
-            ), f'{log_cdf_delta[log_cdf_delta > 1e-06]}'
+        assert not torch.any(log_cdf_delta > 1e-06), f'{log_cdf_delta[log_cdf_delta > 1e-06]}'
         return log_cdf_delta
 
     def forward(self, x: torch.Tensor, l: torch.Tensor) ->torch.Tensor:
@@ -312,8 +299,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
         :param l: predicted distribution, i.e., NKpHW, see above
         :return: log-likelihood, as NHW if shared, NCHW if non_shared pis
         """
-        assert x.min() >= self.x_min and x.max(
-            ) <= self.x_max, f'{x.min()},{x.max()} not in {self.x_min},{self.x_max}'
+        assert x.min() >= self.x_min and x.max() <= self.x_max, f'{x.min()},{x.max()} not in {self.x_min},{self.x_max}'
         x, logit_pis, means, log_scales, _ = self._extract_non_shared(x, l)
         log_probs = self.log_cdf(x, x, means, log_scales)
         log_weights = F.log_softmax(logit_pis, dim=2)
@@ -346,17 +332,12 @@ class DiscretizedMixLogisticLoss(nn.Module):
             coeffs_g_r = coeffs[:, (0), (...)]
             coeffs_b_r = coeffs[:, (1), (...)]
             coeffs_b_g = coeffs[:, (2), (...)]
-            means = torch.stack((means[:, (0), (...)], means[:, (1), (...)] +
-                coeffs_g_r * x[:, (0), (...)], means[:, (2), (...)] + 
-                coeffs_b_r * x[:, (0), (...)] + coeffs_b_g * x[:, (1), (...
-                )]), dim=1)
+            means = torch.stack((means[:, (0), (...)], means[:, (1), (...)] + coeffs_g_r * x[:, (0), (...)], means[:, (2), (...)] + coeffs_b_r * x[:, (0), (...)] + coeffs_b_g * x[:, (1), (...)]), dim=1)
         means = torch.clamp(means, min=self.x_min, max=self.x_max)
         assert means.shape == (N, C, K, H, W), (means.shape, (N, C, K, H, W))
         return x, logit_probs, means, log_scales, K
 
-    def _extract_non_shared_c(self, c: int, C: int, l: torch.Tensor, x:
-        Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor,
-        torch.Tensor, int]:
+    def _extract_non_shared_c(self, c: int, C: int, l: torch.Tensor, x: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         """
         Same as _extract_non_shared but only for c-th channel, used to get CDF
         """
@@ -371,17 +352,13 @@ class DiscretizedMixLogisticLoss(nn.Module):
             unscaled_coeffs = l[:, (3), (...)]
             if c == 1:
                 assert x is not None
-                coeffs_g_r = self._nonshared_coeffs_act(unscaled_coeffs[:,
-                    (0), (...)])
+                coeffs_g_r = self._nonshared_coeffs_act(unscaled_coeffs[:, (0), (...)])
                 means_c += coeffs_g_r * x[:, (0), (...)]
             elif c == 2:
                 assert x is not None
-                coeffs_b_r = self._nonshared_coeffs_act(unscaled_coeffs[:,
-                    (1), (...)])
-                coeffs_b_g = self._nonshared_coeffs_act(unscaled_coeffs[:,
-                    (2), (...)])
-                means_c += coeffs_b_r * x[:, (0), (...)] + coeffs_b_g * x[:,
-                    (1), (...)]
+                coeffs_b_r = self._nonshared_coeffs_act(unscaled_coeffs[:, (1), (...)])
+                coeffs_b_g = self._nonshared_coeffs_act(unscaled_coeffs[:, (2), (...)])
+                means_c += coeffs_b_r * x[:, (0), (...)] + coeffs_b_g * x[:, (1), (...)]
         return logit_probs_c, means_c, log_scales_c, K
 
     def _non_shared_sample(self, l, C):
@@ -395,8 +372,7 @@ class DiscretizedMixLogisticLoss(nn.Module):
         assert sel.shape == (N, C, H, W), (sel.shape, (N, C, H, W))
         sel = sel.unsqueeze(2)
         means = torch.gather(l[:, (1), (...)], 2, sel).squeeze(2)
-        log_scales = torch.clamp(torch.gather(l[:, (2), (...)], 2, sel).
-            squeeze(2), min=_LOG_SCALES_MIN)
+        log_scales = torch.clamp(torch.gather(l[:, (2), (...)], 2, sel).squeeze(2), min=_LOG_SCALES_MIN)
         u = torch.zeros_like(means).uniform_(1e-05, 1.0 - 1e-05)
         x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1.0 - u))
         if self.use_coeffs:
@@ -406,12 +382,9 @@ class DiscretizedMixLogisticLoss(nn.Module):
                 return torch.clamp(x_, 0, 255.0)
             coeffs = torch.sigmoid(l[:, (3), (...)])
             sel_g, sel_b = sel[:, (1), (...)], sel[:, (2), (...)]
-            coeffs_g_r = torch.gather(coeffs[:, (0), (...)], 1, sel_g).squeeze(
-                1)
-            coeffs_b_r = torch.gather(coeffs[:, (1), (...)], 1, sel_b).squeeze(
-                1)
-            coeffs_b_g = torch.gather(coeffs[:, (2), (...)], 1, sel_b).squeeze(
-                1)
+            coeffs_g_r = torch.gather(coeffs[:, (0), (...)], 1, sel_g).squeeze(1)
+            coeffs_b_r = torch.gather(coeffs[:, (1), (...)], 1, sel_b).squeeze(1)
+            coeffs_b_g = torch.gather(coeffs[:, (2), (...)], 1, sel_b).squeeze(1)
             x0 = clamp(x[:, (0), (...)])
             x1 = clamp(x[:, (1), (...)] + coeffs_g_r * x0)
             x2 = clamp(x[:, (2), (...)] + coeffs_b_r * x0 + coeffs_b_g * x1)
@@ -427,12 +400,10 @@ def non_shared_get_Kp(K, C, num_params):
 
 class AtrousProbabilityClassifier(nn.Module):
 
-    def __init__(self, in_ch: int, C: int, num_params: int, K: int=10,
-        kernel_size: int=3, atrous_rates_str: str='1,2,4') ->None:
+    def __init__(self, in_ch: int, C: int, num_params: int, K: int=10, kernel_size: int=3, atrous_rates_str: str='1,2,4') ->None:
         super(AtrousProbabilityClassifier, self).__init__()
         Kp = non_shared_get_Kp(K, C, num_params)
-        self.atrous = StackedAtrousConvs(atrous_rates_str, in_ch, Kp,
-            kernel_size=kernel_size)
+        self.atrous = StackedAtrousConvs(atrous_rates_str, in_ch, Kp, kernel_size=kernel_size)
         self._repr = f'C={C}; K={K}; Kp={Kp}; rates={atrous_rates_str}'
 
     def __repr__(self) ->str:
@@ -448,12 +419,10 @@ class AtrousProbabilityClassifier(nn.Module):
 
 class StackedAtrousConvs(nn.Module):
 
-    def __init__(self, atrous_rates_str: Union[str, int], Cin: int, Cout:
-        int, bias: bool=True, kernel_size: int=3) ->None:
+    def __init__(self, atrous_rates_str: Union[str, int], Cin: int, Cout: int, bias: bool=True, kernel_size: int=3) ->None:
         super(StackedAtrousConvs, self).__init__()
         atrous_rates = self._parse_atrous_rates_str(atrous_rates_str)
-        self.atrous = nn.ModuleList([util.conv(Cin, Cin, kernel_size, rate=
-            rate) for rate in atrous_rates])
+        self.atrous = nn.ModuleList([util.conv(Cin, Cin, kernel_size, rate=rate) for rate in atrous_rates])
         self.lin = util.conv(len(atrous_rates) * Cin, Cout, 1, bias=bias)
         self._extra_repr = 'rates={}'.format(atrous_rates)
 
@@ -484,8 +453,7 @@ class LogisticMixtureProbability(NamedTuple):
 Probs = Tuple[torch.Tensor, Optional[LogisticMixtureProbability], int]
 
 
-def group_2x2(x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.
-    Tensor, torch.Tensor]:
+def group_2x2(x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """ Group 2x2 patches of x on its own channel
         param x: N C H W
         returns: Tuple[N 4 C H/2 W/2]
@@ -493,13 +461,5 @@ def group_2x2(x: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor, torch.
     _, _, h, w = x.size()
     x_even_height = x[:, :, 0:h:2, :]
     x_odd_height = x[:, :, 1:h:2, :]
-    return x_even_height[:, :, :, 0:w:2], x_even_height[:, :, :, 1:w:2
-        ], x_odd_height[:, :, :, 0:w:2], x_odd_height[:, :, :, 1:w:2]
+    return x_even_height[:, :, :, 0:w:2], x_even_height[:, :, :, 1:w:2], x_odd_height[:, :, :, 0:w:2], x_odd_height[:, :, :, 1:w:2]
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_caoscott_SReC(_paritybench_base):
-    pass

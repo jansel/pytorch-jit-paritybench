@@ -14,8 +14,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,10 +81,8 @@ class vgg16_bn(torch.nn.Module):
 
     def __init__(self, pretrained=True, freeze=True):
         super(vgg16_bn, self).__init__()
-        model_urls['vgg16_bn'] = model_urls['vgg16_bn'].replace('https://',
-            'http://')
-        vgg_pretrained_features = models.vgg16_bn(pretrained=pretrained
-            ).features
+        model_urls['vgg16_bn'] = model_urls['vgg16_bn'].replace('https://', 'http://')
+        vgg_pretrained_features = models.vgg16_bn(pretrained=pretrained).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -97,9 +96,7 @@ class vgg16_bn(torch.nn.Module):
             self.slice3.add_module(str(x), vgg_pretrained_features[x])
         for x in range(29, 39):
             self.slice4.add_module(str(x), vgg_pretrained_features[x])
-        self.slice5 = torch.nn.Sequential(nn.MaxPool2d(kernel_size=3,
-            stride=1, padding=1), nn.Conv2d(512, 1024, kernel_size=3,
-            padding=6, dilation=6), nn.Conv2d(1024, 1024, kernel_size=1))
+        self.slice5 = torch.nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), nn.Conv2d(512, 1024, kernel_size=3, padding=6, dilation=6), nn.Conv2d(1024, 1024, kernel_size=1))
         if not pretrained:
             init_weights(self.slice1.modules())
             init_weights(self.slice2.modules())
@@ -121,8 +118,7 @@ class vgg16_bn(torch.nn.Module):
         h_relu5_3 = h
         h = self.slice5(h)
         h_fc7 = h
-        vgg_outputs = namedtuple('VggOutputs', ['fc7', 'relu5_3', 'relu4_3',
-            'relu3_2', 'relu2_2'])
+        vgg_outputs = namedtuple('VggOutputs', ['fc7', 'relu5_3', 'relu4_3', 'relu3_2', 'relu2_2'])
         out = vgg_outputs(h_fc7, h_relu5_3, h_relu4_3, h_relu3_2, h_relu2_2)
         return out
 
@@ -131,10 +127,7 @@ class double_conv(nn.Module):
 
     def __init__(self, in_ch, mid_ch, out_ch):
         super(double_conv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch + mid_ch, mid_ch,
-            kernel_size=1), nn.BatchNorm2d(mid_ch), nn.ReLU(inplace=True),
-            nn.Conv2d(mid_ch, out_ch, kernel_size=3, padding=1), nn.
-            BatchNorm2d(out_ch), nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(nn.Conv2d(in_ch + mid_ch, mid_ch, kernel_size=1), nn.BatchNorm2d(mid_ch), nn.ReLU(inplace=True), nn.Conv2d(mid_ch, out_ch, kernel_size=3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
 
     def forward(self, x):
         x = self.conv(x)
@@ -153,12 +146,7 @@ class CRAFT(nn.Module):
         self.upconv3 = double_conv(256, 128, 64)
         self.upconv4 = double_conv(128, 64, 32)
         num_class = 2
-        self.conv_cls = nn.Sequential(nn.Conv2d(32, 32, kernel_size=3,
-            padding=1), nn.ReLU(inplace=True), nn.Conv2d(32, 32,
-            kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(32,
-            16, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d
-            (16, 16, kernel_size=1), nn.ReLU(inplace=True), nn.Conv2d(16,
-            num_class, kernel_size=1))
+        self.conv_cls = nn.Sequential(nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(32, 16, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.Conv2d(16, 16, kernel_size=1), nn.ReLU(inplace=True), nn.Conv2d(16, num_class, kernel_size=1))
         init_weights(self.upconv1.modules())
         init_weights(self.upconv2.modules())
         init_weights(self.upconv3.modules())
@@ -171,16 +159,13 @@ class CRAFT(nn.Module):
         """ U network """
         y = torch.cat([sources[0], sources[1]], dim=1)
         y = self.upconv1(y)
-        y = F.interpolate(y, size=sources[2].size()[2:], mode='bilinear',
-            align_corners=False)
+        y = F.interpolate(y, size=sources[2].size()[2:], mode='bilinear', align_corners=False)
         y = torch.cat([y, sources[2]], dim=1)
         y = self.upconv2(y)
-        y = F.interpolate(y, size=sources[3].size()[2:], mode='bilinear',
-            align_corners=False)
+        y = F.interpolate(y, size=sources[3].size()[2:], mode='bilinear', align_corners=False)
         y = torch.cat([y, sources[3]], dim=1)
         y = self.upconv3(y)
-        y = F.interpolate(y, size=sources[4].size()[2:], mode='bilinear',
-            align_corners=False)
+        y = F.interpolate(y, size=sources[4].size()[2:], mode='bilinear', align_corners=False)
         y = torch.cat([y, sources[4]], dim=1)
         feature = self.upconv4(y)
         y = self.conv_cls(feature)
@@ -191,27 +176,11 @@ class RefineNet(nn.Module):
 
     def __init__(self):
         super(RefineNet, self).__init__()
-        self.last_conv = nn.Sequential(nn.Conv2d(34, 64, kernel_size=3,
-            padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.
-            Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, padding
-            =1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
-        self.aspp1 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3,
-            dilation=6, padding=6), nn.BatchNorm2d(128), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
-        self.aspp2 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3,
-            dilation=12, padding=12), nn.BatchNorm2d(128), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
-        self.aspp3 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3,
-            dilation=18, padding=18), nn.BatchNorm2d(128), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
-        self.aspp4 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3,
-            dilation=24, padding=24), nn.BatchNorm2d(128), nn.ReLU(inplace=
-            True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
+        self.last_conv = nn.Sequential(nn.Conv2d(34, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.aspp1 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, dilation=6, padding=6), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
+        self.aspp2 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, dilation=12, padding=12), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
+        self.aspp3 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, dilation=18, padding=18), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
+        self.aspp4 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, dilation=24, padding=24), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 128, kernel_size=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 1, kernel_size=1))
         init_weights(self.last_conv.modules())
         init_weights(self.aspp1.modules())
         init_weights(self.aspp2.modules())
@@ -233,16 +202,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CRAFT,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (double_conv,
+     lambda: ([], {'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}),
+     lambda: ([torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (vgg16_bn,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_clovaai_CRAFT_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(CRAFT(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(double_conv(*[], **{'in_ch': 4, 'mid_ch': 4, 'out_ch': 4}), [torch.rand([4, 8, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(vgg16_bn(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[2])
 

@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -96,8 +97,7 @@ class MedianPool2d(nn.Module):
 
     def forward(self, x):
         x = F.pad(x, self._padding(x), mode='reflect')
-        x = x.unfold(2, self.k[0], self.stride[0]).unfold(3, self.k[1],
-            self.stride[1])
+        x = x.unfold(2, self.k[0], self.stride[0]).unfold(3, self.k[1], self.stride[1])
         x = x.contiguous().view(x.size()[:4] + (-1,)).median(dim=-1)[0]
         return x
 
@@ -118,24 +118,17 @@ class EnetInitialBlock(nn.Module):
 
 class EnetEncoderMainPath(nn.Module):
 
-    def __init__(self, internal_scale=None, use_relu=None, asymmetric=None,
-        dilated=None, input_channels=None, output_channels=None, downsample
-        =None, dropout_prob=None):
+    def __init__(self, internal_scale=None, use_relu=None, asymmetric=None, dilated=None, input_channels=None, output_channels=None, downsample=None, dropout_prob=None):
         super().__init__()
         internal_channels = output_channels // internal_scale
         input_stride = downsample and 2 or 1
         self.__dict__.update(locals())
         del self.self
-        self.input_conv = nn.Conv2d(input_channels, internal_channels,
-            input_stride, stride=input_stride, padding=0, bias=False)
+        self.input_conv = nn.Conv2d(input_channels, internal_channels, input_stride, stride=input_stride, padding=0, bias=False)
         self.input_batch_norm = nn.BatchNorm2d(internal_channels, eps=0.001)
-        self.middle_conv = nn.Conv2d(internal_channels, internal_channels, 
-            3, stride=1, bias=True, dilation=1 if not dilated or dilated is
-            None else dilated, padding=1 if not dilated or dilated is None else
-            dilated)
+        self.middle_conv = nn.Conv2d(internal_channels, internal_channels, 3, stride=1, bias=True, dilation=1 if not dilated or dilated is None else dilated, padding=1 if not dilated or dilated is None else dilated)
         self.middle_batch_norm = nn.BatchNorm2d(internal_channels, eps=0.001)
-        self.output_conv = nn.Conv2d(internal_channels, output_channels, 1,
-            stride=1, padding=0, bias=False)
+        self.output_conv = nn.Conv2d(internal_channels, output_channels, 1, stride=1, padding=0, bias=False)
         self.output_batch_norm = nn.BatchNorm2d(output_channels, eps=0.001)
         self.dropout = nn.Dropout2d(dropout_prob)
         self.input_actf = nn.PReLU()
@@ -156,9 +149,7 @@ class EnetEncoderMainPath(nn.Module):
 
 class EnetEncoderOtherPath(nn.Module):
 
-    def __init__(self, internal_scale=None, use_relu=None, asymmetric=None,
-        dilated=None, input_channels=None, output_channels=None, downsample
-        =None, **kwargs):
+    def __init__(self, internal_scale=None, use_relu=None, asymmetric=None, dilated=None, input_channels=None, output_channels=None, downsample=None, **kwargs):
         super().__init__()
         self.__dict__.update(locals())
         del self.self
@@ -201,8 +192,7 @@ class EnetEncoder(nn.Module):
             layer = EnetEncoderModule(**params)
             super().__setattr__(layer_name, layer)
             self.layers.append(layer)
-        self.output_conv = nn.Conv2d(128, nclasses, 1, stride=1, padding=0,
-            bias=True)
+        self.output_conv = nn.Conv2d(128, nclasses, 1, stride=1, padding=0, bias=True)
 
     def forward(self, input):
         output = self.initial_block(input)
@@ -213,26 +203,20 @@ class EnetEncoder(nn.Module):
 
 class EnetDecoderMainPath(nn.Module):
 
-    def __init__(self, input_channels=None, output_channels=None, upsample=
-        None, pooling_module=None):
+    def __init__(self, input_channels=None, output_channels=None, upsample=None, pooling_module=None):
         super().__init__()
         internal_channels = output_channels // 4
         input_stride = 2 if upsample is True else 1
         self.__dict__.update(locals())
         del self.self
-        self.input_conv = nn.Conv2d(input_channels, internal_channels, 1,
-            stride=1, padding=0, bias=False)
+        self.input_conv = nn.Conv2d(input_channels, internal_channels, 1, stride=1, padding=0, bias=False)
         self.input_batch_norm = nn.BatchNorm2d(internal_channels, eps=0.001)
         if not upsample:
-            self.middle_conv = nn.Conv2d(internal_channels,
-                internal_channels, 3, stride=1, padding=1, bias=True)
+            self.middle_conv = nn.Conv2d(internal_channels, internal_channels, 3, stride=1, padding=1, bias=True)
         else:
-            self.middle_conv = nn.ConvTranspose2d(internal_channels,
-                internal_channels, 3, stride=2, padding=1, output_padding=1,
-                bias=True)
+            self.middle_conv = nn.ConvTranspose2d(internal_channels, internal_channels, 3, stride=2, padding=1, output_padding=1, bias=True)
         self.middle_batch_norm = nn.BatchNorm2d(internal_channels, eps=0.001)
-        self.output_conv = nn.Conv2d(internal_channels, output_channels, 1,
-            stride=1, padding=0, bias=False)
+        self.output_conv = nn.Conv2d(internal_channels, output_channels, 1, stride=1, padding=0, bias=False)
         self.output_batch_norm = nn.BatchNorm2d(output_channels, eps=0.001)
         self.input_actf = nn.PReLU()
         self.middle_actf = nn.PReLU()
@@ -251,14 +235,12 @@ class EnetDecoderMainPath(nn.Module):
 
 class EnetDecoderOtherPath(nn.Module):
 
-    def __init__(self, input_channels=None, output_channels=None, upsample=
-        None, pooling_module=None):
+    def __init__(self, input_channels=None, output_channels=None, upsample=None, pooling_module=None):
         super().__init__()
         self.__dict__.update(locals())
         del self.self
         if output_channels != input_channels or upsample:
-            self.conv = nn.Conv2d(input_channels, output_channels, 1,
-                stride=1, padding=0, bias=False)
+            self.conv = nn.Conv2d(input_channels, output_channels, 1, stride=1, padding=0, bias=False)
             self.batch_norm = nn.BatchNorm2d(output_channels, eps=0.001)
             if upsample and pooling_module:
                 self.unpool = nn.MaxUnpool2d(2, stride=2, padding=0)
@@ -272,8 +254,7 @@ class EnetDecoderOtherPath(nn.Module):
                 output_size = list(output.size())
                 output_size[2] *= 2
                 output_size[3] *= 2
-                output = self.unpool(output, self.pooling_module.indices,
-                    output_size=output_size)
+                output = self.unpool(output, self.pooling_module.indices, output_size=output_size)
         return output
 
 
@@ -311,8 +292,7 @@ class EnetDecoder(nn.Module):
             self.layers.append(layer)
             layer_name = 'decoder{:02d}'.format(i)
             super().__setattr__(layer_name, layer)
-        self.output_conv = nn.ConvTranspose2d(32, nclasses, 2, stride=2,
-            padding=0, output_padding=0, bias=True)
+        self.output_conv = nn.ConvTranspose2d(32, nclasses, 2, stride=2, padding=0, output_padding=0, bias=True)
 
     def forward(self, input):
         output = input
@@ -326,16 +306,12 @@ class EnetGnn(nn.Module):
 
     def __init__(self, mlp_num_layers, use_gpu):
         super().__init__()
-        self.median_pool = MedianPool2d(kernel_size=8, stride=8, padding=0,
-            same=False)
-        self.g_rnn_layers = nn.ModuleList([nn.Linear(128, 128) for l in
-            range(mlp_num_layers)])
-        self.g_rnn_actfs = nn.ModuleList([nn.PReLU() for l in range(
-            mlp_num_layers)])
+        self.median_pool = MedianPool2d(kernel_size=8, stride=8, padding=0, same=False)
+        self.g_rnn_layers = nn.ModuleList([nn.Linear(128, 128) for l in range(mlp_num_layers)])
+        self.g_rnn_actfs = nn.ModuleList([nn.PReLU() for l in range(mlp_num_layers)])
         self.q_rnn_layer = nn.Linear(256, 128)
         self.q_rnn_actf = nn.PReLU()
-        self.output_conv = nn.Conv2d(256, 128, 3, stride=1, padding=1, bias
-            =True)
+        self.output_conv = nn.Conv2d(256, 128, 3, stride=1, padding=1, bias=True)
         self.use_gpu = use_gpu
 
     def get_knn_indices(self, batch_mat, k):
@@ -354,23 +330,19 @@ class EnetGnn(nn.Module):
             batch_indices[idx] = indices.data
         return batch_indices
 
-    def forward(self, cnn_encoder_output, original_input, gnn_iterations, k, xy
-        ):
+    def forward(self, cnn_encoder_output, original_input, gnn_iterations, k, xy):
         N = cnn_encoder_output.size()[0]
         C = cnn_encoder_output.size()[1]
         H = cnn_encoder_output.size()[2]
         W = cnn_encoder_output.size()[3]
         K = k
         depth = original_input[:, (3), :, :]
-        depth = depth.view(depth.size()[0], 1, depth.size()[1], depth.size()[2]
-            )
+        depth = depth.view(depth.size()[0], 1, depth.size()[1], depth.size()[2])
         depth_resize = self.median_pool(depth)
         x_coords = xy[:, (0), :, :]
-        x_coords = x_coords.view(x_coords.size()[0], 1, x_coords.size()[1],
-            x_coords.size()[2])
+        x_coords = x_coords.view(x_coords.size()[0], 1, x_coords.size()[1], x_coords.size()[2])
         y_coords = xy[:, (1), :, :]
-        y_coords = y_coords.view(y_coords.size()[0], 1, y_coords.size()[1],
-            y_coords.size()[2])
+        y_coords = y_coords.view(y_coords.size()[0], 1, y_coords.size()[1], y_coords.size()[2])
         x_coords = self.median_pool(x_coords)
         y_coords = self.median_pool(y_coords)
         proj_3d = torch.cat((x_coords, y_coords, depth_resize), 1)
@@ -383,11 +355,9 @@ class EnetGnn(nn.Module):
         m = h.clone()
         for i in range(gnn_iterations):
             for n in range(N):
-                neighbor_features = torch.index_select(h[n], 0, Variable(
-                    knn[n])).view(H * W, K, C)
+                neighbor_features = torch.index_select(h[n], 0, Variable(knn[n])).view(H * W, K, C)
                 for idx, g_layer in enumerate(self.g_rnn_layers):
-                    neighbor_features = self.g_rnn_actfs[idx](g_layer(
-                        neighbor_features))
+                    neighbor_features = self.g_rnn_actfs[idx](g_layer(neighbor_features))
                 m[n] = torch.mean(neighbor_features, dim=1)
             concat = torch.cat((h, m), 2)
             h = self.q_rnn_actf(self.q_rnn_layer(concat))
@@ -416,8 +386,7 @@ class Model(nn.Module):
         self.gnn = EnetGnn(mlp_num_layers, use_gpu)
         self.decoder = EnetDecoder(DECODER_PARAMS, nclasses, self.encoder)
 
-    def forward(self, input, gnn_iterations, k, xy, use_gnn, only_encode=False
-        ):
+    def forward(self, input, gnn_iterations, k, xy, use_gnn, only_encode=False):
         x = self.encoder.forward(input)
         if only_encode:
             return x
@@ -430,19 +399,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_yanx27_3DGNN_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(EnetDecoderOtherPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EnetDecoderOtherPath,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EnetEncoderOtherPath,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EnetInitialBlock,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 6, 64, 64])], {}),
+     True),
+    (MedianPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_yanx27_3DGNN_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(EnetEncoderOtherPath(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EnetInitialBlock(*[], **{}), [torch.rand([4, 6, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MedianPool2d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

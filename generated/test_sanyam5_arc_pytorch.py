@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -58,8 +59,7 @@ class GlimpseWindow:
         self.glimpse_w = glimpse_w
 
     @staticmethod
-    def _get_filterbanks(delta_caps: Variable, center_caps: Variable,
-        image_size: int, glimpse_size: int) ->Variable:
+    def _get_filterbanks(delta_caps: Variable, center_caps: Variable, image_size: int, glimpse_size: int) ->Variable:
         """
         Generates Cauchy Filter Banks along a dimension.
 
@@ -76,11 +76,9 @@ class GlimpseWindow:
         image_size = float(image_size)
         glimpse_size = float(glimpse_size)
         centers = (image_size - 1) * (center_caps + 1) / 2.0
-        deltas = float(image_size) / glimpse_size * (1.0 - torch.abs(
-            delta_caps))
+        deltas = float(image_size) / glimpse_size * (1.0 - torch.abs(delta_caps))
         gammas = torch.exp(1.0 - 2 * torch.abs(delta_caps))
-        glimpse_pixels = Variable(torch.arange(0, glimpse_size) - (
-            glimpse_size - 1.0) / 2.0)
+        glimpse_pixels = Variable(torch.arange(0, glimpse_size) - (glimpse_size - 1.0) / 2.0)
         if use_cuda:
             glimpse_pixels = glimpse_pixels.cuda()
         glimpse_pixels = deltas[:, (None)] * glimpse_pixels[(None), :]
@@ -97,8 +95,7 @@ class GlimpseWindow:
         fx = fx / (torch.sum(fx, dim=2) + 0.0001)[:, :, (None)]
         return fx.transpose(1, 2)
 
-    def get_attention_mask(self, glimpse_params: Variable, mask_h: int,
-        mask_w: int) ->Variable:
+    def get_attention_mask(self, glimpse_params: Variable, mask_h: int, mask_w: int) ->Variable:
         """
         For visualization, generate a heat map (or mask) of which pixels got the most "attention".
 
@@ -112,14 +109,9 @@ class GlimpseWindow:
 
         """
         batch_size, _ = glimpse_params.size()
-        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, (2)],
-            center_caps=glimpse_params[:, (0)], image_size=mask_h,
-            glimpse_size=self.glimpse_h)
-        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, (2)],
-            center_caps=glimpse_params[:, (1)], image_size=mask_w,
-            glimpse_size=self.glimpse_w)
-        glimpse_proxy = Variable(torch.ones(batch_size, self.glimpse_h,
-            self.glimpse_w))
+        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (0)], image_size=mask_h, glimpse_size=self.glimpse_h)
+        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (1)], image_size=mask_w, glimpse_size=self.glimpse_w)
+        glimpse_proxy = Variable(torch.ones(batch_size, self.glimpse_h, self.glimpse_w))
         mask = glimpse_proxy
         mask = torch.bmm(F_h, mask)
         mask = torch.bmm(mask, F_w.transpose(1, 2))
@@ -128,8 +120,7 @@ class GlimpseWindow:
         mask = mask.float()
         return mask
 
-    def get_glimpse(self, images: Variable, glimpse_params: Variable
-        ) ->Variable:
+    def get_glimpse(self, images: Variable, glimpse_params: Variable) ->Variable:
         """
         Generate glimpses given images and glimpse parameters. This is the main method of this class.
 
@@ -146,12 +137,8 @@ class GlimpseWindow:
 
         """
         batch_size, image_h, image_w = images.size()
-        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, (2)],
-            center_caps=glimpse_params[:, (0)], image_size=image_h,
-            glimpse_size=self.glimpse_h)
-        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, (2)],
-            center_caps=glimpse_params[:, (1)], image_size=image_w,
-            glimpse_size=self.glimpse_w)
+        F_h = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (0)], image_size=image_h, glimpse_size=self.glimpse_h)
+        F_w = self._get_filterbanks(delta_caps=glimpse_params[:, (2)], center_caps=glimpse_params[:, (1)], image_size=image_w, glimpse_size=self.glimpse_w)
         glimpses = images
         glimpses = torch.bmm(F_h.transpose(1, 2), glimpses)
         glimpses = torch.bmm(glimpses, F_w)
@@ -177,19 +164,15 @@ class ARC(nn.Module):
 
     """
 
-    def __init__(self, num_glimpses: int=8, glimpse_h: int=8, glimpse_w:
-        int=8, controller_out: int=128) ->None:
+    def __init__(self, num_glimpses: int=8, glimpse_h: int=8, glimpse_w: int=8, controller_out: int=128) ->None:
         super().__init__()
         self.num_glimpses = num_glimpses
         self.glimpse_h = glimpse_h
         self.glimpse_w = glimpse_w
         self.controller_out = controller_out
-        self.controller = nn.LSTMCell(input_size=glimpse_h * glimpse_w,
-            hidden_size=self.controller_out)
-        self.glimpser = nn.Linear(in_features=self.controller_out,
-            out_features=3)
-        self.glimpse_window = GlimpseWindow(glimpse_h=self.glimpse_h,
-            glimpse_w=self.glimpse_w)
+        self.controller = nn.LSTMCell(input_size=glimpse_h * glimpse_w, hidden_size=self.controller_out)
+        self.glimpser = nn.Linear(in_features=self.controller_out, out_features=3)
+        self.glimpse_window = GlimpseWindow(glimpse_h=self.glimpse_h, glimpse_w=self.glimpse_w)
 
     def forward(self, image_pairs: Variable) ->Variable:
         """
@@ -229,8 +212,7 @@ class ARC(nn.Module):
         for turn in range(2 * self.num_glimpses):
             images_to_observe = image_pairs[:, (turn % 2)]
             glimpse_params = torch.tanh(self.glimpser(Hx))
-            glimpses = self.glimpse_window.get_glimpse(images_to_observe,
-                glimpse_params)
+            glimpses = self.glimpse_window.get_glimpse(images_to_observe, glimpse_params)
             flattened_glimpses = glimpses.view(batch_size, -1)
             Hx, Cx = self.controller(flattened_glimpses, (Hx, Cx))
             all_hidden.append(Hx)
@@ -252,11 +234,9 @@ class ArcBinaryClassifier(nn.Module):
 
     """
 
-    def __init__(self, num_glimpses: int=8, glimpse_h: int=8, glimpse_w:
-        int=8, controller_out: int=128):
+    def __init__(self, num_glimpses: int=8, glimpse_h: int=8, glimpse_w: int=8, controller_out: int=128):
         super().__init__()
-        self.arc = ARC(num_glimpses=num_glimpses, glimpse_h=glimpse_h,
-            glimpse_w=glimpse_w, controller_out=controller_out)
+        self.arc = ARC(num_glimpses=num_glimpses, glimpse_h=glimpse_h, glimpse_w=glimpse_w, controller_out=controller_out)
         self.dense1 = nn.Linear(controller_out, 64)
         self.dense2 = nn.Linear(64, 1)
 
@@ -274,13 +254,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_sanyam5_arc_pytorch(_paritybench_base):
-    pass
-    @_fails_compile()
-    def test_000(self):
-        self._check(ARC(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ARC,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ArcBinaryClassifier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
+class Test_sanyam5_arc_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(ArcBinaryClassifier(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

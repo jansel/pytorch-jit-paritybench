@@ -24,8 +24,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -139,14 +140,12 @@ class LOSComputationGraph:
             :param idx: int, the index of the node in the graph (feed-forward, so this is ok).
             :param residual: bool, true if output of this node is needed at some point later in the graph.
             """
-            self.resolution, self.idx, self.residual = (resolution, idx,
-                residual)
+            self.resolution, self.idx, self.residual = resolution, idx, residual
             self.residual_node = None
 
         def __repr__(self):
             residual_str = ', saves residual' if self.residual else ''
-            return '<Node index: {} resolution: {}'.format(self.idx, self.
-                resolution) + residual_str + '>'
+            return '<Node index: {} resolution: {}'.format(self.idx, self.resolution) + residual_str + '>'
 
         def __str__(self):
             return self.__repr__()
@@ -206,8 +205,7 @@ class LOSComputationGraph:
         :return: OrderedDict, dict of lists, adjacency list describing the computation graph.
         """
         adj = OrderedDict()
-        nodes = [LOSComputationGraph.Node(pow(2, -(gene - 1)), i) for i,
-            gene in enumerate(genome)]
+        nodes = [LOSComputationGraph.Node(pow(2, -(gene - 1)), i) for i, gene in enumerate(genome)]
         for i, (gene_i, gene_ipo) in enumerate(zip(nodes, nodes[1:])):
             adj[gene_i] = [gene_ipo]
         adj[nodes[-1]] = []
@@ -215,9 +213,7 @@ class LOSComputationGraph:
         previous_node = nodes[0]
         for node, adj_list in adj.items():
             if node.resolution in previous_resolutions:
-                if (previous_node.resolution < node.resolution or 
-                    previous_node.resolution > node.resolution and
-                    under_connect):
+                if previous_node.resolution < node.resolution or previous_node.resolution > node.resolution and under_connect:
                     previous_resolutions[node.resolution].residual = True
                     node.residual_node = previous_resolutions[node.resolution]
                     previous_resolutions[node.resolution] = node
@@ -237,8 +233,7 @@ class LOSHourGlassDecoder(HourGlassDecoder, nn.Module):
     GENE_LB = 0
     GENE_UB = 6
 
-    def __init__(self, genome, n_stacks, out_feature_maps,
-        pre_hourglass_channels=32, hourglass_channels=64):
+    def __init__(self, genome, n_stacks, out_feature_maps, pre_hourglass_channels=32, hourglass_channels=64):
         """
         Constructor.
         :param genome: list, list of ints satisfying properties defined in self.valid_genome.
@@ -250,43 +245,26 @@ class LOSHourGlassDecoder(HourGlassDecoder, nn.Module):
         self.pre_hourglass_channels = pre_hourglass_channels
         self.hourglass_channels = hourglass_channels
         self.check_genome(genome)
-        self.initial = nn.Sequential(nn.Conv2d(3, self.
-            pre_hourglass_channels, kernel_size=7, stride=2, padding=3,
-            bias=True), nn.BatchNorm2d(self.pre_hourglass_channels), nn.
-            ReLU(inplace=True), HourGlassResidual(self.
-            pre_hourglass_channels, self.pre_hourglass_channels))
+        self.initial = nn.Sequential(nn.Conv2d(3, self.pre_hourglass_channels, kernel_size=7, stride=2, padding=3, bias=True), nn.BatchNorm2d(self.pre_hourglass_channels), nn.ReLU(inplace=True), HourGlassResidual(self.pre_hourglass_channels, self.pre_hourglass_channels))
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.secondary = nn.Sequential(HourGlassResidual(self.
-            pre_hourglass_channels, self.pre_hourglass_channels),
-            HourGlassResidual(self.pre_hourglass_channels, self.
-            hourglass_channels))
+        self.secondary = nn.Sequential(HourGlassResidual(self.pre_hourglass_channels, self.pre_hourglass_channels), HourGlassResidual(self.pre_hourglass_channels, self.hourglass_channels))
         graph = LOSComputationGraph(genome)
         hg_channels = self.hourglass_channels * LOSHourGlassBlock.EXPANSION
-        hourglasses = [LOSHourGlassBlock(graph, self.hourglass_channels,
-            hg_channels)]
+        hourglasses = [LOSHourGlassBlock(graph, self.hourglass_channels, hg_channels)]
         first_lin = [Lin(hg_channels, hg_channels)]
         second_lin = [Lin(hg_channels, self.hourglass_channels)]
-        to_score_map = [nn.Conv2d(self.hourglass_channels, out_feature_maps,
-            kernel_size=1, bias=True)]
-        from_score_map = [nn.Conv2d(out_feature_maps, self.
-            hourglass_channels + self.pre_hourglass_channels, kernel_size=1,
-            bias=True)]
-        skip_convs = [nn.Conv2d(self.hourglass_channels + self.
-            pre_hourglass_channels, self.hourglass_channels + self.
-            pre_hourglass_channels, kernel_size=1, bias=True)]
+        to_score_map = [nn.Conv2d(self.hourglass_channels, out_feature_maps, kernel_size=1, bias=True)]
+        from_score_map = [nn.Conv2d(out_feature_maps, self.hourglass_channels + self.pre_hourglass_channels, kernel_size=1, bias=True)]
+        skip_convs = [nn.Conv2d(self.hourglass_channels + self.pre_hourglass_channels, self.hourglass_channels + self.pre_hourglass_channels, kernel_size=1, bias=True)]
         skip_channels = self.pre_hourglass_channels
         for i in range(1, n_stacks):
-            hourglasses.append(LOSHourGlassBlock(graph, self.
-                hourglass_channels + skip_channels, hg_channels))
+            hourglasses.append(LOSHourGlassBlock(graph, self.hourglass_channels + skip_channels, hg_channels))
             first_lin.append(Lin(hg_channels, hg_channels))
-            to_score_map.append(nn.Conv2d(self.hourglass_channels,
-                out_feature_maps, kernel_size=1, bias=True))
+            to_score_map.append(nn.Conv2d(self.hourglass_channels, out_feature_maps, kernel_size=1, bias=True))
             second_lin.append(Lin(hg_channels, self.hourglass_channels))
             if i < n_stacks - 1:
-                skip_convs.append(nn.Conv2d(hg_channels, hg_channels,
-                    kernel_size=1, bias=True))
-                from_score_map.append(nn.Conv2d(out_feature_maps,
-                    hg_channels, kernel_size=1, bias=True))
+                skip_convs.append(nn.Conv2d(hg_channels, hg_channels, kernel_size=1, bias=True))
+                from_score_map.append(nn.Conv2d(out_feature_maps, hg_channels, kernel_size=1, bias=True))
             skip_channels = self.hourglass_channels
         self.hourglasses = nn.ModuleList(hourglasses)
         self.first_lin = nn.ModuleList(first_lin)
@@ -302,15 +280,12 @@ class LOSHourGlassDecoder(HourGlassDecoder, nn.Module):
         :param genome: list, list of ints, representing the genome.
         :raises AssertionError: if genome is not valid.
         """
-        assert isinstance(genome[0], int
-            ), 'Genome should be a list of integers.'
+        assert isinstance(genome[0], int), 'Genome should be a list of integers.'
         for gene in genome:
-            assert LOSHourGlassDecoder.GENE_LB < gene < LOSHourGlassDecoder.GENE_UB, '{} is an invalid gene value, must be in range [{}, {}]'.format(
-                gene, LOSHourGlassDecoder.GENE_LB, LOSHourGlassDecoder.GENE_UB)
+            assert LOSHourGlassDecoder.GENE_LB < gene < LOSHourGlassDecoder.GENE_UB, '{} is an invalid gene value, must be in range [{}, {}]'.format(gene, LOSHourGlassDecoder.GENE_LB, LOSHourGlassDecoder.GENE_UB)
         for i in range(len(genome) - 1):
             step = abs(genome[i] - genome[i + 1])
-            assert step <= LOSHourGlassDecoder.STEP_TOLERANCE, 'Attempted to step {} resolutions, cannot step more than 2 resolutions.'.format(
-                step)
+            assert step <= LOSHourGlassDecoder.STEP_TOLERANCE, 'Attempted to step {} resolutions, cannot step more than 2 resolutions.'.format(step)
 
     def get_model(self):
         """
@@ -358,9 +333,7 @@ class Lin(nn.Module):
         :param out_channels: int, desired output channels.
         """
         super(Lin, self).__init__()
-        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            kernel_size=1, bias=True), nn.BatchNorm2d(out_channels), nn.
-            ReLU(inplace=True))
+        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
     def forward(self, x):
         return self.model(x)
@@ -372,8 +345,7 @@ class LOSHourGlassBlock(nn.Module):
     """
     EXPANSION = 2
 
-    def __init__(self, graph, in_channels, out_channels, operating_channels=64
-        ):
+    def __init__(self, graph, in_channels, out_channels, operating_channels=64):
         """
         Constructor.
         :param graph: decoder.LOSComputationGraph, represents the computation flow.
@@ -392,22 +364,18 @@ class LOSHourGlassBlock(nn.Module):
         skip_ops = []
         for node in graph.keys():
             if node.residual:
-                skip_ops.append(HourGlassResidual(self.operating_channels,
-                    self.operating_channels))
+                skip_ops.append(HourGlassResidual(self.operating_channels, self.operating_channels))
             else:
                 skip_ops.append(None)
         last_node = list(graph.keys())[-1]
         res = last_node.residual_node
         if res:
-            skip_ops[res.idx] = HourGlassResidual(self.operating_channels,
-                out_channels)
+            skip_ops[res.idx] = HourGlassResidual(self.operating_channels, out_channels)
         self.skip_ops = nn.ModuleList(skip_ops)
         path_ops = [HourGlassResidual(in_channels, self.operating_channels)]
         for i in range(len(graph) - 2):
-            path_ops.append(HourGlassResidual(self.operating_channels, self
-                .operating_channels))
-        path_ops.append(HourGlassResidual(self.operating_channels,
-            out_channels))
+            path_ops.append(HourGlassResidual(self.operating_channels, self.operating_channels))
+        path_ops.append(HourGlassResidual(self.operating_channels, out_channels))
         self.path_ops = nn.ModuleList(path_ops)
 
     @staticmethod
@@ -453,17 +421,8 @@ class HourGlassResidual(nn.Module):
 
     def __init__(self, in_channels, out_channels):
         super(HourGlassResidual, self).__init__()
-        self.skip_layer = Identity(
-            ) if in_channels == out_channels else nn.Sequential(nn.Conv2d(
-            in_channels, out_channels, kernel_size=1, bias=True), nn.
-            BatchNorm2d(out_channels))
-        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels // 2,
-            kernel_size=1, bias=True), nn.BatchNorm2d(out_channels // 2),
-            nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, 
-            out_channels // 2, kernel_size=3, stride=1, padding=1, bias=
-            True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, bias=
-            True), nn.BatchNorm2d(out_channels))
+        self.skip_layer = Identity() if in_channels == out_channels else nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels))
+        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=3, stride=1, padding=1, bias=True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
         """
@@ -492,8 +451,7 @@ class ResidualPhase(nn.Module):
         """
         super(ResidualPhase, self).__init__()
         self.channel_flag = in_channels != out_channels
-        self.first_conv = nn.Conv2d(in_channels, out_channels, kernel_size=
-            1 if idx != 0 else 3, stride=1, bias=False)
+        self.first_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1 if idx != 0 else 3, stride=1, bias=False)
         self.dependency_graph = ResidualPhase.build_dependency_graph(gene)
         if preact:
             node_constructor = PreactResidualNode
@@ -506,15 +464,12 @@ class ResidualPhase(nn.Module):
             else:
                 nodes.append(None)
         self.nodes = nn.ModuleList(nodes)
-        conv1x1s = [Identity()] + [Identity() for _ in range(max(self.
-            dependency_graph.keys()))]
+        conv1x1s = [Identity()] + [Identity() for _ in range(max(self.dependency_graph.keys()))]
         for node_idx, dependencies in self.dependency_graph.items():
             if len(dependencies) > 1:
-                conv1x1s[node_idx] = nn.Conv2d(len(dependencies) *
-                    out_channels, out_channels, kernel_size=1, bias=False)
+                conv1x1s[node_idx] = nn.Conv2d(len(dependencies) * out_channels, out_channels, kernel_size=1, bias=False)
         self.processors = nn.ModuleList(conv1x1s)
-        self.out = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(
-            inplace=True))
+        self.out = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
     @staticmethod
     def build_dependency_graph(gene):
@@ -530,8 +485,7 @@ class ResidualPhase(nn.Module):
         residual = gene[-1][0] == 1
         graph[1] = []
         for i in range(len(gene) - 1):
-            graph[i + 2] = [(j + 1) for j in range(len(gene[i])) if gene[i]
-                [j] == 1]
+            graph[i + 2] = [(j + 1) for j in range(len(gene[i])) if gene[i][j] == 1]
         graph[len(gene) + 1] = [0] if residual else []
         no_inputs = []
         no_outputs = []
@@ -561,10 +515,8 @@ class ResidualPhase(nn.Module):
             if not self.dependency_graph[i]:
                 outputs.append(None)
             else:
-                outputs.append(self.nodes[i - 1](self.process_dependencies(
-                    i, outputs)))
-        return self.out(self.process_dependencies(len(self.nodes) + 1, outputs)
-            )
+                outputs.append(self.nodes[i - 1](self.process_dependencies(i, outputs)))
+        return self.out(self.process_dependencies(len(self.nodes) + 1, outputs))
 
     def process_dependencies(self, node_idx, outputs):
         """
@@ -573,8 +525,7 @@ class ResidualPhase(nn.Module):
         :param outputs: list, current outputs
         :return: Variable
         """
-        return self.processors[node_idx](torch.cat([outputs[i] for i in
-            self.dependency_graph[node_idx]], dim=1))
+        return self.processors[node_idx](torch.cat([outputs[i] for i in self.dependency_graph[node_idx]], dim=1))
 
 
 class ResidualNode(nn.Module):
@@ -583,8 +534,7 @@ class ResidualNode(nn.Module):
     Does convolution, batchnorm, and relu (in this order).
     """
 
-    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3,
-        padding=1, bias=False):
+    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, padding=1, bias=False):
         """
         Constructor.
         Default arguments preserve dimensionality of input.
@@ -597,9 +547,7 @@ class ResidualNode(nn.Module):
         :param bias: true to use bias, false to not.
         """
         super(ResidualNode, self).__init__()
-        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels,
-            kernel_size=kernel_size, stride=stride, padding=padding, bias=
-            bias), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
     def forward(self, x):
         """
@@ -616,8 +564,7 @@ class PreactResidualNode(nn.Module):
     Does batchnorm, relu, and convolution (in this order).
     """
 
-    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3,
-        padding=1, bias=False):
+    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, padding=1, bias=False):
         """
         Constructor.
         Default arguments preserve dimensionality of input.
@@ -630,9 +577,7 @@ class PreactResidualNode(nn.Module):
         :param bias: true to use bias, false to not.
         """
         super(PreactResidualNode, self).__init__()
-        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size
-            =kernel_size, stride=stride, padding=padding, bias=bias))
+        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
 
     def forward(self, x):
         """
@@ -660,8 +605,7 @@ class DensePhase(nn.Module):
         super(DensePhase, self).__init__()
         self.in_channel_flag = in_channels != out_channels
         self.out_channel_flag = out_channels != DenseNode.t
-        self.first_conv = nn.Conv2d(in_channels, out_channels, kernel_size=
-            1 if idx != 0 else 3, stride=1, bias=False)
+        self.first_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1 if idx != 0 else 3, stride=1, bias=False)
         self.dependency_graph = ResidualPhase.build_dependency_graph(gene)
         channel_adjustment = 0
         for dep in self.dependency_graph[len(gene) + 1]:
@@ -669,19 +613,16 @@ class DensePhase(nn.Module):
                 channel_adjustment += out_channels
             else:
                 channel_adjustment += DenseNode.t
-        self.last_conv = nn.Conv2d(channel_adjustment, out_channels,
-            kernel_size=1, stride=1, bias=False)
+        self.last_conv = nn.Conv2d(channel_adjustment, out_channels, kernel_size=1, stride=1, bias=False)
         nodes = []
         for i in range(len(gene)):
             if len(self.dependency_graph[i + 1]) > 0:
-                channels = self.compute_channels(self.dependency_graph[i + 
-                    1], out_channels)
+                channels = self.compute_channels(self.dependency_graph[i + 1], out_channels)
                 nodes.append(DenseNode(channels))
             else:
                 nodes.append(None)
         self.nodes = nn.ModuleList(nodes)
-        self.out = nn.Sequential(self.last_conv, nn.BatchNorm2d(
-            out_channels), nn.ReLU(inplace=True))
+        self.out = nn.Sequential(self.last_conv, nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
 
     @staticmethod
     def compute_channels(dependency, out_channels):
@@ -707,19 +648,13 @@ class DensePhase(nn.Module):
             if not self.dependency_graph[i]:
                 outputs.append(None)
             else:
-                outputs.append(self.nodes[i - 1](torch.cat([outputs[j] for
-                    j in self.dependency_graph[i]], dim=1)))
-        if self.out_channel_flag and 0 in self.dependency_graph[len(self.
-            nodes) + 1]:
-            non_zero_dep = [dep for dep in self.dependency_graph[len(self.
-                nodes) + 1] if dep != 0]
-            return self.out(torch.cat([outputs[i] for i in non_zero_dep] +
-                [outputs[0]], dim=1))
+                outputs.append(self.nodes[i - 1](torch.cat([outputs[j] for j in self.dependency_graph[i]], dim=1)))
+        if self.out_channel_flag and 0 in self.dependency_graph[len(self.nodes) + 1]:
+            non_zero_dep = [dep for dep in self.dependency_graph[len(self.nodes) + 1] if dep != 0]
+            return self.out(torch.cat([outputs[i] for i in non_zero_dep] + [outputs[0]], dim=1))
         if self.out_channel_flag:
-            return self.out(torch.cat([outputs[i] for i in self.
-                dependency_graph[len(self.nodes) + 1]], dim=1))
-        return self.out(torch.cat([outputs[i] for i in self.
-            dependency_graph[len(self.nodes) + 1]]))
+            return self.out(torch.cat([outputs[i] for i in self.dependency_graph[len(self.nodes) + 1]], dim=1))
+        return self.out(torch.cat([outputs[i] for i in self.dependency_graph[len(self.nodes) + 1]]))
 
 
 class DenseNode(nn.Module):
@@ -737,11 +672,7 @@ class DenseNode(nn.Module):
         :param in_channels: int, input channels.
         """
         super(DenseNode, self).__init__()
-        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(
-            inplace=True), nn.Conv2d(in_channels, self.t * self.k,
-            kernel_size=1, bias=False), nn.BatchNorm2d(self.t * self.k), nn
-            .ReLU(inplace=True), nn.Conv2d(self.t * self.k, self.t,
-            kernel_size=3, stride=1, padding=1, bias=False))
+        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, self.t * self.k, kernel_size=1, bias=False), nn.BatchNorm2d(self.t * self.k), nn.ReLU(inplace=True), nn.Conv2d(self.t * self.k, self.t, kernel_size=3, stride=1, padding=1, bias=False))
 
     def forward(self, x):
         return self.model(x)
@@ -806,11 +737,9 @@ class ChannelBasedDecoder(Decoder):
         for i, repeat in enumerate(self._repeats):
             for j in range(repeat):
                 if j == 0:
-                    repeated_channels.append((self._channels[i][0], self.
-                        _channels[i][1]))
+                    repeated_channels.append((self._channels[i][0], self._channels[i][1]))
                 else:
-                    repeated_channels.append((self._channels[i][1], self.
-                        _channels[i][1]))
+                    repeated_channels.append((self._channels[i][1], self._channels[i][1]))
                 repeated_genome.append(self._genome[i])
         self._genome = repeated_genome
         self._channels = repeated_channels
@@ -860,8 +789,7 @@ class DenseGenomeDecoder(ChannelBasedDecoder):
         if self._model is not None:
             return
         phases = []
-        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
-            _genome, self._channels)):
+        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self._genome, self._channels)):
             phases.append(DensePhase(gene, in_channels, out_channels, idx))
         self._model = nn.Sequential(*self.build_layers(phases))
 
@@ -897,10 +825,8 @@ class ResidualGenomeDecoder(ChannelBasedDecoder):
         if self._model is not None:
             return
         phases = []
-        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self.
-            _genome, self._channels)):
-            phases.append(ResidualPhase(gene, in_channels, out_channels,
-                idx, preact=preact))
+        for idx, (gene, (in_channels, out_channels)) in enumerate(zip(self._genome, self._channels)):
+            phases.append(ResidualPhase(gene, in_channels, out_channels, idx, preact=preact))
         self._model = nn.Sequential(*self.build_layers(phases))
 
     def get_model(self):
@@ -933,20 +859,15 @@ class VariableGenomeDecoder(ChannelBasedDecoder):
             return
         self._types = self.adjust_types(genome_copy, phase_types)
         phases = []
-        for idx, (gene, (in_channels, out_channels), phase_type) in enumerate(
-            zip(self._genome, self._channels, self._types)):
+        for idx, (gene, (in_channels, out_channels), phase_type) in enumerate(zip(self._genome, self._channels, self._types)):
             if phase_type == self.RESIDUAL:
-                phases.append(ResidualPhase(gene, in_channels, out_channels,
-                    idx))
+                phases.append(ResidualPhase(gene, in_channels, out_channels, idx))
             elif phase_type == self.PREACT_RESIDUAL:
-                phases.append(ResidualPhase(gene, in_channels, out_channels,
-                    idx, preact=True))
+                phases.append(ResidualPhase(gene, in_channels, out_channels, idx, preact=True))
             elif phase_type == self.DENSE:
                 phases.append(DensePhase(gene, in_channels, out_channels, idx))
             else:
-                raise NotImplementedError(
-                    'Phase type corresponding to {} not implemented.'.
-                    format(phase_type))
+                raise NotImplementedError('Phase type corresponding to {} not implemented.'.format(phase_type))
         self._model = nn.Sequential(*self.build_layers(phases))
 
     def adjust_types(self, genome, phase_types):
@@ -980,14 +901,12 @@ def get_decoder(decoder_str, genome, channels, repeats=None):
     if decoder_str == 'residual':
         return ResidualGenomeDecoder(genome, channels, repeats=repeats)
     if decoder_str == 'swapped-residual':
-        return ResidualGenomeDecoder(genome, channels, preact=True, repeats
-            =repeats)
+        return ResidualGenomeDecoder(genome, channels, preact=True, repeats=repeats)
     if decoder_str == 'dense':
         return DenseGenomeDecoder(genome, channels, repeats=repeats)
     if decoder_str == 'variable':
         return VariableGenomeDecoder(genome, channels, repeats=repeats)
-    raise NotImplementedError('Decoder {} not implemented.'.format(decoder_str)
-        )
+    raise NotImplementedError('Decoder {} not implemented.'.format(decoder_str))
 
 
 class EvoNetwork(nn.Module):
@@ -996,8 +915,7 @@ class EvoNetwork(nn.Module):
     Made up of Phases.
     """
 
-    def __init__(self, genome, channels, out_features, data_shape, decoder=
-        'residual', repeats=None):
+    def __init__(self, genome, channels, out_features, data_shape, decoder='residual', repeats=None):
         """
         Network constructor.
         :param genome: depends on decoder scheme, for most this is a list.
@@ -1006,15 +924,11 @@ class EvoNetwork(nn.Module):
         :param decoder: string, what kind of decoding scheme to use.
         """
         super(EvoNetwork, self).__init__()
-        assert len(channels) == len(genome
-            ), 'Need to supply as many channel tuples as genes.'
+        assert len(channels) == len(genome), 'Need to supply as many channel tuples as genes.'
         if repeats is not None:
-            assert len(repeats) == len(genome
-                ), 'Need to supply repetition information for each phase.'
-        self.model = get_decoder(decoder, genome, channels, repeats).get_model(
-            )
-        out = self.model(torch.autograd.Variable(torch.zeros(1, channels[0]
-            [0], *data_shape)))
+            assert len(repeats) == len(genome), 'Need to supply repetition information for each phase.'
+        self.model = get_decoder(decoder, genome, channels, repeats).get_model()
+        out = self.model(torch.autograd.Variable(torch.zeros(1, channels[0][0], *data_shape)))
         shape = out.data.shape
         self.gap = nn.AvgPool2d(kernel_size=(shape[-2], shape[-1]), stride=1)
         shape = self.gap(out).data.shape
@@ -1032,29 +946,13 @@ class EvoNetwork(nn.Module):
         return self.linear(x), None
 
 
-OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda
-    C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1,
-    count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.
-    MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda C,
-    stride, affine: Identity() if stride == 1 else FactorizedReduce(C, C,
-    affine=affine), 'sep_conv_3x3': lambda C, stride, affine: SepConv(C, C,
-    3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine:
-    SepConv(C, C, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C,
-    stride, affine: SepConv(C, C, 7, stride, 3, affine=affine),
-    'dil_conv_3x3': lambda C, stride, affine: DilConv(C, C, 3, stride, 2, 2,
-    affine=affine), 'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C,
-    5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C, stride,
-    affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 7),
-    stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1),
-    stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C,
-    affine=affine))}
+OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda C, stride, affine: Identity() if stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C, stride, affine: SepConv(C, C, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine: SepConv(C, C, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C, stride, affine: SepConv(C, C, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C, stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C, affine=affine))}
 
 
 def drop_path(x, drop_prob):
     if drop_prob > 0.0:
         keep_prob = 1.0 - drop_prob
-        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).
-            bernoulli_(keep_prob))
+        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
         x.div_(keep_prob)
         x.mul_(mask)
     return x
@@ -1062,8 +960,7 @@ def drop_path(x, drop_prob):
 
 class Cell(nn.Module):
 
-    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction,
-        reduction_prev, SE=False):
+    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev, SE=False):
         super(Cell, self).__init__()
         None
         self.se_layer = None
@@ -1115,8 +1012,7 @@ class Cell(nn.Module):
         if self.se_layer is None:
             return torch.cat([states[i] for i in self._concat], dim=1)
         else:
-            return self.se_layer(torch.cat([states[i] for i in self._concat
-                ], dim=1))
+            return self.se_layer(torch.cat([states[i] for i in self._concat], dim=1))
 
 
 class AuxiliaryHeadCIFAR(nn.Module):
@@ -1124,11 +1020,7 @@ class AuxiliaryHeadCIFAR(nn.Module):
     def __init__(self, C, num_classes):
         """assuming input size 8x8"""
         super(AuxiliaryHeadCIFAR, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5,
-            stride=3, padding=0, count_include_pad=False), nn.Conv2d(C, 128,
-            1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(
-            inplace=True))
+        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=3, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
         self.classifier = nn.Linear(768, num_classes)
 
     def forward(self, x):
@@ -1142,10 +1034,7 @@ class AuxiliaryHeadImageNet(nn.Module):
     def __init__(self, C, num_classes):
         """assuming input size 14x14"""
         super(AuxiliaryHeadImageNet, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5,
-            stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128,
-            1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.
-            Conv2d(128, 768, 2, bias=False), nn.ReLU(inplace=True))
+        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.ReLU(inplace=True))
         self.classifier = nn.Linear(768, num_classes)
 
     def forward(self, x):
@@ -1162,8 +1051,7 @@ class NetworkCIFAR(nn.Module):
         self._auxiliary = auxiliary
         stem_multiplier = 3
         C_curr = stem_multiplier * C
-        self.stem = nn.Sequential(nn.Conv2d(3, C_curr, 3, padding=1, bias=
-            False), nn.BatchNorm2d(C_curr))
+        self.stem = nn.Sequential(nn.Conv2d(3, C_curr, 3, padding=1, bias=False), nn.BatchNorm2d(C_curr))
         C_prev_prev, C_prev, C_curr = C_curr, C_curr, C
         self.cells = nn.ModuleList()
         reduction_prev = False
@@ -1173,16 +1061,14 @@ class NetworkCIFAR(nn.Module):
                 reduction = True
             else:
                 reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction,
-                reduction_prev, SE=SE)
+            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev, SE=SE)
             reduction_prev = reduction
             self.cells += [cell]
             C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
             if i == 2 * layers // 3:
                 C_to_auxiliary = C_prev
         if auxiliary:
-            self.auxiliary_head = AuxiliaryHeadCIFAR(C_to_auxiliary,
-                num_classes)
+            self.auxiliary_head = AuxiliaryHeadCIFAR(C_to_auxiliary, num_classes)
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(C_prev, num_classes)
 
@@ -1201,15 +1087,13 @@ class NetworkCIFAR(nn.Module):
 
 class PyramidNetworkCIFAR(nn.Module):
 
-    def __init__(self, C, num_classes, layers, auxiliary, genotype,
-        increment=4, SE=False):
+    def __init__(self, C, num_classes, layers, auxiliary, genotype, increment=4, SE=False):
         super(PyramidNetworkCIFAR, self).__init__()
         self._layers = layers
         self._auxiliary = auxiliary
         stem_multiplier = 3
         C_curr = stem_multiplier * C
-        self.stem = nn.Sequential(nn.Conv2d(3, C_curr, 3, padding=1, bias=
-            False), nn.BatchNorm2d(C_curr))
+        self.stem = nn.Sequential(nn.Conv2d(3, C_curr, 3, padding=1, bias=False), nn.BatchNorm2d(C_curr))
         C_prev_prev, C_prev, C_curr = C_curr, C_curr, C
         self.cells = nn.ModuleList()
         reduction_prev = False
@@ -1218,8 +1102,7 @@ class PyramidNetworkCIFAR(nn.Module):
                 reduction = True
             else:
                 reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction,
-                reduction_prev, SE=SE)
+            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev, SE=SE)
             reduction_prev = reduction
             self.cells += [cell]
             C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
@@ -1227,8 +1110,7 @@ class PyramidNetworkCIFAR(nn.Module):
                 C_to_auxiliary = C_prev
             C_curr += increment
         if auxiliary:
-            self.auxiliary_head = AuxiliaryHeadCIFAR(C_to_auxiliary,
-                num_classes)
+            self.auxiliary_head = AuxiliaryHeadCIFAR(C_to_auxiliary, num_classes)
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(C_prev, num_classes)
 
@@ -1251,12 +1133,8 @@ class NetworkImageNet(nn.Module):
         super(NetworkImageNet, self).__init__()
         self._layers = layers
         self._auxiliary = auxiliary
-        self.stem0 = nn.Sequential(nn.Conv2d(3, C // 2, kernel_size=3,
-            stride=2, padding=1, bias=False), nn.BatchNorm2d(C // 2), nn.
-            ReLU(inplace=True), nn.Conv2d(C // 2, C, 3, stride=2, padding=1,
-            bias=False), nn.BatchNorm2d(C))
-        self.stem1 = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(C, C, 3,
-            stride=2, padding=1, bias=False), nn.BatchNorm2d(C))
+        self.stem0 = nn.Sequential(nn.Conv2d(3, C // 2, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(C // 2), nn.ReLU(inplace=True), nn.Conv2d(C // 2, C, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(C))
+        self.stem1 = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(C, C, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(C))
         C_prev_prev, C_prev, C_curr = C, C, C
         self.cells = nn.ModuleList()
         reduction_prev = True
@@ -1266,16 +1144,14 @@ class NetworkImageNet(nn.Module):
                 reduction = True
             else:
                 reduction = False
-            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction,
-                reduction_prev)
+            cell = Cell(genotype, C_prev_prev, C_prev, C_curr, reduction, reduction_prev)
             reduction_prev = reduction
             self.cells += [cell]
             C_prev_prev, C_prev = C_prev, cell.multiplier * C_curr
             if i == 2 * layers // 3:
                 C_to_auxiliary = C_prev
         if auxiliary:
-            self.auxiliary_head = AuxiliaryHeadImageNet(C_to_auxiliary,
-                num_classes)
+            self.auxiliary_head = AuxiliaryHeadImageNet(C_to_auxiliary, num_classes)
         self.global_pooling = nn.AvgPool2d(7)
         self.classifier = nn.Linear(C_prev, num_classes)
 
@@ -1297,9 +1173,7 @@ class ReLUConvBN(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
         super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-            C_out, kernel_size, stride=stride, padding=padding, bias=False),
-            nn.BatchNorm2d(C_out, affine=affine))
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
 
     def forward(self, x):
         return self.op(x)
@@ -1307,14 +1181,9 @@ class ReLUConvBN(nn.Module):
 
 class DilConv(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation,
-        affine=True):
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
         super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-            C_in, kernel_size=kernel_size, stride=stride, padding=padding,
-            dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in,
-            C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(
-            C_out, affine=affine))
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
 
     def forward(self, x):
         return self.op(x)
@@ -1324,14 +1193,7 @@ class SepConv(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
         super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in,
-            C_in, kernel_size=kernel_size, stride=stride, padding=padding,
-            groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1,
-            padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn
-            .ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=
-            kernel_size, stride=1, padding=padding, groups=C_in, bias=False
-            ), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False),
-            nn.BatchNorm2d(C_out, affine=affine))
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
 
     def forward(self, x):
         return self.op(x)
@@ -1364,10 +1226,8 @@ class FactorizedReduce(nn.Module):
         super(FactorizedReduce, self).__init__()
         assert C_out % 2 == 0
         self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0,
-            bias=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
         self.bn = nn.BatchNorm2d(C_out, affine=affine)
 
     def forward(self, x):
@@ -1382,9 +1242,7 @@ class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction,
-            bias=False), nn.ReLU(inplace=True), nn.Linear(channel //
-            reduction, channel, bias=False), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -1397,42 +1255,114 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AuxiliaryHeadCIFAR,
+     lambda: ([], {'C': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8])], {}),
+     True),
+    (AuxiliaryHeadImageNet,
+     lambda: ([], {'C': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4, 8, 8])], {}),
+     True),
+    (DenseNode,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DilConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FactorizedReduce,
+     lambda: ([], {'C_in': 4, 'C_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HourGlassResidual,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LOSHourGlassDecoder,
+     lambda: ([], {'genome': [4, 4], 'n_stacks': 4, 'out_feature_maps': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Lin,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PreactResidualNode,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReLUConvBN,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ResidualNode,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SepConv,
+     lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Zero,
+     lambda: ([], {'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_ianwhale_nsga_net(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(DenseNode(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(DilConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(FactorizedReduce(*[], **{'C_in': 4, 'C_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(HourGlassResidual(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(LOSHourGlassDecoder(*[], **{'genome': [4, 4], 'n_stacks': 4, 'out_feature_maps': 4}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Lin(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(PreactResidualNode(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ReLUConvBN(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(ResidualNode(*[], **{'in_channels': 4, 'out_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(SepConv(*[], **{'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Zero(*[], **{'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

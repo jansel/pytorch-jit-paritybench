@@ -37,8 +37,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -78,8 +79,7 @@ class ArcModule(nn.Module):
         self.out_features = out_features
         self.s = s
         self.m = m
-        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features)
-            )
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
         nn.init.xavier_normal_(self.weight)
         self.cos_m = math.cos(m)
         self.sin_m = math.sin(m)
@@ -104,15 +104,12 @@ class ArcModule(nn.Module):
         return outputs
 
 
-def get_pretrainedmodels(model_name='resnet18', num_outputs=None,
-    pretrained=True, **_):
+def get_pretrainedmodels(model_name='resnet18', num_outputs=None, pretrained=True, **_):
     pretrained = 'imagenet' if pretrained else None
-    model = pretrainedmodels.__dict__[model_name](num_classes=1000,
-        pretrained=pretrained)
+    model = pretrainedmodels.__dict__[model_name](num_classes=1000, pretrained=pretrained)
     if 'dpn' in model_name:
         in_channels = model.last_linear.in_channels
-        model.last_linear = nn.Conv2d(in_channels, num_outputs, kernel_size
-            =1, bias=True)
+        model.last_linear = nn.Conv2d(in_channels, num_outputs, kernel_size=1, bias=True)
     else:
         model.avgpool = nn.AdaptiveAvgPool2d(1)
         in_features = model.last_linear.in_features
@@ -145,10 +142,8 @@ class ArcNet(nn.Module):
         else:
             in_features = self.model.last_linear.in_features
         self.bn1 = nn.BatchNorm2d(in_features)
-        self.dropout = nn.Dropout2d(config.model.params.drop_rate, inplace=True
-            )
-        self.fc1 = nn.Linear(in_features * feature_size * feature_size,
-            channel_size)
+        self.dropout = nn.Dropout2d(config.model.params.drop_rate, inplace=True)
+        self.fc1 = nn.Linear(in_features * feature_size * feature_size, channel_size)
         self.bn2 = nn.BatchNorm1d(channel_size)
         s = config.model.params.s if 's' in config.model.params else 65
         m = config.model.params.m if 'm' in config.model.params else 0.5
@@ -185,8 +180,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ArcModule,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {}),
+     True),
+]
+
 class Test_pudae_kaggle_humpback(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ArcModule(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

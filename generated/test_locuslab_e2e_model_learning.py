@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,9 +81,7 @@ class Net(nn.Module):
         W.data = torch.Tensor(Theta[:-1, :].T)
         b.data = torch.Tensor(Theta[(-1), :])
         layer_sizes = [X.size(1)] + hidden_layer_sizes
-        layers = reduce(operator.add, [[nn.Linear(a, b), nn.BatchNorm1d(b),
-            nn.ReLU(), nn.Dropout(p=0.2)] for a, b in zip(layer_sizes[0:-1],
-            layer_sizes[1:])])
+        layers = reduce(operator.add, [[nn.Linear(a, b), nn.BatchNorm1d(b), nn.ReLU(), nn.Dropout(p=0.2)] for a, b in zip(layer_sizes[0:-1], layer_sizes[1:])])
         layers += [nn.Linear(layer_sizes[-1], Y.size(1))]
         self.net = nn.Sequential(*layers)
 
@@ -106,34 +105,24 @@ class ScheduleBattery(nn.Module):
         self.lam = params['lambda']
         D1 = torch.cat([torch.eye(T - 1), torch.zeros(1, T - 1)], 0)
         D2 = torch.cat([torch.zeros(1, T - 1), torch.eye(T - 1)], 0)
-        self.Q = Variable(block([[eps * torch.eye(T), 0, 0], [0, eps *
-            torch.eye(T), 0], [0, 0, self.lam * torch.eye(T)]]))
-        Ae_list = [[torch.zeros(1, T), torch.zeros(1, T), torch.ones(1, 1),
-            torch.zeros(1, T - 1)], [D1.t() * eff, -D1.t(), D1.t() - D2.t()]]
-        self.Ae = Variable(torch.cat(map(lambda x: torch.cat(x, 1), Ae_list
-            ), 0))
-        self.be = Variable(torch.cat([self.B / 2 * torch.ones(1), torch.
-            zeros(T - 1)]))
-        self.A = Variable(block([[torch.eye(T), 0, 0], [-torch.eye(T), 0, 0
-            ], [0, torch.eye(T), 0], [0, -torch.eye(T), 0], [0, 0, torch.
-            eye(T)], [0, 0, -torch.eye(T)]]))
-        self.b = Variable(torch.Tensor([in_max] * T + [0] * T + [out_max] *
-            T + [0] * T + [self.B] * T + [0] * T))
+        self.Q = Variable(block([[eps * torch.eye(T), 0, 0], [0, eps * torch.eye(T), 0], [0, 0, self.lam * torch.eye(T)]]))
+        Ae_list = [[torch.zeros(1, T), torch.zeros(1, T), torch.ones(1, 1), torch.zeros(1, T - 1)], [D1.t() * eff, -D1.t(), D1.t() - D2.t()]]
+        self.Ae = Variable(torch.cat(map(lambda x: torch.cat(x, 1), Ae_list), 0))
+        self.be = Variable(torch.cat([self.B / 2 * torch.ones(1), torch.zeros(T - 1)]))
+        self.A = Variable(block([[torch.eye(T), 0, 0], [-torch.eye(T), 0, 0], [0, torch.eye(T), 0], [0, -torch.eye(T), 0], [0, 0, torch.eye(T)], [0, 0, -torch.eye(T)]]))
+        self.b = Variable(torch.Tensor([in_max] * T + [0] * T + [out_max] * T + [0] * T + [self.B] * T + [0] * T))
 
     def forward(self, log_prices):
         prices = torch.exp(log_prices)
         nBatch = prices.size(0)
         T = self.T
         Q = self.Q.unsqueeze(0).expand(nBatch, self.Q.size(0), self.Q.size(1))
-        c = torch.cat([prices, -prices, -Variable(self.lam * self.B * torch
-            .ones(T)).unsqueeze(0).expand(nBatch, T)], 1)
+        c = torch.cat([prices, -prices, -Variable(self.lam * self.B * torch.ones(T)).unsqueeze(0).expand(nBatch, T)], 1)
         A = self.A.unsqueeze(0).expand(nBatch, self.A.size(0), self.A.size(1))
         b = self.b.unsqueeze(0).expand(nBatch, self.b.size(0))
-        Ae = self.Ae.unsqueeze(0).expand(nBatch, self.Ae.size(0), self.Ae.
-            size(1))
+        Ae = self.Ae.unsqueeze(0).expand(nBatch, self.Ae.size(0), self.Ae.size(1))
         be = self.be.unsqueeze(0).expand(nBatch, self.be.size(0))
-        out = QPFunction(verbose=True)(Q.double(), c.double(), A.double(),
-            b.double(), Ae.double(), be.double())
+        out = QPFunction(verbose=True)(Q.double(), c.double(), A.double(), b.double(), Ae.double(), be.double())
         return out
 
 
@@ -143,31 +132,24 @@ class SolveNewsvendor(nn.Module):
     def __init__(self, params, eps=0.01):
         super(SolveNewsvendor, self).__init__()
         k = len(params['d'])
-        self.Q = Variable(torch.diag(torch.Tensor([params['c_quad']] + [
-            params['b_quad']] * k + [params['h_quad']] * k)))
-        self.p = Variable(torch.Tensor([params['c_lin']] + [params['b_lin']
-            ] * k + [params['h_lin']] * k))
-        self.G = Variable(torch.cat([torch.cat([-torch.ones(k, 1), -torch.
-            eye(k), torch.zeros(k, k)], 1), torch.cat([torch.ones(k, 1),
-            torch.zeros(k, k), -torch.eye(k)], 1), -torch.eye(1 + 2 * k)], 0))
-        self.h = Variable(torch.Tensor(np.concatenate([-params['d'], params
-            ['d'], np.zeros(1 + 2 * k)])))
+        self.Q = Variable(torch.diag(torch.Tensor([params['c_quad']] + [params['b_quad']] * k + [params['h_quad']] * k)))
+        self.p = Variable(torch.Tensor([params['c_lin']] + [params['b_lin']] * k + [params['h_lin']] * k))
+        self.G = Variable(torch.cat([torch.cat([-torch.ones(k, 1), -torch.eye(k), torch.zeros(k, k)], 1), torch.cat([torch.ones(k, 1), torch.zeros(k, k), -torch.eye(k)], 1), -torch.eye(1 + 2 * k)], 0))
+        self.h = Variable(torch.Tensor(np.concatenate([-params['d'], params['d'], np.zeros(1 + 2 * k)])))
         self.one = Variable(torch.Tensor([1]))
         self.eps_eye = eps * Variable(torch.eye(1 + 2 * k)).unsqueeze(0)
 
     def forward(self, y):
         nBatch, k = y.size()
         eps2 = 1e-08
-        Q_scale = torch.cat([torch.diag(torch.cat([self.one, y[i] + eps2, y
-            [i] + eps2])).unsqueeze(0) for i in range(nBatch)], 0)
+        Q_scale = torch.cat([torch.diag(torch.cat([self.one, y[i] + eps2, y[i] + eps2])).unsqueeze(0) for i in range(nBatch)], 0)
         Q = self.Q.unsqueeze(0).expand_as(Q_scale).mul(Q_scale)
         p_scale = torch.cat([Variable(torch.ones(nBatch, 1)), y, y], 1)
         p = self.p.unsqueeze(0).expand_as(p_scale).mul(p_scale)
         G = self.G.unsqueeze(0).expand(nBatch, self.G.size(0), self.G.size(1))
         h = self.h.unsqueeze(0).expand(nBatch, self.h.size(0))
         e = Variable(torch.Tensor()).double()
-        out = QPFunction(verbose=False)(Q.double(), p.double(), G.double(),
-            h.double(), e, e).float()
+        out = QPFunction(verbose=False)(Q.double(), p.double(), G.double(), h.double(), e, e).float()
         return out[:, :1]
 
 
@@ -177,30 +159,23 @@ class SolveNewsvendor(nn.Module):
     def __init__(self, params, eps=0.01):
         super(SolveNewsvendor, self).__init__()
         k = len(params['d'])
-        self.Q = Variable(torch.diag(torch.Tensor([params['c_quad']] + [
-            params['b_quad']] * k + [params['h_quad']] * k)))
-        self.p = Variable(torch.Tensor([params['c_lin']] + [params['b_lin']
-            ] * k + [params['h_lin']] * k))
-        self.G = Variable(torch.cat([torch.cat([-torch.ones(k, 1), -torch.
-            eye(k), torch.zeros(k, k)], 1), torch.cat([torch.ones(k, 1),
-            torch.zeros(k, k), -torch.eye(k)], 1), -torch.eye(1 + 2 * k)], 0))
-        self.h = Variable(torch.Tensor(np.concatenate([-params['d'], params
-            ['d'], np.zeros(1 + 2 * k)])))
+        self.Q = Variable(torch.diag(torch.Tensor([params['c_quad']] + [params['b_quad']] * k + [params['h_quad']] * k)))
+        self.p = Variable(torch.Tensor([params['c_lin']] + [params['b_lin']] * k + [params['h_lin']] * k))
+        self.G = Variable(torch.cat([torch.cat([-torch.ones(k, 1), -torch.eye(k), torch.zeros(k, k)], 1), torch.cat([torch.ones(k, 1), torch.zeros(k, k), -torch.eye(k)], 1), -torch.eye(1 + 2 * k)], 0))
+        self.h = Variable(torch.Tensor(np.concatenate([-params['d'], params['d'], np.zeros(1 + 2 * k)])))
         self.one = Variable(torch.Tensor([1]))
         self.eps_eye = eps * Variable(torch.eye(1 + 2 * k)).unsqueeze(0)
 
     def forward(self, y):
         nBatch, k = y.size()
-        Q_scale = torch.cat([torch.diag(torch.cat([self.one, y[i], y[i]])).
-            unsqueeze(0) for i in range(nBatch)], 0)
+        Q_scale = torch.cat([torch.diag(torch.cat([self.one, y[i], y[i]])).unsqueeze(0) for i in range(nBatch)], 0)
         Q = self.Q.unsqueeze(0).expand_as(Q_scale).mul(Q_scale)
         p_scale = torch.cat([Variable(torch.ones(nBatch, 1)), y, y], 1)
         p = self.p.unsqueeze(0).expand_as(p_scale).mul(p_scale)
         G = self.G.unsqueeze(0).expand(nBatch, self.G.size(0), self.G.size(1))
         h = self.h.unsqueeze(0).expand(nBatch, self.h.size(0))
         e = Variable(torch.Tensor()).double()
-        out = QPFunction(verbose=False)(Q.double(), p.double(), G.double(),
-            h.double(), e, e).float()
+        out = QPFunction(verbose=False)(Q.double(), p.double(), G.double(), h.double(), e, e).float()
         return out[:, :1]
 
 
@@ -215,16 +190,13 @@ class Net(nn.Module):
         W.data = torch.Tensor(Theta[:-1, :].T)
         b.data = torch.Tensor(Theta[(-1), :])
         layer_sizes = [X.shape[1]] + hidden_layer_sizes
-        layers = reduce(operator.add, [[nn.Linear(a, b), nn.BatchNorm1d(b),
-            nn.ReLU(), nn.Dropout(p=0.2)] for a, b in zip(layer_sizes[0:-1],
-            layer_sizes[1:])])
+        layers = reduce(operator.add, [[nn.Linear(a, b), nn.BatchNorm1d(b), nn.ReLU(), nn.Dropout(p=0.2)] for a, b in zip(layer_sizes[0:-1], layer_sizes[1:])])
         layers += [nn.Linear(layer_sizes[-1], Y.shape[1])]
         self.net = nn.Sequential(*layers)
         self.sig = Parameter(torch.ones(1, Y.shape[1]))
 
     def forward(self, x):
-        return self.lin(x) + self.net(x), self.sig.expand(x.size(0), self.
-            sig.size(1))
+        return self.lin(x) + self.net(x), self.sig.expand(x.size(0), self.sig.size(1))
 
     def set_sig(self, X, Y):
         Y_pred = self.lin(X) + self.net(X)
@@ -241,14 +213,12 @@ class SolveSchedulingQP(nn.Module):
         self.n = params['n']
         D = np.eye(self.n - 1, self.n) - np.eye(self.n - 1, self.n, 1)
         self.G = Variable(torch.DoubleTensor(np.vstack([D, -D])))
-        self.h = Variable((self.c_ramp * torch.ones((self.n - 1) * 2)).double()
-            )
+        self.h = Variable((self.c_ramp * torch.ones((self.n - 1) * 2)).double())
         self.e = Variable(torch.Tensor().double())
 
     def forward(self, z0, mu, dg, d2g):
         nBatch, n = z0.size()
-        Q = torch.cat([torch.diag(d2g[i] + 1).unsqueeze(0) for i in range(
-            nBatch)], 0).double()
+        Q = torch.cat([torch.diag(d2g[i] + 1).unsqueeze(0) for i in range(nBatch)], 0).double()
         p = (dg - d2g * z0 - mu).double()
         G = self.G.unsqueeze(0).expand(nBatch, self.G.size(0), self.G.size(1))
         h = self.h.unsqueeze(0).expand(nBatch, self.h.size(0))
@@ -266,8 +236,7 @@ class GLinearApprox(Function):
     def forward(self, z, mu, sig):
         self.save_for_backward(z, mu, sig)
         p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.
-            cdf(z.cpu().numpy()) - self.gamma_under).cuda()
+        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.cdf(z.cpu().numpy()) - self.gamma_under).cuda()
 
     def backward(self, grad_output):
         z, mu, sig = self.saved_tensors
@@ -289,8 +258,7 @@ class GQuadraticApprox(Function):
     def forward(self, z, mu, sig):
         self.save_for_backward(z, mu, sig)
         p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.
-            pdf(z.cpu().numpy())).cuda()
+        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.pdf(z.cpu().numpy())).cuda()
 
     def backward(self, grad_output):
         z, mu, sig = self.saved_tensors
@@ -298,8 +266,7 @@ class GQuadraticApprox(Function):
         pz = torch.DoubleTensor(p.pdf(z.cpu().numpy())).cuda()
         dz = -(self.gamma_under + self.gamma_over) * (z - mu) / sig ** 2 * pz
         dmu = -dz
-        dsig = (self.gamma_under + self.gamma_over) * ((z - mu) ** 2 - sig ** 2
-            ) / sig ** 3 * pz
+        dsig = (self.gamma_under + self.gamma_over) * ((z - mu) ** 2 - sig ** 2) / sig ** 3 * pz
         return grad_output * dz, grad_output * dmu, grad_output * dsig
 
 
@@ -314,8 +281,7 @@ class SolveScheduling(nn.Module):
         self.n = params['n']
         D = np.eye(self.n - 1, self.n) - np.eye(self.n - 1, self.n, 1)
         self.G = Variable(torch.DoubleTensor(np.vstack([D, -D])))
-        self.h = Variable((self.c_ramp * torch.ones((self.n - 1) * 2)).double()
-            )
+        self.h = Variable((self.c_ramp * torch.ones((self.n - 1) * 2)).double())
         self.e = Variable(torch.Tensor().double())
 
     def forward(self, mu, sig):
@@ -324,26 +290,15 @@ class SolveScheduling(nn.Module):
         mu0 = Variable(1.0 * mu.data, requires_grad=False)
         sig0 = Variable(1.0 * sig.data, requires_grad=False)
         for i in range(20):
-            dg = GLinearApprox(self.params['gamma_under'], self.params[
-                'gamma_over'])(z0, mu0, sig0)
-            d2g = GQuadraticApprox(self.params['gamma_under'], self.params[
-                'gamma_over'])(z0, mu0, sig0)
+            dg = GLinearApprox(self.params['gamma_under'], self.params['gamma_over'])(z0, mu0, sig0)
+            d2g = GQuadraticApprox(self.params['gamma_under'], self.params['gamma_over'])(z0, mu0, sig0)
             z0_new = SolveSchedulingQP(self.params)(z0, mu0, dg, d2g)
             solution_diff = (z0 - z0_new).norm().data[0]
             None
             z0 = z0_new
             if solution_diff < 1e-10:
                 break
-        dg = GLinearApprox(self.params['gamma_under'], self.params[
-            'gamma_over'])(z0, mu, sig)
-        d2g = GQuadraticApprox(self.params['gamma_under'], self.params[
-            'gamma_over'])(z0, mu, sig)
+        dg = GLinearApprox(self.params['gamma_under'], self.params['gamma_over'])(z0, mu, sig)
+        d2g = GQuadraticApprox(self.params['gamma_under'], self.params['gamma_over'])(z0, mu, sig)
         return SolveSchedulingQP(self.params)(z0, mu, dg, d2g)
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_locuslab_e2e_model_learning(_paritybench_base):
-    pass

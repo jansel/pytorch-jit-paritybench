@@ -11,8 +11,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -105,10 +106,8 @@ class GaussianPolicy(nn.Module):
             self.action_scale = torch.tensor(1.0)
             self.action_bias = torch.tensor(0.0)
         else:
-            self.action_scale = torch.FloatTensor((action_space.high -
-                action_space.low) / 2.0)
-            self.action_bias = torch.FloatTensor((action_space.high +
-                action_space.low) / 2.0)
+            self.action_scale = torch.FloatTensor((action_space.high - action_space.low) / 2.0)
+            self.action_bias = torch.FloatTensor((action_space.high + action_space.low) / 2.0)
 
     def forward(self, state):
         x = F.relu(self.linear1(state))
@@ -150,10 +149,8 @@ class DeterministicPolicy(nn.Module):
             self.action_scale = 1.0
             self.action_bias = 0.0
         else:
-            self.action_scale = torch.FloatTensor((action_space.high -
-                action_space.low) / 2.0)
-            self.action_bias = torch.FloatTensor((action_space.high +
-                action_space.low) / 2.0)
+            self.action_scale = torch.FloatTensor((action_space.high - action_space.low) / 2.0)
+            self.action_bias = torch.FloatTensor((action_space.high + action_space.low) / 2.0)
 
     def forward(self, state):
         x = F.relu(self.linear1(state))
@@ -179,18 +176,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_pranz24_pytorch_soft_actor_critic(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(DeterministicPolicy(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (DeterministicPolicy,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GaussianPolicy,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (QNetwork,
+     lambda: ([], {'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {}),
+     True),
+    (ValueNetwork,
+     lambda: ([], {'num_inputs': 4, 'hidden_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_pranz24_pytorch_soft_actor_critic(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(GaussianPolicy(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(QNetwork(*[], **{'num_inputs': 4, 'num_actions': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 8]), torch.rand([4, 4, 4, 8])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(ValueNetwork(*[], **{'num_inputs': 4, 'hidden_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 

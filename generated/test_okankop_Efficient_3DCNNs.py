@@ -46,8 +46,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -101,31 +102,15 @@ class C3D(nn.Module):
 
     def __init__(self, sample_size, sample_duration, num_classes=600):
         super(C3D, self).__init__()
-        self.group1 = nn.Sequential(nn.Conv3d(3, 64, kernel_size=3, padding
-            =1), nn.BatchNorm3d(64), nn.ReLU(), nn.MaxPool3d(kernel_size=(2,
-            2, 2), stride=(1, 2, 2)))
-        self.group2 = nn.Sequential(nn.Conv3d(64, 128, kernel_size=3,
-            padding=1), nn.BatchNorm3d(128), nn.ReLU(), nn.MaxPool3d(
-            kernel_size=(2, 2, 2), stride=(2, 2, 2)))
-        self.group3 = nn.Sequential(nn.Conv3d(128, 256, kernel_size=3,
-            padding=1), nn.BatchNorm3d(256), nn.ReLU(), nn.Conv3d(256, 256,
-            kernel_size=3, padding=1), nn.BatchNorm3d(256), nn.ReLU(), nn.
-            MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)))
-        self.group4 = nn.Sequential(nn.Conv3d(256, 512, kernel_size=3,
-            padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.Conv3d(512, 512,
-            kernel_size=3, padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.
-            MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)))
-        self.group5 = nn.Sequential(nn.Conv3d(512, 512, kernel_size=3,
-            padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.Conv3d(512, 512,
-            kernel_size=3, padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.
-            MaxPool3d(kernel_size=(1, 2, 2), stride=(2, 2, 2), padding=(0, 
-            1, 1)))
+        self.group1 = nn.Sequential(nn.Conv3d(3, 64, kernel_size=3, padding=1), nn.BatchNorm3d(64), nn.ReLU(), nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(1, 2, 2)))
+        self.group2 = nn.Sequential(nn.Conv3d(64, 128, kernel_size=3, padding=1), nn.BatchNorm3d(128), nn.ReLU(), nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)))
+        self.group3 = nn.Sequential(nn.Conv3d(128, 256, kernel_size=3, padding=1), nn.BatchNorm3d(256), nn.ReLU(), nn.Conv3d(256, 256, kernel_size=3, padding=1), nn.BatchNorm3d(256), nn.ReLU(), nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)))
+        self.group4 = nn.Sequential(nn.Conv3d(256, 512, kernel_size=3, padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.Conv3d(512, 512, kernel_size=3, padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)))
+        self.group5 = nn.Sequential(nn.Conv3d(512, 512, kernel_size=3, padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.Conv3d(512, 512, kernel_size=3, padding=1), nn.BatchNorm3d(512), nn.ReLU(), nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(2, 2, 2), padding=(0, 1, 1)))
         last_duration = int(math.floor(sample_duration / 16))
         last_size = int(math.ceil(sample_size / 32))
-        self.fc1 = nn.Sequential(nn.Linear(512 * last_duration * last_size *
-            last_size, 4096), nn.ReLU(), nn.Dropout(0.5))
-        self.fc2 = nn.Sequential(nn.Linear(4096, 4096), nn.ReLU(), nn.
-            Dropout(0.5))
+        self.fc1 = nn.Sequential(nn.Linear(512 * last_duration * last_size * last_size, 4096), nn.ReLU(), nn.Dropout(0.5))
+        self.fc2 = nn.Sequential(nn.Linear(4096, 4096), nn.ReLU(), nn.Dropout(0.5))
         self.fc = nn.Sequential(nn.Linear(4096, num_classes))
 
     def forward(self, x):
@@ -146,11 +131,9 @@ class Block(nn.Module):
 
     def __init__(self, in_planes, out_planes, stride=1):
         super(Block, self).__init__()
-        self.conv1 = nn.Conv3d(in_planes, in_planes, kernel_size=3, stride=
-            stride, padding=1, groups=in_planes, bias=False)
+        self.conv1 = nn.Conv3d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=in_planes, bias=False)
         self.bn1 = nn.BatchNorm3d(in_planes)
-        self.conv2 = nn.Conv3d(in_planes, out_planes, kernel_size=1, stride
-            =1, padding=0, bias=False)
+        self.conv2 = nn.Conv3d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm3d(out_planes)
 
     def forward(self, x):
@@ -160,9 +143,7 @@ class Block(nn.Module):
 
 
 def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv3d(inp, oup, kernel_size=3, stride=stride,
-        padding=(1, 1, 1), bias=False), nn.BatchNorm3d(oup), nn.ReLU(
-        inplace=True))
+    return nn.Sequential(nn.Conv3d(inp, oup, kernel_size=3, stride=stride, padding=(1, 1, 1), bias=False), nn.BatchNorm3d(oup), nn.ReLU(inplace=True))
 
 
 class MobileNet(nn.Module):
@@ -173,19 +154,16 @@ class MobileNet(nn.Module):
         last_channel = 1024
         input_channel = int(input_channel * width_mult)
         last_channel = int(last_channel * width_mult)
-        cfg = [[64, 1, (2, 2, 2)], [128, 2, (2, 2, 2)], [256, 2, (2, 2, 2)],
-            [512, 6, (2, 2, 2)], [1024, 2, (1, 1, 1)]]
+        cfg = [[64, 1, (2, 2, 2)], [128, 2, (2, 2, 2)], [256, 2, (2, 2, 2)], [512, 6, (2, 2, 2)], [1024, 2, (1, 1, 1)]]
         self.features = [conv_bn(3, input_channel, (1, 2, 2))]
         for c, n, s in cfg:
             output_channel = int(c * width_mult)
             for i in range(n):
                 stride = s if i == 0 else 1
-                self.features.append(Block(input_channel, output_channel,
-                    stride))
+                self.features.append(Block(input_channel, output_channel, stride))
                 input_channel = output_channel
         self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(
-            last_channel, num_classes))
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(last_channel, num_classes))
 
     def forward(self, x):
         x = self.features(x)
@@ -203,17 +181,9 @@ class InvertedResidual(nn.Module):
         hidden_dim = round(inp * expand_ratio)
         self.use_res_connect = self.stride == (1, 1, 1) and inp == oup
         if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv3d(hidden_dim, hidden_dim, 3,
-                stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm3d(
-                hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim,
-                oup, 1, 1, 0, bias=False), nn.BatchNorm3d(oup))
+            self.conv = nn.Sequential(nn.Conv3d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm3d(oup))
         else:
-            self.conv = nn.Sequential(nn.Conv3d(inp, hidden_dim, 1, 1, 0,
-                bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=
-                True), nn.Conv3d(hidden_dim, hidden_dim, 3, stride, 1,
-                groups=hidden_dim, bias=False), nn.BatchNorm3d(hidden_dim),
-                nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, oup, 1, 1, 0,
-                bias=False), nn.BatchNorm3d(oup))
+            self.conv = nn.Sequential(nn.Conv3d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm3d(oup))
 
     def forward(self, x):
         if self.use_res_connect:
@@ -223,8 +193,7 @@ class InvertedResidual(nn.Module):
 
 
 def conv_1x1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv3d(inp, oup, 1, 1, 0, bias=False), nn.
-        BatchNorm3d(oup), nn.ReLU(inplace=True))
+    return nn.Sequential(nn.Conv3d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm3d(oup), nn.ReLU(inplace=True))
 
 
 class MobileNetV2(nn.Module):
@@ -234,25 +203,20 @@ class MobileNetV2(nn.Module):
         block = InvertedResidual
         input_channel = 32
         last_channel = 1280
-        interverted_residual_setting = [[1, 16, 1, (1, 1, 1)], [6, 24, 2, (
-            2, 2, 2)], [6, 32, 3, (2, 2, 2)], [6, 64, 4, (2, 2, 2)], [6, 96,
-            3, (1, 1, 1)], [6, 160, 3, (2, 2, 2)], [6, 320, 1, (1, 1, 1)]]
+        interverted_residual_setting = [[1, 16, 1, (1, 1, 1)], [6, 24, 2, (2, 2, 2)], [6, 32, 3, (2, 2, 2)], [6, 64, 4, (2, 2, 2)], [6, 96, 3, (1, 1, 1)], [6, 160, 3, (2, 2, 2)], [6, 320, 1, (1, 1, 1)]]
         assert sample_size % 16 == 0.0
         input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult
-            ) if width_mult > 1.0 else last_channel
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, (1, 2, 2))]
         for t, c, n, s in interverted_residual_setting:
             output_channel = int(c * width_mult)
             for i in range(n):
                 stride = s if i == 0 else (1, 1, 1)
-                self.features.append(block(input_channel, output_channel,
-                    stride, expand_ratio=t))
+                self.features.append(block(input_channel, output_channel, stride, expand_ratio=t))
                 input_channel = output_channel
         self.features.append(conv_1x1x1_bn(input_channel, self.last_channel))
         self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.
-            last_channel, num_classes))
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.last_channel, num_classes))
         self._initialize_weights()
 
     def forward(self, x):
@@ -265,8 +229,7 @@ class MobileNetV2(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2
-                    ] * m.out_channels
+                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
                 if m.bias is not None:
                     m.bias.data.zero_()
@@ -280,8 +243,7 @@ class MobileNetV2(nn.Module):
 
 
 def conv3x3x3(in_planes, out_planes, stride=1):
-    return nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -318,8 +280,7 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm3d(planes)
-        self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm3d(planes)
         self.conv3 = nn.Conv3d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm3d(planes * 4)
@@ -346,8 +307,7 @@ class Bottleneck(nn.Module):
 
 def downsample_basic_block(x, planes, stride):
     out = F.avg_pool3d(x, kernel_size=1, stride=stride)
-    zero_pads = torch.Tensor(out.size(0), planes - out.size(1), out.size(2),
-        out.size(3), out.size(4)).zero_()
+    zero_pads = torch.Tensor(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4)).zero_()
     if isinstance(out.data, torch.cuda.FloatTensor):
         zero_pads = zero_pads.cuda()
     out = Variable(torch.cat([out.data, zero_pads], dim=1))
@@ -356,26 +316,20 @@ def downsample_basic_block(x, planes, stride):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, sample_size, sample_duration,
-        shortcut_type='B', num_classes=400):
+    def __init__(self, block, layers, sample_size, sample_duration, shortcut_type='B', num_classes=400):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv3d(3, 64, kernel_size=7, stride=(1, 2, 2),
-            padding=(3, 3, 3), bias=False)
+        self.conv1 = nn.Conv3d(3, 64, kernel_size=7, stride=(1, 2, 2), padding=(3, 3, 3), bias=False)
         self.bn1 = nn.BatchNorm3d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0], shortcut_type)
-        self.layer2 = self._make_layer(block, 128, layers[1], shortcut_type,
-            stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], shortcut_type,
-            stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], shortcut_type,
-            stride=2)
+        self.layer2 = self._make_layer(block, 128, layers[1], shortcut_type, stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], shortcut_type, stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], shortcut_type, stride=2)
         last_duration = int(math.ceil(sample_duration / 16))
         last_size = int(math.ceil(sample_size / 32))
-        self.avgpool = nn.AvgPool3d((last_duration, last_size, last_size),
-            stride=1)
+        self.avgpool = nn.AvgPool3d((last_duration, last_size, last_size), stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
@@ -388,12 +342,9 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             if shortcut_type == 'A':
-                downsample = partial(downsample_basic_block, planes=planes *
-                    block.expansion, stride=stride)
+                downsample = partial(downsample_basic_block, planes=planes * block.expansion, stride=stride)
             else:
-                downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes *
-                    block.expansion, kernel_size=1, stride=stride, bias=
-                    False), nn.BatchNorm3d(planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm3d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -419,17 +370,14 @@ class ResNet(nn.Module):
 class ResNeXtBottleneck(nn.Module):
     expansion = 2
 
-    def __init__(self, inplanes, planes, cardinality, stride=1, downsample=None
-        ):
+    def __init__(self, inplanes, planes, cardinality, stride=1, downsample=None):
         super(ResNeXtBottleneck, self).__init__()
         mid_planes = cardinality * int(planes / 32)
         self.conv1 = nn.Conv3d(inplanes, mid_planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm3d(mid_planes)
-        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3,
-            stride=stride, padding=1, groups=cardinality, bias=False)
+        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn2 = nn.BatchNorm3d(mid_planes)
-        self.conv3 = nn.Conv3d(mid_planes, planes * self.expansion,
-            kernel_size=1, bias=False)
+        self.conv3 = nn.Conv3d(mid_planes, planes * self.expansion, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm3d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -454,27 +402,20 @@ class ResNeXtBottleneck(nn.Module):
 
 class ResNeXt(nn.Module):
 
-    def __init__(self, block, layers, sample_size, sample_duration,
-        shortcut_type='B', cardinality=32, num_classes=400):
+    def __init__(self, block, layers, sample_size, sample_duration, shortcut_type='B', cardinality=32, num_classes=400):
         self.inplanes = 64
         super(ResNeXt, self).__init__()
-        self.conv1 = nn.Conv3d(3, 64, kernel_size=7, stride=(1, 2, 2),
-            padding=(3, 3, 3), bias=False)
+        self.conv1 = nn.Conv3d(3, 64, kernel_size=7, stride=(1, 2, 2), padding=(3, 3, 3), bias=False)
         self.bn1 = nn.BatchNorm3d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 128, layers[0], shortcut_type,
-            cardinality)
-        self.layer2 = self._make_layer(block, 256, layers[1], shortcut_type,
-            cardinality, stride=2)
-        self.layer3 = self._make_layer(block, 512, layers[2], shortcut_type,
-            cardinality, stride=2)
-        self.layer4 = self._make_layer(block, 1024, layers[3],
-            shortcut_type, cardinality, stride=2)
+        self.layer1 = self._make_layer(block, 128, layers[0], shortcut_type, cardinality)
+        self.layer2 = self._make_layer(block, 256, layers[1], shortcut_type, cardinality, stride=2)
+        self.layer3 = self._make_layer(block, 512, layers[2], shortcut_type, cardinality, stride=2)
+        self.layer4 = self._make_layer(block, 1024, layers[3], shortcut_type, cardinality, stride=2)
         last_duration = int(math.ceil(sample_duration / 16))
         last_size = int(math.ceil(sample_size / 32))
-        self.avgpool = nn.AvgPool3d((last_duration, last_size, last_size),
-            stride=1)
+        self.avgpool = nn.AvgPool3d((last_duration, last_size, last_size), stride=1)
         self.fc = nn.Linear(cardinality * 32 * block.expansion, num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
@@ -483,20 +424,15 @@ class ResNeXt(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, shortcut_type, cardinality,
-        stride=1):
+    def _make_layer(self, block, planes, blocks, shortcut_type, cardinality, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             if shortcut_type == 'A':
-                downsample = partial(downsample_basic_block, planes=planes *
-                    block.expansion, stride=stride)
+                downsample = partial(downsample_basic_block, planes=planes * block.expansion, stride=stride)
             else:
-                downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes *
-                    block.expansion, kernel_size=1, stride=stride, bias=
-                    False), nn.BatchNorm3d(planes * block.expansion))
+                downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm3d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, cardinality, stride,
-            downsample))
+        layers.append(block(self.inplanes, planes, cardinality, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, cardinality))
@@ -537,19 +473,15 @@ class Bottleneck(nn.Module):
         if self.stride == 2:
             out_planes = out_planes - in_planes
         g = 1 if in_planes == 24 else groups
-        self.conv1 = nn.Conv3d(in_planes, mid_planes, kernel_size=1, groups
-            =g, bias=False)
+        self.conv1 = nn.Conv3d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
         self.bn1 = nn.BatchNorm3d(mid_planes)
-        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3,
-            stride=stride, padding=1, groups=mid_planes, bias=False)
+        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
         self.bn2 = nn.BatchNorm3d(mid_planes)
-        self.conv3 = nn.Conv3d(mid_planes, out_planes, kernel_size=1,
-            groups=groups, bias=False)
+        self.conv3 = nn.Conv3d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
         self.bn3 = nn.BatchNorm3d(out_planes)
         self.relu = nn.ReLU(inplace=True)
         if stride == 2:
-            self.shortcut = nn.AvgPool3d(kernel_size=(2, 3, 3), stride=2,
-                padding=(0, 1, 1))
+            self.shortcut = nn.AvgPool3d(kernel_size=(2, 3, 3), stride=2, padding=(0, 1, 1))
 
     def forward(self, x):
         out = self.relu(self.bn1(self.conv1(x)))
@@ -581,29 +513,22 @@ class ShuffleNet(nn.Module):
         elif groups == 8:
             out_planes = [24, 384, 768, 1536]
         else:
-            raise ValueError(
-                """{} groups is not supported for
-                   1x1 Grouped Convolutions"""
-                .format(num_groups))
+            raise ValueError("""{} groups is not supported for
+                   1x1 Grouped Convolutions""".format(num_groups))
         out_planes = [int(i * width_mult) for i in out_planes]
         self.in_planes = out_planes[0]
         self.conv1 = conv_bn(3, self.in_planes, stride=(1, 2, 2))
         self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(out_planes[1], num_blocks[0], self.
-            groups)
-        self.layer2 = self._make_layer(out_planes[2], num_blocks[1], self.
-            groups)
-        self.layer3 = self._make_layer(out_planes[3], num_blocks[2], self.
-            groups)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(
-            out_planes[3], self.num_classes))
+        self.layer1 = self._make_layer(out_planes[1], num_blocks[0], self.groups)
+        self.layer2 = self._make_layer(out_planes[2], num_blocks[1], self.groups)
+        self.layer3 = self._make_layer(out_planes[3], num_blocks[2], self.groups)
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(out_planes[3], self.num_classes))
 
     def _make_layer(self, out_planes, num_blocks, groups):
         layers = []
         for i in range(num_blocks):
             stride = 2 if i == 0 else 1
-            layers.append(Bottleneck(self.in_planes, out_planes, stride=
-                stride, groups=groups))
+            layers.append(Bottleneck(self.in_planes, out_planes, stride=stride, groups=groups))
             self.in_planes = out_planes
         return nn.Sequential(*layers)
 
@@ -627,23 +552,10 @@ class InvertedResidual(nn.Module):
         assert stride in [1, 2]
         oup_inc = oup // 2
         if self.stride == 1:
-            self.banch2 = nn.Sequential(nn.Conv3d(oup_inc, oup_inc, 1, 1, 0,
-                bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True),
-                nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc,
-                bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc,
-                oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.
-                ReLU(inplace=True))
+            self.banch2 = nn.Sequential(nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True), nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
         else:
-            self.banch1 = nn.Sequential(nn.Conv3d(inp, inp, 3, stride, 1,
-                groups=inp, bias=False), nn.BatchNorm3d(inp), nn.Conv3d(inp,
-                oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.
-                ReLU(inplace=True))
-            self.banch2 = nn.Sequential(nn.Conv3d(inp, oup_inc, 1, 1, 0,
-                bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True),
-                nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc,
-                bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc,
-                oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.
-                ReLU(inplace=True))
+            self.banch1 = nn.Sequential(nn.Conv3d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm3d(inp), nn.Conv3d(inp, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
+            self.banch2 = nn.Sequential(nn.Conv3d(inp, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True), nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
 
     @staticmethod
     def _concat(x, out):
@@ -676,10 +588,8 @@ class ShuffleNetV2(nn.Module):
         elif width_mult == 2.0:
             self.stage_out_channels = [-1, 24, 224, 488, 976, 2048]
         else:
-            raise ValueError(
-                """{} groups is not supported for
-                       1x1 Grouped Convolutions"""
-                .format(num_groups))
+            raise ValueError("""{} groups is not supported for
+                       1x1 Grouped Convolutions""".format(num_groups))
         input_channel = self.stage_out_channels[1]
         self.conv1 = conv_bn(3, input_channel, stride=(1, 2, 2))
         self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
@@ -689,14 +599,11 @@ class ShuffleNetV2(nn.Module):
             output_channel = self.stage_out_channels[idxstage + 2]
             for i in range(numrepeat):
                 stride = 2 if i == 0 else 1
-                self.features.append(InvertedResidual(input_channel,
-                    output_channel, stride))
+                self.features.append(InvertedResidual(input_channel, output_channel, stride))
                 input_channel = output_channel
         self.features = nn.Sequential(*self.features)
-        self.conv_last = conv_1x1x1_bn(input_channel, self.
-            stage_out_channels[-1])
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.
-            stage_out_channels[-1], num_classes))
+        self.conv_last = conv_1x1x1_bn(input_channel, self.stage_out_channels[-1])
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.stage_out_channels[-1], num_classes))
 
     def forward(self, x):
         out = self.conv1(x)
@@ -711,19 +618,16 @@ class ShuffleNetV2(nn.Module):
 
 class Fire(nn.Module):
 
-    def __init__(self, inplanes, squeeze_planes, expand1x1_planes,
-        expand3x3_planes, use_bypass=False):
+    def __init__(self, inplanes, squeeze_planes, expand1x1_planes, expand3x3_planes, use_bypass=False):
         super(Fire, self).__init__()
         self.use_bypass = use_bypass
         self.inplanes = inplanes
         self.relu = nn.ReLU(inplace=True)
         self.squeeze = nn.Conv3d(inplanes, squeeze_planes, kernel_size=1)
         self.squeeze_bn = nn.BatchNorm3d(squeeze_planes)
-        self.expand1x1 = nn.Conv3d(squeeze_planes, expand1x1_planes,
-            kernel_size=1)
+        self.expand1x1 = nn.Conv3d(squeeze_planes, expand1x1_planes, kernel_size=1)
         self.expand1x1_bn = nn.BatchNorm3d(expand1x1_planes)
-        self.expand3x3 = nn.Conv3d(squeeze_planes, expand3x3_planes,
-            kernel_size=3, padding=1)
+        self.expand3x3 = nn.Conv3d(squeeze_planes, expand3x3_planes, kernel_size=3, padding=1)
         self.expand3x3_bn = nn.BatchNorm3d(expand3x3_planes)
 
     def forward(self, x):
@@ -743,44 +647,19 @@ class Fire(nn.Module):
 
 class SqueezeNet(nn.Module):
 
-    def __init__(self, sample_size, sample_duration, version=1.1,
-        num_classes=600):
+    def __init__(self, sample_size, sample_duration, version=1.1, num_classes=600):
         super(SqueezeNet, self).__init__()
         if version not in [1.0, 1.1]:
-            raise ValueError(
-                'Unsupported SqueezeNet version {version}:1.0 or 1.1 expected'
-                .format(version=version))
+            raise ValueError('Unsupported SqueezeNet version {version}:1.0 or 1.1 expected'.format(version=version))
         self.num_classes = num_classes
         last_duration = int(math.ceil(sample_duration / 16))
         last_size = int(math.ceil(sample_size / 32))
         if version == 1.0:
-            self.features = nn.Sequential(nn.Conv3d(3, 96, kernel_size=7,
-                stride=(1, 2, 2), padding=(3, 3, 3)), nn.BatchNorm3d(96),
-                nn.ReLU(inplace=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(96, 16, 64, 64), Fire(128, 16, 64, 64,
-                use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(128, 32, 128, 128), Fire(256, 32, 128, 128,
-                use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192,
-                use_bypass=True), Fire(384, 64, 256, 256), nn.MaxPool3d(
-                kernel_size=3, stride=2, padding=1), Fire(512, 64, 256, 256,
-                use_bypass=True))
+            self.features = nn.Sequential(nn.Conv3d(3, 96, kernel_size=7, stride=(1, 2, 2), padding=(3, 3, 3)), nn.BatchNorm3d(96), nn.ReLU(inplace=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(96, 16, 64, 64), Fire(128, 16, 64, 64, use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(128, 32, 128, 128), Fire(256, 32, 128, 128, use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192, use_bypass=True), Fire(384, 64, 256, 256), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(512, 64, 256, 256, use_bypass=True))
         if version == 1.1:
-            self.features = nn.Sequential(nn.Conv3d(3, 64, kernel_size=3,
-                stride=(1, 2, 2), padding=(1, 1, 1)), nn.BatchNorm3d(64),
-                nn.ReLU(inplace=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(64, 16, 64, 64), Fire(128, 16, 64, 64,
-                use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(128, 32, 128, 128), Fire(256, 32, 128, 128,
-                use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192,
-                use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2,
-                padding=1), Fire(384, 64, 256, 256), Fire(512, 64, 256, 256,
-                use_bypass=True))
+            self.features = nn.Sequential(nn.Conv3d(3, 64, kernel_size=3, stride=(1, 2, 2), padding=(1, 1, 1)), nn.BatchNorm3d(64), nn.ReLU(inplace=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(64, 16, 64, 64), Fire(128, 16, 64, 64, use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(128, 32, 128, 128), Fire(256, 32, 128, 128, use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(256, 48, 192, 192), Fire(384, 48, 192, 192, use_bypass=True), nn.MaxPool3d(kernel_size=3, stride=2, padding=1), Fire(384, 64, 256, 256), Fire(512, 64, 256, 256, use_bypass=True))
         final_conv = nn.Conv3d(512, self.num_classes, kernel_size=1)
-        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv, nn.
-            ReLU(inplace=True), nn.AvgPool3d((last_duration, last_size,
-            last_size), stride=1))
+        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool3d((last_duration, last_size, last_size), stride=1))
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
                 m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
@@ -798,29 +677,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (Block,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (Bottleneck,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     False),
+    (Fire,
+     lambda: ([], {'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (ShuffleNet,
+     lambda: ([], {'groups': 1}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
+    (ShuffleNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     False),
+    (SqueezeNet,
+     lambda: ([], {'sample_size': 4, 'sample_duration': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_okankop_Efficient_3DCNNs(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(Block(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Bottleneck(*[], **{'in_planes': 4, 'out_planes': 4, 'stride': 1, 'groups': 1}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(Fire(*[], **{'inplanes': 4, 'squeeze_planes': 4, 'expand1x1_planes': 4, 'expand3x3_planes': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(ShuffleNet(*[], **{'groups': 1}), [torch.rand([4, 3, 64, 64, 64])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ShuffleNetV2(*[], **{}), [torch.rand([4, 3, 64, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(SqueezeNet(*[], **{'sample_size': 4, 'sample_duration': 4}), [torch.rand([4, 3, 64, 64, 64])], {})
+        self._check(*TESTCASES[6])
 

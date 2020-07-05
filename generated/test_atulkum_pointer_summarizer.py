@@ -18,8 +18,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -71,8 +72,7 @@ def init_lstm_wt(lstm):
         for name in names:
             if name.startswith('weight_'):
                 wt = getattr(lstm, name)
-                wt.data.uniform_(-config.rand_unif_init_mag, config.
-                    rand_unif_init_mag)
+                wt.data.uniform_(-config.rand_unif_init_mag, config.rand_unif_init_mag)
             elif name.startswith('bias_'):
                 bias = getattr(lstm, name)
                 n = bias.size(0)
@@ -103,11 +103,9 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.embedding = nn.Embedding(config.vocab_size, config.emb_dim)
         init_wt_normal(self.embedding.weight)
-        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1,
-            batch_first=True, bidirectional=True)
+        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1, batch_first=True, bidirectional=True)
         init_lstm_wt(self.lstm)
-        self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2,
-            bias=False)
+        self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2, bias=False)
 
     def forward(self, input, seq_lens):
         embedded = self.embedding(input)
@@ -153,12 +151,10 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         if config.is_coverage:
             self.W_c = nn.Linear(1, config.hidden_dim * 2, bias=False)
-        self.decode_proj = nn.Linear(config.hidden_dim * 2, config.
-            hidden_dim * 2)
+        self.decode_proj = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2)
         self.v = nn.Linear(config.hidden_dim * 2, 1, bias=False)
 
-    def forward(self, s_t_hat, encoder_outputs, encoder_feature,
-        enc_padding_mask, coverage):
+    def forward(self, s_t_hat, encoder_outputs, encoder_feature, enc_padding_mask, coverage):
         b, t_k, n = list(encoder_outputs.size())
         dec_fea = self.decode_proj(s_t_hat)
         dec_fea_expanded = dec_fea.unsqueeze(1).expand(b, t_k, n).contiguous()
@@ -194,36 +190,27 @@ class Decoder(nn.Module):
         self.attention_network = Attention()
         self.embedding = nn.Embedding(config.vocab_size, config.emb_dim)
         init_wt_normal(self.embedding.weight)
-        self.x_context = nn.Linear(config.hidden_dim * 2 + config.emb_dim,
-            config.emb_dim)
-        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1,
-            batch_first=True, bidirectional=False)
+        self.x_context = nn.Linear(config.hidden_dim * 2 + config.emb_dim, config.emb_dim)
+        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1, batch_first=True, bidirectional=False)
         init_lstm_wt(self.lstm)
         if config.pointer_gen:
-            self.p_gen_linear = nn.Linear(config.hidden_dim * 4 + config.
-                emb_dim, 1)
+            self.p_gen_linear = nn.Linear(config.hidden_dim * 4 + config.emb_dim, 1)
         self.out1 = nn.Linear(config.hidden_dim * 3, config.hidden_dim)
         self.out2 = nn.Linear(config.hidden_dim, config.vocab_size)
         init_linear_wt(self.out2)
 
-    def forward(self, y_t_1, s_t_1, encoder_outputs, encoder_feature,
-        enc_padding_mask, c_t_1, extra_zeros, enc_batch_extend_vocab,
-        coverage, step):
+    def forward(self, y_t_1, s_t_1, encoder_outputs, encoder_feature, enc_padding_mask, c_t_1, extra_zeros, enc_batch_extend_vocab, coverage, step):
         if not self.training and step == 0:
             h_decoder, c_decoder = s_t_1
-            s_t_hat = torch.cat((h_decoder.view(-1, config.hidden_dim),
-                c_decoder.view(-1, config.hidden_dim)), 1)
-            c_t, _, coverage_next = self.attention_network(s_t_hat,
-                encoder_outputs, encoder_feature, enc_padding_mask, coverage)
+            s_t_hat = torch.cat((h_decoder.view(-1, config.hidden_dim), c_decoder.view(-1, config.hidden_dim)), 1)
+            c_t, _, coverage_next = self.attention_network(s_t_hat, encoder_outputs, encoder_feature, enc_padding_mask, coverage)
             coverage = coverage_next
         y_t_1_embd = self.embedding(y_t_1)
         x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
         lstm_out, s_t = self.lstm(x.unsqueeze(1), s_t_1)
         h_decoder, c_decoder = s_t
-        s_t_hat = torch.cat((h_decoder.view(-1, config.hidden_dim),
-            c_decoder.view(-1, config.hidden_dim)), 1)
-        c_t, attn_dist, coverage_next = self.attention_network(s_t_hat,
-            encoder_outputs, encoder_feature, enc_padding_mask, coverage)
+        s_t_hat = torch.cat((h_decoder.view(-1, config.hidden_dim), c_decoder.view(-1, config.hidden_dim)), 1)
+        c_t, attn_dist, coverage_next = self.attention_network(s_t_hat, encoder_outputs, encoder_feature, enc_padding_mask, coverage)
         if self.training or step > 0:
             coverage = coverage_next
         p_gen = None
@@ -240,8 +227,7 @@ class Decoder(nn.Module):
             attn_dist_ = (1 - p_gen) * attn_dist
             if extra_zeros is not None:
                 vocab_dist_ = torch.cat([vocab_dist_, extra_zeros], 1)
-            final_dist = vocab_dist_.scatter_add(1, enc_batch_extend_vocab,
-                attn_dist_)
+            final_dist = vocab_dist_.scatter_add(1, enc_batch_extend_vocab, attn_dist_)
         else:
             final_dist = vocab_dist
         return final_dist, s_t, c_t, attn_dist, p_gen, coverage
@@ -254,8 +240,7 @@ class PositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len).float().unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.
-            log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -290,16 +275,12 @@ class MultiHeadedAttention(nn.Module):
 
     def forward(self, query, key, value, mask):
         nbatches = query.size(0)
-        query = self.linear_query(query).view(nbatches, -1, self.h, self.d_k
-            ).transpose(1, 2)
-        key = self.linear_key(key).view(nbatches, -1, self.h, self.d_k
-            ).transpose(1, 2)
-        value = self.linear_value(value).view(nbatches, -1, self.h, self.d_k
-            ).transpose(1, 2)
+        query = self.linear_query(query).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        key = self.linear_key(key).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        value = self.linear_value(value).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
         mask = mask.unsqueeze(1)
         x, attn = self.attention(query, key, value, mask, dropout=self.dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k
-            )
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linear_out(x)
 
 
@@ -356,23 +337,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AffineLayer,
+     lambda: ([], {'dropout': 0.5, 'd_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Encoder,
+     lambda: ([], {'N': 4, 'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (EncoderLayer,
+     lambda: ([], {'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 1])], {}),
+     False),
+    (MultiHeadedAttention,
+     lambda: ([], {'num_head': 4, 'd_model': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 1])], {}),
+     False),
+    (PositionalEncoding,
+     lambda: ([], {'d_model': 4, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_atulkum_pointer_summarizer(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AffineLayer(*[], **{'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Encoder(*[], **{'N': 4, 'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(EncoderLayer(*[], **{'num_head': 4, 'dropout': 0.5, 'd_model': 4, 'd_ff': 4}), [torch.rand([4, 4]), torch.rand([4, 1])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MultiHeadedAttention(*[], **{'num_head': 4, 'd_model': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 1])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PositionalEncoding(*[], **{'d_model': 4, 'dropout': 0.5}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

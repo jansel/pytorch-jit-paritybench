@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -52,11 +53,7 @@ class small_basic_block(nn.Module):
 
     def __init__(self, ch_in, ch_out):
         super(small_basic_block, self).__init__()
-        self.block = nn.Sequential(nn.Conv2d(ch_in, ch_out // 4,
-            kernel_size=1), nn.ReLU(), nn.Conv2d(ch_out // 4, ch_out // 4,
-            kernel_size=(3, 1), padding=(1, 0)), nn.ReLU(), nn.Conv2d(
-            ch_out // 4, ch_out // 4, kernel_size=(1, 3), padding=(0, 1)),
-            nn.ReLU(), nn.Conv2d(ch_out // 4, ch_out, kernel_size=1))
+        self.block = nn.Sequential(nn.Conv2d(ch_in, ch_out // 4, kernel_size=1), nn.ReLU(), nn.Conv2d(ch_out // 4, ch_out // 4, kernel_size=(3, 1), padding=(1, 0)), nn.ReLU(), nn.Conv2d(ch_out // 4, ch_out // 4, kernel_size=(1, 3), padding=(0, 1)), nn.ReLU(), nn.Conv2d(ch_out // 4, ch_out, kernel_size=1))
 
     def forward(self, x):
         return self.block(x)
@@ -69,23 +66,8 @@ class LPRNet(nn.Module):
         self.phase = phase
         self.lpr_max_len = lpr_max_len
         self.class_num = class_num
-        self.backbone = nn.Sequential(nn.Conv2d(in_channels=3, out_channels
-            =64, kernel_size=3, stride=1), nn.BatchNorm2d(num_features=64),
-            nn.ReLU(), nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 1, 1)
-            ), small_basic_block(ch_in=64, ch_out=128), nn.BatchNorm2d(
-            num_features=128), nn.ReLU(), nn.MaxPool3d(kernel_size=(1, 3, 3
-            ), stride=(2, 1, 2)), small_basic_block(ch_in=64, ch_out=256),
-            nn.BatchNorm2d(num_features=256), nn.ReLU(), small_basic_block(
-            ch_in=256, ch_out=256), nn.BatchNorm2d(num_features=256), nn.
-            ReLU(), nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(4, 1, 2)),
-            nn.Dropout(dropout_rate), nn.Conv2d(in_channels=64,
-            out_channels=256, kernel_size=(1, 4), stride=1), nn.BatchNorm2d
-            (num_features=256), nn.ReLU(), nn.Dropout(dropout_rate), nn.
-            Conv2d(in_channels=256, out_channels=class_num, kernel_size=(13,
-            1), stride=1), nn.BatchNorm2d(num_features=class_num), nn.ReLU())
-        self.container = nn.Sequential(nn.Conv2d(in_channels=448 + self.
-            class_num, out_channels=self.class_num, kernel_size=(1, 1),
-            stride=(1, 1)))
+        self.backbone = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1), nn.BatchNorm2d(num_features=64), nn.ReLU(), nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(1, 1, 1)), small_basic_block(ch_in=64, ch_out=128), nn.BatchNorm2d(num_features=128), nn.ReLU(), nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(2, 1, 2)), small_basic_block(ch_in=64, ch_out=256), nn.BatchNorm2d(num_features=256), nn.ReLU(), small_basic_block(ch_in=256, ch_out=256), nn.BatchNorm2d(num_features=256), nn.ReLU(), nn.MaxPool3d(kernel_size=(1, 3, 3), stride=(4, 1, 2)), nn.Dropout(dropout_rate), nn.Conv2d(in_channels=64, out_channels=256, kernel_size=(1, 4), stride=1), nn.BatchNorm2d(num_features=256), nn.ReLU(), nn.Dropout(dropout_rate), nn.Conv2d(in_channels=256, out_channels=class_num, kernel_size=(13, 1), stride=1), nn.BatchNorm2d(num_features=class_num), nn.ReLU())
+        self.container = nn.Sequential(nn.Conv2d(in_channels=448 + self.class_num, out_channels=self.class_num, kernel_size=(1, 1), stride=(1, 1)))
 
     def forward(self, x):
         keep_features = list()
@@ -113,8 +95,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (small_basic_block,
+     lambda: ([], {'ch_in': 4, 'ch_out': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_sirius_ai_LPRNet_Pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(small_basic_block(*[], **{'ch_in': 4, 'ch_out': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

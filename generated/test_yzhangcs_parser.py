@@ -33,8 +33,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -92,34 +93,22 @@ class Model(nn.Module):
     def __init__(self, args):
         super(Model, self).__init__()
         self.args = args
-        self.word_embed = nn.Embedding(num_embeddings=args.n_words,
-            embedding_dim=args.n_embed)
+        self.word_embed = nn.Embedding(num_embeddings=args.n_words, embedding_dim=args.n_embed)
         if args.feat == 'char':
-            self.feat_embed = CHAR_LSTM(n_chars=args.n_feats, n_embed=args.
-                n_char_embed, n_out=args.n_embed)
+            self.feat_embed = CHAR_LSTM(n_chars=args.n_feats, n_embed=args.n_char_embed, n_out=args.n_embed)
         elif args.feat == 'bert':
-            self.feat_embed = BertEmbedding(model=args.bert_model, n_layers
-                =args.n_bert_layers, n_out=args.n_embed)
+            self.feat_embed = BertEmbedding(model=args.bert_model, n_layers=args.n_bert_layers, n_out=args.n_embed)
         else:
-            self.feat_embed = nn.Embedding(num_embeddings=args.n_feats,
-                embedding_dim=args.n_embed)
+            self.feat_embed = nn.Embedding(num_embeddings=args.n_feats, embedding_dim=args.n_embed)
         self.embed_dropout = IndependentDropout(p=args.embed_dropout)
-        self.lstm = BiLSTM(input_size=args.n_embed * 2, hidden_size=args.
-            n_lstm_hidden, num_layers=args.n_lstm_layers, dropout=args.
-            lstm_dropout)
+        self.lstm = BiLSTM(input_size=args.n_embed * 2, hidden_size=args.n_lstm_hidden, num_layers=args.n_lstm_layers, dropout=args.lstm_dropout)
         self.lstm_dropout = SharedDropout(p=args.lstm_dropout)
-        self.mlp_arc_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.
-            n_mlp_arc, dropout=args.mlp_dropout)
-        self.mlp_arc_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.
-            n_mlp_arc, dropout=args.mlp_dropout)
-        self.mlp_rel_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.
-            n_mlp_rel, dropout=args.mlp_dropout)
-        self.mlp_rel_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.
-            n_mlp_rel, dropout=args.mlp_dropout)
-        self.arc_attn = Biaffine(n_in=args.n_mlp_arc, bias_x=True, bias_y=False
-            )
-        self.rel_attn = Biaffine(n_in=args.n_mlp_rel, n_out=args.n_rels,
-            bias_x=True, bias_y=True)
+        self.mlp_arc_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_arc, dropout=args.mlp_dropout)
+        self.mlp_arc_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_arc, dropout=args.mlp_dropout)
+        self.mlp_rel_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_rel, dropout=args.mlp_dropout)
+        self.mlp_rel_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_rel, dropout=args.mlp_dropout)
+        self.arc_attn = Biaffine(n_in=args.n_mlp_arc, bias_x=True, bias_y=False)
+        self.rel_attn = Biaffine(n_in=args.n_mlp_rel, n_out=args.n_rels, bias_x=True, bias_y=True)
         self.pad_index = args.pad_index
         self.unk_index = args.unk_index
 
@@ -174,8 +163,7 @@ class Model(nn.Module):
         state_dict, pretrained = self.state_dict(), None
         if hasattr(self, 'pretrained'):
             pretrained = state_dict.pop('pretrained.weight')
-        state = {'args': self.args, 'state_dict': state_dict, 'pretrained':
-            pretrained}
+        state = {'args': self.args, 'state_dict': state_dict, 'pretrained': pretrained}
         torch.save(state, path)
 
 
@@ -224,8 +212,7 @@ class Biaffine(nn.Module):
         self.n_out = n_out
         self.bias_x = bias_x
         self.bias_y = bias_y
-        self.weight = nn.Parameter(torch.Tensor(n_out, n_in + bias_x, n_in +
-            bias_y))
+        self.weight = nn.Parameter(torch.Tensor(n_out, n_in + bias_x, n_in + bias_y))
         self.reset_parameters()
 
     def extra_repr(self):
@@ -260,10 +247,8 @@ class BiLSTM(nn.Module):
         self.f_cells = nn.ModuleList()
         self.b_cells = nn.ModuleList()
         for _ in range(self.num_layers):
-            self.f_cells.append(nn.LSTMCell(input_size=input_size,
-                hidden_size=hidden_size))
-            self.b_cells.append(nn.LSTMCell(input_size=input_size,
-                hidden_size=hidden_size))
+            self.f_cells.append(nn.LSTMCell(input_size=input_size, hidden_size=hidden_size))
+            self.b_cells.append(nn.LSTMCell(input_size=input_size, hidden_size=hidden_size))
             input_size = hidden_size * 2
         self.reset_parameters()
 
@@ -300,8 +285,7 @@ class BiLSTM(nn.Module):
         for t in steps:
             last_batch_size, batch_size = len(hx_i[0]), batch_sizes[t]
             if last_batch_size < batch_size:
-                hx_i = [torch.cat((h, ih[last_batch_size:batch_size])) for 
-                    h, ih in zip(hx_i, hx_0)]
+                hx_i = [torch.cat((h, ih[last_batch_size:batch_size])) for h, ih in zip(hx_i, hx_0)]
             else:
                 hx_n.append([h[batch_size:] for h in hx_i])
                 hx_i = [h[:batch_size] for h in hx_i]
@@ -334,15 +318,12 @@ class BiLSTM(nn.Module):
             if self.training:
                 mask = SharedDropout.get_mask(x[0], self.dropout)
                 x = [(i * mask[:len(i)]) for i in x]
-            x_f, (h_f, c_f) = self.layer_forward(x=x, hx=(h[i, 0], c[i, 0]),
-                cell=self.f_cells[i], batch_sizes=batch_sizes)
-            x_b, (h_b, c_b) = self.layer_forward(x=x, hx=(h[i, 1], c[i, 1]),
-                cell=self.b_cells[i], batch_sizes=batch_sizes, reverse=True)
+            x_f, (h_f, c_f) = self.layer_forward(x=x, hx=(h[i, 0], c[i, 0]), cell=self.f_cells[i], batch_sizes=batch_sizes)
+            x_b, (h_b, c_b) = self.layer_forward(x=x, hx=(h[i, 1], c[i, 1]), cell=self.b_cells[i], batch_sizes=batch_sizes, reverse=True)
             x = torch.cat((x_f, x_b), -1)
             h_n.append(torch.stack((h_f, h_b)))
             c_n.append(torch.stack((c_f, c_b)))
-        x = PackedSequence(x, sequence.batch_sizes, sequence.sorted_indices,
-            sequence.unsorted_indices)
+        x = PackedSequence(x, sequence.batch_sizes, sequence.sorted_indices, sequence.unsorted_indices)
         hx = torch.cat(h_n, 0), torch.cat(c_n, 0)
         hx = self.permute_hidden(hx, sequence.unsorted_indices)
         return x, hx
@@ -352,10 +333,8 @@ class CHAR_LSTM(nn.Module):
 
     def __init__(self, n_chars, n_embed, n_out):
         super(CHAR_LSTM, self).__init__()
-        self.embed = nn.Embedding(num_embeddings=n_chars, embedding_dim=n_embed
-            )
-        self.lstm = nn.LSTM(input_size=n_embed, hidden_size=n_out // 2,
-            batch_first=True, bidirectional=True)
+        self.embed = nn.Embedding(num_embeddings=n_chars, embedding_dim=n_embed)
+        self.lstm = nn.LSTM(input_size=n_embed, hidden_size=n_out // 2, batch_first=True, bidirectional=True)
 
     def forward(self, x):
         mask = x.gt(0)
@@ -406,13 +385,11 @@ class IndependentDropout(nn.Module):
 
     def forward(self, *items):
         if self.training:
-            masks = [x.new_empty(x.shape[:2]).bernoulli_(1 - self.p) for x in
-                items]
+            masks = [x.new_empty(x.shape[:2]).bernoulli_(1 - self.p) for x in items]
             total = sum(masks)
             scale = len(items) / total.max(torch.ones_like(total))
             masks = [(mask * scale) for mask in masks]
-            items = [(item * mask.unsqueeze(dim=-1)) for item, mask in zip(
-                items, masks)]
+            items = [(item * mask.unsqueeze(dim=-1)) for item, mask in zip(items, masks)]
         return items
 
 
@@ -462,31 +439,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Biaffine,
+     lambda: ([], {'n_in': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (CHAR_LSTM,
+     lambda: ([], {'n_chars': 4, 'n_embed': 4, 'n_out': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
+    (IndependentDropout,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     False),
+    (MLP,
+     lambda: ([], {'n_in': 4, 'n_hidden': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Model,
+     lambda: ([], {'args': _mock_config(n_words=4, n_embed=4, feat=4, n_feats=4, embed_dropout=0.5, n_lstm_hidden=4, n_lstm_layers=1, lstm_dropout=0.5, n_mlp_arc=4, mlp_dropout=0.5, n_mlp_rel=4, n_rels=4, pad_index=4, unk_index=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (ScalarMix,
+     lambda: ([], {'n_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SharedDropout,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_yzhangcs_parser(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Biaffine(*[], **{'n_in': 4}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(CHAR_LSTM(*[], **{'n_chars': 4, 'n_embed': 4, 'n_out': 4}), [torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(IndependentDropout(*[], **{}), [], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(MLP(*[], **{'n_in': 4, 'n_hidden': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(Model(*[], **{'args': _mock_config(n_words=4, n_embed=4, feat=4, n_feats=4, embed_dropout=0.5, n_lstm_hidden=4, n_lstm_layers=1, lstm_dropout=0.5, n_mlp_arc=4, mlp_dropout=0.5, n_mlp_rel=4, n_rels=4, pad_index=4, unk_index=4)}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(ScalarMix(*[], **{'n_layers': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SharedDropout(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 

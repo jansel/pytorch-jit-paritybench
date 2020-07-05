@@ -104,8 +104,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -199,11 +200,9 @@ class RoIAlignFunction(Function):
         self.feature_size = features.size()
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size(0)
-        output = features.new(num_rois, num_channels, self.aligned_height,
-            self.aligned_width).zero_()
+        output = features.new(num_rois, num_channels, self.aligned_height, self.aligned_width).zero_()
         if features.is_cuda:
-            roi_align.roi_align_forward_cuda(self.aligned_height, self.
-                aligned_width, self.spatial_scale, features, rois, output)
+            roi_align.roi_align_forward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, features, rois, output)
         else:
             raise NotImplementedError
         return output
@@ -211,11 +210,8 @@ class RoIAlignFunction(Function):
     def backward(self, grad_output):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = self.rois.new(batch_size, num_channels, data_height,
-            data_width).zero_()
-        roi_align.roi_align_backward_cuda(self.aligned_height, self.
-            aligned_width, self.spatial_scale, grad_output, self.rois,
-            grad_input)
+        grad_input = self.rois.new(batch_size, num_channels, data_height, data_width).zero_()
+        roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, grad_output, self.rois, grad_input)
         return grad_input, None
 
 
@@ -228,8 +224,7 @@ class RoIAlign(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width,
-            self.spatial_scale)(features, rois)
+        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale)(features, rois)
 
 
 class RoIAlignAvg(Module):
@@ -241,8 +236,7 @@ class RoIAlignAvg(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 
-            1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
         return avg_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -255,8 +249,7 @@ class RoIAlignMax(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 
-            1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
         return max_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -267,34 +260,24 @@ class AffineGridGenFunction(Function):
         self.lr = lr
         self.height, self.width = height, width
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
         self.input1 = input1
-        output = input1.new(torch.Size([input1.size(0)]) + self.grid.size()
-            ).zero_()
-        self.batchgrid = input1.new(torch.Size([input1.size(0)]) + self.
-            grid.size()).zero_()
+        output = input1.new(torch.Size([input1.size(0)]) + self.grid.size()).zero_()
+        self.batchgrid = input1.new(torch.Size([input1.size(0)]) + self.grid.size()).zero_()
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid.astype(self.batchgrid[i])
         for i in range(input1.size(0)):
-            output = torch.bmm(self.batchgrid.view(-1, self.height * self.
-                width, 3), torch.transpose(input1, 1, 2)).view(-1, self.
-                height, self.width, 2)
+            output = torch.bmm(self.batchgrid.view(-1, self.height * self.width, 3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.width, 2)
         return output
 
     def backward(self, grad_output):
         grad_input1 = self.input1.new(self.input1.size()).zero_()
-        grad_input1 = torch.baddbmm(grad_input1, torch.transpose(
-            grad_output.view(-1, self.height * self.width, 2), 1, 2), self.
-            batchgrid.view(-1, self.height * self.width, 3))
+        grad_input1 = torch.baddbmm(grad_input1, torch.transpose(grad_output.view(-1, self.height * self.width, 2), 1, 2), self.batchgrid.view(-1, self.height * self.width, 3))
         return grad_input1
 
 
@@ -319,26 +302,19 @@ class AffineGridGenV2(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         if input1.is_cuda:
             self.batchgrid = self.batchgrid
-        output = torch.bmm(self.batchgrid.view(-1, self.height * self.width,
-            3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.
-            width, 2)
+        output = torch.bmm(self.batchgrid.view(-1, self.height * self.width, 3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.width, 2)
         return output
 
 
@@ -349,26 +325,19 @@ class CylinderGridGenV2(Module):
         self.height, self.width = height, width
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input):
-        self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.grid.size())
         for i in range(input.size(0)):
             self.batchgrid[(i), :, :, :] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         input_u = input.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output0 = self.batchgrid[:, :, :, 0:1]
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (self.batchgrid[:, :,
-            :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (
-            np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (self.batchgrid[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output = torch.cat([output0, output1], 3)
         return output
 
@@ -381,18 +350,13 @@ class DenseAffineGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
@@ -410,12 +374,8 @@ class DenseAffine3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -423,16 +383,14 @@ class DenseAffine3DGridGen(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, input1):
-        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
         for i in range(input1.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
@@ -441,9 +399,7 @@ class DenseAffine3DGridGen(Module):
         z = torch.sum(torch.mul(self.batchgrid3d, input1[:, :, :, 8:]), 3)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
         output = torch.cat([theta, phi], 3)
         return output
@@ -457,12 +413,8 @@ class DenseAffine3DGridGen_rotate(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -470,21 +422,18 @@ class DenseAffine3DGridGen_rotate(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, input1, input2):
-        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
         for i in range(input1.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
@@ -493,15 +442,11 @@ class DenseAffine3DGridGen_rotate(Module):
         z = torch.sum(torch.mul(self.batchgrid3d, input1[:, :, :, 8:]), 3)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
-        input_u = input2.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1
-            )
+        input_u = input2.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output = torch.cat([theta, phi], 3)
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] +
-            self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output2 = torch.cat([output[:, :, :, 0:1], output1], 3)
         return output2
 
@@ -514,12 +459,8 @@ class Depth3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -527,40 +468,31 @@ class Depth3DGridGen(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, depth, trans0, trans1, rotate):
-        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
         for i in range(depth.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.grid.size())
         for i in range(depth.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
-        x = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
-        y = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
+        x = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
+        y = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         z = self.batchgrid3d[:, :, :, 2:3] * depth
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
-        input_u = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1
-            )
+        input_u = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output = torch.cat([theta, phi], 3)
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] +
-            self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output2 = torch.cat([output[:, :, :, 0:1], output1], 3)
         return output2
 
@@ -574,12 +506,8 @@ class Depth3DGridGen_with_mask(Module):
         self.lr = lr
         self.ray_tracing = ray_tracing
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -587,46 +515,36 @@ class Depth3DGridGen_with_mask(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, depth, trans0, trans1, rotate):
-        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
         for i in range(depth.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.grid.size())
         for i in range(depth.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         if depth.is_cuda:
             self.batchgrid = self.batchgrid
             self.batchgrid3d = self.batchgrid3d
-        x_ = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
-        y_ = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
+        x_ = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
+        y_ = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         z = self.batchgrid3d[:, :, :, 2:3] * depth
-        rotate_z = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.
-            width, 1) * np.pi
+        rotate_z = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1) * np.pi
         x = x_ * torch.cos(rotate_z) - y_ * torch.sin(rotate_z)
         y = x_ * torch.sin(rotate_z) + y_ * torch.cos(rotate_z)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
-            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
-                type(torch.FloatTensor))
+            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         else:
-            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
-                type(torch.FloatTensor))
+            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
         output = torch.cat([theta, phi], 3)
         return output
@@ -653,8 +571,7 @@ class RoICropFunction(Function):
         self.input1 = input1
         self.input2 = input2
         self.device_c = ffi.new('int *')
-        output = torch.zeros(input2.size()[0], input1.size()[1], input2.
-            size()[1], input2.size()[2])
+        output = torch.zeros(input2.size()[0], input1.size()[1], input2.size()[1], input2.size()[2])
         if input1.is_cuda:
             self.device = torch.cuda.current_device()
         else:
@@ -664,21 +581,18 @@ class RoICropFunction(Function):
             roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
         else:
             output = output.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2,
-                output)
+            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2, output)
         return output
 
     def backward(self, grad_output):
         grad_input1 = torch.zeros(self.input1.size())
         grad_input2 = torch.zeros(self.input2.size())
         if not grad_output.is_cuda:
-            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.
-                input2, grad_input1, grad_input2, grad_output)
+            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.input2, grad_input1, grad_input2, grad_output)
         else:
             grad_input1 = grad_input1.cuda(self.device)
             grad_input2 = grad_input2.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1,
-                self.input2, grad_input1, grad_input2, grad_output)
+            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1, self.input2, grad_input1, grad_input2, grad_output)
         return grad_input1, grad_input2
 
 
@@ -703,29 +617,21 @@ class RoIPoolFunction(Function):
         ctx.feature_size = features.size()
         batch_size, num_channels, data_height, data_width = ctx.feature_size
         num_rois = rois.size(0)
-        output = features.new(num_rois, num_channels, ctx.pooled_height,
-            ctx.pooled_width).zero_()
-        ctx.argmax = features.new(num_rois, num_channels, ctx.pooled_height,
-            ctx.pooled_width).zero_().int()
+        output = features.new(num_rois, num_channels, ctx.pooled_height, ctx.pooled_width).zero_()
+        ctx.argmax = features.new(num_rois, num_channels, ctx.pooled_height, ctx.pooled_width).zero_().int()
         ctx.rois = rois
         if not features.is_cuda:
             _features = features.permute(0, 2, 3, 1)
-            roi_pooling.roi_pooling_forward(ctx.pooled_height, ctx.
-                pooled_width, ctx.spatial_scale, _features, rois, output)
+            roi_pooling.roi_pooling_forward(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, _features, rois, output)
         else:
-            roi_pooling.roi_pooling_forward_cuda(ctx.pooled_height, ctx.
-                pooled_width, ctx.spatial_scale, features, rois, output,
-                ctx.argmax)
+            roi_pooling.roi_pooling_forward_cuda(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, features, rois, output, ctx.argmax)
         return output
 
     def backward(ctx, grad_output):
         assert ctx.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = ctx.feature_size
-        grad_input = grad_output.new(batch_size, num_channels, data_height,
-            data_width).zero_()
-        roi_pooling.roi_pooling_backward_cuda(ctx.pooled_height, ctx.
-            pooled_width, ctx.spatial_scale, grad_output, ctx.rois,
-            grad_input, ctx.argmax)
+        grad_input = grad_output.new(batch_size, num_channels, data_height, data_width).zero_()
+        roi_pooling.roi_pooling_backward_cuda(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, grad_output, ctx.rois, grad_input, ctx.argmax)
         return grad_input, None
 
 
@@ -738,8 +644,7 @@ class _RoIPooling(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.
-            spatial_scale)(features, rois)
+        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.spatial_scale)(features, rois)
 
 
 HIGHEST_BACKBONE_LVL = 5
@@ -786,34 +691,25 @@ class fpn(nn.Module):
         self.P2only = P2only
         self.dim_out = fpn_dim = cfg.FPN.DIM
         min_level, max_level = get_min_max_levels()
-        self.num_backbone_stages = len(fpn_level_info.blobs) - (min_level -
-            LOWEST_BACKBONE_LVL)
+        self.num_backbone_stages = len(fpn_level_info.blobs) - (min_level - LOWEST_BACKBONE_LVL)
         fpn_dim_lateral = fpn_level_info.dims
         self.spatial_scale = []
         self.conv_top = nn.Conv2d(fpn_dim_lateral[0], fpn_dim, 1, 1, 0)
         if cfg.FPN.USE_GN:
-            self.conv_top = nn.Sequential(nn.Conv2d(fpn_dim_lateral[0],
-                fpn_dim, 1, 1, 0, bias=False), nn.GroupNorm(net_utils.
-                get_group_gn(fpn_dim), fpn_dim, eps=cfg.GROUP_NORM.EPSILON))
+            self.conv_top = nn.Sequential(nn.Conv2d(fpn_dim_lateral[0], fpn_dim, 1, 1, 0, bias=False), nn.GroupNorm(net_utils.get_group_gn(fpn_dim), fpn_dim, eps=cfg.GROUP_NORM.EPSILON))
         else:
             self.conv_top = nn.Conv2d(fpn_dim_lateral[0], fpn_dim, 1, 1, 0)
         self.topdown_lateral_modules = nn.ModuleList()
         self.posthoc_modules = nn.ModuleList()
         for i in range(self.num_backbone_stages - 1):
-            self.topdown_lateral_modules.append(topdown_lateral_module(
-                fpn_dim, fpn_dim_lateral[i + 1]))
+            self.topdown_lateral_modules.append(topdown_lateral_module(fpn_dim, fpn_dim_lateral[i + 1]))
         for i in range(self.num_backbone_stages):
             if cfg.FPN.USE_GN:
-                self.posthoc_modules.append(nn.Sequential(nn.Conv2d(fpn_dim,
-                    fpn_dim, 3, 1, 1, bias=False), nn.GroupNorm(net_utils.
-                    get_group_gn(fpn_dim), fpn_dim, eps=cfg.GROUP_NORM.
-                    EPSILON)))
+                self.posthoc_modules.append(nn.Sequential(nn.Conv2d(fpn_dim, fpn_dim, 3, 1, 1, bias=False), nn.GroupNorm(net_utils.get_group_gn(fpn_dim), fpn_dim, eps=cfg.GROUP_NORM.EPSILON)))
             else:
-                self.posthoc_modules.append(nn.Conv2d(fpn_dim, fpn_dim, 3, 
-                    1, 1))
+                self.posthoc_modules.append(nn.Conv2d(fpn_dim, fpn_dim, 3, 1, 1))
             self.spatial_scale.append(fpn_level_info.spatial_scales[i])
-        if (not cfg.FPN.EXTRA_CONV_LEVELS and max_level == 
-            HIGHEST_BACKBONE_LVL + 1):
+        if not cfg.FPN.EXTRA_CONV_LEVELS and max_level == HIGHEST_BACKBONE_LVL + 1:
             self.maxpool_p6 = nn.MaxPool2d(kernel_size=1, stride=2, padding=0)
             self.spatial_scale.insert(0, self.spatial_scale[0] * 0.5)
         if cfg.FPN.EXTRA_CONV_LEVELS and max_level > HIGHEST_BACKBONE_LVL:
@@ -836,13 +732,11 @@ class fpn(nn.Module):
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
         for child_m in self.children():
-            if not isinstance(child_m, nn.ModuleList) or not isinstance(child_m
-                [0], topdown_lateral_module):
+            if not isinstance(child_m, nn.ModuleList) or not isinstance(child_m[0], topdown_lateral_module):
                 child_m.apply(init_func)
 
     def detectron_weight_mapping(self):
-        conv_body_mapping, orphan_in_detectron = (self.conv_body.
-            detectron_weight_mapping())
+        conv_body_mapping, orphan_in_detectron = self.conv_body.detectron_weight_mapping()
         mapping_to_detectron = {}
         for key, value in conv_body_mapping.items():
             mapping_to_detectron['conv_body.' + key] = value
@@ -856,54 +750,42 @@ class fpn(nn.Module):
             mapping_to_detectron['conv_top.bias'] = d_prefix + '_b'
         for i in range(self.num_backbone_stages - 1):
             p_prefix = 'topdown_lateral_modules.%d.conv_lateral' % i
-            d_prefix = 'fpn_inner_' + self.fpn_level_info.blobs[i + 1
-                ] + '_lateral'
+            d_prefix = 'fpn_inner_' + self.fpn_level_info.blobs[i + 1] + '_lateral'
             if cfg.FPN.USE_GN:
-                mapping_to_detectron.update({(p_prefix + '.0.weight'): 
-                    d_prefix + '_w', (p_prefix + '.1.weight'): d_prefix +
-                    '_gn_s', (p_prefix + '.1.bias'): d_prefix + '_gn_b'})
+                mapping_to_detectron.update({(p_prefix + '.0.weight'): d_prefix + '_w', (p_prefix + '.1.weight'): d_prefix + '_gn_s', (p_prefix + '.1.bias'): d_prefix + '_gn_b'})
             else:
-                mapping_to_detectron.update({(p_prefix + '.weight'): 
-                    d_prefix + '_w', (p_prefix + '.bias'): d_prefix + '_b'})
+                mapping_to_detectron.update({(p_prefix + '.weight'): d_prefix + '_w', (p_prefix + '.bias'): d_prefix + '_b'})
         for i in range(self.num_backbone_stages):
             p_prefix = 'posthoc_modules.%d' % i
             d_prefix = 'fpn_' + self.fpn_level_info.blobs[i]
             if cfg.FPN.USE_GN:
-                mapping_to_detectron.update({(p_prefix + '.0.weight'): 
-                    d_prefix + '_w', (p_prefix + '.1.weight'): d_prefix +
-                    '_gn_s', (p_prefix + '.1.bias'): d_prefix + '_gn_b'})
+                mapping_to_detectron.update({(p_prefix + '.0.weight'): d_prefix + '_w', (p_prefix + '.1.weight'): d_prefix + '_gn_s', (p_prefix + '.1.bias'): d_prefix + '_gn_b'})
             else:
-                mapping_to_detectron.update({(p_prefix + '.weight'): 
-                    d_prefix + '_w', (p_prefix + '.bias'): d_prefix + '_b'})
+                mapping_to_detectron.update({(p_prefix + '.weight'): d_prefix + '_w', (p_prefix + '.bias'): d_prefix + '_b'})
         if hasattr(self, 'extra_pyramid_modules'):
             for i in len(self.extra_pyramid_modules):
                 p_prefix = 'extra_pyramid_modules.%d' % i
                 d_prefix = 'fpn_%d' % (HIGHEST_BACKBONE_LVL + 1 + i)
-                mapping_to_detectron.update({(p_prefix + '.weight'): 
-                    d_prefix + '_w', (p_prefix + '.bias'): d_prefix + '_b'})
+                mapping_to_detectron.update({(p_prefix + '.weight'): d_prefix + '_w', (p_prefix + '.bias'): d_prefix + '_b'})
         return mapping_to_detectron, orphan_in_detectron
 
     def forward(self, x):
         conv_body_blobs = [self.conv_body.res1(x)]
         for i in range(1, self.conv_body.convX):
-            conv_body_blobs.append(getattr(self.conv_body, 'res%d' % (i + 1
-                ))(conv_body_blobs[-1]))
+            conv_body_blobs.append(getattr(self.conv_body, 'res%d' % (i + 1))(conv_body_blobs[-1]))
         fpn_inner_blobs = [self.conv_top(conv_body_blobs[-1])]
         for i in range(self.num_backbone_stages - 1):
-            fpn_inner_blobs.append(self.topdown_lateral_modules[i](
-                fpn_inner_blobs[-1], conv_body_blobs[-(i + 2)]))
+            fpn_inner_blobs.append(self.topdown_lateral_modules[i](fpn_inner_blobs[-1], conv_body_blobs[-(i + 2)]))
         fpn_output_blobs = []
         for i in range(self.num_backbone_stages):
-            fpn_output_blobs.append(self.posthoc_modules[i](fpn_inner_blobs[i])
-                )
+            fpn_output_blobs.append(self.posthoc_modules[i](fpn_inner_blobs[i]))
         if hasattr(self, 'maxpool_p6'):
             fpn_output_blobs.insert(0, self.maxpool_p6(fpn_output_blobs[0]))
         if hasattr(self, 'extra_pyramid_modules'):
             blob_in = conv_body_blobs[-1]
             fpn_output_blobs.insert(0, self.extra_pyramid_modules(blob_in))
             for module in self.extra_pyramid_modules[1:]:
-                fpn_output_blobs.insert(0, module(F.relu(fpn_output_blobs[0
-                    ], inplace=True)))
+                fpn_output_blobs.insert(0, module(F.relu(fpn_output_blobs[0], inplace=True)))
         if self.P2only:
             return fpn_output_blobs[-1]
         else:
@@ -919,13 +801,9 @@ class topdown_lateral_module(nn.Module):
         self.dim_in_lateral = dim_in_lateral
         self.dim_out = dim_in_top
         if cfg.FPN.USE_GN:
-            self.conv_lateral = nn.Sequential(nn.Conv2d(dim_in_lateral,
-                self.dim_out, 1, 1, 0, bias=False), nn.GroupNorm(net_utils.
-                get_group_gn(self.dim_out), self.dim_out, eps=cfg.
-                GROUP_NORM.EPSILON))
+            self.conv_lateral = nn.Sequential(nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0, bias=False), nn.GroupNorm(net_utils.get_group_gn(self.dim_out), self.dim_out, eps=cfg.GROUP_NORM.EPSILON))
         else:
-            self.conv_lateral = nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0
-                )
+            self.conv_lateral = nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0)
         self._init_weights()
 
     def _init_weights(self):
@@ -952,8 +830,7 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     """
     ws = ws[:, (np.newaxis)]
     hs = hs[:, (np.newaxis)]
-    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
-        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
+    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
 
@@ -992,25 +869,22 @@ def _generate_anchors(base_size, scales, aspect_ratios):
     """
     anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
     anchors = _ratio_enum(anchor, aspect_ratios)
-    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in
-        range(anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
     return anchors
 
 
-def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512),
-    aspect_ratios=(0.5, 1, 2)):
+def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512), aspect_ratios=(0.5, 1, 2)):
     """Generates a matrix of anchor boxes in (x1, y1, x2, y2) format. Anchors
     are centered on stride / 2, have (approximate) sqrt areas of the specified
     sizes, and aspect ratios as given.
     """
-    return _generate_anchors(stride, np.array(sizes, dtype=np.float) /
-        stride, np.array(aspect_ratios, dtype=np.float))
-
-
-_global_config['RPN'] = 4
+    return _generate_anchors(stride, np.array(sizes, dtype=np.float) / stride, np.array(aspect_ratios, dtype=np.float))
 
 
 _global_config['MODEL'] = 4
+
+
+_global_config['RPN'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):
@@ -1023,23 +897,17 @@ class fpn_rpn_outputs(nn.Module):
         self.dim_out = self.dim_in
         num_anchors = len(cfg.FPN.RPN_ASPECT_RATIOS)
         self.FPN_RPN_conv = nn.Conv2d(dim_in, self.dim_out, 3, 1, 1)
-        dim_score = (num_anchors * 2 if cfg.RPN.CLS_ACTIVATION == 'softmax'
-             else num_anchors)
+        dim_score = num_anchors * 2 if cfg.RPN.CLS_ACTIVATION == 'softmax' else num_anchors
         self.FPN_RPN_cls_score = nn.Conv2d(self.dim_out, dim_score, 1, 1, 0)
-        self.FPN_RPN_bbox_pred = nn.Conv2d(self.dim_out, 4 * num_anchors, 1,
-            1, 0)
+        self.FPN_RPN_bbox_pred = nn.Conv2d(self.dim_out, 4 * num_anchors, 1, 1, 0)
         self.GenerateProposals_modules = nn.ModuleList()
         k_max = cfg.FPN.RPN_MAX_LEVEL
         k_min = cfg.FPN.RPN_MIN_LEVEL
         for lvl in range(k_min, k_max + 1):
             sc = self.spatial_scales[k_max - lvl]
-            lvl_anchors = generate_anchors(stride=2.0 ** lvl, sizes=(cfg.
-                FPN.RPN_ANCHOR_START_SIZE * 2.0 ** (lvl - k_min),),
-                aspect_ratios=cfg.FPN.RPN_ASPECT_RATIOS)
-            self.GenerateProposals_modules.append(GenerateProposalsOp(
-                lvl_anchors, sc))
-        self.CollectAndDistributeFpnRpnProposals = (
-            CollectAndDistributeFpnRpnProposalsOp())
+            lvl_anchors = generate_anchors(stride=2.0 ** lvl, sizes=(cfg.FPN.RPN_ANCHOR_START_SIZE * 2.0 ** (lvl - k_min),), aspect_ratios=cfg.FPN.RPN_ASPECT_RATIOS)
+            self.GenerateProposals_modules.append(GenerateProposalsOp(lvl_anchors, sc))
+        self.CollectAndDistributeFpnRpnProposals = CollectAndDistributeFpnRpnProposalsOp()
         self._init_weights()
 
     def _init_weights(self):
@@ -1052,12 +920,7 @@ class fpn_rpn_outputs(nn.Module):
 
     def detectron_weight_mapping(self):
         k_min = cfg.FPN.RPN_MIN_LEVEL
-        mapping_to_detectron = {'FPN_RPN_conv.weight': 'conv_rpn_fpn%d_w' %
-            k_min, 'FPN_RPN_conv.bias': 'conv_rpn_fpn%d_b' % k_min,
-            'FPN_RPN_cls_score.weight': 'rpn_cls_logits_fpn%d_w' % k_min,
-            'FPN_RPN_cls_score.bias': 'rpn_cls_logits_fpn%d_b' % k_min,
-            'FPN_RPN_bbox_pred.weight': 'rpn_bbox_pred_fpn%d_w' % k_min,
-            'FPN_RPN_bbox_pred.bias': 'rpn_bbox_pred_fpn%d_b' % k_min}
+        mapping_to_detectron = {'FPN_RPN_conv.weight': 'conv_rpn_fpn%d_w' % k_min, 'FPN_RPN_conv.bias': 'conv_rpn_fpn%d_b' % k_min, 'FPN_RPN_cls_score.weight': 'rpn_cls_logits_fpn%d_w' % k_min, 'FPN_RPN_cls_score.bias': 'rpn_cls_logits_fpn%d_b' % k_min, 'FPN_RPN_bbox_pred.weight': 'rpn_bbox_pred_fpn%d_w' % k_min, 'FPN_RPN_bbox_pred.bias': 'rpn_bbox_pred_fpn%d_b' % k_min}
         return mapping_to_detectron, []
 
     def forward(self, blobs_in, im_info, roidb=None):
@@ -1078,22 +941,17 @@ class fpn_rpn_outputs(nn.Module):
             if not self.training or cfg.MODEL.FASTER_RCNN:
                 if cfg.RPN.CLS_ACTIVATION == 'softmax':
                     B, C, H, W = fpn_rpn_cls_score.size()
-                    fpn_rpn_cls_probs = F.softmax(fpn_rpn_cls_score.view(B,
-                        2, C // 2, H, W), dim=1)
-                    fpn_rpn_cls_probs = fpn_rpn_cls_probs[:, (1)].squeeze(dim=1
-                        )
+                    fpn_rpn_cls_probs = F.softmax(fpn_rpn_cls_score.view(B, 2, C // 2, H, W), dim=1)
+                    fpn_rpn_cls_probs = fpn_rpn_cls_probs[:, (1)].squeeze(dim=1)
                 else:
                     fpn_rpn_cls_probs = F.sigmoid(fpn_rpn_cls_score)
-                fpn_rpn_rois, fpn_rpn_roi_probs = (self.
-                    GenerateProposals_modules[lvl - k_min](
-                    fpn_rpn_cls_probs, fpn_rpn_bbox_pred, im_info))
+                fpn_rpn_rois, fpn_rpn_roi_probs = self.GenerateProposals_modules[lvl - k_min](fpn_rpn_cls_probs, fpn_rpn_bbox_pred, im_info)
                 rois_blobs.append(fpn_rpn_rois)
                 score_blobs.append(fpn_rpn_roi_probs)
                 return_dict['rpn_rois_fpn' + slvl] = fpn_rpn_rois
                 return_dict['rpn_rois_prob_fpn' + slvl] = fpn_rpn_roi_probs
         if cfg.MODEL.FASTER_RCNN:
-            blobs_out = self.CollectAndDistributeFpnRpnProposals(rois_blobs +
-                score_blobs, roidb, im_info)
+            blobs_out = self.CollectAndDistributeFpnRpnProposals(rois_blobs + score_blobs, roidb, im_info)
             return_dict.update(blobs_out)
         return return_dict
 
@@ -1109,13 +967,11 @@ def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride):
     else:
         downsample = None
     trans_func = globals()[cfg.RESNETS.TRANS_FUNC]
-    res_block = trans_func(inplanes, outplanes, innerplanes, stride,
-        dilation=dilation, group=cfg.RESNETS.NUM_GROUPS, downsample=downsample)
+    res_block = trans_func(inplanes, outplanes, innerplanes, stride, dilation=dilation, group=cfg.RESNETS.NUM_GROUPS, downsample=downsample)
     return res_block
 
 
-def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
-    stride_init=2):
+def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1, stride_init=2):
     """Make a stage consist of `nblocks` residual blocks.
     Returns:
         - stage module: an nn.Sequentail module of residual blocks
@@ -1124,8 +980,7 @@ def add_stage(inplanes, outplanes, innerplanes, nblocks, dilation=1,
     res_blocks = []
     stride = stride_init
     for _ in range(nblocks):
-        res_blocks.append(add_residual_block(inplanes, outplanes,
-            innerplanes, dilation, stride))
+        res_blocks.append(add_residual_block(inplanes, outplanes, innerplanes, dilation, stride))
         inplanes = outplanes
         stride = 1
     return nn.Sequential(*res_blocks), outplanes
@@ -1138,8 +993,7 @@ def freeze_params(m):
         p.requires_grad = False
 
 
-def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
-    res_id):
+def residual_stage_detectron_mapping(module_ref, module_name, num_blocks, res_id):
     """Construct weight mapping relation for a residual stage with `num_blocks` of
     residual blocks given the stage id: `res_id`
     """
@@ -1154,22 +1008,16 @@ def residual_stage_detectron_mapping(module_ref, module_name, num_blocks,
         my_prefix = '%s.%d' % (module_name, blk_id)
         if getattr(module_ref[blk_id], 'downsample'):
             dtt_bp = detectron_prefix + '_branch1'
-            mapping_to_detectron[my_prefix + '.downsample.0.weight'
-                ] = dtt_bp + '_w'
+            mapping_to_detectron[my_prefix + '.downsample.0.weight'] = dtt_bp + '_w'
             orphan_in_detectron.append(dtt_bp + '_b')
-            mapping_to_detectron[my_prefix + '.downsample.1.weight'
-                ] = dtt_bp + norm_suffix + '_s'
-            mapping_to_detectron[my_prefix + '.downsample.1.bias'
-                ] = dtt_bp + norm_suffix + '_b'
+            mapping_to_detectron[my_prefix + '.downsample.1.weight'] = dtt_bp + norm_suffix + '_s'
+            mapping_to_detectron[my_prefix + '.downsample.1.bias'] = dtt_bp + norm_suffix + '_b'
         for i, c in zip([1, 2, 3], ['a', 'b', 'c']):
             dtt_bp = detectron_prefix + '_branch2' + c
-            mapping_to_detectron[my_prefix + '.conv%d.weight' % i
-                ] = dtt_bp + '_w'
+            mapping_to_detectron[my_prefix + '.conv%d.weight' % i] = dtt_bp + '_w'
             orphan_in_detectron.append(dtt_bp + '_b')
-            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
-                '%d.weight' % i] = dtt_bp + norm_suffix + '_s'
-            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + 
-                '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
+            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + '%d.weight' % i] = dtt_bp + norm_suffix + '_s'
+            mapping_to_detectron[my_prefix + '.' + norm_suffix[1:] + '%d.bias' % i] = dtt_bp + norm_suffix + '_b'
     return mapping_to_detectron, orphan_in_detectron
 
 
@@ -1183,16 +1031,12 @@ class ResNet_convX_body(nn.Module):
         self.res1 = globals()[cfg.RESNETS.STEM_FUNC]()
         dim_in = 64
         dim_bottleneck = cfg.RESNETS.NUM_GROUPS * cfg.RESNETS.WIDTH_PER_GROUP
-        self.res2, dim_in = add_stage(dim_in, 256, dim_bottleneck,
-            block_counts[0], dilation=1, stride_init=1)
-        self.res3, dim_in = add_stage(dim_in, 512, dim_bottleneck * 2,
-            block_counts[1], dilation=1, stride_init=2)
-        self.res4, dim_in = add_stage(dim_in, 1024, dim_bottleneck * 4,
-            block_counts[2], dilation=1, stride_init=2)
+        self.res2, dim_in = add_stage(dim_in, 256, dim_bottleneck, block_counts[0], dilation=1, stride_init=1)
+        self.res3, dim_in = add_stage(dim_in, 512, dim_bottleneck * 2, block_counts[1], dilation=1, stride_init=2)
+        self.res4, dim_in = add_stage(dim_in, 1024, dim_bottleneck * 4, block_counts[2], dilation=1, stride_init=2)
         if len(block_counts) == 4:
             stride_init = 2 if cfg.RESNETS.RES5_DILATION == 1 else 1
-            self.res5, dim_in = add_stage(dim_in, 2048, dim_bottleneck * 8,
-                block_counts[3], cfg.RESNETS.RES5_DILATION, stride_init)
+            self.res5, dim_in = add_stage(dim_in, 2048, dim_bottleneck * 8, block_counts[3], cfg.RESNETS.RES5_DILATION, stride_init)
             self.spatial_scale = 1 / 32 * cfg.RESNETS.RES5_DILATION
         else:
             self.spatial_scale = 1 / 16
@@ -1204,24 +1048,18 @@ class ResNet_convX_body(nn.Module):
         assert cfg.RESNETS.FREEZE_AT <= self.convX
         for i in range(1, cfg.RESNETS.FREEZE_AT + 1):
             freeze_params(getattr(self, 'res%d' % i))
-        self.apply(lambda m: freeze_params(m) if isinstance(m, mynn.
-            AffineChannel2d) else None)
+        self.apply(lambda m: freeze_params(m) if isinstance(m, mynn.AffineChannel2d) else None)
 
     def detectron_weight_mapping(self):
         if cfg.RESNETS.USE_GN:
-            mapping_to_detectron = {'res1.conv1.weight': 'conv1_w',
-                'res1.gn1.weight': 'conv1_gn_s', 'res1.gn1.bias': 'conv1_gn_b'}
+            mapping_to_detectron = {'res1.conv1.weight': 'conv1_w', 'res1.gn1.weight': 'conv1_gn_s', 'res1.gn1.bias': 'conv1_gn_b'}
             orphan_in_detectron = ['pred_w', 'pred_b']
         else:
-            mapping_to_detectron = {'res1.conv1.weight': 'conv1_w',
-                'res1.bn1.weight': 'res_conv1_bn_s', 'res1.bn1.bias':
-                'res_conv1_bn_b'}
+            mapping_to_detectron = {'res1.conv1.weight': 'conv1_w', 'res1.bn1.weight': 'res_conv1_bn_s', 'res1.bn1.bias': 'res_conv1_bn_b'}
             orphan_in_detectron = ['conv1_b', 'fc1000_w', 'fc1000_b']
         for res_id in range(2, self.convX + 1):
             stage_name = 'res%d' % res_id
-            mapping, orphans = residual_stage_detectron_mapping(getattr(
-                self, stage_name), stage_name, self.block_counts[res_id - 2
-                ], res_id)
+            mapping, orphans = residual_stage_detectron_mapping(getattr(self, stage_name), stage_name, self.block_counts[res_id - 2], res_id)
             mapping_to_detectron.update(mapping)
             orphan_in_detectron.extend(orphans)
         return mapping_to_detectron, orphan_in_detectron
@@ -1248,25 +1086,19 @@ class ResNet_roi_conv5_head(nn.Module):
         self.spatial_scale = spatial_scale
         dim_bottleneck = cfg.RESNETS.NUM_GROUPS * cfg.RESNETS.WIDTH_PER_GROUP
         stride_init = cfg.FAST_RCNN.ROI_XFORM_RESOLUTION // 7
-        self.res5, self.dim_out = add_stage(dim_in, 2048, dim_bottleneck * 
-            8, 3, dilation=1, stride_init=stride_init)
+        self.res5, self.dim_out = add_stage(dim_in, 2048, dim_bottleneck * 8, 3, dilation=1, stride_init=stride_init)
         self.avgpool = nn.AvgPool2d(7)
         self._init_modules()
 
     def _init_modules(self):
-        self.apply(lambda m: freeze_params(m) if isinstance(m, mynn.
-            AffineChannel2d) else None)
+        self.apply(lambda m: freeze_params(m) if isinstance(m, mynn.AffineChannel2d) else None)
 
     def detectron_weight_mapping(self):
-        mapping_to_detectron, orphan_in_detectron = (
-            residual_stage_detectron_mapping(self.res5, 'res5', 3, 5))
+        mapping_to_detectron, orphan_in_detectron = residual_stage_detectron_mapping(self.res5, 'res5', 3, 5)
         return mapping_to_detectron, orphan_in_detectron
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.
-            FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
         res5_feat = self.res5(x)
         x = self.avgpool(res5_feat)
         if cfg.MODEL.SHARE_RES5 and self.training:
@@ -1278,20 +1110,15 @@ class ResNet_roi_conv5_head(nn.Module):
 class bottleneck_transformation(nn.Module):
     """ Bottleneck Residual Block """
 
-    def __init__(self, inplanes, outplanes, innerplanes, stride=1, dilation
-        =1, group=1, downsample=None):
+    def __init__(self, inplanes, outplanes, innerplanes, stride=1, dilation=1, group=1, downsample=None):
         super().__init__()
         str1x1, str3x3 = (stride, 1) if cfg.RESNETS.STRIDE_1X1 else (1, stride)
         self.stride = stride
-        self.conv1 = nn.Conv2d(inplanes, innerplanes, kernel_size=1, stride
-            =str1x1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, innerplanes, kernel_size=1, stride=str1x1, bias=False)
         self.bn1 = mynn.AffineChannel2d(innerplanes)
-        self.conv2 = nn.Conv2d(innerplanes, innerplanes, kernel_size=3,
-            stride=str3x3, bias=False, padding=1 * dilation, dilation=
-            dilation, groups=group)
+        self.conv2 = nn.Conv2d(innerplanes, innerplanes, kernel_size=3, stride=str3x3, bias=False, padding=1 * dilation, dilation=dilation, groups=group)
         self.bn2 = mynn.AffineChannel2d(innerplanes)
-        self.conv3 = nn.Conv2d(innerplanes, outplanes, kernel_size=1,
-            stride=1, bias=False)
+        self.conv3 = nn.Conv2d(innerplanes, outplanes, kernel_size=1, stride=1, bias=False)
         self.bn3 = mynn.AffineChannel2d(outplanes)
         self.downsample = downsample
         self.relu = nn.ReLU(inplace=True)
@@ -1316,24 +1143,16 @@ class bottleneck_transformation(nn.Module):
 class bottleneck_gn_transformation(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, outplanes, innerplanes, stride=1, dilation
-        =1, group=1, downsample=None):
+    def __init__(self, inplanes, outplanes, innerplanes, stride=1, dilation=1, group=1, downsample=None):
         super().__init__()
         str1x1, str3x3 = (stride, 1) if cfg.RESNETS.STRIDE_1X1 else (1, stride)
         self.stride = stride
-        self.conv1 = nn.Conv2d(inplanes, innerplanes, kernel_size=1, stride
-            =str1x1, bias=False)
-        self.gn1 = nn.GroupNorm(net_utils.get_group_gn(innerplanes),
-            innerplanes, eps=cfg.GROUP_NORM.EPSILON)
-        self.conv2 = nn.Conv2d(innerplanes, innerplanes, kernel_size=3,
-            stride=str3x3, bias=False, padding=1 * dilation, dilation=
-            dilation, groups=group)
-        self.gn2 = nn.GroupNorm(net_utils.get_group_gn(innerplanes),
-            innerplanes, eps=cfg.GROUP_NORM.EPSILON)
-        self.conv3 = nn.Conv2d(innerplanes, outplanes, kernel_size=1,
-            stride=1, bias=False)
-        self.gn3 = nn.GroupNorm(net_utils.get_group_gn(outplanes),
-            outplanes, eps=cfg.GROUP_NORM.EPSILON)
+        self.conv1 = nn.Conv2d(inplanes, innerplanes, kernel_size=1, stride=str1x1, bias=False)
+        self.gn1 = nn.GroupNorm(net_utils.get_group_gn(innerplanes), innerplanes, eps=cfg.GROUP_NORM.EPSILON)
+        self.conv2 = nn.Conv2d(innerplanes, innerplanes, kernel_size=3, stride=str3x3, bias=False, padding=1 * dilation, dilation=dilation, groups=group)
+        self.gn2 = nn.GroupNorm(net_utils.get_group_gn(innerplanes), innerplanes, eps=cfg.GROUP_NORM.EPSILON)
+        self.conv3 = nn.Conv2d(innerplanes, outplanes, kernel_size=1, stride=1, bias=False)
+        self.gn3 = nn.GroupNorm(net_utils.get_group_gn(outplanes), outplanes, eps=cfg.GROUP_NORM.EPSILON)
         self.downsample = downsample
         self.relu = nn.ReLU(inplace=True)
 
@@ -1356,8 +1175,7 @@ class bottleneck_gn_transformation(nn.Module):
 
 def collect(inputs, is_training):
     cfg_key = 'TRAIN' if is_training else 'TEST'
-    post_nms_topN = int(cfg[cfg_key].RPN_POST_NMS_TOP_N * cfg.FPN.
-        RPN_COLLECT_SCALE + 0.5)
+    post_nms_topN = int(cfg[cfg_key].RPN_POST_NMS_TOP_N * cfg.FPN.RPN_COLLECT_SCALE + 0.5)
     k_max = cfg.FPN.RPN_MAX_LEVEL
     k_min = cfg.FPN.RPN_MIN_LEVEL
     num_lvls = k_max - k_min + 1
@@ -1377,8 +1195,7 @@ def distribute(rois, label_blobs):
     lvl_min = cfg.FPN.ROI_MIN_LEVEL
     lvl_max = cfg.FPN.ROI_MAX_LEVEL
     lvls = fpn_utils.map_rois_to_fpn_levels(rois[:, 1:5], lvl_min, lvl_max)
-    output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training
-        =False)
+    output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training=False)
     outputs = [None] * len(output_blob_names)
     outputs[0] = rois
     rois_idx_order = np.empty((0,))
@@ -1461,9 +1278,7 @@ class fast_rcnn_outputs(nn.Module):
         init.constant_(self.bbox_pred.bias, 0)
 
     def detectron_weight_mapping(self):
-        detectron_weight_mapping = {'cls_score.weight': 'cls_score_w',
-            'cls_score.bias': 'cls_score_b', 'bbox_pred.weight':
-            'bbox_pred_w', 'bbox_pred.bias': 'bbox_pred_b'}
+        detectron_weight_mapping = {'cls_score.weight': 'cls_score_w', 'cls_score.bias': 'cls_score_b', 'bbox_pred.weight': 'bbox_pred_w', 'bbox_pred.bias': 'bbox_pred_b'}
         orphan_in_detectron = []
         return detectron_weight_mapping, orphan_in_detectron
 
@@ -1498,15 +1313,11 @@ class roi_2mlp_head(nn.Module):
         init.constant_(self.fc2.bias, 0)
 
     def detectron_weight_mapping(self):
-        detectron_weight_mapping = {'fc1.weight': 'fc6_w', 'fc1.bias':
-            'fc6_b', 'fc2.weight': 'fc7_w', 'fc2.bias': 'fc7_b'}
+        detectron_weight_mapping = {'fc1.weight': 'fc6_w', 'fc1.bias': 'fc6_b', 'fc2.weight': 'fc7_w', 'fc2.bias': 'fc7_b'}
         return detectron_weight_mapping, []
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.
-            FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
         batch_size = x.size(0)
         x = F.relu(self.fc1(x.view(batch_size, -1)), inplace=True)
         x = F.relu(self.fc2(x), inplace=True)
@@ -1524,8 +1335,7 @@ class roi_Xconv1fc_head(nn.Module):
         hidden_dim = cfg.FAST_RCNN.CONV_HEAD_DIM
         module_list = []
         for i in range(cfg.FAST_RCNN.NUM_STACKED_CONVS):
-            module_list.extend([nn.Conv2d(dim_in, hidden_dim, 3, 1, 1), nn.
-                ReLU(inplace=True)])
+            module_list.extend([nn.Conv2d(dim_in, hidden_dim, 3, 1, 1), nn.ReLU(inplace=True)])
             dim_in = hidden_dim
         self.convs = nn.Sequential(*module_list)
         self.dim_out = fc_dim = cfg.FAST_RCNN.MLP_HEAD_DIM
@@ -1547,17 +1357,12 @@ class roi_Xconv1fc_head(nn.Module):
     def detectron_weight_mapping(self):
         mapping = {}
         for i in range(cfg.FAST_RCNN.NUM_STACKED_CONVS):
-            mapping.update({('convs.%d.weight' % (i * 2)): 'head_conv%d_w' %
-                (i + 1), ('convs.%d.bias' % (i * 2)): 'head_conv%d_b' % (i +
-                1)})
+            mapping.update({('convs.%d.weight' % (i * 2)): 'head_conv%d_w' % (i + 1), ('convs.%d.bias' % (i * 2)): 'head_conv%d_b' % (i + 1)})
         mapping.update({'fc.weight': 'fc6_w', 'fc.bias': 'fc6_b'})
         return mapping, []
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.
-            FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
         batch_size = x.size(0)
         x = self.convs(x)
         x = F.relu(self.fc(x.view(batch_size, -1)), inplace=True)
@@ -1575,10 +1380,7 @@ class roi_Xconv1fc_gn_head(nn.Module):
         hidden_dim = cfg.FAST_RCNN.CONV_HEAD_DIM
         module_list = []
         for i in range(cfg.FAST_RCNN.NUM_STACKED_CONVS):
-            module_list.extend([nn.Conv2d(dim_in, hidden_dim, 3, 1, 1, bias
-                =False), nn.GroupNorm(net_utils.get_group_gn(hidden_dim),
-                hidden_dim, eps=cfg.GROUP_NORM.EPSILON), nn.ReLU(inplace=True)]
-                )
+            module_list.extend([nn.Conv2d(dim_in, hidden_dim, 3, 1, 1, bias=False), nn.GroupNorm(net_utils.get_group_gn(hidden_dim), hidden_dim, eps=cfg.GROUP_NORM.EPSILON), nn.ReLU(inplace=True)])
             dim_in = hidden_dim
         self.convs = nn.Sequential(*module_list)
         self.dim_out = fc_dim = cfg.FAST_RCNN.MLP_HEAD_DIM
@@ -1599,18 +1401,12 @@ class roi_Xconv1fc_gn_head(nn.Module):
     def detectron_weight_mapping(self):
         mapping = {}
         for i in range(cfg.FAST_RCNN.NUM_STACKED_CONVS):
-            mapping.update({('convs.%d.weight' % (i * 3)): 'head_conv%d_w' %
-                (i + 1), ('convs.%d.weight' % (i * 3 + 1)): 
-                'head_conv%d_gn_s' % (i + 1), ('convs.%d.bias' % (i * 3 + 1
-                )): 'head_conv%d_gn_b' % (i + 1)})
+            mapping.update({('convs.%d.weight' % (i * 3)): 'head_conv%d_w' % (i + 1), ('convs.%d.weight' % (i * 3 + 1)): 'head_conv%d_gn_s' % (i + 1), ('convs.%d.bias' % (i * 3 + 1)): 'head_conv%d_gn_b' % (i + 1)})
         mapping.update({'fc.weight': 'fc6_w', 'fc.bias': 'fc6_b'})
         return mapping, []
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.
-            FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='rois', method=cfg.FAST_RCNN.ROI_XFORM_METHOD, resolution=cfg.FAST_RCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO)
         batch_size = x.size(0)
         x = self.convs(x)
         x = F.relu(self.fc(x.view(batch_size, -1)), inplace=True)
@@ -1653,8 +1449,7 @@ def _filter_boxes(boxes, min_size, im_info):
     hs = boxes[:, (3)] - boxes[:, (1)] + 1
     x_ctr = boxes[:, (0)] + ws / 2.0
     y_ctr = boxes[:, (1)] + hs / 2.0
-    keep = np.where((ws >= min_size) & (hs >= min_size) & (x_ctr < im_info[
-        1]) & (y_ctr < im_info[0]))[0]
+    keep = np.where((ws >= min_size) & (hs >= min_size) & (x_ctr < im_info[1]) & (y_ctr < im_info[0]))[0]
     return keep
 
 
@@ -1700,29 +1495,23 @@ class GenerateProposalsOp(nn.Module):
         shift_x = np.arange(0, width) * self._feat_stride
         shift_y = np.arange(0, height) * self._feat_stride
         shift_x, shift_y = np.meshgrid(shift_x, shift_y, copy=False)
-        shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel
-            (), shift_y.ravel())).transpose()
+        shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
         num_images = scores.shape[0]
         A = self._num_anchors
         K = shifts.shape[0]
-        all_anchors = self._anchors[(np.newaxis), :, :] + shifts[:, (np.
-            newaxis), :]
+        all_anchors = self._anchors[(np.newaxis), :, :] + shifts[:, (np.newaxis), :]
         all_anchors = all_anchors.reshape((K * A, 4))
         rois = np.empty((0, 5), dtype=np.float32)
         roi_probs = np.empty((0, 1), dtype=np.float32)
         for im_i in range(num_images):
-            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[(
-                im_i), :], all_anchors, bbox_deltas[(im_i), :, :, :],
-                scores[(im_i), :, :, :])
-            batch_inds = im_i * np.ones((im_i_boxes.shape[0], 1), dtype=np.
-                float32)
+            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[(im_i), :], all_anchors, bbox_deltas[(im_i), :, :, :], scores[(im_i), :, :, :])
+            batch_inds = im_i * np.ones((im_i_boxes.shape[0], 1), dtype=np.float32)
             im_i_rois = np.hstack((batch_inds, im_i_boxes))
             rois = np.append(rois, im_i_rois, axis=0)
             roi_probs = np.append(roi_probs, im_i_probs, axis=0)
         return rois, roi_probs
 
-    def proposals_for_one_image(self, im_info, all_anchors, bbox_deltas, scores
-        ):
+    def proposals_for_one_image(self, im_info, all_anchors, bbox_deltas, scores):
         cfg_key = 'TRAIN' if self.training else 'TEST'
         pre_nms_topN = cfg[cfg_key].RPN_PRE_NMS_TOP_N
         post_nms_topN = cfg[cfg_key].RPN_POST_NMS_TOP_N
@@ -1733,15 +1522,13 @@ class GenerateProposalsOp(nn.Module):
         if pre_nms_topN <= 0 or pre_nms_topN >= len(scores):
             order = np.argsort(-scores.squeeze())
         else:
-            inds = np.argpartition(-scores.squeeze(), pre_nms_topN)[:
-                pre_nms_topN]
+            inds = np.argpartition(-scores.squeeze(), pre_nms_topN)[:pre_nms_topN]
             order = np.argsort(-scores[inds].squeeze())
             order = inds[order]
         bbox_deltas = bbox_deltas[(order), :]
         all_anchors = all_anchors[(order), :]
         scores = scores[order]
-        proposals = box_utils.bbox_transform(all_anchors, bbox_deltas, (1.0,
-            1.0, 1.0, 1.0))
+        proposals = box_utils.bbox_transform(all_anchors, bbox_deltas, (1.0, 1.0, 1.0, 1.0))
         proposals = box_utils.clip_tiled_boxes(proposals, im_info[:2])
         keep = _filter_boxes(proposals, min_size, im_info)
         proposals = proposals[(keep), :]
@@ -1765,20 +1552,14 @@ class keypoint_outputs(nn.Module):
         super().__init__()
         self.upsample_heatmap = cfg.KRCNN.UP_SCALE > 1
         if cfg.KRCNN.USE_DECONV:
-            self.deconv = nn.ConvTranspose2d(dim_in, cfg.KRCNN.DECONV_DIM,
-                cfg.KRCNN.DECONV_KERNEL, 2, padding=int(cfg.KRCNN.
-                DECONV_KERNEL / 2) - 1)
+            self.deconv = nn.ConvTranspose2d(dim_in, cfg.KRCNN.DECONV_DIM, cfg.KRCNN.DECONV_KERNEL, 2, padding=int(cfg.KRCNN.DECONV_KERNEL / 2) - 1)
             dim_in = cfg.KRCNN.DECONV_DIM
         if cfg.KRCNN.USE_DECONV_OUTPUT:
-            self.classify = nn.ConvTranspose2d(dim_in, cfg.KRCNN.
-                NUM_KEYPOINTS, cfg.KRCNN.DECONV_KERNEL, 2, padding=int(cfg.
-                KRCNN.DECONV_KERNEL / 2 - 1))
+            self.classify = nn.ConvTranspose2d(dim_in, cfg.KRCNN.NUM_KEYPOINTS, cfg.KRCNN.DECONV_KERNEL, 2, padding=int(cfg.KRCNN.DECONV_KERNEL / 2 - 1))
         else:
-            self.classify = nn.Conv2d(dim_in, cfg.KRCNN.NUM_KEYPOINTS, 1, 1,
-                padding=0)
+            self.classify = nn.Conv2d(dim_in, cfg.KRCNN.NUM_KEYPOINTS, 1, 1, padding=0)
         if self.upsample_heatmap:
-            self.upsample = mynn.BilinearInterpolation2d(cfg.KRCNN.
-                NUM_KEYPOINTS, cfg.KRCNN.NUM_KEYPOINTS, cfg.KRCNN.UP_SCALE)
+            self.upsample = mynn.BilinearInterpolation2d(cfg.KRCNN.NUM_KEYPOINTS, cfg.KRCNN.NUM_KEYPOINTS, cfg.KRCNN.UP_SCALE)
         self._init_weights()
 
     def _init_weights(self):
@@ -1796,16 +1577,13 @@ class keypoint_outputs(nn.Module):
     def detectron_weight_mapping(self):
         detectron_weight_mapping = {}
         if cfg.KRCNN.USE_DECONV:
-            detectron_weight_mapping.update({'deconv.weight':
-                'kps_deconv_w', 'deconv.bias': 'kps_deconv_b'})
+            detectron_weight_mapping.update({'deconv.weight': 'kps_deconv_w', 'deconv.bias': 'kps_deconv_b'})
         if self.upsample_heatmap:
             blob_name = 'kps_score_lowres'
-            detectron_weight_mapping.update({'upsample.upconv.weight': None,
-                'upsample.upconv.bias': None})
+            detectron_weight_mapping.update({'upsample.upconv.weight': None, 'upsample.upconv.bias': None})
         else:
             blob_name = 'kps_score'
-        detectron_weight_mapping.update({'classify.weight': blob_name +
-            '_w', 'classify.bias': blob_name + '_b'})
+        detectron_weight_mapping.update({'classify.weight': blob_name + '_w', 'classify.bias': blob_name + '_b'})
         return detectron_weight_mapping, []
 
     def forward(self, x):
@@ -1830,8 +1608,7 @@ class roi_pose_head_v1convX(nn.Module):
         pad_size = kernel_size // 2
         module_list = []
         for _ in range(cfg.KRCNN.NUM_STACKED_CONVS):
-            module_list.append(nn.Conv2d(dim_in, hidden_dim, kernel_size, 1,
-                pad_size))
+            module_list.append(nn.Conv2d(dim_in, hidden_dim, kernel_size, 1, pad_size))
             module_list.append(nn.ReLU(inplace=True))
             dim_in = hidden_dim
         self.conv_fcn = nn.Sequential(*module_list)
@@ -1845,25 +1622,19 @@ class roi_pose_head_v1convX(nn.Module):
             elif cfg.KRCNN.CONV_INIT == 'MSRAFill':
                 mynn.init.MSRAFill(m.weight)
             else:
-                ValueError('Unexpected cfg.KRCNN.CONV_INIT: {}'.format(cfg.
-                    KRCNN.CONV_INIT))
+                ValueError('Unexpected cfg.KRCNN.CONV_INIT: {}'.format(cfg.KRCNN.CONV_INIT))
             init.constant_(m.bias, 0)
 
     def detectron_weight_mapping(self):
         detectron_weight_mapping = {}
         orphan_in_detectron = []
         for i in range(cfg.KRCNN.NUM_STACKED_CONVS):
-            detectron_weight_mapping['conv_fcn.%d.weight' % (2 * i)
-                ] = 'conv_fcn%d_w' % (i + 1)
-            detectron_weight_mapping['conv_fcn.%d.bias' % (2 * i)
-                ] = 'conv_fcn%d_b' % (i + 1)
+            detectron_weight_mapping['conv_fcn.%d.weight' % (2 * i)] = 'conv_fcn%d_w' % (i + 1)
+            detectron_weight_mapping['conv_fcn.%d.bias' % (2 * i)] = 'conv_fcn%d_b' % (i + 1)
         return detectron_weight_mapping, orphan_in_detectron
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='keypoint_rois', method=
-            cfg.KRCNN.ROI_XFORM_METHOD, resolution=cfg.KRCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.KRCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='keypoint_rois', method=cfg.KRCNN.ROI_XFORM_METHOD, resolution=cfg.KRCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.KRCNN.ROI_XFORM_SAMPLING_RATIO)
         x = self.conv_fcn(x)
         return x
 
@@ -1879,18 +1650,15 @@ class mask_rcnn_outputs(nn.Module):
         self.dim_in = dim_in
         n_classes = cfg.MODEL.NUM_CLASSES if cfg.MRCNN.CLS_SPECIFIC_MASK else 1
         if cfg.MRCNN.USE_FC_OUTPUT:
-            self.classify = nn.Linear(dim_in, n_classes * cfg.MRCNN.
-                RESOLUTION ** 2)
+            self.classify = nn.Linear(dim_in, n_classes * cfg.MRCNN.RESOLUTION ** 2)
         else:
             self.classify = nn.Conv2d(dim_in, n_classes, 1, 1, 0)
             if cfg.MRCNN.UPSAMPLE_RATIO > 1:
-                self.upsample = mynn.BilinearInterpolation2d(n_classes,
-                    n_classes, cfg.MRCNN.UPSAMPLE_RATIO)
+                self.upsample = mynn.BilinearInterpolation2d(n_classes, n_classes, cfg.MRCNN.UPSAMPLE_RATIO)
         self._init_weights()
 
     def _init_weights(self):
-        if (not cfg.MRCNN.USE_FC_OUTPUT and cfg.MRCNN.CLS_SPECIFIC_MASK and
-            cfg.MRCNN.CONV_INIT == 'MSRAFill'):
+        if not cfg.MRCNN.USE_FC_OUTPUT and cfg.MRCNN.CLS_SPECIFIC_MASK and cfg.MRCNN.CONV_INIT == 'MSRAFill':
             weight_init_func = mynn.init.MSRAFill
         else:
             weight_init_func = partial(init.normal_, std=0.001)
@@ -1898,11 +1666,9 @@ class mask_rcnn_outputs(nn.Module):
         init.constant_(self.classify.bias, 0)
 
     def detectron_weight_mapping(self):
-        mapping = {'classify.weight': 'mask_fcn_logits_w', 'classify.bias':
-            'mask_fcn_logits_b'}
+        mapping = {'classify.weight': 'mask_fcn_logits_w', 'classify.bias': 'mask_fcn_logits_b'}
         if hasattr(self, 'upsample'):
-            mapping.update({'upsample.upconv.weight': None,
-                'upsample.upconv.bias': None})
+            mapping.update({'upsample.upconv.weight': None, 'upsample.upconv.bias': None})
         orphan_in_detectron = []
         return mapping, orphan_in_detectron
 
@@ -1929,8 +1695,7 @@ class mask_rcnn_fcn_head_v1upXconvs(nn.Module):
         self.dim_out = dim_inner
         module_list = []
         for i in range(num_convs):
-            module_list.extend([nn.Conv2d(dim_in, dim_inner, 3, 1, padding=
-                1 * dilation, dilation=dilation), nn.ReLU(inplace=True)])
+            module_list.extend([nn.Conv2d(dim_in, dim_inner, 3, 1, padding=1 * dilation, dilation=dilation), nn.ReLU(inplace=True)])
             dim_in = dim_inner
         self.conv_fcn = nn.Sequential(*module_list)
         self.upconv = nn.ConvTranspose2d(dim_inner, dim_inner, 2, 2, 0)
@@ -1949,18 +1714,12 @@ class mask_rcnn_fcn_head_v1upXconvs(nn.Module):
     def detectron_weight_mapping(self):
         mapping_to_detectron = {}
         for i in range(self.num_convs):
-            mapping_to_detectron.update({('conv_fcn.%d.weight' % (2 * i)): 
-                '_[mask]_fcn%d_w' % (i + 1), ('conv_fcn.%d.bias' % (2 * i)):
-                '_[mask]_fcn%d_b' % (i + 1)})
-        mapping_to_detectron.update({'upconv.weight': 'conv5_mask_w',
-            'upconv.bias': 'conv5_mask_b'})
+            mapping_to_detectron.update({('conv_fcn.%d.weight' % (2 * i)): '_[mask]_fcn%d_w' % (i + 1), ('conv_fcn.%d.bias' % (2 * i)): '_[mask]_fcn%d_b' % (i + 1)})
+        mapping_to_detectron.update({'upconv.weight': 'conv5_mask_w', 'upconv.bias': 'conv5_mask_b'})
         return mapping_to_detectron, []
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.
-            MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
         x = self.conv_fcn(x)
         return F.relu(self.upconv(x), inplace=True)
 
@@ -1979,10 +1738,7 @@ class mask_rcnn_fcn_head_v1upXconvs_gn(nn.Module):
         self.dim_out = dim_inner
         module_list = []
         for i in range(num_convs):
-            module_list.extend([nn.Conv2d(dim_in, dim_inner, 3, 1, padding=
-                1 * dilation, dilation=dilation, bias=False), nn.GroupNorm(
-                net_utils.get_group_gn(dim_inner), dim_inner, eps=cfg.
-                GROUP_NORM.EPSILON), nn.ReLU(inplace=True)])
+            module_list.extend([nn.Conv2d(dim_in, dim_inner, 3, 1, padding=1 * dilation, dilation=dilation, bias=False), nn.GroupNorm(net_utils.get_group_gn(dim_inner), dim_inner, eps=cfg.GROUP_NORM.EPSILON), nn.ReLU(inplace=True)])
             dim_in = dim_inner
         self.conv_fcn = nn.Sequential(*module_list)
         self.upconv = nn.ConvTranspose2d(dim_inner, dim_inner, 2, 2, 0)
@@ -2002,19 +1758,12 @@ class mask_rcnn_fcn_head_v1upXconvs_gn(nn.Module):
     def detectron_weight_mapping(self):
         mapping_to_detectron = {}
         for i in range(self.num_convs):
-            mapping_to_detectron.update({('conv_fcn.%d.weight' % (3 * i)): 
-                '_mask_fcn%d_w' % (i + 1), ('conv_fcn.%d.weight' % (3 * i +
-                1)): '_mask_fcn%d_gn_s' % (i + 1), ('conv_fcn.%d.bias' % (3 *
-                i + 1)): '_mask_fcn%d_gn_b' % (i + 1)})
-        mapping_to_detectron.update({'upconv.weight': 'conv5_mask_w',
-            'upconv.bias': 'conv5_mask_b'})
+            mapping_to_detectron.update({('conv_fcn.%d.weight' % (3 * i)): '_mask_fcn%d_w' % (i + 1), ('conv_fcn.%d.weight' % (3 * i + 1)): '_mask_fcn%d_gn_s' % (i + 1), ('conv_fcn.%d.bias' % (3 * i + 1)): '_mask_fcn%d_gn_b' % (i + 1)})
+        mapping_to_detectron.update({'upconv.weight': 'conv5_mask_w', 'upconv.bias': 'conv5_mask_b'})
         return mapping_to_detectron, []
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.
-            MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
         x = self.conv_fcn(x)
         return F.relu(self.upconv(x), inplace=True)
 
@@ -2052,12 +1801,10 @@ class mask_rcnn_fcn_head_v0upshare(nn.Module):
         self.res5 = res5_target
 
     def detectron_weight_mapping(self):
-        detectron_weight_mapping, orphan_in_detectron = (ResNet.
-            residual_stage_detectron_mapping(self.res5, 'res5', 3, 5))
+        detectron_weight_mapping, orphan_in_detectron = ResNet.residual_stage_detectron_mapping(self.res5, 'res5', 3, 5)
         for k in detectron_weight_mapping:
             detectron_weight_mapping[k] = None
-        detectron_weight_mapping.update({'upconv5.weight': 'conv5_mask_w',
-            'upconv5.bias': 'conv5_mask_b'})
+        detectron_weight_mapping.update({'upconv5.weight': 'conv5_mask_w', 'upconv5.bias': 'conv5_mask_b'})
         return detectron_weight_mapping, orphan_in_detectron
 
     def forward(self, x, rpn_ret, roi_has_mask_int32=None):
@@ -2066,10 +1813,7 @@ class mask_rcnn_fcn_head_v0upshare(nn.Module):
             inds = Variable(torch.from_numpy(inds))
             x = x[inds]
         else:
-            x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=
-                cfg.MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.
-                ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-                sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
+            x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
             x = self.res5(x)
         x = self.upconv5(x)
         x = F.relu(x, inplace=True)
@@ -2080,8 +1824,7 @@ def ResNet_roi_conv5_head_for_masks(dim_in):
     """ResNet "conv5" / "stage5" head for predicting masks."""
     dilation = cfg.MRCNN.DILATION
     stride_init = cfg.MRCNN.ROI_XFORM_RESOLUTION // 7
-    module, dim_out = ResNet.add_stage(dim_in, 2048, 512, 3, dilation,
-        stride_init)
+    module, dim_out = ResNet.add_stage(dim_in, 2048, 512, 3, dilation, stride_init)
     return module, dim_out
 
 
@@ -2096,8 +1839,7 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         self.dim_out = cfg.MRCNN.DIM_REDUCED
         self.res5, dim_out = ResNet_roi_conv5_head_for_masks(dim_in)
         self.upconv5 = nn.ConvTranspose2d(dim_out, self.dim_out, 2, 2, 0)
-        self.res5.apply(lambda m: ResNet.freeze_params(m) if isinstance(m,
-            mynn.AffineChannel2d) else None)
+        self.res5.apply(lambda m: ResNet.freeze_params(m) if isinstance(m, mynn.AffineChannel2d) else None)
         self._init_weights()
 
     def _init_weights(self):
@@ -2108,17 +1850,12 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         init.constant_(self.upconv5.bias, 0)
 
     def detectron_weight_mapping(self):
-        detectron_weight_mapping, orphan_in_detectron = (ResNet.
-            residual_stage_detectron_mapping(self.res5, 'res5', 3, 5))
-        detectron_weight_mapping.update({'upconv5.weight': 'conv5_mask_w',
-            'upconv5.bias': 'conv5_mask_b'})
+        detectron_weight_mapping, orphan_in_detectron = ResNet.residual_stage_detectron_mapping(self.res5, 'res5', 3, 5)
+        detectron_weight_mapping.update({'upconv5.weight': 'conv5_mask_w', 'upconv5.bias': 'conv5_mask_b'})
         return detectron_weight_mapping, orphan_in_detectron
 
     def forward(self, x, rpn_ret):
-        x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.
-            MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.
-            ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale,
-            sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
+        x = self.roi_xform(x, rpn_ret, blob_rois='mask_rois', method=cfg.MRCNN.ROI_XFORM_METHOD, resolution=cfg.MRCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.MRCNN.ROI_XFORM_SAMPLING_RATIO)
         x = self.res5(x)
         x = self.upconv5(x)
         x = F.relu(x, inplace=True)
@@ -2139,9 +1876,7 @@ def check_inference(net_func):
                 with torch.no_grad():
                     return net_func(self, *args, **kwargs)
         else:
-            raise ValueError(
-                'You should call this function only on inference.Set the network in inference mode by net.eval().'
-                )
+            raise ValueError('You should call this function only on inference.Set the network in inference mode by net.eval().')
     return wrapper
 
 
@@ -2184,10 +1919,10 @@ def get_func(func_name):
         raise
 
 
-_global_config['TRAIN'] = 4
-
-
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
+
+
+_global_config['TRAIN'] = 4
 
 
 class Generalized_RCNN(nn.Module):
@@ -2198,50 +1933,34 @@ class Generalized_RCNN(nn.Module):
         self.orphans_in_detectron = None
         self.Conv_Body = get_func(cfg.MODEL.CONV_BODY)()
         if cfg.RPN.RPN_ON:
-            self.RPN = rpn_heads.generic_rpn_outputs(self.Conv_Body.dim_out,
-                self.Conv_Body.spatial_scale)
+            self.RPN = rpn_heads.generic_rpn_outputs(self.Conv_Body.dim_out, self.Conv_Body.spatial_scale)
         if cfg.FPN.FPN_ON:
             assert cfg.FPN.RPN_MIN_LEVEL == cfg.FPN.ROI_MIN_LEVEL
             assert cfg.FPN.RPN_MAX_LEVEL >= cfg.FPN.ROI_MAX_LEVEL
-            self.num_roi_levels = (cfg.FPN.ROI_MAX_LEVEL - cfg.FPN.
-                ROI_MIN_LEVEL + 1)
-            self.Conv_Body.spatial_scale = self.Conv_Body.spatial_scale[-
-                self.num_roi_levels:]
+            self.num_roi_levels = cfg.FPN.ROI_MAX_LEVEL - cfg.FPN.ROI_MIN_LEVEL + 1
+            self.Conv_Body.spatial_scale = self.Conv_Body.spatial_scale[-self.num_roi_levels:]
         if not cfg.MODEL.RPN_ONLY:
-            self.Box_Head = get_func(cfg.FAST_RCNN.ROI_BOX_HEAD)(self.RPN.
-                dim_out, self.roi_feature_transform, self.Conv_Body.
-                spatial_scale)
-            self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(self.Box_Head
-                .dim_out)
+            self.Box_Head = get_func(cfg.FAST_RCNN.ROI_BOX_HEAD)(self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
+            self.Box_Outs = fast_rcnn_heads.fast_rcnn_outputs(self.Box_Head.dim_out)
         if cfg.MODEL.MASK_ON:
-            self.Mask_Head = get_func(cfg.MRCNN.ROI_MASK_HEAD)(self.RPN.
-                dim_out, self.roi_feature_transform, self.Conv_Body.
-                spatial_scale)
+            self.Mask_Head = get_func(cfg.MRCNN.ROI_MASK_HEAD)(self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
             if getattr(self.Mask_Head, 'SHARE_RES5', False):
                 self.Mask_Head.share_res5_module(self.Box_Head.res5)
-            self.Mask_Outs = mask_rcnn_heads.mask_rcnn_outputs(self.
-                Mask_Head.dim_out)
+            self.Mask_Outs = mask_rcnn_heads.mask_rcnn_outputs(self.Mask_Head.dim_out)
         if cfg.MODEL.KEYPOINTS_ON:
-            self.Keypoint_Head = get_func(cfg.KRCNN.ROI_KEYPOINTS_HEAD)(self
-                .RPN.dim_out, self.roi_feature_transform, self.Conv_Body.
-                spatial_scale)
+            self.Keypoint_Head = get_func(cfg.KRCNN.ROI_KEYPOINTS_HEAD)(self.RPN.dim_out, self.roi_feature_transform, self.Conv_Body.spatial_scale)
             if getattr(self.Keypoint_Head, 'SHARE_RES5', False):
                 self.Keypoint_Head.share_res5_module(self.Box_Head.res5)
-            self.Keypoint_Outs = keypoint_rcnn_heads.keypoint_outputs(self.
-                Keypoint_Head.dim_out)
+            self.Keypoint_Outs = keypoint_rcnn_heads.keypoint_outputs(self.Keypoint_Head.dim_out)
         self._init_modules()
 
     def _init_modules(self):
         if cfg.MODEL.LOAD_IMAGENET_PRETRAINED_WEIGHTS:
             resnet_utils.load_pretrained_imagenet_weights(self)
-            if cfg.MODEL.MASK_ON and getattr(self.Mask_Head, 'SHARE_RES5', 
-                False):
-                assert compare_state_dict(self.Mask_Head.res5.state_dict(),
-                    self.Box_Head.res5.state_dict())
-            if cfg.MODEL.KEYPOINTS_ON and getattr(self.Keypoint_Head,
-                'SHARE_RES5', False):
-                assert compare_state_dict(self.Keypoint_Head.res5.
-                    state_dict(), self.Box_Head.res5.state_dict())
+            if cfg.MODEL.MASK_ON and getattr(self.Mask_Head, 'SHARE_RES5', False):
+                assert compare_state_dict(self.Mask_Head.res5.state_dict(), self.Box_Head.res5.state_dict())
+            if cfg.MODEL.KEYPOINTS_ON and getattr(self.Keypoint_Head, 'SHARE_RES5', False):
+                assert compare_state_dict(self.Keypoint_Head.res5.state_dict(), self.Box_Head.res5.state_dict())
         if cfg.TRAIN.FREEZE_CONV_BODY:
             for p in self.Conv_Body.parameters():
                 p.requires_grad = False
@@ -2276,55 +1995,37 @@ class Generalized_RCNN(nn.Module):
         if self.training:
             return_dict['losses'] = {}
             return_dict['metrics'] = {}
-            rpn_kwargs.update(dict((k, rpn_ret[k]) for k in rpn_ret.keys() if
-                k.startswith('rpn_cls_logits') or k.startswith(
-                'rpn_bbox_pred')))
-            loss_rpn_cls, loss_rpn_bbox = rpn_heads.generic_rpn_losses(**
-                rpn_kwargs)
+            rpn_kwargs.update(dict((k, rpn_ret[k]) for k in rpn_ret.keys() if k.startswith('rpn_cls_logits') or k.startswith('rpn_bbox_pred')))
+            loss_rpn_cls, loss_rpn_bbox = rpn_heads.generic_rpn_losses(**rpn_kwargs)
             if cfg.FPN.FPN_ON:
-                for i, lvl in enumerate(range(cfg.FPN.RPN_MIN_LEVEL, cfg.
-                    FPN.RPN_MAX_LEVEL + 1)):
-                    return_dict['losses']['loss_rpn_cls_fpn%d' % lvl
-                        ] = loss_rpn_cls[i]
-                    return_dict['losses']['loss_rpn_bbox_fpn%d' % lvl
-                        ] = loss_rpn_bbox[i]
+                for i, lvl in enumerate(range(cfg.FPN.RPN_MIN_LEVEL, cfg.FPN.RPN_MAX_LEVEL + 1)):
+                    return_dict['losses']['loss_rpn_cls_fpn%d' % lvl] = loss_rpn_cls[i]
+                    return_dict['losses']['loss_rpn_bbox_fpn%d' % lvl] = loss_rpn_bbox[i]
             else:
                 return_dict['losses']['loss_rpn_cls'] = loss_rpn_cls
                 return_dict['losses']['loss_rpn_bbox'] = loss_rpn_bbox
-            loss_cls, loss_bbox, accuracy_cls = (fast_rcnn_heads.
-                fast_rcnn_losses(cls_score, bbox_pred, rpn_ret[
-                'labels_int32'], rpn_ret['bbox_targets'], rpn_ret[
-                'bbox_inside_weights'], rpn_ret['bbox_outside_weights']))
+            loss_cls, loss_bbox, accuracy_cls = fast_rcnn_heads.fast_rcnn_losses(cls_score, bbox_pred, rpn_ret['labels_int32'], rpn_ret['bbox_targets'], rpn_ret['bbox_inside_weights'], rpn_ret['bbox_outside_weights'])
             return_dict['losses']['loss_cls'] = loss_cls
             return_dict['losses']['loss_bbox'] = loss_bbox
             return_dict['metrics']['accuracy_cls'] = accuracy_cls
             if cfg.MODEL.MASK_ON:
                 if getattr(self.Mask_Head, 'SHARE_RES5', False):
-                    mask_feat = self.Mask_Head(res5_feat, rpn_ret,
-                        roi_has_mask_int32=rpn_ret['roi_has_mask_int32'])
+                    mask_feat = self.Mask_Head(res5_feat, rpn_ret, roi_has_mask_int32=rpn_ret['roi_has_mask_int32'])
                 else:
                     mask_feat = self.Mask_Head(blob_conv, rpn_ret)
                 mask_pred = self.Mask_Outs(mask_feat)
-                loss_mask = mask_rcnn_heads.mask_rcnn_losses(mask_pred,
-                    rpn_ret['masks_int32'])
+                loss_mask = mask_rcnn_heads.mask_rcnn_losses(mask_pred, rpn_ret['masks_int32'])
                 return_dict['losses']['loss_mask'] = loss_mask
             if cfg.MODEL.KEYPOINTS_ON:
                 if getattr(self.Keypoint_Head, 'SHARE_RES5', False):
-                    kps_feat = self.Keypoint_Head(res5_feat, rpn_ret,
-                        roi_has_keypoints_int32=rpn_ret[
-                        'roi_has_keypoint_int32'])
+                    kps_feat = self.Keypoint_Head(res5_feat, rpn_ret, roi_has_keypoints_int32=rpn_ret['roi_has_keypoint_int32'])
                 else:
                     kps_feat = self.Keypoint_Head(blob_conv, rpn_ret)
                 kps_pred = self.Keypoint_Outs(kps_feat)
                 if cfg.KRCNN.NORMALIZE_BY_VISIBLE_KEYPOINTS:
-                    loss_keypoints = keypoint_rcnn_heads.keypoint_losses(
-                        kps_pred, rpn_ret['keypoint_locations_int32'],
-                        rpn_ret['keypoint_weights'])
+                    loss_keypoints = keypoint_rcnn_heads.keypoint_losses(kps_pred, rpn_ret['keypoint_locations_int32'], rpn_ret['keypoint_weights'])
                 else:
-                    loss_keypoints = keypoint_rcnn_heads.keypoint_losses(
-                        kps_pred, rpn_ret['keypoint_locations_int32'],
-                        rpn_ret['keypoint_weights'], rpn_ret[
-                        'keypoint_loss_normalizer'])
+                    loss_keypoints = keypoint_rcnn_heads.keypoint_losses(kps_pred, rpn_ret['keypoint_locations_int32'], rpn_ret['keypoint_weights'], rpn_ret['keypoint_loss_normalizer'])
                 return_dict['losses']['loss_kps'] = loss_keypoints
             for k, v in return_dict['losses'].items():
                 return_dict['losses'][k] = v.unsqueeze(0)
@@ -2336,9 +2037,7 @@ class Generalized_RCNN(nn.Module):
             return_dict['bbox_pred'] = bbox_pred
         return return_dict
 
-    def roi_feature_transform(self, blobs_in, rpn_ret, blob_rois='rois',
-        method='RoIPoolF', resolution=7, spatial_scale=1.0 / 16.0,
-        sampling_ratio=0):
+    def roi_feature_transform(self, blobs_in, rpn_ret, blob_rois='rois', method='RoIPoolF', resolution=7, spatial_scale=1.0 / 16.0, sampling_ratio=0):
         """Add the specified RoI pooling method. The sampling_ratio argument
         is supported for some, but not all, RoI transform methods.
 
@@ -2346,8 +2045,7 @@ class Generalized_RCNN(nn.Module):
           - Use of FPN or not
           - Specifics of the transform method
         """
-        assert method in {'RoIPoolF', 'RoICrop', 'RoIAlign'
-            }, 'Unknown pooling method: {}'.format(method)
+        assert method in {'RoIPoolF', 'RoICrop', 'RoIAlign'}, 'Unknown pooling method: {}'.format(method)
         if isinstance(blobs_in, list):
             device_id = blobs_in[0].get_device()
             k_max = cfg.FPN.ROI_MAX_LEVEL
@@ -2361,45 +2059,34 @@ class Generalized_RCNN(nn.Module):
                 if len(rpn_ret[bl_rois]):
                     rois = Variable(torch.from_numpy(rpn_ret[bl_rois]))
                     if method == 'RoIPoolF':
-                        xform_out = RoIPoolFunction(resolution, resolution, sc
-                            )(bl_in, rois)
+                        xform_out = RoIPoolFunction(resolution, resolution, sc)(bl_in, rois)
                     elif method == 'RoICrop':
-                        grid_xy = net_utils.affine_grid_gen(rois, bl_in.
-                            size()[2:], self.grid_size)
-                        grid_yx = torch.stack([grid_xy.data[:, :, :, (1)],
-                            grid_xy.data[:, :, :, (0)]], 3).contiguous()
-                        xform_out = RoICropFunction()(bl_in, Variable(
-                            grid_yx).detach())
+                        grid_xy = net_utils.affine_grid_gen(rois, bl_in.size()[2:], self.grid_size)
+                        grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data[:, :, :, (0)]], 3).contiguous()
+                        xform_out = RoICropFunction()(bl_in, Variable(grid_yx).detach())
                         if cfg.CROP_RESIZE_WITH_MAX_POOL:
                             xform_out = F.max_pool2d(xform_out, 2, 2)
                     elif method == 'RoIAlign':
-                        xform_out = RoIAlignFunction(resolution, resolution,
-                            sc, sampling_ratio)(bl_in, rois)
+                        xform_out = RoIAlignFunction(resolution, resolution, sc, sampling_ratio)(bl_in, rois)
                     bl_out_list.append(xform_out)
             xform_shuffled = torch.cat(bl_out_list, dim=0)
             device_id = xform_shuffled.get_device()
             restore_bl = rpn_ret[blob_rois + '_idx_restore_int32']
-            restore_bl = Variable(torch.from_numpy(restore_bl.astype(
-                'int64', copy=False)))
+            restore_bl = Variable(torch.from_numpy(restore_bl.astype('int64', copy=False)))
             xform_out = xform_shuffled[restore_bl]
         else:
             device_id = blobs_in.get_device()
             rois = Variable(torch.from_numpy(rpn_ret[blob_rois]))
             if method == 'RoIPoolF':
-                xform_out = RoIPoolFunction(resolution, resolution,
-                    spatial_scale)(blobs_in, rois)
+                xform_out = RoIPoolFunction(resolution, resolution, spatial_scale)(blobs_in, rois)
             elif method == 'RoICrop':
-                grid_xy = net_utils.affine_grid_gen(rois, blobs_in.size()[2
-                    :], self.grid_size)
-                grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.
-                    data[:, :, :, (0)]], 3).contiguous()
-                xform_out = RoICropFunction()(blobs_in, Variable(grid_yx).
-                    detach())
+                grid_xy = net_utils.affine_grid_gen(rois, blobs_in.size()[2:], self.grid_size)
+                grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data[:, :, :, (0)]], 3).contiguous()
+                xform_out = RoICropFunction()(blobs_in, Variable(grid_yx).detach())
                 if cfg.CROP_RESIZE_WITH_MAX_POOL:
                     xform_out = F.max_pool2d(xform_out, 2, 2)
             elif method == 'RoIAlign':
-                xform_out = RoIAlignFunction(resolution, resolution,
-                    spatial_scale, sampling_ratio)(blobs_in, rois)
+                xform_out = RoIAlignFunction(resolution, resolution, spatial_scale, sampling_ratio)(blobs_in, rois)
         return xform_out
 
     @check_inference
@@ -2431,8 +2118,7 @@ class Generalized_RCNN(nn.Module):
             d_orphan = []
             for name, m_child in self.named_children():
                 if list(m_child.parameters()):
-                    child_map, child_orphan = m_child.detectron_weight_mapping(
-                        )
+                    child_map, child_orphan = m_child.detectron_weight_mapping()
                     d_orphan.extend(child_orphan)
                     for key, value in child_map.items():
                         new_key = name + '.' + key
@@ -2448,8 +2134,7 @@ class Generalized_RCNN(nn.Module):
 
 class RoIAlign(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale,
-        sampling_ratio):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlign, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
@@ -2457,14 +2142,12 @@ class RoIAlign(Module):
         self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width,
-            self.spatial_scale, self.sampling_ratio)(features, rois)
+        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio)(features, rois)
 
 
 class RoIAlignAvg(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale,
-        sampling_ratio):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlignAvg, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
@@ -2472,15 +2155,13 @@ class RoIAlignAvg(Module):
         self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 
-            1, self.spatial_scale, self.sampling_ratio)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
         return avg_pool2d(x, kernel_size=2, stride=1)
 
 
 class RoIAlignMax(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale,
-        sampling_ratio):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlignMax, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
@@ -2488,8 +2169,7 @@ class RoIAlignMax(Module):
         self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 
-            1, self.spatial_scale, self.sampling_ratio)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
         return max_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -2500,16 +2180,13 @@ class single_scale_rpn_outputs(nn.Module):
         super().__init__()
         self.dim_in = dim_in
         self.dim_out = dim_in if cfg.RPN.OUT_DIM_AS_IN_DIM else cfg.RPN.OUT_DIM
-        anchors = generate_anchors(stride=1.0 / spatial_scale, sizes=cfg.
-            RPN.SIZES, aspect_ratios=cfg.RPN.ASPECT_RATIOS)
+        anchors = generate_anchors(stride=1.0 / spatial_scale, sizes=cfg.RPN.SIZES, aspect_ratios=cfg.RPN.ASPECT_RATIOS)
         num_anchors = anchors.shape[0]
         self.RPN_conv = nn.Conv2d(self.dim_in, self.dim_out, 3, 1, 1)
-        self.n_score_out = (num_anchors * 2 if cfg.RPN.CLS_ACTIVATION ==
-            'softmax' else num_anchors)
+        self.n_score_out = num_anchors * 2 if cfg.RPN.CLS_ACTIVATION == 'softmax' else num_anchors
         self.RPN_cls_score = nn.Conv2d(self.dim_out, self.n_score_out, 1, 1, 0)
         self.RPN_bbox_pred = nn.Conv2d(self.dim_out, num_anchors * 4, 1, 1, 0)
-        self.RPN_GenerateProposals = GenerateProposalsOp(anchors, spatial_scale
-            )
+        self.RPN_GenerateProposals = GenerateProposalsOp(anchors, spatial_scale)
         self.RPN_GenerateProposalLabels = GenerateProposalLabelsOp()
         self._init_weights()
 
@@ -2522,11 +2199,7 @@ class single_scale_rpn_outputs(nn.Module):
         init.constant_(self.RPN_bbox_pred.bias, 0)
 
     def detectron_weight_mapping(self):
-        detectron_weight_mapping = {'RPN_conv.weight': 'conv_rpn_w',
-            'RPN_conv.bias': 'conv_rpn_b', 'RPN_cls_score.weight':
-            'rpn_cls_logits_w', 'RPN_cls_score.bias': 'rpn_cls_logits_b',
-            'RPN_bbox_pred.weight': 'rpn_bbox_pred_w', 'RPN_bbox_pred.bias':
-            'rpn_bbox_pred_b'}
+        detectron_weight_mapping = {'RPN_conv.weight': 'conv_rpn_w', 'RPN_conv.bias': 'conv_rpn_b', 'RPN_cls_score.weight': 'rpn_cls_logits_w', 'RPN_cls_score.bias': 'rpn_cls_logits_b', 'RPN_bbox_pred.weight': 'rpn_bbox_pred_w', 'RPN_bbox_pred.bias': 'rpn_bbox_pred_b'}
         orphan_in_detectron = []
         return detectron_weight_mapping, orphan_in_detectron
 
@@ -2539,24 +2212,20 @@ class single_scale_rpn_outputs(nn.Module):
         rpn_conv = F.relu(self.RPN_conv(x), inplace=True)
         rpn_cls_logits = self.RPN_cls_score(rpn_conv)
         rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv)
-        return_dict = {'rpn_cls_logits': rpn_cls_logits, 'rpn_bbox_pred':
-            rpn_bbox_pred}
+        return_dict = {'rpn_cls_logits': rpn_cls_logits, 'rpn_bbox_pred': rpn_bbox_pred}
         if not self.training or cfg.MODEL.FASTER_RCNN:
             if cfg.RPN.CLS_ACTIVATION == 'softmax':
                 B, C, H, W = rpn_cls_logits.size()
-                rpn_cls_prob = F.softmax(rpn_cls_logits.view(B, 2, C // 2,
-                    H, W), dim=1)
+                rpn_cls_prob = F.softmax(rpn_cls_logits.view(B, 2, C // 2, H, W), dim=1)
                 rpn_cls_prob = rpn_cls_prob[:, (1)].squeeze(dim=1)
             else:
                 rpn_cls_prob = F.sigmoid(rpn_cls_logits)
-            rpn_rois, rpn_rois_prob = self.RPN_GenerateProposals(rpn_cls_prob,
-                rpn_bbox_pred, im_info)
+            rpn_rois, rpn_rois_prob = self.RPN_GenerateProposals(rpn_cls_prob, rpn_bbox_pred, im_info)
             return_dict['rpn_rois'] = rpn_rois
             return_dict['rpn_roi_probs'] = rpn_rois_prob
         if cfg.MODEL.FASTER_RCNN:
             if self.training:
-                blobs_out = self.RPN_GenerateProposalLabels(rpn_rois, roidb,
-                    im_info)
+                blobs_out = self.RPN_GenerateProposalLabels(rpn_rois, roidb, im_info)
                 return_dict.update(blobs_out)
             else:
                 return_dict['rois'] = return_dict['rpn_rois']
@@ -2575,8 +2244,7 @@ class AffineChannel2d(nn.Module):
         self.bias.data.zero_()
 
     def forward(self, x):
-        return x * self.weight.view(1, self.num_features, 1, 1
-            ) + self.bias.view(1, self.num_features, 1, 1)
+        return x * self.weight.view(1, self.num_features, 1, 1) + self.bias.view(1, self.num_features, 1, 1)
 
 
 class GroupNorm(nn.Module):
@@ -2601,12 +2269,10 @@ class GroupNorm(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, x):
-        return myF.group_norm(x, self.num_groups, self.weight, self.bias,
-            self.eps)
+        return myF.group_norm(x, self.num_groups, self.weight, self.bias, self.eps)
 
     def extra_repr(self):
-        return ('{num_groups}, {num_channels}, eps={eps}, affine={affine}'.
-            format(**self.__dict__))
+        return '{num_groups}, {num_channels}, eps={eps}, affine={affine}'.format(**self.__dict__)
 
 
 class BilinearInterpolation2d(nn.Module):
@@ -2634,15 +2300,12 @@ class BilinearInterpolation2d(nn.Module):
             else:
                 center = factor - 0.5
             og = np.ogrid[:size, :size]
-            return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] -
-                center) / factor)
+            return (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
         kernel_size = up_scale * 2
         bil_filt = upsample_filt(kernel_size)
-        kernel = np.zeros((in_channels, out_channels, kernel_size,
-            kernel_size), dtype=np.float32)
+        kernel = np.zeros((in_channels, out_channels, kernel_size, kernel_size), dtype=np.float32)
         kernel[(range(in_channels)), (range(out_channels)), :, :] = bil_filt
-        self.upconv = nn.ConvTranspose2d(in_channels, out_channels,
-            kernel_size, stride=self.up_scale, padding=self.padding)
+        self.upconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=self.up_scale, padding=self.padding)
         self.upconv.weight.data.copy_(torch.from_numpy(kernel))
         self.upconv.bias.data.fill_(0)
         self.upconv.weight.requires_grad = False
@@ -2665,8 +2328,7 @@ class Gather(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        return (None, None) + Scatter.apply(ctx.input_gpus, ctx.input_sizes,
-            ctx.dim, grad_output)
+        return (None, None) + Scatter.apply(ctx.input_gpus, ctx.input_sizes, ctx.dim, grad_output)
 
 
 def _get_stream(device):
@@ -2692,8 +2354,7 @@ class Scatter(Function):
         streams = None
         if ctx.input_device == -1:
             streams = [_get_stream(device) for device in ctx.target_gpus]
-        outputs = comm.scatter(input, ctx.target_gpus, ctx.chunk_sizes, ctx
-            .dim, streams)
+        outputs = comm.scatter(input, ctx.target_gpus, ctx.chunk_sizes, ctx.dim, streams)
         if streams is not None:
             for i, output in enumerate(outputs):
                 with torch.cuda.device(ctx.target_gpus[i]):
@@ -2704,8 +2365,7 @@ class Scatter(Function):
 
     @staticmethod
     def backward(ctx, *grad_output):
-        return None, None, None, Gather.apply(ctx.input_device, ctx.dim, *
-            grad_output)
+        return None, None, None, Gather.apply(ctx.input_device, ctx.dim, *grad_output)
 
 
 def scatter(inputs, target_gpus, dim=0):
@@ -2786,8 +2446,7 @@ class DataParallel(Module):
         >>> output = net(input_var)
     """
 
-    def __init__(self, module, device_ids=None, output_device=None, dim=0,
-        cpu_keywords=[], minibatch=False, batch_outputs=True):
+    def __init__(self, module, device_ids=None, output_device=None, dim=0, cpu_keywords=[], minibatch=False, batch_outputs=True):
         super(DataParallel, self).__init__()
         if not torch.is_available():
             self.module = module
@@ -2815,8 +2474,7 @@ class DataParallel(Module):
             for i, device_id in enumerate(self.device_ids):
                 mini_inputs = [x[i] for x in inputs]
                 mini_kwargs = dict([(k, v[i]) for k, v in kwargs.items()])
-                a, b = self._minibatch_scatter(device_id, *mini_inputs, **
-                    mini_kwargs)
+                a, b = self._minibatch_scatter(device_id, *mini_inputs, **mini_kwargs)
                 inputs_list.append(a)
                 kwargs_list.append(b)
             inputs = inputs_list
@@ -2833,17 +2491,14 @@ class DataParallel(Module):
             for k, v in kwargs_cpu.items():
                 split_size = v.size(self.dim) / len(self.device_ids)
                 assert split_size.is_integer()
-                kwargs_cpu[k] = list(map(Variable, torch.split(v.data, int(
-                    split_size), self.dim)))
-            kwargs_cpu = list(map(dict, zip(*[[(k, v) for v in vs] for k,
-                vs in kwargs_cpu.items()])))
+                kwargs_cpu[k] = list(map(Variable, torch.split(v.data, int(split_size), self.dim)))
+            kwargs_cpu = list(map(dict, zip(*[[(k, v) for v in vs] for k, vs in kwargs_cpu.items()])))
             for d_gpu, d_cpu in zip(kwargs, kwargs_cpu):
                 d_gpu.update(d_cpu)
         if len(self.device_ids) == 1:
             outputs = [self.module(*inputs[0], **kwargs[0])]
         else:
-            replicas = self.replicate(self.module, self.device_ids[:len(
-                inputs)])
+            replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
             outputs = self.parallel_apply(replicas, inputs, kwargs)
         if self.batch_outputs:
             return self.gather(outputs, self.output_device)
@@ -2870,8 +2525,7 @@ class DataParallel(Module):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:
-            len(replicas)])
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
     def gather(self, outputs, output_device):
         return gather(outputs, output_device, dim=self.dim)
@@ -2881,16 +2535,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AffineChannel2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Depth3DGridGen,
+     lambda: ([], {'height': 4, 'width': 4}),
+     lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Depth3DGridGen_with_mask,
+     lambda: ([], {'height': 4, 'width': 4}),
+     lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_roytseng_tw_Detectron_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AffineChannel2d(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
-    @_fails_compile()
     def test_001(self):
-        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 

@@ -88,8 +88,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -195,8 +196,7 @@ import torch.optim as optim
 
 class PreEncoderRNN(nn.Module):
 
-    def __init__(self, ntoken, ninput=300, drop_prob=0.5, nhidden=128,
-        nlayers=1, bidirectional=True):
+    def __init__(self, ntoken, ninput=300, drop_prob=0.5, nhidden=128, nlayers=1, bidirectional=True):
         super(PreEncoderRNN, self).__init__()
         self.ntoken = ntoken
         self.ninput = ninput
@@ -216,13 +216,9 @@ class PreEncoderRNN(nn.Module):
         self.encoder = nn.Embedding(self.ntoken, self.ninput)
         self.drop = nn.Dropout(self.drop_prob)
         if self.rnn_type == 'LSTM':
-            self.rnn = nn.LSTM(self.ninput, self.nhidden, self.nlayers,
-                batch_first=True, dropout=self.drop_prob, bidirectional=
-                self.bidirectional)
+            self.rnn = nn.LSTM(self.ninput, self.nhidden, self.nlayers, batch_first=True, dropout=self.drop_prob, bidirectional=self.bidirectional)
         elif self.rnn_type == 'GRU':
-            self.rnn = nn.GRU(self.ninput, self.nhidden, self.nlayers,
-                batch_first=True, dropout=self.drop_prob, bidirectional=
-                self.bidirectional)
+            self.rnn = nn.GRU(self.ninput, self.nhidden, self.nlayers, batch_first=True, dropout=self.drop_prob, bidirectional=self.bidirectional)
         else:
             raise NotImplementedError
 
@@ -233,12 +229,9 @@ class PreEncoderRNN(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers * self.num_directions,
-                bsz, self.nhidden).zero_()), Variable(weight.new(self.
-                nlayers * self.num_directions, bsz, self.nhidden).zero_())
+            return Variable(weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_()), Variable(weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_())
         else:
-            return Variable(weight.new(self.nlayers * self.num_directions,
-                bsz, self.nhidden).zero_())
+            return Variable(weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_())
 
     def forward(self, captions, cap_lens):
         """
@@ -282,8 +275,7 @@ class Attention(nn.Module):
             attn_energies = attn_energies
         for b in range(this_batch_size):
             for i in range(max_len):
-                attn_energies[b, i] = self.score(hidden[:, (b)],
-                    encoder_outputs[b, i].unsqueeze(0))
+                attn_energies[b, i] = self.score(hidden[:, (b)], encoder_outputs[b, i].unsqueeze(0))
         return F.softmax(attn_energies).unsqueeze(1)
 
     def score(self, hidden, encoder_output):
@@ -326,8 +318,7 @@ class BaseRNN(nn.Module):
     SYM_MASK = 'MASK'
     SYM_EOS = 'EOS'
 
-    def __init__(self, vocab_size, max_len, hidden_size, input_dropout_p,
-        dropout_p, n_layers, rnn_cell):
+    def __init__(self, vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell):
         super(BaseRNN, self).__init__()
         self.vocab_size = vocab_size
         self.max_len = max_len
@@ -358,25 +349,15 @@ class Seq2seq(nn.Module):
         self.encoder.rnn.flatten_parameters()
         self.decoder.rnn.flatten_parameters()
 
-    def forward(self, input_variable, input_lengths=None,
-        target_l_variables=None, target_x_variables=None,
-        target_y_variables=None, target_w_variables=None,
-        target_h_variables=None, is_training=0, early_stop_len=None):
-        encoder_outputs, encoder_hidden = self.encoder(input_variable,
-            input_lengths)
-        result = self.decoder(encoder_hidden=encoder_hidden,
-            encoder_outputs=encoder_outputs, target_l_variables=
-            target_l_variables, target_x_variables=target_x_variables,
-            target_y_variables=target_y_variables, target_w_variables=
-            target_w_variables, target_h_variables=target_h_variables,
-            is_training=is_training, early_stop_len=early_stop_len)
+    def forward(self, input_variable, input_lengths=None, target_l_variables=None, target_x_variables=None, target_y_variables=None, target_w_variables=None, target_h_variables=None, is_training=0, early_stop_len=None):
+        encoder_outputs, encoder_hidden = self.encoder(input_variable, input_lengths)
+        result = self.decoder(encoder_hidden=encoder_hidden, encoder_outputs=encoder_outputs, target_l_variables=target_l_variables, target_x_variables=target_x_variables, target_y_variables=target_y_variables, target_w_variables=target_w_variables, target_h_variables=target_h_variables, is_training=is_training, early_stop_len=early_stop_len)
         return result
 
 
 def conv1x1(in_planes, out_planes, bias=False):
     """1x1 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1,
-        padding=0, bias=bias)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=bias)
 
 
 class GlobalAttentionGeneral(nn.Module):
@@ -478,12 +459,7 @@ class HmapResBlock(nn.Module):
 
     def __init__(self, channel_num):
         super(HmapResBlock, self).__init__()
-        self.block = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(
-            channel_num, channel_num * 2, kernel_size=3, stride=1, padding=
-            0, bias=False), nn.InstanceNorm2d(channel_num * 2), GLU(), nn.
-            ReflectionPad2d(1), nn.Conv2d(channel_num, channel_num,
-            kernel_size=3, stride=1, padding=0, bias=False), nn.
-            InstanceNorm2d(channel_num))
+        self.block = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(channel_num, channel_num * 2, kernel_size=3, stride=1, padding=0, bias=False), nn.InstanceNorm2d(channel_num * 2), GLU(), nn.ReflectionPad2d(1), nn.Conv2d(channel_num, channel_num, kernel_size=3, stride=1, padding=0, bias=False), nn.InstanceNorm2d(channel_num))
 
     def forward(self, x):
         residual = x
@@ -492,10 +468,10 @@ class HmapResBlock(nn.Module):
         return out
 
 
-_global_config['CUDA'] = 4
-
-
 _global_config['TEXT'] = 4
+
+
+_global_config['CUDA'] = 4
 
 
 _global_config['RNN_TYPE'] = 4
@@ -503,8 +479,7 @@ _global_config['RNN_TYPE'] = 4
 
 class RNN_ENCODER(nn.Module):
 
-    def __init__(self, ntoken, ninput=300, drop_prob=0.5, nhidden=128,
-        nlayers=1, bidirectional=True):
+    def __init__(self, ntoken, ninput=300, drop_prob=0.5, nhidden=128, nlayers=1, bidirectional=True):
         super(RNN_ENCODER, self).__init__()
         self.n_steps = cfg.TEXT.WORDS_NUM
         self.ntoken = ntoken
@@ -525,13 +500,9 @@ class RNN_ENCODER(nn.Module):
         self.encoder = nn.Embedding(self.ntoken, self.ninput)
         self.drop = nn.Dropout(self.drop_prob)
         if self.rnn_type == 'LSTM':
-            self.rnn = nn.LSTM(self.ninput, self.nhidden, self.nlayers,
-                batch_first=True, dropout=self.drop_prob, bidirectional=
-                self.bidirectional)
+            self.rnn = nn.LSTM(self.ninput, self.nhidden, self.nlayers, batch_first=True, dropout=self.drop_prob, bidirectional=self.bidirectional)
         elif self.rnn_type == 'GRU':
-            self.rnn = nn.GRU(self.ninput, self.nhidden, self.nlayers,
-                batch_first=True, dropout=self.drop_prob, bidirectional=
-                self.bidirectional)
+            self.rnn = nn.GRU(self.ninput, self.nhidden, self.nlayers, batch_first=True, dropout=self.drop_prob, bidirectional=self.bidirectional)
         else:
             raise NotImplementedError
 
@@ -542,17 +513,13 @@ class RNN_ENCODER(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers * self.num_directions,
-                bsz, self.nhidden).zero_()), Variable(weight.new(self.
-                nlayers * self.num_directions, bsz, self.nhidden).zero_())
+            return Variable(weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_()), Variable(weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_())
         else:
-            return Variable(weight.new(self.nlayers * self.num_directions,
-                bsz, self.nhidden).zero_())
+            return Variable(weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_())
 
     def post_process_words(self, words_emb, max_len):
         batch_size, cur_len = words_emb.size(0), words_emb.size(2)
-        new_words_emb = Variable(torch.zeros(batch_size, self.nhidden *
-            self.num_directions, max_len))
+        new_words_emb = Variable(torch.zeros(batch_size, self.nhidden * self.num_directions, max_len))
         if cfg.CUDA:
             new_words_emb = new_words_emb
         new_words_emb[:, :, :cur_len] = words_emb
@@ -585,10 +552,8 @@ class CNN_ENCODER(nn.Module):
         else:
             self.nef = 256
         model = models.inception_v3()
-        model_path = cfg.TRAIN.NET_E.replace('text_encoder100.pth',
-            'inception_v3_google-1a9a5a14.pth')
-        state_dict = torch.load(model_path, map_location=lambda storage,
-            loc: storage)
+        model_path = cfg.TRAIN.NET_E.replace('text_encoder100.pth', 'inception_v3_google-1a9a5a14.pth')
+        state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
         model.load_state_dict(state_dict)
         for param in model.parameters():
             param.requires_grad = False
@@ -623,8 +588,7 @@ class CNN_ENCODER(nn.Module):
 
     def forward(self, x):
         features = None
-        x = F.interpolate(x, size=(299, 299), mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=True)
         x = self.Conv2d_1a_3x3(x)
         x = self.Conv2d_2a_3x3(x)
         x = self.Conv2d_2b_3x3(x)
@@ -657,10 +621,8 @@ class INCEPTION_V3(nn.Module):
     def __init__(self):
         super(INCEPTION_V3, self).__init__()
         self.model = models.inception_v3()
-        model_path = cfg.TRAIN.NET_E.replace('text_encoder100.pth',
-            'inception_v3_google-1a9a5a14.pth')
-        state_dict = torch.load(model_path, map_location=lambda storage,
-            loc: storage)
+        model_path = cfg.TRAIN.NET_E.replace('text_encoder100.pth', 'inception_v3_google-1a9a5a14.pth')
+        state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
         self.model.load_state_dict(state_dict)
         for param in self.model.parameters():
             param.requires_grad = False
@@ -670,8 +632,7 @@ class INCEPTION_V3(nn.Module):
         x[:, (0)] = (x[:, (0)] - 0.485) / 0.229
         x[:, (1)] = (x[:, (1)] - 0.456) / 0.224
         x[:, (2)] = (x[:, (2)] - 0.406) / 0.225
-        x = F.interpolate(x, size=(299, 299), mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=True)
         x = self.model(x)
         x = nn.Softmax(dim=-1)(x)
         return x
@@ -709,28 +670,21 @@ class INCEPTION_V3_FID(nn.Module):
         assert self.last_needed_block <= 3, 'Last possible output block index is 3'
         self.blocks = nn.ModuleList()
         inception = models.inception_v3()
-        model_path = cfg.TRAIN.NET_E.replace('text_encoder100.pth',
-            'inception_v3_google-1a9a5a14.pth')
-        state_dict = torch.load(model_path, map_location=lambda storage,
-            loc: storage)
+        model_path = cfg.TRAIN.NET_E.replace('text_encoder100.pth', 'inception_v3_google-1a9a5a14.pth')
+        state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
         inception.load_state_dict(state_dict)
         for param in inception.parameters():
             param.requires_grad = False
-        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3,
-            inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
+        block0 = [inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
         self.blocks.append(nn.Sequential(*block0))
         if self.last_needed_block >= 1:
-            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.
-                MaxPool2d(kernel_size=3, stride=2)]
+            block1 = [inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2)]
             self.blocks.append(nn.Sequential(*block1))
         if self.last_needed_block >= 2:
-            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.
-                Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception
-                .Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
+            block2 = [inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e]
             self.blocks.append(nn.Sequential(*block2))
         if self.last_needed_block >= 3:
-            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.
-                Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
+            block3 = [inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1))]
             self.blocks.append(nn.Sequential(*block3))
 
     def forward(self, inp):
@@ -800,13 +754,11 @@ class CA_NET(nn.Module):
 
 def conv3x3(in_planes, out_planes, padding=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
-        padding=padding, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1, padding=padding, bias=False)
 
 
 def upBlock(in_planes, out_planes, norm=nn.BatchNorm2d):
-    block = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'),
-        conv3x3(in_planes, out_planes * 2), norm(out_planes * 2), GLU())
+    block = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'), conv3x3(in_planes, out_planes * 2), norm(out_planes * 2), GLU())
     return block
 
 
@@ -820,8 +772,7 @@ class INIT_STAGE_G(nn.Module):
 
     def define_module(self):
         nz, ngf = self.in_dim, self.gf_dim
-        self.fc = nn.Sequential(nn.Linear(nz, ngf * 8 * 8 * 2, bias=False),
-            nn.BatchNorm1d(ngf * 8 * 8 * 2), GLU())
+        self.fc = nn.Sequential(nn.Linear(nz, ngf * 8 * 8 * 2, bias=False), nn.BatchNorm1d(ngf * 8 * 8 * 2), GLU())
         self.upsample1 = upBlock(ngf, ngf // 2)
         self.upsample2 = upBlock(ngf // 2, ngf // 4)
 
@@ -841,8 +792,7 @@ class INIT_STAGE_G(nn.Module):
 
 def pprocess_bt_attns(fmaps, ih, iw, bt_mask):
     batch_size, num, max_num_rois = fmaps.size(0), fmaps.size(1), fmaps.size(2)
-    fmaps = fmaps.repeat(1, 1, 1, ih * iw).view(batch_size, -1,
-        max_num_rois, ih, iw)
+    fmaps = fmaps.repeat(1, 1, 1, ih * iw).view(batch_size, -1, max_num_rois, ih, iw)
     fmaps = fmaps.transpose(1, 2)
     fmaps = fmaps * bt_mask
     fmaps = torch.max(fmaps, dim=1)[0]
@@ -872,49 +822,37 @@ class INIT_STAGE_G_MAIN(nn.Module):
         self.residual = self._make_layer(HmapResBlock, ngf * 3 + nef2)
         self.upsample = upBlock(ngf * 3 + nef2, ngf)
 
-    def forward(self, h_code_hmap, h_code1_sent, c_code, word_embs,
-        glove_word_embs, slabels_feat, mask, rois, num_rois, bt_mask,
-        glb_max_num_roi):
-        idf, ih, iw = h_code_hmap.size(1), h_code_hmap.size(2
-            ), h_code_hmap.size(3)
+    def forward(self, h_code_hmap, h_code1_sent, c_code, word_embs, glove_word_embs, slabels_feat, mask, rois, num_rois, bt_mask, glb_max_num_roi):
+        idf, ih, iw = h_code_hmap.size(1), h_code_hmap.size(2), h_code_hmap.size(3)
         num_rois = num_rois.data.cpu().numpy().tolist()
         max_num_roi = np.amax(num_rois)
         slabels_feat = slabels_feat[:, :, :max_num_roi]
         if max_num_roi > 0:
             self.bt_att.applyMask(mask)
-            bt_c_code, bt_att = self.bt_att(slabels_feat, glove_word_embs,
-                word_embs)
+            bt_c_code, bt_att = self.bt_att(slabels_feat, glove_word_embs, word_embs)
             bt_mask = bt_mask[:, :max_num_roi]
-            bt_code_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_c_code.size
-                (1), 1, 1)
+            bt_code_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_c_code.size(1), 1, 1)
             bt_c_code = pprocess_bt_attns(bt_c_code, ih, iw, bt_code_mask)
-            bt_att_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_att.size(1),
-                1, 1)
+            bt_att_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_att.size(1), 1, 1)
             bt_att = pprocess_bt_attns(bt_att, ih, iw, bt_att_mask)
-            bt_slabels_mask = bt_mask.unsqueeze(2).repeat(1, 1, self.
-                ef_dim2, 1, 1)
-            bt_slabels_code = pprocess_bt_attns(slabels_feat, ih, iw,
-                bt_slabels_mask)
+            bt_slabels_mask = bt_mask.unsqueeze(2).repeat(1, 1, self.ef_dim2, 1, 1)
+            bt_slabels_code = pprocess_bt_attns(slabels_feat, ih, iw, bt_slabels_mask)
         else:
             bt_c_code = Variable(torch.Tensor(c_code.size()).zero_())
             bt_att = Variable(torch.Tensor(att.size()).zero_())
-            bt_slabels_code = Variable(torch.Tensor(c_code.size(0), self.
-                ef_dim2, c_code.size(2), c_code.size(3)).zero_())
+            bt_slabels_code = Variable(torch.Tensor(c_code.size(0), self.ef_dim2, c_code.size(2), c_code.size(3)).zero_())
             if cfg.CUDA:
                 bt_c_code = bt_c_code
                 bt_att = bt_att
                 bt_slabels_code = bt_slabels_code
-        out_code = torch.cat((h_code_hmap, h_code1_sent, bt_c_code,
-            bt_slabels_code), 1)
+        out_code = torch.cat((h_code_hmap, h_code1_sent, bt_c_code, bt_slabels_code), 1)
         out_code = self.residual(out_code)
         out_code = self.upsample(out_code)
         return out_code
 
 
-def downBlock_G(in_planes, out_planes, kernel_size=3, stride=2, padding=1,
-    norm=None):
-    sequence = [nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size,
-        stride=stride, padding=padding, bias=False)]
+def downBlock_G(in_planes, out_planes, kernel_size=3, stride=2, padding=1, norm=None):
+    sequence = [nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)]
     if norm is not None:
         sequence += [norm(out_planes)]
     sequence += [nn.LeakyReLU(0.2, inplace=True)]
@@ -932,9 +870,7 @@ class G_HMAP(nn.Module):
 
     def define_module(self):
         ncf, ngf = self.in_dim, self.gf_dim
-        self.conv3x3 = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf,
-            ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.
-            LeakyReLU(0.2, inplace=True))
+        self.conv3x3 = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf, ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.LeakyReLU(0.2, inplace=True))
         self.downsample1 = downBlock_G(ngf, ngf * 2)
 
     def forward(self, hmap):
@@ -971,9 +907,7 @@ class NEXT_STAGE_G_MAIN(nn.Module):
         self.residual = self._make_layer(HmapResBlock, ngf * 3 + nef2)
         self.upsample = upBlock(ngf * 3 + nef2, ngf)
 
-    def forward(self, h_code, h_code_hmap, c_code, word_embs,
-        glove_word_embs, slabels_feat, mask, rois, num_rois, bt_mask,
-        glb_max_num_roi):
+    def forward(self, h_code, h_code_hmap, c_code, word_embs, glove_word_embs, slabels_feat, mask, rois, num_rois, bt_mask, glb_max_num_roi):
         """
             h_code1(query):  batch x idf x ih x iw (queryL=ihxiw)
             word_embs(context): batch x cdf x sourceL (sourceL=seq_len)
@@ -988,37 +922,29 @@ class NEXT_STAGE_G_MAIN(nn.Module):
         num_rois = num_rois.data.cpu().numpy().tolist()
         max_num_roi = np.amax(num_rois)
         slabels_feat = slabels_feat[:, :, :max_num_roi]
-        raw_bt_c_code = Variable(torch.Tensor(c_code.size(0), idf,
-            glb_max_num_roi, 1).zero_())
+        raw_bt_c_code = Variable(torch.Tensor(c_code.size(0), idf, glb_max_num_roi, 1).zero_())
         if cfg.CUDA:
             raw_bt_c_code = raw_bt_c_code
         if max_num_roi > 0:
             self.bt_att.applyMask(mask)
-            bt_c_code, bt_att = self.bt_att(slabels_feat, glove_word_embs,
-                word_embs)
+            bt_c_code, bt_att = self.bt_att(slabels_feat, glove_word_embs, word_embs)
             raw_bt_c_code[:, :, :max_num_roi] = bt_c_code
             bt_mask = bt_mask[:, :max_num_roi]
-            bt_code_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_c_code.size
-                (1), 1, 1)
+            bt_code_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_c_code.size(1), 1, 1)
             bt_c_code = pprocess_bt_attns(bt_c_code, ih, iw, bt_code_mask)
-            bt_att_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_att.size(1),
-                1, 1)
+            bt_att_mask = bt_mask.unsqueeze(2).repeat(1, 1, bt_att.size(1), 1, 1)
             bt_att = pprocess_bt_attns(bt_att, ih, iw, bt_att_mask)
-            bt_slabels_mask = bt_mask.unsqueeze(2).repeat(1, 1, self.
-                ef_dim2, 1, 1)
-            bt_slabels_code = pprocess_bt_attns(slabels_feat, ih, iw,
-                bt_slabels_mask)
+            bt_slabels_mask = bt_mask.unsqueeze(2).repeat(1, 1, self.ef_dim2, 1, 1)
+            bt_slabels_code = pprocess_bt_attns(slabels_feat, ih, iw, bt_slabels_mask)
         else:
             bt_c_code = Variable(torch.Tensor(c_code.size()).zero_())
             bt_att = Variable(torch.Tensor(att.size()).zero_())
-            bt_slabels_code = Variable(torch.Tensor(c_code.size(0), self.
-                ef_dim2, c_code.size(2), c_code.size(3)).zero_())
+            bt_slabels_code = Variable(torch.Tensor(c_code.size(0), self.ef_dim2, c_code.size(2), c_code.size(3)).zero_())
             if cfg.CUDA:
                 bt_c_code = bt_c_code
                 bt_att = bt_att
                 bt_slabels_code = bt_slabels_code
-        h_c_code = torch.cat((h_code + h_code_hmap, c_code, bt_c_code,
-            bt_slabels_code), 1)
+        h_c_code = torch.cat((h_code + h_code_hmap, c_code, bt_c_code, bt_slabels_code), 1)
         out_code = self.residual(h_c_code)
         out_code = self.upsample(out_code)
         raw_bt_c_code = raw_bt_c_code.transpose(1, 2).squeeze(-1)
@@ -1064,9 +990,7 @@ class G_NET(nn.Module):
             self.h_net3_main = NEXT_STAGE_G_MAIN(ngf, nef, nef2)
             self.img_net3 = GET_IMAGE_G(ngf)
 
-    def forward(self, z_code, sent_emb, word_embs, glove_word_embs,
-        slabels_feat, mask, hmaps, rois, fm_rois, num_rois, bt_masks,
-        fm_bt_masks, glb_max_num_roi):
+    def forward(self, z_code, sent_emb, word_embs, glove_word_embs, slabels_feat, mask, hmaps, rois, fm_rois, num_rois, bt_masks, fm_bt_masks, glb_max_num_roi):
         """
             :param z_code: batch x cfg.GAN.Z_DIM
             :param sent_emb: batch x cfg.TEXT.EMBEDDING_DIM
@@ -1081,17 +1005,12 @@ class G_NET(nn.Module):
         if cfg.TREE.BRANCH_NUM > 0:
             h_code1_hmap = self.h_net1_hmap(hmaps[0])
             h_code1_sent = self.h_net1_sent(z_code, c_code)
-            h_code1 = self.h_net1_main(h_code1_hmap, h_code1_sent, c_code,
-                word_embs, glove_word_embs, slabels_feat, mask, fm_rois,
-                num_rois, fm_bt_masks, glb_max_num_roi)
+            h_code1 = self.h_net1_main(h_code1_hmap, h_code1_sent, c_code, word_embs, glove_word_embs, slabels_feat, mask, fm_rois, num_rois, fm_bt_masks, glb_max_num_roi)
             fake_img1 = self.img_net1(h_code1)
             fake_imgs.append(fake_img1)
         if cfg.TREE.BRANCH_NUM > 1:
             h_code2_hmap = self.h_net2_hmap(hmaps[1])
-            h_code2, bt_c_code2, att1, bt_att1 = self.h_net2_main(h_code1,
-                h_code2_hmap, c_code, word_embs, glove_word_embs,
-                slabels_feat, mask, rois[0], num_rois, bt_masks[0],
-                glb_max_num_roi)
+            h_code2, bt_c_code2, att1, bt_att1 = self.h_net2_main(h_code1, h_code2_hmap, c_code, word_embs, glove_word_embs, slabels_feat, mask, rois[0], num_rois, bt_masks[0], glb_max_num_roi)
             fake_img2 = self.img_net2(h_code2)
             fake_imgs.append(fake_img2)
             bt_c_codes.append(bt_c_code2)
@@ -1101,10 +1020,7 @@ class G_NET(nn.Module):
                 bt_att_maps.append(bt_att1)
         if cfg.TREE.BRANCH_NUM > 2:
             h_code3_hmap = self.h_net3_hmap(hmaps[2])
-            h_code3, bt_c_code3, att2, bt_att2 = self.h_net3_main(h_code2,
-                h_code3_hmap, c_code, word_embs, glove_word_embs,
-                slabels_feat, mask, rois[1], num_rois, bt_masks[1],
-                glb_max_num_roi)
+            h_code3, bt_c_code3, att2, bt_att2 = self.h_net3_main(h_code2, h_code3_hmap, c_code, word_embs, glove_word_embs, slabels_feat, mask, rois[1], num_rois, bt_masks[1], glb_max_num_roi)
             fake_img3 = self.img_net3(h_code3)
             fake_imgs.append(fake_img3)
             bt_c_codes.append(bt_c_code3)
@@ -1124,16 +1040,14 @@ class CLSTMCell(nn.Module):
         super(CLSTMCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.Gates = nn.Conv2d(input_size + hidden_size, 4 * hidden_size,
-            kernel_size, padding=padding)
+        self.Gates = nn.Conv2d(input_size + hidden_size, 4 * hidden_size, kernel_size, padding=padding)
 
     def forward(self, input_, prev_state):
         batch_size = input_.data.size()[0]
         spatial_size = input_.data.size()[2:]
         if prev_state is None:
             state_size = [batch_size, self.hidden_size] + list(spatial_size)
-            prev_state = Variable(torch.zeros(state_size)), Variable(torch.
-                zeros(state_size))
+            prev_state = Variable(torch.zeros(state_size)), Variable(torch.zeros(state_size))
         prev_hidden, prev_cell = prev_state
         stacked_inputs = torch.cat((input_, prev_hidden), 1)
         gates = self.Gates(stacked_inputs)
@@ -1151,10 +1065,7 @@ class ResBlock(nn.Module):
 
     def __init__(self, channel_num, norm=nn.BatchNorm2d):
         super(ResBlock, self).__init__()
-        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2),
-            norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num *
-            2), norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num)
-            )
+        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2), norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num * 2), norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num))
 
     def forward(self, x):
         residual = x
@@ -1175,15 +1086,12 @@ class GET_SHAPE_G(nn.Module):
 
 
 def Block3x3_relu(in_planes, out_planes, norm=nn.BatchNorm2d):
-    block = nn.Sequential(conv3x3(in_planes, out_planes * 2), norm(
-        out_planes * 2), GLU())
+    block = nn.Sequential(conv3x3(in_planes, out_planes * 2), norm(out_planes * 2), GLU())
     return block
 
 
 def downBlock_3x3(in_planes, out_planes):
-    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=3,
-        stride=2, padding=1, bias=False), nn.InstanceNorm2d(out_planes), nn
-        .LeakyReLU(0.2, inplace=True))
+    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=2, padding=1, bias=False), nn.InstanceNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
@@ -1200,13 +1108,10 @@ class SHP_G_NET(nn.Module):
         self.downsample2 = downBlock_3x3(self.nbf * 2, self.nbf * 4)
         self.fwd_convlstm = CLSTMCell(self.nbf * 4, self.nbf * 2, 3, 1)
         self.bwd_convlstm = CLSTMCell(self.nbf * 4, self.nbf * 2, 3, 1)
-        self.jointConv = Block3x3_relu(self.nbf * 8, self.nbf * 4, norm=nn.
-            InstanceNorm2d)
+        self.jointConv = Block3x3_relu(self.nbf * 8, self.nbf * 4, norm=nn.InstanceNorm2d)
         self.residual = self._make_layer(ResBlock, self.nbf * 4)
-        self.upsample1 = upBlock(self.nbf * 4, self.nbf * 2, norm=nn.
-            InstanceNorm2d)
-        self.upsample2 = upBlock(self.nbf * 2, self.nbf, norm=nn.InstanceNorm2d
-            )
+        self.upsample1 = upBlock(self.nbf * 4, self.nbf * 2, norm=nn.InstanceNorm2d)
+        self.upsample2 = upBlock(self.nbf * 2, self.nbf, norm=nn.InstanceNorm2d)
         self.img_net = GET_SHAPE_G(self.nbf)
 
     def _make_layer(self, block, channel_num):
@@ -1227,19 +1132,16 @@ class SHP_G_NET(nn.Module):
         batch_size, max_num_roi = z_code.size(0), z_code.size(1)
         z_code = z_code.unsqueeze(3)
         z_code = z_code.repeat(1, 1, 1, self.fm_size ** 2)
-        z_code = z_code.view(batch_size, max_num_roi, -1, self.fm_size,
-            self.fm_size)
+        z_code = z_code.view(batch_size, max_num_roi, -1, self.fm_size, self.fm_size)
         hmap_size = bbox_maps_fwd.size(3)
         bbox_maps_fwd = bbox_maps_fwd.view(-1, self.nbf, hmap_size, hmap_size)
         h_code_fwd = self.downsample1(bbox_maps_fwd)
         h_code_fwd = self.downsample2(h_code_fwd)
-        h_code_fwd = h_code_fwd.view(batch_size, max_num_roi, -1, self.
-            fm_size, self.fm_size)
+        h_code_fwd = h_code_fwd.view(batch_size, max_num_roi, -1, self.fm_size, self.fm_size)
         bbox_maps_bwd = bbox_maps_bwd.view(-1, self.nbf, hmap_size, hmap_size)
         h_code_bwd = self.downsample1(bbox_maps_bwd)
         h_code_bwd = self.downsample2(h_code_bwd)
-        h_code_bwd = h_code_bwd.view(batch_size, max_num_roi, -1, self.
-            fm_size, self.fm_size)
+        h_code_bwd = h_code_bwd.view(batch_size, max_num_roi, -1, self.fm_size, self.fm_size)
         state_fwd, state_bwd = None, None
         state_fwd_lst, state_bwd_lst = [], []
         for t in range(0, max_num_roi):
@@ -1249,27 +1151,22 @@ class SHP_G_NET(nn.Module):
             state_bwd_lst.append(state_bwd[0].unsqueeze(1))
         h_code = []
         for t in range(0, max_num_roi):
-            h_code.append(torch.cat((state_fwd_lst[t], state_bwd_lst[
-                max_num_roi - t - 1], z_code[:, t:t + 1]), 2))
+            h_code.append(torch.cat((state_fwd_lst[t], state_bwd_lst[max_num_roi - t - 1], z_code[:, t:t + 1]), 2))
         h_code = torch.cat(h_code, 1)
-        h_code = h_code.view(batch_size * max_num_roi, -1, self.fm_size,
-            self.fm_size)
+        h_code = h_code.view(batch_size * max_num_roi, -1, self.fm_size, self.fm_size)
         h_code = self.jointConv(h_code)
-        bbox_fmaps = bbox_fmaps.unsqueeze(2).repeat(1, 1, self.nbf * 4, 1, 1
-            ).view(batch_size * max_num_roi, -1, self.fm_size, self.fm_size)
+        bbox_fmaps = bbox_fmaps.unsqueeze(2).repeat(1, 1, self.nbf * 4, 1, 1).view(batch_size * max_num_roi, -1, self.fm_size, self.fm_size)
         h_code = h_code * bbox_fmaps
         h_code = self.residual(h_code)
         h_code = self.upsample1(h_code)
         h_code = self.upsample2(h_code)
         fake_hmaps = self.img_net(h_code)
-        fake_hmaps = fake_hmaps.view(batch_size, max_num_roi, -1, hmap_size,
-            hmap_size)
+        fake_hmaps = fake_hmaps.view(batch_size, max_num_roi, -1, hmap_size, hmap_size)
         return fake_hmaps
 
 
 def Block3x3_leakRelu(in_planes, out_planes):
-    block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(
-        out_planes), nn.LeakyReLU(0.2, inplace=True))
+    block = nn.Sequential(conv3x3(in_planes, out_planes), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
@@ -1282,10 +1179,8 @@ class D_GET_LOGITS(nn.Module):
         self.layer_num = cfg.GAN.LAYER_D_NUM
         self.bcondition = bcondition
         if self.bcondition:
-            self.jointConv = Block3x3_leakRelu(ndf * pow(2, self.layer_num -
-                1) + nef, ndf * pow(2, self.layer_num - 1))
-        self.outlogits = nn.Sequential(nn.Conv2d(ndf * pow(2, self.
-            layer_num - 1), 1, kernel_size=4, stride=2), nn.Sigmoid())
+            self.jointConv = Block3x3_leakRelu(ndf * pow(2, self.layer_num - 1) + nef, ndf * pow(2, self.layer_num - 1))
+        self.outlogits = nn.Sequential(nn.Conv2d(ndf * pow(2, self.layer_num - 1), 1, kernel_size=4, stride=2), nn.Sigmoid())
 
     def forward(self, h_code, c_code=None):
         if self.bcondition and c_code is not None:
@@ -1300,13 +1195,11 @@ class D_GET_LOGITS(nn.Module):
 
 
 def encode_image_by_ntimes(ngf, ndf, n_layer):
-    sequence = [nn.Conv2d(3 + ngf, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(
-        0.2, inplace=True)]
+    sequence = [nn.Conv2d(3 + ngf, ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True)]
     for n in range(1, n_layer):
         nf_mult_prev = ndf * min(2 ** (n - 1), 8)
         nf_mult = ndf * min(2 ** n, 8)
-        sequence += [nn.Conv2d(nf_mult_prev, nf_mult, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(nf_mult), nn.LeakyReLU(0.2, inplace=True)]
+        sequence += [nn.Conv2d(nf_mult_prev, nf_mult, 4, 2, 1, bias=False), nn.BatchNorm2d(nf_mult), nn.LeakyReLU(0.2, inplace=True)]
     encode_img = nn.Sequential(*sequence)
     return encode_img
 
@@ -1377,9 +1270,7 @@ class SHP_D_NET64(nn.Module):
         ngf = cfg.GAN.GF_DIM // 4
         ncf = num_classes
         self.img_code = encode_image_by_ntimes(ngf, ndf, cfg.GAN.LAYER_D_NUM)
-        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf,
-            ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.
-            LeakyReLU(0.2, inplace=True))
+        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf, ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.LeakyReLU(0.2, inplace=True))
         self.UNCOND_DNET = D_GET_LOGITS(ndf, nef, bcondition=False)
 
     def forward(self, x_var, s_var):
@@ -1398,9 +1289,7 @@ class SHP_D_NET128(nn.Module):
         ngf = cfg.GAN.GF_DIM // 4
         ncf = num_classes
         self.img_code = encode_image_by_ntimes(ngf, ndf, cfg.GAN.LAYER_D_NUM)
-        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf,
-            ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.
-            LeakyReLU(0.2, inplace=True))
+        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf, ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.LeakyReLU(0.2, inplace=True))
         self.UNCOND_DNET = D_GET_LOGITS(ndf, nef, bcondition=False)
 
     def forward(self, x_var, s_var):
@@ -1419,9 +1308,7 @@ class SHP_D_NET256(nn.Module):
         ngf = cfg.GAN.GF_DIM // 4
         ncf = num_classes
         self.img_code = encode_image_by_ntimes(ngf, ndf, cfg.GAN.LAYER_D_NUM)
-        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf,
-            ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.
-            LeakyReLU(0.2, inplace=True))
+        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf, ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.LeakyReLU(0.2, inplace=True))
         self.UNCOND_DNET = D_GET_LOGITS(ndf, nef, bcondition=False)
 
     def forward(self, x_var, s_var):
@@ -1478,14 +1365,9 @@ class OBJ_SS_D_NET(nn.Module):
         self.im_scales = np.array([1])
         n_layer = 3
         self.img_code = encode_image_by_ntimes(ngf, ndf, n_layer)
-        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf,
-            ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.
-            LeakyReLU(0.2, inplace=True))
-        self.roi_code = nn.Sequential(nn.Conv2d(ndf * min(2 ** (n_layer - 1
-            ), 8), ndf * 4, kernel_size=4, stride=1, padding=1), nn.
-            LeakyReLU(0.2, True))
-        self.RoIAlignAvg = RoIAlignAvg(self.roi_size, self.roi_size, 1.0 / 16.0
-            )
+        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf, ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.LeakyReLU(0.2, inplace=True))
+        self.roi_code = nn.Sequential(nn.Conv2d(ndf * min(2 ** (n_layer - 1), 8), ndf * 4, kernel_size=4, stride=1, padding=1), nn.LeakyReLU(0.2, True))
+        self.RoIAlignAvg = RoIAlignAvg(self.roi_size, self.roi_size, 1.0 / 16.0)
         if b_jcu:
             self.UNCOND_DNET = D_GET_LOGITS(ndf // 2, nef, bcondition=False)
         else:
@@ -1494,33 +1376,27 @@ class OBJ_SS_D_NET(nn.Module):
 
     def forward(self, x_var, s_var, fm_rois, num_rois, img_size=512):
         fm_rois_roi = fm_rois.data.cpu().numpy()
-        fm_rois_roi[:, :, ([2, 3])] = fm_rois_roi[:, :, ([0, 1])
-            ] + fm_rois_roi[:, :, ([2, 3])]
+        fm_rois_roi[:, :, ([2, 3])] = fm_rois_roi[:, :, ([0, 1])] + fm_rois_roi[:, :, ([2, 3])]
         num_rois = num_rois.data.cpu().numpy().tolist()
-        x_var = F.interpolate(x_var, size=(img_size, img_size), mode=
-            'bilinear', align_corners=True)
-        s_var = F.interpolate(s_var, size=(img_size, img_size), mode=
-            'bilinear', align_corners=True)
+        x_var = F.interpolate(x_var, size=(img_size, img_size), mode='bilinear', align_corners=True)
+        s_var = F.interpolate(s_var, size=(img_size, img_size), mode='bilinear', align_corners=True)
         new_s_var = self.shp_code(s_var)
         x_s_var = torch.cat([x_var, new_s_var], dim=1)
         x_code64 = self.img_code(x_s_var)
         max_num_roi = np.amax(num_rois)
         batch_size = fm_rois_roi.shape[0]
-        fm_rois_roi = np.reshape(fm_rois_roi, (fm_rois_roi.shape[0] *
-            fm_rois_roi.shape[1], fm_rois_roi.shape[2]))
+        fm_rois_roi = np.reshape(fm_rois_roi, (fm_rois_roi.shape[0] * fm_rois_roi.shape[1], fm_rois_roi.shape[2]))
         roi_data = torch.FloatTensor(1)
         if cfg.CUDA:
             roi_data = roi_data
         vroi_data = Variable(roi_data, requires_grad=False)
         im_scales = np.array([1] * batch_size * cfg.ROI.BOXES_NUM)
-        gt_rois_np = _get_rois_blob(fm_rois_roi[:, :4], im_scales)[(np.
-            newaxis), :]
+        gt_rois_np = _get_rois_blob(fm_rois_roi[:, :4], im_scales)[(np.newaxis), :]
         gt_rois_pt = torch.from_numpy(gt_rois_np[(np.newaxis), :])
         vroi_data.data.resize_(gt_rois_pt.size()).copy_(gt_rois_pt)
         pooled_feat = self.RoIAlignAvg(x_code64, vroi_data.view(-1, 5))
         pooled_feat = self.roi_code(pooled_feat)
-        pooled_feat = pooled_feat.view(batch_size, cfg.ROI.BOXES_NUM,
-            pooled_feat.size(1), pooled_feat.size(2), pooled_feat.size(3))
+        pooled_feat = pooled_feat.view(batch_size, cfg.ROI.BOXES_NUM, pooled_feat.size(1), pooled_feat.size(2), pooled_feat.size(3))
         return pooled_feat
 
 
@@ -1536,14 +1412,9 @@ class OBJ_LS_D_NET(nn.Module):
         self.im_scales = np.array([1])
         n_layer = 4
         self.img_code = encode_image_by_ntimes(ngf, ndf, n_layer)
-        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf,
-            ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.
-            LeakyReLU(0.2, inplace=True))
-        self.roi_code = nn.Sequential(nn.Conv2d(ndf * min(2 ** (n_layer - 1
-            ), 8), ndf * 4, kernel_size=4, stride=1, padding=1), nn.
-            LeakyReLU(0.2, True))
-        self.RoIAlignAvg = RoIAlignAvg(self.roi_size, self.roi_size, 1.0 / 16.0
-            )
+        self.shp_code = nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(ncf, ngf, kernel_size=3, padding=0), nn.InstanceNorm2d(ngf), nn.LeakyReLU(0.2, inplace=True))
+        self.roi_code = nn.Sequential(nn.Conv2d(ndf * min(2 ** (n_layer - 1), 8), ndf * 4, kernel_size=4, stride=1, padding=1), nn.LeakyReLU(0.2, True))
+        self.RoIAlignAvg = RoIAlignAvg(self.roi_size, self.roi_size, 1.0 / 16.0)
         if b_jcu:
             self.UNCOND_DNET = D_GET_LOGITS(ndf // 2, nef, bcondition=False)
         else:
@@ -1552,33 +1423,27 @@ class OBJ_LS_D_NET(nn.Module):
 
     def forward(self, x_var, s_var, fm_rois, num_rois, img_size=512):
         fm_rois_roi = fm_rois.data.cpu().numpy()
-        fm_rois_roi[:, :, ([2, 3])] = fm_rois_roi[:, :, ([0, 1])
-            ] + fm_rois_roi[:, :, ([2, 3])]
+        fm_rois_roi[:, :, ([2, 3])] = fm_rois_roi[:, :, ([0, 1])] + fm_rois_roi[:, :, ([2, 3])]
         num_rois = num_rois.data.cpu().numpy().tolist()
-        x_var = F.interpolate(x_var, size=(img_size, img_size), mode=
-            'bilinear', align_corners=True)
-        s_var = F.interpolate(s_var, size=(img_size, img_size), mode=
-            'bilinear', align_corners=True)
+        x_var = F.interpolate(x_var, size=(img_size, img_size), mode='bilinear', align_corners=True)
+        s_var = F.interpolate(s_var, size=(img_size, img_size), mode='bilinear', align_corners=True)
         new_s_var = self.shp_code(s_var)
         x_s_var = torch.cat([x_var, new_s_var], dim=1)
         x_code32 = self.img_code(x_s_var)
         max_num_roi = np.amax(num_rois)
         batch_size = fm_rois_roi.shape[0]
-        fm_rois_roi = np.reshape(fm_rois_roi, (fm_rois_roi.shape[0] *
-            fm_rois_roi.shape[1], fm_rois_roi.shape[2]))
+        fm_rois_roi = np.reshape(fm_rois_roi, (fm_rois_roi.shape[0] * fm_rois_roi.shape[1], fm_rois_roi.shape[2]))
         roi_data = torch.FloatTensor(1)
         if cfg.CUDA:
             roi_data = roi_data
         vroi_data = Variable(roi_data, requires_grad=False)
         im_scales = np.array([1] * batch_size * cfg.ROI.BOXES_NUM)
-        gt_rois_np = _get_rois_blob(fm_rois_roi[:, :4], im_scales)[(np.
-            newaxis), :]
+        gt_rois_np = _get_rois_blob(fm_rois_roi[:, :4], im_scales)[(np.newaxis), :]
         gt_rois_pt = torch.from_numpy(gt_rois_np[(np.newaxis), :])
         vroi_data.data.resize_(gt_rois_pt.size()).copy_(gt_rois_pt)
         pooled_feat = self.RoIAlignAvg(x_code32, vroi_data.view(-1, 5))
         pooled_feat = self.roi_code(pooled_feat)
-        pooled_feat = pooled_feat.view(batch_size, cfg.ROI.BOXES_NUM,
-            pooled_feat.size(1), pooled_feat.size(2), pooled_feat.size(3))
+        pooled_feat = pooled_feat.view(batch_size, cfg.ROI.BOXES_NUM, pooled_feat.size(1), pooled_feat.size(2), pooled_feat.size(3))
         return pooled_feat
 
 
@@ -1591,24 +1456,18 @@ def _affine_grid_gen(rois, input_size, grid_size):
     height = input_size[0]
     width = input_size[1]
     zero = Variable(rois.data.new(rois.size(0), 1).zero_())
-    theta = torch.cat([(x2 - x1) / (width - 1), zero, (x1 + x2 - width + 1) /
-        (width - 1), zero, (y2 - y1) / (height - 1), (y1 + y2 - height + 1) /
-        (height - 1)], 1).view(-1, 2, 3)
-    grid = F.affine_grid(theta, torch.Size((rois.size(0), 1, grid_size,
-        grid_size)))
+    theta = torch.cat([(x2 - x1) / (width - 1), zero, (x1 + x2 - width + 1) / (width - 1), zero, (y2 - y1) / (height - 1), (y1 + y2 - height + 1) / (height - 1)], 1).view(-1, 2, 3)
+    grid = F.affine_grid(theta, torch.Size((rois.size(0), 1, grid_size, grid_size)))
     return grid
 
 
-def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
-    bbox_outside_weights, sigma=1.0, dim=[1]):
+def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, sigma=1.0, dim=[1]):
     sigma_2 = sigma ** 2
     box_diff = bbox_pred - bbox_targets
     in_box_diff = bbox_inside_weights * box_diff
     abs_in_box_diff = torch.abs(in_box_diff)
     smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
-    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0
-        ) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 -
-        smoothL1_sign)
+    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 - smoothL1_sign)
     out_loss_box = bbox_outside_weights * in_loss_box
     loss_box = out_loss_box
     for i in sorted(dim, reverse=True):
@@ -1620,10 +1479,10 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights,
 _global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
 
 
-_global_config['POOLING_SIZE'] = 4
-
-
 _global_config['POOLING_MODE'] = 4
+
+
+_global_config['POOLING_SIZE'] = 4
 
 
 class _fasterRCNN(nn.Module):
@@ -1638,12 +1497,9 @@ class _fasterRCNN(nn.Module):
         self.RCNN_loss_bbox = 0
         self.RCNN_rpn = _RPN(self.dout_base_model)
         self.RCNN_proposal_target = _ProposalTargetLayer(self.n_classes)
-        self.RCNN_roi_pool = _RoIPooling(cfg.POOLING_SIZE, cfg.POOLING_SIZE,
-            1.0 / 16.0)
-        self.RCNN_roi_align = RoIAlignAvg(cfg.POOLING_SIZE, cfg.
-            POOLING_SIZE, 1.0 / 16.0)
-        self.grid_size = (cfg.POOLING_SIZE * 2 if cfg.
-            CROP_RESIZE_WITH_MAX_POOL else cfg.POOLING_SIZE)
+        self.RCNN_roi_pool = _RoIPooling(cfg.POOLING_SIZE, cfg.POOLING_SIZE, 1.0 / 16.0)
+        self.RCNN_roi_align = RoIAlignAvg(cfg.POOLING_SIZE, cfg.POOLING_SIZE, 1.0 / 16.0)
+        self.grid_size = cfg.POOLING_SIZE * 2 if cfg.CROP_RESIZE_WITH_MAX_POOL else cfg.POOLING_SIZE
         self.RCNN_roi_crop = _RoICrop()
 
     def forward(self, im_data, im_info, gt_boxes, num_boxes):
@@ -1652,21 +1508,17 @@ class _fasterRCNN(nn.Module):
         gt_boxes = gt_boxes.data
         num_boxes = num_boxes.data
         base_feat = self.RCNN_base(im_data)
-        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(base_feat,
-            im_info, gt_boxes, num_boxes)
+        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(base_feat, im_info, gt_boxes, num_boxes)
         if self.training:
             roi_data = self.RCNN_proposal_target(rois, gt_boxes, num_boxes)
-            (rois, rois_label, rois_target, rois_inside_ws, rois_outside_ws
-                ) = roi_data
+            rois, rois_label, rois_target, rois_inside_ws, rois_outside_ws = roi_data
             None
             None
             None
             rois_label = Variable(rois_label.view(-1).long())
             rois_target = Variable(rois_target.view(-1, rois_target.size(2)))
-            rois_inside_ws = Variable(rois_inside_ws.view(-1,
-                rois_inside_ws.size(2)))
-            rois_outside_ws = Variable(rois_outside_ws.view(-1,
-                rois_outside_ws.size(2)))
+            rois_inside_ws = Variable(rois_inside_ws.view(-1, rois_inside_ws.size(2)))
+            rois_outside_ws = Variable(rois_outside_ws.view(-1, rois_outside_ws.size(2)))
         else:
             rois_label = None
             rois_target = None
@@ -1680,12 +1532,9 @@ class _fasterRCNN(nn.Module):
         None
         None
         if cfg.POOLING_MODE == 'crop':
-            grid_xy = _affine_grid_gen(rois.view(-1, 5), base_feat.size()[2
-                :], self.grid_size)
-            grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data
-                [:, :, :, (0)]], 3).contiguous()
-            pooled_feat = self.RCNN_roi_crop(base_feat, Variable(grid_yx).
-                detach())
+            grid_xy = _affine_grid_gen(rois.view(-1, 5), base_feat.size()[2:], self.grid_size)
+            grid_yx = torch.stack([grid_xy.data[:, :, :, (1)], grid_xy.data[:, :, :, (0)]], 3).contiguous()
+            pooled_feat = self.RCNN_roi_crop(base_feat, Variable(grid_yx).detach())
             if cfg.CROP_RESIZE_WITH_MAX_POOL:
                 pooled_feat = F.max_pool2d(pooled_feat, 2, 2)
         elif cfg.POOLING_MODE == 'align':
@@ -1697,11 +1546,8 @@ class _fasterRCNN(nn.Module):
         None
         bbox_pred = self.RCNN_bbox_pred(pooled_feat)
         if self.training and not self.class_agnostic:
-            bbox_pred_view = bbox_pred.view(bbox_pred.size(0), int(
-                bbox_pred.size(1) / 4), 4)
-            bbox_pred_select = torch.gather(bbox_pred_view, 1, rois_label.
-                view(rois_label.size(0), 1, 1).expand(rois_label.size(0), 1, 4)
-                )
+            bbox_pred_view = bbox_pred.view(bbox_pred.size(0), int(bbox_pred.size(1) / 4), 4)
+            bbox_pred_select = torch.gather(bbox_pred_view, 1, rois_label.view(rois_label.size(0), 1, 1).expand(rois_label.size(0), 1, 4))
             bbox_pred = bbox_pred_select.squeeze(1)
         cls_score = self.RCNN_cls_score(pooled_feat)
         cls_prob = F.softmax(cls_score, 1)
@@ -1712,12 +1558,10 @@ class _fasterRCNN(nn.Module):
         RCNN_loss_bbox = 0
         if self.training:
             RCNN_loss_cls = F.cross_entropy(cls_score, rois_label)
-            RCNN_loss_bbox = _smooth_l1_loss(bbox_pred, rois_target,
-                rois_inside_ws, rois_outside_ws)
+            RCNN_loss_bbox = _smooth_l1_loss(bbox_pred, rois_target, rois_inside_ws, rois_outside_ws)
         cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
         bbox_pred = bbox_pred.view(batch_size, rois.size(1), -1)
-        return (rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox,
-            RCNN_loss_cls, RCNN_loss_bbox, rois_label)
+        return rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox, RCNN_loss_cls, RCNN_loss_bbox, rois_label
 
     def _init_weights(self):
 
@@ -1773,11 +1617,9 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=
-            stride, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -1807,12 +1649,10 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0,
-            ceil_mode=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
@@ -1830,9 +1670,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -1869,24 +1707,18 @@ class RoIAlignFunction(Function):
         self.feature_size = features.size()
         batch_size, num_channels, data_height, data_width = features.size()
         num_rois = rois.size(0)
-        output = features.new(num_rois, num_channels, self.aligned_height,
-            self.aligned_width).zero_()
+        output = features.new(num_rois, num_channels, self.aligned_height, self.aligned_width).zero_()
         if features.is_cuda:
-            roi_align.roi_align_forward_cuda(self.aligned_height, self.
-                aligned_width, self.spatial_scale, features, rois, output)
+            roi_align.roi_align_forward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, features, rois, output)
         else:
-            roi_align.roi_align_forward(self.aligned_height, self.
-                aligned_width, self.spatial_scale, features, rois, output)
+            roi_align.roi_align_forward(self.aligned_height, self.aligned_width, self.spatial_scale, features, rois, output)
         return output
 
     def backward(self, grad_output):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = self.rois.new(batch_size, num_channels, data_height,
-            data_width).zero_()
-        roi_align.roi_align_backward_cuda(self.aligned_height, self.
-            aligned_width, self.spatial_scale, grad_output, self.rois,
-            grad_input)
+        grad_input = self.rois.new(batch_size, num_channels, data_height, data_width).zero_()
+        roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, grad_output, self.rois, grad_input)
         return grad_input, None
 
 
@@ -1899,8 +1731,7 @@ class RoIAlign(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width,
-            self.spatial_scale)(features, rois)
+        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale)(features, rois)
 
 
 class RoIAlignAvg(Module):
@@ -1912,8 +1743,7 @@ class RoIAlignAvg(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 
-            1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
         return avg_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -1926,8 +1756,7 @@ class RoIAlignMax(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 
-            1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
         return max_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -1938,34 +1767,24 @@ class AffineGridGenFunction(Function):
         self.lr = lr
         self.height, self.width = height, width
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
         self.input1 = input1
-        output = input1.new(torch.Size([input1.size(0)]) + self.grid.size()
-            ).zero_()
-        self.batchgrid = input1.new(torch.Size([input1.size(0)]) + self.
-            grid.size()).zero_()
+        output = input1.new(torch.Size([input1.size(0)]) + self.grid.size()).zero_()
+        self.batchgrid = input1.new(torch.Size([input1.size(0)]) + self.grid.size()).zero_()
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid.astype(self.batchgrid[i])
         for i in range(input1.size(0)):
-            output = torch.bmm(self.batchgrid.view(-1, self.height * self.
-                width, 3), torch.transpose(input1, 1, 2)).view(-1, self.
-                height, self.width, 2)
+            output = torch.bmm(self.batchgrid.view(-1, self.height * self.width, 3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.width, 2)
         return output
 
     def backward(self, grad_output):
         grad_input1 = self.input1.new(self.input1.size()).zero_()
-        grad_input1 = torch.baddbmm(grad_input1, torch.transpose(
-            grad_output.view(-1, self.height * self.width, 2), 1, 2), self.
-            batchgrid.view(-1, self.height * self.width, 3))
+        grad_input1 = torch.baddbmm(grad_input1, torch.transpose(grad_output.view(-1, self.height * self.width, 2), 1, 2), self.batchgrid.view(-1, self.height * self.width, 3))
         return grad_input1
 
 
@@ -2006,26 +1825,19 @@ class AffineGridGenV2(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         if input1.is_cuda:
             self.batchgrid = self.batchgrid
-        output = torch.bmm(self.batchgrid.view(-1, self.height * self.width,
-            3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.
-            width, 2)
+        output = torch.bmm(self.batchgrid.view(-1, self.height * self.width, 3), torch.transpose(input1, 1, 2)).view(-1, self.height, self.width, 2)
         return output
 
 
@@ -2036,26 +1848,19 @@ class CylinderGridGenV2(Module):
         self.height, self.width = height, width
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input):
-        self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input.size(0)]) + self.grid.size())
         for i in range(input.size(0)):
             self.batchgrid[(i), :, :, :] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         input_u = input.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output0 = self.batchgrid[:, :, :, 0:1]
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (self.batchgrid[:, :,
-            :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (
-            np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (self.batchgrid[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output = torch.cat([output0, output1], 3)
         return output
 
@@ -2068,18 +1873,13 @@ class DenseAffineGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
 
     def forward(self, input1):
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
@@ -2097,12 +1897,8 @@ class DenseAffine3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -2110,16 +1906,14 @@ class DenseAffine3DGridGen(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, input1):
-        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
         for i in range(input1.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
@@ -2128,9 +1922,7 @@ class DenseAffine3DGridGen(Module):
         z = torch.sum(torch.mul(self.batchgrid3d, input1[:, :, :, 8:]), 3)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
         output = torch.cat([theta, phi], 3)
         return output
@@ -2144,12 +1936,8 @@ class DenseAffine3DGridGen_rotate(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -2157,21 +1945,18 @@ class DenseAffine3DGridGen_rotate(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, input1, input2):
-        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([input1.size(0)]) + self.grid3d.size())
         for i in range(input1.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([input1.size(0)]) + self.grid.size())
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
@@ -2180,15 +1965,11 @@ class DenseAffine3DGridGen_rotate(Module):
         z = torch.sum(torch.mul(self.batchgrid3d, input1[:, :, :, 8:]), 3)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
-        input_u = input2.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1
-            )
+        input_u = input2.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output = torch.cat([theta, phi], 3)
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] +
-            self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output2 = torch.cat([output[:, :, :, 0:1], output1], 3)
         return output2
 
@@ -2201,12 +1982,8 @@ class Depth3DGridGen(Module):
         self.aux_loss = aux_loss
         self.lr = lr
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -2214,40 +1991,31 @@ class Depth3DGridGen(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, depth, trans0, trans1, rotate):
-        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
         for i in range(depth.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.grid.size())
         for i in range(depth.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
-        x = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
-        y = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
+        x = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
+        y = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         z = self.batchgrid3d[:, :, :, 2:3] * depth
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
-        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-            FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(
-            torch.FloatTensor))
+        phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
-        input_u = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1
-            )
+        input_u = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         output = torch.cat([theta, phi], 3)
-        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] +
-            self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
+        output1 = torch.atan(torch.tan(np.pi / 2.0 * (output[:, :, :, 1:2] + self.batchgrid[:, :, :, 2:] * input_u[:, :, :, :]))) / (np.pi / 2)
         output2 = torch.cat([output[:, :, :, 0:1], output1], 3)
         return output2
 
@@ -2261,12 +2029,8 @@ class Depth3DGridGen_with_mask(Module):
         self.lr = lr
         self.ray_tracing = ray_tracing
         self.grid = np.zeros([self.height, self.width, 3], dtype=np.float32)
-        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=
-            0).T, 0)
-        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.
-            arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=
-            0), 0)
+        self.grid[:, :, (0)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.height), 0), repeats=self.width, axis=0).T, 0)
+        self.grid[:, :, (1)] = np.expand_dims(np.repeat(np.expand_dims(np.arange(-1, 1, 2.0 / self.width), 0), repeats=self.height, axis=0), 0)
         self.grid[:, :, (2)] = np.ones([self.height, width])
         self.grid = torch.from_numpy(self.grid.astype(np.float32))
         self.theta = self.grid[:, :, (0)] * np.pi / 2 + np.pi / 2
@@ -2274,46 +2038,36 @@ class Depth3DGridGen_with_mask(Module):
         self.x = torch.sin(self.theta) * torch.cos(self.phi)
         self.y = torch.sin(self.theta) * torch.sin(self.phi)
         self.z = torch.cos(self.theta)
-        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4
-            ], dtype=np.float32))
+        self.grid3d = torch.from_numpy(np.zeros([self.height, self.width, 4], dtype=np.float32))
         self.grid3d[:, :, (0)] = self.x
         self.grid3d[:, :, (1)] = self.y
         self.grid3d[:, :, (2)] = self.z
         self.grid3d[:, :, (3)] = self.grid[:, :, (2)]
 
     def forward(self, depth, trans0, trans1, rotate):
-        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid3d.size())
+        self.batchgrid3d = torch.zeros(torch.Size([depth.size(0)]) + self.grid3d.size())
         for i in range(depth.size(0)):
             self.batchgrid3d[i] = self.grid3d
         self.batchgrid3d = Variable(self.batchgrid3d)
-        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.
-            grid.size())
+        self.batchgrid = torch.zeros(torch.Size([depth.size(0)]) + self.grid.size())
         for i in range(depth.size(0)):
             self.batchgrid[i] = self.grid
         self.batchgrid = Variable(self.batchgrid)
         if depth.is_cuda:
             self.batchgrid = self.batchgrid
             self.batchgrid3d = self.batchgrid3d
-        x_ = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
-        y_ = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1
-            ).repeat(1, self.height, self.width, 1)
+        x_ = self.batchgrid3d[:, :, :, 0:1] * depth + trans0.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
+        y_ = self.batchgrid3d[:, :, :, 1:2] * depth + trans1.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1)
         z = self.batchgrid3d[:, :, :, 2:3] * depth
-        rotate_z = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.
-            width, 1) * np.pi
+        rotate_z = rotate.view(-1, 1, 1, 1).repeat(1, self.height, self.width, 1) * np.pi
         x = x_ * torch.cos(rotate_z) - y_ * torch.sin(rotate_z)
         y = x_ * torch.sin(rotate_z) + y_ * torch.cos(rotate_z)
         r = torch.sqrt(x ** 2 + y ** 2 + z ** 2) + 1e-05
         theta = torch.acos(z / r) / (np.pi / 2) - 1
         if depth.is_cuda:
-            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
-                type(torch.FloatTensor))
+            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         else:
-            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.
-                FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).
-                type(torch.FloatTensor))
+            phi = torch.atan(y / (x + 1e-05)) + np.pi * x.lt(0).type(torch.FloatTensor) * (y.ge(0).type(torch.FloatTensor) - y.lt(0).type(torch.FloatTensor))
         phi = phi / np.pi
         output = torch.cat([theta, phi], 3)
         return output
@@ -2340,8 +2094,7 @@ class RoICropFunction(Function):
         self.input1 = input1
         self.input2 = input2
         self.device_c = ffi.new('int *')
-        output = torch.zeros(input2.size()[0], input1.size()[1], input2.
-            size()[1], input2.size()[2])
+        output = torch.zeros(input2.size()[0], input1.size()[1], input2.size()[1], input2.size()[2])
         if input1.is_cuda:
             self.device = torch.cuda.current_device()
         else:
@@ -2351,21 +2104,18 @@ class RoICropFunction(Function):
             roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
         else:
             output = output.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2,
-                output)
+            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2, output)
         return output
 
     def backward(self, grad_output):
         grad_input1 = torch.zeros(self.input1.size())
         grad_input2 = torch.zeros(self.input2.size())
         if not grad_output.is_cuda:
-            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.
-                input2, grad_input1, grad_input2, grad_output)
+            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.input2, grad_input1, grad_input2, grad_output)
         else:
             grad_input1 = grad_input1.cuda(self.device)
             grad_input2 = grad_input2.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1,
-                self.input2, grad_input1, grad_input2, grad_output)
+            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1, self.input2, grad_input1, grad_input2, grad_output)
         return grad_input1, grad_input2
 
 
@@ -2390,29 +2140,21 @@ class RoIPoolFunction(Function):
         ctx.feature_size = features.size()
         batch_size, num_channels, data_height, data_width = ctx.feature_size
         num_rois = rois.size(0)
-        output = features.new(num_rois, num_channels, ctx.pooled_height,
-            ctx.pooled_width).zero_()
-        ctx.argmax = features.new(num_rois, num_channels, ctx.pooled_height,
-            ctx.pooled_width).zero_().int()
+        output = features.new(num_rois, num_channels, ctx.pooled_height, ctx.pooled_width).zero_()
+        ctx.argmax = features.new(num_rois, num_channels, ctx.pooled_height, ctx.pooled_width).zero_().int()
         ctx.rois = rois
         if not features.is_cuda:
             _features = features.permute(0, 2, 3, 1)
-            roi_pooling.roi_pooling_forward(ctx.pooled_height, ctx.
-                pooled_width, ctx.spatial_scale, _features, rois, output)
+            roi_pooling.roi_pooling_forward(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, _features, rois, output)
         else:
-            roi_pooling.roi_pooling_forward_cuda(ctx.pooled_height, ctx.
-                pooled_width, ctx.spatial_scale, features, rois, output,
-                ctx.argmax)
+            roi_pooling.roi_pooling_forward_cuda(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, features, rois, output, ctx.argmax)
         return output
 
     def backward(ctx, grad_output):
         assert ctx.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = ctx.feature_size
-        grad_input = grad_output.new(batch_size, num_channels, data_height,
-            data_width).zero_()
-        roi_pooling.roi_pooling_backward_cuda(ctx.pooled_height, ctx.
-            pooled_width, ctx.spatial_scale, grad_output, ctx.rois,
-            grad_input, ctx.argmax)
+        grad_input = grad_output.new(batch_size, num_channels, data_height, data_width).zero_()
+        roi_pooling.roi_pooling_backward_cuda(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, grad_output, ctx.rois, grad_input, ctx.argmax)
         return grad_input, None
 
 
@@ -2425,8 +2167,7 @@ class _RoIPooling(Module):
         self.spatial_scale = float(spatial_scale)
 
     def forward(self, features, rois):
-        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.
-            spatial_scale)(features, rois)
+        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.spatial_scale)(features, rois)
 
 
 def bbox_transform_batch(ex_rois, gt_rois):
@@ -2439,14 +2180,10 @@ def bbox_transform_batch(ex_rois, gt_rois):
         gt_heights = gt_rois[:, :, (3)] - gt_rois[:, :, (1)] + 1.0
         gt_ctr_x = gt_rois[:, :, (0)] + 0.5 * gt_widths
         gt_ctr_y = gt_rois[:, :, (1)] + 0.5 * gt_heights
-        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)
-            ) / ex_widths
-        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)
-            ) / ex_heights
-        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(
-            gt_widths))
-        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).
-            expand_as(gt_heights))
+        targets_dx = (gt_ctr_x - ex_ctr_x.view(1, -1).expand_as(gt_ctr_x)) / ex_widths
+        targets_dy = (gt_ctr_y - ex_ctr_y.view(1, -1).expand_as(gt_ctr_y)) / ex_heights
+        targets_dw = torch.log(gt_widths / ex_widths.view(1, -1).expand_as(gt_widths))
+        targets_dh = torch.log(gt_heights / ex_heights.view(1, -1).expand_as(gt_heights))
     elif ex_rois.dim() == 3:
         ex_widths = ex_rois[:, :, (2)] - ex_rois[:, :, (0)] + 1.0
         ex_heights = ex_rois[:, :, (3)] - ex_rois[:, :, (1)] + 1.0
@@ -2478,8 +2215,7 @@ def _unmap(data, count, inds, batch_size, fill=0):
         ret = torch.Tensor(batch_size, count).fill_(fill).type_as(data)
         ret[:, (inds)] = data
     else:
-        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill
-            ).type_as(data)
+        ret = torch.Tensor(batch_size, count, data.size(2)).fill_(fill).type_as(data)
         ret[:, (inds), :] = data
     return ret
 
@@ -2502,25 +2238,19 @@ def bbox_overlaps_batch(anchors, gt_boxes):
         gt_boxes_area = (gt_boxes_x * gt_boxes_y).view(batch_size, 1, K)
         anchors_boxes_x = anchors[:, :, (2)] - anchors[:, :, (0)] + 1
         anchors_boxes_y = anchors[:, :, (3)] - anchors[:, :, (1)] + 1
-        anchors_area = (anchors_boxes_x * anchors_boxes_y).view(batch_size,
-            N, 1)
+        anchors_area = (anchors_boxes_x * anchors_boxes_y).view(batch_size, N, 1)
         gt_area_zero = (gt_boxes_x == 1) & (gt_boxes_y == 1)
         anchors_area_zero = (anchors_boxes_x == 1) & (anchors_boxes_y == 1)
         boxes = anchors.view(batch_size, N, 1, 4).expand(batch_size, N, K, 4)
-        query_boxes = gt_boxes.view(batch_size, 1, K, 4).expand(batch_size,
-            N, K, 4)
-        iw = torch.min(boxes[:, :, :, (2)], query_boxes[:, :, :, (2)]
-            ) - torch.max(boxes[:, :, :, (0)], query_boxes[:, :, :, (0)]) + 1
+        query_boxes = gt_boxes.view(batch_size, 1, K, 4).expand(batch_size, N, K, 4)
+        iw = torch.min(boxes[:, :, :, (2)], query_boxes[:, :, :, (2)]) - torch.max(boxes[:, :, :, (0)], query_boxes[:, :, :, (0)]) + 1
         iw[iw < 0] = 0
-        ih = torch.min(boxes[:, :, :, (3)], query_boxes[:, :, :, (3)]
-            ) - torch.max(boxes[:, :, :, (1)], query_boxes[:, :, :, (1)]) + 1
+        ih = torch.min(boxes[:, :, :, (3)], query_boxes[:, :, :, (3)]) - torch.max(boxes[:, :, :, (1)], query_boxes[:, :, :, (1)]) + 1
         ih[ih < 0] = 0
         ua = anchors_area + gt_boxes_area - iw * ih
         overlaps = iw * ih / ua
-        overlaps.masked_fill_(gt_area_zero.view(batch_size, 1, K).expand(
-            batch_size, N, K), 0)
-        overlaps.masked_fill_(anchors_area_zero.view(batch_size, N, 1).
-            expand(batch_size, N, K), -1)
+        overlaps.masked_fill_(gt_area_zero.view(batch_size, 1, K).expand(batch_size, N, K), 0)
+        overlaps.masked_fill_(anchors_area_zero.view(batch_size, N, 1).expand(batch_size, N, K), -1)
     elif anchors.dim() == 3:
         N = anchors.size(1)
         K = gt_boxes.size(1)
@@ -2534,25 +2264,19 @@ def bbox_overlaps_batch(anchors, gt_boxes):
         gt_boxes_area = (gt_boxes_x * gt_boxes_y).view(batch_size, 1, K)
         anchors_boxes_x = anchors[:, :, (2)] - anchors[:, :, (0)] + 1
         anchors_boxes_y = anchors[:, :, (3)] - anchors[:, :, (1)] + 1
-        anchors_area = (anchors_boxes_x * anchors_boxes_y).view(batch_size,
-            N, 1)
+        anchors_area = (anchors_boxes_x * anchors_boxes_y).view(batch_size, N, 1)
         gt_area_zero = (gt_boxes_x == 1) & (gt_boxes_y == 1)
         anchors_area_zero = (anchors_boxes_x == 1) & (anchors_boxes_y == 1)
         boxes = anchors.view(batch_size, N, 1, 4).expand(batch_size, N, K, 4)
-        query_boxes = gt_boxes.view(batch_size, 1, K, 4).expand(batch_size,
-            N, K, 4)
-        iw = torch.min(boxes[:, :, :, (2)], query_boxes[:, :, :, (2)]
-            ) - torch.max(boxes[:, :, :, (0)], query_boxes[:, :, :, (0)]) + 1
+        query_boxes = gt_boxes.view(batch_size, 1, K, 4).expand(batch_size, N, K, 4)
+        iw = torch.min(boxes[:, :, :, (2)], query_boxes[:, :, :, (2)]) - torch.max(boxes[:, :, :, (0)], query_boxes[:, :, :, (0)]) + 1
         iw[iw < 0] = 0
-        ih = torch.min(boxes[:, :, :, (3)], query_boxes[:, :, :, (3)]
-            ) - torch.max(boxes[:, :, :, (1)], query_boxes[:, :, :, (1)]) + 1
+        ih = torch.min(boxes[:, :, :, (3)], query_boxes[:, :, :, (3)]) - torch.max(boxes[:, :, :, (1)], query_boxes[:, :, :, (1)]) + 1
         ih[ih < 0] = 0
         ua = anchors_area + gt_boxes_area - iw * ih
         overlaps = iw * ih / ua
-        overlaps.masked_fill_(gt_area_zero.view(batch_size, 1, K).expand(
-            batch_size, N, K), 0)
-        overlaps.masked_fill_(anchors_area_zero.view(batch_size, N, 1).
-            expand(batch_size, N, K), -1)
+        overlaps.masked_fill_(gt_area_zero.view(batch_size, 1, K).expand(batch_size, N, K), 0)
+        overlaps.masked_fill_(anchors_area_zero.view(batch_size, N, 1).expand(batch_size, N, K), -1)
     else:
         raise ValueError('anchors input dimension is not correct.')
     return overlaps
@@ -2565,8 +2289,7 @@ def _mkanchors(ws, hs, x_ctr, y_ctr):
     """
     ws = ws[:, (np.newaxis)]
     hs = hs[:, (np.newaxis)]
-    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), 
-        x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
+    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
     return anchors
 
 
@@ -2605,16 +2328,14 @@ def _scale_enum(anchor, scales):
     return anchors
 
 
-def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.
-    arange(3, 6)):
+def generate_anchors(base_size=16, ratios=[0.5, 1, 2], scales=2 ** np.arange(3, 6)):
     """
     Generate anchor (reference) windows by enumerating aspect ratios X
     scales wrt a reference (0, 0, 15, 15) window.
     """
     base_anchor = np.array([1, 1, base_size, base_size]) - 1
     ratio_anchors = _ratio_enum(base_anchor, ratios)
-    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in
-        xrange(ratio_anchors.shape[0])])
+    anchors = np.vstack([_scale_enum(ratio_anchors[(i), :], scales) for i in xrange(ratio_anchors.shape[0])])
     return anchors
 
 
@@ -2629,8 +2350,7 @@ class _AnchorTargetLayer(nn.Module):
         self._feat_stride = feat_stride
         self._scales = scales
         anchor_scales = scales
-        self._anchors = torch.from_numpy(generate_anchors(scales=np.array(
-            anchor_scales), ratios=np.array(ratios))).float()
+        self._anchors = torch.from_numpy(generate_anchors(scales=np.array(anchor_scales), ratios=np.array(ratios))).float()
         self._num_anchors = self._anchors.size(0)
         self._allowed_border = 0
 
@@ -2645,8 +2365,7 @@ class _AnchorTargetLayer(nn.Module):
         shift_x = np.arange(0, feat_width) * self._feat_stride
         shift_y = np.arange(0, feat_height) * self._feat_stride
         shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-        shifts = torch.from_numpy(np.vstack((shift_x.ravel(), shift_y.ravel
-            (), shift_x.ravel(), shift_y.ravel())).transpose())
+        shifts = torch.from_numpy(np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose())
         shifts = shifts.contiguous().type_as(rpn_cls_score).float()
         A = self._num_anchors
         K = shifts.size(0)
@@ -2654,25 +2373,19 @@ class _AnchorTargetLayer(nn.Module):
         all_anchors = self._anchors.view(1, A, 4) + shifts.view(K, 1, 4)
         all_anchors = all_anchors.view(K * A, 4)
         total_anchors = int(K * A)
-        keep = (all_anchors[:, (0)] >= -self._allowed_border) & (all_anchors
-            [:, (1)] >= -self._allowed_border) & (all_anchors[:, (2)] < 
-            long(im_info[0][1]) + self._allowed_border) & (all_anchors[:, (
-            3)] < long(im_info[0][0]) + self._allowed_border)
+        keep = (all_anchors[:, (0)] >= -self._allowed_border) & (all_anchors[:, (1)] >= -self._allowed_border) & (all_anchors[:, (2)] < long(im_info[0][1]) + self._allowed_border) & (all_anchors[:, (3)] < long(im_info[0][0]) + self._allowed_border)
         inds_inside = torch.nonzero(keep).view(-1)
         anchors = all_anchors[(inds_inside), :]
         labels = gt_boxes.new(batch_size, inds_inside.size(0)).fill_(-1)
-        bbox_inside_weights = gt_boxes.new(batch_size, inds_inside.size(0)
-            ).zero_()
-        bbox_outside_weights = gt_boxes.new(batch_size, inds_inside.size(0)
-            ).zero_()
+        bbox_inside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
+        bbox_outside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
         overlaps = bbox_overlaps_batch(anchors, gt_boxes)
         max_overlaps, argmax_overlaps = torch.max(overlaps, 2)
         gt_max_overlaps, _ = torch.max(overlaps, 1)
         if not cfg.TRAIN.RPN_CLOBBER_POSITIVES:
             labels[max_overlaps < cfg.TRAIN.RPN_NEGATIVE_OVERLAP] = 0
         gt_max_overlaps[gt_max_overlaps == 0] = 1e-05
-        keep = torch.sum(overlaps.eq(gt_max_overlaps.view(batch_size, 1, -1
-            ).expand_as(overlaps)), 2)
+        keep = torch.sum(overlaps.eq(gt_max_overlaps.view(batch_size, 1, -1).expand_as(overlaps)), 2)
         if torch.sum(keep) > 0:
             labels[keep > 0] = 1
         labels[max_overlaps >= cfg.TRAIN.RPN_POSITIVE_OVERLAP] = 1
@@ -2684,59 +2397,43 @@ class _AnchorTargetLayer(nn.Module):
         for i in range(batch_size):
             if sum_fg[i] > num_fg:
                 fg_inds = torch.nonzero(labels[i] == 1).view(-1)
-                rand_num = torch.from_numpy(np.random.permutation(fg_inds.
-                    size(0))).type_as(gt_boxes).long()
+                rand_num = torch.from_numpy(np.random.permutation(fg_inds.size(0))).type_as(gt_boxes).long()
                 disable_inds = fg_inds[rand_num[:fg_inds.size(0) - num_fg]]
                 labels[i][disable_inds] = -1
-            num_bg = cfg.TRAIN.RPN_BATCHSIZE - torch.sum((labels == 1).int(), 1
-                )[i]
+            num_bg = cfg.TRAIN.RPN_BATCHSIZE - torch.sum((labels == 1).int(), 1)[i]
             if sum_bg[i] > num_bg:
                 bg_inds = torch.nonzero(labels[i] == 0).view(-1)
-                rand_num = torch.from_numpy(np.random.permutation(bg_inds.
-                    size(0))).type_as(gt_boxes).long()
+                rand_num = torch.from_numpy(np.random.permutation(bg_inds.size(0))).type_as(gt_boxes).long()
                 disable_inds = bg_inds[rand_num[:bg_inds.size(0) - num_bg]]
                 labels[i][disable_inds] = -1
         offset = torch.arange(0, batch_size) * gt_boxes.size(1)
-        argmax_overlaps = argmax_overlaps + offset.view(batch_size, 1).type_as(
-            argmax_overlaps)
-        bbox_targets = _compute_targets_batch(anchors, gt_boxes.view(-1, 5)
-            [(argmax_overlaps.view(-1)), :].view(batch_size, -1, 5))
+        argmax_overlaps = argmax_overlaps + offset.view(batch_size, 1).type_as(argmax_overlaps)
+        bbox_targets = _compute_targets_batch(anchors, gt_boxes.view(-1, 5)[(argmax_overlaps.view(-1)), :].view(batch_size, -1, 5))
         bbox_inside_weights[labels == 1] = cfg.TRAIN.RPN_BBOX_INSIDE_WEIGHTS[0]
         if cfg.TRAIN.RPN_POSITIVE_WEIGHT < 0:
             num_examples = torch.sum(labels[i] >= 0)
             positive_weights = 1.0 / num_examples.item()
             negative_weights = 1.0 / num_examples.item()
         else:
-            assert (cfg.TRAIN.RPN_POSITIVE_WEIGHT > 0) & (cfg.TRAIN.
-                RPN_POSITIVE_WEIGHT < 1)
+            assert (cfg.TRAIN.RPN_POSITIVE_WEIGHT > 0) & (cfg.TRAIN.RPN_POSITIVE_WEIGHT < 1)
         bbox_outside_weights[labels == 1] = positive_weights
         bbox_outside_weights[labels == 0] = negative_weights
-        labels = _unmap(labels, total_anchors, inds_inside, batch_size, fill=-1
-            )
-        bbox_targets = _unmap(bbox_targets, total_anchors, inds_inside,
-            batch_size, fill=0)
-        bbox_inside_weights = _unmap(bbox_inside_weights, total_anchors,
-            inds_inside, batch_size, fill=0)
-        bbox_outside_weights = _unmap(bbox_outside_weights, total_anchors,
-            inds_inside, batch_size, fill=0)
+        labels = _unmap(labels, total_anchors, inds_inside, batch_size, fill=-1)
+        bbox_targets = _unmap(bbox_targets, total_anchors, inds_inside, batch_size, fill=0)
+        bbox_inside_weights = _unmap(bbox_inside_weights, total_anchors, inds_inside, batch_size, fill=0)
+        bbox_outside_weights = _unmap(bbox_outside_weights, total_anchors, inds_inside, batch_size, fill=0)
         outputs = []
-        labels = labels.view(batch_size, height, width, A).permute(0, 3, 1, 2
-            ).contiguous()
+        labels = labels.view(batch_size, height, width, A).permute(0, 3, 1, 2).contiguous()
         labels = labels.view(batch_size, 1, A * height, width)
         outputs.append(labels)
-        bbox_targets = bbox_targets.view(batch_size, height, width, A * 4
-            ).permute(0, 3, 1, 2).contiguous()
+        bbox_targets = bbox_targets.view(batch_size, height, width, A * 4).permute(0, 3, 1, 2).contiguous()
         outputs.append(bbox_targets)
         anchors_count = bbox_inside_weights.size(1)
-        bbox_inside_weights = bbox_inside_weights.view(batch_size,
-            anchors_count, 1).expand(batch_size, anchors_count, 4)
-        bbox_inside_weights = bbox_inside_weights.contiguous().view(batch_size,
-            height, width, 4 * A).permute(0, 3, 1, 2).contiguous()
+        bbox_inside_weights = bbox_inside_weights.view(batch_size, anchors_count, 1).expand(batch_size, anchors_count, 4)
+        bbox_inside_weights = bbox_inside_weights.contiguous().view(batch_size, height, width, 4 * A).permute(0, 3, 1, 2).contiguous()
         outputs.append(bbox_inside_weights)
-        bbox_outside_weights = bbox_outside_weights.view(batch_size,
-            anchors_count, 1).expand(batch_size, anchors_count, 4)
-        bbox_outside_weights = bbox_outside_weights.contiguous().view(
-            batch_size, height, width, 4 * A).permute(0, 3, 1, 2).contiguous()
+        bbox_outside_weights = bbox_outside_weights.view(batch_size, anchors_count, 1).expand(batch_size, anchors_count, 4)
+        bbox_outside_weights = bbox_outside_weights.contiguous().view(batch_size, height, width, 4 * A).permute(0, 3, 1, 2).contiguous()
         outputs.append(bbox_outside_weights)
         return outputs
 
@@ -2817,8 +2514,7 @@ def nms(dets, thresh, force_cpu=False):
     """Dispatch to either CPU or GPU NMS implementations."""
     if dets.shape[0] == 0:
         return []
-    return nms_gpu(dets, thresh) if force_cpu == False else nms_cpu(dets,
-        thresh)
+    return nms_gpu(dets, thresh) if force_cpu == False else nms_cpu(dets, thresh)
 
 
 _global_config['USE_GPU_NMS'] = 4
@@ -2833,8 +2529,7 @@ class _ProposalLayer(nn.Module):
     def __init__(self, feat_stride, scales, ratios):
         super(_ProposalLayer, self).__init__()
         self._feat_stride = feat_stride
-        self._anchors = torch.from_numpy(generate_anchors(scales=np.array(
-            scales), ratios=np.array(ratios))).float()
+        self._anchors = torch.from_numpy(generate_anchors(scales=np.array(scales), ratios=np.array(ratios))).float()
         self._num_anchors = self._anchors.size(0)
 
     def forward(self, input):
@@ -2851,8 +2546,7 @@ class _ProposalLayer(nn.Module):
         shift_x = np.arange(0, feat_width) * self._feat_stride
         shift_y = np.arange(0, feat_height) * self._feat_stride
         shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-        shifts = torch.from_numpy(np.vstack((shift_x.ravel(), shift_y.ravel
-            (), shift_x.ravel(), shift_y.ravel())).transpose())
+        shifts = torch.from_numpy(np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose())
         shifts = shifts.contiguous().type_as(scores).float()
         A = self._num_anchors
         K = shifts.size(0)
@@ -2877,8 +2571,7 @@ class _ProposalLayer(nn.Module):
                 order_single = order_single[:pre_nms_topN]
             proposals_single = proposals_single[(order_single), :]
             scores_single = scores_single[order_single].view(-1, 1)
-            keep_idx_i = nms(torch.cat((proposals_single, scores_single), 1
-                ), nms_thresh, force_cpu=not cfg.USE_GPU_NMS)
+            keep_idx_i = nms(torch.cat((proposals_single, scores_single), 1), nms_thresh, force_cpu=not cfg.USE_GPU_NMS)
             keep_idx_i = keep_idx_i.long().view(-1)
             if post_nms_topN > 0:
                 keep_idx_i = keep_idx_i[:post_nms_topN]
@@ -2901,8 +2594,7 @@ class _ProposalLayer(nn.Module):
         """Remove all boxes with any side smaller than min_size."""
         ws = boxes[:, :, (2)] - boxes[:, :, (0)] + 1
         hs = boxes[:, :, (3)] - boxes[:, :, (1)] + 1
-        keep = (ws >= min_size.view(-1, 1).expand_as(ws)) & (hs >= min_size
-            .view(-1, 1).expand_as(hs))
+        keep = (ws >= min_size.view(-1, 1).expand_as(ws)) & (hs >= min_size.view(-1, 1).expand_as(hs))
         return keep
 
 
@@ -2915,12 +2607,9 @@ class _ProposalTargetLayer(nn.Module):
     def __init__(self, nclasses):
         super(_ProposalTargetLayer, self).__init__()
         self._num_classes = nclasses
-        self.BBOX_NORMALIZE_MEANS = torch.FloatTensor(cfg.TRAIN.
-            BBOX_NORMALIZE_MEANS)
-        self.BBOX_NORMALIZE_STDS = torch.FloatTensor(cfg.TRAIN.
-            BBOX_NORMALIZE_STDS)
-        self.BBOX_INSIDE_WEIGHTS = torch.FloatTensor(cfg.TRAIN.
-            BBOX_INSIDE_WEIGHTS)
+        self.BBOX_NORMALIZE_MEANS = torch.FloatTensor(cfg.TRAIN.BBOX_NORMALIZE_MEANS)
+        self.BBOX_NORMALIZE_STDS = torch.FloatTensor(cfg.TRAIN.BBOX_NORMALIZE_STDS)
+        self.BBOX_INSIDE_WEIGHTS = torch.FloatTensor(cfg.TRAIN.BBOX_INSIDE_WEIGHTS)
 
     def forward(self, all_rois, gt_boxes, num_boxes):
         self.BBOX_NORMALIZE_MEANS = self.BBOX_NORMALIZE_MEANS.type_as(gt_boxes)
@@ -2931,15 +2620,11 @@ class _ProposalTargetLayer(nn.Module):
         all_rois = torch.cat([all_rois, gt_boxes_append], 1)
         num_images = 1
         rois_per_image = int(cfg.TRAIN.BATCH_SIZE / num_images)
-        fg_rois_per_image = int(np.round(cfg.TRAIN.FG_FRACTION *
-            rois_per_image))
+        fg_rois_per_image = int(np.round(cfg.TRAIN.FG_FRACTION * rois_per_image))
         fg_rois_per_image = 1 if fg_rois_per_image == 0 else fg_rois_per_image
-        labels, rois, bbox_targets, bbox_inside_weights = (self.
-            _sample_rois_pytorch(all_rois, gt_boxes, fg_rois_per_image,
-            rois_per_image, self._num_classes))
+        labels, rois, bbox_targets, bbox_inside_weights = self._sample_rois_pytorch(all_rois, gt_boxes, fg_rois_per_image, rois_per_image, self._num_classes)
         bbox_outside_weights = (bbox_inside_weights > 0).float()
-        return (rois, labels, bbox_targets, bbox_inside_weights,
-            bbox_outside_weights)
+        return rois, labels, bbox_targets, bbox_inside_weights, bbox_outside_weights
 
     def backward(self, top, propagate_down, bottom):
         """This layer does not propagate gradients."""
@@ -2949,8 +2634,7 @@ class _ProposalTargetLayer(nn.Module):
         """Reshaping happens during the call to forward."""
         pass
 
-    def _get_bbox_regression_labels_pytorch(self, bbox_target_data,
-        labels_batch, num_classes):
+    def _get_bbox_regression_labels_pytorch(self, bbox_target_data, labels_batch, num_classes):
         """Bounding-box regression targets (bbox_target_data) are stored in a
         compact form b x N x (class, tx, ty, tw, th)
 
@@ -2964,8 +2648,7 @@ class _ProposalTargetLayer(nn.Module):
         batch_size = labels_batch.size(0)
         rois_per_image = labels_batch.size(1)
         clss = labels_batch
-        bbox_targets = bbox_target_data.new(batch_size, rois_per_image, 4
-            ).zero_()
+        bbox_targets = bbox_target_data.new(batch_size, rois_per_image, 4).zero_()
         bbox_inside_weights = bbox_target_data.new(bbox_targets.size()).zero_()
         for b in range(batch_size):
             if clss[b].sum() == 0:
@@ -2986,12 +2669,10 @@ class _ProposalTargetLayer(nn.Module):
         rois_per_image = ex_rois.size(1)
         targets = bbox_transform_batch(ex_rois, gt_rois)
         if cfg.TRAIN.BBOX_NORMALIZE_TARGETS_PRECOMPUTED:
-            targets = (targets - self.BBOX_NORMALIZE_MEANS.expand_as(targets)
-                ) / self.BBOX_NORMALIZE_STDS.expand_as(targets)
+            targets = (targets - self.BBOX_NORMALIZE_MEANS.expand_as(targets)) / self.BBOX_NORMALIZE_STDS.expand_as(targets)
         return targets
 
-    def _sample_rois_pytorch(self, all_rois, gt_boxes, fg_rois_per_image,
-        rois_per_image, num_classes):
+    def _sample_rois_pytorch(self, all_rois, gt_boxes, fg_rois_per_image, rois_per_image, num_classes):
         """Generate a random sample of RoIs comprising foreground and background
         examples.
         """
@@ -3002,48 +2683,37 @@ class _ProposalTargetLayer(nn.Module):
         num_boxes_per_img = overlaps.size(2)
         offset = torch.arange(0, batch_size) * gt_boxes.size(1)
         offset = offset.view(-1, 1).type_as(gt_assignment) + gt_assignment
-        labels = gt_boxes[:, :, (4)].contiguous().view(-1).index((offset.
-            view(-1),)).view(batch_size, -1)
+        labels = gt_boxes[:, :, (4)].contiguous().view(-1).index((offset.view(-1),)).view(batch_size, -1)
         labels_batch = labels.new(batch_size, rois_per_image).zero_()
         rois_batch = all_rois.new(batch_size, rois_per_image, 5).zero_()
         gt_rois_batch = all_rois.new(batch_size, rois_per_image, 5).zero_()
         for i in range(batch_size):
-            fg_inds = torch.nonzero(max_overlaps[i] >= cfg.TRAIN.FG_THRESH
-                ).view(-1)
+            fg_inds = torch.nonzero(max_overlaps[i] >= cfg.TRAIN.FG_THRESH).view(-1)
             fg_num_rois = fg_inds.numel()
-            bg_inds = torch.nonzero((max_overlaps[i] < cfg.TRAIN.
-                BG_THRESH_HI) & (max_overlaps[i] >= cfg.TRAIN.BG_THRESH_LO)
-                ).view(-1)
+            bg_inds = torch.nonzero((max_overlaps[i] < cfg.TRAIN.BG_THRESH_HI) & (max_overlaps[i] >= cfg.TRAIN.BG_THRESH_LO)).view(-1)
             bg_num_rois = bg_inds.numel()
             if fg_num_rois > 0 and bg_num_rois > 0:
                 fg_rois_per_this_image = min(fg_rois_per_image, fg_num_rois)
-                rand_num = torch.from_numpy(np.random.permutation(fg_num_rois)
-                    ).type_as(gt_boxes).long()
+                rand_num = torch.from_numpy(np.random.permutation(fg_num_rois)).type_as(gt_boxes).long()
                 fg_inds = fg_inds[rand_num[:fg_rois_per_this_image]]
-                bg_rois_per_this_image = (rois_per_image -
-                    fg_rois_per_this_image)
-                rand_num = np.floor(np.random.rand(bg_rois_per_this_image) *
-                    bg_num_rois)
+                bg_rois_per_this_image = rois_per_image - fg_rois_per_this_image
+                rand_num = np.floor(np.random.rand(bg_rois_per_this_image) * bg_num_rois)
                 rand_num = torch.from_numpy(rand_num).type_as(gt_boxes).long()
                 bg_inds = bg_inds[rand_num]
             elif fg_num_rois > 0 and bg_num_rois == 0:
-                rand_num = np.floor(np.random.rand(rois_per_image) *
-                    fg_num_rois)
+                rand_num = np.floor(np.random.rand(rois_per_image) * fg_num_rois)
                 rand_num = torch.from_numpy(rand_num).type_as(gt_boxes).long()
                 fg_inds = fg_inds[rand_num]
                 fg_rois_per_this_image = rois_per_image
                 bg_rois_per_this_image = 0
             elif bg_num_rois > 0 and fg_num_rois == 0:
-                rand_num = np.floor(np.random.rand(rois_per_image) *
-                    bg_num_rois)
+                rand_num = np.floor(np.random.rand(rois_per_image) * bg_num_rois)
                 rand_num = torch.from_numpy(rand_num).type_as(gt_boxes).long()
                 bg_inds = bg_inds[rand_num]
                 bg_rois_per_this_image = rois_per_image
                 fg_rois_per_this_image = 0
             else:
-                raise ValueError(
-                    'bg_num_rois = 0 and fg_num_rois = 0, this should not happen!'
-                    )
+                raise ValueError('bg_num_rois = 0 and fg_num_rois = 0, this should not happen!')
             keep_inds = torch.cat([fg_inds, bg_inds], 0)
             labels_batch[i].copy_(labels[i][keep_inds])
             if fg_rois_per_this_image < rois_per_image:
@@ -3051,21 +2721,18 @@ class _ProposalTargetLayer(nn.Module):
             rois_batch[i] = all_rois[i][keep_inds]
             rois_batch[(i), :, (0)] = i
             gt_rois_batch[i] = gt_boxes[i][gt_assignment[i][keep_inds]]
-        bbox_target_data = self._compute_targets_pytorch(rois_batch[:, :, 1
-            :5], gt_rois_batch[:, :, :4])
-        bbox_targets, bbox_inside_weights = (self.
-            _get_bbox_regression_labels_pytorch(bbox_target_data,
-            labels_batch, num_classes))
+        bbox_target_data = self._compute_targets_pytorch(rois_batch[:, :, 1:5], gt_rois_batch[:, :, :4])
+        bbox_targets, bbox_inside_weights = self._get_bbox_regression_labels_pytorch(bbox_target_data, labels_batch, num_classes)
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
 _global_config['ANCHOR_RATIOS'] = 4
 
 
-_global_config['ANCHOR_SCALES'] = 4
-
-
 _global_config['FEAT_STRIDE'] = 4
+
+
+_global_config['ANCHOR_SCALES'] = 4
 
 
 class _RPN(nn.Module):
@@ -3078,24 +2745,19 @@ class _RPN(nn.Module):
         self.anchor_ratios = cfg.ANCHOR_RATIOS
         self.feat_stride = cfg.FEAT_STRIDE[0]
         self.RPN_Conv = nn.Conv2d(self.din, 512, 3, 1, 1, bias=True)
-        self.nc_score_out = len(self.anchor_scales) * len(self.anchor_ratios
-            ) * 2
+        self.nc_score_out = len(self.anchor_scales) * len(self.anchor_ratios) * 2
         self.RPN_cls_score = nn.Conv2d(512, self.nc_score_out, 1, 1, 0)
-        self.nc_bbox_out = len(self.anchor_scales) * len(self.anchor_ratios
-            ) * 4
+        self.nc_bbox_out = len(self.anchor_scales) * len(self.anchor_ratios) * 4
         self.RPN_bbox_pred = nn.Conv2d(512, self.nc_bbox_out, 1, 1, 0)
-        self.RPN_proposal = _ProposalLayer(self.feat_stride, self.
-            anchor_scales, self.anchor_ratios)
-        self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.
-            anchor_scales, self.anchor_ratios)
+        self.RPN_proposal = _ProposalLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
+        self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0
 
     @staticmethod
     def reshape(x, d):
         input_shape = x.size()
-        x = x.view(input_shape[0], int(d), int(float(input_shape[1] *
-            input_shape[2]) / float(d)), input_shape[3])
+        x = x.view(input_shape[0], int(d), int(float(input_shape[1] * input_shape[2]) / float(d)), input_shape[3])
         return x
 
     def forward(self, base_feat, im_info, gt_boxes, num_boxes):
@@ -3107,33 +2769,25 @@ class _RPN(nn.Module):
         rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
         rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
         cfg_key = 'TRAIN' if self.training else 'TEST'
-        rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
-            im_info, cfg_key))
+        rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data, im_info, cfg_key))
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0
         if self.training:
             assert gt_boxes is not None
-            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes,
-                im_info, num_boxes))
-            rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1
-                ).contiguous().view(batch_size, -1, 2)
+            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info, num_boxes))
+            rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
             rpn_label = rpn_data[0].view(batch_size, -1)
             rpn_keep = Variable(rpn_label.view(-1).ne(-1).nonzero().view(-1))
-            rpn_cls_score = torch.index_select(rpn_cls_score.view(-1, 2), 0,
-                rpn_keep)
-            rpn_label = torch.index_select(rpn_label.view(-1), 0, rpn_keep.data
-                )
+            rpn_cls_score = torch.index_select(rpn_cls_score.view(-1, 2), 0, rpn_keep)
+            rpn_label = torch.index_select(rpn_label.view(-1), 0, rpn_keep.data)
             rpn_label = Variable(rpn_label.long())
             self.rpn_loss_cls = F.cross_entropy(rpn_cls_score, rpn_label)
             fg_cnt = torch.sum(rpn_label.data.ne(0))
-            (rpn_bbox_targets, rpn_bbox_inside_weights,
-                rpn_bbox_outside_weights) = rpn_data[1:]
+            rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = rpn_data[1:]
             rpn_bbox_inside_weights = Variable(rpn_bbox_inside_weights)
             rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
             rpn_bbox_targets = Variable(rpn_bbox_targets)
-            self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred,
-                rpn_bbox_targets, rpn_bbox_inside_weights,
-                rpn_bbox_outside_weights, sigma=3, dim=[1, 2, 3])
+            self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights, sigma=3, dim=[1, 2, 3])
         return rois, self.rpn_loss_cls, self.rpn_loss_box
 
 
@@ -3153,10 +2807,7 @@ class ResBlock(nn.Module):
 
     def __init__(self, channel_num, norm=nn.BatchNorm2d):
         super(ResBlock, self).__init__()
-        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2),
-            norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num *
-            2), norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num)
-            )
+        self.block = nn.Sequential(conv3x3(channel_num, channel_num * 2), norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num * 2), norm(channel_num * 2), GLU(), conv3x3(channel_num, channel_num))
 
     def forward(self, x):
         residual = x
@@ -3174,8 +2825,7 @@ class CLSTMCell(nn.Module):
         super(CLSTMCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.Gates = nn.Conv2d(input_size + hidden_size, 4 * hidden_size,
-            kernel_size, padding=padding)
+        self.Gates = nn.Conv2d(input_size + hidden_size, 4 * hidden_size, kernel_size, padding=padding)
 
     def forward(self, input_, prev_state):
         batch_size = input_.data.size()[0]
@@ -3222,13 +2872,10 @@ class G_NET(nn.Module):
         self.downsample2 = downBlock_3x3(self.nbf * 2, self.nbf * 4)
         self.fwd_convlstm = CLSTMCell(self.nbf * 4, self.nbf * 2, 3, 1)
         self.bwd_convlstm = CLSTMCell(self.nbf * 4, self.nbf * 2, 3, 1)
-        self.jointConv = Block3x3_relu(self.nbf * 8, self.nbf * 4, norm=nn.
-            InstanceNorm2d)
+        self.jointConv = Block3x3_relu(self.nbf * 8, self.nbf * 4, norm=nn.InstanceNorm2d)
         self.residual = self._make_layer(ResBlock, self.nbf * 4)
-        self.upsample1 = upBlock(self.nbf * 4, self.nbf * 2, norm=nn.
-            InstanceNorm2d)
-        self.upsample2 = upBlock(self.nbf * 2, self.nbf, norm=nn.InstanceNorm2d
-            )
+        self.upsample1 = upBlock(self.nbf * 4, self.nbf * 2, norm=nn.InstanceNorm2d)
+        self.upsample2 = upBlock(self.nbf * 2, self.nbf, norm=nn.InstanceNorm2d)
         self.img_net = GET_IMAGE_G(self.nbf)
 
     def _make_layer(self, block, channel_num):
@@ -3249,19 +2896,16 @@ class G_NET(nn.Module):
         batch_size, max_num_roi = z_code.size(0), z_code.size(1)
         z_code = z_code.unsqueeze(3)
         z_code = z_code.repeat(1, 1, 1, self.fm_size ** 2)
-        z_code = z_code.view(batch_size, max_num_roi, -1, self.fm_size,
-            self.fm_size)
+        z_code = z_code.view(batch_size, max_num_roi, -1, self.fm_size, self.fm_size)
         hmap_size = bbox_maps_fwd.size(3)
         bbox_maps_fwd = bbox_maps_fwd.view(-1, self.nbf, hmap_size, hmap_size)
         h_code_fwd = self.downsample1(bbox_maps_fwd)
         h_code_fwd = self.downsample2(h_code_fwd)
-        h_code_fwd = h_code_fwd.view(batch_size, max_num_roi, -1, self.
-            fm_size, self.fm_size)
+        h_code_fwd = h_code_fwd.view(batch_size, max_num_roi, -1, self.fm_size, self.fm_size)
         bbox_maps_bwd = bbox_maps_bwd.view(-1, self.nbf, hmap_size, hmap_size)
         h_code_bwd = self.downsample1(bbox_maps_bwd)
         h_code_bwd = self.downsample2(h_code_bwd)
-        h_code_bwd = h_code_bwd.view(batch_size, max_num_roi, -1, self.
-            fm_size, self.fm_size)
+        h_code_bwd = h_code_bwd.view(batch_size, max_num_roi, -1, self.fm_size, self.fm_size)
         state_fwd, state_bwd = None, None
         state_fwd_lst, state_bwd_lst = [], []
         for t in range(0, max_num_roi):
@@ -3271,21 +2915,17 @@ class G_NET(nn.Module):
             state_bwd_lst.append(state_bwd[0].unsqueeze(1))
         h_code = []
         for t in range(0, max_num_roi):
-            h_code.append(torch.cat((state_fwd_lst[t], state_bwd_lst[
-                max_num_roi - t - 1], z_code[:, t:t + 1]), 2))
+            h_code.append(torch.cat((state_fwd_lst[t], state_bwd_lst[max_num_roi - t - 1], z_code[:, t:t + 1]), 2))
         h_code = torch.cat(h_code, 1)
-        h_code = h_code.view(batch_size * max_num_roi, -1, self.fm_size,
-            self.fm_size)
+        h_code = h_code.view(batch_size * max_num_roi, -1, self.fm_size, self.fm_size)
         h_code = self.jointConv(h_code)
-        bbox_fmaps = bbox_fmaps.unsqueeze(2).repeat(1, 1, self.nbf * 4, 1, 1
-            ).view(batch_size * max_num_roi, -1, self.fm_size, self.fm_size)
+        bbox_fmaps = bbox_fmaps.unsqueeze(2).repeat(1, 1, self.nbf * 4, 1, 1).view(batch_size * max_num_roi, -1, self.fm_size, self.fm_size)
         h_code = h_code * bbox_fmaps
         h_code = self.residual(h_code)
         h_code = self.upsample1(h_code)
         h_code = self.upsample2(h_code)
         fake_hmaps = self.img_net(h_code)
-        fake_hmaps = fake_hmaps.view(batch_size, max_num_roi, -1, hmap_size,
-            hmap_size)
+        fake_hmaps = fake_hmaps.view(batch_size, max_num_roi, -1, hmap_size, hmap_size)
         return fake_hmaps
 
 
@@ -3293,8 +2933,7 @@ class D_GET_LOGITS(nn.Module):
 
     def __init__(self, nbf):
         super(D_GET_LOGITS, self).__init__()
-        self.outlogits = nn.Sequential(nn.Conv2d(nbf // 16, 1, kernel_size=
-            4, stride=4), nn.Sigmoid())
+        self.outlogits = nn.Sequential(nn.Conv2d(nbf // 16, 1, kernel_size=4, stride=4), nn.Sigmoid())
 
     def forward(self, h_code):
         output = self.outlogits(h_code)
@@ -3302,9 +2941,7 @@ class D_GET_LOGITS(nn.Module):
 
 
 def downBlock_4x4(in_planes, out_planes):
-    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=4,
-        stride=2, padding=1, bias=False), nn.InstanceNorm2d(out_planes), nn
-        .LeakyReLU(0.2, inplace=True))
+    block = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=4, stride=2, padding=1, bias=False), nn.InstanceNorm2d(out_planes), nn.LeakyReLU(0.2, inplace=True))
     return block
 
 
@@ -3357,15 +2994,12 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.
-            ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True),
-            nn.Dropout(), nn.Linear(4096, num_classes))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
         if init_weights:
             self._initialize_weights()
 
     def forward(self, x):
-        x = F.interpolate(x, size=(224, 224), mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=(224, 224), mode='bilinear', align_corners=True)
         results = []
         for index, model in enumerate(self.features):
             x = model(x)
@@ -3381,8 +3015,7 @@ class VGG(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                    nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
@@ -3397,50 +3030,107 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (D_GET_LOGITS,
+     lambda: ([], {'nbf': 64}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Depth3DGridGen,
+     lambda: ([], {'height': 4, 'width': 4}),
+     lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Depth3DGridGen_with_mask,
+     lambda: ([], {'height': 4, 'width': 4}),
+     lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GET_IMAGE_G,
+     lambda: ([], {'nbf': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GET_SHAPE_G,
+     lambda: ([], {'nbf': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GLB_D_NET,
+     lambda: ([], {'num_classes': 64}),
+     lambda: ([torch.rand([4, 65, 64, 64])], {}),
+     True),
+    (GLU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (G_HMAP,
+     lambda: ([], {'ngf': 4, 'ncf': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAttentionGeneral,
+     lambda: ([], {'idf': 4, 'cdf': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (HmapResBlock,
+     lambda: ([], {'channel_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (INS_D_NET,
+     lambda: ([], {'num_classes': 64}),
+     lambda: ([torch.rand([4, 65, 64, 64])], {}),
+     True),
+    (PreEncoderRNN,
+     lambda: ([], {'ntoken': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (ResBlock,
+     lambda: ([], {'channel_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_jamesli1618_Obj_GAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(D_GET_LOGITS(*[], **{'nbf': 64}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Depth3DGridGen(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(Depth3DGridGen_with_mask(*[], **{'height': 4, 'width': 4}), [torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(GET_IMAGE_G(*[], **{'nbf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(GET_SHAPE_G(*[], **{'nbf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(GLB_D_NET(*[], **{'num_classes': 64}), [torch.rand([4, 65, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(GLU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(G_HMAP(*[], **{'ngf': 4, 'ncf': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(GlobalAttentionGeneral(*[], **{'idf': 4, 'cdf': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
     def test_010(self):
-        self._check(HmapResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(INS_D_NET(*[], **{'num_classes': 64}), [torch.rand([4, 65, 64, 64])], {})
+        self._check(*TESTCASES[11])
 
-    @_fails_compile()
     def test_012(self):
-        self._check(PreEncoderRNN(*[], **{'ntoken': 4}), [torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(ResBlock(*[], **{'channel_num': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 

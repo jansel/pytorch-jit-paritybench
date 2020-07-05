@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -53,8 +54,7 @@ class depthwise_separable_conv_3x3(nn.Module):
 
     def __init__(self, nin, nout, stride):
         super(depthwise_separable_conv_3x3, self).__init__()
-        self.depthwise = nn.Conv2d(nin, nin, kernel_size=3, stride=stride,
-            padding=1, groups=nin)
+        self.depthwise = nn.Conv2d(nin, nin, kernel_size=3, stride=stride, padding=1, groups=nin)
         self.pointwise = nn.Conv2d(nin, nout, kernel_size=1)
 
     def forward(self, x):
@@ -139,8 +139,7 @@ class StageBlock(nn.Module):
             results[id] = self.nodeop[id](x)
         for id, node in enumerate(self.nodes):
             if id not in self.input_nodes:
-                results[id] = self.nodeop[id](*[results[_id] for _id in
-                    node.inputs])
+                results[id] = self.nodeop[id](*[results[_id] for _id in node.inputs])
         result = results[self.output_nodes[0]]
         for idx, id in enumerate(self.output_nodes):
             if idx > 0:
@@ -155,8 +154,7 @@ def build_graph(Nodes, args):
     elif args.graph_model == 'BA':
         return nx.random_graphs.barabasi_albert_graph(Nodes, args.M, args.seed)
     elif args.graph_model == 'WS':
-        return nx.random_graphs.connected_watts_strogatz_graph(Nodes, args.
-            K, args.P, tries=200, seed=args.seed)
+        return nx.random_graphs.connected_watts_strogatz_graph(Nodes, args.K, args.P, tries=200, seed=args.seed)
 
 
 def load_graph(path):
@@ -192,8 +190,7 @@ class CNN(nn.Module):
             else:
                 graph = build_graph(args.nodes, args)
                 save_graph(graph, os.path.join(args.model_dir, 'conv5.yaml'))
-            self.conv5 = StageBlock(graph, args.channels * 2, args.channels * 4
-                )
+            self.conv5 = StageBlock(graph, args.channels * 2, args.channels * 4)
             self.relu = nn.ReLU()
             self.conv = nn.Conv2d(args.channels * 4, 1280, kernel_size=1)
             self.bn2 = nn.BatchNorm2d(1280)
@@ -215,15 +212,13 @@ class CNN(nn.Module):
             else:
                 graph = build_graph(args.nodes, args)
                 save_graph(graph, os.path.join(args.model_dir, 'conv4.yaml'))
-            self.conv4 = StageBlock(graph, args.channels * 2, args.channels * 4
-                )
+            self.conv4 = StageBlock(graph, args.channels * 2, args.channels * 4)
             if args.resume:
                 graph = load_graph(os.path.join(args.model_dir, 'conv5.yaml'))
             else:
                 graph = build_graph(args.nodes, args)
                 save_graph(graph, os.path.join(args.model_dir, 'conv5.yaml'))
-            self.conv5 = StageBlock(graph, args.channels * 4, args.channels * 8
-                )
+            self.conv5 = StageBlock(graph, args.channels * 4, args.channels * 8)
             self.relu = nn.ReLU()
             self.conv = nn.Conv2d(args.channels * 8, 1280, kernel_size=1)
             self.bn2 = nn.BatchNorm2d(1280)
@@ -255,11 +250,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Triplet_unit,
+     lambda: ([], {'inplanes': 4, 'outplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (depthwise_separable_conv_3x3,
+     lambda: ([], {'nin': 4, 'nout': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_JiaminRen_RandWireNN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Triplet_unit(*[], **{'inplanes': 4, 'outplanes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(depthwise_separable_conv_3x3(*[], **{'nin': 4, 'nout': 4, 'stride': 1}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -36,53 +37,18 @@ class Network(torch.nn.Module):
 
     def __init__(self):
         super(Network, self).__init__()
-        self.netVggOne = torch.nn.Sequential(torch.nn.Conv2d(in_channels=3,
-            out_channels=64, kernel_size=3, stride=1, padding=1), torch.nn.
-            ReLU(inplace=False), torch.nn.Conv2d(in_channels=64,
-            out_channels=64, kernel_size=3, stride=1, padding=1), torch.nn.
-            ReLU(inplace=False))
-        self.netVggTwo = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size
-            =2, stride=2), torch.nn.Conv2d(in_channels=64, out_channels=128,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=
-            False), torch.nn.Conv2d(in_channels=128, out_channels=128,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
-        self.netVggThr = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size
-            =2, stride=2), torch.nn.Conv2d(in_channels=128, out_channels=
-            256, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace
-            =False), torch.nn.Conv2d(in_channels=256, out_channels=256,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=
-            False), torch.nn.Conv2d(in_channels=256, out_channels=256,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
-        self.netVggFou = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size
-            =2, stride=2), torch.nn.Conv2d(in_channels=256, out_channels=
-            512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace
-            =False), torch.nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=
-            False), torch.nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
-        self.netVggFiv = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size
-            =2, stride=2), torch.nn.Conv2d(in_channels=512, out_channels=
-            512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace
-            =False), torch.nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=
-            False), torch.nn.Conv2d(in_channels=512, out_channels=512,
-            kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
-        self.netScoreOne = torch.nn.Conv2d(in_channels=64, out_channels=1,
-            kernel_size=1, stride=1, padding=0)
-        self.netScoreTwo = torch.nn.Conv2d(in_channels=128, out_channels=1,
-            kernel_size=1, stride=1, padding=0)
-        self.netScoreThr = torch.nn.Conv2d(in_channels=256, out_channels=1,
-            kernel_size=1, stride=1, padding=0)
-        self.netScoreFou = torch.nn.Conv2d(in_channels=512, out_channels=1,
-            kernel_size=1, stride=1, padding=0)
-        self.netScoreFiv = torch.nn.Conv2d(in_channels=512, out_channels=1,
-            kernel_size=1, stride=1, padding=0)
-        self.netCombine = torch.nn.Sequential(torch.nn.Conv2d(in_channels=5,
-            out_channels=1, kernel_size=1, stride=1, padding=0), torch.nn.
-            Sigmoid())
-        self.load_state_dict({strKey.replace('module', 'net'): tenWeight for
-            strKey, tenWeight in torch.load(__file__.replace('run.py', 
-            'network-' + arguments_strModel + '.pytorch')).items()})
+        self.netVggOne = torch.nn.Sequential(torch.nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
+        self.netVggTwo = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size=2, stride=2), torch.nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
+        self.netVggThr = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size=2, stride=2), torch.nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
+        self.netVggFou = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size=2, stride=2), torch.nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
+        self.netVggFiv = torch.nn.Sequential(torch.nn.MaxPool2d(kernel_size=2, stride=2), torch.nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False), torch.nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1), torch.nn.ReLU(inplace=False))
+        self.netScoreOne = torch.nn.Conv2d(in_channels=64, out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.netScoreTwo = torch.nn.Conv2d(in_channels=128, out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.netScoreThr = torch.nn.Conv2d(in_channels=256, out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.netScoreFou = torch.nn.Conv2d(in_channels=512, out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.netScoreFiv = torch.nn.Conv2d(in_channels=512, out_channels=1, kernel_size=1, stride=1, padding=0)
+        self.netCombine = torch.nn.Sequential(torch.nn.Conv2d(in_channels=5, out_channels=1, kernel_size=1, stride=1, padding=0), torch.nn.Sigmoid())
+        self.load_state_dict({strKey.replace('module', 'net'): tenWeight for strKey, tenWeight in torch.load(__file__.replace('run.py', 'network-' + arguments_strModel + '.pytorch')).items()})
 
     def forward(self, tenInput):
         tenBlue = tenInput[:, 0:1, :, :] * 255.0 - 104.00698793
@@ -99,28 +65,10 @@ class Network(torch.nn.Module):
         tenScoreThr = self.netScoreThr(tenVggThr)
         tenScoreFou = self.netScoreFou(tenVggFou)
         tenScoreFiv = self.netScoreFiv(tenVggFiv)
-        tenScoreOne = torch.nn.functional.interpolate(input=tenScoreOne,
-            size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear',
-            align_corners=False)
-        tenScoreTwo = torch.nn.functional.interpolate(input=tenScoreTwo,
-            size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear',
-            align_corners=False)
-        tenScoreThr = torch.nn.functional.interpolate(input=tenScoreThr,
-            size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear',
-            align_corners=False)
-        tenScoreFou = torch.nn.functional.interpolate(input=tenScoreFou,
-            size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear',
-            align_corners=False)
-        tenScoreFiv = torch.nn.functional.interpolate(input=tenScoreFiv,
-            size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear',
-            align_corners=False)
-        return self.netCombine(torch.cat([tenScoreOne, tenScoreTwo,
-            tenScoreThr, tenScoreFou, tenScoreFiv], 1))
+        tenScoreOne = torch.nn.functional.interpolate(input=tenScoreOne, size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear', align_corners=False)
+        tenScoreTwo = torch.nn.functional.interpolate(input=tenScoreTwo, size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear', align_corners=False)
+        tenScoreThr = torch.nn.functional.interpolate(input=tenScoreThr, size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear', align_corners=False)
+        tenScoreFou = torch.nn.functional.interpolate(input=tenScoreFou, size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear', align_corners=False)
+        tenScoreFiv = torch.nn.functional.interpolate(input=tenScoreFiv, size=(tenInput.shape[2], tenInput.shape[3]), mode='bilinear', align_corners=False)
+        return self.netCombine(torch.cat([tenScoreOne, tenScoreTwo, tenScoreThr, tenScoreFou, tenScoreFiv], 1))
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_sniklaus_pytorch_hed(_paritybench_base):
-    pass

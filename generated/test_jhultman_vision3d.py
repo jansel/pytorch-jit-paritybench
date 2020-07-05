@@ -36,8 +36,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -124,8 +125,7 @@ class AnchorGenerator(nn.Module):
         self.anchors = self.make_anchors()
 
     def compute_grid_params(self):
-        pixel_size = torch.tensor(self.cfg.VOXEL_SIZE[:2]) * self.cfg.STRIDES[
-            -1]
+        pixel_size = torch.tensor(self.cfg.VOXEL_SIZE[:2]) * self.cfg.STRIDES[-1]
         lower, upper = torch.tensor(self.cfg.GRID_BOUNDS).view(2, 3)[:, :2]
         grid_shape = ((upper - lower) / pixel_size).long()
         return lower, upper, grid_shape
@@ -152,8 +152,7 @@ class AnchorGenerator(nn.Module):
     def make_anchors(self):
         z0, z1, nz = 1, 1, 1
         (x0, y0), (x1, y1), (nx, ny) = self.compute_grid_params()
-        centers = self.make_anchor_centers([(x0, x1, nx), (y0, y1, ny), (z0,
-            z1, nz)])
+        centers = self.make_anchor_centers([(x0, x1, nx), (y0, y1, ny), (z0, z1, nz)])
         sizes = self.make_anchor_sizes(nx, ny)
         angles = self.make_anchor_angles(nx, ny)
         anchors = torch.cat((centers, sizes, angles), dim=-1)
@@ -169,9 +168,7 @@ class Preprocessor(nn.Module):
         self.cfg = cfg
 
     def build_voxel_generator(self, cfg):
-        voxel_generator = spconv.utils.VoxelGenerator(voxel_size=cfg.
-            VOXEL_SIZE, point_cloud_range=cfg.GRID_BOUNDS, max_voxels=cfg.
-            MAX_VOXELS, max_num_points=cfg.MAX_OCCUPANCY)
+        voxel_generator = spconv.utils.VoxelGenerator(voxel_size=cfg.VOXEL_SIZE, point_cloud_range=cfg.GRID_BOUNDS, max_voxels=cfg.MAX_VOXELS, max_num_points=cfg.MAX_OCCUPANCY)
         return voxel_generator
 
     def generate_batch_voxels(self, points):
@@ -206,12 +203,10 @@ class Preprocessor(nn.Module):
         :coordinates IntTensor of shape (B * Nv, 4)
         :occupancy LongTensor of shape (B * Nv, 4)
         """
-        features, coordinates, occupancy = self.generate_batch_voxels(item[
-            'points'])
+        features, coordinates, occupancy = self.generate_batch_voxels(item['points'])
         points = self.pad_for_batch(item['points'])
         keys = ['points', 'features', 'coordinates', 'occupancy', 'batch_size']
-        vals = map(torch.from_numpy, (points, features, coordinates, occupancy)
-            )
+        vals = map(torch.from_numpy, (points, features, coordinates, occupancy))
         item.update(dict(zip(keys, list(vals) + [len(points)])))
         return item
 
@@ -230,8 +225,7 @@ class Matcher(object):
     (b) a vector of length N containing the labels for each prediction.
     """
 
-    def __init__(self, thresholds: List[float], labels: List[int],
-        allow_low_quality_matches: bool=False):
+    def __init__(self, thresholds: List[float], labels: List[int], allow_low_quality_matches: bool=False):
         """
         Args:
             thresholds (list): a list of thresholds used to stratify predictions
@@ -256,8 +250,7 @@ class Matcher(object):
         assert thresholds[0] > 0
         thresholds.insert(0, -float('inf'))
         thresholds.append(float('inf'))
-        assert all(low <= high for low, high in zip(thresholds[:-1],
-            thresholds[1:]))
+        assert all(low <= high for low, high in zip(thresholds[:-1], thresholds[1:]))
         assert all(l in [-1, 0, 1] for l in labels)
         assert len(labels) == len(thresholds) - 1
         self.thresholds = thresholds
@@ -279,17 +272,13 @@ class Matcher(object):
         """
         assert match_quality_matrix.dim() == 2
         if match_quality_matrix.numel() == 0:
-            default_matches = match_quality_matrix.new_full((
-                match_quality_matrix.size(1),), 0, dtype=torch.int64)
-            default_match_labels = match_quality_matrix.new_full((
-                match_quality_matrix.size(1),), self.labels[0], dtype=torch
-                .int8)
+            default_matches = match_quality_matrix.new_full((match_quality_matrix.size(1),), 0, dtype=torch.int64)
+            default_match_labels = match_quality_matrix.new_full((match_quality_matrix.size(1),), self.labels[0], dtype=torch.int8)
             return default_matches, default_match_labels
         assert torch.all(match_quality_matrix >= 0)
         matched_vals, matches = match_quality_matrix.max(dim=0)
         match_labels = matches.new_full(matches.size(), 1, dtype=torch.int8)
-        for l, low, high in zip(self.labels, self.thresholds[:-1], self.
-            thresholds[1:]):
+        for l, low, high in zip(self.labels, self.thresholds[:-1], self.thresholds[1:]):
             low_high = (matched_vals >= low) & (matched_vals < high)
             match_labels[low_high] = l
         if self.allow_low_quality_matches:
@@ -306,8 +295,7 @@ class Matcher(object):
         Faster R-CNN paper: https://arxiv.org/pdf/1506.01497v3.pdf.
         """
         highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(
-            match_quality_matrix == highest_quality_foreach_gt[:, (None)])
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
         pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
         match_labels[pred_inds_to_update] = 1
 
@@ -325,8 +313,7 @@ def encode(boxes, anchors):
     G_xyz, G_wlh, G_yaw = boxes.split([3, 3, 1], -1)
     A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
     A_norm = _anchor_diagonal(A_wlh)
-    deltas = torch.cat(((G_xyz - A_xyz) / A_norm, (G_wlh / A_wlh).log(), (
-        G_yaw - A_yaw) % math.pi), dim=-1)
+    deltas = torch.cat(((G_xyz - A_xyz) / A_norm, (G_wlh / A_wlh).log(), (G_yaw - A_yaw) % math.pi), dim=-1)
     return deltas
 
 
@@ -345,13 +332,11 @@ class ProposalTargetAssigner(nn.Module):
     def build_matchers(self, cfg):
         matchers = []
         for anchor in cfg.ANCHORS:
-            matchers += [Matcher(anchor['iou_thresh'], [0, -1, +1], cfg.
-                ALLOW_LOW_QUALITY_MATCHES)]
+            matchers += [Matcher(anchor['iou_thresh'], [0, -1, +1], cfg.ALLOW_LOW_QUALITY_MATCHES)]
         return matchers
 
     def compute_iou(self, boxes, anchors):
-        matrix = box_iou_rotated(boxes[:, ([0, 1, 3, 4, 6])], anchors[:, ([
-            0, 1, 3, 4, 6])])
+        matrix = box_iou_rotated(boxes[:, ([0, 1, 3, 4, 6])], anchors[:, ([0, 1, 3, 4, 6])])
         return matrix
 
     def get_cls_targets(self, G_cls):
@@ -389,8 +374,7 @@ class ProposalTargetAssigner(nn.Module):
         """Match boxes to anchors based on IOU."""
         full_idx = torch.arange(boxes.shape[0], device=boxes.device)
         classes = range(self.cfg.NUM_CLASSES)
-        matches, labels = zip(*[self.match_class_i(boxes, class_idx,
-            full_idx, i) for i in classes])
+        matches, labels = zip(*[self.match_class_i(boxes, class_idx, full_idx, i) for i in classes])
         matches = torch.stack(matches).view(self.anchors.shape[:-1])
         labels = torch.stack(labels).view(self.anchors.shape[:-1])
         return matches, labels
@@ -430,10 +414,8 @@ class RefinementTargetAssigner(nn.Module):
         """
         num_boxes, batch_size = sum(box_counts), len(box_counts)
         box_inds = torch.arange(num_boxes)
-        box_batch_inds = torch.repeat_interleave(torch.arange(batch_size),
-            torch.LongTensor(box_counts))
-        mask = torch.full((batch_size, 1, num_boxes), False, dtype=torch.
-            bool, device=device)
+        box_batch_inds = torch.repeat_interleave(torch.arange(batch_size), torch.LongTensor(box_counts))
+        mask = torch.full((batch_size, 1, num_boxes), False, dtype=torch.bool, device=device)
         mask[(box_batch_inds), :, (box_inds)] = True
         return mask
 
@@ -463,8 +445,7 @@ class RefinementTargetAssigner(nn.Module):
         Uses one-hot encoding.
         """
         B, N, _ = shape
-        targets_cls = torch.zeros((B, N, self.num_classes + 2), dtype=torch
-            .long, device=device)
+        targets_cls = torch.zeros((B, N, self.num_classes + 2), dtype=torch.long, device=device)
         targets_cls[..., -1] = 1
         self.fill_negatives(targets_cls)
         self.fill_positives(targets_cls, inds)
@@ -474,24 +455,19 @@ class RefinementTargetAssigner(nn.Module):
     def make_reg_targets(self, inds, boxes, keypoints, anchor_sizes):
         i, j, k = inds
         B, N, _ = keypoints.shape
-        targets_reg = torch.zeros((B, N, self.num_classes, 7), dtype=torch.
-            float32, device=keypoints.device)
+        targets_reg = torch.zeros((B, N, self.num_classes, 7), dtype=torch.float32, device=keypoints.device)
         box_centers, box_sizes, box_angles = boxes.split([3, 3, 1], dim=-1)
         targets_reg[(i), (j), (k), 0:3] = box_centers[k] - keypoints[i, j]
-        targets_reg[(i), (j), (k), 3:6] = (box_sizes[k] - anchor_sizes[k]
-            ) / anchor_sizes[k]
+        targets_reg[(i), (j), (k), 3:6] = (box_sizes[k] - anchor_sizes[k]) / anchor_sizes[k]
         targets_reg[(i), (j), (k), 6:7] = box_angles[k]
         return targets_reg
 
-    def match_keypoints(self, boxes, keypoints, anchor_radii, class_ids,
-        box_counts):
+    def match_keypoints(self, boxes, keypoints, anchor_radii, class_ids, box_counts):
         """Find keypoints within spherical radius of ground truth center."""
         box_centers, box_sizes, box_angles = boxes.split([3, 3, 1], dim=-1)
-        distances = torch.norm(keypoints[:, :, (None), :] - box_centers, dim=-1
-            )
+        distances = torch.norm(keypoints[:, :, (None), :] - box_centers, dim=-1)
         in_radius = distances < anchor_radii[class_ids]
-        in_radius &= self.batch_correspondence_mask(box_counts, keypoints.
-            device)
+        in_radius &= self.batch_correspondence_mask(box_counts, keypoints.device)
         return in_radius.nonzero().t()
 
     def get_targets(self, item):
@@ -502,12 +478,10 @@ class RefinementTargetAssigner(nn.Module):
         device = keypoints.device
         anchor_sizes = self.anchor_sizes
         anchor_radii = self.anchor_radii
-        i, j, k = self.match_keypoints(boxes, keypoints, anchor_radii,
-            class_ids, box_counts)
+        i, j, k = self.match_keypoints(boxes, keypoints, anchor_radii, class_ids, box_counts)
         inds = i, j, class_ids[k]
         targets_cls = self.make_cls_targets(inds, keypoints.shape, device)
-        targets_reg = self.make_reg_targets(inds, boxes, keypoints,
-            anchor_sizes)
+        targets_reg = self.make_reg_targets(inds, boxes, keypoints, anchor_sizes)
         return targets_cls, targets_reg
 
     def forward(self, item):
@@ -556,8 +530,7 @@ class BEVFeatureGatherer(nn.Module):
     def forward(self, feature_map, keypoint_xyz):
         N, C, H, W = feature_map.shape
         indices = self.compute_bev_indices(keypoint_xyz, H, W)
-        features = F.grid_sample(feature_map, indices, align_corners=True
-            ).squeeze(2)
+        features = F.grid_sample(feature_map, indices, align_corners=True).squeeze(2)
         return features
 
 
@@ -565,17 +538,14 @@ class MLP(nn.Sequential):
 
     def __init__(self, channels, bias=False, bn=False, relu=True):
         super(MLP, self).__init__()
-        bias, bn, relu = map(partial(self._repeat, n=len(channels)), (bias,
-            bn, relu))
+        bias, bn, relu = map(partial(self._repeat, n=len(channels)), (bias, bn, relu))
         for i in range(len(channels) - 1):
-            self.add_module(f'linear_{i}', nn.Linear(channels[i], channels[
-                i + 1], bias=bias[i]))
+            self.add_module(f'linear_{i}', nn.Linear(channels[i], channels[i + 1], bias=bias[i]))
             nn.init.normal_(self[-1].weight, std=0.01)
             if bias[i]:
                 nn.init.constant_(self[-1].bias, 0)
             if bn[i]:
-                self.add_module(f'batchnorm_{i}', nn.BatchNorm1d(channels[i +
-                    1]))
+                self.add_module(f'batchnorm_{i}', nn.BatchNorm1d(channels[i + 1]))
                 nn.init.constant_(self[-1].weight, 1)
                 nn.init.constant_(self[-1].bias, 0)
             if relu[i]:
@@ -588,16 +558,12 @@ class MLP(nn.Sequential):
 
 
 def make_sparse_conv_layer(C_in, C_out, *args, **kwargs):
-    layer = spconv.SparseSequential(spconv.SparseConv3d(C_in, C_out, *args,
-        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
-        0.01), nn.ReLU())
+    layer = spconv.SparseSequential(spconv.SparseConv3d(C_in, C_out, *args, **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=0.01), nn.ReLU())
     return layer
 
 
 def make_subm_layer(C_in, C_out, *args, **kwargs):
-    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args,
-        **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=
-        0.01), nn.ReLU())
+    layer = spconv.SparseSequential(spconv.SubMConv3d(C_in, C_out, 3, *args, **kwargs, bias=False), nn.BatchNorm1d(C_out, eps=0.001, momentum=0.01), nn.ReLU())
     return layer
 
 
@@ -614,8 +580,7 @@ class PV_RCNN(nn.Module):
         self.roi_grid_pool = RoiGridPool(cfg)
         self.vfe = VoxelFeatureExtractor()
         self.cnn = CNN_FACTORY[cfg.CNN](cfg)
-        self.bev = BEVFeatureGatherer(cfg, self.cnn.voxel_offset, self.cnn.
-            base_voxel_size)
+        self.bev = BEVFeatureGatherer(cfg, self.cnn.voxel_offset, self.cnn.base_voxel_size)
         self.proposal_layer = ProposalLayer(cfg)
         self.refinement_layer = RefinementLayer(cfg)
         self.cfg = cfg
@@ -624,8 +589,7 @@ class PV_RCNN(nn.Module):
         """Copy list because PointNet modifies it in-place."""
         pnets = []
         for i, mlps in enumerate(cfg.PSA.MLPS):
-            pnets += [PointnetSAModuleMSG(npoint=-1, radii=cfg.PSA.RADII[i],
-                nsamples=cfg.SAMPLES_PN, mlps=deepcopy(mlps), use_xyz=True)]
+            pnets += [PointnetSAModuleMSG(npoint=-1, radii=cfg.PSA.RADII[i], nsamples=cfg.SAMPLES_PN, mlps=deepcopy(mlps), use_xyz=True)]
         return nn.Sequential(*pnets)
 
     def sample_keypoints(self, points):
@@ -636,8 +600,7 @@ class PV_RCNN(nn.Module):
         """
         points = points[(...), :3].contiguous()
         indices = furthest_point_sample(points, self.cfg.NUM_KEYPOINTS)
-        keypoints = gather_operation(points.transpose(1, 2).contiguous(),
-            indices)
+        keypoints = gather_operation(points.transpose(1, 2).contiguous(), indices)
         keypoints = keypoints.transpose(1, 2).contiguous()
         return keypoints
 
@@ -662,8 +625,7 @@ class PV_RCNN(nn.Module):
     def proposal(self, item):
         item['keypoints'] = self.sample_keypoints(item['points'])
         features = self.vfe(item['features'], item['occupancy'])
-        cnn_features, bev_map = self.cnn(features, item['coordinates'],
-            item['batch_size'])
+        cnn_features, bev_map = self.cnn(features, item['coordinates'], item['batch_size'])
         scores, boxes = self.proposal_layer(bev_map)
         item.update(dict(P_cls=scores, P_reg=boxes))
         return item
@@ -746,10 +708,8 @@ def batched_nms_rotated(boxes, scores, idxs, iou_threshold):
     assert boxes.shape[-1] == 5
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.int64, device=boxes.device)
-    max_coordinate = (torch.max(boxes[:, (0)], boxes[:, (1)]) + torch.max(
-        boxes[:, (2)], boxes[:, (3)]) / 2).max()
-    min_coordinate = (torch.min(boxes[:, (0)], boxes[:, (1)]) - torch.min(
-        boxes[:, (2)], boxes[:, (3)]) / 2).min()
+    max_coordinate = (torch.max(boxes[:, (0)], boxes[:, (1)]) + torch.max(boxes[:, (2)], boxes[:, (3)]) / 2).max()
+    min_coordinate = (torch.min(boxes[:, (0)], boxes[:, (1)]) - torch.min(boxes[:, (2)], boxes[:, (3)]) / 2).min()
     offsets = idxs.to(boxes) * (max_coordinate - min_coordinate + 1)
     boxes_for_nms = boxes.clone()
     boxes_for_nms[:, :2] += offsets[:, (None)]
@@ -762,8 +722,7 @@ def decode(deltas, anchors):
     P_xyz, P_wlh, P_yaw = deltas.split([3, 3, 1], -1)
     A_xyz, A_wlh, A_yaw = anchors.split([3, 3, 1], -1)
     A_norm = _anchor_diagonal(A_wlh)
-    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw +
-        A_yaw), dim=-1)
+    boxes = torch.cat((P_xyz * A_norm + A_xyz, P_wlh.exp() * A_wlh, P_yaw + A_yaw), dim=-1)
     return boxes
 
 
@@ -776,10 +735,8 @@ class ProposalLayer(nn.Module):
     def __init__(self, cfg):
         super(ProposalLayer, self).__init__()
         self.cfg = cfg
-        self.conv_cls = nn.Conv2d(cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.
-            NUM_YAW, 1)
-        self.conv_reg = nn.Conv2d(cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.
-            NUM_YAW * cfg.BOX_DOF, 1)
+        self.conv_cls = nn.Conv2d(cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.NUM_YAW, 1)
+        self.conv_reg = nn.Conv2d(cfg.PROPOSAL.C_IN, cfg.NUM_CLASSES * cfg.NUM_YAW * cfg.BOX_DOF, 1)
         self.TOPK, self.DOF = cfg.PROPOSAL.TOPK, cfg.BOX_DOF
         self._init_weights()
 
@@ -794,14 +751,12 @@ class ProposalLayer(nn.Module):
         batch_idx = torch.arange(B)[:, (None)].expand(-1, n_cls)
         class_idx = torch.arange(n_cls)[(None), :].expand(B, -1)
         group_idx = class_idx + n_cls * batch_idx
-        b, c, g = [x[..., None].expand(-1, -1, self.TOPK).reshape(-1) for x in
-            (batch_idx, class_idx, group_idx)]
+        b, c, g = [x[..., None].expand(-1, -1, self.TOPK).reshape(-1) for x in (batch_idx, class_idx, group_idx)]
         return b, c, g
 
     def _above_score_thresh(self, scores, class_idx):
         """Classes may have different score thresholds."""
-        thresh = scores.new_tensor([a['score_thresh'] for a in self.cfg.
-            ANCHORS])
+        thresh = scores.new_tensor([a['score_thresh'] for a in self.cfg.ANCHORS])
         mask = scores > thresh[class_idx]
         return mask
 
@@ -812,10 +767,8 @@ class ProposalLayer(nn.Module):
         boxes = boxes.view(-1, self.DOF)
         bev_boxes = boxes[:, ([0, 1, 3, 4, 6])]
         batch_idx, class_idx, group_idx = self._generate_group_idx(B, n_cls)
-        idx = batched_nms_rotated(bev_boxes, scores, group_idx,
-            iou_threshold=0.01)
-        boxes, batch_idx, class_idx, scores = [x[idx] for x in (boxes,
-            batch_idx, class_idx, scores)]
+        idx = batched_nms_rotated(bev_boxes, scores, group_idx, iou_threshold=0.01)
+        boxes, batch_idx, class_idx, scores = [x[idx] for x in (boxes, batch_idx, class_idx, scores)]
         mask = self._above_score_thresh(scores, class_idx)
         out = [x[mask] for x in (boxes, batch_idx, class_idx, scores)]
         return out
@@ -824,10 +777,8 @@ class ProposalLayer(nn.Module):
         """Expands anchors in batch dimension and calls decode."""
         B, n_cls = reg_map.shape[:2]
         anchor_idx = anchor_idx[..., None].expand(-1, -1, -1, self.DOF)
-        deltas = reg_map.reshape(B, n_cls, -1, self.cfg.BOX_DOF).gather(2,
-            anchor_idx)
-        anchors = anchors.view(1, n_cls, -1, self.cfg.BOX_DOF).expand(B, -1,
-            -1, -1).gather(2, anchor_idx)
+        deltas = reg_map.reshape(B, n_cls, -1, self.cfg.BOX_DOF).gather(2, anchor_idx)
+        anchors = anchors.view(1, n_cls, -1, self.cfg.BOX_DOF).expand(B, -1, -1, -1).gather(2, anchor_idx)
         boxes = decode(deltas, anchors)
         return boxes
 
@@ -859,8 +810,7 @@ class ProposalLayer(nn.Module):
         return cls_map, reg_map
 
 
-def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
-    reduction: str='none'):
+def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2, reduction: str='none'):
     """
     Original implementation from https://github.com/facebookresearch/fvcore/blob/master/fvcore/nn/focal_loss.py .
     Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
@@ -882,8 +832,7 @@ def sigmoid_focal_loss(inputs, targets, alpha: float=0.25, gamma: float=2,
         Loss tensor with the reduction option applied.
     """
     p = torch.sigmoid(inputs)
-    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction
-        ='none')
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
     p_t = p * targets + (1 - p) * (1 - targets)
     loss = ce_loss * (1 - p_t) ** gamma
     if alpha >= 0:
@@ -1003,9 +952,7 @@ class RoiGridPool(nn.Module):
 
     def build_pointnet(self, cfg):
         """Copy channel list because PointNet modifies it in-place."""
-        pnet = PointnetSAModuleMSG(npoint=-1, radii=cfg.GRIDPOOL.RADII_PN,
-            nsamples=cfg.SAMPLES_PN, mlps=deepcopy(cfg.GRIDPOOL.MLPS_PN),
-            use_xyz=True)
+        pnet = PointnetSAModuleMSG(npoint=-1, radii=cfg.GRIDPOOL.RADII_PN, nsamples=cfg.SAMPLES_PN, mlps=deepcopy(cfg.GRIDPOOL.MLPS_PN), use_xyz=True)
         return pnet
 
     def rotate_z(self, points, theta):
@@ -1031,10 +978,8 @@ class RoiGridPool(nn.Module):
         """
         b, n, _ = boxes.shape
         m = self.cfg.GRIDPOOL.NUM_GRIDPOINTS
-        gridpoints = boxes[:, :, (None), 3:6] * (torch.rand((b, n, m, 3),
-            device=boxes.device) - 0.5)
-        gridpoints = boxes[:, :, (None), 0:3] + self.rotate_z(gridpoints,
-            boxes[..., -1])
+        gridpoints = boxes[:, :, (None), 3:6] * (torch.rand((b, n, m, 3), device=boxes.device) - 0.5)
+        gridpoints = boxes[:, :, (None), 0:3] + self.rotate_z(gridpoints, boxes[..., -1])
         return gridpoints
 
     def forward(self, proposals, keypoint_xyz, keypoint_features):
@@ -1042,8 +987,7 @@ class RoiGridPool(nn.Module):
         m = self.cfg.GRIDPOOL.NUM_GRIDPOINTS
         gridpoints = self.sample_gridpoints(proposals).view(b, -1, 3)
         features = self.pnet(keypoint_xyz, keypoint_features, gridpoints)[1]
-        features = features.view(b, -1, n, m).permute(0, 2, 1, 3).contiguous(
-            ).view(b, n, -1)
+        features = features.view(b, -1, n, m).permute(0, 2, 1, 3).contiguous().view(b, n, -1)
         features = self.reduction(features)
         return features
 
@@ -1086,18 +1030,13 @@ class RPN(nn.Module):
         self._init_weights()
 
     def _make_down_block(self, inplanes, planes, num_blocks, stride=1):
-        block = [nn.ZeroPad2d(1), nn.Conv2d(inplanes, planes, 3, stride=
-            stride, bias=False), nn.BatchNorm2d(planes, eps=0.001, momentum
-            =0.01), nn.ReLU()]
+        block = [nn.ZeroPad2d(1), nn.Conv2d(inplanes, planes, 3, stride=stride, bias=False), nn.BatchNorm2d(planes, eps=0.001, momentum=0.01), nn.ReLU()]
         for j in range(num_blocks):
-            block += [nn.Conv2d(planes, planes, 3, padding=1, bias=False),
-                nn.BatchNorm2d(planes, eps=0.001, momentum=0.01), nn.ReLU()]
+            block += [nn.Conv2d(planes, planes, 3, padding=1, bias=False), nn.BatchNorm2d(planes, eps=0.001, momentum=0.01), nn.ReLU()]
         return nn.Sequential(*block), planes
 
     def _make_up_block(self, inplanes, planes, stride=1):
-        block = nn.Sequential(nn.Conv2d(inplanes, planes, stride, stride=
-            stride, bias=False), nn.BatchNorm2d(planes, eps=0.001, momentum
-            =0.01), nn.ReLU())
+        block = nn.Sequential(nn.Conv2d(inplanes, planes, stride, stride=stride, bias=False), nn.BatchNorm2d(planes, eps=0.001, momentum=0.01), nn.ReLU())
         return block
 
     def _init_weights(self):
@@ -1159,8 +1098,7 @@ class SparseCNNBase(nn.Module):
             nn.init.constant_(module.bias, val)
 
     def kaiming_init(self, module):
-        nn.init.kaiming_normal_(module.weight, a=0, mode='fan_out',
-            nonlinearity='relu')
+        nn.init.kaiming_normal_(module.weight, a=0, mode='fan_out', nonlinearity='relu')
         self.maybe_bias_init(module, 0)
 
     def batchnorm_init(self, module):
@@ -1187,8 +1125,7 @@ class SparseCNNBase(nn.Module):
         xyz = index[(...), 0:3].float() * voxel_size
         xyz = xyz + self.voxel_offset
         xyz = self.pad_batch(xyz, index[..., -1], volume.batch_size)
-        feature = self.pad_batch(volume.features, index[..., -1], volume.
-            batch_size)
+        feature = self.pad_batch(volume.features, index[..., -1], volume.batch_size)
         return xyz, feature
 
     def compute_pad_amounts(self, batch_index, batch_size):
@@ -1220,8 +1157,7 @@ class SparseCNNBase(nn.Module):
         return bev
 
     def forward(self, features, coordinates, batch_size):
-        x0 = spconv.SparseConvTensor(features, coordinates.int(), self.
-            grid_shape, batch_size)
+        x0 = spconv.SparseConvTensor(features, coordinates.int(), self.grid_shape, batch_size)
         x1 = self.blocks[0](x0)
         x2 = self.blocks[1](x1)
         x3 = self.blocks[2](x2)
@@ -1236,14 +1172,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (MLP,
+     lambda: ([], {'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 4, 4])], {}),
+     True),
+    (VoxelFeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_jhultman_vision3d(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(MLP(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(RPN(*[], **{}), [torch.rand([4, 128, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(VoxelFeatureExtractor(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 

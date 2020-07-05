@@ -41,8 +41,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -99,16 +100,14 @@ class JointsMSELoss(nn.Module):
     def forward(self, output, target, target_weight):
         batch_size = output.size(0)
         num_joints = output.size(1)
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1
-            )
+        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
         heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
         loss = 0
         for idx in range(num_joints):
             heatmap_pred = heatmaps_pred[idx].squeeze()
             heatmap_gt = heatmaps_gt[idx].squeeze()
             if self.use_target_weight:
-                loss += self.criterion(heatmap_pred.mul(target_weight[:, (
-                    idx)]), heatmap_gt.mul(target_weight[:, (idx)]))
+                loss += self.criterion(heatmap_pred.mul(target_weight[:, (idx)]), heatmap_gt.mul(target_weight[:, (idx)]))
             else:
                 loss += self.criterion(heatmap_pred, heatmap_gt)
         return loss
@@ -356,8 +355,7 @@ BN_MOMENTUM = 0.1
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -394,13 +392,10 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -427,63 +422,46 @@ logger = logging.getLogger(__name__)
 
 class HighResolutionModule(nn.Module):
 
-    def __init__(self, num_branches, blocks, num_blocks, num_inchannels,
-        num_channels, fuse_method, multi_scale_output=True):
+    def __init__(self, num_branches, blocks, num_blocks, num_inchannels, num_channels, fuse_method, multi_scale_output=True):
         super(HighResolutionModule, self).__init__()
-        self._check_branches(num_branches, blocks, num_blocks,
-            num_inchannels, num_channels)
+        self._check_branches(num_branches, blocks, num_blocks, num_inchannels, num_channels)
         self.num_inchannels = num_inchannels
         self.fuse_method = fuse_method
         self.num_branches = num_branches
         self.multi_scale_output = multi_scale_output
-        self.branches = self._make_branches(num_branches, blocks,
-            num_blocks, num_channels)
+        self.branches = self._make_branches(num_branches, blocks, num_blocks, num_channels)
         self.fuse_layers = self._make_fuse_layers()
         self.relu = nn.ReLU(True)
 
-    def _check_branches(self, num_branches, blocks, num_blocks,
-        num_inchannels, num_channels):
+    def _check_branches(self, num_branches, blocks, num_blocks, num_inchannels, num_channels):
         if num_branches != len(num_blocks):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(
-                num_branches, len(num_blocks))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(num_branches, len(num_blocks))
             logger.error(error_msg)
             raise ValueError(error_msg)
         if num_branches != len(num_channels):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(
-                num_branches, len(num_channels))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(num_branches, len(num_channels))
             logger.error(error_msg)
             raise ValueError(error_msg)
         if num_branches != len(num_inchannels):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(
-                num_branches, len(num_inchannels))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(num_branches, len(num_inchannels))
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def _make_one_branch(self, branch_index, block, num_blocks,
-        num_channels, stride=1):
+    def _make_one_branch(self, branch_index, block, num_blocks, num_channels, stride=1):
         downsample = None
-        if stride != 1 or self.num_inchannels[branch_index] != num_channels[
-            branch_index] * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.num_inchannels[
-                branch_index], num_channels[branch_index] * block.expansion,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                num_channels[branch_index] * block.expansion, momentum=
-                BN_MOMENTUM))
+        if stride != 1 or self.num_inchannels[branch_index] != num_channels[branch_index] * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.num_inchannels[branch_index], num_channels[branch_index] * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(num_channels[branch_index] * block.expansion, momentum=BN_MOMENTUM))
         layers = []
-        layers.append(block(self.num_inchannels[branch_index], num_channels
-            [branch_index], stride, downsample))
-        self.num_inchannels[branch_index] = num_channels[branch_index
-            ] * block.expansion
+        layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index], stride, downsample))
+        self.num_inchannels[branch_index] = num_channels[branch_index] * block.expansion
         for i in range(1, num_blocks[branch_index]):
-            layers.append(block(self.num_inchannels[branch_index],
-                num_channels[branch_index]))
+            layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index]))
         return nn.Sequential(*layers)
 
     def _make_branches(self, num_branches, block, num_blocks, num_channels):
         branches = []
         for i in range(num_branches):
-            branches.append(self._make_one_branch(i, block, num_blocks,
-                num_channels))
+            branches.append(self._make_one_branch(i, block, num_blocks, num_channels))
         return nn.ModuleList(branches)
 
     def _make_fuse_layers(self):
@@ -496,10 +474,7 @@ class HighResolutionModule(nn.Module):
             fuse_layer = []
             for j in range(num_branches):
                 if j > i:
-                    fuse_layer.append(nn.Sequential(nn.Conv2d(
-                        num_inchannels[j], num_inchannels[i], 1, 1, 0, bias
-                        =False), nn.BatchNorm2d(num_inchannels[i]), nn.
-                        Upsample(scale_factor=2 ** (j - i), mode='nearest')))
+                    fuse_layer.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_inchannels[i], 1, 1, 0, bias=False), nn.BatchNorm2d(num_inchannels[i]), nn.Upsample(scale_factor=2 ** (j - i), mode='nearest')))
                 elif j == i:
                     fuse_layer.append(None)
                 else:
@@ -507,16 +482,10 @@ class HighResolutionModule(nn.Module):
                     for k in range(i - j):
                         if k == i - j - 1:
                             num_outchannels_conv3x3 = num_inchannels[i]
-                            conv3x3s.append(nn.Sequential(nn.Conv2d(
-                                num_inchannels[j], num_outchannels_conv3x3,
-                                3, 2, 1, bias=False), nn.BatchNorm2d(
-                                num_outchannels_conv3x3)))
+                            conv3x3s.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_outchannels_conv3x3, 3, 2, 1, bias=False), nn.BatchNorm2d(num_outchannels_conv3x3)))
                         else:
                             num_outchannels_conv3x3 = num_inchannels[j]
-                            conv3x3s.append(nn.Sequential(nn.Conv2d(
-                                num_inchannels[j], num_outchannels_conv3x3,
-                                3, 2, 1, bias=False), nn.BatchNorm2d(
-                                num_outchannels_conv3x3), nn.ReLU(True)))
+                            conv3x3s.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_outchannels_conv3x3, 3, 2, 1, bias=False), nn.BatchNorm2d(num_outchannels_conv3x3), nn.ReLU(True)))
                     fuse_layer.append(nn.Sequential(*conv3x3s))
             fuse_layers.append(nn.ModuleList(fuse_layer))
         return nn.ModuleList(fuse_layers)
@@ -550,78 +519,56 @@ class PoseHighResolutionNet(nn.Module):
         self.inplanes = 64
         extra = cfg.MODEL_EXTRA
         super(PoseHighResolutionNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(Bottleneck, 64, 4)
         self.stage2_cfg = cfg['MODEL_EXTRA']['STAGE2']
         num_channels = self.stage2_cfg['NUM_CHANNELS']
         block = blocks_dict[self.stage2_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(
-            len(num_channels))]
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
         self.transition1 = self._make_transition_layer([256], num_channels)
-        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg,
-            num_channels)
+        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg, num_channels)
         self.stage3_cfg = cfg['MODEL_EXTRA']['STAGE3']
         num_channels = self.stage3_cfg['NUM_CHANNELS']
         block = blocks_dict[self.stage3_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(
-            len(num_channels))]
-        self.transition2 = self._make_transition_layer(pre_stage_channels,
-            num_channels)
-        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg,
-            num_channels)
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition2 = self._make_transition_layer(pre_stage_channels, num_channels)
+        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg, num_channels)
         self.stage4_cfg = cfg['MODEL_EXTRA']['STAGE4']
         num_channels = self.stage4_cfg['NUM_CHANNELS']
         block = blocks_dict[self.stage4_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(
-            len(num_channels))]
-        self.transition3 = self._make_transition_layer(pre_stage_channels,
-            num_channels)
-        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg,
-            num_channels, multi_scale_output=False)
-        self.final_layer = nn.Conv2d(in_channels=pre_stage_channels[0],
-            out_channels=cfg.NETWORK.NUM_JOINTS, kernel_size=extra.
-            FINAL_CONV_KERNEL, stride=1, padding=1 if extra.
-            FINAL_CONV_KERNEL == 3 else 0)
+        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
+        self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels)
+        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg, num_channels, multi_scale_output=False)
+        self.final_layer = nn.Conv2d(in_channels=pre_stage_channels[0], out_channels=cfg.NETWORK.NUM_JOINTS, kernel_size=extra.FINAL_CONV_KERNEL, stride=1, padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0)
         self.pretrained_layers = cfg['MODEL_EXTRA']['PRETRAINED_LAYERS']
 
-    def _make_transition_layer(self, num_channels_pre_layer,
-        num_channels_cur_layer):
+    def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer):
         num_branches_cur = len(num_channels_cur_layer)
         num_branches_pre = len(num_channels_pre_layer)
         transition_layers = []
         for i in range(num_branches_cur):
             if i < num_branches_pre:
                 if num_channels_cur_layer[i] != num_channels_pre_layer[i]:
-                    transition_layers.append(nn.Sequential(nn.Conv2d(
-                        num_channels_pre_layer[i], num_channels_cur_layer[i
-                        ], 3, 1, 1, bias=False), nn.BatchNorm2d(
-                        num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
+                    transition_layers.append(nn.Sequential(nn.Conv2d(num_channels_pre_layer[i], num_channels_cur_layer[i], 3, 1, 1, bias=False), nn.BatchNorm2d(num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
                 else:
                     transition_layers.append(None)
             else:
                 conv3x3s = []
                 for j in range(i + 1 - num_branches_pre):
                     inchannels = num_channels_pre_layer[-1]
-                    outchannels = num_channels_cur_layer[i
-                        ] if j == i - num_branches_pre else inchannels
-                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels,
-                        outchannels, 3, 2, 1, bias=False), nn.BatchNorm2d(
-                        outchannels), nn.ReLU(inplace=True)))
+                    outchannels = num_channels_cur_layer[i] if j == i - num_branches_pre else inchannels
+                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels, outchannels, 3, 2, 1, bias=False), nn.BatchNorm2d(outchannels), nn.ReLU(inplace=True)))
                 transition_layers.append(nn.Sequential(*conv3x3s))
         return nn.ModuleList(transition_layers)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -629,8 +576,7 @@ class PoseHighResolutionNet(nn.Module):
             layers.append(block(self.inplanes, planes))
         return nn.Sequential(*layers)
 
-    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True
-        ):
+    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True):
         num_modules = layer_config['NUM_MODULES']
         num_branches = layer_config['NUM_BRANCHES']
         num_blocks = layer_config['NUM_BLOCKS']
@@ -643,9 +589,7 @@ class PoseHighResolutionNet(nn.Module):
                 reset_multi_scale_output = False
             else:
                 reset_multi_scale_output = True
-            modules.append(HighResolutionModule(num_branches, block,
-                num_blocks, num_inchannels, num_channels, fuse_method,
-                reset_multi_scale_output))
+            modules.append(HighResolutionModule(num_branches, block, num_blocks, num_inchannels, num_channels, fuse_method, reset_multi_scale_output))
             num_inchannels = modules[-1].get_num_inchannels()
         return nn.Sequential(*modules), num_inchannels
 
@@ -702,9 +646,7 @@ class PoseHighResolutionNet(nn.Module):
             logger.info('=> loading pretrained model {}'.format(pretrained))
             need_init_state_dict = {}
             for name, m in pretrained_state_dict.items():
-                if name.split('.')[0
-                    ] in self.pretrained_layers or self.pretrained_layers[0
-                    ] is '*':
+                if name.split('.')[0] in self.pretrained_layers or self.pretrained_layers[0] is '*':
                     need_init_state_dict[name] = m
             self.load_state_dict(need_init_state_dict, strict=False)
         elif pretrained:
@@ -720,17 +662,9 @@ class InvertedResidual(nn.Module):
         hidden_dim = round(inp * expand_ratio)
         self.identity = stride == 1 and inp == oup
         if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3,
-                stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(
-                hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim,
-                oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
         else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=
-                True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1,
-                groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim),
-                nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0,
-                bias=False), nn.BatchNorm2d(oup))
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
     def forward(self, x):
         if self.identity:
@@ -740,16 +674,14 @@ class InvertedResidual(nn.Module):
 
 
 def conv_3x3_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.
-        BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
 
 
 class MobileNetV2(nn.Module):
 
     def __init__(self, width_mult=1.0):
         super(MobileNetV2, self).__init__()
-        self.cfgs = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4,
-            2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
+        self.cfgs = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
         input_channel = int(32 * width_mult)
         layers = [conv_3x3_bn(3, input_channel, 2)]
         block = InvertedResidual
@@ -790,13 +722,8 @@ class PoseMobileNetV2(nn.Module):
         self.deconv_with_bias = cfg.POSE_RESNET.DECONV_WITH_BIAS
         super(PoseMobileNetV2, self).__init__()
         self.mobilenetv2 = MobileNetV2()
-        self.deconv_layers = self._make_deconv_layer(cfg.POSE_RESNET.
-            NUM_DECONV_LAYERS, cfg.POSE_RESNET.NUM_DECONV_FILTERS, cfg.
-            POSE_RESNET.NUM_DECONV_KERNELS)
-        self.final_layer = nn.Conv2d(in_channels=cfg.POSE_RESNET.
-            NUM_DECONV_FILTERS[-1], out_channels=cfg.NETWORK.NUM_JOINTS,
-            kernel_size=cfg.POSE_RESNET.FINAL_CONV_KERNEL, stride=1,
-            padding=1 if cfg.POSE_RESNET.FINAL_CONV_KERNEL == 3 else 0)
+        self.deconv_layers = self._make_deconv_layer(cfg.POSE_RESNET.NUM_DECONV_LAYERS, cfg.POSE_RESNET.NUM_DECONV_FILTERS, cfg.POSE_RESNET.NUM_DECONV_KERNELS)
+        self.final_layer = nn.Conv2d(in_channels=cfg.POSE_RESNET.NUM_DECONV_FILTERS[-1], out_channels=cfg.NETWORK.NUM_JOINTS, kernel_size=cfg.POSE_RESNET.FINAL_CONV_KERNEL, stride=1, padding=1 if cfg.POSE_RESNET.FINAL_CONV_KERNEL == 3 else 0)
 
     def _get_deconv_cfg(self, deconv_kernel, index):
         if deconv_kernel == 4:
@@ -811,19 +738,13 @@ class PoseMobileNetV2(nn.Module):
         return deconv_kernel, padding, output_padding
 
     def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
-        assert num_layers == len(num_filters
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
-        assert num_layers == len(num_kernels
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_filters), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
         layers = []
         for i in range(num_layers):
-            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels
-                [i], i)
+            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels[i], i)
             planes = num_filters[i]
-            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes,
-                out_channels=planes, kernel_size=kernel, stride=2, padding=
-                padding, output_padding=output_padding, bias=self.
-                deconv_with_bias))
+            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes, out_channels=planes, kernel_size=kernel, stride=2, padding=padding, output_padding=output_padding, bias=self.deconv_with_bias))
             layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = planes
@@ -843,8 +764,7 @@ class PoseMobileNetV2(nn.Module):
             logger.info('=> init deconv weights from normal distribution')
             for name, m in self.deconv_layers.named_modules():
                 if isinstance(m, nn.ConvTranspose2d):
-                    logger.info('=> init {}.weight as normal(0, 0.001)'.
-                        format(name))
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
                     logger.info('=> init {}.bias as 0'.format(name))
                     nn.init.normal_(m.weight, std=0.001)
                     if self.deconv_with_bias:
@@ -857,8 +777,7 @@ class PoseMobileNetV2(nn.Module):
             logger.info('=> init final conv weights from normal distribution')
             for m in self.final_layer.modules():
                 if isinstance(m, nn.Conv2d):
-                    logger.info('=> init {}.weight as normal(0, 0.001)'.
-                        format(name))
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
                     logger.info('=> init {}.bias as 0'.format(name))
                     nn.init.normal_(m.weight, std=0.001)
                     nn.init.constant_(m.bias, 0)
@@ -910,13 +829,10 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -944,8 +860,7 @@ class PoseResNet(nn.Module):
         self.inplanes = 64
         self.deconv_with_bias = cfg.POSE_RESNET.DECONV_WITH_BIAS
         super(PoseResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -953,20 +868,13 @@ class PoseResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.deconv_layers = self._make_deconv_layer(cfg.POSE_RESNET.
-            NUM_DECONV_LAYERS, cfg.POSE_RESNET.NUM_DECONV_FILTERS, cfg.
-            POSE_RESNET.NUM_DECONV_KERNELS)
-        self.final_layer = nn.Conv2d(in_channels=cfg.POSE_RESNET.
-            NUM_DECONV_FILTERS[-1], out_channels=cfg.NETWORK.NUM_JOINTS,
-            kernel_size=cfg.POSE_RESNET.FINAL_CONV_KERNEL, stride=1,
-            padding=1 if cfg.POSE_RESNET.FINAL_CONV_KERNEL == 3 else 0)
+        self.deconv_layers = self._make_deconv_layer(cfg.POSE_RESNET.NUM_DECONV_LAYERS, cfg.POSE_RESNET.NUM_DECONV_FILTERS, cfg.POSE_RESNET.NUM_DECONV_KERNELS)
+        self.final_layer = nn.Conv2d(in_channels=cfg.POSE_RESNET.NUM_DECONV_FILTERS[-1], out_channels=cfg.NETWORK.NUM_JOINTS, kernel_size=cfg.POSE_RESNET.FINAL_CONV_KERNEL, stride=1, padding=1 if cfg.POSE_RESNET.FINAL_CONV_KERNEL == 3 else 0)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -987,19 +895,13 @@ class PoseResNet(nn.Module):
         return deconv_kernel, padding, output_padding
 
     def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
-        assert num_layers == len(num_filters
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
-        assert num_layers == len(num_kernels
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_filters), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
         layers = []
         for i in range(num_layers):
-            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels
-                [i], i)
+            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels[i], i)
             planes = num_filters[i]
-            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes,
-                out_channels=planes, kernel_size=kernel, stride=2, padding=
-                padding, output_padding=output_padding, bias=self.
-                deconv_with_bias))
+            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes, out_channels=planes, kernel_size=kernel, stride=2, padding=padding, output_padding=output_padding, bias=self.deconv_with_bias))
             layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = planes
@@ -1026,8 +928,7 @@ class PoseResNet(nn.Module):
             logger.info('=> init deconv weights from normal distribution')
             for name, m in self.deconv_layers.named_modules():
                 if isinstance(m, nn.ConvTranspose2d):
-                    logger.info('=> init {}.weight as normal(0, 0.001)'.
-                        format(name))
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
                     logger.info('=> init {}.bias as 0'.format(name))
                     nn.init.normal_(m.weight, std=0.001)
                     if self.deconv_with_bias:
@@ -1040,8 +941,7 @@ class PoseResNet(nn.Module):
             logger.info('=> init final conv weights from normal distribution')
             for m in self.final_layer.modules():
                 if isinstance(m, nn.Conv2d):
-                    logger.info('=> init {}.weight as normal(0, 0.001)'.
-                        format(name))
+                    logger.info('=> init {}.weight as normal(0, 0.001)'.format(name))
                     logger.info('=> init {}.bias as 0'.format(name))
                     nn.init.normal_(m.weight, std=0.001)
                     nn.init.constant_(m.bias, 0)
@@ -1063,20 +963,44 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (JointsMSELoss,
+     lambda: ([], {'use_target_weight': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (MultiViewPose,
+     lambda: ([], {'PoseResNet': _mock_layer(), 'Aggre': _mock_layer(), 'CFG': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_microsoft_multiview_human_pose_estimation_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(InvertedResidual(*[], **{'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(MobileNetV2(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(MultiViewPose(*[], **{'PoseResNet': _mock_layer(), 'Aggre': _mock_layer(), 'CFG': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 

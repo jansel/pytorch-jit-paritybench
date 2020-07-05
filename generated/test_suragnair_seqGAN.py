@@ -10,8 +10,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -51,23 +52,20 @@ import torch.optim as optim
 
 class Discriminator(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len,
-        gpu=False, dropout=0.2):
+    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, gpu=False, dropout=0.2):
         super(Discriminator, self).__init__()
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
         self.max_seq_len = max_seq_len
         self.gpu = gpu
         self.embeddings = nn.Embedding(vocab_size, embedding_dim)
-        self.gru = nn.GRU(embedding_dim, hidden_dim, num_layers=2,
-            bidirectional=True, dropout=dropout)
+        self.gru = nn.GRU(embedding_dim, hidden_dim, num_layers=2, bidirectional=True, dropout=dropout)
         self.gru2hidden = nn.Linear(2 * 2 * hidden_dim, hidden_dim)
         self.dropout_linear = nn.Dropout(p=dropout)
         self.hidden2out = nn.Linear(hidden_dim, 1)
 
     def init_hidden(self, batch_size):
-        h = autograd.Variable(torch.zeros(2 * 2 * 1, batch_size, self.
-            hidden_dim))
+        h = autograd.Variable(torch.zeros(2 * 2 * 1, batch_size, self.hidden_dim))
         if self.gpu:
             return h
         else:
@@ -115,8 +113,7 @@ class Discriminator(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len,
-        gpu=False, oracle_init=False):
+    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, gpu=False, oracle_init=False):
         super(Generator, self).__init__()
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
@@ -155,8 +152,7 @@ class Generator(nn.Module):
         Outputs: samples, hidden
             - samples: num_samples x max_seq_length (a sampled sequence in each row)
         """
-        samples = torch.zeros(num_samples, self.max_seq_len).type(torch.
-            LongTensor)
+        samples = torch.zeros(num_samples, self.max_seq_len).type(torch.LongTensor)
         h = self.init_hidden(num_samples)
         inp = autograd.Variable(torch.LongTensor([start_letter] * num_samples))
         if self.gpu:
@@ -219,8 +215,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Generator,
+     lambda: ([], {'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4])], {}),
+     True),
+]
+
 class Test_suragnair_seqGAN(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(Generator(*[], **{'embedding_dim': 4, 'hidden_dim': 4, 'vocab_size': 4, 'max_seq_len': 4}), [torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

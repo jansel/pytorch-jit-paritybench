@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -113,8 +114,7 @@ class OriTripletLoss(nn.Module):
         return loss, correct
 
 
-normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 
-    0.224, 0.225])
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 
 def pdist_torch(emb1, emb2):
@@ -183,18 +183,12 @@ class Non_local(nn.Module):
         super(Non_local, self).__init__()
         self.in_channels = in_channels
         self.inter_channels = reduc_ratio // reduc_ratio
-        self.g = nn.Sequential(nn.Conv2d(in_channels=self.in_channels,
-            out_channels=self.inter_channels, kernel_size=1, stride=1,
-            padding=0))
-        self.W = nn.Sequential(nn.Conv2d(in_channels=self.inter_channels,
-            out_channels=self.in_channels, kernel_size=1, stride=1, padding
-            =0), nn.BatchNorm2d(self.in_channels))
+        self.g = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0))
+        self.W = nn.Sequential(nn.Conv2d(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(self.in_channels))
         nn.init.constant_(self.W[1].weight, 0.0)
         nn.init.constant_(self.W[1].bias, 0.0)
-        self.theta = nn.Conv2d(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = nn.Conv2d(in_channels=self.in_channels, out_channels=
-            self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.theta = nn.Conv2d(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = nn.Conv2d(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         """
@@ -218,13 +212,7 @@ class Non_local(nn.Module):
         return z
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
 
 
 def remove_fc(state_dict):
@@ -242,8 +230,7 @@ def resnet50(pretrained=False, **kwargs):
   """
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
-        model.load_state_dict(remove_fc(model_zoo.load_url(model_urls[
-            'resnet50'])))
+        model.load_state_dict(remove_fc(model_zoo.load_url(model_urls['resnet50'])))
     return model
 
 
@@ -251,8 +238,7 @@ class visible_module(nn.Module):
 
     def __init__(self, arch='resnet50'):
         super(visible_module, self).__init__()
-        model_v = resnet50(pretrained=True, last_conv_stride=1,
-            last_conv_dilation=1)
+        model_v = resnet50(pretrained=True, last_conv_stride=1, last_conv_dilation=1)
         self.visible = model_v
 
     def forward(self, x):
@@ -267,8 +253,7 @@ class thermal_module(nn.Module):
 
     def __init__(self, arch='resnet50'):
         super(thermal_module, self).__init__()
-        model_t = resnet50(pretrained=True, last_conv_stride=1,
-            last_conv_dilation=1)
+        model_t = resnet50(pretrained=True, last_conv_stride=1, last_conv_dilation=1)
         self.thermal = model_t
 
     def forward(self, x):
@@ -283,8 +268,7 @@ class base_resnet(nn.Module):
 
     def __init__(self, arch='resnet50'):
         super(base_resnet, self).__init__()
-        model_base = resnet50(pretrained=True, last_conv_stride=1,
-            last_conv_dilation=1)
+        model_base = resnet50(pretrained=True, last_conv_stride=1, last_conv_dilation=1)
         model_base.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.base = model_base
 
@@ -318,8 +302,7 @@ def weights_init_kaiming(m):
 
 class embed_net(nn.Module):
 
-    def __init__(self, class_num, no_local='on', gm_pool='on', arch='resnet50'
-        ):
+    def __init__(self, class_num, no_local='on', gm_pool='on', arch='resnet50'):
         super(embed_net, self).__init__()
         self.thermal_module = thermal_module(arch=arch)
         self.visible_module = visible_module(arch=arch)
@@ -328,22 +311,14 @@ class embed_net(nn.Module):
         if self.non_local == 'on':
             layers = [3, 4, 6, 3]
             non_layers = [0, 2, 3, 0]
-            self.NL_1 = nn.ModuleList([Non_local(256) for i in range(
-                non_layers[0])])
-            self.NL_1_idx = sorted([(layers[0] - (i + 1)) for i in range(
-                non_layers[0])])
-            self.NL_2 = nn.ModuleList([Non_local(512) for i in range(
-                non_layers[1])])
-            self.NL_2_idx = sorted([(layers[1] - (i + 1)) for i in range(
-                non_layers[1])])
-            self.NL_3 = nn.ModuleList([Non_local(1024) for i in range(
-                non_layers[2])])
-            self.NL_3_idx = sorted([(layers[2] - (i + 1)) for i in range(
-                non_layers[2])])
-            self.NL_4 = nn.ModuleList([Non_local(2048) for i in range(
-                non_layers[3])])
-            self.NL_4_idx = sorted([(layers[3] - (i + 1)) for i in range(
-                non_layers[3])])
+            self.NL_1 = nn.ModuleList([Non_local(256) for i in range(non_layers[0])])
+            self.NL_1_idx = sorted([(layers[0] - (i + 1)) for i in range(non_layers[0])])
+            self.NL_2 = nn.ModuleList([Non_local(512) for i in range(non_layers[1])])
+            self.NL_2_idx = sorted([(layers[1] - (i + 1)) for i in range(non_layers[1])])
+            self.NL_3 = nn.ModuleList([Non_local(1024) for i in range(non_layers[2])])
+            self.NL_3_idx = sorted([(layers[2] - (i + 1)) for i in range(non_layers[2])])
+            self.NL_4 = nn.ModuleList([Non_local(2048) for i in range(non_layers[3])])
+            self.NL_4_idx = sorted([(layers[3] - (i + 1)) for i in range(non_layers[3])])
         pool_dim = 2048
         self.l2norm = Normalize(2)
         self.bottleneck = nn.BatchNorm1d(pool_dim)
@@ -419,15 +394,13 @@ class embed_net(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=dilation, bias=False, dilation=dilation)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride, dilation)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -454,13 +427,11 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1
-        ):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=dilation, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -487,20 +458,17 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, last_conv_stride=2, last_conv_dilation=1
-        ):
+    def __init__(self, block, layers, last_conv_stride=2, last_conv_dilation=1):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=
-            last_conv_stride, dilation=last_conv_dilation)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=last_conv_stride, dilation=last_conv_dilation)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -512,12 +480,9 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample,
-            dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
@@ -539,36 +504,72 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-class Test_mangye16_Cross_Modal_Re_ID_baseline(_paritybench_base):
-    pass
-    def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
 
-    @_fails_compile()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Non_local,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Normalize,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (OriTripletLoss,
+     lambda: ([], {'batch_size': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (TripletLoss_WRT,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (base_resnet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (embed_net,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (thermal_module,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (visible_module,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+]
+
+class Test_mangye16_Cross_Modal_Re_ID_baseline(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
     def test_001(self):
-        self._check(Non_local(*[], **{'in_channels': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Normalize(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(OriTripletLoss(*[], **{'batch_size': 4}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(TripletLoss_WRT(*[], **{}), [torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(base_resnet(*[], **{}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(embed_net(*[], **{'class_num': 4}), [torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(thermal_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(visible_module(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[8])
 

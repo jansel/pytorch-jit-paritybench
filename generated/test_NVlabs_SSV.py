@@ -16,8 +16,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -85,8 +86,7 @@ class PixelNorm(nn.Module):
         super().__init__()
 
     def forward(self, input):
-        return input / torch.sqrt(torch.mean(input ** 2, dim=1, keepdim=
-            True) + 1e-08)
+        return input / torch.sqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-08)
 
 
 class EqualLR:
@@ -165,12 +165,8 @@ class VPASGenerator(nn.Module):
 
     def __init__(self, code_dim):
         super().__init__()
-        self.progression1 = nn.ModuleList([StyledConvBlock3(512, 512, 3, 1,
-            style_dim=code_dim, initial=True), StyledConvBlock3(512, 512, 3,
-            1, style_dim=code_dim), StyledConvBlock3(512, 256, 3, 1,
-            style_dim=code_dim)])
-        self.progression2 = nn.ModuleList([StyledConvBlock3_noAdaIN(256, 
-            128, 3, 1), StyledConvBlock3_noAdaIN(128, 64, 3, 1)])
+        self.progression1 = nn.ModuleList([StyledConvBlock3(512, 512, 3, 1, style_dim=code_dim, initial=True), StyledConvBlock3(512, 512, 3, 1, style_dim=code_dim), StyledConvBlock3(512, 256, 3, 1, style_dim=code_dim)])
+        self.progression2 = nn.ModuleList([StyledConvBlock3_noAdaIN(256, 128, 3, 1), StyledConvBlock3_noAdaIN(128, 64, 3, 1)])
         self.projection_unit = projection_unit(64 * 16, 64 * 16)
         self.scb1 = StyledConvBlock2(1024, 512, 3, 1, style_dim=code_dim)
         self.scb2 = StyledConvBlock2(512, 512, 3, 1, style_dim=code_dim)
@@ -183,8 +179,7 @@ class VPASGenerator(nn.Module):
             if i == 0:
                 out = conv(batch_size, style[0])
             else:
-                upsample = F.interpolate(out, scale_factor=2, mode=
-                    'trilinear', align_corners=False)
+                upsample = F.interpolate(out, scale_factor=2, mode='trilinear', align_corners=False)
                 out = conv(upsample, style[0])
         flow = F.affine_grid(rots, torch.Size([batch_size, 256, 16, 16, 16]))
         out = F.grid_sample(out, flow)
@@ -192,14 +187,11 @@ class VPASGenerator(nn.Module):
             out = conv(out)
         out = self.projection_unit(out)
         out = self.scb1(out, style[1])
-        out = F.interpolate(out, scale_factor=2, mode='bilinear',
-            align_corners=False)
+        out = F.interpolate(out, scale_factor=2, mode='bilinear', align_corners=False)
         out = self.scb2(out, style[1])
-        out = F.interpolate(out, scale_factor=2, mode='bilinear',
-            align_corners=False)
+        out = F.interpolate(out, scale_factor=2, mode='bilinear', align_corners=False)
         out = self.scb3(out, style[1])
-        out = F.interpolate(out, scale_factor=2, mode='bilinear',
-            align_corners=False)
+        out = F.interpolate(out, scale_factor=2, mode='bilinear', align_corners=False)
         out = self.scb4(out, style[1])
         out = self.to_rgb(out)
         return out
@@ -233,8 +225,7 @@ class CELoss:
     def compute_loss(self, tgts, Pred, GT):
         Loss = odict()
         for tgt in tgts:
-            Loss[tgt] = self.CELoss(Pred[tgt].view(Pred[tgt].size()[0], 4),
-                GT[tgt].view(Pred[tgt].size()[0]))
+            Loss[tgt] = self.CELoss(Pred[tgt].view(Pred[tgt].size()[0], 4), GT[tgt].view(Pred[tgt].size()[0]))
         return Loss
 
 
@@ -246,9 +237,7 @@ class negDotLoss:
     def compute_loss(self, tgts, Pred, GT):
         Loss = odict()
         for tgt in tgts:
-            Loss[tgt] = torch.mean(-torch.bmm(GT[tgt].view(GT[tgt].shape[0],
-                1, 2).float(), Pred[tgt].view(Pred[tgt].shape[0], 2, 1).
-                float()))
+            Loss[tgt] = torch.mean(-torch.bmm(GT[tgt].view(GT[tgt].shape[0], 1, 2).float(), Pred[tgt].view(Pred[tgt].shape[0], 2, 1).float()))
         return Loss
 
 
@@ -259,37 +248,21 @@ class VPNet(nn.Module):
         """
         Creates a head with fc layer and outputs for magnitute of [sine, cosine] and direction {--, -+, +-, ++}
         """
-        seq_fc8 = nn.Sequential(EqualLinear(in_size, num_fc), nn.ReLU(
-            inplace=True), nn.Dropout())
+        seq_fc8 = nn.Sequential(EqualLinear(in_size, num_fc), nn.ReLU(inplace=True), nn.Dropout())
         seq_ccss = EqualLinear(num_fc, 2)
         seq_sgnc = EqualLinear(num_fc, 4)
         return seq_fc8, seq_ccss, seq_sgnc
 
     def __init__(self, code_dim=128, instance_norm=False):
         super().__init__()
-        self.progression = nn.ModuleList([ConvBlock(16, 32, 3, 1,
-            instance_norm=instance_norm), ConvBlock(32, 64, 3, 1,
-            instance_norm=instance_norm), ConvBlock(64, 128, 3, 1,
-            instance_norm=instance_norm), ConvBlock(128, 256, 3, 1,
-            instance_norm=instance_norm), ConvBlock(256, 512, 3, 1,
-            instance_norm=instance_norm), ConvBlock(512, 512, 3, 1,
-            instance_norm=instance_norm), ConvBlock(512, 512, 3, 1,
-            instance_norm=instance_norm), ConvBlock(512, 512, 3, 1,
-            instance_norm=instance_norm), ConvBlock(513, 512, 3, 1, 4, 0,
-            last=True, instance_norm=instance_norm)])
-        self.from_rgb = nn.ModuleList([EqualConv2d(3, 16, 1), EqualConv2d(3,
-            32, 1), EqualConv2d(3, 64, 1), EqualConv2d(3, 128, 1),
-            EqualConv2d(3, 256, 1), EqualConv2d(3, 512, 1), EqualConv2d(3, 
-            512, 1), EqualConv2d(3, 512, 1), EqualConv2d(3, 512, 1)])
+        self.progression = nn.ModuleList([ConvBlock(16, 32, 3, 1, instance_norm=instance_norm), ConvBlock(32, 64, 3, 1, instance_norm=instance_norm), ConvBlock(64, 128, 3, 1, instance_norm=instance_norm), ConvBlock(128, 256, 3, 1, instance_norm=instance_norm), ConvBlock(256, 512, 3, 1, instance_norm=instance_norm), ConvBlock(512, 512, 3, 1, instance_norm=instance_norm), ConvBlock(512, 512, 3, 1, instance_norm=instance_norm), ConvBlock(512, 512, 3, 1, instance_norm=instance_norm), ConvBlock(513, 512, 3, 1, 4, 0, last=True, instance_norm=instance_norm)])
+        self.from_rgb = nn.ModuleList([EqualConv2d(3, 16, 1), EqualConv2d(3, 32, 1), EqualConv2d(3, 64, 1), EqualConv2d(3, 128, 1), EqualConv2d(3, 256, 1), EqualConv2d(3, 512, 1), EqualConv2d(3, 512, 1), EqualConv2d(3, 512, 1), EqualConv2d(3, 512, 1)])
         self.n_layer = len(self.progression)
         self.class_linear = EqualLinear(512, 1)
         self.z_linear = EqualLinear(512, code_dim)
-        (self.head_fc_a, self.head_x2_y2_mag_a, self.head_sin_cos_direc_a
-            ) = self.head_seq(512, num_fc=256)
-        (self.head_fc_e, self.head_x2_y2_mag_e, self.head_sin_cos_direc_e
-            ) = self.head_seq(512, num_fc=256)
-        (self.head_fc_t, self.head_x2_y2_mag_t, self.head_sin_cos_direc_t
-            ) = self.head_seq(512, num_fc=256)
+        self.head_fc_a, self.head_x2_y2_mag_a, self.head_sin_cos_direc_a = self.head_seq(512, num_fc=256)
+        self.head_fc_e, self.head_x2_y2_mag_e, self.head_sin_cos_direc_e = self.head_seq(512, num_fc=256)
+        self.head_fc_t, self.head_x2_y2_mag_t, self.head_sin_cos_direc_t = self.head_seq(512, num_fc=256)
         self.logsoftmax = nn.LogSoftmax(dim=2)
         self.loss_mag = negDotLoss()
         self.loss_direc = CELoss()
@@ -309,12 +282,10 @@ class VPNet(nn.Module):
                 out = torch.cat([out, mean_std], 1)
             out = self.progression[index](out)
             if i > 0:
-                out = F.interpolate(out, scale_factor=0.5, mode='bilinear',
-                    align_corners=False)
+                out = F.interpolate(out, scale_factor=0.5, mode='bilinear', align_corners=False)
                 if i == step and 0 <= alpha < 1:
                     skip_rgb = self.from_rgb[index + 1](input)
-                    out = F.interpolate(skip_rgb, scale_factor=0.5, mode=
-                        'bilinear', align_corners=False)
+                    out = F.interpolate(skip_rgb, scale_factor=0.5, mode='bilinear', align_corners=False)
         trunk_out = out.squeeze(2).squeeze(2)
         out = out.squeeze(2).squeeze(2)
         batchsize = out.size(0)
@@ -332,9 +303,7 @@ class VPNet(nn.Module):
         sign_x_y_a = self.head_sin_cos_direc_a(x_a).view(batchsize, 1, 4)
         sign_x_y_e = self.head_sin_cos_direc_e(x_e).view(batchsize, 1, 4)
         sign_x_y_t = self.head_sin_cos_direc_t(x_t).view(batchsize, 1, 4)
-        viewpoint_op = odict(logprob_xxyy=odict(a=logsoftmax_x2_y2_a, e=
-            logsoftmax_x2_y2_e, t=logsoftmax_x2_y2_t), sign_x_y=odict(a=
-            sign_x_y_a, e=sign_x_y_e, t=sign_x_y_t))
+        viewpoint_op = odict(logprob_xxyy=odict(a=logsoftmax_x2_y2_a, e=logsoftmax_x2_y2_e, t=logsoftmax_x2_y2_t), sign_x_y=odict(a=sign_x_y_a, e=sign_x_y_e, t=sign_x_y_t))
         return class_out, z_out, viewpoint_op, trunk_out
 
     def compute_vp_loss(self, pred, GT):
@@ -342,15 +311,9 @@ class VPNet(nn.Module):
         Compute loss for magnitude heads using negdot
         Compute loss for direction heads using crossentropy
         """
-        Loss_c2s2 = self.loss_mag.compute_loss(['a', 'e', 't'], pred[
-            'logprob_xxyy'], dict(a=GT['ccss_a'], e=GT['ccss_e'], t=GT[
-            'ccss_t']))
-        Loss_direc = self.loss_direc.compute_loss(['a', 'e', 't'], pred[
-            'sign_x_y'], dict(a=GT['sign_a'], e=GT['sign_e'], t=GT['sign_t']))
-        Loss = odict(ccss_a=Loss_c2s2['a'] * self.balance_weight, ccss_e=
-            Loss_c2s2['e'] * self.balance_weight, ccss_t=Loss_c2s2['t'] *
-            self.balance_weight, sign_a=Loss_direc['a'], sign_e=Loss_direc[
-            'e'], sign_t=Loss_direc['t'])
+        Loss_c2s2 = self.loss_mag.compute_loss(['a', 'e', 't'], pred['logprob_xxyy'], dict(a=GT['ccss_a'], e=GT['ccss_e'], t=GT['ccss_t']))
+        Loss_direc = self.loss_direc.compute_loss(['a', 'e', 't'], pred['sign_x_y'], dict(a=GT['sign_a'], e=GT['sign_e'], t=GT['sign_t']))
+        Loss = odict(ccss_a=Loss_c2s2['a'] * self.balance_weight, ccss_e=Loss_c2s2['e'] * self.balance_weight, ccss_t=Loss_c2s2['t'] * self.balance_weight, sign_a=Loss_direc['a'], sign_e=Loss_direc['e'], sign_t=Loss_direc['t'])
         return Loss
 
     @staticmethod
@@ -363,8 +326,7 @@ class VPNet(nn.Module):
             logprob_xx_yy = network_op['logprob_xxyy'][tgt]
             abs_cos_sin = torch.sqrt(torch.exp(logprob_xx_yy))
             vp_pred['ccss_' + tgt] = torch.exp(logprob_xx_yy)
-            sign_ind = torch.argmax(network_op['sign_x_y'][tgt].view(
-                network_op['sign_x_y'][tgt].shape[0], 4), dim=1)
+            sign_ind = torch.argmax(network_op['sign_x_y'][tgt].view(network_op['sign_x_y'][tgt].shape[0], 4), dim=1)
             vp_pred['sign_' + tgt] = sign_ind
             i_inds = torch.from_numpy(np.arange(bsize))
             direc_cos_sin = lmap.expand(bsize, 4, 2)[i_inds, sign_ind]
@@ -394,8 +356,7 @@ class VPNet(nn.Module):
             logprob_xx_yy = network_op['logprob_xxyy'][tgt]
             abs_cos_sin = torch.sqrt(torch.exp(logprob_xx_yy))
             vp_pred['ccss_' + tgt] = torch.exp(logprob_xx_yy)
-            sign_ind = torch.argmax(network_op['sign_x_y'][tgt].view(
-                network_op['sign_x_y'][tgt].shape[0], 4), dim=1)
+            sign_ind = torch.argmax(network_op['sign_x_y'][tgt].view(network_op['sign_x_y'][tgt].shape[0], 4), dim=1)
             if tgt == 'a' or tgt == 't':
                 sign_ind_flipped = 1 - sign_ind % 2 + 2 * (sign_ind // 2)
             else:
@@ -451,18 +412,15 @@ class AdaptiveInstanceNorm3(nn.Module):
 
 class StyledConvBlock3(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1,
-        style_dim=512, initial=False):
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False):
         super().__init__()
         if initial:
             self.conv1 = ConstantInput3(in_channel)
         else:
-            self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size,
-                padding=padding)
+            self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size, padding=padding)
         self.adain1 = AdaptiveInstanceNorm3(out_channel, style_dim)
         self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size,
-            padding=padding)
+        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size, padding=padding)
         self.adain2 = AdaptiveInstanceNorm3(out_channel, style_dim)
         self.lrelu2 = nn.LeakyReLU(0.2)
 
@@ -478,14 +436,11 @@ class StyledConvBlock3(nn.Module):
 
 class StyledConvBlock3_noAdaIN(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1,
-        style_dim=512, initial=False):
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False):
         super().__init__()
-        self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size,
-            padding=padding)
+        self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size, padding=padding)
         self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size,
-            padding=padding)
+        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size, padding=padding)
         self.lrelu2 = nn.LeakyReLU(0.2)
 
     def forward(self, input):
@@ -500,14 +455,12 @@ class projection_unit(nn.Module):
 
     def __init__(self, in_channel, out_channel, kernel_size=1):
         super().__init__()
-        self.conv = EqualConv2d(in_channel, out_channel, kernel_size, padding=0
-            )
+        self.conv = EqualConv2d(in_channel, out_channel, kernel_size, padding=0)
         self.lrelu = nn.PReLU(1024)
 
     def forward(self, input):
         batch = input.shape[0]
-        out = input.view(batch, input.shape[1] * input.shape[2], input.
-            shape[3], input.shape[4])
+        out = input.view(batch, input.shape[1] * input.shape[2], input.shape[3], input.shape[4])
         out = self.conv(out)
         out = self.lrelu(out)
         return out
@@ -515,15 +468,12 @@ class projection_unit(nn.Module):
 
 class StyledConvBlock2(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1,
-        style_dim=512):
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512):
         super().__init__()
-        self.conv1 = EqualConv2d(in_channel, out_channel, kernel_size,
-            padding=padding)
+        self.conv1 = EqualConv2d(in_channel, out_channel, kernel_size, padding=padding)
         self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
         self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size,
-            padding=padding)
+        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size, padding=padding)
         self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
         self.lrelu2 = nn.LeakyReLU(0.2)
 
@@ -539,9 +489,7 @@ class StyledConvBlock2(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size, padding,
-        kernel_size2=None, padding2=None, pixel_norm=True, spectral_norm=
-        False, instance_norm=False, last=False):
+    def __init__(self, in_channel, out_channel, kernel_size, padding, kernel_size2=None, padding2=None, pixel_norm=True, spectral_norm=False, instance_norm=False, last=False):
         super().__init__()
         pad1 = padding
         pad2 = padding
@@ -552,21 +500,11 @@ class ConvBlock(nn.Module):
         if kernel_size2 is not None:
             kernel2 = kernel_size2
         if instance_norm and last == True:
-            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel,
-                kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.
-                LeakyReLU(0.2), EqualConv2d(out_channel, out_channel,
-                kernel2, padding=pad2), nn.LeakyReLU(0.2))
+            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
         elif instance_norm and last == False:
-            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel,
-                kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.
-                LeakyReLU(0.2), EqualConv2d(out_channel, out_channel,
-                kernel2, padding=pad2), nn.InstanceNorm2d(out_channel), nn.
-                LeakyReLU(0.2))
+            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2))
         else:
-            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel,
-                kernel1, padding=pad1), nn.LeakyReLU(0.2), EqualConv2d(
-                out_channel, out_channel, kernel2, padding=pad2), nn.
-                LeakyReLU(0.2))
+            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
 
     def forward(self, input):
         out = self.conv(input)
@@ -577,26 +515,58 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvBlock,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EqualConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (EqualConv3d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (EqualLinear,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PixelNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StyledConvBlock2,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([512, 4, 64, 64]), torch.rand([512, 512])], {}),
+     True),
+    (StyledConvBlock3_noAdaIN,
+     lambda: ([], {'in_channel': 4, 'out_channel': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+]
+
 class Test_NVlabs_SSV(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvBlock(*[], **{'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(EqualConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(EqualConv3d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(EqualLinear(*[], **{'in_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(PixelNorm(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(StyledConvBlock2(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([512, 4, 64, 64]), torch.rand([512, 512])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(StyledConvBlock3_noAdaIN(*[], **{'in_channel': 4, 'out_channel': 4}), [torch.rand([4, 4, 64, 64, 64])], {})
+        self._check(*TESTCASES[6])
 

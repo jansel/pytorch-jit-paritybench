@@ -28,8 +28,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -123,39 +124,16 @@ from torch.optim.optimizer import Optimizer
 
 def G_arch(ch=64, attention='64', ksize='333333', dilation='111111'):
     arch = {}
-    arch[256] = {'in_channels': [(ch * item) for item in [16, 16, 8, 8, 4, 
-        2]], 'out_channels': [(ch * item) for item in [16, 8, 8, 4, 2, 1]],
-        'upsample': [True] * 6, 'resolution': [8, 16, 32, 64, 128, 256],
-        'attention': {(2 ** i): (2 ** i in [int(item) for item in attention
-        .split('_')]) for i in range(3, 9)}}
-    arch[128] = {'in_channels': [(ch * item) for item in [16, 16, 8, 4, 2]],
-        'out_channels': [(ch * item) for item in [16, 8, 4, 2, 1]],
-        'upsample': [True] * 5, 'resolution': [8, 16, 32, 64, 128],
-        'attention': {(2 ** i): (2 ** i in [int(item) for item in attention
-        .split('_')]) for i in range(3, 8)}}
-    arch[64] = {'in_channels': [(ch * item) for item in [16, 16, 8, 4]],
-        'out_channels': [(ch * item) for item in [16, 8, 4, 2]], 'upsample':
-        [True] * 4, 'resolution': [8, 16, 32, 64], 'attention': {(2 ** i):
-        (2 ** i in [int(item) for item in attention.split('_')]) for i in
-        range(3, 7)}}
-    arch[32] = {'in_channels': [(ch * item) for item in [4, 4, 4]],
-        'out_channels': [(ch * item) for item in [4, 4, 4]], 'upsample': [
-        True] * 3, 'resolution': [8, 16, 32], 'attention': {(2 ** i): (2 **
-        i in [int(item) for item in attention.split('_')]) for i in range(3,
-        6)}}
+    arch[256] = {'in_channels': [(ch * item) for item in [16, 16, 8, 8, 4, 2]], 'out_channels': [(ch * item) for item in [16, 8, 8, 4, 2, 1]], 'upsample': [True] * 6, 'resolution': [8, 16, 32, 64, 128, 256], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(3, 9)}}
+    arch[128] = {'in_channels': [(ch * item) for item in [16, 16, 8, 4, 2]], 'out_channels': [(ch * item) for item in [16, 8, 4, 2, 1]], 'upsample': [True] * 5, 'resolution': [8, 16, 32, 64, 128], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(3, 8)}}
+    arch[64] = {'in_channels': [(ch * item) for item in [16, 16, 8, 4]], 'out_channels': [(ch * item) for item in [16, 8, 4, 2]], 'upsample': [True] * 4, 'resolution': [8, 16, 32, 64], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(3, 7)}}
+    arch[32] = {'in_channels': [(ch * item) for item in [4, 4, 4]], 'out_channels': [(ch * item) for item in [4, 4, 4]], 'upsample': [True] * 3, 'resolution': [8, 16, 32], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(3, 6)}}
     return arch
 
 
 class Generator(nn.Module):
 
-    def __init__(self, G_ch=64, dim_z=128, bottom_width=4, resolution=128,
-        G_kernel_size=3, G_attn='64', n_classes=1000, num_G_SVs=1,
-        num_G_SV_itrs=1, G_shared=True, shared_dim=0, hier=False,
-        cross_replica=False, mybn=False, G_activation=nn.ReLU(inplace=False
-        ), G_lr=5e-05, G_B1=0.0, G_B2=0.999, adam_eps=1e-08, BN_eps=1e-05,
-        SN_eps=1e-12, G_mixed_precision=False, G_fp16=False, G_init='ortho',
-        skip_init=False, no_optim=False, G_param='SN', norm_style='bn', **
-        kwargs):
+    def __init__(self, G_ch=64, dim_z=128, bottom_width=4, resolution=128, G_kernel_size=3, G_attn='64', n_classes=1000, num_G_SVs=1, num_G_SV_itrs=1, G_shared=True, shared_dim=0, hier=False, cross_replica=False, mybn=False, G_activation=nn.ReLU(inplace=False), G_lr=5e-05, G_B1=0.0, G_B2=0.999, adam_eps=1e-08, BN_eps=1e-05, SN_eps=1e-12, G_mixed_precision=False, G_fp16=False, G_init='ortho', skip_init=False, no_optim=False, G_param='SN', norm_style='bn', **kwargs):
         super(Generator, self).__init__()
         self.ch = G_ch
         self.dim_z = dim_z
@@ -185,44 +163,24 @@ class Generator(nn.Module):
             self.num_slots = 1
             self.z_chunk_size = 0
         if self.G_param == 'SN':
-            self.which_conv = functools.partial(layers.SNConv2d,
-                kernel_size=3, padding=1, num_svs=num_G_SVs, num_itrs=
-                num_G_SV_itrs, eps=self.SN_eps)
-            self.which_linear = functools.partial(layers.SNLinear, num_svs=
-                num_G_SVs, num_itrs=num_G_SV_itrs, eps=self.SN_eps)
+            self.which_conv = functools.partial(layers.SNConv2d, kernel_size=3, padding=1, num_svs=num_G_SVs, num_itrs=num_G_SV_itrs, eps=self.SN_eps)
+            self.which_linear = functools.partial(layers.SNLinear, num_svs=num_G_SVs, num_itrs=num_G_SV_itrs, eps=self.SN_eps)
         else:
-            self.which_conv = functools.partial(nn.Conv2d, kernel_size=3,
-                padding=1)
+            self.which_conv = functools.partial(nn.Conv2d, kernel_size=3, padding=1)
             self.which_linear = nn.Linear
         self.which_embedding = nn.Embedding
-        bn_linear = functools.partial(self.which_linear, bias=False
-            ) if self.G_shared else self.which_embedding
-        self.which_bn = functools.partial(layers.ccbn, which_linear=
-            bn_linear, cross_replica=self.cross_replica, mybn=self.mybn,
-            input_size=self.shared_dim + self.z_chunk_size if self.G_shared
-             else self.n_classes, norm_style=self.norm_style, eps=self.BN_eps)
-        self.shared = self.which_embedding(n_classes, self.shared_dim
-            ) if G_shared else layers.identity()
-        self.linear = self.which_linear(self.dim_z // self.num_slots, self.
-            arch['in_channels'][0] * self.bottom_width ** 2)
+        bn_linear = functools.partial(self.which_linear, bias=False) if self.G_shared else self.which_embedding
+        self.which_bn = functools.partial(layers.ccbn, which_linear=bn_linear, cross_replica=self.cross_replica, mybn=self.mybn, input_size=self.shared_dim + self.z_chunk_size if self.G_shared else self.n_classes, norm_style=self.norm_style, eps=self.BN_eps)
+        self.shared = self.which_embedding(n_classes, self.shared_dim) if G_shared else layers.identity()
+        self.linear = self.which_linear(self.dim_z // self.num_slots, self.arch['in_channels'][0] * self.bottom_width ** 2)
         self.blocks = []
         for index in range(len(self.arch['out_channels'])):
-            self.blocks += [[layers.GBlock(in_channels=self.arch[
-                'in_channels'][index], out_channels=self.arch[
-                'out_channels'][index], which_conv=self.which_conv,
-                which_bn=self.which_bn, activation=self.activation,
-                upsample=functools.partial(F.interpolate, scale_factor=2) if
-                self.arch['upsample'][index] else None)]]
+            self.blocks += [[layers.GBlock(in_channels=self.arch['in_channels'][index], out_channels=self.arch['out_channels'][index], which_conv=self.which_conv, which_bn=self.which_bn, activation=self.activation, upsample=functools.partial(F.interpolate, scale_factor=2) if self.arch['upsample'][index] else None)]]
             if self.arch['attention'][self.arch['resolution'][index]]:
                 None
-                self.blocks[-1] += [layers.Attention(self.arch[
-                    'out_channels'][index], self.which_conv)]
-        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self
-            .blocks])
-        self.output_layer = nn.Sequential(layers.bn(self.arch[
-            'out_channels'][-1], cross_replica=self.cross_replica, mybn=
-            self.mybn), self.activation, self.which_conv(self.arch[
-            'out_channels'][-1], 3))
+                self.blocks[-1] += [layers.Attention(self.arch['out_channels'][index], self.which_conv)]
+        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self.blocks])
+        self.output_layer = nn.Sequential(layers.bn(self.arch['out_channels'][-1], cross_replica=self.cross_replica, mybn=self.mybn), self.activation, self.which_conv(self.arch['out_channels'][-1], 3))
         if not skip_init:
             self.init_weights()
         if no_optim:
@@ -230,17 +188,14 @@ class Generator(nn.Module):
         self.lr, self.B1, self.B2, self.adam_eps = G_lr, G_B1, G_B2, adam_eps
         if G_mixed_precision:
             None
-            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
-            self.optim = optim.Adam(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = optim.Adam(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
 
     def init_weights(self):
         self.param_count = 0
         for module in self.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear
-                ) or isinstance(module, nn.Embedding):
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear) or isinstance(module, nn.Embedding):
                 if self.init == 'ortho':
                     init.orthogonal_(module.weight)
                 elif self.init == 'N02':
@@ -249,8 +204,7 @@ class Generator(nn.Module):
                     init.xavier_uniform_(module.weight)
                 else:
                     None
-                self.param_count += sum([p.data.nelement() for p in module.
-                    parameters()])
+                self.param_count += sum([p.data.nelement() for p in module.parameters()])
         None
 
     def forward(self, z, y):
@@ -270,37 +224,16 @@ class Generator(nn.Module):
 
 def D_arch(ch=64, attention='64', ksize='333333', dilation='111111'):
     arch = {}
-    arch[256] = {'in_channels': [(item * ch) for item in [1, 2, 4, 8, 8, 16
-        ]], 'out_channels': [(item * ch) for item in [2, 4, 8, 8, 16, 16]],
-        'downsample': [True] * 6 + [False], 'resolution': [128, 64, 32, 16,
-        8, 4, 4], 'attention': {(2 ** i): (2 ** i in [int(item) for item in
-        attention.split('_')]) for i in range(2, 8)}}
-    arch[128] = {'in_channels': [(item * ch) for item in [1, 2, 4, 8, 16]],
-        'out_channels': [(item * ch) for item in [2, 4, 8, 16, 16]],
-        'downsample': [True] * 5 + [False], 'resolution': [64, 32, 16, 8, 4,
-        4], 'attention': {(2 ** i): (2 ** i in [int(item) for item in
-        attention.split('_')]) for i in range(2, 8)}}
-    arch[64] = {'in_channels': [(item * ch) for item in [1, 2, 4, 8]],
-        'out_channels': [(item * ch) for item in [2, 4, 8, 16]],
-        'downsample': [True] * 4 + [False], 'resolution': [32, 16, 8, 4, 4],
-        'attention': {(2 ** i): (2 ** i in [int(item) for item in attention
-        .split('_')]) for i in range(2, 7)}}
-    arch[32] = {'in_channels': [(item * ch) for item in [4, 4, 4]],
-        'out_channels': [(item * ch) for item in [4, 4, 4]], 'downsample':
-        [True, True, False, False], 'resolution': [16, 16, 16, 16],
-        'attention': {(2 ** i): (2 ** i in [int(item) for item in attention
-        .split('_')]) for i in range(2, 6)}}
+    arch[256] = {'in_channels': [(item * ch) for item in [1, 2, 4, 8, 8, 16]], 'out_channels': [(item * ch) for item in [2, 4, 8, 8, 16, 16]], 'downsample': [True] * 6 + [False], 'resolution': [128, 64, 32, 16, 8, 4, 4], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(2, 8)}}
+    arch[128] = {'in_channels': [(item * ch) for item in [1, 2, 4, 8, 16]], 'out_channels': [(item * ch) for item in [2, 4, 8, 16, 16]], 'downsample': [True] * 5 + [False], 'resolution': [64, 32, 16, 8, 4, 4], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(2, 8)}}
+    arch[64] = {'in_channels': [(item * ch) for item in [1, 2, 4, 8]], 'out_channels': [(item * ch) for item in [2, 4, 8, 16]], 'downsample': [True] * 4 + [False], 'resolution': [32, 16, 8, 4, 4], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(2, 7)}}
+    arch[32] = {'in_channels': [(item * ch) for item in [4, 4, 4]], 'out_channels': [(item * ch) for item in [4, 4, 4]], 'downsample': [True, True, False, False], 'resolution': [16, 16, 16, 16], 'attention': {(2 ** i): (2 ** i in [int(item) for item in attention.split('_')]) for i in range(2, 6)}}
     return arch
 
 
 class Discriminator(nn.Module):
 
-    def __init__(self, D_ch=64, D_wide=True, resolution=128, D_kernel_size=
-        3, D_attn='64', n_classes=1000, num_D_SVs=1, num_D_SV_itrs=1,
-        D_activation=nn.ReLU(inplace=False), D_lr=0.0002, D_B1=0.0, D_B2=
-        0.999, adam_eps=1e-08, SN_eps=1e-12, output_dim=1,
-        D_mixed_precision=False, D_fp16=False, D_init='ortho', skip_init=
-        False, D_param='SN', **kwargs):
+    def __init__(self, D_ch=64, D_wide=True, resolution=128, D_kernel_size=3, D_attn='64', n_classes=1000, num_D_SVs=1, num_D_SV_itrs=1, D_activation=nn.ReLU(inplace=False), D_lr=0.0002, D_B1=0.0, D_B2=0.999, adam_eps=1e-08, SN_eps=1e-12, output_dim=1, D_mixed_precision=False, D_fp16=False, D_init='ortho', skip_init=False, D_param='SN', **kwargs):
         super(Discriminator, self).__init__()
         self.ch = D_ch
         self.D_wide = D_wide
@@ -315,47 +248,31 @@ class Discriminator(nn.Module):
         self.fp16 = D_fp16
         self.arch = D_arch(self.ch, self.attention)[resolution]
         if self.D_param == 'SN':
-            self.which_conv = functools.partial(layers.SNConv2d,
-                kernel_size=3, padding=1, num_svs=num_D_SVs, num_itrs=
-                num_D_SV_itrs, eps=self.SN_eps)
-            self.which_linear = functools.partial(layers.SNLinear, num_svs=
-                num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
-            self.which_embedding = functools.partial(layers.SNEmbedding,
-                num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
+            self.which_conv = functools.partial(layers.SNConv2d, kernel_size=3, padding=1, num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
+            self.which_linear = functools.partial(layers.SNLinear, num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
+            self.which_embedding = functools.partial(layers.SNEmbedding, num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
         self.blocks = []
         for index in range(len(self.arch['out_channels'])):
-            self.blocks += [[layers.DBlock(in_channels=self.arch[
-                'in_channels'][index], out_channels=self.arch[
-                'out_channels'][index], which_conv=self.which_conv, wide=
-                self.D_wide, activation=self.activation, preactivation=
-                index > 0, downsample=nn.AvgPool2d(2) if self.arch[
-                'downsample'][index] else None)]]
+            self.blocks += [[layers.DBlock(in_channels=self.arch['in_channels'][index], out_channels=self.arch['out_channels'][index], which_conv=self.which_conv, wide=self.D_wide, activation=self.activation, preactivation=index > 0, downsample=nn.AvgPool2d(2) if self.arch['downsample'][index] else None)]]
             if self.arch['attention'][self.arch['resolution'][index]]:
                 None
-                self.blocks[-1] += [layers.Attention(self.arch[
-                    'out_channels'][index], self.which_conv)]
-        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self
-            .blocks])
-        self.linear = self.which_linear(self.arch['out_channels'][-1],
-            output_dim)
-        self.embed = self.which_embedding(self.n_classes, self.arch[
-            'out_channels'][-1])
+                self.blocks[-1] += [layers.Attention(self.arch['out_channels'][index], self.which_conv)]
+        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self.blocks])
+        self.linear = self.which_linear(self.arch['out_channels'][-1], output_dim)
+        self.embed = self.which_embedding(self.n_classes, self.arch['out_channels'][-1])
         if not skip_init:
             self.init_weights()
         self.lr, self.B1, self.B2, self.adam_eps = D_lr, D_B1, D_B2, adam_eps
         if D_mixed_precision:
             None
-            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
-            self.optim = optim.Adam(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = optim.Adam(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
 
     def init_weights(self):
         self.param_count = 0
         for module in self.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear
-                ) or isinstance(module, nn.Embedding):
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear) or isinstance(module, nn.Embedding):
                 if self.init == 'ortho':
                     init.orthogonal_(module.weight)
                 elif self.init == 'N02':
@@ -364,8 +281,7 @@ class Discriminator(nn.Module):
                     init.xavier_uniform_(module.weight)
                 else:
                     None
-                self.param_count += sum([p.data.nelement() for p in module.
-                    parameters()])
+                self.param_count += sum([p.data.nelement() for p in module.parameters()])
         None
 
     def forward(self, x, y=None):
@@ -386,8 +302,7 @@ class G_D(nn.Module):
         self.G = G
         self.D = D
 
-    def forward(self, z, gy, x=None, dy=None, train_G=False, return_G_z=
-        False, split_D=False):
+    def forward(self, z, gy, x=None, dy=None, train_G=False, return_G_z=False, split_D=False):
         with torch.set_grad_enabled(train_G):
             G_z = self.G(z, self.G.shared(gy))
             if self.G.fp16 and not self.D.fp16:
@@ -417,14 +332,7 @@ class G_D(nn.Module):
 
 class Generator(nn.Module):
 
-    def __init__(self, G_ch=64, G_depth=2, dim_z=128, bottom_width=4,
-        resolution=128, G_kernel_size=3, G_attn='64', n_classes=1000,
-        num_G_SVs=1, num_G_SV_itrs=1, G_shared=True, shared_dim=0, hier=
-        False, cross_replica=False, mybn=False, G_activation=nn.ReLU(
-        inplace=False), G_lr=5e-05, G_B1=0.0, G_B2=0.999, adam_eps=1e-08,
-        BN_eps=1e-05, SN_eps=1e-12, G_mixed_precision=False, G_fp16=False,
-        G_init='ortho', skip_init=False, no_optim=False, G_param='SN',
-        norm_style='bn', **kwargs):
+    def __init__(self, G_ch=64, G_depth=2, dim_z=128, bottom_width=4, resolution=128, G_kernel_size=3, G_attn='64', n_classes=1000, num_G_SVs=1, num_G_SV_itrs=1, G_shared=True, shared_dim=0, hier=False, cross_replica=False, mybn=False, G_activation=nn.ReLU(inplace=False), G_lr=5e-05, G_B1=0.0, G_B2=0.999, adam_eps=1e-08, BN_eps=1e-05, SN_eps=1e-12, G_mixed_precision=False, G_fp16=False, G_init='ortho', skip_init=False, no_optim=False, G_param='SN', norm_style='bn', **kwargs):
         super(Generator, self).__init__()
         self.ch = G_ch
         self.G_depth = G_depth
@@ -448,46 +356,24 @@ class Generator(nn.Module):
         self.fp16 = G_fp16
         self.arch = G_arch(self.ch, self.attention)[resolution]
         if self.G_param == 'SN':
-            self.which_conv = functools.partial(layers.SNConv2d,
-                kernel_size=3, padding=1, num_svs=num_G_SVs, num_itrs=
-                num_G_SV_itrs, eps=self.SN_eps)
-            self.which_linear = functools.partial(layers.SNLinear, num_svs=
-                num_G_SVs, num_itrs=num_G_SV_itrs, eps=self.SN_eps)
+            self.which_conv = functools.partial(layers.SNConv2d, kernel_size=3, padding=1, num_svs=num_G_SVs, num_itrs=num_G_SV_itrs, eps=self.SN_eps)
+            self.which_linear = functools.partial(layers.SNLinear, num_svs=num_G_SVs, num_itrs=num_G_SV_itrs, eps=self.SN_eps)
         else:
-            self.which_conv = functools.partial(nn.Conv2d, kernel_size=3,
-                padding=1)
+            self.which_conv = functools.partial(nn.Conv2d, kernel_size=3, padding=1)
             self.which_linear = nn.Linear
         self.which_embedding = nn.Embedding
-        bn_linear = functools.partial(self.which_linear, bias=False
-            ) if self.G_shared else self.which_embedding
-        self.which_bn = functools.partial(layers.ccbn, which_linear=
-            bn_linear, cross_replica=self.cross_replica, mybn=self.mybn,
-            input_size=self.shared_dim + self.dim_z if self.G_shared else
-            self.n_classes, norm_style=self.norm_style, eps=self.BN_eps)
-        self.shared = self.which_embedding(n_classes, self.shared_dim
-            ) if G_shared else layers.identity()
-        self.linear = self.which_linear(self.dim_z + self.shared_dim, self.
-            arch['in_channels'][0] * self.bottom_width ** 2)
+        bn_linear = functools.partial(self.which_linear, bias=False) if self.G_shared else self.which_embedding
+        self.which_bn = functools.partial(layers.ccbn, which_linear=bn_linear, cross_replica=self.cross_replica, mybn=self.mybn, input_size=self.shared_dim + self.dim_z if self.G_shared else self.n_classes, norm_style=self.norm_style, eps=self.BN_eps)
+        self.shared = self.which_embedding(n_classes, self.shared_dim) if G_shared else layers.identity()
+        self.linear = self.which_linear(self.dim_z + self.shared_dim, self.arch['in_channels'][0] * self.bottom_width ** 2)
         self.blocks = []
         for index in range(len(self.arch['out_channels'])):
-            self.blocks += [[GBlock(in_channels=self.arch['in_channels'][
-                index], out_channels=self.arch['in_channels'][index] if 
-                g_index == 0 else self.arch['out_channels'][index],
-                which_conv=self.which_conv, which_bn=self.which_bn,
-                activation=self.activation, upsample=functools.partial(F.
-                interpolate, scale_factor=2) if self.arch['upsample'][index
-                ] and g_index == self.G_depth - 1 else None)] for g_index in
-                range(self.G_depth)]
+            self.blocks += [[GBlock(in_channels=self.arch['in_channels'][index], out_channels=self.arch['in_channels'][index] if g_index == 0 else self.arch['out_channels'][index], which_conv=self.which_conv, which_bn=self.which_bn, activation=self.activation, upsample=functools.partial(F.interpolate, scale_factor=2) if self.arch['upsample'][index] and g_index == self.G_depth - 1 else None)] for g_index in range(self.G_depth)]
             if self.arch['attention'][self.arch['resolution'][index]]:
                 None
-                self.blocks[-1] += [layers.Attention(self.arch[
-                    'out_channels'][index], self.which_conv)]
-        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self
-            .blocks])
-        self.output_layer = nn.Sequential(layers.bn(self.arch[
-            'out_channels'][-1], cross_replica=self.cross_replica, mybn=
-            self.mybn), self.activation, self.which_conv(self.arch[
-            'out_channels'][-1], 3))
+                self.blocks[-1] += [layers.Attention(self.arch['out_channels'][index], self.which_conv)]
+        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self.blocks])
+        self.output_layer = nn.Sequential(layers.bn(self.arch['out_channels'][-1], cross_replica=self.cross_replica, mybn=self.mybn), self.activation, self.which_conv(self.arch['out_channels'][-1], 3))
         if not skip_init:
             self.init_weights()
         if no_optim:
@@ -495,17 +381,14 @@ class Generator(nn.Module):
         self.lr, self.B1, self.B2, self.adam_eps = G_lr, G_B1, G_B2, adam_eps
         if G_mixed_precision:
             None
-            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
-            self.optim = optim.Adam(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = optim.Adam(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
 
     def init_weights(self):
         self.param_count = 0
         for module in self.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear
-                ) or isinstance(module, nn.Embedding):
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear) or isinstance(module, nn.Embedding):
                 if self.init == 'ortho':
                     init.orthogonal_(module.weight)
                 elif self.init == 'N02':
@@ -514,8 +397,7 @@ class Generator(nn.Module):
                     init.xavier_uniform_(module.weight)
                 else:
                     None
-                self.param_count += sum([p.data.nelement() for p in module.
-                    parameters()])
+                self.param_count += sum([p.data.nelement() for p in module.parameters()])
         None
 
     def forward(self, z, y):
@@ -532,12 +414,7 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
 
-    def __init__(self, D_ch=64, D_wide=True, D_depth=2, resolution=128,
-        D_kernel_size=3, D_attn='64', n_classes=1000, num_D_SVs=1,
-        num_D_SV_itrs=1, D_activation=nn.ReLU(inplace=False), D_lr=0.0002,
-        D_B1=0.0, D_B2=0.999, adam_eps=1e-08, SN_eps=1e-12, output_dim=1,
-        D_mixed_precision=False, D_fp16=False, D_init='ortho', skip_init=
-        False, D_param='SN', **kwargs):
+    def __init__(self, D_ch=64, D_wide=True, D_depth=2, resolution=128, D_kernel_size=3, D_attn='64', n_classes=1000, num_D_SVs=1, num_D_SV_itrs=1, D_activation=nn.ReLU(inplace=False), D_lr=0.0002, D_B1=0.0, D_B2=0.999, adam_eps=1e-08, SN_eps=1e-12, output_dim=1, D_mixed_precision=False, D_fp16=False, D_init='ortho', skip_init=False, D_param='SN', **kwargs):
         super(Discriminator, self).__init__()
         self.ch = D_ch
         self.D_wide = D_wide
@@ -553,49 +430,32 @@ class Discriminator(nn.Module):
         self.fp16 = D_fp16
         self.arch = D_arch(self.ch, self.attention)[resolution]
         if self.D_param == 'SN':
-            self.which_conv = functools.partial(layers.SNConv2d,
-                kernel_size=3, padding=1, num_svs=num_D_SVs, num_itrs=
-                num_D_SV_itrs, eps=self.SN_eps)
-            self.which_linear = functools.partial(layers.SNLinear, num_svs=
-                num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
-            self.which_embedding = functools.partial(layers.SNEmbedding,
-                num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
+            self.which_conv = functools.partial(layers.SNConv2d, kernel_size=3, padding=1, num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
+            self.which_linear = functools.partial(layers.SNLinear, num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
+            self.which_embedding = functools.partial(layers.SNEmbedding, num_svs=num_D_SVs, num_itrs=num_D_SV_itrs, eps=self.SN_eps)
         self.input_conv = self.which_conv(3, self.arch['in_channels'][0])
         self.blocks = []
         for index in range(len(self.arch['out_channels'])):
-            self.blocks += [[DBlock(in_channels=self.arch['in_channels'][
-                index] if d_index == 0 else self.arch['out_channels'][index
-                ], out_channels=self.arch['out_channels'][index],
-                which_conv=self.which_conv, wide=self.D_wide, activation=
-                self.activation, preactivation=True, downsample=nn.
-                AvgPool2d(2) if self.arch['downsample'][index] and d_index ==
-                0 else None) for d_index in range(self.D_depth)]]
+            self.blocks += [[DBlock(in_channels=self.arch['in_channels'][index] if d_index == 0 else self.arch['out_channels'][index], out_channels=self.arch['out_channels'][index], which_conv=self.which_conv, wide=self.D_wide, activation=self.activation, preactivation=True, downsample=nn.AvgPool2d(2) if self.arch['downsample'][index] and d_index == 0 else None) for d_index in range(self.D_depth)]]
             if self.arch['attention'][self.arch['resolution'][index]]:
                 None
-                self.blocks[-1] += [layers.Attention(self.arch[
-                    'out_channels'][index], self.which_conv)]
-        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self
-            .blocks])
-        self.linear = self.which_linear(self.arch['out_channels'][-1],
-            output_dim)
-        self.embed = self.which_embedding(self.n_classes, self.arch[
-            'out_channels'][-1])
+                self.blocks[-1] += [layers.Attention(self.arch['out_channels'][index], self.which_conv)]
+        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self.blocks])
+        self.linear = self.which_linear(self.arch['out_channels'][-1], output_dim)
+        self.embed = self.which_embedding(self.n_classes, self.arch['out_channels'][-1])
         if not skip_init:
             self.init_weights()
         self.lr, self.B1, self.B2, self.adam_eps = D_lr, D_B1, D_B2, adam_eps
         if D_mixed_precision:
             None
-            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = utils.Adam16(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
         else:
-            self.optim = optim.Adam(params=self.parameters(), lr=self.lr,
-                betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+            self.optim = optim.Adam(params=self.parameters(), lr=self.lr, betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
 
     def init_weights(self):
         self.param_count = 0
         for module in self.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear
-                ) or isinstance(module, nn.Embedding):
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear) or isinstance(module, nn.Embedding):
                 if self.init == 'ortho':
                     init.orthogonal_(module.weight)
                 elif self.init == 'N02':
@@ -604,8 +464,7 @@ class Discriminator(nn.Module):
                     init.xavier_uniform_(module.weight)
                 else:
                     None
-                self.param_count += sum([p.data.nelement() for p in module.
-                    parameters()])
+                self.param_count += sum([p.data.nelement() for p in module.parameters()])
         None
 
     def forward(self, x, y=None):
@@ -626,8 +485,7 @@ class G_D(nn.Module):
         self.G = G
         self.D = D
 
-    def forward(self, z, gy, x=None, dy=None, train_G=False, return_G_z=
-        False, split_D=False):
+    def forward(self, z, gy, x=None, dy=None, train_G=False, return_G_z=False, split_D=False):
         with torch.set_grad_enabled(train_G):
             G_z = self.G(z, self.G.shared(gy))
             if self.G.fp16 and not self.D.fp16:
@@ -716,15 +574,11 @@ class SelfAttention(nn.Module):
         super().__init__()
         self.chanel_in = in_dim
         self.activation = activation
-        self.theta = SpectralNorm(nn.Conv2d(in_channels=in_dim,
-            out_channels=in_dim // 8, kernel_size=1, bias=False))
-        self.phi = SpectralNorm(nn.Conv2d(in_channels=in_dim, out_channels=
-            in_dim // 8, kernel_size=1, bias=False))
+        self.theta = SpectralNorm(nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1, bias=False))
+        self.phi = SpectralNorm(nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1, bias=False))
         self.pool = nn.MaxPool2d(2, 2)
-        self.g = SpectralNorm(nn.Conv2d(in_channels=in_dim, out_channels=
-            in_dim // 2, kernel_size=1, bias=False))
-        self.o_conv = SpectralNorm(nn.Conv2d(in_channels=in_dim // 2,
-            out_channels=in_dim, kernel_size=1, bias=False))
+        self.g = SpectralNorm(nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 2, kernel_size=1, bias=False))
+        self.o_conv = SpectralNorm(nn.Conv2d(in_channels=in_dim // 2, out_channels=in_dim, kernel_size=1, bias=False))
         self.gamma = nn.Parameter(torch.zeros(1))
         self.softmax = nn.Softmax(dim=-1)
 
@@ -739,8 +593,7 @@ class SelfAttention(nn.Module):
         theta = theta.permute(0, 2, 1)
         attention = self.softmax(torch.bmm(theta, phi))
         g = self.pool(self.g(x)).view(m_batchsize, -1, N // 4)
-        attn_g = torch.bmm(g, attention.permute(0, 2, 1)).view(m_batchsize,
-            -1, width, height)
+        attn_g = torch.bmm(g, attention.permute(0, 2, 1)).view(m_batchsize, -1, width, height)
         out = self.o_conv(attn_g)
         return self.gamma * out + x
 
@@ -750,36 +603,27 @@ class ConditionalBatchNorm2d(nn.Module):
     def __init__(self, num_features, num_classes, eps=0.0001, momentum=0.1):
         super().__init__()
         self.num_features = num_features
-        self.bn = nn.BatchNorm2d(num_features, affine=False, eps=eps,
-            momentum=momentum)
-        self.gamma_embed = SpectralNorm(nn.Linear(num_classes, num_features,
-            bias=False))
-        self.beta_embed = SpectralNorm(nn.Linear(num_classes, num_features,
-            bias=False))
+        self.bn = nn.BatchNorm2d(num_features, affine=False, eps=eps, momentum=momentum)
+        self.gamma_embed = SpectralNorm(nn.Linear(num_classes, num_features, bias=False))
+        self.beta_embed = SpectralNorm(nn.Linear(num_classes, num_features, bias=False))
 
     def forward(self, x, y):
         out = self.bn(x)
         gamma = self.gamma_embed(y) + 1
         beta = self.beta_embed(y)
-        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1,
-            self.num_features, 1, 1)
+        out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
 
 
 class GBlock(nn.Module):
 
-    def __init__(self, in_channel, out_channel, kernel_size=[3, 3], padding
-        =1, stride=1, n_class=None, bn=True, activation=F.relu, upsample=
-        True, downsample=False, z_dim=148):
+    def __init__(self, in_channel, out_channel, kernel_size=[3, 3], padding=1, stride=1, n_class=None, bn=True, activation=F.relu, upsample=True, downsample=False, z_dim=148):
         super().__init__()
-        self.conv0 = SpectralNorm(nn.Conv2d(in_channel, out_channel,
-            kernel_size, stride, padding, bias=True if bn else True))
-        self.conv1 = SpectralNorm(nn.Conv2d(out_channel, out_channel,
-            kernel_size, stride, padding, bias=True if bn else True))
+        self.conv0 = SpectralNorm(nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
+        self.conv1 = SpectralNorm(nn.Conv2d(out_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
         self.skip_proj = False
         if in_channel != out_channel or upsample or downsample:
-            self.conv_sc = SpectralNorm(nn.Conv2d(in_channel, out_channel, 
-                1, 1, 0))
+            self.conv_sc = SpectralNorm(nn.Conv2d(in_channel, out_channel, 1, 1, 0))
             self.skip_proj = True
         self.upsample = upsample
         self.downsample = downsample
@@ -825,11 +669,7 @@ class Generator128(nn.Module):
         self.first_view = 16 * chn
         self.G_linear = SpectralNorm(nn.Linear(20, 4 * 4 * 16 * chn))
         z_dim = code_dim + 28
-        self.GBlock = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=
-            n_class, z_dim=z_dim), GBlock(16 * chn, 8 * chn, n_class=
-            n_class, z_dim=z_dim), GBlock(8 * chn, 4 * chn, n_class=n_class,
-            z_dim=z_dim), GBlock(4 * chn, 2 * chn, n_class=n_class, z_dim=
-            z_dim), GBlock(2 * chn, 1 * chn, n_class=n_class, z_dim=z_dim)])
+        self.GBlock = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=n_class, z_dim=z_dim), GBlock(16 * chn, 8 * chn, n_class=n_class, z_dim=z_dim), GBlock(8 * chn, 4 * chn, n_class=n_class, z_dim=z_dim), GBlock(4 * chn, 2 * chn, n_class=n_class, z_dim=z_dim), GBlock(2 * chn, 1 * chn, n_class=n_class, z_dim=z_dim)])
         self.sa_id = 4
         self.num_split = len(self.GBlock) + 1
         self.attention = SelfAttention(2 * chn)
@@ -861,11 +701,7 @@ class Generator256(nn.Module):
             chn = 8
         self.first_view = 16 * chn
         self.G_linear = SpectralNorm(nn.Linear(20, 4 * 4 * 16 * chn))
-        self.GBlock = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=
-            n_class), GBlock(16 * chn, 8 * chn, n_class=n_class), GBlock(8 *
-            chn, 8 * chn, n_class=n_class), GBlock(8 * chn, 4 * chn,
-            n_class=n_class), GBlock(4 * chn, 2 * chn, n_class=n_class),
-            GBlock(2 * chn, 1 * chn, n_class=n_class)])
+        self.GBlock = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=n_class), GBlock(16 * chn, 8 * chn, n_class=n_class), GBlock(8 * chn, 8 * chn, n_class=n_class), GBlock(8 * chn, 4 * chn, n_class=n_class), GBlock(4 * chn, 2 * chn, n_class=n_class), GBlock(2 * chn, 1 * chn, n_class=n_class)])
         self.sa_id = 5
         self.num_split = len(self.GBlock) + 1
         self.attention = SelfAttention(2 * chn)
@@ -898,13 +734,7 @@ class Generator512(nn.Module):
         self.first_view = 16 * chn
         self.G_linear = SpectralNorm(nn.Linear(16, 4 * 4 * 16 * chn))
         z_dim = code_dim + 16
-        self.GBlock = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=
-            n_class, z_dim=z_dim), GBlock(16 * chn, 8 * chn, n_class=
-            n_class, z_dim=z_dim), GBlock(8 * chn, 8 * chn, n_class=n_class,
-            z_dim=z_dim), GBlock(8 * chn, 4 * chn, n_class=n_class, z_dim=
-            z_dim), GBlock(4 * chn, 2 * chn, n_class=n_class, z_dim=z_dim),
-            GBlock(2 * chn, 1 * chn, n_class=n_class, z_dim=z_dim), GBlock(
-            1 * chn, 1 * chn, n_class=n_class, z_dim=z_dim)])
+        self.GBlock = nn.ModuleList([GBlock(16 * chn, 16 * chn, n_class=n_class, z_dim=z_dim), GBlock(16 * chn, 8 * chn, n_class=n_class, z_dim=z_dim), GBlock(8 * chn, 8 * chn, n_class=n_class, z_dim=z_dim), GBlock(8 * chn, 4 * chn, n_class=n_class, z_dim=z_dim), GBlock(4 * chn, 2 * chn, n_class=n_class, z_dim=z_dim), GBlock(2 * chn, 1 * chn, n_class=n_class, z_dim=z_dim), GBlock(1 * chn, 1 * chn, n_class=n_class, z_dim=z_dim)])
         self.sa_id = 4
         self.num_split = len(self.GBlock) + 1
         self.attention = SelfAttention(4 * chn)
@@ -933,21 +763,13 @@ class Discriminator(nn.Module):
         super().__init__()
 
         def conv(in_channel, out_channel, downsample=True):
-            return GBlock(in_channel, out_channel, bn=False, upsample=False,
-                downsample=downsample)
+            return GBlock(in_channel, out_channel, bn=False, upsample=False, downsample=downsample)
         if debug:
             chn = 8
         self.debug = debug
-        self.pre_conv = nn.Sequential(SpectralNorm(nn.Conv2d(3, 1 * chn, 3,
-            padding=1)), nn.ReLU(), SpectralNorm(nn.Conv2d(1 * chn, 1 * chn,
-            3, padding=1)), nn.AvgPool2d(2))
+        self.pre_conv = nn.Sequential(SpectralNorm(nn.Conv2d(3, 1 * chn, 3, padding=1)), nn.ReLU(), SpectralNorm(nn.Conv2d(1 * chn, 1 * chn, 3, padding=1)), nn.AvgPool2d(2))
         self.pre_skip = SpectralNorm(nn.Conv2d(3, 1 * chn, 1))
-        self.conv = nn.Sequential(conv(1 * chn, 1 * chn, downsample=True),
-            conv(1 * chn, 2 * chn, downsample=True), SelfAttention(2 * chn),
-            conv(2 * chn, 2 * chn, downsample=True), conv(2 * chn, 4 * chn,
-            downsample=True), conv(4 * chn, 8 * chn, downsample=True), conv
-            (8 * chn, 8 * chn, downsample=True), conv(8 * chn, 16 * chn,
-            downsample=True), conv(16 * chn, 16 * chn, downsample=False))
+        self.conv = nn.Sequential(conv(1 * chn, 1 * chn, downsample=True), conv(1 * chn, 2 * chn, downsample=True), SelfAttention(2 * chn), conv(2 * chn, 2 * chn, downsample=True), conv(2 * chn, 4 * chn, downsample=True), conv(4 * chn, 8 * chn, downsample=True), conv(8 * chn, 8 * chn, downsample=True), conv(8 * chn, 16 * chn, downsample=True), conv(16 * chn, 16 * chn, downsample=False))
         self.linear = SpectralNorm(nn.Linear(16 * chn, 1))
         self.embed = nn.Embedding(n_class, 16 * chn)
         self.embed.weight.data.uniform_(-0.1, 0.1)
@@ -971,17 +793,14 @@ class WrapInception(nn.Module):
     def __init__(self, net):
         super(WrapInception, self).__init__()
         self.net = net
-        self.mean = P(torch.tensor([0.485, 0.456, 0.406]).view(1, -1, 1, 1),
-            requires_grad=False)
-        self.std = P(torch.tensor([0.229, 0.224, 0.225]).view(1, -1, 1, 1),
-            requires_grad=False)
+        self.mean = P(torch.tensor([0.485, 0.456, 0.406]).view(1, -1, 1, 1), requires_grad=False)
+        self.std = P(torch.tensor([0.229, 0.224, 0.225]).view(1, -1, 1, 1), requires_grad=False)
 
     def forward(self, x):
         x = (x + 1.0) / 2.0
         x = (x - self.mean) / self.std
         if x.shape[2] != 299 or x.shape[3] != 299:
-            x = F.interpolate(x, size=(299, 299), mode='bilinear',
-                align_corners=True)
+            x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=True)
         x = self.net.Conv2d_1a_3x3(x)
         x = self.net.Conv2d_2a_3x3(x)
         x = self.net.Conv2d_2b_3x3(x)
@@ -1001,8 +820,7 @@ class WrapInception(nn.Module):
         x = self.net.Mixed_7b(x)
         x = self.net.Mixed_7c(x)
         pool = torch.mean(x.view(x.size(0), x.size(1), -1), 2)
-        logits = self.net.fc(F.dropout(pool, training=False).view(pool.size
-            (0), -1))
+        logits = self.net.fc(F.dropout(pool, training=False).view(pool.size(0), -1))
         return pool, logits
 
 
@@ -1040,8 +858,7 @@ def power_iteration(W, u_, update=True, eps=1e-12):
 
 class SN(object):
 
-    def __init__(self, num_svs, num_itrs, num_outputs, transpose=False, eps
-        =1e-12):
+    def __init__(self, num_svs, num_itrs, num_outputs, transpose=False, eps=1e-12):
         self.num_itrs = num_itrs
         self.num_svs = num_svs
         self.transpose = transpose
@@ -1063,8 +880,7 @@ class SN(object):
         if self.transpose:
             W_mat = W_mat.t()
         for _ in range(self.num_itrs):
-            svs, us, vs = power_iteration(W_mat, self.u, update=self.
-                training, eps=self.eps)
+            svs, us, vs = power_iteration(W_mat, self.u, update=self.training, eps=self.eps)
         if self.training:
             with torch.no_grad():
                 for i, sv in enumerate(svs):
@@ -1074,22 +890,17 @@ class SN(object):
 
 class SNConv2d(nn.Conv2d, SN):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True, num_svs=1, num_itrs=1,
-        eps=1e-12):
-        nn.Conv2d.__init__(self, in_channels, out_channels, kernel_size,
-            stride, padding, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, num_svs=1, num_itrs=1, eps=1e-12):
+        nn.Conv2d.__init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         SN.__init__(self, num_svs, num_itrs, out_channels, eps=eps)
 
     def forward(self, x):
-        return F.conv2d(x, self.W_(), self.bias, self.stride, self.padding,
-            self.dilation, self.groups)
+        return F.conv2d(x, self.W_(), self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class SNLinear(nn.Linear, SN):
 
-    def __init__(self, in_features, out_features, bias=True, num_svs=1,
-        num_itrs=1, eps=1e-12):
+    def __init__(self, in_features, out_features, bias=True, num_svs=1, num_itrs=1, eps=1e-12):
         nn.Linear.__init__(self, in_features, out_features, bias)
         SN.__init__(self, num_svs, num_itrs, out_features, eps=eps)
 
@@ -1099,12 +910,8 @@ class SNLinear(nn.Linear, SN):
 
 class SNEmbedding(nn.Embedding, SN):
 
-    def __init__(self, num_embeddings, embedding_dim, padding_idx=None,
-        max_norm=None, norm_type=2, scale_grad_by_freq=False, sparse=False,
-        _weight=None, num_svs=1, num_itrs=1, eps=1e-12):
-        nn.Embedding.__init__(self, num_embeddings, embedding_dim,
-            padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse,
-            _weight)
+    def __init__(self, num_embeddings, embedding_dim, padding_idx=None, max_norm=None, norm_type=2, scale_grad_by_freq=False, sparse=False, _weight=None, num_svs=1, num_itrs=1, eps=1e-12):
+        nn.Embedding.__init__(self, num_embeddings, embedding_dim, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse, _weight)
         SN.__init__(self, num_svs, num_itrs, num_embeddings, eps=eps)
 
     def forward(self, x):
@@ -1117,14 +924,10 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         self.ch = ch
         self.which_conv = which_conv
-        self.theta = self.which_conv(self.ch, self.ch // 8, kernel_size=1,
-            padding=0, bias=False)
-        self.phi = self.which_conv(self.ch, self.ch // 8, kernel_size=1,
-            padding=0, bias=False)
-        self.g = self.which_conv(self.ch, self.ch // 2, kernel_size=1,
-            padding=0, bias=False)
-        self.o = self.which_conv(self.ch // 2, self.ch, kernel_size=1,
-            padding=0, bias=False)
+        self.theta = self.which_conv(self.ch, self.ch // 8, kernel_size=1, padding=0, bias=False)
+        self.phi = self.which_conv(self.ch, self.ch // 8, kernel_size=1, padding=0, bias=False)
+        self.g = self.which_conv(self.ch, self.ch // 2, kernel_size=1, padding=0, bias=False)
+        self.o = self.which_conv(self.ch // 2, self.ch, kernel_size=1, padding=0, bias=False)
         self.gamma = P(torch.tensor(0.0), requires_grad=True)
 
     def forward(self, x, y=None):
@@ -1135,8 +938,7 @@ class Attention(nn.Module):
         phi = phi.view(-1, self.ch // 8, x.shape[2] * x.shape[3] // 4)
         g = g.view(-1, self.ch // 2, x.shape[2] * x.shape[3] // 4)
         beta = F.softmax(torch.bmm(theta.transpose(1, 2), phi), -1)
-        o = self.o(torch.bmm(g, beta.transpose(1, 2)).view(-1, self.ch // 2,
-            x.shape[2], x.shape[3]))
+        o = self.o(torch.bmm(g, beta.transpose(1, 2)).view(-1, self.ch // 2, x.shape[2], x.shape[3]))
         return self.gamma * o + x
 
 
@@ -1182,17 +984,14 @@ class myBN(nn.Module):
 
     def forward(self, x, gain, bias):
         if self.training:
-            out, mean, var = manual_bn(x, gain, bias, return_mean_var=True,
-                eps=self.eps)
+            out, mean, var = manual_bn(x, gain, bias, return_mean_var=True, eps=self.eps)
             if self.accumulate_standing:
                 self.stored_mean[:] = self.stored_mean + mean.data
                 self.stored_var[:] = self.stored_var + var.data
                 self.accumulation_counter += 1.0
             else:
-                self.stored_mean[:] = self.stored_mean * (1 - self.momentum
-                    ) + mean * self.momentum
-                self.stored_var[:] = self.stored_var * (1 - self.momentum
-                    ) + var * self.momentum
+                self.stored_mean[:] = self.stored_mean * (1 - self.momentum) + mean * self.momentum
+                self.stored_var[:] = self.stored_var * (1 - self.momentum) + var * self.momentum
             return out
         else:
             mean = self.stored_mean.view(1, -1, 1, 1)
@@ -1216,8 +1015,7 @@ def groupnorm(x, norm_style):
 
 class ccbn(nn.Module):
 
-    def __init__(self, output_size, input_size, which_linear, eps=1e-05,
-        momentum=0.1, cross_replica=False, mybn=False, norm_style='bn'):
+    def __init__(self, output_size, input_size, which_linear, eps=1e-05, momentum=0.1, cross_replica=False, mybn=False, norm_style='bn'):
         super(ccbn, self).__init__()
         self.output_size, self.input_size = output_size, input_size
         self.gain = which_linear(input_size, output_size)
@@ -1228,8 +1026,7 @@ class ccbn(nn.Module):
         self.mybn = mybn
         self.norm_style = norm_style
         if self.cross_replica:
-            self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.
-                momentum, affine=False)
+            self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.momentum, affine=False)
         elif self.mybn:
             self.bn = myBN(output_size, self.eps, self.momentum)
         elif self.norm_style in ['bn', 'in']:
@@ -1243,11 +1040,9 @@ class ccbn(nn.Module):
             return self.bn(x, gain=gain, bias=bias)
         else:
             if self.norm_style == 'bn':
-                out = F.batch_norm(x, self.stored_mean, self.stored_var,
-                    None, None, self.training, 0.1, self.eps)
+                out = F.batch_norm(x, self.stored_mean, self.stored_var, None, None, self.training, 0.1, self.eps)
             elif self.norm_style == 'in':
-                out = F.instance_norm(x, self.stored_mean, self.stored_var,
-                    None, None, self.training, 0.1, self.eps)
+                out = F.instance_norm(x, self.stored_mean, self.stored_var, None, None, self.training, 0.1, self.eps)
             elif self.norm_style == 'gn':
                 out = groupnorm(x, self.normstyle)
             elif self.norm_style == 'nonorm':
@@ -1262,8 +1057,7 @@ class ccbn(nn.Module):
 
 class bn(nn.Module):
 
-    def __init__(self, output_size, eps=1e-05, momentum=0.1, cross_replica=
-        False, mybn=False):
+    def __init__(self, output_size, eps=1e-05, momentum=0.1, cross_replica=False, mybn=False):
         super(bn, self).__init__()
         self.output_size = output_size
         self.gain = P(torch.ones(output_size), requires_grad=True)
@@ -1273,8 +1067,7 @@ class bn(nn.Module):
         self.cross_replica = cross_replica
         self.mybn = mybn
         if self.cross_replica:
-            self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.
-                momentum, affine=False)
+            self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.momentum, affine=False)
         elif mybn:
             self.bn = myBN(output_size, self.eps, self.momentum)
         else:
@@ -1287,14 +1080,12 @@ class bn(nn.Module):
             bias = self.bias.view(1, -1, 1, 1)
             return self.bn(x, gain=gain, bias=bias)
         else:
-            return F.batch_norm(x, self.stored_mean, self.stored_var, self.
-                gain, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(x, self.stored_mean, self.stored_var, self.gain, self.bias, self.training, self.momentum, self.eps)
 
 
 class GBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, which_conv=nn.Conv2d,
-        which_bn=bn, activation=None, upsample=None):
+    def __init__(self, in_channels, out_channels, which_conv=nn.Conv2d, which_bn=bn, activation=None, upsample=None):
         super(GBlock, self).__init__()
         self.in_channels, self.out_channels = in_channels, out_channels
         self.which_conv, self.which_bn = which_conv, which_bn
@@ -1304,8 +1095,7 @@ class GBlock(nn.Module):
         self.conv2 = self.which_conv(self.out_channels, self.out_channels)
         self.learnable_sc = in_channels != out_channels or upsample
         if self.learnable_sc:
-            self.conv_sc = self.which_conv(in_channels, out_channels,
-                kernel_size=1, padding=0)
+            self.conv_sc = self.which_conv(in_channels, out_channels, kernel_size=1, padding=0)
         self.bn1 = self.which_bn(in_channels)
         self.bn2 = self.which_bn(out_channels)
         self.upsample = upsample
@@ -1325,8 +1115,7 @@ class GBlock(nn.Module):
 
 class DBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, which_conv=SNConv2d, wide
-        =True, preactivation=False, activation=None, downsample=None):
+    def __init__(self, in_channels, out_channels, which_conv=SNConv2d, wide=True, preactivation=False, activation=None, downsample=None):
         super(DBlock, self).__init__()
         self.in_channels, self.out_channels = in_channels, out_channels
         self.hidden_channels = self.out_channels if wide else self.in_channels
@@ -1336,11 +1125,9 @@ class DBlock(nn.Module):
         self.downsample = downsample
         self.conv1 = self.which_conv(self.in_channels, self.hidden_channels)
         self.conv2 = self.which_conv(self.hidden_channels, self.out_channels)
-        self.learnable_sc = (True if in_channels != out_channels or
-            downsample else False)
+        self.learnable_sc = True if in_channels != out_channels or downsample else False
         if self.learnable_sc:
-            self.conv_sc = self.which_conv(in_channels, out_channels,
-                kernel_size=1, padding=0)
+            self.conv_sc = self.which_conv(in_channels, out_channels, kernel_size=1, padding=0)
 
     def shortcut(self, x):
         if self.preactivation:
@@ -1390,8 +1177,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -1446,8 +1232,7 @@ class SyncMaster(object):
 
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -1473,8 +1258,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -1488,8 +1272,7 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
@@ -1508,8 +1291,7 @@ def _unsqueeze_ft(tensor):
 class _SynchronizedBatchNorm(_BatchNorm):
 
     def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
@@ -1517,8 +1299,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input, gain=None, bias=None):
         if not (self._is_parallel and self.training):
-            out = F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            out = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
             if gain is not None:
                 out = out + gain
             if bias is not None:
@@ -1530,17 +1311,13 @@ class _SynchronizedBatchNorm(_BatchNorm):
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if gain is not None:
-            output = (input - _unsqueeze_ft(mean)) * (_unsqueeze_ft(inv_std
-                ) * gain.squeeze(-1)) + bias.squeeze(-1)
+            output = (input - _unsqueeze_ft(mean)) * (_unsqueeze_ft(inv_std) * gain.squeeze(-1)) + bias.squeeze(-1)
         elif self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -1555,8 +1332,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -1566,8 +1342,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _compute_mean_std(self, sum_, ssum, size):
@@ -1578,10 +1353,8 @@ class _SynchronizedBatchNorm(_BatchNorm):
         sumvar = ssum - sum_ * mean
         unbias_var = sumvar / (size - 1)
         bias_var = sumvar / size
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.data
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.data
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, torch.rsqrt(bias_var + self.eps)
 
 
@@ -1623,17 +1396,13 @@ class BatchNorm2dReimpl(nn.Module):
         sum_of_square = input_.pow(2).sum(1)
         mean = sum_ / numel
         sumvar = sum_of_square - sum_ * mean
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.detach()
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.detach()
         unbias_var = sumvar / (numel - 1)
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.detach()
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.detach()
         bias_var = sumvar / numel
         inv_std = 1 / (bias_var + self.eps).pow(0.5)
-        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1
-            ) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
-        return output.view(channels, batchsize, height, width).permute(1, 0,
-            2, 3).contiguous()
+        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
+        return output.view(channels, batchsize, height, width).permute(1, 0, 2, 3).contiguous()
 
 
 class CallbackContext(object):
@@ -1677,8 +1446,7 @@ class DataParallelWithCallback(DataParallel):
     """
 
     def replicate(self, module, device_ids):
-        modules = super(DataParallelWithCallback, self).replicate(module,
-            device_ids)
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
 
@@ -1687,47 +1455,86 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Attention,
+     lambda: ([], {'ch': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (BatchNorm2dReimpl,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (SNConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SNEmbedding,
+     lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (SNLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SelfAttention,
+     lambda: ([], {'in_dim': 64}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     False),
+    (bn,
+     lambda: ([], {'output_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (myBN,
+     lambda: ([], {'num_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_ajbrock_BigGAN_PyTorch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Attention(*[], **{'ch': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(ConditionalBatchNorm2d(*[], **{'num_features': 4, 'num_classes': 4}), [torch.rand([64, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(SNConv2d(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(SNEmbedding(*[], **{'num_embeddings': 4, 'embedding_dim': 4}), [torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(SNLinear(*[], **{'in_features': 4, 'out_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
-    @_fails_compile()
     def test_007(self):
-        self._check(SelfAttention(*[], **{'in_dim': 64}), [torch.rand([4, 64, 64, 64])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(bn(*[], **{'output_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(myBN(*[], **{'num_channels': 4}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 

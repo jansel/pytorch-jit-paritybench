@@ -25,8 +25,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -80,14 +81,11 @@ class ConvEncoder(nn.Module):
 
     @classmethod
     def build_from_config(cls, config):
-        conv_pool = None if config.conv_pool is None else getattr(nn,
-            config.conv_pool)
-        encoder = cls(config.channels, config.padding, config.kernel_size,
-            config.conv_stride, conv_pool)
+        conv_pool = None if config.conv_pool is None else getattr(nn, config.conv_pool)
+        encoder = cls(config.channels, config.padding, config.kernel_size, config.conv_stride, conv_pool)
         return encoder
 
-    def __init__(self, channels, padding=3, kernel_size=8, conv_stride=2,
-        conv_pool=None):
+    def __init__(self, channels, padding=3, kernel_size=8, conv_stride=2, conv_pool=None):
         super(ConvEncoder, self).__init__()
         self.in_channels = channels[0]
         model = []
@@ -96,13 +94,11 @@ class ConvEncoder(nn.Module):
         for i in range(nr_layer):
             if conv_pool is None:
                 model.append(nn.ReflectionPad1d(padding))
-                model.append(nn.Conv1d(channels[i], channels[i + 1],
-                    kernel_size=kernel_size, stride=conv_stride))
+                model.append(nn.Conv1d(channels[i], channels[i + 1], kernel_size=kernel_size, stride=conv_stride))
                 model.append(acti)
             else:
                 model.append(nn.ReflectionPad1d(padding))
-                model.append(nn.Conv1d(channels[i], channels[i + 1],
-                    kernel_size=kernel_size, stride=conv_stride))
+                model.append(nn.Conv1d(channels[i], channels[i + 1], kernel_size=kernel_size, stride=conv_stride))
                 model.append(acti)
                 model.append(conv_pool(kernel_size=2, stride=2))
         self.model = nn.Sequential(*model)
@@ -128,8 +124,7 @@ class ConvDecoder(nn.Module):
         for i in range(len(channels) - 1):
             model.append(nn.Upsample(scale_factor=2, mode='nearest'))
             model.append(nn.ReflectionPad1d(pad))
-            model.append(nn.Conv1d(channels[i], channels[i + 1],
-                kernel_size=kernel_size, stride=1))
+            model.append(nn.Conv1d(channels[i], channels[i + 1], kernel_size=kernel_size, stride=1))
             if i == 0 or i == 1:
                 model.append(nn.Dropout(p=0.2))
             if not i == len(channels) - 2:
@@ -161,13 +156,11 @@ class Discriminator(nn.Module):
         fake_logits = self.forward(x_gen)
         real_logits = self.forward(x_real)
         if self.gan_type == 'lsgan':
-            loss = torch.mean((fake_logits - 0) ** 2) + torch.mean((
-                real_logits - 1) ** 2)
+            loss = torch.mean((fake_logits - 0) ** 2) + torch.mean((real_logits - 1) ** 2)
         elif self.gan_type == 'nsgan':
             all0 = torch.zeros_like(fake_logits, requires_grad=False)
             all1 = torch.ones_like(real_logits, requires_grad=False)
-            loss = torch.mean(F.binary_cross_entropy(F.sigmoid(fake_logits),
-                all0) + F.binary_cross_entropy(F.sigmoid(real_logits), all1))
+            loss = torch.mean(F.binary_cross_entropy(F.sigmoid(fake_logits), all0) + F.binary_cross_entropy(F.sigmoid(real_logits), all1))
         else:
             raise NotImplementedError
         return loss
@@ -206,12 +199,10 @@ def get_body_basis(motion_3d):
     :return: unit vectors for vector rectangular coordinates's , shape (B, 3, 3).
     """
     B = motion_3d.size(0)
-    horizontal = (motion_3d[:, (2)] - motion_3d[:, (5)] + motion_3d[:, (9)] -
-        motion_3d[:, (12)]) / 2
+    horizontal = (motion_3d[:, (2)] - motion_3d[:, (5)] + motion_3d[:, (9)] - motion_3d[:, (12)]) / 2
     horizontal = horizontal.mean(dim=-1)
     horizontal = horizontal / horizontal.norm(dim=-1).unsqueeze(-1)
-    vector_z = torch.tensor([0.0, 0.0, 1.0], device=motion_3d.device, dtype
-        =motion_3d.dtype).unsqueeze(0).repeat(B, 1)
+    vector_z = torch.tensor([0.0, 0.0, 1.0], device=motion_3d.device, dtype=motion_3d.dtype).unsqueeze(0).repeat(B, 1)
     vector_y = torch.cross(horizontal, vector_z)
     vector_y = vector_y / vector_y.norm(dim=-1).unsqueeze(-1)
     vector_x = torch.cross(vector_y, vector_z)
@@ -241,11 +232,9 @@ def rotate_basis_euler(basis_vectors, angles):
     x_cpm = x_cpm.unsqueeze(1).unsqueeze(2)
     x = x.unsqueeze(-1)
     xx = torch.matmul(x, x.transpose(-1, -2)).unsqueeze(1).unsqueeze(2)
-    eye = torch.eye(n=3, dtype=basis_vectors.dtype, device=basis_vectors.device
-        )
+    eye = torch.eye(n=3, dtype=basis_vectors.dtype, device=basis_vectors.device)
     eye = eye.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-    mat33_x = cx.unsqueeze(-1).unsqueeze(-1) * eye + sx.unsqueeze(-1
-        ).unsqueeze(-1) * x_cpm + (1.0 - cx).unsqueeze(-1).unsqueeze(-1) * xx
+    mat33_x = cx.unsqueeze(-1).unsqueeze(-1) * eye + sx.unsqueeze(-1).unsqueeze(-1) * x_cpm + (1.0 - cx).unsqueeze(-1).unsqueeze(-1) * xx
     o = torch.zeros_like(cz)
     i = torch.ones_like(cz)
     mat33_z_0 = torch.stack([cz, sz, o], dim=3)
@@ -257,16 +246,14 @@ def rotate_basis_euler(basis_vectors, angles):
     return basis_vectors
 
 
-def rotate_and_maybe_project(X, angles=None, body_reference=True,
-    project_2d=False):
+def rotate_and_maybe_project(X, angles=None, body_reference=True, project_2d=False):
     D = 2 if project_2d else 3
     batch_size, channels, seq_len = X.size()
     n_joints = channels // 3
     X = X.view(batch_size, n_joints, 3, seq_len)
     if angles is not None:
         K = angles.size(1)
-        basis_vectors = get_body_basis(X) if body_reference else torch.eye(
-            3, device=X.device).unsqueeze(0).repeat(batch_size, 1, 1)
+        basis_vectors = get_body_basis(X) if body_reference else torch.eye(3, device=X.device).unsqueeze(0).repeat(batch_size, 1, 1)
         basis_vectors = rotate_basis_euler(basis_vectors, angles)
         X_trans = change_of_basis(X, basis_vectors, project_2d=project_2d)
         X_trans = X_trans.reshape(batch_size * K, n_joints * D, seq_len)
@@ -280,23 +267,18 @@ class Autoencoder3f(nn.Module):
 
     def __init__(self, config):
         super(Autoencoder3f, self).__init__()
-        assert config.motion_encoder.channels[-1
-            ] + config.body_encoder.channels[-1
-            ] + config.view_encoder.channels[-1] == config.decoder.channels[0]
+        assert config.motion_encoder.channels[-1] + config.body_encoder.channels[-1] + config.view_encoder.channels[-1] == config.decoder.channels[0]
         self.n_joints = config.decoder.channels[-1] // 3
         self.body_reference = config.body_reference
         motion_cls = getattr(thismodule, config.motion_encoder.cls)
         body_cls = getattr(thismodule, config.body_encoder.cls)
         view_cls = getattr(thismodule, config.view_encoder.cls)
-        self.motion_encoder = motion_cls.build_from_config(config.
-            motion_encoder)
+        self.motion_encoder = motion_cls.build_from_config(config.motion_encoder)
         self.body_encoder = body_cls.build_from_config(config.body_encoder)
         self.view_encoder = view_cls.build_from_config(config.view_encoder)
         self.decoder = ConvDecoder.build_from_config(config.decoder)
-        self.body_pool = getattr(F, config.body_encoder.global_pool
-            ) if config.body_encoder.global_pool is not None else None
-        self.view_pool = getattr(F, config.view_encoder.global_pool
-            ) if config.view_encoder.global_pool is not None else None
+        self.body_pool = getattr(F, config.body_encoder.global_pool) if config.body_encoder.global_pool is not None else None
+        self.view_pool = getattr(F, config.view_encoder.global_pool) if config.view_encoder.global_pool is not None else None
 
     def forward(self, seqs):
         return self.reconstruct(seqs)
@@ -308,15 +290,13 @@ class Autoencoder3f(nn.Module):
     def encode_body(self, seqs):
         body_code_seq = self.body_encoder(seqs)
         kernel_size = body_code_seq.size(-1)
-        body_code = self.body_pool(body_code_seq, kernel_size
-            ) if self.body_pool is not None else body_code_seq
+        body_code = self.body_pool(body_code_seq, kernel_size) if self.body_pool is not None else body_code_seq
         return body_code, body_code_seq
 
     def encode_view(self, seqs):
         view_code_seq = self.view_encoder(seqs)
         kernel_size = view_code_seq.size(-1)
-        view_code = self.view_pool(view_code_seq, kernel_size
-            ) if self.view_pool is not None else view_code_seq
+        view_code = self.view_pool(view_code_seq, kernel_size) if self.view_pool is not None else view_code_seq
         return view_code, view_code_seq
 
     def decode(self, motion_code, body_code, view_code):
@@ -340,8 +320,7 @@ class Autoencoder3f(nn.Module):
         body_b, _ = self.encode_body(x_b)
         view_c, _ = self.encode_view(x_c)
         out = self.decode(motion_a, body_b, view_c)
-        out = rotate_and_maybe_project(out, body_reference=self.
-            body_reference, project_2d=True)
+        out = rotate_and_maybe_project(out, body_reference=self.body_reference, project_2d=True)
         return out
 
     def reconstruct3d(self, x):
@@ -356,8 +335,7 @@ class Autoencoder3f(nn.Module):
         body_code, _ = self.encode_body(x)
         view_code, _ = self.encode_view(x)
         out = self.decode(motion_code, body_code, view_code)
-        out = rotate_and_maybe_project(out, body_reference=self.
-            body_reference, project_2d=True)
+        out = rotate_and_maybe_project(out, body_reference=self.body_reference, project_2d=True)
         return out
 
     def interpolate(self, x_a, x_b, N):
@@ -374,13 +352,11 @@ class Autoencoder3f(nn.Module):
             motion_weight = i * step_size
             for j in range(N):
                 body_weight = j * step_size
-                motion = (1.0 - motion_weight
-                    ) * motion_a + motion_weight * motion_b
+                motion = (1.0 - motion_weight) * motion_a + motion_weight * motion_b
                 body = (1.0 - body_weight) * body_a + body_weight * body_b
                 view = (1.0 - body_weight) * view_a + body_weight * view_b
                 out = self.decode(motion, body, view)
-                out = rotate_and_maybe_project(out, body_reference=self.
-                    body_reference, project_2d=True)
+                out = rotate_and_maybe_project(out, body_reference=self.body_reference, project_2d=True)
                 batch_out[:, (i), (j), :, :] = out
         return batch_out
 
@@ -388,8 +364,7 @@ class Autoencoder3f(nn.Module):
 def get_model_list(dirname, key):
     if os.path.exists(dirname) is False:
         return None
-    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if 
-        os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
+    gen_models = [os.path.join(dirname, f) for f in os.listdir(dirname) if os.path.isfile(os.path.join(dirname, f)) and key in f and '.pt' in f]
     if gen_models is None:
         return None
     gen_models.sort()
@@ -398,17 +373,12 @@ def get_model_list(dirname, key):
 
 
 def get_scheduler(optimizer, hyperparameters, iterations=-1):
-    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'
-        ] == 'constant':
+    if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'] == 'constant':
         scheduler = None
     elif hyperparameters['lr_policy'] == 'step':
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=
-            hyperparameters['step_size'], gamma=hyperparameters['gamma'],
-            last_epoch=iterations)
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=hyperparameters['step_size'], gamma=hyperparameters['gamma'], last_epoch=iterations)
     else:
-        return NotImplementedError(
-            'learning rate policy [%s] is not implemented', hyperparameters
-            ['lr_policy'])
+        return NotImplementedError('learning rate policy [%s] is not implemented', hyperparameters['lr_policy'])
     return scheduler
 
 
@@ -416,8 +386,7 @@ def weights_init(init_type='gaussian'):
 
     def init_fun(m):
         classname = m.__class__.__name__
-        if (classname.find('Conv') == 0 or classname.find('Linear') == 0
-            ) and hasattr(m, 'weight'):
+        if (classname.find('Conv') == 0 or classname.find('Linear') == 0) and hasattr(m, 'weight'):
             if init_type == 'gaussian':
                 init.normal_(m.weight.data, 0.0, 0.02)
             elif init_type == 'xavier':
@@ -447,12 +416,8 @@ class BaseTrainer(nn.Module):
         beta2 = config.beta2
         dis_params = list(self.discriminator.parameters())
         ae_params = list(self.autoencoder.parameters())
-        self.dis_opt = torch.optim.Adam([p for p in dis_params if p.
-            requires_grad], lr=lr, betas=(beta1, beta2), weight_decay=
-            config.weight_decay)
-        self.ae_opt = torch.optim.Adam([p for p in ae_params if p.
-            requires_grad], lr=lr, betas=(beta1, beta2), weight_decay=
-            config.weight_decay)
+        self.dis_opt = torch.optim.Adam([p for p in dis_params if p.requires_grad], lr=lr, betas=(beta1, beta2), weight_decay=config.weight_decay)
+        self.ae_opt = torch.optim.Adam([p for p in ae_params if p.requires_grad], lr=lr, betas=(beta1, beta2), weight_decay=config.weight_decay)
         self.dis_scheduler = get_scheduler(self.dis_opt, config)
         self.ae_scheduler = get_scheduler(self.ae_opt, config)
         self.apply(weights_init(config.init))
@@ -504,15 +469,12 @@ class BaseTrainer(nn.Module):
         return iterations
 
     def save(self, snapshot_dir, iterations):
-        ae_name = os.path.join(snapshot_dir, 'autoencoder_%08d.pt' % (
-            iterations + 1))
-        dis_name = os.path.join(snapshot_dir, 'discriminator_%08d.pt' % (
-            iterations + 1))
+        ae_name = os.path.join(snapshot_dir, 'autoencoder_%08d.pt' % (iterations + 1))
+        dis_name = os.path.join(snapshot_dir, 'discriminator_%08d.pt' % (iterations + 1))
         opt_name = os.path.join(snapshot_dir, 'optimizer.pt')
         torch.save(self.autoencoder.state_dict(), ae_name)
         torch.save(self.discriminator.state_dict(), dis_name)
-        torch.save({'autoencoder': self.ae_opt.state_dict(),
-            'discriminator': self.dis_opt.state_dict()}, opt_name)
+        torch.save({'autoencoder': self.ae_opt.state_dict(), 'discriminator': self.dis_opt.state_dict()}, opt_name)
 
     def validate(self, data, config):
         re_dict = self.evaluate(self.autoencoder, data, config)
@@ -535,12 +497,9 @@ class BaseTrainer(nn.Module):
             x_b_recon = autoencoder.reconstruct2d(x_b)
             x_aba_recon = autoencoder.cross2d(x_a, x_b, x_a)
             x_bab_recon = autoencoder.cross2d(x_b, x_a, x_b)
-            re_dict['loss_val_recon_x'] = cls.recon_criterion(x_a_recon, x_a
-                ) + cls.recon_criterion(x_b_recon, x_b)
-            re_dict['loss_val_cross_body'] = cls.recon_criterion(x_aba_recon,
-                x_aba) + cls.recon_criterion(x_bab_recon, x_bab)
-            re_dict['loss_val_total'] = 0.5 * re_dict['loss_val_recon_x'
-                ] + 0.5 * re_dict['loss_val_cross_body']
+            re_dict['loss_val_recon_x'] = cls.recon_criterion(x_a_recon, x_a) + cls.recon_criterion(x_b_recon, x_b)
+            re_dict['loss_val_cross_body'] = cls.recon_criterion(x_aba_recon, x_aba) + cls.recon_criterion(x_bab_recon, x_bab)
+            re_dict['loss_val_total'] = 0.5 * re_dict['loss_val_recon_x'] + 0.5 * re_dict['loss_val_cross_body']
         autoencoder.train()
         return re_dict
 
@@ -549,11 +508,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConvDecoder,
+     lambda: ([], {'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (ConvEncoder,
+     lambda: ([], {'channels': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+]
+
 class Test_yzhq97_transmomo_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ConvDecoder(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(ConvEncoder(*[], **{'channels': [4, 4]}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 

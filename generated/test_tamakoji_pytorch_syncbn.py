@@ -13,8 +13,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -49,8 +50,7 @@ class _BatchNorm(nn.Module):
     >> added freeze attribute to enable bn freeze.
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True,
-        track_running_stats=True):
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
         super(_BatchNorm, self).__init__()
         self.num_features = num_features
         self.eps = eps
@@ -85,25 +85,28 @@ class _BatchNorm(nn.Module):
 
     def forward(self, input):
         self._check_input_dim(input)
-        compute_stats = (not self.freezed and self.training and self.
-            track_running_stats)
-        ret = F.batch_norm(input, self.running_mean, self.running_var, self
-            .weight, self.bias, compute_stats, self.momentum, self.eps)
+        compute_stats = not self.freezed and self.training and self.track_running_stats
+        ret = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, compute_stats, self.momentum, self.eps)
         return ret
 
     def extra_repr(self):
-        return (
-            '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'
-            .format(**self.__dict__))
+        return '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'.format(**self.__dict__)
 
 
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (_BatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
+
 class Test_tamakoji_pytorch_syncbn(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(_BatchNorm(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

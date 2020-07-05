@@ -29,8 +29,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -113,11 +114,8 @@ class VarLoss(Function):
         super(VarLoss, self).__init__()
         self.device = device
         self.var_weight = var_weight
-        self.skeleton_idx = [[[0, 1], [1, 2], [3, 4], [4, 5]], [[10, 11], [
-            11, 12], [13, 14], [14, 15]], [[2, 6], [3, 6]], [[12, 8], [13, 8]]]
-        self.skeleton_weight = [[1.0085885098415446, 1, 1, 
-            1.0085885098415446], [1.1375361376887123, 1, 1, 
-            1.1375361376887123], [1, 1], [1, 1]]
+        self.skeleton_idx = [[[0, 1], [1, 2], [3, 4], [4, 5]], [[10, 11], [11, 12], [13, 14], [14, 15]], [[2, 6], [3, 6]], [[12, 8], [13, 8]]]
+        self.skeleton_weight = [[1.0085885098415446, 1, 1, 1.0085885098415446], [1.1375361376887123, 1, 1, 1.1375361376887123], [1, 1], [1, 1]]
 
     def forward(self, input, visible, mask, gt_2d):
         xy = gt_2d.view(gt_2d.size(0), -1, 2)
@@ -132,8 +130,7 @@ class VarLoss(Function):
                     for j in range(N):
                         id1, id2 = self.skeleton_idx[g][j]
                         if visible[t, id1] > 0.5 and visible[t, id2] > 0.5:
-                            l[j] = (((xy[t, id1] - xy[t, id2]) ** 2).sum() +
-                                (input[t, id1] - input[t, id2]) ** 2) ** 0.5
+                            l[j] = (((xy[t, id1] - xy[t, id2]) ** 2).sum() + (input[t, id1] - input[t, id2]) ** 2) ** 0.5
                             l[j] = l[j] * self.skeleton_weight[g][j]
                             num += 1
                             E += l[j]
@@ -165,8 +162,7 @@ class VarLoss(Function):
                     for j in range(N):
                         id1, id2 = self.skeleton_idx[g][j]
                         if visible[t, id1] > 0.5 and visible[t, id2] > 0.5:
-                            l[j] = (((xy[t, id1] - xy[t, id2]) ** 2).sum() +
-                                (input[t, id1] - input[t, id2]) ** 2) ** 0.5
+                            l[j] = (((xy[t, id1] - xy[t, id2]) ** 2).sum() + (input[t, id1] - input[t, id2]) ** 2) ** 0.5
                             l[j] = l[j] * self.skeleton_weight[g][j]
                             num += 1
                             E += l[j]
@@ -177,14 +173,8 @@ class VarLoss(Function):
                     for j in range(N):
                         if l[j] > 0:
                             id1, id2 = self.skeleton_idx[g][j]
-                            grad_input[t][id1
-                                ] += self.var_weight * self.skeleton_weight[g][
-                                j] ** 2 / num * (l[j] - E) / l[j] * (input[
-                                t, id1] - input[t, id2]) / batch_size
-                            grad_input[t][id2
-                                ] += self.var_weight * self.skeleton_weight[g][
-                                j] ** 2 / num * (l[j] - E) / l[j] * (input[
-                                t, id2] - input[t, id1]) / batch_size
+                            grad_input[t][id1] += self.var_weight * self.skeleton_weight[g][j] ** 2 / num * (l[j] - E) / l[j] * (input[t, id1] - input[t, id2]) / batch_size
+                            grad_input[t][id2] += self.var_weight * self.skeleton_weight[g][j] ** 2 / num * (l[j] - E) / l[j] * (input[t, id2] - input[t, id1]) / batch_size
         grad_input = grad_input.cuda(self.device, non_blocking=True)
         return grad_input, None, None, None
 
@@ -203,8 +193,7 @@ class FusionLoss(nn.Module):
         if self.reg_weight > 0:
             loss += self.reg_weight * reg_loss(pred, target, mask)
         if self.var_weight > 0:
-            loss += VarLoss(self.device, self.var_weight)(pred, target,
-                mask, gt_2d)[0]
+            loss += VarLoss(self.device, self.var_weight)(pred, target, mask, gt_2d)[0]
         return loss
 
 
@@ -213,8 +202,7 @@ BN_MOMENTUM = 0.1
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -251,13 +239,10 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -279,13 +264,7 @@ class Bottleneck(nn.Module):
         return out
 
 
-model_urls = {'resnet18':
-    'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34':
-    'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50':
-    'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101':
-    'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
 
 
 class PoseResNet(nn.Module):
@@ -295,8 +274,7 @@ class PoseResNet(nn.Module):
         self.deconv_with_bias = False
         self.heads = heads
         super(PoseResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -304,19 +282,15 @@ class PoseResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.deconv_layers = self._make_deconv_layer(3, [256, 256, 256], [4,
-            4, 4])
+        self.deconv_layers = self._make_deconv_layer(3, [256, 256, 256], [4, 4, 4])
         for head in sorted(self.heads):
             num_output = self.heads[head]
-            self.__setattr__(head, nn.Conv2d(in_channels=256, out_channels=
-                num_output, kernel_size=1, stride=1, padding=0))
+            self.__setattr__(head, nn.Conv2d(in_channels=256, out_channels=num_output, kernel_size=1, stride=1, padding=0))
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -337,19 +311,13 @@ class PoseResNet(nn.Module):
         return deconv_kernel, padding, output_padding
 
     def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
-        assert num_layers == len(num_filters
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
-        assert num_layers == len(num_kernels
-            ), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_filters), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
+        assert num_layers == len(num_kernels), 'ERROR: num_deconv_layers is different len(num_deconv_filters)'
         layers = []
         for i in range(num_layers):
-            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels
-                [i], i)
+            kernel, padding, output_padding = self._get_deconv_cfg(num_kernels[i], i)
             planes = num_filters[i]
-            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes,
-                out_channels=planes, kernel_size=kernel, stride=2, padding=
-                padding, output_padding=output_padding, bias=self.
-                deconv_with_bias))
+            layers.append(nn.ConvTranspose2d(in_channels=self.inplanes, out_channels=planes, kernel_size=kernel, stride=2, padding=padding, output_padding=output_padding, bias=self.deconv_with_bias))
             layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = planes
@@ -400,8 +368,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_xingyizhou_pytorch_pose_hg_3d(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

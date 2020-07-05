@@ -253,8 +253,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -457,9 +458,7 @@ def transpose_batch_time(inputs: torch.Tensor) ->torch.Tensor:
     return inputs.transpose(0, 1)
 
 
-def mask_sequences(sequence: Union[torch.Tensor, List[int]],
-    sequence_length: Union[torch.LongTensor, List[int]], dtype: Optional[
-    torch.dtype]=None, time_major: bool=False) ->torch.Tensor:
+def mask_sequences(sequence: Union[torch.Tensor, List[int]], sequence_length: Union[torch.LongTensor, List[int]], dtype: Optional[torch.dtype]=None, time_major: bool=False) ->torch.Tensor:
     """Masks out sequence entries that are beyond the respective sequence
     lengths. Masks along the time dimension.
 
@@ -625,21 +624,17 @@ class HParams:
             above.
     """
 
-    def __init__(self, hparams: Optional[Union['HParams', Dict[str, Any]]],
-        default_hparams: Optional[Dict[str, Any]], allow_new_hparam: bool=False
-        ):
+    def __init__(self, hparams: Optional[Union['HParams', Dict[str, Any]]], default_hparams: Optional[Dict[str, Any]], allow_new_hparam: bool=False):
         if isinstance(hparams, HParams):
             hparams = hparams.todict()
         if default_hparams is not None:
-            parsed_hparams = self._parse(hparams, default_hparams,
-                allow_new_hparam)
+            parsed_hparams = self._parse(hparams, default_hparams, allow_new_hparam)
         else:
             parsed_hparams = self._parse(hparams, hparams)
         super().__setattr__('_hparams', parsed_hparams)
 
     @staticmethod
-    def _parse(hparams: Optional[Dict[str, Any]], default_hparams: Optional
-        [Dict[str, Any]], allow_new_hparam: bool=False):
+    def _parse(hparams: Optional[Dict[str, Any]], default_hparams: Optional[Dict[str, Any]], allow_new_hparam: bool=False):
         """Parses hyperparameters.
 
         Args:
@@ -666,19 +661,14 @@ class HParams:
         if hparams is None:
             return HParams._parse(default_hparams, default_hparams)
         if default_hparams is None:
-            raise ValueError(
-                '`default_hparams` cannot be `None` if `hparams` is not `None`.'
-                )
+            raise ValueError('`default_hparams` cannot be `None` if `hparams` is not `None`.')
         no_typecheck_names = default_hparams.get('@no_typecheck', [])
         if 'kwargs' in default_hparams and 'type' not in default_hparams:
-            raise ValueError(
-                "Ill-defined hyperparameter structure: 'kwargs' must accompany with 'type'."
-                )
+            raise ValueError("Ill-defined hyperparameter structure: 'kwargs' must accompany with 'type'.")
         parsed_hparams = copy.deepcopy(default_hparams)
         for name, value in default_hparams.items():
             if name not in hparams and isinstance(value, dict):
-                if name == 'kwargs' and 'type' in hparams and hparams['type'
-                    ] != default_hparams['type']:
+                if name == 'kwargs' and 'type' in hparams and hparams['type'] != default_hparams['type']:
                     parsed_hparams[name] = HParams({}, {})
                 else:
                     parsed_hparams[name] = HParams(value, value)
@@ -687,34 +677,25 @@ class HParams:
                 if allow_new_hparam:
                     parsed_hparams[name] = HParams._parse_value(value, name)
                     continue
-                raise ValueError(
-                    "Unknown hyperparameter: %s. Only hyperparameters named 'kwargs' hyperparameters can contain new entries undefined in default hyperparameters."
-                     % name)
+                raise ValueError("Unknown hyperparameter: %s. Only hyperparameters named 'kwargs' hyperparameters can contain new entries undefined in default hyperparameters." % name)
             if value is None:
-                parsed_hparams[name] = HParams._parse_value(parsed_hparams[
-                    name])
+                parsed_hparams[name] = HParams._parse_value(parsed_hparams[name])
             default_value = default_hparams[name]
             if default_value is None:
                 parsed_hparams[name] = HParams._parse_value(value)
                 continue
             if isinstance(value, dict):
-                if name not in no_typecheck_names and not isinstance(
-                    default_value, dict):
-                    raise ValueError(
-                        "Hyperparameter '%s' must have type %s, got %s" % (
-                        name, _type_name(default_value), _type_name(value)))
+                if name not in no_typecheck_names and not isinstance(default_value, dict):
+                    raise ValueError("Hyperparameter '%s' must have type %s, got %s" % (name, _type_name(default_value), _type_name(value)))
                 if name == 'kwargs':
-                    if 'type' in hparams and hparams['type'
-                        ] != default_hparams['type']:
+                    if 'type' in hparams and hparams['type'] != default_hparams['type']:
                         parsed_hparams[name] = HParams(value, value)
                     else:
-                        parsed_hparams[name] = HParams(value, default_value,
-                            allow_new_hparam=True)
+                        parsed_hparams[name] = HParams(value, default_value, allow_new_hparam=True)
                 elif name in no_typecheck_names:
                     parsed_hparams[name] = HParams(value, value)
                 else:
-                    parsed_hparams[name] = HParams(value, default_value,
-                        allow_new_hparam)
+                    parsed_hparams[name] = HParams(value, default_value, allow_new_hparam)
                 continue
             if name == 'type' and 'kwargs' in default_hparams:
                 parsed_hparams[name] = value
@@ -729,9 +710,7 @@ class HParams:
                 try:
                     parsed_hparams[name] = type(default_value)(value)
                 except TypeError:
-                    raise ValueError(
-                        "Hyperparameter '%s' must have type %s, got %s" % (
-                        name, _type_name(default_value), _type_name(value)))
+                    raise ValueError("Hyperparameter '%s' must have type %s, got %s" % (name, _type_name(default_value), _type_name(value)))
         return parsed_hparams
 
     @staticmethod
@@ -759,9 +738,7 @@ class HParams:
         """Sets the value of the hyperparameter.
         """
         if name not in self._hparams:
-            raise ValueError(
-                'Unknown hyperparameter: %s. Only the `kwargs` hyperparameters can contain new entries undefined in default hyperparameters.'
-                 % name)
+            raise ValueError('Unknown hyperparameter: %s. Only the `kwargs` hyperparameters can contain new entries undefined in default hyperparameters.' % name)
         self._hparams[name] = self._parse_value(value, name)
 
     def items(self) ->ItemsView[str, Any]:
@@ -846,13 +823,10 @@ def get_filename(url: str) ->str:
 _BERT_PATH = 'https://storage.googleapis.com/bert_models/'
 
 
-_BIOBERT_PATH = (
-    'https://github.com/naver/biobert-pretrained/releases/download/')
+_BIOBERT_PATH = 'https://github.com/naver/biobert-pretrained/releases/download/'
 
 
-_SCIBERT_PATH = (
-    'https://s3-us-west-2.amazonaws.com/ai2-s2-research/scibert/tensorflow_models/'
-    )
+_SCIBERT_PATH = 'https://s3-us-west-2.amazonaws.com/ai2-s2-research/scibert/tensorflow_models/'
 
 
 _SPANBERT_PATH = 'https://dl.fbaipublicfiles.com/fairseq/models/'
@@ -935,19 +909,12 @@ def get_layer(hparams: Union[HParams, Dict[str, Any]]) ->nn.Module:
         layer = layer_type
     else:
         layer_modules = ['torch.nn', 'texar.torch.core', 'texar.torch.custom']
-        layer_class: Type[nn.Module] = utils.check_or_get_class(layer_type,
-            layer_modules)
+        layer_class: Type[nn.Module] = utils.check_or_get_class(layer_type, layer_modules)
         if isinstance(hparams, dict):
-            if (layer_class.__name__ == 'Linear' and 'in_features' not in
-                hparams['kwargs']):
-                raise ValueError(
-                    '"in_features" should be specified for "torch.nn.{}"'.
-                    format(layer_class.__name__))
-            elif layer_class.__name__ in ['Conv1d', 'Conv2d', 'Conv3d'
-                ] and 'in_channels' not in hparams['kwargs']:
-                raise ValueError(
-                    '"in_channels" should be specified for "torch.nn.{}"'.
-                    format(layer_class.__name__))
+            if layer_class.__name__ == 'Linear' and 'in_features' not in hparams['kwargs']:
+                raise ValueError('"in_features" should be specified for "torch.nn.{}"'.format(layer_class.__name__))
+            elif layer_class.__name__ in ['Conv1d', 'Conv2d', 'Conv3d'] and 'in_channels' not in hparams['kwargs']:
+                raise ValueError('"in_channels" should be specified for "torch.nn.{}"'.format(layer_class.__name__))
             default_kwargs: Dict[str, Any] = {}
             default_hparams = {'type': layer_type, 'kwargs': default_kwargs}
             hparams = HParams(hparams, default_hparams)
@@ -961,8 +928,7 @@ def get_layer(hparams: Union[HParams, Dict[str, Any]]) ->nn.Module:
                 names.append(name)
                 layer.add_module(name=name, module=sub_layer)
         else:
-            layer = utils.get_instance(layer_type, hparams.kwargs.todict(),
-                layer_modules)
+            layer = utils.get_instance(layer_type, hparams.kwargs.todict(), layer_modules)
     if not isinstance(layer, nn.Module):
         raise ValueError('layer must be an instance of `torch.nn.Module`.')
     return layer
@@ -1002,17 +968,10 @@ def uniquify_str(str_: str, str_set: Collection[str]) ->str:
     raise ValueError('Failed to uniquify string: ' + str_)
 
 
-Type_size_keeper = [nn.ELU, nn.Hardshrink, nn.Hardtanh, nn.LeakyReLU, nn.
-    LogSigmoid, nn.PReLU, nn.ReLU, nn.RReLU, nn.SELU, nn.CELU, nn.Sigmoid,
-    nn.Softplus, nn.Softshrink, nn.Softsign, nn.Tanh, nn.Tanhshrink, nn.
-    Threshold, nn.Softmin, nn.Softmax, nn.LogSoftmax, nn.Dropout, nn.
-    AlphaDropout]
+Type_size_keeper = [nn.ELU, nn.Hardshrink, nn.Hardtanh, nn.LeakyReLU, nn.LogSigmoid, nn.PReLU, nn.ReLU, nn.RReLU, nn.SELU, nn.CELU, nn.Sigmoid, nn.Softplus, nn.Softshrink, nn.Softsign, nn.Tanh, nn.Tanhshrink, nn.Threshold, nn.Softmin, nn.Softmax, nn.LogSoftmax, nn.Dropout, nn.AlphaDropout]
 
 
-Type_size_lambda_map = {nn.Linear: lambda x: x.out_features, nn.Bilinear: 
-    lambda x: x.out_features, _ConvNd: lambda x: x.out_channels * len(x.
-    kernel_size), nn.Embedding: lambda x: x.embedding_dim, nn.EmbeddingBag:
-    lambda x: x.embedding_dim, nn.RNNCellBase: lambda x: x.hidden_size}
+Type_size_lambda_map = {nn.Linear: lambda x: x.out_features, nn.Bilinear: lambda x: x.out_features, _ConvNd: lambda x: x.out_channels * len(x.kernel_size), nn.Embedding: lambda x: x.embedding_dim, nn.EmbeddingBag: lambda x: x.embedding_dim, nn.RNNCellBase: lambda x: x.hidden_size}
 
 
 def get_output_size(input_instance: nn.Module) ->Optional[int]:
@@ -1039,8 +998,7 @@ def get_output_size(input_instance: nn.Module) ->Optional[int]:
     return None
 
 
-def default_transformer_poswise_net_hparams(input_dim: int, output_dim: int=512
-    ) ->Dict[str, Any]:
+def default_transformer_poswise_net_hparams(input_dim: int, output_dim: int=512) ->Dict[str, Any]:
     """Returns default hyperparameters of a
     :class:`~texar.torch.modules.FeedForwardNetwork` as a position-wise network
     used in :class:`~texar.torch.modules.TransformerEncoder` and
@@ -1087,17 +1045,10 @@ def default_transformer_poswise_net_hparams(input_dim: int, output_dim: int=512
         input_dim (int): The size of dense layer input.
         output_dim (int): The size of dense layer output.
     """
-    return {'layers': [{'type': 'Linear', 'kwargs': {'in_features':
-        input_dim, 'out_features': output_dim * 4, 'bias': True}}, {'type':
-        'ReLU', 'kwargs': {'inplace': True}}, {'type': 'Dropout', 'kwargs':
-        {'p': 0.1}}, {'type': 'Linear', 'kwargs': {'in_features': 
-        output_dim * 4, 'out_features': output_dim, 'bias': True}}], 'name':
-        'ffn'}
+    return {'layers': [{'type': 'Linear', 'kwargs': {'in_features': input_dim, 'out_features': output_dim * 4, 'bias': True}}, {'type': 'ReLU', 'kwargs': {'inplace': True}}, {'type': 'Dropout', 'kwargs': {'p': 0.1}}, {'type': 'Linear', 'kwargs': {'in_features': output_dim * 4, 'out_features': output_dim, 'bias': True}}], 'name': 'ffn'}
 
 
-def sequence_mask(lengths: Union[torch.LongTensor, List[int]], max_len:
-    Optional[int]=None, dtype: Optional[torch.dtype]=None, device: Optional
-    [torch.device]=None) ->torch.ByteTensor:
+def sequence_mask(lengths: Union[torch.LongTensor, List[int]], max_len: Optional[int]=None, dtype: Optional[torch.dtype]=None, device: Optional[torch.device]=None) ->torch.ByteTensor:
     """Return a mask tensor representing the first N positions of each cell.
 
     If ``lengths`` has shape ``[d_1, d_2, ..., d_n]`` the resulting tensor
@@ -1143,8 +1094,7 @@ def sequence_mask(lengths: Union[torch.LongTensor, List[int]], max_len:
     if max_len is None:
         max_len = torch.max(lengths).item()
     size = lengths.size()
-    row_vector = torch.arange(max_len, device=device, dtype=lengths.dtype
-        ).view(*([1] * len(size)), -1).expand(*size, max_len)
+    row_vector = torch.arange(max_len, device=device, dtype=lengths.dtype).view(*([1] * len(size)), -1).expand(*size, max_len)
     mask = (row_vector < lengths.unsqueeze(-1)).to(device=device)
     if dtype is not None:
         mask = mask.to(dtype=dtype)
@@ -1157,8 +1107,7 @@ AnyDict = MutableMapping[str, Any]
 ParamDict = Union[HParams, AnyDict]
 
 
-def dict_fetch(src_dict: Optional[ParamDict], tgt_dict_or_keys: Union[
-    ParamDict, List[str]]) ->Optional[AnyDict]:
+def dict_fetch(src_dict: Optional[ParamDict], tgt_dict_or_keys: Union[ParamDict, List[str]]) ->Optional[AnyDict]:
     """Fetches a sub-dictionary of :attr:`src_dict` with the keys in
     :attr:`tgt_dict_or_keys`.
 
@@ -1185,8 +1134,7 @@ def dict_fetch(src_dict: Optional[ParamDict], tgt_dict_or_keys: Union[
     return {k: src_dict[k] for k in keys if k in src_dict}
 
 
-def get_initializer(hparams=None) ->Optional[Callable[[torch.Tensor], torch
-    .Tensor]]:
+def get_initializer(hparams=None) ->Optional[Callable[[torch.Tensor], torch.Tensor]]:
     """Returns an initializer instance.
 
     Args:
@@ -1233,40 +1181,22 @@ class Seq2SeqAttn(nn.Module):
         self.target_vocab_size = train_data.target_vocab.size
         self.bos_token_id = train_data.target_vocab.bos_token_id
         self.eos_token_id = train_data.target_vocab.eos_token_id
-        self.source_embedder = tx.modules.WordEmbedder(vocab_size=self.
-            source_vocab_size, hparams=config_model.embedder)
-        self.target_embedder = tx.modules.WordEmbedder(vocab_size=self.
-            target_vocab_size, hparams=config_model.embedder)
-        self.encoder = tx.modules.BidirectionalRNNEncoder(input_size=self.
-            source_embedder.dim, hparams=config_model.encoder)
-        self.decoder = tx.modules.AttentionRNNDecoder(token_embedder=self.
-            target_embedder, encoder_output_size=self.encoder.cell_fw.
-            hidden_size + self.encoder.cell_bw.hidden_size, input_size=self
-            .target_embedder.dim, vocab_size=self.target_vocab_size,
-            hparams=config_model.decoder)
+        self.source_embedder = tx.modules.WordEmbedder(vocab_size=self.source_vocab_size, hparams=config_model.embedder)
+        self.target_embedder = tx.modules.WordEmbedder(vocab_size=self.target_vocab_size, hparams=config_model.embedder)
+        self.encoder = tx.modules.BidirectionalRNNEncoder(input_size=self.source_embedder.dim, hparams=config_model.encoder)
+        self.decoder = tx.modules.AttentionRNNDecoder(token_embedder=self.target_embedder, encoder_output_size=self.encoder.cell_fw.hidden_size + self.encoder.cell_bw.hidden_size, input_size=self.target_embedder.dim, vocab_size=self.target_vocab_size, hparams=config_model.decoder)
 
     def forward(self, batch, mode):
-        enc_outputs, _ = self.encoder(inputs=self.source_embedder(batch[
-            'source_text_ids']), sequence_length=batch['source_length'])
+        enc_outputs, _ = self.encoder(inputs=self.source_embedder(batch['source_text_ids']), sequence_length=batch['source_length'])
         memory = torch.cat(enc_outputs, dim=2)
         if mode == 'train':
-            helper_train = self.decoder.create_helper(decoding_strategy=
-                'train_greedy')
-            training_outputs, _, _ = self.decoder(memory=memory,
-                memory_sequence_length=batch['source_length'], helper=
-                helper_train, inputs=batch['target_text_ids'][:, :-1],
-                sequence_length=batch['target_length'] - 1)
-            mle_loss = tx.losses.sequence_sparse_softmax_cross_entropy(labels
-                =batch['target_text_ids'][:, 1:], logits=training_outputs.
-                logits, sequence_length=batch['target_length'] - 1)
+            helper_train = self.decoder.create_helper(decoding_strategy='train_greedy')
+            training_outputs, _, _ = self.decoder(memory=memory, memory_sequence_length=batch['source_length'], helper=helper_train, inputs=batch['target_text_ids'][:, :-1], sequence_length=batch['target_length'] - 1)
+            mle_loss = tx.losses.sequence_sparse_softmax_cross_entropy(labels=batch['target_text_ids'][:, 1:], logits=training_outputs.logits, sequence_length=batch['target_length'] - 1)
             return mle_loss
         else:
-            start_tokens = memory.new_full(batch['target_length'].size(),
-                self.bos_token_id, dtype=torch.int64)
-            infer_outputs = self.decoder(start_tokens=start_tokens,
-                end_token=self.eos_token_id, memory=memory,
-                memory_sequence_length=batch['source_length'], beam_width=
-                config_model.beam_width)
+            start_tokens = memory.new_full(batch['target_length'].size(), self.bos_token_id, dtype=torch.int64)
+            infer_outputs = self.decoder(start_tokens=start_tokens, end_token=self.eos_token_id, memory=memory, memory_sequence_length=batch['source_length'], beam_width=config_model.beam_width)
             return infer_outputs
 
 
@@ -1294,8 +1224,7 @@ class LabelSmoothingLoss(nn.Module):
         self.register_buffer('one_hot', one_hot.unsqueeze(0))
         self.confidence = label_confidence
 
-    def forward(self, output: torch.Tensor, target: torch.Tensor,
-        label_lengths: torch.LongTensor) ->torch.Tensor:
+    def forward(self, output: torch.Tensor, target: torch.Tensor, label_lengths: torch.LongTensor) ->torch.Tensor:
         """Compute the label smoothing loss.
 
         Args:
@@ -1313,9 +1242,7 @@ class LabelSmoothingLoss(nn.Module):
         model_prob.masked_fill_((target == self.ignore_index).unsqueeze(1), 0)
         output = output.view(orig_shapes[0])
         model_prob = model_prob.view(orig_shapes[0])
-        return tx.losses.sequence_softmax_cross_entropy(labels=model_prob,
-            logits=output, sequence_length=label_lengths,
-            average_across_batch=False, sum_over_timesteps=False)
+        return tx.losses.sequence_softmax_cross_entropy(labels=model_prob, logits=output, sequence_length=label_lengths, average_across_batch=False, sum_over_timesteps=False)
 
 
 def MultivariateNormalDiag(loc, scale_diag):
@@ -1352,9 +1279,7 @@ class RNNCellBase(nn.Module, Generic[State]):
     def __init__(self, cell: Union[nn.RNNCellBase, 'RNNCellBase']):
         super().__init__()
         if not isinstance(cell, nn.Module):
-            raise ValueError(
-                "Type of parameter 'cell' must be derived fromnn.Module, and has 'input_size' and 'hidden_size'attributes."
-                )
+            raise ValueError("Type of parameter 'cell' must be derived fromnn.Module, and has 'input_size' and 'hidden_size'attributes.")
         self._cell = cell
 
     @property
@@ -1392,14 +1317,12 @@ class RNNCellBase(nn.Module, Generic[State]):
         """
         self.init_batch()
         if isinstance(self._cell, nn.RNNCellBase):
-            state = self._param.new_zeros(batch_size, self.hidden_size,
-                requires_grad=False)
+            state = self._param.new_zeros(batch_size, self.hidden_size, requires_grad=False)
         else:
             state = self._cell.zero_state(batch_size)
         return state
 
-    def forward(self, input: torch.Tensor, state: Optional[State]=None
-        ) ->Tuple[torch.Tensor, State]:
+    def forward(self, input: torch.Tensor, state: Optional[State]=None) ->Tuple[torch.Tensor, State]:
         """
         Returns:
             A tuple of (output, state). For single layer RNNs, output is
@@ -1474,22 +1397,16 @@ class MergeLayer(nn.Module):
         dim (int): The dim to use in merging. Ignored in modes
             :attr:`'elemwise_sum'` and :attr:`'elemwise_mul'`.
     """
-    _functions: Dict[str, Callable[[torch.Tensor, int], torch.Tensor]] = {'sum'
-        : torch.sum, 'mean': torch.mean, 'prod': torch.prod, 'max': lambda
-        tensors, dim: torch.max(tensors, dim)[0], 'min': lambda tensors,
-        dim: torch.min(tensors, dim)[0], 'and': torch.all, 'or': torch.any,
-        'logsumexp': torch.logsumexp}
+    _functions: Dict[str, Callable[[torch.Tensor, int], torch.Tensor]] = {'sum': torch.sum, 'mean': torch.mean, 'prod': torch.prod, 'max': lambda tensors, dim: torch.max(tensors, dim)[0], 'min': lambda tensors, dim: torch.min(tensors, dim)[0], 'and': torch.all, 'or': torch.any, 'logsumexp': torch.logsumexp}
 
-    def __init__(self, layers: Optional[List[nn.Module]]=None, mode: str=
-        'concat', dim: Optional[int]=None):
+    def __init__(self, layers: Optional[List[nn.Module]]=None, mode: str='concat', dim: Optional[int]=None):
         super().__init__()
         self._mode = mode
         self._dim = dim
         self._layers: Optional[nn.ModuleList] = None
         if layers is not None:
             if len(layers) == 0:
-                raise ValueError(
-                    "'layers' must be either None or a non-empty list.")
+                raise ValueError("'layers' must be either None or a non-empty list.")
             self._layers = nn.ModuleList()
             for layer in layers:
                 if isinstance(layer, nn.Module):
@@ -1569,8 +1486,7 @@ class GPTGELU(nn.Module):
     """
 
     def forward(self, x):
-        return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 
-            0.044715 * torch.pow(x, 3))))
+        return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 
 class ModuleBase(nn.Module, ABC):
@@ -1594,9 +1510,7 @@ class ModuleBase(nn.Module, ABC):
         if not hasattr(self, '_hparams'):
             self._hparams = HParams(hparams, self.default_hparams())
         elif hparams is not None:
-            raise ValueError(
-                '`self._hparams` is already assigned, but `hparams` argument is not None.'
-                )
+            raise ValueError('`self._hparams` is already assigned, but `hparams` argument is not None.')
 
     @staticmethod
     def default_hparams() ->Dict[str, Any]:
@@ -1673,30 +1587,65 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AvgReducePool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BertGELU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GPTGELU,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MaxReducePool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MergeLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (T5LayerNorm,
+     lambda: ([], {'input_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_asyml_texar_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AvgReducePool1d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BertGELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Flatten(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(GPTGELU(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(MaxReducePool1d(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(MergeLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(T5LayerNorm(*[], **{'input_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 

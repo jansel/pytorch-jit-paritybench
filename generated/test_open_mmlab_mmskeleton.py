@@ -82,8 +82,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -197,13 +198,11 @@ class Graph:
 
     """
 
-    def __init__(self, layout='openpose', strategy='uniform', max_hop=1,
-        dilation=1):
+    def __init__(self, layout='openpose', strategy='uniform', max_hop=1, dilation=1):
         self.max_hop = max_hop
         self.dilation = dilation
         self.get_edge(layout)
-        self.hop_dis = get_hop_distance(self.num_node, self.edge, max_hop=
-            max_hop)
+        self.hop_dis = get_hop_distance(self.num_node, self.edge, max_hop=max_hop)
         self.get_adjacency(strategy)
 
     def __str__(self):
@@ -213,28 +212,20 @@ class Graph:
         if layout == 'openpose':
             self.num_node = 18
             self_link = [(i, i) for i in range(self.num_node)]
-            neighbor_link = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12,
-                11), (10, 9), (9, 8), (11, 5), (8, 2), (5, 1), (2, 1), (0, 
-                1), (15, 0), (14, 0), (17, 15), (16, 14)]
+            neighbor_link = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11), (10, 9), (9, 8), (11, 5), (8, 2), (5, 1), (2, 1), (0, 1), (15, 0), (14, 0), (17, 15), (16, 14)]
             self.edge = self_link + neighbor_link
             self.center = 1
         elif layout == 'ntu-rgb+d':
             self.num_node = 25
             self_link = [(i, i) for i in range(self.num_node)]
-            neighbor_1base = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6,
-                5), (7, 6), (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (
-                13, 1), (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (
-                19, 18), (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
+            neighbor_1base = [(1, 2), (2, 21), (3, 21), (4, 3), (5, 21), (6, 5), (7, 6), (8, 7), (9, 21), (10, 9), (11, 10), (12, 11), (13, 1), (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18), (20, 19), (22, 23), (23, 8), (24, 25), (25, 12)]
             neighbor_link = [(i - 1, j - 1) for i, j in neighbor_1base]
             self.edge = self_link + neighbor_link
             self.center = 21 - 1
         elif layout == 'ntu_edge':
             self.num_node = 24
             self_link = [(i, i) for i in range(self.num_node)]
-            neighbor_1base = [(1, 2), (3, 2), (4, 3), (5, 2), (6, 5), (7, 6
-                ), (8, 7), (9, 2), (10, 9), (11, 10), (12, 11), (13, 1), (
-                14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18), (
-                20, 19), (21, 22), (22, 8), (23, 24), (24, 12)]
+            neighbor_1base = [(1, 2), (3, 2), (4, 3), (5, 2), (6, 5), (7, 6), (8, 7), (9, 2), (10, 9), (11, 10), (12, 11), (13, 1), (14, 13), (15, 14), (16, 15), (17, 1), (18, 17), (19, 18), (20, 19), (21, 22), (22, 8), (23, 24), (24, 12)]
             neighbor_link = [(i - 1, j - 1) for i, j in neighbor_1base]
             self.edge = self_link + neighbor_link
             self.center = 2
@@ -254,8 +245,7 @@ class Graph:
         elif strategy == 'distance':
             A = np.zeros((len(valid_hop), self.num_node, self.num_node))
             for i, hop in enumerate(valid_hop):
-                A[i][self.hop_dis == hop] = normalize_adjacency[self.
-                    hop_dis == hop]
+                A[i][self.hop_dis == hop] = normalize_adjacency[self.hop_dis == hop]
             self.A = A
         elif strategy == 'spatial':
             A = []
@@ -266,11 +256,9 @@ class Graph:
                 for i in range(self.num_node):
                     for j in range(self.num_node):
                         if self.hop_dis[j, i] == hop:
-                            if self.hop_dis[j, self.center] == self.hop_dis[
-                                i, self.center]:
+                            if self.hop_dis[j, self.center] == self.hop_dis[i, self.center]:
                                 a_root[j, i] = normalize_adjacency[j, i]
-                            elif self.hop_dis[j, self.center] > self.hop_dis[
-                                i, self.center]:
+                            elif self.hop_dis[j, self.center] > self.hop_dis[i, self.center]:
                                 a_close[j, i] = normalize_adjacency[j, i]
                             else:
                                 a_further[j, i] = normalize_adjacency[j, i]
@@ -305,30 +293,19 @@ class Model(nn.Module):
             :math:`M_{in}` is the number of instance in a frame.
     """
 
-    def __init__(self, in_channels, num_class, graph_args,
-        edge_importance_weighting, **kwargs):
+    def __init__(self, in_channels, num_class, graph_args, edge_importance_weighting, **kwargs):
         super().__init__()
         self.graph = Graph(**graph_args)
-        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False
-            )
+        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
         self.register_buffer('A', A)
         spatial_kernel_size = A.size(0)
         temporal_kernel_size = 9
         kernel_size = temporal_kernel_size, spatial_kernel_size
         self.data_bn = nn.BatchNorm1d(in_channels * A.size(1))
         kwargs0 = {k: v for k, v in kwargs.items() if k != 'dropout'}
-        self.st_gcn_networks = nn.ModuleList((st_gcn(in_channels, 64,
-            kernel_size, 1, residual=False, **kwargs0), st_gcn(64, 64,
-            kernel_size, 1, **kwargs), st_gcn(64, 64, kernel_size, 1, **
-            kwargs), st_gcn(64, 64, kernel_size, 1, **kwargs), st_gcn(64, 
-            128, kernel_size, 2, **kwargs), st_gcn(128, 128, kernel_size, 1,
-            **kwargs), st_gcn(128, 128, kernel_size, 1, **kwargs), st_gcn(
-            128, 256, kernel_size, 2, **kwargs), st_gcn(256, 256,
-            kernel_size, 1, **kwargs), st_gcn(256, 256, kernel_size, 1, **
-            kwargs)))
+        self.st_gcn_networks = nn.ModuleList((st_gcn(in_channels, 64, kernel_size, 1, residual=False, **kwargs0), st_gcn(64, 64, kernel_size, 1, **kwargs), st_gcn(64, 64, kernel_size, 1, **kwargs), st_gcn(64, 64, kernel_size, 1, **kwargs), st_gcn(64, 128, kernel_size, 2, **kwargs), st_gcn(128, 128, kernel_size, 1, **kwargs), st_gcn(128, 128, kernel_size, 1, **kwargs), st_gcn(128, 256, kernel_size, 2, **kwargs), st_gcn(256, 256, kernel_size, 1, **kwargs), st_gcn(256, 256, kernel_size, 1, **kwargs)))
         if edge_importance_weighting:
-            self.edge_importance = nn.ParameterList([nn.Parameter(torch.
-                ones(self.A.size())) for i in self.st_gcn_networks])
+            self.edge_importance = nn.ParameterList([nn.Parameter(torch.ones(self.A.size())) for i in self.st_gcn_networks])
         else:
             self.edge_importance = [1] * len(self.st_gcn_networks)
         self.fcn = nn.Conv2d(256, num_class, kernel_size=1)
@@ -391,26 +368,19 @@ class st_gcn(nn.Module):
 
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dropout=0, residual=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dropout=0, residual=True):
         super().__init__()
         assert len(kernel_size) == 2
         assert kernel_size[0] % 2 == 1
         padding = (kernel_size[0] - 1) // 2, 0
-        self.gcn = ConvTemporalGraphical(in_channels, out_channels,
-            kernel_size[1])
-        self.tcn = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(
-            inplace=True), nn.Conv2d(out_channels, out_channels, (
-            kernel_size[0], 1), (stride, 1), padding), nn.BatchNorm2d(
-            out_channels), nn.Dropout(dropout, inplace=True))
+        self.gcn = ConvTemporalGraphical(in_channels, out_channels, kernel_size[1])
+        self.tcn = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, (kernel_size[0], 1), (stride, 1), padding), nn.BatchNorm2d(out_channels), nn.Dropout(dropout, inplace=True))
         if not residual:
             self.residual = lambda x: 0
         elif in_channels == out_channels and stride == 1:
             self.residual = lambda x: x
         else:
-            self.residual = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=(stride, 1)), nn.
-                BatchNorm2d(out_channels))
+            self.residual = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(stride, 1)), nn.BatchNorm2d(out_channels))
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x, A):
@@ -429,9 +399,7 @@ class Model(nn.Module):
 
     def forward(self, x):
         N, C, T, V, M = x.size()
-        m = torch.cat((torch.FloatTensor(N, C, 1, V, M).zero_(), x[:, :, 1:
-            -1] - 0.5 * x[:, :, 2:] - 0.5 * x[:, :, :-2], torch.FloatTensor
-            (N, C, 1, V, M).zero_()), 2)
+        m = torch.cat((torch.FloatTensor(N, C, 1, V, M).zero_(), x[:, :, 1:-1] - 0.5 * x[:, :, 2:] - 0.5 * x[:, :, :-2], torch.FloatTensor(N, C, 1, V, M).zero_()), 2)
         res = self.origin_stream(x) + self.motion_stream(m)
         return res
 
@@ -465,13 +433,10 @@ class ConvTemporalGraphical(nn.Module):
             :math:`V` is the number of graph nodes. 
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size,
-        t_kernel_size=1, t_stride=1, t_padding=0, t_dilation=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, t_kernel_size=1, t_stride=1, t_padding=0, t_dilation=1, bias=True):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = nn.Conv2d(in_channels, out_channels * kernel_size,
-            kernel_size=(t_kernel_size, 1), padding=(t_padding, 0), stride=
-            (t_stride, 1), dilation=(t_dilation, 1), bias=bias)
+        self.conv = nn.Conv2d(in_channels, out_channels * kernel_size, kernel_size=(t_kernel_size, 1), padding=(t_padding, 0), stride=(t_stride, 1), dilation=(t_dilation, 1), bias=bias)
 
     def forward(self, x, A):
         assert A.size(0) == self.kernel_size
@@ -487,8 +452,7 @@ BN_MOMENTUM = 0.1
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-        padding=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class BasicBlock(nn.Module):
@@ -525,13 +489,10 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size
-            =1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM
-            )
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -555,60 +516,43 @@ class Bottleneck(nn.Module):
 
 class HRModule(nn.Module):
 
-    def __init__(self, num_branches, blocks, num_blocks, num_inchannels,
-        num_channels, fuse_method, multi_scale_output=True):
+    def __init__(self, num_branches, blocks, num_blocks, num_inchannels, num_channels, fuse_method, multi_scale_output=True):
         super(HRModule, self).__init__()
-        self._check_branches(num_branches, num_blocks, num_inchannels,
-            num_channels)
+        self._check_branches(num_branches, num_blocks, num_inchannels, num_channels)
         self.num_inchannels = num_inchannels
         self.fuse_method = fuse_method
         self.num_branches = num_branches
         self.multi_scale_output = multi_scale_output
-        self.branches = self._make_branches(num_branches, blocks,
-            num_blocks, num_channels)
+        self.branches = self._make_branches(num_branches, blocks, num_blocks, num_channels)
         self.fuse_layers = self._make_fuse_layers()
         self.relu = nn.ReLU(True)
 
-    def _check_branches(self, num_branches, num_blocks, num_inchannels,
-        num_channels):
+    def _check_branches(self, num_branches, num_blocks, num_inchannels, num_channels):
         if num_branches != len(num_blocks):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(
-                num_branches, len(num_blocks))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_BLOCKS({})'.format(num_branches, len(num_blocks))
             raise ValueError(error_msg)
         if num_branches != len(num_channels):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(
-                num_branches, len(num_channels))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_CHANNELS({})'.format(num_branches, len(num_channels))
             raise ValueError(error_msg)
         if num_branches != len(num_inchannels):
-            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(
-                num_branches, len(num_inchannels))
+            error_msg = 'NUM_BRANCHES({}) <> NUM_INCHANNELS({})'.format(num_branches, len(num_inchannels))
             raise ValueError(error_msg)
 
-    def _make_one_branch(self, branch_index, block, num_blocks,
-        num_channels, stride=1):
+    def _make_one_branch(self, branch_index, block, num_blocks, num_channels, stride=1):
         downsample = None
-        if stride != 1 or self.num_inchannels[branch_index] != num_channels[
-            branch_index] * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.num_inchannels[
-                branch_index], num_channels[branch_index] * block.expansion,
-                kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(
-                num_channels[branch_index] * block.expansion, momentum=
-                BN_MOMENTUM))
+        if stride != 1 or self.num_inchannels[branch_index] != num_channels[branch_index] * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.num_inchannels[branch_index], num_channels[branch_index] * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(num_channels[branch_index] * block.expansion, momentum=BN_MOMENTUM))
         layers = []
-        layers.append(block(self.num_inchannels[branch_index], num_channels
-            [branch_index], stride, downsample))
-        self.num_inchannels[branch_index] = num_channels[branch_index
-            ] * block.expansion
+        layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index], stride, downsample))
+        self.num_inchannels[branch_index] = num_channels[branch_index] * block.expansion
         for i in range(1, num_blocks[branch_index]):
-            layers.append(block(self.num_inchannels[branch_index],
-                num_channels[branch_index]))
+            layers.append(block(self.num_inchannels[branch_index], num_channels[branch_index]))
         return nn.Sequential(*layers)
 
     def _make_branches(self, num_branches, block, num_blocks, num_channels):
         branches = []
         for i in range(num_branches):
-            branches.append(self._make_one_branch(i, block, num_blocks,
-                num_channels))
+            branches.append(self._make_one_branch(i, block, num_blocks, num_channels))
         return nn.ModuleList(branches)
 
     def _make_fuse_layers(self):
@@ -621,10 +565,7 @@ class HRModule(nn.Module):
             fuse_layer = []
             for j in range(num_branches):
                 if j > i:
-                    fuse_layer.append(nn.Sequential(nn.Conv2d(
-                        num_inchannels[j], num_inchannels[i], 1, 1, 0, bias
-                        =False), nn.BatchNorm2d(num_inchannels[i]), nn.
-                        Upsample(scale_factor=2 ** (j - i), mode='nearest')))
+                    fuse_layer.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_inchannels[i], 1, 1, 0, bias=False), nn.BatchNorm2d(num_inchannels[i]), nn.Upsample(scale_factor=2 ** (j - i), mode='nearest')))
                 elif j == i:
                     fuse_layer.append(None)
                 else:
@@ -632,16 +573,10 @@ class HRModule(nn.Module):
                     for k in range(i - j):
                         if k == i - j - 1:
                             num_outchannels_conv3x3 = num_inchannels[i]
-                            conv3x3s.append(nn.Sequential(nn.Conv2d(
-                                num_inchannels[j], num_outchannels_conv3x3,
-                                3, 2, 1, bias=False), nn.BatchNorm2d(
-                                num_outchannels_conv3x3)))
+                            conv3x3s.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_outchannels_conv3x3, 3, 2, 1, bias=False), nn.BatchNorm2d(num_outchannels_conv3x3)))
                         else:
                             num_outchannels_conv3x3 = num_inchannels[j]
-                            conv3x3s.append(nn.Sequential(nn.Conv2d(
-                                num_inchannels[j], num_outchannels_conv3x3,
-                                3, 2, 1, bias=False), nn.BatchNorm2d(
-                                num_outchannels_conv3x3), nn.ReLU(True)))
+                            conv3x3s.append(nn.Sequential(nn.Conv2d(num_inchannels[j], num_outchannels_conv3x3, 3, 2, 1, bias=False), nn.BatchNorm2d(num_outchannels_conv3x3), nn.ReLU(True)))
                     fuse_layer.append(nn.Sequential(*conv3x3s))
             fuse_layers.append(nn.ModuleList(fuse_layer))
         return nn.ModuleList(fuse_layers)
@@ -666,19 +601,7 @@ class HRModule(nn.Module):
         return x_fuse
 
 
-mmskeleton_model_urls = {'st_gcn/kinetics-skeleton':
-    'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.kinetics-6fa43f73.pth'
-    , 'st_gcn/ntu-xsub':
-    'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.ntu-xsub-300b57d4.pth'
-    , 'st_gcn/ntu-xview':
-    'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.ntu-xview-9ba67746.pth'
-    , 'mmdet/htc_dconv_c3-c5_mstrain_400_1400_x101_64x4d_fpn_20e':
-    'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/mmdet/htc_dconv_c3-c5_mstrain_400_1400_x101_64x4d_fpn_20e_20190408-0e50669c.pth'
-    , 'pose_estimation/pose_hrnet_w32_256x192':
-    'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/pose_estimation/pose_hrnet_w32_256x192-76ea353b.pth'
-    , 'mmdet/cascade_rcnn_r50_fpn_20e':
-    'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_r50_fpn_20e_20181123-db483a09.pth'
-    }
+mmskeleton_model_urls = {'st_gcn/kinetics-skeleton': 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.kinetics-6fa43f73.pth', 'st_gcn/ntu-xsub': 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.ntu-xsub-300b57d4.pth', 'st_gcn/ntu-xview': 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/st-gcn/st_gcn.ntu-xview-9ba67746.pth', 'mmdet/htc_dconv_c3-c5_mstrain_400_1400_x101_64x4d_fpn_20e': 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/mmdet/htc_dconv_c3-c5_mstrain_400_1400_x101_64x4d_fpn_20e_20190408-0e50669c.pth', 'pose_estimation/pose_hrnet_w32_256x192': 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmskeleton/models/pose_estimation/pose_hrnet_w32_256x192-76ea353b.pth', 'mmdet/cascade_rcnn_r50_fpn_20e': 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_r50_fpn_20e_20181123-db483a09.pth'}
 
 
 def get_mmskeleton_url(filename):
@@ -714,11 +637,9 @@ class HRNet(nn.Module):
         self.inplanes = 64
         self.extra = extra
         super(HRNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1,
-            bias=False)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
         self.stage1_cfg = self.extra['stage1']
@@ -732,66 +653,48 @@ class HRNet(nn.Module):
         num_channels = self.stage2_cfg['num_channels']
         block_type = self.stage2_cfg['block']
         block = self.blocks_dict[block_type]
-        num_channels = [(channel * block.expansion) for channel in num_channels
-            ]
-        self.transition1 = self._make_transition_layer([stage1_out_channels
-            ], num_channels)
-        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg,
-            num_channels)
+        num_channels = [(channel * block.expansion) for channel in num_channels]
+        self.transition1 = self._make_transition_layer([stage1_out_channels], num_channels)
+        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg, num_channels)
         self.stage3_cfg = self.extra['stage3']
         num_channels = self.stage3_cfg['num_channels']
         block_type = self.stage3_cfg['block']
         block = self.blocks_dict[block_type]
-        num_channels = [(channel * block.expansion) for channel in num_channels
-            ]
-        self.transition2 = self._make_transition_layer(pre_stage_channels,
-            num_channels)
-        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg,
-            num_channels)
+        num_channels = [(channel * block.expansion) for channel in num_channels]
+        self.transition2 = self._make_transition_layer(pre_stage_channels, num_channels)
+        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg, num_channels)
         self.stage4_cfg = self.extra['stage4']
         num_channels = self.stage4_cfg['num_channels']
         block_type = self.stage4_cfg['block']
         block = self.blocks_dict[block_type]
-        num_channels = [(channel * block.expansion) for channel in num_channels
-            ]
-        self.transition3 = self._make_transition_layer(pre_stage_channels,
-            num_channels)
-        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg,
-            num_channels)
+        num_channels = [(channel * block.expansion) for channel in num_channels]
+        self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels)
+        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg, num_channels)
         self.init_weights()
 
-    def _make_transition_layer(self, num_channels_pre_layer,
-        num_channels_cur_layer):
+    def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer):
         num_branches_cur = len(num_channels_cur_layer)
         num_branches_pre = len(num_channels_pre_layer)
         transition_layers = []
         for i in range(num_branches_cur):
             if i < num_branches_pre:
                 if num_channels_cur_layer[i] != num_channels_pre_layer[i]:
-                    transition_layers.append(nn.Sequential(nn.Conv2d(
-                        num_channels_pre_layer[i], num_channels_cur_layer[i
-                        ], 3, 1, 1, bias=False), nn.BatchNorm2d(
-                        num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
+                    transition_layers.append(nn.Sequential(nn.Conv2d(num_channels_pre_layer[i], num_channels_cur_layer[i], 3, 1, 1, bias=False), nn.BatchNorm2d(num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
                 else:
                     transition_layers.append(None)
             else:
                 conv3x3s = []
                 for j in range(i + 1 - num_branches_pre):
                     inchannels = num_channels_pre_layer[-1]
-                    outchannels = num_channels_cur_layer[i
-                        ] if j == i - num_branches_pre else inchannels
-                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels,
-                        outchannels, 3, 2, 1, bias=False), nn.BatchNorm2d(
-                        outchannels), nn.ReLU(inplace=True)))
+                    outchannels = num_channels_cur_layer[i] if j == i - num_branches_pre else inchannels
+                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels, outchannels, 3, 2, 1, bias=False), nn.BatchNorm2d(outchannels), nn.ReLU(inplace=True)))
                 transition_layers.append(nn.Sequential(*conv3x3s))
         return nn.ModuleList(transition_layers)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM))
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -799,8 +702,7 @@ class HRNet(nn.Module):
             layers.append(block(self.inplanes, planes))
         return nn.Sequential(*layers)
 
-    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True
-        ):
+    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True):
         num_modules = layer_config['num_modules']
         num_branches = layer_config['num_branches']
         num_blocks = layer_config['num_blocks']
@@ -813,9 +715,7 @@ class HRNet(nn.Module):
                 reset_multi_scale_output = False
             else:
                 reset_multi_scale_output = True
-            modules.append(HRModule(num_branches, block, num_blocks,
-                num_inchannels, num_channels, fuse_method,
-                reset_multi_scale_output))
+            modules.append(HRModule(num_branches, block, num_blocks, num_inchannels, num_channels, fuse_method, reset_multi_scale_output))
             num_inchannels = modules[-1].get_num_inchannels()
         return nn.Sequential(*modules), num_inchannels
 
@@ -882,31 +782,19 @@ class ST_GCN_18(nn.Module):
             :math:`M_{in}` is the number of instance in a frame.
     """
 
-    def __init__(self, in_channels, num_class, graph_cfg,
-        edge_importance_weighting=True, data_bn=True, **kwargs):
+    def __init__(self, in_channels, num_class, graph_cfg, edge_importance_weighting=True, data_bn=True, **kwargs):
         super().__init__()
         self.graph = Graph(**graph_cfg)
-        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False
-            )
+        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
         self.register_buffer('A', A)
         spatial_kernel_size = A.size(0)
         temporal_kernel_size = 9
         kernel_size = temporal_kernel_size, spatial_kernel_size
-        self.data_bn = nn.BatchNorm1d(in_channels * A.size(1)
-            ) if data_bn else lambda x: x
+        self.data_bn = nn.BatchNorm1d(in_channels * A.size(1)) if data_bn else lambda x: x
         kwargs0 = {k: v for k, v in kwargs.items() if k != 'dropout'}
-        self.st_gcn_networks = nn.ModuleList((st_gcn_block(in_channels, 64,
-            kernel_size, 1, residual=False, **kwargs0), st_gcn_block(64, 64,
-            kernel_size, 1, **kwargs), st_gcn_block(64, 64, kernel_size, 1,
-            **kwargs), st_gcn_block(64, 64, kernel_size, 1, **kwargs),
-            st_gcn_block(64, 128, kernel_size, 2, **kwargs), st_gcn_block(
-            128, 128, kernel_size, 1, **kwargs), st_gcn_block(128, 128,
-            kernel_size, 1, **kwargs), st_gcn_block(128, 256, kernel_size, 
-            2, **kwargs), st_gcn_block(256, 256, kernel_size, 1, **kwargs),
-            st_gcn_block(256, 256, kernel_size, 1, **kwargs)))
+        self.st_gcn_networks = nn.ModuleList((st_gcn_block(in_channels, 64, kernel_size, 1, residual=False, **kwargs0), st_gcn_block(64, 64, kernel_size, 1, **kwargs), st_gcn_block(64, 64, kernel_size, 1, **kwargs), st_gcn_block(64, 64, kernel_size, 1, **kwargs), st_gcn_block(64, 128, kernel_size, 2, **kwargs), st_gcn_block(128, 128, kernel_size, 1, **kwargs), st_gcn_block(128, 128, kernel_size, 1, **kwargs), st_gcn_block(128, 256, kernel_size, 2, **kwargs), st_gcn_block(256, 256, kernel_size, 1, **kwargs), st_gcn_block(256, 256, kernel_size, 1, **kwargs)))
         if edge_importance_weighting:
-            self.edge_importance = nn.ParameterList([nn.Parameter(torch.
-                ones(self.A.size())) for i in self.st_gcn_networks])
+            self.edge_importance = nn.ParameterList([nn.Parameter(torch.ones(self.A.size())) for i in self.st_gcn_networks])
         else:
             self.edge_importance = [1] * len(self.st_gcn_networks)
         self.fcn = nn.Conv2d(256, num_class, kernel_size=1)
@@ -969,26 +857,19 @@ class st_gcn_block(nn.Module):
 
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        dropout=0, residual=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dropout=0, residual=True):
         super().__init__()
         assert len(kernel_size) == 2
         assert kernel_size[0] % 2 == 1
         padding = (kernel_size[0] - 1) // 2, 0
-        self.gcn = ConvTemporalGraphical(in_channels, out_channels,
-            kernel_size[1])
-        self.tcn = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(
-            inplace=True), nn.Conv2d(out_channels, out_channels, (
-            kernel_size[0], 1), (stride, 1), padding), nn.BatchNorm2d(
-            out_channels), nn.Dropout(dropout, inplace=True))
+        self.gcn = ConvTemporalGraphical(in_channels, out_channels, kernel_size[1])
+        self.tcn = nn.Sequential(nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True), nn.Conv2d(out_channels, out_channels, (kernel_size[0], 1), (stride, 1), padding), nn.BatchNorm2d(out_channels), nn.Dropout(dropout, inplace=True))
         if not residual:
             self.residual = lambda x: 0
         elif in_channels == out_channels and stride == 1:
             self.residual = lambda x: x
         else:
-            self.residual = nn.Sequential(nn.Conv2d(in_channels,
-                out_channels, kernel_size=1, stride=(stride, 1)), nn.
-                BatchNorm2d(out_channels))
+            self.residual = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(stride, 1)), nn.BatchNorm2d(out_channels))
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x, A):
@@ -1039,11 +920,9 @@ class BaseEstimator(nn.Module):
     def forward_test(self, input, **kwargs):
         pass
 
-    def forward(self, image, meta=None, targets=None, target_weights=None,
-        return_loss=True, **kwargs):
+    def forward(self, image, meta=None, targets=None, target_weights=None, return_loss=True, **kwargs):
         if return_loss:
-            return self.forward_train(image, meta, targets, target_weights,
-                **kwargs)
+            return self.forward_train(image, meta, targets, target_weights, **kwargs)
         else:
             return self.forward_test(image, **kwargs)
 
@@ -1058,16 +937,14 @@ class JointsMSELoss(nn.Module):
     def forward(self, output, target, target_weight):
         batch_size = output.size(0)
         num_joints = output.size(1)
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1
-            )
+        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
         heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
         loss = 0
         for idx in range(num_joints):
             heatmap_pred = heatmaps_pred[idx].squeeze()
             heatmap_gt = heatmaps_gt[idx].squeeze()
             if self.use_target_weight:
-                loss += 0.5 * self.criterion(heatmap_pred.mul(target_weight
-                    [:, (idx)]), heatmap_gt.mul(target_weight[:, (idx)]))
+                loss += 0.5 * self.criterion(heatmap_pred.mul(target_weight[:, (idx)]), heatmap_gt.mul(target_weight[:, (idx)]))
             else:
                 loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
         return loss / num_joints
@@ -1085,8 +962,7 @@ class JointsOHKMMSELoss(nn.Module):
         ohkm_loss = 0.0
         for i in range(loss.size()[0]):
             sub_loss = loss[i]
-            topk_val, topk_idx = torch.topk(sub_loss, k=self.topk, dim=0,
-                sorted=False)
+            topk_val, topk_idx = torch.topk(sub_loss, k=self.topk, dim=0, sorted=False)
             tmp_loss = torch.gather(sub_loss, 0, topk_idx)
             ohkm_loss += torch.sum(tmp_loss) / self.topk
         ohkm_loss /= loss.size()[0]
@@ -1096,19 +972,15 @@ class JointsOHKMMSELoss(nn.Module):
         batch_size = outs.size(0)
         num_joints = outs.size(1)
         heatmaps_pred = outs.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_targets = targets.reshape((batch_size, num_joints, -1)).split(
-            1, 1)
+        heatmaps_targets = targets.reshape((batch_size, num_joints, -1)).split(1, 1)
         loss = []
         for idx in range(num_joints):
             heatmap_pred = heatmaps_pred[idx].squeeze()
             heatmaps_targets = heatmaps_targets[idx].squeeze()
             if self.use_target_weight:
-                loss.append(0.5 * self.criterion(heatmap_pred.mul(
-                    target_weights[:, (idx)]), heatmaps_targets.mul(
-                    target_weights[:, (idx)])))
+                loss.append(0.5 * self.criterion(heatmap_pred.mul(target_weights[:, (idx)]), heatmaps_targets.mul(target_weights[:, (idx)])))
             else:
-                loss.append(0.5 * self.criterion(heatmap_pred,
-                    heatmaps_targets))
+                loss.append(0.5 * self.criterion(heatmap_pred, heatmaps_targets))
         loss = [l.mean(dim=1).unsqueeze(dim=1) for l in loss]
         loss = torch.cat(loss, dim=1)
         return self.ohkm(loss)
@@ -1124,8 +996,7 @@ def import_obj(type):
     except ModuleNotFoundError:
         if type[0:11] != 'mmskeleton.':
             return import_obj('mmskeleton.' + type)
-        raise ModuleNotFoundError('Object {} cannot be found in {}.'.format
-            (class_str, mod_str))
+        raise ModuleNotFoundError('Object {} cannot be found in {}.'.format(class_str, mod_str))
 
 
 def call_obj(type, **kwargs):
@@ -1139,9 +1010,7 @@ def call_obj(type, **kwargs):
 
 class SimpleSkeletonHead(nn.Module):
 
-    def __init__(self, num_convs, in_channels, embed_channels=None,
-        kernel_size=None, num_joints=None, reg_loss=dict(name=
-        'JointsMSELoss', use_target_weight=False)):
+    def __init__(self, num_convs, in_channels, embed_channels=None, kernel_size=None, num_joints=None, reg_loss=dict(name='JointsMSELoss', use_target_weight=False)):
         super(SimpleSkeletonHead, self).__init__()
         self.num_convs = num_convs
         self.in_channels = in_channels
@@ -1160,10 +1029,8 @@ class SimpleSkeletonHead(nn.Module):
                         nn.init.constant_(m.bias, 0)
 
     def make_layers(self):
-        assert isinstance(self.embed_channels, list) or isinstance(self.
-            embed_channels, int) or self.embed_channels is None
-        assert isinstance(self.kernel_size, list) or isinstance(self.
-            kernel_size, int)
+        assert isinstance(self.embed_channels, list) or isinstance(self.embed_channels, int) or self.embed_channels is None
+        assert isinstance(self.kernel_size, list) or isinstance(self.kernel_size, int)
         if isinstance(self.embed_channels, list):
             assert len(self.embed_channels) == self.num_convs - 1
         if isinstance(self.kernel_size, list):
@@ -1177,17 +1044,14 @@ class SimpleSkeletonHead(nn.Module):
                     out_channels = self.embed_channels[i]
                 elif isinstance(self.embed_channels, int):
                     out_channels = self.embed_channels
-            elif i == self.num_convs - 1 or isinstance(self.embed_channels,
-                None):
+            elif i == self.num_convs - 1 or isinstance(self.embed_channels, None):
                 out_channels = self.num_joints
             if isinstance(self.kernel_size, list):
                 kernel_size = self.kernel_size[i]
             else:
                 kernel_size = self.kernel_size
             padding = kernel_size // 2
-            module_list.append(nn.Conv2d(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=kernel_size, padding
-                =padding, stride=1))
+            module_list.append(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, stride=1))
             in_channels = out_channels
         return nn.Sequential(*module_list)
 
@@ -1203,8 +1067,7 @@ class SimpleSkeletonHead(nn.Module):
 
 class GraphConvND(nn.Module):
 
-    def __init__(self, N, in_channels, out_channels, kernel_size, stride,
-        padding, dilation, groups, bias, padding_mode):
+    def __init__(self, N, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode):
         graph_kernel_size = kernel_size[0]
         graph_stride = stride[0]
         graph_padding = padding[0]
@@ -1222,10 +1085,7 @@ class GraphConvND(nn.Module):
             self.einsum_func = 'nkcvxy,kvw->ncwxy'
         self.out_channels = out_channels
         self.graph_kernel_size = graph_kernel_size
-        self.conv = conv_type(in_channels, out_channels * graph_kernel_size,
-            kernel_size=[1] + kernel_size[1:], stride=[1] + stride[1:],
-            padding=[0] + padding[1:], dilation=[1] + dilation[1:], groups=
-            groups, bias=bias, padding_mode=padding_mode)
+        self.conv = conv_type(in_channels, out_channels * graph_kernel_size, kernel_size=[1] + kernel_size[1:], stride=[1] + stride[1:], padding=[0] + padding[1:], dilation=[1] + dilation[1:], groups=groups, bias=bias, padding_mode=padding_mode)
 
     def forward(self, x, graph):
         if graph.dim() == 2:
@@ -1235,8 +1095,7 @@ class GraphConvND(nn.Module):
         else:
             raise ValueError('input[1].dim() should be 2 or 3.')
         x = self.conv(x)
-        x = x.view((x.size(0), self.graph_kernel_size, self.out_channels) +
-            x.size()[2:])
+        x = x.view((x.size(0), self.graph_kernel_size, self.out_channels) + x.size()[2:])
         x = torch.einsum(self.einsum_func, (x, A))
         return x.contiguous(), out_graph
 
@@ -1274,13 +1133,10 @@ class ConvTemporalGraphical(nn.Module):
             :math:`V` is the number of graph nodes. 
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size,
-        t_kernel_size=1, t_stride=1, t_padding=0, t_dilation=1, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, t_kernel_size=1, t_stride=1, t_padding=0, t_dilation=1, bias=True):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = nn.Conv2d(in_channels, out_channels * kernel_size,
-            kernel_size=(t_kernel_size, 1), padding=(t_padding, 0), stride=
-            (t_stride, 1), dilation=(t_dilation, 1), bias=bias)
+        self.conv = nn.Conv2d(in_channels, out_channels * kernel_size, kernel_size=(t_kernel_size, 1), padding=(t_padding, 0), stride=(t_stride, 1), dilation=(t_dilation, 1), bias=bias)
 
     def forward(self, x, A):
         assert A.size(0) == self.kernel_size
@@ -1302,11 +1158,9 @@ class Gconv(nn.Module):
             cnn_kernel_size = [1] + kernel_size[1:]
             feature_dim = len(kernel_size) - 1
         else:
-            raise ValueError(
-                'The type of kernel_size should be int, list or tuple.')
+            raise ValueError('The type of kernel_size should be int, list or tuple.')
         if feature_dim == 1:
-            self.conv = nn.Conv1d(in_channels, out_channels *
-                gcn_kernel_size, kernel_size=cnn_kernel_size)
+            self.conv = nn.Conv1d(in_channels, out_channels * gcn_kernel_size, kernel_size=cnn_kernel_size)
         elif feature_dim == 2:
             pass
         elif feature_dim == 3:
@@ -1314,8 +1168,7 @@ class Gconv(nn.Module):
         elif feature_dim == 0:
             pass
         else:
-            raise ValueError(
-                'The length of kernel_size should be 1, 2, 3, or 4')
+            raise ValueError('The length of kernel_size should be 1, 2, 3, or 4')
 
     def forward(self, X, A):
         pass
@@ -1325,11 +1178,23 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (JointsMSELoss,
+     lambda: ([], {'use_target_weight': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     True),
+]
+
 class Test_open_mmlab_mmskeleton(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BasicBlock(*[], **{'inplanes': 4, 'planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(JointsMSELoss(*[], **{'use_target_weight': 4}), [torch.rand([4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 

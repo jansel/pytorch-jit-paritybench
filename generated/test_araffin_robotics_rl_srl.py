@@ -87,8 +87,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -122,16 +123,13 @@ class CNNPolicyPytorch(nn.Module):
 
     def __init__(self, in_dim, out_dim):
         super(CNNPolicyPytorch, self).__init__()
-        self.conv1 = nn.Conv2d(in_dim, 8, kernel_size=5, padding=2, stride=
-            2, bias=False)
+        self.conv1 = nn.Conv2d(in_dim, 8, kernel_size=5, padding=2, stride=2, bias=False)
         self.norm1 = nn.BatchNorm2d(8)
         self.pool1 = nn.MaxPool2d(2)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1, stride=2,
-            bias=False)
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1, stride=2, bias=False)
         self.norm2 = nn.BatchNorm2d(16)
         self.pool2 = nn.MaxPool2d(2)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1, stride=2,
-            bias=False)
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1, stride=2, bias=False)
         self.norm3 = nn.BatchNorm2d(32)
         self.pool3 = nn.MaxPool2d(2)
         self.fc = nn.Linear(288, out_dim)
@@ -167,8 +165,7 @@ class MLPPolicyPytorch(nn.Module):
         self.fc_hidden_name = []
         self.fc_in = nn.Linear(int(in_dim), int(hidden_dims[0]))
         for i in range(len(hidden_dims) - 1):
-            self.add_module('fc_' + str(i), nn.Linear(int(hidden_dims[i]),
-                int(hidden_dims[i + 1])))
+            self.add_module('fc_' + str(i), nn.Linear(int(hidden_dims[i]), int(hidden_dims[i + 1])))
             self.fc_hidden_name.append('fc_' + str(i))
         self.fc_out = nn.Linear(int(hidden_dims[-1]), int(out_dim))
 
@@ -184,5 +181,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNNPolicyPytorch,
+     lambda: ([], {'in_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 216, 216])], {}),
+     True),
+]
+
 class Test_araffin_robotics_rl_srl(_paritybench_base):
-    pass
+    def test_000(self):
+        self._check(*TESTCASES[0])
+

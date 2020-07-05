@@ -8,8 +8,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -40,13 +41,7 @@ class SiamRPN(nn.Module):
     def __init__(self, anchor_num=5):
         super(SiamRPN, self).__init__()
         self.anchor_num = anchor_num
-        self.feature = nn.Sequential(nn.Conv2d(3, 192, 11, 2), nn.
-            BatchNorm2d(192), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn
-            .Conv2d(192, 512, 5, 1), nn.BatchNorm2d(512), nn.ReLU(inplace=
-            True), nn.MaxPool2d(3, 2), nn.Conv2d(512, 768, 3, 1), nn.
-            BatchNorm2d(768), nn.ReLU(inplace=True), nn.Conv2d(768, 768, 3,
-            1), nn.BatchNorm2d(768), nn.ReLU(inplace=True), nn.Conv2d(768, 
-            512, 3, 1), nn.BatchNorm2d(512))
+        self.feature = nn.Sequential(nn.Conv2d(3, 192, 11, 2), nn.BatchNorm2d(192), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(192, 512, 5, 1), nn.BatchNorm2d(512), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2), nn.Conv2d(512, 768, 3, 1), nn.BatchNorm2d(768), nn.ReLU(inplace=True), nn.Conv2d(768, 768, 3, 1), nn.BatchNorm2d(768), nn.ReLU(inplace=True), nn.Conv2d(768, 512, 3, 1), nn.BatchNorm2d(512))
         self.conv_reg_z = nn.Conv2d(512, 512 * 4 * anchor_num, 3, 1)
         self.conv_reg_x = nn.Conv2d(512, 512, 3)
         self.conv_cls_z = nn.Conv2d(512, 512 * 2 * anchor_num, 3, 1)
@@ -73,10 +68,3 @@ class SiamRPN(nn.Module):
         out_cls = F.conv2d(x_cls, kernel_cls)
         return out_reg, out_cls
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_huanglianghua_siamrpn_pytorch(_paritybench_base):
-    pass

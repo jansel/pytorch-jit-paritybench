@@ -53,8 +53,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -188,19 +189,15 @@ class LocalActivationUnit(nn.Module):
         - [Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C]//Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining. ACM, 2018: 1059-1068.](https://arxiv.org/pdf/1706.06978.pdf)
     """
 
-    def __init__(self, hidden_units=(64, 32), embedding_dim=4, activation=
-        'sigmoid', dropout_rate=0, dice_dim=3, l2_reg=0, use_bn=False):
+    def __init__(self, hidden_units=(64, 32), embedding_dim=4, activation='sigmoid', dropout_rate=0, dice_dim=3, l2_reg=0, use_bn=False):
         super(LocalActivationUnit, self).__init__()
-        self.dnn = DNN(inputs_dim=4 * embedding_dim, hidden_units=
-            hidden_units, activation=activation, l2_reg=l2_reg,
-            dropout_rate=dropout_rate, dice_dim=dice_dim, use_bn=use_bn)
+        self.dnn = DNN(inputs_dim=4 * embedding_dim, hidden_units=hidden_units, activation=activation, l2_reg=l2_reg, dropout_rate=dropout_rate, dice_dim=dice_dim, use_bn=use_bn)
         self.dense = nn.Linear(hidden_units[-1], 1)
 
     def forward(self, query, user_behavior):
         user_behavior_len = user_behavior.size(1)
         queries = query.expand(-1, user_behavior_len, -1)
-        attention_input = torch.cat([queries, user_behavior, queries -
-            user_behavior, queries * user_behavior], dim=-1)
+        attention_input = torch.cat([queries, user_behavior, queries - user_behavior, queries * user_behavior], dim=-1)
         attention_output = self.dnn(attention_input)
         attention_score = self.dense(attention_output)
         return attention_score
@@ -260,9 +257,7 @@ class DNN(nn.Module):
         - **seed**: A Python integer to use as random seed.
     """
 
-    def __init__(self, inputs_dim, hidden_units, activation='relu', l2_reg=
-        0, dropout_rate=0, use_bn=False, init_std=0.0001, dice_dim=3, seed=
-        1024, device='cpu'):
+    def __init__(self, inputs_dim, hidden_units, activation='relu', l2_reg=0, dropout_rate=0, use_bn=False, init_std=0.0001, dice_dim=3, seed=1024, device='cpu'):
         super(DNN, self).__init__()
         self.dropout_rate = dropout_rate
         self.dropout = nn.Dropout(dropout_rate)
@@ -272,14 +267,10 @@ class DNN(nn.Module):
         if len(hidden_units) == 0:
             raise ValueError('hidden_units is empty!!')
         hidden_units = [inputs_dim] + list(hidden_units)
-        self.linears = nn.ModuleList([nn.Linear(hidden_units[i],
-            hidden_units[i + 1]) for i in range(len(hidden_units) - 1)])
+        self.linears = nn.ModuleList([nn.Linear(hidden_units[i], hidden_units[i + 1]) for i in range(len(hidden_units) - 1)])
         if self.use_bn:
-            self.bn = nn.ModuleList([nn.BatchNorm1d(hidden_units[i + 1]) for
-                i in range(len(hidden_units) - 1)])
-        self.activation_layers = nn.ModuleList([activation_layer(activation,
-            hidden_units[i + 1], dice_dim) for i in range(len(hidden_units) -
-            1)])
+            self.bn = nn.ModuleList([nn.BatchNorm1d(hidden_units[i + 1]) for i in range(len(hidden_units) - 1)])
+        self.activation_layers = nn.ModuleList([activation_layer(activation, hidden_units[i + 1], dice_dim) for i in range(len(hidden_units) - 1)])
         for name, tensor in self.linears.named_parameters():
             if 'weight' in name:
                 nn.init.normal_(tensor, mean=0, std=init_std)
@@ -326,10 +317,8 @@ class Conv2dSame(nn.Conv2d):
     """ Tensorflow like 'SAME' convolution wrapper for 2D convolutions
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-        padding=0, dilation=1, groups=1, bias=True):
-        super(Conv2dSame, self).__init__(in_channels, out_channels,
-            kernel_size, stride, 0, dilation, groups, bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2dSame, self).__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
         nn.init.xavier_uniform_(self.weight)
 
     def forward(self, x):
@@ -337,15 +326,11 @@ class Conv2dSame(nn.Conv2d):
         kh, kw = self.weight.size()[-2:]
         oh = math.ceil(ih / self.stride[0])
         ow = math.ceil(iw / self.stride[1])
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] +
-            1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] +
-            1 - iw, 0)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h -
-                pad_h // 2])
-        out = F.conv2d(x, self.weight, self.bias, self.stride, self.padding,
-            self.dilation, self.groups)
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        out = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
         return out
 
 
@@ -391,10 +376,8 @@ class BiInteractionPooling(nn.Module):
 
     def forward(self, inputs):
         concated_embeds_value = inputs
-        square_of_sum = torch.pow(torch.sum(concated_embeds_value, dim=1,
-            keepdim=True), 2)
-        sum_of_square = torch.sum(concated_embeds_value *
-            concated_embeds_value, dim=1, keepdim=True)
+        square_of_sum = torch.pow(torch.sum(concated_embeds_value, dim=1, keepdim=True), 2)
+        sum_of_square = torch.sum(concated_embeds_value * concated_embeds_value, dim=1, keepdim=True)
         cross_term = 0.5 * (square_of_sum - sum_of_square)
         return cross_term
 
@@ -420,16 +403,12 @@ Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
         self.seed = seed
         self.filed_size = filed_size
         self.reduction_size = max(1, filed_size // reduction_ratio)
-        self.excitation = nn.Sequential(nn.Linear(self.filed_size, self.
-            reduction_size, bias=False), nn.ReLU(), nn.Linear(self.
-            reduction_size, self.filed_size, bias=False), nn.ReLU())
+        self.excitation = nn.Sequential(nn.Linear(self.filed_size, self.reduction_size, bias=False), nn.ReLU(), nn.Linear(self.reduction_size, self.filed_size, bias=False), nn.ReLU())
         self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
-            raise ValueError(
-                'Unexpected inputs dimensions %d, expect to be 3 dimensions' %
-                len(inputs.shape))
+            raise ValueError('Unexpected inputs dimensions %d, expect to be 3 dimensions' % len(inputs.shape))
         Z = torch.mean(inputs, dim=-1, out=None)
         A = self.excitation(Z)
         V = torch.mul(inputs, torch.unsqueeze(A, dim=2))
@@ -451,42 +430,33 @@ class BilinearInteraction(nn.Module):
 Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
     """
 
-    def __init__(self, filed_size, embedding_size, bilinear_type=
-        'interaction', seed=1024, device='cpu'):
+    def __init__(self, filed_size, embedding_size, bilinear_type='interaction', seed=1024, device='cpu'):
         super(BilinearInteraction, self).__init__()
         self.bilinear_type = bilinear_type
         self.seed = seed
         self.bilinear = nn.ModuleList()
         if self.bilinear_type == 'all':
-            self.bilinear = nn.Linear(embedding_size, embedding_size, bias=
-                False)
+            self.bilinear = nn.Linear(embedding_size, embedding_size, bias=False)
         elif self.bilinear_type == 'each':
             for i in range(filed_size):
-                self.bilinear.append(nn.Linear(embedding_size,
-                    embedding_size, bias=False))
+                self.bilinear.append(nn.Linear(embedding_size, embedding_size, bias=False))
         elif self.bilinear_type == 'interaction':
             for i, j in itertools.combinations(range(filed_size), 2):
-                self.bilinear.append(nn.Linear(embedding_size,
-                    embedding_size, bias=False))
+                self.bilinear.append(nn.Linear(embedding_size, embedding_size, bias=False))
         else:
             raise NotImplementedError
         self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
-            raise ValueError(
-                'Unexpected inputs dimensions %d, expect to be 3 dimensions' %
-                len(inputs.shape))
+            raise ValueError('Unexpected inputs dimensions %d, expect to be 3 dimensions' % len(inputs.shape))
         inputs = torch.split(inputs, 1, dim=1)
         if self.bilinear_type == 'all':
-            p = [torch.mul(self.bilinear(v_i), v_j) for v_i, v_j in
-                itertools.combinations(inputs, 2)]
+            p = [torch.mul(self.bilinear(v_i), v_j) for v_i, v_j in itertools.combinations(inputs, 2)]
         elif self.bilinear_type == 'each':
-            p = [torch.mul(self.bilinear[i](inputs[i]), inputs[j]) for i, j in
-                itertools.combinations(range(len(inputs)), 2)]
+            p = [torch.mul(self.bilinear[i](inputs[i]), inputs[j]) for i, j in itertools.combinations(range(len(inputs)), 2)]
         elif self.bilinear_type == 'interaction':
-            p = [torch.mul(bilinear(v[0]), v[1]) for v, bilinear in zip(
-                itertools.combinations(inputs, 2), self.bilinear)]
+            p = [torch.mul(bilinear(v[0]), v[1]) for v, bilinear in zip(itertools.combinations(inputs, 2), self.bilinear)]
         else:
             raise NotImplementedError
         return torch.cat(p, dim=1)
@@ -508,12 +478,10 @@ class CIN(nn.Module):
         - [Lian J, Zhou X, Zhang F, et al. xDeepFM: Combining Explicit and Implicit Feature Interactions for Recommender Systems[J]. arXiv preprint arXiv:1803.05170, 2018.] (https://arxiv.org/pdf/1803.05170.pdf)
     """
 
-    def __init__(self, field_size, layer_size=(128, 128), activation='relu',
-        split_half=True, l2_reg=1e-05, seed=1024, device='cpu'):
+    def __init__(self, field_size, layer_size=(128, 128), activation='relu', split_half=True, l2_reg=1e-05, seed=1024, device='cpu'):
         super(CIN, self).__init__()
         if len(layer_size) == 0:
-            raise ValueError(
-                'layer_size must be a list(tuple) of length greater than 1')
+            raise ValueError('layer_size must be a list(tuple) of length greater than 1')
         self.layer_size = layer_size
         self.field_nums = [field_size]
         self.split_half = split_half
@@ -522,13 +490,10 @@ class CIN(nn.Module):
         self.seed = seed
         self.conv1ds = nn.ModuleList()
         for i, size in enumerate(self.layer_size):
-            self.conv1ds.append(nn.Conv1d(self.field_nums[-1] * self.
-                field_nums[0], size, 1))
+            self.conv1ds.append(nn.Conv1d(self.field_nums[-1] * self.field_nums[0], size, 1))
             if self.split_half:
                 if i != len(self.layer_size) - 1 and size % 2 > 0:
-                    raise ValueError(
-                        'layer_size must be even number except for the last layer when split_half=True'
-                        )
+                    raise ValueError('layer_size must be even number except for the last layer when split_half=True')
                 self.field_nums.append(size // 2)
             else:
                 self.field_nums.append(size)
@@ -536,18 +501,14 @@ class CIN(nn.Module):
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
-            raise ValueError(
-                'Unexpected inputs dimensions %d, expect to be 3 dimensions' %
-                len(inputs.shape))
+            raise ValueError('Unexpected inputs dimensions %d, expect to be 3 dimensions' % len(inputs.shape))
         batch_size = inputs.shape[0]
         dim = inputs.shape[-1]
         hidden_nn_layers = [inputs]
         final_result = []
         for i, size in enumerate(self.layer_size):
-            x = torch.einsum('bhd,bmd->bhmd', hidden_nn_layers[-1],
-                hidden_nn_layers[0])
-            x = x.reshape(batch_size, hidden_nn_layers[-1].shape[1] *
-                hidden_nn_layers[0].shape[1], dim)
+            x = torch.einsum('bhd,bmd->bhmd', hidden_nn_layers[-1], hidden_nn_layers[0])
+            x = x.reshape(batch_size, hidden_nn_layers[-1].shape[1] * hidden_nn_layers[0].shape[1], dim)
             x = self.conv1ds[i](x)
             if self.activation is None or self.activation == 'linear':
                 curr_out = x
@@ -555,8 +516,7 @@ class CIN(nn.Module):
                 curr_out = self.activation(x)
             if self.split_half:
                 if i != len(self.layer_size) - 1:
-                    next_hidden, direct_connect = torch.split(curr_out, 2 *
-                        [size // 2], 1)
+                    next_hidden, direct_connect = torch.split(curr_out, 2 * [size // 2], 1)
                 else:
                     direct_connect = curr_out
                     next_hidden = 0
@@ -590,19 +550,16 @@ class AFMLayer(nn.Module):
         Interactions via Attention Networks](https://arxiv.org/pdf/1708.04617.pdf)
     """
 
-    def __init__(self, in_features, attention_factor=4, l2_reg_w=0,
-        dropout_rate=0, seed=1024, device='cpu'):
+    def __init__(self, in_features, attention_factor=4, l2_reg_w=0, dropout_rate=0, seed=1024, device='cpu'):
         super(AFMLayer, self).__init__()
         self.attention_factor = attention_factor
         self.l2_reg_w = l2_reg_w
         self.dropout_rate = dropout_rate
         self.seed = seed
         embedding_size = in_features
-        self.attention_W = nn.Parameter(torch.Tensor(embedding_size, self.
-            attention_factor))
+        self.attention_W = nn.Parameter(torch.Tensor(embedding_size, self.attention_factor))
         self.attention_b = nn.Parameter(torch.Tensor(self.attention_factor))
-        self.projection_h = nn.Parameter(torch.Tensor(self.attention_factor, 1)
-            )
+        self.projection_h = nn.Parameter(torch.Tensor(self.attention_factor, 1))
         self.projection_p = nn.Parameter(torch.Tensor(embedding_size, 1))
         for tensor in [self.attention_W, self.projection_h, self.projection_p]:
             nn.init.xavier_normal_(tensor)
@@ -620,15 +577,11 @@ class AFMLayer(nn.Module):
         q = torch.cat(col, dim=1)
         inner_product = p * q
         bi_interaction = inner_product
-        attention_temp = F.relu(torch.tensordot(bi_interaction, self.
-            attention_W, dims=([-1], [0])) + self.attention_b)
-        self.normalized_att_score = F.softmax(torch.tensordot(
-            attention_temp, self.projection_h, dims=([-1], [0])), dim=1)
-        attention_output = torch.sum(self.normalized_att_score *
-            bi_interaction, dim=1)
+        attention_temp = F.relu(torch.tensordot(bi_interaction, self.attention_W, dims=([-1], [0])) + self.attention_b)
+        self.normalized_att_score = F.softmax(torch.tensordot(attention_temp, self.projection_h, dims=([-1], [0])), dim=1)
+        attention_output = torch.sum(self.normalized_att_score * bi_interaction, dim=1)
         attention_output = self.dropout(attention_output)
-        afm_out = torch.tensordot(attention_output, self.projection_p, dims
-            =([-1], [0]))
+        afm_out = torch.tensordot(attention_output, self.projection_p, dims=([-1], [0]))
         return afm_out
 
 
@@ -648,8 +601,7 @@ class InteractingLayer(nn.Module):
             - [Song W, Shi C, Xiao Z, et al. AutoInt: Automatic Feature Interaction Learning via Self-Attentive Neural Networks[J]. arXiv preprint arXiv:1810.11921, 2018.](https://arxiv.org/abs/1810.11921)
     """
 
-    def __init__(self, in_features, att_embedding_size=8, head_num=2,
-        use_res=True, seed=1024, device='cpu'):
+    def __init__(self, in_features, att_embedding_size=8, head_num=2, use_res=True, seed=1024, device='cpu'):
         super(InteractingLayer, self).__init__()
         if head_num <= 0:
             raise ValueError('head_num must be a int > 0')
@@ -658,32 +610,24 @@ class InteractingLayer(nn.Module):
         self.use_res = use_res
         self.seed = seed
         embedding_size = in_features
-        self.W_Query = nn.Parameter(torch.Tensor(embedding_size, self.
-            att_embedding_size * self.head_num))
-        self.W_key = nn.Parameter(torch.Tensor(embedding_size, self.
-            att_embedding_size * self.head_num))
-        self.W_Value = nn.Parameter(torch.Tensor(embedding_size, self.
-            att_embedding_size * self.head_num))
+        self.W_Query = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
+        self.W_key = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
+        self.W_Value = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
         if self.use_res:
-            self.W_Res = nn.Parameter(torch.Tensor(embedding_size, self.
-                att_embedding_size * self.head_num))
+            self.W_Res = nn.Parameter(torch.Tensor(embedding_size, self.att_embedding_size * self.head_num))
         for tensor in self.parameters():
             nn.init.normal_(tensor, mean=0.0, std=0.05)
         self
 
     def forward(self, inputs):
         if len(inputs.shape) != 3:
-            raise ValueError(
-                'Unexpected inputs dimensions %d, expect to be 3 dimensions' %
-                len(inputs.shape))
+            raise ValueError('Unexpected inputs dimensions %d, expect to be 3 dimensions' % len(inputs.shape))
         querys = torch.tensordot(inputs, self.W_Query, dims=([-1], [0]))
         keys = torch.tensordot(inputs, self.W_key, dims=([-1], [0]))
         values = torch.tensordot(inputs, self.W_Value, dims=([-1], [0]))
-        querys = torch.stack(torch.split(querys, self.att_embedding_size,
-            dim=2))
+        querys = torch.stack(torch.split(querys, self.att_embedding_size, dim=2))
         keys = torch.stack(torch.split(keys, self.att_embedding_size, dim=2))
-        values = torch.stack(torch.split(values, self.att_embedding_size,
-            dim=2))
+        values = torch.stack(torch.split(values, self.att_embedding_size, dim=2))
         inner_product = torch.einsum('bnik,bnjk->bnij', querys, keys)
         self.normalized_att_scores = F.softmax(inner_product, dim=-1)
         result = torch.matmul(self.normalized_att_scores, values)
@@ -715,11 +659,8 @@ class CrossNet(nn.Module):
     def __init__(self, in_features, layer_num=2, seed=1024, device='cpu'):
         super(CrossNet, self).__init__()
         self.layer_num = layer_num
-        self.kernels = torch.nn.ParameterList([nn.Parameter(nn.init.
-            xavier_normal_(torch.empty(in_features, 1))) for i in range(
-            self.layer_num)])
-        self.bias = torch.nn.ParameterList([nn.Parameter(nn.init.zeros_(
-            torch.empty(in_features, 1))) for i in range(self.layer_num)])
+        self.kernels = torch.nn.ParameterList([nn.Parameter(nn.init.xavier_normal_(torch.empty(in_features, 1))) for i in range(self.layer_num)])
+        self.bias = torch.nn.ParameterList([nn.Parameter(nn.init.zeros_(torch.empty(in_features, 1))) for i in range(self.layer_num)])
         self
 
     def forward(self, inputs):
@@ -785,16 +726,14 @@ class OutterProductLayer(nn.Module):
             - [Qu Y, Cai H, Ren K, et al. Product-based neural networks for user response prediction[C]//Data Mining (ICDM), 2016 IEEE 16th International Conference on. IEEE, 2016: 1149-1154.](https://arxiv.org/pdf/1611.00144.pdf)
     """
 
-    def __init__(self, field_size, embedding_size, kernel_type='mat', seed=
-        1024, device='cpu'):
+    def __init__(self, field_size, embedding_size, kernel_type='mat', seed=1024, device='cpu'):
         super(OutterProductLayer, self).__init__()
         self.kernel_type = kernel_type
         num_inputs = field_size
         num_pairs = int(num_inputs * (num_inputs - 1) / 2)
         embed_size = embedding_size
         if self.kernel_type == 'mat':
-            self.kernel = nn.Parameter(torch.Tensor(embed_size, num_pairs,
-                embed_size))
+            self.kernel = nn.Parameter(torch.Tensor(embed_size, num_pairs, embed_size))
         elif self.kernel_type == 'vec':
             self.kernel = nn.Parameter(torch.Tensor(num_pairs, embed_size))
         elif self.kernel_type == 'num':
@@ -815,8 +754,7 @@ class OutterProductLayer(nn.Module):
         q = torch.cat([embed_list[idx] for idx in col], dim=1)
         if self.kernel_type == 'mat':
             p.unsqueeze_(dim=1)
-            kp = torch.sum(torch.mul(torch.transpose(torch.sum(torch.mul(p,
-                self.kernel), dim=-1), 2, 1), q), dim=-1)
+            kp = torch.sum(torch.mul(torch.transpose(torch.sum(torch.mul(p, self.kernel), dim=-1), 2, 1), q), dim=-1)
         else:
             k = torch.unsqueeze(self.kernel, 0)
             kp = torch.sum(p * q * k, dim=-1)
@@ -838,8 +776,7 @@ class ConvLayer(nn.Module):
             - Liu Q, Yu F, Wu S, et al. A convolutional click prediction model[C]//Proceedings of the 24th ACM International on Conference on Information and Knowledge Management. ACM, 2015: 1743-1746.(http://ir.ia.ac.cn/bitstream/173211/12337/1/A%20Convolutional%20Click%20Prediction%20Model.pdf)
     """
 
-    def __init__(self, field_size, conv_kernel_width, conv_filters, device=
-        'cpu'):
+    def __init__(self, field_size, conv_kernel_width, conv_filters, device='cpu'):
         super(ConvLayer, self).__init__()
         self.device = device
         module_list = []
@@ -854,11 +791,9 @@ class ConvLayer(nn.Module):
             out_channels = conv_filters[i - 1]
             width = conv_kernel_width[i - 1]
             k = max(1, int((1 - pow(i / l, l - i)) * n)) if i < l else 3
-            module_list.append(Conv2dSame(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=(width, 1), stride=1))
+            module_list.append(Conv2dSame(in_channels=in_channels, out_channels=out_channels, kernel_size=(width, 1), stride=1))
             module_list.append(torch.nn.Tanh())
-            module_list.append(KMaxPooling(k=min(k, filed_shape), axis=2,
-                device=self.device))
+            module_list.append(KMaxPooling(k=min(k, filed_shape), axis=2, device=self.device))
             filed_shape = min(k, filed_shape)
         self.conv_layer = nn.Sequential(*module_list)
         self
@@ -913,8 +848,7 @@ class SequencePoolingLayer(nn.Module):
             mask = mask.unsqueeze(2)
         else:
             uiseq_embed_list, user_behavior_length = seq_value_len_list
-            mask = self._sequence_mask(user_behavior_length, maxlen=
-                uiseq_embed_list.shape[1], dtype=torch.float32)
+            mask = self._sequence_mask(user_behavior_length, maxlen=uiseq_embed_list.shape[1], dtype=torch.float32)
             mask = torch.transpose(mask, 1, 2)
         embedding_size = uiseq_embed_list.shape[-1]
         mask = torch.repeat_interleave(mask, embedding_size, dim=2)
@@ -925,8 +859,7 @@ class SequencePoolingLayer(nn.Module):
         hist = uiseq_embed_list * mask.float()
         hist = torch.sum(hist, dim=1, keepdim=False)
         if self.mode == 'mean':
-            hist = torch.div(hist, user_behavior_length.type(torch.float32) +
-                self.eps)
+            hist = torch.div(hist, user_behavior_length.type(torch.float32) + self.eps)
         hist = torch.unsqueeze(hist, dim=1)
         return hist
 
@@ -947,16 +880,12 @@ class AttentionSequencePoolingLayer(nn.Module):
           - [Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C]//Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining. ACM, 2018: 1059-1068.](https://arxiv.org/pdf/1706.06978.pdf)
       """
 
-    def __init__(self, att_hidden_units=(80, 40), att_activation='sigmoid',
-        weight_normalization=False, return_score=False, supports_masking=
-        False, embedding_dim=4, **kwargs):
+    def __init__(self, att_hidden_units=(80, 40), att_activation='sigmoid', weight_normalization=False, return_score=False, supports_masking=False, embedding_dim=4, **kwargs):
         super(AttentionSequencePoolingLayer, self).__init__()
         self.return_score = return_score
         self.weight_normalization = weight_normalization
         self.supports_masking = supports_masking
-        self.local_att = LocalActivationUnit(hidden_units=att_hidden_units,
-            embedding_dim=embedding_dim, activation=att_activation,
-            dropout_rate=0, use_bn=False)
+        self.local_att = LocalActivationUnit(hidden_units=att_hidden_units, embedding_dim=embedding_dim, activation=att_activation, dropout_rate=0, use_bn=False)
 
     def forward(self, query, keys, keys_length, mask=None):
         """
@@ -975,12 +904,10 @@ class AttentionSequencePoolingLayer(nn.Module):
         batch_size, max_length, dim = keys.size()
         if self.supports_masking:
             if mask is None:
-                raise ValueError(
-                    'When supports_masking=True,input must support masking')
+                raise ValueError('When supports_masking=True,input must support masking')
             keys_masks = mask.unsqueeze(1)
         else:
-            keys_masks = torch.arange(max_length, device=keys_length.device,
-                dtype=keys_length.dtype).repeat(batch_size, 1)
+            keys_masks = torch.arange(max_length, device=keys_length.device, dtype=keys_length.dtype).repeat(batch_size, 1)
             keys_masks = keys_masks < keys_length.view(-1, 1)
             keys_masks = keys_masks.unsqueeze(1)
         attention_score = self.local_att(query, keys)
@@ -1021,11 +948,9 @@ class KMaxPooling(nn.Module):
 
     def forward(self, input):
         if self.axis < 0 or self.axis >= len(input.shape):
-            raise ValueError('axis must be 0~%d,now is %d' % (len(input.
-                shape) - 1, self.axis))
+            raise ValueError('axis must be 0~%d,now is %d' % (len(input.shape) - 1, self.axis))
         if self.k < 1 or self.k > input.shape[self.axis]:
-            raise ValueError('k must be in 1 ~ %d,now k is %d' % (input.
-                shape[self.axis], self.k))
+            raise ValueError('k must be in 1 ~ %d,now k is %d' % (input.shape[self.axis], self.k))
         out = torch.topk(input, k=self.k, dim=self.axis, sorted=True)[0]
         return out
 
@@ -1042,11 +967,9 @@ class AGRUCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bias = bias
-        self.weight_ih = nn.Parameter(torch.Tensor(3 * hidden_size, input_size)
-            )
+        self.weight_ih = nn.Parameter(torch.Tensor(3 * hidden_size, input_size))
         self.register_parameter('weight_ih', self.weight_ih)
-        self.weight_hh = nn.Parameter(torch.Tensor(3 * hidden_size,
-            hidden_size))
+        self.weight_hh = nn.Parameter(torch.Tensor(3 * hidden_size, hidden_size))
         self.register_parameter('weight_hh', self.weight_hh)
         if bias:
             self.bias_ih = nn.Parameter(torch.Tensor(3 * hidden_size))
@@ -1081,11 +1004,9 @@ class AUGRUCell(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bias = bias
-        self.weight_ih = nn.Parameter(torch.Tensor(3 * hidden_size, input_size)
-            )
+        self.weight_ih = nn.Parameter(torch.Tensor(3 * hidden_size, input_size))
         self.register_parameter('weight_ih', self.weight_ih)
-        self.weight_hh = nn.Parameter(torch.Tensor(3 * hidden_size,
-            hidden_size))
+        self.weight_hh = nn.Parameter(torch.Tensor(3 * hidden_size, hidden_size))
         self.register_parameter('weight_hh', self.weight_hh)
         if bias:
             self.bias_ih = nn.Parameter(torch.Tensor(3 * hidden_size))
@@ -1122,27 +1043,21 @@ class DynamicGRU(nn.Module):
             self.rnn = AUGRUCell(input_size, hidden_size, bias)
 
     def forward(self, input, att_scores=None, hx=None):
-        if not isinstance(input, PackedSequence) or not isinstance(att_scores,
-            PackedSequence):
-            raise NotImplementedError(
-                'DynamicGRU only supports packed input and att_scores')
+        if not isinstance(input, PackedSequence) or not isinstance(att_scores, PackedSequence):
+            raise NotImplementedError('DynamicGRU only supports packed input and att_scores')
         input, batch_sizes, sorted_indices, unsorted_indices = input
         att_scores, _, _, _ = att_scores
         max_batch_size = int(batch_sizes[0])
         if hx is None:
-            hx = torch.zeros(max_batch_size, self.hidden_size, dtype=input.
-                dtype, device=input.device)
-        outputs = torch.zeros(input.size(0), self.hidden_size, dtype=input.
-            dtype, device=input.device)
+            hx = torch.zeros(max_batch_size, self.hidden_size, dtype=input.dtype, device=input.device)
+        outputs = torch.zeros(input.size(0), self.hidden_size, dtype=input.dtype, device=input.device)
         begin = 0
         for batch in batch_sizes:
-            new_hx = self.rnn(input[begin:begin + batch], hx[0:batch],
-                att_scores[begin:begin + batch])
+            new_hx = self.rnn(input[begin:begin + batch], hx[0:batch], att_scores[begin:begin + batch])
             outputs[begin:begin + batch] = new_hx
             hx = new_hx
             begin += batch
-        return PackedSequence(outputs, batch_sizes, sorted_indices,
-            unsorted_indices)
+        return PackedSequence(outputs, batch_sizes, sorted_indices, unsorted_indices)
 
 
 class DenseFeat(namedtuple('DenseFeat', ['name', 'dimension', 'dtype'])):
@@ -1158,34 +1073,27 @@ class DenseFeat(namedtuple('DenseFeat', ['name', 'dimension', 'dtype'])):
 DEFAULT_GROUP_NAME = 'default_group'
 
 
-class SparseFeat(namedtuple('SparseFeat', ['name', 'vocabulary_size',
-    'embedding_dim', 'use_hash', 'dtype', 'embedding_name', 'group_name'])):
+class SparseFeat(namedtuple('SparseFeat', ['name', 'vocabulary_size', 'embedding_dim', 'use_hash', 'dtype', 'embedding_name', 'group_name'])):
     __slots__ = ()
 
-    def __new__(cls, name, vocabulary_size, embedding_dim=4, use_hash=False,
-        dtype='int32', embedding_name=None, group_name=DEFAULT_GROUP_NAME):
+    def __new__(cls, name, vocabulary_size, embedding_dim=4, use_hash=False, dtype='int32', embedding_name=None, group_name=DEFAULT_GROUP_NAME):
         if embedding_name is None:
             embedding_name = name
         if embedding_dim == 'auto':
             embedding_dim = 6 * int(pow(vocabulary_size, 0.25))
         if use_hash:
-            print(
-                'Notice! Feature Hashing on the fly currently is not supported in torch version,you can use tensorflow version!'
-                )
-        return super(SparseFeat, cls).__new__(cls, name, vocabulary_size,
-            embedding_dim, use_hash, dtype, embedding_name, group_name)
+            print('Notice! Feature Hashing on the fly currently is not supported in torch version,you can use tensorflow version!')
+        return super(SparseFeat, cls).__new__(cls, name, vocabulary_size, embedding_dim, use_hash, dtype, embedding_name, group_name)
 
     def __hash__(self):
         return self.name.__hash__()
 
 
-class VarLenSparseFeat(namedtuple('VarLenSparseFeat', ['sparsefeat',
-    'maxlen', 'combiner', 'length_name'])):
+class VarLenSparseFeat(namedtuple('VarLenSparseFeat', ['sparsefeat', 'maxlen', 'combiner', 'length_name'])):
     __slots__ = ()
 
     def __new__(cls, sparsefeat, maxlen, combiner='mean', length_name=None):
-        return super(VarLenSparseFeat, cls).__new__(cls, sparsefeat, maxlen,
-            combiner, length_name)
+        return super(VarLenSparseFeat, cls).__new__(cls, sparsefeat, maxlen, combiner, length_name)
 
     @property
     def name(self):
@@ -1215,87 +1123,58 @@ class VarLenSparseFeat(namedtuple('VarLenSparseFeat', ['sparsefeat',
         return self.name.__hash__()
 
 
-def create_embedding_matrix(feature_columns, init_std=0.0001, linear=False,
-    sparse=False, device='cpu'):
-    sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat
-        ), feature_columns)) if len(feature_columns) else []
-    varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x,
-        VarLenSparseFeat), feature_columns)) if len(feature_columns) else []
-    embedding_dict = nn.ModuleDict({feat.embedding_name: nn.Embedding(feat.
-        vocabulary_size, feat.embedding_dim if not linear else 1, sparse=
-        sparse) for feat in sparse_feature_columns +
-        varlen_sparse_feature_columns})
+def create_embedding_matrix(feature_columns, init_std=0.0001, linear=False, sparse=False, device='cpu'):
+    sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
+    varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x, VarLenSparseFeat), feature_columns)) if len(feature_columns) else []
+    embedding_dict = nn.ModuleDict({feat.embedding_name: nn.Embedding(feat.vocabulary_size, feat.embedding_dim if not linear else 1, sparse=sparse) for feat in sparse_feature_columns + varlen_sparse_feature_columns})
     for tensor in embedding_dict.values():
         nn.init.normal_(tensor.weight, mean=0, std=init_std)
     return embedding_dict.to(device)
 
 
-def get_varlen_pooling_list(embedding_dict, features, feature_index,
-    varlen_sparse_feature_columns, device):
+def get_varlen_pooling_list(embedding_dict, features, feature_index, varlen_sparse_feature_columns, device):
     varlen_sparse_embedding_list = []
     for feat in varlen_sparse_feature_columns:
-        seq_emb = embedding_dict[feat.embedding_name](features[:,
-            feature_index[feat.name][0]:feature_index[feat.name][1]].long())
+        seq_emb = embedding_dict[feat.embedding_name](features[:, feature_index[feat.name][0]:feature_index[feat.name][1]].long())
         if feat.length_name is None:
-            seq_mask = features[:, feature_index[feat.name][0]:
-                feature_index[feat.name][1]].long() != 0
-            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking
-                =True, device=device)([seq_emb, seq_mask])
+            seq_mask = features[:, feature_index[feat.name][0]:feature_index[feat.name][1]].long() != 0
+            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking=True, device=device)([seq_emb, seq_mask])
         else:
-            seq_length = features[:, feature_index[feat.length_name][0]:
-                feature_index[feat.length_name][1]].long()
-            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking
-                =False, device=device)([seq_emb, seq_length])
+            seq_length = features[:, feature_index[feat.length_name][0]:feature_index[feat.length_name][1]].long()
+            emb = SequencePoolingLayer(mode=feat.combiner, supports_masking=False, device=device)([seq_emb, seq_length])
         varlen_sparse_embedding_list.append(emb)
     return varlen_sparse_embedding_list
 
 
 class Linear(nn.Module):
 
-    def __init__(self, feature_columns, feature_index, init_std=0.0001,
-        device='cpu'):
+    def __init__(self, feature_columns, feature_index, init_std=0.0001, device='cpu'):
         super(Linear, self).__init__()
         self.feature_index = feature_index
         self.device = device
-        self.sparse_feature_columns = list(filter(lambda x: isinstance(x,
-            SparseFeat), feature_columns)) if len(feature_columns) else []
-        self.dense_feature_columns = list(filter(lambda x: isinstance(x,
-            DenseFeat), feature_columns)) if len(feature_columns) else []
-        self.varlen_sparse_feature_columns = list(filter(lambda x:
-            isinstance(x, VarLenSparseFeat), feature_columns)) if len(
-            feature_columns) else []
-        self.embedding_dict = create_embedding_matrix(feature_columns,
-            init_std, linear=True, sparse=False, device=device)
+        self.sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
+        self.dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if len(feature_columns) else []
+        self.varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x, VarLenSparseFeat), feature_columns)) if len(feature_columns) else []
+        self.embedding_dict = create_embedding_matrix(feature_columns, init_std, linear=True, sparse=False, device=device)
         for tensor in self.embedding_dict.values():
             nn.init.normal_(tensor.weight, mean=0, std=init_std)
         if len(self.dense_feature_columns) > 0:
-            self.weight = nn.Parameter(torch.Tensor(sum(fc.dimension for fc in
-                self.dense_feature_columns), 1))
+            self.weight = nn.Parameter(torch.Tensor(sum(fc.dimension for fc in self.dense_feature_columns), 1))
             torch.nn.init.normal_(self.weight, mean=0, std=init_std)
 
     def forward(self, X):
-        sparse_embedding_list = [self.embedding_dict[feat.embedding_name](X
-            [:, self.feature_index[feat.name][0]:self.feature_index[feat.
-            name][1]].long()) for feat in self.sparse_feature_columns]
-        dense_value_list = [X[:, self.feature_index[feat.name][0]:self.
-            feature_index[feat.name][1]] for feat in self.dense_feature_columns
-            ]
-        varlen_embedding_list = get_varlen_pooling_list(self.embedding_dict,
-            X, self.feature_index, self.varlen_sparse_feature_columns, self
-            .device)
+        sparse_embedding_list = [self.embedding_dict[feat.embedding_name](X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]].long()) for feat in self.sparse_feature_columns]
+        dense_value_list = [X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]] for feat in self.dense_feature_columns]
+        varlen_embedding_list = get_varlen_pooling_list(self.embedding_dict, X, self.feature_index, self.varlen_sparse_feature_columns, self.device)
         sparse_embedding_list += varlen_embedding_list
         if len(sparse_embedding_list) > 0 and len(dense_value_list) > 0:
-            linear_sparse_logit = torch.sum(torch.cat(sparse_embedding_list,
-                dim=-1), dim=-1, keepdim=False)
-            linear_dense_logit = torch.cat(dense_value_list, dim=-1).matmul(
-                self.weight)
+            linear_sparse_logit = torch.sum(torch.cat(sparse_embedding_list, dim=-1), dim=-1, keepdim=False)
+            linear_dense_logit = torch.cat(dense_value_list, dim=-1).matmul(self.weight)
             linear_logit = linear_sparse_logit + linear_dense_logit
         elif len(sparse_embedding_list) > 0:
-            linear_logit = torch.sum(torch.cat(sparse_embedding_list, dim=-
-                1), dim=-1, keepdim=False)
+            linear_logit = torch.sum(torch.cat(sparse_embedding_list, dim=-1), dim=-1, keepdim=False)
         elif len(dense_value_list) > 0:
-            linear_logit = torch.cat(dense_value_list, dim=-1).matmul(self.
-                weight)
+            linear_logit = torch.cat(dense_value_list, dim=-1).matmul(self.weight)
         else:
             linear_logit = torch.zeros([X.shape[0], 1])
         return linear_logit
@@ -1317,8 +1196,7 @@ def build_input_features(feature_columns):
         elif isinstance(feat, VarLenSparseFeat):
             features[feat_name] = start, start + feat.maxlen
             start += feat.maxlen
-            if (feat.length_name is not None and feat.length_name not in
-                features):
+            if feat.length_name is not None and feat.length_name not in features:
                 features[feat.length_name] = start, start + 1
                 start += 1
         else:
@@ -1354,9 +1232,7 @@ def slice_arrays(arrays, start=None, stop=None):
     if isinstance(arrays, np.ndarray):
         arrays = [arrays]
     if isinstance(start, list) and stop is not None:
-        raise ValueError(
-            'The stop argument has to be None if the value of start is a list.'
-            )
+        raise ValueError('The stop argument has to be None if the value of start is a list.')
     elif isinstance(arrays, list):
         if hasattr(start, '__len__'):
             if hasattr(start, 'shape'):
@@ -1378,32 +1254,22 @@ def slice_arrays(arrays, start=None, stop=None):
 
 class BaseModel(nn.Module):
 
-    def __init__(self, linear_feature_columns, dnn_feature_columns,
-        dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=
-        1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0,
-        dnn_activation='relu', task='binary', device='cpu'):
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu'):
         super(BaseModel, self).__init__()
         self.dnn_feature_columns = dnn_feature_columns
         self.reg_loss = torch.zeros((1,), device=device)
         self.aux_loss = torch.zeros((1,), device=device)
         self.device = device
-        self.feature_index = build_input_features(linear_feature_columns +
-            dnn_feature_columns)
+        self.feature_index = build_input_features(linear_feature_columns + dnn_feature_columns)
         self.dnn_feature_columns = dnn_feature_columns
-        self.embedding_dict = create_embedding_matrix(dnn_feature_columns,
-            init_std, sparse=False, device=device)
-        self.linear_model = Linear(linear_feature_columns, self.
-            feature_index, device=device)
-        self.add_regularization_loss(self.embedding_dict.parameters(),
-            l2_reg_embedding)
-        self.add_regularization_loss(self.linear_model.parameters(),
-            l2_reg_linear)
+        self.embedding_dict = create_embedding_matrix(dnn_feature_columns, init_std, sparse=False, device=device)
+        self.linear_model = Linear(linear_feature_columns, self.feature_index, device=device)
+        self.add_regularization_loss(self.embedding_dict.parameters(), l2_reg_embedding)
+        self.add_regularization_loss(self.linear_model.parameters(), l2_reg_linear)
         self.out = PredictionLayer(task)
         self
 
-    def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1,
-        initial_epoch=0, validation_split=0.0, validation_data=None,
-        shuffle=True, use_double=False):
+    def fit(self, x=None, y=None, batch_size=None, epochs=1, verbose=1, initial_epoch=0, validation_split=0.0, validation_data=None, shuffle=True, use_double=False):
         """
 
         :param x: Numpy array of training data (if the model has a single input), or list of Numpy arrays (if the model has multiple inputs).If input layers in the model are named, you can also pass a
@@ -1428,9 +1294,7 @@ class BaseModel(nn.Module):
             elif len(validation_data) == 3:
                 val_x, val_y, val_sample_weight = validation_data
             else:
-                raise ValueError(
-                    'When passing a `validation_data` argument, it must contain either 2 items (x_val, y_val), or 3 items (x_val, y_val, val_sample_weights), or alternatively it could be a dataset or a dataset or a dataset iterator. However we received `validation_data=%s`'
-                     % validation_data)
+                raise ValueError('When passing a `validation_data` argument, it must contain either 2 items (x_val, y_val), or 3 items (x_val, y_val, val_sample_weights), or alternatively it could be a dataset or a dataset or a dataset iterator. However we received `validation_data=%s`' % validation_data)
             if isinstance(val_x, dict):
                 val_x = [val_x[feature] for feature in self.feature_index]
         elif validation_split and 0.0 < validation_split < 1.0:
@@ -1446,12 +1310,10 @@ class BaseModel(nn.Module):
         for i in range(len(x)):
             if len(x[i].shape) == 1:
                 x[i] = np.expand_dims(x[i], axis=1)
-        train_tensor_data = Data.TensorDataset(torch.from_numpy(np.
-            concatenate(x, axis=-1)), torch.from_numpy(y))
+        train_tensor_data = Data.TensorDataset(torch.from_numpy(np.concatenate(x, axis=-1)), torch.from_numpy(y))
         if batch_size is None:
             batch_size = 256
-        train_loader = DataLoader(dataset=train_tensor_data, shuffle=
-            shuffle, batch_size=batch_size)
+        train_loader = DataLoader(dataset=train_tensor_data, shuffle=shuffle, batch_size=batch_size)
         None
         model = self.train()
         loss_func = self.loss_func
@@ -1482,13 +1344,9 @@ class BaseModel(nn.Module):
                                 if name not in train_result:
                                     train_result[name] = []
                                 if use_double:
-                                    train_result[name].append(metric_fun(y.
-                                        cpu().data.numpy(), y_pred.cpu().
-                                        data.numpy().astype('float64')))
+                                    train_result[name].append(metric_fun(y.cpu().data.numpy(), y_pred.cpu().data.numpy().astype('float64')))
                                 else:
-                                    train_result[name].append(metric_fun(y.
-                                        cpu().data.numpy(), y_pred.cpu().
-                                        data.numpy()))
+                                    train_result[name].append(metric_fun(y.cpu().data.numpy(), y_pred.cpu().data.numpy()))
             except KeyboardInterrupt:
                 t.close()
                 raise
@@ -1496,16 +1354,13 @@ class BaseModel(nn.Module):
             epoch_time = int(time.time() - start_time)
             if verbose > 0:
                 None
-                eval_str = '{0}s - loss: {1: .4f}'.format(epoch_time, 
-                    total_loss_epoch / sample_num)
+                eval_str = '{0}s - loss: {1: .4f}'.format(epoch_time, total_loss_epoch / sample_num)
                 for name, result in train_result.items():
-                    eval_str += ' - ' + name + ': {0: .4f}'.format(np.sum(
-                        result) / steps_per_epoch)
+                    eval_str += ' - ' + name + ': {0: .4f}'.format(np.sum(result) / steps_per_epoch)
                 if len(val_x) and len(val_y):
                     eval_result = self.evaluate(val_x, val_y, batch_size)
                     for name, result in eval_result.items():
-                        eval_str += ' - val_' + name + ': {0: .4f}'.format(
-                            result)
+                        eval_str += ' - val_' + name + ': {0: .4f}'.format(result)
                 None
 
     def evaluate(self, x, y, batch_size=256):
@@ -1535,10 +1390,8 @@ class BaseModel(nn.Module):
         for i in range(len(x)):
             if len(x[i].shape) == 1:
                 x[i] = np.expand_dims(x[i], axis=1)
-        tensor_data = Data.TensorDataset(torch.from_numpy(np.concatenate(x,
-            axis=-1)))
-        test_loader = DataLoader(dataset=tensor_data, shuffle=False,
-            batch_size=batch_size)
+        tensor_data = Data.TensorDataset(torch.from_numpy(np.concatenate(x, axis=-1)))
+        test_loader = DataLoader(dataset=tensor_data, shuffle=False, batch_size=batch_size)
         pred_ans = []
         with torch.no_grad():
             for index, x_test in enumerate(test_loader):
@@ -1550,42 +1403,25 @@ class BaseModel(nn.Module):
         else:
             return np.concatenate(pred_ans)
 
-    def input_from_feature_columns(self, X, feature_columns, embedding_dict,
-        support_dense=True):
-        sparse_feature_columns = list(filter(lambda x: isinstance(x,
-            SparseFeat), feature_columns)) if len(feature_columns) else []
-        dense_feature_columns = list(filter(lambda x: isinstance(x,
-            DenseFeat), feature_columns)) if len(feature_columns) else []
-        varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x,
-            VarLenSparseFeat), feature_columns)) if feature_columns else []
+    def input_from_feature_columns(self, X, feature_columns, embedding_dict, support_dense=True):
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
+        dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if len(feature_columns) else []
+        varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x, VarLenSparseFeat), feature_columns)) if feature_columns else []
         if not support_dense and len(dense_feature_columns) > 0:
-            raise ValueError(
-                'DenseFeat is not supported in dnn_feature_columns')
-        sparse_embedding_list = [embedding_dict[feat.embedding_name](X[:,
-            self.feature_index[feat.name][0]:self.feature_index[feat.name][
-            1]].long()) for feat in sparse_feature_columns]
-        varlen_sparse_embedding_list = get_varlen_pooling_list(self.
-            embedding_dict, X, self.feature_index,
-            varlen_sparse_feature_columns, self.device)
-        dense_value_list = [X[:, self.feature_index[feat.name][0]:self.
-            feature_index[feat.name][1]] for feat in dense_feature_columns]
-        return (sparse_embedding_list + varlen_sparse_embedding_list,
-            dense_value_list)
+            raise ValueError('DenseFeat is not supported in dnn_feature_columns')
+        sparse_embedding_list = [embedding_dict[feat.embedding_name](X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]].long()) for feat in sparse_feature_columns]
+        varlen_sparse_embedding_list = get_varlen_pooling_list(self.embedding_dict, X, self.feature_index, varlen_sparse_feature_columns, self.device)
+        dense_value_list = [X[:, self.feature_index[feat.name][0]:self.feature_index[feat.name][1]] for feat in dense_feature_columns]
+        return sparse_embedding_list + varlen_sparse_embedding_list, dense_value_list
 
-    def compute_input_dim(self, feature_columns, include_sparse=True,
-        include_dense=True, feature_group=False):
-        sparse_feature_columns = list(filter(lambda x: isinstance(x, (
-            SparseFeat, VarLenSparseFeat)), feature_columns)) if len(
-            feature_columns) else []
-        dense_feature_columns = list(filter(lambda x: isinstance(x,
-            DenseFeat), feature_columns)) if len(feature_columns) else []
-        dense_input_dim = sum(map(lambda x: x.dimension, dense_feature_columns)
-            )
+    def compute_input_dim(self, feature_columns, include_sparse=True, include_dense=True, feature_group=False):
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, (SparseFeat, VarLenSparseFeat)), feature_columns)) if len(feature_columns) else []
+        dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if len(feature_columns) else []
+        dense_input_dim = sum(map(lambda x: x.dimension, dense_feature_columns))
         if feature_group:
             sparse_input_dim = len(sparse_feature_columns)
         else:
-            sparse_input_dim = sum(feat.embedding_dim for feat in
-                sparse_feature_columns)
+            sparse_input_dim = sum(feat.embedding_dim for feat in sparse_feature_columns)
         input_dim = 0
         if include_sparse:
             input_dim += sparse_input_dim
@@ -1647,8 +1483,7 @@ class BaseModel(nn.Module):
             loss_func = loss
         return loss_func
 
-    def _log_loss(self, y_true, y_pred, eps=1e-07, normalize=True,
-        sample_weight=None, labels=None):
+    def _log_loss(self, y_true, y_pred, eps=1e-07, normalize=True, sample_weight=None, labels=None):
         return log_loss(y_true, y_pred, eps, normalize, sample_weight, labels)
 
     def _get_metrics(self, metrics, set_eps=False):
@@ -1665,36 +1500,27 @@ class BaseModel(nn.Module):
                 if metric == 'mse':
                     metrics_[metric] = mean_squared_error
                 if metric == 'accuracy' or metric == 'acc':
-                    metrics_[metric] = lambda y_true, y_pred: accuracy_score(
-                        y_true, np.where(y_pred > 0.5, 1, 0))
+                    metrics_[metric] = lambda y_true, y_pred: accuracy_score(y_true, np.where(y_pred > 0.5, 1, 0))
         return metrics_
 
     @property
     def embedding_size(self):
         feature_columns = self.dnn_feature_columns
-        sparse_feature_columns = list(filter(lambda x: isinstance(x, (
-            SparseFeat, VarLenSparseFeat)), feature_columns)) if len(
-            feature_columns) else []
-        embedding_size_set = set([feat.embedding_dim for feat in
-            sparse_feature_columns])
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, (SparseFeat, VarLenSparseFeat)), feature_columns)) if len(feature_columns) else []
+        embedding_size_set = set([feat.embedding_dim for feat in sparse_feature_columns])
         if len(embedding_size_set) > 1:
-            raise ValueError(
-                'embedding_dim of SparseFeat and VarlenSparseFeat must be same in this model!'
-                )
+            raise ValueError('embedding_dim of SparseFeat and VarlenSparseFeat must be same in this model!')
         return list(embedding_size_set)[0]
 
 
 class InterestExtractor(nn.Module):
 
-    def __init__(self, input_size, use_neg=False, init_std=0.001, device='cpu'
-        ):
+    def __init__(self, input_size, use_neg=False, init_std=0.001, device='cpu'):
         super(InterestExtractor, self).__init__()
         self.use_neg = use_neg
-        self.gru = nn.GRU(input_size=input_size, hidden_size=input_size,
-            batch_first=True)
+        self.gru = nn.GRU(input_size=input_size, hidden_size=input_size, batch_first=True)
         if self.use_neg:
-            self.auxiliary_net = DNN(input_size * 2, [100, 50, 1],
-                'sigmoid', init_std=init_std, device=device)
+            self.auxiliary_net = DNN(input_size * 2, [100, 50, 1], 'sigmoid', init_std=init_std, device=device)
         for name, tensor in self.gru.named_parameters():
             if 'weight' in name:
                 nn.init.normal_(tensor, mean=0, std=init_std)
@@ -1720,19 +1546,13 @@ class InterestExtractor(nn.Module):
         masked_keys_length = keys_length[mask]
         if masked_keys_length.shape[0] == 0:
             return zero_outputs,
-        masked_keys = torch.masked_select(keys, mask.view(-1, 1, 1)).view(-
-            1, max_length, dim)
-        packed_keys = pack_padded_sequence(masked_keys, lengths=
-            masked_keys_length, batch_first=True, enforce_sorted=False)
+        masked_keys = torch.masked_select(keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
+        packed_keys = pack_padded_sequence(masked_keys, lengths=masked_keys_length, batch_first=True, enforce_sorted=False)
         packed_interests, _ = self.gru(packed_keys)
-        interests, _ = pad_packed_sequence(packed_interests, batch_first=
-            True, padding_value=0.0, total_length=max_length)
+        interests, _ = pad_packed_sequence(packed_interests, batch_first=True, padding_value=0.0, total_length=max_length)
         if self.use_neg and neg_keys is not None:
-            masked_neg_keys = torch.masked_select(neg_keys, mask.view(-1, 1, 1)
-                ).view(-1, max_length, dim)
-            aux_loss = self._cal_auxiliary_loss(interests[:, :-1, :],
-                masked_keys[:, 1:, :], masked_neg_keys[:, 1:, :], 
-                masked_keys_length - 1)
+            masked_neg_keys = torch.masked_select(neg_keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
+            aux_loss = self._cal_auxiliary_loss(interests[:, :-1, :], masked_keys[:, 1:, :], masked_neg_keys[:, 1:, :], masked_keys_length - 1)
         return interests, aux_loss
 
     def _cal_auxiliary_loss(self, states, click_seq, noclick_seq, keys_length):
@@ -1741,65 +1561,40 @@ class InterestExtractor(nn.Module):
         if keys_length.shape[0] == 0:
             return torch.zeros((1,), device=states.device)
         _, max_seq_length, embedding_size = states.size()
-        states = torch.masked_select(states, mask_shape.view(-1, 1, 1)).view(
-            -1, max_seq_length, embedding_size)
-        click_seq = torch.masked_select(click_seq, mask_shape.view(-1, 1, 1)
-            ).view(-1, max_seq_length, embedding_size)
-        noclick_seq = torch.masked_select(noclick_seq, mask_shape.view(-1, 
-            1, 1)).view(-1, max_seq_length, embedding_size)
+        states = torch.masked_select(states, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
+        click_seq = torch.masked_select(click_seq, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
+        noclick_seq = torch.masked_select(noclick_seq, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
         batch_size = states.size()[0]
-        mask = (torch.arange(max_seq_length, device=states.device).repeat(
-            batch_size, 1) < keys_length.view(-1, 1)).float()
+        mask = (torch.arange(max_seq_length, device=states.device).repeat(batch_size, 1) < keys_length.view(-1, 1)).float()
         click_input = torch.cat([states, click_seq], dim=-1)
         noclick_input = torch.cat([states, noclick_seq], dim=-1)
         embedding_size = embedding_size * 2
-        click_p = self.auxiliary_net(click_input.view(batch_size *
-            max_seq_length, embedding_size)).view(batch_size, max_seq_length)[
-            mask > 0].view(-1, 1)
-        click_target = torch.ones(click_p.size(), dtype=torch.float, device
-            =click_p.device)
-        noclick_p = self.auxiliary_net(noclick_input.view(batch_size *
-            max_seq_length, embedding_size)).view(batch_size, max_seq_length)[
-            mask > 0].view(-1, 1)
-        noclick_target = torch.zeros(noclick_p.size(), dtype=torch.float,
-            device=noclick_p.device)
-        loss = F.binary_cross_entropy(torch.cat([click_p, noclick_p], dim=0
-            ), torch.cat([click_target, noclick_target], dim=0))
+        click_p = self.auxiliary_net(click_input.view(batch_size * max_seq_length, embedding_size)).view(batch_size, max_seq_length)[mask > 0].view(-1, 1)
+        click_target = torch.ones(click_p.size(), dtype=torch.float, device=click_p.device)
+        noclick_p = self.auxiliary_net(noclick_input.view(batch_size * max_seq_length, embedding_size)).view(batch_size, max_seq_length)[mask > 0].view(-1, 1)
+        noclick_target = torch.zeros(noclick_p.size(), dtype=torch.float, device=noclick_p.device)
+        loss = F.binary_cross_entropy(torch.cat([click_p, noclick_p], dim=0), torch.cat([click_target, noclick_target], dim=0))
         return loss
 
 
 class InterestEvolving(nn.Module):
     __SUPPORTED_GRU_TYPE__ = ['GRU', 'AIGRU', 'AGRU', 'AUGRU']
 
-    def __init__(self, input_size, gru_type='GRU', use_neg=False, init_std=
-        0.001, att_hidden_size=(64, 16), att_activation='sigmoid',
-        att_weight_normalization=False):
+    def __init__(self, input_size, gru_type='GRU', use_neg=False, init_std=0.001, att_hidden_size=(64, 16), att_activation='sigmoid', att_weight_normalization=False):
         super(InterestEvolving, self).__init__()
         if gru_type not in InterestEvolving.__SUPPORTED_GRU_TYPE__:
             raise NotImplementedError('gru_type: {gru_type} is not supported')
         self.gru_type = gru_type
         self.use_neg = use_neg
         if gru_type == 'GRU':
-            self.attention = AttentionSequencePoolingLayer(embedding_dim=
-                input_size, att_hidden_units=att_hidden_size,
-                att_activation=att_activation, weight_normalization=
-                att_weight_normalization, return_score=False)
-            self.interest_evolution = nn.GRU(input_size=input_size,
-                hidden_size=input_size, batch_first=True)
+            self.attention = AttentionSequencePoolingLayer(embedding_dim=input_size, att_hidden_units=att_hidden_size, att_activation=att_activation, weight_normalization=att_weight_normalization, return_score=False)
+            self.interest_evolution = nn.GRU(input_size=input_size, hidden_size=input_size, batch_first=True)
         elif gru_type == 'AIGRU':
-            self.attention = AttentionSequencePoolingLayer(embedding_dim=
-                input_size, att_hidden_units=att_hidden_size,
-                att_activation=att_activation, weight_normalization=
-                att_weight_normalization, return_score=True)
-            self.interest_evolution = nn.GRU(input_size=input_size,
-                hidden_size=input_size, batch_first=True)
+            self.attention = AttentionSequencePoolingLayer(embedding_dim=input_size, att_hidden_units=att_hidden_size, att_activation=att_activation, weight_normalization=att_weight_normalization, return_score=True)
+            self.interest_evolution = nn.GRU(input_size=input_size, hidden_size=input_size, batch_first=True)
         elif gru_type == 'AGRU' or gru_type == 'AUGRU':
-            self.attention = AttentionSequencePoolingLayer(embedding_dim=
-                input_size, att_hidden_units=att_hidden_size,
-                att_activation=att_activation, weight_normalization=
-                att_weight_normalization, return_score=True)
-            self.interest_evolution = DynamicGRU(input_size=input_size,
-                hidden_size=input_size, gru_type=gru_type)
+            self.attention = AttentionSequencePoolingLayer(embedding_dim=input_size, att_hidden_units=att_hidden_size, att_activation=att_activation, weight_normalization=att_weight_normalization, return_score=True)
+            self.interest_evolution = DynamicGRU(input_size=input_size, hidden_size=input_size, gru_type=gru_type)
         for name, tensor in self.interest_evolution.named_parameters():
             if 'weight' in name:
                 nn.init.normal_(tensor, mean=0, std=init_std)
@@ -1807,8 +1602,7 @@ class InterestEvolving(nn.Module):
     @staticmethod
     def _get_last_state(states, keys_length):
         batch_size, max_seq_length, hidden_size = states.size()
-        mask = torch.arange(max_seq_length, device=keys_length.device).repeat(
-            batch_size, 1) == keys_length.view(-1, 1) - 1
+        mask = torch.arange(max_seq_length, device=keys_length.device).repeat(batch_size, 1) == keys_length.view(-1, 1) - 1
         return states[mask]
 
     def forward(self, query, keys, keys_length, mask=None):
@@ -1830,34 +1624,25 @@ class InterestEvolving(nn.Module):
         keys_length = keys_length[mask]
         if keys_length.shape[0] == 0:
             return zero_outputs
-        query = torch.masked_select(query, mask.view(-1, 1)).view(-1, dim
-            ).unsqueeze(1)
+        query = torch.masked_select(query, mask.view(-1, 1)).view(-1, dim).unsqueeze(1)
         if self.gru_type == 'GRU':
-            packed_keys = pack_padded_sequence(keys, lengths=keys_length,
-                batch_first=True, enforce_sorted=False)
+            packed_keys = pack_padded_sequence(keys, lengths=keys_length, batch_first=True, enforce_sorted=False)
             packed_interests, _ = self.interest_evolution(packed_keys)
-            interests, _ = pad_packed_sequence(packed_interests,
-                batch_first=True, padding_value=0.0, total_length=max_length)
-            outputs = self.attention(query, interests, keys_length.unsqueeze(1)
-                )
+            interests, _ = pad_packed_sequence(packed_interests, batch_first=True, padding_value=0.0, total_length=max_length)
+            outputs = self.attention(query, interests, keys_length.unsqueeze(1))
             outputs = outputs.squeeze(1)
         elif self.gru_type == 'AIGRU':
             att_scores = self.attention(query, keys, keys_length.unsqueeze(1))
             interests = keys * att_scores.transpose(1, 2)
-            packed_interests = pack_padded_sequence(interests, lengths=
-                keys_length, batch_first=True, enforce_sorted=False)
+            packed_interests = pack_padded_sequence(interests, lengths=keys_length, batch_first=True, enforce_sorted=False)
             _, outputs = self.interest_evolution(packed_interests)
             outputs = outputs.squeeze(0)
         elif self.gru_type == 'AGRU' or self.gru_type == 'AUGRU':
-            att_scores = self.attention(query, keys, keys_length.unsqueeze(1)
-                ).squeeze(1)
-            packed_interests = pack_padded_sequence(keys, lengths=
-                keys_length, batch_first=True, enforce_sorted=False)
-            packed_scores = pack_padded_sequence(att_scores, lengths=
-                keys_length, batch_first=True, enforce_sorted=False)
+            att_scores = self.attention(query, keys, keys_length.unsqueeze(1)).squeeze(1)
+            packed_interests = pack_padded_sequence(keys, lengths=keys_length, batch_first=True, enforce_sorted=False)
+            packed_scores = pack_padded_sequence(att_scores, lengths=keys_length, batch_first=True, enforce_sorted=False)
             outputs = self.interest_evolution(packed_interests, packed_scores)
-            outputs, _ = pad_packed_sequence(outputs, batch_first=True,
-                padding_value=0.0, total_length=max_length)
+            outputs, _ = pad_packed_sequence(outputs, batch_first=True, padding_value=0.0, total_length=max_length)
             outputs = InterestEvolving._get_last_state(outputs, keys_length)
         zero_outputs[mask] = outputs
         return zero_outputs
@@ -1865,8 +1650,7 @@ class InterestEvolving(nn.Module):
 
 class Interac(nn.Module):
 
-    def __init__(self, first_size, second_size, emb_size, init_std, sparse=
-        False):
+    def __init__(self, first_size, second_size, emb_size, init_std, sparse=False):
         super(Interac, self).__init__()
         self.emb1 = nn.Embedding(first_size, emb_size, sparse=sparse)
         self.emb2 = nn.Embedding(second_size, emb_size, sparse=sparse)
@@ -1892,79 +1676,156 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AFMLayer,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (AGRUCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {}),
+     True),
+    (AUGRUCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {}),
+     True),
+    (AttentionSequencePoolingLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([16384, 4, 4]), torch.rand([16384, 4, 4]), torch.rand([256, 4, 4, 4])], {}),
+     False),
+    (BiInteractionPooling,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BilinearInteraction,
+     lambda: ([], {'filed_size': 4, 'embedding_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (CIN,
+     lambda: ([], {'field_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Conv2dSame,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConvLayer,
+     lambda: ([], {'field_size': 4, 'conv_kernel_width': [4, 4], 'conv_filters': [4, 4]}),
+     lambda: ([torch.rand([4, 1, 4, 4])], {}),
+     True),
+    (CrossNet,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DNN,
+     lambda: ([], {'inputs_dim': 4, 'hidden_units': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Dice,
+     lambda: ([], {'emb_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (FM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Identity,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (InnerProductLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Interac,
+     lambda: ([], {'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (InteractingLayer,
+     lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (Linear,
+     lambda: ([], {'feature_columns': [4, 4], 'feature_index': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LocalActivationUnit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (PredictionLayer,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SENETLayer,
+     lambda: ([], {'filed_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+]
+
 class Test_shenweichen_DeepCTR_Torch(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(AFMLayer(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(AGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(AUGRUCell(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([16, 4]), torch.rand([16, 4]), torch.rand([4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(AttentionSequencePoolingLayer(*[], **{}), [torch.rand([16384, 4, 4]), torch.rand([16384, 4, 4]), torch.rand([256, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
     def test_004(self):
-        self._check(BiInteractionPooling(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[4])
 
-    @_fails_compile()
     def test_005(self):
-        self._check(BilinearInteraction(*[], **{'filed_size': 4, 'embedding_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
-    @_fails_compile()
     def test_006(self):
-        self._check(CIN(*[], **{'field_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(Conv2dSame(*[], **{'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
     def test_008(self):
-        self._check(ConvLayer(*[], **{'field_size': 4, 'conv_kernel_width': [4, 4], 'conv_filters': [4, 4]}), [torch.rand([4, 1, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
-    @_fails_compile()
     def test_009(self):
-        self._check(CrossNet(*[], **{'in_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(DNN(*[], **{'inputs_dim': 4, 'hidden_units': [4, 4]}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(Dice(*[], **{'emb_size': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[11])
 
     def test_012(self):
-        self._check(FM(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[12])
 
     def test_013(self):
-        self._check(Identity(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[13])
 
-    @_fails_compile()
     def test_014(self):
-        self._check(InnerProductLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[14])
 
     def test_015(self):
-        self._check(Interac(*[], **{'first_size': 4, 'second_size': 4, 'emb_size': 4, 'init_std': 4}), [torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[15])
 
-    @_fails_compile()
     def test_016(self):
-        self._check(InteractingLayer(*[], **{'in_features': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[16])
 
-    @_fails_compile()
     def test_017(self):
-        self._check(Linear(*[], **{'feature_columns': [4, 4], 'feature_index': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[17])
 
-    @_fails_compile()
     def test_018(self):
-        self._check(LocalActivationUnit(*[], **{}), [torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[18])
 
     def test_019(self):
-        self._check(PredictionLayer(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[19])
 
-    @_fails_compile()
     def test_020(self):
-        self._check(SENETLayer(*[], **{'filed_size': 4}), [torch.rand([4, 4, 4])], {})
+        self._check(*TESTCASES[20])
 

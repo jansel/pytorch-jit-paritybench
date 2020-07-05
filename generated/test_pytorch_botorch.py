@@ -128,8 +128,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -301,9 +302,7 @@ class InputTransform(Module, ABC):
         Returns:
             A `batch_shape x n x d`-dim tensor of un-transformed inputs.
         """
-        raise NotImplementedError(
-            f'{self.__class__.__name__} does not implement the `untransform` method'
-            )
+        raise NotImplementedError(f'{self.__class__.__name__} does not implement the `untransform` method')
 
 
 class ChainedInputTransform(InputTransform, ModuleDict):
@@ -356,8 +355,7 @@ class BaseTestProblem(Module, ABC):
     _bounds: List[Tuple[float, float]]
     _check_grad_at_opt: bool = True
 
-    def __init__(self, noise_std: Optional[float]=None, negate: bool=False
-        ) ->None:
+    def __init__(self, noise_std: Optional[float]=None, negate: bool=False) ->None:
         """Base constructor for test functions.
 
         Arguments:
@@ -367,8 +365,7 @@ class BaseTestProblem(Module, ABC):
         super().__init__()
         self.noise_std = noise_std
         self.negate = negate
-        self.register_buffer('bounds', torch.tensor(self._bounds, dtype=
-            torch.float).transpose(-1, -2))
+        self.register_buffer('bounds', torch.tensor(self._bounds, dtype=torch.float).transpose(-1, -2))
 
     def forward(self, X: Tensor, noise: bool=True) ->Tensor:
         """Evaluate the function on a set of points.
@@ -400,8 +397,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ChainedInputTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_pytorch_botorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(ChainedInputTransform(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 

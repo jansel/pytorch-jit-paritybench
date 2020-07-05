@@ -21,8 +21,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -66,13 +67,11 @@ from numpy import random
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None,
-        norm_layer=nn.BatchNorm2d):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=nn.BatchNorm2d):
         super().__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = norm_layer(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-            padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = norm_layer(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = norm_layer(planes * 4)
@@ -107,8 +106,7 @@ class ResNetBackbone(nn.Module):
         self.channels = []
         self.norm_layer = norm_layer
         self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -116,21 +114,16 @@ class ResNetBackbone(nn.Module):
         self._make_layer(block, 128, layers[1], stride=2)
         self._make_layer(block, 256, layers[2], stride=2)
         self._make_layer(block, 512, layers[3], stride=2)
-        self.backbone_modules = [m for m in self.modules() if isinstance(m,
-            nn.Conv2d)]
+        self.backbone_modules = [m for m in self.modules() if isinstance(m, nn.Conv2d)]
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                self.norm_layer(planes * block.expansion))
-        layers = [block(self.inplanes, planes, stride, downsample, self.
-            norm_layer)]
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), self.norm_layer(planes * block.expansion))
+        layers = [block(self.inplanes, planes, stride, downsample, self.norm_layer)]
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, norm_layer=self.
-                norm_layer))
+            layers.append(block(self.inplanes, planes, norm_layer=self.norm_layer))
         layer = nn.Sequential(*layers)
         self.channels.append(planes * block.expansion)
         self.layers.append(layer)
@@ -158,11 +151,9 @@ class ResNetBackbone(nn.Module):
                 state_dict[new_key] = state_dict.pop(key)
         self.load_state_dict(state_dict, strict=False)
 
-    def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=
-        Bottleneck):
+    def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=Bottleneck):
         """ Add a downsample layer to the backbone as per what SSD does. """
-        self._make_layer(block, conv_channels // block.expansion, blocks=
-            depth, stride=downsample)
+        self._make_layer(block, conv_channels // block.expansion, blocks=depth, stride=downsample)
 
 
 class Concat(nn.Module):
@@ -173,8 +164,7 @@ class Concat(nn.Module):
         self.extra_params = extra_params
 
     def forward(self, x):
-        return torch.cat([net(x) for net in self.nets], dim=1, **self.
-            extra_params)
+        return torch.cat([net(x) for net in self.nets], dim=1, **self.extra_params)
 
 
 class InterpolateModule(nn.Module):
@@ -208,14 +198,11 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
             num_channels = layer_cfg[0]
             kernel_size = layer_cfg[1]
             if kernel_size > 0:
-                layer = nn.Conv2d(in_channels, num_channels, kernel_size,
-                    **layer_cfg[2])
+                layer = nn.Conv2d(in_channels, num_channels, kernel_size, **layer_cfg[2])
             elif num_channels is None:
-                layer = InterpolateModule(scale_factor=-kernel_size, mode=
-                    'bilinear', align_corners=False, **layer_cfg[2])
+                layer = InterpolateModule(scale_factor=-kernel_size, mode='bilinear', align_corners=False, **layer_cfg[2])
             else:
-                layer = nn.ConvTranspose2d(in_channels, num_channels, -
-                    kernel_size, **layer_cfg[2])
+                layer = nn.ConvTranspose2d(in_channels, num_channels, -kernel_size, **layer_cfg[2])
         in_channels = num_channels if num_channels is not None else in_channels
         return [layer, nn.ReLU(inplace=True)]
     net = sum([make_layer(x) for x in cfg_net], [])
@@ -224,10 +211,10 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['num_classes'] = 4
-
-
 _global_config['aspect_ratios'] = 4
+
+
+_global_config['num_classes'] = 4
 
 
 class PredictionModule(nn.Module):
@@ -238,20 +225,15 @@ class PredictionModule(nn.Module):
         self.coef_dim = coef_dim
         self.num_priors = len(cfg.aspect_ratios)
         self.upfeature, out_channels = make_net(in_channels, extra_head_net)
-        self.bbox_layer = nn.Conv2d(out_channels, self.num_priors * 4,
-            kernel_size=3, padding=1)
-        self.conf_layer = nn.Conv2d(out_channels, self.num_priors * self.
-            num_classes, kernel_size=3, padding=1)
-        self.mask_layer = nn.Conv2d(out_channels, self.num_priors * self.
-            coef_dim, kernel_size=3, padding=1)
+        self.bbox_layer = nn.Conv2d(out_channels, self.num_priors * 4, kernel_size=3, padding=1)
+        self.conf_layer = nn.Conv2d(out_channels, self.num_priors * self.num_classes, kernel_size=3, padding=1)
+        self.mask_layer = nn.Conv2d(out_channels, self.num_priors * self.coef_dim, kernel_size=3, padding=1)
 
     def forward(self, x):
         x = self.upfeature(x)
-        conf = self.conf_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1,
-            self.num_classes)
+        conf = self.conf_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, self.num_classes)
         bbox = self.bbox_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, 4)
-        coef = self.mask_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1,
-            self.coef_dim)
+        coef = self.mask_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, self.coef_dim)
         coef = torch.tanh(coef)
         return {'box': bbox, 'class': conf, 'coef': coef}
 
@@ -265,13 +247,9 @@ class FPN(nn.Module):
         super().__init__()
         self.num_downsample = 2
         self.in_channels = in_channels
-        self.lat_layers = nn.ModuleList([nn.Conv2d(x, 256, kernel_size=1) for
-            x in reversed(self.in_channels)])
-        self.pred_layers = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=3,
-            padding=1) for _ in self.in_channels])
-        self.downsample_layers = nn.ModuleList([nn.Conv2d(256, 256,
-            kernel_size=3, padding=1, stride=2) for _ in range(self.
-            num_downsample)])
+        self.lat_layers = nn.ModuleList([nn.Conv2d(x, 256, kernel_size=1) for x in reversed(self.in_channels)])
+        self.pred_layers = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=3, padding=1) for _ in self.in_channels])
+        self.downsample_layers = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=2) for _ in range(self.num_downsample)])
 
     def forward(self, backbone_outs):
         out = []
@@ -283,8 +261,7 @@ class FPN(nn.Module):
             j -= 1
             if j < len(backbone_outs) - 1:
                 _, _, h, w = backbone_outs[j].size()
-                x = F.interpolate(x, size=(h, w), mode='bilinear',
-                    align_corners=False)
+                x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=False)
             x = x + lat_layer(backbone_outs[j])
             out[j] = x
         j = len(backbone_outs)
@@ -304,10 +281,10 @@ def construct_backbone(cfg_backbone):
     return backbone
 
 
-_global_config['use_square_anchors'] = 4
-
-
 _global_config['img_size'] = 4
+
+
+_global_config['use_square_anchors'] = 4
 
 
 def make_anchors(conv_h, conv_w, scale):
@@ -325,20 +302,19 @@ def make_anchors(conv_h, conv_w, scale):
     return prior_data
 
 
-mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256,
-    3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
+mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 
-_global_config['train_semantic'] = False
+_global_config['backbone'] = 4
 
 
 _global_config['freeze_bn'] = 4
 
 
+_global_config['train_semantic'] = False
+
+
 _global_config['scales'] = 1.0
-
-
-_global_config['backbone'] = 4
 
 
 class Yolact(nn.Module):
@@ -349,8 +325,7 @@ class Yolact(nn.Module):
         self.backbone = construct_backbone(cfg.backbone)
         if cfg.freeze_bn:
             self.freeze_bn()
-        self.proto_net, coef_dim = make_net(256, mask_proto_net,
-            include_last_relu=False)
+        self.proto_net, coef_dim = make_net(256, mask_proto_net, include_last_relu=False)
         """  
         self.proto_net:
         Sequential((0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
@@ -368,8 +343,7 @@ class Yolact(nn.Module):
         self.fpn = FPN([512, 1024, 2048])
         self.selected_layers = [0, 1, 2, 3, 4]
         self.prediction_layers = nn.ModuleList()
-        self.prediction_layers.append(PredictionModule(in_channels=256,
-            coef_dim=coef_dim))
+        self.prediction_layers.append(PredictionModule(in_channels=256, coef_dim=coef_dim))
         """  
         self.prediction_layers:
         ModuleList(
@@ -380,8 +354,7 @@ class Yolact(nn.Module):
                                 (mask_layer): Conv2d(256, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))))
         """
         if cfg.train_semantic:
-            self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1,
-                kernel_size=1)
+            self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
 
     def load_weights(self, path, cuda):
         if cuda:
@@ -397,8 +370,7 @@ class Yolact(nn.Module):
     def init_weights(self, backbone_path):
         self.backbone.init_backbone(backbone_path)
         for name, module in self.named_modules():
-            if isinstance(module, nn.Conv2d
-                ) and module not in self.backbone.backbone_modules:
+            if isinstance(module, nn.Conv2d) and module not in self.backbone.backbone_modules:
                 nn.init.xavier_uniform_(module.weight.data)
                 if module.bias is not None:
                     module.bias.data.zero_()
@@ -459,8 +431,7 @@ class Yolact(nn.Module):
 
 def center_size(boxes):
     """ Convert prior_boxes to format: (cx, cy, w, h)."""
-    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] -
-        boxes[:, :2]), 1)
+    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] - boxes[:, :2]), 1)
 
 
 def sanitize_coordinates(_x1, _x2, img_size: int, padding: int=0):
@@ -489,10 +460,8 @@ def crop(masks, boxes, padding: int=1):
     h, w, n = masks.size()
     x1, x2 = sanitize_coordinates(boxes[:, (0)], boxes[:, (2)], w, padding)
     y1, y2 = sanitize_coordinates(boxes[:, (1)], boxes[:, (3)], h, padding)
-    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1
-        ).expand(h, w, n)
-    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1
-        ).expand(h, w, n)
+    rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1).expand(h, w, n)
+    cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1).expand(h, w, n)
     masks_left = rows >= x1.view(1, 1, -1)
     masks_right = rows < x2.view(1, 1, -1)
     masks_up = cols >= y1.view(1, 1, -1)
@@ -534,10 +503,8 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
         box_a = box_a[None, ...]
         box_b = box_b[None, ...]
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] -
-        box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
-    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] -
-        box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
+    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] - box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
+    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] - box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
     union = area_a + area_b - inter
     out = inter / area_a if iscrowd else inter / union
     return out if use_batch else out.squeeze(0)
@@ -562,8 +529,7 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
         The matched indices corresponding to 1)location and 2)confidence preds.
     """
     priors = priors.data
-    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:,
-        :2] + priors[:, 2:] / 2), 1)
+    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:, :2] + priors[:, 2:] / 2), 1)
     overlaps = jaccard(box_gt, decoded_priors)
     each_box_max, each_box_index = overlaps.max(1)
     each_prior_max, each_prior_index = overlaps.max(0)
@@ -582,19 +548,19 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     return offsets, conf, each_prior_box, each_prior_index
 
 
-_global_config['mask_alpha'] = 4
-
-
-_global_config['semantic_alpha'] = 4
-
-
 _global_config['masks_to_train'] = False
+
+
+_global_config['mask_alpha'] = 4
 
 
 _global_config['conf_alpha'] = 4
 
 
 _global_config['bbox_alpha'] = 4
+
+
+_global_config['semantic_alpha'] = 4
 
 
 class Multi_Loss(nn.Module):
@@ -609,45 +575,36 @@ class Multi_Loss(nn.Module):
     def ohem_conf_loss(self, class_p, conf_gt, positive_bool):
         batch_conf = class_p.view(-1, self.num_classes)
         batch_conf_max = batch_conf.data.max()
-        mark = torch.log(torch.sum(torch.exp(batch_conf - batch_conf_max), 1)
-            ) + batch_conf_max - batch_conf[:, (0)]
+        mark = torch.log(torch.sum(torch.exp(batch_conf - batch_conf_max), 1)) + batch_conf_max - batch_conf[:, (0)]
         mark = mark.view(class_p.size(0), -1)
         mark[positive_bool] = 0
         mark[conf_gt < 0] = 0
         _, idx = mark.sort(1, descending=True)
         _, idx_rank = idx.sort(1)
         num_pos = positive_bool.long().sum(1, keepdim=True)
-        num_neg = torch.clamp(self.negpos_ratio * num_pos, max=
-            positive_bool.size(1) - 1)
+        num_neg = torch.clamp(self.negpos_ratio * num_pos, max=positive_bool.size(1) - 1)
         negative_bool = idx_rank < num_neg.expand_as(idx_rank)
         negative_bool[positive_bool] = 0
         negative_bool[conf_gt < 0] = 0
-        class_p_selected = class_p[positive_bool + negative_bool].view(-1,
-            self.num_classes)
+        class_p_selected = class_p[positive_bool + negative_bool].view(-1, self.num_classes)
         class_gt_selected = conf_gt[positive_bool + negative_bool]
-        loss_c = F.cross_entropy(class_p_selected, class_gt_selected,
-            reduction='sum')
+        loss_c = F.cross_entropy(class_p_selected, class_gt_selected, reduction='sum')
         return cfg.conf_alpha * loss_c
 
     @staticmethod
     def bbox_loss(pos_box_p, pos_offsets):
-        loss_b = F.smooth_l1_loss(pos_box_p, pos_offsets, reduction='sum'
-            ) * cfg.bbox_alpha
+        loss_b = F.smooth_l1_loss(pos_box_p, pos_offsets, reduction='sum') * cfg.bbox_alpha
         return loss_b
 
     @staticmethod
-    def lincomb_mask_loss(positive_bool, prior_max_index, coef_p, proto_p,
-        mask_gt, prior_max_box):
+    def lincomb_mask_loss(positive_bool, prior_max_index, coef_p, proto_p, mask_gt, prior_max_box):
         proto_h = proto_p.size(1)
         proto_w = proto_p.size(2)
         loss_m = 0
         for i in range(coef_p.size(0)):
             with torch.no_grad():
-                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0),
-                    (proto_h, proto_w), mode='bilinear', align_corners=False
-                    ).squeeze(0)
-                downsampled_masks = downsampled_masks.permute(1, 2, 0
-                    ).contiguous()
+                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (proto_h, proto_w), mode='bilinear', align_corners=False).squeeze(0)
+                downsampled_masks = downsampled_masks.permute(1, 2, 0).contiguous()
                 downsampled_masks = downsampled_masks.gt(0.5).float()
             pos_prior_index = prior_max_index[i, positive_bool[i]]
             pos_prior_box = prior_max_box[i, positive_bool[i]]
@@ -665,11 +622,9 @@ class Multi_Loss(nn.Module):
             pos_mask_gt = downsampled_masks[:, :, (pos_prior_index)]
             mask_p = torch.sigmoid(proto_p[i] @ pos_coef.t())
             mask_p = crop(mask_p, pos_prior_box)
-            mask_loss = F.binary_cross_entropy(torch.clamp(mask_p, 0, 1),
-                pos_mask_gt, reduction='none')
+            mask_loss = F.binary_cross_entropy(torch.clamp(mask_p, 0, 1), pos_mask_gt, reduction='none')
             pos_get_csize = center_size(pos_prior_box)
-            mask_loss = mask_loss.sum(dim=(0, 1)) / pos_get_csize[:, (2)
-                ] / pos_get_csize[:, (3)]
+            mask_loss = mask_loss.sum(dim=(0, 1)) / pos_get_csize[:, (2)] / pos_get_csize[:, (3)]
             if old_num_pos > num_pos:
                 mask_loss *= old_num_pos / num_pos
             loss_m += torch.sum(mask_loss)
@@ -684,16 +639,12 @@ class Multi_Loss(nn.Module):
             cur_segment = segmentation_p[i]
             cur_class_gt = class_gt[i]
             with torch.no_grad():
-                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0),
-                    (mask_h, mask_w), mode='bilinear', align_corners=False
-                    ).squeeze(0)
+                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (mask_h, mask_w), mode='bilinear', align_corners=False).squeeze(0)
                 downsampled_masks = downsampled_masks.gt(0.5).float()
                 segment_gt = torch.zeros_like(cur_segment, requires_grad=False)
                 for i_obj in range(downsampled_masks.size(0)):
-                    segment_gt[cur_class_gt[i_obj]] = torch.max(segment_gt[
-                        cur_class_gt[i_obj]], downsampled_masks[i_obj])
-            loss_s += F.binary_cross_entropy_with_logits(cur_segment,
-                segment_gt, reduction='sum')
+                    segment_gt[cur_class_gt[i_obj]] = torch.max(segment_gt[cur_class_gt[i_obj]], downsampled_masks[i_obj])
+            loss_s += F.binary_cross_entropy_with_logits(cur_segment, segment_gt, reduction='sum')
         return loss_s / mask_h / mask_w * cfg.semantic_alpha
 
     def forward(self, predictions, box_class, mask_gt, num_crowds):
@@ -721,9 +672,7 @@ class Multi_Loss(nn.Module):
                 _, mask_gt[i] = split(mask_gt[i])
             else:
                 crowd_boxes = None
-            all_offsets[i], conf_gt[i], prior_max_box[i], prior_max_index[i
-                ] = match(self.pos_thre, self.neg_thre, box_gt, anchors,
-                class_gt[i], crowd_boxes)
+            all_offsets[i], conf_gt[i], prior_max_box[i], prior_max_index[i] = match(self.pos_thre, self.neg_thre, box_gt, anchors, class_gt[i], crowd_boxes)
         all_offsets = Variable(all_offsets, requires_grad=False)
         conf_gt = Variable(conf_gt, requires_grad=False)
         prior_max_index = Variable(prior_max_index, requires_grad=False)
@@ -733,12 +682,10 @@ class Multi_Loss(nn.Module):
         pos_box_p = box_p[(positive_bool), :]
         pos_offsets = all_offsets[(positive_bool), :]
         losses['B'] = self.bbox_loss(pos_box_p, pos_offsets)
-        losses['M'] = self.lincomb_mask_loss(positive_bool, prior_max_index,
-            coef_p, proto_p, mask_gt, prior_max_box)
+        losses['M'] = self.lincomb_mask_loss(positive_bool, prior_max_index, coef_p, proto_p, mask_gt, prior_max_box)
         losses['C'] = self.ohem_conf_loss(class_p, conf_gt, positive_bool)
         if cfg.train_semantic:
-            losses['S'] = self.semantic_segmentation_loss(predictions[
-                'segm'], mask_gt, class_gt)
+            losses['S'] = self.semantic_segmentation_loss(predictions['segm'], mask_gt, class_gt)
         total_num_pos = num_pos.data.sum().float()
         for aa in losses:
             if aa != 'S':
@@ -771,8 +718,7 @@ class FastBaseTransform(torch.nn.Module):
         self.mean = self.mean
         self.std = self.std
         img = img.permute(0, 3, 1, 2).contiguous()
-        img = F.interpolate(img, (cfg.img_size, cfg.img_size), mode=
-            'bilinear', align_corners=False)
+        img = F.interpolate(img, (cfg.img_size, cfg.img_size), mode='bilinear', align_corners=False)
         if self.transform.normalize:
             img = (img - self.mean) / self.std
         elif self.transform.subtract_means:
@@ -789,9 +735,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (ResNetBackbone,
+     lambda: ([], {'layers': [4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+]
+
 class Test_feiyuhuahuo_Yolact_minimal(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(ResNetBackbone(*[], **{'layers': [4, 4, 4, 4]}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 

@@ -23,8 +23,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -69,9 +70,7 @@ import torch.utils.data
 
 
 def convbn_3d(in_planes, out_planes, kernel_size, stride, pad):
-    return nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=
-        kernel_size, padding=pad, stride=stride, bias=False), nn.
-        BatchNorm3d(out_planes))
+    return nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=kernel_size, padding=pad, stride=stride, bias=False), nn.BatchNorm3d(out_planes))
 
 
 class PSMNet(nn.Module):
@@ -80,26 +79,18 @@ class PSMNet(nn.Module):
         super(PSMNet, self).__init__()
         self.maxdisp = maxdisp
         self.feature_extraction = feature_extraction()
-        self.dres0 = nn.Sequential(convbn_3d(64, 32, 3, 1, 1), nn.ReLU(
-            inplace=True), convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True))
-        self.dres1 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(
-            inplace=True), convbn_3d(32, 32, 3, 1, 1))
-        self.dres2 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(
-            inplace=True), convbn_3d(32, 32, 3, 1, 1))
-        self.dres3 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(
-            inplace=True), convbn_3d(32, 32, 3, 1, 1))
-        self.dres4 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(
-            inplace=True), convbn_3d(32, 32, 3, 1, 1))
-        self.classify = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(
-            inplace=True), nn.Conv3d(32, 1, kernel_size=3, padding=1,
-            stride=1, bias=False))
+        self.dres0 = nn.Sequential(convbn_3d(64, 32, 3, 1, 1), nn.ReLU(inplace=True), convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True))
+        self.dres1 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True), convbn_3d(32, 32, 3, 1, 1))
+        self.dres2 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True), convbn_3d(32, 32, 3, 1, 1))
+        self.dres3 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True), convbn_3d(32, 32, 3, 1, 1))
+        self.dres4 = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True), convbn_3d(32, 32, 3, 1, 1))
+        self.classify = nn.Sequential(convbn_3d(32, 32, 3, 1, 1), nn.ReLU(inplace=True), nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, nn.Conv3d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2
-                    ] * m.out_channels
+                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -113,15 +104,11 @@ class PSMNet(nn.Module):
     def forward(self, left, right):
         refimg_fea = self.feature_extraction(left)
         targetimg_fea = self.feature_extraction(right)
-        cost = Variable(torch.FloatTensor(refimg_fea.size()[0], refimg_fea.
-            size()[1] * 2, self.maxdisp / 4, refimg_fea.size()[2],
-            refimg_fea.size()[3]).zero_(), volatile=not self.training)
+        cost = Variable(torch.FloatTensor(refimg_fea.size()[0], refimg_fea.size()[1] * 2, self.maxdisp / 4, refimg_fea.size()[2], refimg_fea.size()[3]).zero_(), volatile=not self.training)
         for i in range(self.maxdisp / 4):
             if i > 0:
-                cost[:, :refimg_fea.size()[1], (i), :, i:] = refimg_fea[:,
-                    :, :, i:]
-                cost[:, refimg_fea.size()[1]:, (i), :, i:] = targetimg_fea[:,
-                    :, :, :-i]
+                cost[:, :refimg_fea.size()[1], (i), :, i:] = refimg_fea[:, :, :, i:]
+                cost[:, refimg_fea.size()[1]:, (i), :, i:] = targetimg_fea[:, :, :, :-i]
             else:
                 cost[:, :refimg_fea.size()[1], (i), :, :] = refimg_fea
                 cost[:, refimg_fea.size()[1]:, (i), :, :] = targetimg_fea
@@ -132,8 +119,7 @@ class PSMNet(nn.Module):
         cost0 = self.dres3(cost0) + cost0
         cost0 = self.dres4(cost0) + cost0
         cost = self.classify(cost0)
-        cost = F.upsample(cost, [self.maxdisp, left.size()[2], left.size()[
-            3]], mode='trilinear')
+        cost = F.upsample(cost, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
         cost = torch.squeeze(cost, 1)
         pred = F.softmax(cost)
         pred = disparityregression(self.maxdisp)(pred)
@@ -141,9 +127,7 @@ class PSMNet(nn.Module):
 
 
 def convbn(in_planes, out_planes, kernel_size, stride, pad, dilation):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=
-        kernel_size, stride=stride, padding=dilation if dilation > 1 else
-        pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes))
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes))
 
 
 class BasicBlock(nn.Module):
@@ -151,8 +135,7 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride, downsample, pad, dilation):
         super(BasicBlock, self).__init__()
-        self.conv1 = nn.Sequential(convbn(inplanes, planes, 3, stride, pad,
-            dilation), nn.ReLU(inplace=True))
+        self.conv1 = nn.Sequential(convbn(inplanes, planes, 3, stride, pad, dilation), nn.ReLU(inplace=True))
         self.conv2 = convbn(planes, planes, 3, 1, pad, dilation)
         self.downsample = downsample
         self.stride = stride
@@ -173,12 +156,9 @@ class matchshifted(nn.Module):
 
     def forward(self, left, right, shift):
         batch, filters, height, width = left.size()
-        shifted_left = F.pad(torch.index_select(left, 3, Variable(torch.
-            LongTensor([i for i in range(shift, width)]))), (shift, 0, 0, 0))
-        shifted_right = F.pad(torch.index_select(right, 3, Variable(torch.
-            LongTensor([i for i in range(width - shift)]))), (shift, 0, 0, 0))
-        out = torch.cat((shifted_left, shifted_right), 1).view(batch, 
-            filters * 2, 1, height, width)
+        shifted_left = F.pad(torch.index_select(left, 3, Variable(torch.LongTensor([i for i in range(shift, width)]))), (shift, 0, 0, 0))
+        shifted_right = F.pad(torch.index_select(right, 3, Variable(torch.LongTensor([i for i in range(width - shift)]))), (shift, 0, 0, 0))
+        out = torch.cat((shifted_left, shifted_right), 1).view(batch, filters * 2, 1, height, width)
         return out
 
 
@@ -186,8 +166,7 @@ class disparityregression(nn.Module):
 
     def __init__(self, maxdisp):
         super(disparityregression, self).__init__()
-        self.disp = Variable(torch.Tensor(np.reshape(np.array(range(maxdisp
-            )), [1, maxdisp, 1, 1])), requires_grad=False)
+        self.disp = Variable(torch.Tensor(np.reshape(np.array(range(maxdisp)), [1, maxdisp, 1, 1])), requires_grad=False)
 
     def forward(self, x):
         disp = self.disp.repeat(x.size()[0], 1, x.size()[2], x.size()[3])
@@ -200,34 +179,23 @@ class feature_extraction(nn.Module):
     def __init__(self):
         super(feature_extraction, self).__init__()
         self.inplanes = 32
-        self.firstconv = nn.Sequential(convbn(3, 32, 3, 2, 1, 1), nn.ReLU(
-            inplace=True), convbn(32, 32, 3, 1, 1, 1), nn.ReLU(inplace=True
-            ), convbn(32, 32, 3, 1, 1, 1), nn.ReLU(inplace=True))
+        self.firstconv = nn.Sequential(convbn(3, 32, 3, 2, 1, 1), nn.ReLU(inplace=True), convbn(32, 32, 3, 1, 1, 1), nn.ReLU(inplace=True), convbn(32, 32, 3, 1, 1, 1), nn.ReLU(inplace=True))
         self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
-        self.branch1 = nn.Sequential(nn.AvgPool2d((64, 64), stride=(64, 64)
-            ), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
-        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)
-            ), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
-        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)
-            ), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
-        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)),
-            convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
-        self.lastconv = nn.Sequential(convbn(320, 128, 3, 1, 1, 1), nn.ReLU
-            (inplace=True), nn.Conv2d(128, 32, kernel_size=1, padding=0,
-            stride=1, bias=False))
+        self.branch1 = nn.Sequential(nn.AvgPool2d((64, 64), stride=(64, 64)), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
+        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
+        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
+        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)), convbn(128, 32, 1, 1, 0, 1), nn.ReLU(inplace=True))
+        self.lastconv = nn.Sequential(convbn(320, 128, 3, 1, 1, 1), nn.ReLU(inplace=True), nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
 
     def _make_layer(self, block, planes, blocks, stride, pad, dilation):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, pad,
-            dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample, pad, dilation))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, 1, None, pad, dilation))
@@ -240,19 +208,14 @@ class feature_extraction(nn.Module):
         output = self.layer3(output_raw)
         output_skip = self.layer4(output)
         output_branch1 = self.branch1(output_skip)
-        output_branch1 = F.upsample(output_branch1, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch1 = F.upsample(output_branch1, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch2 = self.branch2(output_skip)
-        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch3 = self.branch3(output_skip)
-        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
+        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
         output_branch4 = self.branch4(output_skip)
-        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2],
-            output_skip.size()[3]), mode='bilinear')
-        output_feature = torch.cat((output_raw, output_skip, output_branch4,
-            output_branch3, output_branch2, output_branch1), 1)
+        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
+        output_feature = torch.cat((output_raw, output_skip, output_branch4, output_branch3, output_branch2, output_branch1), 1)
         output_feature = self.lastconv(output_feature)
         return output_feature
 
@@ -261,15 +224,30 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (disparityregression,
+     lambda: ([], {'maxdisp': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (feature_extraction,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (matchshifted,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+]
+
 class Test_JiaRenChang_PSMNet(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(disparityregression(*[], **{'maxdisp': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(feature_extraction(*[], **{}), [torch.rand([4, 3, 256, 256])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(matchshifted(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), 0], {})
+        self._check(*TESTCASES[2])
 

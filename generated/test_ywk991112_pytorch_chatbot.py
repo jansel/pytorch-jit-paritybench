@@ -12,8 +12,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -50,23 +51,19 @@ import math
 
 class EncoderRNN(nn.Module):
 
-    def __init__(self, input_size, hidden_size, embedding, n_layers=1,
-        dropout=0):
+    def __init__(self, input_size, hidden_size, embedding, n_layers=1, dropout=0):
         super(EncoderRNN, self).__init__()
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.embedding = embedding
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout, bidirectional=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout, bidirectional=True)
 
     def forward(self, input_seq, input_lengths, hidden=None):
         embedded = self.embedding(input_seq)
-        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded,
-            input_lengths)
+        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lengths)
         outputs, hidden = self.gru(packed, hidden)
         outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs)
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.
-            hidden_size:]
+        outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]
         return outputs, hidden
 
 
@@ -95,8 +92,7 @@ class Attn(nn.Module):
         attn_energies = attn_energies
         for b in range(batch_size):
             for i in range(max_len):
-                attn_energies[b, i] = self.score(hidden[:, (b)],
-                    encoder_outputs[i, b].unsqueeze(0))
+                attn_energies[b, i] = self.score(hidden[:, (b)], encoder_outputs[i, b].unsqueeze(0))
         return F.softmax(attn_energies, dim=1).unsqueeze(1)
 
     def score(self, hidden, encoder_output):
@@ -115,8 +111,7 @@ class Attn(nn.Module):
 
 class LuongAttnDecoderRNN(nn.Module):
 
-    def __init__(self, attn_model, embedding, hidden_size, output_size,
-        n_layers=1, dropout=0.1):
+    def __init__(self, attn_model, embedding, hidden_size, output_size, n_layers=1, dropout=0.1):
         super(LuongAttnDecoderRNN, self).__init__()
         self.attn_model = attn_model
         self.hidden_size = hidden_size
@@ -125,8 +120,7 @@ class LuongAttnDecoderRNN(nn.Module):
         self.dropout = dropout
         self.embedding = embedding
         self.embedding_dropout = nn.Dropout(dropout)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if 
-            n_layers == 1 else dropout)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0 if n_layers == 1 else dropout)
         self.concat = nn.Linear(hidden_size * 2, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
         if attn_model != 'none':
@@ -152,9 +146,16 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (EncoderRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'embedding': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+]
+
 class Test_ywk991112_pytorch_chatbot(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(EncoderRNN(*[], **{'input_size': 4, 'hidden_size': 4, 'embedding': _mock_layer()}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 

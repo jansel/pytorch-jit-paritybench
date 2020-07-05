@@ -7,8 +7,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -30,18 +31,15 @@ import torch.nn.functional as F
 
 class DecoderRNN(nn.Module):
 
-    def __init__(self, embedding_size, hidden_size, output_size, cell_type,
-        dropout=0.1):
+    def __init__(self, embedding_size, hidden_size, output_size, cell_type, dropout=0.1):
         """
         Illustrative decoder
         """
         super(DecoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.cell_type = cell_type
-        self.embedding = nn.Embedding(num_embeddings=output_size,
-            embedding_dim=embedding_size)
-        self.rnn = nn.GRU(embedding_size, hidden_size, bidirectional=True,
-            dropout=dropout, batch_first=False)
+        self.embedding = nn.Embedding(num_embeddings=output_size, embedding_dim=embedding_size)
+        self.rnn = nn.GRU(embedding_size, hidden_size, bidirectional=True, dropout=dropout, batch_first=False)
         self.dropout_rate = dropout
         self.out = nn.Linear(hidden_size, output_size)
 
@@ -54,10 +52,3 @@ class DecoderRNN(nn.Module):
         output = F.log_softmax(out, dim=1)
         return output, hidden
 
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-class Test_budzianowski_PyTorch_Beam_Search_Decoding(_paritybench_base):
-    pass

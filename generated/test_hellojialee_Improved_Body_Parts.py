@@ -43,8 +43,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -171,12 +172,10 @@ class Full(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False,
-        relu=True):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False, relu=True):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
-        self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-            padding=(kernel_size - 1) // 2, bias=True)
+        self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True)
         self.relu = None
         self.bn = None
         if relu:
@@ -185,8 +184,7 @@ class Conv(nn.Module):
             self.bn = nn.BatchNorm2d(out_dim)
 
     def forward(self, x):
-        assert x.size()[1] == self.inp_dim, '{} {}'.format(x.size()[1],
-            self.inp_dim)
+        assert x.size()[1] == self.inp_dim, '{} {}'.format(x.size()[1], self.inp_dim)
         x = self.conv(x)
         if self.relu is not None:
             x = self.relu(x)
@@ -235,21 +233,13 @@ class Merge(nn.Module):
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         super(PoseNet, self).__init__()
-        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=bn), Conv(64, 128, bn
-            =bn), nn.MaxPool2d(2, 2), Conv(128, 128, bn=bn), Conv(128,
-            inp_dim, bn=bn))
-        self.features = nn.ModuleList([nn.Sequential(Hourglass(4, inp_dim,
-            bn, increase), Conv(inp_dim, inp_dim, 3, bn=False), Conv(
-            inp_dim, inp_dim, 3, bn=False)) for i in range(nstack)])
-        self.outs = nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn
-            =False) for i in range(nstack)])
-        self.merge_features = nn.ModuleList([Merge(inp_dim, inp_dim) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([Merge(oup_dim, inp_dim) for i in
-            range(nstack - 1)])
+        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=bn), Conv(64, 128, bn=bn), nn.MaxPool2d(2, 2), Conv(128, 128, bn=bn), Conv(128, inp_dim, bn=bn))
+        self.features = nn.ModuleList([nn.Sequential(Hourglass(4, inp_dim, bn, increase), Conv(inp_dim, inp_dim, 3, bn=False), Conv(inp_dim, inp_dim, 3, bn=False)) for i in range(nstack)])
+        self.outs = nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn=False) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([Merge(inp_dim, inp_dim) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([Merge(oup_dim, inp_dim) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -263,8 +253,7 @@ class PoseNet(nn.Module):
             feature = self.features[i](x)
             preds_instack.append(self.outs[i](feature))
             if i != self.nstack - 1:
-                x = x + self.merge_preds[i](preds_instack[-1]
-                    ) + self.merge_features[i](feature)
+                x = x + self.merge_preds[i](preds_instack[-1]) + self.merge_features[i](feature)
             preds.append(preds_instack)
         return preds
 
@@ -288,10 +277,8 @@ class Network(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False, dist=False):
         super(Network, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn)
-        self.criterion = MultiTaskLoss(opt, config
-            ) if dist else MultiTaskLossParallel(opt, config)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn)
+        self.criterion = MultiTaskLoss(opt, config) if dist else MultiTaskLossParallel(opt, config)
 
     def forward(self, inp_imgs, target_tuple):
         output_tuple = self.posenet(inp_imgs)
@@ -309,8 +296,7 @@ class NetworkEval(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False):
         super(NetworkEval, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn)
 
     def forward(self, inp_imgs):
         output_tuple = self.posenet(inp_imgs)
@@ -325,12 +311,7 @@ class Residual(nn.Module):
 
     def __init__(self, ins, outs):
         super(Residual, self).__init__()
-        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.LeakyReLU(
-            negative_slope=0.01, inplace=True), nn.Conv2d(ins, outs // 2, 1
-            ), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01,
-            inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1), nn.
-            BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01,
-            inplace=True), nn.Conv2d(outs // 2, outs, 1))
+        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(ins, outs // 2, 1), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 1))
         if ins != outs:
             self.skipConv = nn.Conv2d(ins, outs, 1)
         self.ins = ins
@@ -347,8 +328,7 @@ class Residual(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False,
-        relu=True):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False, relu=True):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -356,17 +336,13 @@ class Conv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=False)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=True)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         x = self.conv(x)
         if self.bn is not None:
             x = self.bn(x)
@@ -382,8 +358,7 @@ class Backbone(nn.Module):
         self.nFeat = nFeat
         self.resBlock = resBlock
         self.inplanes = inplanes
-        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2,
-            padding=3)
+        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2, padding=3)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.res1 = self.resBlock(64, 128)
@@ -417,16 +392,10 @@ class Hourglass(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
 
     def _make_single_residual(self, depth_id):
-        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), 
-            self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
+        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
 
     def _make_lower_residual(self, depth_id):
-        return [self.resBlock(self.nFeat + self.increase * depth_id, self.
-            nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(
-            self.nFeat + self.increase * depth_id, self.nFeat + self.
-            increase * (depth_id + 1), bn=self.bn), self.resBlock(self.
-            nFeat + self.increase * (depth_id + 1), self.nFeat + self.
-            increase * depth_id, bn=self.bn)]
+        return [self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * depth_id, bn=self.bn)]
 
     def _make_hour_glass(self):
         """
@@ -479,13 +448,10 @@ class SELayer(nn.Module):
         :param reduction: channel compression ratio
         :return output the tensor with the same shape of input
         """
-        assert inp_dim > reduction, 'Make sure your input channel bigger than reduction which equals to {}'.format(
-            reduction)
+        assert inp_dim > reduction, 'Make sure your input channel bigger than reduction which equals to {}'.format(reduction)
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction),
-            nn.ReLU(inplace=True), nn.Linear(inp_dim // reduction, inp_dim),
-            nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction), nn.ReLU(inplace=True), nn.Linear(inp_dim // reduction, inp_dim), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -500,15 +466,9 @@ class Residual(nn.Module):
     def __init__(self, ins, outs, bn=True, relu=True):
         super(Residual, self).__init__()
         self.relu_flag = relu
-        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=
-            False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=
-            0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1,
-            bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(
-            negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 
-            1, bias=False), nn.BatchNorm2d(outs))
+        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 1, bias=False), nn.BatchNorm2d(outs))
         if ins != outs:
-            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=
-                False), nn.BatchNorm2d(outs))
+            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=False), nn.BatchNorm2d(outs))
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.ins = ins
         self.outs = outs
@@ -535,16 +495,12 @@ class BasicResidual(nn.Module):
     def __init__(self, inp_dim, out_dim, stride=1, bn=True, relu=True):
         super(BasicResidual, self).__init__()
         self.relu_flag = relu
-        self.conv1 = nn.Conv2d(inp_dim, out_dim, (3, 3), padding=(1, 1),
-            stride=(stride, stride), bias=False)
+        self.conv1 = nn.Conv2d(inp_dim, out_dim, (3, 3), padding=(1, 1), stride=(stride, stride), bias=False)
         self.bn1 = nn.BatchNorm2d(out_dim)
         self.relu1 = nn.LeakyReLU(negative_slope=0.01, inplace=True)
-        self.conv2 = nn.Conv2d(out_dim, out_dim, (3, 3), padding=(1, 1),
-            bias=False)
+        self.conv2 = nn.Conv2d(out_dim, out_dim, (3, 3), padding=(1, 1), bias=False)
         self.bn2 = nn.BatchNorm2d(out_dim)
-        self.skip = nn.Sequential(nn.Conv2d(inp_dim, out_dim, (1, 1),
-            stride=(stride, stride), bias=False), nn.BatchNorm2d(out_dim)
-            ) if stride != 1 or inp_dim != out_dim else nn.Sequential()
+        self.skip = nn.Sequential(nn.Conv2d(inp_dim, out_dim, (1, 1), stride=(stride, stride), bias=False), nn.BatchNorm2d(out_dim)) if stride != 1 or inp_dim != out_dim else nn.Sequential()
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
 
     def forward(self, x):
@@ -563,8 +519,7 @@ class BasicResidual(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True,
-        relu=True, dropout=False, dialated=1):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True, relu=True, dropout=False, dialated=1):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -573,17 +528,13 @@ class Conv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=False, dilation=1)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False, dilation=1)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=True, dilation=1)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True, dilation=1)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -599,8 +550,7 @@ class DilatedConv(nn.Module):
     Dilated convolutional layer of stride=1 only!
     """
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True,
-        relu=True, dropout=False, dialation=3):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=True, relu=True, dropout=False, dialation=3):
         super(DilatedConv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -609,17 +559,13 @@ class DilatedConv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=dialation, bias=False, dilation=dialation)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=dialation, bias=False, dilation=dialation)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=dialation, bias=True, dilation=dialation)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=dialation, bias=True, dilation=dialation)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -635,23 +581,18 @@ class Backbone(nn.Module):
     Input Tensor: a batch of images with shape (N, C, H, W)
     """
 
-    def __init__(self, nFeat=256, inplanes=3, resBlock=Residual,
-        dilatedBlock=DilatedConv):
+    def __init__(self, nFeat=256, inplanes=3, resBlock=Residual, dilatedBlock=DilatedConv):
         super(Backbone, self).__init__()
         self.nFeat = nFeat
         self.resBlock = resBlock
         self.inplanes = inplanes
-        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.res1 = self.resBlock(64, 128)
         self.pool = nn.MaxPool2d(2, 2)
         self.res2 = self.resBlock(128, 128)
-        self.dilation = nn.Sequential(dilatedBlock(128, 128, dialation=3),
-            dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128,
-            dialation=4), dilatedBlock(128, 128, dialation=4), dilatedBlock
-            (128, 128, dialation=5), dilatedBlock(128, 128, dialation=5))
+        self.dilation = nn.Sequential(dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128, dialation=3), dilatedBlock(128, 128, dialation=4), dilatedBlock(128, 128, dialation=4), dilatedBlock(128, 128, dialation=5), dilatedBlock(128, 128, dialation=5))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -668,8 +609,7 @@ class Backbone(nn.Module):
 class Hourglass(nn.Module):
     """Instantiate an n order Hourglass Network block using recursive trick."""
 
-    def __init__(self, depth, nFeat, increase=128, bn=False, resBlock=
-        Residual, convBlock=Conv):
+    def __init__(self, depth, nFeat, increase=128, bn=False, resBlock=Residual, convBlock=Conv):
         super(Hourglass, self).__init__()
         self.depth = depth
         self.nFeat = nFeat
@@ -682,18 +622,10 @@ class Hourglass(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
 
     def _make_single_residual(self, depth_id):
-        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), 
-            self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
+        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
 
     def _make_lower_residual(self, depth_id):
-        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id,
-            self.nFeat + self.increase * depth_id, bn=self.bn), self.
-            resBlock(self.nFeat + self.increase * depth_id, self.nFeat + 
-            self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self
-            .nFeat + self.increase * (depth_id + 1), self.nFeat + self.
-            increase * depth_id, bn=self.bn), self.convBlock(self.nFeat + 
-            self.increase * depth_id, self.nFeat + self.increase * depth_id,
-            bn=self.bn)]
+        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * depth_id, bn=self.bn), self.convBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn)]
         return pack_layers
 
     def _make_hour_glass(self):
@@ -751,9 +683,7 @@ class SELayer(nn.Module):
         assert inp_dim > reduction, f'Make sure your input channel bigger than reduction which equals to {reduction}'
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction),
-            nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction,
-            inp_dim), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction), nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction, inp_dim), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -767,15 +697,9 @@ class Residual(nn.Module):
 
     def __init__(self, ins, outs):
         super(Residual, self).__init__()
-        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=
-            False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=
-            0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1,
-            bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(
-            negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 
-            1, bias=False), nn.BatchNorm2d(outs))
+        self.convBlock = nn.Sequential(nn.Conv2d(ins, outs // 2, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs // 2, 3, 1, 1, bias=False), nn.BatchNorm2d(outs // 2), nn.LeakyReLU(negative_slope=0.01, inplace=True), nn.Conv2d(outs // 2, outs, 1, bias=False), nn.BatchNorm2d(outs))
         if ins != outs:
-            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=
-                False), nn.BatchNorm2d(outs))
+            self.skipConv = nn.Sequential(nn.Conv2d(ins, outs, 1, bias=False), nn.BatchNorm2d(outs))
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.ins = ins
         self.outs = outs
@@ -792,8 +716,7 @@ class Residual(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False,
-        relu=True, dropout=False):
+    def __init__(self, inp_dim, out_dim, kernel_size=3, stride=1, bn=False, relu=True, dropout=False):
         super(Conv, self).__init__()
         self.inp_dim = inp_dim
         self.relu = None
@@ -802,17 +725,13 @@ class Conv(nn.Module):
         if relu:
             self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         if bn:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=False)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False)
             self.bn = nn.BatchNorm2d(out_dim)
         else:
-            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride,
-                padding=(kernel_size - 1) // 2, bias=True)
+            self.conv = nn.Conv2d(inp_dim, out_dim, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=True)
 
     def forward(self, x):
-        assert x.size()[1
-            ] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(
-            x.size()[1], self.inp_dim)
+        assert x.size()[1] == self.inp_dim, 'input channel {} dese not fit kernel channel {}'.format(x.size()[1], self.inp_dim)
         if self.dropout:
             x = F.dropout(x, p=0.2, training=self.training, inplace=False)
         x = self.conv(x)
@@ -830,8 +749,7 @@ class Backbone(nn.Module):
         self.nFeat = nFeat
         self.resBlock = resBlock
         self.inplanes = inplanes
-        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2,
-            padding=3, bias=False)
+        self.conv1 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
         self.res1 = self.resBlock(64, 128)
@@ -865,20 +783,10 @@ class Hourglass(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
 
     def _make_single_residual(self, depth_id):
-        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), 
-            self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
+        return self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * (depth_id + 1), bn=self.bn)
 
     def _make_lower_residual(self, depth_id):
-        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id,
-            self.nFeat + self.increase * depth_id, bn=self.bn, relu=False),
-            self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat +
-            self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self
-            .nFeat + self.increase * (depth_id + 1), self.nFeat + self.
-            increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + 
-            self.increase * depth_id, self.nFeat + self.increase * depth_id,
-            bn=self.bn), self.resBlock(self.nFeat + self.increase *
-            depth_id, self.nFeat + self.increase * depth_id, bn=self.bn,
-            relu=False), nn.LeakyReLU(negative_slope=0.01, inplace=True)]
+        pack_layers = [self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn, relu=False), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * (depth_id + 1), bn=self.bn), self.resBlock(self.nFeat + self.increase * (depth_id + 1), self.nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn), self.resBlock(self.nFeat + self.increase * depth_id, self.nFeat + self.increase * depth_id, bn=self.bn, relu=False), nn.LeakyReLU(negative_slope=0.01, inplace=True)]
         return pack_layers
 
     def _make_hour_glass(self):
@@ -936,13 +844,10 @@ class SELayer(nn.Module):
         :param reduction: channel compression ratio
         :return output the tensor with the same shape of input
         """
-        assert inp_dim > reduction, 'Make sure your input channel bigger than reduction which equals to {}'.format(
-            reduction)
+        assert inp_dim > reduction, 'Make sure your input channel bigger than reduction which equals to {}'.format(reduction)
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction),
-            nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction,
-            inp_dim), nn.Sigmoid())
+        self.fc = nn.Sequential(nn.Linear(inp_dim, inp_dim // reduction), nn.LeakyReLU(inplace=True), nn.Linear(inp_dim // reduction, inp_dim), nn.Sigmoid())
 
     def forward(self, x):
         b, c, _, _ = x.size()
@@ -953,8 +858,7 @@ class SELayer(nn.Module):
 
 class MultiTaskLoss(nn.Module):
 
-    def __init__(self, opt, config, heatmap_weight=1, offset_weight=1, **kwargs
-        ):
+    def __init__(self, opt, config, heatmap_weight=1, offset_weight=1, **kwargs):
         super(MultiTaskLoss, self).__init__()
         self.nstack = opt.nstack
         self.batch_size = opt.batch_size
@@ -977,12 +881,9 @@ class MultiTaskLoss(nn.Module):
         [batch,1,128,128], [batch,43,128,128], [batch,36,128,128], [batch,36,128,128]
         :return: scalar tensor
         """
-        pred_scale_tensors = [torch.cat([pred_tuple[j][i][None, ...] for j in
-            range(self.nstack)], dim=0) for i in range(5)]
-        loss_scales = [(self._loss_per_scale(pred_scale_tensors[i],
-            target_tuple) * self.scale_weight[i]) for i in range(5)]
-        loss_per_batch = sum(loss_scales) / sum(self.scale_weight
-            ) / self.batch_size
+        pred_scale_tensors = [torch.cat([pred_tuple[j][i][None, ...] for j in range(self.nstack)], dim=0) for i in range(5)]
+        loss_scales = [(self._loss_per_scale(pred_scale_tensors[i], target_tuple) * self.scale_weight[i]) for i in range(5)]
+        loss_per_batch = sum(loss_scales) / sum(self.scale_weight) / self.batch_size
         return loss_per_batch
 
     def _loss_per_scale(self, pred, target):
@@ -993,16 +894,10 @@ class MultiTaskLoss(nn.Module):
         :return:
         """
         pred_heatmap = pred
-        gt_heatmaps = F.adaptive_avg_pool2d(target[1], output_size=pred.
-            shape[-2:])
-        gt_mask_misses = F.interpolate(target[0], size=pred.shape[-2:],
-            mode='bilinear')
+        gt_heatmaps = F.adaptive_avg_pool2d(target[1], output_size=pred.shape[-2:])
+        gt_mask_misses = F.interpolate(target[0], size=pred.shape[-2:], mode='bilinear')
         gt_mask_misses[gt_mask_misses < 0.5] = 0
-        heatmap_loss = self.focal_l2_loss(pred_heatmap, gt_heatmaps[None,
-            ...], gt_mask_misses[None, ...], self.heat_start, self.
-            bkg_start, nstack_weight=self.nstack_weight, multi_task_weight=
-            self.multi_task_weight, keypoint_task_weight=self.
-            keypoint_task_weight)
+        heatmap_loss = self.focal_l2_loss(pred_heatmap, gt_heatmaps[None, ...], gt_mask_misses[None, ...], self.heat_start, self.bkg_start, nstack_weight=self.nstack_weight, multi_task_weight=self.multi_task_weight, keypoint_task_weight=self.keypoint_task_weight)
         return heatmap_loss
 
     @staticmethod
@@ -1019,15 +914,12 @@ class MultiTaskLoss(nn.Module):
         loss_nstack = out.sum(dim=(1, 2, 3, 4))
         assert len(loss_nstack) == len(nstack_weight), nstack_weight
         None
-        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(
-            len(nstack_weight))]
+        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(len(nstack_weight))]
         loss = sum(weight_loss) / sum(nstack_weight)
         return loss
 
     @staticmethod
-    def l2_loss(s, sxing, mask_miss, heat_start, bkg_start,
-        multi_task_weight=0.1, keypoint_task_weight=1, nstack_weight=[1, 1,
-        1, 1]):
+    def l2_loss(s, sxing, mask_miss, heat_start, bkg_start, multi_task_weight=0.1, keypoint_task_weight=1, nstack_weight=[1, 1, 1, 1]):
         """
         Compute the L2 loss between predicted and groundtruth score maps.
         :param s:  predicted tensor (nstack, batch, channel, height, width), predicted score maps
@@ -1043,15 +935,12 @@ class MultiTaskLoss(nn.Module):
         loss_nstack = out.sum(dim=4).sum(dim=3).sum(dim=2).sum(dim=1)
         assert len(loss_nstack) == len(nstack_weight), nstack_weight
         None
-        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(
-            len(nstack_weight))]
+        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(len(nstack_weight))]
         loss = sum(weight_loss) / sum(nstack_weight)
         return loss
 
     @staticmethod
-    def focal_l2_loss(s, sxing, mask_miss, heat_start, bkg_start, gamma=1,
-        multi_task_weight=0.1, keypoint_task_weight=1, nstack_weight=[1, 1,
-        1, 1], alpha=0.0, beta=0.0):
+    def focal_l2_loss(s, sxing, mask_miss, heat_start, bkg_start, gamma=1, multi_task_weight=0.1, keypoint_task_weight=1, nstack_weight=[1, 1, 1, 1], alpha=0.0, beta=0.0):
         """
         Compute the focal L2 loss between predicted and groundtruth score maps.
         :param s:  predicted tensor (nstack, batch, channel, height, width), predicted score maps
@@ -1070,16 +959,14 @@ class MultiTaskLoss(nn.Module):
         loss_nstack = out.sum(dim=(1, 2, 3, 4))
         assert len(loss_nstack) == len(nstack_weight), nstack_weight
         None
-        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(
-            len(nstack_weight))]
+        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(len(nstack_weight))]
         loss = sum(weight_loss) / sum(nstack_weight)
         return loss
 
 
 class MultiTaskLossParallel(nn.Module):
 
-    def __init__(self, opt, config, heatmap_weight=1, offset_weight=1, **kwargs
-        ):
+    def __init__(self, opt, config, heatmap_weight=1, offset_weight=1, **kwargs):
         super(MultiTaskLossParallel, self).__init__()
         self.nstack = opt.nstack
         self.batch_size = opt.batch_size
@@ -1100,10 +987,8 @@ class MultiTaskLossParallel(nn.Module):
         [batch,1,128,128], [batch,44,128,128], [batch,36,128,128], [batch,36,128,128]
         :return: scalar tensor
         """
-        pred_scale_tensors = [torch.cat([pred_tuple[j][i][None, ...] for j in
-            range(self.nstack)], dim=0) for i in range(5)]
-        loss_scales = [(self._loss_per_scale(pred_scale_tensors[i],
-            target_tuple) * self.scale_weight[i]) for i in range(5)]
+        pred_scale_tensors = [torch.cat([pred_tuple[j][i][None, ...] for j in range(self.nstack)], dim=0) for i in range(5)]
+        loss_scales = [(self._loss_per_scale(pred_scale_tensors[i], target_tuple) * self.scale_weight[i]) for i in range(5)]
         loss_per_batch = sum(loss_scales) / sum(self.scale_weight)
         return loss_per_batch
 
@@ -1115,17 +1000,13 @@ class MultiTaskLossParallel(nn.Module):
         :return:
         """
         pred_heatmap = pred[:, :, :self.offset_start]
-        gt_mask_misses = F.interpolate(target[0], size=pred.shape[-2:],
-            mode='bilinear')
-        gt_heatmaps = F.adaptive_avg_pool2d(target[1], output_size=pred.
-            shape[-2:])
-        heatmap_loss = self.l2_loss(pred_heatmap, gt_heatmaps[None, ...],
-            gt_mask_misses[None, ...], nstack_weight=self.nstack_weight)
+        gt_mask_misses = F.interpolate(target[0], size=pred.shape[-2:], mode='bilinear')
+        gt_heatmaps = F.adaptive_avg_pool2d(target[1], output_size=pred.shape[-2:])
+        heatmap_loss = self.l2_loss(pred_heatmap, gt_heatmaps[None, ...], gt_mask_misses[None, ...], nstack_weight=self.nstack_weight)
         return heatmap_loss
 
     @staticmethod
-    def focal_l2_loss(s, sxing, mask_miss, gamma=2, nstack_weight=[1, 1, 1, 1]
-        ):
+    def focal_l2_loss(s, sxing, mask_miss, gamma=2, nstack_weight=[1, 1, 1, 1]):
         """
         Compute the focal L2 loss between predicted and groundtruth score maps.
         :param s:  predicted tensor (nstack, batch, channel, height, width), predicted score maps
@@ -1140,8 +1021,7 @@ class MultiTaskLossParallel(nn.Module):
         loss_nstack = out.sum(dim=(1, 2, 3, 4))
         assert len(loss_nstack) == len(nstack_weight), nstack_weight
         None
-        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(
-            len(nstack_weight))]
+        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(len(nstack_weight))]
         loss = sum(weight_loss) / sum(nstack_weight)
         return loss
 
@@ -1159,8 +1039,7 @@ class MultiTaskLossParallel(nn.Module):
         loss_nstack = out.sum(dim=(1, 2, 3, 4))
         assert len(loss_nstack) == len(nstack_weight), nstack_weight
         None
-        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(
-            len(nstack_weight))]
+        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(len(nstack_weight))]
         loss = sum(weight_loss) / sum(nstack_weight)
         return loss
 
@@ -1177,8 +1056,7 @@ class MultiTaskLossParallel(nn.Module):
         loss_nstack = out.sum(dim=(1, 2, 3, 4))
         assert len(loss_nstack) == len(nstack_weight), nstack_weight
         None
-        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(
-            len(nstack_weight))]
+        weight_loss = [(loss_nstack[i] * nstack_weight[i]) for i in range(len(nstack_weight))]
         loss = sum(weight_loss) / sum(nstack_weight)
         return loss
 
@@ -1200,22 +1078,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim,
-            inp_dim, 3, bn=bn, dropout=False), SELayer(inp_dim)) for i in
-            range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim, inp_dim, 3, bn=bn, dropout=False), SELayer(inp_dim)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -1227,18 +1099,11 @@ class PoseNet(nn.Module):
         """
         super(PoseNet, self).__init__()
         self.pre = Backbone(nFeat=inp_dim)
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1,
-            relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -1251,25 +1116,18 @@ class PoseNet(nn.Module):
             preds_instack = []
             hourglass_feature = self.hourglass[i](x)
             if i == 0:
-                features_cache = [torch.zeros_like(hourglass_feature[scale]
-                    ) for scale in range(5)]
+                features_cache = [torch.zeros_like(hourglass_feature[scale]) for scale in range(5)]
             else:
-                hourglass_feature = [(hourglass_feature[scale] +
-                    features_cache[scale]) for scale in range(5)]
+                hourglass_feature = [(hourglass_feature[scale] + features_cache[scale]) for scale in range(5)]
             features_instack = self.features[i](hourglass_feature)
             for j in range(5):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
                     else:
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         return pred
 
@@ -1294,10 +1152,8 @@ class Network(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False, dist=False, swa=False):
         super(Network, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, increase=opt.increase)
-        self.criterion = MultiTaskLoss(opt, config
-            ) if dist else MultiTaskLossParallel(opt, config)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, increase=opt.increase)
+        self.criterion = MultiTaskLoss(opt, config) if dist else MultiTaskLossParallel(opt, config)
         self.swa = swa
 
     def forward(self, input_all):
@@ -1321,8 +1177,7 @@ class NetworkEval(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False):
         super(NetworkEval, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, init_weights=False, increase=opt.increase)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, init_weights=False, increase=opt.increase)
 
     def forward(self, inp_imgs):
         output_tuple = self.posenet(inp_imgs)
@@ -1349,22 +1204,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim + i * increase, 3, bn=bn, dropout=False),
-            Conv(inp_dim + i * increase, inp_dim + i * increase, 3, bn=bn,
-            dropout=False)) for i in range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim + i * increase, 3, bn=bn, dropout=False), Conv(inp_dim + i * increase, inp_dim + i * increase, 3, bn=bn, dropout=False)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -1376,22 +1225,12 @@ class PoseNet(nn.Module):
         """
         super(PoseNet, self).__init__()
         self.pre = Backbone(nFeat=inp_dim)
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim + j *
-            increase, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for
-            i in range(nstack)])
-        self.channel_attention = nn.ModuleList([nn.ModuleList([SELayer(
-            inp_dim + j * increase) for j in range(5)]) for i in range(nstack)]
-            )
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim +
-            j * increase, inp_dim + j * increase) for j in range(5)]) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase) for j in range(5)]) for i in range(
-            nstack - 1)])
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim + j * increase, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.channel_attention = nn.ModuleList([nn.ModuleList([SELayer(inp_dim + j * increase) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim + j * increase, inp_dim + j * increase) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -1404,31 +1243,22 @@ class PoseNet(nn.Module):
             preds_instack = []
             hourglass_feature = self.hourglass[i](x)
             if i == 0:
-                features_cache = [torch.zeros_like(hourglass_feature[scale]
-                    ) for scale in range(5)]
+                features_cache = [torch.zeros_like(hourglass_feature[scale]) for scale in range(5)]
                 for s in range(5):
-                    hourglass_feature[s] = self.channel_attention[i][s](
-                        hourglass_feature[s])
+                    hourglass_feature[s] = self.channel_attention[i][s](hourglass_feature[s])
             else:
                 for k in range(5):
-                    hourglass_feature_attention = self.channel_attention[i][k](
-                        hourglass_feature[k])
-                    hourglass_feature[k
-                        ] = hourglass_feature_attention + features_cache[k]
+                    hourglass_feature_attention = self.channel_attention[i][k](hourglass_feature[k])
+                    hourglass_feature[k] = hourglass_feature_attention + features_cache[k]
             features_instack = self.features[i](hourglass_feature)
             for j in range(5):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
                     else:
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         return pred
 
@@ -1453,10 +1283,8 @@ class Network(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False, dist=False):
         super(Network, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn)
-        self.criterion = MultiTaskLoss(opt, config
-            ) if dist else MultiTaskLossParallel(opt, config)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn)
+        self.criterion = MultiTaskLoss(opt, config) if dist else MultiTaskLossParallel(opt, config)
 
     def forward(self, inp_imgs, target_tuple):
         output_tuple = self.posenet(inp_imgs)
@@ -1474,8 +1302,7 @@ class NetworkEval(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False):
         super(NetworkEval, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, init_weights=False)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, init_weights=False)
 
     def forward(self, inp_imgs):
         output_tuple = self.posenet(inp_imgs)
@@ -1502,21 +1329,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim + i * increase, 3, bn=bn, dropout=False)) for
-            i in range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim + i * increase, 3, bn=bn, dropout=False)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -1527,25 +1349,13 @@ class PoseNet(nn.Module):
         :param kwargs:
         """
         super(PoseNet, self).__init__()
-        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=bn), Conv(64, 128, bn
-            =bn), nn.MaxPool2d(2, 2), Conv(128, 128, bn=bn), Conv(128,
-            inp_dim, bn=bn))
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim + j *
-            increase, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for
-            i in range(nstack)])
-        self.channel_attention = nn.ModuleList([nn.ModuleList([SELayer(
-            inp_dim + j * increase) for j in range(5)]) for i in range(nstack)]
-            )
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim +
-            j * increase, inp_dim + j * increase, bn=bn) for j in range(5)]
-            ) for i in range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
+        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=bn), Conv(64, 128, bn=bn), nn.MaxPool2d(2, 2), Conv(128, 128, bn=bn), Conv(128, inp_dim, bn=bn))
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim + j * increase, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.channel_attention = nn.ModuleList([nn.ModuleList([SELayer(inp_dim + j * increase) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim + j * increase, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -1558,31 +1368,22 @@ class PoseNet(nn.Module):
             preds_instack = []
             hourglass_feature = self.hourglass[i](x)
             if i == 0:
-                features_cache = [torch.zeros_like(hourglass_feature[scale]
-                    ) for scale in range(5)]
+                features_cache = [torch.zeros_like(hourglass_feature[scale]) for scale in range(5)]
                 for s in range(5):
-                    hourglass_feature[s] = self.channel_attention[i][s](
-                        hourglass_feature[s])
+                    hourglass_feature[s] = self.channel_attention[i][s](hourglass_feature[s])
             else:
                 for k in range(5):
-                    hourglass_feature_attention = self.channel_attention[i][k](
-                        hourglass_feature[k])
-                    hourglass_feature[k
-                        ] = hourglass_feature_attention + features_cache[k]
+                    hourglass_feature_attention = self.channel_attention[i][k](hourglass_feature[k])
+                    hourglass_feature[k] = hourglass_feature_attention + features_cache[k]
             features_instack = self.features[i](hourglass_feature)
             for j in range(5):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
                     else:
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         return pred
 
@@ -1607,10 +1408,8 @@ class Network(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False, dist=False, swa=False):
         super(Network, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, increase=opt.increase)
-        self.criterion = MultiTaskLoss(opt, config
-            ) if dist else MultiTaskLossParallel(opt, config)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, increase=opt.increase)
+        self.criterion = MultiTaskLoss(opt, config) if dist else MultiTaskLossParallel(opt, config)
         self.swa = swa
 
     def forward(self, input_all):
@@ -1634,8 +1433,7 @@ class NetworkEval(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False):
         super(NetworkEval, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, init_weights=False, increase=opt.increase)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, init_weights=False, increase=opt.increase)
 
     def forward(self, inp_imgs):
         output_tuple = self.posenet(inp_imgs)
@@ -1662,22 +1460,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim, 1, bn=bn, dropout=False), Conv(inp_dim,
-            inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim, inp_dim, 3, bn
-            =bn, dropout=False)) for i in range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim, 1, bn=bn, dropout=False), Conv(inp_dim, inp_dim, 3, bn=bn, dropout=False), Conv(inp_dim, inp_dim, 3, bn=bn, dropout=False)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -1689,21 +1481,12 @@ class PoseNet(nn.Module):
         """
         super(PoseNet, self).__init__()
         self.pre = Backbone(nFeat=inp_dim)
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1,
-            relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
-        self.channel_attention = nn.ModuleList([nn.ModuleList([SELayer(
-            inp_dim + j * increase) for j in range(5)]) for i in range(nstack)]
-            )
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase, bn=bn) for j in range(5)]) for i in
-            range(nstack - 1)])
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.channel_attention = nn.ModuleList([nn.ModuleList([SELayer(inp_dim + j * increase) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase, bn=bn) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -1716,31 +1499,22 @@ class PoseNet(nn.Module):
             preds_instack = []
             hourglass_feature = self.hourglass[i](x)
             if i == 0:
-                features_cache = [torch.zeros_like(hourglass_feature[scale]
-                    ) for scale in range(5)]
+                features_cache = [torch.zeros_like(hourglass_feature[scale]) for scale in range(5)]
                 for s in range(5):
-                    hourglass_feature[s] = self.channel_attention[i][s](
-                        hourglass_feature[s])
+                    hourglass_feature[s] = self.channel_attention[i][s](hourglass_feature[s])
             else:
                 for k in range(5):
-                    hourglass_feature_attention = self.channel_attention[i][k](
-                        hourglass_feature[k])
-                    hourglass_feature[k
-                        ] = hourglass_feature_attention + features_cache[k]
+                    hourglass_feature_attention = self.channel_attention[i][k](hourglass_feature[k])
+                    hourglass_feature[k] = hourglass_feature_attention + features_cache[k]
             features_instack = self.features[i](hourglass_feature)
             for j in range(5):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
                     else:
-                        features_cache[j] = self.merge_preds[i][j](
-                            preds_instack[j]) + self.merge_features[i][j](
-                            features_instack[j])
+                        features_cache[j] = self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         return pred
 
@@ -1765,10 +1539,8 @@ class Network(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False, dist=False, swa=False):
         super(Network, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, increase=opt.increase)
-        self.criterion = MultiTaskLoss(opt, config
-            ) if dist else MultiTaskLossParallel(opt, config)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, increase=opt.increase)
+        self.criterion = MultiTaskLoss(opt, config) if dist else MultiTaskLossParallel(opt, config)
         self.swa = swa
 
     def forward(self, input_all):
@@ -1792,8 +1564,7 @@ class NetworkEval(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False):
         super(NetworkEval, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn, init_weights=False, increase=opt.increase)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn, init_weights=False, increase=opt.increase)
 
     def forward(self, inp_imgs):
         output_tuple = self.posenet(inp_imgs)
@@ -1820,21 +1591,16 @@ class Features(nn.Module):
 
     def __init__(self, inp_dim, increase=128, bn=False):
         super(Features, self).__init__()
-        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i *
-            increase, inp_dim + i * increase, 3, bn=bn), Conv(inp_dim + i *
-            increase, inp_dim + i * increase, 3, bn=bn)) for i in range(5)])
+        self.before_regress = nn.ModuleList([nn.Sequential(Conv(inp_dim + i * increase, inp_dim + i * increase, 3, bn=bn), Conv(inp_dim + i * increase, inp_dim + i * increase, 3, bn=bn)) for i in range(5)])
 
     def forward(self, fms):
-        assert len(fms
-            ) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(
-            len(fms))
+        assert len(fms) == 5, 'hourglass output {} tensors,but 5 scale heatmaps are supervised'.format(len(fms))
         return [self.before_regress[i](fms[i]) for i in range(5)]
 
 
 class PoseNet(nn.Module):
 
-    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128,
-        init_weights=True, **kwargs):
+    def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=128, init_weights=True, **kwargs):
         """
         Pack or initialize the trainable parameters of the network
         :param nstack: number of stack
@@ -1845,22 +1611,12 @@ class PoseNet(nn.Module):
         :param kwargs:
         """
         super(PoseNet, self).__init__()
-        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=bn), Conv(64, 128, bn
-            =bn), nn.MaxPool2d(2, 2), Conv(128, 128, bn=bn), Conv(128,
-            inp_dim, bn=bn))
-        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=
-            bn) for _ in range(nstack)])
-        self.features = nn.ModuleList([Features(inp_dim, increase=increase,
-            bn=bn) for _ in range(nstack)])
-        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim + j *
-            increase, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for
-            i in range(nstack)])
-        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim +
-            j * increase, inp_dim + j * increase) for j in range(5)]) for i in
-            range(nstack - 1)])
-        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, 
-            inp_dim + j * increase) for j in range(5)]) for i in range(
-            nstack - 1)])
+        self.pre = nn.Sequential(Conv(3, 64, 7, 2, bn=bn), Conv(64, 128, bn=bn), nn.MaxPool2d(2, 2), Conv(128, 128, bn=bn), Conv(128, inp_dim, bn=bn))
+        self.hourglass = nn.ModuleList([Hourglass(4, inp_dim, increase, bn=bn) for _ in range(nstack)])
+        self.features = nn.ModuleList([Features(inp_dim, increase=increase, bn=bn) for _ in range(nstack)])
+        self.outs = nn.ModuleList([nn.ModuleList([Conv(inp_dim + j * increase, oup_dim, 1, relu=False, bn=False) for j in range(5)]) for i in range(nstack)])
+        self.merge_features = nn.ModuleList([nn.ModuleList([Merge(inp_dim + j * increase, inp_dim + j * increase) for j in range(5)]) for i in range(nstack - 1)])
+        self.merge_preds = nn.ModuleList([nn.ModuleList([Merge(oup_dim, inp_dim + j * increase) for j in range(5)]) for i in range(nstack - 1)])
         self.nstack = nstack
         if init_weights:
             self._initialize_weights()
@@ -1877,8 +1633,7 @@ class PoseNet(nn.Module):
                 preds_instack.append(self.outs[i][j](features_instack[j]))
                 if i != self.nstack - 1:
                     if j == 0:
-                        x = x + self.merge_preds[i][j](preds_instack[j]
-                            ) + self.merge_features[i][j](features_instack[j])
+                        x = x + self.merge_preds[i][j](preds_instack[j]) + self.merge_features[i][j](features_instack[j])
             pred.append(preds_instack)
         return pred
 
@@ -1902,10 +1657,8 @@ class Network(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False, dist=False):
         super(Network, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn)
-        self.criterion = MultiTaskLoss(opt, config
-            ) if dist else MultiTaskLossParallel(opt, config)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn)
+        self.criterion = MultiTaskLoss(opt, config) if dist else MultiTaskLossParallel(opt, config)
 
     def forward(self, inp_imgs, target_tuple):
         output_tuple = self.posenet(inp_imgs)
@@ -1923,8 +1676,7 @@ class NetworkEval(torch.nn.Module):
 
     def __init__(self, opt, config, bn=False):
         super(NetworkEval, self).__init__()
-        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.
-            num_layers, bn=bn)
+        self.posenet = PoseNet(opt.nstack, opt.hourglass_inp_dim, config.num_layers, bn=bn)
 
     def forward(self, inp_imgs):
         output_tuple = self.posenet(inp_imgs)
@@ -2024,8 +1776,7 @@ class DataParallelModel(DataParallel):
 torch_ver = torch.__version__[:3]
 
 
-def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
-    devices=None):
+def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=None):
     assert len(modules) == len(inputs)
     assert len(targets) == len(inputs)
     if kwargs_tup:
@@ -2059,10 +1810,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None,
             with lock:
                 results[i] = e
     if len(modules) > 1:
-        threads = [threading.Thread(target=_worker, args=(i, module, input,
-            target, kwargs, device)) for i, (module, input, target, kwargs,
-            device) in enumerate(zip(modules, inputs, targets, kwargs_tup,
-            devices))]
+        threads = [threading.Thread(target=_worker, args=(i, module, input, target, kwargs, device)) for i, (module, input, target, kwargs, device) in enumerate(zip(modules, inputs, targets, kwargs_tup, devices))]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -2133,12 +1881,10 @@ class GaussianSmoothing(nn.Module):
         if isinstance(sigma, numbers.Number):
             sigma = [sigma] * dim
         kernel = 1
-        meshgrids = torch.meshgrid([torch.arange(size, dtype=torch.float32) for
-            size in kernel_size])
+        meshgrids = torch.meshgrid([torch.arange(size, dtype=torch.float32) for size in kernel_size])
         for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
             mean = (size - 1) / 2
-            kernel *= 1 / (std * math.sqrt(2 * math.pi)) * torch.exp(-((
-                mgrid - mean) / std) ** 2 / 2)
+            kernel *= 1 / (std * math.sqrt(2 * math.pi)) * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
         kernel = kernel / torch.sum(kernel)
         kernel = kernel.view(1, 1, *kernel.size())
         kernel = kernel.repeat(channels, *([1] * (kernel.dim() - 1)))
@@ -2151,9 +1897,7 @@ class GaussianSmoothing(nn.Module):
         elif dim == 3:
             self.conv = F.conv3d
         else:
-            raise RuntimeError(
-                'Only 1, 2 and 3 dimensions are supported. Received {}.'.
-                format(dim))
+            raise RuntimeError('Only 1, 2 and 3 dimensions are supported. Received {}.'.format(dim))
 
     def forward(self, input):
         """
@@ -2170,46 +1914,93 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Backbone,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (BasicResidual,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DataParallelCriterion,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DataParallelModel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (DilatedConv,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Full,
+     lambda: ([], {'inp_dim': 4, 'out_dim': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (GaussianSmoothing,
+     lambda: ([], {'channels': 4, 'kernel_size': 4, 'sigma': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Hourglass,
+     lambda: ([], {'depth': 1, 'nFeat': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Merge,
+     lambda: ([], {'x_dim': 4, 'y_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Residual,
+     lambda: ([], {'ins': 4, 'outs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SELayer,
+     lambda: ([], {'inp_dim': 32}),
+     lambda: ([torch.rand([4, 32, 4, 32])], {}),
+     True),
+]
+
 class Test_hellojialee_Improved_Body_Parts(_paritybench_base):
-    pass
-    @_fails_compile()
     def test_000(self):
-        self._check(Backbone(*[], **{}), [torch.rand([4, 3, 64, 64])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BasicResidual(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(Conv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DataParallelCriterion(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
-    @_fails_compile()
     def test_004(self):
-        self._check(DataParallelModel(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[4])
 
     def test_005(self):
-        self._check(DilatedConv(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[5])
 
     def test_006(self):
-        self._check(Full(*[], **{'inp_dim': 4, 'out_dim': 4}), [torch.rand([4, 4])], {})
+        self._check(*TESTCASES[6])
 
     def test_007(self):
-        self._check(GaussianSmoothing(*[], **{'channels': 4, 'kernel_size': 4, 'sigma': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[7])
 
-    @_fails_compile()
     def test_008(self):
-        self._check(Hourglass(*[], **{'depth': 1, 'nFeat': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[8])
 
     def test_009(self):
-        self._check(Merge(*[], **{'x_dim': 4, 'y_dim': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[9])
 
-    @_fails_compile()
     def test_010(self):
-        self._check(Residual(*[], **{'ins': 4, 'outs': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[10])
 
     def test_011(self):
-        self._check(SELayer(*[], **{'inp_dim': 32}), [torch.rand([4, 32, 4, 32])], {})
+        self._check(*TESTCASES[11])
 

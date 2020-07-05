@@ -27,8 +27,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -83,16 +84,12 @@ from torch.nn.parallel.data_parallel import DataParallel
 
 class _AsppBlock(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel_size,
-        dilation_rate, BatchNorm):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation_rate, BatchNorm):
         super(_AsppBlock, self).__init__()
         if dilation_rate == 1:
-            self.atrous_conv = nn.Conv2d(in_channels=in_channels,
-                out_channels=out_channels, kernel_size=kernel_size, bias=False)
+            self.atrous_conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, bias=False)
         else:
-            self.atrous_conv = nn.Conv2d(in_channels, out_channels,
-                kernel_size=kernel_size, dilation=dilation_rate, padding=
-                dilation_rate, bias=False)
+            self.atrous_conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation_rate, padding=dilation_rate, bias=False)
         self.bn = BatchNorm(out_channels)
         self.relu = nn.ReLU(inplace=True)
         self._init_weight()
@@ -118,20 +115,12 @@ class ASPP(nn.Module):
 
     def __init__(self, in_channels, out_channels, BatchNorm):
         super(ASPP, self).__init__()
-        self.aspp_1 = _AsppBlock(in_channels, 256, kernel_size=1,
-            dilation_rate=1, BatchNorm=BatchNorm)
-        self.aspp_6 = _AsppBlock(in_channels, 256, kernel_size=3,
-            dilation_rate=6, BatchNorm=BatchNorm)
-        self.aspp_12 = _AsppBlock(in_channels, 256, kernel_size=3,
-            dilation_rate=12, BatchNorm=BatchNorm)
-        self.aspp_18 = _AsppBlock(in_channels, 256, kernel_size=3,
-            dilation_rate=18, BatchNorm=BatchNorm)
-        self.image_pooling = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn
-            .Conv2d(in_channels=in_channels, out_channels=out_channels,
-            kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=5 * out_channels,
-            out_channels=out_channels, kernel_size=1, bias=False),
-            BatchNorm(out_channels), nn.ReLU(True))
+        self.aspp_1 = _AsppBlock(in_channels, 256, kernel_size=1, dilation_rate=1, BatchNorm=BatchNorm)
+        self.aspp_6 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=6, BatchNorm=BatchNorm)
+        self.aspp_12 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=12, BatchNorm=BatchNorm)
+        self.aspp_18 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=18, BatchNorm=BatchNorm)
+        self.image_pooling = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=5 * out_channels, out_channels=out_channels, kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
         self._init_weight()
 
     def forward(self, x):
@@ -140,8 +129,7 @@ class ASPP(nn.Module):
         aspp12 = self.aspp_12(x)
         aspp18 = self.aspp_18(x)
         im_p = self.image_pooling(x)
-        im_p = F.interpolate(im_p, size=aspp18.size()[2:], mode='bilinear',
-            align_corners=True)
+        im_p = F.interpolate(im_p, size=aspp18.size()[2:], mode='bilinear', align_corners=True)
         aspp = [aspp1, aspp6, aspp12, aspp18, im_p]
         aspp = t.cat(aspp, dim=1)
         return self.conv1(aspp)
@@ -194,17 +182,14 @@ class AlphaLoss(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, BatchNorm, stride=1, dilation=1,
-        downsample=None):
+    def __init__(self, inplanes, planes, BatchNorm, stride=1, dilation=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm(planes)
         if dilation != 1:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
-                padding=dilation, dilation=dilation, bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False)
         else:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=
-                stride, padding=1, bias=False)
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = BatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
@@ -234,19 +219,14 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, BatchNorm, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv_1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3,
-            bias=False)
+        self.conv_1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = BatchNorm(64)
         self.relu = nn.ReLU()
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
-            return_indices=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, return_indices=True)
         self.layer1 = self._make_layer(block, 64, layers[0], BatchNorm)
-        self.layer2 = self._make_layer(block, 128, layers[1], BatchNorm,
-            stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], BatchNorm,
-            stride=2, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], BatchNorm,
-            stride=2, dilation=4)
+        self.layer2 = self._make_layer(block, 128, layers[1], BatchNorm, stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], BatchNorm, stride=2, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], BatchNorm, stride=2, dilation=4)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight)
@@ -259,17 +239,13 @@ class ResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, BatchNorm, stride=1,
-        dilation=1):
+    def _make_layer(self, block, planes, blocks, BatchNorm, stride=1, dilation=1):
         downsample = None
         downsample_stride = stride if dilation == 1 else 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes *
-                block.expansion, kernel_size=1, stride=downsample_stride,
-                bias=False), BatchNorm(planes * block.expansion))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=downsample_stride, bias=False), BatchNorm(planes * block.expansion))
         layers = []
-        layers.append(block(self.inplanes, planes, BatchNorm, stride,
-            dilation, downsample))
+        layers.append(block(self.inplanes, planes, BatchNorm, stride, dilation, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, BatchNorm))
@@ -287,8 +263,7 @@ class ResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        return (x, skip_connection1, skip_connection2, skip_connection3,
-            max_index)
+        return x, skip_connection1, skip_connection2, skip_connection3, max_index
 
 
 class BilinearUpSample(nn.Module):
@@ -306,8 +281,7 @@ class BilinearUpSample(nn.Module):
     def forward(self, x):
         in_size = x.size()
         n, c, h, w = in_size
-        x = F.interpolate(x, size=(h * 2, w * 2), mode='bilinear',
-            align_corners=True)
+        x = F.interpolate(x, size=(h * 2, w * 2), mode='bilinear', align_corners=True)
         return x
 
 
@@ -316,36 +290,13 @@ class Decoder(nn.Module):
     def __init__(self, BatchNorm):
         super(Decoder, self).__init__()
         self.bilinear_1 = BilinearUpSample(in_planes=256, out_planes=256)
-        self.skip_3 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels
-            =64, kernel_size=1, bias=False), BatchNorm(64), nn.ReLU(inplace
-            =True))
-        self.deconv1_x = nn.Sequential(nn.Conv2d(in_channels=256 + 64,
-            out_channels=256, kernel_size=3, padding=1, bias=False),
-            BatchNorm(256), nn.ReLU(inplace=True), nn.Conv2d(in_channels=
-            256, out_channels=128, kernel_size=3, padding=1, bias=False),
-            BatchNorm(128), nn.ReLU(inplace=True), nn.Conv2d(in_channels=
-            128, out_channels=64, kernel_size=3, padding=1, bias=False),
-            BatchNorm(64), nn.ReLU(inplace=True))
+        self.skip_3 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=64, kernel_size=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True))
+        self.deconv1_x = nn.Sequential(nn.Conv2d(in_channels=256 + 64, out_channels=256, kernel_size=3, padding=1, bias=False), BatchNorm(256), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1, bias=False), BatchNorm(128), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True))
         self.unpooling = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        self.skip_2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=
-            32, kernel_size=1, bias=False), BatchNorm(32), nn.ReLU(inplace=
-            True))
-        self.deconv2_x = nn.Sequential(nn.Conv2d(in_channels=64 + 32,
-            out_channels=64, kernel_size=3, padding=1, bias=False),
-            BatchNorm(64), nn.ReLU(inplace=True), nn.ConvTranspose2d(
-            in_channels=64, out_channels=64, kernel_size=3, stride=2,
-            padding=1, output_padding=1, bias=False), BatchNorm(64), nn.
-            ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=32,
-            kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(
-            inplace=True))
-        self.deconv3_x = nn.Sequential(nn.Conv2d(in_channels=32 + 3,
-            out_channels=32, kernel_size=3, padding=1, bias=False),
-            BatchNorm(32), nn.ReLU(inplace=True), nn.Conv2d(in_channels=32,
-            out_channels=32, kernel_size=3, padding=1, bias=False),
-            BatchNorm(32), nn.ReLU(inplace=True))
-        self.deconv4_x = nn.Sequential(nn.Conv2d(in_channels=32,
-            out_channels=1, kernel_size=3, padding=1, bias=False), nn.Sigmoid()
-            )
+        self.skip_2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=32, kernel_size=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
+        self.deconv2_x = nn.Sequential(nn.Conv2d(in_channels=64 + 32, out_channels=64, kernel_size=3, padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
+        self.deconv3_x = nn.Sequential(nn.Conv2d(in_channels=32 + 3, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True), nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
+        self.deconv4_x = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=1, kernel_size=3, padding=1, bias=False), nn.Sigmoid())
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -398,23 +349,19 @@ class Encoder(nn.Module):
         pretrained_resnet50 = tv.models.resnet50(pretrained=True)
         pretrained_dict = pretrained_resnet50.state_dict()
         atrous_resnet_dict = self.resnet50.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in
-            atrous_resnet_dict}
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in atrous_resnet_dict}
         atrous_resnet_dict.update(pretrained_dict)
         self.resnet50.load_state_dict(atrous_resnet_dict)
 
     def forward(self, x):
-        (x, skip_connection1, skip_connection2, skip_connection3, max_index
-            ) = self.resnet50(x)
+        x, skip_connection1, skip_connection2, skip_connection3, max_index = self.resnet50(x)
         x = self.aspp(x)
-        return (x, skip_connection1, skip_connection2, skip_connection3,
-            max_index)
+        return x, skip_connection1, skip_connection2, skip_connection3, max_index
 
 
 class NLayerDiscriminator(nn.Module):
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.
-        BatchNorm2d, use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         super(NLayerDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
@@ -422,23 +369,17 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2,
-            padding=padw), nn.LeakyReLU(0.2)]
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2)]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-                kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult,
-            kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1,
-            padding=padw)]
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
         if use_sigmoid:
             sequence += [nn.Sigmoid()]
         self.model = nn.Sequential(*sequence)
@@ -484,8 +425,7 @@ class FutureResult(object):
             return res
 
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier',
-    'queue', 'result'])
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
 
 
 class SlavePipe(_SlavePipeBase):
@@ -540,8 +480,7 @@ class SyncMaster(object):
 
         """
         if self._activated:
-            assert self._queue.empty(
-                ), 'Queue is not clean before next initialization.'
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
             self._activated = False
             self._registry.clear()
         future = FutureResult()
@@ -567,8 +506,7 @@ class SyncMaster(object):
         for i in range(self.nr_slaves):
             intermediates.append(self._queue.get())
         results = self._master_callback(intermediates)
-        assert results[0][0
-            ] == 0, 'The first result should belongs to the master.'
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
         for i, res in results:
             if i == 0:
                 continue
@@ -582,8 +520,7 @@ class SyncMaster(object):
         return len(self._registry)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum',
-    'sum_size'])
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
 
 
 _MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
@@ -603,8 +540,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
         assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps,
-            momentum=momentum, affine=affine)
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
         self._sync_master = SyncMaster(self._data_parallel_master)
         self._is_parallel = False
         self._parallel_id = None
@@ -612,22 +548,18 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def forward(self, input):
         if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var,
-                self.weight, self.bias, self.training, self.momentum, self.eps)
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
         input_shape = input.size()
         input = input.view(input.size(0), self.num_features, -1)
         sum_size = input.size(0) * input.size(2)
         input_sum = _sum_ft(input)
         input_ssum = _sum_ft(input ** 2)
         if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
         else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(
-                input_sum, input_ssum, sum_size))
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
         if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std *
-                self.weight) + _unsqueeze_ft(self.bias)
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
         else:
             output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
         return output.view(input_shape)
@@ -642,8 +574,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
 
     def _data_parallel_master(self, intermediates):
         """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.
-            get_device())
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
         to_reduce = [i[1][:2] for i in intermediates]
         to_reduce = [j for i in to_reduce for j in i]
         target_gpus = [i[1].sum.get_device() for i in intermediates]
@@ -653,8 +584,7 @@ class _SynchronizedBatchNorm(_BatchNorm):
         broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
         outputs = []
         for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 +
-                2])))
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
         return outputs
 
     def _compute_mean_std(self, sum_, ssum, size):
@@ -667,15 +597,11 @@ class _SynchronizedBatchNorm(_BatchNorm):
         bias_var = sumvar / size
         if hasattr(torch, 'no_grad'):
             with torch.no_grad():
-                self.running_mean = (1 - self.momentum
-                    ) * self.running_mean + self.momentum * mean.data
-                self.running_var = (1 - self.momentum
-                    ) * self.running_var + self.momentum * unbias_var.data
+                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         else:
-            self.running_mean = (1 - self.momentum
-                ) * self.running_mean + self.momentum * mean.data
-            self.running_var = (1 - self.momentum
-                ) * self.running_var + self.momentum * unbias_var.data
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
@@ -717,17 +643,13 @@ class BatchNorm2dReimpl(nn.Module):
         sum_of_square = input_.pow(2).sum(1)
         mean = sum_ / numel
         sumvar = sum_of_square - sum_ * mean
-        self.running_mean = (1 - self.momentum
-            ) * self.running_mean + self.momentum * mean.detach()
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.detach()
         unbias_var = sumvar / (numel - 1)
-        self.running_var = (1 - self.momentum
-            ) * self.running_var + self.momentum * unbias_var.detach()
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.detach()
         bias_var = sumvar / numel
         inv_std = 1 / (bias_var + self.eps).pow(0.5)
-        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1
-            ) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
-        return output.view(channels, batchsize, height, width).permute(1, 0,
-            2, 3).contiguous()
+        output = (input_ - mean.unsqueeze(1)) * inv_std.unsqueeze(1) * self.weight.unsqueeze(1) + self.bias.unsqueeze(1)
+        return output.view(channels, batchsize, height, width).permute(1, 0, 2, 3).contiguous()
 
 
 class CallbackContext(object):
@@ -771,8 +693,7 @@ class DataParallelWithCallback(DataParallel):
     """
 
     def replicate(self, module, device_ids):
-        modules = super(DataParallelWithCallback, self).replicate(module,
-            device_ids)
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
         execute_replication_callbacks(modules)
         return modules
 
@@ -781,18 +702,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlphaLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BatchNorm2dReimpl,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BilinearUpSample,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+]
+
 class Test_CDOTAD_AlphaGAN_Matting(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(AlphaLoss(*[], **{}), [torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(BatchNorm2dReimpl(*[], **{'num_features': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
     def test_002(self):
-        self._check(BilinearUpSample(*[], **{'in_planes': 4, 'out_planes': 4}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[2])
 
-    @_fails_compile()
     def test_003(self):
-        self._check(DataParallelWithCallback(*[], **{'module': _mock_layer()}), [], {'input': torch.rand([4, 4])})
+        self._check(*TESTCASES[3])
 

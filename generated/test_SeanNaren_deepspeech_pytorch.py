@@ -30,8 +30,9 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import re, math, string, numpy, torch, torchtext, torchaudio, logging, itertools, numbers, inspect, functools, copy, scipy, types, time, torchvision, enum, random, typing, warnings, abc, collections, uuid
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
+from torch import Tensor
 patch_functional()
 open = mock_open()
 logging = sys = argparse = MagicMock()
@@ -126,8 +127,7 @@ class MaskConv(nn.Module):
             for i, length in enumerate(lengths):
                 length = length.item()
                 if mask[i].size(2) - length > 0:
-                    mask[i].narrow(2, length, mask[i].size(2) - length).fill_(1
-                        )
+                    mask[i].narrow(2, length, mask[i].size(2) - length).fill_(1)
             x = x.masked_fill(mask, 0)
         return x, lengths
 
@@ -143,16 +143,13 @@ class InferenceBatchSoftmax(nn.Module):
 
 class BatchRNN(nn.Module):
 
-    def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM,
-        bidirectional=False, batch_norm=True):
+    def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_norm=True):
         super(BatchRNN, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
-        self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)
-            ) if batch_norm else None
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size,
-            bidirectional=bidirectional, bias=True)
+        self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
+        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, bias=True)
         self.num_directions = 2 if bidirectional else 1
 
     def flatten_parameters(self):
@@ -165,8 +162,7 @@ class BatchRNN(nn.Module):
         x, h = self.rnn(x)
         x, _ = nn.utils.rnn.pad_packed_sequence(x)
         if self.bidirectional:
-            x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0),
-                x.size(1), -1)
+            x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)
         return x
 
 
@@ -178,9 +174,7 @@ class Lookahead(nn.Module):
         self.context = context
         self.n_features = n_features
         self.pad = 0, self.context - 1
-        self.conv = nn.Conv1d(self.n_features, self.n_features, kernel_size
-            =self.context, stride=1, groups=self.n_features, padding=0,
-            bias=None)
+        self.conv = nn.Conv1d(self.n_features, self.n_features, kernel_size=self.context, stride=1, groups=self.n_features, padding=0, bias=None)
 
     def forward(self, x):
         x = x.transpose(0, 1).transpose(1, 2)
@@ -190,8 +184,7 @@ class Lookahead(nn.Module):
         return x
 
     def __repr__(self):
-        return self.__class__.__name__ + '(' + 'n_features=' + str(self.
-            n_features) + ', context=' + str(self.context) + ')'
+        return self.__class__.__name__ + '(' + 'n_features=' + str(self.n_features) + ', context=' + str(self.context) + ')'
 
 
 supported_rnns = {'lstm': nn.LSTM, 'rnn': nn.RNN, 'gru': nn.GRU}
@@ -202,8 +195,7 @@ supported_rnns_inv = dict((v, k) for k, v in supported_rnns.items())
 
 class DeepSpeech(nn.Module):
 
-    def __init__(self, rnn_type=nn.LSTM, labels='abc', rnn_hidden_size=768,
-        nb_layers=5, audio_conf=None, bidirectional=True, context=20):
+    def __init__(self, rnn_type=nn.LSTM, labels='abc', rnn_hidden_size=768, nb_layers=5, audio_conf=None, bidirectional=True, context=20):
         super(DeepSpeech, self).__init__()
         if audio_conf is None:
             audio_conf = {}
@@ -217,31 +209,20 @@ class DeepSpeech(nn.Module):
         sample_rate = self.audio_conf.get('sample_rate', 16000)
         window_size = self.audio_conf.get('window_size', 0.02)
         num_classes = len(self.labels)
-        self.conv = MaskConv(nn.Sequential(nn.Conv2d(1, 32, kernel_size=(41,
-            11), stride=(2, 2), padding=(20, 5)), nn.BatchNorm2d(32), nn.
-            Hardtanh(0, 20, inplace=True), nn.Conv2d(32, 32, kernel_size=(
-            21, 11), stride=(2, 1), padding=(10, 5)), nn.BatchNorm2d(32),
-            nn.Hardtanh(0, 20, inplace=True)))
+        self.conv = MaskConv(nn.Sequential(nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)), nn.BatchNorm2d(32), nn.Hardtanh(0, 20, inplace=True), nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5)), nn.BatchNorm2d(32), nn.Hardtanh(0, 20, inplace=True)))
         rnn_input_size = int(math.floor(sample_rate * window_size / 2) + 1)
         rnn_input_size = int(math.floor(rnn_input_size + 2 * 20 - 41) / 2 + 1)
         rnn_input_size = int(math.floor(rnn_input_size + 2 * 10 - 21) / 2 + 1)
         rnn_input_size *= 32
         rnns = []
-        rnn = BatchRNN(input_size=rnn_input_size, hidden_size=
-            rnn_hidden_size, rnn_type=rnn_type, bidirectional=bidirectional,
-            batch_norm=False)
+        rnn = BatchRNN(input_size=rnn_input_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type, bidirectional=bidirectional, batch_norm=False)
         rnns.append(('0', rnn))
         for x in range(nb_layers - 1):
-            rnn = BatchRNN(input_size=rnn_hidden_size, hidden_size=
-                rnn_hidden_size, rnn_type=rnn_type, bidirectional=bidirectional
-                )
+            rnn = BatchRNN(input_size=rnn_hidden_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type, bidirectional=bidirectional)
             rnns.append(('%d' % (x + 1), rnn))
         self.rnns = nn.Sequential(OrderedDict(rnns))
-        self.lookahead = nn.Sequential(Lookahead(rnn_hidden_size, context=
-            context), nn.Hardtanh(0, 20, inplace=True)
-            ) if not bidirectional else None
-        fully_connected = nn.Sequential(nn.BatchNorm1d(rnn_hidden_size), nn
-            .Linear(rnn_hidden_size, num_classes, bias=False))
+        self.lookahead = nn.Sequential(Lookahead(rnn_hidden_size, context=context), nn.Hardtanh(0, 20, inplace=True)) if not bidirectional else None
+        fully_connected = nn.Sequential(nn.BatchNorm1d(rnn_hidden_size), nn.Linear(rnn_hidden_size, num_classes, bias=False))
         self.fc = nn.Sequential(SequenceWise(fully_connected))
         self.inference_softmax = InferenceBatchSoftmax()
 
@@ -271,17 +252,13 @@ class DeepSpeech(nn.Module):
         seq_len = input_length
         for m in self.conv.modules():
             if type(m) == nn.modules.conv.Conv2d:
-                seq_len = (seq_len + 2 * m.padding[1] - m.dilation[1] * (m.
-                    kernel_size[1] - 1) - 1) / m.stride[1] + 1
+                seq_len = (seq_len + 2 * m.padding[1] - m.dilation[1] * (m.kernel_size[1] - 1) - 1) / m.stride[1] + 1
         return seq_len.int()
 
     @classmethod
     def load_model(cls, path):
         package = torch.load(path, map_location=lambda storage, loc: storage)
-        model = cls(rnn_hidden_size=package['hidden_size'], nb_layers=
-            package['hidden_layers'], labels=package['labels'], audio_conf=
-            package['audio_conf'], rnn_type=supported_rnns[package[
-            'rnn_type']], bidirectional=package.get('bidirectional', True))
+        model = cls(rnn_hidden_size=package['hidden_size'], nb_layers=package['hidden_layers'], labels=package['labels'], audio_conf=package['audio_conf'], rnn_type=supported_rnns[package['rnn_type']], bidirectional=package.get('bidirectional', True))
         model.load_state_dict(package['state_dict'])
         for x in model.rnns:
             x.flatten_parameters()
@@ -289,23 +266,13 @@ class DeepSpeech(nn.Module):
 
     @classmethod
     def load_model_package(cls, package):
-        model = cls(rnn_hidden_size=package['hidden_size'], nb_layers=
-            package['hidden_layers'], labels=package['labels'], audio_conf=
-            package['audio_conf'], rnn_type=supported_rnns[package[
-            'rnn_type']], bidirectional=package.get('bidirectional', True))
+        model = cls(rnn_hidden_size=package['hidden_size'], nb_layers=package['hidden_layers'], labels=package['labels'], audio_conf=package['audio_conf'], rnn_type=supported_rnns[package['rnn_type']], bidirectional=package.get('bidirectional', True))
         model.load_state_dict(package['state_dict'])
         return model
 
     @staticmethod
-    def serialize(model, optimizer=None, amp=None, epoch=None, iteration=
-        None, loss_results=None, cer_results=None, wer_results=None,
-        avg_loss=None, meta=None):
-        package = {'version': model.version, 'hidden_size': model.
-            hidden_size, 'hidden_layers': model.hidden_layers, 'rnn_type':
-            supported_rnns_inv.get(model.rnn_type, model.rnn_type.__name__.
-            lower()), 'audio_conf': model.audio_conf, 'labels': model.
-            labels, 'state_dict': model.state_dict(), 'bidirectional':
-            model.bidirectional}
+    def serialize(model, optimizer=None, amp=None, epoch=None, iteration=None, loss_results=None, cer_results=None, wer_results=None, avg_loss=None, meta=None):
+        package = {'version': model.version, 'hidden_size': model.hidden_size, 'hidden_layers': model.hidden_layers, 'rnn_type': supported_rnns_inv.get(model.rnn_type, model.rnn_type.__name__.lower()), 'audio_conf': model.audio_conf, 'labels': model.labels, 'state_dict': model.state_dict(), 'bidirectional': model.bidirectional}
         if optimizer is not None:
             package['optim_dict'] = optimizer.state_dict()
         if amp is not None:
@@ -339,18 +306,37 @@ import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchRNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
+     True),
+    (InferenceBatchSoftmax,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Lookahead,
+     lambda: ([], {'n_features': 4, 'context': 4}),
+     lambda: ([torch.rand([4, 1, 4])], {}),
+     False),
+    (SequenceWise,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
 class Test_SeanNaren_deepspeech_pytorch(_paritybench_base):
-    pass
     def test_000(self):
-        self._check(BatchRNN(*[], **{'input_size': 4, 'hidden_size': 4}), [torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {})
+        self._check(*TESTCASES[0])
 
     def test_001(self):
-        self._check(InferenceBatchSoftmax(*[], **{}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[1])
 
-    @_fails_compile()
     def test_002(self):
-        self._check(Lookahead(*[], **{'n_features': 4, 'context': 4}), [torch.rand([4, 1, 4])], {})
+        self._check(*TESTCASES[2])
 
     def test_003(self):
-        self._check(SequenceWise(*[], **{'module': _mock_layer()}), [torch.rand([4, 4, 4, 4])], {})
+        self._check(*TESTCASES[3])
 
